@@ -1,0 +1,291 @@
+import filepath
+import fs
+import slices
+import strings
+import github.com/cevr/ergo/modules/git/oid
+import github.com/cevr/ergo/modules/git/root
+
+// NewStore builds a files-backend Store descriptor for format, per-worktree
+// gitDir, and shared commonDir.
+func NewStore(format oid.Format, gitDir string, commonDir string) Store {
+	Store{
+		Format:    format,
+		GitDir:    filepath.Clean(gitDir),
+		CommonDir: filepath.Clean(commonDir),
+	}
+}
+
+// FromLayout derives a files-backend Store descriptor from a discovered root.Layout.
+func FromLayout(layout root.Layout) Store {
+	let fmt = if layout.ObjectFormat == "sha256" { oid.Sha256 } else { oid.Sha1 }
+	NewStore(fmt, layout.GitDir, layout.CommonDir)
+}
+
+func refBaseDir(store Store, name string) string {
+	if IsPerWorktreeRef(name) {
+		store.GitDir
+	} else {
+		store.CommonDir
+	}
+}
+
+// ParseLooseRef parses the contents of a loose reference file (either a
+// symbolic reference `ref: <target>` or a direct canonical lowercase hex OID).
+func ParseLooseRef(format oid.Format, name string, raw string) Ref fails CorruptRef | PathEscape {
+	let trimmed = strings.TrimRight(raw, " \t\r\n")
+	if strings.HasPrefix(trimmed, "ref:") {
+		let target = strings.TrimLeft(strings.TrimPrefix(trimmed, "ref:"), " \t")
+		if IsPathEscape(target) {
+			return PathEscape{Name: target}
+		}
+		if !ValidateRefName(target) {
+			return CorruptRef{Name: name, Why: "invalid symref target"}
+		}
+		return Ref{
+			Name:   name,
+			Target: Symbolic{Target: target},
+			Peeled: None,
+		}
+	}
+	let id = oid.ParseHex(format, trimmed) catch {
+	case oid.BadHex, oid.WrongLength:
+		return CorruptRef{Name: name, Why: "invalid loose ref OID"}
+	}
+	Ref{
+		Name:   name,
+		Target: Direct{OID: id},
+		Peeled: None,
+	}
+}
+
+func readLooseRef(store Store, name string) Option[Ref] fails CorruptRef | PathEscape | IOFailed needs fs.Files {
+	let p = filepath.Join([]string{refBaseDir(store, name), name})
+	let info = fs.Files.Stat(p) catch {
+	case fs.NotFound:
+		return None
+	case fs.Denied as e:
+		return IOFailed{Op: "stat-ref", Detail: e.Path}
+	case fs.Failed as e:
+		return IOFailed{Op: "stat-ref", Detail: e.Reason}
+	}
+	if info.Dir {
+		return None
+	}
+	let raw = fs.Files.ReadFile(p) catch {
+	case fs.NotFound:
+		return None
+	case fs.Denied as e:
+		return IOFailed{Op: "read-ref", Detail: e.Path}
+	case fs.Failed as e:
+		return IOFailed{Op: "read-ref", Detail: e.Reason}
+	}
+	Some[Ref]{Value: try ParseLooseRef(store.Format, name, raw)}
+}
+
+func loadAllPackedRefs(store Store) []Ref fails CorruptRef | IOFailed needs fs.Files {
+	let p = filepath.Join([]string{store.CommonDir, "packed-refs"})
+	let raw = fs.Files.ReadFile(p) catch {
+	case fs.NotFound:
+		return []Ref{}
+	case fs.Denied as e:
+		return IOFailed{Op: "read-packed-refs", Detail: e.Path}
+	case fs.Failed as e:
+		return IOFailed{Op: "read-packed-refs", Detail: e.Reason}
+	}
+	try ParsePackedRefs(store.Format, raw)
+}
+
+func readPackedRef(store Store, name string) Option[Ref] fails CorruptRef | IOFailed needs fs.Files {
+	if !strings.HasPrefix(name, "refs/") {
+		return None
+	}
+	let all = try loadAllPackedRefs(store)
+	for r in all {
+		if r.Name == name {
+			return Some[Ref]{Value: r}
+		}
+	}
+	None
+}
+
+// ReadRef reads the named reference from store without following symrefs.
+// Loose references always shadow packed-refs entries.
+func ReadRef(store Store, name string) Ref fails NotFound | InvalidRefName | CorruptRef | PathEscape | IOFailed needs fs.Files {
+	try ValidateReadName(name)
+	match try readLooseRef(store, name) {
+	case Some[Ref] as r:
+		return r.Value
+	case None:
+	}
+	match try readPackedRef(store, name) {
+	case Some[Ref] as r:
+		return r.Value
+	case None:
+		return NotFound{Name: name}
+	}
+}
+
+func chainContains(chain []string, name string) bool {
+	for c in chain {
+		if c == name {
+			return true
+		}
+	}
+	false
+}
+
+// Resolve follows symbolic references starting at name up to MaxSymrefDepth,
+// rejecting cyclic symref chains with CyclicSymref.
+func Resolve(store Store, name string) Resolved fails NotFound | InvalidRefName | CyclicSymref | CorruptRef | PathEscape | IOFailed needs fs.Files {
+	let mut cur = name
+	let mut chain = []string{}
+	for _ in 0..MaxSymrefDepth {
+		if chainContains(chain, cur) {
+			chain = chain.Append(cur)
+			return CyclicSymref{Chain: chain}
+		}
+		let r = try store.ReadRef(cur)
+		chain = chain.Append(cur)
+		match r.Target {
+		case Direct as d:
+			return Resolved{
+				Name:   name,
+				Chain:  chain,
+				OID:    d.OID,
+				Peeled: r.Peeled,
+			}
+		case Symbolic as s:
+			cur = s.Target
+		}
+	}
+	chain = chain.Append(cur)
+	return CyclicSymref{Chain: chain}
+}
+
+func collectLooseUnder(store Store, dir string, relPrefix string, skipPerWorktree bool, acc Map[string, Ref]) Map[string, Ref] fails CorruptRef | PathEscape | IOFailed needs fs.Files {
+	let entries = fs.Files.ReadDir(dir) catch {
+	case fs.NotFound:
+		return acc
+	case fs.Denied as e:
+		return IOFailed{Op: "readdir-refs", Detail: e.Path}
+	case fs.Failed as e:
+		return IOFailed{Op: "readdir-refs", Detail: e.Reason}
+	}
+	let mut out = acc
+	for entry in entries {
+		if strings.HasSuffix(entry, ".lock") {
+			continue
+		}
+		let fullName = relPrefix + "/" + entry
+		if skipPerWorktree && (fullName == "refs/bisect" || fullName == "refs/worktree" || fullName == "refs/rewritten") {
+			continue
+		}
+		let fullPath = filepath.Join([]string{dir, entry})
+		let info = fs.Files.Stat(fullPath) catch {
+		case fs.NotFound:
+			continue
+		case fs.Denied as e:
+			return IOFailed{Op: "stat-ref", Detail: e.Path}
+		case fs.Failed as e:
+			return IOFailed{Op: "stat-ref", Detail: e.Reason}
+		}
+		if info.Dir {
+			out = try collectLooseUnder(store, fullPath, fullName, skipPerWorktree, out)
+		} else {
+			if !ValidateRefName(fullName) {
+				continue
+			}
+			let raw = fs.Files.ReadFile(fullPath) catch {
+			case fs.NotFound:
+				continue
+			case fs.Denied as e:
+				return IOFailed{Op: "read-ref", Detail: e.Path}
+			case fs.Failed as e:
+				return IOFailed{Op: "read-ref", Detail: e.Reason}
+			}
+			let parsed = try ParseLooseRef(store.Format, fullName, raw)
+			out = out.Put(fullName, parsed)
+		}
+	}
+	out
+}
+
+func compareRefName(a Ref, b Ref) int {
+	if a.Name < b.Name {
+		return -1
+	}
+	if a.Name > b.Name {
+		return 1
+	}
+	0
+}
+
+// ListRefs enumerates all refs matching prefix in canonical byte-lexicographic
+// order, merging loose refs over packed-refs so loose refs always win.
+func ListRefs(store Store, prefix string) []Ref fails InvalidRefName | CorruptRef | PathEscape | IOFailed needs fs.Files {
+	if prefix != "" {
+		let trimmedPrefix = strings.TrimSuffix(prefix, "/")
+		if trimmedPrefix != "" {
+			try ValidateReadName(trimmedPrefix)
+		} else {
+			return PathEscape{Name: prefix}
+		}
+	}
+	let mut merged = Map[string, Ref]{}
+	for r in try loadAllPackedRefs(store) {
+		merged = merged.Put(r.Name, r)
+	}
+	let linked = store.GitDir != store.CommonDir
+	merged = try collectLooseUnder(store, filepath.Join([]string{store.CommonDir, "refs"}), "refs", linked, merged)
+	if linked {
+		for sub in []string{"bisect", "worktree", "rewritten"} {
+			merged = try collectLooseUnder(store, filepath.Join([]string{store.GitDir, "refs", sub}), "refs/"+sub, false, merged)
+		}
+	}
+	let mut out = []Ref{}
+	for _, r in merged {
+		if MatchesPrefix(r.Name, prefix) {
+			out = out.Append(r)
+		}
+	}
+	slices.SortFunc(out, compareRefName)
+}
+
+// FilesStore implements RefReader over an on-disk Git repository via fs.Host.
+type FilesStore {
+	store Store,
+	host  fs.Host,
+} implements RefReader
+
+// NewFilesStore wraps store and host as a RefReader provider.
+func NewFilesStore(store Store, host fs.Host) FilesStore {
+	FilesStore{store: store, host: host}
+}
+
+// ReadRef implements RefReader.ReadRef on FilesStore.
+func ReadRef(f FilesStore, name string) Ref fails NotFound | InvalidRefName | CorruptRef | PathEscape | IOFailed {
+	with context { fs.Files: f.host } {
+		try f.store.ReadRef(name)
+	}
+}
+
+// Resolve implements RefReader.Resolve on FilesStore.
+func Resolve(f FilesStore, name string) Resolved fails NotFound | InvalidRefName | CyclicSymref | CorruptRef | PathEscape | IOFailed {
+	with context { fs.Files: f.host } {
+		try f.store.Resolve(name)
+	}
+}
+
+// ListRefs implements RefReader.ListRefs on FilesStore.
+func ListRefs(f FilesStore, prefix string) []Ref fails InvalidRefName | CorruptRef | PathEscape | IOFailed {
+	with context { fs.Files: f.host } {
+		try f.store.ListRefs(prefix)
+	}
+}
+
+// ReadReflog implements RefReader.ReadReflog on FilesStore.
+func ReadReflog(f FilesStore, name string) []ReflogEntry fails NotFound | InvalidRefName | CorruptRef | PathEscape | IOFailed {
+	with context { fs.Files: f.host } {
+		try f.store.ReadReflog(name)
+	}
+}

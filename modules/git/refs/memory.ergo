@@ -1,0 +1,124 @@
+import slices
+import strings
+import sync
+import github.com/cevr/ergo/modules/git/oid
+
+// MemoryRefs is an in-memory provider of RefReader with separate loose and
+// packed maps plus reflogs so it enforces the exact same precedence, peeled-tag,
+// and symref cycle semantics as FilesStore.
+type MemoryRefs {
+	format  oid.Format,
+	loose   sync.Ref[Map[string, Ref]],
+	packed  sync.Ref[Map[string, Ref]],
+	reflogs sync.Ref[Map[string, []ReflogEntry]],
+} implements RefReader
+
+// NewMemoryRefs creates an empty MemoryRefs store for format.
+func NewMemoryRefs(format oid.Format) MemoryRefs {
+	MemoryRefs{
+		format:  format,
+		loose:   sync.NewRef(Map[string, Ref]{}),
+		packed:  sync.NewRef(Map[string, Ref]{}),
+		reflogs: sync.NewRef(Map[string, []ReflogEntry]{}),
+	}
+}
+
+// PutLoose installs a loose ref entry in m, shadowing any packed entry of the
+// same name.
+func PutLoose(m MemoryRefs, r Ref) {
+	m.loose.Set(m.loose.Get().Put(r.Name, r))
+}
+
+// PutPacked installs a packed-refs entry in m.
+func PutPacked(m MemoryRefs, r Ref) {
+	m.packed.Set(m.packed.Get().Put(r.Name, r))
+}
+
+// PutReflog installs chronological reflog entries for name in m.
+func PutReflog(m MemoryRefs, name string, entries []ReflogEntry) {
+	m.reflogs.Set(m.reflogs.Get().Put(name, entries))
+}
+
+// ReadRef implements RefReader.ReadRef on MemoryRefs.
+func ReadRef(m MemoryRefs, name string) Ref fails NotFound | InvalidRefName | CorruptRef | PathEscape | IOFailed {
+	try ValidateReadName(name)
+	match m.loose.Get().Get(name) {
+	case Some[Ref] as r:
+		return r.Value
+	case None:
+	}
+	match m.packed.Get().Get(name) {
+	case Some[Ref] as r:
+		return r.Value
+	case None:
+		return NotFound{Name: name}
+	}
+}
+
+// Resolve implements RefReader.Resolve on MemoryRefs.
+func Resolve(m MemoryRefs, name string) Resolved fails NotFound | InvalidRefName | CyclicSymref | CorruptRef | PathEscape | IOFailed {
+	let mut cur = name
+	let mut chain = []string{}
+	for _ in 0..MaxSymrefDepth {
+		if chainContains(chain, cur) {
+			chain = chain.Append(cur)
+			return CyclicSymref{Chain: chain}
+		}
+		let r = try m.ReadRef(cur)
+		chain = chain.Append(cur)
+		match r.Target {
+		case Direct as d:
+			return Resolved{
+				Name:   name,
+				Chain:  chain,
+				OID:    d.OID,
+				Peeled: r.Peeled,
+			}
+		case Symbolic as s:
+			cur = s.Target
+		}
+	}
+	chain = chain.Append(cur)
+	return CyclicSymref{Chain: chain}
+}
+
+// ListRefs implements RefReader.ListRefs on MemoryRefs.
+func ListRefs(m MemoryRefs, prefix string) []Ref fails InvalidRefName | CorruptRef | PathEscape | IOFailed {
+	if prefix != "" {
+		let trimmedPrefix = strings.TrimSuffix(prefix, "/")
+		if trimmedPrefix != "" {
+			try ValidateReadName(trimmedPrefix)
+		} else {
+			return PathEscape{Name: prefix}
+		}
+	}
+	let mut merged = Map[string, Ref]{}
+	for k, r in m.packed.Get() {
+		if strings.HasPrefix(k, "refs/") {
+			merged = merged.Put(k, r)
+		}
+	}
+	for k, r in m.loose.Get() {
+		if strings.HasPrefix(k, "refs/") {
+			merged = merged.Put(k, r)
+		}
+	}
+	let mut out = []Ref{}
+	for _, r in merged {
+		if MatchesPrefix(r.Name, prefix) {
+			out = out.Append(r)
+		}
+	}
+	slices.SortFunc(out, compareRefName)
+}
+
+// ReadReflog implements RefReader.ReadReflog on MemoryRefs.
+func ReadReflog(m MemoryRefs, name string) []ReflogEntry fails NotFound | InvalidRefName | CorruptRef | PathEscape | IOFailed {
+	try ValidateReadName(name)
+	match m.reflogs.Get().Get(name) {
+	case Some[[]ReflogEntry] as e:
+		e.Value
+	case None:
+		return NotFound{Name: name}
+	}
+}

@@ -1,0 +1,189 @@
+// Package refs implements Git's files-backend reference store (STD-GIT: G-REFS):
+// check-ref-format name validation, per-worktree vs common-dir resolution,
+// loose and packed-refs precedence, peeled annotated tags, cycle-checked
+// symref resolution, reflog parsing, and the RefReader capability with shared
+// laws across MemoryRefs and FilesStore.
+
+import strings
+import github.com/cevr/ergo/modules/git/oid
+
+// MaxSymrefDepth caps symbolic reference indirection chains to prevent
+// runaway resolution.
+let MaxSymrefDepth = 16
+
+// Error is the closed failure union for reference reads, resolution,
+// enumeration, and reflog inspection.
+type Error =
+	| NotFound{Name string}
+	| InvalidRefName{Name string}
+	| CyclicSymref{Chain []string}
+	| CorruptRef{Name string, Why string}
+	| PathEscape{Name string}
+	| IOFailed{Op string, Detail string}
+
+// Target is the direct OID or symbolic target of a Git reference.
+type Target =
+	| Direct{OID oid.OID}
+	| Symbolic{Target string}
+
+// Ref is a single reference record read from loose storage or packed-refs.
+// Peeled is Some for annotated tags that carry a peeled target OID in packed-refs.
+type Ref {
+	Name   string,
+	Target Target,
+	Peeled Option[oid.OID],
+}
+
+// Resolved is the fully dereferenced result of following a direct or symbolic
+// reference to its terminal OID, including the exact traversed Chain.
+type Resolved {
+	Name   string,
+	Chain  []string,
+	OID    oid.OID,
+	Peeled Option[oid.OID],
+}
+
+// ReflogEntry is one parsed record from a Git reflog file.
+type ReflogEntry {
+	OldOID  oid.OID,
+	NewOID  oid.OID,
+	Ident   string,
+	Message string,
+}
+
+// Store configures a files-backend Git reference store with its hash format,
+// per-worktree GitDir, and shared CommonDir.
+type Store {
+	Format    oid.Format,
+	GitDir    string,
+	CommonDir string,
+}
+
+func sameOptOID(a Option[oid.OID], b Option[oid.OID]) bool {
+	match a {
+	case None:
+		match b {
+		case None:
+			true
+		case Some[oid.OID]:
+			false
+		}
+	case Some[oid.OID] as av:
+		match b {
+		case None:
+			false
+		case Some[oid.OID] as bv:
+			oid.Equal(av.Value, bv.Value)
+		}
+	}
+}
+
+// RefReader is the capability seam for reading Git references and reflogs,
+// carrying laws enforced identically on MemoryRefs and FilesStore.
+type RefReader {
+	ReadRef(name string) Ref fails NotFound | InvalidRefName | CorruptRef | PathEscape | IOFailed,
+	Resolve(name string) Resolved fails NotFound | InvalidRefName | CyclicSymref | CorruptRef | PathEscape | IOFailed,
+	ListRefs(prefix string) []Ref fails InvalidRefName | CorruptRef | PathEscape | IOFailed,
+	ReadReflog(name string) []ReflogEntry fails NotFound | InvalidRefName | CorruptRef | PathEscape | IOFailed,
+
+	// ResolveMatchesDirect: every direct ref returned by ListRefs reads back
+	// identically via ReadRef and resolves via Resolve to the same OID, Peeled
+	// tag, and single-element Chain.
+	law ResolveMatchesDirect() {
+		let all = ListRefs("") catch {
+		case InvalidRefName, CorruptRef, PathEscape, IOFailed:
+			return false
+		}
+		for r in all {
+			let again = ReadRef(r.Name) catch {
+			case NotFound, InvalidRefName, CorruptRef, PathEscape, IOFailed:
+				return false
+			}
+			match r.Target {
+			case Direct as d:
+				let sameDirect = match again.Target {
+				case Direct as ad:
+					oid.Equal(d.OID, ad.OID) && sameOptOID(r.Peeled, again.Peeled)
+				case Symbolic:
+					false
+				}
+				if !sameDirect {
+					return false
+				}
+				let res = Resolve(r.Name) catch {
+				case NotFound, InvalidRefName, CyclicSymref, CorruptRef, PathEscape, IOFailed:
+					return false
+				}
+				if !oid.Equal(res.OID, d.OID) || !sameOptOID(res.Peeled, r.Peeled) || len(res.Chain) != 1 || res.Chain[0] != r.Name {
+					return false
+				}
+			case Symbolic as s:
+				let sameSym = match again.Target {
+				case Symbolic as asy:
+					asy.Target == s.Target
+				case Direct:
+					false
+				}
+				if !sameSym {
+					return false
+				}
+			}
+		}
+		true
+	},
+
+	// ListRefsSortedAndFiltered: ListRefs("") returns refs in strict
+	// byte-lexicographic order, and ListRefs("refs/heads/") contains only
+	// refs under that prefix.
+	law ListRefsSortedAndFiltered() {
+		let all = ListRefs("") catch {
+		case InvalidRefName, CorruptRef, PathEscape, IOFailed:
+			return false
+		}
+		for i in 1..len(all) {
+			if !(all[i-1].Name < all[i].Name) {
+				return false
+			}
+		}
+		let heads = ListRefs("refs/heads/") catch {
+		case InvalidRefName, CorruptRef, PathEscape, IOFailed:
+			return false
+		}
+		for h in heads {
+			if !strings.HasPrefix(h.Name, "refs/heads/") {
+				return false
+			}
+		}
+		true
+	},
+
+	// InvalidNamesRefused: path-escaping and malformed ref names are always
+	// rejected with PathEscape or InvalidRefName rather than NotFound.
+	law InvalidNamesRefused(tag string) {
+		let mut sawEsc = false
+		let _ = ReadRef("../escape") catch {
+		case PathEscape:
+			sawEsc = true
+			Ref{Name: "", Target: Symbolic{Target: ""}, Peeled: None}
+		case NotFound, InvalidRefName, CorruptRef, IOFailed:
+			Ref{Name: "", Target: Symbolic{Target: ""}, Peeled: None}
+		}
+		let mut sawDotDot = false
+		let _ = ReadRef("refs/heads/" + tag + "..bad") catch {
+		case InvalidRefName, PathEscape:
+			sawDotDot = true
+			Ref{Name: "", Target: Symbolic{Target: ""}, Peeled: None}
+		case NotFound, CorruptRef, IOFailed:
+			Ref{Name: "", Target: Symbolic{Target: ""}, Peeled: None}
+		}
+		let mut sawLock = false
+		let _ = ReadRef("refs/heads/x.lock") catch {
+		case InvalidRefName:
+			sawLock = true
+			Ref{Name: "", Target: Symbolic{Target: ""}, Peeled: None}
+		case NotFound, CorruptRef, PathEscape, IOFailed:
+			Ref{Name: "", Target: Symbolic{Target: ""}, Peeled: None}
+		}
+		sawEsc && sawDotDot && sawLock
+	},
+}

@@ -1,0 +1,51 @@
+import strings
+import github.com/cevr/ergo/modules/git/oid
+
+// ParsePackedRefs parses the contents of a Git packed-refs file, including
+// `# pack-refs with: ...` header comments, `<oid> <refname>` records, and
+// `^<peeled-oid>` annotated-tag peel continuations.
+func ParsePackedRefs(format oid.Format, content string) []Ref fails CorruptRef {
+	let mut out = []Ref{}
+	for rawLine in strings.Split(content, "\n") {
+		let line = strings.TrimSuffix(rawLine, "\r")
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		if strings.HasPrefix(line, "^") {
+			if len(out) == 0 {
+				return CorruptRef{Name: "packed-refs", Why: "peeled line without preceding ref"}
+			}
+			let peeledHex = strings.TrimPrefix(line, "^")
+			let peeledOID = oid.ParseHex(format, peeledHex) catch {
+			case oid.BadHex, oid.WrongLength:
+				return CorruptRef{Name: out[len(out)-1].Name, Why: "invalid peeled OID in packed-refs"}
+			}
+			let last = out[len(out)-1]
+			out[len(out)-1] = Ref{
+				Name:   last.Name,
+				Target: last.Target,
+				Peeled: Some[oid.OID]{Value: peeledOID},
+			}
+			continue
+		}
+		let sp = strings.Index(line, " ")
+		if sp <= 0 || sp+1 >= len(line) {
+			return CorruptRef{Name: "packed-refs", Why: "malformed packed-refs line"}
+		}
+		let hexPart = line[:sp]
+		let namePart = line[sp+1:]
+		if !ValidateRefName(namePart) {
+			return CorruptRef{Name: namePart, Why: "invalid ref name in packed-refs"}
+		}
+		let id = oid.ParseHex(format, hexPart) catch {
+		case oid.BadHex, oid.WrongLength:
+			return CorruptRef{Name: namePart, Why: "invalid OID in packed-refs"}
+		}
+		out = out.Append(Ref{
+			Name:   namePart,
+			Target: Direct{OID: id},
+			Peeled: None,
+		})
+	}
+	out
+}

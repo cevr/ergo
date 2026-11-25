@@ -242,6 +242,70 @@
       ]
     },
     {
+      "name": "git-refs-packed-shadows-loose",
+      "origin": "STD-GIT G-REFS",
+      "file": "modules/git/refs/store.ergo",
+      "from": "\tmatch try readLooseRef(store, name) {\n\tcase Some[Ref] as r:\n\t\treturn r.Value\n\tcase None:\n\t}\n\tmatch try readPackedRef(store, name) {\n\tcase Some[Ref] as r:\n\t\treturn r.Value\n\tcase None:\n\t\treturn NotFound{Name: name}\n\t}",
+      "to": "\tmatch try readPackedRef(store, name) {\n\tcase Some[Ref] as r:\n\t\treturn r.Value\n\tcase None:\n\t}\n\tmatch try readLooseRef(store, name) {\n\tcase Some[Ref] as r:\n\t\treturn r.Value\n\tcase None:\n\t\treturn NotFound{Name: name}\n\t}",
+      "rule": "Loose references take precedence over packed-refs entries.",
+      "anchor": {
+        "tests": [
+          "modules/git/refs:RefsMatchGitPlumbing"
+        ]
+      },
+      "killers": [
+        "modules/git/refs:RefsMatchGitPlumbing"
+      ]
+    },
+    {
+      "name": "git-refs-ignores-symref-cycle",
+      "origin": "STD-GIT G-REFS",
+      "file": "modules/git/refs/store.ergo",
+      "from": "\t\tif chainContains(chain, cur) {\n\t\t\tchain = chain.Append(cur)\n\t\t\treturn CyclicSymref{Chain: chain}\n\t\t}",
+      "to": "\t\tif false && chainContains(chain, cur) {\n\t\t\tchain = chain.Append(cur)\n\t\t\treturn CyclicSymref{Chain: chain}\n\t\t}",
+      "rule": "Resolve detects symbolic reference cycles immediately and returns CyclicSymref with the exact cycle chain.",
+      "anchor": {
+        "tests": [
+          "modules/git/refs:CyclicSymrefAndInvalidNamesRefused"
+        ]
+      },
+      "killers": [
+        "modules/git/refs:CyclicSymrefAndInvalidNamesRefused"
+      ]
+    },
+    {
+      "name": "git-refs-drops-peeled-tag",
+      "origin": "STD-GIT G-REFS",
+      "file": "modules/git/refs/packed.ergo",
+      "from": "\t\t\tout[len(out)-1] = Ref{\n\t\t\t\tName:   last.Name,\n\t\t\t\tTarget: last.Target,\n\t\t\t\tPeeled: Some[oid.OID]{Value: peeledOID},\n\t\t\t}",
+      "to": "\t\t\tlet _ = peeledOID\n\t\t\tout[len(out)-1] = Ref{\n\t\t\t\tName:   last.Name,\n\t\t\t\tTarget: last.Target,\n\t\t\t\tPeeled: None,\n\t\t\t}",
+      "rule": "ParsePackedRefs attaches ^<oid> peeled tag targets to the immediately preceding annotated tag ref.",
+      "anchor": {
+        "tests": [
+          "modules/git/refs:RefsMatchGitPlumbing"
+        ]
+      },
+      "killers": [
+        "modules/git/refs:RefsMatchGitPlumbing"
+      ]
+    },
+    {
+      "name": "git-refs-allows-dotdot-name",
+      "origin": "STD-GIT G-REFS",
+      "file": "modules/git/refs/validate.ergo",
+      "from": "\tif strings.Contains(name, \"..\") || strings.Contains(name, \"//\") || strings.Contains(name, \"@{\") {",
+      "to": "\tif strings.Contains(name, \"//\") || strings.Contains(name, \"@{\") {",
+      "rule": "ValidateRefName rejects ref names containing '..' per Git check-ref-format rules.",
+      "anchor": {
+        "tests": [
+          "modules/git/refs:CyclicSymrefAndInvalidNamesRefused"
+        ]
+      },
+      "killers": [
+        "modules/git/refs:CyclicSymrefAndInvalidNamesRefused"
+      ]
+    },
+    {
       "name": "git-loose-wrong-fanout",
       "origin": "STD-GIT G-LOOSE",
       "file": "modules/git/loose/store.ergo",
