@@ -1,0 +1,550 @@
+import filepath
+import fs
+import slices
+import strconv
+import strings
+
+// ScopeRank returns the precedence rank of s (System=0 < Global=1 < Local=2 < Worktree=3 < Command=4).
+func ScopeRank(s Scope) int {
+	match s {
+	case System:
+		0
+	case Global:
+		1
+	case Local:
+		2
+	case Worktree:
+		3
+	case Command:
+		4
+	}
+}
+
+func isAsciiLetter(b byte) bool {
+	(b >= byte('a') && b <= byte('z')) || (b >= byte('A') && b <= byte('Z'))
+}
+
+func isAsciiDigit(b byte) bool {
+	b >= byte('0') && b <= byte('9')
+}
+
+func isSectionChar(b byte) bool {
+	isAsciiLetter(b) || isAsciiDigit(b) || b == byte('-') || b == byte('.')
+}
+
+func isKeyChar(b byte) bool {
+	isAsciiLetter(b) || isAsciiDigit(b) || b == byte('-')
+}
+
+func toLowerByte(b byte) byte {
+	if b >= byte('A') && b <= byte('Z') {
+		return byte(int(b) + 32)
+	}
+	b
+}
+
+func toLowerAscii(s string) string {
+	let bs = s.Bytes()
+	let mut out = slices.WithCapacity[byte](len(bs))
+	for b in bs {
+		out = out.Append(toLowerByte(b))
+	}
+	out.Text()
+}
+
+func parseSectionHeader(bs []byte, start int, path string, lineNum int) (string, Option[string], int) fails ConfigSyntax {
+	let n = len(bs)
+	let mut i = start + 1
+	let mut secBytes = []byte{}
+	for i < n && isSectionChar(bs[i]) {
+		secBytes = secBytes.Append(toLowerByte(bs[i]))
+		i = i + 1
+	}
+	if len(secBytes) == 0 {
+		return ConfigSyntax{Path: path, Line: lineNum, Reason: "empty section name"}
+	}
+	let mut secStr = secBytes.Text()
+	let mut sub Option[string] = None
+	if i < n && (bs[i] == byte(' ') || bs[i] == byte('\t')) {
+		for i < n && (bs[i] == byte(' ') || bs[i] == byte('\t')) {
+			i = i + 1
+		}
+		if i >= n || bs[i] != byte('"') {
+			return ConfigSyntax{Path: path, Line: lineNum, Reason: "expected quoted subsection"}
+		}
+		i = i + 1
+		let mut subBytes = []byte{}
+		let mut closed = false
+		for i < n {
+			let c = bs[i]
+			if c == byte('\n') || c == byte('\r') {
+				return ConfigSyntax{Path: path, Line: lineNum, Reason: "unterminated subsection quote"}
+			}
+			if c == byte('"') {
+				i = i + 1
+				closed = true
+				break
+			}
+			if c == byte('\\') {
+				i = i + 1
+				if i >= n || bs[i] == byte('\n') || bs[i] == byte('\r') {
+					return ConfigSyntax{Path: path, Line: lineNum, Reason: "bad escape in subsection"}
+				}
+				subBytes = subBytes.Append(bs[i])
+				i = i + 1
+			} else {
+				subBytes = subBytes.Append(c)
+				i = i + 1
+			}
+		}
+		if !closed {
+			return ConfigSyntax{Path: path, Line: lineNum, Reason: "unterminated subsection quote"}
+		}
+		sub = Some[string]{Value: subBytes.Text()}
+	} else {
+		let dotPos = strings.Index(secStr, ".")
+		if dotPos >= 0 {
+			let base = secStr[:dotPos]
+			let rest = secStr[dotPos+1:]
+			if base == "" {
+				return ConfigSyntax{Path: path, Line: lineNum, Reason: "empty section before dot"}
+			}
+			secStr = base
+			sub = Some[string]{Value: rest}
+		}
+	}
+	if i >= n || bs[i] != byte(']') {
+		return ConfigSyntax{Path: path, Line: lineNum, Reason: "missing closing bracket in section header"}
+	}
+	(secStr, sub, i + 1)
+}
+
+// ParseConfig parses a single Git INI config text under the given Scope and
+// source Path without performing filesystem I/O or following include.path.
+func ParseConfig(content string, scope Scope, path string) []ConfigEntry fails ConfigSyntax {
+	let bs = content.Bytes()
+	let n = len(bs)
+	let mut i = 0
+	let mut lineNum = 1
+	let mut hasSection = false
+	let mut curSection = ""
+	let mut curSub Option[string] = None
+	let mut entries = []ConfigEntry{}
+
+	if n >= 3 && bs[0] == byte(0xef) && bs[1] == byte(0xbb) && bs[2] == byte(0xbf) {
+		i = 3
+	}
+
+	for i < n {
+		let c = bs[i]
+		if c == byte(' ') || c == byte('\t') || c == byte('\r') {
+			i = i + 1
+			continue
+		}
+		if c == byte('\n') {
+			lineNum = lineNum + 1
+			i = i + 1
+			continue
+		}
+		if c == byte('#') || c == byte(';') {
+			for i < n && bs[i] != byte('\n') {
+				i = i + 1
+			}
+			continue
+		}
+		if c == byte('[') {
+			let (sec, sub, nextI) = try parseSectionHeader(bs, i, path, lineNum)
+			hasSection = true
+			curSection = sec
+			curSub = sub
+			i = nextI
+			continue
+		}
+		if !hasSection {
+			return ConfigSyntax{Path: path, Line: lineNum, Reason: "variable declared before section header"}
+		}
+		if !isAsciiLetter(c) {
+			return ConfigSyntax{Path: path, Line: lineNum, Reason: "invalid variable name start"}
+		}
+		let mut keyBytes = []byte{}
+		for i < n && isKeyChar(bs[i]) {
+			keyBytes = keyBytes.Append(toLowerByte(bs[i]))
+			i = i + 1
+		}
+		let key = keyBytes.Text()
+		for i < n && (bs[i] == byte(' ') || bs[i] == byte('\t')) {
+			i = i + 1
+		}
+		if i >= n || bs[i] == byte('\n') || bs[i] == byte('\r') || bs[i] == byte('#') || bs[i] == byte(';') {
+			entries = entries.Append(ConfigEntry{
+				Section:    curSection,
+				Subsection: curSub,
+				Key:        key,
+				Value:      None,
+				Scope:      scope,
+				Source:     path,
+			})
+			continue
+		}
+		if bs[i] != byte('=') {
+			return ConfigSyntax{Path: path, Line: lineNum, Reason: "expected '=' after variable name"}
+		}
+		i = i + 1
+		for i < n && (bs[i] == byte(' ') || bs[i] == byte('\t')) {
+			i = i + 1
+		}
+		let mut valBytes = []byte{}
+		let mut pendingSpace = []byte{}
+		let mut inQuote = false
+		for i < n {
+			let vc = bs[i]
+			if vc == byte('\n') {
+				if inQuote {
+					return ConfigSyntax{Path: path, Line: lineNum, Reason: "unterminated quote in value"}
+				}
+				lineNum = lineNum + 1
+				i = i + 1
+				break
+			}
+			if vc == byte('\r') {
+				if i+1 < n && bs[i+1] == byte('\n') {
+					if inQuote {
+						return ConfigSyntax{Path: path, Line: lineNum, Reason: "unterminated quote in value"}
+					}
+					lineNum = lineNum + 1
+					i = i + 2
+					break
+				}
+				if !inQuote && len(pendingSpace) > 0 {
+					for sp in pendingSpace {
+						valBytes = valBytes.Append(sp)
+					}
+					pendingSpace = []byte{}
+				}
+				valBytes = valBytes.Append(vc)
+				i = i + 1
+				continue
+			}
+			if !inQuote && (vc == byte('#') || vc == byte(';')) {
+				for i < n && bs[i] != byte('\n') {
+					i = i + 1
+				}
+				break
+			}
+			if vc == byte('"') {
+				if !inQuote && len(pendingSpace) > 0 {
+					for sp in pendingSpace {
+						valBytes = valBytes.Append(sp)
+					}
+					pendingSpace = []byte{}
+				}
+				inQuote = !inQuote
+				i = i + 1
+				continue
+			}
+			if vc == byte('\\') {
+				if i+1 < n && bs[i+1] == byte('\n') {
+					lineNum = lineNum + 1
+					i = i + 2
+					continue
+				}
+				if i+2 < n && bs[i+1] == byte('\r') && bs[i+2] == byte('\n') {
+					lineNum = lineNum + 1
+					i = i + 3
+					continue
+				}
+				if i+1 >= n {
+					return ConfigSyntax{Path: path, Line: lineNum, Reason: "trailing backslash"}
+				}
+				if !inQuote && len(pendingSpace) > 0 {
+					for sp in pendingSpace {
+						valBytes = valBytes.Append(sp)
+					}
+					pendingSpace = []byte{}
+				}
+				let esc = bs[i+1]
+				if esc == byte('n') {
+					valBytes = valBytes.Append(byte('\n'))
+				} else if esc == byte('t') {
+					valBytes = valBytes.Append(byte('\t'))
+				} else if esc == byte('b') {
+					valBytes = valBytes.Append(byte(8))
+				} else if esc == byte('"') || esc == byte('\\') {
+					valBytes = valBytes.Append(esc)
+				} else {
+					return ConfigSyntax{Path: path, Line: lineNum, Reason: "unknown escape sequence"}
+				}
+				i = i + 2
+				continue
+			}
+			if !inQuote && (vc == byte(' ') || vc == byte('\t')) {
+				pendingSpace = pendingSpace.Append(vc)
+				i = i + 1
+				continue
+			}
+			if len(pendingSpace) > 0 {
+				for sp in pendingSpace {
+					valBytes = valBytes.Append(sp)
+				}
+				pendingSpace = []byte{}
+			}
+			valBytes = valBytes.Append(vc)
+			i = i + 1
+		}
+		if inQuote {
+			return ConfigSyntax{Path: path, Line: lineNum, Reason: "unterminated quote in value"}
+		}
+		entries = entries.Append(ConfigEntry{
+			Section:    curSection,
+			Subsection: curSub,
+			Key:        key,
+			Value:      Some[string]{Value: valBytes.Text()},
+			Scope:      scope,
+			Source:     path,
+		})
+	}
+	entries
+}
+
+func sameSubsection(a Option[string], b Option[string]) bool {
+	match a {
+	case Some[string] as sa:
+		match b {
+		case Some[string] as sb:
+			sa.Value == sb.Value
+		case None:
+			false
+		}
+	case None:
+		match b {
+		case Some[string]:
+			false
+		case None:
+			true
+		}
+	}
+}
+
+func entryMatches(e ConfigEntry, secLower string, subsection Option[string], keyLower string) bool {
+	e.Section == secLower && e.Key == keyLower && sameSubsection(e.Subsection, subsection)
+}
+
+// MergeEntries merges entries into strict scope precedence order
+// (System < Global < Local < Worktree < Command), preserving entry order within
+// each scope.
+func MergeEntries(all []ConfigEntry) []ConfigEntry {
+	let mut out = slices.WithCapacity[ConfigEntry](len(all))
+	for rank in 0..5 {
+		for e in all {
+			if ScopeRank(e.Scope) == rank {
+				out = out.Append(e)
+			}
+		}
+	}
+	out
+}
+
+// ParseConfigSources parses and merges in-memory config sources in strict scope
+// precedence order without following filesystem includes.
+func ParseConfigSources(sources []ConfigSource) Config fails ConfigSyntax {
+	let mut combined = []ConfigEntry{}
+	for src in sources {
+		let parsed = try ParseConfig(src.Content, src.Scope, src.Path)
+		for e in parsed {
+			combined = combined.Append(e)
+		}
+	}
+	Config{Entries: MergeEntries(combined), SkippedIncludes: []string{}}
+}
+
+func expandConfigFile(path string, scope Scope, trust TrustPolicy, stack []string, depth int) ([]ConfigEntry, []string) fails ConfigSyntax | PathEscape | UntrustedPath | IncludeCycle | IncludeDepthExceeded | IncludeRefused | fs.Denied | fs.Failed needs fs.Files {
+	let cleanPath = filepath.Clean(path)
+	for active in stack {
+		if active == cleanPath {
+			return IncludeCycle{Path: cleanPath}
+		}
+	}
+	if depth > trust.MaxIncludeDepth {
+		return IncludeDepthExceeded{Depth: depth}
+	}
+	try checkPathTrust(cleanPath, trust)
+	let content = try fs.Files.ReadFile(cleanPath) catch {
+	case fs.NotFound:
+		return ([]ConfigEntry{}, []string{})
+	}
+	let parsed = try ParseConfig(content, scope, cleanPath)
+	let mut out = []ConfigEntry{}
+	let mut skipped = []string{}
+	let nextStack = stack.Append(cleanPath)
+	let baseDir = filepath.Dir(cleanPath)
+	for e in parsed {
+		out = out.Append(e)
+		let isInclude = e.Section == "include" && e.Key == "path" && sameSubsection(e.Subsection, None)
+		if isInclude {
+			match e.Value {
+			case Some[string] as v:
+				let incRaw = v.Value
+				if incRaw != "" {
+					if !trust.AllowIncludes {
+						if trust.StrictIncludes {
+							return IncludeRefused{Path: incRaw}
+						}
+						skipped = skipped.Append(incRaw)
+					} else {
+						let incPath = filepath.AbsFrom(baseDir, incRaw)
+						let (subEntries, subSkipped) = try expandConfigFile(incPath, scope, trust, nextStack, depth+1)
+						for se in subEntries {
+							out = out.Append(se)
+						}
+						for sk in subSkipped {
+							skipped = skipped.Append(sk)
+						}
+					}
+				}
+			case None:
+			}
+		}
+	}
+	(out, skipped)
+}
+
+// LoadConfigFiles reads and parses the given scoped config files via fs.Files,
+// enforcing TrustPolicy on include.path directives and merging entries in exact
+// scope precedence order (System < Global < Local < Worktree < Command).
+func LoadConfigFiles(files []ConfigFile, trust TrustPolicy) Config fails ConfigSyntax | PathEscape | UntrustedPath | IncludeCycle | IncludeDepthExceeded | IncludeRefused | fs.Denied | fs.Failed needs fs.Files {
+	let mut allEntries = []ConfigEntry{}
+	let mut allSkipped = []string{}
+	for f in files {
+		let (entries, skipped) = try expandConfigFile(f.Path, f.Scope, trust, []string{}, 0)
+		for e in entries {
+			allEntries = allEntries.Append(e)
+		}
+		for sk in skipped {
+			allSkipped = allSkipped.Append(sk)
+		}
+	}
+	Config{Entries: MergeEntries(allEntries), SkippedIncludes: allSkipped}
+}
+
+// GetAll returns all matching entry values in exact precedence order. An
+// implicit boolean entry (written without `=`) is represented as None.
+func GetAll(cfg Config, section string, subsection Option[string], key string) []Option[string] {
+	let secLower = toLowerAscii(section)
+	let keyLower = toLowerAscii(key)
+	let mut out = []Option[string]{}
+	for e in cfg.Entries {
+		if entryMatches(e, secLower, subsection, keyLower) {
+			out = out.Append(e.Value)
+		}
+	}
+	out
+}
+
+// GetLast returns the effective (last-wins) value for section/subsection/key.
+// Implicit boolean entries return Some("true").
+func GetLast(cfg Config, section string, subsection Option[string], key string) Option[string] {
+	let vals = GetAll(cfg, section, subsection, key)
+	if len(vals) == 0 {
+		return None
+	}
+	match vals[len(vals)-1] {
+	case Some[string] as v:
+		Some[string]{Value: v.Value}
+	case None:
+		Some[string]{Value: "true"}
+	}
+}
+
+func fullKeyLabel(section string, subsection Option[string], key string) string {
+	let s = toLowerAscii(section)
+	let k = toLowerAscii(key)
+	match subsection {
+	case Some[string] as sub:
+		s + "." + sub.Value + "." + k
+	case None:
+		s + "." + k
+	}
+}
+
+// GetBool decodes the effective boolean value for section/subsection/key using
+// Git's boolean rules (implicit/true/yes/on/1 vs false/no/off/0/empty).
+func GetBool(cfg Config, section string, subsection Option[string], key string) Option[bool] fails ConfigBadValue {
+	let vals = GetAll(cfg, section, subsection, key)
+	if len(vals) == 0 {
+		return None
+	}
+	match vals[len(vals)-1] {
+	case None:
+		Some[bool]{Value: true}
+	case Some[string] as v:
+		let lower = toLowerAscii(v.Value)
+		if lower == "true" || lower == "yes" || lower == "on" || lower == "1" {
+			return Some[bool]{Value: true}
+		}
+		if lower == "false" || lower == "no" || lower == "off" || lower == "0" || lower == "" {
+			return Some[bool]{Value: false}
+		}
+		let n = strconv.Atoi(lower) catch {
+		case strconv.Malformed, strconv.OutOfRange:
+			return ConfigBadValue{Key: fullKeyLabel(section, subsection, key), Value: v.Value, Reason: "invalid boolean value"}
+		}
+		Some[bool]{Value: n != 0}
+	}
+}
+
+// GetInt decodes the effective signed integer value for section/subsection/key,
+// supporting Git's optional k/m/g binary scale suffixes.
+func GetInt(cfg Config, section string, subsection Option[string], key string) Option[int64] fails ConfigBadValue {
+	let vals = GetAll(cfg, section, subsection, key)
+	if len(vals) == 0 {
+		return None
+	}
+	match vals[len(vals)-1] {
+	case None:
+		return ConfigBadValue{Key: fullKeyLabel(section, subsection, key), Value: "", Reason: "missing integer value"}
+	case Some[string] as v:
+		let raw = strings.TrimSpace(v.Value)
+		if raw == "" {
+			return ConfigBadValue{Key: fullKeyLabel(section, subsection, key), Value: v.Value, Reason: "empty integer value"}
+		}
+		let bs = raw.Bytes()
+		let last = toLowerByte(bs[len(bs)-1])
+		let mut mult = int64(1)
+		let mut numPart = raw
+		if last == byte('k') {
+			mult = int64(1024)
+			numPart = raw[:len(bs)-1]
+		} else if last == byte('m') {
+			mult = int64(1048576)
+			numPart = raw[:len(bs)-1]
+		} else if last == byte('g') {
+			mult = int64(1073741824)
+			numPart = raw[:len(bs)-1]
+		}
+		let base = strconv.ParseInt(numPart, 10, 64) catch {
+		case strconv.Malformed, strconv.OutOfRange:
+			return ConfigBadValue{Key: fullKeyLabel(section, subsection, key), Value: v.Value, Reason: "invalid integer value"}
+		}
+		Some[int64]{Value: base * mult}
+	}
+}
+
+// FormatNull formats cfg in Git's exact `git config --list --null` wire format.
+func FormatNull(cfg Config) string {
+	let mut out = ""
+	for e in cfg.Entries {
+		let k = match e.Subsection {
+		case Some[string] as sub:
+			e.Section + "." + sub.Value + "." + e.Key
+		case None:
+			e.Section + "." + e.Key
+		}
+		match e.Value {
+		case Some[string] as v:
+			out = out + k + "\n" + v.Value + "\x00"
+		case None:
+			out = out + k + "\x00"
+		}
+	}
+	out
+}

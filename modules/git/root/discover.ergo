@@ -1,0 +1,379 @@
+import filepath
+import fs
+import strings
+
+func isWithinBoundary(boundary string, target string) bool {
+	let b = filepath.Clean(boundary)
+	let t = filepath.Clean(target)
+	if b == "/" {
+		return strings.HasPrefix(t, "/")
+	}
+	t == b || strings.HasPrefix(t, b+"/")
+}
+
+func checkSymlinkDir(path string) fails UntrustedPath needs fs.Files {
+	let l = fs.Files.Lstat(path) catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		return
+	}
+	if !l.Dir {
+		let s = fs.Files.Stat(path) catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+			return
+		}
+		if s.Dir {
+			return UntrustedPath{Path: path, Reason: "symbolic link directory traversal refused"}
+		}
+	}
+}
+
+func checkPathTrust(path string, trust TrustPolicy) fails PathEscape | UntrustedPath needs fs.Files {
+	let clean = filepath.Clean(path)
+	let mut stopAt = ""
+	match trust.TrustedRoot {
+	case Some[string] as b:
+		if !isWithinBoundary(b.Value, clean) {
+			return PathEscape{Path: clean, Boundary: b.Value}
+		}
+		stopAt = filepath.Clean(b.Value)
+	case None:
+	}
+	if !trust.NoFollowSymlinks {
+		return
+	}
+	let mut cur = clean
+	for true {
+		try checkSymlinkDir(cur)
+		if stopAt != "" && cur == stopAt {
+			break
+		}
+		let parent = filepath.Dir(cur)
+		if parent == cur || parent == "." || parent == "/" {
+			break
+		}
+		if stopAt != "" && !isWithinBoundary(stopAt, parent) {
+			break
+		}
+		cur = parent
+	}
+}
+
+func isDir(path string) bool needs fs.Files {
+	let info = fs.Files.Stat(path) catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		return false
+	}
+	info.Dir
+}
+
+func fileExists(path string) bool needs fs.Files {
+	let _ = fs.Files.Lstat(path) catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		return false
+	}
+	true
+}
+
+func isValidHeadContent(raw string) bool {
+	let trimmed = strings.TrimSpace(raw)
+	if strings.HasPrefix(trimmed, "ref:") {
+		return true
+	}
+	let n = len(trimmed)
+	if n != 40 && n != 64 {
+		return false
+	}
+	for b in trimmed.Bytes() {
+		let ok = (b >= byte('0') && b <= byte('9')) || (b >= byte('a') && b <= byte('f')) || (b >= byte('A') && b <= byte('F'))
+		if !ok {
+			return false
+		}
+	}
+	true
+}
+
+func isGitDir(dir string) bool needs fs.Files {
+	let headRaw = fs.Files.ReadFile(filepath.Join([]string{dir, "HEAD"})) catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		return false
+	}
+	if !isValidHeadContent(headRaw) {
+		return false
+	}
+	if fileExists(filepath.Join([]string{dir, "commondir"})) {
+		return true
+	}
+	let hasObjects = isDir(filepath.Join([]string{dir, "objects"}))
+	let hasRefs = isDir(filepath.Join([]string{dir, "refs"})) || isDir(filepath.Join([]string{dir, "reftable"}))
+	hasObjects && hasRefs
+}
+
+func isCeiling(dir string, ceilings []string) bool {
+	let clean = filepath.Clean(dir)
+	for c in ceilings {
+		if filepath.Clean(c) == clean {
+			return true
+		}
+	}
+	false
+}
+
+func parseGitDirFile(dotGitPath string) string fails BadGitDirFile | fs.NotFound | fs.Denied | fs.Failed needs fs.Files {
+	let raw = try fs.Files.ReadFile(dotGitPath)
+	let mut line = raw
+	let nl = strings.Index(line, "\n")
+	if nl >= 0 {
+		line = line[:nl]
+	}
+	line = strings.TrimSuffix(line, "\r")
+	if !strings.HasPrefix(line, "gitdir:") {
+		return BadGitDirFile{Path: dotGitPath, Reason: "missing gitdir: prefix"}
+	}
+	let target = strings.TrimSpace(strings.TrimPrefix(line, "gitdir:"))
+	if target == "" {
+		return BadGitDirFile{Path: dotGitPath, Reason: "empty gitdir target"}
+	}
+	target
+}
+
+func resolveCommonDir(gitDir string, trust TrustPolicy) string fails BadCommonDir | PathEscape | UntrustedPath | fs.Denied | fs.Failed needs fs.Files {
+	let commonFile = filepath.Join([]string{gitDir, "commondir"})
+	let raw = try fs.Files.ReadFile(commonFile) catch {
+	case fs.NotFound:
+		return gitDir
+	}
+	let mut line = raw
+	let nl = strings.Index(line, "\n")
+	if nl >= 0 {
+		line = line[:nl]
+	}
+	let rel = strings.TrimSpace(strings.TrimSuffix(line, "\r"))
+	if rel == "" {
+		return BadCommonDir{Path: commonFile, Reason: "empty commondir file"}
+	}
+	let resolved = filepath.AbsFrom(gitDir, rel)
+	try checkPathTrust(resolved, trust)
+	if !isDir(resolved) {
+		return BadCommonDir{Path: resolved, Reason: "commondir target is not a directory"}
+	}
+	resolved
+}
+
+func unquoteAlternateLine(line string) string {
+	let bs = line.Bytes()
+	let n = len(bs)
+	if n < 2 || bs[0] != byte('"') || bs[n-1] != byte('"') {
+		return line
+	}
+	let mut out = []byte{}
+	let mut i = 1
+	for i < n-1 {
+		let c = bs[i]
+		if c == byte('\\') && i+1 < n-1 {
+			let next = bs[i+1]
+			if next == byte('n') {
+				out = out.Append(byte('\n'))
+			} else if next == byte('t') {
+				out = out.Append(byte('\t'))
+			} else {
+				out = out.Append(next)
+			}
+			i = i + 2
+		} else {
+			out = out.Append(c)
+			i = i + 1
+		}
+	}
+	out.Text()
+}
+
+func resolveAlternatesRec(odb string, trust TrustPolicy, stack []string, depth int) []string fails PathEscape | UntrustedPath | AlternateCycle | AlternateDepthExceeded | fs.Denied | fs.Failed needs fs.Files {
+	let altFile = filepath.Join([]string{odb, "info", "alternates"})
+	let raw = try fs.Files.ReadFile(altFile) catch {
+	case fs.NotFound:
+		return []string{}
+	}
+	let mut out = []string{}
+	for rawLine in strings.Split(raw, "\n") {
+		let line = strings.TrimSuffix(rawLine, "\r")
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		let entry = unquoteAlternateLine(line)
+		let resolved = filepath.AbsFrom(odb, entry)
+		try checkPathTrust(resolved, trust)
+		for seen in stack {
+			if seen == resolved {
+				return AlternateCycle{Path: resolved}
+			}
+		}
+		if depth+1 > trust.MaxAlternateDepth {
+			return AlternateDepthExceeded{Depth: depth + 1}
+		}
+		out = out.Append(resolved)
+		let nested = try resolveAlternatesRec(resolved, trust, stack.Append(resolved), depth+1)
+		for nAlt in nested {
+			out = out.Append(nAlt)
+		}
+	}
+	out
+}
+
+func isKnownExtension(name string) bool {
+		name == "objectformat" ||
+		name == "refstorage" ||
+		name == "worktreeconfig" ||
+		name == "preciousobjects" ||
+		name == "relativeworktrees" ||
+		name == "noop"
+}
+
+func inspectRepoFormat(cfg Config) (int, string, string, bool) fails UnsupportedVersion | UnsupportedExtension | ConfigBadValue {
+	let verOpt = try GetInt(cfg, "core", None, "repositoryformatversion")
+	let ver = match verOpt {
+	case Some[int64] as v:
+		int(v.Value)
+	case None:
+		0
+	}
+	if ver < 0 || ver > 1 {
+		return UnsupportedVersion{Version: ver}
+	}
+	let mut objFmt = "sha1"
+	let mut refStore = "files"
+	let mut wtCfg = false
+	if ver == 1 {
+		for e in cfg.Entries {
+			if e.Section == "extensions" && sameSubsection(e.Subsection, None) {
+				if !isKnownExtension(e.Key) {
+					return UnsupportedExtension{Name: e.Key}
+				}
+			}
+		}
+		match GetLast(cfg, "extensions", None, "objectformat") {
+		case Some[string] as f:
+			let lower = toLowerAscii(f.Value)
+			if lower != "sha1" && lower != "sha256" {
+				return UnsupportedExtension{Name: "objectformat=" + f.Value}
+			}
+			objFmt = lower
+		case None:
+		}
+		match GetLast(cfg, "extensions", None, "refstorage") {
+		case Some[string] as r:
+			let lower = toLowerAscii(r.Value)
+			if lower != "files" && lower != "reftable" {
+				return UnsupportedExtension{Name: "refstorage=" + r.Value}
+			}
+			refStore = lower
+		case None:
+		}
+		match try GetBool(cfg, "extensions", None, "worktreeconfig") {
+		case Some[bool] as w:
+			wtCfg = w.Value
+		case None:
+		}
+	}
+	(ver, objFmt, refStore, wtCfg)
+}
+
+// Discover walks upward from startDir (stopping at any ceiling in opts.CeilingDirs
+// or the filesystem root) to locate a Git repository and resolve its GitDir,
+// CommonDir, WorkTree, ObjectsDir, Alternates, config paths, and format
+// extensions under opts.Trust.
+func Discover(startDir string, opts DiscoverOptions) Layout fails NotARepository | BadGitDirFile | BadCommonDir | UnsupportedVersion | UnsupportedExtension | UntrustedPath | PathEscape | AlternateCycle | AlternateDepthExceeded | ConfigSyntax | ConfigBadValue | fs.NotFound | fs.Denied | fs.Failed needs fs.Files {
+	let start = filepath.Clean(startDir)
+	try checkPathTrust(start, opts.Trust)
+
+	let mut cur = start
+	let mut found = false
+	let mut gitDir = ""
+	let mut workTree Option[string] = None
+
+	for !found {
+		let dotGit = filepath.Join([]string{cur, ".git"})
+		let lRes = try fs.Files.Lstat(dotGit) catch {
+		case fs.NotFound:
+			fs.Info{Name: "", Size: 0, Dir: false, Perm: 0}
+		}
+		if lRes.Name != "" {
+			if lRes.Dir {
+				gitDir = dotGit
+				workTree = Some[string]{Value: cur}
+				found = true
+			} else {
+				if opts.Trust.NoFollowSymlinks {
+					try checkSymlinkDir(dotGit)
+				}
+				let target = try parseGitDirFile(dotGit)
+				let resolved = filepath.AbsFrom(cur, target)
+				try checkPathTrust(resolved, opts.Trust)
+				if !isGitDir(resolved) {
+					return BadGitDirFile{Path: dotGit, Reason: "gitdir target is not a valid git directory"}
+				}
+				gitDir = resolved
+				workTree = Some[string]{Value: cur}
+				found = true
+			}
+		} else if isGitDir(cur) {
+			gitDir = cur
+			workTree = None
+			found = true
+		} else {
+			let parent = filepath.Dir(cur)
+			if parent == cur || isCeiling(parent, opts.CeilingDirs) {
+				return NotARepository{StartDir: start}
+			}
+			cur = parent
+		}
+	}
+
+	let commonDir = try resolveCommonDir(gitDir, opts.Trust)
+	let configPath = filepath.Join([]string{commonDir, "config"})
+	let cfgRaw = try fs.Files.ReadFile(configPath) catch {
+	case fs.NotFound:
+		""
+	}
+	let cfgEntries = try ParseConfig(cfgRaw, Local, configPath)
+	let cfg = Config{Entries: cfgEntries, SkippedIncludes: []string{}}
+	let (ver, objFmt, refStore, wtCfgEnabled) = try inspectRepoFormat(cfg)
+
+	let bareCfg = try GetBool(cfg, "core", None, "bare")
+	let isBare = match workTree {
+	case Some[string]:
+		false
+	case None:
+		match bareCfg {
+		case Some[bool] as b:
+			b.Value
+		case None:
+			true
+		}
+	}
+
+	let objectsDir = filepath.Join([]string{commonDir, "objects"})
+	let alternates = try resolveAlternatesRec(objectsDir, opts.Trust, []string{objectsDir}, 0)
+
+	let mut wtCfgPath Option[string] = None
+	if wtCfgEnabled {
+		let p = filepath.Join([]string{gitDir, "config.worktree"})
+		if fileExists(p) {
+			wtCfgPath = Some[string]{Value: p}
+		}
+	}
+
+	Layout{
+		GitDir:                gitDir,
+		CommonDir:             commonDir,
+		WorkTree:              workTree,
+		ObjectsDir:            objectsDir,
+		Alternates:            alternates,
+		ConfigPath:            configPath,
+		WorktreeConfigPath:    wtCfgPath,
+		IsBare:                isBare,
+		RepoFormatVersion:     ver,
+		ObjectFormat:          objFmt,
+		RefStorage:            refStore,
+		WorktreeConfigEnabled: wtCfgEnabled,
+	}
+}

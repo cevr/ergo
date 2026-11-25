@@ -66,6 +66,70 @@
       ]
     },
     {
+      "name": "git-root-reverses-config-scope",
+      "origin": "STD-GIT G-ROOT",
+      "file": "modules/git/root/config.ergo",
+      "from": "\tfor rank in 0..5 {\n\t\tfor e in all {\n\t\t\tif ScopeRank(e.Scope) == rank {",
+      "to": "\tfor rank in 0..5 {\n\t\tfor e in all {\n\t\t\tif ScopeRank(e.Scope) == 4-rank {",
+      "rule": "Config scope precedence orders System < Global < Local < Worktree < Command so Local overrides Global.",
+      "anchor": {
+        "tests": [
+          "modules/git/root:ConfigMatchesGitConfigNull"
+        ]
+      },
+      "killers": [
+        "modules/git/root:ConfigMatchesGitConfigNull"
+      ]
+    },
+    {
+      "name": "git-root-ignores-commondir",
+      "origin": "STD-GIT G-ROOT",
+      "file": "modules/git/root/discover.ergo",
+      "from": "\tlet commonDir = try resolveCommonDir(gitDir, opts.Trust)",
+      "to": "\tlet commonDir = gitDir",
+      "rule": "Discover resolves commondir for linked worktrees rather than returning GitDir as CommonDir.",
+      "anchor": {
+        "tests": [
+          "modules/git/root:DiscoverMatchesGitRevParse"
+        ]
+      },
+      "killers": [
+        "modules/git/root:DiscoverMatchesGitRevParse"
+      ]
+    },
+    {
+      "name": "git-root-ignores-unknown-extension",
+      "origin": "STD-GIT G-ROOT",
+      "file": "modules/git/root/discover.ergo",
+      "from": "\t\t\t\tif !isKnownExtension(e.Key) {\n\t\t\t\t\treturn UnsupportedExtension{Name: e.Key}\n\t\t\t\t}",
+      "to": "\t\t\t\tif false && !isKnownExtension(e.Key) {\n\t\t\t\t\treturn UnsupportedExtension{Name: e.Key}\n\t\t\t\t}",
+      "rule": "Discover rejects unknown extensions.* under repositoryformatversion = 1 with UnsupportedExtension.",
+      "anchor": {
+        "tests": [
+          "modules/git/root:TrustBoundaryAndExtensions"
+        ]
+      },
+      "killers": [
+        "modules/git/root:TrustBoundaryAndExtensions"
+      ]
+    },
+    {
+      "name": "git-root-follows-untrusted-include",
+      "origin": "STD-GIT G-ROOT",
+      "file": "modules/git/root/config.ergo",
+      "from": "\t\t\t\t\tif !trust.AllowIncludes {",
+      "to": "\t\t\t\t\tif false && !trust.AllowIncludes {",
+      "rule": "LoadConfigFiles does not follow include.path directives when TrustPolicy.AllowIncludes is false.",
+      "anchor": {
+        "tests": [
+          "modules/git/root:TrustBoundaryAndExtensions"
+        ]
+      },
+      "killers": [
+        "modules/git/root:TrustBoundaryAndExtensions"
+      ]
+    },
+    {
       "name": "git-oid-omits-nul",
       "origin": "STD-GIT G-OID",
       "file": "modules/git/oid/oid.ergo",

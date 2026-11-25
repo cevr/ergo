@@ -1,0 +1,131 @@
+// Package root implements Git repository discovery, layout resolution across
+// normal, bare, .git pointer, linked worktree, and alternates layouts, and
+// typed Git INI config parsing with exact scope precedence and trust checks
+// (STD-GIT: G-ROOT).
+
+import filepath
+
+// Error is the closed failure union for repository discovery, trust checks,
+// extension validation, and Git config parsing.
+type Error =
+	| NotARepository{StartDir string}
+	| BadGitDirFile{Path string, Reason string}
+	| BadCommonDir{Path string, Reason string}
+	| UnsupportedVersion{Version int}
+	| UnsupportedExtension{Name string}
+	| UntrustedPath{Path string, Reason string}
+	| PathEscape{Path string, Boundary string}
+	| AlternateCycle{Path string}
+	| AlternateDepthExceeded{Depth int}
+	| ConfigSyntax{Path string, Line int, Reason string}
+	| ConfigBadValue{Key string, Value string, Reason string}
+	| IncludeCycle{Path string}
+	| IncludeDepthExceeded{Depth int}
+	| IncludeRefused{Path string}
+
+// Scope identifies the precedence level of a Git config source.
+// Later scopes override earlier scopes: System < Global < Local < Worktree < Command.
+type Scope = System{} | Global{} | Local{} | Worktree{} | Command{}
+
+// TrustPolicy governs path confinement, symlink no-follow checks, config
+// include.path authorization, and recursion bounds.
+type TrustPolicy {
+	TrustedRoot       Option[string],
+	AllowIncludes     bool,
+	StrictIncludes    bool,
+	NoFollowSymlinks  bool,
+	MaxAlternateDepth int,
+	MaxIncludeDepth   int,
+}
+
+// DefaultTrust returns a safe default policy: untrusted include.path is not
+// followed, directory symlinks are not followed, and alternate/include depths
+// are bounded to Git's standard limits (5 and 10).
+func DefaultTrust() TrustPolicy {
+	TrustPolicy{
+		TrustedRoot:       None,
+		AllowIncludes:     false,
+		StrictIncludes:    false,
+		NoFollowSymlinks:  true,
+		MaxAlternateDepth: 5,
+		MaxIncludeDepth:   10,
+	}
+}
+
+// ConfinedTrust returns DefaultTrust confined to root so gitdir, commondir,
+// alternates, and includes cannot escape root.
+func ConfinedTrust(root string) TrustPolicy {
+	TrustPolicy{
+		TrustedRoot:       Some[string]{Value: filepath.Clean(root)},
+		AllowIncludes:     false,
+		StrictIncludes:    false,
+		NoFollowSymlinks:  true,
+		MaxAlternateDepth: 5,
+		MaxIncludeDepth:   10,
+	}
+}
+
+// DiscoverOptions parameterizes Discover with optional ceiling directories and
+// a TrustPolicy.
+type DiscoverOptions {
+	CeilingDirs []string,
+	Trust       TrustPolicy,
+}
+
+// DefaultDiscoverOptions returns DiscoverOptions with no ceiling directories
+// and DefaultTrust.
+func DefaultDiscoverOptions() DiscoverOptions {
+	DiscoverOptions{
+		CeilingDirs: []string{},
+		Trust:       DefaultTrust(),
+	}
+}
+
+// Layout holds the resolved on-disk placement and format metadata of a Git
+// repository.
+type Layout {
+	GitDir                string,
+	CommonDir             string,
+	WorkTree              Option[string],
+	ObjectsDir            string,
+	Alternates            []string,
+	ConfigPath            string,
+	WorktreeConfigPath    Option[string],
+	IsBare                bool,
+	RepoFormatVersion     int,
+	ObjectFormat          string,
+	RefStorage            string,
+	WorktreeConfigEnabled bool,
+}
+
+// ConfigEntry is one parsed Git config entry. Section and Key are normalized
+// to lowercase; Subsection preserves exact case; Value is None for an implicit
+// boolean key written without `=`.
+type ConfigEntry {
+	Section    string,
+	Subsection Option[string],
+	Key        string,
+	Value      Option[string],
+	Scope      Scope,
+	Source     string,
+}
+
+// Config holds merged Git config entries in exact scope precedence order plus
+// any include.path directives skipped under an untrusted TrustPolicy.
+type Config {
+	Entries         []ConfigEntry,
+	SkippedIncludes []string,
+}
+
+// ConfigFile names a config file on disk together with its Scope.
+type ConfigFile {
+	Scope Scope,
+	Path  string,
+}
+
+// ConfigSource holds in-memory config text together with its Scope and Path.
+type ConfigSource {
+	Scope   Scope,
+	Path    string,
+	Content string,
+}
