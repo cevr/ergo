@@ -55,6 +55,9 @@ func (c *checker) hostClauses(target string, sig *Signature, at syntax.Node) {
 			continue
 		}
 		if c.hostResourceParam(p.Type) && !v1.GoArgLent(target, i+off) && !slices.Contains(sig.Takes, i) {
+			if c.pkg.host != nil && c.pkg.host.cBind && c.cBindLentParam(p.Type) {
+				continue
+			}
 			sig.Takes = append(sig.Takes, i)
 		}
 	}

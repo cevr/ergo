@@ -231,12 +231,16 @@ func Load(path string) error {
 			e.p("// %s is %s.\ntype %s %s\n\n", gn, d.Name, gn, goScalar[d.Scalar])
 		case DeclOpaque:
 			if h := k.handles[d.Name]; h != nil {
+				destroyGo := goCamel(strings.TrimPrefix(h.Destroy, b.Contract.Prefixes.Function))
 				e.p("// %s is a %s handle. %s destroys it and sets it to nil; a later\n// call on it returns ErrDestroyed. Thread affinity: %s.\n",
-					gn, d.Name, goCamel(strings.TrimPrefix(h.Destroy, b.Contract.Prefixes.Function)), h.Thread)
+					gn, d.Name, destroyGo, h.Thread)
 				if h.Thread == "owner" {
 					e.p("type %s struct {\n\tp uintptr\n\t// t is the OS thread that created it (cbThread): a call that\n\t// changes a callback registration of a handle key checks it.\n\tt uintptr\n}\n\n", gn)
 				} else {
 					e.p("type %s struct{ p uintptr }\n\n", gn)
+				}
+				if h.Destroy != "" {
+					e.p("// Close destroys the %s handle by calling %s.\nfunc (h *%s) Close() error { return %s(h) }\n\n", d.Name, destroyGo, gn, destroyGo)
 				}
 			}
 		case DeclStruct:
@@ -382,17 +386,20 @@ func (e *goEmitter) structDecl(d TypeDecl) {
 		for _, k := range kinds {
 			names = append(names, e.b.GoTypes[k])
 		}
-		e.p("// %s is a record that starts with a %s: one of %s.\n", e.b.RecordType(d.Name), gn, strings.Join(names, ", "))
+		rt := e.b.RecordType(d.Name)
+		e.p("// %s is a record that starts with a %s: one of %s.\n", rt, gn, strings.Join(names, ", "))
 		e.p("// A function that takes one passes C the whole record, with its header's\n// autofill fields set and the record's size in its size field.\n")
-		e.p("type %s interface {\n\t// record returns the address of a filled copy of the record.\n\trecord() unsafe.Pointer\n}\n\n", e.b.RecordType(d.Name))
+		e.p("type %s interface {\n\t// Is%s marks the concrete record kinds for Ergo/Go interface checking.\n\tIs%s()\n\t// record returns the address of a filled copy of the record.\n\trecord() unsafe.Pointer\n}\n\n", rt, rt, rt)
 	}
 	if h != "" {
+		rt := e.b.RecordType(h)
 		fill := ""
 		if e.needsFill(d.Name) {
 			fill = "\ts.fill()\n"
 		}
+		e.p("// Is%s marks %s as a %s.\nfunc (%s) Is%s() {}\n\n", rt, gn, rt, gn, rt)
 		e.p("// record makes %s a %s.\nfunc (s %s) record() unsafe.Pointer {\n%s\treturn unsafe.Pointer(&s)\n}\n\n",
-			gn, e.b.RecordType(h), gn, fill)
+			gn, rt, gn, fill)
 	}
 	if !e.needsFill(d.Name) {
 		return

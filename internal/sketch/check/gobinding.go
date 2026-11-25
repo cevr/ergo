@@ -43,6 +43,9 @@ type GoBindings struct {
 	// the binding's stamp with go.mod, reading files only); "" when it
 	// matches. The import is then S104 with the command that rewrites it.
 	Stale func(path string) string
+	// VerifyCStamp, when set, verifies the header and contract SHA-256 stamps
+	// of a `// ergo:bind c` binding against disk or a manifest; "" when valid.
+	VerifyCStamp func(path, headerSHA, contractSHA string) string
 }
 
 // NewGoBindings returns the Go packages read through lookup, which returns
@@ -139,12 +142,20 @@ func (c *checker) checkGoImports() {
 			if h == nil {
 				continue
 			}
+			if h.looksLikeCBind() {
+				h.load()
+				h.verifyCBindAll()
+			}
 			msg := h.err
 			if ds := h.c.sorted(); msg == "" && len(ds) > 0 {
 				msg = ds[0].String()
 			}
 			if msg != "" {
-				c.errorf(pn.spec, CodeType, "the binding of Go package %q does not check: %s; run ergo bind go %s", pn.Pkg.Path, msg, pn.Pkg.Path)
+				if h.cBind || h.looksLikeCBind() {
+					c.errorf(pn.spec, CodeType, "the C binding of %q does not check: %s; run ergo bind c", pn.Pkg.Path, msg)
+				} else {
+					c.errorf(pn.spec, CodeType, "the binding of Go package %q does not check: %s; run ergo bind go %s", pn.Pkg.Path, msg, pn.Pkg.Path)
+				}
 			}
 		}
 	}
@@ -242,6 +253,12 @@ type hostPkg struct {
 	writes   map[*Func]int            // the parameter a function's `// ergo:writes` line names (GBX2, gowrites.go)
 	effect   map[*Func]bool           // a memory-only function, `// ergo:effect none (vouched: …)` (GBX6)
 	host     map[*Func]bool           // a host function, `// ergo:effect ambient (vouched: …)` (HOST-ROW)
+	// C bindings (`// ergo:bind c ...`, CFFI-2): provenance stamps and flat-type markers.
+	cBind        bool
+	cChecked     bool
+	cHeaderSHA   string
+	cContractSHA string
+	cdata        map[*TypeName]bool
 }
 
 func hostOf(p *Package) *hostPkg {
@@ -326,6 +343,9 @@ func (s *GoBindings) ResolveAll(path string) bool {
 				h.misfitWrites(m) // a method writes too (HOST-ROW-3 slice 2: File.Read)
 			}
 		}
+	}
+	if h.cBind || h.looksLikeCBind() {
+		h.verifyCBindAll()
 	}
 	return true
 }
@@ -522,6 +542,7 @@ func (h *hostPkg) load() {
 			h.ambientUnvouched(m)
 		}
 	}
+	h.loadCBind(f)
 }
 
 // GoVariadic reports a Go function or method of import go whose last
