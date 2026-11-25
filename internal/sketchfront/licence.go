@@ -5,9 +5,9 @@ import (
 	"io"
 	"path/filepath"
 	"slices"
-	"sort"
 	"strings"
 
+	"ergo.local/prototype/internal/lawledger"
 	"ergo.local/prototype/internal/report"
 	"ergo.local/prototype/internal/sketch/build"
 	"ergo.local/prototype/internal/sketch/check"
@@ -177,12 +177,14 @@ func (e *LicenceSkippedError) Error() string {
 
 // CorpusFile is the licence runs' corpus, beside ergo.laws: one line
 // `law <pkg>.<Law> (<values>)` per refuted case, which each later licence
-// run of the law takes first (LAWFFI r2 §3.4; eval's encodeCase). Like a
-// Go fuzz corpus it is checked in, and ergo test only adds to it; a line
-// goes when its package no longer declares the law.
-const CorpusFile = "ergo.cases"
+// run of the law takes first (LAWFFI r2 §3.4; eval's encodeCase), and
+// `property <pkg>.<Name> tape <digest> <draws>` per stored property tape
+// (PROPERTY-TESTING P8). Like a Go fuzz corpus it is checked in, and ergo
+// test only adds to it; a shadow line goes when its package no longer
+// declares the law.
+const CorpusFile = lawledger.CasesFile
 
-// corpus is a corpus file's lines by their law's key, in file order.
+// corpus is a corpus file's shadow lines by their law's key, in file order.
 type corpus map[string][]string
 
 func corpusPath(ledger string) string {
@@ -192,38 +194,14 @@ func corpusPath(ledger string) string {
 	return filepath.Join(filepath.Dir(ledger), CorpusFile)
 }
 
-// parseCorpus reads a corpus file's text; a blank line or a # line is
-// skipped, and any other line that is not `law <key> (…)` is an error.
-func parseCorpus(text string) (corpus, error) {
-	out := corpus{}
-	for i, line := range strings.Split(text, "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-		rest, ok := strings.CutPrefix(line, "law ")
-		key, c, ok2 := strings.Cut(rest, " ")
-		if !ok || !ok2 || !strings.HasPrefix(c, "(") {
-			return nil, fmt.Errorf("%s:%d: not a corpus line: %q", CorpusFile, i+1, line)
-		}
-		out[key] = append(out[key], c)
+func parseCorpus(text string) (corpus, []lawledger.PropertyCase, error) {
+	s, err := lawledger.ParseCases(text)
+	if err != nil {
+		return nil, nil, err
 	}
-	return out, nil
+	return corpus(s.Shadow), s.Property, nil
 }
 
-// format is the corpus's text, its laws sorted and each law's cases in
-// the order they were found.
-func (c corpus) format() string {
-	keys := make([]string, 0, len(c))
-	for k := range c {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	var b strings.Builder
-	for _, k := range keys {
-		for _, line := range c[k] {
-			b.WriteString("law " + k + " " + line + "\n")
-		}
-	}
-	return b.String()
+func (c corpus) formatWith(props []lawledger.PropertyCase) string {
+	return (&lawledger.CaseStore{Shadow: map[string][]string(c), Property: props}).Format()
 }

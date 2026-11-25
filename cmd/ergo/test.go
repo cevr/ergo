@@ -152,7 +152,7 @@ func takesValue(a string) bool {
 // takes no warm answer and keeps none: the answer has no trace.
 func testPackage(opts fileOptions) error {
 	var w *warm
-	if testCacheable(opts) && !opts.trace {
+	if testCacheable(opts) && !opts.trace && !opts.pruneCases {
 		w = startWarm(opts, warmToolchain(opts), ledgerPart(ledgerPath(opts.file)))
 	}
 	if w != nil && w.hit {
@@ -178,6 +178,9 @@ func testPackage(opts fileOptions) error {
 func testLoadedPackage(opts fileOptions, l loaded, keep func(result []byte)) error {
 	if keep == nil {
 		keep = func([]byte) {}
+	}
+	if opts.pruneCases {
+		return pruneCasesForLoaded(opts, l, os.Stdout, os.Stderr)
 	}
 	// A package with nothing to test is neither built nor run, so its
 	// initializers never run (empty.go); a schedule search still builds it.
@@ -313,6 +316,18 @@ func runTestBinary(opts fileOptions, l loaded, tc build.Toolchain, binary string
 	// The law runs whose verdict the store holds at this seed and budget
 	// print it "(cached)" and do not run (lawcache); an explored run
 	// takes none, since it runs under another scheduler.
+	storedCases, err := loadStoredCasesForPkg(opts.file, l.analysis.Root().Package)
+	if err != nil {
+		return err
+	}
+	if len(storedCases) > 0 && !opts.explore {
+		tapesDir, tapesFile, err := writeTapesTempFile(storedCases)
+		if err != nil {
+			return err
+		}
+		defer os.RemoveAll(tapesDir)
+		childArgs = append(childArgs, "--tapes", tapesFile)
+	}
 	var verdicts *sketchfront.TestVerdicts
 	if !opts.explore && opts.receipt == "" && !opts.trace {
 		seed, states := uint64(1), 0
@@ -326,7 +341,7 @@ func runTestBinary(opts fileOptions, l loaded, tc build.Toolchain, binary string
 		// --native (the gate, CI) runs every law: it reads no stored
 		// verdict, so its pass is a run's, never a replay. It still
 		// stores what held, for the next default run (FT2).
-		if text := verdicts.CachedFile(); text != "" && !opts.native {
+		if text := filterCachedForStored(verdicts.CachedFile(), storedCases); text != "" && !opts.native {
 			// A file of this run's own: a module's one test binary runs
 			// once per package (sharedTestCommand).
 			dir, err := os.MkdirTemp("", "ergo-cached-")
@@ -345,6 +360,9 @@ func runTestBinary(opts fileOptions, l loaded, tc build.Toolchain, binary string
 	// emission cache's trim (lawtrim.go).
 	defer boundLaws(lawStore())
 	child := testProgramCommand(binary, childArgs, limit)
+	if !isStdTarget(opts.file) && !opts.explore {
+		child.Env = append(child.Env, "ERGO_RECORD_TAPES=1")
+	}
 	tracePath := ""
 	if opts.trace {
 		// The test binary's root records its trace into this file when
@@ -367,12 +385,17 @@ func runTestBinary(opts fileOptions, l loaded, tc build.Toolchain, binary string
 	shadows := &shadowLines{}
 	// The printed lines, for the skips the module does not expect.
 	var printed bytes.Buffer
-	stdout, stderr := []io.Writer{os.Stdout, &printed}, []io.Writer{os.Stderr, shadows}
+	stderrSink := io.Writer(os.Stderr)
+	if store != nil {
+		stderrSink = io.MultiWriter(os.Stderr, &result.stderr)
+	}
+	tapes := &tapeLines{next: stderrSink}
+	stdout, stderr := []io.Writer{os.Stdout, &printed}, []io.Writer{tapes, shadows}
 	if verdicts != nil {
 		stdout = append(stdout, &out)
 	}
 	if store != nil {
-		stdout, stderr = append(stdout, &result.stdout), append(stderr, &result.stderr)
+		stdout = append(stdout, &result.stdout)
 	}
 	if len(stdout) > 1 {
 		child.Stdout = io.MultiWriter(stdout...)
@@ -381,6 +404,7 @@ func runTestBinary(opts fileOptions, l loaded, tc build.Toolchain, binary string
 		child.Stderr = io.MultiWriter(stderr...)
 	}
 	err = runEntryProcess(child, limit, proclimit.Watch(child))
+	tapes.Flush()
 	if opts.trace {
 		if err := printSteps(os.Stdout, tracePath); err != nil {
 			return err
@@ -388,6 +412,11 @@ func runTestBinary(opts fileOptions, l loaded, tc build.Toolchain, binary string
 	}
 	// Each run that printed its ok line held, whatever later runs did.
 	verdicts.Record(out.String())
+	if len(tapes.recorded) > 0 {
+		if rerr := recordRefutedTapes(opts.file, l.analysis.Root().Package, tapes.recorded); rerr != nil && err == nil {
+			err = rerr
+		}
+	}
 	if len(shadows.refs) > 0 {
 		// A failed run too: the refutation is a fact of the sources.
 		if werr := writeRefutations(opts, l, shadows.refs); werr != nil && err == nil {

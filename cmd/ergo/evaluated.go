@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"io"
 	"strconv"
 )
@@ -31,12 +32,21 @@ func evaluatedTestRun(opts fileOptions, l loaded, stdout, stderr io.Writer, keep
 	}
 	store := lawStore()
 	defer boundLaws(store)
-	answer, ok := l.analysis.EvaluateTests(seed, states, l.source.Admitted(), opts.file, store, pinnedToolchain(opts.platform))
+	storedCases, err := loadStoredCasesForPkg(opts.file, l.analysis.Root().Package)
+	if err != nil {
+		return true, err
+	}
+	answer, ok := l.analysis.EvaluateTestsWithCases(seed, states, l.source.Admitted(), opts.file, store, pinnedToolchain(opts.platform), storedCases, false)
 	if !ok {
 		return false, nil
 	}
 	if _, err := io.WriteString(stdout, answer.Stdout); err != nil {
 		return true, err
+	}
+	if len(answer.RefutedTapes) > 0 || len(answer.PassedStored) > 0 {
+		if _, _, rerr := updateCasesStore(opts.file, l.analysis.Root().Package, answer.RefutedTapes, answer.PassedStored, false); rerr != nil {
+			fmt.Fprintf(stderr, "ergo.cases: %v\n", rerr)
+		}
 	}
 	if answer.Exit != 0 {
 		_, _ = io.WriteString(stderr, answer.Stderr)

@@ -159,7 +159,7 @@ func (in *interp) contextLaw(law *check.Law, lc *check.LawContext, res Result) (
 			out.Schedule = result.Schedule
 		}
 		if result.Status != Passed {
-			out.Case, out.Arguments, out.Drawn = k+1, shown(shows), result.Drawn
+			out.Case, out.Arguments, out.Drawn, out.ShrunkTape = k+1, shown(shows), result.Drawn, result.ShrunkTape
 			return
 		}
 	}

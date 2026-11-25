@@ -406,24 +406,88 @@ func (in *interp) cases(fr *frame, body *syntax.BlockStmt, law bool, params []*c
 		}
 		return in.runBodyFrame(cf, body, law, res), shows
 	}
-	for k := 0; k < p.Count; k++ {
-		out.Case = k + 1
-		mustCharge(in, fr, 1)
-		r.Start(k + 1)
-		r.Record()
-		result, shows := run(k)
-		out.Cases = k + 1
-		if result.Status == Refuted && !p.Listed && len(p.Inputs) > 0 {
-			result, shows = in.shrinkCase(r, result, shows, func() (Result, []func() Argument) { return run(k) })
+	// Replay stored shrunk tapes from ergo.cases BEFORE drawing random cases
+	// (PROPERTY-TESTING P8).
+	replayStored := func() bool {
+		if p.Listed || len(p.Inputs) == 0 {
+			return false
 		}
-		out.Status, out.Reason, out.Site, out.escaped, out.Message = result.Status, result.Reason, result.Site, result.escaped, result.Message
-		if result.Schedule != 0 {
-			out.Schedule = result.Schedule
+		stored := in.budget.StoredCases[res.Name]
+		for idx, sc := range stored {
+			out.Case = 0
+			mustCharge(in, fr, 1)
+			r.Start(0)
+			r.Replay(sc.Tape)
+			result, shows := run(0)
+			r.EndReplay()
+			if result.Status == Refuted {
+				best := slices.Clone(sc.Tape)
+				if sc.Stale {
+					result, shows = in.shrinkTapeCase(r, sc.Tape, result, shows, func() (Result, []func() Argument) { return run(0) })
+					if len(result.ShrunkTape) > 0 {
+						best = result.ShrunkTape
+					}
+				}
+				out.Status, out.Reason, out.Site, out.escaped, out.Message = result.Status, result.Reason, result.Site, result.escaped, result.Message
+				if result.Schedule != 0 {
+					out.Schedule = result.Schedule
+				}
+				out.Case, out.Cases = 0, 0
+				out.Arguments, out.Drawn = shown(shows), result.Drawn
+				out.StoredCaseHit = true
+				out.StoredStale = sc.Stale
+				out.StoredOldDigest = sc.Digest
+				out.ShrunkTape = best
+				return true
+			}
+			if result.Status != Passed {
+				out.Status, out.Reason, out.Site, out.escaped, out.Message = result.Status, result.Reason, result.Site, result.escaped, result.Message
+				if result.Schedule != 0 {
+					out.Schedule = result.Schedule
+				}
+				out.Case, out.Arguments, out.Drawn = 0, shown(shows), result.Drawn
+				return true
+			}
+			out.PassedStored = append(out.PassedStored, idx)
+			if sc.Stale {
+				out.ExtraStaleCases++
+			}
 		}
-		if result.Status != Passed {
-			out.Case, out.Arguments, out.Drawn = k+1, shown(shows), result.Drawn
-			return
+		return false
+	}
+	drawCases := func() bool {
+		for k := 0; k < p.Count; k++ {
+			out.Case = k + 1
+			mustCharge(in, fr, 1)
+			r.Start(k + 1)
+			r.Record()
+			result, shows := run(k)
+			out.Cases = k + 1
+			if result.Status == Refuted && !p.Listed && len(p.Inputs) > 0 {
+				result, shows = in.shrinkCase(r, result, shows, func() (Result, []func() Argument) { return run(k) })
+			}
+			out.Status, out.Reason, out.Site, out.escaped, out.Message = result.Status, result.Reason, result.Site, result.escaped, result.Message
+			if result.Schedule != 0 {
+				out.Schedule = result.Schedule
+			}
+			if result.Status != Passed {
+				out.Case, out.Arguments, out.Drawn, out.ShrunkTape = k+1, shown(shows), result.Drawn, result.ShrunkTape
+				return true
+			}
 		}
+		return false
+	}
+	if replayStored() {
+		return
+	}
+	if in.budget.PruneCases {
+		out.Status = Passed
+		out.Case = 0
+		out.Cases = len(in.budget.StoredCases[res.Name])
+		return
+	}
+	if drawCases() {
+		return
 	}
 	out.Case = 0
 	return
@@ -442,7 +506,11 @@ func (in *interp) cases(fr *frame, body *syntax.BlockStmt, law bool, params []*c
 // the native runner would have shrunk it further). The drawn arguments
 // are written before the shrink, while the budget lasts.
 func (in *interp) shrinkCase(r *testgen.Stream, drawn Result, drawnShows []func() Argument, run func() (Result, []func() Argument)) (Result, []func() Argument) {
-	tape := r.Tape()
+	return in.shrinkTapeCase(r, r.Tape(), drawn, drawnShows, run)
+}
+
+func (in *interp) shrinkTapeCase(r *testgen.Stream, tape []uint64, drawn Result, drawnShows []func() Argument, run func() (Result, []func() Argument)) (Result, []func() Argument) {
+	drawn.ShrunkTape = slices.Clone(tape)
 	large := shown(drawnShows)
 	drawnShows = make([]func() Argument, len(large))
 	for i, a := range large {
@@ -476,6 +544,7 @@ func (in *interp) shrinkCase(r *testgen.Stream, drawn Result, drawnShows []func(
 	if got.Status != Refuted || got.escaped != drawn.escaped {
 		return drawn, drawnShows // not deterministic: the drawn case
 	}
+	got.ShrunkTape = slices.Clone(best)
 	small := shown(shows)
 	if !slices.Equal(small, large) {
 		got.Drawn = large

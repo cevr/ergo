@@ -244,6 +244,22 @@ skip law Runner.Runs: its operation type Runner has the row parameter E, and a r
 
 A refuted law's replay is a line of its own, which reruns that law alone (`--law`, X1b); a test's replay stays in its `FAIL` line.
 
+### Stored regression cases (`ergo.cases`)
+
+When a drawn property (a law or a parameterized test) is refuted during `ergo test`, its shrunk draw tape and current reach digest are appended to `ergo.cases` beside `ergo.laws`:
+
+```text
+property app.SortLaw tape h1:<reach-digest> 0,1,2
+```
+
+Every later `ergo test` replays all stored tapes for each property **before** drawing random cases (at case 0), regardless of `--seed`:
+
+- When a stored tape's reach digest matches the property's current reach digest and fails, it is reported at `case 0, stored case`.
+- When the property or its generator changed (the reach digest differs), the stored tape still runs as an extra case and the output explicitly marks it `extra case, digest changed` rather than naming it as the old failure.
+- A stored tape that now passes stays in `ergo.cases` as a permanent regression case.
+- Run `ergo test --prune-cases [TARGET]` to replay stored tapes and remove only those that now pass (plus entries for deleted properties).
+- `ergo test --affected` treats a changed `ergo.cases` as affecting every obligation of the module.
+
 A test that cannot run on this host says so at run time with the statement `skip "reason"`, as Go's `t.Skip` does:
 
 ```ergo

@@ -51,10 +51,21 @@ func testCacheable(opts fileOptions) bool {
 // ledgerPart is the law ledger at path as a key part: a full run writes it,
 // so a hit finds the ledger the stored run left.
 func ledgerPart(path string) string {
+	var b strings.Builder
 	if data, err := os.ReadFile(path); err == nil {
-		return "ledger " + string(data)
+		b.WriteString("ledger ")
+		b.Write(data)
+	} else {
+		b.WriteString("no ledger")
 	}
-	return "no ledger"
+	if path != "" {
+		casesPath := filepath.Join(filepath.Dir(path), sketchfront.CorpusFile)
+		if data, err := os.ReadFile(casesPath); err == nil {
+			b.WriteString("\ncases ")
+			b.Write(data)
+		}
+	}
+	return b.String()
 }
 
 // toolchainIdentity is the Go toolchain that links tc's builds, as a key

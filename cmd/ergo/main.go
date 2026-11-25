@@ -207,7 +207,10 @@ type fileOptions struct {
 	mutants bool
 	// fresh is test's --fresh with --mutants: bypass stored mutant verdicts.
 	fresh bool
-	file  string
+	// pruneCases is test's --prune-cases: replay stored property tapes in
+	// ergo.cases and remove those that now pass (PROPERTY-TESTING P8).
+	pruneCases bool
+	file       string
 	// more are test's targets after the first (`ergo test A B C/...`),
 	// each a file, a folder or a pattern; none for every other command.
 	more []string
@@ -419,6 +422,8 @@ func fileOptionsOf(command string, args []string) (fileOptions, error) {
 			opts.mutants = true
 		case "--fresh":
 			opts.fresh = true
+		case "--prune-cases":
+			opts.pruneCases = true
 		case "--go-trace":
 			opts.goTrace = true
 		case "--explore":
@@ -514,8 +519,12 @@ func fileOptionsOf(command string, args []string) (fileOptions, error) {
 		return opts, fmt.Errorf("--mutants is only supported by test")
 	case opts.fresh && !opts.mutants:
 		return opts, fmt.Errorf("--fresh needs --mutants")
-	case opts.mutants && (opts.affected.on || selected || opts.receipt != "" || opts.emitted || opts.explore || searched || opts.work):
-		return opts, fmt.Errorf("--mutants selects tests itself: it takes no --affected, --law, --skip-law, --receipt, --emitted, --explore or -work")
+	case opts.mutants && (opts.affected.on || selected || opts.receipt != "" || opts.emitted || opts.explore || searched || opts.work || opts.pruneCases):
+		return opts, fmt.Errorf("--mutants selects tests itself: it takes no --affected, --law, --skip-law, --receipt, --emitted, --explore, --prune-cases or -work")
+	case opts.pruneCases && command != "test":
+		return opts, fmt.Errorf("--prune-cases is only supported by test")
+	case opts.pruneCases && (opts.affected.on || opts.explore || searched || opts.receipt != "" || opts.emitted):
+		return opts, fmt.Errorf("--prune-cases takes no --affected, --explore, --receipt or --emitted")
 	case laws > 1 || skips > 1:
 		return opts, fmt.Errorf("--law and --skip-law each select one law: given twice, the first would be dropped")
 	case selected && (!validLaw(opts.law) || !validLaw(opts.skipLaw) || opts.law+opts.skipLaw == ""):
