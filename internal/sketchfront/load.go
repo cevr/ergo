@@ -169,6 +169,10 @@ type program struct {
 	platform gobind.Platform
 	// trust are the modules whose Go the root's ergo.mod trusts.
 	trust []string
+	// rootCheck retains the checked loader so CheckRootOverlay can re-check
+	// only the root package with an in-memory file edit without reloading
+	// imports or module files.
+	rootCheck *loader
 }
 
 // loader reads and checks one program.
@@ -380,7 +384,7 @@ func checkDirFull(fsys FS, dir string, platform gobind.Platform, modCache string
 		}
 	}
 	prepareStd(nil)
-	p := &program{texts: l.texts, bindings: l.bindings, dir: l.root, platform: platform}
+	p := &program{texts: l.texts, bindings: l.bindings, dir: l.root, platform: platform, rootCheck: l}
 	if found {
 		p.module, p.modRoot, p.trust = l.module, l.root, l.trust
 	}

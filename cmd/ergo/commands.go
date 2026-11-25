@@ -46,7 +46,7 @@ var commands = []cliCommand{
 	{name: "run", usage: "run FILE|DIR [--] [ARGS...]", help: runHelp, run: runCommand},
 	{name: "fix", usage: "fix [--check|--dry-run] [--json] [--std DIR] [--go] PATH...", help: fixHelp, run: fixCommand},
 	{name: "fmt", usage: "fmt FILE...|DIR/... [--check] [--json] | fmt --stdin", help: fmtHelp, run: formatCommand},
-	{name: "test", usage: "test FILE|DIR|DIR/... [--seed N] [--states N] [--law NAME] [--skip-law NAME] [--run NAME] [--receipt FILE] [--explore [dfs|pct|random] [--preempt B] [--depth D] [--schedules S]] [--schedule TOKEN] [-work] [--emitted] [--affected [BASE] [--list] [--why]] [--mutants [--fresh]] [--go-trace] [--json] [--target go] | test DIR --cases CASES [--locked]", run: testCommand},
+	{name: "test", usage: "test FILE|DIR|DIR/... [--seed N] [--states N] [--law NAME] [--skip-law NAME] [--run NAME] [--receipt FILE] [--explore [dfs|pct|random] [--preempt B] [--depth D] [--schedules S]] [--schedule TOKEN] [-work] [--emitted] [--affected [BASE] [--list] [--why]] [--mutants [--fresh] [--derived [--strict]]] [--go-trace] [--json] [--target go] | test DIR --cases CASES [--locked]", run: testCommand},
 	{name: "bind", usage: "bind go [-o DIR] PACKAGE...", help: bindHelp, run: bindCommand},
 	{name: "get", usage: "get MODULE[@VERSION]...", help: getHelp, run: getCommand},
 	{name: "lib", usage: "lib FILE|DIR -o DIR", help: libHelp, run: libCommand},
