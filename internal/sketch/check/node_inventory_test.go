@@ -140,7 +140,7 @@ const notBuiltFamily = "not built"
 var nodeTable = map[string]nodeEntry{
 	"ArrayType": {"core forms", ""}, "BasicLit": {"core forms", ""}, "BinaryExpr": {"core forms", ""},
 	"BlockStmt": {"core forms", ""}, "CallExpr": {"core forms", ""}, "CompositeLit": {"core forms", ""},
-	"DeclStmt": {"core forms", ""}, "ExprStmt": {"core forms", ""}, "Field": {"core forms", ""},
+	"DeclStmt": {"core forms", ""}, "DieStmt": {"core forms", ""}, "ExprStmt": {"core forms", ""}, "Field": {"core forms", ""},
 	"FieldList": {"core forms", ""}, "File": {"core forms", ""}, "FuncDecl": {"core forms", ""},
 	"FuncType": {"core forms", ""}, "Ident": {"core forms", ""}, "IfStmt": {"core forms", ""},
 	"IndexExpr": {"core forms", ""}, "KeyValueExpr": {"core forms", ""}, "ParenExpr": {"core forms", ""},

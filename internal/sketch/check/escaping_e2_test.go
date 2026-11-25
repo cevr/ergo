@@ -86,6 +86,9 @@ var escPositions = map[string][]escCase{
 	"ReturnStmt.Results": {
 		{src: "func u(f func(int) int) func(int) int {\n\t$return f\n}\n"},
 	},
+	"DieStmt.X": {
+		{src: "func u(f func(int) int) defects {\n\t$die f\n}\n", want: "S108"},
+	},
 	"ExprStmt.X": {
 		{src: "func u(f func(int) int) func(int) int {\n\t$f\n}\n"},
 		{src: "func u(c bool, f func(int) int) func(int) int {\n\tif c {\n\t\treturn give(f)\n\t}\n\t$f\n}\n"},

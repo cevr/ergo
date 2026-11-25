@@ -3510,6 +3510,7 @@ func (e *encoder) encFieldsSignature(v *check.Signature) {
 	e.encT120(v.Takes)
 	e.encT15(v.TakesSelf)
 	e.encT15(v.MutSelf)
+	e.encT15(v.Defects)
 }
 
 func (e *encoder) encSignature(v check.Signature) { e.encFieldsSignature(&v) }
@@ -6275,6 +6276,8 @@ func (e *encoder) encFieldstarget(v *check.Codec_target) {
 	e.encPtrRow(*f.F_missErrors)
 	e.encPtrRow(*f.F_missUses)
 	e.encPtrharnessUse(*f.F_harness)
+	e.encT15(*f.F_defects)
+	e.encT1(*f.F_inCatchArm)
 }
 
 func (e *encoder) enctarget(v check.Codec_target) { e.encFieldstarget(&v) }
@@ -14830,6 +14833,7 @@ func (d *decoder) decFieldsSignature(v *check.Signature) {
 	v.Takes = d.decT120()
 	v.TakesSelf = d.decT15()
 	v.MutSelf = d.decT15()
+	v.Defects = d.decT15()
 }
 
 func (d *decoder) decSignature() (v check.Signature) {
@@ -17685,6 +17689,8 @@ func (d *decoder) decFieldstarget(v *check.Codec_target) {
 	*f.F_missErrors = d.decPtrRow()
 	*f.F_missUses = d.decPtrRow()
 	*f.F_harness = d.decPtrharnessUse()
+	*f.F_defects = d.decT15()
+	*f.F_inCatchArm = d.decT1()
 }
 
 func (d *decoder) dectarget() (v check.Codec_target) {

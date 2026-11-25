@@ -12,6 +12,7 @@
 // control: a goroutine with a channel and a switch on the state.
 
 import machines
+import task
 import tasks
 import time
 import sync
@@ -1276,7 +1277,11 @@ type Halted[S] {
 // work): Reason is the defect's text, as the runtime's report writes it
 // after "panic: " (an Unreachable's "unreachable at a.ergo:9:3: no
 // route"). The defect itself is Stop's to raise (FK13-g1).
-type Defected { Reason string }
+type Defected { Reason string, Defect task.Defect }
+
+// ReasonAs looks up the deliberate defect payload of d at the exact nominal
+// type T. Foreign faults and payloads of any other type return None.
+func ReasonAs[T](d Defected) Option[T] { task.ReasonOf[T](d.Defect) }
 
 // Failed is an actor that its step's typed failure ended, after a Send or
 // a timer: the failure, a value of the row F (owner q47; an Ask's failure
@@ -1396,7 +1401,8 @@ func ExitOf[S, E, O, F](a Actor[S, E, Decision[S, O], F]) Exit[S, O, F] {
 		}
 	}
 	if k == 3 {
-		return Defected{Reason: defectOf(a)}
+		let d = exitDefect(a)
+		return Defected{Reason: d.Text(), Defect: d}
 	}
 	Halted[S]{State: a.State()}
 }
@@ -1890,6 +1896,9 @@ extern go ergo.local/prototype/runtime/v1.ActorFailure func failure[S, E, D, F](
 
 // defectOf is the text of the defect that ended a (kind 3).
 extern go ergo.local/prototype/runtime/v1.ActorDefectReason func defectOf[S, E, D, F](a Actor[S, E, D, F]) string
+
+// exitDefect is the opaque Defect view of the defect that ended a (kind 3).
+extern go ergo.local/prototype/runtime/v1.ActorDefect func exitDefect[S, E, D, F](a Actor[S, E, D, F]) task.Defect
 
 extern go ergo.local/prototype/runtime/v1.ActorHasLatest func hasLatest[S, E, D, F](a Actor[S, E, D, F]) bool
 

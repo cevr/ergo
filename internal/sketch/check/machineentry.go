@@ -196,6 +196,10 @@ func (c *checker) checkEntryExpr(tn *TypeName, kind string) *MachineEntry {
 		c.errorf(x, CodeType, "%s; a machine's %s is a function value (runtime.md, Machines and actors 1)", notFunctionText(x, op.typ), kind)
 		return nil
 	}
+	if kind == entryStep && sig.Defects {
+		c.errorf(x, CodeType, "machine %s's step cannot declare defects: step is shared with pure replay and laws", tn.Name)
+		return nil
+	}
 	if kind != entryStep {
 		// Every entry but the step has no rows of its own (Machines and
 		// actors 9, 10, 12 and 12a: the runner calls it after a commit,

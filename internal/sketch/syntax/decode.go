@@ -99,7 +99,9 @@ func ParseFiles(srcs []string) (files []*File, errs []error) {
 // member `test H` of an operation type has none), so its word holds the
 // id + 1. 7: a function declaration has two extra fixed words for its
 // optional implements token and contract type.
-const ColumnsVersion = 7
+// 8: a function type ends its fixed row with the optional defects token
+// (word 7), and kDieStmt (65) is added.
+const ColumnsVersion = 8
 
 // PreviousColumnsVersion is the layout before ColumnsVersion, which this
 // decoder still reads: the linked parser writes it until scripts/linked
@@ -107,7 +109,7 @@ const ColumnsVersion = 7
 // bootstrapped in two stages (go run ./scripts/linked -bootstrap): stage 1
 // regenerates with the linked parser one layout behind, stage 2 with the
 // parser stage 1 wrote.
-const PreviousColumnsVersion = 6
+const PreviousColumnsVersion = 7
 
 // LayoutError is a parse whose rows have a layout this decoder cannot
 // read: the linked parser is more than one layout behind or ahead.
@@ -373,22 +375,17 @@ func (d *rowDecoder) node(r uint32) Node {
 		}
 	case kFuncDecl:
 		w := 9
-		if d.layout == PreviousColumnsVersion {
-			w = 7
-		}
 		f := &FuncDecl{
-			Doc:        d.doc(d.fixed(r, w, 0)),
-			Extern:     opt[*ExternSpec](d, d.fixed(r, w, 1)),
-			Func:       d.pos(t),
-			Recv:       opt[*FieldList](d, d.fixed(r, w, 2)),
-			Name:       one[*Ident](d, d.fixed(r, w, 3)),
-			TypeParams: opt[*FieldList](d, d.fixed(r, w, 4)),
-			Type:       one[*FuncType](d, d.fixed(r, w, 5)),
-			Body:       opt[*BlockStmt](d, d.fixed(r, w, 6)),
-		}
-		if w == 9 {
-			f.ImplementsPos = d.zpos(d.fixed(r, w, 7))
-			f.Implements = opt[Expr](d, d.fixed(r, w, 8))
+			Doc:           d.doc(d.fixed(r, w, 0)),
+			Extern:        opt[*ExternSpec](d, d.fixed(r, w, 1)),
+			Func:          d.pos(t),
+			Recv:          opt[*FieldList](d, d.fixed(r, w, 2)),
+			Name:          one[*Ident](d, d.fixed(r, w, 3)),
+			TypeParams:    opt[*FieldList](d, d.fixed(r, w, 4)),
+			Type:          one[*FuncType](d, d.fixed(r, w, 5)),
+			Body:          opt[*BlockStmt](d, d.fixed(r, w, 6)),
+			ImplementsPos: d.zpos(d.fixed(r, w, 7)),
+			Implements:    opt[Expr](d, d.fixed(r, w, 8)),
 		}
 		return f
 	case kContextDecl:
@@ -527,9 +524,17 @@ func (d *rowDecoder) node(r uint32) Node {
 		}
 		return x
 	case kFuncType:
-		x := &FuncType{Escaping: d.opos(d.fixed(r, 7, 0)), EntryPos: d.zpos(d.fixed(r, 7, 1)), Func: d.opos(d.fixed(r, 7, 2)), Params: one[*FieldList](d, d.fixed(r, 7, 3)), Results: opt[*FieldList](d, d.fixed(r, 7, 4)), Needs: opt[*NeedsClause](d, d.fixed(r, 7, 5)), Takes: opt[*TakesClause](d, d.fixed(r, 7, 6))}
-		x.Entry = d.fixed(r, 7, 1) != 0
-		if d.items(r, 7) == 1 {
+		w := 8
+		if d.layout == PreviousColumnsVersion {
+			w = 7
+		}
+		x := &FuncType{Escaping: d.opos(d.fixed(r, w, 0)), EntryPos: d.zpos(d.fixed(r, w, 1)), Func: d.opos(d.fixed(r, w, 2)), Params: one[*FieldList](d, d.fixed(r, w, 3)), Results: opt[*FieldList](d, d.fixed(r, w, 4)), Needs: opt[*NeedsClause](d, d.fixed(r, w, 5)), Takes: opt[*TakesClause](d, d.fixed(r, w, 6))}
+		x.Entry = d.fixed(r, w, 1) != 0
+		if w == 8 {
+			x.Defects = d.fixed(r, w, 7) != 0
+			x.DefectsPos = d.zpos(d.fixed(r, w, 7))
+		}
+		if d.items(r, w) == 1 {
 			// An operation's own type parameters (GENERIC-OP).
 			x.TypeParams = one[*FieldList](d, d.item(r, 0))
 		}
@@ -653,6 +658,8 @@ func (d *rowDecoder) node(r uint32) Node {
 	case kSkipStmt:
 		reason := d.toks[a]
 		return &SkipStmt{Skip: d.pos(t), ReasonPos: reason.pos, Reason: reason.lit, ReasonEnd: reason.end}
+	case kDieStmt:
+		return &DieStmt{Die: d.pos(t), X: one[Expr](d, a)}
 	}
 	panic(fmt.Sprintf("syntax: row %d has kind %d, which the decoder does not know", r, d.kind(r)))
 }
@@ -747,6 +754,7 @@ const (
 	kRangeStmt          = 62
 	kAssertStmt         = 63
 	kSkipStmt           = 64
+	kDieStmt            = 65
 )
 
 // equation sets a top-level rewrite law's Equation (word 2; LAWFFI LF6a)

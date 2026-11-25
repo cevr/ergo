@@ -592,10 +592,10 @@ func restore(p mut parser, st state) {
 // tuple type: two or more unnamed parameters, no result, no failure row
 // and no capability row.
 func tupleShaped(p mut parser, ft uint32) bool {
-	if kindAt(p, ft) != KFuncType || fixed(p.t, ft, 7, 4) != none || fixed(p.t, ft, 7, 5) != none {
+	if kindAt(p, ft) != KFuncType || fixed(p.t, ft, 8, 4) != none || fixed(p.t, ft, 8, 5) != none || fixed(p.t, ft, 8, 7) != none {
 		return false
 	}
-	let l = fixed(p.t, ft, 7, 3)
+	let l = fixed(p.t, ft, 8, 3)
 	if kindAt(p, l) != KFieldList || items(p.t, l, 2) < 2 {
 		return false
 	}

@@ -868,7 +868,7 @@ func (b *irBuilder) releasesAtExit(s syntax.Stmt, result bool) bool {
 
 func (b *irBuilder) leavesFrame(s syntax.Stmt, result bool) bool {
 	switch s := s.(type) {
-	case *syntax.ReturnStmt:
+	case *syntax.ReturnStmt, *syntax.DieStmt:
 		return true
 	case *syntax.ExprStmt:
 		if !result || b.result == nil {

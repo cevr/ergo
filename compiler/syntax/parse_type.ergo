@@ -45,6 +45,14 @@ func parseSignature(p mut parser, funcPos uint32, ctx int, lit bool) uint32 {
 	parseSignatureWith(p, funcPos, ctx, lit, none)
 }
 
+func atDefects(p mut parser) bool {
+	if !isWord(p, "defects") {
+		return false
+	}
+	let n = peek(p, 1)
+	n == LBrace || n == Semicolon || n == Comma || n == RParen || n == RBrace || n == RBrack || n == Assign || n == Or || n == EOF || (n == Ident && p.i+1 < p.ntok && lit(p, p.i+1) == "implements")
+}
+
 // parseSignatureWith is parseSignature with tps, an operation's own type
 // parameters already parsed (some of a KFieldList), or none; they become
 // the signature row's one item (GENERIC-OP).
@@ -54,7 +62,7 @@ func parseSignatureWith(p mut parser, funcPos uint32, ctx int, lit bool, tps uin
 	// In a declaration `implements Contract` can start immediately
 	// after the parameters. A result type named `implements` still works.
 	let claim = ctx == ctxDecl && funcPos == none && atImplements(p) && (peek(p, 1) == Ident || peek(p, 1) == Go)
-	if startsType(p) && !claim {
+	if startsType(p) && !claim && !atDefects(p) {
 		let ty = parseResultType(p, ctx)
 		pushW(&p.t, mkField(&p.t, mark(p.t), none, some(ty), none, none, none, none, none, none, none, none, none))
 	}
@@ -74,11 +82,16 @@ func parseSignatureWith(p mut parser, funcPos uint32, ctx int, lit bool, tps uin
 	if p.tk == Takes {
 		tk = some(parseTakes(p, ctx))
 	}
+	let mut def = none
+	if atDefects(p) {
+		def = someTok(p.i)
+		next(p)
+	}
 	let m = mark(p.t)
 	if tps != none {
 		pushW(&p.t, tps-uint32(1))
 	}
-	mkFuncType(&p.t, m, none, none, funcPos, params, results, nd, tk)
+	mkFuncType(&p.t, m, none, none, funcPos, params, results, nd, tk, def)
 }
 
 // parseTakes parses `takes [a, b]`.
@@ -349,10 +362,13 @@ func needsComma(p mut parser, base int, at int) {
 func endsInNeeds(p mut parser, t uint32) bool {
 	let k = kindAt(p, t)
 	if k == KFuncType {
-		if fixed(p.t, t, 7, 5) != none {
+		if fixed(p.t, t, 8, 7) != none {
+			return false
+		}
+		if fixed(p.t, t, 8, 5) != none {
 			return true
 		}
-		let res = fixed(p.t, t, 7, 4)
+		let res = fixed(p.t, t, 8, 4)
 		if res != none && items(p.t, res-uint32(1), 2) > 0 {
 			let last = lastItem(p.t, res-uint32(1), 2)
 			let ty = fixed(p.t, last, 11, 1)
@@ -475,7 +491,7 @@ func parseType1(p mut parser, ctx int) uint32 {
 		next(p)
 		let t = parseFuncType(p, ctx)
 		if !p.failed {
-			setFixed(&p.t, t, 7, 1, someTok(at))
+			setFixed(&p.t, t, 8, 1, someTok(at))
 		}
 		return t
 	}
@@ -535,7 +551,7 @@ func parseType1(p mut parser, ctx int) uint32 {
 		}
 		let t = parseFuncType(p, ctx)
 		if !p.failed {
-			setFixed(&p.t, t, 7, 0, someTok(at))
+			setFixed(&p.t, t, 8, 0, someTok(at))
 		}
 		return t
 	}

@@ -374,6 +374,13 @@ func nifySig(s mut store.Store, f mut Frame, u Unions, c Call, x dense.ID[store.
 	} else {
 		return false
 	}
+	if mode == exact {
+		if store.SigDefects(*s, x) != store.SigDefects(*s, y) {
+			return false
+		}
+	} else if store.SigDefects(*s, y) && !store.SigDefects(*s, x) {
+		return false
+	}
 	unifyRow(s, f, c, xs[n+1], ys[n+1])
 	unifyRow(s, f, c, xs[n+2], ys[n+2])
 	true

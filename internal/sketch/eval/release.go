@@ -85,7 +85,12 @@ func (in *interp) releaseAll(fr *frame, at syntax.Node, built []acquired, outer 
 		case ab == nil || ab.kind != ctlDefect:
 			// A release's defect replaces a normal end, a return or a
 			// typed failure: the cause holds a defect.
+			if ab != nil {
+				defectOfAbrupt(rel).causes++
+			}
 			ab = rel
+		default:
+			joinDefect(ab, rel)
 		}
 	}
 	return ab

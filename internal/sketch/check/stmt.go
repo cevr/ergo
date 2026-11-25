@@ -105,6 +105,8 @@ func (c *checker) stmt(s syntax.Stmt) {
 		c.assignStmt(s)
 	case *syntax.ReturnStmt:
 		c.returnStmt(s)
+	case *syntax.DieStmt:
+		c.dieStmt(s)
 	case *syntax.BranchStmt:
 		c.branchStmt(s)
 	case *syntax.IfStmt:
@@ -850,7 +852,7 @@ func (c *checker) forStmt(s *syntax.ForStmt) {
 // so they never reach here.
 func terminates(s syntax.Stmt) bool {
 	switch s := s.(type) {
-	case *syntax.ReturnStmt:
+	case *syntax.ReturnStmt, *syntax.DieStmt:
 		return true
 	case *syntax.ForStmt:
 		return s.Cond == nil && !hasBreak(s.Body)

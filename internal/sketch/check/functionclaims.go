@@ -214,9 +214,9 @@ func claimParts(t Type) ([]Type, any) {
 		ts = append(ts, a.Results...)
 		ts = append(ts, &RowArg{Row: a.Errors}, &RowArg{Row: a.Uses})
 		return ts, struct {
-			params, results           int
-			fails, entry, nonescaping bool
-		}{len(a.Params), len(a.Results), a.Fallible, a.Entry, a.NonEscaping}
+			params, results                    int
+			fails, entry, nonescaping, defects bool
+		}{len(a.Params), len(a.Results), a.Fallible, a.Entry, a.NonEscaping, a.Defects}
 	}
 	return nil, nil
 }

@@ -760,6 +760,12 @@ func (w *ownWalk) stmt(s syntax.Stmt) {
 		w.record(s, w.releases(w.first))
 		w.st = ownState{}
 		w.close()
+	case *syntax.DieStmt:
+		w.open(s)
+		w.expr(s.X, mLend, hand{})
+		w.record(s, w.releases(w.first))
+		w.st = ownState{}
+		w.close()
 	case *syntax.BranchStmt:
 		if len(w.loops) == 0 {
 			return

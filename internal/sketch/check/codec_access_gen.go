@@ -2582,10 +2582,12 @@ type CodecFields_target struct {
 	F_missErrors  **Row
 	F_missUses    **Row
 	F_harness     **harnessUse
+	F_defects     *bool
+	F_inCatchArm  *int
 }
 
 func CodecFieldsOf_target(v *target) CodecFields_target {
-	return CodecFields_target{F_name: &v.name, F_declErrors: &v.declErrors, F_declUses: &v.declUses, F_errors: &v.errors, F_uses: &v.uses, F_scope: &v.scope, F_results: &v.results, F_resultKnown: &v.resultKnown, F_isFunc: &v.isFunc, F_law: &v.law, F_main: &v.main, F_context: &v.context, F_internal: &v.internal, F_charged: &v.charged, F_tries: &v.tries, F_tried: &v.tried, F_decl: &v.decl, F_pending: &v.pending, F_missErrors: &v.missErrors, F_missUses: &v.missUses, F_harness: &v.harness}
+	return CodecFields_target{F_name: &v.name, F_declErrors: &v.declErrors, F_declUses: &v.declUses, F_errors: &v.errors, F_uses: &v.uses, F_scope: &v.scope, F_results: &v.results, F_resultKnown: &v.resultKnown, F_isFunc: &v.isFunc, F_law: &v.law, F_main: &v.main, F_context: &v.context, F_internal: &v.internal, F_charged: &v.charged, F_tries: &v.tries, F_tried: &v.tried, F_decl: &v.decl, F_pending: &v.pending, F_missErrors: &v.missErrors, F_missUses: &v.missUses, F_harness: &v.harness, F_defects: &v.defects, F_inCatchArm: &v.inCatchArm}
 }
 
 type CodecFields_taskNode struct {

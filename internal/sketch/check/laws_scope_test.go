@@ -117,7 +117,7 @@ const (
 // reason.
 var lawNoBinder = map[string]string{
 	"AssertStmt.X": lawUse, "AssignStmt.Rhs": lawUse, "BinaryExpr.X": lawUse, "BinaryExpr.Y": lawUse,
-	"CallExpr.Args": lawUse, "CallExpr.Fun": lawUse, "CatchExpr.X": lawUse, "CompositeLit.Base": lawUse, "ContextEntry.Value": lawUse,
+	"CallExpr.Args": lawUse, "CallExpr.Fun": lawUse, "CatchExpr.X": lawUse, "CompositeLit.Base": lawUse, "ContextEntry.Value": lawUse, "DieStmt.X": lawUse,
 	"ExprStmt.X": lawUse, "ForStmt.Cond": lawUse, "IfStmt.Cond": lawUse, "IndexExpr.Indices": lawUse,
 	"IndexExpr.X": lawUse, "InterpolatedString.Exprs": lawUse, "RangeStmt.X": lawUse,
 	"ReturnStmt.Results": lawUse, "SelectorExpr.X": lawUse, "SliceExpr.High": lawUse, "SliceExpr.Low": lawUse,

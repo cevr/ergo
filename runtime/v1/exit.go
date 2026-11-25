@@ -42,9 +42,10 @@ import (
 // waiter, Stop and an owner's drain raise or join it, a release joins it to
 // the frame's other causes, and report alone writes it.
 type Panic struct {
-	Value   any
-	Stack   []byte
-	Context []Binding
+	Value      any
+	Stack      []byte
+	Context    []Binding
+	Occurrence uint64
 }
 
 // String is the panic value's text, as Go's panic report writes it.
@@ -69,7 +70,14 @@ func defectOf(t *rt.Task, p any) *Panic {
 		}
 		stack = make([]byte, 2*len(stack))
 	}
-	return &Panic{Value: rt.FaultValue(p), Stack: stack, Context: contextOf(t)}
+	val := rt.FaultValue(p)
+	var occ uint64
+	if sd, ok := val.(*SourceDefect); ok && sd != nil && sd.Occurrence != 0 {
+		occ = sd.Occurrence
+	} else {
+		occ = nextDefectOccurrence()
+	}
+	return &Panic{Value: val, Stack: stack, Context: contextOf(t), Occurrence: occ}
 }
 
 // exit carries a recorded exit, in rt's canonical form, across lowered

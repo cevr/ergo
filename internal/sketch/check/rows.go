@@ -50,6 +50,12 @@ type target struct {
 	// harness is set on a test body with no parameters: the harnessed
 	// capability it charged (harness.go, rule 2).
 	harness *harnessUse
+	// defects marks a function, literal or block whose signature declares
+	// `defects`, allowing `die` and calls to `defects` functions.
+	defects bool
+	// inCatchArm is the nesting depth of immediately executing catch arm
+	// bodies in this target: >0 forbids `die` and calling `defects` functions.
+	inCatchArm int
 }
 
 func (t *target) row(declared, inferred *Row) *Row {
@@ -1056,7 +1062,7 @@ func (c *checker) checkFuncBody(f *Func) bool {
 	d := f.Decl
 	c.closeParts(f)
 	name := "function " + f.Name
-	t := &target{name: name, results: sig.Results, resultKnown: true, isFunc: true, main: f.Name == "main"}
+	t := &target{name: name, results: sig.Results, resultKnown: true, isFunc: true, main: f.Name == "main", defects: sig.Defects && f.Name != "main"}
 	if !c.opts.Infer {
 		t.decl = f
 	}

@@ -327,7 +327,11 @@ func (d *dumper) node(depth int, n Node) {
 		if x.Entry {
 			entry = x.EntryPos
 		}
-		d.line(depth, "FuncType %s Escaping=%d Entry=%d Func=%d", at, x.Escaping, entry, x.Func)
+		defects := NoPos
+		if x.Defects {
+			defects = x.DefectsPos
+		}
+		d.line(depth, "FuncType %s Escaping=%d Entry=%d Func=%d Defects=%d", at, x.Escaping, entry, x.Func, defects)
 		d.node(c, x.TypeParams)
 		d.node(c, x.Params)
 		d.node(c, x.Results)
@@ -432,6 +436,9 @@ func (d *dumper) node(depth int, n Node) {
 		d.node(c, x.X)
 	case *SkipStmt:
 		d.line(depth, "SkipStmt %s Skip=%d ReasonPos=%d Reason=%s", at, x.Skip, x.ReasonPos, strconv.Quote(x.Reason))
+	case *DieStmt:
+		d.line(depth, "DieStmt %s Die=%d", at, x.Die)
+		d.node(c, x.X)
 	default:
 		d.line(depth, "unknown %T", n)
 	}

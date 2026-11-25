@@ -924,6 +924,12 @@ func stmt(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, s dense.ID[s
 		release(w, ws, wk, wt, w.first)
 		w.st = unreached()
 		close(w, ws, wk, wt, first)
+	} else if kind == syntax.KDieStmt {
+		let first = len(w.vars)
+		eval(w, ws, wk, wt, syntax.DieStmtOf(wk.Parsed[w.file].Tree, s).X, mLend, noHand())
+		release(w, ws, wk, wt, w.first)
+		w.st = unreached()
+		close(w, ws, wk, wt, first)
 	} else if kind == syntax.KBranchStmt {
 		if len(w.loops) == 0 {
 			return

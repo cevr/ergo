@@ -299,7 +299,12 @@ func (in *interp) releaseOwner(fr *frame, o *owner, ab *abrupt) *abrupt {
 		case rel.kind != ctlDefect:
 			ice("a release completed with %d", rel.kind)
 		case ab == nil || ab.kind != ctlDefect:
+			if ab != nil {
+				defectOfAbrupt(rel).causes++
+			}
 			ab = rel
+		default:
+			joinDefect(ab, rel)
 		}
 	}
 	o.list = nil

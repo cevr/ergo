@@ -235,7 +235,7 @@ type Pointer struct{ Elem Type }
 // generator is that function (LAW-GEN-FUNC), so a record that holds one,
 // such as a provider's Wait, is generated.
 func NoopFunc(s *Signature) bool {
-	return len(s.TParams) == 0 && len(s.Params) == 0 && len(s.Results) == 0 && s.Errors.Empty() && s.Uses.Empty() && !s.Entry
+	return len(s.TParams) == 0 && len(s.Params) == 0 && len(s.Results) == 0 && s.Errors.Empty() && s.Uses.Empty() && !s.Entry && !s.Defects
 }
 
 // Signature is a function type: parameters, value results and two rows. A
@@ -278,6 +278,10 @@ type Signature struct {
 	// constraint, and a generic body calls it on a mut T only (types.md,
 	// Generics 2; MODES-4).
 	MutSelf bool
+	// Defects marks a function signature written with `defects`
+	// (NO-UNREACHABLE §3): its body may execute `die` or call `defects`
+	// functions. Plain fits marked; marked does not satisfy unmarked.
+	Defects bool
 }
 
 // Kind is the kind of a type parameter (rows-and-constraints §3: by
@@ -560,6 +564,9 @@ func (t *Signature) String() string {
 	}
 	if uses := t.Uses.String(); uses != "" {
 		b.WriteString(" " + requirementKeyword + " " + uses)
+	}
+	if t.Defects {
+		b.WriteString(" defects")
 	}
 	return b.String()
 }

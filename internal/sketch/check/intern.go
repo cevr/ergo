@@ -330,6 +330,9 @@ func shape(t Type) (kind byte, ref any, n int64, s string, kids []Type) {
 		if t.Entry {
 			s += "e" // an entry's send (Signature.Entry)
 		}
+		if t.Defects {
+			s += "d" // deliberate-defect effect (Signature.Defects)
+		}
 		// The takes clause is part of the type (Gap 39, L8 A3).
 		s += takesKey(t)
 		return vSig, nil, 0, s, kids

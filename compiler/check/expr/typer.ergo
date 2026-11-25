@@ -613,6 +613,8 @@ func tail(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node], w Want
 			}
 		case None:
 		}
+	} else if kd == syntax.KDieStmt {
+		expr(s, k, t, syntax.DieStmtOf(tr, x).X, Unsure)
 	} else if kd == syntax.KBlockStmt {
 		tailBlock(s, k, t, x, w)
 	} else {
@@ -697,6 +699,8 @@ func stmt(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node]) {
 			}
 		case None:
 		}
+	} else if kd == syntax.KDieStmt {
+		expr(s, k, t, syntax.DieStmtOf(tr, x).X, Unsure)
 	} else if kd == syntax.KBlockStmt {
 		block(s, k, t, x)
 	} else if kd == syntax.KIfStmt {

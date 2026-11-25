@@ -297,6 +297,18 @@ func main() {
 	use(Mine)
 }
 `,
+	"task.Defect": `import task
+type Mine {}
+func Text(_ Mine) string { "" }
+func Position(_ Mine) string { "" }
+func Occurrence(_ Mine) int { 0 }
+func CauseCount(_ Mine) int { 0 }
+func DefectCount(_ Mine) int { 0 }
+func use(d task.Defect) { _ = d.Position() }
+func main() {
+	use(Mine)
+}
+`,
 	"embed.FS": `import embed
 import fs
 type Mine {} implements fs.Files

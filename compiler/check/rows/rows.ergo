@@ -415,6 +415,11 @@ func walk(w mut walker, s store.Store, k expr.Pkg, x dense.ID[syntax.Node]) {
 		}
 		return
 	}
+	if kind == syntax.KDieStmt {
+		let d = syntax.DieStmtOf(tr, x)
+		valueAt(w, s, k, d.X, d.X)
+		return
+	}
 	for c in syntax.Children(tr, x, []uint32{}) {
 		walk(w, s, k, syntax.NodeAt(tr, int(c)))
 	}

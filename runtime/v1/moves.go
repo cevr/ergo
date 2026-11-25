@@ -30,6 +30,7 @@ var movesOnly = sync.OnceValue(func() map[string]bool {
 		"TaskExit":       true, // task.ExitOf's wait: consumes the Task, leaves its value in it
 		"TaskValue":      true, // task.ExitOf's value: moves out once, the Task keeps none
 		"TaskReason":     true, // task.ExitOf's defect text: reads a string, moves nothing
+		"TaskDefect":     true, // task.ExitOf's defect view: reads a *Defect, moves nothing
 		"TaskStopAfter":  true, // task.StopAfter: reads the Task's rt task, moves no value
 	}
 })

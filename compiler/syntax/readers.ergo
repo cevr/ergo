@@ -121,6 +121,14 @@ func SkipStmtOf(t Tree, id dense.ID[Node]) SkipStmt {
 	SkipStmt{Skip: int(tok), Reason: int(a)}
 }
 
+// DieStmtOf reads a row of kind KDieStmt.
+func DieStmtOf(t Tree, id dense.ID[Node]) DieStmt {
+	let i = uint32(dense.Index(id))
+	let tok = t.tok[int(i)]
+	let a = t.a[int(i)]
+	DieStmt{Die: int(tok), X: nid(t, a)}
+}
+
 // BlockStmtOf reads a row of kind KBlockStmt.
 func BlockStmtOf(t Tree, id dense.ID[Node]) BlockStmt {
 	let i = uint32(dense.Index(id))
@@ -264,8 +272,8 @@ func FuncTypeOf(t Tree, id dense.ID[Node]) FuncType {
 	let i = uint32(dense.Index(id))
 	// TypeParams, an operation's own `[A]`, is the row's one item
 	// (GENERIC-OP); a function type has none.
-	let tps = if items(t, i, 7) == 1 { onid(t, item(t, i, 0)+uint32(1)) } else { dense.NoID[Node]() }
-	FuncType{Escaping: otok(fixed(t, i, 7, 0)), Entry: otok(fixed(t, i, 7, 1)), Func: otok(fixed(t, i, 7, 2)), TypeParams: tps, Params: nid(t, fixed(t, i, 7, 3)), Results: onid(t, fixed(t, i, 7, 4)), Needs: onid(t, fixed(t, i, 7, 5)), Takes: onid(t, fixed(t, i, 7, 6))}
+	let tps = if items(t, i, 8) == 1 { onid(t, item(t, i, 0)+uint32(1)) } else { dense.NoID[Node]() }
+	FuncType{Escaping: otok(fixed(t, i, 8, 0)), Entry: otok(fixed(t, i, 8, 1)), Func: otok(fixed(t, i, 8, 2)), TypeParams: tps, Params: nid(t, fixed(t, i, 8, 3)), Results: onid(t, fixed(t, i, 8, 4)), Needs: onid(t, fixed(t, i, 8, 5)), Takes: onid(t, fixed(t, i, 8, 6)), Defects: otok(fixed(t, i, 8, 7))}
 }
 
 // StructTypeOf reads a row of kind KStructType.

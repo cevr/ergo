@@ -110,6 +110,7 @@ var mentionsParts = map[string]map[string]mentionsPart{
 		"TakesSelf":   {why: "a bare takes of an operation"},
 		"MutSelf":     {why: "a mark that the operation writes its receiver (MODES-4)"},
 		"Entry":       {why: "a mark that the function is a machine's entry send"},
+		"Defects":     {why: "a mark that the function may raise a deliberate defect"},
 	},
 	"Var": {
 		"Type":        {sel: "Type"},

@@ -104,6 +104,15 @@ func TSig(s mut Store, params []dense.ID[TKey], result dense.ID[TKey], errs dens
 	composite(&s.pool, tSig, params.Append(result).Append(errs).Append(uses))
 }
 
+// TSigWith is TSig with an explicit deliberate-defect effect mark.
+func TSigWith(s mut Store, params []dense.ID[TKey], result dense.ID[TKey], errs dense.ID[TKey], uses dense.ID[TKey], defects bool) dense.ID[TKey] {
+	let ops = params.Append(result).Append(errs).Append(uses)
+	if defects { sigDefects(&s.pool, ops) } else { composite(&s.pool, tSig, ops) }
+}
+
+// SigDefects reports whether a signature type declares defects.
+func SigDefects(s Store, t dense.ID[TKey]) bool { dense.SideOf(s.pool.sigDefects, t) }
+
 // TForeign is the non-generic foreign type at index i of the resolver's
 // foreign table. (Not an Instance with no arguments: every empty operand
 // list has one start in extra, so two such instances of different origins

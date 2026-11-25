@@ -344,6 +344,21 @@ func (e *encoder) encPtrDeclStmt(v *DeclStmt) {
 	e.uint(e.id(v))
 }
 
+func (e *encoder) encFieldsDieStmt(v *DieStmt) {
+	e.encPos(v.Die)
+	e.encExpr(v.X)
+}
+
+func (e *encoder) encDieStmt(v DieStmt) { e.encFieldsDieStmt(&v) }
+
+func (e *encoder) encPtrDieStmt(v *DieStmt) {
+	if v == nil {
+		e.uint(0)
+		return
+	}
+	e.uint(e.id(v))
+}
+
 func (e *encoder) encFieldsErrorRow(v *ErrorRow) {
 	e.encPos(v.Error)
 	e.encT2(v.Types)
@@ -516,6 +531,8 @@ func (e *encoder) encFieldsFuncType(v *FuncType) {
 	e.encPtrFieldList(v.Results)
 	e.encPtrNeedsClause(v.Needs)
 	e.encPtrTakesClause(v.Takes)
+	e.encT4(v.Defects)
+	e.encPos(v.DefectsPos)
 }
 
 func (e *encoder) encFuncType(v FuncType) { e.encFieldsFuncType(&v) }
@@ -1536,108 +1553,110 @@ func objTag(x any) uint64 {
 		return 19
 	case *DeclStmt:
 		return 20
-	case *ErrorRow:
+	case *DieStmt:
 		return 21
-	case *ExprStmt:
+	case *ErrorRow:
 		return 22
-	case *ExternSpec:
+	case *ExprStmt:
 		return 23
-	case *Field:
+	case *ExternSpec:
 		return 24
-	case *FieldList:
+	case *Field:
 		return 25
-	case *File:
+	case *FieldList:
 		return 26
-	case *ForStmt:
+	case *File:
 		return 27
-	case *FuncDecl:
+	case *ForStmt:
 		return 28
-	case *FuncLit:
+	case *FuncDecl:
 		return 29
-	case *FuncType:
+	case *FuncLit:
 		return 30
-	case *Harness:
+	case *FuncType:
 		return 31
-	case *Ident:
+	case *Harness:
 		return 32
-	case *IfStmt:
+	case *Ident:
 		return 33
-	case *ImportDecl:
+	case *IfStmt:
 		return 34
-	case *ImportSpec:
+	case *ImportDecl:
 		return 35
-	case *IndexExpr:
+	case *ImportSpec:
 		return 36
-	case *InterfaceType:
+	case *IndexExpr:
 		return 37
-	case *InterpolatedString:
+	case *InterfaceType:
 		return 38
-	case *KeyValueExpr:
+	case *InterpolatedString:
 		return 39
-	case *LawDecl:
+	case *KeyValueExpr:
 		return 40
-	case *LawEquation:
+	case *LawDecl:
 		return 41
-	case *LawReach:
+	case *LawEquation:
 		return 42
-	case *LawRewrite:
+	case *LawReach:
 		return 43
-	case *MachineEntry:
+	case *LawRewrite:
 		return 44
-	case *MachineType:
+	case *MachineEntry:
 		return 45
-	case *MapType:
+	case *MachineType:
 		return 46
-	case *NeedsClause:
+	case *MapType:
 		return 47
-	case *OrPattern:
+	case *NeedsClause:
 		return 48
-	case *ParenExpr:
+	case *OrPattern:
 		return 49
-	case *ProvidesClause:
+	case *ParenExpr:
 		return 50
-	case *RangeStmt:
+	case *ProvidesClause:
 		return 51
-	case *ReturnStmt:
+	case *RangeStmt:
 		return 52
-	case *SelectorExpr:
+	case *ReturnStmt:
 		return 53
-	case *SkipStmt:
+	case *SelectorExpr:
 		return 54
-	case *SliceExpr:
+	case *SkipStmt:
 		return 55
-	case *StarExpr:
+	case *SliceExpr:
 		return 56
-	case *StructType:
+	case *StarExpr:
 		return 57
-	case *SwitchStmt:
+	case *StructType:
 		return 58
-	case *TakesClause:
+	case *SwitchStmt:
 		return 59
-	case *TestDecl:
+	case *TakesClause:
 		return 60
-	case *TryExpr:
+	case *TestDecl:
 		return 61
-	case *TupleExpr:
+	case *TryExpr:
 		return 62
-	case *TypeDecl:
+	case *TupleExpr:
 		return 63
-	case *TypeGuard:
+	case *TypeDecl:
 		return 64
-	case *TypeSwitchStmt:
+	case *TypeGuard:
 		return 65
-	case *TypeTerm:
+	case *TypeSwitchStmt:
 		return 66
-	case *UnaryExpr:
+	case *TypeTerm:
 		return 67
-	case *VarDecl:
+	case *UnaryExpr:
 		return 68
-	case *VarSpec:
+	case *VarDecl:
 		return 69
-	case *VariantSpec:
+	case *VarSpec:
 		return 70
-	case *Word:
+	case *VariantSpec:
 		return 71
+	case *Word:
+		return 72
 	}
 	return 0
 }
@@ -1685,6 +1704,8 @@ func (e *encoder) encObj(x any) {
 		e.encFieldsContextLit(x)
 	case *DeclStmt:
 		e.encFieldsDeclStmt(x)
+	case *DieStmt:
+		e.encFieldsDieStmt(x)
 	case *ErrorRow:
 		e.encFieldsErrorRow(x)
 	case *ExprStmt:
@@ -2191,6 +2212,24 @@ func (d *decoder) decPtrDeclStmt() *DeclStmt {
 	return x.(*DeclStmt)
 }
 
+func (d *decoder) decFieldsDieStmt(v *DieStmt) {
+	v.Die = d.decPos()
+	v.X = d.decExpr()
+}
+
+func (d *decoder) decDieStmt() (v DieStmt) {
+	d.decFieldsDieStmt(&v)
+	return v
+}
+
+func (d *decoder) decPtrDieStmt() *DieStmt {
+	x := d.obj(d.uint())
+	if x == nil {
+		return nil
+	}
+	return x.(*DieStmt)
+}
+
 func (d *decoder) decFieldsErrorRow(v *ErrorRow) {
 	v.Error = d.decPos()
 	v.Types = d.decT2()
@@ -2390,6 +2429,8 @@ func (d *decoder) decFieldsFuncType(v *FuncType) {
 	v.Results = d.decPtrFieldList()
 	v.Needs = d.decPtrNeedsClause()
 	v.Takes = d.decPtrTakesClause()
+	v.Defects = d.decT4()
+	v.DefectsPos = d.decPos()
 }
 
 func (d *decoder) decFuncType() (v FuncType) {
@@ -3557,106 +3598,108 @@ func newObj(tag uint64) any {
 	case 20:
 		return new(DeclStmt)
 	case 21:
-		return new(ErrorRow)
+		return new(DieStmt)
 	case 22:
-		return new(ExprStmt)
+		return new(ErrorRow)
 	case 23:
-		return new(ExternSpec)
+		return new(ExprStmt)
 	case 24:
-		return new(Field)
+		return new(ExternSpec)
 	case 25:
-		return new(FieldList)
+		return new(Field)
 	case 26:
-		return new(File)
+		return new(FieldList)
 	case 27:
-		return new(ForStmt)
+		return new(File)
 	case 28:
-		return new(FuncDecl)
+		return new(ForStmt)
 	case 29:
-		return new(FuncLit)
+		return new(FuncDecl)
 	case 30:
-		return new(FuncType)
+		return new(FuncLit)
 	case 31:
-		return new(Harness)
+		return new(FuncType)
 	case 32:
-		return new(Ident)
+		return new(Harness)
 	case 33:
-		return new(IfStmt)
+		return new(Ident)
 	case 34:
-		return new(ImportDecl)
+		return new(IfStmt)
 	case 35:
-		return new(ImportSpec)
+		return new(ImportDecl)
 	case 36:
-		return new(IndexExpr)
+		return new(ImportSpec)
 	case 37:
-		return new(InterfaceType)
+		return new(IndexExpr)
 	case 38:
-		return new(InterpolatedString)
+		return new(InterfaceType)
 	case 39:
-		return new(KeyValueExpr)
+		return new(InterpolatedString)
 	case 40:
-		return new(LawDecl)
+		return new(KeyValueExpr)
 	case 41:
-		return new(LawEquation)
+		return new(LawDecl)
 	case 42:
-		return new(LawReach)
+		return new(LawEquation)
 	case 43:
-		return new(LawRewrite)
+		return new(LawReach)
 	case 44:
-		return new(MachineEntry)
+		return new(LawRewrite)
 	case 45:
-		return new(MachineType)
+		return new(MachineEntry)
 	case 46:
-		return new(MapType)
+		return new(MachineType)
 	case 47:
-		return new(NeedsClause)
+		return new(MapType)
 	case 48:
-		return new(OrPattern)
+		return new(NeedsClause)
 	case 49:
-		return new(ParenExpr)
+		return new(OrPattern)
 	case 50:
-		return new(ProvidesClause)
+		return new(ParenExpr)
 	case 51:
-		return new(RangeStmt)
+		return new(ProvidesClause)
 	case 52:
-		return new(ReturnStmt)
+		return new(RangeStmt)
 	case 53:
-		return new(SelectorExpr)
+		return new(ReturnStmt)
 	case 54:
-		return new(SkipStmt)
+		return new(SelectorExpr)
 	case 55:
-		return new(SliceExpr)
+		return new(SkipStmt)
 	case 56:
-		return new(StarExpr)
+		return new(SliceExpr)
 	case 57:
-		return new(StructType)
+		return new(StarExpr)
 	case 58:
-		return new(SwitchStmt)
+		return new(StructType)
 	case 59:
-		return new(TakesClause)
+		return new(SwitchStmt)
 	case 60:
-		return new(TestDecl)
+		return new(TakesClause)
 	case 61:
-		return new(TryExpr)
+		return new(TestDecl)
 	case 62:
-		return new(TupleExpr)
+		return new(TryExpr)
 	case 63:
-		return new(TypeDecl)
+		return new(TupleExpr)
 	case 64:
-		return new(TypeGuard)
+		return new(TypeDecl)
 	case 65:
-		return new(TypeSwitchStmt)
+		return new(TypeGuard)
 	case 66:
-		return new(TypeTerm)
+		return new(TypeSwitchStmt)
 	case 67:
-		return new(UnaryExpr)
+		return new(TypeTerm)
 	case 68:
-		return new(VarDecl)
+		return new(UnaryExpr)
 	case 69:
-		return new(VarSpec)
+		return new(VarDecl)
 	case 70:
-		return new(VariantSpec)
+		return new(VarSpec)
 	case 71:
+		return new(VariantSpec)
+	case 72:
 		return new(Word)
 	}
 	return nil
@@ -3705,6 +3748,8 @@ func (d *decoder) decObj(x any) {
 		d.decFieldsContextLit(x)
 	case *DeclStmt:
 		d.decFieldsDeclStmt(x)
+	case *DieStmt:
+		d.decFieldsDieStmt(x)
 	case *ErrorRow:
 		d.decFieldsErrorRow(x)
 	case *ExprStmt:

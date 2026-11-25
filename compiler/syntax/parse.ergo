@@ -193,7 +193,7 @@ func children(t Tree, x uint32, out []uint32) []uint32 {
 		o = o.Append(a)
 		return o.Append(b)
 	}
-	if k == KImportDecl || k == KMachineEntry || k == KParenExpr || k == KStarExpr || k == KUnaryExpr || k == KTryExpr || k == KArrayType || k == KStructType || k == KDeclStmt || k == KExprStmt || k == KAssertStmt {
+	if k == KImportDecl || k == KMachineEntry || k == KParenExpr || k == KStarExpr || k == KUnaryExpr || k == KTryExpr || k == KArrayType || k == KStructType || k == KDeclStmt || k == KExprStmt || k == KAssertStmt || k == KDieStmt {
 		return o.Append(a)
 	}
 	if k == KExternSpec {
@@ -237,7 +237,10 @@ func fixedWords(k uint8) int {
 	if k == KLawDecl || k == KFuncDecl {
 		return 9
 	}
-	if k == KFuncType || k == KContextDecl {
+	if k == KFuncType {
+		return 8
+	}
+	if k == KContextDecl {
 		return 7
 	}
 	if k == KLawReach || k == KSliceExpr {

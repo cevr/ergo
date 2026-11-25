@@ -58,6 +58,8 @@ func (in *interp) stmtOnly(fr *frame, s syntax.Stmt) *abrupt {
 			return ab
 		}
 		return fr.abrupt(ctlReturn, s, v, "")
+	case *syntax.DieStmt:
+		return in.dieStmt(fr, s)
 	case *syntax.BranchStmt:
 		// What the iterations' scopes still own ends here (R6).
 		if ab := in.releaseAt(fr, s); ab != nil {

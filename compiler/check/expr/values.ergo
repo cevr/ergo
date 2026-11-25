@@ -198,6 +198,8 @@ func yieldStmt(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node], k
 		}
 	} else if kd == syntax.KReturnStmt || kd == syntax.KBranchStmt {
 		stmt(s, k, t, x)
+	} else if kd == syntax.KDieStmt {
+		stmt(s, k, t, x)
 	} else {
 		stmt(s, k, t, x)
 		kk.bad = true

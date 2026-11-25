@@ -57,7 +57,7 @@ func (c *checker) asWrittenShape(f *Func) bool {
 	if d.Extern != nil || d.Recv != nil || d.Body == nil || s == nil {
 		return false
 	}
-	if len(s.Params) != 1 || len(s.Results) != 1 || s.Fallible || !s.Errors.Empty() || !s.Uses.Empty() || !c.identical(s.Results[0], s.Params[0].Type) {
+	if len(s.Params) != 1 || len(s.Results) != 1 || s.Fallible || s.Defects || !s.Errors.Empty() || !s.Uses.Empty() || !c.identical(s.Results[0], s.Params[0].Type) {
 		return false
 	}
 	if len(d.Body.List) != 1 {

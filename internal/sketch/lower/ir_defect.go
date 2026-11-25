@@ -57,3 +57,16 @@ func (b *irBuilder) unreachableValue(x *syntax.CallExpr) ([]*irStmt, *irExpr, bo
 	p := b.pos(x, x.Pos())
 	return pre, &irExpr{K: "pcall", Pos: p, T: runtimeImport, Name: "Never", V: b.goType(t, x), Args: args}, false
 }
+
+// dieStmt lowers `die <expr>` to panic(ergo.DieAt(val, "file:line:col"))
+// (NO-UNREACHABLE §3). IR-only: evaluates s.X once under ordinary failure/needs
+// rules and packages the owned nominal payload only on the cold exit edge.
+func (b *irBuilder) dieStmt(s *syntax.DieStmt) []*irStmt {
+	pre, val := b.value(s.X)
+	p := b.pos(s, s.Pos())
+	boxed := &irExpr{K: "toiface", Pos: p, T: "any", X: val}
+	site := &irExpr{K: "const", Pos: p, T: "string", V: b.l.siteText(s)}
+	b.keepImport("var _ = " + b.l.rt() + ".DieAt")
+	defect := &irExpr{K: "pcall", Pos: p, T: runtimeImport, Name: "DieAt", Args: []*irExpr{boxed, site}}
+	return append(pre, &irStmt{K: "panic", Pos: p, X: defect})
+}

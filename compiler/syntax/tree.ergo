@@ -71,6 +71,8 @@ let KRangeStmt = uint8(62)
 let KAssertStmt = uint8(63)
 // KSkipStmt is `skip "reason"`: tok is skip, a the reason's token.
 let KSkipStmt = uint8(64)
+// KDieStmt is `die e`: tok is die, a the reason expression.
+let KDieStmt = uint8(65)
 
 // Tree is the syntax tree of one file as rows (self-layout plan §2.2): a
 // kind, a main token and two operand words per node, 13 bytes, and one

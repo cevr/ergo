@@ -195,7 +195,7 @@ func (b *irBuilder) yield(s syntax.Stmt, to *yieldTo) []*irStmt {
 			return append(pre, &irStmt{K: "set", Pos: p, Local: to.local, X: x})
 		}
 		return b.ret(s.X, p) // ir_fail.go
-	case *syntax.ReturnStmt, *syntax.BranchStmt:
+	case *syntax.ReturnStmt, *syntax.BranchStmt, *syntax.DieStmt:
 		return b.stmt(s) // it leaves: no value to yield (a catch arm's continue)
 	case *syntax.SwitchStmt, *syntax.TypeSwitchStmt:
 		if to != nil && to.fails {
@@ -501,6 +501,8 @@ func (b *irBuilder) stmt(s syntax.Stmt) []*irStmt {
 			irNo("several results")
 		}
 		return b.ret(s.Results[0], p) // ir_fail.go
+	case *syntax.DieStmt:
+		return b.dieStmt(s) // ir_defect.go
 	case *syntax.ExprStmt:
 		return b.discard(s.X)
 	case *syntax.IfStmt:

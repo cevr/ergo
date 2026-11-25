@@ -567,7 +567,7 @@ func leavesFrame(x syntax.Expr) bool {
 		switch n.(type) {
 		case *syntax.FuncLit:
 			return false
-		case *syntax.TryExpr, *syntax.CatchExpr, *syntax.ReturnStmt, *syntax.BranchStmt:
+		case *syntax.TryExpr, *syntax.CatchExpr, *syntax.ReturnStmt, *syntax.DieStmt, *syntax.BranchStmt:
 			found = true
 		}
 		return !found
