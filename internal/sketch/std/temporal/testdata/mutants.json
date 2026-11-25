@@ -1,0 +1,65 @@
+{
+  "about": "Finite-trace timed temporal logic progression and honest Idle|Cut stop semantics (PROPERTY-TESTING P3).",
+  "mutants": [
+    {
+      "name": "tl-eventually-pending-holds-at-idle",
+      "origin": "wf10 PROPERTY-TESTING P3",
+      "file": "internal/sketch/std/temporal/temporal.ergo",
+      "decl": "stopNode",
+      "from": "Violated{Step: lastStep, At: lastAt, Why: Trail{Label: ev.label, Detail: \"never satisfied before idle end\", Children: []Trail{}}}",
+      "to": "Holds",
+      "rule": "A pending Eventually at an Idle end is Violated, never Holds.",
+      "killers": ["internal/sketch/std/temporal:law:StepAgreesWithReference", "internal/sketch/std/temporal:law:AlwaysEventuallyDuality"]
+    },
+    {
+      "name": "tl-always-pending-violated-at-cut",
+      "origin": "wf10 PROPERTY-TESTING P3",
+      "file": "internal/sketch/std/temporal/temporal.ergo",
+      "decl": "stopNode",
+      "from": "Open{Pending: []string{al.label}}",
+      "to": "Violated{Step: lastStep, At: lastAt, Why: Trail{Label: al.label, Detail: \"cut before end\", Children: []Trail{}}}",
+      "rule": "A pending Always at a Cut end is Open (not proved), never Violated.",
+      "killers": ["internal/sketch/std/temporal:law:StepAgreesWithReference", "internal/sketch/std/temporal:law:AlwaysEventuallyDuality"]
+    },
+    {
+      "name": "tl-within-off-by-one-instant",
+      "origin": "wf10 PROPERTY-TESTING P3",
+      "file": "internal/sketch/std/temporal/temporal.ergo",
+      "decl": "withinDeadline",
+      "from": "time.Sub(at, origin) <= d",
+      "to": "time.Sub(at, origin) < d",
+      "rule": "Within deadlines are inclusive: elapsed == d is inside the window and elapsed > d is outside.",
+      "killers": ["internal/sketch/std/temporal:law:WithinDeadlineIsInclusive", "internal/sketch/std/temporal:law:StepAgreesWithReference"]
+    },
+    {
+      "name": "tl-next-reads-current",
+      "origin": "wf10 PROPERTY-TESTING P3",
+      "file": "internal/sketch/std/temporal/temporal.ergo",
+      "decl": "stepNode",
+      "from": "nNeedStep[S]{inner: nx.inner, label: nx.label}",
+      "to": "stepNode[S](nx.inner, s, at, step)",
+      "rule": "Next advances one state before evaluating its inner formula rather than reading the current state.",
+      "killers": ["internal/sketch/std/temporal:law:StepAgreesWithReference", "internal/sketch/std/temporal:law:WithinDeadlineIsInclusive"]
+    },
+    {
+      "name": "tl-then-reads-late-state",
+      "origin": "wf10 PROPERTY-TESTING P3",
+      "file": "internal/sketch/std/temporal/temporal.ergo",
+      "decl": "stepNode",
+      "from": "stepNode[S](compile[S](th.read(s)), s, at, step)",
+      "to": "nNeedStep[S]{inner: compile[S](th.read(s)), label: th.label}",
+      "rule": "Then captures the current state s and immediately evaluates Read(s) at that same step, not one step late.",
+      "killers": ["internal/sketch/std/temporal:law:StepAgreesWithReference", "internal/sketch/std/temporal:law:WithinDeadlineIsInclusive"]
+    },
+    {
+      "name": "tl-implies-negates-wrong-side",
+      "origin": "wf10 PROPERTY-TESTING P3",
+      "file": "internal/sketch/std/temporal/temporal.ergo",
+      "decl": "compile",
+      "from": "nOr[S]{left: nNot[S]{inner: compile[S](im.When), label: \"not\"}, right: compile[S](im.Then)}",
+      "to": "nOr[S]{left: compile[S](im.When), right: nNot[S]{inner: compile[S](im.Then), label: \"not\"}}",
+      "rule": "Implies(when, then) negates the antecedent (Or(Not(when), then)), never the consequent.",
+      "killers": ["internal/sketch/std/temporal:law:ImpliesIsOrNot", "internal/sketch/std/temporal:law:StepAgreesWithReference"]
+    }
+  ]
+}

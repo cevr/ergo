@@ -1,0 +1,892 @@
+// Package temporal checks finite-trace timed temporal formulas over a run,
+// with an honest Idle or Cut stop (PROPERTY-TESTING P3; docs/spec/stdlib.md,
+// Temporal). Formulas are plain data over a state type S: progression turns a
+// Formula[S] into an opaque Residual[S] stepped purely with each observed
+// (state, virtual time) pair, and Stop closes it as Holds, Violated (with the
+// deciding step, virtual time, and short sub-formula trail), or Open (not
+// proved, only under Cut). Deadlines in Within are inclusive: a state at time
+// at is inside a window opened at origin when time.Sub(at, origin) <= d.
+
+import strings
+import time
+
+// Idle ends a run that completed: no task can run and no clock can move, so
+// pending Eventually and Next formulas are Violated and pending Always holds.
+type Idle {}
+
+// Cut ends a run stopped by a budget: pending formulas remain Open (not
+// proved), never Holds and never falsely Violated.
+type Cut {}
+
+// End is how a run ended: Idle (complete) or Cut (budget reached).
+type End = Idle | Cut
+
+// Seen is one recorded observation of a run: its state and virtual timestamp.
+type Seen[S] { State S, At time.Time }
+
+// Trail is the short sub-formula path that decided a violation.
+type Trail { Label string, Detail string, Children []Trail }
+
+// Holds is a satisfied formula verdict.
+type Holds {}
+
+// Violated is a refuted formula verdict with the deciding step, virtual time,
+// and short sub-formula trail.
+type Violated { Step int, At time.Time, Why Trail }
+
+// Open is an undecided formula verdict under Cut, naming the pending clauses.
+type Open { Pending []string }
+
+// Verdict is the outcome of stopping or checking a formula: Holds, Violated,
+// or Open (only under Cut).
+type Verdict = Holds | Violated | Open
+
+// NowFormula tests predicate P on the current state.
+type NowFormula[S] { Label string, P func(s S) bool }
+
+// NotFormula negates Inner in three-valued logic.
+type NotFormula[S] { Inner Formula[S] }
+
+// AndFormula requires both Left and Right to hold.
+type AndFormula[S] { Left Formula[S], Right Formula[S] }
+
+// OrFormula requires at least one of Left or Right to hold.
+type OrFormula[S] { Left Formula[S], Right Formula[S] }
+
+// ImpliesFormula holds when When is violated or Then holds.
+type ImpliesFormula[S] { When Formula[S], Then Formula[S] }
+
+// NextFormula requires a next state to exist and satisfy Inner (strong Next).
+type NextFormula[S] { Inner Formula[S] }
+
+// AlwaysFormula requires Inner to hold at every state (within the inclusive
+// deadline when Within is Some).
+type AlwaysFormula[S] { Inner Formula[S], Within Option[duration] }
+
+// EventuallyFormula requires Inner to hold at some state (within the inclusive
+// deadline when Within is Some).
+type EventuallyFormula[S] { Inner Formula[S], Within Option[duration] }
+
+// ThenFormula captures the current state s and immediately evaluates Read(s)
+// at that same step.
+type ThenFormula[S] { Label string, Read func(s S) Formula[S] }
+
+// Formula is a finite-trace timed LTL formula over states of type S.
+type Formula[S] = NowFormula[S] | NotFormula[S] | AndFormula[S] | OrFormula[S] | ImpliesFormula[S] | NextFormula[S] | AlwaysFormula[S] | EventuallyFormula[S] | ThenFormula[S]
+
+// Now builds an atomic formula that tests p on the current state.
+func Now[S](p own func(s S) bool) Formula[S] { NowFormula[S]{Label: "now", P: p} }
+
+// Named builds a labeled atomic formula that tests p on the current state.
+func Named[S](label string, p own func(s S) bool) Formula[S] { NowFormula[S]{Label: label, P: p} }
+
+// Not builds the logical negation of f.
+func Not[S](f Formula[S]) Formula[S] { NotFormula[S]{Inner: f} }
+
+// And builds the conjunction of left and right.
+func And[S](left Formula[S], right Formula[S]) Formula[S] { AndFormula[S]{Left: left, Right: right} }
+
+// Or builds the disjunction of left and right.
+func Or[S](left Formula[S], right Formula[S]) Formula[S] { OrFormula[S]{Left: left, Right: right} }
+
+// Implies builds the implication when -> then.
+func Implies[S](when Formula[S], then Formula[S]) Formula[S] { ImpliesFormula[S]{When: when, Then: then} }
+
+// Next builds a strong next-step obligation for f.
+func Next[S](f Formula[S]) Formula[S] { NextFormula[S]{Inner: f} }
+
+// Always builds an unbounded invariance formula requiring f at every step.
+func Always[S](f Formula[S]) Formula[S] { AlwaysFormula[S]{Inner: f, Within: None} }
+
+// AlwaysWithin builds a bounded invariance formula requiring f at every step
+// whose timestamp satisfies time.Sub(at, origin) <= d from when it starts.
+func AlwaysWithin[S](f Formula[S], d duration) Formula[S] { AlwaysFormula[S]{Inner: f, Within: Some[duration]{Value: d}} }
+
+// Eventually builds an unbounded liveness formula requiring f at some step.
+func Eventually[S](f Formula[S]) Formula[S] { EventuallyFormula[S]{Inner: f, Within: None} }
+
+// EventuallyWithin builds a bounded liveness formula requiring f at some step
+// whose timestamp satisfies time.Sub(at, origin) <= d from when it starts.
+func EventuallyWithin[S](f Formula[S], d duration) Formula[S] { EventuallyFormula[S]{Inner: f, Within: Some[duration]{Value: d}} }
+
+// Then builds a state-capturing formula that reads the current state s and
+// immediately evaluates read(s) at that same step.
+func Then[S](read own func(s S) Formula[S]) Formula[S] { ThenFormula[S]{Label: "then", Read: read} }
+
+// ThenNamed builds a labeled state-capturing formula that reads the current
+// state s and immediately evaluates read(s) at that same step.
+func ThenNamed[S](label string, read own func(s S) Formula[S]) Formula[S] { ThenFormula[S]{Label: label, Read: read} }
+
+type nHolds { step int, at time.Time }
+
+type nViolated { step int, at time.Time, why Trail }
+
+type nNow[S] { label string, p func(s S) bool }
+
+type nNot[S] { inner node[S], label string }
+
+type nAnd[S] { left node[S], right node[S] }
+
+type nOr[S] { left node[S], right node[S] }
+
+type nNext[S] { inner node[S], label string }
+
+type nNeedStep[S] { inner node[S], label string }
+
+type nAlways[S] { body Formula[S], within Option[duration], origin Option[time.Time], label string }
+
+type nEventually[S] { body Formula[S], within Option[duration], origin Option[time.Time], label string }
+
+type nThen[S] { label string, read func(s S) Formula[S] }
+
+type node[S] = nHolds | nViolated | nNow[S] | nNot[S] | nAnd[S] | nOr[S] | nNext[S] | nNeedStep[S] | nAlways[S] | nEventually[S] | nThen[S]
+
+// Residual is the opaque progression state of a formula along a run.
+type Residual[S] { root node[S], steps int, lastAt time.Time, hasStep bool }
+
+// Start compiles f into its initial Residual before any state is observed.
+func Start[S](f Formula[S]) Residual[S] {
+	Residual[S]{root: compile[S](f), steps: 0, lastAt: time.Unix(0, 0), hasStep: false}
+}
+
+// Decided reports whether r has already reached a final Holds or Violated
+// verdict that no later state can change.
+func Decided[S](r Residual[S]) bool {
+	match r.root {
+	case nHolds, nViolated:
+		true
+	case _:
+		false
+	}
+}
+
+// Step advances residual r purely by one observed state s at virtual time at.
+func Step[S](r Residual[S], s S, at time.Time) Residual[S] {
+	let nextRoot = stepNode[S](r.root, s, at, r.steps)
+	Residual[S]{root: nextRoot, steps: r.steps + 1, lastAt: at, hasStep: true}
+}
+
+// Stop closes residual r with end (Idle or Cut) and returns its Verdict.
+func Stop[S](r Residual[S], end End) Verdict {
+	let lastStep = if r.hasStep { r.steps - 1 } else { 0 }
+	stopNode[S](r.root, end, lastStep, r.lastAt)
+}
+
+// Check evaluates f across the recorded trace run and closes it with end.
+func Check[S](f Formula[S], run []Seen[S], end End) Verdict {
+	let mut r = Start[S](f)
+	for ob in run {
+		r = Step[S](r, ob.State, ob.At)
+	}
+	Stop[S](r, end)
+}
+
+// FormatTrail formats a violation Trail as a concise indented tree.
+func FormatTrail(t Trail) string { formatTrailIndent(t, 0) }
+
+// FormatVerdict formats a Verdict as a concise human-readable line or block
+// showing the deciding step, virtual time, and trail or pending clauses.
+func FormatVerdict(v Verdict) string {
+	match v {
+	case Holds:
+		"holds"
+	case Violated as vio:
+		let head = "violated at step \(vio.Step) (t=\(formatInstant(vio.At))):"
+		"\(head)\n\(formatTrailIndent(vio.Why, 1))"
+	case Open as o:
+		if len(o.Pending) == 0 {
+			"open (not proved)"
+		} else {
+			"open (not proved): \(strings.Join(o.Pending, ", "))"
+		}
+	}
+}
+
+func formatInstant(t time.Time) string {
+	let sec = time.UnixSeconds(t)
+	let nsec = time.Nanosecond(t)
+	if nsec == 0 {
+		"\(sec)s"
+	} else {
+		"\(sec).\(padNano(nsec))s"
+	}
+}
+
+func padNano(n int64) string {
+	let raw = "\(n)"
+	let mut out = raw
+	for len(out) < 9 {
+		out = "0" + out
+	}
+	out
+}
+
+func formatTrailIndent(t Trail, depth int) string {
+	let mut prefix = ""
+	for _ in 0..depth {
+		prefix = prefix + "  "
+	}
+	let mut line = if t.Detail == "" {
+		"\(prefix)\(t.Label)"
+	} else {
+		"\(prefix)\(t.Label): \(t.Detail)"
+	}
+	for ch in t.Children {
+		line = line + "\n" + formatTrailIndent(ch, depth+1)
+	}
+	line
+}
+
+func formulaLabel[S](f Formula[S]) string {
+	match f {
+	case NowFormula as nf:
+		if nf.Label == "" { "now" } else { nf.Label }
+	case NotFormula as nf:
+		"not(\(formulaLabel[S](nf.Inner)))"
+	case AndFormula as af:
+		"(\(formulaLabel[S](af.Left)) && \(formulaLabel[S](af.Right)))"
+	case OrFormula as of:
+		"(\(formulaLabel[S](of.Left)) || \(formulaLabel[S](of.Right)))"
+	case ImpliesFormula as im:
+		"(\(formulaLabel[S](im.When)) -> \(formulaLabel[S](im.Then)))"
+	case NextFormula as nx:
+		"next(\(formulaLabel[S](nx.Inner)))"
+	case AlwaysFormula as al:
+		match al.Within {
+		case Some as w:
+			"always[\(w.Value)](\(formulaLabel[S](al.Inner)))"
+		case None:
+			"always(\(formulaLabel[S](al.Inner)))"
+		}
+	case EventuallyFormula as ev:
+		match ev.Within {
+		case Some as w:
+			"eventually[\(w.Value)](\(formulaLabel[S](ev.Inner)))"
+		case None:
+			"eventually(\(formulaLabel[S](ev.Inner)))"
+		}
+	case ThenFormula as th:
+		if th.Label == "" { "then" } else { th.Label }
+	}
+}
+
+func withinDeadline(at time.Time, origin time.Time, d duration) bool {
+	time.Sub(at, origin) <= d
+}
+
+func compile[S](f Formula[S]) node[S] {
+	match f {
+	case NowFormula as nf:
+		let lbl = if nf.Label == "" { "now" } else { nf.Label }
+		nNow[S]{label: lbl, p: nf.P}
+	case NotFormula as nf:
+		nNot[S]{inner: compile[S](nf.Inner), label: "not(\(formulaLabel[S](nf.Inner)))"}
+	case AndFormula as af:
+		nAnd[S]{left: compile[S](af.Left), right: compile[S](af.Right)}
+	case OrFormula as of:
+		nOr[S]{left: compile[S](of.Left), right: compile[S](of.Right)}
+	case ImpliesFormula as im:
+		nOr[S]{left: nNot[S]{inner: compile[S](im.When), label: "not"}, right: compile[S](im.Then)}
+	case NextFormula as nx:
+		nNext[S]{inner: compile[S](nx.Inner), label: "next(\(formulaLabel[S](nx.Inner)))"}
+	case AlwaysFormula as al:
+		nAlways[S]{body: al.Inner, within: al.Within, origin: None, label: formulaLabel[S](f)}
+	case EventuallyFormula as ev:
+		nEventually[S]{body: ev.Inner, within: ev.Within, origin: None, label: formulaLabel[S](f)}
+	case ThenFormula as th:
+		let lbl = if th.Label == "" { "then" } else { th.Label }
+		nThen[S]{label: lbl, read: th.Read}
+	}
+}
+
+func combineNot[S](inner node[S], label string) node[S] {
+	match inner {
+	case nHolds as h:
+		nViolated{step: h.step, at: h.at, why: Trail{Label: label, Detail: "negated formula held", Children: []Trail{}}}
+	case nViolated as v:
+		nHolds{step: v.step, at: v.at}
+	case _:
+		nNot[S]{inner: inner, label: label}
+	}
+}
+
+func combineAnd[S](left node[S], right node[S]) node[S] {
+	match left {
+	case nViolated as v:
+		return v
+	case nHolds:
+		return right
+	case _:
+	}
+	match right {
+	case nViolated as v:
+		return v
+	case nHolds:
+		return left
+	case _:
+	}
+	nAnd[S]{left: left, right: right}
+}
+
+func combineOr[S](left node[S], right node[S]) node[S] {
+	match left {
+	case nHolds as h:
+		return h
+	case nViolated as lv:
+		match right {
+		case nViolated as rv:
+			let step = if rv.step > lv.step { rv.step } else { lv.step }
+			let at = if rv.step > lv.step { rv.at } else { lv.at }
+			return nViolated{step: step, at: at, why: Trail{Label: "or", Detail: "both branches violated", Children: []Trail{lv.why, rv.why}}}
+		case _:
+			return right
+		}
+	case _:
+	}
+	match right {
+	case nHolds as h:
+		return h
+	case nViolated:
+		return left
+	case _:
+	}
+	nOr[S]{left: left, right: right}
+}
+
+func stepNode[S](n node[S], s S, at time.Time, step int) node[S] {
+	match n {
+	case nHolds as h:
+		h
+	case nViolated as v:
+		v
+	case nNow as nf:
+		if nf.p(s) {
+			nHolds{step: step, at: at}
+		} else {
+			nViolated{step: step, at: at, why: Trail{Label: nf.label, Detail: "predicate returned false", Children: []Trail{}}}
+		}
+	case nNot as nf:
+		combineNot[S](stepNode[S](nf.inner, s, at, step), nf.label)
+	case nAnd as af:
+		let l = stepNode[S](af.left, s, at, step)
+		match l {
+		case nViolated as v:
+			v
+		case _:
+			combineAnd[S](l, stepNode[S](af.right, s, at, step))
+		}
+	case nOr as of:
+		let l = stepNode[S](of.left, s, at, step)
+		match l {
+		case nHolds as h:
+			h
+		case _:
+			combineOr[S](l, stepNode[S](of.right, s, at, step))
+		}
+	case nNext as nx:
+		nNeedStep[S]{inner: nx.inner, label: nx.label}
+	case nNeedStep as ns:
+		stepNode[S](ns.inner, s, at, step)
+	case nAlways as al:
+		match al.within {
+		case Some as w:
+			let org = match al.origin {
+			case Some as o:
+				o.Value
+			case None:
+				at
+			}
+			if !withinDeadline(at, org, w.Value) {
+				nHolds{step: step, at: at}
+			} else {
+				let cur = stepNode[S](compile[S](al.body), s, at, step)
+				let rest = nAlways[S]{body: al.body, within: al.within, origin: Some[time.Time]{Value: org}, label: al.label}
+				combineAnd[S](cur, rest)
+			}
+		case None:
+			let cur = stepNode[S](compile[S](al.body), s, at, step)
+			combineAnd[S](cur, al)
+		}
+	case nEventually as ev:
+		match ev.within {
+		case Some as w:
+			let org = match ev.origin {
+			case Some as o:
+				o.Value
+			case None:
+				at
+			}
+			if !withinDeadline(at, org, w.Value) {
+				nViolated{step: step, at: at, why: Trail{Label: ev.label, Detail: "deadline passed without satisfaction", Children: []Trail{}}}
+			} else {
+				let cur = stepNode[S](compile[S](ev.body), s, at, step)
+				let rest = nEventually[S]{body: ev.body, within: ev.within, origin: Some[time.Time]{Value: org}, label: ev.label}
+				combineOr[S](cur, rest)
+			}
+		case None:
+			let cur = stepNode[S](compile[S](ev.body), s, at, step)
+			combineOr[S](cur, ev)
+		}
+	case nThen as th:
+		stepNode[S](compile[S](th.read(s)), s, at, step)
+	}
+}
+
+func appendPending(a []string, b []string) []string {
+	let mut out = a
+	for x in b {
+		out = out.Append(x)
+	}
+	out
+}
+
+func combineAndVerdict(a Verdict, b Verdict) Verdict {
+	match a {
+	case Violated as v:
+		return v
+	case Holds:
+		return b
+	case Open as ao:
+		match b {
+		case Violated as v:
+			return v
+		case Holds:
+			return ao
+		case Open as bo:
+			return Open{Pending: appendPending(ao.Pending, bo.Pending)}
+		}
+	}
+}
+
+func combineOrVerdict(a Verdict, b Verdict) Verdict {
+	match a {
+	case Holds:
+		return Holds
+	case Violated as av:
+		match b {
+		case Holds:
+			return Holds
+		case Open as bo:
+			return bo
+		case Violated as bv:
+			let step = if bv.Step > av.Step { bv.Step } else { av.Step }
+			let at = if bv.Step > av.Step { bv.At } else { av.At }
+			return Violated{Step: step, At: at, Why: Trail{Label: "or", Detail: "both branches violated", Children: []Trail{av.Why, bv.Why}}}
+		}
+	case Open as ao:
+		match b {
+		case Holds:
+			return Holds
+		case Violated:
+			return ao
+		case Open as bo:
+			return Open{Pending: appendPending(ao.Pending, bo.Pending)}
+		}
+	}
+}
+
+func stopNode[S](n node[S], end End, lastStep int, lastAt time.Time) Verdict {
+	match n {
+	case nHolds:
+		Holds
+	case nViolated as v:
+		Violated{Step: v.step, At: v.at, Why: v.why}
+	case nNow as nf:
+		match end {
+		case Idle:
+			Violated{Step: lastStep, At: lastAt, Why: Trail{Label: nf.label, Detail: "no state observed", Children: []Trail{}}}
+		case Cut:
+			Open{Pending: []string{nf.label}}
+		}
+	case nNot as nf:
+		match stopNode[S](nf.inner, end, lastStep, lastAt) {
+		case Holds:
+			Violated{Step: lastStep, At: lastAt, Why: Trail{Label: nf.label, Detail: "negated formula held at end", Children: []Trail{}}}
+		case Violated:
+			Holds
+		case Open as o:
+			o
+		}
+	case nAnd as af:
+		combineAndVerdict(stopNode[S](af.left, end, lastStep, lastAt), stopNode[S](af.right, end, lastStep, lastAt))
+	case nOr as of:
+		combineOrVerdict(stopNode[S](of.left, end, lastStep, lastAt), stopNode[S](of.right, end, lastStep, lastAt))
+	case nNext as nx:
+		match end {
+		case Idle:
+			Violated{Step: lastStep, At: lastAt, Why: Trail{Label: nx.label, Detail: "no state observed for next", Children: []Trail{}}}
+		case Cut:
+			Open{Pending: []string{nx.label}}
+		}
+	case nNeedStep as ns:
+		match end {
+		case Idle:
+			Violated{Step: lastStep, At: lastAt, Why: Trail{Label: ns.label, Detail: "trace ended before next state", Children: []Trail{}}}
+		case Cut:
+			Open{Pending: []string{ns.label}}
+		}
+	case nAlways as al:
+		match end {
+		case Idle:
+			Holds
+		case Cut:
+			Open{Pending: []string{al.label}}
+		}
+	case nEventually as ev:
+		match end {
+		case Idle:
+			Violated{Step: lastStep, At: lastAt, Why: Trail{Label: ev.label, Detail: "never satisfied before idle end", Children: []Trail{}}}
+		case Cut:
+			Open{Pending: []string{ev.label}}
+		}
+	case nThen as th:
+		match end {
+		case Idle:
+			Violated{Step: lastStep, At: lastAt, Why: Trail{Label: th.label, Detail: "no state observed for then", Children: []Trail{}}}
+		case Cut:
+			Open{Pending: []string{th.label}}
+		}
+	}
+}
+
+func verdictKind(v Verdict) int {
+	match v {
+	case Holds:
+		1
+	case Violated:
+		-1
+	case Open:
+		0
+	}
+}
+
+func refAnd(a int, b int) int {
+	if a == -1 || b == -1 {
+		-1
+	} else if a == 1 && b == 1 {
+		1
+	} else {
+		0
+	}
+}
+
+func refOr(a int, b int) int {
+	if a == 1 || b == 1 {
+		1
+	} else if a == -1 && b == -1 {
+		-1
+	} else {
+		0
+	}
+}
+
+func refEndVal(end End, idleVal int) int {
+	match end {
+	case Idle:
+		idleVal
+	case Cut:
+		0
+	}
+}
+
+func evalRef[S](f Formula[S], run []Seen[S], idx int, end End) int {
+	match f {
+	case NowFormula as nf:
+		if idx >= len(run) {
+			refEndVal(end, -1)
+		} else if nf.P(run[idx].State) {
+			1
+		} else {
+			-1
+		}
+	case NotFormula as nf:
+		-evalRef[S](nf.Inner, run, idx, end)
+	case AndFormula as af:
+		refAnd(evalRef[S](af.Left, run, idx, end), evalRef[S](af.Right, run, idx, end))
+	case OrFormula as of:
+		refOr(evalRef[S](of.Left, run, idx, end), evalRef[S](of.Right, run, idx, end))
+	case ImpliesFormula as im:
+		refOr(-evalRef[S](im.When, run, idx, end), evalRef[S](im.Then, run, idx, end))
+	case NextFormula as nx:
+		if idx >= len(run) || idx+1 >= len(run) {
+			refEndVal(end, -1)
+		} else {
+			evalRef[S](nx.Inner, run, idx+1, end)
+		}
+	case AlwaysFormula as al:
+		if idx >= len(run) {
+			refEndVal(end, 1)
+		} else {
+			let mut acc = 1
+			let mut closed = false
+			let origin = run[idx].At
+			for j in idx..len(run) {
+				match al.Within {
+				case Some as w:
+					if time.Sub(run[j].At, origin) > w.Value {
+						closed = true
+						break
+					}
+				case None:
+				}
+				acc = refAnd(acc, evalRef[S](al.Inner, run, j, end))
+			}
+			if !closed {
+				acc = refAnd(acc, refEndVal(end, 1))
+			}
+			acc
+		}
+	case EventuallyFormula as ev:
+		if idx >= len(run) {
+			refEndVal(end, -1)
+		} else {
+			let mut acc = -1
+			let mut closed = false
+			let origin = run[idx].At
+			for j in idx..len(run) {
+				match ev.Within {
+				case Some as w:
+					if time.Sub(run[j].At, origin) > w.Value {
+						closed = true
+						break
+					}
+				case None:
+				}
+				acc = refOr(acc, evalRef[S](ev.Inner, run, j, end))
+			}
+			if !closed {
+				acc = refOr(acc, refEndVal(end, -1))
+			}
+			acc
+		}
+	case ThenFormula as th:
+		if idx >= len(run) {
+			refEndVal(end, -1)
+		} else {
+			evalRef[S](th.Read(run[idx].State), run, idx, end)
+		}
+	}
+}
+
+func modPos(x int, m int) int {
+	let r = x % m
+	if r < 0 { r + m } else { r }
+}
+
+func smallDuration(code int) duration {
+	let ms = modPos(code, 6)
+	duration(int64(ms) * int64(1000000))
+}
+
+func buildAtom(code int) Formula[int] {
+	let k = modPos(code, 5)
+	if k == 0 {
+		Named("eq0", func(s int) bool { s == 0 })
+	} else if k == 1 {
+		Named("eq1", func(s int) bool { s == 1 })
+	} else if k == 2 {
+		Named("ge2", func(s int) bool { s >= 2 })
+	} else if k == 3 {
+		Named("even", func(s int) bool { s%2 == 0 })
+	} else {
+		Named("lt3", func(s int) bool { s < 3 })
+	}
+}
+
+func buildFormula(ops []int, pos int, depth int) (Formula[int], int) {
+	if depth >= 4 || pos >= len(ops) {
+		let c = if pos < len(ops) { ops[pos] } else { depth }
+		return (buildAtom(c), pos + 1)
+	}
+	let op = modPos(ops[pos], 11)
+	let p1 = pos + 1
+	if op == 0 {
+		let c = if p1 < len(ops) { ops[p1] } else { 0 }
+		(buildAtom(c), p1 + 1)
+	} else if op == 1 {
+		let (a, p2) = buildFormula(ops, p1, depth+1)
+		(Not(a), p2)
+	} else if op == 2 {
+		let (a, p2) = buildFormula(ops, p1, depth+1)
+		let (b, p3) = buildFormula(ops, p2, depth+1)
+		(And(a, b), p3)
+	} else if op == 3 {
+		let (a, p2) = buildFormula(ops, p1, depth+1)
+		let (b, p3) = buildFormula(ops, p2, depth+1)
+		(Or(a, b), p3)
+	} else if op == 4 {
+		let (a, p2) = buildFormula(ops, p1, depth+1)
+		let (b, p3) = buildFormula(ops, p2, depth+1)
+		(Implies(a, b), p3)
+	} else if op == 5 {
+		let (a, p2) = buildFormula(ops, p1, depth+1)
+		(Next(a), p2)
+	} else if op == 6 {
+		let (a, p2) = buildFormula(ops, p1, depth+1)
+		(Always(a), p2)
+	} else if op == 7 {
+		let d = if p1 < len(ops) { smallDuration(ops[p1]) } else { 0ns }
+		let (a, p2) = buildFormula(ops, p1+1, depth+1)
+		(AlwaysWithin(a, d), p2)
+	} else if op == 8 {
+		let (a, p2) = buildFormula(ops, p1, depth+1)
+		(Eventually(a), p2)
+	} else if op == 9 {
+		let d = if p1 < len(ops) { smallDuration(ops[p1]) } else { 0ns }
+		let (a, p2) = buildFormula(ops, p1+1, depth+1)
+		(EventuallyWithin(a, d), p2)
+	} else {
+		let mode = if p1 < len(ops) { modPos(ops[p1], 4) } else { 0 }
+		let d = if p1+1 < len(ops) { smallDuration(ops[p1+1]) } else { 2ms }
+		let f = ThenNamed("capture", func(s0 int) Formula[int] {
+			if mode == 0 {
+				Named("same", func(s int) bool { s == s0 })
+			} else if mode == 1 {
+				Next(Named("ge_captured", func(s int) bool { s >= s0 }))
+			} else if mode == 2 {
+				EventuallyWithin(Named("changed", func(s int) bool { s != s0 }), d)
+			} else {
+				AlwaysWithin(Named("monotone", func(s int) bool { s >= s0 }), d)
+			}
+		})
+		(f, p1 + 2)
+	}
+}
+
+func buildTrace(states []int, gaps []int, startAt time.Time) []Seen[int] {
+	let n = if len(states) > 7 { 7 } else { len(states) }
+	let mut out = []Seen[int]{}
+	let mut cur = startAt
+	for i in 0..n {
+		if i > 0 {
+			let g = if i < len(gaps) { modPos(gaps[i], 4) } else { 1 }
+			cur = time.Add(cur, duration(int64(g)*int64(1000000)))
+		}
+		out = out.Append(Seen[int]{State: modPos(states[i], 4), At: cur})
+	}
+	out
+}
+
+// StepAgreesWithReference: progression Check agrees with the independent
+// naive recursive finite-trace LTL reference evaluator over generated depth-4
+// formulas and monotone timed traces under both Idle and Cut.
+law StepAgreesWithReference(ops []int, states []int, gaps []int) {
+	let (f, _) = buildFormula(ops, 0, 0)
+	let run = buildTrace(states, gaps, time.Unix(100, 0))
+	let idleOk = verdictKind(Check(f, run, Idle)) == evalRef(f, run, 0, Idle)
+	let cutOk = verdictKind(Check(f, run, Cut)) == evalRef(f, run, 0, Cut)
+	idleOk && cutOk
+}
+
+// AlwaysEventuallyDuality: Not(Always(p)) agrees with Eventually(Not(p)) and
+// Not(Eventually(p)) agrees with Always(Not(p)), both unbounded and with
+// Within deadlines, under both Idle and Cut.
+law AlwaysEventuallyDuality(ops []int, states []int, gaps []int, within int) {
+	let (p, _) = buildFormula(ops, 0, 1)
+	let run = buildTrace(states, gaps, time.Unix(100, 0))
+	let d = smallDuration(within)
+	let a1 = verdictKind(Check(Not(Always(p)), run, Idle)) == verdictKind(Check(Eventually(Not(p)), run, Idle))
+	let a2 = verdictKind(Check(Not(Always(p)), run, Cut)) == verdictKind(Check(Eventually(Not(p)), run, Cut))
+	let b1 = verdictKind(Check(Not(Eventually(p)), run, Idle)) == verdictKind(Check(Always(Not(p)), run, Idle))
+	let b2 = verdictKind(Check(Not(Eventually(p)), run, Cut)) == verdictKind(Check(Always(Not(p)), run, Cut))
+	let c1 = verdictKind(Check(Not(AlwaysWithin(p, d)), run, Idle)) == verdictKind(Check(EventuallyWithin(Not(p), d), run, Idle))
+	let c2 = verdictKind(Check(Not(AlwaysWithin(p, d)), run, Cut)) == verdictKind(Check(EventuallyWithin(Not(p), d), run, Cut))
+	let d1 = verdictKind(Check(Not(EventuallyWithin(p, d)), run, Idle)) == verdictKind(Check(AlwaysWithin(Not(p), d), run, Idle))
+	let d2 = verdictKind(Check(Not(EventuallyWithin(p, d)), run, Cut)) == verdictKind(Check(AlwaysWithin(Not(p), d), run, Cut))
+	a1 && a2 && b1 && b2 && c1 && c2 && d1 && d2
+}
+
+// AlwaysDistributesOverAnd: Always(And(p, q)) agrees with
+// And(Always(p), Always(q)), both unbounded and with Within, under Idle and Cut.
+law AlwaysDistributesOverAnd(opsA []int, opsB []int, states []int, gaps []int, within int) {
+	let (p, _) = buildFormula(opsA, 0, 2)
+	let (q, _) = buildFormula(opsB, 0, 2)
+	let run = buildTrace(states, gaps, time.Unix(100, 0))
+	let d = smallDuration(within)
+	let u1 = verdictKind(Check(Always(And(p, q)), run, Idle)) == verdictKind(Check(And(Always(p), Always(q)), run, Idle))
+	let u2 = verdictKind(Check(Always(And(p, q)), run, Cut)) == verdictKind(Check(And(Always(p), Always(q)), run, Cut))
+	let w1 = verdictKind(Check(AlwaysWithin(And(p, q), d), run, Idle)) == verdictKind(Check(And(AlwaysWithin(p, d), AlwaysWithin(q, d)), run, Idle))
+	let w2 = verdictKind(Check(AlwaysWithin(And(p, q), d), run, Cut)) == verdictKind(Check(And(AlwaysWithin(p, d), AlwaysWithin(q, d)), run, Cut))
+	u1 && u2 && w1 && w2
+}
+
+// EventuallyDistributesOverOr: Eventually(Or(p, q)) agrees with
+// Or(Eventually(p), Eventually(q)), both unbounded and with Within, under Idle
+// and Cut.
+law EventuallyDistributesOverOr(opsA []int, opsB []int, states []int, gaps []int, within int) {
+	let (p, _) = buildFormula(opsA, 0, 2)
+	let (q, _) = buildFormula(opsB, 0, 2)
+	let run = buildTrace(states, gaps, time.Unix(100, 0))
+	let d = smallDuration(within)
+	let u1 = verdictKind(Check(Eventually(Or(p, q)), run, Idle)) == verdictKind(Check(Or(Eventually(p), Eventually(q)), run, Idle))
+	let u2 = verdictKind(Check(Eventually(Or(p, q)), run, Cut)) == verdictKind(Check(Or(Eventually(p), Eventually(q)), run, Cut))
+	let w1 = verdictKind(Check(EventuallyWithin(Or(p, q), d), run, Idle)) == verdictKind(Check(Or(EventuallyWithin(p, d), EventuallyWithin(q, d)), run, Idle))
+	let w2 = verdictKind(Check(EventuallyWithin(Or(p, q), d), run, Cut)) == verdictKind(Check(Or(EventuallyWithin(p, d), EventuallyWithin(q, d)), run, Cut))
+	u1 && u2 && w1 && w2
+}
+
+// ImpliesIsOrNot: Implies(p, q) agrees with Or(Not(p), q) under both Idle and
+// Cut.
+law ImpliesIsOrNot(opsA []int, opsB []int, states []int, gaps []int) {
+	let (p, _) = buildFormula(opsA, 0, 2)
+	let (q, _) = buildFormula(opsB, 0, 2)
+	let run = buildTrace(states, gaps, time.Unix(100, 0))
+	let idleOk = verdictKind(Check(Implies(p, q), run, Idle)) == verdictKind(Check(Or(Not(p), q), run, Idle))
+	let cutOk = verdictKind(Check(Implies(p, q), run, Cut)) == verdictKind(Check(Or(Not(p), q), run, Cut))
+	idleOk && cutOk
+}
+
+// DecidedStaysDecided: once a residual reaches Holds or Violated, feeding more
+// states never changes the verdict under either Idle or Cut.
+law DecidedStaysDecided(ops []int, prefixStates []int, prefixGaps []int, suffixStates []int, suffixGaps []int) {
+	let (f, _) = buildFormula(ops, 0, 0)
+	let prefix = buildTrace(prefixStates, prefixGaps, time.Unix(100, 0))
+	let mut r = Start(f)
+	let mut lastAt = time.Unix(100, 0)
+	for ob in prefix {
+		r = Step(r, ob.State, ob.At)
+		lastAt = ob.At
+	}
+	let v = Stop(r, Cut)
+	if !Decided(r) {
+		return verdictKind(v) == 0
+	}
+	let suffix = buildTrace(suffixStates, suffixGaps, time.Add(lastAt, 1ms))
+	let mut r2 = r
+	for ob in suffix {
+		r2 = Step(r2, ob.State, ob.At)
+	}
+	Decided(r2) && Stop(r2, Cut) == v && Stop(r2, Idle) == v
+}
+
+// OpenOnlyUnderCut: Stop with Idle never returns Open.
+law OpenOnlyUnderCut(ops []int, states []int, gaps []int) {
+	let (f, _) = buildFormula(ops, 0, 0)
+	let run = buildTrace(states, gaps, time.Unix(100, 0))
+	verdictKind(Check(f, run, Idle)) != 0
+}
+
+// WithinDeadlineIsInclusive: elapsed == d is inside the Within window and
+// elapsed == d + 1ns is outside it, and FormatVerdict renders step, time, and
+// trail or pending labels clearly.
+law WithinDeadlineIsInclusive(a int, b int, dms int) {
+	let d = smallDuration(dms)
+	let t0 = time.Unix(10, 0)
+	let atExact = time.Add(t0, d)
+	let atAfter = time.Add(atExact, 1ns)
+	let s0 = modPos(a, 4)
+	let s1 = modPos(b, 4)
+	let isZero = Named("zero", func(s int) bool { s == 0 })
+	let runExact = []Seen[int]{Seen[int]{State: 1, At: t0}, Seen[int]{State: 0, At: atExact}}
+	let runAfter = []Seen[int]{Seen[int]{State: 1, At: t0}, Seen[int]{State: 0, At: atAfter}}
+	let evExact = Check(EventuallyWithin(isZero, d), runExact, Idle)
+	let evAfter = Check(EventuallyWithin(isZero, d), runAfter, Idle)
+	let alExact = Check(AlwaysWithin(Named("nonzero", func(s int) bool { s != 0 }), d), runExact, Idle)
+	let alAfter = Check(AlwaysWithin(Named("nonzero", func(s int) bool { s != 0 }), d), runAfter, Cut)
+	let thenSame = Check(Then(func(x int) Formula[int] { Now(func(y int) bool { y == x }) }), []Seen[int]{Seen[int]{State: s0, At: t0}, Seen[int]{State: s1, At: atExact}}, Idle)
+	let nextStep = Check(Next(Now(func(y int) bool { y == s1 })), []Seen[int]{Seen[int]{State: s0, At: t0}, Seen[int]{State: s1, At: atExact}}, Idle)
+	let vioText = FormatVerdict(evAfter)
+	let openText = FormatVerdict(Check(Always(isZero), []Seen[int]{Seen[int]{State: 0, At: t0}}, Cut))
+	let trailText = FormatTrail(Trail{Label: "root", Detail: "failed", Children: []Trail{}})
+	verdictKind(evExact) == 1 && verdictKind(evAfter) == -1 && verdictKind(alExact) == -1 && verdictKind(alAfter) == 1 && verdictKind(thenSame) == 1 && verdictKind(nextStep) == 1 && strings.Contains(vioText, "violated at step 1") && strings.Contains(openText, "not proved") && strings.Contains(trailText, "root: failed")
+}
