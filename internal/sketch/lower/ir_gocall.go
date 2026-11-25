@@ -204,6 +204,9 @@ func (b *irBuilder) hostValue(t check.Type) bool {
 // or a plain Go Map of admitted host types. Value-rule boundary copies are
 // applied to the operand by valueCopy (values.go goArgs).
 func (b *irBuilder) hostArgValue(t check.Type) bool {
+	if b.nicheOption(t) {
+		return true
+	}
 	switch t := t.(type) {
 	case *check.Named:
 		return t.Obj != nil && t.Obj.Pkg.Host() && !check.IsGoError(t) && !isGoRef(t) && len(t.TArgs) == 0
