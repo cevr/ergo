@@ -1560,6 +1560,36 @@
       "rule": "A law body reserves leading env slot 0 before its quantified parameters.",
       "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
       "killers": ["internal/selfhostcheck:TestIRLawBuildAndProductionControl"]
+    },
+    {
+      "name": "lower-generics-g1-swap-binders",
+      "origin": "wf10/selfhost/S4-PORT GENERICS-G1",
+      "file": "compiler/lower/generics.ergo", "decl": "typeParamGo",
+      "from": "if b.Index == idx {",
+      "to": "if b.Index == len(st.generic.Binders)-1-idx {",
+      "rule": "A generic body preserves the declared order of multiple type-parameter bindings.",
+      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
+      "killers": ["internal/selfhostcheck:TestIRGenericHeaderAndOrder"]
+    },
+    {
+      "name": "lower-generics-g1-drop-type-param-spelling",
+      "origin": "wf10/selfhost/S4-PORT GENERICS-G1",
+      "file": "compiler/lower/shape.ergo", "decl": "shapeWithin",
+      "from": "if tp != \"\" {",
+      "to": "if false && tp != \"\" {",
+      "rule": "Recursive shape spelling admits scoped generic type parameters.",
+      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
+      "killers": ["internal/selfhostcheck:TestIRGenericHeaderAndOrder"]
+    },
+    {
+      "name": "lower-generics-g1-admit-constrained-param",
+      "origin": "wf10/selfhost/S4-PORT GENERICS-G1",
+      "file": "compiler/lower/generics.ergo", "decl": "planGenericBody",
+      "from": "if !admittedGenericConstraint(st, ct.Value) {",
+      "to": "if false && !admittedGenericConstraint(st, ct.Value) {",
+      "rule": "Constrained generic type parameters outside any/comparable/ordered must not emit witness-less bodies in G1.",
+      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
+      "killers": ["internal/selfhostcheck:TestIRGenericHeaderAndOrder"]
     }
   ]
 }

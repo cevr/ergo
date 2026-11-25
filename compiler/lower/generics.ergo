@@ -1,0 +1,123 @@
+import compiler/check/expr
+import compiler/check/store
+import compiler/syntax
+import dense
+
+// GenericBinder is one scoped type-parameter binder of a native generic function.
+type GenericBinder {
+	Index int,
+	Name  string,
+}
+
+// GenericBodyPlan holds the checked type-parameter binders and exact normal
+// declaration identity of a native generic function body.
+type GenericBodyPlan {
+	File    int,
+	At      int,
+	Decl    dense.Opt[syntax.Node],
+	Binders []GenericBinder,
+}
+
+// EmptyGenericPlan returns an empty plan for non-generic functions.
+func EmptyGenericPlan() GenericBodyPlan {
+	GenericBodyPlan{File: -1, At: -1, Decl: dense.NoID[syntax.Node](), Binders: []GenericBinder{}}
+}
+
+func hasGenericBinders(plan GenericBodyPlan) bool {
+	len(plan.Binders) > 0
+}
+
+func admittedGenericConstraint(st fnb, ct dense.ID[syntax.Node]) bool {
+	let name = nameText(st.p, ct)
+	if name == "" || !outside(st, ct) {
+		return false
+	}
+	name == "any" || name == "comparable" || name == "ordered"
+}
+
+func planGenericBody(st fnb, f expr.Fn, tpNode dense.ID[syntax.Node]) GenericBodyPlan fails Unported {
+	for isRow in f.Rows {
+		if isRow {
+			return stop("generic: row parameter")
+		}
+	}
+	for isOwn in f.Own {
+		if isOwn {
+			return stop("generic: own type parameter")
+		}
+	}
+	for sb in f.SelfBounds {
+		if dense.Unpack(sb.Op) != None {
+			return stop("generic: constrained type parameter")
+		}
+	}
+	let p = st.p
+	let fl = match syntax.ViewOf(p.Tree, tpNode) {
+	case syntax.FieldList as list:
+		list
+	case _:
+		return stop("generic: type parameters")
+	}
+	let mut binders = []GenericBinder{}
+	let mut seen = []string{}
+	for i in 0..syntax.Len(fl.List) {
+		let fld = match syntax.ViewOf(p.Tree, syntax.Item(p.Tree, fl.List, i)) {
+		case syntax.Field as field:
+			field
+		case _:
+			return stop("generic: type parameters")
+		}
+		if fld.Own >= 0 || dense.Unpack(fld.Lent) != None || dense.Unpack(fld.Where) != None {
+			return stop("generic: own or refined type parameter")
+		}
+		match dense.Unpack(fld.Type) {
+		case Some[dense.ID[syntax.Node]] as ct:
+			if !admittedGenericConstraint(st, ct.Value) {
+				return stop("generic: constrained type parameter")
+			}
+		case None:
+		}
+		let count = syntax.Len(fld.Names)
+		if count == 0 {
+			return stop("generic: type parameters")
+		}
+		for j in 0..count {
+			let tpName = nameText(p, syntax.Item(p.Tree, fld.Names, j))
+			if tpName == "" || tpName == "_" {
+				return stop("generic: type parameters")
+			}
+			if goReserved(tpName) || has(fixedNames, tpName) || has(st.prelude, tpName) || pkgDecl(st, tpName) || has(seen, tpName) {
+				return stop("generic: type parameter name taken (name_N)")
+			}
+			let idx = len(binders)
+			if idx >= len(f.Params) || f.Params[idx] != tpName {
+				return stop("generic: type parameters")
+			}
+			seen = seen.Append(tpName)
+			binders = binders.Append(GenericBinder{Index: idx, Name: tpName})
+		}
+	}
+	if len(binders) == 0 || len(binders) != len(f.Params) {
+		return stop("generic: type parameters")
+	}
+	GenericBodyPlan{File: st.file, At: syntax.NodePos(p, f.Decl), Decl: dense.OptOf(f.Decl), Binders: binders}
+}
+
+func typeParamGo(st fnb, t dense.ID[store.TKey]) string {
+	if store.KindOfType(st.s, t) != store.KParam {
+		return ""
+	}
+	let idx = store.ArgOf(st.s, t)
+	for b in st.generic.Binders {
+		if b.Index == idx {
+			return b.Name
+		}
+	}
+	""
+}
+
+test EmptyGenericPlanHasNoBinders {
+	let plan = EmptyGenericPlan()
+	assert !hasGenericBinders(plan)
+	assert len(plan.Binders) == 0
+}

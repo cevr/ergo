@@ -99,6 +99,7 @@ type fnb {
 	frameRoot bool,
 	frame     framePlan,
 	plan      GeneratedBodyPlan,
+	generic   GenericBodyPlan,
 	filePath  string,
 }
 
@@ -158,7 +159,7 @@ func PackageWithPlan(s store.Store, k expr.Pkg, t expr.Typer, paths []string, pa
 	for i, f in k.Fns {
 		let p = k.Parsed[f.File]
 		let at = syntax.NodePos(p, f.Decl)
-		let mut st = fnb{rootImports: imports, shapeImports: shapeImports, importCalls: direct, k: k, s: s, types: types, file: f.File, p: p, lines: lines[f.File], fileIx: uint32(0), params: []dense.ID[store.PNode]{}, locals: []int{}, alias: alias, prelude: prelude, calls: t.Calls, callAt: callAt, capAt: capAt, frameRoot: root && path != "prelude", frame: rowlessFrame(0), plan: plan, filePath: paths[f.File]}
+		let mut st = fnb{rootImports: imports, shapeImports: shapeImports, importCalls: direct, k: k, s: s, types: types, file: f.File, p: p, lines: lines[f.File], fileIx: uint32(0), params: []dense.ID[store.PNode]{}, locals: []int{}, alias: alias, prelude: prelude, calls: t.Calls, callAt: callAt, capAt: capAt, frameRoot: root && path != "prelude", frame: rowlessFrame(0), plan: plan, generic: EmptyGenericPlan(), filePath: paths[f.File]}
 		// Read the package-wide columns once, before building any body.
 		// A body that stops during lowering can still have a call proof.
 		if i == 0 {
@@ -279,6 +280,9 @@ let hostProtocols = []string{"Error", "String", "GoString", "As", "Format", "Gob
 // when first is an ordinary record T and no field of T is spelled name; else
 // name. It stops at a name Go's protocols or keywords hold.
 func goName(st fnb, name string, first Option[dense.ID[store.TKey]]) string fails Unported {
+	if hasGenericBinders(st.generic) {
+		return try declName(st, name)
+	}
 	let t = match first {
 	case Some[dense.ID[store.TKey]] as f:
 		f.Value
@@ -507,8 +511,10 @@ func function(st mut fnb, b mut ir.Builder, f expr.Fn, path string) bool fails U
 	if dense.Unpack(d.Recv) != None {
 		return stop("method")
 	}
-	if dense.Unpack(d.TypeParams) != None {
-		return stop("generic")
+	match dense.Unpack(d.TypeParams) {
+	case Some[dense.ID[syntax.Node]] as tp:
+		st.generic = try planGenericBody(*st, f, tp.Value)
+	case None:
 	}
 	let name = nameText(p, d.Name)
 	if name == "main" || name == "Close" {
@@ -529,6 +535,9 @@ func function(st mut fnb, b mut ir.Builder, f expr.Fn, path string) bool fails U
 	let n = len(ops) - 3
 	let errs = !emptyRow(*st, ops[n+1])
 	let uses = !emptyRow(*st, ops[n+2])
+	if hasGenericBinders(st.generic) && (errs || uses) {
+		return stop("generic: fails or needs row")
+	}
 	if errs && uses {
 		return stop("signature: fails and needs rows")
 	}
@@ -553,17 +562,23 @@ func function(st mut fnb, b mut ir.Builder, f expr.Fn, path string) bool fails U
 		sig = "result: " + typeCause(*st, ops[n])
 	}
 	let unit = !uses && isUnit(*st, ops[n])
+	if hasGenericBinders(st.generic) && unit {
+		return stop("generic: unit result")
+	}
 	let borrowUnit = unit && controlUnitAdmitted(*st, f, body)
 	if unit {
 		sig = ""
 	}
 	for i in 0..n {
+		if hasGenericBinders(st.generic) && i < len(f.Takes) && f.Takes[i] {
+			return stop("generic: owned parameter")
+		}
 		if sig == "" && unit && i < len(f.Takes) && f.Takes[i] {
 			sig = "parameter: owned unit frame"
 		}
 		if sig == "" && shapeGo(*st, ops[i]) == "" {
 			sig = "parameter: " + typeCause(*st, ops[i])
-			if (!unit || borrowUnit) && admittedBorrowParam(*st, f, i, ops[i], !errs && !uses) {
+			if !hasGenericBinders(st.generic) && (!unit || borrowUnit) && admittedBorrowParam(*st, f, i, ops[i], !errs && !uses) {
 				sig = ""
 			}
 		}
@@ -653,9 +668,13 @@ func letOf(st fnb, s dense.ID[syntax.Node], local int) (aLet, bool) fails Unport
 	if name == "" || name == "_" {
 		return stop("let _")
 	}
-	let gt = basicGo(st, try typeOf(st, value, "let value"))
+	let vt = try typeOf(st, value, "let value")
+	let mut gt = basicGo(st, vt)
+	if gt == "" && vd.Mut < 0 {
+		gt = typeParamGo(st, vt)
+	}
 	if gt == "" {
-		return stop("let of " + typeCause(st, try typeOf(st, value, "let value")))
+		return stop("let of " + typeCause(st, vt))
 	}
 	try check(st, value)
 	(aLet{tok: vd.Var, at: at, name: name, typ: gt, value: value, local: local}, vd.Mut >= 0)

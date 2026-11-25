@@ -1,0 +1,5 @@
+[
+  {"fixture": "port_generic.ergo", "declaration": "func PortGenericIdentity[", "symbol": "PortGenericIdentity"},
+  {"fixture": "port_generic.ergo", "declaration": "func PortGenericFirst[", "symbol": "PortGenericFirst"},
+  {"fixture": "port_generic.ergo", "declaration": "func PortGenericSecond[", "symbol": "PortGenericSecond"}
+]
