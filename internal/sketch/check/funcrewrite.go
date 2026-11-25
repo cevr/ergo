@@ -211,10 +211,16 @@ func (c *checker) funcRewrite(law *Law) (*FuncRewrite, syntax.Node, string) {
 			rw.OverFuncs = true
 		}
 	}
+	var lhsRoot *syntax.CallExpr
 	for _, e := range lhsCalls {
 		if call := info.Calls[e]; call.Kind == CallFunc {
-			rw.Root = call.Func
-			break
+			if rw.Root == nil || IsLenCall(info.Calls[lhsRoot]) {
+				rw.Root = call.Func
+				lhsRoot = e
+			}
+			if !IsLenCall(call) {
+				break
+			}
 		}
 	}
 	if rw.Root == nil {

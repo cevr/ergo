@@ -126,6 +126,32 @@ func TestFunctionRewriteRows(t *testing.T) {
 	}
 }
 
+// TestFunctionRewriteLenMethodRoot verifies that a rewrite law whose left side
+// calls .Len() on a local function (e.g. Encode(s).Len() == 2 * s.Len()) picks
+// the local function as rw.Root rather than core.Len (no false orphan rewrite),
+// while .Len() on a foreign function still rejects as an orphan rewrite.
+func TestFunctionRewriteLenMethodRoot(t *testing.T) {
+	const okSrc = `func Encode(s string) string { s + s }
+
+law EncodeDoublesLength(s string) { Encode(s).Len() } == { 2 * s.Len() }
+`
+	pkg, diags := check.CheckSource(okSrc)
+	if len(diags) != 0 {
+		t.Fatalf("Encode(s).Len() rewrite must check cleanly: %s", describe(diags))
+	}
+	if len(pkg.Laws) != 1 || pkg.Laws[0].FuncRewrite == nil || pkg.Laws[0].FuncRewrite.Root == nil || pkg.Laws[0].FuncRewrite.Root.Name != "Encode" {
+		t.Fatalf("expected FuncRewrite.Root == Encode, got %+v", pkg.Laws)
+	}
+	const orphanSrc = `import go strings
+
+law ForeignLen(s string) { strings.ToUpper(s).Len() } == { s.Len() }
+`
+	_, diags = check.CheckSource(orphanSrc)
+	if len(diags) != 1 || !strings.Contains(diags[0].Message, "no orphan rewrite") || !strings.Contains(diags[0].Message, "ToUpper") {
+		t.Fatalf("expected orphan rewrite naming ToUpper, got:\n\t%s", describe(diags))
+	}
+}
+
 const frFixture = `import go strings
 import go os
 

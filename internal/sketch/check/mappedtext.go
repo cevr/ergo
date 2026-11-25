@@ -254,7 +254,7 @@ func (w *escWalk) textPlace(x syntax.Expr) bool {
 		if k == nil {
 			return true // an unchecked call has its own diagnostic
 		}
-		if k.Kind == CallLen {
+		if IsLenCall(k) {
 			return true
 		}
 		for i, a := range p.Args {
@@ -262,6 +262,24 @@ func (w *escWalk) textPlace(x syntax.Expr) bool {
 				return IsMappedText(w.paramType(p, i))
 			}
 		}
+	case *syntax.SelectorExpr:
+		if p.X != child {
+			return false
+		}
+		gp, gchild := w.parentBefore(p)
+		call, ok := gp.(*syntax.CallExpr)
+		if !ok || call.Fun != gchild {
+			return false
+		}
+		k := w.info.Calls[call]
+		if k == nil {
+			return true
+		}
+		if IsLenCall(k) {
+			return true
+		}
+		return k.Kind == CallFunc && k.Recv != nil && k.Func != nil && k.Func.Sig != nil &&
+			len(k.Func.Sig.Params) > 0 && IsMappedText(k.Func.Sig.Params[0].Type)
 	case *syntax.IndexExpr:
 		return p.X == child
 	case *syntax.SliceExpr:
@@ -275,6 +293,23 @@ func (w *escWalk) textPlace(x syntax.Expr) bool {
 		return p.X == child
 	}
 	return false
+}
+
+// parentBefore returns the nearest non-ParenExpr ancestor of n in w.stack.
+func (w *escWalk) parentBefore(n syntax.Node) (parent, child syntax.Node) {
+	j := slices.Index(w.stack, n)
+	if j < 1 {
+		return nil, n
+	}
+	child = n
+	for j--; j >= 0; j-- {
+		if _, ok := w.stack[j].(*syntax.ParenExpr); ok {
+			child = w.stack[j]
+			continue
+		}
+		return w.stack[j], child
+	}
+	return nil, child
 }
 
 // paramType is the type of the parameter the i-th argument of call binds,

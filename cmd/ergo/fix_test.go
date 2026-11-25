@@ -149,3 +149,53 @@ func TestFixRespellsAStdThatDoesNotCheck(t *testing.T) {
 		t.Fatalf("ergo fix --std (err %v) left:\n%s\nwant:\n%s", err, got, want)
 	}
 }
+
+// TestFixLenCommand exercises `ergo fix --len` modes (--check, --dry-run,
+// --json, write) and verifies that default `ergo fix --check` (without --len)
+// leaves un-migrated len(e) files passing during the 4a->4b window.
+func TestFixLenCommand(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	t.Setenv("HOME", t.TempDir())
+	const src = "func count(xs []int, p mut []int) int {\n\tlen(xs) + len(*p)\n}\n"
+	const want = "func count(xs []int, p mut []int) int {\n\txs.Len() + (*p).Len()\n}\n"
+	path := filepath.Join(t.TempDir(), "count.ergo")
+	if err := os.WriteFile(path, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	read := func() string {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(data)
+	}
+	// Default `ergo fix --check` (without --len) stays green on un-migrated len.
+	if err := command([]string{"fix", "--check", "--json", path}); err != nil {
+		t.Fatalf("default fix --check without --len: %v", err)
+	}
+	// `ergo fix --len --check` reports changes (exit 1) and writes nothing.
+	if err, ok := command([]string{"fix", "--len", "--check", "--json", path}).(exitStatusError); !ok || err.code != 1 {
+		t.Fatalf("fix --len --check: %v, want exit 1", err)
+	}
+	if got := read(); got != src {
+		t.Fatalf("fix --len --check wrote:\n%s", got)
+	}
+	// `ergo fix --len --dry-run` exits 0 and writes nothing.
+	if err := command([]string{"fix", "--len", "--dry-run", "--json", path}); err != nil {
+		t.Fatalf("fix --len --dry-run: %v", err)
+	}
+	if got := read(); got != src {
+		t.Fatalf("fix --len --dry-run wrote:\n%s", got)
+	}
+	// `ergo fix --len` writes the rewritten file.
+	if err := command([]string{"fix", "--len", "--json", path}); err != nil {
+		t.Fatalf("fix --len: %v", err)
+	}
+	if got := read(); got != want {
+		t.Fatalf("fix --len wrote:\n%s\nwant:\n%s", got, want)
+	}
+	// `ergo fix --len --check` is now clean (exit 0).
+	if err := command([]string{"fix", "--len", "--check", "--json", path}); err != nil {
+		t.Fatalf("fix --len --check after fix: %v", err)
+	}
+}
