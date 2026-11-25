@@ -149,3 +149,48 @@ func TestFixRespellsAStdThatDoesNotCheck(t *testing.T) {
 		t.Fatalf("ergo fix --std (err %v) left:\n%s\nwant:\n%s", err, got, want)
 	}
 }
+
+// TestFixGlobalFuncsCommand exercises `ergo fix --global-funcs` modes (--check,
+// --dry-run, --json, write) and verifies that default `ergo fix --check`
+// (without --global-funcs) stays green during the 5a->5b window.
+func TestFixGlobalFuncsCommand(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	t.Setenv("HOME", t.TempDir())
+	const src = "func hashed(s string) uint64 {\n\thash(s)\n}\n"
+	const want = "import maps\n\nfunc hashed(s string) uint64 {\n\tmaps.Hash(s)\n}\n"
+	path := filepath.Join(t.TempDir(), "hashed.ergo")
+	if err := os.WriteFile(path, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	read := func() string {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(data)
+	}
+	if err := command([]string{"fix", "--check", "--json", path}); err != nil {
+		t.Fatalf("default fix --check without --global-funcs: %v", err)
+	}
+	if err, ok := command([]string{"fix", "--global-funcs", "--check", "--json", path}).(exitStatusError); !ok || err.code != 1 {
+		t.Fatalf("fix --global-funcs --check: %v, want exit 1", err)
+	}
+	if got := read(); got != src {
+		t.Fatalf("fix --global-funcs --check wrote:\n%s", got)
+	}
+	if err := command([]string{"fix", "--global-funcs", "--dry-run", "--json", path}); err != nil {
+		t.Fatalf("fix --global-funcs --dry-run: %v", err)
+	}
+	if got := read(); got != src {
+		t.Fatalf("fix --global-funcs --dry-run wrote:\n%s", got)
+	}
+	if err := command([]string{"fix", "--global-funcs", "--json", path}); err != nil {
+		t.Fatalf("fix --global-funcs: %v", err)
+	}
+	if got := read(); got != want {
+		t.Fatalf("fix --global-funcs wrote:\n%s\nwant:\n%s", got, want)
+	}
+	if err := command([]string{"fix", "--global-funcs", "--check", "--json", path}); err != nil {
+		t.Fatalf("fix --global-funcs --check after fix: %v", err)
+	}
+}

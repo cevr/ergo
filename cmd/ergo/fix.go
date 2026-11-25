@@ -17,7 +17,7 @@ import (
 	"ergo.local/prototype/internal/sketch/lint"
 )
 
-const fixUsage = "usage: ergo fix [--check|--dry-run] [--json] [--lint] [--comments] [--std DIR] [--go] PATH..."
+const fixUsage = "usage: ergo fix [--check|--dry-run] [--json] [--lint] [--comments|--global-funcs] [--std DIR] [--go] PATH..."
 
 const fixHelp = fixUsage + `
 
@@ -54,10 +54,16 @@ first. Other diagnostics are printed, and the exit status is then 1.
   --lint     then apply the safe lint fixes (race-for-timeout) of each
              program's lint configuration, until none is left; a fix
              that leaves a diagnostic refuses the run and writes nothing
-  --comments only remove, under each PATH and the --std DIR, every comment
-             lint's no-comments refuses (all but a public declaration's
-             doc comment), keeping each file's tokens; with --json it
-             lists what it removed: file, line, declaration, position, text
+  --comments     only remove, under each PATH and the --std DIR, every comment
+                 lint's no-comments refuses (all but a public declaration's
+                 doc comment), keeping each file's tokens; with --json it
+                 lists what it removed: file, line, declaration, position, text
+  --global-funcs only rewrite, under each PATH and the --std DIR, calls to
+                 universe/prelude global functions (hash, encode, decode,
+                 embedded, MakeSlice, MakeMap, InForce, AsWritten, TestFolder,
+                 TestFolderHandle, NewLiveScheduler) into their std-package
+                 forms, adding missing imports in sorted order and leaving
+                 user shadows untouched; with --json it lists every rewrite
 
 Exit codes: 0 done; 1 a file could not be read or written, a diagnostic
 remains, or --check found a change; 2 invalid invocation.
@@ -75,7 +81,7 @@ type fixReport struct {
 // clause pass over each PATH that is a program.
 func fixCommand(args []string) error {
 	var paths []string
-	var check, dry, asJSON, goLits, withLint, comments bool
+	var check, dry, asJSON, goLits, withLint, comments, globalFuncs bool
 	stdRoot := ""
 	for i := 0; i < len(args); i++ {
 		switch a := args[i]; a {
@@ -91,6 +97,8 @@ func fixCommand(args []string) error {
 			withLint = true
 		case "--comments":
 			comments = true
+		case "--global-funcs":
+			globalFuncs = true
 		case "--std":
 			if i+1 == len(args) {
 				return usageError{message: fixUsage}
@@ -104,12 +112,15 @@ func fixCommand(args []string) error {
 			paths = append(paths, a)
 		}
 	}
-	if len(paths) == 0 && stdRoot == "" || check && dry {
+	if len(paths) == 0 && stdRoot == "" || check && dry || comments && globalFuncs {
 		return usageError{message: fixUsage}
 	}
 	write := !check && !dry
 	if comments {
 		return fixComments(respellRoots(fixFolders(paths), stdRoot), write, check, asJSON)
+	}
+	if globalFuncs {
+		return fixGlobalFuncs(fixFolders(paths), stdRoot, write, check, asJSON)
 	}
 	// The respells come first: they are syntactic, so they read a file
 	// that does not check, and every checked pass below reads the new
@@ -402,6 +413,39 @@ func fixComments(roots []string, write, check, asJSON bool) error {
 		return exitStatusError{code: 1, message: "fix: comments left in files it could not change", handled: true}
 	case check && len(rep.Files) > 0:
 		return exitStatusError{code: 1, message: "fix: comments would be removed", handled: true}
+	}
+	return nil
+}
+
+// fixGlobalFuncs is `ergo fix --global-funcs`: rewrites universe/prelude
+// global function calls to their std-package forms (fix.RunGlobalFuncs). With
+// asJSON it prints every rewritten site; with check it writes nothing and
+// exits 1 when any call would be rewritten.
+func fixGlobalFuncs(paths []string, stdRoot string, write, check, asJSON bool) error {
+	rep, err := fix.RunGlobalFuncs(fix.Options{Paths: paths, StdRoot: stdRoot, Write: write})
+	if err != nil {
+		return exitStatusError{code: 1, message: "ergo fix: " + err.Error()}
+	}
+	if asJSON {
+		rewrites := rep.Rewrites
+		if rewrites == nil {
+			rewrites = []fix.GlobalFuncRewrite{}
+		}
+		if err := printJSON(struct {
+			Written  bool                    `json:"written"`
+			Rewrites []fix.GlobalFuncRewrite `json:"rewrites"`
+			Errors   []string                `json:"errors,omitempty"`
+		}{write && len(rep.Files) > 0, rewrites, rep.Errs}); err != nil {
+			return err
+		}
+	} else {
+		fmt.Fprint(os.Stdout, rep.Text())
+	}
+	switch {
+	case len(rep.Errs) > 0:
+		return exitStatusError{code: 1, message: "fix: global function calls left in files it could not change", handled: true}
+	case check && len(rep.Files) > 0:
+		return exitStatusError{code: 1, message: "fix: global function calls would be rewritten", handled: true}
 	}
 	return nil
 }

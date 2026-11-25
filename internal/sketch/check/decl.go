@@ -443,6 +443,22 @@ func (c *checker) collect() {
 					}
 				}
 			case *syntax.FuncDecl:
+				if name := builtinDirective(d.Doc); name != "" {
+					if !c.contextNamed(d.Name) {
+						c.declare(d.Name, &Builtin{Name: name})
+					}
+					continue
+				}
+				if target := aliasDirective(d.Doc); target != "" && c.pkg.Scope.parent != nil {
+					if obj, _ := c.pkg.Scope.parent.lookup(target); obj != nil {
+						if orig, ok := obj.(*Func); ok {
+							if !c.contextNamed(d.Name) {
+								c.declare(d.Name, orig)
+							}
+							continue
+						}
+					}
+				}
 				fn := &Func{Name: d.Name.Name, Pkg: c.pkg, Pos: d.Name.Pos(), Decl: d, file: fi}
 				c.funcs = append(c.funcs, fn)
 				// A second function of one name waits for the types:
