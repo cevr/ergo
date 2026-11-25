@@ -1,0 +1,440 @@
+import exec
+import filepath
+import fs
+import fstest
+import os
+import strconv
+import strings
+import github.com/cevr/ergo/modules/git/delta
+import github.com/cevr/ergo/modules/git/graph
+import github.com/cevr/ergo/modules/git/oid
+import github.com/cevr/ergo/modules/git/oracle
+import github.com/cevr/ergo/modules/git/pack
+import github.com/cevr/ergo/modules/git/refs
+import github.com/cevr/ergo/modules/git/root
+
+let onOracle = context needs TestAmbient {
+	exec.Runner: exec.NewTestHost().InheritEnv(exec.PathOf(os.NewTestHost().Environ())),
+	fs.Files:    fs.NewTestHost(),
+	fs.Writes:   fs.NewTestHost(),
+	os.Process:  os.NewTestHost(),
+}
+
+let onOracleSha1 = context needs TestAmbient {
+	exec.Runner: exec.NewTestHost().InheritEnv(exec.PathOf(os.NewTestHost().Environ())),
+	fs.Files:    fs.NewTestHost(),
+	fs.Writes:   fs.NewTestHost(),
+	os.Process:  os.NewTestHost(),
+	CommitDAG:   NewStoreDAG(oid.Sha1, filepath.Join([]string{fstest.TestFolder(), "repo-sha1", ".git", "objects"}), []string{}, true, fs.NewTestHost()),
+}
+
+let onOracleSha256 = context needs TestAmbient {
+	exec.Runner: exec.NewTestHost().InheritEnv(exec.PathOf(os.NewTestHost().Environ())),
+	fs.Files:    fs.NewTestHost(),
+	fs.Writes:   fs.NewTestHost(),
+	os.Process:  os.NewTestHost(),
+	CommitDAG:   NewStoreDAG(oid.Sha256, filepath.Join([]string{fstest.TestFolder(), "repo-sha256", ".git", "objects"}), []string{}, true, fs.NewTestHost()),
+}
+
+type testFail {
+	reason string,
+}
+
+func makeSynthOID(format oid.Format, label string) oid.OID {
+	oid.HashObject(format, oid.Blob, ("revisions-synth-" + label).Bytes()) catch {
+	case oid.Collision:
+		oid.Zero(format)
+	}
+}
+
+func makeCrissCrossMemoryDAG(format oid.Format) (MemoryDAG, oid.OID, oid.OID, oid.OID, oid.OID, oid.OID) {
+	let rootId = makeSynthOID(format, "root")
+	let a1 = makeSynthOID(format, "a1")
+	let b1 = makeSynthOID(format, "b1")
+	let a2 = makeSynthOID(format, "a2")
+	let b2 = makeSynthOID(format, "b2")
+	let t = makeSynthOID(format, "tree")
+	let blobId = makeSynthOID(format, "not-a-commit-blob")
+	let nonCommits = Map[string, oid.Kind]{}.Put(oid.Hex(blobId), oid.Blob)
+	let dag = MemoryDAGWithNonCommits(format, []CommitNode{
+		CommitNode{OID: rootId, Tree: t, Parents: []oid.OID{}, CommitTime: int64(100), Generation: uint32(1)},
+		CommitNode{OID: a1, Tree: t, Parents: []oid.OID{rootId}, CommitTime: int64(200), Generation: uint32(2)},
+		CommitNode{OID: b1, Tree: t, Parents: []oid.OID{rootId}, CommitTime: int64(210), Generation: uint32(2)},
+		CommitNode{OID: a2, Tree: t, Parents: []oid.OID{a1, b1}, CommitTime: int64(300), Generation: uint32(3)},
+		CommitNode{OID: b2, Tree: t, Parents: []oid.OID{b1, a1}, CommitTime: int64(310), Generation: uint32(3)},
+	}, nonCommits)
+	(dag, rootId, a1, b1, a2, b2)
+}
+
+func seededMemoryDAG(format oid.Format) MemoryDAG {
+	let (dag, _, _, _, _, _) = makeCrissCrossMemoryDAG(format)
+	dag
+}
+
+let onCrissCrossSha1 = context {
+	CommitDAG: seededMemoryDAG(oid.Sha1),
+}
+
+let onCrissCrossSha256 = context {
+	CommitDAG: seededMemoryDAG(oid.Sha256),
+}
+
+func formatCommitPayload(treeId oid.OID, parents []oid.OID, epoch int, msg string) []byte {
+	let mut s = "tree " + oid.Hex(treeId) + "\n"
+	for p in parents {
+		s = s + "parent " + oid.Hex(p) + "\n"
+	}
+	s = s + "author A <a@example.com> " + strconv.Itoa(epoch) + " +0000\n"
+	s = s + "committer A <a@example.com> " + strconv.Itoa(epoch) + " +0000\n\n" + msg + "\n"
+	s.Bytes()
+}
+
+func makeLawStoreDAG(objectsDir string, host fs.Host) StoreDAG fails pack.Corrupt | pack.MismatchedPair | pack.Collision | pack.IOFailed {
+	with context { fs.Files: host, fs.Writes: host } {
+		let opened = try pack.Open(oid.Sha1, objectsDir, []string{}, delta.DefaultLimits())
+		let treeId = try pack.InstallObject(opened, oid.Tree, []byte{})
+		let cRoot = try pack.InstallObject(opened, oid.Commit, formatCommitPayload(treeId, []oid.OID{}, 100, "root"))
+		let cA = try pack.InstallObject(opened, oid.Commit, formatCommitPayload(treeId, []oid.OID{cRoot}, 200, "a"))
+		let cB = try pack.InstallObject(opened, oid.Commit, formatCommitPayload(treeId, []oid.OID{cRoot}, 210, "b"))
+		let _ = try pack.InstallObject(opened, oid.Commit, formatCommitPayload(treeId, []oid.OID{cA, cB}, 300, "m"))
+	}
+	NewStoreDAG(oid.Sha1, objectsDir, []string{}, false, host)
+}
+
+let onStoreSha1 = context fails pack.Corrupt | pack.MismatchedPair | pack.Collision | pack.IOFailed needs TestAmbient {
+	CommitDAG: try makeLawStoreDAG(filepath.Join([]string{fstest.TestFolder(), "law-store-dag-objects"}), fs.NewTestHost()),
+}
+
+func runGitOk(dir string, args []string, pathEnv Map[string, string], step int) string fails testFail | exec.NotFound | exec.Denied | exec.Failed needs exec.Runner {
+	let res = try exec.Runner.Run(oracle.GitCommand(dir, args, pathEnv, oracle.StepEpoch(step)))
+	if res.Status != 0 {
+		return testFail{reason: "git failed: " + res.Stderr}
+	}
+	res.Stdout
+}
+
+func parseGitOIDLines(format oid.Format, raw string) []oid.OID fails oid.BadHex | oid.WrongLength {
+	let mut out = []oid.OID{}
+	for line in strings.Split(strings.TrimSpace(raw), "\n") {
+		let trimmed = strings.TrimSpace(line)
+		if trimmed != "" {
+			out = out.Append(try oid.ParseHex(format, trimmed))
+		}
+	}
+	out
+}
+
+func check(cond bool, msg string) fails testFail {
+	if !cond {
+		return testFail{reason: msg}
+	}
+}
+
+func verifyDagAgainstGit(repoDir string, format oid.Format, resolver Resolver, pathEnv Map[string, string], step int, blobId oid.OID) fails testFail | NotFound | Ambiguous | InvalidRev | NotACommit | WrongKind | MissingParent | DepthExceeded | StoreError | oid.BadHex | oid.WrongLength | exec.NotFound | exec.Denied | exec.Failed needs CommitDAG | exec.Runner | fs.Files {
+	let gitMergeBases = try parseGitOIDLines(format, try runGitOk(repoDir, []string{"merge-base", "--all", "branchA", "branchB"}, pathEnv, step))
+	try check(len(gitMergeBases) == 2, "expected 2 criss-cross git merge bases")
+
+	let aId = try ResolveRev(resolver, "branchA")
+	let bId = try ResolveRev(resolver, "branchB")
+	let gotBases = try MergeBases(aId, bId)
+	try check(len(gotBases) == 2, "MergeBases did not return 2 criss-cross bases")
+	try check(sameOIDSet(gotBases, gitMergeBases), "MergeBases disagreed with git merge-base --all")
+
+	let a1Id = try ResolveRev(resolver, "a1")
+	let b1Id = try ResolveRev(resolver, "b1")
+	let rootId = try ResolveRev(resolver, "root")
+	try check(try IsAncestor(rootId, aId), "root should be ancestor of branchA")
+	try check(try IsAncestor(a1Id, bId), "a1 should be ancestor of branchB")
+	try check(try IsAncestor(b1Id, aId), "b1 should be ancestor of branchA")
+	try check(!(try IsAncestor(aId, bId)), "branchA should not be ancestor of branchB")
+	try check(!(try IsAncestor(bId, aId)), "branchB should not be ancestor of branchA")
+
+	let missingId = oid.Zero(format)
+	let mut sawMissingAnc = false
+	let _ = IsAncestor(missingId, aId) catch {
+	case NotFound:
+		sawMissingAnc = true
+		false
+	case NotACommit, StoreError:
+		false
+	}
+	try check(sawMissingAnc, "IsAncestor must fail NotFound on missing ancestor")
+
+	let mut sawBlobAnc = false
+	let _ = IsAncestor(blobId, aId) catch {
+	case NotACommit:
+		sawBlobAnc = true
+		false
+	case NotFound, StoreError:
+		false
+	}
+	try check(sawBlobAnc, "IsAncestor must fail NotACommit on blob ancestor")
+
+	let mut sawBlobDesc = false
+	let _ = IsAncestor(rootId, blobId) catch {
+	case NotACommit:
+		sawBlobDesc = true
+		false
+	case NotFound, StoreError:
+		false
+	}
+	try check(sawBlobDesc, "IsAncestor must fail NotACommit on blob descendant")
+
+	let gitRange = try parseGitOIDLines(format, try runGitOk(repoDir, []string{"rev-list", "branchA..branchB"}, pathEnv, step+1))
+	let gotRange = try ResolveRevList(resolver, "branchA..branchB", DefaultRevListOptions())
+	try check(sameOIDSet(gotRange, gitRange), "A..B rev-list mismatch")
+
+	let gitCaretRange = try parseGitOIDLines(format, try runGitOk(repoDir, []string{"rev-list", "^branchA", "branchB"}, pathEnv, step+2))
+	let gotCaretRange = try ResolveRevList(resolver, "^branchA branchB", DefaultRevListOptions())
+	try check(sameOIDSet(gotCaretRange, gitCaretRange), "^A B rev-list mismatch")
+
+	let gitSym = try parseGitOIDLines(format, try runGitOk(repoDir, []string{"rev-list", "branchA...branchB"}, pathEnv, step+3))
+	let gotSym = try ResolveRevList(resolver, "branchA...branchB", DefaultRevListOptions())
+	try check(sameOIDSet(gotSym, gitSym), "A...B symmetric rev-list mismatch")
+
+	let gitFirstParent = try parseGitOIDLines(format, try runGitOk(repoDir, []string{"rev-list", "--first-parent", "octopus"}, pathEnv, step+4))
+	let gotFirstParent = try ResolveRevList(resolver, "octopus", RevListOptions{FirstParent: true, MaxCount: 0})
+	try check(sameOIDSet(gotFirstParent, gitFirstParent) && len(gotFirstParent) == len(gitFirstParent), "--first-parent mismatch")
+
+	let octoId = try ResolveRev(resolver, "octopus")
+	let linearId = try ResolveRev(resolver, "linear")
+	let contained = try Contains(b1Id, []oid.OID{rootId, a1Id, b1Id, aId, bId, octoId, linearId})
+	try check(sameOIDSet(contained, []oid.OID{b1Id, aId, bId, octoId}), "Contains mismatch")
+
+	let gitOctoBase = try parseGitOIDLines(format, try runGitOk(repoDir, []string{"merge-base", "--octopus", "branchA", "branchB", "linear"}, pathEnv, step+5))
+	let gotOctoBase = try MergeBaseOctopus([]oid.OID{aId, bId, linearId})
+	try check(sameOIDSet(gotOctoBase, gitOctoBase), "MergeBaseOctopus mismatch")
+
+	let exprs = []string{
+		"HEAD",
+		"linear",
+		"refs/heads/linear",
+		"linear~2",
+		"linear~3",
+		"linear~~",
+		"octopus^",
+		"octopus^1",
+		"octopus^2",
+		"octopus^3",
+		"octopus^2^1",
+		"octopus^3~1",
+		"v1",
+		"v1^{}",
+		"v1^{commit}",
+		"v1^{tree}",
+		"v1^{tag}",
+		"v2",
+		"v2^{}",
+		"v2^{commit}",
+		"v2^{tree}",
+		"v2^0",
+		"HEAD:dir/nested.txt",
+		"v2^{tree}:dir/nested.txt",
+		"branchA:a.txt",
+	}
+	for expr in exprs {
+		let gitHex = strings.TrimSpace(try runGitOk(repoDir, []string{"rev-parse", expr}, pathEnv, step+6))
+		let wantId = try oid.ParseHex(format, gitHex)
+		let gotId = try ResolveRev(resolver, expr)
+		try check(oid.Equal(gotId, wantId), "ResolveRev mismatch for "+expr)
+	}
+
+	let shortOcto = oid.ShortHex(octoId, 12)
+	let resolvedShort = try ResolveRev(resolver, shortOcto)
+	try check(oid.Equal(resolvedShort, octoId), "abbreviated OID resolution failed")
+
+	let mut sawBadParent = false
+	let _ = ResolveRev(resolver, "octopus^4") catch {
+	case MissingParent:
+		sawBadParent = true
+		oid.Zero(format)
+	case NotFound, Ambiguous, InvalidRev, NotACommit, WrongKind, DepthExceeded, StoreError:
+		oid.Zero(format)
+	}
+	try check(sawBadParent, "octopus^4 must fail MissingParent")
+
+	let mut sawWrongBlobPeel = false
+	let _ = ResolveRev(resolver, "v2^{blob}") catch {
+	case WrongKind:
+		sawWrongBlobPeel = true
+		oid.Zero(format)
+	case NotFound, Ambiguous, InvalidRev, NotACommit, MissingParent, DepthExceeded, StoreError:
+		oid.Zero(format)
+	}
+	try check(sawWrongBlobPeel, "v2^{blob} must fail WrongKind")
+}
+
+func runOracleRepoForFormat(cwd string, oFmt oracle.OidFormat, fmt oid.Format, pathEnv Map[string, string]) fails testFail | NotFound | Ambiguous | InvalidRev | NotACommit | WrongKind | MissingParent | DepthExceeded | StoreError | oid.BadHex | oid.WrongLength | oracle.Missing | oracle.Corrupt | oracle.Ambiguous | oracle.InvalidRef | oracle.Conflict | oracle.CommandFailed | root.NotARepository | root.BadGitDirFile | root.BadCommonDir | root.UnsupportedVersion | root.UnsupportedExtension | root.UntrustedPath | root.PathEscape | root.AlternateCycle | root.AlternateDepthExceeded | root.ConfigSyntax | root.ConfigBadValue | root.IncludeCycle | root.IncludeDepthExceeded | root.IncludeRefused | pack.Corrupt | pack.MismatchedPair | pack.IOFailed | graph.Truncated | graph.BadMagic | graph.UnsupportedVersion | graph.WrongFormat | graph.CorruptChunk | graph.MissingChunk | graph.ChecksumMismatch | graph.BadBaseChain | graph.IOFailed | exec.NotFound | exec.Denied | exec.Failed | fs.NotFound | fs.Denied | fs.Failed needs CommitDAG | exec.Runner | fs.Files | fs.Writes {
+	let label = oracle.FormatName(oFmt)
+	let repoDir = try oracle.InitRepo(filepath.Join([]string{cwd, "repo-" + label}), oracle.RepoSpec{Format: oFmt, Layout: oracle.Normal, DefaultBranch: "main"}, pathEnv, oracle.BaseEpoch)
+
+	try fs.Writes.MkdirAll(filepath.Join([]string{repoDir, "dir"}))
+	try fs.Writes.WriteFile(filepath.Join([]string{repoDir, "dir", "nested.txt"}), "root-nested\n")
+	try fs.Writes.WriteFile(filepath.Join([]string{repoDir, "base.txt"}), "base\n")
+	let _ = try runGitOk(repoDir, []string{"add", "."}, pathEnv, 1)
+	let _ = try runGitOk(repoDir, []string{"commit", "-q", "-m", "root"}, pathEnv, 2)
+	let _ = try runGitOk(repoDir, []string{"branch", "root"}, pathEnv, 2)
+
+	let _ = try runGitOk(repoDir, []string{"checkout", "-q", "-b", "branchA", "root"}, pathEnv, 3)
+	try fs.Writes.WriteFile(filepath.Join([]string{repoDir, "a.txt"}), "a1\n")
+	let _ = try runGitOk(repoDir, []string{"add", "."}, pathEnv, 4)
+	let _ = try runGitOk(repoDir, []string{"commit", "-q", "-m", "a1"}, pathEnv, 5)
+	let _ = try runGitOk(repoDir, []string{"branch", "a1"}, pathEnv, 5)
+
+	let _ = try runGitOk(repoDir, []string{"checkout", "-q", "-b", "branchB", "root"}, pathEnv, 6)
+	try fs.Writes.WriteFile(filepath.Join([]string{repoDir, "b.txt"}), "b1\n")
+	let _ = try runGitOk(repoDir, []string{"add", "."}, pathEnv, 7)
+	let _ = try runGitOk(repoDir, []string{"commit", "-q", "-m", "b1"}, pathEnv, 8)
+	let _ = try runGitOk(repoDir, []string{"branch", "b1"}, pathEnv, 8)
+
+	let _ = try runGitOk(repoDir, []string{"checkout", "-q", "branchA"}, pathEnv, 9)
+	let _ = try runGitOk(repoDir, []string{"merge", "-q", "--no-ff", "-m", "a2 merge b1", "b1"}, pathEnv, 10)
+
+	let _ = try runGitOk(repoDir, []string{"checkout", "-q", "branchB"}, pathEnv, 11)
+	let _ = try runGitOk(repoDir, []string{"merge", "-q", "--no-ff", "-m", "b2 merge a1", "a1"}, pathEnv, 12)
+
+	let _ = try runGitOk(repoDir, []string{"checkout", "-q", "-b", "branchC", "root"}, pathEnv, 13)
+	try fs.Writes.WriteFile(filepath.Join([]string{repoDir, "c.txt"}), "c1\n")
+	let _ = try runGitOk(repoDir, []string{"add", "."}, pathEnv, 14)
+	let _ = try runGitOk(repoDir, []string{"commit", "-q", "-m", "c1"}, pathEnv, 15)
+
+	let _ = try runGitOk(repoDir, []string{"checkout", "-q", "-b", "octopus", "branchA"}, pathEnv, 16)
+	let _ = try runGitOk(repoDir, []string{"merge", "-q", "-m", "octopus merge", "branchB", "branchC"}, pathEnv, 17)
+
+	let _ = try runGitOk(repoDir, []string{"checkout", "-q", "-b", "linear", "root"}, pathEnv, 18)
+	for k in 1..4 {
+		try fs.Writes.WriteFile(filepath.Join([]string{repoDir, "lin-\(k).txt"}), "linear-\(k)\n")
+		let _ = try runGitOk(repoDir, []string{"add", "."}, pathEnv, 18+k*2)
+		let _ = try runGitOk(repoDir, []string{"commit", "-q", "-m", "lin \(k)"}, pathEnv, 19+k*2)
+	}
+
+	let _ = try runGitOk(repoDir, []string{"tag", "-a", "v1", "-m", "tag v1", "linear"}, pathEnv, 30)
+	let _ = try runGitOk(repoDir, []string{"tag", "-a", "v2", "-m", "nested tag v2", "v1"}, pathEnv, 31)
+
+	let blobHex = strings.TrimSpace(try runGitOk(repoDir, []string{"rev-parse", "HEAD:dir/nested.txt"}, pathEnv, 32))
+	let blobId = try oid.ParseHex(fmt, blobHex)
+
+	let layout = try root.Discover(repoDir, root.DiscoverOptions{CeilingDirs: []string{cwd}, Trust: root.ConfinedTrust(cwd)})
+	let odb = try pack.FromLayout(layout)
+	let refStore = refs.FromLayout(layout)
+	let resolver = NewDiskResolver(odb, refStore)
+
+	try verifyDagAgainstGit(repoDir, fmt, resolver, pathEnv, 40, blobId)
+
+	let _ = try runGitOk(repoDir, []string{"commit-graph", "write", "--reachable"}, pathEnv, 50)
+	let ch = try graph.OpenDir(fmt, filepath.Join([]string{layout.ObjectsDir, "info"}))
+	try check(ch.CommitCount() >= 8, "commit-graph should index all reachable commits")
+	let linearId = try ResolveRev(resolver, "linear")
+	let linearNode = try CommitDAG.Commit(linearId)
+	try check(linearNode.Generation > uint32(0), "graph-accelerated StoreDAG must populate Generation")
+
+	try verifyDagAgainstGit(repoDir, fmt, resolver, pathEnv, 55, blobId)
+}
+
+// CrissCrossOctopusTagsAndGraphParityMatchGit: tests SHA-1 and SHA-256 repos
+// with criss-cross merge DAGs (2 best bases), octopus merges (^1/^2/^3),
+// linear chains (~3), nested annotated tags (^{commit}/^{tree}/^{}),
+// <rev>:<path>, A..B / A...B / --first-parent / Contains, and verifies 100%
+// parity between graph-off and graph-accelerated StoreDAG against real C Git.
+test CrissCrossOctopusTagsAndGraphParityMatchGit {
+	with onOracleSha1 {
+		let pathEnv = exec.PathOf(os.Process.Environ())
+		let cwd = try os.Process.Getwd()
+		try runOracleRepoForFormat(cwd, oracle.Sha1, oid.Sha1, pathEnv)
+	}
+	with onOracleSha256 {
+		let pathEnv = exec.PathOf(os.Process.Environ())
+		let cwd = try os.Process.Getwd()
+		try runOracleRepoForFormat(cwd, oracle.Sha256, oid.Sha256, pathEnv)
+	}
+}
+
+func findTwoCollidingPrefixBlobs(format oid.Format) (oid.OID, []byte, oid.OID, []byte, string) {
+	let mut byPrefix = Map[string, (oid.OID, []byte)]{}
+	for i in 0..50000 {
+		let payload = ("ambig-prefix-probe-" + strconv.Itoa(i)).Bytes()
+		let id = oid.HashObject(format, oid.Blob, payload) catch {
+		case oid.Collision:
+			oid.Zero(format)
+		}
+		let pref = oid.ShortHex(id, 4)
+		match byPrefix.Get(pref) {
+		case Some[(oid.OID, []byte)] as prev:
+			let (prevId, prevData) = prev.Value
+			if !oid.Equal(prevId, id) {
+				return (prevId, prevData, id, payload, pref)
+			}
+		case None:
+			byPrefix[pref] = (id, payload)
+		}
+	}
+	(oid.Zero(format), []byte{}, oid.Zero(format), []byte{}, "0000")
+}
+
+// AmbiguousShortOIDRefusedAndDAGInvariants: verifies ResolveRev refuses any
+// abbreviated hex prefix matching >=2 objects with Ambiguous (both in-memory
+// and on-disk in a real Git repo) and verifies criss-cross MergeBases and
+// IsAncestor error-vs-false semantics in MemoryDAG.
+test AmbiguousShortOIDRefusedAndDAGInvariants {
+	with onOracle {
+		for fmt in []oid.Format{oid.Sha1, oid.Sha256} {
+			let (id1, data1, id2, data2, pref) = findTwoCollidingPrefixBlobs(fmt)
+			assert !oid.Equal(id1, id2)
+			assert strings.HasPrefix(oid.Hex(id1), pref)
+			assert strings.HasPrefix(oid.Hex(id2), pref)
+
+			let memOdb = pack.NewMemoryODB(fmt)
+			let _ = try memOdb.Install(oid.Blob, data1)
+			let _ = try memOdb.Install(oid.Blob, data2)
+			let memRefs = refs.NewMemoryRefs(fmt)
+			let resolver = NewMemoryResolver(fmt, memOdb, memRefs, []oid.OID{id1, id2})
+
+			let mut sawAmbig = false
+			let mut candCount = 0
+			let _ = ResolveRev(resolver, pref) catch {
+			case Ambiguous as a:
+				sawAmbig = true
+				candCount = len(a.Candidates)
+				oid.Zero(fmt)
+			case NotFound, InvalidRev, NotACommit, WrongKind, MissingParent, DepthExceeded, StoreError:
+				oid.Zero(fmt)
+			}
+			assert sawAmbig
+			assert candCount == 2
+
+			let unique1 = try ResolveRev(resolver, oid.Hex(id1))
+			assert oid.Equal(unique1, id1)
+			let unique2 = try ResolveRev(resolver, oid.Hex(id2))
+			assert oid.Equal(unique2, id2)
+
+			let (dag, rootId, a1, b1, a2, b2) = makeCrissCrossMemoryDAG(fmt)
+			with context { CommitDAG: dag } {
+				let bases = try MergeBases(a2, b2)
+				assert len(bases) == 2
+				assert sameOIDSet(bases, []oid.OID{a1, b1})
+				assert try IsAncestor(rootId, a2)
+				assert !(try IsAncestor(a2, b2))
+			}
+		}
+
+		let pathEnv = exec.PathOf(os.Process.Environ())
+		let cwd = try os.Process.Getwd()
+		let repoDir = try oracle.InitRepo(filepath.Join([]string{cwd, "revisions-ambig-disk"}), oracle.RepoSpec{Format: oracle.Sha1, Layout: oracle.Normal, DefaultBranch: "main"}, pathEnv, oracle.BaseEpoch)
+		let (id1, data1, id2, data2, pref) = findTwoCollidingPrefixBlobs(oid.Sha1)
+		let layout = try root.Discover(repoDir, root.DiscoverOptions{CeilingDirs: []string{cwd}, Trust: root.ConfinedTrust(cwd)})
+		let odb = try pack.FromLayout(layout)
+		let _ = try pack.InstallObject(odb, oid.Blob, data1)
+		let _ = try pack.InstallObject(odb, oid.Blob, data2)
+		let resolver = NewDiskResolver(odb, refs.FromLayout(layout))
+
+		let mut sawDiskAmbig = false
+		let _ = ResolveRev(resolver, pref) catch {
+		case Ambiguous as a:
+			sawDiskAmbig = len(a.Candidates) >= 2 && sameOIDSet(a.Candidates, []oid.OID{id1, id2})
+			oid.Zero(oid.Sha1)
+		case NotFound, InvalidRev, NotACommit, WrongKind, MissingParent, DepthExceeded, StoreError:
+			oid.Zero(oid.Sha1)
+		}
+		assert sawDiskAmbig
+	}
+}

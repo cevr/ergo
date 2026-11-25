@@ -1,0 +1,581 @@
+import fs
+import slices
+import strconv
+import strings
+import github.com/cevr/ergo/modules/git/oid
+import github.com/cevr/ergo/modules/git/pack
+import github.com/cevr/ergo/modules/git/refs
+import github.com/cevr/ergo/modules/git/tree
+
+type resolverBackend =
+	| diskBackend{odb pack.ODB, refStore refs.Store}
+	| memoryBackend{store pack.MemoryODB, refStore refs.MemoryRefs, knownOIDs []oid.OID}
+
+// Resolver bundles object storage, prefix enumeration, and reference lookup
+// for gitrevisions(7) expression and range resolution over either an on-disk
+// repository or an in-memory test repository.
+type Resolver {
+	format   oid.Format,
+	maxBytes int,
+	backend  resolverBackend,
+}
+
+// NewDiskResolver creates a Resolver over an on-disk pack.ODB and refs.Store.
+func NewDiskResolver(odb pack.ODB, refStore refs.Store) Resolver {
+	Resolver{
+		format:   odb.Format,
+		maxBytes: 16777216,
+		backend:  diskBackend{odb: odb, refStore: refStore},
+	}
+}
+
+// NewMemoryResolver creates an in-memory Resolver over store, refStore, and
+// knownOIDs for deterministic short-OID ambiguity and grammar testing.
+func NewMemoryResolver(format oid.Format, store pack.MemoryODB, refStore refs.MemoryRefs, knownOIDs []oid.OID) Resolver {
+	let mut ids = slices.WithCapacity[oid.OID](len(knownOIDs))
+	for id in knownOIDs {
+		ids = ids.Append(id)
+	}
+	Resolver{
+		format:   format,
+		maxBytes: 16777216,
+		backend:  memoryBackend{store: store, refStore: refStore, knownOIDs: slices.SortFunc(ids, oid.Compare)},
+	}
+}
+
+func isLowerHex(s string) bool {
+	let bs = s.Bytes()
+	if len(bs) == 0 {
+		return false
+	}
+	for b in bs {
+		let digit = b >= byte('0') && b <= byte('9')
+		let alpha = b >= byte('a') && b <= byte('f')
+		if !digit && !alpha {
+			return false
+		}
+	}
+	true
+}
+
+func readResolverObject(r Resolver, id oid.OID) pack.Object fails NotFound | StoreError needs fs.Files {
+	match r.backend {
+	case diskBackend as d:
+		pack.ReadObject(d.odb, id, r.maxBytes) catch {
+		case pack.Missing:
+			return NotFound{Spec: oid.Hex(id)}
+		case pack.Corrupt as e:
+			return StoreError{Detail: e.Why}
+		case pack.MismatchedPair as e:
+			return StoreError{Detail: "mismatched pack pair: " + e.PackPath}
+		case pack.Collision as e:
+			return StoreError{Detail: "sha1 collision: " + e.Digest}
+		case pack.LimitExceeded:
+			return StoreError{Detail: "object exceeds byte limit"}
+		case pack.DepthExceeded:
+			return StoreError{Detail: "delta chain depth exceeded"}
+		case pack.IOFailed as e:
+			return StoreError{Detail: e.Op + ": " + e.Detail}
+		}
+	case memoryBackend as m:
+		m.store.Read(id, r.maxBytes) catch {
+		case pack.Missing:
+			return NotFound{Spec: oid.Hex(id)}
+		case pack.Corrupt as e:
+			return StoreError{Detail: e.Why}
+		case pack.MismatchedPair as e:
+			return StoreError{Detail: "mismatched pack pair: " + e.PackPath}
+		case pack.Collision as e:
+			return StoreError{Detail: "sha1 collision: " + e.Digest}
+		case pack.LimitExceeded:
+			return StoreError{Detail: "object exceeds byte limit"}
+		case pack.DepthExceeded:
+			return StoreError{Detail: "delta chain depth exceeded"}
+		case pack.IOFailed as e:
+			return StoreError{Detail: e.Op + ": " + e.Detail}
+		}
+	}
+}
+
+func containsResolverObject(r Resolver, id oid.OID) bool needs fs.Files {
+	match r.backend {
+	case diskBackend as d:
+		pack.ContainsObject(d.odb, id)
+	case memoryBackend as m:
+		m.store.Contains(id)
+	}
+}
+
+func findResolverPrefix(r Resolver, hexPrefix string) []oid.OID fails StoreError needs fs.Files {
+	match r.backend {
+	case diskBackend as d:
+		pack.FindPrefix(d.odb, hexPrefix) catch {
+		case pack.Corrupt as e:
+			return StoreError{Detail: e.Why}
+		case pack.MismatchedPair as e:
+			return StoreError{Detail: "mismatched pack pair: " + e.PackPath}
+		case pack.IOFailed as e:
+			return StoreError{Detail: e.Op + ": " + e.Detail}
+		}
+	case memoryBackend as m:
+		let mut out = []oid.OID{}
+		for id in m.knownOIDs {
+			if strings.HasPrefix(oid.Hex(id), hexPrefix) {
+				if len(out) == 0 || !oid.Equal(out[len(out)-1], id) {
+					out = out.Append(id)
+				}
+			}
+		}
+		out
+	}
+}
+
+func tryResolveRef(r Resolver, candidate string) Option[oid.OID] fails StoreError needs fs.Files {
+	match r.backend {
+	case diskBackend as d:
+		let res = d.refStore.Resolve(candidate) catch {
+		case refs.NotFound, refs.InvalidRefName, refs.PathEscape:
+			return None
+		case refs.CyclicSymref:
+			return StoreError{Detail: "cyclic symbolic ref: " + candidate}
+		case refs.CorruptRef as e:
+			return StoreError{Detail: e.Why}
+		case refs.IOFailed as e:
+			return StoreError{Detail: e.Op + ": " + e.Detail}
+		}
+		Some[oid.OID]{Value: res.OID}
+	case memoryBackend as m:
+		let res = m.refStore.Resolve(candidate) catch {
+		case refs.NotFound, refs.InvalidRefName, refs.PathEscape:
+			return None
+		case refs.CyclicSymref:
+			return StoreError{Detail: "cyclic symbolic ref: " + candidate}
+		case refs.CorruptRef as e:
+			return StoreError{Detail: e.Why}
+		case refs.IOFailed as e:
+			return StoreError{Detail: e.Op + ": " + e.Detail}
+		}
+		Some[oid.OID]{Value: res.OID}
+	}
+}
+
+func resolveRefDWIM(r Resolver, name string) Option[oid.OID] fails StoreError needs fs.Files {
+	let candidates = []string{
+		name,
+		"refs/" + name,
+		"refs/tags/" + name,
+		"refs/heads/" + name,
+		"refs/remotes/" + name,
+		"refs/remotes/" + name + "/HEAD",
+	}
+	for cand in candidates {
+		match try tryResolveRef(r, cand) {
+		case Some[oid.OID] as id:
+			return Some[oid.OID]{Value: id.Value}
+		case None:
+		}
+	}
+	None
+}
+
+func resolvePrefixOID(r Resolver, spec string) oid.OID fails NotFound | Ambiguous | StoreError needs fs.Files {
+	let matches = try findResolverPrefix(r, spec)
+	if len(matches) == 0 {
+		return NotFound{Spec: spec}
+	}
+	if len(matches) > 1 {
+		return Ambiguous{Spec: spec, Candidates: matches}
+	}
+	matches[0]
+}
+
+func resolveBaseName(r Resolver, base string) oid.OID fails NotFound | Ambiguous | StoreError needs fs.Files {
+	match try resolveRefDWIM(r, base) {
+	case Some[oid.OID] as id:
+		return id.Value
+	case None:
+	}
+	let hexLen = oid.HexLen(r.format)
+	if len(base) == hexLen && isLowerHex(base) {
+		let full = oid.ParseHex(r.format, base) catch {
+		case oid.BadHex, oid.WrongLength:
+			return NotFound{Spec: base}
+		}
+		if containsResolverObject(r, full) {
+			return full
+		}
+		return NotFound{Spec: base}
+	}
+	if len(base) >= 4 && len(base) < hexLen && isLowerHex(base) {
+		return try resolvePrefixOID(r, base)
+	}
+	return NotFound{Spec: base}
+}
+
+func peelTags(r Resolver, start oid.OID) (oid.OID, pack.Object) fails NotFound | DepthExceeded | StoreError needs fs.Files {
+	let mut cur = start
+	for _ in 0..MaxPeelDepth+1 {
+		let obj = try readResolverObject(r, cur)
+		match obj.Kind {
+		case oid.Tag:
+			let parsed = tree.ParseTag(r.format, obj.Data) catch {
+			case tree.CorruptTag as e:
+				return StoreError{Detail: e.Reason}
+			case tree.CorruptSignature as e:
+				return StoreError{Detail: e.Reason}
+			}
+			cur = parsed.Target
+		case oid.Commit, oid.Tree, oid.Blob:
+			return (cur, obj)
+		}
+	}
+	return DepthExceeded{MaxDepth: MaxPeelDepth}
+}
+
+func peelToCommitObject(r Resolver, start oid.OID) (oid.OID, tree.Commit) fails NotFound | NotACommit | DepthExceeded | StoreError needs fs.Files {
+	let (id, obj) = try peelTags(r, start)
+	match obj.Kind {
+	case oid.Commit:
+		let c = tree.ParseCommit(r.format, obj.Data) catch {
+		case tree.CorruptCommit as e:
+			return StoreError{Detail: e.Reason}
+		case tree.CorruptSignature as e:
+			return StoreError{Detail: e.Reason}
+		}
+		(id, c)
+	case oid.Blob, oid.Tree, oid.Tag:
+		return NotACommit{OID: id, GotKind: oid.KindName(obj.Kind)}
+	}
+}
+
+func peelToTreeOID(r Resolver, start oid.OID) oid.OID fails NotFound | WrongKind | DepthExceeded | StoreError needs fs.Files {
+	let (id, obj) = try peelTags(r, start)
+	match obj.Kind {
+	case oid.Tree:
+		id
+	case oid.Commit:
+		let c = tree.ParseCommit(r.format, obj.Data) catch {
+		case tree.CorruptCommit as e:
+			return StoreError{Detail: e.Reason}
+		case tree.CorruptSignature as e:
+			return StoreError{Detail: e.Reason}
+		}
+		c.Tree
+	case oid.Blob, oid.Tag:
+		return WrongKind{Expected: "tree", Got: oid.KindName(obj.Kind)}
+	}
+}
+
+func lookupTreePath(r Resolver, treeOid oid.OID, relPath string) Option[tree.Entry] fails NotFound | WrongKind | StoreError needs fs.Files {
+	if relPath == "" || strings.HasPrefix(relPath, "/") || strings.HasSuffix(relPath, "/") {
+		return None
+	}
+	let parts = strings.Split(relPath, "/")
+	let mut curTree = treeOid
+	for i, seg in parts {
+		if seg == "" || seg == "." || seg == ".." {
+			return None
+		}
+		let obj = try readResolverObject(r, curTree)
+		match obj.Kind {
+		case oid.Tree:
+		case oid.Blob, oid.Commit, oid.Tag:
+			return WrongKind{Expected: "tree", Got: oid.KindName(obj.Kind)}
+		}
+		let entries = tree.ParseTree(r.format, obj.Data) catch {
+		case tree.CorruptTree as e:
+			return StoreError{Detail: e.Reason}
+		case tree.InvalidEntryName as e:
+			return StoreError{Detail: e.Reason}
+		case tree.UnsortedTree:
+			return StoreError{Detail: "unsorted tree object"}
+		case tree.DuplicateEntry as e:
+			return StoreError{Detail: "duplicate tree entry: " + e.Name}
+		}
+		let mut matched Option[tree.Entry] = None
+		for e in entries {
+			if e.Name == seg {
+				matched = Some[tree.Entry]{Value: e}
+				break
+			}
+		}
+		match matched {
+		case None:
+			return None
+		case Some[tree.Entry] as found:
+			if i == len(parts)-1 {
+				return Some[tree.Entry]{Value: found.Value}
+			}
+			if !tree.IsTree(found.Value.Mode) {
+				return None
+			}
+			curTree = found.Value.OID
+		}
+	}
+	None
+}
+
+func selectParent(commitOid oid.OID, parents []oid.OID, oneBasedIndex int) oid.OID fails MissingParent {
+	if oneBasedIndex < 1 || oneBasedIndex > len(parents) {
+		return MissingParent{OID: commitOid, Index: oneBasedIndex, Count: len(parents)}
+	}
+	parents[oneBasedIndex-1]
+}
+
+func parseOptionalCount(bs []byte, start int) (int, int) fails InvalidRev {
+	let mut pos = start
+	for pos < len(bs) && bs[pos] >= byte('0') && bs[pos] <= byte('9') {
+		pos = pos + 1
+	}
+	if pos == start {
+		return (1, pos)
+	}
+	let digits = bs[start:pos].Text()
+	let n = strconv.Atoi(digits) catch {
+	case strconv.Malformed, strconv.OutOfRange:
+		return InvalidRev{Spec: digits, Reason: "invalid ancestry step count"}
+	}
+	(n, pos)
+}
+
+func findFirstOperator(s string) int {
+	let bs = s.Bytes()
+	for i in 0..len(bs) {
+		if bs[i] == byte('^') || bs[i] == byte('~') {
+			return i
+		}
+	}
+	len(bs)
+}
+
+func applyPeelBrace(r Resolver, cur oid.OID, peelSpec string, fullSpec string) oid.OID fails NotFound | InvalidRev | WrongKind | DepthExceeded | StoreError needs fs.Files {
+	if peelSpec == "" {
+		let (id, _) = try peelTags(r, cur)
+		return id
+	}
+	if peelSpec == "object" {
+		let _ = try readResolverObject(r, cur)
+		return cur
+	}
+	if peelSpec == "tag" {
+		let obj = try readResolverObject(r, cur)
+		match obj.Kind {
+		case oid.Tag:
+			return cur
+		case oid.Commit, oid.Tree, oid.Blob:
+			return WrongKind{Expected: "tag", Got: oid.KindName(obj.Kind)}
+		}
+	}
+	if peelSpec == "commit" {
+		let (id, obj) = try peelTags(r, cur)
+		match obj.Kind {
+		case oid.Commit:
+			return id
+		case oid.Tree, oid.Blob, oid.Tag:
+			return WrongKind{Expected: "commit", Got: oid.KindName(obj.Kind)}
+		}
+	}
+	if peelSpec == "tree" {
+		return try peelToTreeOID(r, cur)
+	}
+	if peelSpec == "blob" {
+		let (id, obj) = try peelTags(r, cur)
+		match obj.Kind {
+		case oid.Blob:
+			return id
+		case oid.Commit, oid.Tree, oid.Tag:
+			return WrongKind{Expected: "blob", Got: oid.KindName(obj.Kind)}
+		}
+	}
+	return InvalidRev{Spec: fullSpec, Reason: "unsupported peel suffix ^{" + peelSpec + "}"}
+}
+
+func applyOperators(r Resolver, start oid.OID, ops string, fullSpec string) oid.OID fails NotFound | InvalidRev | NotACommit | WrongKind | MissingParent | DepthExceeded | StoreError needs fs.Files {
+	let bs = ops.Bytes()
+	let mut pos = 0
+	let mut cur = start
+	for pos < len(bs) {
+		let ch = bs[pos]
+		if ch == byte('~') {
+			pos = pos + 1
+			let (steps, nextPos) = try parseOptionalCount(bs, pos)
+			pos = nextPos
+			let (peeledId, _) = try peelToCommitObject(r, cur)
+			cur = peeledId
+			for _ in 0..steps {
+				let (cid, commit) = try peelToCommitObject(r, cur)
+				cur = try selectParent(cid, commit.Parents, 1)
+			}
+		} else if ch == byte('^') {
+			pos = pos + 1
+			if pos < len(bs) && bs[pos] == byte('{') {
+				let mut closePos = pos + 1
+				for closePos < len(bs) && bs[closePos] != byte('}') {
+					closePos = closePos + 1
+				}
+				if closePos >= len(bs) {
+					return InvalidRev{Spec: fullSpec, Reason: "unterminated ^{...} peel suffix"}
+				}
+				let peelSpec = bs[pos+1 : closePos].Text()
+				pos = closePos + 1
+				cur = try applyPeelBrace(r, cur, peelSpec, fullSpec)
+			} else {
+				let (idx, nextPos) = try parseOptionalCount(bs, pos)
+				pos = nextPos
+				let (cid, commit) = try peelToCommitObject(r, cur)
+				if idx == 0 {
+					cur = cid
+				} else {
+					cur = try selectParent(cid, commit.Parents, idx)
+				}
+			}
+		} else {
+			return InvalidRev{Spec: fullSpec, Reason: "unexpected character in revision suffix"}
+		}
+	}
+	cur
+}
+
+func findColonOutsideBraces(s string) int {
+	let bs = s.Bytes()
+	let mut depth = 0
+	for i in 0..len(bs) {
+		if bs[i] == byte('{') {
+			depth = depth + 1
+		} else if bs[i] == byte('}') && depth > 0 {
+			depth = depth - 1
+		} else if bs[i] == byte(':') && depth == 0 {
+			return i
+		}
+	}
+	-1
+}
+
+// ResolveRev parses and resolves a single gitrevisions(7) expression into its
+// canonical OID, supporting full OIDs, strictly disambiguated abbreviated OID
+// prefixes (refusing >=2 matches with Ambiguous), 6-step Git ref DWIM, chained
+// ^ / ^n / ~ / ~n / ^{commit|tree|tag|blob|{}} operators, and <rev>:<path>.
+func ResolveRev(r Resolver, spec string) oid.OID fails NotFound | Ambiguous | InvalidRev | NotACommit | WrongKind | MissingParent | DepthExceeded | StoreError needs fs.Files {
+	if spec == "" {
+		return InvalidRev{Spec: spec, Reason: "empty revision specification"}
+	}
+	let colon = findColonOutsideBraces(spec)
+	let revPart = if colon >= 0 { spec[:colon] } else { spec }
+	if revPart == "" {
+		return InvalidRev{Spec: spec, Reason: "empty revision before ':'"}
+	}
+	let opIdx = findFirstOperator(revPart)
+	let basePart = revPart[:opIdx]
+	let opsPart = revPart[opIdx:]
+	if basePart == "" {
+		return InvalidRev{Spec: spec, Reason: "empty base revision"}
+	}
+	let baseOid = try resolveBaseName(r, basePart)
+	let resolved = try applyOperators(r, baseOid, opsPart, spec)
+	if colon < 0 {
+		return resolved
+	}
+	let pathPart = spec[colon+1:]
+	let treeOid = try peelToTreeOID(r, resolved)
+	if pathPart == "" {
+		return treeOid
+	}
+	match try lookupTreePath(r, treeOid, pathPart) {
+	case Some[tree.Entry] as e:
+		e.Value.OID
+	case None:
+		return NotFound{Spec: spec}
+	}
+}
+
+func resolveCommitRev(r Resolver, spec string) oid.OID fails NotFound | Ambiguous | InvalidRev | NotACommit | WrongKind | MissingParent | DepthExceeded | StoreError needs fs.Files {
+	let id = try ResolveRev(r, spec)
+	let (cid, _) = try peelToCommitObject(r, id)
+	cid
+}
+
+// ResolveRange parses and resolves a Git commit range expression (`A..B`,
+// `A...B`, or space-separated `^A B` arguments) into a RangeSpec of peeled
+// commit OIDs.
+func ResolveRange(r Resolver, spec string) RangeSpec fails NotFound | Ambiguous | InvalidRev | NotACommit | WrongKind | MissingParent | DepthExceeded | StoreError needs fs.Files {
+	let trimmed = strings.TrimSpace(spec)
+	if trimmed == "" {
+		return InvalidRev{Spec: spec, Reason: "empty range specification"}
+	}
+	let tokens = strings.Fields(trimmed)
+	if len(tokens) == 1 {
+		let tok = tokens[0]
+		let tri = strings.Index(tok, "...")
+		if tri >= 0 {
+			let leftStr = if tri == 0 { "HEAD" } else { tok[:tri] }
+			let rightRaw = tok[tri+3:]
+			let rightStr = if rightRaw == "" { "HEAD" } else { rightRaw }
+			let leftId = try resolveCommitRev(r, leftStr)
+			let rightId = try resolveCommitRev(r, rightStr)
+			return RangeSpec{
+				Includes:  []oid.OID{leftId, rightId},
+				Excludes:  []oid.OID{},
+				Symmetric: true,
+			}
+		}
+		let dbl = strings.Index(tok, "..")
+		if dbl >= 0 {
+			let leftStr = if dbl == 0 { "HEAD" } else { tok[:dbl] }
+			let rightRaw = tok[dbl+2:]
+			let rightStr = if rightRaw == "" { "HEAD" } else { rightRaw }
+			let leftId = try resolveCommitRev(r, leftStr)
+			let rightId = try resolveCommitRev(r, rightStr)
+			return RangeSpec{
+				Includes:  []oid.OID{rightId},
+				Excludes:  []oid.OID{leftId},
+				Symmetric: false,
+			}
+		}
+		let onlyId = try resolveCommitRev(r, tok)
+		return RangeSpec{
+			Includes:  []oid.OID{onlyId},
+			Excludes:  []oid.OID{},
+			Symmetric: false,
+		}
+	}
+
+	let mut includes = []oid.OID{}
+	let mut excludes = []oid.OID{}
+	for tok in tokens {
+		if strings.HasPrefix(tok, "^") {
+			let inner = tok[1:]
+			if inner == "" {
+				return InvalidRev{Spec: spec, Reason: "empty revision after '^'"}
+			}
+			let exId = try resolveCommitRev(r, inner)
+			excludes = excludes.Append(exId)
+		} else {
+			let sub = try ResolveRange(r, tok)
+			if sub.Symmetric {
+				return InvalidRev{Spec: spec, Reason: "cannot combine '...' with multi-token range"}
+			}
+			for id in sub.Includes {
+				includes = includes.Append(id)
+			}
+			for id in sub.Excludes {
+				excludes = excludes.Append(id)
+			}
+		}
+	}
+	RangeSpec{
+		Includes:  includes,
+		Excludes:  excludes,
+		Symmetric: false,
+	}
+}
+
+// ResolveRevList resolves rangeSpec and evaluates the resulting commit set
+// against the active CommitDAG using opts.
+func ResolveRevList(r Resolver, rangeSpec string, opts RevListOptions) []oid.OID fails NotFound | Ambiguous | InvalidRev | NotACommit | WrongKind | MissingParent | DepthExceeded | StoreError needs CommitDAG | fs.Files {
+	let rng = try ResolveRange(r, rangeSpec)
+	if rng.Symmetric {
+		try SymmetricDiff(rng.Includes[0], rng.Includes[1], opts)
+	} else {
+		try RevList(rng.Includes, rng.Excludes, opts)
+	}
+}

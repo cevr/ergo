@@ -1,0 +1,175 @@
+// Package revisions implements pure-Ergo Git commit DAG reachability
+// (all-best-bases merge-base, is-ancestor, commit ranges A..B and A...B,
+// first-parent walks, contains) with optional commit-graph acceleration and
+// full gitrevisions(7) expression parsing with strict ambiguity refusal
+// (STD-GIT: G-REACH + G-REVISIONS).
+
+import slices
+import github.com/cevr/ergo/modules/git/oid
+
+// MaxPeelDepth caps recursive annotated tag peeling to prevent runaway chains.
+let MaxPeelDepth = 32
+
+// Error is the closed failure union for DAG reachability and revision
+// expression parsing/resolution.
+type Error =
+	| NotFound{Spec string}
+	| Ambiguous{Spec string, Candidates []oid.OID}
+	| InvalidRev{Spec string, Reason string}
+	| NotACommit{OID oid.OID, GotKind string}
+	| WrongKind{Expected string, Got string}
+	| MissingParent{OID oid.OID, Index int, Count int}
+	| DepthExceeded{MaxDepth int}
+	| StoreError{Detail string}
+
+// CommitNode is the minimal verified commit metadata required for DAG
+// reachability, merge-base computation, and rev-list traversal.
+type CommitNode {
+	OID        oid.OID,
+	Tree       oid.OID,
+	Parents    []oid.OID,
+	CommitTime int64,
+	Generation uint32,
+}
+
+// RevListOptions configures commit traversal in RevList and SymmetricDiff.
+type RevListOptions {
+	FirstParent bool,
+	MaxCount    int,
+}
+
+// DefaultRevListOptions returns standard full-parent, unlimited rev-list options.
+func DefaultRevListOptions() RevListOptions {
+	RevListOptions{FirstParent: false, MaxCount: 0}
+}
+
+// RangeSpec is the parsed commit range returned by ResolveRange for A..B,
+// A...B, or explicit ^exclude include expressions.
+type RangeSpec {
+	Includes  []oid.OID,
+	Excludes  []oid.OID,
+	Symmetric bool,
+}
+
+func sameOIDSet(a []oid.OID, b []oid.OID) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	let sa = slices.SortFunc(a, oid.Compare)
+	let sb = slices.SortFunc(b, oid.Compare)
+	for i in 0..len(sa) {
+		if !oid.Equal(sa[i], sb[i]) {
+			return false
+		}
+	}
+	true
+}
+
+// CommitDAG is the capability seam for commit-graph-accelerated or object-store
+// DAG queries, carrying reachability laws held identically by MemoryDAG and
+// StoreDAG.
+type CommitDAG {
+	Commit(id oid.OID) CommitNode fails NotFound | NotACommit | StoreError,
+	AllCommits() []oid.OID,
+
+	// IsAncestorReflexive: every commit is an ancestor of itself, and every
+	// direct parent is a strict ancestor of its child.
+	law IsAncestorReflexive() {
+		let all = AllCommits()
+		for c in all {
+			let selfAnc = IsAncestor(c, c) catch {
+			case NotFound, NotACommit, StoreError:
+				return false
+			}
+			if !selfAnc {
+				return false
+			}
+			let node = Commit(c) catch {
+			case NotFound, NotACommit, StoreError:
+				return false
+			}
+			for p in node.Parents {
+				let pAnc = IsAncestor(p, c) catch {
+				case NotFound, NotACommit, StoreError:
+					return false
+				}
+				let cAncP = IsAncestor(c, p) catch {
+				case NotFound, NotACommit, StoreError:
+					return false
+				}
+				if !pAnc || cAncP {
+					return false
+				}
+			}
+		}
+		true
+	},
+
+	// MergeBaseIsCommonAncestor: every merge base returned by MergeBases(a, b)
+	// is a common ancestor of both a and b, and no merge base is a strict
+	// ancestor of another merge base (maximal antichain).
+	law MergeBaseIsCommonAncestor() {
+		let all = AllCommits()
+		let limit = if len(all) > 8 { 8 } else { len(all) }
+		for i in 0..limit {
+			for j in i..limit {
+				let a = all[i]
+				let b = all[j]
+				let bases = MergeBases(a, b) catch {
+				case NotFound, NotACommit, StoreError:
+					return false
+				}
+				for m in bases {
+					let ancA = IsAncestor(m, a) catch {
+					case NotFound, NotACommit, StoreError:
+						return false
+					}
+					let ancB = IsAncestor(m, b) catch {
+					case NotFound, NotACommit, StoreError:
+						return false
+					}
+					if !ancA || !ancB {
+						return false
+					}
+				}
+				for x in 0..len(bases) {
+					for y in 0..len(bases) {
+						if x != y {
+							let dom = IsAncestor(bases[x], bases[y]) catch {
+							case NotFound, NotACommit, StoreError:
+								return false
+							}
+							if dom {
+								return false
+							}
+						}
+					}
+				}
+			}
+		}
+		true
+	},
+
+	// MergeBaseSymmetric: MergeBases(a, b) and MergeBases(b, a) always return
+	// the exact same set of best merge bases.
+	law MergeBaseSymmetric() {
+		let all = AllCommits()
+		let limit = if len(all) > 8 { 8 } else { len(all) }
+		for i in 0..limit {
+			for j in i..limit {
+				let ab = MergeBases(all[i], all[j]) catch {
+				case NotFound, NotACommit, StoreError:
+					return false
+				}
+				let ba = MergeBases(all[j], all[i]) catch {
+				case NotFound, NotACommit, StoreError:
+					return false
+				}
+				if !sameOIDSet(ab, ba) {
+					return false
+				}
+			}
+		}
+		true
+	},
+}
