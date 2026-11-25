@@ -1,0 +1,282 @@
+// Package diff implements pure-Ergo Git tree-to-tree and tree-to-index diffing,
+// exact and similarity rename detection, binary classification, and line
+// numstat (G-DIFF).
+
+import strconv
+import github.com/cevr/ergo/modules/git/oid
+import github.com/cevr/ergo/modules/git/tree
+
+// Error is the closed failure union for tree diffing, rename detection, and
+// numstat evaluation.
+type Error =
+	| TreeError{Detail string}
+	| MissingObject{OID oid.OID}
+	| StoreError{Detail string}
+	| DepthExceeded{MaxDepth int}
+
+// Subtype groups Git leaf entry modes into rename-compatible object classes:
+// Regular (100644/100755), Symlink (120000), and Gitlink (160000).
+type Subtype = Regular{} | Symlink{} | Gitlink{}
+
+// Status classifies a diff entry matching Git's raw diff status letters.
+type Status = Added{} | Deleted{} | Modified{} | TypeChanged{} | Renamed{Score int}
+
+// Change describes one file-level difference between two trees or a tree and
+// a Git index.
+type Change {
+	Status  Status,
+	OldPath Option[string],
+	NewPath Option[string],
+	OldMode Option[tree.Mode],
+	NewMode Option[tree.Mode],
+	OldOID  Option[oid.OID],
+	NewOID  Option[oid.OID],
+}
+
+// DiffOptions configures tree diffing and rename detection.
+type DiffOptions {
+	DetectRenames   bool,
+	RenameThreshold int,
+	MaxDepth        int,
+	MaxBytes        int,
+}
+
+// NumstatResult holds binary classification and line insertion/deletion counts
+// for one file change.
+type NumstatResult {
+	Binary       bool,
+	AddedLines   int,
+	DeletedLines int,
+}
+
+// ChangeStat pairs a Change with its computed NumstatResult.
+type ChangeStat {
+	Change Change,
+	Stat   NumstatResult,
+}
+
+// DefaultOptions returns standard Git diff options (rename detection enabled at
+// 50% similarity, max depth 64, max object size 16 MiB).
+func DefaultOptions() DiffOptions {
+	DiffOptions{
+		DetectRenames:   true,
+		RenameThreshold: 50,
+		MaxDepth:        64,
+		MaxBytes:        16777216,
+	}
+}
+
+// NoRenameOptions returns DiffOptions with rename detection disabled.
+func NoRenameOptions() DiffOptions {
+	DiffOptions{
+		DetectRenames:   false,
+		RenameThreshold: 50,
+		MaxDepth:        64,
+		MaxBytes:        16777216,
+	}
+}
+
+// ModeSubtype returns the rename-compatibility Subtype of leaf mode m.
+func ModeSubtype(m tree.Mode) Subtype {
+	match m {
+	case tree.ModeRegular, tree.ModeExecutable, tree.ModeTree:
+		Regular
+	case tree.ModeSymlink:
+		Symlink
+	case tree.ModeGitlink:
+		Gitlink
+	}
+}
+
+// SameSubtype reports whether leaf modes a and b belong to the same Git
+// rename-compatibility class (Regular/Executable, Symlink, or Gitlink).
+func SameSubtype(a tree.Mode, b tree.Mode) bool {
+	match ModeSubtype(a) {
+	case Regular:
+		match ModeSubtype(b) {
+		case Regular:
+			true
+		case Symlink, Gitlink:
+			false
+		}
+	case Symlink:
+		match ModeSubtype(b) {
+		case Symlink:
+			true
+		case Regular, Gitlink:
+			false
+		}
+	case Gitlink:
+		match ModeSubtype(b) {
+		case Gitlink:
+			true
+		case Regular, Symlink:
+			false
+		}
+	}
+}
+
+func padScore3(score int) string {
+	let clamped = if score < 0 { 0 } else if score > 100 { 100 } else { score }
+	let s = strconv.Itoa(clamped)
+	if len(s) == 1 {
+		"00" + s
+	} else if len(s) == 2 {
+		"0" + s
+	} else {
+		s
+	}
+}
+
+// StatusCode formats s as Git's raw diff status code (`A`, `D`, `M`, `T`, or
+// `R<000..100>`).
+func StatusCode(s Status) string {
+	match s {
+	case Added:
+		"A"
+	case Deleted:
+		"D"
+	case Modified:
+		"M"
+	case TypeChanged:
+		"T"
+	case Renamed as r:
+		"R" + padScore3(r.Score)
+	}
+}
+
+// StatusLetter returns the single leading status letter (`A`, `D`, `M`, `T`, `R`).
+func StatusLetter(s Status) string {
+	match s {
+	case Added:
+		"A"
+	case Deleted:
+		"D"
+	case Modified:
+		"M"
+	case TypeChanged:
+		"T"
+	case Renamed:
+		"R"
+	}
+}
+
+// ChangePath returns the primary sort path of c (NewPath when present, else OldPath).
+func ChangePath(c Change) string {
+	match c.NewPath {
+	case Some[string] as p:
+		p.Value
+	case None:
+		match c.OldPath {
+		case Some[string] as p:
+			p.Value
+		case None:
+			""
+		}
+	}
+}
+
+// TreeDiffer is the capability seam for tree diffing, carrying the algebraic
+// laws held identically by MemoryDiffer and StoreDiffer.
+type TreeDiffer {
+	StoreBlob(data []byte) oid.OID fails StoreError,
+	StoreTree(entries []tree.Entry) oid.OID fails TreeError | StoreError,
+	Diff(oldTree oid.OID, newTree oid.OID, opts DiffOptions) []Change fails TreeError | MissingObject | StoreError | DepthExceeded,
+
+	// DiffSelfIsEmpty: diffing any tree against itself produces zero changes
+	// both with and without rename detection.
+	law DiffSelfIsEmpty(payload string) {
+		let b = StoreBlob(("self-" + payload).Bytes()) catch {
+		case StoreError:
+			return false
+		}
+		let sub = StoreTree([]tree.Entry{
+			tree.Entry{Mode: tree.ModeRegular, Name: "nested.txt", OID: b},
+		}) catch {
+		case TreeError, StoreError:
+			return false
+		}
+		let root = StoreTree([]tree.Entry{
+			tree.Entry{Mode: tree.ModeRegular, Name: "a.txt", OID: b},
+			tree.Entry{Mode: tree.ModeTree, Name: "dir", OID: sub},
+		}) catch {
+		case TreeError, StoreError:
+			return false
+		}
+		let d1 = Diff(root, root, NoRenameOptions()) catch {
+		case TreeError, MissingObject, StoreError, DepthExceeded:
+			return false
+		}
+		let d2 = Diff(root, root, DefaultOptions()) catch {
+		case TreeError, MissingObject, StoreError, DepthExceeded:
+			return false
+		}
+		len(d1) == 0 && len(d2) == 0
+	},
+
+	// DiffReverseInvertsAddsAndDeletes: swapping oldTree and newTree turns
+	// Added into Deleted, Deleted into Added, and preserves Modified and
+	// TypeChanged with swapped modes and OIDs.
+	law DiffReverseInvertsAddsAndDeletes(payload string) {
+		let b1 = StoreBlob(("rev-1-" + payload).Bytes()) catch {
+		case StoreError:
+			return false
+		}
+		let b2 = StoreBlob(("rev-2-" + payload).Bytes()) catch {
+		case StoreError:
+			return false
+		}
+		let t1 = StoreTree([]tree.Entry{
+			tree.Entry{Mode: tree.ModeRegular, Name: "del.txt", OID: b1},
+			tree.Entry{Mode: tree.ModeRegular, Name: "mod.txt", OID: b1},
+			tree.Entry{Mode: tree.ModeRegular, Name: "mode.sh", OID: b1},
+			tree.Entry{Mode: tree.ModeRegular, Name: "kind.txt", OID: b1},
+		}) catch {
+		case TreeError, StoreError:
+			return false
+		}
+		let t2 = StoreTree([]tree.Entry{
+			tree.Entry{Mode: tree.ModeRegular, Name: "add.txt", OID: b2},
+			tree.Entry{Mode: tree.ModeRegular, Name: "mod.txt", OID: b2},
+			tree.Entry{Mode: tree.ModeExecutable, Name: "mode.sh", OID: b1},
+			tree.Entry{Mode: tree.ModeSymlink, Name: "kind.txt", OID: b1},
+		}) catch {
+		case TreeError, StoreError:
+			return false
+		}
+		let fwd = Diff(t1, t2, NoRenameOptions()) catch {
+		case TreeError, MissingObject, StoreError, DepthExceeded:
+			return false
+		}
+		let rev = Diff(t2, t1, NoRenameOptions()) catch {
+		case TreeError, MissingObject, StoreError, DepthExceeded:
+			return false
+		}
+		if len(fwd) != 5 || len(rev) != 5 {
+			return false
+		}
+		for i in 0..len(fwd) {
+			let f = fwd[i]
+			let r = rev[i]
+			if ChangePath(f) != ChangePath(r) {
+				return false
+			}
+			let ok = match f.Status {
+			case Added:
+				StatusLetter(r.Status) == "D"
+			case Deleted:
+				StatusLetter(r.Status) == "A"
+			case Modified:
+				StatusLetter(r.Status) == "M"
+			case TypeChanged:
+				StatusLetter(r.Status) == "T"
+			case Renamed:
+				false
+			}
+			if !ok {
+				return false
+			}
+		}
+		true
+	},
+}

@@ -1,0 +1,407 @@
+import exec
+import filepath
+import fs
+import fstest
+import os
+import slices
+import strconv
+import strings
+import github.com/cevr/ergo/modules/git/delta
+import github.com/cevr/ergo/modules/git/index
+import github.com/cevr/ergo/modules/git/oid
+import github.com/cevr/ergo/modules/git/oracle
+import github.com/cevr/ergo/modules/git/pack
+import github.com/cevr/ergo/modules/git/tree
+
+func openRepoDiskODB(fmt oid.Format, objectsDir string, host fs.Host) pack.DiskODB fails pack.Corrupt | pack.MismatchedPair | pack.IOFailed {
+	let odb = with context { fs.Files: host } {
+		try pack.Open(fmt, objectsDir, []string{}, delta.DefaultLimits())
+	}
+	pack.NewDiskODB(odb, host)
+}
+
+let onOracleSha1 = context fails pack.Corrupt | pack.MismatchedPair | pack.IOFailed needs TestAmbient {
+	exec.Runner:      exec.NewTestHost().InheritEnv(exec.PathOf(os.NewTestHost().Environ())),
+	fs.Files:         fs.NewTestHost(),
+	fs.Writes:        fs.NewTestHost(),
+	os.Process:       os.NewTestHost(),
+	oracle.Symlinks:  oracle.NewHostSymlinks(fs.NewTestHost()),
+	pack.ObjectStore: try openRepoDiskODB(oid.Sha1, filepath.Join([]string{fstest.TestFolder(), "repo", ".git", "objects"}), fs.NewTestHost()),
+}
+
+let onOracleSha256 = context fails pack.Corrupt | pack.MismatchedPair | pack.IOFailed needs TestAmbient {
+	exec.Runner:      exec.NewTestHost().InheritEnv(exec.PathOf(os.NewTestHost().Environ())),
+	fs.Files:         fs.NewTestHost(),
+	fs.Writes:        fs.NewTestHost(),
+	os.Process:       os.NewTestHost(),
+	oracle.Symlinks:  oracle.NewHostSymlinks(fs.NewTestHost()),
+	pack.ObjectStore: try openRepoDiskODB(oid.Sha256, filepath.Join([]string{fstest.TestFolder(), "repo", ".git", "objects"}), fs.NewTestHost()),
+}
+
+let onMemoryDifferSha1 = context {
+	TreeDiffer: NewMemoryDiffer(oid.Sha1),
+}
+
+let onMemoryDifferSha256 = context {
+	TreeDiffer: NewMemoryDiffer(oid.Sha256),
+}
+
+let onDiskDifferSha1 = context needs TestAmbient {
+	TreeDiffer: NewStoreDiffer(oid.Sha1, filepath.Join([]string{fstest.TestFolder(), "law-disk-diff-odb"}), []string{}, fs.NewTestHost()),
+}
+
+// NumstatMatchesLineCounts: Numstat agrees with line counts on additions,
+// deletions, identical buffers, and NUL-byte binary classification.
+law NumstatMatchesLineCounts(seed string) {
+	let clean = strings.ReplaceAll(seed, "\x00", "x")
+	let text = "line1\n" + clean + "\nline3\n"
+	let same = Numstat(text.Bytes(), text.Bytes())
+	if same.Binary || same.AddedLines != 0 || same.DeletedLines != 0 {
+		return false
+	}
+	let added = Numstat([]byte{}, text.Bytes())
+	let deleted = Numstat(text.Bytes(), []byte{})
+	let wantLines = len(SplitLines(text.Bytes()))
+	if added.Binary || added.AddedLines != wantLines || added.DeletedLines != 0 {
+		return false
+	}
+	if deleted.Binary || deleted.AddedLines != 0 || deleted.DeletedLines != wantLines {
+		return false
+	}
+	let bin = ("abc\x00" + clean).Bytes()
+	let bstat = Numstat(text.Bytes(), bin)
+	bstat.Binary && bstat.AddedLines == 0 && bstat.DeletedLines == 0
+}
+
+type testFail {
+	reason string,
+}
+
+func runGitOk(dir string, args []string, stdin string, pathEnv Map[string, string], step int) string fails testFail | exec.NotFound | exec.Denied | exec.Failed needs exec.Runner {
+	let base = oracle.GitCommand(dir, args, pathEnv, oracle.StepEpoch(step))
+	let cmd = if stdin == "" { base } else { exec.WithStdin(base, stdin) }
+	let res = try exec.Runner.Run(cmd)
+	if res.Status != 0 {
+		return testFail{reason: "git failed: " + res.Stderr}
+	}
+	res.Stdout
+}
+
+type rawDiffRow {
+	oldMode string,
+	newMode string,
+	oldHex  string,
+	newHex  string,
+	status  string,
+	path1   string,
+	path2   string,
+}
+
+func parseRawDiffZ(raw string) []rawDiffRow fails testFail {
+	let parts = strings.Split(raw, "\x00")
+	let mut rows = []rawDiffRow{}
+	let mut i = 0
+	for i < len(parts) {
+		let tok = parts[i]
+		if tok == "" {
+			i = i + 1
+			continue
+		}
+		if !strings.HasPrefix(tok, ":") {
+			return testFail{reason: "unexpected raw diff token: " + tok}
+		}
+		let fields = strings.Fields(tok[1:])
+		if len(fields) != 5 {
+			return testFail{reason: "expected 5 fields in raw diff header: " + tok}
+		}
+		let st = fields[4]
+		if strings.HasPrefix(st, "R") || strings.HasPrefix(st, "C") {
+			if i+2 >= len(parts) {
+				return testFail{reason: "truncated rename paths in raw diff"}
+			}
+			rows = rows.Append(rawDiffRow{
+				oldMode: fields[0],
+				newMode: fields[1],
+				oldHex:  fields[2],
+				newHex:  fields[3],
+				status:  st,
+				path1:   parts[i+1],
+				path2:   parts[i+2],
+			})
+			i = i + 3
+		} else {
+			if i+1 >= len(parts) {
+				return testFail{reason: "truncated path in raw diff"}
+			}
+			rows = rows.Append(rawDiffRow{
+				oldMode: fields[0],
+				newMode: fields[1],
+				oldHex:  fields[2],
+				newHex:  fields[3],
+				status:  st,
+				path1:   parts[i+1],
+				path2:   "",
+			})
+			i = i + 2
+		}
+	}
+	rows
+}
+
+type numstatRow {
+	added   string,
+	deleted string,
+	path    string,
+}
+
+func parseNumstatZ(raw string) []numstatRow fails testFail {
+	let parts = strings.Split(raw, "\x00")
+	let mut rows = []numstatRow{}
+	let mut i = 0
+	for i < len(parts) {
+		let tok = parts[i]
+		if tok == "" {
+			i = i + 1
+			continue
+		}
+		let fields = strings.Split(tok, "\t")
+		if len(fields) != 3 {
+			return testFail{reason: "unexpected numstat token: " + tok}
+		}
+		if fields[2] == "" {
+			if i+2 >= len(parts) {
+				return testFail{reason: "truncated rename numstat paths"}
+			}
+			rows = rows.Append(numstatRow{
+				added:   fields[0],
+				deleted: fields[1],
+				path:    parts[i+2],
+			})
+			i = i + 3
+		} else {
+			rows = rows.Append(numstatRow{
+				added:   fields[0],
+				deleted: fields[1],
+				path:    fields[2],
+			})
+			i = i + 1
+		}
+	}
+	rows
+}
+
+func optModeStr(m Option[tree.Mode]) string {
+	match m {
+	case None:
+		"000000"
+	case Some[tree.Mode] as v:
+		tree.ModeOctal(v.Value)
+	}
+}
+
+func optOidStr(id Option[oid.OID], fmt oid.Format) string {
+	match id {
+	case None:
+		oid.Hex(oid.Zero(fmt))
+	case Some[oid.OID] as v:
+		oid.Hex(v.Value)
+	}
+}
+
+func compareChangesToRaw(fmt oid.Format, got []Change, want []rawDiffRow) fails testFail {
+	let wantSorted = slices.SortFunc(want, func(a rawDiffRow, b rawDiffRow) int {
+		let pa = if a.path2 != "" { a.path2 } else { a.path1 }
+		let pb = if b.path2 != "" { b.path2 } else { b.path1 }
+		if pa < pb { -1 } else if pa > pb { 1 } else { 0 }
+	})
+	if len(got) != len(wantSorted) {
+		return testFail{reason: "diff count mismatch: got \(len(got)), want \(len(wantSorted))"}
+	}
+	for i in 0..len(got) {
+		let g = got[i]
+		let w = wantSorted[i]
+		let gLetter = StatusLetter(g.Status)
+		let wLetter = w.status[:1]
+		if gLetter != wLetter {
+			return testFail{reason: "status mismatch at \(ChangePath(g)): got \(StatusCode(g.Status)), want \(w.status)"}
+		}
+		if optModeStr(g.OldMode) != w.oldMode || optModeStr(g.NewMode) != w.newMode {
+			return testFail{reason: "mode mismatch at \(ChangePath(g))"}
+		}
+		if optOidStr(g.OldOID, fmt) != w.oldHex || optOidStr(g.NewOID, fmt) != w.newHex {
+			return testFail{reason: "OID mismatch at \(ChangePath(g))"}
+		}
+		if gLetter == "R" {
+			let gOld = match g.OldPath {
+			case Some[string] as p:
+				p.Value
+			case None:
+				""
+			}
+			let gNew = match g.NewPath {
+			case Some[string] as p:
+				p.Value
+			case None:
+				""
+			}
+			if gOld != w.path1 || gNew != w.path2 {
+				return testFail{reason: "rename path mismatch: got \(gOld)->\(gNew), want \(w.path1)->\(w.path2)"}
+			}
+		} else if ChangePath(g) != w.path1 {
+			return testFail{reason: "path mismatch: got \(ChangePath(g)), want \(w.path1)"}
+		}
+	}
+}
+
+func makeSimilarBaseText() string {
+	let mut lines = []string{}
+	for i in 0..20 {
+		lines = lines.Append("shared-line-\(i)-body-content-for-similarity-rename-detection-0123456789")
+	}
+	strings.Join(lines, "\n") + "\n"
+}
+
+func makeSimilarEditedText() string {
+	let mut lines = []string{}
+	for i in 0..20 {
+		if i == 5 || i == 14 {
+			lines = lines.Append("edited-line-\(i)-modified-for-inexact-rename-match")
+		} else {
+			lines = lines.Append("shared-line-\(i)-body-content-for-similarity-rename-detection-0123456789")
+		}
+	}
+	strings.Join(lines, "\n") + "\n"
+}
+
+func verifyFormatDiffs(cwd string, oFmt oracle.OidFormat, fmt oid.Format, pathEnv Map[string, string]) fails testFail | TreeError | MissingObject | StoreError | DepthExceeded | index.BadMagic | index.UnsupportedVersion | index.Truncated | index.ChecksumMismatch | index.CorruptEntry | index.BadPathCompression | index.UnsupportedMandatoryExtension | index.DuplicateStage | index.UnsortedEntries | index.IOFailed | oid.BadHex | oid.WrongLength | oracle.Missing | oracle.Corrupt | oracle.Ambiguous | oracle.InvalidRef | oracle.Conflict | oracle.CommandFailed | exec.NotFound | exec.Denied | exec.Failed | fs.NotFound | fs.Denied | fs.Failed needs exec.Runner | fs.Files | fs.Writes | oracle.Symlinks | pack.ObjectStore {
+	let repoDir = try oracle.InitRepo(filepath.Join([]string{cwd, "repo"}), oracle.RepoSpec{Format: oFmt, Layout: oracle.Normal, DefaultBranch: "main"}, pathEnv, oracle.BaseEpoch)
+
+	try fs.Writes.MkdirAll(filepath.Join([]string{repoDir, "unchanged", "deep"}))
+	try fs.Writes.WriteFile(filepath.Join([]string{repoDir, "unchanged", "deep", "keep.txt"}), "identical subtree stays untouched\n")
+	try fs.Writes.WriteFile(filepath.Join([]string{repoDir, "modify.txt"}), "alpha\nbeta\ngamma\ndelta\n")
+	try fs.Writes.WriteFile(filepath.Join([]string{repoDir, "chmod.sh"}), "#!/bin/sh\necho hi\n")
+	try fs.Writes.WriteFile(filepath.Join([]string{repoDir, "totype.txt"}), "target-file")
+	try fs.Writes.WriteFile(filepath.Join([]string{repoDir, "delete-me.txt"}), "to be deleted\nline 2\n")
+	try fs.Writes.WriteFile(filepath.Join([]string{repoDir, "exact-src.txt"}), "exact rename payload\nsecond line\n")
+	try fs.Writes.WriteFile(filepath.Join([]string{repoDir, "similar-src.txt"}), makeSimilarBaseText())
+	try fs.Writes.WriteFile(filepath.Join([]string{repoDir, "reg-not-sym.txt"}), "identical-bytes-different-subtype")
+	try fs.Writes.WriteFile(filepath.Join([]string{repoDir, "bin.dat"}), "hdr\x00\x01\x02\x03binary-v1")
+
+	let _ = try runGitOk(repoDir, []string{"add", "."}, "", pathEnv, 1)
+	let _ = try runGitOk(repoDir, []string{"commit", "-q", "-m", "commit 1"}, "", pathEnv, 2)
+	let c1TreeHex = strings.TrimSpace(try runGitOk(repoDir, []string{"rev-parse", "HEAD^{tree}"}, "", pathEnv, 3))
+
+	try fs.Writes.WriteFile(filepath.Join([]string{repoDir, "modify.txt"}), "alpha\nbeta-edited\ngamma\ndelta\nepsilon\nzeta\n")
+	let _ = try runGitOk(repoDir, []string{"update-index", "--chmod=+x", "chmod.sh"}, "", pathEnv, 4)
+	try fs.Writes.Remove(filepath.Join([]string{repoDir, "totype.txt"}))
+	try oracle.Symlinks.CreateSymlink("target-file", filepath.Join([]string{repoDir, "totype.txt"}))
+	try fs.Writes.Remove(filepath.Join([]string{repoDir, "delete-me.txt"}))
+	try fs.Writes.WriteFile(filepath.Join([]string{repoDir, "added.txt"}), "brand new file\nline two\nline three\n")
+	try fs.Writes.Remove(filepath.Join([]string{repoDir, "exact-src.txt"}))
+	try fs.Writes.WriteFile(filepath.Join([]string{repoDir, "exact-dst.txt"}), "exact rename payload\nsecond line\n")
+	try fs.Writes.Remove(filepath.Join([]string{repoDir, "similar-src.txt"}))
+	try fs.Writes.WriteFile(filepath.Join([]string{repoDir, "similar-dst.txt"}), makeSimilarEditedText())
+	try fs.Writes.Remove(filepath.Join([]string{repoDir, "reg-not-sym.txt"}))
+	try oracle.Symlinks.CreateSymlink("identical-bytes-different-subtype", filepath.Join([]string{repoDir, "sym-not-reg"}))
+	try fs.Writes.WriteFile(filepath.Join([]string{repoDir, "bin.dat"}), "hdr\x00\x09\x08\x07binary-v2-longer")
+
+	let _ = try runGitOk(repoDir, []string{"add", "-A"}, "", pathEnv, 5)
+	let _ = try runGitOk(repoDir, []string{"update-index", "--chmod=+x", "chmod.sh"}, "", pathEnv, 6)
+	let _ = try runGitOk(repoDir, []string{"commit", "-q", "-m", "commit 2"}, "", pathEnv, 7)
+	let c2TreeHex = strings.TrimSpace(try runGitOk(repoDir, []string{"rev-parse", "HEAD^{tree}"}, "", pathEnv, 8))
+
+	let t1 = try oid.ParseHex(fmt, c1TreeHex)
+	let t2 = try oid.ParseHex(fmt, c2TreeHex)
+
+	let wantNoRen = try parseRawDiffZ(try runGitOk(repoDir, []string{"diff-tree", "-r", "-z", "--no-renames", c1TreeHex, c2TreeHex}, "", pathEnv, 9))
+	let gotNoRen = try DiffTrees(fmt, t1, t2, NoRenameOptions())
+	try compareChangesToRaw(fmt, gotNoRen, wantNoRen)
+
+	let wantRen = try parseRawDiffZ(try runGitOk(repoDir, []string{"diff-tree", "-r", "-z", "-M", c1TreeHex, c2TreeHex}, "", pathEnv, 10))
+	let gotRen = try DiffTrees(fmt, t1, t2, DefaultOptions())
+	try compareChangesToRaw(fmt, gotRen, wantRen)
+
+	let mut sawExactRen = false
+	let mut sawSimRen = false
+	let mut sawRegDel = false
+	let mut sawSymAdd = false
+	for c in gotRen {
+		match c.Status {
+		case Renamed as r:
+			if ChangePath(c) == "exact-dst.txt" && r.Score == 100 {
+				sawExactRen = true
+			}
+			if ChangePath(c) == "similar-dst.txt" && r.Score >= 50 && r.Score < 100 {
+				sawSimRen = true
+			}
+		case Deleted:
+			if ChangePath(c) == "reg-not-sym.txt" {
+				sawRegDel = true
+			}
+		case Added:
+			if ChangePath(c) == "sym-not-reg" {
+				sawSymAdd = true
+			}
+		case Modified, TypeChanged:
+		}
+	}
+	if !sawExactRen || !sawSimRen || !sawRegDel || !sawSymAdd {
+		return testFail{reason: "rename invariants failed (exact/similar/mismatched-subtype)"}
+	}
+
+	let wantStats = try parseNumstatZ(try runGitOk(repoDir, []string{"diff-tree", "-r", "-z", "-M", "--numstat", c1TreeHex, c2TreeHex}, "", pathEnv, 11))
+	let wantStatsSorted = slices.SortFunc(wantStats, func(a numstatRow, b numstatRow) int {
+		if a.path < b.path { -1 } else if a.path > b.path { 1 } else { 0 }
+	})
+	let gotStats = try DiffNumstat(gotRen, 16777216)
+	if len(gotStats) != len(wantStatsSorted) {
+		return testFail{reason: "numstat count mismatch"}
+	}
+	for i in 0..len(gotStats) {
+		let gs = gotStats[i]
+		let ws = wantStatsSorted[i]
+		if ChangePath(gs.Change) != ws.path {
+			return testFail{reason: "numstat path mismatch: got \(ChangePath(gs.Change)), want \(ws.path)"}
+		}
+		if ws.added == "-" && ws.deleted == "-" {
+			if !gs.Stat.Binary {
+				return testFail{reason: "expected binary numstat for \(ws.path)"}
+			}
+		} else {
+			if gs.Stat.Binary {
+				return testFail{reason: "unexpected binary numstat for \(ws.path)"}
+			}
+			if strconv.Itoa(gs.Stat.AddedLines) != ws.added || strconv.Itoa(gs.Stat.DeletedLines) != ws.deleted {
+				return testFail{reason: "numstat mismatch for \(ws.path): got +\(gs.Stat.AddedLines)/-\(gs.Stat.DeletedLines), want +\(ws.added)/-\(ws.deleted)"}
+			}
+		}
+	}
+
+	let _ = try runGitOk(repoDir, []string{"repack", "-ad", "-q"}, "", pathEnv, 12)
+	let gotPackedRen = try DiffTrees(fmt, t1, t2, DefaultOptions())
+	try compareChangesToRaw(fmt, gotPackedRen, wantRen)
+
+	try fs.Writes.WriteFile(filepath.Join([]string{repoDir, "staged-new.txt"}), "newly staged\n")
+	try fs.Writes.WriteFile(filepath.Join([]string{repoDir, "modify.txt"}), "alpha\nmodified-in-index\n")
+	try fs.Writes.Remove(filepath.Join([]string{repoDir, "added.txt"}))
+	let _ = try runGitOk(repoDir, []string{"add", "-A"}, "", pathEnv, 13)
+	let _ = try runGitOk(repoDir, []string{"update-index", "--chmod=-x", "chmod.sh"}, "", pathEnv, 14)
+
+	let idx = try index.Open(fmt, filepath.Join([]string{repoDir, ".git", "index"}))
+	let wantCached = try parseRawDiffZ(try runGitOk(repoDir, []string{"diff", "--cached", "--raw", "--no-abbrev", "-z", "--no-renames"}, "", pathEnv, 15))
+	let gotCached = try DiffTreeToIndex(fmt, Some[oid.OID]{Value: t2}, idx, NoRenameOptions())
+	try compareChangesToRaw(fmt, gotCached, wantCached)
+}
+
+test DiffTreesAndIndexMatchGit {
+	with try onOracleSha1 {
+		let pathEnv = exec.PathOf(os.Process.Environ())
+		let cwd = try os.Process.Getwd()
+		try verifyFormatDiffs(cwd, oracle.Sha1, oid.Sha1, pathEnv)
+	}
+	with try onOracleSha256 {
+		let pathEnv = exec.PathOf(os.Process.Environ())
+		let cwd = try os.Process.Getwd()
+		try verifyFormatDiffs(cwd, oracle.Sha256, oid.Sha256, pathEnv)
+	}
+}

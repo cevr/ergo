@@ -1,0 +1,140 @@
+import slices
+import github.com/cevr/ergo/modules/git/oid
+import github.com/cevr/ergo/modules/git/pack
+import github.com/cevr/ergo/modules/git/tree
+
+// IsBinary classifies data using Git's buffer_is_binary rule: returns true if
+// any NUL (0x00) byte appears within the first 8000 bytes.
+func IsBinary(data []byte) bool {
+	let limit = if len(data) < 8000 { len(data) } else { 8000 }
+	for i in 0..limit {
+		if data[i] == byte(0) {
+			return true
+		}
+	}
+	false
+}
+
+// SplitLines splits raw text bytes into lines, preserving trailing newlines so
+// missing-newline changes are distinguished identically to Git diff.
+func SplitLines(data []byte) []string {
+	let n = len(data)
+	if n == 0 {
+		return []string{}
+	}
+	let mut lines = []string{}
+	let mut start = 0
+	for i in 0..n {
+		if data[i] == byte('\n') {
+			lines = lines.Append(data[start : i+1].Text())
+			start = i + 1
+		}
+	}
+	if start < n {
+		lines = lines.Append(data[start:n].Text())
+	}
+	lines
+}
+
+func countLineEdits(oldLines []string, newLines []string) (int, int) {
+	let mut prefix = 0
+	let minLen = if len(oldLines) < len(newLines) { len(oldLines) } else { len(newLines) }
+	for prefix < minLen && oldLines[prefix] == newLines[prefix] {
+		prefix = prefix + 1
+	}
+	let mut oldEnd = len(oldLines)
+	let mut newEnd = len(newLines)
+	for oldEnd > prefix && newEnd > prefix && oldLines[oldEnd-1] == newLines[newEnd-1] {
+		oldEnd = oldEnd - 1
+		newEnd = newEnd - 1
+	}
+	let a = oldLines[prefix:oldEnd]
+	let b = newLines[prefix:newEnd]
+	let n = len(a)
+	let m = len(b)
+	if n == 0 {
+		return (m, 0)
+	}
+	if m == 0 {
+		return (0, n)
+	}
+	let maxD = n + m
+	let offset = maxD
+	let vLen = 2*maxD + 1
+	let mut v = slices.WithCapacity[int](vLen)
+	for _ in 0..vLen {
+		v = v.Append(0)
+	}
+	let mut bestD = maxD
+	let mut found = false
+	for d in 0..maxD+1 {
+		let mut k = -d
+		for k <= d {
+			let mut x = 0
+			if k == -d || (k != d && v[offset+k-1] < v[offset+k+1]) {
+				x = v[offset+k+1]
+			} else {
+				x = v[offset+k-1] + 1
+			}
+			let mut y = x - k
+			for x < n && y < m && a[x] == b[y] {
+				x = x + 1
+				y = y + 1
+			}
+			v[offset+k] = x
+			if x >= n && y >= m {
+				bestD = d
+				found = true
+				break
+			}
+			k = k + 2
+		}
+		if found {
+			break
+		}
+	}
+	let added = (bestD + m - n) / 2
+	let deleted = (bestD + n - m) / 2
+	(added, deleted)
+}
+
+// Numstat classifies oldData and newData as binary or text and computes exact
+// Myers line insertion and deletion counts matching `git diff --numstat`.
+func Numstat(oldData []byte, newData []byte) NumstatResult {
+	if IsBinary(oldData) || IsBinary(newData) {
+		return NumstatResult{Binary: true, AddedLines: 0, DeletedLines: 0}
+	}
+	let (added, deleted) = countLineEdits(SplitLines(oldData), SplitLines(newData))
+	NumstatResult{Binary: false, AddedLines: added, DeletedLines: deleted}
+}
+
+func changeSideBytes(modeOpt Option[tree.Mode], idOpt Option[oid.OID], maxBytes int) []byte fails MissingObject | StoreError needs pack.ObjectStore {
+	match idOpt {
+	case None:
+		[]byte{}
+	case Some[oid.OID] as id:
+		match modeOpt {
+		case Some[tree.Mode] as m:
+			if tree.IsGitlink(m.Value) {
+				return ("Subproject commit " + oid.Hex(id.Value) + "\n").Bytes()
+			}
+		case None:
+		}
+		try readStoreBytes(id.Value, maxBytes)
+	}
+}
+
+// DiffNumstat computes binary classification and line insertion/deletion counts
+// for every Change in changes by reading blob payloads from pack.ObjectStore.
+func DiffNumstat(changes []Change, maxBytes int) []ChangeStat fails MissingObject | StoreError needs pack.ObjectStore {
+	let mut out = slices.WithCapacity[ChangeStat](len(changes))
+	for c in changes {
+		let oldBytes = try changeSideBytes(c.OldMode, c.OldOID, maxBytes)
+		let newBytes = try changeSideBytes(c.NewMode, c.NewOID, maxBytes)
+		out = out.Append(ChangeStat{
+			Change: c,
+			Stat:   Numstat(oldBytes, newBytes),
+		})
+	}
+	out
+}
