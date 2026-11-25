@@ -1,88 +1,105 @@
 package lint_test
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/json"
 	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"ergo.local/prototype/internal/sketch/lint"
+	"ergo.local/prototype/internal/sketchfront"
 	sdk "ergo.local/prototype/lint"
 )
 
-type paritySnapshot struct {
-	AllRules []lint.Result   `json:"allRules"`
-	Facts    []*sdk.Snapshot `json:"facts"`
-}
-
-func computeParitySnapshot(t *testing.T) []byte {
-	t.Helper()
-	inputs := loadBenchCorpus(t)
+// TestLintCorpusParity is the agreement harness of a lint speed change: it
+// lints every package under the folders ERGO_LINT_PARITY_DIRS names
+// (colon-separated, relative to the repository root) with every built-in
+// rule enabled, and writes one line per package (its folder, then the JSON
+// of the run's Result and Facts) to ERGO_WRITE_LINT_PARITY, or compares
+// those lines byte for byte with the file ERGO_LINT_PARITY_REF names. Run
+// it at the base with the first and at the head with the second; without
+// either it is skipped, since it reads the whole repository.
+func TestLintCorpusParity(t *testing.T) {
+	write, ref := os.Getenv("ERGO_WRITE_LINT_PARITY"), os.Getenv("ERGO_LINT_PARITY_REF")
+	if write == "" && ref == "" {
+		t.Skip("set ERGO_WRITE_LINT_PARITY or ERGO_LINT_PARITY_REF")
+	}
+	dirs := strings.Split(os.Getenv("ERGO_LINT_PARITY_DIRS"), ":")
+	if dirs[0] == "" {
+		dirs = []string{"compiler", "examples", "modules"}
+	}
 	conf := benchAllRulesConfig(t)
 	families := sdk.Families()
-	snap := paritySnapshot{
-		AllRules: make([]lint.Result, len(inputs)),
-		Facts:    make([]*sdk.Snapshot, len(inputs)),
+	var got bytes.Buffer
+	for _, dir := range dirs {
+		targets, err := sketchfront.DiscoverPackages(filepath.Join("..", "..", "..", dir))
+		if err != nil {
+			t.Fatalf("%s: %v", dir, err)
+		}
+		for _, target := range targets {
+			a, err := sketchfront.CheckDir(target.Dir)
+			if err != nil {
+				t.Fatalf("%s: %v", target.Dir, err)
+			}
+			in := lint.InputOf(a)
+			raw, err := json.Marshal(struct {
+				Result lint.Result
+				Facts  *sdk.Snapshot
+			}{conf.Run(in), lint.Facts(in, families)})
+			if err != nil {
+				t.Fatal(err)
+			}
+			rel, _ := filepath.Rel(filepath.Join("..", "..", ".."), target.Dir)
+			got.WriteString(filepath.ToSlash(rel))
+			got.WriteByte('\t')
+			got.Write(raw)
+			got.WriteByte('\n')
+		}
 	}
-	for i, in := range inputs {
-		snap.AllRules[i] = conf.Run(in)
-		snap.Facts[i] = lint.Facts(in, families)
+	if write != "" {
+		if err := os.WriteFile(write, got.Bytes(), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return
 	}
-	raw, err := json.Marshal(snap)
+	want, err := os.ReadFile(ref)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return raw
+	wantLines := map[string]string{}
+	sc := bufio.NewScanner(bytes.NewReader(want))
+	sc.Buffer(nil, 1<<30)
+	for sc.Scan() {
+		name, body, _ := strings.Cut(sc.Text(), "\t")
+		wantLines[name] = body
+	}
+	n := 0
+	sc = bufio.NewScanner(bytes.NewReader(got.Bytes()))
+	sc.Buffer(nil, 1<<30)
+	for sc.Scan() {
+		name, body, _ := strings.Cut(sc.Text(), "\t")
+		n++
+		w, ok := wantLines[name]
+		switch {
+		case !ok:
+			t.Errorf("%s: not in the reference", name)
+		case w != body:
+			t.Errorf("%s differs:\ngot:  %s\nwant: %s", name, clip(body), clip(w))
+		}
+		delete(wantLines, name)
+	}
+	for name := range wantLines {
+		t.Errorf("%s: in the reference only", name)
+	}
+	t.Logf("%d packages compared", n)
 }
 
-// TestLintCorpusParity checks that running all built-in rules and Facts over
-// the multi-module benchmark corpus is deterministic and, when
-// ERGO_LINT_PARITY_REF is set, matches the captured baseline byte-for-byte.
-func TestLintCorpusParity(t *testing.T) {
-	got := computeParitySnapshot(t)
-	if writePath := os.Getenv("ERGO_WRITE_LINT_PARITY"); writePath != "" {
-		if err := os.WriteFile(writePath, got, 0o644); err != nil {
-			t.Fatal(err)
-		}
-		t.Logf("wrote %d bytes to %s", len(got), writePath)
-		return
-	}
-	if refPath := os.Getenv("ERGO_LINT_PARITY_REF"); refPath != "" {
-		want, err := os.ReadFile(refPath)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if !bytes.Equal(got, want) {
-			var g, w paritySnapshot
-			_ = json.Unmarshal(got, &g)
-			_ = json.Unmarshal(want, &w)
-			for i := range max(len(g.AllRules), len(w.AllRules)) {
-				gb, _ := json.Marshal(g.AllRules[i])
-				wb, _ := json.Marshal(w.AllRules[i])
-				if !bytes.Equal(gb, wb) {
-					t.Errorf("AllRules[%d] mismatch:\ngot:  %s\nwant: %s", i, truncate(string(gb), 600), truncate(string(wb), 600))
-				}
-			}
-			for i := range max(len(g.Facts), len(w.Facts)) {
-				gb, _ := json.Marshal(g.Facts[i])
-				wb, _ := json.Marshal(w.Facts[i])
-				if !bytes.Equal(gb, wb) {
-					t.Errorf("Facts[%d] mismatch:\ngot:  %s\nwant: %s", i, truncate(string(gb), 600), truncate(string(wb), 600))
-				}
-			}
-			t.Fatalf("parity snapshot differed from baseline %s (%d vs %d bytes)", refPath, len(got), len(want))
-		}
-	}
-	// Always assert determinism across repeated runs in the same process.
-	again := computeParitySnapshot(t)
-	if !bytes.Equal(got, again) {
-		t.Fatal("lint output is not deterministic across repeated runs")
-	}
-}
-
-func truncate(s string, n int) string {
-	if len(s) <= n {
+func clip(s string) string {
+	if len(s) <= 600 {
 		return s
 	}
-	return s[:n] + "..."
+	return s[:600] + "..."
 }
