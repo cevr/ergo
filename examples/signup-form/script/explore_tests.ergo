@@ -1,0 +1,68 @@
+import actor
+import gen
+import signupform/memory
+import signupform/screen
+import signupform/subscribe
+import temporal
+import time
+import ui
+
+func hasOfferNamed(offers []ui.Offer, label string) bool {
+	for o in offers {
+		if o.Label == label {
+			return true
+		}
+	}
+	false
+}
+
+func exploreSignup(steps int) ui.Finding needs gen.Draws {
+	let clock = time.NewManual(0)
+	with context { subscribe.Subscribers: memory.List, Scheduler: clock } {
+		let app = actor.StartMachine(subscribe.Subscribing{}, 16, func(o Never) { let _ = o })
+		let mut h = ui.NewTestHost(app, screen.Screen, clock, 64) catch {
+		case ui.BadPatch as bp:
+			app.Stop()
+			return ui.Found{Script: []ui.Act{}, Step: 0, Violation: bp.Why}
+		}
+		let mut props = ui.DefaultsWith[subscribe.Form, subscribe.Signal](1s)
+		props = props.Append(temporal.Always[ui.ExploreSnapshot[subscribe.Form, subscribe.Signal]](
+			temporal.Named[ui.ExploreSnapshot[subscribe.Form, subscribe.Signal]]("sending-requires-ready", func(s ui.ExploreSnapshot[subscribe.Form, subscribe.Signal]) bool {
+				match s.State.Stage {
+				case subscribe.Sending:
+					subscribe.Ready(s.State)
+				case subscribe.Editing, subscribe.Sent, subscribe.Refused:
+					true
+				}
+			}),
+		))
+		props = props.Append(temporal.Always[ui.ExploreSnapshot[subscribe.Form, subscribe.Signal]](
+			temporal.Named[ui.ExploreSnapshot[subscribe.Form, subscribe.Signal]]("submit-offer-matches-ready", func(s ui.ExploreSnapshot[subscribe.Form, subscribe.Signal]) bool {
+				let offered = hasOfferNamed(s.Offers, screen.SubmitLabel)
+				let want = subscribe.Ready(s.State) && s.State.Stage != subscribe.Sending
+				offered == want
+			}),
+		))
+		let finding = ui.Explore(&h, props, ui.ExploreConfig{Steps: steps, Swarm: false, AdvanceStep: 200ms, Weights: Map[string, int]{}})
+		app.Stop()
+		finding
+	}
+}
+
+// Explored verifies via autonomous ui.Explore walks over the signup form that
+// controls stay unambiguous, focus stays valid, async checks/submits settle,
+// Sending only occurs when ready, and Subscribe is enabled iff ready and idle.
+law Explored() {
+	let cfg = gen.Config{Seed: uint64(1), Cases: 18, Shrinks: 120, MaxDraws: 4096, MaxRejected: 100}
+	let outcome = gen.Check(cfg, func() bool fails gen.Rejected needs gen.Draws {
+		match exploreSignup(18) {
+		case ui.Clean:
+			true
+		case ui.Found as f:
+			gen.Draws.Show("finding", "step \(f.Step): \(f.Violation)")
+			false
+		}
+	})
+	assert gen.Report(outcome) == ""
+	true
+}

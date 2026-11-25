@@ -1,0 +1,241 @@
+import deploys/deploys
+import gen
+import machines
+import strings
+import sync
+import temporal
+import testing
+
+type depAct = depCreate{Service string, Replicas int, Mem int} | depApply{Index int, Event deploys.Event}
+
+type depObs {
+	Kind        string,
+	Count       int,
+	Rejected    bool,
+	LastStatus  string,
+	LastRank    int,
+	FirstStatus string,
+	StatusesKey string,
+}
+
+func formatStatuses(xs []deploys.Status) string {
+	let mut parts = []string{}
+	for s in xs {
+		parts = parts.Append(deploys.Name(s))
+	}
+	strings.Join(parts, ",")
+}
+
+func firstStatusOf(xs []deploys.Status) string {
+	if len(xs) == 0 {
+		return ""
+	}
+	deploys.Name(xs[0])
+}
+
+func offerDeployAct(xs []deploys.Status) depAct needs gen.Draws {
+	let services = []string{"api", "web", "worker"}
+	if len(xs) == 0 || (len(xs) < 4 && gen.IntIn(0, 3) == 0) {
+		return depCreate{
+			Service:  gen.OneOf(services),
+			Replicas: gen.IntIn(1, 4),
+			Mem:      gen.OneOf([]int{64, 128, 256}),
+		}
+	}
+	let mut active = []int{}
+	for i, s in xs {
+		if !deploys.Final(s) {
+			active = active.Append(i)
+		}
+	}
+	let idx = if len(active) > 0 && gen.IntIn(0, 3) > 0 { gen.OneOf(active) } else { gen.IntIn(0, len(xs)-1) }
+	let ev deploys.Event = match gen.IntIn(0, 2) {
+	case 0:
+		deploys.Approve
+	case 1:
+		deploys.Release
+	case _:
+		deploys.Cancel
+	}
+	depApply{Index: idx, Event: ev}
+}
+
+func stepDeployModel(xs []deploys.Status, a depAct) ([]deploys.Status, depObs) {
+	match a {
+	case depCreate:
+		let next = xs.Append(deploys.Pending)
+		(next, depObs{
+			Kind:        "create",
+			Count:       len(next),
+			Rejected:    false,
+			LastStatus:  deploys.Name(deploys.Pending),
+			LastRank:    deploys.Rank(deploys.Pending),
+			FirstStatus: firstStatusOf(next),
+			StatusesKey: formatStatuses(next),
+		})
+	case depApply as ap:
+		let cur = xs[ap.Index]
+		let d = deploys.Step(cur, ap.Event)
+		match d {
+		case Reject:
+			(xs, depObs{
+				Kind:        "apply",
+				Count:       len(xs),
+				Rejected:    true,
+				LastStatus:  deploys.Name(cur),
+				LastRank:    deploys.Rank(cur),
+				FirstStatus: firstStatusOf(xs),
+				StatusesKey: formatStatuses(xs),
+			})
+		case Ignore:
+			(xs, depObs{
+				Kind:        "apply",
+				Count:       len(xs),
+				Rejected:    false,
+				LastStatus:  deploys.Name(cur),
+				LastRank:    deploys.Rank(cur),
+				FirstStatus: firstStatusOf(xs),
+				StatusesKey: formatStatuses(xs),
+			})
+		case Enter[deploys.Status], Stay[deploys.Status]:
+			let ns = machines.Next(cur, d)
+			let mut next = []deploys.Status{}
+			for i, s in xs {
+				next = next.Append(if i == ap.Index { ns } else { s })
+			}
+			(next, depObs{
+				Kind:        "apply",
+				Count:       len(next),
+				Rejected:    false,
+				LastStatus:  deploys.Name(ns),
+				LastRank:    deploys.Rank(ns),
+				FirstStatus: firstStatusOf(next),
+				StatusesKey: formatStatuses(next),
+			})
+		}
+	}
+}
+
+func deployStage(tbl Table) testing.Stage[depAct, depObs] {
+	let last = sync.NewRef(depObs{Kind: "init", Count: 0, Rejected: false, LastStatus: "", LastRank: 0, FirstStatus: "", StatusesKey: ""})
+	let st = testing.FuncProvider[testing.Stage[depAct, depObs]]{}
+	testing.Set(st.Do, func(a depAct) fails testing.Refused {
+		let obs = with context { deploys.Store: tbl } {
+			match a {
+			case depCreate as c:
+				let d = deploys.Create(deploys.Draft{
+					Service: c.Service,
+					Units:   []deploys.Unit{deploys.Unit{Image: "app:v1", Replicas: c.Replicas, Mem: c.Mem}},
+				}) catch {
+				case deploys.Invalid as inv:
+					return testing.Refused{Why: inv.Reason}
+				}
+				let all = tbl.All()
+				let mut ss = []deploys.Status{}
+				for item in all {
+					ss = ss.Append(item.Status)
+				}
+				depObs{
+					Kind:        "create",
+					Count:       tbl.Count(),
+					Rejected:    false,
+					LastStatus:  deploys.Name(d.Status),
+					LastRank:    deploys.Rank(d.Status),
+					FirstStatus: firstStatusOf(ss),
+					StatusesKey: formatStatuses(ss),
+				}
+			case depApply as ap:
+				let id = "dep-\(ap.Index + 1)"
+				let mut rejected = false
+				let res = deploys.Apply(id, ap.Event) catch {
+				case deploys.Conflict:
+					rejected = true
+					tbl.Find(id) catch {
+					case deploys.NotFound:
+						return testing.Refused{Why: "missing after conflict"}
+					}
+				case deploys.NotFound:
+					return testing.Refused{Why: "not found"}
+				}
+				let all = tbl.All()
+				let mut ss = []deploys.Status{}
+				for item in all {
+					ss = ss.Append(item.Status)
+				}
+				depObs{
+					Kind:        "apply",
+					Count:       tbl.Count(),
+					Rejected:    rejected,
+					LastStatus:  deploys.Name(res.Status),
+					LastRank:    deploys.Rank(res.Status),
+					FirstStatus: firstStatusOf(ss),
+					StatusesKey: formatStatuses(ss),
+				}
+			}
+		}
+		last.Set(obs)
+	})
+	testing.Set(st.Advance, func(d duration) { let _ = d })
+	testing.Set(st.Settle, func() {})
+	testing.Set(st.Show, func() depObs { last.Get() })
+	st
+}
+
+// StoreMatchesLifecycleModel verifies via testing.Model and temporal formulas
+// that deploys.Create and deploys.Apply over memory.Table agree with the pure
+// lifecycle model while keeping deploy count monotonic and terminal statuses
+// permanent once reached.
+law StoreMatchesLifecycleModel() {
+	let model = testing.Model[[]deploys.Status, depAct, depObs]{
+		Start: []deploys.Status{},
+		Offer: offerDeployAct,
+		Step:  stepDeployModel,
+	}
+	let formulas = []temporal.Formula[depObs]{
+		temporal.Always[depObs](temporal.ThenNamed[depObs]("count-monotonic", func(prev depObs) temporal.Formula[depObs] {
+			temporal.Always[depObs](temporal.Named[depObs]("count-never-decreases", func(cur depObs) bool {
+				cur.Count >= prev.Count
+			}))
+		})),
+		temporal.Always[depObs](temporal.Implies[depObs](
+			temporal.Named[depObs]("first-is-terminal", func(o depObs) bool {
+				o.FirstStatus == "live" || o.FirstStatus == "cancelled"
+			}),
+			temporal.ThenNamed[depObs]("first-terminal-stays-fixed", func(term depObs) temporal.Formula[depObs] {
+				temporal.Always[depObs](temporal.Named[depObs]("same-terminal-status", func(cur depObs) bool {
+					cur.FirstStatus == term.FirstStatus
+				}))
+			}),
+		)),
+		temporal.Always[depObs](temporal.Implies[depObs](
+			temporal.Named[depObs]("has-deploys", func(o depObs) bool { o.Count > 0 }),
+			temporal.Named[depObs]("first-status-named", func(o depObs) bool { o.FirstStatus != "" }),
+		)),
+		temporal.Always[depObs](temporal.Implies[depObs](
+			temporal.Named[depObs]("terminal-rank-check", func(o depObs) bool {
+				o.LastStatus == "live" || o.LastStatus == "cancelled"
+			}),
+			temporal.Named[depObs]("rank-is-two", func(o depObs) bool {
+				o.LastRank == 2
+			}),
+		)),
+	}
+	let cfg = gen.Config{Seed: uint64(1), Cases: 15, Shrinks: 120, MaxDraws: 2048, MaxRejected: 50}
+	let outcome = gen.Check(cfg, func() bool fails gen.Rejected needs gen.Draws {
+		let st = deployStage(NewTable())
+		testing.AgreesAnd(model, st, 14, formulas) catch {
+		case testing.Diverged[depAct, depObs] as d:
+			gen.Draws.Show("diverged", "step \(d.At): want=\(d.Want.Kind)/\(d.Want.StatusesKey) got=\(d.Got.Kind)/\(d.Got.StatusesKey)")
+			return false
+		case testing.TemporalBreach[depAct, depObs] as tb:
+			gen.Draws.Show("temporal", "formula \(tb.FormulaIndex): \(temporal.FormatVerdict(tb.Verdict))")
+			return false
+		case testing.Refused as r:
+			gen.Draws.Show("refused", r.Why)
+			return false
+		}
+		true
+	})
+	assert gen.Report(outcome) == ""
+	true
+}

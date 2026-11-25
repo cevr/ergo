@@ -1,0 +1,68 @@
+import actor
+import counterlist/rows
+import counterlist/screen
+import gen
+import temporal
+import time
+import ui
+
+func keysStrictlyIncreasing(r rows.Rows) bool {
+	let mut prev = -1
+	for item in r.Items {
+		if item.Key <= prev || item.Key >= r.Next {
+			return false
+		}
+		prev = item.Key
+	}
+	true
+}
+
+func exploreCounterList(steps int) ui.Finding needs gen.Draws {
+	let clock = time.NewManual(0)
+	with context { Scheduler: clock } {
+		let app = actor.StartMachine(rows.Counters{}, 16, func(o Never) { let _ = o })
+		let mut h = ui.NewTestHost(app, screen.Screen, clock, 64) catch {
+		case ui.BadPatch as bp:
+			app.Stop()
+			return ui.Found{Script: []ui.Act{}, Step: 0, Violation: bp.Why}
+		}
+		let props = []temporal.Formula[ui.ExploreSnapshot[rows.Rows, rows.Signal]]{
+			temporal.Always[ui.ExploreSnapshot[rows.Rows, rows.Signal]](
+				temporal.Named[ui.ExploreSnapshot[rows.Rows, rows.Signal]]("focus-valid", func(s ui.ExploreSnapshot[rows.Rows, rows.Signal]) bool {
+					s.FocusValid
+				}),
+			),
+			temporal.Always[ui.ExploreSnapshot[rows.Rows, rows.Signal]](
+				temporal.Named[ui.ExploreSnapshot[rows.Rows, rows.Signal]]("keys-strictly-increasing", func(s ui.ExploreSnapshot[rows.Rows, rows.Signal]) bool {
+					keysStrictlyIncreasing(s.State)
+				}),
+			),
+			temporal.Always[ui.ExploreSnapshot[rows.Rows, rows.Signal]](
+				temporal.Named[ui.ExploreSnapshot[rows.Rows, rows.Signal]]("next-key-at-least-initial", func(s ui.ExploreSnapshot[rows.Rows, rows.Signal]) bool {
+					s.State.Next >= 3 && len(s.State.Items) <= s.State.Next
+				}),
+			),
+		}
+		let finding = ui.Explore(&h, props, ui.ExploreConfig{Steps: steps, Swarm: false, AdvanceStep: 200ms, Weights: Map[string, int]{}})
+		app.Stop()
+		finding
+	}
+}
+
+// Explored verifies via autonomous ui.Explore walks over the counter list
+// screen that focus stays valid, row keys remain strictly increasing and below
+// Next, and the row count never exceeds Next.
+law Explored() {
+	let cfg = gen.Config{Seed: uint64(1), Cases: 18, Shrinks: 120, MaxDraws: 4096, MaxRejected: 100}
+	let outcome = gen.Check(cfg, func() bool fails gen.Rejected needs gen.Draws {
+		match exploreCounterList(20) {
+		case ui.Clean:
+			true
+		case ui.Found as f:
+			gen.Draws.Show("finding", "step \(f.Step): \(f.Violation)")
+			false
+		}
+	})
+	assert gen.Report(outcome) == ""
+	true
+}

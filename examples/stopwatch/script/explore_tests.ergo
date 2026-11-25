@@ -1,0 +1,63 @@
+import actor
+import gen
+import stopwatch/screen
+import stopwatch/watch
+import temporal
+import time
+import ui
+
+func hasOfferLabel(offers []ui.Offer, label string) bool {
+	for o in offers {
+		if o.Label == label {
+			return true
+		}
+	}
+	false
+}
+
+func exploreStopwatch(steps int) ui.Finding needs gen.Draws {
+	let clock = time.NewManual(0)
+	with context { time.Clock: clock, Scheduler: clock } {
+		let app = actor.StartMachine(watch.Stopwatch{}, 16, func(o Never) { let _ = o })
+		let mut h = ui.NewTestHost(app, screen.Screen, clock, 64) catch {
+		case ui.BadPatch as bp:
+			app.Stop()
+			return ui.Found{Script: []ui.Act{}, Step: 0, Violation: bp.Why}
+		}
+		let mut props = ui.DefaultsWith[watch.Watch, watch.Signal](1s)
+		props = props.Append(temporal.Always[ui.ExploreSnapshot[watch.Watch, watch.Signal]](
+			temporal.Named[ui.ExploreSnapshot[watch.Watch, watch.Signal]]("elapsed-non-negative", func(s ui.ExploreSnapshot[watch.Watch, watch.Signal]) bool {
+				watch.ElapsedOf(s.State) >= 0s
+			}),
+		))
+		props = props.Append(temporal.Always[ui.ExploreSnapshot[watch.Watch, watch.Signal]](
+			temporal.Named[ui.ExploreSnapshot[watch.Watch, watch.Signal]]("toggle-button-matches-running", func(s ui.ExploreSnapshot[watch.Watch, watch.Signal]) bool {
+				let running = watch.IsRunning(s.State)
+				let hasStart = hasOfferLabel(s.Offers, "Start")
+				let hasStop = hasOfferLabel(s.Offers, "Stop")
+				if running { hasStop && !hasStart } else { hasStart && !hasStop }
+			}),
+		))
+		let finding = ui.Explore(&h, props, ui.ExploreConfig{Steps: steps, Swarm: false, AdvanceStep: 50ms, Weights: Map[string, int]{}})
+		app.Stop()
+		finding
+	}
+}
+
+// Explored verifies via autonomous ui.Explore walks over the stopwatch screen
+// and manual clock that controls stay unambiguous, focus stays valid, elapsed
+// time is never negative, and Start/Stop button offers match running state.
+law Explored() {
+	let cfg = gen.Config{Seed: uint64(1), Cases: 18, Shrinks: 120, MaxDraws: 4096, MaxRejected: 100}
+	let outcome = gen.Check(cfg, func() bool fails gen.Rejected needs gen.Draws {
+		match exploreStopwatch(18) {
+		case ui.Clean:
+			true
+		case ui.Found as f:
+			gen.Draws.Show("finding", "step \(f.Step): \(f.Violation)")
+			false
+		}
+	})
+	assert gen.Report(outcome) == ""
+	true
+}

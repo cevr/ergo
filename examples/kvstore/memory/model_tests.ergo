@@ -1,0 +1,186 @@
+import gen
+import kvstore/kv
+import maps
+import slices
+import strings
+import sync
+import temporal
+import testing
+
+type kvAct = kvPut{Key string, Value string} | kvGet{Key string} | kvDel{Key string} | kvCompact{}
+
+type kvObs {
+	Kind       string,
+	Key        string,
+	Found      bool,
+	Value      string,
+	Count      int,
+	KeysJoined string,
+	Sorted     bool,
+}
+
+func sortedKeys(m Map[string, string]) []string {
+	slices.Sorted(maps.Keys(m))
+}
+
+func kvPool() []string {
+	[]string{"alpha", "beta", "gamma", "delta"}
+}
+
+func kvValues() []string {
+	[]string{"", "one", "two", "three"}
+}
+
+func offerKVAct(m Map[string, string]) kvAct needs gen.Draws {
+	let live = sortedKeys(m)
+	let pool = kvPool()
+	let op = gen.IntIn(0, 9)
+	if op <= 3 {
+		return kvPut{Key: gen.OneOf(pool), Value: gen.OneOf(kvValues())}
+	}
+	if op <= 5 {
+		let k = if len(live) > 0 && gen.Bool() { gen.OneOf(live) } else { gen.OneOf(pool) }
+		return kvGet{Key: k}
+	}
+	if op <= 8 {
+		let k = if len(live) > 0 && gen.Bool() { gen.OneOf(live) } else { gen.OneOf(pool) }
+		return kvDel{Key: k}
+	}
+	kvCompact
+}
+
+func stepKVModel(m Map[string, string], a kvAct) (Map[string, string], kvObs) {
+	match a {
+	case kvPut as p:
+		let next = m.Put(p.Key, p.Value)
+		let ks = sortedKeys(next)
+		(next, kvObs{Kind: "put", Key: p.Key, Found: true, Value: p.Value, Count: len(ks), KeysJoined: strings.Join(ks, ","), Sorted: kv.Sorted(ks)})
+	case kvGet as g:
+		let ks = sortedKeys(m)
+		match m.Get(g.Key) {
+		case Some[string] as v:
+			(m, kvObs{Kind: "get", Key: g.Key, Found: true, Value: v.Value, Count: len(ks), KeysJoined: strings.Join(ks, ","), Sorted: kv.Sorted(ks)})
+		case None:
+			(m, kvObs{Kind: "get", Key: g.Key, Found: false, Value: "", Count: len(ks), KeysJoined: strings.Join(ks, ","), Sorted: kv.Sorted(ks)})
+		}
+	case kvDel as d:
+		let existed = m.Get(d.Key) != None
+		let next = if existed { m.Delete(d.Key) } else { m }
+		let ks = sortedKeys(next)
+		(next, kvObs{Kind: "del", Key: d.Key, Found: existed, Value: "", Count: len(ks), KeysJoined: strings.Join(ks, ","), Sorted: kv.Sorted(ks)})
+	case kvCompact:
+		let ks = sortedKeys(m)
+		(m, kvObs{Kind: "compact", Key: "", Found: true, Value: "", Count: len(ks), KeysJoined: strings.Join(ks, ","), Sorted: kv.Sorted(ks)})
+	}
+}
+
+func kvStage(tbl Table) testing.Stage[kvAct, kvObs] {
+	let last = sync.NewRef(kvObs{Kind: "init", Key: "", Found: false, Value: "", Count: 0, KeysJoined: "", Sorted: true})
+	let st = testing.FuncProvider[testing.Stage[kvAct, kvObs]]{}
+	testing.Set(st.Do, func(a kvAct) fails testing.Refused {
+		let obs = match a {
+		case kvPut as p:
+			tbl.Put(p.Key, p.Value) catch {
+			case kv.Broken as b:
+				return testing.Refused{Why: b.Reason}
+			}
+			let ks = tbl.Keys() catch {
+			case kv.Broken as b:
+				return testing.Refused{Why: b.Reason}
+			}
+			kvObs{Kind: "put", Key: p.Key, Found: true, Value: p.Value, Count: len(ks), KeysJoined: strings.Join(ks, ","), Sorted: kv.Sorted(ks)}
+		case kvGet as g:
+			let mut found = true
+			let val = tbl.Get(g.Key) catch {
+			case kv.Missing:
+				found = false
+				""
+			case kv.Broken as b:
+				return testing.Refused{Why: b.Reason}
+			}
+			let ks = tbl.Keys() catch {
+			case kv.Broken as b:
+				return testing.Refused{Why: b.Reason}
+			}
+			kvObs{Kind: "get", Key: g.Key, Found: found, Value: val, Count: len(ks), KeysJoined: strings.Join(ks, ","), Sorted: kv.Sorted(ks)}
+		case kvDel as d:
+			let mut existed = true
+			tbl.Delete(d.Key) catch {
+			case kv.Missing:
+				existed = false
+			case kv.Broken as b:
+				return testing.Refused{Why: b.Reason}
+			}
+			let ks = tbl.Keys() catch {
+			case kv.Broken as b:
+				return testing.Refused{Why: b.Reason}
+			}
+			kvObs{Kind: "del", Key: d.Key, Found: existed, Value: "", Count: len(ks), KeysJoined: strings.Join(ks, ","), Sorted: kv.Sorted(ks)}
+		case kvCompact:
+			tbl.Compact() catch {
+			case kv.Broken as b:
+				return testing.Refused{Why: b.Reason}
+			}
+			let ks = tbl.Keys() catch {
+			case kv.Broken as b:
+				return testing.Refused{Why: b.Reason}
+			}
+			kvObs{Kind: "compact", Key: "", Found: true, Value: "", Count: len(ks), KeysJoined: strings.Join(ks, ","), Sorted: kv.Sorted(ks)}
+		}
+		last.Set(obs)
+	})
+	testing.Set(st.Advance, func(d duration) { let _ = d })
+	testing.Set(st.Settle, func() {})
+	testing.Set(st.Show, func() kvObs { last.Get() })
+	st
+}
+
+func containsJoinedKey(joined string, key string) bool {
+	if joined == "" {
+		return false
+	}
+	strings.Contains(","+joined+",", ","+key+",")
+}
+
+// TableMatchesModel verifies via testing.Model and temporal formulas that the
+// in-memory kv.Table agrees with a pure reference map across state-dependent
+// Put, Get, Delete, and Compact sequences while maintaining sorted distinct
+// keys, non-empty counts after Put, and immediate absence after Delete.
+law TableMatchesModel() {
+	let model = testing.Model[Map[string, string], kvAct, kvObs]{
+		Start: Map[string, string]{},
+		Offer: offerKVAct,
+		Step:  stepKVModel,
+	}
+	let formulas = []temporal.Formula[kvObs]{
+		temporal.Always[kvObs](temporal.Named[kvObs]("keys-sorted-and-count-non-negative", func(o kvObs) bool {
+			o.Sorted && o.Count >= 0
+		})),
+		temporal.Always[kvObs](temporal.Implies[kvObs](
+			temporal.Named[kvObs]("put-step", func(o kvObs) bool { o.Kind == "put" }),
+			temporal.Named[kvObs]("put-key-present", func(o kvObs) bool { o.Count >= 1 && containsJoinedKey(o.KeysJoined, o.Key) }),
+		)),
+		temporal.Always[kvObs](temporal.Implies[kvObs](
+			temporal.Named[kvObs]("del-step", func(o kvObs) bool { o.Kind == "del" }),
+			temporal.Named[kvObs]("deleted-key-absent", func(o kvObs) bool { !containsJoinedKey(o.KeysJoined, o.Key) }),
+		)),
+	}
+	let cfg = gen.Config{Seed: uint64(1), Cases: 30, Shrinks: 120, MaxDraws: 2048, MaxRejected: 50}
+	let outcome = gen.Check(cfg, func() bool fails gen.Rejected needs gen.Draws {
+		let st = kvStage(NewTable())
+		testing.AgreesAnd(model, st, 18, formulas) catch {
+		case testing.Diverged[kvAct, kvObs] as d:
+			gen.Draws.Show("diverged", "step \(d.At): want=\(d.Want.Kind)/\(d.Want.KeysJoined) got=\(d.Got.Kind)/\(d.Got.KeysJoined)")
+			return false
+		case testing.TemporalBreach[kvAct, kvObs] as tb:
+			gen.Draws.Show("temporal", "formula \(tb.FormulaIndex): \(temporal.FormatVerdict(tb.Verdict))")
+			return false
+		case testing.Refused as r:
+			gen.Draws.Show("refused", r.Why)
+			return false
+		}
+		true
+	})
+	assert gen.Report(outcome) == ""
+	true
+}

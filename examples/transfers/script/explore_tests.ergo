@@ -1,0 +1,82 @@
+import actor
+import gen
+import temporal
+import time
+import transfers/desk
+import transfers/screen
+import transfers/transfer
+import ui
+
+func rowsWellFormed(d desk.Desk) bool {
+	if len(d.Rows) != d.Next {
+		return false
+	}
+	for i, r in d.Rows {
+		if r.ID != i || r.Run < 0 {
+			return false
+		}
+	}
+	true
+}
+
+func hasSendingRow(d desk.Desk) bool {
+	for r in d.Rows {
+		if transfer.IsSending(r.Transfer) {
+			return true
+		}
+	}
+	false
+}
+
+func offerPresent(offers []ui.Offer, label string) bool {
+	for o in offers {
+		if o.Label == label {
+			return true
+		}
+	}
+	false
+}
+
+func exploreTransfers(steps int) ui.Finding needs gen.Draws {
+	let clock = time.NewManual(0)
+	with context { time.Clock: clock, Scheduler: clock } {
+		let app = actor.StartMachine(desk.Desks{}, 16, func(o Never) { let _ = o })
+		let mut h = ui.NewTestHost(app, screen.Screen, clock, 64) catch {
+		case ui.BadPatch as bp:
+			app.Stop()
+			return ui.Found{Script: []ui.Act{}, Step: 0, Violation: bp.Why}
+		}
+		let mut props = ui.DefaultsWith[desk.Desk, desk.Signal](5s)
+		props = props.Append(temporal.Always[ui.ExploreSnapshot[desk.Desk, desk.Signal]](
+			temporal.Named[ui.ExploreSnapshot[desk.Desk, desk.Signal]]("rows-ordered-and-dense", func(s ui.ExploreSnapshot[desk.Desk, desk.Signal]) bool {
+				rowsWellFormed(s.State)
+			}),
+		))
+		props = props.Append(temporal.Always[ui.ExploreSnapshot[desk.Desk, desk.Signal]](
+			temporal.Named[ui.ExploreSnapshot[desk.Desk, desk.Signal]]("cancel-all-matches-sending", func(s ui.ExploreSnapshot[desk.Desk, desk.Signal]) bool {
+				offerPresent(s.Offers, screen.CancelAllLabel) == hasSendingRow(s.State)
+			}),
+		))
+		let finding = ui.Explore(&h, props, ui.ExploreConfig{Steps: steps, Swarm: false, AdvanceStep: 500ms, Weights: Map[string, int]{}})
+		app.Stop()
+		finding
+	}
+}
+
+// Explored verifies via autonomous ui.Explore walks over the transfers screen
+// that controls stay unambiguous, focus stays valid, row IDs stay dense 0..N-1,
+// and Cancel all is offered iff at least one transfer is currently sending.
+law Explored() {
+	let cfg = gen.Config{Seed: uint64(1), Cases: 18, Shrinks: 120, MaxDraws: 4096, MaxRejected: 100}
+	let outcome = gen.Check(cfg, func() bool fails gen.Rejected needs gen.Draws {
+		match exploreTransfers(18) {
+		case ui.Clean:
+			true
+		case ui.Found as f:
+			gen.Draws.Show("finding", "step \(f.Step): \(f.Violation)")
+			false
+		}
+	})
+	assert gen.Report(outcome) == ""
+	true
+}
