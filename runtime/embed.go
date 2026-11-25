@@ -21,7 +21,7 @@ import (
 	"sync"
 )
 
-//go:embed rt/alone.go rt/carrier.go rt/cause.go rt/clock.go rt/doc.go rt/gocontext.go rt/handle.go rt/held.go rt/idle.go rt/machine.go rt/regions.go rt/run.go rt/sched.go rt/sched_explore.go rt/sched_live.go rt/scope.go rt/stall.go rt/task.go rt/tasks.go rt/text.go rt/timeout.go rt/trace.go rt/values.go
+//go:embed rt/alone.go rt/budget.go rt/carrier.go rt/cause.go rt/clock.go rt/doc.go rt/gocontext.go rt/handle.go rt/held.go rt/idle.go rt/machine.go rt/regions.go rt/run.go rt/sched.go rt/sched_explore.go rt/sched_live.go rt/scope.go rt/stall.go rt/task.go rt/tasks.go rt/text.go rt/timeout.go rt/trace.go rt/values.go
 //go:embed v1/actor.go v1/actor_host.go v1/actor_recover.go v1/actor_trace.go v1/mailbox.go v1/trace.go
 //go:embed rt/rttrace/encode.go rt/rttrace/jsonl.go rt/rttrace/rttrace.go
 //go:embed v1/context.go v1/data.go v1/deadline.go v1/exit.go v1/explore_laws.go v1/explore_off.go v1/explore_on.go v1/queue.go v1/runtime.go v1/sealed.go v1/task.go v1/text.go
@@ -76,7 +76,7 @@ var packages = sync.OnceValue(func() map[string]pkg {
 			files: []string{"explore.go"},
 		},
 		"runtime/rt": {
-			files: []string{"alone.go", "carrier.go", "cause.go", "clock.go", "doc.go", "gcknobs.go", "gocontext.go", "group.go", "handle.go", "held.go", "idle.go", "machine.go", "mapfault.go", "pace.go", "park.go", "park_stock.go", "park_word.go", "readsmall.go", "readsmall_other.go", "regions.go", "run.go", "sched.go", "sched_explore.go", "sched_live.go", "scope.go", "stall.go", "task.go", "tasks.go", "text.go", "timeout.go", "trace.go", "values.go", "waiter.go"},
+			files: []string{"alone.go", "budget.go", "carrier.go", "cause.go", "clock.go", "doc.go", "gcknobs.go", "gocontext.go", "group.go", "handle.go", "held.go", "idle.go", "machine.go", "mapfault.go", "pace.go", "park.go", "park_stock.go", "park_word.go", "readsmall.go", "readsmall_other.go", "regions.go", "run.go", "sched.go", "sched_explore.go", "sched_live.go", "scope.go", "stall.go", "task.go", "tasks.go", "text.go", "timeout.go", "trace.go", "values.go", "waiter.go"},
 		},
 		"runtime/v1": {
 			files:   []string{"actor.go", "actor_host.go", "actor_recover.go", "actor_trace.go", "allocs.go", "atomic.go", "bounded.go", "bounded_darwin.go", "bounded_linux.go", "bounded_other.go", "buffer.go", "civil.go", "collections.go", "config_names.go", "context.go", "data.go", "deadline.go", "embed.go", "exchange_darwin.go", "exchange_linux.go", "exchange_linux_amd64.go", "exchange_linux_arm64.go", "exchange_other.go", "exit.go", "exits.go", "explore_laws.go", "explore_off.go", "explore_on.go", "fuse.go", "goarg.go", "gocall.go", "gocallback.go", "goerror.go", "goreads.go", "gotrace_off.go", "gotrace_on.go", "guard.go", "guard_other.go", "guard_unix.go", "heap.go", "hook.go", "host.go", "intmap.go", "json.go", "json_append.go", "json_bytes.go", "leaves.go", "lineage.go", "mailbox.go", "mapfile_unix.go", "mapped.go", "moves.go", "numbers.go", "owned.go", "path.go", "queue.go", "runtime.go", "script.go", "sealed.go", "self.go", "set.go", "shrink.go", "signal.go", "static.go", "stdout.go", "strbuf.go", "sync.go", "task.go", "term.go", "term_bsd.go", "term_darwin.go", "term_linux.go", "term_unix.go", "testhost.go", "text.go", "time.go", "timeappend.go", "timetext.go", "toml.go", "toml_encode.go", "trace.go", "trees.go", "tzdata.go", "tzhost.go", "ui_args.go", "unchecked.go", "unsupported_os.go", "view.go", "wire.go"},

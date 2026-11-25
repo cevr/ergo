@@ -433,7 +433,7 @@ func (v *Virtual) AwaitTimers(n int) {
 // Inside a masked region it waits the full duration.
 func Sleep(t *Task, s Scheduler, d time.Duration) error {
 	Point(t, Op{OpSleep, s})
-	if t.Stopped() {
+	if t.stopObserved() {
 		return Interrupted
 	}
 	if v, ok := s.(*Virtual); ok && v.d != nil {

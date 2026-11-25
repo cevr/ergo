@@ -17,7 +17,7 @@ func run(n int, l process.Limits) int fails os.Exit needs Scheduler {
 	let mut acc = 0
 	for i in 0..n {
 		let v = process.Run(l) { i & 3 } catch {
-		case process.OverTime, process.Crashed:
+		case process.OverTime, process.OverSteps, process.Crashed:
 			return os.Exit{Code: 1, Message: "processbench: the process did not end with its value"}
 		}
 		acc += v

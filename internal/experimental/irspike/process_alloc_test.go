@@ -52,9 +52,9 @@ const untimedProcess = `import process
 import task
 
 func measured(d duration, f own func() int) int needs Scheduler {
-	process.Run(process.Limits{Time: d}, f) catch {
-	case process.OverTime, process.Crashed:
-		Unreachable("unexpected process exit")
+	process.Run(process.Limits{..process.Unlimited, Time: d}, f) catch {
+	case process.OverTime, process.OverSteps, process.Crashed:
+		-1
 	}
 }
 

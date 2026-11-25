@@ -271,7 +271,7 @@ func (h *Handle[T]) WaitBy(owner *Task) (T, error) {
 		}
 		// An owner that is still not stopped left the wait because the task
 		// ended.
-		if !owner.Stopped() {
+		if !owner.stopObserved() {
 			if h.task.trace != nil {
 				h.task.childEvent(TraceObserve, owner, true)
 			}

@@ -10,7 +10,7 @@ func (t *Task) settle(c *Cause, p any) {
 	if p != nil {
 		c.recovered(t, p, false, 0)
 	}
-	if t.Stopped() {
+	if t.stopObserved() {
 		c.AddInterruption()
 	}
 }
@@ -19,7 +19,7 @@ func (t *Task) settle(c *Cause, p any) {
 // panic and run all releases. It observes a pending stop after the release
 // mask closes, like Scope.End, without carrying a second release list.
 func (t *Task) ScopeExit(err error) error {
-	if !t.Stopped() {
+	if !t.stopObserved() {
 		return err
 	}
 	return t.exitOf(err, nil)
@@ -68,7 +68,7 @@ func (t *Task) exitOf(err error, p any) error {
 	// canonical form already: nil, or Interrupted when the task was
 	// stopped. It builds no Cause (a stopped sleep, a cut phase timer).
 	if p == nil && (err == nil || err == Interrupted) {
-		if err == Interrupted || t.Stopped() {
+		if err == Interrupted || t.stopObserved() {
 			return Interrupted
 		}
 		return nil

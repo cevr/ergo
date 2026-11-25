@@ -38,6 +38,13 @@ type Stopped {}
 // stop that was not its waiter's.
 type Exit[T own, E] = Done[T] | Failed[E] | Defected | Stopped
 
+// OverSteps is a task that stopped because its own step budget ran out.
+type OverSteps {}
+
+// Outcome is how a budgeted task ended: its value, its typed failure, a
+// defect, its own step budget running out, or another stop.
+type Outcome[T own, E] = Done[T] | Failed[E] | Defected | OverSteps | Stopped
+
 // ExitOf waits for t to end, as Wait does, and is how it ended
 // (docs/spec/runtime.md, Tasks 13). It consumes t. A defect it gives as
 // Defected is contained: neither this call nor t's owner raises it again.
@@ -55,12 +62,38 @@ func ExitOf[T own, E](t own Task[T, E]) Exit[T, E] {
 	if k == 2 {
 		return Defected{Reason: exitReason(t)}
 	}
+	if k == 3 || k == 4 {
+		let _ = exitReason(t)
+		return Stopped
+	}
+	Done[T]{Value: exitValue(t)}
+}
+
+// OutcomeOf waits for t as ExitOf does and distinguishes a stop caused by
+// t's own step budget (OverSteps) from another stop (Stopped).
+func OutcomeOf[T own, E](t own Task[T, E]) Outcome[T, E] {
+	let k = exitOf(t) catch {
+	case err:
+		let _ = exitReason(t)
+		return Failed[E]{Error: err}
+	}
+	if k == 2 {
+		return Defected{Reason: exitReason(t)}
+	}
+	if k == 4 {
+		let _ = exitReason(t)
+		return OverSteps
+	}
 	if k == 3 {
 		let _ = exitReason(t)
 		return Stopped
 	}
 	Done[T]{Value: exitValue(t)}
 }
+
+// LimitSteps sets a step budget of n unmasked interruption points on the
+// calling task and its unshielded child tasks. A nonpositive n does nothing.
+extern go ergo.local/prototype/runtime/v1.TaskLimitSteps func LimitSteps(n int)
 
 // exitOf waits for t and gives how it ended: 0 the block's value, 2 a
 // defect, whose text exitReason gives, 3 a stop that was not the
@@ -108,8 +141,8 @@ extern go ergo.local/prototype/runtime/v1.TaskValue func exitValue[T own, E](t o
 // sleeps w ms and returns; when c >= d it fired and reports false, and the
 // task is Stopped when w > d.
 law CancelBeforeFireNeverStops(w int, d int, c int) {
-	let wait = 1 + ((w % 6) + 6) % 6
-	let limit = 1 + ((d % 6) + 6) % 6
+	let wait = 1 + ((w%6)+6)%6
+	let limit = 1 + ((d%6)+6)%6
 	let after = ((c % 7) + 7) % 7
 	let m = time.NewManual(0)
 	let marks = queue.New[int](1)
@@ -141,7 +174,7 @@ law CancelBeforeFireNeverStops(w int, d int, c int) {
 // The type cannot rule this out: an Alarm outliving its task is the
 // normal case (process.Run consumes the task, then releases the Alarm).
 law AlarmOutlivesItsTask(how int, d int) {
-	let limit = 1 + ((d % 6) + 6) % 6
+	let limit = 1 + ((d%6)+6)%6
 	let m = time.NewManual(0)
 	with context { Scheduler: m } {
 		let other = Go() {
@@ -166,7 +199,7 @@ law AlarmOutlivesItsTask(how int, d int) {
 		}
 		for m.Sleepers() < 2 {
 		}
-		m.Advance(time.Times(1ms, limit + 1))
+		m.Advance(time.Times(1ms, limit+1))
 		let asleep = m.Sleepers() == 1
 		other.Stop()
 		gave && asleep && !a.Cancel()

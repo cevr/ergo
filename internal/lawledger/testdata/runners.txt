@@ -627,6 +627,7 @@ prelude Task.StopIsIdempotent	TestStdLawsRun
 process Runner.CleanupRunsBeforeReturn	TestStdProcessLaws
 process Runner.DefectIsCrashed	TestStdProcessLaws
 process Runner.ModelAgrees	TestStdProcessLaws
+process Runner.StepsIsExceeded	TestStdProcessLaws
 process Runner.TimeIsExpired	TestStdProcessLaws
 process Runner.ValueOrFailurePasses	TestStdProcessLaws
 prompt MarkedAnswerIsSorted	TestPromptLaws

@@ -100,6 +100,9 @@ func (t *Task) init(parent *Task, span string, masked, shield bool) {
 	}
 	parent.mu.Lock()
 	flags := parent.stopped.v.Load()
+	if !t.shielded && flags&flagBudget != 0 {
+		t.stopped.v.Or(flagBudget | flagPolled)
+	}
 	if !t.shielded && flags&flagStopped != 0 {
 		if t.trace != nil {
 			t.traceTask(TraceCancelRequest, nil) // born stopped: the request precedes its start
@@ -245,9 +248,16 @@ func (t *Task) Chain() (frames []Frame, cut bool) {
 // does not wait.
 // Each task observes the request at its next interruption point outside a
 // mask. Interrupt is idempotent and safe from any goroutine.
-func (t *Task) Interrupt() {
+func (t *Task) Interrupt() { t.interrupt(false) }
+
+func (t *Task) interruptBudget() { t.interrupt(true) }
+
+func (t *Task) interrupt(budget bool) {
 	t.mu.Lock()
 	if !t.stopped.Load() {
+		if budget {
+			t.stopped.v.Or(flagBudgetSpent)
+		}
 		// The event is recorded before the flag is set, so it happens before
 		// any observation of the stop and a recorder orders it first.
 		if t.trace != nil {
@@ -292,13 +302,28 @@ func (t *Task) Stopped() bool {
 	return t.stoppedSlow()
 }
 
-// stoppedSlow is Stopped once its word has a stop or a WhenPolled hook:
-// it runs the hook, then reads the stop.
+// stoppedSlow is Stopped once its word has a stop or a poll flag:
+// it runs any WhenPolled hook, respects masks, charges an active step
+// budget, and reports whether a stop is observable.
 func (t *Task) stoppedSlow() bool {
-	if t.stopped.v.Load()&flagPolled != 0 {
+	return t.pollSlow(true)
+}
+
+func (t *Task) pollSlow(charge bool) bool {
+	flags := t.stopped.v.Load()
+	if flags&flagPollHook != 0 {
 		t.firePollHook()
 	}
-	return t.stopped.Load() && t.regions.top == interruptible
+	if t.regions.top != interruptible {
+		return false
+	}
+	if flags&flagStopped != 0 {
+		return true
+	}
+	if charge && flags&flagBudget != 0 {
+		t.chargeStep()
+	}
+	return t.stopped.Load()
 }
 
 // StopRequested reports whether a stop was requested, masked or not.
@@ -418,6 +443,16 @@ const (
 	// one: a leaf task ends without taking its own lock. adopt needs no
 	// mark: it moves a child of t to p, and t is p's child, so p has it.
 	flagParent
+	// flagPollHook marks a task with an armed WhenPolled hook. Only the
+	// task's own goroutine sets or clears it; flagPolled stays set while
+	// either flagPollHook or flagBudget is set.
+	flagPollHook
+	// flagBudget marks a task whose unmasked interruption points count
+	// against an active step budget.
+	flagBudget
+	// flagBudgetSpent marks a task whose own step budget ran out and
+	// interrupted it.
+	flagBudgetSpent
 )
 
 // setParent marks the task as one a child was linked below.
@@ -567,21 +602,38 @@ type Polled struct {
 // region, as Bind's). Call WhenPolled from t's own goroutine.
 func WhenPolled(t *Task, h *PollHook, f func()) Polled {
 	c := t.Bind(&h.s, pollKey{}, f)
-	t.stopped.v.Or(flagPolled)
+	t.stopped.v.Or(flagPolled | flagPollHook)
 	return Polled{t: t, c: c}
 }
 
 // End disarms the hook if it has not run and ends its binding.
 func (p Polled) End() {
-	if p.t.stopped.v.Load()&flagPolled != 0 {
-		p.t.stopped.v.And(^flagPolled)
-	}
+	p.t.clearPollHook()
 	p.c.End()
 }
 
-// firePollHook runs and disarms t's WhenPolled hook.
+func (t *Task) clearPollHook() {
+	for {
+		old := t.stopped.v.Load()
+		if old&flagPollHook == 0 {
+			return
+		}
+		next := old &^ flagPollHook
+		if next&flagBudget == 0 {
+			next &^= flagPolled
+		}
+		if t.stopped.v.CompareAndSwap(old, next) {
+			return
+		}
+	}
+}
+
+// firePollHook runs and disarms t's WhenPolled hook if one is armed.
 func (t *Task) firePollHook() {
-	t.stopped.v.And(^flagPolled)
+	if t.stopped.v.Load()&flagPollHook == 0 {
+		return
+	}
+	t.clearPollHook()
 	if f, ok := t.Value(pollKey{}).(func()); ok {
 		f()
 	}

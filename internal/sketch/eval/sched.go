@@ -72,9 +72,11 @@ type etask struct {
 	why    string      // what a blocked task waits for
 	// stopped marks a task asked to stop; mask counts the releases it is
 	// in, where a stop waits (I2).
-	stopped  bool
-	mask     int
-	settling bool     // an Advance waiting for the other tasks to wait
+	stopped     bool
+	mask        int
+	stepBudget  *evalStepBudget
+	budgetSpent bool
+	settling    bool     // an Advance waiting for the other tasks to wait
 	sleep    *sleeper // the sleep a blocked task waits on, if any
 	saved    taskState
 	// Its exit: the body's value, or the cause (nil for a value). ended
@@ -172,10 +174,37 @@ func (fr *frame) polls() bool {
 	return ok && !fp.Empty()
 }
 
+// evalStepBudget counts remaining unmasked interruption points for root and
+// its unshielded subtree at check time.
+type evalStepBudget struct {
+	rem    int64
+	root   *etask
+	parent *evalStepBudget
+}
+
+// chargeTaskStep counts one unmasked interruption point against the running
+// task's active step budget chain, interrupting any exhausted budget's root.
+func (in *interp) chargeTaskStep() {
+	if in.cur == nil || in.cur.mask != 0 || in.cur.stopped || in.cur.stepBudget == nil {
+		return
+	}
+	for b := in.cur.stepBudget; b != nil; b = b.parent {
+		b.rem--
+		if b.rem < 0 && !b.root.stopped {
+			b.root.budgetSpent = true
+			stopTree(b.root)
+		}
+	}
+}
+
 // poll is an interruption point of fr (a capability call, a loop's
 // back-edge): the running task stops there when asked to.
 func (in *interp) poll(fr *frame, at syntax.Node) *abrupt {
-	if in.stoppedNow() && fr.polls() {
+	if !fr.polls() {
+		return nil
+	}
+	in.chargeTaskStep()
+	if in.stoppedNow() {
 		return fr.interrupt(at)
 	}
 	return nil
@@ -184,10 +213,12 @@ func (in *interp) poll(fr *frame, at syntax.Node) *abrupt {
 // entryPoll is the interruption point at a recursive or opaque impure
 // frame's entry (Footprint.EntryPoll).
 func (in *interp) entryPoll(fr *frame) *abrupt {
-	if !in.stoppedNow() {
+	fp, ok := fr.info.Footprints[fr.key]
+	if !ok || !fp.EntryPoll {
 		return nil
 	}
-	if fp, ok := fr.info.Footprints[fr.key]; ok && fp.EntryPoll {
+	in.chargeTaskStep()
+	if in.stoppedNow() {
 		return fr.interrupt(fr.key)
 	}
 	return nil
@@ -361,6 +392,9 @@ func (in *interp) start(site string, body func(t *etask) (Value, *abrupt)) *etas
 	parent.kids = append(parent.kids, t)
 	if parent.stopped {
 		t.stopped = true // a stop of the parent reaches every task below it
+	}
+	if parent.mask == 0 && parent.stepBudget != nil {
+		t.stepBudget = parent.stepBudget
 	}
 	s.tasks = append(s.tasks, t)
 	go in.runTask(t)
