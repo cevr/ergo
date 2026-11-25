@@ -1,0 +1,368 @@
+import exec
+import filepath
+import fs
+import os
+import strings
+import github.com/cevr/ergo/modules/git/oracle
+
+let onOracle = context needs TestAmbient {
+	exec.Runner:     exec.NewTestHost().InheritEnv(exec.PathOf(os.NewTestHost().Environ())),
+	fs.Files:        fs.NewTestHost(),
+	fs.Writes:       fs.NewTestHost(),
+	os.Process:      os.NewTestHost(),
+	oracle.Symlinks: oracle.NewHostSymlinks(fs.NewTestHost()),
+}
+
+func runRevParse(dir string, args []string, pathEnv Map[string, string]) (int, string) fails exec.NotFound | exec.Denied | exec.Failed needs exec.Runner {
+	let res = try exec.Runner.Run(oracle.GitCommand(dir, args, pathEnv, int64(1700000000)))
+	(res.Status, strings.TrimSpace(res.Stdout))
+}
+
+func runGitConfigNull(repoDir string, globalCfg string, pathEnv Map[string, string]) (int, string) fails exec.NotFound | exec.Denied | exec.Failed needs exec.Runner {
+	let env = oracle.HermeticEnv(pathEnv, int64(1700000000))
+	let base = exec.WithEnvFrom(exec.New("git", []string{"-C", repoDir, "config", "--list", "--null"}), env)
+	let cmd = exec.WithEnv(exec.WithEnv(base, "GIT_CONFIG_GLOBAL", globalCfg), "GIT_CONFIG_COUNT", "0")
+	let res = try exec.Runner.Run(cmd)
+	(res.Status, res.Stdout)
+}
+
+func assertMatchesRevParse(dir string, layout Layout, pathEnv Map[string, string]) bool fails exec.NotFound | exec.Denied | exec.Failed needs exec.Runner {
+	let (s1, gitDir) = try runRevParse(dir, []string{"rev-parse", "--path-format=absolute", "--git-dir"}, pathEnv)
+	let (s2, commonDir) = try runRevParse(dir, []string{"rev-parse", "--path-format=absolute", "--git-common-dir"}, pathEnv)
+	let (s3, bareText) = try runRevParse(dir, []string{"rev-parse", "--is-bare-repository"}, pathEnv)
+	if s1 != 0 || s2 != 0 || s3 != 0 {
+		return false
+	}
+	if layout.GitDir != gitDir || layout.CommonDir != commonDir {
+		return false
+	}
+	let wantBare = bareText == "true"
+	if layout.IsBare != wantBare {
+		return false
+	}
+	if !wantBare {
+		let (s4, topLevel) = try runRevParse(dir, []string{"rev-parse", "--path-format=absolute", "--show-toplevel"}, pathEnv)
+		if s4 != 0 {
+			return false
+		}
+		match layout.WorkTree {
+		case Some[string] as wt:
+			wt.Value == topLevel
+		case None:
+			false
+		}
+	} else {
+		match layout.WorkTree {
+		case Some[string]:
+			false
+		case None:
+			true
+		}
+	}
+}
+
+// DiscoverMatchesGitRevParse: across all 5 Git layouts (normal from root and
+// nested subdir, bare, .git pointer, linked worktree from root and subdir,
+// alternates) and both sha1 and sha256 formats, root.Discover matches
+// `git rev-parse --path-format=absolute` byte-for-byte.
+test DiscoverMatchesGitRevParse {
+	with onOracle {
+		let pathEnv = exec.PathOf(os.Process.Environ())
+		let cwd = try os.Process.Getwd()
+		let base = filepath.Join([]string{cwd, "discover-matrix"})
+		let opts = DiscoverOptions{
+			CeilingDirs: []string{cwd},
+			Trust:       ConfinedTrust(cwd),
+		}
+
+		let normalDir = try oracle.InitRepo(filepath.Join([]string{base, "normal-sha1"}), oracle.RepoSpec{Format: oracle.Sha1, Layout: oracle.Normal, DefaultBranch: "main"}, pathEnv, int64(1700000000))
+		let normalSub = filepath.Join([]string{normalDir, "a", "b", "c"})
+		try fs.Writes.MkdirAll(normalSub)
+		let lNormal = try Discover(normalDir, opts)
+		assert try assertMatchesRevParse(normalDir, lNormal, pathEnv)
+		assert lNormal.ObjectFormat == "sha1"
+		assert lNormal.RefStorage == "files"
+		let lNormalSub = try Discover(normalSub, opts)
+		assert try assertMatchesRevParse(normalSub, lNormalSub, pathEnv)
+		assert lNormalSub.GitDir == lNormal.GitDir
+
+		let sha256Dir = try oracle.InitRepo(filepath.Join([]string{base, "normal-sha256"}), oracle.RepoSpec{Format: oracle.Sha256, Layout: oracle.Normal, DefaultBranch: "main"}, pathEnv, int64(1700000000))
+		let lSha256 = try Discover(sha256Dir, opts)
+		assert try assertMatchesRevParse(sha256Dir, lSha256, pathEnv)
+		assert lSha256.RepoFormatVersion == 1
+		assert lSha256.ObjectFormat == "sha256"
+
+		let bareDir = try oracle.InitRepo(filepath.Join([]string{base, "bare"}), oracle.RepoSpec{Format: oracle.Sha1, Layout: oracle.Bare, DefaultBranch: "main"}, pathEnv, int64(1700000000))
+		let lBare = try Discover(bareDir, opts)
+		assert try assertMatchesRevParse(bareDir, lBare, pathEnv)
+		assert lBare.IsBare
+
+		let ptrDir = try oracle.InitRepo(filepath.Join([]string{base, "pointer"}), oracle.RepoSpec{Format: oracle.Sha1, Layout: oracle.DotGitPointer, DefaultBranch: "main"}, pathEnv, int64(1700000000))
+		let lPtr = try Discover(ptrDir, opts)
+		assert try assertMatchesRevParse(ptrDir, lPtr, pathEnv)
+		assert strings.HasSuffix(lPtr.GitDir, "/real.git")
+
+		let wtDir = try oracle.InitRepo(filepath.Join([]string{base, "worktree"}), oracle.RepoSpec{Format: oracle.Sha1, Layout: oracle.LinkedWorktree, DefaultBranch: "main"}, pathEnv, int64(1700000000))
+		let wtSub = filepath.Join([]string{wtDir, "nested", "dir"})
+		try fs.Writes.MkdirAll(wtSub)
+		let lWt = try Discover(wtDir, opts)
+		assert try assertMatchesRevParse(wtDir, lWt, pathEnv)
+		assert lWt.GitDir != lWt.CommonDir
+		assert strings.HasSuffix(lWt.CommonDir, "/main/.git")
+		let lWtSub = try Discover(wtSub, opts)
+		assert try assertMatchesRevParse(wtSub, lWtSub, pathEnv)
+		assert lWtSub.CommonDir == lWt.CommonDir
+
+		let altDir = try oracle.InitRepo(filepath.Join([]string{base, "alternates"}), oracle.RepoSpec{Format: oracle.Sha1, Layout: oracle.Alternates, DefaultBranch: "main"}, pathEnv, int64(1700000000))
+		let lAlt = try Discover(altDir, opts)
+		assert try assertMatchesRevParse(altDir, lAlt, pathEnv)
+		assert len(lAlt.Alternates) == 1
+		assert lAlt.Alternates[0] == filepath.Join([]string{base, "alternates", "upstream", ".git", "objects"})
+
+		let outsideDir = filepath.Join([]string{base, "not-a-repo", "sub"})
+		try fs.Writes.MkdirAll(outsideDir)
+		let notRepoOpts = DiscoverOptions{
+			CeilingDirs: []string{base},
+			Trust:       ConfinedTrust(cwd),
+		}
+		let mut sawNotRepo = false
+		let _ = Discover(outsideDir, notRepoOpts) catch {
+		case NotARepository:
+			sawNotRepo = true
+			lNormal
+		case BadGitDirFile, BadCommonDir, UnsupportedVersion, UnsupportedExtension, UntrustedPath, PathEscape, AlternateCycle, AlternateDepthExceeded, ConfigSyntax, ConfigBadValue, fs.NotFound, fs.Denied, fs.Failed:
+			assert false
+			lNormal
+		}
+		assert sawNotRepo
+	}
+}
+
+// ConfigMatchesGitConfigNull: verifies pure-Ergo Git INI config parsing and
+// multi-scope precedence (Global < Local < Worktree) against C Git's
+// `git config --list --null` across subsections, escapes, quotes, comments,
+// continuations, implicit booleans, and multi-valued keys.
+test ConfigMatchesGitConfigNull {
+	with onOracle {
+		let pathEnv = exec.PathOf(os.Process.Environ())
+		let cwd = try os.Process.Getwd()
+		let base = filepath.Join([]string{cwd, "config-oracle"})
+		let repoDir = try oracle.InitRepo(filepath.Join([]string{base, "repo"}), oracle.RepoSpec{Format: oracle.Sha1, Layout: oracle.Normal, DefaultBranch: "main"}, pathEnv, int64(1700000000))
+		let globalPath = filepath.Join([]string{base, "global.gitconfig"})
+		let localPath = filepath.Join([]string{repoDir, ".git", "config"})
+		let wtPath = filepath.Join([]string{repoDir, ".git", "config.worktree"})
+
+		let globalText = "[Core]\n" +
+			"\tSharedKey = from-global # trailing comment\n" +
+			"\tImplicitFlag\n" +
+			"\tMulti = first\n" +
+			"\tSizeLimit = 2m\n" +
+			"[Remote \"Origin\"]\n" +
+			"\tURL = \"https://example.com/a b#not-comment\" ; semi comment\n" +
+			"\tEscaped = \"line1\\n\\t\\\"quoted\\\"\\\\end\"\n" +
+			"[Remote \"origin\"]\n" +
+			"\tURL = https://example.com/lower\n" +
+			"[Section \"sub\\\"quote\\\\slash\"]\n" +
+			"\tJoined = part1 \\\n" +
+			"part2\n"
+		try fs.Writes.WriteFile(globalPath, globalText)
+
+		let localText = "[core]\n" +
+			"\trepositoryformatversion = 1\n" +
+			"\tfilemode = true\n" +
+			"\tbare = false\n" +
+			"\tsharedkey = from-local\n" +
+			"\tmulti = second\n" +
+			"[extensions]\n" +
+			"\tworktreeconfig = true\n"
+		try fs.Writes.WriteFile(localPath, localText)
+
+		let wtText = "[core]\n" +
+			"\tworktreeonly = yes\n" +
+			"\tmulti = third\n"
+		try fs.Writes.WriteFile(wtPath, wtText)
+
+		let (st, gitNull) = try runGitConfigNull(repoDir, globalPath, pathEnv)
+		assert st == 0
+
+		let cfg = try LoadConfigFiles(
+			[]ConfigFile{
+				ConfigFile{Scope: Local, Path: localPath},
+				ConfigFile{Scope: Worktree, Path: wtPath},
+				ConfigFile{Scope: Global, Path: globalPath},
+			},
+			ConfinedTrust(cwd),
+		)
+		assert FormatNull(cfg) == gitNull
+
+		assert GetLast(cfg, "core", None, "sharedkey") == Some[string]{Value: "from-local"}
+		assert try GetBool(cfg, "core", None, "implicitflag") == Some[bool]{Value: true}
+		assert try GetBool(cfg, "core", None, "worktreeonly") == Some[bool]{Value: true}
+		assert try GetBool(cfg, "core", None, "bare") == Some[bool]{Value: false}
+		assert try GetInt(cfg, "core", None, "sizelimit") == Some[int64]{Value: int64(2097152)}
+		assert GetLast(cfg, "remote", Some[string]{Value: "Origin"}, "url") == Some[string]{Value: "https://example.com/a b#not-comment"}
+		assert GetLast(cfg, "remote", Some[string]{Value: "origin"}, "url") == Some[string]{Value: "https://example.com/lower"}
+		assert GetLast(cfg, "remote", Some[string]{Value: "Origin"}, "escaped") == Some[string]{Value: "line1\n\t\"quoted\"\\end"}
+		assert GetLast(cfg, "section", Some[string]{Value: "sub\"quote\\slash"}, "joined") == Some[string]{Value: "part1 part2"}
+
+		let multis = GetAll(cfg, "core", None, "multi")
+		assert len(multis) == 3
+		assert multis[0] == Some[string]{Value: "first"}
+		assert multis[1] == Some[string]{Value: "second"}
+		assert multis[2] == Some[string]{Value: "third"}
+	}
+}
+
+// TrustBoundaryAndExtensions: verifies unknown extensions under
+// repositoryformatversion=1 fail with UnsupportedExtension, include.path is
+// blocked under untrusted TrustPolicy and followed under AllowIncludes, and
+// path-escape / symlink-directory traversal is refused.
+test TrustBoundaryAndExtensions {
+	with onOracle {
+		let pathEnv = exec.PathOf(os.Process.Environ())
+		let cwd = try os.Process.Getwd()
+		let base = filepath.Join([]string{cwd, "trust-tests"})
+		let repoDir = try oracle.InitRepo(filepath.Join([]string{base, "ext-repo"}), oracle.RepoSpec{Format: oracle.Sha1, Layout: oracle.Normal, DefaultBranch: "main"}, pathEnv, int64(1700000000))
+		let dummy = try Discover(repoDir, DiscoverOptions{CeilingDirs: []string{cwd}, Trust: ConfinedTrust(cwd)})
+
+		let extCfgPath = filepath.Join([]string{repoDir, ".git", "config"})
+		try fs.Writes.WriteFile(extCfgPath, "[core]\n\trepositoryformatversion = 1\n[extensions]\n\tfuturething = true\n")
+		let mut sawExt = ""
+		let _ = Discover(repoDir, DiscoverOptions{CeilingDirs: []string{cwd}, Trust: ConfinedTrust(cwd)}) catch {
+		case UnsupportedExtension as e:
+			sawExt = e.Name
+			dummy
+		case NotARepository, BadGitDirFile, BadCommonDir, UnsupportedVersion, UntrustedPath, PathEscape, AlternateCycle, AlternateDepthExceeded, ConfigSyntax, ConfigBadValue, fs.NotFound, fs.Denied, fs.Failed:
+			assert false
+			dummy
+		}
+		assert sawExt == "futurething"
+
+		let incDir = filepath.Join([]string{base, "inc-test"})
+		try fs.Writes.MkdirAll(incDir)
+		let mainCfg = filepath.Join([]string{incDir, "main.cfg"})
+		let extraCfg = filepath.Join([]string{incDir, "extra.cfg"})
+		try fs.Writes.WriteFile(extraCfg, "[user]\n\tname = FromInclude\n")
+		try fs.Writes.WriteFile(mainCfg, "[user]\n\tname = Main\n[include]\n\tpath = extra.cfg\n")
+
+		let untrustedCfg = try LoadConfigFiles([]ConfigFile{ConfigFile{Scope: Local, Path: mainCfg}}, ConfinedTrust(cwd))
+		assert GetLast(untrustedCfg, "user", None, "name") == Some[string]{Value: "Main"}
+		assert len(untrustedCfg.SkippedIncludes) == 1
+		assert untrustedCfg.SkippedIncludes[0] == "extra.cfg"
+
+		let strictTrust = TrustPolicy{
+			TrustedRoot:       Some[string]{Value: cwd},
+			AllowIncludes:     false,
+			StrictIncludes:    true,
+			NoFollowSymlinks:  true,
+			MaxAlternateDepth: 5,
+			MaxIncludeDepth:   10,
+		}
+		let mut sawRefused = ""
+		let _ = LoadConfigFiles([]ConfigFile{ConfigFile{Scope: Local, Path: mainCfg}}, strictTrust) catch {
+		case IncludeRefused as r:
+			sawRefused = r.Path
+			untrustedCfg
+		case ConfigSyntax, PathEscape, UntrustedPath, IncludeCycle, IncludeDepthExceeded, fs.Denied, fs.Failed:
+			assert false
+			untrustedCfg
+		}
+		assert sawRefused == "extra.cfg"
+
+		let allowTrust = TrustPolicy{
+			TrustedRoot:       Some[string]{Value: cwd},
+			AllowIncludes:     true,
+			StrictIncludes:    false,
+			NoFollowSymlinks:  true,
+			MaxAlternateDepth: 5,
+			MaxIncludeDepth:   10,
+		}
+		let trustedCfg = try LoadConfigFiles([]ConfigFile{ConfigFile{Scope: Local, Path: mainCfg}}, allowTrust)
+		assert GetLast(trustedCfg, "user", None, "name") == Some[string]{Value: "FromInclude"}
+		assert len(trustedCfg.SkippedIncludes) == 0
+
+		let escDir = filepath.Join([]string{base, "escape-wt"})
+		try fs.Writes.MkdirAll(escDir)
+		try fs.Writes.WriteFile(filepath.Join([]string{escDir, ".git"}), "gitdir: ../../../../../tmp/outside.git\n")
+		let mut sawEscape = false
+		let _ = Discover(escDir, DiscoverOptions{CeilingDirs: []string{cwd}, Trust: ConfinedTrust(base)}) catch {
+		case PathEscape:
+			sawEscape = true
+			dummy
+		case NotARepository, BadGitDirFile, BadCommonDir, UnsupportedVersion, UnsupportedExtension, UntrustedPath, AlternateCycle, AlternateDepthExceeded, ConfigSyntax, ConfigBadValue, fs.NotFound, fs.Denied, fs.Failed:
+			assert false
+			dummy
+		}
+		assert sawEscape
+
+		let symBase = filepath.Join([]string{base, "symlink-test"})
+		let realGit = filepath.Join([]string{symBase, "real.git"})
+		let symWt = filepath.Join([]string{symBase, "wt"})
+		try fs.Writes.MkdirAll(filepath.Join([]string{realGit, "objects"}))
+		try fs.Writes.MkdirAll(filepath.Join([]string{realGit, "refs"}))
+		try fs.Writes.WriteFile(filepath.Join([]string{realGit, "HEAD"}), "ref: refs/heads/main\n")
+		try fs.Writes.MkdirAll(symWt)
+		try oracle.Symlinks.CreateSymlink(realGit, filepath.Join([]string{symWt, ".git"}))
+		let mut sawSymlinkRefused = false
+		let _ = Discover(symWt, DiscoverOptions{CeilingDirs: []string{symBase}, Trust: ConfinedTrust(symBase)}) catch {
+		case UntrustedPath:
+			sawSymlinkRefused = true
+			dummy
+		case NotARepository, BadGitDirFile, BadCommonDir, UnsupportedVersion, UnsupportedExtension, PathEscape, AlternateCycle, AlternateDepthExceeded, ConfigSyntax, ConfigBadValue, fs.NotFound, fs.Denied, fs.Failed:
+			assert false
+			dummy
+		}
+		assert sawSymlinkRefused
+
+		let cycBase = filepath.Join([]string{base, "alt-cycle"})
+		let cycRepo = try oracle.InitRepo(filepath.Join([]string{cycBase, "r"}), oracle.RepoSpec{Format: oracle.Sha1, Layout: oracle.Normal, DefaultBranch: "main"}, pathEnv, int64(1700000000))
+		let altInfoDir = filepath.Join([]string{cycRepo, ".git", "objects", "info"})
+		try fs.Writes.MkdirAll(altInfoDir)
+		try fs.Writes.WriteFile(filepath.Join([]string{altInfoDir, "alternates"}), ".\n")
+		let mut sawAltCycle = false
+		let _ = Discover(cycRepo, DiscoverOptions{CeilingDirs: []string{cycBase}, Trust: ConfinedTrust(cycBase)}) catch {
+		case AlternateCycle:
+			sawAltCycle = true
+			dummy
+		case NotARepository, BadGitDirFile, BadCommonDir, UnsupportedVersion, UnsupportedExtension, UntrustedPath, PathEscape, AlternateDepthExceeded, ConfigSyntax, ConfigBadValue, fs.NotFound, fs.Denied, fs.Failed:
+			assert false
+			dummy
+		}
+		assert sawAltCycle
+	}
+}
+
+func sanitizeValue(s string) string {
+	let mut out = []byte{}
+	for b in s.Bytes() {
+		if b >= byte(33) && b <= byte(126) && b != byte('"') && b != byte('\\') && b != byte('#') && b != byte(';') {
+			out = out.Append(b)
+		}
+	}
+	if len(out) == 0 {
+		return "v"
+	}
+	out.Text()
+}
+
+// ConfigCaseAndScopeLaw: section and key lookups are case-insensitive,
+// subsection lookups are case-sensitive, and Local always overrides Global.
+law ConfigCaseAndScopeLaw(a string, b string) {
+	let va = sanitizeValue(a)
+	let vb = sanitizeValue(b)
+	let cfg = ParseConfigSources([]ConfigSource{
+		ConfigSource{Scope: Local, Path: "local", Content: "[sec \"Sub\"]\n\tMyKey = " + vb + "\n"},
+		ConfigSource{Scope: Global, Path: "global", Content: "[SEC \"Sub\"]\n\tmykey = " + va + "\n[SEC \"sub\"]\n\tmykey = lower\n"},
+	}) catch {
+	case ConfigSyntax:
+		return false
+	}
+	let gotUpper = GetLast(cfg, "SeC", Some[string]{Value: "Sub"}, "MYKEY")
+	let gotLower = GetLast(cfg, "sec", Some[string]{Value: "sub"}, "mykey")
+	let allUpper = GetAll(cfg, "sec", Some[string]{Value: "Sub"}, "mykey")
+		gotUpper == Some[string]{Value: vb} &&
+		gotLower == Some[string]{Value: "lower"} &&
+		len(allUpper) == 2 &&
+		allUpper[0] == Some[string]{Value: va} &&
+		allUpper[1] == Some[string]{Value: vb}
+}
