@@ -61,6 +61,9 @@ var nonPrograms = map[string]string{
 	// files are lint fixtures, which examples/lintpack/policy's tests and
 	// `ergo lint test` run.
 	"lintpack": "a Go rule pack and its lint fixtures",
+	// model-paths holds model-based path test fixture modules (probe,
+	// actor, durable) run via `ergo test --native`.
+	"model-paths": "model-based path test fixture modules",
 }
 
 type config struct {
