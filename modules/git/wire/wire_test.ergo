@@ -1,0 +1,319 @@
+import exec
+import filepath
+import fs
+import option
+import os
+import slices
+import strings
+import github.com/cevr/ergo/modules/git/delta
+import github.com/cevr/ergo/modules/git/oid
+import github.com/cevr/ergo/modules/git/oracle
+
+let onOracle = context needs TestAmbient {
+	exec.Runner: exec.NewTestHost().InheritEnv(exec.PathOf(os.NewTestHost().Environ())),
+	fs.Files:    fs.NewTestHost(),
+	fs.Writes:   fs.NewTestHost(),
+	os.Process:  os.NewTestHost(),
+}
+
+let onDefaultCodec = context {
+	WireCodec: NewDefaultWireCodec(),
+}
+
+type testFail {
+	reason string,
+}
+
+func runGit(dir string, args []string, extraEnv Map[string, string], stdin string, pathEnv Map[string, string], step int) string fails testFail | exec.NotFound | exec.Denied | exec.Failed needs exec.Runner {
+	let mut env = oracle.HermeticEnv(pathEnv, oracle.StepEpoch(step))
+	for k, v in extraEnv {
+		env = env.Put(k, v)
+	}
+	let cmd = exec.Command{
+		Name:  "git",
+		Args:  args,
+		Env:   env,
+		Dir:   dir,
+		Stdin: stdin,
+		Grace: 0s,
+	}
+	let res = try exec.Runner.Run(cmd)
+	if res.Status != 0 {
+		return testFail{reason: "git failed: " + res.Stderr}
+	}
+	res.Stdout
+}
+
+func check(cond bool, msg string) fails testFail {
+	if !cond {
+		return testFail{reason: msg}
+	}
+}
+
+func verifyRepoWireV2(base string, oFmt oracle.OidFormat, fmt oid.Format, pathEnv Map[string, string]) fails testFail | InvalidPktLine | PacketTooLarge | UnexpectedEOF | InvalidSidebandChannel | RemoteError | ProtocolError | oid.BadHex | oid.WrongLength | delta.Truncated | delta.CorruptDelta | delta.BaseSizeMismatch | delta.TargetSizeMismatch | delta.LimitExceeded | delta.BadOfsDistance | delta.BadPackHeader | delta.DepthExceeded | delta.MissingBase | delta.ZlibFailed | oracle.Missing | oracle.Corrupt | oracle.Ambiguous | oracle.InvalidRef | oracle.Conflict | oracle.CommandFailed | exec.NotFound | exec.Denied | exec.Failed | fs.NotFound | fs.Denied | fs.Failed needs exec.Runner | fs.Files | fs.Writes {
+	let label = oracle.FormatName(oFmt)
+	let repoDir = try oracle.InitRepo(filepath.Join([]string{base, "repo-" + label}), oracle.RepoSpec{Format: oFmt, Layout: oracle.Normal, DefaultBranch: "main"}, pathEnv, oracle.BaseEpoch)
+
+	try fs.Writes.WriteFile(filepath.Join([]string{repoDir, "hello.txt"}), "hello wire protocol v2 "+label+"\n")
+	let _ = try runGit(repoDir, []string{"add", "."}, Map[string, string]{}, "", pathEnv, 1)
+	let _ = try runGit(repoDir, []string{"commit", "-q", "-m", "initial commit"}, Map[string, string]{}, "", pathEnv, 2)
+	try fs.Writes.WriteFile(filepath.Join([]string{repoDir, "hello.txt"}), "hello wire protocol v2 "+label+" rev2\n")
+	let _ = try runGit(repoDir, []string{"add", "."}, Map[string, string]{}, "", pathEnv, 3)
+	let _ = try runGit(repoDir, []string{"commit", "-q", "-m", "second commit"}, Map[string, string]{}, "", pathEnv, 4)
+	let _ = try runGit(repoDir, []string{"tag", "-a", "v1", "-m", "annotated v1"}, Map[string, string]{}, "", pathEnv, 5)
+
+	let headHex = strings.TrimSpace(try runGit(repoDir, []string{"rev-parse", "HEAD"}, Map[string, string]{}, "", pathEnv, 6))
+	let tagHex = strings.TrimSpace(try runGit(repoDir, []string{"rev-parse", "refs/tags/v1"}, Map[string, string]{}, "", pathEnv, 6))
+	let headId = try oid.ParseHex(fmt, headHex)
+	let tagId = try oid.ParseHex(fmt, tagHex)
+
+	let protoV2 = Map[string, string]{}.Put("GIT_PROTOCOL", "version=2")
+	let advRaw = (try runGit(repoDir, []string{"upload-pack", "--stateless-rpc", "--advertise-refs", repoDir}, protoV2, "", pathEnv, 7)).Bytes()
+	let advPkts = try DecodePkts(advRaw)
+	let caps = try ParseServerCaps(advPkts)
+	try check(caps.Version == 2, "expected server protocol version 2")
+	try check(caps.Caps.Get("ls-refs") != option.None, "missing ls-refs capability")
+	try check(caps.Caps.Get("fetch") != option.None, "missing fetch capability")
+	match caps.ObjectFormat {
+	case option.None:
+		return testFail{reason: "missing object-format capability"}
+	case option.Some[string] as f:
+		try check(f.Value == label, "object-format capability mismatch")
+	}
+
+	let lsReqBytes = try EncodeLsRefsRequest(LsRefsRequest{
+		Agent:        "ergo-git-wire/1",
+		ObjectFormat: label,
+		Peel:         true,
+		Symrefs:      true,
+		Unborn:       false,
+		RefPrefixes:  []string{"HEAD", "refs/heads/", "refs/tags/"},
+	})
+	let lsRespRaw = (try runGit(repoDir, []string{"upload-pack", "--stateless-rpc", repoDir}, protoV2, lsReqBytes.Text(), pathEnv, 8)).Bytes()
+	let lsRespPkts = try DecodePkts(lsRespRaw)
+	let entries = try ParseLsRefsResponse(fmt, lsRespPkts)
+	try check(entries.Len() == 3, "expected HEAD + main + v1 in ls-refs response")
+
+	let mut sawHead = false
+	let mut sawMain = false
+	let mut sawTag = false
+	for e in entries {
+		if e.Name == "HEAD" {
+			sawHead = oid.Equal(e.OID, headId) && e.SymrefTarget == option.Some[string]{Value: "refs/heads/main"}
+		} else if e.Name == "refs/heads/main" {
+			sawMain = oid.Equal(e.OID, headId)
+		} else if e.Name == "refs/tags/v1" {
+			let peeledOk = match e.Peeled {
+			case option.Some[oid.OID] as p:
+				oid.Equal(p.Value, headId)
+			case option.None:
+				false
+			}
+			sawTag = oid.Equal(e.OID, tagId) && peeledOk
+		}
+	}
+	try check(sawHead, "ls-refs HEAD entry or symref-target mismatch")
+	try check(sawMain, "ls-refs refs/heads/main mismatch")
+	try check(sawTag, "ls-refs refs/tags/v1 or peeled mismatch")
+
+	let fetchReqBytes = try EncodeFetchRequest(FetchRequest{
+		Agent:        "ergo-git-wire/1",
+		ObjectFormat: label,
+		OfsDelta:     true,
+		ThinPack:     false,
+		NoProgress:   false,
+		IncludeTag:   false,
+		Wants:        []oid.OID{headId, tagId},
+		Haves:        []oid.OID{},
+		Done:         true,
+	})
+	let fetchRespRaw = (try runGit(repoDir, []string{"upload-pack", "--stateless-rpc", repoDir}, protoV2, fetchReqBytes.Text(), pathEnv, 9)).Bytes()
+	let fetchRespPkts = try DecodePkts(fetchRespRaw)
+	let fetchResp = try ParseFetchResponse(fmt, fetchRespPkts)
+	try check(fetchResp.HasPackfile, "fetch response missing packfile section")
+	try check(fetchResp.PackData.Len() > 12, "demuxed packfile unexpectedly empty")
+	try check(fetchResp.PackData[0] == byte('P') && fetchResp.PackData[1] == byte('A') && fetchResp.PackData[2] == byte('C') && fetchResp.PackData[3] == byte('K'), "demuxed packfile missing PACK magic")
+
+	let materialized = with context { delta.BaseSource: delta.EmptyBases } {
+		try delta.MaterializePack(fetchResp.PackData, fmt, delta.DefaultLimits())
+	}
+	let mut foundHeadInPack = false
+	let mut foundTagInPack = false
+	for po in materialized {
+		if oid.Equal(po.Oid, headId) {
+			foundHeadInPack = true
+		}
+		if oid.Equal(po.Oid, tagId) {
+			foundTagInPack = true
+		}
+	}
+	try check(foundHeadInPack && foundTagInPack, "materialized pack missing fetched commits/tags")
+
+	let destDir = try oracle.InitRepo(filepath.Join([]string{base, "dest-" + label}), oracle.RepoSpec{Format: oFmt, Layout: oracle.Normal, DefaultBranch: "main"}, pathEnv, oracle.BaseEpoch)
+	let _ = try runGit(destDir, []string{"index-pack", "--stdin", "--strict"}, Map[string, string]{}, fetchResp.PackData.Text(), pathEnv, 10)
+
+	let rpAdvRaw = (try runGit(repoDir, []string{"receive-pack", "--stateless-rpc", "--advertise-refs", repoDir}, Map[string, string]{}, "", pathEnv, 11)).Bytes()
+	let mut reader = NewPktReader(rpAdvRaw)
+	let mut rpCount = 0
+	for Remaining(reader) > 0 {
+		let (pktOpt, nextR) = try Next(reader)
+		reader = nextR
+		match pktOpt {
+		case option.Some[Packet]:
+			rpCount = rpCount + 1
+		case option.None:
+		}
+	}
+	try check(rpCount >= 2, "expected at least ref advertisement + flush from receive-pack")
+}
+
+// UploadPackV2AndReceivePackMatchGit: drives live C `git upload-pack` (v2
+// capability advertisement, `ls-refs`, and `fetch` with sideband-64k packfile
+// demuxing verified by both pure-Ergo `delta.MaterializePack` and C
+// `git index-pack --stdin --strict`) plus C `git receive-pack` advertisement
+// across both SHA-1 and SHA-256 repositories.
+test UploadPackV2AndReceivePackMatchGit {
+	with onOracle {
+		let pathEnv = exec.PathOf(os.Process.Environ())
+		let cwd = try os.Process.Getwd()
+		let base = filepath.Join([]string{cwd, "wire-oracle"})
+		try verifyRepoWireV2(base, oracle.Sha1, oid.Sha1, pathEnv)
+		try verifyRepoWireV2(base, oracle.Sha256, oid.Sha256, pathEnv)
+	}
+}
+
+// PktLineValidationAndSidebandErrors: verifies strict rejection of `0003`,
+// invalid/uppercase hex lengths, oversized lengths (`fff1`), truncated headers
+// and payloads, oversized encode payloads, invalid sideband channels, band-3
+// RemoteError fail-closed handling, and multi-section v2 fetch responses.
+test PktLineValidationAndSidebandErrors {
+	let mut saw0003 = false
+	let _ = DecodePkts("0003".Bytes()) catch {
+	case InvalidPktLine:
+		saw0003 = true
+		[]Packet{}
+	case UnexpectedEOF:
+		[]Packet{}
+	}
+	assert saw0003
+
+	let mut sawBadHex = false
+	let _ = DecodePkts("000g".Bytes()) catch {
+	case InvalidPktLine:
+		sawBadHex = true
+		[]Packet{}
+	case UnexpectedEOF:
+		[]Packet{}
+	}
+	assert sawBadHex
+
+	let mut sawUpperHex = false
+	let _ = DecodePkts("000A123456".Bytes()) catch {
+	case InvalidPktLine:
+		sawUpperHex = true
+		[]Packet{}
+	case UnexpectedEOF:
+		[]Packet{}
+	}
+	assert sawUpperHex
+
+	let mut sawTooLargeWire = false
+	let _ = DecodePkts("fff1".Bytes()) catch {
+	case InvalidPktLine:
+		sawTooLargeWire = true
+		[]Packet{}
+	case UnexpectedEOF:
+		[]Packet{}
+	}
+	assert sawTooLargeWire
+
+	let mut sawShortHdr = false
+	let _ = DecodePkts("00".Bytes()) catch {
+	case UnexpectedEOF:
+		sawShortHdr = true
+		[]Packet{}
+	case InvalidPktLine:
+		[]Packet{}
+	}
+	assert sawShortHdr
+
+	let mut sawTruncPayload = false
+	let _ = DecodePkts("000aabc".Bytes()) catch {
+	case UnexpectedEOF:
+		sawTruncPayload = true
+		[]Packet{}
+	case InvalidPktLine:
+		[]Packet{}
+	}
+	assert sawTruncPayload
+
+	let mut big = slices.WithCapacity[byte](MaxPktPayload + 1)
+	for _ in 0..(MaxPktPayload + 1) {
+		big = big.Append(byte('z'))
+	}
+	let mut sawEncodeTooLarge = false
+	let _ = EncodePkt(Data{Payload: big}) catch {
+	case PacketTooLarge:
+		sawEncodeTooLarge = true
+		[]byte{}
+	}
+	assert sawEncodeTooLarge
+
+	let mut sawEmptyBand = false
+	let _ = DemuxSideband([]Packet{Data{Payload: []byte{}}}) catch {
+	case InvalidSidebandChannel:
+		sawEmptyBand = true
+		SidebandResult{PackData: []byte{}, Progress: []string{}}
+	case RemoteError:
+		SidebandResult{PackData: []byte{}, Progress: []string{}}
+	}
+	assert sawEmptyBand
+
+	let mut sawUnknownBand = false
+	let _ = DemuxSideband([]Packet{Data{Payload: []byte{byte(4), byte('a')}}}) catch {
+	case InvalidSidebandChannel as c:
+		sawUnknownBand = c.Channel == byte(4)
+		SidebandResult{PackData: []byte{}, Progress: []string{}}
+	case RemoteError:
+		SidebandResult{PackData: []byte{}, Progress: []string{}}
+	}
+	assert sawUnknownBand
+
+	let mut sawBand3 = false
+	let _ = DemuxSideband([]Packet{
+		try EncodeSidebandFrame(BandPack{Data: "PACK".Bytes()}),
+		try EncodeSidebandFrame(BandProgress{Message: "counting\n"}),
+		try EncodeSidebandFrame(BandError{Message: "want not valid\n"}),
+	}) catch {
+	case RemoteError as r:
+		sawBand3 = r.Message == "want not valid"
+		SidebandResult{PackData: []byte{}, Progress: []string{}}
+	case InvalidSidebandChannel:
+		SidebandResult{PackData: []byte{}, Progress: []string{}}
+	}
+	assert sawBand3
+
+	let sampleId = try oid.ParseHex(oid.Sha1, "1111111111111111111111111111111111111111")
+	let packChunks = EncodeSidebandPack("PACK-SAMPLE-PAYLOAD".Bytes())
+	let mut multiPkts = []Packet{
+		DataLine("acknowledgments"),
+		DataLine("ACK " + oid.Hex(sampleId)),
+		DataLine("ready"),
+		Delim,
+		DataLine("wanted-refs"),
+		DataLine(oid.Hex(sampleId) + " refs/heads/main"),
+		Delim,
+		DataLine("packfile"),
+		try EncodeSidebandFrame(BandProgress{Message: "sending\n"}),
+	}
+	for pc in packChunks {
+		multiPkts = multiPkts.Append(pc)
+	}
+	multiPkts = multiPkts.Append(Flush)
+	let parsed = try ParseFetchResponse(oid.Sha1, multiPkts)
+	assert parsed.Acks.Len() == 2
+	assert parsed.WantedRefs.Len() == 1
+	assert parsed.HasPackfile
+	assert slices.Equal(parsed.PackData, "PACK-SAMPLE-PAYLOAD".Bytes())
+	assert parsed.Progress.Len() == 1 && parsed.Progress[0] == "sending\n"
+}

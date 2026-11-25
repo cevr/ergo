@@ -1,0 +1,217 @@
+// Package wire implements the pure-Ergo Git wire protocol: pkt-line framing
+// (gitprotocol-common(5)), sideband-64k multiplexing/demultiplexing, and
+// protocol v2 capability advertisements, ls-refs, and fetch framing
+// (STD-GIT: G-WIRE).
+
+import option
+import slices
+import strings
+import github.com/cevr/ergo/modules/git/oid
+
+// MaxPktLen is the maximum legal Git pkt-line wire frame length (0xfff0 = 65520 bytes).
+let MaxPktLen = 65520
+
+// MaxPktPayload is the maximum payload size inside one pkt-line data frame (65516 bytes).
+let MaxPktPayload = 65516
+
+// MaxSidebandPayload is the maximum data payload per sideband-64k frame (65515 bytes).
+let MaxSidebandPayload = 65515
+
+// Error is the closed failure union for pkt-line, sideband, and protocol v2 codecs.
+type Error =
+	| InvalidPktLine{Offset int, Reason string}
+	| PacketTooLarge{Size int, Max int}
+	| UnexpectedEOF{Offset int, Expected int, Got int}
+	| InvalidSidebandChannel{Channel byte}
+	| RemoteError{Message string}
+	| ProtocolError{Reason string}
+
+// Packet represents a single decoded or encodable Git pkt-line frame.
+type Packet =
+	| Flush{}
+	| Delim{}
+	| ResponseEnd{}
+	| Data{Payload []byte}
+
+// SidebandFrame represents one demuxed Git sideband-64k frame across channels 1..3.
+type SidebandFrame =
+	| BandPack{Data []byte}
+	| BandProgress{Message string}
+	| BandError{Message string}
+
+// SidebandResult holds concatenated packfile bytes and progress messages demuxed
+// from a sideband-64k packet stream.
+type SidebandResult {
+	PackData []byte,
+	Progress []string,
+}
+
+// ServerCaps holds a parsed Git wire protocol v2 server capability advertisement.
+type ServerCaps {
+	Version      int,
+	Agent        option.Option[string],
+	ObjectFormat option.Option[string],
+	Caps         Map[string, string],
+	Order        []string,
+}
+
+// LsRefsRequest describes a Git protocol v2 `ls-refs` command request.
+type LsRefsRequest {
+	Agent        string,
+	ObjectFormat string,
+	Peel         bool,
+	Symrefs      bool,
+	Unborn       bool,
+	RefPrefixes  []string,
+}
+
+// RefEntry is one ref line parsed from a protocol v2 `ls-refs` response or
+// `wanted-refs` section.
+type RefEntry {
+	OID          oid.OID,
+	Name         string,
+	SymrefTarget option.Option[string],
+	Peeled       option.Option[oid.OID],
+}
+
+// FetchRequest describes a Git protocol v2 `fetch` command request.
+type FetchRequest {
+	Agent        string,
+	ObjectFormat string,
+	OfsDelta     bool,
+	ThinPack     bool,
+	NoProgress   bool,
+	IncludeTag   bool,
+	Wants        []oid.OID,
+	Haves        []oid.OID,
+	Done         bool,
+}
+
+// FetchAck classifies one entry from a protocol v2 `acknowledgments` section.
+type FetchAck =
+	| AckReady{}
+	| AckNak{}
+	| AckCommon{OID oid.OID}
+
+// FetchResponse holds all parsed sections of a Git protocol v2 `fetch` response.
+type FetchResponse {
+	Acks        []FetchAck,
+	Shallows    []oid.OID,
+	Unshallows  []oid.OID,
+	WantedRefs  []RefEntry,
+	HasPackfile bool,
+	PackData    []byte,
+	Progress    []string,
+}
+
+func packetEqual(a Packet, b Packet) bool {
+	match a {
+	case Flush:
+		match b {
+		case Flush:
+			true
+		case Delim, ResponseEnd, Data:
+			false
+		}
+	case Delim:
+		match b {
+		case Delim:
+			true
+		case Flush, ResponseEnd, Data:
+			false
+		}
+	case ResponseEnd:
+		match b {
+		case ResponseEnd:
+			true
+		case Flush, Delim, Data:
+			false
+		}
+	case Data as da:
+		match b {
+		case Data as db:
+			slices.Equal(da.Payload, db.Payload)
+		case Flush, Delim, ResponseEnd:
+			false
+		}
+	}
+}
+
+// WireCodec is the capability seam for Git pkt-line and sideband framing,
+// carrying algebraic round-trip and fail-closed laws held by DefaultWireCodec.
+type WireCodec {
+	Encode(pkts []Packet) []byte fails PacketTooLarge,
+	Decode(raw []byte) []Packet fails InvalidPktLine | UnexpectedEOF,
+	Demux(pkts []Packet) SidebandResult fails InvalidSidebandChannel | RemoteError,
+
+	// PktLineRoundTrips: encoding and decoding a stream mixing Data, Flush,
+	// Delim, and ResponseEnd packets preserves every packet identically.
+	law PktLineRoundTrips(payload string) {
+		let bs = payload.Bytes()
+		sometimes bs.Len() == 0
+		sometimes bs.Len() > 0
+		let input = []Packet{
+			Data{Payload: bs},
+			Delim,
+			Data{Payload: "wire-line\n".Bytes()},
+			ResponseEnd,
+			Flush,
+		}
+		let raw = Encode(input) catch {
+		case PacketTooLarge:
+			return false
+		}
+		let decoded = Decode(raw) catch {
+		case InvalidPktLine, UnexpectedEOF:
+			return false
+		}
+		always decoded.Len() == input.Len()
+		for i in 0..input.Len() {
+			always packetEqual(decoded[i], input[i])
+		}
+		true
+	},
+
+	// SidebandBand3FailsClosed: any band-3 error frame in a sideband-64k stream
+	// fails closed with RemoteError rather than silently succeeding.
+	law SidebandBand3FailsClosed(msg string) {
+		let errText = "fatal: " + msg
+		let wantMsg = strings.TrimRight(errText, "\r\n")
+		let band1 = slices.AppendAll([]byte{byte(1)}, "PACK".Bytes())
+		let band2 = slices.AppendAll([]byte{byte(2)}, "progress\n".Bytes())
+		let band3 = slices.AppendAll([]byte{byte(3)}, (errText + "\n").Bytes())
+		let mut sawRemote = false
+		let _ = Demux([]Packet{
+			Data{Payload: band1},
+			Data{Payload: band2},
+			Data{Payload: band3},
+		}) catch {
+		case RemoteError as r:
+			sawRemote = r.Message == wantMsg
+			SidebandResult{PackData: []byte{}, Progress: []string{}}
+		case InvalidSidebandChannel:
+			SidebandResult{PackData: []byte{}, Progress: []string{}}
+		}
+		always sawRemote
+		true
+	},
+
+	// OversizedPacketRefused: encoding any payload larger than MaxPktPayload
+	// always fails with PacketTooLarge.
+	law OversizedPacketRefused(extra int) {
+		let pad = if extra < 0 { (-extra) % 32 } else { extra % 32 }
+		let size = MaxPktPayload + 1 + pad
+		let mut big = slices.WithCapacity[byte](size)
+		for _ in 0..size {
+			big = big.Append(byte('x'))
+		}
+		let mut refused = false
+		let _ = Encode([]Packet{Data{Payload: big}}) catch {
+		case PacketTooLarge as e:
+			refused = e.Size == size && e.Max == MaxPktPayload
+			[]byte{}
+		}
+		always refused
+		true
+	},
+}

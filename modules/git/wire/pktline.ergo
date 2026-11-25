@@ -1,0 +1,179 @@
+import option
+import slices
+
+func hexDigitLower(n int) byte {
+	if n < 10 {
+		byte('0') + byte(n)
+	} else {
+		byte('a') + byte(n-10)
+	}
+}
+
+func parseLowerHexNibble(b byte) int {
+	if b >= byte('0') && b <= byte('9') {
+		return int(b - byte('0'))
+	}
+	if b >= byte('a') && b <= byte('f') {
+		return 10 + int(b-byte('a'))
+	}
+	-1
+}
+
+func appendHex4(out []byte, n int) []byte {
+	let mut res = out
+	res = res.Append(hexDigitLower((n >> 12) & 15))
+	res = res.Append(hexDigitLower((n >> 8) & 15))
+	res = res.Append(hexDigitLower((n >> 4) & 15))
+	res = res.Append(hexDigitLower(n & 15))
+	res
+}
+
+// EncodePkt encodes a single Git pkt-line frame (`0000`, `0001`, `0002`, or
+// 4-hex-digit length prefix + payload), refusing payloads above MaxPktPayload.
+func EncodePkt(pkt Packet) []byte fails PacketTooLarge {
+	match pkt {
+	case Flush:
+		"0000".Bytes()
+	case Delim:
+		"0001".Bytes()
+	case ResponseEnd:
+		"0002".Bytes()
+	case Data as d:
+		if d.Payload.Len() > MaxPktPayload {
+			return PacketTooLarge{Size: d.Payload.Len(), Max: MaxPktPayload}
+		}
+		let total = d.Payload.Len() + 4
+		let mut out = slices.WithCapacity[byte](total)
+		out = appendHex4(out, total)
+		slices.AppendAll(out, d.Payload)
+	}
+}
+
+// EncodePkts encodes a sequence of Git pkt-line frames into one byte slice.
+func EncodePkts(pkts []Packet) []byte fails PacketTooLarge {
+	let mut out = []byte{}
+	for pkt in pkts {
+		let chunk = try EncodePkt(pkt)
+		out = slices.AppendAll(out, chunk)
+	}
+	out
+}
+
+// DataLine wraps line with a trailing LF (`\n`) into a pkt-line Data packet.
+func DataLine(line string) Packet {
+	Data{Payload: (line + "\n").Bytes()}
+}
+
+// DecodeOnePkt decodes a single pkt-line frame starting at offset in raw,
+// returning `(packet, nextOffset)` and strictly rejecting invalid hex digits,
+// reserved length `0003`, lengths exceeding `65520`, and truncated frames.
+func DecodeOnePkt(raw []byte, offset int) (Packet, int) fails InvalidPktLine | UnexpectedEOF {
+	let total = raw.Len()
+	if offset < 0 || offset >= total {
+		return UnexpectedEOF{Offset: offset, Expected: 4, Got: 0}
+	}
+	if total-offset < 4 {
+		return UnexpectedEOF{Offset: offset, Expected: 4, Got: total - offset}
+	}
+	let d0 = parseLowerHexNibble(raw[offset])
+	let d1 = parseLowerHexNibble(raw[offset+1])
+	let d2 = parseLowerHexNibble(raw[offset+2])
+	let d3 = parseLowerHexNibble(raw[offset+3])
+	if d0 < 0 || d1 < 0 || d2 < 0 || d3 < 0 {
+		return InvalidPktLine{Offset: offset, Reason: "invalid lowercase hex pkt-line length"}
+	}
+	let pktLen = (d0 << 12) | (d1 << 8) | (d2 << 4) | d3
+	if pktLen == 0 {
+		return (Flush, offset + 4)
+	}
+	if pktLen == 1 {
+		return (Delim, offset + 4)
+	}
+	if pktLen == 2 {
+		return (ResponseEnd, offset + 4)
+	}
+	if pktLen == 3 {
+		return InvalidPktLine{Offset: offset, Reason: "reserved pkt-line length 0003"}
+	}
+	if pktLen > MaxPktLen {
+		return InvalidPktLine{Offset: offset, Reason: "pkt-line length exceeds 65520"}
+	}
+	if offset+pktLen > total {
+		return UnexpectedEOF{Offset: offset, Expected: pktLen, Got: total - offset}
+	}
+	let payloadLen = pktLen - 4
+	let mut payload = slices.WithCapacity[byte](payloadLen)
+	for i in 0..payloadLen {
+		payload = payload.Append(raw[offset+4+i])
+	}
+	(Data{Payload: payload}, offset + pktLen)
+}
+
+// DecodePkts decodes an entire pkt-line byte stream into packets without
+// silent truncation.
+func DecodePkts(raw []byte) []Packet fails InvalidPktLine | UnexpectedEOF {
+	let mut out = []Packet{}
+	let mut pos = 0
+	for pos < raw.Len() {
+		let (pkt, nextPos) = try DecodeOnePkt(raw, pos)
+		out = out.Append(pkt)
+		pos = nextPos
+	}
+	out
+}
+
+// PktReader incrementally decodes Git pkt-line frames from an underlying buffer.
+type PktReader {
+	buf []byte,
+	pos int,
+}
+
+// NewPktReader creates a PktReader positioned at the start of raw.
+func NewPktReader(raw []byte) PktReader {
+	PktReader{buf: raw, pos: 0}
+}
+
+// Remaining returns the number of unread bytes left in r.
+func Remaining(r PktReader) int {
+	r.buf.Len() - r.pos
+}
+
+// Next decodes the next pkt-line frame from r, returning `(option.None, r)` at
+// clean EOF or failing strictly on malformed/truncated frames.
+func Next(r PktReader) (option.Option[Packet], PktReader) fails InvalidPktLine | UnexpectedEOF {
+	if r.pos >= r.buf.Len() {
+		return (option.None, r)
+	}
+	let (pkt, nextPos) = try DecodeOnePkt(r.buf, r.pos)
+	(option.Some[Packet]{Value: pkt}, PktReader{buf: r.buf, pos: nextPos})
+}
+
+// PktWriter incrementally builds a Git pkt-line byte buffer.
+type PktWriter {
+	buf []byte,
+}
+
+// NewPktWriter creates an empty PktWriter.
+func NewPktWriter() PktWriter {
+	PktWriter{buf: []byte{}}
+}
+
+// WritePkt appends one encoded Packet to w.
+func WritePkt(w PktWriter, pkt Packet) PktWriter fails PacketTooLarge {
+	let chunk = try EncodePkt(pkt)
+	PktWriter{buf: slices.AppendAll(w.buf, chunk)}
+}
+
+// WriteLine appends one LF-terminated text line packet to w.
+func WriteLine(w PktWriter, line string) PktWriter fails PacketTooLarge {
+	try WritePkt(w, DataLine(line))
+}
+
+// Bytes returns the accumulated pkt-line wire bytes in w.
+func Bytes(w PktWriter) []byte {
+	let mut out = slices.WithCapacity[byte](w.buf.Len())
+	for b in w.buf {
+		out = out.Append(b)
+	}
+	out
+}

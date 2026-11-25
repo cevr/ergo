@@ -1264,6 +1264,70 @@
       "killers": [
         "modules/git/wpack:BuildAndPublishMatchesGitVerifyPackAndFsck"
       ]
+    },
+    {
+      "name": "git-wire-accept-0003",
+      "origin": "STD-GIT G-WIRE",
+      "file": "modules/git/wire/pktline.ergo",
+      "from": "\tif pktLen == 3 {\n\t\treturn InvalidPktLine{Offset: offset, Reason: \"reserved pkt-line length 0003\"}\n\t}",
+      "to": "\tif false && pktLen == 3 {\n\t\treturn InvalidPktLine{Offset: offset, Reason: \"reserved pkt-line length 0003\"}\n\t}",
+      "rule": "DecodeOnePkt rejects reserved pkt-line length 0003 with InvalidPktLine.",
+      "anchor": {
+        "tests": [
+          "modules/git/wire:PktLineValidationAndSidebandErrors"
+        ]
+      },
+      "killers": [
+        "modules/git/wire:PktLineValidationAndSidebandErrors"
+      ]
+    },
+    {
+      "name": "git-wire-allow-oversized-pkt",
+      "origin": "STD-GIT G-WIRE",
+      "file": "modules/git/wire/pktline.ergo",
+      "from": "\t\tif d.Payload.Len() > MaxPktPayload {\n\t\t\treturn PacketTooLarge{Size: d.Payload.Len(), Max: MaxPktPayload}\n\t\t}",
+      "to": "\t\tif false && d.Payload.Len() > MaxPktPayload {\n\t\t\treturn PacketTooLarge{Size: d.Payload.Len(), Max: MaxPktPayload}\n\t\t}",
+      "rule": "EncodePkt refuses payloads exceeding MaxPktPayload (65516 bytes) with PacketTooLarge.",
+      "anchor": {
+        "tests": [
+          "modules/git/wire:PktLineValidationAndSidebandErrors"
+        ]
+      },
+      "killers": [
+        "modules/git/wire:PktLineValidationAndSidebandErrors"
+      ]
+    },
+    {
+      "name": "git-wire-ignore-sideband-error",
+      "origin": "STD-GIT G-WIRE",
+      "file": "modules/git/wire/sideband.ergo",
+      "from": "\t\t\tcase BandError as e:\n\t\t\t\treturn RemoteError{Message: strings.TrimRight(e.Message, \"\\r\\n\")}",
+      "to": "\t\t\tcase BandError as e:\n\t\t\t\tprogress = progress.Append(strings.TrimRight(e.Message, \"\\r\\n\"))",
+      "rule": "DemuxSideband fails closed with RemoteError whenever sideband channel 3 (BandError) is received.",
+      "anchor": {
+        "tests": [
+          "modules/git/wire:PktLineValidationAndSidebandErrors"
+        ]
+      },
+      "killers": [
+        "modules/git/wire:PktLineValidationAndSidebandErrors"
+      ]
+    },
+    {
+      "name": "git-wire-drop-delim-in-v2-request",
+      "origin": "STD-GIT G-WIRE",
+      "file": "modules/git/wire/v2.ergo",
+      "from": "\tlet emitDelim = true",
+      "to": "\tlet emitDelim = false",
+      "rule": "Protocol v2 command requests emit a 0001 Delim packet between command capabilities and command arguments.",
+      "anchor": {
+        "tests": [
+          "modules/git/wire:UploadPackV2AndReceivePackMatchGit"
+        ]
+      },
+      "killers": [
+        "modules/git/wire:UploadPackV2AndReceivePackMatchGit"
+      ]
     }
   ]
 }

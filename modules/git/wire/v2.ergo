@@ -1,0 +1,354 @@
+import option
+import slices
+import strings
+import github.com/cevr/ergo/modules/git/oid
+
+func trimLineLF(payload []byte) string {
+	strings.TrimSuffix(payload.Text(), "\n")
+}
+
+// ParseServerCaps parses a Git protocol v2 capability advertisement terminated
+// by Flush (`0000`), verifying the leading `version 2` packet and extracting
+// `agent`, `object-format`, and all advertised capability key/value pairs.
+func ParseServerCaps(pkts []Packet) ServerCaps fails ProtocolError {
+	if pkts.Len() == 0 {
+		return ProtocolError{Reason: "empty protocol v2 capability advertisement"}
+	}
+	let firstLine = match pkts[0] {
+	case Data as d:
+		trimLineLF(d.Payload)
+	case Flush, Delim, ResponseEnd:
+		return ProtocolError{Reason: "expected version 2 data packet"}
+	}
+	if firstLine != "version 2" {
+		return ProtocolError{Reason: "unsupported wire protocol version: " + firstLine}
+	}
+
+	let mut caps = Map[string, string]{}
+	let mut order = []string{}
+	let mut agent option.Option[string] = option.None
+	let mut objFmt option.Option[string] = option.None
+	let mut sawFlush = false
+
+	for i in 1..pkts.Len() {
+		match pkts[i] {
+		case Flush:
+			sawFlush = true
+			break
+		case Delim, ResponseEnd:
+			return ProtocolError{Reason: "unexpected control packet in capability advertisement"}
+		case Data as d:
+			let line = trimLineLF(d.Payload)
+			if line == "" {
+				return ProtocolError{Reason: "empty capability line"}
+			}
+			let eq = strings.Index(line, "=")
+			let (k, v) = if eq >= 0 { (line[:eq], line[eq+1:]) } else { (line, "") }
+			if k == "" {
+				return ProtocolError{Reason: "empty capability key"}
+			}
+			if caps.Get(k) == option.None {
+				order = order.Append(k)
+			}
+			caps = caps.Put(k, v)
+			if k == "agent" {
+				agent = option.Some[string]{Value: v}
+			} else if k == "object-format" {
+				objFmt = option.Some[string]{Value: v}
+			}
+		}
+	}
+	if !sawFlush {
+		return ProtocolError{Reason: "capability advertisement missing trailing flush packet"}
+	}
+	ServerCaps{
+		Version:      2,
+		Agent:        agent,
+		ObjectFormat: objFmt,
+		Caps:         caps,
+		Order:        order,
+	}
+}
+
+func writeV2CommandHeader(command string, agent string, objectFormat string) PktWriter fails PacketTooLarge {
+	let mut w = NewPktWriter()
+	w = try WriteLine(w, "command="+command)
+	if agent != "" {
+		w = try WriteLine(w, "agent="+agent)
+	}
+	if objectFormat != "" {
+		w = try WriteLine(w, "object-format="+objectFormat)
+	}
+	let emitDelim = true
+	if emitDelim {
+		w = try WritePkt(w, Delim)
+	}
+	w
+}
+
+// EncodeLsRefsRequest encodes a Git protocol v2 `ls-refs` command request with
+// capability metadata, `0001` delimiter, arguments (`peel`, `symrefs`, `unborn`,
+// `ref-prefix`), and terminating `0000` flush packet.
+func EncodeLsRefsRequest(req LsRefsRequest) []byte fails PacketTooLarge {
+	let mut w = try writeV2CommandHeader("ls-refs", req.Agent, req.ObjectFormat)
+	if req.Peel {
+		w = try WriteLine(w, "peel")
+	}
+	if req.Symrefs {
+		w = try WriteLine(w, "symrefs")
+	}
+	if req.Unborn {
+		w = try WriteLine(w, "unborn")
+	}
+	for pref in req.RefPrefixes {
+		w = try WriteLine(w, "ref-prefix "+pref)
+	}
+	w = try WritePkt(w, Flush)
+	Bytes(w)
+}
+
+func parseRefLine(format oid.Format, line string) RefEntry fails ProtocolError {
+	let fields = strings.Fields(line)
+	if fields.Len() < 2 {
+		return ProtocolError{Reason: "malformed ls-refs line: " + line}
+	}
+	let id = if fields[0] == "unborn" {
+		oid.Zero(format)
+	} else {
+		oid.ParseHex(format, fields[0]) catch {
+		case oid.BadHex, oid.WrongLength:
+			return ProtocolError{Reason: "invalid OID in ls-refs line: " + fields[0]}
+		}
+	}
+	let refName = fields[1]
+	let mut symTarget option.Option[string] = option.None
+	let mut peeled option.Option[oid.OID] = option.None
+	for i in 2..fields.Len() {
+		let tok = fields[i]
+		if strings.HasPrefix(tok, "symref-target:") {
+			symTarget = option.Some[string]{Value: strings.TrimPrefix(tok, "symref-target:")}
+		} else if strings.HasPrefix(tok, "peeled:") {
+			let pHex = strings.TrimPrefix(tok, "peeled:")
+			let pOid = oid.ParseHex(format, pHex) catch {
+			case oid.BadHex, oid.WrongLength:
+				return ProtocolError{Reason: "invalid peeled OID in ls-refs line: " + pHex}
+			}
+			peeled = option.Some[oid.OID]{Value: pOid}
+		}
+	}
+	RefEntry{
+		OID:          id,
+		Name:         refName,
+		SymrefTarget: symTarget,
+		Peeled:       peeled,
+	}
+}
+
+// ParseLsRefsResponse parses a Git protocol v2 `ls-refs` response packet
+// sequence terminated by `0000` Flush into typed RefEntry records.
+func ParseLsRefsResponse(format oid.Format, pkts []Packet) []RefEntry fails ProtocolError {
+	let mut out = []RefEntry{}
+	let mut sawFlush = false
+	for pkt in pkts {
+		match pkt {
+		case Flush:
+			sawFlush = true
+			break
+		case Delim, ResponseEnd:
+			return ProtocolError{Reason: "unexpected control packet in ls-refs response"}
+		case Data as d:
+			let line = trimLineLF(d.Payload)
+			if line == "" {
+				return ProtocolError{Reason: "empty ls-refs entry"}
+			}
+			let entry = try parseRefLine(format, line)
+			out = out.Append(entry)
+		}
+	}
+	if !sawFlush {
+		return ProtocolError{Reason: "ls-refs response missing trailing flush packet"}
+	}
+	out
+}
+
+// EncodeFetchRequest encodes a Git protocol v2 `fetch` command request with
+// capability metadata, `0001` delimiter, fetch arguments (`ofs-delta`, `want`,
+// `have`, `done`), and terminating `0000` flush packet.
+func EncodeFetchRequest(req FetchRequest) []byte fails PacketTooLarge {
+	let mut w = try writeV2CommandHeader("fetch", req.Agent, req.ObjectFormat)
+	if req.OfsDelta {
+		w = try WriteLine(w, "ofs-delta")
+	}
+	if req.ThinPack {
+		w = try WriteLine(w, "thin-pack")
+	}
+	if req.NoProgress {
+		w = try WriteLine(w, "no-progress")
+	}
+	if req.IncludeTag {
+		w = try WriteLine(w, "include-tag")
+	}
+	for id in req.Wants {
+		w = try WriteLine(w, "want "+oid.Hex(id))
+	}
+	for id in req.Haves {
+		w = try WriteLine(w, "have "+oid.Hex(id))
+	}
+	if req.Done {
+		w = try WriteLine(w, "done")
+	}
+	w = try WritePkt(w, Flush)
+	Bytes(w)
+}
+
+func splitV2Sections(pkts []Packet) ([][]Packet, bool) fails ProtocolError {
+	let mut sections = [][]Packet{}
+	let mut cur = []Packet{}
+	let mut sawFlush = false
+	for pkt in pkts {
+		match pkt {
+		case Flush:
+			if cur.Len() > 0 {
+				sections = sections.Append(cur)
+			}
+			sawFlush = true
+			break
+		case Delim:
+			sections = sections.Append(cur)
+			cur = []Packet{}
+		case ResponseEnd:
+			return ProtocolError{Reason: "unexpected response-end inside fetch response"}
+		case Data:
+			cur = cur.Append(pkt)
+		}
+	}
+	(sections, sawFlush)
+}
+
+// ParseFetchResponse parses a Git protocol v2 `fetch` response across
+// `acknowledgments`, `shallow-info`, `wanted-refs`, and `packfile` sections
+// separated by `0001` Delim and terminated by `0000` Flush, demuxing
+// sideband-64k packfile bytes and failing closed on band-3 RemoteError.
+func ParseFetchResponse(format oid.Format, pkts []Packet) FetchResponse fails ProtocolError | InvalidSidebandChannel | RemoteError {
+	let (sections, sawFlush) = try splitV2Sections(pkts)
+	if !sawFlush {
+		return ProtocolError{Reason: "fetch response missing trailing flush packet"}
+	}
+	let mut acks = []FetchAck{}
+	let mut shallows = []oid.OID{}
+	let mut unshallows = []oid.OID{}
+	let mut wantedRefs = []RefEntry{}
+	let mut hasPackfile = false
+	let mut packData = []byte{}
+	let mut progress = []string{}
+
+	for sec in sections {
+		if sec.Len() == 0 {
+			continue
+		}
+		let hdr = match sec[0] {
+		case Data as d:
+			trimLineLF(d.Payload)
+		case Flush, Delim, ResponseEnd:
+			return ProtocolError{Reason: "expected section header packet"}
+		}
+		let body = sec[1:]
+		if hdr == "acknowledgments" {
+			for p in body {
+				match p {
+				case Data as d:
+					let line = trimLineLF(d.Payload)
+					if line == "NAK" {
+						acks = acks.Append(AckNak)
+					} else if line == "ready" {
+						acks = acks.Append(AckReady)
+					} else if strings.HasPrefix(line, "ACK ") {
+						let hexPart = strings.TrimPrefix(line, "ACK ")
+						let id = oid.ParseHex(format, hexPart) catch {
+						case oid.BadHex, oid.WrongLength:
+							return ProtocolError{Reason: "invalid ACK OID: " + hexPart}
+						}
+						acks = acks.Append(AckCommon{OID: id})
+					} else {
+						return ProtocolError{Reason: "unrecognized acknowledgments line: " + line}
+					}
+				case Flush, Delim, ResponseEnd:
+				}
+			}
+		} else if hdr == "shallow-info" {
+			for p in body {
+				match p {
+				case Data as d:
+					let line = trimLineLF(d.Payload)
+					if strings.HasPrefix(line, "shallow ") {
+						let id = oid.ParseHex(format, strings.TrimPrefix(line, "shallow ")) catch {
+						case oid.BadHex, oid.WrongLength:
+							return ProtocolError{Reason: "invalid shallow OID"}
+						}
+						shallows = shallows.Append(id)
+					} else if strings.HasPrefix(line, "unshallow ") {
+						let id = oid.ParseHex(format, strings.TrimPrefix(line, "unshallow ")) catch {
+						case oid.BadHex, oid.WrongLength:
+							return ProtocolError{Reason: "invalid unshallow OID"}
+						}
+						unshallows = unshallows.Append(id)
+					} else {
+						return ProtocolError{Reason: "unrecognized shallow-info line: " + line}
+					}
+				case Flush, Delim, ResponseEnd:
+				}
+			}
+		} else if hdr == "wanted-refs" {
+			for p in body {
+				match p {
+				case Data as d:
+					let entry = try parseRefLine(format, trimLineLF(d.Payload))
+					wantedRefs = wantedRefs.Append(entry)
+				case Flush, Delim, ResponseEnd:
+				}
+			}
+		} else if hdr == "packfile" {
+			hasPackfile = true
+			let demuxed = try DemuxSideband(body)
+			packData = slices.AppendAll(packData, demuxed.PackData)
+			for msg in demuxed.Progress {
+				progress = progress.Append(msg)
+			}
+		} else {
+			return ProtocolError{Reason: "unknown fetch response section: " + hdr}
+		}
+	}
+
+	FetchResponse{
+		Acks:        acks,
+		Shallows:    shallows,
+		Unshallows:  unshallows,
+		WantedRefs:  wantedRefs,
+		HasPackfile: hasPackfile,
+		PackData:    packData,
+		Progress:    progress,
+	}
+}
+
+// DefaultWireCodec is the standard pure-Ergo provider of WireCodec.
+type DefaultWireCodec {} implements WireCodec
+
+// NewDefaultWireCodec returns a DefaultWireCodec provider.
+func NewDefaultWireCodec() DefaultWireCodec {
+	DefaultWireCodec
+}
+
+// Encode implements WireCodec.Encode on DefaultWireCodec.
+func Encode(_ DefaultWireCodec, pkts []Packet) []byte fails PacketTooLarge {
+	try EncodePkts(pkts)
+}
+
+// Decode implements WireCodec.Decode on DefaultWireCodec.
+func Decode(_ DefaultWireCodec, raw []byte) []Packet fails InvalidPktLine | UnexpectedEOF {
+	try DecodePkts(raw)
+}
+
+// Demux implements WireCodec.Demux on DefaultWireCodec.
+func Demux(_ DefaultWireCodec, pkts []Packet) SidebandResult fails InvalidSidebandChannel | RemoteError {
+	try DemuxSideband(pkts)
+}
