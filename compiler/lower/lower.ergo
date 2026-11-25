@@ -481,10 +481,10 @@ func function(st mut fnb, b mut ir.Builder, f expr.Fn, path string) bool fails U
 	let d = match syntax.ViewOf(p.Tree, f.Decl) {
 	case syntax.FuncDecl as d:
 		d
-	case syntax.LawDecl:
+	case syntax.LawDecl as ld:
 		match plannedGeneratedBody(st.plan, st.file, syntax.NodePos(p, f.Decl), f.Decl) {
-		case Some[GeneratedBody]:
-			return stop("law (test and law lowering)")
+		case Some[GeneratedBody] as planned:
+			return try lawFunction(st, b, f, ld, planned.Value, path)
 		case None:
 			if isTestMode(st.plan.Mode) && st.plan.Root && (f.SelfArity != 0 || dense.Unpack(f.SelfRole) != None) {
 				return stop("law: member or provider law")
@@ -983,8 +983,8 @@ func lawOver(st fnb, name string) bool {
 		for i in 0..syntax.Len(decls) {
 			let d = syntax.Item(p.Tree, decls, i)
 			match syntax.ViewOf(p.Tree, d) {
-			case syntax.LawDecl:
-				if names(p, d, name) {
+			case syntax.LawDecl as ld:
+				if (ld.Rewrite || ld.Equation) && names(p, d, name) {
 					return true
 				}
 			case _:

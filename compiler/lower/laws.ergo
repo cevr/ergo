@@ -1,0 +1,115 @@
+import compiler/check/expr
+import compiler/check/store
+import compiler/ir
+import compiler/syntax
+import dense
+
+func lawFrame(n int) framePlan {
+	framePlan{env: 0, slots: n + 1, pure: false, fallible: None, pollEntry: false, op: None}
+}
+
+func lawHasAdmission(p syntax.Parsed, params dense.Opt[syntax.Node]) bool {
+	let fl = match dense.Unpack(params) {
+	case Some[dense.ID[syntax.Node]] as node:
+		match syntax.ViewOf(p.Tree, node.Value) {
+		case syntax.FieldList as list:
+			list
+		case _:
+			return false
+		}
+	case None:
+		return false
+	}
+	for i in 0..syntax.Len(fl.List) {
+		match syntax.ViewOf(p.Tree, syntax.Item(p.Tree, fl.List, i)) {
+		case syntax.Field as fld:
+			if dense.Unpack(fld.Where) != None {
+				return true
+			}
+		case _:
+		}
+	}
+	false
+}
+
+func lawFunction(st mut fnb, b mut ir.Builder, f expr.Fn, ld syntax.LawDecl, planned GeneratedBody, path string) bool fails Unported | ir.Malformed {
+	if planned.Symbol == "" {
+		return stop("law name taken (name_N)")
+	}
+	if ld.Rewrite || ld.Equation || ld.When >= 0 || ld.Eq >= 0 {
+		return stop("law: rewrite")
+	}
+	if dense.Unpack(ld.Reach) != None {
+		return stop("law: reachability")
+	}
+	if dense.Unpack(ld.TypeParams) != None {
+		return stop("law: generic")
+	}
+	if f.SelfArity != 0 || dense.Unpack(f.SelfRole) != None {
+		return stop("law: member or provider law")
+	}
+	if lawHasAdmission(st.p, ld.Params) {
+		return stop("law: admission clause")
+	}
+	let ops = store.OperandsOf(st.s, f.Sig)
+	if store.KindOfType(st.s, f.Sig) != store.KSig || len(ops) < 3 {
+		return stop("signature")
+	}
+	let n = len(ops) - 3
+	if basicGo(*st, ops[n]) != "bool" {
+		return stop("law: non-bool result")
+	}
+	if !emptyRow(*st, ops[n+1]) || !emptyRow(*st, ops[n+2]) {
+		return stop("law: effect or failure row")
+	}
+	if len(f.Names) != n {
+		return stop("parameter names")
+	}
+	for i in 0..n {
+		if i < len(f.Takes) && f.Takes[i] {
+			return stop("law: owned parameter")
+		}
+		if basicGo(*st, ops[i]) == "" {
+			return stop("law: parameter " + typeCause(*st, ops[i]))
+		}
+	}
+	let body = match dense.Unpack(ld.Body) {
+	case Some[dense.ID[syntax.Node]] as x:
+		x.Value
+	case None:
+		return stop("no body")
+	}
+	let p = st.p
+	let (list, rbrace) = match syntax.ViewOf(p.Tree, body) {
+	case syntax.BlockStmt as bl:
+		(bl.List, bl.Rbrace)
+	case _:
+		return stop("body that is no block")
+	}
+	st.frame = lawFrame(n)
+	parameterSlots(st, f)
+	let declSite = assertSiteText(*st, syntax.TokPos(p, ld.Law))
+	let prepared = try statementsLaw(st, body, list, f.Names, st.frame.slots, ops[n], declSite)
+	st.fileIx = ir.FileOf(b, path)
+	let fp = pos(*st, syntax.TokPos(p, ld.Law))
+	let end = pos(*st, syntax.TokPos(p, rbrace))
+	try ir.Begin(b, planned.Symbol, fp, end)
+	let roots = try controlEmit(*st, b, prepared, end)
+	let rows = if len(roots) == 0 { uint32(0) } else { ir.List(b, roots) }
+	try ir.End(b, rows)
+	true
+}
+
+func emitLawRet(b mut ir.Builder, at ir.Pos, slot uint32, x uint32, site string, decl string) []uint32 fails ir.Malformed {
+	let defRow = try ir.Row(b, ir.KindCode(ir.TStmt, "def"), at, []uint32{slot, x})
+	let heldCond = try ir.Row(b, ir.KindCode(ir.TExpr, "local"), at, []uint32{slot})
+	let notHeld = try ir.Row(b, ir.KindCode(ir.TExpr, "un"), at, []uint32{ir.Text(b, "!"), heldCond})
+	let siteExpr = try constRow(b, at, "string", site)
+	let declExpr = try constRow(b, at, "string", decl)
+	let refuteCall = try ir.Row(b, ir.KindCode(ir.TExpr, "call"), at, []uint32{ir.Text(b, ""), ir.Text(b, HelperSpelling("ergoLawRefuted")), ir.List(b, []uint32{siteExpr, declExpr})})
+	let refuteStmt = try ir.Row(b, ir.KindCode(ir.TStmt, "expr"), at, []uint32{refuteCall})
+	let ifRow = try ir.Row(b, ir.KindCode(ir.TStmt, "if"), at, []uint32{notHeld, ir.List(b, []uint32{refuteStmt}), ir.List(b, []uint32{}), ir.PosAt(b, at), 0, 0})
+	let heldRet = try ir.Row(b, ir.KindCode(ir.TExpr, "local"), at, []uint32{slot})
+	let retRow = try ir.Row(b, ir.KindCode(ir.TStmt, "ret"), at, []uint32{heldRet})
+	[]uint32{defRow, ifRow, retRow}
+}

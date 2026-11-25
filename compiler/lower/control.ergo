@@ -26,6 +26,7 @@ type controlOp =
 	| CContinue{}
 	| CAssert{Site string, Text string}
 	| CSkip{Reason string}
+	| CLawRet{Site string, Decl string}
 type controlSpan { lo int, hi int, terminates bool, breaks bool }
 type controlStmt {
 	op      controlOp,
@@ -66,6 +67,8 @@ type controlPlan {
 	nested        bool,
 	borrowInvoked bool,
 	inTest        bool,
+	inLaw         bool,
+	lawDeclSite   string,
 }
 type controlLocal { name string, typ string, at int, mutable bool }
 type controlBody { plan controlPlan, body controlSpan }
@@ -84,21 +87,25 @@ func controlRow(op controlOp, offset int, p controlPlan) controlStmt {
 // statements prepares the whole body before Begin, including statements
 // that Go removes later. A refused body never touches the shared builder.
 func statements(st mut fnb, body dense.ID[syntax.Node], list syntax.List, names []dense.Opt[syntax.Node], n int, result dense.ID[store.TKey], unit bool, borrowUnit bool) controlBody fails Unported {
-	try statementsWithMode(st, body, list, names, n, result, unit, borrowUnit, false)
+	try statementsWithMode(st, body, list, names, n, result, unit, borrowUnit, false, false, "")
 }
 
 func statementsTest(st mut fnb, body dense.ID[syntax.Node], list syntax.List, names []dense.Opt[syntax.Node], n int, result dense.ID[store.TKey]) controlBody fails Unported {
-	try statementsWithMode(st, body, list, names, n, result, true, false, true)
+	try statementsWithMode(st, body, list, names, n, result, true, false, true, false, "")
 }
 
-func statementsWithMode(st mut fnb, body dense.ID[syntax.Node], list syntax.List, names []dense.Opt[syntax.Node], n int, result dense.ID[store.TKey], unit bool, borrowUnit bool, inTest bool) controlBody fails Unported {
+func statementsLaw(st mut fnb, body dense.ID[syntax.Node], list syntax.List, names []dense.Opt[syntax.Node], n int, result dense.ID[store.TKey], declSite string) controlBody fails Unported {
+	try statementsWithMode(st, body, list, names, n, result, false, false, true, true, declSite)
+}
+
+func statementsWithMode(st mut fnb, body dense.ID[syntax.Node], list syntax.List, names []dense.Opt[syntax.Node], n int, result dense.ID[store.TKey], unit bool, borrowUnit bool, inTest bool, inLaw bool, lawDeclSite string) controlBody fails Unported {
 	let mut p = controlPlan{
 		stmts:    []controlStmt{}, locals: []controlLocal{}, reads: []int{}, callees: []string{},
 		matches:  []matchArm{}, injections: []unionInjection{},
 		taken:    []string{}, sourceNames: []string{}, scannedNames: false, body: body, formals: n,
 		result:   result, unit: unit, borrowUnit: borrowUnit,
 		extended: false, nonScalar: false, counted: false, nested: false, borrowInvoked: false,
-		inTest:   inTest,
+		inTest:   inTest, inLaw: inLaw, lawDeclSite: lawDeclSite,
 	}
 	if st.frame.env >= 0 {
 		p.taken = p.taken.Append("env")
@@ -188,15 +195,16 @@ func controlStatement(st mut fnb, p mut controlPlan, node dense.ID[syntax.Node],
 		row.slot = try controlBind(st, p, l.at, l.name, l.typ, mutable)
 	case syntax.ExprStmt as es:
 		let x = if tail { es.X } else { unparen(*st, es.X) }
+		row.offset = syntax.NodePos(parsed, x)
 		if tail {
 			try controlPrepareReturn(st, p, &row, x)
 		} else {
 			try controlPrepareDiscard(*st, p, &row, x)
 		}
 		p.extended = p.extended || !tail
-		row.offset = syntax.NodePos(parsed, x)
 	case syntax.ReturnStmt as r:
 		p.extended = true
+		row.offset = syntax.TokPos(parsed, r.Return)
 		match dense.Unpack(r.Result) {
 		case Some{Value: x}:
 			if p.unit {
@@ -208,7 +216,6 @@ func controlStatement(st mut fnb, p mut controlPlan, node dense.ID[syntax.Node],
 				return stop("control: bare return")
 			}
 		}
-		row.offset = syntax.TokPos(parsed, r.Return)
 	case syntax.AssignStmt as a:
 		if tail {
 			return stop("statement form")
@@ -376,6 +383,23 @@ func controlNames(p syntax.Parsed, x dense.ID[syntax.Node], names []string) []st
 	out
 }
 
+func controlTemp(st fnb, p mut controlPlan, base string, typ string, at int) int fails Unported {
+	if !p.scannedNames {
+		p.sourceNames = controlNames(st.p, p.body, []string{})
+		p.scannedNames = true
+	}
+	let mut name = base
+	let mut suffix = 0
+	for has(p.sourceNames, name) || has(p.taken, name) || goReserved(name) || has(fixedNames, name) || has(st.prelude, name) || pkgDecl(st, name) {
+		suffix += 1
+		name = base + "_" + strconv.Itoa(suffix)
+	}
+	let slot = p.formals + len(p.locals)
+	p.taken = p.taken.Append(name)
+	p.locals = p.locals.Append(controlLocal{name: name, typ: typ, at: at, mutable: false})
+	slot
+}
+
 func controlOperand(st fnb, p mut controlPlan, x dense.ID[syntax.Node]) fails Unported {
 	try check(st, x)
 	try controlObserve(st, p, x)
@@ -402,6 +426,12 @@ func controlPrepareReturn(st mut fnb, p mut controlPlan, row mut controlStmt, x 
 	case None:
 		try controlOperand(*st, p, x)
 		row.x = dense.OptOf(x)
+		if p.inLaw {
+			let held = try controlTemp(*st, p, "held", "bool", row.offset)
+			p.reads = p.reads.Append(held)
+			row.op = CLawRet{Site: assertSiteText(*st, syntax.NodePos(st.p, unparen(*st, x))), Decl: p.lawDeclSite}
+			row.slot = held
+		}
 	}
 }
 
@@ -581,6 +611,8 @@ func controlTerminates(row controlStmt) bool {
 	match row.op {
 	case CRet:
 		true
+	case CLawRet:
+		true
 	case CFail:
 		true
 	case CUnionRet:
@@ -659,6 +691,18 @@ func controlEmitSpan(st fnb, b mut ir.Builder, p controlPlan, span controlSpan, 
 			}
 			i = s.next
 			continue
+		case CLawRet as lr:
+			let at = pos(st, s.offset)
+			let x = match dense.Unpack(s.x) {
+			case Some{Value: operand}:
+				try value(st, b, operand)
+			case None:
+				return ir.Malformed{At: i, Why: "law return without operand"}
+			}
+			for row in try emitLawRet(b, at, uint32(s.slot), x, lr.Site, lr.Decl) {
+				rows = rows.Append(row)
+			}
+			return rows
 		case _:
 		}
 		let at = pos(st, s.offset)
@@ -729,6 +773,8 @@ func controlEmitSpan(st fnb, b mut ir.Builder, p controlPlan, span controlSpan, 
 			try emitAssertStmt(b, at, x, a.Site, a.Text)
 		case CSkip as sk:
 			try emitSkipStmt(b, at, sk.Reason)
+		case CLawRet:
+			return ir.Malformed{At: i, Why: "law return outside multirow emission"}
 		}
 		rows = rows.Append(row)
 		match s.op {

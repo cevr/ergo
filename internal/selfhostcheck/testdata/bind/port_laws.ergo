@@ -1,0 +1,5 @@
+func PortLawDouble(n int) int { n + n }
+
+law PortLawTrivial() { true }
+
+law PortLawDoubleEven(n int) { PortLawDouble(n) == n+n }

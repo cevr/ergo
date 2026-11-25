@@ -1530,6 +1530,36 @@
       "rule": "Production builds admit no generated test bodies.",
       "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
       "killers": ["internal/selfhostcheck:TestIRTestBuildAndProductionControl"]
+    },
+    {
+      "name": "lower-laws-l1-drop-refuted",
+      "origin": "wf10/selfhost/S4-PORT LAWS-L1",
+      "file": "compiler/lower/control.ergo", "decl": "controlPrepareReturn",
+      "from": "if p.inLaw {",
+      "to": "if false && p.inLaw {",
+      "rule": "A law return holds the bool once and calls ergo__LawRefuted on false instead of returning directly.",
+      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
+      "killers": ["internal/selfhostcheck:TestIRLawBuildAndProductionControl"]
+    },
+    {
+      "name": "lower-laws-l1-eval-twice",
+      "origin": "wf10/selfhost/S4-PORT LAWS-L1",
+      "file": "compiler/lower/laws.ergo", "decl": "emitLawRet",
+      "from": "let heldRet = try ir.Row(b, ir.KindCode(ir.TExpr, \"local\"), at, []uint32{slot})",
+      "to": "let heldRet = x",
+      "rule": "A law return returns the held local rather than re-evaluating the tail expression a second time.",
+      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
+      "killers": ["internal/selfhostcheck:TestIRLawBuildAndProductionControl"]
+    },
+    {
+      "name": "lower-laws-l1-erase-env-slot",
+      "origin": "wf10/selfhost/S4-PORT LAWS-L1",
+      "file": "compiler/lower/laws.ergo", "decl": "lawFrame",
+      "from": "framePlan{env: 0, slots: n + 1, pure: false, fallible: None, pollEntry: false, op: None}",
+      "to": "framePlan{env: -1, slots: n, pure: false, fallible: None, pollEntry: false, op: None}",
+      "rule": "A law body reserves leading env slot 0 before its quantified parameters.",
+      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
+      "killers": ["internal/selfhostcheck:TestIRLawBuildAndProductionControl"]
     }
   ]
 }
