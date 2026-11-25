@@ -17,7 +17,7 @@ import (
 	"ergo.local/prototype/internal/sketch/lint"
 )
 
-const fixUsage = "usage: ergo fix [--check|--dry-run] [--json] [--lint] [--comments|--len|--global-funcs|--std-types|--machines] [--std DIR] [--go] PATH..."
+const fixUsage = "usage: ergo fix [--check|--dry-run] [--json] [--lint] [--comments|--len|--global-funcs|--std-types|--machines|--option] [--std DIR] [--go] PATH..."
 
 const fixHelp = fixUsage + `
 
@@ -82,6 +82,11 @@ first. Other diagnostics are printed, and the exit status is then 1.
                  into their qualified machines.* forms, adding import machines
                  in sorted order and leaving user shadows untouched; with
                  --json it lists every rewrite
+  --option       only rewrite, under each PATH and the --std DIR, references
+                 to Unit-10 prelude option types (Option, Some, None) into
+                 their qualified option.* forms, adding import option in
+                 sorted order and leaving user shadows untouched; with --json
+                 it lists every rewrite
 
 Exit codes: 0 done; 1 a file could not be read or written, a diagnostic
 remains, or --check found a change; 2 invalid invocation.
@@ -99,7 +104,7 @@ type fixReport struct {
 // clause pass over each PATH that is a program.
 func fixCommand(args []string) error {
 	var paths []string
-	var check, dry, asJSON, goLits, withLint, comments, rewriteLen, globalFuncs, stdTypes, machinesFlag bool
+	var check, dry, asJSON, goLits, withLint, comments, rewriteLen, globalFuncs, stdTypes, machinesFlag, optionFlag bool
 	stdRoot := ""
 	for i := 0; i < len(args); i++ {
 		switch a := args[i]; a {
@@ -123,6 +128,8 @@ func fixCommand(args []string) error {
 			stdTypes = true
 		case "--machines":
 			machinesFlag = true
+		case "--option":
+			optionFlag = true
 		case "--std":
 			if i+1 == len(args) {
 				return usageError{message: fixUsage}
@@ -152,6 +159,9 @@ func fixCommand(args []string) error {
 	if machinesFlag {
 		specials++
 	}
+	if optionFlag {
+		specials++
+	}
 	if len(paths) == 0 && stdRoot == "" || check && dry || specials > 1 {
 		return usageError{message: fixUsage}
 	}
@@ -170,6 +180,9 @@ func fixCommand(args []string) error {
 	}
 	if machinesFlag {
 		return fixMachines(fixFolders(paths), stdRoot, write, check, asJSON)
+	}
+	if optionFlag {
+		return fixOption(fixFolders(paths), stdRoot, write, check, asJSON)
 	}
 	// The respells come first: they are syntactic, so they read a file
 	// that does not check, and every checked pass below reads the new
@@ -543,6 +556,10 @@ func fixStdTypes(paths []string, stdRoot string, write, check, asJSON bool) erro
 
 func fixMachines(paths []string, stdRoot string, write, check, asJSON bool) error {
 	return runTypeFix(fix.RunMachines, "machine type", paths, stdRoot, write, check, asJSON)
+}
+
+func fixOption(paths []string, stdRoot string, write, check, asJSON bool) error {
+	return runTypeFix(fix.RunOption, "option type", paths, stdRoot, write, check, asJSON)
 }
 
 func runTypeFix(runner func(fix.Options) (fix.StdTypesReport, error), kind string, paths []string, stdRoot string, write, check, asJSON bool) error {
