@@ -1,0 +1,133 @@
+// Package attrs implements pure-Ergo Git `.gitattributes` parsing, glob
+// matching, macro expansion (including builtin `[attr]binary`), exact Git
+// precedence (later line, deeper directory, `.git/info/attributes`), and a
+// strict merge-driver trust policy that never authorizes untrusted repository
+// external drivers implicitly (STD-GIT: G-ATTRS).
+
+// Error is the closed failure union for attribute loading and merge driver
+// trust-policy resolution.
+type Error =
+	| UntrustedDriver{Name string}
+	| IOFailed{Op string, Detail string}
+
+// AttrState represents the four canonical Git attribute states: Set (`attr`),
+// Unset (`-attr`), Value (`attr=val`), and Unspecified (`!attr`).
+type AttrState =
+	| AttrSet{}
+	| AttrUnset{}
+	| AttrValue{Val string}
+	| AttrUnspecified{}
+
+// AttrAssignment pairs an attribute name with its assigned AttrState.
+type AttrAssignment {
+	Name  string,
+	State AttrState,
+}
+
+// AttrRule is one parsed rule or macro definition from a `.gitattributes` or
+// `.git/info/attributes` file rooted at BaseDir.
+type AttrRule {
+	BaseDir     string,
+	Pattern     string,
+	Anchored    bool,
+	Assignments []AttrAssignment,
+	IsMacro     bool,
+	MacroName   string,
+}
+
+// DriverPolicy controls whether external merge drivers named in `.gitattributes`
+// (e.g., `merge=custom`) are authorized by the caller.
+type DriverPolicy {
+	AllowExternalDrivers bool,
+	AllowedDrivers       []string,
+}
+
+// StrictPolicy returns the default safe DriverPolicy that authorizes only
+// Git's built-in merge drivers (`text`, `binary`, `union`) and refuses all
+// external repository-configured drivers.
+func StrictPolicy() DriverPolicy {
+	DriverPolicy{AllowExternalDrivers: false, AllowedDrivers: []string{}}
+}
+
+// MergeDriver classifies the resolved merge driver for a path.
+type MergeDriver =
+	| DriverText{}
+	| DriverBinary{}
+	| DriverUnion{}
+	| DriverExternal{Name string}
+
+// StateEqual reports whether two AttrState values are identical.
+func StateEqual(a AttrState, b AttrState) bool {
+	match a {
+	case AttrSet:
+		match b {
+		case AttrSet:
+			true
+		case AttrUnset, AttrValue, AttrUnspecified:
+			false
+		}
+	case AttrUnset:
+		match b {
+		case AttrUnset:
+			true
+		case AttrSet, AttrValue, AttrUnspecified:
+			false
+		}
+	case AttrUnspecified:
+		match b {
+		case AttrUnspecified:
+			true
+		case AttrSet, AttrUnset, AttrValue:
+			false
+		}
+	case AttrValue as av:
+		match b {
+		case AttrValue as bv:
+			av.Val == bv.Val
+		case AttrSet, AttrUnset, AttrUnspecified:
+			false
+		}
+	}
+}
+
+// AttrReader is the capability seam for attribute resolution and driver trust
+// evaluation, carrying laws held identically by MemoryAttrs and RepoAttrs.
+type AttrReader {
+	Eval(rules []AttrRule, relPath string) Map[string, AttrState],
+	ResolveDriver(attrs Map[string, AttrState], policy DriverPolicy) MergeDriver fails UntrustedDriver,
+
+	// LaterRuleOverridesEarlier: a later matching rule in `.gitattributes`
+	// always overrides an earlier rule for the same attribute.
+	law LaterRuleOverridesEarlier(stem string) {
+		let rules = ParseAttributes("", "*.txt text merge=union\n*.txt -text -merge\n")
+		let path = if stem == "" { "a.txt" } else { stem + ".txt" }
+		let res = Eval(rules, path)
+		let textOk = match res.Get("text") {
+		case Some[AttrState] as st:
+			StateEqual(st.Value, AttrUnset)
+		case None:
+			false
+		}
+		let mergeOk = match res.Get("merge") {
+		case Some[AttrState] as st:
+			StateEqual(st.Value, AttrUnset)
+		case None:
+			false
+		}
+		textOk && mergeOk
+	},
+
+	// UntrustedExternalDriverRefused: an external merge driver name is always
+	// refused with UntrustedDriver under StrictPolicy.
+	law UntrustedExternalDriverRefused(suffix string) {
+		let driverName = "custom-driver-" + suffix
+		let m = Map[string, AttrState]{}.Put("merge", AttrValue{Val: driverName})
+		let mut refused = false
+		let _ = ResolveDriver(m, StrictPolicy()) catch {
+		case UntrustedDriver:
+			refused = true
+			DriverText
+		}
+		refused
+	},
+}

@@ -1,0 +1,163 @@
+import exec
+import filepath
+import fs
+import os
+import strings
+import github.com/cevr/ergo/modules/git/oracle
+
+let onOracle = context needs TestAmbient {
+	exec.Runner: exec.NewTestHost().InheritEnv(exec.PathOf(os.NewTestHost().Environ())),
+	fs.Files:    fs.NewTestHost(),
+	fs.Writes:   fs.NewTestHost(),
+	os.Process:  os.NewTestHost(),
+}
+
+let onMemoryAttrs = context {
+	AttrReader: NewMemoryAttrs(),
+}
+
+let onRepoAttrs = context {
+	AttrReader: NewRepoAttrs([]AttrRule{}),
+}
+
+type testFail {
+	reason string,
+}
+
+func runGitOk(dir string, args []string, pathEnv Map[string, string], step int) string fails testFail | exec.NotFound | exec.Denied | exec.Failed needs exec.Runner {
+	let res = try exec.Runner.Run(oracle.GitCommand(dir, args, pathEnv, oracle.StepEpoch(step)))
+	if res.Status != 0 {
+		return testFail{reason: "git failed: " + res.Stderr}
+	}
+	res.Stdout
+}
+
+func parseCheckAttrZ(raw string) Map[string, AttrState] {
+	let fields = strings.Split(raw, "\x00")
+	let mut out = Map[string, AttrState]{}
+	let mut i = 0
+	for i+2 < len(fields) {
+		let name = fields[i+1]
+		let val = fields[i+2]
+		if val == "set" {
+			out = out.Put(name, AttrSet)
+		} else if val == "unset" {
+			out = out.Put(name, AttrUnset)
+		} else if val != "unspecified" {
+			out = out.Put(name, AttrValue{Val: val})
+		}
+		i = i + 3
+	}
+	out
+}
+
+func mapsEqual(a Map[string, AttrState], b Map[string, AttrState]) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for k, av in a {
+		match b.Get(k) {
+		case None:
+			return false
+		case Some[AttrState] as bv:
+			if !StateEqual(av, bv.Value) {
+				return false
+			}
+		}
+	}
+	true
+}
+
+// AttributesAndDriverTrustMatchGitCheckAttr: verifies `.gitattributes`
+// precedence, quoted paths, `[attr]binary`, `-merge`, `merge=union`, `!attr`
+// unspecified, nested `.gitattributes`, and `.git/info/attributes` against
+// C `git check-attr --all -z`, and verifies strict DriverPolicy enforcement.
+test AttributesAndDriverTrustMatchGitCheckAttr {
+	with onOracle {
+		let pathEnv = exec.PathOf(os.Process.Environ())
+		let cwd = try os.Process.Getwd()
+		let repoDir = try oracle.InitRepo(filepath.Join([]string{cwd, "attrs-oracle"}), oracle.RepoSpec{Format: oracle.Sha1, Layout: oracle.Normal, DefaultBranch: "main"}, pathEnv, oracle.BaseEpoch)
+		let gitDir = filepath.Join([]string{repoDir, ".git"})
+
+		let rootAttrs = "# root attributes\n" +
+			"*.txt text eol=lf\n" +
+			"*.txt eol=crlf\n" +
+			"*.bin binary\n" +
+			"*.log merge=union\n" +
+			"\"dir/with space.dat\" custom=yes -merge\n" +
+			"*.drop text\n" +
+			"*.drop !text\n" +
+			"/anchored.md doc=root\n" +
+			"*.ext merge=my-evil-driver\n"
+		try fs.Writes.WriteFile(filepath.Join([]string{repoDir, ".gitattributes"}), rootAttrs)
+
+		try fs.Writes.MkdirAll(filepath.Join([]string{repoDir, "sub"}))
+		let subAttrs = "*.txt -text eol=lf\n" +
+			"*.bin !binary\n"
+		try fs.Writes.WriteFile(filepath.Join([]string{repoDir, "sub", ".gitattributes"}), subAttrs)
+
+		try fs.Writes.MkdirAll(filepath.Join([]string{gitDir, "info"}))
+		try fs.Writes.WriteFile(filepath.Join([]string{gitDir, "info", "attributes"}), "sub/override.txt text merge=union\n")
+
+		let _ = try runGitOk(repoDir, []string{"config", "merge.my-evil-driver.driver", "sh -c 'exit 0'"}, pathEnv, 2)
+
+		let testPaths = []string{
+			"notes.txt",
+			"image.bin",
+			"app.log",
+			"dir/with space.dat",
+			"foo.drop",
+			"anchored.md",
+			"sub/anchored.md",
+			"sub/nested.txt",
+			"sub/photo.bin",
+			"sub/override.txt",
+			"script.ext",
+		}
+		for p in testPaths {
+			let gitOut = try runGitOk(repoDir, []string{"check-attr", "--all", "-z", "--", p}, pathEnv, 3)
+			let want = parseCheckAttrZ(gitOut)
+			let got = try LoadWorktreeAttrs(gitDir, repoDir, p)
+			assert mapsEqual(got, want)
+		}
+
+		let logAttrs = try LoadWorktreeAttrs(gitDir, repoDir, "app.log")
+		let logDriver = try ResolveMergeDriver(logAttrs, StrictPolicy())
+		let isUnion = match logDriver {
+		case DriverUnion:
+			true
+		case DriverText, DriverBinary, DriverExternal:
+			false
+		}
+		assert isUnion
+
+		let binAttrs = try LoadWorktreeAttrs(gitDir, repoDir, "image.bin")
+		let binDriver = try ResolveMergeDriver(binAttrs, StrictPolicy())
+		let isBin = match binDriver {
+		case DriverBinary:
+			true
+		case DriverText, DriverUnion, DriverExternal:
+			false
+		}
+		assert isBin
+
+		let extAttrs = try LoadWorktreeAttrs(gitDir, repoDir, "script.ext")
+		let mut sawUntrusted = false
+		let _ = ResolveMergeDriver(extAttrs, StrictPolicy()) catch {
+		case UntrustedDriver as u:
+			sawUntrusted = u.Name == "my-evil-driver"
+			DriverText
+		}
+		assert sawUntrusted
+
+		let allowPolicy = DriverPolicy{AllowExternalDrivers: true, AllowedDrivers: []string{"my-evil-driver"}}
+		let allowedDriver = try ResolveMergeDriver(extAttrs, allowPolicy)
+		let isExt = match allowedDriver {
+		case DriverExternal as ex:
+			ex.Name == "my-evil-driver"
+		case DriverText, DriverBinary, DriverUnion:
+			false
+		}
+		assert isExt
+	}
+}
