@@ -50,6 +50,16 @@
       "to": "\tlet mut seenDest = []EdgeTarget{}\n\tfor eIdx in 0..len(g.Edges) {\n\t\tlet e = g.Edges[eIdx]\n\t\tlet mut dupDest = false\n\t\tfor d in seenDest {\n\t\t\tif d == e.Target {\n\t\t\t\tdupDest = true\n\t\t\t}\n\t\t}\n\t\tif dupDest {\n\t\t\tcontinue\n\t\t}\n\t\tseenDest = seenDest.Append(e.Target)",
       "rule": "SelectedEdges covers every concrete edge including parallel inputs, closing edges to seen states, self-loops, and terminal edges rather than deduplicating by destination.",
       "killers": ["internal/sketch/std/explore:law:SelectedPathsKeepTheirPromise"]
+    },
+    {
+      "name": "paths-release-only-on-match",
+      "origin": "wf10 MODEL-BASED-PATH-TESTS P3",
+      "file": "internal/sketch/std/explore/session.ergo",
+      "decl": "RunPathSession",
+      "from": "\tlet out = DrivePathSession(start, inputs, open, checkInitial, checkStep)\n\tpublish(out)",
+      "to": "\tlet s = open(start) catch {\n\tcase err:\n\t\treturn publish(SessionOpenFailed[OpenErr]{Err: err})\n\t}\n\tlet initial = s.Read() catch {\n\tcase err:\n\t\treturn publish(SessionDriveFailed[DriveErr]{Step: 0, Err: err})\n\t}\n\tmatch checkInitial(initial) {\n\tcase Some as m:\n\t\treturn publish(SessionMismatch[Obs, Mismatch]{Step: 0, Observed: initial, Detail: m.Value})\n\tcase None:\n\t}\n\tlet mut observed = []Obs{}\n\tfor i in 0..len(inputs) {\n\t\tlet input = inputs[i]\n\t\tlet obs = s.Apply(input) catch {\n\t\tcase err:\n\t\t\treturn publish(SessionDriveFailed[DriveErr]{Step: i + 1, Err: err})\n\t\t}\n\t\tmatch checkStep(i+1, input, obs) {\n\t\tcase Some as m:\n\t\t\treturn publish(SessionMismatch[Obs, Mismatch]{Step: i + 1, Observed: obs, Detail: m.Value})\n\t\tcase None:\n\t\t}\n\t\tobserved = observed.Append(obs)\n\t}\n\ts.Close()\n\tpublish(SessionMatched[Obs]{Initial: initial, Observed: observed})",
+      "rule": "RunPathSession closes its acquired PathSession on every exit (including mismatch and drive failure) before publishing SessionOutcome.",
+      "killers": ["internal/sketch/std/explore:law:SessionReleasesOnEveryExit"]
     }
   ]
 }
