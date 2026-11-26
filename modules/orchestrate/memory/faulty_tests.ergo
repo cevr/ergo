@@ -1,4 +1,5 @@
 import gen
+import json
 import github.com/cevr/ergo/modules/orchestrate/orchestrate
 import option
 import testing
@@ -47,8 +48,8 @@ law ServiceHandlesFaultyStoreCleanly() {
 			ID:        "u-fault-1",
 			Title:     "Fault check",
 			Requires:  []string{"acceptance"},
-			Lane:      option.None,
-			Branch:    option.None,
+			Lane:      json.Absent,
+			Branch:    json.Absent,
 		}) catch {
 		case _:
 			openFailed = true

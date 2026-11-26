@@ -1,0 +1,22 @@
+{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"case","version":"1"}}}
+{"jsonrpc":"2.0","method":"notifications/initialized"}
+{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"unit-open","arguments":{"commandID":"u-open-1","actor":"root","repo":"ergo","run":"wf10","id":"ORCH-5","title":"close unit","requires":["acceptance"]}}}
+{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"unit-close","arguments":{"commandID":"u-close-1","actor":"root","repo":"ergo","run":"wf10","id":"ORCH-5"}}}
+{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"unit-close","arguments":{"commandID":"u-close-2","actor":"root","repo":"ergo","run":"wf10","id":"ORCH-5"}}}
+{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"commitment-add","arguments":{"commandID":"c-add-1","actor":"root","id":"C1","title":"Land CLI","kind":"feature"}}}
+{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"commitment-add","arguments":{"commandID":"c-add-2","actor":"root","id":"C2","title":"Document design","kind":"decision"}}}
+{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"commitment-assign","arguments":{"commandID":"c-assign-1","actor":"root","id":"C1","owner":"implementor","lane":"/workspaces/.work/ergo/orchestrate-cli"}}}
+{"jsonrpc":"2.0","id":8,"method":"tools/call","params":{"name":"commitment-land","arguments":{"commandID":"c-land-1","actor":"root","id":"C1","landedSHA":"1abcd10f6"}}}
+{"jsonrpc":"2.0","id":9,"method":"tools/call","params":{"name":"commitment-decide","arguments":{"commandID":"c-dec-2","actor":"root","id":"C2","note":"captured in usage.md","withdraw":false}}}
+{"jsonrpc":"2.0","id":10,"method":"tools/call","params":{"name":"commitment-list","arguments":{"status":"landed","owner":"implementor"}}}
+{"jsonrpc":"2.0","id":11,"method":"tools/call","params":{"name":"commitment-list","arguments":{}}}
+{"jsonrpc":"2.0","id":12,"method":"tools/call","params":{"name":"queue-upsert","arguments":{"commandID":"q-up-1","actor":"root","key":"ORCH-6","priority":10,"title":"Next unit","body":"follow-up","status":"ready","tags":["wf10"]}}}
+{"jsonrpc":"2.0","id":13,"method":"tools/call","params":{"name":"queue-upsert","arguments":{"commandID":"q-up-2","actor":"root","key":"ORCH-7","priority":20,"title":"Later unit","body":"","status":"blocked","tags":[]}}}
+{"jsonrpc":"2.0","id":14,"method":"tools/call","params":{"name":"queue-list","arguments":{"status":"ready"}}}
+{"jsonrpc":"2.0","id":15,"method":"tools/call","params":{"name":"queue-remove","arguments":{"commandID":"q-rm-1","actor":"root","key":"ORCH-6"}}}
+{"jsonrpc":"2.0","id":16,"method":"tools/call","params":{"name":"queue-list","arguments":{}}}
+{"jsonrpc":"2.0","id":17,"method":"tools/call","params":{"name":"question-ask","arguments":{"commandID":"qn-ask-1","actor":"implementor","prompt":"Use SQLite or memory?","assumption":"SQLite","concreteAction":"Keep schema v2"}}}
+{"jsonrpc":"2.0","id":18,"method":"tools/call","params":{"name":"question-ask","arguments":{"commandID":"qn-ask-2","actor":"implementor","id":2,"prompt":"Land now?","assumption":"Wait for green","concreteAction":"Run gate"}}}
+{"jsonrpc":"2.0","id":19,"method":"tools/call","params":{"name":"question-answer","arguments":{"commandID":"qn-ans-1","actor":"owner","id":1,"answer":"SQLite","withdraw":false}}}
+{"jsonrpc":"2.0","id":20,"method":"tools/call","params":{"name":"question-list","arguments":{"openOnly":true}}}
+{"jsonrpc":"2.0","id":21,"method":"tools/call","params":{"name":"question-list","arguments":{"openOnly":false}}}

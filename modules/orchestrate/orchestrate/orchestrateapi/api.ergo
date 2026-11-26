@@ -1,17 +1,18 @@
 import json
 import rpc
+import scope
 import sync
 import github.com/cevr/ergo/modules/orchestrate/orchestrate
 
 // Request is one call of orchestrate.Api: a variant per operation, whose fields
 // are the operation's parameters. It is the request every transport carries.
-type Request = UnitOpenRequest{Input orchestrate.UnitOpenInput} | ReceiptRecordRequest{Input orchestrate.ReceiptRecordInput} | UnitStateRequest{Input orchestrate.UnitStateInput} | UnitAcceptRequest{Input orchestrate.UnitVerdictInput} | UnitLandRequest{Input orchestrate.UnitVerdictInput}
+type Request = UnitOpenRequest{Input orchestrate.UnitOpenInput} | ReceiptRecordRequest{Input orchestrate.ReceiptRecordInput} | UnitStateRequest{Input orchestrate.UnitStateInput} | UnitAcceptRequest{Input orchestrate.UnitVerdictInput} | UnitLandRequest{Input orchestrate.UnitVerdictInput} | UnitCloseRequest{Input orchestrate.UnitCloseInput} | CommitmentAddRequest{Input orchestrate.CommitmentAddInput} | CommitmentAssignRequest{Input orchestrate.CommitmentAssignInput} | CommitmentLandRequest{Input orchestrate.CommitmentLandInput} | CommitmentDecideRequest{Input orchestrate.CommitmentDecideInput} | CommitmentListRequest{Input orchestrate.CommitmentListInput} | QueueUpsertRequest{Input orchestrate.QueueUpsertInput} | QueueRemoveRequest{Input orchestrate.QueueRemoveInput} | QueueListRequest{Input orchestrate.QueueListInput} | QuestionAskRequest{Input orchestrate.QuestionAskInput} | QuestionAnswerRequest{Input orchestrate.QuestionAnswerInput} | QuestionListRequest{Input orchestrate.QuestionListInput}
 
 // Op is an operation of orchestrate.Api: what a policy matches on.
-type Op = UnitOpenOp{} | ReceiptRecordOp{} | UnitStateOp{} | UnitAcceptOp{} | UnitLandOp{}
+type Op = UnitOpenOp{} | ReceiptRecordOp{} | UnitStateOp{} | UnitAcceptOp{} | UnitLandOp{} | UnitCloseOp{} | CommitmentAddOp{} | CommitmentAssignOp{} | CommitmentLandOp{} | CommitmentDecideOp{} | CommitmentListOp{} | QueueUpsertOp{} | QueueRemoveOp{} | QueueListOp{} | QuestionAskOp{} | QuestionAnswerOp{} | QuestionListOp{}
 
 // Reply is the value of an operation: a variant per operation.
-type Reply = UnitOpenReply{Value orchestrate.Unit} | ReceiptRecordReply{Value orchestrate.Receipt} | UnitStateReply{Value orchestrate.UnitView} | UnitAcceptReply{Value orchestrate.Unit} | UnitLandReply{Value orchestrate.Unit}
+type Reply = UnitOpenReply{Value orchestrate.Unit} | ReceiptRecordReply{Value orchestrate.Receipt} | UnitStateReply{Value orchestrate.UnitView} | UnitAcceptReply{Value orchestrate.Unit} | UnitLandReply{Value orchestrate.Unit} | UnitCloseReply{Value orchestrate.Unit} | CommitmentAddReply{Value orchestrate.Commitment} | CommitmentAssignReply{Value orchestrate.Commitment} | CommitmentLandReply{Value orchestrate.Commitment} | CommitmentDecideReply{Value orchestrate.Commitment} | CommitmentListReply{Value []orchestrate.Commitment} | QueueUpsertReply{Value orchestrate.QueueItem} | QueueRemoveReply{} | QueueListReply{Value []orchestrate.QueueItem} | QuestionAskReply{Value orchestrate.Question} | QuestionAnswerReply{Value orchestrate.Question} | QuestionListReply{Value []orchestrate.Question}
 
 // Failure is a failure of an operation: a variant per failure type of
 // any row, named like the type (its JSON tag).
@@ -34,6 +35,30 @@ func OpOf(r Request) Op {
 		UnitAcceptOp
 	case UnitLandRequest:
 		UnitLandOp
+	case UnitCloseRequest:
+		UnitCloseOp
+	case CommitmentAddRequest:
+		CommitmentAddOp
+	case CommitmentAssignRequest:
+		CommitmentAssignOp
+	case CommitmentLandRequest:
+		CommitmentLandOp
+	case CommitmentDecideRequest:
+		CommitmentDecideOp
+	case CommitmentListRequest:
+		CommitmentListOp
+	case QueueUpsertRequest:
+		QueueUpsertOp
+	case QueueRemoveRequest:
+		QueueRemoveOp
+	case QueueListRequest:
+		QueueListOp
+	case QuestionAskRequest:
+		QuestionAskOp
+	case QuestionAnswerRequest:
+		QuestionAnswerOp
+	case QuestionListRequest:
+		QuestionListOp
 	}
 }
 
@@ -50,6 +75,30 @@ func Name(op Op) string {
 		"unit-accept"
 	case UnitLandOp:
 		"unit-land"
+	case UnitCloseOp:
+		"unit-close"
+	case CommitmentAddOp:
+		"commitment-add"
+	case CommitmentAssignOp:
+		"commitment-assign"
+	case CommitmentLandOp:
+		"commitment-land"
+	case CommitmentDecideOp:
+		"commitment-decide"
+	case CommitmentListOp:
+		"commitment-list"
+	case QueueUpsertOp:
+		"queue-upsert"
+	case QueueRemoveOp:
+		"queue-remove"
+	case QueueListOp:
+		"queue-list"
+	case QuestionAskOp:
+		"question-ask"
+	case QuestionAnswerOp:
+		"question-answer"
+	case QuestionListOp:
+		"question-list"
 	}
 }
 
@@ -66,6 +115,30 @@ func Doc(op Op) string {
 		"UnitAccept accepts a unit at a head; refused Unverified unless every required kind's latest receipt at that head exited 0."
 	case UnitLandOp:
 		"UnitLand lands an accepted unit at its accepted head, whose required receipts must still be green."
+	case UnitCloseOp:
+		"UnitClose closes a non-terminal unit without landing."
+	case CommitmentAddOp:
+		"CommitmentAdd registers a new tracked commitment."
+	case CommitmentAssignOp:
+		"CommitmentAssign assigns an open or assigned commitment to an owner and lane."
+	case CommitmentLandOp:
+		"CommitmentLand marks an open or assigned commitment as landed at a commit SHA."
+	case CommitmentDecideOp:
+		"CommitmentDecide resolves or withdraws an open or assigned commitment with a note."
+	case CommitmentListOp:
+		"CommitmentList lists commitments, optionally filtered by status and owner, sorted by ID."
+	case QueueUpsertOp:
+		"QueueUpsert inserts or replaces a prioritized queue entry by key."
+	case QueueRemoveOp:
+		"QueueRemove deletes an existing queue entry by key."
+	case QueueListOp:
+		"QueueList lists queue entries, optionally filtered by status, ordered by priority then key."
+	case QuestionAskOp:
+		"QuestionAsk opens an async question with an optional explicit monotonic ID, default assumption, and concrete action."
+	case QuestionAnswerOp:
+		"QuestionAnswer answers or withdraws an open async question."
+	case QuestionListOp:
+		"QuestionList lists async questions, optionally restricting to open questions only."
 	}
 }
 
@@ -81,7 +154,7 @@ func valueOf(text string) json.Value {
 func Schema(op Op) json.Value {
 	match op {
 	case UnitOpenOp:
-		valueOf("{\"type\":\"object\",\"properties\":{\"commandID\":{\"type\":\"string\"},\"actor\":{\"type\":\"string\"},\"repo\":{\"type\":\"string\"},\"run\":{\"type\":\"string\"},\"id\":{\"type\":\"string\"},\"title\":{\"type\":\"string\"},\"requires\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}},\"lane\":{\"anyOf\":[{\"type\":\"object\",\"properties\":{\"_tag\":{\"const\":\"Some\"},\"value\":{\"type\":\"string\"}},\"required\":[\"_tag\",\"value\"]},{\"type\":\"object\",\"properties\":{\"_tag\":{\"const\":\"None\"}},\"required\":[\"_tag\"]}]},\"branch\":{\"anyOf\":[{\"type\":\"object\",\"properties\":{\"_tag\":{\"const\":\"Some\"},\"value\":{\"type\":\"string\"}},\"required\":[\"_tag\",\"value\"]},{\"type\":\"object\",\"properties\":{\"_tag\":{\"const\":\"None\"}},\"required\":[\"_tag\"]}]}},\"required\":[\"commandID\",\"actor\",\"repo\",\"run\",\"id\",\"title\",\"requires\",\"lane\",\"branch\"]}")
+		valueOf("{\"type\":\"object\",\"properties\":{\"commandID\":{\"type\":\"string\"},\"actor\":{\"type\":\"string\"},\"repo\":{\"type\":\"string\"},\"run\":{\"type\":\"string\"},\"id\":{\"type\":\"string\"},\"title\":{\"type\":\"string\"},\"requires\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}},\"lane\":{\"type\":\"string\"},\"branch\":{\"type\":\"string\"}},\"required\":[\"commandID\",\"actor\",\"repo\",\"run\",\"id\",\"title\",\"requires\"]}")
 	case ReceiptRecordOp:
 		valueOf("{\"type\":\"object\",\"properties\":{\"commandID\":{\"type\":\"string\"},\"actor\":{\"type\":\"string\"},\"repo\":{\"type\":\"string\"},\"run\":{\"type\":\"string\"},\"id\":{\"type\":\"string\"},\"kind\":{\"type\":\"string\"},\"command\":{\"type\":\"string\"},\"head\":{\"type\":\"string\"},\"exitCode\":{\"type\":\"integer\"},\"exitLines\":{\"type\":\"string\"}},\"required\":[\"commandID\",\"actor\",\"repo\",\"run\",\"id\",\"kind\",\"command\",\"head\",\"exitCode\",\"exitLines\"]}")
 	case UnitStateOp:
@@ -90,6 +163,30 @@ func Schema(op Op) json.Value {
 		valueOf("{\"type\":\"object\",\"properties\":{\"commandID\":{\"type\":\"string\"},\"actor\":{\"type\":\"string\"},\"repo\":{\"type\":\"string\"},\"run\":{\"type\":\"string\"},\"id\":{\"type\":\"string\"},\"head\":{\"type\":\"string\"}},\"required\":[\"commandID\",\"actor\",\"repo\",\"run\",\"id\",\"head\"]}")
 	case UnitLandOp:
 		valueOf("{\"type\":\"object\",\"properties\":{\"commandID\":{\"type\":\"string\"},\"actor\":{\"type\":\"string\"},\"repo\":{\"type\":\"string\"},\"run\":{\"type\":\"string\"},\"id\":{\"type\":\"string\"},\"head\":{\"type\":\"string\"}},\"required\":[\"commandID\",\"actor\",\"repo\",\"run\",\"id\",\"head\"]}")
+	case UnitCloseOp:
+		valueOf("{\"type\":\"object\",\"properties\":{\"commandID\":{\"type\":\"string\"},\"actor\":{\"type\":\"string\"},\"repo\":{\"type\":\"string\"},\"run\":{\"type\":\"string\"},\"id\":{\"type\":\"string\"}},\"required\":[\"commandID\",\"actor\",\"repo\",\"run\",\"id\"]}")
+	case CommitmentAddOp:
+		valueOf("{\"type\":\"object\",\"properties\":{\"commandID\":{\"type\":\"string\"},\"actor\":{\"type\":\"string\"},\"id\":{\"type\":\"string\"},\"title\":{\"type\":\"string\"},\"kind\":{\"type\":\"string\"}},\"required\":[\"commandID\",\"actor\",\"id\",\"title\",\"kind\"]}")
+	case CommitmentAssignOp:
+		valueOf("{\"type\":\"object\",\"properties\":{\"commandID\":{\"type\":\"string\"},\"actor\":{\"type\":\"string\"},\"id\":{\"type\":\"string\"},\"owner\":{\"type\":\"string\"},\"lane\":{\"type\":\"string\"}},\"required\":[\"commandID\",\"actor\",\"id\",\"owner\",\"lane\"]}")
+	case CommitmentLandOp:
+		valueOf("{\"type\":\"object\",\"properties\":{\"commandID\":{\"type\":\"string\"},\"actor\":{\"type\":\"string\"},\"id\":{\"type\":\"string\"},\"landedSHA\":{\"type\":\"string\"}},\"required\":[\"commandID\",\"actor\",\"id\",\"landedSHA\"]}")
+	case CommitmentDecideOp:
+		valueOf("{\"type\":\"object\",\"properties\":{\"commandID\":{\"type\":\"string\"},\"actor\":{\"type\":\"string\"},\"id\":{\"type\":\"string\"},\"note\":{\"type\":\"string\"},\"withdraw\":{\"type\":\"boolean\"}},\"required\":[\"commandID\",\"actor\",\"id\",\"note\",\"withdraw\"]}")
+	case CommitmentListOp:
+		valueOf("{\"type\":\"object\",\"properties\":{\"status\":{\"type\":\"string\"},\"owner\":{\"type\":\"string\"}}}")
+	case QueueUpsertOp:
+		valueOf("{\"type\":\"object\",\"properties\":{\"commandID\":{\"type\":\"string\"},\"actor\":{\"type\":\"string\"},\"key\":{\"type\":\"string\"},\"priority\":{\"type\":\"integer\"},\"title\":{\"type\":\"string\"},\"body\":{\"type\":\"string\"},\"status\":{\"type\":\"string\"},\"tags\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}}},\"required\":[\"commandID\",\"actor\",\"key\",\"priority\",\"title\",\"body\",\"status\",\"tags\"]}")
+	case QueueRemoveOp:
+		valueOf("{\"type\":\"object\",\"properties\":{\"commandID\":{\"type\":\"string\"},\"actor\":{\"type\":\"string\"},\"key\":{\"type\":\"string\"}},\"required\":[\"commandID\",\"actor\",\"key\"]}")
+	case QueueListOp:
+		valueOf("{\"type\":\"object\",\"properties\":{\"status\":{\"type\":\"string\"}}}")
+	case QuestionAskOp:
+		valueOf("{\"type\":\"object\",\"properties\":{\"commandID\":{\"type\":\"string\"},\"actor\":{\"type\":\"string\"},\"id\":{\"type\":\"integer\"},\"prompt\":{\"type\":\"string\"},\"assumption\":{\"type\":\"string\"},\"concreteAction\":{\"type\":\"string\"}},\"required\":[\"commandID\",\"actor\",\"prompt\",\"assumption\",\"concreteAction\"]}")
+	case QuestionAnswerOp:
+		valueOf("{\"type\":\"object\",\"properties\":{\"commandID\":{\"type\":\"string\"},\"actor\":{\"type\":\"string\"},\"id\":{\"type\":\"integer\"},\"answer\":{\"type\":\"string\"},\"withdraw\":{\"type\":\"boolean\"}},\"required\":[\"commandID\",\"actor\",\"id\",\"answer\",\"withdraw\"]}")
+	case QuestionListOp:
+		valueOf("{\"type\":\"object\",\"properties\":{\"openOnly\":{\"type\":\"boolean\"}},\"required\":[\"openOnly\"]}")
 	}
 }
 
@@ -187,33 +284,259 @@ func Call(r Request) Outcome needs orchestrate.Api {
 			return Rejected{Failure: StoreFailed{E: e}}
 		}
 		Done{Reply: UnitLandReply{Value: v}}
+	case UnitCloseRequest as x:
+		let v = orchestrate.Api.UnitClose(x.Input) catch {
+		case orchestrate.NotFound as e:
+			return Rejected{Failure: NotFound{E: e}}
+		case orchestrate.AlreadyExists as e:
+			return Rejected{Failure: AlreadyExists{E: e}}
+		case orchestrate.InvalidTransition as e:
+			return Rejected{Failure: InvalidTransition{E: e}}
+		case orchestrate.CommandReused as e:
+			return Rejected{Failure: CommandReused{E: e}}
+		case orchestrate.InvalidInput as e:
+			return Rejected{Failure: InvalidInput{E: e}}
+		case orchestrate.Unverified as e:
+			return Rejected{Failure: Unverified{E: e}}
+		case orchestrate.NotAcceptedHead as e:
+			return Rejected{Failure: NotAcceptedHead{E: e}}
+		case orchestrate.StoreFailed as e:
+			return Rejected{Failure: StoreFailed{E: e}}
+		}
+		Done{Reply: UnitCloseReply{Value: v}}
+	case CommitmentAddRequest as x:
+		let v = orchestrate.Api.CommitmentAdd(x.Input) catch {
+		case orchestrate.NotFound as e:
+			return Rejected{Failure: NotFound{E: e}}
+		case orchestrate.AlreadyExists as e:
+			return Rejected{Failure: AlreadyExists{E: e}}
+		case orchestrate.InvalidTransition as e:
+			return Rejected{Failure: InvalidTransition{E: e}}
+		case orchestrate.CommandReused as e:
+			return Rejected{Failure: CommandReused{E: e}}
+		case orchestrate.InvalidInput as e:
+			return Rejected{Failure: InvalidInput{E: e}}
+		case orchestrate.Unverified as e:
+			return Rejected{Failure: Unverified{E: e}}
+		case orchestrate.NotAcceptedHead as e:
+			return Rejected{Failure: NotAcceptedHead{E: e}}
+		case orchestrate.StoreFailed as e:
+			return Rejected{Failure: StoreFailed{E: e}}
+		}
+		Done{Reply: CommitmentAddReply{Value: v}}
+	case CommitmentAssignRequest as x:
+		let v = orchestrate.Api.CommitmentAssign(x.Input) catch {
+		case orchestrate.NotFound as e:
+			return Rejected{Failure: NotFound{E: e}}
+		case orchestrate.AlreadyExists as e:
+			return Rejected{Failure: AlreadyExists{E: e}}
+		case orchestrate.InvalidTransition as e:
+			return Rejected{Failure: InvalidTransition{E: e}}
+		case orchestrate.CommandReused as e:
+			return Rejected{Failure: CommandReused{E: e}}
+		case orchestrate.InvalidInput as e:
+			return Rejected{Failure: InvalidInput{E: e}}
+		case orchestrate.Unverified as e:
+			return Rejected{Failure: Unverified{E: e}}
+		case orchestrate.NotAcceptedHead as e:
+			return Rejected{Failure: NotAcceptedHead{E: e}}
+		case orchestrate.StoreFailed as e:
+			return Rejected{Failure: StoreFailed{E: e}}
+		}
+		Done{Reply: CommitmentAssignReply{Value: v}}
+	case CommitmentLandRequest as x:
+		let v = orchestrate.Api.CommitmentLand(x.Input) catch {
+		case orchestrate.NotFound as e:
+			return Rejected{Failure: NotFound{E: e}}
+		case orchestrate.AlreadyExists as e:
+			return Rejected{Failure: AlreadyExists{E: e}}
+		case orchestrate.InvalidTransition as e:
+			return Rejected{Failure: InvalidTransition{E: e}}
+		case orchestrate.CommandReused as e:
+			return Rejected{Failure: CommandReused{E: e}}
+		case orchestrate.InvalidInput as e:
+			return Rejected{Failure: InvalidInput{E: e}}
+		case orchestrate.Unverified as e:
+			return Rejected{Failure: Unverified{E: e}}
+		case orchestrate.NotAcceptedHead as e:
+			return Rejected{Failure: NotAcceptedHead{E: e}}
+		case orchestrate.StoreFailed as e:
+			return Rejected{Failure: StoreFailed{E: e}}
+		}
+		Done{Reply: CommitmentLandReply{Value: v}}
+	case CommitmentDecideRequest as x:
+		let v = orchestrate.Api.CommitmentDecide(x.Input) catch {
+		case orchestrate.NotFound as e:
+			return Rejected{Failure: NotFound{E: e}}
+		case orchestrate.AlreadyExists as e:
+			return Rejected{Failure: AlreadyExists{E: e}}
+		case orchestrate.InvalidTransition as e:
+			return Rejected{Failure: InvalidTransition{E: e}}
+		case orchestrate.CommandReused as e:
+			return Rejected{Failure: CommandReused{E: e}}
+		case orchestrate.InvalidInput as e:
+			return Rejected{Failure: InvalidInput{E: e}}
+		case orchestrate.Unverified as e:
+			return Rejected{Failure: Unverified{E: e}}
+		case orchestrate.NotAcceptedHead as e:
+			return Rejected{Failure: NotAcceptedHead{E: e}}
+		case orchestrate.StoreFailed as e:
+			return Rejected{Failure: StoreFailed{E: e}}
+		}
+		Done{Reply: CommitmentDecideReply{Value: v}}
+	case CommitmentListRequest as x:
+		let v = orchestrate.Api.CommitmentList(x.Input) catch {
+		case orchestrate.InvalidInput as e:
+			return Rejected{Failure: InvalidInput{E: e}}
+		case orchestrate.StoreFailed as e:
+			return Rejected{Failure: StoreFailed{E: e}}
+		}
+		Done{Reply: CommitmentListReply{Value: v}}
+	case QueueUpsertRequest as x:
+		let v = orchestrate.Api.QueueUpsert(x.Input) catch {
+		case orchestrate.NotFound as e:
+			return Rejected{Failure: NotFound{E: e}}
+		case orchestrate.AlreadyExists as e:
+			return Rejected{Failure: AlreadyExists{E: e}}
+		case orchestrate.InvalidTransition as e:
+			return Rejected{Failure: InvalidTransition{E: e}}
+		case orchestrate.CommandReused as e:
+			return Rejected{Failure: CommandReused{E: e}}
+		case orchestrate.InvalidInput as e:
+			return Rejected{Failure: InvalidInput{E: e}}
+		case orchestrate.Unverified as e:
+			return Rejected{Failure: Unverified{E: e}}
+		case orchestrate.NotAcceptedHead as e:
+			return Rejected{Failure: NotAcceptedHead{E: e}}
+		case orchestrate.StoreFailed as e:
+			return Rejected{Failure: StoreFailed{E: e}}
+		}
+		Done{Reply: QueueUpsertReply{Value: v}}
+	case QueueRemoveRequest as x:
+		orchestrate.Api.QueueRemove(x.Input) catch {
+		case orchestrate.NotFound as e:
+			return Rejected{Failure: NotFound{E: e}}
+		case orchestrate.AlreadyExists as e:
+			return Rejected{Failure: AlreadyExists{E: e}}
+		case orchestrate.InvalidTransition as e:
+			return Rejected{Failure: InvalidTransition{E: e}}
+		case orchestrate.CommandReused as e:
+			return Rejected{Failure: CommandReused{E: e}}
+		case orchestrate.InvalidInput as e:
+			return Rejected{Failure: InvalidInput{E: e}}
+		case orchestrate.Unverified as e:
+			return Rejected{Failure: Unverified{E: e}}
+		case orchestrate.NotAcceptedHead as e:
+			return Rejected{Failure: NotAcceptedHead{E: e}}
+		case orchestrate.StoreFailed as e:
+			return Rejected{Failure: StoreFailed{E: e}}
+		}
+		Done{Reply: QueueRemoveReply}
+	case QueueListRequest as x:
+		let v = orchestrate.Api.QueueList(x.Input) catch {
+		case orchestrate.InvalidInput as e:
+			return Rejected{Failure: InvalidInput{E: e}}
+		case orchestrate.StoreFailed as e:
+			return Rejected{Failure: StoreFailed{E: e}}
+		}
+		Done{Reply: QueueListReply{Value: v}}
+	case QuestionAskRequest as x:
+		let v = orchestrate.Api.QuestionAsk(x.Input) catch {
+		case orchestrate.NotFound as e:
+			return Rejected{Failure: NotFound{E: e}}
+		case orchestrate.AlreadyExists as e:
+			return Rejected{Failure: AlreadyExists{E: e}}
+		case orchestrate.InvalidTransition as e:
+			return Rejected{Failure: InvalidTransition{E: e}}
+		case orchestrate.CommandReused as e:
+			return Rejected{Failure: CommandReused{E: e}}
+		case orchestrate.InvalidInput as e:
+			return Rejected{Failure: InvalidInput{E: e}}
+		case orchestrate.Unverified as e:
+			return Rejected{Failure: Unverified{E: e}}
+		case orchestrate.NotAcceptedHead as e:
+			return Rejected{Failure: NotAcceptedHead{E: e}}
+		case orchestrate.StoreFailed as e:
+			return Rejected{Failure: StoreFailed{E: e}}
+		}
+		Done{Reply: QuestionAskReply{Value: v}}
+	case QuestionAnswerRequest as x:
+		let v = orchestrate.Api.QuestionAnswer(x.Input) catch {
+		case orchestrate.NotFound as e:
+			return Rejected{Failure: NotFound{E: e}}
+		case orchestrate.AlreadyExists as e:
+			return Rejected{Failure: AlreadyExists{E: e}}
+		case orchestrate.InvalidTransition as e:
+			return Rejected{Failure: InvalidTransition{E: e}}
+		case orchestrate.CommandReused as e:
+			return Rejected{Failure: CommandReused{E: e}}
+		case orchestrate.InvalidInput as e:
+			return Rejected{Failure: InvalidInput{E: e}}
+		case orchestrate.Unverified as e:
+			return Rejected{Failure: Unverified{E: e}}
+		case orchestrate.NotAcceptedHead as e:
+			return Rejected{Failure: NotAcceptedHead{E: e}}
+		case orchestrate.StoreFailed as e:
+			return Rejected{Failure: StoreFailed{E: e}}
+		}
+		Done{Reply: QuestionAnswerReply{Value: v}}
+	case QuestionListRequest as x:
+		let v = orchestrate.Api.QuestionList(x.Input) catch {
+		case orchestrate.StoreFailed as e:
+			return Rejected{Failure: StoreFailed{E: e}}
+		}
+		Done{Reply: QuestionListReply{Value: v}}
 	}
 }
 
 // Client provides orchestrate.Api by invoking typed per-operation handlers directly:
 // a direct call returns its exact value or declared failure row with no Outcome boxing.
-type Client { opUnitOpen func(orchestrate.UnitOpenInput) orchestrate.Unit fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed, opReceiptRecord func(orchestrate.ReceiptRecordInput) orchestrate.Receipt fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed, opUnitState func(orchestrate.UnitStateInput) orchestrate.UnitView fails orchestrate.NotFound | orchestrate.InvalidInput | orchestrate.StoreFailed, opUnitAccept func(orchestrate.UnitVerdictInput) orchestrate.Unit fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed, opUnitLand func(orchestrate.UnitVerdictInput) orchestrate.Unit fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed } implements orchestrate.Api
+type Client { opUnitOpen func(orchestrate.UnitOpenInput) orchestrate.Unit fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed, opReceiptRecord func(orchestrate.ReceiptRecordInput) orchestrate.Receipt fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed, opUnitState func(orchestrate.UnitStateInput) orchestrate.UnitView fails orchestrate.NotFound | orchestrate.InvalidInput | orchestrate.StoreFailed, opUnitAccept func(orchestrate.UnitVerdictInput) orchestrate.Unit fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed, opUnitLand func(orchestrate.UnitVerdictInput) orchestrate.Unit fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed, opUnitClose func(orchestrate.UnitCloseInput) orchestrate.Unit fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed, opCommitmentAdd func(orchestrate.CommitmentAddInput) orchestrate.Commitment fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed, opCommitmentAssign func(orchestrate.CommitmentAssignInput) orchestrate.Commitment fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed, opCommitmentLand func(orchestrate.CommitmentLandInput) orchestrate.Commitment fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed, opCommitmentDecide func(orchestrate.CommitmentDecideInput) orchestrate.Commitment fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed, opCommitmentList func(orchestrate.CommitmentListInput) []orchestrate.Commitment fails orchestrate.InvalidInput | orchestrate.StoreFailed, opQueueUpsert func(orchestrate.QueueUpsertInput) orchestrate.QueueItem fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed, opQueueRemove func(orchestrate.QueueRemoveInput) fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed, opQueueList func(orchestrate.QueueListInput) []orchestrate.QueueItem fails orchestrate.InvalidInput | orchestrate.StoreFailed, opQuestionAsk func(orchestrate.QuestionAskInput) orchestrate.Question fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed, opQuestionAnswer func(orchestrate.QuestionAnswerInput) orchestrate.Question fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed, opQuestionList func(orchestrate.QuestionListInput) []orchestrate.Question fails orchestrate.StoreFailed } implements orchestrate.Api
 
 // NewClient is the orchestrate.Api that invokes inner directly per operation.
 func NewClient(inner orchestrate.Api) Client {
 	Client{
-		opUnitOpen:      func(input orchestrate.UnitOpenInput) orchestrate.Unit fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed { try inner.UnitOpen(input) },
-		opReceiptRecord: func(input orchestrate.ReceiptRecordInput) orchestrate.Receipt fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed { try inner.ReceiptRecord(input) },
-		opUnitState:     func(input orchestrate.UnitStateInput) orchestrate.UnitView fails orchestrate.NotFound | orchestrate.InvalidInput | orchestrate.StoreFailed { try inner.UnitState(input) },
-		opUnitAccept:    func(input orchestrate.UnitVerdictInput) orchestrate.Unit fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed { try inner.UnitAccept(input) },
-		opUnitLand:      func(input orchestrate.UnitVerdictInput) orchestrate.Unit fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed { try inner.UnitLand(input) },
+		opUnitOpen:         func(input orchestrate.UnitOpenInput) orchestrate.Unit fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed { try inner.UnitOpen(input) },
+		opReceiptRecord:    func(input orchestrate.ReceiptRecordInput) orchestrate.Receipt fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed { try inner.ReceiptRecord(input) },
+		opUnitState:        func(input orchestrate.UnitStateInput) orchestrate.UnitView fails orchestrate.NotFound | orchestrate.InvalidInput | orchestrate.StoreFailed { try inner.UnitState(input) },
+		opUnitAccept:       func(input orchestrate.UnitVerdictInput) orchestrate.Unit fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed { try inner.UnitAccept(input) },
+		opUnitLand:         func(input orchestrate.UnitVerdictInput) orchestrate.Unit fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed { try inner.UnitLand(input) },
+		opUnitClose:        func(input orchestrate.UnitCloseInput) orchestrate.Unit fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed { try inner.UnitClose(input) },
+		opCommitmentAdd:    func(input orchestrate.CommitmentAddInput) orchestrate.Commitment fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed { try inner.CommitmentAdd(input) },
+		opCommitmentAssign: func(input orchestrate.CommitmentAssignInput) orchestrate.Commitment fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed { try inner.CommitmentAssign(input) },
+		opCommitmentLand:   func(input orchestrate.CommitmentLandInput) orchestrate.Commitment fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed { try inner.CommitmentLand(input) },
+		opCommitmentDecide: func(input orchestrate.CommitmentDecideInput) orchestrate.Commitment fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed { try inner.CommitmentDecide(input) },
+		opCommitmentList:   func(input orchestrate.CommitmentListInput) []orchestrate.Commitment fails orchestrate.InvalidInput | orchestrate.StoreFailed { try inner.CommitmentList(input) },
+		opQueueUpsert:      func(input orchestrate.QueueUpsertInput) orchestrate.QueueItem fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed { try inner.QueueUpsert(input) },
+		opQueueRemove:      func(input orchestrate.QueueRemoveInput) fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed { try inner.QueueRemove(input) },
+		opQueueList:        func(input orchestrate.QueueListInput) []orchestrate.QueueItem fails orchestrate.InvalidInput | orchestrate.StoreFailed { try inner.QueueList(input) },
+		opQuestionAsk:      func(input orchestrate.QuestionAskInput) orchestrate.Question fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed { try inner.QuestionAsk(input) },
+		opQuestionAnswer:   func(input orchestrate.QuestionAnswerInput) orchestrate.Question fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed { try inner.QuestionAnswer(input) },
+		opQuestionList:     func(input orchestrate.QuestionListInput) []orchestrate.Question fails orchestrate.StoreFailed { try inner.QuestionList(input) },
 	}
 }
 
 // ClientInForce is the orchestrate.Api that invokes the provider currently in force.
 func ClientInForce() Client needs orchestrate.Api {
-	let held = InForce[orchestrate.Api]()
+	let held = scope.InForce[orchestrate.Api]()
 	Client{
-		opUnitOpen:      func(input orchestrate.UnitOpenInput) orchestrate.Unit fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed { with held { try orchestrate.Api.UnitOpen(input) } },
-		opReceiptRecord: func(input orchestrate.ReceiptRecordInput) orchestrate.Receipt fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed { with held { try orchestrate.Api.ReceiptRecord(input) } },
-		opUnitState:     func(input orchestrate.UnitStateInput) orchestrate.UnitView fails orchestrate.NotFound | orchestrate.InvalidInput | orchestrate.StoreFailed { with held { try orchestrate.Api.UnitState(input) } },
-		opUnitAccept:    func(input orchestrate.UnitVerdictInput) orchestrate.Unit fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed { with held { try orchestrate.Api.UnitAccept(input) } },
-		opUnitLand:      func(input orchestrate.UnitVerdictInput) orchestrate.Unit fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed { with held { try orchestrate.Api.UnitLand(input) } },
+		opUnitOpen:         func(input orchestrate.UnitOpenInput) orchestrate.Unit fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed { with held { try orchestrate.Api.UnitOpen(input) } },
+		opReceiptRecord:    func(input orchestrate.ReceiptRecordInput) orchestrate.Receipt fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed { with held { try orchestrate.Api.ReceiptRecord(input) } },
+		opUnitState:        func(input orchestrate.UnitStateInput) orchestrate.UnitView fails orchestrate.NotFound | orchestrate.InvalidInput | orchestrate.StoreFailed { with held { try orchestrate.Api.UnitState(input) } },
+		opUnitAccept:       func(input orchestrate.UnitVerdictInput) orchestrate.Unit fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed { with held { try orchestrate.Api.UnitAccept(input) } },
+		opUnitLand:         func(input orchestrate.UnitVerdictInput) orchestrate.Unit fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed { with held { try orchestrate.Api.UnitLand(input) } },
+		opUnitClose:        func(input orchestrate.UnitCloseInput) orchestrate.Unit fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed { with held { try orchestrate.Api.UnitClose(input) } },
+		opCommitmentAdd:    func(input orchestrate.CommitmentAddInput) orchestrate.Commitment fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed { with held { try orchestrate.Api.CommitmentAdd(input) } },
+		opCommitmentAssign: func(input orchestrate.CommitmentAssignInput) orchestrate.Commitment fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed { with held { try orchestrate.Api.CommitmentAssign(input) } },
+		opCommitmentLand:   func(input orchestrate.CommitmentLandInput) orchestrate.Commitment fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed { with held { try orchestrate.Api.CommitmentLand(input) } },
+		opCommitmentDecide: func(input orchestrate.CommitmentDecideInput) orchestrate.Commitment fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed { with held { try orchestrate.Api.CommitmentDecide(input) } },
+		opCommitmentList:   func(input orchestrate.CommitmentListInput) []orchestrate.Commitment fails orchestrate.InvalidInput | orchestrate.StoreFailed { with held { try orchestrate.Api.CommitmentList(input) } },
+		opQueueUpsert:      func(input orchestrate.QueueUpsertInput) orchestrate.QueueItem fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed { with held { try orchestrate.Api.QueueUpsert(input) } },
+		opQueueRemove:      func(input orchestrate.QueueRemoveInput) fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed { with held { try orchestrate.Api.QueueRemove(input) } },
+		opQueueList:        func(input orchestrate.QueueListInput) []orchestrate.QueueItem fails orchestrate.InvalidInput | orchestrate.StoreFailed { with held { try orchestrate.Api.QueueList(input) } },
+		opQuestionAsk:      func(input orchestrate.QuestionAskInput) orchestrate.Question fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed { with held { try orchestrate.Api.QuestionAsk(input) } },
+		opQuestionAnswer:   func(input orchestrate.QuestionAnswerInput) orchestrate.Question fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed { with held { try orchestrate.Api.QuestionAnswer(input) } },
+		opQuestionList:     func(input orchestrate.QuestionListInput) []orchestrate.Question fails orchestrate.StoreFailed { with held { try orchestrate.Api.QuestionList(input) } },
 	}
 }
 
@@ -240,6 +563,66 @@ func UnitAccept(client Client, input orchestrate.UnitVerdictInput) orchestrate.U
 // UnitLand invokes orchestrate.Api's UnitLand directly.
 func UnitLand(client Client, input orchestrate.UnitVerdictInput) orchestrate.Unit fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed {
 	try client.opUnitLand(input)
+}
+
+// UnitClose invokes orchestrate.Api's UnitClose directly.
+func UnitClose(client Client, input orchestrate.UnitCloseInput) orchestrate.Unit fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed {
+	try client.opUnitClose(input)
+}
+
+// CommitmentAdd invokes orchestrate.Api's CommitmentAdd directly.
+func CommitmentAdd(client Client, input orchestrate.CommitmentAddInput) orchestrate.Commitment fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed {
+	try client.opCommitmentAdd(input)
+}
+
+// CommitmentAssign invokes orchestrate.Api's CommitmentAssign directly.
+func CommitmentAssign(client Client, input orchestrate.CommitmentAssignInput) orchestrate.Commitment fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed {
+	try client.opCommitmentAssign(input)
+}
+
+// CommitmentLand invokes orchestrate.Api's CommitmentLand directly.
+func CommitmentLand(client Client, input orchestrate.CommitmentLandInput) orchestrate.Commitment fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed {
+	try client.opCommitmentLand(input)
+}
+
+// CommitmentDecide invokes orchestrate.Api's CommitmentDecide directly.
+func CommitmentDecide(client Client, input orchestrate.CommitmentDecideInput) orchestrate.Commitment fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed {
+	try client.opCommitmentDecide(input)
+}
+
+// CommitmentList invokes orchestrate.Api's CommitmentList directly.
+func CommitmentList(client Client, input orchestrate.CommitmentListInput) []orchestrate.Commitment fails orchestrate.InvalidInput | orchestrate.StoreFailed {
+	try client.opCommitmentList(input)
+}
+
+// QueueUpsert invokes orchestrate.Api's QueueUpsert directly.
+func QueueUpsert(client Client, input orchestrate.QueueUpsertInput) orchestrate.QueueItem fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed {
+	try client.opQueueUpsert(input)
+}
+
+// QueueRemove invokes orchestrate.Api's QueueRemove directly.
+func QueueRemove(client Client, input orchestrate.QueueRemoveInput) fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed {
+	try client.opQueueRemove(input)
+}
+
+// QueueList invokes orchestrate.Api's QueueList directly.
+func QueueList(client Client, input orchestrate.QueueListInput) []orchestrate.QueueItem fails orchestrate.InvalidInput | orchestrate.StoreFailed {
+	try client.opQueueList(input)
+}
+
+// QuestionAsk invokes orchestrate.Api's QuestionAsk directly.
+func QuestionAsk(client Client, input orchestrate.QuestionAskInput) orchestrate.Question fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed {
+	try client.opQuestionAsk(input)
+}
+
+// QuestionAnswer invokes orchestrate.Api's QuestionAnswer directly.
+func QuestionAnswer(client Client, input orchestrate.QuestionAnswerInput) orchestrate.Question fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed {
+	try client.opQuestionAnswer(input)
+}
+
+// QuestionList invokes orchestrate.Api's QuestionList directly.
+func QuestionList(client Client, input orchestrate.QuestionListInput) []orchestrate.Question fails orchestrate.StoreFailed {
+	try client.opQuestionList(input)
 }
 
 // CheckedClient carries erased orchestrate.Api requests over send and validates each
@@ -402,9 +785,360 @@ func UnitLandChecked(client CheckedClient, input orchestrate.UnitVerdictInput) o
 	}
 }
 
+// UnitCloseChecked sends orchestrate.Api's UnitClose over send and validates its Outcome.
+func UnitCloseChecked(client CheckedClient, input orchestrate.UnitCloseInput) orchestrate.Unit fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed | rpc.Transport {
+	match try client.send(UnitCloseRequest{Input: input}) {
+	case Done as done:
+		match done.Reply {
+		case UnitCloseReply as reply:
+			reply.Value
+		case _:
+			return rpc.Transport{Reason: "orchestrateapi: UnitClose was answered with the value of another operation"}
+		}
+	case Rejected as rejected:
+		match rejected.Failure {
+		case NotFound as failure:
+			return failure.E
+		case AlreadyExists as failure:
+			return failure.E
+		case InvalidTransition as failure:
+			return failure.E
+		case CommandReused as failure:
+			return failure.E
+		case InvalidInput as failure:
+			return failure.E
+		case Unverified as failure:
+			return failure.E
+		case NotAcceptedHead as failure:
+			return failure.E
+		case StoreFailed as failure:
+			return failure.E
+		}
+	}
+}
+
+// CommitmentAddChecked sends orchestrate.Api's CommitmentAdd over send and validates its Outcome.
+func CommitmentAddChecked(client CheckedClient, input orchestrate.CommitmentAddInput) orchestrate.Commitment fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed | rpc.Transport {
+	match try client.send(CommitmentAddRequest{Input: input}) {
+	case Done as done:
+		match done.Reply {
+		case CommitmentAddReply as reply:
+			reply.Value
+		case _:
+			return rpc.Transport{Reason: "orchestrateapi: CommitmentAdd was answered with the value of another operation"}
+		}
+	case Rejected as rejected:
+		match rejected.Failure {
+		case NotFound as failure:
+			return failure.E
+		case AlreadyExists as failure:
+			return failure.E
+		case InvalidTransition as failure:
+			return failure.E
+		case CommandReused as failure:
+			return failure.E
+		case InvalidInput as failure:
+			return failure.E
+		case Unverified as failure:
+			return failure.E
+		case NotAcceptedHead as failure:
+			return failure.E
+		case StoreFailed as failure:
+			return failure.E
+		}
+	}
+}
+
+// CommitmentAssignChecked sends orchestrate.Api's CommitmentAssign over send and validates its Outcome.
+func CommitmentAssignChecked(client CheckedClient, input orchestrate.CommitmentAssignInput) orchestrate.Commitment fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed | rpc.Transport {
+	match try client.send(CommitmentAssignRequest{Input: input}) {
+	case Done as done:
+		match done.Reply {
+		case CommitmentAssignReply as reply:
+			reply.Value
+		case _:
+			return rpc.Transport{Reason: "orchestrateapi: CommitmentAssign was answered with the value of another operation"}
+		}
+	case Rejected as rejected:
+		match rejected.Failure {
+		case NotFound as failure:
+			return failure.E
+		case AlreadyExists as failure:
+			return failure.E
+		case InvalidTransition as failure:
+			return failure.E
+		case CommandReused as failure:
+			return failure.E
+		case InvalidInput as failure:
+			return failure.E
+		case Unverified as failure:
+			return failure.E
+		case NotAcceptedHead as failure:
+			return failure.E
+		case StoreFailed as failure:
+			return failure.E
+		}
+	}
+}
+
+// CommitmentLandChecked sends orchestrate.Api's CommitmentLand over send and validates its Outcome.
+func CommitmentLandChecked(client CheckedClient, input orchestrate.CommitmentLandInput) orchestrate.Commitment fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed | rpc.Transport {
+	match try client.send(CommitmentLandRequest{Input: input}) {
+	case Done as done:
+		match done.Reply {
+		case CommitmentLandReply as reply:
+			reply.Value
+		case _:
+			return rpc.Transport{Reason: "orchestrateapi: CommitmentLand was answered with the value of another operation"}
+		}
+	case Rejected as rejected:
+		match rejected.Failure {
+		case NotFound as failure:
+			return failure.E
+		case AlreadyExists as failure:
+			return failure.E
+		case InvalidTransition as failure:
+			return failure.E
+		case CommandReused as failure:
+			return failure.E
+		case InvalidInput as failure:
+			return failure.E
+		case Unverified as failure:
+			return failure.E
+		case NotAcceptedHead as failure:
+			return failure.E
+		case StoreFailed as failure:
+			return failure.E
+		}
+	}
+}
+
+// CommitmentDecideChecked sends orchestrate.Api's CommitmentDecide over send and validates its Outcome.
+func CommitmentDecideChecked(client CheckedClient, input orchestrate.CommitmentDecideInput) orchestrate.Commitment fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed | rpc.Transport {
+	match try client.send(CommitmentDecideRequest{Input: input}) {
+	case Done as done:
+		match done.Reply {
+		case CommitmentDecideReply as reply:
+			reply.Value
+		case _:
+			return rpc.Transport{Reason: "orchestrateapi: CommitmentDecide was answered with the value of another operation"}
+		}
+	case Rejected as rejected:
+		match rejected.Failure {
+		case NotFound as failure:
+			return failure.E
+		case AlreadyExists as failure:
+			return failure.E
+		case InvalidTransition as failure:
+			return failure.E
+		case CommandReused as failure:
+			return failure.E
+		case InvalidInput as failure:
+			return failure.E
+		case Unverified as failure:
+			return failure.E
+		case NotAcceptedHead as failure:
+			return failure.E
+		case StoreFailed as failure:
+			return failure.E
+		}
+	}
+}
+
+// CommitmentListChecked sends orchestrate.Api's CommitmentList over send and validates its Outcome.
+func CommitmentListChecked(client CheckedClient, input orchestrate.CommitmentListInput) []orchestrate.Commitment fails orchestrate.InvalidInput | orchestrate.StoreFailed | rpc.Transport {
+	match try client.send(CommitmentListRequest{Input: input}) {
+	case Done as done:
+		match done.Reply {
+		case CommitmentListReply as reply:
+			reply.Value
+		case _:
+			return rpc.Transport{Reason: "orchestrateapi: CommitmentList was answered with the value of another operation"}
+		}
+	case Rejected as rejected:
+		match rejected.Failure {
+		case InvalidInput as failure:
+			return failure.E
+		case StoreFailed as failure:
+			return failure.E
+		case _:
+			return rpc.Transport{Reason: "orchestrateapi: CommitmentList was answered with a failure outside its row"}
+		}
+	}
+}
+
+// QueueUpsertChecked sends orchestrate.Api's QueueUpsert over send and validates its Outcome.
+func QueueUpsertChecked(client CheckedClient, input orchestrate.QueueUpsertInput) orchestrate.QueueItem fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed | rpc.Transport {
+	match try client.send(QueueUpsertRequest{Input: input}) {
+	case Done as done:
+		match done.Reply {
+		case QueueUpsertReply as reply:
+			reply.Value
+		case _:
+			return rpc.Transport{Reason: "orchestrateapi: QueueUpsert was answered with the value of another operation"}
+		}
+	case Rejected as rejected:
+		match rejected.Failure {
+		case NotFound as failure:
+			return failure.E
+		case AlreadyExists as failure:
+			return failure.E
+		case InvalidTransition as failure:
+			return failure.E
+		case CommandReused as failure:
+			return failure.E
+		case InvalidInput as failure:
+			return failure.E
+		case Unverified as failure:
+			return failure.E
+		case NotAcceptedHead as failure:
+			return failure.E
+		case StoreFailed as failure:
+			return failure.E
+		}
+	}
+}
+
+// QueueRemoveChecked sends orchestrate.Api's QueueRemove over send and validates its Outcome.
+func QueueRemoveChecked(client CheckedClient, input orchestrate.QueueRemoveInput) fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed | rpc.Transport {
+	match try client.send(QueueRemoveRequest{Input: input}) {
+	case Done as done:
+		match done.Reply {
+		case QueueRemoveReply:
+		case _:
+			return rpc.Transport{Reason: "orchestrateapi: QueueRemove was answered with the value of another operation"}
+		}
+	case Rejected as rejected:
+		match rejected.Failure {
+		case NotFound as failure:
+			return failure.E
+		case AlreadyExists as failure:
+			return failure.E
+		case InvalidTransition as failure:
+			return failure.E
+		case CommandReused as failure:
+			return failure.E
+		case InvalidInput as failure:
+			return failure.E
+		case Unverified as failure:
+			return failure.E
+		case NotAcceptedHead as failure:
+			return failure.E
+		case StoreFailed as failure:
+			return failure.E
+		}
+	}
+}
+
+// QueueListChecked sends orchestrate.Api's QueueList over send and validates its Outcome.
+func QueueListChecked(client CheckedClient, input orchestrate.QueueListInput) []orchestrate.QueueItem fails orchestrate.InvalidInput | orchestrate.StoreFailed | rpc.Transport {
+	match try client.send(QueueListRequest{Input: input}) {
+	case Done as done:
+		match done.Reply {
+		case QueueListReply as reply:
+			reply.Value
+		case _:
+			return rpc.Transport{Reason: "orchestrateapi: QueueList was answered with the value of another operation"}
+		}
+	case Rejected as rejected:
+		match rejected.Failure {
+		case InvalidInput as failure:
+			return failure.E
+		case StoreFailed as failure:
+			return failure.E
+		case _:
+			return rpc.Transport{Reason: "orchestrateapi: QueueList was answered with a failure outside its row"}
+		}
+	}
+}
+
+// QuestionAskChecked sends orchestrate.Api's QuestionAsk over send and validates its Outcome.
+func QuestionAskChecked(client CheckedClient, input orchestrate.QuestionAskInput) orchestrate.Question fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed | rpc.Transport {
+	match try client.send(QuestionAskRequest{Input: input}) {
+	case Done as done:
+		match done.Reply {
+		case QuestionAskReply as reply:
+			reply.Value
+		case _:
+			return rpc.Transport{Reason: "orchestrateapi: QuestionAsk was answered with the value of another operation"}
+		}
+	case Rejected as rejected:
+		match rejected.Failure {
+		case NotFound as failure:
+			return failure.E
+		case AlreadyExists as failure:
+			return failure.E
+		case InvalidTransition as failure:
+			return failure.E
+		case CommandReused as failure:
+			return failure.E
+		case InvalidInput as failure:
+			return failure.E
+		case Unverified as failure:
+			return failure.E
+		case NotAcceptedHead as failure:
+			return failure.E
+		case StoreFailed as failure:
+			return failure.E
+		}
+	}
+}
+
+// QuestionAnswerChecked sends orchestrate.Api's QuestionAnswer over send and validates its Outcome.
+func QuestionAnswerChecked(client CheckedClient, input orchestrate.QuestionAnswerInput) orchestrate.Question fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed | rpc.Transport {
+	match try client.send(QuestionAnswerRequest{Input: input}) {
+	case Done as done:
+		match done.Reply {
+		case QuestionAnswerReply as reply:
+			reply.Value
+		case _:
+			return rpc.Transport{Reason: "orchestrateapi: QuestionAnswer was answered with the value of another operation"}
+		}
+	case Rejected as rejected:
+		match rejected.Failure {
+		case NotFound as failure:
+			return failure.E
+		case AlreadyExists as failure:
+			return failure.E
+		case InvalidTransition as failure:
+			return failure.E
+		case CommandReused as failure:
+			return failure.E
+		case InvalidInput as failure:
+			return failure.E
+		case Unverified as failure:
+			return failure.E
+		case NotAcceptedHead as failure:
+			return failure.E
+		case StoreFailed as failure:
+			return failure.E
+		}
+	}
+}
+
+// QuestionListChecked sends orchestrate.Api's QuestionList over send and validates its Outcome.
+func QuestionListChecked(client CheckedClient, input orchestrate.QuestionListInput) []orchestrate.Question fails orchestrate.StoreFailed | rpc.Transport {
+	match try client.send(QuestionListRequest{Input: input}) {
+	case Done as done:
+		match done.Reply {
+		case QuestionListReply as reply:
+			reply.Value
+		case _:
+			return rpc.Transport{Reason: "orchestrateapi: QuestionList was answered with the value of another operation"}
+		}
+	case Rejected as rejected:
+		match rejected.Failure {
+		case StoreFailed as failure:
+			return failure.E
+		case _:
+			return rpc.Transport{Reason: "orchestrateapi: QuestionList was answered with a failure outside its row"}
+		}
+	}
+}
+
 // Values holds a value of each operation's value type, so a law can
 // answer any operation.
-type Values { UnitOpen orchestrate.Unit, ReceiptRecord orchestrate.Receipt, UnitState orchestrate.UnitView, UnitAccept orchestrate.Unit, UnitLand orchestrate.Unit }
+type Values { UnitOpen orchestrate.Unit, ReceiptRecord orchestrate.Receipt, UnitState orchestrate.UnitView, UnitAccept orchestrate.Unit, UnitLand orchestrate.Unit, UnitClose orchestrate.Unit, CommitmentAdd orchestrate.Commitment, CommitmentAssign orchestrate.Commitment, CommitmentLand orchestrate.Commitment, CommitmentDecide orchestrate.Commitment, CommitmentList []orchestrate.Commitment, QueueUpsert orchestrate.QueueItem, QueueList []orchestrate.QueueItem, QuestionAsk orchestrate.Question, QuestionAnswer orchestrate.Question, QuestionList []orchestrate.Question }
 
 func inRow(op Op, f Failure) bool {
 	match op {
@@ -435,6 +1169,72 @@ func inRow(op Op, f Failure) bool {
 		case NotFound, AlreadyExists, InvalidTransition, CommandReused, InvalidInput, Unverified, NotAcceptedHead, StoreFailed:
 			true
 		}
+	case UnitCloseOp:
+		match f {
+		case NotFound, AlreadyExists, InvalidTransition, CommandReused, InvalidInput, Unverified, NotAcceptedHead, StoreFailed:
+			true
+		}
+	case CommitmentAddOp:
+		match f {
+		case NotFound, AlreadyExists, InvalidTransition, CommandReused, InvalidInput, Unverified, NotAcceptedHead, StoreFailed:
+			true
+		}
+	case CommitmentAssignOp:
+		match f {
+		case NotFound, AlreadyExists, InvalidTransition, CommandReused, InvalidInput, Unverified, NotAcceptedHead, StoreFailed:
+			true
+		}
+	case CommitmentLandOp:
+		match f {
+		case NotFound, AlreadyExists, InvalidTransition, CommandReused, InvalidInput, Unverified, NotAcceptedHead, StoreFailed:
+			true
+		}
+	case CommitmentDecideOp:
+		match f {
+		case NotFound, AlreadyExists, InvalidTransition, CommandReused, InvalidInput, Unverified, NotAcceptedHead, StoreFailed:
+			true
+		}
+	case CommitmentListOp:
+		match f {
+		case InvalidInput, StoreFailed:
+			true
+		case _:
+			false
+		}
+	case QueueUpsertOp:
+		match f {
+		case NotFound, AlreadyExists, InvalidTransition, CommandReused, InvalidInput, Unverified, NotAcceptedHead, StoreFailed:
+			true
+		}
+	case QueueRemoveOp:
+		match f {
+		case NotFound, AlreadyExists, InvalidTransition, CommandReused, InvalidInput, Unverified, NotAcceptedHead, StoreFailed:
+			true
+		}
+	case QueueListOp:
+		match f {
+		case InvalidInput, StoreFailed:
+			true
+		case _:
+			false
+		}
+	case QuestionAskOp:
+		match f {
+		case NotFound, AlreadyExists, InvalidTransition, CommandReused, InvalidInput, Unverified, NotAcceptedHead, StoreFailed:
+			true
+		}
+	case QuestionAnswerOp:
+		match f {
+		case NotFound, AlreadyExists, InvalidTransition, CommandReused, InvalidInput, Unverified, NotAcceptedHead, StoreFailed:
+			true
+		}
+	case QuestionListOp:
+		match f {
+		case StoreFailed:
+			true
+		case _:
+			false
+		}
 	}
 }
 
@@ -460,6 +1260,30 @@ func OutcomeOf(r Request, g Given) Outcome {
 		Done{Reply: UnitAcceptReply{Value: g.Values.UnitAccept}}
 	case UnitLandRequest:
 		Done{Reply: UnitLandReply{Value: g.Values.UnitLand}}
+	case UnitCloseRequest:
+		Done{Reply: UnitCloseReply{Value: g.Values.UnitClose}}
+	case CommitmentAddRequest:
+		Done{Reply: CommitmentAddReply{Value: g.Values.CommitmentAdd}}
+	case CommitmentAssignRequest:
+		Done{Reply: CommitmentAssignReply{Value: g.Values.CommitmentAssign}}
+	case CommitmentLandRequest:
+		Done{Reply: CommitmentLandReply{Value: g.Values.CommitmentLand}}
+	case CommitmentDecideRequest:
+		Done{Reply: CommitmentDecideReply{Value: g.Values.CommitmentDecide}}
+	case CommitmentListRequest:
+		Done{Reply: CommitmentListReply{Value: g.Values.CommitmentList}}
+	case QueueUpsertRequest:
+		Done{Reply: QueueUpsertReply{Value: g.Values.QueueUpsert}}
+	case QueueRemoveRequest:
+		Done{Reply: QueueRemoveReply}
+	case QueueListRequest:
+		Done{Reply: QueueListReply{Value: g.Values.QueueList}}
+	case QuestionAskRequest:
+		Done{Reply: QuestionAskReply{Value: g.Values.QuestionAsk}}
+	case QuestionAnswerRequest:
+		Done{Reply: QuestionAnswerReply{Value: g.Values.QuestionAnswer}}
+	case QuestionListRequest:
+		Done{Reply: QuestionListReply{Value: g.Values.QuestionList}}
 	}
 }
 
@@ -576,6 +1400,258 @@ func scripted(g Given, sent sync.Ref[[]Request]) Client {
 			}
 			g.Values.UnitLand
 		},
+		opUnitClose: func(input orchestrate.UnitCloseInput) orchestrate.Unit fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed {
+			sent.Update(func(rs []Request) []Request { rs.Append(UnitCloseRequest{Input: input}) })
+			if g.Failing {
+				match g.Failure {
+				case NotFound as err:
+					return err.E
+				case AlreadyExists as err:
+					return err.E
+				case InvalidTransition as err:
+					return err.E
+				case CommandReused as err:
+					return err.E
+				case InvalidInput as err:
+					return err.E
+				case Unverified as err:
+					return err.E
+				case NotAcceptedHead as err:
+					return err.E
+				case StoreFailed as err:
+					return err.E
+				}
+			}
+			g.Values.UnitClose
+		},
+		opCommitmentAdd: func(input orchestrate.CommitmentAddInput) orchestrate.Commitment fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed {
+			sent.Update(func(rs []Request) []Request { rs.Append(CommitmentAddRequest{Input: input}) })
+			if g.Failing {
+				match g.Failure {
+				case NotFound as err:
+					return err.E
+				case AlreadyExists as err:
+					return err.E
+				case InvalidTransition as err:
+					return err.E
+				case CommandReused as err:
+					return err.E
+				case InvalidInput as err:
+					return err.E
+				case Unverified as err:
+					return err.E
+				case NotAcceptedHead as err:
+					return err.E
+				case StoreFailed as err:
+					return err.E
+				}
+			}
+			g.Values.CommitmentAdd
+		},
+		opCommitmentAssign: func(input orchestrate.CommitmentAssignInput) orchestrate.Commitment fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed {
+			sent.Update(func(rs []Request) []Request { rs.Append(CommitmentAssignRequest{Input: input}) })
+			if g.Failing {
+				match g.Failure {
+				case NotFound as err:
+					return err.E
+				case AlreadyExists as err:
+					return err.E
+				case InvalidTransition as err:
+					return err.E
+				case CommandReused as err:
+					return err.E
+				case InvalidInput as err:
+					return err.E
+				case Unverified as err:
+					return err.E
+				case NotAcceptedHead as err:
+					return err.E
+				case StoreFailed as err:
+					return err.E
+				}
+			}
+			g.Values.CommitmentAssign
+		},
+		opCommitmentLand: func(input orchestrate.CommitmentLandInput) orchestrate.Commitment fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed {
+			sent.Update(func(rs []Request) []Request { rs.Append(CommitmentLandRequest{Input: input}) })
+			if g.Failing {
+				match g.Failure {
+				case NotFound as err:
+					return err.E
+				case AlreadyExists as err:
+					return err.E
+				case InvalidTransition as err:
+					return err.E
+				case CommandReused as err:
+					return err.E
+				case InvalidInput as err:
+					return err.E
+				case Unverified as err:
+					return err.E
+				case NotAcceptedHead as err:
+					return err.E
+				case StoreFailed as err:
+					return err.E
+				}
+			}
+			g.Values.CommitmentLand
+		},
+		opCommitmentDecide: func(input orchestrate.CommitmentDecideInput) orchestrate.Commitment fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed {
+			sent.Update(func(rs []Request) []Request { rs.Append(CommitmentDecideRequest{Input: input}) })
+			if g.Failing {
+				match g.Failure {
+				case NotFound as err:
+					return err.E
+				case AlreadyExists as err:
+					return err.E
+				case InvalidTransition as err:
+					return err.E
+				case CommandReused as err:
+					return err.E
+				case InvalidInput as err:
+					return err.E
+				case Unverified as err:
+					return err.E
+				case NotAcceptedHead as err:
+					return err.E
+				case StoreFailed as err:
+					return err.E
+				}
+			}
+			g.Values.CommitmentDecide
+		},
+		opCommitmentList: func(input orchestrate.CommitmentListInput) []orchestrate.Commitment fails orchestrate.InvalidInput | orchestrate.StoreFailed {
+			sent.Update(func(rs []Request) []Request { rs.Append(CommitmentListRequest{Input: input}) })
+			if g.Failing {
+				match g.Failure {
+				case InvalidInput as err:
+					return err.E
+				case StoreFailed as err:
+					return err.E
+				case _:
+				}
+			}
+			g.Values.CommitmentList
+		},
+		opQueueUpsert: func(input orchestrate.QueueUpsertInput) orchestrate.QueueItem fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed {
+			sent.Update(func(rs []Request) []Request { rs.Append(QueueUpsertRequest{Input: input}) })
+			if g.Failing {
+				match g.Failure {
+				case NotFound as err:
+					return err.E
+				case AlreadyExists as err:
+					return err.E
+				case InvalidTransition as err:
+					return err.E
+				case CommandReused as err:
+					return err.E
+				case InvalidInput as err:
+					return err.E
+				case Unverified as err:
+					return err.E
+				case NotAcceptedHead as err:
+					return err.E
+				case StoreFailed as err:
+					return err.E
+				}
+			}
+			g.Values.QueueUpsert
+		},
+		opQueueRemove: func(input orchestrate.QueueRemoveInput) fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed {
+			sent.Update(func(rs []Request) []Request { rs.Append(QueueRemoveRequest{Input: input}) })
+			if g.Failing {
+				match g.Failure {
+				case NotFound as err:
+					return err.E
+				case AlreadyExists as err:
+					return err.E
+				case InvalidTransition as err:
+					return err.E
+				case CommandReused as err:
+					return err.E
+				case InvalidInput as err:
+					return err.E
+				case Unverified as err:
+					return err.E
+				case NotAcceptedHead as err:
+					return err.E
+				case StoreFailed as err:
+					return err.E
+				}
+			}
+		},
+		opQueueList: func(input orchestrate.QueueListInput) []orchestrate.QueueItem fails orchestrate.InvalidInput | orchestrate.StoreFailed {
+			sent.Update(func(rs []Request) []Request { rs.Append(QueueListRequest{Input: input}) })
+			if g.Failing {
+				match g.Failure {
+				case InvalidInput as err:
+					return err.E
+				case StoreFailed as err:
+					return err.E
+				case _:
+				}
+			}
+			g.Values.QueueList
+		},
+		opQuestionAsk: func(input orchestrate.QuestionAskInput) orchestrate.Question fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed {
+			sent.Update(func(rs []Request) []Request { rs.Append(QuestionAskRequest{Input: input}) })
+			if g.Failing {
+				match g.Failure {
+				case NotFound as err:
+					return err.E
+				case AlreadyExists as err:
+					return err.E
+				case InvalidTransition as err:
+					return err.E
+				case CommandReused as err:
+					return err.E
+				case InvalidInput as err:
+					return err.E
+				case Unverified as err:
+					return err.E
+				case NotAcceptedHead as err:
+					return err.E
+				case StoreFailed as err:
+					return err.E
+				}
+			}
+			g.Values.QuestionAsk
+		},
+		opQuestionAnswer: func(input orchestrate.QuestionAnswerInput) orchestrate.Question fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed {
+			sent.Update(func(rs []Request) []Request { rs.Append(QuestionAnswerRequest{Input: input}) })
+			if g.Failing {
+				match g.Failure {
+				case NotFound as err:
+					return err.E
+				case AlreadyExists as err:
+					return err.E
+				case InvalidTransition as err:
+					return err.E
+				case CommandReused as err:
+					return err.E
+				case InvalidInput as err:
+					return err.E
+				case Unverified as err:
+					return err.E
+				case NotAcceptedHead as err:
+					return err.E
+				case StoreFailed as err:
+					return err.E
+				}
+			}
+			g.Values.QuestionAnswer
+		},
+		opQuestionList: func(input orchestrate.QuestionListInput) []orchestrate.Question fails orchestrate.StoreFailed {
+			sent.Update(func(rs []Request) []Request { rs.Append(QuestionListRequest{Input: input}) })
+			if g.Failing {
+				match g.Failure {
+				case StoreFailed as err:
+					return err.E
+				case _:
+				}
+			}
+			g.Values.QuestionList
+		},
 	}
 }
 
@@ -681,6 +1757,232 @@ func callChecked(client CheckedClient, r Request) Outcome fails rpc.Transport {
 			return t
 		}
 		Done{Reply: UnitLandReply{Value: v}}
+	case UnitCloseRequest as x:
+		let v = UnitCloseChecked(client, x.Input) catch {
+		case orchestrate.NotFound as e:
+			return Rejected{Failure: NotFound{E: e}}
+		case orchestrate.AlreadyExists as e:
+			return Rejected{Failure: AlreadyExists{E: e}}
+		case orchestrate.InvalidTransition as e:
+			return Rejected{Failure: InvalidTransition{E: e}}
+		case orchestrate.CommandReused as e:
+			return Rejected{Failure: CommandReused{E: e}}
+		case orchestrate.InvalidInput as e:
+			return Rejected{Failure: InvalidInput{E: e}}
+		case orchestrate.Unverified as e:
+			return Rejected{Failure: Unverified{E: e}}
+		case orchestrate.NotAcceptedHead as e:
+			return Rejected{Failure: NotAcceptedHead{E: e}}
+		case orchestrate.StoreFailed as e:
+			return Rejected{Failure: StoreFailed{E: e}}
+		case rpc.Transport as t:
+			return t
+		}
+		Done{Reply: UnitCloseReply{Value: v}}
+	case CommitmentAddRequest as x:
+		let v = CommitmentAddChecked(client, x.Input) catch {
+		case orchestrate.NotFound as e:
+			return Rejected{Failure: NotFound{E: e}}
+		case orchestrate.AlreadyExists as e:
+			return Rejected{Failure: AlreadyExists{E: e}}
+		case orchestrate.InvalidTransition as e:
+			return Rejected{Failure: InvalidTransition{E: e}}
+		case orchestrate.CommandReused as e:
+			return Rejected{Failure: CommandReused{E: e}}
+		case orchestrate.InvalidInput as e:
+			return Rejected{Failure: InvalidInput{E: e}}
+		case orchestrate.Unverified as e:
+			return Rejected{Failure: Unverified{E: e}}
+		case orchestrate.NotAcceptedHead as e:
+			return Rejected{Failure: NotAcceptedHead{E: e}}
+		case orchestrate.StoreFailed as e:
+			return Rejected{Failure: StoreFailed{E: e}}
+		case rpc.Transport as t:
+			return t
+		}
+		Done{Reply: CommitmentAddReply{Value: v}}
+	case CommitmentAssignRequest as x:
+		let v = CommitmentAssignChecked(client, x.Input) catch {
+		case orchestrate.NotFound as e:
+			return Rejected{Failure: NotFound{E: e}}
+		case orchestrate.AlreadyExists as e:
+			return Rejected{Failure: AlreadyExists{E: e}}
+		case orchestrate.InvalidTransition as e:
+			return Rejected{Failure: InvalidTransition{E: e}}
+		case orchestrate.CommandReused as e:
+			return Rejected{Failure: CommandReused{E: e}}
+		case orchestrate.InvalidInput as e:
+			return Rejected{Failure: InvalidInput{E: e}}
+		case orchestrate.Unverified as e:
+			return Rejected{Failure: Unverified{E: e}}
+		case orchestrate.NotAcceptedHead as e:
+			return Rejected{Failure: NotAcceptedHead{E: e}}
+		case orchestrate.StoreFailed as e:
+			return Rejected{Failure: StoreFailed{E: e}}
+		case rpc.Transport as t:
+			return t
+		}
+		Done{Reply: CommitmentAssignReply{Value: v}}
+	case CommitmentLandRequest as x:
+		let v = CommitmentLandChecked(client, x.Input) catch {
+		case orchestrate.NotFound as e:
+			return Rejected{Failure: NotFound{E: e}}
+		case orchestrate.AlreadyExists as e:
+			return Rejected{Failure: AlreadyExists{E: e}}
+		case orchestrate.InvalidTransition as e:
+			return Rejected{Failure: InvalidTransition{E: e}}
+		case orchestrate.CommandReused as e:
+			return Rejected{Failure: CommandReused{E: e}}
+		case orchestrate.InvalidInput as e:
+			return Rejected{Failure: InvalidInput{E: e}}
+		case orchestrate.Unverified as e:
+			return Rejected{Failure: Unverified{E: e}}
+		case orchestrate.NotAcceptedHead as e:
+			return Rejected{Failure: NotAcceptedHead{E: e}}
+		case orchestrate.StoreFailed as e:
+			return Rejected{Failure: StoreFailed{E: e}}
+		case rpc.Transport as t:
+			return t
+		}
+		Done{Reply: CommitmentLandReply{Value: v}}
+	case CommitmentDecideRequest as x:
+		let v = CommitmentDecideChecked(client, x.Input) catch {
+		case orchestrate.NotFound as e:
+			return Rejected{Failure: NotFound{E: e}}
+		case orchestrate.AlreadyExists as e:
+			return Rejected{Failure: AlreadyExists{E: e}}
+		case orchestrate.InvalidTransition as e:
+			return Rejected{Failure: InvalidTransition{E: e}}
+		case orchestrate.CommandReused as e:
+			return Rejected{Failure: CommandReused{E: e}}
+		case orchestrate.InvalidInput as e:
+			return Rejected{Failure: InvalidInput{E: e}}
+		case orchestrate.Unverified as e:
+			return Rejected{Failure: Unverified{E: e}}
+		case orchestrate.NotAcceptedHead as e:
+			return Rejected{Failure: NotAcceptedHead{E: e}}
+		case orchestrate.StoreFailed as e:
+			return Rejected{Failure: StoreFailed{E: e}}
+		case rpc.Transport as t:
+			return t
+		}
+		Done{Reply: CommitmentDecideReply{Value: v}}
+	case CommitmentListRequest as x:
+		let v = CommitmentListChecked(client, x.Input) catch {
+		case orchestrate.InvalidInput as e:
+			return Rejected{Failure: InvalidInput{E: e}}
+		case orchestrate.StoreFailed as e:
+			return Rejected{Failure: StoreFailed{E: e}}
+		case rpc.Transport as t:
+			return t
+		}
+		Done{Reply: CommitmentListReply{Value: v}}
+	case QueueUpsertRequest as x:
+		let v = QueueUpsertChecked(client, x.Input) catch {
+		case orchestrate.NotFound as e:
+			return Rejected{Failure: NotFound{E: e}}
+		case orchestrate.AlreadyExists as e:
+			return Rejected{Failure: AlreadyExists{E: e}}
+		case orchestrate.InvalidTransition as e:
+			return Rejected{Failure: InvalidTransition{E: e}}
+		case orchestrate.CommandReused as e:
+			return Rejected{Failure: CommandReused{E: e}}
+		case orchestrate.InvalidInput as e:
+			return Rejected{Failure: InvalidInput{E: e}}
+		case orchestrate.Unverified as e:
+			return Rejected{Failure: Unverified{E: e}}
+		case orchestrate.NotAcceptedHead as e:
+			return Rejected{Failure: NotAcceptedHead{E: e}}
+		case orchestrate.StoreFailed as e:
+			return Rejected{Failure: StoreFailed{E: e}}
+		case rpc.Transport as t:
+			return t
+		}
+		Done{Reply: QueueUpsertReply{Value: v}}
+	case QueueRemoveRequest as x:
+		QueueRemoveChecked(client, x.Input) catch {
+		case orchestrate.NotFound as e:
+			return Rejected{Failure: NotFound{E: e}}
+		case orchestrate.AlreadyExists as e:
+			return Rejected{Failure: AlreadyExists{E: e}}
+		case orchestrate.InvalidTransition as e:
+			return Rejected{Failure: InvalidTransition{E: e}}
+		case orchestrate.CommandReused as e:
+			return Rejected{Failure: CommandReused{E: e}}
+		case orchestrate.InvalidInput as e:
+			return Rejected{Failure: InvalidInput{E: e}}
+		case orchestrate.Unverified as e:
+			return Rejected{Failure: Unverified{E: e}}
+		case orchestrate.NotAcceptedHead as e:
+			return Rejected{Failure: NotAcceptedHead{E: e}}
+		case orchestrate.StoreFailed as e:
+			return Rejected{Failure: StoreFailed{E: e}}
+		case rpc.Transport as t:
+			return t
+		}
+		Done{Reply: QueueRemoveReply}
+	case QueueListRequest as x:
+		let v = QueueListChecked(client, x.Input) catch {
+		case orchestrate.InvalidInput as e:
+			return Rejected{Failure: InvalidInput{E: e}}
+		case orchestrate.StoreFailed as e:
+			return Rejected{Failure: StoreFailed{E: e}}
+		case rpc.Transport as t:
+			return t
+		}
+		Done{Reply: QueueListReply{Value: v}}
+	case QuestionAskRequest as x:
+		let v = QuestionAskChecked(client, x.Input) catch {
+		case orchestrate.NotFound as e:
+			return Rejected{Failure: NotFound{E: e}}
+		case orchestrate.AlreadyExists as e:
+			return Rejected{Failure: AlreadyExists{E: e}}
+		case orchestrate.InvalidTransition as e:
+			return Rejected{Failure: InvalidTransition{E: e}}
+		case orchestrate.CommandReused as e:
+			return Rejected{Failure: CommandReused{E: e}}
+		case orchestrate.InvalidInput as e:
+			return Rejected{Failure: InvalidInput{E: e}}
+		case orchestrate.Unverified as e:
+			return Rejected{Failure: Unverified{E: e}}
+		case orchestrate.NotAcceptedHead as e:
+			return Rejected{Failure: NotAcceptedHead{E: e}}
+		case orchestrate.StoreFailed as e:
+			return Rejected{Failure: StoreFailed{E: e}}
+		case rpc.Transport as t:
+			return t
+		}
+		Done{Reply: QuestionAskReply{Value: v}}
+	case QuestionAnswerRequest as x:
+		let v = QuestionAnswerChecked(client, x.Input) catch {
+		case orchestrate.NotFound as e:
+			return Rejected{Failure: NotFound{E: e}}
+		case orchestrate.AlreadyExists as e:
+			return Rejected{Failure: AlreadyExists{E: e}}
+		case orchestrate.InvalidTransition as e:
+			return Rejected{Failure: InvalidTransition{E: e}}
+		case orchestrate.CommandReused as e:
+			return Rejected{Failure: CommandReused{E: e}}
+		case orchestrate.InvalidInput as e:
+			return Rejected{Failure: InvalidInput{E: e}}
+		case orchestrate.Unverified as e:
+			return Rejected{Failure: Unverified{E: e}}
+		case orchestrate.NotAcceptedHead as e:
+			return Rejected{Failure: NotAcceptedHead{E: e}}
+		case orchestrate.StoreFailed as e:
+			return Rejected{Failure: StoreFailed{E: e}}
+		case rpc.Transport as t:
+			return t
+		}
+		Done{Reply: QuestionAnswerReply{Value: v}}
+	case QuestionListRequest as x:
+		let v = QuestionListChecked(client, x.Input) catch {
+		case orchestrate.StoreFailed as e:
+			return Rejected{Failure: StoreFailed{E: e}}
+		case rpc.Transport as t:
+			return t
+		}
+		Done{Reply: QuestionListReply{Value: v}}
 	}
 }
 
