@@ -246,6 +246,10 @@ func node(d mut dumper, depth int, id dense.ID[syntax.Node]) {
 	case syntax.ProvidesClause as x:
 		line(d, depth, "ProvidesClause "+a+" Provides="+itoa(tp(d, x.Provides)))
 		list(d, c, x.Names)
+	case syntax.FactClause as x:
+		line(d, depth, "FactClause "+a+" Kind="+itoa(x.Kind)+" Word="+itoa(tp(d, x.Word))+" WhenPos="+itoa(zp(d, x.WhenPos)))
+		node(d, c, x.Cond)
+		opt(d, c, x.When)
 	case syntax.MachineEntry as x:
 		line(d, depth, "MachineEntry "+a+" doc="+itoa(x.Doc)+" NamePos="+itoa(tp(d, x.Name))+" Name="+syntax.TokText(d.p, x.Name)+" Colon="+itoa(tp(d, x.Name+1)))
 		node(d, c, x.Value)
@@ -341,6 +345,7 @@ func node(d mut dumper, depth int, id dense.ID[syntax.Node]) {
 		opt(d, c, x.Results)
 		opt(d, c, x.Needs)
 		opt(d, c, x.Takes)
+		list(d, c, x.Facts)
 	case syntax.StructType as x:
 		line(d, depth, "StructType "+a)
 		node(d, c, x.Fields)

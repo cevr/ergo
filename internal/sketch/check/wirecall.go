@@ -456,7 +456,7 @@ func (c *checker) wireEach(t Type, f func(Type)) {
 			walk(p.Base)
 			return
 		}
-		switch u := under(t).(type) {
+		switch u := c.under(t).(type) {
 		case *Struct:
 			for _, fl := range u.Fields {
 				walk(fl.Type)
@@ -516,7 +516,7 @@ func (c *checker) wireRow(t Type) *Row {
 			// decode's, and X's ordinary form below reads other readers.
 			row = row.union(c.types, c.types.resolve(c.funcSig(f).Errors))
 		}
-		switch u := under(t).(type) {
+		switch u := c.under(t).(type) {
 		case *Struct:
 			if len(u.Fields) > 0 {
 				add(WireMissingName)

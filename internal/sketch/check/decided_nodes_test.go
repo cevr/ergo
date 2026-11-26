@@ -25,7 +25,7 @@ var decidedFamilies = []string{
 	"assignment", "break and continue",
 	"function literal", "untyped parameter",
 	"interpolation", "float literal",
-	"core forms", "doc comments",
+	"core forms", "doc comments", "value-tied facts",
 }
 
 // A decidedCase is one row of TestDecidedNodes: its family, its name, its
@@ -1023,4 +1023,21 @@ type Breaker machine[State, Signal] {
 }
 func main() {}
 `, nil},
+	{"value-tied facts", "signature fact clauses wait for VF-1-FACTS-CHECK r2", `
+type Box { V int }
+type Ref { ID int }
+type Stale {}
+func Live(b Box, x Ref) bool { b.V == x.ID }
+func Valid(b Box) bool { b.V >= 0 }
+func Done(n int) bool { n >= 0 }
+func Update(a mut Box, r Ref, x Ref) int fails Stale given Valid(*a) keeps Live(*a, x) when x != r gives Done(it) {
+	a.V = 1
+	1
+}
+func main() {}
+`, []string{"S109:8", "S109:8", "S109:8"}},
+	{"value-tied facts", "record where waits for VF-1-FACTS-CHECK r2", `
+type Ascending { xs []int } where len(it.xs) >= 0
+func main() {}
+`, []string{"S109:2"}},
 }

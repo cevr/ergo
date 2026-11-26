@@ -135,6 +135,8 @@ var lawNoBinder = map[string]string{
 	"MachineEntry.Value": lawPackage, "MachineType.Initial": lawPackage, "MachineType.Step": lawPackage, "MachineType.After": lawPackage, "MachineType.Work": lawPackage, "MachineType.Exit": lawPackage, "LawReach.Pred": lawPackage,
 	"LawDecl.Name":       "a law's name is in no scope (laws.go rule 1); one named like an operation is TestLawRules'",
 	"TakesClause.Names":  "a takes clause names parameters of its own signature; it binds nothing",
+	"FactClause.Cond":    "a signature fact clause states a fact about parameters or results; it binds nothing",
+	"FactClause.When":    "a keeps clause's when condition states a preservation guard; it binds nothing",
 	"CaseClause.Written": lawWritten, "CatchArm.Written": lawWritten, "OrPattern.Alts": lawWritten,
 	"KeyValueExpr.Key": "a record pattern's or literal's key " + lawMember,
 	"SelectorExpr.Sel": "a selector " + lawMember,
