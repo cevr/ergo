@@ -54,15 +54,57 @@ func stdTypesOf(t GoTarget) *stdTypes {
 	if s, ok := stdTypesFor.Load(t.ID()); ok {
 		return s.(*stdTypes)
 	}
-	ctx := build.Default
+	s, _ := stdTypesFor.LoadOrStore(t.ID(), &stdTypes{ctx: stdContext(build.Default, t), fset: stdSharedFset, pkgs: map[string]*types.Package{}, dirs: map[string]string{}})
+	return s.(*stdTypes)
+}
+
+// stdContext is the build context std is typed in for t, from the
+// process's default ctx: t's platform and experiments, cgo off, and the
+// GOROOT of stdRoot when ctx has none.
+func stdContext(ctx build.Context, t GoTarget) build.Context {
+	if ctx.GOROOT == "" {
+		ctx.GOROOT = stdRoot.get()
+	}
 	ctx.GOOS, ctx.GOARCH, ctx.CgoEnabled = t.GOOS, t.GOARCH, false
 	ctx.ToolTags = slices.Clone(ctx.ToolTags)
 	for _, e := range t.Experiments {
 		ctx.ToolTags = append(ctx.ToolTags, "goexperiment."+e)
 	}
 	ctx.BuildTags = nil
-	s, _ := stdTypesFor.LoadOrStore(t.ID(), &stdTypes{ctx: ctx, fset: stdSharedFset, pkgs: map[string]*types.Package{}, dirs: map[string]string{}})
-	return s.(*stdTypes)
+	return ctx
+}
+
+// stdRoot is the GOROOT the closure walk types Go's standard library from
+// when the process has none of its own: a binary built with -trimpath
+// (internal/ergobuild) records no GOROOT, and with no GOROOT in the
+// environment build.Default has none.
+var stdRoot lazyRoot
+
+// lazyRoot is a GOROOT resolved once, on first use.
+type lazyRoot struct {
+	mu      sync.Mutex
+	resolve func() string
+	root    string
+	done    bool
+}
+
+// UseStdRoot makes resolve the source of the GOROOT std is typed from in
+// a process that has none of its own (build.Default.GOROOT is empty):
+// the release the process's builds run. It is called at most once, on
+// the first closure walk that needs std's types.
+func UseStdRoot(resolve func() string) {
+	stdRoot.mu.Lock()
+	defer stdRoot.mu.Unlock()
+	stdRoot.resolve, stdRoot.root, stdRoot.done = resolve, "", false
+}
+
+func (s *lazyRoot) get() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.done && s.resolve != nil {
+		s.root, s.done = s.resolve(), true
+	}
+	return s.root
 }
 
 // isStdPath reports whether p is a path of Go's standard library: no dot

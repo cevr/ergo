@@ -21,21 +21,26 @@ var concatInLoop = &Rule{
 }
 
 func checkConcatInLoop(p *Pass) {
-	inLoops(p.File, func(n syntax.Node, loop syntax.Stmt) {
-		a, ok := n.(*syntax.AssignStmt)
+	fi := p.fileIndex()
+	for i, a := range fi.assigns {
+		if !fi.assignInBody[i] {
+			continue
+		}
+		loop := fi.assignLoops[i]
+		ok := a != nil
 		if !ok || loop == nil || len(a.Lhs) != 1 || len(a.Rhs) != 1 {
-			return
+			continue
 		}
 		x, ok := a.Lhs[0].(*syntax.Ident)
 		if !ok {
-			return
+			continue
 		}
 		v, ok := p.Info.Uses[x].(*check.Var)
 		if !ok || v.Pos >= loop.Pos() && v.Pos < loop.End() {
-			return
+			continue
 		}
 		if b, isBasic := underOf(v.Type).(*check.Basic); !isBasic || b.Kind != check.String {
-			return
+			continue
 		}
 		grows := a.Tok == syntax.ADD_ASSIGN
 		if a.Tok == syntax.ASSIGN {
@@ -44,5 +49,5 @@ func checkConcatInLoop(p *Pass) {
 		if grows {
 			p.Report(a.Pos(), a.End(), "this grows a string by + on every turn of the loop, copying it whole each time")
 		}
-	})
+	}
 }

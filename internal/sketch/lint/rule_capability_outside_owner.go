@@ -1,9 +1,6 @@
 package lint
 
-import (
-	"ergo.local/prototype/internal/sketch/check"
-	"ergo.local/prototype/internal/sketch/syntax"
-)
+import "ergo.local/prototype/internal/sketch/check"
 
 // capabilityOutsideOwner is the layout rule for transport kept in its
 // owner (catalog EF31, a braid: transport inside a feature; AD5, clients
@@ -29,19 +26,17 @@ func checkCapabilityOutsideOwner(p *Pass) {
 	if len(owners) == 0 || testFile(p.File) {
 		return
 	}
-	syntax.Inspect(p.File, func(n syntax.Node) bool {
-		switch x := n.(type) {
-		case *syntax.TestDecl, *syntax.LawDecl:
-			return false
-		case *syntax.CallExpr:
-			t := check.ProviderOpType(p.Info, x)
-			if t == nil {
-				return true
-			}
-			if dirs, listed := ownersOf(owners, t); listed && !ownedHere(p.Rel(), dirs) {
-				p.Report(x.Pos(), x.End(), "this runs an operation of "+t.String()+" outside the packages that own it")
-			}
+	fi := p.fileIndex()
+	for i, x := range fi.calls {
+		if fi.callFlags[i]&nodeInTestLaw != 0 {
+			continue
 		}
-		return true
-	})
+		t := check.ProviderOpType(p.Info, x)
+		if t == nil {
+			continue
+		}
+		if dirs, listed := ownersOf(owners, t); listed && !ownedHere(p.Rel(), dirs) {
+			p.Report(x.Pos(), x.End(), "this runs an operation of "+t.String()+" outside the packages that own it")
+		}
+	}
 }

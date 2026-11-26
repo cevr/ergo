@@ -60,7 +60,7 @@ var coverage = sync.OnceValue(func() map[string][]string {
 var coversNone = []string{
 	"actor", "ansi", "api", "arena", "bench", "build", "cache", "civil", "code", "color", "codec", "codegraph", "collections", "config", "core", "cron", "decimal", "dense", "explore", "fs/mapped", "gen", "glob", "graph", "io", "jobs", "jobs/file", "jobs/memory", "journal", "journal/file",
 	"journal/memory", "jsonschema", "kv", "kv/file", "kv/memory", "lint", "llm", "llm/memory", "llm/recorded", "machines", "mcp", "mcp/httpmcp", "mcp/memory", "mcp/stdio", "nettest", "option", "pace", "process", "prompt", "proof", "proof/file", "proof/memory", "pubsub", "queue", "ratelimit", "ratelimit/memory", "rpc", "schedule", "scope", "semver", "session", "session/file", "session/memory", "set", "sha1dc", "sqltest", "stream",
-	"task", "tasks", "temporal", "term", "text", "timeout", "toml", "totp", "trace", "tz", "tz/host", "tz/iana", "ui", "ui/layout", "uuid", "workflow", "workflow/file", "workflow/memory",
+	"task", "tasks", "temporal", "term", "text", "timeout", "toml", "totp", "trace", "tz", "tz/host", "tz/iana", "ui", "ui/layout", "uuid", "workflow", "workflow/file", "workflow/memory", "yaml",
 }
 
 // covered maps a Go path to the std package that covers it. It is built on
