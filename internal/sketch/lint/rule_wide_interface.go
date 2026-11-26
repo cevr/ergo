@@ -1,12 +1,10 @@
 package lint
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"strconv"
 
-	"ergo.local/prototype/internal/linked/graph"
 	"ergo.local/prototype/internal/sketch/graphrows"
 	"ergo.local/prototype/internal/sketch/syntax"
 	sdk "ergo.local/prototype/lint"
@@ -97,24 +95,12 @@ func checkWideObservedInterface(p *Pass) {
 // interfacesOf is `ergo graph interfaces --max max --json` over g's rows,
 // for the modules of units' own packages.
 func interfacesOf(g *programGraph, units []Unit, max int) ([]observedInterface, error) {
-	args := []string{"interfaces", "--max", strconv.Itoa(max), "--json"}
-	seen := map[string]bool{}
-	for _, u := range units {
-		if !u.Dependency && !seen[u.Module] {
-			seen[u.Module] = true
-			args = append(args, "--module", u.Module)
-		}
-	}
-	strs, ints := g.t.AppendColumns(nil, nil)
-	out, err := graph.RunColumns(context.Background(), args, strs, ints)
+	raw, err := g.query(units, "interfaces", "--max", strconv.Itoa(max), "--json")
 	if err != nil {
 		return nil, err
 	}
-	if len(out) != 3 || out[0] != "0" {
-		return nil, fmt.Errorf("ergo graph interfaces: %v", out)
-	}
 	var got []observedInterface
-	if err := json.Unmarshal([]byte(out[1]), &got); err != nil {
+	if err := json.Unmarshal(raw, &got); err != nil {
 		return nil, err
 	}
 	return got, nil
@@ -127,7 +113,7 @@ func wideInterfaces(g *programGraph, units []Unit, max int) ([]wideFinding, erro
 	if err != nil {
 		return nil, err
 	}
-	sorted := g.t.Sorted()
+	sorted := g.sortedEdges()
 	var out []wideFinding
 	for _, w := range got {
 		site := map[int]int{}

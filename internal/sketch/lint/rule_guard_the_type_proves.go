@@ -1,9 +1,6 @@
 package lint
 
-import (
-	"ergo.local/prototype/internal/sketch/check"
-	"ergo.local/prototype/internal/sketch/syntax"
-)
+import "ergo.local/prototype/internal/sketch/check"
 
 // guardTheTypeProves is the defensive rule of the strict preset (catalog
 // CR20 and CR23, redundant guards and checks the type proves): a
@@ -24,20 +21,17 @@ var guardTheTypeProves = &Rule{
 }
 
 func checkGuardTheTypeProves(p *Pass) {
-	syntax.Inspect(p.File, func(n syntax.Node) bool {
-		switch x := n.(type) {
-		case *syntax.TestDecl, *syntax.LawDecl, *syntax.TypeDecl:
-			// a type's where states the refinement; it does not guard
-			return false
-		case *syntax.BinaryExpr:
-			if value, ok := check.RefinementDecides(p.Info, x); ok {
-				answer := "false"
-				if value {
-					answer = "true"
-				}
-				p.Report(x.Pos(), x.End(), "the refined type of the operand makes this comparison always "+answer)
-			}
+	fi := p.fileIndex()
+	for i, x := range fi.binaries {
+		if fi.binaryFlags[i]&(nodeInTestLaw|nodeInTypeDecl) != 0 {
+			continue
 		}
-		return true
-	})
+		if value, ok := check.RefinementDecides(p.Info, x); ok {
+			answer := "false"
+			if value {
+				answer = "true"
+			}
+			p.Report(x.Pos(), x.End(), "the refined type of the operand makes this comparison always "+answer)
+		}
+	}
 }

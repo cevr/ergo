@@ -70,7 +70,7 @@ func folderCycleFindings(g *programGraph, units []Unit) ([]folderCycleFinding, e
 	if err := json.Unmarshal(raw, &rows); err != nil {
 		return nil, err
 	}
-	sorted := g.t.Sorted()
+	sorted := g.sortedEdges()
 	var out []folderCycleFinding
 	for _, c := range rows {
 		if len(c.Sites) == 0 {
