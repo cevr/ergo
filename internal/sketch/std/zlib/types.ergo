@@ -53,8 +53,14 @@ type TrailingData { Offset int, Extra int }
 // output would exceed maxBytes.
 type LimitExceeded { Limit int }
 
+// BadGzip is the failure of an RFC 1952 gzip member whose header is not a
+// gzip header (magic, method 8, reserved flags), or whose ISIZE trailer
+// differs from the decoded length. Offset is where the member starts.
+type BadGzip { Offset int, Reason string }
+
 // Error is the closed union of all zlib decoding failures.
 type Error =
+	| BadGzip
 	| BadHeader
 	| UnsupportedDict
 	| BadBlock

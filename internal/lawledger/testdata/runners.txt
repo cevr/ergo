@@ -49,6 +49,16 @@ arena GetAfterPut	TestStdArenaLawsRun
 arena ModelAgrees	TestStdArenaLawsRun
 arena NullIsStale	TestStdArenaLawsRun
 arena ReuseNeverAliases	TestStdArenaLawsRun
+archive CleansAndRefuses	TestStdArchiveLawsRun
+archive CutArchivesFailOrAgree	TestStdArchiveLawsRun
+archive DosTimeRoundTrips	TestStdArchiveLawsRun
+archive ExtractWritesTheFiles	TestStdArchiveLawsRun
+archive HeadersAreChecked	TestStdArchiveLawsRun
+archive LimitIsKept	TestStdArchiveLawsRun
+archive LinksStayInside	TestStdArchiveLawsRun
+archive SelectKeepsMatches	TestStdArchiveLawsRun
+archive WriteThenReadIsTheArchive	TestStdArchiveLawsRun
+archive ZipEntriesAreChecked	TestStdArchiveLawsRun
 atomic Bool.Exchanges	TestStdLawsRun
 atomic IncrementsCount	TestStdLawsRun
 atomic InitialValues	TestStdLawsRun
@@ -245,6 +255,7 @@ core MapWriter.TakeIsGetAndDelete	none
 core SliceAppendIsLast	none
 core View.SliceIsWindow	none
 core View.TakeAtIsIndexAndRest	none
+crc32 BytesAgree	none
 crc32 UpdateChains	none
 crc32 UpdateFromZero	none
 cron EitherDayMatches	TestStdCronLawsRun
@@ -1229,6 +1240,8 @@ yaml RefusalsNameTheRule	none
 yaml SpecFormsRead	none
 yaml StreamRoundTrips	none
 zlib Adler32Associates	TestStdZlibLawsRun
+zlib GunzipChecksMembers	TestStdZlibLawsRun
+zlib GzipRoundTrips	TestStdZlibLawsRun
 zlib InflatePrefixStopsAtBoundary	TestStdZlibLawsRun
 zlib RejectsBadTrailer	TestStdZlibLawsRun
 zlib RejectsLimitExceeded	TestStdZlibLawsRun
