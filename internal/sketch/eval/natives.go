@@ -425,15 +425,23 @@ func registerNatives(t nativeTables) {
 	}
 
 	// The task's context values (log, trace): the reading package is
-	// the namespace, as a with of a value of its type binds it.
+	// the namespace, as a with of a value of its type binds it. A
+	// build-time fold evaluates a call outside its runtime with stack,
+	// so reading dynamic context there refuses the fold.
 	for _, p := range []string{"log", "trace"} {
 		t.reads[p+".contextBound"] = "string"
 		t.reads[p+".contextValue"] = "string"
 		natives[p+".contextBound"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
+			if in.fold {
+				return nil, fr.unsupported(at, "reading dynamic context in a build-time fold")
+			}
 			_, ok := in.contextLookup(fn.Pkg.Path, args[0].(string))
 			return ok, nil
 		}
 		natives[p+".contextValue"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
+			if in.fold {
+				return nil, fr.unsupported(at, "reading dynamic context in a build-time fold")
+			}
 			// "" when no binding is in force (stdlib: the innermost
 			// binding's text, or the empty text).
 			text, _ := in.contextLookup(fn.Pkg.Path, args[0].(string))
