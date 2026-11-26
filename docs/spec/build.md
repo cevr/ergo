@@ -14,7 +14,7 @@ store: it parses, checks, lowers, compiles, links and starts nothing
 
 1. **The request key.** A request is its command (`build`, `run`, `check`
    or `test`), the admitted package folder (for `ergo test ./...`, the
-   folder it walks, as its own request), the options that change its
+   folder it walks, as its own request) and the path as spelled, the options that change its
    answer (target, platform, `--locked`, `--json`, `--seed`,
    `--eval-steps`, `--eval-bytes`, `--states`, `--law`, `--skip-law`,
    `--run`), for a test the bytes of the law ledger a full run writes, for
@@ -34,6 +34,16 @@ store: it parses, checks, lowers, compiles, links and starts nothing
    the table does not name is in the key, and `ergo version` lists it until
    it is classified. `TestWarmEnvClassifiesTheScripts` holds the table to
    every such variable the repository's scripts set.
+   For `check` and `test` the folder is written relative to its module's
+   (the folder of the nearest `ergo.mod`: `@/` and the slash path,
+   `lawcache.Within`), and the manifest names each input below that folder
+   the same way, read under the module of the request that looks it up: so
+   the Ergo cache, one per user, answers every workspace that holds the
+   same tree, and a lane's first check of a package another lane checked is
+   warm (SHARED-RESULT-CACHE). A path outside the module stays absolute. An
+   answer whose text names the module's folder (as written or with links
+   resolved) is not kept. A `build` or `run` stays its workspace's: its
+   executable names its sources' paths.
 2. **The manifest.** One file per request key in the Ergo cache
    (`Root/warm/KEY`) lists every input the request read: each file with the
    SHA-256 and size of its bytes (the `.ergo` files, `ergo.mod`, the
@@ -102,8 +112,9 @@ manifest.
 
 1. **The package key.** A package's key is the request's options, the
    environment and the compiler (WarmKey's parts, with no request folder), its
-   import path, its own folder (a skipped obligation's replay command names
-   it), whether the load checked it as `main` or as its path, each file's
+   import path, its own folder relative to the module's (a skipped
+   obligation's replay command names it; no workspace's folder is in a key,
+   and the manifest's paths are relative too), whether the load checked it as `main` or as its path, each file's
    name and check text (`syntax.CheckText`: the token text, then each
    comment's text with the token after it and the line breaks between them,
    since the checker reads a binding's `// ergo:` lines by the line above a
