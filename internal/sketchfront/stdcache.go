@@ -11,6 +11,7 @@ import (
 
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/check/snapshot"
+	"ergo.local/prototype/internal/sketch/lawcache"
 	"ergo.local/prototype/internal/sketch/lower"
 	"ergo.local/prototype/internal/toolchain"
 )
@@ -72,7 +73,15 @@ func UseStdCache(root string) {
 	stdCache.mu.Lock()
 	stdCache.root = root
 	stdCache.mu.Unlock()
-	lower.UseForeignKeyCache(root)
+	// Foreign keys are kept in the one store of kept answers (lawcache),
+	// opened when the first key is looked up.
+	lower.UseForeignKeyCache(func() *lawcache.Store {
+		compiler, err := compilerIdentity()
+		if err != nil {
+			return nil
+		}
+		return lawcache.Open(root, compiler)
+	})
 	lower.UseStdRoot(func() string {
 		selected, _ := toolchain.Status(os.Getenv, root)
 		source, err := ReleaseSource(selected, root)

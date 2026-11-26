@@ -13,6 +13,7 @@ import (
 
 	"ergo.local/prototype/internal/receipt"
 	"ergo.local/prototype/internal/sketch/build"
+	"ergo.local/prototype/internal/sketch/lawcache"
 	"ergo.local/prototype/internal/sketchfront"
 	"ergo.local/prototype/internal/toolchain"
 )
@@ -25,6 +26,9 @@ import (
 type warm struct {
 	cache build.Cache
 	key   string
+	// module is the folder of the request's ergo.mod, which its key and
+	// manifest name paths under; "" outside a module.
+	module string
 	// parts are the request's key parts but the extra ones (recordAs).
 	parts  []string
 	answer sketchfront.WarmAnswer
@@ -42,7 +46,13 @@ func startWarm(opts fileOptions, tc *build.Toolchain, extra ...string) *warm {
 	if w == nil {
 		return nil
 	}
-	w.answer, w.rec, w.hit = sketchfront.WarmLookup(w.cache, w.key, valid)
+	if opts.fresh {
+		// --fresh reads no stored answer; the normal path's answer is
+		// still kept.
+		w.rec = sketchfront.NewRecorder()
+		return w
+	}
+	w.answer, w.rec, w.hit = sketchfront.WarmLookup(w.cache, w.key, w.module, valid)
 	return w
 }
 
@@ -71,7 +81,16 @@ func prepareWarm(opts fileOptions, tc *build.Toolchain, extra ...string) (*warm,
 	if err != nil {
 		return nil, nil
 	}
-	parts := []string{command, source.Admitted(), warmOptions(opts)}
+	// The folder is keyed relative to its module's (lawcache.Within), and
+	// with the path as spelled, which the answer prints: one key serves
+	// every workspace of the same tree (SHARED-RESULT-CACHE).
+	module, _ := moduleRoot(source.Admitted())
+	if building {
+		// An executable names its sources' absolute paths (their //line
+		// directives), so a build's answer is its workspace's alone.
+		module = ""
+	}
+	parts := []string{command, lawcache.Within(module, source.Admitted()), opts.file, warmOptions(opts)}
 	if linking {
 		stamp, ok := goStamp(tc.Go)
 		if !ok {
@@ -100,7 +119,7 @@ func prepareWarm(opts fileOptions, tc *build.Toolchain, extra ...string) (*warm,
 	if key == "" {
 		return nil, nil
 	}
-	w := &warm{cache: build.Cache{Root: root}, key: key, parts: parts}
+	w := &warm{cache: build.Cache{Root: root}, key: key, module: module, parts: parts}
 	valid := func(a sketchfront.WarmAnswer) bool {
 		if opts.command == "test" {
 			return a.Test != nil
@@ -175,7 +194,7 @@ func (w *warm) recordAs(answer sketchfront.WarmAnswer, extra ...string) {
 		return
 	}
 	if key := sketchfront.WarmKey(append(slices.Clone(w.parts), extra...)...); key != "" {
-		_ = w.rec.Record(w.cache, key, answer)
+		_ = w.rec.Record(w.cache, key, w.module, answer)
 	}
 }
 
@@ -184,7 +203,7 @@ func (w *warm) record(answer sketchfront.WarmAnswer) {
 	if w == nil || w.rec == nil {
 		return
 	}
-	_ = w.rec.Record(w.cache, w.key, answer)
+	_ = w.rec.Record(w.cache, w.key, w.module, answer)
 }
 
 // quiet is a writer that passes through and remembers whether anything

@@ -1,5 +1,6 @@
 import json
 import rpc
+import scope
 import sync
 import github.com/cevr/ergo/modules/orchestrate/orchestrate
 
@@ -517,7 +518,7 @@ func NewClient(inner orchestrate.Api) Client {
 
 // ClientInForce is the orchestrate.Api that invokes the provider currently in force.
 func ClientInForce() Client needs orchestrate.Api {
-	let held = InForce[orchestrate.Api]()
+	let held = scope.InForce[orchestrate.Api]()
 	Client{
 		opUnitOpen:         func(input orchestrate.UnitOpenInput) orchestrate.Unit fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed { with held { try orchestrate.Api.UnitOpen(input) } },
 		opReceiptRecord:    func(input orchestrate.ReceiptRecordInput) orchestrate.Receipt fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed { with held { try orchestrate.Api.ReceiptRecord(input) } },

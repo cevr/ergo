@@ -2,8 +2,10 @@
 // ergo:bind golang.org/x/sync/semaphore go1.27 darwin/amd64 darwin/arm64 linux/amd64 linux/arm64
 // ergo:module golang.org/x/sync v0.24.0 => ./testdata/sync
 
+import option
+
 // ergo:go func NewWeighted(n int64) *Weighted
-extern go golang.org/x/sync/semaphore.NewWeighted func NewWeighted(n int64) Option[go.Ref[Weighted]] needs go.Foreign
+extern go golang.org/x/sync/semaphore.NewWeighted func NewWeighted(n int64) option.Option[go.Ref[Weighted]] needs go.Foreign
 
 // ergo:go type Weighted struct
 extern go golang.org/x/sync/semaphore.Weighted type Weighted {}

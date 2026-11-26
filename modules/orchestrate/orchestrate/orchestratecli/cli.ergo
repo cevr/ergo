@@ -2,6 +2,7 @@ import api
 import flag
 import io
 import json
+import option
 import prompt
 import rpc
 import slices
@@ -35,15 +36,15 @@ func commandUnitOpen() flag.Command[Request] {
 	let usage = orchestrateapi.Doc(orchestrateapi.UnitOpenOp)
 	flag.Command[Request]{Name: "unit-open", Usage: usage, Set: flag.Set{Name: "unit-open", Usage: usage, Flags: []flag.Flag{f0, f1, f2, f3, f4, f5, f6, f7, f9}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
 		let u8 = match f7.Get(v) {
-		case Some[string] as s:
+		case option.Some[string] as s:
 			json.Present[string]{Value: s.Value}
-		case None:
+		case option.None:
 			json.Absent
 		}
 		let u10 = match f9.Get(v) {
-		case Some[string] as s:
+		case option.Some[string] as s:
 			json.Present[string]{Value: s.Value}
-		case None:
+		case option.None:
 			json.Absent
 		}
 		orchestrateapi.UnitOpenRequest{Input: orchestrate.UnitOpenInput{CommandID: orchestrate.CommandID(f0.Get(v)), Actor: f1.Get(v), Repo: f2.Get(v), Run: f3.Get(v), ID: f4.Get(v), Title: f5.Get(v), Requires: f6.Get(v), Lane: u8, Branch: u10}}
@@ -168,15 +169,15 @@ func commandCommitmentList() flag.Command[Request] {
 	let usage = orchestrateapi.Doc(orchestrateapi.CommitmentListOp)
 	flag.Command[Request]{Name: "commitment-list", Usage: usage, Set: flag.Set{Name: "commitment-list", Usage: usage, Flags: []flag.Flag{f0, f2}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
 		let u1 = match f0.Get(v) {
-		case Some[string] as s:
+		case option.Some[string] as s:
 			json.Present[string]{Value: s.Value}
-		case None:
+		case option.None:
 			json.Absent
 		}
 		let u3 = match f2.Get(v) {
-		case Some[string] as s:
+		case option.Some[string] as s:
 			json.Present[string]{Value: s.Value}
-		case None:
+		case option.None:
 			json.Absent
 		}
 		orchestrateapi.CommitmentListRequest{Input: orchestrate.CommitmentListInput{Status: u1, Owner: u3}}
@@ -213,9 +214,9 @@ func commandQueueList() flag.Command[Request] {
 	let usage = orchestrateapi.Doc(orchestrateapi.QueueListOp)
 	flag.Command[Request]{Name: "queue-list", Usage: usage, Set: flag.Set{Name: "queue-list", Usage: usage, Flags: []flag.Flag{f0}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
 		let u1 = match f0.Get(v) {
-		case Some[string] as s:
+		case option.Some[string] as s:
 			json.Present[string]{Value: s.Value}
-		case None:
+		case option.None:
 			json.Absent
 		}
 		orchestrateapi.QueueListRequest{Input: orchestrate.QueueListInput{Status: u1}}
@@ -232,9 +233,9 @@ func commandQuestionAsk() flag.Command[Request] {
 	let usage = orchestrateapi.Doc(orchestrateapi.QuestionAskOp)
 	flag.Command[Request]{Name: "question-ask", Usage: usage, Set: flag.Set{Name: "question-ask", Usage: usage, Flags: []flag.Flag{f0, f1, f2, f4, f5, f6}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
 		let u3 = match f2.Get(v) {
-		case Some[int] as s:
+		case option.Some[int] as s:
 			json.Present[int]{Value: s.Value}
-		case None:
+		case option.None:
 			json.Absent
 		}
 		orchestrateapi.QuestionAskRequest{Input: orchestrate.QuestionAskInput{CommandID: orchestrate.CommandID(f0.Get(v)), Actor: f1.Get(v), ID: u3, Prompt: f4.Get(v), Assumption: f5.Get(v), ConcreteAction: f6.Get(v)}}
@@ -263,9 +264,9 @@ func commandQuestionList() flag.Command[Request] {
 
 func argText(a flag.ArgSpec, v flag.Values) string {
 	match a.Get(v) {
-	case Some[string] as s:
+	case option.Some[string] as s:
 		s.Value
-	case None:
+	case option.None:
 		""
 	}
 }
@@ -274,75 +275,75 @@ func argText(a flag.ArgSpec, v flag.Values) string {
 // flags and arguments. It builds only the command args[0] names; the
 // list of every command is built only for help or an unknown command.
 func Parse(args []string) Request fails flag.Failure {
-	let first = if len(args) > 0 { args[0] } else { "" }
+	let first = if args.Len() > 0 { args[0] } else { "" }
 	match first {
 	case "unit-open":
 		let c = commandUnitOpen()
-		let v = try flag.Parse(flag.Set{..c.Set, Name: "orchestrate unit-open"}, slices.Slice(args, 1, len(args)))
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "orchestrate unit-open"}, slices.Slice(args, 1, args.Len()))
 		try c.Build(v)
 	case "receipt-record":
 		let c = commandReceiptRecord()
-		let v = try flag.Parse(flag.Set{..c.Set, Name: "orchestrate receipt-record"}, slices.Slice(args, 1, len(args)))
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "orchestrate receipt-record"}, slices.Slice(args, 1, args.Len()))
 		try c.Build(v)
 	case "unit-state":
 		let c = commandUnitState()
-		let v = try flag.Parse(flag.Set{..c.Set, Name: "orchestrate unit-state"}, slices.Slice(args, 1, len(args)))
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "orchestrate unit-state"}, slices.Slice(args, 1, args.Len()))
 		try c.Build(v)
 	case "unit-accept":
 		let c = commandUnitAccept()
-		let v = try flag.Parse(flag.Set{..c.Set, Name: "orchestrate unit-accept"}, slices.Slice(args, 1, len(args)))
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "orchestrate unit-accept"}, slices.Slice(args, 1, args.Len()))
 		try c.Build(v)
 	case "unit-land":
 		let c = commandUnitLand()
-		let v = try flag.Parse(flag.Set{..c.Set, Name: "orchestrate unit-land"}, slices.Slice(args, 1, len(args)))
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "orchestrate unit-land"}, slices.Slice(args, 1, args.Len()))
 		try c.Build(v)
 	case "unit-close":
 		let c = commandUnitClose()
-		let v = try flag.Parse(flag.Set{..c.Set, Name: "orchestrate unit-close"}, slices.Slice(args, 1, len(args)))
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "orchestrate unit-close"}, slices.Slice(args, 1, args.Len()))
 		try c.Build(v)
 	case "commitment-add":
 		let c = commandCommitmentAdd()
-		let v = try flag.Parse(flag.Set{..c.Set, Name: "orchestrate commitment-add"}, slices.Slice(args, 1, len(args)))
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "orchestrate commitment-add"}, slices.Slice(args, 1, args.Len()))
 		try c.Build(v)
 	case "commitment-assign":
 		let c = commandCommitmentAssign()
-		let v = try flag.Parse(flag.Set{..c.Set, Name: "orchestrate commitment-assign"}, slices.Slice(args, 1, len(args)))
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "orchestrate commitment-assign"}, slices.Slice(args, 1, args.Len()))
 		try c.Build(v)
 	case "commitment-land":
 		let c = commandCommitmentLand()
-		let v = try flag.Parse(flag.Set{..c.Set, Name: "orchestrate commitment-land"}, slices.Slice(args, 1, len(args)))
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "orchestrate commitment-land"}, slices.Slice(args, 1, args.Len()))
 		try c.Build(v)
 	case "commitment-decide":
 		let c = commandCommitmentDecide()
-		let v = try flag.Parse(flag.Set{..c.Set, Name: "orchestrate commitment-decide"}, slices.Slice(args, 1, len(args)))
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "orchestrate commitment-decide"}, slices.Slice(args, 1, args.Len()))
 		try c.Build(v)
 	case "commitment-list":
 		let c = commandCommitmentList()
-		let v = try flag.Parse(flag.Set{..c.Set, Name: "orchestrate commitment-list"}, slices.Slice(args, 1, len(args)))
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "orchestrate commitment-list"}, slices.Slice(args, 1, args.Len()))
 		try c.Build(v)
 	case "queue-upsert":
 		let c = commandQueueUpsert()
-		let v = try flag.Parse(flag.Set{..c.Set, Name: "orchestrate queue-upsert"}, slices.Slice(args, 1, len(args)))
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "orchestrate queue-upsert"}, slices.Slice(args, 1, args.Len()))
 		try c.Build(v)
 	case "queue-remove":
 		let c = commandQueueRemove()
-		let v = try flag.Parse(flag.Set{..c.Set, Name: "orchestrate queue-remove"}, slices.Slice(args, 1, len(args)))
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "orchestrate queue-remove"}, slices.Slice(args, 1, args.Len()))
 		try c.Build(v)
 	case "queue-list":
 		let c = commandQueueList()
-		let v = try flag.Parse(flag.Set{..c.Set, Name: "orchestrate queue-list"}, slices.Slice(args, 1, len(args)))
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "orchestrate queue-list"}, slices.Slice(args, 1, args.Len()))
 		try c.Build(v)
 	case "question-ask":
 		let c = commandQuestionAsk()
-		let v = try flag.Parse(flag.Set{..c.Set, Name: "orchestrate question-ask"}, slices.Slice(args, 1, len(args)))
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "orchestrate question-ask"}, slices.Slice(args, 1, args.Len()))
 		try c.Build(v)
 	case "question-answer":
 		let c = commandQuestionAnswer()
-		let v = try flag.Parse(flag.Set{..c.Set, Name: "orchestrate question-answer"}, slices.Slice(args, 1, len(args)))
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "orchestrate question-answer"}, slices.Slice(args, 1, args.Len()))
 		try c.Build(v)
 	case "question-list":
 		let c = commandQuestionList()
-		let v = try flag.Parse(flag.Set{..c.Set, Name: "orchestrate question-list"}, slices.Slice(args, 1, len(args)))
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "orchestrate question-list"}, slices.Slice(args, 1, args.Len()))
 		try c.Build(v)
 	case _:
 		try flag.ParseCommand("orchestrate", "orchestrate.Api on a command line", Commands(), args)
@@ -536,11 +537,11 @@ law ArgsRoundTrip(r Request) { RoundTrips(r) }
 // without --json (default None: a basic value as its text, else its
 // JSON; --json never calls it); Confirm, the question a call asks before
 // it runs (default None: none; --yes answers it).
-type Policy { Code func(f orchestrateapi.Failure) int, Text func(r orchestrateapi.Reply) Option[string], Confirm func(r Request) Option[string] }
+type Policy { Code func(f orchestrateapi.Failure) int, Text func(r orchestrateapi.Reply) option.Option[string], Confirm func(r Request) option.Option[string] }
 
 // Defaults is the Policy of a binary that decides nothing.
 func Defaults() Policy {
-	Policy{Code: func(f orchestrateapi.Failure) int { 1 }, Text: func(r orchestrateapi.Reply) Option[string] { None }, Confirm: func(r Request) Option[string] { None }}
+	Policy{Code: func(f orchestrateapi.Failure) int { 1 }, Text: func(r orchestrateapi.Reply) option.Option[string] { option.None }, Confirm: func(r Request) option.Option[string] { option.None }}
 }
 
 func answer(asJSON bool, plain string, encoded string) Output {
@@ -575,9 +576,9 @@ func Show(o orchestrateapi.Outcome, asJSON bool, p Policy) Output {
 	case orchestrateapi.Done as done:
 		if !asJSON {
 			match p.Text(done.Reply) {
-			case Some[string] as s:
+			case option.Some[string] as s:
 				return Output{Out: line(s.Value), Err: "", Code: 0}
-			case None:
+			case option.None:
 			}
 		}
 		match done.Reply {
@@ -1203,9 +1204,9 @@ func runOver[R](args []string, p Policy, answer func(r Request) orchestrateapi.O
 	case asked as a:
 		if !a.Yes {
 			match p.Confirm(a.R) {
-			case Some[string] as q:
+			case option.Some[string] as q:
 				return needsYes(q.Value)
-			case None:
+			case option.None:
 			}
 		}
 		Show(answer(a.R), a.JSON, p)
@@ -1232,7 +1233,7 @@ func RunOnTerminal(args []string, p Policy) Output needs orchestrate.Api | term.
 	case asked as a:
 		if !a.Yes {
 			match p.Confirm(a.R) {
-			case Some[string] as q:
+			case option.Some[string] as q:
 				let yes = prompt.Confirm(q.Value, false) catch {
 				case prompt.NotInteractive:
 					return needsYes(q.Value)
@@ -1244,7 +1245,7 @@ func RunOnTerminal(args []string, p Policy) Output needs orchestrate.Api | term.
 				if !yes {
 					return declined(q.Value)
 				}
-			case None:
+			case option.None:
 			}
 		}
 		Show(orchestrateapi.Call(a.R), a.JSON, p)
@@ -1294,7 +1295,7 @@ law CodeIsThePolicy(r Request, g orchestrateapi.Given, k int) {
 // with --json every outcome prints as the wire's JSON, whatever Text says.
 law TextIsThePolicy(r Request, g orchestrateapi.Given, t string) {
 	let d = Defaults()
-	let p = Policy{..d, Text: func(reply orchestrateapi.Reply) Option[string] { Some[string]{Value: t} }}
+	let p = Policy{..d, Text: func(reply orchestrateapi.Reply) option.Option[string] { option.Some[string]{Value: t} }}
 	let o = orchestrateapi.OutcomeOf(r, g)
 	let same = Show(o, true, p) == Show(o, true, d)
 	match o {

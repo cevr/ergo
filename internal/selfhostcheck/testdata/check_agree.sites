@@ -1026,6 +1026,7 @@ case internal/sketch/std
 case internal/sketch/std/actor
 case internal/sketch/std/ansi
 case internal/sketch/std/api
+case internal/sketch/std/archive
 case internal/sketch/std/arena
 case internal/sketch/std/atomic
 case internal/sketch/std/base64
@@ -1039,6 +1040,7 @@ case internal/sketch/std/code
 case internal/sketch/std/codec
 case internal/sketch/std/codegraph
 case internal/sketch/std/collections
+case internal/sketch/std/color
 case internal/sketch/std/config
 case internal/sketch/std/core
 case internal/sketch/std/crc32
@@ -1325,11 +1327,13 @@ case unused internal/selfhostcheck/testdata/bind/port_unit.ergo
 case unused internal/selfhostcheck/testdata/bind/wired.ergo
 case unused internal/sketch/std/ansi/ansi.ergo
 case unused internal/sketch/std/api/api.ergo
+case unused internal/sketch/std/archive/archive.ergo
 case unused internal/sketch/std/bench/stats.ergo
 case unused internal/sketch/std/cache/cache.ergo
 case unused internal/sketch/std/codec/codec.ergo
 case unused internal/sketch/std/codegraph/codegraph.ergo
 case unused internal/sketch/std/collections/collections.ergo
+case unused internal/sketch/std/color/names.ergo
 case unused internal/sketch/std/crc32/crc32.ergo
 case unused internal/sketch/std/cron/expr.ergo
 case unused internal/sketch/std/decimal/u128.ergo

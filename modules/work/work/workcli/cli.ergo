@@ -2,6 +2,7 @@ import api
 import flag
 import fs
 import io
+import option
 import prompt
 import rpc
 import slices
@@ -39,10 +40,10 @@ func commandInit() flag.Command[Request] {
 func commandNew() flag.Command[Request] {
 	let a0 = flag.Arg("name", "name (string)")
 	let f2 = flag.Bool("copy", false, "o.Copy (bool)")
-	let f3 = flag.OptionalString("from", "o.From (Option[string])")
-	let f4 = flag.OptionalString("branch", "o.Branch (Option[string])")
-	let f5 = flag.OptionalString("on", "o.On (Option[string])")
-	let f6 = flag.OptionalString("token", "o.Token (Option[string])")
+	let f3 = flag.OptionalString("from", "o.From (option.Option[string])")
+	let f4 = flag.OptionalString("branch", "o.Branch (option.Option[string])")
+	let f5 = flag.OptionalString("on", "o.On (option.Option[string])")
+	let f6 = flag.OptionalString("token", "o.Token (option.Option[string])")
 	let usage = workapi.Doc(workapi.NewOp)
 	flag.Command[Request]{Name: "new", Usage: usage, Set: flag.Set{Name: "new", Usage: usage, Flags: []flag.Flag{f2, f3, f4, f5, f6}, Args: []flag.ArgSpec{a0}}, Build: func(v flag.Values) Request fails flag.Failure {
 		let t1 = argText(a0, v)
@@ -52,7 +53,7 @@ func commandNew() flag.Command[Request] {
 
 func commandAdopt() flag.Command[Request] {
 	let a0 = flag.Arg("dir", "dir (string)")
-	let f2 = flag.OptionalString("name", "o.Name (Option[string])")
+	let f2 = flag.OptionalString("name", "o.Name (option.Option[string])")
 	let usage = workapi.Doc(workapi.AdoptOp)
 	flag.Command[Request]{Name: "adopt", Usage: usage, Set: flag.Set{Name: "adopt", Usage: usage, Flags: []flag.Flag{f2}, Args: []flag.ArgSpec{a0}}, Build: func(v flag.Values) Request fails flag.Failure {
 		let t1 = argText(a0, v)
@@ -61,7 +62,7 @@ func commandAdopt() flag.Command[Request] {
 }
 
 func commandAdoptRift() flag.Command[Request] {
-	let f0 = flag.OptionalString("registry", "o.Registry (Option[string])")
+	let f0 = flag.OptionalString("registry", "o.Registry (option.Option[string])")
 	let usage = workapi.Doc(workapi.AdoptRiftOp)
 	flag.Command[Request]{Name: "adopt-rift", Usage: usage, Set: flag.Set{Name: "adopt-rift", Usage: usage, Flags: []flag.Flag{f0}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
 		workapi.AdoptRiftRequest{O: work.RiftOptions{Registry: f0.Get(v)}}
@@ -79,7 +80,7 @@ func commandList() flag.Command[Request] {
 func commandRm() flag.Command[Request] {
 	let a0 = flag.Arg("name", "name (string)")
 	let f2 = flag.Bool("abandon", false, "o.Abandon (bool)")
-	let f3 = flag.OptionalString("expect", "o.Expect (Option[string])")
+	let f3 = flag.OptionalString("expect", "o.Expect (option.Option[string])")
 	let f4 = flag.Bool("tree", false, "o.Tree (bool)")
 	let usage = workapi.Doc(workapi.RmOp)
 	flag.Command[Request]{Name: "rm", Usage: usage, Set: flag.Set{Name: "rm", Usage: usage, Flags: []flag.Flag{f2, f3, f4}, Args: []flag.ArgSpec{a0}}, Build: func(v flag.Values) Request fails flag.Failure {
@@ -89,9 +90,9 @@ func commandRm() flag.Command[Request] {
 }
 
 func commandGc() flag.Command[Request] {
-	let f0 = flag.OptionalString("older", "o.Older (Option[string])")
-	let f1 = flag.OptionalString("id", "o.Id (Option[string])")
-	let f2 = flag.OptionalString("idle", "o.Idle (Option[string])")
+	let f0 = flag.OptionalString("older", "o.Older (option.Option[string])")
+	let f1 = flag.OptionalString("id", "o.Id (option.Option[string])")
+	let f2 = flag.OptionalString("idle", "o.Idle (option.Option[string])")
 	let f3 = flag.Bool("archive", false, "o.Archive (bool)")
 	let f4 = flag.Bool("dry", false, "o.Dry (bool)")
 	let usage = workapi.Doc(workapi.GcOp)
@@ -126,8 +127,8 @@ func commandDu() flag.Command[Request] {
 }
 
 func commandReady() flag.Command[Request] {
-	let f0 = flag.OptionalString("name", "o.Name (Option[string])")
-	let f1 = flag.OptionalString("request", "o.Request (Option[string])")
+	let f0 = flag.OptionalString("name", "o.Name (option.Option[string])")
+	let f1 = flag.OptionalString("request", "o.Request (option.Option[string])")
 	let usage = workapi.Doc(workapi.ReadyOp)
 	flag.Command[Request]{Name: "ready", Usage: usage, Set: flag.Set{Name: "ready", Usage: usage, Flags: []flag.Flag{f0, f1}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
 		workapi.ReadyRequest{O: work.ReadyOptions{Name: f0.Get(v), Request: f1.Get(v)}}
@@ -144,7 +145,7 @@ func commandRecord() flag.Command[Request] {
 }
 
 func commandSync() flag.Command[Request] {
-	let f0 = flag.OptionalString("name", "o.Name (Option[string])")
+	let f0 = flag.OptionalString("name", "o.Name (option.Option[string])")
 	let usage = workapi.Doc(workapi.SyncOp)
 	flag.Command[Request]{Name: "sync", Usage: usage, Set: flag.Set{Name: "sync", Usage: usage, Flags: []flag.Flag{f0}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
 		workapi.SyncRequest{O: work.SyncOptions{Name: f0.Get(v)}}
@@ -152,7 +153,7 @@ func commandSync() flag.Command[Request] {
 }
 
 func commandEnv() flag.Command[Request] {
-	let f0 = flag.OptionalString("name", "o.Name (Option[string])")
+	let f0 = flag.OptionalString("name", "o.Name (option.Option[string])")
 	let usage = workapi.Doc(workapi.EnvOp)
 	flag.Command[Request]{Name: "env", Usage: usage, Set: flag.Set{Name: "env", Usage: usage, Flags: []flag.Flag{f0}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
 		workapi.EnvRequest{O: work.EnvOptions{Name: f0.Get(v)}}
@@ -164,7 +165,7 @@ func commandMergeFile() flag.Command[Request] {
 	let a2 = flag.Arg("base", "base (string)")
 	let a4 = flag.Arg("ours", "ours (string)")
 	let a6 = flag.Arg("theirs", "theirs (string)")
-	let f8 = flag.OptionalString("path", "o.Path (Option[string])")
+	let f8 = flag.OptionalString("path", "o.Path (option.Option[string])")
 	let usage = workapi.Doc(workapi.MergeFileOp)
 	flag.Command[Request]{Name: "merge-file", Usage: usage, Set: flag.Set{Name: "merge-file", Usage: usage, Flags: []flag.Flag{f8}, Args: []flag.ArgSpec{a0, a2, a4, a6}}, Build: func(v flag.Values) Request fails flag.Failure {
 		let t1 = argText(a0, v)
@@ -191,7 +192,7 @@ func commandMergeFolders() flag.Command[Request] {
 }
 
 func commandDerive() flag.Command[Request] {
-	let f0 = flag.OptionalString("name", "o.Name (Option[string])")
+	let f0 = flag.OptionalString("name", "o.Name (option.Option[string])")
 	let usage = workapi.Doc(workapi.DeriveOp)
 	flag.Command[Request]{Name: "derive", Usage: usage, Set: flag.Set{Name: "derive", Usage: usage, Flags: []flag.Flag{f0}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
 		workapi.DeriveRequest{O: work.DeriveOptions{Name: f0.Get(v)}}
@@ -199,7 +200,7 @@ func commandDerive() flag.Command[Request] {
 }
 
 func commandDeps() flag.Command[Request] {
-	let f0 = flag.OptionalString("name", "o.Name (Option[string])")
+	let f0 = flag.OptionalString("name", "o.Name (option.Option[string])")
 	let usage = workapi.Doc(workapi.DepsOp)
 	flag.Command[Request]{Name: "deps", Usage: usage, Set: flag.Set{Name: "deps", Usage: usage, Flags: []flag.Flag{f0}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
 		workapi.DepsRequest{O: work.DepsOptions{Name: f0.Get(v)}}
@@ -215,7 +216,7 @@ func commandTrust() flag.Command[Request] {
 
 func commandDoctor() flag.Command[Request] {
 	let f0 = flag.Bool("rift", false, "o.Rift (bool)")
-	let f1 = flag.OptionalString("registry", "o.Registry (Option[string])")
+	let f1 = flag.OptionalString("registry", "o.Registry (option.Option[string])")
 	let f2 = flag.Bool("unguard", false, "o.Unguard (bool)")
 	let f3 = flag.Bool("fix", false, "o.Fix (bool)")
 	let f4 = flag.Bool("here", false, "o.Here (bool)")
@@ -228,9 +229,9 @@ func commandDoctor() flag.Command[Request] {
 
 func commandPluginTest() flag.Command[Request] {
 	let a0 = flag.Arg("command", "command (string)")
-	let f2 = flag.OptionalString("files", "o.Files (Option[string])")
-	let f3 = flag.OptionalInt("max", "o.Max (Option[int])")
-	let f4 = flag.OptionalInt("seed", "o.Seed (Option[int])")
+	let f2 = flag.OptionalString("files", "o.Files (option.Option[string])")
+	let f3 = flag.OptionalInt("max", "o.Max (option.Option[int])")
+	let f4 = flag.OptionalInt("seed", "o.Seed (option.Option[int])")
 	let usage = workapi.Doc(workapi.PluginTestOp)
 	flag.Command[Request]{Name: "plugin-test", Usage: usage, Set: flag.Set{Name: "plugin-test", Usage: usage, Flags: []flag.Flag{f2, f3, f4}, Args: []flag.ArgSpec{a0}}, Build: func(v flag.Values) Request fails flag.Failure {
 		let t1 = argText(a0, v)
@@ -288,7 +289,7 @@ func commandShellInit() flag.Command[Request] {
 }
 
 func commandImportRift() flag.Command[Request] {
-	let f0 = flag.OptionalString("file", "o.File (Option[string])")
+	let f0 = flag.OptionalString("file", "o.File (option.Option[string])")
 	let usage = workapi.Doc(workapi.ImportRiftOp)
 	flag.Command[Request]{Name: "import-rift", Usage: usage, Set: flag.Set{Name: "import-rift", Usage: usage, Flags: []flag.Flag{f0}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
 		workapi.ImportRiftRequest{O: work.ImportRiftOptions{File: f0.Get(v)}}
@@ -297,9 +298,9 @@ func commandImportRift() flag.Command[Request] {
 
 func argText(a flag.ArgSpec, v flag.Values) string {
 	match a.Get(v) {
-	case Some[string] as s:
+	case option.Some[string] as s:
 		s.Value
-	case None:
+	case option.None:
 		""
 	}
 }
@@ -308,123 +309,123 @@ func argText(a flag.ArgSpec, v flag.Values) string {
 // flags and arguments. It builds only the command args[0] names; the
 // list of every command is built only for help or an unknown command.
 func Parse(args []string) Request fails flag.Failure {
-	let first = if len(args) > 0 { args[0] } else { "" }
+	let first = if args.Len() > 0 { args[0] } else { "" }
 	match first {
 	case "version":
 		let c = commandVersion()
-		let v = try flag.Parse(flag.Set{..c.Set, Name: "work version"}, slices.Slice(args, 1, len(args)))
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "work version"}, slices.Slice(args, 1, args.Len()))
 		try c.Build(v)
 	case "init":
 		let c = commandInit()
-		let v = try flag.Parse(flag.Set{..c.Set, Name: "work init"}, slices.Slice(args, 1, len(args)))
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "work init"}, slices.Slice(args, 1, args.Len()))
 		try c.Build(v)
 	case "new":
 		let c = commandNew()
-		let v = try flag.Parse(flag.Set{..c.Set, Name: "work new"}, slices.Slice(args, 1, len(args)))
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "work new"}, slices.Slice(args, 1, args.Len()))
 		try c.Build(v)
 	case "adopt":
 		let c = commandAdopt()
-		let v = try flag.Parse(flag.Set{..c.Set, Name: "work adopt"}, slices.Slice(args, 1, len(args)))
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "work adopt"}, slices.Slice(args, 1, args.Len()))
 		try c.Build(v)
 	case "adopt-rift":
 		let c = commandAdoptRift()
-		let v = try flag.Parse(flag.Set{..c.Set, Name: "work adopt-rift"}, slices.Slice(args, 1, len(args)))
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "work adopt-rift"}, slices.Slice(args, 1, args.Len()))
 		try c.Build(v)
 	case "list":
 		let c = commandList()
-		let v = try flag.Parse(flag.Set{..c.Set, Name: "work list"}, slices.Slice(args, 1, len(args)))
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "work list"}, slices.Slice(args, 1, args.Len()))
 		try c.Build(v)
 	case "rm":
 		let c = commandRm()
-		let v = try flag.Parse(flag.Set{..c.Set, Name: "work rm"}, slices.Slice(args, 1, len(args)))
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "work rm"}, slices.Slice(args, 1, args.Len()))
 		try c.Build(v)
 	case "gc":
 		let c = commandGc()
-		let v = try flag.Parse(flag.Set{..c.Set, Name: "work gc"}, slices.Slice(args, 1, len(args)))
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "work gc"}, slices.Slice(args, 1, args.Len()))
 		try c.Build(v)
 	case "pin":
 		let c = commandPin()
-		let v = try flag.Parse(flag.Set{..c.Set, Name: "work pin"}, slices.Slice(args, 1, len(args)))
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "work pin"}, slices.Slice(args, 1, args.Len()))
 		try c.Build(v)
 	case "unpin":
 		let c = commandUnpin()
-		let v = try flag.Parse(flag.Set{..c.Set, Name: "work unpin"}, slices.Slice(args, 1, len(args)))
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "work unpin"}, slices.Slice(args, 1, args.Len()))
 		try c.Build(v)
 	case "du":
 		let c = commandDu()
-		let v = try flag.Parse(flag.Set{..c.Set, Name: "work du"}, slices.Slice(args, 1, len(args)))
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "work du"}, slices.Slice(args, 1, args.Len()))
 		try c.Build(v)
 	case "ready":
 		let c = commandReady()
-		let v = try flag.Parse(flag.Set{..c.Set, Name: "work ready"}, slices.Slice(args, 1, len(args)))
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "work ready"}, slices.Slice(args, 1, args.Len()))
 		try c.Build(v)
 	case "record":
 		let c = commandRecord()
-		let v = try flag.Parse(flag.Set{..c.Set, Name: "work record"}, slices.Slice(args, 1, len(args)))
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "work record"}, slices.Slice(args, 1, args.Len()))
 		try c.Build(v)
 	case "sync":
 		let c = commandSync()
-		let v = try flag.Parse(flag.Set{..c.Set, Name: "work sync"}, slices.Slice(args, 1, len(args)))
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "work sync"}, slices.Slice(args, 1, args.Len()))
 		try c.Build(v)
 	case "env":
 		let c = commandEnv()
-		let v = try flag.Parse(flag.Set{..c.Set, Name: "work env"}, slices.Slice(args, 1, len(args)))
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "work env"}, slices.Slice(args, 1, args.Len()))
 		try c.Build(v)
 	case "merge-file":
 		let c = commandMergeFile()
-		let v = try flag.Parse(flag.Set{..c.Set, Name: "work merge-file"}, slices.Slice(args, 1, len(args)))
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "work merge-file"}, slices.Slice(args, 1, args.Len()))
 		try c.Build(v)
 	case "merge-folders":
 		let c = commandMergeFolders()
-		let v = try flag.Parse(flag.Set{..c.Set, Name: "work merge-folders"}, slices.Slice(args, 1, len(args)))
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "work merge-folders"}, slices.Slice(args, 1, args.Len()))
 		try c.Build(v)
 	case "derive":
 		let c = commandDerive()
-		let v = try flag.Parse(flag.Set{..c.Set, Name: "work derive"}, slices.Slice(args, 1, len(args)))
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "work derive"}, slices.Slice(args, 1, args.Len()))
 		try c.Build(v)
 	case "deps":
 		let c = commandDeps()
-		let v = try flag.Parse(flag.Set{..c.Set, Name: "work deps"}, slices.Slice(args, 1, len(args)))
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "work deps"}, slices.Slice(args, 1, args.Len()))
 		try c.Build(v)
 	case "trust":
 		let c = commandTrust()
-		let v = try flag.Parse(flag.Set{..c.Set, Name: "work trust"}, slices.Slice(args, 1, len(args)))
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "work trust"}, slices.Slice(args, 1, args.Len()))
 		try c.Build(v)
 	case "doctor":
 		let c = commandDoctor()
-		let v = try flag.Parse(flag.Set{..c.Set, Name: "work doctor"}, slices.Slice(args, 1, len(args)))
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "work doctor"}, slices.Slice(args, 1, args.Len()))
 		try c.Build(v)
 	case "plugin-test":
 		let c = commandPluginTest()
-		let v = try flag.Parse(flag.Set{..c.Set, Name: "work plugin-test"}, slices.Slice(args, 1, len(args)))
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "work plugin-test"}, slices.Slice(args, 1, args.Len()))
 		try c.Build(v)
 	case "refresh":
 		let c = commandRefresh()
-		let v = try flag.Parse(flag.Set{..c.Set, Name: "work refresh"}, slices.Slice(args, 1, len(args)))
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "work refresh"}, slices.Slice(args, 1, args.Len()))
 		try c.Build(v)
 	case "clone":
 		let c = commandClone()
-		let v = try flag.Parse(flag.Set{..c.Set, Name: "work clone"}, slices.Slice(args, 1, len(args)))
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "work clone"}, slices.Slice(args, 1, args.Len()))
 		try c.Build(v)
 	case "bases":
 		let c = commandBases()
-		let v = try flag.Parse(flag.Set{..c.Set, Name: "work bases"}, slices.Slice(args, 1, len(args)))
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "work bases"}, slices.Slice(args, 1, args.Len()))
 		try c.Build(v)
 	case "forget-base":
 		let c = commandForgetBase()
-		let v = try flag.Parse(flag.Set{..c.Set, Name: "work forget-base"}, slices.Slice(args, 1, len(args)))
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "work forget-base"}, slices.Slice(args, 1, args.Len()))
 		try c.Build(v)
 	case "prune-bases":
 		let c = commandPruneBases()
-		let v = try flag.Parse(flag.Set{..c.Set, Name: "work prune-bases"}, slices.Slice(args, 1, len(args)))
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "work prune-bases"}, slices.Slice(args, 1, args.Len()))
 		try c.Build(v)
 	case "shell-init":
 		let c = commandShellInit()
-		let v = try flag.Parse(flag.Set{..c.Set, Name: "work shell-init"}, slices.Slice(args, 1, len(args)))
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "work shell-init"}, slices.Slice(args, 1, args.Len()))
 		try c.Build(v)
 	case "import-rift":
 		let c = commandImportRift()
-		let v = try flag.Parse(flag.Set{..c.Set, Name: "work import-rift"}, slices.Slice(args, 1, len(args)))
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "work import-rift"}, slices.Slice(args, 1, args.Len()))
 		try c.Build(v)
 	case _:
 		try flag.ParseCommand("work", "work.Api on a command line", Commands(), args)
@@ -443,24 +444,24 @@ func Print(r Request) []string {
 		let mut out = []string{"new"}
 		out = out.Append("-copy=\(x.O.Copy)")
 		match x.O.From {
-		case Some[string] as s:
+		case option.Some[string] as s:
 			out = out.Append("-from=\(s.Value)")
-		case None:
+		case option.None:
 		}
 		match x.O.Branch {
-		case Some[string] as s:
+		case option.Some[string] as s:
 			out = out.Append("-branch=\(s.Value)")
-		case None:
+		case option.None:
 		}
 		match x.O.On {
-		case Some[string] as s:
+		case option.Some[string] as s:
 			out = out.Append("-on=\(s.Value)")
-		case None:
+		case option.None:
 		}
 		match x.O.Token {
-		case Some[string] as s:
+		case option.Some[string] as s:
 			out = out.Append("-token=\(s.Value)")
-		case None:
+		case option.None:
 		}
 		out = out.Append("--")
 		out = out.Append("\(x.Name)")
@@ -468,9 +469,9 @@ func Print(r Request) []string {
 	case workapi.AdoptRequest as x:
 		let mut out = []string{"adopt"}
 		match x.O.Name {
-		case Some[string] as s:
+		case option.Some[string] as s:
 			out = out.Append("-name=\(s.Value)")
-		case None:
+		case option.None:
 		}
 		out = out.Append("--")
 		out = out.Append("\(x.Dir)")
@@ -478,9 +479,9 @@ func Print(r Request) []string {
 	case workapi.AdoptRiftRequest as x:
 		let mut out = []string{"adopt-rift"}
 		match x.O.Registry {
-		case Some[string] as s:
+		case option.Some[string] as s:
 			out = out.Append("-registry=\(s.Value)")
-		case None:
+		case option.None:
 		}
 		out
 	case workapi.ListRequest as x:
@@ -491,9 +492,9 @@ func Print(r Request) []string {
 		let mut out = []string{"rm"}
 		out = out.Append("-abandon=\(x.O.Abandon)")
 		match x.O.Expect {
-		case Some[string] as s:
+		case option.Some[string] as s:
 			out = out.Append("-expect=\(s.Value)")
-		case None:
+		case option.None:
 		}
 		out = out.Append("-tree=\(x.O.Tree)")
 		out = out.Append("--")
@@ -502,19 +503,19 @@ func Print(r Request) []string {
 	case workapi.GcRequest as x:
 		let mut out = []string{"gc"}
 		match x.O.Older {
-		case Some[string] as s:
+		case option.Some[string] as s:
 			out = out.Append("-older=\(s.Value)")
-		case None:
+		case option.None:
 		}
 		match x.O.Id {
-		case Some[string] as s:
+		case option.Some[string] as s:
 			out = out.Append("-id=\(s.Value)")
-		case None:
+		case option.None:
 		}
 		match x.O.Idle {
-		case Some[string] as s:
+		case option.Some[string] as s:
 			out = out.Append("-idle=\(s.Value)")
-		case None:
+		case option.None:
 		}
 		out = out.Append("-archive=\(x.O.Archive)")
 		out = out.Append("-dry=\(x.O.Dry)")
@@ -534,14 +535,14 @@ func Print(r Request) []string {
 	case workapi.ReadyRequest as x:
 		let mut out = []string{"ready"}
 		match x.O.Name {
-		case Some[string] as s:
+		case option.Some[string] as s:
 			out = out.Append("-name=\(s.Value)")
-		case None:
+		case option.None:
 		}
 		match x.O.Request {
-		case Some[string] as s:
+		case option.Some[string] as s:
 			out = out.Append("-request=\(s.Value)")
-		case None:
+		case option.None:
 		}
 		out
 	case workapi.RecordRequest as x:
@@ -552,25 +553,25 @@ func Print(r Request) []string {
 	case workapi.SyncRequest as x:
 		let mut out = []string{"sync"}
 		match x.O.Name {
-		case Some[string] as s:
+		case option.Some[string] as s:
 			out = out.Append("-name=\(s.Value)")
-		case None:
+		case option.None:
 		}
 		out
 	case workapi.EnvRequest as x:
 		let mut out = []string{"env"}
 		match x.O.Name {
-		case Some[string] as s:
+		case option.Some[string] as s:
 			out = out.Append("-name=\(s.Value)")
-		case None:
+		case option.None:
 		}
 		out
 	case workapi.MergeFileRequest as x:
 		let mut out = []string{"merge-file"}
 		match x.O.Path {
-		case Some[string] as s:
+		case option.Some[string] as s:
 			out = out.Append("-path=\(s.Value)")
-		case None:
+		case option.None:
 		}
 		out = out.Append("--")
 		out = out.Append("\(x.Class)")
@@ -589,17 +590,17 @@ func Print(r Request) []string {
 	case workapi.DeriveRequest as x:
 		let mut out = []string{"derive"}
 		match x.O.Name {
-		case Some[string] as s:
+		case option.Some[string] as s:
 			out = out.Append("-name=\(s.Value)")
-		case None:
+		case option.None:
 		}
 		out
 	case workapi.DepsRequest as x:
 		let mut out = []string{"deps"}
 		match x.O.Name {
-		case Some[string] as s:
+		case option.Some[string] as s:
 			out = out.Append("-name=\(s.Value)")
-		case None:
+		case option.None:
 		}
 		out
 	case workapi.TrustRequest:
@@ -608,9 +609,9 @@ func Print(r Request) []string {
 		let mut out = []string{"doctor"}
 		out = out.Append("-rift=\(x.O.Rift)")
 		match x.O.Registry {
-		case Some[string] as s:
+		case option.Some[string] as s:
 			out = out.Append("-registry=\(s.Value)")
-		case None:
+		case option.None:
 		}
 		out = out.Append("-unguard=\(x.O.Unguard)")
 		out = out.Append("-fix=\(x.O.Fix)")
@@ -620,19 +621,19 @@ func Print(r Request) []string {
 	case workapi.PluginTestRequest as x:
 		let mut out = []string{"plugin-test"}
 		match x.O.Files {
-		case Some[string] as s:
+		case option.Some[string] as s:
 			out = out.Append("-files=\(s.Value)")
-		case None:
+		case option.None:
 		}
 		match x.O.Max {
-		case Some[int] as s:
+		case option.Some[int] as s:
 			out = out.Append("-max=\(s.Value)")
-		case None:
+		case option.None:
 		}
 		match x.O.Seed {
-		case Some[int] as s:
+		case option.Some[int] as s:
 			out = out.Append("-seed=\(s.Value)")
-		case None:
+		case option.None:
 		}
 		out = out.Append("--")
 		out = out.Append("\(x.Command)")
@@ -662,9 +663,9 @@ func Print(r Request) []string {
 	case workapi.ImportRiftRequest as x:
 		let mut out = []string{"import-rift"}
 		match x.O.File {
-		case Some[string] as s:
+		case option.Some[string] as s:
 			out = out.Append("-file=\(s.Value)")
-		case None:
+		case option.None:
 		}
 		out
 	}
@@ -687,11 +688,11 @@ law ArgsRoundTrip(r Request) { RoundTrips(r) }
 // without --json (default None: a basic value as its text, else its
 // JSON; --json never calls it); Confirm, the question a call asks before
 // it runs (default None: none; --yes answers it).
-type Policy { Code func(f workapi.Failure) int, Text func(r workapi.Reply) Option[string], Confirm func(r Request) Option[string] }
+type Policy { Code func(f workapi.Failure) int, Text func(r workapi.Reply) option.Option[string], Confirm func(r Request) option.Option[string] }
 
 // Defaults is the Policy of a binary that decides nothing.
 func Defaults() Policy {
-	Policy{Code: func(f workapi.Failure) int { 1 }, Text: func(r workapi.Reply) Option[string] { None }, Confirm: func(r Request) Option[string] { None }}
+	Policy{Code: func(f workapi.Failure) int { 1 }, Text: func(r workapi.Reply) option.Option[string] { option.None }, Confirm: func(r Request) option.Option[string] { option.None }}
 }
 
 func answer(asJSON bool, plain string, encoded string) Output {
@@ -726,9 +727,9 @@ func Show(o workapi.Outcome, asJSON bool, p Policy) Output {
 	case workapi.Done as done:
 		if !asJSON {
 			match p.Text(done.Reply) {
-			case Some[string] as s:
+			case option.Some[string] as s:
 				return Output{Out: line(s.Value), Err: "", Code: 0}
-			case None:
+			case option.None:
 			}
 		}
 		match done.Reply {
@@ -1742,9 +1743,9 @@ func runOver[R](args []string, p Policy, answer func(r Request) workapi.Outcome 
 	case asked as a:
 		if !a.Yes {
 			match p.Confirm(a.R) {
-			case Some[string] as q:
+			case option.Some[string] as q:
 				return needsYes(q.Value)
-			case None:
+			case option.None:
 			}
 		}
 		Show(answer(a.R), a.JSON, p)
@@ -1771,7 +1772,7 @@ func RunOnTerminal(args []string, p Policy) Output needs work.Api | term.Termina
 	case asked as a:
 		if !a.Yes {
 			match p.Confirm(a.R) {
-			case Some[string] as q:
+			case option.Some[string] as q:
 				let yes = prompt.Confirm(q.Value, false) catch {
 				case prompt.NotInteractive:
 					return needsYes(q.Value)
@@ -1783,7 +1784,7 @@ func RunOnTerminal(args []string, p Policy) Output needs work.Api | term.Termina
 				if !yes {
 					return declined(q.Value)
 				}
-			case None:
+			case option.None:
 			}
 		}
 		Show(workapi.Call(a.R), a.JSON, p)
@@ -1833,7 +1834,7 @@ law CodeIsThePolicy(r Request, g workapi.Given, k int) {
 // with --json every outcome prints as the wire's JSON, whatever Text says.
 law TextIsThePolicy(r Request, g workapi.Given, t string) {
 	let d = Defaults()
-	let p = Policy{..d, Text: func(reply workapi.Reply) Option[string] { Some[string]{Value: t} }}
+	let p = Policy{..d, Text: func(reply workapi.Reply) option.Option[string] { option.Some[string]{Value: t} }}
 	let o = workapi.OutcomeOf(r, g)
 	let same = Show(o, true, p) == Show(o, true, d)
 	match o {

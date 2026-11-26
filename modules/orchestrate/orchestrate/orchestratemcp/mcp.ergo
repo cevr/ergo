@@ -2,6 +2,7 @@ import api
 import json
 import mcp
 import rpc
+import scope
 import github.com/cevr/ergo/modules/orchestrate/orchestrate
 import github.com/cevr/ergo/modules/orchestrate/orchestrate/orchestrateapi
 
@@ -284,8 +285,8 @@ func Answer(r Request) json.Value fails mcp.ToolError needs orchestrate.Api {
 // JSON, or, when it is an error, an admitted failure's tagged JSON.
 // Invalid or missing replies fail Transport, outside the operation's own row.
 func ReadAnswer(r Request, result mcp.Called) orchestrateapi.Outcome fails rpc.Transport {
-	if len(result.Content) != 1 {
-		return rpc.Transport{Reason: "a tool answered \(len(result.Content)) blocks, not one"}
+	if result.Content.Len() != 1 {
+		return rpc.Transport{Reason: "a tool answered \(result.Content.Len()) blocks, not one"}
 	}
 	let text = result.Content[0].Text
 	if !result.IsError {
@@ -793,7 +794,7 @@ func toolsOver(answer own func(r Request) orchestrateapi.Outcome) []mcp.Tool {
 
 // Tools are the tools of the orchestrate.Api in force, one per operation, in its order.
 func Tools() []mcp.Tool needs orchestrate.Api {
-	let held = InForce[orchestrate.Api]()
+	let held = scope.InForce[orchestrate.Api]()
 	toolsOver(func(r Request) orchestrateapi.Outcome {
 		with held { orchestrateapi.Call(r) }
 	})

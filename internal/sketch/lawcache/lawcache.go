@@ -56,6 +56,25 @@ type Store struct {
 	mem   map[string]string
 	runs  map[string]int
 	wrote int
+	// fresh reads no entry from disk: only what this process stored
+	// since Fresh (ergo check and test --fresh).
+	fresh bool
+}
+
+// Fresh makes the store read no entry another run kept, from now on:
+// Get finds only what this process stores after the call, and Put and
+// Keep still keep each pass for later runs (`--fresh`, which runs every
+// obligation again and refreshes the store).
+func (s *Store) Fresh() {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.fresh {
+		s.fresh = true
+		clear(s.mem)
+	}
 }
 
 var (
@@ -120,8 +139,9 @@ func (s *Store) Get(key string) (string, bool) {
 	name, path := s.file(key)
 	s.mu.Lock()
 	text, ok := s.mem[name]
+	fresh := s.fresh
 	s.mu.Unlock()
-	if ok || path == "" {
+	if ok || path == "" || fresh {
 		return text, ok
 	}
 	data, err := os.ReadFile(path)
@@ -170,13 +190,23 @@ func (s *Store) Put(key, text string) {
 	if s == nil {
 		return
 	}
-	name, path := s.file(key)
+	name, _ := s.file(key)
 	s.mu.Lock()
 	s.runs[name]++
-	if text == "" || failed(text) {
-		s.mu.Unlock()
+	s.mu.Unlock()
+	s.Keep(key, text)
+}
+
+// Keep stores text under key as Put does, but counts no run: for a fact
+// derived from its key's inputs that is no verdict (lower's foreign
+// keys), so an answer printed while it was stored is the one the next run
+// prints (Puts). A text with a FAIL line is not stored.
+func (s *Store) Keep(key, text string) {
+	if s == nil || text == "" || failed(text) {
 		return
 	}
+	name, path := s.file(key)
+	s.mu.Lock()
 	s.mem[name] = text
 	s.mu.Unlock()
 	if path != "" && writeAtomic(path, []byte(text)) == nil {

@@ -1,6 +1,7 @@
 import code
 import json
 import rpc
+import scope
 import sync
 
 // Request is one call of code.Reader: a variant per operation, whose fields
@@ -200,7 +201,7 @@ func NewClient(inner code.Reader) Client {
 
 // ClientInForce is the code.Reader that invokes the provider currently in force.
 func ClientInForce() Client needs code.Reader {
-	let held = InForce[code.Reader]()
+	let held = scope.InForce[code.Reader]()
 	Client{
 		opDescribe:   func() code.Summary { with held { code.Reader.Describe() } },
 		opSymbols:    func(q code.SymbolQuery) code.SymbolPage { with held { code.Reader.Symbols(q) } },

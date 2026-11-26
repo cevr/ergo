@@ -45,7 +45,8 @@ import (
 // treeCut is one package's kept evaluation for the cutoff.
 type treeCut struct {
 	Entry treeEntry `json:"entry"`
-	// Inputs are the run's inputs that are not the load's sources.
+	// Inputs are the run's inputs that are not the load's sources, each
+	// path below the module's folder relative to it (Inputs.Within).
 	Inputs sketchfront.Inputs `json:"inputs"`
 	// Impls are the implementation fingerprints of the local imports,
 	// checked when Obligations.
@@ -79,7 +80,7 @@ func (t *checkTree) cutKey(a sketchfront.Analysis) (string, map[string]string, b
 	if root.Source == "" {
 		return "", nil, false
 	}
-	parts := []string{treeSchema, "cut", t.base, root.Path, a.Root().Dir, root.Source}
+	parts := []string{treeSchema, "cut", t.base, root.Path, lawcache.Within(a.ModuleRoot(), a.Root().Dir), root.Source}
 	impls := map[string]string{}
 	for _, imp := range root.Imports {
 		q := byPath[imp]
@@ -142,7 +143,7 @@ func (t *checkTree) replay(a sketchfront.Analysis) ([]byte, bool) {
 			}
 		}
 	}
-	if !t.fresh(c.Inputs) {
+	if !t.fresh(c.Inputs.Under(a.ModuleRoot())) {
 		return nil, false
 	}
 	root, srcs, ok := programSources(a)
@@ -193,7 +194,7 @@ func (t *checkTree) keepCut(a sketchfront.Analysis, sources map[string]bool, out
 		return
 	}
 	e, why := treeEntryOf(a, out, root, srcs)
-	if why != "" {
+	if why != "" || lawcache.Names(string(out), root) {
 		return
 	}
 	var env report.CheckEnvelope
@@ -217,7 +218,7 @@ func (t *checkTree) keepCut(a sketchfront.Analysis, sources map[string]bool, out
 			delete(inputs.Dirs, dir)
 		}
 	}
-	c := treeCut{Entry: e, Inputs: inputs, Impls: impls, Obligations: len(env.Evaluation.Obligations) > 0}
+	c := treeCut{Entry: e, Inputs: inputs.Within(root), Impls: impls, Obligations: len(env.Evaluation.Obligations) > 0}
 	data, err := json.Marshal(c)
 	if err != nil {
 		return

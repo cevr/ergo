@@ -56,6 +56,11 @@ func Generate(pkg *check.Package, path, opName, apiPath string) (Files, error) {
 	pkgName := lastElem(path)
 	g := &gen{pkg: pkg, path: path, op: opName, imports: map[string]string{"flag": "flag", "io": "io", "json": "json", "prompt": "prompt", "rpc": "rpc", "slices": "slices", "strconv": "strconv", "strings": "strings", "term": "term"}}
 	g.importOf(pkg)
+	// The templates below write option.Some and option.None: the import is
+	// the package that declares the Option the checker gives a lookup.
+	if opt := check.PreludeType("Option"); opt != nil {
+		g.importOf(opt.Obj.Pkg)
+	}
 	g.stdAPI = rpcgen.StdAPIName(g.imports)
 	g.imports["api"] = g.stdAPI
 	g.api = lastElem(apiPath)
@@ -142,10 +147,8 @@ func (g *gen) expr(t check.Type) string {
 			return g.expr(a)
 		}
 		name := u.Obj.Name
-		if !check.IsTransitionalPreludeType(u.Obj) {
-			if q := g.importOf(u.Obj.Pkg); q != "" {
-				name = q + "." + name
-			}
+		if q := g.importOf(u.Obj.Pkg); q != "" {
+			name = q + "." + name
 		}
 		if len(u.TArgs) > 0 {
 			var args []string
@@ -584,7 +587,7 @@ func (g *gen) leaf(c *command, t check.Type, name, path, acc string, seen map[*c
 	if elem, ok := optionOf(t); ok {
 		if k := basicElem(elem); k == "string" || k == "int" {
 			c.decls = append(c.decls, fmt.Sprintf("let %s = flag.%s(%q, %q)", f, optionalFlagCtor(k), name, usage))
-			c.print = append(c.print, fmt.Sprintf("match %s {\ncase Some[%s] as s:\nout = out.Append(\"-%s=\\(s.Value)\")\ncase None:\n}", acc, k, name))
+			c.print = append(c.print, fmt.Sprintf("match %s {\ncase option.Some[%s] as s:\nout = out.Append(\"-%s=\\(s.Value)\")\ncase option.None:\n}", acc, k, name))
 			return f + ".Get(v)"
 		}
 	}
@@ -595,7 +598,7 @@ func (g *gen) leaf(c *command, t check.Type, name, path, acc string, seen map[*c
 			absentExpr := g.expr(om.absent)
 			val := convert(k, conv, "s.Value")
 			u := c.local("u")
-			c.build = append(c.build, fmt.Sprintf("let %s = match %s.Get(v) {\ncase Some[%s] as s:\n%s{%s: %s}\ncase None:\n%s\n}", u, f, k, presentExpr, om.field, val, absentExpr))
+			c.build = append(c.build, fmt.Sprintf("let %s = match %s.Get(v) {\ncase option.Some[%s] as s:\n%s{%s: %s}\ncase option.None:\n%s\n}", u, f, k, presentExpr, om.field, val, absentExpr))
 			c.print = append(c.print, fmt.Sprintf("match %s {\ncase %s as s:\nout = out.Append(\"-%s=\\(s.%s)\")\ncase %s:\n}", acc, presentExpr, name, om.field, absentExpr))
 			return u
 		}
@@ -707,7 +710,7 @@ func (g *gen) file(pkgName string, ops []rpcgen.Op, cmds []*command) string {
 		fmt.Fprintf(&b, "%s\n}, Commands: []flag.Command[Request]{}}\n}\n", c.variant)
 	}
 
-	b.WriteString("\n// argText is the text of a positional argument that Parse has checked.\nfunc argText(a flag.ArgSpec, v flag.Values) string {\nmatch a.Get(v) {\ncase Some[string] as s:\ns.Value\ncase None:\n\"\"\n}\n}\n")
+	b.WriteString("\n// argText is the text of a positional argument that Parse has checked.\nfunc argText(a flag.ArgSpec, v flag.Values) string {\nmatch a.Get(v) {\ncase option.Some[string] as s:\ns.Value\ncase option.None:\n\"\"\n}\n}\n")
 
 	root := len(cmds) == 1
 	if root {
@@ -720,9 +723,9 @@ func (g *gen) file(pkgName string, ops []rpcgen.Op, cmds []*command) string {
 		// an unknown command and no command at all go to ParseCommand,
 		// which needs the whole list.
 		fmt.Fprintf(&b, "\n// Parse reads args as a command line of %s: a command and its\n// flags and arguments. It builds only the command args[0] names; the\n// list of every command is built only for help or an unknown command.\n", capName)
-		b.WriteString("func Parse(args []string) Request fails flag.Failure {\nlet first = if len(args) > 0 { args[0] } else { \"\" }\nmatch first {\n")
+		b.WriteString("func Parse(args []string) Request fails flag.Failure {\nlet first = if args.Len() > 0 { args[0] } else { \"\" }\nmatch first {\n")
 		for _, c := range cmds {
-			fmt.Fprintf(&b, "case %q:\nlet c = command%s()\nlet v = try flag.Parse(flag.Set{..c.Set, Name: %q}, slices.Slice(args, 1, len(args)))\ntry c.Build(v)\n", c.name, c.op.Name, pkgName+" "+c.name)
+			fmt.Fprintf(&b, "case %q:\nlet c = command%s()\nlet v = try flag.Parse(flag.Set{..c.Set, Name: %q}, slices.Slice(args, 1, args.Len()))\ntry c.Build(v)\n", c.name, c.op.Name, pkgName+" "+c.name)
 		}
 		fmt.Fprintf(&b, "case _:\ntry flag.ParseCommand(%q, %q, Commands(), args)\n}\n}\n", pkgName, capName+" on a command line")
 	}
@@ -753,8 +756,8 @@ func (g *gen) file(pkgName string, ops []rpcgen.Op, cmds []*command) string {
 	b.WriteString("law ArgsRoundTrip(r Request) { RoundTrips(r) }\n")
 
 	// Policy: what a binary decides of its command line (api.md, Policy).
-	fmt.Fprintf(&b, "\n// Policy is what a binary decides of its command line: Code, the exit\n// status of a typed failure (default 1); Text, the text of a value\n// without --json (default None: a basic value as its text, else its\n// JSON; --json never calls it); Confirm, the question a call asks before\n// it runs (default None: none; --yes answers it).\ntype Policy { Code func(f %s.Failure) int, Text func(r %s.Reply) Option[string], Confirm func(r Request) Option[string] }\n", g.api, g.api)
-	fmt.Fprintf(&b, "\n// Defaults is the Policy of a binary that decides nothing.\nfunc Defaults() Policy {\nPolicy{Code: func(f %s.Failure) int { 1 }, Text: func(r %s.Reply) Option[string] { None }, Confirm: func(r Request) Option[string] { None }}\n}\n", g.api, g.api)
+	fmt.Fprintf(&b, "\n// Policy is what a binary decides of its command line: Code, the exit\n// status of a typed failure (default 1); Text, the text of a value\n// without --json (default None: a basic value as its text, else its\n// JSON; --json never calls it); Confirm, the question a call asks before\n// it runs (default None: none; --yes answers it).\ntype Policy { Code func(f %s.Failure) int, Text func(r %s.Reply) option.Option[string], Confirm func(r Request) option.Option[string] }\n", g.api, g.api)
+	fmt.Fprintf(&b, "\n// Defaults is the Policy of a binary that decides nothing.\nfunc Defaults() Policy {\nPolicy{Code: func(f %s.Failure) int { 1 }, Text: func(r %s.Reply) option.Option[string] { option.None }, Confirm: func(r Request) option.Option[string] { option.None }}\n}\n", g.api, g.api)
 
 	b.WriteString("\n// answer is the Output of a value: its text, or its JSON with --json.\nfunc answer(asJSON bool, plain string, encoded string) Output {\nif asJSON {\nOutput{Out: encoded + \"\\n\", Err: \"\", Code: 0}\n} else {\nOutput{Out: line(plain), Err: \"\", Code: 0}\n}\n}\n")
 	b.WriteString("\n// line is s as a line of output: nothing for an empty s.\nfunc line(s string) string {\nif s == \"\" {\nreturn \"\"\n}\ns + \"\\n\"\n}\n")
@@ -763,7 +766,7 @@ func (g *gen) file(pkgName string, ops []rpcgen.Op, cmds []*command) string {
 	// Show: the Outcome as Output, the writer of the transport's answer.
 	b.WriteString("\n// Show is what Run prints of the outcome o under the policy p: the value\n// (p's Text when it has one and there is no --json; else its text when it\n// is a basic value, else its JSON; its JSON with --json), or a typed\n// failure (failed) with p's Code.\n")
 	fmt.Fprintf(&b, "func Show(o %s.Outcome, asJSON bool, p Policy) Output {\n", g.api)
-	fmt.Fprintf(&b, "match o {\ncase %s.Done as done:\nif !asJSON {\nmatch p.Text(done.Reply) {\ncase Some[string] as s:\nreturn Output{Out: line(s.Value), Err: \"\", Code: 0}\ncase None:\n}\n}\nmatch done.Reply {\n", g.api)
+	fmt.Fprintf(&b, "match o {\ncase %s.Done as done:\nif !asJSON {\nmatch p.Text(done.Reply) {\ncase option.Some[string] as s:\nreturn Output{Out: line(s.Value), Err: \"\", Code: 0}\ncase option.None:\n}\n}\nmatch done.Reply {\n", g.api)
 	for _, c := range cmds {
 		op := c.op
 		reply := g.reqQual + op.Name + "Reply"
@@ -840,14 +843,14 @@ func (g *gen) file(pkgName string, ops []rpcgen.Op, cmds []*command) string {
 
 	b.WriteString("\n// runOver reads args as [--json] [--yes] COMMAND ARGS..., answers the\n// Request with answer and is what to print (Show) under p; a call p asks a\n// question of, with no --yes, ends with status 2 (needsYes): runOver has\n// no terminal (RunOnTerminal has).\n")
 	fmt.Fprintf(&b, "func runOver[R](args []string, p Policy, answer func(r Request) %s.Outcome needs R) Output needs R {\n", g.api)
-	b.WriteString("match frontOf(args) {\ncase ended as e:\ne.O\ncase asked as a:\nif !a.Yes {\nmatch p.Confirm(a.R) {\ncase Some[string] as q:\nreturn needsYes(q.Value)\ncase None:\n}\n}\nShow(answer(a.R), a.JSON, p)\n}\n}\n")
+	b.WriteString("match frontOf(args) {\ncase ended as e:\ne.O\ncase asked as a:\nif !a.Yes {\nmatch p.Confirm(a.R) {\ncase option.Some[string] as q:\nreturn needsYes(q.Value)\ncase option.None:\n}\n}\nShow(answer(a.R), a.JSON, p)\n}\n}\n")
 
 	fmt.Fprintf(&b, "\n// Run reads args as [--json] [--yes] COMMAND ARGS..., answers the call\n// through the hub's Call on the %s the caller binds, and is what to\n// print under the policy p: the value, a typed failure with p's Code, the\n// help (status 0) or a usage error (status 2). It asks nothing: a call p\n// asks a question of needs --yes (status 2 without it).\n", capName)
 	fmt.Fprintf(&b, "func Run(args []string, p Policy) Output needs %s {\nrunOver(args, p, %s.Call)\n}\n", capName, g.api)
 
 	fmt.Fprintf(&b, "\n// RunOnTerminal is Run that asks p's question on the terminal (std\n// prompt) when there is no --yes: a yes runs the call, a no or a cancel\n// ends with status 1, and standard input that is not a terminal ends with\n// status 2, as Run does.\n")
 	fmt.Fprintf(&b, "func RunOnTerminal(args []string, p Policy) Output needs %s | term.Terminal | io.Stderr {\n", capName)
-	b.WriteString("match frontOf(args) {\ncase ended as e:\ne.O\ncase asked as a:\nif !a.Yes {\nmatch p.Confirm(a.R) {\ncase Some[string] as q:\nlet yes = prompt.Confirm(q.Value, false) catch {\ncase prompt.NotInteractive:\nreturn needsYes(q.Value)\ncase prompt.Cancelled:\nreturn declined(q.Value)\ncase io.ReadFailed:\nreturn Output{Out: \"\", Err: q.Value + \": the answer could not be read\\n\", Code: 2}\n}\nif !yes {\nreturn declined(q.Value)\n}\ncase None:\n}\n}\n")
+	b.WriteString("match frontOf(args) {\ncase ended as e:\ne.O\ncase asked as a:\nif !a.Yes {\nmatch p.Confirm(a.R) {\ncase option.Some[string] as q:\nlet yes = prompt.Confirm(q.Value, false) catch {\ncase prompt.NotInteractive:\nreturn needsYes(q.Value)\ncase prompt.Cancelled:\nreturn declined(q.Value)\ncase io.ReadFailed:\nreturn Output{Out: \"\", Err: q.Value + \": the answer could not be read\\n\", Code: 2}\n}\nif !yes {\nreturn declined(q.Value)\n}\ncase option.None:\n}\n}\n")
 	fmt.Fprintf(&b, "Show(%s.Call(a.R), a.JSON, p)\n}\n}\n", g.api)
 
 	// Completion: the commands' names and docs.
@@ -863,7 +866,7 @@ func (g *gen) file(pkgName string, ops []rpcgen.Op, cmds []*command) string {
 	b.WriteString("let mut args = []string{\"--json\"}\nfor a in Print(c) {\nargs = args.Append(a)\n}\ntry Read(c, runOver(args, Defaults(), answer))\n}\n")
 	fmt.Fprintf(&b, "\n// Agrees: the command line carries every call and every outcome the\n// call can have unchanged.\nlaw Agrees(r Request, g %s.Given) { %s.Agrees[Request, %s.Outcome, rpc.Transport](Wire, r, %s.OutcomeOf(r, g)) }\n", g.api, g.stdAPI, g.api, g.api)
 	fmt.Fprintf(&b, "\n// CodeIsThePolicy: a call's status is 0 for a value and the policy's\n// Code for a typed failure.\nlaw CodeIsThePolicy(r Request, g %s.Given, k int) {\nlet status = 1 + ((k%%125)+125)%%125\nlet d = Defaults()\nlet p = Policy{..d, Code: func(f %s.Failure) int { status }}\nlet o = %s.OutcomeOf(r, g)\nlet out = runOver(Print(r), p, func(c Request) %s.Outcome { o })\nmatch o {\ncase %s.Done:\nout.Code == 0\ncase %s.Rejected:\nout.Code == status\n}\n}\n", g.api, g.api, g.api, g.api, g.api, g.api)
-	fmt.Fprintf(&b, "\n// TextIsThePolicy: without --json a value prints as the policy's Text;\n// with --json every outcome prints as the wire's JSON, whatever Text says.\nlaw TextIsThePolicy(r Request, g %s.Given, t string) {\nlet d = Defaults()\nlet p = Policy{..d, Text: func(reply %s.Reply) Option[string] { Some[string]{Value: t} }}\nlet o = %s.OutcomeOf(r, g)\nlet same = Show(o, true, p) == Show(o, true, d)\nmatch o {\ncase %s.Done:\nsame && Show(o, false, p).Out == line(t)\ncase %s.Rejected:\nsame && Show(o, false, p) == Show(o, false, d)\n}\n}\n", g.api, g.api, g.api, g.api, g.api)
+	fmt.Fprintf(&b, "\n// TextIsThePolicy: without --json a value prints as the policy's Text;\n// with --json every outcome prints as the wire's JSON, whatever Text says.\nlaw TextIsThePolicy(r Request, g %s.Given, t string) {\nlet d = Defaults()\nlet p = Policy{..d, Text: func(reply %s.Reply) option.Option[string] { option.Some[string]{Value: t} }}\nlet o = %s.OutcomeOf(r, g)\nlet same = Show(o, true, p) == Show(o, true, d)\nmatch o {\ncase %s.Done:\nsame && Show(o, false, p).Out == line(t)\ncase %s.Rejected:\nsame && Show(o, false, p) == Show(o, false, d)\n}\n}\n", g.api, g.api, g.api, g.api, g.api)
 	return b.String()
 }
 
