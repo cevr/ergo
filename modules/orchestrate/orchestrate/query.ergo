@@ -2,48 +2,59 @@ import cmp
 import option
 import slices
 
-// UnitByID looks up one unit in State by ID.
-func UnitByID(state State, id string) option.Option[Unit] {
-	state.Units.Get(id)
+// UnitByKey looks up one unit in State by its key.
+func UnitByKey(state State, key UnitKey) option.Option[Unit] {
+	state.Units.Get(key)
 }
 
-// ListUnits returns units filtered by optional status, sorted deterministically by ID.
-func ListUnits(state State, status option.Option[UnitStatus]) []Unit {
-	let mut out = []Unit{}
-	for _, u in state.Units {
-		let keep = match status {
-		case option.Some[UnitStatus] as want:
-			u.Status == want.Value
-		case option.None:
-			true
-		}
-		if keep {
-			out = out.Append(u)
-		}
-	}
-	slices.SortFunc(out, func(a Unit, b Unit) int { cmp.Compare(a.ID, b.ID) })
-}
-
-// ReceiptsOf returns receipts for unitID, optionally filtered by round, in recorded order.
-func ReceiptsOf(state State, unitID string, round option.Option[int]) []Receipt {
+// ReceiptsOf returns the receipts of the unit key, in recorded order.
+func ReceiptsOf(state State, key UnitKey) []Receipt {
 	let mut out = []Receipt{}
 	for id in state.ReceiptOrder {
 		match state.Receipts.Get(id) {
 		case option.Some[Receipt] as r:
-			let sameUnit = r.Value.UnitID == unitID
-			let sameRound = match round {
-			case option.Some[int] as want:
-				r.Value.Round == want.Value
-			case option.None:
-				true
-			}
-			if sameUnit && sameRound {
+			if r.Value.Unit == key {
 				out = out.Append(r.Value)
 			}
 		case option.None:
 		}
 	}
 	out
+}
+
+// ReceiptCheck is what the receipts of a unit at one head say of its required kinds: those with no receipt at the head, and those whose latest receipt at the head did not exit 0.
+type ReceiptCheck { Missing []string, Red []string }
+
+// CheckReceipts reads the receipts of u at head against the kinds u requires; the latest receipt of a kind decides it.
+func CheckReceipts(state State, u Unit, head string) ReceiptCheck {
+	let mut latest = Map[string, int]{}
+	for id in state.ReceiptOrder {
+		match state.Receipts.Get(id) {
+		case option.Some[Receipt] as r:
+			if r.Value.Unit == u.Key && r.Value.Head == head {
+				latest = latest.Put(r.Value.Kind, r.Value.ExitCode)
+			}
+		case option.None:
+		}
+	}
+	let mut missing = []string{}
+	let mut red = []string{}
+	for kind in u.Requires {
+		match latest.Get(kind) {
+		case option.Some[int] as code:
+			if code.Value != 0 {
+				red = red.Append(kind)
+			}
+		case option.None:
+			missing = missing.Append(kind)
+		}
+	}
+	ReceiptCheck{Missing: missing, Red: red}
+}
+
+// Green reports whether a receipt check leaves no required kind missing or red.
+func Green(c ReceiptCheck) bool {
+	c.Missing.Len() == 0 && c.Red.Len() == 0
 }
 
 // CommitmentByID looks up one commitment in State by ID.
@@ -114,7 +125,7 @@ law ListQueueOrdersByPriorityThenKey(priorities []int) {
 				Tags:     []string{},
 			},
 		}) catch {
-		case NotFound, AlreadyExists, InvalidTransition, StaleClaim, CommandReused, InvalidInput:
+		case _:
 			return false
 		}
 		s = ApplyAll(s, evs)

@@ -1,6 +1,7 @@
 import github.com/cevr/ergo/modules/orchestrate/orchestrate
 import option
 import sync
+import time
 
 type book {
 	state orchestrate.State,
@@ -18,7 +19,7 @@ func New() Store {
 }
 
 // Execute runs Decide, appends the resulting events, and updates State atomically under sync.Modify.
-func Execute(s Store, env orchestrate.Envelope) orchestrate.ExecuteResult fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.StaleClaim | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.StoreFailed {
+func Execute(s Store, env orchestrate.Envelope) orchestrate.ExecuteResult fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed {
 	let outcome = sync.Modify(s.cell, func(b book) (execOutcome, book) {
 		let events = orchestrate.Decide(b.state, env) catch {
 		case orchestrate.NotFound as e:
@@ -27,11 +28,13 @@ func Execute(s Store, env orchestrate.Envelope) orchestrate.ExecuteResult fails 
 			return (execRefused{Err: e}, b)
 		case orchestrate.InvalidTransition as e:
 			return (execRefused{Err: e}, b)
-		case orchestrate.StaleClaim as e:
-			return (execRefused{Err: e}, b)
 		case orchestrate.CommandReused as e:
 			return (execRefused{Err: e}, b)
 		case orchestrate.InvalidInput as e:
+			return (execRefused{Err: e}, b)
+		case orchestrate.Unverified as e:
+			return (execRefused{Err: e}, b)
+		case orchestrate.NotAcceptedHead as e:
 			return (execRefused{Err: e}, b)
 		}
 		if events.Len() == 0 {
@@ -55,11 +58,13 @@ func Execute(s Store, env orchestrate.Envelope) orchestrate.ExecuteResult fails 
 			e
 		case orchestrate.InvalidTransition as e:
 			e
-		case orchestrate.StaleClaim as e:
-			e
 		case orchestrate.CommandReused as e:
 			e
 		case orchestrate.InvalidInput as e:
+			e
+		case orchestrate.Unverified as e:
+			e
+		case orchestrate.NotAcceptedHead as e:
 			e
 		}
 	}
@@ -81,19 +86,14 @@ func Events(s Store, fromSeq int) []orchestrate.StoredEvent fails orchestrate.St
 	out
 }
 
-// Unit looks up one unit by ID.
-func Unit(s Store, id string) option.Option[orchestrate.Unit] fails orchestrate.StoreFailed {
-	orchestrate.UnitByID(s.cell.Get().state, id)
+// Unit looks up one unit by key.
+func Unit(s Store, key orchestrate.UnitKey) option.Option[orchestrate.Unit] fails orchestrate.StoreFailed {
+	orchestrate.UnitByKey(s.cell.Get().state, key)
 }
 
-// ListUnits returns units filtered by optional status, sorted by ID.
-func ListUnits(s Store, status option.Option[orchestrate.UnitStatus]) []orchestrate.Unit fails orchestrate.StoreFailed {
-	orchestrate.ListUnits(s.cell.Get().state, status)
-}
-
-// Receipts returns receipts for unitID, optionally filtered by round.
-func Receipts(s Store, unitID string, round option.Option[int]) []orchestrate.Receipt fails orchestrate.StoreFailed {
-	orchestrate.ReceiptsOf(s.cell.Get().state, unitID, round)
+// Receipts returns the receipts of the unit key in recorded order.
+func Receipts(s Store, key orchestrate.UnitKey) []orchestrate.Receipt fails orchestrate.StoreFailed {
+	orchestrate.ReceiptsOf(s.cell.Get().state, key)
 }
 
 // Commitment looks up one commitment by ID.
@@ -123,64 +123,4 @@ func ListQuestions(s Store, openOnly bool) []orchestrate.Question fails orchestr
 
 let overMemoryStore = context { orchestrate.Store: New() }
 
-let overMemoryApi = context { orchestrate.Api: orchestrate.NewService(New()) }
-
-// ModelSequenceAcrossAllGroups exercises all 5 v1 tool groups through Service, verifying idempotent question retries, replay equivalence, and monotonic question IDs.
-law ModelSequenceAcrossAllGroups(tag int, priority int) {
-	let store = New()
-	let svc = orchestrate.NewService(store)
-	let uid = "m-u-\(tag)"
-	let cid = "m-c-\(tag)"
-	let qkey = "m-k-\(tag)"
-	let digest = "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
-	let _ = svc.UnitOpen(orchestrate.UnitOpenInput{CommandID: orchestrate.CommandID("m1-\(tag)"), Actor: "root", At: "2026-11-24T12:00:00Z", ID: uid, Title: "M", Area: "a"}) catch {
-	case _:
-		return false
-	}
-	let _ = svc.UnitClaim(orchestrate.UnitClaimInput{CommandID: orchestrate.CommandID("m2-\(tag)"), Actor: "w1", At: "2026-11-24T12:01:00Z", ID: uid, Owner: "w1", Lane: "l1", Harness: "agy"}) catch {
-	case _:
-		return false
-	}
-	let _ = svc.ReceiptRecord(orchestrate.ReceiptRecordInput{CommandID: orchestrate.CommandID("m3-\(tag)"), Actor: "w1", At: "2026-11-24T12:02:00Z", ID: "m-r-\(tag)", UnitID: uid, Round: 1, Kind: "gate", Command: "ergo test", CommitSHA: "1234", ExitCode: 0, SummaryMetrics: "ok=1", LogPath: "/tmp/m.log", LogSHA256: digest}) catch {
-	case _:
-		return false
-	}
-	let _ = svc.UnitHandBack(orchestrate.UnitHandBackInput{CommandID: orchestrate.CommandID("m4-\(tag)"), Actor: "w1", At: "2026-11-24T12:03:00Z", ID: uid, Owner: "w1", HeadSHA: "1234", Summary: "ready", RequestPath: option.Some[string]{Value: "/r1.md"}, FindingsPath: option.None}) catch {
-	case _:
-		return false
-	}
-	let _ = svc.CommitmentAdd(orchestrate.CommitmentAddInput{CommandID: orchestrate.CommandID("m5-\(tag)"), Actor: "root", At: "2026-11-24T12:04:00Z", ID: cid, Title: "C", Kind: "plan-part"}) catch {
-	case _:
-		return false
-	}
-	let _ = svc.CommitmentLanded(orchestrate.CommitmentLandedInput{CommandID: orchestrate.CommandID("m6-\(tag)"), Actor: "root", At: "2026-11-24T12:05:00Z", ID: cid, LandedSHA: "1234"}) catch {
-	case _:
-		return false
-	}
-	let _ = svc.QueueUpsert(orchestrate.QueueUpsertInput{CommandID: orchestrate.CommandID("m7-\(tag)"), Actor: "root", At: "2026-11-24T12:06:00Z", Key: qkey, Priority: priority, Title: "Q", Body: "B", Status: "open", Tags: []string{"t"}}) catch {
-	case _:
-		return false
-	}
-	let askIn = orchestrate.QuestionAskInput{CommandID: orchestrate.CommandID("m8-\(tag)"), Actor: "w1", At: "2026-11-24T12:07:00Z", ID: option.None, Prompt: "Proceed?", Assumption: "yes", ConcreteAction: "reply"}
-	let qFirst = svc.QuestionAsk(askIn) catch {
-	case _:
-		return false
-	}
-	let qRetry = svc.QuestionAsk(askIn) catch {
-	case _:
-		return false
-	}
-	let qAns = svc.QuestionAnswer(orchestrate.QuestionAnswerInput{CommandID: orchestrate.CommandID("m9-\(tag)"), Actor: "owner", At: "2026-11-24T12:08:00Z", ID: qFirst.ID, Answer: "approved", Withdraw: false}) catch {
-	case _:
-		return false
-	}
-	let snap = store.Snapshot() catch {
-	case _:
-		return false
-	}
-	let evs = store.Events(0) catch {
-	case _:
-		return false
-	}
-	qFirst == qRetry && qFirst.ID == 1 && qAns.Status == orchestrate.QuestionAnswered && orchestrate.Fold(orchestrate.EventList(evs)) == snap
-}
+let overMemoryApi = context { orchestrate.Api: orchestrate.NewService(New(), time.NewManual(0)) }
