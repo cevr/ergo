@@ -160,6 +160,9 @@ func sumHolds(info *check.Info, e syntax.Expr, v *check.Var) bool {
 
 // usesAny reports whether n reads or assigns one of vars.
 func usesAny(info *check.Info, n syntax.Node, vars map[*check.Var]bool) bool {
+	if len(vars) == 0 {
+		return false
+	}
 	found := false
 	syntax.Inspect(n, func(m syntax.Node) bool {
 		if id, ok := m.(*syntax.Ident); ok {

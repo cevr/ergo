@@ -5,16 +5,16 @@ import option
 import sync
 import testing
 
-type osCmd = osOpenUnit{} | osReuseConflict{} | osClaimUnit{} | osReopen{}
+type osCmd = osOpenUnit{} | osReuseConflict{} | osGreen{} | osAccept{} | osReopen{}
 
 type osState {
 	Ops []osCmd,
 }
 
 type osObs {
-	Seq          int,
-	UnitCount    int,
-	ClaimedCount int,
+	Seq      int,
+	Status   string,
+	Receipts int,
 }
 
 type osReply =
@@ -26,6 +26,8 @@ type OrchSqlOpenErr { Why string }
 
 type OrchSqlDriveErr { Why string }
 
+let osKey = orchestrate.UnitKey{Repo: "repo", Run: "sql-paths", ID: "u1"}
+
 func osEnvelope(cmd osCmd, step int) orchestrate.Envelope {
 	let ts = "2026-11-25T09:10:\(10 + step)Z"
 	match cmd {
@@ -34,21 +36,28 @@ func osEnvelope(cmd osCmd, step int) orchestrate.Envelope {
 			ID:      orchestrate.CommandID("sql-paths-open-u1"),
 			Actor:   "coord",
 			At:      ts,
-			Command: orchestrate.OpenUnit{ID: "u1", Title: "Unit One", Area: "core"},
+			Command: orchestrate.OpenUnit{Key: osKey, Title: "Unit One", Requires: []string{"acceptance"}, Lane: option.None, Branch: option.None},
 		}
 	case osReuseConflict:
 		orchestrate.Envelope{
 			ID:      orchestrate.CommandID("sql-paths-open-u1"),
 			Actor:   "coord",
 			At:      ts,
-			Command: orchestrate.OpenUnit{ID: "u1", Title: "Conflict Title", Area: "core"},
+			Command: orchestrate.OpenUnit{Key: osKey, Title: "Conflict Title", Requires: []string{"acceptance"}, Lane: option.None, Branch: option.None},
 		}
-	case osClaimUnit:
+	case osGreen:
 		orchestrate.Envelope{
-			ID:      orchestrate.CommandID("sql-paths-claim-\(step)"),
+			ID:      orchestrate.CommandID("sql-paths-green-\(step)"),
 			Actor:   "w1",
 			At:      ts,
-			Command: orchestrate.ClaimUnit{ID: "u1", Owner: "w1", Lane: "l1", Harness: "agy"},
+			Command: orchestrate.RecordReceipt{Unit: osKey, Kind: "acceptance", Command: "ergo test", Head: "h", ExitCode: 0, ExitLines: "ok"},
+		}
+	case osAccept:
+		orchestrate.Envelope{
+			ID:      orchestrate.CommandID("sql-paths-accept-\(step)"),
+			Actor:   "coord",
+			At:      ts,
+			Command: orchestrate.AcceptUnit{Unit: osKey, Head: "h"},
 		}
 	}
 }
@@ -57,7 +66,7 @@ func osApplyModel(st orchestrate.State, seq int, cmd osCmd, step int) (orchestra
 	match cmd {
 	case osReopen:
 		return (st, seq, osReopened{Seq: seq})
-	case osOpenUnit, osReuseConflict, osClaimUnit:
+	case osOpenUnit, osReuseConflict, osGreen, osAccept:
 		let env = osEnvelope(cmd, step)
 		let evts = orchestrate.Decide(st, env) catch {
 		case orchestrate.NotFound:
@@ -66,10 +75,12 @@ func osApplyModel(st orchestrate.State, seq int, cmd osCmd, step int) (orchestra
 			return (st, seq, osRefused{Kind: "already_exists"})
 		case orchestrate.InvalidTransition:
 			return (st, seq, osRefused{Kind: "invalid_transition"})
-		case orchestrate.StaleClaim:
-			return (st, seq, osRefused{Kind: "stale_claim"})
+		case orchestrate.Unverified:
+			return (st, seq, osRefused{Kind: "unverified"})
 		case orchestrate.CommandReused:
 			return (st, seq, osRefused{Kind: "command_reused"})
+		case orchestrate.NotAcceptedHead:
+			return (st, seq, osRefused{Kind: "not_accepted_head"})
 		case orchestrate.InvalidInput:
 			return (st, seq, osRefused{Kind: "invalid_input"})
 		}
@@ -93,19 +104,25 @@ func osFold(ops []osCmd) (orchestrate.State, int) {
 	(st, seq)
 }
 
-func osObsOf(st orchestrate.State, seq int) osObs {
-	osObs{
-		Seq:          seq,
-		UnitCount:    orchestrate.ListUnits(st, option.None).Len(),
-		ClaimedCount: orchestrate.ListUnits(st, option.Some[orchestrate.UnitStatus]{Value: orchestrate.UnitClaimed}).Len(),
+func osObsFrom(u option.Option[orchestrate.Unit], receipts int, seq int) osObs {
+	let status = match u {
+	case option.Some[orchestrate.Unit] as found:
+		orchestrate.UnitStatusName(found.Value.Status)
+	case option.None:
+		"none"
 	}
+	osObs{Seq: seq, Status: status, Receipts: receipts}
+}
+
+func osObsOf(st orchestrate.State, seq int) osObs {
+	osObsFrom(orchestrate.UnitByKey(st, osKey), orchestrate.ReceiptsOf(st, osKey).Len(), seq)
 }
 
 func osModel() explore.PathModel[osState, osCmd, osObs, osReply, core.Never] {
 	explore.PathModel[osState, osCmd, osObs, osReply, core.Never]{
 		Graph: explore.ConcreteGraph[osState, osCmd, explore.StepObs[osObs, osReply, core.Never]]{
 			Starts:  []osState{osState{Ops: []osCmd{}}},
-			Signals: []osCmd{osOpenUnit, osReuseConflict, osClaimUnit, osReopen},
+			Signals: []osCmd{osOpenUnit, osReuseConflict, osGreen, osAccept, osReopen},
 			Step:    func(s osState, cmd osCmd) explore.EdgeOutcome[osState, explore.StepObs[osObs, osReply, core.Never]] {
 				let (curSt, curSeq) = osFold(s.Ops)
 				let step = s.Ops.Len() + 1
@@ -181,19 +198,26 @@ func osObserveLive(st Store) osObs fails OrchSqlDriveErr needs go.Foreign {
 	if orchestrate.Fold(orchestrate.EventList(evts)) != snap {
 		return OrchSqlDriveErr{Why: "fold mismatch with snapshot"}
 	}
-	let units = st.ListUnits(option.None) catch {
+	let u = st.Unit(osKey) catch {
 	case orchestrate.StoreFailed as e:
 		return OrchSqlDriveErr{Why: e.Reason}
 	}
-	let claimed = st.ListUnits(option.Some[orchestrate.UnitStatus]{Value: orchestrate.UnitClaimed}) catch {
+	let rs = st.Receipts(osKey) catch {
 	case orchestrate.StoreFailed as e:
 		return OrchSqlDriveErr{Why: e.Reason}
 	}
-	osObs{
-		Seq:          evts.Len(),
-		UnitCount:    units.Len(),
-		ClaimedCount: claimed.Len(),
-	}
+	osObsFrom(u, rs.Len(), evts.Len())
+}
+
+func osRejected(st Store, kind string) explore.Observed[osObs, osReply, core.Never] fails OrchSqlDriveErr needs go.Foreign {
+	let obs = try osObserveLive(st)
+	explore.StepResult[osObs, osReply, core.Never]{Step: explore.StepObs[osObs, osReply, core.Never]{
+		Kind:     explore.DisReject,
+		State:    option.Some[osObs]{Value: obs},
+		Outputs:  []osReply{osRefused{Kind: kind}},
+		Error:    option.None,
+		Terminal: false,
+	}}
 }
 
 // OrchSQLitePaths is the model-based path-testing contract for file-backed WAL
@@ -206,7 +230,7 @@ type OrchSQLitePaths {
 	Counts() (int, int),
 
 	// PathsAgree checks every bounded WAL SQLite orchestrate path up to depth 3
-	// including open, idempotent retry, CommandReused conflict, claim, and
+	// including open, idempotent retry, CommandReused conflict, green receipt, verdict, and
 	// close/reopen durability against pure Decide/ApplyAll with full cleanup.
 	law PathsAgree() {
 		let (openBefore, closeBefore) = Counts()
@@ -316,64 +340,24 @@ func ApplySession(_ OrchSQLitePathProvider, id int, cmd osCmd) explore.Observed[
 			Error:    option.None,
 			Terminal: false,
 		}}
-	case osOpenUnit, osReuseConflict, osClaimUnit:
+	case osOpenUnit, osReuseConflict, osGreen, osAccept:
 		let st = slot.store.Get()
 		let env = osEnvelope(cmd, n)
 		let res = st.Execute(env) catch {
 		case orchestrate.NotFound:
-			let obs = try osObserveLive(st)
-			return explore.StepResult[osObs, osReply, core.Never]{Step: explore.StepObs[osObs, osReply, core.Never]{
-				Kind:     explore.DisReject,
-				State:    option.Some[osObs]{Value: obs},
-				Outputs:  []osReply{osRefused{Kind: "not_found"}},
-				Error:    option.None,
-				Terminal: false,
-			}}
+			return try osRejected(st, "not_found")
 		case orchestrate.AlreadyExists:
-			let obs = try osObserveLive(st)
-			return explore.StepResult[osObs, osReply, core.Never]{Step: explore.StepObs[osObs, osReply, core.Never]{
-				Kind:     explore.DisReject,
-				State:    option.Some[osObs]{Value: obs},
-				Outputs:  []osReply{osRefused{Kind: "already_exists"}},
-				Error:    option.None,
-				Terminal: false,
-			}}
+			return try osRejected(st, "already_exists")
 		case orchestrate.InvalidTransition:
-			let obs = try osObserveLive(st)
-			return explore.StepResult[osObs, osReply, core.Never]{Step: explore.StepObs[osObs, osReply, core.Never]{
-				Kind:     explore.DisReject,
-				State:    option.Some[osObs]{Value: obs},
-				Outputs:  []osReply{osRefused{Kind: "invalid_transition"}},
-				Error:    option.None,
-				Terminal: false,
-			}}
-		case orchestrate.StaleClaim:
-			let obs = try osObserveLive(st)
-			return explore.StepResult[osObs, osReply, core.Never]{Step: explore.StepObs[osObs, osReply, core.Never]{
-				Kind:     explore.DisReject,
-				State:    option.Some[osObs]{Value: obs},
-				Outputs:  []osReply{osRefused{Kind: "stale_claim"}},
-				Error:    option.None,
-				Terminal: false,
-			}}
+			return try osRejected(st, "invalid_transition")
+		case orchestrate.Unverified:
+			return try osRejected(st, "unverified")
+		case orchestrate.NotAcceptedHead:
+			return try osRejected(st, "not_accepted_head")
 		case orchestrate.CommandReused:
-			let obs = try osObserveLive(st)
-			return explore.StepResult[osObs, osReply, core.Never]{Step: explore.StepObs[osObs, osReply, core.Never]{
-				Kind:     explore.DisReject,
-				State:    option.Some[osObs]{Value: obs},
-				Outputs:  []osReply{osRefused{Kind: "command_reused"}},
-				Error:    option.None,
-				Terminal: false,
-			}}
+			return try osRejected(st, "command_reused")
 		case orchestrate.InvalidInput:
-			let obs = try osObserveLive(st)
-			return explore.StepResult[osObs, osReply, core.Never]{Step: explore.StepObs[osObs, osReply, core.Never]{
-				Kind:     explore.DisReject,
-				State:    option.Some[osObs]{Value: obs},
-				Outputs:  []osReply{osRefused{Kind: "invalid_input"}},
-				Error:    option.None,
-				Terminal: false,
-			}}
+			return try osRejected(st, "invalid_input")
 		case orchestrate.StoreFailed as e:
 			return OrchSqlDriveErr{Why: e.Reason}
 		}

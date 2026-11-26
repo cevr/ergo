@@ -24,17 +24,20 @@ var narrationComment = &Rule{
 }
 
 func checkNarrationComment(p *Pass) {
+	if len(p.File.Comments) == 0 {
+		return
+	}
 	src := p.File.Src
-	bodies := bodySpans(p.File)
+	fi := p.fileIndex()
 	for _, g := range p.File.Comments {
 		for _, c := range g.List {
 			at := int(c.Pos())
-			if !lineComment(c) || !aloneOnLine(src, at) || !inBody(bodies, c.Pos()) {
+			if !lineComment(c) || !aloneOnLine(src, at) || !fi.inBody(c.Pos()) {
 				continue
 			}
-			start, end := lineAt(src, at)
+			start, end := fi.lineBounds(at)
 			if start > 0 {
-				prevStart, _ := lineAt(src, start-1)
+				prevStart, _ := fi.lineBounds(start - 1)
 				if kindOf(src, prevStart, start-1) == lineHoldsComment {
 					continue
 				}
@@ -42,7 +45,7 @@ func checkNarrationComment(p *Pass) {
 			if end >= len(src) {
 				continue
 			}
-			nextStart, nextEnd := lineAt(src, end+1)
+			nextStart, nextEnd := fi.lineBounds(end + 1)
 			if kindOf(src, nextStart, nextEnd) != lineCode {
 				continue
 			}

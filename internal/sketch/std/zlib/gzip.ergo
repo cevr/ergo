@@ -1,0 +1,190 @@
+import crc32
+import slices
+
+let gzipHeaderCRC = 2
+let gzipExtra = 4
+let gzipName = 8
+let gzipComment = 16
+let gzipReserved = 224
+
+func appendLE32(dst []byte, v uint32) []byte {
+	let mut out = dst
+	out = out.Append(byte(v & uint32(255)))
+	out = out.Append(byte((v >> uint32(8)) & uint32(255)))
+	out = out.Append(byte((v >> uint32(16)) & uint32(255)))
+	out = out.Append(byte((v >> uint32(24)) & uint32(255)))
+	out
+}
+
+func readLE32(src []byte, p int) uint32 {
+	uint32(src[p]) | (uint32(src[p+1]) << uint32(8)) | (uint32(src[p+2]) << uint32(16)) | (uint32(src[p+3]) << uint32(24))
+}
+
+// GzipLevel compresses src into one RFC 1952 gzip member at level (0 =
+// stored, 1..9 = LZ77 + fixed Huffman), with no file name, a zero modification
+// time and the unknown operating system (255), so equal input gives equal
+// bytes.
+func GzipLevel(src []byte, level int) []byte {
+	let mut out = slices.WithCapacity[byte](src.Len() + 28)
+	out = out.Append(byte(31))
+	out = out.Append(byte(139))
+	out = out.Append(byte(8))
+	out = out.Append(byte(0))
+	out = appendLE32(out, uint32(0))
+	out = out.Append(if level >= 9 { byte(2) } else if level == 1 { byte(4) } else { byte(0) })
+	out = out.Append(byte(255))
+	out = appendRaw(out, src, level)
+	out = appendLE32(out, crc32.ChecksumBytes(src))
+	appendLE32(out, uint32(src.Len()))
+}
+
+// Gzip compresses src into one RFC 1952 gzip member at DefaultLevel.
+func Gzip(src []byte) []byte { GzipLevel(src, DefaultLevel) }
+
+func skipZero(src []byte, from int) int fails Truncated {
+	let mut p = from
+	for p < src.Len() && src[p] != byte(0) {
+		p = p + 1
+	}
+	if p >= src.Len() {
+		return Truncated{Offset: src.Len()}
+	}
+	p + 1
+}
+
+func gzipBody(src []byte, start int) int fails BadGzip | Truncated {
+	if src.Len()-start < 10 {
+		return Truncated{Offset: src.Len()}
+	}
+	if src[start] != byte(31) || src[start+1] != byte(139) {
+		return BadGzip{Offset: start, Reason: "not a gzip member"}
+	}
+	if src[start+2] != byte(8) {
+		return BadGzip{Offset: start, Reason: "compression method is not deflate"}
+	}
+	let flg = int(src[start+3])
+	if flg&gzipReserved != 0 {
+		return BadGzip{Offset: start, Reason: "reserved flag set"}
+	}
+	let mut p = start + 10
+	if flg&gzipExtra != 0 {
+		if p+2 > src.Len() {
+			return Truncated{Offset: src.Len()}
+		}
+		let xlen = int(src[p]) | (int(src[p+1]) << 8)
+		p = p + 2 + xlen
+		if p > src.Len() {
+			return Truncated{Offset: src.Len()}
+		}
+	}
+	if flg&gzipName != 0 {
+		p = try skipZero(src, p)
+	}
+	if flg&gzipComment != 0 {
+		p = try skipZero(src, p)
+	}
+	if flg&gzipHeaderCRC != 0 {
+		if p+2 > src.Len() {
+			return Truncated{Offset: src.Len()}
+		}
+		let want = int(src[p]) | (int(src[p+1]) << 8)
+		let got = int(crc32.ChecksumBytes(src[start:p]) & uint32(65535))
+		if want != got {
+			return BadGzip{Offset: start, Reason: "header checksum"}
+		}
+		p = p + 2
+	}
+	p
+}
+
+// Gunzip decodes the RFC 1952 gzip members that cover all of src, one after
+// another, as one stream (as Go's gzip.Reader reads a multistream), enforcing
+// a bound of maxBytes on the whole output. Each member's CRC-32 and ISIZE
+// are checked; bytes after a member that do not start another member are
+// BadGzip.
+func Gunzip(src []byte, maxBytes int) []byte fails BadGzip | BadBlock | BadDistance | BadHuffman | BadChecksum | Truncated | LimitExceeded {
+	if maxBytes < 0 {
+		return LimitExceeded{Limit: maxBytes}
+	}
+	let mut out = []byte{}
+	let mut start = 0
+	let mut first = true
+	for first || start < src.Len() {
+		first = false
+		let body = try gzipBody(src, start)
+		let raw = InflateRawPrefix(src[body:], maxBytes-out.Len()) catch {
+		case LimitExceeded:
+			return LimitExceeded{Limit: maxBytes}
+		case Truncated:
+			return Truncated{Offset: src.Len()}
+		case BadBlock as e:
+			return e
+		case BadDistance as e:
+			return e
+		case BadHuffman as e:
+			return e
+		}
+		let end = body + raw.Consumed
+		if end+8 > src.Len() {
+			return Truncated{Offset: src.Len()}
+		}
+		let actual = crc32.ChecksumBytes(raw.Data)
+		let expected = readLE32(src, end)
+		if actual != expected {
+			return BadChecksum{Expected: expected, Actual: actual}
+		}
+		if readLE32(src, end+4) != uint32(raw.Data.Len()) {
+			return BadGzip{Offset: start, Reason: "size trailer"}
+		}
+		out = if out.Len() == 0 { raw.Data } else { out.AppendBytes(raw.Data) }
+		start = end + 8
+	}
+	out
+}
+
+// GzipRoundTrips: Gunzip of GzipLevel gives the input back at stored, fast and
+// default levels, and two members read as their concatenation.
+law GzipRoundTrips(a []byte, b []byte) {
+	let limit = a.Len() + b.Len()
+	let one = try Gunzip(GzipLevel(a, NoCompression), limit)
+	let two = try Gunzip(GzipLevel(a, BestSpeed).AppendBytes(Gzip(b)), limit)
+	slices.Equal(one, a) && slices.Equal(two, a.AppendBytes(b))
+}
+
+// GunzipChecksMembers: a flipped content byte fails BadChecksum, a cut member
+// fails Truncated, and a bound below the size fails LimitExceeded.
+law GunzipChecksMembers(a []byte, at int) {
+	let z = GzipLevel(a, NoCompression)
+	let mut flipped = z.Clone()
+	let i = 15 + (if at < 0 { -at } else { at })%(a.Len()+1)
+	let inside = i < z.Len()-8 && a.Len() > 0
+	if inside {
+		flipped[i] = flipped[i] ^ byte(1)
+	}
+	let mut checksum = !inside
+	let _ = Gunzip(flipped, a.Len()) catch {
+	case BadChecksum:
+		checksum = true
+		[]byte{}
+	case BadGzip, BadBlock, BadDistance, BadHuffman, Truncated, LimitExceeded:
+		[]byte{}
+	}
+	let mut truncated = false
+	let _ = Gunzip(z[:z.Len()-1], a.Len()) catch {
+	case Truncated:
+		truncated = true
+		[]byte{}
+	case BadGzip, BadBlock, BadDistance, BadHuffman, BadChecksum, LimitExceeded:
+		[]byte{}
+	}
+	let mut limited = a.Len() == 0
+	let _ = Gunzip(z, a.Len()-1) catch {
+	case LimitExceeded:
+		limited = true
+		[]byte{}
+	case BadGzip, BadBlock, BadDistance, BadHuffman, BadChecksum, Truncated:
+		[]byte{}
+	}
+	sometimes inside
+	checksum && truncated && limited
+}

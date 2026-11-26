@@ -197,8 +197,8 @@ func TestNonNilResultsProperty(t *testing.T) {
 	for _, p := range pkgs {
 		got := pointerResults(p.path, files[p.path])
 		var bad []string
-		if !strings.Contains(files[p.path], "Make() Option[go.Ref[S]] fails go.Error") {
-			bad = append(bad, "Maker.Make: an interface method proves nothing, want Option[go.Ref[S]]")
+		if !strings.Contains(files[p.path], "Make() option.Option[go.Ref[S]] fails go.Error") {
+			bad = append(bad, "Maker.Make: an interface method proves nothing, want option.Option[go.Ref[S]]")
 		}
 		for fn, proven := range p.model {
 			ref, ok := got[fn]
@@ -216,7 +216,7 @@ func TestNonNilResultsProperty(t *testing.T) {
 	}
 }
 
-var pointerResultRe = regexp.MustCompile(`^extern go (\S+) .*\) (go\.Ref\[S\]|Option\[go\.Ref\[S\]\]) fails go\.Error`)
+var pointerResultRe = regexp.MustCompile(`^extern go (\S+) .*\) (go\.Ref\[S\]|option\.Option\[go\.Ref\[S\]\]) fails go\.Error`)
 
 // pointerResults reads, by binding name (F, or S.M), whether each bound
 // function's (*S, error) result is go.Ref[S] (true) or Option (false).

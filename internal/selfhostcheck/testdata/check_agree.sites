@@ -293,6 +293,7 @@ case examples/model-paths/probe/relay
 case examples/model-paths/probe/replay
 case examples/model-paths/probe/session
 case examples/model-paths/probe/userland
+case examples/orchestrate/cmd/orchestrate
 case examples/pager/cmd/pager
 case examples/pager/screen
 case examples/pairing/cmd/pairing
@@ -862,6 +863,8 @@ case internal/selfhostcheck/testdata/agree/func-claim/wrong-owner
 case internal/selfhostcheck/testdata/agree/func-claim/wrong-result
 case internal/selfhostcheck/testdata/agree/func-claim/wrong-row
 case internal/selfhostcheck/testdata/agree/func-claim/wrong-signature
+case internal/selfhostcheck/testdata/agree/import-names/clash
+case internal/selfhostcheck/testdata/agree/import-names/twice
 case internal/selfhostcheck/testdata/agree/imported-resource/cmd
 case internal/selfhostcheck/testdata/agree/imported-resource/res
 case internal/selfhostcheck/testdata/agree/len-method
@@ -1023,6 +1026,7 @@ case internal/sketch/std
 case internal/sketch/std/actor
 case internal/sketch/std/ansi
 case internal/sketch/std/api
+case internal/sketch/std/archive
 case internal/sketch/std/arena
 case internal/sketch/std/atomic
 case internal/sketch/std/base64
@@ -1036,6 +1040,7 @@ case internal/sketch/std/code
 case internal/sketch/std/codec
 case internal/sketch/std/codegraph
 case internal/sketch/std/collections
+case internal/sketch/std/color
 case internal/sketch/std/config
 case internal/sketch/std/core
 case internal/sketch/std/crc32
@@ -1053,6 +1058,7 @@ case internal/sketch/std/fs
 case internal/sketch/std/fs/mapped
 case internal/sketch/std/fstest
 case internal/sketch/std/gen
+case internal/sketch/std/glob
 case internal/sketch/std/graph
 case internal/sketch/std/hex
 case internal/sketch/std/hmac
@@ -1108,6 +1114,7 @@ case internal/sketch/std/session/file
 case internal/sketch/std/session/memory
 case internal/sketch/std/set
 case internal/sketch/std/sha1
+case internal/sketch/std/sha1dc
 case internal/sketch/std/sha256
 case internal/sketch/std/sha512
 case internal/sketch/std/signal
@@ -1143,6 +1150,8 @@ case internal/sketch/std/workflow
 case internal/sketch/std/workflow/file
 case internal/sketch/std/workflow/memory
 case internal/sketch/std/xml
+case internal/sketch/std/yaml
+case internal/sketch/std/zlib
 case unused examples/address-routes/files/tree.ergo
 case unused examples/address-routes/people/people.ergo
 case unused examples/address-routes/route/escape.ergo
@@ -1311,17 +1320,20 @@ case unused internal/selfhostcheck/testdata/bind/port_frame_fails.ergo
 case unused internal/selfhostcheck/testdata/bind/port_frame_results.ergo
 case unused internal/selfhostcheck/testdata/bind/port_generic.ergo
 case unused internal/selfhostcheck/testdata/bind/port_laws.ergo
+case unused internal/selfhostcheck/testdata/bind/port_let_shapes.ergo
 case unused internal/selfhostcheck/testdata/bind/port_shapes.ergo
 case unused internal/selfhostcheck/testdata/bind/port_union.ergo
 case unused internal/selfhostcheck/testdata/bind/port_unit.ergo
 case unused internal/selfhostcheck/testdata/bind/wired.ergo
 case unused internal/sketch/std/ansi/ansi.ergo
 case unused internal/sketch/std/api/api.ergo
+case unused internal/sketch/std/archive/archive.ergo
 case unused internal/sketch/std/bench/stats.ergo
 case unused internal/sketch/std/cache/cache.ergo
 case unused internal/sketch/std/codec/codec.ergo
 case unused internal/sketch/std/codegraph/codegraph.ergo
 case unused internal/sketch/std/collections/collections.ergo
+case unused internal/sketch/std/color/names.ergo
 case unused internal/sketch/std/crc32/crc32.ergo
 case unused internal/sketch/std/cron/expr.ergo
 case unused internal/sketch/std/decimal/u128.ergo
@@ -1372,18 +1384,24 @@ case unused internal/sketch/std/session/file/file.ergo
 case unused internal/sketch/std/session/memory/memory.ergo
 case unused internal/sketch/std/session/session.ergo
 case unused internal/sketch/std/set/set.ergo
+case unused internal/sketch/std/sha1dc/ubc.ergo
 case unused internal/sketch/std/sql/sql.ergo
 case unused internal/sketch/std/sqltest/script.ergo
 case unused internal/sketch/std/stream/debounced.ergo
 case unused internal/sketch/std/strings/bytes.ergo
 case unused internal/sketch/std/temporal/temporal.ergo
+case unused internal/sketch/std/testing/shadow.ergo
 case unused internal/sketch/std/testing/stage.ergo
 case unused internal/sketch/std/text/span.ergo
+case unused internal/sketch/std/trace/context.ergo
+case unused internal/sketch/std/trace/event.ergo
 case unused internal/sketch/std/url/url.ergo
 case unused internal/sketch/std/uuid/uuid.ergo
 case unused internal/sketch/std/workflow/file/file.ergo
 case unused internal/sketch/std/workflow/memory/memory.ergo
 case unused internal/sketch/std/workflow/store.ergo
+case unused internal/sketch/std/yaml/scalar.ergo
+case unused internal/sketch/std/zlib/adler32.ergo
 site S101 missing in internal/sketch/check/testdata/fixtures/negative/codec-rows.ergo: codec-rows.ergo 62:2: S101 {WireMissingField | WireUnknownTag} escapes function optional, whose error row {WireWrongKind | wired[T]} does not list it; write: func optional[T wire](r Reader) Option[T] fails wired[T] | WireMissingField | WireUnknownTag needs wired[T]
 site S101 missing in internal/sketch/check/testdata/fixtures/negative/codec-rows.ergo: codec-rows.ergo 70:2: S101 {BadHost | Unsatisfied | WireMissingField | WireUnknownTag} escapes function usesNarrow, whose error row {WireWrongKind} does not list it; write: func usesNarrow(r Reader) []State fails WireWrongKind | BadHost | Unsatisfied | WireMissingField | WireUnknownTag
 site S101 missing in internal/sketch/check/testdata/fixtures/negative/generic-row-parameter-instantiated.ergo: generic-row-parameter-instantiated.ergo 7:2: S101 {Fault} escapes function Run, whose error row {} does not list it; write: func Run() fails Fault
@@ -1428,6 +1446,7 @@ site S105 missing in internal/sketch/check/testdata/fixtures/negative/unhandled-
 site S105 missing in internal/sketch/check/testdata/fixtures/negative/unhandled-define.ergo: unhandled-define.ergo 6:10: S105 the failure {Fault} of this expression is not handled: use try, catch or return (rows.md, Error rows 3)
 site S105 missing in internal/sketch/check/testdata/v1/C4-rows.neg.ergo: C4-rows.neg.ergo 20:13: S105 the failure {NotFound} of this expression is not handled: use try, catch or return (rows.md, Error rows 3)
 site S105 missing in internal/sketch/check/testdata/v1/E7-interpolation.neg.ergo: E7-interpolation.neg.ergo 11:11: S105 the failure {NotFound} of this expression is not handled: use try, catch or return (rows.md, Error rows 3)
+site S106 extra in examples/gointerop/cmd/uptime: main.ergo 11:30: S106 hostClock does not implement clock: hostClock.Now requires {}, which the interface's method does not (README Gap 17: a provider's build holds go.Foreign or Ambient for it; any other capability stays with context construction) (types.md, Interface assignability 1)
 site S107 missing in internal/sketch/check/testdata/fixtures/negative/missing-return.ergo: missing-return.ergo 1:50: S107 function pick can reach the end of its body without returning a value (rows.md, Totality 3)
 site S107 missing in internal/sketch/check/testdata/v1/C1-tail-result.neg.ergo: C1-tail-result.neg.ergo 13:1: S107 function pick can reach the end of its body without returning a value (rows.md, Totality 3)
 site S107 missing in internal/sketch/check/testdata/v1/C1-tail-result.neg.ergo: C1-tail-result.neg.ergo 7:1: S107 function add can reach the end of its body without returning a value (rows.md, Totality 3)
@@ -1531,7 +1550,6 @@ site S108 missing in internal/sketch/check/testdata/v1/D4-one-for.neg.ergo: D4-o
 site S108 missing in internal/sketch/check/testdata/v1/D4-one-for.neg.ergo: D4-one-for.neg.ergo 8:9: S108 mismatched types string and int64
 site S108 missing in internal/sketch/check/testdata/v1/D7-satisfaction.neg.ergo: D7-satisfaction.neg.ergo 29:7: S108 cannot use Tape as Orders in argument: Tape does not declare that it implements Orders: write implements Orders after Tape's body (types.md, Interface assignability 1)
 site S108 missing in internal/sketch/check/testdata/v1/D7-satisfaction.neg.ergo: D7-satisfaction.neg.ergo 33:2: S108 several functions are named Get; call it as x.Get(…)
-site S108 missing in internal/sketch/check/testdata/v1/D8-imports.neg.ergo: D8-imports.neg.ergo 3:8: S108 an import alias is only for a name clash; write import timeout
 site S108 missing in internal/sketch/check/testdata/v1/D9-assign-root.neg.ergo: D9-assign-root.neg.ergo 6:2: S108 the parameter o is immutable, and so are its fields and elements; copy it into a local: let mut o2 = o
 site S108 missing in internal/sketch/check/testdata/v1/D9-assign-root.neg.ergo: D9-assign-root.neg.ergo 8:2: S108 ys is immutable, and so are its fields and elements; declare ys with let mut
 site S108 missing in internal/sketch/check/testdata/v1/E1-generics.neg.ergo: E1-generics.neg.ergo 16:2: S108 Card does not satisfy the constraint ordered of Max's T: Card is not in ordered's type set, ~int | ~int8 | ~int16 | ~int32 | ~int64 | ~uint | ~uint8 | ~uint16, … (types.md, Generics 2)
@@ -1562,27 +1580,6 @@ site S108 missing in internal/sketch/check/testdata/v1/L8-captures.neg.ergo: L8-
 site S108 missing in internal/sketch/check/testdata/v1/L8-captures.neg.ergo: L8-captures.neg.ergo 24:15: S108 p is a borrow (mut T), and this function literal or block may outlive the call that lent it or run on another task; an escaping frame never captures a borrow: copy what it needs into a let before it (types.md, Borrows 1)
 site S108 missing in internal/sketch/check/testdata/v1/L8-captures.neg.ergo: L8-captures.neg.ergo 34:15: S108 xs[0] and xs[0] are borrows of one place; a call takes no two overlapping borrows: pass one, or two places apart (types.md, Borrows 2)
 site S108 missing in internal/sketch/check/testdata/v1/L8-captures.neg.ergo: L8-captures.neg.ergo 35:15: S108 xs[i] and xs[j] may be borrows of one place, since i may equal j; guard the call with if i != j, with each index a constant or a let (types.md, Borrows 2)
-site S108 missing in unused examples/cells/grid/grid.ergo: p.ergo 1:8: S108 an import alias is only for a name clash; write import slices
-site S108 missing in unused examples/cells/host/sample.ergo: p.ergo 1:8: S108 an import alias is only for a name clash; write import maps
-site S108 missing in unused examples/downloads/fetch/file.ergo: p.ergo 1:8: S108 an import alias is only for a name clash; write import strconv
-site S108 missing in unused examples/kvstore/memory/full.ergo: p.ergo 1:8: S108 an import alias is only for a name clash; write import slices
-site S108 missing in unused examples/limiter/limits/limits.ergo: p.ergo 1:8: S108 an import alias is only for a name clash; write import strings
-site S108 missing in unused examples/pipeline/retry/retry.ergo: p.ergo 1:8: S108 an import alias is only for a name clash; write import strings
-site S108 missing in unused examples/query-table/query/escape.ergo: p.ergo 1:8: S108 an import alias is only for a name clash; write import strconv
-site S108 missing in unused examples/raytrace/geom/vec.ergo: p.ergo 1:8: S108 an import alias is only for a name clash; write import maps
-site S108 missing in unused examples/ssg/memory/files.ergo: p.ergo 1:8: S108 an import alias is only for a name clash; write import maps
-site S108 missing in unused examples/ssg/site/escape.ergo: p.ergo 1:8: S108 an import alias is only for a name clash; write import maps
-site S108 missing in unused examples/ssg/site/source.ergo: p.ergo 1:8: S108 an import alias is only for a name clash; write import slices
-site S108 missing in unused examples/timetable/timetable/line.ergo: p.ergo 1:8: S108 an import alias is only for a name clash; write import strings
-site S108 missing in unused examples/weather/weather/forecast.ergo: p.ergo 1:8: S108 an import alias is only for a name clash; write import strconv
-site S108 missing in unused examples/wire-config/config/config.ergo: p.ergo 1:8: S108 an import alias is only for a name clash; write import strings
-site S108 missing in unused internal/selfhostcheck/testdata/bind/port_laws.ergo: p.ergo 1:8: S108 an import alias is only for a name clash; write import strings
-site S108 missing in unused internal/sketch/std/codec/codec.ergo: p.ergo 1:8: S108 an import alias is only for a name clash; write import strings
-site S108 missing in unused internal/sketch/std/kv/kv.ergo: p.ergo 1:8: S108 an import alias is only for a name clash; write import math
-site S108 missing in unused internal/sketch/std/kv/memory/memory.ergo: p.ergo 1:8: S108 an import alias is only for a name clash; write import maps
-site S108 missing in unused internal/sketch/std/maps/maps.ergo: p.ergo 1:8: S108 an import alias is only for a name clash; write import maps
-site S108 missing in unused internal/sketch/std/proof/file/file.ergo: p.ergo 1:8: S108 an import alias is only for a name clash; write import slices
-site S108 missing in unused internal/sketch/std/session/session.ergo: p.ergo 1:8: S108 an import alias is only for a name clash; write import cmp
 site S109 missing in internal/sketch/check/testdata/fixtures/negative/context-constructor-is-37.ergo: context-constructor-is-37.ergo 8:9: S109 a constructor entry waits for context construction; write a provider value, not a function
 site S109 missing in internal/sketch/check/testdata/fixtures/negative/context-exposure-hides-entry.ergo: context-exposure-hides-entry.ergo 7:19: S109 a context's provides clause waits for context header checking (rows.md Context 8); it is not checked yet
 site S109 missing in internal/sketch/check/testdata/v1/E7-interpolation.neg.ergo: E7-interpolation.neg.ergo 15:10: S109 a value of type Card has no text form yet; interpolate one of its fields, or wait for derived text forms

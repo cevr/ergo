@@ -101,18 +101,16 @@ func appendZlibTrailer(out []byte, src []byte) []byte {
 	dst
 }
 
-func deflateStored(src []byte) []byte {
+func appendStored(dst []byte, src []byte) []byte {
 	let n = src.Len()
-	let mut out = slices.WithCapacity[byte](n + 16)
-	out = out.Append(byte(120))
-	out = out.Append(byte(1))
+	let mut out = dst
 	if n == 0 {
 		out = out.Append(byte(1))
 		out = out.Append(byte(0))
 		out = out.Append(byte(0))
 		out = out.Append(byte(255))
 		out = out.Append(byte(255))
-		return appendZlibTrailer(out, src)
+		return out
 	}
 	let mut pos = 0
 	for pos < n {
@@ -132,7 +130,7 @@ func deflateStored(src []byte) []byte {
 		}
 		pos = pos + chunk
 	}
-	appendZlibTrailer(out, src)
+	out
 }
 
 func headerFlgForLevel(level int) byte {
@@ -169,17 +167,12 @@ func hashSizeFor(n int) int {
 	}
 }
 
-// DeflateLevel compresses src into an RFC 1950 zlib stream at the requested
-// compression level (0 = stored, 1..9 = LZ77 + fixed Huffman).
-func DeflateLevel(src []byte, level int) []byte {
+func appendRaw(dst []byte, src []byte, level int) []byte {
 	if level <= 0 {
-		return deflateStored(src)
+		return appendStored(dst, src)
 	}
 	let n = src.Len()
-	let mut out = slices.WithCapacity[byte](n + 16)
-	out = out.Append(byte(120))
-	out = out.Append(headerFlgForLevel(level))
-	let mut bw = bitWriter{out: out, bits: uint32(0), nbits: 0}
+	let mut bw = bitWriter{out: dst, bits: uint32(0), nbits: 0}
 	bw = writeBits(bw, uint32(1), 1)
 	bw = writeBits(bw, uint32(1), 2)
 	if n < 3 {
@@ -188,7 +181,7 @@ func DeflateLevel(src []byte, level int) []byte {
 		}
 		bw = writeFixedLit(bw, 256)
 		bw = flushBits(bw)
-		return appendZlibTrailer(bw.out, src)
+		return bw.out
 	}
 	let hSize = hashSizeFor(n)
 	let hMask = hSize - 1
@@ -254,7 +247,24 @@ func DeflateLevel(src []byte, level int) []byte {
 	}
 	bw = writeFixedLit(bw, 256)
 	bw = flushBits(bw)
-	appendZlibTrailer(bw.out, src)
+	bw.out
+}
+
+// DeflateRaw compresses src into one raw RFC 1951 DEFLATE stream, with no
+// zlib header or trailer, as gzip members and zip entries carry it (0 =
+// stored, 1..9 = LZ77 + fixed Huffman).
+func DeflateRaw(src []byte, level int) []byte {
+	appendRaw(slices.WithCapacity[byte](src.Len()+16), src, level)
+}
+
+// DeflateLevel compresses src into an RFC 1950 zlib stream at the requested
+// compression level (0 = stored, 1..9 = LZ77 + fixed Huffman).
+func DeflateLevel(src []byte, level int) []byte {
+	let mut out = slices.WithCapacity[byte](src.Len() + 22)
+	out = out.Append(byte(120))
+	out = out.Append(headerFlgForLevel(level))
+	out = appendRaw(out, src, level)
+	appendZlibTrailer(out, src)
 }
 
 // Deflate compresses src into an RFC 1950 zlib stream at DefaultLevel.

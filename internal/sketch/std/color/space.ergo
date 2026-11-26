@@ -1,0 +1,264 @@
+import math
+import strconv
+
+// HSL is a colour as CSS hsl() writes it: hue H in degrees, saturation S
+// and lightness L from 0 to 1, and Alpha from 0 to 1.
+type HSL { H float64, S float64, L float64, Alpha float64 }
+
+// OKLab is a colour in Björn Ottosson's OKLab: lightness L from 0 to 1,
+// the axes A and B, and Alpha from 0 to 1.
+type OKLab { L float64, A float64, B float64, Alpha float64 }
+
+// OKLCH is OKLab in polar form: lightness L from 0 to 1, chroma C (0 or
+// more), hue H in degrees, and Alpha from 0 to 1.
+type OKLCH { L float64, C float64, H float64, Alpha float64 }
+
+type rgbf { r float64, g float64, b float64 }
+
+// ToHSL is c in HSL, as CSS Color 4's sample code converts: an achromatic
+// colour has hue 0 and saturation 0.
+func ToHSL(c RGBA) HSL {
+	let r = unit(c.R)
+	let g = unit(c.G)
+	let b = unit(c.B)
+	let hi = maxf(r, maxf(g, b))
+	let lo = minf(r, minf(g, b))
+	let l = (hi + lo) / 2.0
+	let d = hi - lo
+	if d == 0.0 {
+		return HSL{H: 0.0, S: 0.0, L: l, Alpha: unit(c.A)}
+	}
+	let s = if l == 0.0 || l == 1.0 { 0.0 } else { (hi - l) / minf(l, 1.0-l) }
+	let mut h = 0.0
+	if hi == r {
+		h = (g-b)/d + (if g < b { 6.0 } else { 0.0 })
+	} else if hi == g {
+		h = (b-r)/d + 2.0
+	} else {
+		h = (r-g)/d + 4.0
+	}
+	HSL{H: h * 60.0, S: s, L: l, Alpha: unit(c.A)}
+}
+
+// FromHSL is h in sRGB, as CSS Color 4's hslToRgb: the hue taken modulo
+// 360, saturation, lightness and alpha held to [0, 1], NaN read as 0.
+func FromHSL(h HSL) RGBA {
+	let hue = degrees(h.H)
+	let s = clamp01(finite(h.S))
+	let l = clamp01(finite(h.L))
+	let a = s * minf(l, 1.0-l)
+	let f = func(n float64) float64 {
+		let k = math.Mod(n+hue/30.0, 12.0)
+		l - a*maxf(-1.0, minf(minf(k-3.0, 9.0-k), 1.0))
+	}
+	RGBA{R: toByte(f(0.0)), G: toByte(f(8.0)), B: toByte(f(4.0)), A: toByte(finite(h.Alpha))}
+}
+
+// HSLRoundTrips: FromHSL(ToHSL(c)) is c, and Parse reads back FormatHSL.
+law HSLRoundTrips(c RGBA) {
+	let back = Parse(FormatHSL(ToHSL(c))) catch {
+	case InvalidColor:
+		return false
+	}
+	FromHSL(ToHSL(c)) == c && back == c
+}
+
+// FormatHSL is h as "hsl(H S% L%)", or "hsl(H S% L% / A)" when it is not
+// opaque, each to three decimals.
+func FormatHSL(h HSL) string {
+	let body = decimal(degrees(h.H), 3) + " " + decimal(clamp01(finite(h.S))*100.0, 3) + "% " + decimal(clamp01(finite(h.L))*100.0, 3) + "%"
+	"hsl(" + body + alphaText(h.Alpha) + ")"
+}
+
+func alphaText(a float64) string {
+	let v = clamp01(finite(a))
+	if v >= 1.0 { "" } else { " / " + decimal(v, 3) }
+}
+
+// ToOKLab is c in OKLab, through linear sRGB and Ottosson's matrices.
+func ToOKLab(c RGBA) OKLab {
+	let lab = labOf(rgbf{r: toLinear(unit(c.R)), g: toLinear(unit(c.G)), b: toLinear(unit(c.B))})
+	OKLab{..lab, Alpha: unit(c.A)}
+}
+
+// FromOKLab is lab in sRGB, gamut mapped as FromOKLCH maps.
+func FromOKLab(lab OKLab) RGBA { FromOKLCH(lchOf(lab)) }
+
+// ToOKLCH is c in OKLCH: ToOKLab in polar form, the hue in [0, 360).
+func ToOKLCH(c RGBA) OKLCH { lchOf(ToOKLab(c)) }
+
+// FromOKLCH is c in sRGB, gamut mapped by CSS Color 4's algorithm: a
+// colour outside sRGB keeps its lightness and hue and loses chroma (a
+// binary search on chroma, by deltaEOK, to within the just noticeable
+// difference 0.02). L of 1 or more is white and 0 or less is black. NaN
+// reads as 0, and a chroma above 1 as 1.
+func FromOKLCH(c OKLCH) RGBA {
+	let v = gamutMap(finite(c.L), finite(c.C), finite(c.H))
+	RGBA{R: toByte(v.r), G: toByte(v.g), B: toByte(v.b), A: toByte(finite(c.Alpha))}
+}
+
+// OKLCHRoundTrips: FromOKLCH(ToOKLCH(c)) is c, and Parse reads back
+// FormatOKLCH.
+law OKLCHRoundTrips(c RGBA) {
+	let back = Parse(FormatOKLCH(ToOKLCH(c))) catch {
+	case InvalidColor:
+		return false
+	}
+	FromOKLCH(ToOKLCH(c)) == c && back == c
+}
+
+// GamutMapKeepsLightness: a drawn OKLCH colour, however far out of sRGB,
+// maps to one whose lightness is within 0.03 of its own.
+law GamutMapKeepsLightness(l int, c int, h int) {
+	let want = 0.15 + float64(nonNeg(l)%801)/1000.0
+	let lch = OKLCH{L: want, C: float64(nonNeg(c)%1001) / 1000.0 * 0.6, H: float64(nonNeg(h) % 360), Alpha: 1.0}
+	let got = ToOKLCH(FromOKLCH(lch))
+	let ok = math.Abs(got.L-want) <= 0.03
+	sometimes ok && lch.C > 0.4
+	ok
+}
+
+// FormatOKLCH is c as "oklch(L% C H)", or "oklch(L% C H / A)" when it is
+// not opaque: L to three decimals of a percent, C to five decimals, H to
+// three.
+func FormatOKLCH(c OKLCH) string {
+	let body = decimal(clamp01(finite(c.L))*100.0, 3) + "% " + decimal(maxf(0.0, finite(c.C)), 5) + " " + decimal(degrees(c.H), 3)
+	"oklch(" + body + alphaText(c.Alpha) + ")"
+}
+
+let pi = 3.141592653589793
+
+func maxf(a float64, b float64) float64 { if a > b { a } else { b } }
+
+func minf(a float64, b float64) float64 { if a < b { a } else { b } }
+
+func nonNeg(n int) int { if n < 0 { -(n + 1) } else { n } }
+
+func finite(v float64) float64 {
+	if math.IsNaN(v) || math.IsInf(v, 0) {
+		return 0.0
+	}
+	v
+}
+
+func degrees(h float64) float64 {
+	let v = math.Mod(finite(h), 360.0)
+	if v < 0.0 { v + 360.0 } else { v + 0.0 }
+}
+
+func decimal(v float64, places int) string {
+	let p = math.Pow(10.0, float64(places))
+	strconv.FormatFloat(math.Round(v*p)/p+0.0, 'f', -1)
+}
+
+func toLinear(v float64) float64 {
+	let a = math.Abs(v)
+	let m = if a <= 0.04045 { a / 12.92 } else { math.Pow((a+0.055)/1.055, 2.4) }
+	if v < 0.0 { -m } else { m }
+}
+
+func toGamma(v float64) float64 {
+	let a = math.Abs(v)
+	let m = if a <= 0.0031308 { a * 12.92 } else { 1.055*math.Pow(a, 1.0/2.4) - 0.055 }
+	if v < 0.0 { -m } else { m }
+}
+
+func labOf(lin rgbf) OKLab {
+	let l = math.Cbrt(0.4122214708*lin.r + 0.5363325363*lin.g + 0.0514459929*lin.b)
+	let m = math.Cbrt(0.2119034982*lin.r + 0.6806995451*lin.g + 0.1073969566*lin.b)
+	let s = math.Cbrt(0.0883024619*lin.r + 0.2817188376*lin.g + 0.6299787005*lin.b)
+	OKLab{
+		L:     0.2104542553*l + 0.7936177850*m - 0.0040720468*s,
+		A:     1.9779984951*l - 2.4285922050*m + 0.4505937099*s,
+		B:     0.0259040371*l + 0.7827717662*m - 0.8086757660*s,
+		Alpha: 1.0,
+	}
+}
+
+func linearOf(l float64, a float64, b float64) rgbf {
+	let l1 = l + 0.3963377774*a + 0.2158037573*b
+	let m1 = l - 0.1055613458*a - 0.0638541728*b
+	let s1 = l - 0.0894841775*a - 1.2914855480*b
+	let l3 = l1 * l1 * l1
+	let m3 = m1 * m1 * m1
+	let s3 = s1 * s1 * s1
+	rgbf{
+		r: 4.0767416621*l3 - 3.3077115913*m3 + 0.2309699292*s3,
+		g: -1.2684380046*l3 + 2.6097574011*m3 - 0.3413193965*s3,
+		b: -0.0041960863*l3 - 0.7034186147*m3 + 1.7076147010*s3,
+	}
+}
+
+func lchOf(lab OKLab) OKLCH {
+	let c = math.Hypot(lab.A, lab.B)
+	let h = math.Atan2(lab.B, lab.A) * 180.0 / pi
+	OKLCH{L: lab.L, C: c, H: degrees(h), Alpha: lab.Alpha}
+}
+
+func encodedOf(l float64, c float64, h float64) rgbf {
+	let rad = degrees(h) * pi / 180.0
+	let lin = linearOf(l, c*math.Cos(rad), c*math.Sin(rad))
+	rgbf{r: toGamma(lin.r), g: toGamma(lin.g), b: toGamma(lin.b)}
+}
+
+func inGamut(v rgbf) bool {
+	let e = 0.0000001
+	v.r >= -e && v.r <= 1.0+e && v.g >= -e && v.g <= 1.0+e && v.b >= -e && v.b <= 1.0+e
+}
+
+func clipped(v rgbf) rgbf { rgbf{r: clamp01(v.r), g: clamp01(v.g), b: clamp01(v.b)} }
+
+func deltaEOK(v rgbf, l float64, c float64, h float64) float64 {
+	let x = labOf(rgbf{r: toLinear(v.r), g: toLinear(v.g), b: toLinear(v.b)})
+	let rad = degrees(h) * pi / 180.0
+	let dl = x.L - l
+	let da = x.A - c*math.Cos(rad)
+	let db = x.B - c*math.Sin(rad)
+	math.Sqrt(dl*dl + da*da + db*db)
+}
+
+func gamutMap(l float64, c0 float64, h float64) rgbf {
+	if l >= 1.0 {
+		return rgbf{r: 1.0, g: 1.0, b: 1.0}
+	}
+	if l <= 0.0 {
+		return rgbf{r: 0.0, g: 0.0, b: 0.0}
+	}
+	let c = if c0 < 0.0 { 0.0 } else if c0 > 1.0 { 1.0 } else { c0 }
+	let origin = encodedOf(l, c, h)
+	if inGamut(origin) {
+		return origin
+	}
+	let jnd = 0.02
+	let eps = 0.0001
+	let first = clipped(origin)
+	if deltaEOK(first, l, c, h) < jnd {
+		return first
+	}
+	let mut lo = 0.0
+	let mut hi = c
+	let mut loInGamut = true
+	let mut best = first
+	for hi-lo > eps {
+		let chroma = (lo + hi) / 2.0
+		let current = encodedOf(l, chroma, h)
+		if loInGamut && inGamut(current) {
+			lo = chroma
+			best = current
+			continue
+		}
+		let cut = clipped(current)
+		let e = deltaEOK(cut, l, chroma, h)
+		best = cut
+		if e < jnd {
+			if jnd-e < eps {
+				return cut
+			}
+			loInGamut = false
+			lo = chroma
+		} else {
+			hi = chroma
+		}
+	}
+	clipped(best)
+}

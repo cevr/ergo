@@ -3,6 +3,14 @@ import option
 // CommandID uniquely identifies one caller-submitted command for idempotency.
 type CommandID string
 
+// UnitKey identifies one unit: its repository, its run and its name in the run.
+type UnitKey { Repo string, Run string, ID string }
+
+// UnitKeyText is the canonical text of a unit key: repo, run and id joined by slashes.
+func UnitKeyText(k UnitKey) string {
+	"\(k.Repo)/\(k.Run)/\(k.ID)"
+}
+
 // NotFound reports that a referenced entity does not exist.
 type NotFound { Kind string, ID string }
 
@@ -12,48 +20,46 @@ type AlreadyExists { Kind string, ID string }
 // InvalidTransition reports that an action is not valid from the entity's current status.
 type InvalidTransition { Kind string, ID string, From string, Action string }
 
-// StaleClaim reports that an operation expected a different active unit owner.
-type StaleClaim { UnitID string, ExpectedOwner string, ActualOwner string }
-
 // CommandReused reports that an existing CommandID was resubmitted with a different payload.
 type CommandReused { ID CommandID }
 
 // InvalidInput reports that a command field failed pure domain validation.
 type InvalidInput { Field string, Why string }
 
+// Unverified refuses a verdict at Head: the unit's required receipt kinds with no receipt at Head (Missing) and those whose latest receipt at Head did not exit 0 (Red).
+type Unverified { Unit UnitKey, Head string, Missing []string, Red []string }
+
+// NotAcceptedHead refuses landing a unit at a head other than the one it was accepted at.
+type NotAcceptedHead { Unit UnitKey, Accepted string, Head string }
+
 // Refusal is the closed union of pure domain command refusals.
-type Refusal = NotFound | AlreadyExists | InvalidTransition | StaleClaim | CommandReused | InvalidInput
+type Refusal = NotFound | AlreadyExists | InvalidTransition | CommandReused | InvalidInput | Unverified | NotAcceptedHead
 
 // StoreFailed reports a persistence or transaction failure outside pure domain logic.
 type StoreFailed { Reason string }
 
-// UnitOpen is a newly opened unit awaiting a claim.
+// UnitOpen is a unit whose work is not yet accepted.
 type UnitOpen {}
 
-// UnitClaimed is a unit currently owned and worked in a lane.
-type UnitClaimed {}
+// UnitAccepted is a unit whose required receipts were green at its accepted head.
+type UnitAccepted {}
 
-// UnitHandedBack is a unit whose round has been handed back for review or landing.
-type UnitHandedBack {}
-
-// UnitLanded is a unit whose commits have landed (terminal).
+// UnitLanded is a unit landed at its accepted head (terminal).
 type UnitLanded {}
 
 // UnitClosed is a unit closed without landing (terminal).
 type UnitClosed {}
 
 // UnitStatus is the lifecycle state of a work unit.
-type UnitStatus = UnitOpen | UnitClaimed | UnitHandedBack | UnitLanded | UnitClosed
+type UnitStatus = UnitOpen | UnitAccepted | UnitLanded | UnitClosed
 
 // UnitStatusName is the canonical external name of a UnitStatus.
 func UnitStatusName(s UnitStatus) string {
 	match s {
 	case UnitOpen:
 		"open"
-	case UnitClaimed:
-		"claimed"
-	case UnitHandedBack:
-		"handed-back"
+	case UnitAccepted:
+		"accepted"
 	case UnitLanded:
 		"landed"
 	case UnitClosed:
@@ -66,10 +72,8 @@ func ParseUnitStatus(text string) option.Option[UnitStatus] {
 	match text {
 	case "open":
 		option.Some[UnitStatus]{Value: UnitOpen}
-	case "claimed":
-		option.Some[UnitStatus]{Value: UnitClaimed}
-	case "handed-back":
-		option.Some[UnitStatus]{Value: UnitHandedBack}
+	case "accepted":
+		option.Some[UnitStatus]{Value: UnitAccepted}
 	case "landed":
 		option.Some[UnitStatus]{Value: UnitLanded}
 	case "closed":
@@ -84,38 +88,30 @@ law UnitStatusNameRoundTrips(s UnitStatus) {
 	ParseUnitStatus(UnitStatusName(s)) == option.Some[UnitStatus]{Value: s}
 }
 
-// Unit is the projected state of one orchestrated work unit.
+// Unit is the projected state of one orchestrated work unit: the receipt kinds its verdict requires, its lane path and branch as facts, and the head it was accepted or landed at.
 type Unit {
-	ID           string,
-	Title        string,
-	Area         string,
-	Status       UnitStatus,
-	Owner        option.Option[string],
-	Lane         option.Option[string],
-	Harness      option.Option[string],
-	Round        int,
-	HeadSHA      option.Option[string],
-	Summary      option.Option[string],
-	RequestPath  option.Option[string],
-	FindingsPath option.Option[string],
-	CreatedAt    string,
-	UpdatedAt    string,
+	Key       UnitKey,
+	Title     string,
+	Requires  []string,
+	Lane      option.Option[string],
+	Branch    option.Option[string],
+	Status    UnitStatus,
+	Head      option.Option[string],
+	CreatedAt string,
+	UpdatedAt string,
 }
 
-// Receipt records structured verification or execution evidence pointing to an external log file.
+// Receipt is one run of a check for a unit: its kind, the command, the head it ran at, its exit code and exit lines.
 type Receipt {
-	ID             string,
-	UnitID         string,
-	Round          int,
-	Kind           string,
-	Command        string,
-	CommitSHA      string,
-	ExitCode       int,
-	SummaryMetrics string,
-	LogPath        string,
-	LogSHA256      string,
-	RecordedAt     string,
-	RecordedBy     string,
+	ID         string,
+	Unit       UnitKey,
+	Kind       string,
+	Command    string,
+	Head       string,
+	ExitCode   int,
+	ExitLines  string,
+	RecordedAt string,
+	RecordedBy string,
 }
 
 // CommitOpen is an unassigned commitment.
@@ -259,7 +255,7 @@ type Question {
 
 // State is the complete pure projection folded from the orchestrate event log.
 type State {
-	Units             Map[string, Unit],
+	Units             Map[UnitKey, Unit],
 	Receipts          Map[string, Receipt],
 	ReceiptOrder      []string,
 	Commitments       Map[string, Commitment],
@@ -273,7 +269,7 @@ type State {
 // EmptyState is the initial projection before any events have been applied.
 func EmptyState() State {
 	State{
-		Units:             Map[string, Unit]{},
+		Units:             Map[UnitKey, Unit]{},
 		Receipts:          Map[string, Receipt]{},
 		ReceiptOrder:      []string{},
 		Commitments:       Map[string, Commitment]{},
