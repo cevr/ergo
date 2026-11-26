@@ -379,7 +379,7 @@ func decideOutcome(state State, env Envelope) decided {
 
 // DecideReadsOnlyItsScope verifies that Decide over Scope(state, env) decides every generated command as Decide over the whole state does, so a store may load only the scope.
 law DecideReadsOnlyItsScope(steps []int) {
-	let mut state = EmptyState()
+	let mut state = scopePrelude()
 	for i, code in steps {
 		let env = generatedEnvelope(i, code)
 		let whole = decideOutcome(state, env)
@@ -397,6 +397,22 @@ law DecideReadsOnlyItsScope(steps []int) {
 		}
 	}
 	true
+}
+
+func scopePrelude() State {
+	let mut state = EmptyState()
+	for slot in 0..3 {
+		let key = UnitKey{Repo: "repo", Run: "run-\(slot % 2)", ID: "u-\(slot)"}
+		state = lawStep(state, "prelude-open-\(slot)", OpenUnit{Key: key, Title: "Unit \(slot)", Requires: []string{"acceptance"}, Lane: option.None, Branch: option.None}) catch {
+		case _:
+			state
+		}
+		state = lawStep(state, "prelude-green-\(slot)", RecordReceipt{Unit: key, Kind: "acceptance", Command: "ergo test", Head: "head-\(slot % 2)", ExitCode: 0, ExitLines: "ok"}) catch {
+		case _:
+			state
+		}
+	}
+	state
 }
 
 func lawStep(state State, id string, cmd Command) State fails Refusal {
