@@ -982,6 +982,18 @@ func constType(s mut store.Store, k Pkg, t Typer, x dense.ID[syntax.Node], w Wan
 
 // expr types x in want, records its type when known, and returns it.
 func expr(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node], w Want) option.Option[dense.ID[store.TKey]] {
+	let ty = typed(s, k, t, x, w)
+	match w {
+	case Exactly as e:
+		if misfits(s, k, t.file, x, e.T, ty) {
+			misfit(k, t, x, x, literalMismatch(s, k, *t, x, e.T))
+		}
+	case _:
+	}
+	ty
+}
+
+func typed(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node], w Want) option.Option[dense.ID[store.TKey]] {
 	t.steps = t.steps + 1
 	let ty = exprType(s, k, t, x, w)
 	match ty {
@@ -989,14 +1001,14 @@ func expr(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node], w Want
 		note(k, t, x, r.Value)
 	case option.None:
 	}
-	match w {
-	case Exactly as e:
-		if misfits(s, k, t.file, x, e.T, ty) {
-			t.Diags = t.Diags.Append(Diag{At: pnode(k, t.file, x), Fn: t.fn})
-		}
-	case _:
-	}
 	ty
+}
+
+func misfit(k Pkg, t mut Typer, x dense.ID[syntax.Node], at dense.ID[syntax.Node], msg string) {
+	t.Diags = t.Diags.Append(Diag{At: pnode(k, t.file, x), Fn: t.fn})
+	if msg != "" {
+		t.LookupDiags = t.LookupDiags.Append(LookupDiag{File: t.file, At: at, Code: "S108", Message: msg})
+	}
 }
 
 // misfits is whether x, typed ty, cannot be assigned to the basic type
@@ -1047,7 +1059,7 @@ func exprType(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node], w 
 		return ty
 	}
 	if kd == syntax.KBinaryExpr {
-		return binary(s, k, t, syntax.BinaryExprOf(tr, x), w)
+		return binary(s, k, t, x, syntax.BinaryExprOf(tr, x), w)
 	}
 	if kd == syntax.KIfStmt || kd == syntax.KSwitchStmt || kd == syntax.KTypeSwitchStmt {
 		return branches(s, k, t, x, w)
@@ -1192,7 +1204,7 @@ func constParts(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node], 
 // binary types x op y: a comparison or a logical operation is bool, an
 // arithmetic one has its operands' type; a constant operand takes the
 // other's type.
-func binary(s mut store.Store, k Pkg, t mut Typer, b syntax.BinaryExpr, w Want) option.Option[dense.ID[store.TKey]] {
+func binary(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node], b syntax.BinaryExpr, w Want) option.Option[dense.ID[store.TKey]] {
 	let op = syntax.TokKind(k.Parsed[t.file], b.Op)
 	let boolT = t.boolT
 	if op == syntax.Land || op == syntax.Lor {
@@ -1216,7 +1228,13 @@ func binary(s mut store.Store, k Pkg, t mut Typer, b syntax.BinaryExpr, w Want) 
 	case option.Some[dense.ID[store.TKey]] as f:
 		let bt = basic(s, f.Value)
 		if bt > 0 && bt != bBool || !isConst(k, t.file, second) {
-			expr(s, k, t, second, Exactly{T: f.Value})
+			let st = typed(s, k, t, second, Exactly{T: f.Value})
+			if misfits(s, k, t.file, second, f.Value, st) {
+				let xt = if xc { st } else { ft }
+				let yt = if xc { ft } else { st }
+				let m = operandMismatch(s, k, *t, x, b, xt, yt)
+				misfit(k, t, second, m.At, m.Message)
+			}
 		} else {
 			expr(s, k, t, second, Unsure)
 		}
