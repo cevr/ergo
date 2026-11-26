@@ -176,7 +176,14 @@ func UnitOpen(s Service, req UnitOpenInput) Unit fails NotFound | AlreadyExists 
 // ReceiptRecord executes RecordReceipt and returns the recorded Receipt, whose ID is the command ID.
 func ReceiptRecord(s Service, req ReceiptRecordInput) Receipt fails NotFound | AlreadyExists | InvalidTransition | CommandReused | InvalidInput | Unverified | NotAcceptedHead | StoreFailed {
 	let key = keyOf(req.Repo, req.Run, req.ID)
-	let _ = try s.store.Execute(envelope(s, req.CommandID, req.Actor, RecordReceipt{Unit: key, Kind: req.Kind, Command: req.Command, Head: req.Head, ExitCode: req.ExitCode, ExitLines: req.ExitLines}))
+	let done = try s.store.Execute(envelope(s, req.CommandID, req.Actor, RecordReceipt{Unit: key, Kind: req.Kind, Command: req.Command, Head: req.Head, ExitCode: req.ExitCode, ExitLines: req.ExitLines}))
+	for ev in done.Events {
+		match ev {
+		case ReceiptRecorded as e:
+			return e.Receipt
+		case _:
+		}
+	}
 	for r in try s.store.Receipts(key) {
 		if r.ID == string(req.CommandID) {
 			return r
