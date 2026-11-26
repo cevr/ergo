@@ -1,9 +1,6 @@
 package lint
 
-import (
-	"ergo.local/prototype/internal/sketch/check"
-	"ergo.local/prototype/internal/sketch/syntax"
-)
+import "ergo.local/prototype/internal/sketch/check"
 
 // consoleOutsideEntry is the layout rule for stray output (catalog CR30,
 // debug logging; EF31, transport inside a feature): an operation of the
@@ -26,15 +23,13 @@ func checkConsoleOutsideEntry(p *Pass) {
 	if testFile(p.File) || p.Package.Entry() != nil || !declaresOperationType(p) {
 		return
 	}
-	syntax.Inspect(p.File, func(n syntax.Node) bool {
-		switch x := n.(type) {
-		case *syntax.TestDecl, *syntax.LawDecl:
-			return false
-		case *syntax.CallExpr:
-			if t := check.ProviderOpType(p.Info, x); t != nil && check.IsConsole(t) {
-				p.Report(x.Pos(), x.End(), "this Console write is in a package that declares an operation type")
-			}
+	fi := p.fileIndex()
+	for i, x := range fi.calls {
+		if fi.callFlags[i]&nodeInTestLaw != 0 {
+			continue
 		}
-		return true
-	})
+		if t := check.ProviderOpType(p.Info, x); t != nil && check.IsConsole(t) {
+			p.Report(x.Pos(), x.End(), "this Console write is in a package that declares an operation type")
+		}
+	}
 }

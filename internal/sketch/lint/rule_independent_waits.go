@@ -20,28 +20,27 @@ var independentWaits = &Rule{
 }
 
 func checkIndependentWaits(p *Pass) {
-	for _, d := range p.File.Decls {
-		f, ok := d.(*syntax.FuncDecl)
-		if !ok || f.Body == nil {
+	fi := p.fileIndex()
+	for bi, b := range fi.blocks {
+		if fi.blockFlags[bi]&nodeInFuncBody == 0 || len(b.List) < 2 {
 			continue
 		}
-		syntax.Inspect(f.Body, func(n syntax.Node) bool {
-			b, ok := n.(*syntax.BlockStmt)
-			if !ok {
-				return true
+		for i := 0; i+1 < len(b.List); i++ {
+			if _, ok := b.List[i].(*syntax.DeclStmt); !ok {
+				continue
 			}
-			for i := 0; i+1 < len(b.List); i++ {
-				first, ok := waitOf(p.Info, b.List[i])
-				if !ok || first.leave {
-					continue
-				}
-				second, ok := waitOf(p.Info, b.List[i+1])
-				if ok && independent(p.Info, first, second, b.List[i+1]) {
-					s := b.List[i+1]
-					p.Report(s.Pos(), s.End(), "this wait and the one above share no capability, and this one reads nothing the first binds")
-				}
+			if _, ok := b.List[i+1].(*syntax.DeclStmt); !ok {
+				continue
 			}
-			return true
-		})
+			first, ok := waitOf(p.Info, b.List[i])
+			if !ok || first.leave {
+				continue
+			}
+			second, ok := waitOf(p.Info, b.List[i+1])
+			if ok && independent(p.Info, first, second, b.List[i+1]) {
+				s := b.List[i+1]
+				p.Report(s.Pos(), s.End(), "this wait and the one above share no capability, and this one reads nothing the first binds")
+			}
+		}
 	}
 }

@@ -37,25 +37,34 @@ type pureCall struct {
 }
 
 func checkRepeatedPureCall(p *Pass) {
-	syntax.Inspect(p.File, func(n syntax.Node) bool {
-		var body syntax.Node
-		switch d := n.(type) {
+	for _, d := range p.File.Decls {
+		switch d := d.(type) {
 		case *syntax.FuncDecl:
-			body = d.Body
-		case *syntax.FuncLit:
-			body = d.Body
+			if d.Body != nil {
+				repeatedInFrame(p, d.Body)
+			}
 		case *syntax.TestDecl:
-			body = d.Body
+			if d.Body != nil {
+				repeatedInFrame(p, d.Body)
+			}
 		case *syntax.LawDecl:
-			body = d.Body
-		default:
-			return true
+			if d.Body != nil {
+				repeatedInFrame(p, d.Body)
+			}
+		case *syntax.TypeDecl:
+			syntax.Inspect(d, func(n syntax.Node) bool {
+				if l, ok := n.(*syntax.LawDecl); ok && l.Body != nil {
+					repeatedInFrame(p, l.Body)
+				}
+				return true
+			})
 		}
-		if body != nil && !syntax.IsNil(body) {
-			repeatedInFrame(p, body)
+	}
+	for _, fl := range p.fileIndex().funcLits {
+		if fl.Body != nil {
+			repeatedInFrame(p, fl.Body)
 		}
-		return true
-	})
+	}
 }
 
 // repeatedInFrame reports the repeated calls of one frame.

@@ -188,147 +188,118 @@ func (l *lowerer) find(n syntax.Node, pos syntax.Pos) (path string, line, column
 	return sf.path, line, column, true
 }
 
-// stdFileOf is the embedded file of a reached std package that holds n.
-// Offsets count from the start of each file, so a declaration whose span
-// holds n's is only a candidate: the node is looked for inside it by
-// identity, and the first declaration in library, file and declaration
-// order that holds it names the file; an answer is kept in stdSrc.
-// stdFileOfWalk is that search as written. The lowering asks through
-// stdNodeIndex instead: one walk of the reached std declarations names
-// each node's declaration, so a question costs a map read, not a walk of
-// every candidate declaration (the IR agreement's std program spent 88 %
-// of its time in those walks). It gives the walk's answer and runs the
-// walk's admissionNodes steps in the walk's order; a node two
-// declarations hold is left to the walk.
+// stdFileOf is the embedded file of a reached std package that holds n,
+// or of the admission law that made n (admissionNodes). Offsets count
+// from the start of each file, so a declaration whose span holds n's is
+// only a candidate. Each candidate is walked once: every node of it is
+// placed in its file (stdSrc), so a later node of a placed declaration is
+// one lookup, not a walk of every candidate again (PERF-LOWER-BUILD-1:
+// the walks were 14 % of an `ergo test`'s CPU). Only candidates are
+// placed, so a lowering builds no map of every std node (SL9b: that map
+// was 13 % of the lowering's bytes); a node whose span is not its
+// declaration's (a synthesized one) is looked for in every declaration
+// without placing it, and the answer, found or not, is kept.
 func (l *lowerer) stdFileOf(n syntax.Node) (stdFile, bool) {
 	if isNilNode(n) {
 		return stdFile{}, false
 	}
-	if sf, ok := l.stdSrc[n]; ok {
-		return sf, true
+	if i, ok := l.stdSrc[n]; ok {
+		return l.stdAnswer(i)
 	}
-	if stdFileOfWalkOnly {
-		return l.stdFileOfWalk(n)
-	}
-	ix := l.stdNodeIndex()
-	at, held := ix.decl[n]
-	if held && at < 0 {
-		return l.stdFileOfWalk(n)
-	}
-	if !held {
-		l.stdAdmit(len(ix.libs))
-		l.stdAdmit(len(ix.libs))
-		return stdFile{}, false
-	}
-	r := ix.decls[at]
-	if r.d.Pos() > n.Pos() || n.End() > r.d.End() {
-		l.stdAdmit(len(ix.libs))
-	}
-	l.stdAdmit(r.lib)
-	sf := stdFile{file: r.f, path: embeddedSourcePath(ix.libs[r.lib], r.f.Name)}
 	if l.stdSrc == nil {
-		l.stdSrc = map[syntax.Node]stdFile{}
-	}
-	l.stdSrc[n] = sf
-	return sf, true
-}
-
-// stdFileOfWalkOnly makes stdFileOf the walk alone, the reference
-// TestStdFileOfIndexAgrees holds the index to.
-var stdFileOfWalkOnly = false
-
-// stdIndex is stdNodeIndex's answer: the reached std libraries, their
-// declarations in walk order, and each node's declaration (-1 for a node
-// more than one declaration holds).
-type stdIndex struct {
-	libs  []*check.Package
-	decls []stdDeclRef
-	decl  map[syntax.Node]int
-}
-
-type stdDeclRef struct {
-	lib int
-	f   *syntax.File
-	d   syntax.Decl
-}
-
-func (l *lowerer) stdNodeIndex() *stdIndex {
-	if l.stdIx != nil {
-		return l.stdIx
-	}
-	ix := &stdIndex{decl: map[syntax.Node]int{}}
-	for _, p := range l.libraries() {
-		if !p.Std() {
-			continue
+		l.stdSrc, l.stdPlaced, l.stdFileIDs = map[syntax.Node]int32{}, map[syntax.Node]bool{}, map[*syntax.File]int32{}
+		for _, p := range l.libraries() {
+			if p.Std() {
+				l.stdLibs = append(l.stdLibs, p)
+			}
 		}
-		lib := len(ix.libs)
-		ix.libs = append(ix.libs, p)
+	}
+	for _, p := range l.stdLibs {
 		for _, f := range p.Files() {
 			for _, d := range f.Decls {
-				at := len(ix.decls)
-				ix.decls = append(ix.decls, stdDeclRef{lib: lib, f: f, d: d})
-				syntax.Inspect(d, func(m syntax.Node) bool {
-					if m == nil {
-						return false
-					}
-					if prev, ok := ix.decl[m]; !ok {
-						ix.decl[m] = at
-					} else if prev != at {
-						ix.decl[m] = -1
-					}
-					return true
-				})
+				if l.stdPlaced[d] || d.Pos() > n.Pos() || n.End() > d.End() {
+					continue
+				}
+				l.placeStd(d, l.stdFileID(p, f))
+				if i, ok := l.stdSrc[n]; ok {
+					return l.stdAnswer(i)
+				}
 			}
 		}
 	}
-	l.stdIx = ix
-	return ix
-}
-
-// stdAdmit runs the walk's admissionNodes step for the first n reached
-// std libraries.
-func (l *lowerer) stdAdmit(n int) {
-	for _, p := range l.stdIx.libs[:n] {
-		admissionNodes(p, func(law, n syntax.Node) {
-			if sf, ok := l.stdSrc[law]; ok {
-				l.stdSrc[n] = sf
-			}
-		})
-	}
-}
-
-// stdFileOfWalk is stdFileOf's search by walking each candidate
-// declaration.
-func (l *lowerer) stdFileOfWalk(n syntax.Node) (stdFile, bool) {
-	// The first pass walks the declarations whose span holds n's; a node
-	// whose span is not its declaration's (a synthesized one) is found by
-	// the second, which walks every declaration.
-	for _, bySpan := range []bool{true, false} {
-		for _, p := range l.libraries() {
-			if !p.Std() {
-				continue
-			}
-			for _, f := range p.Files() {
-				for _, d := range f.Decls {
-					if bySpan && (d.Pos() > n.Pos() || n.End() > d.End()) || !holds(d, n) {
-						continue
-					}
-					sf := stdFile{file: f, path: embeddedSourcePath(p, f.Name)}
-					if l.stdSrc == nil {
-						l.stdSrc = map[syntax.Node]stdFile{}
-					}
-					l.stdSrc[n] = sf
-					return sf, true
+	for _, p := range l.stdLibs {
+		for _, f := range p.Files() {
+			for _, d := range f.Decls {
+				if !l.stdPlaced[d] && holds(d, n) {
+					i := l.stdFileID(p, f)
+					l.stdSrc[n] = i
+					return l.stdAnswer(i)
 				}
 			}
+		}
+	}
+	if law, ok := l.stdAdmissions()[n]; ok && law != n {
+		if sf, ok := l.stdFileOf(law); ok {
+			i := l.stdFileID(nil, sf.file)
+			l.stdSrc[n] = i
+			return l.stdAnswer(i)
+		}
+	}
+	l.stdSrc[n] = -1
+	return stdFile{}, false
+}
+
+// stdAnswer is the file stdSrc keeps at i, or none for -1.
+func (l *lowerer) stdAnswer(i int32) (stdFile, bool) {
+	if i < 0 {
+		return stdFile{}, false
+	}
+	return l.stdFiles[i], true
+}
+
+// stdFileID is the index in stdFiles of the embedded file f of p, added
+// the first time; p is nil only for a file stdFiles already holds.
+func (l *lowerer) stdFileID(p *check.Package, f *syntax.File) int32 {
+	if i, ok := l.stdFileIDs[f]; ok {
+		return i
+	}
+	i := int32(len(l.stdFiles))
+	l.stdFileIDs[f] = i
+	l.stdFiles = append(l.stdFiles, stdFile{file: f, path: embeddedSourcePath(p, f.Name)})
+	return i
+}
+
+// placeStd places every node of the std declaration d in the file at i,
+// keeping a node's first placement.
+func (l *lowerer) placeStd(d syntax.Node, i int32) {
+	l.stdPlaced[d] = true
+	l.stdWalks++
+	syntax.Inspect(d, func(m syntax.Node) bool {
+		if m == nil {
+			return false
+		}
+		if _, ok := l.stdSrc[m]; !ok {
+			l.stdSrc[m] = i
+		}
+		return true
+	})
+}
+
+// stdAdmissions is each node an admission law of a reached std package
+// made, by the declaration of its law (admissionNodes), computed once
+// over stdLibs, which stdFileOf has filled.
+func (l *lowerer) stdAdmissions() map[syntax.Node]syntax.Node {
+	if l.stdAdmit == nil {
+		l.stdAdmit = map[syntax.Node]syntax.Node{}
+		for _, p := range l.stdLibs {
 			admissionNodes(p, func(law, n syntax.Node) {
-				if sf, ok := l.stdSrc[law]; ok {
-					l.stdSrc[n] = sf
+				if _, ok := l.stdAdmit[n]; !ok {
+					l.stdAdmit[n] = law
 				}
 			})
 		}
 	}
-	return stdFile{}, false
+	return l.stdAdmit
 }
 
 // embeddedSourcePath is the displayed path of an embedded source file.

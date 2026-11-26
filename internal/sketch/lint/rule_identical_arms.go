@@ -33,7 +33,7 @@ type arm struct {
 }
 
 func checkIdenticalArms(p *Pass) {
-	syntax.Inspect(p.File, func(n syntax.Node) bool {
+	for _, n := range p.fileIndex().switches {
 		var arms []arm
 		switch x := n.(type) {
 		case *syntax.SwitchStmt:
@@ -45,7 +45,10 @@ func checkIdenticalArms(p *Pass) {
 				arms = append(arms, arm{a.Case, a.Colon, writtenOr(a.Written, a.Types), a.Body})
 			}
 		default:
-			return true
+			continue
+		}
+		if len(arms) < 2 {
+			continue
 		}
 		groups := map[string][]arm{}
 		var order []string
@@ -72,8 +75,7 @@ func checkIdenticalArms(p *Pass) {
 			}
 			p.Report(g[1].at, g[1].colon+1, fmt.Sprintf("the arms for %s do the same", list))
 		}
-		return true
-	})
+	}
 }
 
 func clauseArms(clauses []*syntax.CaseClause) []arm {

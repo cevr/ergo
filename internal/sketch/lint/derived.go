@@ -52,7 +52,7 @@ func recordFields(t check.Type) []*check.Field {
 }
 
 // collectFieldForms reads every record write of the program's units.
-func collectFieldForms(units []Unit) *fieldForms {
+func collectFieldForms(units []Unit, shared *runShared) *fieldForms {
 	ff := &fieldForms{
 		form:    map[*check.Field]string{},
 		uses:    map[*check.Field]map[*check.Field]bool{},
@@ -65,29 +65,27 @@ func collectFieldForms(units []Unit) *fieldForms {
 			if file.Syntax == nil {
 				continue
 			}
-			syntax.Inspect(file.Syntax, func(n syntax.Node) bool {
-				switch n := n.(type) {
-				case *syntax.CompositeLit:
-					ff.literal(info, n)
-				case *syntax.AssignStmt:
-					for i, l := range n.Lhs {
-						sel, ok := l.(*syntax.SelectorExpr)
-						if !ok || i >= len(n.Rhs) || len(n.Lhs) != len(n.Rhs) {
-							continue
-						}
-						g, _ := check.SelectedField(info, sel)
-						if g == nil {
-							continue
-						}
-						t := info.Types[sel.X]
-						if p, isPtr := t.(*check.Pointer); isPtr {
-							t = p.Elem
-						}
-						ff.write(info, recordFields(t), map[*check.Field]syntax.Expr{g: n.Rhs[i]}, sel.X)
+			fi := shared.fileIndexOf(file.Syntax)
+			for _, n := range fi.lits {
+				ff.literal(info, n)
+			}
+			for _, n := range fi.assigns {
+				for i, l := range n.Lhs {
+					sel, ok := l.(*syntax.SelectorExpr)
+					if !ok || i >= len(n.Rhs) || len(n.Lhs) != len(n.Rhs) {
+						continue
 					}
+					g, _ := check.SelectedField(info, sel)
+					if g == nil {
+						continue
+					}
+					t := info.Types[sel.X]
+					if p, isPtr := t.(*check.Pointer); isPtr {
+						t = p.Elem
+					}
+					ff.write(info, recordFields(t), map[*check.Field]syntax.Expr{g: n.Rhs[i]}, sel.X)
 				}
-				return true
-			})
+			}
 		}
 	}
 	return ff
@@ -130,11 +128,19 @@ func (ff *fieldForms) literal(info *check.Info, lit *syntax.CompositeLit) {
 // write records a write that sets the fields in set, of a record of
 // fields, over base (nil for a construction).
 func (ff *fieldForms) write(info *check.Info, fields []*check.Field, set map[*check.Field]syntax.Expr, base syntax.Expr) {
-	others := map[*check.Field]bool{}
-	for g := range set {
-		others[g] = true
+	var others map[*check.Field]bool
+	if len(set) < len(fields) {
+		others = make(map[*check.Field]bool, len(set))
+		for g := range set {
+			others[g] = true
+		}
 	}
+	baseShape := ""
+	baseShaped := false
 	for _, f := range fields {
+		if ff.bad[f] {
+			continue
+		}
 		e, ok := set[f]
 		if !ok {
 			// A construction sets every field; an update that leaves f
@@ -142,16 +148,22 @@ func (ff *fieldForms) write(info *check.Info, fields []*check.Field, set map[*ch
 			ff.partial[f] = append(ff.partial[f], others)
 			continue
 		}
-		fm := &former{info: info, self: f, base: base, siblings: map[string]*check.Field{}, uses: map[*check.Field]bool{}}
-		if base != nil {
-			fm.baseShape = shapeOf(info, base)
+		if base != nil && !baseShaped {
+			baseShape = shapeOf(info, base)
+			baseShaped = true
 		}
-		whole := shapeOf(info, e)
-		for g, v := range set {
-			// A sibling with f's very value is a copy beside it, not
-			// an input: each would read as the other's form.
-			if s := shapeOf(info, v); g != f && readsVar(info, v) && s != whole {
-				fm.siblings[s] = g
+		fm := &former{info: info, self: f, base: base, baseShape: baseShape}
+		if len(set) > 1 {
+			whole := shapeOf(info, e)
+			for g, v := range set {
+				// A sibling with f's very value is a copy beside it, not
+				// an input: each would read as the other's form.
+				if s := shapeOf(info, v); g != f && readsVar(info, v) && s != whole {
+					if fm.siblings == nil {
+						fm.siblings = map[string]*check.Field{}
+					}
+					fm.siblings[s] = g
+				}
 			}
 		}
 		form, ok := fm.form(e)
@@ -164,7 +176,7 @@ func (ff *fieldForms) write(info *check.Info, fields []*check.Field, set map[*ch
 			continue
 		}
 		ff.form[f] = form
-		if ff.uses[f] == nil {
+		if ff.uses[f] == nil && len(fm.uses) > 0 {
 			ff.uses[f] = fm.uses
 		}
 	}
@@ -200,13 +212,18 @@ type former struct {
 }
 
 func (fm *former) field(g *check.Field) string {
+	if fm.uses == nil {
+		fm.uses = map[*check.Field]bool{}
+	}
 	fm.uses[g] = true
 	return fmt.Sprintf("@%p", g)
 }
 
 func (fm *former) form(e syntax.Expr) (string, bool) {
-	if g, ok := fm.siblings[shapeOf(fm.info, e)]; ok {
-		return fm.field(g), true
+	if len(fm.siblings) > 0 {
+		if g, ok := fm.siblings[shapeOf(fm.info, e)]; ok {
+			return fm.field(g), true
+		}
 	}
 	if v := fm.info.Values[e]; v != nil {
 		return "c:" + v.ExactString(), true

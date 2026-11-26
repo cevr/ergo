@@ -399,7 +399,19 @@ func (d *digester) foreignKeys(h io.Writer, keys ForeignKeys) (with, build strin
 }
 
 func newDigester() *digester {
-	return &digester{seen: map[any]bool{}, decls: map[string]bool{}, lets: map[*check.Var]letDecl{}, named: map[*check.Package]map[string]*check.Var{}, indexed: map[*check.Package]bool{}, foreign: map[string]bool{}}
+	return newDigesterIn(nil)
+}
+
+// newDigesterIn is a digester that reads declarations through the memo m,
+// or through a memo of its own when m is nil.
+func newDigesterIn(m *Digests) *digester {
+	if m == nil {
+		m = NewDigests()
+	} else if m.reference {
+		m = NewDigests()
+		m.reference = true
+	}
+	return &digester{seen: map[any]bool{}, decls: map[string]bool{}, indexed: map[*check.Package]bool{}, foreign: map[string]bool{}, memo: m}
 }
 
 // TargetDigest is the digest of every input of the verdict of the run of
@@ -414,20 +426,21 @@ func newDigester() *digester {
 // implicit conversion and each generic call's witness the walk meets put
 // in a value (derived: a codec's reader).
 func TargetDigest(pkg *check.Package, law *check.Law, binding []check.LawProvider) string {
-	_, digest := targetDigest(pkg, law, binding)
+	_, digest := targetDigest(nil, pkg, law, binding)
 	return digest
 }
 
-// targetDigest is TargetDigest and the walk that made it.
-func targetDigest(pkg *check.Package, law *check.Law, binding []check.LawProvider) (*digester, string) {
-	d, slots := targetWalk(law, binding)
+// targetDigest is TargetDigest and the walk that made it, reading
+// declarations through m (newDigesterIn).
+func targetDigest(m *Digests, pkg *check.Package, law *check.Law, binding []check.LawProvider) (*digester, string) {
+	d, slots := targetWalk(m, law, binding)
 	return d, d.sum(pkg, slots)
 }
 
 // targetWalk is TargetDigest's walk: the digester holding what the run
 // reaches, and its slots.
-func targetWalk(law *check.Law, binding []check.LawProvider) (*digester, []string) {
-	d := newDigester()
+func targetWalk(m *Digests, law *check.Law, binding []check.LawProvider) (*digester, []string) {
+	d := newDigesterIn(m)
 	d.derived = true
 	switch {
 	case law.Owner != nil:
@@ -475,20 +488,21 @@ func targetWalk(law *check.Law, binding []check.LawProvider) (*digester, []strin
 // tokens of each (no position). An edit of any of them makes a new
 // digest.
 func ContextDigest(pkg *check.Package, law *check.Law, lc check.LawContext) string {
-	_, digest := contextDigest(pkg, law, lc)
+	_, digest := contextDigest(nil, pkg, law, lc)
 	return digest
 }
 
-// contextDigest is ContextDigest and the walk that made it.
-func contextDigest(pkg *check.Package, law *check.Law, lc check.LawContext) (*digester, string) {
-	d, slots := contextWalk(law, lc)
+// contextDigest is ContextDigest and the walk that made it, reading
+// declarations through m (newDigesterIn).
+func contextDigest(m *Digests, pkg *check.Package, law *check.Law, lc check.LawContext) (*digester, string) {
+	d, slots := contextWalk(m, law, lc)
 	return d, d.sum(pkg, slots)
 }
 
 // contextWalk is ContextDigest's walk: the digester holding what the run
 // reaches, and its slots.
-func contextWalk(law *check.Law, lc check.LawContext) (*digester, []string) {
-	d := newDigester()
+func contextWalk(m *Digests, law *check.Law, lc check.LawContext) (*digester, []string) {
+	d := newDigesterIn(m)
 	d.derived = true
 	d.typ(law.Owner)
 	if lc.Claim != nil {
@@ -584,7 +598,7 @@ func (d *digester) generators(pkg *check.Package) {
 			d.fn(t.Constructor())
 			if n, ok := t.Type.(*check.Named); ok && pkg != nil {
 				if _, ops := n.Underlying().(*check.Interface); ops {
-					if b := pkg.Builder(n); b != nil {
+					if b := d.memo.builder(pkg, n); b != nil {
 						d.fn(b.Func)
 					}
 				}
@@ -627,19 +641,32 @@ func (t RunTarget) Digest(pkg *check.Package) string {
 // is not its stock twin's). It is Digest when keys is nil or the walk
 // reached no `extern go`.
 func (t RunTarget) DigestWith(pkg *check.Package, keys ForeignKeys) string {
+	return t.DigestIn(nil, pkg, keys)
+}
+
+// DigestIn is DigestWith reading the declarations through the memo m,
+// which the keys of one checked program's targets and tests share; nil
+// reads them afresh. The digest is DigestWith's.
+func (t RunTarget) DigestIn(m *Digests, pkg *check.Package, keys ForeignKeys) string {
 	var d *digester
 	var digest string
 	if t.Context != nil {
-		d, digest = contextDigest(pkg, t.Law, *t.Context)
+		d, digest = contextDigest(m, pkg, t.Law, *t.Context)
 	} else {
-		d, digest = targetDigest(pkg, t.Law, t.Binding)
+		d, digest = targetDigest(m, pkg, t.Law, t.Binding)
 	}
 	return d.withForeign(digest, keys)
 }
 
 // TestDigestWith is TestDigest with the foreign keys DigestWith takes.
 func TestDigestWith(pkg *check.Package, t *check.Test, keys ForeignKeys) string {
-	d := newDigester()
+	return TestDigestIn(nil, pkg, t, keys)
+}
+
+// TestDigestIn is TestDigestWith reading the declarations through the
+// memo m (RunTarget.DigestIn).
+func TestDigestIn(m *Digests, pkg *check.Package, t *check.Test, keys ForeignKeys) string {
+	d := newDigesterIn(m)
 	d.decl("test "+d.names.Of(pkg)+"."+t.Name, pkg, t.Decl)
 	return d.withForeign(d.sum(pkg, nil), keys)
 }
@@ -754,11 +781,11 @@ type digester struct {
 	// by: a copy of a package read under its original's names digests
 	// as the original does (TestStdCopyAgrees).
 	names LedgerNames
-	// lets are the package lets of the packages indexed, by their
-	// variable, each with its declaration.
-	lets    map[*check.Var]letDecl
-	named   map[*check.Package]map[string]*check.Var
+	// indexed are the packages whose lets the walk reads: a let of a
+	// package the walk has not indexed is not added (let).
 	indexed map[*check.Package]bool
+	// memo holds what the walk reads of each declaration (Digests).
+	memo *Digests
 	// foreign are the `extern go` targets the walk reached.
 	foreign map[string]bool
 	// nodes are the declarations the walk added, in walk order (reach.go).
@@ -789,9 +816,9 @@ func (t RunTarget) Inputs(pkg *check.Package) (string, []Input) {
 	var d *digester
 	var digest string
 	if t.Context != nil {
-		d, digest = contextDigest(pkg, t.Law, *t.Context)
+		d, digest = contextDigest(nil, pkg, t.Law, *t.Context)
 	} else {
-		d, digest = targetDigest(pkg, t.Law, t.Binding)
+		d, digest = targetDigest(nil, pkg, t.Law, t.Binding)
 	}
 	return digest, d.inputs
 }
@@ -876,8 +903,8 @@ func (d *digester) typ(t *check.TypeName) {
 // let adds the declaration of v when it is a package let of a package the
 // walk indexed; a local variable has none.
 func (d *digester) let(v *check.Var) {
-	l, ok := d.lets[v]
-	if !ok || d.seen[l.decl] {
+	l, ok := d.memo.lets[v]
+	if !ok || !d.indexed[l.pkg] || d.seen[l.decl] {
 		return
 	}
 	d.seen[l.decl] = true
@@ -886,7 +913,7 @@ func (d *digester) let(v *check.Var) {
 
 // decl adds the declaration n of p under key and walks it.
 func (d *digester) decl(key string, p *check.Package, n syntax.Node) {
-	text := syntax.TokenText(declText(p, n))
+	text := d.memo.declText(p, n)
 	d.decls[key+"\n"+text] = true
 	d.nodes = append(d.nodes, ReachedDecl{Key: key, Text: text, Pkg: p, Node: n})
 	d.inputs = append(d.inputs, Input{Pkg: p, Decl: n})
@@ -899,35 +926,48 @@ func (d *digester) index(p *check.Package) {
 		return
 	}
 	d.indexed[p] = true
-	for _, f := range p.Files() {
-		for _, decl := range f.Decls {
-			vd, ok := decl.(*syntax.VarDecl)
-			if !ok {
-				continue
-			}
-			syntax.Inspect(vd, func(n syntax.Node) bool {
-				if id, ok := n.(*syntax.Ident); ok {
-					if v, ok := p.Info.Defs[id].(*check.Var); ok {
-						d.lets[v] = letDecl{pkg: p, decl: vd}
-						if d.named[p] == nil {
-							d.named[p] = map[string]*check.Var{}
-						}
-						d.named[p][v.Name] = v
-					}
-				}
-				return true
-			})
-		}
-	}
+	d.memo.index(p)
 }
 
 // walk follows every function, type and package let that n names or
-// calls, qualified names included.
+// calls, qualified names included: the calls of n's edges (Digests.edgesOf),
+// in order, a derived walk's conversions and instances among them.
 func (d *digester) walk(p *check.Package, n syntax.Node) {
 	if p.Info == nil {
 		return
 	}
 	d.index(p)
+	if d.memo.reference {
+		d.walkDirect(p, n)
+		return
+	}
+	for _, e := range d.memo.edgesOf(p, n) {
+		switch e.kind {
+		case edgeConversion:
+			if d.derived {
+				d.conversion(e.conv)
+			}
+		case edgeInstance:
+			if d.derived {
+				d.instance(e.inst)
+			}
+		case edgeFunc:
+			d.fn(e.fn)
+		case edgeType:
+			d.typ(e.typ)
+		case edgeLet:
+			d.let(e.v)
+		case edgeMember:
+			d.member(e.pkg, e.name)
+		}
+	}
+}
+
+// walkDirect is walk's reference, kept selectable by a reference memo
+// (Digests.reference): it inspects n itself instead of replaying the
+// memo's edges, so the memo's walk is checked against it
+// (TestDigestMemoAgreesWithDirectWalk).
+func (d *digester) walkDirect(p *check.Package, n syntax.Node) {
 	syntax.Inspect(n, func(n syntax.Node) bool {
 		if e, ok := n.(syntax.Expr); ok && d.derived {
 			if c, ok := p.Info.Implicit[e]; ok {
@@ -971,18 +1011,15 @@ func (d *digester) member(q *check.Package, name string) {
 		return
 	}
 	d.index(q)
-	if v := d.named[q][name]; v != nil {
+	if v := d.memo.named[q][name]; v != nil {
 		d.let(v)
 	}
-	for _, t := range q.Types {
-		if t.Name == name {
-			d.typ(t)
-		}
+	md := d.memo.member(q, name)
+	for _, t := range md.types {
+		d.typ(t)
 	}
-	for _, f := range q.Funcs {
-		if f.Name == name {
-			d.fn(f)
-		}
+	for _, f := range md.funcs {
+		d.fn(f)
 	}
 }
 
