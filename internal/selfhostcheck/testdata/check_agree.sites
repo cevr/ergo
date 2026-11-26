@@ -1145,6 +1145,7 @@ case internal/sketch/std/workflow
 case internal/sketch/std/workflow/file
 case internal/sketch/std/workflow/memory
 case internal/sketch/std/xml
+case internal/sketch/std/yaml
 case internal/sketch/std/zlib
 case unused examples/address-routes/files/tree.ergo
 case unused examples/address-routes/people/people.ergo
@@ -1392,6 +1393,7 @@ case unused internal/sketch/std/uuid/uuid.ergo
 case unused internal/sketch/std/workflow/file/file.ergo
 case unused internal/sketch/std/workflow/memory/memory.ergo
 case unused internal/sketch/std/workflow/store.ergo
+case unused internal/sketch/std/yaml/scalar.ergo
 case unused internal/sketch/std/zlib/adler32.ergo
 site S101 missing in internal/sketch/check/testdata/fixtures/negative/codec-rows.ergo: codec-rows.ergo 62:2: S101 {WireMissingField | WireUnknownTag} escapes function optional, whose error row {WireWrongKind | wired[T]} does not list it; write: func optional[T wire](r Reader) Option[T] fails wired[T] | WireMissingField | WireUnknownTag needs wired[T]
 site S101 missing in internal/sketch/check/testdata/fixtures/negative/codec-rows.ergo: codec-rows.ergo 70:2: S101 {BadHost | Unsatisfied | WireMissingField | WireUnknownTag} escapes function usesNarrow, whose error row {WireWrongKind} does not list it; write: func usesNarrow(r Reader) []State fails WireWrongKind | BadHost | Unsatisfied | WireMissingField | WireUnknownTag
