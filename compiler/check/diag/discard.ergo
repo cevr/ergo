@@ -252,7 +252,7 @@ func candidate(d dropper, o mut drops, at dense.ID[syntax.Node], x dense.ID[synt
 		return
 	}
 	let fd = syntax.FuncDeclOf(fp.Tree, f.Decl)
-	if fd.Recv != dense.NoID[syntax.Node]() || syntax.FuncTypeOf(fp.Tree, fd.Type).Defects >= 0 {
+	if fd.Recv != dense.NoID[syntax.Node]() {
 		return
 	}
 	let ops = store.OperandsOf(d.s, f.Sig)

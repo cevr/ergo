@@ -120,7 +120,9 @@ func fpProgram(seed uint32) string {
 //   - the ownership-flow programs (flowProgram), whose generic bodies drop
 //     the value of keep: the dropped results equal, and no function the
 //     Ergo facts call pure is impure to the Go checker (they may be
-//     opaque where the Go checker knows more).
+//     opaque where the Go checker knows more);
+//   - a defects function whose result a statement drops (kills mutant
+//     footprint-dies-ignored).
 //
 // A failing seed prints the source, both answers and the replay command.
 //
@@ -159,6 +161,7 @@ func TestCompilerFootprintsAgree(t *testing.T) {
 	for seed := base; seed < base+300; seed++ {
 		add(fmt.Sprintf("flow seed %d", seed), flowProgram(seed), fmt.Sprintf("%s=%d", seedVariable, seed), false)
 	}
+	add("defects call", "type Bad { msg string }\n\nfunc must(x int) int defects {\n\tif x < 0 {\n\t\tdie Bad{msg: \"neg\"}\n\t}\n\tx\n}\n\nfunc useMust(x int) defects {\n\tmust(x)\n}\n\nfunc main() {}\n", fmt.Sprintf("%s=%d", seedVariable, base), true)
 	tmp := t.TempDir()
 	var manifest []string
 	for i, c := range cases {

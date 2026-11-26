@@ -12,8 +12,8 @@ import slices
 // graph, so every member of a component reads the same footprint. A
 // frame's caps are the capabilities whose operations it calls, its own
 // and those of every frame it runs; it is opaque when it runs code whose
-// footprint is unknown here; it dies when it may end in a defect its body
-// names. Only an empty footprint is purity: no capability and not opaque.
+// footprint is unknown here; it dies when it declares defects or runs a
+// frame that does. Only an empty footprint is purity: no capability and not opaque.
 type Facts {
 	comp     []int,
 	opaque   []bool,
@@ -34,8 +34,7 @@ func Opaque(fs Facts, f int) bool {
 	c < 0 || fs.opaque[c]
 }
 
-// Dies is whether frame f may end in a defect its body or a frame it runs
-// names.
+// Dies is whether frame f declares defects or runs a frame that does.
 func Dies(fs Facts, f int) bool {
 	let c = fs.comp[f]
 	c < 0 || fs.dies[c]
@@ -98,10 +97,10 @@ func Of(s store.Store, k expr.Pkg, t expr.Typer) Facts {
 		g.edgeStart = g.edgeStart.Append(g.edges.Len())
 		g.capStart = g.capStart.Append(g.caps.Len())
 		g.opaque = g.opaque.Append(false)
-		g.dies = g.dies.Append(false)
+		let p = k.Parsed[f.File]
+		g.dies = g.dies.Append(declaresDefects(p, f.Decl))
 		match dense.Unpack(f.Body) {
 		case option.Some{Value: b}:
-			let p = k.Parsed[f.File]
 			if p.Failed {
 				g.opaque[g.opaque.Len()-1] = true
 			} else {
@@ -114,6 +113,13 @@ func Of(s store.Store, k expr.Pkg, t expr.Typer) Facts {
 	g.edgeStart = g.edgeStart.Append(g.edges.Len())
 	g.capStart = g.capStart.Append(g.caps.Len())
 	solve(g)
+}
+
+func declaresDefects(p syntax.Parsed, decl dense.ID[syntax.Node]) bool {
+	if p.Failed || syntax.KindOf(p.Tree, decl) != syntax.KFuncDecl {
+		return false
+	}
+	syntax.FuncTypeOf(p.Tree, syntax.FuncDeclOf(p.Tree, decl).Type).Defects >= 0
 }
 
 func unparen(tr syntax.Tree, x dense.ID[syntax.Node]) dense.ID[syntax.Node] {
@@ -160,8 +166,6 @@ func walk(g mut graph, s store.Store, k expr.Pkg, typed dense.Col[store.PNode, b
 			}
 		} else if kind == syntax.KContextLit {
 			g.opaque[me] = true
-		} else if kind == syntax.KDieStmt {
-			g.dies[me] = true
 		}
 		stack = syntax.Children(tr, x, stack)
 	}
