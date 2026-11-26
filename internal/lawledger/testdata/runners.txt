@@ -336,6 +336,7 @@ embed FS.ReadIsRepeatable	TestStdLawsRun
 exec InterleavesMatchesModel	TestExecLaws
 exec LookPathFindsTheFirst	TestExecLaws
 exec LookPathSkipsRelative	TestExecLaws
+exec ObservedRunnerAccumulatesCallsTimingsAndErrors	none
 exec Runner.EnvIsExact	none
 exec Runner.LookupUsesChildPath	none
 exec Runner.NotFoundNamesTheProgram	TestExecNotFoundNamesTheProgram
@@ -473,6 +474,8 @@ http FilesAsksBeneath	TestStdHTTPLawsRun
 http FormIsQuery	TestStdHTTPLawsRun
 http InMemorySendIntoIsSend	TestStdHTTPLawsRun
 http MatchIsSplitMatch	TestStdHTTPLawsRun
+http ObservedClientPropagatesTraceAcrossTwoHops	none
+http ObservedHandlerRecordsCanonicalWideEvent	none
 http QueryDecodesByTheRule	TestStdHTTPLawsRun
 http QueryStringBytesReadsString	TestStdHTTPLawsRun
 http RawPathDecodesToPath	TestStdHTTPLawsRun
@@ -567,6 +570,7 @@ jsonschema PropertiesAreChecked	TestStdJSONSchemaLawsRun
 jsonschema RefsAreLocal	TestStdJSONSchemaLawsRun
 jsonschema RefsRecurse	TestStdJSONSchemaLawsRun
 jsonschema RequiredKeyIsRequired	TestStdJSONSchemaLawsRun
+kv ObservedStoreAccumulatesOpsHitsMissesAndErrors	none
 kv Store.DeleteIsAbsent	TestStdKvLawsRun
 kv Store.GetAfterPut	TestStdKvLawsRun
 kv Store.PutKeepsOthers	TestStdKvLawsRun
@@ -595,6 +599,7 @@ llm Model.CallsAreWhole	TestStdLLMLawsRun
 llm Model.StreamFoldsToGenerate	TestStdLLMLawsRun
 llm Model.StreamReturnsItsFold	TestStdLLMLawsRun
 llm Model.TruncatedIsNotATurn	TestStdLLMLawsRun
+llm ObservedModelAccumulatesCallsTokensAndErrors	none
 llm ParseDecodesOrFails	TestStdLLMLawsRun
 llm RequestFaultsAreUnsafe	TestStdLLMLawsRun
 llm/memory AskFailsAsTheModel	TestStdLLMLawsRun
@@ -868,6 +873,7 @@ slices TransformThenFilter	none
 slices ValuesStops	TestStdSlicesLawsRun
 slices WindowsSlide	TestStdSlicesMoreLawsRun
 slices ZipLen	TestStdSlicesMoreLawsRun
+sql ObservedDBAccumulatesQueriesTimingsAndErrors	none
 sql StandardKeepsTheRest	TestSQLLaws
 sql StandardReadsSQLState	TestSQLLaws
 sqltest CommitFailureEndsIt	TestSQLLaws
@@ -1072,6 +1078,7 @@ trace InnerSpanShadows	TestStdLawsRun
 trace InvalidTraceparentRejected	TestStdLawsRun
 trace LogAnnotationsFlowIntoWideEvent	TestStdLawsRun
 trace NestedSpansPreserveTraceIDAndLinkParent	TestStdLawsRun
+trace RecordOpIsCountAndTiming	none
 trace RedactedFieldsNeverSerializeRawSecret	TestStdLawsRun
 trace Sink.EnabledIsConsistent	TestStdLawsRun
 trace SlowRequestsNeverDroppedUnderKeepSlow	TestStdTraceSampleLawsRun
