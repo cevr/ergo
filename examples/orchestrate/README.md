@@ -1,0 +1,28 @@
+# orchestrate
+
+The ledger of an orchestration run as one binary, used by OpenCode over
+MCP stdio and by hand on the command line. Its surfaces are generated from
+the operation type `orchestrate.Api` in `modules/orchestrate/orchestrate`
+(`ergo gen api|cli|mcp`), so the tools, the commands and the domain cannot
+drift apart.
+
+A unit is keyed by `repo`, `run` and `id`. It opens with the receipt kinds
+its verdict requires. A receipt is one run of a check: the command, the
+head it ran at, its exit code and its exit lines. The verdicts are a
+machine: open, accepted at a head, landed at the accepted head. Accept and
+land hold only when the latest receipt of every required kind at the head
+exited 0; otherwise they fail with a typed refusal, `Unverified` (the kinds
+missing or red at the head) or `NotAcceptedHead`.
+
+    orchestrate mcp [--store PATH]          MCP tools on stdin/stdout
+    orchestrate [--store PATH] [--json] unit-open|receipt-record|unit-state|unit-accept|unit-land ...
+
+The store is one SQLite file per host, written only by this binary:
+`--store PATH`, else `$XDG_STATE_HOME/orchestrate/ledger.db` (by default
+`~/.local/state/orchestrate/ledger.db`). `:memory:` keeps a private store
+for the life of the process. `ORCHESTRATE_NOW` (a Unix second) fixes the
+clock.
+
+The case `mcp-verdict` drives a whole MCP session: it opens a unit, records
+a red receipt and is refused the verdict as `Unverified`, then records a
+green one at the same head and is accepted.

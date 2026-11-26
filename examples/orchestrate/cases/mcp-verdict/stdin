@@ -1,0 +1,8 @@
+{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"case","version":"1"}}}
+{"jsonrpc":"2.0","method":"notifications/initialized"}
+{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"unit-open","arguments":{"commandID":"open-1","actor":"root","repo":"ergo","run":"wf10","id":"ORCH-4","title":"orchestrate binary","requires":["acceptance"],"lane":{"_tag":"Some","value":"/workspaces/.work/ergo/orchestrate-cli"},"branch":{"_tag":"Some","value":"orchestrate-cli"}}}}
+{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"receipt-record","arguments":{"commandID":"red-1","actor":"implementor","repo":"ergo","run":"wf10","id":"ORCH-4","kind":"acceptance","command":"ergo test ./orchestrate","head":"abc123","exitCode":1,"exitLines":"FAIL law ApiVerdictFollowsReceipts"}}}
+{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"unit-accept","arguments":{"commandID":"accept-1","actor":"root","repo":"ergo","run":"wf10","id":"ORCH-4","head":"abc123"}}}
+{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"receipt-record","arguments":{"commandID":"green-1","actor":"implementor","repo":"ergo","run":"wf10","id":"ORCH-4","kind":"acceptance","command":"ergo test ./orchestrate","head":"abc123","exitCode":0,"exitLines":"PASS (22 tests)"}}}
+{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"unit-accept","arguments":{"commandID":"accept-2","actor":"root","repo":"ergo","run":"wf10","id":"ORCH-4","head":"abc123"}}}
+{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"unit-state","arguments":{"repo":"ergo","run":"wf10","id":"ORCH-4"}}}

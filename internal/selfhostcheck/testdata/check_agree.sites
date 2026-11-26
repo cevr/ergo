@@ -293,6 +293,7 @@ case examples/model-paths/probe/relay
 case examples/model-paths/probe/replay
 case examples/model-paths/probe/session
 case examples/model-paths/probe/userland
+case examples/orchestrate/cmd/orchestrate
 case examples/pager/cmd/pager
 case examples/pager/screen
 case examples/pairing/cmd/pairing
