@@ -203,7 +203,6 @@ The report merges lint advice ([Lint](#lint)) after the compiler's findings, in 
 
 | Boundary | Limit |
 | --- | ---: |
-| File count | 100 files |
 | Input per file | 2 MiB |
 | Input per request | 8 MiB |
 | Formatted output per file | 4 MiB |
@@ -213,7 +212,7 @@ Completed file entries include `path`, `requestedPaths`, digests, `changed`, `wr
 
 | Code | Meaning |
 | --- | --- |
-| `EFMT_INVOCATION` | Incompatible options, missing input, or file-count admission failure |
+| `EFMT_INVOCATION` | Incompatible options or missing input |
 | `EFMT_PATH` | Empty, non-`.ef`, or otherwise invalid path |
 | `EFMT_READ` | The source could not be admitted or read |
 | `EFMT_SYMLINK` | A mutating request named a symlink leaf |
