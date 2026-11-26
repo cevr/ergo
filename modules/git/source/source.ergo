@@ -4,46 +4,25 @@ import strings
 import github.com/cevr/ergo/modules/git/oid
 import github.com/cevr/ergo/modules/git/tree
 
-// Changes is the log: blobs go in first, then changesets that name them.
-// Appending moves no ref.
-type Changes {
+// Source is the source control service contract: the log (blobs, then
+// changesets in normal form against the first parent; appending moves no
+// ref), wants-only object reads with a read count, history queries
+// (merge base, ancestry, tree diff) and compare-and-set refs with
+// protected names, with the laws every provider holds over generated
+// histories.
+type Source {
 	PutBlob(data []byte) oid.OID fails TooLarge | StoreFailed,
 	Append(parents []ChangeID, changes []FileChange, meta Meta) ChangeID fails UnknownParent | MissingBlob | PathClash | Invalid | Denied | StoreFailed,
 	Get(id ChangeID) Changeset fails Unknown | StoreFailed,
 	Root(id ChangeID) oid.OID fails Unknown | StoreFailed,
-}
-
-// Objects answers wants: blobs and trees by id, and nothing a client did
-// not ask for. Reads counts how often the store read an object to answer
-// a want.
-type Objects {
 	Want(ids []oid.OID, maxBytes int) []Object fails Missing | Corrupt | LimitExceeded | StoreFailed,
 	Reads(id oid.OID) int,
-}
-
-// History answers questions about the parent relation and the files of
-// stored changes.
-type History {
 	MergeBase(a ChangeID, b ChangeID) []ChangeID fails Unknown | StoreFailed,
 	IsAncestor(a ChangeID, b ChangeID) bool fails Unknown | StoreFailed,
 	Diff(from ChangeID, to ChangeID) []FileChange fails Unknown | StoreFailed,
-}
-
-// Refs are names that point at changes and move only by compare-and-set;
-// a protected name never moves by Set.
-type Refs {
 	Read(name string) option.Option[ChangeID] fails InvalidName | StoreFailed,
 	Set(name string, to ChangeID, expected option.Option[ChangeID]) fails Stale | Protected | InvalidName | Unknown | Denied | StoreFailed,
 	ProtectedNames() []string,
-}
-
-// Source is the whole service: the log, its objects, its history and its
-// refs, with the laws every provider holds over generated histories.
-type Source {
-	..Changes,
-	..Objects,
-	..History,
-	..Refs,
 
 	// AppendIsTheReference: the files the log holds at each appended change
 	// are the reference's files at its first parent with its changes
