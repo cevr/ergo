@@ -15,6 +15,7 @@ import (
 
 	"ergo.local/prototype/internal/ergobuild"
 	"ergo.local/prototype/internal/testwait"
+	"ergo.local/prototype/internal/toolchain"
 )
 
 // warmModule writes the module the warm tests build: a main package that
@@ -26,6 +27,20 @@ func warmModule(t *testing.T, root string, value int, banner byte) {
 	smokeWrite(t, root, "lib/lib.ergo", fmt.Sprintf("// Package lib is the warm tests' library.\n\nlet Banner = embedded[string](\"banner.txt\")\n\n// Value is the library's number.\nfunc Value() int {\n\t%d\n}\n", value))
 	smokeWrite(t, root, "lib/banner.txt", "banner "+string(banner)+"\n")
 	smokeWrite(t, root, "cmd/app/main.ergo", "import io\nimport os\nimport warm/lib\n\nfunc main() fails os.Exit needs Ambient {\n\twith context { io.Stdout: io.NewHost() } {\n\t\tio.Stdout.Println(\"\\(lib.Banner) \\(lib.Value())\")\n\t}\n}\n")
+}
+
+// sharedIRC is the ERGO_IRC entry of a warm run's environment: the IR
+// compiler root the test process itself would use, so a run with a cache
+// of its own (XDG_CACHE_HOME) does not build the patched compiler into
+// it. The root is a location (toolchain.IRCVariable), and its entries are
+// read-only, which a test's temporary folder could not remove.
+func sharedIRC(t *testing.T) string {
+	t.Helper()
+	root, err := toolchain.IRCRoot(os.Getenv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return toolchain.IRCVariable + "=" + root
 }
 
 // warmRun is one `ergo` run of the warm tests: its exit status, stdout and
@@ -43,7 +58,7 @@ func runWarm(t *testing.T, bin, root, xdg string, env []string, args ...string) 
 	report := filepath.Join(t.TempDir(), "stage.json")
 	command := exec.Command(bin, args...)
 	command.Dir = root
-	command.Env = append(append(os.Environ(), "GOFLAGS=", "XDG_CACHE_HOME="+xdg, "ERGO_STAGE_REPORT="+report), env...)
+	command.Env = append(append(os.Environ(), "GOFLAGS=", "XDG_CACHE_HOME="+xdg, "ERGO_STAGE_REPORT="+report, sharedIRC(t)), env...)
 	out, stderr, code := runSmokeCommand(t, command)
 	if code > 1 {
 		t.Fatalf("ergo %v: exit %d: %s", args, code, stderr)
@@ -416,7 +431,7 @@ func concurrentBuilds(t *testing.T, bin, root, xdg string, env []string, out str
 		reports[i] = report
 		command := exec.Command(bin, "build", "./cmd/app", "-o", out)
 		command.Dir = root
-		command.Env = append(append(os.Environ(), "GOFLAGS=", "XDG_CACHE_HOME="+xdg, "ERGO_STAGE_REPORT="+report), env...)
+		command.Env = append(append(os.Environ(), "GOFLAGS=", "XDG_CACHE_HOME="+xdg, "ERGO_STAGE_REPORT="+report, sharedIRC(t)), env...)
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
