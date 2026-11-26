@@ -55,6 +55,9 @@ func inspectDepsCommand(args []string) error {
 			paths = append(paths, arg)
 		}
 	}
+	if len(paths) == 0 {
+		paths = []string{"."}
+	}
 	if len(paths) != 1 || !isPackageFolder(paths[0]) {
 		return invalidInvocation(fmt.Errorf("inspect deps: supply one package folder, DIR"))
 	}
@@ -71,7 +74,7 @@ func inspectDepsCommand(args []string) error {
 		return err
 	}
 	if n := len(l.analysis.Diagnostics); n > 0 {
-		return exitStatusError{code: 1, message: fmt.Sprintf("ergo inspect deps: the program has %d diagnostics; ergo diagnostics %s lists them", n, paths[0])}
+		return exitStatusError{code: 1, message: fmt.Sprintf("ergo inspect deps: the program has %d diagnostics; ergo check --json %s lists them", n, paths[0])}
 	}
 	return nil
 }

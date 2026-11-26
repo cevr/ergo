@@ -17,79 +17,26 @@ import (
 	"ergo.local/prototype/internal/sketch/lint"
 )
 
-const fixUsage = "usage: ergo fix [--check|--dry-run] [--json] [--lint] [--comments|--len|--global-funcs|--std-types|--machines|--option] [--std DIR] [--go] PATH..."
+const fixUsage = "usage: ergo fix [--check] [--json] [PATH...]"
 
 const fixHelp = fixUsage + `
 
-Rewrites source into the spelling the language requires. It never runs
-during check, build or test: they leave sources as they are.
+Apply safe, semantics-preserving rewrites across source files (defaults to .):
+syntax normalization, missing fails/needs/takes clauses, union flattening,
+co-located laws/tests, and safe lint fixes.
 
-First it respells the old modes: takes and escaping become own, and the
-borrow *T written outside a Go binding becomes mut T (with --go, in the
-Go string literals too), under each PATH and in the --std DIR. The
-respell reads no checked fact, so it rewrites a file that does not
-check, std's too.
+Examples:
+  ergo fix            Apply all safe fixes under .
+  ergo fix --check    Verify no fixes are needed without modifying files
+  ergo fix --json ./  Print structured fix report as JSON
 
-Then it writes the declared implementations (internal/sketch/fix):
-` + "`implements I`" + ` on each type that the old method-set rule used as the
-operation type I, and ` + "`..I`" + ` in each operation type used as I. A PATH is a
-file or a folder; a folder is walked, each module package by package and
-each other .ergo file as a program of its own. --std DIR also checks every
-package of the embedded standard library and edits its source in DIR when
-DIR is under a PATH. --go also reads the Ergo programs that .go files hold
-in string literals, each as a program of its own, and edits the literals.
-It prints what it wrote and each pair it could not write, with the repair.
+Options:
+  --check    preview only; write nothing and exit 1 if changes are needed
+  --json     print structured results as JSON
 
-Then, for each PATH that is a .ergo file or a folder holding .ergo files,
-it writes the fails, needs and takes clauses that the signatures of the
-file, or of the package in the folder and the local packages it imports,
-are missing (q137: every function writes its clauses). It only adds clause
-elements and the imports they need; it never removes an element and never
-adds a catch. It prints one line per widened signature, public contracts
-first. Other diagnostics are printed, and the exit status is then 1.
-` + fixLawsHelp + `
-  --dry-run  write nothing
-  --check    write nothing; exit 1 when a signature would change
-  --json     print the clause results as JSON
-  --lint     then apply the safe lint fixes (race-for-timeout) of each
-             program's lint configuration, until none is left; a fix
-             that leaves a diagnostic refuses the run and writes nothing
-  --comments     only remove, under each PATH and the --std DIR, every comment
-                 lint's no-comments refuses (all but a public declaration's
-                 doc comment), keeping each file's tokens; with --json it
-                 lists what it removed: file, line, declaration, position, text
-  --len          only rewrite, under each PATH and the --std DIR, every call
-                 to the universe len(e) built-in into e.Len(), parenthesising
-                 lower-precedence operands and leaving user-declared len
-                 untouched; with --json it lists every rewritten site
-  --global-funcs only rewrite, under each PATH and the --std DIR, calls to
-                 universe/prelude global functions (hash, encode, decode,
-                 embedded, MakeSlice, MakeMap, InForce, AsWritten, TestFolder,
-                 TestFolderHandle, NewLiveScheduler) into their std-package
-                 forms, adding missing imports in sorted order and leaving
-                 user shadows untouched; with --json it lists every rewrite
-  --std-types    only rewrite, under each PATH and the --std DIR, references
-                 to Unit-8 prelude types (Console, Ambient, Scheduler, Random,
-                 Writer, Reader, Wire*, Hashing, Structural, Task, ordered,
-                 number, TestAmbient, TestDirectory, TestLoopback, Range, Seq,
-                 Never, Context, CallSite, Closer, Keeping, Unsatisfied,
-                 NoMatch) into their std-package forms, adding missing imports
-                 in sorted order and leaving user shadows untouched; with
-                 --json it lists every rewrite
-  --machines     only rewrite, under each PATH and the --std DIR, references
-                 to Unit-9 prelude machine types (Enter, Stay, Emit, Ignore,
-                 Reject, Done, Tell, Decision, Timeout, Machine, InputMachine)
-                 into their qualified machines.* forms, adding import machines
-                 in sorted order and leaving user shadows untouched; with
-                 --json it lists every rewrite
-  --option       only rewrite, under each PATH and the --std DIR, references
-                 to Unit-10 prelude option types (Option, Some, None) into
-                 their qualified option.* forms, adding import option in
-                 sorted order and leaving user shadows untouched; with --json
-                 it lists every rewrite
-
-Exit codes: 0 done; 1 a file could not be read or written, a diagnostic
-remains, or --check found a change; 2 invalid invocation.
+Exit codes: 0 done (or no fixes needed with --check); 1 read/write error,
+remaining diagnostics, or changes needed under --check; 2 invalid invocation.
+Run ergo fix --help-all for legacy migration flags.
 `
 
 type fixReport struct {
@@ -162,8 +109,12 @@ func fixCommand(args []string) error {
 	if optionFlag {
 		specials++
 	}
-	if len(paths) == 0 && stdRoot == "" || check && dry || specials > 1 {
+	withLint = true
+	if check && dry || specials > 1 {
 		return usageError{message: fixUsage}
+	}
+	if len(paths) == 0 && stdRoot == "" {
+		paths = []string{"."}
 	}
 	write := !check && !dry
 	if comments {

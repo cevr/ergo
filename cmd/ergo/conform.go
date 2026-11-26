@@ -80,10 +80,12 @@ func conformCommand(args []string) error {
 	}
 	if dir == "" && set.NArg() == 1 {
 		dir = set.Arg(0)
+	} else if dir == "" && set.NArg() == 0 {
+		dir = "."
 	} else if set.NArg() > 0 {
 		return usageError{message: "usage: ergo " + conformUsage}
 	}
-	if dir == "" || *machine == "" || *tracePath == "" || *hidden < 0 || *limit < 0 || *steps < 0 {
+	if *machine == "" || *tracePath == "" || *hidden < 0 || *limit < 0 || *steps < 0 {
 		return usageError{message: "usage: ergo " + conformUsage}
 	}
 	if !isPackageFolder(dir) {

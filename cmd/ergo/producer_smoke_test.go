@@ -57,13 +57,13 @@ func TestProducerSmoke(t *testing.T) {
 		requireContentIdentity(t)
 		directory, file := workspace(t)
 		original := producerSmokeRead(t, commandsPath)
-		const anchor = `Ergo prototype\nusage:`
+		const anchor = `ergo — failures handled, services supplied, laws tested`
 		if !strings.Contains(original, anchor) {
 			t.Fatal("usage banner anchor is missing from cmd/ergo/commands.go")
 		}
 		binaries := producerSmokeOverlays(t, root, directory, commandsPath, map[string]string{
-			"compiler-A": strings.Replace(original, anchor, `Ergo producer-A\nusage:`, 1),
-			"compiler-B": strings.Replace(original, anchor, `Ergo producer-B\nusage:`, 1),
+			"compiler-A": strings.Replace(original, anchor, `ergo — producer-A`, 1),
+			"compiler-B": strings.Replace(original, anchor, `ergo — producer-B`, 1),
 		})
 		first, second := binaries["compiler-A"], binaries["compiler-B"]
 		firstDigest, secondDigest := producerSmokeDigest(t, first), producerSmokeDigest(t, second)

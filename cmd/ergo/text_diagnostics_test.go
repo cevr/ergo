@@ -52,8 +52,8 @@ func TestRunAndTestPrintFindingsAsText(t *testing.T) {
 			t.Fatalf("ergo build %s: exit %d stdout %q stderr %q", c.source, code, stdout, stderr)
 		}
 	}
-	if _, stderr, code := cli(root, "check", "--json", "bad.ergo"); code != 2 || !strings.Contains(stderr, "--json is only supported by diagnostics, lint, run, test and inspect machine") {
-		t.Fatalf("ergo check --json: exit %d stderr %q", code, stderr)
+	if stdout, stderr, code := cli(root, "check", "--json", "bad.ergo"); code != 1 || !strings.Contains(stderr, "check failed") || smokeJSON(t, []byte(stdout))["policyPassed"] != false {
+		t.Fatalf("ergo check --json: exit %d stdout %q stderr %q", code, stdout, stderr)
 	}
 }
 

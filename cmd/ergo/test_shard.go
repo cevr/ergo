@@ -95,21 +95,20 @@ func parseStrictPositiveInt(s string) (int, error) {
 	return n, nil
 }
 
+var errTargetFilteredOut = errors.New("filtered out")
+
 func effectiveJobs(o testShardOptions) int {
 	if o.jobsSet {
 		return o.jobs
 	}
-	if o.parallel {
-		p := runtime.GOMAXPROCS(0)
-		if p < 1 {
-			p = 1
-		}
-		if p > 4 {
-			p = 4
-		}
-		return p
+	p := runtime.GOMAXPROCS(0)
+	if p < 1 {
+		p = 1
 	}
-	return 1
+	if p > 8 {
+		p = 8
+	}
+	return p
 }
 
 type TestTimings struct {
@@ -404,10 +403,11 @@ type sharedTargetRunner struct {
 	run func(outW, errW io.Writer) error
 }
 
-func prepareSharedModuleRunners(opts fileOptions, selected []testTarget, errW io.Writer) (map[int]sharedTargetRunner, func()) {
+func prepareSharedModuleRunners(opts fileOptions, selected []testTarget, multiMode bool, errW io.Writer) (map[int]sharedTargetRunner, func()) {
 	if len(selected) < 2 || opts.work || opts.explore || opts.search.mode != "" || opts.pruneCases {
 		return nil, func() {}
 	}
+	module := moduleTestOptions{law: opts.law, receiptDir: opts.receipt}
 	byMod := map[string][]int{}
 	var modOrder []string
 	for i, t := range selected {
@@ -523,6 +523,9 @@ func prepareSharedModuleRunners(opts fileOptions, selected []testTarget, errW io
 			one := opts
 			one.file, one.more = selected[idx].dir, nil
 			one.sharding = testShardOptions{}
+			if multiMode {
+				one.law, one.receipt = "", ""
+			}
 			l := loads[k]
 			bi := builtIdx[k]
 			bin := binary
@@ -531,9 +534,29 @@ func prepareSharedModuleRunners(opts fileOptions, selected []testTarget, errW io
 					if !l.result.Checked {
 						return refuseUncheckedIO(l, one, outW, errW)
 					}
+					if multiMode && (module.law != "" || module.receiptDir != "") {
+						keepPkg, err := module.select_(&one, l)
+						if err != nil {
+							return err
+						}
+						if !keepPkg {
+							return errTargetFilteredOut
+						}
+					}
+					selOpts, runPkg, matched, err := resolveTestSelection(one, l)
+					if err != nil {
+						return invalidInvocation(err)
+					}
+					if selOpts.filter != "" && !matched {
+						return errTargetFilteredOut
+					}
+					if !runPkg {
+						return emptyTestRun(selOpts, l.result.Revision, outW, errW)
+					}
+					one = selOpts
 					if bi < 0 {
 						err := emptyTestRun(one, l.result.Revision, outW, errW)
-						if err == nil && one.law == "" && one.skipLaw == "" && one.run == "" && !one.explore {
+						if err == nil && one.law == "" && one.skipLaw == "" && one.run == "" && one.filter == "" && one.skip == "" && one.selectNames == "" && !one.explore {
 							err = writeLedgerIO(one, l, outW, errW)
 						}
 						return err
@@ -605,24 +628,23 @@ func runTargetsParallel(selected []testTarget, jobs int, timings TestTimings, ex
 }
 
 func aggregateOutcomes(selected []testTarget, outcomes []targetOutcome, printPkgHeader bool, stdout, stderr io.Writer) error {
-	var stopErr error
 	failed := false
 	for i, t := range selected {
+		if errors.Is(outcomes[i].err, errTargetFilteredOut) {
+			continue
+		}
 		if printPkgHeader {
 			fmt.Fprintf(stdout, "package %s\n", t.label)
 		}
 		_, _ = stdout.Write(outcomes[i].stdout.Bytes())
 		_, _ = stderr.Write(outcomes[i].stderr.Bytes())
 		stop, fail := packageOutcomeIO(t.label, outcomes[i].err, stderr)
-		if stop != nil && stopErr == nil {
-			stopErr = stop
+		if stop != nil {
+			return stop
 		}
 		if fail {
 			failed = true
 		}
-	}
-	if stopErr != nil {
-		return stopErr
 	}
 	if failed {
 		return exitStatusError{code: 1, handled: true}
@@ -649,7 +671,7 @@ func shardedTestCommand(opts fileOptions, stdout, stderr io.Writer) error {
 		}
 	}
 
-	sharedRunners, cleanup := prepareSharedModuleRunners(opts, selected, stderr)
+	sharedRunners, cleanup := prepareSharedModuleRunners(opts, selected, multiMode, stderr)
 	defer cleanup()
 
 	jobs := effectiveJobs(opts.sharding)
@@ -660,10 +682,59 @@ func shardedTestCommand(opts fileOptions, stdout, stderr io.Writer) error {
 		one := opts
 		one.file, one.more = selected[i].dir, nil
 		one.sharding = testShardOptions{}
-		return testPackageIO(one, outW, errW)
+		if selected[i].isFile {
+			return testPackageIO(one, outW, errW)
+		}
+		l, err := loadForPlatform(one.file, one.target, one.platform)
+		if err != nil {
+			return err
+		}
+		if !l.result.Checked {
+			return refuseUncheckedIO(l, one, outW, errW)
+		}
+		if multiMode && (opts.law != "" || opts.receipt != "") {
+			mod := moduleTestOptions{law: opts.law, receiptDir: opts.receipt}
+			one.law, one.receipt = "", ""
+			keepPkg, serr := mod.select_(&one, l)
+			if serr != nil {
+				return serr
+			}
+			if !keepPkg {
+				return errTargetFilteredOut
+			}
+		}
+		if one.filter != "" {
+			selOpts, runPkg, matched, ferr := resolveTestSelection(one, l)
+			if ferr != nil {
+				return invalidInvocation(ferr)
+			}
+			if !matched {
+				return errTargetFilteredOut
+			}
+			if !runPkg {
+				return emptyTestRun(selOpts, l.result.Revision, outW, errW)
+			}
+			one = selOpts
+		}
+		return testLoadedPackageIO(one, l, outW, errW, nil)
 	})
 
 	runErr := aggregateOutcomes(selected, outcomes, multiMode, stdout, stderr)
+	if runErr == nil && (opts.law != "" || opts.filter != "") && len(selected) > 0 {
+		anyMatched := false
+		for _, o := range outcomes {
+			if !errors.Is(o.err, errTargetFilteredOut) {
+				anyMatched = true
+				break
+			}
+		}
+		if !anyMatched {
+			if opts.law != "" {
+				return fmt.Errorf("no law %s in selected packages (--law)", opts.law)
+			}
+			return fmt.Errorf("no test or law matches --filter %q in selected packages", opts.filter)
+		}
+	}
 
 	if opts.sharding.updateTimings {
 		measured := make(map[string]float64, len(selected))

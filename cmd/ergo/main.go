@@ -10,8 +10,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -159,10 +161,12 @@ const diagnosticsHelp = "usage: ergo diagnostics FILE|DIR [--lint-config FILE] [
 
 // fileOptions are the options of a command that reads one source.
 type fileOptions struct {
-	// command is the command word the options belong to.
+	// target, output, ...
 	command            string
 	target, output     string
 	strict, json, work bool
+	// lib is build's --lib: write a Go-callable library module instead of an executable.
+	lib bool
 	// locked is build's and run's --locked: a stale or missing law
 	// ledger entry refuses the build (owner q122).
 	locked bool
@@ -207,6 +211,10 @@ type fileOptions struct {
 	// run is test's --run NAME: the one test or law the test binary runs,
 	// plain or explored; empty runs every one (X8).
 	run string
+	// filter and skip are test's unified selection patterns (-k/--filter and --skip).
+	filter, skip string
+	// selectNames holds the resolved comma-joined test/law allowlist passed to the test binary.
+	selectNames string
 	// uncached is test's --count 1: the run neither replays nor keeps a
 	// cached result (testcache.go), as go test -count=1.
 	uncached bool
@@ -298,6 +306,74 @@ func parseFileOptions(command string, args []string) (fileOptions, error) {
 	return opts, nil
 }
 
+// defaultTargetFor chooses "." or "./..." when a CLI command omits its path.
+func defaultTargetFor(command string) string {
+	switch command {
+	case "check", "test", "lint":
+		if _, err := os.Stat(sketchfront.WorkFile); err == nil {
+			return "./..."
+		}
+		if _, err := os.Stat(sketchfront.ModFile); err == nil {
+			if !hasDirectErgo(".") || hasAdmittedErgoSubdir(".") {
+				return "./..."
+			}
+		}
+	}
+	return "."
+}
+
+func hasDirectErgo(dir string) bool {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return false
+	}
+	for _, e := range entries {
+		if !e.IsDir() && strings.HasSuffix(e.Name(), sourceExtension) {
+			return true
+		}
+	}
+	return false
+}
+
+func hasAdmittedErgoSubdir(dir string) bool {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return false
+	}
+	for _, e := range entries {
+		if !e.IsDir() || !sketchfront.AdmitFolder(e.Name()) {
+			continue
+		}
+		sub := filepath.Join(dir, e.Name())
+		found := false
+		_ = filepath.WalkDir(sub, func(p string, d fs.DirEntry, err error) error {
+			if err != nil {
+				return nil
+			}
+			if d.IsDir() {
+				if p != sub {
+					if !sketchfront.AdmitFolder(d.Name()) {
+						return fs.SkipDir
+					}
+					if _, modErr := os.Stat(filepath.Join(p, sketchfront.ModFile)); modErr == nil {
+						return fs.SkipDir
+					}
+				}
+				return nil
+			}
+			if strings.HasSuffix(d.Name(), sourceExtension) {
+				found = true
+				return fs.SkipAll
+			}
+			return nil
+		})
+		if found {
+			return true
+		}
+	}
+	return false
+}
+
 // fileOptionsOf is parseFileOptions before its refusal is classified.
 func fileOptionsOf(command string, args []string) (fileOptions, error) {
 	opts := fileOptions{target: report.Target, command: command, search: exploreDefaults("")}
@@ -305,6 +381,7 @@ func fileOptionsOf(command string, args []string) (fileOptions, error) {
 	seeded, searched := false, false
 	budgeted := false
 	selected, ran := false, false
+	filtered, skipped := false, false
 	laws, skips := 0, 0
 	platform, platformed := "", false
 	stepsGiven, bytesGiven := false, false
@@ -319,6 +396,18 @@ func fileOptionsOf(command string, args []string) (fileOptions, error) {
 		}
 		if value, ok := strings.CutPrefix(args[i], "--seed="); ok {
 			opts.seed, seeded = value, true
+			continue
+		}
+		if value, ok := strings.CutPrefix(args[i], "--filter="); ok {
+			opts.filter, filtered = value, true
+			continue
+		}
+		if value, ok := strings.CutPrefix(args[i], "-k="); ok {
+			opts.filter, filtered = value, true
+			continue
+		}
+		if value, ok := strings.CutPrefix(args[i], "--skip="); ok {
+			opts.skip, skipped = value, true
 			continue
 		}
 		if value, ok := strings.CutPrefix(args[i], "--run="); ok {
@@ -348,18 +437,26 @@ func fileOptionsOf(command string, args []string) (fileOptions, error) {
 			opts.evalBytes, bytesGiven = value, true
 			continue
 		}
-		if value, ok := strings.CutPrefix(args[i], "-fallback="); ok {
+		if value, ok := cutAnyPrefix(args[i], "-fallback=", "--fallback="); ok {
 			if value != "on" && value != "off" {
-				return opts, fmt.Errorf("-fallback takes on or off, not %q", value)
+				return opts, fmt.Errorf("--fallback takes on or off, not %q", value)
 			}
 			opts.fallback = value
 			continue
 		}
-		if value, ok := strings.CutPrefix(args[i], "-rewrites="); ok {
+		if value, ok := cutAnyPrefix(args[i], "-rewrites=", "--rewrites="); ok {
 			if _, _, err := lower.ParseRewrites(value); err != nil {
 				return opts, err
 			}
 			opts.rewrites = value
+			continue
+		}
+		if value, ok := cutAnyPrefix(args[i], "-report=", "--report="); ok {
+			opts.report = value
+			continue
+		}
+		if value, ok := cutAnyPrefix(args[i], "-go-text=", "--go-text="); ok {
+			opts.goText = value
 			continue
 		}
 		if value, ok := strings.CutPrefix(args[i], "--law="); ok {
@@ -419,7 +516,7 @@ func fileOptionsOf(command string, args []string) (fileOptions, error) {
 			continue
 		}
 		switch args[i] {
-		case "--target", "-o", "--seed", "--states", "--receipt", "--law", "--skip-law", "--platform", "--eval-steps", "--eval-bytes", "--run", "--count", "-go-text", "-report", "-j", "--jobs", "--shard", "--timings":
+		case "--target", "-o", "--seed", "--states", "--receipt", "--law", "--skip-law", "--platform", "--eval-steps", "--eval-bytes", "--run", "--filter", "-k", "--skip", "--count", "-go-text", "--go-text", "-report", "--report", "-j", "--jobs", "--shard", "--timings":
 			if i+1 == len(args) {
 				return opts, fmt.Errorf("%s requires a value", args[i])
 			}
@@ -443,7 +540,7 @@ func fileOptionsOf(command string, args []string) (fileOptions, error) {
 				opts.sharding.timingsPath = args[i+1]
 			case "--count":
 				count, counted = args[i+1], true
-			case "-report":
+			case "-report", "--report":
 				opts.report = args[i+1]
 			case "--eval-steps":
 				opts.evalSteps, stepsGiven = args[i+1], true
@@ -465,7 +562,11 @@ func fileOptionsOf(command string, args []string) (fileOptions, error) {
 				opts.skipLaw, selected, skips = args[i+1], true, skips+1
 			case "--run":
 				opts.run, ran = args[i+1], true
-			case "-go-text":
+			case "--filter", "-k":
+				opts.filter, filtered = args[i+1], true
+			case "--skip":
+				opts.skip, skipped = args[i+1], true
+			case "-go-text", "--go-text":
 				opts.goText = args[i+1]
 			default:
 				opts.seed, seeded = args[i+1], true
@@ -487,11 +588,13 @@ func fileOptionsOf(command string, args []string) (fileOptions, error) {
 			opts.strict = true
 		case "--json":
 			opts.json = true
-		case "-work":
+		case "--lib":
+			opts.lib = true
+		case "-work", "--work":
 			opts.work = true
 		case "--locked":
 			opts.locked = true
-		case "-views=off":
+		case "-views=off", "--views=off":
 			opts.noViews = true
 		case "--emitted":
 			opts.emitted = true
@@ -531,15 +634,22 @@ func fileOptionsOf(command string, args []string) (fileOptions, error) {
 	if diagnostic, unsupported := report.UnsupportedTarget(opts.target); unsupported {
 		return opts, fmt.Errorf("%s: %s", diagnostic.Code, diagnostic.Message)
 	}
+	if len(positional) == 0 && !opts.mutants {
+		positional = []string{defaultTargetFor(command)}
+	}
 	switch {
-	case len(positional) == 0 && !opts.mutants:
-		return opts, fmt.Errorf("source file required")
 	case opts.strict && command != "diagnostics" && command != "lint" && command != "check" && !(command == "test" && opts.mutants && opts.derived):
-		return opts, fmt.Errorf("--strict is only supported by diagnostics, lint, check and test --mutants --derived")
-	case opts.json && command != "diagnostics" && command != "lint" && command != "run" && command != "test" && command != "inspect machine":
-		return opts, fmt.Errorf("--json is only supported by diagnostics, lint, run, test and inspect machine")
+		return opts, fmt.Errorf("--strict is only supported by check, lint, diagnostics and test --mutants --derived")
+	case opts.json && command != "check" && command != "diagnostics" && command != "lint" && command != "run" && command != "test" && command != "inspect machine":
+		return opts, fmt.Errorf("--json is only supported by check, diagnostics, lint, run, test and inspect machine")
 	case opts.output != "" && command != "build":
 		return opts, fmt.Errorf("-o is only supported by build")
+	case opts.lib && command != "build":
+		return opts, fmt.Errorf("--lib is only supported by build")
+	case opts.lib && opts.output == "":
+		return opts, fmt.Errorf("-o DIR is required with --lib")
+	case opts.lib && (opts.emitted || opts.release || opts.debug || opts.goText != "" || opts.report != "" || platformed):
+		return opts, fmt.Errorf("--lib writes a Go library module: it takes no --emitted, --release, --debug, --platform, -go-text or -report")
 	case platformed && command != "build":
 		return opts, fmt.Errorf("--platform is only supported by build")
 	case opts.goText != "" && command != "build":
@@ -556,8 +666,8 @@ func fileOptionsOf(command string, args []string) (fileOptions, error) {
 		return opts, fmt.Errorf("-report takes copies, not %q", opts.report)
 	case opts.work && command != "build" && command != "test":
 		return opts, fmt.Errorf("-work is only supported by build and test")
-	case opts.locked && command != "build" && command != "run":
-		return opts, fmt.Errorf("--locked is only supported by build and run")
+	case opts.locked && command != "build" && command != "run" && command != "test":
+		return opts, fmt.Errorf("--locked is only supported by build, run and test")
 	case opts.emitted && command != "build" && command != "test":
 		return opts, fmt.Errorf("--emitted is only supported by build and test")
 	case opts.debug && command != "build" && command != "run" && command != "test":
@@ -576,6 +686,20 @@ func fileOptionsOf(command string, args []string) (fileOptions, error) {
 		return opts, fmt.Errorf("--preempt, --schedules and --depth need --explore dfs, pct or random")
 	case seeded && command != "test" && command != "check":
 		return opts, fmt.Errorf("--seed is only supported by check and test")
+	case (filtered || skipped) && command != "test":
+		return opts, fmt.Errorf("--filter/-k and --skip are only supported by test")
+	case filtered && opts.filter == "":
+		return opts, fmt.Errorf("--filter requires a non-empty pattern")
+	case skipped && opts.skip == "":
+		return opts, fmt.Errorf("--skip requires a non-empty pattern")
+	case filtered && !validRegex(opts.filter):
+		return opts, fmt.Errorf("--filter: invalid pattern %q", opts.filter)
+	case skipped && !validRegex(opts.skip):
+		return opts, fmt.Errorf("--skip: invalid pattern %q", opts.skip)
+	case filtered && (opts.law != "" || opts.run != ""):
+		return opts, fmt.Errorf("--filter cannot be combined with --law or --run")
+	case skipped && opts.skipLaw != "":
+		return opts, fmt.Errorf("--skip cannot be combined with --skip-law")
 	case ran && command != "test":
 		return opts, fmt.Errorf("--run is only supported by test")
 	case counted && command != "test":
@@ -602,8 +726,8 @@ func fileOptionsOf(command string, args []string) (fileOptions, error) {
 		return opts, fmt.Errorf("--affected is only supported by test")
 	case (opts.affected.list || opts.affected.why) && !opts.affected.on:
 		return opts, fmt.Errorf("--list and --why need --affected")
-	case opts.affected.on && (selected || ran || opts.receipt != "" || opts.emitted || opts.explore || searched || opts.work):
-		return opts, fmt.Errorf("--affected selects the obligations itself: it takes no --law, --skip-law, --run, --receipt, --emitted, --explore or -work")
+	case opts.affected.on && (selected || ran || filtered || skipped || opts.receipt != "" || opts.emitted || opts.explore || searched || opts.work):
+		return opts, fmt.Errorf("--affected selects the obligations itself: it takes no --filter, --skip, --law, --skip-law, --run, --receipt, --emitted, --explore or -work")
 	case opts.mutants && command != "test":
 		return opts, fmt.Errorf("--mutants is only supported by test")
 	case opts.fresh && command != "test" && command != "check":
@@ -616,17 +740,19 @@ func fileOptionsOf(command string, args []string) (fileOptions, error) {
 		return opts, fmt.Errorf("--prune-cases is only supported by test")
 	case opts.pruneCases && (opts.affected.on || opts.explore || searched || opts.receipt != "" || opts.emitted):
 		return opts, fmt.Errorf("--prune-cases takes no --affected, --explore, --receipt or --emitted")
-	case opts.sharding.active() && command != "test":
-		return opts, fmt.Errorf("--parallel, -j/--jobs, --shard, --timings and --update-timings are only supported by test")
+	case (opts.sharding.parallel || opts.sharding.shard.enabled || opts.sharding.timingsPath != "" || opts.sharding.updateTimings) && command != "test":
+		return opts, fmt.Errorf("--parallel, --shard, --timings and --update-timings are only supported by test")
+	case opts.sharding.jobsSet && command != "test" && command != "check":
+		return opts, fmt.Errorf("-j/--jobs is only supported by check and test")
 	case opts.sharding.updateTimings && opts.sharding.updatePath == "" && opts.sharding.timingsPath == "":
 		return opts, fmt.Errorf("--update-timings requires --timings=FILE or --update-timings=FILE")
 	case opts.sharding.active() && (opts.mutants || opts.affected.on || opts.emitted):
-		return opts, fmt.Errorf("--parallel/--shard/--timings take no --mutants, --affected or --emitted")
+		return opts, fmt.Errorf("--parallel/-j/--shard/--timings take no --mutants, --affected or --emitted")
 	case laws > 1 || skips > 1:
 		return opts, fmt.Errorf("--law and --skip-law each select one law: given twice, the first would be dropped")
 	case selected && (!validLaw(opts.law) || !validLaw(opts.skipLaw) || opts.law+opts.skipLaw == ""):
 		return opts, fmt.Errorf("--law and --skip-law take a law's name, as a report shows it (Design.Safe)")
-	case len(positional) > 1 && command != "test" && command != "check", len(positional) == 0 && command != "test":
+	case len(positional) > 1 && command != "test" && command != "check":
 		return opts, fmt.Errorf("incorrect arguments for %s", command)
 	}
 	if len(positional) == 0 && opts.mutants {
@@ -670,6 +796,20 @@ func fileOptionsOf(command string, args []string) (fileOptions, error) {
 		return opts, nil
 	}
 	return opts, requireSourceExtension(opts.file)
+}
+
+func cutAnyPrefix(s string, prefixes ...string) (string, bool) {
+	for _, p := range prefixes {
+		if v, ok := strings.CutPrefix(s, p); ok {
+			return v, true
+		}
+	}
+	return "", false
+}
+
+func validRegex(p string) bool {
+	_, err := regexp.Compile(p)
+	return err == nil
 }
 
 // isPackageFolder reports whether path names a folder: a package of every
@@ -805,20 +945,23 @@ func refuseUncheckedIO(l loaded, opts fileOptions, stdout, stderr io.Writer) err
 	return fmt.Errorf("check failed")
 }
 
-// checkCommand prints the check envelope; exit 1 when the source does not
-// check. A source that checks has its pure obligations evaluated
-// (sketchfront.Analysis.Evaluation) under the budget of --eval-steps,
-// --eval-bytes and --seed, and the envelope carries the evaluation; the
-// exit status is then evaluationExit's.
+// checkCommand prints the check envelope (or DiagnosticReport JSON with --json);
+// exit 1 when the source does not check or fails policy.
 func checkCommand(args []string) error {
 	if len(args) > 0 && args[0] == "--want" {
 		return checkWant(os.Stdout, args[1:])
+	}
+	if hasLintPackFlag(args) {
+		return checkWithLintFlags(args)
 	}
 	opts, err := parseFileOptions("check", args)
 	if err != nil {
 		return err
 	}
 	useFresh(opts)
+	if opts.json {
+		return checkJSONCommand(opts, packSelection{})
+	}
 	if len(opts.more) > 0 {
 		return manyCheckCommand(opts)
 	}
@@ -836,6 +979,110 @@ func checkCommand(args []string) error {
 	return checkPackage(opts)
 }
 
+func hasLintPackFlag(args []string) bool {
+	for _, a := range args {
+		name, _, _ := strings.Cut(a, "=")
+		if name == "--preset" || name == "--lint-config" || name == "--rules" {
+			return true
+		}
+	}
+	return false
+}
+
+func checkWithLintFlags(args []string) error {
+	presets, sel, rest, err := lintFlags(args)
+	if err != nil {
+		return invalidInvocation(err)
+	}
+	if len(presets) > 0 {
+		return invalidInvocation(fmt.Errorf("--preset belongs to ergo lint"))
+	}
+	opts, err := parseFileOptions("check", rest)
+	if err != nil {
+		return err
+	}
+	if !opts.json {
+		return invalidInvocation(fmt.Errorf("--lint-config and --rules require --json on ergo check"))
+	}
+	useFresh(opts)
+	return checkJSONCommand(opts, sel)
+}
+
+func checkJSONCommand(opts fileOptions, sel packSelection) error {
+	targets, err := expandCheckTargets(opts)
+	if err != nil {
+		return err
+	}
+	if len(targets) == 1 {
+		return checkJSONPackageIO(targets[0], sel, os.Stdout)
+	}
+	jobs := effectiveJobs(opts.sharding)
+	tlist := make([]testTarget, len(targets))
+	for i, t := range targets {
+		tlist[i] = testTarget{label: t.file, dir: t.file, timingKey: t.file}
+	}
+	outcomes := runTargetsParallel(tlist, jobs, TestTimings{}, func(i int, outW, _ io.Writer) error {
+		return checkJSONPackageIO(targets[i], sel, outW)
+	})
+	return aggregateOutcomes(tlist, outcomes, false, os.Stdout, os.Stderr)
+}
+
+func expandCheckTargets(opts fileOptions) ([]fileOptions, error) {
+	raw := append([]string{opts.file}, opts.more...)
+	var out []fileOptions
+	for _, t := range raw {
+		if recursivePattern(t) {
+			pkgs, err := sketchfront.DiscoverPackages(filepath.Dir(filepath.Clean(t)))
+			if err != nil {
+				return nil, invalidInvocation(err)
+			}
+			for _, pkg := range pkgs {
+				one := opts
+				one.file, one.more = pkg.Dir, nil
+				out = append(out, one)
+			}
+			continue
+		}
+		one := opts
+		one.file, one.more = t, nil
+		out = append(out, one)
+	}
+	return out, nil
+}
+
+func checkJSONPackageIO(opts fileOptions, sel packSelection, outW io.Writer) error {
+	return diagnosticFindingsIO(opts, sel, outW, true, "check failed")
+}
+
+func diagnosticFindingsIO(opts fileOptions, sel packSelection, outW io.Writer, asJSON bool, failMsg string) error {
+	l, err := loadForPlatform(opts.file, opts.target, opts.platform)
+	if err != nil {
+		return err
+	}
+	run, err := lintLoaded(l, nil, sel)
+	if err != nil {
+		return invalidInvocation(err)
+	}
+	if err := l.result.Qualify(producer.Current()); err != nil {
+		return err
+	}
+	findings := l.result.ReportWithLint(l.snapshot, opts.strict, run.Advice())
+	if asJSON {
+		enc := json.NewEncoder(outW)
+		enc.SetIndent("", "  ")
+		err = enc.Encode(findings)
+	} else {
+		err = findings.WriteText(outW, l.source.String())
+	}
+	if err != nil {
+		return err
+	}
+	if !findings.PolicyPassed {
+		return fmt.Errorf("%s", failMsg)
+	}
+	return nil
+}
+
 // recursiveCheckCommand is `ergo check DIR/...`: one shared load of the
 // module when it can, else each package alone.
 func recursiveCheckCommand(opts fileOptions) error {
@@ -851,49 +1098,52 @@ func recursiveCheckCommand(opts fileOptions) error {
 // not stop the later ones; a defect, a signal or a usage error does. The
 // run exits 1 when a target failed. No ergo dev daemon answers it.
 func manyCheckCommand(opts fileOptions) error {
-	failed := false
-	for _, target := range append([]string{opts.file}, opts.more...) {
+	raw := append([]string{opts.file}, opts.more...)
+	targets := make([]testTarget, len(raw))
+	for i, target := range raw {
+		targets[i] = testTarget{label: target, dir: target, timingKey: target}
+	}
+	jobs := effectiveJobs(opts.sharding)
+	outcomes := runTargetsParallel(targets, jobs, TestTimings{}, func(i int, outW, errW io.Writer) error {
 		one := opts
-		one.file, one.more = target, nil
-		var err error
-		if recursivePattern(target) {
-			err = recursiveCheckCommand(one)
-		} else {
-			err = checkPackage(one)
+		one.file, one.more = raw[i], nil
+		if recursivePattern(raw[i]) {
+			return recursiveCheckCommandIO(one, outW, errW)
 		}
-		stop, fail := packageOutcome(target, err)
-		if stop != nil {
-			return stop
-		}
-		failed = failed || fail
-	}
-	if failed {
-		return exitStatusError{code: 1, handled: true}
-	}
-	return nil
+		return checkPackageIO(one, outW)
+	})
+	return aggregateOutcomes(targets, outcomes, false, os.Stdout, os.Stderr)
 }
 
 func checkPackage(opts fileOptions) error {
+	return checkPackageIO(opts, os.Stdout)
+}
+
+func checkPackageIO(opts fileOptions, outW io.Writer) error {
 	w := startWarm(opts, nil)
 	if w != nil && w.hit {
-		_, err := os.Stdout.Write(w.answer.Stdout)
+		_, err := outW.Write(w.answer.Stdout)
 		return err
 	}
 	l, err := loadThrough(w.fsys(), opts.file, opts.target, opts.platform)
 	if err != nil {
 		return err
 	}
-	return checkLoaded(opts, l, w)
+	return checkLoadedIO(opts, l, w, outW)
 }
 
 // checkLoaded prints the check envelope of a loaded package, evaluated
 // when it checks, and returns check's exit status.
 func checkLoaded(opts fileOptions, l loaded, w *warm) error {
+	return checkLoadedIO(opts, l, w, os.Stdout)
+}
+
+func checkLoadedIO(opts fileOptions, l loaded, w *warm, outW io.Writer) error {
 	out, exit, err := checkEnvelope(opts, l, w.fsys())
 	if err != nil {
 		return err
 	}
-	if _, err := os.Stdout.Write(out); err != nil {
+	if _, err := outW.Write(out); err != nil {
 		return err
 	}
 	if exit == nil && l.result.Checked {
@@ -1032,18 +1282,25 @@ func validCount(s string) bool {
 	return err == nil && n > 0 && s[0] != '+'
 }
 
-const inspectHelp = "usage: ergo inspect FILE|DIR [--target go]\n\n" +
-	"Prints, as JSON, what the program reaches of Go (docs/tooling.md, inspect):\n" +
-	"each Go import with its binding's provenance and the declarations the\n" +
-	"binding refuses, with their reasons; for each function, the Go symbols its\n" +
-	"code reaches and the uninterruptible host waits among them; for each Go\n" +
-	"symbol, its Go declaration, Ergo signature, tier (pure or foreign),\n" +
-	"provenance and wait (none, interruptible, uninterruptible); for each\n" +
-	"rewrite site, its position, law, provider and constants, its ergo.laws entry's\n" +
-	"verdict and state (current, stale or missing) and whether the build\n" +
-	"applies it (a current, proved entry only). It runs no Go tool.\n\n" +
-	"Exit codes: 0 printed; 1 the source does not check.\n\n" +
-	inspectMachineHelp
+const inspectHelp = "usage: ergo inspect [PATH]\n" +
+	"       ergo inspect SUBCOMMAND [PATH] [--json]\n\n" +
+	"Inspect checked contracts, machines, dependency graphs, Go bindings, and compiler facts.\n\n" +
+	"Examples:\n" +
+	"  ergo inspect                      Show Go interop reach as JSON\n" +
+	"  ergo inspect api                  Show public API contracts\n" +
+	"  ergo inspect machine              Draw state machine transition graphs\n" +
+	"  ergo inspect graph cycles         Find dependency cycles in the module\n\n" +
+	"Subcommands:\n" +
+	"  api       public API contracts and --diff comparisons\n" +
+	"  machine   machine state/signal transition graphs\n" +
+	"  deps      required modules, trust status, and Go imports\n" +
+	"  facts     optimizer facts, rewrites, and unsafe runtime bodies\n" +
+	"  copies    ownership handover and slice/map copy sites\n" +
+	"  forms     IR optimization pass decisions (memo, merge, fold)\n" +
+	"  rewrites  law rewrite site verdicts and ledger state\n" +
+	"  graph     dependency graph queries (export, cycles, why, affected, hidden, ...)\n\n" +
+	"Without a subcommand, prints Go interop reach for PATH (defaults to .) as JSON.\n" +
+	"Exit codes: 0 printed; 1 source did not check; 2 invalid invocation.\n"
 
 // inspectGoCommand prints, as JSON, what the program reaches of Go
 // (sketchfront.InspectGo; docs/tooling.md, inspect); exit 1 when the
@@ -1084,28 +1341,5 @@ func diagnosticsCommand(args []string) error {
 	if err != nil {
 		return invalidInvocation(err)
 	}
-	l, err := loadForPlatform(opts.file, opts.target, opts.platform)
-	if err != nil {
-		return err
-	}
-	run, err := lintLoaded(l, nil, sel)
-	if err != nil {
-		return invalidInvocation(err)
-	}
-	if err := l.result.Qualify(producer.Current()); err != nil {
-		return err
-	}
-	findings := l.result.ReportWithLint(l.snapshot, opts.strict, run.Advice())
-	if opts.json {
-		err = printJSON(findings)
-	} else {
-		err = findings.WriteText(os.Stdout, l.source.String())
-	}
-	if err != nil {
-		return err
-	}
-	if !findings.PolicyPassed {
-		return fmt.Errorf("diagnostics failed policy")
-	}
-	return nil
+	return diagnosticFindingsIO(opts, sel, os.Stdout, opts.json, "diagnostics failed policy")
 }

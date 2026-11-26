@@ -23,10 +23,10 @@ const (
 	maxFormatTotalOutput = 16 * 1024 * 1024
 )
 
-const fmtHelp = "usage: ergo fmt FILE... [--check] [--json]\n" +
-	"       ergo fmt DIR/... [--check] [--json]\n" +
+const fmtHelp = "usage: ergo fmt [PATH...] [--check] [--json]\n" +
 	"       ergo fmt --stdin\n\n" +
-	"Format .ergo source with the canonical syntax-only formatter.\n\n" +
+	"Format .ergo source with the canonical syntax-only formatter.\n" +
+	"Omitting PATH formats . (and subfolders below it).\n\n" +
 	"Options:\n" +
 	"  --check  report files that would change without writing them\n" +
 	"  --stdin  format source from stdin and write only formatted source to stdout\n" +
@@ -159,7 +159,7 @@ func parseFmtOptions(args []string) (fmtOptions, error) {
 		return opts, nil
 	}
 	if len(opts.files) == 0 {
-		return opts, fmt.Errorf("source file required; use --stdin for stdin")
+		opts.files = []string{"."}
 	}
 	return opts, nil
 }

@@ -43,6 +43,9 @@ func inspectCopiesCommand(args []string) error {
 			paths = append(paths, arg)
 		}
 	}
+	if len(paths) == 0 {
+		paths = []string{"."}
+	}
 	if len(paths) != 1 {
 		return invalidInvocation(fmt.Errorf("inspect copies: supply FILE|DIR"))
 	}

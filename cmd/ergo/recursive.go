@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -49,7 +50,7 @@ func recursiveTestCommand(opts fileOptions) error {
 	opts.law, opts.receipt = "", ""
 	var w *warm
 	ledger := ledgerPath(opts.file)
-	if testCacheable(opts) && module.law == "" && module.receiptDir == "" {
+	if testCacheable(opts) && module.law == "" && module.receiptDir == "" && opts.filter == "" && opts.skip == "" {
 		w = startWarm(opts, warmToolchain(opts), ledgerPart(ledger))
 	}
 	if w != nil && w.hit {
@@ -65,39 +66,90 @@ func recursiveTestCommand(opts fileOptions) error {
 			return err
 		}
 	}
-	kept, complete := []moduleVerdict{}, true
-	matched := module.law == ""
-	err := recursiveCommand(opts, w.fsys(), func(one fileOptions) error {
-		l, err := loadPackageThrough(w.fsys(), one.file, one.target)
-		if err != nil {
-			return err
+	packages, err := sketchfront.DiscoverPackagesThrough(w.fsys(), filepath.Dir(filepath.Clean(opts.file)))
+	if err != nil {
+		return invalidInvocation(err)
+	}
+	targets := make([]testTarget, len(packages))
+	for i, pkg := range packages {
+		targets[i] = testTarget{label: pkg.Path, dir: pkg.Dir, modRoot: pkg.Root, timingKey: pkg.Path}
+	}
+	kept := make([]moduleVerdict, len(packages))
+	matchedPkg := make([]bool, len(packages))
+	storedPkg := make([]bool, len(packages))
+	runFlags := make([]bool, len(packages))
+
+	jobs := effectiveJobs(opts.sharding)
+	outcomes := runTargetsParallel(targets, jobs, TestTimings{}, func(i int, outW, errW io.Writer) error {
+		one := opts
+		one.file = packages[i].Dir
+		l, lerr := loadPackageThrough(w.fsys(), one.file, one.target)
+		if lerr != nil {
+			return lerr
 		}
 		if !l.result.Checked {
-			return refuseUnchecked(l, one)
+			runFlags[i] = true
+			return refuseUncheckedIO(l, one, outW, errW)
 		}
-		run, err := module.select_(&one, l)
-		if err != nil || !run {
-			return err
+		run, serr := module.select_(&one, l)
+		if serr != nil {
+			runFlags[i] = true
+			return serr
 		}
-		matched = true
-		kept = append(kept, moduleVerdict{Path: l.analysis.Root().Path})
-		n, stored := len(kept)-1, false
-		err = testLoadedPackage(one, l, func(result []byte) {
-			kept[n].Result, stored = result, true
+		if !run {
+			return errTargetFilteredOut
+		}
+		if one.filter != "" {
+			selOpts, runPkg, matched, ferr := resolveTestSelection(one, l)
+			if ferr != nil {
+				runFlags[i] = true
+				return invalidInvocation(ferr)
+			}
+			if !matched {
+				return errTargetFilteredOut
+			}
+			if !runPkg {
+				runFlags[i] = true
+				return emptyTestRun(selOpts, l.result.Revision, outW, errW)
+			}
+			one = selOpts
+		}
+		runFlags[i] = true
+		matchedPkg[i] = true
+		kept[i] = moduleVerdict{Path: l.analysis.Root().Path}
+		return testLoadedPackageIO(one, l, outW, errW, func(result []byte) {
+			kept[i].Result, storedPkg[i] = result, true
 		})
-		complete = complete && stored
-		return err
 	})
-	if err != nil {
-		return err
+
+	if runErr := aggregateOutcomes(targets, outcomes, true, os.Stdout, os.Stderr); runErr != nil {
+		return runErr
+	}
+	var finalKept []moduleVerdict
+	complete := true
+	anyMatched := module.law == "" && opts.filter == ""
+	for i := range packages {
+		if !runFlags[i] {
+			continue
+		}
+		if matchedPkg[i] {
+			anyMatched = true
+			finalKept = append(finalKept, kept[i])
+			if !storedPkg[i] {
+				complete = false
+			}
+		}
 	}
 	if w != nil && complete {
-		if data, err := json.Marshal(kept); err == nil {
+		if data, err := json.Marshal(finalKept); err == nil {
 			w.recordAs(sketchfront.WarmAnswer{Test: data}, ledgerPart(ledger))
 		}
 	}
-	if !matched {
-		return fmt.Errorf("no law %s in selected packages (--law)", module.law)
+	if !anyMatched {
+		if module.law != "" {
+			return fmt.Errorf("no law %s in selected packages (--law)", module.law)
+		}
+		return fmt.Errorf("no test or law matches --filter %q in selected packages", opts.filter)
 	}
 	return nil
 }
@@ -203,10 +255,34 @@ func loadSharedFS(opts fileOptions, platform gobind.Platform, fsys sketchfront.F
 // status rules of recursiveCommand. shared is false when the packages
 // cannot share a load; then each package is checked alone.
 func sharedCheckCommand(opts fileOptions) (shared bool, err error) {
+	return sharedCheckCommandIO(opts, os.Stdout, os.Stderr)
+}
+
+func recursiveCheckCommandIO(opts fileOptions, outW, errW io.Writer) error {
+	if shared, err := sharedCheckCommandIO(opts, outW, errW); shared {
+		return err
+	}
+	packages, err := sketchfront.DiscoverPackages(filepath.Dir(filepath.Clean(opts.file)))
+	if err != nil {
+		return invalidInvocation(err)
+	}
+	targets := make([]testTarget, len(packages))
+	for i, pkg := range packages {
+		targets[i] = testTarget{label: pkg.Path, dir: pkg.Dir, modRoot: pkg.Root, timingKey: pkg.Path}
+	}
+	outcomes := runTargetsParallel(targets, effectiveJobs(opts.sharding), TestTimings{}, func(i int, pOut, _ io.Writer) error {
+		one := opts
+		one.file = packages[i].Dir
+		return checkPackageIO(one, pOut)
+	})
+	return aggregateOutcomes(targets, outcomes, false, outW, errW)
+}
+
+func sharedCheckCommandIO(opts fileOptions, outW, errW io.Writer) (shared bool, err error) {
 	tree := startTree(opts)
 	if outs, ok := tree.lookup(); ok {
 		for _, out := range outs {
-			if _, err := os.Stdout.Write(out); err != nil {
+			if _, err := outW.Write(out); err != nil {
 				return true, err
 			}
 		}
@@ -216,15 +292,78 @@ func sharedCheckCommand(opts fileOptions) (shared bool, err error) {
 	if !ok {
 		return false, nil
 	}
-	failed := false
 	var sources map[string]bool
 	if tree != nil {
 		sources = loadSources(loads)
 	}
-	for i, l := range loads {
+	jobs := effectiveJobs(opts.sharding)
+	if tree != nil || jobs <= 1 || len(loads) <= 1 {
+		failed := false
+		for i, l := range loads {
+			if out, ok := tree.replay(l.analysis); ok {
+				if _, err := outW.Write(out); err != nil {
+					return true, err
+				}
+				tree.add(l.analysis, out, nil)
+				continue
+			}
+			if treeRerun != nil {
+				treeRerun(l.analysis.Root().Path)
+			}
+			puts := tree.storePuts()
+			one := opts
+			one.file = packages[i].Dir
+			out, exit, err := checkEnvelope(one, l, tree.fsys())
+			if err != nil {
+				return true, err
+			}
+			if _, err := outW.Write(out); err != nil {
+				return true, err
+			}
+			tree.add(l.analysis, out, exit)
+			tree.keepCut(l.analysis, sources, out, exit, puts)
+			stop, fail := packageOutcomeIO(packages[i].Path, exit, errW)
+			if stop != nil {
+				return true, stop
+			}
+			failed = failed || fail
+		}
+		if failed {
+			return true, exitStatusError{code: 1, handled: true}
+		}
+		tree.record()
+		return true, nil
+	}
+	type evalResult struct {
+		out  []byte
+		exit error
+		err  error
+	}
+	evals := make([]evalResult, len(loads))
+	tlist := make([]testTarget, len(loads))
+	for i := range loads {
+		tlist[i] = testTarget{label: packages[i].Path, dir: packages[i].Dir, timingKey: packages[i].Path}
+	}
+	_ = runTargetsParallel(tlist, jobs, TestTimings{}, func(i int, _, _ io.Writer) error {
 		one := opts
 		one.file = packages[i].Dir
-		stop, fail := packageOutcome(packages[i].Path, checkShared(one, l, tree, sources))
+		out, exit, eerr := checkEnvelope(one, loads[i], nil)
+		evals[i] = evalResult{out: out, exit: exit, err: eerr}
+		return nil
+	})
+	failed := false
+	for i, l := range loads {
+		if treeRerun != nil {
+			treeRerun(l.analysis.Root().Path)
+		}
+		ev := evals[i]
+		if ev.err != nil {
+			return true, ev.err
+		}
+		if _, err := outW.Write(ev.out); err != nil {
+			return true, err
+		}
+		stop, fail := packageOutcomeIO(packages[i].Path, ev.exit, errW)
 		if stop != nil {
 			return true, stop
 		}
@@ -233,36 +372,7 @@ func sharedCheckCommand(opts fileOptions) (shared bool, err error) {
 	if failed {
 		return true, exitStatusError{code: 1, handled: true}
 	}
-	tree.record()
 	return true, nil
-}
-
-// checkShared is checkLoaded of one package of a shared load, keeping
-// its answer in tree. Its evaluation is taken from the cutoff's store
-// when nothing it observes changed (checkcut.go); sources are the load's
-// source files and package folders.
-func checkShared(opts fileOptions, l loaded, tree *checkTree, sources map[string]bool) error {
-	if out, ok := tree.replay(l.analysis); ok {
-		if _, err := os.Stdout.Write(out); err != nil {
-			return err
-		}
-		tree.add(l.analysis, out, nil)
-		return nil
-	}
-	if treeRerun != nil {
-		treeRerun(l.analysis.Root().Path)
-	}
-	puts := tree.storePuts()
-	out, exit, err := checkEnvelope(opts, l, tree.fsys())
-	if err != nil {
-		return err
-	}
-	if _, err := os.Stdout.Write(out); err != nil {
-		return err
-	}
-	tree.add(l.analysis, out, exit)
-	tree.keepCut(l.analysis, sources, out, exit, puts)
-	return exit
 }
 
 // sharedTestCommand runs `ergo test DIR/...` with one load of the module
@@ -358,31 +468,58 @@ func sharedTestCommand(opts fileOptions, module moduleTestOptions) (shared bool,
 		}
 	}
 	stage.Add(stage.SharedTestModules, 1)
-	failed := false
-	for i, r := range runs {
-		fmt.Fprintf(os.Stdout, "package %s\n", packages[i].Path)
-		if r.index < 0 && r.l.result.Checked {
-			continue
-		}
-		var err error
-		switch {
-		case !r.l.result.Checked:
-			err = refuseUnchecked(r.l, r.one)
-		case !stored:
-			err = runTestBinary(r.one, r.l, tc, binary, []string{lower.TestPackageFlag, strconv.Itoa(r.index)}, nil)
-		case own[i] == "":
-			err = emptyTestRun(r.one, r.l.result.Revision, os.Stdout, os.Stderr)
-		default:
-			err = runTestBinary(r.one, r.l, tc, own[i], nil, nil)
-		}
-		stop, fail := packageOutcome(packages[i].Path, err)
-		if stop != nil {
-			return true, stop
-		}
-		failed = failed || fail
+	targets := make([]testTarget, len(runs))
+	for i, p := range packages {
+		targets[i] = testTarget{label: p.Path, dir: p.Dir, modRoot: p.Root, timingKey: p.Path}
 	}
-	if failed {
-		return true, exitStatusError{code: 1, handled: true}
+	outcomes := runTargetsParallel(targets, effectiveJobs(opts.sharding), TestTimings{}, func(i int, outW, errW io.Writer) error {
+		r := runs[i]
+		if r.index < 0 && r.l.result.Checked {
+			return nil
+		}
+		if !r.l.result.Checked {
+			return refuseUncheckedIO(r.l, r.one, outW, errW)
+		}
+		one := r.one
+		if one.filter != "" || one.skip != "" {
+			selOpts, runPkg, matched, ferr := resolveTestSelection(one, r.l)
+			if ferr != nil {
+				return invalidInvocation(ferr)
+			}
+			if selOpts.filter != "" && !matched {
+				return errTargetFilteredOut
+			}
+			if !runPkg {
+				return emptyTestRun(selOpts, r.l.result.Revision, outW, errW)
+			}
+			one = selOpts
+		}
+		if !stored {
+			return runTestBinaryIO(one, r.l, tc, binary, []string{lower.TestPackageFlag, strconv.Itoa(r.index)}, outW, errW, nil)
+		}
+		if own[i] == "" {
+			err := emptyTestRun(one, r.l.result.Revision, outW, errW)
+			if err == nil && one.law == "" && one.skipLaw == "" && one.run == "" && one.filter == "" && one.skip == "" && one.selectNames == "" && !one.explore {
+				err = writeLedgerIO(one, r.l, outW, errW)
+			}
+			return err
+		}
+		return runTestBinaryIO(one, r.l, tc, own[i], nil, outW, errW, nil)
+	})
+	if err := aggregateOutcomes(targets, outcomes, true, os.Stdout, os.Stderr); err != nil {
+		return true, err
+	}
+	if opts.filter != "" && len(runs) > 0 {
+		anyMatched := false
+		for _, o := range outcomes {
+			if !errors.Is(o.err, errTargetFilteredOut) {
+				anyMatched = true
+				break
+			}
+		}
+		if !anyMatched {
+			return true, fmt.Errorf("no test or law matches --filter %q in selected packages", opts.filter)
+		}
 	}
 	return true, nil
 }

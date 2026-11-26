@@ -150,7 +150,7 @@ func warmToolchain(opts fileOptions) *build.Toolchain {
 // test's answer.
 func warmOptions(opts fileOptions) string {
 	options := []string{opts.target, opts.platform.String(), strconv.FormatBool(opts.locked), strconv.FormatBool(opts.json), strconv.FormatBool(opts.debug),
-		opts.seed, opts.evalSteps, opts.evalBytes, opts.states, opts.law, opts.skipLaw, opts.run, strconv.FormatBool(opts.native), strconv.FormatBool(opts.noViews), fallbackKey(opts), opts.rewrites, strconv.FormatBool(opts.goTrace), opts.phone.String(), strconv.FormatBool(opts.trace), fmt.Sprintf("%q", opts.more)}
+		opts.seed, opts.evalSteps, opts.evalBytes, opts.states, opts.law, opts.skipLaw, opts.run, opts.filter, opts.skip, opts.selectNames, strconv.FormatBool(opts.native), strconv.FormatBool(opts.noViews), fallbackKey(opts), opts.rewrites, strconv.FormatBool(opts.goTrace), opts.phone.String(), strconv.FormatBool(opts.trace), fmt.Sprintf("%q", opts.more)}
 	if opts.strict {
 		// check --strict: its exit judges the answer; added only when set,
 		// so the keys of every other request stay as they were.
