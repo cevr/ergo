@@ -1,8 +1,0 @@
-// want S108
-package demo
-type A struct{}
-type B struct{}
-type Choice interface{ A | B }
-type Inner struct{ Value Choice }
-type Outer struct{ Inner Inner }
-func main() needs Console { Console.Println(Outer{}) }

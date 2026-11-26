@@ -1,8 +1,0 @@
-// out: ok
-package demo
-type Store interface{ Get() string }
-type Holder struct{}
-func (Holder) Get() string { return "ok" }
-func main() uses Console {
-  with(wire{ Store = Holder{} }) { Console.Println("ok") }
-}

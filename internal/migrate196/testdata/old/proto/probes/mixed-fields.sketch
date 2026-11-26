@@ -1,4 +1,0 @@
-// want S001
-package demo
-type Pair struct{ A string; B string }
-func main() needs Console { Console.Println(Pair{B: "b", "a"}) }

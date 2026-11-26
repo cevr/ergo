@@ -295,7 +295,7 @@ func TestMergeTierUncached(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"go test ./scripts/gate (host, every run)", "go test (other packages)", "go test ./prototypes/sketch9/sketch (kernel)", "provenance analyzer"} {
+	for _, name := range []string{"go test ./scripts/gate (host, every run)", "go test (other packages)", "provenance analyzer"} {
 		if !slices.ContainsFunc(steps, func(s *Step) bool { return s.Name == name }) {
 			t.Fatalf("no step %q among the declared steps; the check is vacuous", name)
 		}

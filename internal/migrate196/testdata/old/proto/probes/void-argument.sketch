@@ -1,5 +1,0 @@
-// want S108
-package demo
-func main() needs Console {
-  Console.Println(Console.Println("inner"), "outer")
-}

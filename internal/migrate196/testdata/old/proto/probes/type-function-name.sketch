@@ -1,5 +1,0 @@
-// want S108
-package demo
-type Item struct{}
-func Item() {}
-func main() {}

@@ -1,3 +1,0 @@
-// want S109
-package demo
-func main(value string) needs Console { Console.Println(value) }

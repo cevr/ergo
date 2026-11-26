@@ -1,9 +1,0 @@
-// out: {}
-package demo
-type Item struct{}
-type Other struct{}
-type Choice interface{ Item | Other }
-type Fault struct{}
-func inner() (Item, error[Fault]) { return Item{} }
-func outer() (Choice, error[Fault]) { return inner() }
-func main() needs Console { Console.Println(outer() catch { case Fault: Other{} }) }

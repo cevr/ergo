@@ -1,3 +1,0 @@
-// want S108
-package demo
-func main() needs Console { Console.Println(010) }

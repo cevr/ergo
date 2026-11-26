@@ -1,4 +1,0 @@
-// want S108
-package demo
-type Choice interface{ LiveScheduler }
-func main() needs Console { Console.Println(LiveScheduler{}) }

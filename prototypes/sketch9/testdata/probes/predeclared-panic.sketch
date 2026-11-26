@@ -1,8 +1,0 @@
-// want S109
-package demo
-type Fault struct{}
-func panic(message string) {}
-func fail() error[Fault] { return Fault{} }
-func main() uses Console {
-  fail() catch { case Fault: Console.Println("handled") }
-}

@@ -1,8 +1,0 @@
-// want S109
-package demo
-type timeout interface{ Get() string }
-type Holder struct{}
-func (Holder) Get() string { return "ok" }
-func main() needs Console {
-  with(wire{ timeout = Holder{} }) { Console.Println(timeout.Get()) }
-}
