@@ -1,0 +1,164 @@
+// orchestrate: the ledger of an orchestration run (module orchestrate,
+// modules/orchestrate). A unit is keyed by repo, run and id; it opens with
+// the receipt kinds its verdict requires, collects receipts (a check's
+// command, the head it ran at, its exit code and exit lines), and is
+// accepted and landed only when the latest receipt of every required kind
+// at the named head exited 0. A refused verdict is a typed failure:
+// Unverified (kinds missing or red at the head) or NotAcceptedHead.
+//
+// `orchestrate mcp [--store PATH]` serves the operations as Model Context
+// Protocol tools on standard input and output (ergo gen mcp,
+// orchestrate/orchestratemcp): unit-open, receipt-record, unit-state,
+// unit-accept and unit-land. Any other argument list is the generated
+// command line of the same operations (orchestrate/orchestratecli), with
+// --json for JSON answers and [--store PATH] before the command.
+//
+// This binary is the only place that chooses the providers: the SQLite
+// store, one file per host, at --store PATH, or else
+// $XDG_STATE_HOME/orchestrate/ledger.db (by default
+// ~/.local/state/orchestrate/ledger.db); ":memory:" is a private store
+// that ends with the process. ORCHESTRATE_NOW, a Unix second, fixes the
+// clock so the cases print the same lines on every host.
+
+import api
+import filepath
+import fs
+import github.com/cevr/ergo/modules/orchestrate/orchestrate
+import github.com/cevr/ergo/modules/orchestrate/orchestrate/orchestratecli
+import github.com/cevr/ergo/modules/orchestrate/orchestrate/orchestratemcp
+import github.com/cevr/ergo/modules/orchestrate/sqlite
+import io
+import mcp
+import mcp/stdio
+import option
+import os
+import slices
+import strconv
+import strings
+import time
+
+// storeFlag is the --store PATH of args, wherever it is before "--", and
+// the other arguments in their order.
+func storeFlag(args []string) (option.Option[string], []string) fails os.Exit {
+	let mut path option.Option[string] = option.None
+	let mut rest = []string{}
+	let mut i = 0
+	let mut stop = false
+	for i < args.Len() {
+		let a = args[i]
+		if !stop && a == "--" {
+			stop = true
+		}
+		if !stop && (a == "--store" || a == "-store") {
+			if i+1 >= args.Len() {
+				return os.Exit{Code: 2, Message: "orchestrate: --store requires a path"}
+			}
+			path = option.Some[string]{Value: args[i+1]}
+			i = i + 2
+			continue
+		}
+		if !stop && strings.HasPrefix(a, "--store=") {
+			path = option.Some[string]{Value: strings.TrimPrefix(a, "--store=")}
+			i = i + 1
+			continue
+		}
+		rest = rest.Append(a)
+		i = i + 1
+	}
+	(path, rest)
+}
+
+// jsonFirst moves a --json written after the command before it, where the
+// generated command line reads it.
+func jsonFirst(args []string) []string {
+	for i, a in args {
+		if a == "--" {
+			return args
+		}
+		if i > 0 && (a == "--json" || a == "-json") {
+			return slices.Concat([]string{a}, slices.Concat(args[0:i], args[i+1:]))
+		}
+	}
+	args
+}
+
+func clockOf(now option.Option[string]) time.Clock fails os.Exit needs os.Ambient {
+	match now {
+	case option.Some[string] as text:
+		let sec = strconv.ParseInt(text.Value, 10, 64) catch {
+		case strconv.Malformed, strconv.OutOfRange:
+			return os.Exit{Code: 2, Message: "orchestrate: ORCHESTRATE_NOW is a Unix second, not \(text.Value)"}
+		}
+		time.NewManual(sec)
+	case option.None:
+		time.NewHost()
+	}
+}
+
+func defaultStore(process os.Process) string {
+	match process.Getenv("XDG_STATE_HOME") {
+	case option.Some[string] as x:
+		if x.Value != "" {
+			return filepath.Join([]string{x.Value, "orchestrate", "ledger.db"})
+		}
+	case option.None:
+	}
+	let home = match process.Getenv("HOME") {
+	case option.Some[string] as h:
+		h.Value
+	case option.None:
+		"."
+	}
+	filepath.Join([]string{home, ".local", "state", "orchestrate", "ledger.db"})
+}
+
+func openStore(path string) sqlite.Store fails os.Exit needs os.Ambient | go.Foreign {
+	if path == ":memory:" {
+		return sqlite.OpenMemory() catch {
+		case orchestrate.StoreFailed as e:
+			return os.Exit{Code: 1, Message: "orchestrate: open :memory: failed: \(e.Reason)"}
+		}
+	}
+	fs.NewHost().MkdirAll(filepath.Dir(path)) catch {
+	case fs.Denied, fs.Failed:
+		return os.Exit{Code: 1, Message: "orchestrate: cannot make the folder of \(path)"}
+	}
+	sqlite.Open(path) catch {
+	case orchestrate.StoreFailed as e:
+		return os.Exit{Code: 1, Message: "orchestrate: open \(path) failed: \(e.Reason)"}
+	}
+}
+
+func main() fails os.Exit needs os.Ambient | io.Console | go.Foreign {
+	let process = os.NewHost()
+	let clock = try clockOf(process.Getenv("ORCHESTRATE_NOW"))
+	let (flagged, args) = try storeFlag(process.Args())
+	let path = match flagged {
+	case option.Some[string] as p:
+		p.Value
+	case option.None:
+		defaultStore(process)
+	}
+	let store = try openStore(path)
+	let service = orchestrate.NewService(store, clock)
+	if args.Len() > 0 && args[0] == "mcp" {
+		if args.Len() > 1 {
+			return os.Exit{Code: 2, Message: "orchestrate mcp: unknown argument \(args[1])"}
+		}
+		with context { orchestrate.Api: service } {
+			let server = mcp.Server{Name: "orchestrate", Version: "0.1.0", Tools: orchestratemcp.Tools()}
+			let _ = mcp.Serve(server, stdio.New())
+		}
+		store.Close() catch {
+		case orchestrate.StoreFailed:
+		}
+		return
+	}
+	let out = with context { orchestrate.Api: service } {
+		orchestratecli.Run(jsonFirst(args), orchestratecli.Defaults())
+	}
+	store.Close() catch {
+	case orchestrate.StoreFailed:
+	}
+	try api.ExitAs("orchestrate", out)
+}

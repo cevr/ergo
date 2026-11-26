@@ -324,7 +324,7 @@ func generatedEnvelope(index int, code int) Envelope {
 	let id = CommandID("gen-\(index)")
 	let at = "2026-11-24T00:00:\(index)Z"
 	let key = UnitKey{Repo: "repo", Run: "run-\(slot % 2)", ID: "u-\(slot)"}
-	let head = "head-\(((code / 45) % 2 + 2) % 2)"
+	let head = "head-\(((code/45)%2 + 2) % 2)"
 	let commitID = "c-\(slot)"
 	let queueKey = "q-\(slot)"
 	let cmd Command = match kind {

@@ -159,7 +159,7 @@ func storesAgree(mem orchestrate.Store, sq orchestrate.Store) bool {
 	case orchestrate.StoreFailed:
 		return false
 	}
-	memUnit == sqUnit &&
+		memUnit == sqUnit &&
 		memRecs == sqRecs &&
 		memCommits == sqCommits &&
 		memQueue == sqQueue &&
@@ -189,7 +189,7 @@ func makeStepEnvelope(index int, code int, prevAccepted option.Option[orchestrat
 	let id = orchestrate.CommandID("agree-\(index)")
 	let at = "2026-11-24T01:00:\(index)Z"
 	let key = orchestrate.UnitKey{Repo: "repo", Run: "agree", ID: "u-\(slot)"}
-	let head = "h-\(((code / 48) % 2 + 2) % 2)"
+	let head = "h-\(((code/48)%2 + 2) % 2)"
 	let commitID = "c-\(slot)"
 	let queueKey = "q-\(slot)"
 	let cmd orchestrate.Command = match kind {
@@ -530,12 +530,12 @@ func CheckConcurrentMultiWriter(_ livePersistence, tag int) bool needs go.Foreig
 				Actor:   "w1",
 				At:      "2026-11-24T12:01:\(i)Z",
 				Command: orchestrate.RecordReceipt{
-					Unit:           orchestrate.UnitKey{Repo: "repo", Run: "wal", ID: uid},
-					Kind:           "gate",
-					Command:        "ergo test",
-					Head:           "aaaa1111",
-					ExitCode:       0,
-					ExitLines:      "ok",
+					Unit:      orchestrate.UnitKey{Repo: "repo", Run: "wal", ID: uid},
+					Kind:      "gate",
+					Command:   "ergo test",
+					Head:      "aaaa1111",
+					ExitCode:  0,
+					ExitLines: "ok",
 				},
 			}) catch {
 			case _:
