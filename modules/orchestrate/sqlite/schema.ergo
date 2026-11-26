@@ -7,7 +7,7 @@ import sql
 import strconv
 
 // CurrentSchemaVersion is the SQLite schema version written and accepted by this package.
-let CurrentSchemaVersion = 1
+let CurrentSchemaVersion = 2
 
 func initSchema() fails orchestrate.StoreFailed needs sql.Tx {
 	let uvRows = try queryTx("PRAGMA user_version", []sql.Value{})
@@ -42,10 +42,9 @@ func createTablesTx() fails orchestrate.StoreFailed needs sql.Tx {
 		"CREATE TABLE IF NOT EXISTS commands (command_id TEXT PRIMARY KEY, actor TEXT NOT NULL, at TEXT NOT NULL, payload_json TEXT NOT NULL, payload_digest TEXT NOT NULL)",
 		"CREATE TABLE IF NOT EXISTS events (seq INTEGER PRIMARY KEY, command_id TEXT NOT NULL, payload_digest TEXT NOT NULL, event_json TEXT NOT NULL)",
 		"CREATE INDEX IF NOT EXISTS idx_events_command_id ON events (command_id)",
-		"CREATE TABLE IF NOT EXISTS units (id TEXT PRIMARY KEY, title TEXT NOT NULL, area TEXT NOT NULL, status TEXT NOT NULL, owner TEXT, lane TEXT, harness TEXT, round INTEGER NOT NULL, head_sha TEXT, summary TEXT, request_path TEXT, findings_path TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)",
-		"CREATE INDEX IF NOT EXISTS idx_units_status ON units (status, id)",
-		"CREATE TABLE IF NOT EXISTS receipts (id TEXT PRIMARY KEY, seq_order INTEGER NOT NULL, unit_id TEXT NOT NULL REFERENCES units(id), round INTEGER NOT NULL, kind TEXT NOT NULL, command TEXT NOT NULL, commit_sha TEXT NOT NULL, exit_code INTEGER NOT NULL, summary_metrics TEXT NOT NULL, log_path TEXT NOT NULL, log_sha256 TEXT NOT NULL, recorded_at TEXT NOT NULL, recorded_by TEXT NOT NULL)",
-		"CREATE INDEX IF NOT EXISTS idx_receipts_unit_round ON receipts (unit_id, round, seq_order)",
+		"CREATE TABLE IF NOT EXISTS units (repo TEXT NOT NULL, run TEXT NOT NULL, id TEXT NOT NULL, title TEXT NOT NULL, requires_json TEXT NOT NULL, lane TEXT, branch TEXT, status TEXT NOT NULL, head TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY (repo, run, id))",
+		"CREATE TABLE IF NOT EXISTS receipts (id TEXT PRIMARY KEY, seq_order INTEGER NOT NULL, repo TEXT NOT NULL, run TEXT NOT NULL, unit_id TEXT NOT NULL, kind TEXT NOT NULL, command TEXT NOT NULL, head TEXT NOT NULL, exit_code INTEGER NOT NULL, exit_lines TEXT NOT NULL, recorded_at TEXT NOT NULL, recorded_by TEXT NOT NULL, FOREIGN KEY (repo, run, unit_id) REFERENCES units (repo, run, id))",
+		"CREATE INDEX IF NOT EXISTS idx_receipts_unit_head ON receipts (repo, run, unit_id, head, seq_order)",
 		"CREATE TABLE IF NOT EXISTS commitments (id TEXT PRIMARY KEY, title TEXT NOT NULL, kind TEXT NOT NULL, status TEXT NOT NULL, owner TEXT, lane TEXT, landed_sha TEXT, decision_note TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)",
 		"CREATE INDEX IF NOT EXISTS idx_commitments_status_owner ON commitments (status, owner, id)",
 		"CREATE TABLE IF NOT EXISTS queue (key TEXT PRIMARY KEY, priority INTEGER NOT NULL, title TEXT NOT NULL, body TEXT NOT NULL, status TEXT NOT NULL, tags_json TEXT NOT NULL, updated_at TEXT NOT NULL)",

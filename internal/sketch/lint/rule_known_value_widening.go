@@ -1,9 +1,6 @@
 package lint
 
-import (
-	"ergo.local/prototype/internal/sketch/check"
-	"ergo.local/prototype/internal/sketch/syntax"
-)
+import "ergo.local/prototype/internal/sketch/check"
 
 // knownValueWidening is the strict rule for a let that writes a union
 // type over a value whose variant is known (effect-oxlint
@@ -21,10 +18,10 @@ var knownValueWidening = &Rule{
 }
 
 func checkKnownValueWidening(p *Pass) {
-	syntax.Inspect(p.File, func(n syntax.Node) bool {
-		d, ok := n.(*syntax.DeclStmt)
+	for _, d := range p.fileIndex().declStmts {
+		ok := d != nil
 		if !ok || d.Decl.Mut.IsValid() {
-			return true
+			continue
 		}
 		for _, s := range d.Decl.Specs {
 			if s.Type == nil || len(s.Values) != 1 || len(s.Names) != 1 {
@@ -34,6 +31,5 @@ func checkKnownValueWidening(p *Pass) {
 				p.Report(s.Type.Pos(), s.Type.End(), "this type widens a value whose variant is known")
 			}
 		}
-		return true
-	})
+	}
 }

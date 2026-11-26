@@ -24,17 +24,13 @@ var largeValueCopy = &Rule{
 
 func checkLargeValueCopy(p *Pass) {
 	max := p.Options.(maxOptions).Max
-	syntax.Inspect(p.File, func(n syntax.Node) bool {
-		r, ok := n.(*syntax.RangeStmt)
-		if !ok {
-			return true
-		}
+	for _, r := range p.fileIndex().ranges {
 		switch underOf(p.Info.Types[r.X]).(type) {
 		case *check.Slice, *check.Array, *check.Map:
 		default:
-			return true
+			continue
 		}
-		for _, b := range []syntax.Expr{r.Key, r.Value} {
+		for _, b := range [2]syntax.Expr{r.Key, r.Value} {
 			id, ok := b.(*syntax.Ident)
 			if !ok {
 				continue
@@ -47,6 +43,5 @@ func checkLargeValueCopy(p *Pass) {
 				p.Report(id.Pos(), id.End(), fmt.Sprintf("each turn copies a value of at least %d bytes into %s", size, id.Name))
 			}
 		}
-		return true
-	})
+	}
 }

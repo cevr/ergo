@@ -140,9 +140,23 @@ type ruleRun struct {
 // runShared is what every rule of one run shares: facts over the whole
 // program that no rule's options change, each built once, on first use.
 type runShared struct {
-	in     Input
-	graph  *programGraph
-	layout *layoutRows
+	in           Input
+	graph        *programGraph
+	layout       *layoutRows
+	program      []Unit
+	programBuilt bool
+	unitFiles    [][]*fileIndex
+	byFile       map[*syntax.File]*fileIndex
+	callsAll     *callSites
+	callsCode    *callSites
+}
+
+// fileIndex is the cached flat columnar index of p's file.
+func (p *Pass) fileIndex() *fileIndex {
+	if p.run != nil && p.run.shared != nil {
+		return p.run.shared.fileIndex(p.unit, p.index, p.File)
+	}
+	return buildFileIndex(p.File)
 }
 
 // Rel is the file's path relative to the module root, "" for a program of
@@ -153,6 +167,18 @@ func (p *Pass) Rel() string { return p.rel }
 // dependencies first: the rest of the world a rule that compares
 // declarations across packages can see.
 func (p *Pass) Program() []Unit {
+	if s := p.run.shared; s != nil {
+		if !s.programBuilt {
+			s.program = make([]Unit, 0, len(s.in.Units))
+			for _, u := range s.in.Units {
+				if u.Package != nil && u.Package.Info != nil && !u.Dependency {
+					s.program = append(s.program, u)
+				}
+			}
+			s.programBuilt = true
+		}
+		return s.program
+	}
 	var out []Unit
 	for _, u := range p.run.in.Units {
 		if u.Package != nil && u.Package.Info != nil && !u.Dependency {

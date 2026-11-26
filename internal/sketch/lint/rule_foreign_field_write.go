@@ -73,7 +73,7 @@ func foreignFieldWrites(g *programGraph, units []Unit) ([]fieldWriteFinding, err
 	if err := json.Unmarshal(raw, &rows); err != nil {
 		return nil, err
 	}
-	sorted := g.t.Sorted()
+	sorted := g.sortedEdges()
 	var out []fieldWriteFinding
 	for _, w := range rows {
 		field := uint32(w.FieldId)
