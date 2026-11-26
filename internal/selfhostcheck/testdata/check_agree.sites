@@ -95,13 +95,10 @@ case examples/deps/memory
 case examples/deps/resolve
 case examples/domain-search/cmd/domain-search
 case examples/domain-search/domains
-case examples/domain-search/domains
 case examples/domain-search/domains/domainsapi
 case examples/domain-search/domains/domainsrpc
 case examples/domain-search/loopback
 case examples/domain-search/sample
-case examples/domain-search/search
-case examples/domain-search/search
 case examples/domain-search/search
 case examples/domain-search/search/cache
 case examples/domain-search/search/plan
@@ -204,7 +201,6 @@ case examples/jobs-web/jobs/jobsapi
 case examples/jobs-web/jobs/jobsrpc
 case examples/jobs-web/loopback
 case examples/jobs-web/memory
-case examples/jobs/api
 case examples/jobs/api
 case examples/jobs/api/endpoint
 case examples/jobs/cmd/jobs
@@ -321,7 +317,6 @@ case examples/pipeline/cmd/pipeline-server
 case examples/pipeline/deploy
 case examples/pipeline/memory
 case examples/pipeline/notify
-case examples/pipeline/pipeline
 case examples/pipeline/pipeline
 case examples/pipeline/pipeline/pipelineapi
 case examples/pipeline/pipeline/pipelinecli
@@ -1022,7 +1017,6 @@ case internal/sketch/check/testdata/v1/G9-extern-allowlist.neg.ergo
 case internal/sketch/check/testdata/v1/L8-C1-lends.neg.ergo
 case internal/sketch/check/testdata/v1/L8-captures.neg.ergo
 case internal/sketch/std
-case internal/sketch/std
 case internal/sketch/std/actor
 case internal/sketch/std/ansi
 case internal/sketch/std/api
@@ -1054,7 +1048,6 @@ case internal/sketch/std/explore
 case internal/sketch/std/filepath
 case internal/sketch/std/flag
 case internal/sketch/std/fs
-case internal/sketch/std/fs
 case internal/sketch/std/fs/mapped
 case internal/sketch/std/fstest
 case internal/sketch/std/gen
@@ -1078,8 +1071,6 @@ case internal/sketch/std/kv/file
 case internal/sketch/std/kv/memory
 case internal/sketch/std/lint
 case internal/sketch/std/llm
-case internal/sketch/std/llm
-case internal/sketch/std/llm
 case internal/sketch/std/llm/memory
 case internal/sketch/std/llm/recorded
 case internal/sketch/std/log
@@ -1094,7 +1085,6 @@ case internal/sketch/std/mcp/stdio
 case internal/sketch/std/net
 case internal/sketch/std/nettest
 case internal/sketch/std/option
-case internal/sketch/std/os
 case internal/sketch/std/os
 case internal/sketch/std/os/host
 case internal/sketch/std/pace
@@ -1140,10 +1130,8 @@ case internal/sketch/std/toml
 case internal/sketch/std/totp
 case internal/sketch/std/trace
 case internal/sketch/std/tz
-case internal/sketch/std/tz
 case internal/sketch/std/tz/host
 case internal/sketch/std/tz/iana
-case internal/sketch/std/ui
 case internal/sketch/std/ui
 case internal/sketch/std/ui/layout
 case internal/sketch/std/url
@@ -1183,7 +1171,6 @@ case unused examples/dash-gui/panel/ring.ergo
 case unused examples/deploys/deploys/lifecycle.ergo
 case unused examples/deps/graph/graph.ergo
 case unused examples/deps/resolve/index.ergo
-case unused examples/domain-search/domains/catalog.ergo
 case unused examples/domain-search/domains/catalog.ergo
 case unused examples/domain-search/search/cache/cache.ergo
 case unused examples/domain-search/search/window/window.ergo
@@ -1359,8 +1346,6 @@ case unused internal/sketch/std/jsonschema/schema.ergo
 case unused internal/sketch/std/kv/file/file.ergo
 case unused internal/sketch/std/kv/kv.ergo
 case unused internal/sketch/std/kv/memory/memory.ergo
-case unused internal/sketch/std/llm/llm.ergo
-case unused internal/sketch/std/llm/llm.ergo
 case unused internal/sketch/std/llm/llm.ergo
 case unused internal/sketch/std/llm/memory/scripted.ergo
 case unused internal/sketch/std/llm/recorded/recorded.ergo
