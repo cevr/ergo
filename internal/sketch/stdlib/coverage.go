@@ -12,6 +12,7 @@ import "sync"
 // coverage maps a std package to the Go packages it covers.
 var coverage = sync.OnceValue(func() map[string][]string {
 	return map[string][]string{
+		"archive":  {"archive/tar", "archive/zip"},
 		"atomic":   {"sync/atomic"},
 		"base64":   {"encoding/base64"},
 		"bits":     {"math/bits"},
@@ -49,7 +50,7 @@ var coverage = sync.OnceValue(func() map[string][]string {
 		"time":     {"time"},
 		"url":      {"net/url"},
 		"utf8":     {"unicode/utf8"},
-		"zlib":     {"compress/zlib"},
+		"zlib":     {"compress/zlib", "compress/gzip", "compress/flate"},
 	}
 })
 
