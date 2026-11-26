@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"regexp"
+	"runtime/debug"
 	"slices"
 	"sort"
 	"strconv"
@@ -153,6 +154,7 @@ func TestCompilerIRAgreesWithBuilder(t *testing.T) {
 	}
 	var files []string
 	phases.next("irdump")
+	debug.FreeOSMemory() // irdump runs in the same memory bound as this process
 	dumped := runDump(t, ctx, bin, "-std", stdDir(), "-roots", rf, "-tests", tf, "-corpus", m)
 	phases.next("compare")
 	for _, l := range dumped {
