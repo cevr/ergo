@@ -665,6 +665,14 @@ func (fi *fileIndex) visit(n syntax.Node, flags uint8, loop syntax.Stmt, inBody 
 				fi.visit(e, flags, loop, inBody, bodies)
 			}
 		}
+		for _, fc := range x.Facts {
+			if fc != nil {
+				fi.visit(fc.Cond, flags, loop, inBody, bodies)
+				if fc.When != nil {
+					fi.visit(fc.When, flags, loop, inBody, bodies)
+				}
+			}
+		}
 	case *syntax.StructType:
 		if x != nil && x.Fields != nil {
 			fi.visitFieldList(x.Fields, flags, loop, inBody, bodies)
@@ -747,6 +755,14 @@ func (fi *fileIndex) visit(n syntax.Node, flags uint8, loop syntax.Stmt, inBody 
 		}
 		for _, e := range x.Names {
 			fi.visit(e, flags, loop, inBody, bodies)
+		}
+	case *syntax.FactClause:
+		if x == nil {
+			return
+		}
+		fi.visit(x.Cond, flags, loop, inBody, bodies)
+		if x.When != nil {
+			fi.visit(x.When, flags, loop, inBody, bodies)
 		}
 	case *syntax.TupleExpr:
 		if x == nil {

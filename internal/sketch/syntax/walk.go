@@ -119,6 +119,8 @@ func Inspect(n Node, f func(Node) bool) {
 		exprs(n.Names)
 	case *ProvidesClause:
 		exprs(n.Names)
+	case *FactClause:
+		walk(n.Cond, n.When)
 	case *CompositeLit:
 		walk(n.Type, n.Base)
 		exprs(n.Elts)
@@ -168,6 +170,9 @@ func Inspect(n Node, f func(Node) bool) {
 		}
 	case *FuncType:
 		walk(n.TypeParams, n.Params, n.Results, n.Needs, n.Takes)
+		for _, fc := range n.Facts {
+			walk(fc)
+		}
 	case *StructType:
 		walk(n.Fields)
 	case *InterfaceType:
@@ -250,6 +255,8 @@ func isNilNode(n Node) bool {
 	case *NeedsClause:
 		return n == nil
 	case *ProvidesClause:
+		return n == nil
+	case *FactClause:
 		return n == nil
 	case *ErrorRow:
 		return n == nil

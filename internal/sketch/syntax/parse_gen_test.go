@@ -25,7 +25,7 @@ func (g *progGen) w(s ...string) {
 func (g *progGen) pick(xs ...string) string { return xs[g.r.Intn(len(xs))] }
 
 func (g *progGen) name() string {
-	return g.pick("x", "y", "f", "Point", "Map", "any", "own", "pure", "where", "derive", "entry", "implements", "lent", "replace", "initial", "step", "_", "error", "when", "reaches")
+	return g.pick("x", "y", "f", "Point", "Map", "any", "own", "pure", "where", "derive", "entry", "implements", "lent", "replace", "initial", "step", "_", "error", "when", "reaches", "given", "gives", "keeps")
 }
 
 // stray is now and then a token that does not belong.
@@ -329,6 +329,9 @@ func (g *progGen) decl() {
 		if g.r.Intn(6) == 0 {
 			g.w(" takes a")
 		}
+		if g.r.Intn(4) == 0 {
+			g.w(" ", g.pick("given ok(x)", "gives it > 0", "given ok(x) gives it > 0", "keeps Live(x)", "keeps Live(*a, x) when x != r"))
+		}
 		g.w(" ")
 		g.block()
 	case 1:
@@ -339,6 +342,9 @@ func (g *progGen) decl() {
 			g.w(g.pick(",\n", ",\n", " \"key\",\n"))
 		}
 		g.w("}")
+		if g.r.Intn(4) == 0 {
+			g.w(" where len(it.a) >= 0")
+		}
 	case 2:
 		g.w("type Op {\n")
 		// The type-set member (CONSTRAINTS C1), before, among or after the

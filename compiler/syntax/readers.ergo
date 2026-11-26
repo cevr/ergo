@@ -286,10 +286,18 @@ func ArrayTypeOf(t Tree, id dense.ID[Node]) ArrayType {
 // FuncTypeOf reads a row of kind KFuncType.
 func FuncTypeOf(t Tree, id dense.ID[Node]) FuncType {
 	let i = uint32(dense.Index(id))
-	// TypeParams, an operation's own `[A]`, is the row's one item
-	// (GENERIC-OP); a function type has none.
-	let tps = if items(t, i, 8) == 1 { onid(t, item(t, i, 0)+uint32(1)) } else { dense.NoID[Node]() }
-	FuncType{Escaping: otok(fixed(t, i, 8, 0)), Entry: otok(fixed(t, i, 8, 1)), Func: otok(fixed(t, i, 8, 2)), TypeParams: tps, Params: nid(t, fixed(t, i, 8, 3)), Results: onid(t, fixed(t, i, 8, 4)), Needs: onid(t, fixed(t, i, 8, 5)), Takes: onid(t, fixed(t, i, 8, 6)), Defects: otok(fixed(t, i, 8, 7))}
+	FuncType{
+		Escaping:   otok(fixed(t, i, 9, 0)),
+		Entry:      otok(fixed(t, i, 9, 1)),
+		Func:       otok(fixed(t, i, 9, 2)),
+		TypeParams: onid(t, fixed(t, i, 9, 8)),
+		Params:     nid(t, fixed(t, i, 9, 3)),
+		Results:    onid(t, fixed(t, i, 9, 4)),
+		Needs:      onid(t, fixed(t, i, 9, 5)),
+		Takes:      onid(t, fixed(t, i, 9, 6)),
+		Defects:    otok(fixed(t, i, 9, 7)),
+		Facts:      listAt(t, i, 0, items(t, i, 9)),
+	}
 }
 
 // StructTypeOf reads a row of kind KStructType.
@@ -390,6 +398,19 @@ func ProvidesClauseOf(t Tree, id dense.ID[Node]) ProvidesClause {
 	let i = uint32(dense.Index(id))
 	let tok = t.tok[int(i)]
 	ProvidesClause{Provides: int(tok), Names: listAt(t, i, 0, items(t, i, 0))}
+}
+
+// FactClauseOf reads a row of kind KFactClause.
+func FactClauseOf(t Tree, id dense.ID[Node]) FactClause {
+	let i = uint32(dense.Index(id))
+	let tok = t.tok[int(i)]
+	FactClause{
+		Kind:    int(fixed(t, i, 4, 0)),
+		Word:    int(tok),
+		Cond:    nid(t, fixed(t, i, 4, 1)),
+		WhenPos: otok(fixed(t, i, 4, 2)),
+		When:    onid(t, fixed(t, i, 4, 3)),
+	}
 }
 
 // MachineEntryOf reads a row of kind KMachineEntry.
