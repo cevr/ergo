@@ -227,7 +227,7 @@ func TestLawKeyFollowsTheBuiltBody(t *testing.T) {
 		if len(targets) != 1 {
 			t.Fatalf("GOEXPERIMENT=%q: %d law runs, want 1", experiment, len(targets))
 		}
-		return targetKey(pkg, targets[0], 1, 0, runnerNative, foreignKeys(a, nil))
+		return targetKey(nil, pkg, targets[0], 1, 0, runnerNative, foreignKeys(a, nil))
 	}
 	if stock, simd := key(""), key("simd"); stock == simd {
 		t.Errorf("law IndexIsSmall has one verdict key in the stock build and the GOEXPERIMENT=simd build; want the built body's")

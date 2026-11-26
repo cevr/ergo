@@ -244,12 +244,12 @@ func (lr *layoutRows) hiddenReexport(e graphrows.Edge) (pkg, decl uint32, ok boo
 // taken.
 func reexportFix(p *Pass, lr *layoutRows, off syntax.Pos, pkg, decl uint32) *report.Fix {
 	var sel *syntax.SelectorExpr
-	syntax.Inspect(p.File, func(n syntax.Node) bool {
-		if s, ok := n.(*syntax.SelectorExpr); ok && s.Sel.NamePos == off {
+	for _, s := range p.fileIndex().selectors {
+		if s.Sel.NamePos == off {
 			sel = s
+			break
 		}
-		return sel == nil
-	})
+	}
 	if sel == nil {
 		return nil
 	}

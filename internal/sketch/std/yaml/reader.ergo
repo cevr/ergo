@@ -1,0 +1,233 @@
+import codec
+import strconv
+
+type cursor {
+	..codec.Reader,
+	mut rest() int,
+}
+
+type reader { t table, pos int, rootEnd int, colls []int, ends []int, resumes []int, froms []int } implements cursor
+
+func rest(r mut reader) int { curEnd(r) - r.pos }
+
+func readerAt(t table, root int) reader {
+	reader{t: t, pos: root, rootEnd: t.next[root], colls: []int{}, ends: []int{}, resumes: []int{}, froms: []int{}}
+}
+
+func deref(t table, i int) int { if t.kind[i] == kindAlias { t.target[i] } else { i } }
+
+func curEnd(r mut reader) int { if r.ends.Len() > 0 { r.ends[r.ends.Len()-1] } else { r.rootEnd } }
+
+func node(r mut reader) int { if r.pos >= curEnd(r) { -1 } else { deref(r.t, r.pos) } }
+
+func pass(r mut reader) { r.pos = r.t.next[r.pos] }
+
+func segment(t table, coll int, child int) string {
+	let end = t.next[coll]
+	if child >= end {
+		return ""
+	}
+	let mut i = coll + 1
+	if t.kind[coll] == kindSeq {
+		let mut k = 0
+		for i < child {
+			i = t.next[i]
+			k += 1
+		}
+		return "[" + strconv.Itoa(k) + "]"
+	}
+	for i < end {
+		let v = t.next[i]
+		let after = t.next[v]
+		if child < after {
+			return "." + t.text[deref(t, i)]
+		}
+		i = after
+	}
+	""
+}
+
+func Path(r mut reader) string {
+	let mut out = "$"
+	for i in 0..r.colls.Len() {
+		let child = if i+1 < r.colls.Len() { r.froms[i+1] } else { r.pos }
+		out = out + segment(r.t, r.colls[i], child)
+	}
+	out
+}
+
+func wrong(r mut reader, want string) codec.WireWrongKind { codec.WireWrongKind{Path: Path(r), Want: want} }
+
+func TakeNull(r mut reader) bool {
+	let n = node(r)
+	if n >= 0 && r.t.kind[n] == kindNull {
+		pass(r)
+		return true
+	}
+	false
+}
+
+func Peek(r mut reader) codec.WireKind {
+	let n = node(r)
+	if n < 0 {
+		return codec.WireEnd
+	}
+	let k = r.t.kind[n]
+	if k == kindNull { return codec.WireNull }
+	if k == kindBool { return codec.WireBool }
+	if k == kindInt || k == kindFloat { return codec.WireNumber }
+	if k == kindSeq { return codec.WireList }
+	if k == kindMap { return codec.WireObject }
+	codec.WireString
+}
+
+func Number(r mut reader) string fails codec.WireWrongKind {
+	let n = node(r)
+	if n >= 0 && r.t.kind[n] == kindInt {
+		let s = r.t.text[n]
+		let t = readInt(s)
+		if t.Fits || t.Decimal {
+			pass(r)
+			return intSpelling(s)
+		}
+	}
+	if n >= 0 && r.t.kind[n] == kindFloat && !isSpecialFloat(r.t.text[n]) {
+		pass(r)
+		return floatSpelling(r.t.text[n])
+	}
+	wrong(r, "a number")
+}
+
+func Bool(r mut reader) bool fails codec.WireWrongKind {
+	let n = node(r)
+	if n >= 0 && r.t.kind[n] == kindBool {
+		pass(r)
+		return boolText(r.t.text[n])
+	}
+	wrong(r, "a boolean")
+}
+
+func Int(r mut reader) int64 fails codec.WireWrongKind {
+	let n = node(r)
+	if n >= 0 && r.t.kind[n] == kindInt {
+		let (v, ok) = intOf(r.t.text[n])
+		if ok {
+			pass(r)
+			return v
+		}
+	}
+	wrong(r, "an integer")
+}
+
+func Uint(r mut reader) uint64 fails codec.WireWrongKind {
+	let n = node(r)
+	if n >= 0 && r.t.kind[n] == kindInt {
+		let (v, ok) = uintOf(r.t.text[n])
+		if ok {
+			pass(r)
+			return v
+		}
+	}
+	wrong(r, "an unsigned integer")
+}
+
+func Float(r mut reader) float64 fails codec.WireWrongKind {
+	let n = node(r)
+	if n >= 0 && (r.t.kind[n] == kindInt || r.t.kind[n] == kindFloat) {
+		let (v, ok) = floatOf(r.t.text[n])
+		if ok {
+			pass(r)
+			return v
+		}
+	}
+	if n >= 0 && r.t.kind[n] == kindString {
+		let s = r.t.text[n]
+		if s == "NaN" || s == "Infinity" || s == "-Infinity" {
+			let (v, ok) = floatOf(if s == "NaN" { ".nan" } else if s == "Infinity" { ".inf" } else { "-.inf" })
+			if ok {
+				pass(r)
+				return v
+			}
+		}
+	}
+	wrong(r, "a number")
+}
+
+func String(r mut reader) string fails codec.WireWrongKind {
+	let n = node(r)
+	if n >= 0 {
+		let k = r.t.kind[n]
+		if k == kindString || k == kindInt || k == kindFloat || k == kindBool {
+			pass(r)
+			return r.t.text[n]
+		}
+	}
+	wrong(r, "a string")
+}
+
+func StringBytes(r mut reader, into []byte) []byte fails codec.WireWrongKind { into.AppendString(try r.String()) }
+
+func open(r mut reader, k uint8, want string) fails codec.WireWrongKind {
+	let n = node(r)
+	if n < 0 || r.t.kind[n] != k {
+		return wrong(r, want)
+	}
+	r.colls = r.colls.Append(n)
+	r.ends = r.ends.Append(r.t.next[n])
+	r.resumes = r.resumes.Append(r.t.next[r.pos])
+	r.froms = r.froms.Append(r.pos)
+	r.pos = n + 1
+}
+
+func BeginList(r mut reader) fails codec.WireWrongKind { try open(r, kindSeq, "a sequence") }
+
+func BeginObject(r mut reader) fails codec.WireWrongKind { try open(r, kindMap, "a mapping") }
+
+func Tag(r mut reader) string fails codec.WireMissingField {
+	let top = r.colls.Len() - 1
+	if top >= 0 && r.t.kind[r.colls[top]] == kindMap {
+		let coll = r.colls[top]
+		let end = r.t.next[coll]
+		let mut i = coll + 1
+		for i < end {
+			let v = r.t.next[i]
+			if r.t.text[deref(r.t, i)] == "_tag" {
+				let d = deref(r.t, v)
+				if r.t.kind[d] != kindSeq && r.t.kind[d] != kindMap && r.t.kind[d] != kindNull {
+					return r.t.text[d]
+				}
+			}
+			i = r.t.next[v]
+		}
+	}
+	codec.WireMissingField{Path: Path(r), Field: "_tag"}
+}
+
+func More(r mut reader) bool { r.pos < curEnd(r) }
+
+func Key(r mut reader) string {
+	let n = node(r)
+	if n < 0 {
+		return ""
+	}
+	pass(r)
+	r.t.text[n]
+}
+
+func Skip(r mut reader) {
+	if r.pos < curEnd(r) {
+		pass(r)
+	}
+}
+
+func End(r mut reader) {
+	let top = r.colls.Len() - 1
+	if top < 0 {
+		return
+	}
+	r.pos = r.resumes[top]
+	r.colls = r.colls[:top]
+	r.ends = r.ends[:top]
+	r.resumes = r.resumes[:top]
+	r.froms = r.froms[:top]
+}
