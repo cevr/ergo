@@ -1085,6 +1085,7 @@ case internal/sketch/std/llm/recorded
 case internal/sketch/std/log
 case internal/sketch/std/machines
 case internal/sketch/std/maps
+case internal/sketch/std/markdown
 case internal/sketch/std/math
 case internal/sketch/std/mcp
 case internal/sketch/std/mcp/httpmcp
@@ -1363,6 +1364,7 @@ case unused internal/sketch/std/llm/memory/scripted.ergo
 case unused internal/sketch/std/llm/recorded/recorded.ergo
 case unused internal/sketch/std/log/level.ergo
 case unused internal/sketch/std/maps/maps.ergo
+case unused internal/sketch/std/markdown/doc.ergo
 case unused internal/sketch/std/mcp/httpmcp/httpmcp.ergo
 case unused internal/sketch/std/mcp/mcp.ergo
 case unused internal/sketch/std/mcp/memory/memory.ergo
