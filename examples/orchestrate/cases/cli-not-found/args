@@ -1,0 +1,10 @@
+--store
+:memory:
+unit-state
+-repo
+ergo
+-run
+wf10
+-id
+missing
+--json

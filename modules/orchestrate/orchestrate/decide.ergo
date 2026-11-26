@@ -4,8 +4,8 @@ import slices
 import strconv
 import strings
 
-// MaxSummaryMetricsBytes bounds Receipt.SummaryMetrics so raw log blobs are never inlined.
-let MaxSummaryMetricsBytes = 4096
+// MaxExitLinesBytes bounds Receipt.ExitLines so a receipt carries exit lines, never a log.
+let MaxExitLinesBytes = 4096
 
 // Decide validates an explicit Command Envelope against State with zero I/O and returns the events to persist.
 func Decide(state State, env Envelope) []Event fails Refusal {
@@ -30,104 +30,65 @@ func Decide(state State, env Envelope) []Event fails Refusal {
 func decideCommand(state State, env Envelope) Event fails Refusal {
 	match env.Command {
 	case OpenUnit as c:
-		try requireText("id", c.ID)
+		try requireKey(c.Key)
 		try requireText("title", c.Title)
-		try requireText("area", c.Area)
-		if state.Units.Get(c.ID) != option.None {
-			return AlreadyExists{Kind: "unit", ID: c.ID}
+		try requireKinds(c.Requires)
+		try requireOptionalText("lane", c.Lane)
+		try requireOptionalText("branch", c.Branch)
+		if state.Units.Get(c.Key) != option.None {
+			return AlreadyExists{Kind: "unit", ID: UnitKeyText(c.Key)}
 		}
-		UnitOpened{ID: c.ID, Title: c.Title, Area: c.Area, At: env.At}
-	case ClaimUnit as c:
-		try requireText("id", c.ID)
-		try requireText("owner", c.Owner)
-		try requireText("lane", c.Lane)
-		try requireText("harness", c.Harness)
-		let u = try existingUnit(state, c.ID)
-		try requireUnitAction(u, ActClaim)
-		let round = if u.Round == 0 { 1 } else { u.Round }
-		UnitWasClaimed{ID: c.ID, Owner: c.Owner, Lane: c.Lane, Harness: c.Harness, Round: round, At: env.At}
-	case AdvanceUnitRound as c:
-		try requireText("id", c.ID)
-		try requireOptionalText("requestPath", c.RequestPath)
-		try requireOptionalText("findingsPath", c.FindingsPath)
-		let u = try existingUnit(state, c.ID)
-		try requireUnitAction(u, ActAdvanceRound)
-		match c.Owner {
-		case option.Some[string] as expected:
-			try requireText("owner", expected.Value)
-			try requireActiveOwner(u, expected.Value)
-		case option.None:
-		}
-		if c.Round != u.Round+1 {
-			return InvalidInput{Field: "round", Why: "must equal current round + 1"}
-		}
-		UnitRoundAdvanced{ID: c.ID, Round: c.Round, RequestPath: c.RequestPath, FindingsPath: c.FindingsPath, At: env.At}
-	case HandBackUnit as c:
-		try requireText("id", c.ID)
-		try requireText("owner", c.Owner)
-		try requireText("headSha", c.HeadSHA)
-		try requireText("summary", c.Summary)
-		try requireOptionalText("requestPath", c.RequestPath)
-		try requireOptionalText("findingsPath", c.FindingsPath)
-		let u = try existingUnit(state, c.ID)
-		try requireUnitAction(u, ActHandBack)
-		try requireActiveOwner(u, c.Owner)
-		UnitWasHandedBack{
-			ID:           c.ID,
-			HeadSHA:      c.HeadSHA,
-			Summary:      c.Summary,
-			RequestPath:  c.RequestPath,
-			FindingsPath: c.FindingsPath,
-			At:           env.At,
-		}
-	case LandUnit as c:
-		try requireText("id", c.ID)
-		try requireText("headSha", c.HeadSHA)
-		let u = try existingUnit(state, c.ID)
-		try requireUnitAction(u, ActLand)
-		UnitWasLanded{ID: c.ID, HeadSHA: c.HeadSHA, At: env.At}
-	case CloseUnit as c:
-		try requireText("id", c.ID)
-		try requireOptionalText("summary", c.Summary)
-		let u = try existingUnit(state, c.ID)
-		try requireUnitAction(u, ActClose)
-		UnitWasClosed{ID: c.ID, Summary: c.Summary, At: env.At}
+		UnitOpened{Key: c.Key, Title: c.Title, Requires: slices.Clone(c.Requires), Lane: c.Lane, Branch: c.Branch, At: env.At}
 	case RecordReceipt as c:
-		try requireText("id", c.ID)
-		try requireText("unitId", c.UnitID)
-		if c.Round < 1 {
-			return InvalidInput{Field: "round", Why: "must be >= 1"}
-		}
+		try requireKey(c.Unit)
 		try requireText("kind", c.Kind)
 		try requireText("command", c.Command)
-		try requireText("commitSha", c.CommitSHA)
-		try requireText("logPath", c.LogPath)
-		if !isSHA256Hex(c.LogSHA256) {
-			return InvalidInput{Field: "logSha256", Why: "must be 64 lowercase hex characters"}
+		try requireText("head", c.Head)
+		if c.ExitLines.Len() > MaxExitLinesBytes {
+			return InvalidInput{Field: "exitLines", Why: "exceeds 4096 bytes; keep the exit lines, not the log"}
 		}
-		if c.SummaryMetrics.Len() > MaxSummaryMetricsBytes {
-			return InvalidInput{Field: "summaryMetrics", Why: "exceeds max summary length; reference external logPath instead"}
-		}
-		let _ = try existingUnit(state, c.UnitID)
-		if state.Receipts.Get(c.ID) != option.None {
-			return AlreadyExists{Kind: "receipt", ID: c.ID}
-		}
+		let _ = try existingUnit(state, c.Unit)
 		ReceiptRecorded{
 			Receipt: Receipt{
-				ID:             c.ID,
-				UnitID:         c.UnitID,
-				Round:          c.Round,
-				Kind:           c.Kind,
-				Command:        c.Command,
-				CommitSHA:      c.CommitSHA,
-				ExitCode:       c.ExitCode,
-				SummaryMetrics: c.SummaryMetrics,
-				LogPath:        c.LogPath,
-				LogSHA256:      c.LogSHA256,
-				RecordedAt:     env.At,
-				RecordedBy:     env.Actor,
+				ID:         string(env.ID),
+				Unit:       c.Unit,
+				Kind:       c.Kind,
+				Command:    c.Command,
+				Head:       c.Head,
+				ExitCode:   c.ExitCode,
+				ExitLines:  c.ExitLines,
+				RecordedAt: env.At,
+				RecordedBy: env.Actor,
 			},
 		}
+	case AcceptUnit as c:
+		try requireKey(c.Unit)
+		try requireText("head", c.Head)
+		let u = try existingUnit(state, c.Unit)
+		try requireUnitAction(u, ActAccept)
+		try requireGreen(state, u, c.Head)
+		UnitWasAccepted{Unit: c.Unit, Head: c.Head, At: env.At}
+	case LandUnit as c:
+		try requireKey(c.Unit)
+		try requireText("head", c.Head)
+		let u = try existingUnit(state, c.Unit)
+		try requireUnitAction(u, ActLand)
+		let accepted = match u.Head {
+		case option.Some[string] as h:
+			h.Value
+		case option.None:
+			""
+		}
+		if accepted != c.Head {
+			return NotAcceptedHead{Unit: c.Unit, Accepted: accepted, Head: c.Head}
+		}
+		try requireGreen(state, u, c.Head)
+		UnitWasLanded{Unit: c.Unit, Head: c.Head, At: env.At}
+	case CloseUnit as c:
+		try requireKey(c.Unit)
+		let u = try existingUnit(state, c.Unit)
+		try requireUnitAction(u, ActClose)
+		UnitWasClosed{Unit: c.Unit, At: env.At}
 	case AddCommitment as c:
 		try requireText("id", c.ID)
 		try requireText("title", c.Title)
@@ -232,13 +193,13 @@ func decideCommand(state State, env Envelope) Event fails Refusal {
 	}
 }
 
-func requireText(field string, value string) fails Refusal {
+func requireText(field string, value string) fails InvalidInput {
 	if strings.TrimSpace(value) == "" {
 		return InvalidInput{Field: field, Why: "must not be empty"}
 	}
 }
 
-func requireOptionalText(field string, value option.Option[string]) fails Refusal {
+func requireOptionalText(field string, value option.Option[string]) fails InvalidInput {
 	match value {
 	case option.Some[string] as s:
 		try requireText(field, s.Value)
@@ -246,12 +207,37 @@ func requireOptionalText(field string, value option.Option[string]) fails Refusa
 	}
 }
 
-func existingUnit(state State, id string) Unit fails Refusal {
-	match state.Units.Get(id) {
+func requireKey(k UnitKey) fails InvalidInput {
+	try requireText("repo", k.Repo)
+	try requireText("run", k.Run)
+	try requireText("id", k.ID)
+}
+
+func requireKinds(kinds []string) fails InvalidInput {
+	if kinds.Len() == 0 {
+		return InvalidInput{Field: "requires", Why: "a unit requires at least one receipt kind"}
+	}
+	for i, kind in kinds {
+		try requireText("requires", kind)
+		if slices.Contains(kinds[0:i], kind) {
+			return InvalidInput{Field: "requires", Why: "\(kind) is named twice"}
+		}
+	}
+}
+
+func requireGreen(state State, u Unit, head string) fails Refusal {
+	let check = CheckReceipts(state, u, head)
+	if !Green(check) {
+		return Unverified{Unit: u.Key, Head: head, Missing: check.Missing, Red: check.Red}
+	}
+}
+
+func existingUnit(state State, key UnitKey) Unit fails Refusal {
+	match state.Units.Get(key) {
 	case option.Some[Unit] as u:
 		u.Value
 	case option.None:
-		NotFound{Kind: "unit", ID: id}
+		NotFound{Kind: "unit", ID: UnitKeyText(key)}
 	}
 }
 
@@ -259,19 +245,7 @@ func requireUnitAction(u Unit, action UnitAction) fails Refusal {
 	match StepUnit(u.Status, action) {
 	case machines.Enter[UnitStatus], machines.Stay[UnitStatus]:
 	case machines.Ignore, machines.Reject:
-		InvalidTransition{Kind: "unit", ID: u.ID, From: UnitStatusName(u.Status), Action: UnitActionName(action)}
-	}
-}
-
-func requireActiveOwner(u Unit, expected string) fails Refusal {
-	let actual = match u.Owner {
-	case option.Some[string] as o:
-		o.Value
-	case option.None:
-		""
-	}
-	if actual != expected {
-		return StaleClaim{UnitID: u.ID, ExpectedOwner: expected, ActualOwner: actual}
+		InvalidTransition{Kind: "unit", ID: UnitKeyText(u.Key), From: UnitStatusName(u.Status), Action: UnitActionName(action)}
 	}
 }
 
@@ -301,39 +275,274 @@ func existingQuestion(state State, id int) Question fails Refusal {
 	}
 }
 
-func isSHA256Hex(s string) bool {
-	if s.Len() != 64 {
-		return false
+// Scope is the part of state Decide reads for env: the command's own record, the unit, commitment, queue item or question it names, a verdict's receipts at its head, and the next question id. A store loads only this before Decide.
+func Scope(state State, env Envelope) State {
+	let mut out = State{..EmptyState(), NextQuestionID: state.NextQuestionID}
+	match state.Commands.Get(env.ID) {
+	case option.Some[Command] as prev:
+		out = State{..out, Commands: out.Commands.Put(env.ID, prev.Value)}
+	case option.None:
 	}
-	for i in 0..s.Len() {
-		let c = s[i]
-		let digit = c >= '0' && c <= '9'
-		let lowerHex = c >= 'a' && c <= 'f'
-		if !digit && !lowerHex {
+	match env.Command {
+	case OpenUnit as c:
+		scopeUnit(state, out, c.Key, option.None)
+	case RecordReceipt as c:
+		scopeUnit(state, out, c.Unit, option.None)
+	case AcceptUnit as c:
+		scopeUnit(state, out, c.Unit, option.Some[string]{Value: c.Head})
+	case LandUnit as c:
+		scopeUnit(state, out, c.Unit, option.Some[string]{Value: c.Head})
+	case CloseUnit as c:
+		scopeUnit(state, out, c.Unit, option.None)
+	case AddCommitment as c:
+		scopeCommitment(state, out, c.ID)
+	case AssignCommitment as c:
+		scopeCommitment(state, out, c.ID)
+	case LandCommitment as c:
+		scopeCommitment(state, out, c.ID)
+	case DecideCommitment as c:
+		scopeCommitment(state, out, c.ID)
+	case UpsertQueueItem:
+		out
+	case RemoveQueueItem as c:
+		match state.Queue.Get(c.Key) {
+		case option.Some[QueueItem] as item:
+			State{..out, Queue: out.Queue.Put(c.Key, item.Value)}
+		case option.None:
+			out
+		}
+	case AskQuestion:
+		out
+	case AnswerQuestion as c:
+		match state.Questions.Get(c.ID) {
+		case option.Some[Question] as q:
+			State{..out, Questions: out.Questions.Put(c.ID, q.Value)}
+		case option.None:
+			out
+		}
+	}
+}
+
+func scopeUnit(state State, out State, key UnitKey, head option.Option[string]) State {
+	match state.Units.Get(key) {
+	case option.Some[Unit] as u:
+		let withUnit = State{..out, Units: out.Units.Put(key, u.Value)}
+		match head {
+		case option.Some[string] as h:
+			let mut receipts = withUnit.Receipts
+			let mut order = withUnit.ReceiptOrder
+			for r in ReceiptsOf(state, key) {
+				if r.Head == h.Value {
+					receipts = receipts.Put(r.ID, r)
+					order = order.Append(r.ID)
+				}
+			}
+			State{..withUnit, Receipts: receipts, ReceiptOrder: order}
+		case option.None:
+			withUnit
+		}
+	case option.None:
+		out
+	}
+}
+
+func scopeCommitment(state State, out State, id string) State {
+	match state.Commitments.Get(id) {
+	case option.Some[Commitment] as c:
+		State{..out, Commitments: out.Commitments.Put(id, c.Value)}
+	case option.None:
+		out
+	}
+}
+
+type decided = decidedEvents{Events []Event} | decidedRefused{Refusal Refusal}
+
+func decideOutcome(state State, env Envelope) decided {
+	let evs = Decide(state, env) catch {
+	case NotFound as e:
+		return decidedRefused{Refusal: e}
+	case AlreadyExists as e:
+		return decidedRefused{Refusal: e}
+	case InvalidTransition as e:
+		return decidedRefused{Refusal: e}
+	case CommandReused as e:
+		return decidedRefused{Refusal: e}
+	case InvalidInput as e:
+		return decidedRefused{Refusal: e}
+	case Unverified as e:
+		return decidedRefused{Refusal: e}
+	case NotAcceptedHead as e:
+		return decidedRefused{Refusal: e}
+	}
+	decidedEvents{Events: evs}
+}
+
+// DecideReadsOnlyItsScope verifies that Decide over Scope(state, env) decides every generated command as Decide over the whole state does, so a store may load only the scope.
+law DecideReadsOnlyItsScope(steps []int) {
+	let mut state = scopePrelude()
+	for i, code in steps {
+		let env = generatedEnvelope(i, code)
+		let whole = decideOutcome(state, env)
+		if decideOutcome(Scope(state, env), env) != whole {
+			return false
+		}
+		match whole {
+		case decidedEvents as d:
+			state = ApplyAll(state, d.Events)
+		case decidedRefused:
+		}
+		let replay = decideOutcome(Scope(state, env), env)
+		if replay != decideOutcome(state, env) {
 			return false
 		}
 	}
 	true
 }
 
+func scopePrelude() State {
+	let mut state = EmptyState()
+	for slot in 0..3 {
+		let key = UnitKey{Repo: "repo", Run: "run-\(slot % 2)", ID: "u-\(slot)"}
+		state = lawStep(state, "prelude-open-\(slot)", OpenUnit{Key: key, Title: "Unit \(slot)", Requires: []string{"acceptance"}, Lane: option.None, Branch: option.None}) catch {
+		case _:
+			state
+		}
+		state = lawStep(state, "prelude-green-\(slot)", RecordReceipt{Unit: key, Kind: "acceptance", Command: "ergo test", Head: "head-\(slot % 2)", ExitCode: 0, ExitLines: "ok"}) catch {
+		case _:
+			state
+		}
+	}
+	state
+}
+
+func lawStep(state State, id string, cmd Command) State fails Refusal {
+	ApplyAll(state, try Decide(state, Envelope{ID: CommandID(id), Actor: "law", At: "2026-11-26T00:00:00Z", Command: cmd}))
+}
+
+// AcceptNeedsGreenReceiptsAtHead verifies that a unit is accepted at a head exactly when every kind it requires has a receipt of its own at that head whose latest run exited 0, and is otherwise refused as Unverified naming the missing and red kinds.
+law AcceptNeedsGreenReceiptsAtHead(tag int, exitsA []int, exitB int, sameHead bool) {
+	let key = UnitKey{Repo: "repo", Run: "law", ID: "v-\(tag)"}
+	let otherUnit = UnitKey{Repo: "repo", Run: "other", ID: "v-\(tag)"}
+	let head = "h1"
+	let gateHead = if sameHead { head } else { "h2" }
+	let gateExit = ((exitB % 2) + 2) % 2
+	let mut s = lawStep(EmptyState(), "open", OpenUnit{Key: key, Title: "Verdict", Requires: []string{"acceptance", "gate"}, Lane: option.None, Branch: option.None}) catch {
+	case _:
+		return false
+	}
+	s = lawStep(s, "open-other", OpenUnit{Key: otherUnit, Title: "Other", Requires: []string{"gate"}, Lane: option.None, Branch: option.None}) catch {
+	case _:
+		return false
+	}
+	s = lawStep(s, "other-gate", RecordReceipt{Unit: otherUnit, Kind: "gate", Command: "go test", Head: head, ExitCode: 0, ExitLines: "ok"}) catch {
+	case _:
+		return false
+	}
+	let mut lastA = -1
+	for i, code in exitsA {
+		let exit = ((code % 3) + 3) % 3
+		lastA = exit
+		s = lawStep(s, "a-\(i)", RecordReceipt{Unit: key, Kind: "acceptance", Command: "ergo test", Head: head, ExitCode: exit, ExitLines: "exit \(exit)"}) catch {
+		case _:
+			return false
+		}
+	}
+	s = lawStep(s, "gate", RecordReceipt{Unit: key, Kind: "gate", Command: "go vet", Head: gateHead, ExitCode: gateExit, ExitLines: "exit \(gateExit)"}) catch {
+	case _:
+		return false
+	}
+	let mut missing = []string{}
+	let mut red = []string{}
+	if lastA < 0 {
+		missing = missing.Append("acceptance")
+	} else if lastA != 0 {
+		red = red.Append("acceptance")
+	}
+	if !sameHead {
+		missing = missing.Append("gate")
+	} else if gateExit != 0 {
+		red = red.Append("gate")
+	}
+	let want = if missing.Len() == 0 && red.Len() == 0 {
+		decidedEvents{Events: []Event{
+			CommandAccepted{ID: CommandID("accept"), Actor: "law", At: "2026-11-26T00:00:00Z", Command: AcceptUnit{Unit: key, Head: head}},
+			UnitWasAccepted{Unit: key, Head: head, At: "2026-11-26T00:00:00Z"},
+		}}
+	} else {
+		decidedRefused{Refusal: Unverified{Unit: key, Head: head, Missing: missing, Red: red}}
+	}
+	decideOutcome(s, Envelope{ID: CommandID("accept"), Actor: "law", At: "2026-11-26T00:00:00Z", Command: AcceptUnit{Unit: key, Head: head}}) == want
+}
+
+// LandNeedsTheAcceptedHead verifies that only an accepted unit lands, only at the head it was accepted at, and only while its receipts there are still green; a landed unit takes no further verdict.
+law LandNeedsTheAcceptedHead(tag int, landSame bool, laterRed bool) {
+	let key = UnitKey{Repo: "repo", Run: "law", ID: "l-\(tag)"}
+	let mut s = lawStep(EmptyState(), "open", OpenUnit{Key: key, Title: "Land", Requires: []string{"acceptance"}, Lane: option.Some[string]{Value: "/lanes/l"}, Branch: option.Some[string]{Value: "l"}}) catch {
+	case _:
+		return false
+	}
+	for h in []string{"h1", "h2"} {
+		s = lawStep(s, "green-\(h)", RecordReceipt{Unit: key, Kind: "acceptance", Command: "ergo test", Head: h, ExitCode: 0, ExitLines: "ok"}) catch {
+		case _:
+			return false
+		}
+	}
+	let early = decideOutcome(s, Envelope{ID: CommandID("early"), Actor: "law", At: "2026-11-26T00:00:00Z", Command: LandUnit{Unit: key, Head: "h1"}})
+	if early != (decidedRefused{Refusal: InvalidTransition{Kind: "unit", ID: UnitKeyText(key), From: "open", Action: "land"}}) {
+		return false
+	}
+	s = lawStep(s, "accept", AcceptUnit{Unit: key, Head: "h1"}) catch {
+	case _:
+		return false
+	}
+	if laterRed {
+		s = lawStep(s, "red", RecordReceipt{Unit: key, Kind: "acceptance", Command: "ergo test", Head: "h1", ExitCode: 1, ExitLines: "FAIL"}) catch {
+		case _:
+			return false
+		}
+	}
+	let head = if landSame { "h1" } else { "h2" }
+	let landed = decideOutcome(s, Envelope{ID: CommandID("land"), Actor: "law", At: "2026-11-26T00:00:00Z", Command: LandUnit{Unit: key, Head: head}})
+	if !landSame {
+		return landed == decidedRefused{Refusal: NotAcceptedHead{Unit: key, Accepted: "h1", Head: "h2"}}
+	}
+	if laterRed {
+		return landed == decidedRefused{Refusal: Unverified{Unit: key, Head: "h1", Missing: []string{}, Red: []string{"acceptance"}}}
+	}
+	match landed {
+	case decidedEvents as d:
+		let after = ApplyAll(s, d.Events)
+		let again = decideOutcome(after, Envelope{ID: CommandID("accept-again"), Actor: "law", At: "2026-11-26T00:00:00Z", Command: AcceptUnit{Unit: key, Head: "h1"}})
+		let unitLanded = match UnitByKey(after, key) {
+		case option.Some[Unit] as u:
+			u.Value.Status == UnitLanded && u.Value.Head == option.Some[string]{Value: "h1"} && u.Value.Lane == option.Some[string]{Value: "/lanes/l"}
+		case option.None:
+			false
+		}
+		unitLanded && again == decidedRefused{Refusal: InvalidTransition{Kind: "unit", ID: UnitKeyText(key), From: "landed", Action: "accept"}}
+	case decidedRefused:
+		false
+	}
+}
+
 // IdempotentCommandID verifies that replaying an accepted CommandID with the same payload emits no events and leaves state unchanged, while reusing it with a different payload fails CommandReused.
 law IdempotentCommandID(idSuffix int, title string) {
 	let cmdID = CommandID("idem-\(idSuffix)")
-	let unitID = "unit-\(idSuffix)"
+	let key = UnitKey{Repo: "repo", Run: "run", ID: "unit-\(idSuffix)"}
 	let safeTitle = if strings.TrimSpace(title) == "" { "default-title" } else { title }
 	let firstEnv = Envelope{
 		ID:      cmdID,
 		Actor:   "worker-1",
 		At:      "2026-11-24T10:00:00Z",
-		Command: OpenUnit{ID: unitID, Title: safeTitle, Area: "domain"},
+		Command: OpenUnit{Key: key, Title: safeTitle, Requires: []string{"acceptance"}, Lane: option.None, Branch: option.None},
 	}
 	let firstEvents = Decide(EmptyState(), firstEnv) catch {
-	case NotFound, AlreadyExists, InvalidTransition, StaleClaim, CommandReused, InvalidInput:
+	case _:
 		return false
 	}
 	let afterFirst = ApplyAll(EmptyState(), firstEvents)
 	let replayEvents = Decide(afterFirst, firstEnv) catch {
-	case NotFound, AlreadyExists, InvalidTransition, StaleClaim, CommandReused, InvalidInput:
+	case _:
 		return false
 	}
 	let afterReplay = ApplyAll(afterFirst, replayEvents)
@@ -341,261 +550,122 @@ law IdempotentCommandID(idSuffix int, title string) {
 		ID:      cmdID,
 		Actor:   "worker-1",
 		At:      "2026-11-24T10:01:00Z",
-		Command: OpenUnit{ID: unitID, Title: safeTitle + "-mutated", Area: "domain"},
+		Command: OpenUnit{Key: key, Title: safeTitle + "-mutated", Requires: []string{"acceptance"}, Lane: option.None, Branch: option.None},
 	}
-	let mut refusedReused = false
-	let _ = Decide(afterFirst, conflictingEnv) catch {
-	case CommandReused as r:
-		refusedReused = r.ID == cmdID
-		[]Event{}
-	case NotFound, AlreadyExists, InvalidTransition, StaleClaim, InvalidInput:
-		return false
-	}
-	firstEvents.Len() > 0 && replayEvents.Len() == 0 && afterReplay == afterFirst && refusedReused
+	let reused = decideOutcome(afterFirst, conflictingEnv) == decidedRefused{Refusal: CommandReused{ID: cmdID}}
+	firstEvents.Len() > 0 && replayEvents.Len() == 0 && afterReplay == afterFirst && reused
 }
 
-// UnitLifecycleOrder verifies that a unit cannot be handed back before being claimed, cannot be handed back by another owner, and advances cleanly through claim, round, hand-back, and land.
-law UnitLifecycleOrder(tag int) {
-	let uid = "u-\(tag)"
-	let s0 = EmptyState()
-	let e1 = Decide(s0, Envelope{ID: CommandID("o-\(tag)"), Actor: "root", At: "2026-11-24T01:00:00Z", Command: OpenUnit{ID: uid, Title: "Task", Area: "orch"}}) catch {
-	case NotFound, AlreadyExists, InvalidTransition, StaleClaim, CommandReused, InvalidInput:
+// UnitKeysAreTriples verifies that two runs of one repository may open units of the same name, which stay two units, while reopening the same triple fails AlreadyExists.
+law UnitKeysAreTriples(tag int) {
+	let a = UnitKey{Repo: "repo", Run: "wf10", ID: "U-\(tag)"}
+	let b = UnitKey{Repo: "repo", Run: "wf11", ID: "U-\(tag)"}
+	let mut s = lawStep(EmptyState(), "a", OpenUnit{Key: a, Title: "A", Requires: []string{"acceptance"}, Lane: option.None, Branch: option.None}) catch {
+	case _:
 		return false
 	}
-	let s1 = ApplyAll(s0, e1)
-	let mut handBackBeforeClaimRefused = false
-	let _ = Decide(s1, Envelope{ID: CommandID("hb0-\(tag)"), Actor: "w1", At: "2026-11-24T01:01:00Z", Command: HandBackUnit{ID: uid, Owner: "w1", HeadSHA: "aaa111", Summary: "early", RequestPath: option.None, FindingsPath: option.None}}) catch {
-	case InvalidTransition:
-		handBackBeforeClaimRefused = true
-		[]Event{}
-	case NotFound, AlreadyExists, StaleClaim, CommandReused, InvalidInput:
+	s = lawStep(s, "b", OpenUnit{Key: b, Title: "B", Requires: []string{"acceptance"}, Lane: option.None, Branch: option.None}) catch {
+	case _:
 		return false
 	}
-	let e2 = Decide(s1, Envelope{ID: CommandID("cl-\(tag)"), Actor: "w1", At: "2026-11-24T01:02:00Z", Command: ClaimUnit{ID: uid, Owner: "w1", Lane: "lane-a", Harness: "agy"}}) catch {
-	case NotFound, AlreadyExists, InvalidTransition, StaleClaim, CommandReused, InvalidInput:
+	s = lawStep(s, "ra", RecordReceipt{Unit: a, Kind: "acceptance", Command: "ergo test", Head: "h", ExitCode: 0, ExitLines: "ok"}) catch {
+	case _:
 		return false
 	}
-	let s2 = ApplyAll(s1, e2)
-	let mut staleOwnerRefused = false
-	let _ = Decide(s2, Envelope{ID: CommandID("hb-wrong-\(tag)"), Actor: "w2", At: "2026-11-24T01:03:00Z", Command: HandBackUnit{ID: uid, Owner: "w2", HeadSHA: "bbb222", Summary: "wrong", RequestPath: option.None, FindingsPath: option.None}}) catch {
-	case StaleClaim:
-		staleOwnerRefused = true
-		[]Event{}
-	case NotFound, AlreadyExists, InvalidTransition, CommandReused, InvalidInput:
-		return false
-	}
-	let e3 = Decide(s2, Envelope{ID: CommandID("rd-\(tag)"), Actor: "w1", At: "2026-11-24T01:04:00Z", Command: AdvanceUnitRound{ID: uid, Owner: option.Some[string]{Value: "w1"}, Round: 2, RequestPath: option.Some[string]{Value: "/r2.md"}, FindingsPath: option.None}}) catch {
-	case NotFound, AlreadyExists, InvalidTransition, StaleClaim, CommandReused, InvalidInput:
-		return false
-	}
-	let s3 = ApplyAll(s2, e3)
-	let e4 = Decide(s3, Envelope{ID: CommandID("hb-\(tag)"), Actor: "w1", At: "2026-11-24T01:05:00Z", Command: HandBackUnit{ID: uid, Owner: "w1", HeadSHA: "ccc333", Summary: "ready", RequestPath: option.Some[string]{Value: "/r2.md"}, FindingsPath: option.None}}) catch {
-	case NotFound, AlreadyExists, InvalidTransition, StaleClaim, CommandReused, InvalidInput:
-		return false
-	}
-	let s4 = ApplyAll(s3, e4)
-	let e5 = Decide(s4, Envelope{ID: CommandID("ld-\(tag)"), Actor: "root", At: "2026-11-24T01:06:00Z", Command: LandUnit{ID: uid, HeadSHA: "ccc333"}}) catch {
-	case NotFound, AlreadyExists, InvalidTransition, StaleClaim, CommandReused, InvalidInput:
-		return false
-	}
-	let s5 = ApplyAll(s4, e5)
-	let landedOk = match UnitByID(s5, uid) {
-	case option.Some[Unit] as u:
-		u.Value.Status == UnitLanded && u.Value.Round == 2 && u.Value.HeadSHA == option.Some[string]{Value: "ccc333"}
-	case option.None:
-		false
-	}
-	handBackBeforeClaimRefused && staleOwnerRefused && landedOk
+	let again = decideOutcome(s, Envelope{ID: CommandID("a2"), Actor: "law", At: "2026-11-26T00:00:00Z", Command: OpenUnit{Key: a, Title: "A", Requires: []string{"acceptance"}, Lane: option.None, Branch: option.None}})
+	let bAccept = decideOutcome(s, Envelope{ID: CommandID("acc-b"), Actor: "law", At: "2026-11-26T00:00:00Z", Command: AcceptUnit{Unit: b, Head: "h"}})
+	ReceiptsOf(s, a).Len() == 1 && ReceiptsOf(s, b).Len() == 0 && again == decidedRefused{Refusal: AlreadyExists{Kind: "unit", ID: UnitKeyText(a)}} && bAccept == decidedRefused{Refusal: Unverified{Unit: b, Head: "h", Missing: []string{"acceptance"}, Red: []string{}}}
 }
 
-// ReceiptRecordedReadable verifies that a recorded receipt is immediately readable by unit and round with its external log path and SHA-256 intact.
-law ReceiptRecordedReadable(tag int, roundOffset int, exitCode int) {
-	let uid = "ru-\(tag)"
-	let rid = "rec-\(tag)"
-	let round = 1 + ((roundOffset%5)+5)%5
-	let digest = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-	let s0 = EmptyState()
-	let e1 = Decide(s0, Envelope{ID: CommandID("ro-\(tag)"), Actor: "root", At: "2026-11-24T02:00:00Z", Command: OpenUnit{ID: uid, Title: "Verify", Area: "orch"}}) catch {
-	case NotFound, AlreadyExists, InvalidTransition, StaleClaim, CommandReused, InvalidInput:
+// ReceiptRecordedReadable verifies that a recorded receipt is readable by its unit with its command, head, exit code and exit lines intact, under its command id.
+law ReceiptRecordedReadable(tag int, exitCode int) {
+	let key = UnitKey{Repo: "repo", Run: "run", ID: "ru-\(tag)"}
+	let s1 = lawStep(EmptyState(), "open", OpenUnit{Key: key, Title: "Verify", Requires: []string{"gate"}, Lane: option.None, Branch: option.None}) catch {
+	case _:
 		return false
 	}
-	let s1 = ApplyAll(s0, e1)
-	let e2 = Decide(s1, Envelope{
-		ID:      CommandID("rr-\(tag)"),
-		Actor:   "verifier",
-		At:      "2026-11-24T02:01:00Z",
-		Command: RecordReceipt{
-			ID:             rid,
-			UnitID:         uid,
-			Round:          round,
-			Kind:           "gate",
-			Command:        "ergo test ./...",
-			CommitSHA:      "deadbeef",
-			ExitCode:       exitCode,
-			SummaryMetrics: "pass=12",
-			LogPath:        "/logs/gate.log",
-			LogSHA256:      digest,
-		},
-	}) catch {
-	case NotFound, AlreadyExists, InvalidTransition, StaleClaim, CommandReused, InvalidInput:
+	let s2 = lawStep(s1, "rec-\(tag)", RecordReceipt{Unit: key, Kind: "gate", Command: "ergo test ./...", Head: "deadbeef", ExitCode: exitCode, ExitLines: "pass=12"}) catch {
+	case _:
 		return false
 	}
-	let s2 = ApplyAll(s1, e2)
-	let byUnit = ReceiptsOf(s2, uid, option.None)
-	let byRound = ReceiptsOf(s2, uid, option.Some[int]{Value: round})
-	let otherRound = ReceiptsOf(s2, uid, option.Some[int]{Value: round + 1})
-	byUnit.Len() == 1 && byUnit == byRound && otherRound.Len() == 0 && byUnit[0].ID == rid && byUnit[0].LogSHA256 == digest && byUnit[0].ExitCode == exitCode
+	let got = ReceiptsOf(s2, key)
+	let want = Receipt{ID: "rec-\(tag)", Unit: key, Kind: "gate", Command: "ergo test ./...", Head: "deadbeef", ExitCode: exitCode, ExitLines: "pass=12", RecordedAt: "2026-11-26T00:00:00Z", RecordedBy: "law"}
+	got == []Receipt{want}
 }
 
 // CommitmentLandedMonotone verifies that once a commitment lands, neither assign, land, nor decide can mutate its landed status or SHA.
 law CommitmentLandedMonotone(tag int) {
 	let cid = "cm-\(tag)"
-	let s0 = EmptyState()
-	let e1 = Decide(s0, Envelope{ID: CommandID("ca-\(tag)"), Actor: "root", At: "2026-11-24T03:00:00Z", Command: AddCommitment{ID: cid, Title: "Ship ORCH-2", Kind: "plan-part"}}) catch {
-	case NotFound, AlreadyExists, InvalidTransition, StaleClaim, CommandReused, InvalidInput:
+	let mut s = lawStep(EmptyState(), "ca", AddCommitment{ID: cid, Title: "Ship ORCH-2", Kind: "plan-part"}) catch {
+	case _:
 		return false
 	}
-	let s1 = ApplyAll(s0, e1)
-	let e2 = Decide(s1, Envelope{ID: CommandID("cas-\(tag)"), Actor: "root", At: "2026-11-24T03:01:00Z", Command: AssignCommitment{ID: cid, Owner: "worker", Lane: "orch-domain"}}) catch {
-	case NotFound, AlreadyExists, InvalidTransition, StaleClaim, CommandReused, InvalidInput:
+	s = lawStep(s, "cas", AssignCommitment{ID: cid, Owner: "worker", Lane: "orch-domain"}) catch {
+	case _:
 		return false
 	}
-	let s2 = ApplyAll(s1, e2)
-	let e3 = Decide(s2, Envelope{ID: CommandID("cl-\(tag)"), Actor: "integrator", At: "2026-11-24T03:02:00Z", Command: LandCommitment{ID: cid, LandedSHA: "11112222"}}) catch {
-	case NotFound, AlreadyExists, InvalidTransition, StaleClaim, CommandReused, InvalidInput:
+	s = lawStep(s, "cl", LandCommitment{ID: cid, LandedSHA: "11112222"}) catch {
+	case _:
 		return false
 	}
-	let s3 = ApplyAll(s2, e3)
-	let mut assignRefused = false
-	let _ = Decide(s3, Envelope{ID: CommandID("ca2-\(tag)"), Actor: "root", At: "2026-11-24T03:03:00Z", Command: AssignCommitment{ID: cid, Owner: "other", Lane: "lane-2"}}) catch {
-	case InvalidTransition:
-		assignRefused = true
-		[]Event{}
-	case NotFound, AlreadyExists, StaleClaim, CommandReused, InvalidInput:
-		return false
-	}
-	let mut decideRefused = false
-	let _ = Decide(s3, Envelope{ID: CommandID("cd-\(tag)"), Actor: "root", At: "2026-11-24T03:04:00Z", Command: DecideCommitment{ID: cid, Note: "undo", Withdraw: false}}) catch {
-	case InvalidTransition:
-		decideRefused = true
-		[]Event{}
-	case NotFound, AlreadyExists, StaleClaim, CommandReused, InvalidInput:
-		return false
-	}
-	let mut relandRefused = false
-	let _ = Decide(s3, Envelope{ID: CommandID("cl2-\(tag)"), Actor: "root", At: "2026-11-24T03:05:00Z", Command: LandCommitment{ID: cid, LandedSHA: "99998888"}}) catch {
-	case InvalidTransition:
-		relandRefused = true
-		[]Event{}
-	case NotFound, AlreadyExists, StaleClaim, CommandReused, InvalidInput:
-		return false
-	}
-	let kept = match CommitmentByID(s3, cid) {
+	let from = InvalidTransition{Kind: "commitment", ID: cid, From: "landed", Action: ""}
+	let assign = decideOutcome(s, Envelope{ID: CommandID("ca2"), Actor: "root", At: "2026-11-24T03:03:00Z", Command: AssignCommitment{ID: cid, Owner: "other", Lane: "lane-2"}})
+	let decide = decideOutcome(s, Envelope{ID: CommandID("cd"), Actor: "root", At: "2026-11-24T03:04:00Z", Command: DecideCommitment{ID: cid, Note: "undo", Withdraw: false}})
+	let reland = decideOutcome(s, Envelope{ID: CommandID("cl2"), Actor: "root", At: "2026-11-24T03:05:00Z", Command: LandCommitment{ID: cid, LandedSHA: "99998888"}})
+	let kept = match CommitmentByID(s, cid) {
 	case option.Some[Commitment] as c:
 		c.Value.Status == CommitLanded && c.Value.LandedSHA == option.Some[string]{Value: "11112222"}
 	case option.None:
 		false
 	}
-	assignRefused && decideRefused && relandRefused && kept
+	assign == decidedRefused{Refusal: InvalidTransition{..from, Action: "assign"}} && decide == decidedRefused{Refusal: InvalidTransition{..from, Action: "decide"}} && reland == decidedRefused{Refusal: InvalidTransition{..from, Action: "land"}} && kept
 }
 
 // QueueUpsertRemoveRoundTrip verifies that upserting a queue item makes it listable with exact fields and removing it deletes it cleanly.
 law QueueUpsertRemoveRoundTrip(tag int, priority int) {
 	let key = "qk-\(tag)"
-	let s0 = EmptyState()
-	let e1 = Decide(s0, Envelope{
-		ID:      CommandID("qu-\(tag)"),
-		Actor:   "root",
-		At:      "2026-11-24T04:00:00Z",
-		Command: UpsertQueueItem{
-			Key:      key,
-			Priority: priority,
-			Title:    "Item \(tag)",
-			Body:     "details",
-			Status:   "open",
-			Tags:     []string{"orch", "v1"},
-		},
-	}) catch {
-	case NotFound, AlreadyExists, InvalidTransition, StaleClaim, CommandReused, InvalidInput:
+	let s1 = lawStep(EmptyState(), "qu", UpsertQueueItem{Key: key, Priority: priority, Title: "Item \(tag)", Body: "details", Status: "open", Tags: []string{"orch", "v1"}}) catch {
+	case _:
 		return false
 	}
-	let s1 = ApplyAll(s0, e1)
 	let listed1 = ListQueue(s1, option.Some[string]{Value: "open"})
-	let e2 = Decide(s1, Envelope{ID: CommandID("qr-\(tag)"), Actor: "root", At: "2026-11-24T04:01:00Z", Command: RemoveQueueItem{Key: key}}) catch {
-	case NotFound, AlreadyExists, InvalidTransition, StaleClaim, CommandReused, InvalidInput:
+	let s2 = lawStep(s1, "qr", RemoveQueueItem{Key: key}) catch {
+	case _:
 		return false
 	}
-	let s2 = ApplyAll(s1, e2)
 	let listed2 = ListQueue(s2, option.None)
-	let mut secondRemoveNotFound = false
-	let _ = Decide(s2, Envelope{ID: CommandID("qr2-\(tag)"), Actor: "root", At: "2026-11-24T04:02:00Z", Command: RemoveQueueItem{Key: key}}) catch {
-	case NotFound:
-		secondRemoveNotFound = true
-		[]Event{}
-	case AlreadyExists, InvalidTransition, StaleClaim, CommandReused, InvalidInput:
-		return false
-	}
-	listed1.Len() == 1 && listed1[0].Key == key && listed1[0].Priority == priority && listed2.Len() == 0 && secondRemoveNotFound
+	let second = decideOutcome(s2, Envelope{ID: CommandID("qr2"), Actor: "root", At: "2026-11-24T04:02:00Z", Command: RemoveQueueItem{Key: key}})
+	listed1.Len() == 1 && listed1[0].Key == key && listed1[0].Priority == priority && listed2.Len() == 0 && second == decidedRefused{Refusal: NotFound{Kind: "queue", ID: key}}
 }
 
 // QuestionAnsweredOnce verifies that questions receive monotonic IDs and can be answered or withdrawn at most once.
 law QuestionAnsweredOnce(tag int, withdraw bool) {
-	let s0 = EmptyState()
-	let e1 = Decide(s0, Envelope{
-		ID:      CommandID("qa1-\(tag)"),
-		Actor:   "worker",
-		At:      "2026-11-24T05:00:00Z",
-		Command: AskQuestion{ID: option.None, Prompt: "Ship now?", Assumption: "wait for gate", ConcreteAction: "reply yes or no"},
-	}) catch {
-	case NotFound, AlreadyExists, InvalidTransition, StaleClaim, CommandReused, InvalidInput:
+	let mut s = lawStep(EmptyState(), "qa1-\(tag)", AskQuestion{ID: option.None, Prompt: "Ship now?", Assumption: "wait for gate", ConcreteAction: "reply yes or no"}) catch {
+	case _:
 		return false
 	}
-	let s1 = ApplyAll(s0, e1)
-	let e2 = Decide(s1, Envelope{
-		ID:      CommandID("qa2-\(tag)"),
-		Actor:   "worker",
-		At:      "2026-11-24T05:01:00Z",
-		Command: AskQuestion{ID: option.None, Prompt: "Second?", Assumption: "default", ConcreteAction: "reply"},
-	}) catch {
-	case NotFound, AlreadyExists, InvalidTransition, StaleClaim, CommandReused, InvalidInput:
+	s = lawStep(s, "qa2-\(tag)", AskQuestion{ID: option.None, Prompt: "Second?", Assumption: "default", ConcreteAction: "reply"}) catch {
+	case _:
 		return false
 	}
-	let s2 = ApplyAll(s1, e2)
-	let e3 = Decide(s2, Envelope{
-		ID:      CommandID("qans-\(tag)"),
-		Actor:   "owner",
-		At:      "2026-11-24T05:02:00Z",
-		Command: AnswerQuestion{ID: 1, Answer: "yes, ship", Withdraw: withdraw},
-	}) catch {
-	case NotFound, AlreadyExists, InvalidTransition, StaleClaim, CommandReused, InvalidInput:
+	s = lawStep(s, "qans-\(tag)", AnswerQuestion{ID: 1, Answer: "yes, ship", Withdraw: withdraw}) catch {
+	case _:
 		return false
 	}
-	let s3 = ApplyAll(s2, e3)
-	let mut secondAnswerRefused = false
-	let _ = Decide(s3, Envelope{
-		ID:      CommandID("qans2-\(tag)"),
-		Actor:   "owner",
-		At:      "2026-11-24T05:03:00Z",
-		Command: AnswerQuestion{ID: 1, Answer: "changed mind", Withdraw: false},
-	}) catch {
-	case InvalidTransition:
-		secondAnswerRefused = true
-		[]Event{}
-	case NotFound, AlreadyExists, StaleClaim, CommandReused, InvalidInput:
-		return false
-	}
+	let from = if withdraw { "withdrawn" } else { "answered" }
+	let second = decideOutcome(s, Envelope{ID: CommandID("qans2-\(tag)"), Actor: "owner", At: "2026-11-24T05:03:00Z", Command: AnswerQuestion{ID: 1, Answer: "changed mind", Withdraw: false}})
 	let expectedStatus QuestionStatus = if withdraw { QuestionWithdrawn } else { QuestionAnswered }
-	let q1Ok = match QuestionByID(s3, 1) {
+	let q1Ok = match QuestionByID(s, 1) {
 	case option.Some[Question] as q:
 		q.Value.Status == expectedStatus
 	case option.None:
 		false
 	}
-	let q2Ok = match QuestionByID(s3, 2) {
+	let q2Ok = match QuestionByID(s, 2) {
 	case option.Some[Question] as q:
 		q.Value.Status == QuestionOpen
 	case option.None:
 		false
 	}
-	s3.NextQuestionID == 3 && ListQuestions(s3, true).Len() == 1 && q1Ok && q2Ok && secondAnswerRefused
+	s.NextQuestionID == 3 && ListQuestions(s, true).Len() == 1 && q1Ok && q2Ok && second == decidedRefused{Refusal: InvalidTransition{Kind: "question", ID: "1", From: from, Action: "answer"}}
 }
