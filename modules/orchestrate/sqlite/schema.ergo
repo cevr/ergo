@@ -34,27 +34,23 @@ func initSchema() fails orchestrate.StoreFailed needs sql.Tx {
 		)
 	}
 	try createTablesTx()
-	let _ = try execTx("PRAGMA user_version = "+strconv.Itoa(CurrentSchemaVersion), []sql.Value{})
 }
 
 func createTablesTx() fails orchestrate.StoreFailed needs sql.Tx {
-	let ddl = []string{
-		"CREATE TABLE IF NOT EXISTS commands (command_id TEXT PRIMARY KEY, actor TEXT NOT NULL, at TEXT NOT NULL, payload_json TEXT NOT NULL, payload_digest TEXT NOT NULL)",
-		"CREATE TABLE IF NOT EXISTS events (seq INTEGER PRIMARY KEY, command_id TEXT NOT NULL, payload_digest TEXT NOT NULL, event_json TEXT NOT NULL)",
-		"CREATE INDEX IF NOT EXISTS idx_events_command_id ON events (command_id)",
-		"CREATE TABLE IF NOT EXISTS units (repo TEXT NOT NULL, run TEXT NOT NULL, id TEXT NOT NULL, title TEXT NOT NULL, requires_json TEXT NOT NULL, lane TEXT, branch TEXT, status TEXT NOT NULL, head TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY (repo, run, id))",
-		"CREATE TABLE IF NOT EXISTS receipts (id TEXT PRIMARY KEY, seq_order INTEGER NOT NULL, repo TEXT NOT NULL, run TEXT NOT NULL, unit_id TEXT NOT NULL, kind TEXT NOT NULL, command TEXT NOT NULL, head TEXT NOT NULL, exit_code INTEGER NOT NULL, exit_lines TEXT NOT NULL, recorded_at TEXT NOT NULL, recorded_by TEXT NOT NULL, FOREIGN KEY (repo, run, unit_id) REFERENCES units (repo, run, id))",
-		"CREATE INDEX IF NOT EXISTS idx_receipts_unit_head ON receipts (repo, run, unit_id, head, seq_order)",
-		"CREATE TABLE IF NOT EXISTS commitments (id TEXT PRIMARY KEY, title TEXT NOT NULL, kind TEXT NOT NULL, status TEXT NOT NULL, owner TEXT, lane TEXT, landed_sha TEXT, decision_note TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)",
-		"CREATE INDEX IF NOT EXISTS idx_commitments_status_owner ON commitments (status, owner, id)",
-		"CREATE TABLE IF NOT EXISTS queue (key TEXT PRIMARY KEY, priority INTEGER NOT NULL, title TEXT NOT NULL, body TEXT NOT NULL, status TEXT NOT NULL, tags_json TEXT NOT NULL, updated_at TEXT NOT NULL)",
-		"CREATE INDEX IF NOT EXISTS idx_queue_order ON queue (status, priority, key)",
-		"CREATE TABLE IF NOT EXISTS questions (id INTEGER PRIMARY KEY, command_id TEXT NOT NULL UNIQUE, prompt TEXT NOT NULL, assumption TEXT NOT NULL, concrete_action TEXT NOT NULL, status TEXT NOT NULL, answer TEXT, asked_by TEXT NOT NULL, asked_at TEXT NOT NULL, answered_by TEXT, answered_at TEXT)",
-		"CREATE INDEX IF NOT EXISTS idx_questions_status ON questions (status, id)",
-	}
-	for stmt in ddl {
-		let _ = try execTx(stmt, []sql.Value{})
-	}
+	let ddl = "CREATE TABLE IF NOT EXISTS commands (command_id TEXT PRIMARY KEY, actor TEXT NOT NULL, at TEXT NOT NULL, payload_json TEXT NOT NULL, payload_digest TEXT NOT NULL);" +
+		"CREATE TABLE IF NOT EXISTS events (seq INTEGER PRIMARY KEY, command_id TEXT NOT NULL, payload_digest TEXT NOT NULL, event_json TEXT NOT NULL);" +
+		"CREATE INDEX IF NOT EXISTS idx_events_command_id ON events (command_id);" +
+		"CREATE TABLE IF NOT EXISTS units (repo TEXT NOT NULL, run TEXT NOT NULL, id TEXT NOT NULL, title TEXT NOT NULL, requires_json TEXT NOT NULL, lane TEXT, branch TEXT, status TEXT NOT NULL, head TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY (repo, run, id));" +
+		"CREATE TABLE IF NOT EXISTS receipts (id TEXT PRIMARY KEY, seq_order INTEGER NOT NULL, repo TEXT NOT NULL, run TEXT NOT NULL, unit_id TEXT NOT NULL, kind TEXT NOT NULL, command TEXT NOT NULL, head TEXT NOT NULL, exit_code INTEGER NOT NULL, exit_lines TEXT NOT NULL, recorded_at TEXT NOT NULL, recorded_by TEXT NOT NULL, FOREIGN KEY (repo, run, unit_id) REFERENCES units (repo, run, id));" +
+		"CREATE INDEX IF NOT EXISTS idx_receipts_unit_head ON receipts (repo, run, unit_id, head, seq_order);" +
+		"CREATE TABLE IF NOT EXISTS commitments (id TEXT PRIMARY KEY, title TEXT NOT NULL, kind TEXT NOT NULL, status TEXT NOT NULL, owner TEXT, lane TEXT, landed_sha TEXT, decision_note TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);" +
+		"CREATE INDEX IF NOT EXISTS idx_commitments_status_owner ON commitments (status, owner, id);" +
+		"CREATE TABLE IF NOT EXISTS queue (key TEXT PRIMARY KEY, priority INTEGER NOT NULL, title TEXT NOT NULL, body TEXT NOT NULL, status TEXT NOT NULL, tags_json TEXT NOT NULL, updated_at TEXT NOT NULL);" +
+		"CREATE INDEX IF NOT EXISTS idx_queue_order ON queue (status, priority, key);" +
+		"CREATE TABLE IF NOT EXISTS questions (id INTEGER PRIMARY KEY, command_id TEXT NOT NULL UNIQUE, prompt TEXT NOT NULL, assumption TEXT NOT NULL, concrete_action TEXT NOT NULL, status TEXT NOT NULL, answer TEXT, asked_by TEXT NOT NULL, asked_at TEXT NOT NULL, answered_by TEXT, answered_at TEXT);" +
+		"CREATE INDEX IF NOT EXISTS idx_questions_status ON questions (status, id);" +
+		"PRAGMA user_version = " + strconv.Itoa(CurrentSchemaVersion)
+	let _ = try execTx(ddl, []sql.Value{})
 }
 
 func execTx(stmt string, args []sql.Value) sql.Result fails orchestrate.StoreFailed needs sql.Tx {
