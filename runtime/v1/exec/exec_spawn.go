@@ -102,7 +102,12 @@ func ExecSpawn(t *rt.Task, name string, args []string, env map[string]string, di
 	}
 	pid := cmd.Process.Pid
 	start := execStartTime(pid)
-	go func() { _ = cmd.Wait() }() // the reap; see the doc comment
+	reg := registerDetachedChild(pid, start)
+	go func() {
+		_ = cmd.Wait()
+		status, sig := execStatusSignal(cmd.ProcessState)
+		reg.complete(status, sig)
+	}() // the reap; see the doc comment
 	return ExecDetached{Pid: pid, Start: start, Name: name}, nil
 }
 

@@ -73,6 +73,12 @@ var ArgClauses = []ArgClause{
 	{"collections.MapFold.Fold", "f", "non-escaping", "no Go body: included from Foldable; Fold invokes f synchronously during the call and never retains it"},
 	{"csv.scan", "each", "non-escaping", "CSVScan calls each in a loop over Go's csv.Reader on the caller's goroutine, one record at a time, and keeps nothing"},
 	{"exec.waitFor", "p", "lent", "ExecWaitFor calls p's Wait on the caller's task, or through After on a child that After stops and joins on every exit before it returns; Wait waits on channels and finish runs once, so the child's Wait is sound while the caller owns p; it keeps nothing and never releases p"},
+	{"exec.hostStartWithPTY", "p", "lent", "ExecStartWithPTY acquires p's slave FD or path to attach to the spawned child on the caller's task before closing parent's slave handle and returning; it never closes p's master FD or retains p past the return"},
+	{"exec.hostSpawnWithPTY", "p", "lent", "ExecSpawnWithPTY acquires p's slave FD or path to attach to the detached child on the caller's task before closing parent's slave handle and returning; it never closes p's master FD or retains p past the return"},
+	{"exec.Sessions.StartWithPTY", "p", "lent", "an operation: Host.StartWithPTY delegates to hostStartWithPTY and MemorySessions.StartWithPTY reads p's ID without retaining p past the return"},
+	{"exec.Sessions.SpawnWithPTY", "p", "lent", "an operation: Host.SpawnWithPTY delegates to hostSpawnWithPTY and MemorySessions.SpawnWithPTY reads p's ID without retaining p past the return"},
+	{"exec.memSessions.StartWithPTY", "p", "lent", "MemSessions.StartWithPTY inspects p under lock synchronously and never retains p past the return"},
+	{"exec.memSessions.SpawnWithPTY", "p", "lent", "MemSessions.SpawnWithPTY inspects p under lock synchronously and never retains p past the return"},
 	// fs: SameAs reads only the identity m kept when it was mapped.
 	{"fs.hostSameAs", "m", "lent", "FSSameAs reads m's kept device and inode (m.known, m.dev, m.ino) on the caller's goroutine to compare them with os.Stat's, and keeps nothing; it never unmaps m"},
 	{"mapped.Maps.SameAs", "m", "lent", "no Go body: Host's SameAs is fs.SameAs over its fs.Host, whose body FSSameAs only reads m's kept identity and keeps nothing; an implementation reads m before it returns and never releases it"},

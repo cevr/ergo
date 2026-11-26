@@ -1125,9 +1125,89 @@ func Lines(_ Mine) Seq[exec.Line] { Seq[exec.Line](func(yield func(v exec.Line) 
 func Chunks(_ Mine) Seq[exec.Chunk] { Seq[exec.Chunk](func(yield func(v exec.Chunk) bool) {}) }
 func Wait(_ Mine) int { 0 }
 func Stop(m own Mine) int { Close(m); 0 }
+func Pid(_ Mine) int { 0 }
+func WriteStdin(_ Mine, _ string) fails exec.Failed {}
+func CloseStdin(_ Mine) fails exec.Failed {}
+func Detach(m own Mine) exec.DetachedRun fails exec.Failed { Close(m); exec.Failed{Name: "", Reason: ""} }
 func Close(_ Mine) {}
 
 func use(r exec.Running) { _ = r.Wait() }
+
+func main() {
+	use(Mine)
+}
+`,
+	"exec.PTY": `import exec
+
+type Mine {} implements Closer
+
+func Fd(_ Mine) int { -1 }
+func DupFD(_ Mine) int fails exec.Failed | exec.Unsupported { -1 }
+func SlavePath(_ Mine) string { "" }
+func CloseSlave(_ Mine) {}
+func Size(_ Mine) exec.Winsize fails exec.Failed | exec.Unsupported { exec.Winsize{} }
+func Resize(_ Mine, _ exec.Winsize) fails exec.Failed | exec.Unsupported {}
+func Read(_ Mine) string fails exec.Failed | exec.Unsupported { "" }
+func Write(_ Mine, _ string) fails exec.Failed | exec.Unsupported {}
+func Close(_ Mine) {}
+
+func use(p exec.PTY) { _ = p.Fd() }
+
+func main() {
+	use(Mine)
+}
+`,
+	"exec.Pipe": `import exec
+
+type Mine {} implements Closer
+
+func Fd(_ Mine) int { -1 }
+func DupFD(_ Mine) int fails exec.Failed | exec.Unsupported { -1 }
+func Read(_ Mine) string fails exec.Failed | exec.Unsupported { "" }
+func Write(_ Mine, _ string) fails exec.Failed | exec.Unsupported {}
+func Close(_ Mine) {}
+
+func use(p exec.Pipe) { _ = p.Fd() }
+
+func main() {
+	use(Mine)
+}
+`,
+	"exec.DetachedRun": `import exec
+import option
+
+type Mine {} implements Closer
+
+func Info(_ Mine) exec.Detached { exec.Detached{} }
+func BufferedStdout(_ Mine) string { "" }
+func BufferedStderr(_ Mine) string { "" }
+func TakeStdin(_ Mine) option.Option[exec.Pipe] { option.None }
+func TakeStdout(_ Mine) option.Option[exec.Pipe] { option.None }
+func TakeStderr(_ Mine) option.Option[exec.Pipe] { option.None }
+func IntoDetached(m own Mine) exec.Detached { Close(m); exec.Detached{} }
+func Close(_ Mine) {}
+
+func use(d exec.DetachedRun) { _ = d.Info() }
+
+func main() {
+	use(Mine)
+}
+`,
+	"exec.Sessions": `import exec
+
+type Mine {} implements exec.Sessions
+
+func OpenPTY(_ Mine) exec.PTY fails exec.Failed | exec.Denied | exec.Unsupported { exec.Failed{Name: "", Reason: ""} }
+func StartWithPTY(_ Mine, _ exec.Command, _ exec.PTY) exec.Running fails exec.NotFound | exec.Denied | exec.Failed | exec.Unsupported { exec.Failed{Name: "", Reason: ""} }
+func SpawnWithPTY(_ Mine, _ exec.Command, _ exec.PTY) exec.Detached fails exec.NotFound | exec.Denied | exec.Failed | exec.Unsupported { exec.Failed{Name: "", Reason: ""} }
+func StartInteractive(_ Mine, _ exec.Command, _ exec.Streams) exec.Running fails exec.NotFound | exec.Denied | exec.Failed { exec.Failed{Name: "", Reason: ""} }
+func OpenPipe(_ Mine) (exec.Pipe, exec.Pipe) fails exec.Failed | exec.Denied | exec.Unsupported { exec.Failed{Name: "", Reason: ""} }
+func ReattachPTY(_ Mine, _ int) exec.PTY fails exec.Failed | exec.Denied | exec.Unsupported { exec.Failed{Name: "", Reason: ""} }
+func ReattachPipe(_ Mine, _ int) exec.Pipe fails exec.Failed | exec.Denied | exec.Unsupported { exec.Failed{Name: "", Reason: ""} }
+func PollDetached(_ Mine, _ exec.Detached) exec.ExitOutcome fails exec.Denied | exec.Unsupported { exec.StillRunning{} }
+func WaitDetached(_ Mine, _ exec.Detached) exec.ExitOutcome fails exec.Denied | exec.Unsupported { exec.StillRunning{} }
+
+func use(s exec.Sessions) { _ = s }
 
 func main() {
 	use(Mine)
@@ -1869,6 +1949,7 @@ var openStd = map[string]bool{
 	"io.Stdin":          true,
 	"exec.Runner":       true,
 	"exec.Spawner":      true,
+	"exec.Sessions":     true,
 	"ui.Clipboard":      true,
 	"ui.Measure":        true,
 	"ui.Host":           true,

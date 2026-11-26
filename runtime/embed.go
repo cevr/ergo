@@ -39,7 +39,7 @@ import (
 //go:embed v1/view.go v1/guard.go v1/guard_unix.go v1/guard_other.go v1/cguard.go v1/cguard_unix.go v1/cguard_other.go
 //go:embed v1/digest/digest.go v1/digest/keyed.go v1/csv/csv.go v1/rand/rand.go v1/gofmt/gofmt.go v1/hostwalk/hostwalk.go
 //go:embed v1/hostfs/hostfs.go v1/hostfs/statfs_linux.go v1/hostfs/statfs_darwin.go
-//go:embed v1/exec/exec.go v1/exec/exec_confine.go v1/exec/exec_exit_kqueue.go v1/exec/exec_exit_linux.go v1/exec/exec_start.go v1/exec/exec_sandbox_linux.go v1/exec/exec_sandbox_other.go
+//go:embed v1/exec/exec.go v1/exec/exec_confine.go v1/exec/exec_exit_kqueue.go v1/exec/exec_exit_linux.go v1/exec/exec_pty.go v1/exec/exec_pty_bsd_other.go v1/exec/exec_pty_darwin.go v1/exec/exec_pty_kqueue.go v1/exec/exec_pty_linux.go v1/exec/exec_pty_mem.go v1/exec/exec_pty_other.go v1/exec/exec_pty_unix.go v1/exec/exec_start.go v1/exec/exec_sandbox_linux.go v1/exec/exec_sandbox_other.go
 //go:embed explore/explore.go
 //go:embed testgen/classes.go testgen/near.go testgen/stream.go
 //go:embed v1/moves.go v1/static.go v1/owned.go v1/unchecked.go v1/exits.go v1/strbuf.go
@@ -122,7 +122,7 @@ var packages = sync.OnceValue(func() map[string]pkg {
 			imports: []string{"runtime/rt"},
 		},
 		"runtime/v1/exec": {
-			files:   []string{"exec.go", "exec_confine.go", "exec_exit_kqueue.go", "exec_exit_linux.go", "exec_replace_unix.go", "exec_sandbox_linux.go", "exec_sandbox_other.go", "exec_spawn.go", "exec_spawn_darwin.go", "exec_spawn_linux.go", "exec_spawn_other.go", "exec_start.go", "exec_unix.go"},
+			files:   []string{"exec.go", "exec_confine.go", "exec_exit_kqueue.go", "exec_exit_linux.go", "exec_pty.go", "exec_pty_bsd_other.go", "exec_pty_darwin.go", "exec_pty_kqueue.go", "exec_pty_linux.go", "exec_pty_mem.go", "exec_pty_other.go", "exec_pty_unix.go", "exec_replace_unix.go", "exec_sandbox_linux.go", "exec_sandbox_other.go", "exec_spawn.go", "exec_spawn_darwin.go", "exec_spawn_linux.go", "exec_spawn_other.go", "exec_start.go", "exec_unix.go"},
 			imports: []string{"runtime/rt", "runtime/v1"},
 		},
 		// database/sql and reflect: std sql's Host (wf10 TX1).

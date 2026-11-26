@@ -191,7 +191,7 @@ var actorWaitLaws = map[string]bool{"Actor.Send": true, "Actor.Ask": true, "Acto
 // program: runtime/v1/exec/exec_spawn_test.go TestExecSpawnStopped states that
 // a stopped caller's Spawn starts nothing, and TestExecKillStopped that a
 // stop during Kill's grace goes on to SIGKILL and returns.
-var hostWaitLaws = map[string]bool{"ExecRun": true, "ExecRunIn": true, "ExecStartIn": true, "ExecSpawn": true, "ExecKill": true, "ExecStart": true, "Running.Lines": true, "Running.Chunks": true, "Running.Wait": true, "IOReadAll": true, "IOLines": true, "IORead": true, "RPCCall": true, "Exchange.Write": true, "HTTPDo": true, "HTTPFetch": true, "HTTPFetchInto": true, "HTTPFetchRemote": true, "HTTPFetchRemoteInto": true, "HTTPDoInto": true, "HTTPFetchLocal": true, "HTTPFetchLocalInto": true, "TermPeek": true}
+var hostWaitLaws = map[string]bool{"ExecRun": true, "ExecRunIn": true, "ExecStartIn": true, "ExecSpawn": true, "ExecKill": true, "ExecStart": true, "ExecStartInteractive": true, "ExecStartInteractiveIn": true, "ExecStartWithPTY": true, "ExecSpawnWithPTY": true, "ExecWaitDetached": true, "MemSessions.WaitDetached": true, "PTY.Read": true, "Pipe.Read": true, "Running.Lines": true, "Running.Chunks": true, "Running.Wait": true, "IOReadAll": true, "IOLines": true, "IORead": true, "RPCCall": true, "Exchange.Write": true, "HTTPDo": true, "HTTPFetch": true, "HTTPFetchInto": true, "HTTPFetchRemote": true, "HTTPFetchRemoteInto": true, "HTTPDoInto": true, "HTTPFetchLocal": true, "HTTPFetchLocalInto": true, "TermPeek": true}
 
 // blockingRoutes is the route axis of a binding (runtime.md, I1): the
 // waiting task of a callerWait binding is the task that invokes the call,

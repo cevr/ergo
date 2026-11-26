@@ -19,6 +19,8 @@ let onTestHostWithPath = context needs fstest.TestAmbient { Runner: NewTestHost(
 
 let onObservedTestHost = context needs fstest.TestAmbient { Runner: Observed(NewTestHost().InheritEnv(systemPath()), time.NewManual(0)) }
 
+let onMemorySessions = context { Sessions: NewMemorySessions([]string{"cat", "sleep", "sh", "worker"}), Spawner: NewMemorySessions([]string{"cat", "sleep", "sh", "worker"}) }
+
 // systemPath is a PATH of the system's program directories alone.
 func systemPath() Map[string, string] {
 	let mut env = Map[string, string]{}
