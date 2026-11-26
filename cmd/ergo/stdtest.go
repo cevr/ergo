@@ -38,10 +38,11 @@ func stdSkipsExit(stdout []byte, root testplan.NativeRoot) error {
 }
 
 func unlistedStdSkips(stdout []byte, root testplan.NativeRoot, listed map[string]stdlib.TestRed) []string {
+	passed := passedStdLaws(stdout)
 	var unexpected []string
 	for line := range strings.SplitSeq(string(stdout), "\n") {
 		line = strings.TrimSpace(line)
-		if strings.HasSuffix(line, ": --skip-law") {
+		if strings.HasSuffix(line, ": --skip-law") || isCoveredHostRowSkip(line, passed) {
 			continue
 		}
 		name, missing := stdlib.NativeMissingLaw(line)
@@ -56,6 +57,38 @@ func unlistedStdSkips(stdout []byte, root testplan.NativeRoot, listed map[string
 		unexpected = append(unexpected, line)
 	}
 	return unexpected
+}
+
+func passedStdLaws(stdout []byte) map[string]bool {
+	out := map[string]bool{}
+	for line := range strings.SplitSeq(string(stdout), "\n") {
+		rest, ok := strings.CutPrefix(strings.TrimSpace(line), "ok law ")
+		if !ok {
+			continue
+		}
+		law, _, _ := strings.Cut(rest, " ")
+		if law != "" {
+			out[law] = true
+		}
+	}
+	return out
+}
+
+func isCoveredHostRowSkip(line string, passed map[string]bool) bool {
+	rest, ok := strings.CutPrefix(line, "skip law ")
+	if !ok {
+		return false
+	}
+	subject, reason, ok := strings.Cut(rest, ": ")
+	if !ok {
+		return false
+	}
+	law, _, hasFor := strings.Cut(subject, " for ")
+	if !hasFor || !passed[law] {
+		return false
+	}
+	return strings.HasPrefix(reason, "building ") &&
+		strings.HasSuffix(reason, " reads the host and requires Ambient, which a law case does not hold (HOST-ROW)")
 }
 
 // stdTestPackage is `ergo test std:PKG`. The run is always native and

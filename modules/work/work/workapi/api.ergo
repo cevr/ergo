@@ -1,6 +1,7 @@
 import fs
 import json
 import rpc
+import scope
 import sync
 import github.com/cevr/ergo/modules/work/work
 
@@ -796,7 +797,7 @@ func NewClient(inner work.Api) Client {
 
 // ClientInForce is the work.Api that invokes the provider currently in force.
 func ClientInForce() Client needs work.Api {
-	let held = InForce[work.Api]()
+	let held = scope.InForce[work.Api]()
 	Client{
 		opVersion:      func() string { with held { work.Api.Version() } },
 		opInit:         func() string fails work.Unkept | work.BadConfig | fs.Denied | fs.Failed { with held { try work.Api.Init() } },
