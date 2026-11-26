@@ -181,7 +181,7 @@ cmd_warm() {
     bounded go build ./...
     # The ergo tool builds without cgo (internal/ergobuild), and a package
     # above net is a separate cache entry per cgo setting.
-    CGO_ENABLED=0 bounded go build -o /dev/null ./cmd/ergo
+    CGO_ENABLED=0 bounded go build -trimpath -buildvcs=false -o /dev/null ./cmd/ergo
     bounded go vet ./...
   ) 9>&-
 }

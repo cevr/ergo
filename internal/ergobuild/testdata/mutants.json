@@ -1,0 +1,25 @@
+{
+  "about": "internal/ergobuild: how the ergo tool itself is built. Each mutant drops one flag that makes the build reproducible across checkouts, so two workspaces of one tree run two compiler identities and share no cached answer (SHARED-RESULT-CACHE, 2026-11-26).",
+  "mutants": [
+    {
+      "name": "ergobuild-drops-trimpath",
+      "origin": "wf10 SHARED-RESULT-CACHE (not-run-crunch)",
+      "file": "internal/ergobuild/ergobuild.go",
+      "decl": "Flags",
+      "from": "var Flags = []string{\"-trimpath\", \"-buildvcs=false\"}",
+      "to": "var Flags = []string{\"-buildvcs=false\"}",
+      "rule": "The tool's binary records no checkout folder, so the same sources build the same bytes in every workspace.",
+      "killers": ["internal/ergobuild:TestToolBuildsTheSameBytesInEveryCheckout"]
+    },
+    {
+      "name": "ergobuild-drops-buildvcs-off",
+      "origin": "wf10 SHARED-RESULT-CACHE (not-run-crunch)",
+      "file": "internal/ergobuild/ergobuild.go",
+      "decl": "Flags",
+      "from": "var Flags = []string{\"-trimpath\", \"-buildvcs=false\"}",
+      "to": "var Flags = []string{\"-trimpath\"}",
+      "rule": "The tool's binary records no commit, so one tree at two commits builds the same bytes.",
+      "killers": ["internal/ergobuild:TestToolBuildsTheSameBytesInEveryCheckout"]
+    }
+  ]
+}
