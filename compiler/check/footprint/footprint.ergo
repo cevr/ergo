@@ -1,0 +1,318 @@
+import compiler/check/bind
+import compiler/check/expr
+import compiler/check/store
+import compiler/syntax
+import dense
+import option
+import slices
+
+// Facts is each frame's footprint, a frame being one declaration of the
+// package with a body (expr.Pkg's Fns, by index): what its body runs when
+// it is called, solved once per strongly connected component of the call
+// graph, so every member of a component reads the same footprint. A
+// frame's caps are the capabilities whose operations it calls, its own
+// and those of every frame it runs; it is opaque when it runs code whose
+// footprint is unknown here; it dies when it declares defects or runs a
+// frame that does. Only an empty footprint is purity: no capability and not opaque.
+type Facts {
+	comp     []int,
+	opaque   []bool,
+	dies     []bool,
+	capStart []int,
+	caps     []dense.ID[store.TKey],
+}
+
+// Empty is whether frame f runs nothing a footprint counts.
+func Empty(fs Facts, f int) bool {
+	let c = fs.comp[f]
+	c >= 0 && !fs.opaque[c] && fs.capStart[c+1] == fs.capStart[c]
+}
+
+// Opaque is whether frame f runs code whose footprint is unknown.
+func Opaque(fs Facts, f int) bool {
+	let c = fs.comp[f]
+	c < 0 || fs.opaque[c]
+}
+
+// Dies is whether frame f declares defects or runs a frame that does.
+func Dies(fs Facts, f int) bool {
+	let c = fs.comp[f]
+	c < 0 || fs.dies[c]
+}
+
+// Caps is the capabilities frame f exercises, each once.
+func Caps(fs Facts, f int) []dense.ID[store.TKey] {
+	let c = fs.comp[f]
+	if c < 0 {
+		return []dense.ID[store.TKey]{}
+	}
+	fs.caps[fs.capStart[c]:fs.capStart[c+1]]
+}
+
+type graph {
+	edgeStart []int,
+	edges     []int,
+	capStart  []int,
+	caps      []dense.ID[store.TKey],
+	opaque    []bool,
+	dies      []bool,
+}
+
+// Of is the footprint of every frame of the typed package k: each body
+// walked once for its calls, then the call graph solved by components.
+func Of(s store.Store, k expr.Pkg, t expr.Typer) Facts {
+	let mut rows = 0
+	for p in k.Parsed {
+		if !p.Failed {
+			rows = rows + syntax.NumNodes(p.Tree)
+		}
+	}
+	let mut typed = dense.ColWithCap[store.PNode, bool](rows)
+	let mut capOf = dense.ColWithCap[store.PNode, dense.Opt[store.TKey]](rows)
+	let mut types = dense.ColWithCap[store.PNode, dense.Opt[store.TKey]](rows)
+	for _ in 0..rows {
+		dense.Push(&typed, false)
+		dense.Push(&capOf, dense.NoID[store.TKey]())
+		dense.Push(&types, dense.NoID[store.TKey]())
+	}
+	for c in t.Calls {
+		if !c.Recv && dense.In(typed, c.Call) {
+			dense.SetOf(&typed, c.Call, true)
+		}
+	}
+	for c in t.Caps {
+		if dense.In(capOf, c.Call) {
+			dense.SetOf(&capOf, c.Call, dense.OptOf(c.T))
+		}
+	}
+	for e in t.Entries {
+		if dense.In(types, e.At) {
+			dense.SetOf(&types, e.At, dense.OptOf(e.T))
+		}
+	}
+	let n = k.Fns.Len()
+	let mut g = graph{edgeStart: slices.WithCapacity[int](n + 1), edges: []int{}, capStart: slices.WithCapacity[int](n + 1), caps: []dense.ID[store.TKey]{}, opaque: slices.WithCapacity[bool](n), dies: slices.WithCapacity[bool](n)}
+	let mut work = []uint32{}
+	for f in k.Fns {
+		g.edgeStart = g.edgeStart.Append(g.edges.Len())
+		g.capStart = g.capStart.Append(g.caps.Len())
+		g.opaque = g.opaque.Append(false)
+		let p = k.Parsed[f.File]
+		g.dies = g.dies.Append(declaresDefects(p, f.Decl))
+		match dense.Unpack(f.Body) {
+		case option.Some{Value: b}:
+			if p.Failed {
+				g.opaque[g.opaque.Len()-1] = true
+			} else {
+				work = walk(&g, s, k, typed, capOf, types, f.File, b, work)
+			}
+		case option.None:
+			g.opaque[g.opaque.Len()-1] = true
+		}
+	}
+	g.edgeStart = g.edgeStart.Append(g.edges.Len())
+	g.capStart = g.capStart.Append(g.caps.Len())
+	solve(g)
+}
+
+func declaresDefects(p syntax.Parsed, decl dense.ID[syntax.Node]) bool {
+	if p.Failed || syntax.KindOf(p.Tree, decl) != syntax.KFuncDecl {
+		return false
+	}
+	syntax.FuncTypeOf(p.Tree, syntax.FuncDeclOf(p.Tree, decl).Type).Defects >= 0
+}
+
+func unparen(tr syntax.Tree, x dense.ID[syntax.Node]) dense.ID[syntax.Node] {
+	let mut y = x
+	for syntax.KindOf(tr, y) == syntax.KParenExpr {
+		y = syntax.ParenExprOf(tr, y).X
+	}
+	y
+}
+
+// Callee is the index in k.Fns of the function a plain call x of file
+// names, f(…) or f[T](…), the typer's resolution (expr's call), or -1
+// for a call of anything else.
+func Callee(k expr.Pkg, file int, x dense.ID[syntax.Node]) int {
+	let tr = k.Parsed[file].Tree
+	let mut fun = unparen(tr, syntax.CallExprOf(tr, x).Fun)
+	if syntax.KindOf(tr, fun) == syntax.KIndexExpr {
+		fun = unparen(tr, syntax.IndexExprOf(tr, fun).X)
+	}
+	if syntax.KindOf(tr, fun) != syntax.KIdent {
+		return -1
+	}
+	match bind.ResolutionOf(k.U, k.Ps, bind.PNodeOf(k.Ps, file, fun)) {
+	case bind.Declared as d:
+		expr.FnAt(k, d.At)
+	case _:
+		-1
+	}
+}
+
+func walk(g mut graph, s store.Store, k expr.Pkg, typed dense.Col[store.PNode, bool], capOf dense.Col[store.PNode, dense.Opt[store.TKey]], types dense.Col[store.PNode, dense.Opt[store.TKey]], file int, b dense.ID[syntax.Node], work0 []uint32) []uint32 {
+	let tr = k.Parsed[file].Tree
+	let me = g.opaque.Len() - 1
+	let mut stack = work0[0:0].Append(uint32(dense.Index(b)))
+	for stack.Len() > 0 {
+		let x = syntax.NodeAt(tr, int(stack[stack.Len()-1]))
+		stack = stack[0 : stack.Len()-1]
+		let kind = syntax.KindOf(tr, x)
+		if kind == syntax.KCallExpr {
+			call(g, s, k, typed, capOf, file, x, me)
+		} else if kind == syntax.KRangeStmt {
+			if seqRange(s, k, types, file, syntax.RangeStmtOf(tr, x).X) {
+				g.opaque[me] = true
+			}
+		} else if kind == syntax.KContextLit {
+			g.opaque[me] = true
+		}
+		stack = syntax.Children(tr, x, stack)
+	}
+	stack
+}
+
+func call(g mut graph, s store.Store, k expr.Pkg, typed dense.Col[store.PNode, bool], capOf dense.Col[store.PNode, dense.Opt[store.TKey]], file int, x dense.ID[syntax.Node], me int) {
+	let tr = k.Parsed[file].Tree
+	let c = syntax.CallExprOf(tr, x)
+	if c.Trailing != dense.NoID[syntax.Node]() {
+		g.opaque[me] = true
+		return
+	}
+	let n = bind.PNodeOf(k.Ps, file, x)
+	if dense.In(capOf, n) {
+		match dense.Unpack(dense.Of(capOf, n)) {
+		case option.Some{Value: op}:
+			if store.KindOfType(s, op) == store.KNamed || store.KindOfType(s, op) == store.KInstance {
+				if !slices.Contains(g.caps[g.capStart[me]:g.caps.Len()], op) {
+					g.caps = g.caps.Append(op)
+				}
+			} else {
+				g.opaque[me] = true
+			}
+			return
+		case option.None:
+		}
+	}
+	let j = if dense.In(typed, n) && dense.Of(typed, n) { Callee(k, file, x) } else { -1 }
+	if j < 0 {
+		g.opaque[me] = true
+		return
+	}
+	g.edges = g.edges.Append(j)
+}
+
+func seqRange(s store.Store, k expr.Pkg, types dense.Col[store.PNode, dense.Opt[store.TKey]], file int, x dense.ID[syntax.Node]) bool {
+	let tr = k.Parsed[file].Tree
+	let y = unparen(tr, x)
+	if syntax.KindOf(tr, y) == syntax.KBinaryExpr {
+		return false
+	}
+	let n = bind.PNodeOf(k.Ps, file, y)
+	if !dense.In(types, n) {
+		return true
+	}
+	match dense.Unpack(dense.Of(types, n)) {
+	case option.Some{Value: ty}:
+		let kind = store.KindOfType(s, ty)
+		!(kind == store.KSlice || kind == store.KArray || kind == store.KMap || kind == store.KBasic)
+	case option.None:
+		true
+	}
+}
+
+type tarjan { index []int, low []int, on []bool, stack []int, next int, calls []int, at []int }
+
+func solve(g graph) Facts {
+	let n = g.opaque.Len()
+	let mut fs = Facts{comp: slices.Repeat([]int{-1}, n), opaque: []bool{}, dies: []bool{}, capStart: []int{0}, caps: []dense.ID[store.TKey]{}}
+	let mut tj = tarjan{index: slices.Repeat([]int{-1}, n), low: slices.Repeat([]int{0}, n), on: slices.Repeat([]bool{false}, n), stack: []int{}, next: 0, calls: []int{}, at: []int{}}
+	for root in 0..n {
+		if tj.index[root] >= 0 {
+			continue
+		}
+		enter(&tj, g, root)
+		for tj.calls.Len() > 0 {
+			let v = tj.calls[tj.calls.Len()-1]
+			let e = tj.at[tj.at.Len()-1]
+			if e < g.edgeStart[v+1] {
+				tj.at[tj.at.Len()-1] = e + 1
+				let w = g.edges[e]
+				if tj.index[w] < 0 {
+					enter(&tj, g, w)
+				} else if tj.on[w] {
+					if tj.index[w] < tj.low[v] {
+						tj.low[v] = tj.index[w]
+					}
+				}
+				continue
+			}
+			tj.calls = tj.calls[0 : tj.calls.Len()-1]
+			tj.at = tj.at[0 : tj.at.Len()-1]
+			if tj.calls.Len() > 0 {
+				let u = tj.calls[tj.calls.Len()-1]
+				if tj.low[v] < tj.low[u] {
+					tj.low[u] = tj.low[v]
+				}
+			}
+			if tj.low[v] == tj.index[v] {
+				component(&fs, &tj, g, v)
+			}
+		}
+	}
+	fs
+}
+
+func enter(tj mut tarjan, g graph, v int) {
+	tj.index[v] = tj.next
+	tj.low[v] = tj.next
+	tj.next = tj.next + 1
+	tj.stack = tj.stack.Append(v)
+	tj.on[v] = true
+	tj.calls = tj.calls.Append(v)
+	tj.at = tj.at.Append(g.edgeStart[v])
+}
+
+func component(fs mut Facts, tj mut tarjan, g graph, root int) {
+	let c = fs.opaque.Len()
+	let mut top = tj.stack.Len()
+	for {
+		top = top - 1
+		let w = tj.stack[top]
+		tj.on[w] = false
+		fs.comp[w] = c
+		if w == root {
+			break
+		}
+	}
+	let members = tj.stack[top:tj.stack.Len()]
+	tj.stack = tj.stack[0:top]
+	let from = fs.caps.Len()
+	let mut opaque = false
+	let mut dies = false
+	for w in members {
+		opaque = opaque || g.opaque[w]
+		dies = dies || g.dies[w]
+		for x in g.caps[g.capStart[w]:g.capStart[w+1]] {
+			if !slices.Contains(fs.caps[from:fs.caps.Len()], x) {
+				fs.caps = fs.caps.Append(x)
+			}
+		}
+		for e in g.edgeStart[w]..g.edgeStart[w+1] {
+			let d = fs.comp[g.edges[e]]
+			if d == c {
+				continue
+			}
+			opaque = opaque || fs.opaque[d]
+			dies = dies || fs.dies[d]
+			for x in fs.caps[fs.capStart[d]:fs.capStart[d+1]] {
+				if !slices.Contains(fs.caps[from:fs.caps.Len()], x) {
+					fs.caps = fs.caps.Append(x)
+				}
+			}
+		}
+	}
+	fs.opaque = fs.opaque.Append(opaque)
+	fs.dies = fs.dies.Append(dies)
+	fs.capStart = fs.capStart.Append(fs.caps.Len())
+}
