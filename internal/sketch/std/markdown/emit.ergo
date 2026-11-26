@@ -282,3 +282,123 @@ func Parse(src string, o Options) Doc fails TooLarge {
 	emitBlocks(&p)
 	Doc{kind: p.rk, end: p.rend, a: p.ra, b: p.rb, extra: p.rx, text: p.t.Text(), opts: o, work: p.work}
 }
+
+func spanOK(off int, length int, total int) bool {
+	off >= 0 && length >= 0 && off+length <= total
+}
+
+func docInvariantsOK(d Doc) bool {
+	let n = Rows(d)
+	if n < 1 || d.end.Len() != n || d.a.Len() != n || d.b.Len() != n {
+		return false
+	}
+	if int(d.kind[0]) != kDoc || End(d, 0) != n || strings.IndexByte(d.text, 0) >= 0 {
+		return false
+	}
+	let mut ends = []int{n}
+	let tlen = d.text.Len()
+	for i in 1..n {
+		for ends.Len() > 0 && i >= ends[ends.Len()-1] {
+			ends = ends[0 : ends.Len()-1]
+		}
+		if ends.Len() == 0 {
+			return false
+		}
+		let e = End(d, i)
+		if e <= i || e > ends[ends.Len()-1] {
+			return false
+		}
+		ends = ends.Append(e)
+		let k = int(d.kind[i])
+		let a = int(d.a[i])
+		let b = int(d.b[i])
+		if k == kCode || k == kLink || k == kImage {
+			if a < 0 || a+4 > d.extra.Len() {
+				return false
+			}
+			if !spanOK(int(d.extra[a]), int(d.extra[a+1]), tlen) || !spanOK(int(d.extra[a+2]), int(d.extra[a+3]), tlen) {
+				return false
+			}
+		} else if k == kHTML || k == kText || k == kCodeSpan || k == kHTMLSpan {
+			if !spanOK(a, b, tlen) {
+				return false
+			}
+		}
+		let elemOK = match View(d, i) {
+		case Document, BlockQuote, List, Item, Paragraph, CodeBlock, HTMLBlock, ThematicBreak, TableRow, TableCell, Text, SoftBreak, HardBreak, Code, Emphasis, Strong, Strikethrough, Link, Image, HTMLSpan:
+			true
+		case Heading as h:
+			h.Level >= 1 && h.Level <= 6
+		case Table as t:
+			t.Columns >= 1
+		}
+		if !elemOK {
+			return false
+		}
+	}
+	true
+}
+
+law ParseIsTotal(raw []byte, mode int) {
+	let m = (mode%3 + 3) % 3
+	let opts = if m == 0 {
+		CommonMark()
+	} else if m == 1 {
+		GFM()
+	} else {
+		Options{..GFM(), Autolinks: true, TagFilter: true, HardSoftBreaks: true}
+	}
+	let d = Parse(raw.Text(), opts) catch {
+	case TooLarge:
+		return false
+	}
+	let ok = docInvariantsOK(d)
+	always ok
+	sometimes Rows(d) > 1
+	sometimes m == 0 && ok
+	sometimes m == 2 && ok
+	ok
+}
+
+func pathologicalInput(kind int, n int) string {
+	if kind == 0 {
+		return strings.Repeat(" ~~a", 2*n) + strings.Repeat("b~ ", 2*n)
+	}
+	if kind == 1 {
+		return strings.Repeat("[a ", n) + "b"
+	}
+	if kind == 2 {
+		return strings.Repeat("[", n) + "a" + strings.Repeat("]", n)
+	}
+	if kind == 3 {
+		return strings.Repeat("[a](", n) + "b"
+	}
+	if kind == 4 {
+		return strings.Repeat("` a `` b ``` c ```` d ", n/4+1)
+	}
+	if kind == 5 {
+		return strings.Repeat("> ", n) + "a"
+	}
+	if kind == 6 {
+		return strings.Repeat("- ", n) + "a"
+	}
+	strings.Repeat("<a ", n/2) + strings.Repeat("<!--x ", n/2) + strings.Repeat("a@b ", n/2)
+}
+
+law WorkIsLinear(kindRaw int, sizeRaw int) {
+	let kind = (kindRaw%8 + 8) % 8
+	let n = 60 + ((sizeRaw%21 + 21) % 21)
+	let src = pathologicalInput(kind, n)
+	let opts = Options{..GFM(), Autolinks: true}
+	let d = Parse(src, opts) catch {
+	case TooLarge:
+		return false
+	}
+	let ok = docInvariantsOK(d) && Work(d) <= 8*src.Len()+64
+	always ok
+	sometimes kind == 0 && ok
+	sometimes kind == 1 && ok
+	sometimes kind == 4 && ok
+	sometimes kind == 7 && ok
+	ok
+}

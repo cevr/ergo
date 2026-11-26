@@ -314,3 +314,204 @@ func HTML(src string, o Options) string fails TooLarge { ToHTML(try Parse(src, o
 // refuses (javascript:, data:, vbscript:, any scheme but http, https,
 // mailto and tel) loses its destination.
 func Safe(d Doc) html.Node { html.Raw(html.Trust(renderHTML(MakeSlice[byte](d.text.Len()+64), d, true).Text())) }
+
+func escHTMLText(s string) string {
+	escText([]byte{}, s, 0, s.Len()).Text()
+}
+
+func plainWords() []string {
+	[]string{"alpha", "beta", "gamma", "quote\"here", "plain", "word", "123"}
+}
+
+law PlainParagraphs(seed int, counts []int) {
+	let words = plainWords()
+	let mut x = (seed%2147483648 + 2147483648) % 2147483648
+	let mut paras = []string{}
+	let nParas = if counts.Len() == 0 { 0 } else { ((counts[0]%3 + 3) % 3) + 1 }
+	for p in 0..nParas {
+		let nLines = if p+1 < counts.Len() { ((counts[p+1]%2 + 2) % 2) + 1 } else { 1 }
+		let mut lines = []string{}
+		for _ in 0..nLines {
+			x = (x*1103515245 + 12345) % 2147483648
+			let nWords = (x/65536)%3 + 1
+			let mut ws = []string{}
+			for _ in 0..nWords {
+				x = (x*1103515245 + 12345) % 2147483648
+				ws = ws.Append(words[(x/65536)%words.Len()])
+			}
+			lines = lines.Append(strings.Join(ws, " "))
+		}
+		paras = paras.Append(strings.Join(lines, "\n"))
+	}
+	let src = strings.Join(paras, "\n\n")
+	let mut want = strings.NewBuilder()
+	for p in paras {
+		want.WriteString("<p>")
+		want.WriteString(escHTMLText(p))
+		want.WriteString("</p>\n")
+	}
+	let wantStr = want.String()
+	let cm = HTML(src, CommonMark()) catch {
+	case TooLarge:
+		return false
+	}
+	let gfm = HTML(src, GFM()) catch {
+	case TooLarge:
+		return false
+	}
+	let ok = cm == wantStr && gfm == wantStr
+	always ok
+	sometimes nParas == 0 && ok
+	sometimes nParas > 1 && ok
+	ok
+}
+
+law EscapedIsLiteral(idx int) {
+	let puncts = "!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~"
+	let i = (idx%puncts.Len() + puncts.Len()) % puncts.Len()
+	let ch = strings.Slice(puncts, i, i+1)
+	let want = escHTMLText(ch)
+	let pOut = HTML("a \\"+ch+" b", GFM()) catch {
+	case TooLarge:
+		return false
+	}
+	let hOut = HTML("# \\"+ch, CommonMark()) catch {
+	case TooLarge:
+		return false
+	}
+	let cSrc = if ch == "`" { "`` \\` ``" } else { "`\\" + ch + "`" }
+	let cOut = HTML(cSrc, CommonMark()) catch {
+	case TooLarge:
+		return false
+	}
+	let ok = pOut == "<p>a "+want+" b</p>\n" && hOut == "<h1>"+want+"</h1>\n" && cOut == "<p><code>\\"+want+"</code></p>\n"
+	always ok
+	sometimes ch == "<" || ch == "&" || ch == ">" || ch == "\""
+	ok
+}
+
+func isVoidTag(name string) bool {
+	name == "hr" || name == "br" || name == "img" || name == "input"
+}
+
+func htmlBalanced(s string) bool {
+	let mut stack = []string{}
+	let mut i = 0
+	for i < s.Len() {
+		if s[i] == '<' {
+			let mut j = i + 1
+			for j < s.Len() && s[j] != '>' && s[j] != '<' {
+				j = j + 1
+			}
+			if j >= s.Len() || s[j] != '>' {
+				return false
+			}
+			let raw = strings.Slice(s, i+1, j)
+			if raw.Len() == 0 {
+				return false
+			}
+			if raw[0] == '/' {
+				let name = strings.Slice(raw, 1, raw.Len())
+				let top = stack.Len() - 1
+				if top < 0 || stack[top] != name {
+					return false
+				}
+				stack = stack[0:top]
+			} else {
+				let mut k = 0
+				for k < raw.Len() && raw[k] != ' ' && raw[k] != '/' {
+					k = k + 1
+				}
+				let name = strings.Slice(raw, 0, k)
+				if name.Len() == 0 {
+					return false
+				}
+				if !isVoidTag(name) && raw[raw.Len()-1] != '/' {
+					stack = stack.Append(name)
+				}
+			}
+			i = j + 1
+		} else {
+			i = i + 1
+		}
+	}
+	stack.Len() == 0
+}
+
+law OutputIsBalanced(seed int) {
+	let s = (seed%6 + 6) % 6
+	let level = s + 1
+	let heading = strings.Repeat("#", level) + " Heading *em* **strong**\n\n"
+	let sep = if s%2 == 0 { "\n" } else { "\n\n" }
+	let body = heading +
+		"> quote with [link](https://example.com \"t\") and <raw>\n\n" +
+		"- [x] task one" + sep + "- [ ] task two\n\n" +
+		"1. ordered *item*\n2. second ~~strike~~\n\n" +
+		"Paragraph with `code` and ![alt *em*](https://example.com/i.png \"img\") and line  \nbreak.\n\n" +
+		"```go\nlet x = 1 < 2\n```\n\n" +
+		"---\n\n" +
+		"| a | b |\n| :--- | ---: |\n| 1 | 2 |\n"
+	let opts = Options{..GFM(), Autolinks: true, NoHTMLBlocks: true, NoHTMLSpans: true}
+	let d = Parse(body, opts) catch {
+	case TooLarge:
+		return false
+	}
+	let out = ToHTML(d)
+	let mut wb = strings.NewBuilder()
+	WriteHTML(&wb, d)
+	let ok = wb.String() == out && htmlBalanced(out) && strings.Contains(out, "<table>") && strings.Contains(out, "<input ")
+	always ok
+	sometimes s%2 == 0 && strings.Contains(out, "<ul>")
+	sometimes s%2 == 1 && strings.Contains(out, "<ol>")
+	ok
+}
+
+func safeAttrsOK(s string) bool {
+	let mut i = 0
+	for i < s.Len() {
+		let isHref = i+6 <= s.Len() && strings.Slice(s, i, i+6) == "href=\""
+		let isSrc = i+5 <= s.Len() && strings.Slice(s, i, i+5) == "src=\""
+		if isHref || isSrc {
+			let start = i + (if isHref { 6 } else { 5 })
+			let mut end = start
+			for end < s.Len() && s[end] != '"' {
+				end = end + 1
+			}
+			let raw = strings.Slice(s, start, end)
+			let unesc = strings.ReplaceAll(strings.ReplaceAll(strings.ReplaceAll(strings.ReplaceAll(raw, "&quot;", "\""), "&gt;", ">"), "&lt;", "<"), "&amp;", "&")
+			let _ = html.ParseURL(unesc) catch {
+			case html.UnsafeURL:
+				return false
+			}
+			i = end + 1
+		} else {
+			i = i + 1
+		}
+	}
+	true
+}
+
+law SafeRefusesScripts(seed int, pick int) {
+	let bads = []string{"javascript:alert(1)", "JaVaScRiPt:alert(1)", "&#x6a;avascript:alert(1)", "data:text/html,<script>alert(1)</script>", "vbscript:msgbox(1)", "javascript:void(0)"}
+	let goods = []string{"https://example.com/a", "http://example.org", "mailto:user@example.com", "tel:+15550100", "/local/path"}
+	let bi = (pick%bads.Len() + bads.Len()) % bads.Len()
+	let gi = (seed%goods.Len() + goods.Len()) % goods.Len()
+	let bad = bads[bi]
+	let good = goods[gi]
+	let src = "[bad](<" + bad + ">) ![img](" + bad + ") [ok](" + good + ")\n\n" +
+		"<script>alert(1)</script>\n\n" +
+		"inline <iframe src=\"https://evil.test\"></iframe> <b onclick=\"x\">hi</b>\n"
+	let d = Parse(src, Options{..GFM(), Autolinks: seed%2 == 0}) catch {
+	case TooLarge:
+		return false
+	}
+	let rendered = html.Render(Safe(d))
+	let noRaw = !strings.Contains(rendered, "<script") && !strings.Contains(rendered, "<iframe") && !strings.Contains(rendered, "<b ")
+	let escaped = strings.Contains(rendered, "&lt;script") && strings.Contains(rendered, "&lt;iframe")
+	let keptGood = strings.Contains(rendered, "href=\""+good+"\"")
+	let ok = noRaw && escaped && keptGood && safeAttrsOK(rendered)
+	always ok
+	sometimes bi == 0 && ok
+	sometimes bi == 3 && ok
+	ok
+}

@@ -74,6 +74,7 @@ type parser {
 	noQuote     []int,
 	noHTML      []int,
 	emailFail   int,
+	nextParen   int,
 	rk          []uint8,
 	rend        []uint32,
 	ra          []uint32,
@@ -89,7 +90,7 @@ let fHadRefs = 8
 let fFresh = 16
 
 func newParser(src []byte, o Options) parser {
-	parser{src: src, o: o, t: MakeSlice[byte](src.Len() + src.Len()/4 + 16), ls: 0, le: 0, lineNo: 0, offset: 0, column: 0, nns: 0, nnsCol: 0, indent: 0, indented: false, blank: false, partialTab: false, allClosed: true, lastMatched: 0, oldtip: 0, tip: 0, bk: []int{}, bparent: []int{}, bfirst: []int{}, blast: []int{}, bnext: []int{}, bprev: []int{}, bopen: []bool{}, bstart: []int{}, bendLine: []int{}, bcs: []int{}, bce: []int{}, bval: []int{}, bchar: []int{}, blen: []int{}, bpad: []int{}, bmark: []int{}, bflags: []int{}, mdOrdered: false, mdChar: 0, mdStart: 0, mdPad: 0, mdOffset: 0, aligns: []int{}, refs: Map[string, int]{}, refDest: []int{}, refTitle: []int{}, ik: []int{}, inext: []int{}, iprev: []int{}, isub: []int{}, ia: []int{}, ib: []int{}, ic: []int{}, id: []int{}, dcc: []int{}, dnum: []int{}, dorig: []int{}, dnode: []int{}, dprev: []int{}, dnext: []int{}, dopen: []bool{}, dclose: []bool{}, dtop: -1, brNode: []int{}, brIndex: []int{}, brImage: []bool{}, brActive: []bool{}, brAfter: []bool{}, brDelim: []int{}, brInactive: 0, s0: 0, pos: 0, iend: 0, noTicks: []int{}, noQuote: []int{-1, -1}, noHTML: []int{-1, -1, -1, -1, -1, -1}, emailFail: -1, rk: []uint8{}, rend: []uint32{}, ra: []uint32{}, rb: []uint32{}, rx: []uint32{}, work: 0}
+	parser{src: src, o: o, t: MakeSlice[byte](src.Len() + src.Len()/4 + 16), ls: 0, le: 0, lineNo: 0, offset: 0, column: 0, nns: 0, nnsCol: 0, indent: 0, indented: false, blank: false, partialTab: false, allClosed: true, lastMatched: 0, oldtip: 0, tip: 0, bk: []int{}, bparent: []int{}, bfirst: []int{}, blast: []int{}, bnext: []int{}, bprev: []int{}, bopen: []bool{}, bstart: []int{}, bendLine: []int{}, bcs: []int{}, bce: []int{}, bval: []int{}, bchar: []int{}, blen: []int{}, bpad: []int{}, bmark: []int{}, bflags: []int{}, mdOrdered: false, mdChar: 0, mdStart: 0, mdPad: 0, mdOffset: 0, aligns: []int{}, refs: Map[string, int]{}, refDest: []int{}, refTitle: []int{}, ik: []int{}, inext: []int{}, iprev: []int{}, isub: []int{}, ia: []int{}, ib: []int{}, ic: []int{}, id: []int{}, dcc: []int{}, dnum: []int{}, dorig: []int{}, dnode: []int{}, dprev: []int{}, dnext: []int{}, dopen: []bool{}, dclose: []bool{}, dtop: -1, brNode: []int{}, brIndex: []int{}, brImage: []bool{}, brActive: []bool{}, brAfter: []bool{}, brDelim: []int{}, brInactive: 0, s0: 0, pos: 0, iend: 0, noTicks: []int{}, noQuote: []int{-1, -1}, noHTML: []int{-1, -1, -1, -1, -1, -1}, emailFail: -1, nextParen: -1, rk: []uint8{}, rend: []uint32{}, ra: []uint32{}, rb: []uint32{}, rx: []uint32{}, work: 0}
 }
 
 func newBlock(p mut parser, kind int, parent int) int {

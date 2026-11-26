@@ -98,6 +98,7 @@ func resetInline(p mut parser) {
 		p.noHTML[i] = -1
 	}
 	p.emailFail = -1
+	p.nextParen = -1
 }
 
 func parseInlines(p mut parser, from int, to int) int {
@@ -699,6 +700,19 @@ func atLineEnd(p mut parser) bool {
 	}
 }
 
+func hasCloseParen(p mut parser, from int) bool {
+	if p.nextParen >= from {
+		return p.nextParen < p.iend
+	}
+	let mut j = from
+	for j < p.iend && p.t[j] != ')' {
+		p.work = p.work + 1
+		j = j + 1
+	}
+	p.nextParen = j
+	j < p.iend
+}
+
 func handleCloseBracket(p mut parser, sent int) {
 	p.pos = p.pos + 1
 	let startpos = p.pos
@@ -719,7 +733,7 @@ func handleCloseBracket(p mut parser, sent int) {
 	let mut dn = 0
 	let mut ta = 0
 	let mut tn = 0
-	if ipeek(p, p.pos) == '(' {
+	if ipeek(p, p.pos) == '(' && hasCloseParen(p, p.pos+1) {
 		p.pos = p.pos + 1
 		spnl(p)
 		let (okd, ds, de) = parseDest(p)
