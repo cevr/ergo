@@ -26,7 +26,7 @@ func (b *irBuilder) isWith(x syntax.Expr) (*syntax.CallExpr, bool) {
 // withStmt is the with x; ret says its block's tail is the function's
 // result, to (when set) the local it yields into. A with whose block
 // passes an untried failure on, other than into a try, a catch or the
-// function's result, and a context value's stay the emitter's.
+// function's result, stays the emitter's.
 func (b *irBuilder) withStmt(x *syntax.CallExpr, ret bool, to *yieldTo) []*irStmt {
 	w := b.l.info.Withs[x]
 	if w == nil || len(x.Args) == 0 || x.Trailing == nil {
@@ -136,7 +136,7 @@ func (b *irBuilder) withOperand(x *syntax.CallExpr, i int, w *check.With, ret bo
 	}
 	switch {
 	case w.Value != nil:
-		irNo("with of a context owner")
+		return b.contextWith(x, i, w, arg, ret, to) // context.go
 	case w.Installs != nil:
 		return b.installWith(x, i, w, arg, ret, to) // ir_contextvalue.go
 	case len(w.Contexts) == 0:
