@@ -3,6 +3,7 @@ package check
 import (
 	"fmt"
 	"strings"
+	"sync"
 
 	"ergo.local/prototype/internal/sketch/syntax"
 )
@@ -163,6 +164,7 @@ func InstallBase(base *stdBase, src SnapshotSource) error {
 // checker: its type table substitutes rows through it (newChecker), and
 // starts its memos empty (exportgen skipFields).
 func RestoreChecker(c *checker) {
+	c.lazyMu = new(sync.Mutex)
 	if c.types != nil {
 		c.types.substRow = c.substRow
 		c.types.of = map[Type]int32{}

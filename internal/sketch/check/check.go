@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"unicode"
 	"unicode/utf8"
 
@@ -281,6 +282,7 @@ type checker struct {
 	// instance caches the instances of generic named types by their
 	// interned id: (origin, type argument ids), looked up before building.
 	instance map[int32]*Named
+	lazyMu   *sync.Mutex
 	// inferInstances and inferSubjects hold the instances and switch
 	// subjects whose ids depend on an unbound row variable: the current
 	// component's inference context, discarded when it is final (class F).
@@ -615,6 +617,7 @@ func newChecker(path string, imp Importer, universe *Scope) *checker {
 		universe:       universe,
 		seen:           map[string]bool{},
 		instance:       map[int32]*Named{},
+		lazyMu:         new(sync.Mutex),
 		types:          newTypeTable(),
 		inferInstances: map[int32]*Named{},
 		inferSubjects:  map[any]*switchUnion{},
@@ -851,7 +854,8 @@ type preludeResult struct {
 // preludeState is the prelude a process checks once (prelude).
 type preludeState struct {
 	sync.Once
-	r preludeResult
+	done atomic.Bool
+	r    preludeResult
 }
 
 var preludeOnce preludeState
@@ -958,6 +962,7 @@ func prelude() preludeResult {
 			scope.insert(name, o)
 		}
 		preludeOnce.r = preludeResult{scope: scope, pkg: pkg, core: corePkg, ops: ops, diags: c.sorted()}
+		preludeOnce.done.Store(true)
 	})
 	return preludeOnce.r
 }
@@ -1107,6 +1112,7 @@ func installPrelude(r preludeResult) {
 		}
 		r.pkg.std = true
 		preludeOnce.r = r
+		preludeOnce.done.Store(true)
 	})
 }
 

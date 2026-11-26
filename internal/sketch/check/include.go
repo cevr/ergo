@@ -94,6 +94,7 @@ func (c *checker) resetInstances(n *Named) {
 		for _, inst := range cache {
 			if inst.Orig == n {
 				inst.under = nil
+				inst.underReady.Store(false)
 			}
 		}
 	}

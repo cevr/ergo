@@ -228,10 +228,11 @@ func GoCallbackTypeName(f *Func, cbIdx int) string {
 	if h == nil || !h.cBind {
 		return ""
 	}
-	if !h.cChecked {
-		h.verifyCBindAll()
-	}
-	return h.cbTypeResolved[f][cbIdx]
+	h.verifyCBindAll()
+	h.mu.Lock()
+	name := h.cbTypeResolved[f][cbIdx]
+	h.mu.Unlock()
+	return name
 }
 
 // GoScopedCallbackParams returns the set of parameter indices inside callback
@@ -252,10 +253,11 @@ func scopedCallbackMap(f *Func) map[int]map[int]bool {
 	if h == nil || !h.cBind {
 		return nil
 	}
-	if !h.cChecked {
-		h.verifyCBindAll()
-	}
-	return h.scopedResolved[f]
+	h.verifyCBindAll()
+	h.mu.Lock()
+	m := h.scopedResolved[f]
+	h.mu.Unlock()
+	return m
 }
 
 // collectScopedVars scans file f for calls to C-bound functions carrying

@@ -20,9 +20,13 @@ const viewBudget = 2048
 // to the view's union, which the checker records at x, is left out while
 // x is built, since no union is built.
 func (b *irBuilder) variant(x syntax.Expr) ([]*irStmt, *irExpr) {
-	if conv, ok := b.l.info.Implicit[x]; ok {
-		delete(b.l.info.Implicit, x)
-		defer func() { b.l.info.Implicit[x] = conv }()
+	if _, ok := b.l.info.Implicit[x]; ok {
+		if b.skipImplicit == nil {
+			b.skipImplicit = map[syntax.Expr]bool{}
+		}
+		prev := b.skipImplicit[x]
+		b.skipImplicit[x] = true
+		defer func() { b.skipImplicit[x] = prev }()
 	}
 	return b.value(x)
 }

@@ -34,7 +34,7 @@ func (c *checker) subjectUnion(t Type) *switchUnion {
 	if c.subjects == nil {
 		c.subjects = map[any]*switchUnion{}
 	}
-	if n, ok := t.(*Named); ok && n.Orig != nil && n.under == nil {
+	if n, ok := t.(*Named); ok && n.Orig != nil && !n.underReady.Load() {
 		if ou, ok := n.Orig.under.(*Union); ok {
 			// An instance whose id waits on an unbound row variable keeps
 			// its caches for the component's inference only (class F).
