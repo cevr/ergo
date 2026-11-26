@@ -157,6 +157,9 @@ type yieldTo struct {
 	// fuse marks a fused callee's results (ir_forms_match.go): each is a
 	// jump to the arm its variant reaches.
 	fuse bool
+	// arm holds the list-form owner of an ArmValues value form while its
+	// arms run (armOpen, armYield, armWrap).
+	arm *irArmOwner
 }
 
 // yield is s in result position: its value is returned, or put in to.
@@ -192,7 +195,8 @@ func (b *irBuilder) yield(s syntax.Stmt, to *yieldTo) []*irStmt {
 		if to != nil {
 			pre, x := b.value(s.X)
 			x = b.assignedTo(s.X, x, to.t) // ir_union.go
-			return append(pre, &irStmt{K: "set", Pos: p, Local: to.local, X: x})
+			pre = append(pre, &irStmt{K: "set", Pos: p, Local: to.local, X: x})
+			return append(pre, b.armYield(to.arm, s.X, to.local, to.t, -1, p)...)
 		}
 		return b.ret(s.X, p) // ir_fail.go
 	case *syntax.ReturnStmt, *syntax.BranchStmt, *syntax.DieStmt:
@@ -277,8 +281,9 @@ func (b *irBuilder) ifValue(s *syntax.IfStmt) ([]*irStmt, *irExpr) {
 	}
 	p := b.pos(s, s.Pos())
 	i := b.temp(fmt.Sprintf("if%d", b.next), b.goType(t, s), p)
-	pre := append([]*irStmt{{K: "var", Pos: p, Local: i}}, b.ifStmts(s, true, &yieldTo{local: i, t: t})...)
-	return pre, &irExpr{K: "local", Pos: p, I: i}
+	arm := b.armOpen(s, p)
+	stmts := b.armWrap(arm, b.ifStmts(s, true, &yieldTo{local: i, t: t, arm: arm}), i, t, p)
+	return append([]*irStmt{{K: "var", Pos: p, Local: i}}, stmts...), &irExpr{K: "local", Pos: p, I: i}
 }
 
 // dropsPlain reports an IR value with no effect and no defect: a local, a

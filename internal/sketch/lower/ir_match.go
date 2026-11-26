@@ -53,8 +53,9 @@ func (b *irBuilder) matchValue(s syntax.Expr) ([]*irStmt, *irExpr) {
 	}
 	p := b.pos(s, s.Pos())
 	i := b.temp("m"+strconv.Itoa(b.next), b.goType(t, s), p)
-	pre := append([]*irStmt{{K: "var", Pos: p, Local: i}}, b.matchStmt(s.(syntax.Stmt), true, &yieldTo{local: i, t: t})...)
-	return pre, &irExpr{K: "local", Pos: p, I: i}
+	arm := b.armOpen(s, p)
+	stmts := b.armWrap(arm, b.matchStmt(s.(syntax.Stmt), true, &yieldTo{local: i, t: t, arm: arm}), i, t, p)
+	return append([]*irStmt{{K: "var", Pos: p, Local: i}}, stmts...), &irExpr{K: "local", Pos: p, I: i}
 }
 
 // typeMatch is the match s on one subject of a union.

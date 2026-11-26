@@ -541,6 +541,7 @@ func (b *irBuilder) catchWith(x *syntax.CatchExpr, partial bool, m *check.Match,
 	p := b.pos(x, x.Catch)
 	result, caught := -1, -1
 	var rt string
+	var armOwner *irArmOwner
 	if m.Result != nil {
 		rt = b.goType(m.Result, x)
 		if v >= 0 && b.l.info.Types[src] == nil {
@@ -549,6 +550,7 @@ func (b *irBuilder) catchWith(x *syntax.CatchExpr, partial bool, m *check.Match,
 		result = b.temp("caught", rt, p)
 		caught = len(pre)
 		pre = append(pre, &irStmt{K: "def", Pos: p, Local: result, X: &irExpr{K: "zero", Pos: p, T: rt}})
+		armOwner = b.armOpen(x, p)
 	}
 	k := "panic"
 	if partial {
@@ -561,7 +563,7 @@ func (b *irBuilder) catchWith(x *syntax.CatchExpr, partial bool, m *check.Match,
 	var then []*irStmt
 	if patterned {
 		t := &treeIR{b: b, s: x, site: x, p: p}
-		t.body = func(i int) []*irStmt { return b.armBody(x.Arms[i], result, m.Result) }
+		t.body = func(i int) []*irStmt { return b.armBody(x.Arms[i], result, m.Result, armOwner) }
 		// The tree's exit is a catch's default too: a full catch's names
 		// no failure (FAIL-ELIDE-PAT, ir_catch_defect.go).
 		t.exit = func(ep irPos) []*irStmt {
@@ -589,14 +591,14 @@ func (b *irBuilder) catchWith(x *syntax.CatchExpr, partial bool, m *check.Match,
 			}
 			c.Body = append(c.Body, &irStmt{K: "def", Pos: a.pos, Local: name, X: val})
 		}
-		c.Body = append(c.Body, b.armBody(x.Arms[i], result, m.Result)...)
+		c.Body = append(c.Body, b.armBody(x.Arms[i], result, m.Result, armOwner)...)
 		sw.Cases = append(sw.Cases, c)
 	}
 	sw.ElsePos = b.pos(x, x.Rbrace)
 	sw.Else = []*irStmt{b.catchDefault(x, k, partial, e, sw.ElsePos)} // ir_catch_defect.go
 	b.formed(sw.Else[0], "fail:error")                                // ir_forms_flat.go
 	if plain {
-		then = b.armBody(x.Arms[0], result, m.Result)
+		then = b.armBody(x.Arms[0], result, m.Result, armOwner)
 	} else if !patterned && !partial && len(arms) == 1 && arms[0].whole && b.armTakesRow(arms[0].types, m.Subjects, x) {
 		// A full catch whose one arm binds the named row whole takes every
 		// failure of the call, a Go error of one of the row's variants (the
@@ -614,7 +616,7 @@ func (b *irBuilder) catchWith(x *syntax.CatchExpr, partial bool, m *check.Match,
 		ifs.ElsePos, ifs.ElseEnd = sw.End, sw.End
 		hold, val := b.catchValue(src, &irExpr{K: "local", Pos: sw.End, I: v}, m.Result)
 		ifs.Else = append(hold, &irStmt{K: "set", Pos: sw.End, Local: result, X: val})
-		if !patterned && len(hold) == 0 && val.K == "local" && val.I == v && b.localTypeOf(v) == rt && irCatchLeaves(then, result) {
+		if armOwner == nil && !patterned && len(hold) == 0 && val.K == "local" && val.I == v && b.localTypeOf(v) == rt && irCatchLeaves(then, result) {
 			// Every arm leaves (the emitter's catch, whose arms all
 			// panic or return, yields the call's value in place): the
 			// value is the call's own local, with no caught copy (RED17).
@@ -622,7 +624,7 @@ func (b *irBuilder) catchWith(x *syntax.CatchExpr, partial bool, m *check.Match,
 			return append(pre, &irStmt{K: "if", Pos: p, End: sw.End, X: ifs.X, Then: then}), &irExpr{K: "local", Pos: p, I: v}
 		}
 	}
-	pre = append(pre, ifs)
+	pre = append(pre, b.armWrap(armOwner, []*irStmt{ifs}, result, m.Result, p)...)
 	if result < 0 {
 		return pre, nil
 	}
@@ -649,7 +651,7 @@ func (b *irBuilder) catchValue(src syntax.Expr, val *irExpr, result check.Type) 
 
 // armBody is a catch arm's statements; its last expression is the
 // catch's value when the catch has one (result >= 0), else dropped.
-func (b *irBuilder) armBody(a *syntax.CatchArm, result int, rt check.Type) []*irStmt {
+func (b *irBuilder) armBody(a *syntax.CatchArm, result int, rt check.Type, arm *irArmOwner) []*irStmt {
 	b.switches++ // a case of the catch's type switch (ir_match.go)
 	defer func() { b.switches-- }()
 	list := a.Body
@@ -667,7 +669,7 @@ func (b *irBuilder) armBody(a *syntax.CatchArm, result int, rt check.Type) []*ir
 	// The last statement yields the catch's value into result, as the
 	// emitter's yieldList with destAssign: an expression, an if or a
 	// match whose arms yield, a return, or a break or continue.
-	return b.tailTo(list, false, &yieldTo{local: result, t: rt})
+	return b.tailTo(list, false, &yieldTo{local: result, t: rt, arm: arm})
 }
 
 // operand is one operand of a call: a try, a catch, a call, or an

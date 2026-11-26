@@ -709,7 +709,15 @@ net Network.CloseEndsReads	TestNetLaws
 net Network.DialAfterCloseFails	TestNetLaws
 net Network.ListenTakenFails	TestNetLaws
 net Network.WriteThenReadRoundTrips	TestNetLaws
+net UnixNetwork.ClosedUnixFails	TestNetLaws
+net UnixNetwork.RecvFDsRespectsBound	TestNetLaws
+net UnixNetwork.SendAndRecvFDsRoundTrips	TestNetLaws
+net UnixNetwork.SendAndRecvUnixConnFD	TestNetLaws
+net UnixNetwork.UnixAcceptsInDialOrder	TestNetLaws
+net UnixNetwork.WriteThenReadUnixRoundTrips	TestNetLaws
 net loopbackNetwork.OutsideIsDenied	none
+net unixConfinedNetwork.UnixOutsideIsDenied	none
+nettest PipeTransfersTCPListenerFD	none
 option CatchUndoesOrFail	none
 option MapOrMatchesOption	none
 option OrFailIsMatch	none
