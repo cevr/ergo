@@ -862,7 +862,11 @@ func rangeStmt(s mut store.Store, k Pkg, t mut Typer, r syntax.RangeStmt) {
 			let lo = expr(s, k, t, b.X, Free)
 			match lo {
 			case option.Some[dense.ID[store.TKey]] as l:
-				expr(s, k, t, b.Y, Exactly{T: l.Value})
+				let hi = typed(s, k, t, b.Y, Exactly{T: l.Value})
+				if misfits(s, k, t.file, b.Y, l.Value, hi) {
+					let m = operandMismatch(s, k, *t, r.X, b, lo, hi)
+					misfit(k, t, b.Y, m.At, m.Message)
+				}
 			case option.None:
 				expr(s, k, t, b.Y, Unsure)
 			}
@@ -1043,6 +1047,9 @@ func exprType(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node], w 
 		return selector(s, k, t, syntax.SelectorExprOf(tr, x))
 	}
 	let p = k.Parsed[t.file]
+	if kd == syntax.KBinaryExpr && isFree(w) && defaultsDiffer(k, t.file, syntax.BinaryExprOf(tr, x)) {
+		return binary(s, k, t, x, syntax.BinaryExprOf(tr, x), w)
+	}
 	if (kd == syntax.KBasicLit || kd == syntax.KParenExpr || kd == syntax.KUnaryExpr || kd == syntax.KBinaryExpr) && constIn(p, x) {
 		let ty = constType(s, k, *t, x, w)
 		// The parts of a constant operation take its type; a signed
@@ -1219,11 +1226,26 @@ func binary(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node], b sy
 		expr(s, k, t, b.Y, Unsure)
 		return option.None
 	}
-	// The operand that is no constant first: the constant takes its type.
+	let ft = operandPair(s, k, t, x, b, if cmp { Free } else { w }, cmp)
+	if cmp {
+		return some(boolT)
+	}
+	match ft {
+	case option.Some[dense.ID[store.TKey]] as f:
+		if basic(s, f.Value) > 0 { ft } else { option.None }
+	case option.None:
+		option.None
+	}
+}
+
+func operandPair(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node], b syntax.BinaryExpr, w Want, cmp bool) option.Option[dense.ID[store.TKey]] {
+	if (cmp || isFree(w)) && basicLit(k, t.file, b.X) && basicLit(k, t.file, b.Y) {
+		return literals(s, k, t, x, b)
+	}
 	let xc = isConst(k, t.file, b.X)
 	let first = if xc { b.Y } else { b.X }
 	let second = if xc { b.X } else { b.Y }
-	let ft = expr(s, k, t, first, if cmp { Free } else { w })
+	let ft = expr(s, k, t, first, w)
 	match ft {
 	case option.Some[dense.ID[store.TKey]] as f:
 		let bt = basic(s, f.Value)
@@ -1238,7 +1260,6 @@ func binary(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node], b sy
 		} else {
 			expr(s, k, t, second, Unsure)
 		}
-		if cmp { some(boolT) } else if bt > 0 { ft } else { option.None }
 	case option.None:
 		// An untyped first operand fixes nothing. A comparison's other
 		// operand that is no constant is typed on its own, as a bare
@@ -1247,8 +1268,8 @@ func binary(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node], b sy
 		// would take a default type, where Go gives it the first
 		// operand's.
 		expr(s, k, t, second, if cmp && !isConst(k, t.file, second) { Free } else { Unsure })
-		if cmp { some(boolT) } else { option.None }
 	}
+	ft
 }
 
 // nameAt is the text of the name x.

@@ -49,6 +49,45 @@ func literalMismatch(s mut store.Store, k Pkg, t Typer, x dense.ID[syntax.Node],
 	}
 }
 
+func literals(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node], b syntax.BinaryExpr) option.Option[dense.ID[store.TKey]] {
+	let xt = expr(s, k, t, b.X, Free)
+	let yt = expr(s, k, t, b.Y, Free)
+	let differ = match xt {
+	case option.Some[dense.ID[store.TKey]] as l:
+		match yt {
+		case option.Some[dense.ID[store.TKey]] as r:
+			basic(s, l.Value) != basic(s, r.Value)
+		case option.None:
+			false
+		}
+	case option.None:
+		false
+	}
+	if differ {
+		misfit(k, t, x, x, operandMismatch(s, k, *t, x, b, xt, yt).Message)
+	}
+	if differ { option.None } else { xt }
+}
+
+func defaultsDiffer(k Pkg, file int, b syntax.BinaryExpr) bool {
+	let p = k.Parsed[file]
+	basicLit(k, file, b.X) && basicLit(k, file, b.Y) && kindIn(p, b.X) != kindIn(p, b.Y)
+}
+
+func isFree(w Want) bool {
+	match w {
+	case Free:
+		true
+	case _:
+		false
+	}
+}
+
+func basicLit(k Pkg, file int, x dense.ID[syntax.Node]) bool {
+	let tr = k.Parsed[file].Tree
+	syntax.KindOf(tr, unparen(tr, x)) == syntax.KBasicLit
+}
+
 type opMismatch { At dense.ID[syntax.Node], Message string }
 
 type opSide { Name string, Numeric bool, Float bool, Known bool }
