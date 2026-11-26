@@ -238,6 +238,50 @@ func optionOf(t check.Type) (check.Type, bool) {
 	return n.TArgs[0], true
 }
 
+type omittable struct {
+	absent  check.Type
+	present check.Type
+	field   string
+	elem    check.Type
+}
+
+// omittableOf describes a two-variant WireOmittable union (such as
+// json.Optional[T]): its empty variant, single-field variant, that
+// field's name, and payload type.
+func omittableOf(t check.Type) (omittable, bool) {
+	n, ok := unalias(t).(*check.Named)
+	if !ok || check.WireFormOf(n) != check.WireOmittable {
+		return omittable{}, false
+	}
+	u, ok := n.Underlying().(*check.Union)
+	if !ok || len(u.Variants) != 2 {
+		return omittable{}, false
+	}
+	var out omittable
+	var hasAbsent, hasPresent bool
+	for _, v := range u.Variants {
+		vn, ok := unalias(v).(*check.Named)
+		if !ok {
+			continue
+		}
+		s, ok := vn.Underlying().(*check.Struct)
+		if !ok {
+			continue
+		}
+		switch len(s.Fields) {
+		case 0:
+			out.absent = v
+			hasAbsent = true
+		case 1:
+			out.present = v
+			out.field = s.Fields[0].Name
+			out.elem = s.Fields[0].Type
+			hasPresent = true
+		}
+	}
+	return out, hasAbsent && hasPresent
+}
+
 // recordOf is t's fields when t is a record the generated package can
 // build: a declared, non-generic struct whose fields are all exported.
 func recordOf(t check.Type) (*check.Named, *check.Struct, bool) {
@@ -297,7 +341,7 @@ func (c *command) local(prefix string) string {
 
 // noForm is the refusal of a type with no command-line form.
 func (g *gen) noForm(op, where string, t check.Type) {
-	g.fail("%s.%s: %s has the type %s, which has no command-line form: a flag is a string, an int, an int64 or a bool (or a type defined over one), a slice or an Option of a plain string, int or bool, or a record of them; a positional argument is a string, an int, an int64 or a bool", g.op, op, where, t)
+	g.fail("%s.%s: %s has the type %s, which has no command-line form: a flag is a string, an int, an int64 or a bool (or a type defined over one), a slice of a plain string, int or bool, an Option of a plain string or int, a WireOmittable (such as json.Optional) of a string or int (or a type defined over one), or a record of them; a positional argument is a string, an int, an int64 or a bool", g.op, op, where, t)
 }
 
 // command plans op's command: the flags of its flat record parameters,
@@ -371,8 +415,9 @@ func (g *gen) command(op rpcgen.Op) *command {
 
 // flat reports whether t has the command-line form (api.md, ergo gen cli):
 // a basic value or a type defined over one, a choice, a slice of a plain
-// string, int or bool, an Option of a plain string or int, or a record of
-// them that is not recursive.
+// string, int or bool, an Option of a plain string or int, a WireOmittable
+// (such as json.Optional) of a string or int (or a type defined over one),
+// or a record of them that is not recursive.
 func (g *gen) flat(t check.Type, seen map[*check.Named]bool) bool {
 	if _, _, ok := g.scalar(t); ok {
 		return true
@@ -386,6 +431,10 @@ func (g *gen) flat(t check.Type, seen map[*check.Named]bool) bool {
 	if elem, ok := optionOf(t); ok {
 		k := basicElem(elem)
 		return k == "string" || k == "int"
+	}
+	if om, ok := omittableOf(t); ok {
+		k, _, ok := g.scalar(om.elem)
+		return ok && (k == "string" || k == "int")
 	}
 	if n, s, ok := recordOf(t); ok {
 		if seen[n] {
@@ -534,14 +583,32 @@ func (g *gen) leaf(c *command, t check.Type, name, path, acc string, seen map[*c
 	}
 	if elem, ok := optionOf(t); ok {
 		if k := basicElem(elem); k == "string" || k == "int" {
-			ctor := map[string]string{"string": "OptionalString", "int": "OptionalInt"}[k]
-			c.decls = append(c.decls, fmt.Sprintf("let %s = flag.%s(%q, %q)", f, ctor, name, usage))
+			c.decls = append(c.decls, fmt.Sprintf("let %s = flag.%s(%q, %q)", f, optionalFlagCtor(k), name, usage))
 			c.print = append(c.print, fmt.Sprintf("match %s {\ncase Some[%s] as s:\nout = out.Append(\"-%s=\\(s.Value)\")\ncase None:\n}", acc, k, name))
 			return f + ".Get(v)"
 		}
 	}
+	if om, ok := omittableOf(t); ok {
+		if k, conv, ok := g.scalar(om.elem); ok && (k == "string" || k == "int") {
+			c.decls = append(c.decls, fmt.Sprintf("let %s = flag.%s(%q, %q)", f, optionalFlagCtor(k), name, usage))
+			presentExpr := g.expr(om.present)
+			absentExpr := g.expr(om.absent)
+			val := convert(k, conv, "s.Value")
+			u := c.local("u")
+			c.build = append(c.build, fmt.Sprintf("let %s = match %s.Get(v) {\ncase Some[%s] as s:\n%s{%s: %s}\ncase None:\n%s\n}", u, f, k, presentExpr, om.field, val, absentExpr))
+			c.print = append(c.print, fmt.Sprintf("match %s {\ncase %s as s:\nout = out.Append(\"-%s=\\(s.%s)\")\ncase %s:\n}", acc, presentExpr, name, om.field, absentExpr))
+			return u
+		}
+	}
 	g.noForm(c.op.Name, "the field "+path, t)
 	return "?"
+}
+
+func optionalFlagCtor(kind string) string {
+	if kind == "int" {
+		return "OptionalInt"
+	}
+	return "OptionalString"
 }
 
 // kebab is a name as a command line writes it: lower case, with a "-"
