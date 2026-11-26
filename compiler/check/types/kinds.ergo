@@ -391,6 +391,9 @@ func bracketNames(p syntax.Parsed, l dense.ID[syntax.Node]) ([]string, []bool) {
 // at indexes them by declaration (genSide).
 type Kinds { Names []string, Of [][]int, Raw [][]int, Steps int, at dense.Side[store.Decl, int] }
 
+// NoKinds is an empty kind table.
+func NoKinds() Kinds { Kinds{Names: []string{}, Of: [][]int{}, Raw: [][]int{}, Steps: 0, at: dense.NewSide[store.Decl, int](-1)} }
+
 // rawKinds is the kinds the positions give the parameters of the local
 // generic type name.
 func rawKinds(s store.Store, k Kinds, name string) []int {

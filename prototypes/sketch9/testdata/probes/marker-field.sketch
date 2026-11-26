@@ -1,5 +1,0 @@
-// want S109
-package demo
-type Item struct{ is__Choice string }
-type Choice interface{ Item }
-func main() {}

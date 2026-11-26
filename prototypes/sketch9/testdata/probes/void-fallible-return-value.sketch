@@ -1,6 +1,0 @@
-// want S108
-package demo
-type Fault struct{}
-func inner() (string, error[Fault]) { return "ok" }
-func outer() error[Fault] { return try inner() }
-func main() uses Console { outer() catch { case Fault: Console.Println("handled") } }

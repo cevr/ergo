@@ -316,11 +316,12 @@ func normalizeDelegatedKiller(raw string, known []string) string {
 	if slices.Contains(known, raw) {
 		return raw
 	}
-	// Map `pkg:law Name for Impl` back to canonical `pkg:law:Name`.
+	// Map `pkg:law Name for Impl` and `pkg:law Name under Ctx` back to canonical `pkg:law:Name`.
 	suite, rest, ok := strings.Cut(raw, ":")
 	if ok {
 		if afterLaw, isLaw := strings.CutPrefix(rest, "law "); isLaw {
 			lawName, _, _ := strings.Cut(afterLaw, " for ")
+			lawName, _, _ = strings.Cut(lawName, " under ")
 			cand := suite + ":law:" + strings.TrimSpace(lawName)
 			if slices.Contains(known, cand) {
 				return cand

@@ -1,9 +1,0 @@
-// want S108
-package demo
-type Fault struct{}
-func unused() error[Fault] { return Fault{} }
-func val() string { return "global" }
-func main() needs Console {
-  val := "local"
-  Console.Println(val, val())
-}

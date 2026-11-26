@@ -10,9 +10,6 @@
 !docs/receipts/
 !docs/previews/2026-
 !docs/research/
-!prototypes/sketch9/
-!internal/migrate196/oldsyntax/
-!internal/migrate196/testdata/old/
 !docs/decisions.md
 
 # prose that only reads like a row: a verb or a noun before a comma, not a list of capabilities
@@ -104,11 +101,6 @@ internal/residue/residue_host_test.go	{"needs A, B", "provides A, B", "needs (A,
 cmd/ergo/readme_smoke_test.go	timeout.Expired needs Resolver, Scheduler {"
 internal/sketch/sketchtest/fixtures.go	"let f = func() needs (A, B) {
 internal/sketch/sketchtest/fixtures.go	"func f() needs (A, B) {}
-
-# old-syntax translator input: internal/migrate196 reads the old comma rows and writes them with |
-internal/migrate196/translate_test.go	Live provides Orders, Clock needs Config
-internal/migrate196/translate_test.go	func f(g func() needs (Orders, Clock)) needs Orders, Clock {
-internal/migrate196/rows_comments_test.go	the old parenthesised form `needs (A, B)`
 
 # vendored upstream prose (foldkit), not Ergo
 conformance/upstream/foldkit-d21db423/AGENTS.md	If code needs explanation, refactor

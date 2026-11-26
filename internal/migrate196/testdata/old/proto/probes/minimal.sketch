@@ -1,3 +1,0 @@
-// out: ok
-package demo
-func main() needs Console { Console.Println("ok") }

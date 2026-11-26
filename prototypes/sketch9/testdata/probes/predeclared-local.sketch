@@ -1,7 +1,0 @@
-// want S109
-package demo
-func main() uses Console {
-  string := "shadow"
-  value := "ok"
-  Console.Println(string, value)
-}

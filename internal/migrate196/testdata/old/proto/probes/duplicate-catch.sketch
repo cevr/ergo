@@ -1,8 +1,0 @@
-// want S108
-package demo
-type Fault struct{}
-func fail() (string, error[Fault]) { return Fault{} }
-func main() needs Console {
-  value := fail() catch { case Fault: "a"; case Fault: "b" }
-  Console.Println(value)
-}

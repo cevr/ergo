@@ -1,3 +1,0 @@
-// out-quoted: "\ufeff\n"
-package demo
-func main() uses Console { Console.Println("﻿") }

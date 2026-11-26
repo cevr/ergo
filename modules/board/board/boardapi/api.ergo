@@ -1,5 +1,6 @@
 import json
 import rpc
+import scope
 import sync
 import github.com/cevr/ergo/modules/board/board
 
@@ -1215,7 +1216,7 @@ func NewClient(inner board.Api) Client {
 
 // ClientInForce is the board.Api that invokes the provider currently in force.
 func ClientInForce() Client needs board.Api {
-	let held = InForce[board.Api]()
+	let held = scope.InForce[board.Api]()
 	Client{
 		opWhoami:        func(input board.WhoamiInput) board.WhoamiReply fails board.Unauthenticated | board.Gone | board.BoardNotFound | board.StoreFailed { with held { try board.Api.Whoami(input) } },
 		opBoards:        func() []board.BoardSummary fails board.Unauthenticated | board.Gone | board.StoreFailed { with held { try board.Api.Boards() } },

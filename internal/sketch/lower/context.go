@@ -115,3 +115,87 @@ func (fc *funcCtx) contextCall(f *check.Func, inst *check.Instance, val string, 
 	}
 	return head + "(" + strings.Join(append(lead, recv), ", ") + ")"
 }
+
+// contextWith is the IR of the context-owner with operand arg, whose
+// binding is cb: the operand evaluated once into cv, protocol Key and
+// Text called on it, Scope.OpenContext opened on the current scope
+// (frameArg), and rest evaluated before Context.End when rest does not
+// always leave the frame (early exits restore through Scope.End popping
+// Scope.withs in reverse order).
+func (b *irBuilder) contextWith(x *syntax.CallExpr, i int, w *check.With, arg syntax.Expr, ret bool, to *yieldTo) []*irStmt {
+	cb := w.Value
+	if cb == nil {
+		irNo("with of a context owner without its binding")
+	}
+	if b.with == 0 && b.frame == 0 {
+		irNo("with of a context value without a frame scope")
+	}
+	named, ok := cb.Type.(*check.Named)
+	if !ok || named.Obj == nil || named.Obj.Pkg == nil {
+		irNo("with of a context owner without a named binding type")
+	}
+	pre, val := b.value(arg)
+	p := past(b.pos(arg, arg.Pos()), pre)
+	cv := b.temp("cv", b.goType(cb.Type, arg), p)
+	key := b.contextCall(cb.Key, cb.KeyInst, cv, arg, false, p)
+	text := b.contextCall(cb.Text, cb.TextInst, cv, arg, true, p)
+	pkg := irStringConst(p, "string", contextNamespace(named.Obj.Pkg))
+	cx := b.temp("cx", b.spelling("*"+b.l.rt()+".Context"), p)
+	out := append(pre,
+		&irStmt{K: "def", Pos: p, Local: cv, X: val},
+		&irStmt{K: "def", Pos: p, Local: cx, X: &irExpr{K: "mcall", Pos: p, Name: "OpenContext", X: b.frameArg(p), Args: []*irExpr{pkg, key, text}}},
+	)
+	rest := b.withRest(x, i, w, b.env, ret, to)
+	out = append(out, rest...)
+	if !irListEnds(rest) {
+		end := b.pos(x.Trailing, x.Trailing.Rbrace)
+		out = append(out, &irStmt{K: "expr", Pos: end, X: &irExpr{K: "mcall", Pos: end, Name: "End", X: &irExpr{K: "local", Pos: end, I: cx}}})
+	}
+	return out
+}
+
+// contextCall is the IR call of contextWith's protocol function f
+// (contextKey or contextText) on the value in local cv: optional env
+// first, then f's witnesses (ir_witness.go), then receiver (by address
+// when f takes *T). Methods use mcall; functions use call with sigTypeArgs.
+func (b *irBuilder) contextCall(f *check.Func, inst *check.Instance, cv int, arg syntax.Expr, text bool, p irPos) *irExpr {
+	if (len(f.Sig.TParams) > 0) != (inst != nil) || inst != nil && inst.Func != f {
+		ice(arg, "the context protocol function %s has no instance that matches it", f.Name)
+	}
+	if len(f.Sig.Params) != 1 || len(f.Sig.Results) != 1 {
+		ice(arg, "the context protocol function %s does not take one value and return its text", f.Name)
+	}
+	fd := b.l.useFunc(f, arg)
+	if fd.extern != "" {
+		ice(arg, "a context value whose %s is an extern function, which the checker refuses (C26)", f.Name)
+	}
+	recv := &irExpr{K: "local", Pos: p, I: cv}
+	if _, byPtr := f.Sig.Params[0].Type.(*check.Pointer); byPtr {
+		recv = b.addrOf(cv, p)
+	}
+	var mono *specCopy
+	if inst != nil {
+		mono = b.fc.monoForAt(f, inst.TypeArgs, !copiesOnly(f) && !b.l.monoTaken())
+		if mono != nil {
+			b.fc.monoWitnesses(mono, inst)
+		}
+	}
+	var lead []*irExpr
+	if mono == nil || mono.wits == nil {
+		lead = b.contextWitnessArgs(f, inst, arg, text, p, mono.claimParams())
+	}
+	if !fd.envFree {
+		lead = append([]*irExpr{{K: "local", Pos: p, I: b.env}}, lead...)
+	}
+	if mono != nil {
+		return &irExpr{K: "call", Pos: p, Name: mono.name, Args: append(lead, recv)}
+	}
+	if fd.method != nil {
+		return &irExpr{K: "mcall", Pos: p, Name: fd.name, X: recv, Args: lead}
+	}
+	var targs string
+	if inst != nil {
+		targs = b.sigTypeArgs(f.Sig, inst.TypeArgs, arg)
+	}
+	return &irExpr{K: "call", Pos: p, Name: fd.name, T: targs, Args: append(lead, recv)}
+}

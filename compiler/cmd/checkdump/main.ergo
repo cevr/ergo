@@ -23,6 +23,7 @@
 import compiler/check/bind
 import compiler/check/diag
 import compiler/check/facts
+import compiler/check/footprint
 import compiler/check/load
 import compiler/check/providing
 import compiler/check/rows
@@ -31,6 +32,7 @@ import compiler/syntax
 import fs
 import io
 import json
+import option
 import os
 import slices
 import strings
@@ -51,42 +53,105 @@ func read(path string) string fails os.Exit needs fs.Files {
 	}
 }
 
-// unitOf is the package of one manifest line's "EXT FOREIGN FILE..."
-// and the sources of its files.
-func unitOf(g []string) (load.Unit, []string) fails os.Exit needs fs.Files {
-	if g.Len() < 2 {
-		return os.Exit{Code: 2, Message: "checkdump: a package needs EXT FOREIGN FILE..."}
+type spec { path string, ext string, foreign string, files []string }
+
+func isSome[T](o option.Option[T]) bool {
+	match o {
+	case option.Some[T]:
+		true
+	case option.None:
+		false
 	}
-	let tab = load.TablesOf(try read(g[0]), try read(g[1]))
-	let paths = g[2:g.Len()]
+}
+
+func specUnit(sp spec) (load.Unit, []string) fails os.Exit needs fs.Files {
+	let tab = load.TablesOf(try read(sp.ext), try read(sp.foreign))
 	let mut files = []bind.File{}
 	let mut srcs = []string{}
-	for path in paths {
+	for path in sp.files {
 		let src = try read(path)
 		srcs = srcs.Append(src)
 		files = files.Append(bind.File{Name: base(path), Parsed: syntax.Parse(src)})
 	}
-	(load.UnitOf(tab, files, paths), srcs)
+	let dir = if sp.files.Len() > 0 { load.Dir(sp.files[0]) } else { "." }
+	(load.Unit{Tab: tab, Files: files, Paths: sp.files, Path: sp.path, Dir: dir}, srcs)
 }
 
-// missing is the imports of u that no package of the run answers, nor
-// one loaded for it from outside: each has its own diagnostic, so the
-// unused pass counts it as read.
-func missing(u load.Unit, p load.Program, outside []types.Iface) []string {
+func needsOutside(ims []string, held Map[string, bool]) bool {
+	for path in ims {
+		if !isSome(held.Get(path)) {
+			return true
+		}
+	}
+	false
+}
+
+func missingOf(ims []string, known Map[string, bool]) []string {
 	let mut out = []string{}
-	for path in bind.Imports(u.Files) {
-		let mut found = false
-		for d in p.Loaded {
-			found = found || d.Path == path
-		}
-		for x in outside {
-			found = found || x.Path == path
-		}
-		if !found {
+	for path in ims {
+		if !isSome(known.Get(path)) {
 			out = out.Append(path)
 		}
 	}
 	out
+}
+
+func dumpOne(i int, srcs []string, miss []string, d load.Typed, deps Map[string, Map[string, bool]]) string {
+	let held = diag.Held(d.S, d.K, d.T, deps)
+	let mut ds = diag.UnusedWithImports(d.K.Files, d.S, d.K.U, d.K.Ps, miss, providing.Quiet(d.S, d.K, held), d.T.UsedImports)
+	for g in diag.Flow(d.S, d.K, d.T, srcs) {
+		ds = ds.Append(g)
+	}
+	for g in diag.OwnMarks(d.S, d.K, d.T) {
+		ds = ds.Append(g)
+	}
+	for g in diag.Harnesses(d.K) {
+		ds = ds.Append(g)
+	}
+	for g in diag.AsWritten(d.K.Parsed) {
+		ds = ds.Append(g)
+	}
+	for g in diag.MachineTuples(d.K.Parsed) {
+		ds = ds.Append(g)
+	}
+	for g in rows.Rows(d.S, d.K, d.T) {
+		ds = ds.Append(g)
+	}
+	for g in providing.Check(d.S, d.K) {
+		ds = ds.Append(g)
+	}
+	for g in diag.Dropped(d.S, d.K, d.T, footprint.Of(d.S, d.K, d.T), deps) {
+		ds = ds.Append(g)
+	}
+	for g in d.T.SelfInference {
+		let parsed = d.K.Parsed[g.File]
+		let offset = syntax.NodePos(parsed, g.At)
+		ds = ds.Append(diag.Diag{File: g.File, Offset: offset, Length: syntax.NodeEnd(parsed, g.At) - offset, Code: "S108", Message: "cannot infer \(g.Param); write the type arguments, e.g. \(g.Example) (D6)"})
+	}
+	for g in d.T.BareSelfCalls {
+		let parsed = d.K.Parsed[g.File]
+		let offset = syntax.NodePos(parsed, g.At)
+		ds = ds.Append(diag.Diag{File: g.File, Offset: offset, Length: syntax.NodeEnd(parsed, g.At) - offset, Code: "S108", Message: "\(g.Name) needs a value: write x.\(g.Name)(…)"})
+	}
+	for g in d.T.LookupDiags {
+		let parsed = d.K.Parsed[g.File]
+		let offset = syntax.NodePos(parsed, g.At)
+		ds = ds.Append(diag.Diag{File: g.File, Offset: offset, Length: syntax.NodeEnd(parsed, g.At) - offset, Code: g.Code, Message: g.Message})
+	}
+	let mut s = d.S
+	for g in facts.Diags(&s, d.K) {
+		ds = ds.Append(g)
+	}
+	let mut lines = []syntax.Lines{}
+	for src in srcs {
+		lines = lines.Append(syntax.LinesOf(src))
+	}
+	let mut b = strings.NewBuilder()
+	b.WriteString("@pkg \(i)\n")
+	for g in diag.Sorted(ds) {
+		b.WriteString(line(d.K.Files[g.File].Name, syntax.PositionOf(lines[g.File], g.Offset), g) + "\n")
+	}
+	b.String()
 }
 
 // line is one diagnostic as its JSON object.
@@ -138,94 +203,122 @@ func run(argv0 []string) fails os.Exit needs fs.Files | io.Stdout {
 	if argv.Len() != 2 || argv[0] != "-corpus" {
 		return usage
 	}
-	let mut units = []load.Unit{}
-	let mut srcs = [][]string{}
+	let mut specs = []spec{}
+	let mut paths = []string{}
 	for l in strings.Split(try read(argv[1]), "\n") {
 		let g = strings.Fields(l)
 		if g.Len() > 0 {
-			let (u0, s) = try unitOf(g[1:g.Len()])
-			let mut u = u0
-			u.Path = g[0]
+			if g.Len() < 3 {
+				return os.Exit{Code: 2, Message: "checkdump: a package needs EXT FOREIGN FILE..."}
+			}
+			specs = specs.Append(spec{path: g[0], ext: g[1], foreign: g[2], files: g[3:g.Len()]})
+			paths = paths.Append(g[0])
+		}
+	}
+	let mut held = paths
+	let mut heldSet = Map[string, bool]{}
+	for p in paths {
+		heldSet[p] = true
+	}
+	let mut imports = [][]string{}
+	let mut outside = []types.Iface{}
+	for sp in specs {
+		let mut files = []bind.File{}
+		for path in sp.files {
+			files = files.Append(bind.File{Name: base(path), Parsed: syntax.Parse(try read(path))})
+		}
+		let ims = bind.Imports(files)
+		imports = imports.Append(ims)
+		if std != "" && needsOutside(ims, heldSet) {
+			let tab = load.TablesOf(try read(sp.ext), try read(sp.foreign))
+			let dir = if sp.files.Len() > 0 { load.Dir(sp.files[0]) } else { "." }
+			let prev = held.Len()
+			let (h, o) = load.OutsideOne(ims, dir, tab, held, outside, std)
+			held = h
+			outside = o
+			for k in prev..held.Len() {
+				heldSet[held[k]] = true
+			}
+		}
+	}
+	let mut known = Map[string, bool]{}
+	for p in paths {
+		known[p] = true
+	}
+	for x in outside {
+		known[x.Path] = true
+	}
+	let plan = load.PlanOf(paths, imports)
+	if plan.Whole {
+		let mut units = []load.Unit{}
+		let mut srcs = [][]string{}
+		for sp in specs {
+			let (u, s) = try specUnit(sp)
 			units = units.Append(u)
 			srcs = srcs.Append(s)
 		}
+		let p = load.LoadAll(units, outside, threads)
+		let mut deps = Map[string, Map[string, bool]]{}
+		let mut sizes = slices.Repeat([]int{0}, p.Loaded.Len())
+		let mut grew = true
+		for grew {
+			grew = false
+			for i, e in p.Loaded {
+				let r = diag.Resources(e.S, e.K, deps)
+				grew = grew || r.Len() != sizes[i]
+				sizes[i] = r.Len()
+				if e.Path != "main" {
+					deps[e.Path] = r
+				}
+			}
+		}
+		let mut b = strings.NewBuilder()
+		for i in 0..p.Loaded.Len() {
+			let at = p.Units[i]
+			let d = load.TypeAt(p, i)
+			b.WriteString(dumpOne(i, srcs[at], missingOf(imports[at], known), d, deps))
+		}
+		io.Stdout.Print(b.String())
+		return
 	}
-	let outside = load.Outside(units, std)
-	let p = load.LoadAll(units, outside, threads)
-	// Each loaded package's resources, by path, for the types its
-	// importers read (diag.Held). A package reads those of its imports,
-	// in any order, so the passes go on until no package's set grows (each
-	// only grows). Sizes go by package, not path: several roots share the
-	// path main, which nothing imports.
-	let mut deps = Map[string, Map[string, bool]]{}
-	let mut sizes = slices.Repeat([]int{0}, p.Loaded.Len())
-	let mut grew = true
-	for grew {
-		grew = false
-		for i, e in p.Loaded {
-			let r = diag.Resources(e.S, e.K, deps)
-			grew = grew || r.Len() != sizes[i]
-			sizes[i] = r.Len()
-			if e.Path != "main" {
-				deps[e.Path] = r
+	let mut dropAt = [][]int{}
+	for _ in 0..plan.Waves.Len() {
+		dropAt = dropAt.Append([]int{})
+	}
+	for i, last in plan.Last {
+		if last >= 0 {
+			dropAt[last] = dropAt[last].Append(i)
+		}
+	}
+	let mut arts = Map[string, option.Option[load.Art]]{}
+	let mut resDeps = Map[string, Map[string, bool]]{}
+	let mut blocks = slices.Repeat([]string{""}, specs.Len())
+	for w, wave in plan.Waves {
+		for i in wave {
+			let (u, s) = try specUnit(specs[i])
+			let keep = plan.Last[i] >= 0
+			let path = u.Path
+			let st = load.Step(u, arts, outside, threads, keep)
+			blocks[i] = dumpOne(i, s, missingOf(imports[i], known), st.T, resDeps)
+			match st.A {
+			case option.Some{Value: a}:
+				arts[path] = option.Some[load.Art]{Value: a}
+				if path != "main" {
+					resDeps[path] = diag.Resources(st.T.S, st.T.K, resDeps)
+				}
+			case option.None:
+			}
+		}
+		for j in dropAt[w] {
+			arts[paths[j]] = option.None
+			if paths[j] != "main" {
+				resDeps[paths[j]] = Map[string, bool]{}
 			}
 		}
 	}
 	let mut b = strings.NewBuilder()
-	for i in 0..p.Loaded.Len() {
-		let at = p.Units[i]
-		let u = units[at]
-		let d = load.TypeAt(p, i)
-		let held = diag.Held(d.S, d.K, d.T, deps)
-		let mut ds = diag.UnusedWithImports(d.K.Files, d.S, d.K.U, d.K.Ps, missing(u, p, outside), providing.Quiet(d.S, d.K, held), d.T.UsedImports)
-		for g in diag.Flow(d.S, d.K, d.T, srcs[at]) {
-			ds = ds.Append(g)
-		}
-		for g in diag.OwnMarks(d.S, d.K, d.T) {
-			ds = ds.Append(g)
-		}
-		for g in diag.Harnesses(d.K) {
-			ds = ds.Append(g)
-		}
-		for g in diag.AsWritten(d.K.Parsed) {
-			ds = ds.Append(g)
-		}
-		for g in diag.MachineTuples(d.K.Parsed) {
-			ds = ds.Append(g)
-		}
-		for g in rows.Rows(d.S, d.K, d.T) {
-			ds = ds.Append(g)
-		}
-		for g in providing.Check(d.S, d.K) {
-			ds = ds.Append(g)
-		}
-		for g in d.T.SelfInference {
-			let parsed = d.K.Parsed[g.File]
-			let offset = syntax.NodePos(parsed, g.At)
-			ds = ds.Append(diag.Diag{File: g.File, Offset: offset, Length: syntax.NodeEnd(parsed, g.At) - offset, Code: "S108", Message: "cannot infer \(g.Param); write the type arguments, e.g. \(g.Example) (D6)"})
-		}
-		for g in d.T.BareSelfCalls {
-			let parsed = d.K.Parsed[g.File]
-			let offset = syntax.NodePos(parsed, g.At)
-			ds = ds.Append(diag.Diag{File: g.File, Offset: offset, Length: syntax.NodeEnd(parsed, g.At) - offset, Code: "S108", Message: "\(g.Name) needs a value: write x.\(g.Name)(…)"})
-		}
-		for g in d.T.LookupDiags {
-			let parsed = d.K.Parsed[g.File]
-			let offset = syntax.NodePos(parsed, g.At)
-			ds = ds.Append(diag.Diag{File: g.File, Offset: offset, Length: syntax.NodeEnd(parsed, g.At) - offset, Code: g.Code, Message: g.Message})
-		}
-		let mut s = d.S
-		for g in facts.Diags(&s, d.K) {
-			ds = ds.Append(g)
-		}
-		let mut lines = []syntax.Lines{}
-		for src in srcs[at] {
-			lines = lines.Append(syntax.LinesOf(src))
-		}
-		b.WriteString("@pkg \(i)\n")
-		for g in diag.Sorted(ds) {
-			b.WriteString(line(u.Files[g.File].Name, syntax.PositionOf(lines[g.File], g.Offset), g) + "\n")
-		}
+	for block in blocks {
+		b.WriteString(block)
 	}
 	io.Stdout.Print(b.String())
 }

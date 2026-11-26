@@ -915,16 +915,18 @@ func TestContext(t *testing.T) {
 
 // TestRuntime199ContextValueOwner fails a context region that bypasses its
 // owner. The lowering emits Scope.OpenContext and Context.End only from
-// contextWith, and the protocol functions are called only by contextCall.
-// In the runtime, rt.Task.WithValue is called only by v1's OpenContext, a
-// context region joins a scope's region list only there, and rt keeps a
-// task's values only in its immutable list. Owners are qualified by their
-// receiver ("Scope.OpenContext", not a bare "End"), names resolve through
-// go/types, and the lowering's text is read as constant values, so a split
-// or named constant cannot hide an emitted name (runtime-199 stage 4a r1
-// m4).
+// contextWith (its text path funcCtx.contextWith and its IR path
+// irBuilder.contextWith), and the protocol functions are called only by
+// contextCall. In the runtime, rt.Task.WithValue is called only by v1's
+// OpenContext, a context region joins a scope's region list only there,
+// and rt keeps a task's values only in its immutable list. Owners are
+// qualified by their receiver ("Scope.OpenContext", not a bare "End"),
+// names resolve through go/types, and the lowering's text is read as
+// constant values, so a split or named constant cannot hide an emitted
+// name (runtime-199 stage 4a r1 m4).
 func TestRuntime199ContextValueOwner(t *testing.T) {
 	emits := map[string]int{}
+	irEmits := map[string]int{}
 	lowering := typedPackage(t, ".")
 	lowering.owners(func(owner string, decl ast.Decl) {
 		constStrings(lowering, decl, func(value string) {
@@ -937,6 +939,8 @@ func TestRuntime199ContextValueOwner(t *testing.T) {
 					// the catalog keys
 				case "funcCtx.contextWith":
 					emits[name]++
+				case "irBuilder.contextWith":
+					irEmits[name]++
 				default:
 					t.Errorf("%s emits %s outside the context owner", owner, name)
 				}
@@ -952,6 +956,9 @@ func TestRuntime199ContextValueOwner(t *testing.T) {
 		if emits[name] != 1 {
 			t.Errorf("the context owner emits %s %d times, want 1", name, emits[name])
 		}
+	}
+	if irEmits["OpenContext"] != 1 {
+		t.Errorf("the IR context owner emits OpenContext %d times, want 1", irEmits["OpenContext"])
 	}
 	// The runtime: a use of rt's (*Task).WithValue or Bind (a call or a
 	// method value) and a write of rt's Task.values or v1's Scope.withs,

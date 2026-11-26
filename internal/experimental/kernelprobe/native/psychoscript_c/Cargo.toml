@@ -1,0 +1,16 @@
+[package]
+name = "psychoscript_c"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+name = "psychoscript_c"
+crate-type = ["cdylib", "staticlib"]
+
+[dependencies]
+psychoscript = { path = "/tmp/kernelprobe/psychoscript/rust/crates/psychoscript" }
+oxc_allocator = "0.159"
+oxc_ast = "0.159"
+oxc_parser = "0.159"
+oxc_span = "0.159"
+serde_json = { version = "1", features = ["preserve_order", "float_roundtrip"] }

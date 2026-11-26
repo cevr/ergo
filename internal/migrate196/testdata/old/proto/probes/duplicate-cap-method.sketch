@@ -1,7 +1,0 @@
-// want S108
-package demo
-type Store interface {
-  Get() string
-  Get() string
-}
-func main() {}

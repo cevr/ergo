@@ -41,6 +41,9 @@ type GoBindings struct {
 	mu     sync.Mutex
 	lookup func(path string) (string, bool)
 	pkgs   map[string]*Package
+	// program imports the Ergo packages a binding's plain imports name: the
+	// importer of the first program checker that reads the bindings.
+	program Importer
 	// Stale, when set, is why the binding of a Go import path that lookup
 	// found no longer matches the module's go.mod (IG7: the loader compares
 	// the binding's stamp with go.mod, reading files only); "" when it
@@ -68,24 +71,44 @@ type GoImporter interface {
 	GoBindings() *GoBindings
 }
 
-// goImp is a binder's importer: a binding imports Go packages only.
+// goImp is a binder's importer: a binding's `import go` names Go packages
+// (GoBindings), and its plain imports name the Ergo packages its
+// signatures spell (option.Option, core.Seq, cmp.Ordered), which the
+// program's own importer resolves, as any package's import is.
 type goImp struct{ set *GoBindings }
 
 func (g *goImp) Import(path string) (*Package, error) {
-	return nil, fmt.Errorf("a binding imports Go packages only (%s)", path)
+	g.set.mu.Lock()
+	prog := g.set.program
+	g.set.mu.Unlock()
+	if prog == nil {
+		// Bindings read outside a program (ResolveAll of a tool) import
+		// from the embedded library, as a program with no module does.
+		return Std.Import(path)
+	}
+	return prog.Import(path)
 }
 
 func (g *goImp) GoBindings() *GoBindings { return g.set }
 
-// goBindings is the program's Go packages.
+// goBindings is the program's Go packages. The first program checker that
+// reads them gives its importer to the bindings' plain imports.
 func (c *checker) goBindings() *GoBindings {
+	b := c.ownGo
 	if gi, ok := c.imp.(GoImporter); ok {
-		return gi.GoBindings()
+		b = gi.GoBindings()
+	} else if b == nil {
+		b = NewGoBindings(nil)
+		c.ownGo = b
 	}
-	if c.ownGo == nil {
-		c.ownGo = NewGoBindings(nil)
+	if _, binding := c.imp.(*goImp); c.imp != nil && !binding {
+		b.mu.Lock()
+		if b.program == nil {
+			b.program = c.imp
+		}
+		b.mu.Unlock()
 	}
-	return c.ownGo
+	return b
 }
 
 // importGo resolves `import go path` to the binding of path. The path
@@ -479,7 +502,14 @@ func (h *hostPkg) loadLocked() {
 					name = spec.Name.Name
 				}
 				pn := &PkgName{Name: name, Pos: spec.Pos(), spec: spec, used: true}
-				if pkg, ok := h.set.Package(path); ok {
+				if spec.Kind != syntax.ImportGo {
+					if pkg, err := c.imp.Import(path); err == nil {
+						pn.Pkg = pkg
+					} else {
+						c.errorf(spec, CodeUnknown, "package %q: %v", path, err)
+						pn.Pkg, pn.broken = &Package{Path: path, Name: name, Scope: newScope(nil)}, true
+					}
+				} else if pkg, ok := h.set.Package(path); ok {
 					pn.Pkg = pkg
 				} else {
 					c.errorf(spec, CodeUnknown, "no binding for Go package %q", path)

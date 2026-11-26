@@ -1,6 +1,0 @@
-// want S108
-package demo
-func main() needs Console {
-  value := 9223372036854775807 + 1
-  Console.Println(value)
-}

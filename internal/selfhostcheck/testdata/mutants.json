@@ -2307,10 +2307,10 @@
       "name": "lower-laws-shapes-drop-slice-len",
       "origin": "wf10/selfhost/S4-PORT LAWS-SHAPES",
       "file": "compiler/lower/lower.ergo",
-      "decl": "builtinOf",
-      "from": "if from != \"string\" && !(store.KindOfType(st.s, at) == store.KSlice && shapeGo(st, at) != \"\") {",
-      "to": "if from != \"string\" {",
-      "rule": "builtinOf lowers len(xs) for admitted slice shapes as well as strings.",
+      "decl": "lenOperand",
+      "from": "if basicGo(st, at) != \"string\" && !(store.KindOfType(st.s, at) == store.KSlice && shapeGo(st, at) != \"\") {",
+      "to": "if basicGo(st, at) != \"string\" {",
+      "rule": "lenOperand lowers len(xs) and .Len() for admitted slice shapes as well as strings.",
       "killers": [
         "internal/selfhostcheck:TestIRLawBuildAndProductionControl"
       ],
@@ -2562,6 +2562,26 @@
           "./scripts/linked"
         ]
       }
+    },
+    {
+      "name": "lower-len-method-receiver",
+      "origin": "wf10/selfhost/S4-PORT NEXT-STOPS",
+      "file": "compiler/lower/lower.ergo", "decl": "goLenReceiver",
+      "from": "\tif !to.Recv {",
+      "to": "\tif to.Recv {",
+      "rule": "A built-in .Len() call whose checked callee is declared extern go len lowers to Go's len of its receiver, as the Go builder's goBuiltinCall does.",
+      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
+      "killers": ["internal/selfhostcheck:TestIRLenMethod"]
+    },
+    {
+      "name": "lower-len-method-purity",
+      "origin": "wf10/selfhost/S4-PORT NEXT-STOPS",
+      "file": "compiler/lower/calls.ergo", "decl": "pureEdge",
+      "from": "\t\t\treturn builtinEdge\n\t\tcase option.None:\n\t\t\treturn stop(\"callee: nonlocal or method edge (purity)\")",
+      "to": "\t\t\treturn stop(\"callee: nonlocal or method edge (purity)\")\n\t\tcase option.None:\n\t\t\treturn stop(\"callee: nonlocal or method edge (purity)\")",
+      "rule": "A built-in .Len() call is a pure builtin edge of its caller's purity proof, as Go's pureCalls reads a Go builtin.",
+      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
+      "killers": ["internal/selfhostcheck:TestIRLenMethod"]
     },
     {"name": "agree-cache-key-drops-tests", "origin": "wf10 AGREEMENT-RUN-SPEED (not-run-crunch)", "file": "internal/selfhostcheck/iragreecache_test.go", "decl": "irProgramKey", "from": "irWithin(pr.module), fmt.Sprint(pr.tests)}", "to": "irWithin(pr.module)}", "rule": "A test build's lowering is never served to the run build of the same folder.", "killers": ["internal/selfhostcheck:TestIRAgreeCacheServesOnlyItsKey"]},
     {"name": "agree-cache-key-drops-env", "origin": "wf10 AGREEMENT-RUN-SPEED (not-run-crunch)", "file": "internal/selfhostcheck/iragreecache_test.go", "decl": "irProgramKey", "from": "fmt.Sprint(pr.tests)}\n\tparts = append(parts, irAnswerEnv()...)", "to": "fmt.Sprint(pr.tests)}", "rule": "An answer variable is part of the Go side's key.", "killers": ["internal/selfhostcheck:TestIRAgreeCacheServesOnlyItsKey"]},

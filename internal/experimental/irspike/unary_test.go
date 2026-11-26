@@ -126,6 +126,7 @@ func TestIRReprosMatchSource(t *testing.T) {
 		{name: "wiregeneric", fns: []string{"writeSlice", "writeOption", "writeMap", "writePair", "writeNested"}},
 		{name: "stdclose", fns: []string{"size", "chunks", "io__File"}, wantStdout: "read true same true missing -2\n"},
 		{name: "taskwait", fns: []string{"wait", "tryWait", "tailWait"}, wantStdout: "try success: true; try rejected: true; tail rejected: true\n"},
+		{name: "contextowner", fns: []string{"contextWithUser", "contextWithText", "contextWithGen", "contextWithOpen", "ergo__contextWithOpenDog", "shadowAndRestore", "earlyReturn", "mixedWithClose", "taskSnapshot", "runSpan", "main_1"}, wantStdout: "a=u1,s=-\na=-,s=p1\ngen\na=open,s=sp\na=inner,s=-|a=outer,s=val|a=outer,s=-|a=-,s=-\na=-,s=early|a=-,s=-\nnormal:a=-,s=early|a=-,s=-\na=-,s=spok|boom|a=-,s=-\nclosed:own\nr:a=-,s=own|a=-,s=-\nchild/ts|a=-,s=-\n"},
 	} {
 		t.Run(r.name, func(t *testing.T) {
 			text, err := os.ReadFile(filepath.Join("testdata", r.name+".ergo"))

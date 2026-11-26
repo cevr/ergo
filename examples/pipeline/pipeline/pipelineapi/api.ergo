@@ -1,5 +1,6 @@
 import json
 import rpc
+import scope
 import sync
 import pipeline/board
 import pipeline/pipeline
@@ -176,7 +177,7 @@ func NewClient(inner pipeline.Pipeline) Client {
 
 // ClientInForce is the pipeline.Pipeline that invokes the provider currently in force.
 func ClientInForce() Client needs pipeline.Pipeline {
-	let held = InForce[pipeline.Pipeline]()
+	let held = scope.InForce[pipeline.Pipeline]()
 	Client{
 		opSubmit: func(c pipeline.SubmitRun) pipeline.Receipt fails run.WrongState | run.WrongStage | run.Closed | run.BadLength | pipeline.NoSuchRun | pipeline.Unavailable { with held { try pipeline.Pipeline.Submit(c) } },
 		opCancel: func(c pipeline.CancelRun) pipeline.Receipt fails run.WrongState | run.WrongStage | run.Closed | run.BadLength | pipeline.NoSuchRun | pipeline.Unavailable { with held { try pipeline.Pipeline.Cancel(c) } },

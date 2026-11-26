@@ -2,4 +2,4 @@ kind cli
 generator ergo gen cli
 subject github.com/cevr/ergo/modules/board/board.Api
 contract sha256:395ff8899d0b7e5fe5e5e3fe50d2e38f8e891dcbac963dd3aa4595b31171c2de
-digest sha256:3d4cf6e579c7a74a6af32f1dc95f400620c7142827cb18622ab7925f2d0e0d55
+digest sha256:853762d30e1b621f4556b3d731c91f3a22d5dc6ef0542e823ed7608be4395b86

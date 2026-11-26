@@ -1,5 +1,0 @@
-// want S108
-package demo
-wire W {}
-wire W {}
-func main() {}

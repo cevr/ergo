@@ -1,0 +1,277 @@
+type Act = StartNewServer{} | TransferH1{} | TransferH2{} | CommitCutover{} | AbortNewBeforeCommit{} | OldTriesActAfterCommit{} | FinishOldDrain{} | TriggerH1Event{} | DeliverH1Wake{} | CrashAndRecoverNewAfterCommit{}
+
+type World {
+	Phase                   int,
+	OldLive                 bool,
+	NewLive                 bool,
+	OwnerH1                 int,
+	OwnerH2                 int,
+	CommitPersisted         bool,
+	RolledBack              bool,
+	NewCrashedAfterCommit   bool,
+	OldReclaimedAfterCommit bool,
+	SilentDrop              bool,
+	H1Settled               bool,
+	WakeH1                  int,
+	DoubleWake              bool,
+	CutoversDone            int,
+}
+
+let PhaseOld = 0
+let PhaseQuiesce = 1
+let PhaseTransfer = 2
+let PhaseCommitted = 3
+let PhaseDone = 4
+
+let OwnerNone = 0
+let OwnerOld = 1
+let OwnerNew = 2
+let OwnerBoth = 3
+
+let NoMutant = 0
+let DualOwnerMutant = 1
+let BadRollbackDropMutant = 2
+let SplitBrainMutant = 3
+let PrematureOldExitMutant = 4
+let DoubleWakeCutoverMutant = 5
+
+func first() World {
+	World{
+		Phase:                   PhaseOld,
+		OldLive:                 true,
+		NewLive:                 false,
+		OwnerH1:                 OwnerOld,
+		OwnerH2:                 OwnerOld,
+		CommitPersisted:         false,
+		RolledBack:              false,
+		NewCrashedAfterCommit:   false,
+		OldReclaimedAfterCommit: false,
+		SilentDrop:              false,
+		H1Settled:               false,
+		WakeH1:                  0,
+		DoubleWake:              false,
+		CutoversDone:            0,
+	}
+}
+
+func step(s World, act Act, mutant int) Decision[World, string] {
+	let mut w = s
+	match act {
+	case StartNewServer:
+		if w.Phase != PhaseOld || !w.OldLive || w.NewLive {
+			return Ignore
+		}
+		w.NewLive = true
+		w.Phase = PhaseQuiesce
+		w.RolledBack = false
+		return Enter{w}
+	case TransferH1:
+		if (w.Phase != PhaseQuiesce && w.Phase != PhaseTransfer) || !w.NewLive || w.OwnerH1 != OwnerOld {
+			return Ignore
+		}
+		w.Phase = PhaseTransfer
+		if mutant == DualOwnerMutant {
+			w.OwnerH1 = OwnerBoth
+			return Enter{w}
+		}
+		w.OwnerH1 = OwnerNew
+		return Enter{w}
+	case TransferH2:
+		if (w.Phase != PhaseQuiesce && w.Phase != PhaseTransfer) || !w.NewLive || w.OwnerH2 != OwnerOld {
+			return Ignore
+		}
+		w.Phase = PhaseTransfer
+		if mutant == DualOwnerMutant {
+			w.OwnerH2 = OwnerBoth
+			return Enter{w}
+		}
+		w.OwnerH2 = OwnerNew
+		return Enter{w}
+	case CommitCutover:
+		if w.Phase != PhaseTransfer || !w.NewLive {
+			return Ignore
+		}
+		if w.OwnerH1 != OwnerNew || w.OwnerH2 != OwnerNew {
+			if mutant != DualOwnerMutant {
+				return Ignore
+			}
+		}
+		w.CommitPersisted = true
+		w.Phase = PhaseCommitted
+		return Enter{w}
+	case AbortNewBeforeCommit:
+		if !w.NewLive || w.Phase == PhaseOld {
+			return Ignore
+		}
+		if w.CommitPersisted {
+			return Ignore
+		}
+		w.NewLive = false
+		w.Phase = PhaseOld
+		w.RolledBack = true
+		if mutant == BadRollbackDropMutant {
+			if w.OwnerH1 == OwnerNew || w.OwnerH1 == OwnerBoth {
+				w.OwnerH1 = OwnerNone
+				w.SilentDrop = true
+			}
+			if w.OwnerH2 == OwnerNew || w.OwnerH2 == OwnerBoth {
+				w.OwnerH2 = OwnerNone
+				w.SilentDrop = true
+			}
+			return Enter{w}
+		}
+		w.OwnerH1 = OwnerOld
+		w.OwnerH2 = OwnerOld
+		return Enter{w}
+	case OldTriesActAfterCommit:
+		if !w.CommitPersisted || !w.OldLive {
+			return Ignore
+		}
+		if mutant == SplitBrainMutant && !w.OldReclaimedAfterCommit {
+			w.OldReclaimedAfterCommit = true
+			w.OwnerH1 = OwnerBoth
+			return Enter{w}
+		}
+		return Ignore
+	case FinishOldDrain:
+		if !w.OldLive {
+			return Ignore
+		}
+		if !w.CommitPersisted {
+			if mutant == PrematureOldExitMutant && !w.SilentDrop {
+				w.OldLive = false
+				if w.OwnerH1 == OwnerOld {
+					w.OwnerH1 = OwnerNone
+					w.SilentDrop = true
+				}
+				if w.OwnerH2 == OwnerOld {
+					w.OwnerH2 = OwnerNone
+					w.SilentDrop = true
+				}
+				return Enter{w}
+			}
+			return Ignore
+		}
+		w.OldLive = false
+		w.Phase = PhaseDone
+		w.CutoversDone = w.CutoversDone + 1
+		return Enter{w}
+	case CrashAndRecoverNewAfterCommit:
+		if !w.CommitPersisted || !w.NewLive || w.NewCrashedAfterCommit {
+			return Ignore
+		}
+		w.NewCrashedAfterCommit = true
+		return Enter{w}
+	case TriggerH1Event:
+		if w.H1Settled {
+			return Ignore
+		}
+		w.H1Settled = true
+		return Enter{w}
+	case DeliverH1Wake:
+		if !w.H1Settled || w.WakeH1 >= 2 {
+			return Ignore
+		}
+		if w.WakeH1 == 0 {
+			w.WakeH1 = 1
+			return Enter{w}
+		}
+		if mutant == DoubleWakeCutoverMutant && (w.OwnerH1 == OwnerBoth || w.CommitPersisted || w.RolledBack) {
+			w.WakeH1 = 2
+			w.DoubleWake = true
+			return Enter{w}
+		}
+		return Ignore
+	}
+}
+
+func singleOwnerInvariant(w World) bool {
+	w.OwnerH1 != OwnerBoth && w.OwnerH2 != OwnerBoth && !w.OldReclaimedAfterCommit
+}
+
+func zeroSilentDrops(w World) bool {
+	w.OwnerH1 != OwnerNone && w.OwnerH2 != OwnerNone && !w.SilentDrop
+}
+
+func safeRollbackBeforeCommit(w World) bool {
+	!(w.CommitPersisted && w.RolledBack) && !(w.RolledBack && (w.OwnerH1 != OwnerOld || w.OwnerH2 != OwnerOld))
+}
+
+func noSplitBrainAfterCommit(w World) bool { !w.OldReclaimedAfterCommit }
+
+func atMostOneWakeAcrossCutover(w World) bool { w.WakeH1 <= 1 && !w.DoubleWake }
+
+func brokeSingleOwner(w World) bool { !singleOwnerInvariant(w) }
+func brokeSilentDrop(w World) bool  { !zeroSilentDrops(w) }
+func brokeRollback(w World) bool    { !safeRollbackBeforeCommit(w) || !zeroSilentDrops(w) }
+func brokeSplitBrain(w World) bool  { !noSplitBrainAfterCommit(w) }
+func brokeDoubleWake(w World) bool  { !atMostOneWakeAcrossCutover(w) }
+
+func cleanCutoverCompleted(w World) bool {
+	w.Phase == PhaseDone && w.CommitPersisted && !w.OldLive && w.NewLive && w.OwnerH1 == OwnerNew && w.OwnerH2 == OwnerNew
+}
+
+func safeRollbackRestoredOld(w World) bool {
+	w.RolledBack && !w.CommitPersisted && w.OwnerH1 == OwnerOld && w.OwnerH2 == OwnerOld && w.WakeH1 <= 1
+}
+
+func postCommitCrashRecoveredNew(w World) bool {
+	w.Phase == PhaseDone && w.CommitPersisted && w.NewCrashedAfterCommit && w.OwnerH1 == OwnerNew && w.OwnerH2 == OwnerNew
+}
+
+func eventSettledAcrossCutoverOnce(w World) bool {
+	w.Phase == PhaseDone && w.H1Settled && w.WakeH1 == 1 && !w.DoubleWake
+}
+
+func design(s World, a Act) Decision[World, string]         { return step(s, a, NoMutant) }
+func mutDualOwner(s World, a Act) Decision[World, string]   { return step(s, a, DualOwnerMutant) }
+func mutBadRollback(s World, a Act) Decision[World, string] { return step(s, a, BadRollbackDropMutant) }
+func mutSplitBrain(s World, a Act) Decision[World, string]  { return step(s, a, SplitBrainMutant) }
+func mutOldExit(s World, a Act) Decision[World, string]     { return step(s, a, PrematureOldExitMutant) }
+func mutDoubleWake(s World, a Act) Decision[World, string]  { return step(s, a, DoubleWakeCutoverMutant) }
+
+type Design machine[World, Act] {
+	initial: first(),
+	step:    design,
+
+	law SingleOwnerInvariant always singleOwnerInvariant,
+	law ZeroSilentDrops always zeroSilentDrops,
+	law SafeRollbackBeforeCommit always safeRollbackBeforeCommit,
+	law NoSplitBrainAfterCommit always noSplitBrainAfterCommit,
+	law AtMostOneWakeAcrossCutover always atMostOneWakeAcrossCutover,
+
+	law CleanCutoverCompleted sometimes cleanCutoverCompleted,
+	law SafeRollbackRestoredOld sometimes safeRollbackRestoredOld,
+	law PostCommitCrashRecoveredNew sometimes postCommitCrashRecoveredNew,
+	law EventSettledAcrossCutoverOnce sometimes eventSettledAcrossCutoverOnce,
+}
+
+type DualOwnerTransfer machine[World, Act] {
+	initial: first(),
+	step:    mutDualOwner,
+	law Breaks sometimes brokeSingleOwner,
+}
+
+type BadRollbackDrop machine[World, Act] {
+	initial: first(),
+	step:    mutBadRollback,
+	law Breaks sometimes brokeRollback,
+}
+
+type PostCommitSplitBrain machine[World, Act] {
+	initial: first(),
+	step:    mutSplitBrain,
+	law Breaks sometimes brokeSplitBrain,
+}
+
+type PrematureOldExit machine[World, Act] {
+	initial: first(),
+	step:    mutOldExit,
+	law Breaks sometimes brokeSilentDrop,
+}
+
+type DoubleWakeCutover machine[World, Act] {
+	initial: first(),
+	step:    mutDoubleWake,
+	law Breaks sometimes brokeDoubleWake,
+}
