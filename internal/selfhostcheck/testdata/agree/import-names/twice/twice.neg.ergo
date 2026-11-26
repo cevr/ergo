@@ -1,0 +1,5 @@
+import strings
+import strings
+import strconv
+
+func Upper(x string) string { strings.ToUpper(x) }
