@@ -89,14 +89,14 @@ func TestCompilerIRAgreesWithBuilder(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	args := make(chan []string, 1)
+	requests := make(chan irDumpRequest, 1)
 	sent := false
 	defer func() {
 		if !sent {
-			close(args)
+			close(requests)
 		}
 	}()
-	dump := startIRDump(ctx, cli, bin, limit, args)
+	dump := startIRDump(ctx, cli, bin, limit, requests)
 	phases.next("go-load")
 	importFixture := irImportFixtureDirs(t, filepath.Join(repoRoot(), "internal", "selfhostcheck", "testdata", "bind", "port_calls_import"))
 	importFixture = append(importFixture, irImportFixtureDirs(t, filepath.Join(repoRoot(), "internal", "selfhostcheck", "testdata", "bind", "port_shapes_import"), "leaf")...)
@@ -140,7 +140,7 @@ func TestCompilerIRAgreesWithBuilder(t *testing.T) {
 	writeLines(t, rf, roots)
 	tf := filepath.Join(tmp, "tests")
 	writeLines(t, tf, tests)
-	args <- []string{"-std", stdDir(), "-roots", rf, "-tests", tf, "-corpus", m}
+	requests <- irDumpRequest{args: []string{"-std", stdDir(), "-roots", rf, "-tests", tf, "-corpus", m}, key: irDumpKey(t, manifest, roots, tests), tmp: tmp}
 	sent = true
 
 	phases.next("go-lower")
@@ -174,7 +174,12 @@ func TestCompilerIRAgreesWithBuilder(t *testing.T) {
 		t.Fatal(r.err)
 	}
 	dumped := r.lines
-	t.Logf("irdump itself: wall %.1fs cpu %.1fs, overlapped with go-lower", r.wall.Seconds(), r.cpu.Seconds())
+	if r.stored {
+		t.Logf("irdump: its answer read from the store (%s)", irAgreeCacheVariable)
+	} else {
+		t.Logf("irdump itself: wall %.1fs cpu %.1fs, overlapped with go-lower", r.wall.Seconds(), r.cpu.Seconds())
+	}
+	t.Logf("go-lower: %d of %d programs read from the store", irLowerCache.hits, len(plan.programs))
 	phases.next("compare")
 	for _, l := range dumped {
 		kind, rest, _ := strings.Cut(l, " ")
@@ -1629,25 +1634,58 @@ func goIRFuncs(t *testing.T, paths irPathIDs, plan goIRPlan) irGoIndex {
 	return idx
 }
 
+// irLowered is what the Go builder wrote for one program that the index
+// reads: each IR file's bytes and its split's qualified type heads, and
+// the split's exported names.
+type irLowered struct {
+	Files   []irLoweredFile   `json:"files"`
+	Exports map[string]string `json:"exports"`
+}
+
+type irLoweredFile struct {
+	Data  string            `json:"data"`
+	Heads map[string]string `json:"heads"`
+}
+
+// lowerGoIR lowers pr with the Go IR builder.
+func lowerGoIR(pr irGoProgram) (irLowered, error) {
+	out, _, split, err := lower.LowerIRSplitReaching(pr.u, pr.tests, pr.reach)
+	if err != nil {
+		return irLowered{}, err
+	}
+	l := irLowered{Exports: split.IRExports}
+	for _, file := range out {
+		if filepath.Base(file.Path) == lower.IRFileName {
+			l.Files = append(l.Files, irLoweredFile{Data: string(file.Data), Heads: split.IRTypeHeads[file.Path]})
+		}
+	}
+	return l, nil
+}
+
 func indexGoIR(t *testing.T, paths irPathIDs, idx irGoIndex, pr irGoProgram) error {
 	t.Helper()
-	out, _, split, err := lower.LowerIRSplitReaching(pr.u, pr.tests, pr.reach)
+	lowered, err := irLowerCache.lower(t, pr)
 	if err != nil {
 		return err
 	}
+	indexLowered(t, paths, idx, pr, lowered)
+	return nil
+}
+
+// indexLowered adds lowered's functions to idx, positions mapped to paths
+// and names to the ones the Ergo side spells.
+func indexLowered(t *testing.T, paths irPathIDs, idx irGoIndex, pr irGoProgram, lowered irLowered) {
+	t.Helper()
 	std := stdDir()
-	originals := make(map[string]string, len(split.IRExports))
-	for original, exported := range split.IRExports {
+	originals := make(map[string]string, len(lowered.Exports))
+	for original, exported := range lowered.Exports {
 		originals[exported] = original
 	}
 	module := pr.module
-	for _, file := range out {
-		if filepath.Base(file.Path) != lower.IRFileName {
-			continue
-		}
+	for _, file := range lowered.Files {
 		var f irFile
-		if err := json.Unmarshal(file.Data, &f); err != nil {
-			t.Fatalf("%s: %v", file.Path, err)
+		if err := json.Unmarshal([]byte(file.Data), &f); err != nil {
+			t.Fatalf("%s: %v", pr.dir, err)
 		}
 		abs := make([]string, len(f.Files))
 		for i, p := range f.Files {
@@ -1660,11 +1698,11 @@ func indexGoIR(t *testing.T, paths irPathIDs, idx irGoIndex, pr irGoProgram) err
 		for i := range f.Funcs {
 			fn := &f.Funcs[i]
 			if err := irMapFiles(fn, abs, paths); err != nil {
-				t.Fatalf("%s: %s: %v", file.Path, fn.Name, err)
+				t.Fatalf("%s: %s: %v", pr.dir, fn.Name, err)
 			}
 			raw := fn.Name
 			fn.Name = irSplitName(raw)
-			irBaseFields(fn, originals, split.IRTypeHeads[file.Path])
+			irBaseFields(fn, originals, file.Heads)
 			data, err := json.Marshal(fn)
 			if err != nil {
 				t.Fatal(err)
@@ -1679,7 +1717,6 @@ func indexGoIR(t *testing.T, paths irPathIDs, idx irGoIndex, pr irGoProgram) err
 			}
 		}
 	}
-	return nil
 }
 
 // ownFuncs is every function with a body of u's packages and their

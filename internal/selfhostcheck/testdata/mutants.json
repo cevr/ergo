@@ -2562,6 +2562,12 @@
           "./scripts/linked"
         ]
       }
-    }
+    },
+    {"name": "agree-cache-key-drops-tests", "origin": "wf10 AGREEMENT-RUN-SPEED (not-run-crunch)", "file": "internal/selfhostcheck/iragreecache_test.go", "decl": "irProgramKey", "from": "irWithin(pr.module), fmt.Sprint(pr.tests)}", "to": "irWithin(pr.module)}", "rule": "A test build's lowering is never served to the run build of the same folder.", "killers": ["internal/selfhostcheck:TestIRAgreeCacheServesOnlyItsKey"]},
+    {"name": "agree-cache-key-drops-env", "origin": "wf10 AGREEMENT-RUN-SPEED (not-run-crunch)", "file": "internal/selfhostcheck/iragreecache_test.go", "decl": "irProgramKey", "from": "fmt.Sprint(pr.tests)}\n\tparts = append(parts, irAnswerEnv()...)", "to": "fmt.Sprint(pr.tests)}", "rule": "An answer variable is part of the Go side's key.", "killers": ["internal/selfhostcheck:TestIRAgreeCacheServesOnlyItsKey"]},
+    {"name": "agree-cache-key-drops-folder", "origin": "wf10 AGREEMENT-RUN-SPEED (not-run-crunch)", "file": "internal/selfhostcheck/iragreecache_test.go", "decl": "irModuleDigest", "from": "\treturn irDigest.tree(t, dir)\n}", "to": "\treturn \"\"\n}", "rule": "A file added to the program's module folder changes the Go side's key.", "killers": ["internal/selfhostcheck:TestIRAgreeCacheServesOnlyItsKey"]},
+    {"name": "agree-cache-fresh-ignored", "origin": "wf10 AGREEMENT-RUN-SPEED (not-run-crunch)", "file": "internal/selfhostcheck/iragreecache_test.go", "decl": "irLowerStore.lower", "from": "\tif !irAgreeFresh() {", "to": "\tif true {", "rule": "ERGO_IR_AGREE_FRESH=1 reads no kept lowering.", "killers": ["internal/selfhostcheck:TestIRAgreeCacheServesOnlyItsKey"]},
+    {"name": "agree-cache-dump-respell", "origin": "wf10 AGREEMENT-RUN-SPEED (not-run-crunch)", "file": "internal/selfhostcheck/iragreecache_test.go", "decl": "irDumpStored", "from": "lines(strings.ReplaceAll(text, \"@/\", irRootPrefix()))", "to": "lines(text)", "rule": "irdump's kept output names this checkout's paths when read back.", "killers": ["internal/selfhostcheck:TestIRDumpStoreRespellsTheRepository"]},
+    {"name": "agree-cache-dump-keeps-tmp", "origin": "wf10 AGREEMENT-RUN-SPEED (not-run-crunch)", "file": "internal/selfhostcheck/iragreecache_test.go", "decl": "irDumpKeep", "from": "strings.Contains(text, \"@/\") || strings.Contains(text, tmp)", "to": "strings.Contains(text, \"@/\")", "rule": "An irdump output naming the run's temporary folder is never kept.", "killers": ["internal/selfhostcheck:TestIRDumpStoreRespellsTheRepository"]}
   ]
 }
