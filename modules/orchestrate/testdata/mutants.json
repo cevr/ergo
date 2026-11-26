@@ -169,7 +169,7 @@
       "to": "\t\tif events.Len() == 0 {\n\t\t\treturn (execOK{Result: orchestrate.ExecuteResult{Seq: b.log.Len(), Events: []orchestrate.Event{}, Duplicate: false}}, b)\n\t\t}\n",
       "rule": "An idempotent resend must report Duplicate: true: Store.StoreIdempotentExecute.",
       "killers": [
-        "modules/orchestrate/memory:law:OrchMemoryPaths.PathsAgree under onOrchMemoryPaths"
+        "modules/orchestrate/memory:law:OrchMemoryPaths.PathsAgree"
       ],
       "anchor": {
         "tests": [
@@ -265,7 +265,7 @@
       "to": "\tcase json.Present[T]:\n\t\toption.None\n",
       "rule": "Present json.Optional fields on Api inputs must convert to Some rather than None: ApiUnitCloseEndsLifecycle, ApiCommitmentLifecycleRoundTrips, ApiQueueRoundTrips, ApiQuestionRoundTrips.",
       "killers": [
-        "modules/orchestrate/memory:law:orchestrate.Api.ApiCommitmentLifecycleRoundTrips under overMemoryApi"
+        "modules/orchestrate/memory:law:orchestrate.Api.ApiCommitmentLifecycleRoundTrips"
       ],
       "anchor": {
         "tests": [
@@ -281,7 +281,7 @@
       "to": "\t\tcase option.None:\n\t\t\toption.None\n",
       "rule": "CommitmentList must reject an unknown status filter as InvalidInput: ApiCommitmentLifecycleRoundTrips.",
       "killers": [
-        "modules/orchestrate/memory:law:orchestrate.Api.ApiCommitmentLifecycleRoundTrips under overMemoryApi"
+        "modules/orchestrate/memory:law:orchestrate.Api.ApiCommitmentLifecycleRoundTrips"
       ],
       "anchor": {
         "tests": [
@@ -297,7 +297,7 @@
       "to": "\trunCommitmentCommand(s, req.CommandID, req.Actor, req.ID, DecideCommitment{ID: req.ID, Note: req.Note, Withdraw: false})\n",
       "rule": "CommitmentDecide must forward req.Withdraw to DecideCommitment: ApiCommitmentLifecycleRoundTrips.",
       "killers": [
-        "modules/orchestrate/memory:law:orchestrate.Api.ApiCommitmentLifecycleRoundTrips under overMemoryApi"
+        "modules/orchestrate/memory:law:orchestrate.Api.ApiCommitmentLifecycleRoundTrips"
       ],
       "anchor": {
         "tests": [
@@ -313,7 +313,7 @@
       "to": "\t\tcase CommandAccepted:\n\t\t\tmatched = false\n",
       "rule": "QueueUpsert idempotent replay must recover the recorded QueueItem from the event log by CommandID: ApiQueueRoundTrips.",
       "killers": [
-        "modules/orchestrate/memory:law:orchestrate.Api.ApiQueueRoundTrips under overMemoryApi"
+        "modules/orchestrate/memory:law:orchestrate.Api.ApiQueueRoundTrips"
       ],
       "anchor": {
         "tests": [
@@ -329,7 +329,7 @@
       "to": "\tcase option.Some[int]:\n\t\tStoreFailed{Reason: \"question missing after execute\"}\n",
       "rule": "QuestionAsk idempotent replay must return the question indexed by CommandID in Snapshot.QuestionByCommand: ApiQuestionRoundTrips.",
       "killers": [
-        "modules/orchestrate/memory:law:orchestrate.Api.ApiQuestionRoundTrips under overMemoryApi"
+        "modules/orchestrate/memory:law:orchestrate.Api.ApiQuestionRoundTrips"
       ],
       "anchor": {
         "tests": [
@@ -345,7 +345,7 @@
       "to": "\ttry s.store.ListQuestions(false)\n",
       "rule": "QuestionList must forward req.OpenOnly to Store.ListQuestions: ApiQuestionRoundTrips.",
       "killers": [
-        "modules/orchestrate/memory:law:orchestrate.Api.ApiQuestionRoundTrips under overMemoryApi"
+        "modules/orchestrate/memory:law:orchestrate.Api.ApiQuestionRoundTrips"
       ],
       "anchor": {
         "tests": [

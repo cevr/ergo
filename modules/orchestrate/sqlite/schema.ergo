@@ -11,21 +11,27 @@ let CurrentSchemaVersion = 2
 
 func initSchema() fails orchestrate.StoreFailed needs sql.Tx {
 	let uvRows = try queryTx("PRAGMA user_version", []sql.Value{})
+	let mut uv = 0
 	if uvRows.Len() > 0 {
-		let uv = try intAt(uvRows[0], 0, "user_version")
+		uv = try intAt(uvRows[0], 0, "user_version")
 		if uv > CurrentSchemaVersion {
 			return orchestrate.StoreFailed{Reason: "incompatible sqlite user_version \(uv) > \(CurrentSchemaVersion)"}
 		}
 	}
-	let _ = try execTx(
-		"CREATE TABLE IF NOT EXISTS schema_meta (id INTEGER PRIMARY KEY CHECK (id = 1), schema_version INTEGER NOT NULL, next_question_id INTEGER NOT NULL DEFAULT 1)",
-		[]sql.Value{},
-	)
+	if uv != CurrentSchemaVersion {
+		let _ = try execTx(
+			"CREATE TABLE IF NOT EXISTS schema_meta (id INTEGER PRIMARY KEY CHECK (id = 1), schema_version INTEGER NOT NULL, next_question_id INTEGER NOT NULL DEFAULT 1)",
+			[]sql.Value{},
+		)
+	}
 	let metaRows = try queryTx("SELECT schema_version FROM schema_meta WHERE id = 1", []sql.Value{})
 	if metaRows.Len() > 0 {
 		let ver = try intAt(metaRows[0], 0, "schema_version")
 		if ver != CurrentSchemaVersion {
 			return orchestrate.StoreFailed{Reason: "incompatible schema_version \(ver) != \(CurrentSchemaVersion)"}
+		}
+		if uv == CurrentSchemaVersion {
+			return
 		}
 	} else {
 		let _ = try execTx(
