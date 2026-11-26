@@ -2705,6 +2705,9 @@ func (c *checker) signature(ft *syntax.FuncType, ctx *typeCtx) *Signature {
 		c.takesClause(ft.Takes, sig, ctx.method, ctx.hostRecv)
 	}
 	sig.Defects = ft.Defects
+	for _, fc := range ft.Facts {
+		c.errorf(fc, CodeOutside, "value-tied fact clause waits for VF-1-FACTS-CHECK r2 (facts.md)")
+	}
 	return sig
 }
 

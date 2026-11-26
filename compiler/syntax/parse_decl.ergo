@@ -114,7 +114,17 @@ func parseTypeDecl(p mut parser, doc uint32) uint32 {
 	let mut wherePos = none
 	let mut wh = none
 	if p.tk == LBrace {
-		spec = some(parseMembersType(p))
+		let sp = parseMembersType(p)
+		spec = some(sp)
+		if atWhere(p) {
+			if kindAt(p, sp) != KStructType {
+				errorAt(p, pos(p), 5, "where constrains a record or defined type, not an operation type")
+			} else {
+				wherePos = someTok(p.i)
+				next(p)
+				wh = some(parseExpr(p))
+			}
+		}
 	} else if p.tk == KwMachine {
 		spec = some(parseMachineType(p))
 	} else if p.tk == Assign {
@@ -592,10 +602,10 @@ func restore(p mut parser, st state) {
 // tuple type: two or more unnamed parameters, no result, no failure row
 // and no capability row.
 func tupleShaped(p mut parser, ft uint32) bool {
-	if kindAt(p, ft) != KFuncType || fixed(p.t, ft, 8, 4) != none || fixed(p.t, ft, 8, 5) != none || fixed(p.t, ft, 8, 7) != none {
+	if kindAt(p, ft) != KFuncType || fixed(p.t, ft, 9, 4) != none || fixed(p.t, ft, 9, 5) != none || fixed(p.t, ft, 9, 6) != none || fixed(p.t, ft, 9, 7) != none || fixed(p.t, ft, 9, 8) != none || items(p.t, ft, 9) != 0 {
 		return false
 	}
-	let l = fixed(p.t, ft, 8, 3)
+	let l = fixed(p.t, ft, 9, 3)
 	if kindAt(p, l) != KFieldList || items(p.t, l, 2) < 2 {
 		return false
 	}

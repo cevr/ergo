@@ -45,24 +45,106 @@ func parseSignature(p mut parser, funcPos uint32, ctx int, lit bool) uint32 {
 	parseSignatureWith(p, funcPos, ctx, lit, none)
 }
 
-func atDefects(p mut parser) bool {
-	if !isWord(p, "defects") {
+func factWordKind(p mut parser, j int) int {
+	if wordAt(p, j, "given") {
+		return FactGiven
+	}
+	if wordAt(p, j, "gives") {
+		return FactGives
+	}
+	if wordAt(p, j, "keeps") {
+		return FactKeeps
+	}
+	0
+}
+
+func tokKindAt(p mut parser, j int) uint8 {
+	if j < p.ntok {
+		return uint8(p.toks.kind[j])
+	}
+	EOF
+}
+
+func atDefectsAt(p mut parser, j int) bool {
+	if !wordAt(p, j, "defects") {
 		return false
 	}
-	let n = peek(p, 1)
-	n == LBrace || n == Semicolon || n == Comma || n == RParen || n == RBrace || n == RBrack || n == Assign || n == Or || n == EOF || (n == Ident && p.i+1 < p.ntok && lit(p, p.i+1) == "implements")
+	let n = tokKindAt(p, j+1)
+	n == LBrace || n == Semicolon || n == Comma || n == RParen || n == RBrace || n == RBrack || n == Assign || n == Or || n == EOF || atFactClauseAt(p, j+1) || wordAt(p, j+1, "implements")
+}
+
+func atDefects(p mut parser) bool {
+	atDefectsAt(p, p.i)
+}
+
+func startsFactExpr(p mut parser, j int) bool {
+	let k = tokKindAt(p, j)
+	if k == Ident {
+		if atDefectsAt(p, j) {
+			return false
+		}
+		if wordAt(p, j, "implements") {
+			let after = tokKindAt(p, j+1)
+			if after == Ident || after == Go {
+				return false
+			}
+		}
+		if factWordKind(p, j) != 0 && startsFactExpr(p, j+1) {
+			return false
+		}
+		return true
+	}
+	if k == Go {
+		return tokKindAt(p, j+1) == Period
+	}
+	if k == LBrack {
+		let nextK = tokKindAt(p, j+1)
+		return nextK == RBrack || (nextK == Int && tokKindAt(p, j+2) == RBrack)
+	}
+	k == Int || k == Float || k == Duration || k == String || k == Rune || k == StringHead || k == LParen || k == Func || k == If || k == Match || k == With || k == Try || k == Add || k == Sub || k == Not || k == Xor || k == And || k == Mul
+}
+
+func atFactClauseAt(p mut parser, j int) bool {
+	factWordKind(p, j) != 0 && startsFactExpr(p, j+1)
+}
+
+func atFactClause(p mut parser) bool {
+	atFactClauseAt(p, p.i)
+}
+
+func parseFactExpr(p mut parser) uint32 {
+	let saved = p.exprLev
+	p.exprLev = -1
+	let x = parseExpr(p)
+	p.exprLev = saved
+	x
+}
+
+func parseFactClause(p mut parser) uint32 {
+	let fk = factWordKind(p, p.i)
+	let word = p.i
+	next(p)
+	let cond = parseFactExpr(p)
+	let mut whenPos = none
+	let mut wh = none
+	if fk == FactKeeps && isWord(p, "when") {
+		whenPos = someTok(p.i)
+		next(p)
+		wh = some(parseFactExpr(p))
+	}
+	mkFactClause(&p.t, mark(p.t), fk, word, cond, whenPos, wh)
 }
 
 // parseSignatureWith is parseSignature with tps, an operation's own type
 // parameters already parsed (some of a KFieldList), or none; they become
-// the signature row's one item (GENERIC-OP).
+// word 8 of the signature's row (GENERIC-OP).
 func parseSignatureWith(p mut parser, funcPos uint32, ctx int, lit bool, tps uint32) uint32 {
 	let params = parseParameters(p, ctx == ctxDecl, lit)
 	let rm = mark(p.t)
 	// In a declaration `implements Contract` can start immediately
 	// after the parameters. A result type named `implements` still works.
 	let claim = ctx == ctxDecl && atImplements(p) && (peek(p, 1) == Ident || peek(p, 1) == Go)
-	if startsType(p) && !claim && !atDefects(p) {
+	if startsType(p) && !claim && !atDefects(p) && !atFactClause(p) {
 		let ty = parseResultType(p, ctx)
 		pushW(&p.t, mkField(&p.t, mark(p.t), none, some(ty), none, none, none, none, none, none, none, none, none))
 	}
@@ -88,10 +170,10 @@ func parseSignatureWith(p mut parser, funcPos uint32, ctx int, lit bool, tps uin
 		next(p)
 	}
 	let m = mark(p.t)
-	if tps != none {
-		pushW(&p.t, tps-uint32(1))
+	for factWordKind(p, p.i) != 0 {
+		pushW(&p.t, parseFactClause(p))
 	}
-	mkFuncType(&p.t, m, none, none, funcPos, params, results, nd, tk, def)
+	mkFuncType(&p.t, m, none, none, funcPos, params, results, nd, tk, def, tps)
 }
 
 // parseTakes parses `takes [a, b]`.
@@ -362,13 +444,13 @@ func needsComma(p mut parser, base int, at int) {
 func endsInNeeds(p mut parser, t uint32) bool {
 	let k = kindAt(p, t)
 	if k == KFuncType {
-		if fixed(p.t, t, 8, 7) != none {
+		if fixed(p.t, t, 9, 6) != none || fixed(p.t, t, 9, 7) != none || items(p.t, t, 9) > 0 {
 			return false
 		}
-		if fixed(p.t, t, 8, 5) != none {
+		if fixed(p.t, t, 9, 5) != none {
 			return true
 		}
-		let res = fixed(p.t, t, 8, 4)
+		let res = fixed(p.t, t, 9, 4)
 		if res != none && items(p.t, res-uint32(1), 2) > 0 {
 			let last = lastItem(p.t, res-uint32(1), 2)
 			let ty = fixed(p.t, last, 11, 1)
@@ -491,7 +573,7 @@ func parseType1(p mut parser, ctx int) uint32 {
 		next(p)
 		let t = parseFuncType(p, ctx)
 		if !p.failed {
-			setFixed(&p.t, t, 8, 1, someTok(at))
+			setFixed(&p.t, t, 9, 1, someTok(at))
 		}
 		return t
 	}
@@ -551,7 +633,7 @@ func parseType1(p mut parser, ctx int) uint32 {
 		}
 		let t = parseFuncType(p, ctx)
 		if !p.failed {
-			setFixed(&p.t, t, 8, 0, someTok(at))
+			setFixed(&p.t, t, 9, 0, someTok(at))
 		}
 		return t
 	}

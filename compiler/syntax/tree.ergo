@@ -77,6 +77,14 @@ let KDieStmt = uint8(65)
 let KAlwaysStmt = uint8(66)
 // KSometimesStmt is `sometimes e`: tok is sometimes, a the boolean expression.
 let KSometimesStmt = uint8(67)
+// KFactClause is `given cond`, `gives cond` or `keeps cond [when guard]`.
+let KFactClause = uint8(68)
+// FactGiven is the kind of a `given` signature clause.
+let FactGiven = 1
+// FactGives is the kind of a `gives` signature clause.
+let FactGives = 2
+// FactKeeps is the kind of a `keeps` signature clause.
+let FactKeeps = 3
 
 // Tree is the syntax tree of one file as rows (self-layout plan §2.2): a
 // kind, a main token and two operand words per node, 13 bytes, and one
@@ -243,5 +251,5 @@ func item(t Tree, i uint32, j int) uint32 { t.extra[int(t.a[int(i)])+j] }
 
 // recorded reports a kind whose a and b are a record in extra.
 func recorded(k uint8) bool {
-	k == KFile || k == KVarDecl || k == KVarSpec || k == KTypeDecl || k == KFuncDecl || k == KContextDecl || k == KTestDecl || k == KLawDecl || k == KLawReach || k == KContextBody || k == KContextEntry || k == KField || k == KFieldList || k == KNeedsClause || k == KTakesClause || k == KProvidesClause || k == KCatchArm || k == KCaseClause || k == KVariantSpec || k == KCompositeLit || k == KIndexExpr || k == KSliceExpr || k == KCallExpr || k == KCatchExpr || k == KContextLit || k == KMapType || k == KFuncType || k == KInterfaceType || k == KErrorRow || k == KMachineType || k == KTupleExpr || k == KOrPattern || k == KInterpolatedString || k == KBlockStmt || k == KIfStmt || k == KSwitchStmt || k == KTypeSwitchStmt || k == KRangeStmt
+	k == KFile || k == KVarDecl || k == KVarSpec || k == KTypeDecl || k == KFuncDecl || k == KContextDecl || k == KTestDecl || k == KLawDecl || k == KLawReach || k == KContextBody || k == KContextEntry || k == KField || k == KFieldList || k == KNeedsClause || k == KTakesClause || k == KProvidesClause || k == KFactClause || k == KCatchArm || k == KCaseClause || k == KVariantSpec || k == KCompositeLit || k == KIndexExpr || k == KSliceExpr || k == KCallExpr || k == KCatchExpr || k == KContextLit || k == KMapType || k == KFuncType || k == KInterfaceType || k == KErrorRow || k == KMachineType || k == KTupleExpr || k == KOrPattern || k == KInterpolatedString || k == KBlockStmt || k == KIfStmt || k == KSwitchStmt || k == KTypeSwitchStmt || k == KRangeStmt
 }

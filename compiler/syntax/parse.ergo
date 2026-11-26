@@ -260,11 +260,8 @@ func fixedWords(k uint8) int {
 	if k == KTypeDecl || k == KLawDecl {
 		return 10
 	}
-	if k == KFuncDecl {
+	if k == KFuncDecl || k == KFuncType {
 		return 9
-	}
-	if k == KFuncType {
-		return 8
 	}
 	if k == KContextDecl {
 		return 7
@@ -275,7 +272,7 @@ func fixedWords(k uint8) int {
 	if k == KContextEntry || k == KCallExpr || k == KRangeStmt {
 		return 5
 	}
-	if k == KVarDecl || k == KVarSpec || k == KTestDecl || k == KCompositeLit || k == KMachineType || k == KIfStmt || k == KContextLit {
+	if k == KVarDecl || k == KVarSpec || k == KTestDecl || k == KCompositeLit || k == KMachineType || k == KIfStmt || k == KContextLit || k == KFactClause {
 		return 4
 	}
 	if k == KVariantSpec || k == KSwitchStmt || k == KTypeSwitchStmt {
@@ -332,6 +329,9 @@ func requiredMask(k uint8) int {
 	if k == KRangeStmt {
 		return 2 | 8 | 16
 	}
+	if k == KFactClause {
+		return 2
+	}
 	0
 }
 
@@ -382,9 +382,9 @@ func optionalMask(k uint8) int {
 		return 1 | 2 | 4
 	}
 	if k == KFuncType {
-		return 16 | 32 | 64
+		return 16 | 32 | 64 | 256
 	}
-	if k == KIfStmt {
+	if k == KIfStmt || k == KFactClause {
 		return 8
 	}
 	if k == KRangeStmt {
@@ -632,6 +632,7 @@ let fragments = []string{
 	"type K[T] { ~int | pkg.T, Label() string }\n",
 	"type H { m Map[string, int, Fnv] }\n",
 	"// doc\nfunc d[T ordered, E any, K comparable](f pure own func() int, xs [3]*T) T { -x }\n",
+	"type Asc { xs []int } where Ordered(it.xs)\nfunc At(xs []int, i int) int given InRange(xs, i) gives it >= 0 { xs[i] }\nfunc Free(a mut Box, r Ref) int fails Stale keeps Live(*a, x) when x != r { 0 }\n",
 }
 
 // program is the source the picks assemble.

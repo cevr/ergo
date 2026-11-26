@@ -459,6 +459,26 @@ func signature(p mut Printer, ft dense.ID[syntax.Node]) {
 		p.space()
 		p.token(p.tp(x.Defects), "defects")
 	}
+	for f in p.ids(x.Facts) {
+		let fc = syntax.FactClauseOf(p.P.Tree, f)
+		let word = if fc.Kind == syntax.FactGiven {
+			"given"
+		} else if fc.Kind == syntax.FactGives {
+			"gives"
+		} else {
+			"keeps"
+		}
+		p.space()
+		p.token(p.tp(fc.Word), word)
+		p.space()
+		p.expr(fc.Cond)
+		if some(fc.When) {
+			p.space()
+			p.token(p.tp(fc.WhenPos), "when")
+			p.space()
+			p.expr(the(fc.When))
+		}
+	}
 }
 
 func needsClause(p mut Printer, u dense.ID[syntax.Node]) {

@@ -68,6 +68,8 @@ func Columns(p Parsed) []uint32 {
 // row with the optional defects token (word 7), and KDieStmt (65) is added.
 // 9: a law declaration ends its fixed row with the optional always/sometimes
 // token (word 9), and KAlwaysStmt (66) and KSometimesStmt (67) are added.
+// 10: a function type ends its fixed row with TypeParams (word 8) so its
+// variable items hold FactClauses, and KFactClause (68) is added.
 // A change of the layout is bootstrapped (go run ./scripts/linked
 // -bootstrap): the host reads this layout and the one before it.
-let ColumnsVersion = uint32(9)
+let ColumnsVersion = uint32(10)

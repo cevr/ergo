@@ -221,6 +221,10 @@ func (d *dumper) node(depth int, n Node) {
 	case *ProvidesClause:
 		d.line(depth, "ProvidesClause %s Provides=%d", at, x.Provides)
 		d.list(c, exprs(x.Names))
+	case *FactClause:
+		d.line(depth, "FactClause %s Kind=%d Word=%d WhenPos=%d", at, x.Kind, x.WordPos, x.WhenPos)
+		d.node(c, x.Cond)
+		d.node(c, x.When)
 	case *MachineEntry:
 		d.line(depth, "MachineEntry %s doc=%d NamePos=%d Name=%s Colon=%d", at, d.doc(x.Doc), x.NamePos, x.Name, x.Colon)
 		d.node(c, x.Value)
@@ -341,6 +345,7 @@ func (d *dumper) node(depth int, n Node) {
 		d.node(c, x.Results)
 		d.node(c, x.Needs)
 		d.node(c, x.Takes)
+		d.list(c, exprs(x.Facts))
 	case *StructType:
 		d.line(depth, "StructType %s", at)
 		d.node(c, x.Fields)
