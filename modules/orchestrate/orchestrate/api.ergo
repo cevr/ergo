@@ -45,7 +45,105 @@ type UnitVerdictInput {
 // UnitView is a unit and its receipts in recorded order.
 type UnitView { Unit Unit, Receipts []Receipt }
 
-// Api is the operation contract the orchestrate CLI and MCP tools are generated from: open a unit, record a receipt, read a unit, and the verdicts accept and land, which hold only with green receipts at the head.
+// UnitCloseInput closes a unit (repo, run, id) without landing.
+type UnitCloseInput {
+	CommandID CommandID,
+	Actor     string,
+	Repo      string,
+	Run       string,
+	ID        string,
+}
+
+// CommitmentAddInput registers a new tracked commitment.
+type CommitmentAddInput {
+	CommandID CommandID,
+	Actor     string,
+	ID        string,
+	Title     string,
+	Kind      string,
+}
+
+// CommitmentAssignInput assigns an open or assigned commitment to an owner and lane.
+type CommitmentAssignInput {
+	CommandID CommandID,
+	Actor     string,
+	ID        string,
+	Owner     string,
+	Lane      string,
+}
+
+// CommitmentLandInput marks an open or assigned commitment as landed at a commit SHA.
+type CommitmentLandInput {
+	CommandID CommandID,
+	Actor     string,
+	ID        string,
+	LandedSHA string,
+}
+
+// CommitmentDecideInput resolves or withdraws an open or assigned commitment with a note.
+type CommitmentDecideInput {
+	CommandID CommandID,
+	Actor     string,
+	ID        string,
+	Note      string,
+	Withdraw  bool,
+}
+
+// CommitmentListInput filters commitments optionally by status and owner.
+type CommitmentListInput {
+	Status json.Optional[string],
+	Owner  json.Optional[string],
+}
+
+// QueueUpsertInput inserts or replaces a prioritized queue entry by key.
+type QueueUpsertInput {
+	CommandID CommandID,
+	Actor     string,
+	Key       string,
+	Priority  int,
+	Title     string,
+	Body      string,
+	Status    string,
+	Tags      []string,
+}
+
+// QueueRemoveInput deletes an existing queue entry by key.
+type QueueRemoveInput {
+	CommandID CommandID,
+	Actor     string,
+	Key       string,
+}
+
+// QueueListInput filters queue entries optionally by status.
+type QueueListInput {
+	Status json.Optional[string],
+}
+
+// QuestionAskInput opens an async question with an optional explicit monotonic ID, default assumption, and concrete action.
+type QuestionAskInput {
+	CommandID      CommandID,
+	Actor          string,
+	ID             json.Optional[int],
+	Prompt         string,
+	Assumption     string,
+	ConcreteAction string,
+}
+
+// QuestionAnswerInput answers or withdraws an open async question.
+type QuestionAnswerInput {
+	CommandID CommandID,
+	Actor     string,
+	ID        int,
+	Answer    string,
+	Withdraw  bool,
+}
+
+// QuestionListInput lists async questions, optionally restricting to open questions only.
+type QuestionListInput {
+	OpenOnly bool,
+}
+
+// Api is the operation contract the orchestrate CLI and MCP tools are generated from: units, verdicts, commitments, queue entries, and async questions.
 type Api {
 	// UnitOpen opens a unit with the receipt kinds its verdict requires.
 	UnitOpen(input UnitOpenInput) Unit fails NotFound | AlreadyExists | InvalidTransition | CommandReused | InvalidInput | Unverified | NotAcceptedHead | StoreFailed,
@@ -62,6 +160,42 @@ type Api {
 	// UnitLand lands an accepted unit at its accepted head, whose required receipts must still be green.
 	UnitLand(input UnitVerdictInput) Unit fails NotFound | AlreadyExists | InvalidTransition | CommandReused | InvalidInput | Unverified | NotAcceptedHead | StoreFailed,
 
+	// UnitClose closes a non-terminal unit without landing.
+	UnitClose(input UnitCloseInput) Unit fails NotFound | AlreadyExists | InvalidTransition | CommandReused | InvalidInput | Unverified | NotAcceptedHead | StoreFailed,
+
+	// CommitmentAdd registers a new tracked commitment.
+	CommitmentAdd(input CommitmentAddInput) Commitment fails NotFound | AlreadyExists | InvalidTransition | CommandReused | InvalidInput | Unverified | NotAcceptedHead | StoreFailed,
+
+	// CommitmentAssign assigns an open or assigned commitment to an owner and lane.
+	CommitmentAssign(input CommitmentAssignInput) Commitment fails NotFound | AlreadyExists | InvalidTransition | CommandReused | InvalidInput | Unverified | NotAcceptedHead | StoreFailed,
+
+	// CommitmentLand marks an open or assigned commitment as landed at a commit SHA.
+	CommitmentLand(input CommitmentLandInput) Commitment fails NotFound | AlreadyExists | InvalidTransition | CommandReused | InvalidInput | Unverified | NotAcceptedHead | StoreFailed,
+
+	// CommitmentDecide resolves or withdraws an open or assigned commitment with a note.
+	CommitmentDecide(input CommitmentDecideInput) Commitment fails NotFound | AlreadyExists | InvalidTransition | CommandReused | InvalidInput | Unverified | NotAcceptedHead | StoreFailed,
+
+	// CommitmentList lists commitments, optionally filtered by status and owner, sorted by ID.
+	CommitmentList(input CommitmentListInput) []Commitment fails InvalidInput | StoreFailed,
+
+	// QueueUpsert inserts or replaces a prioritized queue entry by key.
+	QueueUpsert(input QueueUpsertInput) QueueItem fails NotFound | AlreadyExists | InvalidTransition | CommandReused | InvalidInput | Unverified | NotAcceptedHead | StoreFailed,
+
+	// QueueRemove deletes an existing queue entry by key.
+	QueueRemove(input QueueRemoveInput) fails NotFound | AlreadyExists | InvalidTransition | CommandReused | InvalidInput | Unverified | NotAcceptedHead | StoreFailed,
+
+	// QueueList lists queue entries, optionally filtered by status, ordered by priority then key.
+	QueueList(input QueueListInput) []QueueItem fails InvalidInput | StoreFailed,
+
+	// QuestionAsk opens an async question with an optional explicit monotonic ID, default assumption, and concrete action.
+	QuestionAsk(input QuestionAskInput) Question fails NotFound | AlreadyExists | InvalidTransition | CommandReused | InvalidInput | Unverified | NotAcceptedHead | StoreFailed,
+
+	// QuestionAnswer answers or withdraws an open async question.
+	QuestionAnswer(input QuestionAnswerInput) Question fails NotFound | AlreadyExists | InvalidTransition | CommandReused | InvalidInput | Unverified | NotAcceptedHead | StoreFailed,
+
+	// QuestionList lists async questions, optionally restricting to open questions only.
+	QuestionList(input QuestionListInput) []Question fails StoreFailed,
+
 	// ApiUnitOpenIsIdempotent verifies that opening a unit through Api is idempotent on retry and readable via UnitState.
 	law ApiUnitOpenIsIdempotent(tag int) {
 		let input = UnitOpenInput{
@@ -76,20 +210,14 @@ type Api {
 			Branch:    json.Absent,
 		}
 		let first = UnitOpen(input) catch {
-		case StoreFailed:
-			return true
 		case _:
 			return false
 		}
 		let again = UnitOpen(input) catch {
-		case StoreFailed:
-			return true
 		case _:
 			return false
 		}
 		let fetched = UnitState(UnitStateInput{Repo: input.Repo, Run: input.Run, ID: input.ID}) catch {
-		case StoreFailed:
-			return true
 		case _:
 			return false
 		}
@@ -100,14 +228,10 @@ type Api {
 	law ApiVerdictFollowsReceipts(tag int) {
 		let key = UnitStateInput{Repo: "repo", Run: "api", ID: "api-v-\(tag)"}
 		let opened = UnitOpen(UnitOpenInput{CommandID: CommandID("api-v-open-\(tag)"), Actor: "root", Repo: key.Repo, Run: key.Run, ID: key.ID, Title: "Verdict", Requires: []string{"acceptance"}, Lane: json.Absent, Branch: json.Absent}) catch {
-		case StoreFailed:
-			return true
 		case _:
 			return false
 		}
 		let _ = ReceiptRecord(apiReceipt(key, "red-\(tag)", 1)) catch {
-		case StoreFailed:
-			return true
 		case _:
 			return false
 		}
@@ -116,30 +240,215 @@ type Api {
 		case Unverified as u:
 			refused = u.Red == []string{"acceptance"} && u.Missing.Len() == 0
 			opened
-		case StoreFailed:
-			return true
 		case _:
 			return false
 		}
 		let _ = ReceiptRecord(apiReceipt(key, "green-\(tag)", 0)) catch {
-		case StoreFailed:
-			return true
 		case _:
 			return false
 		}
 		let accepted = UnitAccept(apiVerdict(key, "accept-green-\(tag)")) catch {
-		case StoreFailed:
-			return true
 		case _:
 			return false
 		}
 		let view = UnitState(key) catch {
-		case StoreFailed:
-			return true
 		case _:
 			return false
 		}
 		refused && accepted.Status == UnitAccepted && accepted.Head == option.Some[string]{Value: "h"} && view.Unit == accepted && view.Receipts.Len() == 2
+	},
+
+	// ApiUnitCloseEndsLifecycle verifies through the Api that closing a unit is idempotent on replay, ends the unit as UnitClosed, and refuses subsequent closes.
+	law ApiUnitCloseEndsLifecycle(tag int) {
+		let key = UnitStateInput{Repo: "repo", Run: "api", ID: "api-close-\(tag)"}
+		let opened = UnitOpen(UnitOpenInput{CommandID: CommandID("api-cl-open-\(tag)"), Actor: "root", Repo: key.Repo, Run: key.Run, ID: key.ID, Title: "Close", Requires: []string{"acceptance"}, Lane: json.Present[string]{Value: "/lane/\(tag)"}, Branch: json.Absent}) catch {
+		case _:
+			return false
+		}
+		let closeReq = UnitCloseInput{CommandID: CommandID("api-cl-\(tag)"), Actor: "root", Repo: key.Repo, Run: key.Run, ID: key.ID}
+		let closed = UnitClose(closeReq) catch {
+		case _:
+			return false
+		}
+		let replayed = UnitClose(closeReq) catch {
+		case _:
+			return false
+		}
+		let mut blocked = false
+		let _ = UnitClose(UnitCloseInput{CommandID: CommandID("api-cl-2-\(tag)"), Actor: "root", Repo: key.Repo, Run: key.Run, ID: key.ID}) catch {
+		case InvalidTransition as t:
+			blocked = t.Kind == "unit" && t.From == "closed" && t.Action == "close"
+			closed
+		case _:
+			return false
+		}
+		let view = UnitState(key) catch {
+		case _:
+			return false
+		}
+		UnitStatusName(opened.Status) == "open" && closed.Status == UnitClosed && replayed == closed && blocked && view.Unit == closed
+	},
+
+	// ApiCommitmentLifecycleRoundTrips verifies commitment creation, assignment, landing, decision/withdrawal, invalid-status rejection, and filtered listing through Api.
+	law ApiCommitmentLifecycleRoundTrips(tag int) {
+		let idLand = "c-api-a-\(tag)"
+		let idDecide = "c-api-b-\(tag)"
+		let idWithdraw = "c-api-c-\(tag)"
+		let added = CommitmentAdd(CommitmentAddInput{CommandID: CommandID("api-ca-1-\(tag)"), Actor: "root", ID: idLand, Title: "Land work", Kind: "feature"}) catch {
+		case _:
+			return false
+		}
+		let _ = CommitmentAdd(CommitmentAddInput{CommandID: CommandID("api-ca-2-\(tag)"), Actor: "root", ID: idDecide, Title: "Decide work", Kind: "decision"}) catch {
+		case _:
+			return false
+		}
+		let _ = CommitmentAdd(CommitmentAddInput{CommandID: CommandID("api-ca-3-\(tag)"), Actor: "root", ID: idWithdraw, Title: "Withdraw work", Kind: "follow-up"}) catch {
+		case _:
+			return false
+		}
+		let assigned = CommitmentAssign(CommitmentAssignInput{CommandID: CommandID("api-cas-\(tag)"), Actor: "root", ID: idLand, Owner: "worker-1", Lane: "/lane/a"}) catch {
+		case _:
+			return false
+		}
+		let landed = CommitmentLand(CommitmentLandInput{CommandID: CommandID("api-cln-\(tag)"), Actor: "root", ID: idLand, LandedSHA: "abc1234"}) catch {
+		case _:
+			return false
+		}
+		let decided = CommitmentDecide(CommitmentDecideInput{CommandID: CommandID("api-cdc-\(tag)"), Actor: "root", ID: idDecide, Note: "done out of band", Withdraw: false}) catch {
+		case _:
+			return false
+		}
+		let withdrawn = CommitmentDecide(CommitmentDecideInput{CommandID: CommandID("api-cwd-\(tag)"), Actor: "root", ID: idWithdraw, Note: "superseded", Withdraw: true}) catch {
+		case _:
+			return false
+		}
+		let mut badTransition = false
+		let _ = CommitmentAssign(CommitmentAssignInput{CommandID: CommandID("api-cas-bad-\(tag)"), Actor: "root", ID: idLand, Owner: "worker-2", Lane: "/lane/b"}) catch {
+		case InvalidTransition:
+			badTransition = true
+			landed
+		case _:
+			return false
+		}
+		let mut badFilter = false
+		let _ = CommitmentList(CommitmentListInput{Status: json.Present[string]{Value: "bogus"}, Owner: json.Absent}) catch {
+		case InvalidInput as inv:
+			badFilter = inv.Field == "status"
+			[]Commitment{}
+		case _:
+			return false
+		}
+		let landedRows = CommitmentList(CommitmentListInput{Status: json.Present[string]{Value: "landed"}, Owner: json.Present[string]{Value: "worker-1"}}) catch {
+		case _:
+			return false
+		}
+		let allRows = CommitmentList(CommitmentListInput{Status: json.Absent, Owner: json.Absent}) catch {
+		case _:
+			return false
+		}
+		added.Status == CommitOpen && assigned.Status == CommitAssigned && landed.Status == CommitLanded && decided.Status == CommitDecided && withdrawn.Status == CommitWithdrawn && badTransition && badFilter && landedRows == []Commitment{landed} && allRows.Len() == 3
+	},
+
+	// ApiQueueRoundTrips verifies queue upsert, idempotent replay, filtered priority-sorted listing, and removal through Api.
+	law ApiQueueRoundTrips(tag int) {
+		let kHigh = "q-api-h-\(tag)"
+		let kLow = "q-api-l-\(tag)"
+		let reqHigh = QueueUpsertInput{CommandID: CommandID("api-qu-1-\(tag)"), Actor: "root", Key: kHigh, Priority: 5, Title: "High", Body: "first", Status: "ready", Tags: []string{"p0"}}
+		let first = QueueUpsert(reqHigh) catch {
+		case _:
+			return false
+		}
+		let replayed = QueueUpsert(reqHigh) catch {
+		case _:
+			return false
+		}
+		let low = QueueUpsert(QueueUpsertInput{CommandID: CommandID("api-qu-2-\(tag)"), Actor: "root", Key: kLow, Priority: 20, Title: "Low", Body: "", Status: "blocked", Tags: []string{}}) catch {
+		case _:
+			return false
+		}
+		let readyRows = QueueList(QueueListInput{Status: json.Present[string]{Value: "ready"}}) catch {
+		case _:
+			return false
+		}
+		let allBefore = QueueList(QueueListInput{Status: json.Absent}) catch {
+		case _:
+			return false
+		}
+		let rmReq = QueueRemoveInput{CommandID: CommandID("api-qr-1-\(tag)"), Actor: "root", Key: kHigh}
+		QueueRemove(rmReq) catch {
+		case _:
+			return false
+		}
+		QueueRemove(rmReq) catch {
+		case _:
+			return false
+		}
+		let mut missingAfter = false
+		QueueRemove(QueueRemoveInput{CommandID: CommandID("api-qr-2-\(tag)"), Actor: "root", Key: kHigh}) catch {
+		case NotFound as nf:
+			missingAfter = nf.Kind == "queue" && nf.ID == kHigh
+		case _:
+			return false
+		}
+		let allAfter = QueueList(QueueListInput{Status: json.Absent}) catch {
+		case _:
+			return false
+		}
+		first.Priority == 5 && replayed == first && low.Key == kLow && readyRows == []QueueItem{first} && allBefore == []QueueItem{first, low} && missingAfter && allAfter == []QueueItem{low}
+	},
+
+	// ApiQuestionRoundTrips verifies monotonic question creation (omitted and explicit IDs), idempotent replay, answer/withdrawal transitions, and open-only filtering through Api.
+	law ApiQuestionRoundTrips(tag int) {
+		let ask1 = QuestionAskInput{CommandID: CommandID("api-q-1-\(tag)"), Actor: "worker", ID: json.Absent, Prompt: "Pick storage?", Assumption: "SQLite", ConcreteAction: "Update schema"}
+		let q1 = QuestionAsk(ask1) catch {
+		case _:
+			return false
+		}
+		let q1Replay = QuestionAsk(ask1) catch {
+		case _:
+			return false
+		}
+		let q2 = QuestionAsk(QuestionAskInput{CommandID: CommandID("api-q-2-\(tag)"), Actor: "worker", ID: json.Present[int]{Value: q1.ID + 2}, Prompt: "Ship now?", Assumption: "Hold", ConcreteAction: "Push tag"}) catch {
+		case _:
+			return false
+		}
+		let mut nonMonotonic = false
+		let _ = QuestionAsk(QuestionAskInput{CommandID: CommandID("api-q-bad-\(tag)"), Actor: "worker", ID: json.Present[int]{Value: q1.ID}, Prompt: "Bad", Assumption: "None", ConcreteAction: "None"}) catch {
+		case InvalidInput as inv:
+			nonMonotonic = inv.Field == "id"
+			q1
+		case _:
+			return false
+		}
+		let openBefore = QuestionList(QuestionListInput{OpenOnly: true}) catch {
+		case _:
+			return false
+		}
+		let answered = QuestionAnswer(QuestionAnswerInput{CommandID: CommandID("api-qa-1-\(tag)"), Actor: "owner", ID: q1.ID, Answer: "Use SQLite", Withdraw: false}) catch {
+		case _:
+			return false
+		}
+		let withdrawn = QuestionAnswer(QuestionAnswerInput{CommandID: CommandID("api-qa-2-\(tag)"), Actor: "worker", ID: q2.ID, Answer: "", Withdraw: true}) catch {
+		case _:
+			return false
+		}
+		let mut reanswerBlocked = false
+		let _ = QuestionAnswer(QuestionAnswerInput{CommandID: CommandID("api-qa-3-\(tag)"), Actor: "owner", ID: q1.ID, Answer: "Changed mind", Withdraw: false}) catch {
+		case InvalidTransition:
+			reanswerBlocked = true
+			answered
+		case _:
+			return false
+		}
+		let openAfter = QuestionList(QuestionListInput{OpenOnly: true}) catch {
+		case _:
+			return false
+		}
+		let allAfter = QuestionList(QuestionListInput{OpenOnly: false}) catch {
+		case _:
+			return false
+		}
+		q1.ID >= 1 && q1Replay == q1 && q2.ID == q1.ID+2 && nonMonotonic && openBefore == []Question{q1, q2} && answered.Status == QuestionAnswered && withdrawn.Status == QuestionWithdrawn && reanswerBlocked && openAfter.Len() == 0 && allAfter == []Question{answered, withdrawn}
 	},
 }
 
@@ -163,10 +472,10 @@ func apiVerdict(key UnitStateInput, n string) UnitVerdictInput {
 	UnitVerdictInput{CommandID: CommandID("api-v-\(n)"), Actor: "root", Repo: key.Repo, Run: key.Run, ID: key.ID, Head: "h"}
 }
 
-func fieldOption(f json.Optional[string]) option.Option[string] {
+func optionalToOption[T](f json.Optional[T]) option.Option[T] {
 	match f {
-	case json.Present[string] as p:
-		option.Some[string]{Value: p.Value}
+	case json.Present[T] as p:
+		option.Some[T]{Value: p.Value}
 	case json.Absent:
 		option.None
 	}
@@ -176,11 +485,36 @@ func keyOf(repo string, run string, id string) UnitKey {
 	UnitKey{Repo: repo, Run: run, ID: id}
 }
 
+func runUnitCommand(s Service, id CommandID, actor string, key UnitKey, cmd Command) Unit fails NotFound | AlreadyExists | InvalidTransition | CommandReused | InvalidInput | Unverified | NotAcceptedHead | StoreFailed {
+	let _ = try s.store.Execute(envelope(s, id, actor, cmd))
+	try mustUnit(s.store, key)
+}
+
+func runCommitmentCommand(s Service, id CommandID, actor string, cid string, cmd Command) Commitment fails NotFound | AlreadyExists | InvalidTransition | CommandReused | InvalidInput | Unverified | NotAcceptedHead | StoreFailed {
+	let _ = try s.store.Execute(envelope(s, id, actor, cmd))
+	try mustCommitment(s.store, cid)
+}
+
+func parseCommitmentStatusFilter(status json.Optional[string]) option.Option[CommitmentStatus] fails InvalidInput {
+	let opt = optionalToOption[string](status)
+	try requireOptionalText("status", opt)
+	match opt {
+	case option.Some[string] as st:
+		match ParseCommitmentStatus(st.Value) {
+		case option.Some[CommitmentStatus] as parsed:
+			option.Some[CommitmentStatus]{Value: parsed.Value}
+		case option.None:
+			InvalidInput{Field: "status", Why: "must be open, assigned, landed, decided, or withdrawn"}
+		}
+	case option.None:
+		option.None
+	}
+}
+
 // UnitOpen executes OpenUnit and returns the opened Unit.
 func UnitOpen(s Service, req UnitOpenInput) Unit fails NotFound | AlreadyExists | InvalidTransition | CommandReused | InvalidInput | Unverified | NotAcceptedHead | StoreFailed {
 	let key = keyOf(req.Repo, req.Run, req.ID)
-	let _ = try s.store.Execute(envelope(s, req.CommandID, req.Actor, OpenUnit{Key: key, Title: req.Title, Requires: req.Requires, Lane: fieldOption(req.Lane), Branch: fieldOption(req.Branch)}))
-	try mustUnit(s.store, key)
+	runUnitCommand(s, req.CommandID, req.Actor, key, OpenUnit{Key: key, Title: req.Title, Requires: req.Requires, Lane: optionalToOption[string](req.Lane), Branch: optionalToOption[string](req.Branch)})
 }
 
 // ReceiptRecord executes RecordReceipt and returns the recorded Receipt, whose ID is the command ID.
@@ -217,15 +551,116 @@ func UnitState(s Service, req UnitStateInput) UnitView fails NotFound | InvalidI
 // UnitAccept executes AcceptUnit and returns the accepted Unit.
 func UnitAccept(s Service, req UnitVerdictInput) Unit fails NotFound | AlreadyExists | InvalidTransition | CommandReused | InvalidInput | Unverified | NotAcceptedHead | StoreFailed {
 	let key = keyOf(req.Repo, req.Run, req.ID)
-	let _ = try s.store.Execute(envelope(s, req.CommandID, req.Actor, AcceptUnit{Unit: key, Head: req.Head}))
-	try mustUnit(s.store, key)
+	runUnitCommand(s, req.CommandID, req.Actor, key, AcceptUnit{Unit: key, Head: req.Head})
 }
 
 // UnitLand executes LandUnit and returns the landed Unit.
 func UnitLand(s Service, req UnitVerdictInput) Unit fails NotFound | AlreadyExists | InvalidTransition | CommandReused | InvalidInput | Unverified | NotAcceptedHead | StoreFailed {
 	let key = keyOf(req.Repo, req.Run, req.ID)
-	let _ = try s.store.Execute(envelope(s, req.CommandID, req.Actor, LandUnit{Unit: key, Head: req.Head}))
-	try mustUnit(s.store, key)
+	runUnitCommand(s, req.CommandID, req.Actor, key, LandUnit{Unit: key, Head: req.Head})
+}
+
+// UnitClose executes CloseUnit and returns the closed Unit.
+func UnitClose(s Service, req UnitCloseInput) Unit fails NotFound | AlreadyExists | InvalidTransition | CommandReused | InvalidInput | Unverified | NotAcceptedHead | StoreFailed {
+	let key = keyOf(req.Repo, req.Run, req.ID)
+	runUnitCommand(s, req.CommandID, req.Actor, key, CloseUnit{Unit: key})
+}
+
+// CommitmentAdd executes AddCommitment and returns the added Commitment.
+func CommitmentAdd(s Service, req CommitmentAddInput) Commitment fails NotFound | AlreadyExists | InvalidTransition | CommandReused | InvalidInput | Unverified | NotAcceptedHead | StoreFailed {
+	runCommitmentCommand(s, req.CommandID, req.Actor, req.ID, AddCommitment{ID: req.ID, Title: req.Title, Kind: req.Kind})
+}
+
+// CommitmentAssign executes AssignCommitment and returns the updated Commitment.
+func CommitmentAssign(s Service, req CommitmentAssignInput) Commitment fails NotFound | AlreadyExists | InvalidTransition | CommandReused | InvalidInput | Unverified | NotAcceptedHead | StoreFailed {
+	runCommitmentCommand(s, req.CommandID, req.Actor, req.ID, AssignCommitment{ID: req.ID, Owner: req.Owner, Lane: req.Lane})
+}
+
+// CommitmentLand executes LandCommitment and returns the landed Commitment.
+func CommitmentLand(s Service, req CommitmentLandInput) Commitment fails NotFound | AlreadyExists | InvalidTransition | CommandReused | InvalidInput | Unverified | NotAcceptedHead | StoreFailed {
+	runCommitmentCommand(s, req.CommandID, req.Actor, req.ID, LandCommitment{ID: req.ID, LandedSHA: req.LandedSHA})
+}
+
+// CommitmentDecide executes DecideCommitment and returns the decided or withdrawn Commitment.
+func CommitmentDecide(s Service, req CommitmentDecideInput) Commitment fails NotFound | AlreadyExists | InvalidTransition | CommandReused | InvalidInput | Unverified | NotAcceptedHead | StoreFailed {
+	runCommitmentCommand(s, req.CommandID, req.Actor, req.ID, DecideCommitment{ID: req.ID, Note: req.Note, Withdraw: req.Withdraw})
+}
+
+// CommitmentList returns commitment projections optionally filtered by status and owner.
+func CommitmentList(s Service, req CommitmentListInput) []Commitment fails InvalidInput | StoreFailed {
+	let status = try parseCommitmentStatusFilter(req.Status)
+	let owner = optionalToOption[string](req.Owner)
+	try requireOptionalText("owner", owner)
+	try s.store.ListCommitments(status, owner)
+}
+
+// QueueUpsert executes UpsertQueueItem and returns the recorded QueueItem.
+func QueueUpsert(s Service, req QueueUpsertInput) QueueItem fails NotFound | AlreadyExists | InvalidTransition | CommandReused | InvalidInput | Unverified | NotAcceptedHead | StoreFailed {
+	let done = try s.store.Execute(envelope(s, req.CommandID, req.Actor, UpsertQueueItem{Key: req.Key, Priority: req.Priority, Title: req.Title, Body: req.Body, Status: req.Status, Tags: req.Tags}))
+	for ev in done.Events {
+		match ev {
+		case QueueUpserted as e:
+			return e.Item
+		case _:
+		}
+	}
+	let mut matched = false
+	for stored in try s.store.Events(0) {
+		match stored.Event {
+		case CommandAccepted as e:
+			matched = e.ID == req.CommandID
+		case QueueUpserted as e:
+			if matched {
+				return e.Item
+			}
+			matched = false
+		case _:
+			matched = false
+		}
+	}
+	StoreFailed{Reason: "queue item missing after execute"}
+}
+
+// QueueRemove executes RemoveQueueItem.
+func QueueRemove(s Service, req QueueRemoveInput) fails NotFound | AlreadyExists | InvalidTransition | CommandReused | InvalidInput | Unverified | NotAcceptedHead | StoreFailed {
+	let _ = try s.store.Execute(envelope(s, req.CommandID, req.Actor, RemoveQueueItem{Key: req.Key}))
+}
+
+// QueueList returns queue projections optionally filtered by status.
+func QueueList(s Service, req QueueListInput) []QueueItem fails InvalidInput | StoreFailed {
+	let status = optionalToOption[string](req.Status)
+	try requireOptionalText("status", status)
+	try s.store.ListQueue(status)
+}
+
+// QuestionAsk executes AskQuestion and returns the opened Question.
+func QuestionAsk(s Service, req QuestionAskInput) Question fails NotFound | AlreadyExists | InvalidTransition | CommandReused | InvalidInput | Unverified | NotAcceptedHead | StoreFailed {
+	let done = try s.store.Execute(envelope(s, req.CommandID, req.Actor, AskQuestion{ID: optionalToOption[int](req.ID), Prompt: req.Prompt, Assumption: req.Assumption, ConcreteAction: req.ConcreteAction}))
+	for ev in done.Events {
+		match ev {
+		case QuestionAsked as e:
+			return e.Question
+		case _:
+		}
+	}
+	let snap = try s.store.Snapshot()
+	match snap.QuestionByCommand.Get(req.CommandID) {
+	case option.Some[int] as id:
+		try mustQuestion(s.store, id.Value)
+	case option.None:
+		StoreFailed{Reason: "question missing after execute"}
+	}
+}
+
+// QuestionAnswer executes AnswerQuestion and returns the updated Question.
+func QuestionAnswer(s Service, req QuestionAnswerInput) Question fails NotFound | AlreadyExists | InvalidTransition | CommandReused | InvalidInput | Unverified | NotAcceptedHead | StoreFailed {
+	let _ = try s.store.Execute(envelope(s, req.CommandID, req.Actor, AnswerQuestion{ID: req.ID, Answer: req.Answer, Withdraw: req.Withdraw}))
+	try mustQuestion(s.store, req.ID)
+}
+
+// QuestionList returns async question projections, optionally filtered to open questions only.
+func QuestionList(s Service, req QuestionListInput) []Question fails StoreFailed {
+	try s.store.ListQuestions(req.OpenOnly)
 }
 
 func mustUnit(store Store, key UnitKey) Unit fails StoreFailed {
@@ -234,5 +669,23 @@ func mustUnit(store Store, key UnitKey) Unit fails StoreFailed {
 		u.Value
 	case option.None:
 		StoreFailed{Reason: "unit missing after execute"}
+	}
+}
+
+func mustCommitment(store Store, id string) Commitment fails StoreFailed {
+	match try store.Commitment(id) {
+	case option.Some[Commitment] as c:
+		c.Value
+	case option.None:
+		StoreFailed{Reason: "commitment missing after execute"}
+	}
+}
+
+func mustQuestion(store Store, id int) Question fails StoreFailed {
+	match try store.Question(id) {
+	case option.Some[Question] as q:
+		q.Value
+	case option.None:
+		StoreFailed{Reason: "question missing after execute"}
 	}
 }

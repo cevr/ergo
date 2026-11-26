@@ -15,7 +15,9 @@ exited 0; otherwise they fail with a typed refusal, `Unverified` (the kinds
 missing or red at the head) or `NotAcceptedHead`.
 
     orchestrate mcp [--store PATH]          MCP tools on stdin/stdout
-    orchestrate [--store PATH] [--json] unit-open|receipt-record|unit-state|unit-accept|unit-land ...
+    orchestrate [--store PATH] [--json] COMMAND ...
+
+Commands cover units (`unit-open`, `receipt-record`, `unit-state`, `unit-accept`, `unit-land`, `unit-close`), commitments (`commitment-add`, `commitment-assign`, `commitment-land`, `commitment-decide`, `commitment-list`), queue items (`queue-upsert`, `queue-remove`, `queue-list`), and async questions (`question-ask`, `question-answer`, `question-list`).
 
 The store is one SQLite file per host, written only by this binary:
 `--store PATH`, else `$XDG_STATE_HOME/orchestrate/ledger.db` (by default
@@ -25,4 +27,5 @@ clock.
 
 The case `mcp-verdict` drives a whole MCP session: it opens a unit, records
 a red receipt and is refused the verdict as `Unverified`, then records a
-green one at the same head and is accepted.
+green one at the same head and is accepted. The case `mcp-ledger` exercises
+`unit-close`, commitments, queue items, and async questions over MCP stdio.

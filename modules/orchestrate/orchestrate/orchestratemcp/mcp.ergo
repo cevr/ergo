@@ -33,7 +33,7 @@ func untagged(v json.Value) json.Value {
 }
 
 // Names are the tools' names, one per operation of orchestrate.Api, in its order.
-let Names = []string{"unit-open", "receipt-record", "unit-state", "unit-accept", "unit-land"}
+let Names = []string{"unit-open", "receipt-record", "unit-state", "unit-accept", "unit-land", "unit-close", "commitment-add", "commitment-assign", "commitment-land", "commitment-decide", "commitment-list", "queue-upsert", "queue-remove", "queue-list", "question-ask", "question-answer", "question-list"}
 
 // Description is what the tool name does: its operation's doc comment,
 // or its signature (the hub's Doc).
@@ -49,6 +49,30 @@ func Description(name string) string {
 		orchestrateapi.Doc(orchestrateapi.UnitAcceptOp)
 	case "unit-land":
 		orchestrateapi.Doc(orchestrateapi.UnitLandOp)
+	case "unit-close":
+		orchestrateapi.Doc(orchestrateapi.UnitCloseOp)
+	case "commitment-add":
+		orchestrateapi.Doc(orchestrateapi.CommitmentAddOp)
+	case "commitment-assign":
+		orchestrateapi.Doc(orchestrateapi.CommitmentAssignOp)
+	case "commitment-land":
+		orchestrateapi.Doc(orchestrateapi.CommitmentLandOp)
+	case "commitment-decide":
+		orchestrateapi.Doc(orchestrateapi.CommitmentDecideOp)
+	case "commitment-list":
+		orchestrateapi.Doc(orchestrateapi.CommitmentListOp)
+	case "queue-upsert":
+		orchestrateapi.Doc(orchestrateapi.QueueUpsertOp)
+	case "queue-remove":
+		orchestrateapi.Doc(orchestrateapi.QueueRemoveOp)
+	case "queue-list":
+		orchestrateapi.Doc(orchestrateapi.QueueListOp)
+	case "question-ask":
+		orchestrateapi.Doc(orchestrateapi.QuestionAskOp)
+	case "question-answer":
+		orchestrateapi.Doc(orchestrateapi.QuestionAnswerOp)
+	case "question-list":
+		orchestrateapi.Doc(orchestrateapi.QuestionListOp)
 	case _:
 		""
 	}
@@ -69,6 +93,30 @@ func Input(name string) json.Value {
 		orchestrateapi.Schema(orchestrateapi.UnitAcceptOp)
 	case "unit-land":
 		orchestrateapi.Schema(orchestrateapi.UnitLandOp)
+	case "unit-close":
+		orchestrateapi.Schema(orchestrateapi.UnitCloseOp)
+	case "commitment-add":
+		orchestrateapi.Schema(orchestrateapi.CommitmentAddOp)
+	case "commitment-assign":
+		orchestrateapi.Schema(orchestrateapi.CommitmentAssignOp)
+	case "commitment-land":
+		orchestrateapi.Schema(orchestrateapi.CommitmentLandOp)
+	case "commitment-decide":
+		orchestrateapi.Schema(orchestrateapi.CommitmentDecideOp)
+	case "commitment-list":
+		orchestrateapi.Schema(orchestrateapi.CommitmentListOp)
+	case "queue-upsert":
+		orchestrateapi.Schema(orchestrateapi.QueueUpsertOp)
+	case "queue-remove":
+		orchestrateapi.Schema(orchestrateapi.QueueRemoveOp)
+	case "queue-list":
+		orchestrateapi.Schema(orchestrateapi.QueueListOp)
+	case "question-ask":
+		orchestrateapi.Schema(orchestrateapi.QuestionAskOp)
+	case "question-answer":
+		orchestrateapi.Schema(orchestrateapi.QuestionAnswerOp)
+	case "question-list":
+		orchestrateapi.Schema(orchestrateapi.QuestionListOp)
 	case _:
 		valueOf("{\"type\":\"object\",\"properties\":{}}")
 	}
@@ -89,6 +137,30 @@ func Call(name string, arguments json.Value) Request fails mcp.ToolError | mcp.U
 		rpc.Tagged("UnitAcceptRequest", "{\"input\":"+textOf(arguments)+"}")
 	case "unit-land":
 		rpc.Tagged("UnitLandRequest", "{\"input\":"+textOf(arguments)+"}")
+	case "unit-close":
+		rpc.Tagged("UnitCloseRequest", "{\"input\":"+textOf(arguments)+"}")
+	case "commitment-add":
+		rpc.Tagged("CommitmentAddRequest", "{\"input\":"+textOf(arguments)+"}")
+	case "commitment-assign":
+		rpc.Tagged("CommitmentAssignRequest", "{\"input\":"+textOf(arguments)+"}")
+	case "commitment-land":
+		rpc.Tagged("CommitmentLandRequest", "{\"input\":"+textOf(arguments)+"}")
+	case "commitment-decide":
+		rpc.Tagged("CommitmentDecideRequest", "{\"input\":"+textOf(arguments)+"}")
+	case "commitment-list":
+		rpc.Tagged("CommitmentListRequest", "{\"input\":"+textOf(arguments)+"}")
+	case "queue-upsert":
+		rpc.Tagged("QueueUpsertRequest", "{\"input\":"+textOf(arguments)+"}")
+	case "queue-remove":
+		rpc.Tagged("QueueRemoveRequest", "{\"input\":"+textOf(arguments)+"}")
+	case "queue-list":
+		rpc.Tagged("QueueListRequest", "{\"input\":"+textOf(arguments)+"}")
+	case "question-ask":
+		rpc.Tagged("QuestionAskRequest", "{\"input\":"+textOf(arguments)+"}")
+	case "question-answer":
+		rpc.Tagged("QuestionAnswerRequest", "{\"input\":"+textOf(arguments)+"}")
+	case "question-list":
+		rpc.Tagged("QuestionListRequest", "{\"input\":"+textOf(arguments)+"}")
 	case _:
 		return mcp.UnknownTool{Name: name}
 	}
@@ -112,6 +184,30 @@ func Arguments(r Request) (string, json.Value) {
 		("unit-accept", untagged(valueOf(rpc.Encode(x.Input))))
 	case orchestrateapi.UnitLandRequest as x:
 		("unit-land", untagged(valueOf(rpc.Encode(x.Input))))
+	case orchestrateapi.UnitCloseRequest as x:
+		("unit-close", untagged(valueOf(rpc.Encode(x.Input))))
+	case orchestrateapi.CommitmentAddRequest as x:
+		("commitment-add", untagged(valueOf(rpc.Encode(x.Input))))
+	case orchestrateapi.CommitmentAssignRequest as x:
+		("commitment-assign", untagged(valueOf(rpc.Encode(x.Input))))
+	case orchestrateapi.CommitmentLandRequest as x:
+		("commitment-land", untagged(valueOf(rpc.Encode(x.Input))))
+	case orchestrateapi.CommitmentDecideRequest as x:
+		("commitment-decide", untagged(valueOf(rpc.Encode(x.Input))))
+	case orchestrateapi.CommitmentListRequest as x:
+		("commitment-list", untagged(valueOf(rpc.Encode(x.Input))))
+	case orchestrateapi.QueueUpsertRequest as x:
+		("queue-upsert", untagged(valueOf(rpc.Encode(x.Input))))
+	case orchestrateapi.QueueRemoveRequest as x:
+		("queue-remove", untagged(valueOf(rpc.Encode(x.Input))))
+	case orchestrateapi.QueueListRequest as x:
+		("queue-list", untagged(valueOf(rpc.Encode(x.Input))))
+	case orchestrateapi.QuestionAskRequest as x:
+		("question-ask", untagged(valueOf(rpc.Encode(x.Input))))
+	case orchestrateapi.QuestionAnswerRequest as x:
+		("question-answer", untagged(valueOf(rpc.Encode(x.Input))))
+	case orchestrateapi.QuestionListRequest as x:
+		("question-list", untagged(valueOf(rpc.Encode(x.Input))))
 	}
 }
 
@@ -131,6 +227,30 @@ func Show(o orchestrateapi.Outcome) json.Value fails mcp.ToolError {
 		case orchestrateapi.UnitAcceptReply as reply:
 			valueOf(rpc.Encode(reply.Value))
 		case orchestrateapi.UnitLandReply as reply:
+			valueOf(rpc.Encode(reply.Value))
+		case orchestrateapi.UnitCloseReply as reply:
+			valueOf(rpc.Encode(reply.Value))
+		case orchestrateapi.CommitmentAddReply as reply:
+			valueOf(rpc.Encode(reply.Value))
+		case orchestrateapi.CommitmentAssignReply as reply:
+			valueOf(rpc.Encode(reply.Value))
+		case orchestrateapi.CommitmentLandReply as reply:
+			valueOf(rpc.Encode(reply.Value))
+		case orchestrateapi.CommitmentDecideReply as reply:
+			valueOf(rpc.Encode(reply.Value))
+		case orchestrateapi.CommitmentListReply as reply:
+			valueOf(rpc.Encode(reply.Value))
+		case orchestrateapi.QueueUpsertReply as reply:
+			valueOf(rpc.Encode(reply.Value))
+		case orchestrateapi.QueueRemoveReply:
+			json.Null
+		case orchestrateapi.QueueListReply as reply:
+			valueOf(rpc.Encode(reply.Value))
+		case orchestrateapi.QuestionAskReply as reply:
+			valueOf(rpc.Encode(reply.Value))
+		case orchestrateapi.QuestionAnswerReply as reply:
+			valueOf(rpc.Encode(reply.Value))
+		case orchestrateapi.QuestionListReply as reply:
 			valueOf(rpc.Encode(reply.Value))
 		}
 	case orchestrateapi.Rejected as rejected:
@@ -185,6 +305,44 @@ func ReadAnswer(r Request, result mcp.Called) orchestrateapi.Outcome fails rpc.T
 		case orchestrateapi.UnitLandRequest:
 			let v = try rpc.Decode[orchestrate.Unit]("value", text)
 			orchestrateapi.Done{Reply: orchestrateapi.UnitLandReply{Value: v}}
+		case orchestrateapi.UnitCloseRequest:
+			let v = try rpc.Decode[orchestrate.Unit]("value", text)
+			orchestrateapi.Done{Reply: orchestrateapi.UnitCloseReply{Value: v}}
+		case orchestrateapi.CommitmentAddRequest:
+			let v = try rpc.Decode[orchestrate.Commitment]("value", text)
+			orchestrateapi.Done{Reply: orchestrateapi.CommitmentAddReply{Value: v}}
+		case orchestrateapi.CommitmentAssignRequest:
+			let v = try rpc.Decode[orchestrate.Commitment]("value", text)
+			orchestrateapi.Done{Reply: orchestrateapi.CommitmentAssignReply{Value: v}}
+		case orchestrateapi.CommitmentLandRequest:
+			let v = try rpc.Decode[orchestrate.Commitment]("value", text)
+			orchestrateapi.Done{Reply: orchestrateapi.CommitmentLandReply{Value: v}}
+		case orchestrateapi.CommitmentDecideRequest:
+			let v = try rpc.Decode[orchestrate.Commitment]("value", text)
+			orchestrateapi.Done{Reply: orchestrateapi.CommitmentDecideReply{Value: v}}
+		case orchestrateapi.CommitmentListRequest:
+			let v = try rpc.Decode[[]orchestrate.Commitment]("value", text)
+			orchestrateapi.Done{Reply: orchestrateapi.CommitmentListReply{Value: v}}
+		case orchestrateapi.QueueUpsertRequest:
+			let v = try rpc.Decode[orchestrate.QueueItem]("value", text)
+			orchestrateapi.Done{Reply: orchestrateapi.QueueUpsertReply{Value: v}}
+		case orchestrateapi.QueueRemoveRequest:
+			if text != "null" {
+				return rpc.Transport{Reason: "the tool queue-remove answered " + text + ", not null"}
+			}
+			orchestrateapi.Done{Reply: orchestrateapi.QueueRemoveReply}
+		case orchestrateapi.QueueListRequest:
+			let v = try rpc.Decode[[]orchestrate.QueueItem]("value", text)
+			orchestrateapi.Done{Reply: orchestrateapi.QueueListReply{Value: v}}
+		case orchestrateapi.QuestionAskRequest:
+			let v = try rpc.Decode[orchestrate.Question]("value", text)
+			orchestrateapi.Done{Reply: orchestrateapi.QuestionAskReply{Value: v}}
+		case orchestrateapi.QuestionAnswerRequest:
+			let v = try rpc.Decode[orchestrate.Question]("value", text)
+			orchestrateapi.Done{Reply: orchestrateapi.QuestionAnswerReply{Value: v}}
+		case orchestrateapi.QuestionListRequest:
+			let v = try rpc.Decode[[]orchestrate.Question]("value", text)
+			orchestrateapi.Done{Reply: orchestrateapi.QuestionListReply{Value: v}}
 		}
 	} else {
 		match r {
@@ -317,6 +475,297 @@ func ReadAnswer(r Request, result mcp.Called) orchestrateapi.Outcome fails rpc.T
 				orchestrateapi.Rejected{Failure: orchestrateapi.StoreFailed{E: e}}
 			case _:
 				return rpc.Transport{Reason: "the tool unit-land answered an undeclared failure: " + text}
+			}
+		case orchestrateapi.UnitCloseRequest:
+			match rpc.TagOf(text) {
+			case "NotFound":
+				let e = try rpc.Decode[orchestrate.NotFound]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NotFound{E: e}}
+			case "AlreadyExists":
+				let e = try rpc.Decode[orchestrate.AlreadyExists]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.AlreadyExists{E: e}}
+			case "InvalidTransition":
+				let e = try rpc.Decode[orchestrate.InvalidTransition]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.InvalidTransition{E: e}}
+			case "CommandReused":
+				let e = try rpc.Decode[orchestrate.CommandReused]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.CommandReused{E: e}}
+			case "InvalidInput":
+				let e = try rpc.Decode[orchestrate.InvalidInput]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.InvalidInput{E: e}}
+			case "Unverified":
+				let e = try rpc.Decode[orchestrate.Unverified]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.Unverified{E: e}}
+			case "NotAcceptedHead":
+				let e = try rpc.Decode[orchestrate.NotAcceptedHead]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NotAcceptedHead{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[orchestrate.StoreFailed]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.StoreFailed{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the tool unit-close answered an undeclared failure: " + text}
+			}
+		case orchestrateapi.CommitmentAddRequest:
+			match rpc.TagOf(text) {
+			case "NotFound":
+				let e = try rpc.Decode[orchestrate.NotFound]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NotFound{E: e}}
+			case "AlreadyExists":
+				let e = try rpc.Decode[orchestrate.AlreadyExists]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.AlreadyExists{E: e}}
+			case "InvalidTransition":
+				let e = try rpc.Decode[orchestrate.InvalidTransition]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.InvalidTransition{E: e}}
+			case "CommandReused":
+				let e = try rpc.Decode[orchestrate.CommandReused]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.CommandReused{E: e}}
+			case "InvalidInput":
+				let e = try rpc.Decode[orchestrate.InvalidInput]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.InvalidInput{E: e}}
+			case "Unverified":
+				let e = try rpc.Decode[orchestrate.Unverified]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.Unverified{E: e}}
+			case "NotAcceptedHead":
+				let e = try rpc.Decode[orchestrate.NotAcceptedHead]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NotAcceptedHead{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[orchestrate.StoreFailed]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.StoreFailed{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the tool commitment-add answered an undeclared failure: " + text}
+			}
+		case orchestrateapi.CommitmentAssignRequest:
+			match rpc.TagOf(text) {
+			case "NotFound":
+				let e = try rpc.Decode[orchestrate.NotFound]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NotFound{E: e}}
+			case "AlreadyExists":
+				let e = try rpc.Decode[orchestrate.AlreadyExists]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.AlreadyExists{E: e}}
+			case "InvalidTransition":
+				let e = try rpc.Decode[orchestrate.InvalidTransition]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.InvalidTransition{E: e}}
+			case "CommandReused":
+				let e = try rpc.Decode[orchestrate.CommandReused]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.CommandReused{E: e}}
+			case "InvalidInput":
+				let e = try rpc.Decode[orchestrate.InvalidInput]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.InvalidInput{E: e}}
+			case "Unverified":
+				let e = try rpc.Decode[orchestrate.Unverified]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.Unverified{E: e}}
+			case "NotAcceptedHead":
+				let e = try rpc.Decode[orchestrate.NotAcceptedHead]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NotAcceptedHead{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[orchestrate.StoreFailed]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.StoreFailed{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the tool commitment-assign answered an undeclared failure: " + text}
+			}
+		case orchestrateapi.CommitmentLandRequest:
+			match rpc.TagOf(text) {
+			case "NotFound":
+				let e = try rpc.Decode[orchestrate.NotFound]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NotFound{E: e}}
+			case "AlreadyExists":
+				let e = try rpc.Decode[orchestrate.AlreadyExists]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.AlreadyExists{E: e}}
+			case "InvalidTransition":
+				let e = try rpc.Decode[orchestrate.InvalidTransition]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.InvalidTransition{E: e}}
+			case "CommandReused":
+				let e = try rpc.Decode[orchestrate.CommandReused]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.CommandReused{E: e}}
+			case "InvalidInput":
+				let e = try rpc.Decode[orchestrate.InvalidInput]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.InvalidInput{E: e}}
+			case "Unverified":
+				let e = try rpc.Decode[orchestrate.Unverified]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.Unverified{E: e}}
+			case "NotAcceptedHead":
+				let e = try rpc.Decode[orchestrate.NotAcceptedHead]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NotAcceptedHead{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[orchestrate.StoreFailed]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.StoreFailed{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the tool commitment-land answered an undeclared failure: " + text}
+			}
+		case orchestrateapi.CommitmentDecideRequest:
+			match rpc.TagOf(text) {
+			case "NotFound":
+				let e = try rpc.Decode[orchestrate.NotFound]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NotFound{E: e}}
+			case "AlreadyExists":
+				let e = try rpc.Decode[orchestrate.AlreadyExists]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.AlreadyExists{E: e}}
+			case "InvalidTransition":
+				let e = try rpc.Decode[orchestrate.InvalidTransition]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.InvalidTransition{E: e}}
+			case "CommandReused":
+				let e = try rpc.Decode[orchestrate.CommandReused]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.CommandReused{E: e}}
+			case "InvalidInput":
+				let e = try rpc.Decode[orchestrate.InvalidInput]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.InvalidInput{E: e}}
+			case "Unverified":
+				let e = try rpc.Decode[orchestrate.Unverified]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.Unverified{E: e}}
+			case "NotAcceptedHead":
+				let e = try rpc.Decode[orchestrate.NotAcceptedHead]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NotAcceptedHead{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[orchestrate.StoreFailed]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.StoreFailed{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the tool commitment-decide answered an undeclared failure: " + text}
+			}
+		case orchestrateapi.CommitmentListRequest:
+			match rpc.TagOf(text) {
+			case "InvalidInput":
+				let e = try rpc.Decode[orchestrate.InvalidInput]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.InvalidInput{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[orchestrate.StoreFailed]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.StoreFailed{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the tool commitment-list answered an undeclared failure: " + text}
+			}
+		case orchestrateapi.QueueUpsertRequest:
+			match rpc.TagOf(text) {
+			case "NotFound":
+				let e = try rpc.Decode[orchestrate.NotFound]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NotFound{E: e}}
+			case "AlreadyExists":
+				let e = try rpc.Decode[orchestrate.AlreadyExists]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.AlreadyExists{E: e}}
+			case "InvalidTransition":
+				let e = try rpc.Decode[orchestrate.InvalidTransition]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.InvalidTransition{E: e}}
+			case "CommandReused":
+				let e = try rpc.Decode[orchestrate.CommandReused]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.CommandReused{E: e}}
+			case "InvalidInput":
+				let e = try rpc.Decode[orchestrate.InvalidInput]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.InvalidInput{E: e}}
+			case "Unverified":
+				let e = try rpc.Decode[orchestrate.Unverified]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.Unverified{E: e}}
+			case "NotAcceptedHead":
+				let e = try rpc.Decode[orchestrate.NotAcceptedHead]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NotAcceptedHead{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[orchestrate.StoreFailed]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.StoreFailed{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the tool queue-upsert answered an undeclared failure: " + text}
+			}
+		case orchestrateapi.QueueRemoveRequest:
+			match rpc.TagOf(text) {
+			case "NotFound":
+				let e = try rpc.Decode[orchestrate.NotFound]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NotFound{E: e}}
+			case "AlreadyExists":
+				let e = try rpc.Decode[orchestrate.AlreadyExists]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.AlreadyExists{E: e}}
+			case "InvalidTransition":
+				let e = try rpc.Decode[orchestrate.InvalidTransition]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.InvalidTransition{E: e}}
+			case "CommandReused":
+				let e = try rpc.Decode[orchestrate.CommandReused]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.CommandReused{E: e}}
+			case "InvalidInput":
+				let e = try rpc.Decode[orchestrate.InvalidInput]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.InvalidInput{E: e}}
+			case "Unverified":
+				let e = try rpc.Decode[orchestrate.Unverified]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.Unverified{E: e}}
+			case "NotAcceptedHead":
+				let e = try rpc.Decode[orchestrate.NotAcceptedHead]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NotAcceptedHead{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[orchestrate.StoreFailed]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.StoreFailed{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the tool queue-remove answered an undeclared failure: " + text}
+			}
+		case orchestrateapi.QueueListRequest:
+			match rpc.TagOf(text) {
+			case "InvalidInput":
+				let e = try rpc.Decode[orchestrate.InvalidInput]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.InvalidInput{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[orchestrate.StoreFailed]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.StoreFailed{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the tool queue-list answered an undeclared failure: " + text}
+			}
+		case orchestrateapi.QuestionAskRequest:
+			match rpc.TagOf(text) {
+			case "NotFound":
+				let e = try rpc.Decode[orchestrate.NotFound]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NotFound{E: e}}
+			case "AlreadyExists":
+				let e = try rpc.Decode[orchestrate.AlreadyExists]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.AlreadyExists{E: e}}
+			case "InvalidTransition":
+				let e = try rpc.Decode[orchestrate.InvalidTransition]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.InvalidTransition{E: e}}
+			case "CommandReused":
+				let e = try rpc.Decode[orchestrate.CommandReused]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.CommandReused{E: e}}
+			case "InvalidInput":
+				let e = try rpc.Decode[orchestrate.InvalidInput]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.InvalidInput{E: e}}
+			case "Unverified":
+				let e = try rpc.Decode[orchestrate.Unverified]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.Unverified{E: e}}
+			case "NotAcceptedHead":
+				let e = try rpc.Decode[orchestrate.NotAcceptedHead]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NotAcceptedHead{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[orchestrate.StoreFailed]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.StoreFailed{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the tool question-ask answered an undeclared failure: " + text}
+			}
+		case orchestrateapi.QuestionAnswerRequest:
+			match rpc.TagOf(text) {
+			case "NotFound":
+				let e = try rpc.Decode[orchestrate.NotFound]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NotFound{E: e}}
+			case "AlreadyExists":
+				let e = try rpc.Decode[orchestrate.AlreadyExists]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.AlreadyExists{E: e}}
+			case "InvalidTransition":
+				let e = try rpc.Decode[orchestrate.InvalidTransition]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.InvalidTransition{E: e}}
+			case "CommandReused":
+				let e = try rpc.Decode[orchestrate.CommandReused]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.CommandReused{E: e}}
+			case "InvalidInput":
+				let e = try rpc.Decode[orchestrate.InvalidInput]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.InvalidInput{E: e}}
+			case "Unverified":
+				let e = try rpc.Decode[orchestrate.Unverified]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.Unverified{E: e}}
+			case "NotAcceptedHead":
+				let e = try rpc.Decode[orchestrate.NotAcceptedHead]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NotAcceptedHead{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[orchestrate.StoreFailed]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.StoreFailed{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the tool question-answer answered an undeclared failure: " + text}
+			}
+		case orchestrateapi.QuestionListRequest:
+			match rpc.TagOf(text) {
+			case "StoreFailed":
+				let e = try rpc.Decode[orchestrate.StoreFailed]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.StoreFailed{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the tool question-list answered an undeclared failure: " + text}
 			}
 		}
 	}
