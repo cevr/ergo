@@ -25,6 +25,9 @@ func newUses() Uses {
 	Uses{at: dense.NewSide[store.PNode, uint32](uint32(notUse)), defs: dense.NewSide[store.PNode, uint8](uint8(0)), names: dense.NewSide[store.PNode, dense.Opt[dense.Str]](dense.NoID[dense.Str]()), ext: dense.NewSide[store.PNode, store.XRef](noXRef)}
 }
 
+// NoUses is an empty use table.
+func NoUses() Uses { newUses() }
+
 let noXRef = store.XRef{Import: uint32(0), Decl: uint32(0)}
 
 // LocalName is the name of the local row n declares, if it declares one:
