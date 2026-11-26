@@ -64,6 +64,8 @@ func checkUnusedDeclaration(p *Pass) {
 // declaration other than their own names.
 func usedElsewhere(p *Pass) map[check.Object]bool {
 	used := map[check.Object]bool{}
+	own := map[check.Object]bool{}
+	var seen []check.Object
 	for _, u := range p.Program() {
 		if u.Package != p.Package {
 			continue
@@ -72,31 +74,30 @@ func usedElsewhere(p *Pass) map[check.Object]bool {
 			if f.Syntax == nil {
 				continue
 			}
-			for _, d := range f.Syntax.Decls {
-				own := map[check.Object]bool{}
-				syntax.Inspect(d, func(n syntax.Node) bool {
-					if id, ok := n.(*syntax.Ident); ok && p.Info.Defs[id] != nil {
-						own[p.Info.Defs[id]] = true
+			fi := p.run.shared.fileIndexOf(f.Syntax)
+			for _, dr := range fi.decls {
+				clear(own)
+				seen = seen[:0]
+				for _, x := range fi.idents[dr.identStart:dr.identEnd] {
+					if def := p.Info.Defs[x]; def != nil {
+						own[def] = true
 					}
-					return true
-				})
-				syntax.Inspect(d, func(n syntax.Node) bool {
-					var o check.Object
-					switch x := n.(type) {
-					case *syntax.Ident:
-						o = p.Info.Uses[x]
-					case *syntax.CallExpr:
-						// a dot call, p.f(…), reaches f through the
-						// call, not through a use of its name
-						if c := p.Info.Calls[x]; c != nil && c.Func != nil {
-							o = c.Func
-						}
+					if o := p.Info.Uses[x]; o != nil {
+						seen = append(seen, o)
 					}
+				}
+				for _, x := range fi.calls[dr.callStart:dr.callEnd] {
+					// a dot call, p.f(…), reaches f through the
+					// call, not through a use of its name
+					if c := p.Info.Calls[x]; c != nil && c.Func != nil {
+						seen = append(seen, c.Func)
+					}
+				}
+				for _, o := range seen {
 					if o != nil && !own[o] {
 						used[o] = true
 					}
-					return true
-				})
+				}
 			}
 		}
 	}

@@ -20,11 +20,7 @@ var snapshotArgument = &Rule{
 }
 
 func checkSnapshotArgument(p *Pass) {
-	syntax.Inspect(p.File, func(n syntax.Node) bool {
-		c, ok := n.(*syntax.CallExpr)
-		if !ok {
-			return true
-		}
+	for _, c := range p.fileIndex().calls {
 		for i, a := range c.Args {
 			star, ok := a.(*syntax.StarExpr)
 			if !ok {
@@ -45,8 +41,7 @@ func checkSnapshotArgument(p *Pass) {
 				p.Report(star.Pos(), star.End(), "this *"+x.Name+" is copied, because a later argument passes "+x.Name+" to a call")
 			}
 		}
-		return true
-	})
+	}
 }
 
 // passesLater reports whether one of args holds a call with s itself as

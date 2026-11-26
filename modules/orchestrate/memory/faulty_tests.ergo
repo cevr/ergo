@@ -2,6 +2,7 @@ import gen
 import github.com/cevr/ergo/modules/orchestrate/orchestrate
 import option
 import testing
+import time
 
 func innerUnchanged(inner Store, wantSnap orchestrate.State, wantEvents []orchestrate.StoredEvent) bool {
 	let snap = inner.Snapshot() catch {
@@ -16,18 +17,17 @@ func innerUnchanged(inner Store, wantSnap orchestrate.State, wantEvents []orches
 }
 
 // ServiceHandlesFaultyStoreCleanly verifies via testing.Faulty[orchestrate.Store]
-// that Service propagates every injected Store failure cleanly, leaves the inner
-// store snapshot and event log completely untouched whenever Execute faults,
+// that Service propagates every injected Store failure as StoreFailed, leaves the inner
+// store's snapshot and event log untouched whenever Execute faults,
 // and exercises both fault-free and injected-fault paths across writes and reads.
 law ServiceHandlesFaultyStoreCleanly() {
 	let cfg = gen.Config{Seed: uint64(1), Cases: 45, Shrinks: 100, MaxDraws: 2048, MaxRejected: 50}
 	let outcome = gen.Check(cfg, func() bool fails gen.Rejected needs gen.Draws {
 		let inner = New()
 		let faulty = testing.Faulty[orchestrate.Store](inner)
-		let svc = orchestrate.NewService(faulty)
+		let svc = orchestrate.NewService(faulty, time.NewManual(0))
 		let mut writeFault = false
 		let mut readFault = false
-
 		let snap0 = inner.Snapshot() catch {
 		case orchestrate.StoreFailed:
 			return false
@@ -42,14 +42,17 @@ law ServiceHandlesFaultyStoreCleanly() {
 		let opened = svc.UnitOpen(orchestrate.UnitOpenInput{
 			CommandID: orchestrate.CommandID("f-open-1"),
 			Actor:     "root",
-			At:        "2026-11-25T08:00:00Z",
+			Repo:      "repo",
+			Run:       "fault",
 			ID:        "u-fault-1",
 			Title:     "Fault check",
-			Area:      "orchestrate",
+			Requires:  []string{"acceptance"},
+			Lane:      option.None,
+			Branch:    option.None,
 		}) catch {
-		case orchestrate.NotFound, orchestrate.AlreadyExists, orchestrate.InvalidTransition, orchestrate.StaleClaim, orchestrate.CommandReused, orchestrate.InvalidInput, orchestrate.StoreFailed:
+		case _:
 			openFailed = true
-			orchestrate.Unit{ID: "", Title: "", Area: "", Status: orchestrate.UnitOpen, Owner: option.None, Lane: option.None, Harness: option.None, Round: 0, HeadSHA: option.None, Summary: option.None, RequestPath: option.None, FindingsPath: option.None, CreatedAt: "", UpdatedAt: ""}
+			orchestrate.Unit{Key: orchestrate.UnitKey{Repo: "", Run: "", ID: ""}, Title: "", Requires: []string{}, Lane: option.None, Branch: option.None, Status: orchestrate.UnitClosed, Head: option.None, CreatedAt: "", UpdatedAt: ""}
 		}
 		if faulty.Execute.Faults().Len() > execFaults0 {
 			writeFault = true
@@ -64,7 +67,7 @@ law ServiceHandlesFaultyStoreCleanly() {
 				return false
 			}
 		} else {
-			if openFailed || opened.ID != "u-fault-1" {
+			if openFailed || opened.Key.ID != "u-fault-1" {
 				gen.Draws.Show("happy-open", "UnitOpen failed without injected fault")
 				return false
 			}
@@ -80,75 +83,32 @@ law ServiceHandlesFaultyStoreCleanly() {
 				gen.Draws.Show("events-cursor", "Events(fromSeq) was not strictly exclusive")
 				return false
 			}
-			sometimes opened.ID == "u-fault-1"
+			sometimes opened.Key.ID == "u-fault-1"
 		}
-
-		let snap1 = inner.Snapshot() catch {
+		let receiptFaults0 = faulty.Receipts.Faults().Len()
+		let unitFaults1 = faulty.Unit.Faults().Len()
+		let mut stateStoreFailed = false
+		let mut stateMissing = false
+		let _ = svc.UnitState(orchestrate.UnitStateInput{Repo: "repo", Run: "fault", ID: "u-fault-1"}) catch {
 		case orchestrate.StoreFailed:
-			return false
-		}
-		let evs1 = inner.Events(0) catch {
-		case orchestrate.StoreFailed:
-			return false
-		}
-		let execFaults1 = faulty.Execute.Faults().Len()
-		let mut commitFailed = false
-		let _ = svc.CommitmentAdd(orchestrate.CommitmentAddInput{
-			CommandID: orchestrate.CommandID("f-commit-1"),
-			Actor:     "root",
-			At:        "2026-11-25T08:01:00Z",
-			ID:        "c-fault-1",
-			Title:     "Commit check",
-			Kind:      "plan-part",
-		}) catch {
-		case orchestrate.NotFound, orchestrate.AlreadyExists, orchestrate.InvalidTransition, orchestrate.StaleClaim, orchestrate.CommandReused, orchestrate.InvalidInput, orchestrate.StoreFailed:
-			commitFailed = true
-			orchestrate.Commitment{ID: "", Title: "", Kind: "", Status: orchestrate.CommitOpen, Owner: option.None, Lane: option.None, LandedSHA: option.None, DecisionNote: option.None, CreatedAt: "", UpdatedAt: ""}
-		}
-		if faulty.Execute.Faults().Len() > execFaults1 {
-			writeFault = true
-			if !commitFailed || !innerUnchanged(inner, snap1, evs1) {
-				gen.Draws.Show("commit-fault", "CommitmentAdd Execute fault mutated inner store")
-				return false
-			}
-		}
-
-		let listFaults0 = faulty.ListUnits.Faults().Len()
-		let mut listStoreFailed = false
-		let _ = svc.UnitList(orchestrate.UnitListInput{Status: option.None}) catch {
-		case orchestrate.StoreFailed:
-			listStoreFailed = true
-			[]orchestrate.Unit{}
+			stateStoreFailed = true
+			orchestrate.UnitView{Unit: opened, Receipts: []orchestrate.Receipt{}}
+		case orchestrate.NotFound:
+			stateMissing = true
+			orchestrate.UnitView{Unit: opened, Receipts: []orchestrate.Receipt{}}
 		case orchestrate.InvalidInput:
 			return false
 		}
-		if faulty.ListUnits.Faults().Len() > listFaults0 {
+		let readFaulted = faulty.Receipts.Faults().Len() > receiptFaults0 || faulty.Unit.Faults().Len() > unitFaults1
+		if readFaulted {
 			readFault = true
-			if !listStoreFailed {
-				gen.Draws.Show("list-fault", "ListUnits StoreFailed did not propagate")
+			if !stateStoreFailed {
+				gen.Draws.Show("state-fault", "UnitState StoreFailed did not propagate")
 				return false
 			}
-		} else if listStoreFailed {
+		} else if stateStoreFailed || (stateMissing && !writeFault) {
 			return false
 		}
-
-		let qFaults0 = faulty.ListQuestions.Faults().Len()
-		let mut qStoreFailed = false
-		let _ = svc.QuestionList(orchestrate.QuestionListInput{OpenOnly: false}) catch {
-		case orchestrate.StoreFailed:
-			qStoreFailed = true
-			[]orchestrate.Question{}
-		}
-		if faulty.ListQuestions.Faults().Len() > qFaults0 {
-			readFault = true
-			if !qStoreFailed {
-				gen.Draws.Show("qlist-fault", "ListQuestions StoreFailed did not propagate")
-				return false
-			}
-		} else if qStoreFailed {
-			return false
-		}
-
 		sometimes writeFault
 		sometimes readFault
 		true

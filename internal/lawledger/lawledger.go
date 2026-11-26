@@ -21,6 +21,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 
 	"ergo.local/prototype/internal/sketch/stdlib"
@@ -185,12 +186,12 @@ func StdStatement(key string) (string, bool) {
 	return "", false
 }
 
-var spaces = regexp.MustCompile(`\s+`)
+var spaces = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\s+`) })
 
 // Normalize makes each run of white space in a statement one space, as the
 // ledger writes a law's source text.
 func Normalize(statement string) string {
-	return strings.TrimSpace(spaces.ReplaceAllString(statement, " "))
+	return strings.TrimSpace(spaces().ReplaceAllString(statement, " "))
 }
 
 // Same reports whether a and b state the same law: they are the same

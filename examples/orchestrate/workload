@@ -1,0 +1,7 @@
+# scripts/opcount: one MCP session over stdio recording N receipts of one
+# unit in a :memory: store; the cost of one tool call is the slope between
+# the two sizes.
+unit call
+sizes 200 1200
+input go examples/orchestrate/testdata/gen {n}
+args mcp --store :memory:

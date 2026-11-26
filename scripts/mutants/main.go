@@ -418,7 +418,7 @@ func addScope(cfg *Config, s scope) {
 // diagnostics of its own, such as S108; only new ones count).
 var ergoSources = []SourceCheck{{
 	Ext:    ".ergo",
-	Tool:   Tool{Name: "ergo", Package: "./cmd/ergo", Flags: []string{"-buildvcs=false"}, Env: []string{ergobuild.Cgo}},
+	Tool:   Tool{Name: "ergo", Package: "./cmd/ergo", Flags: ergobuild.Flags, Env: []string{ergobuild.Cgo}},
 	Format: []string{"{bin:ergo}", "fmt", "--check", "{file}"},
 	Check:  []string{"{bin:ergo}", "check", "{dir}"},
 }}
@@ -429,7 +429,7 @@ var ergoSources = []SourceCheck{{
 func ergoSuites() ([]string, []Tool, []Suite) {
 	cover := []string{"./internal/sketch/check", "./internal/sketch/lower", "./internal/sketch/api", "./cmd/ergo"}
 	tools := []Tool{
-		{Name: "ergo", Package: "./cmd/ergo", Flags: []string{"-buildvcs=false"}, Env: []string{ergobuild.Cgo}},
+		{Name: "ergo", Package: "./cmd/ergo", Flags: ergobuild.Flags, Env: []string{ergobuild.Cgo}},
 		{Name: "examples", Package: "./scripts/examples", Flags: []string{"-buildvcs=false"}},
 	}
 	suites := []Suite{
@@ -642,7 +642,7 @@ func commandsOf(jobs []Job) (Suite, []Tool, error) {
 var ergoTestsTool = Tool{Name: "ergotests", Package: "./scripts/ergotests", Flags: []string{"-buildvcs=false"}}
 
 // ergoTool is the ergo CLI, as ergoSuites builds it.
-var ergoTool = Tool{Name: "ergo", Package: "./cmd/ergo", Flags: []string{"-buildvcs=false"}, Env: []string{ergobuild.Cgo}}
+var ergoTool = Tool{Name: "ergo", Package: "./cmd/ergo", Flags: ergobuild.Flags, Env: []string{ergobuild.Cgo}}
 
 // ergoPackage says whether dir is an Ergo package with no Go test of its
 // own (compiler/syntax): a killer DIR:Name there is the Ergo test Name,
