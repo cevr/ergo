@@ -107,6 +107,7 @@ docs/spec/stdlib.md	-	std-wide rules and each package's guarantees that its sour
 docs/spec/support.md	-	generated support table
 docs/spec/types.md	-	types, unions, generics, refinements, laws
 docs/specs/atlas/eval-from-sessions.md	-	empirical evaluation of workbox OpenCode sessions driving atlas slim-down and probe benchmark
+docs/specs/atlas/kernel-probe.md	-	Unit 0 KERNEL-ENGINE-PROBE measurements, psychoscript audit, ergoscript note, and engine selection
 docs/specs/atlas/kernel/owner-ask.md	-	owner verbatim requirements behind the atlas persistent wake-driven cell kernel
 docs/specs/atlas/kernel/spec.md	-	atlas persistent wake-driven code-cell kernel and DELIVERS handle registry specification
 docs/specs/atlas/kernel/units.md	-	historical kernel-wake units folded into atlas kernel-iface and kernel-wake
