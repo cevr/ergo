@@ -37,8 +37,6 @@ import strconv
 import strings
 import time
 
-// storeFlag is the --store PATH of args, wherever it is before "--", and
-// the other arguments in their order.
 func storeFlag(args []string) (option.Option[string], []string) fails os.Exit {
 	let mut path option.Option[string] = option.None
 	let mut rest = []string{}
@@ -68,8 +66,6 @@ func storeFlag(args []string) (option.Option[string], []string) fails os.Exit {
 	(path, rest)
 }
 
-// jsonFirst moves a --json written after the command before it, where the
-// generated command line reads it.
 func jsonFirst(args []string) []string {
 	for i, a in args {
 		if a == "--" {
