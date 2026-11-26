@@ -18,8 +18,9 @@ import (
 // tests.
 //
 // Mutants (lower mutants.json): perf-lower-digest-replay-ignores-derived,
-// perf-lower-digest-member-drops-let, perf-lower-digest-edge-drops-selector,
-// perf-lower-digest-builder-ignores-pkg.
+// perf-lower-digest-edge-drops-selector,
+// perf-lower-digest-member-memo-ignores-name,
+// perf-lower-digest-text-memo-ignores-node.
 func TestDigestMemoAgreesWithDirectWalk(t *testing.T) {
 	var contexts, bindings, tests int
 	for _, rel := range []string{

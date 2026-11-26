@@ -19,8 +19,7 @@ import (
 // Replay: the seed is the row's; a failure names it and the node.
 //
 // Mutants (lower mutants.json): perf-lower-stdfile-rewalks-placed,
-// perf-lower-stdfile-wrong-file, perf-lower-stdfile-admission-dropped,
-// perf-lower-stdfile-overwrites-placement.
+// perf-lower-stdfile-wrong-file, perf-lower-stdfile-admission-dropped.
 func TestStdFileOfAgreesWithEveryWalk(t *testing.T) {
 	src := "import json\nimport strings\nimport tasks\nimport actor\nimport log\n\nfunc uses(a json.Text, b tasks.FailFast, c actor.Overflowed, d log.LevelInfo) string {\n\tstrings.ToUpper(\"a\")\n}\n"
 	file, err := syntax.Parse(src)
