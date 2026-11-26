@@ -1,0 +1,35 @@
+{
+  "about": "compiler/cmd/nativebuild: CLI and end-to-end checked+lowered-to-archive driver. Each row breaks a fail-closed admission or diagnostic check.",
+  "mutants": [
+    {
+      "name": "nativebuild-fallible-sig-accepted",
+      "origin": "wf10 NATIVEOBJ-WIDEN r1",
+      "file": "compiler/cmd/nativebuild/main.ergo",
+      "decl": "sigOf",
+      "from": "\t\tif !emptyRow(d.S, ops[n+1]) || !emptyRow(d.S, ops[n+2]) {\n\t\t\treturn fail(\"refused: function at \\(site.At): effect or failure row\")\n\t\t}\n",
+      "to": "\t\tif false && (!emptyRow(d.S, ops[n+1]) || !emptyRow(d.S, ops[n+2])) {\n\t\t\treturn fail(\"refused: function at \\(site.At): effect or failure row\")\n\t\t}\n",
+      "rule": "Functions with non-empty failure or capability rows are refused before native ABI emission even when the body never invokes fail.",
+      "killers": ["compiler/cmd/nativebuild:law:NativebuildRefusesFallibleAndUnsupportedSource"]
+    },
+    {
+      "name": "nativebuild-diags-ignored",
+      "origin": "wf10 NATIVEOBJ-WIDEN r1",
+      "file": "compiler/cmd/nativebuild/main.ergo",
+      "decl": "checkAndLower",
+      "from": "\tif d.T.Diags.Len() > 0 || d.T.SelfInference.Len() > 0 || d.T.BareSelfCalls.Len() > 0 || d.T.LookupDiags.Len() > 0 {\n\t\treturn fail(\"type error in \\(path)\")\n\t}\n",
+      "to": "\tif false && (d.T.Diags.Len() > 0 || d.T.SelfInference.Len() > 0 || d.T.BareSelfCalls.Len() > 0 || d.T.LookupDiags.Len() > 0) {\n\t\treturn fail(\"type error in \\(path)\")\n\t}\n",
+      "rule": "Unchecked or ill-typed packages with type diagnostics are rejected before lowering.",
+      "killers": ["compiler/cmd/nativebuild:law:NativebuildRefusesFallibleAndUnsupportedSource"]
+    },
+    {
+      "name": "nativebuild-root-imports-dropped",
+      "origin": "wf10 NATIVEOBJ-WIDEN r1",
+      "file": "compiler/cmd/nativebuild/main.ergo",
+      "decl": "checkAndLower",
+      "from": "\tlet rootImports = if bind.Imports(d.K.Files).Len() == 0 { option.Some[[]expr.Dep]{Value: []expr.Dep{}} } else { option.None }\n",
+      "to": "\tlet rootImports = option.None\n",
+      "rule": "Zero-import packages give lower an empty rootImports slice so local helper calls do not stop with unknown rewrite scope.",
+      "killers": ["compiler/cmd/nativebuild:law:NativebuildBuildsWidenedControlAndUnary"]
+    }
+  ]
+}

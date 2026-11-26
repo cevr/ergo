@@ -1,0 +1,76 @@
+// Fib is the n-th Fibonacci number, 0 for n at most 0.
+func Fib(n int) int {
+	let mut a = 0
+	let mut b = 1
+	let mut i = 0
+	for i < n {
+		let t = a + b
+		a = b
+		b = t
+		i = i + 1
+	}
+	a
+}
+
+// Pow is x to the power n, 1 for n at most 0.
+func Pow(x int, n int) int {
+	let mut r = 1
+	let mut i = 0
+	for i < n {
+		r = r * x
+		i = i + 1
+	}
+	r
+}
+
+// Gap is the distance between a and b.
+func Gap(a int, b int) int {
+	if a < b {
+		return b - a
+	}
+	a - b
+}
+
+// Mix folds three numbers through the other functions.
+func Mix(a int, b int, c int) int {
+	let g = Gap(a, b)
+	let f = Fib(g)
+	let p = Pow(c, 3)
+	(f ^ p) - a*b
+}
+
+// Order is 1 when a is above b, 0 when they are equal and -1 below.
+func Order(a int, b int) int {
+	if a > b {
+		return 1
+	}
+	if a == b {
+		return 0
+	}
+	0 - 1
+}
+
+// Clamp is x held to lo from below, then to hi from above.
+func Clamp(x int, lo int, hi int) int {
+	if x <= lo {
+		return lo
+	}
+	if x >= hi {
+		return hi
+	}
+	x
+}
+
+// Steps counts the steps of three that bring n to at most 7, plus what is left.
+func Steps(n int) int {
+	let mut s = 0
+	let mut k = n
+	for k > 7 {
+		k = k - 3
+		s = s + 1
+	}
+	if k != 0 {
+		s = s + k
+	}
+	s
+}
