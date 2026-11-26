@@ -346,6 +346,7 @@ type lowerer struct {
 	// whose call is not known (entrycopy.go).
 	entryCopies      map[pkgKey]*entryCopy
 	vals             *valueFacts              // the value rule's decisions (values.go)
+	ownedWalks       int                      // value walks ownedParams made (TestOwnedParamsAgreeWithEveryWalk)
 	sets             map[*check.TypeName]bool // type-set constraint interfaces emitted (ir_typeset.go)
 	holds            map[*check.Named]holdState
 	typeKeys         map[check.Type]string
