@@ -1,0 +1,248 @@
+import math
+import option
+import slices
+
+// Counter is a sealed monotonic cumulative metric descriptor supporting int64
+// and float64 increments.
+type Counter {
+	name   string,
+	help   string,
+	unit   string,
+	labels []Label,
+}
+
+// NewCounter constructs a validated Counter descriptor with name and help.
+func NewCounter(name string, help string) Counter fails InvalidMetric {
+	let validName = try validateName(name)
+	Counter{name: validName, help: help, unit: "", labels: []Label{}}
+}
+
+// NewCounterWithUnit constructs a validated Counter descriptor carrying unit.
+func NewCounterWithUnit(name string, help string, unit string) Counter fails InvalidMetric {
+	let validName = try validateName(name)
+	Counter{name: validName, help: help, unit: unit, labels: []Label{}}
+}
+
+// LabelCounter returns a copy of c with extra canonical labels merged.
+func LabelCounter(c Counter, labels []Label) Counter {
+	Counter{..c, labels: mergeLabels(c.labels, labels)}
+}
+
+// CounterSpec returns the metadata and normalized labels of c.
+func CounterSpec(c Counter) Spec {
+	Spec{Name: c.name, Help: c.help, Unit: c.unit, Labels: slices.Clone(c.labels)}
+}
+
+// Inc increments Counter c by 1 using its bound labels.
+func Inc(c Counter) needs Sink {
+	AddInt(c, int64(1), []Label{})
+}
+
+// IncWith increments Counter c by 1 with additional labels.
+func IncWith(c Counter, labels []Label) needs Sink {
+	AddInt(c, int64(1), labels)
+}
+
+// AddInt adds int64 delta to Counter c; negative deltas are rejected.
+func AddInt(c Counter, delta int64, labels []Label) needs Sink {
+	applyChecked(UpdateCounterInt{Metric: c, Delta: delta, Labels: labels})
+}
+
+// AddFloat adds float64 delta to Counter c; negative or non-finite deltas are
+// rejected.
+func AddFloat(c Counter, delta float64, labels []Label) needs Sink {
+	applyChecked(UpdateCounterFloat{Metric: c, Delta: delta, Labels: labels})
+}
+
+// TryAddInt adds int64 delta to Counter c, failing InvalidDelta on negative
+// values or BudgetExceeded under FailOverflow.
+func TryAddInt(c Counter, delta int64, labels []Label) fails InvalidDelta | BudgetExceeded needs Sink {
+	try tryApply(UpdateCounterInt{Metric: c, Delta: delta, Labels: labels})
+}
+
+// TryAddFloat adds float64 delta to Counter c, failing InvalidDelta on negative
+// or non-finite values or BudgetExceeded under FailOverflow.
+func TryAddFloat(c Counter, delta float64, labels []Label) fails InvalidDelta | BudgetExceeded needs Sink {
+	try tryApply(UpdateCounterFloat{Metric: c, Delta: delta, Labels: labels})
+}
+
+// Gauge is a sealed metric descriptor representing an instantaneous numeric
+// value that may increase, decrease, or be assigned directly.
+type Gauge {
+	name   string,
+	help   string,
+	unit   string,
+	labels []Label,
+}
+
+// NewGauge constructs a validated Gauge descriptor with name and help.
+func NewGauge(name string, help string) Gauge fails InvalidMetric {
+	let validName = try validateName(name)
+	Gauge{name: validName, help: help, unit: "", labels: []Label{}}
+}
+
+// NewGaugeWithUnit constructs a validated Gauge descriptor carrying unit.
+func NewGaugeWithUnit(name string, help string, unit string) Gauge fails InvalidMetric {
+	let validName = try validateName(name)
+	Gauge{name: validName, help: help, unit: unit, labels: []Label{}}
+}
+
+// LabelGauge returns a copy of g with extra canonical labels merged.
+func LabelGauge(g Gauge, labels []Label) Gauge {
+	Gauge{..g, labels: mergeLabels(g.labels, labels)}
+}
+
+// GaugeSpec returns the metadata and normalized labels of g.
+func GaugeSpec(g Gauge) Spec {
+	Spec{Name: g.name, Help: g.help, Unit: g.unit, Labels: slices.Clone(g.labels)}
+}
+
+// Set assigns finite value to Gauge g.
+func Set(g Gauge, value float64, labels []Label) needs Sink {
+	applyChecked(UpdateGaugeSet{Metric: g, Value: value, Labels: labels})
+}
+
+// SetInt assigns int64 value to Gauge g.
+func SetInt(g Gauge, value int64, labels []Label) needs Sink {
+	Set(g, float64(value), labels)
+}
+
+// Add adds finite delta to Gauge g.
+func Add(g Gauge, delta float64, labels []Label) needs Sink {
+	applyChecked(UpdateGaugeAdd{Metric: g, Delta: delta, Labels: labels})
+}
+
+// Sub subtracts finite delta from Gauge g.
+func Sub(g Gauge, delta float64, labels []Label) needs Sink {
+	if math.IsNaN(delta) || math.IsInf(delta, 0) {
+		applyChecked(UpdateGaugeAdd{Metric: g, Delta: delta, Labels: labels})
+		return
+	}
+	applyChecked(UpdateGaugeAdd{Metric: g, Delta: -delta, Labels: labels})
+}
+
+// TrySet assigns finite value to Gauge g, failing InvalidDelta or
+// BudgetExceeded under FailOverflow.
+func TrySet(g Gauge, value float64, labels []Label) fails InvalidDelta | BudgetExceeded needs Sink {
+	try tryApply(UpdateGaugeSet{Metric: g, Value: value, Labels: labels})
+}
+
+// TrySetInt assigns int64 value to Gauge g, failing BudgetExceeded under
+// FailOverflow.
+func TrySetInt(g Gauge, value int64, labels []Label) fails InvalidDelta | BudgetExceeded needs Sink {
+	try tryApply(UpdateGaugeSet{Metric: g, Value: float64(value), Labels: labels})
+}
+
+// TryAdd adds finite delta to Gauge g, failing InvalidDelta or BudgetExceeded
+// under FailOverflow.
+func TryAdd(g Gauge, delta float64, labels []Label) fails InvalidDelta | BudgetExceeded needs Sink {
+	try tryApply(UpdateGaugeAdd{Metric: g, Delta: delta, Labels: labels})
+}
+
+// TrySub subtracts finite delta from Gauge g, failing InvalidDelta or
+// BudgetExceeded under FailOverflow.
+func TrySub(g Gauge, delta float64, labels []Label) fails InvalidDelta | BudgetExceeded needs Sink {
+	if math.IsNaN(delta) || math.IsInf(delta, 0) {
+		try tryApply(UpdateGaugeAdd{Metric: g, Delta: delta, Labels: labels})
+		return
+	}
+	try tryApply(UpdateGaugeAdd{Metric: g, Delta: -delta, Labels: labels})
+}
+
+// CounterMonotonic: valid int64 and float64 increments accumulate monotonically,
+// and negative, NaN, or infinite deltas fail InvalidDelta without altering the
+// counter value.
+law CounterMonotonic(aRaw int64, bRaw int64, fRaw int) {
+	let a = if aRaw < int64(0) { int64(0) } else { aRaw % int64(100000) }
+	let b = if bRaw < int64(0) { int64(0) } else { bRaw % int64(100000) }
+	let fh = float64(((fRaw%200)+200)%200) * 0.5
+	let c = NewCounter("requests.total", "Total requests") catch {
+	case InvalidMetric:
+		return false
+	}
+	let lbls = []Label{LabelOf("route", "/items")}
+	let rec = DefaultRecorder()
+	with context { Sink: rec } {
+		c.AddInt(a, lbls)
+		let mid = rec.CounterTotal(c, lbls)
+		c.AddInt(b, lbls)
+		let afterInt = rec.CounterTotal(c, lbls)
+		c.AddInt(int64(-5), lbls)
+		let mut sawNegInt = false
+		TryAddInt(c, int64(-1), lbls) catch {
+		case InvalidDelta:
+			sawNegInt = true
+		case BudgetExceeded:
+			return false
+		}
+		let mut sawNegFloat = false
+		TryAddFloat(c, -0.5, lbls) catch {
+		case InvalidDelta:
+			sawNegFloat = true
+		case BudgetExceeded:
+			return false
+		}
+		let mut sawNaN = false
+		TryAddFloat(c, math.NaN(), lbls) catch {
+		case InvalidDelta:
+			sawNaN = true
+		case BudgetExceeded:
+			return false
+		}
+		always sawNegInt && sawNegFloat && sawNaN
+		always mid == option.Some[CounterData]{Value: CounterData{IntTotal: a, FloatTotal: 0.0, HasFloat: false}}
+		always afterInt == option.Some[CounterData]{Value: CounterData{IntTotal: a + b, FloatTotal: 0.0, HasFloat: false}}
+		always rec.CounterTotal(c, lbls) == afterInt
+		c.AddFloat(fh, lbls)
+		let finalData = rec.CounterTotal(c, lbls)
+		always finalData == option.Some[CounterData]{Value: CounterData{IntTotal: a + b, FloatTotal: fh, HasFloat: true}}
+		always rec.Stats().RejectedDeltas == int64(4)
+	}
+	true
+}
+
+// GaugeTracksDelta: Gauge Set initializes or replaces the gauge value, Add and
+// Sub track exact additive and subtractive deltas, and NaN/Inf fail
+// InvalidDelta without mutating the stored gauge.
+law GaugeTracksDelta(initRaw int, addRaw int, subRaw int, resetRaw int) {
+	let v0 = float64(initRaw%1000) * 0.5
+	let d1 = float64(addRaw%500) * 0.5
+	let d2 = float64(subRaw%500) * 0.5
+	let vReset = float64(resetRaw%1000) * 0.5
+	let g = NewGauge("queue.depth", "Queue depth") catch {
+	case InvalidMetric:
+		return false
+	}
+	let lbls = []Label{LabelOf("pool", "main")}
+	let rec = DefaultRecorder()
+	with context { Sink: rec } {
+		g.Set(v0, lbls)
+		g.Add(d1, lbls)
+		g.Sub(d2, lbls)
+		always rec.GaugeValue(g, lbls) == option.Some[float64]{Value: v0 + d1 - d2}
+		let mut rejectedNaN = false
+		TryAdd(g, math.NaN(), lbls) catch {
+		case InvalidDelta:
+			rejectedNaN = true
+		case BudgetExceeded:
+			return false
+		}
+		let mut rejectedInf = false
+		TrySet(g, math.Inf(1), lbls) catch {
+		case InvalidDelta:
+			rejectedInf = true
+		case BudgetExceeded:
+			return false
+		}
+		always rejectedNaN && rejectedInf
+		always rec.GaugeValue(g, lbls) == option.Some[float64]{Value: v0 + d1 - d2}
+		TrySub(g, 1.5, lbls) catch {
+		case InvalidDelta, BudgetExceeded:
+			return false
+		}
+		always rec.GaugeValue(g, lbls) == option.Some[float64]{Value: v0 + d1 - d2 - 1.5}
+		g.Set(vReset, lbls)
+		always rec.GaugeValue(g, lbls) == option.Some[float64]{Value: vReset}
+	}
+	true
+}

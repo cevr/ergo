@@ -2,6 +2,9 @@ import strings
 import s slices
 import m maps
 import _ strconv
+import cmp
+
+type cmp {}
 
 let strings = 1
 

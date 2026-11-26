@@ -21,7 +21,7 @@ The standard library is the "Effect for Go" track, the standard library. Its mod
 | Sync and STM | std sync and STM | Ref, SynchronizedRef, Deferred, Semaphore, Latch, TxRef, TxQueue, TxSemaphore | `sync.Ref`, `sync.Atomically() { }`, `sync.Tx` | kernel + library |
 | Batching, caching and pools | std batch, cache and pool | Request, RequestResolver, Cache, ScopedCache, Pool, KeyedPool, RcRef, RcMap, ScopedRef | `batch.Resolve` in `context`; [`cache`](#cache): `Get`, `Put`, `NewReleasing` | library |
 | Config | std config | Config, ConfigProvider, Redacted | [`config`](#config): `Load`, `Redacted[T]` | library |
-| Observability | std trace, log and metric | Tracer, Logger, Metric, LogLevel, References | `with trace.Span(…)`, `log`, `metric` | library on kernel G1/G2 |
+| Observability | std trace, log and metric | Tracer, Logger, Metric, LogLevel, References | `with trace.Span(…)`, [`log`](#log), [`metric`](#metric) | library on kernel G1/G2 |
 | Clock, random and testing | the prelude services | Clock, Random, Console, TestClock, TestServices, TestContext, `it.effect` | prelude capabilities, `testing.VirtualClock` in `context` | kernel seams + library |
 | HTTP | std http and rpc | HttpClient, HttpServer, HttpRouter, HttpApi | `func(http.Request) http.Response`, total `catch` | library + host |
 | RPC | std rpc | Rpc, RpcGroup, RpcClient, RpcServer | `rpc.Answer` (an http handler, so one listener serves RPC beside other routes), `rpc.Serve`, `rpc.Call`, `rpc.Loopback` (a server in process, so a contract's laws run through the wire), and the server and client `ergo gen rpc` writes from an operation type ([rpc.md](rpc.md)) | library + host |
@@ -2055,6 +2055,27 @@ Std `log` (std-spike C3) writes log entries through the `Sink` in the context, w
 6. **Laws and runners.** The laws are beside their declarations in `sink.ergo`. Lower `TestStdLogLawsRun` restates them as Ergo tests, `Sink.EnabledIsMonotone` over both providers at each least level.
 
 *Prior art:* Effect's `Logger`, `LogLevel` and `Effect.annotateLogs`; Go's `log/slog` (`Level`, `Handler.Enabled`, `JSONHandler`). Elixir's `Logger` keeps metadata per process (`Logger.metadata`) and filters by a level before it formats, as `Log` does; Gleam has no logger in its standard library (`gleam_erlang` binds Erlang's `logger`), and ReScript binds `console`. Each compiles a call below the level to a check and nothing else, as `Enabled` is here.
+
+## metric
+
+Std `metric` records structured counters, gauges, histograms, exact key frequencies, and bounded sliding-window summaries through a `Sink` capability in context, enforcing a series-cardinality budget on every writer.
+
+| Name | Signature |
+| --- | --- |
+| labels and redaction | `Label { Key string, Value string }`; `LabelOf`, `RedactedText`, `RedactedLabel`, `RedactedFrom[T](key string, v config.Redacted[T]) Label`, `NormalizeLabels`, `SeriesKey` |
+| budgets | `OverflowPolicy = DropOverflow \| FailOverflow`; `NewSeriesBudget(maxSeries int, policy OverflowPolicy) SeriesBudget fails InvalidBudget`, `DefaultBudget`, `DropBudget`, `StrictBudget`, `BudgetStats` |
+| descriptors | `Counter` (`Inc`, `IncWith`, `AddInt`, `AddFloat`, `TryAddInt`, `TryAddFloat`), `Gauge` (`Set`, `SetInt`, `Add`, `Sub`, `TrySet`, `TrySetInt`, `TryAdd`, `TrySub`), `Histogram` (`DefaultLatencyBoundaries`, `LinearBoundaries`, `ExponentialBoundaries`, `Observe`, `ObserveDuration`, `TryObserve`, `TryObserveDuration`), `Frequency` (`NewFrequencyBounded`, `Record`, `RecordCount`, `TryRecord`, `TryRecordCount`), `Summary` (`DefaultSummaryQuantiles`, `Sample`, `SampleAt`, `SampleNow`, `SampleDuration`, `TrySample`, `TrySampleAt`) |
+| capability | `Sink { Enabled() bool, Apply(u Update) fails InvalidDelta \| BudgetExceeded }`, `NewNoopSink`, `NewTeeSink` |
+| providers and capture | `NewRecorder(budget SeriesBudget) Recorder`, `DefaultRecorder`, `Collect`, `CollectAt`, `Stats`, `Clear`, `CounterTotal`, `GaugeValue`, `HistogramValue`, `FrequencyValue`, `SummaryValue`, `Capture`, `CaptureDefault` |
+| export and trace | `EncodeJSON`, `DecodeJSON`, `FormatOpenMetrics`, `FormatOpenMetricsWithBudget`, `ToWideEvent`, `EmitSnapshotToTrace`, `FlushToActiveSpan`, `NewTraceBridgeSink` |
+
+1. **Labels and opt-in redaction.** `NormalizeLabels` trims label keys, drops empty keys, keeps the last value when a key repeats, and sorts labels by ascending key so `SeriesKey` identifies each series injectively regardless of input label order. `RedactedLabel` and `RedactedFrom` record the literal `"[REDACTED]"` without reading `.Reveal()` on a `config.Redacted[T]`.
+2. **Series-cardinality budget.** Every `Recorder` binds a `SeriesBudget` (`MaxSeries`, `OverflowPolicy`). Once active series reach `MaxSeries`, updates to existing series still succeed, while any new series increments `OverflowCount` and either drops the write (`DropOverflow`, default `4096`) or returns `BudgetExceeded` on `Try*` calls (`FailOverflow`). `NewFrequencyBounded` bounds per-series distinct keys by the same policy.
+3. **Validated descriptors and distributions.** Metric names are trimmed and reject empty or control-byte strings (`InvalidMetric`). Counters and frequencies reject negative or non-finite deltas (`InvalidDelta`); gauges reject non-finite values; histograms require non-empty, finite, strictly ascending boundaries (`InvalidBoundaries`) and record cumulative bucket counts alongside `Count`, `Sum`, `Min`, and `Max`; summaries validate sorted quantiles in `[0.0, 1.0]` and maintain bounded count/age sliding windows (`InvalidSummary`).
+4. **Providers and deterministic snapshots.** `Recorder` wraps shared state in `sync.Ref`, `Collect` returns series sorted by metric name then series key, `EncodeJSON` / `DecodeJSON` round-trip `Snapshot` values faithfully, `FormatOpenMetrics` renders canonical OpenMetrics 1.0 text ending in `# EOF\n`, and `ToWideEvent` / `EmitSnapshotToTrace` / `FlushToActiveSpan` / `NewTraceBridgeSink` bridge metrics into `trace.WideEvent` spans while preserving `"[REDACTED]"` markers.
+5. **Laws.** Co-located `law` declarations verify canonical label normalization, redaction safety, monotonic counter accumulation, gauge deltas, ordered histogram bucket totals, exact and key-bounded frequency counts, sliding-window quantile ordering, budget enforcement, `Snapshot` JSON round-trips, OpenMetrics determinism/escaping, trace bridging, and `Sink` laws (`EnabledIsConsistent`, `NegativeCounterDeltaRejected`).
+
+*Prior art:* Effect's `Metric` (`counter`, `gauge`, `histogram`, `frequency`, `summary` descriptors backed by a fiber context `MetricRegistry`), Prometheus / OpenMetrics 1.0 exposition format, and bounded-cardinality telemetry pipelines (always accounting overflows rather than allowing unbounded label growth).
 
 ## stream
 
