@@ -1,0 +1,200 @@
+type Who = X{} | Y{}
+
+type Act = Ask{} | See{C Who} | Answer{C Who, Decline bool} | Deliver{Lost bool} | TurnEnds{} | SessionExits{} | Recover{}
+
+type World {
+	R         int,
+	By        int,
+	Saw       []bool,
+	Intent    bool,
+	Delivered int,
+	Session   bool,
+	Changed   bool,
+	Late      bool,
+	Refused   int,
+	Down      bool,
+}
+
+let NoMutant = 0
+let LastAnswerWinsMutant = 1
+let DeliverAfterExitMutant = 2
+let RedeliverMutant = 3
+let ExitLeavesOpenMutant = 4
+
+func ci(c Who) int {
+	match c {
+	case X:
+		return 0
+	case Y:
+		return 1
+	}
+}
+
+func first() World {
+	World{R: 0, By: -1, Saw: []bool{false, false}, Intent: false, Delivered: 0, Session: true,
+		Changed: false, Late: false, Refused: 0, Down: false}
+}
+
+func step(s World, act Act, mutant int) Decision[World, string] {
+	let mut w = s
+	match act {
+	case Ask:
+		if w.R != 0 || !w.Session {
+			return Ignore
+		}
+		w.R = 1
+		return Enter{w}
+	case See as a:
+		let c = ci(a.C)
+		if w.R != 1 || w.Saw[c] {
+			return Ignore
+		}
+		w.Saw[c] = true
+		return Enter{w}
+	case Answer as a:
+		let c = ci(a.C)
+		if !w.Saw[c] {
+			return Ignore
+		}
+		w.Saw[c] = false
+		let mut wins = w.R == 1
+		if mutant == LastAnswerWinsMutant {
+			wins = w.R == 1 || w.R == 2 || w.R == 3
+		}
+		if !wins {
+			w.Refused = w.Refused + 1
+			return Enter{w}
+		}
+		if w.By >= 0 && w.By != c {
+			w.Changed = true
+		}
+		w.By = c
+		if a.Decline {
+			w.R = 3
+		} else {
+			w.R = 2
+		}
+		w.Intent = true
+		return Enter{w}
+	case Deliver as a:
+		if !w.Intent || w.Down {
+			return Ignore
+		}
+		if !w.Session && mutant != DeliverAfterExitMutant {
+			w.Intent = false
+			return Enter{w}
+		}
+		if w.Delivered >= 2 {
+			return Ignore
+		}
+		if !w.Session {
+			w.Late = true
+		}
+		w.Delivered = w.Delivered + 1
+		if a.Lost {
+			w.Down = true
+			return Enter{w}
+		}
+		w.Intent = false
+		return Enter{w}
+	case Recover:
+		if !w.Down {
+			return Ignore
+		}
+		w.Down = false
+		if mutant != DeliverAfterExitMutant {
+			w.Session = false
+		}
+		if mutant == RedeliverMutant {
+			w.Session = true
+			return Enter{w}
+		}
+		if mutant != DeliverAfterExitMutant {
+			w.Intent = false
+		}
+		if w.R == 1 {
+			w.R = 4
+		}
+		return Enter{w}
+	case TurnEnds:
+		if w.R != 1 || !w.Session {
+			return Ignore
+		}
+		w.R = 4
+		return Enter{w}
+	case SessionExits:
+		if !w.Session || w.Down {
+			return Ignore
+		}
+		w.Session = false
+		if w.R == 1 && mutant != ExitLeavesOpenMutant {
+			w.R = 4
+		}
+		return Enter{w}
+	}
+}
+
+func oneAnswer(w World) bool { !w.Changed }
+
+func deliveredAtMostOnce(w World) bool { w.Delivered <= 1 }
+
+func neverToADeadSession(w World) bool { !w.Late }
+
+func noOpenRequestWithoutSession(w World) bool { !(w.R == 1 && !w.Session && !w.Down) }
+
+func answerChanged(w World) bool  { !oneAnswer(w) }
+func deliveredTwice(w World) bool { !deliveredAtMostOnce(w) }
+func deliveredLate(w World) bool  { !neverToADeadSession(w) }
+func leftOpen(w World) bool       { !noOpenRequestWithoutSession(w) }
+
+func answeredAndDelivered(w World) bool { w.R == 2 && w.Delivered == 1 && !w.Intent && w.Session }
+func declined(w World) bool             { w.R == 3 && w.Delivered == 1 }
+func loserRefused(w World) bool         { w.R == 2 && w.Refused == 1 }
+func cancelledByExit(w World) bool      { w.R == 4 && !w.Session && w.Delivered == 0 }
+func answeredTooLate(w World) bool      { w.R == 4 && w.Refused == 1 }
+
+func design(s World, a Act) Decision[World, string]           { return step(s, a, NoMutant) }
+func lastAnswerWins(s World, a Act) Decision[World, string]   { return step(s, a, LastAnswerWinsMutant) }
+func deliverAfterExit(s World, a Act) Decision[World, string] { return step(s, a, DeliverAfterExitMutant) }
+func redeliver(s World, a Act) Decision[World, string]        { return step(s, a, RedeliverMutant) }
+func exitLeavesOpen(s World, a Act) Decision[World, string]   { return step(s, a, ExitLeavesOpenMutant) }
+
+type Design machine[World, Act] {
+	initial: first(),
+	step:    design,
+
+	law OneAnswer always oneAnswer,
+	law DeliveredAtMostOnce always deliveredAtMostOnce,
+	law NeverToADeadSession always neverToADeadSession,
+	law NoOpenRequestWithoutSession always noOpenRequestWithoutSession,
+
+	law AnsweredAndDelivered sometimes answeredAndDelivered,
+	law Declined sometimes declined,
+	law LoserRefused sometimes loserRefused,
+	law CancelledByExit sometimes cancelledByExit,
+	law AnsweredTooLate sometimes answeredTooLate,
+}
+
+type LastAnswerWins machine[World, Act] {
+	initial: first(),
+	step:    lastAnswerWins,
+	law Breaks sometimes answerChanged,
+}
+
+type DeliverAfterExit machine[World, Act] {
+	initial: first(),
+	step:    deliverAfterExit,
+	law Breaks sometimes deliveredLate,
+}
+
+type Redeliver machine[World, Act] {
+	initial: first(),
+	step:    redeliver,
+	law Breaks sometimes deliveredTwice,
+}
+
+type ExitLeavesOpen machine[World, Act] {
+	initial: first(),
+	step:    exitLeavesOpen,
+	law Breaks sometimes leftOpen,
+}

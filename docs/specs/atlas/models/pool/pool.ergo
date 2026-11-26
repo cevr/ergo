@@ -1,0 +1,334 @@
+type Act = AdvanceNow{} | StartOnHostA{} | StartOnHostB{} | SettleHostA{} | TickWake{RetryLost bool} | ChildDiedDuringHold{} | EnablePush{} | ExpirePush{} | ClaimReset1{}
+
+type World {
+	Now                 int,
+	Acc1Spend           int,
+	Acc1Inflight        int,
+	Acc2Spend           int,
+	HoldState           int,
+	HoldDueAt           int,
+	WakeSent            int,
+	GoneNoticeSent      int,
+	PushActive          bool,
+	PushExpired         bool,
+	ResetClaimed1       bool,
+	SawLostRetry        bool,
+	WrongOrderPick      bool,
+	DoubleSpendInflight bool,
+	BadRefusal          bool,
+	EarlyWake           bool,
+	DoubleWakeAtOpening bool,
+	WokeGoneChild       bool,
+	PushPastEnd         bool,
+	DuplicateReset      bool,
+}
+
+let NoMutant = 0
+let DoubleWakeMutant = 1
+let WakeEarlyMutant = 2
+let WrongOrderMutant = 3
+let IgnoreInflightMutant = 4
+let BadRefusalMutant = 5
+let WakeGoneMutant = 6
+let PushPastEndMutant = 7
+let DoubleResetMutant = 8
+
+let HoldNone = 0
+let HoldWaiting = 1
+let HoldWoken = 2
+let HoldChildGone = 3
+
+func first() World {
+	World{
+		Now:                 0,
+		Acc1Spend:           0,
+		Acc1Inflight:        0,
+		Acc2Spend:           0,
+		HoldState:           HoldNone,
+		HoldDueAt:           0,
+		WakeSent:            0,
+		GoneNoticeSent:      0,
+		PushActive:          false,
+		PushExpired:         false,
+		ResetClaimed1:       false,
+		SawLostRetry:        false,
+		WrongOrderPick:      false,
+		DoubleSpendInflight: false,
+		BadRefusal:          false,
+		EarlyWake:           false,
+		DoubleWakeAtOpening: false,
+		WokeGoneChild:       false,
+		PushPastEnd:         false,
+		DuplicateReset:      false,
+	}
+}
+
+func cap1(w World) int {
+	if w.PushActive {
+		return 2
+	}
+	return 1
+}
+
+func step(s World, act Act, mutant int) Decision[World, string] {
+	let mut w = s
+	match act {
+	case AdvanceNow:
+		if w.Now >= 3 {
+			return Ignore
+		}
+		w.Now = w.Now + 1
+		return Enter{w}
+	case StartOnHostA:
+		if w.HoldState != HoldNone {
+			return Ignore
+		}
+		let c1 = cap1(w)
+		let t1 = w.Acc1Spend + w.Acc1Inflight
+		if t1 < c1 {
+			if mutant == WrongOrderMutant && w.Acc2Spend == 0 {
+				w.Acc2Spend = 1
+				w.WrongOrderPick = true
+				return Enter{w}
+			}
+			w.Acc1Inflight = 1
+			return Enter{w}
+		}
+		if w.Acc2Spend < 1 {
+			w.Acc2Spend = 1
+			return Enter{w}
+		}
+		if w.Now < 2 {
+			if mutant == BadRefusalMutant {
+				w.HoldState = HoldWaiting
+				w.HoldDueAt = w.Now
+				w.BadRefusal = true
+				return Enter{w}
+			}
+			w.HoldState = HoldWaiting
+			w.HoldDueAt = 2
+			return Enter{w}
+		}
+		return Ignore
+	case StartOnHostB:
+		if w.Acc1Inflight != 1 || w.Acc1Spend != 0 || w.PushActive || w.DoubleSpendInflight {
+			return Ignore
+		}
+		if mutant == IgnoreInflightMutant {
+			w.Acc1Spend = 1
+			w.DoubleSpendInflight = true
+			return Enter{w}
+		}
+		return Ignore
+	case SettleHostA:
+		if w.Acc1Inflight != 1 || w.Acc1Spend >= 2 {
+			return Ignore
+		}
+		w.Acc1Inflight = 0
+		w.Acc1Spend = w.Acc1Spend + 1
+		return Enter{w}
+	case TickWake as a:
+		if w.WakeSent >= 2 {
+			return Ignore
+		}
+		if w.HoldState == HoldChildGone {
+			if mutant == WakeGoneMutant && !w.WokeGoneChild {
+				w.WokeGoneChild = true
+				w.WakeSent = w.WakeSent + 1
+				return Enter{w}
+			}
+			return Ignore
+		}
+		if w.HoldState == HoldWoken {
+			if mutant == DoubleWakeMutant && w.Now >= w.HoldDueAt {
+				w.WakeSent = w.WakeSent + 1
+				w.DoubleWakeAtOpening = true
+				return Enter{w}
+			}
+			return Ignore
+		}
+		if w.HoldState != HoldWaiting {
+			return Ignore
+		}
+		if w.Now < w.HoldDueAt {
+			if mutant != WakeEarlyMutant {
+				return Ignore
+			}
+			w.EarlyWake = true
+			w.WakeSent = w.WakeSent + 1
+			w.HoldState = HoldWoken
+			return Enter{w}
+		}
+		if w.WakeSent == 0 {
+			w.WakeSent = 1
+			if !a.RetryLost {
+				w.HoldState = HoldWoken
+			}
+			return Enter{w}
+		}
+		if mutant == DoubleWakeMutant {
+			w.WakeSent = w.WakeSent + 1
+			w.DoubleWakeAtOpening = true
+			return Enter{w}
+		}
+		if a.RetryLost {
+			return Ignore
+		}
+		w.HoldState = HoldWoken
+		w.SawLostRetry = true
+		return Enter{w}
+	case ChildDiedDuringHold:
+		if w.HoldState != HoldWaiting || w.GoneNoticeSent >= 1 {
+			return Ignore
+		}
+		w.HoldState = HoldChildGone
+		w.GoneNoticeSent = 1
+		if mutant == WakeGoneMutant {
+			w.WokeGoneChild = true
+			w.WakeSent = w.WakeSent + 1
+		}
+		return Enter{w}
+	case EnablePush:
+		if w.PushActive || w.PushExpired || w.Now >= 2 {
+			return Ignore
+		}
+		w.PushActive = true
+		return Enter{w}
+	case ExpirePush:
+		if !w.PushActive || w.PushExpired {
+			return Ignore
+		}
+		w.PushExpired = true
+		if mutant == PushPastEndMutant {
+			w.PushPastEnd = true
+			return Enter{w}
+		}
+		w.PushActive = false
+		return Enter{w}
+	case ClaimReset1:
+		if w.Now < 2 {
+			return Ignore
+		}
+		if !w.ResetClaimed1 {
+			if w.Acc1Spend == 0 {
+				return Ignore
+			}
+			w.Acc1Spend = 0
+			w.ResetClaimed1 = true
+			return Enter{w}
+		}
+		if mutant == DoubleResetMutant && !w.DuplicateReset {
+			w.DuplicateReset = true
+			return Enter{w}
+		}
+		return Ignore
+	}
+}
+
+func oneWakeAtExactOpening(w World) bool     { w.WakeSent <= 1 && !w.DoubleWakeAtOpening }
+func neverWakeBeforeOpening(w World) bool    { !w.EarlyWake }
+func soonestUnderLinePreferred(w World) bool { !w.WrongOrderPick }
+func fleetSpendCountsInflight(w World) bool  { !w.DoubleSpendInflight }
+func refusalNamesFutureOpening(w World) bool { !w.BadRefusal }
+func goneChildNotWoken(w World) bool         { !w.WokeGoneChild && w.GoneNoticeSent <= 1 }
+func pushRespectsTimeBox(w World) bool       { !w.PushPastEnd }
+func oneResetClaimPerPeriod(w World) bool    { !w.DuplicateReset }
+
+func brokeDoubleWake(w World) bool     { !oneWakeAtExactOpening(w) }
+func brokeWakeEarly(w World) bool      { !neverWakeBeforeOpening(w) }
+func brokeOrderPick(w World) bool      { !soonestUnderLinePreferred(w) }
+func brokeFleetInflight(w World) bool  { !fleetSpendCountsInflight(w) }
+func brokeRefusalOpening(w World) bool { !refusalNamesFutureOpening(w) }
+func brokeGoneChildWake(w World) bool  { !goneChildNotWoken(w) }
+func brokePushTimeBox(w World) bool    { !pushRespectsTimeBox(w) }
+func brokeResetClaimOnce(w World) bool { !oneResetClaimPerPeriod(w) }
+
+func wokeOnceAtOpening(w World) bool {
+	w.Now == 2 && w.HoldState == HoldWoken && w.WakeSent == 1
+}
+func retryReplyAtOpeningStillOneWake(w World) bool {
+	w.Now == 2 && w.HoldState == HoldWoken && w.WakeSent == 1 && w.SawLostRetry
+}
+func childGoneNotifiedOnce(w World) bool {
+	w.HoldState == HoldChildGone && w.GoneNoticeSent == 1 && w.WakeSent == 0
+}
+func pushUsedThenExpired(w World) bool {
+	w.PushExpired && !w.PushActive && w.Acc1Spend == 2
+}
+
+func design(s World, a Act) Decision[World, string]            { return step(s, a, NoMutant) }
+func mutDoubleWake(s World, a Act) Decision[World, string]     { return step(s, a, DoubleWakeMutant) }
+func mutWakeEarly(s World, a Act) Decision[World, string]      { return step(s, a, WakeEarlyMutant) }
+func mutWrongOrder(s World, a Act) Decision[World, string]     { return step(s, a, WrongOrderMutant) }
+func mutIgnoreInflight(s World, a Act) Decision[World, string] { return step(s, a, IgnoreInflightMutant) }
+func mutBadRefusal(s World, a Act) Decision[World, string]     { return step(s, a, BadRefusalMutant) }
+func mutWakeGone(s World, a Act) Decision[World, string]       { return step(s, a, WakeGoneMutant) }
+func mutPushPastEnd(s World, a Act) Decision[World, string]    { return step(s, a, PushPastEndMutant) }
+func mutDoubleReset(s World, a Act) Decision[World, string]    { return step(s, a, DoubleResetMutant) }
+
+type Design machine[World, Act] {
+	initial: first(),
+	step:    design,
+
+	law OneWakeAtExactOpening always oneWakeAtExactOpening,
+	law NeverWakeBeforeOpening always neverWakeBeforeOpening,
+	law SoonestUnderLinePreferred always soonestUnderLinePreferred,
+	law FleetSpendCountsInflight always fleetSpendCountsInflight,
+	law RefusalNamesFutureOpening always refusalNamesFutureOpening,
+	law GoneChildNotWoken always goneChildNotWoken,
+	law PushRespectsTimeBox always pushRespectsTimeBox,
+	law OneResetClaimPerPeriod always oneResetClaimPerPeriod,
+
+	law WokeOnceAtOpening sometimes wokeOnceAtOpening,
+	law RetryReplyAtOpeningStillOneWake sometimes retryReplyAtOpeningStillOneWake,
+	law ChildGoneNotifiedOnce sometimes childGoneNotifiedOnce,
+	law PushUsedThenExpired sometimes pushUsedThenExpired,
+}
+
+type DoubleWakeAtExactOpening machine[World, Act] {
+	initial: first(),
+	step:    mutDoubleWake,
+	law Breaks sometimes brokeDoubleWake,
+}
+
+type WakeBeforeOpening machine[World, Act] {
+	initial: first(),
+	step:    mutWakeEarly,
+	law Breaks sometimes brokeWakeEarly,
+}
+
+type IgnoreSoonestUnderLine machine[World, Act] {
+	initial: first(),
+	step:    mutWrongOrder,
+	law Breaks sometimes brokeOrderPick,
+}
+
+type IgnoreFleetInflight machine[World, Act] {
+	initial: first(),
+	step:    mutIgnoreInflight,
+	law Breaks sometimes brokeFleetInflight,
+}
+
+type RefusalWithoutFutureOpening machine[World, Act] {
+	initial: first(),
+	step:    mutBadRefusal,
+	law Breaks sometimes brokeRefusalOpening,
+}
+
+type WakeGoneChild machine[World, Act] {
+	initial: first(),
+	step:    mutWakeGone,
+	law Breaks sometimes brokeGoneChildWake,
+}
+
+type ExpiredPushActive machine[World, Act] {
+	initial: first(),
+	step:    mutPushPastEnd,
+	law Breaks sometimes brokePushTimeBox,
+}
+
+type DoubleResetClaim machine[World, Act] {
+	initial: first(),
+	step:    mutDoubleReset,
+	law Breaks sometimes brokeResetClaimOnce,
+}
