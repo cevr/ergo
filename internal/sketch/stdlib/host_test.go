@@ -30,9 +30,9 @@ func TestStdHostLawsRun(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	pkg, err := check.Std.Import("host")
+	pkg, err := check.Std.Import("os/host")
 	if err != nil {
-		t.Fatalf("import host: %v", err)
+		t.Fatalf("import os/host: %v", err)
 	}
 	b := eval.DefaultBudget()
 	b.Steps = 200_000_000
@@ -50,7 +50,7 @@ func TestStdHostLawsRun(t *testing.T) {
 		if head, _, ok := strings.Cut(name, " under "); ok {
 			name = head
 		}
-		key := "host " + name
+		key := "os/host " + name
 		results[key] = append(results[key], r)
 	}
 	laws := map[string]lawledger.Law{}
@@ -88,9 +88,9 @@ func TestStdHostLawsRun(t *testing.T) {
 }
 
 const hostOracleSrc = `import hex
-import host
 import io
 import os
+import os/host
 import strconv
 import strings
 
@@ -501,7 +501,7 @@ func readRawProc(t *testing.T, pid int) (rawStat, int64, []string) {
 }
 
 // TestStdHostAgreesWithProc builds the live oracle binary with ERGO_FALLBACK=off
-// and verifies every reading from std/host (Status and Processes) agrees with raw
+// and verifies every reading from std/os/host (Status and Processes) agrees with raw
 // /proc/loadavg, /proc/meminfo, runtime.NumCPU(), syscall.Statfs, and
 // /proc/<pid>/{stat,statm,cmdline} within explicit stated tolerances, as well as
 // vanishing-PID tolerance under concurrent subprocess churn.

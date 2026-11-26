@@ -1580,7 +1580,7 @@ func main() {
 	use(Mine)
 }
 `,
-	"host.System": `import host
+	"os/host.System": `import os/host
 
 type Mine {} implements host.System
 
@@ -1856,7 +1856,7 @@ var openStd = map[string]bool{
 	"prelude.Reader":    true,
 	"os.Process":        true,
 	"os.Self":           true,
-	"host.System":       true,
+	"os/host.System":    true,
 	"fs/mapped.Maps":    true, // open: a program may provide its own store of mapped files (CAP-FILE), as fs.Files and fs.Writes are open
 	"signal.Stops":      true,
 	"fs.Files":          true,
