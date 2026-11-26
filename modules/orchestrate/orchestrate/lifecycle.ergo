@@ -1,33 +1,23 @@
 import core
 import machines
 
-// ActClaim claims an open or handed-back unit for active work.
-type ActClaim {}
+// ActAccept accepts a unit at a head whose required receipts are green.
+type ActAccept {}
 
-// ActAdvanceRound advances the round counter on a claimed or handed-back unit.
-type ActAdvanceRound {}
-
-// ActHandBack hands back a claimed unit with its head commit and summary.
-type ActHandBack {}
-
-// ActLand marks a handed-back unit as landed.
+// ActLand lands an accepted unit at its accepted head.
 type ActLand {}
 
 // ActClose closes a non-terminal unit without landing.
 type ActClose {}
 
 // UnitAction is a lifecycle transition action on a unit.
-type UnitAction = ActClaim | ActAdvanceRound | ActHandBack | ActLand | ActClose
+type UnitAction = ActAccept | ActLand | ActClose
 
 // UnitActionName is the canonical name of a UnitAction.
 func UnitActionName(a UnitAction) string {
 	match a {
-	case ActClaim:
-		"claim"
-	case ActAdvanceRound:
-		"round"
-	case ActHandBack:
-		"hand-back"
+	case ActAccept:
+		"accept"
 	case ActLand:
 		"land"
 	case ActClose:
@@ -40,64 +30,40 @@ func UnitFinal(s UnitStatus) bool {
 	match s {
 	case UnitLanded, UnitClosed:
 		true
-	case UnitOpen, UnitClaimed, UnitHandedBack:
+	case UnitOpen, UnitAccepted:
 		false
 	}
 }
 
-// StepUnit is the pure unit lifecycle transition function.
+// StepUnit is the pure unit lifecycle transition function; the receipt guard of accept and land is Decide's.
 func StepUnit(s UnitStatus, a UnitAction) machines.Decision[UnitStatus, core.Never] {
 	match (s, a) {
-	case (UnitOpen, ActClaim):
-		machines.Enter[UnitStatus]{Next: UnitClaimed}
+	case (UnitOpen, ActAccept):
+		machines.Enter[UnitStatus]{Next: UnitAccepted}
 	case (UnitOpen, ActClose):
 		machines.Enter[UnitStatus]{Next: UnitClosed}
-	case (UnitOpen, ActAdvanceRound | ActHandBack | ActLand):
+	case (UnitOpen, ActLand):
 		machines.Reject
-	case (UnitClaimed, ActAdvanceRound):
-		machines.Stay[UnitStatus]{Next: UnitClaimed}
-	case (UnitClaimed, ActHandBack):
-		machines.Enter[UnitStatus]{Next: UnitHandedBack}
-	case (UnitClaimed, ActClose):
-		machines.Enter[UnitStatus]{Next: UnitClosed}
-	case (UnitClaimed, ActClaim | ActLand):
-		machines.Reject
-	case (UnitHandedBack, ActClaim):
-		machines.Enter[UnitStatus]{Next: UnitClaimed}
-	case (UnitHandedBack, ActAdvanceRound):
-		machines.Stay[UnitStatus]{Next: UnitHandedBack}
-	case (UnitHandedBack, ActLand):
+	case (UnitAccepted, ActAccept):
+		machines.Stay[UnitStatus]{Next: UnitAccepted}
+	case (UnitAccepted, ActLand):
 		machines.Enter[UnitStatus]{Next: UnitLanded}
-	case (UnitHandedBack, ActClose):
+	case (UnitAccepted, ActClose):
 		machines.Enter[UnitStatus]{Next: UnitClosed}
-	case (UnitHandedBack, ActHandBack):
-		machines.Reject
-	case (UnitLanded | UnitClosed, ActClaim | ActAdvanceRound | ActHandBack | ActLand | ActClose):
+	case (UnitLanded | UnitClosed, ActAccept | ActLand | ActClose):
 		machines.Reject
 	}
 }
 
-// HandBackRequiresClaim verifies that only a claimed unit can be handed back.
-law HandBackRequiresClaim(s UnitStatus) {
-	match StepUnit(s, ActHandBack) {
-	case machines.Enter[UnitStatus]:
-		s == UnitClaimed
-	case machines.Stay[UnitStatus]:
-		false
-	case machines.Ignore, machines.Reject:
-		s != UnitClaimed
-	}
-}
-
-// LandRequiresHandBack verifies that only a handed-back unit can be landed.
-law LandRequiresHandBack(s UnitStatus) {
+// LandRequiresAccept verifies that only an accepted unit can be landed.
+law LandRequiresAccept(s UnitStatus) {
 	match StepUnit(s, ActLand) {
 	case machines.Enter[UnitStatus]:
-		s == UnitHandedBack
+		s == UnitAccepted
 	case machines.Stay[UnitStatus]:
 		false
 	case machines.Ignore, machines.Reject:
-		s != UnitHandedBack
+		s != UnitAccepted
 	}
 }
 
@@ -121,7 +87,7 @@ func unitCanClose(s UnitStatus) bool {
 	match machines.Next(s, StepUnit(s, ActClose)) {
 	case UnitClosed:
 		true
-	case UnitOpen, UnitClaimed, UnitHandedBack, UnitLanded:
+	case UnitOpen, UnitAccepted, UnitLanded:
 		false
 	}
 }

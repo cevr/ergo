@@ -1,0 +1,608 @@
+import api
+import flag
+import io
+import prompt
+import rpc
+import slices
+import strings
+import term
+import github.com/cevr/ergo/modules/orchestrate/orchestrate
+import github.com/cevr/ergo/modules/orchestrate/orchestrate/orchestrateapi
+
+// Request is one call of orchestrate.Api: the hub's Request.
+type Request = orchestrateapi.Request
+
+// Output is what Run prints: std api's Output (Out to standard output,
+// Err to standard error, and the exit status).
+type Output = api.Output
+
+// Commands are the commands of orchestrate.Api, one per operation, in its order.
+func Commands() []flag.Command[Request] {
+	[]flag.Command[Request]{commandUnitOpen(), commandReceiptRecord(), commandUnitState(), commandUnitAccept(), commandUnitLand()}
+}
+
+func commandUnitOpen() flag.Command[Request] {
+	let f0 = flag.RequiredString("command-id", "input.CommandID (orchestrate.CommandID)")
+	let f1 = flag.RequiredString("actor", "input.Actor (string)")
+	let f2 = flag.RequiredString("repo", "input.Repo (string)")
+	let f3 = flag.RequiredString("run", "input.Run (string)")
+	let f4 = flag.RequiredString("id", "input.ID (string)")
+	let f5 = flag.RequiredString("title", "input.Title (string)")
+	let f6 = flag.String("requires", "", "input.Requires ([]string)").Repeated()
+	let f7 = flag.OptionalString("lane", "input.Lane (Option[string])")
+	let f8 = flag.OptionalString("branch", "input.Branch (Option[string])")
+	let usage = orchestrateapi.Doc(orchestrateapi.UnitOpenOp)
+	flag.Command[Request]{Name: "unit-open", Usage: usage, Set: flag.Set{Name: "unit-open", Usage: usage, Flags: []flag.Flag{f0, f1, f2, f3, f4, f5, f6, f7, f8}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
+		orchestrateapi.UnitOpenRequest{Input: orchestrate.UnitOpenInput{CommandID: orchestrate.CommandID(f0.Get(v)), Actor: f1.Get(v), Repo: f2.Get(v), Run: f3.Get(v), ID: f4.Get(v), Title: f5.Get(v), Requires: f6.Get(v), Lane: f7.Get(v), Branch: f8.Get(v)}}
+	}, Commands: []flag.Command[Request]{}}
+}
+
+func commandReceiptRecord() flag.Command[Request] {
+	let f0 = flag.RequiredString("command-id", "input.CommandID (orchestrate.CommandID)")
+	let f1 = flag.RequiredString("actor", "input.Actor (string)")
+	let f2 = flag.RequiredString("repo", "input.Repo (string)")
+	let f3 = flag.RequiredString("run", "input.Run (string)")
+	let f4 = flag.RequiredString("id", "input.ID (string)")
+	let f5 = flag.RequiredString("kind", "input.Kind (string)")
+	let f6 = flag.RequiredString("command", "input.Command (string)")
+	let f7 = flag.RequiredString("head", "input.Head (string)")
+	let f8 = flag.RequiredInt("exit-code", "input.ExitCode (int)")
+	let f9 = flag.RequiredString("exit-lines", "input.ExitLines (string)")
+	let usage = orchestrateapi.Doc(orchestrateapi.ReceiptRecordOp)
+	flag.Command[Request]{Name: "receipt-record", Usage: usage, Set: flag.Set{Name: "receipt-record", Usage: usage, Flags: []flag.Flag{f0, f1, f2, f3, f4, f5, f6, f7, f8, f9}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
+		orchestrateapi.ReceiptRecordRequest{Input: orchestrate.ReceiptRecordInput{CommandID: orchestrate.CommandID(f0.Get(v)), Actor: f1.Get(v), Repo: f2.Get(v), Run: f3.Get(v), ID: f4.Get(v), Kind: f5.Get(v), Command: f6.Get(v), Head: f7.Get(v), ExitCode: f8.Get(v), ExitLines: f9.Get(v)}}
+	}, Commands: []flag.Command[Request]{}}
+}
+
+func commandUnitState() flag.Command[Request] {
+	let f0 = flag.RequiredString("repo", "input.Repo (string)")
+	let f1 = flag.RequiredString("run", "input.Run (string)")
+	let f2 = flag.RequiredString("id", "input.ID (string)")
+	let usage = orchestrateapi.Doc(orchestrateapi.UnitStateOp)
+	flag.Command[Request]{Name: "unit-state", Usage: usage, Set: flag.Set{Name: "unit-state", Usage: usage, Flags: []flag.Flag{f0, f1, f2}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
+		orchestrateapi.UnitStateRequest{Input: orchestrate.UnitStateInput{Repo: f0.Get(v), Run: f1.Get(v), ID: f2.Get(v)}}
+	}, Commands: []flag.Command[Request]{}}
+}
+
+func commandUnitAccept() flag.Command[Request] {
+	let f0 = flag.RequiredString("command-id", "input.CommandID (orchestrate.CommandID)")
+	let f1 = flag.RequiredString("actor", "input.Actor (string)")
+	let f2 = flag.RequiredString("repo", "input.Repo (string)")
+	let f3 = flag.RequiredString("run", "input.Run (string)")
+	let f4 = flag.RequiredString("id", "input.ID (string)")
+	let f5 = flag.RequiredString("head", "input.Head (string)")
+	let usage = orchestrateapi.Doc(orchestrateapi.UnitAcceptOp)
+	flag.Command[Request]{Name: "unit-accept", Usage: usage, Set: flag.Set{Name: "unit-accept", Usage: usage, Flags: []flag.Flag{f0, f1, f2, f3, f4, f5}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
+		orchestrateapi.UnitAcceptRequest{Input: orchestrate.UnitVerdictInput{CommandID: orchestrate.CommandID(f0.Get(v)), Actor: f1.Get(v), Repo: f2.Get(v), Run: f3.Get(v), ID: f4.Get(v), Head: f5.Get(v)}}
+	}, Commands: []flag.Command[Request]{}}
+}
+
+func commandUnitLand() flag.Command[Request] {
+	let f0 = flag.RequiredString("command-id", "input.CommandID (orchestrate.CommandID)")
+	let f1 = flag.RequiredString("actor", "input.Actor (string)")
+	let f2 = flag.RequiredString("repo", "input.Repo (string)")
+	let f3 = flag.RequiredString("run", "input.Run (string)")
+	let f4 = flag.RequiredString("id", "input.ID (string)")
+	let f5 = flag.RequiredString("head", "input.Head (string)")
+	let usage = orchestrateapi.Doc(orchestrateapi.UnitLandOp)
+	flag.Command[Request]{Name: "unit-land", Usage: usage, Set: flag.Set{Name: "unit-land", Usage: usage, Flags: []flag.Flag{f0, f1, f2, f3, f4, f5}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
+		orchestrateapi.UnitLandRequest{Input: orchestrate.UnitVerdictInput{CommandID: orchestrate.CommandID(f0.Get(v)), Actor: f1.Get(v), Repo: f2.Get(v), Run: f3.Get(v), ID: f4.Get(v), Head: f5.Get(v)}}
+	}, Commands: []flag.Command[Request]{}}
+}
+
+func argText(a flag.ArgSpec, v flag.Values) string {
+	match a.Get(v) {
+	case Some[string] as s:
+		s.Value
+	case None:
+		""
+	}
+}
+
+// Parse reads args as a command line of orchestrate.Api: a command and its
+// flags and arguments. It builds only the command args[0] names; the
+// list of every command is built only for help or an unknown command.
+func Parse(args []string) Request fails flag.Failure {
+	let first = if len(args) > 0 { args[0] } else { "" }
+	match first {
+	case "unit-open":
+		let c = commandUnitOpen()
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "orchestrate unit-open"}, slices.Slice(args, 1, len(args)))
+		try c.Build(v)
+	case "receipt-record":
+		let c = commandReceiptRecord()
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "orchestrate receipt-record"}, slices.Slice(args, 1, len(args)))
+		try c.Build(v)
+	case "unit-state":
+		let c = commandUnitState()
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "orchestrate unit-state"}, slices.Slice(args, 1, len(args)))
+		try c.Build(v)
+	case "unit-accept":
+		let c = commandUnitAccept()
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "orchestrate unit-accept"}, slices.Slice(args, 1, len(args)))
+		try c.Build(v)
+	case "unit-land":
+		let c = commandUnitLand()
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "orchestrate unit-land"}, slices.Slice(args, 1, len(args)))
+		try c.Build(v)
+	case _:
+		try flag.ParseCommand("orchestrate", "orchestrate.Api on a command line", Commands(), args)
+	}
+}
+
+// Print is a command line that Parse reads as r again: the command,
+// each flag as -name=value, then "--" and the positional arguments.
+func Print(r Request) []string {
+	match r {
+	case orchestrateapi.UnitOpenRequest as x:
+		let mut out = []string{"unit-open"}
+		out = out.Append("-command-id=\(x.Input.CommandID)")
+		out = out.Append("-actor=\(x.Input.Actor)")
+		out = out.Append("-repo=\(x.Input.Repo)")
+		out = out.Append("-run=\(x.Input.Run)")
+		out = out.Append("-id=\(x.Input.ID)")
+		out = out.Append("-title=\(x.Input.Title)")
+		for e in x.Input.Requires {
+			out = out.Append("-requires=\(e)")
+		}
+		match x.Input.Lane {
+		case Some[string] as s:
+			out = out.Append("-lane=\(s.Value)")
+		case None:
+		}
+		match x.Input.Branch {
+		case Some[string] as s:
+			out = out.Append("-branch=\(s.Value)")
+		case None:
+		}
+		out
+	case orchestrateapi.ReceiptRecordRequest as x:
+		let mut out = []string{"receipt-record"}
+		out = out.Append("-command-id=\(x.Input.CommandID)")
+		out = out.Append("-actor=\(x.Input.Actor)")
+		out = out.Append("-repo=\(x.Input.Repo)")
+		out = out.Append("-run=\(x.Input.Run)")
+		out = out.Append("-id=\(x.Input.ID)")
+		out = out.Append("-kind=\(x.Input.Kind)")
+		out = out.Append("-command=\(x.Input.Command)")
+		out = out.Append("-head=\(x.Input.Head)")
+		out = out.Append("-exit-code=\(x.Input.ExitCode)")
+		out = out.Append("-exit-lines=\(x.Input.ExitLines)")
+		out
+	case orchestrateapi.UnitStateRequest as x:
+		let mut out = []string{"unit-state"}
+		out = out.Append("-repo=\(x.Input.Repo)")
+		out = out.Append("-run=\(x.Input.Run)")
+		out = out.Append("-id=\(x.Input.ID)")
+		out
+	case orchestrateapi.UnitAcceptRequest as x:
+		let mut out = []string{"unit-accept"}
+		out = out.Append("-command-id=\(x.Input.CommandID)")
+		out = out.Append("-actor=\(x.Input.Actor)")
+		out = out.Append("-repo=\(x.Input.Repo)")
+		out = out.Append("-run=\(x.Input.Run)")
+		out = out.Append("-id=\(x.Input.ID)")
+		out = out.Append("-head=\(x.Input.Head)")
+		out
+	case orchestrateapi.UnitLandRequest as x:
+		let mut out = []string{"unit-land"}
+		out = out.Append("-command-id=\(x.Input.CommandID)")
+		out = out.Append("-actor=\(x.Input.Actor)")
+		out = out.Append("-repo=\(x.Input.Repo)")
+		out = out.Append("-run=\(x.Input.Run)")
+		out = out.Append("-id=\(x.Input.ID)")
+		out = out.Append("-head=\(x.Input.Head)")
+		out
+	}
+}
+
+// RoundTrips reports whether Parse reads what Print writes of r as r.
+func RoundTrips(r Request) bool {
+	let back = Parse(Print(r)) catch {
+	case flag.Failure:
+		return false
+	}
+	back == r
+}
+
+// ArgsRoundTrip: Parse reads what Print writes as the same Request.
+law ArgsRoundTrip(r Request) { RoundTrips(r) }
+
+// Policy is what a binary decides of its command line: Code, the exit
+// status of a typed failure (default 1); Text, the text of a value
+// without --json (default None: a basic value as its text, else its
+// JSON; --json never calls it); Confirm, the question a call asks before
+// it runs (default None: none; --yes answers it).
+type Policy { Code func(f orchestrateapi.Failure) int, Text func(r orchestrateapi.Reply) Option[string], Confirm func(r Request) Option[string] }
+
+// Defaults is the Policy of a binary that decides nothing.
+func Defaults() Policy {
+	Policy{Code: func(f orchestrateapi.Failure) int { 1 }, Text: func(r orchestrateapi.Reply) Option[string] { None }, Confirm: func(r Request) Option[string] { None }}
+}
+
+func answer(asJSON bool, plain string, encoded string) Output {
+	if asJSON {
+		Output{Out: encoded + "\n", Err: "", Code: 0}
+	} else {
+		Output{Out: line(plain), Err: "", Code: 0}
+	}
+}
+
+func line(s string) string {
+	if s == "" {
+		return ""
+	}
+	s + "\n"
+}
+
+func failed(asJSON bool, tagged string, status int) Output {
+	if asJSON {
+		Output{Out: tagged + "\n", Err: "", Code: status}
+	} else {
+		Output{Out: "", Err: rpc.TagOf(tagged) + ": " + tagged + "\n", Code: status}
+	}
+}
+
+// Show is what Run prints of the outcome o under the policy p: the value
+// (p's Text when it has one and there is no --json; else its text when it
+// is a basic value, else its JSON; its JSON with --json), or a typed
+// failure (failed) with p's Code.
+func Show(o orchestrateapi.Outcome, asJSON bool, p Policy) Output {
+	match o {
+	case orchestrateapi.Done as done:
+		if !asJSON {
+			match p.Text(done.Reply) {
+			case Some[string] as s:
+				return Output{Out: line(s.Value), Err: "", Code: 0}
+			case None:
+			}
+		}
+		match done.Reply {
+		case orchestrateapi.UnitOpenReply as reply:
+			let v = reply.Value
+			let encoded = rpc.Encode(v)
+			answer(asJSON, encoded, encoded)
+		case orchestrateapi.ReceiptRecordReply as reply:
+			let v = reply.Value
+			let encoded = rpc.Encode(v)
+			answer(asJSON, encoded, encoded)
+		case orchestrateapi.UnitStateReply as reply:
+			let v = reply.Value
+			let encoded = rpc.Encode(v)
+			answer(asJSON, encoded, encoded)
+		case orchestrateapi.UnitAcceptReply as reply:
+			let v = reply.Value
+			let encoded = rpc.Encode(v)
+			answer(asJSON, encoded, encoded)
+		case orchestrateapi.UnitLandReply as reply:
+			let v = reply.Value
+			let encoded = rpc.Encode(v)
+			answer(asJSON, encoded, encoded)
+		}
+	case orchestrateapi.Rejected as rejected:
+		let status = p.Code(rejected.Failure)
+		match rejected.Failure {
+		case orchestrateapi.NotFound as failure:
+			failed(asJSON, rpc.Tagged("NotFound", rpc.Encode(failure.E)), status)
+		case orchestrateapi.AlreadyExists as failure:
+			failed(asJSON, rpc.Tagged("AlreadyExists", rpc.Encode(failure.E)), status)
+		case orchestrateapi.InvalidTransition as failure:
+			failed(asJSON, rpc.Tagged("InvalidTransition", rpc.Encode(failure.E)), status)
+		case orchestrateapi.CommandReused as failure:
+			failed(asJSON, rpc.Tagged("CommandReused", rpc.Encode(failure.E)), status)
+		case orchestrateapi.InvalidInput as failure:
+			failed(asJSON, rpc.Tagged("InvalidInput", rpc.Encode(failure.E)), status)
+		case orchestrateapi.Unverified as failure:
+			failed(asJSON, rpc.Tagged("Unverified", rpc.Encode(failure.E)), status)
+		case orchestrateapi.NotAcceptedHead as failure:
+			failed(asJSON, rpc.Tagged("NotAcceptedHead", rpc.Encode(failure.E)), status)
+		case orchestrateapi.StoreFailed as failure:
+			failed(asJSON, rpc.Tagged("StoreFailed", rpc.Encode(failure.E)), status)
+		}
+	}
+}
+
+// Read is the outcome of r that the Output of Run with --json and its
+// default status policy says: its value's JSON on standard output with
+// status 0, or an admitted failure's tagged JSON with status 1. Invalid
+// or missing replies fail Transport, outside the operation's own row.
+func Read(r Request, out Output) orchestrateapi.Outcome fails rpc.Transport {
+	let text = strings.TrimSuffix(out.Out, "\n")
+	if out.Code == 0 {
+		match r {
+		case orchestrateapi.UnitOpenRequest:
+			let v = try rpc.Decode[orchestrate.Unit]("value", text)
+			orchestrateapi.Done{Reply: orchestrateapi.UnitOpenReply{Value: v}}
+		case orchestrateapi.ReceiptRecordRequest:
+			let v = try rpc.Decode[orchestrate.Receipt]("value", text)
+			orchestrateapi.Done{Reply: orchestrateapi.ReceiptRecordReply{Value: v}}
+		case orchestrateapi.UnitStateRequest:
+			let v = try rpc.Decode[orchestrate.UnitView]("value", text)
+			orchestrateapi.Done{Reply: orchestrateapi.UnitStateReply{Value: v}}
+		case orchestrateapi.UnitAcceptRequest:
+			let v = try rpc.Decode[orchestrate.Unit]("value", text)
+			orchestrateapi.Done{Reply: orchestrateapi.UnitAcceptReply{Value: v}}
+		case orchestrateapi.UnitLandRequest:
+			let v = try rpc.Decode[orchestrate.Unit]("value", text)
+			orchestrateapi.Done{Reply: orchestrateapi.UnitLandReply{Value: v}}
+		}
+	} else if out.Code == 1 {
+		match r {
+		case orchestrateapi.UnitOpenRequest:
+			match rpc.TagOf(text) {
+			case "NotFound":
+				let e = try rpc.Decode[orchestrate.NotFound]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NotFound{E: e}}
+			case "AlreadyExists":
+				let e = try rpc.Decode[orchestrate.AlreadyExists]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.AlreadyExists{E: e}}
+			case "InvalidTransition":
+				let e = try rpc.Decode[orchestrate.InvalidTransition]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.InvalidTransition{E: e}}
+			case "CommandReused":
+				let e = try rpc.Decode[orchestrate.CommandReused]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.CommandReused{E: e}}
+			case "InvalidInput":
+				let e = try rpc.Decode[orchestrate.InvalidInput]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.InvalidInput{E: e}}
+			case "Unverified":
+				let e = try rpc.Decode[orchestrate.Unverified]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.Unverified{E: e}}
+			case "NotAcceptedHead":
+				let e = try rpc.Decode[orchestrate.NotAcceptedHead]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NotAcceptedHead{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[orchestrate.StoreFailed]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.StoreFailed{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the command line answered UnitOpen with an undeclared failure: " + text}
+			}
+		case orchestrateapi.ReceiptRecordRequest:
+			match rpc.TagOf(text) {
+			case "NotFound":
+				let e = try rpc.Decode[orchestrate.NotFound]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NotFound{E: e}}
+			case "AlreadyExists":
+				let e = try rpc.Decode[orchestrate.AlreadyExists]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.AlreadyExists{E: e}}
+			case "InvalidTransition":
+				let e = try rpc.Decode[orchestrate.InvalidTransition]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.InvalidTransition{E: e}}
+			case "CommandReused":
+				let e = try rpc.Decode[orchestrate.CommandReused]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.CommandReused{E: e}}
+			case "InvalidInput":
+				let e = try rpc.Decode[orchestrate.InvalidInput]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.InvalidInput{E: e}}
+			case "Unverified":
+				let e = try rpc.Decode[orchestrate.Unverified]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.Unverified{E: e}}
+			case "NotAcceptedHead":
+				let e = try rpc.Decode[orchestrate.NotAcceptedHead]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NotAcceptedHead{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[orchestrate.StoreFailed]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.StoreFailed{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the command line answered ReceiptRecord with an undeclared failure: " + text}
+			}
+		case orchestrateapi.UnitStateRequest:
+			match rpc.TagOf(text) {
+			case "NotFound":
+				let e = try rpc.Decode[orchestrate.NotFound]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NotFound{E: e}}
+			case "InvalidInput":
+				let e = try rpc.Decode[orchestrate.InvalidInput]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.InvalidInput{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[orchestrate.StoreFailed]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.StoreFailed{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the command line answered UnitState with an undeclared failure: " + text}
+			}
+		case orchestrateapi.UnitAcceptRequest:
+			match rpc.TagOf(text) {
+			case "NotFound":
+				let e = try rpc.Decode[orchestrate.NotFound]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NotFound{E: e}}
+			case "AlreadyExists":
+				let e = try rpc.Decode[orchestrate.AlreadyExists]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.AlreadyExists{E: e}}
+			case "InvalidTransition":
+				let e = try rpc.Decode[orchestrate.InvalidTransition]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.InvalidTransition{E: e}}
+			case "CommandReused":
+				let e = try rpc.Decode[orchestrate.CommandReused]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.CommandReused{E: e}}
+			case "InvalidInput":
+				let e = try rpc.Decode[orchestrate.InvalidInput]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.InvalidInput{E: e}}
+			case "Unverified":
+				let e = try rpc.Decode[orchestrate.Unverified]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.Unverified{E: e}}
+			case "NotAcceptedHead":
+				let e = try rpc.Decode[orchestrate.NotAcceptedHead]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NotAcceptedHead{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[orchestrate.StoreFailed]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.StoreFailed{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the command line answered UnitAccept with an undeclared failure: " + text}
+			}
+		case orchestrateapi.UnitLandRequest:
+			match rpc.TagOf(text) {
+			case "NotFound":
+				let e = try rpc.Decode[orchestrate.NotFound]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NotFound{E: e}}
+			case "AlreadyExists":
+				let e = try rpc.Decode[orchestrate.AlreadyExists]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.AlreadyExists{E: e}}
+			case "InvalidTransition":
+				let e = try rpc.Decode[orchestrate.InvalidTransition]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.InvalidTransition{E: e}}
+			case "CommandReused":
+				let e = try rpc.Decode[orchestrate.CommandReused]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.CommandReused{E: e}}
+			case "InvalidInput":
+				let e = try rpc.Decode[orchestrate.InvalidInput]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.InvalidInput{E: e}}
+			case "Unverified":
+				let e = try rpc.Decode[orchestrate.Unverified]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.Unverified{E: e}}
+			case "NotAcceptedHead":
+				let e = try rpc.Decode[orchestrate.NotAcceptedHead]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NotAcceptedHead{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[orchestrate.StoreFailed]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.StoreFailed{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the command line answered UnitLand with an undeclared failure: " + text}
+			}
+		}
+	} else {
+		return rpc.Transport{Reason: "the command line answered status \(out.Code): " + out.Err}
+	}
+}
+
+type front = asked{R Request, JSON bool, Yes bool} | ended{O Output}
+
+func frontOf(args []string) front {
+	let mut asJSON = false
+	let mut yes = false
+	let mut globals = true
+	let mut rest = []string{}
+	for a in args {
+		if globals && (a == "--json" || a == "-json") {
+			asJSON = true
+		} else if globals && (a == "--yes" || a == "-yes") {
+			yes = true
+		} else {
+			globals = false
+			rest = rest.Append(a)
+		}
+	}
+	let r = Parse(rest) catch {
+	case flag.Help as h:
+		return ended{O: Output{Out: h.Text, Err: "", Code: 0}}
+	case err:
+		return ended{O: Output{Out: "", Err: flag.Describe(err) + "\n", Code: 2}}
+	}
+	asked{R: r, JSON: asJSON, Yes: yes}
+}
+
+func needsYes(question string) Output {
+	Output{Out: "", Err: question + " (no terminal to ask on: pass --yes to answer yes)\n", Code: 2}
+}
+
+func declined(question string) Output {
+	Output{Out: "", Err: question + ": not confirmed\n", Code: 1}
+}
+
+func runOver[R](args []string, p Policy, answer func(r Request) orchestrateapi.Outcome needs R) Output needs R {
+	match frontOf(args) {
+	case ended as e:
+		e.O
+	case asked as a:
+		if !a.Yes {
+			match p.Confirm(a.R) {
+			case Some[string] as q:
+				return needsYes(q.Value)
+			case None:
+			}
+		}
+		Show(answer(a.R), a.JSON, p)
+	}
+}
+
+// Run reads args as [--json] [--yes] COMMAND ARGS..., answers the call
+// through the hub's Call on the orchestrate.Api the caller binds, and is what to
+// print under the policy p: the value, a typed failure with p's Code, the
+// help (status 0) or a usage error (status 2). It asks nothing: a call p
+// asks a question of needs --yes (status 2 without it).
+func Run(args []string, p Policy) Output needs orchestrate.Api {
+	runOver(args, p, orchestrateapi.Call)
+}
+
+// RunOnTerminal is Run that asks p's question on the terminal (std
+// prompt) when there is no --yes: a yes runs the call, a no or a cancel
+// ends with status 1, and standard input that is not a terminal ends with
+// status 2, as Run does.
+func RunOnTerminal(args []string, p Policy) Output needs orchestrate.Api | term.Terminal | io.Stderr {
+	match frontOf(args) {
+	case ended as e:
+		e.O
+	case asked as a:
+		if !a.Yes {
+			match p.Confirm(a.R) {
+			case Some[string] as q:
+				let yes = prompt.Confirm(q.Value, false) catch {
+				case prompt.NotInteractive:
+					return needsYes(q.Value)
+				case prompt.Cancelled:
+					return declined(q.Value)
+				case io.ReadFailed:
+					return Output{Out: "", Err: q.Value + ": the answer could not be read\n", Code: 2}
+				}
+				if !yes {
+					return declined(q.Value)
+				}
+			case None:
+			}
+		}
+		Show(orchestrateapi.Call(a.R), a.JSON, p)
+	}
+}
+
+// Completion is the script that completes orchestrate's commands in shell.
+func Completion(shell api.Shell) string {
+	api.Completion("orchestrate", shell, []api.Entry{api.Entry{Name: orchestrateapi.Name(orchestrateapi.UnitOpenOp), Doc: orchestrateapi.Doc(orchestrateapi.UnitOpenOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.ReceiptRecordOp), Doc: orchestrateapi.Doc(orchestrateapi.ReceiptRecordOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.UnitStateOp), Doc: orchestrateapi.Doc(orchestrateapi.UnitStateOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.UnitAcceptOp), Doc: orchestrateapi.Doc(orchestrateapi.UnitAcceptOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.UnitLandOp), Doc: orchestrateapi.Doc(orchestrateapi.UnitLandOp)}})
+}
+
+// Wire is the command line as a transport of the hub's calls.
+type Wire {} implements api.Transport[Request, orchestrateapi.Outcome, rpc.Transport]
+
+// Carry prints c with --json, runs it against answer using the default
+// status policy, and reads back the reply. Delivery can fail separately
+// from answer's outcome.
+func Carry(w Wire, c Request, answer own func(c Request) orchestrateapi.Outcome) orchestrateapi.Outcome fails rpc.Transport {
+	let mut args = []string{"--json"}
+	for a in Print(c) {
+		args = args.Append(a)
+	}
+	try Read(c, runOver(args, Defaults(), answer))
+}
+
+// Agrees: the command line carries every call and every outcome the
+// call can have unchanged.
+law Agrees(r Request, g orchestrateapi.Given) { api.Agrees[Request, orchestrateapi.Outcome, rpc.Transport](Wire, r, orchestrateapi.OutcomeOf(r, g)) }
+
+// CodeIsThePolicy: a call's status is 0 for a value and the policy's
+// Code for a typed failure.
+law CodeIsThePolicy(r Request, g orchestrateapi.Given, k int) {
+	let status = 1 + ((k%125)+125)%125
+	let d = Defaults()
+	let p = Policy{..d, Code: func(f orchestrateapi.Failure) int { status }}
+	let o = orchestrateapi.OutcomeOf(r, g)
+	let out = runOver(Print(r), p, func(c Request) orchestrateapi.Outcome { o })
+	match o {
+	case orchestrateapi.Done:
+		out.Code == 0
+	case orchestrateapi.Rejected:
+		out.Code == status
+	}
+}
+
+// TextIsThePolicy: without --json a value prints as the policy's Text;
+// with --json every outcome prints as the wire's JSON, whatever Text says.
+law TextIsThePolicy(r Request, g orchestrateapi.Given, t string) {
+	let d = Defaults()
+	let p = Policy{..d, Text: func(reply orchestrateapi.Reply) Option[string] { Some[string]{Value: t} }}
+	let o = orchestrateapi.OutcomeOf(r, g)
+	let same = Show(o, true, p) == Show(o, true, d)
+	match o {
+	case orchestrateapi.Done:
+		same && Show(o, false, p).Out == line(t)
+	case orchestrateapi.Rejected:
+		same && Show(o, false, p) == Show(o, false, d)
+	}
+}
