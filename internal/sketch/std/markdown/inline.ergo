@@ -1,0 +1,1070 @@
+import option
+
+func node(p mut parser, kind int, a int, b int) int {
+	let n = p.ik.Len()
+	p.ik = p.ik.Append(kind)
+	p.inext = p.inext.Append(-1)
+	p.iprev = p.iprev.Append(-1)
+	p.isub = p.isub.Append(-1)
+	p.ia = p.ia.Append(a)
+	p.ib = p.ib.Append(b)
+	p.ic = p.ic.Append(0)
+	p.id = p.id.Append(0)
+	n
+}
+
+func container(p mut parser, kind int) int {
+	let n = node(p, kind, 0, 0)
+	let s = node(p, 0, 0, 0)
+	p.inext[s] = s
+	p.iprev[s] = s
+	p.isub[n] = s
+	n
+}
+
+func appendChild(p mut parser, sent int, n int) {
+	let last = p.iprev[sent]
+	p.inext[last] = n
+	p.iprev[n] = last
+	p.inext[n] = sent
+	p.iprev[sent] = n
+}
+
+func unlinkNode(p mut parser, n int) {
+	let a = p.iprev[n]
+	let b = p.inext[n]
+	p.inext[a] = b
+	p.iprev[b] = a
+}
+
+func insertAfter(p mut parser, at int, n int) {
+	let b = p.inext[at]
+	p.inext[at] = n
+	p.iprev[n] = at
+	p.inext[n] = b
+	p.iprev[b] = n
+}
+
+func moveRange(p mut parser, first int, last int, sent int) {
+	let a = p.iprev[first]
+	let b = p.inext[last]
+	p.inext[a] = b
+	p.iprev[b] = a
+	p.inext[sent] = first
+	p.iprev[first] = sent
+	p.iprev[sent] = last
+	p.inext[last] = sent
+}
+
+func textNode(p mut parser, sent int, at int, n int) int {
+	let t = node(p, kText, at, n)
+	appendChild(p, sent, t)
+	t
+}
+
+func ipeek(p mut parser, i int) int {
+	if i < p.iend { int(p.t[i]) } else { -1 }
+}
+
+func resetInline(p mut parser) {
+	p.ik = p.ik[0:0]
+	p.inext = p.inext[0:0]
+	p.iprev = p.iprev[0:0]
+	p.isub = p.isub[0:0]
+	p.ia = p.ia[0:0]
+	p.ib = p.ib[0:0]
+	p.ic = p.ic[0:0]
+	p.id = p.id[0:0]
+	p.dcc = p.dcc[0:0]
+	p.dnum = p.dnum[0:0]
+	p.dorig = p.dorig[0:0]
+	p.dnode = p.dnode[0:0]
+	p.dprev = p.dprev[0:0]
+	p.dnext = p.dnext[0:0]
+	p.dopen = p.dopen[0:0]
+	p.dclose = p.dclose[0:0]
+	p.dtop = -1
+	p.brNode = p.brNode[0:0]
+	p.brIndex = p.brIndex[0:0]
+	p.brImage = p.brImage[0:0]
+	p.brActive = p.brActive[0:0]
+	p.brAfter = p.brAfter[0:0]
+	p.brDelim = p.brDelim[0:0]
+	p.brInactive = 0
+	p.noTicks = p.noTicks[0:0]
+	p.noQuote[0] = -1
+	p.noQuote[1] = -1
+	for i in 0..6 {
+		p.noHTML[i] = -1
+	}
+	p.emailFail = -1
+}
+
+func parseInlines(p mut parser, from int, to int) int {
+	resetInline(p)
+	let mut a = from
+	let mut z = to
+	for a < z && isTrimSpace(int(p.t[a])) {
+		a = a + 1
+	}
+	for z > a && isTrimSpace(int(p.t[z-1])) {
+		z = z - 1
+	}
+	let root = container(p, kPara)
+	let sent = p.isub[root]
+	p.s0 = a
+	p.pos = a
+	p.iend = z
+	for p.pos < p.iend {
+		p.work = p.work + 1
+		parseInline(p, sent)
+	}
+	processEmphasis(p, -1)
+	sent
+}
+
+func isTrimSpace(c int) bool { c == 32 || c == 9 || c == 10 || c == 13 || c == 11 || c == 12 }
+
+func specialByte(p mut parser, c int) bool {
+	c == 10 || c == '`' || c == '[' || c == ']' || c == '\\' || c == '!' || c == '<' || c == '&' || c == '*' || c == '_' || (c == '~' && p.o.Strikethrough)
+}
+
+func parseInline(p mut parser, sent int) {
+	let c = int(p.t[p.pos])
+	if c == 10 {
+		handleNewline(p, sent)
+	} else if c == '\\' {
+		parseBackslash(p, sent)
+	} else if c == '`' {
+		parseBackticks(p, sent)
+	} else if c == '*' || c == '_' || (c == '~' && p.o.Strikethrough) {
+		handleDelim(p, sent, c)
+	} else if c == '[' {
+		let t = textNode(p, sent, p.pos, 1)
+		addBracket(p, t, p.pos, false)
+		p.pos = p.pos + 1
+	} else if c == '!' {
+		if ipeek(p, p.pos+1) == '[' {
+			let t = textNode(p, sent, p.pos, 2)
+			addBracket(p, t, p.pos+1, true)
+			p.pos = p.pos + 2
+		} else {
+			let _ = textNode(p, sent, p.pos, 1)
+			p.pos = p.pos + 1
+		}
+	} else if c == ']' {
+		handleCloseBracket(p, sent)
+	} else if c == '<' {
+		if !parseAutolink(p, sent) && !parseHTMLSpan(p, sent) {
+			let _ = textNode(p, sent, p.pos, 1)
+			p.pos = p.pos + 1
+		}
+	} else if c == '&' {
+		let n = entityLen(p.t, p.pos, p.iend)
+		if n > 0 {
+			let at = p.t.Len()
+			p.t = appendEntity(p.t, p.pos, n)
+			let _ = textNode(p, sent, at, p.t.Len()-at)
+			p.pos = p.pos + n
+		} else {
+			let _ = textNode(p, sent, p.pos, 1)
+			p.pos = p.pos + 1
+		}
+	} else {
+		let (n, kind) = if p.o.Autolinks && linkBoundary(p, p.pos) { extAutolink(p, p.pos) } else { (0, 0) }
+		if n > 0 {
+			emitExtLink(p, sent, n, kind)
+		} else {
+			parseString(p, sent)
+		}
+	}
+}
+
+func parseString(p mut parser, sent int) {
+	let start = p.pos
+	let mut i = p.pos + 1
+	let mut more = true
+	for more && i < p.iend {
+		p.work = p.work + 1
+		let c = int(p.t[i])
+		if specialByte(p, c) {
+			more = false
+		} else if p.o.Autolinks && linkBoundary(p, i) {
+			let (n, _) = extAutolink(p, i)
+			if n > 0 {
+				more = false
+			} else {
+				i = i + 1
+			}
+		} else {
+			i = i + 1
+		}
+	}
+	let _ = textNode(p, sent, start, i-start)
+	p.pos = i
+}
+
+func handleNewline(p mut parser, sent int) {
+	p.pos = p.pos + 1
+	let last = p.iprev[sent]
+	if last != sent && p.ik[last] == kText && p.ib[last] > 0 && p.t[p.ia[last]+p.ib[last]-1] == ' ' {
+		let hard = p.ib[last] >= 2 && p.t[p.ia[last]+p.ib[last]-2] == ' '
+		for p.ib[last] > 0 && p.t[p.ia[last]+p.ib[last]-1] == ' ' {
+			p.ib[last] = p.ib[last] - 1
+		}
+		appendChild(p, sent, node(p, if hard { kHard } else { kSoft }, 0, 0))
+	} else {
+		appendChild(p, sent, node(p, kSoft, 0, 0))
+	}
+	for ipeek(p, p.pos) == ' ' {
+		p.pos = p.pos + 1
+	}
+}
+
+func parseBackslash(p mut parser, sent int) {
+	let c = ipeek(p, p.pos+1)
+	if c == 10 {
+		appendChild(p, sent, node(p, kHard, 0, 0))
+		p.pos = p.pos + 2
+		for ipeek(p, p.pos) == ' ' {
+			p.pos = p.pos + 1
+		}
+	} else if c >= 0 && isASCIIPunct(c) {
+		let _ = textNode(p, sent, p.pos+1, 1)
+		p.pos = p.pos + 2
+	} else {
+		let _ = textNode(p, sent, p.pos, 1)
+		p.pos = p.pos + 1
+	}
+}
+
+func parseBackticks(p mut parser, sent int) {
+	let start = p.pos
+	let mut n = 0
+	for ipeek(p, p.pos+n) == '`' {
+		n = n + 1
+	}
+	let after = start + n
+	for p.noTicks.Len() <= n {
+		p.noTicks = p.noTicks.Append(-1)
+	}
+	let known = p.noTicks[n]
+	let mut q = after
+	let mut found = -1
+	if known < 0 || after < known {
+		for q < p.iend && found < 0 {
+			p.work = p.work + 1
+			if p.t[q] == '`' {
+				let r = q
+				let mut m = 0
+				for q < p.iend && p.t[q] == '`' {
+					q = q + 1
+					m = m + 1
+					p.work = p.work + 1
+				}
+				if m == n {
+					found = r
+				}
+			} else {
+				q = q + 1
+			}
+		}
+		if found < 0 {
+			p.noTicks[n] = after
+		}
+	}
+	if found < 0 {
+		let _ = textNode(p, sent, start, n)
+		p.pos = after
+		return
+	}
+	let at = p.t.Len()
+	let mut allSpace = true
+	for k in after..found {
+		let c = p.t[k]
+		let w = if c == '\n' { byte(' ') } else { c }
+		if w != ' ' {
+			allSpace = false
+		}
+		p.t = p.t.Append(w)
+	}
+	let mut s = at
+	let mut e = p.t.Len()
+	if e-s >= 2 && !allSpace && p.t[s] == ' ' && p.t[e-1] == ' ' {
+		s = s + 1
+		e = e - 1
+	}
+	appendChild(p, sent, node(p, kCodeSpan, s, e-s))
+	p.pos = found + n
+}
+
+func delimIndex(c int) int {
+	if c == '*' { 0 } else if c == '_' { 1 } else { 2 }
+}
+
+func handleDelim(p mut parser, sent int, cc int) {
+	let start = p.pos
+	let mut n = 0
+	for ipeek(p, p.pos+n) == cc {
+		n = n + 1
+	}
+	let before = runeBefore(p.t, p.s0, start)
+	let after = if start+n < p.iend {
+		let (r, _) = decodeRuneAt(p.t, start+n, p.iend)
+		r
+	} else {
+		10
+	}
+	let afterSpace = isUnicodeSpace(after)
+	let afterPunct = isUnicodePunct(after)
+	let beforeSpace = isUnicodeSpace(before)
+	let beforePunct = isUnicodePunct(before)
+	let left = !afterSpace && (!afterPunct || beforeSpace || beforePunct)
+	let right = !beforeSpace && (!beforePunct || afterSpace || afterPunct)
+	let mut canOpen = left
+	let mut canClose = right
+	if cc == '_' {
+		canOpen = left && (!right || beforePunct)
+		canClose = right && (!left || afterPunct)
+	}
+	p.pos = start + n
+	let t = textNode(p, sent, start, n)
+	if cc == '~' && n > 2 {
+		return
+	}
+	if canOpen || canClose {
+		let d = p.dcc.Len()
+		p.dcc = p.dcc.Append(cc)
+		p.dnum = p.dnum.Append(n)
+		p.dorig = p.dorig.Append(n)
+		p.dnode = p.dnode.Append(t)
+		p.dprev = p.dprev.Append(p.dtop)
+		p.dnext = p.dnext.Append(-1)
+		p.dopen = p.dopen.Append(canOpen)
+		p.dclose = p.dclose.Append(canClose)
+		if p.dtop >= 0 {
+			p.dnext[p.dtop] = d
+		}
+		p.dtop = d
+	}
+}
+
+func removeDelim(p mut parser, d int) {
+	let prev = p.dprev[d]
+	let next = p.dnext[d]
+	if prev >= 0 {
+		p.dnext[prev] = next
+	}
+	if next < 0 {
+		p.dtop = prev
+	} else {
+		p.dprev[next] = prev
+	}
+}
+
+func processEmphasis(p mut parser, bottom int) {
+	let mut lows = [18]int{}
+	for i in 0..18 {
+		lows[i] = bottom
+	}
+	let mut closer = p.dtop
+	for closer >= 0 && p.dprev[closer] != bottom {
+		p.work = p.work + 1
+		closer = p.dprev[closer]
+	}
+	for closer >= 0 {
+		p.work = p.work + 1
+		if !p.dclose[closer] {
+			closer = p.dnext[closer]
+			continue
+		}
+		let cc = p.dcc[closer]
+		let li = delimIndex(cc)*6 + (if p.dopen[closer] { 3 } else { 0 }) + p.dorig[closer]%3
+		let mut opener = p.dprev[closer]
+		let mut found = false
+		for !found && opener >= 0 && opener != bottom && opener != lows[li] {
+			p.work = p.work + 1
+			if p.dcc[opener] == cc && p.dopen[opener] {
+				if cc == '~' {
+					found = p.dnum[opener] == p.dnum[closer]
+				} else {
+					let odd = (p.dopen[closer] || p.dclose[opener]) && p.dorig[closer]%3 != 0 && (p.dorig[opener]+p.dorig[closer])%3 == 0
+					found = !odd
+				}
+			}
+			if !found {
+				opener = p.dprev[opener]
+			}
+		}
+		let old = closer
+		if found {
+			let use = if cc == '~' { p.dnum[closer] } else if p.dnum[closer] >= 2 && p.dnum[opener] >= 2 { 2 } else { 1 }
+			let on = p.dnode[opener]
+			let cn = p.dnode[closer]
+			p.dnum[opener] = p.dnum[opener] - use
+			p.dnum[closer] = p.dnum[closer] - use
+			p.ib[on] = p.ib[on] - use
+			p.ib[cn] = p.ib[cn] - use
+			let kind = if cc == '~' { kStrike } else if use == 1 { kEmph } else { kStrong }
+			let e = container(p, kind)
+			if p.inext[on] != cn {
+				moveRange(p, p.inext[on], p.iprev[cn], p.isub[e])
+			}
+			insertAfter(p, on, e)
+			p.dnext[opener] = closer
+			p.dprev[closer] = opener
+			if p.dnum[opener] == 0 {
+				unlinkNode(p, on)
+				removeDelim(p, opener)
+			}
+			if p.dnum[closer] == 0 {
+				unlinkNode(p, cn)
+				let nx = p.dnext[closer]
+				removeDelim(p, closer)
+				closer = nx
+			}
+		} else {
+			closer = p.dnext[closer]
+			lows[li] = p.dprev[old]
+			if !p.dopen[old] {
+				removeDelim(p, old)
+			}
+		}
+	}
+	for p.dtop >= 0 && p.dtop != bottom {
+		p.work = p.work + 1
+		removeDelim(p, p.dtop)
+	}
+}
+
+func addBracket(p mut parser, n int, index int, image bool) {
+	let top = p.brNode.Len()
+	if top > 0 {
+		p.brAfter[top-1] = true
+	}
+	p.brNode = p.brNode.Append(n)
+	p.brIndex = p.brIndex.Append(index)
+	p.brImage = p.brImage.Append(image)
+	p.brActive = p.brActive.Append(true)
+	p.brAfter = p.brAfter.Append(false)
+	p.brDelim = p.brDelim.Append(p.dtop)
+}
+
+func popBracket(p mut parser) {
+	let top = p.brNode.Len() - 1
+	p.brNode = p.brNode[0:top]
+	p.brIndex = p.brIndex[0:top]
+	p.brImage = p.brImage[0:top]
+	p.brActive = p.brActive[0:top]
+	p.brAfter = p.brAfter[0:top]
+	p.brDelim = p.brDelim[0:top]
+	if p.brInactive > top {
+		p.brInactive = top
+	}
+}
+
+func spnl(p mut parser) {
+	for ipeek(p, p.pos) == ' ' || ipeek(p, p.pos) == 9 {
+		p.pos = p.pos + 1
+	}
+	if ipeek(p, p.pos) == 10 {
+		p.pos = p.pos + 1
+		for ipeek(p, p.pos) == ' ' || ipeek(p, p.pos) == 9 {
+			p.pos = p.pos + 1
+		}
+	}
+}
+
+func isLinkSpace(c int) bool { c == 32 || c == 9 || c == 10 || c == 11 || c == 12 || c == 13 }
+
+func parseDest(p mut parser) (bool, int, int) {
+	if ipeek(p, p.pos) == '<' {
+		let mut i = p.pos + 1
+		for i < p.iend {
+			p.work = p.work + 1
+			let c = int(p.t[i])
+			if c == '\\' && i+1 < p.iend {
+				i = i + 2
+			} else if c == '>' {
+				let r = (true, p.pos + 1, i)
+				p.pos = i + 1
+				return r
+			} else if c == '<' || c == 10 {
+				return (false, 0, 0)
+			} else {
+				i = i + 1
+			}
+		}
+		return (false, 0, 0)
+	}
+	let start = p.pos
+	let mut depth = 0
+	let mut c = ipeek(p, p.pos)
+	let mut more = true
+	for more && c != -1 {
+		p.work = p.work + 1
+		if c == '\\' && ipeek(p, p.pos+1) >= 0 && isASCIIPunct(ipeek(p, p.pos+1)) {
+			p.pos = p.pos + 2
+		} else if c == '(' {
+			depth = depth + 1
+			if depth > 32 {
+				return (false, 0, 0)
+			}
+			p.pos = p.pos + 1
+		} else if c == ')' {
+			if depth < 1 {
+				more = false
+			} else {
+				depth = depth - 1
+				p.pos = p.pos + 1
+			}
+		} else if c <= 32 || c == 127 {
+			more = false
+		} else {
+			p.pos = p.pos + 1
+		}
+		if more {
+			c = ipeek(p, p.pos)
+		}
+	}
+	if p.pos == start && c != ')' {
+		return (false, 0, 0)
+	}
+	if depth != 0 {
+		return (false, 0, 0)
+	}
+	(true, start, p.pos)
+}
+
+func parseTitle(p mut parser) (bool, int, int) {
+	let open = ipeek(p, p.pos)
+	if open != '"' && open != '\'' && open != '(' {
+		return (false, 0, 0)
+	}
+	let close = if open == '(' { 41 } else { open }
+	let qi = if open == '"' { 0 } else if open == '\'' { 1 } else { -1 }
+	if qi >= 0 && p.noQuote[qi] >= 0 && p.pos >= p.noQuote[qi] {
+		return (false, 0, 0)
+	}
+	let mut i = p.pos + 1
+	for i < p.iend {
+		p.work = p.work + 1
+		let c = int(p.t[i])
+		if c == '\\' && i+1 < p.iend {
+			i = i + 2
+		} else if c == close {
+			let r = (true, p.pos + 1, i)
+			p.pos = i + 1
+			return r
+		} else if open == '(' && c == '(' {
+			return (false, 0, 0)
+		} else {
+			i = i + 1
+		}
+	}
+	if qi >= 0 {
+		p.noQuote[qi] = p.pos
+	}
+	(false, 0, 0)
+}
+
+func parseLinkLabel(p mut parser) int {
+	if ipeek(p, p.pos) != '[' {
+		return 0
+	}
+	let mut i = p.pos + 1
+	let mut n = 0
+	for i < p.iend && n <= 999 {
+		p.work = p.work + 1
+		let c = int(p.t[i])
+		if c == '\\' {
+			if i+1 >= p.iend {
+				return 0
+			}
+			i = i + 2
+			n = n + 1
+		} else if c == '[' {
+			return 0
+		} else if c == ']' {
+			return i + 1 - p.pos
+		} else {
+			if c < 0x80 || c >= 0xc0 {
+				n = n + 1
+			}
+			i = i + 1
+		}
+	}
+	0
+}
+
+func labelKey(p mut parser, from int, to int) string {
+	let mark = p.t.Len()
+	p.t = appendFolded(p.t, from, to)
+	let k = p.t[mark:p.t.Len()].Text()
+	p.t = p.t[0:mark]
+	k
+}
+
+func decodeSpan(p mut parser, from int, to int, uri bool) (int, int) {
+	if !uri && !needsUnescape(p.t, from, to) {
+		return (from, to - from)
+	}
+	let at = p.t.Len()
+	p.t = appendUnescaped(p.t, from, to)
+	if !uri {
+		return (at, p.t.Len() - at)
+	}
+	let mid = p.t.Len()
+	p.t = appendNormalizedURI(p.t, at, mid)
+	(mid, p.t.Len() - mid)
+}
+
+func parseReference(p mut parser, from int, to int) int {
+	p.s0 = from
+	p.pos = from
+	p.iend = to
+	let ln = parseLinkLabel(p)
+	if ln == 0 {
+		return 0
+	}
+	let labelEnd = from + ln
+	p.pos = labelEnd
+	if ipeek(p, p.pos) != ':' {
+		return 0
+	}
+	p.pos = p.pos + 1
+	spnl(p)
+	let (okd, ds, de) = parseDest(p)
+	if !okd {
+		return 0
+	}
+	let beforeTitle = p.pos
+	spnl(p)
+	let mut ts = 0
+	let mut te = 0
+	let mut hasTitle = false
+	if p.pos != beforeTitle {
+		let (okt, a, b) = parseTitle(p)
+		if okt {
+			hasTitle = true
+			ts = a
+			te = b
+		}
+	}
+	if !hasTitle {
+		p.pos = beforeTitle
+	}
+	let mut atEnd = atLineEnd(p)
+	if !atEnd {
+		if !hasTitle || te == ts {
+			atEnd = false
+		} else {
+			hasTitle = false
+			p.pos = beforeTitle
+			atEnd = atLineEnd(p)
+		}
+	}
+	if !atEnd {
+		return 0
+	}
+	let consumed = p.pos - from
+	let key = labelKey(p, from+1, labelEnd-1)
+	if key == "" {
+		return 0
+	}
+	if p.refs.Get(key) == option.None {
+		let (da, dn) = decodeSpan(p, ds, de, true)
+		let (ta, tn) = if hasTitle { decodeSpan(p, ts, te, false) } else { (0, 0) }
+		p.refs[key] = p.refDest.Len() / 2
+		p.refDest = p.refDest.Append(da).Append(dn)
+		p.refTitle = p.refTitle.Append(ta).Append(tn)
+	}
+	consumed
+}
+
+func atLineEnd(p mut parser) bool {
+	let mut i = p.pos
+	for ipeek(p, i) == ' ' || ipeek(p, i) == 9 {
+		i = i + 1
+	}
+	let c = ipeek(p, i)
+	if c == 10 {
+		p.pos = i + 1
+		true
+	} else if c == -1 {
+		p.pos = i
+		true
+	} else {
+		false
+	}
+}
+
+func handleCloseBracket(p mut parser, sent int) {
+	p.pos = p.pos + 1
+	let startpos = p.pos
+	let top = p.brNode.Len() - 1
+	if top < 0 {
+		let _ = textNode(p, sent, startpos-1, 1)
+		return
+	}
+	if !p.brActive[top] {
+		let _ = textNode(p, sent, startpos-1, 1)
+		popBracket(p)
+		return
+	}
+	let image = p.brImage[top]
+	let save = p.pos
+	let mut matched = false
+	let mut da = 0
+	let mut dn = 0
+	let mut ta = 0
+	let mut tn = 0
+	if ipeek(p, p.pos) == '(' {
+		p.pos = p.pos + 1
+		spnl(p)
+		let (okd, ds, de) = parseDest(p)
+		if okd {
+			spnl(p)
+			let mut ts = 0
+			let mut te = 0
+			let mut hasTitle = false
+			if p.pos > 0 && isLinkSpace(int(p.t[p.pos-1])) {
+				let (okt, a, b) = parseTitle(p)
+				if okt {
+					hasTitle = true
+					ts = a
+					te = b
+				}
+			}
+			spnl(p)
+			if ipeek(p, p.pos) == ')' {
+				p.pos = p.pos + 1
+				matched = true
+				let (x, y) = decodeSpan(p, ds, de, true)
+				da = x
+				dn = y
+				if hasTitle {
+					let (u, v) = decodeSpan(p, ts, te, false)
+					ta = u
+					tn = v
+				}
+			}
+		}
+		if !matched {
+			p.pos = save
+		}
+	}
+	if !matched {
+		let before = p.pos
+		let n = parseLinkLabel(p)
+		let mut lf = 0
+		let mut lt = 0
+		let mut have = false
+		if n > 2 {
+			lf = before + 1
+			lt = before + n - 1
+			have = true
+		} else if !p.brAfter[top] {
+			lf = p.brIndex[top] + 1
+			lt = startpos - 1
+			have = true
+		}
+		if n == 0 {
+			p.pos = save
+		} else {
+			p.pos = before + n
+		}
+		if have && lt-lf <= 1000 {
+			let key = labelKey(p, lf, lt)
+			match p.refs.Get(key) {
+			case option.Some[int] as r:
+				da = p.refDest[2*r.Value]
+				dn = p.refDest[2*r.Value+1]
+				ta = p.refTitle[2*r.Value]
+				tn = p.refTitle[2*r.Value+1]
+				matched = true
+			case option.None:
+			}
+		}
+	}
+	if !matched {
+		popBracket(p)
+		p.pos = startpos
+		let _ = textNode(p, sent, startpos-1, 1)
+		return
+	}
+	let l = container(p, if image { kImage } else { kLink })
+	p.ia[l] = da
+	p.ib[l] = dn
+	p.ic[l] = ta
+	p.id[l] = tn
+	let opener = p.brNode[top]
+	let first = p.inext[opener]
+	if first != sent {
+		if !image {
+			unwrapExtLinks(p, first, sent)
+		}
+		moveRange(p, first, p.iprev[sent], p.isub[l])
+	}
+	appendChild(p, sent, l)
+	processEmphasis(p, p.brDelim[top])
+	popBracket(p)
+	unlinkNode(p, opener)
+	if !image {
+		let mut j = p.brNode.Len() - 1
+		for j >= p.brInactive {
+			p.work = p.work + 1
+			if !p.brImage[j] {
+				p.brActive[j] = false
+			}
+			j = j - 1
+		}
+		p.brInactive = p.brNode.Len()
+	}
+}
+
+func isEmailLocal(c int) bool {
+	isAlnum(c) || c == '.' || c == '!' || c == '#' || c == '$' || c == '%' || c == '&' || c == '\'' || c == '*' || c == '+' || c == '/' || c == '=' || c == '?' || c == '^' || c == '_' || c == '`' || c == '{' || c == '|' || c == '}' || c == '~' || c == '-'
+}
+
+func parseAutolink(p mut parser, sent int) bool {
+	let s = p.pos + 1
+	let mut i = s
+	for i < p.iend && isEmailLocal(int(p.t[i])) {
+		i = i + 1
+	}
+	if i > s && ipeek(p, i) == '@' {
+		let mut j = i + 1
+		let mut ok = true
+		let mut labels = 0
+		let mut more = true
+		for more && ok {
+			let ls = j
+			for j < p.iend && (isAlnum(int(p.t[j])) || p.t[j] == '-') && j-ls < 63 {
+				j = j + 1
+			}
+			if j == ls || p.t[ls] == '-' || p.t[j-1] == '-' {
+				ok = false
+			} else {
+				labels = labels + 1
+				if ipeek(p, j) == '.' {
+					j = j + 1
+				} else {
+					more = false
+				}
+			}
+		}
+		if ok && labels > 0 && ipeek(p, j) == '>' {
+			let at = p.t.Len()
+			p.t = p.t.AppendString("mailto:")
+			p.t = appendNormalizedURI(p.t, s, j)
+			let l = container(p, kLink)
+			p.ia[l] = at
+			p.ib[l] = p.t.Len() - at
+			let _ = textNode(p, p.isub[l], s, j-s)
+			appendChild(p, sent, l)
+			p.pos = j + 1
+			return true
+		}
+	}
+	if !isAlpha(ipeek(p, s)) {
+		return false
+	}
+	let mut k = s + 1
+	for k < p.iend && (isAlnum(int(p.t[k])) || p.t[k] == '.' || p.t[k] == '+' || p.t[k] == '-') {
+		k = k + 1
+	}
+	if k-s < 2 || k-s > 32 || ipeek(p, k) != ':' {
+		return false
+	}
+	let mut e = k + 1
+	for e < p.iend && p.t[e] > ' ' && p.t[e] != '<' && p.t[e] != '>' {
+		e = e + 1
+	}
+	if ipeek(p, e) != '>' {
+		return false
+	}
+	let at = p.t.Len()
+	p.t = appendNormalizedURI(p.t, s, e)
+	let l = container(p, kLink)
+	p.ia[l] = at
+	p.ib[l] = p.t.Len() - at
+	let _ = textNode(p, p.isub[l], s, e-s)
+	appendChild(p, sent, l)
+	p.pos = e + 1
+	true
+}
+
+func parseHTMLSpan(p mut parser, sent int) bool {
+	if p.o.NoHTMLSpans {
+		return false
+	}
+	let n = htmlSpanLen(p)
+	if n == 0 {
+		return false
+	}
+	appendChild(p, sent, node(p, kHTMLSpan, p.pos, n))
+	p.pos = p.pos + n
+	true
+}
+
+func findFrom(p mut parser, memo int, from int, pat string) int {
+	if p.noHTML[memo] >= 0 && from >= p.noHTML[memo] {
+		return -1
+	}
+	let mut i = from
+	for i+pat.Len() <= p.iend {
+		p.work = p.work + 1
+		let mut ok = true
+		for k in 0..pat.Len() {
+			if ok && p.t[i+k] != pat[k] {
+				ok = false
+			}
+		}
+		if ok {
+			return i
+		}
+		i = i + 1
+	}
+	p.noHTML[memo] = from
+	-1
+}
+
+func htmlSpanLen(p mut parser) int {
+	let s = p.pos
+	let c1 = ipeek(p, s+1)
+	if c1 == '!' {
+		if ipeek(p, s+2) == '-' && ipeek(p, s+3) == '-' {
+			if ipeek(p, s+4) == '>' {
+				return 5
+			}
+			if ipeek(p, s+4) == '-' && ipeek(p, s+5) == '>' {
+				return 6
+			}
+			let e = findFrom(p, 0, s+4, "-->")
+			if e < 0 { 0 } else { e + 3 - s }
+		} else if ipeek(p, s+2) == '[' && hasAt(p, s+2, "[CDATA[") {
+			let e = findFrom(p, 1, s+9, "]]>")
+			if e < 0 { 0 } else { e + 3 - s }
+		} else if isAlpha(ipeek(p, s+2)) {
+			let e = findFrom(p, 2, s+3, ">")
+			if e < 0 { 0 } else { e + 1 - s }
+		} else {
+			0
+		}
+	} else if c1 == '?' {
+		let e = findFrom(p, 3, s+2, "?>")
+		if e < 0 { 0 } else { e + 2 - s }
+	} else {
+		htmlTagLenMemo(p, s)
+	}
+}
+
+func hasAt(p mut parser, i int, w string) bool {
+	if i+w.Len() > p.iend {
+		return false
+	}
+	for k in 0..w.Len() {
+		if p.t[i+k] != w[k] {
+			return false
+		}
+	}
+	true
+}
+
+func htmlTagLenMemo(p mut parser, s int) int {
+	let n = htmlTagLen(p.t, s, p.iend, true, p.noHTML[4], p.noHTML[5])
+	if n < 0 {
+		let at = -n
+		let qi = if p.t[at] == '"' { 4 } else { 5 }
+		if p.noHTML[qi] < 0 || at+1 < p.noHTML[qi] {
+			p.noHTML[qi] = at + 1
+		}
+		return 0
+	}
+	p.work = p.work + n + 1
+	n
+}
+
+func isTagSpace(c int, nl bool) bool { c == 32 || c == 9 || c == 12 || c == 11 || (nl && (c == 10 || c == 13)) }
+
+func htmlTagLen(buf []byte, s int, end int, nl bool, noDq int, noSq int) int {
+	let mut i = s + 1
+	let closing = i < end && buf[i] == '/'
+	if closing {
+		i = i + 1
+	}
+	if i >= end || !isAlpha(int(buf[i])) {
+		return 0
+	}
+	for i < end && (isAlnum(int(buf[i])) || buf[i] == '-') {
+		i = i + 1
+	}
+	if closing {
+		for i < end && isTagSpace(int(buf[i]), nl) {
+			i = i + 1
+		}
+		return if i < end && buf[i] == '>' { i + 1 - s } else { 0 }
+	}
+	for true {
+		let ws = i
+		for i < end && isTagSpace(int(buf[i]), nl) {
+			i = i + 1
+		}
+		if i >= end {
+			return 0
+		}
+		let c = int(buf[i])
+		if c == '>' {
+			return i + 1 - s
+		}
+		if c == '/' {
+			return if i+1 < end && buf[i+1] == '>' { i + 2 - s } else { 0 }
+		}
+		if i == ws || !(isAlpha(c) || c == '_' || c == ':') {
+			return 0
+		}
+		for i < end && (isAlnum(int(buf[i])) || buf[i] == '_' || buf[i] == ':' || buf[i] == '.' || buf[i] == '-') {
+			i = i + 1
+		}
+		let mut j = i
+		for j < end && isTagSpace(int(buf[j]), nl) {
+			j = j + 1
+		}
+		if j < end && buf[j] == '=' {
+			j = j + 1
+			for j < end && isTagSpace(int(buf[j]), nl) {
+				j = j + 1
+			}
+			if j >= end {
+				return 0
+			}
+			let q = int(buf[j])
+			if q == '"' || q == '\'' {
+				let qat = j
+				let known = if q == '"' { noDq } else { noSq }
+				if known >= 0 && qat+1 >= known {
+					return 0
+				}
+				j = j + 1
+				for j < end && int(buf[j]) != q {
+					j = j + 1
+				}
+				if j >= end {
+					return -qat
+				}
+				i = j + 1
+			} else {
+				let vs = j
+				for j < end && buf[j] > ' ' && buf[j] != '"' && buf[j] != '\'' && buf[j] != '=' && buf[j] != '<' && buf[j] != '>' && buf[j] != '`' {
+					j = j + 1
+				}
+				if j == vs {
+					return 0
+				}
+				i = j
+			}
+		}
+	}
+	0
+}

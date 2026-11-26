@@ -1,0 +1,170 @@
+[
+ {
+  "example": 198,
+  "extension": "table",
+  "markdown": "| foo | bar |\n| --- | --- |\n| baz | bim |\n",
+  "html": "<table>\n<thead>\n<tr><th>foo</th><th>bar</th></tr>\n</thead>\n<tbody>\n<tr><td>baz</td><td>bim</td></tr>\n</tbody>\n</table>\n",
+  "source": "bun 1.4.4"
+ },
+ {
+  "example": 199,
+  "extension": "table",
+  "markdown": "| abc | defghi |\n:-: | -----------:\nbar | baz\n",
+  "html": "<table>\n<thead>\n<tr><th align=\"center\">abc</th><th align=\"right\">defghi</th></tr>\n</thead>\n<tbody>\n<tr><td align=\"center\">bar</td><td align=\"right\">baz</td></tr>\n</tbody>\n</table>\n",
+  "source": "bun 1.4.4"
+ },
+ {
+  "example": 200,
+  "extension": "table",
+  "markdown": "| f\\|oo  |\n| ------ |\n| b `\\|` az |\n| b **\\|** im |\n",
+  "html": "<table>\n<thead>\n<tr><th>f|oo</th></tr>\n</thead>\n<tbody>\n<tr><td>b <code>|</code> az</td></tr>\n<tr><td>b <strong>|</strong> im</td></tr>\n</tbody>\n</table>\n",
+  "source": "bun 1.4.4"
+ },
+ {
+  "example": 201,
+  "extension": "table",
+  "markdown": "| abc | def |\n| --- | --- |\n| bar | baz |\n> bar\n",
+  "html": "<table>\n<thead>\n<tr><th>abc</th><th>def</th></tr>\n</thead>\n<tbody>\n<tr><td>bar</td><td>baz</td></tr>\n</tbody>\n</table>\n<blockquote>\n<p>bar</p>\n</blockquote>\n",
+  "source": "bun 1.4.4"
+ },
+ {
+  "example": 202,
+  "extension": "table",
+  "markdown": "| abc | def |\n| --- | --- |\n| bar | baz |\nbar\n\nbar\n",
+  "html": "<table>\n<thead>\n<tr><th>abc</th><th>def</th></tr>\n</thead>\n<tbody>\n<tr><td>bar</td><td>baz</td></tr>\n<tr><td>bar</td><td></td></tr>\n</tbody>\n</table>\n<p>bar</p>\n",
+  "source": "bun 1.4.4"
+ },
+ {
+  "example": 203,
+  "extension": "table",
+  "markdown": "| abc | def |\n| --- |\n| bar |\n",
+  "html": "<p>| abc | def |\n| --- |\n| bar |</p>\n",
+  "source": "bun 1.4.4"
+ },
+ {
+  "example": 204,
+  "extension": "table",
+  "markdown": "| abc | def |\n| --- | --- |\n| bar |\n| bar | baz | boo |\n",
+  "html": "<table>\n<thead>\n<tr><th>abc</th><th>def</th></tr>\n</thead>\n<tbody>\n<tr><td>bar</td><td></td></tr>\n<tr><td>bar</td><td>baz</td></tr>\n</tbody>\n</table>\n",
+  "source": "bun 1.4.4"
+ },
+ {
+  "example": 205,
+  "extension": "table",
+  "markdown": "| abc | def |\n| --- | --- |\n",
+  "html": "<table>\n<thead>\n<tr><th>abc</th><th>def</th></tr>\n</thead>\n</table>\n",
+  "source": "bun 1.4.4"
+ },
+ {
+  "example": 279,
+  "extension": "disabled",
+  "markdown": "- [ ] foo\n- [x] bar\n",
+  "html": "<ul>\n<li class=\"task-list-item\"><input type=\"checkbox\" class=\"task-list-item-checkbox\" disabled>foo</li>\n<li class=\"task-list-item\"><input type=\"checkbox\" class=\"task-list-item-checkbox\" disabled checked>bar</li>\n</ul>\n",
+  "source": "bun 1.4.4"
+ },
+ {
+  "example": 280,
+  "extension": "disabled",
+  "markdown": "- [x] foo\n  - [ ] bar\n  - [x] baz\n- [ ] bim\n",
+  "html": "<ul>\n<li class=\"task-list-item\"><input type=\"checkbox\" class=\"task-list-item-checkbox\" disabled checked>foo\n<ul>\n<li class=\"task-list-item\"><input type=\"checkbox\" class=\"task-list-item-checkbox\" disabled>bar</li>\n<li class=\"task-list-item\"><input type=\"checkbox\" class=\"task-list-item-checkbox\" disabled checked>baz</li>\n</ul>\n</li>\n<li class=\"task-list-item\"><input type=\"checkbox\" class=\"task-list-item-checkbox\" disabled>bim</li>\n</ul>\n",
+  "source": "bun 1.4.4"
+ },
+ {
+  "example": 491,
+  "extension": "strikethrough",
+  "markdown": "~~Hi~~ Hello, world!\n",
+  "html": "<p><del>Hi</del> Hello, world!</p>\n",
+  "source": "bun 1.4.4"
+ },
+ {
+  "example": 492,
+  "extension": "strikethrough",
+  "markdown": "This ~~has a\n\nnew paragraph~~.\n",
+  "html": "<p>This ~~has a</p>\n<p>new paragraph~~.</p>\n",
+  "source": "bun 1.4.4"
+ },
+ {
+  "example": 621,
+  "extension": "autolink",
+  "markdown": "www.commonmark.org\n",
+  "html": "<p><a href=\"http://www.commonmark.org\">www.commonmark.org</a></p>\n",
+  "source": "bun 1.4.4"
+ },
+ {
+  "example": 622,
+  "extension": "autolink",
+  "markdown": "Visit www.commonmark.org/help for more information.\n",
+  "html": "<p>Visit <a href=\"http://www.commonmark.org/help\">www.commonmark.org/help</a> for more information.</p>\n",
+  "source": "bun 1.4.4"
+ },
+ {
+  "example": 623,
+  "extension": "autolink",
+  "markdown": "Visit www.commonmark.org.\n\nVisit www.commonmark.org/a.b.\n",
+  "html": "<p>Visit <a href=\"http://www.commonmark.org\">www.commonmark.org</a>.</p>\n<p>Visit <a href=\"http://www.commonmark.org/a.b\">www.commonmark.org/a.b</a>.</p>\n",
+  "source": "bun 1.4.4"
+ },
+ {
+  "example": 624,
+  "extension": "autolink",
+  "markdown": "www.google.com/search?q=Markup+(business)\n\nwww.google.com/search?q=Markup+(business)))\n\n(www.google.com/search?q=Markup+(business))\n\n(www.google.com/search?q=Markup+(business)\n",
+  "html": "<p><a href=\"http://www.google.com/search?q=Markup+(business)\">www.google.com/search?q=Markup+(business)</a></p>\n<p><a href=\"http://www.google.com/search?q=Markup+(business)\">www.google.com/search?q=Markup+(business)</a>))</p>\n<p>(<a href=\"http://www.google.com/search?q=Markup+(business)\">www.google.com/search?q=Markup+(business)</a>)</p>\n<p>(<a href=\"http://www.google.com/search?q=Markup+(business)\">www.google.com/search?q=Markup+(business)</a></p>\n",
+  "source": "bun 1.4.4"
+ },
+ {
+  "example": 625,
+  "extension": "autolink",
+  "markdown": "www.google.com/search?q=(business))+ok\n",
+  "html": "<p><a href=\"http://www.google.com/search?q=(business))+ok\">www.google.com/search?q=(business))+ok</a></p>\n",
+  "source": "bun 1.4.4"
+ },
+ {
+  "example": 626,
+  "extension": "autolink",
+  "markdown": "www.google.com/search?q=commonmark&hl=en\n\nwww.google.com/search?q=commonmark&hl;\n",
+  "html": "<p><a href=\"http://www.google.com/search?q=commonmark&amp;hl=en\">www.google.com/search?q=commonmark&amp;hl=en</a></p>\n<p><a href=\"http://www.google.com/search?q=commonmark\">www.google.com/search?q=commonmark</a>&amp;hl;</p>\n",
+  "source": "bun 1.4.4"
+ },
+ {
+  "example": 627,
+  "extension": "autolink",
+  "markdown": "www.commonmark.org/he<lp\n",
+  "html": "<p><a href=\"http://www.commonmark.org/he\">www.commonmark.org/he</a>&lt;lp</p>\n",
+  "source": "bun 1.4.4"
+ },
+ {
+  "example": 628,
+  "extension": "autolink",
+  "markdown": "http://commonmark.org\n\n(Visit https://encrypted.google.com/search?q=Markup+(business))\n\nAnonymous FTP is available at ftp://foo.bar.baz.\n",
+  "html": "<p><a href=\"http://commonmark.org\">http://commonmark.org</a></p>\n<p>(Visit <a href=\"https://encrypted.google.com/search?q=Markup+(business)\">https://encrypted.google.com/search?q=Markup+(business)</a>)</p>\n<p>Anonymous FTP is available at <a href=\"ftp://foo.bar.baz\">ftp://foo.bar.baz</a>.</p>\n",
+  "source": "bun 1.4.4"
+ },
+ {
+  "example": 629,
+  "extension": "autolink",
+  "markdown": "foo@bar.baz\n",
+  "html": "<p><a href=\"mailto:foo@bar.baz\">foo@bar.baz</a></p>\n",
+  "source": "bun 1.4.4"
+ },
+ {
+  "example": 630,
+  "extension": "autolink",
+  "markdown": "hello@mail+xyz.example isn't valid, but hello+xyz@mail.example is.\n",
+  "html": "<p>hello@mail+xyz.example isn't valid, but <a href=\"mailto:hello+xyz@mail.example\">hello+xyz@mail.example</a> is.</p>\n",
+  "source": "bun 1.4.4"
+ },
+ {
+  "example": 631,
+  "extension": "autolink",
+  "markdown": "a.b-c_d@a.b\n\na.b-c_d@a.b.\n\na.b-c_d@a.b-\n\na.b-c_d@a.b_\n",
+  "html": "<p><a href=\"mailto:a.b-c_d@a.b\">a.b-c_d@a.b</a></p>\n<p><a href=\"mailto:a.b-c_d@a.b\">a.b-c_d@a.b</a>.</p>\n<p>a.b-c_d@a.b-</p>\n<p>a.b-c_d@a.b_</p>\n",
+  "source": "gfm 0.29 spec"
+ },
+ {
+  "example": 652,
+  "extension": "tagfilter",
+  "markdown": "<strong> <title> <style> <em>\n\n<blockquote>\n  <xmp> is disallowed.  <XMP> is also disallowed.\n</blockquote>\n",
+  "html": "<p><strong> &lt;title> &lt;style> <em></p>\n<blockquote>\n  &lt;xmp> is disallowed.  &lt;XMP> is also disallowed.\n</blockquote>\n",
+  "source": "bun 1.4.4"
+ }
+]

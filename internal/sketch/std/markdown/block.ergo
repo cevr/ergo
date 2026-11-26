@@ -1,0 +1,1088 @@
+type parser {
+	src         []byte,
+	o           Options,
+	t           []byte,
+	ls          int,
+	le          int,
+	lineNo      int,
+	offset      int,
+	column      int,
+	nns         int,
+	nnsCol      int,
+	indent      int,
+	indented    bool,
+	blank       bool,
+	partialTab  bool,
+	allClosed   bool,
+	lastMatched int,
+	oldtip      int,
+	tip         int,
+	bk          []int,
+	bparent     []int,
+	bfirst      []int,
+	blast       []int,
+	bnext       []int,
+	bprev       []int,
+	bopen       []bool,
+	bstart      []int,
+	bendLine    []int,
+	bcs         []int,
+	bce         []int,
+	bval        []int,
+	bchar       []int,
+	blen        []int,
+	bpad        []int,
+	bmark       []int,
+	bflags      []int,
+	mdOrdered   bool,
+	mdChar      int,
+	mdStart     int,
+	mdPad       int,
+	mdOffset    int,
+	aligns      []int,
+	refs        Map[string, int],
+	refDest     []int,
+	refTitle    []int,
+	ik          []int,
+	inext       []int,
+	iprev       []int,
+	isub        []int,
+	ia          []int,
+	ib          []int,
+	ic          []int,
+	id          []int,
+	dcc         []int,
+	dnum        []int,
+	dorig       []int,
+	dnode       []int,
+	dprev       []int,
+	dnext       []int,
+	dopen       []bool,
+	dclose      []bool,
+	dtop        int,
+	brNode      []int,
+	brIndex     []int,
+	brImage     []bool,
+	brActive    []bool,
+	brAfter     []bool,
+	brDelim     []int,
+	brInactive  int,
+	s0          int,
+	pos         int,
+	iend        int,
+	noTicks     []int,
+	noQuote     []int,
+	noHTML      []int,
+	emailFail   int,
+	rk          []uint8,
+	rend        []uint32,
+	ra          []uint32,
+	rb          []uint32,
+	rx          []uint32,
+	work        int,
+}
+
+let fOrdered = 1
+let fTight = 2
+let fFenced = 4
+let fHadRefs = 8
+let fFresh = 16
+
+func newParser(src []byte, o Options) parser {
+	parser{src: src, o: o, t: MakeSlice[byte](src.Len() + src.Len()/4 + 16), ls: 0, le: 0, lineNo: 0, offset: 0, column: 0, nns: 0, nnsCol: 0, indent: 0, indented: false, blank: false, partialTab: false, allClosed: true, lastMatched: 0, oldtip: 0, tip: 0, bk: []int{}, bparent: []int{}, bfirst: []int{}, blast: []int{}, bnext: []int{}, bprev: []int{}, bopen: []bool{}, bstart: []int{}, bendLine: []int{}, bcs: []int{}, bce: []int{}, bval: []int{}, bchar: []int{}, blen: []int{}, bpad: []int{}, bmark: []int{}, bflags: []int{}, mdOrdered: false, mdChar: 0, mdStart: 0, mdPad: 0, mdOffset: 0, aligns: []int{}, refs: Map[string, int]{}, refDest: []int{}, refTitle: []int{}, ik: []int{}, inext: []int{}, iprev: []int{}, isub: []int{}, ia: []int{}, ib: []int{}, ic: []int{}, id: []int{}, dcc: []int{}, dnum: []int{}, dorig: []int{}, dnode: []int{}, dprev: []int{}, dnext: []int{}, dopen: []bool{}, dclose: []bool{}, dtop: -1, brNode: []int{}, brIndex: []int{}, brImage: []bool{}, brActive: []bool{}, brAfter: []bool{}, brDelim: []int{}, brInactive: 0, s0: 0, pos: 0, iend: 0, noTicks: []int{}, noQuote: []int{-1, -1}, noHTML: []int{-1, -1, -1, -1, -1, -1}, emailFail: -1, rk: []uint8{}, rend: []uint32{}, ra: []uint32{}, rb: []uint32{}, rx: []uint32{}, work: 0}
+}
+
+func newBlock(p mut parser, kind int, parent int) int {
+	let b = p.bk.Len()
+	p.bk = p.bk.Append(kind)
+	p.bparent = p.bparent.Append(parent)
+	p.bfirst = p.bfirst.Append(-1)
+	p.blast = p.blast.Append(-1)
+	p.bnext = p.bnext.Append(-1)
+	p.bprev = p.bprev.Append(-1)
+	p.bopen = p.bopen.Append(true)
+	p.bstart = p.bstart.Append(p.lineNo)
+	p.bendLine = p.bendLine.Append(p.lineNo)
+	p.bcs = p.bcs.Append(p.t.Len())
+	p.bce = p.bce.Append(-1)
+	p.bval = p.bval.Append(0)
+	p.bchar = p.bchar.Append(0)
+	p.blen = p.blen.Append(0)
+	p.bpad = p.bpad.Append(0)
+	p.bmark = p.bmark.Append(0)
+	p.bflags = p.bflags.Append(0)
+	if parent >= 0 {
+		let last = p.blast[parent]
+		if last < 0 {
+			p.bfirst[parent] = b
+		} else {
+			p.bnext[last] = b
+			p.bprev[b] = last
+		}
+		p.blast[parent] = b
+	}
+	b
+}
+
+func unlinkBlock(p mut parser, b int) {
+	let parent = p.bparent[b]
+	let prev = p.bprev[b]
+	let next = p.bnext[b]
+	if prev >= 0 {
+		p.bnext[prev] = next
+	} else {
+		p.bfirst[parent] = next
+	}
+	if next >= 0 {
+		p.bprev[next] = prev
+	} else {
+		p.blast[parent] = prev
+	}
+	p.bnext[b] = -1
+	p.bprev[b] = -1
+}
+
+func lineLen(p mut parser) int { p.le - p.ls }
+
+func peek(p mut parser, i int) int {
+	if i >= 0 && p.ls+i < p.le { int(p.src[p.ls+i]) } else { -1 }
+}
+
+func acceptsLines(k int) bool { k == kPara || k == kCode || k == kHTML || k == kTable }
+
+func canContain(k int, child int) bool {
+	if k == kDoc || k == kQuote || k == kItem {
+		child != kItem
+	} else if k == kList {
+		child == kItem
+	} else {
+		false
+	}
+}
+
+func findNextNonspace(p mut parser) {
+	let mut i = p.offset
+	let mut cols = p.column
+	let mut c = peek(p, i)
+	for c == 32 || c == 9 {
+		p.work = p.work + 1
+		if c == 32 {
+			cols = cols + 1
+		} else {
+			cols = cols + (4 - cols%4)
+		}
+		i = i + 1
+		c = peek(p, i)
+	}
+	p.blank = c == -1
+	p.nns = i
+	p.nnsCol = cols
+	p.indent = cols - p.column
+	p.indented = p.indent >= 4
+}
+
+func advanceNextNonspace(p mut parser) {
+	p.offset = p.nns
+	p.column = p.nnsCol
+	p.partialTab = false
+}
+
+func advanceOffset(p mut parser, count int, columns bool) {
+	let mut n = count
+	for n > 0 && peek(p, p.offset) != -1 {
+		p.work = p.work + 1
+		if peek(p, p.offset) == 9 {
+			let toTab = 4 - p.column%4
+			if columns {
+				p.partialTab = toTab > n
+				let adv = if toTab > n { n } else { toTab }
+				p.column = p.column + adv
+				if !p.partialTab {
+					p.offset = p.offset + 1
+				}
+				n = n - adv
+			} else {
+				p.partialTab = false
+				p.column = p.column + toTab
+				p.offset = p.offset + 1
+				n = n - 1
+			}
+		} else {
+			p.partialTab = false
+			p.offset = p.offset + 1
+			p.column = p.column + 1
+			n = n - 1
+		}
+	}
+}
+
+func addLine(p mut parser) {
+	if p.partialTab {
+		p.offset = p.offset + 1
+		let toTab = 4 - p.column%4
+		for _ in 0..toTab {
+			p.t = p.t.Append(' ')
+		}
+	}
+	if p.ls+p.offset < p.le {
+		p.t = p.t.AppendBytes(p.src[p.ls+p.offset : p.le])
+	}
+	p.t = p.t.Append('\n')
+	p.work = p.work + 1 + lineLen(p)
+}
+
+func finalize(p mut parser, b int, line int) {
+	let above = p.bparent[b]
+	p.bopen[b] = false
+	p.bendLine[b] = line
+	if p.bce[b] < 0 {
+		p.bce[b] = p.t.Len()
+	}
+	finalizeKind(p, b)
+	p.tip = above
+}
+
+func closeUnmatched(p mut parser) {
+	if !p.allClosed {
+		for p.oldtip != p.lastMatched {
+			p.work = p.work + 1
+			let parent = p.bparent[p.oldtip]
+			finalize(p, p.oldtip, p.lineNo-1)
+			p.oldtip = parent
+		}
+		p.allClosed = true
+	}
+}
+
+func addChild(p mut parser, kind int) int {
+	for !canContain(p.bk[p.tip], kind) {
+		p.work = p.work + 1
+		finalize(p, p.tip, p.lineNo-1)
+	}
+	let b = newBlock(p, kind, p.tip)
+	p.tip = b
+	b
+}
+
+func isBlankSpan(t []byte, from int, to int) bool {
+	for i in from..to {
+		let c = t[i]
+		if c != ' ' && c != '\t' && c != '\n' && c != '\r' {
+			return false
+		}
+	}
+	true
+}
+
+func extractRefs(p mut parser, b int) {
+	let mut more = true
+	for more && p.bcs[b] < p.bce[b] && p.t[p.bcs[b]] == '[' {
+		let n = parseReference(p, p.bcs[b], p.bce[b])
+		if n > 0 {
+			p.bcs[b] = p.bcs[b] + n
+			p.bflags[b] = p.bflags[b] | fHadRefs
+		} else {
+			more = false
+		}
+	}
+}
+
+func trailingBlankStart(t []byte, from int, to int) int {
+	let mut q = to
+	let mut best = -1
+	let mut j = to
+	for j > from {
+		let c = t[j-1]
+		if c == ' ' {
+			j = j - 1
+		} else if c == '\n' {
+			j = j - 1
+			best = j
+		} else {
+			break
+		}
+	}
+	if best >= 0 {
+		q = best
+	}
+	q
+}
+
+func endsWithBlank(p mut parser, b int) bool {
+	let n = p.bnext[b]
+	n >= 0 && p.bendLine[b] != p.bstart[n]-1
+}
+
+func finalizeKind(p mut parser, b int) {
+	let k = p.bk[b]
+	if k == kPara {
+		extractRefs(p, b)
+		if p.bflags[b]&fHadRefs != 0 && isBlankSpan(p.t, p.bcs[b], p.bce[b]) {
+			unlinkBlock(p, b)
+		}
+	} else if k == kCode {
+		if p.bflags[b]&fFenced != 0 {
+			let mut nl = p.bcs[b]
+			for nl < p.bce[b] && p.t[nl] != '\n' {
+				nl = nl + 1
+			}
+			p.bval[b] = nl
+		} else {
+			let q = trailingBlankStart(p.t, p.bcs[b], p.bce[b])
+			if q < p.bce[b] {
+				p.bce[b] = q + 1
+			}
+		}
+	} else if k == kHTML {
+		p.bce[b] = trailingBlankStart(p.t, p.bcs[b], p.bce[b])
+	} else if k == kItem {
+		let last = p.blast[b]
+		p.bendLine[b] = if last >= 0 { p.bendLine[last] } else { p.bstart[b] }
+	} else if k == kList {
+		p.bflags[b] = p.bflags[b] | fTight
+		let mut item = p.bfirst[b]
+		let mut loose = false
+		for item >= 0 && !loose {
+			p.work = p.work + 1
+			if endsWithBlank(p, item) {
+				loose = true
+			}
+			let mut sub = p.bfirst[item]
+			for sub >= 0 && !loose {
+				p.work = p.work + 1
+				if endsWithBlank(p, sub) {
+					loose = true
+				}
+				sub = p.bnext[sub]
+			}
+			item = p.bnext[item]
+		}
+		if loose {
+			p.bflags[b] = p.bflags[b] - fTight
+		}
+		let last = p.blast[b]
+		if last >= 0 {
+			p.bendLine[b] = p.bendLine[last]
+		}
+	}
+}
+
+func continueBlock(p mut parser, c int) int {
+	let k = p.bk[c]
+	if k == kQuote {
+		if !p.indented && peek(p, p.nns) == '>' {
+			advanceNextNonspace(p)
+			advanceOffset(p, 1, false)
+			if isSpaceOrTab(peek(p, p.offset)) {
+				advanceOffset(p, 1, true)
+			}
+			0
+		} else {
+			1
+		}
+	} else if k == kItem {
+		if p.blank {
+			if p.bfirst[c] < 0 {
+				return 1
+			}
+			advanceNextNonspace(p)
+			0
+		} else if p.indent >= p.bmark[c]+p.bpad[c] {
+			advanceOffset(p, p.bmark[c]+p.bpad[c], true)
+			0
+		} else {
+			1
+		}
+	} else if k == kHeading || k == kHR {
+		1
+	} else if k == kCode {
+		if p.bflags[c]&fFenced != 0 {
+			let fc = p.bchar[c]
+			if p.indent <= 3 && peek(p, p.nns) == fc {
+				let mut n = 0
+				for peek(p, p.nns+n) == fc {
+					n = n + 1
+				}
+				let mut j = p.nns + n
+				for isSpaceOrTab(peek(p, j)) {
+					j = j + 1
+				}
+				if n >= p.blen[c] && peek(p, j) == -1 {
+					finalize(p, c, p.lineNo)
+					return 2
+				}
+			}
+			let mut i = p.bmark[c]
+			for i > 0 && isSpaceOrTab(peek(p, p.offset)) {
+				advanceOffset(p, 1, true)
+				i = i - 1
+			}
+			0
+		} else if p.indent >= 4 {
+			advanceOffset(p, 4, true)
+			0
+		} else if p.blank {
+			advanceNextNonspace(p)
+			0
+		} else {
+			1
+		}
+	} else if k == kHTML {
+		if p.blank && (p.bval[c] == 6 || p.bval[c] == 7) { 1 } else { 0 }
+	} else if k == kPara || k == kTable {
+		if p.blank { 1 } else { 0 }
+	} else {
+		0
+	}
+}
+
+func maybeSpecial(p mut parser) bool {
+	let c = peek(p, p.nns)
+	c == '#' || c == '`' || c == '~' || c == '*' || c == '+' || c == '_' || c == '=' || c == '<' || c == '>' || c == '-' || isDigit(c) || (p.o.Tables && (c == '|' || c == ':'))
+}
+
+func incorporateLine(p mut parser) {
+	let mut container = 0
+	p.oldtip = p.tip
+	p.offset = 0
+	p.column = 0
+	p.blank = false
+	p.partialTab = false
+	p.lineNo = p.lineNo + 1
+	let mut more = true
+	for more {
+		p.work = p.work + 1
+		let last = p.blast[container]
+		if last < 0 || !p.bopen[last] {
+			more = false
+		} else {
+			container = last
+			findNextNonspace(p)
+			let r = continueBlock(p, container)
+			if r == 2 {
+				return
+			}
+			if r == 1 {
+				container = p.bparent[container]
+				more = false
+			}
+		}
+	}
+	p.allClosed = container == p.oldtip
+	p.lastMatched = container
+	let ck = p.bk[container]
+	let mut matchedLeaf = ck != kPara && ck != kTable && acceptsLines(ck)
+	for !matchedLeaf {
+		p.work = p.work + 1
+		findNextNonspace(p)
+		if !p.indented && !maybeSpecial(p) {
+			advanceNextNonspace(p)
+			break
+		}
+		let r = blockStart(p, container)
+		if r == 0 {
+			advanceNextNonspace(p)
+			break
+		}
+		container = p.tip
+		if r == 2 {
+			matchedLeaf = true
+		}
+	}
+	if !p.allClosed && !p.blank && p.bk[p.tip] == kPara {
+		addLine(p)
+	} else {
+		closeUnmatched(p)
+		let t = p.bk[container]
+		if t == kTable && p.bflags[container]&fFresh != 0 {
+			p.bflags[container] = 0
+		} else if acceptsLines(t) {
+			addLine(p)
+			if t == kHTML && p.bval[container] >= 1 && p.bval[container] <= 5 && htmlCloses(p, p.bval[container]) {
+				finalize(p, container, p.lineNo)
+			}
+		} else if p.offset < lineLen(p) && !p.blank {
+			let _ = addChild(p, kPara)
+			advanceNextNonspace(p)
+			addLine(p)
+		}
+	}
+}
+
+func blockStart(p mut parser, c int) int {
+	let mut r = startQuote(p)
+	if r == 0 {
+		r = startATX(p)
+	}
+	if r == 0 {
+		r = startFence(p)
+	}
+	if r == 0 && !p.o.NoHTMLBlocks {
+		r = startHTML(p, c)
+	}
+	if r == 0 {
+		r = startSetext(p, c)
+	}
+	if r == 0 && p.o.Tables {
+		r = startTable(p, c)
+	}
+	if r == 0 {
+		r = startHR(p)
+	}
+	if r == 0 {
+		r = startList(p, c)
+	}
+	if r == 0 && !p.o.NoIndentedCode {
+		r = startIndented(p)
+	}
+	r
+}
+
+func startQuote(p mut parser) int {
+	if p.indented || peek(p, p.nns) != '>' {
+		return 0
+	}
+	advanceNextNonspace(p)
+	advanceOffset(p, 1, false)
+	if isSpaceOrTab(peek(p, p.offset)) {
+		advanceOffset(p, 1, true)
+	}
+	closeUnmatched(p)
+	let _ = addChild(p, kQuote)
+	1
+}
+
+func startATX(p mut parser) int {
+	if p.indented {
+		return 0
+	}
+	let s = p.nns
+	let mut k = 0
+	for k < 7 && peek(p, s+k) == '#' {
+		k = k + 1
+	}
+	if k < 1 || k > 6 {
+		return 0
+	}
+	let c = peek(p, s+k)
+	if c != -1 && !isSpaceOrTab(c) {
+		return 0
+	}
+	let mut m = k
+	for isSpaceOrTab(peek(p, s+m)) {
+		m = m + 1
+	}
+	advanceNextNonspace(p)
+	advanceOffset(p, m, false)
+	closeUnmatched(p)
+	let b = addChild(p, kHeading)
+	p.bval[b] = k
+	let a = p.offset
+	let n = lineLen(p)
+	let mut z = n
+	for z > a && isSpaceOrTab(peek(p, z-1)) {
+		z = z - 1
+	}
+	let mut h = z
+	for h > a && peek(p, h-1) == '#' {
+		h = h - 1
+	}
+	let mut end = n
+	if h < z {
+		let mut j = a
+		for j < h && isSpaceOrTab(peek(p, j)) {
+			j = j + 1
+		}
+		if j == h {
+			end = a
+		} else if isSpaceOrTab(peek(p, h-1)) {
+			let mut e = h
+			for e > a && isSpaceOrTab(peek(p, e-1)) {
+				e = e - 1
+			}
+			end = e
+		}
+	}
+	p.bcs[b] = p.t.Len()
+	if end > a {
+		p.t = p.t.AppendBytes(p.src[p.ls+a : p.ls+end])
+	}
+	p.bce[b] = p.t.Len()
+	advanceOffset(p, n-p.offset, false)
+	2
+}
+
+func startFence(p mut parser) int {
+	if p.indented {
+		return 0
+	}
+	let c = peek(p, p.nns)
+	if c != '`' && c != '~' {
+		return 0
+	}
+	let mut k = 0
+	for peek(p, p.nns+k) == c {
+		k = k + 1
+	}
+	if k < 3 {
+		return 0
+	}
+	if c == '`' {
+		for j in p.nns+k..lineLen(p) {
+			if peek(p, j) == '`' {
+				return 0
+			}
+		}
+	}
+	closeUnmatched(p)
+	let b = addChild(p, kCode)
+	p.bflags[b] = fFenced
+	p.bchar[b] = c
+	p.blen[b] = k
+	p.bmark[b] = p.indent
+	advanceNextNonspace(p)
+	advanceOffset(p, k, false)
+	2
+}
+
+func startHR(p mut parser) int {
+	if p.indented {
+		return 0
+	}
+	let c = peek(p, p.nns)
+	if c != '*' && c != '_' && c != '-' {
+		return 0
+	}
+	let mut n = 0
+	for j in p.nns..lineLen(p) {
+		let d = peek(p, j)
+		if d == c {
+			n = n + 1
+		} else if !isSpaceOrTab(d) {
+			return 0
+		}
+	}
+	if n < 3 {
+		return 0
+	}
+	closeUnmatched(p)
+	let _ = addChild(p, kHR)
+	advanceOffset(p, lineLen(p)-p.offset, false)
+	2
+}
+
+func startSetext(p mut parser, c int) int {
+	if p.indented || p.bk[c] != kPara {
+		return 0
+	}
+	let ch = peek(p, p.nns)
+	if ch != '=' && ch != '-' {
+		return 0
+	}
+	let mut j = p.nns
+	for peek(p, j) == ch {
+		j = j + 1
+	}
+	for isSpaceOrTab(peek(p, j)) {
+		j = j + 1
+	}
+	if j != lineLen(p) {
+		return 0
+	}
+	closeUnmatched(p)
+	let end = p.t.Len()
+	p.bce[c] = end
+	extractRefs(p, c)
+	if p.bcs[c] < end && !isBlankSpan(p.t, p.bcs[c], end) {
+		p.bk[c] = kHeading
+		p.bval[c] = if ch == '=' { 1 } else { 2 }
+		p.tip = c
+		advanceOffset(p, lineLen(p)-p.offset, false)
+		return 2
+	}
+	p.bcs[c] = p.t.Len()
+	p.bce[c] = -1
+	0
+}
+
+func startIndented(p mut parser) int {
+	if !p.indented || p.bk[p.tip] == kPara || p.blank {
+		return 0
+	}
+	advanceOffset(p, 4, true)
+	closeUnmatched(p)
+	let _ = addChild(p, kCode)
+	2
+}
+
+func parseListMarker(p mut parser, c int) bool {
+	if p.indent >= 4 {
+		return false
+	}
+	let s = p.nns
+	let c0 = peek(p, s)
+	let mut mlen = 0
+	if c0 == '*' || c0 == '+' || c0 == '-' {
+		p.mdOrdered = false
+		p.mdChar = c0
+		mlen = 1
+	} else {
+		let mut n = 0
+		let mut v = 0
+		for n < 10 && isDigit(peek(p, s+n)) {
+			v = v*10 + peek(p, s+n) - 48
+			n = n + 1
+		}
+		let d = peek(p, s+n)
+		if n < 1 || n > 9 || (d != '.' && d != ')') {
+			return false
+		}
+		if p.bk[c] == kPara && v != 1 {
+			return false
+		}
+		p.mdOrdered = true
+		p.mdChar = d
+		p.mdStart = v
+		mlen = n + 1
+	}
+	let nc = peek(p, s+mlen)
+	if nc != -1 && nc != 9 && nc != 32 {
+		return false
+	}
+	if p.bk[c] == kPara {
+		let mut any = false
+		for j in s+mlen..lineLen(p) {
+			if !isSpaceOrTab(peek(p, j)) {
+				any = true
+			}
+		}
+		if !any {
+			return false
+		}
+	}
+	p.mdOffset = p.indent
+	advanceNextNonspace(p)
+	advanceOffset(p, mlen, true)
+	let startCol = p.column
+	let startOff = p.offset
+	let mut again = true
+	for again {
+		advanceOffset(p, 1, true)
+		again = p.column-startCol < 5 && isSpaceOrTab(peek(p, p.offset))
+	}
+	let blankItem = peek(p, p.offset) == -1
+	let after = p.column - startCol
+	if after >= 5 || after < 1 || blankItem {
+		p.mdPad = mlen + 1
+		p.column = startCol
+		p.offset = startOff
+		p.partialTab = false
+		if isSpaceOrTab(peek(p, p.offset)) {
+			advanceOffset(p, 1, true)
+		}
+	} else {
+		p.mdPad = mlen + after
+	}
+	true
+}
+
+func startList(p mut parser, c int) int {
+	if p.indented && p.bk[c] != kList {
+		return 0
+	}
+	if !parseListMarker(p, c) {
+		return 0
+	}
+	closeUnmatched(p)
+	let tip = p.tip
+	let same = p.bk[tip] == kList && (p.bflags[tip]&fOrdered != 0) == p.mdOrdered && p.bchar[tip] == p.mdChar
+	if !same {
+		let l = addChild(p, kList)
+		p.bflags[l] = if p.mdOrdered { fOrdered } else { 0 }
+		p.bchar[l] = p.mdChar
+		p.bval[l] = p.mdStart
+	}
+	let it = addChild(p, kItem)
+	p.bchar[it] = p.mdChar
+	p.bpad[it] = p.mdPad
+	p.bmark[it] = p.mdOffset
+	1
+}
+
+func lowerAt(p mut parser, i int) int { lowerASCII(peek(p, i)) }
+
+func lineHasCI(p mut parser, from int, word string) bool {
+	if from+word.Len() > lineLen(p) {
+		return false
+	}
+	for k in 0..word.Len() {
+		if lowerAt(p, from+k) != int(word[k]) {
+			return false
+		}
+	}
+	true
+}
+
+let html1 = []string{"script", "pre", "textarea", "style"}
+
+let html6 = []string{"address", "article", "aside", "base", "basefont", "blockquote", "body", "caption", "center", "col", "colgroup", "dd", "details", "dialog", "dir", "div", "dl", "dt", "fieldset", "figcaption", "figure", "footer", "form", "frame", "frameset", "h1", "h2", "h3", "h4", "h5", "h6", "head", "header", "hr", "html", "iframe", "legend", "li", "link", "main", "menu", "menuitem", "nav", "noframes", "ol", "optgroup", "option", "p", "param", "search", "section", "summary", "table", "tbody", "td", "tfoot", "th", "thead", "title", "tr", "track", "ul"}
+
+func tagNameEnd(p mut parser, from int) int {
+	let mut j = from
+	if !isAlpha(peek(p, j)) {
+		return from
+	}
+	for isAlnum(peek(p, j)) || peek(p, j) == '-' {
+		j = j + 1
+	}
+	j
+}
+
+func nameIn(p mut parser, from int, to int, names []string) bool {
+	for w in names {
+		if w.Len() == to-from && lineHasCI(p, from, w) {
+			return true
+		}
+	}
+	false
+}
+
+func htmlStartType(p mut parser, s int) int {
+	if lineHasCI(p, s, "<!--") {
+		return 2
+	}
+	if lineHasCI(p, s, "<?") {
+		return 3
+	}
+	if lineHasCI(p, s, "<![cdata[") && peek(p, s+3) == 'C' {
+		return 5
+	}
+	if peek(p, s+1) == '!' && isAlpha(peek(p, s+2)) {
+		return 4
+	}
+	let e1 = tagNameEnd(p, s+1)
+	if e1 > s+1 && nameIn(p, s+1, e1, html1) {
+		let c = peek(p, e1)
+		if c == -1 || c == '>' || isSpaceLine(c) {
+			return 1
+		}
+	}
+	let closing = peek(p, s+1) == '/'
+	let ns = if closing { s + 2 } else { s + 1 }
+	let e = tagNameEnd(p, ns)
+	if e > ns && nameIn(p, ns, e, html6) {
+		let c = peek(p, e)
+		if c == -1 || c == '>' || isSpaceLine(c) || (c == '/' && peek(p, e+1) == '>') {
+			return 6
+		}
+	}
+	let n = htmlTagLen(p.src, p.ls+s, p.le, false, -1, -1)
+	if n > 0 {
+		let mut j = s + n
+		for isSpaceLine(peek(p, j)) {
+			j = j + 1
+		}
+		if j == lineLen(p) {
+			return 7
+		}
+	}
+	0
+}
+
+func isSpaceLine(c int) bool { c == 32 || c == 9 || c == 11 || c == 12 }
+
+func startHTML(p mut parser, c int) int {
+	if p.indented || peek(p, p.nns) != '<' {
+		return 0
+	}
+	let ty = htmlStartType(p, p.nns)
+	if ty == 0 {
+		return 0
+	}
+	if ty == 7 && (p.bk[c] == kPara || (!p.allClosed && !p.blank && p.bk[p.tip] == kPara)) {
+		return 0
+	}
+	closeUnmatched(p)
+	let b = addChild(p, kHTML)
+	p.bval[b] = ty
+	2
+}
+
+func htmlCloses(p mut parser, ty int) bool {
+	let n = lineLen(p)
+	for j in p.offset..n {
+		let c = peek(p, j)
+		if ty == 1 && c == '<' && peek(p, j+1) == '/' {
+			let e = tagNameEnd(p, j+2)
+			if nameIn(p, j+2, e, html1) && peek(p, e) == '>' {
+				return true
+			}
+		} else if ty == 2 && c == '-' && peek(p, j+1) == '-' && peek(p, j+2) == '>' {
+			return true
+		} else if ty == 3 && c == '?' && peek(p, j+1) == '>' {
+			return true
+		} else if ty == 4 && c == '>' {
+			return true
+		} else if ty == 5 && c == ']' && peek(p, j+1) == ']' && peek(p, j+2) == '>' {
+			return true
+		}
+	}
+	false
+}
+
+func delimRow(p mut parser, from int, to int) int {
+	let mut j = from
+	let mut cells = 0
+	let mut pipes = 0
+	let mark = p.aligns.Len()
+	p.aligns = p.aligns.Append(0)
+	if peek(p, j) == '|' {
+		j = j + 1
+		pipes = pipes + 1
+	}
+	let mut done = false
+	for !done {
+		for isSpaceOrTab(peek(p, j)) {
+			j = j + 1
+		}
+		if j >= to {
+			done = true
+		} else {
+			let left = peek(p, j) == ':'
+			if left {
+				j = j + 1
+			}
+			let mut dashes = 0
+			for peek(p, j) == '-' {
+				j = j + 1
+				dashes = dashes + 1
+			}
+			let right = peek(p, j) == ':'
+			if right {
+				j = j + 1
+			}
+			if dashes == 0 {
+				p.aligns = p.aligns[0:mark]
+				return 0
+			}
+			for isSpaceOrTab(peek(p, j)) {
+				j = j + 1
+			}
+			cells = cells + 1
+			p.aligns = p.aligns.Append(if left && right { 2 } else if right { 3 } else if left { 1 } else { 0 })
+			if j < to && peek(p, j) == '|' {
+				j = j + 1
+				pipes = pipes + 1
+			} else if j < to {
+				p.aligns = p.aligns[0:mark]
+				return 0
+			}
+		}
+	}
+	if cells == 0 {
+		p.aligns = p.aligns[0:mark]
+		return 0
+	}
+	p.aligns[mark] = cells
+	cells
+}
+
+func countCells(t []byte, from int, to int) (int, int) {
+	let mut a = from
+	let mut z = to
+	for a < z && (t[a] == ' ' || t[a] == '\t') {
+		a = a + 1
+	}
+	for z > a && (t[z-1] == ' ' || t[z-1] == '\t') {
+		z = z - 1
+	}
+	let mut pipes = 0
+	let mut cells = 1
+	let mut i = a
+	for i < z {
+		if t[i] == '\\' && i+1 < z {
+			i = i + 2
+		} else {
+			if t[i] == '|' {
+				pipes = pipes + 1
+				if i != a && i != z-1 {
+					cells = cells + 1
+				}
+			}
+			i = i + 1
+		}
+	}
+	if z-a == 1 && pipes == 1 {
+		cells = 0
+	}
+	(cells, pipes)
+}
+
+func startTable(p mut parser, c int) int {
+	if p.indented || p.bk[c] != kPara {
+		return 0
+	}
+	let ch = peek(p, p.nns)
+	if ch != '|' && ch != ':' && ch != '-' {
+		return 0
+	}
+	let mark = p.aligns.Len()
+	let cols = delimRow(p, p.nns, lineLen(p))
+	if cols == 0 {
+		return 0
+	}
+	let end = p.t.Len()
+	let mut hs = end - 1
+	for hs > p.bcs[c] && p.t[hs-1] != '\n' {
+		hs = hs - 1
+	}
+	let (hcells, pipes) = countCells(p.t, hs, end-1)
+	if hcells != cols || pipes == 0 {
+		p.aligns = p.aligns[0:mark]
+		return 0
+	}
+	closeUnmatched(p)
+	if hs == p.bcs[c] {
+		p.bk[c] = kTable
+		p.bval[c] = mark
+		p.bflags[c] = fFresh
+		p.tip = c
+	} else {
+		p.bce[c] = hs
+		finalize(p, c, p.lineNo-2)
+		let hb = hs
+		let he = end
+		let b = addChild(p, kTable)
+		p.bstart[b] = p.lineNo - 1
+		p.bcs[b] = p.t.Len()
+		p.t = p.t.AppendFrom(hb, he-hb)
+		p.bval[b] = mark
+		p.bflags[b] = fFresh
+	}
+	advanceOffset(p, lineLen(p)-p.offset, false)
+	2
+}
+
+func parseBlocks(p mut parser) {
+	let _ = newBlock(p, kDoc, -1)
+	let n = p.src.Len()
+	let mut i = 0
+	for i < n {
+		let mut e = i
+		for e < n && p.src[e] != '\n' && p.src[e] != '\r' {
+			e = e + 1
+		}
+		p.ls = i
+		p.le = e
+		incorporateLine(p)
+		p.work = p.work + 1
+		if e < n && p.src[e] == '\r' && e+1 < n && p.src[e+1] == '\n' {
+			i = e + 2
+		} else {
+			i = e + 1
+		}
+	}
+	for p.tip >= 0 {
+		finalize(p, p.tip, p.lineNo)
+	}
+}
