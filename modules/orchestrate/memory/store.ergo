@@ -121,6 +121,46 @@ func ListQuestions(s Store, openOnly bool) []orchestrate.Question fails orchestr
 	orchestrate.ListQuestions(s.cell.Get().state, openOnly)
 }
 
+// RunMeta looks up run-level metadata for (repo, run).
+func RunMeta(s Store, repo string, run string) option.Option[orchestrate.RunMeta] fails orchestrate.StoreFailed {
+	orchestrate.RunMetaOf(s.cell.Get().state, repo, run)
+}
+
+// RunSummary computes the compact progressive-disclosure overview for (repo, run).
+func RunSummary(s Store, repo string, run string, landingsLimit int) orchestrate.RunOverview fails orchestrate.StoreFailed {
+	orchestrate.QueryRunSummary(s.cell.Get().state, repo, run, landingsLimit)
+}
+
+// ListUnits returns filtered and paginated compact unit summaries without receipt payloads.
+func ListUnits(s Store, filter orchestrate.UnitFilter) orchestrate.UnitPage fails orchestrate.StoreFailed {
+	orchestrate.QueryUnitList(s.cell.Get().state, filter)
+}
+
+// Decision looks up one structured decision by (repo, run, id).
+func Decision(s Store, repo string, run string, id string) option.Option[orchestrate.Decision] fails orchestrate.StoreFailed {
+	orchestrate.DecisionByKey(s.cell.Get().state, orchestrate.DecisionKey{Repo: repo, Run: run, ID: id})
+}
+
+// ListDecisions returns filtered and paginated structured decisions.
+func ListDecisions(s Store, filter orchestrate.DecisionFilter) orchestrate.DecisionPage fails orchestrate.StoreFailed {
+	orchestrate.QueryDecisionList(s.cell.Get().state, filter)
+}
+
+// Landing looks up one integration landing record by (repo, run, landingNumber).
+func Landing(s Store, repo string, run string, landingNumber int) option.Option[orchestrate.Landing] fails orchestrate.StoreFailed {
+	orchestrate.LandingByKey(s.cell.Get().state, orchestrate.LandingKey{Repo: repo, Run: run, LandingNumber: landingNumber})
+}
+
+// ListLandings returns filtered and paginated integration landing records.
+func ListLandings(s Store, filter orchestrate.LandingFilter) orchestrate.LandingPage fails orchestrate.StoreFailed {
+	orchestrate.QueryLandingList(s.cell.Get().state, filter)
+}
+
+// ListEventLog returns filtered, ordered, and paginated operational ledger events.
+func ListEventLog(s Store, filter orchestrate.EventLogFilter) orchestrate.EventPage fails orchestrate.StoreFailed {
+	orchestrate.QueryEventLog(s.cell.Get().state, filter)
+}
+
 let overMemoryStore = context { orchestrate.Store: New() }
 
 let overMemoryApi = context { orchestrate.Api: orchestrate.NewService(New(), time.NewManual(0)) }
