@@ -139,7 +139,7 @@ func TestCompilerFootprintsAgree(t *testing.T) {
 		base = uint32(n)
 	}
 	type fpCase struct {
-		name, src, replay string
+		name, src, replay  string
 		want, ext, foreign []string
 		exact              bool
 	}
