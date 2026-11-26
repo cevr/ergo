@@ -21,22 +21,24 @@ var unboundedCollect = &Rule{
 }
 
 func checkUnboundedCollect(p *Pass) {
-	bound := map[*check.Var]syntax.Expr{}
-	syntax.Inspect(p.File, func(n syntax.Node) bool {
-		d, ok := n.(*syntax.DeclStmt)
-		if !ok {
-			return true
-		}
+	fi := p.fileIndex()
+	if len(fi.calls) == 0 && len(fi.ranges) == 0 {
+		return
+	}
+	var bound map[*check.Var]syntax.Expr
+	for _, d := range fi.declStmts {
 		for _, s := range d.Decl.Specs {
 			if len(s.Names) != 1 || len(s.Values) != 1 {
 				continue
 			}
 			if v, isVar := p.Info.Defs[s.Names[0]].(*check.Var); isVar && !v.Mut() {
+				if bound == nil {
+					bound = map[*check.Var]syntax.Expr{}
+				}
 				bound[v] = s.Values[0]
 			}
 		}
-		return true
-	})
+	}
 	var unbounded func(e syntax.Expr, depth int) bool
 	unbounded = func(e syntax.Expr, depth int) bool {
 		for {
@@ -61,20 +63,17 @@ func checkUnboundedCollect(p *Pass) {
 		}
 		return false
 	}
-	syntax.Inspect(p.File, func(n syntax.Node) bool {
-		switch n := n.(type) {
-		case *syntax.CallExpr:
-			call := p.Info.Calls[n]
-			if call != nil && check.RoleOf(call.Func) == check.RoleCollect && len(n.Args) == 1 && unbounded(n.Args[0], 0) {
-				p.Report(n.Pos(), n.End(), "this collects a Seq that ends only when its source is closed, so it waits for that close")
-			}
-		case *syntax.RangeStmt:
-			if unbounded(n.X, 0) && appendsWithoutLeaving(p.Info, n.Body) {
-				p.ReportInstead(n.For, n.Body.Lbrace, "this loop appends every value of a Seq that ends only when its source is closed and never leaves early", "handle each value, or say why with // "+DirectiveWord+" unbounded-collect -- REASON", nil)
-			}
+	for _, n := range fi.calls {
+		call := p.Info.Calls[n]
+		if call != nil && check.RoleOf(call.Func) == check.RoleCollect && len(n.Args) == 1 && unbounded(n.Args[0], 0) {
+			p.Report(n.Pos(), n.End(), "this collects a Seq that ends only when its source is closed, so it waits for that close")
 		}
-		return true
-	})
+	}
+	for _, n := range fi.ranges {
+		if unbounded(n.X, 0) && appendsWithoutLeaving(p.Info, n.Body) {
+			p.ReportInstead(n.For, n.Body.Lbrace, "this loop appends every value of a Seq that ends only when its source is closed and never leaves early", "handle each value, or say why with // "+DirectiveWord+" unbounded-collect -- REASON", nil)
+		}
+	}
 }
 
 // appendsWithoutLeaving reports a loop body that calls the prelude's

@@ -25,17 +25,26 @@ var repeatedTraversal = &Rule{
 }
 
 func checkRepeatedTraversal(p *Pass) {
-	syntax.Inspect(p.File, func(n syntax.Node) bool {
-		b, ok := n.(*syntax.BlockStmt)
-		if !ok {
-			return true
-		}
+	for _, b := range p.fileIndex().blocks {
 		for i, s := range b.List {
 			first, ok := s.(*syntax.RangeStmt)
 			if !ok {
 				continue
 			}
 			v := rootVar(p.Info, first.X)
+			if v == nil {
+				continue
+			}
+			hasSecond := false
+			for _, t := range b.List[i+1:] {
+				if second, isRange := t.(*syntax.RangeStmt); isRange && rootVar(p.Info, second.X) == v {
+					hasSecond = true
+					break
+				}
+			}
+			if !hasSecond {
+				continue
+			}
 			if v == nil || writes(p.Info, first.Body, v) || leavesEarly(first.Body) {
 				continue
 			}
@@ -54,6 +63,5 @@ func checkRepeatedTraversal(p *Pass) {
 				}
 			}
 		}
-		return true
-	})
+	}
 }

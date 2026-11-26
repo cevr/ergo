@@ -40,18 +40,9 @@ var testWaitsOnTime = &Rule{
 }
 
 func checkTestWaitsOnTime(p *Pass) {
-	syntax.Inspect(p.File, func(n syntax.Node) bool {
-		var body *syntax.BlockStmt
-		switch d := n.(type) {
-		case *syntax.TestDecl:
-			body = d.Body
-		case *syntax.LawDecl:
-			body = d.Body
-		default:
-			return true
-		}
+	checkBody := func(body *syntax.BlockStmt) {
 		if body == nil {
-			return false
+			return
 		}
 		caps := check.ClockCaps(clocksIn(p.Info, body))
 		var waits []*syntax.CallExpr
@@ -98,14 +89,35 @@ func checkTestWaitsOnTime(p *Pass) {
 			})
 		}
 		walk(body, true)
+		if len(waits) == 0 {
+			return
+		}
 		if timed || sharedClock(p.Info, body) {
-			return false
+			return
 		}
 		for _, w := range waits {
 			p.Report(w.Pos(), w.End(), "this test lets time pass while nothing it runs reads time, so it waits for work to settle and a slower run fails")
 		}
-		return false
-	})
+	}
+	for _, d := range p.File.Decls {
+		switch d := d.(type) {
+		case *syntax.TestDecl:
+			checkBody(d.Body)
+		case *syntax.LawDecl:
+			checkBody(d.Body)
+		case *syntax.TypeDecl:
+			switch s := d.Spec.(type) {
+			case *syntax.InterfaceType:
+				for _, l := range s.Laws {
+					checkBody(l.Body)
+				}
+			case *syntax.MachineType:
+				for _, l := range s.Laws {
+					checkBody(l.Body)
+				}
+			}
+		}
+	}
 }
 
 // clocksIn is the manual clocks the test names: the types of its

@@ -163,7 +163,7 @@ You need Go 1.27 and Git.
 
 ```sh
 git clone --depth 1 https://github.com/cevr/ergo.git && cd ergo
-go build -o bin/ergo ./cmd/ergo
+CGO_ENABLED=0 go build -trimpath -buildvcs=false -o bin/ergo ./cmd/ergo
 ./bin/ergo run examples/lookup/cmd/lookup   # prints: 192.0.2.1
 ```
 

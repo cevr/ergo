@@ -128,8 +128,14 @@ An empty selection is an error.
 
 A passing run's output is cached in Ergo's build cache, as `go test` caches a
 passing result. A later run with the same key prints the same output, then
-`ergo: cached pass replayed; --count 1 runs it again` on stderr, and neither
-invokes the go command nor runs the binary. The key holds everything the
+`ergo: cached pass replayed; --fresh runs it again` on stderr, and neither
+invokes the go command nor runs the binary. `--fresh` reads no stored
+result, answer or verdict, runs every obligation again and keeps each pass,
+so the run after it replays again; `--count 1` runs again and keeps
+nothing. The Ergo cache is the user's, so a package folder whose files
+another workspace of the same tree already passed is replayed there too: its
+warm answer names its folder relative to its module (`ergo.mod`), never a
+workspace ([build](spec/build.md#warm-answer)). The key holds everything the
 verdict reads: the test binary (the emitted module, the Go toolchain, target,
 flags, tags and strip setting), the binary's arguments (source, revision, `--seed`, `--states`, `--law`,
 `--skip-law`, `--run`), the memory limit, the go command (its path, size and

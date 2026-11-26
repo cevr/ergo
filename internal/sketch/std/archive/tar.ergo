@@ -1,0 +1,421 @@
+import slices
+
+let blockSize = 512
+let maxOctal11 = 8589934591
+
+type pax {
+	path     string,
+	hasPath  bool,
+	link     string,
+	hasLink  bool,
+	size     int,
+	hasSize  bool,
+	mtime    int,
+	hasMtime bool,
+}
+
+func noPax() pax {
+	pax{path: "", hasPath: false, link: "", hasLink: false, size: 0, hasSize: false, mtime: 0, hasMtime: false}
+}
+
+func zeros(n int) []byte { []byte{byte(0)}.Repeat(n) }
+
+func appendField(out []byte, s []byte, width int) []byte {
+	let n = if s.Len() < width { s.Len() } else { width }
+	out.AppendBytes(s[:n]).AppendBytes(zeros(width - n))
+}
+
+func appendOctal(out []byte, width int, v int) []byte {
+	let mut o = out
+	let mut k = width - 2
+	for k >= 0 {
+		o = o.Append(byte(48 + ((v >> (3 * k)) & 7)))
+		k = k - 1
+	}
+	o.Append(byte(0))
+}
+
+func putChecksum(h []byte, at int) []byte {
+	let (sum, _) = tarSums(h, at)
+	let mut out = h
+	let mut k = 5
+	for k >= 0 {
+		out[at+148+5-k] = byte(48 + ((sum >> (3 * k)) & 7))
+		k = k - 1
+	}
+	out[at+154] = byte(0)
+	out[at+155] = byte(32)
+	out
+}
+
+func tarSums(h []byte, at int) (int, int) {
+	let mut unsigned = 0
+	let mut signed = 0
+	for i in 0..blockSize {
+		let b = if i >= 148 && i < 156 { 32 } else { int(h[at+i]) }
+		unsigned = unsigned + b
+		signed = signed + (if b >= 128 { b - 256 } else { b })
+	}
+	(unsigned, signed)
+}
+
+func appendHeader(out []byte, name string, prefix string, flag byte, mode int, size int, mtime int, link string) []byte {
+	let at = out.Len()
+	let mut h = appendField(out, name.Bytes(), 100)
+	h = appendOctal(h, 8, mode)
+	h = appendOctal(h, 8, 0)
+	h = appendOctal(h, 8, 0)
+	h = appendOctal(h, 12, size)
+	h = appendOctal(h, 12, mtime)
+	h = h.AppendString("        ").Append(flag)
+	h = appendField(h, link.Bytes(), 100)
+	h = appendField(h, "ustar".Bytes(), 6).AppendString("00")
+	h = appendField(h, []byte{}, 80)
+	h = appendField(h, prefix.Bytes(), 155)
+	putChecksum(appendField(h, []byte{}, 12), at)
+}
+
+func splitUstar(name string) (string, string, bool) {
+	let bs = name.Bytes()
+	let n = bs.Len()
+	if n <= 100 {
+		return ("", name, true)
+	}
+	let mut i = if n-1 < 155 { n - 1 } else { 155 }
+	for i > 0 {
+		if bs[i] == byte('/') && n-i-1 <= 100 && n-i-1 > 0 {
+			return (bs[:i].Text(), bs[i+1:].Text(), true)
+		}
+		i = i - 1
+	}
+	("", "", false)
+}
+
+func paxRecord(key string, value string) string {
+	let body = " " + key + "=" + value + "\n"
+	let mut n = body.Len() + 1
+	for "\(n)".Len()+body.Len() != n {
+		n = "\(n)".Len() + body.Len()
+	}
+	"\(n)" + body
+}
+
+func cut(s string, width int) string {
+	let bs = s.Bytes()
+	if bs.Len() <= width { s } else { bs[:width].Text() }
+}
+
+func padTo(out []byte) []byte {
+	let rest = out.Len() % blockSize
+	if rest == 0 { out } else { out.AppendBytes(zeros(blockSize - rest)) }
+}
+
+func tarFlag(k Kind) byte {
+	match k {
+	case File:
+		byte('0')
+	case Dir:
+		byte('5')
+	case Symlink:
+		byte('2')
+	case HardLink:
+		byte('1')
+	}
+}
+
+func writeTar(a Archive) []byte {
+	let mut out = slices.WithCapacity[byte](a.data.Len() + (a.rows.Len()+2)*blockSize)
+	for i, r in a.rows {
+		let name = if isDir(r.kind) { r.path + "/" } else { r.path }
+		let (prefix0, short0, fits) = splitUstar(name)
+		let mut prefix = prefix0
+		let mut short = short0
+		let mut records = ""
+		if !fits {
+			records = records + paxRecord("path", name)
+			short = cut(name, 100)
+			prefix = ""
+		}
+		let mut link = r.link
+		if r.link.Len() > 100 {
+			records = records + paxRecord("linkpath", r.link)
+			link = cut(r.link, 100)
+		}
+		let mut size = r.size
+		if r.size > maxOctal11 {
+			records = records + paxRecord("size", "\(r.size)")
+			size = 0
+		}
+		let mut mtime = r.modTime
+		if r.modTime < 0 || r.modTime > maxOctal11 {
+			records = records + paxRecord("mtime", "\(r.modTime)")
+			mtime = 0
+		}
+		if records != "" {
+			out = appendHeader(out, cut("PaxHeaders/"+short, 100), "", byte('x'), 420, records.Len(), 0, "")
+			out = padTo(out.AppendString(records))
+		}
+		out = appendHeader(out, short, prefix, tarFlag(r.kind), r.mode, size, mtime, link)
+		if r.size > 0 {
+			out = padTo(out.AppendBytes(Content(a, i)))
+		}
+	}
+	out.AppendBytes(zeros(2 * blockSize))
+}
+
+func cstr(b []byte, at int, width int) string {
+	let mut j = at
+	for j < at+width && b[j] != byte(0) {
+		j = j + 1
+	}
+	b[at:j].Text()
+}
+
+func parseNumber(b []byte, at int, width int, offset int) int fails Malformed {
+	if b[at]&byte(128) != byte(0) {
+		if b[at] == byte(255) {
+			return Malformed{Offset: offset + at, Reason: "negative number"}
+		}
+		let mut v = int(b[at] & byte(127))
+		for i in 1..width {
+			if v > 36028797018963967 {
+				return Malformed{Offset: offset + at, Reason: "number overflows"}
+			}
+			v = v*256 + int(b[at+i])
+		}
+		return v
+	}
+	let mut i = at
+	let end = at + width
+	for i < end && b[i] == byte(32) {
+		i = i + 1
+	}
+	let mut v = 0
+	for i < end && b[i] >= byte('0') && b[i] <= byte('7') {
+		if v > 1152921504606846975 {
+			return Malformed{Offset: offset + at, Reason: "number overflows"}
+		}
+		v = v*8 + int(b[i]-byte('0'))
+		i = i + 1
+	}
+	for i < end {
+		if b[i] != byte(0) && b[i] != byte(32) {
+			return Malformed{Offset: offset + at, Reason: "bad octal number"}
+		}
+		i = i + 1
+	}
+	v
+}
+
+func parseDecimal(s string, offset int, signed bool) int fails Malformed {
+	let bs = s.Bytes()
+	let mut i = 0
+	let neg = signed && bs.Len() > 0 && bs[0] == byte('-')
+	if neg {
+		i = 1
+	}
+	let start = i
+	let mut v = 0
+	for i < bs.Len() && bs[i] >= byte('0') && bs[i] <= byte('9') {
+		if v > 922337203685477579 {
+			return Malformed{Offset: offset, Reason: "number overflows"}
+		}
+		v = v*10 + int(bs[i]-byte('0'))
+		i = i + 1
+	}
+	if i == start {
+		return Malformed{Offset: offset, Reason: "bad decimal number"}
+	}
+	if i < bs.Len() {
+		if !signed || bs[i] != byte('.') {
+			return Malformed{Offset: offset, Reason: "bad decimal number"}
+		}
+		i = i + 1
+		for i < bs.Len() {
+			if bs[i] < byte('0') || bs[i] > byte('9') {
+				return Malformed{Offset: offset, Reason: "bad decimal number"}
+			}
+			i = i + 1
+		}
+	}
+	if neg { -v } else { v }
+}
+
+func parsePax(b []byte, offset int, into pax) pax fails Malformed {
+	let mut x = into
+	let mut p = 0
+	for p < b.Len() {
+		let mut q = p
+		let mut n = 0
+		for q < b.Len() && b[q] >= byte('0') && b[q] <= byte('9') {
+			n = n*10 + int(b[q]-byte('0'))
+			if n > b.Len() {
+				return Malformed{Offset: offset + p, Reason: "pax record length"}
+			}
+			q = q + 1
+		}
+		if q == p || q >= b.Len() || b[q] != byte(32) || n <= q-p+1 || p+n > b.Len() || b[p+n-1] != byte(10) {
+			return Malformed{Offset: offset + p, Reason: "pax record"}
+		}
+		let rec = b[q+1 : p+n-1]
+		let mut k = 0
+		for k < rec.Len() && rec[k] != byte('=') {
+			k = k + 1
+		}
+		if k == rec.Len() {
+			return Malformed{Offset: offset + p, Reason: "pax record without ="}
+		}
+		let key = rec[:k].Text()
+		let value = rec[k+1:].Text()
+		if key == "path" {
+			x.path = value
+			x.hasPath = true
+		} else if key == "linkpath" {
+			x.link = value
+			x.hasLink = true
+		} else if key == "size" {
+			x.size = try parseDecimal(value, offset+p, false)
+			x.hasSize = true
+		} else if key == "mtime" {
+			x.mtime = try parseDecimal(value, offset+p, true)
+			x.hasMtime = true
+		}
+		p = p + n
+	}
+	x
+}
+
+func zeroAt(data []byte, p int) bool {
+	for i in 0..blockSize {
+		if data[p+i] != byte(0) {
+			return false
+		}
+	}
+	true
+}
+
+func readTar(data []byte, maxBytes int) Archive fails Unsafe | UnsafeLink | ThroughLink | Malformed | Truncated | Unsupported | LimitExceeded {
+	let mut a = New()
+	let n = data.Len()
+	let mut pos = 0
+	let mut x = noPax()
+	let mut longName = ""
+	let mut longLink = ""
+	let mut used = 0
+	for pos < n {
+		if pos+blockSize > n {
+			return Truncated{Offset: n}
+		}
+		if zeroAt(data, pos) {
+			return a
+		}
+		let (unsigned, signed) = tarSums(data, pos)
+		let stored = try parseNumber(data, pos+148, 8, 0)
+		if stored != unsigned && stored != signed {
+			return Malformed{Offset: pos, Reason: "header checksum"}
+		}
+		let flag = data[pos+156]
+		let mut size = try parseNumber(data, pos+124, 12, 0)
+		if x.hasSize {
+			size = x.size
+		}
+		let start = pos + blockSize
+		let carries = flag == byte('0') || flag == byte(0) || flag == byte('7') || flag == byte('x') || flag == byte('g') || flag == byte('L') || flag == byte('K')
+		let length = if carries { size } else { 0 }
+		if length > n-start {
+			return Truncated{Offset: n}
+		}
+		let body = data[start : start+length]
+		let next = start + (length+blockSize-1)/blockSize*blockSize
+		if flag == byte('x') {
+			x = try parsePax(body, start, x)
+		} else if flag == byte('g') {
+		} else if flag == byte('L') {
+			longName = cstr(body, 0, body.Len())
+		} else if flag == byte('K') {
+			longLink = cstr(body, 0, body.Len())
+		} else {
+			let mut name = cstr(data, pos, 100)
+			if cstr(data, pos+257, 6) == "ustar" && data[pos+262] == byte(0) {
+				let prefix = cstr(data, pos+345, 155)
+				if prefix != "" {
+					name = prefix + "/" + name
+				}
+			}
+			if longName != "" {
+				name = longName
+			}
+			if x.hasPath {
+				name = x.path
+			}
+			let mut link = cstr(data, pos+157, 100)
+			if longLink != "" {
+				link = longLink
+			}
+			if x.hasLink {
+				link = x.link
+			}
+			let mut mtime = try parseNumber(data, pos+136, 12, 0)
+			if x.hasMtime {
+				mtime = x.mtime
+			}
+			let mode = try parseNumber(data, pos+100, 8, 0)
+			let kind = if flag == byte('0') || flag == byte(0) || flag == byte('7') {
+				File
+			} else if flag == byte('5') {
+				Dir
+			} else if flag == byte('2') {
+				Symlink
+			} else if flag == byte('1') {
+				HardLink
+			} else {
+				return Unsupported{Path: name, Feature: "tar entry type " + []byte{flag}.Text()}
+			}
+			if isFile(kind) {
+				if used+length > maxBytes {
+					return LimitExceeded{Limit: maxBytes}
+				}
+				used = used + length
+			}
+			try Add(&a, Header{Path: name, Kind: kind, Mode: mode, ModTime: mtime, Link: link}, body)
+			x = noPax()
+			longName = ""
+			longLink = ""
+		}
+		pos = next
+	}
+	return Truncated{Offset: n}
+}
+
+// HeadersAreChecked: a tar whose header names a path that climbs above the
+// root fails Unsafe once its header checksum is made right, and fails
+// Malformed while the checksum is wrong.
+law HeadersAreChecked(seg string, body []byte) {
+	let s = safeSegment(seg)
+	let mut a = New()
+	AddFile(&a, "aa/"+s, body) catch {
+	case Unsafe, ThroughLink:
+		return false
+	}
+	let mut t = writeTar(a)
+	t[0] = byte('.')
+	t[1] = byte('.')
+	let mut bad = false
+	let _ = readTar(t, body.Len()) catch {
+	case Malformed:
+		bad = true
+		New()
+	case Unsafe, UnsafeLink, ThroughLink, Truncated, Unsupported, LimitExceeded:
+		New()
+	}
+	let fixed = putChecksum(t, 0)
+	let mut slipped = false
+	let _ = readTar(fixed, body.Len()) catch {
+	case Unsafe as u:
+		slipped = u.Reason == "climbs above the root"
+		New()
+	case UnsafeLink, ThroughLink, Malformed, Truncated, Unsupported, LimitExceeded:
+		New()
+	}
+	bad && slipped
+}

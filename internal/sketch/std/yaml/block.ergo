@@ -1,0 +1,146 @@
+type header { Literal bool, Chomp int, Given int }
+
+type folding { Out []byte, Pending int, Started bool, PrevMore bool, Lines int, LastBreak bool }
+
+func blockHeader(p mut parser) header fails Malformed {
+	let s = p.src
+	let literal = s[p.pos] == byte('|')
+	p.pos += 1
+	let mut chomp = 0
+	let mut given = 0
+	for _ in 0..2 {
+		let c = byteAt(s, p.pos)
+		if (c == byte('-') || c == byte('+')) && chomp == 0 {
+			chomp = if c == byte('-') { -1 } else { 1 }
+			p.pos += 1
+		} else if c >= byte('1') && c <= byte('9') && given == 0 {
+			given = int(c - byte('0'))
+			p.pos += 1
+		}
+	}
+	skipInline(p)
+	if !atLineEnd(p) {
+		return bad(s, p.pos, "text after a block scalar header")
+	}
+	p.pos = lineEnd(s, p.pos)
+	if p.pos < s.Len() {
+		p.pos += 1
+	}
+	header{Literal: literal, Chomp: chomp, Given: given}
+}
+
+func lineEnd(s string, from int) int {
+	let mut e = from
+	for e < s.Len() && s[e] != byte('\n') {
+		e += 1
+	}
+	e
+}
+
+func firstIndent(s string, from int) int {
+	let n = s.Len()
+	let mut j = from
+	for j < n {
+		let ls = j
+		for j < n && s[j] == byte(' ') {
+			j += 1
+		}
+		if j < n && s[j] == byte('\n') {
+			j += 1
+			continue
+		}
+		return if j < n && !isDocMarker(s, ls) { j - ls } else { -1 }
+	}
+	-1
+}
+
+func contentIndent(s string, from int, parent int, given int) int {
+	if given > 0 {
+		return (if parent < 0 { 0 } else { parent }) + given
+	}
+	let ci = firstIndent(s, from)
+	if ci > parent && ci >= 0 {
+		return ci
+	}
+	if parent < 0 { 0 } else { parent + 1 }
+}
+
+func breaks(out []byte, k int) []byte {
+	let mut o = out
+	for _ in 0..k {
+		o = o.Append(byte('\n'))
+	}
+	o
+}
+
+func foldLine(f mut folding, text string, literal bool) {
+	let more = isBlank(text[0])
+	let k = f.Pending
+	if !f.Started {
+		f.Out = breaks(f.Out, k)
+	} else if literal {
+		f.Out = breaks(f.Out, k+1)
+	} else if k == 0 && !more && !f.PrevMore {
+		f.Out = f.Out.Append(byte(' '))
+	} else {
+		f.Out = breaks(f.Out, if more || f.PrevMore { k + 1 } else { k })
+	}
+	f.Out = f.Out.AppendString(text)
+	f.Started = true
+	f.PrevMore = more
+	f.Pending = 0
+}
+
+func chomped(f folding, chomp int) string {
+	if !f.Started {
+		return if chomp == 1 { breaks([]byte{}, f.Lines).Text() } else { "" }
+	}
+	let lastHasBreak = f.Pending > 0 || f.LastBreak
+	if chomp < 0 || !lastHasBreak {
+		return f.Out.Text()
+	}
+	breaks(f.Out, if chomp == 0 { 1 } else { f.Pending + 1 }).Text()
+}
+
+func indentEnd(s string, ls int, ci int) int {
+	let mut j = ls
+	for j < s.Len() && s[j] == byte(' ') && j-ls < ci {
+		j += 1
+	}
+	j
+}
+
+func blankRun(s string, from int, to int) bool {
+	for q in from..to {
+		if !isBlank(s[q]) {
+			return false
+		}
+	}
+	true
+}
+
+func blockScalar(p mut parser, parent int) int fails Malformed {
+	let s = p.src
+	let off = p.pos
+	let h = try blockHeader(p)
+	let ci = contentIndent(s, p.pos, parent, h.Given)
+	let mut f = folding{Out: []byte{}, Pending: 0, Started: false, PrevMore: false, Lines: 0, LastBreak: false}
+	for p.pos < s.Len() && !isDocMarker(s, p.pos) {
+		let ls = p.pos
+		let j = indentEnd(s, ls, ci)
+		let e = lineEnd(s, j)
+		let short = j-ls < ci
+		if short && !blankRun(s, j, e) {
+			break
+		}
+		f.Lines += 1
+		if short || j == e {
+			f.Pending += 1
+		} else {
+			foldLine(&f, s[j:e], h.Literal)
+		}
+		f.LastBreak = e < s.Len()
+		p.pos = if e < s.Len() { e + 1 } else { e }
+	}
+	add(p, kindString, chomped(f, h.Chomp), off)
+}

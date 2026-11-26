@@ -27,18 +27,18 @@ var etaMethodValue = &Rule{
 
 func checkEtaMethodValue(p *Pass) {
 	src := p.File.Src
-	syntax.Inspect(p.File, func(n syntax.Node) bool {
-		x, ok := n.(*syntax.FuncLit)
-		if !ok {
-			return true
+	skipUntil := syntax.NoPos
+	for _, x := range p.fileIndex().funcLits {
+		if skipUntil.IsValid() && x.Pos() < skipUntil {
+			continue
 		}
 		sel := p.Info.EtaMethodValue(x)
 		if sel == nil {
-			return true
+			continue
 		}
 		text := src[sel.Pos():sel.End()]
 		fix := &report.Fix{InsertAt: int(x.Pos()), Replace: int(x.End() - x.Pos()), Text: text}
 		p.ReportFix(x.Pos(), x.End(), "this literal only calls "+text+" with its parameters: it is the method value "+text, fix)
-		return false
-	})
+		skipUntil = x.End()
+	}
 }

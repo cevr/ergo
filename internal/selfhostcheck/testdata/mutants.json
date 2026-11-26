@@ -8,7 +8,9 @@
       "from": "if len(idx[key]) != 0 {\n\t\treturn\n\t}",
       "to": "if false {\n\t\treturn\n\t}",
       "rule": "A test-only Go variant can fill a production hole but must not hide a real production IR difference.",
-      "killers": ["internal/selfhostcheck:TestIRAgreementTestOnlyOracle"]
+      "killers": [
+        "internal/selfhostcheck:TestIRAgreementTestOnlyOracle"
+      ]
     },
     {
       "name": "lower-agree-record-differing-body",
@@ -17,9 +19,31 @@
       "from": "if match >= 0 && receipt != nil {\n\t\tfmt.Fprintf(receipt, \"F %s %s %s\\n\", site.path, site.offset, wants[match].name)\n\t}",
       "to": "if receipt != nil {\n\t\tfmt.Fprintf(receipt, \"F %s %s %s\\n\", site.path, site.offset, wants[max(match, 0)].name)\n\t}",
       "rule": "A match receipt records byte equality, not merely the existence of a Go candidate.",
-      "killers": ["internal/selfhostcheck:TestIRAgreementMatchesReceipt"]
+      "killers": [
+        "internal/selfhostcheck:TestIRAgreementMatchesReceipt"
+      ]
     },
-    {"name":"claim-law-permits-bare-self-call","origin":"wf10 CLAIM-LAWS","file":"compiler/check/expr/call.ergo","from":"if selected.NeedsReceiver {","to":"if false {","rule":"A constraint-only law has no ambient value for a bare operation call.","killers":["internal/selfhostcheck:TestCompilerCheckAgrees"],"regenerate":{"dir":".","argv":["go","run","./scripts/linked","-bootstrap"]},"gap":"not-run-crunch"},
+    {
+      "name": "claim-law-permits-bare-self-call",
+      "origin": "wf10 CLAIM-LAWS",
+      "file": "compiler/check/expr/call.ergo",
+      "from": "if selected.NeedsReceiver {",
+      "to": "if false {",
+      "rule": "A constraint-only law has no ambient value for a bare operation call.",
+      "killers": [
+        "internal/selfhostcheck:TestCompilerCheckAgrees"
+      ],
+      "gap": "not-run-crunch",
+      "regenerate": {
+        "dir": ".",
+        "argv": [
+          "go",
+          "run",
+          "./scripts/linked",
+          "-bootstrap"
+        ]
+      }
+    },
     {
       "name": "lower-agree-guess-field-export",
       "origin": "wf10/selfhost/S4-PORT DRIVER",
@@ -27,7 +51,9 @@
       "from": "case \"field\":\n\t\t\t\t\tif name, ok := originals[e.Name]; ok {\n\t\t\t\t\t\te.Name = name\n\t\t\t\t\t}",
       "to": "case \"field\":\n\t\t\t\t\te.Name = irSplitName(e.Name)",
       "rule": "An unrenamed field with an X prefix remains different from the field named without that prefix.",
-      "killers": ["internal/selfhostcheck:TestIRAgreementKeepsUnprovenSplitNames"]
+      "killers": [
+        "internal/selfhostcheck:TestIRAgreementKeepsUnprovenSplitNames"
+      ]
     },
     {
       "name": "lower-agree-guess-qualified-type",
@@ -36,7 +62,9 @@
       "from": "if name, ok := typeHeads[head]; ok {\n\t\t\t\t\t\t\te.T = e.T[:len(e.T)-len(elem)] + name + \"[\" + args\n\t\t\t\t\t\t}",
       "to": "e.T = e.T[:len(e.T)-len(elem)] + head[strings.LastIndex(head, \".\")+1:] + \"[\" + args",
       "rule": "A host-qualified generic head remains different even when its suffix and type arguments match.",
-      "killers": ["internal/selfhostcheck:TestIRAgreementKeepsUnprovenSplitNames"]
+      "killers": [
+        "internal/selfhostcheck:TestIRAgreementKeepsUnprovenSplitNames"
+      ]
     },
     {
       "name": "lower-agree-guess-split-export",
@@ -45,7 +73,21 @@
       "from": "if name, ok := originals[e.Name]; ok {\n\t\t\t\t\t\te.Name = name\n\t\t\t\t\t}",
       "to": "e.Name = irSplitName(e.Name)",
       "rule": "An X-prefixed method remains a genuine difference unless this build's split exported it.",
-      "killers": ["internal/selfhostcheck:TestIRAgreementKeepsUnrenamedOperands"]
+      "killers": [
+        "internal/selfhostcheck:TestIRAgreementKeepsUnrenamedOperands"
+      ]
+    },
+    {
+      "name": "lower-agree-zero-keeps-split-export",
+      "origin": "wf10/selfhost/S4-PORT FAIL-FRAME-SHAPES",
+      "file": "internal/selfhostcheck/irbuild_test.go",
+      "decl": "irBaseFields",
+      "from": "\t\t\t\tcase \"lit\", \"zero\":",
+      "to": "\t\t\t\tcase \"lit\":",
+      "rule": "A zero row's type is a type spelling the split may export, unexported as a literal's type is.",
+      "killers": [
+        "internal/selfhostcheck:TestIRAgreementKeepsUnrenamedOperands"
+      ]
     },
     {
       "name": "lower-agree-guess-slice-element-export",
@@ -54,7 +96,9 @@
       "from": "if name, ok := originals[elem]; ok {\n\t\t\t\t\t\te.T = e.T[:len(e.T)-len(elem)] + name\n\t\t\t\t\t}",
       "to": "e.T = e.T[:len(e.T)-len(elem)] + irSplitName(elem)",
       "rule": "An X-prefixed slice element type remains a genuine difference unless this build's split exported it.",
-      "killers": ["internal/selfhostcheck:TestIRAgreementKeepsUnrenamedOperands"]
+      "killers": [
+        "internal/selfhostcheck:TestIRAgreementKeepsUnrenamedOperands"
+      ]
     },
     {
       "name": "pool-case-silently-dropped",
@@ -63,7 +107,9 @@
       "from": "\tfor _, d := range unusedDraws(pool) {\n\t\tif single(d.name, \"p.ergo\", d.src, d.check) {",
       "to": "\tfor _, d := range unusedDraws(pool)[1:] {\n\t\tif single(d.name, \"p.ergo\", d.src, d.check) {",
       "rule": "The agreement ratchet refuses to lose an existing unused-draw case by name, even when it has no disagreement site.",
-      "killers": ["internal/selfhostcheck:TestCompilerCheckAgrees"]
+      "killers": [
+        "internal/selfhostcheck:TestCompilerCheckAgrees"
+      ]
     },
     {
       "name": "aw-selfhost-unread",
@@ -468,8 +514,17 @@
       "from": "\"of\" + strconv.Itoa(j.tag)",
       "to": "\"of\" + strconv.Itoa(0)",
       "rule": "A bare empty variant is injected by its declaration tag, not tag zero (PortUnionMakeMode).",
-      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
-      "killers": ["internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"]
+      "killers": [
+        "internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"
+      ],
+      "regenerate": {
+        "dir": ".",
+        "argv": [
+          "go",
+          "run",
+          "./scripts/linked"
+        ]
+      }
     },
     {
       "name": "lower-union-payload-field-key-lost",
@@ -478,8 +533,17 @@
       "from": "ir.List(b, []uint32{ir.Text(b, j.field)})",
       "to": "ir.List(b, []uint32{ir.Text(b, \"\")})",
       "rule": "Injection preserves the checked payload literal's Go field key (PortUnionMakeReading).",
-      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
-      "killers": ["internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"]
+      "killers": [
+        "internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"
+      ],
+      "regenerate": {
+        "dir": ".",
+        "argv": [
+          "go",
+          "run",
+          "./scripts/linked"
+        ]
+      }
     },
     {
       "name": "lower-match-case-tag-is-case-index",
@@ -488,8 +552,17 @@
       "from": "strconv.Itoa(k)))",
       "to": "strconv.Itoa(len(cases))))",
       "rule": "Switch cases are in source order but compare the variant's declaration tag, not the case index (PortUnionModeRank).",
-      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
-      "killers": ["internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"]
+      "killers": [
+        "internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"
+      ],
+      "regenerate": {
+        "dir": ".",
+        "argv": [
+          "go",
+          "run",
+          "./scripts/linked"
+        ]
+      }
     },
     {
       "name": "lower-match-payload-reads-wrong-tag",
@@ -498,8 +571,17 @@
       "from": "\"as\" + strconv.Itoa(arm.tags[0])",
       "to": "\"as\" + strconv.Itoa(0)",
       "rule": "Narrowing reads the active variant's shared-slot reconstruction (PortUnionRead).",
-      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
-      "killers": ["internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"]
+      "killers": [
+        "internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"
+      ],
+      "regenerate": {
+        "dir": ".",
+        "argv": [
+          "go",
+          "run",
+          "./scripts/linked"
+        ]
+      }
     },
     {
       "name": "ir-invalid-utf8-kept",
@@ -640,8 +722,17 @@
       "from": "let mut name = f.Name + \"[\"",
       "to": "let mut name = \"Decision[\"",
       "rule": "The generic spelling keeps the checked type's actual declaration (PortUnionOptionValues).",
-      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
-      "killers": ["internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"]
+      "killers": [
+        "internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"
+      ],
+      "regenerate": {
+        "dir": ".",
+        "argv": [
+          "go",
+          "run",
+          "./scripts/linked"
+        ]
+      }
     },
     {
       "name": "lower-union-native-type-args-reversed",
@@ -650,8 +741,17 @@
       "from": "for j, arg in args {\n\t\tlet gt = basicGo(st, arg)",
       "to": "for j, _ in args {\n\t\tlet gt = basicGo(st, args[len(args)-1-j])",
       "rule": "Native generic type spelling retains declaration order, even for unequal arguments (PortUnionDecisionValues).",
-      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
-      "killers": ["internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"]
+      "killers": [
+        "internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"
+      ],
+      "regenerate": {
+        "dir": ".",
+        "argv": [
+          "go",
+          "run",
+          "./scripts/linked"
+        ]
+      }
     },
     {
       "name": "lower-param-local-zero",
@@ -671,8 +771,17 @@
       "from": "let flag = importedCallFact(imports, path, i)",
       "to": "let flag = noCallFact",
       "rule": "The consumer uses the checked import unit's direct-call fact (PortCallImported).",
-      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
-      "killers": ["internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"]
+      "killers": [
+        "internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"
+      ],
+      "regenerate": {
+        "dir": ".",
+        "argv": [
+          "go",
+          "run",
+          "./scripts/linked"
+        ]
+      }
     },
     {
       "name": "lower-call-ignore-imported-component",
@@ -681,8 +790,17 @@
       "from": "if end > 1 {\n\t\t\tfor i in 0..end {",
       "to": "if end > 1 && false {\n\t\t\tfor i in 0..end {",
       "rule": "A mutually recursive component of more than one member stays direct (PortCallImportedCycle).",
-      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
-      "killers": ["internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"]
+      "killers": [
+        "internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"
+      ],
+      "regenerate": {
+        "dir": ".",
+        "argv": [
+          "go",
+          "run",
+          "./scripts/linked"
+        ]
+      }
     },
     {
       "name": "lower-call-imported-edge-requires-direct",
@@ -691,8 +809,17 @@
       "from": "if flag != pureCallFact && flag != directCallFact {",
       "to": "if flag != directCallFact {",
       "rule": "A pure imported inline candidate can still prove a local caller pure (PortCallImportedEdge).",
-      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
-      "killers": ["internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"]
+      "killers": [
+        "internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"
+      ],
+      "regenerate": {
+        "dir": ".",
+        "argv": [
+          "go",
+          "run",
+          "./scripts/linked"
+        ]
+      }
     },
     {
       "name": "lower-bin-pos-start",
@@ -734,8 +861,17 @@
       "from": "[]uint32{to, ir.Text(b, w.op), x}",
       "to": "[]uint32{to, ir.Text(b, \"\"), x}",
       "rule": "Inc's compound store updates the existing field in the borrowed place; it does not overwrite with the right operand.",
-      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
-      "killers": ["internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"]
+      "killers": [
+        "internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"
+      ],
+      "regenerate": {
+        "dir": ".",
+        "argv": [
+          "go",
+          "run",
+          "./scripts/linked"
+        ]
+      }
     },
     {
       "name": "lower-borrow-receiver-passes-value",
@@ -744,8 +880,17 @@
       "from": "let recv = try ir.Row(b, ir.KindCode(ir.TExpr, \"addr\"), pos(st, call.recvAt), []uint32{place})",
       "to": "let recv = place",
       "rule": "BorrowedIncrement passes the address of the selected field as the receiver, not the field value.",
-      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
-      "killers": ["internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"]
+      "killers": [
+        "internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"
+      ],
+      "regenerate": {
+        "dir": ".",
+        "argv": [
+          "go",
+          "run",
+          "./scripts/linked"
+        ]
+      }
     },
     {
       "name": "lower-lit-keys-dropped",
@@ -783,15 +928,15 @@
       "gap": "survived at its named Go killer (scripts/mutants -run, 2026-11-19, SELFHOST-MERGE x batch 23): the killer runs the linked Go of compiler/, which the runner does not regenerate from the mutated .ergo; it needs an Ergo-test killer (ergotests) or a regenerate step (follow-up, every compiler/ row)"
     },
     {
+      "name": "lower-alias-dropped",
       "origin": "wf10/selfhost/S4c6",
       "file": "compiler/lower/lower.ergo",
-      "killers": [
-        "internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"
-      ],
-      "name": "lower-alias-dropped",
       "from": "if st.alias == \"\" { base } else { st.alias + \"__\" + base }",
       "to": "base",
-      "rule": "A declaration of a package other than the build's root is spelled alias__name (NAME-LOCAL rule 2)."
+      "rule": "A declaration of a package other than the build's root is spelled alias__name (NAME-LOCAL rule 2).",
+      "killers": [
+        "internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"
+      ]
     },
     {
       "name": "lower-let-local-index",
@@ -811,8 +956,17 @@
       "from": "if body.edges > 0 && !body.loop && !recursive && body.sizeFloor <= 120 {",
       "to": "if !body.loop && !recursive && body.sizeFloor <= 120 {",
       "rule": "A body calling only checked builtins is still a Go leaf; PortCallBuiltin must be emitted.",
-      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
-      "killers": ["internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"]
+      "killers": [
+        "internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"
+      ],
+      "regenerate": {
+        "dir": ".",
+        "argv": [
+          "go",
+          "run",
+          "./scripts/linked"
+        ]
+      }
     },
     {
       "name": "lower-call-loop-needs-inline-decision",
@@ -821,8 +975,17 @@
       "from": "if body.edges > 0 && !body.loop && !recursive && body.sizeFloor <= 120 {",
       "to": "if body.edges > 0 && !recursive && body.sizeFloor <= 120 {",
       "rule": "The oracle does not mark a looping callee for inlining; PortCallOrdered must be emitted.",
-      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
-      "killers": ["internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"]
+      "killers": [
+        "internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"
+      ],
+      "regenerate": {
+        "dir": ".",
+        "argv": [
+          "go",
+          "run",
+          "./scripts/linked"
+        ]
+      }
     },
     {
       "name": "lower-call-ignores-transitive-backedge",
@@ -831,8 +994,17 @@
       "from": "graph.recursive = graph.recursive || next == graph.start",
       "to": "graph.recursive = false",
       "rule": "A back-edge from any reached callee to the starting declaration proves recursion; PortCallCycle must be emitted.",
-      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
-      "killers": ["internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"]
+      "killers": [
+        "internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"
+      ],
+      "regenerate": {
+        "dir": ".",
+        "argv": [
+          "go",
+          "run",
+          "./scripts/linked"
+        ]
+      }
     },
     {
       "name": "lower-call-reverses-new-pure-operands",
@@ -841,8 +1013,17 @@
       "from": "args = args.Append(syntax.Item(p.Tree, ce.Args, j))",
       "to": "args = args.Append(syntax.Item(p.Tree, ce.Args, if nonleaf { n - 1 - j } else { j }))",
       "rule": "Ordinary calls evaluate explicit operands in written order even when they may raise a defect (PortCallOrdered).",
-      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
-      "killers": ["internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"]
+      "killers": [
+        "internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"
+      ],
+      "regenerate": {
+        "dir": ".",
+        "argv": [
+          "go",
+          "run",
+          "./scripts/linked"
+        ]
+      }
     },
     {
       "name": "lower-call-name-bare",
@@ -862,10 +1043,17 @@
       "from": "if c.method {",
       "to": "if false {",
       "rule": "A call of a function on a record of its package is the Go method's call, an mcall on the receiver (lower's funcDecl, methodReceiver).",
-      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
       "killers": [
         "internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"
-      ]
+      ],
+      "regenerate": {
+        "dir": ".",
+        "argv": [
+          "go",
+          "run",
+          "./scripts/linked"
+        ]
+      }
     },
     {
       "name": "lower-mcall-receiver-kept",
@@ -874,10 +1062,17 @@
       "from": "ir.List(b, ids[1:len(ids)])",
       "to": "ir.List(b, ids)",
       "rule": "An mcall's operands are the call's after its receiver, which is its x.",
-      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
       "killers": [
         "internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"
-      ]
+      ],
+      "regenerate": {
+        "dir": ".",
+        "argv": [
+          "go",
+          "run",
+          "./scripts/linked"
+        ]
+      }
     },
     {
       "name": "lower-dep-alias-caller",
@@ -886,10 +1081,17 @@
       "from": "out.alias = pkgAlias(d.Path)",
       "to": "out.alias = st.alias",
       "rule": "A call of another package's function names it by that package's alias (alias__name), not the caller's (NAME-LOCAL rule 2).",
-      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
       "killers": [
         "internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"
-      ]
+      ],
+      "regenerate": {
+        "dir": ".",
+        "argv": [
+          "go",
+          "run",
+          "./scripts/linked"
+        ]
+      }
     },
     {
       "name": "lower-stop-sourced-leaf-call",
@@ -898,8 +1100,17 @@
       "from": "\tlet first = try leafCallee(cst, i, name)\n",
       "to": "\tif st.alias == \"\" {\n\t\treturn stop(\"call in a sourced body (inline decision)\")\n\t}\n\tlet first = try leafCallee(cst, i, name)\n",
       "rule": "An unboxed leaf never gets an inline site, even when it is called in a sourced root or is larger than the Go cost budget.",
-      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
-      "killers": ["internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"]
+      "killers": [
+        "internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"
+      ],
+      "regenerate": {
+        "dir": ".",
+        "argv": [
+          "go",
+          "run",
+          "./scripts/linked"
+        ]
+      }
     },
     {
       "name": "lower-unit-empty-rejected",
@@ -908,8 +1119,17 @@
       "from": "if count == 0 && tail {",
       "to": "if count == 0 && (tail || p.unit) {",
       "rule": "An ordinary checked empty unit body is emitted with no root rows, not stopped as a missing tail value.",
-      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
-      "killers": ["internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"]
+      "killers": [
+        "internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"
+      ],
+      "regenerate": {
+        "dir": ".",
+        "argv": [
+          "go",
+          "run",
+          "./scripts/linked"
+        ]
+      }
     },
     {
       "name": "lower-unit-bare-return-rejected",
@@ -918,8 +1138,17 @@
       "from": "if !p.unit {\n\t\t\t\treturn stop(\"control: bare return\")",
       "to": "if !p.unit || loops == 0 {\n\t\t\t\treturn stop(\"control: bare return\")",
       "rule": "Bare return terminates a unit frame and has no result operand, including at top level.",
-      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
-      "killers": ["internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"]
+      "killers": [
+        "internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"
+      ],
+      "regenerate": {
+        "dir": ".",
+        "argv": [
+          "go",
+          "run",
+          "./scripts/linked"
+        ]
+      }
     },
     {
       "name": "lower-unit-fallthrough-panics",
@@ -928,8 +1157,17 @@
       "from": "if !p.unit && len(roots) > 0 && !body.body.terminates {",
       "to": "if (!p.unit || !p.borrowUnit && len(p.locals) > 0) && len(roots) > 0 && !body.body.terminates {",
       "rule": "When a unit frame with live ordinary locals falls through, there is no missing value to diagnose at runtime.",
-      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
-      "killers": ["internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"]
+      "killers": [
+        "internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"
+      ],
+      "regenerate": {
+        "dir": ".",
+        "argv": [
+          "go",
+          "run",
+          "./scripts/linked"
+        ]
+      }
     },
     {
       "name": "lower-unit-call-as-discard",
@@ -938,8 +1176,17 @@
       "from": "try ir.Row(b, ir.KindCode(ir.TStmt, \"expr\"), at, []uint32{call})",
       "to": "try ir.Row(b, ir.KindCode(ir.TStmt, \"discard\"), at, []uint32{call})",
       "rule": "A proved local unit call executes as an expression statement, not a discard of a non-existent result.",
-      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
-      "killers": ["internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"]
+      "killers": [
+        "internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"
+      ],
+      "regenerate": {
+        "dir": ".",
+        "argv": [
+          "go",
+          "run",
+          "./scripts/linked"
+        ]
+      }
     },
     {
       "name": "lower-unit-branch-call-rejected",
@@ -948,8 +1195,17 @@
       "from": "case Some{Value: prepared}:\n\t\t\tfor arg in prepared.args {",
       "to": "case Some{Value: prepared}:\n\t\t\tif p.extended && len(p.locals) == 0 {\n\t\t\t\treturn stop(\"unit call is not top level\")\n\t\t\t}\n\t\t\tfor arg in prepared.args {",
       "rule": "A proved unit call inside a branch stays in that branch.",
-      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
-      "killers": ["internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"]
+      "killers": [
+        "internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"
+      ],
+      "regenerate": {
+        "dir": ".",
+        "argv": [
+          "go",
+          "run",
+          "./scripts/linked"
+        ]
+      }
     },
     {
       "name": "lower-control-tail-does-not-yield",
@@ -958,8 +1214,17 @@
       "from": "row.first = try controlBlock(st, p, iff.Body, tail, loops)",
       "to": "row.first = try controlBlock(st, p, iff.Body, false, loops)",
       "rule": "A tail if yields from its then arm, not only from its else arm (ControlTail).",
-      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
-      "killers": ["internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"]
+      "killers": [
+        "internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"
+      ],
+      "regenerate": {
+        "dir": ".",
+        "argv": [
+          "go",
+          "run",
+          "./scripts/linked"
+        ]
+      }
     },
     {
       "name": "lower-control-return-operand-position",
@@ -968,8 +1233,17 @@
       "from": "row.offset = syntax.TokPos(parsed, r.Return)",
       "to": "match dense.Unpack(row.x) {\n\t\tcase Some{Value: x}:\n\t\t\trow.offset = syntax.NodePos(parsed, x)\n\t\tcase None:\n\t\t}",
       "rule": "An explicit return keeps the return token's position even when the value starts later (ControlReturn).",
-      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
-      "killers": ["internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"]
+      "killers": [
+        "internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"
+      ],
+      "regenerate": {
+        "dir": ".",
+        "argv": [
+          "go",
+          "run",
+          "./scripts/linked"
+        ]
+      }
     },
     {
       "name": "lower-control-shadow-reuses-name",
@@ -978,8 +1252,17 @@
       "from": "p.locals = p.locals.Append(controlLocal{name: name,",
       "to": "p.locals = p.locals.Append(controlLocal{name: base,",
       "rule": "A shadow has a distinct Go local name even when its source name is already in use (ControlShadow).",
-      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
-      "killers": ["internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"]
+      "killers": [
+        "internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"
+      ],
+      "regenerate": {
+        "dir": ".",
+        "argv": [
+          "go",
+          "run",
+          "./scripts/linked"
+        ]
+      }
     },
     {
       "name": "lower-control-range-end-is-start",
@@ -988,8 +1271,17 @@
       "from": "ir.List(b, loop), ir.PosAt(b, pos(st, s.end)), 0})\n\t\tcase CBreak:",
       "to": "ir.List(b, loop), ir.PosAt(b, at), 0})\n\t\tcase CBreak:",
       "rule": "A compact range's scope ends at its closing brace, not its opening for (ControlRange).",
-      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
-      "killers": ["internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"]
+      "killers": [
+        "internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"
+      ],
+      "regenerate": {
+        "dir": ".",
+        "argv": [
+          "go",
+          "run",
+          "./scripts/linked"
+        ]
+      }
     },
     {
       "name": "lower-control-continue-as-break",
@@ -998,8 +1290,17 @@
       "from": "ir.KindCode(ir.TStmt, \"continue\"), at, []uint32{}",
       "to": "ir.KindCode(ir.TStmt, \"break\"), at, []uint32{0}",
       "rule": "Continue goes to the back edge, not out of the enclosing loop (ControlWhile).",
-      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
-      "killers": ["internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"]
+      "killers": [
+        "internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"
+      ],
+      "regenerate": {
+        "dir": ".",
+        "argv": [
+          "go",
+          "run",
+          "./scripts/linked"
+        ]
+      }
     },
     {
       "name": "lower-float-product-unrounded",
@@ -1041,8 +1342,17 @@
       "from": "if !ordinaryFieldName(f.Name) || shapeWithin(st, f.T, path) == \"\" {",
       "to": "if store.KindOfType(st.s, f.T) == store.KSlice || !ordinaryFieldName(f.Name) || shapeWithin(st, f.T, path) == \"\" {",
       "rule": "A record with a slice field is a direct record receiver; the KeepNested witness must not disappear.",
-      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
-      "killers": ["internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"]
+      "killers": [
+        "internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"
+      ],
+      "regenerate": {
+        "dir": ".",
+        "argv": [
+          "go",
+          "run",
+          "./scripts/linked"
+        ]
+      }
     },
     {
       "name": "lower-shape-nested-record-field-rejected",
@@ -1051,8 +1361,17 @@
       "from": "if !ordinaryFieldName(f.Name) || shapeWithin(st, f.T, path) == \"\" {",
       "to": "if store.KindOfType(st.s, f.T) == store.KNamed || !ordinaryFieldName(f.Name) || shapeWithin(st, f.T, path) == \"\" {",
       "rule": "Shape admission recurses through a named field, as for Outer.Inner.",
-      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
-      "killers": ["internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"]
+      "killers": [
+        "internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"
+      ],
+      "regenerate": {
+        "dir": ".",
+        "argv": [
+          "go",
+          "run",
+          "./scripts/linked"
+        ]
+      }
     },
     {
       "name": "lower-shape-slice-field-key-suffixed",
@@ -1061,8 +1380,17 @@
       "from": "\t\treturn stop(\"selector that is no field\")\n\t}\n\tname\n",
       "to": "\t\treturn stop(\"selector that is no field\")\n\t}\n\tif store.KindOfType(st.s, t) == store.KSlice {\n\t\treturn name + \"_\"\n\t}\n\tname\n",
       "rule": "The field operand keeps the checked Go member name regardless of its value's slice shape.",
-      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
-      "killers": ["internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"]
+      "killers": [
+        "internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"
+      ],
+      "regenerate": {
+        "dir": ".",
+        "argv": [
+          "go",
+          "run",
+          "./scripts/linked"
+        ]
+      }
     },
     {
       "name": "lower-shape-slice-parameter-rejected",
@@ -1071,8 +1399,17 @@
       "from": "if sig == \"\" && shapeGo(*st, ops[i]) == \"\" {",
       "to": "if sig == \"\" && (shapeGo(*st, ops[i]) == \"\" || store.KindOfType(st.s, ops[i]) == store.KSlice) {",
       "rule": "A read-only slice parameter has a direct local operand; KeepSlice must not disappear.",
-      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
-      "killers": ["internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"]
+      "killers": [
+        "internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"
+      ],
+      "regenerate": {
+        "dir": ".",
+        "argv": [
+          "go",
+          "run",
+          "./scripts/linked"
+        ]
+      }
     },
     {
       "name": "lower-shape-slice-literal-spelling",
@@ -1081,8 +1418,17 @@
       "from": "return aggregate{typ: gt, record: -1, keys: []string{}, values: values}",
       "to": "return aggregate{typ: gt[2:len(gt)], record: -1, keys: []string{}, values: values}",
       "rule": "A slice literal's type operand includes the slice constructor, not just the element spelling.",
-      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
-      "killers": ["internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"]
+      "killers": [
+        "internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"
+      ],
+      "regenerate": {
+        "dir": ".",
+        "argv": [
+          "go",
+          "run",
+          "./scripts/linked"
+        ]
+      }
     },
     {
       "name": "ir-const-op-dropped",
@@ -1102,8 +1448,17 @@
       "from": "let env = if method { 1 } else { 0 }",
       "to": "let env = if method { 0 } else { 1 }",
       "rule": "The environment follows a Go receiver; a receiver-free function takes it first (UseMeterOn and UseMeter).",
-      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
-      "killers": ["internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"]
+      "killers": [
+        "internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"
+      ],
+      "regenerate": {
+        "dir": ".",
+        "argv": [
+          "go",
+          "run",
+          "./scripts/linked"
+        ]
+      }
     },
     {
       "name": "lower-frame-operation-site-poll-late",
@@ -1112,8 +1467,17 @@
       "from": "[]uint32{poll, def}",
       "to": "[]uint32{def, poll}",
       "rule": "A provider-operation call checks interruption before evaluating its operands and executing the operation (UseMeter).",
-      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
-      "killers": ["internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"]
+      "killers": [
+        "internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"
+      ],
+      "regenerate": {
+        "dir": ".",
+        "argv": [
+          "go",
+          "run",
+          "./scripts/linked"
+        ]
+      }
     },
     {
       "name": "lower-frame-task-argument-last",
@@ -1122,8 +1486,17 @@
       "from": "args = args.Append(try value(st, b, a))",
       "to": "args = []uint32{try value(st, b, a)}.Append(args[0])",
       "rule": "A provider operation takes the running task before its source arguments (UseMeter).",
-      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
-      "killers": ["internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"]
+      "killers": [
+        "internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"
+      ],
+      "regenerate": {
+        "dir": ".",
+        "argv": [
+          "go",
+          "run",
+          "./scripts/linked"
+        ]
+      }
     },
     {
       "name": "report-crlf-two-lines",
@@ -1241,8 +1614,17 @@
       "from": "framePlan{env: -1, slots: n, pure: false, fallible: Some[falliblePlan]{Value: failure}, pollEntry: false, op: None}",
       "to": "framePlan{env: 1, slots: n + 1, pure: false, fallible: Some[falliblePlan]{Value: failure}, pollEntry: false, op: None}",
       "rule": "A fallible method with no environment keeps scalar source parameters at their existing slots (FrameSafe).",
-      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
-      "killers": ["internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"]
+      "killers": [
+        "internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"
+      ],
+      "regenerate": {
+        "dir": ".",
+        "argv": [
+          "go",
+          "run",
+          "./scripts/linked"
+        ]
+      }
     },
     {
       "name": "lower-frame-failure-returns-success",
@@ -1251,8 +1633,17 @@
       "from": "try ir.Row(b, ir.KindCode(ir.TStmt, \"fail\"), at, []uint32{x})",
       "to": "try ir.Row(b, ir.KindCode(ir.TStmt, \"ret\"), at, []uint32{x})",
       "rule": "The exact typed failure leaves through the failure channel, not the ordinary success return (FrameValidate).",
-      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
-      "killers": ["internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"]
+      "killers": [
+        "internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"
+      ],
+      "regenerate": {
+        "dir": ".",
+        "argv": [
+          "go",
+          "run",
+          "./scripts/linked"
+        ]
+      }
     },
     {
       "name": "lower-borrow-nested-receiver-flattened",
@@ -1261,6 +1652,9 @@
       "from": "let root = try emitBorrowPath(st, b, slot, se.X)",
       "to": "let root = if syntax.KindOf(p.Tree, unparen(st, se.X)) == syntax.KSelectorExpr {\n\t\t\ttry ir.Row(b, ir.KindCode(ir.TExpr, \"local\"), at, []uint32{uint32(slot)})\n\t\t} else {\n\t\t\ttry emitBorrowPath(st, b, slot, se.X)\n\t\t}",
       "rule": "A nested fixed place retains the intervening selector (AdjustBorrowedCount).",
+      "killers": [
+        "internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"
+      ],
       "regenerate": {
         "dir": ".",
         "argv": [
@@ -1268,10 +1662,7 @@
           "run",
           "./scripts/linked"
         ]
-      },
-      "killers": [
-        "internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"
-      ]
+      }
     },
     {
       "name": "lower-borrow-float-store-drops-rounding",
@@ -1280,6 +1671,9 @@
       "from": "let rounded = try ir.Row(b, ir.KindCode(ir.TExpr, \"conv\"), at, []uint32{ir.Text(b, w.round), product})",
       "to": "let rounded = product",
       "rule": "The fixed-place float product rounds before the store (ScaleBorrowedWeight).",
+      "killers": [
+        "internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"
+      ],
       "regenerate": {
         "dir": ".",
         "argv": [
@@ -1287,10 +1681,7 @@
           "run",
           "./scripts/linked"
         ]
-      },
-      "killers": [
-        "internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"
-      ]
+      }
     },
     {
       "name": "lower-record-implements-refused",
@@ -1299,6 +1690,9 @@
       "from": "if td.Name != n || dense.Unpack(td.Extern) != None || dense.Unpack(td.TypeParams) != None || dense.Unpack(td.Where) != None || dense.Unpack(td.Derive) != None {",
       "to": "if td.Name != n || dense.Unpack(td.Extern) != None || dense.Unpack(td.TypeParams) != None || dense.Unpack(td.Where) != None || dense.Unpack(td.Derive) != None || syntax.Len(td.Implements) > 0 {",
       "rule": "A local record implementing an operation type remains a record; its mut formal makes a pointer receiver (ChangeCount).",
+      "killers": [
+        "internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"
+      ],
       "regenerate": {
         "dir": ".",
         "argv": [
@@ -1306,370 +1700,868 @@
           "run",
           "./scripts/linked"
         ]
-      },
-      "killers": [
-        "internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"
-      ]
+      }
     },
     {
       "name": "lower-shapes2-imported-identity-refused",
       "origin": "wf10/selfhost/S4-PORT SHAPES-2 (not-run-crunch)",
-      "file": "compiler/lower/shape.ergo", "decl": "shapeWithin",
+      "file": "compiler/lower/shape.ergo",
+      "decl": "shapeWithin",
       "from": "match importedShapeOf(st, t, trail.deps) {",
       "to": "match importedShapeOf(st, t, Map[string, expr.Dep]{}) {",
       "rule": "Values of an admitted imported record retain their direct signature and local reference.",
-      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
-      "killers": ["internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"]
+      "killers": [
+        "internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"
+      ],
+      "regenerate": {
+        "dir": ".",
+        "argv": [
+          "go",
+          "run",
+          "./scripts/linked"
+        ]
+      }
     },
     {
       "name": "lower-shapes2-imported-field-renamed",
       "origin": "wf10/selfhost/S4-PORT SHAPES-2 (not-run-crunch)",
-      "file": "compiler/lower/aggregate.ergo", "decl": "field",
+      "file": "compiler/lower/aggregate.ergo",
+      "decl": "field",
       "from": "\t\t\t\treturn stop(\"selector that is no imported field\")\n\t\t\t}\n\t\t\treturn name",
       "to": "\t\t\t\treturn stop(\"selector that is no imported field\")\n\t\t\t}\n\t\t\treturn name + \"_\"",
       "rule": "A nested imported field retains the checked Go name in the consumer's IR.",
-      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
-      "killers": ["internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"]
+      "killers": [
+        "internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"
+      ],
+      "regenerate": {
+        "dir": ".",
+        "argv": [
+          "go",
+          "run",
+          "./scripts/linked"
+        ]
+      }
     },
     {
       "name": "lower-shapes2-imported-literal-root-spelling",
       "origin": "wf10/selfhost/S4-PORT SHAPES-2 (not-run-crunch)",
-      "file": "compiler/lower/imported_shape.ergo", "decl": "importedOwner",
+      "file": "compiler/lower/imported_shape.ergo",
+      "decl": "importedOwner",
       "from": "alias: pkgAlias(src.dep.Path)",
       "to": "alias: \"\"",
       "rule": "An imported Ergo literal uses the defining package's joined Go spelling, not the root's.",
-      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
-      "killers": ["internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"]
+      "killers": [
+        "internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"
+      ],
+      "regenerate": {
+        "dir": ".",
+        "argv": [
+          "go",
+          "run",
+          "./scripts/linked"
+        ]
+      }
     },
     {
       "name": "lower-shapes2-imported-empty-refused",
       "origin": "wf10/selfhost/S4-PORT SHAPES-2 (not-run-crunch)",
-      "file": "compiler/lower/imported_shape.ergo", "decl": "importedRecord",
+      "file": "compiler/lower/imported_shape.ergo",
+      "decl": "importedRecord",
       "from": "\tif r >= 0 {\n\t\tlet rec = owner.k.Recs[r]",
       "to": "\tif r >= 0 && len(owner.k.Recs[r].Fields) != 0 {\n\t\tlet rec = owner.k.Recs[r]",
       "rule": "A checked empty imported record is still an admitted named type for direct value moves.",
-      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
-      "killers": ["internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"]
+      "killers": [
+        "internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"
+      ],
+      "regenerate": {
+        "dir": ".",
+        "argv": [
+          "go",
+          "run",
+          "./scripts/linked"
+        ]
+      }
     },
     {
       "name": "lower-shapes2-imported-union-descriptor-skipped",
       "origin": "wf10/selfhost/S4-PORT SHAPES-2 (not-run-crunch)",
-      "file": "compiler/lower/shape.ergo", "decl": "shapeWithin",
+      "file": "compiler/lower/shape.ergo",
+      "decl": "shapeWithin",
       "from": "return unionGo(owner, named)",
       "to": "return \"\"",
       "rule": "A non-generic imported union can move directly when its defining package supplies the UNION descriptor.",
-      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
-      "killers": ["internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"]
+      "killers": [
+        "internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"
+      ],
+      "regenerate": {
+        "dir": ".",
+        "argv": [
+          "go",
+          "run",
+          "./scripts/linked"
+        ]
+      }
     },
     {
       "name": "lower-shapes2-imported-runtime-leaf-path-dropped",
       "origin": "wf10/selfhost/S4-PORT SHAPES-2 (not-run-crunch)",
-      "file": "compiler/lower/imported_shape.ergo", "decl": "runtimeRecordType",
+      "file": "compiler/lower/imported_shape.ergo",
+      "decl": "runtimeRecordType",
       "from": "strings.HasPrefix(path, rt+\"/\") { target }",
       "to": "strings.HasPrefix(path, rt+\"/\") { rt + target[dot:len(target)] }",
       "rule": "The IR literal spells the runtime's exact Go package, including a leaf path.",
-      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
-      "killers": ["internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"]
+      "killers": [
+        "internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"
+      ],
+      "regenerate": {
+        "dir": ".",
+        "argv": [
+          "go",
+          "run",
+          "./scripts/linked"
+        ]
+      }
     },
     {
       "name": "lower-shapes2-ordinary-imported-failure-refused",
       "origin": "wf10/selfhost/S4-PORT SHAPES-2 (not-run-crunch)",
-      "file": "compiler/lower/frame_imported_member_hook.ergo", "decl": "frameImportedMemberAdmitted",
+      "file": "compiler/lower/frame_imported_member_hook.ergo",
+      "decl": "frameImportedMemberAdmitted",
       "from": "importedRecord(owner, t) != None",
       "to": "importedRecord(owner, t) != None && ordinaryRecord(owner, t) < 0",
       "rule": "A closed failure row may charge an ordinary imported record whose exact shape is admitted.",
-      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
-      "killers": ["internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"]
+      "killers": [
+        "internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"
+      ],
+      "regenerate": {
+        "dir": ".",
+        "argv": [
+          "go",
+          "run",
+          "./scripts/linked"
+        ]
+      }
     },
     {
       "name": "lower-shapes2-user-runtime-failure-refused",
       "origin": "wf10/selfhost/S4-PORT SHAPES-2 (not-run-crunch)",
-      "file": "compiler/lower/frame_imported_member_hook.ergo", "decl": "frameImportedMemberAdmitted",
+      "file": "compiler/lower/frame_imported_member_hook.ergo",
+      "decl": "frameImportedMemberAdmitted",
       "from": "importedRecord(owner, t) != None",
       "to": "ordinaryRecord(owner, t) >= 0",
       "rule": "The same correctly bound runtime record is admissible in a closed failure row when declared by a user package.",
-      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
-      "killers": ["internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"]
+      "killers": [
+        "internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"
+      ],
+      "regenerate": {
+        "dir": ".",
+        "argv": [
+          "go",
+          "run",
+          "./scripts/linked"
+        ]
+      }
     },
     {
       "name": "lower-frame-result-refuses-string",
       "origin": "wf10/selfhost/S4-PORT FRAME-2 step 3 (not-run-crunch)",
-      "file": "compiler/lower/fail_frame.ergo", "decl": "envFreeFallibleFrame",
+      "file": "compiler/lower/fail_frame.ergo",
+      "decl": "envFreeFallibleFrame",
       "from": "if shapeGo(st, ops[n]) == \"\" {",
       "to": "if shapeGo(st, ops[n]) == \"\" || basicGo(st, ops[n]) == \"string\" {",
       "rule": "String success stays an ordinary return when the method declares a failure (FrameText).",
-      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
-      "killers": ["internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"]
+      "killers": [
+        "internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"
+      ],
+      "regenerate": {
+        "dir": ".",
+        "argv": [
+          "go",
+          "run",
+          "./scripts/linked"
+        ]
+      }
     },
     {
       "name": "lower-frame-result-refuses-slice",
       "origin": "wf10/selfhost/S4-PORT FRAME-2 step 3 (not-run-crunch)",
-      "file": "compiler/lower/fail_frame.ergo", "decl": "envFreeFallibleFrame",
+      "file": "compiler/lower/fail_frame.ergo",
+      "decl": "envFreeFallibleFrame",
       "from": "if shapeGo(st, ops[n]) == \"\" {",
       "to": "if shapeGo(st, ops[n]) == \"\" || store.KindOfType(st.s, ops[n]) == store.KSlice {",
       "rule": "A fresh shaped slice may be the ordinary success result of a fallible method (FrameSlice).",
-      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
-      "killers": ["internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"]
+      "killers": [
+        "internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"
+      ],
+      "regenerate": {
+        "dir": ".",
+        "argv": [
+          "go",
+          "run",
+          "./scripts/linked"
+        ]
+      }
     },
     {
       "name": "lower-frame-result-refuses-local-record",
       "origin": "wf10/selfhost/S4-PORT FRAME-2 step 3 (not-run-crunch)",
-      "file": "compiler/lower/fail_frame.ergo", "decl": "envFreeFallibleFrame",
+      "file": "compiler/lower/fail_frame.ergo",
+      "decl": "envFreeFallibleFrame",
       "from": "if shapeGo(st, ops[n]) == \"\" {",
       "to": "if shapeGo(st, ops[n]) == \"\" || ordinaryRecord(st, ops[n]) >= 0 {",
       "rule": "The checked local record is returned as the value, without a result adapter (FrameRecord).",
-      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
-      "killers": ["internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"]
+      "killers": [
+        "internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"
+      ],
+      "regenerate": {
+        "dir": ".",
+        "argv": [
+          "go",
+          "run",
+          "./scripts/linked"
+        ]
+      }
     },
     {
       "name": "lower-frame-result-refuses-imported-record",
       "origin": "wf10/selfhost/S4-PORT FRAME-2 step 3 (not-run-crunch)",
-      "file": "compiler/lower/fail_frame.ergo", "decl": "envFreeFallibleFrame",
+      "file": "compiler/lower/fail_frame.ergo",
+      "decl": "envFreeFallibleFrame",
       "from": "if shapeGo(st, ops[n]) == \"\" {",
       "to": "if shapeGo(st, ops[n]) == \"\" || importedShapeOf(st, ops[n], shapeDeps(st)) != None {",
       "rule": "The success channel can carry a record spelled by SHAPES from its importing owner (FrameImported).",
-      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
-      "killers": ["internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"]
+      "killers": [
+        "internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"
+      ],
+      "regenerate": {
+        "dir": ".",
+        "argv": [
+          "go",
+          "run",
+          "./scripts/linked"
+        ]
+      }
     },
     {
       "name": "lower-frame-result-refuses-union-injection",
       "origin": "wf10/selfhost/S4-PORT FRAME-2 step 3 (not-run-crunch)",
-      "file": "compiler/lower/fail_frame.ergo", "decl": "fallibleTail",
+      "file": "compiler/lower/fail_frame.ergo",
+      "decl": "fallibleTail",
       "from": "if actual != success && unionGo(st, success) == \"\" {",
       "to": "if actual != success {",
       "rule": "An already-described UNION variant can join a declared success result (FrameUnion).",
-      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
-      "killers": ["internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"]
+      "killers": [
+        "internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"
+      ],
+      "regenerate": {
+        "dir": ".",
+        "argv": [
+          "go",
+          "run",
+          "./scripts/linked"
+        ]
+      }
     },
     {
       "name": "lower-frame-result-drops-failure-only-tail",
       "origin": "wf10/selfhost/S4-PORT FRAME-2 step 3 (not-run-crunch)",
-      "file": "compiler/lower/fail_frame.ergo", "decl": "fallibleTail",
+      "file": "compiler/lower/fail_frame.ergo",
+      "decl": "fallibleTail",
       "from": "return Some[failureExit]{Value: try recordFailure(st, tail, success, members)}",
       "to": "return None",
       "rule": "A returned exact failure of a multi-member row does not become the shaped success value (FrameFailureOnly).",
-      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
-      "killers": ["internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"]
+      "killers": [
+        "internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"
+      ],
+      "regenerate": {
+        "dir": ".",
+        "argv": [
+          "go",
+          "run",
+          "./scripts/linked"
+        ]
+      }
     },
     {
       "name": "lower-shapes3-map-refuses-nested-record-field",
       "origin": "wf10/selfhost/S4-PORT SHAPES-3 (not-run-crunch)",
-      "file": "compiler/lower/shape.ergo", "decl": "shapeWithin",
+      "file": "compiler/lower/shape.ergo",
+      "decl": "shapeWithin",
       "from": "if kind == store.KMap {",
       "to": "if kind == store.KMap && len(trail.seen) == 0 {",
       "rule": "A definitely native map is admitted inside a record, even when the body only reads a scalar sibling.",
-      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
-      "killers": ["internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"]
+      "killers": [
+        "internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"
+      ],
+      "regenerate": {
+        "dir": ".",
+        "argv": [
+          "go",
+          "run",
+          "./scripts/linked"
+        ]
+      }
     },
     {
       "name": "lower-shapes3-map-drops-key-spelling",
       "origin": "wf10/selfhost/S4-PORT SHAPES-3 (not-run-crunch)",
-      "file": "compiler/lower/shape.ergo", "decl": "shapeWithin",
+      "file": "compiler/lower/shape.ergo",
+      "decl": "shapeWithin",
       "from": "\"map[\" + key + \"]\" + elem",
       "to": "\"map[string]\" + \"string\"",
       "rule": "A slice literal containing a map uses its actual recursively admitted element type, not a fixed map spelling.",
-      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
-      "killers": ["internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"]
+      "killers": [
+        "internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"
+      ],
+      "regenerate": {
+        "dir": ".",
+        "argv": [
+          "go",
+          "run",
+          "./scripts/linked"
+        ]
+      }
     },
     {
       "name": "lower-shapes3-array-refuses-nested-record-field",
       "origin": "wf10/selfhost/S4-PORT SHAPES-3 (not-run-crunch)",
-      "file": "compiler/lower/shape.ergo", "decl": "shapeWithin",
+      "file": "compiler/lower/shape.ergo",
+      "decl": "shapeWithin",
       "from": "if kind == store.KArray {",
       "to": "if kind == store.KArray && len(trail.seen) == 0 {",
       "rule": "A checked fixed array is admitted inside a record even when only a scalar sibling is read.",
-      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
-      "killers": ["internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"]
+      "killers": [
+        "internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"
+      ],
+      "regenerate": {
+        "dir": ".",
+        "argv": [
+          "go",
+          "run",
+          "./scripts/linked"
+        ]
+      }
     },
     {
       "name": "lower-shapes3-array-increments-checked-length",
       "origin": "wf10/selfhost/S4-PORT SHAPES-3 (not-run-crunch)",
-      "file": "compiler/lower/shape.ergo", "decl": "shapeWithin",
+      "file": "compiler/lower/shape.ergo",
+      "decl": "shapeWithin",
       "from": "strconv.Itoa(store.ArrayLen(st.s, t))",
       "to": "strconv.Itoa(store.ArrayLen(st.s, t) + 1)",
       "rule": "The array nested inside a slice literal preserves the checked length in its Go type.",
-      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
-      "killers": ["internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"]
+      "killers": [
+        "internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"
+      ],
+      "regenerate": {
+        "dir": ".",
+        "argv": [
+          "go",
+          "run",
+          "./scripts/linked"
+        ]
+      }
     },
     {
       "name": "lower-shapes3-imports-only-direct-stores",
       "origin": "wf10/selfhost/S4-PORT SHAPES-3 (not-run-crunch)",
-      "file": "compiler/lower/imported_shape.ergo", "decl": "shapeDeps",
+      "file": "compiler/lower/imported_shape.ergo",
+      "decl": "shapeDeps",
       "from": "func shapeDeps(st fnb) Map[string, expr.Dep] { st.shapeImports }",
       "to": "func shapeDeps(st fnb) Map[string, expr.Dep] {\n\tlet mut direct = Map[string, expr.Dep]{}\n\tfor d in st.k.Deps {\n\t\tdirect = direct.Put(d.Path, d)\n\t}\n\tdirect\n}",
       "rule": "A non-root package can admit a nested imported record only by following the exact transitive loaded shape inventory.",
-      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
-      "killers": ["internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"]
+      "killers": [
+        "internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"
+      ],
+      "regenerate": {
+        "dir": ".",
+        "argv": [
+          "go",
+          "run",
+          "./scripts/linked"
+        ]
+      }
     },
     {
       "name": "lower-tests-t1-erase-env-slot",
       "origin": "wf10/selfhost/S4-PORT TESTS-T1",
-      "file": "compiler/lower/tests.ergo", "decl": "testFrame",
+      "file": "compiler/lower/tests.ergo",
+      "decl": "testFrame",
       "from": "framePlan{env: 0, slots: 1, pure: false, fallible: None, pollEntry: false, op: None}",
       "to": "framePlan{env: -1, slots: 0, pure: false, fallible: None, pollEntry: false, op: None}",
       "rule": "A test body reserves leading env slot 0 so body locals start at slot 1.",
-      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
-      "killers": ["internal/selfhostcheck:TestIRTestBuildAndProductionControl", "internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"]
+      "killers": [
+        "internal/selfhostcheck:TestIRTestBuildAndProductionControl",
+        "internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"
+      ],
+      "regenerate": {
+        "dir": ".",
+        "argv": [
+          "go",
+          "run",
+          "./scripts/linked"
+        ]
+      }
     },
     {
       "name": "lower-tests-t1-omit-assert-negation",
       "origin": "wf10/selfhost/S4-PORT TESTS-T1",
-      "file": "compiler/lower/tests.ergo", "decl": "emitAssertStmt",
+      "file": "compiler/lower/tests.ergo",
+      "decl": "emitAssertStmt",
       "from": "let notCond = try ir.Row(b, ir.KindCode(ir.TExpr, \"un\"), at, []uint32{ir.Text(b, \"!\"), condRow})",
       "to": "let notCond = condRow",
       "rule": "An assert statement negates its condition before branching to AssertFail.",
-      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
-      "killers": ["internal/selfhostcheck:TestIRTestBuildAndProductionControl"]
+      "killers": [
+        "internal/selfhostcheck:TestIRTestBuildAndProductionControl"
+      ],
+      "regenerate": {
+        "dir": ".",
+        "argv": [
+          "go",
+          "run",
+          "./scripts/linked"
+        ]
+      }
     },
     {
       "name": "lower-tests-t1-emit-in-production",
       "origin": "wf10/selfhost/S4-PORT TESTS-T1",
-      "file": "compiler/lower/build_plan.ergo", "decl": "PlanGeneratedBodies",
+      "file": "compiler/lower/build_plan.ergo",
+      "decl": "PlanGeneratedBodies",
       "from": "if !root || !isTestMode(mode) {",
       "to": "if !root {",
       "rule": "Production builds admit no generated test bodies.",
-      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
-      "killers": ["internal/selfhostcheck:TestIRTestBuildAndProductionControl"]
+      "killers": [
+        "internal/selfhostcheck:TestIRTestBuildAndProductionControl"
+      ],
+      "regenerate": {
+        "dir": ".",
+        "argv": [
+          "go",
+          "run",
+          "./scripts/linked"
+        ]
+      }
     },
     {
       "name": "lower-laws-l1-drop-refuted",
       "origin": "wf10/selfhost/S4-PORT LAWS-L1",
-      "file": "compiler/lower/control.ergo", "decl": "controlPrepareReturn",
+      "file": "compiler/lower/control.ergo",
+      "decl": "controlPrepareReturn",
       "from": "if p.inLaw {",
       "to": "if false && p.inLaw {",
       "rule": "A law return holds the bool once and calls ergo__LawRefuted on false instead of returning directly.",
-      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
-      "killers": ["internal/selfhostcheck:TestIRLawBuildAndProductionControl"]
+      "killers": [
+        "internal/selfhostcheck:TestIRLawBuildAndProductionControl"
+      ],
+      "regenerate": {
+        "dir": ".",
+        "argv": [
+          "go",
+          "run",
+          "./scripts/linked"
+        ]
+      }
     },
     {
       "name": "lower-laws-l1-eval-twice",
       "origin": "wf10/selfhost/S4-PORT LAWS-L1",
-      "file": "compiler/lower/laws.ergo", "decl": "emitLawRet",
+      "file": "compiler/lower/laws.ergo",
+      "decl": "emitLawRet",
       "from": "let heldRet = try ir.Row(b, ir.KindCode(ir.TExpr, \"local\"), at, []uint32{slot})",
       "to": "let heldRet = x",
       "rule": "A law return returns the held local rather than re-evaluating the tail expression a second time.",
-      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
-      "killers": ["internal/selfhostcheck:TestIRLawBuildAndProductionControl"]
+      "killers": [
+        "internal/selfhostcheck:TestIRLawBuildAndProductionControl"
+      ],
+      "regenerate": {
+        "dir": ".",
+        "argv": [
+          "go",
+          "run",
+          "./scripts/linked"
+        ]
+      }
     },
     {
       "name": "lower-laws-l1-erase-env-slot",
       "origin": "wf10/selfhost/S4-PORT LAWS-L1",
-      "file": "compiler/lower/laws.ergo", "decl": "lawFrame",
+      "file": "compiler/lower/laws.ergo",
+      "decl": "lawFrame",
       "from": "framePlan{env: 0, slots: n + 1, pure: false, fallible: None, pollEntry: false, op: None}",
       "to": "framePlan{env: -1, slots: n, pure: false, fallible: None, pollEntry: false, op: None}",
       "rule": "A law body reserves leading env slot 0 before its quantified parameters.",
-      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
-      "killers": ["internal/selfhostcheck:TestIRLawBuildAndProductionControl"]
+      "killers": [
+        "internal/selfhostcheck:TestIRLawBuildAndProductionControl"
+      ],
+      "regenerate": {
+        "dir": ".",
+        "argv": [
+          "go",
+          "run",
+          "./scripts/linked"
+        ]
+      }
     },
     {
       "name": "lower-generics-g1-swap-binders",
       "origin": "wf10/selfhost/S4-PORT GENERICS-G1",
-      "file": "compiler/lower/generics.ergo", "decl": "typeParamGo",
+      "file": "compiler/lower/generics.ergo",
+      "decl": "typeParamGo",
       "from": "if b.Index == idx {",
       "to": "if b.Index == len(st.generic.Binders)-1-idx {",
       "rule": "A generic body preserves the declared order of multiple type-parameter bindings.",
-      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
-      "killers": ["internal/selfhostcheck:TestIRGenericHeaderAndOrder"]
+      "killers": [
+        "internal/selfhostcheck:TestIRGenericHeaderAndOrder"
+      ],
+      "regenerate": {
+        "dir": ".",
+        "argv": [
+          "go",
+          "run",
+          "./scripts/linked"
+        ]
+      }
     },
     {
       "name": "lower-generics-g1-drop-type-param-spelling",
       "origin": "wf10/selfhost/S4-PORT GENERICS-G1",
-      "file": "compiler/lower/shape.ergo", "decl": "shapeWithin",
+      "file": "compiler/lower/shape.ergo",
+      "decl": "shapeWithin",
       "from": "if tp != \"\" {",
       "to": "if false && tp != \"\" {",
       "rule": "Recursive shape spelling admits scoped generic type parameters.",
-      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
-      "killers": ["internal/selfhostcheck:TestIRGenericHeaderAndOrder"]
+      "killers": [
+        "internal/selfhostcheck:TestIRGenericHeaderAndOrder"
+      ],
+      "regenerate": {
+        "dir": ".",
+        "argv": [
+          "go",
+          "run",
+          "./scripts/linked"
+        ]
+      }
     },
     {
       "name": "lower-generics-g1-admit-constrained-param",
       "origin": "wf10/selfhost/S4-PORT GENERICS-G1",
-      "file": "compiler/lower/generics.ergo", "decl": "planGenericBody",
+      "file": "compiler/lower/generics.ergo",
+      "decl": "planGenericBody",
       "from": "if !admittedGenericConstraint(st, ct.Value) {",
       "to": "if false && !admittedGenericConstraint(st, ct.Value) {",
       "rule": "Constrained generic type parameters outside any/comparable/ordered must not emit witness-less bodies in G1.",
-      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
-      "killers": ["internal/selfhostcheck:TestIRGenericHeaderAndOrder"]
+      "killers": [
+        "internal/selfhostcheck:TestIRGenericHeaderAndOrder"
+      ],
+      "regenerate": {
+        "dir": ".",
+        "argv": [
+          "go",
+          "run",
+          "./scripts/linked"
+        ]
+      }
     },
     {
       "name": "lower-laws-shapes-restrict-to-basic",
       "origin": "wf10/selfhost/S4-PORT LAWS-SHAPES",
-      "file": "compiler/lower/laws.ergo", "decl": "admittedLawParam",
+      "file": "compiler/lower/laws.ergo",
+      "decl": "admittedLawParam",
       "from": "shapeGo(st, t) != \"\"",
       "to": "basicGo(st, t) != \"\"",
       "rule": "Law and parameterized test admission uses SHAPES (slices, plain/imported records, arrays, native maps) rather than restricting parameters to basic scalars.",
-      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
-      "killers": ["internal/selfhostcheck:TestIRLawBuildAndProductionControl"]
+      "killers": [
+        "internal/selfhostcheck:TestIRLawBuildAndProductionControl"
+      ],
+      "regenerate": {
+        "dir": ".",
+        "argv": [
+          "go",
+          "run",
+          "./scripts/linked"
+        ]
+      }
     },
     {
       "name": "lower-laws-shapes-admit-unshaped-param",
       "origin": "wf10/selfhost/S4-PORT LAWS-SHAPES",
-      "file": "compiler/lower/laws.ergo", "decl": "admittedLawParam",
+      "file": "compiler/lower/laws.ergo",
+      "decl": "admittedLawParam",
       "from": "shapeGo(st, t) != \"\"",
       "to": "true || shapeGo(st, t) != \"\"",
       "rule": "Law parameter admission keeps the strict SHAPES guard and rejects unshaped types like tuples rather than admitting them unconditionally.",
-      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
-      "killers": ["internal/selfhostcheck:TestIRLawBuildAndProductionControl"]
+      "killers": [
+        "internal/selfhostcheck:TestIRLawBuildAndProductionControl"
+      ],
+      "regenerate": {
+        "dir": ".",
+        "argv": [
+          "go",
+          "run",
+          "./scripts/linked"
+        ]
+      }
     },
     {
       "name": "lower-laws-shapes-drop-slice-len",
       "origin": "wf10/selfhost/S4-PORT LAWS-SHAPES",
-      "file": "compiler/lower/lower.ergo", "decl": "builtinOf",
-      "from": "if from != \"string\" && !(store.KindOfType(st.s, at) == store.KSlice && shapeGo(st, at) != \"\") {",
-      "to": "if from != \"string\" {",
-      "rule": "builtinOf lowers len(xs) for admitted slice shapes as well as strings.",
-      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
-      "killers": ["internal/selfhostcheck:TestIRLawBuildAndProductionControl"]
+      "file": "compiler/lower/lower.ergo",
+      "decl": "lenOperand",
+      "from": "if basicGo(st, at) != \"string\" && !(store.KindOfType(st.s, at) == store.KSlice && shapeGo(st, at) != \"\") {",
+      "to": "if basicGo(st, at) != \"string\" {",
+      "rule": "lenOperand lowers len(xs) and .Len() for admitted slice shapes as well as strings.",
+      "killers": [
+        "internal/selfhostcheck:TestIRLawBuildAndProductionControl"
+      ],
+      "regenerate": {
+        "dir": ".",
+        "argv": [
+          "go",
+          "run",
+          "./scripts/linked"
+        ]
+      }
     },
     {
       "name": "lower-laws-shapes-erase-test-param-slots",
       "origin": "wf10/selfhost/S4-PORT LAWS-SHAPES",
-      "file": "compiler/lower/tests.ergo", "decl": "testParamFrame",
+      "file": "compiler/lower/tests.ergo",
+      "decl": "testParamFrame",
       "from": "framePlan{env: 0, slots: n + 1, pure: false, fallible: None, pollEntry: false, op: None}",
       "to": "framePlan{env: 0, slots: 1, pure: false, fallible: None, pollEntry: false, op: None}",
       "rule": "A parameterized test reserves slots for env plus all n parameters before body locals.",
-      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
-      "killers": ["internal/selfhostcheck:TestIRTestBuildAndProductionControl"]
+      "killers": [
+        "internal/selfhostcheck:TestIRTestBuildAndProductionControl"
+      ],
+      "regenerate": {
+        "dir": ".",
+        "argv": [
+          "go",
+          "run",
+          "./scripts/linked"
+        ]
+      }
     },
     {
       "name": "lower-let-shapes-restrict-to-basic",
       "origin": "wf10/selfhost/S4-PORT LET-SHAPES",
-      "file": "compiler/lower/lower.ergo", "decl": "admittedLetType",
+      "file": "compiler/lower/lower.ergo",
+      "decl": "admittedLetType",
       "from": "\tshapeGo(st, vt)",
       "to": "\ttypeParamGo(st, vt)",
       "rule": "Immutable local let bindings admit SHAPES value types rather than restricting to basic scalars and bare type parameters.",
-      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
-      "killers": ["internal/selfhostcheck:TestIRLetShapes"]
+      "killers": [
+        "internal/selfhostcheck:TestIRLetShapes"
+      ],
+      "regenerate": {
+        "dir": ".",
+        "argv": [
+          "go",
+          "run",
+          "./scripts/linked"
+        ]
+      }
     },
     {
       "name": "lower-let-shapes-admit-mut-nonbasic",
       "origin": "wf10/selfhost/S4-PORT LET-SHAPES",
-      "file": "compiler/lower/lower.ergo", "decl": "admittedLetType",
+      "file": "compiler/lower/lower.ergo",
+      "decl": "admittedLetType",
       "from": "\tif mutable || hasWrittenType {",
       "to": "\tif hasWrittenType {",
       "rule": "Mutable non-basic let bindings stay stopped so value-rule copy/seedcap/scalar-form invariants cannot diverge.",
-      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
-      "killers": ["internal/selfhostcheck:TestIRLetShapes"]
+      "killers": [
+        "internal/selfhostcheck:TestIRLetShapes"
+      ],
+      "regenerate": {
+        "dir": ".",
+        "argv": [
+          "go",
+          "run",
+          "./scripts/linked"
+        ]
+      }
     },
     {
       "name": "lower-let-shapes-admit-explicit-type",
       "origin": "wf10/selfhost/S4-PORT LET-SHAPES",
-      "file": "compiler/lower/lower.ergo", "decl": "admittedLetType",
+      "file": "compiler/lower/lower.ergo",
+      "decl": "admittedLetType",
       "from": "\tif mutable || hasWrittenType {",
       "to": "\tif mutable {",
       "rule": "Non-basic let bindings with explicit type annotations stay stopped so implicit union/interface conversions are never dropped.",
-      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
-      "killers": ["internal/selfhostcheck:TestIRLetShapes"]
+      "killers": [
+        "internal/selfhostcheck:TestIRLetShapes"
+      ],
+      "regenerate": {
+        "dir": ".",
+        "argv": [
+          "go",
+          "run",
+          "./scripts/linked"
+        ]
+      }
     },
     {
       "name": "lower-let-shapes-wrong-local-type",
       "origin": "wf10/selfhost/S4-PORT LET-SHAPES",
-      "file": "compiler/lower/lower.ergo", "decl": "admittedLetType",
+      "file": "compiler/lower/lower.ergo",
+      "decl": "admittedLetType",
       "from": "\tshapeGo(st, vt)",
       "to": "\tif shapeGo(st, vt) != \"\" { \"int\" } else { \"\" }",
       "rule": "Shaped local let bindings record their exact shapeGo type in ir.Func.Locals rather than a placeholder scalar type.",
-      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
-      "killers": ["internal/selfhostcheck:TestIRLetShapes"]
+      "killers": [
+        "internal/selfhostcheck:TestIRLetShapes"
+      ],
+      "regenerate": {
+        "dir": ".",
+        "argv": [
+          "go",
+          "run",
+          "./scripts/linked"
+        ]
+      }
+    },
+    {
+      "name": "lower-fail-frame-last-exit-only",
+      "origin": "wf10/selfhost/S4-PORT FAIL-FRAME-SHAPES",
+      "file": "compiler/lower/fail_frame.ergo",
+      "decl": "fallibleStmt",
+      "from": "\t\t\tmatch try fallibleTail(st, x, success, unit, members) {\n\t\t\tcase option.Some{Value: exit}:\n\t\t\t\t*exits = (*exits).Append(exit)",
+      "to": "\t\t\tmatch try fallibleTail(st, x, success, unit, members) {\n\t\t\tcase option.Some{Value: exit}:\n\t\t\t\t*exits = []failureExit{exit}",
+      "rule": "A fallible frame records every failure exit of its body, not only the last one seen.",
+      "killers": [
+        "internal/selfhostcheck:TestIRFailFrameShapes"
+      ],
+      "regenerate": {
+        "dir": ".",
+        "argv": [
+          "go",
+          "run",
+          "./scripts/linked"
+        ]
+      }
+    },
+    {
+      "name": "lower-fail-frame-refuse-unit-success",
+      "origin": "wf10/selfhost/S4-PORT FAIL-FRAME-SHAPES",
+      "file": "compiler/lower/fail_frame.ergo",
+      "decl": "envFreeFallibleFrame",
+      "from": "\t\tif !unit {\n\t\t\treturn stop(\"SHAPES: unspelled success result\")",
+      "to": "\t\tif true {\n\t\t\treturn stop(\"SHAPES: unspelled success result\")",
+      "rule": "A fallible frame with a unit success result is admitted although unit has no Go spelling.",
+      "killers": [
+        "internal/selfhostcheck:TestIRFailFrameShapes"
+      ],
+      "regenerate": {
+        "dir": ".",
+        "argv": [
+          "go",
+          "run",
+          "./scripts/linked"
+        ]
+      }
+    },
+    {
+      "name": "lower-fail-frame-unspelled-empty-record",
+      "origin": "wf10/selfhost/S4-PORT FAIL-FRAME-SHAPES",
+      "file": "compiler/lower/shape.ergo",
+      "decl": "shapeWithin",
+      "from": "\tlet rec = st.k.Recs[r]\n\tlet gt = declName(st, rec.Name) catch {",
+      "to": "\tlet rec = st.k.Recs[r]\n\tif rec.Fields.Len() == 0 {\n\t\treturn \"\"\n\t}\n\tlet gt = declName(st, rec.Name) catch {",
+      "rule": "A record with no fields has its Go spelling, so a zero-field failure record is a frame's failure.",
+      "killers": [
+        "internal/selfhostcheck:TestIRFailFrameShapes"
+      ],
+      "regenerate": {
+        "dir": ".",
+        "argv": [
+          "go",
+          "run",
+          "./scripts/linked"
+        ]
+      }
+    },
+    {
+      "name": "lower-fail-frame-admit-calls",
+      "origin": "wf10/selfhost/S4-PORT FAIL-FRAME-SHAPES",
+      "file": "compiler/lower/fail_frame.ergo",
+      "decl": "fallibleHasCall",
+      "from": "\t\tif bi == option.None {\n\t\t\treturn true\n\t\t}",
+      "to": "\t\tif bi == option.None {\n\t\t\treturn false\n\t\t}",
+      "rule": "A fallible frame whose body calls a declared function stops at CALLS; only builtins are admitted.",
+      "killers": [
+        "internal/selfhostcheck:TestIRFailFrameShapes"
+      ],
+      "regenerate": {
+        "dir": ".",
+        "argv": [
+          "go",
+          "run",
+          "./scripts/linked"
+        ]
+      }
+    },
+    {
+      "name": "lower-fail-frame-refuse-field-read",
+      "origin": "wf10/selfhost/S4-PORT FAIL-FRAME-SHAPES",
+      "file": "compiler/lower/fail_frame.ergo",
+      "decl": "fieldPath",
+      "from": "\tcase syntax.Name:\n\t\ttrue\n\tcase syntax.ParenExpr as pe:\n\t\tfieldPath(st, pe.X)",
+      "to": "\tcase syntax.Name:\n\t\tfalse\n\tcase syntax.ParenExpr as pe:\n\t\tfieldPath(st, pe.X)",
+      "rule": "A failure field may be a scalar read through record fields of a parameter.",
+      "killers": [
+        "internal/selfhostcheck:TestIRFailFrameShapes"
+      ],
+      "regenerate": {
+        "dir": ".",
+        "argv": [
+          "go",
+          "run",
+          "./scripts/linked"
+        ]
+      }
+    },
+    {
+      "name": "lower-fail-frame-if-else-not-tail",
+      "origin": "wf10/selfhost/S4-PORT FAIL-FRAME-SHAPES",
+      "file": "compiler/lower/fail_frame.ergo",
+      "decl": "fallibleStmt",
+      "from": "\t\tlet branchTail = isTail && !unit && dense.Unpack(branch.Else) != option.None",
+      "to": "\t\tlet branchTail = false",
+      "rule": "The branches of a tail if/else are the value tail of a fallible value frame, so a failure value there is an exit.",
+      "killers": [
+        "internal/selfhostcheck:TestIRFailFrameShapes"
+      ],
+      "regenerate": {
+        "dir": ".",
+        "argv": [
+          "go",
+          "run",
+          "./scripts/linked"
+        ]
+      }
+    },
+    {
+      "name": "lower-fail-frame-unit-return-operand-stops",
+      "origin": "wf10/selfhost/S4-PORT FAIL-FRAME-SHAPES",
+      "file": "compiler/lower/control.ergo",
+      "decl": "controlStatement",
+      "from": "\t\t\tif p.unit && (try frameFailureOperands(*st, x)) == option.None {",
+      "to": "\t\t\tif p.unit {",
+      "rule": "A unit fallible frame returns its recorded failure exits; only a return of another operand stops.",
+      "killers": [
+        "internal/selfhostcheck:TestIRFailFrameShapes"
+      ],
+      "regenerate": {
+        "dir": ".",
+        "argv": [
+          "go",
+          "run",
+          "./scripts/linked"
+        ]
+      }
     },
     {
       "name": "lower-len-method-receiver",

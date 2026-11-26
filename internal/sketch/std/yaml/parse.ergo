@@ -1,0 +1,969 @@
+import option
+import strings
+import utf8
+
+type table { kind []uint8, text []string, next []int, at []int, target []int, docs []int }
+
+type parser {
+	src            string,
+	pos            int,
+	maxDepth       int,
+	depth          int,
+	budget         int,
+	kind           []uint8,
+	text           []string,
+	next           []int,
+	at             []int,
+	target         []int,
+	weight         []int,
+	docs           []int,
+	anchors        Map[string, int],
+	lastAnchor     string,
+	lastAnchorNode int,
+}
+
+type props { Anchor string, Tag string }
+
+func noProps() props { props{Anchor: "", Tag: ""} }
+
+func bad(src string, off int, why string) Malformed {
+	let end = if off > src.Len() { src.Len() } else { off }
+	let mut line = 1
+	let mut start = 0
+	for i in 0..end {
+		if src[i] == byte('\n') {
+			line += 1
+			start = i + 1
+		}
+	}
+	Malformed{Line: line, Column: end - start + 1, Reason: why}
+}
+
+func byteAt(s string, i int) byte { if i >= 0 && i < s.Len() { s[i] } else { byte(0) } }
+
+func isBlank(b byte) bool { b == byte(' ') || b == byte('\t') }
+
+func isSpaceOrEnd(s string, i int) bool { i >= s.Len() || s[i] == byte(' ') || s[i] == byte('\t') || s[i] == byte('\n') }
+
+func isFlowIndicator(b byte) bool {
+	b == byte(',') || b == byte('[') || b == byte(']') || b == byte('{') || b == byte('}')
+}
+
+func column(s string, pos int) int {
+	let mut i = pos
+	for i > 0 && s[i-1] != byte('\n') {
+		i -= 1
+	}
+	pos - i
+}
+
+func onlySpacesBefore(s string, pos int) bool {
+	let mut i = pos
+	for i > 0 && s[i-1] != byte('\n') {
+		if s[i-1] != byte(' ') {
+			return false
+		}
+		i -= 1
+	}
+	true
+}
+
+func isMarker(s string, pos int, c byte) bool {
+	(pos == 0 || s[pos-1] == byte('\n')) && byteAt(s, pos) == c && byteAt(s, pos+1) == c && byteAt(s, pos+2) == c && isSpaceOrEnd(s, pos+3)
+}
+
+func isDocMarker(s string, pos int) bool { isMarker(s, pos, byte('-')) || isMarker(s, pos, byte('.')) }
+
+func dashAt(s string, pos int) bool { byteAt(s, pos) == byte('-') && isSpaceOrEnd(s, pos+1) }
+
+func add(p mut parser, k uint8, text string, off int) int {
+	let id = p.kind.Len()
+	p.kind = p.kind.Append(k)
+	p.text = p.text.Append(text)
+	p.next = p.next.Append(if k == kindSeq || k == kindMap { 0 } else { id + 1 })
+	p.at = p.at.Append(off)
+	p.target = p.target.Append(-1)
+	p.weight = p.weight.Append(1)
+	id
+}
+
+func enter(p mut parser) fails Malformed {
+	p.depth += 1
+	if p.depth > p.maxDepth {
+		return bad(p.src, p.pos, "nesting deeper than MaxDepth")
+	}
+}
+
+func close(p mut parser, id int) fails Malformed {
+	let end = p.kind.Len()
+	p.next[id] = end
+	let mut w = 1
+	let mut i = id + 1
+	for i < end {
+		w += p.weight[i]
+		if w > p.budget {
+			return bad(p.src, p.at[id], "aliases expand past the limit")
+		}
+		i = p.next[i]
+	}
+	p.weight[id] = w
+	p.depth -= 1
+}
+
+func skipInline(p mut parser) {
+	for p.pos < p.src.Len() && isBlank(p.src[p.pos]) {
+		p.pos += 1
+	}
+}
+
+func atLineEnd(p mut parser) bool {
+	let c = byteAt(p.src, p.pos)
+	p.pos >= p.src.Len() || c == byte('\n') || (c == byte('#') && (p.pos == 0 || isBlank(p.src[p.pos-1]) || p.src[p.pos-1] == byte('\n')))
+}
+
+func skipBlank(p mut parser) int fails Malformed {
+	let n = p.src.Len()
+	let mut lineStart = p.pos == 0 || p.src[p.pos-1] == byte('\n')
+	let mut tab = false
+	for p.pos < n {
+		let c = p.src[p.pos]
+		if c == byte(' ') {
+			p.pos += 1
+		} else if c == byte('\t') {
+			if lineStart {
+				tab = true
+			}
+			p.pos += 1
+		} else if c == byte('\n') {
+			p.pos += 1
+			lineStart = true
+			tab = false
+		} else if c == byte('#') && (p.pos == 0 || isBlank(p.src[p.pos-1]) || p.src[p.pos-1] == byte('\n')) {
+			for p.pos < n && p.src[p.pos] != byte('\n') {
+				p.pos += 1
+			}
+		} else {
+			if tab {
+				return bad(p.src, p.pos, "tab in indentation")
+			}
+			return column(p.src, p.pos)
+		}
+	}
+	-1
+}
+
+func skipFlowSpace(p mut parser) {
+	let n = p.src.Len()
+	for p.pos < n {
+		let c = p.src[p.pos]
+		if c == byte(' ') || c == byte('\t') || c == byte('\n') {
+			p.pos += 1
+		} else if c == byte('#') && (p.pos == 0 || isBlank(p.src[p.pos-1]) || p.src[p.pos-1] == byte('\n')) {
+			for p.pos < n && p.src[p.pos] != byte('\n') {
+				p.pos += 1
+			}
+		} else {
+			return
+		}
+	}
+}
+
+func normalTag(tag string) string {
+	if strings.HasPrefix(tag, "!<tag:yaml.org,2002:") && strings.HasSuffix(tag, ">") {
+		return "!!" + tag[20:tag.Len()-1]
+	}
+	tag
+}
+
+func readProps(p mut parser, flow bool) props fails Malformed {
+	let mut pr = noProps()
+	let n = p.src.Len()
+	for p.pos < n {
+		let c = p.src[p.pos]
+		if c != byte('&') && c != byte('!') {
+			break
+		}
+		let start = p.pos
+		if c == byte('!') && byteAt(p.src, p.pos+1) == byte('<') {
+			for p.pos < n && p.src[p.pos] != byte('>') && p.src[p.pos] != byte('\n') {
+				p.pos += 1
+			}
+			if byteAt(p.src, p.pos) != byte('>') {
+				return bad(p.src, start, "unterminated verbatim tag")
+			}
+			p.pos += 1
+		} else {
+			p.pos += 1
+			for p.pos < n && !isSpaceOrEnd(p.src, p.pos) && !(flow && isFlowIndicator(p.src[p.pos])) {
+				p.pos += 1
+			}
+		}
+		let word = p.src[start:p.pos]
+		if c == byte('&') {
+			if word.Len() == 1 {
+				return bad(p.src, start, "anchor has no name")
+			}
+			pr = props{Anchor: word[1:], Tag: pr.Tag}
+		} else {
+			pr = props{Anchor: pr.Anchor, Tag: normalTag(word)}
+		}
+		skipInline(p)
+	}
+	pr
+}
+
+func mergeProps(a props, b props) props {
+	props{Anchor: if b.Anchor != "" { b.Anchor } else { a.Anchor }, Tag: if b.Tag != "" { b.Tag } else { a.Tag }}
+}
+
+func coreTagKind(tag string, k uint8, text string) int {
+	if k == kindSeq || k == kindMap {
+		let want = if k == kindSeq { "!!seq" } else { "!!map" }
+		return if tag == want || tag == "!" { int(k) } else { -1 }
+	}
+	if tag == "!!str" || tag == "!" {
+		return int(kindString)
+	}
+	let r = resolvePlain(text)
+	let want = if tag == "!!int" { kindInt } else if tag == "!!float" { kindFloat } else if tag == "!!bool" { kindBool } else if tag == "!!null" { kindNull } else { kindAlias }
+	if want == kindAlias {
+		return -1
+	}
+	if r == want || (want == kindFloat && r == kindInt) {
+		return int(want)
+	}
+	-2
+}
+
+func applyProps(p mut parser, id int, pr props) fails Malformed {
+	let k = p.kind[id]
+	if k == kindAlias && (pr.Tag != "" || pr.Anchor != "") {
+		return bad(p.src, p.at[id], "an alias takes no tag or anchor")
+	}
+	if pr.Tag != "" {
+		let to = coreTagKind(pr.Tag, k, p.text[id])
+		if to == -1 {
+			return bad(p.src, p.at[id], "unsupported tag "+pr.Tag)
+		}
+		if to == -2 {
+			return bad(p.src, p.at[id], "the scalar does not resolve as "+pr.Tag)
+		}
+		p.kind[id] = uint8(to)
+	}
+	if pr.Anchor != "" {
+		p.anchors[pr.Anchor] = id
+		p.lastAnchor = pr.Anchor
+		p.lastAnchorNode = id
+	}
+}
+
+func alias(p mut parser, flow bool) int fails Malformed {
+	let start = p.pos
+	let n = p.src.Len()
+	p.pos += 1
+	for p.pos < n && !isSpaceOrEnd(p.src, p.pos) && !(flow && isFlowIndicator(p.src[p.pos])) && !(p.src[p.pos] == byte(':') && isSpaceOrEnd(p.src, p.pos+1)) {
+		p.pos += 1
+	}
+	let name = p.src[start+1 : p.pos]
+	if name == "" {
+		return bad(p.src, start, "alias has no name")
+	}
+	let to = match p.anchors.Get(name) {
+	case option.Some[int] as t:
+		t.Value
+	case option.None:
+		return bad(p.src, start, "alias of undefined anchor "+name)
+	}
+	if p.next[to] == 0 {
+		return bad(p.src, start, "alias inside its own anchor's node")
+	}
+	let id = add(p, kindAlias, "", start)
+	p.target[id] = to
+	p.weight[id] = p.weight[to]
+	id
+}
+
+func appendCode(out []byte, cp int) []byte { utf8.AppendRune(out, rune(cp)) }
+
+func hexAt(s string, i int, count int) int {
+	if i+count > s.Len() {
+		return -1
+	}
+	let mut v = 0
+	for j in i..i+count {
+		if !isHex(s[j]) {
+			return -1
+		}
+		v = v*16 + int(digitValue(s[j]))
+	}
+	v
+}
+
+func foldBreaks(p mut parser, out []byte, quote byte) ([]byte, bool) fails Malformed {
+	let n = p.src.Len()
+	let mut o = out
+	let mut k = 0
+	p.pos += 1
+	for {
+		for p.pos < n && isBlank(p.src[p.pos]) {
+			p.pos += 1
+		}
+		if p.pos >= n {
+			return bad(p.src, p.pos, if quote == byte('"') { "unterminated double-quoted scalar" } else { "unterminated single-quoted scalar" })
+		}
+		if isDocMarker(p.src, p.pos) {
+			return bad(p.src, p.pos, "document marker inside a quoted scalar")
+		}
+		if p.src[p.pos] != byte('\n') {
+			break
+		}
+		k += 1
+		p.pos += 1
+	}
+	if k == 0 {
+		o = o.Append(byte(' '))
+	} else {
+		for _ in 0..k {
+			o = o.Append(byte('\n'))
+		}
+	}
+	(o, quote == byte('"'))
+}
+
+func trimBlankTail(out []byte, keep int) []byte {
+	let mut e = out.Len()
+	for e > keep && isBlank(out[e-1]) {
+		e -= 1
+	}
+	out[:e]
+}
+
+func singleQuoted(p mut parser) string fails Malformed {
+	let start = p.pos
+	let n = p.src.Len()
+	let mut out = []byte{}
+	let mut keep = 0
+	p.pos += 1
+	for {
+		if p.pos >= n {
+			return bad(p.src, start, "unterminated single-quoted scalar")
+		}
+		let c = p.src[p.pos]
+		if c == byte('\'') {
+			if byteAt(p.src, p.pos+1) == byte('\'') {
+				out = out.Append(byte('\''))
+				keep = out.Len()
+				p.pos += 2
+			} else {
+				p.pos += 1
+				break
+			}
+		} else if c == byte('\n') {
+			out = trimBlankTail(out, keep)
+			let (o, _) = try foldBreaks(p, out, byte('\''))
+			out = o
+			keep = out.Len()
+		} else {
+			out = out.Append(c)
+			if !isBlank(c) {
+				keep = out.Len()
+			}
+			p.pos += 1
+		}
+	}
+	out.Text()
+}
+
+func shortEscape(e byte) int {
+	let codes = "a\x07b\x08t\tn\nv\x0bf\x0cr\re\x1b  \"\"//\\\\"
+	let mut i = 0
+	for i+1 < codes.Len() {
+		if codes[i] == e {
+			return int(codes[i+1])
+		}
+		i += 2
+	}
+	if e == byte('0') { 0 } else if e == byte('\t') { 9 } else if e == byte('N') { 0x85 } else if e == byte('_') { 0xa0 } else if e == byte('L') { 0x2028 } else if e == byte('P') { 0x2029 } else { -1 }
+}
+
+func escape(p mut parser, out []byte) []byte fails Malformed {
+	let at = p.pos
+	let e = byteAt(p.src, p.pos+1)
+	p.pos += 2
+	let short = shortEscape(e)
+	if short >= 0 {
+		return appendCode(out, short)
+	}
+	let width = if e == byte('x') { 2 } else if e == byte('u') { 4 } else if e == byte('U') { 8 } else { 0 }
+	if width == 0 {
+		return bad(p.src, at, "unknown escape")
+	}
+	let mut cp = hexAt(p.src, p.pos, width)
+	if cp < 0 {
+		return bad(p.src, at, "bad hex digits in an escape")
+	}
+	p.pos += width
+	if cp >= 0xd800 && cp <= 0xdbff {
+		let lo = if byteAt(p.src, p.pos) == byte('\\') && byteAt(p.src, p.pos+1) == byte('u') { hexAt(p.src, p.pos+2, 4) } else { -1 }
+		if lo < 0xdc00 || lo > 0xdfff {
+			return bad(p.src, at, "lone surrogate in an escape")
+		}
+		p.pos += 6
+		cp = 0x10000 + (cp-0xd800)*0x400 + (lo - 0xdc00)
+	} else if (cp >= 0xdc00 && cp <= 0xdfff) || cp > 0x10ffff {
+		return bad(p.src, at, "escape is not a Unicode scalar value")
+	}
+	appendCode(out, cp)
+}
+
+func doubleQuoted(p mut parser) string fails Malformed {
+	let start = p.pos
+	let n = p.src.Len()
+	let mut out = []byte{}
+	let mut keep = 0
+	p.pos += 1
+	for {
+		if p.pos >= n {
+			return bad(p.src, start, "unterminated double-quoted scalar")
+		}
+		let c = p.src[p.pos]
+		if c == byte('"') {
+			p.pos += 1
+			break
+		} else if c == byte('\\') {
+			if byteAt(p.src, p.pos+1) == byte('\n') {
+				p.pos += 2
+				for p.pos < n && isBlank(p.src[p.pos]) {
+					p.pos += 1
+				}
+				keep = out.Len()
+			} else {
+				out = try escape(p, out)
+				keep = out.Len()
+			}
+		} else if c == byte('\n') {
+			out = trimBlankTail(out, keep)
+			let (o, _) = try foldBreaks(p, out, byte('"'))
+			out = o
+			keep = out.Len()
+		} else {
+			out = out.Append(c)
+			if !isBlank(c) {
+				keep = out.Len()
+			}
+			p.pos += 1
+		}
+	}
+	out.Text()
+}
+
+func plainEnds(s string, i int, flow bool) bool {
+	let c = s[i]
+	if c == byte(':') && (isSpaceOrEnd(s, i+1) || (flow && isFlowIndicator(byteAt(s, i+1)))) {
+		return true
+	}
+	if c == byte('#') && i > 0 && isBlank(s[i-1]) {
+		return true
+	}
+	flow && isFlowIndicator(c)
+}
+
+func plain(p mut parser, parent int, flow bool, multi bool) string fails Malformed {
+	let s = p.src
+	let n = s.Len()
+	let c = s[p.pos]
+	if c == byte('%') || c == byte('@') || c == byte('`') || c == byte(',') || c == byte(']') || c == byte('}') || c == byte('[') || c == byte('{') || c == byte('|') || c == byte('>') || ((c == byte('-') || c == byte('?') || c == byte(':')) && (isSpaceOrEnd(s, p.pos+1) || (flow && isFlowIndicator(byteAt(s, p.pos+1))))) {
+		return bad(s, p.pos, "unexpected character")
+	}
+	let mut out = []byte{}
+	for {
+		let segStart = p.pos
+		let mut i = p.pos
+		for i < n && s[i] != byte('\n') && !plainEnds(s, i, flow) {
+			i += 1
+		}
+		let mut e = i
+		for e > segStart && isBlank(s[e-1]) {
+			e -= 1
+		}
+		out = out.AppendString(s[segStart:e])
+		p.pos = i
+		if !multi || i >= n || s[i] != byte('\n') {
+			break
+		}
+		let save = p.pos
+		let mut k = 0
+		let mut j = i + 1
+		let mut found = false
+		for j < n {
+			let ls = j
+			for j < n && s[j] == byte(' ') {
+				j += 1
+			}
+			let mut q = j
+			for q < n && isBlank(s[q]) {
+				q += 1
+			}
+			if q >= n {
+				break
+			}
+			if s[q] == byte('\n') {
+				k += 1
+				j = q + 1
+				continue
+			}
+			if s[q] == byte('#') || isDocMarker(s, ls) || (!flow && j-ls <= parent) || plainEnds(s, q, flow) {
+				break
+			}
+			found = true
+			j = q
+			break
+		}
+		if !found {
+			p.pos = save
+			break
+		}
+		if k == 0 {
+			out = out.Append(byte(' '))
+		} else {
+			for _ in 0..k {
+				out = out.Append(byte('\n'))
+			}
+		}
+		p.pos = j
+	}
+	out.Text()
+}
+
+func scalarNode(p mut parser, parent int, flow bool, multi bool) int fails Malformed {
+	let off = p.pos
+	let c = byteAt(p.src, p.pos)
+	if c == byte('"') {
+		let t = try doubleQuoted(p)
+		return add(p, kindString, t, off)
+	}
+	if c == byte('\'') {
+		let t = try singleQuoted(p)
+		return add(p, kindString, t, off)
+	}
+	let t = try plain(p, parent, flow, multi)
+	add(p, resolvePlain(t), t, off)
+}
+
+func lineIsKey(s string, pos int) bool {
+	let n = s.Len()
+	let mut i = pos
+	let c = byteAt(s, i)
+	if c == byte('"') {
+		i += 1
+		for i < n && s[i] != byte('"') {
+			if s[i] == byte('\n') {
+				return false
+			}
+			i += if s[i] == byte('\\') { 2 } else { 1 }
+		}
+		i += 1
+	} else if c == byte('\'') {
+		i += 1
+		for i < n {
+			if s[i] == byte('\n') {
+				return false
+			}
+			if s[i] == byte('\'') {
+				if byteAt(s, i+1) == byte('\'') {
+					i += 2
+					continue
+				}
+				break
+			}
+			i += 1
+		}
+		i += 1
+	} else if c == byte('*') {
+		for i < n && !isSpaceOrEnd(s, i) && !(s[i] == byte(':') && isSpaceOrEnd(s, i+1)) {
+			i += 1
+		}
+	} else if c == byte('[') || c == byte('{') || c == byte('?') || c == byte('#') {
+		return false
+	} else {
+		for i < n && s[i] != byte('\n') {
+			if s[i] == byte(':') && isSpaceOrEnd(s, i+1) {
+				return true
+			}
+			if s[i] == byte('#') && i > pos && isBlank(s[i-1]) {
+				return false
+			}
+			i += 1
+		}
+		return false
+	}
+	for i < n && isBlank(s[i]) {
+		i += 1
+	}
+	byteAt(s, i) == byte(':') && isSpaceOrEnd(s, i+1)
+}
+
+func blockNode(p mut parser, parent int, ctx int) int fails Malformed {
+	if ctx == 0 && onlySpacesBefore(p.src, p.pos) && !atLineEnd(p) {
+		return try fresh(p, column(p.src, p.pos), parent, ctx, noProps())
+	}
+	skipInline(p)
+	let pr = try readProps(p, false)
+	skipInline(p)
+	if atLineEnd(p) {
+		let off = p.pos
+		let n = try skipBlank(p)
+		if n < 0 || isDocMarker(p.src, p.pos) || !(n > parent || (ctx == 2 && n == parent && dashAt(p.src, p.pos))) {
+			let id = add(p, kindNull, "", off)
+			try applyProps(p, id, pr)
+			return id
+		}
+		return try fresh(p, n, parent, ctx, pr)
+	}
+	try inline(p, parent, ctx, pr)
+}
+
+func endLine(p mut parser) fails Malformed {
+	skipInline(p)
+	if byteAt(p.src, p.pos) == byte(':') {
+		return bad(p.src, p.pos, "a mapping value is not allowed here")
+	}
+	if !atLineEnd(p) {
+		return bad(p.src, p.pos, "unexpected text after a value")
+	}
+}
+
+func nodeOnLine(p mut parser, parent int, pr props) int fails Malformed {
+	let c = byteAt(p.src, p.pos)
+	if c == byte('|') || c == byte('>') {
+		let id = try blockScalar(p, parent)
+		try applyProps(p, id, pr)
+		return id
+	}
+	if c == byte('[') || c == byte('{') {
+		let id = try flowNode(p)
+		try applyProps(p, id, pr)
+		try endLine(p)
+		return id
+	}
+	if c == byte('*') {
+		let id = try alias(p, false)
+		try applyProps(p, id, pr)
+		try endLine(p)
+		return id
+	}
+	if c == byte('?') && isSpaceOrEnd(p.src, p.pos+1) {
+		return bad(p.src, p.pos, "explicit keys (?) are not supported")
+	}
+	let id = try scalarNode(p, parent, false, true)
+	try applyProps(p, id, pr)
+	try endLine(p)
+	id
+}
+
+func fresh(p mut parser, ind int, parent int, ctx int, outer props) int fails Malformed {
+	if dashAt(p.src, p.pos) {
+		let id = try blockSeq(p, ind)
+		try applyProps(p, id, outer)
+		return id
+	}
+	let save = p.pos
+	let ip = try readProps(p, false)
+	if lineIsKey(p.src, p.pos) {
+		p.pos = save
+		let id = try blockMap(p, ind, noProps())
+		try applyProps(p, id, outer)
+		return id
+	}
+	try nodeOnLine(p, parent, mergeProps(outer, ip))
+}
+
+func inline(p mut parser, parent int, ctx int, pr props) int fails Malformed {
+	let col = column(p.src, p.pos)
+	if dashAt(p.src, p.pos) {
+		if ctx == 2 {
+			return bad(p.src, p.pos, "a block sequence may not start on its key's line")
+		}
+		let id = try blockSeq(p, col)
+		try applyProps(p, id, pr)
+		return id
+	}
+	if lineIsKey(p.src, p.pos) {
+		if ctx == 2 {
+			return bad(p.src, p.pos, "a mapping value is not allowed here")
+		}
+		return try blockMap(p, col, pr)
+	}
+	try nodeOnLine(p, parent, pr)
+}
+
+func blockSeq(p mut parser, ind int) int fails Malformed {
+	let id = add(p, kindSeq, "", p.pos)
+	try enter(p)
+	for {
+		p.pos += 1
+		let _ = try blockNode(p, ind, 1)
+		let n = try skipBlank(p)
+		if n < 0 || isDocMarker(p.src, p.pos) || n < ind {
+			break
+		}
+		if n > ind {
+			return bad(p.src, p.pos, "bad indentation of a sequence entry")
+		}
+		if !dashAt(p.src, p.pos) {
+			break
+		}
+	}
+	try close(p, id)
+	id
+}
+
+func blockKey(p mut parser, first props) int fails Malformed {
+	let pr = mergeProps(first, try readProps(p, false))
+	let c = byteAt(p.src, p.pos)
+	if c == byte('?') && isSpaceOrEnd(p.src, p.pos+1) {
+		return bad(p.src, p.pos, "explicit keys (?) are not supported")
+	}
+	if c == byte('[') || c == byte('{') {
+		return bad(p.src, p.pos, "collection keys are not supported")
+	}
+	let id = if c == byte('*') { try alias(p, false) } else { try scalarNode(p, 0, false, false) }
+	try applyProps(p, id, pr)
+	skipInline(p)
+	if byteAt(p.src, p.pos) != byte(':') || !isSpaceOrEnd(p.src, p.pos+1) {
+		return bad(p.src, p.pos, "expected ':' after a mapping key")
+	}
+	p.pos += 1
+	id
+}
+
+func blockMap(p mut parser, ind int, first props) int fails Malformed {
+	let id = add(p, kindMap, "", p.pos)
+	try enter(p)
+	let mut pr = first
+	for {
+		let _ = try blockKey(p, pr)
+		pr = noProps()
+		let _ = try blockNode(p, ind, 2)
+		let n = try skipBlank(p)
+		if n < 0 || isDocMarker(p.src, p.pos) || n < ind {
+			break
+		}
+		if n > ind {
+			return bad(p.src, p.pos, "bad indentation of a mapping entry")
+		}
+		if dashAt(p.src, p.pos) {
+			return bad(p.src, p.pos, "expected a mapping key, found a sequence entry")
+		}
+	}
+	try close(p, id)
+	id
+}
+
+func wrapPair(p mut parser, e int) fails Malformed {
+	if p.kind.Len() != e+1 {
+		return bad(p.src, p.at[e], "collection keys are not supported")
+	}
+	let _ = add(p, p.kind[e], p.text[e], p.at[e])
+	p.target[e+1] = p.target[e]
+	p.weight[e+1] = p.weight[e]
+	p.kind[e] = kindMap
+	p.text[e] = ""
+	p.next[e] = 0
+	p.target[e] = -1
+	p.weight[e] = 1
+	if p.lastAnchorNode == e && p.lastAnchor != "" {
+		p.anchors[p.lastAnchor] = e + 1
+		p.lastAnchorNode = e + 1
+	}
+	try enter(p)
+}
+
+func flowValue(p mut parser, closer byte) fails Malformed {
+	skipFlowSpace(p)
+	let c = byteAt(p.src, p.pos)
+	if c == byte(',') || c == closer {
+		let _ = add(p, kindNull, "", p.pos)
+		return
+	}
+	let _ = try flowNode(p)
+}
+
+func flowNode(p mut parser) int fails Malformed {
+	skipFlowSpace(p)
+	let off = p.pos
+	let pr = try readProps(p, true)
+	skipFlowSpace(p)
+	let s = p.src
+	let c = byteAt(s, p.pos)
+	if p.pos >= s.Len() {
+		return bad(s, p.pos, "unterminated flow collection")
+	}
+	let mut id = -1
+	if c == byte('[') {
+		id = add(p, kindSeq, "", p.pos)
+		try enter(p)
+		p.pos += 1
+		for {
+			skipFlowSpace(p)
+			let d = byteAt(s, p.pos)
+			if d == byte(']') {
+				p.pos += 1
+				break
+			}
+			if p.pos >= s.Len() {
+				return bad(s, off, "unterminated flow sequence")
+			}
+			if d == byte(',') {
+				return bad(s, p.pos, "empty entry in a flow sequence")
+			}
+			let e = p.kind.Len()
+			let _ = try flowNode(p)
+			skipFlowSpace(p)
+			if byteAt(s, p.pos) == byte(':') {
+				try wrapPair(p, e)
+				p.pos += 1
+				try flowValue(p, byte(']'))
+				try close(p, e)
+				skipFlowSpace(p)
+			}
+			let f = byteAt(s, p.pos)
+			if p.pos >= s.Len() {
+				return bad(s, off, "unterminated flow sequence")
+			}
+			if f == byte(',') {
+				p.pos += 1
+			} else if f != byte(']') {
+				return bad(s, p.pos, "expected ',' or ']' in a flow sequence")
+			}
+		}
+		try close(p, id)
+	} else if c == byte('{') {
+		id = add(p, kindMap, "", p.pos)
+		try enter(p)
+		p.pos += 1
+		for {
+			skipFlowSpace(p)
+			let d = byteAt(s, p.pos)
+			if d == byte('}') {
+				p.pos += 1
+				break
+			}
+			if p.pos >= s.Len() {
+				return bad(s, off, "unterminated flow mapping")
+			}
+			if d == byte(',') {
+				return bad(s, p.pos, "empty entry in a flow mapping")
+			}
+			if d == byte('[') || d == byte('{') {
+				return bad(s, p.pos, "collection keys are not supported")
+			}
+			if d == byte('?') && isSpaceOrEnd(s, p.pos+1) {
+				return bad(s, p.pos, "explicit keys (?) are not supported")
+			}
+			let _ = try flowNode(p)
+			skipFlowSpace(p)
+			if byteAt(s, p.pos) == byte(':') {
+				p.pos += 1
+				try flowValue(p, byte('}'))
+				skipFlowSpace(p)
+			} else {
+				let _ = add(p, kindNull, "", p.pos)
+			}
+			let f = byteAt(s, p.pos)
+			if p.pos >= s.Len() {
+				return bad(s, off, "unterminated flow mapping")
+			}
+			if f == byte(',') {
+				p.pos += 1
+			} else if f != byte('}') {
+				return bad(s, p.pos, "expected ',' or '}' in a flow mapping")
+			}
+		}
+		try close(p, id)
+	} else if c == byte('*') {
+		id = try alias(p, true)
+	} else if c == byte('|') || c == byte('>') {
+		return bad(s, p.pos, "block scalar inside a flow collection")
+	} else if (c == byte(',') || c == byte(']') || c == byte('}')) && (pr.Anchor != "" || pr.Tag != "") {
+		id = add(p, kindNull, "", p.pos)
+	} else {
+		id = try scalarNode(p, -1, true, true)
+	}
+	try applyProps(p, id, pr)
+	id
+}
+
+func parseStream(text string, maxBytes int, maxDepth int) table fails Malformed {
+	if maxBytes > 0 && text.Len() > maxBytes {
+		return bad(text, maxBytes, "text longer than MaxBytes")
+	}
+	let mut src = text
+	if strings.HasPrefix(src, "\xef\xbb\xbf") {
+		src = src[3:]
+	}
+	if strings.Contains(src, "\r") {
+		src = strings.ReplaceAll(strings.ReplaceAll(src, "\r\n", "\n"), "\r", "\n")
+	}
+	let budget = if src.Len()*16 > 100000 { src.Len() * 16 } else { 100000 }
+	let mut p = parser{src: src, pos: 0, maxDepth: if maxDepth > 0 { maxDepth } else { 10000 }, depth: 0, budget: budget, kind: []uint8{}, text: []string{}, next: []int{}, at: []int{}, target: []int{}, weight: []int{}, docs: []int{}, anchors: Map[string, int]{}, lastAnchor: "", lastAnchorNode: -1}
+	try stream(&p)
+	table{kind: p.kind, text: p.text, next: p.next, at: p.at, target: p.target, docs: p.docs}
+}
+
+func stream(p mut parser) fails Malformed {
+	let s = p.src
+	let mut directive = false
+	for {
+		let n = try skipBlank(p)
+		if n < 0 {
+			if directive {
+				return bad(s, p.pos, "a directive without a document")
+			}
+			return
+		}
+		if n == 0 && byteAt(s, p.pos) == byte('%') {
+			if strings.HasPrefix(s[p.pos:], "%TAG") {
+				return bad(s, p.pos, "%TAG directives are not supported")
+			}
+			if strings.HasPrefix(s[p.pos:], "%YAML") && !(strings.HasPrefix(s[p.pos:], "%YAML 1.1") || strings.HasPrefix(s[p.pos:], "%YAML 1.2")) {
+				return bad(s, p.pos, "unsupported YAML version")
+			}
+			directive = true
+			for p.pos < s.Len() && s[p.pos] != byte('\n') {
+				p.pos += 1
+			}
+			continue
+		}
+		if isMarker(s, p.pos, byte('.')) {
+			if directive {
+				return bad(s, p.pos, "a directive without a document")
+			}
+			p.pos += 3
+			continue
+		}
+		let explicit = isMarker(s, p.pos, byte('-'))
+		if explicit {
+			p.pos += 3
+		} else if directive {
+			return bad(s, p.pos, "a directive needs a '---' document start")
+		}
+		directive = false
+		p.anchors = Map[string, int]{}
+		p.lastAnchor = ""
+		p.lastAnchorNode = -1
+		let root = try blockNode(p, -1, 0)
+		p.docs = p.docs.Append(root)
+		let m = try skipBlank(p)
+		if m < 0 {
+			return
+		}
+		if isMarker(s, p.pos, byte('.')) {
+			p.pos += 3
+			continue
+		}
+		if !isMarker(s, p.pos, byte('-')) {
+			return bad(s, p.pos, "expected a document start or end")
+		}
+	}
+}
