@@ -31,6 +31,12 @@ func PNodeOf(ps Parents, f int, id dense.ID[syntax.Node]) dense.ID[store.PNode] 
 	dense.IDAt(ps.ids, int(ps.base[f])+dense.Index(id))
 }
 
+// PNodeIndex is ps keeping only what PNodeOf reads (base and ids),
+// dropping the parent and child columns.
+func PNodeIndex(ps Parents) Parents {
+	Parents{base: ps.base, ids: ps.ids, up: dense.ColWithCap[store.PNode, dense.Opt[store.PNode]](0), first: []uint32{}, kids: []uint32{}, written: 0}
+}
+
 // RowOf is the file and the row index of n.
 func RowOf(ps Parents, n dense.ID[store.PNode]) (int, int) {
 	let i = dense.Index(n)

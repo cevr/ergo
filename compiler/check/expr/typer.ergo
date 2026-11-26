@@ -926,11 +926,16 @@ func constIn(p syntax.Parsed, x dense.ID[syntax.Node]) bool {
 	} else if kd == syntax.KUnaryExpr {
 		let u = syntax.UnaryExprOf(p.Tree, x)
 		let op = syntax.TokKind(p, u.Op)
-		(op == syntax.Sub || op == syntax.Add) && constIn(p, u.X)
+		let uk = kindIn(p, u.X)
+		(op == syntax.Sub || op == syntax.Add || op == syntax.Xor && (uk == 0 || uk == 1)) && constIn(p, u.X)
 	} else if kd == syntax.KBinaryExpr {
 		let b = syntax.BinaryExprOf(p.Tree, x)
 		let op = syntax.TokKind(p, b.Op)
-		(op == syntax.Add || op == syntax.Sub || op == syntax.Mul || op == syntax.Quo) && constIn(p, b.X) && constIn(p, b.Y)
+		let arith = op == syntax.Add || op == syntax.Sub || op == syntax.Mul || op == syntax.Quo
+		let intOps = op == syntax.Rem || op == syntax.And || op == syntax.Or || op == syntax.Xor || op == syntax.AndNot
+		let ak = kindIn(p, b.X)
+		let ck = kindIn(p, b.Y)
+		(arith || intOps && (ak == 0 || ak == 1) && (ck == 0 || ck == 1)) && constIn(p, b.X) && constIn(p, b.Y)
 	} else {
 		false
 	}
@@ -1065,6 +1070,14 @@ func exprType(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node], w 
 			some(store.TBasic(s, bBool))
 		} else if op == syntax.Sub || op == syntax.Add {
 			expr(s, k, t, u.X, w)
+		} else if op == syntax.Xor {
+			match expr(s, k, t, u.X, w) {
+			case option.Some[dense.ID[store.TKey]] as xt:
+				let bt = basic(s, xt.Value)
+				if bt >= bInt && bt <= bUintptr { some(xt.Value) } else { option.None }
+			case option.None:
+				option.None
+			}
 		} else if op == syntax.And {
 			match expr(s, k, t, u.X, Free) {
 			case option.Some[dense.ID[store.TKey]] as xt:
@@ -1201,7 +1214,8 @@ func binary(s mut store.Store, k Pkg, t mut Typer, b syntax.BinaryExpr, w Want) 
 		return some(boolT)
 	}
 	let cmp = op == syntax.Eql || op == syntax.Neq || op == syntax.Lss || op == syntax.Leq || op == syntax.Gtr || op == syntax.Geq
-	let arith = op == syntax.Add || op == syntax.Sub || op == syntax.Mul || op == syntax.Quo || op == syntax.Rem
+	let bit = op == syntax.And || op == syntax.Or || op == syntax.Xor || op == syntax.AndNot
+	let arith = op == syntax.Add || op == syntax.Sub || op == syntax.Mul || op == syntax.Quo || op == syntax.Rem || bit
 	if !cmp && !arith {
 		expr(s, k, t, b.X, Unsure)
 		expr(s, k, t, b.Y, Unsure)
@@ -1215,6 +1229,10 @@ func binary(s mut store.Store, k Pkg, t mut Typer, b syntax.BinaryExpr, w Want) 
 	match ft {
 	case option.Some[dense.ID[store.TKey]] as f:
 		let bt = basic(s, f.Value)
+		if bit && bt > 0 && (bt < bInt || bt > bUintptr) {
+			expr(s, k, t, second, Unsure)
+			return option.None
+		}
 		if bt > 0 && bt != bBool || !isConst(k, t.file, second) {
 			expr(s, k, t, second, Exactly{T: f.Value})
 		} else {

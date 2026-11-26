@@ -1,0 +1,229 @@
+type End = Completed{} | Failed{} | Limited{}
+
+type Act = RunSend{Lost bool} | Confirm{} | Crash{} | Recover{} | HarnessEnd{E End} | AskOpen{} | AskAnswer{} | Stop{} | RunCancel{}
+
+type World {
+	Phase      int,
+	Intent     bool,
+	Sends      int,
+	Running    bool,
+	Outcome    int,
+	Open       bool,
+	Down       bool,
+	StopWanted bool,
+	Cancels    int,
+	Stranded   bool,
+	Crashes    int,
+}
+
+let MaxCrashes = 2
+
+let NoMutant = 0
+let ReplayMutant = 1
+let LeaveRequestMutant = 2
+let EarlyCancelMutant = 3
+let ForgetUnsureMutant = 4
+
+func first() World {
+	World{Phase: 0, Intent: true, Sends: 0, Running: false, Outcome: 0, Open: false, Down: false,
+		StopWanted: false, Cancels: 0, Stranded: false, Crashes: 0}
+}
+
+func finish(s World, outcome int, mutant int) World {
+	let mut w = s
+	w.Phase = 4
+	w.Outcome = outcome
+	w.Intent = false
+	w.Running = false
+	w.StopWanted = false
+	if mutant != LeaveRequestMutant {
+		w.Open = false
+	}
+	return w
+}
+
+func step(s World, act Act, mutant int) Decision[World, string] {
+	let mut w = s
+	match act {
+	case RunSend as a:
+		if w.Down || !w.Intent || w.Phase != 0 {
+			return Ignore
+		}
+		w.Sends = w.Sends + 1
+		w.Running = true
+		if a.Lost {
+			w.Phase = 1
+			w.Down = true
+			w.Running = false
+			w.Crashes = w.Crashes + 1
+			if w.Crashes > MaxCrashes {
+				return Ignore
+			}
+			return Enter{w}
+		}
+		w.Intent = false
+		w.Phase = 2
+		return Enter{w}
+	case Confirm:
+		if w.Down || w.Phase != 2 {
+			return Ignore
+		}
+		w.Phase = 3
+		return Enter{w}
+	case Crash:
+		if w.Down || w.Crashes >= MaxCrashes || w.Phase == 4 {
+			return Ignore
+		}
+		w.Crashes = w.Crashes + 1
+		w.Down = true
+		w.Running = false
+		return Enter{w}
+	case Recover:
+		if !w.Down {
+			return Ignore
+		}
+		w.Down = false
+		if w.Phase == 0 {
+			return Enter{w}
+		}
+		if w.Phase == 1 {
+			if mutant == ReplayMutant {
+				w.Phase = 0
+				return Enter{w}
+			}
+			if mutant == ForgetUnsureMutant {
+				w.Phase = 0
+				w.Intent = false
+				return Enter{w}
+			}
+			return Enter{finish(w, 5, mutant)}
+		}
+		return Enter{finish(w, 4, mutant)}
+	case HarnessEnd as a:
+		if w.Down || !w.Running || (w.Phase != 2 && w.Phase != 3) {
+			return Ignore
+		}
+		match a.E {
+		case Completed:
+			if w.Cancels > 0 {
+				return Enter{finish(w, 6, mutant)}
+			}
+			return Enter{finish(w, 1, mutant)}
+		case Failed:
+			return Enter{finish(w, 2, mutant)}
+		case Limited:
+			return Enter{finish(w, 3, mutant)}
+		}
+	case AskOpen:
+		if w.Down || w.Phase != 3 || w.Open {
+			return Ignore
+		}
+		w.Open = true
+		return Enter{w}
+	case AskAnswer:
+		if w.Down || !w.Open || w.Phase != 3 {
+			return Ignore
+		}
+		w.Open = false
+		return Enter{w}
+	case Stop:
+		if w.Down || w.StopWanted || w.Cancels > 0 || (w.Phase != 2 && w.Phase != 3) {
+			return Ignore
+		}
+		w.StopWanted = true
+		return Enter{w}
+	case RunCancel:
+		if w.Down || !w.StopWanted {
+			return Ignore
+		}
+		if w.Phase == 2 {
+			if mutant != EarlyCancelMutant {
+				return Ignore
+			}
+			w.StopWanted = false
+			w.Stranded = true
+			return Enter{w}
+		}
+		if w.Phase != 3 {
+			return Ignore
+		}
+		w.StopWanted = false
+		w.Cancels = w.Cancels + 1
+		return Enter{w}
+	}
+}
+
+func sentAtMostOnce(w World) bool { w.Sends <= 1 }
+
+func endedHasOutcome(w World) bool { (w.Phase == 4) == (w.Outcome != 0) }
+
+func terminalSettles(w World) bool { !(w.Phase == 4 && w.Open) }
+
+func noStrandedStop(w World) bool { !w.Stranded }
+
+func acceptedIsSentOrReported(w World) bool {
+	if w.Down {
+		return true
+	}
+	w.Phase != 0 || w.Intent
+}
+
+func sentTwice(w World) bool       { !sentAtMostOnce(w) }
+func requestLeftOpen(w World) bool { !terminalSettles(w) }
+func stranded(w World) bool        { !noStrandedStop(w) }
+func silentlyDropped(w World) bool { !acceptedIsSentOrReported(w) }
+
+func completedClean(w World) bool  { w.Outcome == 1 && w.Sends == 1 && w.Crashes == 0 }
+func limited(w World) bool         { w.Outcome == 3 }
+func unsureReported(w World) bool  { w.Outcome == 5 && w.Sends == 1 }
+func interrupted(w World) bool     { w.Outcome == 6 }
+func sentAfterCrash(w World) bool  { w.Outcome == 1 && w.Crashes == 1 && w.Sends == 1 }
+func lostWithSession(w World) bool { w.Outcome == 4 }
+
+func design(s World, a Act) Decision[World, string]       { return step(s, a, NoMutant) }
+func replay(s World, a Act) Decision[World, string]       { return step(s, a, ReplayMutant) }
+func leaveRequest(s World, a Act) Decision[World, string] { return step(s, a, LeaveRequestMutant) }
+func earlyCancel(s World, a Act) Decision[World, string]  { return step(s, a, EarlyCancelMutant) }
+func forgetUnsure(s World, a Act) Decision[World, string] { return step(s, a, ForgetUnsureMutant) }
+
+type Design machine[World, Act] {
+	initial: first(),
+	step:    design,
+
+	law SentAtMostOnce always sentAtMostOnce,
+	law EndedHasOutcome always endedHasOutcome,
+	law TerminalSettles always terminalSettles,
+	law NoStrandedStop always noStrandedStop,
+	law AcceptedIsSentOrReported always acceptedIsSentOrReported,
+
+	law CompletedClean sometimes completedClean,
+	law LimitedReached sometimes limited,
+	law UnsureReported sometimes unsureReported,
+	law Interrupted sometimes interrupted,
+	law SentAfterCrash sometimes sentAfterCrash,
+	law LostWithSession sometimes lostWithSession,
+}
+
+type Replay machine[World, Act] {
+	initial: first(),
+	step:    replay,
+	law Breaks sometimes sentTwice,
+}
+
+type LeaveRequest machine[World, Act] {
+	initial: first(),
+	step:    leaveRequest,
+	law Breaks sometimes requestLeftOpen,
+}
+
+type EarlyCancel machine[World, Act] {
+	initial: first(),
+	step:    earlyCancel,
+	law Breaks sometimes stranded,
+}
+
+type ForgetUnsure machine[World, Act] {
+	initial: first(),
+	step:    forgetUnsure,
+	law Breaks sometimes silentlyDropped,
+}

@@ -1,0 +1,618 @@
+import option
+import slices
+import strings
+import sync
+import github.com/cevr/ergo/modules/git/oid
+import github.com/cevr/ergo/modules/git/source
+import github.com/cevr/ergo/modules/git/tree
+
+// Policy is what a store is built with: its hash format, the ref names only
+// a land may move, and the largest blob it takes (0 takes any size).
+type Policy {
+	Format       oid.Format,
+	Protected    []string,
+	MaxBlobBytes int,
+}
+
+type file {
+	blob oid.OID,
+	mode source.Mode,
+}
+
+type change {
+	parents []source.ChangeID,
+	files   Map[string, file],
+	root    oid.OID,
+	gen     int,
+}
+
+type book {
+	objects Map[string, source.Object],
+	log     []source.Changeset,
+	at      Map[source.ChangeID, int],
+	index   Map[source.ChangeID, change],
+	refs    Map[string, source.ChangeID],
+	reads   Map[string, int],
+}
+
+type appendOutcome = appended{ID source.ChangeID} | appendRefused{Why source.Error}
+
+type wantOutcome = wanted{Objects []source.Object} | wantRefused{Why source.Error}
+
+type setOutcome = moved{} | setRefused{Why source.Error}
+
+// Store is the reference provider of source.Source: the log, the objects,
+// the history index and the refs held in one cell, each operation one
+// atomic step of it.
+type Store {
+	policy Policy,
+	cell   sync.Ref[book],
+} implements source.Source
+
+// New returns an empty store under policy.
+func New(policy Policy) Store {
+	Store{
+		policy: policy,
+		cell:   sync.NewRef(book{
+			objects: Map[string, source.Object]{},
+			log:     []source.Changeset{},
+			at:      Map[source.ChangeID, int]{},
+			index:   Map[source.ChangeID, change]{},
+			refs:    Map[string, source.ChangeID]{},
+			reads:   Map[string, int]{},
+		}),
+	}
+}
+
+// PutBlob stores data as a Git blob and returns its id.
+func PutBlob(s Store, data []byte) oid.OID fails source.TooLarge | source.StoreFailed {
+	if s.policy.MaxBlobBytes > 0 && data.Len() > s.policy.MaxBlobBytes {
+		return source.TooLarge{Size: data.Len(), Max: s.policy.MaxBlobBytes}
+	}
+	let id = oid.HashObject(s.policy.Format, oid.Blob, data) catch {
+	case oid.Collision as e:
+		return source.StoreFailed{Why: "blob collides: " + e.Digest}
+	}
+	let key = oid.Hex(id)
+	let object = source.Object{ID: id, Kind: oid.Blob, Data: data}
+	let _ = sync.Modify(s.cell, func(b book) (bool, book) {
+		(true, book{..b, objects: b.objects.Put(key, object)})
+	})
+	id
+}
+
+// Append records a changeset on parents and returns its id: the Git commit
+// id of its root tree, parents and meta.
+func Append(s Store, parents []source.ChangeID, changes []source.FileChange, meta source.Meta) source.ChangeID fails source.UnknownParent | source.MissingBlob | source.PathClash | source.Invalid | source.Denied | source.StoreFailed {
+	try checkMeta(meta)
+	for i, c in changes {
+		try checkPath(pathOf(c))
+		for j in 0..i {
+			if clash(pathOf(changes[j]), pathOf(c)) {
+				return source.PathClash{Path: pathOf(c), Other: pathOf(changes[j])}
+			}
+		}
+	}
+	let format = s.policy.Format
+	let outcome = sync.Modify(s.cell, func(b book) (appendOutcome, book) {
+		let mut gen = 1
+		for p in parents {
+			match b.index.Get(p) {
+			case option.Some[change] as c:
+				gen = if c.Value.gen+1 > gen { c.Value.gen + 1 } else { gen }
+			case option.None:
+				return (appendRefused{Why: source.UnknownParent{ID: p}}, b)
+			}
+		}
+		for c in changes {
+			match c {
+			case source.Put as p:
+				if b.objects.Get(oid.Hex(p.Blob)) == option.None {
+					return (appendRefused{Why: source.MissingBlob{Path: p.Path, Blob: p.Blob}}, b)
+				}
+			case source.Delete:
+			}
+		}
+		let base = filesOf(b, parents)
+		let files = apply(base, changes)
+		let (root, trees) = treeOf(format, files, "", []source.Object{}) catch {
+		case tree.InvalidEntryName as e:
+			return (appendRefused{Why: source.Invalid{Why: e.Reason}}, b)
+		case tree.DuplicateEntry as e:
+			return (appendRefused{Why: source.PathClash{Path: e.Name, Other: e.Name}}, b)
+		case oid.Collision as e:
+			return (appendRefused{Why: source.StoreFailed{Why: "tree collides: " + e.Digest}}, b)
+		}
+		let data = commitBytes(root, parents, meta)
+		let commit = oid.HashObject(format, oid.Commit, data) catch {
+		case oid.Collision as e:
+			return (appendRefused{Why: source.StoreFailed{Why: "change collides: " + e.Digest}}, b)
+		}
+		let id = source.ChangeID(oid.Hex(commit))
+		if b.index.Get(id) != option.None {
+			return (appended{ID: id}, b)
+		}
+		let set = source.Changeset{
+			ID:        id,
+			Parents:   parents,
+			Changes:   normalized(base, files),
+			Author:    meta.Author,
+			Committer: meta.Committer,
+			Message:   meta.Message,
+		}
+		let mut log = b.log
+		let mut at = b.at
+		log = log.Append(set)
+		at[id] = log.Len() - 1
+		let mut objects = b.objects
+		for t in trees {
+			objects[oid.Hex(t.ID)] = t
+		}
+		let index = b.index.Put(id, change{parents: parents, files: files, root: root, gen: gen})
+		(appended{ID: id}, book{..b, objects: objects, log: log, at: at, index: index})
+	})
+	match outcome {
+	case appended as a:
+		a.ID
+	case appendRefused as r:
+		match r.Why {
+		case source.UnknownParent as e:
+			e
+		case source.MissingBlob as e:
+			e
+		case source.PathClash as e:
+			e
+		case source.Invalid as e:
+			e
+		case _:
+			source.StoreFailed{Why: "append refused"}
+		}
+	}
+}
+
+// Get returns the stored changeset id.
+func Get(s Store, id source.ChangeID) source.Changeset fails source.Unknown | source.StoreFailed {
+	let b = s.cell.Get()
+	match b.at.Get(id) {
+	case option.Some[int] as i:
+		b.log[i.Value]
+	case option.None:
+		source.Unknown{ID: id}
+	}
+}
+
+// Root returns the id of the root tree of change id.
+func Root(s Store, id source.ChangeID) oid.OID fails source.Unknown | source.StoreFailed {
+	let c = try changeOf(s.cell.Get(), id)
+	c.root
+}
+
+// Want returns the objects ids name, in order, or fails when one is absent
+// or their bytes pass maxBytes.
+func Want(s Store, ids []oid.OID, maxBytes int) []source.Object fails source.Missing | source.Corrupt | source.LimitExceeded | source.StoreFailed {
+	let outcome = sync.Modify(s.cell, func(b book) (wantOutcome, book) {
+		let mut reads = b.reads
+		let mut loaded = Map[string, source.Object]{}
+		for id in ids {
+			let key = oid.Hex(id)
+			match b.objects.Get(key) {
+			case option.Some[source.Object] as o:
+				loaded[key] = o.Value
+				reads[key] = readCount(reads, key) + 1
+			case option.None:
+				return (wantRefused{Why: source.Missing{ID: id}}, b)
+			}
+		}
+		let mut out = []source.Object{}
+		let mut size = 0
+		for id in ids {
+			let key = oid.Hex(id)
+			match loaded.Get(key) {
+			case option.Some[source.Object] as o:
+				size = size + o.Value.Data.Len()
+				if size > maxBytes {
+					return (wantRefused{Why: source.LimitExceeded{MaxBytes: maxBytes}}, b)
+				}
+				out = out.Append(o.Value)
+			case option.None:
+				return (wantRefused{Why: source.Missing{ID: id}}, b)
+			}
+		}
+		(wanted{Objects: out}, book{..b, reads: reads})
+	})
+	match outcome {
+	case wanted as w:
+		w.Objects
+	case wantRefused as r:
+		match r.Why {
+		case source.Missing as e:
+			e
+		case source.LimitExceeded as e:
+			e
+		case _:
+			source.StoreFailed{Why: "want refused"}
+		}
+	}
+}
+
+// Reads counts the wants that read the object id.
+func Reads(s Store, id oid.OID) int {
+	readCount(s.cell.Get().reads, oid.Hex(id))
+}
+
+// MergeBase returns the best common ancestors of a and b, sorted.
+func MergeBase(s Store, a source.ChangeID, b source.ChangeID) []source.ChangeID fails source.Unknown | source.StoreFailed {
+	let k = s.cell.Get()
+	let fromB = try ancestors(k, b)
+	let mut common = []source.ChangeID{}
+	for x in try ancestors(k, a) {
+		if slices.Contains(fromB, x) {
+			common = common.Append(x)
+		}
+	}
+	let mut best = []source.ChangeID{}
+	for x in common {
+		let mut beaten = false
+		for y in common {
+			if y != x && try reaches(k, x, y) {
+				beaten = true
+			}
+		}
+		if !beaten {
+			best = best.Append(x)
+		}
+	}
+	slices.Sort(best)
+}
+
+// IsAncestor reports whether a is b or an ancestor of b.
+func IsAncestor(s Store, a source.ChangeID, b source.ChangeID) bool fails source.Unknown | source.StoreFailed {
+	let k = s.cell.Get()
+	let _ = try changeOf(k, a)
+	try reaches(k, a, b)
+}
+
+// Diff lists what changed from from to to, sorted by path, by walking the
+// two root trees and skipping every subtree whose id is the same.
+func Diff(s Store, from source.ChangeID, to source.ChangeID) []source.FileChange fails source.Unknown | source.StoreFailed {
+	let k = s.cell.Get()
+	let a = (try changeOf(k, from)).root
+	let b = (try changeOf(k, to)).root
+	let out = try treeDiff(k, a, b, "", []source.FileChange{})
+	slices.SortFunc(out, func(x source.FileChange, y source.FileChange) int { strings.Compare(pathOf(x), pathOf(y)) })
+}
+
+// Read returns the change name points at, if any.
+func Read(s Store, name string) option.Option[source.ChangeID] fails source.InvalidName | source.StoreFailed {
+	try checkName(name)
+	s.cell.Get().refs.Get(name)
+}
+
+// Set points name at to when name now points at expected.
+func Set(s Store, name string, to source.ChangeID, expected option.Option[source.ChangeID]) fails source.Stale | source.Protected | source.InvalidName | source.Unknown | source.Denied | source.StoreFailed {
+	try checkName(name)
+	if slices.Contains(s.policy.Protected, name) {
+		return source.Protected{Name: name}
+	}
+	let outcome = sync.Modify(s.cell, func(b book) (setOutcome, book) {
+		if b.index.Get(to) == option.None {
+			return (setRefused{Why: source.Unknown{ID: to}}, b)
+		}
+		if b.refs.Get(name) != expected {
+			return (setRefused{Why: source.Stale{Name: name}}, b)
+		}
+		(moved, book{..b, refs: b.refs.Put(name, to)})
+	})
+	match outcome {
+	case moved:
+	case setRefused as r:
+		match r.Why {
+		case source.Unknown as e:
+			return e
+		case source.Stale as e:
+			return e
+		case _:
+			return source.StoreFailed{Why: "set refused"}
+		}
+	}
+}
+
+// ProtectedNames lists the names only a land may move.
+func ProtectedNames(s Store) []string {
+	s.policy.Protected
+}
+
+func readCount(reads Map[string, int], key string) int {
+	match reads.Get(key) {
+	case option.Some[int] as n:
+		n.Value
+	case option.None:
+		0
+	}
+}
+
+func changeOf(b book, id source.ChangeID) change fails source.Unknown {
+	match b.index.Get(id) {
+	case option.Some[change] as c:
+		c.Value
+	case option.None:
+		source.Unknown{ID: id}
+	}
+}
+
+func filesOf(b book, parents []source.ChangeID) Map[string, file] {
+	if parents.Len() == 0 {
+		return Map[string, file]{}
+	}
+	match b.index.Get(parents[0]) {
+	case option.Some[change] as c:
+		c.Value.files
+	case option.None:
+		Map[string, file]{}
+	}
+}
+
+func pathOf(c source.FileChange) string {
+	match c {
+	case source.Put as p:
+		p.Path
+	case source.Delete as d:
+		d.Path
+	}
+}
+
+func clash(a string, b string) bool {
+	a == b || strings.HasPrefix(a, b+"/") || strings.HasPrefix(b, a+"/")
+}
+
+func checkPath(path string) fails source.Invalid {
+	if path == "" || strings.HasPrefix(path, "/") || strings.HasSuffix(path, "/") {
+		return source.Invalid{Why: "path \(path) is not a relative file path"}
+	}
+	for part in strings.Split(path, "/") {
+		tree.ValidateEntryName(part) catch {
+		case tree.InvalidEntryName as e:
+			return source.Invalid{Why: "path \(path): " + e.Reason}
+		}
+	}
+}
+
+func checkIdentity(who source.Identity) fails source.Invalid {
+	for text in []string{who.Name, who.Email} {
+		if strings.IndexAny(text, "<>\n") >= 0 {
+			return source.Invalid{Why: "identity \(text) holds <, > or a line break"}
+		}
+	}
+	let zone = who.Zone.Bytes()
+	if zone.Len() != 5 || (zone[0] != byte('+') && zone[0] != byte('-')) {
+		return source.Invalid{Why: "zone \(who.Zone) is not +hhmm"}
+	}
+	for i in 1..5 {
+		if zone[i] < byte('0') || zone[i] > byte('9') {
+			return source.Invalid{Why: "zone \(who.Zone) is not +hhmm"}
+		}
+	}
+}
+
+func checkMeta(meta source.Meta) fails source.Invalid {
+	try checkIdentity(meta.Author)
+	try checkIdentity(meta.Committer)
+}
+
+func checkName(name string) fails source.InvalidName {
+	if name == "" || strings.HasPrefix(name, "/") || strings.HasSuffix(name, "/") || strings.HasSuffix(name, ".") || strings.HasSuffix(name, ".lock") {
+		return source.InvalidName{Name: name, Why: "a ref name neither starts nor ends with / and ends neither with . nor .lock"}
+	}
+	if strings.Contains(name, "..") || strings.Contains(name, "//") || strings.Contains(name, "@{") || strings.IndexAny(name, " ~^:?*[\\\t\n") >= 0 {
+		return source.InvalidName{Name: name, Why: "a ref name holds no .., //, @{, space, control or ~^:?*[\\"}
+	}
+}
+
+func apply(base Map[string, file], changes []source.FileChange) Map[string, file] {
+	let mut out = base
+	for c in changes {
+		match c {
+		case source.Delete as d:
+			out = out.Delete(d.Path)
+		case source.Put as p:
+			for path, _ in base {
+				if clash(path, p.Path) {
+					out = out.Delete(path)
+				}
+			}
+			out[p.Path] = file{blob: p.Blob, mode: p.Mode}
+		}
+	}
+	out
+}
+
+func normalized(base Map[string, file], files Map[string, file]) []source.FileChange {
+	let mut paths = []string{}
+	for path, _ in base {
+		if files.Get(path) == option.None {
+			paths = paths.Append(path)
+		}
+	}
+	for path, _ in files {
+		paths = paths.Append(path)
+	}
+	let mut out = []source.FileChange{}
+	for path in slices.Sort(paths) {
+		match files.Get(path) {
+		case option.Some[file] as f:
+			if base.Get(path) != (option.Some[file]{Value: f.Value}) {
+				out = out.Append(source.Put{Path: path, Blob: f.Value.blob, Mode: f.Value.mode})
+			}
+		case option.None:
+			out = out.Append(source.Delete{Path: path})
+		}
+	}
+	out
+}
+
+func treeMode(m source.Mode) tree.Mode {
+	match m {
+	case source.Regular:
+		tree.ModeRegular
+	case source.Executable:
+		tree.ModeExecutable
+	case source.Symlink:
+		tree.ModeSymlink
+	}
+}
+
+func treeOf(format oid.Format, files Map[string, file], prefix string, made []source.Object) (oid.OID, []source.Object) fails tree.InvalidEntryName | tree.DuplicateEntry | oid.Collision {
+	let mut trees = made
+	let mut entries = []tree.Entry{}
+	let mut folders = []string{}
+	for path, f in files {
+		if strings.HasPrefix(path, prefix) {
+			let rest = path.Slice(prefix.Len(), path.Len())
+			let slash = strings.Index(rest, "/")
+			if slash < 0 {
+				entries = entries.Append(tree.Entry{Mode: treeMode(f.mode), Name: rest, OID: f.blob})
+			} else {
+				let name = rest.Slice(0, slash)
+				if !slices.Contains(folders, name) {
+					folders = folders.Append(name)
+				}
+			}
+		}
+	}
+	for name in folders {
+		let (sub, more) = try treeOf(format, files, prefix+name+"/", trees)
+		trees = more
+		entries = entries.Append(tree.Entry{Mode: tree.ModeTree, Name: name, OID: sub})
+	}
+	let data = try tree.EncodeTree(format, entries)
+	let id = try oid.HashObject(format, oid.Tree, data)
+	(id, trees.Append(source.Object{ID: id, Kind: oid.Tree, Data: data}))
+}
+
+func signature(who source.Identity) string {
+	"\(who.Name) <\(who.Email)> \(who.When) \(who.Zone)"
+}
+
+func commitBytes(root oid.OID, parents []source.ChangeID, meta source.Meta) []byte {
+	let mut text = "tree " + oid.Hex(root) + "\n"
+	for p in parents {
+		text = text + "parent " + string(p) + "\n"
+	}
+	text = text + "author " + signature(meta.Author) + "\n"
+	text = text + "committer " + signature(meta.Committer) + "\n\n"
+	(text + meta.Message).Bytes()
+}
+
+func ancestors(b book, id source.ChangeID) []source.ChangeID fails source.Unknown {
+	let _ = try changeOf(b, id)
+	let mut seen = []source.ChangeID{id}
+	let mut next = 0
+	for next < seen.Len() {
+		for p in (try changeOf(b, seen[next])).parents {
+			if !slices.Contains(seen, p) {
+				seen = seen.Append(p)
+			}
+		}
+		next = next + 1
+	}
+	seen
+}
+
+func reaches(b book, a source.ChangeID, d source.ChangeID) bool fails source.Unknown {
+	let floor = (try changeOf(b, a)).gen
+	let mut queue = []source.ChangeID{d}
+	let mut next = 0
+	for next < queue.Len() {
+		let at = queue[next]
+		next = next + 1
+		if at == a {
+			return true
+		}
+		for p in (try changeOf(b, at)).parents {
+			if !slices.Contains(queue, p) && (try changeOf(b, p)).gen >= floor {
+				queue = queue.Append(p)
+			}
+		}
+	}
+	false
+}
+
+func entriesOf(b book, id oid.OID) []tree.Entry fails source.StoreFailed {
+	match b.objects.Get(oid.Hex(id)) {
+	case option.Some[source.Object] as o:
+		tree.ParseTree(id.Format, o.Value.Data) catch {
+		case tree.CorruptTree, tree.InvalidEntryName, tree.UnsortedTree, tree.DuplicateEntry:
+			return source.StoreFailed{Why: "tree " + oid.Hex(id) + " does not parse"}
+		}
+	case option.None:
+		source.StoreFailed{Why: "tree " + oid.Hex(id) + " is not stored"}
+	}
+}
+
+func fileMode(m tree.Mode) source.Mode {
+	match m {
+	case tree.ModeExecutable:
+		source.Executable
+	case tree.ModeSymlink:
+		source.Symlink
+	case _:
+		source.Regular
+	}
+}
+
+func side(b book, e tree.Entry, path string, put bool, acc []source.FileChange) []source.FileChange fails source.StoreFailed {
+	if !tree.IsTree(e.Mode) {
+		if put {
+			return acc.Append(source.Put{Path: path, Blob: e.OID, Mode: fileMode(e.Mode)})
+		}
+		return acc.Append(source.Delete{Path: path})
+	}
+	let mut out = acc
+	for child in try entriesOf(b, e.OID) {
+		out = try side(b, child, path+"/"+child.Name, put, out)
+	}
+	out
+}
+
+func treeDiff(b book, from oid.OID, to oid.OID, prefix string, acc []source.FileChange) []source.FileChange fails source.StoreFailed {
+	if oid.Equal(from, to) {
+		return acc
+	}
+	let olds = try entriesOf(b, from)
+	let news = try entriesOf(b, to)
+	let mut out = acc
+	for o in olds {
+		let mut kept = false
+		for n in news {
+			if n.Name == o.Name {
+				kept = true
+				let same = oid.Equal(o.OID, n.OID) && o.Mode == n.Mode
+				if !same {
+					if tree.IsTree(o.Mode) && tree.IsTree(n.Mode) {
+						out = try treeDiff(b, o.OID, n.OID, prefix+o.Name+"/", out)
+					} else if tree.IsTree(o.Mode) || tree.IsTree(n.Mode) {
+						out = try side(b, o, prefix+o.Name, false, out)
+						out = try side(b, n, prefix+n.Name, true, out)
+					} else {
+						out = try side(b, n, prefix+n.Name, true, out)
+					}
+				}
+			}
+		}
+		if !kept {
+			out = try side(b, o, prefix+o.Name, false, out)
+		}
+	}
+	for n in news {
+		let mut fresh = true
+		for o in olds {
+			if o.Name == n.Name {
+				fresh = false
+			}
+		}
+		if fresh {
+			out = try side(b, n, prefix+n.Name, true, out)
+		}
+	}
+	out
+}

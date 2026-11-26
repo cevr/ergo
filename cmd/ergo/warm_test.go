@@ -15,6 +15,7 @@ import (
 
 	"ergo.local/prototype/internal/ergobuild"
 	"ergo.local/prototype/internal/testwait"
+	"ergo.local/prototype/internal/toolchain"
 )
 
 // warmModule writes the module the warm tests build: a main package that
@@ -26,6 +27,20 @@ func warmModule(t *testing.T, root string, value int, banner byte) {
 	smokeWrite(t, root, "lib/lib.ergo", fmt.Sprintf("// Package lib is the warm tests' library.\n\nlet Banner = embedded[string](\"banner.txt\")\n\n// Value is the library's number.\nfunc Value() int {\n\t%d\n}\n", value))
 	smokeWrite(t, root, "lib/banner.txt", "banner "+string(banner)+"\n")
 	smokeWrite(t, root, "cmd/app/main.ergo", "import io\nimport os\nimport warm/lib\n\nfunc main() fails os.Exit needs Ambient {\n\twith context { io.Stdout: io.NewHost() } {\n\t\tio.Stdout.Println(\"\\(lib.Banner) \\(lib.Value())\")\n\t}\n}\n")
+}
+
+// sharedIRC is the ERGO_IRC entry of a warm run's environment: the IR
+// compiler root the test process itself would use, so a run with a cache
+// of its own (XDG_CACHE_HOME) does not build the patched compiler into
+// it. The root is a location (toolchain.IRCVariable), and its entries are
+// read-only, which a test's temporary folder could not remove.
+func sharedIRC(t *testing.T) string {
+	t.Helper()
+	root, err := toolchain.IRCRoot(os.Getenv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return toolchain.IRCVariable + "=" + root
 }
 
 // warmRun is one `ergo` run of the warm tests: its exit status, stdout and
@@ -43,7 +58,7 @@ func runWarm(t *testing.T, bin, root, xdg string, env []string, args ...string) 
 	report := filepath.Join(t.TempDir(), "stage.json")
 	command := exec.Command(bin, args...)
 	command.Dir = root
-	command.Env = append(append(os.Environ(), "GOFLAGS=", "XDG_CACHE_HOME="+xdg, "ERGO_STAGE_REPORT="+report), env...)
+	command.Env = append(append(os.Environ(), "GOFLAGS=", "XDG_CACHE_HOME="+xdg, "ERGO_STAGE_REPORT="+report, sharedIRC(t)), env...)
 	out, stderr, code := runSmokeCommand(t, command)
 	if code > 1 {
 		t.Fatalf("ergo %v: exit %d: %s", args, code, stderr)
@@ -131,8 +146,18 @@ type warmWorld struct {
 // source or of the asset with its size and modification time kept, adding,
 // removing or renaming a file, check's --seed, an ERGO_* variable, another
 // compiler) runs the normal path, which reads each input once, as the
-// reference does. A trim of the executable's blob builds again. A failing
-// seed prints its steps; replay with ERGO_WARM_SEED=N.
+// reference does. A trim of the executable's blob builds again. A step
+// moves the work to another workspace holding a copy of the inputs: there
+// a check the first workspace answered is answered warm with no work (its
+// key and manifest name no workspace), and a build runs the normal path
+// (its executable names its sources' paths). A failing seed prints its
+// steps; replay with ERGO_WARM_SEED=N.
+//
+// It kills srcache-warm-key-absolute (the check's key names its folder,
+// so no other workspace finds it), srcache-manifest-not-unrooted (a
+// stored manifest's paths are not read under the workspace), and
+// srcache-build-shared (a build's answer serves another workspace an
+// executable naming the first one's sources).
 //
 // It kills cs-warm-key-omits-new-file, cs-warm-key-omits-asset,
 // cs-warm-key-omits-flag, cs-warm-key-omits-release, cs-warm-trusts-mtime,
@@ -169,10 +194,18 @@ func TestWarmAnswerAgreesWithFullBuild(t *testing.T) {
 
 func warmSequence(t *testing.T, seed uint64, bin, other string) {
 	r := rand.New(rand.NewPCG(seed, 7))
-	w := warmWorld{root: physicalTempDir(t), value: 1, banner: 'a', seed: 1}
+	// Two workspaces of one tree: a step moves the world to the other one
+	// (a copy of every input, as another lane's checkout is).
+	workspaces := [2]string{physicalTempDir(t), physicalTempDir(t)}
+	w := warmWorld{root: workspaces[0], value: 1, banner: 'a', seed: 1}
 	warmModule(t, w.root, w.value, w.banner)
 	warmXDG, refXDG := physicalTempDir(t), physicalTempDir(t)
-	out, ref := filepath.Join(w.root, "dist", "app"), filepath.Join(t.TempDir(), "ref")
+	ref := filepath.Join(t.TempDir(), "ref")
+	var out, lib string
+	placed := func() {
+		out, lib = filepath.Join(w.root, "dist", "app"), filepath.Join(w.root, "lib", "lib.ergo")
+	}
+	placed()
 	var steps []string
 	// version counts the edits of the inputs; seen is, for each request
 	// (compiler, environment and, for check, --seed), the version its last
@@ -182,7 +215,6 @@ func warmSequence(t *testing.T, seed uint64, bin, other string) {
 		t.Helper()
 		t.Fatalf("seed %d, after %s: %s (replay with ERGO_WARM_SEED=%d)", seed, strings.Join(steps, ", "), fmt.Sprintf(format, args...), seed)
 	}
-	lib := filepath.Join(w.root, "lib", "lib.ergo")
 	keepStamp := func(path string, edit func()) {
 		info, err := os.Stat(path)
 		if err != nil {
@@ -201,7 +233,7 @@ func warmSequence(t *testing.T, seed uint64, bin, other string) {
 		return filepath.Join(w.root, "lib", name)
 	}
 	// After the first build, every kind of step once, in a seeded order.
-	kinds := r.Perm(13)
+	kinds := r.Perm(14)
 	for i := range 1 + len(kinds) {
 		edited, concurrent, trimmed := false, false, false
 		var step string
@@ -264,6 +296,15 @@ func warmSequence(t *testing.T, seed uint64, bin, other string) {
 		case k == 11:
 			step, trimmed = "trim the output's blob", true
 			trimBlobOf(t, warmXDG, out)
+		case k == 12:
+			other := workspaces[0]
+			if w.root == other {
+				other = workspaces[1]
+			}
+			step = "work in the other workspace, a copy of this one"
+			copyWorld(t, w.root, other)
+			w.root = other
+			placed()
 		default:
 			step, concurrent = "two builds at once", true
 		}
@@ -304,7 +345,10 @@ func warmSequence(t *testing.T, seed uint64, bin, other string) {
 		if edited {
 			version++
 		}
-		buildReq := fmt.Sprint(compiler, w.probe)
+		// A build's answer is its workspace's: the executable names its
+		// sources' paths. A check's is every workspace's: its key and its
+		// manifest name no workspace (SHARED-RESULT-CACHE).
+		buildReq := fmt.Sprint(compiler, w.probe, w.root)
 		checkReq := fmt.Sprint(compiler, w.probe, w.seed)
 		runs := []struct {
 			req  string
@@ -343,6 +387,38 @@ func warmSequence(t *testing.T, seed uint64, bin, other string) {
 	}
 }
 
+// copyWorld makes to a copy of the world's inputs in from: every file
+// but the outputs under dist, and nothing else.
+func copyWorld(t *testing.T, from, to string) {
+	t.Helper()
+	if err := os.RemoveAll(to); err != nil {
+		t.Fatal(err)
+	}
+	err := filepath.WalkDir(from, func(path string, e fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(from, path)
+		if err != nil {
+			return err
+		}
+		switch {
+		case rel == "dist":
+			return filepath.SkipDir
+		case e.IsDir():
+			return os.MkdirAll(filepath.Join(to, rel), 0o755)
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		return os.WriteFile(filepath.Join(to, rel), data, 0o644)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
 // concurrentBuilds runs two warm builds to out at once.
 func concurrentBuilds(t *testing.T, bin, root, xdg string, env []string, out string) []warmRun {
 	t.Helper()
@@ -355,7 +431,7 @@ func concurrentBuilds(t *testing.T, bin, root, xdg string, env []string, out str
 		reports[i] = report
 		command := exec.Command(bin, "build", "./cmd/app", "-o", out)
 		command.Dir = root
-		command.Env = append(append(os.Environ(), "GOFLAGS=", "XDG_CACHE_HOME="+xdg, "ERGO_STAGE_REPORT="+report), env...)
+		command.Env = append(append(os.Environ(), "GOFLAGS=", "XDG_CACHE_HOME="+xdg, "ERGO_STAGE_REPORT="+report, sharedIRC(t)), env...)
 		wg.Add(1)
 		go func() {
 			defer wg.Done()

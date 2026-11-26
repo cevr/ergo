@@ -1,0 +1,282 @@
+type Act = RunSyncCell{} | CallHitsUnfinished{} | RunLineAfterAwait{} | WaitHitsBound{} | RunExtraWaitPastBound{} | CutToHandle{} | DetachedAnswersUnfinished{} | RegistryWakeCall{} | OwnerWakeSpawned{} | RegistryClaimsShell{} | ReloadOwnerB{} | RestoreClean{} | RestoreLostBindings{} | RootWantsSlot{}
+
+type World {
+	IsRoot             bool,
+	WaitSpent          int,
+	CellActive         bool,
+	AwaitedUnfinished  bool,
+	CutDone            bool,
+	CallHandleOpen     bool,
+	CallHanded         bool,
+	CallLetters        int,
+	OwnerLetters       int,
+	RanAfterUnfinished bool,
+	MissedBoundCut     bool,
+	DelivererCollision bool,
+	OwnerACallLive     bool,
+	OwnerBCallLive     bool,
+	ForeignCallRetired bool,
+	CleanNoticeEmitted bool,
+	LostNoticeEmitted  bool,
+	RootQueued         bool,
+}
+
+let NoMutant = 0
+let DoubleWakeUnfinishedMutant = 1
+let RunAfterUnfinishedMutant = 2
+let SkipCutAtBoundMutant = 3
+let RegistryStealsShellMutant = 4
+let ForeignReloadRetiresMutant = 5
+let CleanNoticeMutant = 6
+let QueueRootMutant = 7
+
+func first() World {
+	World{
+		IsRoot:             true,
+		WaitSpent:          0,
+		CellActive:         false,
+		AwaitedUnfinished:  false,
+		CutDone:            false,
+		CallHandleOpen:     false,
+		CallHanded:         false,
+		CallLetters:        0,
+		OwnerLetters:       0,
+		RanAfterUnfinished: false,
+		MissedBoundCut:     false,
+		DelivererCollision: false,
+		OwnerACallLive:     true,
+		OwnerBCallLive:     true,
+		ForeignCallRetired: false,
+		CleanNoticeEmitted: false,
+		LostNoticeEmitted:  false,
+		RootQueued:         false,
+	}
+}
+
+func step(s World, act Act, mutant int) Decision[World, string] {
+	let mut w = s
+	match act {
+	case RunSyncCell:
+		if w.CellActive || w.CutDone {
+			return Ignore
+		}
+		w.CellActive = true
+		return Enter{w}
+	case CallHitsUnfinished:
+		if !w.CellActive || w.AwaitedUnfinished || w.CutDone {
+			return Ignore
+		}
+		w.AwaitedUnfinished = true
+		if mutant != RunAfterUnfinishedMutant {
+			w.CellActive = false
+			w.CutDone = true
+		}
+		return Enter{w}
+	case RunLineAfterAwait:
+		if !w.AwaitedUnfinished || !w.CellActive || w.RanAfterUnfinished {
+			return Ignore
+		}
+		if mutant == RunAfterUnfinishedMutant {
+			w.RanAfterUnfinished = true
+			return Enter{w}
+		}
+		return Ignore
+	case WaitHitsBound:
+		if !w.CellActive || w.WaitSpent >= 2 {
+			return Ignore
+		}
+		w.WaitSpent = w.WaitSpent + 1
+		if w.WaitSpent == 2 && mutant != SkipCutAtBoundMutant {
+			w.CellActive = false
+			w.CutDone = true
+			w.CallHandleOpen = true
+		}
+		return Enter{w}
+	case RunExtraWaitPastBound:
+		if !w.CellActive || w.WaitSpent < 2 || w.MissedBoundCut {
+			return Ignore
+		}
+		if mutant == SkipCutAtBoundMutant {
+			w.MissedBoundCut = true
+			return Enter{w}
+		}
+		return Ignore
+	case CutToHandle:
+		if !w.CellActive || w.CutDone {
+			return Ignore
+		}
+		w.CellActive = false
+		w.CutDone = true
+		w.CallHandleOpen = true
+		return Enter{w}
+	case DetachedAnswersUnfinished:
+		if !w.CallHandleOpen || w.CallHanded {
+			return Ignore
+		}
+		w.CallHandleOpen = false
+		w.CallHanded = true
+		return Enter{w}
+	case RegistryWakeCall:
+		if w.CallLetters >= 2 {
+			return Ignore
+		}
+		if w.CallHanded {
+			if mutant == DoubleWakeUnfinishedMutant {
+				w.CallLetters = w.CallLetters + 1
+				return Enter{w}
+			}
+			return Ignore
+		}
+		if w.CallHandleOpen && w.CallLetters == 0 {
+			w.CallHandleOpen = false
+			w.CallLetters = 1
+			return Enter{w}
+		}
+		if w.CallLetters == 1 && mutant == DoubleWakeUnfinishedMutant {
+			w.CallLetters = 2
+			return Enter{w}
+		}
+		return Ignore
+	case OwnerWakeSpawned:
+		if !w.CallHanded || w.OwnerLetters >= 1 {
+			return Ignore
+		}
+		w.OwnerLetters = 1
+		return Enter{w}
+	case RegistryClaimsShell:
+		if w.DelivererCollision {
+			return Ignore
+		}
+		if mutant == RegistryStealsShellMutant {
+			w.DelivererCollision = true
+			return Enter{w}
+		}
+		return Ignore
+	case ReloadOwnerB:
+		if !w.OwnerBCallLive {
+			return Ignore
+		}
+		w.OwnerBCallLive = false
+		if mutant == ForeignReloadRetiresMutant {
+			w.OwnerACallLive = false
+			w.ForeignCallRetired = true
+		}
+		return Enter{w}
+	case RestoreClean:
+		if w.CleanNoticeEmitted {
+			return Ignore
+		}
+		if mutant == CleanNoticeMutant {
+			w.CleanNoticeEmitted = true
+			return Enter{w}
+		}
+		return Enter{w}
+	case RestoreLostBindings:
+		if w.LostNoticeEmitted {
+			return Ignore
+		}
+		w.LostNoticeEmitted = true
+		return Enter{w}
+	case RootWantsSlot:
+		if w.RootQueued {
+			return Ignore
+		}
+		if mutant == QueueRootMutant {
+			w.RootQueued = true
+			return Enter{w}
+		}
+		return Enter{w}
+	}
+}
+
+func handleSettledToldOnce(w World) bool          { w.CallLetters <= 1 && w.OwnerLetters <= 1 }
+func handedNeverDoubleWakes(w World) bool         { !(w.CallHanded && w.CallLetters > 0) }
+func noCodeAfterUnfinished(w World) bool          { !w.RanAfterUnfinished }
+func cutBeforeNextWaitPastBound(w World) bool     { !w.MissedBoundCut }
+func deliversExclusiveByKind(w World) bool        { !w.DelivererCollision }
+func otherOwnerReloadKeepsLiveCalls(w World) bool { !w.ForeignCallRetired }
+func cleanRestoreEmitsNoLostNotice(w World) bool  { !w.CleanNoticeEmitted }
+func rootNeverQueuesSlots(w World) bool           { !w.RootQueued }
+
+func brokeDoubleWake(w World) bool         { !handleSettledToldOnce(w) || !handedNeverDoubleWakes(w) }
+func brokeRanAfterUnfinished(w World) bool { !noCodeAfterUnfinished(w) }
+func brokeBoundCut(w World) bool           { !cutBeforeNextWaitPastBound(w) }
+func brokeDelivers(w World) bool           { !deliversExclusiveByKind(w) }
+func brokeForeignReload(w World) bool      { !otherOwnerReloadKeepsLiveCalls(w) }
+func brokeCleanNotice(w World) bool        { !cleanRestoreEmitsNoLostNotice(w) }
+func brokeRootQueue(w World) bool          { !rootNeverQueuesSlots(w) }
+
+func detachedCallToldOnce(w World) bool     { w.CutDone && w.CallLetters == 1 && !w.CallHanded }
+func handedOffToldOnceByOwner(w World) bool { w.CallHanded && w.CallLetters == 0 && w.OwnerLetters == 1 }
+func reloadBLeavesALive(w World) bool       { !w.OwnerBCallLive && w.OwnerACallLive }
+func lostBindingsToldOnce(w World) bool     { w.LostNoticeEmitted && !w.CleanNoticeEmitted }
+
+func design(s World, a Act) Decision[World, string]             { return step(s, a, NoMutant) }
+func mutDoubleWake(s World, a Act) Decision[World, string]      { return step(s, a, DoubleWakeUnfinishedMutant) }
+func mutAfterUnfinished(s World, a Act) Decision[World, string] { return step(s, a, RunAfterUnfinishedMutant) }
+func mutSkipCut(s World, a Act) Decision[World, string]         { return step(s, a, SkipCutAtBoundMutant) }
+func mutStealShell(s World, a Act) Decision[World, string]      { return step(s, a, RegistryStealsShellMutant) }
+func mutForeignReload(s World, a Act) Decision[World, string]   { return step(s, a, ForeignReloadRetiresMutant) }
+func mutCleanNotice(s World, a Act) Decision[World, string]     { return step(s, a, CleanNoticeMutant) }
+func mutQueueRoot(s World, a Act) Decision[World, string]       { return step(s, a, QueueRootMutant) }
+
+type Design machine[World, Act] {
+	initial: first(),
+	step:    design,
+
+	law HandleSettledToldOnce always handleSettledToldOnce,
+	law HandedNeverDoubleWakes always handedNeverDoubleWakes,
+	law NoCodeAfterUnfinished always noCodeAfterUnfinished,
+	law CutBeforeNextWaitPastBound always cutBeforeNextWaitPastBound,
+	law DeliversExclusiveByKind always deliversExclusiveByKind,
+	law OtherOwnerReloadKeepsLiveCalls always otherOwnerReloadKeepsLiveCalls,
+	law CleanRestoreEmitsNoLostNotice always cleanRestoreEmitsNoLostNotice,
+	law RootNeverQueuesSlots always rootNeverQueuesSlots,
+
+	law DetachedCallToldOnce sometimes detachedCallToldOnce,
+	law HandedOffToldOnceByOwner sometimes handedOffToldOnceByOwner,
+	law ReloadBLeavesALive sometimes reloadBLeavesALive,
+	law LostBindingsToldOnce sometimes lostBindingsToldOnce,
+}
+
+type DoubleWakeUnfinished machine[World, Act] {
+	initial: first(),
+	step:    mutDoubleWake,
+	law Breaks sometimes brokeDoubleWake,
+}
+
+type RunCodeAfterUnfinished machine[World, Act] {
+	initial: first(),
+	step:    mutAfterUnfinished,
+	law Breaks sometimes brokeRanAfterUnfinished,
+}
+
+type SkipCutAtBound machine[World, Act] {
+	initial: first(),
+	step:    mutSkipCut,
+	law Breaks sometimes brokeBoundCut,
+}
+
+type RegistryStealsShell machine[World, Act] {
+	initial: first(),
+	step:    mutStealShell,
+	law Breaks sometimes brokeDelivers,
+}
+
+type ForeignOwnerReloadRetires machine[World, Act] {
+	initial: first(),
+	step:    mutForeignReload,
+	law Breaks sometimes brokeForeignReload,
+}
+
+type CleanRestoreEmitsNotice machine[World, Act] {
+	initial: first(),
+	step:    mutCleanNotice,
+	law Breaks sometimes brokeCleanNotice,
+}
+
+type QueueRootCell machine[World, Act] {
+	initial: first(),
+	step:    mutQueueRoot,
+	law Breaks sometimes brokeRootQueue,
+}

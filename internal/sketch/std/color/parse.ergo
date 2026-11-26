@@ -1,0 +1,483 @@
+import math
+import strconv
+import strings
+
+type part = Num{V float64} | Pct{V float64} | Angle{Deg float64} | Missing{}
+
+type args { parts []part, legacy bool, end int }
+
+type scanner { text string, at int }
+
+// Parse reads a CSS Color 4 colour: "#rgb", "#rgba", "#rrggbb" or
+// "#rrggbbaa"; rgb() and rgba(), hsl() and hsla(), oklab() and oklch(),
+// in the space-separated form with an optional "/ alpha" or, for rgb and
+// hsl, the legacy comma form; a named colour or "transparent". Names are
+// read without regard to ASCII case, and white space around the text is
+// allowed. A number may carry %, or an angle unit (deg, rad, grad, turn)
+// where a hue is read; "none" is 0. Components outside their range are
+// held to it, and oklab and oklch colours are gamut mapped (FromOKLCH).
+// Anything else, currentcolor and system colours included, fails
+// InvalidColor.
+func Parse(text string) RGBA fails InvalidColor {
+	let mut s = scanner{text: text, at: 0}
+	skipSpace(&s)
+	if s.at >= text.Len() {
+		return InvalidColor{Text: text, Offset: s.at, Reason: "no colour"}
+	}
+	let c = if text[s.at] == '#' { try hexColor(&s) } else { try named(&s) }
+	skipSpace(&s)
+	if s.at != text.Len() {
+		return InvalidColor{Text: text, Offset: s.at, Reason: "text after the colour"}
+	}
+	c
+}
+
+func fail(s mut scanner, reason string) InvalidColor { InvalidColor{Text: s.text, Offset: s.at, Reason: reason} }
+
+func isSpace(c byte) bool { c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == 0x0c }
+
+func isLetter(c byte) bool { c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' }
+
+func isDigit(c byte) bool { c >= '0' && c <= '9' }
+
+func lower(c byte) byte { if c >= 'A' && c <= 'Z' { c + 32 } else { c } }
+
+func skipSpace(s mut scanner) {
+	for s.at < s.text.Len() && isSpace(s.text[s.at]) {
+		s.at += 1
+	}
+}
+
+func hexDigit(c byte) int {
+	if isDigit(c) {
+		return int(c - '0')
+	}
+	let l = lower(c)
+	if l >= 'a' && l <= 'f' { int(l-'a') + 10 } else { -1 }
+}
+
+func hexColor(s mut scanner) RGBA fails InvalidColor {
+	let start = s.at + 1
+	let mut end = start
+	for end < s.text.Len() && hexDigit(s.text[end]) >= 0 {
+		end += 1
+	}
+	let n = end - start
+	if n != 3 && n != 4 && n != 6 && n != 8 {
+		s.at = end
+		return fail(s, "a hex colour has 3, 4, 6 or 8 digits")
+	}
+	let t = s.text
+	let short = n <= 4
+	let one = func(i int) uint8 {
+		if short {
+			uint8(hexDigit(t[start+i]) * 17)
+		} else {
+			uint8(hexDigit(t[start+2*i])*16 + hexDigit(t[start+2*i+1]))
+		}
+	}
+	s.at = end
+	let alpha = if n == 4 || n == 8 { one(3) } else { uint8(255) }
+	RGBA{R: one(0), G: one(1), B: one(2), A: alpha}
+}
+
+func word(s mut scanner) string {
+	let start = s.at
+	for s.at < s.text.Len() && (isLetter(s.text[s.at]) || s.text[s.at] == '-') {
+		s.at += 1
+	}
+	let w = s.text.Slice(start, s.at)
+	let mut plain = true
+	for i in 0..w.Len() {
+		if w[i] >= 'A' && w[i] <= 'Z' {
+			plain = false
+		}
+	}
+	if plain { w } else { strings.ToLower(w) }
+}
+
+func named(s mut scanner) RGBA fails InvalidColor {
+	let start = s.at
+	let name = word(s)
+	if name == "" {
+		return fail(s, "not a colour")
+	}
+	if s.at < s.text.Len() && s.text[s.at] == '(' {
+		s.at += 1
+		return try function(s, name, start)
+	}
+	if name == "transparent" {
+		return Transparent
+	}
+	let i = nameIndex(name)
+	if i < 0 {
+		s.at = start
+		return fail(s, "unknown colour name")
+	}
+	let v = nameValues[i]
+	RGBA{R: uint8(v / 65536), G: uint8(v / 256 % 256), B: uint8(v % 256), A: 255}
+}
+
+func function(s mut scanner, name string, start int) RGBA fails InvalidColor {
+	if name == "rgb" || name == "rgba" {
+		let a = try arguments(s, true)
+		return try rgbOf(s, a)
+	}
+	if name == "hsl" || name == "hsla" {
+		let a = try arguments(s, true)
+		return try hslOf(s, a)
+	}
+	if name == "oklab" {
+		let a = try arguments(s, false)
+		return try oklabOf(s, a)
+	}
+	if name == "oklch" {
+		let a = try arguments(s, false)
+		return try oklchOf(s, a)
+	}
+	s.at = start
+	fail(s, "unsupported colour function")
+}
+
+func arguments(s mut scanner, legacyAllowed bool) args fails InvalidColor {
+	let mut parts = []part{}
+	skipSpace(s)
+	parts = parts.Append(try component(s))
+	skipSpace(s)
+	let legacy = s.at < s.text.Len() && s.text[s.at] == ','
+	if legacy && !legacyAllowed {
+		return fail(s, "this function takes no commas")
+	}
+	let mut slash = false
+	for true {
+		skipSpace(s)
+		if s.at >= s.text.Len() {
+			return fail(s, "no closing parenthesis")
+		}
+		let c = s.text[s.at]
+		if c == ')' {
+			s.at += 1
+			break
+		}
+		if legacy {
+			if c != ',' {
+				return fail(s, "a comma separates the components")
+			}
+			s.at += 1
+			skipSpace(s)
+		} else if c == '/' {
+			if slash || parts.Len() != 3 {
+				return fail(s, "the slash comes after three components")
+			}
+			slash = true
+			s.at += 1
+			skipSpace(s)
+		}
+		if parts.Len() >= 4 || !legacy && !slash && parts.Len() >= 3 {
+			return fail(s, "too many components")
+		}
+		parts = parts.Append(try component(s))
+	}
+	if parts.Len() < 3 {
+		return fail(s, "three components are needed")
+	}
+	if legacy {
+		for p in parts {
+			match p {
+			case Missing:
+				return fail(s, "none is not allowed in the comma form")
+			case Num, Pct, Angle:
+			}
+		}
+	}
+	args{parts: parts, legacy: legacy, end: s.at}
+}
+
+func component(s mut scanner) part fails InvalidColor {
+	if s.at >= s.text.Len() {
+		return fail(s, "a component is missing")
+	}
+	let c = s.text[s.at]
+	if isLetter(c) {
+		let start = s.at
+		let w = word(s)
+		if w == "none" {
+			return Missing
+		}
+		s.at = start
+		return fail(s, "not a number")
+	}
+	let start = s.at
+	let mut i = s.at
+	if i < s.text.Len() && (s.text[i] == '+' || s.text[i] == '-') {
+		i += 1
+	}
+	let digitsFrom = i
+	for i < s.text.Len() && isDigit(s.text[i]) {
+		i += 1
+	}
+	let mut seen = i > digitsFrom
+	if i < s.text.Len() && s.text[i] == '.' {
+		i += 1
+		let fracFrom = i
+		for i < s.text.Len() && isDigit(s.text[i]) {
+			i += 1
+		}
+		seen = seen || i > fracFrom
+	}
+	if !seen {
+		return fail(s, "not a number")
+	}
+	if i < s.text.Len() && (s.text[i] == 'e' || s.text[i] == 'E') {
+		let mut j = i + 1
+		if j < s.text.Len() && (s.text[j] == '+' || s.text[j] == '-') {
+			j += 1
+		}
+		let expFrom = j
+		for j < s.text.Len() && isDigit(s.text[j]) {
+			j += 1
+		}
+		if j > expFrom {
+			i = j
+		}
+	}
+	let v = strconv.ParseFloat(s.text.Slice(start, i)) catch {
+	case strconv.Malformed, strconv.OutOfRange:
+		return fail(s, "not a finite number")
+	}
+	if math.IsInf(v, 0) || math.IsNaN(v) {
+		return fail(s, "not a finite number")
+	}
+	s.at = i
+	if s.at < s.text.Len() && s.text[s.at] == '%' {
+		s.at += 1
+		return Pct{V: v}
+	}
+	if s.at < s.text.Len() && isLetter(s.text[s.at]) {
+		let unitAt = s.at
+		let u = word(s)
+		if u == "deg" {
+			return Angle{Deg: v}
+		}
+		if u == "rad" {
+			return Angle{Deg: v * 180.0 / pi}
+		}
+		if u == "grad" {
+			return Angle{Deg: v * 0.9}
+		}
+		if u == "turn" {
+			return Angle{Deg: v * 360.0}
+		}
+		s.at = unitAt
+		return fail(s, "unknown unit")
+	}
+	Num{V: v}
+}
+
+func alphaOf(s mut scanner, a args) float64 fails InvalidColor {
+	if a.parts.Len() < 4 {
+		return 1.0
+	}
+	match a.parts[3] {
+	case Num as n:
+		clamp01(n.V)
+	case Pct as p:
+		clamp01(p.V / 100.0)
+	case Missing:
+		0.0
+	case Angle:
+		fail(s, "alpha is a number or a percentage")
+	}
+}
+
+func hueOf(s mut scanner, p part) float64 fails InvalidColor {
+	match p {
+	case Num as n:
+		n.V
+	case Angle as x:
+		x.Deg
+	case Missing:
+		0.0
+	case Pct:
+		fail(s, "a hue is a number or an angle")
+	}
+}
+
+func scaled(s mut scanner, p part, full float64) float64 fails InvalidColor {
+	match p {
+	case Num as n:
+		n.V
+	case Pct as x:
+		x.V / 100.0 * full
+	case Missing:
+		0.0
+	case Angle:
+		fail(s, "an angle where a number is needed")
+	}
+}
+
+func rgbOf(s mut scanner, a args) RGBA fails InvalidColor {
+	if a.legacy {
+		let mut pcts = 0
+		for i in 0..3 {
+			match a.parts[i] {
+			case Pct:
+				pcts += 1
+			case Num, Angle, Missing:
+			}
+		}
+		if pcts != 0 && pcts != 3 {
+			return fail(s, "the comma form takes three numbers or three percentages")
+		}
+	}
+	let r = try scaled(s, a.parts[0], 255.0)
+	let g = try scaled(s, a.parts[1], 255.0)
+	let b = try scaled(s, a.parts[2], 255.0)
+	RGBA{R: toByte(r / 255.0), G: toByte(g / 255.0), B: toByte(b / 255.0), A: toByte(try alphaOf(s, a))}
+}
+
+func hslOf(s mut scanner, a args) RGBA fails InvalidColor {
+	if a.legacy {
+		for i in 1..3 {
+			match a.parts[i] {
+			case Pct:
+			case Num, Angle, Missing:
+				return fail(s, "the comma form takes percentages for saturation and lightness")
+			}
+		}
+	}
+	let h = try hueOf(s, a.parts[0])
+	let sat = try scaled(s, a.parts[1], 100.0)
+	let l = try scaled(s, a.parts[2], 100.0)
+	FromHSL(HSL{H: h, S: sat / 100.0, L: l / 100.0, Alpha: try alphaOf(s, a)})
+}
+
+func lightnessOf(s mut scanner, p part) float64 fails InvalidColor { clamp01(try scaled(s, p, 1.0)) }
+
+func oklabOf(s mut scanner, a args) RGBA fails InvalidColor {
+	let l = try lightnessOf(s, a.parts[0])
+	let x = try scaled(s, a.parts[1], 0.4)
+	let y = try scaled(s, a.parts[2], 0.4)
+	FromOKLab(OKLab{L: l, A: x, B: y, Alpha: try alphaOf(s, a)})
+}
+
+func oklchOf(s mut scanner, a args) RGBA fails InvalidColor {
+	let l = try lightnessOf(s, a.parts[0])
+	let c = maxf(0.0, try scaled(s, a.parts[1], 0.4))
+	let h = try hueOf(s, a.parts[2])
+	FromOKLCH(OKLCH{L: l, C: c, H: h, Alpha: try alphaOf(s, a)})
+}
+
+// KnownColorsAreTheTable: recorded CSS Color 4 readings: names, the hex
+// forms, the space and comma forms of rgb() and hsl(), percentages,
+// angle units, none, clamping, oklab() and oklch() of red within one step;
+// and texts that are no colour.
+law KnownColorsAreTheTable() {
+	let red = RGBA{R: 255, G: 0, B: 0, A: 255}
+	let reads = func(t string, want RGBA) bool {
+		let got = Parse(t) catch {
+		case InvalidColor:
+			return false
+		}
+		got == want
+	}
+	let near = func(t string, want RGBA) bool {
+		let got = Parse(t) catch {
+		case InvalidColor:
+			return false
+		}
+		let d = func(a uint8, b uint8) bool { int(a)-int(b) <= 1 && int(b)-int(a) <= 1 }
+		d(got.R, want.R) && d(got.G, want.G) && d(got.B, want.B) && got.A == want.A
+	}
+	let refused = func(t string) bool {
+		let mut no = false
+		let _ = Parse(t) catch {
+		case InvalidColor:
+			no = true
+			Transparent
+		}
+		no
+	}
+		reads("red", red) &&
+		reads(" RebeccaPurple ", RGBA{R: 0x66, G: 0x33, B: 0x99, A: 255}) &&
+		reads("transparent", Transparent) &&
+		reads("#f00", red) &&
+		reads("#F008", RGBA{R: 255, G: 0, B: 0, A: 0x88}) &&
+		reads("#ff000080", RGBA{R: 255, G: 0, B: 0, A: 0x80}) &&
+		reads("rgb(255 0 0)", red) &&
+		reads("rgb(100% 0% 0%)", red) &&
+		reads("rgba(255, 0, 0, 0.5)", RGBA{R: 255, G: 0, B: 0, A: 128}) &&
+		reads("rgb(255 0 0 / 50%)", RGBA{R: 255, G: 0, B: 0, A: 128}) &&
+		reads("rgb(300 -5 none)", red) &&
+		reads("rgb(1e2 2.55e2 .5)", RGBA{R: 100, G: 255, B: 1, A: 255}) &&
+		reads("hsl(120 100% 25%)", RGBA{R: 0, G: 128, B: 0, A: 255}) &&
+		reads("hsla(120, 100%, 25%, 1)", RGBA{R: 0, G: 128, B: 0, A: 255}) &&
+		reads("hsl(0.5turn 100 50)", RGBA{R: 0, G: 255, B: 255, A: 255}) &&
+		reads("hsl(200grad 100% 50%)", RGBA{R: 0, G: 255, B: 255, A: 255}) &&
+		reads("hsl(-120deg 100% 50%)", RGBA{R: 0, G: 0, B: 255, A: 255}) &&
+		reads("oklch(100% 0 0)", White) &&
+		reads("oklch(0 0 none)", Black) &&
+		near("oklch(62.8% 0.2577 29.23)", red) &&
+		near("oklab(0.628 0.2249 0.1258)", red) &&
+		near("oklch(0.6280 64.4% 29.23deg / 1)", red) &&
+		refused("") &&
+		refused("#12345") &&
+		refused("#ggg") &&
+		refused("red blue") &&
+		refused("rgb(1, 2 3)") &&
+		refused("rgb(1 2)") &&
+		refused("rgb(1 2 3 4)") &&
+		refused("rgb(1%, 2, 3)") &&
+		refused("rgb(none, 0, 0)") &&
+		refused("rgb(1 2 3 / 4 / 5)") &&
+		refused("rgb(1 2 3") &&
+		refused("hsl(120, 100, 50)") &&
+		refused("oklch(1, 0, 0)") &&
+		refused("rgb(1e999 0 0)") &&
+		refused("rgb(1px 0 0)") &&
+		refused("currentcolor") &&
+		refused("color(srgb 1 0 0)") &&
+		refused("notacolor")
+}
+
+// ParseIsCaseAndSpaceBlind: a colour's text read with its letters' case
+// changed and white space around it is the same colour.
+law ParseIsCaseAndSpaceBlind(c RGBA, k int) {
+	let texts = []string{Hex(c), CSS(c), FormatHSL(ToHSL(c)), FormatOKLCH(ToOKLCH(c))}
+	let t = texts[nonNeg(k)%texts.Len()]
+	let mut b = []byte{}
+	for i in 0..t.Len() {
+		let x = t[i]
+		b = b.Append(if x >= 'a' && x <= 'z' { x - 32 } else { x })
+	}
+	let a = Parse(t) catch {
+	case InvalidColor:
+		return false
+	}
+	let up = Parse(" \t" + b.Text() + "\n ") catch {
+	case InvalidColor:
+		return false
+	}
+	a == up
+}
+
+// HostileTextFails: any text built from pieces of colours, stray bytes,
+// signs, exponents and long runs either reads as a colour or fails
+// InvalidColor at an offset inside the text; reading never stops the
+// program.
+law HostileTextFails(seed int, n int) {
+	let pieces = []string{"#", "#f", "#ffff", "#fffffffff", "rgb(", "rgba(", "hsl(", "oklch(", "oklab(", "calc(", ")", "(", ",", "/", " ", "%", "deg", "turn", "none", "1", "-", "+", ".", "e", "1e999", "-1e-999", "0.5", "255", "nan", "inf", "red", "RED", "\x00", "\xff", "é", "currentcolor", "transparent", "rebeccapurple", "999999999999999999999", "100%"}
+	let mut x = nonNeg(seed) % 2147483648
+	let mut text = ""
+	for _ in 0..(nonNeg(n) % 24) {
+		x = (x*1103515245 + 12345) % 2147483648
+		text = text + pieces[(x/65536)%pieces.Len()]
+	}
+	let mut ok = true
+	let _ = Parse(text) catch {
+	case InvalidColor as e:
+		ok = e.Offset >= 0 && e.Offset <= text.Len() && e.Text == text
+		Transparent
+	}
+	ok
+}

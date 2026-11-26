@@ -1,0 +1,162 @@
+import filepath
+import fs
+import fstest
+import strings
+
+// Extracted is what Extract wrote: the count of folders and of files, and
+// the paths of the link entries it did not make (fs.Writes has no link
+// operation).
+type Extracted {
+	Dirs  int,
+	Files int,
+	Links []string,
+}
+
+func access(bits int) fs.Access {
+	let b = bits & 7
+	if b == 7 {
+		fs.ReadWriteExecute
+	} else if b == 6 {
+		fs.ReadWrite
+	} else if b == 5 {
+		fs.ReadExecute
+	} else if b == 4 {
+		fs.ReadOnly
+	} else if b == 1 || b == 3 {
+		fs.Execute
+	} else {
+		fs.NoAccess
+	}
+}
+
+func modeOf(perm int) fs.Mode {
+	fs.Mode{Owner: access(perm >> 6), Group: access(perm >> 3), Other: access(perm)}
+}
+
+func kindAt(p string) int fails fs.Denied | fs.Failed needs fs.Files {
+	let l = fs.Files.Lstat(p) catch {
+	case fs.NotFound:
+		return 0
+	case fs.Denied as e:
+		return e
+	case fs.Failed as e:
+		return e
+	}
+	if l.Dir { 1 } else { 2 }
+}
+
+func checkWay(dir string, comps []string) fails LinkOnDisk | fs.Denied | fs.Failed needs fs.Files {
+	for k in 1..comps.Len()+1 {
+		let rel = strings.Join(comps[:k], "/")
+		let p = filepath.Join([]string{dir, rel})
+		let at = try kindAt(p)
+		if at == 0 {
+			return
+		}
+		if at == 2 {
+			let s = fs.Files.Stat(p) catch {
+			case fs.NotFound:
+				return LinkOnDisk{Path: rel}
+			case fs.Denied as e:
+				return e
+			case fs.Failed as e:
+				return e
+			}
+			if s.Dir {
+				return LinkOnDisk{Path: rel}
+			}
+			return
+		}
+	}
+}
+
+// Extract writes the folders and files of a below dir, in order: a later
+// entry of a path replaces an earlier one. A folder gets its mode with the
+// owner's read, write and pass-through added, so later entries can be
+// written in it; a file gets its mode exactly. A thing other than a folder at
+// a file's path is removed first, so no write follows a link left there; a
+// folder on the way that is a symbolic link on disk fails LinkOnDisk. Link
+// entries are not made: Extracted.Links names them.
+func Extract(a Archive, dir string) Extracted fails LinkOnDisk | fs.NotFound | fs.Denied | fs.Failed needs fs.Files | fs.Writes {
+	let mut dirs = 0
+	let mut files = 0
+	let mut links = []string{}
+	for i, r in a.rows {
+		let comps = strings.Split(r.path, "/")
+		let target = filepath.Join([]string{dir, r.path})
+		match r.kind {
+		case Dir:
+			try checkWay(dir, comps)
+			try fs.Writes.MkdirAllMode(target, modeOf(r.mode|448))
+			dirs = dirs + 1
+		case File:
+			let parent = comps[:comps.Len()-1]
+			try checkWay(dir, parent)
+			if parent.Len() > 0 {
+				try fs.Writes.MkdirAll(filepath.Join([]string{dir, strings.Join(parent, "/")}))
+			}
+			if try kindAt(target) == 2 {
+				try fs.Writes.Remove(target)
+			}
+			try fs.Writes.WriteFileMode(target, Content(a, i).Text(), modeOf(r.mode))
+			files = files + 1
+		case Symlink, HardLink:
+			links = links.Append(r.path)
+		}
+	}
+	Extracted{Dirs: dirs, Files: files, Links: links}
+}
+
+// ExtractWritesTheFiles: after Extract into a folder of an in-memory file
+// system, each file entry's path holds its content, each folder entry is a
+// folder, and each link entry is named in Links.
+law ExtractWritesTheFiles(segs []string) {
+	let mut a = New()
+	for i, seg in segs {
+		let s = safeSegment(seg)
+		let h = if i%3 == 0 {
+			Header{Path: "d\(i % 2)/" + s + "\(i)", Kind: File, Mode: 420, ModTime: 0, Link: ""}
+		} else if i%3 == 1 {
+			Header{Path: "e/" + s + "\(i)", Kind: Dir, Mode: 0, ModTime: 0, Link: ""}
+		} else {
+			Header{Path: "l\(i)", Kind: Symlink, Mode: 511, ModTime: 0, Link: "e"}
+		}
+		Add(&a, h, seg.Bytes()) catch {
+		case Unsafe, UnsafeLink, ThroughLink:
+			return false
+		}
+	}
+	let mem = fstest.NewMemory()
+	with context { fs.Files: mem, fs.Writes: mem } {
+		fs.Writes.MkdirAll("/out") catch {
+		case fs.Denied, fs.Failed:
+			return false
+		}
+		let done = Extract(a, "/out") catch {
+		case LinkOnDisk, fs.NotFound, fs.Denied, fs.Failed:
+			return false
+		}
+		let mut ok = done.Dirs+done.Files+done.Links.Len() == Len(a)
+		for i, e in Entries(a) {
+			let p = "/out/" + e.Path
+			match e.Kind {
+			case File:
+				let got = fs.Files.ReadFile(p) catch {
+				case fs.NotFound, fs.Denied, fs.Failed:
+					return false
+				}
+				ok = ok && got == Content(a, i).Text()
+			case Dir:
+				let info = fs.Files.Stat(p) catch {
+				case fs.NotFound, fs.Denied, fs.Failed:
+					return false
+				}
+				ok = ok && info.Dir
+			case Symlink, HardLink:
+				ok = ok && done.Links.Len() > 0
+			}
+		}
+		sometimes done.Files > 0 && done.Dirs > 0
+		ok
+	}
+}

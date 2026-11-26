@@ -1,0 +1,646 @@
+import option
+import slices
+import strings
+import github.com/cevr/ergo/modules/git/oid
+import github.com/cevr/ergo/modules/git/tree
+
+// Source is the source control service contract: the log (blobs, then
+// changesets in normal form against the first parent; appending moves no
+// ref), wants-only object reads with a read count, history queries
+// (merge base, ancestry, tree diff) and compare-and-set refs with
+// protected names, with the laws every provider holds over generated
+// histories.
+type Source {
+	PutBlob(data []byte) oid.OID fails TooLarge | StoreFailed,
+	Append(parents []ChangeID, changes []FileChange, meta Meta) ChangeID fails UnknownParent | MissingBlob | PathClash | Invalid | Denied | StoreFailed,
+	Get(id ChangeID) Changeset fails Unknown | StoreFailed,
+	Root(id ChangeID) oid.OID fails Unknown | StoreFailed,
+	Want(ids []oid.OID, maxBytes int) []Object fails Missing | Corrupt | LimitExceeded | StoreFailed,
+	Reads(id oid.OID) int,
+	MergeBase(a ChangeID, b ChangeID) []ChangeID fails Unknown | StoreFailed,
+	IsAncestor(a ChangeID, b ChangeID) bool fails Unknown | StoreFailed,
+	Diff(from ChangeID, to ChangeID) []FileChange fails Unknown | StoreFailed,
+	Read(name string) option.Option[ChangeID] fails InvalidName | StoreFailed,
+	Set(name string, to ChangeID, expected option.Option[ChangeID]) fails Stale | Protected | InvalidName | Unknown | Denied | StoreFailed,
+	ProtectedNames() []string,
+
+	// AppendIsTheReference: the files the log holds at each appended change
+	// are the reference's files at its first parent with its changes
+	// applied, a file replaced by a folder and a folder by a file included.
+	law AppendIsTheReference(codes []int) {
+		let h = try drive(codes)
+		for id in h.ids {
+			if filesAt(h.log, id) != filesAt(h.ref, id) {
+				return false
+			}
+		}
+		true
+	},
+
+	// ChangesAreTheDiff: a stored changeset lists exactly what changed
+	// against its first parent: sorted by path, each path once, and no
+	// entry that changes nothing.
+	law ChangesAreTheDiff(codes []int) {
+		let h = try drive(codes)
+		for i, set in h.sets {
+			let input = h.inputs[i]
+			if set.ID != h.ids[i] || set.Parents != input.parents {
+				return false
+			}
+			let before = h.parentLog(input.parents)
+			for j, c in set.Changes {
+				if j > 0 && changePath(set.Changes[j-1]) >= changePath(c) {
+					return false
+				}
+				if !changesSomething(before, c) {
+					return false
+				}
+			}
+		}
+		true
+	},
+
+	// AppendTwiceIsOnce: the same parents, changes and meta give the same
+	// id again.
+	law AppendTwiceIsOnce(codes []int, pick int) {
+		let h = try drive(codes)
+		let i = index(pick, h.ids.Len())
+		let input = h.inputs[i]
+		let again = try Source.Append(input.parents, input.changes, input.meta)
+		again == h.ids[i]
+	},
+
+	// BlobsBeforeChanges: an append that names a blob the store lacks
+	// fails MissingBlob.
+	law BlobsBeforeChanges(codes []int, salt int) {
+		let h = try drive(codes)
+		let lacking = try oid.HashObject(h.format, oid.Blob, "never put \(salt)\n".Bytes())
+		let mut missing = false
+		let _ = Source.Append([]ChangeID{h.ids[h.ids.Len()-1]}, []FileChange{Put{Path: "m", Blob: lacking, Mode: Regular}}, lawMeta(99)) catch {
+		case MissingBlob:
+			missing = true
+			h.ids[0]
+		case UnknownParent, PathClash, Invalid, Denied, StoreFailed:
+			h.ids[0]
+		}
+		missing
+	},
+
+	// AppendMovesNoRef: no ref reads differently after any append.
+	law AppendMovesNoRef(codes []int, more []int) {
+		let h = try drive(codes)
+		let mut names = Source.ProtectedNames()
+		for i, tip in h.tips {
+			let name = "refs/heads/lane-\(i)"
+			try Source.Set(name, tip, option.None)
+			names = names.Append(name)
+		}
+		let mut before = []option.Option[ChangeID]{}
+		for name in names {
+			before = before.Append(try Source.Read(name))
+		}
+		let _ = try h.again(more)
+		for i, name in names {
+			if try Source.Read(name) != before[i] {
+				return false
+			}
+		}
+		true
+	},
+
+	// LogOnlyGrows: after any later operations every change reads as it
+	// did when it was appended.
+	law LogOnlyGrows(codes []int, more []int) {
+		let h = try drive(codes)
+		let _ = try h.again(more)
+		for i, id in h.ids {
+			if try Source.Get(id) != h.sets[i] {
+				return false
+			}
+		}
+		true
+	},
+
+	// WantBindsBytes: each object a want returns rehashes to the id asked,
+	// in the order asked, or the want fails LimitExceeded.
+	law WantBindsBytes(codes []int, limit int) {
+		let h = try drive(codes)
+		let mut ask = []oid.OID{}
+		for id in h.ids {
+			ask = ask.Append(try Source.Root(id))
+		}
+		ask = slices.AppendAll(ask, h.blobs)
+		let got = Source.Want(ask, index(limit, 1200)) catch {
+		case LimitExceeded:
+			return true
+		case Missing, Corrupt, StoreFailed:
+			return false
+		}
+		if got.Len() != ask.Len() {
+			return false
+		}
+		for i, o in got {
+			let again = try oid.HashObject(h.format, o.Kind, o.Data)
+			if !oid.Equal(again, ask[i]) || !oid.Equal(o.ID, ask[i]) {
+				return false
+			}
+		}
+		true
+	},
+
+	// ClosureIsTheChange: walking from a change's root tree with wants
+	// alone yields exactly the files the log holds at that change.
+	law ClosureIsTheChange(codes []int) {
+		let h = try drive(codes)
+		let mut c = newClient(h.format)
+		for id in h.ids {
+			let files = try c.files(try Source.Root(id))
+			if files != filesAt(h.log, id) {
+				return false
+			}
+		}
+		true
+	},
+
+	// WantNeedsNoHistory: a want answers the same on a fresh store and
+	// after any earlier wants.
+	law WantNeedsNoHistory(codes []int, pick int) {
+		let h = try drive(codes)
+		let mut ask = h.blobs
+		ask = ask.Append(try Source.Root(h.ids[index(pick, h.ids.Len())]))
+		let first = try Source.Want(ask, 1<<30)
+		let mut c = newClient(h.format)
+		for id in h.ids {
+			let _ = try c.files(try Source.Root(id))
+		}
+		let second = try Source.Want(ask, 1<<30)
+		first == second
+	},
+
+	// WantIsOnlyWhatWasAsked: a walk of one folder reads each object it
+	// asks for once and no object outside it, by the store's own count.
+	law WantIsOnlyWhatWasAsked(codes []int, pick int) {
+		let h = try drive(codes)
+		let root = try Source.Root(h.ids[index(pick, h.ids.Len())])
+		let mut c = newClient(h.format)
+		let top = try c.object(root)
+		let mut start = root
+		for e in try tree.ParseTree(h.format, top.Data) {
+			if tree.IsTree(e.Mode) {
+				start = e.OID
+			}
+		}
+		let _ = try c.files(start)
+		for _, o in c.cache {
+			if Source.Reads(o.ID) != 1 {
+				return false
+			}
+		}
+		for b in h.blobs {
+			if c.cache.Get(oid.Hex(b)) == option.None && Source.Reads(b) != 0 {
+				return false
+			}
+		}
+		true
+	},
+
+	// MergeBaseIsTheReference: merge bases are the best common ancestors
+	// and ancestry is reachability, by a plain search over the parents the
+	// changes were appended with.
+	law MergeBaseIsTheReference(codes []int) {
+		let h = try drive(codes)
+		let n = if h.ids.Len() > 8 { 8 } else { h.ids.Len() }
+		for i in 0..n {
+			for j in 0..n {
+				let a = h.ids[i]
+				let b = h.ids[j]
+				if try Source.IsAncestor(a, b) != h.reaches(a, b) {
+					return false
+				}
+				if !sameIDs(try Source.MergeBase(a, b), h.bestBases(a, b)) {
+					return false
+				}
+			}
+		}
+		true
+	},
+
+	// DiffIsTheReference: Diff(a, b) is the path-wise difference of the
+	// files walked from a's and b's root trees, and Diff(a, a) is empty.
+	law DiffIsTheReference(codes []int) {
+		let h = try drive(codes)
+		let mut c = newClient(h.format)
+		let n = if h.ids.Len() > 6 { 6 } else { h.ids.Len() }
+		for i in 0..n {
+			for j in 0..n {
+				let a = h.ids[i]
+				let b = h.ids[j]
+				let want = filesDiff(try c.files(try Source.Root(a)), try c.files(try Source.Root(b)))
+				if try Source.Diff(a, b) != want {
+					return false
+				}
+			}
+		}
+		true
+	},
+
+	// SetIsCompareAndSet: a Set whose expected value is not the current one
+	// fails Stale and changes nothing; of two Sets from one value exactly
+	// one moves the name.
+	law SetIsCompareAndSet(codes []int, pick int) {
+		let h = try drive(codes)
+		let name = "refs/heads/lane-cas"
+		let first = h.ids[index(pick, h.ids.Len())]
+		let second = h.ids[index(pick+1, h.ids.Len())]
+		try Source.Set(name, first, option.None)
+		let was = option.Some[ChangeID]{Value: first}
+		let now = option.Some[ChangeID]{Value: second}
+		let mut stale = false
+		Source.Set(name, second, option.None) catch {
+		case Stale:
+			stale = true
+		case Protected, InvalidName, Unknown, Denied, StoreFailed:
+			return false
+		}
+		let held = try Source.Read(name) == was
+		try Source.Set(name, second, was)
+		let mut lost = first == second
+		if !lost {
+			Source.Set(name, first, was) catch {
+			case Stale:
+				lost = true
+			case Protected, InvalidName, Unknown, Denied, StoreFailed:
+				return false
+			}
+		}
+		let last = try Source.Read(name)
+		stale && held && lost && last == now
+	},
+
+	// ProtectedMovesOnlyByLand: Set on a protected name fails Protected
+	// whatever the caller expects, and the name reads as before.
+	law ProtectedMovesOnlyByLand(codes []int, pick int) {
+		let h = try drive(codes)
+		let to = h.ids[index(pick, h.ids.Len())]
+		for name in Source.ProtectedNames() {
+			let before = try Source.Read(name)
+			for expected in []option.Option[ChangeID]{before, option.None, option.Some[ChangeID]{Value: to}} {
+				let mut refused = false
+				Source.Set(name, to, expected) catch {
+				case Protected:
+					refused = true
+				case Stale, InvalidName, Unknown, Denied, StoreFailed:
+					return false
+				}
+				if !refused || try Source.Read(name) != before {
+					return false
+				}
+			}
+		}
+		true
+	},
+}
+
+type refFile {
+	Blob oid.OID,
+	Mode Mode,
+}
+
+type appendInput {
+	parents []ChangeID,
+	changes []FileChange,
+	meta    Meta,
+}
+
+type history {
+	format oid.Format,
+	ids    []ChangeID,
+	inputs []appendInput,
+	sets   []Changeset,
+	ref    Map[ChangeID, Map[string, refFile]],
+	log    Map[ChangeID, Map[string, refFile]],
+	blobs  []oid.OID,
+	tips   []ChangeID,
+}
+
+func index(n int, size int) int {
+	let m = n % size
+	if m < 0 { m + size } else { m }
+}
+
+func lawPaths() []string {
+	[]string{"a", "b", "d", "d/x", "d/y", "d/e/z", "e/f"}
+}
+
+func lawMeta(step int) Meta {
+	let who = Identity{Name: "Law Author", Email: "law@example.invalid", When: int64(1700000000 + step), Zone: "+0000"}
+	Meta{Author: who, Committer: who, Message: "step \(step)\n"}
+}
+
+func lawMode(k int) Mode {
+	match k % 4 {
+	case 2:
+		Executable
+	case 3:
+		Symlink
+	case _:
+		Regular
+	}
+}
+
+func nextDraw(r int) int {
+	(r*1103515245 + 12345) % 2147483648
+}
+
+func clashes(a string, b string) bool {
+	a == b || strings.HasPrefix(a, b+"/") || strings.HasPrefix(b, a+"/")
+}
+
+func changePath(c FileChange) string {
+	match c {
+	case Put as p:
+		p.Path
+	case Delete as d:
+		d.Path
+	}
+}
+
+func applyChanges(files Map[string, refFile], changes []FileChange) Map[string, refFile] {
+	let mut out = files
+	for c in changes {
+		match c {
+		case Delete as d:
+			out = out.Delete(d.Path)
+		case Put as p:
+			for path, _ in files {
+				if clashes(path, p.Path) {
+					out = out.Delete(path)
+				}
+			}
+			out[p.Path] = refFile{Blob: p.Blob, Mode: p.Mode}
+		}
+	}
+	out
+}
+
+func changesSomething(before Map[string, refFile], c FileChange) bool {
+	match c {
+	case Delete as d:
+		before.Get(d.Path) != option.None
+	case Put as p:
+		before.Get(p.Path) != (option.Some[refFile]{Value: refFile{Blob: p.Blob, Mode: p.Mode}})
+	}
+}
+
+func filesDiff(a Map[string, refFile], b Map[string, refFile]) []FileChange {
+	let mut paths = []string{}
+	for p, _ in a {
+		paths = paths.Append(p)
+	}
+	for p, _ in b {
+		if a.Get(p) == option.None {
+			paths = paths.Append(p)
+		}
+	}
+	let mut out = []FileChange{}
+	for p in slices.Sort(paths) {
+		match b.Get(p) {
+		case option.Some[refFile] as f:
+			if a.Get(p) != (option.Some[refFile]{Value: f.Value}) {
+				out = out.Append(Put{Path: p, Blob: f.Value.Blob, Mode: f.Value.Mode})
+			}
+		case option.None:
+			out = out.Append(Delete{Path: p})
+		}
+	}
+	out
+}
+
+func sameIDs(a []ChangeID, b []ChangeID) bool {
+	if a.Len() != b.Len() {
+		return false
+	}
+	for x in a {
+		if !slices.Contains(b, x) {
+			return false
+		}
+	}
+	true
+}
+
+func filesAt(files Map[ChangeID, Map[string, refFile]], id ChangeID) Map[string, refFile] {
+	match files.Get(id) {
+	case option.Some[Map[string, refFile]] as f:
+		f.Value
+	case option.None:
+		Map[string, refFile]{}
+	}
+}
+
+func parentLog(h history, parents []ChangeID) Map[string, refFile] {
+	if parents.Len() == 0 {
+		return Map[string, refFile]{}
+	}
+	filesAt(h.log, parents[0])
+}
+
+func parentRef(h history, parents []ChangeID) Map[string, refFile] {
+	if parents.Len() == 0 {
+		return Map[string, refFile]{}
+	}
+	filesAt(h.ref, parents[0])
+}
+
+func parentsOf(h history, id ChangeID) []ChangeID {
+	for i, x in h.ids {
+		if x == id {
+			return h.inputs[i].parents
+		}
+	}
+	[]ChangeID{}
+}
+
+func ancestors(h history, id ChangeID) []ChangeID {
+	let mut seen = []ChangeID{id}
+	let mut next = 0
+	for next < seen.Len() {
+		for p in h.parentsOf(seen[next]) {
+			if !slices.Contains(seen, p) {
+				seen = seen.Append(p)
+			}
+		}
+		next = next + 1
+	}
+	seen
+}
+
+func reaches(h history, a ChangeID, b ChangeID) bool {
+	slices.Contains(h.ancestors(b), a)
+}
+
+func bestBases(h history, a ChangeID, b ChangeID) []ChangeID {
+	let fromB = h.ancestors(b)
+	let mut common = []ChangeID{}
+	for x in h.ancestors(a) {
+		if slices.Contains(fromB, x) {
+			common = common.Append(x)
+		}
+	}
+	let mut best = []ChangeID{}
+	for x in common {
+		let mut beaten = false
+		for y in common {
+			if y != x && h.reaches(x, y) {
+				beaten = true
+			}
+		}
+		if !beaten {
+			best = best.Append(x)
+		}
+	}
+	best
+}
+
+func drive(codes []int) history fails Error | oid.Collision needs Source {
+	let steps = if codes.Len() == 0 { []int{1} } else { codes }
+	let mut h = history{
+		format: oid.Sha1,
+		ids:    []ChangeID{},
+		inputs: []appendInput{},
+		sets:   []Changeset{},
+		ref:    Map[ChangeID, Map[string, refFile]]{},
+		log:    Map[ChangeID, Map[string, refFile]]{},
+		blobs:  []oid.OID{},
+		tips:   []ChangeID{},
+	}
+	let mut contents = []oid.OID{}
+	for k in 0..4 {
+		let id = try Source.PutBlob("content \(k)\n".Bytes())
+		contents = contents.Append(id)
+		h.blobs = h.blobs.Append(id)
+	}
+	h.format = contents[0].Format
+	for i, code in steps {
+		if i >= 12 {
+			break
+		}
+		let mut r = nextDraw(index(code, 2147483648))
+		let kind = r % 4
+		r = nextDraw(r)
+		let mut parents = []ChangeID{}
+		let mut lane = -1
+		if h.ids.Len() > 0 {
+			if kind == 2 {
+				parents = []ChangeID{h.ids[index(r, h.ids.Len())]}
+			} else {
+				lane = index(r, h.tips.Len())
+				parents = []ChangeID{h.tips[lane]}
+				let other = h.tips[index(r+1, h.tips.Len())]
+				if kind == 3 && other != parents[0] {
+					parents = parents.Append(other)
+				}
+			}
+		}
+		let mut changes = []FileChange{}
+		r = nextDraw(r)
+		let count = r % 4
+		for _ in 0..count {
+			r = nextDraw(r)
+			let path = lawPaths()[r%7]
+			let mut free = true
+			for c in changes {
+				if clashes(changePath(c), path) {
+					free = false
+				}
+			}
+			if free {
+				if (r/7)%4 == 0 {
+					changes = changes.Append(Delete{Path: path})
+				} else {
+					changes = changes.Append(Put{Path: path, Blob: contents[(r/28)%4], Mode: lawMode(r / 112)})
+				}
+			}
+		}
+		let meta = lawMeta(i)
+		let id = try Source.Append(parents, changes, meta)
+		let set = try Source.Get(id)
+		h.ref[id] = applyChanges(h.parentRef(parents), changes)
+		h.log[id] = applyChanges(h.parentLog(parents), set.Changes)
+		h.ids = h.ids.Append(id)
+		h.inputs = h.inputs.Append(appendInput{parents: parents, changes: changes, meta: meta})
+		h.sets = h.sets.Append(set)
+		if lane < 0 {
+			h.tips = h.tips.Append(id)
+		} else {
+			h.tips[lane] = id
+		}
+	}
+	h
+}
+
+func again(h history, more []int) history fails Error | oid.Collision needs Source {
+	let other = try drive(more)
+	let mut c = newClient(h.format)
+	for id in other.ids {
+		let _ = try c.files(try Source.Root(id))
+	}
+	if other.ids.Len() > 0 {
+		try Source.Set("refs/heads/lane-later", other.ids[0], option.None)
+	}
+	other
+}
+
+type client {
+	format oid.Format,
+	cache  Map[string, Object],
+}
+
+func newClient(format oid.Format) client {
+	client{format: format, cache: Map[string, Object]{}}
+}
+
+func object(c mut client, id oid.OID) Object fails Missing | Corrupt | LimitExceeded | StoreFailed needs Source {
+	let key = oid.Hex(id)
+	match c.cache.Get(key) {
+	case option.Some[Object] as o:
+		o.Value
+	case option.None:
+		let got = try Source.Want([]oid.OID{id}, 1<<30)
+		if got.Len() != 1 {
+			return Missing{ID: id}
+		}
+		c.cache[key] = got[0]
+		got[0]
+	}
+}
+
+func files(c mut client, root oid.OID) Map[string, refFile] fails Missing | Corrupt | LimitExceeded | StoreFailed needs Source {
+	let mut out = Map[string, refFile]{}
+	let mut folders = [](string, oid.OID){("", root)}
+	let mut next = 0
+	for next < folders.Len() {
+		let (prefix, id) = folders[next]
+		next = next + 1
+		let o = try c.object(id)
+		let entries = tree.ParseTree(c.format, o.Data) catch {
+		case tree.CorruptTree, tree.InvalidEntryName, tree.UnsortedTree, tree.DuplicateEntry:
+			return Corrupt{ID: id, Why: "not a tree"}
+		}
+		for e in entries {
+			let path = prefix + e.Name
+			match e.Mode {
+			case tree.ModeTree:
+				folders = folders.Append((path + "/", e.OID))
+			case tree.ModeRegular:
+				out[path] = refFile{Blob: e.OID, Mode: Regular}
+			case tree.ModeExecutable:
+				out[path] = refFile{Blob: e.OID, Mode: Executable}
+			case tree.ModeSymlink:
+				out[path] = refFile{Blob: e.OID, Mode: Symlink}
+			case tree.ModeGitlink:
+				return Corrupt{ID: id, Why: "a gitlink in a change's tree"}
+			}
+		}
+	}
+	out
+}
