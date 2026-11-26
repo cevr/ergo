@@ -1,9 +1,10 @@
+import actor
+import color
 import core
 import option
 import slices
-import time
-import actor
 import strings
+import time
 
 // Canvas (H5c): a node whose content is a paint list, values a host
 // replays: paths filled and stroked, under transforms and clips that nest.
@@ -27,7 +28,7 @@ func RectPath(x float64, y float64, w float64, h float64) Path {
 }
 
 // Color is a colour with straight alpha, a byte each.
-type Color { R uint8, G uint8, B uint8, A uint8 }
+type Color = color.RGBA
 
 // Affine maps x, y to A*x + C*y + E, B*x + D*y + F (the canvas
 // setTransform order).

@@ -20,6 +20,7 @@
 // where CSS has text; Flutter's BoxDecoration.
 
 import actor
+import color
 import core
 import machines
 import option
@@ -153,12 +154,10 @@ type LookId { n int }
 
 // Clear is the transparent colour: a Fill, Border or Shadow of it paints
 // nothing.
-func Clear() Color { Color{R: 0, G: 0, B: 0, A: 0} }
+func Clear() Color { color.Transparent }
 
 // Rgb is the opaque colour 0xRRGGBB.
-func Rgb(hex uint32) Color {
-	Color{R: uint8((hex >> 16) & 255), G: uint8((hex >> 8) & 255), B: uint8(hex & 255), A: 255}
-}
+func Rgb(hex uint32) Color { color.FromRGB24(hex) }
 
 // Round is the same radius at every corner.
 func Round(r Length) Corners { Corners{TopLeft: r, TopRight: r, BottomRight: r, BottomLeft: r} }

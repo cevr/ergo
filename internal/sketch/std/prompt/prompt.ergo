@@ -80,17 +80,9 @@ func Redraw(before string, after string) string {
 	let up = strings.Count(before, "\n")
 	let mut moves = "\r"
 	if up > 0 {
-		moves = moves + "\x1b[" + itoa(up) + "A"
+		moves = moves + term.CursorUp(up)
 	}
 	moves + "\x1b[J" + after
-}
-
-// itoa is the decimal text of n >= 0.
-func itoa(n int) string {
-	if n < 10 {
-		return strings.Slice("0123456789", n, n+1)
-	}
-	itoa(n/10) + itoa(n%10)
 }
 
 // cancels reports whether k cancels a prompt: Escape, Ctrl-C, Ctrl-D.

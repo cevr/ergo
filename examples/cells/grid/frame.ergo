@@ -8,6 +8,7 @@
 
 import strconv
 import strings
+import term
 
 // Begin and End are the marks of a synchronized update: CSI ? 2026 h and
 // CSI ? 2026 l.
@@ -34,7 +35,7 @@ func sgr(p Pen) string {
 }
 
 // moveTo is the cursor move to column c, row r (CUP counts from 1).
-func moveTo(c int, r int) string { "\x1b[" + strconv.Itoa(r+1) + ";" + strconv.Itoa(c+1) + "H" }
+func moveTo(c int, r int) string { term.MoveTo(r+1, c+1) }
 
 // Frame is the frame that turns old into next on a terminal that shows
 // old: the cells of next that differ from old, row by row. When the sizes
@@ -45,7 +46,7 @@ func Frame(old Grid, next Grid) Written {
 	strings.WriteString(&out, sgr(Normal))
 	let mut was = old
 	if old.Cols != next.Cols || old.Rows != next.Rows {
-		strings.WriteString(&out, "\x1b[2J")
+		strings.WriteString(&out, term.ClearScreen)
 		was = New(next.Cols, next.Rows)
 	}
 	let mut pen Pen = Normal

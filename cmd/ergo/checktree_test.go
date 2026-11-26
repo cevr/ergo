@@ -229,7 +229,7 @@ func TestCheckTreeAnswersByTokens(t *testing.T) {
 			// the package's obligations with a reason that names the let's
 			// site (eval's siteText).
 			src := p.Files[pkgFile(sub)]
-			p.Files[pkgFile(sub)] = strings.Replace(src, "\nimport strings\n", "\nimport strings\nimport ansi\n", 1) + "\n// Reverse is reverse video.\nlet Reverse = ansi.SGR(ansi.Style{..ansi.Plain, Reverse: true})\n"
+			p.Files[pkgFile(sub)] = strings.Replace(src, "\nimport strings\n", "\nimport strings\nimport term\n", 1) + "\n// Reverse is reverse video.\nlet Reverse = term.SGR(term.Style{..term.Plain, Reverse: true})\n"
 		}
 		dir := t.TempDir()
 		writeFiles(t, dir, p.Files)

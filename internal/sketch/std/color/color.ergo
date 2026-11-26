@@ -1,11 +1,8 @@
 // Package color reads CSS colours (hex, rgb(), hsl(), oklab(), oklch()
 // and the named colours, CSS Color 4) into RGBA, converts between sRGB,
-// HSL, OKLab and OKLCH, composites and mixes colours, measures WCAG
-// contrast, and quantizes a colour to what a terminal shows (24-bit, the
-// 256 indexed colours, the 16 basic ones, or none) as std ansi's Color.
-// A terminal's depth is the operation type Depth, so a program takes it
-// from its context and a host decides it once (DetectDepth). Every
-// malformed text is the failure InvalidColor.
+// linear sRGB, HSL, OKLab and OKLCH, composites and mixes colours, and
+// measures WCAG contrast. Every malformed text is the failure
+// InvalidColor.
 
 import math
 
@@ -26,6 +23,31 @@ let White = RGBA{R: 255, G: 255, B: 255, A: 255}
 
 // Transparent is CSS transparent: black with alpha 0.
 let Transparent = RGBA{R: 0, G: 0, B: 0, A: 0}
+
+// RGB is opaque sRGB (r, g, b, 255).
+func RGB(r uint8, g uint8, b uint8) RGBA { RGBA{R: r, G: g, B: b, A: 255} }
+
+// FromRGB24 is the opaque colour 0xRRGGBB.
+func FromRGB24(hex uint32) RGBA {
+	RGBA{R: uint8((hex >> 16) & 255), G: uint8((hex >> 8) & 255), B: uint8(hex & 255), A: 255}
+}
+
+// FromRGBA32 is 0xRRGGBBAA in big-endian byte order.
+func FromRGBA32(hex uint32) RGBA {
+	RGBA{R: uint8((hex >> 24) & 255), G: uint8((hex >> 16) & 255), B: uint8((hex >> 8) & 255), A: uint8(hex & 255)}
+}
+
+// RGBA32 packs c into 0xRRGGBBAA in big-endian byte order.
+func RGBA32(c RGBA) uint32 {
+	(uint32(c.R) << 24) | (uint32(c.G) << 16) | (uint32(c.B) << 8) | uint32(c.A)
+}
+
+// RGBA32RoundTrips: FromRGBA32 inverts RGBA32, and FromRGB24 keeps the
+// opaque 24-bit RGB channels.
+law RGBA32RoundTrips(c RGBA) {
+	let rgb = RGB(c.R, c.G, c.B)
+	FromRGBA32(RGBA32(c)) == c && FromRGB24(RGBA32(rgb)>>8) == rgb
+}
 
 // ParseRGBA reads the CSS colour whose UTF-8 bytes are b, as Parse does:
 // the decode half of RGBA's wire form.

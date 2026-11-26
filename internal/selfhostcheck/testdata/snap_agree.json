@@ -2,7 +2,6 @@
   "generated": "ERGO_WRITE_SNAP=1 go test -count=1 -run '^TestStdSnapshotAgrees$' ./internal/selfhostcheck",
   "agree": [
     "actor",
-    "ansi",
     "api",
     "arena",
     "atomic",

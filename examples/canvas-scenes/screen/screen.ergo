@@ -11,9 +11,9 @@ import canvasscenes/app
 import canvasscenes/balls
 import canvasscenes/flow
 import canvasscenes/scene
+import color
 import math
 import option
-import strconv
 import ui
 
 // SliderWidth is the width of a slider's track, in pixels: a press or a
@@ -233,37 +233,16 @@ func alpha(a float64) uint8 {
 
 // hex is the colour of "#rrggbb", opaque.
 func hex(s string) ui.Color {
-	ui.Color{R: uint8(byteAt(s, 1)), G: uint8(byteAt(s, 3)), B: uint8(byteAt(s, 5)), A: uint8(255)}
-}
-
-func byteAt(s string, i int) int {
-	let v = strconv.ParseInt(s[i:i+2], 16, 64) catch {
-	case strconv.Malformed, strconv.OutOfRange:
-		return 0
+	color.Parse(s) catch {
+	case color.InvalidColor:
+		color.Transparent
 	}
-	int(v)
 }
 
 // hsla is the colour of hue h (degrees), saturation s and lightness l
 // (percent) and alpha a, as CSS's hsla.
 func hsla(h float64, s float64, l float64, a float64) ui.Color {
-	let sat = s / 100.0
-	let lig = l / 100.0
-	let c = sat * minimum(lig, 1.0-lig)
-	let r = channel(0.0, h, lig, c)
-	let g = channel(8.0, h, lig, c)
-	let b = channel(4.0, h, lig, c)
-	ui.Color{R: uint8(int(math.Round(r * 255.0))), G: uint8(int(math.Round(g * 255.0))), B: uint8(int(math.Round(b * 255.0))), A: alpha(a)}
-}
-
-// channel is CSS Color 4's hslToRgb f(n).
-func channel(n float64, h float64, l float64, c float64) float64 {
-	let k0 = n + h/30.0
-	let k = k0 - 12.0*math.Floor(k0/12.0)
-	let lo = minimum(k-3.0, 9.0-k)
-	let m = if lo < 1.0 { lo } else { 1.0 }
-	let t = if m > -1.0 { m } else { -1.0 }
-	l - c*t
+	color.FromHSL(color.HSL{H: h, S: s / 100.0, L: l / 100.0, Alpha: a})
 }
 
 func button(f mut ui.Frame[app.Signal], label string, sig scene.Signal) {

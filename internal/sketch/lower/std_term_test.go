@@ -327,6 +327,7 @@ ops:
 
 // termLawsProbe restates std term's laws (stdlib.md, Std laws) as tests.
 const termLawsProbe = `import io
+import strings
 import term
 
 type failed {}
@@ -608,17 +609,158 @@ test CutTakesOneKey(seed int, size int) {
 test ScriptResizes(cols int, rows int) {
 	assert lawScriptResizes(cols, rows)
 }
+
+func nonNeg(n int) int { if n < 0 { -(n + 1) } else { n } }
+
+func levelRank(l term.Level) int {
+	match l {
+	case term.LevelOff:
+		0
+	case term.Level16:
+		1
+	case term.Level256:
+		2
+	case term.LevelTrue:
+		3
+	}
+}
+
+func drawStyle(seed int) term.Style {
+	let mut x = (seed%2147483648 + 2147483648) % 2147483648
+	let mut bits = []int{}
+	for _ in 0..16 {
+		x = (x*1103515245 + 12345) % 2147483648
+		bits = bits.Append(x / 65536)
+	}
+	term.Style{
+		Fg:        drawColor(bits[0], bits[1]),
+		Bg:        drawColor(bits[2], bits[3]),
+		Bold:      bits[4]%2 == 0,
+		Dim:       bits[5]%2 == 0,
+		Italic:    bits[6]%2 == 0,
+		Underline: bits[7]%2 == 0,
+		Reverse:   bits[8]%2 == 0,
+		Strike:    bits[9]%2 == 0,
+	}
+}
+
+func drawColor(k int, n int) term.Color {
+	let v = n%320 - 20
+	match k % 4 {
+	case 0:
+		term.DefaultColor
+	case 1:
+		term.Basic{N: v % 20}
+	case 2:
+		term.Indexed{N: v}
+	case _:
+		term.RGB{R: v, G: 255 - v, B: v / 2}
+	}
+}
+
+test StripUndoesPaint(seed int, text string) {
+	let t = term.Strip(text)
+	let s = drawStyle(seed)
+	let painted = with context { term.Colors: term.Always } { term.Paint(s, t) }
+	assert term.Strip(painted) == t && term.Strip(t) == t
+}
+
+test NeverPaints(seed int, text string) {
+	let s = drawStyle(seed)
+	with context { term.Colors: term.Never } {
+		let mut b = strings.NewBuilder()
+		term.WritePaint(&b, s, text)
+		assert term.Paint(s, text) == text && b.String() == text
+	}
+}
+
+test PaintIsSGRAndReset(seed int, text string) {
+	let s = drawStyle(seed)
+	with context { term.Colors: term.Always } {
+		let mut b = strings.NewBuilder()
+		term.WritePaint(&b, s, text)
+		let want = if s == term.Plain { text } else { term.SGR(s) + text + term.Reset }
+		assert term.Paint(s, text) == want && b.String() == want
+	}
+}
+
+test SGRIsTheTable() {
+	let p = term.Plain
+	assert term.SGR(p) == "" &&
+		term.SGR(term.Style{..p, Fg: term.Red}) == "\x1b[31m" &&
+		term.SGR(term.Style{..p, Fg: term.Basic{N: 9}}) == "\x1b[91m" &&
+		term.SGR(term.Style{..p, Bg: term.Blue}) == "\x1b[44m" &&
+		term.SGR(term.Style{..p, Bg: term.Basic{N: 15}}) == "\x1b[107m" &&
+		term.SGR(term.Style{..p, Fg: term.Indexed{N: 208}}) == "\x1b[38;5;208m" &&
+		term.SGR(term.Style{..p, Bg: term.Indexed{N: 300}}) == "\x1b[48;5;255m" &&
+		term.SGR(term.Style{..p, Fg: term.RGB{R: 255, G: 128, B: -4}}) == "\x1b[38;2;255;128;0m" &&
+		term.SGR(term.Style{..p, Bold: true}) == "\x1b[1m" &&
+		term.SGR(term.Style{..p, Bold: true, Underline: true, Fg: term.Green, Bg: term.Black}) == "\x1b[1;4;32;40m" &&
+		term.SGR(term.Style{..p, Dim: true, Italic: true, Reverse: true, Strike: true}) == "\x1b[2;3;7;9m"
+}
+
+test StripIsTheTable() {
+	assert term.Strip("a\x1b[1;31mb\x1b[0mc") == "abc" &&
+		term.Strip("\x1b[2J\x1b[Hx\x1b[10;4H") == "x" &&
+		term.Strip("\x1b[?25lhi\x1b[?1049h") == "hi" &&
+		term.Strip("\x1b]0;title\x07t") == "t" &&
+		term.Strip("\x1b]8;;https://e.org\x1b\\link\x1b]8;;\x1b\\") == "link" &&
+		term.Strip("\x1b7a\x1b8") == "a" &&
+		term.Strip("a\x1b[2@b") == "ab" &&
+		term.Strip("ok\x1b[38;5") == "ok" &&
+		term.Strip("界\x1b[4mé") == "界é" &&
+		term.Strip("plain") == "plain"
+}
+
+test DetectIsTheEnvironment(nc int, fc int, tm int, ct int, terminal bool) {
+	let ncs = []Option[string]{None, Some[string]{Value: ""}, Some[string]{Value: "1"}}
+	let fcs = []Option[string]{None, Some[string]{Value: "0"}, Some[string]{Value: ""}, Some[string]{Value: "1"}, Some[string]{Value: "2"}, Some[string]{Value: "3"}, Some[string]{Value: "false"}}
+	let tms = []Option[string]{None, Some[string]{Value: "dumb"}, Some[string]{Value: "xterm"}, Some[string]{Value: "xterm-256color"}, Some[string]{Value: "xterm-direct"}, Some[string]{Value: ""}}
+	let cts = []Option[string]{None, Some[string]{Value: "truecolor"}, Some[string]{Value: "24bit"}}
+	let env = term.Env{NoColor: ncs[nonNeg(nc)%3], ForceColor: fcs[nonNeg(fc)%7], Term: tms[nonNeg(tm)%6], ColorTerm: cts[nonNeg(ct)%3], Terminal: terminal}
+	let t = nonNeg(tm) % 6
+	let usable = t >= 2 && t <= 4
+	let fromTerm = if !usable { 0 } else if t == 4 || nonNeg(ct)%3 != 0 { 3 } else if t == 3 { 2 } else { 1 }
+	let f = nonNeg(fc) % 7
+	let want = if f == 1 || f == 6 {
+		0
+	} else if f != 0 {
+		let floor = if f == 5 { 3 } else if f == 4 { 2 } else { 1 }
+		if fromTerm > floor { fromTerm } else { floor }
+	} else if nonNeg(nc)%3 == 2 || !terminal {
+		0
+	} else {
+		fromTerm
+	}
+	let d = term.Decide(env)
+	assert levelRank(term.LevelOf(d)) == want && d.On() == (want != 0)
+}
+
+test ColorsOnIsStable(pick int) {
+	let on = with context { term.Colors: term.Always } { term.Colors.On() == term.Colors.On() }
+	let off = with context { term.Colors: term.Never } { term.Colors.On() == term.Colors.On() }
+	let d = term.Decide(term.Env{NoColor: None, ForceColor: None, Term: Some[string]{Value: "xterm-256color"}, ColorTerm: None, Terminal: pick%2 == 0})
+	let detected = with context { term.Colors: d } { term.Colors.On() == term.Colors.On() }
+	assert on && off && detected
+}
 `
 
 // termLawStatements are the ledger statements of term's laws.
 var termLawStatements = map[string]string{
-	"term RawRestores":           `RawRestores(fail bool) { let s = NewScript([]Key{}, Window{Cols: 80, Rows: 24}) let mut inside = 0 let got = with context { Terminal: s } { Raw() { inside = len(s.Modes()) try failWhen(fail) } catch { case failed: -1 case NotTerminal: -2 } } inside == 1 && len(s.Modes()) == 0 && got == (if fail { -1 } else { 0 }) }`,
-	"term NestedRestoresInOrder": `NestedRestoresInOrder() { let s = NewScript([]Key{}, Window{Cols: 80, Rows: 24}) let mut seen = "" with context { Terminal: s } { Raw() { try NoEcho() { seen = seen + names(s.Modes()) } seen = seen + "|" + names(s.Modes()) } catch { case NotTerminal: seen = "not a terminal" } } seen == "raw,noecho|raw" && len(s.Modes()) == 0 }`,
-	"term ScriptPlaysKeys":       `ScriptPlaysKeys(texts []string) { let mut keys []Key = []Key{} for t in texts { keys = keys.Append(Char{Text: t}) } let s = NewScript(keys, Window{Cols: 1, Rows: 1}) let mut ok = true with context { Terminal: s } { for t in texts { match Terminal.ReadKey() catch { case io.ReadFailed: EndOfInput } { case Char as c: ok = ok && c.Text == t case _: ok = false } } match Terminal.ReadKey() catch { case io.ReadFailed: Return } { case EndOfInput: case _: ok = false } } ok }`,
-	"term DecodeNamesControls":   `DecodeNamesControls(token string) { match Decode(token) { case Char as c: c.Text == token && token >= " " && token != "\x7f" case _: token < " " || token == "\x7f" || token == "" } }`,
-	"term DecodeIsTheTable":      `DecodeIsTheTable(seed int, length int) { let mut r = seeded(seed) let n = (length%24+24)%24 + 1 let mut want = []Key{} let mut chunks = []string{} let mut chunk = "" for _ in 0..n { let e = keyTable[draw(&r, len(keyTable))] if Cut(e.bytes, false) != len(e.bytes) || Decode(e.bytes) != e.key { return false } want = want.Append(e.key) for i in 0..len(e.bytes) { chunk = chunk + e.bytes[i:i+1] let startsLonger = e.bytes[i] == 0x1b && i+1 < len(e.bytes) if !startsLonger && draw(&r, 3) == 0 { chunks = chunks.Append(chunk) chunk = "" } } if e.bytes == "\x1b" && chunk != "" { chunks = chunks.Append(chunk) chunk = "" } } chunks = chunks.Append(chunk) let mut d = NewDecoder() let mut got = []Key{} for c in chunks { for k in Feed(&d, c) { got = got.Append(k) } } for k in Flush(&d) { got = got.Append(k) } got == want }`,
-	"term CutTakesOneKey":        `CutTakesOneKey(seed int, size int) { let mut r = seeded(seed) let mut b = "" let alphabet = "\x1b[O;<0123456789~uAHPMZ\x01\x7fa\xc3\xa9\xe7\x95\x8c" for _ in 0..(size%12+12)%12 { let i = draw(&r, len(alphabet)) b = b + alphabet[i:i+1] } let atEnd = Cut(b, true) let before = Cut(b, false) if len(b) == 0 { return atEnd == 0 && before == -1 } atEnd >= 1 && atEnd <= len(b) && (before == -1 || (before >= 1 && before <= atEnd)) }`,
-	"term ScriptResizes":         `ScriptResizes(cols int, rows int) { let w = Window{Cols: (cols%300+300)%300 + 1, Rows: (rows%100+100)%100 + 1} let s = NewScript([]Key{Char{Text: "a"}, Resized{Window: w}, Char{Text: "b"}}, Window{Cols: 80, Rows: 24}) let mut sizes = []Window{} with context { Terminal: s } { for _ in 0..3 { let _ = Terminal.ReadKey() catch { case io.ReadFailed: EndOfInput } sizes = sizes.Append(Terminal.Size() catch { case NotTerminal: Window{Cols: 0, Rows: 0} }) } } sizes == []Window{Window{Cols: 80, Rows: 24}, w, w} }`,
+	"term RawRestores":            `RawRestores(fail bool) { let s = NewScript([]Key{}, Window{Cols: 80, Rows: 24}) let mut inside = 0 let got = with context { Terminal: s } { Raw() { inside = s.Modes().Len() try failWhen(fail) } catch { case failed: -1 case NotTerminal: -2 } } inside == 1 && s.Modes().Len() == 0 && got == (if fail { -1 } else { 0 }) }`,
+	"term NestedRestoresInOrder":  `NestedRestoresInOrder() { let s = NewScript([]Key{}, Window{Cols: 80, Rows: 24}) let mut seen = "" with context { Terminal: s } { Raw() { try NoEcho() { seen = seen + names(s.Modes()) } seen = seen + "|" + names(s.Modes()) } catch { case NotTerminal: seen = "not a terminal" } } seen == "raw,noecho|raw" && s.Modes().Len() == 0 }`,
+	"term ScriptPlaysKeys":        `ScriptPlaysKeys(texts []string) { let mut keys []Key = []Key{} for t in texts { keys = keys.Append(Char{Text: t}) } let s = NewScript(keys, Window{Cols: 1, Rows: 1}) let mut ok = true with context { Terminal: s } { for t in texts { match Terminal.ReadKey() catch { case io.ReadFailed: EndOfInput } { case Char as c: ok = ok && c.Text == t case _: ok = false } } match Terminal.ReadKey() catch { case io.ReadFailed: Return } { case EndOfInput: case _: ok = false } } ok }`,
+	"term DecodeNamesControls":    `DecodeNamesControls(token string) { match Decode(token) { case Char as c: c.Text == token && token >= " " && token != "\x7f" case _: token < " " || token == "\x7f" || token == "" } }`,
+	"term DecodeIsTheTable":       `DecodeIsTheTable(seed int, length int) { let mut r = seeded(seed) let n = (length%24+24)%24 + 1 let mut want = []Key{} let mut chunks = []string{} let mut chunk = "" for _ in 0..n { let e = keyTable[draw(&r, keyTable.Len())] if Cut(e.bytes, false) != e.bytes.Len() || Decode(e.bytes) != e.key { return false } want = want.Append(e.key) for i in 0..e.bytes.Len() { chunk = chunk + e.bytes[i:i+1] let startsLonger = e.bytes[i] == 0x1b && i+1 < e.bytes.Len() if !startsLonger && draw(&r, 3) == 0 { chunks = chunks.Append(chunk) chunk = "" } } if e.bytes == "\x1b" && chunk != "" { chunks = chunks.Append(chunk) chunk = "" } } chunks = chunks.Append(chunk) let mut d = NewDecoder() let mut got = []Key{} for c in chunks { for k in Feed(&d, c) { got = got.Append(k) } } for k in Flush(&d) { got = got.Append(k) } got == want }`,
+	"term CutTakesOneKey":         `CutTakesOneKey(seed int, size int) { let mut r = seeded(seed) let mut b = "" let alphabet = "\x1b[O;<0123456789~uAHPMZ\x01\x7fa\xc3\xa9\xe7\x95\x8c" for _ in 0..(size%12+12)%12 { let i = draw(&r, alphabet.Len()) b = b + alphabet[i:i+1] } let atEnd = Cut(b, true) let before = Cut(b, false) if b.Len() == 0 { return atEnd == 0 && before == -1 } atEnd >= 1 && atEnd <= b.Len() && (before == -1 || (before >= 1 && before <= atEnd)) }`,
+	"term ScriptResizes":          `ScriptResizes(cols int, rows int) { let w = Window{Cols: (cols%300+300)%300 + 1, Rows: (rows%100+100)%100 + 1} let s = NewScript([]Key{Char{Text: "a"}, Resized{Window: w}, Char{Text: "b"}}, Window{Cols: 80, Rows: 24}) let mut sizes = []Window{} with context { Terminal: s } { for _ in 0..3 { let _ = Terminal.ReadKey() catch { case io.ReadFailed: EndOfInput } sizes = sizes.Append(Terminal.Size() catch { case NotTerminal: Window{Cols: 0, Rows: 0} }) } } sizes == []Window{Window{Cols: 80, Rows: 24}, w, w} }`,
+	"term StripUndoesPaint":       `StripUndoesPaint(seed int, text string) { let t = Strip(text) let s = drawStyle(seed) let painted = with context { Colors: Always } { Paint(s, t) } Strip(painted) == t && Strip(t) == t }`,
+	"term NeverPaints":            `NeverPaints(seed int, text string) { let s = drawStyle(seed) with context { Colors: Never } { let mut b = strings.NewBuilder() WritePaint(&b, s, text) Paint(s, text) == text && b.String() == text } }`,
+	"term PaintIsSGRAndReset":     `PaintIsSGRAndReset(seed int, text string) { let s = drawStyle(seed) with context { Colors: Always } { let mut b = strings.NewBuilder() WritePaint(&b, s, text) let want = if s == Plain { text } else { SGR(s) + text + Reset } Paint(s, text) == want && b.String() == want } }`,
+	"term SGRIsTheTable":          `SGRIsTheTable() { let p = Plain SGR(p) == "" && SGR(Style{..p, Fg: Red}) == "\x1b[31m" && SGR(Style{..p, Fg: Basic{N: 9}}) == "\x1b[91m" && SGR(Style{..p, Bg: Blue}) == "\x1b[44m" && SGR(Style{..p, Bg: Basic{N: 15}}) == "\x1b[107m" && SGR(Style{..p, Fg: Indexed{N: 208}}) == "\x1b[38;5;208m" && SGR(Style{..p, Bg: Indexed{N: 300}}) == "\x1b[48;5;255m" && SGR(Style{..p, Fg: RGB{R: 255, G: 128, B: -4}}) == "\x1b[38;2;255;128;0m" && SGR(Style{..p, Bold: true}) == "\x1b[1m" && SGR(Style{..p, Bold: true, Underline: true, Fg: Green, Bg: Black}) == "\x1b[1;4;32;40m" && SGR(Style{..p, Dim: true, Italic: true, Reverse: true, Strike: true}) == "\x1b[2;3;7;9m" }`,
+	"term StripIsTheTable":        `StripIsTheTable() { Strip("a\x1b[1;31mb\x1b[0mc") == "abc" && Strip("\x1b[2J\x1b[Hx\x1b[10;4H") == "x" && Strip("\x1b[?25lhi\x1b[?1049h") == "hi" && Strip("\x1b]0;title\x07t") == "t" && Strip("\x1b]8;;https://e.org\x1b\\link\x1b]8;;\x1b\\") == "link" && Strip("\x1b7a\x1b8") == "a" && Strip("a\x1b[2@b") == "ab" && Strip("ok\x1b[38;5") == "ok" && Strip("界\x1b[4mé") == "界é" && Strip("plain") == "plain" }`,
+	"term DetectIsTheEnvironment": `DetectIsTheEnvironment(nc int, fc int, tm int, ct int, terminal bool) { let ncs = []option.Option[string]{option.None, option.Some[string]{Value: ""}, option.Some[string]{Value: "1"}} let fcs = []option.Option[string]{option.None, option.Some[string]{Value: "0"}, option.Some[string]{Value: ""}, option.Some[string]{Value: "1"}, option.Some[string]{Value: "2"}, option.Some[string]{Value: "3"}, option.Some[string]{Value: "false"}} let tms = []option.Option[string]{option.None, option.Some[string]{Value: "dumb"}, option.Some[string]{Value: "xterm"}, option.Some[string]{Value: "xterm-256color"}, option.Some[string]{Value: "xterm-direct"}, option.Some[string]{Value: ""}} let cts = []option.Option[string]{option.None, option.Some[string]{Value: "truecolor"}, option.Some[string]{Value: "24bit"}} let env = Env{NoColor: ncs[nonNeg(nc)%3], ForceColor: fcs[nonNeg(fc)%7], Term: tms[nonNeg(tm)%6], ColorTerm: cts[nonNeg(ct)%3], Terminal: terminal} let t = nonNeg(tm) % 6 let usable = t >= 2 && t <= 4 let fromTerm = if !usable { 0 } else if t == 4 || nonNeg(ct)%3 != 0 { 3 } else if t == 3 { 2 } else { 1 } let f = nonNeg(fc) % 7 let want = if f == 1 || f == 6 { 0 } else if f != 0 { let floor = if f == 5 { 3 } else if f == 4 { 2 } else { 1 } if fromTerm > floor { fromTerm } else { floor } } else if nonNeg(nc)%3 == 2 || !terminal { 0 } else { fromTerm } let d = Decide(env) rank(LevelOf(d)) == want && d.On() == (want != 0) }`,
+	"term Colors.OnIsStable":      `OnIsStable() { Colors.On() == Colors.On() }`,
 }
 
 // TestTermLaws runs std term's laws: the scope laws over a Script kill a
@@ -638,6 +780,6 @@ func TestTermLaws(t *testing.T) {
 		t.Fatalf("exit %d\n%s\n%s", code, out, errout)
 	}
 	lawledger.Run(t, lawsPassed(t, termLawStatements, func(key string) string {
-		return strings.TrimPrefix(key, "term ")
+		return strings.NewReplacer("term ", "", ".", "").Replace(key)
 	}, termLawsProbe, out))
 }

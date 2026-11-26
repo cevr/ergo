@@ -57,7 +57,7 @@ law CellsAddOverClusters(xs []int, ys []int) {
 }
 
 // StylingTakesNoCells: an SGR or OSC 8 escape before a text and a reset
-// after it add no cells (the text side of ansi's Cells(Paint(s, t)) ==
+// after it add no cells (the text side of term's Cells(Paint(s, t)) ==
 // Cells(t)).
 law StylingTakesNoCells(xs []int, k int) {
 	let t = clusterText(xs)

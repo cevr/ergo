@@ -6,6 +6,7 @@
 // The values are the original's (MIT, see ../NOTICE): the neutral and hue scales the design
 // is drawn in, written as the colour CSS computes them, so the web host prints them exactly.
 
+import color
 import strconv
 import strings
 
@@ -326,26 +327,7 @@ func Value(c Color) string {
 func Var(r Ref) string { "var(--f-" + Name(r) + ")" }
 
 // hex prints 0xRRGGBBAA as #rrggbb when opaque, else #rrggbbaa.
-func hex(v int) string {
-	let digits = "0123456789abcdef"
-	let mut b = strings.NewBuilder()
-	b.WriteString("#")
-	let count = if v%256 == 255 { 3 } else { 4 }
-	for i in 0..count {
-		let part = (v / pow256(3-i)) % 256
-		b.WriteByte(digits[part/16])
-		b.WriteByte(digits[part%16])
-	}
-	b.String()
-}
-
-func pow256(n int) int {
-	let mut out = 1
-	for _ in 0..n {
-		out = out * 256
-	}
-	out
-}
+func hex(v int) string { color.Hex(color.FromRGBA32(uint32(v))) }
 
 // num prints a number with at most 4 decimals and no trailing zeros.
 func num(v float64) string { strconv.FormatFloat(v, 'f', -1) }

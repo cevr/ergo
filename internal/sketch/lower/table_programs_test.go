@@ -14,7 +14,6 @@ var (
 	_ = declarePrograms("TestStdLawsRun", testBuildProgram("stdlaws", stdLawsProbe))
 	_ = declarePrograms("TestStdMachinesLawsRun", testBuildProgram("stdmachines", machinesLawsProbe))
 	_ = declarePrograms("TestStdCSVLawsRun", testBuildProgram("stdcsv", stdCSVLawsProbe))
-	_ = declarePrograms("TestStdAnsiLawsRun", testBuildProgram("stdansi", stdAnsiLawsProbe))
 	_ = declarePrograms("TestStdHashingLawsRun", testBuildProgram("stdhashing", stdHashingLawsProbe))
 	_ = declarePrograms("TestStdLintLawsRun", testBuildProgram("stdlint", stdLintLawsProbe))
 	_ = declarePrograms("TestStdConfigLawsRun", testBuildProgram("stdconfig", stdConfigLawsProbe))

@@ -485,8 +485,8 @@
       "name": "fk12b-hsla-green-is-blue",
       "origin": "wf10/fk12b",
       "file": "examples/canvas-scenes/screen/screen.ergo",
-      "from": "let g = channel(8.0, h, lig, c)",
-      "to": "let g = channel(4.0, h, lig, c)",
+      "from": "\tcolor.FromHSL(color.HSL{H: h, S: s / 100.0, L: l / 100.0, Alpha: a})",
+      "to": "\tlet c = color.FromHSL(color.HSL{H: h, S: s / 100.0, L: l / 100.0, Alpha: a})\n\tcolor.RGBA{R: c.R, G: c.B, B: c.B, A: c.A}",
       "rule": "A colour is CSS's hsla worked out to bytes (cases: dot colours).",
       "anchor": {
         "tests": [

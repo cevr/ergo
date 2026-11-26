@@ -9,6 +9,7 @@
 // in effect. The window has no path of its own to fill,
 // so a fill's edges are not smoothed.
 
+import color
 import option
 import ui
 import ui/layout
@@ -71,9 +72,7 @@ func paintCanvas[S, E, D, F](d mut Driver[S, E, D, F], ops []ui.PaintOp, b layou
 }
 
 // colorOf is c as 0xRRGGBBAA.
-func colorOf(c ui.Color) uint32 {
-	uint32(c.R)<<24 | uint32(c.G)<<16 | uint32(c.B)<<8 | uint32(c.A)
-}
+func colorOf(c ui.Color) uint32 { color.RGBA32(c) }
 
 // compose is outer after inner: a point goes through inner, then outer.
 func compose(o ui.Affine, i ui.Affine) ui.Affine {
