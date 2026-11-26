@@ -1,0 +1,464 @@
+// nativebuild compiles one Ergo package to a Go archive on route C with no
+// Go source and no go tool compile: compiler/syntax parses it,
+// compiler/check types it, compiler/lower builds its bodies, compiler/native
+// produces the EIR v1 wire and compiler/nativeobj writes the archive.
+//
+//	nativebuild build -std DIR -p PATH -header STOCK.a -o OUT.a FILE.ergo...
+//	GOROOT_STOCK=/pin ERGO=/path/to/ergo nativebuild verify [-std DIR] [--seed N] [--keep]
+//
+// verify builds testdata/intmath natively, links a stock Go program that
+// calls it with the seed's inputs, and requires its output to equal the
+// same calls compiled on the Go-source path (ergo build of an Ergo program
+// that imports the same source). Exit status: 0 they agree, 1 they do not
+// or a stage refused, 2 usage.
+
+import compiler/check/bind
+import compiler/check/expr
+import compiler/check/load
+import compiler/check/store
+import compiler/check/types
+import compiler/ir/handoff
+import compiler/lower
+import compiler/native
+import compiler/nativeobj
+import compiler/syntax
+import dense
+import embed
+import exec
+import fs
+import io
+import option
+import os
+import strconv
+import strings
+
+let intmathSource = embed.File[string]("testdata/intmath/intmath.ergo")
+
+let basicNames = []string{"", "bool", "string", "int", "int8", "int16", "int32", "int64", "uint", "uint8", "uint16", "uint32", "uint64", "uintptr", "float32", "float64"}
+
+func fail(msg string) os.Exit { os.Exit{Code: 1, Message: "nativebuild: " + msg} }
+
+func usage() os.Exit {
+	os.Exit{Code: 2, Message: "usage: nativebuild build -std DIR -p PATH -header STOCK.a -o OUT.a FILE.ergo... | verify [-std DIR] [--seed N] [--keep]"}
+}
+
+func base(path string) string {
+	let i = strings.LastIndex(path, "/")
+	if i < 0 { path } else { path[i+1 : path.Len()] }
+}
+
+func read(path string) string fails os.Exit needs fs.Files {
+	fs.Files.ReadFile(path) catch {
+	case fs.NotFound, fs.Denied:
+		return fail("cannot read \(path)")
+	case fs.Failed as e:
+		return fail("cannot read \(path): \(e.Reason)")
+	}
+}
+
+func write(path string, text string) fails os.Exit needs fs.Writes {
+	fs.Writes.WriteFile(path, text) catch {
+	case fs.NotFound, fs.Denied:
+		return fail("cannot write \(path)")
+	case fs.Failed as e:
+		return fail("cannot write \(path): \(e.Reason)")
+	}
+}
+
+func mkdir(path string) fails os.Exit needs fs.Writes {
+	fs.Writes.MkdirAll(path) catch {
+	case fs.Denied:
+		return fail("cannot create \(path)")
+	case fs.Failed as e:
+		return fail("cannot create \(path): \(e.Reason)")
+	}
+}
+
+func typeName(s store.Store, t dense.ID[store.TKey]) string {
+	if store.KindOfType(s, t) == store.KBasic {
+		let n = store.ArgOf(s, t)
+		if n >= 1 && n < basicNames.Len() {
+			return basicNames[n]
+		}
+	}
+	"kind \(store.KindOfType(s, t))"
+}
+
+func isUnit(s store.Store, t dense.ID[store.TKey]) bool {
+	store.KindOfType(s, t) == store.KTuple && store.OperandsOf(s, t).Len() == 0
+}
+
+func emptyRow(s store.Store, t dense.ID[store.TKey]) bool {
+	store.KindOfType(s, t) == store.KRow && store.OperandsOf(s, t).Len() == 0
+}
+
+func sigOf(d load.Typed, site lower.Site) native.Sig fails os.Exit {
+	for f in d.K.Fns {
+		if f.File != site.File || syntax.NodePos(d.K.Parsed[f.File], f.Decl) != site.At {
+			continue
+		}
+		let ops = store.OperandsOf(d.S, f.Sig)
+		if store.KindOfType(d.S, f.Sig) != store.KSig || ops.Len() < 3 {
+			return fail("function at \(site.At): no signature")
+		}
+		let n = ops.Len() - 3
+		if !emptyRow(d.S, ops[n+1]) || !emptyRow(d.S, ops[n+2]) {
+			return fail("refused: function at \(site.At): effect or failure row")
+		}
+		let mut params = []string{}
+		for i in 0..n {
+			params = params.Append(typeName(d.S, ops[i]))
+		}
+		let results = if isUnit(d.S, ops[n]) { []string{} } else { []string{typeName(d.S, ops[n])} }
+		return native.Sig{Params: params, Results: results}
+	}
+	fail("function at \(site.At): no checked declaration")
+}
+
+func checkAndLower(units []load.Unit, files []string, path string, outside []types.Iface) native.Unit fails os.Exit {
+	let p = load.LoadAll(units, outside, 4)
+	let mut at = -1
+	for i, ui in p.Units {
+		if ui == 0 {
+			at = i
+		}
+	}
+	if at < 0 {
+		return fail("\(path) did not load")
+	}
+	let d = load.TypeAt(p, at)
+	if d.T.Diags.Len() > 0 || d.T.SelfInference.Len() > 0 || d.T.BareSelfCalls.Len() > 0 || d.T.LookupDiags.Len() > 0 {
+		return fail("type error in \(path)")
+	}
+	let rootImports = if bind.Imports(d.K.Files).Len() == 0 { option.Some[[]expr.Dep]{Value: []expr.Dep{}} } else { option.None }
+	let plan = lower.PlanGeneratedBodies(d.K, lower.Production, true)
+	let out = lower.PackageWithPlan(d.S, d.K, d.T, files, path, true, rootImports, []lower.ImportCallFacts{}, Map[string, expr.Dep]{}, plan)
+	if out.Stops.Len() > 0 {
+		let s = out.Stops[0]
+		return fail("refused: the lowering stops at \(files[s.File]) offset \(s.At): \(s.Cause) (\(out.Stops.Len()) stops)")
+	}
+	let mut sigs = []native.Sig{}
+	for site in out.Sites {
+		sigs = sigs.Append(try sigOf(d, site))
+	}
+	native.Unit{Path: path, Name: base(path), File: base(files[0]), IR: out.File, Sigs: sigs}
+}
+
+func unitOf(std string, path string, files []string, sources []string) native.Unit fails os.Exit needs fs.Files {
+	if files.Len() != 1 || sources.Len() != 1 {
+		return fail("refused: multi-file package (\(files.Len()) files)")
+	}
+	let tab = load.TablesOf("", "")
+	let mut parsed = []bind.File{}
+	for i, src in sources {
+		let pf = syntax.Parse(src)
+		if pf.Failed {
+			return fail("parse error in \(files[i])")
+		}
+		parsed = parsed.Append(bind.File{Name: base(files[i]), Parsed: pf})
+	}
+	let mut u = load.UnitOf(tab, parsed, files)
+	u.Path = path
+	let units = []load.Unit{u}
+	let outside = if bind.Imports(parsed).Len() == 0 { []types.Iface{} } else { load.Outside(units, std) }
+	try checkAndLower(units, files, path, outside)
+}
+
+func compileStandalone(path string, file string, src string) native.Unit fails os.Exit {
+	let pf = syntax.Parse(src)
+	if pf.Failed {
+		return fail("parse error in \(file)")
+	}
+	let parsed = []bind.File{bind.File{Name: base(file), Parsed: pf}}
+	if bind.Imports(parsed).Len() > 0 {
+		return fail("refused: standalone mode does not resolve imports")
+	}
+	let tab = load.TablesOf("", "")
+	let files = []string{file}
+	let mut u = load.UnitOf(tab, parsed, files)
+	u.Path = path
+	try checkAndLower([]load.Unit{u}, files, path, []types.Iface{})
+}
+
+func archive(u native.Unit, header string) nativeobj.Built fails os.Exit {
+	native.Archive(u, header) catch {
+	case nativeobj.Refused as r:
+		return fail("refused: " + r.Why)
+	case nativeobj.Malformed as m:
+		return fail("malformed: " + m.Why)
+	case nativeobj.Undefined as x:
+		return fail("undefined label \(x.Label)")
+	case handoff.Malformed as m:
+		return fail("eir malformed: " + m.Why)
+	case handoff.UnknownVersion, handoff.WrongTarget, handoff.StaleImport:
+		return fail("eir refused at admission")
+	}
+}
+
+func header(stockA string) string fails os.Exit needs fs.Files {
+	nativeobj.StockHeader(try read(stockA)) catch {
+	case nativeobj.Bad as b:
+		return fail("\(stockA): " + b.Why)
+	}
+}
+
+func flag(args []string, name string) string {
+	for i in 0..args.Len() {
+		if args[i] == name && i+1 < args.Len() {
+			return args[i+1]
+		}
+	}
+	""
+}
+
+func build(args []string) fails os.Exit needs fs.Files | fs.Writes {
+	let std = flag(args, "-std")
+	let path = flag(args, "-p")
+	let stockA = flag(args, "-header")
+	let out = flag(args, "-o")
+	let mut files = []string{}
+	let mut i = 0
+	for i < args.Len() {
+		if strings.HasPrefix(args[i], "-") {
+			i = i + 2
+		} else {
+			files = files.Append(args[i])
+			i = i + 1
+		}
+	}
+	if std == "" || path == "" || stockA == "" || out == "" || files.Len() == 0 {
+		return usage()
+	}
+	let mut sources = []string{}
+	for f in files {
+		sources = sources.Append(try read(f))
+	}
+	let u = try unitOf(std, path, files, sources)
+	try write(out, (try archive(u, try header(stockA))).Archive)
+}
+
+type stock { root string, path string, ergo string, env []string }
+
+func run(c exec.Command, what string) string fails os.Exit needs exec.Runner {
+	let r = exec.Runner.Run(c) catch {
+	case exec.NotFound as e:
+		return fail("\(what): no program \(e.Name)")
+	case exec.Denied as e:
+		return fail("\(what): may not run \(e.Name)")
+	case exec.Failed as e:
+		return fail("\(what): \(e.Reason)")
+	}
+	if r.Status != 0 {
+		return fail("\(what) exited \(r.Status):\n\(r.Stdout)\(r.Stderr)")
+	}
+	r.Stdout
+}
+
+func withEnv(s stock, c exec.Command) exec.Command {
+	let mut out = c.WithEnv("PATH", s.path).WithEnv("GOTOOLCHAIN", "local")
+	for i in 0..s.env.Len()/2 {
+		if s.env[2*i+1] != "" {
+			out = out.WithEnv(s.env[2*i], s.env[2*i+1])
+		}
+	}
+	out
+}
+
+func goTool(s stock, args []string) exec.Command {
+	withEnv(s, exec.New(s.root+"/bin/go", []string{"tool"}.Concat(args)).WithEnv("GOROOT", s.root))
+}
+
+let intmathPath = "ergo.local/native/intmath"
+
+type input { a int, b int, c int, n int }
+
+func inputs(seed int) []input {
+	let mut x = if seed < 0 { -(seed % 1000003) } else { seed % 1000003 }
+	let mut out = []input{}
+	for _ in 0..12 {
+		x = (x*7919 + 104729) % 1000003
+		let a = x%2001 - 1000
+		x = (x*7919 + 104729) % 1000003
+		let b = x%2001 - 1000
+		x = (x*7919 + 104729) % 1000003
+		let c = x%41 - 20
+		x = (x*7919 + 104729) % 1000003
+		out = out.Append(input{a: a, b: b, c: c, n: x % 95})
+	}
+	out
+}
+
+func goDriver(ins []input) string {
+	let mut b = strings.NewBuilder()
+	b.WriteString("package main\n\nimport (\n\t\"fmt\"\n\n\tintmath \"\(intmathPath)\"\n)\n\nfunc main() {\n")
+	for x in ins {
+		b.WriteString("\tfmt.Printf(\"%d %d %d %d %d %d %d %d\\n\", intmath.Fib(\(x.n)), intmath.Pow(\(x.a), \(x.n)), intmath.Gap(\(x.a), \(x.b)), intmath.Mix(\(x.a), \(x.b), \(x.c)), intmath.Order(\(x.a), \(x.b)), intmath.Clamp(\(x.c), \(x.a), \(x.b)), intmath.Steps(\(x.n)), intmath.Mix(\(x.c), \(x.n), \(x.a)))\n")
+	}
+	b.WriteString("}\n")
+	b.String()
+}
+
+func ergoDriver(ins []input) string {
+	let mut b = strings.NewBuilder()
+	b.WriteString("import io\nimport os\nimport refprog/intmath\n\nfunc main() needs os.Ambient {\n\twith context { io.Stdout: io.NewHost() } {\n")
+	for x in ins {
+		b.WriteString("\t\tio.Stdout.Println(\"\\(intmath.Fib(\(x.n))) \\(intmath.Pow(\(x.a), \(x.n))) \\(intmath.Gap(\(x.a), \(x.b))) \\(intmath.Mix(\(x.a), \(x.b), \(x.c))) \\(intmath.Order(\(x.a), \(x.b))) \\(intmath.Clamp(\(x.c), \(x.a), \(x.b))) \\(intmath.Steps(\(x.n))) \\(intmath.Mix(\(x.c), \(x.n), \(x.a)))\")\n")
+	}
+	b.WriteString("\t}\n}\n")
+	b.String()
+}
+
+func verify(s stock, std string, seed int, keep bool) fails os.Exit needs exec.Runner | fs.Files | fs.Writes | io.Stdout {
+	let dir = strings.TrimSpace(try run(withEnv(s, exec.New("mktemp", []string{"-d"})), "mktemp"))
+	io.Stdout.Println("seed \(seed), work \(dir)")
+	let rawCfg = try run(withEnv(s, exec.New(s.root+"/bin/go", []string{"list", "-export", "-deps", "-f", "{{if .Export}}packagefile {{.ImportPath}}={{.Export}}{{end}}", "fmt"}).WithEnv("GOROOT", s.root)), "stock go list -export")
+	let stdCfg = if strings.HasSuffix(rawCfg, "\n") { rawCfg } else { rawCfg + "\n" }
+	let runtimeA = strings.TrimSpace(try run(withEnv(s, exec.New(s.root+"/bin/go", []string{"list", "-export", "-f", "{{.Export}}", "runtime"}).WithEnv("GOROOT", s.root)), "stock go list runtime"))
+	let src = dir + "/intmath.ergo"
+	try write(src, intmathSource)
+	let u = try unitOf(std, intmathPath, []string{src}, []string{intmathSource})
+	let built = try archive(u, try header(runtimeA))
+	let lib = dir + "/intmath.a"
+	try write(lib, built.Archive)
+	io.Stdout.Println("native: \(u.IR.Funcs.Len()) functions, intmath.a \(built.Archive.Len()) bytes, no Go source, no go tool compile")
+	let ins = inputs(seed)
+	try write(dir+"/main.go", goDriver(ins))
+	let cfg = dir + "/main.importcfg"
+	try write(cfg, stdCfg+"packagefile "+intmathPath+"="+lib+"\n")
+	try run(goTool(s, []string{"compile", "-p", "main", "-importcfg", cfg, "-pack", "-o", dir + "/main.a", dir + "/main.go"}), "stock compile of the Go driver")
+	try run(goTool(s, []string{"link", "-importcfg", cfg, "-o", dir + "/native", dir + "/main.a"}), "stock link")
+	let got = try run(withEnv(s, exec.New("prlimit", []string{"--as=4294967296", "--", dir + "/native"})), "the natively linked program")
+	let ref = dir + "/ref"
+	try mkdir(ref + "/intmath")
+	try write(ref+"/ergo.mod", "module refprog\n")
+	try write(ref+"/intmath/intmath.ergo", intmathSource)
+	try write(ref+"/main.ergo", ergoDriver(ins))
+	try run(withEnv(s, exec.New(s.ergo, []string{"build", "-o", dir + "/reference", ref})), "ergo build of the Go-source reference")
+	let want = try run(withEnv(s, exec.New("prlimit", []string{"--as=4294967296", "--", dir + "/reference"})), "the Go-source reference")
+	if got != want {
+		return fail("the native archive's program printed\n\(got)but the Go-source path printed\n\(want)(work kept in \(dir))")
+	}
+	io.Stdout.Print(got)
+	io.Stdout.Println("agree: \(ins.Len()) lines equal to the Go-source path")
+	if keep {
+		io.Stdout.Println("kept \(dir)")
+	} else {
+		try run(withEnv(s, exec.New("rm", []string{"-r", dir})), "removing the work folder")
+	}
+}
+
+func env(name string) string needs os.Process {
+	match os.Process.Getenv(name) {
+	case option.Some as v:
+		v.Value
+	case option.None:
+		""
+	}
+}
+
+func main() fails os.Exit needs os.Ambient {
+	with context { os.Process: os.NewHost(), fs.Files: fs.NewHost(), fs.Writes: fs.NewHost(), io.Stdout: io.NewHost(), exec.Runner: exec.NewHost() } {
+		let mut args = os.Process.Args()
+		if args.Len() > 0 && args[0] == "--" {
+			args = args[1:args.Len()]
+		}
+		if args.Len() == 0 {
+			return usage()
+		}
+		let rest = args[1:args.Len()]
+		if args[0] == "build" {
+			return build(rest)
+		}
+		if args[0] != "verify" {
+			return usage()
+		}
+		let mut seed = 1
+		let mut keep = false
+		let mut std = "../internal/sketch/std"
+		let mut i = 0
+		for i < rest.Len() {
+			if rest[i] == "--seed" && i+1 < rest.Len() {
+				seed = strconv.Atoi(rest[i+1]) catch {
+				case strconv.Malformed, strconv.OutOfRange:
+					return usage()
+				}
+				i = i + 2
+			} else if rest[i] == "-std" && i+1 < rest.Len() {
+				std = rest[i+1]
+				i = i + 2
+			} else if rest[i] == "--keep" {
+				keep = true
+				i = i + 1
+			} else {
+				return usage()
+			}
+		}
+		let root = env("GOROOT_STOCK")
+		let ergo = env("ERGO")
+		if !strings.HasPrefix(root, "/") || !strings.HasPrefix(ergo, "/") {
+			return fail("set GOROOT_STOCK to the stock Go \(nativeobj.PinGo) root and ERGO to an ergo binary, both absolute")
+		}
+		let path = env("PATH")
+		let s = stock{root: root, path: if path == "" { "/usr/local/bin:/usr/bin:/bin" } else { path }, ergo: ergo, env: []string{"HOME", env("HOME"), "TMPDIR", env("TMPDIR"), "GOCACHE", env("GOCACHE"), "GOMODCACHE", env("GOMODCACHE"), "GOPATH", env("GOPATH")}}
+		verify(s, std, seed, keep) catch {
+		case os.Exit as e:
+			return os.Exit{Code: e.Code, Message: e.Message + "\nreplay from compiler/: GOROOT_STOCK=\"$GOROOT_STOCK\" ERGO=\"$ERGO\" ergo run ./cmd/nativebuild -- verify --seed \(seed) --keep"}
+		}
+	}
+}
+
+func buildVerified(path string, file string, src string) int fails os.Exit {
+	let u = try compileStandalone(path, file, src)
+	let p = native.FromIR(u) catch {
+	case nativeobj.Refused as r:
+		return fail("refused: " + r.Why)
+	case nativeobj.Malformed as m:
+		return fail("malformed: " + m.Why)
+	}
+	let built = try archive(u, nativeobj.SampleHeader)
+	let errs = nativeobj.Verify(p, nativeobj.SampleHeader, built.Archive)
+	if errs.Len() > 0 {
+		return fail("verify errors: \(errs.Len())")
+	}
+	u.IR.Funcs.Len()
+}
+
+func rejectsWith(path string, src string, want string) bool {
+	let _ = buildVerified(path, "bad.ergo", src) catch {
+	case os.Exit as e:
+		return strings.Contains(e.Message, want)
+	}
+	false
+}
+
+law NativebuildBuildsVerifiedIntmath(k int) {
+	let n = buildVerified(intmathPath, "intmath.ergo", intmathSource) catch {
+	case os.Exit:
+		return false
+	}
+	let _ = k
+	n == 7
+}
+
+law NativebuildBuildsWidenedControlAndUnary(k int) {
+	let bound = (k%5+5)%5 + 2
+	let src = "func touch(x int) {\n\tif x > 0 {\n\t\treturn\n\t}\n}\n\nfunc Run(n int, m int) int {\n\tlet mut acc = ^(-n) + (+m)\n\ttouch(acc)\n\tfor i in 0..m {\n\t\tif i == 1 {\n\t\t\tcontinue\n\t\t}\n\t\tif i >= n || !(i < 0 && m > \(bound)) && false {\n\t\t\tbreak\n\t\t}\n\t\tacc = acc + i\n\t}\n\tfor {\n\t\tacc = acc ^ \(bound)\n\t\tbreak\n\t}\n\tacc\n}\n"
+	let n = buildVerified("ergo.local/native/widened", "widened.ergo", src) catch {
+	case os.Exit:
+		return false
+	}
+	n == 2
+}
+
+law NativebuildRefusesFallibleAndUnsupportedSource(k int) {
+	let c = (k%4 + 4) % 4
+	if c == 0 {
+		rejectsWith("ergo.local/native/fail", "type E1 {}\ntype E2 {}\nfunc Bad(x int) int fails E1 | E2 {\n\tx + 1\n}\n", "effect or failure row")
+	} else if c == 1 {
+		rejectsWith("ergo.local/native/str", "func Bad(s string) string {\n\ts\n}\n", "type string")
+	} else if c == 2 {
+		rejectsWith("ergo.local/native/bad", "func Bad(x int) int {\n\tx + \"a\"\n}\n", "type error in")
+	} else {
+		rejectsWith("ergo.local/native/parse", "func Broken(\n", "parse error in")
+	}
+}

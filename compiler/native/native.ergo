@@ -1,0 +1,834 @@
+import compiler/ir
+import compiler/ir/handoff
+import compiler/nativeobj
+import strconv
+
+// Sig is one built function's checked signature: its parameter and
+// result types as their Go spellings, in order.
+type Sig { Params []string, Results []string }
+
+// Unit is one package for the producer: its import path and package name,
+// the source file its positions name, the IR file the lowering built and
+// the signature of each of its functions, in the IR file's order.
+type Unit { Path string, Name string, File string, IR ir.File, Sigs []Sig }
+
+type fstate {
+	body    ir.Body,
+	strs    []string,
+	fname   string,
+	slots   []int,
+	ops     []nativeobj.Op,
+	lines   []int,
+	labels  int,
+	zero    int,
+	path    string,
+	known   []string,
+	sigs    []Sig,
+	loopTop []int,
+	loopEnd []int,
+}
+
+func refuse(st fstate, why string) nativeobj.Refused {
+	nativeobj.Refused{Why: "\(st.fname): \(why)"}
+}
+
+func clampLine(n int) int {
+	if n < 1 { 1 } else { n }
+}
+
+func calleeIndex(known []string, name string) int {
+	for i, n in known {
+		if n == name {
+			return i
+		}
+	}
+	-1
+}
+
+func pushLoop(st mut fstate, top int, end int) {
+	st.loopTop = st.loopTop.Append(top)
+	st.loopEnd = st.loopEnd.Append(end)
+}
+
+func popLoop(st mut fstate) {
+	st.loopTop = st.loopTop[0 : st.loopTop.Len()-1]
+	st.loopEnd = st.loopEnd[0 : st.loopEnd.Len()-1]
+}
+
+func kindName(st fstate, id uint32) string {
+	if id == 0 || int(id) > st.body.Kind.Len() {
+		return ""
+	}
+	ir.KindOf(st.body.Kind[int(id)-1]).Name
+}
+
+func word(st fstate, id uint32, j int) uint32 fails nativeobj.Malformed {
+	if id == 0 || int(id) > st.body.Kind.Len() {
+		return nativeobj.Malformed{Why: "\(st.fname): row \(id) past the body"}
+	}
+	let at = int(id) - 1
+	let n = ir.KindOf(st.body.Kind[at]).Slots.Len()
+	if j >= n {
+		return nativeobj.Malformed{Why: "\(st.fname): slot \(j) of a row of \(n)"}
+	}
+	if j == 0 {
+		return st.body.A[at]
+	}
+	if n <= 2 {
+		return st.body.B[at]
+	}
+	let q = int(st.body.B[at]) + j - 1
+	if q <= 0 || q >= st.body.Extra.Len() {
+		return nativeobj.Malformed{Why: "\(st.fname): slot past the extra pool"}
+	}
+	st.body.Extra[q]
+}
+
+func text(st fstate, s uint32) string fails nativeobj.Malformed {
+	if int(s) >= st.strs.Len() {
+		return nativeobj.Malformed{Why: "\(st.fname): text \(s) past the file's texts"}
+	}
+	st.strs[int(s)]
+}
+
+func list(st fstate, q uint32) []uint32 fails nativeobj.Malformed {
+	if q == 0 {
+		return []uint32{}
+	}
+	if int(q) >= st.body.Extra.Len() {
+		return nativeobj.Malformed{Why: "\(st.fname): list past the extra pool"}
+	}
+	let n = int(st.body.Extra[int(q)])
+	if int(q)+n >= st.body.Extra.Len() {
+		return nativeobj.Malformed{Why: "\(st.fname): list of \(n) past the extra pool"}
+	}
+	st.body.Extra[int(q)+1 : int(q)+1+n]
+}
+
+func line(st fstate, id uint32) int {
+	if id == 0 || int(id) > st.body.Line.Len() {
+		return 1
+	}
+	clampLine(int(st.body.Line[int(id)-1]))
+}
+
+func emit(st mut fstate, op nativeobj.Op, at int) {
+	st.ops = st.ops.Append(op)
+	st.lines = st.lines.Append(at)
+}
+
+func temp(st mut fstate) int {
+	st.slots = st.slots.Append(nativeobj.TInt)
+	st.slots.Len() - 1
+}
+
+func label(st mut fstate) int {
+	st.labels = st.labels + 1
+	st.labels - 1
+}
+
+func local(st fstate, i uint32) int fails nativeobj.Malformed {
+	let s = int(int32(i))
+	if s < 0 || s >= st.slots.Len() {
+		return nativeobj.Malformed{Why: "\(st.fname): local \(s) of \(st.slots.Len())"}
+	}
+	s
+}
+
+func arithOf(st fstate, op string) int fails nativeobj.Refused {
+	match op {
+	case "+":
+		nativeobj.AAdd
+	case "-":
+		nativeobj.ASub
+	case "*":
+		nativeobj.AMul
+	case "^":
+		nativeobj.AXor
+	case _:
+		return refuse(st, "operator \(op)")
+	}
+}
+
+func intType(st fstate, t string) fails nativeobj.Refused {
+	if t != "int" {
+		return refuse(st, "type \(t)")
+	}
+}
+
+func callExpr(st mut fstate, id uint32, wantResult bool) int fails nativeobj.Refused | nativeobj.Malformed {
+	let name = try text(*st, try word(*st, id, 1))
+	let idx = calleeIndex(st.known, name)
+	if idx < 0 {
+		return refuse(*st, "call of \(name), no function of this package")
+	}
+	if name == "init" {
+		return refuse(*st, "call of init")
+	}
+	let csig = st.sigs[idx]
+	if wantResult && csig.Results.Len() == 0 {
+		return refuse(*st, "call of unit function \(name) as value")
+	}
+	if csig.Results.Len() > 1 {
+		return refuse(*st, "call of \(name) with multiple results")
+	}
+	let argNodes = try list(*st, try word(*st, id, 2))
+	if argNodes.Len() != csig.Params.Len() {
+		return nativeobj.Malformed{Why: "\(st.fname): call of \(name) passes \(argNodes.Len()) of \(csig.Params.Len()) arguments"}
+	}
+	if argNodes.Len() > nativeobj.IntRegs.Len() {
+		return refuse(*st, "call of \(name) with more than \(nativeobj.IntRegs.Len()) arguments")
+	}
+	let mut args = []int{}
+	for a in argNodes {
+		args = args.Append(try value(st, a))
+	}
+	let at = line(*st, id)
+	if csig.Results.Len() == 0 {
+		emit(st, nativeobj.Call{Dsts: []int{}, Target: st.path + "." + name, Args: args}, at)
+		return -1
+	}
+	let d = temp(st)
+	emit(st, nativeobj.Call{Dsts: []int{d}, Target: st.path + "." + name, Args: args}, at)
+	d
+}
+
+func value(st mut fstate, id uint32) int fails nativeobj.Refused | nativeobj.Malformed {
+	let k = kindName(*st, id)
+	let at = line(*st, id)
+	match k {
+	case "local":
+		try local(*st, try word(*st, id, 0))
+	case "const":
+		try intType(*st, try text(*st, try word(*st, id, 0)))
+		let v = strconv.Atoi(try text(*st, try word(*st, id, 1))) catch {
+		case strconv.Malformed, strconv.OutOfRange:
+			return refuse(*st, "int constant out of reach")
+		}
+		let d = temp(st)
+		emit(st, nativeobj.Const{Dst: d, V: v}, at)
+		d
+	case "un":
+		let op = try text(*st, try word(*st, id, 0))
+		let inner = try word(*st, id, 1)
+		match op {
+		case "+":
+			try value(st, inner)
+		case "-":
+			let x = try value(st, inner)
+			let d = temp(st)
+			emit(st, nativeobj.Arith{Dst: d, Kind: nativeobj.ASub, A: st.zero, B: x}, at)
+			d
+		case "^":
+			let x = try value(st, inner)
+			let neg = temp(st)
+			emit(st, nativeobj.Const{Dst: neg, V: -1}, at)
+			let d = temp(st)
+			emit(st, nativeobj.Arith{Dst: d, Kind: nativeobj.AXor, A: x, B: neg}, at)
+			d
+		case _:
+			return refuse(*st, "unary operator \(op)")
+		}
+	case "bin":
+		let op = try text(*st, try word(*st, id, 0))
+		let kind = try arithOf(*st, op)
+		let a = try value(st, try word(*st, id, 1))
+		let b = try value(st, try word(*st, id, 2))
+		let d = temp(st)
+		emit(st, nativeobj.Arith{Dst: d, Kind: kind, A: a, B: b}, at)
+		d
+	case "call":
+		try callExpr(st, id, true)
+	case _:
+		return refuse(*st, "expression \(k)")
+	}
+}
+
+func move(st mut fstate, dst int, src int, at int) {
+	if dst != src {
+		emit(st, nativeobj.Arith{Dst: dst, Kind: nativeobj.AAdd, A: src, B: st.zero}, at)
+	}
+}
+
+func branch(st mut fstate, id uint32, yes int, no int) fails nativeobj.Refused | nativeobj.Malformed {
+	let k = kindName(*st, id)
+	let at = line(*st, id)
+	match k {
+	case "const":
+		if try text(*st, try word(*st, id, 0)) != "bool" {
+			return refuse(*st, "constant condition")
+		}
+		let v = try text(*st, try word(*st, id, 1))
+		if v == "true" {
+			emit(st, nativeobj.Jump{To: yes}, at)
+		} else if v == "false" {
+			emit(st, nativeobj.Jump{To: no}, at)
+		} else {
+			return nativeobj.Malformed{Why: "\(st.fname): bool constant \(v)"}
+		}
+	case "un":
+		let op = try text(*st, try word(*st, id, 0))
+		if op != "!" {
+			return refuse(*st, "condition unary operator \(op)")
+		}
+		try branch(st, try word(*st, id, 1), no, yes)
+	case "bin":
+		let op = try text(*st, try word(*st, id, 0))
+		if op == "&&" {
+			let mid = label(st)
+			try branch(st, try word(*st, id, 1), mid, no)
+			emit(st, nativeobj.Label{Id: mid}, at)
+			try branch(st, try word(*st, id, 2), yes, no)
+			return
+		}
+		if op == "||" {
+			let mid = label(st)
+			try branch(st, try word(*st, id, 1), yes, mid)
+			emit(st, nativeobj.Label{Id: mid}, at)
+			try branch(st, try word(*st, id, 2), yes, no)
+			return
+		}
+		let a = try value(st, try word(*st, id, 1))
+		let b = try value(st, try word(*st, id, 2))
+		let j = match op {
+		case "<":
+			nativeobj.JumpIf{Cond: nativeobj.CLt, A: a, B: b, To: yes}
+		case ">":
+			nativeobj.JumpIf{Cond: nativeobj.CLt, A: b, B: a, To: yes}
+		case ">=":
+			nativeobj.JumpIf{Cond: nativeobj.CGe, A: a, B: b, To: yes}
+		case "<=":
+			nativeobj.JumpIf{Cond: nativeobj.CGe, A: b, B: a, To: yes}
+		case "==":
+			nativeobj.JumpIf{Cond: nativeobj.CEq, A: a, B: b, To: yes}
+		case "!=":
+			nativeobj.JumpIf{Cond: nativeobj.CNe, A: a, B: b, To: yes}
+		case _:
+			return refuse(*st, "condition operator \(op)")
+		}
+		emit(st, j, at)
+		emit(st, nativeobj.Jump{To: no}, at)
+	case _:
+		return refuse(*st, "condition \(k)")
+	}
+}
+
+func evalIgnored(st mut fstate, id uint32) fails nativeobj.Refused | nativeobj.Malformed {
+	if kindName(*st, id) == "call" {
+		let _ = try callExpr(st, id, false)
+	} else {
+		let _ = try value(st, id)
+	}
+}
+
+func stmtList(st mut fstate, xs []uint32) fails nativeobj.Refused | nativeobj.Malformed {
+	for s in xs {
+		try statement(st, s)
+	}
+}
+
+func block(st mut fstate, q uint32) fails nativeobj.Refused | nativeobj.Malformed {
+	try stmtList(st, try list(*st, q))
+}
+
+func statement(st mut fstate, id uint32) fails nativeobj.Refused | nativeobj.Malformed {
+	let k = kindName(*st, id)
+	let at = line(*st, id)
+	match k {
+	case "def":
+		let dst = try local(*st, try word(*st, id, 0))
+		move(st, dst, try value(st, try word(*st, id, 1)), at)
+	case "var":
+		let dst = try local(*st, try word(*st, id, 0))
+		move(st, dst, st.zero, at)
+	case "set":
+		let dst = try local(*st, try word(*st, id, 0))
+		let src = try value(st, try word(*st, id, 1))
+		let op = try text(*st, try word(*st, id, 2))
+		if op == "" {
+			move(st, dst, src, at)
+		} else {
+			emit(st, nativeobj.Arith{Dst: dst, Kind: try arithOf(*st, op), A: dst, B: src}, at)
+		}
+	case "ret":
+		let x = try word(*st, id, 0)
+		if x == 0 {
+			emit(st, nativeobj.Return{Vals: []int{}}, at)
+		} else {
+			emit(st, nativeobj.Return{Vals: []int{try value(st, x)}}, at)
+		}
+	case "expr", "discard":
+		try evalIgnored(st, try word(*st, id, 0))
+	case "if":
+		let els = try list(*st, try word(*st, id, 2))
+		let yes = label(st)
+		let end = label(st)
+		if els.Len() == 0 {
+			try branch(st, try word(*st, id, 0), yes, end)
+			emit(st, nativeobj.Label{Id: yes}, at)
+			try block(st, try word(*st, id, 1))
+			emit(st, nativeobj.Label{Id: end}, at)
+		} else {
+			let no = label(st)
+			try branch(st, try word(*st, id, 0), yes, no)
+			emit(st, nativeobj.Label{Id: yes}, at)
+			try block(st, try word(*st, id, 1))
+			emit(st, nativeobj.Jump{To: end}, at)
+			emit(st, nativeobj.Label{Id: no}, at)
+			try stmtList(st, els)
+			emit(st, nativeobj.Label{Id: end}, at)
+		}
+	case "while":
+		if try text(*st, try word(*st, id, 3)) != "" {
+			return refuse(*st, "labelled loop")
+		}
+		let cond = try word(*st, id, 0)
+		let bodyStmts = try list(*st, try word(*st, id, 1))
+		let top = label(st)
+		let end = label(st)
+		if cond == 0 {
+			emit(st, nativeobj.Label{Id: top}, at)
+			pushLoop(st, top, end)
+			try stmtList(st, bodyStmts)
+			popLoop(st)
+			emit(st, nativeobj.Jump{To: top}, at)
+			emit(st, nativeobj.Label{Id: end}, at)
+		} else {
+			let body = label(st)
+			emit(st, nativeobj.Label{Id: top}, at)
+			try branch(st, cond, body, end)
+			emit(st, nativeobj.Label{Id: body}, at)
+			pushLoop(st, top, end)
+			try stmtList(st, bodyStmts)
+			popLoop(st)
+			emit(st, nativeobj.Jump{To: top}, at)
+			emit(st, nativeobj.Label{Id: end}, at)
+		}
+	case "range":
+		if try text(*st, try word(*st, id, 5)) != "" {
+			return refuse(*st, "labelled loop")
+		}
+		let keyWord = try word(*st, id, 0)
+		let valWord = try word(*st, id, 1)
+		if keyWord == 0 || valWord != 0 {
+			return refuse(*st, "range loop")
+		}
+		let iv = try local(*st, keyWord-1)
+		let limit = try value(st, try word(*st, id, 2))
+		let bound = temp(st)
+		move(st, bound, limit, at)
+		move(st, iv, st.zero, at)
+		let bodyStmts = try list(*st, try word(*st, id, 3))
+		let top = label(st)
+		let body = label(st)
+		let step = label(st)
+		let end = label(st)
+		emit(st, nativeobj.Label{Id: top}, at)
+		emit(st, nativeobj.JumpIf{Cond: nativeobj.CLt, A: iv, B: bound, To: body}, at)
+		emit(st, nativeobj.Jump{To: end}, at)
+		emit(st, nativeobj.Label{Id: body}, at)
+		pushLoop(st, step, end)
+		try stmtList(st, bodyStmts)
+		popLoop(st)
+		emit(st, nativeobj.Label{Id: step}, at)
+		let one = temp(st)
+		emit(st, nativeobj.Const{Dst: one, V: 1}, at)
+		emit(st, nativeobj.Arith{Dst: iv, Kind: nativeobj.AAdd, A: iv, B: one}, at)
+		emit(st, nativeobj.Jump{To: top}, at)
+		emit(st, nativeobj.Label{Id: end}, at)
+	case "break":
+		if try text(*st, try word(*st, id, 0)) != "" {
+			return refuse(*st, "labelled break")
+		}
+		if st.loopEnd.Len() == 0 {
+			return nativeobj.Malformed{Why: "\(st.fname): break outside loop"}
+		}
+		emit(st, nativeobj.Jump{To: st.loopEnd[st.loopEnd.Len()-1]}, at)
+	case "continue":
+		if st.loopTop.Len() == 0 {
+			return nativeobj.Malformed{Why: "\(st.fname): continue outside loop"}
+		}
+		emit(st, nativeobj.Jump{To: st.loopTop[st.loopTop.Len()-1]}, at)
+	case _:
+		return refuse(*st, "statement \(k)")
+	}
+}
+
+func function(u Unit, fi int, known []string) nativeobj.Func fails nativeobj.Refused | nativeobj.Malformed {
+	let f = u.IR.Funcs[fi]
+	if int(f.Name) >= u.IR.Strs.Len() {
+		return nativeobj.Malformed{Why: "function name index \(f.Name) past the file's texts"}
+	}
+	let name = u.IR.Strs[int(f.Name)]
+	let sig = u.Sigs[fi]
+	let mut st = fstate{body: f.Body, strs: u.IR.Strs, fname: name, slots: []int{}, ops: []nativeobj.Op{}, lines: []int{}, labels: 0, zero: 0, path: u.Path, known: known, sigs: u.Sigs, loopTop: []int{}, loopEnd: []int{}}
+	if name == "init" {
+		return refuse(st, "init function")
+	}
+	if sig.Params.Len() > nativeobj.IntRegs.Len() {
+		return refuse(st, "more than \(nativeobj.IntRegs.Len()) parameters")
+	}
+	if sig.Results.Len() > 1 {
+		return refuse(st, "multiple results")
+	}
+	let mut params = []int{}
+	for t in sig.Params {
+		try intType(st, t)
+		params = params.Append(nativeobj.TInt)
+		st.slots = st.slots.Append(nativeobj.TInt)
+	}
+	let mut results = []int{}
+	for t in sig.Results {
+		try intType(st, t)
+		results = results.Append(nativeobj.TInt)
+	}
+	for l in f.Locals {
+		try intType(st, try text(st, l.Type))
+		st.slots = st.slots.Append(nativeobj.TInt)
+	}
+	let first = clampLine(int(f.Pos.Line))
+	let last = clampLine(int(f.End.Line))
+	st.zero = temp(&st)
+	emit(&st, nativeobj.Const{Dst: st.zero, V: 0}, first)
+	try block(&st, f.Body.Roots)
+	let mut ends = false
+	if st.ops.Len() > 0 {
+		match st.ops[st.ops.Len()-1] {
+		case nativeobj.Return, nativeobj.Jump:
+			ends = true
+		case _:
+		}
+	}
+	if !ends {
+		if results.Len() == 0 {
+			emit(&st, nativeobj.Return{Vals: []int{}}, last)
+		} else {
+			let stay = label(&st)
+			emit(&st, nativeobj.Label{Id: stay}, last)
+			emit(&st, nativeobj.Jump{To: stay}, last)
+		}
+	}
+	nativeobj.Func{Name: name, Params: params, Results: results, Slots: st.slots, Ops: st.ops, Lines: st.lines, Line: first, Col: int(f.Pos.Col)}
+}
+
+// FromIR is the checked package of u, or Refused at the first type,
+// statement, expression or operator nativeobj does not admit, or
+// Malformed IR. The package has no imports and no globals.
+func FromIR(u Unit) nativeobj.Package fails nativeobj.Refused | nativeobj.Malformed {
+	if u.IR.Files.Len() > 1 {
+		return nativeobj.Refused{Why: "multi-file package"}
+	}
+	if u.Sigs.Len() != u.IR.Funcs.Len() {
+		return nativeobj.Malformed{Why: "\(u.Sigs.Len()) signatures for \(u.IR.Funcs.Len()) functions"}
+	}
+	let mut known = []string{}
+	for f in u.IR.Funcs {
+		if int(f.Name) >= u.IR.Strs.Len() {
+			return nativeobj.Malformed{Why: "function name index \(f.Name) past the file's texts"}
+		}
+		known = known.Append(u.IR.Strs[int(f.Name)])
+	}
+	let mut funcs = []nativeobj.Func{}
+	for fi in 0..u.IR.Funcs.Len() {
+		funcs = funcs.Append(try function(u, fi, known))
+	}
+	let p = nativeobj.Package{Path: u.Path, Name: u.Name, File: u.File, Types: []nativeobj.TypeDef{nativeobj.TypeDef{Kind: nativeobj.KInt, Elem: 0, Params: []int{}, Results: []int{}}}, Imports: []nativeobj.Import{}, Globals: []nativeobj.Global{}, Funcs: funcs, Inits: []int{}}
+	try nativeobj.Check(p)
+	p
+}
+
+// Handoff is u as the frozen EIR v1 wire and the admission it must meet.
+func Handoff(u Unit) (string, handoff.Expect) fails nativeobj.Refused | nativeobj.Malformed | handoff.Malformed {
+	let p = try FromIR(u)
+	let draft = try nativeobj.EncodeHandoff(p, []nativeobj.ForeignFunc{})
+	let encoded = handoff.Encode(try handoff.Pack(draft))
+	(encoded, handoff.Expect{Target: handoff.Target{Path: u.Path, GOOS: nativeobj.PinGOOS, GOARCH: nativeobj.PinGOARCH, Pin: nativeobj.PinGo, Profile: nativeobj.PinProfile}, Imports: []handoff.Import{}})
+}
+
+// Archive is u's Go package archive for the stock header line header:
+// Handoff, then nativeobj.ArchiveFromHandoff, which decodes and admits the
+// wire before it translates and writes.
+func Archive(u Unit, header string) nativeobj.Built fails nativeobj.Refused | nativeobj.Malformed | handoff.Malformed | handoff.UnknownVersion | handoff.WrongTarget | handoff.StaleImport | nativeobj.Undefined {
+	let (encoded, want) = try Handoff(u)
+	try nativeobj.ArchiveFromHandoff(encoded, want, header)
+}
+
+func samplePos(line int) ir.Pos {
+	ir.Pos{File: 0, Line: uint32(line), Col: 1}
+}
+
+func sampleUnit(k int) Unit fails ir.Malformed {
+	let mut b = ir.NewBuilder(2)
+	let _ = ir.FileOf(&b, "calc.ergo")
+
+	try ir.Begin(&b, "Touch", samplePos(1), samplePos(3))
+	try ir.AddLocal(&b, "n", "int", samplePos(1))
+	let tn = try ir.Row(&b, ir.KindCode(ir.TExpr, "local"), samplePos(2), []uint32{0})
+	let td = try ir.Row(&b, ir.KindCode(ir.TStmt, "discard"), samplePos(2), []uint32{tn})
+	try ir.End(&b, ir.List(&b, []uint32{td}))
+
+	try ir.Begin(&b, "Compute", samplePos(5), samplePos(24))
+	try ir.AddLocal(&b, "x", "int", samplePos(5))
+	try ir.AddLocal(&b, "y", "int", samplePos(5))
+	try ir.AddLocal(&b, "acc", "int", samplePos(6))
+	try ir.AddLocal(&b, "i", "int", samplePos(8))
+
+	let lx0 = try ir.Row(&b, ir.KindCode(ir.TExpr, "local"), samplePos(6), []uint32{0})
+	let unNeg = try ir.Row(&b, ir.KindCode(ir.TExpr, "un"), samplePos(6), []uint32{ir.Text(&b, "-"), lx0})
+	let unNot = try ir.Row(&b, ir.KindCode(ir.TExpr, "un"), samplePos(6), []uint32{ir.Text(&b, "^"), unNeg})
+	let defAcc = try ir.Row(&b, ir.KindCode(ir.TStmt, "def"), samplePos(6), []uint32{2, unNot})
+
+	let callArg = try ir.Row(&b, ir.KindCode(ir.TExpr, "local"), samplePos(7), []uint32{0})
+	let callTouch = try ir.Row(&b, ir.KindCode(ir.TExpr, "call"), samplePos(7), []uint32{ir.Text(&b, ""), ir.Text(&b, "Touch"), ir.List(&b, []uint32{callArg})})
+	let callStmt = try ir.Row(&b, ir.KindCode(ir.TStmt, "expr"), samplePos(7), []uint32{callTouch})
+
+	let rBound = try ir.Row(&b, ir.KindCode(ir.TExpr, "local"), samplePos(8), []uint32{1})
+	let ri0 = try ir.Row(&b, ir.KindCode(ir.TExpr, "local"), samplePos(9), []uint32{3})
+	let c2 = try ir.Row(&b, ir.KindCode(ir.TExpr, "const"), samplePos(9), []uint32{ir.Text(&b, "int"), ir.Text(&b, "2"), 0})
+	let eq2 = try ir.Row(&b, ir.KindCode(ir.TExpr, "bin"), samplePos(9), []uint32{ir.Text(&b, "=="), ri0, c2})
+	let cont = try ir.Row(&b, ir.KindCode(ir.TStmt, "continue"), samplePos(10), []uint32{})
+	let ifCont = try ir.Row(&b, ir.KindCode(ir.TStmt, "if"), samplePos(9), []uint32{eq2, ir.List(&b, []uint32{cont}), 0, ir.PosAt(&b, samplePos(11)), 0, 0})
+
+	let ri1 = try ir.Row(&b, ir.KindCode(ir.TExpr, "local"), samplePos(12), []uint32{3})
+	let ck = try ir.Row(&b, ir.KindCode(ir.TExpr, "const"), samplePos(12), []uint32{ir.Text(&b, "int"), ir.Text(&b, strconv.Itoa(k)), 0})
+	let gtk = try ir.Row(&b, ir.KindCode(ir.TExpr, "bin"), samplePos(12), []uint32{ir.Text(&b, ">="), ri1, ck})
+	let brk = try ir.Row(&b, ir.KindCode(ir.TStmt, "break"), samplePos(13), []uint32{0})
+	let ifBrk = try ir.Row(&b, ir.KindCode(ir.TStmt, "if"), samplePos(12), []uint32{gtk, ir.List(&b, []uint32{brk}), 0, ir.PosAt(&b, samplePos(14)), 0, 0})
+
+	let ri2 = try ir.Row(&b, ir.KindCode(ir.TExpr, "local"), samplePos(15), []uint32{3})
+	let addAcc = try ir.Row(&b, ir.KindCode(ir.TStmt, "set"), samplePos(15), []uint32{2, ri2, ir.Text(&b, "+")})
+	let rangeStmt = try ir.Row(&b, ir.KindCode(ir.TStmt, "range"), samplePos(8), []uint32{4, 0, rBound, ir.List(&b, []uint32{ifCont, ifBrk, addAcc}), ir.PosAt(&b, samplePos(16)), 0})
+
+	let lx1 = try ir.Row(&b, ir.KindCode(ir.TExpr, "local"), samplePos(17), []uint32{0})
+	let ly1 = try ir.Row(&b, ir.KindCode(ir.TExpr, "local"), samplePos(17), []uint32{1})
+	let c0 = try ir.Row(&b, ir.KindCode(ir.TExpr, "const"), samplePos(17), []uint32{ir.Text(&b, "int"), ir.Text(&b, "0"), 0})
+	let c10 = try ir.Row(&b, ir.KindCode(ir.TExpr, "const"), samplePos(17), []uint32{ir.Text(&b, "int"), ir.Text(&b, "10"), 0})
+	let lt0 = try ir.Row(&b, ir.KindCode(ir.TExpr, "bin"), samplePos(17), []uint32{ir.Text(&b, "<"), lx1, c0})
+	let gt10 = try ir.Row(&b, ir.KindCode(ir.TExpr, "bin"), samplePos(17), []uint32{ir.Text(&b, ">"), ly1, c10})
+	let conj = try ir.Row(&b, ir.KindCode(ir.TExpr, "bin"), samplePos(17), []uint32{ir.Text(&b, "&&"), lt0, gt10})
+	let negCond = try ir.Row(&b, ir.KindCode(ir.TExpr, "un"), samplePos(17), []uint32{ir.Text(&b, "!"), conj})
+	let cTrue = try ir.Row(&b, ir.KindCode(ir.TExpr, "const"), samplePos(17), []uint32{ir.Text(&b, "bool"), ir.Text(&b, "true"), 0})
+	let cond = try ir.Row(&b, ir.KindCode(ir.TExpr, "bin"), samplePos(17), []uint32{ir.Text(&b, "||"), negCond, cTrue})
+	let c1 = try ir.Row(&b, ir.KindCode(ir.TExpr, "const"), samplePos(18), []uint32{ir.Text(&b, "int"), ir.Text(&b, "1"), 0})
+	let xorAcc = try ir.Row(&b, ir.KindCode(ir.TStmt, "set"), samplePos(18), []uint32{2, c1, ir.Text(&b, "^")})
+	let ifBool = try ir.Row(&b, ir.KindCode(ir.TStmt, "if"), samplePos(17), []uint32{cond, ir.List(&b, []uint32{xorAcc}), 0, ir.PosAt(&b, samplePos(19)), 0, 0})
+
+	let lacc = try ir.Row(&b, ir.KindCode(ir.TExpr, "local"), samplePos(20), []uint32{2})
+	let ret = try ir.Row(&b, ir.KindCode(ir.TStmt, "ret"), samplePos(20), []uint32{lacc})
+	try ir.End(&b, ir.List(&b, []uint32{defAcc, callStmt, rangeStmt, ifBool, ret}))
+
+	let sigs = []Sig{
+		Sig{Params: []string{"int"}, Results: []string{}},
+		Sig{Params: []string{"int", "int"}, Results: []string{"int"}},
+	}
+	Unit{Path: "ergo.local/native/calc", Name: "calc", File: "calc.ergo", IR: try ir.Finish(b), Sigs: sigs}
+}
+
+func refusedFromIR(u Unit) bool {
+	let _ = FromIR(u) catch {
+	case nativeobj.Refused:
+		return true
+	case nativeobj.Malformed:
+		return false
+	}
+	false
+}
+
+func malformedFromIR(u Unit) bool {
+	let _ = FromIR(u) catch {
+	case nativeobj.Malformed:
+		return true
+	case nativeobj.Refused:
+		return false
+	}
+	false
+}
+
+func roundTripHandoff(u Unit) nativeobj.Package fails nativeobj.Refused | nativeobj.Malformed | handoff.Malformed | handoff.UnknownVersion | handoff.WrongTarget | handoff.StaleImport {
+	let (encoded, want) = try Handoff(u)
+	try nativeobj.FromHandoff(encoded, want)
+}
+
+func labelPos(f nativeobj.Func, id int) int {
+	for i, op in f.Ops {
+		match op {
+		case nativeobj.Label as l:
+			if l.Id == id {
+				return i
+			}
+		case _:
+		}
+	}
+	-1
+}
+
+func hasStepContinue(f nativeobj.Func) bool {
+	for op in f.Ops {
+		match op {
+		case nativeobj.Jump as j:
+			let p = labelPos(f, j.To)
+			if p >= 0 && p+2 < f.Ops.Len() {
+				match f.Ops[p+1] {
+				case nativeobj.Const as c:
+					if c.V == 1 {
+						match f.Ops[p+2] {
+						case nativeobj.Arith as a:
+							if a.Kind == nativeobj.AAdd && a.B == c.Dst && a.Dst == a.A {
+								return true
+							}
+						case _:
+						}
+					}
+				case _:
+				}
+			}
+		case _:
+		}
+	}
+	false
+}
+
+func initDeclUnit() Unit fails ir.Malformed {
+	let mut b = ir.NewBuilder(2)
+	let _ = ir.FileOf(&b, "bad.ergo")
+	try ir.Begin(&b, "init", samplePos(1), samplePos(2))
+	try ir.End(&b, 0)
+	Unit{Path: "ergo.local/native/bad", Name: "bad", File: "bad.ergo", IR: try ir.Finish(b), Sigs: []Sig{Sig{Params: []string{}, Results: []string{}}}}
+}
+
+func unitCallAsValueUnit() Unit fails ir.Malformed {
+	let mut b = ir.NewBuilder(2)
+	let _ = ir.FileOf(&b, "bad.ergo")
+	try ir.Begin(&b, "Touch", samplePos(1), samplePos(2))
+	try ir.End(&b, 0)
+	try ir.Begin(&b, "Use", samplePos(4), samplePos(6))
+	let callTouch = try ir.Row(&b, ir.KindCode(ir.TExpr, "call"), samplePos(5), []uint32{ir.Text(&b, ""), ir.Text(&b, "Touch"), ir.List(&b, []uint32{})})
+	let ret = try ir.Row(&b, ir.KindCode(ir.TStmt, "ret"), samplePos(5), []uint32{callTouch})
+	try ir.End(&b, ir.List(&b, []uint32{ret}))
+	let sigs = []Sig{
+		Sig{Params: []string{}, Results: []string{}},
+		Sig{Params: []string{}, Results: []string{"int"}},
+	}
+	Unit{Path: "ergo.local/native/bad", Name: "bad", File: "bad.ergo", IR: try ir.Finish(b), Sigs: sigs}
+}
+
+func foreignCallUnit() Unit fails ir.Malformed {
+	let mut b = ir.NewBuilder(2)
+	let _ = ir.FileOf(&b, "bad.ergo")
+	try ir.Begin(&b, "Use", samplePos(1), samplePos(3))
+	let callOther = try ir.Row(&b, ir.KindCode(ir.TExpr, "call"), samplePos(2), []uint32{ir.Text(&b, ""), ir.Text(&b, "Unknown"), ir.List(&b, []uint32{})})
+	let ret = try ir.Row(&b, ir.KindCode(ir.TStmt, "ret"), samplePos(2), []uint32{callOther})
+	try ir.End(&b, ir.List(&b, []uint32{ret}))
+	Unit{Path: "ergo.local/native/bad", Name: "bad", File: "bad.ergo", IR: try ir.Finish(b), Sigs: []Sig{Sig{Params: []string{}, Results: []string{"int"}}}}
+}
+
+// HandoffRoundTrips proves checked integer units lower to valid nativeobj packages and decode via EIR v1.
+law HandoffRoundTrips(k int) {
+	let limit = (k%10+10)%10 + 3
+	let u = sampleUnit(limit) catch {
+	case ir.Malformed:
+		return false
+	}
+	let p = FromIR(u) catch {
+	case nativeobj.Refused, nativeobj.Malformed:
+		return false
+	}
+	let decoded = roundTripHandoff(u) catch {
+	case handoff.Malformed, handoff.UnknownVersion, handoff.WrongTarget, handoff.StaleImport, nativeobj.Refused, nativeobj.Malformed:
+		return false
+	}
+	let ti = nativeobj.FuncNamed(decoded, "Touch")
+	let ci = nativeobj.FuncNamed(decoded, "Compute")
+	let pi = nativeobj.FuncNamed(p, "Compute")
+	p.Funcs.Len() == 2 && decoded.Funcs.Len() == 2 && ti >= 0 && ci >= 0 && pi >= 0 && decoded.Funcs[ti].Results.Len() == 0 && decoded.Funcs[ti].Params.Len() == 1 && decoded.Funcs[ci].Results.Len() == 1 && decoded.Funcs[ci].Params.Len() == 2 && hasStepContinue(p.Funcs[pi])
+}
+
+// RefusalsAreTyped proves unsupported forms, multi-file units, and mismatched metadata fail closed cleanly.
+law RefusalsAreTyped(k int) {
+	let u = sampleUnit(5) catch {
+	case ir.Malformed:
+		return false
+	}
+	let mut multiFile = u
+	multiFile.IR.Files = []string{"a.ergo", "b.ergo"}
+	if !refusedFromIR(multiFile) {
+		return false
+	}
+	let mut badSigs = u
+	badSigs.Sigs = []Sig{}
+	if !malformedFromIR(badSigs) {
+		return false
+	}
+	let mut badType = u
+	badType.Sigs = []Sig{Sig{Params: []string{"string"}, Results: []string{}}, u.Sigs[1]}
+	if !refusedFromIR(badType) {
+		return false
+	}
+	let mut initFn = u
+	initFn.IR.Strs = []string{}
+	let mut strs = []string{}
+	for s in u.IR.Strs {
+		strs = strs.Append(if s == "Touch" { "init" } else { s })
+	}
+	initFn.IR.Strs = strs
+	if !refusedFromIR(initFn) {
+		return false
+	}
+	let mut tooMany = u
+	tooMany.Sigs = []Sig{
+		Sig{Params: []string{"int", "int", "int", "int", "int", "int", "int", "int", "int", "int"}, Results: []string{}},
+		u.Sigs[1],
+	}
+	if !refusedFromIR(tooMany) {
+		return false
+	}
+	let mut multiRes = u
+	multiRes.Sigs = []Sig{Sig{Params: []string{"int"}, Results: []string{"int", "int"}}, u.Sigs[1]}
+	if !refusedFromIR(multiRes) {
+		return false
+	}
+	let uVal = unitCallAsValueUnit() catch {
+	case ir.Malformed:
+		return false
+	}
+	if !refusedFromIR(uVal) {
+		return false
+	}
+	let fCall = foreignCallUnit() catch {
+	case ir.Malformed:
+		return false
+	}
+	if !refusedFromIR(fCall) {
+		return false
+	}
+	let initOnly = initDeclUnit() catch {
+	case ir.Malformed:
+		return false
+	}
+	if !refusedFromIR(initOnly) {
+		return false
+	}
+	let _ = k
+	true
+}
+
+// ArchiveBuildsVerifiedObject checks that a lowered unit emits a stock archive passing every Verify check.
+test ArchiveBuildsVerifiedObject {
+	let u = sampleUnit(6) catch {
+	case ir.Malformed:
+		assert false
+		return
+	}
+	let p = FromIR(u) catch {
+	case nativeobj.Refused, nativeobj.Malformed:
+		assert false
+		return
+	}
+	let built = Archive(u, nativeobj.SampleHeader) catch {
+	case nativeobj.Refused, nativeobj.Malformed, handoff.Malformed, handoff.UnknownVersion, handoff.WrongTarget, handoff.StaleImport, nativeobj.Undefined:
+		assert false
+		return
+	}
+	let errs = nativeobj.Verify(p, nativeobj.SampleHeader, built.Archive)
+	assert errs.Len() == 0
+}
