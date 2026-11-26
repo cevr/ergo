@@ -1675,8 +1675,8 @@
       "name": "lower-len-method-receiver",
       "origin": "wf10/selfhost/S4-PORT NEXT-STOPS",
       "file": "compiler/lower/lower.ergo", "decl": "goLenReceiver",
-      "from": "\tif found { option.Some{Value: se.X} } else { option.None }",
-      "to": "\toption.None",
+      "from": "\tif !to.Recv {",
+      "to": "\tif to.Recv {",
       "rule": "A built-in .Len() call whose checked callee is declared extern go len lowers to Go's len of its receiver, as the Go builder's goBuiltinCall does.",
       "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
       "killers": ["internal/selfhostcheck:TestIRLenMethod"]
