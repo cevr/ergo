@@ -30,6 +30,21 @@ func EmptyIface(path string) Iface {
 	Iface{Path: path, Name: lastOf(path), Decls: []IfaceDecl{}, Types: store.New(path, []string{}), Roles: []Role{}, Claims: [][]store.ClaimLayout{}, Foreign: []Foreign{}, Refs: []RoleRef{}}
 }
 
+// IdentityIfaces is ifaces keeping only Path, Name and each declaration's
+// Name for DepIdentity.
+func IdentityIfaces(ifaces []Iface) []Iface {
+	let empty = store.New("", []string{})
+	let mut out = []Iface{}
+	for ifc in ifaces {
+		let mut ds = []IfaceDecl{}
+		for d in ifc.Decls {
+			ds = ds.Append(IfaceDecl{Name: d.Name, Type: false, Kinds: []int{}, Variants: []int{}, Alias: false, Print: "", Key: "", Harness: ""})
+		}
+		out = out.Append(Iface{Path: ifc.Path, Name: ifc.Name, Decls: ds, Types: empty, Roles: []Role{}, Claims: [][]store.ClaimLayout{}, Foreign: []Foreign{}, Refs: []RoleRef{}})
+	}
+	out
+}
+
 func lastOf(path string) string { path[strings.LastIndex(path, "/")+1 : path.Len()] }
 
 // Interface is the interface of the package whose store bind.Collect

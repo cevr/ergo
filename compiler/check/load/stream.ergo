@@ -1,0 +1,505 @@
+import compiler/check/bind
+import compiler/check/expr
+import compiler/check/store
+import compiler/check/task
+import compiler/check/types
+import compiler/syntax
+import option
+import slices
+
+// Plan is the order in which a run's packages are checked one at a time
+// (Step), each after every package it reads: its imports among the run's
+// packages (the first package of each path, as TypeAt reads them) and,
+// unless it is a bootstrap package, the prelude, option, collections and
+// core, which its typing reads. Waves[w] is wave w's packages in the run's
+// order; Last[i] is the last wave that reads package i, -1 when none does,
+// so nothing of i need be kept past it. Whole is true when some package
+// sits on a cycle of these reads: then no order exists and the run is
+// checked whole (LoadAll), as an import cycle is.
+type Plan { Waves [][]int, Last []int, Whole bool }
+
+// PlanOf is the plan of the packages at paths whose imports are imports,
+// both in the run's order.
+func PlanOf(paths []string, imports [][]string) Plan {
+	let mut first = Map[string, int]{}
+	for i, p in paths {
+		if !isSome(first.Get(p)) {
+			first[p] = i
+		}
+	}
+	let mut reads = [][]int{}
+	let mut level = []int{}
+	for i, p in paths {
+		let mut out = []int{}
+		for path in imports[i] {
+			match first.Get(path) {
+			case option.Some{Value: j}:
+				if j != i && !slices.Contains(out, j) {
+					out = out.Append(j)
+				}
+			case option.None:
+			}
+		}
+		if !isBootstrapStd(p) {
+			for path in []string{"prelude", "option", "collections", "core"} {
+				match first.Get(path) {
+				case option.Some{Value: j}:
+					if j != i && !slices.Contains(out, j) {
+						out = out.Append(j)
+					}
+				case option.None:
+				}
+			}
+		}
+		reads = reads.Append(out)
+		level = level.Append(-1)
+	}
+	let mut placed = true
+	let mut left = paths.Len()
+	for placed {
+		placed = false
+		for i in 0..paths.Len() {
+			if level[i] >= 0 {
+				continue
+			}
+			let mut top = 0
+			let mut ready = true
+			for j in reads[i] {
+				if level[j] < 0 {
+					ready = false
+				} else if level[j]+1 > top {
+					top = level[j] + 1
+				}
+			}
+			if ready {
+				level[i] = top
+				placed = true
+				left = left - 1
+			}
+		}
+	}
+	let mut last = slices.Repeat([]int{-1}, paths.Len())
+	let mut waves = [][]int{}
+	for i in 0..paths.Len() {
+		for waves.Len() <= level[i] {
+			waves = waves.Append([]int{})
+		}
+		if level[i] >= 0 {
+			waves[level[i]] = waves[level[i]].Append(i)
+		}
+		for j in reads[i] {
+			if level[i] > last[j] {
+				last[j] = level[i]
+			}
+		}
+	}
+	Plan{Waves: waves, Last: last, Whole: left > 0}
+}
+
+// Art is what the packages that read a checked package take from it: its
+// frozen store (binding), its interface (loading) and the package as
+// loaded (typing).
+type Art { Frozen store.Frozen, Iface types.Iface, Dep expr.Dep }
+
+// Stepped is one package after Step: typed, and its Art when keep is
+// true.
+type Stepped { T Typed, A option.Option[Art] }
+
+// Step binds, loads and types u as LoadAll and TypeAt do, reading the
+// packages it reads from arts, the Arts of the run's packages done so far
+// by path, and have0, the interfaces of its imports outside the run. A
+// path neither holds is empty, as LoadAll reads an import it does not
+// hold. A caller that steps the packages of a Plan wave by wave and keeps
+// each Art (when keep is true) to its Last wave holds what is still read,
+// not the run.
+func Step(u Unit, arts Map[string, option.Option[Art]], have0 []types.Iface, threads int, keep bool) Stepped {
+	let c = task.CheckOne(task.Package{Path: u.Path, Files: u.Files}, frozenOf(bind.Imports(u.Files), arts), threads)
+	let mut bound = store.Of(c.Store)
+	store.SetPath(&bound, u.Tab.PkgPath)
+	let ifs = ifacesOf(store.ImportPaths(bound), arts, have0)
+	if !keep {
+		let mut s = bound
+		let k = expr.Load(&s, u.Files, c.Uses, c.Parents, u.Tab.Ext, u.Tab.Foreign, ifs, u.Tab.PkgName == "")
+		let deps = depsOf(typingPaths(u.Path, store.ImportPaths(s)), arts)
+		let tk = expr.WithDeps(k, deps)
+		let t = expr.Check(&s, tk)
+		return Stepped{T: Typed{S: s, K: tk, T: t}, A: option.None}
+	}
+	let mut at = bound
+	store.SetPath(&at, u.Path)
+	let mut s = bound
+	let k = expr.Load(&s, u.Files, c.Uses, c.Parents, u.Tab.Ext, u.Tab.Foreign, ifs, u.Tab.PkgName == "")
+	let iface = types.Interface(at, k.Parsed, k.Kinds, k.Ext, u.Tab.Foreign, ifs)
+	let dep = expr.Dep{Path: c.Path, S: s, K: expr.Exported(k)}
+	let deps = depsOf(typingPaths(u.Path, store.ImportPaths(s)), arts)
+	let mut ts = s
+	let tk = expr.WithDeps(k, deps)
+	let t = expr.Check(&ts, tk)
+	Stepped{T: Typed{S: ts, K: tk, T: t}, A: option.Some[Art]{Value: Art{Frozen: c.Store, Iface: iface, Dep: dep}}}
+}
+
+func typingPaths(path string, imports []string) []string {
+	let mut out = []string{}
+	if !isBootstrapStd(path) {
+		if path != "prelude" {
+			out = out.Append("prelude")
+		}
+		for base in []string{"option", "collections", "core"} {
+			if base != path {
+				out = out.Append(base)
+			}
+		}
+	}
+	for p in imports {
+		if !slices.Contains(out, p) {
+			out = out.Append(p)
+		}
+	}
+	out
+}
+
+func frozenOf(paths []string, arts Map[string, option.Option[Art]]) []store.Frozen {
+	let mut acc = []store.Frozen{}
+	for path in paths {
+		match arts.Get(path) {
+		case option.Some{Value: inner}:
+			match inner {
+			case option.Some{Value: a}:
+				acc = acc.Append(a.Frozen)
+			case option.None:
+				acc = acc.Append(store.Freeze(store.New(path, []string{})))
+			}
+		case option.None:
+			acc = acc.Append(store.Freeze(store.New(path, []string{})))
+		}
+	}
+	acc
+}
+
+func ifacesOf(paths []string, arts Map[string, option.Option[Art]], have0 []types.Iface) []types.Iface {
+	let mut acc = []types.Iface{}
+	for path in paths {
+		let mut found = false
+		for d in have0 {
+			if d.Path == path {
+				acc = acc.Append(d)
+				found = true
+				break
+			}
+		}
+		if found {
+			continue
+		}
+		match arts.Get(path) {
+		case option.Some{Value: inner}:
+			match inner {
+			case option.Some{Value: a}:
+				acc = acc.Append(a.Iface)
+			case option.None:
+				acc = acc.Append(types.EmptyIface(path))
+			}
+		case option.None:
+			acc = acc.Append(types.EmptyIface(path))
+		}
+	}
+	acc
+}
+
+func depsOf(paths []string, arts Map[string, option.Option[Art]]) []expr.Dep {
+	let mut acc = []expr.Dep{}
+	for path in paths {
+		match arts.Get(path) {
+		case option.Some{Value: inner}:
+			match inner {
+			case option.Some{Value: a}:
+				acc = acc.Append(a.Dep)
+			case option.None:
+			}
+		case option.None:
+		}
+	}
+	acc
+}
+
+func modIdx(k int, n int) int {
+	((k % n) + n) % n
+}
+
+func planSample(picks []int) ([]string, [][]string) {
+	let mut paths = []string{"prelude", "core", "option", "collections", "m/lib", "m/mid", "m/app", "m/leaf", "main", "main"}
+	let mut imps = [][]string{
+		[]string{},
+		[]string{},
+		[]string{},
+		[]string{},
+		[]string{},
+		[]string{"m/lib"},
+		[]string{"m/lib", "m/mid"},
+		[]string{"m/app"},
+		[]string{"m/app", "m/lib"},
+		[]string{"m/mid"},
+	}
+	if picks.Len() > 0 && modIdx(picks[0], 2) == 1 {
+		paths = []string{"main", "m/app", "m/mid", "m/lib", "m/leaf", "main", "collections", "option", "core", "prelude"}
+		imps = [][]string{
+			[]string{"m/app", "m/lib"},
+			[]string{"m/lib", "m/mid"},
+			[]string{"m/lib"},
+			[]string{},
+			[]string{"m/app"},
+			[]string{"m/mid"},
+			[]string{},
+			[]string{},
+			[]string{},
+			[]string{},
+		}
+	}
+	if picks.Len() > 1 && modIdx(picks[1], 2) == 1 {
+		imps[0] = imps[0].Append("m/nonexistent")
+	}
+	(paths, imps)
+}
+
+func planOrdered(picks []int) bool {
+	let cyc = PlanOf([]string{"m/a", "m/b"}, [][]string{[]string{"m/b"}, []string{"m/a"}})
+	if !cyc.Whole {
+		return false
+	}
+	let (paths, imports) = planSample(picks)
+	let plan = PlanOf(paths, imports)
+	if plan.Whole || plan.Last.Len() != paths.Len() {
+		return false
+	}
+	let mut counts = slices.Repeat([]int{0}, paths.Len())
+	let mut waveOf = slices.Repeat([]int{-1}, paths.Len())
+	for w, wave in plan.Waves {
+		for idx in wave {
+			if idx < 0 || idx >= paths.Len() {
+				return false
+			}
+			counts[idx] = counts[idx] + 1
+			waveOf[idx] = w
+		}
+	}
+	for i in 0..paths.Len() {
+		if counts[i] != 1 {
+			return false
+		}
+	}
+	let mut first = Map[string, int]{}
+	for i, p in paths {
+		if !isSome(first.Get(p)) {
+			first[p] = i
+		}
+	}
+	let mut wantLast = slices.Repeat([]int{-1}, paths.Len())
+	for i, p in paths {
+		let mut reads = []int{}
+		for imp in imports[i] {
+			match first.Get(imp) {
+			case option.Some{Value: j}:
+				if j != i && !slices.Contains(reads, j) {
+					reads = reads.Append(j)
+				}
+			case option.None:
+			}
+		}
+		if !isBootstrapStd(p) {
+			for b in []string{"prelude", "option", "collections", "core"} {
+				match first.Get(b) {
+				case option.Some{Value: j}:
+					if j != i && !slices.Contains(reads, j) {
+						reads = reads.Append(j)
+					}
+				case option.None:
+				}
+			}
+		}
+		for j in reads {
+			if waveOf[j] >= waveOf[i] {
+				return false
+			}
+			if waveOf[i] > wantLast[j] {
+				wantLast[j] = waveOf[i]
+			}
+		}
+	}
+	for i in 0..paths.Len() {
+		if plan.Last[i] != wantLast[i] {
+			return false
+		}
+	}
+	true
+}
+
+// PlanOrdersReadsAndDropsAtLastWave: PlanOf places every read in an
+// earlier wave than its readers, sets Last to the last reader wave (-1
+// for leaves and duplicate paths), and sets Whole on read cycles.
+law PlanOrdersReadsAndDropsAtLastWave(picks []int) {
+	planOrdered(picks)
+}
+
+func parseBindFile(name string, src string) bind.File {
+	bind.File{Name: name, Parsed: syntax.Parse(src)}
+}
+
+func streamUnits(picks []int) []Unit {
+	let pre = UnitOf(
+		TablesOf("", "@pkg prelude prelude 1\n"),
+		[]bind.File{parseBindFile("prelude.ergo", "func Id(x int) int { x }\n")},
+		[]string{"std/prelude/prelude.ergo"},
+	)
+	let lib = UnitOf(
+		TablesOf("", "@pkg lib m/lib 1\n"),
+		[]bind.File{parseBindFile("lib.ergo", "type Box { V int }\n\nfunc Make(x int) Box { Box{V: x} }\n\nfunc (b Box) Inc() int { b.V + 1 }\n")},
+		[]string{"m/lib/lib.ergo"},
+	)
+	let mid = UnitOf(
+		TablesOf("", "@pkg mid m/mid 1\n"),
+		[]bind.File{parseBindFile("mid.ergo", "import m/lib\n\nfunc Wrap(x int) int { lib.Make(x).Inc() }\n")},
+		[]string{"m/mid/mid.ergo"},
+	)
+	let mut appSrc = "import m/lib\nimport m/mid\n\nfunc App(x int) int {\n\tlet b = lib.Make(x)\n\tmid.Wrap(b.V)\n}\n"
+	if picks.Len() > 1 && modIdx(picks[1], 2) == 1 {
+		appSrc = appSrc + "\nfunc Bad() bool {\n\tlet bad bool = mid.Wrap(1)\n\tbad\n}\n"
+	}
+	let app = UnitOf(
+		TablesOf("", "@pkg app m/app 1\n"),
+		[]bind.File{parseBindFile("app.ergo", appSrc)},
+		[]string{"m/app/app.ergo"},
+	)
+	let m1 = UnitOf(
+		TablesOf("", "@pkg main main 1\n"),
+		[]bind.File{parseBindFile("main.ergo", "import m/app\nimport m/lib\n\nfunc main() { let _ = app.App(lib.Make(1).V) }\n")},
+		[]string{"cmd/main1/main.ergo"},
+	)
+	let m2 = UnitOf(
+		TablesOf("", "@pkg main main 1\n"),
+		[]bind.File{parseBindFile("main.ergo", "import m/mid\n\nfunc main() { let _ = mid.Wrap(2) }\n")},
+		[]string{"cmd/main2/main.ergo"},
+	)
+	let order = if picks.Len() == 0 { 0 } else { modIdx(picks[0], 3) }
+	if order == 0 {
+		[]Unit{pre, lib, mid, app, m1, m2}
+	} else if order == 1 {
+		[]Unit{m2, app, mid, m1, lib, pre}
+	} else {
+		[]Unit{mid, lib, m1, app, pre, m2}
+	}
+}
+
+func typedEqual(a Typed, b Typed, path string) bool {
+	if a.T.Entries.Len() != b.T.Entries.Len() ||
+		a.T.Diags.Len() != b.T.Diags.Len() ||
+		a.T.SelfInference.Len() != b.T.SelfInference.Len() ||
+		a.T.BareSelfCalls.Len() != b.T.BareSelfCalls.Len() ||
+		a.T.LookupDiags.Len() != b.T.LookupDiags.Len() ||
+		a.T.UsedImports.Len() != b.T.UsedImports.Len() ||
+		a.T.Insts.Len() != b.T.Insts.Len() ||
+		a.T.Calls.Len() != b.T.Calls.Len() ||
+		a.T.Caps.Len() != b.T.Caps.Len() ||
+		a.T.Decodes.Len() != b.T.Decodes.Len() ||
+		a.T.Outside.Len() != b.T.Outside.Len() {
+		return false
+	}
+	for k in 0..a.T.Entries.Len() {
+		let e = a.T.Entries[k]
+		let f = b.T.Entries[k]
+		if e.At != f.At || e.Fn != f.Fn {
+			return false
+		}
+		let ps = if e.Fn >= 0 && e.Fn < a.K.Fns.Len() { a.K.Fns[e.Fn].Params } else { []string{} }
+		let qs = if f.Fn >= 0 && f.Fn < b.K.Fns.Len() { b.K.Fns[f.Fn].Params } else { []string{} }
+		let na = types.Names{Params: ps, Foreign: a.K.Foreign, Pkg: path, Deps: a.K.Ifaces}
+		let nb = types.Names{Params: qs, Foreign: b.K.Foreign, Pkg: path, Deps: b.K.Ifaces}
+		if types.Text(a.S, na, e.T) != types.Text(b.S, nb, f.T) {
+			return false
+		}
+	}
+	for k in 0..a.T.Diags.Len() {
+		if a.T.Diags[k].At != b.T.Diags[k].At || a.T.Diags[k].Fn != b.T.Diags[k].Fn {
+			return false
+		}
+	}
+	true
+}
+
+func streamMatches(picks []int, n int) bool {
+	let units = streamUnits(picks)
+	let prog = LoadAll(units, []types.Iface{}, 1)
+	if prog.Loaded.Len() != units.Len() {
+		return false
+	}
+	let mut paths = []string{}
+	let mut imps = [][]string{}
+	for u in units {
+		paths = paths.Append(u.Path)
+		imps = imps.Append(bind.Imports(u.Files))
+	}
+	let plan = PlanOf(paths, imps)
+	if plan.Whole {
+		return false
+	}
+	let mut dropAt = [][]int{}
+	for _ in 0..plan.Waves.Len() {
+		dropAt = dropAt.Append([]int{})
+	}
+	for j, w in plan.Last {
+		if w >= 0 {
+			dropAt[w] = dropAt[w].Append(j)
+		}
+	}
+	let many = 1 + modIdx(n, 4)
+	for threads in []int{1, many} {
+		let mut arts = Map[string, option.Option[Art]]{}
+		let mut got = []option.Option[Typed]{}
+		for _ in 0..units.Len() {
+			got = got.Append(option.None)
+		}
+		for w, wave in plan.Waves {
+			let mut nextArts = []option.Option[Art]{}
+			for idx in wave {
+				let r = Step(units[idx], arts, []types.Iface{}, threads, plan.Last[idx] >= 0)
+				got[idx] = option.Some[Typed]{Value: r.T}
+				nextArts = nextArts.Append(r.A)
+			}
+			for k, idx in wave {
+				if plan.Last[idx] >= 0 {
+					arts[paths[idx]] = nextArts[k]
+				}
+			}
+			for j in dropAt[w] {
+				arts[paths[j]] = option.None
+			}
+		}
+		for i, u in units {
+			let mut pos = -1
+			for k, ui in prog.Units {
+				if ui == i {
+					pos = k
+					break
+				}
+			}
+			if pos < 0 {
+				return false
+			}
+			let want = TypeAt(prog, pos)
+			match got[i] {
+			case option.Some{Value: d}:
+				if !typedEqual(d, want, u.Path) {
+					return false
+				}
+			case option.None:
+				return false
+			}
+		}
+	}
+	true
+}
+
+// StreamMatchesLoadAll: Step wave by wave while dropping Arts after
+// Last produces the same types and diagnostics as LoadAll + TypeAt,
+// independent of threads.
+law StreamMatchesLoadAll(picks []int, n int) {
+	streamMatches(picks, n)
+}
