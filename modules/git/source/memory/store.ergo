@@ -53,7 +53,7 @@ type Store {
 func New(policy Policy) Store {
 	Store{
 		policy: policy,
-		cell: sync.NewRef(book{
+		cell:   sync.NewRef(book{
 			objects: Map[string, source.Object]{},
 			log:     []source.Changeset{},
 			at:      Map[source.ChangeID, int]{},
@@ -99,7 +99,7 @@ func Append(s Store, parents []source.ChangeID, changes []source.FileChange, met
 		for p in parents {
 			match b.index.Get(p) {
 			case option.Some[change] as c:
-				gen = if c.Value.gen + 1 > gen { c.Value.gen + 1 } else { gen }
+				gen = if c.Value.gen+1 > gen { c.Value.gen + 1 } else { gen }
 			case option.None:
 				return (appendRefused{Why: source.UnknownParent{ID: p}}, b)
 			}

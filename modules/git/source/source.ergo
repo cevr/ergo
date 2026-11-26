@@ -189,12 +189,12 @@ type Source {
 		let h = try drive(codes)
 		let mut ask = h.blobs
 		ask = ask.Append(try Source.Root(h.ids[index(pick, h.ids.Len())]))
-		let first = try Source.Want(ask, 1 << 30)
+		let first = try Source.Want(ask, 1<<30)
 		let mut c = newClient(h.format)
 		for id in h.ids {
 			let _ = try c.files(try Source.Root(id))
 		}
-		let second = try Source.Want(ask, 1 << 30)
+		let second = try Source.Want(ask, 1<<30)
 		first == second
 	},
 
@@ -567,7 +567,7 @@ func drive(codes []int) history fails Error | oid.Collision needs Source {
 		let count = r % 4
 		for _ in 0..count {
 			r = nextDraw(r)
-			let path = lawPaths()[r % 7]
+			let path = lawPaths()[r%7]
 			let mut free = true
 			for c in changes {
 				if clashes(changePath(c), path) {
@@ -575,10 +575,10 @@ func drive(codes []int) history fails Error | oid.Collision needs Source {
 				}
 			}
 			if free {
-				if (r / 7) % 4 == 0 {
+				if (r/7)%4 == 0 {
 					changes = changes.Append(Delete{Path: path})
 				} else {
-					changes = changes.Append(Put{Path: path, Blob: contents[(r / 28) % 4], Mode: lawMode(r / 112)})
+					changes = changes.Append(Put{Path: path, Blob: contents[(r/28)%4], Mode: lawMode(r / 112)})
 				}
 			}
 		}
@@ -626,7 +626,7 @@ func object(c mut client, id oid.OID) Object fails Missing | Corrupt | LimitExce
 	case option.Some[Object] as o:
 		o.Value
 	case option.None:
-		let got = try Source.Want([]oid.OID{id}, 1 << 30)
+		let got = try Source.Want([]oid.OID{id}, 1<<30)
 		if got.Len() != 1 {
 			return Missing{ID: id}
 		}
