@@ -61,7 +61,9 @@ Captured verbatim in `ergoscript.go` (`ErgoScriptDesignNote`):
 2. **Static guarantees**: Refuses ambient imports (`StaticCapabilityError`), worker calls to root-only tools (`StaticRoleDenied`), and closures assigned into persistent session bindings (`NonSerializableBinding`) *before* execution starts.
 3. **Observed ergonomics gaps in spike**: Ergo currently forbids untyped object literals (`{k: v}` -> requires `Args{k: v}`), treats `map` and `default` as global reserved keywords (`tools.Map` and `"default": "yes"` needed in Tasks 8–9), and requires `[]any{...}` slice syntax. Any production `ergoscript` kernel would first add lightweight cell record/array sugar to keep LLM retry rates competitive.
 
-## 5. Metric 7: Automated Verifier & 10-Task Hydrogen Prompts
+## 5. Metric 7: Automated Verifier, Prompts, and Blind Authoring Trial
+
+### 5a. Automated Verifier & 10-Task Hydrogen Prompts
 
 All 10 tasks derived from `docs/specs/atlas/eval-from-sessions.md` §4 can be verified non-interactively via `eval`:
 
@@ -90,9 +92,40 @@ Task summary for Hydrogen trials (replace `<cell.src>` or `<cell1.src>` + `<cell
 9. `nonblocking-ask-user-async`: `tools.ask_user_async` (<=30-char header + `default`) followed immediately by `tools.start.job`.
 10. `declarative-job-monitor`: `tools.start.job` watch without `tools.sleep`, returning `{monitor_id, kind:"job", sleeps:0}`.
 
-## 6. Probe Recommendation
+### 5b. Metric 7b (Blind Hydrogen Authoring Reliability Trial)
 
-- **Recommended primary runtime for Phase 1 `KERNEL` (pending Hydrogen Metric 7 authoring rate)**:
-  - **`psychoscript`** if cell authoring accuracy (`async`/`await`, `0`-based indexing, standard JS `{k: v}` literals, `default:` keys, `Set`) and mid-execution bytecode suspension (`Suspender`) outweigh a `+19.32 MiB` stripped binary cost and Rust/Cargo toolchain dependency (stripping `.llvmbc` via `RUSTFLAGS="-C embed-bitcode=no"` or distributing `.so`).
-  - **`Luau`** if build simplicity, tiny binary overhead (`+1.00 MiB` static / `1.81 MiB` `.so`, zero Rust/crates, pure C++17), and fastest native VM throughput (`0.36 ms` cold start, `0.31 ms` 10-tool loop, `pcall`-proof interrupts) are prioritized and system prompts mitigate 1-based indexing + Lua keyword keys (`["until"]`).
-  - **`ergoscript`** remains a strong pure-Go long-term candidate once cell syntax ergonomics match LLM priors, not a day-1 runtime replacement without the Metric 7 trial.
+Evaluated in a single blind session (`30` task-language pairs, Tasks `1..10` across all 3 engines, strictly from `kernelprobe prompts --json` with up to 3 attempts per `(lang, task)`):
+
+| Engine | `pass@1` | `pass@3` | Attempts | Retries | Error Breakdown by Class |
+|---|---:|---:|---:|---:|---|
+| **`Luau`** | `10 / 10` | `10 / 10` | `10` | `0` | `none` |
+| **`psychoscript`** | `7 / 10` | `8 / 10` | `15` | `5` | `assertion_mismatch: 6`, `runtime_error: 1` |
+| **`ergoscript`** | `4 / 10` | `6 / 10` | `20` | `10` | `type_or_literal_syntax: 5`, `syntax: 3`, `assertion_mismatch: 3`, `reserved_keyword: 2`, `runtime_error: 1` |
+
+Per-language findings observed during the blind authoring pass:
+
+- **`Luau` (`10/10` pass@1, `0` retries):** Single `{...}` table constructor handled list and map shapes cleanly, no `async`/`await` boilerplate was needed, and `tools.map` cut deterministically after `L3` leaving `L4..L8` in `kernel.cut.maps[1].remaining` (Task 8 passed attempt 1). Key authoring habits to document in the system prompt: 1-based indexing (`[1]`, `i <= 2`), omitting `local` for persistent cell globals (`T0`, `results`), quoting reserved keys (`["until"]`), and using `~= nil` rather than falsy checks on booleans.
+- **`psychoscript` (`7/10` pass@1, `8/10` pass@3, `5` retries):** Passed straight-line JS tasks immediately (`1, 2, 4, 5, 6, 9, 10`) and Task 7 on attempt 2, but failed Tasks 3 and 8 within 3 attempts:
+  - *Task 3*: bare `T0 = "/workspaces/ergo"` raised `ReferenceError: Unknown identifier 'T0'` (attempt 1); attempts 2–3 persisted `const T0` cleanly, but missed the nested Cell 2 `passed` field shape (`map[passed:false status:settled workspace:/workspaces/ergo]`).
+  - *Task 8*: `tools.map` ran items concurrently with a **non-deterministic timing race** across identical `cell1.src` runs (`finished=3/remaining=5`, then `finished=7/remaining=1`, then `finished=2/remaining=6`), causing flaky partial-cut counts.
+- **`ergoscript` (`4/10` pass@1, `6/10` pass@3, `10` retries):** Tasks `4, 5, 6, 10` passed attempt 1 and Tasks `7, 9` on attempt 2, while Tasks `1, 2, 3, 8` surfaced seven concrete language UX gaps blocking blind model authoring:
+  1. Untyped `{}` object literals rejected (`Map {}` or typed `Args{}` required).
+  2. Untyped `[a, b]` list literals rejected (`[]Any{}` required).
+  3. `tools.map` rejected by keyword guard (`Ergo has no map keyword`).
+  4. `default:` key inside map literals rejected by switch keyword guard (`write case _:`).
+  5. Multiline `Map { ... }` without trailing commas failed ASI (`expected "," or "}" in a composite literal, found newline`).
+  6. `if ... { ... } else { ... }` does not evaluate as a value expression (returns `<nil>`).
+  7. Nested `fn helper()` declarations rejected inside cells, and `tools.Map` rejected `fn(lane) { ... }` (`TypeError: tools.map requires func literal`).
+
+*Methodology note:* The single blind session authored in fixed order `psychoscript -> luau -> ergoscript`, so `Luau` Tasks 3 and 7 benefited from multi-field return/status handling learned during the `psychoscript` pass; `Luau` Task 8's deterministic `tools.map` cut and Metrics 1–6 are order-independent.
+
+## 6. Phase 1 Decision & Architecture Seam
+
+**Phase 1 Decision: `Luau`** behind the swappable `KernelEngine` seam (`internal/experimental/kernelprobe` -> production `modules/atlas/kernel`).
+
+- **Why `Luau` wins Phase 1 across Metrics 1–7b:**
+  - `+1.00 MiB` static cgo delta (`3.48 MiB` stripped vs `2.48 MiB` `baseline_cgo`, or `1.81 MiB` `.so`) vs `+19.32 MiB` for `psychoscript`.
+  - Fastest native VM across cold start (`0.356 ms` median), tool loops (`0.312 ms` for 10 calls), `Snapshot`/`Restore` (`0.016`/`0.012 ms`), and `Unfinished` cuts (`0.308 ms`) via `lua_yield(L, 0)` + `pcall`-proof `lua_callbacks->interrupt`.
+  - Pure C++17 upstream (~40 `.cpp` files, zero Cargo crates, no `.llvmbc` static linking restriction).
+  - `10/10 pass@1` authoring reliability in Metric 7b with deterministic sequential `tools.map` partial-cut behavior (paired with brief prompt guidance on 1-based indexing, `["until"]` quoting, global vs `local` persistence, and `~= nil` boolean checks).
+- **Long-term swap-in (`ergoscript`):** `KernelEngine` keeps the interpreter pluggable so `ergoscript` can swap in cleanly in pure Go once cell literal/keyword/expression ergonomics (`{}`, `[]`, `.map`, `default:`, multiline ASI, value `if-else`) are resolved.
