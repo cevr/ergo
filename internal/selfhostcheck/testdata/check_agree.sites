@@ -1499,7 +1499,6 @@ site S108 missing in internal/sketch/check/testdata/fixtures/negative/wire-const
 site S108 missing in internal/sketch/check/testdata/fixtures/negative/wire-constraint.ergo: wire-constraint.ergo 24:2: S108 Sink does not satisfy the constraint wire of keep's T: Sink does not satisfy wire: it is an operation type (types.md, Codecs 1) (types.md, Generics 2)
 site S108 missing in internal/sketch/check/testdata/fixtures/negative/wire-constraint.ergo: wire-constraint.ergo 25:2: S108 duration does not satisfy the constraint wire of keep's T: duration does not satisfy wire: it has no wire form (types.md, Codecs 1) (types.md, Generics 2)
 site S108 missing in internal/sketch/check/testdata/fixtures/negative/wire-constraint.ergo: wire-constraint.ergo 29:2: S108 T does not satisfy the constraint wire of keep's T: T does not satisfy wire: it is a type parameter without the wire constraint (types.md, Codecs 1) (types.md, Generics 2)
-site S108 missing in internal/sketch/check/testdata/v1/A2-default-and-operands.neg.ergo: A2-default-and-operands.neg.ergo 4:10: S108 mismatched types int and float64; write 1.0 + 2.5
 site S108 missing in internal/sketch/check/testdata/v1/A3-typed-constants.neg.ergo: A3-typed-constants.neg.ergo 6:15: S108 Limit is int; write int8(Limit) or declare Limit int8
 site S108 missing in internal/sketch/check/testdata/v1/A4-literal-inference.neg.ergo: A4-literal-inference.neg.ergo 8:9: S108 cannot infer T; write the type arguments, e.g. Two[int](…): its literal arguments take int and int32 (D6)
 site S108 missing in internal/sketch/check/testdata/v1/A5-overflow.neg.ergo: A5-overflow.neg.ergo 2:17: S108 the constant 300 overflows int8 (types.md, Basic types 2)
@@ -1531,7 +1530,6 @@ site S108 missing in internal/sketch/check/testdata/v1/D2-no-shadowing.neg.ergo:
 site S108 missing in internal/sketch/check/testdata/v1/D2-no-shadowing.neg.ergo: D2-no-shadowing.neg.ergo 6:7: S108 x is already a parameter of an enclosing scope in this function; choose another name (no shadowing)
 site S108 missing in internal/sketch/check/testdata/v1/D4-one-for.neg.ergo: D4-one-for.neg.ergo 15:6: S108 a for over Range[int] binds one name, the element: for x in …
 site S108 missing in internal/sketch/check/testdata/v1/D4-one-for.neg.ergo: D4-one-for.neg.ergo 18:11: S108 int is not iterable: count with for i in 0..n
-site S108 missing in internal/sketch/check/testdata/v1/D4-one-for.neg.ergo: D4-one-for.neg.ergo 26:11: S108 mismatched types int and int64; write int64(a)
 site S108 missing in internal/sketch/check/testdata/v1/D4-one-for.neg.ergo: D4-one-for.neg.ergo 38:3: S108 the binding y cannot be reassigned; copy it into a local: let mut y2 = y
 site S108 missing in internal/sketch/check/testdata/v1/D4-one-for.neg.ergo: D4-one-for.neg.ergo 8:9: S108 mismatched types string and int64
 site S108 missing in internal/sketch/check/testdata/v1/D7-satisfaction.neg.ergo: D7-satisfaction.neg.ergo 29:7: S108 cannot use Tape as Orders in argument: Tape does not declare that it implements Orders: write implements Orders after Tape's body (types.md, Interface assignability 1)
