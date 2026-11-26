@@ -197,6 +197,12 @@ func (l *lowerer) pkgName(key pkgKey, base string) string {
 		name = l.names.alloc(HelperSpelling("", name))
 	}
 	l.pkgNames[key] = name
+	if path, ok := key.obj.(string); ok && key.kind == "import" {
+		if l.importNames == nil {
+			l.importNames = map[string]string{}
+		}
+		l.importNames[name] = path
+	}
 	l.pkgOrder = append(l.pkgOrder, pkgEntry{key: key, base: base})
 	return name
 }
@@ -258,6 +264,7 @@ type lowerer struct {
 	siteIDs      map[siteKey]siteNum         // each call position's CallSite Pkg and Id (siteid.go)
 	sitePkgs     []sitePkg                   // the packages in the call-site numbering (siteid.go)
 	initPkgs     []*check.Package            // the sourced libraries in initialization order
+	importNames  map[string]string           // pkgNames' import entries by Go name: each import's path (importPath)
 
 	names *namer // the Go package scope: every package-scope name (pkgnames.go)
 	fixed *namer // its parent: the fixed generated names and the prelude's (pkgnames.go, rules 4 and 5)

@@ -16,6 +16,7 @@ import (
 	"testing"
 
 	"ergo.local/prototype/internal/experimental/irspike"
+	"ergo.local/prototype/internal/proclimit"
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/lower"
 	"ergo.local/prototype/internal/sketchfront"
@@ -69,25 +70,43 @@ import (
 // Mutants it alone catches: testdata/mutants.json, rows lower-*.
 func TestCompilerIRAgreesWithBuilder(t *testing.T) {
 	needsBuild(t)
+	phases := newIRPhases(t)
 	witnesses := readIRWitnesses(t)
+	if os.Getenv("ERGO_IR_AGREE_SLICE") != "" {
+		for k := range witnesses {
+			if len(irSlice([]string{filepath.Dir(k.path)})) == 0 {
+				delete(witnesses, k)
+			}
+		}
+	}
 	required := len(witnesses)
 	ctx, cancel := testwait.Context(t, context.Background())
 	defer cancel()
 	bin := filepath.Join(t.TempDir(), "irdump")
-	if o, err := runCompiler(t, ctx, ergoCLI(t, ctx), "build", "-o", bin, "./cmd/irdump"); err != nil {
-		t.Fatalf("ergo build ./cmd/irdump: %v\n%s", err, o)
+	phases.next("cli-build")
+	cli := ergoCLI(t, ctx)
+	limit, err := proclimit.Limit(os.Environ(), proclimit.DefaultLimit)
+	if err != nil {
+		t.Fatal(err)
 	}
-	paths := irPathIDs{}
+	args := make(chan []string, 1)
+	sent := false
+	defer func() {
+		if !sent {
+			close(args)
+		}
+	}()
+	dump := startIRDump(ctx, cli, bin, limit, args)
+	phases.next("go-load")
 	importFixture := irImportFixtureDirs(t, filepath.Join(repoRoot(), "internal", "selfhostcheck", "testdata", "bind", "port_calls_import"))
 	importFixture = append(importFixture, irImportFixtureDirs(t, filepath.Join(repoRoot(), "internal", "selfhostcheck", "testdata", "bind", "port_shapes_import"), "leaf")...)
-	goFuncs, unlowered, rootDirs, testDirs, testOracle := goIRFuncs(t, paths, importFixture)
-	for dir, err := range unlowered {
-		t.Logf("%s: the Go builder does not lower its test build (its functions are not compared): %s", rel(dir), err)
-	}
+	plan := goIRPrograms(t, importFixture)
+	rootDirs, testDirs := plan.roots, plan.tests
 
 	// The Ergo side: exprdump's manifest, one line per corpus folder.
+	phases.next("go-check")
 	tmp := t.TempDir()
-	dirs := append(corpusDirs(t), importFixture...)
+	dirs := append(irSlice(corpusDirs(t)), importFixture...)
 	type side struct {
 		ok           bool
 		path         string
@@ -99,11 +118,6 @@ func TestCompilerIRAgreesWithBuilder(t *testing.T) {
 		_, foreign := goTypes(pkg)
 		sides[i] = side{ok: true, path: importPath(dirs[i], pkg), ext: ext, foreign: foreign}
 	})
-	for i := len(dirs) - len(importFixture); i < len(dirs); i++ {
-		if !sides[i].ok || unlowered[dirs[i]] != "" {
-			t.Fatalf("imported-call IR fixture did not check and lower: %s (%s)", rel(dirs[i]), unlowered[dirs[i]])
-		}
-	}
 	var manifest, roots, tests []string
 	for i, s := range sides {
 		if !s.ok {
@@ -126,6 +140,21 @@ func TestCompilerIRAgreesWithBuilder(t *testing.T) {
 	writeLines(t, rf, roots)
 	tf := filepath.Join(tmp, "tests")
 	writeLines(t, tf, tests)
+	args <- []string{"-std", stdDir(), "-roots", rf, "-tests", tf, "-corpus", m}
+	sent = true
+
+	phases.next("go-lower")
+	paths := irPathIDs{}
+	goFuncs := goIRFuncs(t, paths, plan)
+	unlowered, testOracle := plan.unlowered, plan.testOracle
+	for dir, err := range unlowered {
+		t.Logf("%s: the Go builder does not lower its test build (its functions are not compared): %s", rel(dir), err)
+	}
+	for i := len(dirs) - len(importFixture); i < len(dirs); i++ {
+		if !sides[i].ok || unlowered[dirs[i]] != "" {
+			t.Fatalf("imported-call IR fixture did not check and lower: %s (%s)", rel(dirs[i]), unlowered[dirs[i]])
+		}
+	}
 
 	reach := map[string]int{}
 	equal := map[irIdentity]struct{}{}
@@ -139,7 +168,15 @@ func TestCompilerIRAgreesWithBuilder(t *testing.T) {
 		matchLines = new(strings.Builder)
 	}
 	var files []string
-	for _, l := range runDump(t, ctx, bin, "-std", stdDir(), "-roots", rf, "-tests", tf, "-corpus", m) {
+	phases.next("irdump-wait")
+	r := <-dump
+	if r.err != nil {
+		t.Fatal(r.err)
+	}
+	dumped := r.lines
+	t.Logf("irdump itself: wall %.1fs cpu %.1fs, overlapped with go-lower", r.wall.Seconds(), r.cpu.Seconds())
+	phases.next("compare")
+	for _, l := range dumped {
 		kind, rest, _ := strings.Cut(l, " ")
 		switch kind {
 		case "@pkg":
@@ -207,6 +244,7 @@ func TestCompilerIRAgreesWithBuilder(t *testing.T) {
 			delete(witnesses, irWitnessSite{filepath.Clean(f[0]), f[1], wants[i].name})
 		}
 	}
+	phases.next("report")
 	if stopPath != "" {
 		if err := os.WriteFile(stopPath, []byte(stopLines.String()), 0o644); err != nil {
 			t.Fatalf("write IR agreement stops: %v", err)
@@ -229,6 +267,7 @@ func TestCompilerIRAgreesWithBuilder(t *testing.T) {
 	t.Logf("Go comparison corpus: %d distinct IR function identities (source position and split-normalized name)", goFuncs.functionCount())
 	t.Logf("Go comparison skipped: %d function emissions (Go did not lower their package)", reach[goSkipped])
 	t.Logf("IR witnesses: %d/%d reached matching bodies", required-len(witnesses), required)
+	phases.next("done")
 	var missing []string
 	for k, group := range witnesses {
 		missing = append(missing, fmt.Sprintf("%s: %s:%s %s did not reach a matching IR body", group, rel(k.path), k.offset, k.symbol))
@@ -1479,18 +1518,26 @@ test ReachesInTest { assert InTest(2) == 3 }
 	}
 }
 
-// goIRFuncs lowers each example program with the Go IR builder and
-// indexes its IR files' functions by declaration position, file indices
-// mapped to source paths.
-// The folders of the builds' root packages are the third result.
-func goIRFuncs(t *testing.T, paths irPathIDs, importFixture []string) (irGoIndex, map[string]string, map[string]bool, map[string]bool, irGoTestOracle) {
+// goIRPlan is the Go side's builds before any is lowered: the programs,
+// the folders of their root packages and of the packages built as tests,
+// the folders the Go front end does not load, and the test-build oracle.
+type goIRPlan struct {
+	programs     []irGoProgram
+	unlowered    map[string]string
+	roots, tests map[string]bool
+	testOracle   irGoTestOracle
+}
+
+// goIRPrograms loads each example program, each package no program
+// imports (as a test build), the fixtures and the std program for
+// goIRFuncs.
+func goIRPrograms(t *testing.T, importFixture []string) goIRPlan {
 	t.Helper()
-	idx := irGoIndex{}
 	unlowered := map[string]string{}
 	var programs []irGoProgram
 	testOracle := irGoTestOracle{roots: map[string]irGoProgram{}, cache: map[string]irGoIndex{}, unavailable: map[string]string{}}
 	covered := map[string]bool{}
-	for _, dir := range irPrograms(t) {
+	for _, dir := range irSlice(irPrograms(t)) {
 		u, err := irspike.Load(dir)
 		if err != nil {
 			t.Fatalf("%s: %v", dir, err)
@@ -1508,7 +1555,7 @@ func goIRFuncs(t *testing.T, paths irPathIDs, importFixture []string) (irGoIndex
 	// The corpus's own fixture (testdata/bind) is lowered alike; a folder
 	// the Go front end does not load is logged as one it does not lower.
 	fixture := filepath.Join(repoRoot(), "internal", "selfhostcheck", "testdata", "bind")
-	for _, dir := range append(append(targets, fixture), importFixture...) {
+	for _, dir := range append(append(irSlice(targets), irSlice([]string{fixture})...), importFixture...) {
 		if covered[dir] || filepath.Base(filepath.Dir(dir)) == "cmd" {
 			continue
 		}
@@ -1556,7 +1603,18 @@ func goIRFuncs(t *testing.T, paths irPathIDs, importFixture []string) (irGoIndex
 	for dir := range testOracle.roots {
 		tests[dir] = true
 	}
-	for _, pr := range programs {
+	return goIRPlan{programs: programs, unlowered: unlowered, roots: roots, tests: tests, testOracle: testOracle}
+}
+
+// goIRFuncs lowers each of plan's programs with the Go IR builder and
+// indexes its IR files' functions by declaration position, file indices
+// mapped to source paths. A test build it refuses is added to
+// plan.unlowered.
+func goIRFuncs(t *testing.T, paths irPathIDs, plan goIRPlan) irGoIndex {
+	t.Helper()
+	idx := irGoIndex{}
+	unlowered := plan.unlowered
+	for _, pr := range plan.programs {
 		err := indexGoIR(t, paths, idx, pr)
 		if err != nil && pr.tests {
 			// A test build the Go lowerer refuses (an internal compiler
@@ -1568,7 +1626,7 @@ func goIRFuncs(t *testing.T, paths irPathIDs, importFixture []string) (irGoIndex
 			t.Fatalf("%s: %v", pr.module, err)
 		}
 	}
-	return idx, unlowered, roots, tests, testOracle
+	return idx
 }
 
 func indexGoIR(t *testing.T, paths irPathIDs, idx irGoIndex, pr irGoProgram) error {
