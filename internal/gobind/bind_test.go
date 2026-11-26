@@ -331,7 +331,7 @@ func ref(t *gt, pos at, cb bool) (string, bool) {
 		case errResult:
 			return "go.Ref[S]", true
 		case result:
-			return "Option[go.Ref[S]]", true
+			return "option.Option[go.Ref[S]]", true
 		}
 		return "", false
 	case "slice":
@@ -348,7 +348,7 @@ func ref(t *gt, pos at, cb bool) (string, bool) {
 		return "Map[" + k + ", " + v + "]", ok1 && ok2
 	case "seq":
 		e, ok := ref(t.elem, inner, cb)
-		return "Seq[" + e + "]", ok
+		return "core.Seq[" + e + "]", ok
 	case "array":
 		// Go copies an array whole; an element that holds a slice or a
 		// Map would be shared, and is refused (batch-14 apply 1).
@@ -512,16 +512,16 @@ func genPackage(name string, r *rand.Rand) (string, map[string]verdict) {
 	// value twice. The same holds for an interface operation.
 	b.WriteString("type Conn struct{}\nfunc (c *Conn) Close() error { panic(0) }\nfunc (c *Conn) Read(p []byte) (int, error) { panic(0) }\ntype Box struct{ C *Conn; N int }\ntype Plain struct{ N int }\n")
 	b.WriteString("type Stream interface {\n\tClose() error\n\tRead() int\n\tDup() Stream\n}\n\n")
-	want["Conn"] = verdict{ergo: "type Conn {} implements io.Closer"}
+	want["Conn"] = verdict{ergo: "type Conn {} implements core.Closer"}
 	want["Conn.Close"] = verdict{ergo: "func (c own *Conn) Close() fails go.Error needs go.Foreign"}
 	want["Conn.Read"] = verdict{ergo: "func (c *Conn) Read(p []byte) int fails go.Error needs go.Foreign"}
-	want["Box"] = verdict{ergo: "type Box { C Option[go.Ref[Conn]], N int, }"}
+	want["Box"] = verdict{ergo: "type Box { C option.Option[go.Ref[Conn]], N int, }"}
 	want["Plain"] = verdict{ergo: "type Plain { N int, }"}
 	// The members' rows end at their commas (two literals: the row
 	// residue reads one).
 	want["Stream"] = verdict{ergo: "type Stream { ..io.Closer, own Dup() Stream needs go.Foreign" + ", Read() int needs go.Foreign, }"}
 	for _, m := range []struct{ name, results, ergo string }{
-		{"Self", "*Conn", "Option[go.Ref[Conn]]"},
+		{"Self", "*Conn", "option.Option[go.Ref[Conn]]"},
 		{"Value", "Conn", "Conn"},
 		{"Wrap", "Box", "Box"},
 		{"Reader", "io.Reader", "io.Reader"},
@@ -529,8 +529,8 @@ func genPackage(name string, r *rand.Rand) (string, map[string]verdict) {
 		{"Peek", "int", "int"},
 		{"Copy", "Plain", "Plain"},
 		{"Sibling", "(*S, error)", "go.Ref[S] fails go.Error"},
-		{"All", "iter.Seq[Conn]", "Seq[Conn]"},
-		{"Ints", "iter.Seq[int]", "Seq[int]"},
+		{"All", "iter.Seq[Conn]", "core.Seq[Conn]"},
+		{"Ints", "iter.Seq[int]", "core.Seq[int]"},
 	} {
 		fmt.Fprintf(&b, "func (c *Conn) %s() %s { panic(0) }\n", m.name, m.results)
 		mode := ""
@@ -550,7 +550,7 @@ func genPackage(name string, r *rand.Rand) (string, map[string]verdict) {
 	want["AnyArgs"] = verdict{ergo: "type AnyArgs { Values go.Any, }"}
 	// BV1's smallest repro: os.Stdout was refused as ordinary host state.
 	b.WriteString("var Stdout = os.Stdout\n\n")
-	want["Stdout"] = verdict{ergo: "let Stdout Option[go.Ref[os.File]]"}
+	want["Stdout"] = verdict{ergo: "let Stdout option.Option[go.Ref[os.File]]"}
 	// Generate method sets, not named special cases. Only Close() and
 	// Close() error make a resource; a pointer-only Close does not make
 	// a variable of the value type releasable by Go's value method set.
@@ -564,10 +564,7 @@ func genPackage(name string, r *rand.Rand) (string, map[string]verdict) {
 		fmt.Fprintf(&b, "type %s struct{}\nfunc (r %s) Close%s { panic(0) }\nvar Value%d %s\nvar Pointer%d *%s\n\n", name, recv, signature, i, name, i, name)
 		want[name] = verdict{ergo: "type " + name + " {}"}
 		if i < 2 {
-			// The binding declares the release (resources R1): the
-			// package's own Closer (below) hides the prelude's, so the
-			// clause names io.Closer, the contract's Go form.
-			want[name] = verdict{ergo: "type " + name + " {} implements io.Closer"}
+			want[name] = verdict{ergo: "type " + name + " {} implements core.Closer"}
 		}
 		ergoSig := signature
 		switch i {
@@ -589,7 +586,7 @@ func genPackage(name string, r *rand.Rand) (string, map[string]verdict) {
 			if !pointer {
 				want[fmt.Sprintf("Value%d", i)] = verdict{ergo: fmt.Sprintf("let Value%d %s", i, name)}
 			}
-			want[fmt.Sprintf("Pointer%d", i)] = verdict{ergo: fmt.Sprintf("let Pointer%d Option[go.Ref[%s]]", i, name)}
+			want[fmt.Sprintf("Pointer%d", i)] = verdict{ergo: fmt.Sprintf("let Pointer%d option.Option[go.Ref[%s]]", i, name)}
 		}
 	}
 	b.WriteString("var Closer io.ReadCloser\nvar Reader io.Reader\n\n")
@@ -657,7 +654,7 @@ func (g *gen) function(b *strings.Builder, want map[string]verdict, name, recv s
 		case 1:
 			goTP, ergoTP, g.tparams = []string{"T comparable"}, []string{"T comparable"}, []string{"T"}
 		case 2:
-			goTP, ergoTP, g.tparams = []string{"T cmp.Ordered"}, []string{"T ordered"}, []string{"T"}
+			goTP, ergoTP, g.tparams = []string{"T cmp.Ordered"}, []string{"T cmp.Ordered"}, []string{"T"}
 		case 3:
 			goTP, ergoTP, g.tparams = []string{"Q ~[]E", "E any"}, []string{"E"}, []string{"E"}
 			params, ergoParams = append(params, "q Q"), append(ergoParams, "q own []E")

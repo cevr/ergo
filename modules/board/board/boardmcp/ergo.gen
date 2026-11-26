@@ -2,4 +2,4 @@ kind mcp
 generator ergo gen mcp
 subject github.com/cevr/ergo/modules/board/board.Api
 contract sha256:395ff8899d0b7e5fe5e5e3fe50d2e38f8e891dcbac963dd3aa4595b31171c2de
-digest sha256:dd1e210cddf49c7209f6c85a5c8410bdfd2692f964616d52615feae3e9f4024f
+digest sha256:822984f38d6feec09f04214daf20d071950baed1a039689dcba5c9d02dadad19

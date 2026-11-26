@@ -1,6 +1,7 @@
 import api
 import flag
 import io
+import option
 import prompt
 import rpc
 import slices
@@ -71,9 +72,9 @@ func commandRunOf() flag.Command[Request] {
 
 func argText(a flag.ArgSpec, v flag.Values) string {
 	match a.Get(v) {
-	case Some[string] as s:
+	case option.Some[string] as s:
 		s.Value
-	case None:
+	case option.None:
 		""
 	}
 }
@@ -82,27 +83,27 @@ func argText(a flag.ArgSpec, v flag.Values) string {
 // flags and arguments. It builds only the command args[0] names; the
 // list of every command is built only for help or an unknown command.
 func Parse(args []string) Request fails flag.Failure {
-	let first = if len(args) > 0 { args[0] } else { "" }
+	let first = if args.Len() > 0 { args[0] } else { "" }
 	match first {
 	case "submit":
 		let c = commandSubmit()
-		let v = try flag.Parse(flag.Set{..c.Set, Name: "pipeline submit"}, slices.Slice(args, 1, len(args)))
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "pipeline submit"}, slices.Slice(args, 1, args.Len()))
 		try c.Build(v)
 	case "cancel":
 		let c = commandCancel()
-		let v = try flag.Parse(flag.Set{..c.Set, Name: "pipeline cancel"}, slices.Slice(args, 1, len(args)))
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "pipeline cancel"}, slices.Slice(args, 1, args.Len()))
 		try c.Build(v)
 	case "retry":
 		let c = commandRetry()
-		let v = try flag.Parse(flag.Set{..c.Set, Name: "pipeline retry"}, slices.Slice(args, 1, len(args)))
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "pipeline retry"}, slices.Slice(args, 1, args.Len()))
 		try c.Build(v)
 	case "board":
 		let c = commandBoard()
-		let v = try flag.Parse(flag.Set{..c.Set, Name: "pipeline board"}, slices.Slice(args, 1, len(args)))
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "pipeline board"}, slices.Slice(args, 1, args.Len()))
 		try c.Build(v)
 	case "run-of":
 		let c = commandRunOf()
-		let v = try flag.Parse(flag.Set{..c.Set, Name: "pipeline run-of"}, slices.Slice(args, 1, len(args)))
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "pipeline run-of"}, slices.Slice(args, 1, args.Len()))
 		try c.Build(v)
 	case _:
 		try flag.ParseCommand("pipeline", "pipeline.Pipeline on a command line", Commands(), args)
@@ -158,11 +159,11 @@ law ArgsRoundTrip(r Request) { RoundTrips(r) }
 // without --json (default None: a basic value as its text, else its
 // JSON; --json never calls it); Confirm, the question a call asks before
 // it runs (default None: none; --yes answers it).
-type Policy { Code func(f pipelineapi.Failure) int, Text func(r pipelineapi.Reply) Option[string], Confirm func(r Request) Option[string] }
+type Policy { Code func(f pipelineapi.Failure) int, Text func(r pipelineapi.Reply) option.Option[string], Confirm func(r Request) option.Option[string] }
 
 // Defaults is the Policy of a binary that decides nothing.
 func Defaults() Policy {
-	Policy{Code: func(f pipelineapi.Failure) int { 1 }, Text: func(r pipelineapi.Reply) Option[string] { None }, Confirm: func(r Request) Option[string] { None }}
+	Policy{Code: func(f pipelineapi.Failure) int { 1 }, Text: func(r pipelineapi.Reply) option.Option[string] { option.None }, Confirm: func(r Request) option.Option[string] { option.None }}
 }
 
 func answer(asJSON bool, plain string, encoded string) Output {
@@ -197,9 +198,9 @@ func Show(o pipelineapi.Outcome, asJSON bool, p Policy) Output {
 	case pipelineapi.Done as done:
 		if !asJSON {
 			match p.Text(done.Reply) {
-			case Some[string] as s:
+			case option.Some[string] as s:
 				return Output{Out: line(s.Value), Err: "", Code: 0}
-			case None:
+			case option.None:
 			}
 		}
 		match done.Reply {
@@ -395,9 +396,9 @@ func runOver[R](args []string, p Policy, answer func(r Request) pipelineapi.Outc
 	case asked as a:
 		if !a.Yes {
 			match p.Confirm(a.R) {
-			case Some[string] as q:
+			case option.Some[string] as q:
 				return needsYes(q.Value)
-			case None:
+			case option.None:
 			}
 		}
 		Show(answer(a.R), a.JSON, p)
@@ -424,7 +425,7 @@ func RunOnTerminal(args []string, p Policy) Output needs pipeline.Pipeline | ter
 	case asked as a:
 		if !a.Yes {
 			match p.Confirm(a.R) {
-			case Some[string] as q:
+			case option.Some[string] as q:
 				let yes = prompt.Confirm(q.Value, false) catch {
 				case prompt.NotInteractive:
 					return needsYes(q.Value)
@@ -436,7 +437,7 @@ func RunOnTerminal(args []string, p Policy) Output needs pipeline.Pipeline | ter
 				if !yes {
 					return declined(q.Value)
 				}
-			case None:
+			case option.None:
 			}
 		}
 		Show(pipelineapi.Call(a.R), a.JSON, p)
@@ -486,7 +487,7 @@ law CodeIsThePolicy(r Request, g pipelineapi.Given, k int) {
 // with --json every outcome prints as the wire's JSON, whatever Text says.
 law TextIsThePolicy(r Request, g pipelineapi.Given, t string) {
 	let d = Defaults()
-	let p = Policy{..d, Text: func(reply pipelineapi.Reply) Option[string] { Some[string]{Value: t} }}
+	let p = Policy{..d, Text: func(reply pipelineapi.Reply) option.Option[string] { option.Some[string]{Value: t} }}
 	let o = pipelineapi.OutcomeOf(r, g)
 	let same = Show(o, true, p) == Show(o, true, d)
 	match o {
