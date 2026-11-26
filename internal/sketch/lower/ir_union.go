@@ -138,12 +138,20 @@ func (b *irBuilder) scalarBasic(t check.Type) *check.Basic {
 //
 // Around it, the row gaps (ir_rowgap.go): what x reads is read as x's type
 // holds it first, and the converted value goes into x's place last.
+func (b *irBuilder) implicitConv(x syntax.Expr) (check.Conversion, bool) {
+	if b.skipImplicit[x] {
+		return check.Conversion{}, false
+	}
+	conv, ok := b.l.info.Implicit[x]
+	return conv, ok
+}
+
 func (b *irBuilder) implicit(x syntax.Expr, e *irExpr) *irExpr {
 	if e == nil || x == b.raw {
 		return e
 	}
 	e = b.rowRead(x, e)
-	if conv, ok := b.l.info.Implicit[x]; ok {
+	if conv, ok := b.implicitConv(x); ok {
 		e = b.convert(conv, e, x)
 	}
 	return b.rowWrite(x, e)
@@ -189,7 +197,7 @@ func (b *irBuilder) convert(conv check.Conversion, e *irExpr, x syntax.Expr) *ir
 // emitter's assignedTo): after x's implicit conversion, which value and
 // expr apply, a variant that joins a match's arms goes into its union.
 func (b *irBuilder) assignedTo(x syntax.Expr, e *irExpr, to check.Type) *irExpr {
-	if _, ok := b.l.info.Implicit[x]; ok || to == nil || e == nil {
+	if _, ok := b.implicitConv(x); ok || to == nil || e == nil {
 		return e
 	}
 	from := b.l.info.Types[x]

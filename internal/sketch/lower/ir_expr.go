@@ -137,7 +137,7 @@ func (b *irBuilder) valueOf(x syntax.Expr) ([]*irStmt, *irExpr) {
 		return nil, b.expr(x) // expr converts
 	}
 	e = b.ownTemp(unparen(x), b.valueCopy(unparen(x), e)) // ir_copy.go // ir_own.go: a temporary its statement owns (R43)
-	if _, ok := b.l.info.Implicit[x]; !ok {
+	if _, ok := b.implicitConv(x); !ok {
 		x = unparen(x)
 	}
 	return pre, b.implicit(x, e) // ir_union.go
