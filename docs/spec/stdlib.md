@@ -27,7 +27,7 @@ The standard library is the "Effect for Go" track, the standard library. Its mod
 | RPC | std rpc | Rpc, RpcGroup, RpcClient, RpcServer | `rpc.Answer` (an http handler, so one listener serves RPC beside other routes), `rpc.Serve`, `rpc.Call`, `rpc.Loopback` (a server in process, so a contract's laws run through the wire), and the server and client `ergo gen rpc` writes from an operation type ([rpc.md](rpc.md)) | library + host |
 | HTML | std html | (none; Lustre and Elm prior art) | `html` functions | library |
 | Actors | the actor library | cluster Entity (OTP, Gleam and Akka Typed prior art) | `actor.Start`, `actor.Ask` with an `actor.Reply[T, E]` in the message, `actor.Address[M]`, `actor.StartMachine(m, n)`, `actor.StartAgent` and `actor.Call` with a function on a lent `*S` ([actor library note](../research/actor-library.md)) | library: no compiler rule names it |
-| Host packages | std host packages | platform FileSystem, Path, Command, Socket; sql | `os`, `fs`, `net` ([net](#net)), `sql` with cancel hooks | host |
+| Host packages | std host packages | platform FileSystem, Path, Command, Socket; sql | `os`, `fs`, `host`, `net` ([net](#net)), `sql` with cancel hooks | host |
 | Core data | std core data | Option, Array, Record, HashMap, HashSet, Chunk, Order, Equivalence, Equal, Hash, Data | `core`, `option`, `collections`, `slices`, `maps`, `cmp` | library + built-in constraints |
 
 Out of scope for now: durable workflows.
@@ -1891,6 +1891,7 @@ The table has one row per std package, the prelude included. The Effect module i
 | `uuid` | none: Effect has no uuid | W4, W14 | a `Generator`'s V7 ids are ordered within a millisecond too (law `V7IsOrderedInProcess`); `V4` and `V7` draw from `rand.Secure` and read `time.Clock` in the caller's row, so a test binds `rand.NewSeededSecure` and `time.NewManual` and gets the same ids every run; a V7 sorts by its millisecond (law `V7IsOrderedByTime`); `Parse` fails with a typed `Malformed` ([keyed digests](#keyed-digests)) | `runtime/v1/digest.BenchmarkDigest`: `RandSecureBytes` against `crypto/rand.Read` |
 | `semver` | none: Effect has no version module; `Bun.semver` and Go's `golang.org/x/mod/semver` are the controls | W3, W6, W14 | `Version` and `Range` records, the comparator `Op` as a union matched exhaustively, `Malformed` in the row of `Parse` and `ParseRange`, laws for the order ([semver](#semver); [types.md, Unions](types.md#unions); [rows.md, Catch](rows.md#catch)) | pending: per-call instructions of `Parse` and `Compare` against x/mod/semver and the Go floor are in SQ4's receipt (`std-priv/SQ4/receipt-1.tsv`); std-count has no semver row yet |
 | `zlib` | none: Effect has no compression module; Go's `compress/zlib` and C Git loose objects are the controls | W5, W6, W14 | pure-Ergo RFC 1950/1951 codec with zero Go externs; closed failure union `Error` in the `fails` row (`BadHeader \| UnsupportedDict \| BadBlock \| BadDistance \| BadHuffman \| BadChecksum \| Truncated \| TrailingData \| LimitExceeded`), exact member-boundary `InflatePrefix` returning `Inflated{Data, Consumed}`, and strict `maxBytes` enforcement ([zlib](#zlib); [types.md, Unions](types.md#unions); [rows.md, Catch](rows.md#catch)) | `internal/sketch/lower.BenchmarkStdZlib` against Go's `compress/zlib` on a 4 KiB payload |
+| `host` | none: Effect relies on Node `os` / `@effect/platform` with throws and untyped process parsing | W4, W5, W6 | `System` capability with closed failure union `Unavailable \| NotFound \| Malformed`, construction-authorized `Host` provider (`NewHost() needs Ambient`), `Static` in-memory test provider, wire-compatible snapshots (`Status`, `LoadAvg`, `Memory`, `Volume`, `Process`), and pure `/proc` parsers with check-time invariant laws ([host](#host); [Host packages](#host-packages)) | none: reads `/proc` files and calls `runtime.NumCPU`, `os.Getpagesize`, and `hostfs.Statfs` once per query; no speed claim yet |
 
 *Prior art:* ReScript makes pipe-first `->` a plain call and uncurries by default (W2, W3); Elixir's `|>` is a macro and `with` chains the happy path (W1, W2), and `@derive` generates protocol code (W7, W8); Gleam's `use` replaces callbacks with plain lines and its `Result` replaces exceptions (W1, W5), with no type classes (W16); Roc and MoonBit derive equality, hashing and codecs (W7, W8), and Roc gives each host effect as a platform capability (W4, W18); Elm has no derivation and writes decoders by hand, the shape W7 and W17 avoid; Koka's evidence passing makes a tail-resumptive handler a direct call, as Ergo's environment of capabilities does (W14).
 
@@ -2678,6 +2679,34 @@ func main() fails os.Exit needs Console | Ambient {
 6. `Getwd` is the working directory, an absolute path, Go's `os.Getwd` (gap-os). It fails `NoWorkdir` with Go's text when the host cannot name it: the directory was removed, or a directory above it cannot be read. It fails with `NoWorkdir` when the working directory has been removed, on every host: Go's `os.Getwd` fails there on Linux but gives the old path on darwin, so `v1.OSGetwd` also checks that the path names the same file as `.` (`os.SameFile`). Go returns `(string, error)`; Ergo puts the one failure in the row. A program's own provider returns a fixed directory and keeps the operation's row, since a provider's function has the operation's fallibility (S106 "differs in fallibility"): `func Getwd(_ FakeEnv) string fails os.NoWorkdir { "/work" }`. The law `GetwdIsStable` states that two reads agree, in value and in failure: `Process` has no operation that changes the directory. The law `GetwdIsAbsolute` states that a directory it gives is absolute (`filepath.IsAbs`), so a message that names a file under it names one place. *Prior art:* Node's `process.cwd()` throws when the directory is gone; Elixir's `File.cwd/0` returns `{:error, reason}` and `File.cwd!/0` raises; Gleam's `simplifile.current_directory` returns a `Result`; Go's `os.Getwd` returns `(string, error)`.
 
 *Prior art:* Roc's basic-cli platform gives `Arg` and `Env` as platform effects, and its `main` can fail with `Exit code message`, which the platform writes and exits with; `os.Exit` takes that shape and adds the 1..125 check. Effect Platform reads the environment through a `ConfigProvider` layer and leaves argv to `@effect/cli`. Gleam's `argv` and `envoy` packages, Elixir's `System.argv/0` and `System.get_env/1`, and ReScript's Node bindings read the process directly, with no capability; Elixir's `System.get_env/1` returns `nil` for an unset key, and Gleam's `envoy.get` returns `Result(String, Nil)`. Elixir's `System.halt/1` ends the VM at once with any status; Ergo's `os.Exit` is a failure, so cleanup runs first and the status is checked.
+
+### host
+
+Std `host` provides host resource telemetry: CPU logical cores, run-queue load averages, physical memory, volume capacities, and operating-system process snapshots.
+
+```go
+import host
+
+func report() fails host.Unavailable | host.Malformed needs Console | host.System {
+	let st = try host.System.Status([]string{"/"})
+	let ps = try host.System.Processes()
+	Console.Println("cores=\(st.Cores) procs=\(ps.Len())")
+}
+
+func main() fails host.Unavailable | host.Malformed needs Console | Ambient {
+	with context { host.System: host.NewHost() } { try report() }
+}
+```
+
+| Declaration | Meaning |
+| --- | --- |
+| `type System { Status(volumes []string) Status fails Unavailable \| Malformed, Processes() []Process fails Unavailable \| Malformed, law StatusInvariants(volumes []string), law ProcessesValid() }` | The capability. |
+| `type Host { live hostOnly, … }`; `func NewHost() Host needs Ambient`; `Status`, `Processes` | The live host provider over `/proc`, `runtime.NumCPU`, `os.Getpagesize`, and `hostfs.Statfs` ([Host packages](#host-packages)). |
+| `type Static { … }`; `func NewStatic(status Status, processes []Process) Static fails Malformed`; `Status`, `Processes` | The pure in-memory provider for tests and check-time laws. |
+| `type LoadAvg { One, Five, Fifteen float64, Running, Entities int }`; `type Memory { TotalBytes, AvailableBytes, FreeBytes, UsedBytes int64 }`; `type Volume { Path string, TotalBytes, FreeBytes, AvailableBytes, UsedBytes int64 }`; `type Status { Cores int, Load LoadAvg, Memory Memory, Volumes []Volume }` | Host status snapshot records (`UsedBytes == TotalBytes - AvailableBytes` for memory, `TotalBytes - FreeBytes` for volumes). |
+| `type Process { PID, PPID int, State, Comm string, Cmdline []string, UserTicks, SysTicks, StartTicks, RSSBytes, VSizeBytes int64, Threads int }` | One process snapshot, sorted by `PID`; vanishing PIDs (`ENOENT` / `ESRCH` / `EACCES`) are skipped during `/proc/<pid>` scans. |
+| `type ProcStat`; `type ProcStatm`; `ParseLoadAvg`, `ParseMeminfo`, `ParseProcStat`, `ParseProcStatm`, `ParseCmdline`, `CPUTicks`, `CPUPercent`, `FindProcess` | Pure parsers and telemetry helpers with check-time invariant laws. |
+| `type Unavailable { Target, Reason string }`; `type NotFound { Target string }`; `type Malformed { Source, Reason string }`; `type Error = Unavailable \| NotFound \| Malformed` | The typed failures. |
 
 ### fs
 

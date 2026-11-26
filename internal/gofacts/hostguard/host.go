@@ -58,6 +58,18 @@ func hostCalls() map[string]func(s ambient) error {
 			}
 			return nil
 		},
+		"runtime.NumCPU": func(_ ambient) error {
+			if n := runtime.NumCPU(); n < 1 {
+				return fmt.Errorf("NumCPU() is %d, want >= 1", n)
+			}
+			return nil
+		},
+		"os.Getpagesize": func(_ ambient) error {
+			if p := os.Getpagesize(); p <= 0 {
+				return fmt.Errorf("Getpagesize() is %d, want > 0", p)
+			}
+			return nil
+		},
 	}
 	maps.Copy(calls, fileCalls()) // files.go
 	// The open-file rows (handles.go).

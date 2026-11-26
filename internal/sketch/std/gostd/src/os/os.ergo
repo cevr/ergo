@@ -216,7 +216,8 @@ extern go os.Getgid func Getgid() int needs go.Foreign
 extern go os.Getgroups func Getgroups() []int fails go.Error needs go.Foreign
 
 // ergo:go func Getpagesize() int
-extern go os.Getpagesize func Getpagesize() int needs go.Foreign
+// ergo:effect ambient (vouched: it returns the operating system's memory page size)
+extern go os.Getpagesize func Getpagesize() int needs Ambient
 
 // ergo:go func Getpid() int
 extern go os.Getpid func Getpid() int needs go.Foreign

@@ -432,6 +432,15 @@ hmac EqualIsEquality	TestStdKeyedLawsRun
 hmac MatchesRFC4231	TestStdKeyedLawsRun
 hmac SumHasSize	TestStdKeyedLawsRun
 hmac TagIsSum	TestStdKeyedLawsRun
+host CPUPercentInvariants	TestStdHostLawsRun
+host CmdlineParsing	TestStdHostLawsRun
+host FindProcessFindsOrFails	TestStdHostLawsRun
+host LoadAvgInvariants	TestStdHostLawsRun
+host MeminfoInvariants	TestStdHostLawsRun
+host ProcStatWithParensAndSpaces	TestStdHostLawsRun
+host ProcStatmInvariants	TestStdHostLawsRun
+host System.ProcessesValid	TestStdHostLawsRun
+host System.StatusInvariants	TestStdHostLawsRun
 html LinksRefuseScripts	TestStdHTMLLawsRun
 html RenderIsAppend	TestStdHTMLLawsRun
 html RenderParsesBack	TestStdHTMLLawsRun

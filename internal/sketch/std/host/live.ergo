@@ -1,0 +1,180 @@
+import fs
+import option
+import go os
+import go runtime
+import go ergo.local/prototype/runtime/v1/hostfs
+import slices
+import strings
+
+type hostOnly {}
+
+// Host is the live operating-system provider of System backed by /proc,
+// runtime.NumCPU, and filesystem Statfs calls.
+type Host {
+	live     hostOnly,
+	cores    int,
+	pageSize int64,
+	readFile func(path string) string fails fs.NotFound | fs.Denied | fs.Failed,
+	readDir  func(path string) []string fails fs.NotFound | fs.Denied | fs.Failed,
+} implements System
+
+// NewHost constructs a Host provider authorized to inspect operating-system
+// telemetry under Ambient.
+func NewHost() Host needs Ambient {
+	let f = fs.NewHost()
+	let p = os.Getpagesize()
+	let ps = if p > 0 { int64(p) } else { int64(4096) }
+	let c = runtime.NumCPU()
+	Host{
+		live:     hostOnly,
+		cores:    if c > 0 { c } else { 1 },
+		pageSize: ps,
+		readFile: func(path string) string fails fs.NotFound | fs.Denied | fs.Failed { try fs.ReadFile(f, path) },
+		readDir:  func(path string) []string fails fs.NotFound | fs.Denied | fs.Failed { try fs.ReadDir(f, path) },
+	}
+}
+
+// Status collects CPU core count, /proc/loadavg averages, /proc/meminfo
+// physical memory metrics, and capacity statistics for every path in volumes.
+func Status(h Host, volumes []string) Status fails Unavailable | Malformed needs Ambient {
+	let loadRaw = try readHostFile(h, "/proc/loadavg")
+	let load = try ParseLoadAvg(loadRaw)
+	let memRaw = try readHostFile(h, "/proc/meminfo")
+	let mem = try ParseMeminfo(memRaw)
+	let mut vols = slices.WithCapacity[Volume](volumes.Len())
+	for path in volumes {
+		let info = hostfs.Statfs(path) catch {
+		case go.Error as err:
+			return Unavailable{Target: path, Reason: err.Text}
+		}
+		if info.Total < int64(0) || info.Free < int64(0) || info.Available < int64(0) || info.Free > info.Total || info.Available > info.Total {
+			return Malformed{Source: "statfs:" + path, Reason: "filesystem free or available bytes exceed total"}
+		}
+		vols = vols.Append(Volume{
+			Path:           path,
+			TotalBytes:     info.Total,
+			FreeBytes:      info.Free,
+			AvailableBytes: info.Available,
+			UsedBytes:      info.Total - info.Free,
+		})
+	}
+	Status{
+		Cores:   h.cores,
+		Load:    load,
+		Memory:  mem,
+		Volumes: vols,
+	}
+}
+
+// Processes scans numeric /proc/<pid> directories, parsing stat, statm, and
+// cmdline entries while skipping processes that vanish during enumeration.
+func Processes(h Host) []Process fails Unavailable | Malformed {
+	let entries = h.readDir("/proc") catch {
+	case fs.NotFound:
+		return Unavailable{Target: "/proc", Reason: "not found"}
+	case fs.Denied:
+		return Unavailable{Target: "/proc", Reason: "permission denied"}
+	case fs.Failed as err:
+		return Unavailable{Target: "/proc", Reason: err.Reason}
+	}
+	let mut out = []Process{}
+	for name in entries {
+		if !isAllDigits(name) {
+			continue
+		}
+		let dir = "/proc/" + name
+		match try readOneProcess(h, dir) {
+		case option.Some[Process] as p:
+			out = out.Append(p.Value)
+		case option.None:
+		}
+	}
+	slices.SortFunc(out, compareProcessPID)
+}
+
+func readHostFile(h Host, path string) string fails Unavailable {
+	h.readFile(path) catch {
+	case fs.NotFound:
+		return Unavailable{Target: path, Reason: "not found"}
+	case fs.Denied:
+		return Unavailable{Target: path, Reason: "permission denied"}
+	case fs.Failed as err:
+		return Unavailable{Target: path, Reason: err.Reason}
+	}
+}
+
+func readOneProcess(h Host, dir string) option.Option[Process] fails Unavailable | Malformed {
+	let statPath = dir + "/stat"
+	let statRaw = h.readFile(statPath) catch {
+	case fs.NotFound, fs.Denied:
+		return option.None
+	case fs.Failed as err:
+		if isVanishedReason(err.Reason) {
+			return option.None
+		}
+		return Unavailable{Target: statPath, Reason: err.Reason}
+	}
+	if statRaw == "" {
+		return option.None
+	}
+	let st = try ParseProcStat(statRaw)
+
+	let statmPath = dir + "/statm"
+	let statmRaw = h.readFile(statmPath) catch {
+	case fs.NotFound, fs.Denied:
+		return option.None
+	case fs.Failed as err:
+		if isVanishedReason(err.Reason) {
+			return option.None
+		}
+		return Unavailable{Target: statmPath, Reason: err.Reason}
+	}
+	if statmRaw == "" {
+		return option.None
+	}
+	let stm = try ParseProcStatm(statmRaw, h.pageSize)
+
+	let cmdPath = dir + "/cmdline"
+	let cmdRaw = h.readFile(cmdPath) catch {
+	case fs.NotFound:
+		return option.None
+	case fs.Denied:
+		""
+	case fs.Failed as err:
+		if isVanishedReason(err.Reason) {
+			return option.None
+		}
+		return Unavailable{Target: cmdPath, Reason: err.Reason}
+	}
+	option.Some[Process]{Value: Process{
+		PID:        st.PID,
+		PPID:       st.PPID,
+		State:      st.State,
+		Comm:       st.Comm,
+		Cmdline:    ParseCmdline(cmdRaw),
+		UserTicks:  st.UserTicks,
+		SysTicks:   st.SysTicks,
+		StartTicks: st.StartTicks,
+		RSSBytes:   stm.ResidentBytes,
+		VSizeBytes: st.VSizeBytes,
+		Threads:    st.Threads,
+	}}
+}
+
+func isVanishedReason(reason string) bool {
+	let low = strings.ToLower(reason)
+	strings.Contains(low, "no such process") || strings.Contains(low, "no such file") || strings.Contains(low, "esrch")
+}
+
+func isAllDigits(s string) bool {
+	if s.Len() == 0 {
+		return false
+	}
+	for i in 0..s.Len() {
+		let b = s[i]
+		if b < byte('0') || b > byte('9') {
+			return false
+		}
+	}
+	true
+}
