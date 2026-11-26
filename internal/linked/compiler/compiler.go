@@ -69464,7 +69464,7 @@ func replayFlat(words []uint32, strs []string, out *ergoFlat[compiler_sir__File,
 func ergoInit(env *ergo__Env) {
 //line cachekey/warm.ergo:34:5
 	{
-		/*line cachekey/warm.ergo:34:5*/ compiler_scachekey__WarmLocations = []string{"GOTMPDIR", "GOCACHE", "GOMODCACHE", "GOPATH", "GOENV", "GOTELEMETRY", "GOTELEMETRYDIR", "GOMAXPROCS", "GOMEMLIMIT", "ERGO_CACHE", ergo.Let(compiler_scachekey__StageReportVariable), ergo.Let(compiler_scachekey__WarmVariable), "ERGO_PARITY_LOG", "ERGO_BUDGET", "ERGO_BUDGET_SCRATCH", "ERGO_BUDGET_CLASS", "ERGO_BUDGET_LANE", "ERGO_BUDGET_GRANT", "ERGO_BUDGET_BIN", "ERGO_BUDGET_CRIT", "ERGO_BUDGET_QUIET", "ERGO_GATE_CPUS", "ERGO_IRC"}
+		/*line cachekey/warm.ergo:34:5*/ compiler_scachekey__WarmLocations = []string{"GOTMPDIR", "GOCACHE", "GOMODCACHE", "GOPATH", "GOENV", "GOTELEMETRY", "GOTELEMETRYDIR", "GOMAXPROCS", "GOMEMLIMIT", "ERGO_CACHE", ergo.Let(compiler_scachekey__StageReportVariable), ergo.Let(compiler_scachekey__WarmVariable), "ERGO_PARITY_LOG", "ERGO_BUDGET", "ERGO_BUDGET_SCRATCH", "ERGO_BUDGET_CLASS", "ERGO_BUDGET_LANE", "ERGO_BUDGET_GRANT", "ERGO_BUDGET_BIN", "ERGO_BUDGET_CRIT", "ERGO_BUDGET_QUIET", "ERGO_BUDGET_CEILING", "ERGO_GATE_CPUS", "ERGO_IRC"}
 		/*line cachekey/warm.ergo:34:5*/
 	}
 //line ir/ir.ergo:105:5

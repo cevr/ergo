@@ -74,7 +74,7 @@ var warmEnv = map[string]bool{
 	"GOTELEMETRY": false, "GOTELEMETRYDIR": false, "GOMAXPROCS": false, "GOMEMLIMIT": false,
 	"ERGO_CACHE": false, StageReportVariable: false, WarmVariable: false, "ERGO_PARITY_LOG": false,
 	"ERGO_BUDGET": false, "ERGO_BUDGET_SCRATCH": false, "ERGO_BUDGET_CLASS": false, "ERGO_BUDGET_LANE": false,
-	"ERGO_BUDGET_GRANT": false, "ERGO_BUDGET_BIN": false, "ERGO_BUDGET_CRIT": false, "ERGO_BUDGET_QUIET": false,
+	"ERGO_BUDGET_GRANT": false, "ERGO_BUDGET_BIN": false, "ERGO_BUDGET_CRIT": false, "ERGO_BUDGET_QUIET": false, "ERGO_BUDGET_CEILING": false,
 	"ERGO_GATE_CPUS": false,
 	// The IR compiler's shared root (toolchain.IRCVariable): its entries'
 	// keys hold every input of the compile, so where they are kept
