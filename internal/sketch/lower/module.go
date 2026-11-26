@@ -249,6 +249,7 @@ type lowerer struct {
 	libsDone     bool
 	goPkgs       []*check.Package            // the Go packages the program reaches (import go; libraryPackages)
 	stdSrc       map[syntax.Node]int32       // the std nodes stdFileOf placed or answered: their file in stdFiles, -1 for none
+	stdLibs      []*check.Package            // the reached std packages, in libraries order (stdFileOf)
 	stdPlaced    map[syntax.Node]bool        // the std declarations whose every node stdSrc holds (placeStd)
 	stdWalks     int                         // the placing walks placeStd made: at most one per std declaration
 	stdFiles     []stdFile                   // the std files stdSrc names, by index

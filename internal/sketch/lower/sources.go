@@ -208,12 +208,13 @@ func (l *lowerer) stdFileOf(n syntax.Node) (stdFile, bool) {
 	}
 	if l.stdSrc == nil {
 		l.stdSrc, l.stdPlaced, l.stdFileIDs = map[syntax.Node]int32{}, map[syntax.Node]bool{}, map[*syntax.File]int32{}
-	}
-	libs := l.libraries()
-	for _, p := range libs {
-		if !p.Std() {
-			continue
+		for _, p := range l.libraries() {
+			if p.Std() {
+				l.stdLibs = append(l.stdLibs, p)
+			}
 		}
+	}
+	for _, p := range l.stdLibs {
 		for _, f := range p.Files() {
 			for _, d := range f.Decls {
 				if l.stdPlaced[d] || d.Pos() > n.Pos() || n.End() > d.End() {
@@ -226,10 +227,7 @@ func (l *lowerer) stdFileOf(n syntax.Node) (stdFile, bool) {
 			}
 		}
 	}
-	for _, p := range libs {
-		if !p.Std() {
-			continue
-		}
+	for _, p := range l.stdLibs {
 		for _, f := range p.Files() {
 			for _, d := range f.Decls {
 				if !l.stdPlaced[d] && holds(d, n) {
@@ -288,14 +286,12 @@ func (l *lowerer) placeStd(d syntax.Node, i int32) {
 }
 
 // stdAdmissions is each node an admission law of a reached std package
-// made, by the declaration of its law (admissionNodes), computed once.
+// made, by the declaration of its law (admissionNodes), computed once
+// over stdLibs, which stdFileOf has filled.
 func (l *lowerer) stdAdmissions() map[syntax.Node]syntax.Node {
 	if l.stdAdmit == nil {
 		l.stdAdmit = map[syntax.Node]syntax.Node{}
-		for _, p := range l.libraries() {
-			if !p.Std() {
-				continue
-			}
+		for _, p := range l.stdLibs {
 			admissionNodes(p, func(law, n syntax.Node) {
 				if _, ok := l.stdAdmit[n]; !ok {
 					l.stdAdmit[n] = law
