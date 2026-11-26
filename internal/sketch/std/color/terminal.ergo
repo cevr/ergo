@@ -204,18 +204,21 @@ type Depth {
 	},
 }
 
-func expandWith(c ansi.Color, basic func(n int) RGBA) option.Option[RGBA] {
+func expandWith(c ansi.Color, system []RGBA) option.Option[RGBA] {
 	match c {
 	case ansi.DefaultColor:
 		option.None
 	case ansi.Basic as b:
-		option.Some[RGBA]{Value: basic(if b.N < 0 { 0 } else if b.N > 15 { 15 } else { b.N })}
+		option.Some[RGBA]{Value: shown(system, if b.N < 0 { 0 } else if b.N > 15 { 15 } else { b.N })}
 	case ansi.Indexed as x:
-		let n = if x.N < 0 { 0 } else if x.N > 255 { 255 } else { x.N }
-		option.Some[RGBA]{Value: if n < 16 { basic(n) } else { Palette(n) }}
+		option.Some[RGBA]{Value: shown(system, if x.N < 0 { 0 } else if x.N > 255 { 255 } else { x.N })}
 	case ansi.RGB as x:
 		option.Some[RGBA]{Value: RGBA{R: toByte(float64(x.R) / 255.0), G: toByte(float64(x.G) / 255.0), B: toByte(float64(x.B) / 255.0), A: 255}}
 	}
+}
+
+func shown(system []RGBA, n int) RGBA {
+	if n < 16 && n < system.Len() { RGBA{..system[n], A: 255} } else { Palette(n) }
 }
 
 // TrueColor is the Depth of a 24-bit terminal: every colour is written as
@@ -226,7 +229,7 @@ type TrueColor {} implements Depth
 func Quantize(_ TrueColor, c RGBA) ansi.Color { ansi.RGB{R: int(c.R), G: int(c.G), B: int(c.B)} }
 
 // Expand is c as xterm shows it.
-func Expand(_ TrueColor, c ansi.Color) option.Option[RGBA] { expandWith(c, Palette) }
+func Expand(_ TrueColor, c ansi.Color) option.Option[RGBA] { expandWith(c, []RGBA{}) }
 
 // Palette256 is the Depth of a 256-colour terminal: a colour is written
 // as its Nearest256.
@@ -236,7 +239,9 @@ type Palette256 {} implements Depth
 func Quantize(_ Palette256, c RGBA) ansi.Color { ansi.Indexed{N: Nearest256(c)} }
 
 // Expand is c as xterm shows it.
-func Expand(_ Palette256, c ansi.Color) option.Option[RGBA] { expandWith(c, Palette) }
+func Expand(_ Palette256, c ansi.Color) option.Option[RGBA] { expandWith(c, []RGBA{}) }
+
+let onXterm16 = context { Depth: Xterm16() }
 
 // Palette16 is the Depth of a 16-colour terminal with its 16 colours:
 // xterm's (Xterm16) or the ones a program read from its terminal
@@ -269,10 +274,6 @@ func NewPalette16(colors []RGBA) Palette16 fails InvalidPalette {
 	Palette16{colors: cs}
 }
 
-func basicOf(p Palette16, n int) RGBA {
-	if n >= 0 && n < p.colors.Len() { RGBA{..p.colors[n], A: 255} } else { Palette(n) }
-}
-
 // Quantize is ansi.Basic of the nearest of p's colours (the lowest on a
 // tie).
 func Quantize(p Palette16, c RGBA) ansi.Color {
@@ -294,7 +295,7 @@ func Quantize(p Palette16, c RGBA) ansi.Color {
 }
 
 // Expand is c as a terminal with p's colours shows it.
-func Expand(p Palette16, c ansi.Color) option.Option[RGBA] { expandWith(c, func(n int) RGBA { basicOf(p, n) }) }
+func Expand(p Palette16, c ansi.Color) option.Option[RGBA] { expandWith(c, p.colors) }
 
 // Uncolored is the Depth of a terminal that shows no colour: every colour
 // is written as the terminal's own.
@@ -345,7 +346,7 @@ func Expand(d Detected, c ansi.Color) option.Option[RGBA] {
 	case LevelOff:
 		option.None
 	case Level16, Level256, LevelTrue:
-		expandWith(c, Palette)
+		expandWith(c, []RGBA{})
 	}
 }
 
