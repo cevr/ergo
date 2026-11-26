@@ -1,0 +1,219 @@
+import math
+import option
+import slices
+
+// Histogram is a sealed distribution metric descriptor with strictly ascending
+// finite bucket boundaries.
+type Histogram {
+	name       string,
+	help       string,
+	unit       string,
+	boundaries []float64,
+	labels     []Label,
+}
+
+func validateBoundaries(boundaries []float64) []float64 fails InvalidBoundaries {
+	if boundaries.Len() == 0 {
+		return InvalidBoundaries{Reason: "boundaries must not be empty"}
+	}
+	let mut out = slices.WithCapacity[float64](boundaries.Len())
+	for i, b in boundaries {
+		if math.IsNaN(b) || math.IsInf(b, 0) {
+			return InvalidBoundaries{Reason: "boundary must be finite"}
+		}
+		if i > 0 && b <= boundaries[i-1] {
+			return InvalidBoundaries{Reason: "boundaries must be strictly ascending"}
+		}
+		out = out.Append(b)
+	}
+	out
+}
+
+// NewHistogram constructs a validated Histogram descriptor with strictly
+// ascending finite boundaries.
+func NewHistogram(name string, help string, boundaries []float64) Histogram fails InvalidMetric | InvalidBoundaries {
+	let validName = try validateName(name)
+	let validBounds = try validateBoundaries(boundaries)
+	Histogram{name: validName, help: help, unit: "", boundaries: validBounds, labels: []Label{}}
+}
+
+// NewHistogramWithUnit constructs a validated Histogram descriptor carrying unit.
+func NewHistogramWithUnit(name string, help string, unit string, boundaries []float64) Histogram fails InvalidMetric | InvalidBoundaries {
+	let validName = try validateName(name)
+	let validBounds = try validateBoundaries(boundaries)
+	Histogram{name: validName, help: help, unit: unit, boundaries: validBounds, labels: []Label{}}
+}
+
+// LabelHistogram returns a copy of h with extra canonical labels merged.
+func LabelHistogram(h Histogram, labels []Label) Histogram {
+	Histogram{..h, labels: mergeLabels(h.labels, labels)}
+}
+
+// HistogramSpec returns the metadata and normalized labels of h.
+func HistogramSpec(h Histogram) Spec {
+	Spec{Name: h.name, Help: h.help, Unit: h.unit, Labels: slices.Clone(h.labels)}
+}
+
+// HistogramBoundaries returns a copy of h's strictly ascending boundaries.
+func HistogramBoundaries(h Histogram) []float64 {
+	slices.Clone(h.boundaries)
+}
+
+// DefaultLatencyBoundaries returns standard HTTP/RPC latency buckets in
+// seconds from 5ms to 10s.
+func DefaultLatencyBoundaries() []float64 {
+	[]float64{0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0}
+}
+
+// LinearBoundaries generates count strictly ascending boundaries starting at
+// start with step width.
+func LinearBoundaries(start float64, width float64, count int) []float64 fails InvalidBoundaries {
+	if count < 1 || math.IsNaN(start) || math.IsInf(start, 0) || math.IsNaN(width) || math.IsInf(width, 0) || width <= 0.0 {
+		return InvalidBoundaries{Reason: "linear boundaries require count >= 1, finite start, and positive finite width"}
+	}
+	let mut out = slices.WithCapacity[float64](count)
+	for i in 0..count {
+		let v = start + float64(i)*width
+		if math.IsNaN(v) || math.IsInf(v, 0) || (i > 0 && v <= out[i-1]) {
+			return InvalidBoundaries{Reason: "linear boundary overflow"}
+		}
+		out = out.Append(v)
+	}
+	out
+}
+
+// ExponentialBoundaries generates count strictly ascending boundaries starting
+// at positive start multiplied by factor > 1 each step.
+func ExponentialBoundaries(start float64, factor float64, count int) []float64 fails InvalidBoundaries {
+	if count < 1 || math.IsNaN(start) || math.IsInf(start, 0) || start <= 0.0 || math.IsNaN(factor) || math.IsInf(factor, 0) || factor <= 1.0 {
+		return InvalidBoundaries{Reason: "exponential boundaries require count >= 1, positive finite start, and finite factor > 1"}
+	}
+	let mut out = slices.WithCapacity[float64](count)
+	let mut cur = start
+	for i in 0..count {
+		if math.IsNaN(cur) || math.IsInf(cur, 0) || (i > 0 && cur <= out[i-1]) {
+			return InvalidBoundaries{Reason: "exponential boundary overflow"}
+		}
+		out = out.Append(cur)
+		cur = cur * factor
+	}
+	out
+}
+
+// Observe records finite value into Histogram h.
+func Observe(h Histogram, value float64, labels []Label) needs Sink {
+	applyChecked(UpdateHistogram{Metric: h, Value: value, Labels: labels})
+}
+
+// ObserveDuration records duration d in seconds into Histogram h.
+func ObserveDuration(h Histogram, d duration, labels []Label) needs Sink {
+	let secs = float64(int64(d)) / 1000000000.0
+	Observe(h, secs, labels)
+}
+
+// TryObserve records finite value into Histogram h, failing InvalidDelta or
+// BudgetExceeded under FailOverflow.
+func TryObserve(h Histogram, value float64, labels []Label) fails InvalidDelta | BudgetExceeded needs Sink {
+	try tryApply(UpdateHistogram{Metric: h, Value: value, Labels: labels})
+}
+
+// TryObserveDuration records duration d in seconds into Histogram h, failing
+// BudgetExceeded under FailOverflow.
+func TryObserveDuration(h Histogram, d duration, labels []Label) fails InvalidDelta | BudgetExceeded needs Sink {
+	let secs = float64(int64(d)) / 1000000000.0
+	try TryObserve(h, secs, labels)
+}
+
+// HistogramBucketsOrderedAndTotal: NewHistogram rejects empty, duplicate, or
+// non-ascending boundaries; recorded observations yield strictly ordered
+// boundaries, monotonically non-decreasing cumulative bucket counts totaling
+// Count, exact inclusive counts per bound, and exact Sum/Min/Max.
+law HistogramBucketsOrderedAndTotal(x1 int, x2 int, x3 int, x4 int) {
+	let mut badRejected = false
+	let _ = NewHistogram("bad.empty", "bad", []float64{}) catch {
+	case InvalidMetric:
+		return false
+	case InvalidBoundaries:
+		badRejected = true
+		Histogram{name: "", help: "", unit: "", boundaries: []float64{}, labels: []Label{}}
+	}
+	let mut dupRejected = false
+	let _ = NewHistogram("bad.dup", "bad", []float64{1.0, 1.0}) catch {
+	case InvalidMetric:
+		return false
+	case InvalidBoundaries:
+		dupRejected = true
+		Histogram{name: "", help: "", unit: "", boundaries: []float64{}, labels: []Label{}}
+	}
+	let mut descRejected = false
+	let _ = NewHistogram("bad.desc", "bad", []float64{5.0, 2.0}) catch {
+	case InvalidMetric:
+		return false
+	case InvalidBoundaries:
+		descRejected = true
+		Histogram{name: "", help: "", unit: "", boundaries: []float64{}, labels: []Label{}}
+	}
+	always badRejected && dupRejected && descRejected
+
+	let bounds = LinearBoundaries(1.0, 4.0, 3) catch {
+	case InvalidBoundaries:
+		return false
+	}
+	let h = NewHistogram("req.size", "Request size", bounds) catch {
+	case InvalidMetric, InvalidBoundaries:
+		return false
+	}
+	let samples = []float64{
+		float64(((x1%20)+20)%20) * 0.5,
+		float64(((x2%20)+20)%20) * 0.5,
+		float64(((x3%20)+20)%20) * 0.5,
+		float64(((x4%20)+20)%20) * 0.5,
+	}
+	let rec = DefaultRecorder()
+	with context { Sink: rec } {
+		for s in samples {
+			h.Observe(s, []Label{})
+		}
+	}
+	let gotOpt = rec.HistogramValue(h, []Label{})
+	let got = match gotOpt {
+	case option.Some[HistogramData] as v:
+		v.Value
+	case option.None:
+		return false
+	}
+	always got.Count == int64(samples.Len())
+	always got.Buckets.Len() == bounds.Len()
+	let mut wantSum = 0.0
+	let mut wantMin = samples[0]
+	let mut wantMax = samples[0]
+	for s in samples {
+		wantSum = wantSum + s
+		if s < wantMin {
+			wantMin = s
+		}
+		if s > wantMax {
+			wantMax = s
+		}
+	}
+	always got.Sum == wantSum
+	always got.Min == wantMin && got.Max == wantMax
+	let mut prevCount = int64(0)
+	let mut prevBound = -1.0
+	for i, b in got.Buckets {
+		if i > 0 {
+			always b.UpperBound > prevBound
+		}
+		always b.Count >= prevCount && b.Count <= got.Count
+		let mut exactLe = int64(0)
+		for s in samples {
+			if s <= b.UpperBound {
+				exactLe = exactLe + int64(1)
+			}
+		}
+		always b.Count == exactLe
+		prevCount = b.Count
+		prevBound = b.UpperBound
+	}
+	true
+}
