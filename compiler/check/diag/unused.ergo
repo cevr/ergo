@@ -114,8 +114,12 @@ func UnusedWithImports(files []bind.File, s store.Store, u bind.Uses, ps bind.Pa
 	}
 	for f, file in files {
 		let ims = imports(file.Parsed)
-		for im in ims {
-			if im.name == "_" || im.name == "." || isSome(outside[f].Get(im.name)) || (!im.isGo && slices.Contains(missing, im.path)) || refusedAlias(s, ims, im) {
+		let (named, quiet) = importRules(f, s, ims, missing)
+		for g in named {
+			out = out.Append(g)
+		}
+		for i, im in ims {
+			if quiet[i] || im.name == "_" || im.name == "." || isSome(outside[f].Get(im.name)) || (!im.isGo && slices.Contains(missing, im.path)) || refusedAlias(s, ims, im) {
 				continue
 			}
 			out = out.Append(Diag{File: f, Offset: im.at, Length: im.end - im.at, Code: CodeUnused, Message: "package \(im.name) is imported and not used"})
@@ -266,6 +270,68 @@ func refusedAlias(s store.Store, ims []anImport, im anImport) bool {
 		}
 	}
 	true
+}
+
+func importRules(f int, s store.Store, ims []anImport, missing []string) ([]Diag, []bool) {
+	let mut out = []Diag{}
+	let mut quiet = slices.Repeat([]bool{false}, ims.Len())
+	for i, im in ims {
+		let broken = !im.isGo && slices.Contains(missing, im.path)
+		let at = Diag{File: f, Offset: im.at, Length: im.end - im.at, Code: CodeType, Message: ""}
+		let alias = Diag{..at, Message: "an import alias is only for a name clash; write import \(im.path)"}
+		if im.name == "." {
+			continue
+		}
+		if im.name == "_" {
+			if !broken && im.alias && refusedAlias(s, ims, im) {
+				out = out.Append(alias)
+			}
+			continue
+		}
+		let mut twice = false
+		for j in 0..i {
+			twice = twice || ims[j].name == im.name
+		}
+		if twice && !im.isGo {
+			if !broken {
+				out = out.Append(Diag{..at, Message: "\(im.name) is imported twice"})
+			}
+			quiet[i] = true
+			continue
+		}
+		if broken || im.isGo {
+			continue
+		}
+		let kind = clashKind(store.KindOfName(s, im.name))
+		if kind != "" {
+			let fix = if im.alias { "choose another alias" } else { "alias the import (import t \(im.path))" }
+			out = out.Append(Diag{..at, Message: "\(im.name) clashes with \(kind) \(im.name); \(fix)"})
+			quiet[i] = true
+			continue
+		}
+		if im.alias && refusedAlias(s, ims, im) {
+			out = out.Append(alias)
+		}
+	}
+	(out, quiet)
+}
+
+func clashKind(k int) string {
+	if k == 0 {
+		return ""
+	}
+	match store.KindName(k) {
+	case "func":
+		"func"
+	case "type":
+		"type"
+	case "var", "const":
+		"let"
+	case "context":
+		"context"
+	case _:
+		""
+	}
 }
 
 // anImport is an import of a file: the name it binds and the span the Go
