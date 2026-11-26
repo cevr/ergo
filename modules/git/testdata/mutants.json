@@ -1718,7 +1718,7 @@
       "origin": "SOURCE-CONTRACT",
       "file": "modules/git/source/memory/store.ergo",
       "from": "if !slices.Contains(folders, name) {",
-      "to": "if folders.Len() == 0 {",
+      "to": "if !slices.Contains(folders, name) && prefix == \"\" {",
       "rule": "A derived tree that misses a folder the change touched: ClosureIsTheChange.",
       "anchor": {
         "tests": [
