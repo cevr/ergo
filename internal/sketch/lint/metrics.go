@@ -138,8 +138,10 @@ func cognitive(body *syntax.BlockStmt) float64 {
 				return false
 			case *syntax.BinaryExpr:
 				if x.Op == syntax.LAND || x.Op == syntax.LOR {
-					var ops []syntax.Token
-					var operands []syntax.Expr
+					var opsBuf [8]syntax.Token
+					var operandsBuf [8]syntax.Expr
+					ops := opsBuf[:0]
+					operands := operandsBuf[:0]
 					booleanRun(x, &ops, &operands)
 					total++
 					for i := 1; i < len(ops); i++ {
@@ -185,9 +187,18 @@ func booleanRun(e syntax.Expr, ops *[]syntax.Token, operands *[]syntax.Expr) {
 // each for if, loop, match, case, catch, try, return, break and continue,
 // let, a call, an index, a selector, a composite literal and a function
 // literal. 0 when the body has no operand.
+var unaryOpNames = func() [128]string {
+	var t [128]string
+	for i := range t {
+		t[i] = "unary " + syntax.Token(i).String()
+	}
+	return t
+}()
+
 func halstead(body *syntax.BlockStmt) float64 {
 	operators := map[string]bool{}
 	operands := map[string]bool{}
+	lits := map[string]bool{}
 	total := 0
 	op := func(name string) { operators[name] = true }
 	syntax.Inspect(body, func(n syntax.Node) bool {
@@ -196,12 +207,16 @@ func halstead(body *syntax.BlockStmt) float64 {
 			operands["id "+n.Name] = true
 			total++
 		case *syntax.BasicLit:
-			operands["lit "+n.Value] = true
+			lits[n.Value] = true
 			total++
 		case *syntax.BinaryExpr:
 			op(n.Op.String())
 		case *syntax.UnaryExpr:
-			op("unary " + n.Op.String())
+			if int(n.Op) < len(unaryOpNames) {
+				op(unaryOpNames[n.Op])
+			} else {
+				op("unary " + n.Op.String())
+			}
 		case *syntax.AssignStmt:
 			op(n.Tok.String())
 		case *syntax.IfStmt:
@@ -235,8 +250,9 @@ func halstead(body *syntax.BlockStmt) float64 {
 		}
 		return true
 	})
-	if len(operands) == 0 {
+	distinct := len(operands) + len(lits)
+	if distinct == 0 {
 		return 0
 	}
-	return float64(len(operators)) / 2 * float64(total) / float64(len(operands))
+	return float64(len(operators)) / 2 * float64(total) / float64(distinct)
 }

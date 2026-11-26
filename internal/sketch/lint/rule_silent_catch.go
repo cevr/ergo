@@ -17,18 +17,16 @@ var silentCatch = &Rule{
 }
 
 func checkSilentCatch(p *Pass) {
-	syntax.Inspect(p.File, func(n syntax.Node) bool {
-		x, ok := n.(*syntax.CatchExpr)
-		if !ok || p.Info.Matches[x] == nil {
-			return true
+	for _, x := range p.fileIndex().catches {
+		if p.Info.Matches[x] == nil {
+			continue
 		}
 		for _, arm := range x.Arms {
 			if !readsFailure(p.Info, arm) && !leavesTrace(p.Info, arm.Body) {
 				p.Report(arm.Case, arm.Colon+1, "this arm drops the failure: it does not read it, return, fail, or call anything with an effect")
 			}
 		}
-		return true
-	})
+	}
 }
 
 // readsFailure reports whether the arm's body reads a variable its

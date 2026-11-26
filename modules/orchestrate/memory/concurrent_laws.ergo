@@ -1,48 +1,30 @@
 import github.com/cevr/ergo/modules/orchestrate/orchestrate
 import option
 import pace
-import strings
 import testing
 
 type orchAct =
 	| OrchExec{Env orchestrate.Envelope}
-	| OrchListUnits{}
-	| OrchListCommitments{}
+	| OrchReadUnit{Key orchestrate.UnitKey}
 
 type orchRes =
 	| OrchExecOK{Seq int, Duplicate bool}
 	| OrchRefused{Kind string}
-	| OrchUnits{Summary string}
-	| OrchCommitments{Summary string}
+	| OrchUnit{Status string, Receipts int}
+	| OrchNoUnit{}
 
 type orchStory {
 	state orchestrate.State,
 	seq   int,
 }
 
-func optStringText(o option.Option[string]) string {
-	match o {
-	case option.Some[string] as s:
-		s.Value
+func unitRes(u option.Option[orchestrate.Unit], receipts int) orchRes {
+	match u {
+	case option.Some[orchestrate.Unit] as found:
+		OrchUnit{Status: orchestrate.UnitStatusName(found.Value.Status), Receipts: receipts}
 	case option.None:
-		""
+		OrchNoUnit
 	}
-}
-
-func summarizeUnits(us []orchestrate.Unit) string {
-	let mut parts = []string{}
-	for u in us {
-		parts = parts.Append("\(u.ID):\(orchestrate.UnitStatusName(u.Status)):\(optStringText(u.Owner))")
-	}
-	strings.Join(parts, ",")
-}
-
-func summarizeCommitments(cs []orchestrate.Commitment) string {
-	let mut parts = []string{}
-	for c in cs {
-		parts = parts.Append("\(c.ID):\(orchestrate.CommitmentStatusName(c.Status))")
-	}
-	strings.Join(parts, ",")
 }
 
 func orchStoryStep(st orchStory, a orchAct) (orchStory, orchRes) {
@@ -55,23 +37,22 @@ func orchStoryStep(st orchStory, a orchAct) (orchStory, orchRes) {
 			return (st, OrchRefused{Kind: "AlreadyExists"})
 		case orchestrate.InvalidTransition:
 			return (st, OrchRefused{Kind: "InvalidTransition"})
-		case orchestrate.StaleClaim:
-			return (st, OrchRefused{Kind: "StaleClaim"})
 		case orchestrate.CommandReused:
 			return (st, OrchRefused{Kind: "CommandReused"})
 		case orchestrate.InvalidInput:
 			return (st, OrchRefused{Kind: "InvalidInput"})
+		case orchestrate.Unverified:
+			return (st, OrchRefused{Kind: "Unverified"})
+		case orchestrate.NotAcceptedHead:
+			return (st, OrchRefused{Kind: "NotAcceptedHead"})
 		}
 		if events.Len() == 0 {
 			return (st, OrchExecOK{Seq: st.seq, Duplicate: true})
 		}
 		let nextSeq = st.seq + events.Len()
-		let nextState = orchestrate.ApplyAll(st.state, events)
-		(orchStory{state: nextState, seq: nextSeq}, OrchExecOK{Seq: nextSeq, Duplicate: false})
-	case OrchListUnits:
-		(st, OrchUnits{Summary: summarizeUnits(orchestrate.ListUnits(st.state, option.None))})
-	case OrchListCommitments:
-		(st, OrchCommitments{Summary: summarizeCommitments(orchestrate.ListCommitments(st.state, option.None, option.None))})
+		(orchStory{state: orchestrate.ApplyAll(st.state, events), seq: nextSeq}, OrchExecOK{Seq: nextSeq, Duplicate: false})
+	case OrchReadUnit as r:
+		(st, unitRes(orchestrate.UnitByKey(st.state, r.Key), orchestrate.ReceiptsOf(st.state, r.Key).Len()))
 	}
 }
 
@@ -85,28 +66,28 @@ func runOrchAct(store Store, a orchAct) orchRes {
 			return OrchRefused{Kind: "AlreadyExists"}
 		case orchestrate.InvalidTransition:
 			return OrchRefused{Kind: "InvalidTransition"}
-		case orchestrate.StaleClaim:
-			return OrchRefused{Kind: "StaleClaim"}
 		case orchestrate.CommandReused:
 			return OrchRefused{Kind: "CommandReused"}
 		case orchestrate.InvalidInput:
 			return OrchRefused{Kind: "InvalidInput"}
+		case orchestrate.Unverified:
+			return OrchRefused{Kind: "Unverified"}
+		case orchestrate.NotAcceptedHead:
+			return OrchRefused{Kind: "NotAcceptedHead"}
 		case orchestrate.StoreFailed:
 			return OrchRefused{Kind: "StoreFailed"}
 		}
 		OrchExecOK{Seq: r.Seq, Duplicate: r.Duplicate}
-	case OrchListUnits:
-		let us = store.ListUnits(option.None) catch {
+	case OrchReadUnit as rd:
+		let u = store.Unit(rd.Key) catch {
 		case orchestrate.StoreFailed:
 			return OrchRefused{Kind: "StoreFailed"}
 		}
-		OrchUnits{Summary: summarizeUnits(us)}
-	case OrchListCommitments:
-		let cs = store.ListCommitments(option.None, option.None) catch {
+		let rs = store.Receipts(rd.Key) catch {
 		case orchestrate.StoreFailed:
 			return OrchRefused{Kind: "StoreFailed"}
 		}
-		OrchCommitments{Summary: summarizeCommitments(cs)}
+		unitRes(u, rs.Len())
 	}
 }
 
@@ -114,10 +95,8 @@ func showOrchAct(a orchAct) string {
 	match a {
 	case OrchExec as ex:
 		"Exec(\(string(ex.Env.ID)))"
-	case OrchListUnits:
-		"ListUnits"
-	case OrchListCommitments:
-		"ListCommitments"
+	case OrchReadUnit as r:
+		"Read(\(orchestrate.UnitKeyText(r.Key)))"
 	}
 }
 
@@ -127,50 +106,30 @@ func showOrchRes(r orchRes) string {
 		"OK(seq=\(ok.Seq),dup=\(ok.Duplicate))"
 	case OrchRefused as ref:
 		"Refused(\(ref.Kind))"
-	case OrchUnits as u:
-		"Units(\(u.Summary))"
-	case OrchCommitments as c:
-		"Commitments(\(c.Summary))"
+	case OrchUnit as u:
+		"Unit(\(u.Status),\(u.Receipts))"
+	case OrchNoUnit:
+		"NoUnit"
 	}
+}
+
+func concEnv(id string, cmd orchestrate.Command) orchestrate.Envelope {
+	orchestrate.Envelope{ID: orchestrate.CommandID(id), Actor: "w", At: "2026-11-25T09:00:00Z", Command: cmd}
 }
 
 test OrchestrateStoreConcurrentLinearizable {
 	let _ = pace.NewCounting()
 	let store = New()
-	let openU1 = orchestrate.Envelope{
-		ID:      orchestrate.CommandID("c-open-u1"),
-		Actor:   "root",
-		At:      "2026-11-25T09:00:00Z",
-		Command: orchestrate.OpenUnit{ID: "u1", Title: "Unit 1", Area: "core"},
-	}
-	let claimW1 = orchestrate.Envelope{
-		ID:      orchestrate.CommandID("c-claim-w1"),
-		Actor:   "w1",
-		At:      "2026-11-25T09:01:00Z",
-		Command: orchestrate.ClaimUnit{ID: "u1", Owner: "w1", Lane: "l1", Harness: "agy"},
-	}
-	let openU2 = orchestrate.Envelope{
-		ID:      orchestrate.CommandID("c-open-u2"),
-		Actor:   "root",
-		At:      "2026-11-25T09:00:30Z",
-		Command: orchestrate.OpenUnit{ID: "u2", Title: "Unit 2", Area: "core"},
-	}
-	let claimW2 = orchestrate.Envelope{
-		ID:      orchestrate.CommandID("c-claim-w2"),
-		Actor:   "w2",
-		At:      "2026-11-25T09:01:30Z",
-		Command: orchestrate.ClaimUnit{ID: "u1", Owner: "w2", Lane: "l2", Harness: "agy"},
-	}
-	let addC1 = orchestrate.Envelope{
-		ID:      orchestrate.CommandID("c-add-c1"),
-		Actor:   "root",
-		At:      "2026-11-25T09:02:00Z",
-		Command: orchestrate.AddCommitment{ID: "c1", Title: "Ship", Kind: "plan-part"},
-	}
+	let key = orchestrate.UnitKey{Repo: "repo", Run: "conc", ID: "u1"}
+	let open = concEnv("open", orchestrate.OpenUnit{Key: key, Title: "Unit 1", Requires: []string{"acceptance"}, Lane: option.None, Branch: option.None})
+	let green = concEnv("green", orchestrate.RecordReceipt{Unit: key, Kind: "acceptance", Command: "ergo test", Head: "h", ExitCode: 0, ExitLines: "ok"})
+	let red = concEnv("red", orchestrate.RecordReceipt{Unit: key, Kind: "acceptance", Command: "ergo test", Head: "h", ExitCode: 1, ExitLines: "FAIL"})
+	let accept1 = concEnv("accept-1", orchestrate.AcceptUnit{Unit: key, Head: "h"})
+	let accept2 = concEnv("accept-2", orchestrate.AcceptUnit{Unit: key, Head: "h"})
 	let plans = [][]orchAct{
-		[]orchAct{OrchExec{Env: openU1}, OrchExec{Env: claimW1}, OrchListUnits},
-		[]orchAct{OrchExec{Env: openU2}, OrchExec{Env: claimW2}, OrchListUnits},
-		[]orchAct{OrchExec{Env: addC1}, OrchListCommitments, OrchListUnits},
+		[]orchAct{OrchExec{Env: open}, OrchExec{Env: green}, OrchExec{Env: accept1}},
+		[]orchAct{OrchExec{Env: red}, OrchReadUnit{Key: key}},
+		[]orchAct{OrchExec{Env: accept2}, OrchReadUnit{Key: key}},
 	}
 	let start = orchStory{state: orchestrate.EmptyState(), seq: 0}
 	testing.AgreesConcurrent(start, orchStoryStep, plans, func(a orchAct) orchRes {

@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strings"
 
+	"ergo.local/prototype/internal/ergobuild"
 	"ergo.local/prototype/internal/sketch/stdlib"
 	"ergo.local/prototype/internal/sketch/testplan"
 )
@@ -61,7 +62,7 @@ func runStdNative(w io.Writer, root, ergo string, nativeOnly []testplan.NativeRo
 	defer os.RemoveAll(tmp)
 	if ergo == "" {
 		ergo = filepath.Join(tmp, "ergo")
-		build := exec.Command("go", "build", "-o", ergo, "./cmd/ergo")
+		build := ergobuild.Command(ergo, "./cmd/ergo")
 		build.Dir = root
 		if out, err := build.CombinedOutput(); err != nil {
 			fmt.Fprintf(w, "FAIL go build ./cmd/ergo: %v\n%s", err, out)

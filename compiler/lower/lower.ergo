@@ -1178,6 +1178,9 @@ func check(st fnb, x dense.ID[syntax.Node]) fails Unported {
 	}
 	match syntax.ViewOf(p.Tree, x) {
 	case syntax.Name:
+		if bareEmptyRecord(st, x) != "" {
+			return
+		}
 		let t = try typeOf(st, x, "Ident")
 		if shapeGo(st, t) == "" {
 			return stop("name of " + typeCause(st, t))
@@ -1189,6 +1192,9 @@ func check(st fnb, x dense.ID[syntax.Node]) fails Unported {
 			try check(st, e)
 		}
 	case syntax.SelectorExpr as se:
+		if bareEmptyRecord(st, x) != "" {
+			return
+		}
 		let _ = try field(st, x, se)
 		try readPlace(st, se.X)
 	case syntax.IndexExpr as ie:
@@ -1273,11 +1279,19 @@ func value(st fnb, b mut ir.Builder, x dense.ID[syntax.Node]) uint32 fails Unpor
 	}
 	match syntax.ViewOf(p.Tree, x) {
 	case syntax.Name:
+		let zero = bareEmptyRecord(st, x)
+		if zero != "" {
+			return try ir.Row(b, ir.KindCode(ir.TExpr, "zero"), at, []uint32{ir.Text(b, zero)})
+		}
 		let i = try paramLocal(st, x)
 		try ir.Row(b, ir.KindCode(ir.TExpr, "local"), at, []uint32{uint32(i)})
 	case syntax.CompositeLit as cl:
 		try emitAggregate(st, b, x, cl, at)
 	case syntax.SelectorExpr as se:
+		let zero = bareEmptyRecord(st, x)
+		if zero != "" {
+			return try ir.Row(b, ir.KindCode(ir.TExpr, "zero"), at, []uint32{ir.Text(b, zero)})
+		}
 		let name = try field(st, x, se)
 		let y = try value(st, b, se.X)
 		try ir.Row(b, ir.KindCode(ir.TExpr, "field"), pos(st, syntax.NodePos(p, se.Sel)), []uint32{y, ir.Text(b, name)})

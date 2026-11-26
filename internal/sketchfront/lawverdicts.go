@@ -32,12 +32,14 @@ const (
 )
 
 // targetKey is the store's key of the run t of pkg's test build at seed
-// and states, run by runner (runnerEval or runnerNative).
-func targetKey(pkg *check.Package, t lower.RunTarget, seed uint64, states int, runner string, keys lower.ForeignKeys) string {
+// and states, run by runner (runnerEval or runnerNative). memo is shared
+// by the keys of one package's targets and tests (lower.Digests); nil
+// reads every declaration afresh.
+func targetKey(memo *lower.Digests, pkg *check.Package, t lower.RunTarget, seed uint64, states int, runner string, keys lower.ForeignKeys) string {
 	if states == 0 {
 		states = defaultStates
 	}
-	parts := []string{"law run", t.Label, t.DigestWith(pkg, keys), strconv.FormatUint(seed, 10), strconv.Itoa(states)}
+	parts := []string{"law run", t.Label, t.DigestIn(memo, pkg, keys), strconv.FormatUint(seed, 10), strconv.Itoa(states)}
 	if t.Machine {
 		parts = append(parts, "machine", runner)
 	}
@@ -61,11 +63,20 @@ func (a Analysis) rootPackage() *check.Package {
 // a native run under it is exactly what the key names (FT2 r3: no double
 // work). A verdict of another toolchain is never read.
 func (a Analysis) EvalVerdicts(store *lawcache.Store, seed uint64, states int, native string) eval.Verdicts {
+	if store == nil || a.rootPackage() == nil {
+		return nil
+	}
+	return a.evalVerdictsIn(lower.NewDigests(), store, seed, states, native, foreignKeys(a, nil))
+}
+
+// evalVerdictsIn is EvalVerdicts keying through memo with the program's
+// foreign keys foreign.
+func (a Analysis) evalVerdictsIn(memo *lower.Digests, store *lawcache.Store, seed uint64, states int, native string, foreign lower.ForeignKeys) eval.Verdicts {
 	pkg := a.rootPackage()
 	if store == nil || pkg == nil {
 		return nil
 	}
-	v := &evalVerdicts{store: store, pkg: pkg, seed: seed, states: states, native: native, foreign: foreignKeys(a, nil)}
+	v := &evalVerdicts{store: store, pkg: pkg, seed: seed, states: states, native: native, foreign: foreign, memo: memo}
 	// The store keys no check-time run under a context: the evaluator
 	// runs one every time (eval/lawcontext.go), and ergo test keys its own.
 	for _, t := range lower.RunTargets(pkg) {
@@ -85,6 +96,8 @@ type evalVerdicts struct {
 	native string // the toolchain whose test binary's verdicts are read
 	// foreign are the program's foreign keys (targetKey).
 	foreign lower.ForeignKeys
+	// memo is the declarations' memo the keys share (targetKey).
+	memo    *lower.Digests
 	targets []lower.RunTarget
 	// keys memoizes each target's key, "" until it is asked for.
 	keys []string
@@ -97,7 +110,7 @@ func (v *evalVerdicts) target(law *check.Law, binding []check.LawProvider) (lowe
 			continue
 		}
 		if v.keys[i] == "" {
-			v.keys[i] = targetKey(v.pkg, t, v.seed, v.states, runnerEval, v.foreign)
+			v.keys[i] = targetKey(v.memo, v.pkg, t, v.seed, v.states, runnerEval, v.foreign)
 		}
 		return t, v.keys[i], true
 	}
@@ -182,9 +195,10 @@ func (a Analysis) TestVerdicts(store *lawcache.Store, seed uint64, states int, t
 	}
 	tv := &TestVerdicts{store: store}
 	foreign := foreignKeys(a, nil)
+	memo := lower.NewDigests()
 	for _, t := range lower.RunTargets(pkg) {
 		tv.targets = append(tv.targets, t)
-		k := targetKey(pkg, t, seed, states, runnerNative, foreign)
+		k := targetKey(memo, pkg, t, seed, states, runnerNative, foreign)
 		tv.keys = append(tv.keys, k)
 		if toolchain != "" {
 			k = lawcache.Key(k, "toolchain", toolchain)

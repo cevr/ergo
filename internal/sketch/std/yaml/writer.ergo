@@ -1,0 +1,224 @@
+import codec
+import strconv
+import utf8
+
+type writer {
+	out      []byte,
+	lists    []bool,
+	indents  []int,
+	counts   []int,
+	inlines  []bool,
+	keys     []string,
+	afterKey bool,
+	failure  string,
+	failPath string,
+} implements sink
+
+type sink {
+	..codec.Writer,
+	mut result() string fails Unrepresentable,
+}
+
+func result(w mut writer) string fails Unrepresentable {
+	if w.failure != "" {
+		return Unrepresentable{Path: w.failPath, Reason: w.failure}
+	}
+	w.out.Text()
+}
+
+func newWriter() writer {
+	writer{out: []byte{}, lists: []bool{}, indents: []int{}, counts: []int{}, inlines: []bool{}, keys: []string{}, afterKey: false, failure: "", failPath: ""}
+}
+
+func wpath(w mut writer) string {
+	let mut out = "$"
+	for i in 0..w.lists.Len() {
+		if w.lists[i] {
+			out = out + "[" + strconv.Itoa(w.counts[i]-1) + "]"
+		} else {
+			out = out + "." + w.keys[i]
+		}
+	}
+	out
+}
+
+func item(w mut writer) {
+	let top = w.lists.Len() - 1
+	if top < 0 {
+		return
+	}
+	if w.counts[top] > 0 || !w.inlines[top] {
+		if w.out.Len() > 0 && w.out[w.out.Len()-1] != byte('\n') {
+			w.out = w.out.Append(byte('\n'))
+		}
+		for _ in 0..w.indents[top] {
+			w.out = w.out.Append(byte(' '))
+		}
+	}
+	w.counts[top] += 1
+	if w.lists[top] {
+		w.out = w.out.AppendString("- ")
+	}
+}
+
+func valueStart(w mut writer) {
+	if w.afterKey {
+		w.out = w.out.Append(byte(' '))
+		w.afterKey = false
+	} else {
+		item(w)
+	}
+}
+
+func valueEnd(w mut writer) {
+	if w.lists.Len() == 0 {
+		w.out = w.out.Append(byte('\n'))
+	}
+}
+
+func scalar(w mut writer, text string) {
+	valueStart(w)
+	w.out = w.out.AppendString(text)
+	valueEnd(w)
+}
+
+func plainSafe(s string) bool {
+	if s == "" || resolvePlain(s) != kindString {
+		return false
+	}
+	let c = s[0]
+	if !((c >= byte('a') && c <= byte('z')) || (c >= byte('A') && c <= byte('Z')) || isDigit(c) || c == byte('_') || c == byte('/') || c == byte('(')) {
+		return false
+	}
+	if s[s.Len()-1] == byte(' ') {
+		return false
+	}
+	for i in 0..s.Len() {
+		let b = s[i]
+		let ok = (b >= byte('a') && b <= byte('z')) || (b >= byte('A') && b <= byte('Z')) || isDigit(b) || b == byte('_') || b == byte('.') || b == byte('/') || b == byte('(') || b == byte(')') || b == byte('+') || b == byte('=') || b == byte('^') || b == byte('$') || b == byte(';') || b == byte('<') || b == byte('>') || b == byte('-') || b == byte(' ')
+		if !ok {
+			return false
+		}
+	}
+	true
+}
+
+func hexDigit(v int) byte { "0123456789abcdef"[v] }
+
+func quoted(out []byte, s string) []byte {
+	let mut o = out.Append(byte('"'))
+	let n = s.Len()
+	let mut i = 0
+	for i < n {
+		let b = s[i]
+		if b == byte('"') {
+			o = o.AppendString("\\\"")
+		} else if b == byte('\\') {
+			o = o.AppendString("\\\\")
+		} else if b == byte('\n') {
+			o = o.AppendString("\\n")
+		} else if b == byte('\t') {
+			o = o.AppendString("\\t")
+		} else if b == byte('\r') {
+			o = o.AppendString("\\r")
+		} else if b < byte(0x20) || b == byte(0x7f) {
+			o = o.AppendString("\\x").Append(hexDigit(int(b) / 16)).Append(hexDigit(int(b) % 16))
+		} else if b < byte(0x80) {
+			o = o.Append(b)
+		} else {
+			let d = utf8.DecodeRuneInString(s[i:])
+			let cp = int(d.Rune)
+			if cp == 0x85 {
+				o = o.AppendString("\\N")
+			} else if cp == 0x2028 {
+				o = o.AppendString("\\L")
+			} else if cp == 0x2029 {
+				o = o.AppendString("\\P")
+			} else if cp == 0xfeff || cp == 0xa0 {
+				o = o.AppendString(if cp == 0xa0 { "\\_" } else { "\\ufeff" })
+			} else {
+				o = o.AppendString(s[i : i+d.Size])
+			}
+			i += d.Size
+			continue
+		}
+		i += 1
+	}
+	o.Append(byte('"'))
+}
+
+func text(w mut writer, s string) string {
+	if !utf8.ValidString(s) && w.failure == "" {
+		w.failure = "text is not UTF-8"
+		w.failPath = wpath(w)
+	}
+	if plainSafe(s) { s } else { quoted([]byte{}, s).Text() }
+}
+
+func Null(w mut writer) { scalar(w, "null") }
+
+func Number(w mut writer, t string) { scalar(w, t) }
+
+func Bool(w mut writer, b bool) { scalar(w, if b { "true" } else { "false" }) }
+
+func Int(w mut writer, n int64) { scalar(w, strconv.FormatInt(n, 10)) }
+
+func Uint(w mut writer, n uint64) { scalar(w, strconv.AppendUint([]byte{}, n, 10).Text()) }
+
+func Float(w mut writer, f float64) { scalar(w, floatText(f)) }
+
+func String(w mut writer, s string) { scalar(w, text(w, s)) }
+
+func StringBytes(w mut writer, b []byte) { scalar(w, text(w, b.Text())) }
+
+func begin(w mut writer, list bool) {
+	let top = w.lists.Len() - 1
+	let underKey = w.afterKey
+	if !underKey {
+		item(w)
+	}
+	w.afterKey = false
+	let indent = if top < 0 { 0 } else { w.indents[top] + 2 }
+	w.lists = w.lists.Append(list)
+	w.indents = w.indents.Append(indent)
+	w.counts = w.counts.Append(0)
+	w.inlines = w.inlines.Append(!underKey)
+	w.keys = w.keys.Append("")
+}
+
+func finish(w mut writer, empty string) {
+	let top = w.lists.Len() - 1
+	if w.counts[top] == 0 {
+		if !w.inlines[top] {
+			w.out = w.out.Append(byte(' '))
+		}
+		w.out = w.out.AppendString(empty)
+	}
+	w.lists = w.lists[:top]
+	w.indents = w.indents[:top]
+	w.counts = w.counts[:top]
+	w.inlines = w.inlines[:top]
+	w.keys = w.keys[:top]
+	valueEnd(w)
+}
+
+func BeginList(w mut writer, n int) { begin(w, true) }
+
+func EndList(w mut writer) { finish(w, "[]") }
+
+func BeginObject(w mut writer, n int) { begin(w, false) }
+
+func EndObject(w mut writer) { finish(w, "{}") }
+
+func Key(w mut writer, k string) {
+	let top = w.lists.Len() - 1
+	w.keys[top] = k
+	item(w)
+	w.out = w.out.AppendString(text(w, k)).Append(byte(':'))
+	w.afterKey = true
+}
+
+func Tag(w mut writer, name string) {
+	w.Key("_tag")
+	w.String(name)
+}

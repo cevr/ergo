@@ -64,13 +64,24 @@ func (c *Configuration) Run(in Input) Result {
 		statuses[res.Rules[i].Rule] = &res.Rules[i]
 	}
 	suppressed := make([]bool, len(findings))
+	var byFile map[string][]int
 	for _, unit := range in.Units {
 		if unit.Dependency {
 			continue
 		}
 		for _, file := range unit.Files {
-			for _, d := range directivesOf(file) {
-				if problem := c.suppress(d, in.Checked, statuses, findings, suppressed, &res); problem != "" {
+			dirs := directivesOf(file)
+			if len(dirs) == 0 {
+				continue
+			}
+			if byFile == nil && len(findings) > 0 {
+				byFile = make(map[string][]int, len(in.Units)*2)
+				for i, f := range findings {
+					byFile[f.File] = append(byFile[f.File], i)
+				}
+			}
+			for _, d := range dirs {
+				if problem := c.suppress(d, in.Checked, statuses, findings, byFile, suppressed, &res); problem != "" {
 					findings = append(findings, Finding{Code: CodeSuppression, Severity: Error, Message: problem, File: d.file, Offset: int(d.at), Length: d.length, Line: d.line, Column: d.column})
 					suppressed = append(suppressed, false)
 				}
@@ -103,7 +114,7 @@ func (c *Configuration) Run(in Input) Result {
 // suppress decides one directive: it records the status of an admitted
 // directive, marks the findings it removes, and returns the L001 message
 // of an invalid or unused one.
-func (c *Configuration) suppress(d directive, checked bool, statuses map[string]*RuleStatus, findings []Finding, suppressed []bool, res *Result) string {
+func (c *Configuration) suppress(d directive, checked bool, statuses map[string]*RuleStatus, findings []Finding, byFile map[string][]int, suppressed []bool, res *Result) string {
 	s := Suppression{Rule: d.rule, File: d.file, Offset: int(d.at), Length: d.length, Line: d.line, Column: d.column, Covered: d.line + 1}
 	switch d.form {
 	case formMalformed:
@@ -133,7 +144,8 @@ func (c *Configuration) suppress(d directive, checked bool, statuses map[string]
 		s.Status, s.Reason = NotEvaluated, ReasonFactsUnavailable
 	default:
 		s.Status = Unused
-		for i, f := range findings {
+		for _, i := range byFile[d.file] {
+			f := findings[i]
 			if f.Rule == d.rule && f.File == d.file && f.Line == s.Covered {
 				suppressed[i] = true
 				s.Status = Applied
@@ -251,6 +263,7 @@ func runRule(rule *Rule, options any, in Input, shared *runShared) (found []Find
 		}
 	}()
 	run := &ruleRun{in: in, shared: shared}
+	var pass Pass
 	for u, unit := range in.Units {
 		if unit.Package == nil || unit.Package.Info == nil || unit.Dependency {
 			continue
@@ -259,8 +272,8 @@ func runRule(rule *Rule, options any, in Input, shared *runShared) (found []Find
 			if file.Syntax == nil {
 				continue
 			}
-			pass := &Pass{Package: unit.Package, Info: unit.Package.Info, File: file.Syntax, Options: options, rel: file.Rel, unit: u, index: i, run: run}
-			rule.Check(pass)
+			pass = Pass{Package: unit.Package, Info: unit.Package.Info, File: file.Syntax, Options: options, rel: file.Rel, unit: u, index: i, run: run}
+			rule.Check(&pass)
 			if pass.bad != nil {
 				return nil, pass.bad
 			}
