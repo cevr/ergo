@@ -191,9 +191,15 @@ func (l *lowerer) find(n syntax.Node, pos syntax.Pos) (path string, line, column
 // stdFileOf is the embedded file of a reached std package that holds n.
 // Offsets count from the start of each file, so a declaration whose span
 // holds n's is only a candidate: the node is looked for inside it by
-// identity. Only the candidates are walked, and an answer is kept in
-// stdSrc, so a lowering builds no map of every std node (SL9b: that map
-// was 13 % of the lowering's bytes).
+// identity, and the first declaration in library, file and declaration
+// order that holds it names the file; an answer is kept in stdSrc.
+// stdFileOfWalk is that search as written. The lowering asks through
+// stdNodeIndex instead: one walk of the reached std declarations names
+// each node's declaration, so a question costs a map read, not a walk of
+// every candidate declaration (the IR agreement's std program spent 88 %
+// of its time in those walks). It gives the walk's answer and runs the
+// walk's admissionNodes steps in the walk's order; a node two
+// declarations hold is left to the walk.
 func (l *lowerer) stdFileOf(n syntax.Node) (stdFile, bool) {
 	if isNilNode(n) {
 		return stdFile{}, false
@@ -201,6 +207,99 @@ func (l *lowerer) stdFileOf(n syntax.Node) (stdFile, bool) {
 	if sf, ok := l.stdSrc[n]; ok {
 		return sf, true
 	}
+	if stdFileOfWalkOnly {
+		return l.stdFileOfWalk(n)
+	}
+	ix := l.stdNodeIndex()
+	at, held := ix.decl[n]
+	if held && at < 0 {
+		return l.stdFileOfWalk(n)
+	}
+	if !held {
+		l.stdAdmit(len(ix.libs))
+		l.stdAdmit(len(ix.libs))
+		return stdFile{}, false
+	}
+	r := ix.decls[at]
+	if r.d.Pos() > n.Pos() || n.End() > r.d.End() {
+		l.stdAdmit(len(ix.libs))
+	}
+	l.stdAdmit(r.lib)
+	sf := stdFile{file: r.f, path: embeddedSourcePath(ix.libs[r.lib], r.f.Name)}
+	if l.stdSrc == nil {
+		l.stdSrc = map[syntax.Node]stdFile{}
+	}
+	l.stdSrc[n] = sf
+	return sf, true
+}
+
+// stdFileOfWalkOnly makes stdFileOf the walk alone, the reference
+// TestStdFileOfIndexAgrees holds the index to.
+var stdFileOfWalkOnly = false
+
+// stdIndex is stdNodeIndex's answer: the reached std libraries, their
+// declarations in walk order, and each node's declaration (-1 for a node
+// more than one declaration holds).
+type stdIndex struct {
+	libs  []*check.Package
+	decls []stdDeclRef
+	decl  map[syntax.Node]int
+}
+
+type stdDeclRef struct {
+	lib int
+	f   *syntax.File
+	d   syntax.Decl
+}
+
+func (l *lowerer) stdNodeIndex() *stdIndex {
+	if l.stdIx != nil {
+		return l.stdIx
+	}
+	ix := &stdIndex{decl: map[syntax.Node]int{}}
+	for _, p := range l.libraries() {
+		if !p.Std() {
+			continue
+		}
+		lib := len(ix.libs)
+		ix.libs = append(ix.libs, p)
+		for _, f := range p.Files() {
+			for _, d := range f.Decls {
+				at := len(ix.decls)
+				ix.decls = append(ix.decls, stdDeclRef{lib: lib, f: f, d: d})
+				syntax.Inspect(d, func(m syntax.Node) bool {
+					if m == nil {
+						return false
+					}
+					if prev, ok := ix.decl[m]; !ok {
+						ix.decl[m] = at
+					} else if prev != at {
+						ix.decl[m] = -1
+					}
+					return true
+				})
+			}
+		}
+	}
+	l.stdIx = ix
+	return ix
+}
+
+// stdAdmit runs the walk's admissionNodes step for the first n reached
+// std libraries.
+func (l *lowerer) stdAdmit(n int) {
+	for _, p := range l.stdIx.libs[:n] {
+		admissionNodes(p, func(law, n syntax.Node) {
+			if sf, ok := l.stdSrc[law]; ok {
+				l.stdSrc[n] = sf
+			}
+		})
+	}
+}
+
+// stdFileOfWalk is stdFileOf's search by walking each candidate
+// declaration.
+func (l *lowerer) stdFileOfWalk(n syntax.Node) (stdFile, bool) {
 	// The first pass walks the declarations whose span holds n's; a node
 	// whose span is not its declaration's (a synthesized one) is found by
 	// the second, which walks every declaration.
