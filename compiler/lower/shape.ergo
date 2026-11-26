@@ -62,9 +62,6 @@ func shapeWithin(st fnb, t dense.ID[store.TKey], trail shapeTrail) string {
 		return unionGo(st, t)
 	}
 	let rec = st.k.Recs[r]
-	if rec.Fields.Len() == 0 {
-		return ""
-	}
 	let gt = declName(st, rec.Name) catch {
 	case Unported:
 		return ""

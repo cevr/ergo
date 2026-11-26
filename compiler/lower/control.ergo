@@ -204,16 +204,19 @@ func controlStatement(st mut fnb, p mut controlPlan, node dense.ID[syntax.Node],
 		row.offset = syntax.NodePos(parsed, x)
 		if tail {
 			try controlPrepareReturn(st, p, &row, x)
+		} else if p.unit && (try frameFailureOperands(*st, es.X)) != option.None {
+			row.offset = syntax.NodePos(parsed, es.X)
+			try controlPrepareReturn(st, p, &row, es.X)
 		} else {
 			try controlPrepareDiscard(*st, p, &row, x)
+			p.extended = true
 		}
-		p.extended = p.extended || !tail
 	case syntax.ReturnStmt as r:
 		p.extended = true
 		row.offset = syntax.TokPos(parsed, r.Return)
 		match dense.Unpack(r.Result) {
 		case option.Some{Value: x}:
-			if p.unit {
+			if p.unit && (try frameFailureOperands(*st, x)) == option.None {
 				return stop("control: unit return with operand")
 			}
 			try controlPrepareReturn(st, p, &row, x)
@@ -518,12 +521,14 @@ func controlObserve(st fnb, p mut controlPlan, x dense.ID[syntax.Node]) fails Un
 	let parsed = st.p
 	match syntax.ViewOf(parsed.Tree, x) {
 	case syntax.Name:
-		if !isConst(st, x) {
+		if !isConst(st, x) && bareEmptyRecord(st, x) == "" {
 			p.reads = p.reads.Append(try paramLocal(st, x))
 			p.nonScalar = p.nonScalar || basicGo(st, try typeOf(st, x, "Ident")) == ""
 		}
 	case syntax.CompositeLit as cl:
-		p.nonScalar = true
+		if dense.Unpack(cl.Base) != option.None {
+			p.nonScalar = true
+		}
 		for i in 0..syntax.Len(cl.Elts) {
 			let elt = syntax.Item(parsed.Tree, cl.Elts, i)
 			match syntax.ViewOf(parsed.Tree, elt) {
@@ -539,9 +544,19 @@ func controlObserve(st fnb, p mut controlPlan, x dense.ID[syntax.Node]) fails Un
 		case option.None:
 		}
 	case syntax.SelectorExpr as se:
+		if bareEmptyRecord(st, x) != "" {
+			return
+		}
 		if matchBoundField(st, x, se) {
-			// MATCH proved this is one scalar payload read from its binder.
 			p.reads = p.reads.Append(try paramLocal(st, se.X))
+		} else if basicGo(st, try typeOf(st, x, "SelectorExpr")) != "" {
+			match readPlaceRoot(st, se.X) {
+			case option.Some{Value: slot}:
+				p.reads = p.reads.Append(slot)
+			case option.None:
+				p.nonScalar = true
+				try controlObserve(st, p, se.X)
+			}
 		} else {
 			p.nonScalar = true
 			try controlObserve(st, p, se.X)
@@ -810,6 +825,27 @@ func controlEmitSpan(st fnb, b mut ir.Builder, p controlPlan, span controlSpan, 
 		i = s.next
 	}
 	rows
+}
+
+func readPlaceRoot(st fnb, x dense.ID[syntax.Node]) option.Option[int] {
+	match syntax.ViewOf(st.p.Tree, x) {
+	case syntax.Name:
+		let slot = paramLocal(st, x) catch {
+		case Unported:
+			return option.None
+		}
+		option.Some[int]{Value: slot}
+	case syntax.SelectorExpr as se:
+		let _ = field(st, x, se) catch {
+		case Unported:
+			return option.None
+		}
+		readPlaceRoot(st, se.X)
+	case syntax.ParenExpr as pe:
+		readPlaceRoot(st, pe.X)
+	case _:
+		option.None
+	}
 }
 
 func controlDiscard(b mut ir.Builder, at ir.Pos, slot uint32) uint32 fails ir.Malformed {

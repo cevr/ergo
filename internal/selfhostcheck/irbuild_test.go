@@ -458,7 +458,7 @@ func irBaseFields(fn *irFunc, originals, typeHeads map[string]string) {
 					if name, ok := originals[e.Name]; ok {
 						e.Name = name
 					}
-				case "lit":
+				case "lit", "zero":
 					elem := e.T
 					for strings.HasPrefix(elem, "[]") {
 						elem = elem[2:]
@@ -483,8 +483,9 @@ func irBaseFields(fn *irFunc, originals, typeHeads map[string]string) {
 	walk(reflect.ValueOf(fn))
 }
 
-// TestIRAgreementKeepsUnrenamedOperands kills lower-agree-guess-split-export:
-// a difference in either operand is real unless that build exported it.
+// TestIRAgreementKeepsUnrenamedOperands kills lower-agree-guess-split-export
+// and lower-agree-zero-keeps-split-export: a difference in either operand,
+// or in a zero row's type, is real unless that build exported it.
 func TestIRAgreementKeepsUnrenamedOperands(t *testing.T) {
 	body := func(typ, member string) *irFunc {
 		return &irFunc{Body: []*irStmt{{K: "ret", X: &irExpr{
@@ -507,6 +508,24 @@ func TestIRAgreementKeepsUnrenamedOperands(t *testing.T) {
 			if equal := reflect.DeepEqual(got, want); equal != tc.equal {
 				call := got.Body[0].X
 				t.Errorf("normalized %s.%s, equality = %v, want %v", call.X.T, call.Name, equal, tc.equal)
+			}
+		})
+	}
+	zero := func(typ string) *irFunc {
+		return &irFunc{Body: []*irStmt{{K: "ret", X: &irExpr{K: "zero", T: typ}}}}
+	}
+	for _, tc := range []struct {
+		name, typ string
+		equal     bool
+	}{
+		{"proven zero export", "XXpkg__cell", true},
+		{"real zero difference", "Xpkg__cell", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := zero(tc.typ)
+			irBaseFields(got, exports, nil)
+			if equal := reflect.DeepEqual(got, zero("pkg__cell")); equal != tc.equal {
+				t.Errorf("normalized zero %s, equality = %v, want %v", got.Body[0].X.T, equal, tc.equal)
 			}
 		})
 	}
@@ -1144,12 +1163,6 @@ func ReadOne[T Boxed](x T) int { 1 }
 
 func TestIRLetShapes(t *testing.T) {
 	needsBuild(t)
-	ctx, cancel := testwait.Context(t, context.Background())
-	defer cancel()
-	bin := filepath.Join(t.TempDir(), "irdump")
-	if o, err := runCompiler(t, ctx, ergoCLI(t, ctx), "build", "-o", bin, "./cmd/irdump"); err != nil {
-		t.Fatalf("ergo build ./cmd/irdump: %v\n%s", err, o)
-	}
 	const src = `func main() {
 	let _ = SliceLetLen([]int{1, 2})
 	let _ = SliceLitLet(1, 2)
@@ -1215,6 +1228,119 @@ func TupleStop(p (int, int)) int {
 	1
 }
 `
+	d := irDumpFixture(t, src)
+	d.agree(t, "let-shapes", "SliceLetLen", "SliceLitLet", "Pair.RecordLet", "Bag.BagLetLen", "OptionLet", "UnionLet")
+	d.stopsHonestly(t, []string{"MutSliceStop", "ExplicitSliceStop", "TupleStop"}, " let of slice", " let with explicit type annotation", " let of tuple")
+}
+
+// TestIRFailFrameShapes holds compiler/lower's fallible frames to the Go
+// builder over the forms FAIL-FRAME-SHAPES admits: several failure exits,
+// a unit success result, a zero-field failure record, a scalar field read
+// in a failure field, and an if/else whose branches are the value tail. A
+// frame whose body calls a function stops (CALLS). It builds irdump and
+// runs it, as TestIRLetShapes does: the Ergo side is a compiled program.
+//
+// Mutants it alone catches: testdata/mutants.json, rows lower-fail-frame-*.
+func TestIRFailFrameShapes(t *testing.T) {
+	needsBuild(t)
+	const src = `func main() {
+	let _ = FailFrameTwoExits(FailFrameIn{A: 3, B: 4}, 1) catch {
+	case FailFrameBad:
+		0
+	}
+	FailFrameUnit(FailFrameIn{A: 3, B: 4}, 1) catch {
+	case FailFrameBad:
+	}
+	let _ = FailFrameEmpty(FailFrameIn{A: 3, B: 4}, 1) catch {
+	case FailFrameGone:
+		0
+	}
+	let _ = FailFrameElse(FailFrameIn{A: 3, B: 4}, 1) catch {
+	case FailFrameBad:
+		0
+	}
+	let _ = FailFrameCallStop(FailFrameIn{A: 3, B: 4}, 1) catch {
+	case FailFrameBad:
+		0
+	}
+}
+
+type FailFrameIn { A int, B int }
+
+type FailFrameBad { Code int }
+
+type FailFrameGone {}
+
+func FailFrameTwoExits(input FailFrameIn, n int) int fails FailFrameBad {
+	if n < 0 {
+		return FailFrameBad{Code: n}
+	}
+	if n > input.A {
+		return FailFrameBad{Code: input.A}
+	}
+	n + input.B
+}
+
+func FailFrameUnit(input FailFrameIn, n int) fails FailFrameBad {
+	if n < 0 {
+		return FailFrameBad{Code: n}
+	}
+}
+
+func FailFrameEmpty(input FailFrameIn, n int) int fails FailFrameGone {
+	if n == 0 {
+		return FailFrameGone
+	}
+	n
+}
+
+func FailFrameElse(input FailFrameIn, n int) int fails FailFrameBad {
+	if n < 0 {
+		FailFrameBad{Code: n}
+	} else {
+		n
+	}
+}
+
+func failFrameHelper(n int) int { n + 1 }
+
+func FailFrameCallStop(input FailFrameIn, n int) int fails FailFrameBad {
+	if n < 0 {
+		return FailFrameBad{Code: failFrameHelper(n)}
+	}
+	n
+}
+`
+	d := irDumpFixture(t, src)
+	d.agree(t, "fail-frame-shapes", "FailFrameIn.FailFrameTwoExits", "FailFrameIn.FailFrameUnit", "FailFrameIn.FailFrameEmpty", "FailFrameIn.FailFrameElse")
+	d.stopsHonestly(t, []string{"FailFrameIn.FailFrameCallStop"}, " CALLS: fallible frame contains a call")
+}
+
+// irFixture is what irdump built for one root package of one file: the
+// Ergo side's functions by name, its stop lines, and the Go builder's
+// functions of the same package.
+type irFixture struct {
+	file    string
+	emitted map[string]irFixtureFunc
+	stops   []string
+	goIdx   irGoIndex
+}
+
+type irFixtureFunc struct {
+	key  irKey
+	data []byte
+}
+
+// irDumpFixture builds irdump and lowers src, the one file of a root
+// package, with both builders.
+func irDumpFixture(t *testing.T, src string) irFixture {
+	t.Helper()
+	ctx, cancel := testwait.Context(t, context.Background())
+	defer cancel()
+	bin := filepath.Join(t.TempDir(), "irdump")
+	if o, err := runCompiler(t, ctx, ergoCLI(t, ctx), "build", "-o", bin, "./cmd/irdump"); err != nil {
+		t.Fatalf("ergo build ./cmd/irdump: %v\n%s", err, o)
+	}
 	dir := t.TempDir()
 	file := filepath.Join(dir, "main.ergo")
 	if err := os.WriteFile(file, []byte(src), 0o644); err != nil {
@@ -1237,16 +1363,11 @@ func TupleStop(p (int, int)) int {
 	writeLines(t, roots, []string{pkgPath})
 
 	paths := irPathIDs{}
-	goIdx := irGoIndex{}
-	if err := indexGoIR(t, paths, goIdx, irGoProgram{u: u, tests: false, dir: dir, module: dir, reach: ownFuncs(u, map[string]bool{})}); err != nil {
+	d := irFixture{file: file, emitted: map[string]irFixtureFunc{}, goIdx: irGoIndex{}}
+	if err := indexGoIR(t, paths, d.goIdx, irGoProgram{u: u, tests: false, dir: dir, module: dir, reach: ownFuncs(u, map[string]bool{})}); err != nil {
 		t.Fatal(err)
 	}
-
-	emitted := map[string]struct {
-		key  irKey
-		data []byte
-	}{}
-	var files, stops []string
+	var files []string
 	for _, l := range runDump(t, ctx, bin, "-std", stdDir(), "-roots", roots, "-corpus", manifest) {
 		kind, rest, _ := strings.Cut(l, " ")
 		switch kind {
@@ -1256,7 +1377,7 @@ func TupleStop(p (int, int)) int {
 			_, path, _ := strings.Cut(rest, " ")
 			files = append(files, path)
 		case "S":
-			stops = append(stops, l)
+			d.stops = append(d.stops, l)
 		case "F":
 			f := strings.SplitN(rest, " ", 3)
 			var fn irFunc
@@ -1270,38 +1391,46 @@ func TupleStop(p (int, int)) int {
 			if err != nil {
 				t.Fatal(err)
 			}
-			emitted[fn.Name] = struct {
-				key  irKey
-				data []byte
-			}{irKey{fn.Pos[0], fn.Pos[1], fn.Pos[2]}, got}
+			d.emitted[fn.Name] = irFixtureFunc{irKey{fn.Pos[0], fn.Pos[1], fn.Pos[2]}, got}
 		}
 	}
+	return d
+}
 
-	for _, want := range []string{"SliceLetLen", "SliceLitLet", "Pair.RecordLet", "Bag.BagLetLen", "OptionLet", "UnionLet"} {
-		got, ok := emitted[want]
+// agree fails unless compiler/lower built each named function byte for
+// byte as the Go builder did.
+func (d irFixture) agree(t *testing.T, label string, names ...string) {
+	t.Helper()
+	for _, want := range names {
+		got, ok := d.emitted[want]
 		if !ok {
-			t.Fatalf("let-shapes build did not emit %s (stops: %v)", want, stops)
+			t.Fatalf("%s build did not emit %s (stops: %v)", label, want, d.stops)
 		}
-		res := goIdx.compare(got.key, irWitnessSite{file, "0", want}, got.data, false, nil)
+		res := d.goIdx.compare(got.key, irWitnessSite{d.file, "0", want}, got.data, false, nil)
 		if res.match < 0 {
-			t.Fatalf("let-shapes %s differed from Go (%s)\nergo: %s\n  go: %v", want, res.cause, got.data, res.wants)
+			t.Fatalf("%s %s differed from Go (%s)\nergo: %s\n  go: %v", label, want, res.cause, got.data, res.wants)
 		}
 	}
-	for _, forbidden := range []string{"MutSliceStop", "ExplicitSliceStop", "TupleStop"} {
-		if _, ok := emitted[forbidden]; ok {
-			t.Fatalf("unadmitted let %s must stop honestly and not emit", forbidden)
+}
+
+// stopsHonestly fails if compiler/lower emitted any forbidden function, or
+// if a wanted stop cause ends no stop line.
+func (d irFixture) stopsHonestly(t *testing.T, forbidden []string, causes ...string) {
+	t.Helper()
+	for _, name := range forbidden {
+		if _, ok := d.emitted[name]; ok {
+			t.Fatalf("%s must stop honestly and not emit", name)
 		}
 	}
-	wantStops := []string{" let of slice", " let with explicit type annotation", " let of tuple"}
-	for _, ws := range wantStops {
+	for _, cause := range causes {
 		found := false
-		for _, s := range stops {
-			if strings.HasSuffix(s, ws) {
+		for _, s := range d.stops {
+			if strings.HasSuffix(s, cause) {
 				found = true
 			}
 		}
 		if !found {
-			t.Fatalf("expected honest stop %q, got stops: %v", ws, stops)
+			t.Fatalf("expected honest stop %q, got stops: %v", cause, d.stops)
 		}
 	}
 }
