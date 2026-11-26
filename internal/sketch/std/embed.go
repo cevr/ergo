@@ -61,6 +61,7 @@ import "embed"
 //go:embed glob/*.ergo
 //go:embed color/*.ergo
 //go:embed yaml/*.ergo
+//go:embed markdown/*.ergo
 //go:embed zlib/*.ergo
 //go:embed archive/*.ergo
 var Sources embed.FS

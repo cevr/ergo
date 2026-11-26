@@ -1,0 +1,404 @@
+import strings
+
+func row(p mut parser, kind int, a int, b int) int {
+	let r = p.rk.Len()
+	p.rk = p.rk.Append(uint8(kind))
+	p.rend = p.rend.Append(uint32(r + 1))
+	p.ra = p.ra.Append(uint32(a))
+	p.rb = p.rb.Append(uint32(b))
+	p.work = p.work + 1
+	r
+}
+
+func closeRow(p mut parser, r int) { p.rend[r] = uint32(p.rk.Len()) }
+
+func extraRow(p mut parser, kind int, w0 int, w1 int, w2 int, w3 int, b int) int {
+	let x = p.rx.Len()
+	p.rx = p.rx.Append(uint32(w0)).Append(uint32(w1)).Append(uint32(w2)).Append(uint32(w3))
+	row(p, kind, x, b)
+}
+
+func emitInlines(p mut parser, root int) {
+	let mut sents = []int{root}
+	let mut rows = []int{-1}
+	let mut owners = []int{-1}
+	let mut cur = p.inext[root]
+	for sents.Len() > 0 {
+		p.work = p.work + 1
+		let top = sents.Len() - 1
+		if cur == sents[top] {
+			if rows[top] >= 0 {
+				closeRow(p, rows[top])
+			}
+			cur = if owners[top] >= 0 { p.inext[owners[top]] } else { -1 }
+			sents = sents[0:top]
+			rows = rows[0:top]
+			owners = owners[0:top]
+		} else {
+			let k = p.ik[cur]
+			if k == kText {
+				if p.ib[cur] > 0 {
+					let _ = row(p, kText, p.ia[cur], p.ib[cur])
+				}
+				cur = p.inext[cur]
+			} else if k == kLink || k == kImage {
+				let r = extraRow(p, k, p.ia[cur], p.ib[cur], p.ic[cur], if p.id[cur] < 0 { 0 } else { p.id[cur] }, 0)
+				sents = sents.Append(p.isub[cur])
+				rows = rows.Append(r)
+				owners = owners.Append(cur)
+				cur = p.inext[p.isub[cur]]
+			} else if p.isub[cur] >= 0 {
+				let r = row(p, k, 0, 0)
+				sents = sents.Append(p.isub[cur])
+				rows = rows.Append(r)
+				owners = owners.Append(cur)
+				cur = p.inext[p.isub[cur]]
+			} else {
+				let _ = row(p, k, p.ia[cur], p.ib[cur])
+				cur = p.inext[cur]
+			}
+		}
+	}
+}
+
+func emitText(p mut parser, from int, to int) {
+	let root = parseInlines(p, from, to)
+	emitInlines(p, root)
+}
+
+func isTask(p mut parser, b int) int {
+	let s = p.bcs[b]
+	let e = p.bce[b]
+	if s+3 > e || p.t[s] != '[' || p.t[s+2] != ']' {
+		return 0
+	}
+	let m = p.t[s+1]
+	if m != ' ' && m != 'x' && m != 'X' {
+		return 0
+	}
+	if s+3 < e && p.t[s+3] != ' ' && p.t[s+3] != '\t' && p.t[s+3] != '\n' {
+		return 0
+	}
+	if m == ' ' { 1 } else { 2 }
+}
+
+func emitLeaf(p mut parser, b int) {
+	let k = p.bk[b]
+	if k == kPara {
+		let r = row(p, kPara, 0, 0)
+		emitText(p, p.bcs[b], p.bce[b])
+		closeRow(p, r)
+	} else if k == kHeading {
+		let r = row(p, kHeading, p.bval[b], 0)
+		emitText(p, p.bcs[b], p.bce[b])
+		closeRow(p, r)
+	} else if k == kCode {
+		if p.bflags[b]&fFenced != 0 {
+			let nl = p.bval[b]
+			let mut is = p.bcs[b]
+			let mut ie = nl
+			for is < ie && isTrimSpace(int(p.t[is])) {
+				is = is + 1
+			}
+			for ie > is && isTrimSpace(int(p.t[ie-1])) {
+				ie = ie - 1
+			}
+			let (ia, il) = decodeSpan(p, is, ie, false)
+			let bs = if nl < p.bce[b] { nl + 1 } else { p.bce[b] }
+			let _ = extraRow(p, kCode, bs, p.bce[b]-bs, ia, il, 1)
+		} else {
+			let _ = extraRow(p, kCode, p.bcs[b], p.bce[b]-p.bcs[b], 0, 0, 0)
+		}
+	} else if k == kHTML {
+		let _ = row(p, kHTML, p.bcs[b], p.bce[b]-p.bcs[b])
+	} else if k == kHR {
+		let _ = row(p, kHR, 0, 0)
+	} else if k == kTable {
+		emitTable(p, b)
+	}
+}
+
+func splitCells(p mut parser, from int, to int, cols int) {
+	p.noTicks = p.noTicks[0:0]
+	let mut a = from
+	let mut z = to
+	for a < z && (p.t[a] == ' ' || p.t[a] == '\t') {
+		a = a + 1
+	}
+	for z > a && (p.t[z-1] == ' ' || p.t[z-1] == '\t') {
+		z = z - 1
+	}
+	if a < z && p.t[a] == '|' {
+		a = a + 1
+	}
+	let mut start = a
+	let mut i = a
+	for i < z && p.noTicks.Len() < 2*cols {
+		p.work = p.work + 1
+		if p.t[i] == '\\' && i+1 < z {
+			i = i + 2
+		} else if p.t[i] == '|' {
+			p.noTicks = p.noTicks.Append(start).Append(i)
+			i = i + 1
+			start = i
+		} else {
+			i = i + 1
+		}
+	}
+	if start < z && p.noTicks.Len() < 2*cols {
+		p.noTicks = p.noTicks.Append(start).Append(z)
+	}
+}
+
+func emitTable(p mut parser, b int) {
+	let mark = p.bval[b]
+	let cols = p.aligns[mark]
+	let tr = row(p, kTable, cols, 0)
+	let mut ls = p.bcs[b]
+	let mut head = true
+	for ls < p.bce[b] {
+		let mut le = ls
+		for le < p.bce[b] && p.t[le] != '\n' {
+			le = le + 1
+		}
+		let rr = row(p, kRow, if head { 1 } else { 0 }, 0)
+		splitCells(p, ls, le, cols)
+		let mut spans = []int{}
+		for v in p.noTicks {
+			spans = spans.Append(v)
+		}
+		for c in 0..cols {
+			let cr = row(p, kCell, p.aligns[mark+1+c], if head { 1 } else { 0 })
+			if 2*c+1 < spans.Len() {
+				let mut s = spans[2*c]
+				let mut e = spans[2*c+1]
+				let mut esc = false
+				for k in s..e {
+					if p.t[k] == '|' && k > s && p.t[k-1] == '\\' {
+						esc = true
+					}
+				}
+				if esc {
+					let at = p.t.Len()
+					let mut k = s
+					for k < e {
+						if p.t[k] == '\\' && k+1 < e && p.t[k+1] == '|' {
+							p.t = p.t.Append('|')
+							k = k + 2
+						} else {
+							p.t = p.t.Append(p.t[k])
+							k = k + 1
+						}
+					}
+					s = at
+					e = p.t.Len()
+				}
+				emitText(p, s, e)
+			}
+			closeRow(p, cr)
+		}
+		closeRow(p, rr)
+		head = false
+		ls = le + 1
+	}
+	closeRow(p, tr)
+}
+
+func emitBlocks(p mut parser) {
+	let mut stackB = []int{}
+	let mut stackR = []int{}
+	let mut b = 0
+	for true {
+		p.work = p.work + 1
+		let k = p.bk[b]
+		let isContainer = k == kDoc || k == kQuote || k == kList || k == kItem
+		if isContainer {
+			let r = if k == kList {
+				row(p, kList, p.bval[b], (p.bflags[b]&3)|(p.bchar[b]<<8))
+			} else if k == kItem {
+				let mut task = 0
+				let f = p.bfirst[b]
+				if p.o.TaskLists && f >= 0 && p.bk[f] == kPara {
+					task = isTask(p, f)
+					if task > 0 {
+						p.bcs[f] = p.bcs[f] + 3
+						if isBlankSpan(p.t, p.bcs[f], p.bce[f]) {
+							p.bk[f] = -1
+						}
+					}
+				}
+				row(p, kItem, task, 0)
+			} else {
+				row(p, k, 0, 0)
+			}
+			if p.bfirst[b] >= 0 {
+				stackB = stackB.Append(b)
+				stackR = stackR.Append(r)
+				b = p.bfirst[b]
+				continue
+			}
+		} else if k > 0 {
+			emitLeaf(p, b)
+		}
+		let mut nx = p.bnext[b]
+		for nx < 0 && stackB.Len() > 0 {
+			let top = stackB.Len() - 1
+			closeRow(p, stackR[top])
+			nx = p.bnext[stackB[top]]
+			stackB = stackB[0:top]
+			stackR = stackR[0:top]
+		}
+		if nx < 0 {
+			break
+		}
+		b = nx
+	}
+}
+
+func clean(src string) []byte {
+	let b = src.Bytes()
+	if strings.IndexByte(src, 0) < 0 {
+		return b
+	}
+	let mut out = MakeSlice[byte](src.Len() + 16)
+	for c in b {
+		if c == 0 {
+			out = appendRune(out, 0xfffd)
+		} else {
+			out = out.Append(c)
+		}
+	}
+	out
+}
+
+// Parse reads src as Markdown with the extensions o turns on. Every text
+// of at most MaxInput bytes is a document; a longer one fails TooLarge.
+func Parse(src string, o Options) Doc fails TooLarge {
+	if src.Len() > MaxInput {
+		return TooLarge{Len: src.Len(), Max: MaxInput}
+	}
+	let mut p = newParser(clean(src), o)
+	parseBlocks(&p)
+	emitBlocks(&p)
+	Doc{kind: p.rk, end: p.rend, a: p.ra, b: p.rb, extra: p.rx, text: p.t.Text(), opts: o, work: p.work}
+}
+
+func spanOK(off int, length int, total int) bool {
+	off >= 0 && length >= 0 && off+length <= total
+}
+
+func docInvariantsOK(d Doc) bool {
+	let n = Rows(d)
+	if n < 1 || d.end.Len() != n || d.a.Len() != n || d.b.Len() != n {
+		return false
+	}
+	if int(d.kind[0]) != kDoc || End(d, 0) != n || strings.IndexByte(d.text, 0) >= 0 {
+		return false
+	}
+	let mut ends = []int{n}
+	let tlen = d.text.Len()
+	for i in 1..n {
+		for ends.Len() > 0 && i >= ends[ends.Len()-1] {
+			ends = ends[0 : ends.Len()-1]
+		}
+		if ends.Len() == 0 {
+			return false
+		}
+		let e = End(d, i)
+		if e <= i || e > ends[ends.Len()-1] {
+			return false
+		}
+		ends = ends.Append(e)
+		let k = int(d.kind[i])
+		let a = int(d.a[i])
+		let b = int(d.b[i])
+		if k == kCode || k == kLink || k == kImage {
+			if a < 0 || a+4 > d.extra.Len() {
+				return false
+			}
+			if !spanOK(int(d.extra[a]), int(d.extra[a+1]), tlen) || !spanOK(int(d.extra[a+2]), int(d.extra[a+3]), tlen) {
+				return false
+			}
+		} else if k == kHTML || k == kText || k == kCodeSpan || k == kHTMLSpan {
+			if !spanOK(a, b, tlen) {
+				return false
+			}
+		}
+		let elemOK = match View(d, i) {
+		case Document, BlockQuote, List, Item, Paragraph, CodeBlock, HTMLBlock, ThematicBreak, TableRow, TableCell, Text, SoftBreak, HardBreak, Code, Emphasis, Strong, Strikethrough, Link, Image, HTMLSpan:
+			true
+		case Heading as h:
+			h.Level >= 1 && h.Level <= 6
+		case Table as t:
+			t.Columns >= 1
+		}
+		if !elemOK {
+			return false
+		}
+	}
+	true
+}
+
+law ParseIsTotal(raw []byte, mode int) {
+	let m = (mode%3 + 3) % 3
+	let opts = if m == 0 {
+		CommonMark()
+	} else if m == 1 {
+		GFM()
+	} else {
+		Options{..GFM(), Autolinks: true, TagFilter: true, HardSoftBreaks: true}
+	}
+	let d = Parse(raw.Text(), opts) catch {
+	case TooLarge:
+		return false
+	}
+	let ok = docInvariantsOK(d)
+	always ok
+	sometimes Rows(d) > 1
+	sometimes m == 0 && ok
+	sometimes m == 2 && ok
+	ok
+}
+
+func pathologicalInput(kind int, n int) string {
+	if kind == 0 {
+		return strings.Repeat(" ~~a", 2*n) + strings.Repeat("b~ ", 2*n)
+	}
+	if kind == 1 {
+		return strings.Repeat("[a ", n) + "b"
+	}
+	if kind == 2 {
+		return strings.Repeat("[", n) + "a" + strings.Repeat("]", n)
+	}
+	if kind == 3 {
+		return strings.Repeat("[a](", n) + "b"
+	}
+	if kind == 4 {
+		return strings.Repeat("` a `` b ``` c ```` d ", n/4+1)
+	}
+	if kind == 5 {
+		return strings.Repeat("> ", n) + "a"
+	}
+	if kind == 6 {
+		return strings.Repeat("- ", n) + "a"
+	}
+	strings.Repeat("<a ", n/2) + strings.Repeat("<!--x ", n/2) + strings.Repeat("a@b ", n/2)
+}
+
+law WorkIsLinear(kindRaw int, sizeRaw int) {
+	let kind = (kindRaw%8 + 8) % 8
+	let n = 60 + ((sizeRaw%21 + 21) % 21)
+	let src = pathologicalInput(kind, n)
+	let opts = Options{..GFM(), Autolinks: true}
+	let d = Parse(src, opts) catch {
+	case TooLarge:
+		return false
+	}
+	let ok = docInvariantsOK(d) && Work(d) <= 8*src.Len()+64
+	always ok
+	sometimes kind == 0 && ok
+	sometimes kind == 1 && ok
+	sometimes kind == 4 && ok
+	sometimes kind == 7 && ok
+	ok
+}

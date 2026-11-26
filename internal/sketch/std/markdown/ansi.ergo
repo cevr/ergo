@@ -1,0 +1,1216 @@
+import ansi
+import slices
+import strings
+import text
+
+// Theme is how ToANSI draws: the terminal's width in columns (0 turns
+// wrapping off), whether links are OSC 8 hyperlinks or "text (url)", and
+// whether the background is light.
+type Theme {
+	Columns    int,
+	Hyperlinks bool,
+	Light      bool,
+}
+
+// DefaultTheme is 80 columns, links as "text (url)", a dark background:
+// Bun.markdown.ansi's defaults.
+func DefaultTheme() Theme { Theme{Columns: 80, Hyperlinks: false, Light: false} }
+
+let maxIndent = 128
+
+let sBold = "\x1b[1m"
+let sDim = "\x1b[2m"
+let sItalic = "\x1b[3m"
+let sUnder = "\x1b[4m"
+let sStrike = "\x1b[9m"
+let sReset = "\x1b[0m"
+let sBlue = "\x1b[34m"
+let sMagenta = "\x1b[35m"
+let sCyan = "\x1b[36m"
+let sGreen = "\x1b[32m"
+
+let spEm = 1
+let spStrong = 2
+let spDel = 4
+let spCode = 16
+
+type aw {
+	d          Doc,
+	colors     bool,
+	light      bool,
+	links      bool,
+	columns    int,
+	out        []byte,
+	hb         []byte,
+	cb         []byte,
+	ab         []byte,
+	heading    int,
+	inCell     bool,
+	imageDepth int,
+	col        int,
+	lastNL     bool,
+	blank      bool,
+	quotes     int,
+	listIndent int,
+	sk         []int,
+	sdata      []int,
+	sindex     []int,
+	sindent    []int,
+	span       int,
+	linkDepth  int,
+	href       string,
+	imgSrc     string,
+	imgTitle   string,
+	cells      []string,
+	cellAlign  []int,
+	rowStart   []int,
+	rowHead    []bool,
+	align      int,
+	tight      []bool,
+}
+
+func headingColor(level int) string {
+	if level == 1 {
+		sMagenta
+	} else if level == 2 {
+		sCyan
+	} else if level == 3 {
+		"\x1b[33m"
+	} else if level == 4 {
+		sGreen
+	} else if level == 5 {
+		sBlue
+	} else {
+		"\x1b[37m"
+	}
+}
+
+func codeOpen(light bool) string {
+	if light { "\x1b[48;5;254m\x1b[38;5;124m" } else { "\x1b[48;5;236m\x1b[38;5;215m" }
+}
+
+func isC1At(s string, i int) bool { s[i] == 0xc2 && i+1 < s.Len() && s[i+1] >= 0x80 && s[i+1] <= 0x9f }
+
+func badByte(c byte) bool { (c < 0x20 && c != '\n' && c != '\t') || c == 0x7f }
+
+func skipEscape(s string, at int) int {
+	let mut i = at + 1
+	if i < s.Len() && s[i] == '[' {
+		i = i + 1
+		for i < s.Len() && (s[i] < 0x40 || s[i] > 0x7e) {
+			i = i + 1
+		}
+		if i < s.Len() {
+			i = i + 1
+		}
+	} else if i < s.Len() && s[i] == ']' {
+		i = i + 1
+		let mut more = true
+		for more && i < s.Len() {
+			if s[i] == 7 {
+				i = i + 1
+				more = false
+			} else if s[i] == 0x1b && i+1 < s.Len() && s[i+1] == '\\' {
+				i = i + 2
+				more = false
+			} else {
+				i = i + 1
+			}
+		}
+	} else if i < s.Len() {
+		i = i + 1
+	}
+	i
+}
+
+func sanitize(s string) string {
+	let mut dirty = false
+	for i in 0..s.Len() {
+		if badByte(s[i]) || isC1At(s, i) {
+			dirty = true
+		}
+	}
+	if !dirty {
+		return s
+	}
+	let mut b = strings.NewBuilder()
+	let mut i = 0
+	for i < s.Len() {
+		if s[i] == 0x1b {
+			i = skipEscape(s, i)
+		} else if isC1At(s, i) {
+			i = i + 2
+		} else if badByte(s[i]) {
+			i = i + 1
+		} else {
+			b.WriteByte(s[i])
+			i = i + 1
+		}
+	}
+	b.String()
+}
+
+func width(s string) int { text.Cells(s) }
+
+func firstRuneLen(s string) int {
+	let mut i = 0
+	for i < s.Len() && s[i] == 0x1b {
+		i = skipEscape(s, i)
+	}
+	if i >= s.Len() {
+		return s.Len()
+	}
+	let c = int(s[i])
+	let n = if c < 0x80 { 1 } else if c >= 0xf0 { 4 } else if c >= 0xe0 { 3 } else if c >= 0xc0 { 2 } else { 1 }
+	if i+n > s.Len() { s.Len() } else { i + n }
+}
+
+func indexAt(s string, max int) int {
+	let mut i = 0
+	let mut w = 0
+	for i < s.Len() {
+		if s[i] == 0x1b {
+			i = skipEscape(s, i)
+		} else {
+			let c = int(s[i])
+			let n = if c < 0x80 { 1 } else if c >= 0xf0 { 4 } else if c >= 0xe0 { 3 } else if c >= 0xc0 { 2 } else { 1 }
+			let e = if i+n > s.Len() { s.Len() } else { i + n }
+			let rw = text.Cells(strings.Slice(s, i, e))
+			if w+rw > max {
+				return i
+			}
+			w = w + rw
+			i = e
+		}
+	}
+	s.Len()
+}
+
+func emit(w mut aw, s string) {
+	if s.Len() == 0 {
+		return
+	}
+	if w.imageDepth > 0 {
+		let mut i = 0
+		for i < s.Len() {
+			if s[i] == 0x1b {
+				i = skipEscape(s, i)
+			} else {
+				w.ab = w.ab.Append(s[i])
+				i = i + 1
+			}
+		}
+	} else if w.inCell {
+		w.cb = w.cb.AppendString(s)
+	} else if w.heading > 0 {
+		w.hb = w.hb.AppendString(s)
+	} else {
+		w.out = w.out.AppendString(s)
+	}
+}
+
+func writeRaw(w mut aw, s string) {
+	if s.Len() == 0 {
+		return
+	}
+	emit(w, s)
+	w.lastNL = s[s.Len()-1] == '\n'
+}
+
+func rawNoColor(w mut aw, s string) {
+	if !w.colors || s.Len() == 0 || w.imageDepth > 0 {
+		return
+	}
+	emit(w, s)
+}
+
+func reapply(w mut aw) {
+	if !w.colors {
+		return
+	}
+	if w.heading > 0 {
+		emit(w, sBold)
+		emit(w, headingColor(w.heading))
+	}
+	if w.span&spStrong != 0 {
+		emit(w, sBold)
+	}
+	if w.span&spEm != 0 {
+		emit(w, sItalic)
+	}
+	if w.span&spDel != 0 {
+		emit(w, sStrike)
+	}
+	if w.span&spCode != 0 {
+		emit(w, codeOpen(w.light))
+	}
+	if w.linkDepth > 0 {
+		emit(w, sBlue)
+		emit(w, sUnder)
+	}
+}
+
+func indentCounts(w mut aw) (int, int) {
+	let q = if w.quotes < maxIndent/2 { w.quotes } else { maxIndent / 2 }
+	let room = maxIndent - q*2
+	let o = if w.listIndent < room { w.listIndent } else { room }
+	(q, o)
+}
+
+func currentIndent(w mut aw) int {
+	let (q, o) = indentCounts(w)
+	q*2 + o
+}
+
+func writeIndent(w mut aw) {
+	w.blank = false
+	let (q, o) = indentCounts(w)
+	if w.colors && q > 0 {
+		w.out = w.out.AppendString("\x1b[38;5;242m")
+	}
+	for _ in 0..q {
+		w.out = w.out.AppendString(if w.colors { "│ " } else { "| " })
+		w.col = w.col + 2
+	}
+	if w.colors && q > 0 {
+		w.out = w.out.AppendString("\x1b[39m")
+		reapply(w)
+	}
+	for _ in 0..o {
+		w.out = w.out.Append(' ')
+		w.col = w.col + 1
+	}
+}
+
+func quoteBars(w mut aw) {
+	let (q, _) = indentCounts(w)
+	if q == 0 {
+		return
+	}
+	if w.colors {
+		w.out = w.out.AppendString("\x1b[38;5;242m")
+	}
+	for _ in 0..q {
+		w.out = w.out.AppendString(if w.colors { "│" } else { "|" })
+		w.col = w.col + 1
+	}
+	if w.colors {
+		w.out = w.out.AppendString("\x1b[39m")
+	}
+}
+
+func ensureNewline(w mut aw) {
+	if !w.lastNL {
+		w.out = w.out.Append('\n')
+		w.col = 0
+		w.lastNL = true
+	}
+}
+
+func ensureBlankLine(w mut aw) {
+	ensureNewline(w)
+	if w.blank {
+		return
+	}
+	let n = w.out.Len()
+	if n >= 2 && w.out[n-1] == '\n' && w.out[n-2] != '\n' {
+		quoteBars(w)
+		w.out = w.out.Append('\n')
+		w.col = 0
+		w.blank = true
+	} else if n >= 1 && w.out[n-1] != '\n' {
+		quoteBars(w)
+		w.out = w.out.Append('\n')
+		w.col = 0
+		w.blank = true
+	}
+}
+
+func wrapBreak(w mut aw) {
+	let styled = w.span != 0 || w.linkDepth > 0
+	if w.colors && styled {
+		w.out = w.out.AppendString("\x1b[39m\x1b[49m")
+	}
+	w.out = w.out.Append('\n')
+	w.lastNL = true
+	w.col = 0
+	writeIndent(w)
+	if styled {
+		reapply(w)
+	}
+}
+
+func mainFlow(w mut aw) bool { !w.inCell && w.heading == 0 && w.imageDepth == 0 }
+
+func writeStyled(w mut aw, prefix string, s string) {
+	let flow = mainFlow(w)
+	if flow && w.columns > 0 && s.Len() > 0 {
+		let tw = width(s)
+		if tw > 0 && w.col > currentIndent(w) && w.col+tw > w.columns {
+			wrapBreak(w)
+		}
+	}
+	if w.colors && prefix.Len() > 0 {
+		emit(w, prefix)
+	}
+	if s.Len() == 0 {
+		return
+	}
+	if !flow || w.columns == 0 {
+		emit(w, s)
+		if flow {
+			w.col = w.col + width(s)
+			w.lastNL = false
+		}
+		return
+	}
+	let mut rest = s
+	for rest.Len() > 0 {
+		let room = if w.columns > w.col { w.columns - w.col } else { 0 }
+		if room == 0 {
+			if w.col <= currentIndent(w) {
+				emit(w, rest)
+				w.col = w.col + width(rest)
+				w.lastNL = false
+				return
+			}
+			wrapBreak(w)
+		} else {
+			let mut cut = indexAt(rest, room)
+			if cut == rest.Len() {
+				emit(w, rest)
+				w.col = w.col + width(rest)
+				w.lastNL = false
+				return
+			}
+			if cut == 0 && w.col > currentIndent(w) {
+				wrapBreak(w)
+			} else {
+				if cut == 0 {
+					cut = firstRuneLen(rest)
+				}
+				let piece = strings.Slice(rest, 0, cut)
+				emit(w, piece)
+				w.col = w.col + width(piece)
+				w.lastNL = false
+				rest = strings.Slice(rest, cut, rest.Len())
+				if rest.Len() > 0 {
+					wrapBreak(w)
+				}
+			}
+		}
+	}
+}
+
+func writeContent(w mut aw, s string) {
+	if w.imageDepth > 0 {
+		w.ab = w.ab.AppendString(s)
+	} else if w.inCell {
+		w.cb = w.cb.AppendString(s)
+	} else if w.heading > 0 {
+		w.hb = w.hb.AppendString(s)
+	} else {
+		writeWrapped(w, s)
+	}
+}
+
+func wordEnd(s string, i int) int {
+	let mut j = i
+	for j < s.Len() && s[j] != ' ' && s[j] != '\n' {
+		j = j + 1
+	}
+	j
+}
+
+func writeWrapped(w mut aw, s string) {
+	if w.columns == 0 {
+		let mut start = 0
+		for i in 0..s.Len() {
+			if s[i] == '\n' {
+				writeRaw(w, strings.Slice(s, start, i+1))
+				w.col = 0
+				w.lastNL = true
+				writeIndent(w)
+				start = i + 1
+			}
+		}
+		if start < s.Len() {
+			let tail = strings.Slice(s, start, s.Len())
+			writeRaw(w, tail)
+			w.col = w.col + width(tail)
+			w.lastNL = false
+		}
+		return
+	}
+	let indent = currentIndent(w)
+	let max = w.columns
+	let avail = if max > indent { max - indent } else { 0 }
+	let mut i = 0
+	for i < s.Len() {
+		let c = s[i]
+		if c == '\n' {
+			writeRaw(w, "\n")
+			w.col = 0
+			i = i + 1
+			writeIndent(w)
+		} else if c == ' ' && w.col >= max {
+			writeRaw(w, "\n")
+			w.col = 0
+			writeIndent(w)
+			i = i + 1
+			for i < s.Len() && s[i] == ' ' {
+				i = i + 1
+			}
+		} else {
+			let j = wordEnd(s, i)
+			let word = strings.Slice(s, i, j)
+			let ww = width(word)
+			if avail > 0 && ww > avail {
+				let mut rest = word
+				for rest.Len() > 0 {
+					let r = if max > w.col { max - w.col } else { 0 }
+					if r == 0 {
+						wrapBreak(w)
+					} else {
+						let mut cut = indexAt(rest, r)
+						if cut == 0 && w.col > indent {
+							wrapBreak(w)
+						} else {
+							if cut == 0 {
+								cut = firstRuneLen(rest)
+							}
+							let piece = strings.Slice(rest, 0, cut)
+							writeRaw(w, piece)
+							w.col = w.col + width(piece)
+							w.lastNL = false
+							rest = strings.Slice(rest, cut, rest.Len())
+							if rest.Len() > 0 {
+								wrapBreak(w)
+							}
+						}
+					}
+				}
+			} else {
+				if w.col != 0 && w.col+ww > max && w.col > indent {
+					wrapBreak(w)
+				}
+				writeRaw(w, word)
+				w.col = w.col + ww
+				w.lastNL = word.Len() == 0
+			}
+			i = j
+			if i < s.Len() && s[i] == ' ' {
+				let mut k = i
+				for k < s.Len() && s[k] == ' ' {
+					k = k + 1
+				}
+				let nw = width(strings.Slice(s, k, wordEnd(s, k)))
+				if w.col != 0 && w.col+1+nw > max && w.col > indent && nw <= avail {
+					writeRaw(w, "\n")
+					w.col = 0
+					writeIndent(w)
+				} else {
+					writeRaw(w, " ")
+					w.col = w.col + 1
+				}
+				i = k
+			}
+		}
+	}
+}
+
+func pushBlock(w mut aw, kind int, data int, indent int) {
+	w.sk = w.sk.Append(kind)
+	w.sdata = w.sdata.Append(data)
+	w.sindex = w.sindex.Append(0)
+	w.sindent = w.sindent.Append(indent)
+	if kind == 1 {
+		w.quotes = w.quotes + 1
+	} else {
+		w.listIndent = w.listIndent + indent
+	}
+}
+
+func popBlock(w mut aw) {
+	let top = w.sk.Len() - 1
+	if top < 0 {
+		return
+	}
+	if w.sk[top] == 1 {
+		w.quotes = w.quotes - 1
+	} else {
+		w.listIndent = w.listIndent - w.sindent[top]
+	}
+	w.sk = w.sk[0:top]
+	w.sdata = w.sdata[0:top]
+	w.sindex = w.sindex[0:top]
+	w.sindent = w.sindent[0:top]
+}
+
+func parentList(w mut aw) int {
+	let mut i = w.sk.Len() - 1
+	for i >= 0 {
+		if w.sk[i] == 2 || w.sk[i] == 3 {
+			return i
+		}
+		i = i - 1
+	}
+	-1
+}
+
+func flushHeading(w mut aw) {
+	let level = w.heading
+	w.heading = 0
+	let content = w.hb.Text()
+	w.hb = w.hb[0:0]
+	writeIndent(w)
+	if w.colors {
+		w.out = w.out.AppendString(sBold).AppendString(headingColor(level))
+	}
+	w.out = w.out.AppendString(content)
+	if w.colors {
+		w.out = w.out.AppendString(sReset)
+	}
+	w.out = w.out.Append('\n')
+	w.lastNL = true
+	w.col = 0
+	if level == 1 || level == 2 {
+		writeIndent(w)
+		let tw = if width(content) < 3 { 3 } else { width(content) }
+		let ic = currentIndent(w)
+		let room = if w.columns > ic { w.columns - ic } else { 0 }
+		let n = if w.columns == 0 || tw < room { tw } else { room }
+		if w.colors {
+			w.out = w.out.AppendString(sDim)
+		}
+		let ch = if w.colors { if level == 1 { "═" } else { "─" } } else if level == 1 { "=" } else { "-" }
+		for _ in 0..n {
+			w.out = w.out.AppendString(ch)
+		}
+		if w.colors {
+			w.out = w.out.AppendString(sReset)
+		}
+		w.out = w.out.Append('\n')
+		w.lastNL = true
+		w.col = 0
+	}
+}
+
+func drawCode(w mut aw, lang string, body string) {
+	ensureBlankLine(w)
+	let b = if body.Len() > 0 && body[body.Len()-1] == '\n' { strings.Slice(body, 0, body.Len()-1) } else { body }
+	if w.colors {
+		w.out = w.out.AppendString(sDim)
+	}
+	writeIndent(w)
+	let badge = sanitize(lang)
+	if badge.Len() > 0 {
+		w.out = w.out.AppendString(if w.colors { "┌─ " } else { "+- " })
+		if w.colors {
+			w.out = w.out.AppendString(sReset).AppendString("\x1b[2m\x1b[3m")
+		}
+		w.out = w.out.AppendString(badge)
+		if w.colors {
+			w.out = w.out.AppendString(sReset)
+		}
+	} else {
+		if w.colors {
+			w.out = w.out.AppendString(sDim)
+		}
+		w.out = w.out.AppendString(if w.colors { "┌─" } else { "+-" })
+		if w.colors {
+			w.out = w.out.AppendString(sReset)
+		}
+	}
+	w.out = w.out.Append('\n')
+	w.lastNL = true
+	let safe = sanitize(b)
+	let mut start = 0
+	for i in 0..safe.Len()+1 {
+		if i == safe.Len() || safe[i] == '\n' {
+			writeIndent(w)
+			if w.colors {
+				w.out = w.out.AppendString(sDim)
+			}
+			w.out = w.out.AppendString(if w.colors { "│ " } else { "| " })
+			if w.colors {
+				w.out = w.out.AppendString(sReset)
+			}
+			w.out = w.out.AppendString(strings.Slice(safe, start, i)).Append('\n')
+			start = i + 1
+		}
+	}
+	writeIndent(w)
+	if w.colors {
+		w.out = w.out.AppendString(sDim)
+	}
+	w.out = w.out.AppendString(if w.colors { "└─" } else { "+-" })
+	if w.colors {
+		w.out = w.out.AppendString(sReset)
+	}
+	w.out = w.out.Append('\n')
+	w.col = 0
+	w.lastNL = true
+}
+
+func boxed(w mut aw, plain string, fancy string) string { if w.colors { fancy } else { plain } }
+
+func tableLine(w mut aw, widths []int, l string, m string, r string) {
+	writeIndent(w)
+	if w.colors {
+		w.out = w.out.AppendString(sDim)
+	}
+	w.out = w.out.AppendString(l)
+	let h = boxed(w, "-", "─")
+	for i, cw in widths {
+		for _ in 0..cw+2 {
+			w.out = w.out.AppendString(h)
+		}
+		w.out = w.out.AppendString(if i == widths.Len()-1 { r } else { m })
+	}
+	if w.colors {
+		w.out = w.out.AppendString(sReset)
+	}
+	w.out = w.out.Append('\n')
+	w.lastNL = true
+}
+
+func lastBreak(s string, cut int) int {
+	let mut i = 0
+	let mut best = -1
+	for i < cut {
+		if s[i] == 0x1b {
+			i = skipEscape(s, i)
+		} else {
+			if s[i] == ' ' {
+				best = i
+			}
+			i = i + 1
+		}
+	}
+	best
+}
+
+func openStyle(s string) (bool, bool) {
+	let mut sgr = false
+	let mut link = false
+	let mut i = 0
+	for i < s.Len() {
+		if s[i] == 0x1b && i+1 < s.Len() && s[i+1] == '[' {
+			let e = skipEscape(s, i)
+			let params = if e-1 >= i+2 { strings.Slice(s, i+2, e-1) } else { "" }
+			sgr = !(params == "" || params == "0")
+			i = e
+		} else if s[i] == 0x1b && i+1 < s.Len() && s[i+1] == ']' {
+			let e = skipEscape(s, i)
+			link = !strings.HasPrefix(strings.Slice(s, i, e), "\x1b]8;;\x1b")
+			i = e
+		} else {
+			i = i + 1
+		}
+	}
+	(sgr, link)
+}
+
+func flushTable(w mut aw) {
+	let rows = w.rowStart.Len()
+	if rows == 0 {
+		return
+	}
+	let mut cols = 0
+	for r in 0..rows {
+		let end = if r+1 < rows { w.rowStart[r+1] } else { w.cells.Len() }
+		if end-w.rowStart[r] > cols {
+			cols = end - w.rowStart[r]
+		}
+	}
+	if cols == 0 {
+		return
+	}
+	let mut widths = slices.Repeat([]int{3}, cols)
+	let mut aligns = slices.Repeat([]int{0}, cols)
+	for r in 0..rows {
+		let end = if r+1 < rows { w.rowStart[r+1] } else { w.cells.Len() }
+		for k in w.rowStart[r]..end {
+			let c = k - w.rowStart[r]
+			let cw = width(w.cells[k])
+			if cw > widths[c] {
+				widths[c] = cw
+			}
+			if aligns[c] == 0 {
+				aligns[c] = w.cellAlign[k]
+			}
+		}
+	}
+	if w.columns > 0 {
+		let mut total = currentIndent(w) + 1
+		for cw in widths {
+			total = total + cw + 3
+		}
+		let mut more = true
+		for more && total > w.columns {
+			let mut widest = 0
+			for i in 0..cols {
+				if widths[i] > widths[widest] {
+					widest = i
+				}
+			}
+			if widths[widest] <= 3 {
+				more = false
+			} else {
+				widths[widest] = widths[widest] - 1
+				total = total - 1
+			}
+		}
+	}
+	tableLine(w, widths, boxed(w, "+", "┌"), boxed(w, "+", "┬"), boxed(w, "+", "┐"))
+	let mut separated = false
+	for r in 0..rows {
+		let end = if r+1 < rows { w.rowStart[r+1] } else { w.cells.Len() }
+		writeRow(w, r, end, widths, aligns)
+		if w.rowHead[r] && !separated {
+			tableLine(w, widths, boxed(w, "+", "├"), boxed(w, "+", "┼"), boxed(w, "+", "┤"))
+			separated = true
+		}
+	}
+	tableLine(w, widths, boxed(w, "+", "└"), boxed(w, "+", "┴"), boxed(w, "+", "┘"))
+	w.col = 0
+	w.cells = w.cells[0:0]
+	w.cellAlign = w.cellAlign[0:0]
+	w.rowStart = w.rowStart[0:0]
+	w.rowHead = w.rowHead[0:0]
+}
+
+func writeRow(w mut aw, r int, end int, widths []int, aligns []int) {
+	let start = w.rowStart[r]
+	let head = w.rowHead[r]
+	let mut segs = [][]string{}
+	let mut lines = 1
+	for c, cw in widths {
+		let mut list = []string{}
+		let mut rest = if start+c < end { w.cells[start+c] } else { "" }
+		for rest.Len() > 0 {
+			let mut cut = indexAt(rest, cw)
+			if cut < rest.Len() {
+				let sp = lastBreak(rest, cut)
+				if sp > 0 {
+					cut = sp
+				}
+			}
+			if cut == 0 {
+				cut = firstRuneLen(rest)
+			}
+			list = list.Append(strings.Slice(rest, 0, cut))
+			let mut k = cut
+			for k < rest.Len() && rest[k] == ' ' {
+				k = k + 1
+			}
+			rest = strings.Slice(rest, k, rest.Len())
+		}
+		if list.Len() > lines {
+			lines = list.Len()
+		}
+		segs = segs.Append(list)
+	}
+	let v = boxed(w, "|", "│")
+	for line in 0..lines {
+		writeIndent(w)
+		if w.colors {
+			w.out = w.out.AppendString(sDim)
+		}
+		w.out = w.out.AppendString(v)
+		if w.colors {
+			w.out = w.out.AppendString(sReset)
+		}
+		for c, cw in widths {
+			let seg = if line < segs[c].Len() { segs[c][line] } else { "" }
+			w.out = w.out.Append(' ')
+			if head && w.colors {
+				w.out = w.out.AppendString(sBold)
+			}
+			let own = if start+c < end { w.cellAlign[start+c] } else { 0 }
+			let al = if own != 0 { own } else { aligns[c] }
+			let sw = width(seg)
+			let pad = if cw > sw { cw - sw } else { 0 }
+			let left = if al == 3 { pad } else if al == 2 { pad / 2 } else { 0 }
+			for _ in 0..left {
+				w.out = w.out.Append(' ')
+			}
+			w.out = w.out.AppendString(seg)
+			if w.colors {
+				let (sgr, link) = openStyle(seg)
+				if sgr {
+					w.out = w.out.AppendString(sReset)
+				}
+				if link {
+					w.out = w.out.AppendString("\x1b]8;;\x1b\\")
+				}
+				if head {
+					w.out = w.out.AppendString(sReset)
+				}
+			}
+			for _ in 0..pad-left {
+				w.out = w.out.Append(' ')
+			}
+			w.out = w.out.Append(' ')
+			if w.colors {
+				w.out = w.out.AppendString(sDim)
+			}
+			w.out = w.out.AppendString(v)
+			if w.colors {
+				w.out = w.out.AppendString(sReset)
+			}
+		}
+		w.out = w.out.Append('\n')
+	}
+	w.lastNL = true
+}
+
+func emitImage(w mut aw) {
+	let alt = w.ab.Text()
+	w.ab = w.ab[0:0]
+	let saved = w.imageDepth
+	w.imageDepth = 0
+	let ok = w.colors && w.links && w.imgSrc.Len() > 0 && w.linkDepth == 0 && !strings.HasPrefix(w.imgSrc, "data:")
+	if ok {
+		rawNoColor(w, "\x1b]8;;")
+		rawNoColor(w, w.imgSrc)
+		rawNoColor(w, "\x1b\\")
+	}
+	writeStyled(w, sMagenta, if w.colors { "📷 " } else { "[img] " })
+	if alt.Len() > 0 {
+		writeContent(w, alt)
+	} else if w.imgTitle.Len() > 0 {
+		writeContent(w, w.imgTitle)
+	} else {
+		writeContent(w, "(image)")
+	}
+	writeStyled(w, sReset, "")
+	reapply(w)
+	if ok {
+		rawNoColor(w, "\x1b]8;;\x1b\\")
+	}
+	w.imageDepth = saved
+}
+
+func enterANSI(w mut aw, i int) {
+	let d = w.d
+	match View(d, i) {
+	case Document:
+	case BlockQuote:
+		ensureBlankLine(w)
+		pushBlock(w, 1, 0, 2)
+	case List as l:
+		ensureNewline(w)
+		w.tight = w.tight.Append(l.Tight)
+		if l.Ordered {
+			pushBlock(w, 3, l.Start, 3)
+		} else {
+			pushBlock(w, 2, 0, 2)
+		}
+	case Item as it:
+		ensureNewline(w)
+		writeIndent(w)
+		let pl = parentList(w)
+		let mut index = 0
+		if pl >= 0 {
+			index = w.sindex[pl]
+			w.sindex[pl] = w.sindex[pl] + 1
+		}
+		let mut glyph = if w.colors { "• " } else { "* " }
+		let mut color = sCyan
+		if it.Task {
+			glyph = if it.Checked { if w.colors { "☒ " } else { "[x] " } } else if w.colors { "☐ " } else { "[ ] " }
+			color = if it.Checked { sGreen } else { sDim }
+		} else if pl >= 0 && w.sk[pl] == 3 {
+			glyph = "\(w.sdata[pl] + index). "
+		}
+		writeStyled(w, color, glyph)
+		writeStyled(w, sReset, "")
+		pushBlock(w, 4, 0, width(glyph))
+	case ThematicBreak:
+		ensureBlankLine(w)
+		writeIndent(w)
+		let ic = currentIndent(w)
+		let base = if w.columns == 0 || w.columns > 60 { 60 } else { w.columns }
+		let n = if base > ic { base - ic } else { 0 }
+		writeStyled(w, sDim, "")
+		for _ in 0..n {
+			writeRaw(w, if w.colors { "─" } else { "-" })
+		}
+		writeStyled(w, sReset, "")
+		writeRaw(w, "\n")
+		w.lastNL = true
+		w.col = 0
+	case Heading as h:
+		ensureBlankLine(w)
+		w.heading = h.Level
+		w.hb = w.hb[0:0]
+	case CodeBlock as c:
+		let mut e = 0
+		for e < c.Info.Len() && c.Info[e] != ' ' && c.Info[e] != '\t' {
+			e = e + 1
+		}
+		drawCode(w, if c.Fenced { strings.Slice(c.Info, 0, e) } else { "" }, c.Body)
+	case HTMLBlock as hb:
+		ensureNewline(w)
+		writeStyled(w, sDim, "")
+		writeContent(w, sanitize(hb.Body))
+		writeStyled(w, "\x1b[22m", "")
+		reapply(w)
+		ensureNewline(w)
+	case Paragraph:
+		if inTight(w) {
+			return
+		}
+		let top = w.sk.Len() - 1
+		if !(top >= 0 && w.sk[top] == 4 && w.col > 0) {
+			ensureBlankLine(w)
+			writeIndent(w)
+		}
+	case Table:
+		ensureBlankLine(w)
+	case TableRow as r:
+		w.rowStart = w.rowStart.Append(w.cells.Len())
+		w.rowHead = w.rowHead.Append(r.Head)
+	case TableCell as tc:
+		w.inCell = true
+		w.align = match tc.Align {
+		case AlignLeft:
+			1
+		case AlignCenter:
+			2
+		case AlignRight:
+			3
+		case AlignNone:
+			0
+		}
+		w.cb = w.cb[0:0]
+	case Text as t:
+		writeContent(w, sanitize(t.Body))
+	case SoftBreak:
+		writeContent(w, if d.opts.HardSoftBreaks { "\n" } else { " " })
+	case HardBreak:
+		writeContent(w, "\n")
+	case Code as c:
+		w.span = w.span | spCode
+		writeStyled(w, codeOpen(w.light), "")
+		writeStyled(w, "", sanitize(c.Body))
+		w.span = w.span - spCode
+		writeStyled(w, "\x1b[39m\x1b[49m", "")
+		reapply(w)
+	case Emphasis:
+		w.span = w.span | spEm
+		writeStyled(w, sItalic, "")
+	case Strong:
+		w.span = w.span | spStrong
+		writeStyled(w, sBold, "")
+	case Strikethrough:
+		w.span = w.span | spDel
+		writeStyled(w, sStrike, "")
+	case Link as l:
+		w.linkDepth = w.linkDepth + 1
+		if w.linkDepth == 1 {
+			w.href = sanitize(l.Dest)
+			if w.colors && w.links {
+				rawNoColor(w, "\x1b]8;;")
+				rawNoColor(w, w.href)
+				rawNoColor(w, "\x1b\\")
+			}
+			writeStyled(w, sBlue, "")
+			writeStyled(w, sUnder, "")
+		}
+	case Image as im:
+		w.imageDepth = w.imageDepth + 1
+		if w.imageDepth == 1 {
+			w.imgSrc = sanitize(im.Dest)
+			w.imgTitle = sanitize(im.Title)
+			w.ab = w.ab[0:0]
+		}
+	case HTMLSpan as hs:
+		writeStyled(w, sDim, "")
+		writeContent(w, sanitize(hs.Body))
+		writeStyled(w, "\x1b[22m", "")
+		reapply(w)
+	}
+}
+
+func inTight(w mut aw) bool {
+	let n = w.tight.Len()
+	let top = w.sk.Len() - 1
+	n > 0 && w.tight[n-1] && top >= 0 && w.sk[top] == 4
+}
+
+func exitANSI(w mut aw, i int) {
+	let k = int(w.d.kind[i])
+	if k == kQuote || k == kItem {
+		popBlock(w)
+		ensureNewline(w)
+	} else if k == kList {
+		popBlock(w)
+		w.tight = w.tight[0 : w.tight.Len()-1]
+		ensureNewline(w)
+	} else if k == kHeading {
+		flushHeading(w)
+	} else if k == kPara {
+		if inTight(w) {
+			return
+		}
+		writeStyled(w, sReset, "")
+		ensureNewline(w)
+		w.col = 0
+	} else if k == kTable {
+		flushTable(w)
+		ensureNewline(w)
+	} else if k == kCell {
+		w.inCell = false
+		w.cells = w.cells.Append(w.cb.Text())
+		w.cellAlign = w.cellAlign.Append(w.align)
+	} else if k == kEmph {
+		w.span = w.span & (31 - spEm)
+		writeStyled(w, "\x1b[23m", "")
+		if w.heading > 0 {
+			reapply(w)
+		}
+	} else if k == kStrong {
+		w.span = w.span & (31 - spStrong)
+		writeStyled(w, "\x1b[22m", "")
+		if w.heading > 0 {
+			reapply(w)
+		}
+	} else if k == kStrike {
+		w.span = w.span & (31 - spDel)
+		writeStyled(w, "\x1b[29m", "")
+		if w.heading > 0 {
+			reapply(w)
+		}
+	} else if k == kLink {
+		w.linkDepth = w.linkDepth - 1
+		if w.linkDepth == 0 {
+			writeStyled(w, "\x1b[24m\x1b[39m", "")
+			reapply(w)
+			if w.colors && w.links {
+				rawNoColor(w, "\x1b]8;;\x1b\\")
+			} else if w.href.Len() > 0 && w.imageDepth == 0 {
+				writeStyled(w, sDim, " (")
+				writeStyled(w, "", w.href)
+				writeStyled(w, sDim, ")")
+				writeStyled(w, "\x1b[39m\x1b[22m", "")
+				reapply(w)
+			}
+		}
+	} else if k == kImage {
+		if w.imageDepth == 1 {
+			emitImage(w)
+		}
+		w.imageDepth = w.imageDepth - 1
+	}
+}
+
+// ToANSI is d drawn for a terminal of theme t, in Bun.markdown.ansi's
+// layout: styled headings with rules under the first two levels, bullets
+// and numbers, quote bars, boxed code and tables, and paragraphs wrapped
+// at t.Columns. With colour off (ansi.Colors) it is plain text with ASCII
+// chrome and no escape byte. Escape and control bytes of the document
+// itself are never written.
+func ToANSI(d Doc, t Theme) string needs ansi.Colors {
+	let mut w = aw{d: d, colors: ansi.Colors.On(), light: t.Light, links: t.Hyperlinks, columns: if t.Columns < 0 { 0 } else { t.Columns }, out: MakeSlice[byte](d.text.Len() + d.text.Len()/2 + 16), hb: []byte{}, cb: []byte{}, ab: []byte{}, heading: 0, inCell: false, imageDepth: 0, col: 0, lastNL: true, blank: false, quotes: 0, listIndent: 0, sk: []int{}, sdata: []int{}, sindex: []int{}, sindent: []int{}, span: 0, linkDepth: 0, href: "", imgSrc: "", imgTitle: "", cells: []string{}, cellAlign: []int{}, rowStart: []int{}, rowHead: []bool{}, align: 0, tight: []bool{}}
+	let mut stack = []int{}
+	let n = d.kind.Len()
+	let mut i = 1
+	for i < n || stack.Len() > 0 {
+		let top = stack.Len() - 1
+		if top >= 0 && i >= int(d.end[stack[top]]) {
+			let r = stack[top]
+			stack = stack[0:top]
+			exitANSI(&w, r)
+		} else {
+			enterANSI(&w, i)
+			stack = stack.Append(i)
+			i = i + 1
+		}
+	}
+	w.out.Text()
+}
+
+func noControlBytes(s string) bool {
+	for i in 0..s.Len() {
+		let c = s[i]
+		if badByte(c) || isC1At(s, i) {
+			return false
+		}
+	}
+	true
+}
+
+law ColoursOffHasNoEscape(seed int) {
+	let esc = "\x1b[31m"
+	let osc = "\x1b]0;evil\x07"
+	let ctl = "\x01\x7f\xc2\x85"
+	let src = "# Heading " + esc + "one" + ctl + "\n\n" +
+		"> Quote with **bold" + ctl + "** and `code" + esc + osc + "`\n\n" +
+		"- [x] task [link" + esc + "](https://example.com/p" + ctl + ")\n" +
+		"- ![alt" + esc + "](https://example.com/i.png \"tit" + ctl + "le\")\n\n" +
+		"```go" + esc + "\nlet a = 1" + osc + "\n```\n\n" +
+		"| h1 | h2 |\n| --- | --- |\n| " + esc + "c1 | c2" + ctl + " |\n\n" +
+		"<span>hi" + esc + "</span>\n"
+	let d = Parse(src, GFM()) catch {
+	case TooLarge:
+		return false
+	}
+	let light = seed%2 == 0
+	let links = (seed/2)%2 == 0
+	let cols = if (seed/4)%2 == 0 { 80 } else { 0 }
+	let t = Theme{Columns: cols, Hyperlinks: links, Light: light}
+	let plain = with context { ansi.Colors: ansi.Never } { ToANSI(d, t) }
+	let styled = with context { ansi.Colors: ansi.Always } { ToANSI(d, t) }
+	let stripped = ansi.Strip(styled)
+	let ok = strings.IndexByte(plain, 0x1b) < 0 &&
+		noControlBytes(plain) &&
+		strings.IndexByte(styled, 0x1b) >= 0 &&
+		noControlBytes(stripped) &&
+		!strings.Contains(stripped, "evil") &&
+		!strings.Contains(plain, "evil")
+	always ok
+	sometimes cols == 0 && ok
+	sometimes links && ok
+	ok
+}
+
+law WrapFitsColumns(seed int, colsRaw int) {
+	let cols = 20 + ((colsRaw%61 + 61) % 61)
+	let links = seed%2 == 0
+	let src = "alpha bravo charlie delta echo foxtrot golf *hotel india* **juliet kilo** ~~lima mike~~ `november` [oscar](https://ex.org/p).\n\n" +
+		"> sierra tango uniform victor whiskey xray yankee zulu.\n\n" +
+		"- item one two three four five six seven eight nine ten.\n" +
+		"1. second alpha bravo charlie delta echo foxtrot.\n"
+	let d = Parse(src, GFM()) catch {
+	case TooLarge:
+		return false
+	}
+	let t = Theme{Columns: cols, Hyperlinks: links, Light: seed%3 == 0}
+	let plain = with context { ansi.Colors: ansi.Never } { ToANSI(d, t) }
+	let styled = with context { ansi.Colors: ansi.Always } { ToANSI(d, t) }
+	let mut ok = true
+	for line in strings.Split(plain, "\n") {
+		if text.Cells(line) > cols {
+			ok = false
+		}
+	}
+	for line in strings.Split(styled, "\n") {
+		if text.Cells(ansi.Strip(line)) > cols {
+			ok = false
+		}
+	}
+	let unwrapped = with context { ansi.Colors: ansi.Never } {
+		ToANSI(d, Theme{Columns: 0, Hyperlinks: false, Light: false})
+	}
+	let negCols = with context { ansi.Colors: ansi.Never } {
+		ToANSI(d, Theme{Columns: -5, Hyperlinks: false, Light: false})
+	}
+	ok = ok && unwrapped == negCols
+	always ok
+	sometimes links && ok
+	sometimes !links && ok
+	ok
+}

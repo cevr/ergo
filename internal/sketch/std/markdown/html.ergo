@@ -1,0 +1,517 @@
+import html
+import strings
+
+let filtered = []string{"title", "textarea", "style", "xmp", "iframe", "noembed", "noframes", "script", "plaintext"}
+
+func cr(out []byte) []byte {
+	if out.Len() > 0 && out[out.Len()-1] != '\n' { out.Append('\n') } else { out }
+}
+
+func escText(out []byte, s string, from int, to int) []byte {
+	let mut b = out
+	let mut start = from
+	for i in from..to {
+		let c = s[i]
+		if c == '&' || c == '<' || c == '>' || c == '"' {
+			if i > start {
+				b = b.AppendString(strings.Slice(s, start, i))
+			}
+			b = b.AppendString(if c == '&' { "&amp;" } else if c == '<' { "&lt;" } else if c == '>' { "&gt;" } else { "&quot;" })
+			start = i + 1
+		}
+	}
+	if to > start {
+		b = b.AppendString(strings.Slice(s, start, to))
+	}
+	b
+}
+
+func filteredAt(s string, i int, to int) bool {
+	let mut j = i + 1
+	if j < to && s[j] == '/' {
+		j = j + 1
+	}
+	for w in filtered {
+		if j+w.Len() <= to {
+			let mut ok = true
+			for k in 0..w.Len() {
+				if ok && lowerASCII(int(s[j+k])) != int(w[k]) {
+					ok = false
+				}
+			}
+			if ok {
+				let e = j + w.Len()
+				if e == to {
+					return true
+				}
+				let c = s[e]
+				if c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == 12 || c == '>' || c == '/' {
+					return true
+				}
+			}
+		}
+	}
+	false
+}
+
+func rawText(out []byte, d Doc, from int, to int) []byte {
+	if !d.opts.TagFilter {
+		return out.AppendString(strings.Slice(d.text, from, to))
+	}
+	let mut b = out
+	let mut start = from
+	for i in from..to {
+		if d.text[i] == '<' && filteredAt(d.text, i, to) {
+			b = b.AppendString(strings.Slice(d.text, start, i))
+			b = b.AppendString("&lt;")
+			start = i + 1
+		}
+	}
+	b.AppendString(strings.Slice(d.text, start, to))
+}
+
+func safeURL(u string) bool {
+	let _ = html.ParseURL(u) catch {
+	case html.UnsafeURL:
+		return false
+	}
+	true
+}
+
+func tight(d Doc, stack []int) bool {
+	let n = stack.Len()
+	n >= 2 && int(d.kind[stack[n-1]]) == kItem && int(d.kind[stack[n-2]]) == kList && d.b[stack[n-2]]&2 != 0
+}
+
+func alignAttr(a int) string {
+	if a == 1 {
+		" align=\"left\""
+	} else if a == 2 {
+		" align=\"center\""
+	} else if a == 3 {
+		" align=\"right\""
+	} else {
+		""
+	}
+}
+
+func enterHTML(out []byte, d Doc, i int, stack []int, safe bool, alt int) []byte {
+	let k = int(d.kind[i])
+	let a = int(d.a[i])
+	let b = int(d.b[i])
+	let mut o = out
+	if alt > 0 {
+		if k == kText || k == kCodeSpan {
+			return escText(o, d.text, a, a+b)
+		}
+		if k == kSoft || k == kHard {
+			return o.Append('\n')
+		}
+		if k == kHTMLSpan {
+			return if safe { escText(o, d.text, a, a+b) } else { rawText(o, d, a, a+b) }
+		}
+		if k == kImage {
+			return o
+		}
+		return o
+	}
+	if k == kQuote {
+		o = cr(o).AppendString("<blockquote>")
+		cr(o)
+	} else if k == kList {
+		o = cr(o)
+		if b&1 != 0 {
+			o = if a != 1 { o.AppendString("<ol start=\"\(a)\">") } else { o.AppendString("<ol>") }
+		} else {
+			o = o.AppendString("<ul>")
+		}
+		cr(o)
+	} else if k == kItem {
+		if a == 0 {
+			o.AppendString("<li>")
+		} else if a == 1 {
+			o.AppendString("<li class=\"task-list-item\"><input type=\"checkbox\" class=\"task-list-item-checkbox\" disabled>")
+		} else {
+			o.AppendString("<li class=\"task-list-item\"><input type=\"checkbox\" class=\"task-list-item-checkbox\" disabled checked>")
+		}
+	} else if k == kPara {
+		if tight(d, stack) { o } else { cr(o).AppendString("<p>") }
+	} else if k == kHeading {
+		cr(o).AppendString("<h\(a)>")
+	} else if k == kCode {
+		o = cr(o).AppendString("<pre><code")
+		let is = ext(d, i, 2)
+		let il = ext(d, i, 3)
+		let mut e = is
+		for e < is+il && d.text[e] != ' ' && d.text[e] != '\t' && d.text[e] != '\n' {
+			e = e + 1
+		}
+		if e > is {
+			o = o.AppendString(" class=\"language-")
+			o = escText(o, d.text, is, e).AppendString("\"")
+		}
+		o = o.AppendString(">")
+		let bs = ext(d, i, 0)
+		o = escText(o, d.text, bs, bs+ext(d, i, 1)).AppendString("</code></pre>")
+		cr(o)
+	} else if k == kHTML {
+		o = cr(o)
+		o = if safe { escText(o, d.text, a, a+b) } else { rawText(o, d, a, a+b) }
+		cr(o)
+	} else if k == kHR {
+		o = cr(o).AppendString("<hr />")
+		cr(o)
+	} else if k == kTable {
+		cr(o).AppendString("<table>\n")
+	} else if k == kRow {
+		if a != 0 { o.AppendString("<thead>\n<tr>") } else { o.AppendString("<tr>") }
+	} else if k == kCell {
+		o.AppendString(if b != 0 { "<th" } else { "<td" }).AppendString(alignAttr(a)).AppendString(">")
+	} else if k == kText {
+		escText(o, d.text, a, a+b)
+	} else if k == kSoft {
+		if d.opts.HardSoftBreaks { o.AppendString("<br />\n") } else { o.Append('\n') }
+	} else if k == kHard {
+		o.AppendString("<br />\n")
+	} else if k == kCodeSpan {
+		o = o.AppendString("<code>")
+		escText(o, d.text, a, a+b).AppendString("</code>")
+	} else if k == kEmph {
+		o.AppendString("<em>")
+	} else if k == kStrong {
+		o.AppendString("<strong>")
+	} else if k == kStrike {
+		o.AppendString("<del>")
+	} else if k == kLink || k == kImage {
+		let ds = ext(d, i, 0)
+		let dl = ext(d, i, 1)
+		let ok = !safe || safeURL(strings.Slice(d.text, ds, ds+dl))
+		if k == kLink {
+			o = o.AppendString("<a")
+			if ok {
+				o = o.AppendString(" href=\"")
+				o = escText(o, d.text, ds, ds+dl).AppendString("\"")
+			}
+			let ts = ext(d, i, 2)
+			let tl = ext(d, i, 3)
+			if tl > 0 {
+				o = o.AppendString(" title=\"")
+				o = escText(o, d.text, ts, ts+tl).AppendString("\"")
+			}
+			o.AppendString(">")
+		} else {
+			o = o.AppendString("<img src=\"")
+			if ok {
+				o = escText(o, d.text, ds, ds+dl)
+			}
+			o.AppendString("\" alt=\"")
+		}
+	} else if k == kHTMLSpan {
+		if safe { escText(o, d.text, a, a+b) } else { rawText(o, d, a, a+b) }
+	} else {
+		o
+	}
+}
+
+func exitHTML(out []byte, d Doc, i int, stack []int, alt int, body bool) []byte {
+	let k = int(d.kind[i])
+	let a = int(d.a[i])
+	let b = int(d.b[i])
+	let o = out
+	if k == kImage {
+		let ts = ext(d, i, 2)
+		let tl = ext(d, i, 3)
+		if alt > 1 {
+			return o
+		}
+		let mut q = o.AppendString("\"")
+		if tl > 0 {
+			q = q.AppendString(" title=\"")
+			q = escText(q, d.text, ts, ts+tl).AppendString("\"")
+		}
+		return q.AppendString(" />")
+	}
+	if alt > 0 {
+		return o
+	}
+	if k == kQuote {
+		cr(cr(o).AppendString("</blockquote>"))
+	} else if k == kList {
+		cr(cr(o).AppendString(if b&1 != 0 { "</ol>" } else { "</ul>" }))
+	} else if k == kItem {
+		cr(o.AppendString("</li>"))
+	} else if k == kPara {
+		if tight(d, stack) { o } else { cr(o.AppendString("</p>")) }
+	} else if k == kHeading {
+		cr(o.AppendString("</h\(a)>"))
+	} else if k == kTable {
+		if body { o.AppendString("</tbody>\n</table>\n") } else { o.AppendString("</table>\n") }
+	} else if k == kRow {
+		if a != 0 { o.AppendString("</tr>\n</thead>\n") } else { o.AppendString("</tr>\n") }
+	} else if k == kCell {
+		o.AppendString(if b != 0 { "</th>" } else { "</td>" })
+	} else if k == kEmph {
+		o.AppendString("</em>")
+	} else if k == kStrong {
+		o.AppendString("</strong>")
+	} else if k == kStrike {
+		o.AppendString("</del>")
+	} else if k == kLink {
+		o.AppendString("</a>")
+	} else {
+		o
+	}
+}
+
+func renderHTML(out []byte, d Doc, safe bool) []byte {
+	let mut o = out
+	let mut stack = []int{}
+	let mut alt = 0
+	let mut body = false
+	let n = d.kind.Len()
+	let mut i = 1
+	for i < n || stack.Len() > 0 {
+		let top = stack.Len() - 1
+		if top >= 0 && i >= int(d.end[stack[top]]) {
+			let r = stack[top]
+			stack = stack[0:top]
+			o = exitHTML(o, d, r, stack, alt, body)
+			if int(d.kind[r]) == kImage {
+				alt = alt - 1
+			}
+			if int(d.kind[r]) == kTable {
+				body = false
+			}
+			continue
+		}
+		let k = int(d.kind[i])
+		if k == kRow && d.a[i] == 0 && !body {
+			o = o.AppendString("<tbody>\n")
+			body = true
+		}
+		o = enterHTML(o, d, i, stack, safe, alt)
+		if k == kImage {
+			alt = alt + 1
+		}
+		stack = stack.Append(i)
+		i = i + 1
+	}
+	o
+}
+
+// ToHTML is d as HTML: the bytes Bun.markdown.html writes for the same
+// text and options. Raw HTML in d passes through as CommonMark says.
+func ToHTML(d Doc) string { renderHTML(MakeSlice[byte](d.text.Len()+64), d, false).Text() }
+
+// WriteHTML writes ToHTML(d) to b.
+func WriteHTML(b mut strings.Builder, d Doc) { b.WriteBytes(renderHTML(MakeSlice[byte](d.text.Len()+64), d, false)) }
+
+// HTML is ToHTML of src parsed with o.
+func HTML(src string, o Options) string fails TooLarge { ToHTML(try Parse(src, o)) }
+
+// Safe is d as an html.Node for a page of untrusted text: raw HTML is
+// written as text, and a link or image whose destination html.ParseURL
+// refuses (javascript:, data:, vbscript:, any scheme but http, https,
+// mailto and tel) loses its destination.
+func Safe(d Doc) html.Node { html.Raw(html.Trust(renderHTML(MakeSlice[byte](d.text.Len()+64), d, true).Text())) }
+
+func escHTMLText(s string) string {
+	escText([]byte{}, s, 0, s.Len()).Text()
+}
+
+func plainWords() []string {
+	[]string{"alpha", "beta", "gamma", "quote\"here", "plain", "word", "123"}
+}
+
+law PlainParagraphs(seed int, counts []int) {
+	let words = plainWords()
+	let mut x = (seed%2147483648 + 2147483648) % 2147483648
+	let mut paras = []string{}
+	let nParas = if counts.Len() == 0 { 0 } else { ((counts[0]%3 + 3) % 3) + 1 }
+	for p in 0..nParas {
+		let nLines = if p+1 < counts.Len() { ((counts[p+1]%2 + 2) % 2) + 1 } else { 1 }
+		let mut lines = []string{}
+		for _ in 0..nLines {
+			x = (x*1103515245 + 12345) % 2147483648
+			let nWords = (x/65536)%3 + 1
+			let mut ws = []string{}
+			for _ in 0..nWords {
+				x = (x*1103515245 + 12345) % 2147483648
+				ws = ws.Append(words[(x/65536)%words.Len()])
+			}
+			lines = lines.Append(strings.Join(ws, " "))
+		}
+		paras = paras.Append(strings.Join(lines, "\n"))
+	}
+	let src = strings.Join(paras, "\n\n")
+	let mut want = strings.NewBuilder()
+	for p in paras {
+		want.WriteString("<p>")
+		want.WriteString(escHTMLText(p))
+		want.WriteString("</p>\n")
+	}
+	let wantStr = want.String()
+	let cm = HTML(src, CommonMark()) catch {
+	case TooLarge:
+		return false
+	}
+	let gfm = HTML(src, GFM()) catch {
+	case TooLarge:
+		return false
+	}
+	let ok = cm == wantStr && gfm == wantStr
+	always ok
+	sometimes nParas == 0 && ok
+	sometimes nParas > 1 && ok
+	ok
+}
+
+law EscapedIsLiteral(idx int) {
+	let puncts = "!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~"
+	let i = (idx%puncts.Len() + puncts.Len()) % puncts.Len()
+	let ch = strings.Slice(puncts, i, i+1)
+	let want = escHTMLText(ch)
+	let pOut = HTML("a \\"+ch+" b", GFM()) catch {
+	case TooLarge:
+		return false
+	}
+	let hOut = HTML("# \\"+ch, CommonMark()) catch {
+	case TooLarge:
+		return false
+	}
+	let cSrc = if ch == "`" { "`` \\` ``" } else { "`\\" + ch + "`" }
+	let cOut = HTML(cSrc, CommonMark()) catch {
+	case TooLarge:
+		return false
+	}
+	let ok = pOut == "<p>a "+want+" b</p>\n" && hOut == "<h1>"+want+"</h1>\n" && cOut == "<p><code>\\"+want+"</code></p>\n"
+	always ok
+	sometimes ch == "<" || ch == "&" || ch == ">" || ch == "\""
+	ok
+}
+
+func isVoidTag(name string) bool {
+	name == "hr" || name == "br" || name == "img" || name == "input"
+}
+
+func htmlBalanced(s string) bool {
+	let mut stack = []string{}
+	let mut i = 0
+	for i < s.Len() {
+		if s[i] == '<' {
+			let mut j = i + 1
+			for j < s.Len() && s[j] != '>' && s[j] != '<' {
+				j = j + 1
+			}
+			if j >= s.Len() || s[j] != '>' {
+				return false
+			}
+			let raw = strings.Slice(s, i+1, j)
+			if raw.Len() == 0 {
+				return false
+			}
+			if raw[0] == '/' {
+				let name = strings.Slice(raw, 1, raw.Len())
+				let top = stack.Len() - 1
+				if top < 0 || stack[top] != name {
+					return false
+				}
+				stack = stack[0:top]
+			} else {
+				let mut k = 0
+				for k < raw.Len() && raw[k] != ' ' && raw[k] != '/' {
+					k = k + 1
+				}
+				let name = strings.Slice(raw, 0, k)
+				if name.Len() == 0 {
+					return false
+				}
+				if !isVoidTag(name) && raw[raw.Len()-1] != '/' {
+					stack = stack.Append(name)
+				}
+			}
+			i = j + 1
+		} else {
+			i = i + 1
+		}
+	}
+	stack.Len() == 0
+}
+
+law OutputIsBalanced(seed int) {
+	let s = (seed%6 + 6) % 6
+	let level = s + 1
+	let heading = strings.Repeat("#", level) + " Heading *em* **strong**\n\n"
+	let sep = if s%2 == 0 { "\n" } else { "\n\n" }
+	let body = heading +
+		"> quote with [link](https://example.com \"t\") and <raw>\n\n" +
+		"- [x] task one" + sep + "- [ ] task two\n\n" +
+		"1. ordered *item*\n2. second ~~strike~~\n\n" +
+		"Paragraph with `code` and ![alt *em*](https://example.com/i.png \"img\") and line  \nbreak.\n\n" +
+		"```go\nlet x = 1 < 2\n```\n\n" +
+		"---\n\n" +
+		"| a | b |\n| :--- | ---: |\n| 1 | 2 |\n"
+	let opts = Options{..GFM(), Autolinks: true, NoHTMLBlocks: true, NoHTMLSpans: true}
+	let d = Parse(body, opts) catch {
+	case TooLarge:
+		return false
+	}
+	let out = ToHTML(d)
+	let mut wb = strings.NewBuilder()
+	WriteHTML(&wb, d)
+	let ok = wb.String() == out && htmlBalanced(out) && strings.Contains(out, "<table>") && strings.Contains(out, "<input ")
+	always ok
+	sometimes s%2 == 0 && strings.Contains(out, "<ul>")
+	sometimes s%2 == 1 && strings.Contains(out, "<ol>")
+	ok
+}
+
+func safeAttrsOK(s string) bool {
+	let mut i = 0
+	for i < s.Len() {
+		let isHref = i+6 <= s.Len() && strings.Slice(s, i, i+6) == "href=\""
+		let isSrc = i+5 <= s.Len() && strings.Slice(s, i, i+5) == "src=\""
+		if isHref || isSrc {
+			let start = i + (if isHref { 6 } else { 5 })
+			let mut end = start
+			for end < s.Len() && s[end] != '"' {
+				end = end + 1
+			}
+			let raw = strings.Slice(s, start, end)
+			let unesc = strings.ReplaceAll(strings.ReplaceAll(strings.ReplaceAll(strings.ReplaceAll(raw, "&quot;", "\""), "&gt;", ">"), "&lt;", "<"), "&amp;", "&")
+			let _ = html.ParseURL(unesc) catch {
+			case html.UnsafeURL:
+				return false
+			}
+			i = end + 1
+		} else {
+			i = i + 1
+		}
+	}
+	true
+}
+
+law SafeRefusesScripts(seed int, pick int) {
+	let bads = []string{"javascript:alert(1)", "JaVaScRiPt:alert(1)", "&#x6a;avascript:alert(1)", "data:text/html,<script>alert(1)</script>", "vbscript:msgbox(1)", "javascript:void(0)"}
+	let goods = []string{"https://example.com/a", "http://example.org", "mailto:user@example.com", "tel:+15550100", "/local/path"}
+	let bi = (pick%bads.Len() + bads.Len()) % bads.Len()
+	let gi = (seed%goods.Len() + goods.Len()) % goods.Len()
+	let bad = bads[bi]
+	let good = goods[gi]
+	let src = "[bad](<" + bad + ">) ![img](" + bad + ") [ok](" + good + ")\n\n" +
+		"<script>alert(1)</script>\n\n" +
+		"inline <iframe src=\"https://evil.test\"></iframe> <b onclick=\"x\">hi</b>\n"
+	let d = Parse(src, Options{..GFM(), Autolinks: seed%2 == 0}) catch {
+	case TooLarge:
+		return false
+	}
+	let rendered = html.Render(Safe(d))
+	let noRaw = !strings.Contains(rendered, "<script") && !strings.Contains(rendered, "<iframe") && !strings.Contains(rendered, "<b ")
+	let escaped = strings.Contains(rendered, "&lt;script") && strings.Contains(rendered, "&lt;iframe")
+	let keptGood = strings.Contains(rendered, "href=\""+good+"\"")
+	let ok = noRaw && escaped && keptGood && safeAttrsOK(rendered)
+	always ok
+	sometimes bi == 0 && ok
+	sometimes bi == 3 && ok
+	ok
+}
