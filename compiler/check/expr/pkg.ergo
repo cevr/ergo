@@ -481,16 +481,15 @@ func Load(s mut store.Store, files []bind.File, u bind.Uses, ps bind.Parents, ex
 						let result = if ld.Equation { store.TTuple(s, []dense.ID[store.TKey]{}) } else { store.TBasic(s, bBool) }
 						// Its type parameters name its parameters' types,
 						// as a function's do (adf427bfe).
-						let mut lenv = env
 						let mut tnames = []string{}
 						let mut towns = []bool{}
 						match dense.Unpack(ld.TypeParams) {
 						case option.Some{Value: tp}:
 							tnames = types.BracketNames(p, tp)
 							towns = BracketOwn(p, tp)
-							lenv = types.NewEnv(*s, parsed, p, tnames, kinds, ext, foreign, deps)
 						case option.None:
 						}
+						let lenv = if isSome(dense.Unpack(ld.TypeParams)) { types.NewEnv(*s, parsed, p, tnames, kinds, ext, foreign, deps) } else { env }
 						let mut lf = declared(s, lenv, p, file, d, ld.Name, ld.Params, result, ld.Body)
 						lf.Params = tnames
 						lf.Own = towns
