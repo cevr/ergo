@@ -5,16 +5,21 @@ import option
 import sync
 import testing
 
-type omCmd = omOpenUnit{} | omReuseConflict{} | omGreen{} | omRed{} | omAccept{} | omLand{}
+type omCmd = omOpenUnit{} | omReuseConflict{} | omGreen{} | omRed{} | omAccept{} | omLand{} | omImportPlan{}
 
 type omState {
 	Ops []omCmd,
 }
 
 type omObs {
-	Seq      int,
-	Status   string,
-	Receipts int,
+	Seq           int,
+	Status        string,
+	Receipts      int,
+	UnitCount     int,
+	OpenDecisions int,
+	Landings      int,
+	Events        int,
+	MainHead      option.Option[string],
 }
 
 type omReply =
@@ -42,6 +47,9 @@ func omEnvelope(cmd omCmd, step int) orchestrate.Envelope {
 		orchestrate.Envelope{ID: orchestrate.CommandID("paths-accept-\(step)"), Actor: "coord", At: ts, Command: orchestrate.AcceptUnit{Unit: omKey, Head: "h"}}
 	case omLand:
 		orchestrate.Envelope{ID: orchestrate.CommandID("paths-land-\(step)"), Actor: "coord", At: ts, Command: orchestrate.LandUnit{Unit: omKey, Head: "h"}}
+	case omImportPlan:
+		let plan = "- 2026-11-26T10:00:00Z RULED (Path Rule): stay pure.\nMAIN MOVED 2026-11-26T10:01:00Z: main = aabbcc11 (Landing 1, group g1). Tips: u1\n"
+		orchestrate.Envelope{ID: orchestrate.CommandID("paths-imp-1"), Actor: "coord", At: ts, Command: orchestrate.IngestPlan{Repo: "repo", Run: "paths", Text: plan}}
 	}
 }
 
@@ -80,25 +88,36 @@ func omFold(ops []omCmd) (orchestrate.State, int) {
 	(st, seq)
 }
 
-func omObsOf(u option.Option[orchestrate.Unit], receipts int, seq int) omObs {
+func omObsOf(u option.Option[orchestrate.Unit], receipts int, seq int, sum orchestrate.RunOverview, evTotal int) omObs {
 	let status = match u {
 	case option.Some[orchestrate.Unit] as found:
 		orchestrate.UnitStatusName(found.Value.Status)
 	case option.None:
 		"none"
 	}
-	omObs{Seq: seq, Status: status, Receipts: receipts}
+	omObs{
+		Seq:           seq,
+		Status:        status,
+		Receipts:      receipts,
+		UnitCount:     sum.TotalUnits,
+		OpenDecisions: sum.OpenDecisions,
+		Landings:      sum.RecentLandings.Len(),
+		Events:        evTotal,
+		MainHead:      sum.MainHead,
+	}
 }
 
 func omModelObs(st orchestrate.State, seq int) omObs {
-	omObsOf(orchestrate.UnitByKey(st, omKey), orchestrate.ReceiptsOf(st, omKey).Len(), seq)
+	let sum = orchestrate.QueryRunSummary(st, "repo", "paths", 5)
+	let evs = orchestrate.QueryEventLog(st, orchestrate.EventLogFilter{Repo: option.Some[string]{Value: "repo"}, Run: option.Some[string]{Value: "paths"}, Kind: option.None, UnitID: option.None, Actor: option.None, Ascending: false, Limit: 50, Offset: 0})
+	omObsOf(orchestrate.UnitByKey(st, omKey), orchestrate.ReceiptsOf(st, omKey).Len(), seq, sum, evs.Total)
 }
 
 func omModel() explore.PathModel[omState, omCmd, omObs, omReply, core.Never] {
 	explore.PathModel[omState, omCmd, omObs, omReply, core.Never]{
 		Graph: explore.ConcreteGraph[omState, omCmd, explore.StepObs[omObs, omReply, core.Never]]{
 			Starts:  []omState{omState{Ops: []omCmd{}}},
-			Signals: []omCmd{omOpenUnit, omReuseConflict, omGreen, omRed, omAccept, omLand},
+			Signals: []omCmd{omOpenUnit, omReuseConflict, omGreen, omRed, omAccept, omLand, omImportPlan},
 			Step:    func(s omState, cmd omCmd) explore.EdgeOutcome[omState, explore.StepObs[omObs, omReply, core.Never]] {
 				let (curSt, curSeq) = omFold(s.Ops)
 				let (nextSt, nextSeq, reply) = omApplyModel(curSt, curSeq, cmd, s.Ops.Len()+1)
@@ -166,7 +185,30 @@ func omObserveLive(st Store) omObs fails OrchMemDriveErr {
 	case orchestrate.StoreFailed as e:
 		return OrchMemDriveErr{Why: e.Reason}
 	}
-	omObsOf(u, rs.Len(), evts.Len())
+	let sum = RunSummary(st, "repo", "paths", 5) catch {
+	case orchestrate.StoreFailed as e:
+		return OrchMemDriveErr{Why: e.Reason}
+	}
+	let upage = ListUnits(st, orchestrate.UnitFilter{Repo: option.Some[string]{Value: "repo"}, Run: option.Some[string]{Value: "paths"}, Status: option.None, Limit: 50, Offset: 0}) catch {
+	case orchestrate.StoreFailed as e:
+		return OrchMemDriveErr{Why: e.Reason}
+	}
+	let dpage = ListDecisions(st, orchestrate.DecisionFilter{Repo: option.Some[string]{Value: "repo"}, Run: option.Some[string]{Value: "paths"}, Category: option.None, Scope: option.None, UnitID: option.None, Status: option.Some[orchestrate.DecisionStatus]{Value: orchestrate.DecisionOpen}, Limit: 50, Offset: 0}) catch {
+	case orchestrate.StoreFailed as e:
+		return OrchMemDriveErr{Why: e.Reason}
+	}
+	let lpage = ListLandings(st, orchestrate.LandingFilter{Repo: option.Some[string]{Value: "repo"}, Run: option.Some[string]{Value: "paths"}, Limit: 50, Offset: 0}) catch {
+	case orchestrate.StoreFailed as e:
+		return OrchMemDriveErr{Why: e.Reason}
+	}
+	let epage = ListEventLog(st, orchestrate.EventLogFilter{Repo: option.Some[string]{Value: "repo"}, Run: option.Some[string]{Value: "paths"}, Kind: option.None, UnitID: option.None, Actor: option.None, Ascending: false, Limit: 50, Offset: 0}) catch {
+	case orchestrate.StoreFailed as e:
+		return OrchMemDriveErr{Why: e.Reason}
+	}
+	if upage.Total != sum.TotalUnits || dpage.Total != sum.OpenDecisions || lpage.Total != sum.RecentLandings.Len() {
+		return OrchMemDriveErr{Why: "progressive disclosure query count mismatch"}
+	}
+	omObsOf(u, rs.Len(), evts.Len(), sum, epage.Total)
 }
 
 func Read(s omSess) explore.Observed[omObs, omReply, core.Never] fails OrchMemDriveErr {
@@ -230,12 +272,12 @@ type OrchMemoryPaths {
 			omModel(),
 			explore.ToDepth{Depth: 4},
 			explore.PathBounds{
-				MaxStates: 2048,
-				MaxEdges:  8192,
-				MaxPaths:  2048,
-				MaxSteps:  8192,
-				MaxWork:   524288,
-				MaxBytes:  2097152,
+				MaxStates: 8192,
+				MaxEdges:  16384,
+				MaxPaths:  8192,
+				MaxSteps:  32768,
+				MaxWork:   1048576,
+				MaxBytes:  4194304,
 			},
 			func(start omState) explore.PathSession[omCmd, explore.Observed[omObs, omReply, core.Never], OrchMemDriveErr] fails OrchMemOpenErr {
 				try Open(start)

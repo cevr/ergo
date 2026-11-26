@@ -255,28 +255,40 @@ type Question {
 
 // State is the complete pure projection folded from the orchestrate event log.
 type State {
-	Units             Map[UnitKey, Unit],
-	Receipts          Map[string, Receipt],
-	ReceiptOrder      []string,
-	Commitments       Map[string, Commitment],
-	Queue             Map[string, QueueItem],
-	Questions         Map[int, Question],
-	QuestionByCommand Map[CommandID, int],
-	NextQuestionID    int,
-	Commands          Map[CommandID, Command],
+	Units              Map[UnitKey, Unit],
+	Receipts           Map[string, Receipt],
+	ReceiptOrder       []string,
+	Commitments        Map[string, Commitment],
+	Queue              Map[string, QueueItem],
+	Questions          Map[int, Question],
+	QuestionByCommand  Map[CommandID, int],
+	NextQuestionID     int,
+	RunMetas           Map[RunKey, RunMeta],
+	Decisions          Map[DecisionKey, Decision],
+	Landings           Map[LandingKey, Landing],
+	EventLog           []LedgerEvent,
+	EventLogSourceKeys Map[EventSourceKey, int],
+	NextEventID        int,
+	Commands           Map[CommandID, Command],
 }
 
 // EmptyState is the initial projection before any events have been applied.
 func EmptyState() State {
 	State{
-		Units:             Map[UnitKey, Unit]{},
-		Receipts:          Map[string, Receipt]{},
-		ReceiptOrder:      []string{},
-		Commitments:       Map[string, Commitment]{},
-		Queue:             Map[string, QueueItem]{},
-		Questions:         Map[int, Question]{},
-		QuestionByCommand: Map[CommandID, int]{},
-		NextQuestionID:    1,
-		Commands:          Map[CommandID, Command]{},
+		Units:              Map[UnitKey, Unit]{},
+		Receipts:           Map[string, Receipt]{},
+		ReceiptOrder:       []string{},
+		Commitments:        Map[string, Commitment]{},
+		Queue:              Map[string, QueueItem]{},
+		Questions:          Map[int, Question]{},
+		QuestionByCommand:  Map[CommandID, int]{},
+		NextQuestionID:     1,
+		RunMetas:           Map[RunKey, RunMeta]{},
+		Decisions:          Map[DecisionKey, Decision]{},
+		Landings:           Map[LandingKey, Landing]{},
+		EventLog:           []LedgerEvent{},
+		EventLogSourceKeys: Map[EventSourceKey, int]{},
+		NextEventID:        1,
+		Commands:           Map[CommandID, Command]{},
 	}
 }

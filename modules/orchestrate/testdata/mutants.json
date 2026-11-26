@@ -197,9 +197,9 @@
       "name": "orch3-skip-meta-version-fence",
       "origin": "wf10/ORCH-3",
       "file": "modules/orchestrate/sqlite/schema.ergo",
-      "from": "\t\tif ver != CurrentSchemaVersion {\n\t\t\treturn orchestrate.StoreFailed{Reason: \"incompatible schema_version \\(ver) != \\(CurrentSchemaVersion)\"}\n\t\t}\n",
-      "to": "\t\tif false && ver != CurrentSchemaVersion {\n\t\t\treturn orchestrate.StoreFailed{Reason: \"incompatible schema_version \\(ver) != \\(CurrentSchemaVersion)\"}\n\t\t}\n",
-      "rule": "Opening a SQLite DB whose schema_meta.schema_version != CurrentSchemaVersion must fail StoreFailed: PersistenceChecks.SchemaVersionFenceRefusesFutureVersion.",
+      "from": "\t\tif ver > CurrentSchemaVersion || ver < 1 {\n\t\t\treturn orchestrate.StoreFailed{Reason: \"incompatible schema_version \\(ver) != \\(CurrentSchemaVersion)\"}\n\t\t}\n",
+      "to": "\t\tif false && (ver > CurrentSchemaVersion || ver < 1) {\n\t\t\treturn orchestrate.StoreFailed{Reason: \"incompatible schema_version \\(ver) != \\(CurrentSchemaVersion)\"}\n\t\t}\n",
+      "rule": "Opening a SQLite DB whose schema_meta.schema_version is out of range must fail StoreFailed: PersistenceChecks.SchemaVersionFenceRefusesFutureVersion.",
       "killers": [
         "modules/orchestrate/sqlite:law:PersistenceChecks.SchemaVersionFenceRefusesFutureVersion"
       ],
@@ -346,6 +346,103 @@
       "rule": "QuestionList must forward req.OpenOnly to Store.ListQuestions: ApiQuestionRoundTrips.",
       "killers": [
         "modules/orchestrate/memory:law:orchestrate.Api.ApiQuestionRoundTrips"
+      ],
+      "anchor": {
+        "tests": [
+          "examples:modules/orchestrate"
+        ]
+      }
+    },
+    {
+      "name": "orch5-skip-v2-to-v3-migration",
+      "origin": "orchestrate/ledger-pd",
+      "file": "modules/orchestrate/sqlite/schema.ergo",
+      "from": "\t\tif ver < CurrentSchemaVersion {\n\t\t\ttry migrateSchemaTx(ver)\n\t\t\treturn\n\t\t}\n",
+      "to": "\t\tif false && ver < CurrentSchemaVersion {\n\t\t\ttry migrateSchemaTx(ver)\n\t\t\treturn\n\t\t}\n",
+      "rule": "Opening a v1 or v2 SQLite ledger must run non-destructive migration to v3 instead of overwriting or leaving old tables un-upgraded.",
+      "killers": [
+        "modules/orchestrate/sqlite:law:PersistenceChecks.MigrationV2ToV3PreservesExistingData",
+        "modules/orchestrate/sqlite:law:PersistenceChecks.MigrationV1ToV3PreservesExistingData"
+      ],
+      "anchor": {
+        "tests": [
+          "examples:modules/orchestrate"
+        ]
+      }
+    },
+    {
+      "name": "orch5-drop-decision-supersedes-update",
+      "origin": "orchestrate/ledger-pd",
+      "file": "modules/orchestrate/orchestrate/events.ergo",
+      "from": "\t\tcase option.Some[Decision] as old:\n\t\t\tnextDecisions = nextDecisions.Put(tkey, Decision{..old.Value, Status: DecisionSuperseded})\n",
+      "to": "\t\tcase option.Some[Decision] as old:\n\t\t\tnextDecisions = nextDecisions.Put(tkey, Decision{..old.Value, Status: old.Value.Status})\n",
+      "rule": "Recording a superseding Decision must transition the target Decision to DecisionSuperseded.",
+      "killers": [
+        "modules/orchestrate/orchestrate:law:DecisionSupersedesMarksTargetSuperseded"
+      ],
+      "anchor": {
+        "tests": [
+          "examples:modules/orchestrate"
+        ]
+      }
+    },
+    {
+      "name": "orch5-skip-ingest-source-key-dedup",
+      "origin": "orchestrate/ledger-pd",
+      "file": "modules/orchestrate/orchestrate/decide.ergo",
+      "from": "\t\t\t\tif !alreadyInState && seenKeys.Get(sk.Value) == option.None {\n\t\t\t\t\tseenKeys = seenKeys.Put(sk.Value, true)\n\t\t\t\t\tout = out.Append(LedgerEventAppended{Event: LedgerEvent{..ev, ID: nextID}})\n\t\t\t\t\tnextID = nextID + 1\n\t\t\t\t}\n",
+      "to": "\t\t\t\tif (alreadyInState || !alreadyInState) || seenKeys.Get(sk.Value) == option.None {\n\t\t\t\t\tseenKeys = seenKeys.Put(sk.Value, true)\n\t\t\t\t\tout = out.Append(LedgerEventAppended{Event: LedgerEvent{..ev, ID: nextID}})\n\t\t\t\t\tnextID = nextID + 1\n\t\t\t\t}\n",
+      "rule": "IngestPlan must deduplicate events by SourceKey so re-importing the same plan is idempotent.",
+      "killers": [
+        "modules/orchestrate/orchestrate:law:IngestPlanDeduplicatesEvents"
+      ],
+      "anchor": {
+        "tests": [
+          "examples:modules/orchestrate"
+        ]
+      }
+    },
+    {
+      "name": "orch5-query-unit-list-ignores-status",
+      "origin": "orchestrate/ledger-pd",
+      "file": "modules/orchestrate/orchestrate/query.ergo",
+      "from": "\t\tif repoOK && runOK && statusOK {\n",
+      "to": "\t\tif repoOK && runOK && (statusOK || !statusOK) {\n",
+      "rule": "QueryUnitList must enforce the status filter when provided.",
+      "killers": [
+        "modules/orchestrate/orchestrate:law:UnitListPaginationAndFilterLaw"
+      ],
+      "anchor": {
+        "tests": [
+          "examples:modules/orchestrate"
+        ]
+      }
+    },
+    {
+      "name": "orch5-api-unit-list-drops-status",
+      "origin": "orchestrate/ledger-pd",
+      "file": "modules/orchestrate/orchestrate/service_ledger.ergo",
+      "from": "\t\tcase option.Some[UnitStatus] as parsed:\n\t\t\toption.Some[UnitStatus]{Value: parsed.Value}\n",
+      "to": "\t\tcase option.Some[UnitStatus]:\n\t\t\toption.None\n",
+      "rule": "parseUnitStatusFilter must forward a parsed UnitStatus filter instead of dropping it to None.",
+      "killers": [
+        "modules/orchestrate/memory:law:orchestrate.Api.ApiProgressiveDisclosureRoundTrips"
+      ],
+      "anchor": {
+        "tests": [
+          "examples:modules/orchestrate"
+        ]
+      }
+    },
+    {
+      "name": "orch5-sqlite-corrupt-ledger-event-kind",
+      "origin": "orchestrate/ledger-pd",
+      "file": "modules/orchestrate/sqlite/project.ergo",
+      "from": "\t\t\t\tsql.Text{S: entry.Kind},\n",
+      "to": "\t\t\t\tsql.Text{S: \"corrupted\"},\n",
+      "rule": "SQLite projection of LedgerEventAppended must preserve the event kind for Memory parity.",
+      "killers": [
+        "modules/orchestrate/sqlite:law:OrchSQLitePaths.PathsAgree"
       ],
       "anchor": {
         "tests": [

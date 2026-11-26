@@ -48,6 +48,30 @@ type Store {
 	// ListQuestions returns question projections (all or open-only), sorted by ascending ID.
 	ListQuestions(openOnly bool) []Question fails StoreFailed,
 
+	// RunMeta looks up run-level metadata for (repo, run).
+	RunMeta(repo string, run string) option.Option[RunMeta] fails StoreFailed,
+
+	// RunSummary returns a compact progressive-disclosure overview for (repo, run).
+	RunSummary(repo string, run string, landingsLimit int) RunOverview fails StoreFailed,
+
+	// ListUnits returns filtered and paginated compact unit summaries without receipt blobs.
+	ListUnits(filter UnitFilter) UnitPage fails StoreFailed,
+
+	// Decision looks up one structured decision projection by (repo, run, id).
+	Decision(repo string, run string, id string) option.Option[Decision] fails StoreFailed,
+
+	// ListDecisions returns filtered and paginated decision records.
+	ListDecisions(filter DecisionFilter) DecisionPage fails StoreFailed,
+
+	// Landing looks up one integration landing record by (repo, run, landingNumber).
+	Landing(repo string, run string, landingNumber int) option.Option[Landing] fails StoreFailed,
+
+	// ListLandings returns filtered and paginated integration landing records.
+	ListLandings(filter LandingFilter) LandingPage fails StoreFailed,
+
+	// ListEventLog returns filtered, ordered, and paginated operational ledger events.
+	ListEventLog(filter EventLogFilter) EventPage fails StoreFailed,
+
 	// StoreReplayMatchesSnapshot verifies that folding all persisted events reproduces Snapshot identically and sequence numbers are dense 1..N.
 	law StoreReplayMatchesSnapshot(steps []int) {
 		for i, code in steps {
@@ -179,6 +203,10 @@ type Store {
 			Envelope{ID: CommandID("sq5-\(tag)"), Actor: "root", At: "2026-11-24T09:04:00Z", Command: AssignCommitment{ID: cid, Owner: "w1", Lane: "l1"}},
 			Envelope{ID: CommandID("sq6-\(tag)"), Actor: "root", At: "2026-11-24T09:05:00Z", Command: UpsertQueueItem{Key: qkey, Priority: 2, Title: "Q", Body: "B", Status: "open", Tags: []string{"t"}}},
 			Envelope{ID: CommandID("sq7-\(tag)"), Actor: "w1", At: "2026-11-24T09:06:00Z", Command: AskQuestion{ID: option.None, Prompt: "P?", Assumption: "A", ConcreteAction: "Do X"}},
+			Envelope{ID: CommandID("sq8-\(tag)"), Actor: "root", At: "2026-11-24T09:07:00Z", Command: SetRunHead{Repo: "repo", Run: "store", Head: "head-99"}},
+			Envelope{ID: CommandID("sq9-\(tag)"), Actor: "owner", At: "2026-11-24T09:08:00Z", Command: RecordDecision{Repo: "repo", Run: "store", ID: "sq-d-\(tag)", Category: "ruling", Scope: "run", UnitID: option.Some[string]{Value: key.ID}, Title: "Rule", Body: "Body", Status: DecisionOpen, Supersedes: option.None, CreatedAt: option.None}},
+			Envelope{ID: CommandID("sq10-\(tag)"), Actor: "root", At: "2026-11-24T09:09:00Z", Command: RecordLanding{Repo: "repo", Run: "store", LandingNumber: 1, GroupID: "grp-1", Head: "head-99", Tips: []string{key.ID}, Summary: "Landed", LogPath: option.None, LandedAt: option.None}},
+			Envelope{ID: CommandID("sq11-\(tag)"), Actor: "w1", At: "2026-11-24T09:10:00Z", Command: RecordLedgerEvent{Repo: "repo", Run: "store", Kind: "hand-back", UnitID: option.Some[string]{Value: key.ID}, Summary: "Done", SourceKey: option.Some[string]{Value: "sk-\(tag)"}, CreatedAt: option.None}},
 		}
 		for env in cmds {
 			let _ = Execute(env) catch {
@@ -220,8 +248,74 @@ type Store {
 		case StoreFailed:
 			return true
 		}
-		queriesMatchSnapshot(snap, key, cid, u, recs, cm, cms, qs, q1, qlist) && recs.Len() == 1
+		let rm = RunMeta("repo", "store") catch {
+		case StoreFailed:
+			return true
+		}
+		let rsum = RunSummary("repo", "store", 5) catch {
+		case StoreFailed:
+			return true
+		}
+		let uf = UnitFilter{Repo: option.Some[string]{Value: "repo"}, Run: option.Some[string]{Value: "store"}, Status: option.Some[UnitStatus]{Value: UnitAccepted}, Limit: 10, Offset: 0}
+		let upage = ListUnits(uf) catch {
+		case StoreFailed:
+			return true
+		}
+		let dec = Decision("repo", "store", "sq-d-\(tag)") catch {
+		case StoreFailed:
+			return true
+		}
+		let df = DecisionFilter{Repo: option.Some[string]{Value: "repo"}, Run: option.Some[string]{Value: "store"}, Category: option.None, Scope: option.None, UnitID: option.None, Status: option.Some[DecisionStatus]{Value: DecisionOpen}, Limit: 10, Offset: 0}
+		let dpage = ListDecisions(df) catch {
+		case StoreFailed:
+			return true
+		}
+		let land = Landing("repo", "store", 1) catch {
+		case StoreFailed:
+			return true
+		}
+		let lf = LandingFilter{Repo: option.Some[string]{Value: "repo"}, Run: option.Some[string]{Value: "store"}, Limit: 10, Offset: 0}
+		let lpage = ListLandings(lf) catch {
+		case StoreFailed:
+			return true
+		}
+		let ef = EventLogFilter{Repo: option.Some[string]{Value: "repo"}, Run: option.Some[string]{Value: "store"}, Kind: option.None, UnitID: option.None, Actor: option.None, Ascending: false, Limit: 10, Offset: 0}
+		let epage = ListEventLog(ef) catch {
+		case StoreFailed:
+			return true
+		}
+			queriesMatchSnapshot(snap, key, cid, u, recs, cm, cms, qs, q1, qlist) &&
+			ledgerQueriesMatchSnapshot(snap, "repo", "store", "sq-d-\(tag)", uf, df, lf, ef, rm, rsum, upage, dec, dpage, land, lpage, epage) &&
+			recs.Len() == 1
 	},
+}
+
+func ledgerQueriesMatchSnapshot(
+	snap State,
+	repo string,
+	run string,
+	did string,
+	uf UnitFilter,
+	df DecisionFilter,
+	lf LandingFilter,
+	ef EventLogFilter,
+	rm option.Option[RunMeta],
+	rsum RunOverview,
+	upage UnitPage,
+	dec option.Option[Decision],
+	dpage DecisionPage,
+	land option.Option[Landing],
+	lpage LandingPage,
+	epage EventPage,
+) bool {
+		rm == RunMetaOf(snap, repo, run) &&
+		rsum == QueryRunSummary(snap, repo, run, 5) &&
+		upage == QueryUnitList(snap, uf) &&
+		dec == DecisionByKey(snap, DecisionKey{Repo: repo, Run: run, ID: did}) &&
+		dpage == QueryDecisionList(snap, df) &&
+		land == LandingByKey(snap, LandingKey{Repo: repo, Run: run, LandingNumber: 1}) &&
+		lpage == QueryLandingList(snap, lf) &&
+		epage == QueryEventLog(snap, ef)
 }
 
 func queriesMatchSnapshot(
