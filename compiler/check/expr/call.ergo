@@ -100,7 +100,10 @@ func args(s mut store.Store, k Pkg, t mut Typer, c syntax.CallExpr, params []den
 	for i in 0..syntax.Len(c.Args) {
 		let a = syntax.Item(tr, c.Args, i)
 		if i < params.Len() && syntax.Len(c.Args) == params.Len() {
+			let prevWhat = t.what
+			t.what = "argument"
 			expr(s, k, t, a, Exactly{T: infer.Unmarked(*s, params[i])})
+			t.what = prevWhat
 		} else {
 			expr(s, k, t, a, Unsure)
 		}
@@ -180,7 +183,52 @@ func call(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node], c synt
 	case option.None:
 	}
 	if c.Trailing == dense.NoID[syntax.Node]() && !isSome(callee) && syntax.KindOf(tr, fun) == syntax.KSelectorExpr {
-		return valueCall(s, k, t, x, c, fun, written)
+		match valueCall(s, k, t, x, c, fun, written) {
+		case option.Some{Value: vr}:
+			return option.Some{Value: vr}
+		case option.None:
+			if !c.TrailingFunc && !indexed {
+				match conversionTarget(s, k, *t, unparen(tr, c.Fun)) {
+				case option.Some{Value: targetT}:
+					if n == 1 {
+						let arg = syntax.Item(tr, c.Args, 0)
+						let ak = syntax.KindOf(tr, unparen(tr, arg))
+						let argW = if ak == syntax.KTupleExpr || (ak == syntax.KCompositeLit && syntax.CompositeLitOf(tr, unparen(tr, arg)).Type == dense.NoID[syntax.Node]()) {
+							Exactly{T: targetT}
+						} else {
+							Free
+						}
+						let gotT = expr(s, k, t, arg, argW)
+						checkConversion(s, k, t, x, targetT, arg, gotT)
+					} else {
+						args(s, k, t, c, []dense.ID[store.TKey]{})
+					}
+					return option.None
+				case option.None:
+				}
+			}
+			return option.None
+		}
+	}
+	if c.Trailing == dense.NoID[syntax.Node]() && !c.TrailingFunc && !isSome(callee) {
+		match conversionTarget(s, k, *t, unparen(tr, c.Fun)) {
+		case option.Some{Value: targetT}:
+			if n == 1 {
+				let arg = syntax.Item(tr, c.Args, 0)
+				let ak = syntax.KindOf(tr, unparen(tr, arg))
+				let argW = if ak == syntax.KTupleExpr || (ak == syntax.KCompositeLit && syntax.CompositeLitOf(tr, unparen(tr, arg)).Type == dense.NoID[syntax.Node]()) {
+					Exactly{T: targetT}
+				} else {
+					Free
+				}
+				let gotT = expr(s, k, t, arg, argW)
+				checkConversion(s, k, t, x, targetT, arg, gotT)
+			} else {
+				args(s, k, t, c, []dense.ID[store.TKey]{})
+			}
+			return option.None
+		case option.None:
+		}
 	}
 	if c.Trailing != dense.NoID[syntax.Node]() || !isSome(callee) {
 		if c.Trailing == dense.NoID[syntax.Node]() && !indexed {
@@ -515,8 +563,12 @@ func generic(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node], c s
 		}
 	}
 	let mut ins = []infer.Arg{}
+	let mut argOk = []bool{}
+	let mut argTypes = []dense.ID[store.TKey]{}
+	let mut deferredLits = []int{}
 	match recv {
 	case option.Some[dense.ID[store.TKey]] as rt:
+		argTypes = argTypes.Append(rt.Value)
 		if ok {
 			let p0 = if store.KindOfType(*s, renamed[0]) == store.KPointer || store.KindOfType(*s, rt.Value) == store.KPointer { receiverBase(*s, renamed[0]) } else { renamed[0] }
 			let a0 = if store.KindOfType(*s, renamed[0]) == store.KPointer || store.KindOfType(*s, rt.Value) == store.KPointer { receiverBase(*s, rt.Value) } else { rt.Value }
@@ -531,8 +583,10 @@ func generic(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node], c s
 			match constType(s, k, *t, a, Free) {
 			case option.Some[dense.ID[store.TKey]] as d:
 				ins = ins.Append(infer.Literal{Default: d.Value})
+				argOk = argOk.Append(true)
 			case option.None:
 				ins = ins.Append(infer.Unknown)
+				argOk = argOk.Append(false)
 				ok = false
 			}
 			continue
@@ -547,13 +601,31 @@ func generic(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node], c s
 		} else {
 			Free
 		}
-		match expr(s, k, t, a, want) {
+		let prevWhat = t.what
+		t.what = "argument"
+		let isLitArg = hasOmittedFuncParams(tr, unparen(tr, a)) && isFree(want)
+		let prevDefer = t.deferLitDiag
+		if isLitArg {
+			t.deferLitDiag = true
+		}
+		let atRes = expr(s, k, t, a, want)
+		t.deferLitDiag = prevDefer
+		t.what = prevWhat
+		match atRes {
 		case option.Some[dense.ID[store.TKey]] as at:
+			argOk = argOk.Append(true)
+			argTypes = argTypes.Append(at.Value)
 			if ok {
 				ok = infer.Argument(s, &t.frame, k.Unions, frame, renamed[i+m], at.Value, all)
 			}
 		case option.None:
-			ok = false
+			if isLitArg {
+				argOk = argOk.Append(true)
+				deferredLits = deferredLits.Append(i)
+			} else {
+				argOk = argOk.Append(false)
+				ok = false
+			}
 		}
 		ins = ins.Append(infer.Unknown)
 	}
@@ -562,6 +634,7 @@ func generic(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node], c s
 	infer.End(&t.frame, frame)
 	match inferred {
 	case option.Some[[]dense.ID[store.TKey]] as targs:
+		checkCallConstraints(s, k, t, unparen(tr, c.Fun), f, targs.Value)
 		// An import's function is named by its selector's name.
 		let named = match syntax.ViewOf(tr, fun) {
 		case syntax.SelectorExpr as se:
@@ -577,18 +650,45 @@ func generic(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node], c s
 			let shown = if m == 1 { withoutFirst(s, inst) } else { inst }
 			note(k, t, if written.Len() > 0 { unparen(tr, c.Fun) } else { fun }, shown)
 		}
+		for li in deferredLits {
+			if li+m < params.Len() {
+				let a = syntax.Item(tr, c.Args, li)
+				let p = store.TSubst(s, params[li+m], targs.Value)
+				let prevWhat = t.what
+				t.what = "argument"
+				expr(s, k, t, a, Exactly{T: infer.Unmarked(*s, p)})
+				t.what = prevWhat
+			}
+		}
 		for i in 0..n {
 			let a = syntax.Item(tr, c.Args, i)
 			if isConst(k, t.file, a) && i+m < params.Len() {
 				// The substitution writes the pool, so it runs before the
 				// store is read: read after, the store is not copied.
 				let p = store.TSubst(s, params[i+m], targs.Value)
+				let prevWhat = t.what
+				t.what = "argument"
 				expr(s, k, t, a, Exactly{T: infer.Unmarked(*s, p)})
+				t.what = prevWhat
 			}
 		}
 		let res = store.TSubst(s, r, targs.Value)
 		resultOf(*s, res)
 	case option.None:
+		if unbound < 0 {
+			let prevDefer = t.deferLitDiag
+			t.deferLitDiag = true
+			for li in deferredLits {
+				expr(s, k, t, syntax.Item(tr, c.Args, li), Free)
+			}
+			t.deferLitDiag = prevDefer
+			if ok {
+				let conflictSlot = litConflictSlot(*s, renamed, ins, base)
+				if conflictSlot >= 0 {
+					checkInferFailure(s, k, t, x, c, fun, written, f, conflictSlot, ins, argOk, argTypes)
+				}
+			}
+		}
 		if unbound >= 0 && unbound < f.SelfBounds.Len() && f.SelfBounds[unbound].Arity >= 0 {
 			let p = k.Parsed[t.file]
 			let mut placeholders = []string{}
@@ -597,6 +697,8 @@ func generic(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node], c s
 			}
 			let name = types.NameText(p, fun)
 			t.SelfInference = t.SelfInference.Append(SelfInference{File: t.file, At: x, Param: f.Params[unbound], Example: "\(name)[\(strings.Join(placeholders, ", "))](…)"})
+		} else if unbound >= 0 {
+			checkInferFailure(s, k, t, x, c, fun, written, f, unbound, ins, argOk, argTypes)
 		}
 		for i in 0..n {
 			let a = syntax.Item(tr, c.Args, i)
@@ -832,13 +934,20 @@ func composite(s mut store.Store, k Pkg, t mut Typer, cl syntax.CompositeLit, w 
 			case syntax.KeyValueExpr as kv:
 				if kind == store.KMap {
 					let ops = store.OperandsOf(*s, rt.Value)
+					let prevWhat = t.what
+					t.what = "map key"
 					expr(s, k, t, kv.Key, Exactly{T: ops[0]})
+					t.what = "map value"
 					expr(s, k, t, kv.Value, Exactly{T: ops[1]})
+					t.what = prevWhat
 					done = true
 				} else if syntax.KindOf(tr, kv.Key) == syntax.KIdent {
 					match fieldType(s, k, rt.Value, types.NameText(p, kv.Key), -1) {
 					case option.Some[dense.ID[store.TKey]] as ft:
+						let prevWhat = t.what
+						t.what = "field " + types.NameText(p, kv.Key)
 						expr(s, k, t, kv.Value, Exactly{T: infer.Unmarked(*s, ft.Value)})
+						t.what = prevWhat
 						done = true
 					case option.None:
 						unread(*s, k, t, rt.Value, kv.Value)
@@ -847,14 +956,20 @@ func composite(s mut store.Store, k Pkg, t mut Typer, cl syntax.CompositeLit, w 
 			case _:
 				if kind == store.KSlice || kind == store.KArray {
 					let ops = store.OperandsOf(*s, rt.Value)
+					let prevWhat = t.what
+					t.what = "element"
 					expr(s, k, t, e, Exactly{T: ops[ops.Len()-1]})
+					t.what = prevWhat
 					done = true
 				} else {
 					// A record's values written in order take its fields'
 					// types (Some{v}).
 					match fieldType(s, k, rt.Value, "", i) {
 					case option.Some{Value: ft}:
+						let prevWhat = t.what
+						t.what = "field"
 						expr(s, k, t, e, Exactly{T: infer.Unmarked(*s, ft)})
+						t.what = prevWhat
 						done = true
 					case option.None:
 						unread(*s, k, t, rt.Value, e)
@@ -864,12 +979,22 @@ func composite(s mut store.Store, k Pkg, t mut Typer, cl syntax.CompositeLit, w 
 		case option.None:
 		}
 		if !done {
+			let prevLit = t.deferLitDiag
+			match ty {
+			case option.Some{Value: ct}:
+				if outsideRec(*s, k, ct) || hasInvalidT(*s, ct, 0) {
+					t.deferLitDiag = true
+				}
+			case option.None:
+				t.deferLitDiag = true
+			}
 			match syntax.ViewOf(tr, e) {
 			case syntax.KeyValueExpr as kv:
 				expr(s, k, t, kv.Value, Unsure)
 			case _:
 				expr(s, k, t, e, Unsure)
 			}
+			t.deferLitDiag = prevLit
 		}
 	}
 	ty
