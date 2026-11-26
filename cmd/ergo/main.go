@@ -222,7 +222,11 @@ type fileOptions struct {
 	// mutants is test's --mutants: run .ergo mutant ledger rows in memory
 	// using graph read sets and reach-digest verdict caching (MN1).
 	mutants bool
-	// fresh is test's --fresh with --mutants: bypass stored mutant verdicts.
+	// fresh is check's and test's --fresh: the run reads no stored
+	// answer, result or verdict (warm answers, the test result cache, the
+	// law-verdict store, and with --mutants the stored mutant verdicts),
+	// runs every obligation again and keeps each pass as a run without it
+	// does (useFresh).
 	fresh bool
 	// derived is test's --derived with --mutants: derive typed mutants from
 	// the checked .ergo AST in addition to any hand ledger rows (MN2).
@@ -602,8 +606,8 @@ func fileOptionsOf(command string, args []string) (fileOptions, error) {
 		return opts, fmt.Errorf("--affected selects the obligations itself: it takes no --law, --skip-law, --run, --receipt, --emitted, --explore or -work")
 	case opts.mutants && command != "test":
 		return opts, fmt.Errorf("--mutants is only supported by test")
-	case opts.fresh && !opts.mutants:
-		return opts, fmt.Errorf("--fresh needs --mutants")
+	case opts.fresh && command != "test" && command != "check":
+		return opts, fmt.Errorf("--fresh is only supported by check and test")
 	case opts.derived && !opts.mutants:
 		return opts, fmt.Errorf("--derived needs --mutants")
 	case opts.mutants && (opts.affected.on || selected || opts.receipt != "" || opts.emitted || opts.explore || searched || opts.work || opts.pruneCases):
@@ -814,6 +818,7 @@ func checkCommand(args []string) error {
 	if err != nil {
 		return err
 	}
+	useFresh(opts)
 	if len(opts.more) > 0 {
 		return manyCheckCommand(opts)
 	}
