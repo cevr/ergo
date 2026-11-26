@@ -366,3 +366,81 @@ func TestFormatSmokeLimitsAndPaths(t *testing.T) {
 		}
 	})
 }
+
+// TestFmtFormatsMoreThan100Files: ergo fmt accepts more than 100 files across
+// explicit paths, folder operands, and recursive `...` patterns, enforcing only
+// the byte budgets.
+func TestFmtFormatsMoreThan100Files(t *testing.T) {
+	binary := buildTestCLI(t)
+	const count = 125
+
+	t.Run("explicit-args", func(t *testing.T) {
+		t.Parallel()
+		root := smokeDir(t)
+		args := []string{"fmt", "--check", "--json"}
+		for i := range count {
+			rel := fmt.Sprintf("f%03d.ergo", i)
+			smokeWrite(t, root, rel, sketchUnformatted)
+			args = append(args, rel)
+		}
+		stdout, stderr, code := runSmokeCLI(t, binary, root, "", args...)
+		if code != 1 || len(stderr) != 0 {
+			t.Fatalf("ergo fmt --check explicit %d files: exit %d, stdout=%s stderr=%s", count, code, stdout, stderr)
+		}
+		var rep formatReport
+		if err := json.Unmarshal(stdout, &rep); err != nil {
+			t.Fatalf("unmarshal report %s: %v", stdout, err)
+		}
+		if len(rep.Files) != count || len(rep.Failures) != 0 || !rep.Success {
+			t.Fatalf("unexpected report for %d files: files=%d failures=%+v success=%v", count, len(rep.Files), rep.Failures, rep.Success)
+		}
+		for i, f := range rep.Files {
+			if !f.Changed || f.Written {
+				t.Fatalf("file %d: %+v, want changed and not written", i, f)
+			}
+		}
+	})
+
+	t.Run("folders-and-recursive", func(t *testing.T) {
+		t.Parallel()
+		root := smokeDir(t)
+		paths := make([]string, 0, count)
+		for i := range count {
+			rel := fmt.Sprintf("pkg%d/f%03d.ergo", i%5, i)
+			paths = append(paths, smokeWrite(t, root, rel, sketchUnformatted))
+		}
+		stdout, stderr, code := runSmokeCLI(t, binary, root, "", "fmt", "--json", "./pkg0", "./pkg1", "./pkg2", "./pkg3", "./pkg4")
+		if code != 0 || len(stderr) != 0 {
+			t.Fatalf("ergo fmt folders (%d files): exit %d, stdout=%s stderr=%s", count, code, stdout, stderr)
+		}
+		var rep formatReport
+		if err := json.Unmarshal(stdout, &rep); err != nil {
+			t.Fatalf("unmarshal report %s: %v", stdout, err)
+		}
+		if !rep.Success || len(rep.Files) != count || len(rep.Failures) != 0 {
+			t.Fatalf("unexpected folder report: success=%v files=%d failures=%+v", rep.Success, len(rep.Files), rep.Failures)
+		}
+		for _, p := range paths {
+			if got := string(smokeRead(t, p)); got != sketchCleanSource {
+				t.Fatalf("file %s not formatted: %q", p, got)
+			}
+		}
+
+		single := smokeDir(t)
+		smokeWrite(t, single, "ergo.mod", "module tree\n")
+		for i := range count {
+			smokeWrite(t, single, fmt.Sprintf("single/f%03d.ergo", i), sketchUnformatted)
+		}
+		stdout, stderr, code = runSmokeCLI(t, binary, single, "", "fmt", "--json", "./...")
+		if code != 0 || len(stderr) != 0 {
+			t.Fatalf("ergo fmt ./... (%d files): exit %d, stdout=%s stderr=%s", count, code, stdout, stderr)
+		}
+		rep = formatReport{}
+		if err := json.Unmarshal(stdout, &rep); err != nil {
+			t.Fatalf("unmarshal report %s: %v", stdout, err)
+		}
+		if !rep.Success || len(rep.Files) != count || len(rep.Failures) != 0 {
+			t.Fatalf("unexpected ./... report: success=%v files=%d failures=%+v", rep.Success, len(rep.Files), rep.Failures)
+		}
+	})
+}
