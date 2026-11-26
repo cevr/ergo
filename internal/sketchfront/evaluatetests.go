@@ -83,15 +83,16 @@ func (a Analysis) EvaluateTestsWithCases(seed uint64, states int, admitted, sour
 	foreign := foreignKeys(a, nil)
 	var notes map[string]string
 	if store != nil && pkg != nil && !pruneCases {
-		notes = routes(pkg, seed, states, b.Steps, foreign)
+		memo := lower.NewDigests()
+		notes = routes(memo, pkg, seed, states, b.Steps, foreign)
 		for _, name := range plan.Names {
 			if text, ok := store.Get(notes[name]); ok && text == routeNote {
 				stage.Add(stage.PackagesRouted, 1)
 				return TestAnswer{}, false
 			}
 		}
-		ev := a.EvalVerdicts(store, seed, states, native)
-		tv := &testVerdicts{store: store, pkg: pkg, seed: seed, keys: map[*check.Test]string{}, foreign: foreign}
+		ev := a.evalVerdictsIn(memo, store, seed, states, native, foreign)
+		tv := &testVerdicts{store: store, pkg: pkg, seed: seed, keys: map[*check.Test]string{}, foreign: foreign, memo: memo}
 		if len(storedCases) > 0 {
 			b.Verdicts = storedCasesVerdicts{inner: ev, pkg: pkg, stored: storedCases}
 			b.Tests = storedCasesTests{inner: tv, stored: storedCases}

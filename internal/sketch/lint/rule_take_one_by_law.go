@@ -25,63 +25,103 @@ var takeOneByLaw = &Rule{
 }
 
 func checkTakeOneByLaw(p *Pass) {
+	fi := p.fileIndex()
+	if len(fi.indices) == 0 {
+		return
+	}
 	lt := p.Memo(func() any { return lawTakes{} }).(lawTakes)
-	for _, d := range p.File.Decls {
+	for k, d := range p.File.Decls {
 		f, ok := d.(*syntax.FuncDecl)
 		if !ok || f.Body == nil {
 			continue
 		}
-		lets := map[*check.Var]syntax.Expr{}
-		syntax.Inspect(f.Body, func(n syntax.Node) bool {
-			if s, ok := n.(*syntax.DeclStmt); ok && s.Decl.Mut == syntax.NoPos && len(s.Decl.Specs) == 1 {
+		dr := fi.decls[k]
+		declIndices := fi.indices[dr.indexStart:dr.indexEnd]
+		if len(declIndices) == 0 {
+			continue
+		}
+		bStart, bEnd := f.Body.Pos(), f.Body.End()
+		hasIdx := false
+		for _, ix := range declIndices {
+			if ix.Pos() >= bStart && ix.Pos() < bEnd {
+				hasIdx = true
+				break
+			}
+		}
+		if !hasIdx {
+			continue
+		}
+		var lets map[*check.Var]syntax.Expr
+		for _, s := range fi.declStmts[dr.declStmtStart:dr.declStmtEnd] {
+			if s.Decl.Mut == syntax.NoPos && len(s.Decl.Specs) == 1 {
 				sp := s.Decl.Specs[0]
 				if len(sp.Names) == 1 && len(sp.Values) == 1 {
-					if v, ok := p.Info.Defs[sp.Names[0]].(*check.Var); ok {
-						lets[v] = sp.Values[0]
+					if _, isCall := unparen(sp.Values[0]).(*syntax.CallExpr); isCall {
+						if v, ok := p.Info.Defs[sp.Names[0]].(*check.Var); ok {
+							if lets == nil {
+								lets = map[*check.Var]syntax.Expr{}
+							}
+							lets[v] = sp.Values[0]
+						}
 					}
 				}
 			}
-			return true
-		})
+		}
 		var found []*syntax.IndexExpr
-		facts := map[*syntax.IndexExpr]takeFact{}
-		covered := map[*syntax.Ident]bool{} // a let's reads a fact covers
-		bad := map[*check.Var]bool{}
-		syntax.Inspect(f.Body, func(n syntax.Node) bool {
-			ix, ok := n.(*syntax.IndexExpr)
-			if !ok {
-				return true
+		var facts map[*syntax.IndexExpr]takeFact
+		var covered map[*syntax.Ident]bool
+		hasLetFound := false
+		for _, ix := range declIndices {
+			if ix.Pos() < bStart || ix.Pos() >= bEnd {
+				continue
 			}
 			value := ix.X
 			id, isName := unparen(ix.X).(*syntax.Ident)
 			if isName {
+				if lets == nil {
+					continue
+				}
 				v, _ := p.Info.Uses[id].(*check.Var)
 				if value = lets[v]; value == nil {
-					return true
+					continue
 				}
 			}
 			if fact, ok := takeSite(p.Info, lt, ix, value); ok {
+				if facts == nil {
+					facts = map[*syntax.IndexExpr]takeFact{}
+				}
 				found = append(found, ix)
 				facts[ix] = fact
 				if isName {
+					hasLetFound = true
+					if covered == nil {
+						covered = map[*syntax.Ident]bool{}
+					}
 					markReads(ix, covered)
 				}
 			}
-			return true
-		})
-		syntax.Inspect(f.Body, func(n syntax.Node) bool {
-			if c, ok := n.(*syntax.CallExpr); ok && len(c.Args) == 1 && builtinLen(p.Info, c) {
-				if id, ok := unparen(c.Args[0]).(*syntax.Ident); ok {
-					covered[id] = true
+		}
+		if len(found) == 0 {
+			continue
+		}
+		var bad map[*check.Var]bool
+		if hasLetFound {
+			bad = map[*check.Var]bool{}
+			for _, c := range fi.calls[dr.callStart:dr.callEnd] {
+				if c.Pos() >= bStart && c.Pos() < bEnd && len(c.Args) == 1 && builtinLen(p.Info, c) {
+					if id, ok := unparen(c.Args[0]).(*syntax.Ident); ok {
+						covered[id] = true
+					}
 				}
 			}
-			if id, ok := n.(*syntax.Ident); ok && !covered[id] && p.Info.Defs[id] == nil {
-				if v, ok := p.Info.Uses[id].(*check.Var); ok && lets[v] != nil {
-					bad[v] = true
+			for _, id := range fi.idents[dr.identStart:dr.identEnd] {
+				if id.Pos() >= bStart && id.Pos() < bEnd && !covered[id] && p.Info.Defs[id] == nil {
+					if v, ok := p.Info.Uses[id].(*check.Var); ok && lets[v] != nil {
+						bad[v] = true
+					}
 				}
 			}
-			return true
-		})
+		}
 		for _, ix := range found {
 			if id, ok := unparen(ix.X).(*syntax.Ident); ok {
 				if v, _ := p.Info.Uses[id].(*check.Var); bad[v] {

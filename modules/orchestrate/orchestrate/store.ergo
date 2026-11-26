@@ -1,5 +1,4 @@
 import option
-import strconv
 
 // StoredEvent is one persisted event in the global ordered log with its monotonic 1-based sequence number.
 type StoredEvent { Seq int, Event Event }
@@ -17,10 +16,10 @@ func EventList(stored []StoredEvent) []Event {
 }
 
 // Store is the transactional persistence contract shared by memory and SQLite providers.
-// Execute must run Decide, append events, and update all projections atomically in one transaction.
+// Execute must run Decide over the command's Scope, append events, and update all projections atomically in one transaction.
 type Store {
 	// Execute validates and persists one Envelope atomically with all projections.
-	Execute(env Envelope) ExecuteResult fails NotFound | AlreadyExists | InvalidTransition | StaleClaim | CommandReused | InvalidInput | StoreFailed,
+	Execute(env Envelope) ExecuteResult fails NotFound | AlreadyExists | InvalidTransition | CommandReused | InvalidInput | Unverified | NotAcceptedHead | StoreFailed,
 
 	// Snapshot returns the complete projected State read from projection storage.
 	Snapshot() State fails StoreFailed,
@@ -28,14 +27,11 @@ type Store {
 	// Events returns all persisted events with Seq strictly greater than fromSeq in ascending Seq order.
 	Events(fromSeq int) []StoredEvent fails StoreFailed,
 
-	// Unit looks up one unit projection by ID.
-	Unit(id string) option.Option[Unit] fails StoreFailed,
+	// Unit looks up one unit projection by key.
+	Unit(key UnitKey) option.Option[Unit] fails StoreFailed,
 
-	// ListUnits returns unit projections optionally filtered by status, sorted by ID.
-	ListUnits(status option.Option[UnitStatus]) []Unit fails StoreFailed,
-
-	// Receipts returns receipt projections for unitID, optionally filtered by round, in recorded order.
-	Receipts(unitID string, round option.Option[int]) []Receipt fails StoreFailed,
+	// Receipts returns the receipt projections of the unit key in recorded order.
+	Receipts(key UnitKey) []Receipt fails StoreFailed,
 
 	// Commitment looks up one commitment projection by ID.
 	Commitment(id string) option.Option[Commitment] fails StoreFailed,
@@ -57,10 +53,10 @@ type Store {
 		for i, code in steps {
 			let env = generatedEnvelope(i, code)
 			let _ = Execute(env) catch {
-			case NotFound, AlreadyExists, InvalidTransition, StaleClaim, CommandReused, InvalidInput:
-				ExecuteResult{Seq: 0, Events: []Event{}, Duplicate: false}
 			case StoreFailed:
 				return true
+			case _:
+				ExecuteResult{Seq: 0, Events: []Event{}, Duplicate: false}
 			}
 		}
 		let stored = Events(0) catch {
@@ -77,18 +73,18 @@ type Store {
 	// StoreIdempotentExecute verifies that resending an accepted Envelope is a duplicate no-op while reusing its CommandID with a different payload fails CommandReused.
 	law StoreIdempotentExecute(tag int) {
 		let cid = CommandID("store-idem-\(tag)")
-		let uid = "store-u-\(tag)"
+		let key = UnitKey{Repo: "repo", Run: "store", ID: "store-u-\(tag)"}
 		let env = Envelope{
 			ID:      cid,
 			Actor:   "worker",
 			At:      "2026-11-24T08:00:00Z",
-			Command: OpenUnit{ID: uid, Title: "Title", Area: "store"},
+			Command: OpenUnit{Key: key, Title: "Title", Requires: []string{"acceptance"}, Lane: option.None, Branch: option.None},
 		}
 		let first = Execute(env) catch {
-		case NotFound, AlreadyExists, InvalidTransition, StaleClaim, CommandReused, InvalidInput:
-			return false
 		case StoreFailed:
 			return true
+		case _:
+			return false
 		}
 		let snap1 = Snapshot() catch {
 		case StoreFailed:
@@ -99,10 +95,10 @@ type Store {
 			return true
 		}
 		let second = Execute(env) catch {
-		case NotFound, AlreadyExists, InvalidTransition, StaleClaim, CommandReused, InvalidInput:
-			return false
 		case StoreFailed:
 			return true
+		case _:
+			return false
 		}
 		let snap2 = Snapshot() catch {
 		case StoreFailed:
@@ -117,15 +113,15 @@ type Store {
 			ID:      cid,
 			Actor:   "worker",
 			At:      "2026-11-24T08:01:00Z",
-			Command: OpenUnit{ID: uid, Title: "Different", Area: "store"},
+			Command: OpenUnit{Key: key, Title: "Different", Requires: []string{"acceptance"}, Lane: option.None, Branch: option.None},
 		}) catch {
 		case CommandReused:
 			reused = true
 			ExecuteResult{Seq: 0, Events: []Event{}, Duplicate: false}
-		case NotFound, AlreadyExists, InvalidTransition, StaleClaim, InvalidInput:
-			return false
 		case StoreFailed:
 			return true
+		case _:
+			return false
 		}
 		let snap3 = Snapshot() catch {
 		case StoreFailed:
@@ -149,15 +145,15 @@ type Store {
 			ID:      CommandID("store-refuse-\(tag)"),
 			Actor:   "worker",
 			At:      "2026-11-24T08:10:00Z",
-			Command: HandBackUnit{ID: "missing-\(tag)", Owner: "worker", HeadSHA: "aaa", Summary: "s", RequestPath: option.None, FindingsPath: option.None},
+			Command: AcceptUnit{Unit: UnitKey{Repo: "repo", Run: "store", ID: "missing-\(tag)"}, Head: "aaa"},
 		}) catch {
 		case NotFound:
 			refused = true
 			ExecuteResult{Seq: 0, Events: []Event{}, Duplicate: false}
-		case AlreadyExists, InvalidTransition, StaleClaim, CommandReused, InvalidInput:
-			return false
 		case StoreFailed:
 			return true
+		case _:
+			return false
 		}
 		let afterSnap = Snapshot() catch {
 		case StoreFailed:
@@ -172,14 +168,13 @@ type Store {
 
 	// StoreQueriesMatchSnapshot verifies that every indexed Store query agrees with the pure query functions over Snapshot.
 	law StoreQueriesMatchSnapshot(tag int) {
-		let uid = "sq-u-\(tag)"
+		let key = UnitKey{Repo: "repo", Run: "store", ID: "sq-u-\(tag)"}
 		let cid = "sq-c-\(tag)"
 		let qkey = "sq-q-\(tag)"
-		let digest = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 		let cmds = []Envelope{
-			Envelope{ID: CommandID("sq1-\(tag)"), Actor: "root", At: "2026-11-24T09:00:00Z", Command: OpenUnit{ID: uid, Title: "Unit", Area: "a"}},
-			Envelope{ID: CommandID("sq2-\(tag)"), Actor: "w1", At: "2026-11-24T09:01:00Z", Command: ClaimUnit{ID: uid, Owner: "w1", Lane: "l1", Harness: "agy"}},
-			Envelope{ID: CommandID("sq3-\(tag)"), Actor: "w1", At: "2026-11-24T09:02:00Z", Command: RecordReceipt{ID: "sq-r-\(tag)", UnitID: uid, Round: 1, Kind: "test", Command: "ergo test", CommitSHA: "abc", ExitCode: 0, SummaryMetrics: "ok", LogPath: "/tmp/t.log", LogSHA256: digest}},
+			Envelope{ID: CommandID("sq1-\(tag)"), Actor: "root", At: "2026-11-24T09:00:00Z", Command: OpenUnit{Key: key, Title: "Unit", Requires: []string{"test"}, Lane: option.Some[string]{Value: "/l"}, Branch: option.Some[string]{Value: "b"}}},
+			Envelope{ID: CommandID("sq2-\(tag)"), Actor: "w1", At: "2026-11-24T09:01:00Z", Command: RecordReceipt{Unit: key, Kind: "test", Command: "ergo test", Head: "abc", ExitCode: 0, ExitLines: "ok"}},
+			Envelope{ID: CommandID("sq3-\(tag)"), Actor: "w1", At: "2026-11-24T09:02:00Z", Command: AcceptUnit{Unit: key, Head: "abc"}},
 			Envelope{ID: CommandID("sq4-\(tag)"), Actor: "root", At: "2026-11-24T09:03:00Z", Command: AddCommitment{ID: cid, Title: "Commit", Kind: "plan-part"}},
 			Envelope{ID: CommandID("sq5-\(tag)"), Actor: "root", At: "2026-11-24T09:04:00Z", Command: AssignCommitment{ID: cid, Owner: "w1", Lane: "l1"}},
 			Envelope{ID: CommandID("sq6-\(tag)"), Actor: "root", At: "2026-11-24T09:05:00Z", Command: UpsertQueueItem{Key: qkey, Priority: 2, Title: "Q", Body: "B", Status: "open", Tags: []string{"t"}}},
@@ -187,25 +182,21 @@ type Store {
 		}
 		for env in cmds {
 			let _ = Execute(env) catch {
-			case NotFound, AlreadyExists, InvalidTransition, StaleClaim, CommandReused, InvalidInput:
-				return false
 			case StoreFailed:
 				return true
+			case _:
+				return false
 			}
 		}
 		let snap = Snapshot() catch {
 		case StoreFailed:
 			return true
 		}
-		let u = Unit(uid) catch {
+		let u = Unit(key) catch {
 		case StoreFailed:
 			return true
 		}
-		let us = ListUnits(option.Some[UnitStatus]{Value: UnitClaimed}) catch {
-		case StoreFailed:
-			return true
-		}
-		let recs = Receipts(uid, option.Some[int]{Value: 1}) catch {
+		let recs = Receipts(key) catch {
 		case StoreFailed:
 			return true
 		}
@@ -229,16 +220,15 @@ type Store {
 		case StoreFailed:
 			return true
 		}
-		queriesMatchSnapshot(snap, uid, cid, u, us, recs, cm, cms, qs, q1, qlist) && strconv.Itoa(recs.Len()) == "1"
+		queriesMatchSnapshot(snap, key, cid, u, recs, cm, cms, qs, q1, qlist) && recs.Len() == 1
 	},
 }
 
 func queriesMatchSnapshot(
 	snap State,
-	uid string,
+	key UnitKey,
 	cid string,
 	u option.Option[Unit],
-	us []Unit,
 	recs []Receipt,
 	cm option.Option[Commitment],
 	cms []Commitment,
@@ -246,9 +236,8 @@ func queriesMatchSnapshot(
 	q1 option.Option[Question],
 	qlist []Question,
 ) bool {
-		u == UnitByID(snap, uid) &&
-		us == ListUnits(snap, option.Some[UnitStatus]{Value: UnitClaimed}) &&
-		recs == ReceiptsOf(snap, uid, option.Some[int]{Value: 1}) &&
+		u == UnitByKey(snap, key) &&
+		recs == ReceiptsOf(snap, key) &&
 		cm == CommitmentByID(snap, cid) &&
 		cms == ListCommitments(snap, option.Some[CommitmentStatus]{Value: CommitAssigned}, option.Some[string]{Value: "w1"}) &&
 		qs == ListQueue(snap, option.Some[string]{Value: "open"}) &&

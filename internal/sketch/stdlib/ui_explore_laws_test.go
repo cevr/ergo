@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"ergo.local/prototype/internal/ergobuild"
 	"ergo.local/prototype/internal/lawledger"
 )
 
@@ -17,9 +18,8 @@ func runStdUIExploreLaw(t *testing.T, law string) {
 		t.Fatalf("resolve repo root: %v", err)
 	}
 	bin := filepath.Join(t.TempDir(), "ergo")
-	build := exec.Command("go", "build", "-p", "4", "-o", bin, "./cmd/ergo")
+	build := ergobuild.Command(bin, "./cmd/ergo", "-p", "4")
 	build.Dir = root
-	build.Env = os.Environ()
 	if out, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("build ergo: %v\n%s", err, out)
 	}
@@ -47,9 +47,8 @@ func TestStdUIExploreLawsRun(t *testing.T) {
 		t.Fatalf("resolve repo root: %v", err)
 	}
 	bin := filepath.Join(t.TempDir(), "ergo")
-	build := exec.Command("go", "build", "-p", "4", "-o", bin, "./cmd/ergo")
+	build := ergobuild.Command(bin, "./cmd/ergo", "-p", "4")
 	build.Dir = root
-	build.Env = os.Environ()
 	if out, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("build ergo: %v\n%s", err, out)
 	}

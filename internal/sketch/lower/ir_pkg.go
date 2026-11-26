@@ -1252,11 +1252,4 @@ func (b *irBuilder) sameGo(t check.Type, goType string) bool {
 
 // importPath is the import path of the package main.go imports by the
 // name q, or "".
-func (b *irBuilder) importPath(q string) string {
-	for k, n := range b.l.pkgNames {
-		if path, ok := k.obj.(string); ok && k.kind == "import" && n == q {
-			return path
-		}
-	}
-	return ""
-}
+func (b *irBuilder) importPath(q string) string { return b.l.importNames[q] }

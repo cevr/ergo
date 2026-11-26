@@ -1217,6 +1217,17 @@ xml OutputIsWellFormed	TestStdXmlLawsRun
 xml RoundTrips	TestStdXmlLawsRun
 xml Text.RawJoins	none
 xml TruncationIsRejectedInsideTheText	TestStdXmlLawsRun
+yaml AgreesWithJSON	none
+yaml AliasBombRefused	none
+yaml BlockScalarsKeepLines	none
+yaml DepthLimits	none
+yaml EncodeRoundTrips	none
+yaml EncodeWritesBlockStyle	none
+yaml HostileInputTyped	none
+yaml JSONIsYAML	none
+yaml RefusalsNameTheRule	none
+yaml SpecFormsRead	none
+yaml StreamRoundTrips	none
 zlib Adler32Associates	TestStdZlibLawsRun
 zlib InflatePrefixStopsAtBoundary	TestStdZlibLawsRun
 zlib RejectsBadTrailer	TestStdZlibLawsRun

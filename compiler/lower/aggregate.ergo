@@ -1,3 +1,4 @@
+import compiler/check/bind
 import compiler/check/expr
 import compiler/check/store
 import compiler/ir
@@ -193,4 +194,49 @@ func sliceIndex(st fnb, x dense.ID[syntax.Node], ie syntax.IndexExpr) dense.ID[s
 		return stop("slice read with an adapted element")
 	}
 	syntax.Item(st.p.Tree, ie.Indices, 0)
+}
+
+func bareEmptyRecord(st fnb, x dense.ID[syntax.Node]) string {
+	let t = typeOf(st, x, "bare record") catch {
+	case Unported:
+		return ""
+	}
+	let gt = shapeGo(st, t)
+	if gt == "" {
+		return ""
+	}
+	match syntax.ViewOf(st.p.Tree, x) {
+	case syntax.Name:
+		let r = ordinaryRecord(st, t)
+		if r < 0 || st.k.Recs[r].Fields.Len() != 0 {
+			return ""
+		}
+		let d = match store.Lookup(st.s, st.k.Recs[r].Name) {
+		case option.Some{Value: id}:
+			store.DeclOf(st.s, id)
+		case option.None:
+			return ""
+		}
+		let declAt = bind.PNodeOf(st.k.Ps, int(d.File), syntax.NodeAt(st.k.Parsed[int(d.File)].Tree, int(d.Node)))
+		match bind.ResolutionOf(st.k.U, st.k.Ps, bind.PNodeOf(st.k.Ps, st.file, x)) {
+		case bind.Declared as res:
+			if res.At == declAt { gt } else { "" }
+		case _:
+			""
+		}
+	case syntax.SelectorExpr as se:
+		match bind.ResolutionOf(st.k.U, st.k.Ps, bind.PNodeOf(st.k.Ps, st.file, se.Sel)) {
+		case bind.Imported:
+		case _:
+			return ""
+		}
+		match importedFields(st, t) {
+		case option.Some{Value: fields}:
+			if fields.Len() == 0 { gt } else { "" }
+		case option.None:
+			""
+		}
+	case _:
+		""
+	}
 }

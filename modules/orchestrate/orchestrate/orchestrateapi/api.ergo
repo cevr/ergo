@@ -1,0 +1,714 @@
+import json
+import rpc
+import sync
+import github.com/cevr/ergo/modules/orchestrate/orchestrate
+
+// Request is one call of orchestrate.Api: a variant per operation, whose fields
+// are the operation's parameters. It is the request every transport carries.
+type Request = UnitOpenRequest{Input orchestrate.UnitOpenInput} | ReceiptRecordRequest{Input orchestrate.ReceiptRecordInput} | UnitStateRequest{Input orchestrate.UnitStateInput} | UnitAcceptRequest{Input orchestrate.UnitVerdictInput} | UnitLandRequest{Input orchestrate.UnitVerdictInput}
+
+// Op is an operation of orchestrate.Api: what a policy matches on.
+type Op = UnitOpenOp{} | ReceiptRecordOp{} | UnitStateOp{} | UnitAcceptOp{} | UnitLandOp{}
+
+// Reply is the value of an operation: a variant per operation.
+type Reply = UnitOpenReply{Value orchestrate.Unit} | ReceiptRecordReply{Value orchestrate.Receipt} | UnitStateReply{Value orchestrate.UnitView} | UnitAcceptReply{Value orchestrate.Unit} | UnitLandReply{Value orchestrate.Unit}
+
+// Failure is a failure of an operation: a variant per failure type of
+// any row, named like the type (its JSON tag).
+type Failure = NotFound{E orchestrate.NotFound} | AlreadyExists{E orchestrate.AlreadyExists} | InvalidTransition{E orchestrate.InvalidTransition} | CommandReused{E orchestrate.CommandReused} | InvalidInput{E orchestrate.InvalidInput} | Unverified{E orchestrate.Unverified} | NotAcceptedHead{E orchestrate.NotAcceptedHead} | StoreFailed{E orchestrate.StoreFailed}
+
+// Outcome is what one call ends in: its operation's value or one of
+// its failures.
+type Outcome = Done{Reply Reply} | Rejected{Failure Failure}
+
+// OpOf is the operation r calls.
+func OpOf(r Request) Op {
+	match r {
+	case UnitOpenRequest:
+		UnitOpenOp
+	case ReceiptRecordRequest:
+		ReceiptRecordOp
+	case UnitStateRequest:
+		UnitStateOp
+	case UnitAcceptRequest:
+		UnitAcceptOp
+	case UnitLandRequest:
+		UnitLandOp
+	}
+}
+
+// Name is op's name on every transport: the operation's, in kebab case.
+func Name(op Op) string {
+	match op {
+	case UnitOpenOp:
+		"unit-open"
+	case ReceiptRecordOp:
+		"receipt-record"
+	case UnitStateOp:
+		"unit-state"
+	case UnitAcceptOp:
+		"unit-accept"
+	case UnitLandOp:
+		"unit-land"
+	}
+}
+
+// Doc is what op does: its doc comment, or its signature.
+func Doc(op Op) string {
+	match op {
+	case UnitOpenOp:
+		"UnitOpen opens a unit with the receipt kinds its verdict requires."
+	case ReceiptRecordOp:
+		"ReceiptRecord records one run of a check: command, head, exit code and exit lines."
+	case UnitStateOp:
+		"UnitState reads a unit and its receipts."
+	case UnitAcceptOp:
+		"UnitAccept accepts a unit at a head; refused Unverified unless every required kind's latest receipt at that head exited 0."
+	case UnitLandOp:
+		"UnitLand lands an accepted unit at its accepted head, whose required receipts must still be green."
+	}
+}
+
+func valueOf(text string) json.Value {
+	json.Decode(json.Codec[json.Value]{MaxBytes: 0, MaxDepth: 0}, text) catch {
+	case _:
+		json.Null
+	}
+}
+
+// Schema is the JSON schema of op's arguments: an object whose keys are
+// its parameters' JSON keys, or the fields of its one record parameter.
+func Schema(op Op) json.Value {
+	match op {
+	case UnitOpenOp:
+		valueOf("{\"type\":\"object\",\"properties\":{\"commandID\":{\"type\":\"string\"},\"actor\":{\"type\":\"string\"},\"repo\":{\"type\":\"string\"},\"run\":{\"type\":\"string\"},\"id\":{\"type\":\"string\"},\"title\":{\"type\":\"string\"},\"requires\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}},\"lane\":{\"anyOf\":[{\"type\":\"object\",\"properties\":{\"_tag\":{\"const\":\"Some\"},\"value\":{\"type\":\"string\"}},\"required\":[\"_tag\",\"value\"]},{\"type\":\"object\",\"properties\":{\"_tag\":{\"const\":\"None\"}},\"required\":[\"_tag\"]}]},\"branch\":{\"anyOf\":[{\"type\":\"object\",\"properties\":{\"_tag\":{\"const\":\"Some\"},\"value\":{\"type\":\"string\"}},\"required\":[\"_tag\",\"value\"]},{\"type\":\"object\",\"properties\":{\"_tag\":{\"const\":\"None\"}},\"required\":[\"_tag\"]}]}},\"required\":[\"commandID\",\"actor\",\"repo\",\"run\",\"id\",\"title\",\"requires\",\"lane\",\"branch\"]}")
+	case ReceiptRecordOp:
+		valueOf("{\"type\":\"object\",\"properties\":{\"commandID\":{\"type\":\"string\"},\"actor\":{\"type\":\"string\"},\"repo\":{\"type\":\"string\"},\"run\":{\"type\":\"string\"},\"id\":{\"type\":\"string\"},\"kind\":{\"type\":\"string\"},\"command\":{\"type\":\"string\"},\"head\":{\"type\":\"string\"},\"exitCode\":{\"type\":\"integer\"},\"exitLines\":{\"type\":\"string\"}},\"required\":[\"commandID\",\"actor\",\"repo\",\"run\",\"id\",\"kind\",\"command\",\"head\",\"exitCode\",\"exitLines\"]}")
+	case UnitStateOp:
+		valueOf("{\"type\":\"object\",\"properties\":{\"repo\":{\"type\":\"string\"},\"run\":{\"type\":\"string\"},\"id\":{\"type\":\"string\"}},\"required\":[\"repo\",\"run\",\"id\"]}")
+	case UnitAcceptOp:
+		valueOf("{\"type\":\"object\",\"properties\":{\"commandID\":{\"type\":\"string\"},\"actor\":{\"type\":\"string\"},\"repo\":{\"type\":\"string\"},\"run\":{\"type\":\"string\"},\"id\":{\"type\":\"string\"},\"head\":{\"type\":\"string\"}},\"required\":[\"commandID\",\"actor\",\"repo\",\"run\",\"id\",\"head\"]}")
+	case UnitLandOp:
+		valueOf("{\"type\":\"object\",\"properties\":{\"commandID\":{\"type\":\"string\"},\"actor\":{\"type\":\"string\"},\"repo\":{\"type\":\"string\"},\"run\":{\"type\":\"string\"},\"id\":{\"type\":\"string\"},\"head\":{\"type\":\"string\"}},\"required\":[\"commandID\",\"actor\",\"repo\",\"run\",\"id\",\"head\"]}")
+	}
+}
+
+// Call answers r on the bound orchestrate.Api: the operation's value as its
+// Reply, or its typed failure as its Failure. It fails nothing.
+func Call(r Request) Outcome needs orchestrate.Api {
+	match r {
+	case UnitOpenRequest as x:
+		let v = orchestrate.Api.UnitOpen(x.Input) catch {
+		case orchestrate.NotFound as e:
+			return Rejected{Failure: NotFound{E: e}}
+		case orchestrate.AlreadyExists as e:
+			return Rejected{Failure: AlreadyExists{E: e}}
+		case orchestrate.InvalidTransition as e:
+			return Rejected{Failure: InvalidTransition{E: e}}
+		case orchestrate.CommandReused as e:
+			return Rejected{Failure: CommandReused{E: e}}
+		case orchestrate.InvalidInput as e:
+			return Rejected{Failure: InvalidInput{E: e}}
+		case orchestrate.Unverified as e:
+			return Rejected{Failure: Unverified{E: e}}
+		case orchestrate.NotAcceptedHead as e:
+			return Rejected{Failure: NotAcceptedHead{E: e}}
+		case orchestrate.StoreFailed as e:
+			return Rejected{Failure: StoreFailed{E: e}}
+		}
+		Done{Reply: UnitOpenReply{Value: v}}
+	case ReceiptRecordRequest as x:
+		let v = orchestrate.Api.ReceiptRecord(x.Input) catch {
+		case orchestrate.NotFound as e:
+			return Rejected{Failure: NotFound{E: e}}
+		case orchestrate.AlreadyExists as e:
+			return Rejected{Failure: AlreadyExists{E: e}}
+		case orchestrate.InvalidTransition as e:
+			return Rejected{Failure: InvalidTransition{E: e}}
+		case orchestrate.CommandReused as e:
+			return Rejected{Failure: CommandReused{E: e}}
+		case orchestrate.InvalidInput as e:
+			return Rejected{Failure: InvalidInput{E: e}}
+		case orchestrate.Unverified as e:
+			return Rejected{Failure: Unverified{E: e}}
+		case orchestrate.NotAcceptedHead as e:
+			return Rejected{Failure: NotAcceptedHead{E: e}}
+		case orchestrate.StoreFailed as e:
+			return Rejected{Failure: StoreFailed{E: e}}
+		}
+		Done{Reply: ReceiptRecordReply{Value: v}}
+	case UnitStateRequest as x:
+		let v = orchestrate.Api.UnitState(x.Input) catch {
+		case orchestrate.NotFound as e:
+			return Rejected{Failure: NotFound{E: e}}
+		case orchestrate.InvalidInput as e:
+			return Rejected{Failure: InvalidInput{E: e}}
+		case orchestrate.StoreFailed as e:
+			return Rejected{Failure: StoreFailed{E: e}}
+		}
+		Done{Reply: UnitStateReply{Value: v}}
+	case UnitAcceptRequest as x:
+		let v = orchestrate.Api.UnitAccept(x.Input) catch {
+		case orchestrate.NotFound as e:
+			return Rejected{Failure: NotFound{E: e}}
+		case orchestrate.AlreadyExists as e:
+			return Rejected{Failure: AlreadyExists{E: e}}
+		case orchestrate.InvalidTransition as e:
+			return Rejected{Failure: InvalidTransition{E: e}}
+		case orchestrate.CommandReused as e:
+			return Rejected{Failure: CommandReused{E: e}}
+		case orchestrate.InvalidInput as e:
+			return Rejected{Failure: InvalidInput{E: e}}
+		case orchestrate.Unverified as e:
+			return Rejected{Failure: Unverified{E: e}}
+		case orchestrate.NotAcceptedHead as e:
+			return Rejected{Failure: NotAcceptedHead{E: e}}
+		case orchestrate.StoreFailed as e:
+			return Rejected{Failure: StoreFailed{E: e}}
+		}
+		Done{Reply: UnitAcceptReply{Value: v}}
+	case UnitLandRequest as x:
+		let v = orchestrate.Api.UnitLand(x.Input) catch {
+		case orchestrate.NotFound as e:
+			return Rejected{Failure: NotFound{E: e}}
+		case orchestrate.AlreadyExists as e:
+			return Rejected{Failure: AlreadyExists{E: e}}
+		case orchestrate.InvalidTransition as e:
+			return Rejected{Failure: InvalidTransition{E: e}}
+		case orchestrate.CommandReused as e:
+			return Rejected{Failure: CommandReused{E: e}}
+		case orchestrate.InvalidInput as e:
+			return Rejected{Failure: InvalidInput{E: e}}
+		case orchestrate.Unverified as e:
+			return Rejected{Failure: Unverified{E: e}}
+		case orchestrate.NotAcceptedHead as e:
+			return Rejected{Failure: NotAcceptedHead{E: e}}
+		case orchestrate.StoreFailed as e:
+			return Rejected{Failure: StoreFailed{E: e}}
+		}
+		Done{Reply: UnitLandReply{Value: v}}
+	}
+}
+
+// Client provides orchestrate.Api by invoking typed per-operation handlers directly:
+// a direct call returns its exact value or declared failure row with no Outcome boxing.
+type Client { opUnitOpen func(orchestrate.UnitOpenInput) orchestrate.Unit fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed, opReceiptRecord func(orchestrate.ReceiptRecordInput) orchestrate.Receipt fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed, opUnitState func(orchestrate.UnitStateInput) orchestrate.UnitView fails orchestrate.NotFound | orchestrate.InvalidInput | orchestrate.StoreFailed, opUnitAccept func(orchestrate.UnitVerdictInput) orchestrate.Unit fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed, opUnitLand func(orchestrate.UnitVerdictInput) orchestrate.Unit fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed } implements orchestrate.Api
+
+// NewClient is the orchestrate.Api that invokes inner directly per operation.
+func NewClient(inner orchestrate.Api) Client {
+	Client{
+		opUnitOpen:      func(input orchestrate.UnitOpenInput) orchestrate.Unit fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed { try inner.UnitOpen(input) },
+		opReceiptRecord: func(input orchestrate.ReceiptRecordInput) orchestrate.Receipt fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed { try inner.ReceiptRecord(input) },
+		opUnitState:     func(input orchestrate.UnitStateInput) orchestrate.UnitView fails orchestrate.NotFound | orchestrate.InvalidInput | orchestrate.StoreFailed { try inner.UnitState(input) },
+		opUnitAccept:    func(input orchestrate.UnitVerdictInput) orchestrate.Unit fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed { try inner.UnitAccept(input) },
+		opUnitLand:      func(input orchestrate.UnitVerdictInput) orchestrate.Unit fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed { try inner.UnitLand(input) },
+	}
+}
+
+// ClientInForce is the orchestrate.Api that invokes the provider currently in force.
+func ClientInForce() Client needs orchestrate.Api {
+	let held = InForce[orchestrate.Api]()
+	Client{
+		opUnitOpen:      func(input orchestrate.UnitOpenInput) orchestrate.Unit fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed { with held { try orchestrate.Api.UnitOpen(input) } },
+		opReceiptRecord: func(input orchestrate.ReceiptRecordInput) orchestrate.Receipt fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed { with held { try orchestrate.Api.ReceiptRecord(input) } },
+		opUnitState:     func(input orchestrate.UnitStateInput) orchestrate.UnitView fails orchestrate.NotFound | orchestrate.InvalidInput | orchestrate.StoreFailed { with held { try orchestrate.Api.UnitState(input) } },
+		opUnitAccept:    func(input orchestrate.UnitVerdictInput) orchestrate.Unit fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed { with held { try orchestrate.Api.UnitAccept(input) } },
+		opUnitLand:      func(input orchestrate.UnitVerdictInput) orchestrate.Unit fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed { with held { try orchestrate.Api.UnitLand(input) } },
+	}
+}
+
+// UnitOpen invokes orchestrate.Api's UnitOpen directly.
+func UnitOpen(client Client, input orchestrate.UnitOpenInput) orchestrate.Unit fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed {
+	try client.opUnitOpen(input)
+}
+
+// ReceiptRecord invokes orchestrate.Api's ReceiptRecord directly.
+func ReceiptRecord(client Client, input orchestrate.ReceiptRecordInput) orchestrate.Receipt fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed {
+	try client.opReceiptRecord(input)
+}
+
+// UnitState invokes orchestrate.Api's UnitState directly.
+func UnitState(client Client, input orchestrate.UnitStateInput) orchestrate.UnitView fails orchestrate.NotFound | orchestrate.InvalidInput | orchestrate.StoreFailed {
+	try client.opUnitState(input)
+}
+
+// UnitAccept invokes orchestrate.Api's UnitAccept directly.
+func UnitAccept(client Client, input orchestrate.UnitVerdictInput) orchestrate.Unit fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed {
+	try client.opUnitAccept(input)
+}
+
+// UnitLand invokes orchestrate.Api's UnitLand directly.
+func UnitLand(client Client, input orchestrate.UnitVerdictInput) orchestrate.Unit fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed {
+	try client.opUnitLand(input)
+}
+
+// CheckedClient carries erased orchestrate.Api requests over send and validates each
+// Outcome against the requested operation, failing rpc.Transport on a
+// sibling reply or a failure outside the operation's row.
+type CheckedClient { send func(r Request) Outcome fails rpc.Transport }
+
+// NewCheckedClient is the CheckedClient that send answers.
+func NewCheckedClient(send own func(r Request) Outcome fails rpc.Transport) CheckedClient { CheckedClient{send: send} }
+
+// UnitOpenChecked sends orchestrate.Api's UnitOpen over send and validates its Outcome.
+func UnitOpenChecked(client CheckedClient, input orchestrate.UnitOpenInput) orchestrate.Unit fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed | rpc.Transport {
+	match try client.send(UnitOpenRequest{Input: input}) {
+	case Done as done:
+		match done.Reply {
+		case UnitOpenReply as reply:
+			reply.Value
+		case _:
+			return rpc.Transport{Reason: "orchestrateapi: UnitOpen was answered with the value of another operation"}
+		}
+	case Rejected as rejected:
+		match rejected.Failure {
+		case NotFound as failure:
+			return failure.E
+		case AlreadyExists as failure:
+			return failure.E
+		case InvalidTransition as failure:
+			return failure.E
+		case CommandReused as failure:
+			return failure.E
+		case InvalidInput as failure:
+			return failure.E
+		case Unverified as failure:
+			return failure.E
+		case NotAcceptedHead as failure:
+			return failure.E
+		case StoreFailed as failure:
+			return failure.E
+		}
+	}
+}
+
+// ReceiptRecordChecked sends orchestrate.Api's ReceiptRecord over send and validates its Outcome.
+func ReceiptRecordChecked(client CheckedClient, input orchestrate.ReceiptRecordInput) orchestrate.Receipt fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed | rpc.Transport {
+	match try client.send(ReceiptRecordRequest{Input: input}) {
+	case Done as done:
+		match done.Reply {
+		case ReceiptRecordReply as reply:
+			reply.Value
+		case _:
+			return rpc.Transport{Reason: "orchestrateapi: ReceiptRecord was answered with the value of another operation"}
+		}
+	case Rejected as rejected:
+		match rejected.Failure {
+		case NotFound as failure:
+			return failure.E
+		case AlreadyExists as failure:
+			return failure.E
+		case InvalidTransition as failure:
+			return failure.E
+		case CommandReused as failure:
+			return failure.E
+		case InvalidInput as failure:
+			return failure.E
+		case Unverified as failure:
+			return failure.E
+		case NotAcceptedHead as failure:
+			return failure.E
+		case StoreFailed as failure:
+			return failure.E
+		}
+	}
+}
+
+// UnitStateChecked sends orchestrate.Api's UnitState over send and validates its Outcome.
+func UnitStateChecked(client CheckedClient, input orchestrate.UnitStateInput) orchestrate.UnitView fails orchestrate.NotFound | orchestrate.InvalidInput | orchestrate.StoreFailed | rpc.Transport {
+	match try client.send(UnitStateRequest{Input: input}) {
+	case Done as done:
+		match done.Reply {
+		case UnitStateReply as reply:
+			reply.Value
+		case _:
+			return rpc.Transport{Reason: "orchestrateapi: UnitState was answered with the value of another operation"}
+		}
+	case Rejected as rejected:
+		match rejected.Failure {
+		case NotFound as failure:
+			return failure.E
+		case InvalidInput as failure:
+			return failure.E
+		case StoreFailed as failure:
+			return failure.E
+		case _:
+			return rpc.Transport{Reason: "orchestrateapi: UnitState was answered with a failure outside its row"}
+		}
+	}
+}
+
+// UnitAcceptChecked sends orchestrate.Api's UnitAccept over send and validates its Outcome.
+func UnitAcceptChecked(client CheckedClient, input orchestrate.UnitVerdictInput) orchestrate.Unit fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed | rpc.Transport {
+	match try client.send(UnitAcceptRequest{Input: input}) {
+	case Done as done:
+		match done.Reply {
+		case UnitAcceptReply as reply:
+			reply.Value
+		case _:
+			return rpc.Transport{Reason: "orchestrateapi: UnitAccept was answered with the value of another operation"}
+		}
+	case Rejected as rejected:
+		match rejected.Failure {
+		case NotFound as failure:
+			return failure.E
+		case AlreadyExists as failure:
+			return failure.E
+		case InvalidTransition as failure:
+			return failure.E
+		case CommandReused as failure:
+			return failure.E
+		case InvalidInput as failure:
+			return failure.E
+		case Unverified as failure:
+			return failure.E
+		case NotAcceptedHead as failure:
+			return failure.E
+		case StoreFailed as failure:
+			return failure.E
+		}
+	}
+}
+
+// UnitLandChecked sends orchestrate.Api's UnitLand over send and validates its Outcome.
+func UnitLandChecked(client CheckedClient, input orchestrate.UnitVerdictInput) orchestrate.Unit fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed | rpc.Transport {
+	match try client.send(UnitLandRequest{Input: input}) {
+	case Done as done:
+		match done.Reply {
+		case UnitLandReply as reply:
+			reply.Value
+		case _:
+			return rpc.Transport{Reason: "orchestrateapi: UnitLand was answered with the value of another operation"}
+		}
+	case Rejected as rejected:
+		match rejected.Failure {
+		case NotFound as failure:
+			return failure.E
+		case AlreadyExists as failure:
+			return failure.E
+		case InvalidTransition as failure:
+			return failure.E
+		case CommandReused as failure:
+			return failure.E
+		case InvalidInput as failure:
+			return failure.E
+		case Unverified as failure:
+			return failure.E
+		case NotAcceptedHead as failure:
+			return failure.E
+		case StoreFailed as failure:
+			return failure.E
+		}
+	}
+}
+
+// Values holds a value of each operation's value type, so a law can
+// answer any operation.
+type Values { UnitOpen orchestrate.Unit, ReceiptRecord orchestrate.Receipt, UnitState orchestrate.UnitView, UnitAccept orchestrate.Unit, UnitLand orchestrate.Unit }
+
+func inRow(op Op, f Failure) bool {
+	match op {
+	case UnitOpenOp:
+		match f {
+		case NotFound, AlreadyExists, InvalidTransition, CommandReused, InvalidInput, Unverified, NotAcceptedHead, StoreFailed:
+			true
+		}
+	case ReceiptRecordOp:
+		match f {
+		case NotFound, AlreadyExists, InvalidTransition, CommandReused, InvalidInput, Unverified, NotAcceptedHead, StoreFailed:
+			true
+		}
+	case UnitStateOp:
+		match f {
+		case NotFound, InvalidInput, StoreFailed:
+			true
+		case _:
+			false
+		}
+	case UnitAcceptOp:
+		match f {
+		case NotFound, AlreadyExists, InvalidTransition, CommandReused, InvalidInput, Unverified, NotAcceptedHead, StoreFailed:
+			true
+		}
+	case UnitLandOp:
+		match f {
+		case NotFound, AlreadyExists, InvalidTransition, CommandReused, InvalidInput, Unverified, NotAcceptedHead, StoreFailed:
+			true
+		}
+	}
+}
+
+// Given is what a law gives a call: a value of each operation's value
+// type, a failure, and whether the call fails with it.
+type Given { Values Values, Failure Failure, Failing bool }
+
+// OutcomeOf is the Outcome g gives r: its failure when g fails and the
+// failure is in the row of r's operation, else the operation's value
+// from g. It is always an Outcome r's operation can have.
+func OutcomeOf(r Request, g Given) Outcome {
+	if g.Failing && inRow(OpOf(r), g.Failure) {
+		return Rejected{Failure: g.Failure}
+	}
+	match r {
+	case UnitOpenRequest:
+		Done{Reply: UnitOpenReply{Value: g.Values.UnitOpen}}
+	case ReceiptRecordRequest:
+		Done{Reply: ReceiptRecordReply{Value: g.Values.ReceiptRecord}}
+	case UnitStateRequest:
+		Done{Reply: UnitStateReply{Value: g.Values.UnitState}}
+	case UnitAcceptRequest:
+		Done{Reply: UnitAcceptReply{Value: g.Values.UnitAccept}}
+	case UnitLandRequest:
+		Done{Reply: UnitLandReply{Value: g.Values.UnitLand}}
+	}
+}
+
+func scripted(g Given, sent sync.Ref[[]Request]) Client {
+	Client{
+		opUnitOpen: func(input orchestrate.UnitOpenInput) orchestrate.Unit fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed {
+			sent.Update(func(rs []Request) []Request { rs.Append(UnitOpenRequest{Input: input}) })
+			if g.Failing {
+				match g.Failure {
+				case NotFound as err:
+					return err.E
+				case AlreadyExists as err:
+					return err.E
+				case InvalidTransition as err:
+					return err.E
+				case CommandReused as err:
+					return err.E
+				case InvalidInput as err:
+					return err.E
+				case Unverified as err:
+					return err.E
+				case NotAcceptedHead as err:
+					return err.E
+				case StoreFailed as err:
+					return err.E
+				}
+			}
+			g.Values.UnitOpen
+		},
+		opReceiptRecord: func(input orchestrate.ReceiptRecordInput) orchestrate.Receipt fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed {
+			sent.Update(func(rs []Request) []Request { rs.Append(ReceiptRecordRequest{Input: input}) })
+			if g.Failing {
+				match g.Failure {
+				case NotFound as err:
+					return err.E
+				case AlreadyExists as err:
+					return err.E
+				case InvalidTransition as err:
+					return err.E
+				case CommandReused as err:
+					return err.E
+				case InvalidInput as err:
+					return err.E
+				case Unverified as err:
+					return err.E
+				case NotAcceptedHead as err:
+					return err.E
+				case StoreFailed as err:
+					return err.E
+				}
+			}
+			g.Values.ReceiptRecord
+		},
+		opUnitState: func(input orchestrate.UnitStateInput) orchestrate.UnitView fails orchestrate.NotFound | orchestrate.InvalidInput | orchestrate.StoreFailed {
+			sent.Update(func(rs []Request) []Request { rs.Append(UnitStateRequest{Input: input}) })
+			if g.Failing {
+				match g.Failure {
+				case NotFound as err:
+					return err.E
+				case InvalidInput as err:
+					return err.E
+				case StoreFailed as err:
+					return err.E
+				case _:
+				}
+			}
+			g.Values.UnitState
+		},
+		opUnitAccept: func(input orchestrate.UnitVerdictInput) orchestrate.Unit fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed {
+			sent.Update(func(rs []Request) []Request { rs.Append(UnitAcceptRequest{Input: input}) })
+			if g.Failing {
+				match g.Failure {
+				case NotFound as err:
+					return err.E
+				case AlreadyExists as err:
+					return err.E
+				case InvalidTransition as err:
+					return err.E
+				case CommandReused as err:
+					return err.E
+				case InvalidInput as err:
+					return err.E
+				case Unverified as err:
+					return err.E
+				case NotAcceptedHead as err:
+					return err.E
+				case StoreFailed as err:
+					return err.E
+				}
+			}
+			g.Values.UnitAccept
+		},
+		opUnitLand: func(input orchestrate.UnitVerdictInput) orchestrate.Unit fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed {
+			sent.Update(func(rs []Request) []Request { rs.Append(UnitLandRequest{Input: input}) })
+			if g.Failing {
+				match g.Failure {
+				case NotFound as err:
+					return err.E
+				case AlreadyExists as err:
+					return err.E
+				case InvalidTransition as err:
+					return err.E
+				case CommandReused as err:
+					return err.E
+				case InvalidInput as err:
+					return err.E
+				case Unverified as err:
+					return err.E
+				case NotAcceptedHead as err:
+					return err.E
+				case StoreFailed as err:
+					return err.E
+				}
+			}
+			g.Values.UnitLand
+		},
+	}
+}
+
+func callChecked(client CheckedClient, r Request) Outcome fails rpc.Transport {
+	match r {
+	case UnitOpenRequest as x:
+		let v = UnitOpenChecked(client, x.Input) catch {
+		case orchestrate.NotFound as e:
+			return Rejected{Failure: NotFound{E: e}}
+		case orchestrate.AlreadyExists as e:
+			return Rejected{Failure: AlreadyExists{E: e}}
+		case orchestrate.InvalidTransition as e:
+			return Rejected{Failure: InvalidTransition{E: e}}
+		case orchestrate.CommandReused as e:
+			return Rejected{Failure: CommandReused{E: e}}
+		case orchestrate.InvalidInput as e:
+			return Rejected{Failure: InvalidInput{E: e}}
+		case orchestrate.Unverified as e:
+			return Rejected{Failure: Unverified{E: e}}
+		case orchestrate.NotAcceptedHead as e:
+			return Rejected{Failure: NotAcceptedHead{E: e}}
+		case orchestrate.StoreFailed as e:
+			return Rejected{Failure: StoreFailed{E: e}}
+		case rpc.Transport as t:
+			return t
+		}
+		Done{Reply: UnitOpenReply{Value: v}}
+	case ReceiptRecordRequest as x:
+		let v = ReceiptRecordChecked(client, x.Input) catch {
+		case orchestrate.NotFound as e:
+			return Rejected{Failure: NotFound{E: e}}
+		case orchestrate.AlreadyExists as e:
+			return Rejected{Failure: AlreadyExists{E: e}}
+		case orchestrate.InvalidTransition as e:
+			return Rejected{Failure: InvalidTransition{E: e}}
+		case orchestrate.CommandReused as e:
+			return Rejected{Failure: CommandReused{E: e}}
+		case orchestrate.InvalidInput as e:
+			return Rejected{Failure: InvalidInput{E: e}}
+		case orchestrate.Unverified as e:
+			return Rejected{Failure: Unverified{E: e}}
+		case orchestrate.NotAcceptedHead as e:
+			return Rejected{Failure: NotAcceptedHead{E: e}}
+		case orchestrate.StoreFailed as e:
+			return Rejected{Failure: StoreFailed{E: e}}
+		case rpc.Transport as t:
+			return t
+		}
+		Done{Reply: ReceiptRecordReply{Value: v}}
+	case UnitStateRequest as x:
+		let v = UnitStateChecked(client, x.Input) catch {
+		case orchestrate.NotFound as e:
+			return Rejected{Failure: NotFound{E: e}}
+		case orchestrate.InvalidInput as e:
+			return Rejected{Failure: InvalidInput{E: e}}
+		case orchestrate.StoreFailed as e:
+			return Rejected{Failure: StoreFailed{E: e}}
+		case rpc.Transport as t:
+			return t
+		}
+		Done{Reply: UnitStateReply{Value: v}}
+	case UnitAcceptRequest as x:
+		let v = UnitAcceptChecked(client, x.Input) catch {
+		case orchestrate.NotFound as e:
+			return Rejected{Failure: NotFound{E: e}}
+		case orchestrate.AlreadyExists as e:
+			return Rejected{Failure: AlreadyExists{E: e}}
+		case orchestrate.InvalidTransition as e:
+			return Rejected{Failure: InvalidTransition{E: e}}
+		case orchestrate.CommandReused as e:
+			return Rejected{Failure: CommandReused{E: e}}
+		case orchestrate.InvalidInput as e:
+			return Rejected{Failure: InvalidInput{E: e}}
+		case orchestrate.Unverified as e:
+			return Rejected{Failure: Unverified{E: e}}
+		case orchestrate.NotAcceptedHead as e:
+			return Rejected{Failure: NotAcceptedHead{E: e}}
+		case orchestrate.StoreFailed as e:
+			return Rejected{Failure: StoreFailed{E: e}}
+		case rpc.Transport as t:
+			return t
+		}
+		Done{Reply: UnitAcceptReply{Value: v}}
+	case UnitLandRequest as x:
+		let v = UnitLandChecked(client, x.Input) catch {
+		case orchestrate.NotFound as e:
+			return Rejected{Failure: NotFound{E: e}}
+		case orchestrate.AlreadyExists as e:
+			return Rejected{Failure: AlreadyExists{E: e}}
+		case orchestrate.InvalidTransition as e:
+			return Rejected{Failure: InvalidTransition{E: e}}
+		case orchestrate.CommandReused as e:
+			return Rejected{Failure: CommandReused{E: e}}
+		case orchestrate.InvalidInput as e:
+			return Rejected{Failure: InvalidInput{E: e}}
+		case orchestrate.Unverified as e:
+			return Rejected{Failure: Unverified{E: e}}
+		case orchestrate.NotAcceptedHead as e:
+			return Rejected{Failure: NotAcceptedHead{E: e}}
+		case orchestrate.StoreFailed as e:
+			return Rejected{Failure: StoreFailed{E: e}}
+		case rpc.Transport as t:
+			return t
+		}
+		Done{Reply: UnitLandReply{Value: v}}
+	}
+}
+
+// CallIsTheOperation: Call(r) calls r's operation once, with r's
+// arguments, and answers its value or failure as r's own Outcome.
+law CallIsTheOperation(r Request, g Given) {
+	let want = OutcomeOf(r, g)
+	let sent = sync.NewRef[[]Request]([]Request{})
+	let got = with context { orchestrate.Api: scripted(g, sent) } { Call(r) }
+	got == want && sent.Get() == []Request{r}
+}
+
+// ClientIsCall: a direct Client and a CheckedClient over Call both
+// answer each call as the provider Call is bound to does.
+law ClientIsCall(r Request, g Given) {
+	let want = OutcomeOf(r, g)
+	let sent = sync.NewRef[[]Request]([]Request{})
+	let inner = scripted(g, sent)
+	let outer = NewClient(inner)
+	let got = with context { orchestrate.Api: outer } { Call(r) }
+	let sentChecked = sync.NewRef[[]Request]([]Request{})
+	let innerChecked = scripted(g, sentChecked)
+	let checked = NewCheckedClient(func(q Request) Outcome fails rpc.Transport {
+		with context { orchestrate.Api: innerChecked } { Call(q) }
+	})
+	let gotChecked = callChecked(checked, r) catch {
+	case rpc.Transport:
+		return false
+	}
+	got == want && sent.Get() == []Request{r} && gotChecked == want && sentChecked.Get() == []Request{r}
+}

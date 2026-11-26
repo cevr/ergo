@@ -1,0 +1,403 @@
+import api
+import json
+import mcp
+import rpc
+import github.com/cevr/ergo/modules/orchestrate/orchestrate
+import github.com/cevr/ergo/modules/orchestrate/orchestrate/orchestrateapi
+
+// Request is one call of orchestrate.Api: the hub's Request.
+type Request = orchestrateapi.Request
+
+func valueOf(text string) json.Value {
+	json.Decode(json.Codec[json.Value]{MaxBytes: 0, MaxDepth: 0}, text) catch {
+	case _:
+		json.Null
+	}
+}
+
+func textOf(v json.Value) string { json.Encode(json.Codec[json.Value]{MaxBytes: 0, MaxDepth: 0}, v) }
+
+func untagged(v json.Value) json.Value {
+	match v {
+	case json.Object as o:
+		let mut members = []json.Member{}
+		for m in o.Members {
+			if m.Key != "_tag" {
+				members = members.Append(m)
+			}
+		}
+		json.Object{Members: members}
+	case json.Null, json.Boolean, json.Num, json.Str, json.Array:
+		v
+	}
+}
+
+// Names are the tools' names, one per operation of orchestrate.Api, in its order.
+let Names = []string{"unit-open", "receipt-record", "unit-state", "unit-accept", "unit-land"}
+
+// Description is what the tool name does: its operation's doc comment,
+// or its signature (the hub's Doc).
+func Description(name string) string {
+	match name {
+	case "unit-open":
+		orchestrateapi.Doc(orchestrateapi.UnitOpenOp)
+	case "receipt-record":
+		orchestrateapi.Doc(orchestrateapi.ReceiptRecordOp)
+	case "unit-state":
+		orchestrateapi.Doc(orchestrateapi.UnitStateOp)
+	case "unit-accept":
+		orchestrateapi.Doc(orchestrateapi.UnitAcceptOp)
+	case "unit-land":
+		orchestrateapi.Doc(orchestrateapi.UnitLandOp)
+	case _:
+		""
+	}
+}
+
+// Input is the JSON schema of the tool name's arguments (the hub's
+// Schema; an object schema with no properties for a name that is no
+// tool's).
+func Input(name string) json.Value {
+	match name {
+	case "unit-open":
+		orchestrateapi.Schema(orchestrateapi.UnitOpenOp)
+	case "receipt-record":
+		orchestrateapi.Schema(orchestrateapi.ReceiptRecordOp)
+	case "unit-state":
+		orchestrateapi.Schema(orchestrateapi.UnitStateOp)
+	case "unit-accept":
+		orchestrateapi.Schema(orchestrateapi.UnitAcceptOp)
+	case "unit-land":
+		orchestrateapi.Schema(orchestrateapi.UnitLandOp)
+	case _:
+		valueOf("{\"type\":\"object\",\"properties\":{}}")
+	}
+}
+
+// Call is the Request that a call of the tool name with arguments asks
+// for: arguments that are not the tool's fail ToolError, a name that is
+// no tool's UnknownTool.
+func Call(name string, arguments json.Value) Request fails mcp.ToolError | mcp.UnknownTool {
+	let text = match name {
+	case "unit-open":
+		rpc.Tagged("UnitOpenRequest", "{\"input\":"+textOf(arguments)+"}")
+	case "receipt-record":
+		rpc.Tagged("ReceiptRecordRequest", "{\"input\":"+textOf(arguments)+"}")
+	case "unit-state":
+		rpc.Tagged("UnitStateRequest", "{\"input\":"+textOf(arguments)+"}")
+	case "unit-accept":
+		rpc.Tagged("UnitAcceptRequest", "{\"input\":"+textOf(arguments)+"}")
+	case "unit-land":
+		rpc.Tagged("UnitLandRequest", "{\"input\":"+textOf(arguments)+"}")
+	case _:
+		return mcp.UnknownTool{Name: name}
+	}
+	rpc.Decode[Request]("arguments of "+name, text) catch {
+	case rpc.Transport as e:
+		return mcp.ToolError{Message: e.Reason}
+	}
+}
+
+// Arguments is the tool and the arguments that ask for r: Call reads
+// them as r again.
+func Arguments(r Request) (string, json.Value) {
+	match r {
+	case orchestrateapi.UnitOpenRequest as x:
+		("unit-open", untagged(valueOf(rpc.Encode(x.Input))))
+	case orchestrateapi.ReceiptRecordRequest as x:
+		("receipt-record", untagged(valueOf(rpc.Encode(x.Input))))
+	case orchestrateapi.UnitStateRequest as x:
+		("unit-state", untagged(valueOf(rpc.Encode(x.Input))))
+	case orchestrateapi.UnitAcceptRequest as x:
+		("unit-accept", untagged(valueOf(rpc.Encode(x.Input))))
+	case orchestrateapi.UnitLandRequest as x:
+		("unit-land", untagged(valueOf(rpc.Encode(x.Input))))
+	}
+}
+
+// Show is the outcome o as a tool's answer: its value as JSON (null for
+// none), or its typed failure as a ToolError whose message is the
+// failure's tagged JSON.
+func Show(o orchestrateapi.Outcome) json.Value fails mcp.ToolError {
+	match o {
+	case orchestrateapi.Done as done:
+		match done.Reply {
+		case orchestrateapi.UnitOpenReply as reply:
+			valueOf(rpc.Encode(reply.Value))
+		case orchestrateapi.ReceiptRecordReply as reply:
+			valueOf(rpc.Encode(reply.Value))
+		case orchestrateapi.UnitStateReply as reply:
+			valueOf(rpc.Encode(reply.Value))
+		case orchestrateapi.UnitAcceptReply as reply:
+			valueOf(rpc.Encode(reply.Value))
+		case orchestrateapi.UnitLandReply as reply:
+			valueOf(rpc.Encode(reply.Value))
+		}
+	case orchestrateapi.Rejected as rejected:
+		match rejected.Failure {
+		case orchestrateapi.NotFound as failure:
+			return mcp.ToolError{Message: rpc.Tagged("NotFound", rpc.Encode(failure.E))}
+		case orchestrateapi.AlreadyExists as failure:
+			return mcp.ToolError{Message: rpc.Tagged("AlreadyExists", rpc.Encode(failure.E))}
+		case orchestrateapi.InvalidTransition as failure:
+			return mcp.ToolError{Message: rpc.Tagged("InvalidTransition", rpc.Encode(failure.E))}
+		case orchestrateapi.CommandReused as failure:
+			return mcp.ToolError{Message: rpc.Tagged("CommandReused", rpc.Encode(failure.E))}
+		case orchestrateapi.InvalidInput as failure:
+			return mcp.ToolError{Message: rpc.Tagged("InvalidInput", rpc.Encode(failure.E))}
+		case orchestrateapi.Unverified as failure:
+			return mcp.ToolError{Message: rpc.Tagged("Unverified", rpc.Encode(failure.E))}
+		case orchestrateapi.NotAcceptedHead as failure:
+			return mcp.ToolError{Message: rpc.Tagged("NotAcceptedHead", rpc.Encode(failure.E))}
+		case orchestrateapi.StoreFailed as failure:
+			return mcp.ToolError{Message: rpc.Tagged("StoreFailed", rpc.Encode(failure.E))}
+		}
+	}
+}
+
+// Answer answers r through the hub's Call on the bound orchestrate.Api (Show).
+func Answer(r Request) json.Value fails mcp.ToolError needs orchestrate.Api {
+	try Show(orchestrateapi.Call(r))
+}
+
+// ReadAnswer is the outcome of r that a tool's result says: its value's
+// JSON, or, when it is an error, an admitted failure's tagged JSON.
+// Invalid or missing replies fail Transport, outside the operation's own row.
+func ReadAnswer(r Request, result mcp.Called) orchestrateapi.Outcome fails rpc.Transport {
+	if len(result.Content) != 1 {
+		return rpc.Transport{Reason: "a tool answered \(len(result.Content)) blocks, not one"}
+	}
+	let text = result.Content[0].Text
+	if !result.IsError {
+		match r {
+		case orchestrateapi.UnitOpenRequest:
+			let v = try rpc.Decode[orchestrate.Unit]("value", text)
+			orchestrateapi.Done{Reply: orchestrateapi.UnitOpenReply{Value: v}}
+		case orchestrateapi.ReceiptRecordRequest:
+			let v = try rpc.Decode[orchestrate.Receipt]("value", text)
+			orchestrateapi.Done{Reply: orchestrateapi.ReceiptRecordReply{Value: v}}
+		case orchestrateapi.UnitStateRequest:
+			let v = try rpc.Decode[orchestrate.UnitView]("value", text)
+			orchestrateapi.Done{Reply: orchestrateapi.UnitStateReply{Value: v}}
+		case orchestrateapi.UnitAcceptRequest:
+			let v = try rpc.Decode[orchestrate.Unit]("value", text)
+			orchestrateapi.Done{Reply: orchestrateapi.UnitAcceptReply{Value: v}}
+		case orchestrateapi.UnitLandRequest:
+			let v = try rpc.Decode[orchestrate.Unit]("value", text)
+			orchestrateapi.Done{Reply: orchestrateapi.UnitLandReply{Value: v}}
+		}
+	} else {
+		match r {
+		case orchestrateapi.UnitOpenRequest:
+			match rpc.TagOf(text) {
+			case "NotFound":
+				let e = try rpc.Decode[orchestrate.NotFound]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NotFound{E: e}}
+			case "AlreadyExists":
+				let e = try rpc.Decode[orchestrate.AlreadyExists]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.AlreadyExists{E: e}}
+			case "InvalidTransition":
+				let e = try rpc.Decode[orchestrate.InvalidTransition]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.InvalidTransition{E: e}}
+			case "CommandReused":
+				let e = try rpc.Decode[orchestrate.CommandReused]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.CommandReused{E: e}}
+			case "InvalidInput":
+				let e = try rpc.Decode[orchestrate.InvalidInput]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.InvalidInput{E: e}}
+			case "Unverified":
+				let e = try rpc.Decode[orchestrate.Unverified]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.Unverified{E: e}}
+			case "NotAcceptedHead":
+				let e = try rpc.Decode[orchestrate.NotAcceptedHead]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NotAcceptedHead{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[orchestrate.StoreFailed]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.StoreFailed{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the tool unit-open answered an undeclared failure: " + text}
+			}
+		case orchestrateapi.ReceiptRecordRequest:
+			match rpc.TagOf(text) {
+			case "NotFound":
+				let e = try rpc.Decode[orchestrate.NotFound]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NotFound{E: e}}
+			case "AlreadyExists":
+				let e = try rpc.Decode[orchestrate.AlreadyExists]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.AlreadyExists{E: e}}
+			case "InvalidTransition":
+				let e = try rpc.Decode[orchestrate.InvalidTransition]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.InvalidTransition{E: e}}
+			case "CommandReused":
+				let e = try rpc.Decode[orchestrate.CommandReused]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.CommandReused{E: e}}
+			case "InvalidInput":
+				let e = try rpc.Decode[orchestrate.InvalidInput]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.InvalidInput{E: e}}
+			case "Unverified":
+				let e = try rpc.Decode[orchestrate.Unverified]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.Unverified{E: e}}
+			case "NotAcceptedHead":
+				let e = try rpc.Decode[orchestrate.NotAcceptedHead]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NotAcceptedHead{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[orchestrate.StoreFailed]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.StoreFailed{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the tool receipt-record answered an undeclared failure: " + text}
+			}
+		case orchestrateapi.UnitStateRequest:
+			match rpc.TagOf(text) {
+			case "NotFound":
+				let e = try rpc.Decode[orchestrate.NotFound]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NotFound{E: e}}
+			case "InvalidInput":
+				let e = try rpc.Decode[orchestrate.InvalidInput]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.InvalidInput{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[orchestrate.StoreFailed]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.StoreFailed{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the tool unit-state answered an undeclared failure: " + text}
+			}
+		case orchestrateapi.UnitAcceptRequest:
+			match rpc.TagOf(text) {
+			case "NotFound":
+				let e = try rpc.Decode[orchestrate.NotFound]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NotFound{E: e}}
+			case "AlreadyExists":
+				let e = try rpc.Decode[orchestrate.AlreadyExists]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.AlreadyExists{E: e}}
+			case "InvalidTransition":
+				let e = try rpc.Decode[orchestrate.InvalidTransition]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.InvalidTransition{E: e}}
+			case "CommandReused":
+				let e = try rpc.Decode[orchestrate.CommandReused]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.CommandReused{E: e}}
+			case "InvalidInput":
+				let e = try rpc.Decode[orchestrate.InvalidInput]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.InvalidInput{E: e}}
+			case "Unverified":
+				let e = try rpc.Decode[orchestrate.Unverified]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.Unverified{E: e}}
+			case "NotAcceptedHead":
+				let e = try rpc.Decode[orchestrate.NotAcceptedHead]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NotAcceptedHead{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[orchestrate.StoreFailed]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.StoreFailed{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the tool unit-accept answered an undeclared failure: " + text}
+			}
+		case orchestrateapi.UnitLandRequest:
+			match rpc.TagOf(text) {
+			case "NotFound":
+				let e = try rpc.Decode[orchestrate.NotFound]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NotFound{E: e}}
+			case "AlreadyExists":
+				let e = try rpc.Decode[orchestrate.AlreadyExists]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.AlreadyExists{E: e}}
+			case "InvalidTransition":
+				let e = try rpc.Decode[orchestrate.InvalidTransition]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.InvalidTransition{E: e}}
+			case "CommandReused":
+				let e = try rpc.Decode[orchestrate.CommandReused]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.CommandReused{E: e}}
+			case "InvalidInput":
+				let e = try rpc.Decode[orchestrate.InvalidInput]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.InvalidInput{E: e}}
+			case "Unverified":
+				let e = try rpc.Decode[orchestrate.Unverified]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.Unverified{E: e}}
+			case "NotAcceptedHead":
+				let e = try rpc.Decode[orchestrate.NotAcceptedHead]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NotAcceptedHead{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[orchestrate.StoreFailed]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.StoreFailed{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the tool unit-land answered an undeclared failure: " + text}
+			}
+		}
+	}
+}
+
+func toolOver(name string, answer own func(r Request) orchestrateapi.Outcome) mcp.Tool {
+	mcp.Tool{Name: name, Description: Description(name), Input: Input(name), Call: func(arguments json.Value) json.Value fails mcp.ToolError {
+		let r = Call(name, arguments) catch {
+		case mcp.ToolError as e:
+			return e
+		case mcp.UnknownTool as e:
+			return mcp.ToolError{Message: "no tool is named " + e.Name}
+		}
+		try Show(answer(r))
+	}}
+}
+
+func toolsOver(answer own func(r Request) orchestrateapi.Outcome) []mcp.Tool {
+	let mut out = []mcp.Tool{}
+	for name in Names {
+		out = out.Append(toolOver(name, answer))
+	}
+	out
+}
+
+// Tools are the tools of the orchestrate.Api in force, one per operation, in its order.
+func Tools() []mcp.Tool needs orchestrate.Api {
+	let held = InForce[orchestrate.Api]()
+	toolsOver(func(r Request) orchestrateapi.Outcome {
+		with held { orchestrateapi.Call(r) }
+	})
+}
+
+func carry(c Request, answer own func(c Request) orchestrateapi.Outcome) orchestrateapi.Outcome fails rpc.Transport {
+	let server = mcp.Server{Name: "carry", Version: "1", Tools: toolsOver(answer)}
+	let (name, arguments) = Arguments(c)
+	let message = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":" + rpc.Encode(name) + ",\"arguments\":" + textOf(arguments) + "}}"
+	match mcp.Handle(server, message) {
+	case mcp.Answered as a:
+		let result = json.Decode(json.Codec[mcp.Called]{MaxBytes: 0, MaxDepth: 0}, a.Result) catch {
+		case _:
+			return rpc.Transport{Reason: "a tool's result is not one: " + a.Result}
+		}
+		try ReadAnswer(c, result)
+	case mcp.Refused as e:
+		return rpc.Transport{Reason: "the server refused the call: " + e.Message}
+	case mcp.Silent:
+		return rpc.Transport{Reason: "the server did not answer the call"}
+	}
+}
+
+// Wire is the protocol as a transport of the hub's calls.
+type Wire {} implements api.Transport[Request, orchestrateapi.Outcome, rpc.Transport]
+
+// Carry is carry.
+func Carry(w Wire, c Request, answer own func(c Request) orchestrateapi.Outcome) orchestrateapi.Outcome fails rpc.Transport { try carry(c, answer) }
+
+// Agrees: the protocol carries every call and every outcome the call
+// can have unchanged.
+law Agrees(r Request, g orchestrateapi.Given) { api.Agrees[Request, orchestrateapi.Outcome, rpc.Transport](Wire, r, orchestrateapi.OutcomeOf(r, g)) }
+
+// RoundTrips reports whether Call reads what Arguments writes of r as r.
+func RoundTrips(r Request) bool {
+	let (name, arguments) = Arguments(r)
+	let back = Call(name, arguments) catch {
+	case mcp.ToolError, mcp.UnknownTool:
+		return false
+	}
+	back == r
+}
+
+// FitsSchema reports whether the arguments that ask for r fit the
+// schema their tool lists.
+func FitsSchema(r Request) bool {
+	let (name, arguments) = Arguments(r)
+	mcp.Conforms(Input(name), arguments)
+}
+
+// ArgumentsRoundTrip: Call reads what Arguments writes as the same Request.
+law ArgumentsRoundTrip(r Request) { RoundTrips(r) }
+
+// ArgumentsFitTheSchema: the arguments of every Request fit the schema
+// of their tool.
+law ArgumentsFitTheSchema(r Request) { FitsSchema(r) }

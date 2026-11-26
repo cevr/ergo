@@ -60,15 +60,13 @@ func checkSelfAssignment(p *Pass) {
 	if p.File.Generated() {
 		return
 	}
-	syntax.Inspect(p.File, func(n syntax.Node) bool {
-		s, ok := n.(*syntax.AssignStmt)
-		if !ok || s.Tok != syntax.ASSIGN || len(s.Lhs) != 1 || len(s.Rhs) != 1 || !sameStorage(p.Info, s.Lhs[0], s.Rhs[0]) {
-			return true
+	for _, s := range p.fileIndex().assigns {
+		if s.Tok != syntax.ASSIGN || len(s.Lhs) != 1 || len(s.Rhs) != 1 || !sameStorage(p.Info, s.Lhs[0], s.Rhs[0]) {
+			continue
 		}
 		text := storageText(s.Lhs[0])
 		p.Report(s.Pos(), s.End(), text+" = "+text+" assigns "+text+" its own value, so it does nothing")
-		return true
-	})
+	}
 }
 
 // sameStorage reports whether a and b name the same storage with no work
@@ -141,16 +139,11 @@ func checkSignDecided(p *Pass) {
 	if p.File.Generated() {
 		return
 	}
-	syntax.Inspect(p.File, func(n syntax.Node) bool {
-		x, ok := n.(*syntax.BinaryExpr)
-		if !ok {
-			return true
-		}
+	for _, x := range p.fileIndex().binaries {
 		if always, why, ok := decidedBySign(p.Info, x); ok {
 			p.Report(x.Pos(), x.End(), "this comparison is always "+strconv.FormatBool(always)+": "+why)
 		}
-		return true
-	})
+	}
 }
 
 // decidedBySign is the verdict of a comparison of a never-negative value
@@ -224,25 +217,23 @@ func checkWireKeyQuote(p *Pass) {
 	if p.File.Generated() {
 		return
 	}
-	syntax.Inspect(p.File, func(n syntax.Node) bool {
-		f, ok := n.(*syntax.Field)
-		if !ok || f.Key == nil || len(f.Names) == 0 {
-			return true
+	for _, f := range p.fileIndex().fields {
+		if f.Key == nil || len(f.Names) == 0 {
+			continue
 		}
 		// The names of one field share its key: the first declares it.
 		field, ok := p.Info.Defs[f.Names[0]].(*check.Field)
 		if !ok {
-			return true
+			continue
 		}
 		name, habit := field.GoTagKey()
 		if !habit {
-			return true
+			continue
 		}
 		fix := "write the key alone, with no quote in it"
 		if len(name) > 0 {
 			fix = "write " + strconv.Quote(name)
 		}
 		p.Report(f.Key.Pos(), f.Key.End(), "the key "+strconv.Quote(field.WireKey)+" holds a quote, as a Go struct tag does; a field's string is its wire key itself, for every format: "+fix+" (types.md, Codecs 2)")
-		return true
-	})
+	}
 }
