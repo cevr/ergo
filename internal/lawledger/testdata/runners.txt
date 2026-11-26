@@ -702,6 +702,15 @@ os Process.GetwdIsAbsolute	TestStdHostLawsHold
 os Process.GetwdIsStable	TestStdHostLawsHold
 os Self.DirsAreAbsolute	TestStdHostLawsHold
 os Self.PidIsPositive	TestStdHostLawsHold
+os/host CPUPercentInvariants	TestStdHostLawsRun
+os/host CmdlineParsing	TestStdHostLawsRun
+os/host FindProcessFindsOrFails	TestStdHostLawsRun
+os/host LoadAvgInvariants	TestStdHostLawsRun
+os/host MeminfoInvariants	TestStdHostLawsRun
+os/host ProcStatWithParensAndSpaces	TestStdHostLawsRun
+os/host ProcStatmInvariants	TestStdHostLawsRun
+os/host System.ProcessesValid	TestStdHostLawsRun
+os/host System.StatusInvariants	TestStdHostLawsRun
 pace CountingCountsEachEdge	TestStdLawsRun
 pace DefaultReachesNothing	TestStdLawsRun
 pace EveryNests	TestStdLawsRun

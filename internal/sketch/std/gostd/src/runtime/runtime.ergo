@@ -182,8 +182,9 @@ extern go runtime.MemStats type MemStats {
 extern go runtime.MutexProfile func MutexProfile(p []BlockProfileRecord) (int, bool) needs go.Foreign
 
 // ergo:go func NumCPU() int
+// ergo:effect ambient (vouched: it returns the number of logical CPUs reported by the operating system at process startup)
 // ergo:total
-extern go runtime.NumCPU func NumCPU() int needs go.Foreign
+extern go runtime.NumCPU func NumCPU() int needs Ambient
 
 // ergo:go func NumCgoCall() int64
 extern go runtime.NumCgoCall func NumCgoCall() int64 needs go.Foreign

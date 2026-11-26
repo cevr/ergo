@@ -42,6 +42,14 @@ type Entry struct {
 	Type  fs.FileMode
 }
 
+// StatfsInfo is a filesystem's capacity in bytes at a path: total bytes,
+// unallocated free bytes, and bytes available to an unprivileged caller.
+type StatfsInfo struct {
+	Total     int64
+	Free      int64
+	Available int64
+}
+
 // Stat is os.Stat's metadata of name, following a symbolic link.
 func Stat(name string) (Info, error) {
 	fi, err := os.Stat(name)

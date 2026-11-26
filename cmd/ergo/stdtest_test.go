@@ -81,3 +81,14 @@ func TestNativeRootSkipsFollowPlan(t *testing.T) {
 		}
 	}
 }
+
+func TestStdCoveredHostRowSkipIsAllowed(t *testing.T) {
+	const hostSkip = "skip law System.StatusInvariants for Host: building Host as System reads the host and requires Ambient, which a law case does not hold (HOST-ROW)"
+	const covered = hostSkip + "\nok law System.StatusInvariants under staticSample (100 cases)\n"
+	if got := unlistedStdSkips([]byte(covered), testplan.NativeRoot{Path: "os/host"}, nil); len(got) != 0 {
+		t.Fatalf("covered HOST-ROW skip returned unexpected skips: %q", got)
+	}
+	if got := unlistedStdSkips([]byte(hostSkip+"\n"), testplan.NativeRoot{Path: "os/host"}, nil); len(got) != 1 || got[0] != hostSkip {
+		t.Fatalf("uncovered HOST-ROW skip must still fail: got %q", got)
+	}
+}

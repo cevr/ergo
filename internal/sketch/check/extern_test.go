@@ -1580,6 +1580,21 @@ func main() {
 	use(Mine)
 }
 `,
+	"os/host.System": `import os/host
+
+type Mine {} implements host.System
+
+func Status(_ Mine, volumes []string) host.Status fails host.Unavailable | host.Malformed {
+	host.Status{Cores: 1, Load: host.LoadAvg{One: 0.0, Five: 0.0, Fifteen: 0.0, Running: 0, Entities: 0}, Memory: host.Memory{TotalBytes: 0, AvailableBytes: 0, FreeBytes: 0, UsedBytes: 0}, Volumes: []host.Volume{}}
+}
+func Processes(_ Mine) []host.Process fails host.Unavailable | host.Malformed { []host.Process{} }
+
+func use(s host.System) { _ = s.Processes() catch { case host.Unavailable, host.Malformed: return } }
+
+func main() {
+	use(Mine)
+}
+`,
 	// std pace (PACE1): open; a program provides it (pace.Default,
 	// pace.Percent).
 	// The store contracts of ST3 (stdlib.md, Stores): a program or a
@@ -1841,6 +1856,7 @@ var openStd = map[string]bool{
 	"prelude.Reader":    true,
 	"os.Process":        true,
 	"os.Self":           true,
+	"os/host.System":    true,
 	"fs/mapped.Maps":    true, // open: a program may provide its own store of mapped files (CAP-FILE), as fs.Files and fs.Writes are open
 	"signal.Stops":      true,
 	"fs.Files":          true,

@@ -31,6 +31,7 @@ func fileCalls() map[string]func(s ambient) error {
 		hostfs.Path + ".ReadDir": readDirCheck,
 		hostfs.Path + ".Stat":    statCheck(hostfs.Stat, false),
 		hostfs.Path + ".Lstat":   statCheck(hostfs.Lstat, true),
+		hostfs.Path + ".Statfs":  statfsCheck,
 		"os.Mkdir": func(s ambient) error {
 			return madeDir(s, "hg-mkdir", "hg-mkdir", func() error { return os.Mkdir("hg-mkdir", 0o755) })
 		},
@@ -327,6 +328,27 @@ func chmodCheck(s ambient) error {
 	defer f.Close()
 	if fi, err := f.Stat(); err != nil || fi.Mode().Perm() != 0o600 {
 		return fmt.Errorf("after Chmod(hg-chmod, 0600) in %s, the mode is %v (%v)", s.dir, fi.Mode(), err)
+	}
+	return nil
+}
+
+// statfsCheck: Statfs of a relative path resolves in the active state's
+// working directory and returns valid filesystem byte capacities.
+func statfsCheck(s ambient) error {
+	dir := "hg-statfs-" + filepath.Base(s.dir)
+	defer clean(s, dir)
+	if err := os.Mkdir(at(s, dir), 0o755); err != nil {
+		return err
+	}
+	info, err := hostfs.Statfs(dir)
+	if err != nil {
+		return err
+	}
+	if info.Total <= 0 || info.Free < 0 || info.Available < 0 || info.Free > info.Total || info.Available > info.Total {
+		return fmt.Errorf("Statfs(%s) in %s returned invalid metrics %+v", dir, s.dir, info)
+	}
+	if _, err := hostfs.Statfs("hg-statfs-missing"); !errors.Is(err, fs.ErrNotExist) {
+		return fmt.Errorf("Statfs(hg-statfs-missing) in %s is %v, want NotExist", s.dir, err)
 	}
 	return nil
 }

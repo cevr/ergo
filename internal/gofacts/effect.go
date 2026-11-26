@@ -164,6 +164,10 @@ var Hosts = []Effect{
 	{Target: "os.File.SetDeadline", Reason: "it sets its handle's read and write deadlines, or fails with os.ErrNoDeadline on a file with none", Source: "04da8420ccbd"},
 	{Target: "os.File.SetReadDeadline", Reason: "it sets its handle's read deadline, or fails with os.ErrNoDeadline on a file with none", Source: "9c34436651b5"},
 	{Target: "os.File.SetWriteDeadline", Reason: "it sets its handle's write deadline, or fails with os.ErrNoDeadline on a file with none", Source: "dad17b485b6d"},
+	// Host process and filesystem metrics (std/host).
+	{Target: "runtime.NumCPU", Reason: "it returns the number of logical CPUs reported by the operating system at process startup", Source: "9ef49458017b"},
+	{Target: "os.Getpagesize", Reason: "it returns the operating system's memory page size", Source: "e147c7c13ec8"},
+	{Target: "ergo.local/prototype/runtime/v1/hostfs.Statfs", Reason: "it calls syscall.Statfs on one path and copies the volume total, free and available byte counts into a new struct", Source: "73314a4cd754"},
 }
 
 // HostOf is the host row of target, if it has one.

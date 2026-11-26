@@ -518,7 +518,7 @@ func (h *hostPkg) load() {
 	markers := map[int]string{}
 	for _, g := range f.Comments {
 		for _, cm := range g.List {
-			if cm.Text == "// ergo:variadic" || cm.Text == "// ergo:context" || strings.HasPrefix(cm.Text, writesMarker) || strings.HasPrefix(cm.Text, readsMarker) || strings.HasPrefix(cm.Text, effectMarker) || strings.HasPrefix(cm.Text, scopedMarker) || strings.HasPrefix(cm.Text, cbTypeMarker) {
+			if cm.Text == "// ergo:variadic" || cm.Text == "// ergo:context" || cm.Text == "// ergo:total" || strings.HasPrefix(cm.Text, writesMarker) || strings.HasPrefix(cm.Text, readsMarker) || strings.HasPrefix(cm.Text, effectMarker) || strings.HasPrefix(cm.Text, scopedMarker) || strings.HasPrefix(cm.Text, cbTypeMarker) {
 				line, _ := f.Position(cm.Pos())
 				markers[line] = cm.Text
 			}
@@ -543,6 +543,7 @@ func (h *hostPkg) load() {
 					h.variadic[fn] = true
 				case text == "// ergo:context":
 					h.context[fn] = true
+				case text == "// ergo:total":
 				case strings.HasPrefix(text, writesMarker):
 					h.writesLine(fn, strings.TrimPrefix(text, writesMarker))
 				case strings.HasPrefix(text, scopedMarker):
