@@ -5,6 +5,7 @@ import rpc
 import scope
 import github.com/cevr/ergo/modules/orchestrate/orchestrate
 import github.com/cevr/ergo/modules/orchestrate/orchestrate/orchestrateapi
+import os/host
 
 // Request is one call of orchestrate.Api: the hub's Request.
 type Request = orchestrateapi.Request
@@ -34,7 +35,7 @@ func untagged(v json.Value) json.Value {
 }
 
 // Names are the tools' names, one per operation of orchestrate.Api, in its order.
-let Names = []string{"unit-open", "receipt-record", "unit-state", "unit-accept", "unit-land", "unit-close", "commitment-add", "commitment-assign", "commitment-land", "commitment-decide", "commitment-list", "queue-upsert", "queue-remove", "queue-list", "question-ask", "question-answer", "question-list", "run-head-set", "run-summary", "unit-list", "decision-record", "decision-list", "landing-record", "landing-list", "event-record", "event-log", "import-plan"}
+let Names = []string{"unit-open", "receipt-record", "unit-state", "unit-accept", "unit-land", "unit-close", "commitment-add", "commitment-assign", "commitment-land", "commitment-decide", "commitment-list", "queue-upsert", "queue-remove", "queue-list", "question-ask", "question-answer", "question-list", "run-head-set", "run-summary", "unit-list", "decision-record", "decision-list", "landing-record", "landing-list", "event-record", "event-log", "import-plan", "host-status", "host-processes"}
 
 // Description is what the tool name does: its operation's doc comment,
 // or its signature (the hub's Doc).
@@ -94,6 +95,10 @@ func Description(name string) string {
 		orchestrateapi.Doc(orchestrateapi.EventLogOp)
 	case "import-plan":
 		orchestrateapi.Doc(orchestrateapi.ImportPlanOp)
+	case "host-status":
+		orchestrateapi.Doc(orchestrateapi.HostStatusOp)
+	case "host-processes":
+		orchestrateapi.Doc(orchestrateapi.HostProcessesOp)
 	case _:
 		""
 	}
@@ -158,6 +163,10 @@ func Input(name string) json.Value {
 		orchestrateapi.Schema(orchestrateapi.EventLogOp)
 	case "import-plan":
 		orchestrateapi.Schema(orchestrateapi.ImportPlanOp)
+	case "host-status":
+		orchestrateapi.Schema(orchestrateapi.HostStatusOp)
+	case "host-processes":
+		orchestrateapi.Schema(orchestrateapi.HostProcessesOp)
 	case _:
 		valueOf("{\"type\":\"object\",\"properties\":{}}")
 	}
@@ -222,6 +231,10 @@ func Call(name string, arguments json.Value) Request fails mcp.ToolError | mcp.U
 		rpc.Tagged("EventLogRequest", "{\"input\":"+textOf(arguments)+"}")
 	case "import-plan":
 		rpc.Tagged("ImportPlanRequest", "{\"input\":"+textOf(arguments)+"}")
+	case "host-status":
+		rpc.Tagged("HostStatusRequest", "{\"input\":"+textOf(arguments)+"}")
+	case "host-processes":
+		rpc.Tagged("HostProcessesRequest", "{\"input\":"+textOf(arguments)+"}")
 	case _:
 		return mcp.UnknownTool{Name: name}
 	}
@@ -289,6 +302,10 @@ func Arguments(r Request) (string, json.Value) {
 		("event-log", untagged(valueOf(rpc.Encode(x.Input))))
 	case orchestrateapi.ImportPlanRequest as x:
 		("import-plan", untagged(valueOf(rpc.Encode(x.Input))))
+	case orchestrateapi.HostStatusRequest as x:
+		("host-status", untagged(valueOf(rpc.Encode(x.Input))))
+	case orchestrateapi.HostProcessesRequest as x:
+		("host-processes", untagged(valueOf(rpc.Encode(x.Input))))
 	}
 }
 
@@ -353,6 +370,10 @@ func Show(o orchestrateapi.Outcome) json.Value fails mcp.ToolError {
 			valueOf(rpc.Encode(reply.Value))
 		case orchestrateapi.ImportPlanReply as reply:
 			valueOf(rpc.Encode(reply.Value))
+		case orchestrateapi.HostStatusReply as reply:
+			valueOf(rpc.Encode(reply.Value))
+		case orchestrateapi.HostProcessesReply as reply:
+			valueOf(rpc.Encode(reply.Value))
 		}
 	case orchestrateapi.Rejected as rejected:
 		match rejected.Failure {
@@ -372,6 +393,10 @@ func Show(o orchestrateapi.Outcome) json.Value fails mcp.ToolError {
 			return mcp.ToolError{Message: rpc.Tagged("NotAcceptedHead", rpc.Encode(failure.E))}
 		case orchestrateapi.StoreFailed as failure:
 			return mcp.ToolError{Message: rpc.Tagged("StoreFailed", rpc.Encode(failure.E))}
+		case orchestrateapi.Unavailable as failure:
+			return mcp.ToolError{Message: rpc.Tagged("Unavailable", rpc.Encode(failure.E))}
+		case orchestrateapi.Malformed as failure:
+			return mcp.ToolError{Message: rpc.Tagged("Malformed", rpc.Encode(failure.E))}
 		}
 	}
 }
@@ -474,6 +499,12 @@ func ReadAnswer(r Request, result mcp.Called) orchestrateapi.Outcome fails rpc.T
 		case orchestrateapi.ImportPlanRequest:
 			let v = try rpc.Decode[orchestrate.ImportReport]("value", text)
 			orchestrateapi.Done{Reply: orchestrateapi.ImportPlanReply{Value: v}}
+		case orchestrateapi.HostStatusRequest:
+			let v = try rpc.Decode[orchestrate.HostStatusReport]("value", text)
+			orchestrateapi.Done{Reply: orchestrateapi.HostStatusReply{Value: v}}
+		case orchestrateapi.HostProcessesRequest:
+			let v = try rpc.Decode[orchestrate.HostProcessList]("value", text)
+			orchestrateapi.Done{Reply: orchestrateapi.HostProcessesReply{Value: v}}
 		}
 	} else {
 		match r {
@@ -1097,6 +1128,34 @@ func ReadAnswer(r Request, result mcp.Called) orchestrateapi.Outcome fails rpc.T
 				orchestrateapi.Rejected{Failure: orchestrateapi.StoreFailed{E: e}}
 			case _:
 				return rpc.Transport{Reason: "the tool import-plan answered an undeclared failure: " + text}
+			}
+		case orchestrateapi.HostStatusRequest:
+			match rpc.TagOf(text) {
+			case "InvalidInput":
+				let e = try rpc.Decode[orchestrate.InvalidInput]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.InvalidInput{E: e}}
+			case "Unavailable":
+				let e = try rpc.Decode[host.Unavailable]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.Unavailable{E: e}}
+			case "Malformed":
+				let e = try rpc.Decode[host.Malformed]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.Malformed{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the tool host-status answered an undeclared failure: " + text}
+			}
+		case orchestrateapi.HostProcessesRequest:
+			match rpc.TagOf(text) {
+			case "InvalidInput":
+				let e = try rpc.Decode[orchestrate.InvalidInput]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.InvalidInput{E: e}}
+			case "Unavailable":
+				let e = try rpc.Decode[host.Unavailable]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.Unavailable{E: e}}
+			case "Malformed":
+				let e = try rpc.Decode[host.Malformed]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.Malformed{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the tool host-processes answered an undeclared failure: " + text}
 			}
 		}
 	}
