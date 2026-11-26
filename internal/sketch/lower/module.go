@@ -256,6 +256,7 @@ type lowerer struct {
 	goPkgs       []*check.Package        // the Go packages the program reaches (import go; libraryPackages)
 	stdSrc       map[syntax.Node]stdFile // the std nodes locate placed, and their files (stdFileOf)
 	stdIx        *stdIndex               // each reached std node's declaration (stdNodeIndex)
+	importNames  map[string]string       // pkgNames' import entries by Go name: each import's path (importPath)
 	siteIDs      map[siteKey]siteNum     // each call position's CallSite Pkg and Id (siteid.go)
 	sitePkgs     []sitePkg               // the packages in the call-site numbering (siteid.go)
 	initPkgs     []*check.Package        // the sourced libraries in initialization order
@@ -268,9 +269,6 @@ type lowerer struct {
 	// pkgNamers number each non-root package's own declarations (pkgnames.go, rule 2).
 	pkgNamers map[*check.Package]*namer
 	pkgNames  map[pkgKey]string
-	// importNames is pkgNames' import entries by name: each Go import's
-	// path (importPath).
-	importNames map[string]string
 	pkgOrder  []pkgEntry // in naming order
 	prenamed  bool       // the naming pass is done
 	bodies    int        // function bodies lowered (TestNamingWorkIsLinear)
