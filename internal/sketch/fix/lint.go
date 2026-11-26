@@ -26,6 +26,7 @@ type Linted struct {
 	Rule string `json:"rule"`
 	File string `json:"file"`
 	Line int    `json:"line"`
+	To   string `json:"to,omitempty"`
 }
 
 // RunLint is Rows, then the lint fixes (plan LINT1): when the clause loop
