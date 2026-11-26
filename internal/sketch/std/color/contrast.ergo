@@ -1,0 +1,44 @@
+// Luminance is c's relative luminance as WCAG 2.2 defines it, from 0
+// (black) to 1 (white), over its red, green and blue; alpha is not read.
+func Luminance(c RGBA) float64 {
+	0.2126*toLinear(unit(c.R)) + 0.7152*toLinear(unit(c.G)) + 0.0722*toLinear(unit(c.B))
+}
+
+// Contrast is WCAG 2.2's contrast ratio of a text in fg on bg, from 1 to
+// 21: bg is read as opaque, and fg is composited over it first.
+func Contrast(fg RGBA, bg RGBA) float64 {
+	let ground = RGBA{..bg, A: 255}
+	let a = Luminance(Over(fg, ground))
+	let b = Luminance(ground)
+	(maxf(a, b) + 0.05) / (minf(a, b) + 0.05)
+}
+
+// ContrastIsARatio: the ratio is between 1 and 21, the same both ways
+// round for opaque colours, 1 for a colour on itself, and 21 for white on
+// black.
+law ContrastIsARatio(a RGBA, b RGBA) {
+	let x = RGBA{..a, A: 255}
+	let y = RGBA{..b, A: 255}
+	let r = Contrast(a, b)
+		r >= 1.0 && r <= 21.0 &&
+		Contrast(x, y) == Contrast(y, x) &&
+		Contrast(x, x) == 1.0 &&
+		Contrast(White, Black) == 21.0 &&
+		Contrast(RGBA{R: 0x77, G: 0x77, B: 0x77, A: 255}, White) > 4.47 &&
+		Contrast(RGBA{R: 0x77, G: 0x77, B: 0x77, A: 255}, White) < 4.48
+}
+
+// ReadableOn is the one of Black and White that contrasts more with bg
+// (Black on a tie).
+func ReadableOn(bg RGBA) RGBA {
+	if Contrast(White, bg) > Contrast(Black, bg) { White } else { Black }
+}
+
+// ReadableOnIsTheBetter: the colour ReadableOn picks contrasts with bg at
+// least as much as the other, and always at 4.5 or more (WCAG AA for body
+// text).
+law ReadableOnIsTheBetter(bg RGBA) {
+	let pick = ReadableOn(bg)
+	let other = if pick == White { Black } else { White }
+	Contrast(pick, bg) >= Contrast(other, bg) && Contrast(pick, bg) >= 4.5
+}
