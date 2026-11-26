@@ -101,6 +101,7 @@ func claimFnOf(s mut store.Store, k Pkg, mem store.FunctionMember) option.Option
 			case option.Some{Value: sig}:
 				let mut out = f
 				out.Sig = sig
+				out.fromDep = di
 				return option.Some{Value: out}
 			case option.None:
 				return option.None

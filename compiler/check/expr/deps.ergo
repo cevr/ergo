@@ -122,6 +122,7 @@ func importedFn(s mut store.Store, k Pkg, t mut Typer, name dense.Opt[syntax.Nod
 		case option.Some[dense.ID[store.TKey]] as sig:
 			let mut out = fn
 			out.Sig = sig.Value
+			out.fromDep = di
 			let mut bounds = []types.SelfBound{}
 			for bound in fn.SelfBounds {
 				match dense.Unpack(bound.Op) {
