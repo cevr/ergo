@@ -1,0 +1,468 @@
+// Package archive reads and writes tar, gzip-compressed tar and zip archives
+// in memory, in Ergo over std zlib and std crc32 (Go's archive/tar,
+// archive/zip; Bun.Archive). An Archive is safe by construction: its fields
+// are unexported, so it is made only by Add and Read, which refuse every
+// entry path that is absolute or climbs above the root, every link whose
+// target leaves the root, and every entry that walks through a link of the
+// archive. Extract writes one to a folder through fs.Files and fs.Writes.
+
+import glob
+import option
+import slices
+import strings
+
+// Kind is what an entry is: a regular file with content, a folder, a
+// symbolic link to Link (relative to the link's folder), or a hard link to
+// the entry at Link (relative to the root).
+type Kind = File{} | Dir{} | Symlink{} | HardLink{}
+
+// Header describes an entry to Add: its path ("/"-separated, relative to the
+// root), its kind, its permission bits (Mode, 0o777 at most: Add drops the
+// setuid, setgid and sticky bits), its modification time in Unix seconds and,
+// for a link, its target.
+type Header {
+	Path    string,
+	Kind    Kind,
+	Mode    int,
+	ModTime int,
+	Link    string,
+}
+
+// Entry is one entry of an Archive: its canonical path (no "." or ".."
+// element, no empty element, no trailing "/"), its kind, mode, modification
+// time, link target and the size of its content.
+type Entry {
+	Path    string,
+	Kind    Kind,
+	Mode    int,
+	ModTime int,
+	Link    string,
+	Size    int,
+}
+
+// Unsafe is the failure of an entry path that is empty, absolute, starts
+// with a drive letter, holds a backslash or a NUL byte, or climbs above the
+// root with "..".
+type Unsafe { Path string, Reason string }
+
+// UnsafeLink is the failure of a link at Path whose Target is empty,
+// absolute, holds a drive letter, a backslash or a NUL byte, or climbs above
+// the root from the link's folder.
+type UnsafeLink { Path string, Target string, Reason string }
+
+// ThroughLink is the failure of an entry at Path that walks through the
+// link entry at Link: Link is a folder on the way of Path or of Path's link
+// target. A link changes where ".." leads, so no entry is placed or resolved
+// through one, whichever entry comes first.
+type ThroughLink { Path string, Link string }
+
+// Malformed is the failure of input that is not an archive of its format at
+// Offset: a bad header checksum, number, signature or record.
+type Malformed { Offset int, Reason string }
+
+// Truncated is the failure of input that ends before the archive does.
+type Truncated { Offset int }
+
+// Unsupported is the failure of an entry that uses a Feature this package
+// does not read or write: a device or FIFO entry, a zip encryption or method,
+// a hard link in a zip.
+type Unsupported { Path string, Feature string }
+
+// BadChecksum is the failure of content whose CRC-32 is not the one its
+// archive records.
+type BadChecksum { Path string, Expected uint32, Actual uint32 }
+
+// LimitExceeded is the failure of a Read whose content, or a decompressed
+// stream, would pass Limit bytes.
+type LimitExceeded { Limit int }
+
+// TooLarge is the failure of a Write of an archive its format cannot hold.
+type TooLarge { Path string, Reason string }
+
+// LinkOnDisk is the failure of an Extract whose entry at Path would be
+// written through a symbolic link that is already on disk in the target.
+type LinkOnDisk { Path string }
+
+// Error is the closed union of the failures of this package.
+type Error =
+	| Unsafe
+	| UnsafeLink
+	| ThroughLink
+	| Malformed
+	| Truncated
+	| Unsupported
+	| BadChecksum
+	| LimitExceeded
+	| TooLarge
+	| LinkOnDisk
+
+type row {
+	path    string,
+	kind    Kind,
+	mode    int,
+	modTime int,
+	link    string,
+	start   int,
+	size    int,
+}
+
+// Archive is a list of entries in order, with their content in one buffer.
+// Its fields are unexported: only New, Add, Select and Read make one, so
+// every Archive keeps the rules Add states.
+type Archive {
+	rows    []row,
+	data    []byte,
+	links   Map[string, bool],
+	through Map[string, string],
+}
+
+type walk {
+	comps   []string,
+	through []string,
+	reason  string,
+}
+
+// New is the archive of no entries.
+func New() Archive {
+	Archive{rows: []row{}, data: []byte{}, links: Map[string, bool]{}, through: Map[string, string]{}}
+}
+
+func badText(raw string) string {
+	let bs = raw.Bytes()
+	if bs.Len() > 0 && bs[0] == byte('/') {
+		return "absolute path"
+	}
+	if bs.Len() >= 2 && bs[1] == byte(':') && ((bs[0] >= byte('a') && bs[0] <= byte('z')) || (bs[0] >= byte('A') && bs[0] <= byte('Z'))) {
+		return "drive letter"
+	}
+	for b in bs {
+		if b == byte('\\') {
+			return "backslash"
+		}
+		if b == byte(0) {
+			return "NUL byte"
+		}
+	}
+	""
+}
+
+func walkPath(raw string, base []string) walk {
+	let bad = badText(raw)
+	if bad != "" {
+		return walk{comps: []string{}, through: []string{}, reason: bad}
+	}
+	let bs = raw.Bytes()
+	let n = bs.Len()
+	let mut comps = base.Clone()
+	let mut through = []string{}
+	let mut i = 0
+	for i <= n {
+		let mut j = i
+		for j < n && bs[j] != byte('/') {
+			j = j + 1
+		}
+		let part = bs[i:j].Text()
+		i = j + 1
+		if part == "" || part == "." {
+			continue
+		}
+		if comps.Len() > 0 {
+			through = through.Append(strings.Join(comps, "/"))
+		}
+		if part == ".." {
+			if comps.Len() == 0 {
+				return walk{comps: []string{}, through: []string{}, reason: "climbs above the root"}
+			}
+			comps = comps[:comps.Len()-1]
+		} else {
+			comps = comps.Append(part)
+		}
+	}
+	walk{comps: comps, through: through, reason: ""}
+}
+
+func isLink(k Kind) bool {
+	match k {
+	case Symlink, HardLink:
+		true
+	case File, Dir:
+		false
+	}
+}
+
+func isDir(k Kind) bool {
+	match k {
+	case Dir:
+		true
+	case File, Symlink, HardLink:
+		false
+	}
+}
+
+func isFile(k Kind) bool {
+	match k {
+	case File:
+		true
+	case Dir, Symlink, HardLink:
+		false
+	}
+}
+
+func linkBase(k Kind, comps []string) []string {
+	match k {
+	case Symlink:
+		comps[:comps.Len()-1]
+	case File, Dir, HardLink:
+		[]string{}
+	}
+}
+
+func record(a mut Archive, path string, h Header, link string, walked []string, content []byte) {
+	for t in walked {
+		if a.through.Get(t) == option.None {
+			a.through[t] = path
+		}
+	}
+	if isLink(h.Kind) {
+		a.links[path] = true
+	}
+	let size = if isFile(h.Kind) { content.Len() } else { 0 }
+	a.rows = a.rows.Append(row{path: path, kind: h.Kind, mode: h.Mode & 511, modTime: h.ModTime, link: link, start: a.data.Len(), size: size})
+	if size > 0 {
+		a.data = a.data.AppendBytes(content)
+	}
+}
+
+// Add appends the entry h to a, with content for a file (content of any
+// other kind is not kept). The path is cleaned: "./a//b/" is "a/b" and
+// "a/b/../c" is "a/c"; a folder entry for the root itself adds nothing. On a
+// failure a is unchanged.
+func Add(a mut Archive, h Header, content []byte) fails Unsafe | UnsafeLink | ThroughLink {
+	let w = walkPath(h.Path, []string{})
+	if w.reason != "" {
+		return Unsafe{Path: h.Path, Reason: w.reason}
+	}
+	let path = strings.Join(w.comps, "/")
+	if path == "" {
+		if isDir(h.Kind) {
+			return
+		}
+		return Unsafe{Path: h.Path, Reason: "empty path"}
+	}
+	for t in w.through {
+		if a.links.Get(t) != option.None {
+			return ThroughLink{Path: path, Link: t}
+		}
+	}
+	let mut walked = w.through
+	let mut link = ""
+	if isLink(h.Kind) {
+		if h.Link == "" {
+			return UnsafeLink{Path: path, Target: h.Link, Reason: "empty target"}
+		}
+		let tw = walkPath(h.Link, linkBase(h.Kind, w.comps))
+		if tw.reason != "" {
+			return UnsafeLink{Path: path, Target: h.Link, Reason: tw.reason}
+		}
+		for t in tw.through {
+			if t == path || a.links.Get(t) != option.None {
+				return ThroughLink{Path: path, Link: t}
+			}
+		}
+		match a.through.Get(path) {
+		case option.Some[string] as by:
+			return ThroughLink{Path: by.Value, Link: path}
+		case option.None:
+		}
+		walked = walked.Concat(tw.through)
+		link = match h.Kind {
+		case HardLink:
+			strings.Join(tw.comps, "/")
+		case File, Dir, Symlink:
+			h.Link
+		}
+	}
+	record(a, path, h, link, walked, content)
+}
+
+// AddFile appends a regular file at path with content, mode 0o644 and
+// modification time 0.
+func AddFile(a mut Archive, path string, content []byte) fails Unsafe | ThroughLink {
+	Add(a, Header{Path: path, Kind: File, Mode: 420, ModTime: 0, Link: ""}, content) catch {
+	case Unsafe as e:
+		return e
+	case ThroughLink as e:
+		return e
+	case UnsafeLink as e:
+		return Unsafe{Path: e.Path, Reason: e.Reason}
+	}
+}
+
+// Len is the number of entries of a.
+func Len(a Archive) int { a.rows.Len() }
+
+// Entries is the entries of a, in order.
+func Entries(a Archive) []Entry {
+	let mut out = slices.WithCapacity[Entry](a.rows.Len())
+	for r in a.rows {
+		out = out.Append(Entry{Path: r.path, Kind: r.kind, Mode: r.mode, ModTime: r.modTime, Link: r.link, Size: r.size})
+	}
+	out
+}
+
+// Content is the content of the entry at index i of a (empty for an entry
+// that is not a file), a view of the archive's buffer.
+func Content(a Archive, i int) []byte {
+	let r = a.rows[i]
+	a.data[r.start : r.start+r.size]
+}
+
+// Lookup is the index of the last entry of a at path, the one an extraction
+// leaves on disk, when there is one.
+func Lookup(a Archive, path string) option.Option[int] {
+	let mut i = a.rows.Len() - 1
+	for i >= 0 {
+		if a.rows[i].path == path {
+			return option.Some[int]{Value: i}
+		}
+		i = i - 1
+	}
+	option.None
+}
+
+// Select is the archive of the entries of a whose path p matches, in order.
+func Select(a Archive, p glob.Pattern) Archive {
+	let mut out = New()
+	for i, r in a.rows {
+		if !glob.Match(p, r.path) {
+			continue
+		}
+		let w = walkPath(r.path, []string{})
+		let mut walked = w.through
+		if isLink(r.kind) {
+			walked = walked.Concat(walkPath(r.link, linkBase(r.kind, w.comps)).through)
+		}
+		record(&out, r.path, Header{Path: r.path, Kind: r.kind, Mode: r.mode, ModTime: r.modTime, Link: r.link}, r.link, walked, Content(a, i))
+	}
+	out
+}
+
+// CleansAndRefuses: Add cleans a safe path to its canonical form, and
+// refuses an absolute path, a drive letter, a backslash and a ".." that
+// climbs above the root with Unsafe, leaving the archive as it was.
+law CleansAndRefuses(seg string, pick int) {
+	let s = safeSegment(seg)
+	let mut a = New()
+	AddFile(&a, "./" + s + "//x/../y/", s.Bytes()) catch {
+	case Unsafe, ThroughLink:
+		return false
+	}
+	let k = (if pick < 0 { -pick } else { pick }) % 5
+	let bad = if k == 0 {
+		"/" + s
+	} else if k == 1 {
+		"../" + s
+	} else if k == 2 {
+		s + "/../../" + s
+	} else if k == 3 {
+		"C:" + s
+	} else {
+		s + "\\" + s
+	}
+	let mut refused = false
+	AddFile(&a, bad, []byte{}) catch {
+	case Unsafe:
+		refused = true
+	case ThroughLink:
+	}
+	sometimes k == 2 && refused
+	refused && Len(a) == 1 && Entries(a)[0].Path == s + "/y"
+}
+
+// LinksStayInside: a link whose target climbs out of the root fails
+// UnsafeLink, one that stays inside is kept, and an entry that walks through
+// a link fails ThroughLink whichever of the two is added first.
+law LinksStayInside(seg string, linkFirst bool) {
+	let s = safeSegment(seg)
+	let mut a = New()
+	let mut escaped = false
+	Add(&a, Header{Path: s, Kind: Symlink, Mode: 511, ModTime: 0, Link: "../" + s}, []byte{}) catch {
+	case UnsafeLink:
+		escaped = true
+	case Unsafe, ThroughLink:
+	}
+	let mut absolute = false
+	Add(&a, Header{Path: s, Kind: HardLink, Mode: 420, ModTime: 0, Link: "/" + s}, []byte{}) catch {
+	case UnsafeLink:
+		absolute = true
+	case Unsafe, ThroughLink:
+	}
+	let inside = Header{Path: "d/" + s, Kind: Symlink, Mode: 511, ModTime: 0, Link: "../" + s}
+	let under = Header{Path: "d/" + s + "/f", Kind: File, Mode: 420, ModTime: 0, Link: ""}
+	let first = if linkFirst { inside } else { under }
+	let second = if linkFirst { under } else { inside }
+	Add(&a, first, []byte{}) catch {
+	case Unsafe, UnsafeLink, ThroughLink:
+		return false
+	}
+	let mut through = false
+	Add(&a, second, []byte{}) catch {
+	case ThroughLink:
+		through = true
+	case Unsafe, UnsafeLink:
+	}
+	let mut chained = false
+	let mut b = New()
+	Add(&b, Header{Path: "d/l", Kind: Symlink, Mode: 511, ModTime: 0, Link: "."}, []byte{}) catch {
+	case Unsafe, UnsafeLink, ThroughLink:
+		return false
+	}
+	Add(&b, Header{Path: "m", Kind: Symlink, Mode: 511, ModTime: 0, Link: "d/l/.."}, []byte{}) catch {
+	case ThroughLink:
+		chained = true
+	case Unsafe, UnsafeLink:
+	}
+	sometimes linkFirst
+	sometimes !linkFirst
+	escaped && absolute && through && chained && Len(a) == 1 && Len(b) == 1
+}
+
+// SelectKeepsMatches: Select keeps exactly the entries whose path the
+// pattern matches, with their content, in order.
+law SelectKeepsMatches(segs []string) {
+	let mut a = New()
+	for i, seg in segs {
+		let ext = if i % 2 == 0 { ".txt" } else { ".bin" }
+		AddFile(&a, "p/" + safeSegment(seg) + "\(i)" + ext, seg.Bytes()) catch {
+		case Unsafe, ThroughLink:
+			return false
+		}
+	}
+	let pat = glob.Compile("p/*.txt") catch {
+	case glob.InvalidPattern:
+		return false
+	}
+	let kept = Select(a, pat)
+	let mut want = []int{}
+	for i in 0..Len(a) {
+		if glob.Match(pat, a.rows[i].path) {
+			want = want.Append(i)
+		}
+	}
+	let mut ok = Len(kept) == want.Len()
+	for j, i in want {
+		ok = ok && j < Len(kept) && kept.rows[j].path == a.rows[i].path && slices.Equal(Content(kept, j), Content(a, i))
+	}
+	sometimes want.Len() > 0
+	ok
+}
+
+func safeSegment(raw string) string {
+	let mut out = []byte{}
+	for b in raw.Bytes() {
+		if (b >= byte('a') && b <= byte('z')) || (b >= byte('0') && b <= byte('9')) {
+			out = out.Append(b)
+		}
+	}
+	if out.Len() == 0 { "n" } else { out.Text() }
+}

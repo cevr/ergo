@@ -15,6 +15,18 @@ func Checksum(s string) uint32 { crc32.ChecksumIEEE(strings.Bytes(s)) }
 // with IEEETable: a checksum of a text read in parts.
 func Update(crc uint32, s string) uint32 { crc32.Update(crc, crc32.IEEETable, strings.Bytes(s)) }
 
+// ChecksumBytes is the IEEE CRC-32 of data, as Go's ChecksumIEEE: Checksum
+// for bytes a caller already holds, with no string made of them.
+func ChecksumBytes(data []byte) uint32 { crc32.ChecksumIEEE(data) }
+
+// UpdateBytes is the checksum crc carried over data, as Go's Update with
+// IEEETable.
+func UpdateBytes(crc uint32, data []byte) uint32 { crc32.Update(crc, crc32.IEEETable, data) }
+
+// BytesAgree: the byte forms give the checksums of the text forms over the
+// same bytes.
+law BytesAgree(s string, crc uint32) { ChecksumBytes(s.Bytes()) == Checksum(s) && UpdateBytes(crc, s.Bytes()) == Update(crc, s) }
+
 // UpdateChains: the checksum of a, carried over b, is the checksum of a +
 // b.
 law UpdateChains(a string, b string) { Update(Checksum(a), b) == Checksum(a + b) }

@@ -1,0 +1,205 @@
+import strings
+import zlib
+
+// Format is an archive format Write produces: an ustar/pax tar, a tar in one
+// gzip member at Level, or a zip whose entries are deflated at Level (0
+// stores them; an entry deflate does not shrink is stored).
+type Format = Tar{} | TarGzip{Level int} | Zip{Level int}
+
+// Write is a in format f: equal archives give equal bytes. A zip holds no
+// hard link (Unsupported), nor more than 65535 entries or 4 GiB (TooLarge).
+func Write(a Archive, f Format) []byte fails TooLarge | Unsupported {
+	match f {
+	case Tar:
+		writeTar(a)
+	case TarGzip as g:
+		zlib.GzipLevel(writeTar(a), g.Level)
+	case Zip as z:
+		try writeZip(a, z.Level)
+	}
+}
+
+// Read is the archive data holds, its format told by its first bytes: gzip
+// (a compressed tar), zip, else tar. maxBytes bounds what Read holds: the
+// content of the entries, and for gzip the decompressed tar; past it Read
+// fails LimitExceeded and allocates no more. Every entry passes Add's rules.
+func Read(data []byte, maxBytes int) Archive fails Unsafe | UnsafeLink | ThroughLink | Malformed | Truncated | Unsupported | BadChecksum | LimitExceeded {
+	if data.Len() >= 2 && data[0] == byte(31) && data[1] == byte(139) {
+		let t = zlib.Gunzip(data, maxBytes) catch {
+		case zlib.LimitExceeded:
+			return LimitExceeded{Limit: maxBytes}
+		case zlib.Truncated as e:
+			return Truncated{Offset: e.Offset}
+		case zlib.BadChecksum as e:
+			return BadChecksum{Path: "", Expected: e.Expected, Actual: e.Actual}
+		case zlib.BadGzip as e:
+			return Malformed{Offset: e.Offset, Reason: "gzip: " + e.Reason}
+		case zlib.BadBlock:
+			return Malformed{Offset: 0, Reason: "deflate block"}
+		case zlib.BadDistance:
+			return Malformed{Offset: 0, Reason: "deflate distance"}
+		case zlib.BadHuffman as e:
+			return Malformed{Offset: 0, Reason: "deflate: " + e.Reason}
+		}
+		return try readTar(t, maxBytes)
+	}
+	if data.Len() >= 4 && data[0] == byte('P') && data[1] == byte('K') && ((data[2] == byte(3) && data[3] == byte(4)) || (data[2] == byte(5) && data[3] == byte(6))) {
+		return try readZip(data, maxBytes)
+	}
+	try readTar(data, maxBytes)
+}
+
+func magnitude(x int) int {
+	if x < 0 { -(x % 1000000007) } else { x }
+}
+
+func pickFormat(pick int) Format {
+	let k = magnitude(pick) % 3
+	if k == 0 {
+		Tar
+	} else if k == 1 {
+		TarGzip{Level: magnitude(pick) % 10}
+	} else {
+		Zip{Level: magnitude(pick) % 10}
+	}
+}
+
+func isZip(f Format) bool {
+	match f {
+	case Zip:
+		true
+	case Tar, TarGzip:
+		false
+	}
+}
+
+func sameArchive(a Archive, b Archive) bool {
+	if Len(a) != Len(b) {
+		return false
+	}
+	let ea = Entries(a)
+	let eb = Entries(b)
+	for i in 0..ea.Len() {
+		if ea[i] != eb[i] || Content(a, i).Text() != Content(b, i).Text() {
+			return false
+		}
+	}
+	true
+}
+
+// WriteThenReadIsTheArchive: Read of Write is the archive, entry by entry
+// (path, kind, mode, time, link, size) and content by content, for tar, gzip
+// tar and zip at every level, with paths that fit ustar's name, need its
+// prefix, or need a pax record. The model is the list of headers the law
+// adds.
+law WriteThenReadIsTheArchive(names []string, bodies []string, stamps []int, pick int) {
+	let f = pickFormat(pick)
+	let mut a = New()
+	let mut model = []Entry{}
+	let mut paxed = false
+	let mut split = false
+	let mut bodiesKept = []string{}
+	for i, raw in names {
+		if i >= 3 {
+			break
+		}
+		let seg = safeSegment(raw)
+		let path = if raw.Len() % 4 == 3 { "p/" + strings.Repeat("q", 16*raw.Len()) + "/f\(i)" } else { "d/" + seg + "\(i)" }
+		let body = if i < bodies.Len() { bodies[i] } else { "" }
+		let stamp = if i < stamps.Len() { magnitude(stamps[i]) } else { i }
+		let mode = (stamp % 512) | 256
+		let mtime = stamp % 2000000000
+		let k = (i + magnitude(pick)) % 4
+		let kind = if k == 0 { File } else if k == 1 { Dir } else if k == 2 || isZip(f) { Symlink } else { HardLink }
+		let link = if k == 0 || k == 1 { "" } else if raw.Len() % 4 == 3 { strings.Repeat("t", 16*raw.Len()) } else { "t\(i)" }
+		Add(&a, Header{Path: path, Kind: kind, Mode: mode, ModTime: mtime, Link: link}, body.Bytes()) catch {
+		case Unsafe, UnsafeLink, ThroughLink:
+			return false
+		}
+		model = model.Append(Entry{Path: path, Kind: kind, Mode: mode, ModTime: mtime, Link: link, Size: if k == 0 { body.Len() } else { 0 }})
+		let (_, _, fits) = splitUstar(if k == 1 { path + "/" } else { path })
+		paxed = paxed || !fits
+		split = split || (fits && path.Len() > 99)
+		bodiesKept = bodiesKept.Append(if k == 0 { body } else { "" })
+	}
+	let bytes = Write(a, f) catch {
+	case TooLarge, Unsupported:
+		return false
+	}
+	let b = Read(bytes, 1048576) catch {
+	case Unsafe, UnsafeLink, ThroughLink, Malformed, Truncated, Unsupported, BadChecksum, LimitExceeded:
+		return false
+	}
+	let mut ok = Len(b) == model.Len()
+	let got = Entries(b)
+	for i in 0..model.Len() {
+		ok = ok && i < got.Len() && got[i] == model[i] && Content(b, i).Text() == bodiesKept[i]
+	}
+	sometimes isZip(f) && model.Len() > 2
+	sometimes !isZip(f) && paxed
+	sometimes !isZip(f) && split
+	ok
+}
+
+// CutArchivesFailOrAgree: Read of any prefix of a written archive fails, or,
+// when the cut took only a tar's closing zero blocks, gives the archive.
+// No cut makes Read return another archive.
+law CutArchivesFailOrAgree(bodies []string, at int, pick int) {
+	let f = pickFormat(pick)
+	let mut a = New()
+	for i, body in bodies {
+		if i >= 3 {
+			break
+		}
+		AddFile(&a, "f\(i)", body.Bytes()) catch {
+		case Unsafe, ThroughLink:
+			return false
+		}
+	}
+	let bytes = Write(a, f) catch {
+	case TooLarge, Unsupported:
+		return false
+	}
+	let c = magnitude(at) % bytes.Len()
+	let mut failed = false
+	let b = Read(bytes[:c], 1048576) catch {
+	case Unsafe, UnsafeLink, ThroughLink, Malformed, Truncated, Unsupported, BadChecksum, LimitExceeded:
+		failed = true
+		New()
+	}
+	sometimes failed
+	sometimes !failed
+	failed || sameArchive(a, b)
+}
+
+// LimitIsKept: Read with maxBytes one under the content an archive holds
+// fails LimitExceeded in every format.
+law LimitIsKept(bodies []string, pick int) {
+	let f = pickFormat(pick)
+	let mut a = New()
+	let mut total = 0
+	for i, body in bodies {
+		if i >= 3 {
+			break
+		}
+		AddFile(&a, "f\(i)", body.Bytes()) catch {
+		case Unsafe, ThroughLink:
+			return false
+		}
+		total = total + body.Len()
+	}
+	if total == 0 {
+		return true
+	}
+	let bytes = Write(a, f) catch {
+	case TooLarge, Unsupported:
+		return false
+	}
+	let _ = Read(bytes, total-1) catch {
+	case LimitExceeded:
+		return true
+	case Unsafe, UnsafeLink, ThroughLink, Malformed, Truncated, Unsupported, BadChecksum:
+		return false
+	}
+	false
+}
