@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"unicode/utf8"
 
 	"ergo.local/prototype/internal/sketch/std/gostd"
@@ -36,6 +38,7 @@ import (
 // Go import path, so a host type has one identity across the program's
 // packages.
 type GoBindings struct {
+	mu     sync.Mutex
 	lookup func(path string) (string, bool)
 	pkgs   map[string]*Package
 	// Stale, when set, is why the binding of a Go import path that lookup
@@ -146,8 +149,11 @@ func (c *checker) checkGoImports() {
 				h.load()
 				h.verifyCBindAll()
 			}
+			h.mu.Lock()
 			msg := h.err
-			if ds := h.c.sorted(); msg == "" && len(ds) > 0 {
+			ds := h.c.sorted()
+			h.mu.Unlock()
+			if msg == "" && len(ds) > 0 {
 				msg = ds[0].String()
 			}
 			if msg != "" {
@@ -236,23 +242,25 @@ func (c *checker) hostSelector(x *syntax.SelectorExpr, base operand, n *Named, h
 
 // hostPkg is the binding of one Go package.
 type hostPkg struct {
-	set      *GoBindings
-	src      string
-	c        *checker // the binder
-	fi       *fileInfo
-	loaded   bool
-	err      string                   // the binding does not parse
-	vars     map[*Var]*syntax.VarSpec // a const or error var, typed on first use
-	refused  map[string]string        // a refused declaration ("F", "T.M") and its reason
-	recvPtr  map[*Func]bool           // a method in the method set of *T only
-	variadic map[*Func]bool           // a function whose last parameter is Go's ...T
-	context  map[*Func]bool           // a function whose hidden first parameter is Go's context.Context (IG10)
-	goLines  map[int]string           // the `// ergo:` comment of each line, read by GoDecl (IG8) on first use
-	reads    map[*Func][]string       // the binders a function's `// ergo:reads` line names (gofacts.go)
-	vouched  map[*Func][]vouch        // its vouched `// ergo:reads p (vouched: …)` lines (gofacts.go)
-	writes   map[*Func]int            // the parameter a function's `// ergo:writes` line names (GBX2, gowrites.go)
-	effect   map[*Func]bool           // a memory-only function, `// ergo:effect none (vouched: …)` (GBX6)
-	host     map[*Func]bool           // a host function, `// ergo:effect ambient (vouched: …)` (HOST-ROW)
+	mu           sync.Mutex
+	loadingTypes atomic.Bool
+	set          *GoBindings
+	src          string
+	c            *checker // the binder
+	fi           *fileInfo
+	loaded       bool
+	err          string                   // the binding does not parse
+	vars         map[*Var]*syntax.VarSpec // a const or error var, typed on first use
+	refused      map[string]string        // a refused declaration ("F", "T.M") and its reason
+	recvPtr      map[*Func]bool           // a method in the method set of *T only
+	variadic     map[*Func]bool           // a function whose last parameter is Go's ...T
+	context      map[*Func]bool           // a function whose hidden first parameter is Go's context.Context (IG10)
+	goLines      map[int]string           // the `// ergo:` comment of each line, read by GoDecl (IG8) on first use
+	reads        map[*Func][]string       // the binders a function's `// ergo:reads` line names (gofacts.go)
+	vouched      map[*Func][]vouch        // its vouched `// ergo:reads p (vouched: …)` lines (gofacts.go)
+	writes       map[*Func]int            // the parameter a function's `// ergo:writes` line names (GBX2, gowrites.go)
+	effect       map[*Func]bool           // a memory-only function, `// ergo:effect none (vouched: …)` (GBX6)
+	host         map[*Func]bool           // a host function, `// ergo:effect ambient (vouched: …)` (HOST-ROW)
 	// C bindings (`// ergo:bind c ...`, CFFI-2/CFFI-3): provenance stamps, flat-type markers,
 	// scoped C-borrowed callback slice markers (`// ergo:scoped cbParam.sliceParam`),
 	// and named Go callback type annotations (`// ergo:cbtype cbParam GoTypeName`).
@@ -277,16 +285,25 @@ func hostOf(p *Package) *hostPkg {
 // Package returns the Go package at path, and whether it has a binding.
 // The package is empty until a member is read (member).
 func (s *GoBindings) Package(path string) (*Package, bool) {
+	s.mu.Lock()
 	if p, ok := s.pkgs[path]; ok {
+		s.mu.Unlock()
 		return p, p != nil
 	}
 	lookup := s.lookup
+	s.mu.Unlock()
 	if lookup == nil { // decoded from the std snapshot: Go's standard library
 		lookup = gostd.Binding
 	}
 	src, ok := lookup(path)
 	if !ok {
+		s.mu.Lock()
+		if p, exists := s.pkgs[path]; exists {
+			s.mu.Unlock()
+			return p, p != nil
+		}
 		s.pkgs[path] = nil
+		s.mu.Unlock()
 		return nil, false
 	}
 	// A pointer, the form the export codec carries (B7e).
@@ -294,25 +311,40 @@ func (s *GoBindings) Package(path string) (*Package, bool) {
 	c.pkg.Name = GoPackageName(path)
 	c.pkg.qualify = true
 	c.pkg.host = &hostPkg{set: s, src: src, c: c, vars: map[*Var]*syntax.VarSpec{}, refused: map[string]string{}, recvPtr: map[*Func]bool{}, variadic: map[*Func]bool{}, context: map[*Func]bool{}}
+	s.mu.Lock()
+	if p, exists := s.pkgs[path]; exists {
+		s.mu.Unlock()
+		return p, p != nil
+	}
 	s.pkgs[path] = c.pkg
+	s.mu.Unlock()
 	return c.pkg, true
 }
 
 // Diagnostics returns the diagnostics of every binding read so far, each
 // prefixed with its Go import path: none when the bindings are right.
 func (s *GoBindings) Diagnostics() []string {
+	s.mu.Lock()
+	paths := sortedKeys(s.pkgs)
+	pkgs := make([]*Package, len(paths))
+	for i, path := range paths {
+		pkgs[i] = s.pkgs[path]
+	}
+	s.mu.Unlock()
 	var out []string
-	for _, path := range sortedKeys(s.pkgs) {
-		p := s.pkgs[path]
+	for i, path := range paths {
+		p := pkgs[i]
 		if p == nil {
 			continue
 		}
+		p.host.mu.Lock()
 		if p.host.err != "" {
 			out = append(out, path+": "+p.host.err)
 		}
 		for _, d := range p.host.c.sorted() {
 			out = append(out, path+": "+d.String())
 		}
+		p.host.mu.Unlock()
 	}
 	return out
 }
@@ -326,7 +358,9 @@ func (s *GoBindings) ResolveAll(path string) bool {
 		return false
 	}
 	h := p.host
-	h.load()
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.loadLocked()
 	// A misfit line is reported in the binding's own file.
 	if h.fi != nil {
 		saved := h.c.cur
@@ -335,23 +369,23 @@ func (s *GoBindings) ResolveAll(path string) bool {
 	}
 	for _, name := range sortedKeys(p.Scope.names) {
 		o := p.Scope.names[name]
-		h.resolve(o)
+		h.resolveLocked(o)
 		if fn, ok := o.(*Func); ok {
 			h.misfitReads(fn)
 			h.misfitWrites(fn)
 		}
 		if tn, ok := o.(*TypeName); ok {
 			n := tn.Type.(*Named)
-			under(n)
+			h.c.resolveNamedLocked(n)
 			for _, m := range n.mlist {
-				h.c.funcSig(m)
+				h.c.funcSigLocked(m)
 				h.misfitReads(m)
 				h.misfitWrites(m) // a method writes too (HOST-ROW-3 slice 2: File.Read)
 			}
 		}
 	}
 	if h.cBind || h.looksLikeCBind() {
-		h.verifyCBindAll()
+		h.verifyCBindAllLocked()
 	}
 	return true
 }
@@ -379,19 +413,21 @@ func (p *Package) member(name string) (Object, bool) {
 		o, ok := p.Scope.names[name]
 		return o, ok
 	}
-	h.load()
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.loadLocked()
 	o, ok := p.Scope.names[name]
 	if ok {
-		h.resolve(o)
+		h.resolveLocked(o)
 	}
 	return o, ok
 }
 
 // resolve gives a declaration of the binding its type.
-func (h *hostPkg) resolve(o Object) {
+func (h *hostPkg) resolveLocked(o Object) {
 	switch o := o.(type) {
 	case *Func:
-		h.c.funcSig(o)
+		h.c.funcSigLocked(o)
 	case *Var:
 		if o.Type == nil {
 			saved := h.c.cur
@@ -400,11 +436,17 @@ func (h *hostPkg) resolve(o Object) {
 			h.c.cur = saved
 		}
 	}
-	// A TypeName's underlying type resolves when it is read.
+	// A TypeName's underlying type resolves when the binding loads.
 }
 
 // load parses the binding and declares a shell of each declaration.
 func (h *hostPkg) load() {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.loadLocked()
+}
+
+func (h *hostPkg) loadLocked() {
 	if h.loaded {
 		return
 	}
@@ -553,6 +595,13 @@ func (h *hostPkg) load() {
 		}
 	}
 	h.loadCBind(f)
+	h.loadingTypes.Store(true)
+	for _, tn := range c.pkg.Types {
+		if n, ok := tn.Type.(*Named); ok {
+			c.resolveNamedLocked(n)
+		}
+	}
+	h.loadingTypes.Store(false)
 }
 
 // GoVariadic reports a Go function or method of import go whose last
@@ -574,8 +623,11 @@ func GoContext(f *Func) bool {
 // refusal is the binding's reason for a Go declaration it does not import
 // ("F", or "T.M" for a method), or "".
 func (h *hostPkg) refusal(name string) string {
-	h.load()
-	return h.refused[name]
+	h.mu.Lock()
+	h.loadLocked()
+	why := h.refused[name]
+	h.mu.Unlock()
+	return why
 }
 
 // isHostNamed reports a type of a Go package.

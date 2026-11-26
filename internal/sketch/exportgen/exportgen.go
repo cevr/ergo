@@ -125,6 +125,7 @@ var skipFields = map[string]string{
 	"check.Package.unfed":      "judged before the snapshot is written (check.ReportUnfed)",
 	"check.Package.fed":        "judged before the snapshot is written (check.ReportUnfed)",
 	"check.Package.unprovided": "judged before the snapshot is written (check.ReportUnfed)",
+	"check.checker.lazyMu":     "rebuilt: the checker's lazy read mutex (RestoreChecker)",
 }
 
 // Generate returns the generated sources, by their path from root (the

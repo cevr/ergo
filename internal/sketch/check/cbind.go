@@ -140,6 +140,15 @@ func (h *hostPkg) verifyCBindHeader(f *syntax.File) {
 
 // verifyCBindAll resolves and validates every type and function of a C binding.
 func (h *hostPkg) verifyCBindAll() {
+	if h == nil || !h.cBind {
+		return
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.verifyCBindAllLocked()
+}
+
+func (h *hostPkg) verifyCBindAllLocked() {
 	if h == nil || !h.cBind || h.cChecked {
 		return
 	}
@@ -153,7 +162,7 @@ func (h *hostPkg) verifyCBindAll() {
 	for _, tn := range h.c.pkg.Types {
 		n, _ := tn.Type.(*Named)
 		if n != nil {
-			under(n)
+			h.c.resolveNamedLocked(n)
 		}
 		if h.cdata[tn] {
 			if ok, why := h.c.isCData(tn.Type); !ok {
@@ -164,7 +173,7 @@ func (h *hostPkg) verifyCBindAll() {
 	// 2. Verify every C-bound function and method carries `needs go.Foreign` and
 	//    only crosses the boundary with C-safe types.
 	for _, fn := range h.c.pkg.Funcs {
-		h.c.funcSig(fn)
+		h.c.funcSigLocked(fn)
 		h.verifyCBindFunc(fn, false)
 	}
 	for _, tn := range h.c.pkg.Types {
@@ -173,7 +182,7 @@ func (h *hostPkg) verifyCBindAll() {
 			continue
 		}
 		for _, m := range n.mlist {
-			h.c.funcSig(m)
+			h.c.funcSigLocked(m)
 			h.verifyCBindFunc(m, true)
 		}
 	}

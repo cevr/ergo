@@ -67,6 +67,8 @@ func GoDecl(f *Func) string {
 	if h == nil || f.Decl == nil || h.fi == nil {
 		return ""
 	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
 	if h.goLines == nil {
 		h.goLines = map[int]string{}
 		file := h.fi.syntax
