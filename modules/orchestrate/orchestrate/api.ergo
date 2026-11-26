@@ -1,3 +1,4 @@
+import json
 import option
 import time
 
@@ -10,8 +11,8 @@ type UnitOpenInput {
 	ID        string,
 	Title     string,
 	Requires  []string,
-	Lane      option.Option[string],
-	Branch    option.Option[string],
+	Lane      json.Optional[string],
+	Branch    json.Optional[string],
 }
 
 // ReceiptRecordInput records one run of a check for the unit (repo, run, id): its kind, the command, the head it ran at, its exit code and exit lines.
@@ -71,8 +72,8 @@ type Api {
 			ID:        "api-u-\(tag)",
 			Title:     "Api Unit",
 			Requires:  []string{"acceptance"},
-			Lane:      option.None,
-			Branch:    option.None,
+			Lane:      json.Absent,
+			Branch:    json.Absent,
 		}
 		let first = UnitOpen(input) catch {
 		case StoreFailed:
@@ -98,7 +99,7 @@ type Api {
 	// ApiVerdictFollowsReceipts verifies through the Api that a red receipt refuses the verdict as Unverified and a green one at the same head accepts it.
 	law ApiVerdictFollowsReceipts(tag int) {
 		let key = UnitStateInput{Repo: "repo", Run: "api", ID: "api-v-\(tag)"}
-		let opened = UnitOpen(UnitOpenInput{CommandID: CommandID("api-v-open-\(tag)"), Actor: "root", Repo: key.Repo, Run: key.Run, ID: key.ID, Title: "Verdict", Requires: []string{"acceptance"}, Lane: option.None, Branch: option.None}) catch {
+		let opened = UnitOpen(UnitOpenInput{CommandID: CommandID("api-v-open-\(tag)"), Actor: "root", Repo: key.Repo, Run: key.Run, ID: key.ID, Title: "Verdict", Requires: []string{"acceptance"}, Lane: json.Absent, Branch: json.Absent}) catch {
 		case StoreFailed:
 			return true
 		case _:
@@ -162,6 +163,15 @@ func apiVerdict(key UnitStateInput, n string) UnitVerdictInput {
 	UnitVerdictInput{CommandID: CommandID("api-v-\(n)"), Actor: "root", Repo: key.Repo, Run: key.Run, ID: key.ID, Head: "h"}
 }
 
+func fieldOption(f json.Optional[string]) option.Option[string] {
+	match f {
+	case json.Present[string] as p:
+		option.Some[string]{Value: p.Value}
+	case json.Absent:
+		option.None
+	}
+}
+
 func keyOf(repo string, run string, id string) UnitKey {
 	UnitKey{Repo: repo, Run: run, ID: id}
 }
@@ -169,7 +179,7 @@ func keyOf(repo string, run string, id string) UnitKey {
 // UnitOpen executes OpenUnit and returns the opened Unit.
 func UnitOpen(s Service, req UnitOpenInput) Unit fails NotFound | AlreadyExists | InvalidTransition | CommandReused | InvalidInput | Unverified | NotAcceptedHead | StoreFailed {
 	let key = keyOf(req.Repo, req.Run, req.ID)
-	let _ = try s.store.Execute(envelope(s, req.CommandID, req.Actor, OpenUnit{Key: key, Title: req.Title, Requires: req.Requires, Lane: req.Lane, Branch: req.Branch}))
+	let _ = try s.store.Execute(envelope(s, req.CommandID, req.Actor, OpenUnit{Key: key, Title: req.Title, Requires: req.Requires, Lane: fieldOption(req.Lane), Branch: fieldOption(req.Branch)}))
 	try mustUnit(s.store, key)
 }
 

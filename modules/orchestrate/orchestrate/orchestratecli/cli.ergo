@@ -1,6 +1,7 @@
 import api
 import flag
 import io
+import json
 import prompt
 import rpc
 import slices
@@ -29,11 +30,23 @@ func commandUnitOpen() flag.Command[Request] {
 	let f4 = flag.RequiredString("id", "input.ID (string)")
 	let f5 = flag.RequiredString("title", "input.Title (string)")
 	let f6 = flag.String("requires", "", "input.Requires ([]string)").Repeated()
-	let f7 = flag.OptionalString("lane", "input.Lane (Option[string])")
-	let f8 = flag.OptionalString("branch", "input.Branch (Option[string])")
+	let f7 = flag.OptionalString("lane", "input.Lane (json.Optional[string])")
+	let f9 = flag.OptionalString("branch", "input.Branch (json.Optional[string])")
 	let usage = orchestrateapi.Doc(orchestrateapi.UnitOpenOp)
-	flag.Command[Request]{Name: "unit-open", Usage: usage, Set: flag.Set{Name: "unit-open", Usage: usage, Flags: []flag.Flag{f0, f1, f2, f3, f4, f5, f6, f7, f8}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
-		orchestrateapi.UnitOpenRequest{Input: orchestrate.UnitOpenInput{CommandID: orchestrate.CommandID(f0.Get(v)), Actor: f1.Get(v), Repo: f2.Get(v), Run: f3.Get(v), ID: f4.Get(v), Title: f5.Get(v), Requires: f6.Get(v), Lane: f7.Get(v), Branch: f8.Get(v)}}
+	flag.Command[Request]{Name: "unit-open", Usage: usage, Set: flag.Set{Name: "unit-open", Usage: usage, Flags: []flag.Flag{f0, f1, f2, f3, f4, f5, f6, f7, f9}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
+		let u8 = match f7.Get(v) {
+		case Some[string] as s:
+			json.Present[string]{Value: s.Value}
+		case None:
+			json.Absent
+		}
+		let u10 = match f9.Get(v) {
+		case Some[string] as s:
+			json.Present[string]{Value: s.Value}
+		case None:
+			json.Absent
+		}
+		orchestrateapi.UnitOpenRequest{Input: orchestrate.UnitOpenInput{CommandID: orchestrate.CommandID(f0.Get(v)), Actor: f1.Get(v), Repo: f2.Get(v), Run: f3.Get(v), ID: f4.Get(v), Title: f5.Get(v), Requires: f6.Get(v), Lane: u8, Branch: u10}}
 	}, Commands: []flag.Command[Request]{}}
 }
 
@@ -146,14 +159,14 @@ func Print(r Request) []string {
 			out = out.Append("-requires=\(e)")
 		}
 		match x.Input.Lane {
-		case Some[string] as s:
+		case json.Present[string] as s:
 			out = out.Append("-lane=\(s.Value)")
-		case None:
+		case json.Absent:
 		}
 		match x.Input.Branch {
-		case Some[string] as s:
+		case json.Present[string] as s:
 			out = out.Append("-branch=\(s.Value)")
-		case None:
+		case json.Absent:
 		}
 		out
 	case orchestrateapi.ReceiptRecordRequest as x:
