@@ -1,0 +1,10 @@
+import github.com/cevr/ergo/modules/git/oid
+import github.com/cevr/ergo/modules/git/source
+
+let onSha1 = context {
+	source.Source: New(Policy{Format: oid.Sha1, Protected: []string{"refs/heads/main"}, MaxBlobBytes: 0}),
+}
+
+let onSha256 = context {
+	source.Source: New(Policy{Format: oid.Sha256, Protected: []string{"refs/heads/main"}, MaxBlobBytes: 0}),
+}
