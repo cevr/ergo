@@ -9,10 +9,13 @@ import (
 	"path/filepath"
 	"reflect"
 	"regexp"
+	"runtime"
 	"slices"
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 
 	"ergo.local/prototype/internal/experimental/irspike"
@@ -179,7 +182,7 @@ func TestCompilerIRAgreesWithBuilder(t *testing.T) {
 	} else {
 		t.Logf("irdump itself: wall %.1fs cpu %.1fs, overlapped with go-lower", r.wall.Seconds(), r.cpu.Seconds())
 	}
-	t.Logf("go-lower: %d of %d programs read from the store", irLowerCache.hits, len(plan.programs))
+	t.Logf("go-lower: %d of %d programs read from the store", irLowerCache.hitCount(), len(plan.programs))
 	phases.next("compare")
 	for _, l := range dumped {
 		kind, rest, _ := strings.Cut(l, " ")
@@ -1533,6 +1536,39 @@ type goIRPlan struct {
 	testOracle   irGoTestOracle
 }
 
+type irLoadedUnit struct {
+	u   lower.Unit
+	err error
+}
+
+func loadIRUnits(dirs []string) []irLoadedUnit {
+	out := make([]irLoadedUnit, len(dirs))
+	workers := min(max(runtime.GOMAXPROCS(0), 1), len(dirs))
+	if workers <= 1 {
+		for i, dir := range dirs {
+			out[i].u, out[i].err = irspike.Load(dir)
+		}
+		return out
+	}
+	var next atomic.Int64
+	var wg sync.WaitGroup
+	wg.Add(workers)
+	for range workers {
+		go func() {
+			defer wg.Done()
+			for {
+				i := int(next.Add(1) - 1)
+				if i >= len(dirs) {
+					return
+				}
+				out[i].u, out[i].err = irspike.Load(dirs[i])
+			}
+		}()
+	}
+	wg.Wait()
+	return out
+}
+
 // goIRPrograms loads each example program, each package no program
 // imports (as a test build), the fixtures and the std program for
 // goIRFuncs.
@@ -1542,12 +1578,13 @@ func goIRPrograms(t *testing.T, importFixture []string) goIRPlan {
 	var programs []irGoProgram
 	testOracle := irGoTestOracle{roots: map[string]irGoProgram{}, cache: map[string]irGoIndex{}, unavailable: map[string]string{}}
 	covered := map[string]bool{}
-	for _, dir := range irSlice(irPrograms(t)) {
-		u, err := irspike.Load(dir)
-		if err != nil {
-			t.Fatalf("%s: %v", dir, err)
+	progDirs := irSlice(irPrograms(t))
+	for i, res := range loadIRUnits(progDirs) {
+		dir := progDirs[i]
+		if res.err != nil {
+			t.Fatalf("%s: %v", dir, res.err)
 		}
-		pr := irGoProgram{u: u, dir: dir, module: moduleRoot(dir), reach: ownFuncs(u, covered)}
+		pr := irGoProgram{u: res.u, dir: dir, module: moduleRoot(dir), reach: ownFuncs(res.u, covered)}
 		programs = append(programs, pr)
 		testOracle.roots[dir] = pr
 	}
@@ -1560,19 +1597,26 @@ func goIRPrograms(t *testing.T, importFixture []string) goIRPlan {
 	// The corpus's own fixture (testdata/bind) is lowered alike; a folder
 	// the Go front end does not load is logged as one it does not lower.
 	fixture := filepath.Join(repoRoot(), "internal", "selfhostcheck", "testdata", "bind")
+	var targetDirs []string
 	for _, dir := range append(append(irSlice(targets), irSlice([]string{fixture})...), importFixture...) {
 		if covered[dir] || filepath.Base(filepath.Dir(dir)) == "cmd" {
 			continue
 		}
-		u, err := irspike.Load(dir)
-		if err != nil && dir == fixture {
-			unlowered[dir] = err.Error()
+		targetDirs = append(targetDirs, dir)
+	}
+	for i, res := range loadIRUnits(targetDirs) {
+		dir := targetDirs[i]
+		if covered[dir] {
 			continue
 		}
-		if err != nil {
-			t.Fatalf("%s: %v", dir, err)
+		if res.err != nil && dir == fixture {
+			unlowered[dir] = res.err.Error()
+			continue
 		}
-		programs = append(programs, irGoProgram{u: u, tests: true, dir: dir, module: moduleRoot(dir), reach: ownFuncs(u, covered)})
+		if res.err != nil {
+			t.Fatalf("%s: %v", dir, res.err)
+		}
+		programs = append(programs, irGoProgram{u: res.u, tests: true, dir: dir, module: moduleRoot(dir), reach: ownFuncs(res.u, covered)})
 	}
 	// Every std body (including the prelude's own Ergo-bodied functions),
 	// reached by a program that calls none (the IR census's std domain).
@@ -1590,12 +1634,14 @@ func goIRPrograms(t *testing.T, importFixture []string) goIRPlan {
 		return preludeFuncs[i].Name < preludeFuncs[j].Name
 	})
 	funcs = append(funcs, preludeFuncs...)
+	const stdProgramDir = "/ergo-std-program"
 	a := sketchfront.Check("func main() {}\n")
-	su, err := sketchfront.IRSpikeUnit(a, filepath.Join(t.TempDir(), "std.ergo"))
+	su, err := sketchfront.IRSpikeUnit(a, filepath.Join(stdProgramDir, "std.ergo"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	programs = append(programs, irGoProgram{u: su, module: filepath.Dir(su.Sources[0].Path), reach: funcs})
+	su.Root = stdProgramDir
+	programs = append(programs, irGoProgram{u: su, module: stdProgramDir, reach: funcs})
 	roots := map[string]bool{}
 	tests := map[string]bool{}
 	for _, pr := range programs[:len(programs)-1] { // the std program's root is no corpus folder
@@ -1619,17 +1665,59 @@ func goIRFuncs(t *testing.T, paths irPathIDs, plan goIRPlan) irGoIndex {
 	t.Helper()
 	idx := irGoIndex{}
 	unlowered := plan.unlowered
-	for _, pr := range plan.programs {
-		err := indexGoIR(t, paths, idx, pr)
-		if err != nil && pr.tests {
+	type irLowerResult struct {
+		lowered irLowered
+		err     error
+	}
+	n := len(plan.programs)
+	results := make([]irLowerResult, n)
+	order := make([]int, 0, n)
+	if n > 0 {
+		// Schedule the std program first so it overlaps all smaller units.
+		order = append(order, n-1)
+		for i := 0; i < n-1; i++ {
+			order = append(order, i)
+		}
+	}
+	workers := min(max(runtime.GOMAXPROCS(0), 1), n)
+	if workers <= 1 {
+		for _, k := range order {
+			results[k].lowered, results[k].err = irLowerCache.lower(nil, plan.programs[k])
+		}
+	} else {
+		var next atomic.Int64
+		var wg sync.WaitGroup
+		wg.Add(workers)
+		for range workers {
+			go func() {
+				defer wg.Done()
+				for {
+					pos := int(next.Add(1) - 1)
+					if pos >= len(order) {
+						return
+					}
+					k := order[pos]
+					results[k].lowered, results[k].err = irLowerCache.lower(nil, plan.programs[k])
+				}
+			}()
+		}
+		wg.Wait()
+	}
+	if skipped := irLowerCache.unkeptReasons(); len(skipped) > 0 {
+		t.Logf("go-lower: %d skipped store: %s", len(skipped), strings.Join(skipped, "; "))
+	}
+	for i, pr := range plan.programs {
+		res := results[i]
+		if res.err != nil && pr.tests {
 			// A test build the Go lowerer refuses (an internal compiler
 			// error of its own) has no IR to compare; it is logged.
-			unlowered[pr.dir] = err.Error()
+			unlowered[pr.dir] = res.err.Error()
 			continue
 		}
-		if err != nil {
-			t.Fatalf("%s: %v", pr.module, err)
+		if res.err != nil {
+			t.Fatalf("%s: %v", pr.module, res.err)
 		}
+		indexLowered(t, paths, idx, pr, res.lowered)
 	}
 	return idx
 }
@@ -1691,6 +1779,8 @@ func indexLowered(t *testing.T, paths irPathIDs, idx irGoIndex, pr irGoProgram, 
 		for i, p := range f.Files {
 			if rest, ok := strings.CutPrefix(p, "std/"); ok {
 				abs[i] = filepath.Join(std, rest)
+			} else if filepath.IsAbs(p) {
+				abs[i] = p
 			} else {
 				abs[i] = filepath.Join(module, p)
 			}

@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 
 	"ergo.local/prototype/internal/sketch/lawcache"
@@ -52,16 +53,29 @@ func irAgreeFresh() bool { return os.Getenv(irAgreeFreshVariable) == "1" }
 // irWithin writes path relative to the repository as "@/<slash path>";
 // a path outside it stays absolute.
 func irWithin(path string) string {
-	r, err := filepath.Rel(repoRoot(), path)
-	if err != nil || r == ".." || strings.HasPrefix(r, ".."+string(filepath.Separator)) {
-		return path
+	if path == "" {
+		return ""
 	}
-	return "@/" + filepath.ToSlash(r)
+	root := filepath.Clean(repoRoot())
+	clean := filepath.Clean(path)
+	if out := lawcache.Within(root, clean); out != clean || out == "@" || strings.HasPrefix(out, "@/") {
+		return out
+	}
+	if realRoot, err := filepath.EvalSymlinks(root); err == nil {
+		if realPath, err := filepath.EvalSymlinks(clean); err == nil {
+			if out := lawcache.Within(realRoot, realPath); out != realPath || out == "@" || strings.HasPrefix(out, "@/") {
+				return out
+			}
+		}
+	}
+	return path
 }
 
 // irRootPrefix is the repository's folder as answers spell it, which a
 // stored answer holds as "@/".
-func irRootPrefix() string { return filepath.Clean(repoRoot()) + string(filepath.Separator) }
+func irRootPrefix() string {
+	return lawcache.Unroot(filepath.Clean(repoRoot()), "@") + string(filepath.Separator)
+}
 
 // irAnswerEnv is the environment an answer may read: each GO, CGO_ and
 // ERGO_ variable except those that only name a place or this test's own
@@ -82,14 +96,23 @@ func irAnswerEnv() []string {
 	return append(env, "go "+runtime.Version())
 }
 
+type irDigestEntry struct {
+	once sync.Once
+	sum  string
+}
+
 // irDigests hashes files and folders once per run.
 type irDigests struct {
 	mu    sync.Mutex
-	trees map[string]string
-	flats map[string]string
+	trees map[string]*irDigestEntry
+	flats map[string]*irDigestEntry
 }
 
-var irDigest = &irDigests{trees: map[string]string{}, flats: map[string]string{}}
+func newIRDigests() *irDigests {
+	return &irDigests{trees: map[string]*irDigestEntry{}, flats: map[string]*irDigestEntry{}}
+}
+
+var irDigest = newIRDigests()
 
 // tree is the digest of every file under dir: its "@/" path and bytes.
 func (d *irDigests) tree(t *testing.T, dir string) string {
@@ -101,45 +124,53 @@ func (d *irDigests) flat(t *testing.T, dir string) string {
 	return d.memo(t, d.flats, dir, false)
 }
 
-func (d *irDigests) memo(t *testing.T, m map[string]string, dir string, deep bool) string {
-	t.Helper()
+func (d *irDigests) memo(t *testing.T, m map[string]*irDigestEntry, dir string, deep bool) string {
+	if dir == "" {
+		return ""
+	}
 	d.mu.Lock()
-	defer d.mu.Unlock()
-	if s, ok := m[dir]; ok {
-		return s
+	e := m[dir]
+	if e == nil {
+		e = &irDigestEntry{}
+		m[dir] = e
 	}
-	h := sha256.New()
-	err := filepath.WalkDir(dir, func(path string, e fs.DirEntry, err error) error {
-		if err != nil {
-			if os.IsNotExist(err) && path == dir {
-				return fs.SkipAll
+	d.mu.Unlock()
+	e.once.Do(func() {
+		h := sha256.New()
+		err := filepath.WalkDir(dir, func(path string, entry fs.DirEntry, err error) error {
+			if err != nil {
+				if os.IsNotExist(err) && path == dir {
+					return fs.SkipAll
+				}
+				return err
 			}
-			return err
-		}
-		if e.IsDir() {
-			if path != dir && (!deep || e.Name() == ".git") {
-				return fs.SkipDir
+			if entry.IsDir() {
+				if path != dir && (!deep || entry.Name() == ".git") {
+					return fs.SkipDir
+				}
+				return nil
 			}
+			if !entry.Type().IsRegular() {
+				fmt.Fprintf(h, "%s %v\x00", irWithin(path), entry.Type())
+				return nil
+			}
+			data, err := os.ReadFile(path)
+			if err != nil {
+				return err
+			}
+			fmt.Fprintf(h, "%s %d:", irWithin(path), len(data))
+			h.Write(data)
 			return nil
-		}
-		if !e.Type().IsRegular() {
-			fmt.Fprintf(h, "%s %v\x00", irWithin(path), e.Type())
-			return nil
-		}
-		data, err := os.ReadFile(path)
+		})
 		if err != nil {
-			return err
+			if t != nil {
+				t.Fatalf("digest %s: %v", dir, err)
+			}
+			panic(fmt.Sprintf("digest %s: %v", dir, err))
 		}
-		fmt.Fprintf(h, "%s %d:", irWithin(path), len(data))
-		h.Write(data)
-		return nil
+		e.sum = hex.EncodeToString(h.Sum(nil))
 	})
-	if err != nil {
-		t.Fatalf("digest %s: %v", dir, err)
-	}
-	s := hex.EncodeToString(h.Sum(nil))
-	m[dir] = s
-	return s
+	return e.sum
 }
 
 // irModuleDigest is the digest of every file of the module folder dir,
@@ -158,7 +189,9 @@ func irModuleDigest(t *testing.T, dir string) string {
 // Go modules, every replaced Go module folder, the functions it reaches,
 // whether it is a test build, and the environment.
 func irProgramKey(t *testing.T, pr irGoProgram) string {
-	t.Helper()
+	if t != nil {
+		t.Helper()
+	}
 	parts := []string{"agree golower/1", irWithin(pr.dir), irWithin(pr.module), fmt.Sprint(pr.tests)}
 	parts = append(parts, irAnswerEnv()...)
 	parts = append(parts, "std "+irDigest.tree(t, stdDir()), "modules "+irDigest.tree(t, filepath.Join(repoRoot(), "modules")))
@@ -191,17 +224,231 @@ func irProgramKey(t *testing.T, pr irGoProgram) string {
 
 // irLowerStore is the Go side's store: answers of this test binary.
 type irLowerStore struct {
-	once  sync.Once
-	store *lawcache.Store
-	hits  int
+	once   sync.Once
+	store  *lawcache.Store
+	hits   atomic.Int64
+	mu     sync.Mutex
+	unkept []string
 }
 
 var irLowerCache = &irLowerStore{}
 
+func (c *irLowerStore) hitCount() int { return int(c.hits.Load()) }
+
+func (c *irLowerStore) unkeptReasons() []string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return slices.Clone(c.unkept)
+}
+
+type irFileEnvelope struct {
+	V      int             `json:"v"`
+	Files  []string        `json:"files"`
+	Funcs  json.RawMessage `json:"funcs"`
+	Shared json.RawMessage `json:"shared,omitempty"`
+}
+
+func irMapSegments(p string, fn func(string) (string, bool, bool)) (string, bool) {
+	parts := strings.Split(p, "#ergo-inline-")
+	changed := false
+	for i, part := range parts {
+		chain := strings.Split(part, ">")
+		chainChanged := false
+		for j, seg := range chain {
+			u, segChanged, ok := fn(seg)
+			if !ok {
+				return "", false
+			}
+			if segChanged {
+				chain[j] = u
+				chainChanged = true
+			}
+		}
+		if chainChanged {
+			parts[i] = strings.Join(chain, ">")
+			changed = true
+		}
+	}
+	if !changed {
+		return p, true
+	}
+	return strings.Join(parts, "#ergo-inline-"), true
+}
+
+func irWithinSegments(p string) (string, bool) {
+	return irMapSegments(p, func(part string) (string, bool, bool) {
+		if part == "@" || strings.HasPrefix(part, "@/") {
+			return "", false, false
+		}
+		if w := irWithin(part); w != part {
+			return w, true, true
+		}
+		return part, false, true
+	})
+}
+
+func irUnrootSegments(root, p string) (string, bool) {
+	changed := false
+	out, _ := irMapSegments(p, func(part string) (string, bool, bool) {
+		if part == "@" || strings.HasPrefix(part, "@/") {
+			changed = true
+			return lawcache.Unroot(root, part), true, true
+		}
+		return part, false, true
+	})
+	return out, changed
+}
+
+func irLowerPack(l irLowered) (string, bool) {
+	text, why := irLowerPackReason(l)
+	return text, why == ""
+}
+
+func irNamesContext(text, root string) string {
+	candidates := []string{root}
+	if realRoot, err := filepath.EvalSymlinks(root); err == nil && realRoot != root {
+		candidates = append(candidates, realRoot)
+	}
+	for _, c := range candidates {
+		if i := strings.Index(text, c); i >= 0 {
+			lo := max(i-24, 0)
+			hi := min(i+len(c)+48, len(text))
+			return text[lo:hi]
+		}
+	}
+	return "matched"
+}
+
+func irWithinRaw(raw json.RawMessage, root string) (json.RawMessage, bool) {
+	if len(raw) == 0 {
+		return raw, false
+	}
+	s := string(raw)
+	r := strings.ReplaceAll(s, irRootPrefix(), "@/")
+	if realRoot, err := filepath.EvalSymlinks(root); err == nil && realRoot != root {
+		r = strings.ReplaceAll(r, realRoot+string(filepath.Separator), "@/")
+	}
+	if r == s {
+		return raw, false
+	}
+	return json.RawMessage(r), true
+}
+
+func irUnrootRaw(raw json.RawMessage) (json.RawMessage, bool) {
+	if len(raw) == 0 {
+		return raw, false
+	}
+	s := string(raw)
+	r := strings.ReplaceAll(s, "@/", irRootPrefix())
+	if r == s {
+		return raw, false
+	}
+	return json.RawMessage(r), true
+}
+
+func irLowerPackReason(l irLowered) (string, string) {
+	root := filepath.Clean(repoRoot())
+	packed := irLowered{
+		Files:   make([]irLoweredFile, len(l.Files)),
+		Exports: l.Exports,
+	}
+	copy(packed.Files, l.Files)
+	for i, file := range packed.Files {
+		var env irFileEnvelope
+		dec := json.NewDecoder(strings.NewReader(file.Data))
+		dec.DisallowUnknownFields()
+		if err := dec.Decode(&env); err != nil {
+			return "", "decode: " + err.Error()
+		}
+		if strings.Contains(string(env.Funcs), "@/") || strings.Contains(string(env.Shared), "@/") {
+			return "", "contains @/"
+		}
+		changed := false
+		for j, p := range env.Files {
+			w, ok := irWithinSegments(p)
+			if !ok {
+				return "", "within: " + p
+			}
+			if w != p {
+				env.Files[j] = w
+				changed = true
+			}
+		}
+		if w, ok := irWithinRaw(env.Funcs, root); ok {
+			env.Funcs = w
+			changed = true
+		}
+		if w, ok := irWithinRaw(env.Shared, root); ok {
+			env.Shared = w
+			changed = true
+		}
+		if changed {
+			b, err := json.Marshal(&env)
+			if err != nil {
+				return "", "marshal-env: " + err.Error()
+			}
+			packed.Files[i].Data = string(b)
+		}
+	}
+	data, err := json.Marshal(packed)
+	if err != nil {
+		return "", "marshal-packed: " + err.Error()
+	}
+	text := string(data)
+	if lawcache.Names(text, root) {
+		return "", "names: " + irNamesContext(text, root)
+	}
+	return text, ""
+}
+
+func irLowerUnpack(text string) (irLowered, bool) {
+	var l irLowered
+	if err := json.Unmarshal([]byte(text), &l); err != nil {
+		return irLowered{}, false
+	}
+	root := filepath.Clean(repoRoot())
+	for i := range l.Files {
+		if !strings.Contains(l.Files[i].Data, `"@"`) && !strings.Contains(l.Files[i].Data, "@/") {
+			continue
+		}
+		var env irFileEnvelope
+		dec := json.NewDecoder(strings.NewReader(l.Files[i].Data))
+		dec.DisallowUnknownFields()
+		if err := dec.Decode(&env); err != nil {
+			return irLowered{}, false
+		}
+		changed := false
+		for j, p := range env.Files {
+			if u, ok := irUnrootSegments(root, p); ok {
+				env.Files[j] = u
+				changed = true
+			}
+		}
+		if u, ok := irUnrootRaw(env.Funcs); ok {
+			env.Funcs = u
+			changed = true
+		}
+		if u, ok := irUnrootRaw(env.Shared); ok {
+			env.Shared = u
+			changed = true
+		}
+		if changed {
+			b, err := json.Marshal(&env)
+			if err != nil {
+				return irLowered{}, false
+			}
+			l.Files[i].Data = string(b)
+		}
+	}
+	return l, true
+}
+
 // lower is lowerGoIR of pr, read from the store when it holds the
 // answer for pr's key, and kept there when it did not.
 func (c *irLowerStore) lower(t *testing.T, pr irGoProgram) (irLowered, error) {
-	t.Helper()
+	if t != nil {
+		t.Helper()
+	}
 	c.once.Do(func() {
 		if exe, err := os.Executable(); err == nil {
 			c.store = irAgreeStore("agree-golower", exe)
@@ -213,9 +460,8 @@ func (c *irLowerStore) lower(t *testing.T, pr irGoProgram) (irLowered, error) {
 	key := irProgramKey(t, pr)
 	if !irAgreeFresh() {
 		if text, ok := c.store.Get(key); ok {
-			var l irLowered
-			if err := json.Unmarshal([]byte(text), &l); err == nil {
-				c.hits++
+			if l, ok := irLowerUnpack(text); ok {
+				c.hits.Add(1)
 				return l, nil
 			}
 		}
@@ -224,12 +470,12 @@ func (c *irLowerStore) lower(t *testing.T, pr irGoProgram) (irLowered, error) {
 	if err != nil {
 		return l, err
 	}
-	data, err := json.Marshal(l)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if text := string(data); !strings.Contains(text, filepath.Clean(repoRoot())) && !strings.Contains(text, `"@/`) {
-		c.store.Put(key, text)
+	if text, why := irLowerPackReason(l); why == "" {
+		c.store.Keep(key, text)
+	} else {
+		c.mu.Lock()
+		c.unkept = append(c.unkept, fmt.Sprintf("%s(tests=%v): %s", irWithin(pr.dir), pr.tests, why))
+		c.mu.Unlock()
 	}
 	return l, nil
 }
@@ -295,9 +541,13 @@ func irDumpKeep(bin, key string, out []string, tmp string) {
 	if strings.Contains(text, "@/") || strings.Contains(text, tmp) {
 		return
 	}
+	root := filepath.Clean(repoRoot())
 	text = strings.ReplaceAll(text, irRootPrefix(), "@/")
-	if strings.Contains(text, filepath.Clean(repoRoot())) {
+	if realRoot, err := filepath.EvalSymlinks(root); err == nil && realRoot != root {
+		text = strings.ReplaceAll(text, realRoot+string(filepath.Separator), "@/")
+	}
+	if lawcache.Names(text, root) {
 		return
 	}
-	irAgreeStore("agree-irdump", bin).Put(key, text)
+	irAgreeStore("agree-irdump", bin).Keep(key, text)
 }
