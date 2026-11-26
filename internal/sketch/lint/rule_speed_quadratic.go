@@ -20,17 +20,23 @@ var quadraticScan = &Rule{
 }
 
 func checkQuadraticScan(p *Pass) {
-	syntax.Inspect(p.File, func(n syntax.Node) bool {
-		outer, ok := n.(*syntax.RangeStmt)
-		if !ok {
-			return true
-		}
+	for _, outer := range p.fileIndex().ranges {
 		v := rootVar(p.Info, outer.X)
 		if v == nil {
-			return true
+			continue
 		}
-		shape := shapeOf(p.Info, outer.X)
-		same := func(e syntax.Expr) bool { return rootVar(p.Info, e) == v && shapeOf(p.Info, e) == shape }
+		var shape string
+		hasShape := false
+		same := func(e syntax.Expr) bool {
+			if rootVar(p.Info, e) != v {
+				return false
+			}
+			if !hasShape {
+				shape = shapeOf(p.Info, outer.X)
+				hasShape = true
+			}
+			return shapeOf(p.Info, e) == shape
+		}
 		syntax.Inspect(outer.Body, func(m syntax.Node) bool {
 			switch m := m.(type) {
 			case *syntax.FuncLit, *syntax.ReturnStmt:
@@ -64,6 +70,5 @@ func checkQuadraticScan(p *Pass) {
 			}
 			return true
 		})
-		return true
-	})
+	}
 }

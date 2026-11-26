@@ -1,0 +1,422 @@
+import crc32
+import slices
+import zlib
+
+let sigLocal = 67324752
+let sigCentral = 33639248
+let sigEnd = 101010256
+let sigEnd64 = 101075792
+let sigLocator64 = 117853008
+let max16 = 65535
+let max32 = 4294967295
+let extTime = 21589
+let dosEpoch = 315532800
+let dosLast = 4354819198
+
+type span {
+	start int,
+	end   int,
+}
+
+func le16(b []byte, p int) int { int(b[p]) | (int(b[p+1]) << 8) }
+
+func le32(b []byte, p int) int { le16(b, p) | (le16(b, p+2) << 16) }
+
+func le64(b []byte, p int) int fails Malformed {
+	let hi = le32(b, p+4)
+	if hi > 1073741823 {
+		return Malformed{Offset: p, Reason: "64-bit field overflows"}
+	}
+	le32(b, p) | (hi << 32)
+}
+
+func app16(out []byte, v int) []byte { out.Append(byte(v & 255)).Append(byte((v >> 8) & 255)) }
+
+func app32(out []byte, v int) []byte { app16(app16(out, v&65535), (v>>16)&65535) }
+
+func daysToCivil(days int) (int, int, int) {
+	let z = days + 719468
+	let era = z / 146097
+	let doe = z - era*146097
+	let yoe = (doe - doe/1460 + doe/36524 - doe/146096) / 365
+	let doy = doe - (365*yoe + yoe/4 - yoe/100)
+	let mp = (5*doy + 2) / 153
+	let d = doy - (153*mp+2)/5 + 1
+	let m = if mp < 10 { mp + 3 } else { mp - 9 }
+	let y = yoe + era*400 + (if m <= 2 { 1 } else { 0 })
+	(y, m, d)
+}
+
+func civilToDays(year int, m int, d int) int {
+	let y = year - (if m <= 2 { 1 } else { 0 })
+	let era = y / 400
+	let yoe = y - era*400
+	let doy = (153*(if m > 2 { m - 3 } else { m + 9 })+2)/5 + d - 1
+	let doe = yoe*365 + yoe/4 - yoe/100 + doy
+	era*146097 + doe - 719468
+}
+
+func dosTime(t int) (int, int) {
+	let c = if t < dosEpoch { dosEpoch } else if t > dosLast { dosLast } else { t }
+	let (y, m, d) = daysToCivil(c / 86400)
+	let s = c % 86400
+	((s/3600)<<11 | ((s%3600)/60)<<5 | (s%60)/2, (y-1980)<<9 | m<<5 | d)
+}
+
+func dosToUnix(dtime int, ddate int) int {
+	let y = 1980 + (ddate >> 9)
+	let m = (ddate >> 5) & 15
+	let d = ddate & 31
+	civilToDays(y, if m < 1 { 1 } else { m }, if d < 1 { 1 } else { d })*86400 + (dtime>>11)*3600 + ((dtime>>5)&63)*60 + (dtime&31)*2
+}
+
+func zipExtra(t int) []byte {
+	if t < 0 || t > max32 {
+		return []byte{}
+	}
+	app32(app16(app16([]byte{}, extTime), 5).Append(byte(1)), t)
+}
+
+func writeZip(a Archive, level int) []byte fails TooLarge | Unsupported {
+	if a.rows.Len() > max16 {
+		return TooLarge{Path: "", Reason: "more than 65535 entries"}
+	}
+	let mut out = slices.WithCapacity[byte](a.data.Len() + a.rows.Len()*128 + 22)
+	let mut central = []byte{}
+	for i, r in a.rows {
+		let name = if isDir(r.kind) { r.path + "/" } else { r.path }
+		let content = match r.kind {
+		case File:
+			Content(a, i)
+		case Symlink:
+			r.link.Bytes()
+		case Dir:
+			[]byte{}
+		case HardLink:
+			return Unsupported{Path: r.path, Feature: "hard link in zip"}
+		}
+		if content.Len() >= max32 {
+			return TooLarge{Path: r.path, Reason: "entry of 4 GiB or more"}
+		}
+		let offset = out.Len()
+		if offset >= max32 {
+			return TooLarge{Path: r.path, Reason: "archive of 4 GiB or more"}
+		}
+		let crc = int(crc32.ChecksumBytes(content))
+		let mut method = 0
+		let mut packed = content
+		if level > 0 && content.Len() > 0 {
+			let d = zlib.DeflateRaw(content, level)
+			if d.Len() < content.Len() {
+				method = 8
+				packed = d
+			}
+		}
+		let (dtime, ddate) = dosTime(r.modTime)
+		let extra = zipExtra(r.modTime)
+		let typeBits = match r.kind {
+		case File:
+			32768
+		case Dir:
+			16384
+		case Symlink, HardLink:
+			40960
+		}
+		let attrs = (typeBits|r.mode)<<16 | (if isDir(r.kind) { 16 } else { 0 })
+		let nb = name.Bytes()
+		out = app32(out, sigLocal)
+		out = app16(app16(app16(app16(out, 20), 2048), method), dtime)
+		out = app32(app32(app32(app16(out, ddate), crc), packed.Len()), content.Len())
+		out = app16(app16(out, nb.Len()), extra.Len())
+		out = out.AppendBytes(nb).AppendBytes(extra).AppendBytes(packed)
+		central = app32(central, sigCentral)
+		central = app16(app16(app16(app16(app16(central, 788), 20), 2048), method), dtime)
+		central = app32(app32(app32(app16(central, ddate), crc), packed.Len()), content.Len())
+		central = app16(app16(app16(app16(app16(central, nb.Len()), extra.Len()), 0), 0), 0)
+		central = app32(app32(central, attrs), offset)
+		central = central.AppendBytes(nb).AppendBytes(extra)
+	}
+	let cdOff = out.Len()
+	if cdOff >= max32 {
+		return TooLarge{Path: "", Reason: "archive of 4 GiB or more"}
+	}
+	out = out.AppendBytes(central)
+	out = app16(app16(app16(app16(app32(out, sigEnd), 0), 0), a.rows.Len()), a.rows.Len())
+	app16(app32(app32(out, central.Len()), cdOff), 0)
+}
+
+func findEnd(data []byte) int {
+	let n = data.Len()
+	let mut p = n - 22
+	let stop = if n-22-max16 < 0 { 0 } else { n - 22 - max16 }
+	for p >= stop {
+		if le32(data, p) == sigEnd && p+22+le16(data, p+20) <= n {
+			return p
+		}
+		p = p - 1
+	}
+	-1
+}
+
+func inflateEntry(packed []byte, usize int, at int) []byte fails Malformed | Truncated {
+	let r = zlib.InflateRawPrefix(packed, usize) catch {
+	case zlib.LimitExceeded:
+		return Malformed{Offset: at, Reason: "entry larger than its recorded size"}
+	case zlib.Truncated:
+		return Truncated{Offset: at + packed.Len()}
+	case zlib.BadBlock:
+		return Malformed{Offset: at, Reason: "deflate block"}
+	case zlib.BadDistance:
+		return Malformed{Offset: at, Reason: "deflate distance"}
+	case zlib.BadHuffman as e:
+		return Malformed{Offset: at, Reason: "deflate: " + e.Reason}
+	}
+	if r.Data.Len() != usize {
+		return Malformed{Offset: at, Reason: "entry smaller than its recorded size"}
+	}
+	r.Data
+}
+
+func readZip(data []byte, maxBytes int) Archive fails Unsafe | UnsafeLink | ThroughLink | Malformed | Truncated | Unsupported | BadChecksum | LimitExceeded {
+	let n = data.Len()
+	if n < 22 {
+		return Truncated{Offset: n}
+	}
+	let end = findEnd(data)
+	if end < 0 {
+		return Malformed{Offset: 0, Reason: "no end of central directory"}
+	}
+	let mut entries = le16(data, end+10)
+	let mut cdSize = le32(data, end+12)
+	let mut cdOff = le32(data, end+16)
+	if entries == max16 || cdSize == max32 || cdOff == max32 {
+		if end < 20 || le32(data, end-20) != sigLocator64 {
+			return Malformed{Offset: end, Reason: "no zip64 locator"}
+		}
+		let e64 = try le64(data, end-12)
+		if e64 < 0 || e64+56 > end-20 || le32(data, e64) != sigEnd64 {
+			return Malformed{Offset: end, Reason: "zip64 end record"}
+		}
+		entries = try le64(data, e64+32)
+		cdSize = try le64(data, e64+40)
+		cdOff = try le64(data, e64+48)
+	}
+	if cdOff > end || cdSize > end-cdOff {
+		return Malformed{Offset: end, Reason: "central directory out of range"}
+	}
+	if entries > cdSize/46 {
+		return Malformed{Offset: end, Reason: "entry count"}
+	}
+	let cdEnd = cdOff + cdSize
+	let mut spans = slices.WithCapacity[span](entries + 1)
+	spans = spans.Append(span{start: cdOff, end: cdEnd})
+	let mut a = New()
+	let mut used = 0
+	let mut p = cdOff
+	for _ in 0..entries {
+		if p+46 > cdEnd || le32(data, p) != sigCentral {
+			return Malformed{Offset: p, Reason: "central directory record"}
+		}
+		let unix = data[p+5] == byte(3)
+		let flags = le16(data, p+8)
+		let method = le16(data, p+10)
+		let dtime = le16(data, p+12)
+		let ddate = le16(data, p+14)
+		let crc = le32(data, p+16)
+		let mut csize = le32(data, p+20)
+		let mut usize = le32(data, p+24)
+		let nl = le16(data, p+28)
+		let xl = le16(data, p+30)
+		let cl = le16(data, p+32)
+		let ext = le32(data, p+38)
+		let mut off = le32(data, p+42)
+		if p+46+nl+xl+cl > cdEnd {
+			return Malformed{Offset: p, Reason: "central directory record"}
+		}
+		let name = data[p+46 : p+46+nl].Text()
+		let mut mtime = dosToUnix(dtime, ddate)
+		let mut q = p + 46 + nl
+		let xEnd = q + xl
+		for q+4 <= xEnd {
+			let id = le16(data, q)
+			let sz = le16(data, q+2)
+			if q+4+sz > xEnd {
+				return Malformed{Offset: q, Reason: "extra field"}
+			}
+			if id == 1 {
+				let mut r = q + 4
+				if usize == max32 {
+					if r+8 > q+4+sz {
+						return Malformed{Offset: q, Reason: "zip64 extra field"}
+					}
+					usize = try le64(data, r)
+					r = r + 8
+				}
+				if csize == max32 {
+					if r+8 > q+4+sz {
+						return Malformed{Offset: q, Reason: "zip64 extra field"}
+					}
+					csize = try le64(data, r)
+					r = r + 8
+				}
+				if off == max32 {
+					if r+8 > q+4+sz {
+						return Malformed{Offset: q, Reason: "zip64 extra field"}
+					}
+					off = try le64(data, r)
+				}
+			} else if id == extTime && sz >= 5 && data[q+4]&byte(1) != byte(0) {
+				mtime = le32(data, q+5)
+			}
+			q = q + 4 + sz
+		}
+		p = p + 46 + nl + xl + cl
+		if flags&1 != 0 {
+			return Unsupported{Path: name, Feature: "zip encryption"}
+		}
+		if method != 0 && method != 8 {
+			return Unsupported{Path: name, Feature: "zip method \(method)"}
+		}
+		if off > n-30 {
+			return Truncated{Offset: n}
+		}
+		if le32(data, off) != sigLocal {
+			return Malformed{Offset: off, Reason: "local header"}
+		}
+		let start = off + 30 + le16(data, off+26) + le16(data, off+28)
+		if start > n || csize > n-start {
+			return Truncated{Offset: n}
+		}
+		spans = spans.Append(span{start: off, end: start + csize})
+		let umode = ext >> 16
+		let ftype = umode & 61440
+		let slash = nl > 0 && data[p-xl-cl-1] == byte('/')
+		let kind = if unix && ftype == 40960 {
+			Symlink
+		} else if slash || (unix && ftype == 16384) || (!unix && ext&16 != 0) {
+			Dir
+		} else if !unix || ftype == 32768 || ftype == 0 {
+			File
+		} else {
+			return Unsupported{Path: name, Feature: "zip entry type"}
+		}
+		let mode = if unix && umode&511 != 0 { umode & 511 } else if isDir(kind) { 493 } else { 420 }
+		if isDir(kind) {
+			try Add(&a, Header{Path: name, Kind: kind, Mode: mode, ModTime: mtime, Link: ""}, []byte{})
+			continue
+		}
+		if usize > maxBytes-used {
+			return LimitExceeded{Limit: maxBytes}
+		}
+		let packed = data[start : start+csize]
+		let content = if method == 0 {
+			if csize != usize {
+				return Malformed{Offset: off, Reason: "stored entry sizes differ"}
+			}
+			packed
+		} else {
+			try inflateEntry(packed, usize, start)
+		}
+		let actual = crc32.ChecksumBytes(content)
+		if actual != uint32(crc) {
+			return BadChecksum{Path: name, Expected: uint32(crc), Actual: actual}
+		}
+		used = used + usize
+		let link = match kind {
+		case Symlink:
+			content.Text()
+		case File, Dir, HardLink:
+			""
+		}
+		try Add(&a, Header{Path: name, Kind: kind, Mode: mode, ModTime: mtime, Link: link}, content)
+	}
+	let sorted = slices.SortFunc(spans, func(x span, y span) int {
+		if x.start < y.start { -1 } else if x.start > y.start { 1 } else { 0 }
+	})
+	for i in 1..sorted.Len() {
+		if sorted[i].start < sorted[i-1].end {
+			return Malformed{Offset: sorted[i].start, Reason: "overlapping entries"}
+		}
+	}
+	a
+}
+
+// DosTimeRoundTrips: a time between 1980 and 2107 in even seconds is the
+// time the DOS date and time fields of a zip read back.
+law DosTimeRoundTrips(t int) {
+	let width = dosLast - dosEpoch
+	let c = dosEpoch + (if t < 0 { -(t % width) } else { t % width })
+	let (dtime, ddate) = dosTime(c)
+	dosToUnix(dtime, ddate) == c-c%2
+}
+
+// ZipEntriesAreChecked: in a stored zip, a flipped content byte fails
+// BadChecksum, a name patched to climb above the root fails Unsafe, and a
+// second entry pointed at the first entry's bytes fails Malformed.
+law ZipEntriesAreChecked(seg string, body []byte) {
+	let s = safeSegment(seg)
+	let mut a = New()
+	AddFile(&a, "aa/"+s, body) catch {
+	case Unsafe, ThroughLink:
+		return false
+	}
+	AddFile(&a, "aa/z"+s, body) catch {
+	case Unsafe, ThroughLink:
+		return false
+	}
+	let z = writeZip(a, 0) catch {
+	case TooLarge, Unsupported:
+		return false
+	}
+	let limit = 2 * body.Len()
+	let nameAt = 30
+	let cdOff = le32(z, z.Len()-6)
+	let mut checksum = body.Len() == 0
+	if body.Len() > 0 {
+		let mut flipped = z.Clone()
+		let i = nameAt + 3 + s.Len() + 9
+		flipped[i] = flipped[i] ^ byte(1)
+		let _ = readZip(flipped, limit) catch {
+		case BadChecksum:
+			checksum = true
+			New()
+		case Unsafe, UnsafeLink, ThroughLink, Malformed, Truncated, Unsupported, LimitExceeded:
+			New()
+		}
+	}
+	let mut slipped = z.Clone()
+	slipped[nameAt] = byte('.')
+	slipped[nameAt+1] = byte('.')
+	slipped[cdOff+46] = byte('.')
+	slipped[cdOff+47] = byte('.')
+	let mut unsafe = false
+	let _ = readZip(slipped, limit) catch {
+	case Unsafe:
+		unsafe = true
+		New()
+	case UnsafeLink, ThroughLink, Malformed, Truncated, Unsupported, BadChecksum, LimitExceeded:
+		New()
+	}
+	let second = cdOff + 46 + 3 + s.Len() + 9
+	let mut overlap = z.Clone()
+	overlap = putLE32(overlap, second+42, 0)
+	overlap = putLE32(overlap, second+20, body.Len())
+	let mut overlapping = false
+	let _ = readZip(overlap, limit) catch {
+	case Malformed as m:
+		overlapping = m.Reason == "overlapping entries"
+		New()
+	case Unsafe, UnsafeLink, ThroughLink, Truncated, Unsupported, BadChecksum, LimitExceeded:
+		New()
+	}
+	checksum && unsafe && overlapping
+}
+
+func putLE32(b []byte, at int, v int) []byte {
+	let mut out = b
+	out[at] = byte(v & 255)
+	out[at+1] = byte((v >> 8) & 255)
+	out[at+2] = byte((v >> 16) & 255)
+	out[at+3] = byte((v >> 24) & 255)
+	out
+}

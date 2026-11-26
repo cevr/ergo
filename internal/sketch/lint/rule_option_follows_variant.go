@@ -25,7 +25,7 @@ var optionFollowsVariant = &Rule{
 }
 
 func checkOptionFollowsVariant(p *Pass) {
-	vw := p.Memo(func() any { return collectVariantWrites(p.Program()) }).(*variantWrites)
+	vw := p.Memo(func() any { return collectVariantWrites(p.Program(), p.run.shared) }).(*variantWrites)
 	for _, d := range p.File.Decls {
 		td, ok := d.(*syntax.TypeDecl)
 		if !ok || exportedName(td.Name) && !p.Closed() {

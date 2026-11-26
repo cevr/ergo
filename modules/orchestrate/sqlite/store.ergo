@@ -113,7 +113,7 @@ func closeIgnoring(db sqlite.DB) needs go.Foreign {
 	}
 }
 
-func executeOn(opt option.Option[sqlite.DB], err string, env orchestrate.Envelope) orchestrate.ExecuteResult fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.StaleClaim | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.StoreFailed needs go.Foreign {
+func executeOn(opt option.Option[sqlite.DB], err string, env orchestrate.Envelope) orchestrate.ExecuteResult fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed needs go.Foreign {
 	let db = try openDB(opt, err)
 	with context { sql.DB: db } {
 		sqlite.WriteTransaction() {
@@ -126,7 +126,9 @@ func executeOn(opt option.Option[sqlite.DB], err string, env orchestrate.Envelop
 		return e
 	case orchestrate.InvalidTransition as e:
 		return e
-	case orchestrate.StaleClaim as e:
+	case orchestrate.Unverified as e:
+		return e
+	case orchestrate.NotAcceptedHead as e:
 		return e
 	case orchestrate.CommandReused as e:
 		return e
@@ -151,17 +153,17 @@ func executeOn(opt option.Option[sqlite.DB], err string, env orchestrate.Envelop
 
 // Execute runs pure orchestrate.Decide and persists all emitted events and projection
 // rows atomically inside one BEGIN IMMEDIATE SQLite transaction.
-func Execute(s Store, env orchestrate.Envelope) orchestrate.ExecuteResult fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.StaleClaim | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.StoreFailed needs go.Foreign {
+func Execute(s Store, env orchestrate.Envelope) orchestrate.ExecuteResult fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed needs go.Foreign {
 	try executeOn(s.db, s.err, env)
 }
 
 // Execute runs pure orchestrate.Decide and persists all emitted events and projection
 // rows atomically inside one BEGIN IMMEDIATE SQLite WAL transaction.
-func Execute(w WALStore, env orchestrate.Envelope) orchestrate.ExecuteResult fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.StaleClaim | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.StoreFailed needs go.Foreign {
+func Execute(w WALStore, env orchestrate.Envelope) orchestrate.ExecuteResult fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed needs go.Foreign {
 	try executeOn(w.db, w.err, env)
 }
 
-func executeTx(env orchestrate.Envelope) orchestrate.ExecuteResult fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.StaleClaim | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.StoreFailed needs sql.Tx {
+func executeTx(env orchestrate.Envelope) orchestrate.ExecuteResult fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed needs sql.Tx {
 	let payloadJSON = encodeCommand(env.Command)
 	let digest = commandDigest(payloadJSON)
 	let seenRows = try queryTx(
@@ -177,7 +179,7 @@ func executeTx(env orchestrate.Envelope) orchestrate.ExecuteResult fails orchest
 		}
 		return orchestrate.CommandReused{ID: env.ID}
 	}
-	let state = try loadStateTx()
+	let state = try loadScopeTx(env)
 	let events = try decideForTx(state, env)
 	let mut seq = try lastSeqTx()
 	for ev in events {
@@ -196,7 +198,7 @@ func executeTx(env orchestrate.Envelope) orchestrate.ExecuteResult fails orchest
 	orchestrate.ExecuteResult{Seq: seq, Events: events, Duplicate: events.Len() == 0}
 }
 
-func decideForTx(state orchestrate.State, env orchestrate.Envelope) []orchestrate.Event fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.StaleClaim | orchestrate.CommandReused | orchestrate.InvalidInput {
+func decideForTx(state orchestrate.State, env orchestrate.Envelope) []orchestrate.Event fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead {
 	orchestrate.Decide(state, env) catch {
 	case orchestrate.NotFound as e:
 		return e
@@ -204,7 +206,9 @@ func decideForTx(state orchestrate.State, env orchestrate.Envelope) []orchestrat
 		return e
 	case orchestrate.InvalidTransition as e:
 		return e
-	case orchestrate.StaleClaim as e:
+	case orchestrate.Unverified as e:
+		return e
+	case orchestrate.NotAcceptedHead as e:
 		return e
 	case orchestrate.CommandReused as e:
 		return e
@@ -265,34 +269,24 @@ func Events(w WALStore, fromSeq int) []orchestrate.StoredEvent fails orchestrate
 	try readOn(w.db, w.err, func() []orchestrate.StoredEvent fails orchestrate.StoreFailed needs sql.Tx { try queryEventsTx(fromSeq) })
 }
 
-// Unit looks up one unit projection by ID.
-func Unit(s Store, id string) option.Option[orchestrate.Unit] fails orchestrate.StoreFailed needs go.Foreign {
-	try readOn(s.db, s.err, func() option.Option[orchestrate.Unit] fails orchestrate.StoreFailed needs sql.Tx { try queryUnitTx(id) })
+// Unit looks up one unit projection by key.
+func Unit(s Store, key orchestrate.UnitKey) option.Option[orchestrate.Unit] fails orchestrate.StoreFailed needs go.Foreign {
+	try readOn(s.db, s.err, func() option.Option[orchestrate.Unit] fails orchestrate.StoreFailed needs sql.Tx { try queryUnitTx(key) })
 }
 
-// Unit looks up one unit projection by ID on WALStore.
-func Unit(w WALStore, id string) option.Option[orchestrate.Unit] fails orchestrate.StoreFailed needs go.Foreign {
-	try readOn(w.db, w.err, func() option.Option[orchestrate.Unit] fails orchestrate.StoreFailed needs sql.Tx { try queryUnitTx(id) })
+// Unit looks up one unit projection by key on WALStore.
+func Unit(w WALStore, key orchestrate.UnitKey) option.Option[orchestrate.Unit] fails orchestrate.StoreFailed needs go.Foreign {
+	try readOn(w.db, w.err, func() option.Option[orchestrate.Unit] fails orchestrate.StoreFailed needs sql.Tx { try queryUnitTx(key) })
 }
 
-// ListUnits lists unit projections optionally filtered by status, sorted by ID.
-func ListUnits(s Store, status option.Option[orchestrate.UnitStatus]) []orchestrate.Unit fails orchestrate.StoreFailed needs go.Foreign {
-	try readOn(s.db, s.err, func() []orchestrate.Unit fails orchestrate.StoreFailed needs sql.Tx { try queryUnitsTx(status) })
+// Receipts lists the receipt projections of the unit key in recorded order.
+func Receipts(s Store, key orchestrate.UnitKey) []orchestrate.Receipt fails orchestrate.StoreFailed needs go.Foreign {
+	try readOn(s.db, s.err, func() []orchestrate.Receipt fails orchestrate.StoreFailed needs sql.Tx { try queryReceiptsTx(key, option.None) })
 }
 
-// ListUnits lists unit projections optionally filtered by status, sorted by ID on WALStore.
-func ListUnits(w WALStore, status option.Option[orchestrate.UnitStatus]) []orchestrate.Unit fails orchestrate.StoreFailed needs go.Foreign {
-	try readOn(w.db, w.err, func() []orchestrate.Unit fails orchestrate.StoreFailed needs sql.Tx { try queryUnitsTx(status) })
-}
-
-// Receipts lists receipt projections for unitID, optionally filtered by round, in recorded order.
-func Receipts(s Store, unitID string, round option.Option[int]) []orchestrate.Receipt fails orchestrate.StoreFailed needs go.Foreign {
-	try readOn(s.db, s.err, func() []orchestrate.Receipt fails orchestrate.StoreFailed needs sql.Tx { try queryReceiptsTx(unitID, round) })
-}
-
-// Receipts lists receipt projections for unitID, optionally filtered by round, in recorded order on WALStore.
-func Receipts(w WALStore, unitID string, round option.Option[int]) []orchestrate.Receipt fails orchestrate.StoreFailed needs go.Foreign {
-	try readOn(w.db, w.err, func() []orchestrate.Receipt fails orchestrate.StoreFailed needs sql.Tx { try queryReceiptsTx(unitID, round) })
+// Receipts lists the receipt projections of the unit key in recorded order on WALStore.
+func Receipts(w WALStore, key orchestrate.UnitKey) []orchestrate.Receipt fails orchestrate.StoreFailed needs go.Foreign {
+	try readOn(w.db, w.err, func() []orchestrate.Receipt fails orchestrate.StoreFailed needs sql.Tx { try queryReceiptsTx(key, option.None) })
 }
 
 // Commitment looks up one commitment projection by ID.

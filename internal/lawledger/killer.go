@@ -6,12 +6,13 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 )
 
 // stdDir is std's source folder, from the module root.
 const stdDir = "internal/sketch/std"
 
-var importLine = regexp.MustCompile(`(?m)^import\s+(.+?)\s*$`)
+var importLine = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?m)^import\s+(.+?)\s*$`) })
 
 // LawDeclared reports whether the law a killer `law:NAME` names is declared
 // where the package folder dir (from the module root root) runs it. NAME is
@@ -52,7 +53,7 @@ func importedDirs(root, dir, pkg string) []string {
 		if err != nil {
 			continue
 		}
-		for _, m := range importLine.FindAllStringSubmatch(string(data), -1) {
+		for _, m := range importLine().FindAllStringSubmatch(string(data), -1) {
 			fields := strings.Fields(m[1])
 			if len(fields) == 0 || fields[0] == "go" {
 				continue

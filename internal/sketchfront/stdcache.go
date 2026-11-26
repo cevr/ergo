@@ -11,7 +11,9 @@ import (
 
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/check/snapshot"
+	"ergo.local/prototype/internal/sketch/lawcache"
 	"ergo.local/prototype/internal/sketch/lower"
+	"ergo.local/prototype/internal/toolchain"
 )
 
 // The checked std cache (CHK1b): a process installs the snapshot of the
@@ -64,12 +66,30 @@ var stdCache struct {
 
 // UseStdCache makes this process read and write the checked std snapshot
 // under root (the compiler's cache root, build.DefaultRoot). It takes
-// effect at the first check of the process.
+// effect at the first check of the process. A process with no GOROOT of
+// its own (a -trimpath build, internal/ergobuild) types Go's standard
+// library from the release its builds run (ReleaseSource).
 func UseStdCache(root string) {
 	stdCache.mu.Lock()
 	stdCache.root = root
 	stdCache.mu.Unlock()
-	lower.UseForeignKeyCache(root)
+	// Foreign keys are kept in the one store of kept answers (lawcache),
+	// opened when the first key is looked up.
+	lower.UseForeignKeyCache(func() *lawcache.Store {
+		compiler, err := compilerIdentity()
+		if err != nil {
+			return nil
+		}
+		return lawcache.Open(root, compiler)
+	})
+	lower.UseStdRoot(func() string {
+		selected, _ := toolchain.Status(os.Getenv, root)
+		source, err := ReleaseSource(selected, root)
+		if err != nil {
+			return ""
+		}
+		return source
+	})
 }
 
 // prepareStd installs the snapshot once per process, before the first

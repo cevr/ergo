@@ -83,6 +83,7 @@ func testCommand(args []string) error {
 		return invalidInvocation(err)
 	}
 	opts.trace = trace
+	useFresh(opts)
 	if opts.mutants {
 		if trace {
 			return invalidInvocation(fmt.Errorf("ergo test: --mutants takes no --trace"))
@@ -267,7 +268,7 @@ func testLoadedPackageIO(opts fileOptions, l loaded, outW, errW io.Writer, keep 
 	req := emissionRequest(opts, l, build.ModeTest)
 	req.Output, req.Cache, req.Toolchain, req.Stderr = binary, cache, tc, buildStderr
 	req.Reuse = func(m build.Module) bool {
-		if key == "" {
+		if key == "" || opts.fresh {
 			return false
 		}
 		data, ok := cache.Result(m, key)
@@ -645,7 +646,24 @@ func lawStoreOf(compiler string) *lawcache.Store {
 	if err != nil {
 		return nil
 	}
-	return lawcache.Open(root, compiler)
+	store := lawcache.Open(root, compiler)
+	if freshRun {
+		store.Fresh()
+	}
+	return store
+}
+
+// freshRun is --fresh (useFresh): every store this process opens reads
+// nothing another run kept.
+var freshRun bool
+
+// useFresh starts a --fresh run: no stored answer, result or verdict is
+// read (lawStoreOf; startWarm, the test result cache and the check
+// tree's manifest read opts.fresh), and each pass is still kept.
+func useFresh(opts fileOptions) {
+	if opts.fresh {
+		freshRun = true
+	}
 }
 
 // printSteps writes the step events of the trace at path to w: a line

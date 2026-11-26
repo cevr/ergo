@@ -12,23 +12,21 @@ import (
 	"strings"
 	"sync"
 
+	"ergo.local/prototype/internal/sketch/lawcache"
 	runtimefiles "ergo.local/prototype/runtime"
 )
 
-const foreignKeyCacheVersion = "fk-v1"
+// foreignKeyCacheVersion names the encoding of a kept foreign key and of
+// its key's parts: a change of either is a new version.
+const foreignKeyCacheVersion = "fk-v2"
 
-// UseForeignKeyCache enables persistent disk caching of computed foreign
-// closure keys under root (typically build.DefaultRoot()). Passing "" disables
-// disk caching. Cache failures always fall back cleanly to live computation.
-func UseForeignKeyCache(root string) {
-	fkDiskCache.setRoot(root)
-}
-
-type fkDiskFile struct {
-	Version   string                   `json:"version"`
-	Namespace string                   `json:"namespace"`
-	Runtime   map[string]ForeignKey    `json:"runtime,omitempty"`
-	Local     map[string]fkLocalCached `json:"local,omitempty"`
+// UseForeignKeyCache keeps computed foreign closure keys in the store open
+// gives (the law-verdict store, lawcache: one format for every kept
+// answer, SHARED-RESULT-CACHE), opened at the first lookup. A nil open,
+// or an open that gives nil, keeps nothing. A miss or an entry that does
+// not decode falls back to computing the key.
+func UseForeignKeyCache(open func() *lawcache.Store) {
+	fkDiskCache.set(open)
 }
 
 type fkLocalCached struct {
@@ -36,140 +34,69 @@ type fkLocalCached struct {
 	Deps map[string]string `json:"deps"` // "variantTag\x00importPath" -> filesHash
 }
 
+// fkCacheStore is the store of foreign keys, opened once.
 type fkCacheStore struct {
 	mu     sync.Mutex
-	root   string
-	loaded map[string]*fkDiskFile // namespace -> in-memory mirror of disk file
+	open   func() *lawcache.Store
+	opened bool
+	store  *lawcache.Store
 }
 
-var fkDiskCache = &fkCacheStore{
-	loaded: map[string]*fkDiskFile{},
-}
+var fkDiskCache = &fkCacheStore{}
 
-func (c *fkCacheStore) setRoot(root string) {
+func (c *fkCacheStore) set(open func() *lawcache.Store) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if c.root == root {
-		return
-	}
-	c.root = root
-	c.loaded = map[string]*fkDiskFile{}
+	c.open, c.opened, c.store = open, false, nil
 }
 
-func (c *fkCacheStore) loadLocked(ns string) *fkDiskFile {
-	if c.root == "" {
-		return nil
+// get is the store, opened at its first use.
+func (c *fkCacheStore) get() *lawcache.Store {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if !c.opened && c.open != nil {
+		c.store, c.opened = c.open(), true
 	}
-	if f, ok := c.loaded[ns]; ok {
-		return f
-	}
-	f := &fkDiskFile{
-		Version:   foreignKeyCacheVersion,
-		Namespace: ns,
-		Runtime:   map[string]ForeignKey{},
-		Local:     map[string]fkLocalCached{},
-	}
-	path := c.filePath(ns)
-	if data, err := os.ReadFile(path); err == nil {
-		var disk fkDiskFile
-		if json.Unmarshal(data, &disk) == nil && disk.Version == foreignKeyCacheVersion && disk.Namespace == ns {
-			if disk.Runtime != nil {
-				f.Runtime = disk.Runtime
-			}
-			if disk.Local != nil {
-				f.Local = disk.Local
-			}
-		}
-	}
-	c.loaded[ns] = f
-	return f
+	return c.store
 }
 
-func (c *fkCacheStore) filePath(ns string) string {
-	shortNS := ns
-	if len(shortNS) > 32 {
-		shortNS = shortNS[:32]
-	}
-	return filepath.Join(c.root, "foreignkeys", "fk-"+shortNS+".json")
-}
-
-func (c *fkCacheStore) saveLocked(ns string, f *fkDiskFile) {
-	if c.root == "" {
-		return
-	}
-	target := c.filePath(ns)
-	dir := filepath.Dir(target)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return
-	}
-	data, err := json.Marshal(f)
-	if err != nil {
-		return
-	}
-	tmp, err := os.CreateTemp(dir, ".fk-*")
-	if err != nil {
-		return
-	}
-	tmpPath := tmp.Name()
-	if _, err := tmp.Write(data); err != nil {
-		_ = tmp.Close()
-		_ = os.Remove(tmpPath)
-		return
-	}
-	if err := tmp.Close(); err != nil {
-		_ = os.Remove(tmpPath)
-		return
-	}
-	if err := os.Rename(tmpPath, target); err != nil {
-		_ = os.Remove(tmpPath)
-	}
+// entryKey is the store key of a foreign key: its kind ("runtime" or
+// "local"), the namespace of the environment that computed it, and the
+// lookup's own key. None of them names a workspace's folder: a local
+// module's entry is checked against its files' hashes as they are now
+// (localDepsValid).
+func entryKey(kind, ns, key string) string {
+	return lawcache.Key("foreign key "+kind+"/"+foreignKeyCacheVersion, ns, key)
 }
 
 func (c *fkCacheStore) getRuntime(ns, key string) (ForeignKey, bool) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	f := c.loadLocked(ns)
-	if f == nil {
+	text, ok := c.get().Get(entryKey("runtime", ns, key))
+	var k ForeignKey
+	if !ok || json.Unmarshal([]byte(text), &k) != nil {
 		return ForeignKey{}, false
 	}
-	k, ok := f.Runtime[key]
-	return k, ok
+	return k, true
 }
 
 func (c *fkCacheStore) putRuntime(ns, key string, val ForeignKey) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	f := c.loadLocked(ns)
-	if f == nil {
-		return
+	if data, err := json.Marshal(val); err == nil {
+		c.get().Keep(entryKey("runtime", ns, key), string(data))
 	}
-	if prev, ok := f.Runtime[key]; ok && prev == val {
-		return
-	}
-	f.Runtime[key] = val
-	c.saveLocked(ns, f)
 }
 
 func (c *fkCacheStore) getLocal(ns, key string) (fkLocalCached, bool) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	f := c.loadLocked(ns)
-	if f == nil {
+	text, ok := c.get().Get(entryKey("local", ns, key))
+	var entry fkLocalCached
+	if !ok || json.Unmarshal([]byte(text), &entry) != nil {
 		return fkLocalCached{}, false
 	}
-	entry, ok := f.Local[key]
-	return entry, ok
+	return entry, true
 }
 
 func (c *fkCacheStore) putLocal(ns, key string, entry fkLocalCached) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	f := c.loadLocked(ns)
-	if f == nil {
-		return
+	if data, err := json.Marshal(entry); err == nil {
+		c.get().Keep(entryKey("local", ns, key), string(data))
 	}
-	f.Local[key] = entry
-	c.saveLocked(ns, f)
 }
 
 // runtimeSourcesHash hashes all embedded runtime Go and assembly sources once

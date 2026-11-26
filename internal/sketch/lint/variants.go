@@ -85,7 +85,7 @@ type variantWrites struct {
 	unknown map[*check.Field]bool
 }
 
-func collectVariantWrites(units []Unit) *variantWrites {
+func collectVariantWrites(units []Unit, shared *runShared) *variantWrites {
 	vw := &variantWrites{
 		sites:   map[*check.TypeName][]map[*check.Field]*check.TypeName{},
 		unknown: map[*check.Field]bool{},
@@ -96,21 +96,19 @@ func collectVariantWrites(units []Unit) *variantWrites {
 			if file.Syntax == nil {
 				continue
 			}
-			syntax.Inspect(file.Syntax, func(n syntax.Node) bool {
-				switch n := n.(type) {
-				case *syntax.CompositeLit:
-					vw.literal(info, n)
-				case *syntax.AssignStmt:
-					for _, l := range n.Lhs {
-						if sel, ok := l.(*syntax.SelectorExpr); ok {
-							if g, _ := check.SelectedField(info, sel); g != nil {
-								vw.unknown[g] = true // an assignment moves one field alone
-							}
+			fi := shared.fileIndexOf(file.Syntax)
+			for _, n := range fi.lits {
+				vw.literal(info, n)
+			}
+			for _, n := range fi.assigns {
+				for _, l := range n.Lhs {
+					if sel, ok := l.(*syntax.SelectorExpr); ok {
+						if g, _ := check.SelectedField(info, sel); g != nil {
+							vw.unknown[g] = true // an assignment moves one field alone
 						}
 					}
 				}
-				return true
-			})
+			}
 		}
 	}
 	return vw

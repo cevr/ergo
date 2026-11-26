@@ -55,12 +55,14 @@ func hostListing(dir string) (string, bool) {
 // still has the content the manifest holds. sums keeps, between requests,
 // each input file's hash, each folder's listing digest and the decoded
 // manifest, each for as long as its file's stat says it has not changed. It
-// reads nothing for a miss's normal path: ok false is "not served".
-func WarmHit(c build.Cache, key string, valid func(WarmAnswer) bool, sums *StatSums) (answer WarmAnswer, ok bool) {
+// reads nothing for a miss's normal path: ok false is "not served". root
+// is the request's module folder, which the manifest's relative paths are
+// read under (Recorder.Record).
+func WarmHit(c build.Cache, key, root string, valid func(WarmAnswer) bool, sums *StatSums) (answer WarmAnswer, ok bool) {
 	if key == "" {
 		return WarmAnswer{}, false
 	}
-	m, ok := sums.manifest(c, key)
+	m, ok := sums.manifest(c, key, root)
 	if !ok {
 		return WarmAnswer{}, false
 	}
@@ -180,17 +182,19 @@ func (s *StatSums) Listing(dir string) (string, bool) {
 	return v.(string), true
 }
 
-// manifest is the request key's manifest. A kept one is marked used, as
-// WarmManifest marks the one it reads.
-func (s *StatSums) manifest(c build.Cache, key string) (warmManifest, bool) {
+// manifest is the request key's manifest, its paths read under root. A
+// kept one is marked used, as WarmManifest marks the one it reads; it is
+// kept for each root apart, since one key serves every workspace.
+func (s *StatSums) manifest(c build.Cache, key, root string) (warmManifest, bool) {
 	read := false
-	v, ok := s.keep("m:", c.WarmManifestFile(key), func() (any, bool) {
+	v, ok := s.keep("m:"+root+"\x00", c.WarmManifestFile(key), func() (any, bool) {
 		read = true
 		data, found := c.WarmManifest(key)
 		var m warmManifest
 		if !found || json.Unmarshal(data, &m) != nil || m.Schema != warmSchema || m.Key != key {
 			return nil, false
 		}
+		m.Inputs = m.Inputs.Under(root)
 		return m, true
 	})
 	if !ok {

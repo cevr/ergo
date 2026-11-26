@@ -13,6 +13,7 @@ import (
 	"strings"
 	"testing"
 
+	"ergo.local/prototype/internal/sketch/lawcache"
 	runtimefiles "ergo.local/prototype/runtime"
 )
 
@@ -198,28 +199,37 @@ func Wrap(r io.Reader) int {
 	}
 }
 
-func TestForeignKeyCacheLocalInvalidationOnEdit(t *testing.T) {
-	cacheDir := t.TempDir()
-	UseForeignKeyCache(cacheDir)
-	t.Cleanup(func() { UseForeignKeyCache("") })
+// useFKStore keeps foreign keys in a store of its own on disk for the
+// test, and gives it.
+func useFKStore(t *testing.T) *lawcache.Store {
+	t.Helper()
+	store := lawcache.Open(t.TempDir(), "sha256:foreign-key-test-"+t.Name())
+	UseForeignKeyCache(func() *lawcache.Store { return store })
+	t.Cleanup(func() { UseForeignKeyCache(nil) })
+	return store
+}
 
+func TestForeignKeyCacheLocalInvalidationOnEdit(t *testing.T) {
+	store := useFKStore(t)
+
+	writeTree := func(root, g string) string {
+		t.Helper()
+		for name, text := range map[string]string{
+			"a/a.go": "package a\n\nimport \"ex.test/local/b\"\n\nfunc F() int { return b.G() }\n",
+			"b/b.go": "package b\n\nfunc G() int { return " + g + " }\n",
+		} {
+			path := filepath.Join(root, filepath.FromSlash(name))
+			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(path, []byte(text), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return filepath.Join(root, "b", "b.go")
+	}
 	pkgDir := t.TempDir()
-	aDir := filepath.Join(pkgDir, "a")
-	bDir := filepath.Join(pkgDir, "b")
-	if err := os.MkdirAll(aDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(bDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	aFile := filepath.Join(aDir, "a.go")
-	bFile := filepath.Join(bDir, "b.go")
-	if err := os.WriteFile(aFile, []byte("package a\n\nimport \"ex.test/local/b\"\n\nfunc F() int { return b.G() }\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(bFile, []byte("package b\n\nfunc G() int { return 1 }\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	bFile := writeTree(pkgDir, "1")
 
 	readDir := func(dir string) []GoSourceFile {
 		entries, err := os.ReadDir(dir)
@@ -241,46 +251,51 @@ func TestForeignKeyCacheLocalInvalidationOnEdit(t *testing.T) {
 	}
 
 	target := GoTarget{GOOS: goruntime.GOOS, GOARCH: goruntime.GOARCH}
-	makeSrc := func() ForeignKeySource {
+	makeSrc := func(dir string) ForeignKeySource {
 		return ForeignKeySource{
 			Toolchain: "go1.27.4",
 			Module: GoModule{
 				Modules: []string{"ex.test/local"},
-				Replace: []GoReplace{{Old: "ex.test/local", New: pkgDir}},
+				Replace: []GoReplace{{Old: "ex.test/local", New: dir}},
 			},
 			ReadDir: readDir,
 			Target:  &target,
 		}
 	}
 
-	// 1. Cold run populates disk cache.
-	k1 := makeSrc().Keys()("ex.test/local/a.F")
+	// 1. A cold run computes the key and keeps it.
+	k1 := makeSrc(pkgDir).Keys()("ex.test/local/a.F")
 	if !strings.HasPrefix(k1.Key, "closure ") {
 		t.Fatalf("unexpected key: %+v", k1)
 	}
-
-	// 2. Fresh ForeignKeySource + cleared in-memory mirror hits disk cache and returns exact key.
-	fkDiskCache.setRoot("")
-	fkDiskCache.setRoot(cacheDir)
-	k2 := makeSrc().Keys()("ex.test/local/a.F")
-	if k2 != k1 {
-		t.Fatalf("warm cache key %+v != cold key %+v", k2, k1)
+	wrote := store.Wrote()
+	if wrote == 0 {
+		t.Fatalf("the cold run kept no foreign key")
 	}
 
-	// 3. Edit transitive dependency b.go: cache MUST invalidate immediately!
+	// 2. The same tree in another folder (another workspace) is served
+	// the kept key: the entry names no folder (SHARED-RESULT-CACHE).
+	other := t.TempDir()
+	writeTree(other, "1")
+	if k2 := makeSrc(other).Keys()("ex.test/local/a.F"); k2 != k1 {
+		t.Fatalf("another workspace's key %+v != the kept key %+v", k2, k1)
+	}
+	if store.Wrote() != wrote {
+		t.Fatalf("another workspace computed the key again (%d entries written, want %d)", store.Wrote(), wrote)
+	}
+
+	// 3. An edit of the transitive dependency b.go is never served stale.
 	if err := os.WriteFile(bFile, []byte("package b\n\nfunc G() int { return 2 }\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	k3 := makeSrc().Keys()("ex.test/local/a.F")
+	k3 := makeSrc(pkgDir).Keys()("ex.test/local/a.F")
 	if k3.Key == k1.Key {
 		t.Fatalf("stale cache hit after editing b.go: k3=%+v == k1=%+v", k3, k1)
 	}
 }
 
 func TestForeignKeyCacheRuntimeRoundTripAndCorruptRejection(t *testing.T) {
-	cacheDir := t.TempDir()
-	UseForeignKeyCache(cacheDir)
-	t.Cleanup(func() { UseForeignKeyCache("") })
+	store := useFKStore(t)
 
 	linux := GoTarget{GOOS: "linux", GOARCH: "amd64"}
 	src := ForeignKeySource{
@@ -292,7 +307,7 @@ func TestForeignKeyCacheRuntimeRoundTripAndCorruptRejection(t *testing.T) {
 	}
 	target := runtimefiles.Module + "/runtime/v1.ConfigFlagName"
 
-	// Clear in-memory runtimeKeys for this memo so we exercise disk cache cleanly.
+	// Clear in-memory runtimeKeys for this memo so we exercise the store cleanly.
 	memo := linux.ID() + "|linux/amd64=darwin/arm64 |always=|" + target
 	runtimeKeys.Delete(memo)
 
@@ -301,32 +316,23 @@ func TestForeignKeyCacheRuntimeRoundTripAndCorruptRejection(t *testing.T) {
 		t.Fatalf("unexpected runtime key: %+v", k1)
 	}
 
-	// Verify cache file was written and reloads identically into a fresh in-memory cache.
+	// The key was kept, and a fresh lookup reads it back whole.
 	ns := runtimeCacheNamespace()
-	cachePath := fkDiskCache.filePath(ns)
-	if _, err := os.Stat(cachePath); err != nil {
-		t.Fatalf("expected runtime cache file at %s: %v", cachePath, err)
+	if _, ok := store.Get(entryKey("runtime", ns, memo)); !ok {
+		t.Fatalf("no runtime foreign key kept under %s", memo)
 	}
-
 	runtimeKeys.Delete(memo)
-	fkDiskCache.setRoot("")
-	fkDiskCache.setRoot(cacheDir)
 	k2 := src.Keys()(target)
 	if k2 != k1 {
 		t.Fatalf("reloaded runtime key %+v != original %+v", k2, k1)
 	}
 
-	// Corrupt the cache file with a poisoned key + wrong namespace/version and verify rejection.
-	poisoned := `{"version":"fk-v0-stale","namespace":"` + ns + `","runtime":{"` + memo + `":{"Key":"closure deadbeef","Group":"runtime/v1"}}}`
-	if err := os.WriteFile(cachePath, []byte(poisoned), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	// An entry that does not decode is no hit: the key is computed again.
+	store.Keep(entryKey("runtime", ns, memo), `{"Key":`)
 	runtimeKeys.Delete(memo)
-	fkDiskCache.setRoot("")
-	fkDiskCache.setRoot(cacheDir)
 	k3 := src.Keys()(target)
 	if k3 != k1 {
-		t.Fatalf("poisoned version cache was accepted: got %+v, want %+v", k3, k1)
+		t.Fatalf("a corrupt entry was accepted: got %+v, want %+v", k3, k1)
 	}
 
 	// Also verify changing GOROOT changes stdEnvFingerprint (so typed vs untyped

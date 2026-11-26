@@ -85,7 +85,7 @@ func tangleFindings(g *programGraph, units []Unit, max int) ([]tangleFinding, er
 	if err := json.Unmarshal(raw, &rows); err != nil {
 		return nil, err
 	}
-	sorted := g.t.Sorted()
+	sorted := g.sortedEdges()
 	var out []tangleFinding
 	for _, t := range rows {
 		if len(t.Sites) == 0 {
