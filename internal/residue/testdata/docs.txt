@@ -121,8 +121,6 @@ internal/**/README.md	-	one package's inputs
 modules/*/README.md	-	one module: what it is and how to use it
 modules/fluid/origin/README.md	-	one module part: what it is and how to use it
 plugins/*/README.md	-	one plugin
-prototypes/sketch9/README.md	-	delete: PROTOTYPES
-prototypes/sketch9/RECEIPT.md	-	delete: PROTOTYPES
 runtime/**/README.md	-	one package's inputs
 runtime/rt/MEASURED.md	-	delete: RECEIPTS
 scripts/**/README.md	-	one script

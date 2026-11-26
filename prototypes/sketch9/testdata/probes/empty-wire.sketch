@@ -1,6 +1,0 @@
-// out: ok
-package demo
-func main() uses Console {
-  value := with(wire{}) { "ok" }
-  Console.Println(value)
-}

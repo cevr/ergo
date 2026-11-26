@@ -1,4 +1,0 @@
-// want S109
-package demo
-func helper() { main() }
-func main() {}

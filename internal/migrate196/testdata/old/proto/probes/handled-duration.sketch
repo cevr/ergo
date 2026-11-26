@@ -1,8 +1,0 @@
-// out: ok
-package demo
-import "timeout"
-func main() needs Console {
-  with(wire{ Scheduler = LiveScheduler{} }) {
-    Console.Println(timeout.After(timeout.After(1s) { 1s } catch { case timeout.Expired: 1s }) { "ok" } catch { case timeout.Expired: "late" })
-  }
-}

@@ -195,7 +195,6 @@ var declared = map[string][]allowance{
 	"internal/sketch/syntax": declare(
 		glob("internal/sketch/testdata/*.ergo", "decidedInputs parses every source of the shared corpus"),
 		glob("internal/sketch/testdata/*/*.ergo", "decidedInputs parses every source of the shared corpus one directory down"),
-		[]allowance{{"internal/migrate196/testdata/old", subtree, "the old spellings must stop parsing: decided_test.go walks them (filepath.WalkDir)"}},
 		glob("docs/spec/*.md", "every go fence of the language spec parses (sketchtest.SpecFences); grammar.md is read by name too"),
 		glob("internal/sketch/sketchtest/testdata/migrated/*.ergo", "the migrated examples parse (sketchtest.Repository)"),
 		[]allowance{

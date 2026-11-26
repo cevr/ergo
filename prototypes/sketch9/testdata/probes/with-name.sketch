@@ -1,7 +1,0 @@
-// out: ok
-package demo
-type with interface{ Get() string }
-type Plain struct{}
-func (Plain) Get() string { return "ok" }
-wire with { with = Plain{} }
-func main() uses Console { Console.Println(with(with) { with.Get() }) }

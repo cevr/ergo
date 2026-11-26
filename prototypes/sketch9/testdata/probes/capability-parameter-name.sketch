@@ -1,4 +1,0 @@
-// want S109
-package demo
-type Store interface { Get(t_ string) string }
-func main() {}

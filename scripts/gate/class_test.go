@@ -11,7 +11,7 @@ import (
 // heavyWork says why a step's command is heavy, or "" when nothing in it
 // is: a closure sweep, a go test without -short (the full tier's test
 // steps, the build of every test binary, the provenance analyzer's
-// controls, the sketch9 kernel tests), a build of another module (-C),
+// controls), a build of another module (-C),
 // the tests of a host package, gc over the lowered corpus, or the modules'
 // full-tier package folders (scripts/examples -full-tier). It reads the
 // command as the gate runs it, scripts included, so a new step is judged

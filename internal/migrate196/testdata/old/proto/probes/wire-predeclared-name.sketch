@@ -1,7 +1,0 @@
-// want S109
-package demo
-type Store interface { Get() string }
-type Holder struct{ Value string }
-func (h Holder) Get() string { return h.Value }
-wire string { Store = Holder{Value: "ok"} }
-func main() needs Console { Console.Println(with(string) { Store.Get() }) }

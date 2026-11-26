@@ -1,7 +1,0 @@
-// out: left|right|LR
-package demo
-type Fault struct{}
-func unused() error[Fault] { return Fault{} }
-func left() string uses Console { Console.Println("left"); return "L" }
-func right() string uses Console { Console.Println("right"); return "R" }
-func main() uses Console { Console.Println(left() + right()) }

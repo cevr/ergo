@@ -1,6 +1,0 @@
-// want S001
-package demo
-func main() uses Console {
-  x⪪ := "ok"
-  Console.Println(x⪪)
-}
