@@ -296,27 +296,31 @@ func (l *lowerer) analyzeValues(root syntax.Node, info *check.Info) *valueWalk {
 // vnode is a node's place in the walk: its order numbers on entry and
 // exit, and its parent (nil for the root).
 type vnode struct {
-	pre, post int
+	pre, post int32
 	parent    syntax.Node
 }
 
-func (w *valueWalk) preOf(n syntax.Node) int            { return w.nodes[n].pre }
-func (w *valueWalk) postOf(n syntax.Node) int           { return w.nodes[n].post }
-func (w *valueWalk) parentOf(n syntax.Node) syntax.Node { return w.nodes[n].parent }
-
-// setParent records n's parent before n is visited; the visit keeps it.
-func (w *valueWalk) setParent(n, parent syntax.Node) { w.nodes[n] = vnode{parent: parent} }
-
-func (w *valueWalk) setPre(n syntax.Node, pre int) {
-	v := w.nodes[n]
-	v.pre = pre
-	w.nodes[n] = v
+// node is n's place, or the zero place for a node the walk did not visit.
+func (w *valueWalk) node(n syntax.Node) vnode {
+	if i, ok := w.nodes[n]; ok {
+		return w.slab[i]
+	}
+	return vnode{}
 }
 
-func (w *valueWalk) setPost(n syntax.Node, post int) {
-	v := w.nodes[n]
-	v.post = post
-	w.nodes[n] = v
+func (w *valueWalk) preOf(n syntax.Node) int            { return int(w.node(n).pre) }
+func (w *valueWalk) postOf(n syntax.Node) int           { return int(w.node(n).post) }
+func (w *valueWalk) parentOf(n syntax.Node) syntax.Node { return w.node(n).parent }
+
+// enter gives n, met with its parent, its place in the slab and its entry
+// order number: one map insert per visit; its exit number is written to
+// the slab by index. A node visited again takes a new place, so its last
+// visit decides all three fields.
+func (w *valueWalk) enter(n, parent syntax.Node) int32 {
+	i := int32(len(w.slab))
+	w.slab = append(w.slab, vnode{pre: int32(w.count), parent: parent})
+	w.nodes[n] = i
+	return i
 }
 
 // newValueWalk is an empty walk whose node map holds the nodes of root
@@ -333,7 +337,7 @@ func newValueWalk(l *lowerer, info *check.Info, vf *valueFacts, root syntax.Node
 			return true
 		})
 	}
-	return &valueWalk{l: l, info: info, vf: vf, vars: map[*check.Var]*vvar{}, nodes: make(map[syntax.Node]vnode, n), frameOf: map[syntax.Node]*vframe{}, handed: map[*syntax.CallExpr]bool{}}
+	return &valueWalk{l: l, info: info, vf: vf, vars: map[*check.Var]*vvar{}, nodes: make(map[syntax.Node]int32, n), slab: make([]vnode, 0, n), frameOf: map[syntax.Node]*vframe{}, handed: map[*syntax.CallExpr]bool{}}
 }
 
 func isNilNode(n syntax.Node) bool {
@@ -435,10 +439,11 @@ type valueWalk struct {
 	vars  map[*check.Var]*vvar
 	order []*vvar
 	count int
-	// nodes holds each node's pre and post order numbers and its parent
-	// in one map (preOf, postOf, parentOf): three maps keyed by every node
-	// were most of the lowering's bytes (SL9b).
-	nodes    map[syntax.Node]vnode
+	// nodes holds each node's place in slab, which holds its pre and post
+	// order numbers and its parent (preOf, postOf, parentOf): three maps
+	// keyed by every node were most of the lowering's bytes (SL9b).
+	nodes    map[syntax.Node]int32
+	slab     []vnode
 	frameOf  map[syntax.Node]*vframe
 	frames   []*vframe
 	owns     []owning
@@ -490,8 +495,12 @@ func (w *valueWalk) varOf(v *check.Var) *vvar {
 }
 
 // walk visits n with the frame and loops that hold it.
-func (w *valueWalk) walk(n syntax.Node, loops []syntax.Node) {
-	w.setPre(n, w.count)
+func (w *valueWalk) walk(n syntax.Node, loops []syntax.Node) { w.visit(n, nil, loops) }
+
+// visit visits n, a child of parent (nil for the walk's root).
+func (w *valueWalk) visit(n, parent syntax.Node, loops []syntax.Node) {
+	at := w.enter(n, parent)
+	pre := w.count
 	w.count++
 	frame := w.root
 	if len(w.frames) > 0 {
@@ -511,7 +520,7 @@ func (w *valueWalk) walk(n syntax.Node, loops []syntax.Node) {
 	case *syntax.Ident:
 		if v, ok := w.info.Uses[n].(*check.Var); ok {
 			vv := w.varOf(v)
-			vv.occs = append(vv.occs, &vocc{id: n, frame: frame, loops: loops, pre: w.preOf(n)})
+			vv.occs = append(vv.occs, &vocc{id: n, frame: frame, loops: loops, pre: pre})
 		}
 	case *syntax.DeclStmt:
 		for _, spec := range n.Decl.Specs {
@@ -615,7 +624,6 @@ func (w *valueWalk) walk(n syntax.Node, loops []syntax.Node) {
 	end := len(w.kids)
 	for i := start; i < end; i++ {
 		c := w.kids[i]
-		w.setParent(c, n)
 		cl := inner
 		if r, ok := n.(*syntax.RangeStmt); ok && c != syntax.Node(r.X) {
 			cl = append(append([]syntax.Node{}, loops...), n)
@@ -623,10 +631,10 @@ func (w *valueWalk) walk(n syntax.Node, loops []syntax.Node) {
 		if w.frameOf[n] != nil {
 			cl = nil // a new frame: its loops are its own
 		}
-		w.walk(c, cl)
+		w.visit(c, n, cl)
 	}
 	w.kids = w.kids[:start]
-	w.setPost(n, w.count)
+	w.slab[at].post = int32(w.count)
 	w.count++
 }
 
@@ -1719,9 +1727,14 @@ func (l *lowerer) ownedParams(fn *check.Func) []ownedParam {
 	if !ok || f.Sig == nil {
 		return nil
 	}
+	if !l.anyParamHoldsValue(info, d) {
+		// No parameter can be owned: the walk below would decide none.
+		return nil
+	}
 	saved := l.info
 	l.info = info
 	defer func() { l.info = saved }()
+	l.ownedWalks++
 	w := newValueWalk(l, info, vf, d)
 	w.root = &vframe{node: d, tails: map[syntax.Expr]bool{}}
 	tailsOf(d.Body.List, w.root.tails)
@@ -1754,6 +1767,28 @@ func (l *lowerer) ownedParams(fn *check.Func) []ownedParam {
 	}
 	vf.owned[d] = out
 	return out
+}
+
+// ownedParamsWalkAll selects the reference of ownedParams: the value walk
+// of every function, even one with no parameter that holds a value
+// (TestOwnedParamsAgreeWithEveryWalk).
+var ownedParamsWalkAll = false
+
+// anyParamHoldsValue reports whether a named parameter of d holds a slice
+// or Map (holdsValue): only such a parameter can be owned (ownedParams),
+// so a function with none needs no value walk to decide it has none.
+func (l *lowerer) anyParamHoldsValue(info *check.Info, d *syntax.FuncDecl) bool {
+	if ownedParamsWalkAll {
+		return true
+	}
+	for _, field := range d.Type.Params.List {
+		for _, id := range field.Names {
+			if v, ok := info.Defs[id].(*check.Var); ok && l.holdsValue(v.Type) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // consumedParams makes each consumed owned parameter (consumedUse) of the

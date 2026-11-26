@@ -1,0 +1,150 @@
+import log
+import task
+import trace
+
+type Boom {}
+
+type UserTag { key string, text string }
+
+func contextKey(t UserTag) string { t.key }
+
+func contextText(t UserTag) string { t.text }
+
+type TextTag string
+
+func contextKey(t TextTag) string { "text" }
+
+func contextText(t TextTag) string { string(t) }
+
+type GenTag[T] { name string }
+
+func contextKey[T](t GenTag[T]) string { t.name }
+
+func contextText[T](t GenTag[T]) string { "gen:\(t.name)" }
+
+type Named { Label() string }
+
+type Dog { name string } implements Named
+
+func Label(d Dog) string { d.name }
+
+type Loose[T Named] { v T }
+
+func contextKey[T Named](k Loose[T]) string { "loose" }
+
+func contextText[T Named](k Loose[T]) string { "loose:\(k.v.Label())" }
+
+type Res { Get() string }
+
+type ResBox { name string } implements Res, Closer
+
+func Get(r ResBox) string { r.name }
+
+func Close(r ResBox) needs Console {
+	Console.Println("closed:" + optText(trace.Current()))
+}
+
+func optText(o Option[string]) string {
+	match o {
+	case Some[string] as v:
+		v.Value
+	case None:
+		"-"
+	}
+}
+
+func show() string {
+	"a=" + optText(log.Annotation("a")) + ",s=" + optText(trace.Current())
+}
+
+func failIf(bad bool) string fails Boom {
+	if bad {
+		return Boom
+	}
+	show()
+}
+
+func runSpan[T, E](name string, fn func() T fails E) T fails E {
+	with trace.Span(name) {
+		try fn()
+	}
+}
+
+func contextWithUser(k string, v string) string {
+	with (UserTag{key: k, text: v}), log.Annotate(k, v) {
+		show()
+	}
+}
+
+func contextWithText(v string) string {
+	with TextTag(v), trace.Span(v) {
+		show()
+	}
+}
+
+func contextWithGen() string {
+	with (GenTag[int]{name: "n"}), (Loose[Dog]{v: Dog{name: "rex"}}) {
+		"gen"
+	}
+}
+
+func contextWithOpen[T Named](k Loose[T]) string {
+	with k {
+		with log.Annotate("a", "open"), trace.Span("sp") {
+			show()
+		}
+	}
+}
+
+func shadowAndRestore() string {
+	let mut out = ""
+	with log.Annotate("a", "outer") {
+		with log.Annotate("a", "inner") {
+			out = show()
+		}
+		let v = with trace.Span("val") {
+			show()
+		}
+		out = out + "|" + v + "|" + show()
+	}
+	out + "|" + show()
+}
+
+func earlyReturn(early bool) string {
+	with trace.Span("early") {
+		if early {
+			return show()
+		}
+		"normal:" + show()
+	}
+}
+
+func mixedWithClose() string needs Console {
+	with trace.Span("own"), context { Res: ResBox{name: "r"} } {
+		Res.Get() + ":" + show()
+	}
+}
+
+func taskSnapshot() string {
+	let t = with log.Annotate("a", "child"), trace.Span("ts") {
+		task.Go() {
+			optText(log.Annotation("a")) + "/" + optText(trace.Current())
+		}
+	}
+	t.Wait() + "|" + show()
+}
+
+func main() needs Console {
+	Console.Println(contextWithUser("a", "u1"))
+	Console.Println(contextWithText("p1"))
+	Console.Println(contextWithGen())
+	Console.Println(contextWithOpen(Loose[Dog]{v: Dog{name: "fido"}}))
+	Console.Println(shadowAndRestore())
+	Console.Println(earlyReturn(true) + "|" + show())
+	Console.Println(earlyReturn(false) + "|" + show())
+	let ok = runSpan("spok") { try failIf(false) } catch { case Boom: "boom" }
+	let bad = runSpan("spbad") { try failIf(true) } catch { case Boom: "boom" }
+	Console.Println(ok + "|" + bad + "|" + show())
+	Console.Println(mixedWithClose() + "|" + show())
+	Console.Println(taskSnapshot())
+}

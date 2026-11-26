@@ -74,10 +74,10 @@ func indexOf(pkgs []Package, path string) int {
 	-1
 }
 
-// checkOne is one package task: collect, the parent column, bind as body
+// CheckOne is one package task: collect, the parent column, bind as body
 // tasks against deps (the frozen interfaces of its imports, in its import
 // list's order), then freeze.
-func checkOne(p Package, deps []store.Frozen, threads int) Checked {
+func CheckOne(p Package, deps []store.Frozen, threads int) Checked {
 	let s = bind.Collect(p.Path, p.Files)
 	let ps = bind.BuildParents(p.Files)
 	let (bound, u) = bind.Bind(s, deps, ps, p.Files, threads)
@@ -138,7 +138,7 @@ func Check(pkgs []Package, threads int) []Checked {
 			continue
 		}
 		let frozen = done
-		let out = tasks.Transform(members, threads, func(i int) Checked { checkOne(pkgs[i], depsOf(pkgs[i], pkgs, frozen), threads) })
+		let out = tasks.Transform(members, threads, func(i int) Checked { CheckOne(pkgs[i], depsOf(pkgs[i], pkgs, frozen), threads) })
 		for k, i in members {
 			done[i] = option.Some{Value: out[k]}
 		}

@@ -479,11 +479,12 @@ func CodecFieldsOf_Func(v *Func) CodecFields_Func {
 }
 
 type CodecFields_GoBindings struct {
-	F_pkgs *map[string]*Package
+	F_pkgs    *map[string]*Package
+	F_program *Importer
 }
 
 func CodecFieldsOf_GoBindings(v *GoBindings) CodecFields_GoBindings {
-	return CodecFields_GoBindings{F_pkgs: &v.pkgs}
+	return CodecFields_GoBindings{F_pkgs: &v.pkgs, F_program: &v.program}
 }
 
 type CodecFields_Info struct {

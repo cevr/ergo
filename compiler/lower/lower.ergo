@@ -878,23 +878,25 @@ func builtinName(st fnb, fun dense.ID[syntax.Node]) string {
 func builtinOf(st fnb, x dense.ID[syntax.Node], ce syntax.CallExpr) option.Option[aBuiltin] fails Unported {
 	let name = builtinName(st, ce.Fun)
 	if name == "" {
-		return option.None
+		match goLenReceiver(st, x, ce) {
+		case option.Some{Value: r}:
+			return option.Some[aBuiltin]{Value: try lenOperand(st, r)}
+		case option.None:
+			return option.None
+		}
 	}
 	if dense.Unpack(ce.Trailing) != option.None || syntax.Len(ce.Args) != 1 {
 		return stop("builtin call form")
 	}
 	let a = syntax.Item(st.p.Tree, ce.Args, 0)
+	if name == "len" {
+		return option.Some[aBuiltin]{Value: try lenOperand(st, a)}
+	}
 	if isConst(st, a) {
 		return stop("builtin call on a constant (fold)")
 	}
 	let at = try typeOf(st, a, "builtin operand")
 	let from = basicGo(st, at)
-	if name == "len" {
-		if from != "string" && !(store.KindOfType(st.s, at) == store.KSlice && shapeGo(st, at) != "") {
-			return stop("len of a non-string")
-		}
-		return option.Some[aBuiltin]{Value: aBuiltin{conv: false, t: "", arg: a}}
-	}
 	let to = basicGo(st, try typeOf(st, x, "conversion"))
 	if from == "" || to == "" {
 		return stop("conversion of a non-scalar")
@@ -908,6 +910,83 @@ func builtinOf(st fnb, x dense.ID[syntax.Node], ce syntax.CallExpr) option.Optio
 		return stop("conversion of a float to an integer (helper)")
 	}
 	option.Some[aBuiltin]{Value: aBuiltin{conv: true, t: to, arg: a}}
+}
+
+func lenOperand(st fnb, a dense.ID[syntax.Node]) aBuiltin fails Unported {
+	if isConst(st, a) {
+		return stop("builtin call on a constant (fold)")
+	}
+	let at = try typeOf(st, a, "builtin operand")
+	if basicGo(st, at) != "string" && !(store.KindOfType(st.s, at) == store.KSlice && shapeGo(st, at) != "") {
+		return stop("len of a non-string")
+	}
+	aBuiltin{conv: false, t: "", arg: a}
+}
+
+func goLenReceiver(st fnb, x dense.ID[syntax.Node], ce syntax.CallExpr) option.Option[dense.ID[syntax.Node]] {
+	if syntax.Len(ce.Args) != 0 || dense.Unpack(ce.Trailing) != option.None {
+		return option.None
+	}
+	let se = match syntax.ViewOf(st.p.Tree, ce.Fun) {
+	case syntax.SelectorExpr as se:
+		se
+	case _:
+		return option.None
+	}
+	let ci = dense.SideOf(st.callAt, bind.PNodeOf(st.k.Ps, st.file, x))
+	if ci == 0 {
+		return option.None
+	}
+	let to = st.calls[ci-1]
+	if !to.Recv {
+		return option.None
+	}
+	let mut found = false
+	if holdsFn(st.k, to.Callee) {
+		if !externGoLen(st.k, to.Callee) {
+			return option.None
+		}
+		found = true
+	}
+	for d in st.k.Deps {
+		if holdsFn(d.K, to.Callee) {
+			if !externGoLen(d.K, to.Callee) {
+				return option.None
+			}
+			found = true
+		}
+	}
+	if found { option.Some{Value: se.X} } else { option.None }
+}
+
+func holdsFn(k expr.Pkg, f expr.Fn) bool {
+	if f.File < 0 || f.File >= k.Parsed.Len() || f.File >= k.Files.Len() {
+		return false
+	}
+	let fp = k.Files[f.File].Parsed
+	let nodes = syntax.NumNodes(fp.Tree)
+	if fp.Failed || dense.Index(f.Name) >= nodes || dense.Index(f.Decl) >= nodes {
+		return false
+	}
+	let i = expr.FnAt(k, bind.PNodeOf(k.Ps, f.File, f.Name))
+	i >= 0 && k.Fns[i].File == f.File && k.Fns[i].Decl == f.Decl && k.Fns[i].Name == f.Name
+}
+
+func externGoLen(k expr.Pkg, f expr.Fn) bool {
+	let p = k.Parsed[f.File]
+	match syntax.ViewOf(p.Tree, f.Decl) {
+	case syntax.FuncDecl as d:
+		match dense.Unpack(d.Extern) {
+		case option.Some{Value: ex}:
+			let spec = syntax.ExternSpecOf(p.Tree, ex)
+			let src = syntax.SourceOf(p)
+			src[syntax.NodePos(p, spec.Target):syntax.NodeEnd(p, spec.Target)] == "len"
+		case option.None:
+			false
+		}
+	case _:
+		false
+	}
 }
 
 func unparen(st fnb, x dense.ID[syntax.Node]) dense.ID[syntax.Node] {

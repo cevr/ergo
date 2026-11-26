@@ -2,6 +2,7 @@ import api
 import json
 import mcp
 import rpc
+import scope
 import pipeline/board
 import pipeline/pipeline
 import pipeline/pipeline/pipelineapi
@@ -162,8 +163,8 @@ func Answer(r Request) json.Value fails mcp.ToolError needs pipeline.Pipeline {
 // JSON, or, when it is an error, an admitted failure's tagged JSON.
 // Invalid or missing replies fail Transport, outside the operation's own row.
 func ReadAnswer(r Request, result mcp.Called) pipelineapi.Outcome fails rpc.Transport {
-	if len(result.Content) != 1 {
-		return rpc.Transport{Reason: "a tool answered \(len(result.Content)) blocks, not one"}
+	if result.Content.Len() != 1 {
+		return rpc.Transport{Reason: "a tool answered \(result.Content.Len()) blocks, not one"}
 	}
 	let text = result.Content[0].Text
 	if !result.IsError {
@@ -291,7 +292,7 @@ func toolsOver(answer own func(r Request) pipelineapi.Outcome) []mcp.Tool {
 
 // Tools are the tools of the pipeline.Pipeline in force, one per operation, in its order.
 func Tools() []mcp.Tool needs pipeline.Pipeline {
-	let held = InForce[pipeline.Pipeline]()
+	let held = scope.InForce[pipeline.Pipeline]()
 	toolsOver(func(r Request) pipelineapi.Outcome {
 		with held { pipelineapi.Call(r) }
 	})

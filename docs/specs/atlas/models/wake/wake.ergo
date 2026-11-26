@@ -1,0 +1,167 @@
+type Act = Set{} | Due{} | Fire{Lost bool} | Cancel{} | Crash{} | Recover{}
+
+type World {
+	W           int,
+	IsDue       bool,
+	Runs        int,
+	Messages    int,
+	Early       bool,
+	AfterCancel bool,
+	Down        bool,
+	Crashes     int,
+	TimerSet    bool,
+}
+
+let MaxRuns = 3
+let MaxCrashes = 2
+
+let NoMutant = 0
+let NoDedupeMutant = 1
+let FireEarlyMutant = 2
+let FireCancelledMutant = 3
+let TimerInMemoryMutant = 4
+
+func first() World {
+	World{W: 0, IsDue: false, Runs: 0, Messages: 0, Early: false, AfterCancel: false, Down: false, Crashes: 0, TimerSet: false}
+}
+
+func step(s World, act Act, mutant int) Decision[World, string] {
+	let mut w = s
+	match act {
+	case Set:
+		if w.W != 0 || w.Down {
+			return Ignore
+		}
+		w.W = 1
+		w.TimerSet = true
+		return Enter{w}
+	case Due:
+		if w.IsDue || w.W == 0 {
+			return Ignore
+		}
+		w.IsDue = true
+		return Enter{w}
+	case Fire as a:
+		if w.Down || w.Runs >= MaxRuns {
+			return Ignore
+		}
+		let mut can = w.W == 1 && w.TimerSet
+		if mutant == FireCancelledMutant {
+			can = (w.W == 1 || w.W == 3) && w.TimerSet
+		}
+		if !can {
+			return Ignore
+		}
+		if !w.IsDue && mutant != FireEarlyMutant {
+			return Ignore
+		}
+		w.Runs = w.Runs + 1
+		if !w.IsDue {
+			w.Early = true
+		}
+		if w.W == 3 {
+			w.AfterCancel = true
+		}
+		if w.Messages == 0 || mutant == NoDedupeMutant {
+			w.Messages = w.Messages + 1
+		}
+		if a.Lost {
+			w.Down = true
+			w.Crashes = w.Crashes + 1
+			if w.Crashes > MaxCrashes {
+				return Ignore
+			}
+			return Enter{w}
+		}
+		w.W = 2
+		return Enter{w}
+	case Cancel:
+		if w.W != 1 || w.Down {
+			return Ignore
+		}
+		w.W = 3
+		return Enter{w}
+	case Crash:
+		if w.Down || w.Crashes >= MaxCrashes {
+			return Ignore
+		}
+		w.Crashes = w.Crashes + 1
+		w.Down = true
+		return Enter{w}
+	case Recover:
+		if !w.Down {
+			return Ignore
+		}
+		w.Down = false
+		if mutant == TimerInMemoryMutant {
+			w.TimerSet = false
+		}
+		return Enter{w}
+	}
+}
+
+func oneMessage(w World) bool { w.Messages <= 1 }
+
+func neverEarly(w World) bool { !w.Early }
+
+func cancelledNeverFires(w World) bool { !w.AfterCancel }
+
+func firedHasMessage(w World) bool { !(w.W == 2 && w.Messages != 1) }
+
+func armedSurvivesRestart(w World) bool { !(w.W == 1 && !w.Down && !w.TimerSet) }
+
+func twoMessages(w World) bool    { !oneMessage(w) }
+func firedEarly(w World) bool     { !neverEarly(w) }
+func firedCancelled(w World) bool { !cancelledNeverFires(w) }
+func lostItsTimer(w World) bool   { !armedSurvivesRestart(w) }
+
+func firedOnce(w World) bool            { w.W == 2 && w.Messages == 1 && w.Runs == 1 }
+func firedAfterRestart(w World) bool    { w.W == 2 && w.Crashes == 1 && w.Runs == 1 }
+func firedAfterLostAnswer(w World) bool { w.W == 2 && w.Runs == 2 && w.Messages == 1 }
+func cancelled(w World) bool            { w.W == 3 && w.IsDue && w.Messages == 0 }
+
+func design(s World, a Act) Decision[World, string]        { return step(s, a, NoMutant) }
+func noDedupe(s World, a Act) Decision[World, string]      { return step(s, a, NoDedupeMutant) }
+func fireEarly(s World, a Act) Decision[World, string]     { return step(s, a, FireEarlyMutant) }
+func fireCancelled(s World, a Act) Decision[World, string] { return step(s, a, FireCancelledMutant) }
+func timerInMemory(s World, a Act) Decision[World, string] { return step(s, a, TimerInMemoryMutant) }
+
+type Design machine[World, Act] {
+	initial: first(),
+	step:    design,
+
+	law OneMessage always oneMessage,
+	law NeverEarly always neverEarly,
+	law CancelledNeverFires always cancelledNeverFires,
+	law FiredHasMessage always firedHasMessage,
+	law ArmedSurvivesRestart always armedSurvivesRestart,
+
+	law FiredOnce sometimes firedOnce,
+	law FiredAfterRestart sometimes firedAfterRestart,
+	law FiredAfterLostAnswer sometimes firedAfterLostAnswer,
+	law Cancelled sometimes cancelled,
+}
+
+type NoDedupe machine[World, Act] {
+	initial: first(),
+	step:    noDedupe,
+	law Breaks sometimes twoMessages,
+}
+
+type FireEarly machine[World, Act] {
+	initial: first(),
+	step:    fireEarly,
+	law Breaks sometimes firedEarly,
+}
+
+type FireCancelled machine[World, Act] {
+	initial: first(),
+	step:    fireCancelled,
+	law Breaks sometimes firedCancelled,
+}
+
+type TimerInMemory machine[World, Act] {
+	initial: first(),
+	step:    timerInMemory,
+	law Breaks sometimes lostItsTimer,
+}

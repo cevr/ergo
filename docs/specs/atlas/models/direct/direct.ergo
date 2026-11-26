@@ -1,0 +1,253 @@
+type Act = PickClaudeMeta{} | PickAgyMeta{} | PickCodexDirect{} | PickAgyDirect{} | StartTurn{} | EmitDelta{} | RetryTransient{} | RequestWriteTool{} | ApproveTool{} | DenyTool{} | Steer{} | Compact{} | FinishTurn{}
+
+type World {
+	Path               int,
+	AgySupported       bool,
+	TurnActive         bool,
+	HasDelta           bool,
+	Retries            int,
+	PendingPerm        bool,
+	ToolsDone          int,
+	Compactions        int,
+	TurnsDone          int,
+	RanUnapprovedWrite bool,
+	RetriedAfterDelta  bool,
+	EmulatedCapability bool,
+	SplitThread        bool,
+}
+
+let PathClaudeMeta = 1
+let PathAgyMeta = 2
+let PathCodexDirect = 3
+let PathAgyDirect = 4
+
+let MaxTurns = 2
+let MaxRetries = 2
+let MaxTools = 2
+let MaxCompactions = 1
+
+let NoMutant = 0
+let UnsupportedDirectAgyMutant = 1
+let RetryAfterDeltaMutant = 2
+let UnapprovedWriteMutant = 3
+let EmulateSteerMutant = 4
+let SplitThreadMutant = 5
+
+func first() World {
+	World{
+		Path:               PathClaudeMeta,
+		AgySupported:       false,
+		TurnActive:         false,
+		HasDelta:           false,
+		Retries:            0,
+		PendingPerm:        false,
+		ToolsDone:          0,
+		Compactions:        0,
+		TurnsDone:          0,
+		RanUnapprovedWrite: false,
+		RetriedAfterDelta:  false,
+		EmulatedCapability: false,
+		SplitThread:        false,
+	}
+}
+
+func step(s World, act Act, mutant int) Decision[World, string] {
+	let mut w = s
+	match act {
+	case PickClaudeMeta:
+		if w.TurnActive {
+			return Ignore
+		}
+		w.Path = PathClaudeMeta
+		return Enter{w}
+	case PickAgyMeta:
+		if w.TurnActive {
+			return Ignore
+		}
+		w.Path = PathAgyMeta
+		return Enter{w}
+	case PickCodexDirect:
+		if w.TurnActive {
+			return Ignore
+		}
+		w.Path = PathCodexDirect
+		return Enter{w}
+	case PickAgyDirect:
+		if w.TurnActive {
+			return Ignore
+		}
+		if !w.AgySupported && mutant != UnsupportedDirectAgyMutant {
+			return Ignore
+		}
+		w.Path = PathAgyDirect
+		return Enter{w}
+	case StartTurn:
+		if w.PendingPerm || w.TurnsDone >= MaxTurns {
+			return Ignore
+		}
+		if w.TurnActive {
+			if mutant == SplitThreadMutant && w.Path == PathCodexDirect && !w.SplitThread {
+				w.SplitThread = true
+				return Enter{w}
+			}
+			return Ignore
+		}
+		if w.Path == PathAgyDirect && !w.AgySupported && mutant != UnsupportedDirectAgyMutant {
+			return Ignore
+		}
+		w.TurnActive = true
+		w.HasDelta = false
+		return Enter{w}
+	case EmitDelta:
+		if !w.TurnActive || w.HasDelta {
+			return Ignore
+		}
+		w.HasDelta = true
+		return Enter{w}
+	case RetryTransient:
+		if !w.TurnActive || w.Retries >= MaxRetries {
+			return Ignore
+		}
+		if w.HasDelta {
+			if mutant != RetryAfterDeltaMutant {
+				return Ignore
+			}
+			w.RetriedAfterDelta = true
+			w.Retries = w.Retries + 1
+			return Enter{w}
+		}
+		w.Retries = w.Retries + 1
+		return Enter{w}
+	case RequestWriteTool:
+		if !w.TurnActive || w.Path != PathCodexDirect || w.PendingPerm || w.ToolsDone >= MaxTools {
+			return Ignore
+		}
+		if mutant == UnapprovedWriteMutant {
+			w.ToolsDone = w.ToolsDone + 1
+			w.RanUnapprovedWrite = true
+			return Enter{w}
+		}
+		w.PendingPerm = true
+		return Enter{w}
+	case ApproveTool:
+		if !w.TurnActive || !w.PendingPerm || w.ToolsDone >= MaxTools {
+			return Ignore
+		}
+		w.PendingPerm = false
+		w.ToolsDone = w.ToolsDone + 1
+		return Enter{w}
+	case DenyTool:
+		if !w.TurnActive || !w.PendingPerm {
+			return Ignore
+		}
+		w.PendingPerm = false
+		return Enter{w}
+	case Steer:
+		if !w.TurnActive || w.PendingPerm {
+			return Ignore
+		}
+		if w.Path == PathAgyMeta {
+			if mutant != EmulateSteerMutant {
+				return Ignore
+			}
+			if w.EmulatedCapability {
+				return Ignore
+			}
+			w.EmulatedCapability = true
+			return Enter{w}
+		}
+		return Enter{w}
+	case Compact:
+		if w.TurnActive || w.PendingPerm || w.Compactions >= MaxCompactions {
+			return Ignore
+		}
+		w.Compactions = w.Compactions + 1
+		return Enter{w}
+	case FinishTurn:
+		if !w.TurnActive || w.PendingPerm || w.TurnsDone >= MaxTurns {
+			return Ignore
+		}
+		w.TurnActive = false
+		w.HasDelta = false
+		w.TurnsDone = w.TurnsDone + 1
+		return Enter{w}
+	}
+}
+
+func noDirectAgyUnlessSupported(w World) bool {
+	!(w.Path == PathAgyDirect && w.TurnActive && !w.AgySupported)
+}
+
+func noRetryAfterFirstDelta(w World) bool { !w.RetriedAfterDelta }
+
+func noWriteToolWithoutApproval(w World) bool { !w.RanUnapprovedWrite }
+
+func neverEmulateMissingCapability(w World) bool { !w.EmulatedCapability }
+
+func oneThreadInvariant(w World) bool { !w.SplitThread }
+
+func directAgyRanUnsupported(w World) bool { !noDirectAgyUnlessSupported(w) }
+func retriedAfterDelta(w World) bool       { !noRetryAfterFirstDelta(w) }
+func wroteWithoutApproval(w World) bool    { !noWriteToolWithoutApproval(w) }
+func emulatedSteer(w World) bool           { !neverEmulateMissingCapability(w) }
+func splitThread(w World) bool             { !oneThreadInvariant(w) }
+
+func metaClaudeCompleted(w World) bool { w.Path == PathClaudeMeta && w.TurnsDone == 1 && !w.TurnActive }
+func directCodexCompleted(w World) bool {
+	w.Path == PathCodexDirect && w.TurnsDone == 1 && w.ToolsDone == 1 && !w.TurnActive
+}
+func retryBeforeDeltaWorked(w World) bool { w.Retries == 1 && !w.RetriedAfterDelta && w.TurnsDone == 1 }
+func compactedBetweenTurns(w World) bool  { w.Compactions == 1 && w.TurnsDone == 1 }
+
+func design(s World, a Act) Decision[World, string]               { return step(s, a, NoMutant) }
+func unsupportedDirectAgy(s World, a Act) Decision[World, string] { return step(s, a, UnsupportedDirectAgyMutant) }
+func retryAfterDelta(s World, a Act) Decision[World, string]      { return step(s, a, RetryAfterDeltaMutant) }
+func unapprovedWrite(s World, a Act) Decision[World, string]      { return step(s, a, UnapprovedWriteMutant) }
+func emulateSteer(s World, a Act) Decision[World, string]         { return step(s, a, EmulateSteerMutant) }
+func splitThreadMut(s World, a Act) Decision[World, string]       { return step(s, a, SplitThreadMutant) }
+
+type Design machine[World, Act] {
+	initial: first(),
+	step:    design,
+
+	law NoDirectAgyUnlessSupported always noDirectAgyUnlessSupported,
+	law NoRetryAfterFirstDelta always noRetryAfterFirstDelta,
+	law NoWriteToolWithoutApproval always noWriteToolWithoutApproval,
+	law NeverEmulateMissingCapability always neverEmulateMissingCapability,
+	law OneThreadInvariant always oneThreadInvariant,
+
+	law MetaClaudeCompleted sometimes metaClaudeCompleted,
+	law DirectCodexCompleted sometimes directCodexCompleted,
+	law RetryBeforeDeltaWorked sometimes retryBeforeDeltaWorked,
+	law CompactedBetweenTurns sometimes compactedBetweenTurns,
+}
+
+type UnsupportedDirectAgy machine[World, Act] {
+	initial: first(),
+	step:    unsupportedDirectAgy,
+	law Breaks sometimes directAgyRanUnsupported,
+}
+
+type RetryAfterDelta machine[World, Act] {
+	initial: first(),
+	step:    retryAfterDelta,
+	law Breaks sometimes retriedAfterDelta,
+}
+
+type UnapprovedWriteTool machine[World, Act] {
+	initial: first(),
+	step:    unapprovedWrite,
+	law Breaks sometimes wroteWithoutApproval,
+}
+
+type EmulateSteer machine[World, Act] {
+	initial: first(),
+	step:    emulateSteer,
+	law Breaks sometimes emulatedSteer,
+}
+
+type SplitThread machine[World, Act] {
+	initial: first(),
+	step:    splitThreadMut,
+	law Breaks sometimes splitThread,
+}

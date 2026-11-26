@@ -10,6 +10,7 @@ import compiler/check/task
 import compiler/check/types
 import fs
 import option
+import slices
 import strconv
 import strings
 
@@ -78,13 +79,39 @@ func Outside(units []Unit, std string) []types.Iface needs fs.Files {
 	}
 	let mut have = []types.Iface{}
 	for u in units {
-		let pkgs = Imported(bind.Imports(u.Files), held, ModuleOf(u.Dir), std)
-		for p in pkgs {
-			held = held.Append(p.Path)
-		}
-		have = Interfaces(pkgs, u.Tab.Ext, u.Tab.Foreign, have)
+		let (h, o) = OutsideOne(bind.Imports(u.Files), u.Dir, u.Tab, held, have, std)
+		held = h
+		have = o
 	}
 	have
+}
+
+// OutsideOne is Outside's step for one unit, of imports, in folder dir,
+// with tables tab: held and have with the packages its imports reach that
+// held does not name, loaded from std, and their interfaces after have.
+func OutsideOne(imports []string, dir string, tab Tables, held []string, have []types.Iface, std string) ([]string, []types.Iface) needs fs.Files {
+	if std == "" {
+		return (held, have)
+	}
+	let mut need = false
+	for q in imports {
+		if !slices.Contains(held, q) {
+			need = true
+			break
+		}
+	}
+	if !need {
+		return (held, have)
+	}
+	let pkgs = Imported(imports, held, ModuleOf(dir), std)
+	if pkgs.Len() == 0 {
+		return (held, have)
+	}
+	let mut h = held
+	for p in pkgs {
+		h = h.Append(p.Path)
+	}
+	(h, Interfaces(pkgs, tab.Ext, tab.Foreign, have))
 }
 
 // Program is a run's units bound and loaded: each loaded package (Loaded)

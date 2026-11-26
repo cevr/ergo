@@ -462,7 +462,32 @@ func InflatePrefix(src []byte, maxBytes int) Inflated fails BadHeader | Unsuppor
 	if fdict != 0 {
 		return UnsupportedDict
 	}
-	let mut br = bitReader{src: src, pos: 2, bits: uint32(0), nbits: 0}
+	let body = try inflateBlocks(src, 2, maxBytes)
+	let p = body.Consumed
+	if p+4 > src.Len() {
+		return Truncated{Offset: src.Len()}
+	}
+	let expected = (uint32(src[p]) << uint32(24)) | (uint32(src[p+1]) << uint32(16)) | (uint32(src[p+2]) << uint32(8)) | uint32(src[p+3])
+	let actual = Adler32(body.Data)
+	if actual != expected {
+		return BadChecksum{Expected: expected, Actual: actual}
+	}
+	Inflated{Data: body.Data, Consumed: p + 4}
+}
+
+// InflateRawPrefix decodes one raw RFC 1951 DEFLATE stream (no zlib header
+// or trailer, as gzip and zip carry it) at the start of src, enforcing an
+// output bound of maxBytes. Consumed is the byte offset just past the final
+// block, so a caller reads its own trailer there.
+func InflateRawPrefix(src []byte, maxBytes int) Inflated fails BadBlock | BadDistance | BadHuffman | Truncated | LimitExceeded {
+	if maxBytes < 0 {
+		return LimitExceeded{Limit: maxBytes}
+	}
+	try inflateBlocks(src, 0, maxBytes)
+}
+
+func inflateBlocks(src []byte, start int, maxBytes int) Inflated fails BadBlock | BadDistance | BadHuffman | Truncated | LimitExceeded {
+	let mut br = bitReader{src: src, pos: start, bits: uint32(0), nbits: 0}
 	let mut initCap = src.Len() * 2
 	if initCap > maxBytes {
 		initCap = maxBytes
@@ -526,16 +551,7 @@ func InflatePrefix(src []byte, maxBytes int) Inflated fails BadHeader | Unsuppor
 		}
 	}
 	br = alignToByte(br)
-	if br.pos+4 > src.Len() {
-		return Truncated{Offset: src.Len()}
-	}
-	let p = br.pos
-	let expected = (uint32(src[p]) << uint32(24)) | (uint32(src[p+1]) << uint32(16)) | (uint32(src[p+2]) << uint32(8)) | uint32(src[p+3])
-	let actual = Adler32(out)
-	if actual != expected {
-		return BadChecksum{Expected: expected, Actual: actual}
-	}
-	Inflated{Data: out, Consumed: p + 4}
+	Inflated{Data: out, Consumed: br.pos}
 }
 
 // Inflate decodes a single RFC 1950 zlib stream covering all bytes of src,

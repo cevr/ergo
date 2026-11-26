@@ -102,7 +102,7 @@ func Generate(pkg *check.Package, path, opName, apiPath string) (Files, error) {
 		g.variants[f.String()] = rpcgen.FailureVariant(ops, f)
 	}
 	body := g.file()
-	imports := "import json\nimport jsonschema\nimport llm\nimport rpc\n"
+	imports := "import json\nimport jsonschema\nimport llm\nimport option\nimport rpc\n"
 	var more []string
 	for p := range extra {
 		more = append(more, p)
@@ -123,7 +123,7 @@ func Generate(pkg *check.Package, path, opName, apiPath string) (Files, error) {
 // locals; a contract or hub package of one of these names would clash.
 var reserved = sync.OnceValue(func() map[string]bool {
 	return map[string]bool{
-		"json": true, "jsonschema": true, "llm": true, "rpc": true,
+		"json": true, "jsonschema": true, "llm": true, "option": true, "rpc": true,
 		"c": true, "r": true, "o": true, "x": true, "e": true, "s": true, "m": true, "t": true, "v": true,
 		"id": true, "op": true, "name": true, "text": true, "back": true, "failed": true, "arguments": true,
 		"done": true, "rejected": true, "reply": true, "failure": true, "members": true, "specs": true, "bare": true, "argumentsOf": true,
@@ -253,12 +253,12 @@ func (g *gen) file() string {
 
 	fmt.Fprintf(&b, "// Answer answers the call c on the bound %s: Parse, the hub's Call,\n// then Result. A call Parse refuses is a failed Result that says why, so\n// the model can call again.\nfunc Answer(c llm.Call) llm.Message needs %s {\nlet r = Parse(c) catch {\ncase llm.UnknownTool as e:\nreturn llm.Result{CallId: c.Id, Text: \"no tool is named \" + e.Name, Failed: true}\ncase llm.BadArguments as e:\nreturn llm.Result{CallId: c.Id, Text: \"the arguments of \" + e.Name + \" are not its parameters: \" + e.Reason, Failed: true}\n}\nResult(c, %sCall(r))\n}\n\n", capName, capName, g.rq)
 
-	b.WriteString("// specOf is the spec of the tool name, None when no tool has it.\nfunc specOf(name string) Option[llm.ToolSpec] {\nfor s in specs {\nif s.Name == name {\nreturn Some[llm.ToolSpec]{Value: s}\n}\n}\nNone\n}\n\n")
+	b.WriteString("// specOf is the spec of the tool name, None when no tool has it.\nfunc specOf(name string) option.Option[llm.ToolSpec] {\nfor s in specs {\nif s.Name == name {\nreturn option.Some[llm.ToolSpec]{Value: s}\n}\n}\noption.None\n}\n\n")
 
 	b.WriteString("// RoundTrips reports whether Parse reads the call CallOf writes of r\n// as r.\nfunc RoundTrips(r Request) bool {\nlet back = Parse(CallOf(\"call-1\", r)) catch {\ncase llm.UnknownTool, llm.BadArguments:\nreturn false\n}\nback == r\n}\n\n")
-	b.WriteString("// FitsSpec reports whether the arguments of the call that asks for r\n// fit the input schema of the spec its name names.\nfunc FitsSpec(r Request) bool {\nlet c = CallOf(\"call-1\", r)\nmatch specOf(c.Name) {\ncase Some[llm.ToolSpec] as s:\njsonschema.Conforms(jsonschema.SchemaOf(s.Value.Input), valueOf(c.Arguments))\ncase None:\nfalse\n}\n}\n\n")
-	fmt.Fprintf(&b, "// NamesOperation reports whether a spec names r's operation by the\n// hub's Name, with the hub's Doc and Schema.\nfunc NamesOperation(r Request) bool {\nlet op = %sOpOf(r)\nmatch specOf(%sName(op)) {\ncase Some[llm.ToolSpec] as s:\ns.Value.Description == %sDoc(op) && jsonschema.Value(jsonschema.SchemaOf(s.Value.Input)) == %sSchema(op) && len(specs) == %d\ncase None:\nfalse\n}\n}\n\n", g.rq, g.rq, g.rq, g.rq, len(g.tools))
-	b.WriteString("// UnknownIsTyped reports whether a call of name, when no tool has it,\n// fails UnknownTool with that name.\nfunc UnknownIsTyped(name string) bool {\nif specOf(name) != None {\nreturn true\n}\nlet _ = Parse(llm.Call{Id: \"call-1\", Name: name, Arguments: \"{}\"}) catch {\ncase llm.UnknownTool as e:\nreturn e.Name == name\ncase llm.BadArguments:\nreturn false\n}\nfalse\n}\n\n")
+	b.WriteString("// FitsSpec reports whether the arguments of the call that asks for r\n// fit the input schema of the spec its name names.\nfunc FitsSpec(r Request) bool {\nlet c = CallOf(\"call-1\", r)\nmatch specOf(c.Name) {\ncase option.Some[llm.ToolSpec] as s:\njsonschema.Conforms(jsonschema.SchemaOf(s.Value.Input), valueOf(c.Arguments))\ncase option.None:\nfalse\n}\n}\n\n")
+	fmt.Fprintf(&b, "// NamesOperation reports whether a spec names r's operation by the\n// hub's Name, with the hub's Doc and Schema.\nfunc NamesOperation(r Request) bool {\nlet op = %sOpOf(r)\nmatch specOf(%sName(op)) {\ncase option.Some[llm.ToolSpec] as s:\ns.Value.Description == %sDoc(op) && jsonschema.Value(jsonschema.SchemaOf(s.Value.Input)) == %sSchema(op) && specs.Len() == %d\ncase option.None:\nfalse\n}\n}\n\n", g.rq, g.rq, g.rq, g.rq, len(g.tools))
+	b.WriteString("// UnknownIsTyped reports whether a call of name, when no tool has it,\n// fails UnknownTool with that name.\nfunc UnknownIsTyped(name string) bool {\nif specOf(name) != option.None {\nreturn true\n}\nlet _ = Parse(llm.Call{Id: \"call-1\", Name: name, Arguments: \"{}\"}) catch {\ncase llm.UnknownTool as e:\nreturn e.Name == name\ncase llm.BadArguments:\nreturn false\n}\nfalse\n}\n\n")
 	fmt.Fprintf(&b, "// ResultNames reports whether the message that answers c with o is a\n// Result of c's id that failed exactly when o is Rejected.\nfunc ResultNames(c llm.Call, o %sOutcome) bool {\nlet failed = match o {\ncase %sDone:\nfalse\ncase %sRejected:\ntrue\n}\nmatch Result(c, o) {\ncase llm.Result as m:\nm.CallId == c.Id && m.Failed == failed\ncase llm.User, llm.Assistant:\nfalse\n}\n}\n\n", g.rq, g.rq, g.rq)
 
 	b.WriteString("// CallRoundTrips: Parse reads the call a model writes of r by the specs\n// as r.\nlaw CallRoundTrips(r Request) { RoundTrips(r) }\n\n")

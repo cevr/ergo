@@ -1,0 +1,217 @@
+type Act = Limit{Valid bool} | ResetPasses{} | Arm{} | Resume{Lost bool} | Crash{} | AskOpen{} | AskSettle{} | RunCompletes{} | Stale{}
+
+type World {
+	Run       int,
+	St        int,
+	Valid     bool,
+	Past      bool,
+	Armed     bool,
+	Resumed   bool,
+	Sent      []int,
+	Pending   bool,
+	Early     bool,
+	OnExpired bool,
+	OverAsk   bool,
+	Reported  bool,
+	Crashes   int,
+}
+
+let MaxRuns = 2
+let MaxCrashes = 1
+
+let NoMutant = 0
+let ResumeTwiceMutant = 1
+let ArmExpiredMutant = 2
+let ResumeEarlyMutant = 3
+let ResumeOverAskMutant = 4
+
+func first() World {
+	World{Run: 0, St: 0, Valid: false, Past: false, Armed: false, Resumed: false, Sent: []int{0, 0},
+		Pending: false, Early: false, OnExpired: false, OverAsk: false, Reported: false, Crashes: 0}
+}
+
+func step(s World, act Act, mutant int) Decision[World, string] {
+	let mut w = s
+	match act {
+	case Limit as a:
+		if w.St != 0 {
+			return Ignore
+		}
+		w.St = 1
+		w.Valid = a.Valid
+		w.Past = false
+		w.Armed = false
+		w.Resumed = false
+		w.Pending = false
+		if !a.Valid {
+			w.Reported = true
+		}
+		return Enter{w}
+	case ResetPasses:
+		if w.St != 1 || w.Past || !w.Valid {
+			return Ignore
+		}
+		w.Past = true
+		return Enter{w}
+	case Arm:
+		if w.St != 1 || w.Armed {
+			return Ignore
+		}
+		if !w.Valid && mutant != ArmExpiredMutant {
+			return Ignore
+		}
+		if w.Pending && mutant != ResumeOverAskMutant {
+			return Ignore
+		}
+		w.Armed = true
+		return Enter{w}
+	case Resume as a:
+		if w.St != 1 || !w.Armed {
+			return Ignore
+		}
+		if w.Resumed && mutant != ResumeTwiceMutant {
+			w.St = 0
+			if w.Run+1 >= MaxRuns {
+				w.St = 2
+			} else {
+				w.Run = w.Run + 1
+			}
+			return Enter{w}
+		}
+		let due = w.Past || !w.Valid
+		if !due && mutant != ResumeEarlyMutant {
+			return Ignore
+		}
+		if w.Pending && mutant != ResumeOverAskMutant {
+			return Ignore
+		}
+		if w.Sent[w.Run] >= 2 {
+			return Ignore
+		}
+		w.Sent[w.Run] = w.Sent[w.Run] + 1
+		w.Resumed = true
+		if !w.Past && w.Valid {
+			w.Early = true
+		}
+		if !w.Valid {
+			w.OnExpired = true
+		}
+		if w.Pending {
+			w.OverAsk = true
+		}
+		if a.Lost {
+			return Enter{w}
+		}
+		w.St = 0
+		if w.Run+1 >= MaxRuns {
+			w.St = 2
+		} else {
+			w.Run = w.Run + 1
+		}
+		return Enter{w}
+	case Crash:
+		if w.Crashes >= MaxCrashes {
+			return Ignore
+		}
+		w.Crashes = w.Crashes + 1
+		return Enter{w}
+	case AskOpen:
+		if w.St != 1 || w.Pending || w.Resumed {
+			return Ignore
+		}
+		w.Pending = true
+		return Enter{w}
+	case AskSettle:
+		if !w.Pending {
+			return Ignore
+		}
+		w.Pending = false
+		return Enter{w}
+	case RunCompletes:
+		if w.St != 0 {
+			return Ignore
+		}
+		w.St = 2
+		return Enter{w}
+	case Stale:
+		if w.St != 1 || w.Resumed || !w.Valid {
+			return Ignore
+		}
+		w.St = 3
+		w.Reported = true
+		return Enter{w}
+	}
+}
+
+func resumedOncePerRun(w World) bool { w.Sent[0] <= 1 && w.Sent[1] <= 1 }
+
+func neverBeforeReset(w World) bool { !w.Early }
+
+func neverOnExpired(w World) bool { !w.OnExpired }
+
+func neverOverARequest(w World) bool { !w.OverAsk }
+
+func limitedIsResumedOrReported(w World) bool {
+	if w.St != 3 && !(w.St == 1 && !w.Valid) {
+		return true
+	}
+	w.Reported
+}
+
+func resumedTwice(w World) bool   { !resumedOncePerRun(w) }
+func resumedEarly(w World) bool   { !neverBeforeReset(w) }
+func resumedExpired(w World) bool { !neverOnExpired(w) }
+func resumedOverAsk(w World) bool { !neverOverARequest(w) }
+
+func resumedBothRuns(w World) bool        { w.Sent[0] == 1 && w.Sent[1] == 1 }
+func resumedAfterLostAnswer(w World) bool { w.Sent[0] == 1 && w.Run == 1 && w.Crashes == 1 }
+func expiredReported(w World) bool        { w.St == 1 && !w.Valid && w.Reported && !w.Armed }
+func heldByRequest(w World) bool          { w.St == 1 && w.Pending && w.Past && !w.Resumed }
+func gaveUp(w World) bool                 { w.St == 3 }
+
+func design(s World, a Act) Decision[World, string]        { return step(s, a, NoMutant) }
+func resumeTwice(s World, a Act) Decision[World, string]   { return step(s, a, ResumeTwiceMutant) }
+func armExpired(s World, a Act) Decision[World, string]    { return step(s, a, ArmExpiredMutant) }
+func resumeEarly(s World, a Act) Decision[World, string]   { return step(s, a, ResumeEarlyMutant) }
+func resumeOverAsk(s World, a Act) Decision[World, string] { return step(s, a, ResumeOverAskMutant) }
+
+type Design machine[World, Act] {
+	initial: first(),
+	step:    design,
+
+	law ResumedOncePerRun always resumedOncePerRun,
+	law NeverBeforeReset always neverBeforeReset,
+	law NeverOnExpired always neverOnExpired,
+	law NeverOverARequest always neverOverARequest,
+	law LimitedIsResumedOrReported always limitedIsResumedOrReported,
+
+	law ResumedBothRuns sometimes resumedBothRuns,
+	law ResumedAfterLostAnswer sometimes resumedAfterLostAnswer,
+	law ExpiredReported sometimes expiredReported,
+	law HeldByRequest sometimes heldByRequest,
+	law GaveUp sometimes gaveUp,
+}
+
+type ResumeTwice machine[World, Act] {
+	initial: first(),
+	step:    resumeTwice,
+	law Breaks sometimes resumedTwice,
+}
+
+type ArmExpired machine[World, Act] {
+	initial: first(),
+	step:    armExpired,
+	law Breaks sometimes resumedExpired,
+}
+
+type ResumeEarly machine[World, Act] {
+	initial: first(),
+	step:    resumeEarly,
+	law Breaks sometimes resumedEarly,
+}
+
+type ResumeOverAsk machine[World, Act] {
+	initial: first(),
+	step:    resumeOverAsk,
+	law Breaks sometimes resumedOverAsk,
+}

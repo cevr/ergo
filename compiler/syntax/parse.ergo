@@ -38,6 +38,32 @@ type Parsed {
 	FixText   string,
 }
 
+// EmptyParsed is a failed empty parse holding no syntax tables.
+func EmptyParsed() Parsed {
+	Parsed{
+		Tree:      Tree{ids: dense.NewCount[Node](), n: 0, kind: []uint32{}, tok: []uint32{}, a: []uint32{}, b: []uint32{}, extra: []uint32{}, ne: 0, stack: []uint32{}, top: 0},
+		Failed:    true,
+		Code:      "",
+		Message:   "",
+		Offset:    0,
+		Length:    0,
+		Line:      0,
+		Column:    0,
+		src:       "",
+		kinds:     []uint32{},
+		starts:    []uint32{},
+		ends:      []uint32{},
+		cmts:      newComments(0),
+		gFirst:    []int{},
+		gLast:     []int{},
+		cmt0:      -1,
+		HasFix:    false,
+		FixOffset: 0,
+		FixLength: 0,
+		FixText:   "",
+	}
+}
+
 // parser is the state of one parse: the token columns, the position in
 // them, the header and nesting state of the Go parser, the first error and
 // the tree being built. A failure is sticky: after it the current token
