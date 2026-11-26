@@ -1095,6 +1095,8 @@ case internal/sketch/std/net
 case internal/sketch/std/nettest
 case internal/sketch/std/option
 case internal/sketch/std/os
+case internal/sketch/std/os
+case internal/sketch/std/os/host
 case internal/sketch/std/pace
 case internal/sketch/std/process
 case internal/sketch/std/prompt
@@ -1370,6 +1372,7 @@ case unused internal/sketch/std/mcp/mcp.ergo
 case unused internal/sketch/std/mcp/memory/memory.ergo
 case unused internal/sketch/std/mcp/stdio/stdio.ergo
 case unused internal/sketch/std/option/option.ergo
+case unused internal/sketch/std/os/host/host.ergo
 case unused internal/sketch/std/pace/pace.ergo
 case unused internal/sketch/std/process/process.ergo
 case unused internal/sketch/std/prompt/machines.ergo
