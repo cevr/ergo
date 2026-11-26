@@ -28,7 +28,7 @@ import (
 // refinement's parse function, a codec pair's law) have no row.
 
 const (
-	nodeInTestLaw  uint8 = 1 << iota // inside a top-level TestDecl or LawDecl
+	nodeInTestLaw  uint8 = 1 << iota // inside a TestDecl or LawDecl
 	nodeInTypeDecl                   // inside a top-level TypeDecl
 	nodeInFuncBody                   // inside a top-level FuncDecl body
 )
@@ -181,10 +181,7 @@ func (fi *fileIndex) indexFile(f *syntax.File, bodies *[][2]syntax.Pos) {
 	}
 	for i, d := range f.Decls {
 		flags := uint8(0)
-		switch d.(type) {
-		case *syntax.TestDecl, *syntax.LawDecl:
-			flags = nodeInTestLaw
-		case *syntax.TypeDecl:
+		if _, ok := d.(*syntax.TypeDecl); ok {
 			flags = nodeInTypeDecl
 		}
 		iStart := int32(len(fi.idents))
@@ -532,11 +529,12 @@ func (fi *fileIndex) visit(n syntax.Node, flags uint8, loop syntax.Stmt, inBody 
 		if x.Name != nil {
 			fi.idents = append(fi.idents, x.Name)
 		}
+		testFlags := flags | nodeInTestLaw
 		if x.Params != nil {
-			fi.visitFieldList(x.Params, flags, nil, false, bodies)
+			fi.visitFieldList(x.Params, testFlags, nil, false, bodies)
 		}
 		if x.Body != nil {
-			fi.visit(x.Body, flags, nil, true, bodies)
+			fi.visit(x.Body, testFlags, nil, true, bodies)
 		}
 	case *syntax.LawDecl:
 		if x == nil {
