@@ -339,6 +339,86 @@ func ListQuestions(w WALStore, openOnly bool) []orchestrate.Question fails orche
 	try readOn(w.db, w.err, func() []orchestrate.Question fails orchestrate.StoreFailed needs sql.Tx { try queryQuestionsTx(openOnly) })
 }
 
+// RunMeta looks up run-level metadata for (repo, run).
+func RunMeta(s Store, repo string, run string) option.Option[orchestrate.RunMeta] fails orchestrate.StoreFailed needs go.Foreign {
+	try readOn(s.db, s.err, func() option.Option[orchestrate.RunMeta] fails orchestrate.StoreFailed needs sql.Tx { try queryRunMetaTx(repo, run) })
+}
+
+// RunMeta looks up run-level metadata for (repo, run) on WALStore.
+func RunMeta(w WALStore, repo string, run string) option.Option[orchestrate.RunMeta] fails orchestrate.StoreFailed needs go.Foreign {
+	try readOn(w.db, w.err, func() option.Option[orchestrate.RunMeta] fails orchestrate.StoreFailed needs sql.Tx { try queryRunMetaTx(repo, run) })
+}
+
+// RunSummary returns a compact progressive-disclosure overview for (repo, run).
+func RunSummary(s Store, repo string, run string, landingsLimit int) orchestrate.RunOverview fails orchestrate.StoreFailed needs go.Foreign {
+	try readOn(s.db, s.err, func() orchestrate.RunOverview fails orchestrate.StoreFailed needs sql.Tx { try queryRunSummaryTx(repo, run, landingsLimit) })
+}
+
+// RunSummary returns a compact progressive-disclosure overview for (repo, run) on WALStore.
+func RunSummary(w WALStore, repo string, run string, landingsLimit int) orchestrate.RunOverview fails orchestrate.StoreFailed needs go.Foreign {
+	try readOn(w.db, w.err, func() orchestrate.RunOverview fails orchestrate.StoreFailed needs sql.Tx { try queryRunSummaryTx(repo, run, landingsLimit) })
+}
+
+// ListUnits returns filtered and paginated compact unit summaries without receipt payloads.
+func ListUnits(s Store, filter orchestrate.UnitFilter) orchestrate.UnitPage fails orchestrate.StoreFailed needs go.Foreign {
+	try readOn(s.db, s.err, func() orchestrate.UnitPage fails orchestrate.StoreFailed needs sql.Tx { try queryUnitsTx(filter) })
+}
+
+// ListUnits returns filtered and paginated compact unit summaries without receipt payloads on WALStore.
+func ListUnits(w WALStore, filter orchestrate.UnitFilter) orchestrate.UnitPage fails orchestrate.StoreFailed needs go.Foreign {
+	try readOn(w.db, w.err, func() orchestrate.UnitPage fails orchestrate.StoreFailed needs sql.Tx { try queryUnitsTx(filter) })
+}
+
+// Decision looks up one structured decision projection by (repo, run, id).
+func Decision(s Store, repo string, run string, id string) option.Option[orchestrate.Decision] fails orchestrate.StoreFailed needs go.Foreign {
+	try readOn(s.db, s.err, func() option.Option[orchestrate.Decision] fails orchestrate.StoreFailed needs sql.Tx { try queryDecisionTx(repo, run, id) })
+}
+
+// Decision looks up one structured decision projection by (repo, run, id) on WALStore.
+func Decision(w WALStore, repo string, run string, id string) option.Option[orchestrate.Decision] fails orchestrate.StoreFailed needs go.Foreign {
+	try readOn(w.db, w.err, func() option.Option[orchestrate.Decision] fails orchestrate.StoreFailed needs sql.Tx { try queryDecisionTx(repo, run, id) })
+}
+
+// ListDecisions returns filtered and paginated decision records.
+func ListDecisions(s Store, filter orchestrate.DecisionFilter) orchestrate.DecisionPage fails orchestrate.StoreFailed needs go.Foreign {
+	try readOn(s.db, s.err, func() orchestrate.DecisionPage fails orchestrate.StoreFailed needs sql.Tx { try queryDecisionsTx(filter) })
+}
+
+// ListDecisions returns filtered and paginated decision records on WALStore.
+func ListDecisions(w WALStore, filter orchestrate.DecisionFilter) orchestrate.DecisionPage fails orchestrate.StoreFailed needs go.Foreign {
+	try readOn(w.db, w.err, func() orchestrate.DecisionPage fails orchestrate.StoreFailed needs sql.Tx { try queryDecisionsTx(filter) })
+}
+
+// Landing looks up one integration landing record by (repo, run, landingNumber).
+func Landing(s Store, repo string, run string, landingNumber int) option.Option[orchestrate.Landing] fails orchestrate.StoreFailed needs go.Foreign {
+	try readOn(s.db, s.err, func() option.Option[orchestrate.Landing] fails orchestrate.StoreFailed needs sql.Tx { try queryLandingTx(repo, run, landingNumber) })
+}
+
+// Landing looks up one integration landing record by (repo, run, landingNumber) on WALStore.
+func Landing(w WALStore, repo string, run string, landingNumber int) option.Option[orchestrate.Landing] fails orchestrate.StoreFailed needs go.Foreign {
+	try readOn(w.db, w.err, func() option.Option[orchestrate.Landing] fails orchestrate.StoreFailed needs sql.Tx { try queryLandingTx(repo, run, landingNumber) })
+}
+
+// ListLandings returns filtered and paginated integration landing records.
+func ListLandings(s Store, filter orchestrate.LandingFilter) orchestrate.LandingPage fails orchestrate.StoreFailed needs go.Foreign {
+	try readOn(s.db, s.err, func() orchestrate.LandingPage fails orchestrate.StoreFailed needs sql.Tx { try queryLandingsTx(filter) })
+}
+
+// ListLandings returns filtered and paginated integration landing records on WALStore.
+func ListLandings(w WALStore, filter orchestrate.LandingFilter) orchestrate.LandingPage fails orchestrate.StoreFailed needs go.Foreign {
+	try readOn(w.db, w.err, func() orchestrate.LandingPage fails orchestrate.StoreFailed needs sql.Tx { try queryLandingsTx(filter) })
+}
+
+// ListEventLog returns filtered, ordered, and paginated operational ledger events.
+func ListEventLog(s Store, filter orchestrate.EventLogFilter) orchestrate.EventPage fails orchestrate.StoreFailed needs go.Foreign {
+	try readOn(s.db, s.err, func() orchestrate.EventPage fails orchestrate.StoreFailed needs sql.Tx { try queryEventLogTx(filter) })
+}
+
+// ListEventLog returns filtered, ordered, and paginated operational ledger events on WALStore.
+func ListEventLog(w WALStore, filter orchestrate.EventLogFilter) orchestrate.EventPage fails orchestrate.StoreFailed needs go.Foreign {
+	try readOn(w.db, w.err, func() orchestrate.EventPage fails orchestrate.StoreFailed needs sql.Tx { try queryEventLogTx(filter) })
+}
+
 let prevLawDB = sync.NewRef[option.Option[Store]](option.None)
 
 let lawWALDir = sync.NewRef("")
@@ -379,9 +459,13 @@ func resetStoreData(st Store) Store fails orchestrate.StoreFailed needs go.Forei
 				"DELETE FROM commitments",
 				"DELETE FROM queue",
 				"DELETE FROM questions",
+				"DELETE FROM run_meta",
+				"DELETE FROM decisions",
+				"DELETE FROM landings",
+				"DELETE FROM event_log",
 				"DELETE FROM events",
 				"DELETE FROM commands",
-				"UPDATE schema_meta SET next_question_id = 1 WHERE id = 1",
+				"UPDATE schema_meta SET next_question_id = 1, next_event_id = 1 WHERE id = 1",
 			}
 			for stmt in stmts {
 				let _ = try execTx(stmt, []sql.Value{})

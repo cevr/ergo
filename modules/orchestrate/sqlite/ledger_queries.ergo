@@ -1,0 +1,344 @@
+import github.com/cevr/ergo/modules/orchestrate/orchestrate
+import option
+import sql
+import strings
+
+func appendCond(conds []string, args []sql.Value, opt option.Option[string], clause string) ([]string, []sql.Value) {
+	match opt {
+	case option.Some[string] as v:
+		(conds.Append(clause), args.Append(sql.Text{S: v.Value}))
+	case option.None:
+		(conds, args)
+	}
+}
+
+func buildWhere(conds []string) string {
+	if conds.Len() == 0 {
+		return ""
+	}
+	" WHERE " + strings.Join(conds, " AND ")
+}
+
+func queryCountTx(sqlText string, args []sql.Value) int fails orchestrate.StoreFailed needs sql.Tx {
+	let rows = try queryTx(sqlText, args)
+	if rows.Len() == 0 {
+		return 0
+	}
+	try intAt(rows[0], 0, "count")
+}
+
+func queryRunMetaTx(repo string, run string) option.Option[orchestrate.RunMeta] fails orchestrate.StoreFailed needs sql.Tx {
+	let rows = try queryTx(
+		"SELECT repo, run, main_head, updated_at FROM run_meta WHERE repo = ? AND run = ?",
+		[]sql.Value{sql.Text{S: repo}, sql.Text{S: run}},
+	)
+	if rows.Len() == 0 {
+		return option.None
+	}
+	option.Some[orchestrate.RunMeta]{Value: try scanRunMeta(rows[0])}
+}
+
+func queryRunSummaryTx(repo string, run string, landingsLimit int) orchestrate.RunOverview fails orchestrate.StoreFailed needs sql.Tx {
+	let mainHead = match try queryRunMetaTx(repo, run) {
+	case option.Some[orchestrate.RunMeta] as m:
+		m.Value.MainHead
+	case option.None:
+		option.None
+	}
+	let mut openUnits = 0
+	let mut acceptedUnits = 0
+	let mut landedUnits = 0
+	let mut closedUnits = 0
+	let mut totalUnits = 0
+	let unitCounts = try queryTx(
+		"SELECT status, COUNT(*) FROM units WHERE repo = ? AND run = ? GROUP BY status",
+		[]sql.Value{sql.Text{S: repo}, sql.Text{S: run}},
+	)
+	for row in unitCounts {
+		let st = try textAt(row, 0, "status")
+		let cnt = try intAt(row, 1, "count")
+		totalUnits = totalUnits + cnt
+		match st {
+		case "open":
+			openUnits = openUnits + cnt
+		case "accepted":
+			acceptedUnits = acceptedUnits + cnt
+		case "landed":
+			landedUnits = landedUnits + cnt
+		case "closed":
+			closedUnits = closedUnits + cnt
+		case _:
+		}
+	}
+	let openDecisions = try queryCountTx(
+		"SELECT COUNT(*) FROM decisions WHERE repo = ? AND run = ? AND status = 'open'",
+		[]sql.Value{sql.Text{S: repo}, sql.Text{S: run}},
+	)
+	let openQuestions = try queryCountTx(
+		"SELECT COUNT(*) FROM questions WHERE status = 'open'",
+		[]sql.Value{},
+	)
+	let openCommitments = try queryCountTx(
+		"SELECT COUNT(*) FROM commitments WHERE status IN ('open', 'assigned')",
+		[]sql.Value{},
+	)
+	let mut recent = []orchestrate.LandingSummary{}
+	if landingsLimit > 0 {
+		let lRows = try queryTx(
+			"SELECT landing_number, group_id, head, tips_json, summary, landed_at FROM landings WHERE repo = ? AND run = ? ORDER BY landing_number DESC LIMIT ?",
+			[]sql.Value{sql.Text{S: repo}, sql.Text{S: run}, sql.Int{N: int64(landingsLimit)}},
+		)
+		for row in lRows {
+			let tips = try decodeTags(try textAt(row, 3, "tips_json"))
+			recent = recent.Append(orchestrate.LandingSummary{
+				LandingNumber: try intAt(row, 0, "landing_number"),
+				GroupID:       try textAt(row, 1, "group_id"),
+				Head:          try textAt(row, 2, "head"),
+				TipCount:      tips.Len(),
+				Summary:       try textAt(row, 4, "summary"),
+				LandedAt:      try textAt(row, 5, "landed_at"),
+			})
+		}
+	}
+	orchestrate.RunOverview{
+		Repo:            repo,
+		Run:             run,
+		MainHead:        mainHead,
+		OpenUnits:       openUnits,
+		AcceptedUnits:   acceptedUnits,
+		LandedUnits:     landedUnits,
+		ClosedUnits:     closedUnits,
+		TotalUnits:      totalUnits,
+		OpenDecisions:   openDecisions,
+		OpenQuestions:   openQuestions,
+		OpenCommitments: openCommitments,
+		RecentLandings:  recent,
+	}
+}
+
+func queryUnitsTx(filter orchestrate.UnitFilter) orchestrate.UnitPage fails orchestrate.StoreFailed needs sql.Tx {
+	let mut conds = []string{}
+	let mut args = []sql.Value{}
+	let (c1, a1) = appendCond(conds, args, filter.Repo, "u.repo = ?")
+	let (c2, a2) = appendCond(c1, a1, filter.Run, "u.run = ?")
+	conds = c2
+	args = a2
+	match filter.Status {
+	case option.Some[orchestrate.UnitStatus] as st:
+		conds = conds.Append("u.status = ?")
+		args = args.Append(sql.Text{S: orchestrate.UnitStatusName(st.Value)})
+	case option.None:
+	}
+	let where = buildWhere(conds)
+	let total = try queryCountTx("SELECT COUNT(*) FROM units u"+where, args)
+	if filter.Limit <= 0 || filter.Offset < 0 || filter.Offset >= total {
+		return orchestrate.UnitPage{Items: []orchestrate.UnitSummary{}, Total: total, Limit: filter.Limit, Offset: filter.Offset, HasMore: false}
+	}
+	let queryArgs = args.Append(sql.Int{N: int64(filter.Limit)}).Append(sql.Int{N: int64(filter.Offset)})
+	let rows = try queryTx(
+			"SELECT u.repo, u.run, u.id, u.title, u.lane, u.branch, u.status, u.head, u.updated_at, "+
+			"(SELECT COUNT(*) FROM receipts r WHERE r.repo = u.repo AND r.run = u.run AND r.unit_id = u.id) "+
+			"FROM units u"+where+" ORDER BY u.repo ASC, u.run ASC, u.id ASC LIMIT ? OFFSET ?",
+		queryArgs,
+	)
+	let mut items = []orchestrate.UnitSummary{}
+	for row in rows {
+		items = items.Append(try scanUnitSummary(row))
+	}
+	let hasMore = (filter.Offset + items.Len()) < total
+	orchestrate.UnitPage{Items: items, Total: total, Limit: filter.Limit, Offset: filter.Offset, HasMore: hasMore}
+}
+
+func queryDecisionTx(repo string, run string, id string) option.Option[orchestrate.Decision] fails orchestrate.StoreFailed needs sql.Tx {
+	let rows = try queryTx(
+		"SELECT id, repo, run, category, scope, unit_id, title, body, status, supersedes, actor, created_at FROM decisions WHERE repo = ? AND run = ? AND id = ?",
+		[]sql.Value{sql.Text{S: repo}, sql.Text{S: run}, sql.Text{S: id}},
+	)
+	if rows.Len() == 0 {
+		return option.None
+	}
+	option.Some[orchestrate.Decision]{Value: try scanDecision(rows[0])}
+}
+
+func queryDecisionsTx(filter orchestrate.DecisionFilter) orchestrate.DecisionPage fails orchestrate.StoreFailed needs sql.Tx {
+	let mut conds = []string{}
+	let mut args = []sql.Value{}
+	let (c1, a1) = appendCond(conds, args, filter.Repo, "repo = ?")
+	let (c2, a2) = appendCond(c1, a1, filter.Run, "run = ?")
+	let (c3, a3) = appendCond(c2, a2, filter.Category, "category = ?")
+	let (c4, a4) = appendCond(c3, a3, filter.Scope, "scope = ?")
+	let (c5, a5) = appendCond(c4, a4, filter.UnitID, "unit_id = ?")
+	conds = c5
+	args = a5
+	match filter.Status {
+	case option.Some[orchestrate.DecisionStatus] as st:
+		conds = conds.Append("status = ?")
+		args = args.Append(sql.Text{S: orchestrate.DecisionStatusName(st.Value)})
+	case option.None:
+	}
+	let where = buildWhere(conds)
+	let total = try queryCountTx("SELECT COUNT(*) FROM decisions"+where, args)
+	if filter.Limit <= 0 || filter.Offset < 0 || filter.Offset >= total {
+		return orchestrate.DecisionPage{Items: []orchestrate.Decision{}, Total: total, Limit: filter.Limit, Offset: filter.Offset, HasMore: false}
+	}
+	let queryArgs = args.Append(sql.Int{N: int64(filter.Limit)}).Append(sql.Int{N: int64(filter.Offset)})
+	let rows = try queryTx(
+			"SELECT id, repo, run, category, scope, unit_id, title, body, status, supersedes, actor, created_at FROM decisions"+
+			where+" ORDER BY created_at DESC, repo ASC, run ASC, id ASC LIMIT ? OFFSET ?",
+		queryArgs,
+	)
+	let mut items = []orchestrate.Decision{}
+	for row in rows {
+		items = items.Append(try scanDecision(row))
+	}
+	let hasMore = (filter.Offset + items.Len()) < total
+	orchestrate.DecisionPage{Items: items, Total: total, Limit: filter.Limit, Offset: filter.Offset, HasMore: hasMore}
+}
+
+func queryLandingTx(repo string, run string, landingNumber int) option.Option[orchestrate.Landing] fails orchestrate.StoreFailed needs sql.Tx {
+	let rows = try queryTx(
+		"SELECT repo, run, landing_number, group_id, head, tips_json, summary, log_path, landed_at FROM landings WHERE repo = ? AND run = ? AND landing_number = ?",
+		[]sql.Value{sql.Text{S: repo}, sql.Text{S: run}, sql.Int{N: int64(landingNumber)}},
+	)
+	if rows.Len() == 0 {
+		return option.None
+	}
+	option.Some[orchestrate.Landing]{Value: try scanLanding(rows[0])}
+}
+
+func queryLandingsTx(filter orchestrate.LandingFilter) orchestrate.LandingPage fails orchestrate.StoreFailed needs sql.Tx {
+	let mut conds = []string{}
+	let mut args = []sql.Value{}
+	let (c1, a1) = appendCond(conds, args, filter.Repo, "repo = ?")
+	let (c2, a2) = appendCond(c1, a1, filter.Run, "run = ?")
+	conds = c2
+	args = a2
+	let where = buildWhere(conds)
+	let total = try queryCountTx("SELECT COUNT(*) FROM landings"+where, args)
+	if filter.Limit <= 0 || filter.Offset < 0 || filter.Offset >= total {
+		return orchestrate.LandingPage{Items: []orchestrate.Landing{}, Total: total, Limit: filter.Limit, Offset: filter.Offset, HasMore: false}
+	}
+	let queryArgs = args.Append(sql.Int{N: int64(filter.Limit)}).Append(sql.Int{N: int64(filter.Offset)})
+	let rows = try queryTx(
+			"SELECT repo, run, landing_number, group_id, head, tips_json, summary, log_path, landed_at FROM landings"+
+			where+" ORDER BY landing_number DESC, repo ASC, run ASC LIMIT ? OFFSET ?",
+		queryArgs,
+	)
+	let mut items = []orchestrate.Landing{}
+	for row in rows {
+		items = items.Append(try scanLanding(row))
+	}
+	let hasMore = (filter.Offset + items.Len()) < total
+	orchestrate.LandingPage{Items: items, Total: total, Limit: filter.Limit, Offset: filter.Offset, HasMore: hasMore}
+}
+
+func queryEventLogTx(filter orchestrate.EventLogFilter) orchestrate.EventPage fails orchestrate.StoreFailed needs sql.Tx {
+	let mut conds = []string{}
+	let mut args = []sql.Value{}
+	let (c1, a1) = appendCond(conds, args, filter.Repo, "repo = ?")
+	let (c2, a2) = appendCond(c1, a1, filter.Run, "run = ?")
+	let (c3, a3) = appendCond(c2, a2, filter.Kind, "kind = ?")
+	let (c4, a4) = appendCond(c3, a3, filter.UnitID, "unit_id = ?")
+	let (c5, a5) = appendCond(c4, a4, filter.Actor, "actor = ?")
+	conds = c5
+	args = a5
+	let where = buildWhere(conds)
+	let total = try queryCountTx("SELECT COUNT(*) FROM event_log"+where, args)
+	if filter.Limit <= 0 || filter.Offset < 0 || filter.Offset >= total {
+		return orchestrate.EventPage{Items: []orchestrate.LedgerEvent{}, Total: total, Limit: filter.Limit, Offset: filter.Offset, HasMore: false}
+	}
+	let orderClause = if filter.Ascending { " ORDER BY id ASC" } else { " ORDER BY id DESC" }
+	let queryArgs = args.Append(sql.Int{N: int64(filter.Limit)}).Append(sql.Int{N: int64(filter.Offset)})
+	let rows = try queryTx(
+			"SELECT id, repo, run, kind, unit_id, summary, actor, created_at, source_key FROM event_log"+
+			where+orderClause+" LIMIT ? OFFSET ?",
+		queryArgs,
+	)
+	let mut items = []orchestrate.LedgerEvent{}
+	for row in rows {
+		items = items.Append(try scanLedgerEvent(row))
+	}
+	let hasMore = (filter.Offset + items.Len()) < total
+	orchestrate.EventPage{Items: items, Total: total, Limit: filter.Limit, Offset: filter.Offset, HasMore: hasMore}
+}
+
+func scanRunMeta(row sql.Row) orchestrate.RunMeta fails orchestrate.StoreFailed {
+	orchestrate.RunMeta{
+		Repo:      try textAt(row, 0, "repo"),
+		Run:       try textAt(row, 1, "run"),
+		MainHead:  try optTextAt(row, 2, "main_head"),
+		UpdatedAt: try textAt(row, 3, "updated_at"),
+	}
+}
+
+func scanUnitSummary(row sql.Row) orchestrate.UnitSummary fails orchestrate.StoreFailed {
+	let statusText = try textAt(row, 6, "status")
+	let status = match orchestrate.ParseUnitStatus(statusText) {
+	case option.Some[orchestrate.UnitStatus] as st:
+		st.Value
+	case option.None:
+		return orchestrate.StoreFailed{Reason: "invalid stored unit status: " + statusText}
+	}
+	orchestrate.UnitSummary{
+		Key:          orchestrate.UnitKey{Repo: try textAt(row, 0, "repo"), Run: try textAt(row, 1, "run"), ID: try textAt(row, 2, "id")},
+		Title:        try textAt(row, 3, "title"),
+		Lane:         try optTextAt(row, 4, "lane"),
+		Branch:       try optTextAt(row, 5, "branch"),
+		Status:       status,
+		Head:         try optTextAt(row, 7, "head"),
+		UpdatedAt:    try textAt(row, 8, "updated_at"),
+		ReceiptCount: try intAt(row, 9, "receipt_count"),
+	}
+}
+
+func scanDecision(row sql.Row) orchestrate.Decision fails orchestrate.StoreFailed {
+	let statusText = try textAt(row, 8, "status")
+	let status = match orchestrate.ParseDecisionStatus(statusText) {
+	case option.Some[orchestrate.DecisionStatus] as st:
+		st.Value
+	case option.None:
+		return orchestrate.StoreFailed{Reason: "invalid stored decision status: " + statusText}
+	}
+	orchestrate.Decision{
+		ID:         try textAt(row, 0, "id"),
+		Repo:       try textAt(row, 1, "repo"),
+		Run:        try textAt(row, 2, "run"),
+		Category:   try textAt(row, 3, "category"),
+		Scope:      try textAt(row, 4, "scope"),
+		UnitID:     try optTextAt(row, 5, "unit_id"),
+		Title:      try textAt(row, 6, "title"),
+		Body:       try textAt(row, 7, "body"),
+		Status:     status,
+		Supersedes: try optTextAt(row, 9, "supersedes"),
+		Actor:      try textAt(row, 10, "actor"),
+		CreatedAt:  try textAt(row, 11, "created_at"),
+	}
+}
+
+func scanLanding(row sql.Row) orchestrate.Landing fails orchestrate.StoreFailed {
+	orchestrate.Landing{
+		Repo:          try textAt(row, 0, "repo"),
+		Run:           try textAt(row, 1, "run"),
+		LandingNumber: try intAt(row, 2, "landing_number"),
+		GroupID:       try textAt(row, 3, "group_id"),
+		Head:          try textAt(row, 4, "head"),
+		Tips:          try decodeTags(try textAt(row, 5, "tips_json")),
+		Summary:       try textAt(row, 6, "summary"),
+		LogPath:       try optTextAt(row, 7, "log_path"),
+		LandedAt:      try textAt(row, 8, "landed_at"),
+	}
+}
+
+func scanLedgerEvent(row sql.Row) orchestrate.LedgerEvent fails orchestrate.StoreFailed {
+	orchestrate.LedgerEvent{
+		ID:        try intAt(row, 0, "id"),
+		Repo:      try textAt(row, 1, "repo"),
+		Run:       try textAt(row, 2, "run"),
+		Kind:      try textAt(row, 3, "kind"),
+		UnitID:    try optTextAt(row, 4, "unit_id"),
+		Summary:   try textAt(row, 5, "summary"),
+		Actor:     try textAt(row, 6, "actor"),
+		CreatedAt: try textAt(row, 7, "created_at"),
+		SourceKey: try optTextAt(row, 8, "source_key"),
+	}
+}

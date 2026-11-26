@@ -1,0 +1,359 @@
+import github.com/cevr/ergo/modules/orchestrate/orchestrate
+import github.com/cevr/ergo/modules/sqlite/sqlite
+import option
+import sql
+
+func CheckMigrationV2ToV3(_ livePersistence) bool needs go.Foreign {
+	let (dir, name) = nextVerifyDBPath("mig-v2-v3") catch {
+	case orchestrate.StoreFailed:
+		return false
+	}
+	let path = dir + "/" + name
+	let raw = sqlite.Open(path) catch {
+	case _:
+		cleanupVerifyDB(dir, name)
+		return false
+	}
+	let uOpenKey = orchestrate.UnitKey{Repo: "repo", Run: "v2run", ID: "u-open"}
+	let uLandKey = orchestrate.UnitKey{Repo: "repo", Run: "v2run", ID: "u-landed"}
+	let cmd1 = orchestrate.OpenUnit{Key: uOpenKey, Title: "Open v2 unit", Requires: []string{"test"}, Lane: option.Some[string]{Value: "/lane/1"}, Branch: option.Some[string]{Value: "b1"}}
+	let cmd2 = orchestrate.OpenUnit{Key: uLandKey, Title: "Landed v2 unit", Requires: []string{"test"}, Lane: option.None, Branch: option.None}
+	let p1 = encodeCommand(cmd1)
+	let p2 = encodeCommand(cmd2)
+	let ev1 = encodeEvent(orchestrate.CommandAccepted{ID: orchestrate.CommandID("v2-c1"), Actor: "root", At: "2026-11-25T00:00:00Z", Command: cmd1})
+	let ev2 = encodeEvent(orchestrate.UnitOpened{Key: uOpenKey, Title: "Open v2 unit", Requires: []string{"test"}, Lane: option.Some[string]{Value: "/lane/1"}, Branch: option.Some[string]{Value: "b1"}, At: "2026-11-25T00:00:00Z"})
+	let seeded = with context { sql.DB: raw } {
+		sqlite.WriteTransaction() {
+			let v2DDL = "CREATE TABLE schema_meta (id INTEGER PRIMARY KEY CHECK (id = 1), schema_version INTEGER NOT NULL, next_question_id INTEGER NOT NULL DEFAULT 1);" +
+				"INSERT INTO schema_meta (id, schema_version, next_question_id) VALUES (1, 2, 5);" +
+				"CREATE TABLE commands (command_id TEXT PRIMARY KEY, actor TEXT NOT NULL, at TEXT NOT NULL, payload_json TEXT NOT NULL, payload_digest TEXT NOT NULL);" +
+				"CREATE TABLE events (seq INTEGER PRIMARY KEY, command_id TEXT NOT NULL, payload_digest TEXT NOT NULL, event_json TEXT NOT NULL);" +
+				"CREATE TABLE units (repo TEXT NOT NULL, run TEXT NOT NULL, id TEXT NOT NULL, title TEXT NOT NULL, requires_json TEXT NOT NULL, lane TEXT, branch TEXT, status TEXT NOT NULL, head TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY (repo, run, id));" +
+				"CREATE TABLE receipts (id TEXT PRIMARY KEY, seq_order INTEGER NOT NULL, repo TEXT NOT NULL, run TEXT NOT NULL, unit_id TEXT NOT NULL, kind TEXT NOT NULL, command TEXT NOT NULL, head TEXT NOT NULL, exit_code INTEGER NOT NULL, exit_lines TEXT NOT NULL, recorded_at TEXT NOT NULL, recorded_by TEXT NOT NULL, FOREIGN KEY (repo, run, unit_id) REFERENCES units (repo, run, id));" +
+				"CREATE TABLE commitments (id TEXT PRIMARY KEY, title TEXT NOT NULL, kind TEXT NOT NULL, status TEXT NOT NULL, owner TEXT, lane TEXT, landed_sha TEXT, decision_note TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);" +
+				"CREATE TABLE queue (key TEXT PRIMARY KEY, priority INTEGER NOT NULL, title TEXT NOT NULL, body TEXT NOT NULL, status TEXT NOT NULL, tags_json TEXT NOT NULL, updated_at TEXT NOT NULL);" +
+				"CREATE TABLE questions (id INTEGER PRIMARY KEY, command_id TEXT NOT NULL UNIQUE, prompt TEXT NOT NULL, assumption TEXT NOT NULL, concrete_action TEXT NOT NULL, status TEXT NOT NULL, answer TEXT, asked_by TEXT NOT NULL, asked_at TEXT NOT NULL, answered_by TEXT, answered_at TEXT);" +
+				"PRAGMA user_version = 2"
+			let _ = try execTx(v2DDL, []sql.Value{})
+			let _ = try execTx("INSERT INTO commands (command_id, actor, at, payload_json, payload_digest) VALUES (?, 'root', '2026-11-25T00:00:00Z', ?, ?)", []sql.Value{sql.Text{S: "v2-c1"}, sql.Text{S: p1}, sql.Text{S: commandDigest(p1)}})
+			let _ = try execTx("INSERT INTO commands (command_id, actor, at, payload_json, payload_digest) VALUES (?, 'root', '2026-11-25T00:01:00Z', ?, ?)", []sql.Value{sql.Text{S: "v2-c2"}, sql.Text{S: p2}, sql.Text{S: commandDigest(p2)}})
+			let _ = try execTx("INSERT INTO events (seq, command_id, payload_digest, event_json) VALUES (1, 'v2-c1', ?, ?)", []sql.Value{sql.Text{S: commandDigest(p1)}, sql.Text{S: ev1}})
+			let _ = try execTx("INSERT INTO events (seq, command_id, payload_digest, event_json) VALUES (2, 'v2-c1', ?, ?)", []sql.Value{sql.Text{S: commandDigest(p1)}, sql.Text{S: ev2}})
+			let _ = try execTx("INSERT INTO units (repo, run, id, title, requires_json, lane, branch, status, head, created_at, updated_at) VALUES ('repo', 'v2run', 'u-open', 'Open v2 unit', '[\"test\"]', '/lane/1', 'b1', 'open', NULL, '2026-11-25T00:00:00Z', '2026-11-25T00:00:00Z')", []sql.Value{})
+			let _ = try execTx("INSERT INTO units (repo, run, id, title, requires_json, lane, branch, status, head, created_at, updated_at) VALUES ('repo', 'v2run', 'u-landed', 'Landed v2 unit', '[\"test\"]', NULL, NULL, 'landed', 'abc1234', '2026-11-25T00:01:00Z', '2026-11-25T00:02:00Z')", []sql.Value{})
+			let _ = try execTx("INSERT INTO receipts (id, seq_order, repo, run, unit_id, kind, command, head, exit_code, exit_lines, recorded_at, recorded_by) VALUES ('rec-v2-1', 1, 'repo', 'v2run', 'u-landed', 'test', 'ergo test', 'abc1234', 0, 'PASS (1 test)', '2026-11-25T00:01:30Z', 'worker')", []sql.Value{})
+			let _ = try execTx("INSERT INTO commitments (id, title, kind, status, owner, lane, landed_sha, decision_note, created_at, updated_at) VALUES ('cm-v2', 'Keep v2 rows', 'migration', 'assigned', 'w1', '/lane/1', NULL, NULL, '2026-11-25T00:00:00Z', '2026-11-25T00:00:00Z')", []sql.Value{})
+			let _ = try execTx("INSERT INTO queue (key, priority, title, body, status, tags_json, updated_at) VALUES ('q-v2', 1, 'Queued v2', 'survives migration', 'open', '[\"v2\"]', '2026-11-25T00:00:00Z')", []sql.Value{})
+			let _ = try execTx("INSERT INTO questions (id, command_id, prompt, assumption, concrete_action, status, answer, asked_by, asked_at, answered_by, answered_at) VALUES (4, 'v2-q4', 'Preserve?', 'Yes', 'Migrate non-destructively', 'open', NULL, 'worker', '2026-11-25T00:00:00Z', NULL, NULL)", []sql.Value{})
+			true
+		}
+	} catch {
+	case _:
+		closeIgnoring(raw)
+		cleanupVerifyDB(dir, name)
+		return false
+	}
+	closeIgnoring(raw)
+	if !seeded {
+		cleanupVerifyDB(dir, name)
+		return false
+	}
+	let st = Open(path) catch {
+	case orchestrate.StoreFailed:
+		cleanupVerifyDB(dir, name)
+		return false
+	}
+	let u1 = st.Unit(uOpenKey) catch {
+	case orchestrate.StoreFailed:
+		st.Close() catch {
+		case orchestrate.StoreFailed:
+		}
+		cleanupVerifyDB(dir, name)
+		return false
+	}
+	let u2 = st.Unit(uLandKey) catch {
+	case orchestrate.StoreFailed:
+		st.Close() catch {
+		case orchestrate.StoreFailed:
+		}
+		cleanupVerifyDB(dir, name)
+		return false
+	}
+	let recs = st.Receipts(uLandKey) catch {
+	case orchestrate.StoreFailed:
+		st.Close() catch {
+		case orchestrate.StoreFailed:
+		}
+		cleanupVerifyDB(dir, name)
+		return false
+	}
+	let cms = st.ListCommitments(option.None, option.None) catch {
+	case orchestrate.StoreFailed:
+		st.Close() catch {
+		case orchestrate.StoreFailed:
+		}
+		cleanupVerifyDB(dir, name)
+		return false
+	}
+	let qs = st.ListQueue(option.None) catch {
+	case orchestrate.StoreFailed:
+		st.Close() catch {
+		case orchestrate.StoreFailed:
+		}
+		cleanupVerifyDB(dir, name)
+		return false
+	}
+	let qns = st.ListQuestions(false) catch {
+	case orchestrate.StoreFailed:
+		st.Close() catch {
+		case orchestrate.StoreFailed:
+		}
+		cleanupVerifyDB(dir, name)
+		return false
+	}
+	let evs = st.Events(0) catch {
+	case orchestrate.StoreFailed:
+		st.Close() catch {
+		case orchestrate.StoreFailed:
+		}
+		cleanupVerifyDB(dir, name)
+		return false
+	}
+	let sumBefore = st.RunSummary("repo", "v2run", 5) catch {
+	case orchestrate.StoreFailed:
+		st.Close() catch {
+		case orchestrate.StoreFailed:
+		}
+		cleanupVerifyDB(dir, name)
+		return false
+	}
+	let upage = st.ListUnits(orchestrate.UnitFilter{Repo: option.Some[string]{Value: "repo"}, Run: option.Some[string]{Value: "v2run"}, Status: option.None, Limit: 10, Offset: 0}) catch {
+	case orchestrate.StoreFailed:
+		st.Close() catch {
+		case orchestrate.StoreFailed:
+		}
+		cleanupVerifyDB(dir, name)
+		return false
+	}
+	let _ = st.Execute(orchestrate.Envelope{
+		ID:      orchestrate.CommandID("v3-q5"),
+		Actor:   "worker",
+		At:      "2026-11-26T10:00:00Z",
+		Command: orchestrate.AskQuestion{ID: option.None, Prompt: "Post-migration?", Assumption: "Monotonic 5", ConcreteAction: "Verify"},
+	}) catch {
+	case _:
+		st.Close() catch {
+		case orchestrate.StoreFailed:
+		}
+		cleanupVerifyDB(dir, name)
+		return false
+	}
+	let _ = st.Execute(orchestrate.Envelope{
+		ID:      orchestrate.CommandID("v3-imp"),
+		Actor:   "root",
+		At:      "2026-11-26T10:01:00Z",
+		Command: orchestrate.IngestPlan{
+			Repo: "repo",
+			Run:  "v2run",
+			Text: "- 2026-11-26T10:01:00Z RULED (Migrate Cleanly): Keep existing v2 rows.\nMAIN MOVED 2026-11-26T10:02:00Z: main = deadbeef (Landing 3, group g3). Tips: u-landed\n",
+		},
+	}) catch {
+	case _:
+		st.Close() catch {
+		case orchestrate.StoreFailed:
+		}
+		cleanupVerifyDB(dir, name)
+		return false
+	}
+	let dbHandle = openDB(st.db, st.err) catch {
+	case orchestrate.StoreFailed:
+		st.Close() catch {
+		case orchestrate.StoreFailed:
+		}
+		cleanupVerifyDB(dir, name)
+		return false
+	}
+	let (uvAfter, metaVer, hasDecisions, hasLandings, hasEventLog, hasRunMeta) = with context { sql.DB: dbHandle } {
+		sql.Transaction() {
+			let uvR = try queryTx("PRAGMA user_version", []sql.Value{})
+			let uv = try intAt(uvR[0], 0, "user_version")
+			let mR = try queryTx("SELECT schema_version FROM schema_meta WHERE id = 1", []sql.Value{})
+			let mv = try intAt(mR[0], 0, "schema_version")
+			(uv, mv, try hasTableTx("decisions"), try hasTableTx("landings"), try hasTableTx("event_log"), try hasTableTx("run_meta"))
+		}
+	} catch {
+	case _:
+		st.Close() catch {
+		case orchestrate.StoreFailed:
+		}
+		cleanupVerifyDB(dir, name)
+		return false
+	}
+	st.Close() catch {
+	case orchestrate.StoreFailed:
+	}
+	let reopened = Open(path) catch {
+	case orchestrate.StoreFailed:
+		cleanupVerifyDB(dir, name)
+		return false
+	}
+	let sumAfter = reopened.RunSummary("repo", "v2run", 5) catch {
+	case orchestrate.StoreFailed:
+		reopened.Close() catch {
+		case orchestrate.StoreFailed:
+		}
+		cleanupVerifyDB(dir, name)
+		return false
+	}
+	let q5 = reopened.Question(5) catch {
+	case orchestrate.StoreFailed:
+		reopened.Close() catch {
+		case orchestrate.StoreFailed:
+		}
+		cleanupVerifyDB(dir, name)
+		return false
+	}
+	let evLog = reopened.ListEventLog(orchestrate.EventLogFilter{Repo: option.Some[string]{Value: "repo"}, Run: option.Some[string]{Value: "v2run"}, Kind: option.None, UnitID: option.None, Actor: option.None, Ascending: true, Limit: 10, Offset: 0}) catch {
+	case orchestrate.StoreFailed:
+		reopened.Close() catch {
+		case orchestrate.StoreFailed:
+		}
+		cleanupVerifyDB(dir, name)
+		return false
+	}
+	reopened.Close() catch {
+	case orchestrate.StoreFailed:
+	}
+	cleanupVerifyDB(dir, name)
+	let u1OK = match u1 {
+	case option.Some[orchestrate.Unit] as found:
+		found.Value.Status == orchestrate.UnitOpen && found.Value.Lane == (option.Some[string]{Value: "/lane/1"})
+	case option.None:
+		false
+	}
+	let u2OK = match u2 {
+	case option.Some[orchestrate.Unit] as found:
+		found.Value.Status == orchestrate.UnitLanded && found.Value.Head == (option.Some[string]{Value: "abc1234"})
+	case option.None:
+		false
+	}
+		u1OK && u2OK &&
+		recs.Len() == 1 && recs[0].ID == "rec-v2-1" &&
+		cms.Len() == 1 && cms[0].ID == "cm-v2" &&
+		qs.Len() == 1 && qs[0].Key == "q-v2" &&
+		qns.Len() == 1 && qns[0].ID == 4 &&
+		evs.Len() == 2 &&
+		upage.Total == 2 &&
+		sumBefore.OpenUnits == 1 && sumBefore.LandedUnits == 1 && sumBefore.OpenQuestions == 1 && sumBefore.OpenCommitments == 1 &&
+		uvAfter == CurrentSchemaVersion && metaVer == CurrentSchemaVersion &&
+		hasDecisions && hasLandings && hasEventLog && hasRunMeta &&
+		q5 != option.None &&
+		sumAfter.MainHead == (option.Some[string]{Value: "deadbeef"}) &&
+		sumAfter.OpenDecisions == 1 && sumAfter.RecentLandings.Len() == 1 &&
+		evLog.Total == 2
+}
+
+func CheckMigrationV1ToV3(_ livePersistence) bool needs go.Foreign {
+	let (dir, name) = nextVerifyDBPath("mig-v1-v3") catch {
+	case orchestrate.StoreFailed:
+		return false
+	}
+	let path = dir + "/" + name
+	let raw = sqlite.Open(path) catch {
+	case _:
+		cleanupVerifyDB(dir, name)
+		return false
+	}
+	let seeded = with context { sql.DB: raw } {
+		sqlite.WriteTransaction() {
+			let v1DDL = "CREATE TABLE schema_meta (id INTEGER PRIMARY KEY CHECK (id = 1), schema_version INTEGER NOT NULL, next_question_id INTEGER NOT NULL DEFAULT 1);" +
+				"INSERT INTO schema_meta (id, schema_version, next_question_id) VALUES (1, 1, 2);" +
+				"CREATE TABLE commands (command_id TEXT PRIMARY KEY, actor TEXT NOT NULL, at TEXT NOT NULL, payload_json TEXT NOT NULL, payload_digest TEXT NOT NULL);" +
+				"CREATE TABLE events (seq INTEGER PRIMARY KEY, command_id TEXT NOT NULL, payload_digest TEXT NOT NULL, event_json TEXT NOT NULL);" +
+				"CREATE TABLE units (id TEXT PRIMARY KEY, title TEXT NOT NULL, area TEXT NOT NULL, status TEXT NOT NULL, owner TEXT, lane TEXT, harness TEXT, round INTEGER NOT NULL, head_sha TEXT, summary TEXT, request_path TEXT, findings_path TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);" +
+				"CREATE TABLE receipts (id TEXT PRIMARY KEY, seq_order INTEGER NOT NULL, unit_id TEXT NOT NULL REFERENCES units(id), round INTEGER NOT NULL, kind TEXT NOT NULL, command TEXT NOT NULL, commit_sha TEXT NOT NULL, exit_code INTEGER NOT NULL, summary_metrics TEXT NOT NULL, log_path TEXT NOT NULL, log_sha256 TEXT NOT NULL, recorded_at TEXT NOT NULL, recorded_by TEXT NOT NULL);" +
+				"CREATE TABLE commitments (id TEXT PRIMARY KEY, title TEXT NOT NULL, kind TEXT NOT NULL, status TEXT NOT NULL, owner TEXT, lane TEXT, landed_sha TEXT, decision_note TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);" +
+				"CREATE TABLE queue (key TEXT PRIMARY KEY, priority INTEGER NOT NULL, title TEXT NOT NULL, body TEXT NOT NULL, status TEXT NOT NULL, tags_json TEXT NOT NULL, updated_at TEXT NOT NULL);" +
+				"CREATE TABLE questions (id INTEGER PRIMARY KEY, command_id TEXT NOT NULL UNIQUE, prompt TEXT NOT NULL, assumption TEXT NOT NULL, concrete_action TEXT NOT NULL, status TEXT NOT NULL, answer TEXT, asked_by TEXT NOT NULL, asked_at TEXT NOT NULL, answered_by TEXT, answered_at TEXT);" +
+				"PRAGMA user_version = 1"
+			let _ = try execTx(v1DDL, []sql.Value{})
+			let _ = try execTx("INSERT INTO units (id, title, area, status, owner, lane, harness, round, head_sha, summary, request_path, findings_path, created_at, updated_at) VALUES ('u-v1', 'Legacy v1 unit', 'core', 'accepted', 'w1', '/lane/v1', 'go', 1, '11223344', NULL, NULL, NULL, '2026-11-24T00:00:00Z', '2026-11-24T01:00:00Z')", []sql.Value{})
+			let _ = try execTx("INSERT INTO receipts (id, seq_order, unit_id, round, kind, command, commit_sha, exit_code, summary_metrics, log_path, log_sha256, recorded_at, recorded_by) VALUES ('r-v1', 1, 'u-v1', 1, 'acceptance', 'ergo test', '11223344', 0, 'PASS', '/tmp/r.log', 'abcd', '2026-11-24T00:30:00Z', 'w1')", []sql.Value{})
+			let _ = try execTx("INSERT INTO commitments (id, title, kind, status, owner, lane, landed_sha, decision_note, created_at, updated_at) VALUES ('cm-v1', 'Keep v1', 'feature', 'open', NULL, NULL, NULL, NULL, '2026-11-24T00:00:00Z', '2026-11-24T00:00:00Z')", []sql.Value{})
+			true
+		}
+	} catch {
+	case _:
+		closeIgnoring(raw)
+		cleanupVerifyDB(dir, name)
+		return false
+	}
+	closeIgnoring(raw)
+	if !seeded {
+		cleanupVerifyDB(dir, name)
+		return false
+	}
+	let st = Open(path) catch {
+	case orchestrate.StoreFailed:
+		cleanupVerifyDB(dir, name)
+		return false
+	}
+	let migratedKey = orchestrate.UnitKey{Repo: "default", Run: "default", ID: "u-v1"}
+	let u = st.Unit(migratedKey) catch {
+	case orchestrate.StoreFailed:
+		st.Close() catch {
+		case orchestrate.StoreFailed:
+		}
+		cleanupVerifyDB(dir, name)
+		return false
+	}
+	let recs = st.Receipts(migratedKey) catch {
+	case orchestrate.StoreFailed:
+		st.Close() catch {
+		case orchestrate.StoreFailed:
+		}
+		cleanupVerifyDB(dir, name)
+		return false
+	}
+	let cms = st.ListCommitments(option.None, option.None) catch {
+	case orchestrate.StoreFailed:
+		st.Close() catch {
+		case orchestrate.StoreFailed:
+		}
+		cleanupVerifyDB(dir, name)
+		return false
+	}
+	let dbHandle = openDB(st.db, st.err) catch {
+	case orchestrate.StoreFailed:
+		st.Close() catch {
+		case orchestrate.StoreFailed:
+		}
+		cleanupVerifyDB(dir, name)
+		return false
+	}
+	let (uvAfter, mvAfter) = with context { sql.DB: dbHandle } {
+		sql.Transaction() {
+			let uvR = try queryTx("PRAGMA user_version", []sql.Value{})
+			let mR = try queryTx("SELECT schema_version FROM schema_meta WHERE id = 1", []sql.Value{})
+			(try intAt(uvR[0], 0, "user_version"), try intAt(mR[0], 0, "schema_version"))
+		}
+	} catch {
+	case _:
+		st.Close() catch {
+		case orchestrate.StoreFailed:
+		}
+		cleanupVerifyDB(dir, name)
+		return false
+	}
+	st.Close() catch {
+	case orchestrate.StoreFailed:
+	}
+	cleanupVerifyDB(dir, name)
+	let uOK = match u {
+	case option.Some[orchestrate.Unit] as found:
+		found.Value.Status == orchestrate.UnitAccepted && found.Value.Head == (option.Some[string]{Value: "11223344"})
+	case option.None:
+		false
+	}
+	uOK && recs.Len() == 1 && recs[0].ExitLines == "PASS" && cms.Len() == 1 && cms[0].ID == "cm-v1" && uvAfter == CurrentSchemaVersion && mvAfter == CurrentSchemaVersion
+}

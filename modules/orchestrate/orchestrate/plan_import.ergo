@@ -1,0 +1,610 @@
+import hex
+import option
+import sha256
+import strconv
+import strings
+
+// ParsedPlan is the structured output extracted from unstructured run log and fallout text.
+type ParsedPlan {
+	LinesScanned int,
+	MainHead     option.Option[string],
+	Decisions    []Decision,
+	Landings     []Landing,
+	Events       []LedgerEvent,
+}
+
+// ParsePlanLines parses operational run log and fallout markdown lines into structured records and deduplicated ledger events.
+func ParsePlanLines(repo string, run string, defaultActor string, defaultAt string, text string) ParsedPlan {
+	let lines = strings.Split(text, "\n")
+	let mut scanned = 0
+	let mut mainHead option.Option[string] = option.None
+	let mut decisions = []Decision{}
+	let mut decisionIdx = Map[string, int]{}
+	let mut landings = []Landing{}
+	let mut landingIdx = Map[int, int]{}
+	let mut events = []LedgerEvent{}
+	let mut pendingLanding = 0
+	let mut pendingLandingAt = ""
+	for rawLine in lines {
+		let line = strings.TrimSpace(strings.TrimSuffix(rawLine, "\r"))
+		if line == "" || line == "---" || strings.HasPrefix(line, "| ---") || strings.HasPrefix(line, "|---") {
+			continue
+		}
+		scanned = scanned + 1
+		if strings.HasPrefix(line, "#") {
+			let (hlNum, hlAt) = parseLandingHeading(line)
+			if hlNum > 0 {
+				pendingLanding = hlNum
+				pendingLandingAt = hlAt
+			}
+			continue
+		}
+		let isBullet = strings.HasPrefix(line, "- ")
+		let body0 = if isBullet { strings.TrimSpace(strings.TrimPrefix(line, "- ")) } else { line }
+		let (hadTS, lineTS, rest) = splitLeadingTimestamp(body0)
+		let ts = if hadTS { lineTS } else if pendingLandingAt != "" && isMainMovedLine(rest) { pendingLandingAt } else { defaultAt }
+		if isMainMovedLine(rest) {
+			let (headOpt, parsedTS, lnum, grp, logPath, tips) = parseMainMoved(rest, ts, pendingLanding)
+			pendingLanding = 0
+			pendingLandingAt = ""
+			let evTS = if parsedTS != "" { parsedTS } else { ts }
+			let summary = truncateText(rest, 280)
+			match headOpt {
+			case option.Some[string] as h:
+				mainHead = option.Some[string]{Value: h.Value}
+				if lnum > 0 {
+					let l = Landing{
+						Repo:          repo,
+						Run:           run,
+						LandingNumber: lnum,
+						GroupID:       if grp != "" { grp } else { "landing-\(lnum)" },
+						Head:          h.Value,
+						Tips:          tips,
+						Summary:       summary,
+						LogPath:       logPath,
+						LandedAt:      evTS,
+					}
+					match landingIdx.Get(lnum) {
+					case option.Some[int] as idx:
+						landings[idx.Value] = l
+					case option.None:
+						landingIdx = landingIdx.Put(lnum, landings.Len())
+						landings = landings.Append(l)
+					}
+				}
+			case option.None:
+			}
+			events = events.Append(LedgerEvent{
+				ID:        0,
+				Repo:      repo,
+				Run:       run,
+				Kind:      "main-moved",
+				UnitID:    option.None,
+				Summary:   summary,
+				Actor:     "orchestrator",
+				CreatedAt: evTS,
+				SourceKey: option.Some[string]{Value: lineSourceKey("main-moved", evTS, line)},
+			})
+			continue
+		}
+		pendingLanding = 0
+		pendingLandingAt = ""
+		if isDecisionLine(rest) {
+			let dec = parseDecisionLine(repo, run, defaultActor, ts, rest)
+			match decisionIdx.Get(dec.ID) {
+			case option.Some[int] as idx:
+				decisions[idx.Value] = dec
+			case option.None:
+				decisionIdx = decisionIdx.Put(dec.ID, decisions.Len())
+				decisions = decisions.Append(dec)
+			}
+			events = events.Append(LedgerEvent{
+				ID:        0,
+				Repo:      repo,
+				Run:       run,
+				Kind:      "decision",
+				UnitID:    dec.UnitID,
+				Summary:   dec.Title,
+				Actor:     dec.Actor,
+				CreatedAt: dec.CreatedAt,
+				SourceKey: option.Some[string]{Value: lineSourceKey("decision", dec.CreatedAt, line)},
+			})
+			continue
+		}
+		if strings.HasPrefix(rest, "DISPATCHED") {
+			let uid = extractUnitAfter(rest, "DISPATCHED")
+			events = events.Append(LedgerEvent{
+				ID:        0,
+				Repo:      repo,
+				Run:       run,
+				Kind:      "dispatched",
+				UnitID:    uid,
+				Summary:   truncateText(rest, 280),
+				Actor:     "orchestrator",
+				CreatedAt: ts,
+				SourceKey: option.Some[string]{Value: lineSourceKey("dispatched", ts, line)},
+			})
+			continue
+		}
+		if strings.HasPrefix(rest, "HAND-BACK") || strings.HasPrefix(rest, "HAND BACK") || strings.Contains(rest, " hand-back ") {
+			let uid = extractFirstUnitToken(rest)
+			events = events.Append(LedgerEvent{
+				ID:        0,
+				Repo:      repo,
+				Run:       run,
+				Kind:      "hand-back",
+				UnitID:    uid,
+				Summary:   truncateText(rest, 280),
+				Actor:     "worker",
+				CreatedAt: ts,
+				SourceKey: option.Some[string]{Value: lineSourceKey("hand-back", ts, line)},
+			})
+			continue
+		}
+		if strings.HasPrefix(rest, "LANDING-START") {
+			events = events.Append(LedgerEvent{
+				ID:        0,
+				Repo:      repo,
+				Run:       run,
+				Kind:      "landing-start",
+				UnitID:    option.None,
+				Summary:   truncateText(rest, 280),
+				Actor:     "orchestrator",
+				CreatedAt: ts,
+				SourceKey: option.Some[string]{Value: lineSourceKey("landing-start", ts, line)},
+			})
+			continue
+		}
+		if isBullet {
+			let (matched, kind) = classifyBulletKind(rest, hadTS)
+			if matched {
+				events = events.Append(LedgerEvent{
+					ID:        0,
+					Repo:      repo,
+					Run:       run,
+					Kind:      kind,
+					UnitID:    extractFirstUnitToken(rest),
+					Summary:   truncateText(rest, 280),
+					Actor:     defaultActor,
+					CreatedAt: ts,
+					SourceKey: option.Some[string]{Value: lineSourceKey(kind, ts, line)},
+				})
+			}
+		}
+	}
+	ParsedPlan{
+		LinesScanned: scanned,
+		MainHead:     mainHead,
+		Decisions:    decisions,
+		Landings:     landings,
+		Events:       events,
+	}
+}
+
+func lineSourceKey(kind string, ts string, line string) string {
+	let h = hex.Encode(sha256.Sum(kind + "\n" + ts + "\n" + line))
+	"plan:" + strings.Slice(h, 0, 24)
+}
+
+func shortHash12(text string) string {
+	let h = hex.Encode(sha256.Sum(text))
+	strings.Slice(h, 0, 12)
+}
+
+func isDigit(b byte) bool {
+	b >= '0' && b <= '9'
+}
+
+func isUpperASCII(b byte) bool {
+	b >= 'A' && b <= 'Z'
+}
+
+func isHexOrWordChar(b byte) bool {
+	(b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z') || isDigit(b) || b == '-' || b == '_'
+}
+
+func looksLikeDate(tok string) bool {
+	if tok.Len() < 10 {
+		return false
+	}
+	isDigit(tok[0]) && isDigit(tok[1]) && isDigit(tok[2]) && isDigit(tok[3]) && tok[4] == '-' && isDigit(tok[5]) && isDigit(tok[6]) && tok[7] == '-' && isDigit(tok[8]) && isDigit(tok[9])
+}
+
+func cleanToken(tok string) string {
+	strings.TrimRight(strings.TrimLeft(tok, "([\"'`"), ".,:;)]\"'`")
+}
+
+func splitLeadingTimestamp(body string) (bool, string, string) {
+	let fields = strings.Fields(body)
+	if fields.Len() == 0 {
+		return (false, "", body)
+	}
+	let first = strings.TrimRight(fields[0], ":")
+	if !looksLikeDate(first) {
+		return (false, "", body)
+	}
+	let pos = strings.Index(body, fields[0])
+	let restStart = pos + fields[0].Len()
+	let rest = if restStart < body.Len() { strings.TrimSpace(strings.Slice(body, restStart, body.Len())) } else { "" }
+	(true, first, rest)
+}
+
+func parseLandingHeading(line string) (int, string) {
+	let idx = strings.Index(line, "Landing ")
+	if idx < 0 {
+		return (0, "")
+	}
+	let after = strings.Slice(line, idx+8, line.Len())
+	let num = leadingInt(after)
+	if num <= 0 {
+		return (0, "")
+	}
+	let ts = extractTimestampInParens(after)
+	(num, ts)
+}
+
+func leadingInt(s string) int {
+	let mut end = 0
+	for end < s.Len() && isDigit(s[end]) {
+		end = end + 1
+	}
+	if end == 0 {
+		return 0
+	}
+	strconv.Atoi(strings.Slice(s, 0, end)) catch {
+	case strconv.Malformed, strconv.OutOfRange:
+		0
+	}
+}
+
+func extractTimestampInParens(s string) string {
+	let open = strings.IndexByte(s, '(')
+	if open < 0 {
+		return ""
+	}
+	let close = strings.IndexByte(strings.Slice(s, open, s.Len()), ')')
+	let inner = if close >= 0 { strings.Slice(s, open+1, open+close) } else { strings.Slice(s, open+1, s.Len()) }
+	for _, tok in strings.Fields(inner) {
+		let c = cleanToken(tok)
+		if looksLikeDate(c) {
+			return c
+		}
+	}
+	""
+}
+
+func isMainMovedLine(rest string) bool {
+	strings.HasPrefix(rest, "MAIN MOVED") || strings.Contains(rest, " MAIN MOVED ")
+}
+
+func isCommitToken(tok string) bool {
+	if tok.Len() < 6 || tok.Len() > 64 {
+		return false
+	}
+	for i in 0..tok.Len() {
+		let b = tok[i]
+		let ok = isDigit(b) || (b >= 'a' && b <= 'f') || (b >= 'A' && b <= 'F')
+		if !ok {
+			return false
+		}
+	}
+	true
+}
+
+func parseMainMoved(rest string, fallbackTS string, pendingLanding int) (option.Option[string], string, int, string, option.Option[string], []string) {
+	let mmIdx = strings.Index(rest, "MAIN MOVED")
+	let afterMM = if mmIdx >= 0 { strings.TrimSpace(strings.Slice(rest, mmIdx+10, rest.Len())) } else { rest }
+	let mut ts = fallbackTS
+	let fieldsAfterMM = strings.Fields(afterMM)
+	if fieldsAfterMM.Len() > 0 {
+		let first = cleanToken(fieldsAfterMM[0])
+		if looksLikeDate(first) {
+			ts = first
+		}
+	}
+	if ts == "" || ts == fallbackTS {
+		let pTS = extractTimestampInParens(afterMM)
+		if pTS != "" {
+			ts = pTS
+		}
+	}
+	let mut headOpt option.Option[string] = option.None
+	let parenPos = strings.IndexByte(afterMM, '(')
+	let headerPart = if parenPos >= 0 { strings.Slice(afterMM, 0, parenPos) } else { afterMM }
+	let arrowPos = strings.LastIndex(headerPart, "->")
+	if arrowPos >= 0 {
+		let rhs = strings.TrimSpace(strings.Slice(headerPart, arrowPos+2, headerPart.Len()))
+		let fs = strings.Fields(rhs)
+		if fs.Len() > 0 {
+			let cand = cleanToken(fs[0])
+			if isCommitToken(cand) {
+				headOpt = option.Some[string]{Value: cand}
+			}
+		}
+	}
+	if headOpt == option.None {
+		let eqPos = strings.LastIndex(headerPart, "=")
+		if eqPos >= 0 {
+			let rhs = strings.TrimSpace(strings.Slice(headerPart, eqPos+1, headerPart.Len()))
+			let fs = strings.Fields(rhs)
+			if fs.Len() > 0 {
+				let cand = cleanToken(fs[0])
+				if isCommitToken(cand) {
+					headOpt = option.Some[string]{Value: cand}
+				}
+			}
+		}
+	}
+	if headOpt == option.None {
+		for _, tok in strings.Fields(headerPart) {
+			let cand = cleanToken(tok)
+			if !looksLikeDate(cand) && isCommitToken(cand) {
+				headOpt = option.Some[string]{Value: cand}
+				break
+			}
+		}
+	}
+	let lIdx = strings.Index(afterMM, "Landing ")
+	let lnum = if lIdx >= 0 {
+		let n = leadingInt(strings.Slice(afterMM, lIdx+8, afterMM.Len()))
+		if n > 0 { n } else { pendingLanding }
+	} else {
+		pendingLanding
+	}
+	let gIdx = strings.Index(afterMM, "group ")
+	let mut grp = ""
+	if gIdx >= 0 {
+		let gfs = strings.Fields(strings.Slice(afterMM, gIdx+6, afterMM.Len()))
+		if gfs.Len() > 0 {
+			grp = cleanToken(gfs[0])
+		}
+	}
+	let logPath = extractLogPath(afterMM)
+	let tips = extractTips(afterMM)
+	(headOpt, ts, lnum, grp, logPath, tips)
+}
+
+func extractLogPath(s string) option.Option[string] {
+	let logIdx = strings.Index(s, ".log")
+	if logIdx < 0 {
+		return option.None
+	}
+	let mut start = logIdx
+	for start > 0 {
+		let b = s[start-1]
+		if b == ' ' || b == '(' || b == '\t' || b == '"' {
+			break
+		}
+		start = start - 1
+	}
+	let cand = strings.Slice(s, start, logIdx+4)
+	if !strings.Contains(cand, "/") {
+		return option.None
+	}
+	option.Some[string]{Value: cand}
+}
+
+func extractTips(s string) []string {
+	let mut start = -1
+	for _, marker in []string{"Tips: ", "Tip: ", "tips: "} {
+		let idx = strings.Index(s, marker)
+		if idx >= 0 {
+			start = idx + marker.Len()
+			break
+		}
+	}
+	if start < 0 {
+		return []string{}
+	}
+	let mut slice = strings.Slice(s, start, s.Len())
+	for _, stop in []string{". Check", ". ALL", ". MCP", " — "} {
+		let pos = strings.Index(slice, stop)
+		if pos >= 0 {
+			slice = strings.Slice(slice, 0, pos)
+		}
+	}
+	let parenPos = strings.IndexByte(slice, ')')
+	let openPos = strings.IndexByte(slice, '(')
+	if parenPos >= 0 && (openPos < 0 || parenPos < openPos) {
+		slice = strings.Slice(slice, 0, parenPos)
+	}
+	let rawParts = if strings.Contains(slice, " + ") { strings.Split(slice, " + ") } else { strings.Split(slice, ", ") }
+	let mut out = []string{}
+	for p in rawParts {
+		let t = strings.TrimSpace(strings.TrimRight(p, "."))
+		if t != "" {
+			out = out.Append(truncateText(t, 120))
+		}
+	}
+	out
+}
+
+func isDecisionLine(rest string) bool {
+		strings.HasPrefix(rest, "RULED") ||
+		strings.Contains(rest, " RULED:") ||
+		strings.Contains(rest, " RULED ") ||
+		strings.Contains(rest, " RULED(") ||
+		strings.HasPrefix(rest, "DECISION") ||
+		strings.Contains(rest, " DECISION:") ||
+		strings.Contains(rest, " DECISION (")
+}
+
+func parseDecisionLine(repo string, run string, defaultActor string, ts string, rest string) Decision {
+	let isDec = strings.HasPrefix(rest, "DECISION") || strings.Contains(rest, " DECISION:") || strings.Contains(rest, " DECISION (")
+	let lower = strings.ToLower(rest)
+	let isOwner = strings.Contains(lower, "owner")
+	let category = if isDec { "decision" } else if isOwner { "directive" } else { "ruling" }
+	let actor = if isOwner { "owner" } else { defaultActor }
+	let unitID = extractFirstUnitToken(rest)
+	let mut title = ""
+	for _, marker in []string{"RULED (", "DECISION ("} {
+		let idx = strings.Index(rest, marker)
+		if idx >= 0 {
+			let after = strings.Slice(rest, idx+marker.Len(), rest.Len())
+			let close = strings.IndexByte(after, ')')
+			if close > 0 {
+				title = strings.TrimSpace(strings.Slice(after, 0, close))
+				break
+			}
+		}
+	}
+	if title == "" {
+		match unitID {
+		case option.Some[string] as u:
+			title = u.Value
+		case option.None:
+			title = truncateText(rest, 100)
+		}
+	}
+	let scope = match unitID {
+	case option.Some[string] as u:
+		u.Value
+	case option.None:
+		if title != "" && title.Len() <= 64 { title } else { "run" }
+	}
+	let id = "dec-" + shortHash12(category+"\n"+scope+"\n"+title+"\n"+ts+"\n"+rest)
+	Decision{
+		ID:         id,
+		Repo:       repo,
+		Run:        run,
+		Category:   category,
+		Scope:      scope,
+		UnitID:     unitID,
+		Title:      truncateText(title, 160),
+		Body:       rest,
+		Status:     DecisionOpen,
+		Supersedes: option.None,
+		Actor:      actor,
+		CreatedAt:  ts,
+	}
+}
+
+func extractUnitAfter(rest string, keyword string) option.Option[string] {
+	let idx = strings.Index(rest, keyword)
+	if idx < 0 {
+		return option.None
+	}
+	let after = strings.TrimSpace(strings.Slice(rest, idx+keyword.Len(), rest.Len()))
+	extractFirstUnitToken(after)
+}
+
+func extractFirstUnitToken(s string) option.Option[string] {
+	let mut inParens = 0
+	for _, raw in strings.Fields(s) {
+		for i in 0..raw.Len() {
+			if raw[i] == '(' {
+				inParens = inParens + 1
+			} else if raw[i] == ')' && inParens > 0 {
+				inParens = inParens - 1
+			}
+		}
+		if inParens > 0 {
+			continue
+		}
+		let tok = cleanToken(raw)
+		if isUnitIdentifier(tok) {
+			return option.Some[string]{Value: tok}
+		}
+	}
+	for _, raw in strings.Fields(s) {
+		let tok = cleanToken(raw)
+		if isUnitIdentifier(tok) {
+			return option.Some[string]{Value: tok}
+		}
+	}
+	option.None
+}
+
+func isUnitIdentifier(tok string) bool {
+	if tok.Len() < 3 {
+		return false
+	}
+	if isStopword(tok) {
+		return false
+	}
+	let mut hasUpper = false
+	let mut hasDashOrDigit = false
+	for i in 0..tok.Len() {
+		let b = tok[i]
+		if !isUpperASCII(b) && !isDigit(b) && b != '-' && b != '_' {
+			return false
+		}
+		if isUpperASCII(b) {
+			hasUpper = true
+		}
+		if b == '-' || isDigit(b) {
+			hasDashOrDigit = true
+		}
+	}
+	hasUpper && (hasDashOrDigit || tok.Len() >= 4)
+}
+
+func isStopword(tok string) bool {
+	match tok {
+	case "MAIN", "MOVED", "RULED", "DECISION", "DISPATCHED", "HAND-BACK", "LANDING-START", "OPEN", "WORD", "CLOSED", "READY", "BLOCKED", "RED", "ALL", "PASS", "FAIL", "VOID", "MCP", "CLI", "API", "SQL", "STD", "WAL", "CHECK", "NONE", "TIPS":
+		true
+	case _:
+		false
+	}
+}
+
+func classifyBulletKind(rest string, hadTS bool) (bool, string) {
+	if strings.Contains(rest, "[OPEN]") || strings.Contains(rest, "[WORD]") || strings.Contains(rest, "[CLOSED]") {
+		return (true, "fallout")
+	}
+	if strings.HasPrefix(rest, "RED") || strings.Contains(rest, " NEW MAIN RED") {
+		return (true, "red")
+	}
+	if strings.Contains(rest, "BLOCKED") {
+		return (true, "blocked")
+	}
+	if strings.Contains(rest, "READY") {
+		return (true, "ready")
+	}
+	if hadTS {
+		return (true, "note")
+	}
+	(false, "")
+}
+
+func truncateText(s string, maxBytes int) string {
+	let trimmed = strings.TrimSpace(s)
+	if trimmed.Len() <= maxBytes {
+		return trimmed
+	}
+	let mut cut = maxBytes
+	for cut > 0 && trimmed[cut] >= 0x80 && trimmed[cut] < 0xC0 {
+		cut = cut - 1
+	}
+	strings.Slice(trimmed, 0, cut)
+}
+
+// ParsePlanExtractsStructuredRecords verifies that ParsePlanLines extracts MainHead, Landings, Decisions, and operational events cleanly from representative log lines.
+law ParsePlanExtractsStructuredRecords() {
+	let sample = "# Run Log\n\n" +
+		"- 2026-11-26T18:39:45Z HAND-BACK CHECK-FOOTPRINTS r1 (head c4c78ce41): 7/7 mutants killed.\n" +
+		"- 2026-11-26T19:00:00Z RULED (Content Mapper Contract): Per owner direction, unify file and inline mapping.\n" +
+		"- 2026-11-26T19:00:10Z LANDING-START group-a: staged CHECK-FOOTPRINTS r1 on integration branch.\n" +
+		"MAIN MOVED 2026-11-26T19:00:30Z: main = origin/main = base = 6ebc20fc2 (Landing 122, group group-a, orchestrator). Tips: 1202 MOD-A r1 32aaff7e6 + 1203 MOD-B r2 d63976b25. Check (/var/log/group-a.log): ALL exit 0.\n" +
+		"- 2026-11-26T19:06:00Z DISPATCHED (Worker, Slot 10) ORCH-LEDGER-PD (lane /work/orch): implement progressive ledger.\n" +
+		"- 476 [OPEN] repo/pace-copy 432ae91ae (PACE-COPY: stale value).\n"
+	let p1 = ParsePlanLines("ergo", "main-run", "orchestrator", "2026-11-26T19:00:00Z", sample)
+	let p2 = ParsePlanLines("ergo", "main-run", "orchestrator", "2026-11-26T19:00:00Z", sample)
+		p1 == p2 &&
+		p1.MainHead == option.Some[string]{Value: "6ebc20fc2"} &&
+		p1.Decisions.Len() == 1 &&
+		p1.Decisions[0].Category == "directive" &&
+		p1.Decisions[0].Title == "Content Mapper Contract" &&
+		p1.Landings.Len() == 1 &&
+		p1.Landings[0].LandingNumber == 122 &&
+		p1.Landings[0].GroupID == "group-a" &&
+		p1.Landings[0].Head == "6ebc20fc2" &&
+		p1.Landings[0].Tips.Len() == 2 &&
+		p1.Landings[0].LogPath == option.Some[string]{Value: "/var/log/group-a.log"} &&
+		p1.Events.Len() == 6 &&
+		p1.Events[0].Kind == "hand-back" &&
+		p1.Events[0].UnitID == option.Some[string]{Value: "CHECK-FOOTPRINTS"} &&
+		p1.Events[4].Kind == "dispatched" &&
+		p1.Events[4].UnitID == option.Some[string]{Value: "ORCH-LEDGER-PD"} &&
+		p1.Events[5].Kind == "fallout"
+}
