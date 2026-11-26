@@ -1,0 +1,211 @@
+import core
+import option
+import slices
+import strings
+import sync
+import time
+import trace
+
+// ObservedStore wraps a Store to accumulate kv.ops, kv.hits, kv.misses, kv.ms,
+// and kv.errors onto the active wide-event span using explicit clock. Outside
+// an active span it delegates directly with no instrumentation overhead.
+type ObservedStore {
+	Inner Store,
+	Clock time.Clock,
+} implements Store
+
+// Observed wraps inner with automatic wide-event counter and timing
+// instrumentation using explicit clock.
+func Observed(inner Store, clock time.Clock) ObservedStore {
+	ObservedStore{Inner: inner, Clock: clock}
+}
+
+func recordKV(clock time.Clock, start time.Time, failed bool) {
+	trace.RecordOp("kv.ops", "kv.ms", "kv.errors", clock.Elapsed(start), failed)
+}
+
+// Get forwards to s.Inner.Get and records kv.ops, kv.ms, and kv.hits/kv.misses
+// or kv.errors when inside an active wide-event span.
+func Get(s ObservedStore, key string) option.Option[string] fails Failed {
+	if !trace.Active() {
+		return try s.Inner.Get(key)
+	}
+	let start = s.Clock.Now()
+	let got = s.Inner.Get(key) catch {
+	case f:
+		recordKV(s.Clock, start, true)
+		return f
+	}
+	recordKV(s.Clock, start, false)
+	match got {
+	case option.Some:
+		trace.Count("kv.hits", 1)
+	case option.None:
+		trace.Count("kv.misses", 1)
+	}
+	got
+}
+
+// Put forwards to s.Inner.Put and records kv.ops, kv.ms, and kv.errors on
+// failure when inside an active wide-event span.
+func Put(s ObservedStore, key string, value string) fails Failed {
+	if !trace.Active() {
+		try s.Inner.Put(key, value)
+		return
+	}
+	let start = s.Clock.Now()
+	s.Inner.Put(key, value) catch {
+	case f:
+		recordKV(s.Clock, start, true)
+		return f
+	}
+	recordKV(s.Clock, start, false)
+}
+
+// Delete forwards to s.Inner.Delete and records kv.ops, kv.ms, and kv.errors
+// on failure when inside an active wide-event span.
+func Delete(s ObservedStore, key string) bool fails Failed {
+	if !trace.Active() {
+		return try s.Inner.Delete(key)
+	}
+	let start = s.Clock.Now()
+	let removed = s.Inner.Delete(key) catch {
+	case f:
+		recordKV(s.Clock, start, true)
+		return f
+	}
+	recordKV(s.Clock, start, false)
+	removed
+}
+
+// Scan forwards to s.Inner.Scan and records kv.ops, kv.ms, and kv.errors on
+// failure when inside an active wide-event span.
+// seq-exempt: it delegates to kv.Store.Scan, whose member law Store.ScanStops states its stop
+func Scan(s ObservedStore, prefix string) core.Seq[Entry] fails Failed {
+	if !trace.Active() {
+		return try s.Inner.Scan(prefix)
+	}
+	let start = s.Clock.Now()
+	let seq = s.Inner.Scan(prefix) catch {
+	case f:
+		recordKV(s.Clock, start, true)
+		return f
+	}
+	recordKV(s.Clock, start, false)
+	seq
+}
+
+type observedStubStore {
+	entries sync.Ref[Map[string, string]],
+	clk     time.Manual,
+	failKey string,
+} implements Store
+
+func Get(s observedStubStore, key string) option.Option[string] fails Failed {
+	s.clk.Advance(2ms)
+	if s.failKey != "" && key == s.failKey {
+		return Failed{Reason: "injected failure"}
+	}
+	s.entries.Get().Get(key)
+}
+
+func Put(s observedStubStore, key string, value string) fails Failed {
+	s.clk.Advance(3ms)
+	s.entries.Update(func(m Map[string, string]) Map[string, string] {
+		let mut next = m
+		next[key] = value
+		next
+	})
+}
+
+func Delete(s observedStubStore, key string) bool fails Failed {
+	s.clk.Advance(1ms)
+	sync.Modify(s.entries, func(m Map[string, string]) (bool, Map[string, string]) {
+		if m.Get(key) == option.None {
+			return (false, m)
+		}
+		(true, m.Delete(key))
+	})
+}
+
+func Scan(s observedStubStore, prefix string) core.Seq[Entry] fails Failed {
+	s.clk.Advance(1ms)
+	let entries = s.entries
+	func(yield func(e Entry) bool) {
+		let mut found = []Entry{}
+		for k, v in entries.Get() {
+			if strings.HasPrefix(k, prefix) {
+				found = found.Append(Entry{Key: k, Value: v})
+			}
+		}
+		for e in slices.SortFunc(found, func(a Entry, b Entry) int { strings.Compare(a.Key, b.Key) }) {
+			if !yield(e) {
+				return
+			}
+		}
+	}
+}
+
+let onObservedStub = context { Store: observedStubStore{entries: sync.NewRef(Map[string, string]{}), clk: time.NewManual(0), failKey: ""} }
+
+// ObservedStoreAccumulatesOpsHitsMissesAndErrors: ObservedStore accumulates
+// kv.ops, kv.hits, kv.misses, kv.ms, and kv.errors onto an enclosing wide
+// event while staying a transparent pass-through both inside and outside spans.
+law ObservedStoreAccumulatesOpsHitsMissesAndErrors(key string, val string, failGet bool) {
+	let k = if key == "" { "k" } else { key }
+	let clk = time.NewManual(0)
+	let stub = observedStubStore{
+		entries: sync.NewRef(Map[string, string]{}),
+		clk:     clk,
+		failKey: if failGet { "bad" } else { "" },
+	}
+	let store = Observed(stub, clk)
+	store.Put("outside", val) catch {
+	case Failed:
+		return false
+	}
+	let outGot = store.Get("outside") catch {
+	case Failed:
+		return false
+	}
+	always outGot == option.Some[string]{Value: val}
+	let (_, events) = trace.CaptureWithClock(clk, func() bool needs trace.Sink | time.Clock {
+		trace.WithSpan("kv.work", func() bool needs trace.Sink | time.Clock {
+			let _ = store.Get("missing") catch {
+			case Failed:
+				return false
+			}
+			store.Put(k, val) catch {
+			case Failed:
+				return false
+			}
+			let hit = store.Get(k) catch {
+			case Failed:
+				return false
+			}
+			if hit != (option.Some[string]{Value: val}) {
+				return false
+			}
+			if failGet {
+				let mut sawFail = false
+				let _ = store.Get("bad") catch {
+				case Failed:
+					sawFail = true
+					option.None
+				}
+				return sawFail
+			}
+			true
+		})
+	})
+	sometimes failGet
+	sometimes !failGet
+	always events.Len() == 1
+	let ev = events[0]
+	always trace.CounterValue(ev, "kv.ops") == (if failGet { 4 } else { 3 })
+	always trace.CounterValue(ev, "kv.hits") == 1
+	always trace.CounterValue(ev, "kv.misses") == 1
+	always trace.CounterValue(ev, "kv.errors") == (if failGet { 1 } else { 0 })
+	always trace.TimingDuration(ev, "kv.ms") == (if failGet { 9ms } else { 7ms })
+	true
+}
