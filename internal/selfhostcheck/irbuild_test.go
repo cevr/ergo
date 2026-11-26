@@ -69,14 +69,26 @@ import (
 // Mutants it alone catches: testdata/mutants.json, rows lower-*.
 func TestCompilerIRAgreesWithBuilder(t *testing.T) {
 	needsBuild(t)
+	phases := newIRPhases(t)
 	witnesses := readIRWitnesses(t)
+	if os.Getenv("ERGO_IR_AGREE_SLICE") != "" {
+		for k := range witnesses {
+			if len(irSlice([]string{filepath.Dir(k.path)})) == 0 {
+				delete(witnesses, k)
+			}
+		}
+	}
 	required := len(witnesses)
 	ctx, cancel := testwait.Context(t, context.Background())
 	defer cancel()
 	bin := filepath.Join(t.TempDir(), "irdump")
-	if o, err := runCompiler(t, ctx, ergoCLI(t, ctx), "build", "-o", bin, "./cmd/irdump"); err != nil {
+	phases.next("cli-build")
+	cli := ergoCLI(t, ctx)
+	phases.next("irdump-build")
+	if o, err := runCompiler(t, ctx, cli, "build", "-o", bin, "./cmd/irdump"); err != nil {
 		t.Fatalf("ergo build ./cmd/irdump: %v\n%s", err, o)
 	}
+	phases.next("go-lower")
 	paths := irPathIDs{}
 	importFixture := irImportFixtureDirs(t, filepath.Join(repoRoot(), "internal", "selfhostcheck", "testdata", "bind", "port_calls_import"))
 	importFixture = append(importFixture, irImportFixtureDirs(t, filepath.Join(repoRoot(), "internal", "selfhostcheck", "testdata", "bind", "port_shapes_import"), "leaf")...)
@@ -86,8 +98,9 @@ func TestCompilerIRAgreesWithBuilder(t *testing.T) {
 	}
 
 	// The Ergo side: exprdump's manifest, one line per corpus folder.
+	phases.next("go-check")
 	tmp := t.TempDir()
-	dirs := append(corpusDirs(t), importFixture...)
+	dirs := append(irSlice(corpusDirs(t)), importFixture...)
 	type side struct {
 		ok           bool
 		path         string
@@ -139,7 +152,10 @@ func TestCompilerIRAgreesWithBuilder(t *testing.T) {
 		matchLines = new(strings.Builder)
 	}
 	var files []string
-	for _, l := range runDump(t, ctx, bin, "-std", stdDir(), "-roots", rf, "-tests", tf, "-corpus", m) {
+	phases.next("irdump")
+	dumped := runDump(t, ctx, bin, "-std", stdDir(), "-roots", rf, "-tests", tf, "-corpus", m)
+	phases.next("compare")
+	for _, l := range dumped {
 		kind, rest, _ := strings.Cut(l, " ")
 		switch kind {
 		case "@pkg":
@@ -207,6 +223,7 @@ func TestCompilerIRAgreesWithBuilder(t *testing.T) {
 			delete(witnesses, irWitnessSite{filepath.Clean(f[0]), f[1], wants[i].name})
 		}
 	}
+	phases.next("report")
 	if stopPath != "" {
 		if err := os.WriteFile(stopPath, []byte(stopLines.String()), 0o644); err != nil {
 			t.Fatalf("write IR agreement stops: %v", err)
@@ -229,6 +246,7 @@ func TestCompilerIRAgreesWithBuilder(t *testing.T) {
 	t.Logf("Go comparison corpus: %d distinct IR function identities (source position and split-normalized name)", goFuncs.functionCount())
 	t.Logf("Go comparison skipped: %d function emissions (Go did not lower their package)", reach[goSkipped])
 	t.Logf("IR witnesses: %d/%d reached matching bodies", required-len(witnesses), required)
+	phases.next("done")
 	var missing []string
 	for k, group := range witnesses {
 		missing = append(missing, fmt.Sprintf("%s: %s:%s %s did not reach a matching IR body", group, rel(k.path), k.offset, k.symbol))
@@ -1361,7 +1379,7 @@ func goIRFuncs(t *testing.T, paths irPathIDs, importFixture []string) (irGoIndex
 	var programs []irGoProgram
 	testOracle := irGoTestOracle{roots: map[string]irGoProgram{}, cache: map[string]irGoIndex{}, unavailable: map[string]string{}}
 	covered := map[string]bool{}
-	for _, dir := range irPrograms(t) {
+	for _, dir := range irSlice(irPrograms(t)) {
 		u, err := irspike.Load(dir)
 		if err != nil {
 			t.Fatalf("%s: %v", dir, err)
@@ -1379,7 +1397,7 @@ func goIRFuncs(t *testing.T, paths irPathIDs, importFixture []string) (irGoIndex
 	// The corpus's own fixture (testdata/bind) is lowered alike; a folder
 	// the Go front end does not load is logged as one it does not lower.
 	fixture := filepath.Join(repoRoot(), "internal", "selfhostcheck", "testdata", "bind")
-	for _, dir := range append(append(targets, fixture), importFixture...) {
+	for _, dir := range append(append(irSlice(targets), irSlice([]string{fixture})...), importFixture...) {
 		if covered[dir] || filepath.Base(filepath.Dir(dir)) == "cmd" {
 			continue
 		}
