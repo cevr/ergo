@@ -302,7 +302,7 @@ func importRules(f int, s store.Store, ims []anImport, missing []string) ([]Diag
 		if broken || im.isGo {
 			continue
 		}
-		let kind = clashKind(store.KindOfName(s, im.name))
+		let kind = clashKind(declKind(s, im.name))
 		if kind != "" {
 			let fix = if im.alias { "choose another alias" } else { "alias the import (import t \(im.path))" }
 			out = out.Append(Diag{..at, Message: "\(im.name) clashes with \(kind) \(im.name); \(fix)"})
@@ -314,6 +314,24 @@ func importRules(f int, s store.Store, ims []anImport, missing []string) ([]Diag
 		}
 	}
 	(out, quiet)
+}
+
+func declKind(s store.Store, name string) int {
+	let k = store.KindOfName(s, name)
+	if k != store.KindPkgName {
+		return k
+	}
+	match store.FindName(s, name) {
+	case option.Some[dense.ID[dense.Str]] as n:
+		for d in store.Decls(s) {
+			if d.Name == n.Value && int(d.Kind) != store.KindPkgName {
+				return int(d.Kind)
+			}
+		}
+		0
+	case option.None:
+		0
+	}
 }
 
 func clashKind(k int) string {
