@@ -960,7 +960,12 @@ func goLenReceiver(st fnb, x dense.ID[syntax.Node], ce syntax.CallExpr) option.O
 }
 
 func holdsFn(k expr.Pkg, f expr.Fn) bool {
-	if f.File < 0 || f.File >= k.Parsed.Len() {
+	if f.File < 0 || f.File >= k.Parsed.Len() || f.File >= k.Files.Len() {
+		return false
+	}
+	let fp = k.Files[f.File].Parsed
+	let nodes = syntax.NumNodes(fp.Tree)
+	if fp.Failed || dense.Index(f.Name) >= nodes || dense.Index(f.Decl) >= nodes {
 		return false
 	}
 	let i = expr.FnAt(k, bind.PNodeOf(k.Ps, f.File, f.Name))
