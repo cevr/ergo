@@ -324,20 +324,18 @@ func appendLayout(s store.Store, layouts mut []store.ClaimLayout, typ dense.ID[s
 	}
 }
 
-// LayoutsOf includes the nominal layouts inherited by a claim. The
-// included role is read at the outer role's written arguments first.
-func LayoutsOf(s mut store.Store, roles []Role, deps []Iface, foreign []Foreign, typ dense.ID[store.TKey], count int) []store.ClaimLayout {
+func layoutsWith(s mut store.Store, roles []Role, deps []Iface, foreign []Foreign, typ dense.ID[store.TKey], count int, selfOnly bool) []store.ClaimLayout {
 	let mut layouts = []store.ClaimLayout{}
 	match ReadRole(s, deps, foreign, roles, typ) {
 	case option.Some{Value: role}:
-		if role.Self == 2 {
+		if !selfOnly || role.Self == 2 {
 			appendLayout(*s, &layouts, typ, count)
 			let args = store.OperandsOf(*s, typ)
 			for inc in role.Includes {
 				let parent = store.TSubst(s, inc, args)
 				match RoleAt(*s, roles, deps, parent) {
 				case option.Some{Value: included}:
-					if included.Self == 2 {
+					if !selfOnly || included.Self == 2 {
 						appendLayout(*s, &layouts, parent, count)
 					}
 				case option.None:
@@ -347,6 +345,12 @@ func LayoutsOf(s mut store.Store, roles []Role, deps []Iface, foreign []Foreign,
 	case option.None:
 	}
 	layouts
+}
+
+// LayoutsOf includes the nominal layouts inherited by a claim. The
+// included role is read at the outer role's written arguments first.
+func LayoutsOf(s mut store.Store, roles []Role, deps []Iface, foreign []Foreign, typ dense.ID[store.TKey], count int) []store.ClaimLayout {
+	layoutsWith(s, roles, deps, foreign, typ, count, true)
 }
 
 // LocalClaimLayouts publishes the stable positions of the module's
@@ -365,7 +369,7 @@ func LocalClaimLayouts(s mut store.Store, e Env, roles []Role) [][]store.ClaimLa
 				let env = Env{..e, p: p, params: params}
 				for j in 0..syntax.Len(td.Implements) {
 					let typ = Resolve(s, env, syntax.Item(p.Tree, td.Implements, j))
-					layouts = layouts.Concat(LayoutsOf(s, roles, e.deps, e.foreign, typ, params.Len()))
+					layouts = layouts.Concat(layoutsWith(s, roles, e.deps, e.foreign, typ, params.Len(), false))
 				}
 			case option.None:
 			}

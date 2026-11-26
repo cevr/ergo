@@ -6,7 +6,8 @@ import option
 import slices
 import strings
 
-// LookupDiag is a file-local method or claim-lookup diagnostic emitted by the typer.
+// LookupDiag is a diagnostic the typer emits with its message: a file-local
+// method or claim lookup, or a literal its context's type refuses.
 type LookupDiag { File int, At dense.ID[syntax.Node], Code string, Message string }
 
 // UsedImport records a file-local import name used by function-form claim lookup.
@@ -100,6 +101,7 @@ func claimFnOf(s mut store.Store, k Pkg, mem store.FunctionMember) option.Option
 			case option.Some{Value: sig}:
 				let mut out = f
 				out.Sig = sig
+				out.fromDep = di
 				return option.Some{Value: out}
 			case option.None:
 				return option.None

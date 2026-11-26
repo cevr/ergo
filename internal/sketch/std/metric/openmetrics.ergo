@@ -1,0 +1,595 @@
+import config
+import option
+import slices
+import strconv
+import strings
+import time
+import trace
+
+func isMetricChar(b byte) bool {
+	(b >= byte('a') && b <= byte('z')) || (b >= byte('A') && b <= byte('Z')) || (b >= byte('0') && b <= byte('9')) || b == byte('_') || b == byte(':')
+}
+
+func isLabelChar(b byte) bool {
+	(b >= byte('a') && b <= byte('z')) || (b >= byte('A') && b <= byte('Z')) || (b >= byte('0') && b <= byte('9')) || b == byte('_')
+}
+
+func sanitizeMetricName(name string) string {
+	let bs = name.Bytes()
+	if bs.Len() == 0 {
+		return "_"
+	}
+	let mut out = strings.NewBuilder()
+	if bs[0] >= byte('0') && bs[0] <= byte('9') {
+		out.WriteByte(byte('_'))
+	}
+	for b in bs {
+		if isMetricChar(b) {
+			out.WriteByte(b)
+		} else {
+			out.WriteByte(byte('_'))
+		}
+	}
+	out.String()
+}
+
+func sanitizeLabelKey(key string) string {
+	let bs = key.Bytes()
+	if bs.Len() == 0 {
+		return "_"
+	}
+	let mut out = strings.NewBuilder()
+	if bs[0] >= byte('0') && bs[0] <= byte('9') {
+		out.WriteByte(byte('_'))
+	}
+	for b in bs {
+		if isLabelChar(b) {
+			out.WriteByte(b)
+		} else {
+			out.WriteByte(byte('_'))
+		}
+	}
+	out.String()
+}
+
+func escapeHelp(s string) string {
+	let mut out = strings.NewBuilder()
+	for b in s.Bytes() {
+		if b == byte('\\') {
+			out.WriteString("\\\\")
+		} else if b == byte('\n') {
+			out.WriteString("\\n")
+		} else if b == byte('\r') {
+			out.WriteByte(byte(' '))
+		} else {
+			out.WriteByte(b)
+		}
+	}
+	out.String()
+}
+
+func escapeLabelValue(s string) string {
+	let mut out = strings.NewBuilder()
+	for b in s.Bytes() {
+		if b == byte('\\') {
+			out.WriteString("\\\\")
+		} else if b == byte('"') {
+			out.WriteString("\\\"")
+		} else if b == byte('\n') {
+			out.WriteString("\\n")
+		} else {
+			out.WriteByte(b)
+		}
+	}
+	out.String()
+}
+
+func formatMetricFloat(v float64) string {
+	if v == 0.0 {
+		return "0"
+	}
+	strconv.FormatFloat(v, 'g', -1)
+}
+
+func writeLabelSet(b mut strings.Builder, labels []Label, hasExtra bool, extraKey string, extraVal string) {
+	if labels.Len() == 0 && !hasExtra {
+		return
+	}
+	b.WriteByte(byte('{'))
+	let mut wrote = false
+	for l in labels {
+		if wrote {
+			b.WriteByte(byte(','))
+		}
+		b.WriteString(sanitizeLabelKey(l.Key))
+		b.WriteString("=\"")
+		b.WriteString(escapeLabelValue(l.Value))
+		b.WriteByte(byte('"'))
+		wrote = true
+	}
+	if hasExtra {
+		if wrote {
+			b.WriteByte(byte(','))
+		}
+		b.WriteString(sanitizeLabelKey(extraKey))
+		b.WriteString("=\"")
+		b.WriteString(escapeLabelValue(extraVal))
+		b.WriteByte(byte('"'))
+	}
+	b.WriteByte(byte('}'))
+}
+
+func hasLabelKey(labels []Label, key string) bool {
+	for l in labels {
+		if sanitizeLabelKey(l.Key) == key {
+			return true
+		}
+	}
+	false
+}
+
+func openMetricsFamilyName(s SeriesSnapshot) string {
+	let base = sanitizeMetricName(s.Name)
+	match s.Data {
+	case CounterSeries, FrequencySeries:
+		if strings.HasSuffix(base, "_total") && base.Len() > 6 {
+			strings.Slice(base, 0, base.Len()-6)
+		} else {
+			base
+		}
+	case GaugeSeries, HistogramSeries, SummarySeries:
+		base
+	}
+}
+
+func openMetricsTypeName(d SeriesData) string {
+	match d {
+	case CounterSeries, FrequencySeries:
+		"counter"
+	case GaugeSeries:
+		"gauge"
+	case HistogramSeries:
+		"histogram"
+	case SummarySeries:
+		"summary"
+	}
+}
+
+type openMetricsItem {
+	family string,
+	kind   string,
+	snap   SeriesSnapshot,
+}
+
+func writeSeriesLines(b mut strings.Builder, fam string, s SeriesSnapshot) {
+	match s.Data {
+	case CounterSeries as c:
+		b.WriteString(fam)
+		b.WriteString("_total")
+		writeLabelSet(b, s.Labels, false, "", "")
+		b.WriteByte(byte(' '))
+		if c.Data.HasFloat {
+			b.WriteString(formatMetricFloat(float64(c.Data.IntTotal) + c.Data.FloatTotal))
+		} else {
+			b.WriteString(strconv.FormatInt(c.Data.IntTotal, 10))
+		}
+		b.WriteByte(byte('\n'))
+	case GaugeSeries as g:
+		b.WriteString(fam)
+		writeLabelSet(b, s.Labels, false, "", "")
+		b.WriteByte(byte(' '))
+		b.WriteString(formatMetricFloat(g.Data.Value))
+		b.WriteByte(byte('\n'))
+	case HistogramSeries as h:
+		for bk in h.Data.Buckets {
+			b.WriteString(fam)
+			b.WriteString("_bucket")
+			writeLabelSet(b, s.Labels, true, "le", formatMetricFloat(bk.UpperBound))
+			b.WriteByte(byte(' '))
+			b.WriteString(strconv.FormatInt(bk.Count, 10))
+			b.WriteByte(byte('\n'))
+		}
+		b.WriteString(fam)
+		b.WriteString("_bucket")
+		writeLabelSet(b, s.Labels, true, "le", "+Inf")
+		b.WriteByte(byte(' '))
+		b.WriteString(strconv.FormatInt(h.Data.Count, 10))
+		b.WriteByte(byte('\n'))
+		b.WriteString(fam)
+		b.WriteString("_sum")
+		writeLabelSet(b, s.Labels, false, "", "")
+		b.WriteByte(byte(' '))
+		b.WriteString(formatMetricFloat(h.Data.Sum))
+		b.WriteByte(byte('\n'))
+		b.WriteString(fam)
+		b.WriteString("_count")
+		writeLabelSet(b, s.Labels, false, "", "")
+		b.WriteByte(byte(' '))
+		b.WriteString(strconv.FormatInt(h.Data.Count, 10))
+		b.WriteByte(byte('\n'))
+	case FrequencySeries as f:
+		let keyLabel = if hasLabelKey(s.Labels, "key") { "freq_key" } else { "key" }
+		for entry in f.Data.Entries {
+			b.WriteString(fam)
+			b.WriteString("_total")
+			writeLabelSet(b, s.Labels, true, keyLabel, entry.Key)
+			b.WriteByte(byte(' '))
+			b.WriteString(strconv.FormatInt(entry.Count, 10))
+			b.WriteByte(byte('\n'))
+		}
+	case SummarySeries as sm:
+		for qv in sm.Data.Quantiles {
+			b.WriteString(fam)
+			writeLabelSet(b, s.Labels, true, "quantile", formatMetricFloat(qv.Quantile))
+			b.WriteByte(byte(' '))
+			b.WriteString(formatMetricFloat(qv.Value))
+			b.WriteByte(byte('\n'))
+		}
+		b.WriteString(fam)
+		b.WriteString("_sum")
+		writeLabelSet(b, s.Labels, false, "", "")
+		b.WriteByte(byte(' '))
+		b.WriteString(formatMetricFloat(sm.Data.Sum))
+		b.WriteByte(byte('\n'))
+		b.WriteString(fam)
+		b.WriteString("_count")
+		writeLabelSet(b, s.Labels, false, "", "")
+		b.WriteByte(byte(' '))
+		b.WriteString(strconv.FormatInt(sm.Data.Count, 10))
+		b.WriteByte(byte('\n'))
+	}
+}
+
+func formatSnapshotBody(b mut strings.Builder, snap Snapshot) {
+	let mut items = slices.WithCapacity[openMetricsItem](snap.Series.Len())
+	for s in snap.Series {
+		items = items.Append(openMetricsItem{
+			family: openMetricsFamilyName(s),
+			kind:   openMetricsTypeName(s.Data),
+			snap:   s,
+		})
+	}
+	let sortedItems = slices.SortFunc(items, func(a openMetricsItem, c openMetricsItem) int {
+		let r1 = strings.Compare(a.family, c.family)
+		if r1 != 0 {
+			return r1
+		}
+		let r2 = strings.Compare(a.kind, c.kind)
+		if r2 != 0 {
+			return r2
+		}
+		strings.Compare(a.snap.Key, c.snap.Key)
+	})
+	let mut lastFamily = ""
+	let mut lastKind = ""
+	for item in sortedItems {
+		if item.family != lastFamily || item.kind != lastKind {
+			b.WriteString("# HELP ")
+			b.WriteString(item.family)
+			b.WriteByte(byte(' '))
+			b.WriteString(escapeHelp(item.snap.Help))
+			b.WriteByte(byte('\n'))
+			b.WriteString("# TYPE ")
+			b.WriteString(item.family)
+			b.WriteByte(byte(' '))
+			b.WriteString(item.kind)
+			b.WriteByte(byte('\n'))
+			if item.snap.Unit != "" {
+				b.WriteString("# UNIT ")
+				b.WriteString(item.family)
+				b.WriteByte(byte(' '))
+				b.WriteString(sanitizeMetricName(item.snap.Unit))
+				b.WriteByte(byte('\n'))
+			}
+			lastFamily = item.family
+			lastKind = item.kind
+		}
+		writeSeriesLines(b, item.family, item.snap)
+	}
+}
+
+// FormatOpenMetrics formats snap deterministically in OpenMetrics 1.0 text
+// exposition format ending with "# EOF\n".
+func FormatOpenMetrics(snap Snapshot) string {
+	let mut b = strings.NewBuilder()
+	formatSnapshotBody(&b, snap)
+	b.WriteString("# EOF\n")
+	b.String()
+}
+
+// FormatOpenMetricsWithBudget formats snap plus budget telemetry series in
+// OpenMetrics 1.0 text exposition format ending with "# EOF\n".
+func FormatOpenMetricsWithBudget(snap Snapshot) string {
+	let mut b = strings.NewBuilder()
+	formatSnapshotBody(&b, snap)
+	b.WriteString("# HELP ergo_metric_budget_active_series Active series inside budget\n")
+	b.WriteString("# TYPE ergo_metric_budget_active_series gauge\n")
+	b.WriteString("ergo_metric_budget_active_series ")
+	b.WriteString(strconv.Itoa(snap.Budget.ActiveSeries))
+	b.WriteByte(byte('\n'))
+	b.WriteString("# HELP ergo_metric_budget_max_series Configured maximum series budget\n")
+	b.WriteString("# TYPE ergo_metric_budget_max_series gauge\n")
+	b.WriteString("ergo_metric_budget_max_series ")
+	b.WriteString(strconv.Itoa(snap.Budget.MaxSeries))
+	b.WriteByte(byte('\n'))
+	b.WriteString("# HELP ergo_metric_budget_overflows Series updates dropped or rejected due to cardinality budget\n")
+	b.WriteString("# TYPE ergo_metric_budget_overflows counter\n")
+	b.WriteString("ergo_metric_budget_overflows_total ")
+	b.WriteString(strconv.FormatInt(snap.Budget.OverflowCount, 10))
+	b.WriteByte(byte('\n'))
+	b.WriteString("# EOF\n")
+	b.String()
+}
+
+func labelToTraceField(l Label) trace.Field {
+	if l.Value == RedactedText() {
+		trace.Redacted(l.Key)
+	} else {
+		trace.Str(l.Key, l.Value)
+	}
+}
+
+func seriesToTraceField(s SeriesSnapshot) trace.Field {
+	let mut sub = []trace.Field{}
+	for l in s.Labels {
+		sub = sub.Append(labelToTraceField(l))
+	}
+	match s.Data {
+	case CounterSeries as c:
+		if c.Data.HasFloat {
+			sub = sub.Append(trace.Float("value", float64(c.Data.IntTotal)+c.Data.FloatTotal))
+		} else {
+			sub = sub.Append(trace.Int("value", int(c.Data.IntTotal)))
+		}
+	case GaugeSeries as g:
+		sub = sub.Append(trace.Float("value", g.Data.Value))
+	case HistogramSeries as h:
+		sub = sub.Append(trace.Int("count", int(h.Data.Count)))
+		sub = sub.Append(trace.Float("sum", h.Data.Sum))
+		sub = sub.Append(trace.Float("min", h.Data.Min))
+		sub = sub.Append(trace.Float("max", h.Data.Max))
+	case FrequencySeries as f:
+		sub = sub.Append(trace.Int("total", int(f.Data.Total)))
+		for entry in f.Data.Entries {
+			sub = sub.Append(trace.Int("key."+entry.Key, int(entry.Count)))
+		}
+	case SummarySeries as sm:
+		sub = sub.Append(trace.Int("count", int(sm.Data.Count)))
+		sub = sub.Append(trace.Int("window_count", sm.Data.WindowCount))
+		sub = sub.Append(trace.Float("sum", sm.Data.Sum))
+		sub = sub.Append(trace.Float("min", sm.Data.Min))
+		sub = sub.Append(trace.Float("max", sm.Data.Max))
+		for qv in sm.Data.Quantiles {
+			sub = sub.Append(trace.Float("q_"+formatMetricFloat(qv.Quantile), qv.Value))
+		}
+	}
+	trace.Group(s.Name, sub)
+}
+
+// ToWideEvent adapts snap into a canonical trace.WideEvent carrying budget
+// metadata, integer counters, and redacted-safe per-series structured fields.
+func ToWideEvent(snap Snapshot, name string, service trace.ServiceMeta, gen trace.IDGenerator, ts time.Time) trace.WideEvent {
+	let mut fields = []trace.Field{
+		trace.Group("metric.budget", []trace.Field{
+			trace.Int("active_series", snap.Budget.ActiveSeries),
+			trace.Int("max_series", snap.Budget.MaxSeries),
+			trace.Int("overflows", int(snap.Budget.OverflowCount)),
+			trace.Int("rejected_deltas", int(snap.Budget.RejectedDeltas)),
+		}),
+	}
+	let mut counters = []trace.Counter{}
+	for s in snap.Series {
+		fields = fields.Append(seriesToTraceField(s))
+		match s.Data {
+		case CounterSeries as c:
+			if !c.Data.HasFloat {
+				counters = counters.Append(trace.Counter{Key: s.Name, Value: int(c.Data.IntTotal)})
+			}
+		case HistogramSeries as h:
+			counters = counters.Append(trace.Counter{Key: s.Name + ".count", Value: int(h.Data.Count)})
+		case FrequencySeries as f:
+			counters = counters.Append(trace.Counter{Key: s.Name + ".total", Value: int(f.Data.Total)})
+		case SummarySeries as sm:
+			counters = counters.Append(trace.Counter{Key: s.Name + ".count", Value: int(sm.Data.Count)})
+		case GaugeSeries:
+		}
+	}
+	trace.WideEvent{
+		Timestamp:    ts,
+		TraceID:      gen.NextTraceID(),
+		SpanID:       gen.NextSpanID(),
+		ParentSpanID: option.None,
+		Name:         name,
+		Service:      service,
+		Duration:     0ns,
+		Outcome:      trace.OutcomeOK,
+		Fields:       fields,
+		Counters:     counters,
+		Timings:      []trace.Timing{},
+		Tags:         []string{"metric", "snapshot"},
+	}
+}
+
+// EmitSnapshotToTrace emits snap onto the context trace.Sink as a WideEvent
+// when trace.Sink is enabled.
+func EmitSnapshotToTrace(snap Snapshot, name string, service trace.ServiceMeta, gen trace.IDGenerator) needs trace.Sink | time.Clock {
+	if !trace.Sink.Enabled() {
+		return
+	}
+	let ev = ToWideEvent(snap, name, service, gen, time.Clock.Now())
+	trace.Sink.Emit(ev)
+}
+
+// FlushToActiveSpan attaches budget statistics and integer counters from snap
+// onto the innermost active trace.WithSpan, if any.
+func FlushToActiveSpan(snap Snapshot) {
+	if !trace.Active() {
+		return
+	}
+	trace.SetInt("metric.budget.active_series", snap.Budget.ActiveSeries)
+	trace.SetInt("metric.budget.max_series", snap.Budget.MaxSeries)
+	trace.SetInt("metric.budget.overflows", int(snap.Budget.OverflowCount))
+	for s in snap.Series {
+		match s.Data {
+		case CounterSeries as c:
+			if !c.Data.HasFloat {
+				trace.Count(s.Name, int(c.Data.IntTotal))
+			}
+		case _:
+		}
+	}
+}
+
+// TraceBridgeSink wraps an inner metric Sink and mirrors accepted integer
+// counter updates onto the active trace.WithSpan when inside a span.
+type TraceBridgeSink {
+	Inner Sink,
+} implements Sink
+
+// NewTraceBridgeSink constructs a TraceBridgeSink forwarding to inner.
+func NewTraceBridgeSink(inner Sink) TraceBridgeSink {
+	TraceBridgeSink{Inner: inner}
+}
+
+// Enabled reports Inner.Enabled on TraceBridgeSink.
+func Enabled(b TraceBridgeSink) bool {
+	b.Inner.Enabled()
+}
+
+// Apply forwards u to b.Inner and mirrors accepted integer counter increments
+// onto the active wide-event span when present.
+func Apply(b TraceBridgeSink, u Update) fails InvalidDelta | BudgetExceeded {
+	if !b.Inner.Enabled() {
+		return
+	}
+	try b.Inner.Apply(u)
+	if !trace.Active() {
+		return
+	}
+	match u {
+	case UpdateCounterInt as c:
+		trace.Count(c.Metric.name, int(c.Delta))
+	case UpdateFrequency as f:
+		trace.Count(f.Metric.name+"."+f.Key, int(f.Count))
+	case _:
+	}
+}
+
+let onTraceBridge = context { Sink: NewTraceBridgeSink(DefaultRecorder()) }
+
+// OpenMetricsFormatDeterministic: identical logical metric updates recorded
+// with differently ordered labels produce byte-for-byte identical OpenMetrics
+// text ending with "# EOF\n", emit one "# HELP"/"# TYPE" header per family,
+// escape special label characters, and order histogram buckets ascending.
+law OpenMetricsFormatDeterministic(nRaw int, valRaw int) {
+	let n = int64(1 + (((nRaw % 100) + 100) % 100))
+	let v = float64(((valRaw%20)+20)%20) * 0.5
+	let c = NewCounter("http.requests", "HTTP \"req\"\nlines") catch {
+	case InvalidMetric:
+		return false
+	}
+	let g = NewGauge("active.conns", "Active connections") catch {
+	case InvalidMetric:
+		return false
+	}
+	let h = NewHistogram("http.duration", "Latency", []float64{1.0, 5.0}) catch {
+	case InvalidMetric, InvalidBoundaries:
+		return false
+	}
+	let f = NewFrequency("err.kinds", "Errors") catch {
+	case InvalidMetric:
+		return false
+	}
+	let sm = NewSummary("rpc.lat", "RPC", []float64{0.5, 0.99}, 8, 0ns) catch {
+	case InvalidMetric, InvalidSummary:
+		return false
+	}
+	let (_, s1) = CaptureDefault(func() bool needs Sink {
+		c.AddInt(n, []Label{LabelOf("b", "x\\y\"z\nw"), LabelOf("a", "1")})
+		c.AddInt(int64(2), []Label{LabelOf("a", "2"), LabelOf("b", "ok")})
+		g.Set(3.5, []Label{})
+		h.Observe(v, []Label{LabelOf("z", "9"), LabelOf("a", "2")})
+		f.Record("timeout", []Label{})
+		sm.Sample(v, []Label{})
+		true
+	})
+	let (_, s2) = CaptureDefault(func() bool needs Sink {
+		sm.Sample(v, []Label{})
+		f.Record("timeout", []Label{})
+		h.Observe(v, []Label{LabelOf("a", "2"), LabelOf("z", "9")})
+		g.Set(3.5, []Label{})
+		c.AddInt(int64(2), []Label{LabelOf("b", "ok"), LabelOf("a", "2")})
+		c.AddInt(n, []Label{LabelOf("a", "1"), LabelOf("b", "x\\y\"z\nw")})
+		true
+	})
+	let om1 = FormatOpenMetrics(s1)
+	let om2 = FormatOpenMetrics(s2)
+	always om1 == om2
+	always strings.HasSuffix(om1, "# EOF\n")
+	always strings.Count(om1, "# TYPE http_requests counter\n") == 1
+	always strings.Contains(om1, "# HELP http_requests HTTP \"req\"\\nlines\n")
+	always strings.Contains(om1, "http_requests_total{a=\"1\",b=\"x\\\\y\\\"z\\nw\"} \(n)\n")
+	always strings.Contains(om1, "http_requests_total{a=\"2\",b=\"ok\"} 2\n")
+	always strings.Contains(om1, "# TYPE active_conns gauge\nactive_conns 3.5\n")
+	always strings.Contains(om1, "http_duration_bucket{a=\"2\",z=\"9\",le=\"1\"}")
+	always strings.Contains(om1, "http_duration_bucket{a=\"2\",z=\"9\",le=\"+Inf\"} 1\n")
+	always strings.Contains(om1, "err_kinds_total{key=\"timeout\"} 1\n")
+	always strings.Contains(om1, "# TYPE rpc_lat summary\nrpc_lat{quantile=\"0.5\"}")
+	true
+}
+
+// TraceAdapterPreservesRedactedAndCounts: ToWideEvent, EmitSnapshotToTrace,
+// and TraceBridgeSink preserve counters, budget fields, and "[REDACTED]"
+// markers without exposing raw secret bytes.
+law TraceAdapterPreservesRedactedAndCounts(seed uint64, secret string, countRaw int) {
+	let rawSecret = if secret.Len() < 8 { "super-secret-token-42" } else { secret }
+	let cnt = 1 + (((countRaw % 25) + 25) % 25)
+	let c = NewCounter("jobs.done", "Completed jobs") catch {
+	case InvalidMetric:
+		return false
+	}
+	let secLbl = RedactedFrom("token", config.NewRedacted(rawSecret))
+	let rec = DefaultRecorder()
+	let bridge = NewTraceBridgeSink(rec)
+	let bridgeCtx = context { Sink: bridge }
+	let gen = trace.NewIDGenerator(seed)
+	let svc = trace.ServiceMeta{Service: "worker", Version: "1.0.0", DeploymentID: "", Region: ""}
+	let (_, spanEvents) = trace.Capture(func() bool needs trace.Sink | time.Clock {
+		trace.WithMetaSpan("batch", svc, gen, true, func() bool needs trace.Sink | time.Clock {
+			with bridgeCtx {
+				c.AddInt(int64(cnt), []Label{secLbl})
+			}
+			let snap = rec.Collect()
+			EmitSnapshotToTrace(snap, "metric.snapshot", svc, gen)
+			true
+		})
+	})
+	always spanEvents.Len() == 2
+	let snapEv = spanEvents[0]
+	let workEv = spanEvents[1]
+	always trace.CounterValue(snapEv, "jobs.done") == cnt
+	always trace.CounterValue(workEv, "jobs.done") == cnt
+	let encoded = trace.EncodeJSON(snapEv)
+	always strings.Contains(encoded, RedactedText())
+	always !strings.Contains(encoded, rawSecret)
+	let mut sawRedactedVal = false
+	for fld in snapEv.Fields {
+		if fld.Key == "jobs.done" {
+			match fld.Value {
+			case trace.GroupVal as g:
+				for sub in g.Fields {
+					if sub.Key == "token" {
+						match sub.Value {
+						case trace.RedactedVal:
+							sawRedactedVal = true
+						case _:
+						}
+					}
+				}
+			case _:
+			}
+		}
+	}
+	always sawRedactedVal
+	true
+}

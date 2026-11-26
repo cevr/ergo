@@ -91,6 +91,7 @@ docs/spec/README.md	-	scope, conventions, reading order, generated status and su
 docs/spec/api.md	-	operation-type hubs and their transports
 docs/spec/build.md	-	modules, workspaces, generators, pins
 docs/spec/code.md	-	ergo code: the fact tables and their queries
+docs/spec/content-mappers.md	-	userland content mappers, inline derive unification, source maps and lawcache
 docs/spec/diagnostics.md	-	every diagnostic code, one row each
 docs/spec/facts.md	-	facts and what the optimizer may use
 docs/spec/grammar.md	-	the grammar and its productions
