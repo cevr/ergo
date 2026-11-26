@@ -1,0 +1,220 @@
+import compiler/check/store
+import compiler/syntax
+import dense
+import option
+import strings
+
+func literalMismatch(s mut store.Store, k Pkg, t Typer, x dense.ID[syntax.Node], want dense.ID[store.TKey]) string {
+	let p = k.Parsed[t.file]
+	let mut sign = ""
+	let mut at = x
+	for {
+		let kd = syntax.KindOf(p.Tree, at)
+		if kd == syntax.KParenExpr {
+			at = syntax.ParenExprOf(p.Tree, at).X
+		} else if kd == syntax.KUnaryExpr {
+			let u = syntax.UnaryExprOf(p.Tree, at)
+			let op = syntax.TokKind(p, u.Op)
+			if op == syntax.Sub {
+				sign = if sign == "" { "-" } else { "" }
+			} else if op != syntax.Add {
+				return ""
+			}
+			at = u.X
+		} else {
+			break
+		}
+	}
+	if syntax.KindOf(p.Tree, at) != syntax.KBasicLit {
+		return ""
+	}
+	let tok = syntax.BasicLitOf(p.Tree, at).Tok
+	let tk = syntax.TokKind(p, tok)
+	let value = syntax.TokText(p, tok)
+	let b = basic(s, want)
+	let integer = b >= bInt && b <= bUintptr
+	let name = typeText(*s, k, t, want)
+	if tk == syntax.Int && b == bDuration {
+		"an integer literal is not a duration: write a duration literal such as \(sign)\(value)s"
+	} else if tk == syntax.Float && integer {
+		let whole = floatWhole(value)
+		let fix = if whole == "" { "write an integer literal" } else { "write \(sign)\(whole)" }
+		if whole == "?" { "" } else { "a float literal takes only a float type, not \(name); \(fix)" }
+	} else if tk == syntax.Rune && !integer && b != bDuration {
+		"a rune literal takes only an integer type, not \(name)"
+	} else if tk == syntax.String && b != bString {
+		"a string literal takes only a string type, not \(name)"
+	} else {
+		""
+	}
+}
+
+func literals(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node], b syntax.BinaryExpr) option.Option[dense.ID[store.TKey]] {
+	let xt = expr(s, k, t, b.X, Free)
+	let yt = expr(s, k, t, b.Y, Free)
+	let differ = match xt {
+	case option.Some[dense.ID[store.TKey]] as l:
+		match yt {
+		case option.Some[dense.ID[store.TKey]] as r:
+			basic(s, l.Value) != basic(s, r.Value)
+		case option.None:
+			false
+		}
+	case option.None:
+		false
+	}
+	if differ {
+		misfit(k, t, x, x, operandMismatch(s, k, *t, x, b, xt, yt).Message)
+	}
+	if differ { option.None } else { xt }
+}
+
+func defaultsDiffer(k Pkg, file int, b syntax.BinaryExpr) bool {
+	let p = k.Parsed[file]
+	basicLit(k, file, b.X) && basicLit(k, file, b.Y) && kindIn(p, b.X) != kindIn(p, b.Y)
+}
+
+func isFree(w Want) bool {
+	match w {
+	case Free:
+		true
+	case _:
+		false
+	}
+}
+
+func basicLit(k Pkg, file int, x dense.ID[syntax.Node]) bool {
+	let tr = k.Parsed[file].Tree
+	syntax.KindOf(tr, unparen(tr, x)) == syntax.KBasicLit
+}
+
+type opMismatch { At dense.ID[syntax.Node], Message string }
+
+type opSide { Name string, Numeric bool, Float bool, Known bool }
+
+func operandMismatch(s mut store.Store, k Pkg, t Typer, x dense.ID[syntax.Node], b syntax.BinaryExpr, xt option.Option[dense.ID[store.TKey]], yt option.Option[dense.ID[store.TKey]]) opMismatch {
+	let tr = k.Parsed[t.file].Tree
+	let xl = syntax.KindOf(tr, unparen(tr, b.X)) == syntax.KBasicLit
+	let yl = syntax.KindOf(tr, unparen(tr, b.Y)) == syntax.KBasicLit
+	if xl != yl {
+		let lit = if xl { b.X } else { b.Y }
+		match if xl { yt } else { xt } {
+		case option.Some[dense.ID[store.TKey]] as other:
+			let msg = literalMismatch(s, k, t, lit, other.Value)
+			if msg != "" {
+				return opMismatch{At: lit, Message: msg}
+			}
+		case option.None:
+		}
+	}
+	let l = opSideOf(s, k, t, b.X, xt)
+	let r = opSideOf(s, k, t, b.Y, yt)
+	if !l.Known || !r.Known {
+		return opMismatch{At: x, Message: ""}
+	}
+	opMismatch{At: x, Message: mismatchText(k, t, b, xl && yl, l, r)}
+}
+
+func mismatchText(k Pkg, t Typer, b syntax.BinaryExpr, literals bool, l opSide, r opSide) string {
+	let p = k.Parsed[t.file]
+	let msg = "mismatched types \(l.Name) and \(r.Name)"
+	if literals {
+		let lt = floatForm(p, b.X, r.Float)
+		let rt = floatForm(p, b.Y, l.Float)
+		if lt != litText(p, b.X) || rt != litText(p, b.Y) {
+			return "\(msg); write \(lt) \(syntax.TokText(p, b.Op)) \(rt)"
+		}
+		if l.Numeric && r.Numeric {
+			return "\(msg); both literals take their defaults, so convert one to the other's type, e.g. \(r.Name)(…)"
+		}
+		return "\(msg); both literals take their defaults"
+	}
+	let id = unparen(p.Tree, b.X)
+	if syntax.KindOf(p.Tree, id) == syntax.KIdent && l.Numeric && r.Numeric {
+		return "\(msg); write \(r.Name)(\(nameAt(k, t, id)))"
+	}
+	msg
+}
+
+func opSideOf(s mut store.Store, k Pkg, t Typer, x dense.ID[syntax.Node], ty option.Option[dense.ID[store.TKey]]) opSide {
+	let p = k.Parsed[t.file]
+	if isConst(k, t.file, x) {
+		if syntax.KindOf(p.Tree, unparen(p.Tree, x)) != syntax.KBasicLit {
+			return opSide{Name: "", Numeric: false, Float: false, Known: false}
+		}
+		let c = kindIn(p, x)
+		return if c == 0 {
+			opSide{Name: "int", Numeric: true, Float: false, Known: true}
+		} else if c == 2 {
+			opSide{Name: "float64", Numeric: true, Float: true, Known: true}
+		} else if c == 3 {
+			opSide{Name: "string", Numeric: false, Float: false, Known: true}
+		} else {
+			opSide{Name: "", Numeric: false, Float: false, Known: false}
+		}
+	}
+	match ty {
+	case option.Some[dense.ID[store.TKey]] as got:
+		let bt = basic(s, got.Value)
+		if bt <= 0 {
+			return opSide{Name: "", Numeric: false, Float: false, Known: false}
+		}
+		opSide{Name: typeText(*s, k, t, got.Value), Numeric: bt >= bInt && bt < bDuration, Float: bt == bFloat32 || bt == bFloat64, Known: true}
+	case option.None:
+		opSide{Name: "", Numeric: false, Float: false, Known: false}
+	}
+}
+
+func litText(p syntax.Parsed, x dense.ID[syntax.Node]) string {
+	syntax.TokText(p, syntax.BasicLitOf(p.Tree, unparen(p.Tree, x)).Tok)
+}
+
+func floatForm(p syntax.Parsed, x dense.ID[syntax.Node], other bool) string {
+	let lit = syntax.BasicLitOf(p.Tree, unparen(p.Tree, x))
+	let text = syntax.TokText(p, lit.Tok)
+	if other && syntax.TokKind(p, lit.Tok) == syntax.Int && strings.IndexAny(text, "xXoObB") < 0 { "\(text).0" } else { text }
+}
+
+func floatWhole(lit string) string {
+	let v = strings.ReplaceAll(lit, "_", "")
+	if strings.HasPrefix(v, "0x") || strings.HasPrefix(v, "0X") {
+		return "?"
+	}
+	let mut mant = v
+	let mut exp = 0
+	let e = strings.IndexAny(v, "eE")
+	if e >= 0 {
+		mant = v[0:e]
+		let mut rest = v[e+1 : v.Len()]
+		let mut neg = false
+		if strings.HasPrefix(rest, "-") || strings.HasPrefix(rest, "+") {
+			neg = strings.HasPrefix(rest, "-")
+			rest = rest[1:rest.Len()]
+		}
+		for i in 0..rest.Len() {
+			exp = exp*10 + int(rest[i]) - 48
+		}
+		if neg {
+			exp = -exp
+		}
+	}
+	let dot = strings.Index(mant, ".")
+	let mut digits = mant
+	if dot >= 0 {
+		let frac = mant[dot+1 : mant.Len()]
+		digits = mant[0:dot] + frac
+		exp = exp - frac.Len()
+	}
+	if exp >= 0 {
+		digits = digits + strings.Repeat("0", exp)
+	} else {
+		let cut = digits.Len() + exp
+		let tail = if cut < 0 { digits } else { digits[cut:digits.Len()] }
+		if strings.TrimLeft(tail, "0") != "" {
+			return ""
+		}
+		digits = if cut < 0 { "" } else { digits[0:cut] }
+	}
+	let out = strings.TrimLeft(digits, "0")
+	if out == "" { "0" } else { out }
+}

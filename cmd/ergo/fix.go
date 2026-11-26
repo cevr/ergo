@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -12,9 +13,11 @@ import (
 	"strings"
 
 	"ergo.local/prototype/internal/linked/code"
+	"ergo.local/prototype/internal/report"
 	ckpkg "ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/fix"
 	"ergo.local/prototype/internal/sketch/lint"
+	"ergo.local/prototype/internal/sketchfront"
 )
 
 const fixUsage = "usage: ergo fix [--check] [--json] [PATH...]"
@@ -222,10 +225,10 @@ func fixCommand(args []string) error {
 		}
 	}
 	rep := fixReport{Changed: []fix.Change{}, Remaining: []fix.Diagnostic{}}
-	for _, path := range paths {
-		if !fixProgram(path) {
-			continue
-		}
+	targetPaths := expandFixTargets(paths, withLint)
+	seenChanged := map[string]bool{}
+	seenLinted := map[fix.Linted]bool{}
+	for _, path := range targetPaths {
 		texts, chk, err := fix.Load(path)
 		if err != nil {
 			return err
@@ -256,9 +259,46 @@ func fixCommand(args []string) error {
 		}
 		rep.Written = rep.Written || write && (len(res.Changed) > 0 || len(res.Linted) > 0)
 		rep.Rounds = max(rep.Rounds, res.Rounds)
-		rep.Changed = append(rep.Changed, res.Changed...)
+		for _, c := range res.Changed {
+			key := c.File + "\x00" + c.Signature
+			if !seenChanged[key] {
+				seenChanged[key] = true
+				rep.Changed = append(rep.Changed, c)
+			}
+		}
 		rep.Remaining = append(rep.Remaining, res.Remaining...)
-		rep.Linted = append(rep.Linted, res.Linted...)
+		for _, l := range res.Linted {
+			if !seenLinted[l] {
+				seenLinted[l] = true
+				rep.Linted = append(rep.Linted, l)
+			}
+		}
+	}
+	if withLint && len(rep.Remaining) == 0 {
+		fcRep, err := fix.RunFileCase(fix.FileCaseOptions{Paths: lawPaths, Write: write})
+		if err != nil {
+			var cfgErr *fix.ConfigError
+			if errors.As(err, &cfgErr) {
+				return invalidInvocation(err)
+			}
+			return err
+		}
+		for _, r := range fcRep.Renames {
+			rep.Linted = append(rep.Linted, fix.Linted{Rule: "file-name-case", File: r.From, Line: 1, To: r.To})
+		}
+		for _, sk := range fcRep.Skipped {
+			rep.Remaining = append(rep.Remaining, fix.Diagnostic{
+				File: sk.From,
+				Diagnostic: report.Diagnostic{
+					Code:    "L172",
+					Message: sk.Reason,
+					Span:    report.Span{Line: 1, Column: 1},
+				},
+			})
+		}
+		if write && len(fcRep.Renames) > 0 {
+			rep.Written = true
+		}
 	}
 	if asJSON {
 		if err := printJSON(rep); err != nil {
@@ -278,6 +318,40 @@ func fixCommand(args []string) error {
 		return exitStatusError{code: 1, message: "fix: lint fixes would apply", handled: true}
 	}
 	return nil
+}
+
+func expandFixTargets(paths []string, withLint bool) []string {
+	var out []string
+	seen := map[string]bool{}
+	add := func(p string) {
+		key := p
+		if abs, err := filepath.Abs(p); err == nil {
+			key = abs
+		}
+		if !seen[key] {
+			seen[key] = true
+			out = append(out, p)
+		}
+	}
+	for _, path := range paths {
+		if fixProgram(path) {
+			add(path)
+			continue
+		}
+		if !withLint {
+			continue
+		}
+		info, err := os.Stat(path)
+		if err != nil || !info.IsDir() {
+			continue
+		}
+		if targets, err := sketchfront.DiscoverPackages(path); err == nil {
+			for _, tgt := range targets {
+				add(tgt.Dir)
+			}
+		}
+	}
+	return out
 }
 
 // fixProgram reports whether path is a program the clause pass reads: a
@@ -306,7 +380,11 @@ func printFix(rep fixReport) {
 		fmt.Printf("%s%s: %s\n", indent, displayPath(c.File), c.Signature)
 	}
 	for _, l := range rep.Linted {
-		fmt.Printf("%s:%d: fixed %s\n", displayPath(l.File), l.Line, l.Rule)
+		if l.To != "" {
+			fmt.Printf("%s -> %s: fixed %s\n", displayPath(l.File), displayPath(l.To), l.Rule)
+		} else {
+			fmt.Printf("%s:%d: fixed %s\n", displayPath(l.File), l.Line, l.Rule)
+		}
 	}
 	for _, d := range rep.Remaining {
 		fmt.Fprintf(os.Stderr, "%s:%d:%d: error %s: %s\n", displayPath(d.File), d.Span.Line, d.Span.Column, d.Code, d.Message)

@@ -1,0 +1,321 @@
+import math
+import option
+import slices
+import time
+
+// Frequency is a sealed metric descriptor tracking exact counts of distinct
+// string keys.
+type Frequency {
+	name    string,
+	help    string,
+	unit    string,
+	maxKeys int,
+	labels  []Label,
+}
+
+// NewFrequency constructs a validated Frequency descriptor counting distinct
+// keys per budgeted label series.
+func NewFrequency(name string, help string) Frequency fails InvalidMetric {
+	let validName = try validateName(name)
+	Frequency{name: validName, help: help, unit: "", maxKeys: 0, labels: []Label{}}
+}
+
+// NewFrequencyBounded constructs a Frequency descriptor capping distinct keys
+// per series at maxKeys >= 1.
+func NewFrequencyBounded(name string, help string, maxKeys int) Frequency fails InvalidMetric | InvalidBudget {
+	let validName = try validateName(name)
+	if maxKeys < 1 {
+		return InvalidBudget{MaxSeries: maxKeys, Reason: "maxKeys must be at least 1"}
+	}
+	Frequency{name: validName, help: help, unit: "", maxKeys: maxKeys, labels: []Label{}}
+}
+
+// LabelFrequency returns a copy of f with extra canonical labels merged.
+func LabelFrequency(f Frequency, labels []Label) Frequency {
+	Frequency{..f, labels: mergeLabels(f.labels, labels)}
+}
+
+// FrequencySpec returns the metadata and normalized labels of f.
+func FrequencySpec(f Frequency) Spec {
+	Spec{Name: f.name, Help: f.help, Unit: f.unit, Labels: slices.Clone(f.labels)}
+}
+
+// FrequencyMaxKeys returns the per-series key cap of f (0 when unbounded).
+func FrequencyMaxKeys(f Frequency) int { f.maxKeys }
+
+// Record increments the occurrence count of key by 1 in Frequency f.
+func Record(f Frequency, key string, labels []Label) needs Sink {
+	RecordCount(f, key, int64(1), labels)
+}
+
+// RecordCount adds count >= 0 to key in Frequency f.
+func RecordCount(f Frequency, key string, count int64, labels []Label) needs Sink {
+	applyChecked(UpdateFrequency{Metric: f, Key: key, Count: count, Labels: labels})
+}
+
+// TryRecord increments key by 1 in Frequency f, failing InvalidDelta or
+// BudgetExceeded under FailOverflow.
+func TryRecord(f Frequency, key string, labels []Label) fails InvalidDelta | BudgetExceeded needs Sink {
+	try TryRecordCount(f, key, int64(1), labels)
+}
+
+// TryRecordCount adds count >= 0 to key in Frequency f, failing InvalidDelta or
+// BudgetExceeded under FailOverflow.
+func TryRecordCount(f Frequency, key string, count int64, labels []Label) fails InvalidDelta | BudgetExceeded needs Sink {
+	try tryApply(UpdateFrequency{Metric: f, Key: key, Count: count, Labels: labels})
+}
+
+// Summary is a sealed metric descriptor maintaining quantiles, min, max,
+// count, and sum over a bounded sliding window.
+type Summary {
+	name       string,
+	help       string,
+	unit       string,
+	quantiles  []float64,
+	maxSamples int,
+	maxAge     duration,
+	labels     []Label,
+}
+
+func validateQuantiles(quantiles []float64) []float64 fails InvalidSummary {
+	if quantiles.Len() == 0 {
+		return InvalidSummary{Reason: "quantiles must not be empty"}
+	}
+	let mut sorted = slices.WithCapacity[float64](quantiles.Len())
+	for q in quantiles {
+		if math.IsNaN(q) || math.IsInf(q, 0) || q < 0.0 || q > 1.0 {
+			return InvalidSummary{Reason: "quantile must lie in [0.0, 1.0]"}
+		}
+		sorted = sorted.Append(q)
+	}
+	let ordered = slices.SortFunc(sorted, func(a float64, b float64) int {
+		if a < b {
+			-1
+		} else if a > b {
+			1
+		} else {
+			0
+		}
+	})
+	let mut dedup = slices.WithCapacity[float64](ordered.Len())
+	for i, q in ordered {
+		if i == 0 || q != ordered[i-1] {
+			dedup = dedup.Append(q)
+		}
+	}
+	dedup
+}
+
+// NewSummary constructs a validated Summary descriptor with quantiles in
+// [0.0, 1.0], bounded window capacity maxSamples >= 1, and optional maxAge >= 0ns.
+func NewSummary(name string, help string, quantiles []float64, maxSamples int, maxAge duration) Summary fails InvalidMetric | InvalidSummary {
+	let validName = try validateName(name)
+	let validQuantiles = try validateQuantiles(quantiles)
+	if maxSamples < 1 {
+		return InvalidSummary{Reason: "maxSamples must be at least 1"}
+	}
+	if maxAge < 0ns {
+		return InvalidSummary{Reason: "maxAge must not be negative"}
+	}
+	Summary{
+		name:       validName,
+		help:       help,
+		unit:       "",
+		quantiles:  validQuantiles,
+		maxSamples: maxSamples,
+		maxAge:     maxAge,
+		labels:     []Label{},
+	}
+}
+
+// DefaultSummaryQuantiles returns [0.5, 0.9, 0.99].
+func DefaultSummaryQuantiles() []float64 {
+	[]float64{0.5, 0.9, 0.99}
+}
+
+// LabelSummary returns a copy of s with extra canonical labels merged.
+func LabelSummary(s Summary, labels []Label) Summary {
+	Summary{..s, labels: mergeLabels(s.labels, labels)}
+}
+
+// SummarySpec returns the metadata and normalized labels of s.
+func SummarySpec(s Summary) Spec {
+	Spec{Name: s.name, Help: s.help, Unit: s.unit, Labels: slices.Clone(s.labels)}
+}
+
+// SummaryQuantiles returns a copy of s's canonical ascending quantiles.
+func SummaryQuantiles(s Summary) []float64 {
+	slices.Clone(s.quantiles)
+}
+
+// SummaryWindow returns s's bounded window capacity and maximum sample age.
+func SummaryWindow(s Summary) (int, duration) {
+	(s.maxSamples, s.maxAge)
+}
+
+// Sample records finite value into Summary s.
+func Sample(s Summary, value float64, labels []Label) needs Sink {
+	applyChecked(UpdateSummary{Metric: s, Value: value, At: time.Unix(0, 0), Timed: false, Labels: labels})
+}
+
+// SampleAt records finite value timestamped at at into Summary s.
+func SampleAt(s Summary, value float64, at time.Time, labels []Label) needs Sink {
+	applyChecked(UpdateSummary{Metric: s, Value: value, At: at, Timed: true, Labels: labels})
+}
+
+// SampleNow records finite value timestamped from time.Clock into Summary s.
+func SampleNow(s Summary, value float64, labels []Label) needs Sink | time.Clock {
+	SampleAt(s, value, time.Clock.Now(), labels)
+}
+
+// SampleDuration records duration d in seconds into Summary s.
+func SampleDuration(s Summary, d duration, labels []Label) needs Sink {
+	Sample(s, float64(int64(d))/1000000000.0, labels)
+}
+
+// TrySample records finite value into Summary s, failing InvalidDelta or
+// BudgetExceeded under FailOverflow.
+func TrySample(s Summary, value float64, labels []Label) fails InvalidDelta | BudgetExceeded needs Sink {
+	try tryApply(UpdateSummary{Metric: s, Value: value, At: time.Unix(0, 0), Timed: false, Labels: labels})
+}
+
+// TrySampleAt records finite value timestamped at at into Summary s, failing
+// InvalidDelta or BudgetExceeded under FailOverflow.
+func TrySampleAt(s Summary, value float64, at time.Time, labels []Label) fails InvalidDelta | BudgetExceeded needs Sink {
+	try tryApply(UpdateSummary{Metric: s, Value: value, At: at, Timed: true, Labels: labels})
+}
+
+// FrequencyCountsExact: distinct keys recorded via Record and RecordCount
+// yield exact sorted per-key counts summing to Total, negative counts fail
+// InvalidDelta, and NewFrequencyBounded caps distinct keys per series.
+law FrequencyCountsExact(k1 string, k2 string, n1Raw int64, n2Raw int64) {
+	let aKey = if k1 == "" { "ok" } else { k1 }
+	let bKey = if k2 == "" || k2 == aKey { aKey + "_alt" } else { k2 }
+	let n1 = int64(1) + (if n1Raw < int64(0) { -(n1Raw + int64(1)) } else { n1Raw })%int64(50)
+	let n2 = int64(1) + (if n2Raw < int64(0) { -(n2Raw + int64(1)) } else { n2Raw })%int64(50)
+	let f = NewFrequency("error.kinds", "Error frequency") catch {
+	case InvalidMetric:
+		return false
+	}
+	let rec = DefaultRecorder()
+	with context { Sink: rec } {
+		f.Record(aKey, []Label{})
+		f.RecordCount(aKey, n1, []Label{})
+		f.RecordCount(bKey, n2, []Label{})
+		let mut negRejected = false
+		TryRecordCount(f, aKey, int64(-1), []Label{}) catch {
+		case InvalidDelta:
+			negRejected = true
+		case BudgetExceeded:
+			return false
+		}
+		always negRejected
+	}
+	let got = match rec.FrequencyValue(f, []Label{}) {
+	case option.Some[FrequencyData] as v:
+		v.Value
+	case option.None:
+		return false
+	}
+	always got.Total == n1+n2+int64(1)
+	always got.Entries.Len() == 2
+	let wantFirstKey = if aKey < bKey { aKey } else { bKey }
+	let wantSecondKey = if aKey < bKey { bKey } else { aKey }
+	let wantFirstCount = if aKey < bKey { n1 + int64(1) } else { n2 }
+	let wantSecondCount = if aKey < bKey { n2 } else { n1 + int64(1) }
+	always got.Entries[0] == FrequencyEntry{Key: wantFirstKey, Count: wantFirstCount}
+	always got.Entries[1] == FrequencyEntry{Key: wantSecondKey, Count: wantSecondCount}
+
+	let fb = NewFrequencyBounded("bounded.keys", "Bounded", 2) catch {
+	case InvalidMetric, InvalidBudget:
+		return false
+	}
+	let strictRec = NewRecorder(StrictBudget(4) catch {
+	case InvalidBudget:
+		return false
+	})
+	with context { Sink: strictRec } {
+		fb.TryRecord("k1", []Label{}) catch {
+		case InvalidDelta, BudgetExceeded:
+			return false
+		}
+		fb.TryRecord("k2", []Label{}) catch {
+		case InvalidDelta, BudgetExceeded:
+			return false
+		}
+		let mut capped = false
+		fb.TryRecord("k3", []Label{}) catch {
+		case BudgetExceeded:
+			capped = true
+		case InvalidDelta:
+			return false
+		}
+		always capped
+	}
+	true
+}
+
+// SummaryWindowAndQuantilesOrdered: Summary keeps WindowCount <= maxSamples,
+// expires timed entries older than maxAge, accumulates total Count and Sum, and
+// produces quantiles ordered monotonically within [Min, Max].
+law SummaryWindowAndQuantilesOrdered(a int, b int, c int, d int) {
+	let vals = []float64{
+		float64(((a%100)+100)%100) * 0.5,
+		float64(((b%100)+100)%100) * 0.5,
+		float64(((c%100)+100)%100) * 0.5,
+		float64(((d%100)+100)%100) * 0.5,
+	}
+	let s = NewSummary("rpc.latency", "RPC latency", []float64{0.0, 0.5, 0.9, 1.0}, 3, 10s) catch {
+	case InvalidMetric, InvalidSummary:
+		return false
+	}
+	let rec = DefaultRecorder()
+	let t0 = time.Unix(1000, 0)
+	with context { Sink: rec } {
+		s.SampleAt(vals[0], t0, []Label{})
+		s.SampleAt(vals[1], t0.Add(2s), []Label{})
+		s.SampleAt(vals[2], t0.Add(4s), []Label{})
+		s.SampleAt(vals[3], t0.Add(6s), []Label{})
+	}
+	let snap1 = rec.CollectAt(t0.Add(6s))
+	let data1 = match findSummary(snap1, "rpc.latency") {
+	case option.Some[SummaryData] as v:
+		v.Value
+	case option.None:
+		return false
+	}
+	always data1.Count == int64(4)
+	always data1.Sum == vals[0]+vals[1]+vals[2]+vals[3]
+	always data1.WindowCount == 3
+	always data1.Quantiles.Len() == 4
+	always data1.Quantiles[0].Value == data1.Min
+	always data1.Quantiles[3].Value == data1.Max
+	for i in 1..data1.Quantiles.Len() {
+		always data1.Quantiles[i-1].Quantile < data1.Quantiles[i].Quantile
+		always data1.Quantiles[i-1].Value <= data1.Quantiles[i].Value
+	}
+	let snap2 = rec.CollectAt(t0.Add(15s))
+	let data2 = match findSummary(snap2, "rpc.latency") {
+	case option.Some[SummaryData] as v:
+		v.Value
+	case option.None:
+		return false
+	}
+	always data2.WindowCount == 1
+	always data2.Min == vals[3] && data2.Max == vals[3]
+	always data2.Count == int64(4)
+	true
+}
+
+func findSummary(snap Snapshot, name string) option.Option[SummaryData] {
+	for s in snap.Series {
+		if s.Name == name {
+			match s.Data {
+			case SummarySeries as sd:
+				return option.Some[SummaryData]{Value: sd.Data}
+			case _:
+			}
+		}
+	}
+	option.None
+}
