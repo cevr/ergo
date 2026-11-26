@@ -1,0 +1,148 @@
+// Package color reads CSS colours (hex, rgb(), hsl(), oklab(), oklch()
+// and the named colours, CSS Color 4) into RGBA, converts between sRGB,
+// HSL, OKLab and OKLCH, composites and mixes colours, measures WCAG
+// contrast, and quantizes a colour to what a terminal shows (24-bit, the
+// 256 indexed colours, the 16 basic ones, or none) as std ansi's Color.
+// A terminal's depth is the operation type Depth, so a program takes it
+// from its context and a host decides it once (DetectDepth). Every
+// malformed text is the failure InvalidColor.
+
+import math
+
+// RGBA is an sRGB colour with straight (not premultiplied) alpha, a byte
+// each: std ui's Color layout. A is 255 for an opaque colour. Its wire
+// form is its Hex text, read back by any CSS colour (ParseRGBA).
+type RGBA { R uint8, G uint8, B uint8, A uint8 }
+
+// InvalidColor is a text that is not a CSS colour: Offset is the byte at
+// which reading stopped and Reason says why.
+type InvalidColor { Text string, Offset int, Reason string }
+
+// Black is opaque #000000.
+let Black = RGBA{R: 0, G: 0, B: 0, A: 255}
+
+// White is opaque #ffffff.
+let White = RGBA{R: 255, G: 255, B: 255, A: 255}
+
+// Transparent is CSS transparent: black with alpha 0.
+let Transparent = RGBA{R: 0, G: 0, B: 0, A: 0}
+
+// ParseRGBA reads the CSS colour whose UTF-8 bytes are b, as Parse does:
+// the decode half of RGBA's wire form.
+func ParseRGBA(b []byte) RGBA fails InvalidColor { try Parse(b.Text()) }
+
+// Wire is into with c's Hex text added: the encode half of RGBA's wire
+// form.
+func Wire(c RGBA, into []byte) []byte {
+	let mut out = into.Append(byte('#'))
+	out = hexByte(out, c.R)
+	out = hexByte(out, c.G)
+	out = hexByte(out, c.B)
+	if c.A != 255 {
+		out = hexByte(out, c.A)
+	}
+	out
+}
+
+func hexByte(out []byte, v uint8) []byte {
+	let digits = "0123456789abcdef"
+	out.Append(digits[int(v)/16]).Append(digits[int(v)%16])
+}
+
+// Hex is c as "#rrggbb", or "#rrggbbaa" when c is not opaque, in lower
+// case.
+func Hex(c RGBA) string { Wire(c, []byte{}).Text() }
+
+// HexRoundTrips: Parse reads back what Hex writes.
+law HexRoundTrips(c RGBA) {
+	let back = Parse(Hex(c)) catch {
+	case InvalidColor:
+		return false
+	}
+	back == c
+}
+
+// CSS is c as CSS Color 4 writes it: "rgb(r g b)", or "rgb(r g b / a)"
+// with a, c's alpha over 255, to three decimals, when c is not opaque.
+func CSS(c RGBA) string {
+	let body = "\(int(c.R)) \(int(c.G)) \(int(c.B))"
+	if c.A != 255 {
+		return "rgb(" + body + " / " + decimal(float64(c.A)/255.0, 3) + ")"
+	}
+	"rgb(" + body + ")"
+}
+
+// CSSRoundTrips: Parse reads back what CSS writes.
+law CSSRoundTrips(c RGBA) {
+	let back = Parse(CSS(c)) catch {
+	case InvalidColor:
+		return false
+	}
+	back == c
+}
+
+// Over is fg composited over bg (Porter-Duff source-over) with straight
+// alpha; an opaque fg is itself, and two transparent colours are
+// Transparent.
+func Over(fg RGBA, bg RGBA) RGBA {
+	if fg.A == 255 {
+		return fg
+	}
+	let fa = float64(fg.A) / 255.0
+	let ba = float64(bg.A) / 255.0
+	let a = fa + ba*(1.0-fa)
+	if a <= 0.0 {
+		return Transparent
+	}
+	let part = func(f uint8, b uint8) uint8 { toByte((float64(f)*fa + float64(b)*ba*(1.0-fa)) / a / 255.0) }
+	RGBA{R: part(fg.R, bg.R), G: part(fg.G, bg.G), B: part(fg.B, bg.B), A: toByte(a)}
+}
+
+// OverOpaque: an opaque colour over any background is itself, and any
+// colour over an opaque background is opaque.
+law OverOpaque(fg RGBA, bg RGBA) {
+	let top = RGBA{..fg, A: 255}
+	let ground = RGBA{..bg, A: 255}
+	Over(top, bg) == top && Over(fg, ground).A == 255
+}
+
+// Mix is a and b interpolated in OKLab at t, from a at 0 to b at 1 (t held
+// to [0, 1]), with premultiplied alpha, as CSS color-mix(in oklab, a, b
+// t*100%) mixes; the result is gamut mapped into sRGB.
+func Mix(a RGBA, b RGBA, t float64) RGBA {
+	let k = if math.IsNaN(t) { 0.0 } else { clamp01(t) }
+	let x = ToOKLab(a)
+	let y = ToOKLab(b)
+	let alpha = x.Alpha*(1.0-k) + y.Alpha*k
+	if alpha <= 0.0 {
+		return Transparent
+	}
+	let mixed = func(p float64, q float64) float64 { (p*x.Alpha*(1.0-k) + q*y.Alpha*k) / alpha }
+	FromOKLab(OKLab{L: mixed(x.L, y.L), A: mixed(x.A, y.A), B: mixed(x.B, y.B), Alpha: alpha})
+}
+
+// MixEnds: mixing at 0 is a and at 1 is b, for opaque a and b.
+law MixEnds(a RGBA, b RGBA) {
+	let x = RGBA{..a, A: 255}
+	let y = RGBA{..b, A: 255}
+	Mix(x, y, 0.0) == x && Mix(x, y, 1.0) == y
+}
+
+func clamp01(v float64) float64 {
+	if v < 0.0 {
+		return 0.0
+	}
+	if v > 1.0 {
+		return 1.0
+	}
+	v
+}
+
+func toByte(v float64) uint8 {
+	if math.IsNaN(v) {
+		return 0
+	}
+	uint8(int(math.Round(clamp01(v) * 255.0)))
+}
+
+func unit(v uint8) float64 { float64(v) / 255.0 }

@@ -113,7 +113,7 @@ func testSupportFindings(g *programGraph, units []Unit, opts testSupportOptions)
 	if err := json.Unmarshal(raw, &rows); err != nil {
 		return nil, err
 	}
-	sorted := g.t.Sorted()
+	sorted := g.sortedEdges()
 	var out []testSupportFinding
 	for _, u := range rows {
 		i := sorted[u.Site]

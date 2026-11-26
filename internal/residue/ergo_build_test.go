@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -24,8 +25,9 @@ import (
 // sets no Dir: a test's own control program builds in its folder), and a mutant
 // runner Tool of ./cmd/ergo without an Env. A module that cannot import
 // ergobuild (hosts/mygo) passes when the same function names
-// CGO_ENABLED=0. Mutant: a build site that names the go command itself
-// (start-ergo-build-bypasses-setting).
+// CGO_ENABLED=0. A `go build` it refuses also without -trimpath
+// (ergobuild.Flags: every checkout builds the same bytes). Mutant: a build
+// site that names the go command itself (start-ergo-build-bypasses-setting).
 func TestErgoBuildsReadOneSetting(t *testing.T) {
 	root, err := exec.Command("git", "--no-optional-locks", "rev-parse", "--show-toplevel").Output()
 	if err != nil {
@@ -78,6 +80,9 @@ func TestErgoBuildsReadOneSetting(t *testing.T) {
 					sites++
 					if !namesSetting {
 						t.Errorf("%s: builds the ergo tool with the go command itself; take the command from ergobuild.Command (or its environment from ergobuild.Env), so the tool is built without cgo as everywhere else", fset.Position(n.Pos()))
+					}
+					if lits := literals(n.Args); slices.Contains(lits, "build") && !slices.Contains(lits, "-trimpath") {
+						t.Errorf("%s: builds the ergo tool without -trimpath; take the command from ergobuild.Command, so every checkout builds the same bytes (ergobuild.Flags)", fset.Position(n.Pos()))
 					}
 				case *ast.CompositeLit:
 					if id, ok := n.Type.(*ast.Ident); !ok || id.Name != "Tool" {

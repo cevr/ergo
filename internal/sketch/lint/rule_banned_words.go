@@ -38,16 +38,15 @@ func checkBannedWords(p *Pass) {
 			p.Report(f.Name.Pos(), f.Name.End(), "the function "+f.Name.Name+" is named by a generic verb alone")
 		}
 	}
-	syntax.Inspect(p.File, func(n syntax.Node) bool {
-		id, ok := n.(*syntax.Ident)
+	for _, id := range p.fileIndex().idents {
+		ok := id != nil
 		if !ok || p.Info.Defs[id] == nil {
-			return true
+			continue
 		}
 		if word, banned := bannedWord(id.Name, words); banned {
 			p.Report(id.Pos(), id.End(), "the name "+id.Name+" holds the banned word "+word)
 		} else if t, avoided := avoidedTerm(id.Name, avoid); avoided {
 			p.ReportInstead(id.Pos(), id.End(), "the name "+id.Name+" holds "+t.Avoid+", which the glossary lists under Avoid", "name it with the glossary's term "+t.Use, nil)
 		}
-		return true
-	})
+	}
 }

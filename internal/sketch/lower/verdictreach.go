@@ -62,9 +62,9 @@ func TestReach(pkg *check.Package, t *check.Test) []ReachedDecl {
 func (t RunTarget) Reach(pkg *check.Package) []ReachedDecl {
 	var d *digester
 	if t.Context != nil {
-		d, _ = contextWalk(t.Law, *t.Context)
+		d, _ = contextWalk(nil, t.Law, *t.Context)
 	} else {
-		d, _ = targetWalk(t.Law, t.Binding)
+		d, _ = targetWalk(nil, t.Law, t.Binding)
 	}
 	d.generators(pkg)
 	return d.nodes

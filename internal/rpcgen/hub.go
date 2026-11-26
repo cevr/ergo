@@ -48,7 +48,7 @@ func GenerateAPI(pkg *check.Package, path, opName string) (Files, error) {
 		return Files{}, err
 	}
 	pkgName := lastElem(path)
-	g := &hubGen{pkg: pkg, path: path, op: opName, imports: map[string]string{"json": "json", "rpc": "rpc", "sync": "sync"}}
+	g := &hubGen{pkg: pkg, path: path, op: opName, imports: map[string]string{"json": "json", "rpc": "rpc", "scope": "scope", "sync": "sync"}}
 	g.importOf(pkg)
 	g.failures(ops)
 	docs := Docs(pkg, opName)
@@ -288,10 +288,8 @@ func (g *hubGen) expr(t check.Type) string {
 			return g.expr(a)
 		}
 		name := u.Obj.Name
-		if !check.IsTransitionalPreludeType(u.Obj) {
-			if q := g.importOf(u.Obj.Pkg); q != "" {
-				name = q + "." + name
-			}
+		if q := g.importOf(u.Obj.Pkg); q != "" {
+			name = q + "." + name
 		}
 		if len(u.TArgs) > 0 {
 			var args []string
@@ -589,7 +587,7 @@ func (g *hubGen) client(b *strings.Builder, capName string, ops []Op) {
 	b.WriteString("}\n}\n\n")
 
 	heldVar := g.freshName("held", ops)
-	fmt.Fprintf(b, "// ClientInForce is the %s that invokes the provider currently in force.\nfunc ClientInForce() Client needs %s {\nlet %s = InForce[%s]()\nClient{\n", capName, capName, heldVar, capName)
+	fmt.Fprintf(b, "// ClientInForce is the %s that invokes the provider currently in force.\nfunc ClientInForce() Client needs %s {\nlet %s = scope.InForce[%s]()\nClient{\n", capName, capName, heldVar, capName)
 	for _, op := range ops {
 		var args []string
 		for _, p := range op.Params {

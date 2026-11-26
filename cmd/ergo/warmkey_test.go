@@ -20,6 +20,7 @@ var warmKeyExempt = map[string]string{
 	"search":   "a schedule search is --explore's (testCacheable)",
 	"receipt":  "a --receipt test takes no warm answer (testCacheable)",
 	"uncached": "a --count 1 test takes no warm answer (testCacheable)",
+	"fresh":    "--fresh reads no warm answer and keeps the one it runs to, which is the answer without it (startWarm)",
 	"args":     "run's program arguments: the warm answer is the executable, which they do not change",
 	"affected": "--affected selects which packages run; each selected package runs as `ergo test` runs it (affected.go)",
 	"level":    "a key part of its own: the toolchain's CPU level (prepareWarm, tc.Level; BLV U3)",

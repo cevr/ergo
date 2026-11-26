@@ -25,7 +25,7 @@ var noComments = &Rule{
 }
 
 func checkNoComments(p *Pass) {
-	for _, b := range BannedComments(p.File) {
+	for _, b := range bannedComments(p.File, p.fileIndex) {
 		fix := &report.Fix{InsertAt: b.From, Replace: b.To - b.From, Text: b.Text}
 		p.ReportFix(b.Group.Pos(), b.Group.End(), "this comment is not the doc comment of a public declaration", fix)
 	}
@@ -50,32 +50,37 @@ type Banned struct {
 // not the doc comment of a public declaration (KeptDocs), with its
 // removal.
 func BannedComments(f *syntax.File) []Banned {
+	return bannedComments(f, func() *fileIndex { return buildFileIndex(f) })
+}
+
+// bannedComments is BannedComments reading the file's doc comments and
+// body spans from its index, which index builds on the first banned group.
+func bannedComments(f *syntax.File, index func() *fileIndex) []Banned {
 	kept := KeptDocs(f)
 	var out []Banned
-	var docs map[*syntax.CommentGroup]bool
-	var bodies [][2]syntax.Pos
+	var fi *fileIndex
 	for _, g := range f.Comments {
 		if kept[g] {
 			continue
 		}
-		if docs == nil {
-			docs, bodies = docComments(f), bodySpans(f)
+		if fi == nil {
+			fi = index()
 		}
 		from, to, text := removal(f.Src, int(g.Pos()), int(g.End()))
-		out = append(out, Banned{Group: g, From: from, To: to, Text: text, Decl: enclosing(f, g.Pos()), Position: position(f, g, docs, bodies)})
+		out = append(out, Banned{Group: g, From: from, To: to, Text: text, Decl: enclosing(f, g.Pos()), Position: position(f, g, fi)})
 	}
 	return out
 }
 
-func position(f *syntax.File, g *syntax.CommentGroup, docs map[*syntax.CommentGroup]bool, bodies [][2]syntax.Pos) string {
+func position(f *syntax.File, g *syntax.CommentGroup, fi *fileIndex) string {
 	switch {
 	case !aloneOnLine(f.Src, int(g.Pos())):
 		return "trailing"
-	case docs[g]:
+	case fi.docComments[g]:
 		return "doc"
 	case len(f.Decls) == 0 || g.End() <= f.Decls[0].Pos():
 		return "header"
-	case inBody(bodies, g.Pos()):
+	case fi.inBody(g.Pos()):
 		return "body"
 	}
 	return "loose"

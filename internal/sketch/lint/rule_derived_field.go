@@ -25,7 +25,7 @@ var derivedField = &Rule{
 }
 
 func checkDerivedField(p *Pass) {
-	ff := p.Memo(func() any { return collectFieldForms(p.Program()) }).(*fieldForms)
+	ff := p.Memo(func() any { return collectFieldForms(p.Program(), p.run.shared) }).(*fieldForms)
 	for _, d := range p.File.Decls {
 		td, ok := d.(*syntax.TypeDecl)
 		if !ok {

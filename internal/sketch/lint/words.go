@@ -21,12 +21,49 @@ import (
 // nameWords splits an identifier into lower-case words at underscores,
 // digits and case changes: HTTPServerShape is http, server, shape.
 func nameWords(name string) []string {
-	var words []string
-	runes := []rune(name)
+	var wordsBuf [8]string
+	words := wordsBuf[:0]
+	var runesBuf [64]rune
+	ascii := true
+	runes := runesBuf[:0]
+	for i := 0; i < len(name); i++ {
+		if name[i] >= utf8.RuneSelf {
+			ascii = false
+			break
+		}
+		runes = append(runes, rune(name[i]))
+	}
+	if !ascii {
+		runes = []rune(name)
+	}
 	start := 0
 	flush := func(end int) {
 		if end > start {
-			words = append(words, strings.ToLower(string(runes[start:end])))
+			if ascii {
+				lower := true
+				for j := start; j < end; j++ {
+					if name[j] >= 'A' && name[j] <= 'Z' {
+						lower = false
+						break
+					}
+				}
+				if lower {
+					words = append(words, name[start:end])
+				} else {
+					var buf [64]byte
+					b := buf[:0]
+					for j := start; j < end; j++ {
+						c := name[j]
+						if c >= 'A' && c <= 'Z' {
+							c += 'a' - 'A'
+						}
+						b = append(b, c)
+					}
+					words = append(words, string(b))
+				}
+			} else {
+				words = append(words, strings.ToLower(string(runes[start:end])))
+			}
 		}
 		start = end
 	}

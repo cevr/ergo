@@ -64,6 +64,18 @@ func repeatedAsserts(info *check.Info, body *syntax.BlockStmt) []*syntax.AssertS
 		if !ok {
 			return true
 		}
+		asserts := 0
+		for _, s := range b.List {
+			if _, isAssert := s.(*syntax.AssertStmt); isAssert {
+				asserts++
+				if asserts >= 2 {
+					break
+				}
+			}
+		}
+		if asserts < 2 {
+			return true
+		}
 		seen := map[string]bool{}
 		for _, s := range b.List {
 			a, ok := s.(*syntax.AssertStmt)

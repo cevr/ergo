@@ -48,14 +48,23 @@ type clumpPair struct{ name, typ string }
 
 func checkParameterClump(p *Pass) {
 	found := p.Memo(func() any { return parameterClumps(p) }).(map[*syntax.Ident]string)
-	syntax.Inspect(p.File, func(n syntax.Node) bool {
-		if id, ok := n.(*syntax.Ident); ok {
+	if len(found) == 0 {
+		return
+	}
+	for _, d := range p.File.Decls {
+		var id *syntax.Ident
+		switch d := d.(type) {
+		case *syntax.FuncDecl:
+			id = d.Name
+		case *syntax.TypeDecl:
+			id = d.Name
+		}
+		if id != nil {
 			if msg, ok := found[id]; ok {
 				p.Report(id.Pos(), id.End(), msg)
 			}
 		}
-		return true
-	})
+	}
 }
 
 // parameterClumps maps each declaration that shares three or more pairs

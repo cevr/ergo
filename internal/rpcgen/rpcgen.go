@@ -334,10 +334,8 @@ func (g *gen) expr(t check.Type) string {
 			return g.expr(a)
 		}
 		name := u.Obj.Name
-		if !check.IsTransitionalPreludeType(u.Obj) {
-			if q := g.importOf(u.Obj.Pkg); q != "" {
-				name = q + "." + name
-			}
+		if q := g.importOf(u.Obj.Pkg); q != "" {
+			name = q + "." + name
 		}
 		if len(u.TArgs) > 0 {
 			var args []string
