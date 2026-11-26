@@ -169,7 +169,7 @@
       "to": "\t\tif events.Len() == 0 {\n\t\t\treturn (execOK{Result: orchestrate.ExecuteResult{Seq: b.log.Len(), Events: []orchestrate.Event{}, Duplicate: false}}, b)\n\t\t}\n",
       "rule": "An idempotent resend must report Duplicate: true: Store.StoreIdempotentExecute.",
       "killers": [
-        "modules/orchestrate/memory:law:OrchMemoryPaths.PathsAgree under onOrchMemoryPaths"
+        "modules/orchestrate/memory:law:OrchMemoryPaths.PathsAgree"
       ],
       "anchor": {
         "tests": [
@@ -250,6 +250,102 @@
       "rule": "SQLite Execute must verify payload digest and JSON on duplicate CommandID and fail CommandReused on mismatch: Store.StoreIdempotentExecute and PersistenceChecks.SqliteAgreesWithMemory.",
       "killers": [
         "modules/orchestrate/sqlite:law:OrchSQLitePaths.PathsAgree"
+      ],
+      "anchor": {
+        "tests": [
+          "examples:modules/orchestrate"
+        ]
+      }
+    },
+    {
+      "name": "orch4-api-optional-drops-present",
+      "origin": "wf10/ORCH-4",
+      "file": "modules/orchestrate/orchestrate/api.ergo",
+      "from": "\tcase json.Present[T] as p:\n\t\toption.Some[T]{Value: p.Value}\n",
+      "to": "\tcase json.Present[T]:\n\t\toption.None\n",
+      "rule": "Present json.Optional fields on Api inputs must convert to Some rather than None: ApiUnitCloseEndsLifecycle, ApiCommitmentLifecycleRoundTrips, ApiQueueRoundTrips, ApiQuestionRoundTrips.",
+      "killers": [
+        "modules/orchestrate/memory:law:orchestrate.Api.ApiCommitmentLifecycleRoundTrips"
+      ],
+      "anchor": {
+        "tests": [
+          "examples:modules/orchestrate"
+        ]
+      }
+    },
+    {
+      "name": "orch4-api-skip-commitment-status-filter-error",
+      "origin": "wf10/ORCH-4",
+      "file": "modules/orchestrate/orchestrate/api.ergo",
+      "from": "\t\tcase option.None:\n\t\t\tInvalidInput{Field: \"status\", Why: \"must be open, assigned, landed, decided, or withdrawn\"}\n",
+      "to": "\t\tcase option.None:\n\t\t\toption.None\n",
+      "rule": "CommitmentList must reject an unknown status filter as InvalidInput: ApiCommitmentLifecycleRoundTrips.",
+      "killers": [
+        "modules/orchestrate/memory:law:orchestrate.Api.ApiCommitmentLifecycleRoundTrips"
+      ],
+      "anchor": {
+        "tests": [
+          "examples:modules/orchestrate"
+        ]
+      }
+    },
+    {
+      "name": "orch4-api-commitment-decide-drops-withdraw",
+      "origin": "wf10/ORCH-4",
+      "file": "modules/orchestrate/orchestrate/api.ergo",
+      "from": "\trunCommitmentCommand(s, req.CommandID, req.Actor, req.ID, DecideCommitment{ID: req.ID, Note: req.Note, Withdraw: req.Withdraw})\n",
+      "to": "\trunCommitmentCommand(s, req.CommandID, req.Actor, req.ID, DecideCommitment{ID: req.ID, Note: req.Note, Withdraw: false})\n",
+      "rule": "CommitmentDecide must forward req.Withdraw to DecideCommitment: ApiCommitmentLifecycleRoundTrips.",
+      "killers": [
+        "modules/orchestrate/memory:law:orchestrate.Api.ApiCommitmentLifecycleRoundTrips"
+      ],
+      "anchor": {
+        "tests": [
+          "examples:modules/orchestrate"
+        ]
+      }
+    },
+    {
+      "name": "orch4-api-queue-upsert-replay-skips-events",
+      "origin": "wf10/ORCH-4",
+      "file": "modules/orchestrate/orchestrate/api.ergo",
+      "from": "\t\tcase CommandAccepted as e:\n\t\t\tmatched = e.ID == req.CommandID\n",
+      "to": "\t\tcase CommandAccepted:\n\t\t\tmatched = false\n",
+      "rule": "QueueUpsert idempotent replay must recover the recorded QueueItem from the event log by CommandID: ApiQueueRoundTrips.",
+      "killers": [
+        "modules/orchestrate/memory:law:orchestrate.Api.ApiQueueRoundTrips"
+      ],
+      "anchor": {
+        "tests": [
+          "examples:modules/orchestrate"
+        ]
+      }
+    },
+    {
+      "name": "orch4-api-question-ask-replay-drops-id",
+      "origin": "wf10/ORCH-4",
+      "file": "modules/orchestrate/orchestrate/api.ergo",
+      "from": "\tcase option.Some[int] as id:\n\t\ttry mustQuestion(s.store, id.Value)\n",
+      "to": "\tcase option.Some[int]:\n\t\tStoreFailed{Reason: \"question missing after execute\"}\n",
+      "rule": "QuestionAsk idempotent replay must return the question indexed by CommandID in Snapshot.QuestionByCommand: ApiQuestionRoundTrips.",
+      "killers": [
+        "modules/orchestrate/memory:law:orchestrate.Api.ApiQuestionRoundTrips"
+      ],
+      "anchor": {
+        "tests": [
+          "examples:modules/orchestrate"
+        ]
+      }
+    },
+    {
+      "name": "orch4-api-question-list-ignores-open-only",
+      "origin": "wf10/ORCH-4",
+      "file": "modules/orchestrate/orchestrate/api.ergo",
+      "from": "\ttry s.store.ListQuestions(req.OpenOnly)\n",
+      "to": "\ttry s.store.ListQuestions(false)\n",
+      "rule": "QuestionList must forward req.OpenOnly to Store.ListQuestions: ApiQuestionRoundTrips.",
+      "killers": [
+        "modules/orchestrate/memory:law:orchestrate.Api.ApiQuestionRoundTrips"
       ],
       "anchor": {
         "tests": [

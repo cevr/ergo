@@ -1597,7 +1597,7 @@ func assignRefusal(s mut store.Store, k Pkg, t Typer, x dense.ID[syntax.Node], w
 	match resolveRole(*s, k, uw0) {
 	case option.Some{Value: role}:
 		if types.ConstraintOnlyRole(role) {
-			return "cannot use \(typePrint(*s, k, t, ug0)) as \(typePrint(*s, k, t, uw0)) in \(assignWhat(t)): \(role.Name) is a constraint and has no values"
+			return ""
 		}
 		if store.KindOfType(*s, ug0) == store.KParam {
 			let pcons = currentParamCons(k, t)

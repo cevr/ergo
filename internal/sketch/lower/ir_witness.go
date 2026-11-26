@@ -65,6 +65,32 @@ type witnessSite struct {
 	i int
 }
 
+// contextWitnessSite is the i-th witness passed to a context protocol
+// call (contextKey when !text, contextText when text) on the with
+// operand arg.
+type contextWitnessSite struct {
+	arg  syntax.Expr
+	text bool
+	i    int
+}
+
+func cmpWitnessPos(pkgA int, pathA string, lineA, colA int, a syntax.Expr, pkgB int, pathB string, lineB, colB int, b syntax.Expr) int {
+	switch {
+	case pkgA != pkgB:
+		return pkgA - pkgB
+	case pathA != pathB:
+		if pathA < pathB {
+			return -1
+		}
+		return 1
+	case lineA != lineB:
+		return lineA - lineB
+	case colA != colB:
+		return colA - colB
+	}
+	return int(b.End()) - int(a.End())
+}
+
 // reserveWitnessValues names the package variable of every witness an
 // instance of the root package and its libraries passes, in package then
 // source order.
@@ -77,7 +103,17 @@ func (l *lowerer) reserveWitnessValues() {
 		col    int
 		pkgIdx int
 	}
+	type ctxSite struct {
+		arg    syntax.Expr
+		text   bool
+		n      int
+		path   string
+		line   int
+		col    int
+		pkgIdx int
+	}
 	var sites []site
+	var ctxSites []ctxSite
 	for pi, p := range append([]*check.Package{l.pkg}, l.libraries()...) {
 		if p.Info == nil {
 			continue
@@ -93,27 +129,54 @@ func (l *lowerer) reserveWitnessValues() {
 			path, line, col := l.locate(x, x.Pos())
 			sites = append(sites, site{x: x, n: n, path: path, line: line, col: col, pkgIdx: pi})
 		}
+		for x, root := range p.Info.Withs {
+			if x == nil {
+				continue
+			}
+			for i, w := 0, root; w != nil && i < len(x.Args); i, w = i+1, w.Next {
+				if w.Value == nil {
+					continue
+				}
+				arg := x.Args[i]
+				addCtx := func(f *check.Func, text bool) {
+					if f == nil {
+						return
+					}
+					n := len(witnessParams(f.Sig))
+					if n == 0 {
+						return
+					}
+					path, line, col := l.locate(arg, arg.Pos())
+					ctxSites = append(ctxSites, ctxSite{arg: arg, text: text, n: n, path: path, line: line, col: col, pkgIdx: pi})
+				}
+				addCtx(w.Value.Key, false)
+				addCtx(w.Value.Text, true)
+			}
+		}
 	}
 	slices.SortFunc(sites, func(a, b site) int {
-		switch {
-		case a.pkgIdx != b.pkgIdx:
-			return a.pkgIdx - b.pkgIdx
-		case a.path != b.path:
-			if a.path < b.path {
-				return -1
-			}
-			return 1
-		case a.line != b.line:
-			return a.line - b.line
-		case a.col != b.col:
-			return a.col - b.col
-		}
-		// A call and its callee start at one place: the longer first.
-		return int(b.x.End()) - int(a.x.End())
+		return cmpWitnessPos(a.pkgIdx, a.path, a.line, a.col, a.x, b.pkgIdx, b.path, b.line, b.col, b.x)
 	})
 	for _, s := range sites {
 		for i := 0; i < s.n; i++ {
 			l.pkgName(pkgKey{"witness value", witnessSite{s.x, i}}, "ergoWitness")
+		}
+	}
+	slices.SortFunc(ctxSites, func(a, b ctxSite) int {
+		if d := cmpWitnessPos(a.pkgIdx, a.path, a.line, a.col, a.arg, b.pkgIdx, b.path, b.line, b.col, b.arg); d != 0 {
+			return d
+		}
+		if a.text != b.text {
+			if !a.text {
+				return -1
+			}
+			return 1
+		}
+		return 0
+	})
+	for _, s := range ctxSites {
+		for i := 0; i < s.n; i++ {
+			l.pkgName(pkgKey{"context witness", contextWitnessSite{arg: s.arg, text: s.text, i: i}}, "ergoCtxWitness")
 		}
 	}
 	for _, key := range slices.Sorted(maps.Keys(l.adapterConvs)) {
@@ -149,6 +212,24 @@ func (b *irBuilder) witnessArgs(f *check.Func, x *syntax.CallExpr, p irPos, skip
 		return nil
 	}
 	inst := b.l.info.Instances[x]
+	return b.resolvedWitnessExprs(f, inst, x, params, skip, func(i int) pkgKey {
+		return pkgKey{"witness value", witnessSite{x, i}}
+	}, p)
+}
+
+// contextWitnessArgs are the witnesses a context protocol call (contextKey
+// when !text, contextText when text) on the with operand arg passes.
+func (b *irBuilder) contextWitnessArgs(f *check.Func, inst *check.Instance, arg syntax.Expr, text bool, p irPos, skip map[*check.TypeParam]bool) []*irExpr {
+	params := witnessParams(f.Sig)
+	if !hasWitnessArgs(params, skip) {
+		return nil
+	}
+	return b.resolvedWitnessExprs(f, inst, arg, params, skip, func(i int) pkgKey {
+		return pkgKey{"context witness", contextWitnessSite{arg: arg, text: text, i: i}}
+	}, p)
+}
+
+func (b *irBuilder) resolvedWitnessExprs(f *check.Func, inst *check.Instance, site syntax.Expr, params []*check.TypeParam, skip map[*check.TypeParam]bool, keyFn func(int) pkgKey, p irPos) []*irExpr {
 	if inst == nil || inst.Func != f {
 		irNo("call that passes witnesses without its instance")
 	}
@@ -159,16 +240,17 @@ func (b *irBuilder) witnessArgs(f *check.Func, x *syntax.CallExpr, p irPos, skip
 		}
 	}
 	if open {
-		return b.passedWitnesses(f, inst, slices.DeleteFunc(params, func(tp *check.TypeParam) bool { return skip[tp] }), p)
+		kept := slices.DeleteFunc(slices.Clone(params), func(tp *check.TypeParam) bool { return skip[tp] })
+		return b.passedWitnesses(f, inst, kept, p)
 	}
-	texts := b.fc.witnessArgsExcept(f, inst, x, skip)
+	texts := b.fc.witnessArgsExcept(f, inst, site, skip)
 	out := make([]*irExpr, 0, len(texts))
 	for i, tp := range params {
 		if skip[tp] {
 			continue
 		}
 		text := texts[len(out)]
-		key := pkgKey{"witness value", witnessSite{x, i}}
+		key := keyFn(i)
 		name, ok := b.l.pkgNames[key]
 		if !ok {
 			irNo("witness without its reserved name")

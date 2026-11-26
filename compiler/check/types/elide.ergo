@@ -133,10 +133,7 @@ func localVariant(s mut store.Store, e Env, l HLocal, ref store.XRef, union int,
 			if syntax.KindOf(p.Tree, ix.X) != syntax.KIdent || nameText(p, ix.X) != l.Name {
 				continue
 			}
-			let mut inner = e
-			inner.p = p
-			inner.params = params
-			let t = Resolve(s, inner, m)
+			let t = Resolve(s, Env{..e, p: p, params: params}, m)
 			if isInvalid(*s, t) {
 				return option.None
 			}

@@ -265,7 +265,36 @@ func verify(stock Stock, seed int, keep bool) fails os.Exit needs exec.Runner | 
 	}
 }
 
-func usage() os.Exit { os.Exit{Code: 2, Message: "usage: nativeobj verify [--seed N] [--keep]"} }
+func archiveOnly(seed int, depA string, out string) fails os.Exit needs fs.Files | fs.Writes {
+	let depAr = try read(depA)
+	let header = nativeobj.StockHeader(depAr) catch {
+	case nativeobj.Bad as b:
+		return fail("\(depA): " + b.Why)
+	}
+	let depExp = nativeobj.ReadStockExport(depAr) catch {
+	case nativeobj.Bad as b:
+		return fail("\(depA) export data: " + b.Why)
+	}
+	let dep = nativeobj.Import{Path: nativeobj.DepPath, Name: "dep", Fingerprint: depExp.Fingerprint, HasInit: depExp.HasInit}
+	let (k1, k2) = constants(seed)
+	let eirBytes = nativeobj.TinyHandoff(k1, k2, dep) catch {
+	case handoff.Malformed as m:
+		return fail("eir handoff pack: " + m.Why)
+	}
+	let built = nativeobj.ArchiveFromHandoff(eirBytes, nativeobj.TinyHandoffExpect(dep), header) catch {
+	case handoff.UnknownVersion, handoff.Malformed, handoff.WrongTarget, handoff.StaleImport:
+		return fail("eir handoff refused")
+	case nativeobj.Refused as r:
+		return fail("refused: " + r.Why)
+	case nativeobj.Malformed as m:
+		return fail("malformed input: " + m.Why)
+	case nativeobj.Undefined as u:
+		return fail("undefined label \(u.Label)")
+	}
+	try write(out, built.Archive)
+}
+
+func usage() os.Exit { os.Exit{Code: 2, Message: "usage: nativeobj verify [--seed N] [--keep] | archive --dep DEP.a --out OUT.a [--seed N]"} }
 
 func main() fails os.Exit needs os.Ambient {
 	with context { os.Process: os.NewHost(), fs.Files: fs.NewHost(), fs.Writes: fs.NewHost(), io.Stdout: io.NewHost(), exec.Runner: exec.NewHost() } {
@@ -273,11 +302,13 @@ func main() fails os.Exit needs os.Ambient {
 		if args.Len() > 0 && args[0] == "--" {
 			args = args[1:args.Len()]
 		}
-		if args.Len() == 0 || args[0] != "verify" {
+		if args.Len() == 0 || (args[0] != "verify" && args[0] != "archive") {
 			return usage()
 		}
 		let mut seed = 1
 		let mut keep = false
+		let mut depA = ""
+		let mut out = ""
 		let mut i = 1
 		for i < args.Len() {
 			if args[i] == "--seed" && i+1 < args.Len() {
@@ -289,9 +320,21 @@ func main() fails os.Exit needs os.Ambient {
 			} else if args[i] == "--keep" {
 				keep = true
 				i = i + 1
+			} else if args[i] == "--dep" && i+1 < args.Len() {
+				depA = args[i+1]
+				i = i + 2
+			} else if args[i] == "--out" && i+1 < args.Len() {
+				out = args[i+1]
+				i = i + 2
 			} else {
 				return usage()
 			}
+		}
+		if args[0] == "archive" {
+			if depA == "" || out == "" {
+				return usage()
+			}
+			return archiveOnly(seed, depA, out)
 		}
 		let root = match os.Process.Getenv("GOROOT_STOCK") {
 		case option.Some as path:

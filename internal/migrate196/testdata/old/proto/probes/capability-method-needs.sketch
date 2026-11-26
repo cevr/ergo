@@ -1,9 +1,0 @@
-// want S109
-package demo
-type Other interface { Need() string }
-type Store interface { Get() string needs Other }
-type Holder struct{}
-func (Holder) Get() string { return "ok" }
-func main() needs Console {
-  with(wire{ Store = Holder{} }) { Console.Println(Store.Get()) }
-}

@@ -271,7 +271,7 @@ var evidenceTemplates = []evidenceTemplate{
 	{form: "control", output: "control: no testdata\n", exit: 2, of: 2, failed: 1, class: "broken"},
 	{form: "control", output: "main.go:3:1: syntax error\n", exit: 1, of: 2, failed: 0, class: "broken"},
 	{form: "ergo-test", output: "ok A\nok B (100 cases)\nPASS (2 tests)\n", of: 1, class: "pass"},
-	{form: "ergo-test", output: "ok A\nPASS (1 tests)\nergo: cached pass replayed; --count 1 runs it again\n", of: 1, class: "pass", cached: true},
+	{form: "ergo-test", output: "ok A\nPASS (1 tests)\nergo: cached pass replayed; --fresh runs it again\n", of: 1, class: "pass", cached: true},
 	{form: "ergo-test", output: "ok A\nskip B: a Go function (Open), even a pure one\nPASS (2 tests, 1 skipped)\n", of: 1, class: "broken"},
 	{form: "ergo-test", output: "PASS (0 tests)\n", of: 1, class: "broken"},
 	{form: "ergo-test", output: "ok A\nFAIL B (case 3 of 100, seed 1, size 0: n = 2): assert failed at b.ergo:4:2\nFAIL (1 of 2 tests)\n", exit: 1, of: 1, class: "fail"},

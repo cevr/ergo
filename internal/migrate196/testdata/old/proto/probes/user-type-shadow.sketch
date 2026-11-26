@@ -1,8 +1,0 @@
-// out: {ok}
-package demo
-type Item struct{ ID string }
-func main() needs Console {
-  Item := Item{ID: "ok"}
-  clone := Item
-  Console.Println(clone)
-}

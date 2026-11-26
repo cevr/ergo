@@ -1,6 +1,8 @@
 import api
 import flag
 import io
+import json
+import option
 import prompt
 import rpc
 import slices
@@ -18,7 +20,7 @@ type Output = api.Output
 
 // Commands are the commands of orchestrate.Api, one per operation, in its order.
 func Commands() []flag.Command[Request] {
-	[]flag.Command[Request]{commandUnitOpen(), commandReceiptRecord(), commandUnitState(), commandUnitAccept(), commandUnitLand()}
+	[]flag.Command[Request]{commandUnitOpen(), commandReceiptRecord(), commandUnitState(), commandUnitAccept(), commandUnitLand(), commandUnitClose(), commandCommitmentAdd(), commandCommitmentAssign(), commandCommitmentLand(), commandCommitmentDecide(), commandCommitmentList(), commandQueueUpsert(), commandQueueRemove(), commandQueueList(), commandQuestionAsk(), commandQuestionAnswer(), commandQuestionList()}
 }
 
 func commandUnitOpen() flag.Command[Request] {
@@ -29,11 +31,23 @@ func commandUnitOpen() flag.Command[Request] {
 	let f4 = flag.RequiredString("id", "input.ID (string)")
 	let f5 = flag.RequiredString("title", "input.Title (string)")
 	let f6 = flag.String("requires", "", "input.Requires ([]string)").Repeated()
-	let f7 = flag.OptionalString("lane", "input.Lane (Option[string])")
-	let f8 = flag.OptionalString("branch", "input.Branch (Option[string])")
+	let f7 = flag.OptionalString("lane", "input.Lane (json.Optional[string])")
+	let f9 = flag.OptionalString("branch", "input.Branch (json.Optional[string])")
 	let usage = orchestrateapi.Doc(orchestrateapi.UnitOpenOp)
-	flag.Command[Request]{Name: "unit-open", Usage: usage, Set: flag.Set{Name: "unit-open", Usage: usage, Flags: []flag.Flag{f0, f1, f2, f3, f4, f5, f6, f7, f8}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
-		orchestrateapi.UnitOpenRequest{Input: orchestrate.UnitOpenInput{CommandID: orchestrate.CommandID(f0.Get(v)), Actor: f1.Get(v), Repo: f2.Get(v), Run: f3.Get(v), ID: f4.Get(v), Title: f5.Get(v), Requires: f6.Get(v), Lane: f7.Get(v), Branch: f8.Get(v)}}
+	flag.Command[Request]{Name: "unit-open", Usage: usage, Set: flag.Set{Name: "unit-open", Usage: usage, Flags: []flag.Flag{f0, f1, f2, f3, f4, f5, f6, f7, f9}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
+		let u8 = match f7.Get(v) {
+		case option.Some[string] as s:
+			json.Present[string]{Value: s.Value}
+		case option.None:
+			json.Absent
+		}
+		let u10 = match f9.Get(v) {
+		case option.Some[string] as s:
+			json.Present[string]{Value: s.Value}
+		case option.None:
+			json.Absent
+		}
+		orchestrateapi.UnitOpenRequest{Input: orchestrate.UnitOpenInput{CommandID: orchestrate.CommandID(f0.Get(v)), Actor: f1.Get(v), Repo: f2.Get(v), Run: f3.Get(v), ID: f4.Get(v), Title: f5.Get(v), Requires: f6.Get(v), Lane: u8, Branch: u10}}
 	}, Commands: []flag.Command[Request]{}}
 }
 
@@ -90,11 +104,169 @@ func commandUnitLand() flag.Command[Request] {
 	}, Commands: []flag.Command[Request]{}}
 }
 
+func commandUnitClose() flag.Command[Request] {
+	let f0 = flag.RequiredString("command-id", "input.CommandID (orchestrate.CommandID)")
+	let f1 = flag.RequiredString("actor", "input.Actor (string)")
+	let f2 = flag.RequiredString("repo", "input.Repo (string)")
+	let f3 = flag.RequiredString("run", "input.Run (string)")
+	let f4 = flag.RequiredString("id", "input.ID (string)")
+	let usage = orchestrateapi.Doc(orchestrateapi.UnitCloseOp)
+	flag.Command[Request]{Name: "unit-close", Usage: usage, Set: flag.Set{Name: "unit-close", Usage: usage, Flags: []flag.Flag{f0, f1, f2, f3, f4}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
+		orchestrateapi.UnitCloseRequest{Input: orchestrate.UnitCloseInput{CommandID: orchestrate.CommandID(f0.Get(v)), Actor: f1.Get(v), Repo: f2.Get(v), Run: f3.Get(v), ID: f4.Get(v)}}
+	}, Commands: []flag.Command[Request]{}}
+}
+
+func commandCommitmentAdd() flag.Command[Request] {
+	let f0 = flag.RequiredString("command-id", "input.CommandID (orchestrate.CommandID)")
+	let f1 = flag.RequiredString("actor", "input.Actor (string)")
+	let f2 = flag.RequiredString("id", "input.ID (string)")
+	let f3 = flag.RequiredString("title", "input.Title (string)")
+	let f4 = flag.RequiredString("kind", "input.Kind (string)")
+	let usage = orchestrateapi.Doc(orchestrateapi.CommitmentAddOp)
+	flag.Command[Request]{Name: "commitment-add", Usage: usage, Set: flag.Set{Name: "commitment-add", Usage: usage, Flags: []flag.Flag{f0, f1, f2, f3, f4}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
+		orchestrateapi.CommitmentAddRequest{Input: orchestrate.CommitmentAddInput{CommandID: orchestrate.CommandID(f0.Get(v)), Actor: f1.Get(v), ID: f2.Get(v), Title: f3.Get(v), Kind: f4.Get(v)}}
+	}, Commands: []flag.Command[Request]{}}
+}
+
+func commandCommitmentAssign() flag.Command[Request] {
+	let f0 = flag.RequiredString("command-id", "input.CommandID (orchestrate.CommandID)")
+	let f1 = flag.RequiredString("actor", "input.Actor (string)")
+	let f2 = flag.RequiredString("id", "input.ID (string)")
+	let f3 = flag.RequiredString("owner", "input.Owner (string)")
+	let f4 = flag.RequiredString("lane", "input.Lane (string)")
+	let usage = orchestrateapi.Doc(orchestrateapi.CommitmentAssignOp)
+	flag.Command[Request]{Name: "commitment-assign", Usage: usage, Set: flag.Set{Name: "commitment-assign", Usage: usage, Flags: []flag.Flag{f0, f1, f2, f3, f4}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
+		orchestrateapi.CommitmentAssignRequest{Input: orchestrate.CommitmentAssignInput{CommandID: orchestrate.CommandID(f0.Get(v)), Actor: f1.Get(v), ID: f2.Get(v), Owner: f3.Get(v), Lane: f4.Get(v)}}
+	}, Commands: []flag.Command[Request]{}}
+}
+
+func commandCommitmentLand() flag.Command[Request] {
+	let f0 = flag.RequiredString("command-id", "input.CommandID (orchestrate.CommandID)")
+	let f1 = flag.RequiredString("actor", "input.Actor (string)")
+	let f2 = flag.RequiredString("id", "input.ID (string)")
+	let f3 = flag.RequiredString("landed-sha", "input.LandedSHA (string)")
+	let usage = orchestrateapi.Doc(orchestrateapi.CommitmentLandOp)
+	flag.Command[Request]{Name: "commitment-land", Usage: usage, Set: flag.Set{Name: "commitment-land", Usage: usage, Flags: []flag.Flag{f0, f1, f2, f3}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
+		orchestrateapi.CommitmentLandRequest{Input: orchestrate.CommitmentLandInput{CommandID: orchestrate.CommandID(f0.Get(v)), Actor: f1.Get(v), ID: f2.Get(v), LandedSHA: f3.Get(v)}}
+	}, Commands: []flag.Command[Request]{}}
+}
+
+func commandCommitmentDecide() flag.Command[Request] {
+	let f0 = flag.RequiredString("command-id", "input.CommandID (orchestrate.CommandID)")
+	let f1 = flag.RequiredString("actor", "input.Actor (string)")
+	let f2 = flag.RequiredString("id", "input.ID (string)")
+	let f3 = flag.RequiredString("note", "input.Note (string)")
+	let f4 = flag.Bool("withdraw", false, "input.Withdraw (bool)")
+	let usage = orchestrateapi.Doc(orchestrateapi.CommitmentDecideOp)
+	flag.Command[Request]{Name: "commitment-decide", Usage: usage, Set: flag.Set{Name: "commitment-decide", Usage: usage, Flags: []flag.Flag{f0, f1, f2, f3, f4}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
+		orchestrateapi.CommitmentDecideRequest{Input: orchestrate.CommitmentDecideInput{CommandID: orchestrate.CommandID(f0.Get(v)), Actor: f1.Get(v), ID: f2.Get(v), Note: f3.Get(v), Withdraw: f4.Get(v)}}
+	}, Commands: []flag.Command[Request]{}}
+}
+
+func commandCommitmentList() flag.Command[Request] {
+	let f0 = flag.OptionalString("status", "input.Status (json.Optional[string])")
+	let f2 = flag.OptionalString("owner", "input.Owner (json.Optional[string])")
+	let usage = orchestrateapi.Doc(orchestrateapi.CommitmentListOp)
+	flag.Command[Request]{Name: "commitment-list", Usage: usage, Set: flag.Set{Name: "commitment-list", Usage: usage, Flags: []flag.Flag{f0, f2}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
+		let u1 = match f0.Get(v) {
+		case option.Some[string] as s:
+			json.Present[string]{Value: s.Value}
+		case option.None:
+			json.Absent
+		}
+		let u3 = match f2.Get(v) {
+		case option.Some[string] as s:
+			json.Present[string]{Value: s.Value}
+		case option.None:
+			json.Absent
+		}
+		orchestrateapi.CommitmentListRequest{Input: orchestrate.CommitmentListInput{Status: u1, Owner: u3}}
+	}, Commands: []flag.Command[Request]{}}
+}
+
+func commandQueueUpsert() flag.Command[Request] {
+	let f0 = flag.RequiredString("command-id", "input.CommandID (orchestrate.CommandID)")
+	let f1 = flag.RequiredString("actor", "input.Actor (string)")
+	let f2 = flag.RequiredString("key", "input.Key (string)")
+	let f3 = flag.RequiredInt("priority", "input.Priority (int)")
+	let f4 = flag.RequiredString("title", "input.Title (string)")
+	let f5 = flag.RequiredString("body", "input.Body (string)")
+	let f6 = flag.RequiredString("status", "input.Status (string)")
+	let f7 = flag.String("tags", "", "input.Tags ([]string)").Repeated()
+	let usage = orchestrateapi.Doc(orchestrateapi.QueueUpsertOp)
+	flag.Command[Request]{Name: "queue-upsert", Usage: usage, Set: flag.Set{Name: "queue-upsert", Usage: usage, Flags: []flag.Flag{f0, f1, f2, f3, f4, f5, f6, f7}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
+		orchestrateapi.QueueUpsertRequest{Input: orchestrate.QueueUpsertInput{CommandID: orchestrate.CommandID(f0.Get(v)), Actor: f1.Get(v), Key: f2.Get(v), Priority: f3.Get(v), Title: f4.Get(v), Body: f5.Get(v), Status: f6.Get(v), Tags: f7.Get(v)}}
+	}, Commands: []flag.Command[Request]{}}
+}
+
+func commandQueueRemove() flag.Command[Request] {
+	let f0 = flag.RequiredString("command-id", "input.CommandID (orchestrate.CommandID)")
+	let f1 = flag.RequiredString("actor", "input.Actor (string)")
+	let f2 = flag.RequiredString("key", "input.Key (string)")
+	let usage = orchestrateapi.Doc(orchestrateapi.QueueRemoveOp)
+	flag.Command[Request]{Name: "queue-remove", Usage: usage, Set: flag.Set{Name: "queue-remove", Usage: usage, Flags: []flag.Flag{f0, f1, f2}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
+		orchestrateapi.QueueRemoveRequest{Input: orchestrate.QueueRemoveInput{CommandID: orchestrate.CommandID(f0.Get(v)), Actor: f1.Get(v), Key: f2.Get(v)}}
+	}, Commands: []flag.Command[Request]{}}
+}
+
+func commandQueueList() flag.Command[Request] {
+	let f0 = flag.OptionalString("status", "input.Status (json.Optional[string])")
+	let usage = orchestrateapi.Doc(orchestrateapi.QueueListOp)
+	flag.Command[Request]{Name: "queue-list", Usage: usage, Set: flag.Set{Name: "queue-list", Usage: usage, Flags: []flag.Flag{f0}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
+		let u1 = match f0.Get(v) {
+		case option.Some[string] as s:
+			json.Present[string]{Value: s.Value}
+		case option.None:
+			json.Absent
+		}
+		orchestrateapi.QueueListRequest{Input: orchestrate.QueueListInput{Status: u1}}
+	}, Commands: []flag.Command[Request]{}}
+}
+
+func commandQuestionAsk() flag.Command[Request] {
+	let f0 = flag.RequiredString("command-id", "input.CommandID (orchestrate.CommandID)")
+	let f1 = flag.RequiredString("actor", "input.Actor (string)")
+	let f2 = flag.OptionalInt("id", "input.ID (json.Optional[int])")
+	let f4 = flag.RequiredString("prompt", "input.Prompt (string)")
+	let f5 = flag.RequiredString("assumption", "input.Assumption (string)")
+	let f6 = flag.RequiredString("concrete-action", "input.ConcreteAction (string)")
+	let usage = orchestrateapi.Doc(orchestrateapi.QuestionAskOp)
+	flag.Command[Request]{Name: "question-ask", Usage: usage, Set: flag.Set{Name: "question-ask", Usage: usage, Flags: []flag.Flag{f0, f1, f2, f4, f5, f6}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
+		let u3 = match f2.Get(v) {
+		case option.Some[int] as s:
+			json.Present[int]{Value: s.Value}
+		case option.None:
+			json.Absent
+		}
+		orchestrateapi.QuestionAskRequest{Input: orchestrate.QuestionAskInput{CommandID: orchestrate.CommandID(f0.Get(v)), Actor: f1.Get(v), ID: u3, Prompt: f4.Get(v), Assumption: f5.Get(v), ConcreteAction: f6.Get(v)}}
+	}, Commands: []flag.Command[Request]{}}
+}
+
+func commandQuestionAnswer() flag.Command[Request] {
+	let f0 = flag.RequiredString("command-id", "input.CommandID (orchestrate.CommandID)")
+	let f1 = flag.RequiredString("actor", "input.Actor (string)")
+	let f2 = flag.RequiredInt("id", "input.ID (int)")
+	let f3 = flag.RequiredString("answer", "input.Answer (string)")
+	let f4 = flag.Bool("withdraw", false, "input.Withdraw (bool)")
+	let usage = orchestrateapi.Doc(orchestrateapi.QuestionAnswerOp)
+	flag.Command[Request]{Name: "question-answer", Usage: usage, Set: flag.Set{Name: "question-answer", Usage: usage, Flags: []flag.Flag{f0, f1, f2, f3, f4}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
+		orchestrateapi.QuestionAnswerRequest{Input: orchestrate.QuestionAnswerInput{CommandID: orchestrate.CommandID(f0.Get(v)), Actor: f1.Get(v), ID: f2.Get(v), Answer: f3.Get(v), Withdraw: f4.Get(v)}}
+	}, Commands: []flag.Command[Request]{}}
+}
+
+func commandQuestionList() flag.Command[Request] {
+	let f0 = flag.Bool("open-only", false, "input.OpenOnly (bool)")
+	let usage = orchestrateapi.Doc(orchestrateapi.QuestionListOp)
+	flag.Command[Request]{Name: "question-list", Usage: usage, Set: flag.Set{Name: "question-list", Usage: usage, Flags: []flag.Flag{f0}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
+		orchestrateapi.QuestionListRequest{Input: orchestrate.QuestionListInput{OpenOnly: f0.Get(v)}}
+	}, Commands: []flag.Command[Request]{}}
+}
+
 func argText(a flag.ArgSpec, v flag.Values) string {
 	match a.Get(v) {
-	case Some[string] as s:
+	case option.Some[string] as s:
 		s.Value
-	case None:
+	case option.None:
 		""
 	}
 }
@@ -103,27 +275,75 @@ func argText(a flag.ArgSpec, v flag.Values) string {
 // flags and arguments. It builds only the command args[0] names; the
 // list of every command is built only for help or an unknown command.
 func Parse(args []string) Request fails flag.Failure {
-	let first = if len(args) > 0 { args[0] } else { "" }
+	let first = if args.Len() > 0 { args[0] } else { "" }
 	match first {
 	case "unit-open":
 		let c = commandUnitOpen()
-		let v = try flag.Parse(flag.Set{..c.Set, Name: "orchestrate unit-open"}, slices.Slice(args, 1, len(args)))
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "orchestrate unit-open"}, slices.Slice(args, 1, args.Len()))
 		try c.Build(v)
 	case "receipt-record":
 		let c = commandReceiptRecord()
-		let v = try flag.Parse(flag.Set{..c.Set, Name: "orchestrate receipt-record"}, slices.Slice(args, 1, len(args)))
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "orchestrate receipt-record"}, slices.Slice(args, 1, args.Len()))
 		try c.Build(v)
 	case "unit-state":
 		let c = commandUnitState()
-		let v = try flag.Parse(flag.Set{..c.Set, Name: "orchestrate unit-state"}, slices.Slice(args, 1, len(args)))
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "orchestrate unit-state"}, slices.Slice(args, 1, args.Len()))
 		try c.Build(v)
 	case "unit-accept":
 		let c = commandUnitAccept()
-		let v = try flag.Parse(flag.Set{..c.Set, Name: "orchestrate unit-accept"}, slices.Slice(args, 1, len(args)))
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "orchestrate unit-accept"}, slices.Slice(args, 1, args.Len()))
 		try c.Build(v)
 	case "unit-land":
 		let c = commandUnitLand()
-		let v = try flag.Parse(flag.Set{..c.Set, Name: "orchestrate unit-land"}, slices.Slice(args, 1, len(args)))
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "orchestrate unit-land"}, slices.Slice(args, 1, args.Len()))
+		try c.Build(v)
+	case "unit-close":
+		let c = commandUnitClose()
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "orchestrate unit-close"}, slices.Slice(args, 1, args.Len()))
+		try c.Build(v)
+	case "commitment-add":
+		let c = commandCommitmentAdd()
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "orchestrate commitment-add"}, slices.Slice(args, 1, args.Len()))
+		try c.Build(v)
+	case "commitment-assign":
+		let c = commandCommitmentAssign()
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "orchestrate commitment-assign"}, slices.Slice(args, 1, args.Len()))
+		try c.Build(v)
+	case "commitment-land":
+		let c = commandCommitmentLand()
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "orchestrate commitment-land"}, slices.Slice(args, 1, args.Len()))
+		try c.Build(v)
+	case "commitment-decide":
+		let c = commandCommitmentDecide()
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "orchestrate commitment-decide"}, slices.Slice(args, 1, args.Len()))
+		try c.Build(v)
+	case "commitment-list":
+		let c = commandCommitmentList()
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "orchestrate commitment-list"}, slices.Slice(args, 1, args.Len()))
+		try c.Build(v)
+	case "queue-upsert":
+		let c = commandQueueUpsert()
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "orchestrate queue-upsert"}, slices.Slice(args, 1, args.Len()))
+		try c.Build(v)
+	case "queue-remove":
+		let c = commandQueueRemove()
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "orchestrate queue-remove"}, slices.Slice(args, 1, args.Len()))
+		try c.Build(v)
+	case "queue-list":
+		let c = commandQueueList()
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "orchestrate queue-list"}, slices.Slice(args, 1, args.Len()))
+		try c.Build(v)
+	case "question-ask":
+		let c = commandQuestionAsk()
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "orchestrate question-ask"}, slices.Slice(args, 1, args.Len()))
+		try c.Build(v)
+	case "question-answer":
+		let c = commandQuestionAnswer()
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "orchestrate question-answer"}, slices.Slice(args, 1, args.Len()))
+		try c.Build(v)
+	case "question-list":
+		let c = commandQuestionList()
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "orchestrate question-list"}, slices.Slice(args, 1, args.Len()))
 		try c.Build(v)
 	case _:
 		try flag.ParseCommand("orchestrate", "orchestrate.Api on a command line", Commands(), args)
@@ -146,14 +366,14 @@ func Print(r Request) []string {
 			out = out.Append("-requires=\(e)")
 		}
 		match x.Input.Lane {
-		case Some[string] as s:
+		case json.Present[string] as s:
 			out = out.Append("-lane=\(s.Value)")
-		case None:
+		case json.Absent:
 		}
 		match x.Input.Branch {
-		case Some[string] as s:
+		case json.Present[string] as s:
 			out = out.Append("-branch=\(s.Value)")
-		case None:
+		case json.Absent:
 		}
 		out
 	case orchestrateapi.ReceiptRecordRequest as x:
@@ -193,6 +413,110 @@ func Print(r Request) []string {
 		out = out.Append("-id=\(x.Input.ID)")
 		out = out.Append("-head=\(x.Input.Head)")
 		out
+	case orchestrateapi.UnitCloseRequest as x:
+		let mut out = []string{"unit-close"}
+		out = out.Append("-command-id=\(x.Input.CommandID)")
+		out = out.Append("-actor=\(x.Input.Actor)")
+		out = out.Append("-repo=\(x.Input.Repo)")
+		out = out.Append("-run=\(x.Input.Run)")
+		out = out.Append("-id=\(x.Input.ID)")
+		out
+	case orchestrateapi.CommitmentAddRequest as x:
+		let mut out = []string{"commitment-add"}
+		out = out.Append("-command-id=\(x.Input.CommandID)")
+		out = out.Append("-actor=\(x.Input.Actor)")
+		out = out.Append("-id=\(x.Input.ID)")
+		out = out.Append("-title=\(x.Input.Title)")
+		out = out.Append("-kind=\(x.Input.Kind)")
+		out
+	case orchestrateapi.CommitmentAssignRequest as x:
+		let mut out = []string{"commitment-assign"}
+		out = out.Append("-command-id=\(x.Input.CommandID)")
+		out = out.Append("-actor=\(x.Input.Actor)")
+		out = out.Append("-id=\(x.Input.ID)")
+		out = out.Append("-owner=\(x.Input.Owner)")
+		out = out.Append("-lane=\(x.Input.Lane)")
+		out
+	case orchestrateapi.CommitmentLandRequest as x:
+		let mut out = []string{"commitment-land"}
+		out = out.Append("-command-id=\(x.Input.CommandID)")
+		out = out.Append("-actor=\(x.Input.Actor)")
+		out = out.Append("-id=\(x.Input.ID)")
+		out = out.Append("-landed-sha=\(x.Input.LandedSHA)")
+		out
+	case orchestrateapi.CommitmentDecideRequest as x:
+		let mut out = []string{"commitment-decide"}
+		out = out.Append("-command-id=\(x.Input.CommandID)")
+		out = out.Append("-actor=\(x.Input.Actor)")
+		out = out.Append("-id=\(x.Input.ID)")
+		out = out.Append("-note=\(x.Input.Note)")
+		out = out.Append("-withdraw=\(x.Input.Withdraw)")
+		out
+	case orchestrateapi.CommitmentListRequest as x:
+		let mut out = []string{"commitment-list"}
+		match x.Input.Status {
+		case json.Present[string] as s:
+			out = out.Append("-status=\(s.Value)")
+		case json.Absent:
+		}
+		match x.Input.Owner {
+		case json.Present[string] as s:
+			out = out.Append("-owner=\(s.Value)")
+		case json.Absent:
+		}
+		out
+	case orchestrateapi.QueueUpsertRequest as x:
+		let mut out = []string{"queue-upsert"}
+		out = out.Append("-command-id=\(x.Input.CommandID)")
+		out = out.Append("-actor=\(x.Input.Actor)")
+		out = out.Append("-key=\(x.Input.Key)")
+		out = out.Append("-priority=\(x.Input.Priority)")
+		out = out.Append("-title=\(x.Input.Title)")
+		out = out.Append("-body=\(x.Input.Body)")
+		out = out.Append("-status=\(x.Input.Status)")
+		for e in x.Input.Tags {
+			out = out.Append("-tags=\(e)")
+		}
+		out
+	case orchestrateapi.QueueRemoveRequest as x:
+		let mut out = []string{"queue-remove"}
+		out = out.Append("-command-id=\(x.Input.CommandID)")
+		out = out.Append("-actor=\(x.Input.Actor)")
+		out = out.Append("-key=\(x.Input.Key)")
+		out
+	case orchestrateapi.QueueListRequest as x:
+		let mut out = []string{"queue-list"}
+		match x.Input.Status {
+		case json.Present[string] as s:
+			out = out.Append("-status=\(s.Value)")
+		case json.Absent:
+		}
+		out
+	case orchestrateapi.QuestionAskRequest as x:
+		let mut out = []string{"question-ask"}
+		out = out.Append("-command-id=\(x.Input.CommandID)")
+		out = out.Append("-actor=\(x.Input.Actor)")
+		match x.Input.ID {
+		case json.Present[int] as s:
+			out = out.Append("-id=\(s.Value)")
+		case json.Absent:
+		}
+		out = out.Append("-prompt=\(x.Input.Prompt)")
+		out = out.Append("-assumption=\(x.Input.Assumption)")
+		out = out.Append("-concrete-action=\(x.Input.ConcreteAction)")
+		out
+	case orchestrateapi.QuestionAnswerRequest as x:
+		let mut out = []string{"question-answer"}
+		out = out.Append("-command-id=\(x.Input.CommandID)")
+		out = out.Append("-actor=\(x.Input.Actor)")
+		out = out.Append("-id=\(x.Input.ID)")
+		out = out.Append("-answer=\(x.Input.Answer)")
+		out = out.Append("-withdraw=\(x.Input.Withdraw)")
+		out
+	case orchestrateapi.QuestionListRequest as x:
+		let mut out = []string{"question-list"}
+		out = out.Append("-open-only=\(x.Input.OpenOnly)")
+		out
 	}
 }
 
@@ -213,11 +537,11 @@ law ArgsRoundTrip(r Request) { RoundTrips(r) }
 // without --json (default None: a basic value as its text, else its
 // JSON; --json never calls it); Confirm, the question a call asks before
 // it runs (default None: none; --yes answers it).
-type Policy { Code func(f orchestrateapi.Failure) int, Text func(r orchestrateapi.Reply) Option[string], Confirm func(r Request) Option[string] }
+type Policy { Code func(f orchestrateapi.Failure) int, Text func(r orchestrateapi.Reply) option.Option[string], Confirm func(r Request) option.Option[string] }
 
 // Defaults is the Policy of a binary that decides nothing.
 func Defaults() Policy {
-	Policy{Code: func(f orchestrateapi.Failure) int { 1 }, Text: func(r orchestrateapi.Reply) Option[string] { None }, Confirm: func(r Request) Option[string] { None }}
+	Policy{Code: func(f orchestrateapi.Failure) int { 1 }, Text: func(r orchestrateapi.Reply) option.Option[string] { option.None }, Confirm: func(r Request) option.Option[string] { option.None }}
 }
 
 func answer(asJSON bool, plain string, encoded string) Output {
@@ -252,9 +576,9 @@ func Show(o orchestrateapi.Outcome, asJSON bool, p Policy) Output {
 	case orchestrateapi.Done as done:
 		if !asJSON {
 			match p.Text(done.Reply) {
-			case Some[string] as s:
+			case option.Some[string] as s:
 				return Output{Out: line(s.Value), Err: "", Code: 0}
-			case None:
+			case option.None:
 			}
 		}
 		match done.Reply {
@@ -275,6 +599,52 @@ func Show(o orchestrateapi.Outcome, asJSON bool, p Policy) Output {
 			let encoded = rpc.Encode(v)
 			answer(asJSON, encoded, encoded)
 		case orchestrateapi.UnitLandReply as reply:
+			let v = reply.Value
+			let encoded = rpc.Encode(v)
+			answer(asJSON, encoded, encoded)
+		case orchestrateapi.UnitCloseReply as reply:
+			let v = reply.Value
+			let encoded = rpc.Encode(v)
+			answer(asJSON, encoded, encoded)
+		case orchestrateapi.CommitmentAddReply as reply:
+			let v = reply.Value
+			let encoded = rpc.Encode(v)
+			answer(asJSON, encoded, encoded)
+		case orchestrateapi.CommitmentAssignReply as reply:
+			let v = reply.Value
+			let encoded = rpc.Encode(v)
+			answer(asJSON, encoded, encoded)
+		case orchestrateapi.CommitmentLandReply as reply:
+			let v = reply.Value
+			let encoded = rpc.Encode(v)
+			answer(asJSON, encoded, encoded)
+		case orchestrateapi.CommitmentDecideReply as reply:
+			let v = reply.Value
+			let encoded = rpc.Encode(v)
+			answer(asJSON, encoded, encoded)
+		case orchestrateapi.CommitmentListReply as reply:
+			let v = reply.Value
+			let encoded = rpc.Encode(v)
+			answer(asJSON, encoded, encoded)
+		case orchestrateapi.QueueUpsertReply as reply:
+			let v = reply.Value
+			let encoded = rpc.Encode(v)
+			answer(asJSON, encoded, encoded)
+		case orchestrateapi.QueueRemoveReply:
+			answer(asJSON, "", "null")
+		case orchestrateapi.QueueListReply as reply:
+			let v = reply.Value
+			let encoded = rpc.Encode(v)
+			answer(asJSON, encoded, encoded)
+		case orchestrateapi.QuestionAskReply as reply:
+			let v = reply.Value
+			let encoded = rpc.Encode(v)
+			answer(asJSON, encoded, encoded)
+		case orchestrateapi.QuestionAnswerReply as reply:
+			let v = reply.Value
+			let encoded = rpc.Encode(v)
+			answer(asJSON, encoded, encoded)
+		case orchestrateapi.QuestionListReply as reply:
 			let v = reply.Value
 			let encoded = rpc.Encode(v)
 			answer(asJSON, encoded, encoded)
@@ -325,6 +695,44 @@ func Read(r Request, out Output) orchestrateapi.Outcome fails rpc.Transport {
 		case orchestrateapi.UnitLandRequest:
 			let v = try rpc.Decode[orchestrate.Unit]("value", text)
 			orchestrateapi.Done{Reply: orchestrateapi.UnitLandReply{Value: v}}
+		case orchestrateapi.UnitCloseRequest:
+			let v = try rpc.Decode[orchestrate.Unit]("value", text)
+			orchestrateapi.Done{Reply: orchestrateapi.UnitCloseReply{Value: v}}
+		case orchestrateapi.CommitmentAddRequest:
+			let v = try rpc.Decode[orchestrate.Commitment]("value", text)
+			orchestrateapi.Done{Reply: orchestrateapi.CommitmentAddReply{Value: v}}
+		case orchestrateapi.CommitmentAssignRequest:
+			let v = try rpc.Decode[orchestrate.Commitment]("value", text)
+			orchestrateapi.Done{Reply: orchestrateapi.CommitmentAssignReply{Value: v}}
+		case orchestrateapi.CommitmentLandRequest:
+			let v = try rpc.Decode[orchestrate.Commitment]("value", text)
+			orchestrateapi.Done{Reply: orchestrateapi.CommitmentLandReply{Value: v}}
+		case orchestrateapi.CommitmentDecideRequest:
+			let v = try rpc.Decode[orchestrate.Commitment]("value", text)
+			orchestrateapi.Done{Reply: orchestrateapi.CommitmentDecideReply{Value: v}}
+		case orchestrateapi.CommitmentListRequest:
+			let v = try rpc.Decode[[]orchestrate.Commitment]("value", text)
+			orchestrateapi.Done{Reply: orchestrateapi.CommitmentListReply{Value: v}}
+		case orchestrateapi.QueueUpsertRequest:
+			let v = try rpc.Decode[orchestrate.QueueItem]("value", text)
+			orchestrateapi.Done{Reply: orchestrateapi.QueueUpsertReply{Value: v}}
+		case orchestrateapi.QueueRemoveRequest:
+			if text != "null" {
+				return rpc.Transport{Reason: "the command line answered QueueRemove with " + text + ", not null"}
+			}
+			orchestrateapi.Done{Reply: orchestrateapi.QueueRemoveReply}
+		case orchestrateapi.QueueListRequest:
+			let v = try rpc.Decode[[]orchestrate.QueueItem]("value", text)
+			orchestrateapi.Done{Reply: orchestrateapi.QueueListReply{Value: v}}
+		case orchestrateapi.QuestionAskRequest:
+			let v = try rpc.Decode[orchestrate.Question]("value", text)
+			orchestrateapi.Done{Reply: orchestrateapi.QuestionAskReply{Value: v}}
+		case orchestrateapi.QuestionAnswerRequest:
+			let v = try rpc.Decode[orchestrate.Question]("value", text)
+			orchestrateapi.Done{Reply: orchestrateapi.QuestionAnswerReply{Value: v}}
+		case orchestrateapi.QuestionListRequest:
+			let v = try rpc.Decode[[]orchestrate.Question]("value", text)
+			orchestrateapi.Done{Reply: orchestrateapi.QuestionListReply{Value: v}}
 		}
 	} else if out.Code == 1 {
 		match r {
@@ -458,6 +866,297 @@ func Read(r Request, out Output) orchestrateapi.Outcome fails rpc.Transport {
 			case _:
 				return rpc.Transport{Reason: "the command line answered UnitLand with an undeclared failure: " + text}
 			}
+		case orchestrateapi.UnitCloseRequest:
+			match rpc.TagOf(text) {
+			case "NotFound":
+				let e = try rpc.Decode[orchestrate.NotFound]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NotFound{E: e}}
+			case "AlreadyExists":
+				let e = try rpc.Decode[orchestrate.AlreadyExists]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.AlreadyExists{E: e}}
+			case "InvalidTransition":
+				let e = try rpc.Decode[orchestrate.InvalidTransition]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.InvalidTransition{E: e}}
+			case "CommandReused":
+				let e = try rpc.Decode[orchestrate.CommandReused]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.CommandReused{E: e}}
+			case "InvalidInput":
+				let e = try rpc.Decode[orchestrate.InvalidInput]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.InvalidInput{E: e}}
+			case "Unverified":
+				let e = try rpc.Decode[orchestrate.Unverified]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.Unverified{E: e}}
+			case "NotAcceptedHead":
+				let e = try rpc.Decode[orchestrate.NotAcceptedHead]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NotAcceptedHead{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[orchestrate.StoreFailed]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.StoreFailed{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the command line answered UnitClose with an undeclared failure: " + text}
+			}
+		case orchestrateapi.CommitmentAddRequest:
+			match rpc.TagOf(text) {
+			case "NotFound":
+				let e = try rpc.Decode[orchestrate.NotFound]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NotFound{E: e}}
+			case "AlreadyExists":
+				let e = try rpc.Decode[orchestrate.AlreadyExists]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.AlreadyExists{E: e}}
+			case "InvalidTransition":
+				let e = try rpc.Decode[orchestrate.InvalidTransition]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.InvalidTransition{E: e}}
+			case "CommandReused":
+				let e = try rpc.Decode[orchestrate.CommandReused]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.CommandReused{E: e}}
+			case "InvalidInput":
+				let e = try rpc.Decode[orchestrate.InvalidInput]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.InvalidInput{E: e}}
+			case "Unverified":
+				let e = try rpc.Decode[orchestrate.Unverified]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.Unverified{E: e}}
+			case "NotAcceptedHead":
+				let e = try rpc.Decode[orchestrate.NotAcceptedHead]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NotAcceptedHead{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[orchestrate.StoreFailed]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.StoreFailed{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the command line answered CommitmentAdd with an undeclared failure: " + text}
+			}
+		case orchestrateapi.CommitmentAssignRequest:
+			match rpc.TagOf(text) {
+			case "NotFound":
+				let e = try rpc.Decode[orchestrate.NotFound]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NotFound{E: e}}
+			case "AlreadyExists":
+				let e = try rpc.Decode[orchestrate.AlreadyExists]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.AlreadyExists{E: e}}
+			case "InvalidTransition":
+				let e = try rpc.Decode[orchestrate.InvalidTransition]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.InvalidTransition{E: e}}
+			case "CommandReused":
+				let e = try rpc.Decode[orchestrate.CommandReused]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.CommandReused{E: e}}
+			case "InvalidInput":
+				let e = try rpc.Decode[orchestrate.InvalidInput]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.InvalidInput{E: e}}
+			case "Unverified":
+				let e = try rpc.Decode[orchestrate.Unverified]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.Unverified{E: e}}
+			case "NotAcceptedHead":
+				let e = try rpc.Decode[orchestrate.NotAcceptedHead]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NotAcceptedHead{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[orchestrate.StoreFailed]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.StoreFailed{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the command line answered CommitmentAssign with an undeclared failure: " + text}
+			}
+		case orchestrateapi.CommitmentLandRequest:
+			match rpc.TagOf(text) {
+			case "NotFound":
+				let e = try rpc.Decode[orchestrate.NotFound]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NotFound{E: e}}
+			case "AlreadyExists":
+				let e = try rpc.Decode[orchestrate.AlreadyExists]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.AlreadyExists{E: e}}
+			case "InvalidTransition":
+				let e = try rpc.Decode[orchestrate.InvalidTransition]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.InvalidTransition{E: e}}
+			case "CommandReused":
+				let e = try rpc.Decode[orchestrate.CommandReused]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.CommandReused{E: e}}
+			case "InvalidInput":
+				let e = try rpc.Decode[orchestrate.InvalidInput]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.InvalidInput{E: e}}
+			case "Unverified":
+				let e = try rpc.Decode[orchestrate.Unverified]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.Unverified{E: e}}
+			case "NotAcceptedHead":
+				let e = try rpc.Decode[orchestrate.NotAcceptedHead]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NotAcceptedHead{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[orchestrate.StoreFailed]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.StoreFailed{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the command line answered CommitmentLand with an undeclared failure: " + text}
+			}
+		case orchestrateapi.CommitmentDecideRequest:
+			match rpc.TagOf(text) {
+			case "NotFound":
+				let e = try rpc.Decode[orchestrate.NotFound]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NotFound{E: e}}
+			case "AlreadyExists":
+				let e = try rpc.Decode[orchestrate.AlreadyExists]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.AlreadyExists{E: e}}
+			case "InvalidTransition":
+				let e = try rpc.Decode[orchestrate.InvalidTransition]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.InvalidTransition{E: e}}
+			case "CommandReused":
+				let e = try rpc.Decode[orchestrate.CommandReused]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.CommandReused{E: e}}
+			case "InvalidInput":
+				let e = try rpc.Decode[orchestrate.InvalidInput]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.InvalidInput{E: e}}
+			case "Unverified":
+				let e = try rpc.Decode[orchestrate.Unverified]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.Unverified{E: e}}
+			case "NotAcceptedHead":
+				let e = try rpc.Decode[orchestrate.NotAcceptedHead]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NotAcceptedHead{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[orchestrate.StoreFailed]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.StoreFailed{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the command line answered CommitmentDecide with an undeclared failure: " + text}
+			}
+		case orchestrateapi.CommitmentListRequest:
+			match rpc.TagOf(text) {
+			case "InvalidInput":
+				let e = try rpc.Decode[orchestrate.InvalidInput]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.InvalidInput{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[orchestrate.StoreFailed]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.StoreFailed{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the command line answered CommitmentList with an undeclared failure: " + text}
+			}
+		case orchestrateapi.QueueUpsertRequest:
+			match rpc.TagOf(text) {
+			case "NotFound":
+				let e = try rpc.Decode[orchestrate.NotFound]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NotFound{E: e}}
+			case "AlreadyExists":
+				let e = try rpc.Decode[orchestrate.AlreadyExists]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.AlreadyExists{E: e}}
+			case "InvalidTransition":
+				let e = try rpc.Decode[orchestrate.InvalidTransition]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.InvalidTransition{E: e}}
+			case "CommandReused":
+				let e = try rpc.Decode[orchestrate.CommandReused]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.CommandReused{E: e}}
+			case "InvalidInput":
+				let e = try rpc.Decode[orchestrate.InvalidInput]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.InvalidInput{E: e}}
+			case "Unverified":
+				let e = try rpc.Decode[orchestrate.Unverified]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.Unverified{E: e}}
+			case "NotAcceptedHead":
+				let e = try rpc.Decode[orchestrate.NotAcceptedHead]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NotAcceptedHead{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[orchestrate.StoreFailed]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.StoreFailed{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the command line answered QueueUpsert with an undeclared failure: " + text}
+			}
+		case orchestrateapi.QueueRemoveRequest:
+			match rpc.TagOf(text) {
+			case "NotFound":
+				let e = try rpc.Decode[orchestrate.NotFound]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NotFound{E: e}}
+			case "AlreadyExists":
+				let e = try rpc.Decode[orchestrate.AlreadyExists]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.AlreadyExists{E: e}}
+			case "InvalidTransition":
+				let e = try rpc.Decode[orchestrate.InvalidTransition]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.InvalidTransition{E: e}}
+			case "CommandReused":
+				let e = try rpc.Decode[orchestrate.CommandReused]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.CommandReused{E: e}}
+			case "InvalidInput":
+				let e = try rpc.Decode[orchestrate.InvalidInput]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.InvalidInput{E: e}}
+			case "Unverified":
+				let e = try rpc.Decode[orchestrate.Unverified]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.Unverified{E: e}}
+			case "NotAcceptedHead":
+				let e = try rpc.Decode[orchestrate.NotAcceptedHead]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NotAcceptedHead{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[orchestrate.StoreFailed]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.StoreFailed{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the command line answered QueueRemove with an undeclared failure: " + text}
+			}
+		case orchestrateapi.QueueListRequest:
+			match rpc.TagOf(text) {
+			case "InvalidInput":
+				let e = try rpc.Decode[orchestrate.InvalidInput]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.InvalidInput{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[orchestrate.StoreFailed]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.StoreFailed{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the command line answered QueueList with an undeclared failure: " + text}
+			}
+		case orchestrateapi.QuestionAskRequest:
+			match rpc.TagOf(text) {
+			case "NotFound":
+				let e = try rpc.Decode[orchestrate.NotFound]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NotFound{E: e}}
+			case "AlreadyExists":
+				let e = try rpc.Decode[orchestrate.AlreadyExists]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.AlreadyExists{E: e}}
+			case "InvalidTransition":
+				let e = try rpc.Decode[orchestrate.InvalidTransition]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.InvalidTransition{E: e}}
+			case "CommandReused":
+				let e = try rpc.Decode[orchestrate.CommandReused]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.CommandReused{E: e}}
+			case "InvalidInput":
+				let e = try rpc.Decode[orchestrate.InvalidInput]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.InvalidInput{E: e}}
+			case "Unverified":
+				let e = try rpc.Decode[orchestrate.Unverified]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.Unverified{E: e}}
+			case "NotAcceptedHead":
+				let e = try rpc.Decode[orchestrate.NotAcceptedHead]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NotAcceptedHead{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[orchestrate.StoreFailed]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.StoreFailed{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the command line answered QuestionAsk with an undeclared failure: " + text}
+			}
+		case orchestrateapi.QuestionAnswerRequest:
+			match rpc.TagOf(text) {
+			case "NotFound":
+				let e = try rpc.Decode[orchestrate.NotFound]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NotFound{E: e}}
+			case "AlreadyExists":
+				let e = try rpc.Decode[orchestrate.AlreadyExists]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.AlreadyExists{E: e}}
+			case "InvalidTransition":
+				let e = try rpc.Decode[orchestrate.InvalidTransition]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.InvalidTransition{E: e}}
+			case "CommandReused":
+				let e = try rpc.Decode[orchestrate.CommandReused]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.CommandReused{E: e}}
+			case "InvalidInput":
+				let e = try rpc.Decode[orchestrate.InvalidInput]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.InvalidInput{E: e}}
+			case "Unverified":
+				let e = try rpc.Decode[orchestrate.Unverified]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.Unverified{E: e}}
+			case "NotAcceptedHead":
+				let e = try rpc.Decode[orchestrate.NotAcceptedHead]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NotAcceptedHead{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[orchestrate.StoreFailed]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.StoreFailed{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the command line answered QuestionAnswer with an undeclared failure: " + text}
+			}
+		case orchestrateapi.QuestionListRequest:
+			match rpc.TagOf(text) {
+			case "StoreFailed":
+				let e = try rpc.Decode[orchestrate.StoreFailed]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.StoreFailed{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the command line answered QuestionList with an undeclared failure: " + text}
+			}
 		}
 	} else {
 		return rpc.Transport{Reason: "the command line answered status \(out.Code): " + out.Err}
@@ -505,9 +1204,9 @@ func runOver[R](args []string, p Policy, answer func(r Request) orchestrateapi.O
 	case asked as a:
 		if !a.Yes {
 			match p.Confirm(a.R) {
-			case Some[string] as q:
+			case option.Some[string] as q:
 				return needsYes(q.Value)
-			case None:
+			case option.None:
 			}
 		}
 		Show(answer(a.R), a.JSON, p)
@@ -534,7 +1233,7 @@ func RunOnTerminal(args []string, p Policy) Output needs orchestrate.Api | term.
 	case asked as a:
 		if !a.Yes {
 			match p.Confirm(a.R) {
-			case Some[string] as q:
+			case option.Some[string] as q:
 				let yes = prompt.Confirm(q.Value, false) catch {
 				case prompt.NotInteractive:
 					return needsYes(q.Value)
@@ -546,7 +1245,7 @@ func RunOnTerminal(args []string, p Policy) Output needs orchestrate.Api | term.
 				if !yes {
 					return declined(q.Value)
 				}
-			case None:
+			case option.None:
 			}
 		}
 		Show(orchestrateapi.Call(a.R), a.JSON, p)
@@ -555,7 +1254,7 @@ func RunOnTerminal(args []string, p Policy) Output needs orchestrate.Api | term.
 
 // Completion is the script that completes orchestrate's commands in shell.
 func Completion(shell api.Shell) string {
-	api.Completion("orchestrate", shell, []api.Entry{api.Entry{Name: orchestrateapi.Name(orchestrateapi.UnitOpenOp), Doc: orchestrateapi.Doc(orchestrateapi.UnitOpenOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.ReceiptRecordOp), Doc: orchestrateapi.Doc(orchestrateapi.ReceiptRecordOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.UnitStateOp), Doc: orchestrateapi.Doc(orchestrateapi.UnitStateOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.UnitAcceptOp), Doc: orchestrateapi.Doc(orchestrateapi.UnitAcceptOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.UnitLandOp), Doc: orchestrateapi.Doc(orchestrateapi.UnitLandOp)}})
+	api.Completion("orchestrate", shell, []api.Entry{api.Entry{Name: orchestrateapi.Name(orchestrateapi.UnitOpenOp), Doc: orchestrateapi.Doc(orchestrateapi.UnitOpenOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.ReceiptRecordOp), Doc: orchestrateapi.Doc(orchestrateapi.ReceiptRecordOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.UnitStateOp), Doc: orchestrateapi.Doc(orchestrateapi.UnitStateOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.UnitAcceptOp), Doc: orchestrateapi.Doc(orchestrateapi.UnitAcceptOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.UnitLandOp), Doc: orchestrateapi.Doc(orchestrateapi.UnitLandOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.UnitCloseOp), Doc: orchestrateapi.Doc(orchestrateapi.UnitCloseOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.CommitmentAddOp), Doc: orchestrateapi.Doc(orchestrateapi.CommitmentAddOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.CommitmentAssignOp), Doc: orchestrateapi.Doc(orchestrateapi.CommitmentAssignOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.CommitmentLandOp), Doc: orchestrateapi.Doc(orchestrateapi.CommitmentLandOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.CommitmentDecideOp), Doc: orchestrateapi.Doc(orchestrateapi.CommitmentDecideOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.CommitmentListOp), Doc: orchestrateapi.Doc(orchestrateapi.CommitmentListOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.QueueUpsertOp), Doc: orchestrateapi.Doc(orchestrateapi.QueueUpsertOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.QueueRemoveOp), Doc: orchestrateapi.Doc(orchestrateapi.QueueRemoveOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.QueueListOp), Doc: orchestrateapi.Doc(orchestrateapi.QueueListOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.QuestionAskOp), Doc: orchestrateapi.Doc(orchestrateapi.QuestionAskOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.QuestionAnswerOp), Doc: orchestrateapi.Doc(orchestrateapi.QuestionAnswerOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.QuestionListOp), Doc: orchestrateapi.Doc(orchestrateapi.QuestionListOp)}})
 }
 
 // Wire is the command line as a transport of the hub's calls.
@@ -596,7 +1295,7 @@ law CodeIsThePolicy(r Request, g orchestrateapi.Given, k int) {
 // with --json every outcome prints as the wire's JSON, whatever Text says.
 law TextIsThePolicy(r Request, g orchestrateapi.Given, t string) {
 	let d = Defaults()
-	let p = Policy{..d, Text: func(reply orchestrateapi.Reply) Option[string] { Some[string]{Value: t} }}
+	let p = Policy{..d, Text: func(reply orchestrateapi.Reply) option.Option[string] { option.Some[string]{Value: t} }}
 	let o = orchestrateapi.OutcomeOf(r, g)
 	let same = Show(o, true, p) == Show(o, true, d)
 	match o {

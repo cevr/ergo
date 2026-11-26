@@ -1,7 +1,0 @@
-// want S109
-package demo
-type A struct{}
-type B struct{}
-type Choice interface{ A | B }
-func (A) isChoice_() {}
-func main() {}

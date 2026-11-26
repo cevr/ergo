@@ -1945,6 +1945,7 @@ func (e *encoder) encClauseFix(v check.ClauseFix) { e.encFieldsClauseFix(&v) }
 func (e *encoder) encFieldsGoBindings(v *check.GoBindings) {
 	f := check.CodecFieldsOf_GoBindings(v)
 	e.encT165(*f.F_pkgs)
+	e.encImporter(*f.F_program)
 	e.encT166(v.Stale)
 	e.encT167(v.VerifyCStamp)
 }
@@ -13700,6 +13701,7 @@ func (d *decoder) decClauseFix() (v check.ClauseFix) {
 func (d *decoder) decFieldsGoBindings(v *check.GoBindings) {
 	f := check.CodecFieldsOf_GoBindings(v)
 	*f.F_pkgs = d.decT165()
+	*f.F_program = d.decImporter()
 	v.Stale = d.decT166()
 	v.VerifyCStamp = d.decT167()
 }

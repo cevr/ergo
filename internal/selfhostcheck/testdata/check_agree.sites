@@ -1026,6 +1026,7 @@ case internal/sketch/std
 case internal/sketch/std/actor
 case internal/sketch/std/ansi
 case internal/sketch/std/api
+case internal/sketch/std/archive
 case internal/sketch/std/arena
 case internal/sketch/std/atomic
 case internal/sketch/std/base64
@@ -1039,6 +1040,7 @@ case internal/sketch/std/code
 case internal/sketch/std/codec
 case internal/sketch/std/codegraph
 case internal/sketch/std/collections
+case internal/sketch/std/color
 case internal/sketch/std/config
 case internal/sketch/std/core
 case internal/sketch/std/crc32
@@ -1083,6 +1085,7 @@ case internal/sketch/std/llm/recorded
 case internal/sketch/std/log
 case internal/sketch/std/machines
 case internal/sketch/std/maps
+case internal/sketch/std/markdown
 case internal/sketch/std/math
 case internal/sketch/std/mcp
 case internal/sketch/std/mcp/httpmcp
@@ -1325,11 +1328,13 @@ case unused internal/selfhostcheck/testdata/bind/port_unit.ergo
 case unused internal/selfhostcheck/testdata/bind/wired.ergo
 case unused internal/sketch/std/ansi/ansi.ergo
 case unused internal/sketch/std/api/api.ergo
+case unused internal/sketch/std/archive/archive.ergo
 case unused internal/sketch/std/bench/stats.ergo
 case unused internal/sketch/std/cache/cache.ergo
 case unused internal/sketch/std/codec/codec.ergo
 case unused internal/sketch/std/codegraph/codegraph.ergo
 case unused internal/sketch/std/collections/collections.ergo
+case unused internal/sketch/std/color/names.ergo
 case unused internal/sketch/std/crc32/crc32.ergo
 case unused internal/sketch/std/cron/expr.ergo
 case unused internal/sketch/std/decimal/u128.ergo
@@ -1359,6 +1364,7 @@ case unused internal/sketch/std/llm/memory/scripted.ergo
 case unused internal/sketch/std/llm/recorded/recorded.ergo
 case unused internal/sketch/std/log/level.ergo
 case unused internal/sketch/std/maps/maps.ergo
+case unused internal/sketch/std/markdown/doc.ergo
 case unused internal/sketch/std/mcp/httpmcp/httpmcp.ergo
 case unused internal/sketch/std/mcp/mcp.ergo
 case unused internal/sketch/std/mcp/memory/memory.ergo
@@ -1450,8 +1456,6 @@ site S108 extra in examples/fluid-gallery/gallery: badge.ergo 56:21: S108 cannot
 site S108 extra in examples/fluid-gallery/gallery: button.ergo 124:19: S108 cannot use part.Text as part.Node[int] in argument
 site S108 extra in examples/fluid-gallery/gallery: glyph.ergo 42:53: S108 cannot use part.Glyph as part.Node[int] in the body's tail value
 site S108 extra in internal/sketch/check/testdata/fixtures/negative/block-tail-invalid.ergo: block-tail-invalid.ergo 17:15: S108 cannot infer T; write the type arguments, e.g. apply[int](…) (D6)
-site S108 extra in internal/sketch/check/testdata/fixtures/negative/generic-operation-value.ergo: generic-operation-value.ergo 12:24: S108 cannot use Box[int] as Foldable[int] in let s: Foldable is a constraint and has no values
-site S108 extra in internal/sketch/check/testdata/fixtures/negative/self-not-value.ergo: self-not-value.ergo 9:44: S108 cannot use Box[int] as Clonable[int] in let s: Clonable is a constraint and has no values
 site S108 missing in internal/sketch/check/testdata/fixtures/negative/ascending-is-the-only-way-in.ergo: ascending-is-the-only-way-in.ergo 25:18: S108 a property parameter is generated, and slices.Ascending[int] cannot be: slices.Ascending has an unexported field, so only package slices builds it; use slices.Ascend
 site S108 missing in internal/sketch/check/testdata/fixtures/negative/ascending-is-the-only-way-in.ergo: ascending-is-the-only-way-in.ergo 9:22: S108 the argument has type []int, which does not match slices.Ascending[T] (D6; type inference)
 site S108 missing in internal/sketch/check/testdata/fixtures/negative/borrow-in-field.ergo: borrow-in-field.ergo 1:12: S108 a borrow mut T is only a parameter or receiver type (types.md, Borrows 1)
@@ -1542,124 +1546,16 @@ site S109 missing in internal/sketch/check/testdata/v1/E7-interpolation.neg.ergo
 site S109 missing in internal/sketch/check/testdata/v1/G9-extern-allowlist.neg.ergo: G9-extern-allowlist.neg.ergo 9:1: S109 extern go os/signal.Stop is not imported from Go: parameter 1: Ergo has no channels (196c); wrap the Go channel in a Go function of your module, or use std queue (the binding of os/signal refuses it)
 site S110 extra in internal/sketch/check/testdata/fixtures/negative/catch-alternatives-placeholder.ergo: catch-alternatives-placeholder.ergo 15:7: S110 the binding a is read nowhere in its arm; write _ in its place (rows.md, Totality 1)
 site S110 extra in internal/sketch/check/testdata/fixtures/negative/catch-rest-as-placeholder.ergo: catch-rest-as-placeholder.ergo 9:12: S110 the binding e is read nowhere in its arm; drop `as e` (rows.md, Totality 1)
+site S110 extra in internal/sketch/check/testdata/fixtures/negative/wire-constraint.ergo: wire-constraint.ergo 20:2: S110 the result of keep is not used, and the call does nothing else (its footprint is empty); bind it with let, or remove the call
+site S110 extra in internal/sketch/check/testdata/fixtures/negative/wire-constraint.ergo: wire-constraint.ergo 21:2: S110 the result of keep is not used, and the call does nothing else (its footprint is empty); bind it with let, or remove the call
+site S110 extra in internal/sketch/check/testdata/fixtures/negative/wire-constraint.ergo: wire-constraint.ergo 22:2: S110 the result of keep is not used, and the call does nothing else (its footprint is empty); bind it with let, or remove the call
+site S110 extra in internal/sketch/check/testdata/fixtures/negative/wire-constraint.ergo: wire-constraint.ergo 23:2: S110 the result of keep is not used, and the call does nothing else (its footprint is empty); bind it with let, or remove the call
+site S110 extra in internal/sketch/check/testdata/fixtures/negative/wire-constraint.ergo: wire-constraint.ergo 25:2: S110 the result of keep is not used, and the call does nothing else (its footprint is empty); bind it with let, or remove the call
 site S110 extra in internal/sketch/check/testdata/v1/B6-case-domain.neg.ergo: B6-case-domain.neg.ergo 18:19: S110 the binding t is read nowhere in its arm; write _ in its place (rows.md, Totality 1)
 site S110 extra in internal/sketch/check/testdata/v1/D6-dot-calls.neg.ergo: D6-dot-calls.neg.ergo 22:6: S110 f is declared and not used
-site S110 missing in flow seed 102: p.ergo 67:5: S110 the result of keep is not used, and the call does nothing else (its footprint is empty); bind it with let, or remove the call
-site S110 missing in flow seed 102: p.ergo 74:4: S110 the result of keep is not used, and the call does nothing else (its footprint is empty); bind it with let, or remove the call
-site S110 missing in flow seed 108: p.ergo 51:2: S110 the result of keep is not used, and the call does nothing else (its footprint is empty); bind it with let, or remove the call
-site S110 missing in flow seed 108: p.ergo 55:3: S110 the result of keep is not used, and the call does nothing else (its footprint is empty); bind it with let, or remove the call
-site S110 missing in flow seed 108: p.ergo 62:5: S110 the result of keep is not used, and the call does nothing else (its footprint is empty); bind it with let, or remove the call
-site S110 missing in flow seed 117: p.ergo 76:5: S110 the result of keep is not used, and the call does nothing else (its footprint is empty); bind it with let, or remove the call
-site S110 missing in flow seed 120: p.ergo 112:4: S110 the result of keep is not used, and the call does nothing else (its footprint is empty); bind it with let, or remove the call
-site S110 missing in flow seed 120: p.ergo 78:5: S110 the result of keep is not used, and the call does nothing else (its footprint is empty); bind it with let, or remove the call
-site S110 missing in flow seed 123: p.ergo 160:2: S110 the result of keep is not used, and the call does nothing else (its footprint is empty); bind it with let, or remove the call
-site S110 missing in flow seed 126: p.ergo 85:3: S110 the result of keep is not used, and the call does nothing else (its footprint is empty); bind it with let, or remove the call
-site S110 missing in flow seed 12: p.ergo 63:5: S110 the result of keep is not used, and the call does nothing else (its footprint is empty); bind it with let, or remove the call
-site S110 missing in flow seed 12: p.ergo 87:3: S110 the result of keep is not used, and the call does nothing else (its footprint is empty); bind it with let, or remove the call
-site S110 missing in flow seed 12: p.ergo 95:4: S110 the result of keep is not used, and the call does nothing else (its footprint is empty); bind it with let, or remove the call
-site S110 missing in flow seed 12: p.ergo 98:5: S110 the result of keep is not used, and the call does nothing else (its footprint is empty); bind it with let, or remove the call
-site S110 missing in flow seed 135: p.ergo 66:4: S110 the result of keep is not used, and the call does nothing else (its footprint is empty); bind it with let, or remove the call
-site S110 missing in flow seed 135: p.ergo 78:5: S110 the result of keep is not used, and the call does nothing else (its footprint is empty); bind it with let, or remove the call
-site S110 missing in flow seed 141: p.ergo 51:3: S110 the result of keep is not used, and the call does nothing else (its footprint is empty); bind it with let, or remove the call
-site S110 missing in flow seed 141: p.ergo 55:5: S110 the result of keep is not used, and the call does nothing else (its footprint is empty); bind it with let, or remove the call
-site S110 missing in flow seed 147: p.ergo 104:2: S110 the result of keep is not used, and the call does nothing else (its footprint is empty); bind it with let, or remove the call
-site S110 missing in flow seed 147: p.ergo 105:3: S110 the result of keep is not used, and the call does nothing else (its footprint is empty); bind it with let, or remove the call
-site S110 missing in flow seed 147: p.ergo 77:5: S110 the result of keep is not used, and the call does nothing else (its footprint is empty); bind it with let, or remove the call
-site S110 missing in flow seed 147: p.ergo 85:5: S110 the result of keep is not used, and the call does nothing else (its footprint is empty); bind it with let, or remove the call
-site S110 missing in flow seed 147: p.ergo 91:5: S110 the result of keep is not used, and the call does nothing else (its footprint is empty); bind it with let, or remove the call
-site S110 missing in flow seed 15: p.ergo 148:3: S110 the result of keep is not used, and the call does nothing else (its footprint is empty); bind it with let, or remove the call
-site S110 missing in flow seed 15: p.ergo 75:5: S110 the result of keep is not used, and the call does nothing else (its footprint is empty); bind it with let, or remove the call
-site S110 missing in flow seed 162: p.ergo 50:3: S110 the result of keep is not used, and the call does nothing else (its footprint is empty); bind it with let, or remove the call
-site S110 missing in flow seed 171: p.ergo 50:3: S110 the result of keep is not used, and the call does nothing else (its footprint is empty); bind it with let, or remove the call
-site S110 missing in flow seed 174: p.ergo 64:4: S110 the result of keep is not used, and the call does nothing else (its footprint is empty); bind it with let, or remove the call
 site S110 missing in flow seed 174: p.ergo 83:13: S110 r2 is declared and not used
-site S110 missing in flow seed 180: p.ergo 58:3: S110 the result of keep is not used, and the call does nothing else (its footprint is empty); bind it with let, or remove the call
-site S110 missing in flow seed 18: p.ergo 82:3: S110 the result of keep is not used, and the call does nothing else (its footprint is empty); bind it with let, or remove the call
-site S110 missing in flow seed 198: p.ergo 171:4: S110 the result of keep is not used, and the call does nothing else (its footprint is empty); bind it with let, or remove the call
-site S110 missing in flow seed 201: p.ergo 84:5: S110 the result of keep is not used, and the call does nothing else (its footprint is empty); bind it with let, or remove the call
-site S110 missing in flow seed 204: p.ergo 51:2: S110 the result of keep is not used, and the call does nothing else (its footprint is empty); bind it with let, or remove the call
-site S110 missing in flow seed 210: p.ergo 137:3: S110 the result of keep is not used, and the call does nothing else (its footprint is empty); bind it with let, or remove the call
-site S110 missing in flow seed 210: p.ergo 51:3: S110 the result of keep is not used, and the call does nothing else (its footprint is empty); bind it with let, or remove the call
-site S110 missing in flow seed 219: p.ergo 49:2: S110 the result of keep is not used, and the call does nothing else (its footprint is empty); bind it with let, or remove the call
-site S110 missing in flow seed 219: p.ergo 58:5: S110 the result of keep is not used, and the call does nothing else (its footprint is empty); bind it with let, or remove the call
-site S110 missing in flow seed 219: p.ergo 62:5: S110 the result of keep is not used, and the call does nothing else (its footprint is empty); bind it with let, or remove the call
-site S110 missing in flow seed 21: p.ergo 67:4: S110 the result of keep is not used, and the call does nothing else (its footprint is empty); bind it with let, or remove the call
-site S110 missing in flow seed 21: p.ergo 78:5: S110 the result of keep is not used, and the call does nothing else (its footprint is empty); bind it with let, or remove the call
-site S110 missing in flow seed 222: p.ergo 102:5: S110 the result of keep is not used, and the call does nothing else (its footprint is empty); bind it with let, or remove the call
-site S110 missing in flow seed 222: p.ergo 51:3: S110 the result of keep is not used, and the call does nothing else (its footprint is empty); bind it with let, or remove the call
-site S110 missing in flow seed 222: p.ergo 54:4: S110 the result of keep is not used, and the call does nothing else (its footprint is empty); bind it with let, or remove the call
-site S110 missing in flow seed 222: p.ergo 65:5: S110 the result of keep is not used, and the call does nothing else (its footprint is empty); bind it with let, or remove the call
-site S110 missing in flow seed 222: p.ergo 68:5: S110 the result of keep is not used, and the call does nothing else (its footprint is empty); bind it with let, or remove the call
-site S110 missing in flow seed 222: p.ergo 75:5: S110 the result of keep is not used, and the call does nothing else (its footprint is empty); bind it with let, or remove the call
-site S110 missing in flow seed 225: p.ergo 86:4: S110 the result of keep is not used, and the call does nothing else (its footprint is empty); bind it with let, or remove the call
-site S110 missing in flow seed 231: p.ergo 163:2: S110 the result of keep is not used, and the call does nothing else (its footprint is empty); bind it with let, or remove the call
-site S110 missing in flow seed 231: p.ergo 212:5: S110 the result of keep is not used, and the call does nothing else (its footprint is empty); bind it with let, or remove the call
-site S110 missing in flow seed 234: p.ergo 78:3: S110 the result of keep is not used, and the call does nothing else (its footprint is empty); bind it with let, or remove the call
-site S110 missing in flow seed 246: p.ergo 55:2: S110 the result of keep is not used, and the call does nothing else (its footprint is empty); bind it with let, or remove the call
-site S110 missing in flow seed 24: p.ergo 49:2: S110 the result of keep is not used, and the call does nothing else (its footprint is empty); bind it with let, or remove the call
-site S110 missing in flow seed 24: p.ergo 55:5: S110 the result of keep is not used, and the call does nothing else (its footprint is empty); bind it with let, or remove the call
-site S110 missing in flow seed 24: p.ergo 75:3: S110 the result of keep is not used, and the call does nothing else (its footprint is empty); bind it with let, or remove the call
-site S110 missing in flow seed 252: p.ergo 91:5: S110 the result of keep is not used, and the call does nothing else (its footprint is empty); bind it with let, or remove the call
-site S110 missing in flow seed 255: p.ergo 59:5: S110 the result of keep is not used, and the call does nothing else (its footprint is empty); bind it with let, or remove the call
-site S110 missing in flow seed 255: p.ergo 85:5: S110 the result of keep is not used, and the call does nothing else (its footprint is empty); bind it with let, or remove the call
-site S110 missing in flow seed 261: p.ergo 55:3: S110 the result of keep is not used, and the call does nothing else (its footprint is empty); bind it with let, or remove the call
-site S110 missing in flow seed 264: p.ergo 91:5: S110 the result of keep is not used, and the call does nothing else (its footprint is empty); bind it with let, or remove the call
-site S110 missing in flow seed 267: p.ergo 65:5: S110 the result of keep is not used, and the call does nothing else (its footprint is empty); bind it with let, or remove the call
-site S110 missing in flow seed 273: p.ergo 49:2: S110 the result of keep is not used, and the call does nothing else (its footprint is empty); bind it with let, or remove the call
-site S110 missing in flow seed 276: p.ergo 51:4: S110 the result of keep is not used, and the call does nothing else (its footprint is empty); bind it with let, or remove the call
-site S110 missing in flow seed 276: p.ergo 63:4: S110 the result of keep is not used, and the call does nothing else (its footprint is empty); bind it with let, or remove the call
-site S110 missing in flow seed 276: p.ergo 66:4: S110 the result of keep is not used, and the call does nothing else (its footprint is empty); bind it with let, or remove the call
-site S110 missing in flow seed 276: p.ergo 71:3: S110 the result of keep is not used, and the call does nothing else (its footprint is empty); bind it with let, or remove the call
-site S110 missing in flow seed 276: p.ergo 85:3: S110 the result of keep is not used, and the call does nothing else (its footprint is empty); bind it with let, or remove the call
-site S110 missing in flow seed 276: p.ergo 92:5: S110 the result of keep is not used, and the call does nothing else (its footprint is empty); bind it with let, or remove the call
-site S110 missing in flow seed 285: p.ergo 116:5: S110 the result of keep is not used, and the call does nothing else (its footprint is empty); bind it with let, or remove the call
-site S110 missing in flow seed 285: p.ergo 63:4: S110 the result of keep is not used, and the call does nothing else (its footprint is empty); bind it with let, or remove the call
-site S110 missing in flow seed 297: p.ergo 79:5: S110 the result of keep is not used, and the call does nothing else (its footprint is empty); bind it with let, or remove the call
-site S110 missing in flow seed 300: p.ergo 49:2: S110 the result of keep is not used, and the call does nothing else (its footprint is empty); bind it with let, or remove the call
-site S110 missing in flow seed 300: p.ergo 74:5: S110 the result of keep is not used, and the call does nothing else (its footprint is empty); bind it with let, or remove the call
-site S110 missing in flow seed 30: p.ergo 65:4: S110 the result of keep is not used, and the call does nothing else (its footprint is empty); bind it with let, or remove the call
-site S110 missing in flow seed 33: p.ergo 104:5: S110 the result of keep is not used, and the call does nothing else (its footprint is empty); bind it with let, or remove the call
-site S110 missing in flow seed 33: p.ergo 113:5: S110 the result of keep is not used, and the call does nothing else (its footprint is empty); bind it with let, or remove the call
-site S110 missing in flow seed 33: p.ergo 116:5: S110 the result of keep is not used, and the call does nothing else (its footprint is empty); bind it with let, or remove the call
-site S110 missing in flow seed 33: p.ergo 51:3: S110 the result of keep is not used, and the call does nothing else (its footprint is empty); bind it with let, or remove the call
-site S110 missing in flow seed 33: p.ergo 58:5: S110 the result of keep is not used, and the call does nothing else (its footprint is empty); bind it with let, or remove the call
-site S110 missing in flow seed 33: p.ergo 67:5: S110 the result of keep is not used, and the call does nothing else (its footprint is empty); bind it with let, or remove the call
-site S110 missing in flow seed 33: p.ergo 80:5: S110 the result of keep is not used, and the call does nothing else (its footprint is empty); bind it with let, or remove the call
-site S110 missing in flow seed 33: p.ergo 99:5: S110 the result of keep is not used, and the call does nothing else (its footprint is empty); bind it with let, or remove the call
-site S110 missing in flow seed 36: p.ergo 49:2: S110 the result of keep is not used, and the call does nothing else (its footprint is empty); bind it with let, or remove the call
-site S110 missing in flow seed 36: p.ergo 51:3: S110 the result of keep is not used, and the call does nothing else (its footprint is empty); bind it with let, or remove the call
-site S110 missing in flow seed 36: p.ergo 60:4: S110 the result of keep is not used, and the call does nothing else (its footprint is empty); bind it with let, or remove the call
-site S110 missing in flow seed 36: p.ergo 68:5: S110 the result of keep is not used, and the call does nothing else (its footprint is empty); bind it with let, or remove the call
-site S110 missing in flow seed 36: p.ergo 89:3: S110 the result of keep is not used, and the call does nothing else (its footprint is empty); bind it with let, or remove the call
-site S110 missing in flow seed 36: p.ergo 92:3: S110 the result of keep is not used, and the call does nothing else (its footprint is empty); bind it with let, or remove the call
 site S110 missing in flow seed 3: p.ergo 75:13: S110 r4 is declared and not used
 site S110 missing in flow seed 3: p.ergo 95:10: S110 r8 is declared and not used
-site S110 missing in flow seed 45: p.ergo 50:2: S110 the result of keep is not used, and the call does nothing else (its footprint is empty); bind it with let, or remove the call
-site S110 missing in flow seed 48: p.ergo 52:4: S110 the result of keep is not used, and the call does nothing else (its footprint is empty); bind it with let, or remove the call
-site S110 missing in flow seed 48: p.ergo 53:4: S110 the result of keep is not used, and the call does nothing else (its footprint is empty); bind it with let, or remove the call
-site S110 missing in flow seed 48: p.ergo 58:5: S110 the result of keep is not used, and the call does nothing else (its footprint is empty); bind it with let, or remove the call
-site S110 missing in flow seed 48: p.ergo 69:5: S110 the result of keep is not used, and the call does nothing else (its footprint is empty); bind it with let, or remove the call
-site S110 missing in flow seed 51: p.ergo 51:3: S110 the result of keep is not used, and the call does nothing else (its footprint is empty); bind it with let, or remove the call
-site S110 missing in flow seed 54: p.ergo 50:2: S110 the result of keep is not used, and the call does nothing else (its footprint is empty); bind it with let, or remove the call
-site S110 missing in flow seed 54: p.ergo 71:5: S110 the result of keep is not used, and the call does nothing else (its footprint is empty); bind it with let, or remove the call
-site S110 missing in flow seed 57: p.ergo 117:3: S110 the result of keep is not used, and the call does nothing else (its footprint is empty); bind it with let, or remove the call
-site S110 missing in flow seed 57: p.ergo 118:3: S110 the result of keep is not used, and the call does nothing else (its footprint is empty); bind it with let, or remove the call
-site S110 missing in flow seed 57: p.ergo 67:4: S110 the result of keep is not used, and the call does nothing else (its footprint is empty); bind it with let, or remove the call
-site S110 missing in flow seed 57: p.ergo 73:5: S110 the result of keep is not used, and the call does nothing else (its footprint is empty); bind it with let, or remove the call
-site S110 missing in flow seed 57: p.ergo 95:4: S110 the result of keep is not used, and the call does nothing else (its footprint is empty); bind it with let, or remove the call
-site S110 missing in flow seed 63: p.ergo 55:3: S110 the result of keep is not used, and the call does nothing else (its footprint is empty); bind it with let, or remove the call
-site S110 missing in flow seed 66: p.ergo 63:4: S110 the result of keep is not used, and the call does nothing else (its footprint is empty); bind it with let, or remove the call
-site S110 missing in flow seed 69: p.ergo 56:4: S110 the result of keep is not used, and the call does nothing else (its footprint is empty); bind it with let, or remove the call
-site S110 missing in flow seed 69: p.ergo 61:2: S110 the result of keep is not used, and the call does nothing else (its footprint is empty); bind it with let, or remove the call
-site S110 missing in flow seed 6: p.ergo 72:3: S110 the result of keep is not used, and the call does nothing else (its footprint is empty); bind it with let, or remove the call
-site S110 missing in flow seed 6: p.ergo 80:4: S110 the result of keep is not used, and the call does nothing else (its footprint is empty); bind it with let, or remove the call
-site S110 missing in flow seed 72: p.ergo 56:5: S110 the result of keep is not used, and the call does nothing else (its footprint is empty); bind it with let, or remove the call
-site S110 missing in flow seed 87: p.ergo 98:5: S110 the result of keep is not used, and the call does nothing else (its footprint is empty); bind it with let, or remove the call
-site S110 missing in flow seed 90: p.ergo 78:3: S110 the result of keep is not used, and the call does nothing else (its footprint is empty); bind it with let, or remove the call
-site S110 missing in flow seed 90: p.ergo 88:5: S110 the result of keep is not used, and the call does nothing else (its footprint is empty); bind it with let, or remove the call
-site S110 missing in flow seed 99: p.ergo 132:4: S110 the result of keep is not used, and the call does nothing else (its footprint is empty); bind it with let, or remove the call
-site S110 missing in flow seed 99: p.ergo 179:4: S110 the result of keep is not used, and the call does nothing else (its footprint is empty); bind it with let, or remove the call
-site S110 missing in flow seed 99: p.ergo 190:3: S110 the result of keep is not used, and the call does nothing else (its footprint is empty); bind it with let, or remove the call
 site S110 missing in internal/sketch/check/testdata/fixtures/negative/unused-expression.ergo: unused-expression.ergo 3:2: S110 this value is not used; an expression statement is a call, try, catch or with
 site S110 missing in internal/sketch/check/testdata/v1/D10-mut-reassigned.neg.ergo: D10-mut-reassigned.neg.ergo 4:10: S110 n is never reassigned; write let n
 site S111 missing in internal/sketch/check/testdata/fixtures/negative/duplicate-context-entry.ergo: duplicate-context-entry.ergo 7:45: S111 Store has a second entry in this context, entry 2; the first is entry 1, and a context binds a capability once (rows.md, Context 1)

@@ -1,5 +1,7 @@
 import json
+import option
 import rpc
+import scope
 import sync
 import jobsweb/jobs
 
@@ -11,7 +13,7 @@ type Request = SubmitRequest{Spec jobs.Spec} | CancelRequest{Id int} | StatusReq
 type Op = SubmitOp{} | CancelOp{} | StatusOp{} | ListOp{} | WorkOp{}
 
 // Reply is the value of an operation: a variant per operation.
-type Reply = SubmitReply{Value int} | CancelReply{} | StatusReply{Value Option[jobs.Job]} | ListReply{Value []jobs.Job} | WorkReply{}
+type Reply = SubmitReply{Value int} | CancelReply{} | StatusReply{Value option.Option[jobs.Job]} | ListReply{Value []jobs.Job} | WorkReply{}
 
 // Failure is a failure of an operation: a variant per failure type of
 // any row, named like the type (its JSON tag).
@@ -61,7 +63,7 @@ func Doc(op Op) string {
 	case CancelOp:
 		"Cancel(id int) fails jobs.NoSuchJob | jobs.AlreadyDone"
 	case StatusOp:
-		"Status(id int) Option[jobs.Job]"
+		"Status(id int) option.Option[jobs.Job]"
 	case ListOp:
 		"List() []jobs.Job"
 	case WorkOp:
@@ -125,14 +127,14 @@ func Call(r Request) Outcome needs jobs.Jobs {
 
 // Client provides jobs.Jobs by invoking typed per-operation handlers directly:
 // a direct call returns its exact value or declared failure row with no Outcome boxing.
-type Client { opSubmit func(jobs.Spec) int fails jobs.Rejected, opCancel func(int) fails jobs.NoSuchJob | jobs.AlreadyDone, opStatus func(int) Option[jobs.Job], opList func() []jobs.Job, opWork func(int) } implements jobs.Jobs
+type Client { opSubmit func(jobs.Spec) int fails jobs.Rejected, opCancel func(int) fails jobs.NoSuchJob | jobs.AlreadyDone, opStatus func(int) option.Option[jobs.Job], opList func() []jobs.Job, opWork func(int) } implements jobs.Jobs
 
 // NewClient is the jobs.Jobs that invokes inner directly per operation.
 func NewClient(inner jobs.Jobs) Client {
 	Client{
 		opSubmit: func(spec jobs.Spec) int fails jobs.Rejected { try inner.Submit(spec) },
 		opCancel: func(id int) fails jobs.NoSuchJob | jobs.AlreadyDone { try inner.Cancel(id) },
-		opStatus: func(id int) Option[jobs.Job] { inner.Status(id) },
+		opStatus: func(id int) option.Option[jobs.Job] { inner.Status(id) },
 		opList:   func() []jobs.Job { inner.List() },
 		opWork:   func(ticks int) { inner.Work(ticks) },
 	}
@@ -140,11 +142,11 @@ func NewClient(inner jobs.Jobs) Client {
 
 // ClientInForce is the jobs.Jobs that invokes the provider currently in force.
 func ClientInForce() Client needs jobs.Jobs {
-	let held = InForce[jobs.Jobs]()
+	let held = scope.InForce[jobs.Jobs]()
 	Client{
 		opSubmit: func(spec jobs.Spec) int fails jobs.Rejected { with held { try jobs.Jobs.Submit(spec) } },
 		opCancel: func(id int) fails jobs.NoSuchJob | jobs.AlreadyDone { with held { try jobs.Jobs.Cancel(id) } },
-		opStatus: func(id int) Option[jobs.Job] { with held { jobs.Jobs.Status(id) } },
+		opStatus: func(id int) option.Option[jobs.Job] { with held { jobs.Jobs.Status(id) } },
 		opList:   func() []jobs.Job { with held { jobs.Jobs.List() } },
 		opWork:   func(ticks int) { with held { jobs.Jobs.Work(ticks) } },
 	}
@@ -161,7 +163,7 @@ func Cancel(client Client, id int) fails jobs.NoSuchJob | jobs.AlreadyDone {
 }
 
 // Status invokes jobs.Jobs's Status directly.
-func Status(client Client, id int) Option[jobs.Job] {
+func Status(client Client, id int) option.Option[jobs.Job] {
 	client.opStatus(id)
 }
 
@@ -225,7 +227,7 @@ func CancelChecked(client CheckedClient, id int) fails jobs.NoSuchJob | jobs.Alr
 }
 
 // StatusChecked sends jobs.Jobs's Status over send and validates its Outcome.
-func StatusChecked(client CheckedClient, id int) Option[jobs.Job] fails rpc.Transport {
+func StatusChecked(client CheckedClient, id int) option.Option[jobs.Job] fails rpc.Transport {
 	match try client.send(StatusRequest{Id: id}) {
 	case Done as done:
 		match done.Reply {
@@ -270,7 +272,7 @@ func WorkChecked(client CheckedClient, ticks int) fails rpc.Transport {
 
 // Values holds a value of each operation's value type, so a law can
 // answer any operation.
-type Values { Submit int, Status Option[jobs.Job], List []jobs.Job }
+type Values { Submit int, Status option.Option[jobs.Job], List []jobs.Job }
 
 func inRow(op Op, f Failure) bool {
 	match op {
@@ -343,7 +345,7 @@ func scripted(g Given, sent sync.Ref[[]Request]) Client {
 				}
 			}
 		},
-		opStatus: func(id int) Option[jobs.Job] {
+		opStatus: func(id int) option.Option[jobs.Job] {
 			sent.Update(func(rs []Request) []Request { rs.Append(StatusRequest{Id: id}) })
 			g.Values.Status
 		},

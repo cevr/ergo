@@ -17,11 +17,7 @@ type Dep { Path string, S store.Store, K Pkg }
 
 // WithDeps is k reading deps, the program's imported packages, by path:
 // an import the list does not hold has no members to type.
-func WithDeps(k Pkg, deps []Dep) Pkg {
-	let mut out = k
-	out.Deps = deps
-	out
-}
+func WithDeps(k Pkg, deps []Dep) Pkg { Pkg{..k, Deps: deps} }
 
 // depOf is the index in k.Deps of the package at path, -1 when none is.
 func depOf(k Pkg, path string) int {

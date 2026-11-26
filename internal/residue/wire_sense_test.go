@@ -24,10 +24,10 @@ import (
 // terms.
 
 // wireHistory are the dated records that keep the words of their day
-// (196w decision 6): receipts, the dated previews, the frozen
-// prototypes and upstream copies, the research notes.
+// (196w decision 6): receipts, the dated previews, upstream copies, and
+// the research notes.
 var wireHistory = []string{
-	"docs/receipts/", "docs/previews/2026-", "prototypes/sketch9/",
+	"docs/receipts/", "docs/previews/2026-",
 	"conformance/upstream/", "docs/research/",
 }
 

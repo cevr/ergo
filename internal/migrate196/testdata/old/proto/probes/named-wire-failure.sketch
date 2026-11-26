@@ -1,9 +1,0 @@
-// want S101
-package demo
-type Fault struct{}
-type Store interface { Get() string }
-type Holder struct{ Value string }
-func (h Holder) Get() string { return h.Value }
-func fail() (string, error[Fault]) { return Fault{} }
-wire W { Store = Holder{Value: try fail()} }
-func main() {}

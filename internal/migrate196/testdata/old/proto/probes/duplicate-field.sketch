@@ -1,4 +1,0 @@
-// want S108
-package demo
-type Box struct{ Value string }
-func main() needs Console { Console.Println(Box{Value: "a", Value: "b"}) }

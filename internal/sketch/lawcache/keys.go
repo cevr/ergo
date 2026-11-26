@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -21,6 +22,56 @@ func Framed(parts ...string) string {
 		fmt.Fprintf(h, "%d:%s\x00", len(p), p)
 	}
 	return hex.EncodeToString(h.Sum(nil))
+}
+
+// Within is path as a key part of a request rooted at root (the folder of
+// its module's ergo.mod): "@" for root itself, "@/" and the slash path from
+// root for a path below it, and path itself for any other path or when
+// root is "". A key that holds no workspace's folder is found again from
+// every workspace of the same tree (SHARED-RESULT-CACHE); a path outside
+// root stays absolute, which is correct but shared only where it is the
+// same path. root and path are absolute and clean.
+func Within(root, path string) string {
+	if root == "" {
+		return path
+	}
+	rel, err := filepath.Rel(root, path)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
+		return path
+	}
+	if rel == "." {
+		return "@"
+	}
+	return "@/" + filepath.ToSlash(rel)
+}
+
+// Unroot is the path a part Within wrote names under root: Within's
+// inverse for a part it rooted, and part itself for any other part.
+func Unroot(root, part string) string {
+	switch {
+	case root == "":
+		return part
+	case part == "@":
+		return root
+	case strings.HasPrefix(part, "@/"):
+		return filepath.Join(root, filepath.FromSlash(part[2:]))
+	}
+	return part
+}
+
+// Names reports whether text holds root, a request's folder, as written
+// or with its links resolved: an answer that does is not stored under a
+// key rooted by Within, since another workspace's hit would print this
+// one's folder. A root of "" names nothing.
+func Names(text, root string) bool {
+	if root == "" {
+		return false
+	}
+	if strings.Contains(text, root) {
+		return true
+	}
+	resolved, err := filepath.EvalSymlinks(root)
+	return err == nil && resolved != root && strings.Contains(text, resolved)
 }
 
 // Environ is the part of environ that can change a build or a verdict:

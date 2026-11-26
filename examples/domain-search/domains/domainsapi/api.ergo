@@ -1,5 +1,6 @@
 import json
 import rpc
+import scope
 import sync
 import domain-search/domains
 
@@ -87,7 +88,7 @@ func NewClient(inner domains.Registry) Client {
 
 // ClientInForce is the domains.Registry that invokes the provider currently in force.
 func ClientInForce() Client needs domains.Registry {
-	let held = InForce[domains.Registry]()
+	let held = scope.InForce[domains.Registry]()
 	Client{
 		opSearchDomains: func(label domains.Label, offset json.Optional[domains.Offset], limit json.Optional[domains.Limit]) []domains.Listing fails domains.Down { with held { try domains.Registry.SearchDomains(label, offset, limit) } },
 	}

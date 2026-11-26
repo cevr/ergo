@@ -1,5 +1,7 @@
 import json
+import option
 import rpc
+import scope
 import sync
 import limiter/limits
 
@@ -11,7 +13,7 @@ type Request = TakeRequest{Key string, Cost int} | HoldRequest{Key string, Cost 
 type Op = TakeOp{} | HoldOp{} | PeekOp{} | AdvanceOp{} | BucketsOp{}
 
 // Reply is the value of an operation: a variant per operation.
-type Reply = TakeReply{Value limits.Grant} | HoldReply{Value limits.Grant} | PeekReply{Value Option[limits.Level]} | AdvanceReply{} | BucketsReply{Value []string}
+type Reply = TakeReply{Value limits.Grant} | HoldReply{Value limits.Grant} | PeekReply{Value option.Option[limits.Level]} | AdvanceReply{} | BucketsReply{Value []string}
 
 // Failure is a failure of an operation: a variant per failure type of
 // any row, named like the type (its JSON tag).
@@ -61,7 +63,7 @@ func Doc(op Op) string {
 	case HoldOp:
 		"Hold(key string, cost int) limits.Grant fails limits.UnknownBucket | limits.BadCost"
 	case PeekOp:
-		"Peek(key string) Option[limits.Level]"
+		"Peek(key string) option.Option[limits.Level]"
 	case AdvanceOp:
 		"Advance(ms int)"
 	case BucketsOp:
@@ -129,14 +131,14 @@ func Call(r Request) Outcome needs limits.Limiter {
 
 // Client provides limits.Limiter by invoking typed per-operation handlers directly:
 // a direct call returns its exact value or declared failure row with no Outcome boxing.
-type Client { opTake func(string, int) limits.Grant fails limits.Limited | limits.UnknownBucket | limits.BadCost, opHold func(string, int) limits.Grant fails limits.UnknownBucket | limits.BadCost, opPeek func(string) Option[limits.Level], opAdvance func(int), opBuckets func() []string } implements limits.Limiter
+type Client { opTake func(string, int) limits.Grant fails limits.Limited | limits.UnknownBucket | limits.BadCost, opHold func(string, int) limits.Grant fails limits.UnknownBucket | limits.BadCost, opPeek func(string) option.Option[limits.Level], opAdvance func(int), opBuckets func() []string } implements limits.Limiter
 
 // NewClient is the limits.Limiter that invokes inner directly per operation.
 func NewClient(inner limits.Limiter) Client {
 	Client{
 		opTake:    func(key string, cost int) limits.Grant fails limits.Limited | limits.UnknownBucket | limits.BadCost { try inner.Take(key, cost) },
 		opHold:    func(key string, cost int) limits.Grant fails limits.UnknownBucket | limits.BadCost { try inner.Hold(key, cost) },
-		opPeek:    func(key string) Option[limits.Level] { inner.Peek(key) },
+		opPeek:    func(key string) option.Option[limits.Level] { inner.Peek(key) },
 		opAdvance: func(ms int) { inner.Advance(ms) },
 		opBuckets: func() []string { inner.Buckets() },
 	}
@@ -144,11 +146,11 @@ func NewClient(inner limits.Limiter) Client {
 
 // ClientInForce is the limits.Limiter that invokes the provider currently in force.
 func ClientInForce() Client needs limits.Limiter {
-	let held = InForce[limits.Limiter]()
+	let held = scope.InForce[limits.Limiter]()
 	Client{
 		opTake:    func(key string, cost int) limits.Grant fails limits.Limited | limits.UnknownBucket | limits.BadCost { with held { try limits.Limiter.Take(key, cost) } },
 		opHold:    func(key string, cost int) limits.Grant fails limits.UnknownBucket | limits.BadCost { with held { try limits.Limiter.Hold(key, cost) } },
-		opPeek:    func(key string) Option[limits.Level] { with held { limits.Limiter.Peek(key) } },
+		opPeek:    func(key string) option.Option[limits.Level] { with held { limits.Limiter.Peek(key) } },
 		opAdvance: func(ms int) { with held { limits.Limiter.Advance(ms) } },
 		opBuckets: func() []string { with held { limits.Limiter.Buckets() } },
 	}
@@ -165,7 +167,7 @@ func Hold(client Client, key string, cost int) limits.Grant fails limits.Unknown
 }
 
 // Peek invokes limits.Limiter's Peek directly.
-func Peek(client Client, key string) Option[limits.Level] {
+func Peek(client Client, key string) option.Option[limits.Level] {
 	client.opPeek(key)
 }
 
@@ -232,7 +234,7 @@ func HoldChecked(client CheckedClient, key string, cost int) limits.Grant fails 
 }
 
 // PeekChecked sends limits.Limiter's Peek over send and validates its Outcome.
-func PeekChecked(client CheckedClient, key string) Option[limits.Level] fails rpc.Transport {
+func PeekChecked(client CheckedClient, key string) option.Option[limits.Level] fails rpc.Transport {
 	match try client.send(PeekRequest{Key: key}) {
 	case Done as done:
 		match done.Reply {
@@ -277,7 +279,7 @@ func BucketsChecked(client CheckedClient) []string fails rpc.Transport {
 
 // Values holds a value of each operation's value type, so a law can
 // answer any operation.
-type Values { Take limits.Grant, Hold limits.Grant, Peek Option[limits.Level], Buckets []string }
+type Values { Take limits.Grant, Hold limits.Grant, Peek option.Option[limits.Level], Buckets []string }
 
 func inRow(op Op, f Failure) bool {
 	match op {
@@ -352,7 +354,7 @@ func scripted(g Given, sent sync.Ref[[]Request]) Client {
 			}
 			g.Values.Hold
 		},
-		opPeek: func(key string) Option[limits.Level] {
+		opPeek: func(key string) option.Option[limits.Level] {
 			sent.Update(func(rs []Request) []Request { rs.Append(PeekRequest{Key: key}) })
 			g.Values.Peek
 		},

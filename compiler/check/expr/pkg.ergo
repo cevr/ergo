@@ -483,16 +483,15 @@ func Load(s mut store.Store, files []bind.File, u bind.Uses, ps bind.Parents, ex
 						let result = if ld.Equation { store.TTuple(s, []dense.ID[store.TKey]{}) } else { store.TBasic(s, bBool) }
 						// Its type parameters name its parameters' types,
 						// as a function's do (adf427bfe).
-						let mut lenv = env
 						let mut tnames = []string{}
 						let mut towns = []bool{}
 						match dense.Unpack(ld.TypeParams) {
 						case option.Some{Value: tp}:
 							tnames = types.BracketNames(p, tp)
 							towns = BracketOwn(p, tp)
-							lenv = types.NewEnv(*s, parsed, p, tnames, kinds, ext, foreign, deps)
 						case option.None:
 						}
+						let lenv = if isSome(dense.Unpack(ld.TypeParams)) { types.NewEnv(*s, parsed, p, tnames, kinds, ext, foreign, deps) } else { env }
 						let mut lf = declared(s, lenv, p, file, d, ld.Name, ld.Params, result, ld.Body)
 						lf.Params = tnames
 						lf.Own = towns
@@ -608,6 +607,18 @@ func Load(s mut store.Store, files []bind.File, u bind.Uses, ps bind.Parents, ex
 	let unions = if parsed.Len() > 0 { types.UnionsOf(s, types.NewEnv(*s, parsed, parsed[0], []string{}, kinds, ext, foreign, deps)) } else { infer.NoUnions() }
 	let facts = buildTypeFacts(s, parsed, kinds, ext, foreign, deps, roles, fns)
 	Pkg{Files: files, Parsed: parsed, U: u, Ps: ps, Kinds: kinds, Ext: ext, Foreign: foreign, Ifaces: deps, Fns: fns, Recs: recs, Parses: parses, Claims: claims, FunctionClaimIssues: functionClaims, Roles: roles, Deps: []Dep{}, Unions: unions, fnBy: fnBy, named: named, sameName: sameName, recBy: recBy, facts: facts}
+}
+
+// Exported is k with only the tables an importer reads: file names
+// without duplicate syntax trees, signatures, records, parses,
+// interface identities, foreign types and node index.
+func Exported(k Pkg) Pkg {
+	let mut files = []bind.File{}
+	let empty = syntax.EmptyParsed()
+	for f in k.Files {
+		files = files.Append(bind.File{Name: f.Name, Parsed: empty})
+	}
+	Pkg{..k, Files: files, U: bind.NoUses(), Ps: bind.PNodeIndex(k.Ps), Kinds: types.NoKinds(), Ext: []types.Ext{}, Ifaces: types.IdentityIfaces(k.Ifaces), Claims: []Claim{}, FunctionClaimIssues: []types.ClaimIssue{}, Roles: []types.Role{}, Deps: []Dep{}, Unions: infer.NoUnions()}
 }
 
 // parseFn is the parse function the refined type named at the package

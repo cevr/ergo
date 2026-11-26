@@ -1,7 +1,0 @@
-// want S109
-package demo
-type duration struct{ Value string }
-func main() uses Console {
-  value := 1s
-  Console.Println(value.Value)
-}

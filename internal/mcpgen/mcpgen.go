@@ -61,7 +61,7 @@ func Generate(pkg *check.Package, path, opName, apiPath string) (Files, error) {
 	}
 	pkgName := lastElem(path)
 	api := lastElem(apiPath)
-	g := &gen{pkg: pkg, path: path, op: opName, api: api, rq: api + ".", imports: map[string]string{"json": "json", "rpc": "rpc", ModulePath: "mcp", apiPath: api}}
+	g := &gen{pkg: pkg, path: path, op: opName, api: api, rq: api + ".", imports: map[string]string{"json": "json", "rpc": "rpc", "scope": "scope", ModulePath: "mcp", apiPath: api}}
 	g.importOf(pkg)
 	g.stdAPI = rpcgen.StdAPIName(g.imports)
 	g.imports["api"] = g.stdAPI
@@ -138,10 +138,8 @@ func (g *gen) expr(t check.Type) string {
 			return g.expr(a)
 		}
 		name := u.Obj.Name
-		if !check.IsTransitionalPreludeType(u.Obj) {
-			if q := g.importOf(u.Obj.Pkg); q != "" {
-				name = q + "." + name
-			}
+		if q := g.importOf(u.Obj.Pkg); q != "" {
+			name = q + "." + name
 		}
 		if len(u.TArgs) > 0 {
 			var args []string
@@ -305,7 +303,7 @@ func (g *gen) file(ops []rpcgen.Op, tools []*tool) string {
 	fmt.Fprintf(&b, "// Answer answers r through the hub's Call on the bound %s (Show).\nfunc Answer(r Request) json.Value fails mcp.ToolError needs %s {\ntry Show(%sCall(r))\n}\n\n", capName, capName, g.rq)
 
 	fmt.Fprintf(&b, "// ReadAnswer is the outcome of r that a tool's result says: its value's\n// JSON, or, when it is an error, an admitted failure's tagged JSON.\n// Invalid or missing replies fail Transport, outside the operation's own row.\nfunc ReadAnswer(r Request, result mcp.Called) %sOutcome fails rpc.Transport {\n", g.rq)
-	b.WriteString("if len(result.Content) != 1 {\nreturn rpc.Transport{Reason: \"a tool answered \\(len(result.Content)) blocks, not one\"}\n}\nlet text = result.Content[0].Text\nif !result.IsError {\nmatch r {\n")
+	b.WriteString("if result.Content.Len() != 1 {\nreturn rpc.Transport{Reason: \"a tool answered \\(result.Content.Len()) blocks, not one\"}\n}\nlet text = result.Content[0].Text\nif !result.IsError {\nmatch r {\n")
 	for _, t := range tools {
 		op := t.op
 		req := g.rq + op.Name + "Request"
@@ -340,7 +338,7 @@ func (g *gen) file(ops []rpcgen.Op, tools []*tool) string {
 
 	fmt.Fprintf(&b, "// toolOver is the tool name answered by answer: it reads its arguments\n// (Call) and shows answer's outcome (Show).\nfunc toolOver(name string, answer own func(r Request) %sOutcome) mcp.Tool {\nmcp.Tool{Name: name, Description: Description(name), Input: Input(name), Call: func(arguments json.Value) json.Value fails mcp.ToolError {\nlet r = Call(name, arguments) catch {\ncase mcp.ToolError as e:\nreturn e\ncase mcp.UnknownTool as e:\nreturn mcp.ToolError{Message: \"no tool is named \" + e.Name}\n}\ntry Show(answer(r))\n}}\n}\n\n", g.rq)
 	fmt.Fprintf(&b, "// toolsOver makes one tool per operation, in declaration order.\nfunc toolsOver(answer own func(r Request) %sOutcome) []mcp.Tool {\nlet mut out = []mcp.Tool{}\nfor name in Names {\nout = out.Append(toolOver(name, answer))\n}\nout\n}\n\n", g.rq)
-	fmt.Fprintf(&b, "// Tools are the tools of the %s in force, one per operation, in its order.\nfunc Tools() []mcp.Tool needs %s {\nlet held = InForce[%s]()\ntoolsOver(func(r Request) %sOutcome {\nwith held { %sCall(r) }\n})\n}\n\n", capName, capName, capName, g.rq, g.rq)
+	fmt.Fprintf(&b, "// Tools are the tools of the %s in force, one per operation, in its order.\nfunc Tools() []mcp.Tool needs %s {\nlet held = scope.InForce[%s]()\ntoolsOver(func(r Request) %sOutcome {\nwith held { %sCall(r) }\n})\n}\n\n", capName, capName, capName, g.rq, g.rq)
 
 	fmt.Fprintf(&b, "// carry is c through the protocol: the tools/call message of its tool,\n// answered by module mcp's Handle over tools whose answer is answer, and\n// the result read back (ReadAnswer). Delivery can fail separately from\n// answer's outcome.\nfunc carry(c Request, answer own func(c Request) %sOutcome) %sOutcome fails rpc.Transport {\n", g.rq, g.rq)
 	b.WriteString("let server = mcp.Server{Name: \"carry\", Version: \"1\", Tools: toolsOver(answer)}\nlet (name, arguments) = Arguments(c)\nlet message = \"{\\\"jsonrpc\\\":\\\"2.0\\\",\\\"id\\\":1,\\\"method\\\":\\\"tools/call\\\",\\\"params\\\":{\\\"name\\\":\" + rpc.Encode(name) + \",\\\"arguments\\\":\" + textOf(arguments) + \"}}\"\n")

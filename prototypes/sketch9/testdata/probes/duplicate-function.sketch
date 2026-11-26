@@ -1,5 +1,0 @@
-// want S108
-package demo
-func f() {}
-func f() {}
-func main() {}

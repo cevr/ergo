@@ -1,5 +1,0 @@
-// want S102
-package demo
-type Other interface { Need() string }
-func get() string needs Other { return "ok" }
-func main() needs Console { Console.Println(get()) }

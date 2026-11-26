@@ -1,0 +1,185 @@
+func linkBoundary(p mut parser, i int) bool {
+	if !isAlnum(int(p.t[i])) {
+		return false
+	}
+	if i == p.s0 {
+		return true
+	}
+	let c = int(p.t[i-1])
+	!isAlnum(c) && c != '.' && c != '-' && c != '+' && c < 0x80
+}
+
+func wwwBoundary(p mut parser, i int) bool {
+	if i == p.s0 {
+		return true
+	}
+	let c = int(p.t[i-1])
+	c == ' ' || c == 9 || c == 10 || c == '*' || c == '_' || c == '~' || c == '('
+}
+
+func isDomainByte(c int) bool { isAlnum(c) || c == '_' || c == '-' || c == '.' || c >= 0x80 }
+
+func domainEnd(p mut parser, s int) int {
+	let mut e = s
+	for e < p.iend && isDomainByte(int(p.t[e])) {
+		e = e + 1
+		p.work = p.work + 1
+	}
+	let mut z = e
+	for z > s && p.t[z-1] == '.' {
+		z = z - 1
+	}
+	let mut dots = 0
+	let mut last = -1
+	let mut prev = -1
+	for k in s..z {
+		if p.t[k] == '.' {
+			dots = dots + 1
+			prev = last
+			last = k
+		}
+	}
+	if dots == 0 {
+		return -1
+	}
+	for k in prev+1..z {
+		if k >= s && p.t[k] == '_' {
+			return -1
+		}
+	}
+	e
+}
+
+func isTrailPunct(c int) bool {
+	c == '?' || c == '!' || c == '.' || c == ',' || c == ':' || c == '*' || c == '_' || c == '~'
+}
+
+func linkPathEnd(p mut parser, s int, e int) int {
+	let mut pe = e
+	for pe < p.iend && !isLinkSpace(int(p.t[pe])) && p.t[pe] != '<' {
+		pe = pe + 1
+		p.work = p.work + 1
+	}
+	let mut open = 0
+	let mut close = 0
+	for k in s..pe {
+		if p.t[k] == '(' {
+			open = open + 1
+		} else if p.t[k] == ')' {
+			close = close + 1
+		}
+	}
+	let mut more = true
+	for more && pe > s {
+		p.work = p.work + 1
+		let c = int(p.t[pe-1])
+		if isTrailPunct(c) {
+			pe = pe - 1
+		} else if c == ')' && close > open {
+			pe = pe - 1
+			close = close - 1
+		} else if c == ';' {
+			let mut j = pe - 1
+			for j > s && isAlnum(int(p.t[j-1])) {
+				j = j - 1
+			}
+			if j > s && j < pe-1 && p.t[j-1] == '&' {
+				pe = j - 1
+			} else {
+				pe = pe - 1
+			}
+		} else {
+			more = false
+		}
+	}
+	pe
+}
+
+func extAutolink(p mut parser, i int) (int, int) {
+	if wwwBoundary(p, i) {
+		if hasAt(p, i, "www.") {
+			let e = domainEnd(p, i)
+			if e > 0 {
+				let pe = linkPathEnd(p, i, e)
+				if pe > i+4 {
+					return (pe - i, 1)
+				}
+			}
+		}
+		let sl = if hasAt(p, i, "http://") { 7 } else if hasAt(p, i, "https://") { 8 } else if hasAt(p, i, "ftp://") { 6 } else { 0 }
+		if sl > 0 {
+			let e = domainEnd(p, i+sl)
+			if e > 0 {
+				let pe = linkPathEnd(p, i, e)
+				if pe > i+sl {
+					return (pe - i, 2)
+				}
+			}
+		}
+	}
+	if p.emailFail > i {
+		return (0, 0)
+	}
+	let mut j = i
+	for j < p.iend && (isAlnum(int(p.t[j])) || p.t[j] == '.' || p.t[j] == '+' || p.t[j] == '_' || p.t[j] == '-') {
+		j = j + 1
+		p.work = p.work + 1
+	}
+	if ipeek(p, j) != '@' {
+		p.emailFail = j
+		return (0, 0)
+	}
+	let ds = j + 1
+	let mut e = ds
+	for e < p.iend && (isAlnum(int(p.t[e])) || p.t[e] == '_' || p.t[e] == '-' || p.t[e] == '.') {
+		e = e + 1
+		p.work = p.work + 1
+	}
+	for e > ds && p.t[e-1] == '.' {
+		e = e - 1
+	}
+	let mut dots = 0
+	for k in ds..e {
+		if p.t[k] == '.' {
+			dots = dots + 1
+		}
+	}
+	if dots == 0 || p.t[e-1] == '-' || p.t[e-1] == '_' {
+		return (0, 0)
+	}
+	(e - i, 3)
+}
+
+func emitExtLink(p mut parser, sent int, n int, kind int) {
+	let at = p.t.Len()
+	if kind == 1 {
+		p.t = p.t.AppendString("http://")
+	} else if kind == 3 {
+		p.t = p.t.AppendString("mailto:")
+	}
+	p.t = appendNormalizedURI(p.t, p.pos, p.pos+n)
+	let l = container(p, kLink)
+	p.ia[l] = at
+	p.ib[l] = p.t.Len() - at
+	p.id[l] = -1
+	let _ = textNode(p, p.isub[l], p.pos, n)
+	appendChild(p, sent, l)
+	p.pos = p.pos + n
+}
+
+func unwrapExtLinks(p mut parser, first int, sent int) {
+	let mut n = first
+	for n != sent {
+		p.work = p.work + 1
+		let next = p.inext[n]
+		if p.ik[n] == kLink && p.id[n] == -1 {
+			let child = p.inext[p.isub[n]]
+			p.ik[n] = kText
+			p.ia[n] = p.ia[child]
+			p.ib[n] = p.ib[child]
+			p.isub[n] = -1
+			p.id[n] = 0
+		}
+		n = next
+	}
+}

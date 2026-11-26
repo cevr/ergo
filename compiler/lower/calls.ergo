@@ -297,6 +297,13 @@ func scanPureNode(st fnb, x dense.ID[syntax.Node], imports []ImportCallFacts, wa
 			walk.targets = walk.targets.Append(next)
 		}
 		walk.facts.sizeFloor = walk.facts.sizeFloor + 1
+		match syntax.ViewOf(p.Tree, ce.Fun) {
+		case syntax.SelectorExpr as se:
+			if next == builtinEdge {
+				walk.pending = walk.pending.Append(uint32(dense.Index(se.X)))
+			}
+		case _:
+		}
 		for j in 0..syntax.Len(ce.Args) {
 			walk.pending = walk.pending.Append(uint32(dense.Index(syntax.Item(p.Tree, ce.Args, j))))
 		}
@@ -359,7 +366,12 @@ func pureEdge(st fnb, x dense.ID[syntax.Node], ce syntax.CallExpr, imports []Imp
 	}
 	let to = st.calls[ix-1]
 	if to.Recv {
-		return stop("callee: nonlocal or method edge (purity)")
+		match try builtinOf(st, x, ce) {
+		case option.Some[aBuiltin]:
+			return builtinEdge
+		case option.None:
+			return stop("callee: nonlocal or method edge (purity)")
+		}
 	}
 	match syntax.ViewOf(st.p.Tree, ce.Fun) {
 	case syntax.SelectorExpr as sel:

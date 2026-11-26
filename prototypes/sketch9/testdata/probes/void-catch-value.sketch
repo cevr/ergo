@@ -1,7 +1,0 @@
-// want S108
-package demo
-type Fault struct{}
-type Box struct{ Value string }
-func fail() error[Fault] { return Fault{} }
-func word() string { return "word" }
-func main() { fail() catch { case Fault: Box{Value: word()} } }

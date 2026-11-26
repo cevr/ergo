@@ -1,6 +1,0 @@
-// want S108
-package demo
-type Holder struct{}
-func (Holder) Get() string { return "a" }
-func (Holder) Get() string { return "b" }
-func main() {}

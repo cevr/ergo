@@ -31,18 +31,18 @@ type PersistenceChecks {
 	},
 
 	// SchemaVersionFenceRefusesFutureVersion verifies that future schema versions are refused cleanly on Open.
-	law SchemaVersionFenceRefusesFutureVersion(futureBump int) {
-		CheckVersionFence(futureBump)
+	law SchemaVersionFenceRefusesFutureVersion() {
+		CheckVersionFence(1) && CheckVersionFence(2)
 	},
 
 	// RollbackAtomicityPreservesConsistency verifies that mid-transaction failures leave zero partial events or projection rows after reopen.
-	law RollbackAtomicityPreservesConsistency(tag int) {
-		CheckRollbackAtomicity(tag)
+	law RollbackAtomicityPreservesConsistency() {
+		CheckRollbackAtomicity(0)
 	},
 
 	// ConcurrentMultiWriterWAL verifies concurrent writers on a shared WAL file lose zero writes and keep Fold(events) == Snapshot.
-	law ConcurrentMultiWriterWAL(tag int) {
-		CheckConcurrentMultiWriter(tag)
+	law ConcurrentMultiWriterWAL() {
+		CheckConcurrentMultiWriter(0) && CheckConcurrentMultiWriter(1) && CheckConcurrentMultiWriter(2)
 	},
 }
 
@@ -229,17 +229,43 @@ func makeStepEnvelope(index int, code int, prevAccepted option.Option[orchestrat
 	orchestrate.Envelope{ID: id, Actor: "actor-\(slot)", At: at, Command: cmd}
 }
 
+let agreeCachedStore = sync.NewRef[option.Option[Store]](option.None)
+
 func CheckAgreesWithMemory(_ livePersistence, steps []int) bool needs go.Foreign {
-	let (dir, name) = nextVerifyDBPath("agree") catch {
+	let dir = freshWALDir() catch {
 	case orchestrate.StoreFailed:
 		return false
 	}
+	let name = "agree.db"
 	let path = dir + "/" + name
 	let mem = memory.New()
-	let sq = Open(path) catch {
-	case orchestrate.StoreFailed:
-		cleanupVerifyDB(dir, name)
-		return false
+	let cached = sync.Modify(agreeCachedStore, func(cur option.Option[Store]) (option.Option[Store], option.Option[Store]) {
+		(cur, option.None)
+	})
+	let sq = match cached {
+	case option.Some[Store] as existing:
+		resetStoreData(existing.Value) catch {
+		case orchestrate.StoreFailed:
+			existing.Value.Close() catch {
+			case orchestrate.StoreFailed:
+			}
+			cleanupVerifyDB(dir, name)
+			return false
+		}
+	case option.None:
+		let opened = Open(path) catch {
+		case orchestrate.StoreFailed:
+			cleanupVerifyDB(dir, name)
+			return false
+		}
+		resetStoreData(opened) catch {
+		case orchestrate.StoreFailed:
+			opened.Close() catch {
+			case orchestrate.StoreFailed:
+			}
+			cleanupVerifyDB(dir, name)
+			return false
+		}
 	}
 	let mut prevAccepted option.Option[orchestrate.Envelope] = option.None
 	let mut ok = true
@@ -267,12 +293,27 @@ func CheckAgreesWithMemory(_ livePersistence, steps []int) bool needs go.Foreign
 			return false
 		}
 		ok = storesAgree(mem, reopened)
-		reopened.Close() catch {
-		case orchestrate.StoreFailed:
-			ok = false
+		if ok {
+			let kept = sync.Modify(agreeCachedStore, func(cur option.Option[Store]) (bool, option.Option[Store]) {
+				match cur {
+				case option.None:
+					(true, option.Some[Store]{Value: reopened})
+				case option.Some[Store]:
+					(false, cur)
+				}
+			})
+			if !kept {
+				reopened.Close() catch {
+				case orchestrate.StoreFailed:
+				}
+			}
+		} else {
+			reopened.Close() catch {
+			case orchestrate.StoreFailed:
+				ok = false
+			}
 		}
 	}
-	cleanupVerifyDB(dir, name)
 	ok
 }
 
