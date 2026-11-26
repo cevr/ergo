@@ -827,6 +827,17 @@ func encodePackageDraft(p Package, profile string, foreign []ForeignFunc, wireNa
 	}
 }
 
+// EncodeHandoff is p as an EIR v1 draft under the pin's profile: its
+// functions by their names, each init function as init.K in Inits order,
+// and foreign the functions of its imports it calls.
+func EncodeHandoff(p Package, foreign []ForeignFunc) handoff.Draft fails handoff.Malformed {
+	let mut names = slices.WithCapacity[string](p.Funcs.Len())
+	for i in 0..p.Funcs.Len() {
+		names = names.Append(strings.TrimPrefix(FuncSym(p, i), p.Path+"."))
+	}
+	try encodePackageDraft(p, PinProfile, foreign, names)
+}
+
 // TinyHandoffExpect builds the independent admission expectation for the
 // TinyHandoff fixture from the stock dependency archive's observed import
 // identity.

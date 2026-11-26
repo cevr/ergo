@@ -1,0 +1,316 @@
+type Act = SpawnChild{} | SpawnGrandchild{} | StartDurableJob{} | StartVolatileCall{} | FinishLeaf{} | HandBackChildToRoot{} | RestartServer{} | ReconcileBoot{} | DeliverChildWake{} | DeliverRootWake{}
+
+type World {
+	Down                   bool,
+	ReconcilePending       bool,
+	Restarts               int,
+	RootState              int,
+	ChildState             int,
+	GrandState             int,
+	DurableJobOpen         bool,
+	VolatileCallOpen       bool,
+	VolatileLostReported   int,
+	ChildWakeOwed          bool,
+	ChildWakeDelivered     int,
+	RootWakeOwed           bool,
+	RootWakeDelivered      int,
+	BlockingSpin           bool,
+	PrematureHandBack      bool,
+	SilentDrop             bool,
+	DuplicateWake          bool,
+	UnreportedVolatileLoss bool,
+	ReplayedVolatile       bool,
+}
+
+let NodeIdle = 0
+let NodeRunning = 1
+let NodeParked = 2
+let NodeDone = 3
+
+let MaxRestarts = 2
+
+let NoMutant = 0
+let BlockingWaitMutant = 1
+let PrematureHandBackMutant = 2
+let DropWorkOnRestartMutant = 3
+let DoubleWakeRestartMutant = 4
+let SilentVolatileLossMutant = 5
+let ReplayVolatileMutant = 6
+
+func first() World {
+	World{
+		Down:                   false,
+		ReconcilePending:       false,
+		Restarts:               0,
+		RootState:              NodeRunning,
+		ChildState:             NodeIdle,
+		GrandState:             NodeIdle,
+		DurableJobOpen:         false,
+		VolatileCallOpen:       false,
+		VolatileLostReported:   0,
+		ChildWakeOwed:          false,
+		ChildWakeDelivered:     0,
+		RootWakeOwed:           false,
+		RootWakeDelivered:      0,
+		BlockingSpin:           false,
+		PrematureHandBack:      false,
+		SilentDrop:             false,
+		DuplicateWake:          false,
+		UnreportedVolatileLoss: false,
+		ReplayedVolatile:       false,
+	}
+}
+
+func hasOpenDescendant(w World) bool {
+	w.GrandState == NodeRunning || w.GrandState == NodeParked || w.DurableJobOpen || w.VolatileCallOpen || w.ChildWakeOwed
+}
+
+func step(s World, act Act, mutant int) Decision[World, string] {
+	let mut w = s
+	match act {
+	case SpawnChild:
+		if w.Down || w.ReconcilePending || w.RootState != NodeRunning || w.ChildState != NodeIdle {
+			return Ignore
+		}
+		w.ChildState = NodeRunning
+		if mutant == BlockingWaitMutant {
+			w.BlockingSpin = true
+			return Enter{w}
+		}
+		w.RootState = NodeParked
+		return Enter{w}
+	case SpawnGrandchild:
+		if w.Down || w.ReconcilePending || w.ChildState != NodeRunning || w.GrandState != NodeIdle {
+			return Ignore
+		}
+		w.GrandState = NodeRunning
+		if mutant == BlockingWaitMutant {
+			w.BlockingSpin = true
+			return Enter{w}
+		}
+		w.ChildState = NodeParked
+		return Enter{w}
+	case StartDurableJob:
+		if w.Down || w.ReconcilePending || w.GrandState != NodeRunning || w.DurableJobOpen {
+			return Ignore
+		}
+		w.DurableJobOpen = true
+		w.GrandState = NodeParked
+		return Enter{w}
+	case StartVolatileCall:
+		if w.Down || w.ReconcilePending || w.GrandState != NodeRunning || w.VolatileCallOpen {
+			return Ignore
+		}
+		w.VolatileCallOpen = true
+		w.GrandState = NodeParked
+		return Enter{w}
+	case FinishLeaf:
+		if w.Down || w.ReconcilePending {
+			return Ignore
+		}
+		if w.DurableJobOpen {
+			w.DurableJobOpen = false
+			if w.GrandState == NodeParked {
+				w.GrandState = NodeRunning
+			}
+			return Enter{w}
+		}
+		if w.VolatileCallOpen {
+			w.VolatileCallOpen = false
+			if w.GrandState == NodeParked {
+				w.GrandState = NodeRunning
+			}
+			return Enter{w}
+		}
+		if w.GrandState == NodeRunning {
+			w.GrandState = NodeDone
+			w.ChildWakeOwed = true
+			return Enter{w}
+		}
+		return Ignore
+	case HandBackChildToRoot:
+		let allowParked = mutant == PrematureHandBackMutant && w.ChildState == NodeParked
+		if w.Down || w.ReconcilePending || (w.ChildState != NodeRunning && !allowParked) {
+			return Ignore
+		}
+		if hasOpenDescendant(w) {
+			if mutant == PrematureHandBackMutant && !w.PrematureHandBack {
+				w.PrematureHandBack = true
+				w.ChildState = NodeDone
+				w.RootWakeOwed = true
+				return Enter{w}
+			}
+			return Ignore
+		}
+		w.ChildState = NodeDone
+		w.RootWakeOwed = true
+		return Enter{w}
+	case RestartServer:
+		if w.Down || w.Restarts >= MaxRestarts {
+			return Ignore
+		}
+		w.Down = true
+		w.ReconcilePending = true
+		w.Restarts = w.Restarts + 1
+		return Enter{w}
+	case ReconcileBoot:
+		if !w.Down || !w.ReconcilePending {
+			return Ignore
+		}
+		w.Down = false
+		w.ReconcilePending = false
+		if w.DurableJobOpen && mutant == DropWorkOnRestartMutant {
+			w.DurableJobOpen = false
+			w.SilentDrop = true
+		}
+		if w.ChildState == NodeRunning && w.GrandState == NodeParked && mutant == DropWorkOnRestartMutant {
+			w.GrandState = NodeIdle
+			w.SilentDrop = true
+		}
+		if w.VolatileCallOpen {
+			w.VolatileCallOpen = false
+			if mutant == ReplayVolatileMutant {
+				w.ReplayedVolatile = true
+				if w.GrandState == NodeParked {
+					w.GrandState = NodeRunning
+				}
+				return Enter{w}
+			}
+			if mutant == SilentVolatileLossMutant {
+				w.UnreportedVolatileLoss = true
+				return Enter{w}
+			}
+			if w.VolatileLostReported == 0 {
+				w.VolatileLostReported = 1
+			}
+			if w.GrandState == NodeParked {
+				w.GrandState = NodeRunning
+			}
+		}
+		if mutant == DoubleWakeRestartMutant && w.RootWakeDelivered == 1 {
+			w.RootWakeOwed = true
+		}
+		return Enter{w}
+	case DeliverChildWake:
+		if w.Down || w.ReconcilePending || !w.ChildWakeOwed {
+			return Ignore
+		}
+		if w.ChildWakeDelivered == 0 {
+			w.ChildWakeOwed = false
+			w.ChildWakeDelivered = 1
+			if w.ChildState == NodeParked {
+				w.ChildState = NodeRunning
+			}
+			return Enter{w}
+		}
+		if mutant == DoubleWakeRestartMutant && w.ChildWakeDelivered < 2 {
+			w.ChildWakeOwed = false
+			w.ChildWakeDelivered = w.ChildWakeDelivered + 1
+			w.DuplicateWake = true
+			return Enter{w}
+		}
+		w.ChildWakeOwed = false
+		return Enter{w}
+	case DeliverRootWake:
+		if w.Down || w.ReconcilePending || !w.RootWakeOwed {
+			return Ignore
+		}
+		if w.RootWakeDelivered == 0 {
+			w.RootWakeOwed = false
+			w.RootWakeDelivered = 1
+			if w.RootState == NodeParked {
+				w.RootState = NodeDone
+			}
+			return Enter{w}
+		}
+		if mutant == DoubleWakeRestartMutant && w.RootWakeDelivered < 2 {
+			w.RootWakeOwed = false
+			w.RootWakeDelivered = w.RootWakeDelivered + 1
+			w.DuplicateWake = true
+			return Enter{w}
+		}
+		w.RootWakeOwed = false
+		return Enter{w}
+	}
+}
+
+func zeroSpinParkedTree(w World) bool           { !w.BlockingSpin }
+func childWaitsForDescendants(w World) bool     { !w.PrematureHandBack }
+func noSilentDropAcrossRestart(w World) bool    { !w.SilentDrop }
+func noDuplicateWakeAcrossRestart(w World) bool { w.ChildWakeDelivered <= 1 && w.RootWakeDelivered <= 1 && !w.DuplicateWake }
+func volatileSettledOnceAsLost(w World) bool    { w.VolatileLostReported <= 1 && !w.UnreportedVolatileLoss && !w.ReplayedVolatile }
+
+func brokeSpin(w World) bool              { !zeroSpinParkedTree(w) }
+func brokePrematureHandBack(w World) bool { !childWaitsForDescendants(w) }
+func brokeSilentDrop(w World) bool        { !noSilentDropAcrossRestart(w) }
+func brokeDoubleWake(w World) bool        { !noDuplicateWakeAcrossRestart(w) }
+func brokeVolatileLoss(w World) bool      { !volatileSettledOnceAsLost(w) }
+
+func nestedTreeSurvivedRestart(w World) bool {
+	w.Restarts >= 1 && !w.Down && w.ChildWakeDelivered == 1 && w.RootWakeDelivered == 1 && w.RootState == NodeDone
+}
+func volatileLossReportedOnceAfterRestart(w World) bool {
+	w.Restarts >= 1 && !w.Down && w.VolatileLostReported == 1 && w.RootState == NodeDone
+}
+func durableJobCompletedAcrossRestart(w World) bool {
+	w.Restarts >= 1 && !w.Down && !w.DurableJobOpen && w.RootState == NodeDone
+}
+
+func design(s World, a Act) Decision[World, string]            { return step(s, a, NoMutant) }
+func mutBlocking(s World, a Act) Decision[World, string]       { return step(s, a, BlockingWaitMutant) }
+func mutPremature(s World, a Act) Decision[World, string]      { return step(s, a, PrematureHandBackMutant) }
+func mutDropWork(s World, a Act) Decision[World, string]       { return step(s, a, DropWorkOnRestartMutant) }
+func mutDoubleWake(s World, a Act) Decision[World, string]     { return step(s, a, DoubleWakeRestartMutant) }
+func mutSilentLoss(s World, a Act) Decision[World, string]     { return step(s, a, SilentVolatileLossMutant) }
+func mutReplayVolatile(s World, a Act) Decision[World, string] { return step(s, a, ReplayVolatileMutant) }
+
+type Design machine[World, Act] {
+	initial: first(),
+	step:    design,
+
+	law ZeroSpinParkedTree always zeroSpinParkedTree,
+	law ChildWaitsForDescendants always childWaitsForDescendants,
+	law NoSilentDropAcrossRestart always noSilentDropAcrossRestart,
+	law NoDuplicateWakeAcrossRestart always noDuplicateWakeAcrossRestart,
+	law VolatileSettledOnceAsLost always volatileSettledOnceAsLost,
+
+	law NestedTreeSurvivedRestart sometimes nestedTreeSurvivedRestart,
+	law VolatileLossReportedOnceAfterRestart sometimes volatileLossReportedOnceAfterRestart,
+	law DurableJobCompletedAcrossRestart sometimes durableJobCompletedAcrossRestart,
+}
+
+type BlockingWaitInChild machine[World, Act] {
+	initial: first(),
+	step:    mutBlocking,
+	law Breaks sometimes brokeSpin,
+}
+
+type PrematureChildHandBack machine[World, Act] {
+	initial: first(),
+	step:    mutPremature,
+	law Breaks sometimes brokePrematureHandBack,
+}
+
+type DropWorkOnRestart machine[World, Act] {
+	initial: first(),
+	step:    mutDropWork,
+	law Breaks sometimes brokeSilentDrop,
+}
+
+type DoubleWakeOnRestart machine[World, Act] {
+	initial: first(),
+	step:    mutDoubleWake,
+	law Breaks sometimes brokeDoubleWake,
+}
+
+type SilentVolatileLoss machine[World, Act] {
+	initial: first(),
+	step:    mutSilentLoss,
+	law Breaks sometimes brokeVolatileLoss,
+}
+
+type ReplayVolatileOnRestart machine[World, Act] {
+	initial: first(),
+	step:    mutReplayVolatile,
+	law Breaks sometimes brokeVolatileLoss,
+}

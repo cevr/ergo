@@ -106,6 +106,17 @@ docs/spec/runtime.md	-	tasks, cancellation, machines, actors, tests at run time
 docs/spec/stdlib.md	-	std-wide rules and each package's guarantees that its source does not state
 docs/spec/support.md	-	generated support table
 docs/spec/types.md	-	types, unions, generics, refinements, laws
+docs/specs/atlas/eval-from-sessions.md	-	empirical evaluation of workbox OpenCode sessions driving atlas slim-down and probe benchmark
+docs/specs/atlas/kernel-probe.md	-	Unit 0 KERNEL-ENGINE-PROBE measurements, psychoscript audit, ergoscript note, and engine selection
+docs/specs/atlas/kernel/owner-ask.md	-	owner verbatim requirements behind the atlas persistent wake-driven cell kernel
+docs/specs/atlas/kernel/spec.md	-	atlas persistent wake-driven code-cell kernel and DELIVERS handle registry specification
+docs/specs/atlas/kernel/units.md	-	historical kernel-wake units folded into atlas kernel-iface and kernel-wake
+docs/specs/atlas/machines.md	-	checked Ergo state machines, invariants, witnesses, and mutant coverage for atlas
+docs/specs/atlas/prior-art.md	-	atlas prior-art synthesis covering T3 Code, OpenCode, fx, Pi, Tardigrade, Prime Agent, and gent
+docs/specs/atlas/questions.md	-	atlas closed decisions (N1 = atlas), K1 KERNEL-ENGINE-PROBE rules, and working defaults
+docs/specs/atlas/spec.md	-	atlas multi-machine harness specification (Meta and Direct paths, pool, kernel, TUI, restart durability)
+docs/specs/atlas/t3-decisions.md	-	source decisions read from pingdotgg/t3code for external harness adapters
+docs/specs/atlas/units.md	-	ordered atlas build units starting with KERNEL-ENGINE-PROBE
 docs/specs/bench.md	-	delete: SPECS-CITED (merged into docs/spec)
 docs/specs/custom-lint.md	-	delete: SPECS-CITED (merged into docs/spec)
 docs/specs/formatting.md	-	delete: SPECS-CITED (merged into docs/spec)

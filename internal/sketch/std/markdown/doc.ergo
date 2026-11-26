@@ -1,0 +1,199 @@
+// Package markdown reads CommonMark 0.31.2 text, with the GitHub
+// extensions (tables, strikethrough, task lists, extended autolinks and
+// the tag filter), into one flat table of rows, and writes it as HTML (the
+// bytes Bun.markdown.html writes) or as terminal text (the layout
+// Bun.markdown.ansi draws).
+
+import strings
+
+// Options chooses the extensions Parse reads and the HTML they write,
+// under the names Bun.markdown gives them.
+type Options {
+	Tables         bool,
+	Strikethrough  bool,
+	TaskLists      bool,
+	Autolinks      bool,
+	TagFilter      bool,
+	HardSoftBreaks bool,
+	NoIndentedCode bool,
+	NoHTMLBlocks   bool,
+	NoHTMLSpans    bool,
+}
+
+// GFM is Bun.markdown's default: tables, strikethrough and task lists on,
+// every other option off.
+func GFM() Options {
+	Options{Tables: true, Strikethrough: true, TaskLists: true, Autolinks: false, TagFilter: false, HardSoftBreaks: false, NoIndentedCode: false, NoHTMLBlocks: false, NoHTMLSpans: false}
+}
+
+// CommonMark is the options with every extension off: the CommonMark
+// 0.31.2 language alone.
+func CommonMark() Options {
+	Options{Tables: false, Strikethrough: false, TaskLists: false, Autolinks: false, TagFilter: false, HardSoftBreaks: false, NoIndentedCode: false, NoHTMLBlocks: false, NoHTMLSpans: false}
+}
+
+// MaxInput is the longest text Parse reads, in bytes: every offset of a
+// Doc, the decoded text it adds included, fits in 32 bits.
+let MaxInput = 268435456
+
+// TooLarge is a text longer than MaxInput.
+type TooLarge {
+	Len int,
+	Max int,
+}
+
+// Doc is a parsed document: its rows in preorder, five columns of one
+// row each, and the text every row's span reads. A row's end is one past
+// its last descendant, so a reader skips a subtree in one step.
+type Doc {
+	kind  []uint8,
+	end   []uint32,
+	a     []uint32,
+	b     []uint32,
+	extra []uint32,
+	text  string,
+	opts  Options,
+	work  int,
+}
+
+// Align is a table column's alignment, from its delimiter row.
+type Align = AlignNone | AlignLeft | AlignCenter | AlignRight
+
+// AlignNone is a column with no colon in its delimiter cell.
+type AlignNone {}
+
+// AlignLeft is a column whose delimiter cell starts with a colon.
+type AlignLeft {}
+
+// AlignCenter is a column whose delimiter cell starts and ends with a colon.
+type AlignCenter {}
+
+// AlignRight is a column whose delimiter cell ends with a colon.
+type AlignRight {}
+
+// Element is what one row of a Doc is: View reads it from the row's
+// columns. A container's children are the rows after it up to its End.
+type Element =
+	| Document{}
+	| BlockQuote{}
+	| List{Ordered bool, Start int, Tight bool, Marker byte}
+	| Item{Task bool, Checked bool}
+	| Paragraph{}
+	| Heading{Level int}
+	| CodeBlock{Info string, Body string, Fenced bool}
+	| HTMLBlock{Body string}
+	| ThematicBreak{}
+	| Table{Columns int}
+	| TableRow{Head bool}
+	| TableCell{Align Align, Head bool}
+	| Text{Body string}
+	| SoftBreak{}
+	| HardBreak{}
+	| Code{Body string}
+	| Emphasis{}
+	| Strong{}
+	| Strikethrough{}
+	| Link{Dest string, Title string}
+	| Image{Dest string, Title string}
+	| HTMLSpan{Body string}
+
+let kDoc = 1
+let kQuote = 2
+let kList = 3
+let kItem = 4
+let kPara = 5
+let kHeading = 6
+let kCode = 7
+let kHTML = 8
+let kHR = 9
+let kTable = 10
+let kRow = 11
+let kCell = 12
+let kText = 20
+let kSoft = 21
+let kHard = 22
+let kCodeSpan = 23
+let kEmph = 24
+let kStrong = 25
+let kStrike = 26
+let kLink = 27
+let kImage = 28
+let kHTMLSpan = 29
+
+// Rows is the number of rows of d. Row 0 is the Document.
+func Rows(d Doc) int { d.kind.Len() }
+
+// End is one past the last row of row i's subtree.
+func End(d Doc, i int) int { int(d.end[i]) }
+
+// Work is the work Parse counted to read d: one unit per byte or row a
+// scan visits, so a text that makes Parse slower than linear shows in it.
+func Work(d Doc) int { d.work }
+
+func span(d Doc, at int, n int) string { strings.Slice(d.text, at, at+n) }
+
+func ext(d Doc, i int, k int) int { int(d.extra[int(d.a[i])+k]) }
+
+func alignOf(n int) Align {
+	if n == 1 {
+		AlignLeft
+	} else if n == 2 {
+		AlignCenter
+	} else if n == 3 {
+		AlignRight
+	} else {
+		AlignNone
+	}
+}
+
+// View is row i of d as an Element.
+func View(d Doc, i int) Element {
+	let k = int(d.kind[i])
+	let a = int(d.a[i])
+	let b = int(d.b[i])
+	if k == kDoc {
+		Document
+	} else if k == kQuote {
+		BlockQuote
+	} else if k == kList {
+		List{Ordered: b&1 != 0, Start: a, Tight: b&2 != 0, Marker: byte(b >> 8)}
+	} else if k == kItem {
+		Item{Task: a != 0, Checked: a == 2}
+	} else if k == kPara {
+		Paragraph
+	} else if k == kHeading {
+		Heading{Level: a}
+	} else if k == kCode {
+		CodeBlock{Info: span(d, ext(d, i, 2), ext(d, i, 3)), Body: span(d, ext(d, i, 0), ext(d, i, 1)), Fenced: b != 0}
+	} else if k == kHTML {
+		HTMLBlock{Body: span(d, a, b)}
+	} else if k == kHR {
+		ThematicBreak
+	} else if k == kTable {
+		Table{Columns: a}
+	} else if k == kRow {
+		TableRow{Head: a != 0}
+	} else if k == kCell {
+		TableCell{Align: alignOf(a), Head: b != 0}
+	} else if k == kText {
+		Text{Body: span(d, a, b)}
+	} else if k == kSoft {
+		SoftBreak
+	} else if k == kHard {
+		HardBreak
+	} else if k == kCodeSpan {
+		Code{Body: span(d, a, b)}
+	} else if k == kEmph {
+		Emphasis
+	} else if k == kStrong {
+		Strong
+	} else if k == kStrike {
+		Strikethrough
+	} else if k == kLink {
+		Link{Dest: span(d, ext(d, i, 0), ext(d, i, 1)), Title: span(d, ext(d, i, 2), ext(d, i, 3))}
+	} else if k == kImage {
+		Image{Dest: span(d, ext(d, i, 0), ext(d, i, 1)), Title: span(d, ext(d, i, 2), ext(d, i, 3))}
+	} else {
+		HTMLSpan{Body: span(d, a, b)}
+	}
+}

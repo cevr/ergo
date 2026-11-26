@@ -127,9 +127,7 @@ func genericMembers(s mut store.Store, e Env, d dense.ID[store.Decl]) option.Opt
 	if u.params.Len() == 0 {
 		return option.None
 	}
-	let mut inner = e
-	inner.p = u.p
-	inner.params = u.params
+	let inner = Env{..e, p: u.p, params: u.params}
 	let mut ms = []dense.ID[store.TKey]{}
 	for m in u.members {
 		match syntax.ViewOf(u.p.Tree, m) {

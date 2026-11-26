@@ -1,0 +1,355 @@
+type Host = A{} | B{}
+
+type Act = Boot{H Host} | Link{} | Cut{} | Meet{} | Post{H Host} | Flush{H Host, Lost bool} | Takeover{H Host}
+
+type World {
+	Role    []int,
+	Epoch   []int,
+	Linked  bool,
+	Met     bool,
+	EverMet bool,
+	Posted  []bool,
+	LogA    []int,
+	LogB    []int,
+	OutA    []int,
+	OutB    []int,
+	Forced  int,
+	Cuts    int,
+	Merged  bool,
+}
+
+let MaxCuts = 2
+
+let NoMutant = 0
+let AutoPromoteMutant = 1
+let DropOnDemoteMutant = 2
+let NoDedupeMutant = 3
+let NoTieBreakMutant = 4
+let BlindTakeoverMutant = 5
+
+func hi(h Host) int {
+	match h {
+	case A:
+		return 0
+	case B:
+		return 1
+	}
+}
+
+func first() World {
+	World{Role: []int{0, 0}, Epoch: []int{0, 0}, Linked: false, Met: false, EverMet: false,
+		Posted: []bool{false, false}, LogA: []int{0, 0}, LogB: []int{0, 0}, OutA: []int{0, 0}, OutB: []int{0, 0},
+		Forced: 0, Cuts: 0, Merged: false}
+}
+
+func inLog(w World, h int, m int) int {
+	if h == 0 {
+		return w.LogA[m]
+	}
+	return w.LogB[m]
+}
+
+func inOut(w World, h int, m int) int {
+	if h == 0 {
+		return w.OutA[m]
+	}
+	return w.OutB[m]
+}
+
+func setLog(s World, h int, m int, n int) World {
+	let mut w = s
+	if h == 0 {
+		w.LogA[m] = n
+	} else {
+		w.LogB[m] = n
+	}
+	return w
+}
+
+func setOut(s World, h int, m int, n int) World {
+	let mut w = s
+	if h == 0 {
+		w.OutA[m] = n
+	} else {
+		w.OutB[m] = n
+	}
+	return w
+}
+
+func demote(s World, loser int, winner int, mutant int) World {
+	let mut w = s
+	w.Role[loser] = 2
+	w.Epoch[loser] = w.Epoch[winner]
+	for m, _ in w.Posted {
+		if inLog(w, loser, m) > 0 {
+			if inLog(w, winner, m) == 0 && mutant != DropOnDemoteMutant {
+				w = setOut(w, loser, m, 1)
+			}
+			w = setLog(w, loser, m, 0)
+		}
+	}
+	return w
+}
+
+func step(s World, act Act, mutant int) Decision[World, string] {
+	let mut w = s
+	match act {
+	case Boot as a:
+		let h = hi(a.H)
+		let o = 1 - h
+		if w.Role[h] != 0 {
+			return Ignore
+		}
+		if w.Linked && w.Role[o] == 1 {
+			w.Role[h] = 2
+			w.Epoch[h] = w.Epoch[o]
+			w.EverMet = true
+			w.Met = true
+			return Enter{w}
+		}
+		w.Role[h] = 1
+		w.Epoch[h] = 1
+		if w.Linked {
+			w.Met = true
+		}
+		return Enter{w}
+	case Link:
+		if w.Linked {
+			return Ignore
+		}
+		w.Linked = true
+		w.Met = w.Role[0] == 0 || w.Role[1] == 0
+		return Enter{w}
+	case Cut:
+		if !w.Linked || w.Cuts >= MaxCuts {
+			return Ignore
+		}
+		w.Linked = false
+		w.Met = false
+		w.Cuts = w.Cuts + 1
+		if mutant == AutoPromoteMutant {
+			for h, r in w.Role {
+				if r == 2 {
+					w.Role[h] = 1
+				}
+			}
+		}
+		return Enter{w}
+	case Meet:
+		if !w.Linked || w.Met || w.Role[0] == 0 || w.Role[1] == 0 {
+			return Ignore
+		}
+		w.Met = true
+		w.EverMet = true
+		if w.Role[0] == 1 && w.Role[1] == 1 {
+			w.Merged = true
+			if w.Epoch[0] == w.Epoch[1] && mutant == NoTieBreakMutant {
+				return Enter{w}
+			}
+			if w.Epoch[1] > w.Epoch[0] {
+				return Enter{demote(w, 0, 1, mutant)}
+			}
+			return Enter{demote(w, 1, 0, mutant)}
+		}
+		if w.Role[0] == 1 {
+			w.Epoch[1] = w.Epoch[0]
+		} else {
+			w.Epoch[0] = w.Epoch[1]
+		}
+		return Enter{w}
+	case Post as a:
+		let h = hi(a.H)
+		if w.Role[h] == 0 || w.Posted[h] {
+			return Ignore
+		}
+		w.Posted[h] = true
+		if w.Role[h] == 1 {
+			return Enter{setLog(w, h, h, 1)}
+		}
+		return Enter{setOut(w, h, h, 1)}
+	case Flush as a:
+		let h = hi(a.H)
+		let o = 1 - h
+		if w.Role[h] != 2 || w.Role[o] != 1 || !w.Linked || !w.Met {
+			return Ignore
+		}
+		let mut any = false
+		for m, _ in w.Posted {
+			if inOut(w, h, m) > 0 {
+				any = true
+				if inLog(w, o, m) == 0 || mutant == NoDedupeMutant {
+					if inLog(w, o, m) >= 2 {
+						return Ignore
+					}
+					w = setLog(w, o, m, inLog(w, o, m)+1)
+				}
+				if !a.Lost {
+					w = setOut(w, h, m, 0)
+				}
+			}
+		}
+		if !any {
+			return Ignore
+		}
+		return Enter{w}
+	case Takeover as a:
+		let h = hi(a.H)
+		let o = 1 - h
+		if w.Role[h] != 2 || w.Forced >= 1 {
+			return Ignore
+		}
+		if w.Linked && mutant != BlindTakeoverMutant {
+			return Ignore
+		}
+		w.Forced = w.Forced + 1
+		w.Role[h] = 1
+		if mutant != BlindTakeoverMutant {
+			w.Epoch[h] = w.Epoch[o] + 1
+		}
+		for m, _ in w.Posted {
+			if inOut(w, h, m) > 0 {
+				w = setLog(w, h, m, 1)
+				w = setOut(w, h, m, 0)
+			}
+		}
+		return Enter{w}
+	}
+}
+
+func hosts(w World) int {
+	let mut n = 0
+	for r in w.Role {
+		if r == 1 {
+			n = n + 1
+		}
+	}
+	return n
+}
+
+func oneHostWhenSettled(w World) bool {
+	if !w.Linked || !w.Met || w.Role[0] == 0 || w.Role[1] == 0 {
+		return true
+	}
+	hosts(w) == 1
+}
+
+func oneHostAnEpochOnceMet(w World) bool {
+	if !w.EverMet {
+		return true
+	}
+	!(w.Role[0] == 1 && w.Role[1] == 1 && w.Epoch[0] == w.Epoch[1])
+}
+
+func noLostMessage(w World) bool {
+	for m, p in w.Posted {
+		if p && w.LogA[m]+w.LogB[m]+w.OutA[m]+w.OutB[m] == 0 {
+			return false
+		}
+	}
+	return true
+}
+
+func noDuplicate(w World) bool {
+	for m, _ in w.Posted {
+		if w.LogA[m] > 1 || w.LogB[m] > 1 {
+			return false
+		}
+	}
+	return true
+}
+
+func followerHoldsNoLog(w World) bool {
+	for h, r in w.Role {
+		if r == 2 {
+			for m, _ in w.Posted {
+				if inLog(w, h, m) > 0 {
+					return false
+				}
+			}
+		}
+	}
+	return true
+}
+
+func splitSettled(w World) bool     { !oneHostWhenSettled(w) }
+func twoHostsOneEpoch(w World) bool { !oneHostAnEpochOnceMet(w) }
+func lost(w World) bool             { !noLostMessage(w) }
+func duplicated(w World) bool       { !noDuplicate(w) }
+
+func settled(w World) bool {
+		w.Linked && w.Met && hosts(w) == 1 && w.Role[0] != 0 && w.Role[1] != 0 &&
+		w.OutA[0]+w.OutA[1]+w.OutB[0]+w.OutB[1] == 0
+}
+
+func hostIndex(w World) int {
+	if w.Role[0] == 1 {
+		return 0
+	}
+	return 1
+}
+
+func bothInOneLog(w World) bool {
+	if !settled(w) || !w.Posted[0] || !w.Posted[1] {
+		return false
+	}
+	let h = hostIndex(w)
+	inLog(w, h, 0) == 1 && inLog(w, h, 1) == 1
+}
+
+func mergedTwoBoards(w World) bool       { bothInOneLog(w) && w.Merged && w.Forced == 0 }
+func rejoinedAfterTakeover(w World) bool { bothInOneLog(w) && w.Forced == 1 && w.Role[1] == 1 }
+func bothAfterACut(w World) bool         { bothInOneLog(w) && w.Forced == 0 && w.Cuts == 1 }
+func heldWhileCut(w World) bool          { !w.Linked && w.Role[1] == 2 && w.OutB[1] == 1 }
+
+func design(s World, a Act) Decision[World, string]        { return step(s, a, NoMutant) }
+func autoPromote(s World, a Act) Decision[World, string]   { return step(s, a, AutoPromoteMutant) }
+func dropOnDemote(s World, a Act) Decision[World, string]  { return step(s, a, DropOnDemoteMutant) }
+func noDedupe(s World, a Act) Decision[World, string]      { return step(s, a, NoDedupeMutant) }
+func noTieBreak(s World, a Act) Decision[World, string]    { return step(s, a, NoTieBreakMutant) }
+func blindTakeover(s World, a Act) Decision[World, string] { return step(s, a, BlindTakeoverMutant) }
+
+type Design machine[World, Act] {
+	initial: first(),
+	step:    design,
+
+	law OneHostWhenSettled always oneHostWhenSettled,
+	law OneHostAnEpochOnceMet always oneHostAnEpochOnceMet,
+	law NoLostMessage always noLostMessage,
+	law NoDuplicate always noDuplicate,
+	law FollowerHoldsNoLog always followerHoldsNoLog,
+
+	law MergedTwoBoards sometimes mergedTwoBoards,
+	law RejoinedAfterTakeover sometimes rejoinedAfterTakeover,
+	law BothAfterACut sometimes bothAfterACut,
+	law HeldWhileCut sometimes heldWhileCut,
+}
+
+type AutoPromote machine[World, Act] {
+	initial: first(),
+	step:    autoPromote,
+	law Breaks sometimes twoHostsOneEpoch,
+}
+
+type DropOnDemote machine[World, Act] {
+	initial: first(),
+	step:    dropOnDemote,
+	law Breaks sometimes lost,
+}
+
+type NoDedupe machine[World, Act] {
+	initial: first(),
+	step:    noDedupe,
+	law Breaks sometimes duplicated,
+}
+
+type NoTieBreak machine[World, Act] {
+	initial: first(),
+	step:    noTieBreak,
+	law Breaks sometimes splitSettled,
+}
+
+type BlindTakeover machine[World, Act] {
+	initial: first(),
+	step:    blindTakeover,
+	law Breaks sometimes twoHostsOneEpoch,
+}

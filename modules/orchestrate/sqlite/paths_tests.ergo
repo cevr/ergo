@@ -227,6 +227,7 @@ type OrchSQLitePaths {
 	ReadSession(id int) explore.Observed[osObs, osReply, core.Never] fails OrchSqlDriveErr,
 	ApplySession(id int, cmd osCmd) explore.Observed[osObs, osReply, core.Never] fails OrchSqlDriveErr,
 	CloseSession(id int),
+	ClosePathCache(),
 	Counts() (int, int),
 
 	// PathsAgree checks every bounded WAL SQLite orchestrate path up to depth 3
@@ -256,6 +257,7 @@ type OrchSQLitePaths {
 			testing.ActiveEvidenceSink(),
 		)
 		let (openAfter, closeAfter) = Counts()
+		ClosePathCache()
 		let opened = openAfter - openBefore
 		let closed = closeAfter - closeBefore
 		assert opened > 0 && opened == closed
@@ -275,20 +277,58 @@ let osSlots = sync.NewRef(Map[int, osLiveSlot]{})
 let osNextID = sync.NewRef(0)
 let osOpens = sync.NewRef(0)
 let osCloses = sync.NewRef(0)
+let osCachedStore = sync.NewRef[option.Option[Store]](option.None)
 
-// OrchSQLitePathProvider implements OrchSQLitePaths over fresh per-path WAL
-// SQLite databases cleaned up when each session closes.
+func ClosePathCache(_ OrchSQLitePathProvider) needs go.Foreign {
+	let stOpt = sync.Modify(osCachedStore, func(cur option.Option[Store]) (option.Option[Store], option.Option[Store]) {
+		(cur, option.None)
+	})
+	match stOpt {
+	case option.Some[Store] as s:
+		s.Value.Close() catch {
+		case orchestrate.StoreFailed:
+		}
+	case option.None:
+	}
+	let dir = lawWALDir.Get()
+	if dir != "" {
+		cleanupVerifyDB(dir, "orch-paths.db")
+	}
+}
+
+// OrchSQLitePathProvider implements OrchSQLitePaths over a WAL SQLite
+// database reused across sessions via resetStoreData and reopened on osReopen.
 type OrchSQLitePathProvider {} implements OrchSQLitePaths
 
 func OpenSession(_ OrchSQLitePathProvider) int fails OrchSqlOpenErr needs go.Foreign {
-	let (dir, name) = nextVerifyDBPath("orch-paths") catch {
+	let dir = freshWALDir() catch {
 	case orchestrate.StoreFailed as e:
 		return OrchSqlOpenErr{Why: e.Reason}
 	}
-	let st = Open("\(dir)/\(name)") catch {
-	case orchestrate.StoreFailed as e:
-		cleanupVerifyDB(dir, name)
-		return OrchSqlOpenErr{Why: e.Reason}
+	let name = "orch-paths.db"
+	let cached = sync.Modify(osCachedStore, func(cur option.Option[Store]) (option.Option[Store], option.Option[Store]) {
+		(cur, option.None)
+	})
+	let st = match cached {
+	case option.Some[Store] as existing:
+		resetStoreData(existing.Value) catch {
+		case orchestrate.StoreFailed as e:
+			return OrchSqlOpenErr{Why: e.Reason}
+		}
+	case option.None:
+		let opened = Open("\(dir)/\(name)") catch {
+		case orchestrate.StoreFailed as e:
+			cleanupVerifyDB(dir, name)
+			return OrchSqlOpenErr{Why: e.Reason}
+		}
+		resetStoreData(opened) catch {
+		case orchestrate.StoreFailed as e:
+			opened.Close() catch {
+			case orchestrate.StoreFailed:
+			}
+			cleanupVerifyDB(dir, name)
+			return OrchSqlOpenErr{Why: e.Reason}
+		}
 	}
 	let id = sync.Modify(osNextID, func(cur int) (int, int) { (cur + 1, cur + 1) })
 	osOpens.Update(func(cur int) int { cur + 1 })
@@ -380,10 +420,20 @@ func CloseSession(_ OrchSQLitePathProvider, id int) needs go.Foreign {
 			return
 		}
 		s.Value.closed.Set(true)
-		s.Value.store.Get().Close() catch {
-		case orchestrate.StoreFailed:
+		let st = s.Value.store.Get()
+		let kept = sync.Modify(osCachedStore, func(cur option.Option[Store]) (bool, option.Option[Store]) {
+			match cur {
+			case option.None:
+				(true, option.Some[Store]{Value: st})
+			case option.Some[Store]:
+				(false, cur)
+			}
+		})
+		if !kept {
+			st.Close() catch {
+			case orchestrate.StoreFailed:
+			}
 		}
-		cleanupVerifyDB(s.Value.dir, s.Value.name)
 		osCloses.Update(func(cur int) int { cur + 1 })
 	case option.None:
 	}

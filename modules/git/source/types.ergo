@@ -1,0 +1,70 @@
+// Package source is the source control service contract: a log of
+// changesets over Git blob and tree ids, wants-only object reads, history
+// queries and compare-and-set refs, as operation types whose laws every
+// provider holds.
+
+import github.com/cevr/ergo/modules/git/oid
+
+// ChangeID names one changeset; providers give equal ids to equal
+// changesets, and a client only compares them.
+type ChangeID string
+
+// Mode is the kind of a file in a changeset.
+type Mode = Regular{} | Executable{} | Symlink{}
+
+// FileChange is one entry of a changeset: a path that now holds a blob, or
+// a path whose file is gone. A Put on a path replaces a file at a folder of
+// it and every file under it.
+type FileChange = Put{Path string, Blob oid.OID, Mode Mode} | Delete{Path string}
+
+// Identity is a person and the time, in Unix seconds and a +hhmm zone, at
+// which they made or recorded a change.
+type Identity {
+	Name  string,
+	Email string,
+	When  int64,
+	Zone  string,
+}
+
+// Meta is what a changeset says about itself.
+type Meta {
+	Author    Identity,
+	Committer Identity,
+	Message   string,
+}
+
+// Changeset is one stored change: its parents, and what changed against its
+// first parent (against no files for a root), sorted by path, with no entry
+// that changes nothing.
+type Changeset {
+	ID        ChangeID,
+	Parents   []ChangeID,
+	Changes   []FileChange,
+	Author    Identity,
+	Committer Identity,
+	Message   string,
+}
+
+// Object is a blob or a tree as Git encodes it, named by its Git id.
+type Object {
+	ID   oid.OID,
+	Kind oid.Kind,
+	Data []byte,
+}
+
+// Error is the closed failure union of the source control service.
+type Error =
+	| TooLarge{Size int, Max int}
+	| StoreFailed{Why string}
+	| UnknownParent{ID ChangeID}
+	| MissingBlob{Path string, Blob oid.OID}
+	| PathClash{Path string, Other string}
+	| Invalid{Why string}
+	| Denied{Why string}
+	| Unknown{ID ChangeID}
+	| Missing{ID oid.OID}
+	| Corrupt{ID oid.OID, Why string}
+	| LimitExceeded{MaxBytes int}
+	| InvalidName{Name string, Why string}
+	| Stale{Name string}
+	| Protected{Name string}

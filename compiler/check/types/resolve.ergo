@@ -182,15 +182,11 @@ func NewEnv(s store.Store, files []syntax.Parsed, p syntax.Parsed, params []stri
 // WithSelf gives type positions in an operation or its member law a
 // claimant. The parameter names remain those of the lexical declaration.
 func WithSelf(e Env, arity int) Env {
-	let mut out = e
-	out.selfArity = arity + 1
-	out
+	Env{..e, selfArity: arity + 1}
 }
 
 func WithSelfBounds(e Env, bounds []SelfBound) Env {
-	let mut out = e
-	out.selfBounds = bounds
-	out
+	Env{..e, selfBounds: bounds}
 }
 
 // SelfSites returns 2 when a type expression re-applies Self, 1 when it

@@ -1,0 +1,220 @@
+type Act = Start{} | Started{} | StartFail{} | TurnBegin{} | TurnEnd{} | Release{} | ProcExit{} | Call{Old bool} | Touch{} | Idle{}
+
+type World {
+	S        int,
+	Proc     int,
+	Gen      int,
+	Live     int,
+	Expired  bool,
+	Accepted int,
+	Stale    bool,
+	Orphan   bool,
+	Revived  bool,
+	Touched  bool,
+}
+
+let MaxGen = 2
+
+let NoMutant = 0
+let KeepTokenMutant = 1
+let LeaveProcessMutant = 2
+let CallRevivesMutant = 3
+let SecondProcessMutant = 4
+
+func first() World {
+	World{S: 0, Proc: 0, Gen: 0, Live: 0, Expired: false, Accepted: 0, Stale: false, Orphan: false, Revived: false, Touched: false}
+}
+
+func end(s World, to int, mutant int) World {
+	let mut w = s
+	w.S = to
+	if mutant != LeaveProcessMutant {
+		w.Proc = 0
+	}
+	if mutant != KeepTokenMutant {
+		w.Live = 0
+	}
+	w.Expired = false
+	if w.Proc > 0 {
+		w.Orphan = true
+	}
+	return w
+}
+
+func step(s World, act Act, mutant int) Decision[World, string] {
+	let mut w = s
+	match act {
+	case Start:
+		let mut can = w.S == 0 || w.S == 4 || w.S == 5
+		if mutant == SecondProcessMutant {
+			can = can || w.S == 2
+		}
+		if !can || w.Gen >= MaxGen {
+			return Ignore
+		}
+		w.Gen = w.Gen + 1
+		w.Proc = w.Proc + 1
+		w.Live = w.Gen
+		w.Expired = false
+		w.S = 1
+		return Enter{w}
+	case Started:
+		if w.S != 1 {
+			return Ignore
+		}
+		w.S = 2
+		return Enter{w}
+	case StartFail:
+		if w.S != 1 {
+			return Ignore
+		}
+		return Enter{end(w, 5, mutant)}
+	case TurnBegin:
+		if w.S != 2 {
+			return Ignore
+		}
+		w.S = 3
+		return Enter{w}
+	case TurnEnd:
+		if w.S != 3 {
+			return Ignore
+		}
+		w.S = 2
+		return Enter{w}
+	case Release:
+		if w.S != 2 {
+			return Ignore
+		}
+		return Enter{end(w, 4, mutant)}
+	case ProcExit:
+		if w.S != 1 && w.S != 2 && w.S != 3 {
+			return Ignore
+		}
+		return Enter{end(w, 5, keepOnly(mutant))}
+	case Call as a:
+		if w.Accepted >= 2 {
+			return Ignore
+		}
+		let mut token = w.Gen
+		if a.Old {
+			token = w.Gen - 1
+		}
+		if token <= 0 {
+			return Ignore
+		}
+		if token != w.Live && !(mutant == KeepTokenMutant && a.Old) {
+			return Ignore
+		}
+		if w.Expired {
+			if mutant != CallRevivesMutant {
+				return Ignore
+			}
+			w.Expired = false
+			w.Revived = true
+		}
+		if token != w.Gen {
+			w.Stale = true
+		}
+		w.Accepted = w.Accepted + 1
+		return Enter{w}
+	case Idle:
+		if w.Live == 0 || w.Expired || w.S == 3 {
+			return Ignore
+		}
+		w.Expired = true
+		return Enter{w}
+	case Touch:
+		if w.S != 3 || !w.Expired {
+			return Ignore
+		}
+		w.Expired = false
+		w.Touched = true
+		return Enter{w}
+	}
+}
+
+func keepOnly(mutant int) int {
+	if mutant == KeepTokenMutant {
+		return KeepTokenMutant
+	}
+	return NoMutant
+}
+
+func oneProcess(w World) bool { w.Proc <= 1 }
+
+func noOrphan(w World) bool { !w.Orphan }
+
+func processOnlyWhileAttached(w World) bool {
+	if w.S == 0 || w.S == 4 || w.S == 5 {
+		return w.Proc == 0
+	}
+	w.Proc == 1
+}
+
+func tokenDiesWithSession(w World) bool {
+	if w.S == 0 || w.S == 4 || w.S == 5 {
+		return w.Live == 0
+	}
+	w.Live == w.Gen
+}
+
+func noStaleToken(w World) bool { !w.Stale }
+
+func onlyATurnRevives(w World) bool { !w.Revived }
+
+func twoProcesses(w World) bool  { !oneProcess(w) }
+func orphaned(w World) bool      { !noOrphan(w) }
+func staleAccepted(w World) bool { !noStaleToken(w) }
+func revivedByCall(w World) bool { !onlyATurnRevives(w) }
+
+func restarted(w World) bool          { w.Gen == 2 && w.S == 2 }
+func calledTwice(w World) bool        { w.Accepted == 2 && !w.Stale }
+func expiredThenTouched(w World) bool { w.Touched && w.Accepted == 2 }
+func releasedClean(w World) bool      { w.S == 4 && w.Proc == 0 && w.Live == 0 }
+
+func design(s World, a Act) Decision[World, string]        { return step(s, a, NoMutant) }
+func keepToken(s World, a Act) Decision[World, string]     { return step(s, a, KeepTokenMutant) }
+func leaveProcess(s World, a Act) Decision[World, string]  { return step(s, a, LeaveProcessMutant) }
+func callRevives(s World, a Act) Decision[World, string]   { return step(s, a, CallRevivesMutant) }
+func secondProcess(s World, a Act) Decision[World, string] { return step(s, a, SecondProcessMutant) }
+
+type Design machine[World, Act] {
+	initial: first(),
+	step:    design,
+
+	law OneProcess always oneProcess,
+	law NoOrphan always noOrphan,
+	law ProcessOnlyWhileAttached always processOnlyWhileAttached,
+	law TokenDiesWithSession always tokenDiesWithSession,
+	law NoStaleToken always noStaleToken,
+	law OnlyATurnRevives always onlyATurnRevives,
+
+	law Restarted sometimes restarted,
+	law CalledTwice sometimes calledTwice,
+	law ExpiredThenTouched sometimes expiredThenTouched,
+	law ReleasedClean sometimes releasedClean,
+}
+
+type KeepToken machine[World, Act] {
+	initial: first(),
+	step:    keepToken,
+	law Breaks sometimes staleAccepted,
+}
+
+type LeaveProcess machine[World, Act] {
+	initial: first(),
+	step:    leaveProcess,
+	law Breaks sometimes orphaned,
+}
+
+type CallRevives machine[World, Act] {
+	initial: first(),
+	step:    callRevives,
+	law Breaks sometimes revivedByCall,
+}
+
+type SecondProcess machine[World, Act] {
+	initial: first(),
+	step:    secondProcess,
+	law Breaks sometimes twoProcesses,
+}

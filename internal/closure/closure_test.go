@@ -165,6 +165,8 @@ var declared = map[string][]allowance{
 			// (runnerPackages), and TestStdStrengthsTable reads
 			// internal/rpcgen's for the rpc row's benchmark (benchmarkIndex).
 			{"cmd/ergo", program, "TestDenseAgreesWithModel builds the ergo CLI once per process and builds its model program with it (DN1)"},
+			{"internal/sketch/std/markdown/testdata/spec.json", file, "TestStdMarkdownSpec and TestStdMarkdownNative hold std markdown to the CommonMark 0.31.2 spec corpus"},
+			{"internal/sketch/std/markdown/testdata/gfm.json", file, "TestStdMarkdownSpec and TestStdMarkdownNative hold std markdown to the GFM extensions fixture"},
 		},
 		[]allowance{{"docs/receipts/std-count.md", file, "TestStdStrengthsTable holds the counted: cells of the strengths table to the std count receipt's packages (std-better SB0)"}},
 		[]allowance{{"runtime/v1/csv/*_test.go", files, "TestStdStrengthsTable reads the test files of the leaf csv for the benchmark its table names"}},

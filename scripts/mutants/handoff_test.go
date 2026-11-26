@@ -404,3 +404,31 @@ func goBinaryPath(t *testing.T) string {
 	}
 	return "/usr/bin/go"
 }
+
+func TestNormalizeDelegatedKillerUnderContext(t *testing.T) {
+	known := []string{
+		"modules/orchestrate/memory:law:OrchMemoryPaths.PathsAgree",
+		"modules/orchestrate/memory:law:orchestrate.Api.ApiQueueRoundTrips",
+	}
+	for _, tc := range []struct {
+		raw  string
+		want string
+	}{
+		{
+			raw:  "modules/orchestrate/memory:law OrchMemoryPaths.PathsAgree under onOrchMemoryPaths",
+			want: "modules/orchestrate/memory:law:OrchMemoryPaths.PathsAgree",
+		},
+		{
+			raw:  "modules/orchestrate/memory:law orchestrate.Api.ApiQueueRoundTrips under overMemoryApi",
+			want: "modules/orchestrate/memory:law:orchestrate.Api.ApiQueueRoundTrips",
+		},
+		{
+			raw:  "modules/orchestrate/sqlite:law PersistenceChecks.ConcurrentMultiWriterWAL for livePersistence",
+			want: "modules/orchestrate/sqlite:law:PersistenceChecks.ConcurrentMultiWriterWAL",
+		},
+	} {
+		if got := normalizeDelegatedKiller(tc.raw, known); got != tc.want {
+			t.Errorf("normalizeDelegatedKiller(%q) = %q, want %q", tc.raw, got, tc.want)
+		}
+	}
+}
