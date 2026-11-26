@@ -299,6 +299,7 @@ extern go time.Time.Format func (t Time) Format(layout string) string needs go.F
 extern go time.Time.GoString func (t Time) GoString() string needs go.Foreign
 
 // ergo:go func (*Time).GobDecode(data []byte) error
+// ergo:reads data
 extern go time.Time.GobDecode func (t *Time) GobDecode(data []byte) fails go.Error needs go.Foreign
 
 // ergo:go func (Time).GobEncode() ([]byte, error)
@@ -380,12 +381,15 @@ extern go time.Time.UnixMilli func (t Time) UnixMilli() int64
 extern go time.Time.UnixNano func (t Time) UnixNano() int64
 
 // ergo:go func (*Time).UnmarshalBinary(data []byte) error
+// ergo:reads data
 extern go time.Time.UnmarshalBinary func (t *Time) UnmarshalBinary(data []byte) fails go.Error needs go.Foreign
 
 // ergo:go func (*Time).UnmarshalJSON(data []byte) error
+// ergo:reads data
 extern go time.Time.UnmarshalJSON func (t *Time) UnmarshalJSON(data []byte) fails go.Error needs go.Foreign
 
 // ergo:go func (*Time).UnmarshalText(data []byte) error
+// ergo:reads data
 extern go time.Time.UnmarshalText func (t *Time) UnmarshalText(data []byte) fails go.Error needs go.Foreign
 
 // ergo:go func (Time).Weekday() Weekday

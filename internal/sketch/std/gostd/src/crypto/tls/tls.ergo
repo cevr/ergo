@@ -180,6 +180,7 @@ extern go crypto/tls.Config.DecryptTicket func (c *Config) DecryptTicket(identit
 extern go crypto/tls.Config.EncryptTicket func (c *Config) EncryptTicket(cs ConnectionState, ss own *SessionState) []byte fails go.Error needs go.Foreign
 
 // ergo:go func (*Config).SetSessionTicketKeys(keys [][32]byte)
+// ergo:reads keys
 extern go crypto/tls.Config.SetSessionTicketKeys func (c *Config) SetSessionTicketKeys(keys [][32]byte) needs go.Foreign
 
 // ergo:go type Conn struct

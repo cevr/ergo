@@ -8,6 +8,7 @@ import go io
 extern go crypto/ed25519.GenerateKey func GenerateKey(random own io.Reader) (PublicKey, PrivateKey) fails go.Error needs go.Foreign
 
 // ergo:go func NewKeyFromSeed(seed []byte) PrivateKey
+// ergo:reads seed
 extern go crypto/ed25519.NewKeyFromSeed func NewKeyFromSeed(seed []byte) PrivateKey needs go.Foreign
 
 // ergo:go type Options struct
@@ -29,6 +30,7 @@ extern go crypto/ed25519.PrivateKey type PrivateKey []byte
 // ergo:refused PrivateKey.Public: result 1: type PublicKey is refused: Ergo has no any; an empty interface hides the host type
 
 // ergo:go func (PrivateKey).Seed() []byte
+// ergo:reads priv
 extern go crypto/ed25519.PrivateKey.Seed func (priv PrivateKey) Seed() []byte needs go.Foreign
 
 // ergo:go func (PrivateKey).Sign(rand io.Reader, message []byte, opts crypto.SignerOpts) (signature []byte, err error)
@@ -56,7 +58,9 @@ extern go crypto/ed25519.Sign func Sign(privateKey PrivateKey, message []byte) [
 extern go crypto/ed25519.SignatureSize let SignatureSize int
 
 // ergo:go func Verify(publicKey PublicKey, message []byte, sig []byte) bool
+// ergo:reads publicKey
 extern go crypto/ed25519.Verify func Verify(publicKey PublicKey, message []byte, sig []byte) bool needs go.Foreign
 
 // ergo:go func VerifyWithOptions(publicKey PublicKey, message []byte, sig []byte, opts *Options) error
+// ergo:reads publicKey
 extern go crypto/ed25519.VerifyWithOptions func VerifyWithOptions(publicKey PublicKey, message []byte, sig []byte, opts own *Options) fails go.Error needs go.Foreign

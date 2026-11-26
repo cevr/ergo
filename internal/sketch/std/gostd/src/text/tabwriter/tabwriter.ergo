@@ -38,4 +38,5 @@ extern go text/tabwriter.Writer.Flush func (b *Writer) Flush() fails go.Error ne
 extern go text/tabwriter.Writer.Init func (b *Writer) Init(output own io.Writer, minwidth int, tabwidth int, padding int, padchar byte, flags uint) option.Option[go.Ref[Writer]] needs go.Foreign
 
 // ergo:go func (*Writer).Write(buf []byte) (n int, err error)
+// ergo:reads buf
 extern go text/tabwriter.Writer.Write func (b *Writer) Write(buf []byte) int fails go.Error needs go.Foreign

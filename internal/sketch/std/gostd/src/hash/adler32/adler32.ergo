@@ -4,6 +4,7 @@
 import go hash
 
 // ergo:go func Checksum(data []byte) uint32
+// ergo:reads data
 extern go hash/adler32.Checksum func Checksum(data []byte) uint32 needs go.Foreign
 
 // ergo:go func New() hash.Hash32

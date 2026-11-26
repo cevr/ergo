@@ -208,6 +208,7 @@ extern go crypto/x509.ECDSAWithSHA512 let ECDSAWithSHA512 SignatureAlgorithm
 extern go crypto/x509.Ed25519 let Ed25519 PublicKeyAlgorithm
 
 // ergo:go func EncryptPEMBlock(rand io.Reader, blockType string, data []byte, password []byte, alg PEMCipher) (*pem.Block, error)
+// ergo:reads data
 extern go crypto/x509.EncryptPEMBlock func EncryptPEMBlock(rand own io.Reader, blockType string, data []byte, password []byte, alg PEMCipher) go.Ref[pem.Block] fails go.Error needs go.Foreign
 
 // ergo:go var ErrUnsupportedAlgorithm error
@@ -388,6 +389,7 @@ extern go crypto/x509.OID.AppendText func (o OID) AppendText(b []byte) []byte fa
 extern go crypto/x509.OID.Equal func (oid OID) Equal(other OID) bool needs go.Foreign
 
 // ergo:go func (OID).EqualASN1OID(other asn1.ObjectIdentifier) bool
+// ergo:reads other
 extern go crypto/x509.OID.EqualASN1OID func (oid OID) EqualASN1OID(other asn1.ObjectIdentifier) bool needs go.Foreign
 
 // ergo:go func (OID).MarshalBinary() ([]byte, error)
@@ -400,15 +402,19 @@ extern go crypto/x509.OID.MarshalText func (o OID) MarshalText() []byte fails go
 extern go crypto/x509.OID.String func (oid OID) String() string needs go.Foreign
 
 // ergo:go func (*OID).UnmarshalBinary(b []byte) error
+// ergo:reads b
 extern go crypto/x509.OID.UnmarshalBinary func (o *OID) UnmarshalBinary(b []byte) fails go.Error needs go.Foreign
 
 // ergo:go func (*OID).UnmarshalText(text []byte) error
+// ergo:reads text
 extern go crypto/x509.OID.UnmarshalText func (o *OID) UnmarshalText(text []byte) fails go.Error needs go.Foreign
 
 // ergo:go func OIDFromASN1OID(asn1OID asn1.ObjectIdentifier) (OID, error)
+// ergo:reads asn1OID
 extern go crypto/x509.OIDFromASN1OID func OIDFromASN1OID(asn1OID asn1.ObjectIdentifier) OID fails go.Error needs go.Foreign
 
 // ergo:go func OIDFromInts(oid []uint64) (OID, error)
+// ergo:reads oid
 extern go crypto/x509.OIDFromInts func OIDFromInts(oid []uint64) OID fails go.Error needs go.Foreign
 
 // ergo:go type PEMCipher int

@@ -214,51 +214,66 @@ extern go net.Flags.String func (f Flags) String() string needs go.Foreign
 extern go net.HardwareAddr type HardwareAddr []byte
 
 // ergo:go func (HardwareAddr).String() string
+// ergo:reads a
 extern go net.HardwareAddr.String func (a HardwareAddr) String() string needs go.Foreign
 
 // ergo:go type IP []byte
 extern go net.IP type IP []byte
 
 // ergo:go func (IP).AppendText(b []byte) ([]byte, error)
+// ergo:reads ip
 extern go net.IP.AppendText func (ip IP) AppendText(b []byte) []byte fails go.Error needs go.Foreign
 
 // ergo:go func (IP).DefaultMask() IPMask
+// ergo:reads ip
 extern go net.IP.DefaultMask func (ip IP) DefaultMask() IPMask needs go.Foreign
 
 // ergo:go func (IP).Equal(x IP) bool
+// ergo:reads ip x
 extern go net.IP.Equal func (ip IP) Equal(x IP) bool needs go.Foreign
 
 // ergo:go func (IP).IsGlobalUnicast() bool
+// ergo:reads ip
 extern go net.IP.IsGlobalUnicast func (ip IP) IsGlobalUnicast() bool needs go.Foreign
 
 // ergo:go func (IP).IsInterfaceLocalMulticast() bool
+// ergo:reads ip
 extern go net.IP.IsInterfaceLocalMulticast func (ip IP) IsInterfaceLocalMulticast() bool needs go.Foreign
 
 // ergo:go func (IP).IsLinkLocalMulticast() bool
+// ergo:reads ip
 extern go net.IP.IsLinkLocalMulticast func (ip IP) IsLinkLocalMulticast() bool needs go.Foreign
 
 // ergo:go func (IP).IsLinkLocalUnicast() bool
+// ergo:reads ip
 extern go net.IP.IsLinkLocalUnicast func (ip IP) IsLinkLocalUnicast() bool needs go.Foreign
 
 // ergo:go func (IP).IsLoopback() bool
+// ergo:reads ip
 extern go net.IP.IsLoopback func (ip IP) IsLoopback() bool needs go.Foreign
 
 // ergo:go func (IP).IsMulticast() bool
+// ergo:reads ip
 extern go net.IP.IsMulticast func (ip IP) IsMulticast() bool needs go.Foreign
 
 // ergo:go func (IP).IsPrivate() bool
+// ergo:reads ip
 extern go net.IP.IsPrivate func (ip IP) IsPrivate() bool needs go.Foreign
 
 // ergo:go func (IP).IsUnspecified() bool
+// ergo:reads ip
 extern go net.IP.IsUnspecified func (ip IP) IsUnspecified() bool needs go.Foreign
 
 // ergo:go func (IP).MarshalText() ([]byte, error)
+// ergo:reads ip
 extern go net.IP.MarshalText func (ip IP) MarshalText() []byte fails go.Error needs go.Foreign
 
 // ergo:go func (IP).Mask(mask IPMask) IP
+// ergo:reads ip mask
 extern go net.IP.Mask func (ip IP) Mask(mask IPMask) IP needs go.Foreign
 
 // ergo:go func (IP).String() string
+// ergo:reads ip
 extern go net.IP.String func (ip IP) String() string needs go.Foreign
 
 // ergo:go func (IP).To16() IP
@@ -268,6 +283,7 @@ extern go net.IP.To16 func (ip IP) To16() IP needs go.Foreign
 extern go net.IP.To4 func (ip IP) To4() IP needs go.Foreign
 
 // ergo:go func (*IP).UnmarshalText(text []byte) error
+// ergo:reads text
 extern go net.IP.UnmarshalText func (ip *IP) UnmarshalText(text []byte) fails go.Error needs go.Foreign
 
 // ergo:go type IPAddr struct
@@ -343,9 +359,11 @@ extern go net.IPConn.WriteToIP func (c *IPConn) WriteToIP(b []byte, addr own *IP
 extern go net.IPMask type IPMask []byte
 
 // ergo:go func (IPMask).Size() (ones int, bits int)
+// ergo:reads m
 extern go net.IPMask.Size func (m IPMask) Size() (int, int) needs go.Foreign
 
 // ergo:go func (IPMask).String() string
+// ergo:reads m
 extern go net.IPMask.String func (m IPMask) String() string needs go.Foreign
 
 // ergo:go type IPNet struct
@@ -355,6 +373,7 @@ extern go net.IPNet type IPNet {
 }
 
 // ergo:go func (*IPNet).Contains(ip IP) bool
+// ergo:reads ip
 extern go net.IPNet.Contains func (n *IPNet) Contains(ip IP) bool needs go.Foreign
 
 // ergo:go func (*IPNet).Network() string

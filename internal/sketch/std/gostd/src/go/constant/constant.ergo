@@ -62,6 +62,7 @@ extern go go/constant.MakeBool func MakeBool(b bool) Value needs go.Foreign
 extern go go/constant.MakeFloat64 func MakeFloat64(x float64) Value needs go.Foreign
 
 // ergo:go func MakeFromBytes(bytes []byte) Value
+// ergo:reads bytes
 extern go go/constant.MakeFromBytes func MakeFromBytes(bytes []byte) Value needs go.Foreign
 
 // ergo:go func MakeFromLiteral(lit string, tok token.Token, zero uint) Value

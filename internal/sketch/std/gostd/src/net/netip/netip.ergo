@@ -92,9 +92,11 @@ extern go net/netip.Addr.StringExpanded func (ip Addr) StringExpanded() string
 extern go net/netip.Addr.Unmap func (ip Addr) Unmap() Addr
 
 // ergo:go func (*Addr).UnmarshalBinary(b []byte) error
+// ergo:reads b
 extern go net/netip.Addr.UnmarshalBinary func (ip *Addr) UnmarshalBinary(b []byte) fails go.Error
 
 // ergo:go func (*Addr).UnmarshalText(text []byte) error
+// ergo:reads text
 extern go net/netip.Addr.UnmarshalText func (ip *Addr) UnmarshalText(text []byte) fails go.Error
 
 // ergo:go func (Addr).WithZone(zone string) Addr
@@ -110,6 +112,7 @@ extern go net/netip.AddrFrom16 func AddrFrom16(addr [16]byte) Addr
 extern go net/netip.AddrFrom4 func AddrFrom4(addr [4]byte) Addr
 
 // ergo:go func AddrFromSlice(slice []byte) (ip Addr, ok bool)
+// ergo:reads slice
 extern go net/netip.AddrFromSlice func AddrFromSlice(slice []byte) (Addr, bool)
 
 // ergo:go type AddrPort struct
@@ -146,9 +149,11 @@ extern go net/netip.AddrPort.Port func (p AddrPort) Port() uint16
 extern go net/netip.AddrPort.String func (p AddrPort) String() string
 
 // ergo:go func (*AddrPort).UnmarshalBinary(b []byte) error
+// ergo:reads b
 extern go net/netip.AddrPort.UnmarshalBinary func (p *AddrPort) UnmarshalBinary(b []byte) fails go.Error
 
 // ergo:go func (*AddrPort).UnmarshalText(text []byte) error
+// ergo:reads text
 extern go net/netip.AddrPort.UnmarshalText func (p *AddrPort) UnmarshalText(text []byte) fails go.Error
 
 // ergo:go func AddrPortFrom(ip Addr, port uint16) AddrPort
@@ -233,9 +238,11 @@ extern go net/netip.Prefix.Overlaps func (p Prefix) Overlaps(o Prefix) bool
 extern go net/netip.Prefix.String func (p Prefix) String() string
 
 // ergo:go func (*Prefix).UnmarshalBinary(b []byte) error
+// ergo:reads b
 extern go net/netip.Prefix.UnmarshalBinary func (p *Prefix) UnmarshalBinary(b []byte) fails go.Error
 
 // ergo:go func (*Prefix).UnmarshalText(text []byte) error
+// ergo:reads text
 extern go net/netip.Prefix.UnmarshalText func (p *Prefix) UnmarshalText(text []byte) fails go.Error
 
 // ergo:go func PrefixFrom(ip Addr, bits int) Prefix

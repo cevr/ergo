@@ -49,7 +49,9 @@ extern go crypto/dsa.PublicKey type PublicKey {
 }
 
 // ergo:go func Sign(random io.Reader, priv *PrivateKey, hash []byte) (r *big.Int, s *big.Int, err error)
+// ergo:reads p2
 extern go crypto/dsa.Sign func Sign(random own io.Reader, priv own *PrivateKey, p2 []byte) (option.Option[go.Ref[big.Int]], option.Option[go.Ref[big.Int]]) fails go.Error needs go.Foreign
 
 // ergo:go func Verify(pub *PublicKey, hash []byte, r *big.Int, s *big.Int) bool
+// ergo:reads p1
 extern go crypto/dsa.Verify func Verify(pub own *PublicKey, p1 []byte, r own *big.Int, s own *big.Int) bool needs go.Foreign

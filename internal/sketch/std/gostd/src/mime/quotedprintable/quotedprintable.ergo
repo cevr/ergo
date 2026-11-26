@@ -26,4 +26,5 @@ extern go mime/quotedprintable.Writer type Writer {
 extern go mime/quotedprintable.Writer.Close func (w own *Writer) Close() fails go.Error needs go.Foreign
 
 // ergo:go func (*Writer).Write(p []byte) (n int, err error)
+// ergo:reads p
 extern go mime/quotedprintable.Writer.Write func (w *Writer) Write(p []byte) int fails go.Error needs go.Foreign

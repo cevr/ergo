@@ -47,9 +47,11 @@ extern go encoding/asn1.MarshalWithParams func MarshalWithParams(val go.Any, par
 extern go encoding/asn1.ObjectIdentifier type ObjectIdentifier []int
 
 // ergo:go func (ObjectIdentifier).Equal(other ObjectIdentifier) bool
+// ergo:reads oi other
 extern go encoding/asn1.ObjectIdentifier.Equal func (oi ObjectIdentifier) Equal(other ObjectIdentifier) bool needs go.Foreign
 
 // ergo:go func (ObjectIdentifier).String() string
+// ergo:reads oi
 extern go encoding/asn1.ObjectIdentifier.String func (oi ObjectIdentifier) String() string needs go.Foreign
 
 // ergo:go type RawContent []byte

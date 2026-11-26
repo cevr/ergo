@@ -131,4 +131,5 @@ extern go log/syslog.Writer.Notice func (w *Writer) Notice(m string) fails go.Er
 extern go log/syslog.Writer.Warning func (w *Writer) Warning(m string) fails go.Error needs go.Foreign
 
 // ergo:go func (*Writer).Write(b []byte) (int, error)
+// ergo:reads b
 extern go log/syslog.Writer.Write func (w *Writer) Write(b []byte) int fails go.Error needs go.Foreign

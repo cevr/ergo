@@ -32,9 +32,11 @@ extern go crypto/cipher.NewCBCDecrypter func NewCBCDecrypter(b own Block, iv []b
 extern go crypto/cipher.NewCBCEncrypter func NewCBCEncrypter(b own Block, iv []byte) BlockMode needs go.Foreign
 
 // ergo:go func NewCFBDecrypter(block Block, iv []byte) Stream
+// ergo:reads iv
 extern go crypto/cipher.NewCFBDecrypter func NewCFBDecrypter(block own Block, iv []byte) Stream needs go.Foreign
 
 // ergo:go func NewCFBEncrypter(block Block, iv []byte) Stream
+// ergo:reads iv
 extern go crypto/cipher.NewCFBEncrypter func NewCFBEncrypter(block own Block, iv []byte) Stream needs go.Foreign
 
 // ergo:go func NewCTR(block Block, iv []byte) Stream
@@ -53,6 +55,7 @@ extern go crypto/cipher.NewGCMWithRandomNonce func NewGCMWithRandomNonce(cipher 
 extern go crypto/cipher.NewGCMWithTagSize func NewGCMWithTagSize(cipher own Block, tagSize int) AEAD fails go.Error needs go.Foreign
 
 // ergo:go func NewOFB(b Block, iv []byte) Stream
+// ergo:reads iv
 extern go crypto/cipher.NewOFB func NewOFB(b own Block, iv []byte) Stream needs go.Foreign
 
 // ergo:go type Stream interface

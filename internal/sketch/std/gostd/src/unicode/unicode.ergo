@@ -791,12 +791,15 @@ extern go unicode.SimpleFold func SimpleFold(r rune) rune
 extern go unicode.SpecialCase type SpecialCase []CaseRange
 
 // ergo:go func (SpecialCase).ToLower(r rune) rune
+// ergo:reads special
 extern go unicode.SpecialCase.ToLower func (special SpecialCase) ToLower(r rune) rune
 
 // ergo:go func (SpecialCase).ToTitle(r rune) rune
+// ergo:reads special
 extern go unicode.SpecialCase.ToTitle func (special SpecialCase) ToTitle(r rune) rune
 
 // ergo:go func (SpecialCase).ToUpper(r rune) rune
+// ergo:reads special
 extern go unicode.SpecialCase.ToUpper func (special SpecialCase) ToUpper(r rune) rune
 
 // ergo:go var Sundanese *RangeTable

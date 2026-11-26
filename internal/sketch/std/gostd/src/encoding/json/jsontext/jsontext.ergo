@@ -100,6 +100,7 @@ extern go encoding/json/jsontext.Encoder.StackPointer func (e *Encoder) StackPoi
 extern go encoding/json/jsontext.Encoder.WriteToken func (e *Encoder) WriteToken(t Token) fails go.Error needs go.Foreign
 
 // ergo:go func (*Encoder).WriteValue(v Value) error
+// ergo:reads v
 extern go encoding/json/jsontext.Encoder.WriteValue func (e *Encoder) WriteValue(v Value) fails go.Error needs go.Foreign
 
 // ergo:go var EndArray Token
@@ -275,6 +276,7 @@ extern go encoding/json/jsontext.Value type Value []byte
 // ergo:refused Value.Canonicalize: parameter 1: type Options is refused: it is declared in an internal or vendored package
 
 // ergo:go func (Value).Clone() Value
+// ergo:reads v
 extern go encoding/json/jsontext.Value.Clone func (v Value) Clone() Value needs go.Foreign
 
 // ergo:go func (*Value).Compact(opts ...Options) error
@@ -290,15 +292,18 @@ extern go encoding/json/jsontext.Value.Clone func (v Value) Clone() Value needs 
 // ergo:refused Value.IsValid: parameter 1: type Options is refused: it is declared in an internal or vendored package
 
 // ergo:go func (Value).Kind() Kind
+// ergo:reads v
 extern go encoding/json/jsontext.Value.Kind func (v Value) Kind() Kind needs go.Foreign
 
 // ergo:go func (Value).MarshalJSON() ([]byte, error)
 extern go encoding/json/jsontext.Value.MarshalJSON func (v Value) MarshalJSON() []byte fails go.Error needs go.Foreign
 
 // ergo:go func (Value).String() string
+// ergo:reads v
 extern go encoding/json/jsontext.Value.String func (v Value) String() string needs go.Foreign
 
 // ergo:go func (*Value).UnmarshalJSON(b []byte) error
+// ergo:reads b
 extern go encoding/json/jsontext.Value.UnmarshalJSON func (v *Value) UnmarshalJSON(b []byte) fails go.Error needs go.Foreign
 
 // ergo:go func WithIndent(indent string) Options

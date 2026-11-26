@@ -25,6 +25,7 @@ extern go strings.Builder.Reset func (b *Builder) Reset()
 extern go strings.Builder.String func (b *Builder) String() string
 
 // ergo:go func (*Builder).Write(p []byte) (int, error)
+// ergo:reads p
 extern go strings.Builder.Write func (b *Builder) Write(p []byte) int fails go.Error
 
 // ergo:go func (*Builder).WriteByte(c byte) error
@@ -213,18 +214,21 @@ extern go strings.Title func Title(s string) string
 extern go strings.ToLower func ToLower(s string) string
 
 // ergo:go func ToLowerSpecial(c unicode.SpecialCase, s string) string
+// ergo:reads c
 extern go strings.ToLowerSpecial func ToLowerSpecial(c unicode.SpecialCase, s string) string
 
 // ergo:go func ToTitle(s string) string
 extern go strings.ToTitle func ToTitle(s string) string
 
 // ergo:go func ToTitleSpecial(c unicode.SpecialCase, s string) string
+// ergo:reads c
 extern go strings.ToTitleSpecial func ToTitleSpecial(c unicode.SpecialCase, s string) string
 
 // ergo:go func ToUpper(s string) string
 extern go strings.ToUpper func ToUpper(s string) string
 
 // ergo:go func ToUpperSpecial(c unicode.SpecialCase, s string) string
+// ergo:reads c
 extern go strings.ToUpperSpecial func ToUpperSpecial(c unicode.SpecialCase, s string) string
 
 // ergo:go func ToValidUTF8(s string, replacement string) string

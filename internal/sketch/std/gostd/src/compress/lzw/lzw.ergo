@@ -41,4 +41,5 @@ extern go compress/lzw.Writer.Close func (w own *Writer) Close() fails go.Error 
 extern go compress/lzw.Writer.Reset func (w *Writer) Reset(dst own io.Writer, order Order, litWidth int) needs go.Foreign
 
 // ergo:go func (*Writer).Write(p []byte) (n int, err error)
+// ergo:reads p
 extern go compress/lzw.Writer.Write func (w *Writer) Write(p []byte) int fails go.Error needs go.Foreign

@@ -16,12 +16,14 @@ extern go encoding/xml.Attr type Attr {
 extern go encoding/xml.CharData type CharData []byte
 
 // ergo:go func (CharData).Copy() CharData
+// ergo:reads c
 extern go encoding/xml.CharData.Copy func (c CharData) Copy() CharData needs go.Foreign
 
 // ergo:go type Comment []byte
 extern go encoding/xml.Comment type Comment []byte
 
 // ergo:go func (Comment).Copy() Comment
+// ergo:reads c
 extern go encoding/xml.Comment.Copy func (c Comment) Copy() Comment needs go.Foreign
 
 // ergo:go func CopyToken(t Token) Token
@@ -63,6 +65,7 @@ extern go encoding/xml.Decoder.Skip func (d *Decoder) Skip() fails go.Error need
 extern go encoding/xml.Directive type Directive []byte
 
 // ergo:go func (Directive).Copy() Directive
+// ergo:reads d
 extern go encoding/xml.Directive.Copy func (d Directive) Copy() Directive needs go.Foreign
 
 // ergo:go type Encoder struct

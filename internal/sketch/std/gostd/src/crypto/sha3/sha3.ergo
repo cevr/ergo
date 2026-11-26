@@ -17,9 +17,11 @@ extern go crypto/sha3.New384 func New384() option.Option[go.Ref[SHA3]] needs go.
 extern go crypto/sha3.New512 func New512() option.Option[go.Ref[SHA3]] needs go.Foreign
 
 // ergo:go func NewCSHAKE128(N []byte, S []byte) *SHAKE
+// ergo:reads N S
 extern go crypto/sha3.NewCSHAKE128 func NewCSHAKE128(N []byte, S []byte) option.Option[go.Ref[SHAKE]] needs go.Foreign
 
 // ergo:go func NewCSHAKE256(N []byte, S []byte) *SHAKE
+// ergo:reads N S
 extern go crypto/sha3.NewCSHAKE256 func NewCSHAKE256(N []byte, S []byte) option.Option[go.Ref[SHAKE]] needs go.Foreign
 
 // ergo:go func NewSHAKE128() *SHAKE
@@ -53,6 +55,7 @@ extern go crypto/sha3.SHA3.Size func (s *SHA3) Size() int needs go.Foreign
 extern go crypto/sha3.SHA3.Sum func (s *SHA3) Sum(b []byte) []byte needs go.Foreign
 
 // ergo:go func (*SHA3).UnmarshalBinary(data []byte) error
+// ergo:reads data
 extern go crypto/sha3.SHA3.UnmarshalBinary func (s *SHA3) UnmarshalBinary(data []byte) fails go.Error needs go.Foreign
 
 // ergo:go func (*SHA3).Write(p []byte) (n int, err error)
@@ -77,6 +80,7 @@ extern go crypto/sha3.SHAKE.Read func (s *SHAKE) Read(p []byte) int fails go.Err
 extern go crypto/sha3.SHAKE.Reset func (s *SHAKE) Reset() needs go.Foreign
 
 // ergo:go func (*SHAKE).UnmarshalBinary(data []byte) error
+// ergo:reads data
 extern go crypto/sha3.SHAKE.UnmarshalBinary func (s *SHAKE) UnmarshalBinary(data []byte) fails go.Error needs go.Foreign
 
 // ergo:go func (*SHAKE).Write(p []byte) (n int, err error)

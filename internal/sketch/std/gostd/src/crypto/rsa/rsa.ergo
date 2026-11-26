@@ -15,21 +15,27 @@ extern go crypto/rsa.CRTValue type CRTValue {
 }
 
 // ergo:go func DecryptOAEP(hash hash.Hash, random io.Reader, priv *PrivateKey, ciphertext []byte, label []byte) ([]byte, error)
+// ergo:reads ciphertext
 extern go crypto/rsa.DecryptOAEP func DecryptOAEP(p0 own hash.Hash, random own io.Reader, priv own *PrivateKey, ciphertext []byte, label []byte) []byte fails go.Error needs go.Foreign
 
 // ergo:go func DecryptPKCS1v15(random io.Reader, priv *PrivateKey, ciphertext []byte) ([]byte, error)
+// ergo:reads ciphertext
 extern go crypto/rsa.DecryptPKCS1v15 func DecryptPKCS1v15(random own io.Reader, priv own *PrivateKey, ciphertext []byte) []byte fails go.Error needs go.Foreign
 
 // ergo:go func DecryptPKCS1v15SessionKey(random io.Reader, priv *PrivateKey, ciphertext []byte, key []byte) error
+// ergo:reads ciphertext
 extern go crypto/rsa.DecryptPKCS1v15SessionKey func DecryptPKCS1v15SessionKey(random own io.Reader, priv own *PrivateKey, ciphertext []byte, key []byte) fails go.Error needs go.Foreign
 
 // ergo:go func EncryptOAEP(hash hash.Hash, random io.Reader, pub *PublicKey, msg []byte, label []byte) ([]byte, error)
+// ergo:reads msg
 extern go crypto/rsa.EncryptOAEP func EncryptOAEP(p0 own hash.Hash, random own io.Reader, pub own *PublicKey, msg []byte, label []byte) []byte fails go.Error needs go.Foreign
 
 // ergo:go func EncryptOAEPWithOptions(random io.Reader, pub *PublicKey, msg []byte, opts *OAEPOptions) ([]byte, error)
+// ergo:reads msg
 extern go crypto/rsa.EncryptOAEPWithOptions func EncryptOAEPWithOptions(random own io.Reader, pub own *PublicKey, msg []byte, opts own *OAEPOptions) []byte fails go.Error needs go.Foreign
 
 // ergo:go func EncryptPKCS1v15(random io.Reader, pub *PublicKey, msg []byte) ([]byte, error)
+// ergo:reads msg
 extern go crypto/rsa.EncryptPKCS1v15 func EncryptPKCS1v15(random own io.Reader, pub own *PublicKey, msg []byte) []byte fails go.Error needs go.Foreign
 
 // ergo:go var ErrDecryption error
@@ -126,13 +132,16 @@ extern go crypto/rsa.PublicKey type PublicKey {
 extern go crypto/rsa.PublicKey.Size func (pub *PublicKey) Size() int needs go.Foreign
 
 // ergo:go func SignPKCS1v15(random io.Reader, priv *PrivateKey, hash crypto.Hash, hashed []byte) ([]byte, error)
+// ergo:reads hashed
 extern go crypto/rsa.SignPKCS1v15 func SignPKCS1v15(random own io.Reader, priv own *PrivateKey, p2 crypto.Hash, hashed []byte) []byte fails go.Error needs go.Foreign
 
 // ergo:go func SignPSS(random io.Reader, priv *PrivateKey, hash crypto.Hash, digest []byte, opts *PSSOptions) ([]byte, error)
 extern go crypto/rsa.SignPSS func SignPSS(random own io.Reader, priv own *PrivateKey, p2 crypto.Hash, digest []byte, opts own *PSSOptions) []byte fails go.Error needs go.Foreign
 
 // ergo:go func VerifyPKCS1v15(pub *PublicKey, hash crypto.Hash, hashed []byte, sig []byte) error
+// ergo:reads hashed sig
 extern go crypto/rsa.VerifyPKCS1v15 func VerifyPKCS1v15(pub own *PublicKey, p1 crypto.Hash, hashed []byte, sig []byte) fails go.Error needs go.Foreign
 
 // ergo:go func VerifyPSS(pub *PublicKey, hash crypto.Hash, digest []byte, sig []byte, opts *PSSOptions) error
+// ergo:reads sig
 extern go crypto/rsa.VerifyPSS func VerifyPSS(pub own *PublicKey, p1 crypto.Hash, digest []byte, sig []byte, opts own *PSSOptions) fails go.Error needs go.Foreign

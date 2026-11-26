@@ -391,9 +391,11 @@ extern go reflect.Value.Equal func (v Value) Equal(u own Value) bool needs go.Fo
 extern go reflect.Value.Field func (v own Value) Field(i int) Value needs go.Foreign
 
 // ergo:go func (Value).FieldByIndex(index []int) Value
+// ergo:reads index
 extern go reflect.Value.FieldByIndex func (v own Value) FieldByIndex(index []int) Value needs go.Foreign
 
 // ergo:go func (Value).FieldByIndexErr(index []int) (Value, error)
+// ergo:reads index
 extern go reflect.Value.FieldByIndexErr func (v own Value) FieldByIndexErr(index []int) Value fails go.Error needs go.Foreign
 
 // ergo:go func (Value).FieldByName(name string) Value

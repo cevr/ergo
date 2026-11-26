@@ -38,9 +38,11 @@ extern go regexp.Regexp.AppendText func (re *Regexp) AppendText(b []byte) []byte
 extern go regexp.Regexp.Copy func (re *Regexp) Copy() option.Option[go.Ref[Regexp]] needs go.Foreign
 
 // ergo:go func (*Regexp).Expand(dst []byte, template []byte, src []byte, match []int) []byte
+// ergo:reads template src p3
 extern go regexp.Regexp.Expand func (re *Regexp) Expand(dst []byte, template []byte, src []byte, p3 []int) []byte needs go.Foreign
 
 // ergo:go func (*Regexp).ExpandString(dst []byte, template string, src string, match []int) []byte
+// ergo:reads p3
 extern go regexp.Regexp.ExpandString func (re *Regexp) ExpandString(dst []byte, template string, src string, p3 []int) []byte needs go.Foreign
 
 // ergo:go func (*Regexp).Find(b []byte) []byte
@@ -149,4 +151,5 @@ extern go regexp.Regexp.SubexpIndex func (re *Regexp) SubexpIndex(name string) i
 extern go regexp.Regexp.SubexpNames func (re *Regexp) SubexpNames() []string needs go.Foreign
 
 // ergo:go func (*Regexp).UnmarshalText(text []byte) error
+// ergo:reads text
 extern go regexp.Regexp.UnmarshalText func (re *Regexp) UnmarshalText(text []byte) fails go.Error needs go.Foreign

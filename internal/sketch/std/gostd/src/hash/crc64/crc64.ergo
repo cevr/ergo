@@ -5,6 +5,7 @@ import option
 import go hash
 
 // ergo:go func Checksum(data []byte, tab *Table) uint64
+// ergo:reads data
 extern go hash/crc64.Checksum func Checksum(data []byte, tab own *Table) uint64 needs go.Foreign
 
 // ergo:go const ECMA untyped int
@@ -26,4 +27,5 @@ extern go hash/crc64.Size let Size int
 extern go hash/crc64.Table type Table [256]uint64
 
 // ergo:go func Update(crc uint64, tab *Table, p []byte) uint64
+// ergo:reads p
 extern go hash/crc64.Update func Update(crc uint64, tab own *Table, p []byte) uint64 needs go.Foreign

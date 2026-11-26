@@ -11,6 +11,7 @@ import go reflect
 // ergo:refused CallMethodsWithLegacySemantics: result 1: type Options is refused: it is declared in an internal or vendored package
 
 // ergo:go func Compact(dst *bytes.Buffer, src []byte) error
+// ergo:reads src
 extern go encoding/json.Compact func Compact(dst own *bytes.Buffer, src []byte) fails go.Error needs go.Foreign
 
 // ergo:go type Decoder struct
@@ -68,9 +69,11 @@ extern go encoding/json.Encoder.SetIndent func (enc *Encoder) SetIndent(prefix s
 // ergo:refused FormatDurationAsNano: result 1: type Options is refused: it is declared in an internal or vendored package
 
 // ergo:go func HTMLEscape(dst *bytes.Buffer, src []byte)
+// ergo:reads src
 extern go encoding/json.HTMLEscape func HTMLEscape(dst own *bytes.Buffer, src []byte) needs go.Foreign
 
 // ergo:go func Indent(dst *bytes.Buffer, src []byte, prefix string, indent string) error
+// ergo:reads src
 extern go encoding/json.Indent func Indent(dst own *bytes.Buffer, src []byte, prefix string, indent string) fails go.Error needs go.Foreign
 
 // ergo:go type InvalidUTF8Error struct

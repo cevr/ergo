@@ -2795,6 +2795,7 @@ extern go syscall.Munlock func Munlock(b []byte) fails go.Error needs go.Foreign
 extern go syscall.Munlockall func Munlockall() fails go.Error needs go.Foreign
 
 // ergo:go func Munmap(b []byte) (err error)
+// ergo:reads b
 extern go syscall.Munmap func Munmap(b []byte) fails go.Error needs go.Foreign
 
 // ergo:go const NAME_MAX untyped int
@@ -3137,6 +3138,7 @@ extern go syscall.PTRACE_TRACEME let PTRACE_TRACEME int
 // ergo:refused PT_WRITE_U: platform-specific: Go does not declare it on linux/amd64, linux/arm64
 
 // ergo:go func ParseDirent(buf []byte, max int, names []string) (consumed int, count int, newnames []string)
+// ergo:reads buf
 extern go syscall.ParseDirent func ParseDirent(buf []byte, max int, names []string) (int, int, []string) needs go.Foreign
 
 // ergo:go func ParseRoutingMessage(b []byte) (msgs []RoutingMessage, err error)
@@ -5243,6 +5245,7 @@ extern go syscall.Seteuid func Seteuid(euid int) fails go.Error needs go.Foreign
 extern go syscall.Setgid func Setgid(gid int) fails go.Error needs go.Foreign
 
 // ergo:go func Setgroups(gids []int) (err error)
+// ergo:reads gids
 extern go syscall.Setgroups func Setgroups(gids []int) fails go.Error needs go.Foreign
 
 // ergo:go func Setlogin(name string) (err error)
@@ -6000,6 +6003,7 @@ extern go syscall.Truncate func Truncate(path string, length int64) fails go.Err
 
 // ergo:go func UnixRights(fds ...int) []byte
 // ergo:variadic
+// ergo:reads fds
 extern go syscall.UnixRights func UnixRights(fds []int) []byte needs go.Foreign
 
 // ergo:go func Unlink(path string) (err error)

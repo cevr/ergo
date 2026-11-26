@@ -190,9 +190,11 @@ extern go log/slog.Level.MarshalText func (l Level) MarshalText() []byte fails g
 extern go log/slog.Level.String func (l Level) String() string needs go.Foreign
 
 // ergo:go func (*Level).UnmarshalJSON(data []byte) error
+// ergo:reads data
 extern go log/slog.Level.UnmarshalJSON func (l *Level) UnmarshalJSON(data []byte) fails go.Error needs go.Foreign
 
 // ergo:go func (*Level).UnmarshalText(data []byte) error
+// ergo:reads data
 extern go log/slog.Level.UnmarshalText func (l *Level) UnmarshalText(data []byte) fails go.Error needs go.Foreign
 
 // ergo:go const LevelDebug Level
@@ -226,6 +228,7 @@ extern go log/slog.LevelVar.Set func (v *LevelVar) Set(l Level) needs go.Foreign
 extern go log/slog.LevelVar.String func (v *LevelVar) String() string needs go.Foreign
 
 // ergo:go func (*LevelVar).UnmarshalText(data []byte) error
+// ergo:reads data
 extern go log/slog.LevelVar.UnmarshalText func (v *LevelVar) UnmarshalText(data []byte) fails go.Error needs go.Foreign
 
 // ergo:go const LevelWarn Level

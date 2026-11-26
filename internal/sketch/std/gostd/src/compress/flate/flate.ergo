@@ -33,6 +33,7 @@ extern go compress/flate.InternalError.Error func (e InternalError) Error() stri
 extern go compress/flate.NewReader func NewReader(r own io.Reader) io.ReadCloser needs go.Foreign
 
 // ergo:go func NewReaderDict(r io.Reader, dict []byte) io.ReadCloser
+// ergo:reads dict
 extern go compress/flate.NewReaderDict func NewReaderDict(r own io.Reader, dict []byte) io.ReadCloser needs go.Foreign
 
 // ergo:go func NewWriter(w io.Writer, level int) (*Writer, error)

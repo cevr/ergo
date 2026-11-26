@@ -66,6 +66,7 @@ extern go math/big.Float.Float64 func (x *Float) Float64() (float64, Accuracy) n
 extern go math/big.Float.Format func (x *Float) Format(s own fmt.State, format rune) needs go.Foreign
 
 // ergo:go func (*Float).GobDecode(buf []byte) error
+// ergo:reads buf
 extern go math/big.Float.GobDecode func (z *Float) GobDecode(buf []byte) fails go.Error needs go.Foreign
 
 // ergo:go func (*Float).GobEncode() ([]byte, error)
@@ -243,6 +244,7 @@ extern go math/big.Int.Format func (x *Int) Format(s own fmt.State, ch rune) nee
 extern go math/big.Int.GCD func (z *Int) GCD(x own *Int, y own *Int, a own *Int, b own *Int) option.Option[go.Ref[Int]] needs go.Foreign
 
 // ergo:go func (*Int).GobDecode(buf []byte) error
+// ergo:reads buf
 extern go math/big.Int.GobDecode func (z *Int) GobDecode(buf []byte) fails go.Error needs go.Foreign
 
 // ergo:go func (*Int).GobEncode() ([]byte, error)
@@ -321,6 +323,7 @@ extern go math/big.Int.SetBit func (z *Int) SetBit(x own *Int, i int, b uint) op
 extern go math/big.Int.SetBits func (z *Int) SetBits(abs []Word) option.Option[go.Ref[Int]] needs go.Foreign
 
 // ergo:go func (*Int).SetBytes(buf []byte) *Int
+// ergo:reads buf
 extern go math/big.Int.SetBytes func (z *Int) SetBytes(buf []byte) option.Option[go.Ref[Int]] needs go.Foreign
 
 // ergo:go func (*Int).SetInt64(x int64) *Int
@@ -420,6 +423,7 @@ extern go math/big.Rat.FloatPrec func (x *Rat) FloatPrec() (int, bool) needs go.
 extern go math/big.Rat.FloatString func (x *Rat) FloatString(prec int) string needs go.Foreign
 
 // ergo:go func (*Rat).GobDecode(buf []byte) error
+// ergo:reads buf
 extern go math/big.Rat.GobDecode func (z *Rat) GobDecode(buf []byte) fails go.Error needs go.Foreign
 
 // ergo:go func (*Rat).GobEncode() ([]byte, error)

@@ -10,9 +10,11 @@ extern go encoding/ascii85.CorruptInputError type CorruptInputError int64
 extern go encoding/ascii85.CorruptInputError.Error func (e CorruptInputError) Error() string needs go.Foreign
 
 // ergo:go func Decode(dst []byte, src []byte, flush bool) (ndst int, nsrc int, err error)
+// ergo:reads src
 extern go encoding/ascii85.Decode func Decode(dst []byte, src []byte, flush bool) (int, int) fails go.Error needs go.Foreign
 
 // ergo:go func Encode(dst []byte, src []byte) int
+// ergo:reads src
 extern go encoding/ascii85.Encode func Encode(dst []byte, src []byte) int needs go.Foreign
 
 // ergo:go func MaxEncodedLen(n int) int
