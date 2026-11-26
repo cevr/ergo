@@ -1,13 +1,71 @@
 package selfhostcheck
 
 import (
+	"context"
+	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"syscall"
 	"testing"
 	"time"
+
+	"ergo.local/prototype/internal/proclimit"
 )
+
+// irDumpResult is irdump's output lines, or why there are none, and its
+// own wall and CPU time.
+type irDumpResult struct {
+	lines     []string
+	err       error
+	wall, cpu time.Duration
+}
+
+// startIRDump builds compiler/cmd/irdump into bin with the ergo command
+// cli and, once args arrives, runs it with them, off the test's
+// goroutine: the Go side lowers its programs meanwhile, so the run costs
+// the longer of the two, not their sum. A closed args ends it unrun.
+// Both programs run in their own process group under limit, as
+// runCompiler and runDump run them.
+func startIRDump(ctx context.Context, cli, bin string, limit uint64, args <-chan []string) <-chan irDumpResult {
+	done := make(chan irDumpResult, 1)
+	group := func(cmd *exec.Cmd) {
+		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+		cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
+	}
+	go func() {
+		build := exec.CommandContext(ctx, cli, "build", "-o", bin, "./cmd/irdump")
+		build.Dir = filepath.Join(repoRoot(), "compiler")
+		var out strings.Builder
+		build.Stdout, build.Stderr = &out, &out
+		group(build)
+		if err := proclimit.Run(build, limit); err != nil {
+			done <- irDumpResult{err: fmt.Errorf("ergo build ./cmd/irdump: %v\n%s", err, out.String())}
+			return
+		}
+		a, ok := <-args
+		if !ok {
+			done <- irDumpResult{err: context.Canceled}
+			return
+		}
+		start := time.Now()
+		cmd := exec.CommandContext(ctx, bin, a...)
+		var stdout, stderr strings.Builder
+		cmd.Stdout, cmd.Stderr = &stdout, &stderr
+		group(cmd)
+		if err := proclimit.Run(cmd, limit); err != nil {
+			done <- irDumpResult{err: fmt.Errorf("irdump %v: %v\n%s", a, err, stderr.String())}
+			return
+		}
+		r := irDumpResult{lines: lines(stdout.String()), wall: time.Since(start)}
+		if s := cmd.ProcessState; s != nil {
+			r.cpu = s.UserTime() + s.SystemTime()
+		}
+		done <- r
+	}()
+	return done
+}
 
 // irPhases logs, per phase of the IR agreement run, its wall time, the
 // CPU time of the test process and of the programs it waited for, and
