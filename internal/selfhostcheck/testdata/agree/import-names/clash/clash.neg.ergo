@@ -1,0 +1,10 @@
+import strings
+import s slices
+import m maps
+import _ strconv
+
+let strings = 1
+
+func s() int { strings }
+
+func Size(x Map[string, int]) int { m.Clone(x).Len() + s() }

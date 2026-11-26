@@ -37,10 +37,11 @@ var (
 		text: `unformatted=$(gofmt -l "$@"); if [ -n "$unformatted" ]; then echo "gofmt needed:"; echo "$unformatted"; exit 1; fi`,
 	}
 	// stagedBuildScript builds $3 to the staging file $1 and renames it onto
-	// $2 only when the bytes differ (stagedBuild).
+	// $2 only when the bytes differ (stagedBuild), with the ergo tool's
+	// build flags (internal/ergobuild, Flags).
 	stagedBuildScript = &reviewedScript{
 		name: "staged build",
-		text: `mkdir -p "$(dirname "$1")" "$(dirname "$2")" && go build -buildvcs=false -o "$1" "$3" && { cmp -s "$1" "$2" || mv -f "$1" "$2"; }`,
+		text: `mkdir -p "$(dirname "$1")" "$(dirname "$2")" && go build -trimpath -buildvcs=false -o "$1" "$3" && { cmp -s "$1" "$2" || mv -f "$1" "$2"; }`,
 	}
 	// provenanceScript runs the provenance analyzer's controls uncached,
 	// builds the analyzer to $1 (or a temporary directory) and runs it on the

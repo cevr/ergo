@@ -1,0 +1,283 @@
+import strconv
+
+let kindNull = uint8(0)
+let kindBool = uint8(1)
+let kindInt = uint8(2)
+let kindFloat = uint8(3)
+let kindString = uint8(4)
+let kindSeq = uint8(5)
+let kindMap = uint8(6)
+let kindAlias = uint8(7)
+
+func isDigit(b byte) bool { b >= byte('0') && b <= byte('9') }
+
+func isHex(b byte) bool {
+	isDigit(b) || (b >= byte('a') && b <= byte('f')) || (b >= byte('A') && b <= byte('F'))
+}
+
+func resolvePlain(s string) uint8 {
+	if s == "" || s == "~" || s == "null" || s == "Null" || s == "NULL" {
+		return kindNull
+	}
+	if s == "true" || s == "True" || s == "TRUE" || s == "false" || s == "False" || s == "FALSE" {
+		return kindBool
+	}
+	if isIntText(s) {
+		return kindInt
+	}
+	if isFloatText(s) {
+		return kindFloat
+	}
+	kindString
+}
+
+func boolText(s string) bool { s == "true" || s == "True" || s == "TRUE" }
+
+func isIntText(s string) bool {
+	let n = s.Len()
+	if n > 2 && s[0] == byte('0') && s[1] == byte('o') {
+		for i in 2..n {
+			if s[i] < byte('0') || s[i] > byte('7') {
+				return false
+			}
+		}
+		return true
+	}
+	if n > 2 && s[0] == byte('0') && s[1] == byte('x') {
+		for i in 2..n {
+			if !isHex(s[i]) {
+				return false
+			}
+		}
+		return true
+	}
+	let mut i = 0
+	if n > 0 && (s[0] == byte('-') || s[0] == byte('+')) {
+		i = 1
+	}
+	if i >= n {
+		return false
+	}
+	for i < n {
+		if !isDigit(s[i]) {
+			return false
+		}
+		i += 1
+	}
+	true
+}
+
+func isSpecialFloat(s string) bool {
+	let mut t = s
+	if t.Len() > 0 && (t[0] == byte('-') || t[0] == byte('+')) {
+		t = t[1:]
+		return t == ".inf" || t == ".Inf" || t == ".INF"
+	}
+	t == ".inf" || t == ".Inf" || t == ".INF" || t == ".nan" || t == ".NaN" || t == ".NAN"
+}
+
+func isFloatText(s string) bool {
+	if isSpecialFloat(s) {
+		return true
+	}
+	let n = s.Len()
+	let mut i = 0
+	if n > 0 && (s[0] == byte('-') || s[0] == byte('+')) {
+		i = 1
+	}
+	let mut whole = 0
+	for i < n && isDigit(s[i]) {
+		i += 1
+		whole += 1
+	}
+	let mut frac = 0
+	if i < n && s[i] == byte('.') {
+		i += 1
+		for i < n && isDigit(s[i]) {
+			i += 1
+			frac += 1
+		}
+		if whole == 0 && frac == 0 {
+			return false
+		}
+	} else if whole == 0 {
+		return false
+	}
+	if i < n && (s[i] == byte('e') || s[i] == byte('E')) {
+		i += 1
+		if i < n && (s[i] == byte('-') || s[i] == byte('+')) {
+			i += 1
+		}
+		let mut exp = 0
+		for i < n && isDigit(s[i]) {
+			i += 1
+			exp += 1
+		}
+		if exp == 0 {
+			return false
+		}
+	}
+	i == n
+}
+
+type intText { Negative bool, Magnitude uint64, Fits bool, Decimal bool }
+
+func digitValue(b byte) uint64 {
+	if isDigit(b) {
+		return uint64(b - byte('0'))
+	}
+	if b >= byte('a') && b <= byte('f') {
+		return uint64(b-byte('a')) + 10
+	}
+	uint64(b-byte('A')) + 10
+}
+
+func readInt(s string) intText {
+	let n = s.Len()
+	let mut i = 0
+	let mut neg = false
+	let mut base = uint64(10)
+	if n > 2 && s[0] == byte('0') && s[1] == byte('o') {
+		base = 8
+		i = 2
+	} else if n > 2 && s[0] == byte('0') && s[1] == byte('x') {
+		base = 16
+		i = 2
+	} else if n > 0 && (s[0] == byte('-') || s[0] == byte('+')) {
+		neg = s[0] == byte('-')
+		i = 1
+	}
+	let mut mag = uint64(0)
+	let mut fits = true
+	let limit uint64 = 18446744073709551615
+	for i < n {
+		let d = digitValue(s[i])
+		if mag > (limit-d)/base {
+			fits = false
+		} else {
+			mag = mag*base + d
+		}
+		i += 1
+	}
+	intText{Negative: neg, Magnitude: mag, Fits: fits, Decimal: base == 10}
+}
+
+func intOf(s string) (int64, bool) {
+	let t = readInt(s)
+	if !t.Fits {
+		return (0, false)
+	}
+	if t.Negative {
+		if t.Magnitude > 9223372036854775808 {
+			return (0, false)
+		}
+		if t.Magnitude == 9223372036854775808 {
+			return (-9223372036854775807 - 1, true)
+		}
+		return (-int64(t.Magnitude), true)
+	}
+	if t.Magnitude > 9223372036854775807 {
+		return (0, false)
+	}
+	(int64(t.Magnitude), true)
+}
+
+func uintOf(s string) (uint64, bool) {
+	let t = readInt(s)
+	if !t.Fits || (t.Negative && t.Magnitude != 0) {
+		return (0, false)
+	}
+	(t.Magnitude, true)
+}
+
+func intSpelling(s string) string {
+	let t = readInt(s)
+	if t.Fits {
+		let digits = strconv.AppendUint([]byte{}, t.Magnitude, 10).Text()
+		return if t.Negative && t.Magnitude != 0 { "-" + digits } else { digits }
+	}
+	let mut i = 0
+	if s[0] == byte('-') || s[0] == byte('+') {
+		i = 1
+	}
+	for i < s.Len()-1 && s[i] == byte('0') {
+		i += 1
+	}
+	if s[0] == byte('-') { "-" + s[i:] } else { s[i:] }
+}
+
+func floatSpelling(s string) string {
+	let n = s.Len()
+	let mut out = []byte{}
+	let mut i = 0
+	if s[0] == byte('-') {
+		out = out.Append(byte('-'))
+		i = 1
+	} else if s[0] == byte('+') {
+		i = 1
+	}
+	let start = i
+	for i < n && isDigit(s[i]) {
+		i += 1
+	}
+	let mut w = start
+	for w < i-1 && s[w] == byte('0') {
+		w += 1
+	}
+	if w == i {
+		out = out.Append(byte('0'))
+	} else {
+		out = out.AppendString(s[w:i])
+	}
+	if i < n && s[i] == byte('.') {
+		i += 1
+		let fs = i
+		for i < n && isDigit(s[i]) {
+			i += 1
+		}
+		out = out.Append(byte('.'))
+		if fs == i {
+			out = out.Append(byte('0'))
+		} else {
+			out = out.AppendString(s[fs:i])
+		}
+	}
+	out = out.AppendString(s[i:])
+	out.Text()
+}
+
+func floatOf(s string) (float64, bool) {
+	if isSpecialFloat(s) {
+		let t = if s[0] == byte('-') || s[0] == byte('+') { s[1:] } else { s }
+		let word = if t == ".nan" || t == ".NaN" || t == ".NAN" { "NaN" } else if s[0] == byte('-') { "-Inf" } else { "Inf" }
+		return (strconv.ParseFloat(word) catch {
+		case _:
+			return (0.0, false)
+		}, true)
+	}
+	if isIntText(s) {
+		let t = readInt(s)
+		if !t.Decimal {
+			let m = float64(t.Magnitude)
+			return (if t.Negative { -m } else { m }, true)
+		}
+	}
+	let text = if s[0] == byte('+') { s[1:] } else { s }
+	(strconv.ParseFloat(if isIntText(s) { text } else { floatSpelling(s) }) catch {
+	case _:
+		return (0.0, false)
+	}, true)
+}
+
+func floatText(f float64) string {
+	if f != f {
+		return ".nan"
+	}
+	if f > 1.7976931348623157e308 {
+		return ".inf"
+	}
+	if f < -1.7976931348623157e308 {
+		return "-.inf"
+	}
+	strconv.FormatFloat(f, 'g', -1)
+}

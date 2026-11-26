@@ -17,7 +17,10 @@ var commentedCode = &Rule{
 }
 
 func checkCommentedCode(p *Pass) {
-	docs := docComments(p.File)
+	if len(p.File.Comments) == 0 {
+		return
+	}
+	docs := p.fileIndex().docComments
 	for _, g := range p.File.Comments {
 		if docs[g] {
 			continue
