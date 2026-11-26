@@ -1,0 +1,105 @@
+import compiler/check/bind
+import compiler/check/diag
+import compiler/check/footprint
+import compiler/check/load
+import compiler/check/store
+import compiler/check/types
+import compiler/syntax
+import dense
+import fs
+import io
+import os
+import slices
+import strings
+
+func base(path string) string {
+	let i = strings.LastIndex(path, "/")
+	if i < 0 { path } else { path[i+1 : path.Len()] }
+}
+
+func read(path string) string fails os.Exit needs fs.Files {
+	fs.Files.ReadFile(path) catch {
+	case fs.NotFound:
+		return os.Exit{Code: 1, Message: "footdump: no file \(path)"}
+	case fs.Denied:
+		return os.Exit{Code: 1, Message: "footdump: cannot read \(path)"}
+	case fs.Failed as e:
+		return os.Exit{Code: 1, Message: "footdump: cannot read \(path): \(e.Reason)"}
+	}
+}
+
+func unitOf(g []string) load.Unit fails os.Exit needs fs.Files {
+	if g.Len() < 2 {
+		return os.Exit{Code: 2, Message: "footdump: a package needs EXT FOREIGN FILE..."}
+	}
+	let tab = load.TablesOf(try read(g[0]), try read(g[1]))
+	let paths = g[2:g.Len()]
+	let mut files = []bind.File{}
+	for path in paths {
+		files = files.Append(bind.File{Name: base(path), Parsed: syntax.Parse(try read(path))})
+	}
+	load.UnitOf(tab, files, paths)
+}
+
+func capName(s store.Store, t dense.ID[store.TKey]) string {
+	if store.KindOfType(s, t) == store.KNamed { store.TypeNameText(s, store.ArgOf(s, t)) } else { "?" }
+}
+
+func run(argv []string) fails os.Exit needs fs.Files | io.Stdout {
+	if argv.Len() != 4 || argv[0] != "-std" || argv[2] != "-corpus" {
+		return os.Exit{Code: 2, Message: "usage: footdump -std DIR -corpus MANIFEST"}
+	}
+	let mut units = []load.Unit{}
+	for l in strings.Split(try read(argv[3]), "\n") {
+		let g = strings.Fields(l)
+		if g.Len() > 0 {
+			let mut u = try unitOf(g[1:g.Len()])
+			u.Path = g[0]
+			units = units.Append(u)
+		}
+	}
+	let outside = load.Outside(units, argv[1])
+	let p = load.LoadAll(units, outside, 1)
+	let mut deps = Map[string, Map[string, bool]]{}
+	let mut sizes = slices.Repeat([]int{0}, p.Loaded.Len())
+	let mut grew = true
+	for grew {
+		grew = false
+		for i, e in p.Loaded {
+			let r = diag.Resources(e.S, e.K, deps)
+			grew = grew || r.Len() != sizes[i]
+			sizes[i] = r.Len()
+			if e.Path != "main" {
+				deps[e.Path] = r
+			}
+		}
+	}
+	let mut b = strings.NewBuilder()
+	for i in 0..p.Loaded.Len() {
+		let d = load.TypeAt(p, i)
+		let facts = footprint.Of(d.S, d.K, d.T)
+		b.WriteString("@pkg \(i)\n")
+		for j, f in d.K.Fns {
+			let parsed = d.K.Parsed[f.File]
+			if parsed.Failed || syntax.KindOf(parsed.Tree, f.Decl) != syntax.KFuncDecl {
+				continue
+			}
+			let mut caps = []string{}
+			for c in footprint.Caps(facts, j) {
+				caps = caps.Append(capName(d.S, c))
+			}
+			let sorted = slices.Sort(caps)
+			b.WriteString("F \(types.NameText(parsed, f.Name)) caps=[\(strings.Join(sorted, ","))] opaque=\(footprint.Opaque(facts, j))\n")
+		}
+		for g in diag.Dropped(d.S, d.K, d.T, facts, deps) {
+			b.WriteString("D \(g.Offset) \(g.Message)\n")
+		}
+	}
+	io.Stdout.Print(b.String())
+}
+
+func main() fails os.Exit needs os.Ambient {
+	with context { os.Process: os.NewHost(), fs.Files: fs.NewHost(), io.Stdout: io.NewHost() } {
+		try run(os.Process.Args())
+	}
+}

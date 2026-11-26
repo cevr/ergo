@@ -1,0 +1,317 @@
+import compiler/check/bind
+import compiler/check/expr
+import compiler/check/footprint
+import compiler/check/infer
+import compiler/check/store
+import compiler/check/types
+import compiler/syntax
+import dense
+import option
+
+type dropper {
+	s     store.Store,
+	k     expr.Pkg,
+	fs    footprint.Facts,
+	types dense.Col[store.PNode, dense.Opt[store.TKey]],
+	typed dense.Col[store.PNode, bool],
+	res   Map[string, bool],
+}
+
+type drops { file int, out []Diag }
+
+// Dropped is S110 for each call of a declared function whose result a
+// statement discards when the call does nothing else (the Go checker's
+// discard.go): the callee's footprint is empty and it may end in no named
+// defect, it fails nothing and returns a value, and no operand, parameter
+// or result can carry a write or an owner. A value is a value, so such a
+// call leaves every operand as it was and its result is its only outcome.
+// A statement discards its value when it is not the last of its list, or
+// the last of a list whose value nothing reads: a body with no result, a
+// loop's body, a with or a trailing block whose value is dropped, and the
+// arms of an if, a match or a catch whose own value is dropped. deps is
+// each package's resources by its path (Resources).
+func Dropped(s store.Store, k expr.Pkg, t expr.Typer, fs footprint.Facts, deps Map[string, Map[string, bool]]) []Diag {
+	let mut rows = 0
+	for p in k.Parsed {
+		if !p.Failed {
+			rows = rows + syntax.NumNodes(p.Tree)
+		}
+	}
+	let mut ts = dense.ColWithCap[store.PNode, dense.Opt[store.TKey]](rows)
+	let mut cs = dense.ColWithCap[store.PNode, bool](rows)
+	for _ in 0..rows {
+		dense.Push(&ts, dense.NoID[store.TKey]())
+		dense.Push(&cs, false)
+	}
+	for e in t.Entries {
+		if dense.In(ts, e.At) {
+			dense.SetOf(&ts, e.At, dense.OptOf(e.T))
+		}
+	}
+	for c in t.Calls {
+		if !c.Recv && dense.In(cs, c.Call) {
+			dense.SetOf(&cs, c.Call, true)
+		}
+	}
+	let (infos, names) = typeInfos(k)
+	let d = dropper{s: s, k: k, fs: fs, types: ts, typed: cs, res: resourcesWith(s, k, infos, names, deps, true)}
+	let mut o = drops{file: 0, out: []Diag{}}
+	for f in k.Fns {
+		let p = k.Parsed[f.File]
+		if p.Failed || syntax.KindOf(p.Tree, f.Decl) != syntax.KFuncDecl {
+			continue
+		}
+		match dense.Unpack(f.Body) {
+		case option.Some{Value: b}:
+			o.file = f.File
+			dropList(d, &o, syntax.BlockStmtOf(p.Tree, b).List, noResult(s, f.Sig))
+		case option.None:
+		}
+	}
+	Sorted(o.out)
+}
+
+func noResult(s store.Store, sig dense.ID[store.TKey]) bool {
+	let ops = store.OperandsOf(s, sig)
+	if ops.Len() < 3 {
+		return false
+	}
+	let r = ops[ops.Len()-3]
+	store.KindOfType(s, r) == store.KTuple && store.OperandsOf(s, r).Len() == 0
+}
+
+func dtree(d dropper, file int) syntax.Tree { d.k.Parsed[file].Tree }
+
+func dun(tr syntax.Tree, x dense.ID[syntax.Node]) dense.ID[syntax.Node] {
+	let mut y = x
+	for syntax.KindOf(tr, y) == syntax.KParenExpr {
+		y = syntax.ParenExprOf(tr, y).X
+	}
+	y
+}
+
+func dropList(d dropper, o mut drops, l syntax.List, discardTail bool) {
+	let tr = dtree(d, o.file)
+	let n = syntax.Len(l)
+	for i in 0..n {
+		dropStmt(d, o, syntax.Item(tr, l, i), i < n-1 || discardTail)
+	}
+}
+
+func dropBlock(d dropper, o mut drops, b dense.ID[syntax.Node], discardTail bool) {
+	let tr = dtree(d, o.file)
+	if syntax.KindOf(tr, b) == syntax.KBlockStmt {
+		dropList(d, o, syntax.BlockStmtOf(tr, b).List, discardTail)
+	} else {
+		dropStmt(d, o, b, discardTail)
+	}
+}
+
+func dropStmt(d dropper, o mut drops, x dense.ID[syntax.Node], discarded bool) {
+	let tr = dtree(d, o.file)
+	match syntax.ViewOf(tr, x) {
+	case syntax.ExprStmt as es:
+		let y = dun(tr, es.X)
+		let kind = syntax.KindOf(tr, y)
+		if kind == syntax.KCallExpr {
+			if discarded {
+				candidate(d, o, es.X, y)
+			}
+			dropCall(d, o, y, discarded)
+		} else if kind == syntax.KIfStmt || kind == syntax.KSwitchStmt || kind == syntax.KTypeSwitchStmt {
+			dropStmt(d, o, y, discarded)
+		} else if kind == syntax.KCatchExpr {
+			dropCatch(d, o, y, discarded)
+		} else {
+			dropExpr(d, o, es.X)
+		}
+	case syntax.IfStmt as is:
+		dropExpr(d, o, is.Cond)
+		dropBlock(d, o, is.Body, discarded)
+		match dense.Unpack(is.Else) {
+		case option.Some{Value: e}:
+			dropBlock(d, o, e, discarded)
+		case option.None:
+		}
+	case syntax.SwitchStmt as ss:
+		dropExpr(d, o, ss.Tag)
+		dropClauses(d, o, ss.Clauses, discarded)
+	case syntax.TypeSwitchStmt as ss:
+		dropExpr(d, o, ss.Subject)
+		dropClauses(d, o, ss.Clauses, discarded)
+	case syntax.ForStmt as fo:
+		match dense.Unpack(fo.Cond) {
+		case option.Some{Value: c}:
+			dropExpr(d, o, c)
+		case option.None:
+		}
+		dropBlock(d, o, fo.Body, true)
+	case syntax.RangeStmt as rs:
+		dropExpr(d, o, rs.X)
+		dropBlock(d, o, rs.Body, true)
+	case syntax.BlockStmt as bs:
+		dropList(d, o, bs.List, discarded)
+	case _:
+		dropExpr(d, o, x)
+	}
+}
+
+func dropClauses(d dropper, o mut drops, l syntax.List, discarded bool) {
+	let tr = dtree(d, o.file)
+	for i in 0..syntax.Len(l) {
+		let cc = syntax.CaseClauseOf(tr, syntax.Item(tr, l, i))
+		for j in 0..syntax.Len(cc.List) {
+			dropExpr(d, o, syntax.Item(tr, cc.List, j))
+		}
+		dropList(d, o, cc.Body, discarded)
+	}
+}
+
+func dropCatch(d dropper, o mut drops, x dense.ID[syntax.Node], discarded bool) {
+	let tr = dtree(d, o.file)
+	let ce = syntax.CatchExprOf(tr, x)
+	dropExpr(d, o, ce.X)
+	for i in 0..syntax.Len(ce.Arms) {
+		dropList(d, o, syntax.CatchArmOf(tr, syntax.Item(tr, ce.Arms, i)).Body, discarded)
+	}
+}
+
+func dropCall(d dropper, o mut drops, x dense.ID[syntax.Node], discarded bool) {
+	let tr = dtree(d, o.file)
+	let c = syntax.CallExprOf(tr, x)
+	dropExpr(d, o, c.Fun)
+	for i in 0..syntax.Len(c.Args) {
+		dropExpr(d, o, syntax.Item(tr, c.Args, i))
+	}
+	match dense.Unpack(c.Trailing) {
+	case option.Some{Value: b}:
+		let isWith = syntax.KindOf(tr, c.Fun) == syntax.KIdent && types.NameText(d.k.Parsed[o.file], c.Fun) == "with"
+		dropBlock(d, o, b, if isWith { discarded } else { trailingDiscards(d, o.file, x) })
+	case option.None:
+	}
+}
+
+func dropExpr(d dropper, o mut drops, x dense.ID[syntax.Node]) {
+	let tr = dtree(d, o.file)
+	let kind = syntax.KindOf(tr, x)
+	if kind == syntax.KIfStmt || kind == syntax.KSwitchStmt || kind == syntax.KTypeSwitchStmt {
+		dropStmt(d, o, x, false)
+		return
+	}
+	if kind == syntax.KCatchExpr {
+		dropCatch(d, o, x, false)
+		return
+	}
+	if kind == syntax.KCallExpr {
+		dropCall(d, o, x, false)
+		return
+	}
+	if kind == syntax.KFuncLit {
+		dropBlock(d, o, syntax.FuncLitOf(tr, x).Body, false)
+		return
+	}
+	if kind == syntax.KBlockStmt {
+		dropList(d, o, syntax.BlockStmtOf(tr, x).List, false)
+		return
+	}
+	for c in syntax.Children(tr, x, []uint32{}) {
+		dropExpr(d, o, syntax.NodeAt(tr, int(c)))
+	}
+}
+
+func trailingDiscards(d dropper, file int, x dense.ID[syntax.Node]) bool {
+	let j = footprint.Callee(d.k, file, x)
+	if j < 0 || d.k.Fns[j].Params.Len() > 0 {
+		return false
+	}
+	let ops = store.OperandsOf(d.s, d.k.Fns[j].Sig)
+	if ops.Len() < 4 {
+		return false
+	}
+	let last = infer.Unmarked(d.s, ops[ops.Len()-4])
+	store.KindOfType(d.s, last) == store.KSig && noResult(d.s, last)
+}
+
+func candidate(d dropper, o mut drops, at dense.ID[syntax.Node], x dense.ID[syntax.Node]) {
+	let tr = dtree(d, o.file)
+	let c = syntax.CallExprOf(tr, x)
+	if c.Trailing != dense.NoID[syntax.Node]() {
+		return
+	}
+	let n = bind.PNodeOf(d.k.Ps, o.file, x)
+	if !dense.In(d.typed, n) || !dense.Of(d.typed, n) {
+		return
+	}
+	let j = footprint.Callee(d.k, o.file, x)
+	if j < 0 || !footprint.Empty(d.fs, j) || footprint.Dies(d.fs, j) {
+		return
+	}
+	let f = d.k.Fns[j]
+	let fp = d.k.Parsed[f.File]
+	if syntax.KindOf(fp.Tree, f.Decl) != syntax.KFuncDecl {
+		return
+	}
+	let fd = syntax.FuncDeclOf(fp.Tree, f.Decl)
+	if fd.Recv != dense.NoID[syntax.Node]() || syntax.FuncTypeOf(fp.Tree, fd.Type).Defects >= 0 {
+		return
+	}
+	let ops = store.OperandsOf(d.s, f.Sig)
+	if ops.Len() < 3 || noResult(d.s, f.Sig) || store.OperandsOf(d.s, ops[ops.Len()-2]).Len() != 0 {
+		return
+	}
+	let np = ops.Len() - 3
+	if syntax.Len(c.Args) != np {
+		return
+	}
+	for i in 0..np {
+		if !plain(d, ops[i]) || !plainAt(d, o.file, syntax.Item(tr, c.Args, i)) {
+			return
+		}
+	}
+	if !plainAt(d, o.file, x) {
+		return
+	}
+	let offset = syntax.NodePos(d.k.Parsed[o.file], at)
+	let name = types.NameText(fp, f.Name)
+	o.out = o.out.Append(Diag{File: o.file, Offset: offset, Length: syntax.NodeEnd(d.k.Parsed[o.file], at) - offset, Code: CodeUnused, Message: "the result of \(name) is not used, and the call does nothing else (its footprint is empty); bind it with let, or remove the call"})
+}
+
+func plainAt(d dropper, file int, x dense.ID[syntax.Node]) bool {
+	let n = bind.PNodeOf(d.k.Ps, file, x)
+	if !dense.In(d.types, n) {
+		return false
+	}
+	match dense.Unpack(dense.Of(d.types, n)) {
+	case option.Some{Value: ty}:
+		plain(d, ty)
+	case option.None:
+		false
+	}
+}
+
+func plain(d dropper, t dense.ID[store.TKey]) bool {
+	let kind = store.KindOfType(d.s, t)
+	if kind == store.KBasic || kind == store.KParam {
+		return true
+	}
+	if kind == store.KOwn || kind == store.KSlice || kind == store.KArray || kind == store.KMap || kind == store.KTuple {
+		for o in store.OperandsOf(d.s, t) {
+			if !plain(d, o) {
+				return false
+			}
+		}
+		return true
+	}
+	if kind == store.KNamed {
+		let name = store.TypeNameText(d.s, store.ArgOf(d.s, t))
+		if holder(d.res, name) {
+			return false
+		}
+		for r in d.k.Recs {
+			if r.Name == name {
+				return !r.Op
+			}
+		}
+	}
+	false
+}

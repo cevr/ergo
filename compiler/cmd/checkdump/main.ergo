@@ -23,6 +23,7 @@
 import compiler/check/bind
 import compiler/check/diag
 import compiler/check/facts
+import compiler/check/footprint
 import compiler/check/load
 import compiler/check/providing
 import compiler/check/rows
@@ -197,6 +198,9 @@ func run(argv0 []string) fails os.Exit needs fs.Files | io.Stdout {
 			ds = ds.Append(g)
 		}
 		for g in providing.Check(d.S, d.K) {
+			ds = ds.Append(g)
+		}
+		for g in diag.Dropped(d.S, d.K, d.T, footprint.Of(d.S, d.K, d.T), deps) {
 			ds = ds.Append(g)
 		}
 		for g in d.T.SelfInference {
