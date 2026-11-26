@@ -197,6 +197,12 @@ func (l *lowerer) pkgName(key pkgKey, base string) string {
 		name = l.names.alloc(HelperSpelling("", name))
 	}
 	l.pkgNames[key] = name
+	if path, ok := key.obj.(string); ok && key.kind == "import" {
+		if l.importNames == nil {
+			l.importNames = map[string]string{}
+		}
+		l.importNames[name] = path
+	}
 	l.pkgOrder = append(l.pkgOrder, pkgEntry{key: key, base: base})
 	return name
 }
@@ -262,6 +268,9 @@ type lowerer struct {
 	// pkgNamers number each non-root package's own declarations (pkgnames.go, rule 2).
 	pkgNamers map[*check.Package]*namer
 	pkgNames  map[pkgKey]string
+	// importNames is pkgNames' import entries by name: each Go import's
+	// path (importPath).
+	importNames map[string]string
 	pkgOrder  []pkgEntry // in naming order
 	prenamed  bool       // the naming pass is done
 	bodies    int        // function bodies lowered (TestNamingWorkIsLinear)
