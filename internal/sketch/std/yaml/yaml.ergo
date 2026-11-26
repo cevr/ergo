@@ -1,0 +1,627 @@
+// Package yaml reads and writes YAML 1.2 text, one document or a stream
+// of documents, through the same derived codec as json and toml: a record
+// is declared once, and its field names, unions ("_tag"), refinements and
+// typed failures are those of decode[T]. Decoding reads the whole stream
+// into one flat node table (phase 1: grammar, limits and the alias budget,
+// failing Malformed), then a Reader walks the table for decode[T] (phase
+// 2: shape failures only). Plain scalars resolve by the YAML 1.2 core
+// schema. Encode writes block style that Decode reads back.
+
+import codec
+import json
+import strconv
+import strings
+import utf8
+
+// Malformed is a text that is not YAML this package reads: Line and
+// Column (from 1) say where, Reason names the rule. Explicit keys (?),
+// collection keys, %TAG directives and tags outside the core schema are
+// refused here too, as is a text longer than MaxBytes, a nesting deeper
+// than MaxDepth and aliases that expand past a budget linear in the text.
+type Malformed { Line int, Column int, Reason string }
+
+// Unrepresentable is a value YAML has no text for: a string that is not
+// UTF-8. Path is where it stands, "$" for the root.
+type Unrepresentable { Path string, Reason string }
+
+func documents(text string, c int, d int) table fails Malformed { try parseStream(text, c, d) }
+
+// Decode reads the one document of text as a T. A stream of no document
+// or of more than one fails Malformed (DecodeAll reads a stream).
+func Decode[T wire](c json.Codec[T], text string) T fails Malformed | wired[T] needs wired[T] {
+	let t = try documents(text, c.MaxBytes, c.MaxDepth)
+	if t.docs.Len() != 1 {
+		return Malformed{Line: 1, Column: 1, Reason: "want one document, the text has " + strconv.Itoa(t.docs.Len()) + "; use DecodeAll"}
+	}
+	let r cursor = readerAt(t, t.docs[0])
+	try codec.Decode[T](r)
+}
+
+// DecodeAll reads every document of the stream as a T, in order.
+func DecodeAll[T wire](c json.Codec[T], text string) []T fails Malformed | wired[T] needs wired[T] {
+	let t = try documents(text, c.MaxBytes, c.MaxDepth)
+	let mut out = []T{}
+	for root in t.docs {
+		let r cursor = readerAt(t, root)
+		out = out.Append(try codec.Decode[T](r))
+	}
+	out
+}
+
+func encodeOne[T wire](v T) string fails Unrepresentable needs wired[T] {
+	let w sink = newWriter()
+	codec.Encode(v, w)
+	try w.result()
+}
+
+// Encode is v as one YAML document in block style that Decode reads back
+// to v (law EncodeRoundTrips).
+func Encode[T wire](v T) string fails Unrepresentable needs wired[T] { try encodeOne(v) }
+
+// EncodeAll is vs as a stream, each document after a "---" line, that
+// DecodeAll reads back to vs (law StreamRoundTrips).
+func EncodeAll[T wire](vs []T) string fails Unrepresentable needs wired[T] {
+	let mut out = ""
+	for v in vs {
+		out = out + "---\n" + try encodeOne(v)
+	}
+	out
+}
+
+type sample { Name string, Count int64, Active bool, Steps []int64 }
+
+type opened {}
+
+type shut { Reason string }
+
+type mode = opened | shut
+
+type shelf { Label string, Ratio float64, Mode mode, Inner sample, Items []sample, Notes Map[string, string], Big uint64, Small int8, Nested [][]string }
+
+func utf8Texts(v shelf) bool {
+	let mut ok = utf8.ValidString(v.Label) && utf8.ValidString(v.Inner.Name)
+	match v.Mode {
+	case shut as s:
+		ok = ok && utf8.ValidString(s.Reason)
+	case opened:
+	}
+	for x in v.Items {
+		ok = ok && utf8.ValidString(x.Name)
+	}
+	for k, t in v.Notes {
+		ok = ok && utf8.ValidString(k) && utf8.ValidString(t)
+	}
+	for xs in v.Nested {
+		for x in xs {
+			ok = ok && utf8.ValidString(x)
+		}
+	}
+	ok
+}
+
+func codecOf[T wire]() json.Codec[T] { json.Codec[T]{MaxBytes: 0, MaxDepth: 0} }
+
+// EncodeRoundTrips: Decode reads back what Encode writes, and Encode
+// fails only on text that is not UTF-8.
+law EncodeRoundTrips(v shelf) {
+	let text = Encode(v) catch {
+	case Unrepresentable:
+		return !utf8Texts(v)
+	}
+	let back = Decode(codecOf[shelf](), text) catch {
+	case _:
+		return false
+	}
+	let ok = back == v || v.Ratio != v.Ratio
+	sometimes ok && v.Items.Len() > 0
+	ok
+}
+
+// JSONIsYAML: the JSON text json.Encode writes is a YAML document that
+// Decode reads as the same value (YAML 1.2 is a superset of JSON).
+law JSONIsYAML(v shelf) {
+	if !utf8Texts(v) {
+		return true
+	}
+	let text = json.Encode(codecOf[shelf](), v)
+	let back = Decode(codecOf[shelf](), text) catch {
+	case _:
+		return false
+	}
+	back == v || v.Ratio != v.Ratio
+}
+
+// StreamRoundTrips: DecodeAll reads back the documents EncodeAll writes,
+// and Decode refuses a stream of two or more.
+law StreamRoundTrips(vs []sample) {
+	for x in vs {
+		if !utf8.ValidString(x.Name) {
+			return true
+		}
+	}
+	let text = EncodeAll(vs) catch {
+	case Unrepresentable:
+		return false
+	}
+	let back = DecodeAll(codecOf[sample](), text) catch {
+	case _:
+		return false
+	}
+	let mut refused = vs.Len() == 1
+	let _ = Decode(codecOf[sample](), text) catch {
+	case Malformed:
+		refused = vs.Len() != 1
+		sample{Name: "", Count: 0, Active: false, Steps: []int64{}}
+	case _:
+		return false
+	}
+	sometimes vs.Len() > 1
+	back == vs && refused
+}
+
+type docNull {}
+
+type docBool { V bool }
+
+type docInt { V int64 }
+
+type docStr { V string }
+
+type docArr { Items []doc }
+
+type docObj { Keys []string, Vals []doc }
+
+type doc = docNull | docBool | docInt | docStr | docArr | docObj
+
+func pick(xs []int, i int) int {
+	if xs.Len() == 0 {
+		return 0
+	}
+	let v = xs[i%xs.Len()]
+	if v < 0 { -(v + 1) } else { v }
+}
+
+func asciiText(s string) string {
+	let mut out = []byte{}
+	for i in 0..s.Len() {
+		let b = s[i]
+		if b >= byte(0x20) && b < byte(0x7f) {
+			out = out.Append(b)
+		} else if b == byte('\n') || b == byte('\t') {
+			out = out.Append(b)
+		}
+	}
+	out.Text()
+}
+
+func jsonOf(d doc) string {
+	match d {
+	case docNull:
+		"null"
+	case docBool as b:
+		if b.V { "true" } else { "false" }
+	case docInt as n:
+		strconv.FormatInt(n.V, 10)
+	case docStr as s:
+		json.Encode(codecOf[string](), asciiText(s.V))
+	case docArr as a:
+		let mut parts = []string{}
+		for x in a.Items {
+			parts = parts.Append(jsonOf(x))
+		}
+		"[" + strings.Join(parts, ",") + "]"
+	case docObj as o:
+		let mut parts = []string{}
+		for i in 0..o.Keys.Len() {
+			let v = if i < o.Vals.Len() { o.Vals[i] } else { docNull }
+			parts = parts.Append(json.Encode(codecOf[string](), asciiText(o.Keys[i])) + ":" + jsonOf(v))
+		}
+		"{" + strings.Join(parts, ",") + "}"
+	}
+}
+
+func singleSafe(s string) bool {
+	for i in 0..s.Len() {
+		if s[i] < byte(0x20) {
+			return false
+		}
+	}
+	s.Len() == 0 || (s[0] != byte(' ') && s[s.Len()-1] != byte(' '))
+}
+
+func scalarYAML(s string, style int) string {
+	if style%3 == 0 && plainSafe(s) {
+		return s
+	}
+	if style%3 == 1 && singleSafe(s) {
+		return "'" + strings.ReplaceAll(s, "'", "''") + "'"
+	}
+	json.Encode(codecOf[string](), s)
+}
+
+func leafYAML(d doc, style int) string {
+	match d {
+	case docNull:
+		if style%2 == 0 { "~" } else { "null" }
+	case docBool as b:
+		if b.V { if style%2 == 0 { "true" } else { "True" } } else { "false" }
+	case docInt as n:
+		if style%3 == 2 && n.V >= 0 { "0x" + strconv.FormatInt(n.V, 16) } else { strconv.FormatInt(n.V, 10) }
+	case docStr as s:
+		scalarYAML(asciiText(s.V), style)
+	case _:
+		""
+	}
+}
+
+func flowYAML(d doc, styles []int, at int) string {
+	let st = pick(styles, at)
+	match d {
+	case docArr as a:
+		let mut parts = []string{}
+		for i in 0..a.Items.Len() {
+			parts = parts.Append(flowYAML(a.Items[i], styles, at+i+1))
+		}
+		"[" + strings.Join(parts, ", ") + "]"
+	case docObj as o:
+		let mut parts = []string{}
+		for i in 0..o.Keys.Len() {
+			let v = if i < o.Vals.Len() { o.Vals[i] } else { docNull }
+			parts = parts.Append(scalarYAML(asciiText(o.Keys[i]), st+1) + ": " + flowYAML(v, styles, at+i+1))
+		}
+		"{" + strings.Join(parts, ", ") + "}"
+	case _:
+		leafYAML(d, st)
+	}
+}
+
+func spaces(n int) string { strings.Repeat(" ", n) }
+
+func blockYAML(d doc, styles []int, at int, indent int) string {
+	let st = pick(styles, at)
+	match d {
+	case docArr as a:
+		if a.Items.Len() == 0 || st%5 == 4 {
+			return " " + flowYAML(d, styles, at) + "\n"
+		}
+		let mut out = "\n"
+		for i in 0..a.Items.Len() {
+			out = out + spaces(indent) + "-" + blockYAML(a.Items[i], styles, at+i+1, indent+2)
+		}
+		out
+	case docObj as o:
+		if o.Keys.Len() == 0 || st%5 == 4 {
+			return " " + flowYAML(d, styles, at) + "\n"
+		}
+		let mut out = "\n"
+		for i in 0..o.Keys.Len() {
+			let v = if i < o.Vals.Len() { o.Vals[i] } else { docNull }
+			out = out + spaces(indent) + scalarYAML(asciiText(o.Keys[i]), st) + ":" + blockYAML(v, styles, at+i+1, indent+2)
+		}
+		out
+	case docStr as s:
+		let t = asciiText(s.V)
+		if st%7 == 6 && t != "" && !strings.Contains(t, "\t") && !strings.HasPrefix(t, " ") && !strings.HasPrefix(t, "\n") && singleLines(t) {
+			return " |-\n" + spaces(indent) + strings.ReplaceAll(t, "\n", "\n"+spaces(indent)) + "\n"
+		}
+		" " + leafYAML(d, st) + "\n"
+	case _:
+		" " + leafYAML(d, st) + "\n"
+	}
+}
+
+func singleLines(t string) bool {
+	for line in strings.Split(t, "\n") {
+		if line == "" || strings.HasPrefix(line, " ") || strings.HasSuffix(line, " ") {
+			return false
+		}
+	}
+	!strings.HasSuffix(t, "\n")
+}
+
+func valueText(v json.Value) string { json.Encode(codecOf[json.Value](), v) }
+
+// AgreesWithJSON: a generated document written as YAML, in block and flow
+// collections with plain, single-quoted, double-quoted and literal
+// scalars (a reference writer, not Encode), reads as the json.Value that
+// json.Decode reads from the document's JSON text.
+law AgreesWithJSON(d doc, styles []int) {
+	let want = json.Decode(codecOf[json.Value](), jsonOf(d)) catch {
+	case _:
+		return false
+	}
+	let text = "---" + blockYAML(d, styles, 0, 0)
+	let got = Decode(codecOf[json.Value](), text) catch {
+	case _:
+		return false
+	}
+	let flow = Decode(codecOf[json.Value](), flowYAML(d, styles, 0)) catch {
+	case _:
+		return false
+	}
+	let ok = valueText(got) == valueText(want) && valueText(flow) == valueText(want)
+	sometimes ok && pick(styles, 0)%3 == 1
+	ok
+}
+
+func cleanLine(s string) string {
+	let mut out = []byte{}
+	for i in 0..s.Len() {
+		let b = s[i]
+		if b > byte(0x20) && b < byte(0x7f) && b != byte('#') {
+			out = out.Append(b)
+		} else if b == byte(' ') && out.Len() > 0 {
+			out = out.Append(b)
+		}
+	}
+	strings.TrimRight(out.Text(), " ")
+}
+
+func chompModel(body string, keep int, chomp int) string {
+	if chomp < 0 {
+		return body
+	}
+	if chomp == 0 {
+		return body + "\n"
+	}
+	body + strings.Repeat("\n", keep+1)
+}
+
+// BlockScalarsKeepLines: a literal block scalar keeps each line and a
+// folded one joins adjacent lines with a space and keeps each empty line
+// as a line break; the chomping indicator (- strip, none clip, + keep)
+// decides the trailing breaks.
+law BlockScalarsKeepLines(raw []string, chompRaw int, folded bool, trailing int) {
+	let mut lines = []string{}
+	for r in raw {
+		lines = lines.Append(cleanLine(r))
+	}
+	let mut first = 0
+	for first < lines.Len() && lines[first] == "" {
+		first += 1
+	}
+	let mut last = lines.Len() - 1
+	for last >= first && lines[last] == "" {
+		last -= 1
+	}
+	if last < first {
+		return true
+	}
+	let body = lines[first : last+1]
+	let chomp = (if chompRaw < 0 { -(chompRaw + 1) } else { chompRaw })%3 - 1
+	let keep = (if trailing < 0 { -(trailing + 1) } else { trailing }) % 3
+	let ind = if chomp < 0 { "-" } else if chomp > 0 { "+" } else { "" }
+	let mut text = "v: " + (if folded { ">" } else { "|" }) + ind + "\n"
+	for l in body {
+		text = text + (if l == "" { "" } else { "  " + l }) + "\n"
+	}
+	text = text + strings.Repeat("\n", keep) + "w: 1\n"
+	let mut model = []byte{}
+	let mut k = 0
+	let mut started = false
+	for l in body {
+		if l == "" {
+			k += 1
+			continue
+		}
+		if started {
+			if folded && k == 0 {
+				model = model.Append(byte(' '))
+			} else {
+				let n = if folded { k } else { k + 1 }
+				for _ in 0..n {
+					model = model.Append(byte('\n'))
+				}
+			}
+		}
+		model = model.AppendString(l)
+		started = true
+		k = 0
+	}
+	let got = Decode(codecOf[block](), text) catch {
+	case _:
+		return false
+	}
+	let ok = got.V == chompModel(model.Text(), keep, chomp) && got.W == 1
+	sometimes ok && folded && chomp == 1
+	sometimes ok && !folded && chomp == -1
+	ok
+}
+
+type block { V string, W int }
+
+func piecesText(parts []int) string {
+	let pieces = []string{"a: 1\n", "- x\n", "  - y\n", "[1, {b: c}]\n", "&a k: v\n", "*a\n", "? q\n", "\"\\u00e9\\x41\"\n", "'it''s'\n", "|+\n  lit\n\n", ">-\n folded\n", "---\n", "...\n", "%YAML 1.2\n", "\t- tab\n", "{a: [1, 2], b: *x}\n", "!!int 3\n", "!!str 3\n", "!custom x\n", "k: v: w\n", "  deep:\n    - 1\n", "\"open\n", "[1, 2\n", "key: |\n  x\n", "- - - z\n", "~\n", ".inf\n", "0x1F\n", "#c\n", ":\n"}
+	let mut out = ""
+	for p in parts {
+		out = out + pieces[(if p < 0 { -(p + 1) } else { p })%pieces.Len()]
+	}
+	out
+}
+
+// HostileInputTyped: any text made of YAML pieces, mostly not one valid
+// document, either decodes to a json.Value that Encode writes and Decode
+// reads back the same, or fails Malformed or a shape failure: it never
+// dies.
+law HostileInputTyped(parts []int) {
+	let text = piecesText(parts)
+	let v = Decode(codecOf[json.Value](), text) catch {
+	case Malformed:
+		return true
+	case _:
+		return true
+	}
+	let again = Encode(v) catch {
+	case Unrepresentable:
+		return false
+	}
+	let back = Decode(codecOf[json.Value](), again) catch {
+	case _:
+		return false
+	}
+	sometimes parts.Len() > 0
+	valueText(back) == valueText(v)
+}
+
+func valueOf(text string) string {
+	let v = Decode(codecOf[json.Value](), text) catch {
+	case Malformed as m:
+		return "malformed " + m.Reason
+	case _:
+		return "shape"
+	}
+	valueText(v)
+}
+
+type form { Text string, Want string }
+
+let specForms = []form{
+	form{Text: "key:\n- a\n- b\nk2: v\n", Want: "{\"key\":[\"a\",\"b\"],\"k2\":\"v\"}"},
+	form{Text: "plain: multi\n  line\n  text\nx: 1 # comment\n", Want: "{\"plain\":\"multi line text\",\"x\":1}"},
+	form{Text: "- a\n - b\n", Want: "[\"a - b\"]"},
+	form{Text: "a: |2\n    x\n   y\nb: |+\n  k\n\n\nc: 1\n", Want: "{\"a\":\"  x\\n y\\n\",\"b\":\"k\\n\\n\\n\",\"c\":1}"},
+	form{Text: "text: |\n  a\n   b\n\n  c\n", Want: "{\"text\":\"a\\n b\\n\\nc\\n\"}"},
+	form{Text: "f: >\n  a\n    b\n  c\ng: >\n  a\n  b\n\n  c\n", Want: "{\"f\":\"a\\n  b\\nc\\n\",\"g\":\"a b\\nc\\n\"}"},
+	form{Text: "a: \"one\n  two\n\n  three\\\n  four\"\nb: 'one\n  two'\n", Want: "{\"a\":\"one two\\nthreefour\",\"b\":\"one two\"}"},
+	form{Text: "a: [1,\n  2, {b: c,\n  d: e}]\nf: [p: 1, q]\n", Want: "{\"a\":[1,2,{\"b\":\"c\",\"d\":\"e\"}],\"f\":[{\"p\":1},\"q\"]}"},
+	form{Text: "%YAML 1.2\n---\nhello\n...\n", Want: "\"hello\""},
+	form{Text: "---\n", Want: "null"},
+	form{Text: "\xef\xbb\xbfa: 1\r\nb: 2\r\n", Want: "{\"a\":1,\"b\":2}"},
+	form{Text: "- !!float 3\n- !!str true\n- !!int 0o17\n- ! 12\n- !<tag:yaml.org,2002:str> 5\n", Want: "[3,\"true\",15,\"12\",\"5\"]"},
+	form{Text: "&k a: 1\nb: *k\nc: &v [x]\nd: *v\n", Want: "{\"a\":1,\"b\":\"a\",\"c\":[\"x\"],\"d\":[\"x\"]}"},
+	form{Text: "a: -1\nb: +2\nc: .5\nd: 1.\ne: 007\nf: 0x10\ng: ~\nh: FALSE\n", Want: "{\"a\":-1,\"b\":2,\"c\":0.5,\"d\":1.0,\"e\":7,\"f\":16,\"g\":null,\"h\":false}"},
+	form{Text: "- x\n-\n- - y\n  - z: 1\n    w: 2\n", Want: "[\"x\",null,[\"y\",{\"z\":1,\"w\":2}]]"},
+}
+
+// SpecFormsRead: forms of YAML 1.2 the generated laws do not write read
+// as the spec says: a sequence at its key's indentation, plain lines
+// folded, block scalars with an indentation indicator, keep chomping and
+// more-indented lines, quoted folding and escaped line breaks, multi-line
+// flow and single-pair flow mappings, directives and document markers, a
+// byte order mark and CRLF lines, core tags, anchors on keys, every
+// number spelling and empty sequence entries.
+law SpecFormsRead() {
+	let mut ok = true
+	for f in specForms {
+		ok = ok && valueOf(f.Text) == f.Want
+	}
+	let tagged = Decode(json.Codec[mode]{MaxBytes: 0, MaxDepth: 0}, "reason: r\n_tag: shut\n") catch {
+	case _:
+		return false
+	}
+	ok && tagged == shut{Reason: "r"}
+}
+
+let refusals = []form{
+	form{Text: "a: b: c\n", Want: "a mapping value is not allowed here"},
+	form{Text: "a: 1\n  b: 2\n", Want: "a mapping value is not allowed here"},
+	form{Text: "? a\n: b\n", Want: "explicit keys (?) are not supported"},
+	form{Text: "[a]: b\n", Want: "a mapping value is not allowed here"},
+	form{Text: "{[a]: b}\n", Want: "collection keys are not supported"},
+	form{Text: "a:\n\t- b\n", Want: "tab in indentation"},
+	form{Text: "- !foo x\n", Want: "unsupported tag !foo"},
+	form{Text: "- !!int x\n", Want: "the scalar does not resolve as !!int"},
+	form{Text: "%TAG ! tag:x,2000:\n---\na\n", Want: "%TAG directives are not supported"},
+	form{Text: "a: *nope\n", Want: "alias of undefined anchor nope"},
+	form{Text: "a: &x [1, *x]\n", Want: "alias of undefined anchor x"},
+	form{Text: "a: \"open\n", Want: "unterminated double-quoted scalar"},
+	form{Text: "a: [1, 2\n", Want: "unterminated flow sequence"},
+	form{Text: "a: \"\\ud800\"\n", Want: "lone surrogate in an escape"},
+	form{Text: "a: 1\n---\nb: 2\n", Want: "want one document, the text has 2; use DecodeAll"},
+	form{Text: "", Want: "want one document, the text has 0; use DecodeAll"},
+}
+
+// RefusalsNameTheRule: text this package does not read fails Malformed
+// naming the rule, never a value and never a die.
+law RefusalsNameTheRule() {
+	let mut ok = true
+	for f in refusals {
+		ok = ok && valueOf(f.Text) == "malformed "+f.Want
+	}
+	ok
+}
+
+// EncodeWritesBlockStyle: Encode writes a record as block YAML: a key and
+// its scalar on one line, nested collections indented by two, a record in
+// a sequence after its "- ", empty collections in flow form, and a string
+// quoted exactly when its plain form would read as another value.
+law EncodeWritesBlockStyle() {
+	let v = layout{Name: "n", Servers: []server{server{Host: "h:1", Port: 8, Tags: []string{}}, server{Host: "true", Port: 9, Tags: []string{"a", "b c"}}}, Opts: Map[string, string]{"k": "v\nw"}, Note: "", Lead: "-x"}
+	let text = Encode(v) catch {
+	case Unrepresentable:
+		return false
+	}
+	text == "name: n\nservers:\n  - host: \"h:1\"\n    port: 8\n    tags: []\n  - host: \"true\"\n    port: 9\n    tags:\n      - a\n      - b c\nopts:\n  k: \"v\\nw\"\nnote: \"\"\nlead: \"-x\"\n"
+}
+
+type server { Host string, Port int, Tags []string }
+
+type layout { Name string, Servers []server, Opts Map[string, string], Note string, Lead string }
+
+type bombed {}
+
+func bomb(levels int) string {
+	let mut text = "l0: &l0 [x, x, x, x, x, x, x, x, x, x]\n"
+	for i in 1..levels+1 {
+		let prev = "*l" + strconv.Itoa(i-1)
+		text = text + "l" + strconv.Itoa(i) + ": &l" + strconv.Itoa(i) + " [" + strings.Join(strings.Split(strings.Repeat(prev+",", 10), ",")[:10], ", ") + "]\n"
+	}
+	text
+}
+
+// AliasBombRefused: aliases of aliases that would expand a short text
+// past the budget fail Malformed in phase 1; a few levels decode.
+law AliasBombRefused(k int) {
+	let levels = (if k < 0 { -(k + 1) } else { k }) % 4
+	let deep = levels >= 2
+	let text = bomb(if deep { 7 } else { levels })
+	let mut refused = false
+	let _ = Decode(codecOf[bombed](), text) catch {
+	case Malformed as m:
+		refused = strings.Contains(m.Reason, "aliases")
+		bombed
+	case _:
+		return false
+	}
+	sometimes deep && refused
+	sometimes !deep && !refused
+	refused == deep
+}
+
+func nest(n int) string { strings.Repeat("[", n) + strings.Repeat("]", n) }
+
+func blockNest(n int) string {
+	let mut out = ""
+	for i in 0..n {
+		out = out + spaces(i) + "k:\n"
+	}
+	out + spaces(n) + "k: 1\n"
+}
+
+// DepthLimits: a text nested exactly MaxDepth deep, in flow or in block
+// collections, decodes, and one level deeper fails Malformed.
+law DepthLimits(k int) {
+	let depth = (if k < 0 { -(k + 1) } else { k })%24 + 1
+	let c = json.Codec[json.Value]{MaxBytes: 0, MaxDepth: depth}
+	let _ = Decode(c, nest(depth)) catch {
+	case _:
+		return false
+	}
+	let _ = Decode(c, blockNest(depth-1)) catch {
+	case _:
+		return false
+	}
+	let _ = Decode(c, nest(depth+1)) catch {
+	case Malformed:
+		let _ = Decode(c, blockNest(depth)) catch {
+		case Malformed:
+			return true
+		case _:
+			return false
+		}
+		return false
+	case _:
+		return false
+	}
+	false
+}
