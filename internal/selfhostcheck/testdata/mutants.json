@@ -1670,6 +1670,26 @@
       "rule": "Shaped local let bindings record their exact shapeGo type in ir.Func.Locals rather than a placeholder scalar type.",
       "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
       "killers": ["internal/selfhostcheck:TestIRLetShapes"]
+    },
+    {
+      "name": "lower-len-method-receiver",
+      "origin": "wf10/selfhost/S4-PORT NEXT-STOPS",
+      "file": "compiler/lower/lower.ergo", "decl": "goLenReceiver",
+      "from": "\tif found { option.Some{Value: se.X} } else { option.None }",
+      "to": "\toption.None",
+      "rule": "A built-in .Len() call whose checked callee is declared extern go len lowers to Go's len of its receiver, as the Go builder's goBuiltinCall does.",
+      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
+      "killers": ["internal/selfhostcheck:TestIRLenMethod"]
+    },
+    {
+      "name": "lower-len-method-purity",
+      "origin": "wf10/selfhost/S4-PORT NEXT-STOPS",
+      "file": "compiler/lower/calls.ergo", "decl": "pureEdge",
+      "from": "\t\t\treturn builtinEdge\n\t\tcase option.None:\n\t\t\treturn stop(\"callee: nonlocal or method edge (purity)\")",
+      "to": "\t\t\treturn stop(\"callee: nonlocal or method edge (purity)\")\n\t\tcase option.None:\n\t\t\treturn stop(\"callee: nonlocal or method edge (purity)\")",
+      "rule": "A built-in .Len() call is a pure builtin edge of its caller's purity proof, as Go's pureCalls reads a Go builtin.",
+      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
+      "killers": ["internal/selfhostcheck:TestIRLenMethod"]
     }
   ]
 }
