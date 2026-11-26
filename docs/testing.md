@@ -128,7 +128,7 @@ An empty selection is an error.
 
 A passing run's output is cached in Ergo's build cache, as `go test` caches a
 passing result. A later run with the same key prints the same output, then
-`ergo: cached pass replayed; --count 1 runs it again` on stderr, and neither
+`ergo: cached pass replayed; --fresh runs it again` on stderr, and neither
 invokes the go command nor runs the binary. The key holds everything the
 verdict reads: the test binary (the emitted module, the Go toolchain, target,
 flags, tags and strip setting), the binary's arguments (source, revision, `--seed`, `--states`, `--law`,

@@ -278,14 +278,14 @@ func (d *daemon) answer(req devRequest) devAnswer {
 	}
 	before := stage.Snapshot()
 	opts, err := parseFileOptions("check", req.Args[1:])
-	if err != nil || recursivePattern(opts.file) {
+	if err != nil || recursivePattern(opts.file) || opts.fresh {
 		return devAnswer{Reason: "not served"}
 	}
 	w, valid := prepareWarm(opts, nil)
 	if w == nil {
 		return devAnswer{Reason: "no warm answer"}
 	}
-	answer, hit := sketchfront.WarmHit(w.cache, w.key, valid, &d.sums)
+	answer, hit := sketchfront.WarmHit(w.cache, w.key, w.module, valid, &d.sums)
 	if !hit {
 		return devAnswer{Reason: "no warm answer"}
 	}

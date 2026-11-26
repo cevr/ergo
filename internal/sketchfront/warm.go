@@ -15,6 +15,7 @@ import (
 	"sync"
 
 	"ergo.local/prototype/internal/sketch/build"
+	"ergo.local/prototype/internal/sketch/lawcache"
 	"ergo.local/prototype/internal/stage"
 	"ergo.local/prototype/internal/toolchain"
 )
@@ -309,18 +310,52 @@ func (in Inputs) Fresh() bool {
 	return in.listingsFresh(hostListing)
 }
 
-// Record stores answer under key with the inputs the request read.
-func (r *Recorder) Record(c build.Cache, key string, answer WarmAnswer) error {
+// Record stores answer under key with the inputs the request read, each
+// path inside root (the request's module folder) written relative to it
+// (lawcache.Within), so the manifest serves every workspace of the same
+// tree. An answer that names root is not stored when root is set: another
+// workspace's hit would print this one's folder.
+func (r *Recorder) Record(c build.Cache, key, root string, answer WarmAnswer) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if r.spoiled || key == "" {
+	if r.spoiled || key == "" || answer.names(root) {
 		return nil
 	}
-	data, err := json.Marshal(warmManifest{Schema: warmSchema, Key: key, Inputs: r.inputs, Answer: answer})
+	data, err := json.Marshal(warmManifest{Schema: warmSchema, Key: key, Inputs: r.inputs.Within(root), Answer: answer})
 	if err != nil {
 		return err
 	}
 	return c.PutWarmManifest(key, data)
+}
+
+// names reports whether the answer's printed text holds root.
+func (a WarmAnswer) names(root string) bool {
+	return lawcache.Names(string(a.Stdout), root) || lawcache.Names(string(a.Test), root)
+}
+
+// Within is in with every path below root written relative to it
+// (lawcache.Within), to be stored under a key that names no workspace.
+func (in Inputs) Within(root string) Inputs { return in.rooted(root, lawcache.Within) }
+
+// Under is Within's inverse: stored inputs read under root.
+func (in Inputs) Under(root string) Inputs { return in.rooted(root, lawcache.Unroot) }
+
+// rooted is in with every path rewritten by to(root, path).
+func (in Inputs) rooted(root string, to func(root, path string) string) Inputs {
+	if root == "" {
+		return in
+	}
+	out := Inputs{Files: make(map[string]FileStamp, len(in.Files)), Dirs: make(map[string]string, len(in.Dirs)), Stats: make(map[string]string, len(in.Stats))}
+	for name, stamp := range in.Files {
+		out.Files[to(root, name)] = stamp
+	}
+	for dir, digest := range in.Dirs {
+		out.Dirs[to(root, dir)] = digest
+	}
+	for name, kind := range in.Stats {
+		out.Stats[to(root, name)] = kind
+	}
+	return out
 }
 
 func hashInput(data []byte) string {
@@ -356,8 +391,9 @@ func listingDigest(entries []fs.DirEntry) string {
 // accepts the stored answer (a build's blob is still in the store); then ok
 // is true. Otherwise it returns the Recorder the normal path reads through,
 // holding the bytes this check read. Each input file is read and hashed
-// once, by up to eight readers at a time.
-func WarmLookup(c build.Cache, key string, valid func(WarmAnswer) bool) (answer WarmAnswer, rec *Recorder, ok bool) {
+// once, by up to eight readers at a time. root is the request's module
+// folder, which the manifest's relative paths are read under (Record).
+func WarmLookup(c build.Cache, key, root string, valid func(WarmAnswer) bool) (answer WarmAnswer, rec *Recorder, ok bool) {
 	if key == "" {
 		return WarmAnswer{}, newRecorder(nil), false
 	}
@@ -366,6 +402,7 @@ func WarmLookup(c build.Cache, key string, valid func(WarmAnswer) bool) (answer 
 	if !found || json.Unmarshal(data, &m) != nil || m.Schema != warmSchema || m.Key != key {
 		return WarmAnswer{}, newRecorder(nil), false
 	}
+	m.Inputs = m.Inputs.Under(root)
 	names := make([]string, 0, len(m.Inputs.Files))
 	for name := range m.Inputs.Files {
 		names = append(names, name)

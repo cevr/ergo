@@ -58,9 +58,13 @@ import (
 // and Turborepo key by bytes, so a comment edit misses there.
 
 // treeSchema versions the manifest, the entries and their keys.
-const treeSchema = "check tree/1"
+// Version 2 names no workspace: every path below the request's module
+// folder is kept relative to it (lawcache.Within), so the store serves
+// each workspace of the same tree (SHARED-RESULT-CACHE).
+const treeSchema = "check tree/2"
 
-// treeManifest is a kept request.
+// treeManifest is a kept request. Its paths are absolute in memory and
+// relative to the request's module folder in the store (rooted).
 type treeManifest struct {
 	Schema string `json:"schema"`
 	// Root is the module's folder, which every text's Rel is relative to.
@@ -83,6 +87,36 @@ type treePackage struct {
 	Files    []string `json:"files"`
 	Imports  []string `json:"imports"`
 	WithWork int      `json:"withWork"`
+}
+
+// within is m as it is stored: every path below module relative to it.
+func (m treeManifest) within(module string) treeManifest {
+	m.Inputs = m.Inputs.Within(module)
+	return m.rooted(module, lawcache.Within)
+}
+
+// under is within's inverse: a stored m read under module.
+func (m treeManifest) under(module string) treeManifest {
+	m.Inputs = m.Inputs.Under(module)
+	return m.rooted(module, lawcache.Unroot)
+}
+
+// rooted is m with its root and its packages' folders and files rewritten
+// by to(module, path).
+func (m treeManifest) rooted(module string, to func(root, path string) string) treeManifest {
+	m.Root = to(module, m.Root)
+	packages := make([]treePackage, len(m.Packages))
+	for i, p := range m.Packages {
+		p.Dir = to(module, p.Dir)
+		files := make([]string, len(p.Files))
+		for j, name := range p.Files {
+			files[j] = to(module, name)
+		}
+		p.Files = files
+		packages[i] = p
+	}
+	m.Packages = packages
+	return m
 }
 
 // treeEntry is one printed package's kept answer: the envelope it
@@ -108,8 +142,14 @@ type checkTree struct {
 	store  *lawcache.Store
 	base   string // the request's options, environment and compiler: a part of every key
 	folder string // the folder the request walks: a part of the manifest's key
-	rec    *sketchfront.Recorder
-	puts   int // the store's Puts when the normal path started
+	// module is the folder of the ergo.mod at or above folder ("" when
+	// none): the store names every path below it relative to it.
+	module string
+	// spelled is the request's path as written, which its answer prints:
+	// a part of the manifest's key.
+	spelled string
+	rec     *sketchfront.Recorder
+	puts    int // the store's Puts when the normal path started
 	// kept are the selected packages' answers so far; complete is false
 	// once one cannot be kept.
 	kept     []treeKept
@@ -146,12 +186,14 @@ func startTree(opts fileOptions) *checkTree {
 	if store == nil || base == "" {
 		return nil
 	}
-	return &checkTree{store: store, base: base, folder: source.Admitted(), complete: true}
+	module, _ := moduleRoot(source.Admitted())
+	return &checkTree{store: store, base: base, folder: source.Admitted(), module: module, spelled: opts.file, complete: true}
 }
 
-// manifestKey is the key of the request's manifest.
+// manifestKey is the key of the request's manifest: its folder relative
+// to its module's, so every workspace of the tree finds it.
 func (t *checkTree) manifestKey() string {
-	return lawcache.Key(treeSchema, "manifest", t.base, t.folder)
+	return lawcache.Key(treeSchema, "manifest", t.base, lawcache.Within(t.module, t.folder), t.spelled)
 }
 
 // lookup is the printed answer of every selected package, in order, when
@@ -162,7 +204,10 @@ func (t *checkTree) lookup() ([][]byte, bool) {
 	}
 	text, ok := t.store.Get(t.manifestKey())
 	var m treeManifest
-	if !ok || json.Unmarshal([]byte(text), &m) != nil || m.Schema != treeSchema || !m.Inputs.Fresh() {
+	if !ok || json.Unmarshal([]byte(text), &m) != nil || m.Schema != treeSchema {
+		return nil, false
+	}
+	if m = m.under(t.module); !m.Inputs.Fresh() {
 		return nil, false
 	}
 	srcs := map[string]string{}
@@ -180,7 +225,7 @@ func (t *checkTree) lookup() ([][]byte, bool) {
 			return nil, false
 		}
 	}
-	keys, ok := treeKeys(t.base, m.Packages, srcs)
+	keys, ok := treeKeys(t.base, t.module, m.Packages, srcs)
 	if !ok {
 		return nil, false
 	}
@@ -204,8 +249,9 @@ func (t *checkTree) lookup() ([][]byte, bool) {
 // checked it as main (no package of the load imports it) or as its path,
 // its files' names and check text, and the keys of its imports. ok is
 // false when an import is not among packages, which each come after
-// their imports.
-func treeKeys(base string, packages []treePackage, srcs map[string]string) (map[string]string, bool) {
+// their imports. A package's folder is keyed relative to module
+// (lawcache.Within).
+func treeKeys(base, module string, packages []treePackage, srcs map[string]string) (map[string]string, bool) {
 	imported := map[string]bool{}
 	for _, p := range packages {
 		for _, q := range p.Imports {
@@ -218,7 +264,7 @@ func treeKeys(base string, packages []treePackage, srcs map[string]string) (map[
 		if imported[p.Path] {
 			as = "imported"
 		}
-		parts := []string{treeSchema, "package", base, p.Path, p.Dir, as}
+		parts := []string{treeSchema, "package", base, p.Path, lawcache.Within(module, p.Dir), as}
 		for _, name := range p.Files {
 			parts = append(parts, filepath.Base(name), syntax.CheckText(srcs[name]))
 		}
@@ -452,13 +498,16 @@ func (t *checkTree) keep() (why string) {
 		delete(inputs.Files, name)
 	}
 	m.Inputs = inputs
-	keys, ok := treeKeys(t.base, m.Packages, srcs)
+	keys, ok := treeKeys(t.base, t.module, m.Packages, srcs)
 	if !ok {
 		return "an import outside the load"
 	}
 	entries := make([]string, len(t.kept))
 	for i, k := range t.kept {
 		e, why := treeEntryOf(k.a, k.out, root, srcs)
+		if why == "" && lawcache.Names(string(k.out), t.module) {
+			why = "an answer that names its module's folder"
+		}
 		if why != "" {
 			return m.Selected[i] + ": " + why
 		}
@@ -471,7 +520,7 @@ func (t *checkTree) keep() (why string) {
 	for i, path := range m.Selected {
 		t.store.Put(keys[path], entries[i])
 	}
-	data, err := json.Marshal(m)
+	data, err := json.Marshal(m.within(t.module))
 	if err != nil {
 		return err.Error()
 	}

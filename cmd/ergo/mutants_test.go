@@ -305,7 +305,7 @@ func TestMutantsRunnerNativeMode(t *testing.T) {
 
 func TestMutantsRunnerCLIErrors(t *testing.T) {
 	cases := [][]string{
-		{"test", "--fresh", "."},
+		{"build", "--fresh", "."},
 		{"test", "--mutants", "--affected", "."},
 		{"test", "--mutants", "--trace", "."},
 		{"test", "--mutants", "--run", "[invalid", "."},

@@ -131,8 +131,18 @@ type warmWorld struct {
 // source or of the asset with its size and modification time kept, adding,
 // removing or renaming a file, check's --seed, an ERGO_* variable, another
 // compiler) runs the normal path, which reads each input once, as the
-// reference does. A trim of the executable's blob builds again. A failing
-// seed prints its steps; replay with ERGO_WARM_SEED=N.
+// reference does. A trim of the executable's blob builds again. A step
+// moves the work to another workspace holding a copy of the inputs: there
+// a check the first workspace answered is answered warm with no work (its
+// key and manifest name no workspace), and a build runs the normal path
+// (its executable names its sources' paths). A failing seed prints its
+// steps; replay with ERGO_WARM_SEED=N.
+//
+// It kills srcache-warm-key-absolute (the check's key names its folder,
+// so no other workspace finds it), srcache-manifest-not-unrooted (a
+// stored manifest's paths are not read under the workspace), and
+// srcache-build-shared (a build's answer serves another workspace an
+// executable naming the first one's sources).
 //
 // It kills cs-warm-key-omits-new-file, cs-warm-key-omits-asset,
 // cs-warm-key-omits-flag, cs-warm-key-omits-release, cs-warm-trusts-mtime,
@@ -169,10 +179,18 @@ func TestWarmAnswerAgreesWithFullBuild(t *testing.T) {
 
 func warmSequence(t *testing.T, seed uint64, bin, other string) {
 	r := rand.New(rand.NewPCG(seed, 7))
-	w := warmWorld{root: physicalTempDir(t), value: 1, banner: 'a', seed: 1}
+	// Two workspaces of one tree: a step moves the world to the other one
+	// (a copy of every input, as another lane's checkout is).
+	workspaces := [2]string{physicalTempDir(t), physicalTempDir(t)}
+	w := warmWorld{root: workspaces[0], value: 1, banner: 'a', seed: 1}
 	warmModule(t, w.root, w.value, w.banner)
 	warmXDG, refXDG := physicalTempDir(t), physicalTempDir(t)
-	out, ref := filepath.Join(w.root, "dist", "app"), filepath.Join(t.TempDir(), "ref")
+	ref := filepath.Join(t.TempDir(), "ref")
+	var out, lib string
+	placed := func() {
+		out, lib = filepath.Join(w.root, "dist", "app"), filepath.Join(w.root, "lib", "lib.ergo")
+	}
+	placed()
 	var steps []string
 	// version counts the edits of the inputs; seen is, for each request
 	// (compiler, environment and, for check, --seed), the version its last
@@ -182,7 +200,6 @@ func warmSequence(t *testing.T, seed uint64, bin, other string) {
 		t.Helper()
 		t.Fatalf("seed %d, after %s: %s (replay with ERGO_WARM_SEED=%d)", seed, strings.Join(steps, ", "), fmt.Sprintf(format, args...), seed)
 	}
-	lib := filepath.Join(w.root, "lib", "lib.ergo")
 	keepStamp := func(path string, edit func()) {
 		info, err := os.Stat(path)
 		if err != nil {
@@ -201,7 +218,7 @@ func warmSequence(t *testing.T, seed uint64, bin, other string) {
 		return filepath.Join(w.root, "lib", name)
 	}
 	// After the first build, every kind of step once, in a seeded order.
-	kinds := r.Perm(13)
+	kinds := r.Perm(14)
 	for i := range 1 + len(kinds) {
 		edited, concurrent, trimmed := false, false, false
 		var step string
@@ -264,6 +281,15 @@ func warmSequence(t *testing.T, seed uint64, bin, other string) {
 		case k == 11:
 			step, trimmed = "trim the output's blob", true
 			trimBlobOf(t, warmXDG, out)
+		case k == 12:
+			other := workspaces[0]
+			if w.root == other {
+				other = workspaces[1]
+			}
+			step = "work in the other workspace, a copy of this one"
+			copyWorld(t, w.root, other)
+			w.root = other
+			placed()
 		default:
 			step, concurrent = "two builds at once", true
 		}
@@ -304,7 +330,10 @@ func warmSequence(t *testing.T, seed uint64, bin, other string) {
 		if edited {
 			version++
 		}
-		buildReq := fmt.Sprint(compiler, w.probe)
+		// A build's answer is its workspace's: the executable names its
+		// sources' paths. A check's is every workspace's: its key and its
+		// manifest name no workspace (SHARED-RESULT-CACHE).
+		buildReq := fmt.Sprint(compiler, w.probe, w.root)
 		checkReq := fmt.Sprint(compiler, w.probe, w.seed)
 		runs := []struct {
 			req  string
@@ -340,6 +369,38 @@ func warmSequence(t *testing.T, seed uint64, bin, other string) {
 				seen[x.req] = version
 			}
 		}
+	}
+}
+
+// copyWorld makes to a copy of the world's inputs in from: every file
+// but the outputs under dist, and nothing else.
+func copyWorld(t *testing.T, from, to string) {
+	t.Helper()
+	if err := os.RemoveAll(to); err != nil {
+		t.Fatal(err)
+	}
+	err := filepath.WalkDir(from, func(path string, e fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(from, path)
+		if err != nil {
+			return err
+		}
+		switch {
+		case rel == "dist":
+			return filepath.SkipDir
+		case e.IsDir():
+			return os.MkdirAll(filepath.Join(to, rel), 0o755)
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		return os.WriteFile(filepath.Join(to, rel), data, 0o644)
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
 }
 
