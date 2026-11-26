@@ -1600,6 +1600,230 @@
       "killers": [
         "modules/git/repo:FullPureErgoWorkflowMatchesCGitSha1AndSha256"
       ]
+    },
+    {
+      "name": "source-append-drops-delete",
+      "origin": "SOURCE-CONTRACT",
+      "file": "modules/git/source/memory/store.ergo",
+      "from": "out = out.Delete(d.Path)",
+      "to": "out = out.Delete(d.Path + \"/\")",
+      "rule": "A Delete recorded but not applied: AppendIsTheReference, the log's files against the reference's.",
+      "anchor": {
+        "tests": [
+          "modules/git/source/memory:law:source.Source.AppendIsTheReference"
+        ]
+      },
+      "killers": [
+        "modules/git/source/memory:law:source.Source.AppendIsTheReference"
+      ]
+    },
+    {
+      "name": "source-keeps-unchanged-entry",
+      "origin": "SOURCE-CONTRACT",
+      "file": "modules/git/source/memory/store.ergo",
+      "from": "if base.Get(path) != (option.Some[file]{Value: f.Value}) {",
+      "to": "if base.Get(path) != (option.Some[file]{Value: f.Value}) || path != \"\" {",
+      "rule": "A stored changeset keeps an entry for an unchanged file: ChangesAreTheDiff, the log's normal form.",
+      "anchor": {
+        "tests": [
+          "modules/git/source/memory:law:source.Source.ChangesAreTheDiff"
+        ]
+      },
+      "killers": [
+        "modules/git/source/memory:law:source.Source.ChangesAreTheDiff"
+      ]
+    },
+    {
+      "name": "source-id-counts-the-log",
+      "origin": "SOURCE-CONTRACT",
+      "file": "modules/git/source/memory/store.ergo",
+      "from": "let data = commitBytes(root, parents, meta)",
+      "to": "let data = commitBytes(root, parents, source.Meta{..meta, Message: meta.Message + \"\\(b.log.Len())\"})",
+      "rule": "A change id drawn from a counter, so a retried append doubles the change: AppendTwiceIsOnce.",
+      "anchor": {
+        "tests": [
+          "modules/git/source/memory:law:source.Source.AppendTwiceIsOnce"
+        ]
+      },
+      "killers": [
+        "modules/git/source/memory:law:source.Source.AppendTwiceIsOnce"
+      ]
+    },
+    {
+      "name": "source-append-skips-blob-check",
+      "origin": "SOURCE-CONTRACT",
+      "file": "modules/git/source/memory/store.ergo",
+      "from": "if b.objects.Get(oid.Hex(p.Blob)) == option.None {",
+      "to": "if b.objects.Get(oid.Hex(p.Blob)) == option.None && p.Path == \"\" {",
+      "rule": "A change that points at a blob the store lacks: BlobsBeforeChanges.",
+      "anchor": {
+        "tests": [
+          "modules/git/source/memory:law:source.Source.BlobsBeforeChanges"
+        ]
+      },
+      "killers": [
+        "modules/git/source/memory:law:source.Source.BlobsBeforeChanges"
+      ]
+    },
+    {
+      "name": "source-append-advances-main",
+      "origin": "SOURCE-CONTRACT",
+      "file": "modules/git/source/memory/store.ergo",
+      "from": "(appended{ID: id}, book{..b, objects: objects, log: log, at: at, index: index})",
+      "to": "(appended{ID: id}, book{..b, objects: objects, log: log, at: at, index: index, refs: b.refs.Put(\"refs/heads/main\", id)})",
+      "rule": "An append that advances main for convenience, a land with no check: AppendMovesNoRef.",
+      "anchor": {
+        "tests": [
+          "modules/git/source/memory:law:source.Source.AppendMovesNoRef"
+        ]
+      },
+      "killers": [
+        "modules/git/source/memory:law:source.Source.AppendMovesNoRef"
+      ]
+    },
+    {
+      "name": "source-append-rewrites-parent",
+      "origin": "SOURCE-CONTRACT",
+      "file": "modules/git/source/memory/store.ergo",
+      "from": "\t\tlog = log.Append(set)\n\t\tat[id] = log.Len() - 1",
+      "to": "\t\tlet slot = if parents.Len() > 0 { at.Get(parents[0]) } else { option.None }\n\t\tmatch slot {\n\t\tcase option.Some[int] as i:\n\t\t\tlog[i.Value] = set\n\t\t\tat[id] = i.Value\n\t\tcase option.None:\n\t\t\tlog = log.Append(set)\n\t\t\tat[id] = log.Len() - 1\n\t\t}",
+      "rule": "A change rewritten in place by its child, as a rebase that amends the stored change: LogOnlyGrows.",
+      "anchor": {
+        "tests": [
+          "modules/git/source/memory:law:source.Source.LogOnlyGrows"
+        ]
+      },
+      "killers": [
+        "modules/git/source/memory:law:source.Source.LogOnlyGrows"
+      ]
+    },
+    {
+      "name": "source-want-truncates",
+      "origin": "SOURCE-CONTRACT",
+      "file": "modules/git/source/memory/store.ergo",
+      "from": "\t\t\t\tif size > maxBytes {\n\t\t\t\t\treturn (wantRefused{Why: source.LimitExceeded{MaxBytes: maxBytes}}, b)\n\t\t\t\t}",
+      "to": "\t\t\t\tif size > maxBytes {\n\t\t\t\t\tlet cut = o.Value.Data.Slice(0, o.Value.Data.Len()-(size-maxBytes))\n\t\t\t\t\treturn (wanted{Objects: out.Append(source.Object{..o.Value, Data: cut})}, book{..b, reads: reads})\n\t\t\t\t}",
+      "rule": "A want past its byte limit answers a truncated blob: WantBindsBytes.",
+      "anchor": {
+        "tests": [
+          "modules/git/source/memory:law:source.Source.WantBindsBytes"
+        ]
+      },
+      "killers": [
+        "modules/git/source/memory:law:source.Source.WantBindsBytes"
+      ]
+    },
+    {
+      "name": "source-tree-misses-a-folder",
+      "origin": "SOURCE-CONTRACT",
+      "file": "modules/git/source/memory/store.ergo",
+      "from": "if !slices.Contains(folders, name) {",
+      "to": "if folders.Len() == 0 {",
+      "rule": "A derived tree that misses a folder the change touched: ClosureIsTheChange.",
+      "anchor": {
+        "tests": [
+          "modules/git/source/memory:law:source.Source.ClosureIsTheChange"
+        ]
+      },
+      "killers": [
+        "modules/git/source/memory:law:source.Source.ClosureIsTheChange"
+      ]
+    },
+    {
+      "name": "source-want-leaves-out-what-it-sent",
+      "origin": "SOURCE-CONTRACT",
+      "file": "modules/git/source/memory/store.ergo",
+      "from": "\t\t\t\tout = out.Append(o.Value)",
+      "to": "\t\t\t\tif readCount(b.reads, key) == 0 {\n\t\t\t\t\tout = out.Append(o.Value)\n\t\t\t\t}",
+      "rule": "A store that remembers what it sent and leaves it out of a later want: WantNeedsNoHistory.",
+      "anchor": {
+        "tests": [
+          "modules/git/source/memory:law:source.Source.WantNeedsNoHistory"
+        ]
+      },
+      "killers": [
+        "modules/git/source/memory:law:source.Source.WantNeedsNoHistory"
+      ]
+    },
+    {
+      "name": "source-want-reads-the-whole-store",
+      "origin": "SOURCE-CONTRACT",
+      "file": "modules/git/source/memory/store.ergo",
+      "from": "\t\tlet mut out = []source.Object{}\n\t\tlet mut size = 0",
+      "to": "\t\tfor key, _ in b.objects {\n\t\t\treads[key] = readCount(reads, key) + 1\n\t\t}\n\t\tlet mut out = []source.Object{}\n\t\tlet mut size = 0",
+      "rule": "A want answered by reading the whole store, a sparse client paying for the repository: WantIsOnlyWhatWasAsked.",
+      "anchor": {
+        "tests": [
+          "modules/git/source/memory:law:source.Source.WantIsOnlyWhatWasAsked"
+        ]
+      },
+      "killers": [
+        "modules/git/source/memory:law:source.Source.WantIsOnlyWhatWasAsked"
+      ]
+    },
+    {
+      "name": "source-ancestry-floor-off-by-one",
+      "origin": "SOURCE-CONTRACT",
+      "file": "modules/git/source/memory/store.ergo",
+      "from": "(try changeOf(b, p)).gen >= floor",
+      "to": "(try changeOf(b, p)).gen > floor",
+      "rule": "The generation floor of the ancestry search off by one: MergeBaseIsTheReference.",
+      "anchor": {
+        "tests": [
+          "modules/git/source/memory:law:source.Source.MergeBaseIsTheReference"
+        ]
+      },
+      "killers": [
+        "modules/git/source/memory:law:source.Source.MergeBaseIsTheReference"
+      ]
+    },
+    {
+      "name": "source-diff-drops-mode-change",
+      "origin": "SOURCE-CONTRACT",
+      "file": "modules/git/source/memory/store.ergo",
+      "from": "let same = oid.Equal(o.OID, n.OID) && o.Mode == n.Mode",
+      "to": "let same = oid.Equal(o.OID, n.OID)",
+      "rule": "The tree diff drops a mode-only change: DiffIsTheReference.",
+      "anchor": {
+        "tests": [
+          "modules/git/source/memory:law:source.Source.DiffIsTheReference"
+        ]
+      },
+      "killers": [
+        "modules/git/source/memory:law:source.Source.DiffIsTheReference"
+      ]
+    },
+    {
+      "name": "source-set-ignores-expected",
+      "origin": "SOURCE-CONTRACT",
+      "file": "modules/git/source/memory/store.ergo",
+      "from": "if b.refs.Get(name) != expected {",
+      "to": "if b.refs.Get(name) != expected && name == \"\" {",
+      "rule": "A read, then a write, with nothing between: a lost update; SetIsCompareAndSet.",
+      "anchor": {
+        "tests": [
+          "modules/git/source/memory:law:source.Source.SetIsCompareAndSet"
+        ]
+      },
+      "killers": [
+        "modules/git/source/memory:law:source.Source.SetIsCompareAndSet"
+      ]
+    },
+    {
+      "name": "source-set-forces-protected",
+      "origin": "SOURCE-CONTRACT",
+      "file": "modules/git/source/memory/store.ergo",
+      "from": "if slices.Contains(s.policy.Protected, name) {",
+      "to": "if slices.Contains(s.policy.Protected, name) && name == \"\" {",
+      "rule": "A protected name moved by Set, as a force flag would: ProtectedMovesOnlyByLand.",
+      "anchor": {
+        "tests": [
+          "modules/git/source/memory:law:source.Source.ProtectedMovesOnlyByLand"
+        ]
+      },
+      "killers": [
+        "modules/git/source/memory:law:source.Source.ProtectedMovesOnlyByLand"
+      ]
     }
   ]
 }
