@@ -455,7 +455,7 @@ func (p *parser) ident(want string) token {
 // checkName refuses a declared name that a C compiler would expand as a
 // macro of the standard headers or of the compiler.
 func (p *parser) checkName(t token) {
-	if reservedMacro.MatchString(t.text) {
+	if reservedMacro.get().MatchString(t.text) {
 		p.fail(t, CodeMacroIdentifier, "%s is a reserved name or a standard macro", t.text)
 	}
 }

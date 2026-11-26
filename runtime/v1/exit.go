@@ -6,6 +6,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 
 	"ergo.local/prototype/runtime/rt"
 )
@@ -305,10 +306,19 @@ func RegisterCalls(declTable []struct {
 	registerCompact(declTable, names, compact)
 }
 
-// inlines are the program's inlined calls by key (RegisterInlines): each
-// one's call table entry and the key of the inlined call around it, ""
-// for none.
-var inlines map[string]*inlineCall
+// inlineTable retains the slice registered by RegisterInlines without
+// allocating at program start. inlines is populated lazily on the first
+// defect traceback (ergoStack) with value-typed entries so normal runs pay
+// zero heap allocations for inline metadata.
+var (
+	inlinesMu   sync.Mutex
+	inlineTable []struct {
+		Key    string
+		Call   int
+		Parent string
+	}
+	inlines map[string]inlineCall
+)
 
 type inlineCall struct {
 	call   int
@@ -334,10 +344,23 @@ func RegisterInlines(table []struct {
 	Call   int
 	Parent string
 }) {
-	inlines = make(map[string]*inlineCall, len(table))
-	for _, e := range table {
-		inlines[e.Key] = &inlineCall{call: e.Call, parent: e.Parent}
+	inlinesMu.Lock()
+	inlineTable = table
+	inlines = nil
+	inlinesMu.Unlock()
+}
+
+func inlineLookup() map[string]inlineCall {
+	inlinesMu.Lock()
+	defer inlinesMu.Unlock()
+	if inlines == nil && len(inlineTable) > 0 {
+		m := make(map[string]inlineCall, len(inlineTable))
+		for _, e := range inlineTable {
+			m[e.Key] = inlineCall{call: e.Call, parent: e.Parent}
+		}
+		inlines = m
 	}
+	return inlines
 }
 
 // taskEntry starts the traceback line of guarded, the boundary of every
@@ -368,6 +391,7 @@ const ProgramModule = "ergo.local/program"
 // entry of a task.Go block is not a call, and the task's line names its
 // fork.
 func ergoStack(stack []byte) []string {
+	inlMap := inlineLookup()
 	type site struct {
 		file string
 		line int
@@ -445,8 +469,10 @@ func ergoStack(stack []byte) []string {
 		}
 		file, inl := loc[:i], ""
 		if j := strings.LastIndex(file, inlineTag); j >= 0 {
-			if k := file[j+len(inlineTag):]; inlines[k] != nil {
-				file, inl = file[:j], k
+			if k := file[j+len(inlineTag):]; k != "" {
+				if _, ok := inlMap[k]; ok {
+					file, inl = file[:j], k
+				}
 			}
 		}
 		if !files[file] {
@@ -494,11 +520,16 @@ func ergoStack(stack []byte) []string {
 	// same Go frame, so a function literal around it that calls it at the
 	// outermost one's position is no repeat (add).
 	chain := func(f site) {
-		for s := f.inl; s != "" && inlines[s] != nil; s = inlines[s].parent {
-			if k := inlines[s].call; k >= 0 && k < len(calls) {
+		for s := f.inl; s != ""; {
+			entry, ok := inlMap[s]
+			if !ok {
+				break
+			}
+			if k := entry.call; k >= 0 && k < len(calls) {
 				c := calls[k]
 				add(callNames[c.Func]+" calls "+callNames[c.Callee]+" at "+callNames[c.File]+":"+strconv.Itoa(int(c.Line))+":"+strconv.Itoa(int(c.Column)), f.fn)
 			}
+			s = entry.parent
 		}
 	}
 	// callee is the declaration of the Go frame f, as the frame outside
@@ -506,10 +537,15 @@ func ergoStack(stack []byte) []string {
 	// around f's line, else the declaration that holds the line.
 	callee := func(f site) string {
 		name := owner(f)
-		for s := f.inl; s != "" && inlines[s] != nil; s = inlines[s].parent {
-			if k := inlines[s].call; k >= 0 && k < len(calls) {
+		for s := f.inl; s != ""; {
+			entry, ok := inlMap[s]
+			if !ok {
+				break
+			}
+			if k := entry.call; k >= 0 && k < len(calls) {
 				name = callNames[calls[k].Func]
 			}
+			s = entry.parent
 		}
 		return name
 	}
