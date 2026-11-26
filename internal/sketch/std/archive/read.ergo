@@ -104,14 +104,14 @@ law WriteThenReadIsTheArchive(names []string, bodies []string, stamps []int, pic
 			break
 		}
 		let seg = safeSegment(raw)
-		let path = if raw.Len() % 4 == 3 { "p/" + strings.Repeat("q", 16*raw.Len()) + "/f\(i)" } else { "d/" + seg + "\(i)" }
+		let path = if raw.Len()%4 == 3 { "p/" + strings.Repeat("q", 16*raw.Len()) + "/f\(i)" } else { "d/" + seg + "\(i)" }
 		let body = if i < bodies.Len() { bodies[i] } else { "" }
 		let stamp = if i < stamps.Len() { magnitude(stamps[i]) } else { i }
 		let mode = (stamp % 512) | 256
 		let mtime = stamp % 2000000000
 		let k = (i + magnitude(pick)) % 4
 		let kind = if k == 0 { File } else if k == 1 { Dir } else if k == 2 || isZip(f) { Symlink } else { HardLink }
-		let link = if k == 0 || k == 1 { "" } else if raw.Len() % 4 == 3 { strings.Repeat("t", 16*raw.Len()) } else { "t\(i)" }
+		let link = if k == 0 || k == 1 { "" } else if raw.Len()%4 == 3 { strings.Repeat("t", 16*raw.Len()) } else { "t\(i)" }
 		Add(&a, Header{Path: path, Kind: kind, Mode: mode, ModTime: mtime, Link: link}, body.Bytes()) catch {
 		case Unsafe, UnsafeLink, ThroughLink:
 			return false

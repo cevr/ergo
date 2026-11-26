@@ -29,7 +29,7 @@ law BytesAgree(s string, crc uint32) { ChecksumBytes(s.Bytes()) == Checksum(s) &
 
 // UpdateChains: the checksum of a, carried over b, is the checksum of a +
 // b.
-law UpdateChains(a string, b string) { Update(Checksum(a), b) == Checksum(a + b) }
+law UpdateChains(a string, b string) { Update(Checksum(a), b) == Checksum(a+b) }
 
 // UpdateFromZero: carrying the zero checksum over s is the checksum of s.
 law UpdateFromZero(s string) { Update(0, s) == Checksum(s) }

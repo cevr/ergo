@@ -81,7 +81,7 @@ func splitUstar(name string) (string, string, bool) {
 	if n <= 100 {
 		return ("", name, true)
 	}
-	let mut i = if n - 1 < 155 { n - 1 } else { 155 }
+	let mut i = if n-1 < 155 { n - 1 } else { 155 }
 	for i > 0 {
 		if bs[i] == byte('/') && n-i-1 <= 100 && n-i-1 > 0 {
 			return (bs[:i].Text(), bs[i+1:].Text(), true)
@@ -152,7 +152,7 @@ func writeTar(a Archive) []byte {
 			mtime = 0
 		}
 		if records != "" {
-			out = appendHeader(out, cut("PaxHeaders/" + short, 100), "", byte('x'), 420, records.Len(), 0, "")
+			out = appendHeader(out, cut("PaxHeaders/"+short, 100), "", byte('x'), 420, records.Len(), 0, "")
 			out = padTo(out.AppendString(records))
 		}
 		out = appendHeader(out, short, prefix, tarFlag(r.kind), r.mode, size, mtime, link)
@@ -172,7 +172,7 @@ func cstr(b []byte, at int, width int) string {
 }
 
 func parseNumber(b []byte, at int, width int, offset int) int fails Malformed {
-	if b[at] & byte(128) != byte(0) {
+	if b[at]&byte(128) != byte(0) {
 		if b[at] == byte(255) {
 			return Malformed{Offset: offset + at, Reason: "negative number"}
 		}
@@ -393,7 +393,7 @@ func readTar(data []byte, maxBytes int) Archive fails Unsafe | UnsafeLink | Thro
 law HeadersAreChecked(seg string, body []byte) {
 	let s = safeSegment(seg)
 	let mut a = New()
-	AddFile(&a, "aa/" + s, body) catch {
+	AddFile(&a, "aa/"+s, body) catch {
 	case Unsafe, ThroughLink:
 		return false
 	}

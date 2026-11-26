@@ -353,7 +353,7 @@ func Select(a Archive, p glob.Pattern) Archive {
 law CleansAndRefuses(seg string, pick int) {
 	let s = safeSegment(seg)
 	let mut a = New()
-	AddFile(&a, "./" + s + "//x/../y/", s.Bytes()) catch {
+	AddFile(&a, "./"+s+"//x/../y/", s.Bytes()) catch {
 	case Unsafe, ThroughLink:
 		return false
 	}
@@ -376,7 +376,7 @@ law CleansAndRefuses(seg string, pick int) {
 	case ThroughLink:
 	}
 	sometimes k == 2 && refused
-	refused && Len(a) == 1 && Entries(a)[0].Path == s + "/y"
+	refused && Len(a) == 1 && Entries(a)[0].Path == s+"/y"
 }
 
 // LinksStayInside: a link whose target climbs out of the root fails
@@ -432,8 +432,8 @@ law LinksStayInside(seg string, linkFirst bool) {
 law SelectKeepsMatches(segs []string) {
 	let mut a = New()
 	for i, seg in segs {
-		let ext = if i % 2 == 0 { ".txt" } else { ".bin" }
-		AddFile(&a, "p/" + safeSegment(seg) + "\(i)" + ext, seg.Bytes()) catch {
+		let ext = if i%2 == 0 { ".txt" } else { ".bin" }
+		AddFile(&a, "p/"+safeSegment(seg)+"\(i)"+ext, seg.Bytes()) catch {
 		case Unsafe, ThroughLink:
 			return false
 		}

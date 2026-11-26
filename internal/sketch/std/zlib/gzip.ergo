@@ -63,11 +63,11 @@ func gzipBody(src []byte, start int) int fails BadGzip | Truncated {
 		return BadGzip{Offset: start, Reason: "compression method is not deflate"}
 	}
 	let flg = int(src[start+3])
-	if flg & gzipReserved != 0 {
+	if flg&gzipReserved != 0 {
 		return BadGzip{Offset: start, Reason: "reserved flag set"}
 	}
 	let mut p = start + 10
-	if flg & gzipExtra != 0 {
+	if flg&gzipExtra != 0 {
 		if p+2 > src.Len() {
 			return Truncated{Offset: src.Len()}
 		}
@@ -77,13 +77,13 @@ func gzipBody(src []byte, start int) int fails BadGzip | Truncated {
 			return Truncated{Offset: src.Len()}
 		}
 	}
-	if flg & gzipName != 0 {
+	if flg&gzipName != 0 {
 		p = try skipZero(src, p)
 	}
-	if flg & gzipComment != 0 {
+	if flg&gzipComment != 0 {
 		p = try skipZero(src, p)
 	}
-	if flg & gzipHeaderCRC != 0 {
+	if flg&gzipHeaderCRC != 0 {
 		if p+2 > src.Len() {
 			return Truncated{Offset: src.Len()}
 		}
@@ -156,7 +156,7 @@ law GzipRoundTrips(a []byte, b []byte) {
 law GunzipChecksMembers(a []byte, at int) {
 	let z = GzipLevel(a, NoCompression)
 	let mut flipped = z.Clone()
-	let i = 15 + (if at < 0 { -at } else { at }) % (a.Len() + 1)
+	let i = 15 + (if at < 0 { -at } else { at })%(a.Len()+1)
 	let inside = i < z.Len()-8 && a.Len() > 0
 	if inside {
 		flipped[i] = flipped[i] ^ byte(1)

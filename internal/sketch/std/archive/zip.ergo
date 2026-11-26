@@ -265,13 +265,13 @@ func readZip(data []byte, maxBytes int) Archive fails Unsafe | UnsafeLink | Thro
 					}
 					off = try le64(data, r)
 				}
-			} else if id == extTime && sz >= 5 && data[q+4] & byte(1) != byte(0) {
+			} else if id == extTime && sz >= 5 && data[q+4]&byte(1) != byte(0) {
 				mtime = le32(data, q+5)
 			}
 			q = q + 4 + sz
 		}
 		p = p + 46 + nl + xl + cl
-		if flags & 1 != 0 {
+		if flags&1 != 0 {
 			return Unsupported{Path: name, Feature: "zip encryption"}
 		}
 		if method != 0 && method != 8 {
@@ -347,7 +347,7 @@ law DosTimeRoundTrips(t int) {
 	let width = dosLast - dosEpoch
 	let c = dosEpoch + (if t < 0 { -(t % width) } else { t % width })
 	let (dtime, ddate) = dosTime(c)
-	dosToUnix(dtime, ddate) == c - c%2
+	dosToUnix(dtime, ddate) == c-c%2
 }
 
 // ZipEntriesAreChecked: in a stored zip, a flipped content byte fails
@@ -356,11 +356,11 @@ law DosTimeRoundTrips(t int) {
 law ZipEntriesAreChecked(seg string, body []byte) {
 	let s = safeSegment(seg)
 	let mut a = New()
-	AddFile(&a, "aa/" + s, body) catch {
+	AddFile(&a, "aa/"+s, body) catch {
 	case Unsafe, ThroughLink:
 		return false
 	}
-	AddFile(&a, "aa/z" + s, body) catch {
+	AddFile(&a, "aa/z"+s, body) catch {
 	case Unsafe, ThroughLink:
 		return false
 	}

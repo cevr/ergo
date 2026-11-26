@@ -87,7 +87,7 @@ func Extract(a Archive, dir string) Extracted fails LinkOnDisk | fs.NotFound | f
 		match r.kind {
 		case Dir:
 			try checkWay(dir, comps)
-			try fs.Writes.MkdirAllMode(target, modeOf(r.mode | 448))
+			try fs.Writes.MkdirAllMode(target, modeOf(r.mode|448))
 			dirs = dirs + 1
 		case File:
 			let parent = comps[:comps.Len()-1]
@@ -114,9 +114,9 @@ law ExtractWritesTheFiles(segs []string) {
 	let mut a = New()
 	for i, seg in segs {
 		let s = safeSegment(seg)
-		let h = if i % 3 == 0 {
+		let h = if i%3 == 0 {
 			Header{Path: "d\(i % 2)/" + s + "\(i)", Kind: File, Mode: 420, ModTime: 0, Link: ""}
-		} else if i % 3 == 1 {
+		} else if i%3 == 1 {
 			Header{Path: "e/" + s + "\(i)", Kind: Dir, Mode: 0, ModTime: 0, Link: ""}
 		} else {
 			Header{Path: "l\(i)", Kind: Symlink, Mode: 511, ModTime: 0, Link: "e"}
@@ -136,7 +136,7 @@ law ExtractWritesTheFiles(segs []string) {
 		case LinkOnDisk, fs.NotFound, fs.Denied, fs.Failed:
 			return false
 		}
-		let mut ok = done.Dirs + done.Files + done.Links.Len() == Len(a)
+		let mut ok = done.Dirs+done.Files+done.Links.Len() == Len(a)
 		for i, e in Entries(a) {
 			let p = "/out/" + e.Path
 			match e.Kind {
