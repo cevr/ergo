@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"ergo.local/prototype/internal/sketch/lawcache"
@@ -200,7 +201,7 @@ func (r *Runner) verdictWhy(s Step, k Key) string {
 }
 
 // seedPattern finds a failing seed a test's output names.
-var seedPattern = regexp.MustCompile(`(?i)\bseed[ =:]+([0-9]+)`)
+var seedPattern = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)\bseed[ =:]+([0-9]+)`) })
 
 // Verdicts runs the steps in order, each at most once per run (a step two
 // tasks plan runs for the first and is reported for each), and reports
@@ -362,7 +363,7 @@ func (r *Runner) verdict(ctx context.Context, s Step, mode VerdictMode) (_ StepR
 			res.Verdict = Pass
 		}
 	}
-	if m := seedPattern.FindSubmatch(log); m != nil && res.Verdict != Pass {
+	if m := seedPattern().FindSubmatch(log); m != nil && res.Verdict != Pass {
 		res.Seed = string(m[1])
 	}
 	res.Log = r.writeLog(s, content, log)

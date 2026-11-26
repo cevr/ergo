@@ -7,12 +7,10 @@ import option
 func frameFailureOperands(st fnb, x dense.ID[syntax.Node]) option.Option[[]dense.ID[syntax.Node]] fails Unported {
 	match st.frame.fallible {
 	case option.Some{Value: plan}:
-		match plan.exit {
-		case option.Some{Value: exit}:
+		for exit in plan.exits {
 			if exit.at == x {
 				return option.Some[[]dense.ID[syntax.Node]]{Value: exit.operands}
 			}
-		case option.None:
 		}
 	case option.None:
 	}

@@ -34,7 +34,7 @@ func TestLawKeyFollowsTheGoBody(t *testing.T) {
 		if len(targets) != 1 {
 			t.Fatalf("%d law runs, want 1", len(targets))
 		}
-		return targetKey(pkg, targets[0], 1, 0, runnerNative, foreignKeys(a, nil))
+		return targetKey(nil, pkg, targets[0], 1, 0, runnerNative, foreignKeys(a, nil))
 	}
 	before := key()
 	edited := "package kern\n\n//ergo:wait none\nfunc Index(s string, c uint8) int { return 0 }\n"

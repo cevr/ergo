@@ -4,6 +4,7 @@ import github.com/cevr/ergo/modules/sqlite/sqlite
 import option
 import sql
 import strconv
+import strings
 import sync
 import task
 
@@ -73,8 +74,10 @@ func execOutcomeTag(st orchestrate.Store, env orchestrate.Envelope) string {
 		return "AlreadyExists:" + e.Kind + ":" + e.ID
 	case orchestrate.InvalidTransition as e:
 		return "InvalidTransition:" + e.Kind + ":" + e.ID + ":" + e.From + ":" + e.Action
-	case orchestrate.StaleClaim as e:
-		return "StaleClaim:" + e.UnitID + ":" + e.ExpectedOwner + ":" + e.ActualOwner
+	case orchestrate.Unverified as e:
+		return "Unverified:" + orchestrate.UnitKeyText(e.Unit) + ":" + e.Head + ":" + strings.Join(e.Missing, ",") + ":" + strings.Join(e.Red, ",")
+	case orchestrate.NotAcceptedHead as e:
+		return "NotAcceptedHead:" + orchestrate.UnitKeyText(e.Unit) + ":" + e.Accepted + ":" + e.Head
 	case orchestrate.CommandReused as e:
 		return "CommandReused:" + string(e.ID)
 	case orchestrate.InvalidInput as e:
@@ -85,6 +88,8 @@ func execOutcomeTag(st orchestrate.Store, env orchestrate.Envelope) string {
 	let dup = if res.Duplicate { "dup" } else { "new" }
 	"OK:" + dup + ":" + strconv.Itoa(res.Seq) + ":" + strconv.Itoa(res.Events.Len())
 }
+
+let agreeKey = orchestrate.UnitKey{Repo: "repo", Run: "agree", ID: "u-0"}
 
 func storesAgree(mem orchestrate.Store, sq orchestrate.Store) bool {
 	let memSnap = mem.Snapshot() catch {
@@ -106,27 +111,19 @@ func storesAgree(mem orchestrate.Store, sq orchestrate.Store) bool {
 	if memSnap != sqSnap || memEvs != sqEvs || orchestrate.Fold(orchestrate.EventList(sqEvs)) != sqSnap {
 		return false
 	}
-	let memUnits = mem.ListUnits(option.None) catch {
+	let memUnit = mem.Unit(agreeKey) catch {
 	case orchestrate.StoreFailed:
 		return false
 	}
-	let sqUnits = sq.ListUnits(option.None) catch {
+	let sqUnit = sq.Unit(agreeKey) catch {
 	case orchestrate.StoreFailed:
 		return false
 	}
-	let memClaimed = mem.ListUnits(option.Some[orchestrate.UnitStatus]{Value: orchestrate.UnitClaimed}) catch {
+	let memRecs = mem.Receipts(agreeKey) catch {
 	case orchestrate.StoreFailed:
 		return false
 	}
-	let sqClaimed = sq.ListUnits(option.Some[orchestrate.UnitStatus]{Value: orchestrate.UnitClaimed}) catch {
-	case orchestrate.StoreFailed:
-		return false
-	}
-	let memRecs = mem.Receipts("u-0", option.None) catch {
-	case orchestrate.StoreFailed:
-		return false
-	}
-	let sqRecs = sq.Receipts("u-0", option.None) catch {
+	let sqRecs = sq.Receipts(agreeKey) catch {
 	case orchestrate.StoreFailed:
 		return false
 	}
@@ -162,8 +159,7 @@ func storesAgree(mem orchestrate.Store, sq orchestrate.Store) bool {
 	case orchestrate.StoreFailed:
 		return false
 	}
-		memUnits == sqUnits &&
-		memClaimed == sqClaimed &&
+		memUnit == sqUnit &&
 		memRecs == sqRecs &&
 		memCommits == sqCommits &&
 		memQueue == sqQueue &&
@@ -183,7 +179,7 @@ func makeStepEnvelope(index int, code int, prevAccepted option.Option[orchestrat
 				ID:      prev.Value.ID,
 				Actor:   "conflict-actor",
 				At:      "2026-11-24T23:59:59Z",
-				Command: orchestrate.OpenUnit{ID: "conflict-unit-\(index)", Title: "Conflicting", Area: "bad"},
+				Command: orchestrate.OpenUnit{Key: orchestrate.UnitKey{Repo: "repo", Run: "agree", ID: "conflict-unit-\(index)"}, Title: "Conflicting", Requires: []string{"acceptance"}, Lane: option.None, Branch: option.None},
 			}
 		}
 	case option.None:
@@ -192,35 +188,25 @@ func makeStepEnvelope(index int, code int, prevAccepted option.Option[orchestrat
 	let slot = (((code / 16) % 3) + 3) % 3
 	let id = orchestrate.CommandID("agree-\(index)")
 	let at = "2026-11-24T01:00:\(index)Z"
-	let unitID = "u-\(slot)"
+	let key = orchestrate.UnitKey{Repo: "repo", Run: "agree", ID: "u-\(slot)"}
+	let head = "h-\(((code/48)%2 + 2) % 2)"
 	let commitID = "c-\(slot)"
 	let queueKey = "q-\(slot)"
 	let cmd orchestrate.Command = match kind {
 	case 0:
-		orchestrate.OpenUnit{ID: unitID, Title: "Unit \(slot)", Area: "core"}
+		orchestrate.OpenUnit{Key: key, Title: "Unit \(slot)", Requires: []string{"acceptance"}, Lane: option.Some[string]{Value: "/lanes/\(slot)"}, Branch: option.Some[string]{Value: "b-\(slot)"}}
 	case 1:
-		orchestrate.ClaimUnit{ID: unitID, Owner: "owner-\(slot)", Lane: "lane-\(slot)", Harness: "agy"}
+		orchestrate.RecordReceipt{Unit: key, Kind: "acceptance", Command: "ergo test", Head: head, ExitCode: 0, ExitLines: "ok"}
 	case 2:
-		orchestrate.AdvanceUnitRound{ID: unitID, Owner: option.Some[string]{Value: "owner-\(slot)"}, Round: 2, RequestPath: option.Some[string]{Value: "/tmp/r2.md"}, FindingsPath: option.None}
+		orchestrate.RecordReceipt{Unit: key, Kind: "acceptance", Command: "ergo test", Head: head, ExitCode: slot, ExitLines: "exit \(slot)"}
 	case 3:
-		orchestrate.HandBackUnit{ID: unitID, Owner: "owner-\(slot)", HeadSHA: "abcdef12", Summary: "done", RequestPath: option.None, FindingsPath: option.Some[string]{Value: "/tmp/f1.md"}}
+		orchestrate.AcceptUnit{Unit: key, Head: head}
 	case 4:
-		orchestrate.LandUnit{ID: unitID, HeadSHA: "abcdef12"}
+		orchestrate.LandUnit{Unit: key, Head: head}
 	case 5:
-		orchestrate.CloseUnit{ID: unitID, Summary: option.Some[string]{Value: "closed"}}
+		orchestrate.CloseUnit{Unit: key}
 	case 6:
-		orchestrate.RecordReceipt{
-			ID:             "rec-\(index)",
-			UnitID:         unitID,
-			Round:          1,
-			Kind:           "gate",
-			Command:        "ergo test",
-			CommitSHA:      "abcdef12",
-			ExitCode:       slot,
-			SummaryMetrics: "ok=1",
-			LogPath:        "/tmp/rec-\(index).log",
-			LogSHA256:      "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-		}
+		orchestrate.OpenUnit{Key: key, Title: "Unit \(slot)", Requires: []string{"acceptance", "gate"}, Lane: option.None, Branch: option.None}
 	case 7:
 		orchestrate.AddCommitment{ID: commitID, Title: "Commit \(slot)", Kind: "plan-part"}
 	case 8:
@@ -238,7 +224,7 @@ func makeStepEnvelope(index int, code int, prevAccepted option.Option[orchestrat
 	case 14:
 		orchestrate.AnswerQuestion{ID: slot + 1, Answer: "yes", Withdraw: slot == 2}
 	case _:
-		orchestrate.HandBackUnit{ID: unitID, Owner: "wrong-owner", HeadSHA: "bad", Summary: "stale", RequestPath: option.None, FindingsPath: option.None}
+		orchestrate.RecordReceipt{Unit: key, Kind: "gate", Command: "go vet", Head: head, ExitCode: 0, ExitLines: "ok"}
 	}
 	orchestrate.Envelope{ID: id, Actor: "actor-\(slot)", At: at, Command: cmd}
 }
@@ -307,7 +293,7 @@ func CheckVersionFence(_ livePersistence, futureBump int) bool needs go.Foreign 
 		ID:      orchestrate.CommandID("fence-open"),
 		Actor:   "root",
 		At:      "2026-11-24T10:00:00Z",
-		Command: orchestrate.OpenUnit{ID: "u-fence", Title: "Keep", Area: "sqlite"},
+		Command: orchestrate.OpenUnit{Key: orchestrate.UnitKey{Repo: "repo", Run: "fence", ID: "u-fence"}, Title: "Keep", Requires: []string{"acceptance"}, Lane: option.None, Branch: option.None},
 	}) catch {
 	case _:
 		st.Close() catch {
@@ -407,7 +393,7 @@ func CheckRollbackAtomicity(_ livePersistence, tag int) bool needs go.Foreign {
 		ID:      orchestrate.CommandID("rb-base-\(tag)"),
 		Actor:   "root",
 		At:      "2026-11-24T11:00:00Z",
-		Command: orchestrate.OpenUnit{ID: "rb-u-1", Title: "Committed", Area: "sqlite"},
+		Command: orchestrate.OpenUnit{Key: orchestrate.UnitKey{Repo: "repo", Run: "rollback", ID: "rb-u-1"}, Title: "Committed", Requires: []string{"acceptance"}, Lane: option.None, Branch: option.None},
 	}
 	let _ = st.Execute(baseEnv) catch {
 	case _:
@@ -449,7 +435,7 @@ func CheckRollbackAtomicity(_ livePersistence, tag int) bool needs go.Foreign {
 				[]sql.Value{sql.Int{N: 99}, sql.Text{S: "aborted-cmd"}, sql.Text{S: "deadbeef"}, sql.Text{S: "{}"}},
 			)
 			let _ = try execTx(
-				"INSERT INTO units (id, title, area, status, owner, lane, harness, round, head_sha, summary, request_path, findings_path, created_at, updated_at) VALUES ('ghost', 'Ghost', 'sqlite', 'open', NULL, NULL, NULL, 0, NULL, NULL, NULL, NULL, '2026-11-24T11:01:00Z', '2026-11-24T11:01:00Z')",
+				"INSERT INTO units (repo, run, id, title, requires_json, lane, branch, status, head, created_at, updated_at) VALUES ('repo', 'rollback', 'ghost', 'Ghost', '[\"acceptance\"]', NULL, NULL, 'open', NULL, '2026-11-24T11:01:00Z', '2026-11-24T11:01:00Z')",
 				[]sql.Value{},
 			)
 			try failMidTx()
@@ -486,7 +472,7 @@ func CheckRollbackAtomicity(_ livePersistence, tag int) bool needs go.Foreign {
 		cleanupVerifyDB(dir, name)
 		return false
 	}
-	let ghost = reopened.Unit("ghost") catch {
+	let ghost = reopened.Unit(orchestrate.UnitKey{Repo: "repo", Run: "rollback", ID: "ghost"}) catch {
 	case orchestrate.StoreFailed:
 		reopened.Close() catch {
 		case orchestrate.StoreFailed:
@@ -525,7 +511,6 @@ func CheckConcurrentMultiWriter(_ livePersistence, tag int) bool needs go.Foreig
 		cleanupVerifyDB(dir, name)
 		return false
 	}
-	let digest = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 	let t1 = task.Go() {
 		let mut ok1 = true
 		for i in 0..4 {
@@ -534,7 +519,7 @@ func CheckConcurrentMultiWriter(_ livePersistence, tag int) bool needs go.Foreig
 				ID:      orchestrate.CommandID("cwa-u-\(tag)-\(i)"),
 				Actor:   "w1",
 				At:      "2026-11-24T12:00:\(i)Z",
-				Command: orchestrate.OpenUnit{ID: uid, Title: "A \(i)", Area: "wal"},
+				Command: orchestrate.OpenUnit{Key: orchestrate.UnitKey{Repo: "repo", Run: "wal", ID: uid}, Title: "A \(i)", Requires: []string{"gate"}, Lane: option.None, Branch: option.None},
 			}) catch {
 			case _:
 				ok1 = false
@@ -545,16 +530,12 @@ func CheckConcurrentMultiWriter(_ livePersistence, tag int) bool needs go.Foreig
 				Actor:   "w1",
 				At:      "2026-11-24T12:01:\(i)Z",
 				Command: orchestrate.RecordReceipt{
-					ID:             "rec-a-\(tag)-\(i)",
-					UnitID:         uid,
-					Round:          1,
-					Kind:           "gate",
-					Command:        "ergo test",
-					CommitSHA:      "aaaa1111",
-					ExitCode:       0,
-					SummaryMetrics: "ok=1",
-					LogPath:        "/tmp/a-\(i).log",
-					LogSHA256:      digest,
+					Unit:      orchestrate.UnitKey{Repo: "repo", Run: "wal", ID: uid},
+					Kind:      "gate",
+					Command:   "ergo test",
+					Head:      "aaaa1111",
+					ExitCode:  0,
+					ExitLines: "ok",
 				},
 			}) catch {
 			case _:
@@ -572,7 +553,7 @@ func CheckConcurrentMultiWriter(_ livePersistence, tag int) bool needs go.Foreig
 				ID:      orchestrate.CommandID("cwb-u-\(tag)-\(i)"),
 				Actor:   "w2",
 				At:      "2026-11-24T12:02:\(i)Z",
-				Command: orchestrate.OpenUnit{ID: uid, Title: "B \(i)", Area: "wal"},
+				Command: orchestrate.OpenUnit{Key: orchestrate.UnitKey{Repo: "repo", Run: "wal", ID: uid}, Title: "B \(i)", Requires: []string{"gate"}, Lane: option.None, Branch: option.None},
 			}) catch {
 			case _:
 				ok2 = false
@@ -611,7 +592,7 @@ func CheckConcurrentMultiWriter(_ livePersistence, tag int) bool needs go.Foreig
 		cleanupVerifyDB(dir, name)
 		return false
 	}
-	let units = reopened.ListUnits(option.None) catch {
+	let units = reopened.Snapshot() catch {
 	case orchestrate.StoreFailed:
 		reopened.Close() catch {
 		case orchestrate.StoreFailed:
@@ -653,5 +634,5 @@ func CheckConcurrentMultiWriter(_ livePersistence, tag int) bool needs go.Foreig
 			dense = false
 		}
 	}
-	r1 && r2 && units.Len() == 8 && queue.Len() == 4 && snap.Receipts.Len() == 4 && evs.Len() == 32 && dense && orchestrate.Fold(orchestrate.EventList(evs)) == snap
+	r1 && r2 && units.Units.Len() == 8 && queue.Len() == 4 && snap.Receipts.Len() == 4 && evs.Len() == 32 && dense && orchestrate.Fold(orchestrate.EventList(evs)) == snap
 }

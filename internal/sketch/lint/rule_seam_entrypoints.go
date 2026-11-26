@@ -145,7 +145,7 @@ func seamFindings(g *programGraph, units []Unit, opts seamOptions) ([]seamFindin
 	if err := json.Unmarshal(raw, &rows); err != nil {
 		return nil, err
 	}
-	sorted := g.t.Sorted()
+	sorted := g.sortedEdges()
 	var out []seamFinding
 	for _, v := range rows {
 		i := sorted[v.Import]
