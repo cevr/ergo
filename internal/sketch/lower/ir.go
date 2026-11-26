@@ -783,8 +783,9 @@ type irBuilder struct {
 	wits    map[*check.TypeParam]int // each witness parameter's local (ir_witness.go)
 	// raw is the operand whose implicit conversion is not applied: a
 	// direct reader passed as itself (directDecode, ir_codec_direct.go).
-	raw    syntax.Expr
-	result check.Type
+	raw          syntax.Expr
+	skipImplicit map[syntax.Expr]bool
+	result       check.Type
 	// reasons are a census's reasons for this body, distinct, in order.
 	reasons []string
 	// loops is the depth of loops around the statement being built.

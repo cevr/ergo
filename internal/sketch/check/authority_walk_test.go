@@ -34,6 +34,7 @@ var mentionsParts = map[string]map[string]mentionsPart{
 		"Orig":         {sel: "origin"},
 		"TArgs":        {sel: "TArgs"},
 		"under":        {sel: "underlying"},
+		"underReady":   {why: "atomic publication flag for under; it holds no type"},
 		"TParams":      {why: "an origin's parameters: an instance binds them in TArgs and its body, and an origin's body names them"},
 		"def":          {why: "the defined-over type; under is its body"},
 		"methods":      {why: "functions are the package's Funcs, which the guard asks one by one"},

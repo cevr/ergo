@@ -1,0 +1,454 @@
+import json
+import option
+
+// RunHeadSetInput records the latest main branch head for a repository run.
+type RunHeadSetInput {
+	CommandID CommandID,
+	Actor     string,
+	Repo      string,
+	Run       string,
+	Head      string,
+}
+
+// RunSummaryInput requests a compact progressive-disclosure overview of one repository run.
+type RunSummaryInput {
+	Repo          string,
+	Run           string,
+	LandingsLimit json.Optional[int],
+}
+
+// UnitListInput filters and paginates compact unit summaries without receipt payloads.
+type UnitListInput {
+	Repo   json.Optional[string],
+	Run    json.Optional[string],
+	Status json.Optional[string],
+	Limit  json.Optional[int],
+	Offset json.Optional[int],
+}
+
+// DecisionRecordInput creates or updates a structured ruling, architectural decision, or owner directive.
+type DecisionRecordInput {
+	CommandID  CommandID,
+	Actor      string,
+	Repo       string,
+	Run        string,
+	ID         string,
+	Category   string,
+	Scope      string,
+	UnitID     json.Optional[string],
+	Title      string,
+	Body       string,
+	Status     json.Optional[string],
+	Supersedes json.Optional[string],
+	CreatedAt  json.Optional[string],
+}
+
+// DecisionListInput filters and paginates Decision records.
+type DecisionListInput {
+	Repo     json.Optional[string],
+	Run      json.Optional[string],
+	Category json.Optional[string],
+	Scope    json.Optional[string],
+	UnitID   json.Optional[string],
+	Status   json.Optional[string],
+	Limit    json.Optional[int],
+	Offset   json.Optional[int],
+}
+
+// LandingRecordInput creates or updates a structured integration landing record.
+type LandingRecordInput {
+	CommandID     CommandID,
+	Actor         string,
+	Repo          string,
+	Run           string,
+	LandingNumber int,
+	GroupID       string,
+	Head          string,
+	Tips          []string,
+	Summary       string,
+	LogPath       json.Optional[string],
+	LandedAt      json.Optional[string],
+}
+
+// LandingListInput filters and paginates integration landing records.
+type LandingListInput {
+	Repo   json.Optional[string],
+	Run    json.Optional[string],
+	Limit  json.Optional[int],
+	Offset json.Optional[int],
+}
+
+// EventRecordInput appends one operational event to the structured event log.
+type EventRecordInput {
+	CommandID CommandID,
+	Actor     string,
+	Repo      string,
+	Run       string,
+	Kind      string,
+	UnitID    json.Optional[string],
+	Summary   string,
+	SourceKey json.Optional[string],
+	CreatedAt json.Optional[string],
+}
+
+// EventLogInput filters, orders, and paginates operational event log entries.
+type EventLogInput {
+	Repo   json.Optional[string],
+	Run    json.Optional[string],
+	Kind   json.Optional[string],
+	UnitID json.Optional[string],
+	Actor  json.Optional[string],
+	Order  json.Optional[string],
+	Limit  json.Optional[int],
+	Offset json.Optional[int],
+}
+
+// ImportPlanInput imports run log or fallout markdown text into structured decisions, landings, run head, and events.
+type ImportPlanInput {
+	CommandID CommandID,
+	Actor     string,
+	Repo      string,
+	Run       string,
+	Text      string,
+}
+
+let defaultPageLimit = 50
+
+let maxPageLimit = 500
+
+let defaultLandingsLimit = 5
+
+let maxLandingsLimit = 50
+
+func parsePageLimit(opt json.Optional[int]) int fails InvalidInput {
+	match optionalToOption[int](opt) {
+	case option.Some[int] as n:
+		if n.Value < 1 || n.Value > maxPageLimit {
+			return InvalidInput{Field: "limit", Why: "must be between 1 and \(maxPageLimit)"}
+		}
+		n.Value
+	case option.None:
+		defaultPageLimit
+	}
+}
+
+func parsePageOffset(opt json.Optional[int]) int fails InvalidInput {
+	match optionalToOption[int](opt) {
+	case option.Some[int] as n:
+		if n.Value < 0 {
+			return InvalidInput{Field: "offset", Why: "must be >= 0"}
+		}
+		n.Value
+	case option.None:
+		0
+	}
+}
+
+func parseLandingsLimit(opt json.Optional[int]) int fails InvalidInput {
+	match optionalToOption[int](opt) {
+	case option.Some[int] as n:
+		if n.Value < 0 || n.Value > maxLandingsLimit {
+			return InvalidInput{Field: "landingsLimit", Why: "must be between 0 and \(maxLandingsLimit)"}
+		}
+		n.Value
+	case option.None:
+		defaultLandingsLimit
+	}
+}
+
+func parseUnitStatusFilter(status json.Optional[string]) option.Option[UnitStatus] fails InvalidInput {
+	let opt = optionalToOption[string](status)
+	try requireOptionalText("status", opt)
+	match opt {
+	case option.Some[string] as st:
+		match ParseUnitStatus(st.Value) {
+		case option.Some[UnitStatus] as parsed:
+			option.Some[UnitStatus]{Value: parsed.Value}
+		case option.None:
+			InvalidInput{Field: "status", Why: "must be open, accepted, landed, or closed"}
+		}
+	case option.None:
+		option.None
+	}
+}
+
+func parseDecisionStatusOpt(status json.Optional[string]) option.Option[DecisionStatus] fails InvalidInput {
+	let opt = optionalToOption[string](status)
+	try requireOptionalText("status", opt)
+	match opt {
+	case option.Some[string] as st:
+		match ParseDecisionStatus(st.Value) {
+		case option.Some[DecisionStatus] as parsed:
+			option.Some[DecisionStatus]{Value: parsed.Value}
+		case option.None:
+			InvalidInput{Field: "status", Why: "must be open, superseded, or closed"}
+		}
+	case option.None:
+		option.None
+	}
+}
+
+func parseOrderAscending(order json.Optional[string]) bool fails InvalidInput {
+	let opt = optionalToOption[string](order)
+	try requireOptionalText("order", opt)
+	match opt {
+	case option.Some[string] as o:
+		match o.Value {
+		case "asc":
+			true
+		case "desc":
+			false
+		case _:
+			InvalidInput{Field: "order", Why: "must be asc or desc"}
+		}
+	case option.None:
+		false
+	}
+}
+
+func optTextFilter(field string, v json.Optional[string]) option.Option[string] fails InvalidInput {
+	let opt = optionalToOption[string](v)
+	try requireOptionalText(field, opt)
+	opt
+}
+
+// RunHeadSet executes SetRunHead and returns the updated RunMeta.
+func RunHeadSet(s Service, req RunHeadSetInput) RunMeta fails NotFound | AlreadyExists | InvalidTransition | CommandReused | InvalidInput | Unverified | NotAcceptedHead | StoreFailed {
+	let _ = try s.store.Execute(envelope(s, req.CommandID, req.Actor, SetRunHead{Repo: req.Repo, Run: req.Run, Head: req.Head}))
+	match try s.store.RunMeta(req.Repo, req.Run) {
+	case option.Some[RunMeta] as m:
+		m.Value
+	case option.None:
+		StoreFailed{Reason: "run meta missing after execute"}
+	}
+}
+
+// RunSummary returns a compact progressive-disclosure overview for (repo, run).
+func RunSummary(s Service, req RunSummaryInput) RunOverview fails InvalidInput | StoreFailed {
+	try requireText("repo", req.Repo)
+	try requireText("run", req.Run)
+	let limit = try parseLandingsLimit(req.LandingsLimit)
+	try s.store.RunSummary(req.Repo, req.Run, limit)
+}
+
+// UnitList returns filtered and paginated compact unit summaries without receipt payloads.
+func UnitList(s Service, req UnitListInput) UnitPage fails InvalidInput | StoreFailed {
+	let repo = try optTextFilter("repo", req.Repo)
+	let run = try optTextFilter("run", req.Run)
+	let status = try parseUnitStatusFilter(req.Status)
+	let limit = try parsePageLimit(req.Limit)
+	let offset = try parsePageOffset(req.Offset)
+	try s.store.ListUnits(UnitFilter{Repo: repo, Run: run, Status: status, Limit: limit, Offset: offset})
+}
+
+// DecisionRecord executes RecordDecision and returns the recorded Decision.
+func DecisionRecord(s Service, req DecisionRecordInput) Decision fails NotFound | AlreadyExists | InvalidTransition | CommandReused | InvalidInput | Unverified | NotAcceptedHead | StoreFailed {
+	let status = match try parseDecisionStatusOpt(req.Status) {
+	case option.Some[DecisionStatus] as st:
+		st.Value
+	case option.None:
+		DecisionOpen
+	}
+	let cmd = RecordDecision{
+		Repo:       req.Repo,
+		Run:        req.Run,
+		ID:         req.ID,
+		Category:   req.Category,
+		Scope:      req.Scope,
+		UnitID:     optionalToOption[string](req.UnitID),
+		Title:      req.Title,
+		Body:       req.Body,
+		Status:     status,
+		Supersedes: optionalToOption[string](req.Supersedes),
+		CreatedAt:  optionalToOption[string](req.CreatedAt),
+	}
+	let _ = try s.store.Execute(envelope(s, req.CommandID, req.Actor, cmd))
+	match try s.store.Decision(req.Repo, req.Run, req.ID) {
+	case option.Some[Decision] as d:
+		d.Value
+	case option.None:
+		StoreFailed{Reason: "decision missing after execute"}
+	}
+}
+
+// DecisionList returns filtered and paginated Decision records.
+func DecisionList(s Service, req DecisionListInput) DecisionPage fails InvalidInput | StoreFailed {
+	let filter = DecisionFilter{
+		Repo:     try optTextFilter("repo", req.Repo),
+		Run:      try optTextFilter("run", req.Run),
+		Category: try optTextFilter("category", req.Category),
+		Scope:    try optTextFilter("scope", req.Scope),
+		UnitID:   try optTextFilter("unitId", req.UnitID),
+		Status:   try parseDecisionStatusOpt(req.Status),
+		Limit:    try parsePageLimit(req.Limit),
+		Offset:   try parsePageOffset(req.Offset),
+	}
+	try s.store.ListDecisions(filter)
+}
+
+// LandingRecord executes RecordLanding and returns the recorded Landing.
+func LandingRecord(s Service, req LandingRecordInput) Landing fails NotFound | AlreadyExists | InvalidTransition | CommandReused | InvalidInput | Unverified | NotAcceptedHead | StoreFailed {
+	let cmd = RecordLanding{
+		Repo:          req.Repo,
+		Run:           req.Run,
+		LandingNumber: req.LandingNumber,
+		GroupID:       req.GroupID,
+		Head:          req.Head,
+		Tips:          req.Tips,
+		Summary:       req.Summary,
+		LogPath:       optionalToOption[string](req.LogPath),
+		LandedAt:      optionalToOption[string](req.LandedAt),
+	}
+	let _ = try s.store.Execute(envelope(s, req.CommandID, req.Actor, cmd))
+	match try s.store.Landing(req.Repo, req.Run, req.LandingNumber) {
+	case option.Some[Landing] as l:
+		l.Value
+	case option.None:
+		StoreFailed{Reason: "landing missing after execute"}
+	}
+}
+
+// LandingList returns filtered and paginated integration landing records.
+func LandingList(s Service, req LandingListInput) LandingPage fails InvalidInput | StoreFailed {
+	let filter = LandingFilter{
+		Repo:   try optTextFilter("repo", req.Repo),
+		Run:    try optTextFilter("run", req.Run),
+		Limit:  try parsePageLimit(req.Limit),
+		Offset: try parsePageOffset(req.Offset),
+	}
+	try s.store.ListLandings(filter)
+}
+
+// EventRecord executes RecordLedgerEvent and returns the appended LedgerEvent.
+func EventRecord(s Service, req EventRecordInput) LedgerEvent fails NotFound | AlreadyExists | InvalidTransition | CommandReused | InvalidInput | Unverified | NotAcceptedHead | StoreFailed {
+	let cmd = RecordLedgerEvent{
+		Repo:      req.Repo,
+		Run:       req.Run,
+		Kind:      req.Kind,
+		UnitID:    optionalToOption[string](req.UnitID),
+		Summary:   req.Summary,
+		SourceKey: optionalToOption[string](req.SourceKey),
+		CreatedAt: optionalToOption[string](req.CreatedAt),
+	}
+	let done = try s.store.Execute(envelope(s, req.CommandID, req.Actor, cmd))
+	for ev in done.Events {
+		match ev {
+		case LedgerEventAppended as e:
+			return e.Event
+		case _:
+		}
+	}
+	let mut matched = false
+	for stored in try s.store.Events(0) {
+		match stored.Event {
+		case CommandAccepted as e:
+			matched = e.ID == req.CommandID
+		case LedgerEventAppended as e:
+			if matched {
+				return e.Event
+			}
+			matched = false
+		case _:
+			matched = false
+		}
+	}
+	StoreFailed{Reason: "ledger event missing after execute"}
+}
+
+// EventLog returns filtered, ordered, and paginated operational ledger events.
+func EventLog(s Service, req EventLogInput) EventPage fails InvalidInput | StoreFailed {
+	let filter = EventLogFilter{
+		Repo:      try optTextFilter("repo", req.Repo),
+		Run:       try optTextFilter("run", req.Run),
+		Kind:      try optTextFilter("kind", req.Kind),
+		UnitID:    try optTextFilter("unitId", req.UnitID),
+		Actor:     try optTextFilter("actor", req.Actor),
+		Ascending: try parseOrderAscending(req.Order),
+		Limit:     try parsePageLimit(req.Limit),
+		Offset:    try parsePageOffset(req.Offset),
+	}
+	try s.store.ListEventLog(filter)
+}
+
+// ImportPlan executes IngestPlan and returns a summary of imported and skipped items.
+func ImportPlan(s Service, req ImportPlanInput) ImportReport fails NotFound | AlreadyExists | InvalidTransition | CommandReused | InvalidInput | Unverified | NotAcceptedHead | StoreFailed {
+	let env = envelope(s, req.CommandID, req.Actor, IngestPlan{Repo: req.Repo, Run: req.Run, Text: req.Text})
+	let done = try s.store.Execute(env)
+	let parsed = ParsePlanLines(req.Repo, req.Run, req.Actor, env.At, req.Text)
+	if !done.Duplicate {
+		return reportFromEvents(req.Repo, req.Run, parsed, done.Events)
+	}
+	let mut decisions = 0
+	let mut landings = 0
+	let mut added = 0
+	let mut head option.Option[string] = option.None
+	let mut matched = false
+	for stored in try s.store.Events(0) {
+		match stored.Event {
+		case CommandAccepted as e:
+			if matched {
+				break
+			}
+			matched = e.ID == req.CommandID
+		case DecisionRecorded:
+			if matched {
+				decisions = decisions + 1
+			}
+		case LandingRecorded:
+			if matched {
+				landings = landings + 1
+			}
+		case LedgerEventAppended:
+			if matched {
+				added = added + 1
+			}
+		case RunHeadUpdated as h:
+			if matched {
+				head = option.Some[string]{Value: h.Head}
+			}
+		case UnitOpened, ReceiptRecorded, UnitWasAccepted, UnitWasLanded, UnitWasClosed, CommitmentAdded, CommitmentWasAssigned, CommitmentWasLanded, CommitmentWasDecided, CommitmentWasWithdrawn, QueueUpserted, QueueRemoved, QuestionAsked, QuestionWasAnswered, QuestionWasWithdrawn:
+		}
+	}
+	let skipped = if parsed.Events.Len() >= added { parsed.Events.Len() - added } else { 0 }
+	ImportReport{
+		Repo:              req.Repo,
+		Run:               req.Run,
+		LinesScanned:      parsed.LinesScanned,
+		DecisionsUpserted: decisions,
+		LandingsUpserted:  landings,
+		EventsAdded:       added,
+		EventsSkipped:     skipped,
+		MainHead:          head,
+	}
+}
+
+func reportFromEvents(repo string, run string, parsed ParsedPlan, evs []Event) ImportReport {
+	let mut decisions = 0
+	let mut landings = 0
+	let mut added = 0
+	let mut head option.Option[string] = option.None
+	for ev in evs {
+		match ev {
+		case DecisionRecorded:
+			decisions = decisions + 1
+		case LandingRecorded:
+			landings = landings + 1
+		case LedgerEventAppended:
+			added = added + 1
+		case RunHeadUpdated as h:
+			head = option.Some[string]{Value: h.Head}
+		case CommandAccepted, UnitOpened, ReceiptRecorded, UnitWasAccepted, UnitWasLanded, UnitWasClosed, CommitmentAdded, CommitmentWasAssigned, CommitmentWasLanded, CommitmentWasDecided, CommitmentWasWithdrawn, QueueUpserted, QueueRemoved, QuestionAsked, QuestionWasAnswered, QuestionWasWithdrawn:
+		}
+	}
+	let skipped = if parsed.Events.Len() >= added { parsed.Events.Len() - added } else { 0 }
+	ImportReport{
+		Repo:              repo,
+		Run:               run,
+		LinesScanned:      parsed.LinesScanned,
+		DecisionsUpserted: decisions,
+		LandingsUpserted:  landings,
+		EventsAdded:       added,
+		EventsSkipped:     skipped,
+		MainHead:          head,
+	}
+}

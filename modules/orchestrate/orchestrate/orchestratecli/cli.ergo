@@ -20,7 +20,7 @@ type Output = api.Output
 
 // Commands are the commands of orchestrate.Api, one per operation, in its order.
 func Commands() []flag.Command[Request] {
-	[]flag.Command[Request]{commandUnitOpen(), commandReceiptRecord(), commandUnitState(), commandUnitAccept(), commandUnitLand(), commandUnitClose(), commandCommitmentAdd(), commandCommitmentAssign(), commandCommitmentLand(), commandCommitmentDecide(), commandCommitmentList(), commandQueueUpsert(), commandQueueRemove(), commandQueueList(), commandQuestionAsk(), commandQuestionAnswer(), commandQuestionList()}
+	[]flag.Command[Request]{commandUnitOpen(), commandReceiptRecord(), commandUnitState(), commandUnitAccept(), commandUnitLand(), commandUnitClose(), commandCommitmentAdd(), commandCommitmentAssign(), commandCommitmentLand(), commandCommitmentDecide(), commandCommitmentList(), commandQueueUpsert(), commandQueueRemove(), commandQueueList(), commandQuestionAsk(), commandQuestionAnswer(), commandQuestionList(), commandRunHeadSet(), commandRunSummary(), commandUnitList(), commandDecisionRecord(), commandDecisionList(), commandLandingRecord(), commandLandingList(), commandEventRecord(), commandEventLog(), commandImportPlan()}
 }
 
 func commandUnitOpen() flag.Command[Request] {
@@ -262,6 +262,357 @@ func commandQuestionList() flag.Command[Request] {
 	}, Commands: []flag.Command[Request]{}}
 }
 
+func commandRunHeadSet() flag.Command[Request] {
+	let f0 = flag.RequiredString("command-id", "input.CommandID (orchestrate.CommandID)")
+	let f1 = flag.RequiredString("actor", "input.Actor (string)")
+	let f2 = flag.RequiredString("repo", "input.Repo (string)")
+	let f3 = flag.RequiredString("run", "input.Run (string)")
+	let f4 = flag.RequiredString("head", "input.Head (string)")
+	let usage = orchestrateapi.Doc(orchestrateapi.RunHeadSetOp)
+	flag.Command[Request]{Name: "run-head-set", Usage: usage, Set: flag.Set{Name: "run-head-set", Usage: usage, Flags: []flag.Flag{f0, f1, f2, f3, f4}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
+		orchestrateapi.RunHeadSetRequest{Input: orchestrate.RunHeadSetInput{CommandID: orchestrate.CommandID(f0.Get(v)), Actor: f1.Get(v), Repo: f2.Get(v), Run: f3.Get(v), Head: f4.Get(v)}}
+	}, Commands: []flag.Command[Request]{}}
+}
+
+func commandRunSummary() flag.Command[Request] {
+	let f0 = flag.RequiredString("repo", "input.Repo (string)")
+	let f1 = flag.RequiredString("run", "input.Run (string)")
+	let f2 = flag.OptionalInt("landings-limit", "input.LandingsLimit (json.Optional[int])")
+	let usage = orchestrateapi.Doc(orchestrateapi.RunSummaryOp)
+	flag.Command[Request]{Name: "run-summary", Usage: usage, Set: flag.Set{Name: "run-summary", Usage: usage, Flags: []flag.Flag{f0, f1, f2}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
+		let u3 = match f2.Get(v) {
+		case option.Some[int] as s:
+			json.Present[int]{Value: s.Value}
+		case option.None:
+			json.Absent
+		}
+		orchestrateapi.RunSummaryRequest{Input: orchestrate.RunSummaryInput{Repo: f0.Get(v), Run: f1.Get(v), LandingsLimit: u3}}
+	}, Commands: []flag.Command[Request]{}}
+}
+
+func commandUnitList() flag.Command[Request] {
+	let f0 = flag.OptionalString("repo", "input.Repo (json.Optional[string])")
+	let f2 = flag.OptionalString("run", "input.Run (json.Optional[string])")
+	let f4 = flag.OptionalString("status", "input.Status (json.Optional[string])")
+	let f6 = flag.OptionalInt("limit", "input.Limit (json.Optional[int])")
+	let f8 = flag.OptionalInt("offset", "input.Offset (json.Optional[int])")
+	let usage = orchestrateapi.Doc(orchestrateapi.UnitListOp)
+	flag.Command[Request]{Name: "unit-list", Usage: usage, Set: flag.Set{Name: "unit-list", Usage: usage, Flags: []flag.Flag{f0, f2, f4, f6, f8}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
+		let u1 = match f0.Get(v) {
+		case option.Some[string] as s:
+			json.Present[string]{Value: s.Value}
+		case option.None:
+			json.Absent
+		}
+		let u3 = match f2.Get(v) {
+		case option.Some[string] as s:
+			json.Present[string]{Value: s.Value}
+		case option.None:
+			json.Absent
+		}
+		let u5 = match f4.Get(v) {
+		case option.Some[string] as s:
+			json.Present[string]{Value: s.Value}
+		case option.None:
+			json.Absent
+		}
+		let u7 = match f6.Get(v) {
+		case option.Some[int] as s:
+			json.Present[int]{Value: s.Value}
+		case option.None:
+			json.Absent
+		}
+		let u9 = match f8.Get(v) {
+		case option.Some[int] as s:
+			json.Present[int]{Value: s.Value}
+		case option.None:
+			json.Absent
+		}
+		orchestrateapi.UnitListRequest{Input: orchestrate.UnitListInput{Repo: u1, Run: u3, Status: u5, Limit: u7, Offset: u9}}
+	}, Commands: []flag.Command[Request]{}}
+}
+
+func commandDecisionRecord() flag.Command[Request] {
+	let f0 = flag.RequiredString("command-id", "input.CommandID (orchestrate.CommandID)")
+	let f1 = flag.RequiredString("actor", "input.Actor (string)")
+	let f2 = flag.RequiredString("repo", "input.Repo (string)")
+	let f3 = flag.RequiredString("run", "input.Run (string)")
+	let f4 = flag.RequiredString("id", "input.ID (string)")
+	let f5 = flag.RequiredString("category", "input.Category (string)")
+	let f6 = flag.RequiredString("scope", "input.Scope (string)")
+	let f7 = flag.OptionalString("unit-id", "input.UnitID (json.Optional[string])")
+	let f9 = flag.RequiredString("title", "input.Title (string)")
+	let f10 = flag.RequiredString("body", "input.Body (string)")
+	let f11 = flag.OptionalString("status", "input.Status (json.Optional[string])")
+	let f13 = flag.OptionalString("supersedes", "input.Supersedes (json.Optional[string])")
+	let f15 = flag.OptionalString("created-at", "input.CreatedAt (json.Optional[string])")
+	let usage = orchestrateapi.Doc(orchestrateapi.DecisionRecordOp)
+	flag.Command[Request]{Name: "decision-record", Usage: usage, Set: flag.Set{Name: "decision-record", Usage: usage, Flags: []flag.Flag{f0, f1, f2, f3, f4, f5, f6, f7, f9, f10, f11, f13, f15}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
+		let u8 = match f7.Get(v) {
+		case option.Some[string] as s:
+			json.Present[string]{Value: s.Value}
+		case option.None:
+			json.Absent
+		}
+		let u12 = match f11.Get(v) {
+		case option.Some[string] as s:
+			json.Present[string]{Value: s.Value}
+		case option.None:
+			json.Absent
+		}
+		let u14 = match f13.Get(v) {
+		case option.Some[string] as s:
+			json.Present[string]{Value: s.Value}
+		case option.None:
+			json.Absent
+		}
+		let u16 = match f15.Get(v) {
+		case option.Some[string] as s:
+			json.Present[string]{Value: s.Value}
+		case option.None:
+			json.Absent
+		}
+		orchestrateapi.DecisionRecordRequest{Input: orchestrate.DecisionRecordInput{CommandID: orchestrate.CommandID(f0.Get(v)), Actor: f1.Get(v), Repo: f2.Get(v), Run: f3.Get(v), ID: f4.Get(v), Category: f5.Get(v), Scope: f6.Get(v), UnitID: u8, Title: f9.Get(v), Body: f10.Get(v), Status: u12, Supersedes: u14, CreatedAt: u16}}
+	}, Commands: []flag.Command[Request]{}}
+}
+
+func commandDecisionList() flag.Command[Request] {
+	let f0 = flag.OptionalString("repo", "input.Repo (json.Optional[string])")
+	let f2 = flag.OptionalString("run", "input.Run (json.Optional[string])")
+	let f4 = flag.OptionalString("category", "input.Category (json.Optional[string])")
+	let f6 = flag.OptionalString("scope", "input.Scope (json.Optional[string])")
+	let f8 = flag.OptionalString("unit-id", "input.UnitID (json.Optional[string])")
+	let f10 = flag.OptionalString("status", "input.Status (json.Optional[string])")
+	let f12 = flag.OptionalInt("limit", "input.Limit (json.Optional[int])")
+	let f14 = flag.OptionalInt("offset", "input.Offset (json.Optional[int])")
+	let usage = orchestrateapi.Doc(orchestrateapi.DecisionListOp)
+	flag.Command[Request]{Name: "decision-list", Usage: usage, Set: flag.Set{Name: "decision-list", Usage: usage, Flags: []flag.Flag{f0, f2, f4, f6, f8, f10, f12, f14}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
+		let u1 = match f0.Get(v) {
+		case option.Some[string] as s:
+			json.Present[string]{Value: s.Value}
+		case option.None:
+			json.Absent
+		}
+		let u3 = match f2.Get(v) {
+		case option.Some[string] as s:
+			json.Present[string]{Value: s.Value}
+		case option.None:
+			json.Absent
+		}
+		let u5 = match f4.Get(v) {
+		case option.Some[string] as s:
+			json.Present[string]{Value: s.Value}
+		case option.None:
+			json.Absent
+		}
+		let u7 = match f6.Get(v) {
+		case option.Some[string] as s:
+			json.Present[string]{Value: s.Value}
+		case option.None:
+			json.Absent
+		}
+		let u9 = match f8.Get(v) {
+		case option.Some[string] as s:
+			json.Present[string]{Value: s.Value}
+		case option.None:
+			json.Absent
+		}
+		let u11 = match f10.Get(v) {
+		case option.Some[string] as s:
+			json.Present[string]{Value: s.Value}
+		case option.None:
+			json.Absent
+		}
+		let u13 = match f12.Get(v) {
+		case option.Some[int] as s:
+			json.Present[int]{Value: s.Value}
+		case option.None:
+			json.Absent
+		}
+		let u15 = match f14.Get(v) {
+		case option.Some[int] as s:
+			json.Present[int]{Value: s.Value}
+		case option.None:
+			json.Absent
+		}
+		orchestrateapi.DecisionListRequest{Input: orchestrate.DecisionListInput{Repo: u1, Run: u3, Category: u5, Scope: u7, UnitID: u9, Status: u11, Limit: u13, Offset: u15}}
+	}, Commands: []flag.Command[Request]{}}
+}
+
+func commandLandingRecord() flag.Command[Request] {
+	let f0 = flag.RequiredString("command-id", "input.CommandID (orchestrate.CommandID)")
+	let f1 = flag.RequiredString("actor", "input.Actor (string)")
+	let f2 = flag.RequiredString("repo", "input.Repo (string)")
+	let f3 = flag.RequiredString("run", "input.Run (string)")
+	let f4 = flag.RequiredInt("landing-number", "input.LandingNumber (int)")
+	let f5 = flag.RequiredString("group-id", "input.GroupID (string)")
+	let f6 = flag.RequiredString("head", "input.Head (string)")
+	let f7 = flag.String("tips", "", "input.Tips ([]string)").Repeated()
+	let f8 = flag.RequiredString("summary", "input.Summary (string)")
+	let f9 = flag.OptionalString("log-path", "input.LogPath (json.Optional[string])")
+	let f11 = flag.OptionalString("landed-at", "input.LandedAt (json.Optional[string])")
+	let usage = orchestrateapi.Doc(orchestrateapi.LandingRecordOp)
+	flag.Command[Request]{Name: "landing-record", Usage: usage, Set: flag.Set{Name: "landing-record", Usage: usage, Flags: []flag.Flag{f0, f1, f2, f3, f4, f5, f6, f7, f8, f9, f11}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
+		let u10 = match f9.Get(v) {
+		case option.Some[string] as s:
+			json.Present[string]{Value: s.Value}
+		case option.None:
+			json.Absent
+		}
+		let u12 = match f11.Get(v) {
+		case option.Some[string] as s:
+			json.Present[string]{Value: s.Value}
+		case option.None:
+			json.Absent
+		}
+		orchestrateapi.LandingRecordRequest{Input: orchestrate.LandingRecordInput{CommandID: orchestrate.CommandID(f0.Get(v)), Actor: f1.Get(v), Repo: f2.Get(v), Run: f3.Get(v), LandingNumber: f4.Get(v), GroupID: f5.Get(v), Head: f6.Get(v), Tips: f7.Get(v), Summary: f8.Get(v), LogPath: u10, LandedAt: u12}}
+	}, Commands: []flag.Command[Request]{}}
+}
+
+func commandLandingList() flag.Command[Request] {
+	let f0 = flag.OptionalString("repo", "input.Repo (json.Optional[string])")
+	let f2 = flag.OptionalString("run", "input.Run (json.Optional[string])")
+	let f4 = flag.OptionalInt("limit", "input.Limit (json.Optional[int])")
+	let f6 = flag.OptionalInt("offset", "input.Offset (json.Optional[int])")
+	let usage = orchestrateapi.Doc(orchestrateapi.LandingListOp)
+	flag.Command[Request]{Name: "landing-list", Usage: usage, Set: flag.Set{Name: "landing-list", Usage: usage, Flags: []flag.Flag{f0, f2, f4, f6}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
+		let u1 = match f0.Get(v) {
+		case option.Some[string] as s:
+			json.Present[string]{Value: s.Value}
+		case option.None:
+			json.Absent
+		}
+		let u3 = match f2.Get(v) {
+		case option.Some[string] as s:
+			json.Present[string]{Value: s.Value}
+		case option.None:
+			json.Absent
+		}
+		let u5 = match f4.Get(v) {
+		case option.Some[int] as s:
+			json.Present[int]{Value: s.Value}
+		case option.None:
+			json.Absent
+		}
+		let u7 = match f6.Get(v) {
+		case option.Some[int] as s:
+			json.Present[int]{Value: s.Value}
+		case option.None:
+			json.Absent
+		}
+		orchestrateapi.LandingListRequest{Input: orchestrate.LandingListInput{Repo: u1, Run: u3, Limit: u5, Offset: u7}}
+	}, Commands: []flag.Command[Request]{}}
+}
+
+func commandEventRecord() flag.Command[Request] {
+	let f0 = flag.RequiredString("command-id", "input.CommandID (orchestrate.CommandID)")
+	let f1 = flag.RequiredString("actor", "input.Actor (string)")
+	let f2 = flag.RequiredString("repo", "input.Repo (string)")
+	let f3 = flag.RequiredString("run", "input.Run (string)")
+	let f4 = flag.RequiredString("kind", "input.Kind (string)")
+	let f5 = flag.OptionalString("unit-id", "input.UnitID (json.Optional[string])")
+	let f7 = flag.RequiredString("summary", "input.Summary (string)")
+	let f8 = flag.OptionalString("source-key", "input.SourceKey (json.Optional[string])")
+	let f10 = flag.OptionalString("created-at", "input.CreatedAt (json.Optional[string])")
+	let usage = orchestrateapi.Doc(orchestrateapi.EventRecordOp)
+	flag.Command[Request]{Name: "event-record", Usage: usage, Set: flag.Set{Name: "event-record", Usage: usage, Flags: []flag.Flag{f0, f1, f2, f3, f4, f5, f7, f8, f10}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
+		let u6 = match f5.Get(v) {
+		case option.Some[string] as s:
+			json.Present[string]{Value: s.Value}
+		case option.None:
+			json.Absent
+		}
+		let u9 = match f8.Get(v) {
+		case option.Some[string] as s:
+			json.Present[string]{Value: s.Value}
+		case option.None:
+			json.Absent
+		}
+		let u11 = match f10.Get(v) {
+		case option.Some[string] as s:
+			json.Present[string]{Value: s.Value}
+		case option.None:
+			json.Absent
+		}
+		orchestrateapi.EventRecordRequest{Input: orchestrate.EventRecordInput{CommandID: orchestrate.CommandID(f0.Get(v)), Actor: f1.Get(v), Repo: f2.Get(v), Run: f3.Get(v), Kind: f4.Get(v), UnitID: u6, Summary: f7.Get(v), SourceKey: u9, CreatedAt: u11}}
+	}, Commands: []flag.Command[Request]{}}
+}
+
+func commandEventLog() flag.Command[Request] {
+	let f0 = flag.OptionalString("repo", "input.Repo (json.Optional[string])")
+	let f2 = flag.OptionalString("run", "input.Run (json.Optional[string])")
+	let f4 = flag.OptionalString("kind", "input.Kind (json.Optional[string])")
+	let f6 = flag.OptionalString("unit-id", "input.UnitID (json.Optional[string])")
+	let f8 = flag.OptionalString("actor", "input.Actor (json.Optional[string])")
+	let f10 = flag.OptionalString("order", "input.Order (json.Optional[string])")
+	let f12 = flag.OptionalInt("limit", "input.Limit (json.Optional[int])")
+	let f14 = flag.OptionalInt("offset", "input.Offset (json.Optional[int])")
+	let usage = orchestrateapi.Doc(orchestrateapi.EventLogOp)
+	flag.Command[Request]{Name: "event-log", Usage: usage, Set: flag.Set{Name: "event-log", Usage: usage, Flags: []flag.Flag{f0, f2, f4, f6, f8, f10, f12, f14}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
+		let u1 = match f0.Get(v) {
+		case option.Some[string] as s:
+			json.Present[string]{Value: s.Value}
+		case option.None:
+			json.Absent
+		}
+		let u3 = match f2.Get(v) {
+		case option.Some[string] as s:
+			json.Present[string]{Value: s.Value}
+		case option.None:
+			json.Absent
+		}
+		let u5 = match f4.Get(v) {
+		case option.Some[string] as s:
+			json.Present[string]{Value: s.Value}
+		case option.None:
+			json.Absent
+		}
+		let u7 = match f6.Get(v) {
+		case option.Some[string] as s:
+			json.Present[string]{Value: s.Value}
+		case option.None:
+			json.Absent
+		}
+		let u9 = match f8.Get(v) {
+		case option.Some[string] as s:
+			json.Present[string]{Value: s.Value}
+		case option.None:
+			json.Absent
+		}
+		let u11 = match f10.Get(v) {
+		case option.Some[string] as s:
+			json.Present[string]{Value: s.Value}
+		case option.None:
+			json.Absent
+		}
+		let u13 = match f12.Get(v) {
+		case option.Some[int] as s:
+			json.Present[int]{Value: s.Value}
+		case option.None:
+			json.Absent
+		}
+		let u15 = match f14.Get(v) {
+		case option.Some[int] as s:
+			json.Present[int]{Value: s.Value}
+		case option.None:
+			json.Absent
+		}
+		orchestrateapi.EventLogRequest{Input: orchestrate.EventLogInput{Repo: u1, Run: u3, Kind: u5, UnitID: u7, Actor: u9, Order: u11, Limit: u13, Offset: u15}}
+	}, Commands: []flag.Command[Request]{}}
+}
+
+func commandImportPlan() flag.Command[Request] {
+	let f0 = flag.RequiredString("command-id", "input.CommandID (orchestrate.CommandID)")
+	let f1 = flag.RequiredString("actor", "input.Actor (string)")
+	let f2 = flag.RequiredString("repo", "input.Repo (string)")
+	let f3 = flag.RequiredString("run", "input.Run (string)")
+	let f4 = flag.RequiredString("text", "input.Text (string)")
+	let usage = orchestrateapi.Doc(orchestrateapi.ImportPlanOp)
+	flag.Command[Request]{Name: "import-plan", Usage: usage, Set: flag.Set{Name: "import-plan", Usage: usage, Flags: []flag.Flag{f0, f1, f2, f3, f4}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
+		orchestrateapi.ImportPlanRequest{Input: orchestrate.ImportPlanInput{CommandID: orchestrate.CommandID(f0.Get(v)), Actor: f1.Get(v), Repo: f2.Get(v), Run: f3.Get(v), Text: f4.Get(v)}}
+	}, Commands: []flag.Command[Request]{}}
+}
+
 func argText(a flag.ArgSpec, v flag.Values) string {
 	match a.Get(v) {
 	case option.Some[string] as s:
@@ -344,6 +695,46 @@ func Parse(args []string) Request fails flag.Failure {
 	case "question-list":
 		let c = commandQuestionList()
 		let v = try flag.Parse(flag.Set{..c.Set, Name: "orchestrate question-list"}, slices.Slice(args, 1, args.Len()))
+		try c.Build(v)
+	case "run-head-set":
+		let c = commandRunHeadSet()
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "orchestrate run-head-set"}, slices.Slice(args, 1, args.Len()))
+		try c.Build(v)
+	case "run-summary":
+		let c = commandRunSummary()
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "orchestrate run-summary"}, slices.Slice(args, 1, args.Len()))
+		try c.Build(v)
+	case "unit-list":
+		let c = commandUnitList()
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "orchestrate unit-list"}, slices.Slice(args, 1, args.Len()))
+		try c.Build(v)
+	case "decision-record":
+		let c = commandDecisionRecord()
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "orchestrate decision-record"}, slices.Slice(args, 1, args.Len()))
+		try c.Build(v)
+	case "decision-list":
+		let c = commandDecisionList()
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "orchestrate decision-list"}, slices.Slice(args, 1, args.Len()))
+		try c.Build(v)
+	case "landing-record":
+		let c = commandLandingRecord()
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "orchestrate landing-record"}, slices.Slice(args, 1, args.Len()))
+		try c.Build(v)
+	case "landing-list":
+		let c = commandLandingList()
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "orchestrate landing-list"}, slices.Slice(args, 1, args.Len()))
+		try c.Build(v)
+	case "event-record":
+		let c = commandEventRecord()
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "orchestrate event-record"}, slices.Slice(args, 1, args.Len()))
+		try c.Build(v)
+	case "event-log":
+		let c = commandEventLog()
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "orchestrate event-log"}, slices.Slice(args, 1, args.Len()))
+		try c.Build(v)
+	case "import-plan":
+		let c = commandImportPlan()
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "orchestrate import-plan"}, slices.Slice(args, 1, args.Len()))
 		try c.Build(v)
 	case _:
 		try flag.ParseCommand("orchestrate", "orchestrate.Api on a command line", Commands(), args)
@@ -517,6 +908,249 @@ func Print(r Request) []string {
 		let mut out = []string{"question-list"}
 		out = out.Append("-open-only=\(x.Input.OpenOnly)")
 		out
+	case orchestrateapi.RunHeadSetRequest as x:
+		let mut out = []string{"run-head-set"}
+		out = out.Append("-command-id=\(x.Input.CommandID)")
+		out = out.Append("-actor=\(x.Input.Actor)")
+		out = out.Append("-repo=\(x.Input.Repo)")
+		out = out.Append("-run=\(x.Input.Run)")
+		out = out.Append("-head=\(x.Input.Head)")
+		out
+	case orchestrateapi.RunSummaryRequest as x:
+		let mut out = []string{"run-summary"}
+		out = out.Append("-repo=\(x.Input.Repo)")
+		out = out.Append("-run=\(x.Input.Run)")
+		match x.Input.LandingsLimit {
+		case json.Present[int] as s:
+			out = out.Append("-landings-limit=\(s.Value)")
+		case json.Absent:
+		}
+		out
+	case orchestrateapi.UnitListRequest as x:
+		let mut out = []string{"unit-list"}
+		match x.Input.Repo {
+		case json.Present[string] as s:
+			out = out.Append("-repo=\(s.Value)")
+		case json.Absent:
+		}
+		match x.Input.Run {
+		case json.Present[string] as s:
+			out = out.Append("-run=\(s.Value)")
+		case json.Absent:
+		}
+		match x.Input.Status {
+		case json.Present[string] as s:
+			out = out.Append("-status=\(s.Value)")
+		case json.Absent:
+		}
+		match x.Input.Limit {
+		case json.Present[int] as s:
+			out = out.Append("-limit=\(s.Value)")
+		case json.Absent:
+		}
+		match x.Input.Offset {
+		case json.Present[int] as s:
+			out = out.Append("-offset=\(s.Value)")
+		case json.Absent:
+		}
+		out
+	case orchestrateapi.DecisionRecordRequest as x:
+		let mut out = []string{"decision-record"}
+		out = out.Append("-command-id=\(x.Input.CommandID)")
+		out = out.Append("-actor=\(x.Input.Actor)")
+		out = out.Append("-repo=\(x.Input.Repo)")
+		out = out.Append("-run=\(x.Input.Run)")
+		out = out.Append("-id=\(x.Input.ID)")
+		out = out.Append("-category=\(x.Input.Category)")
+		out = out.Append("-scope=\(x.Input.Scope)")
+		match x.Input.UnitID {
+		case json.Present[string] as s:
+			out = out.Append("-unit-id=\(s.Value)")
+		case json.Absent:
+		}
+		out = out.Append("-title=\(x.Input.Title)")
+		out = out.Append("-body=\(x.Input.Body)")
+		match x.Input.Status {
+		case json.Present[string] as s:
+			out = out.Append("-status=\(s.Value)")
+		case json.Absent:
+		}
+		match x.Input.Supersedes {
+		case json.Present[string] as s:
+			out = out.Append("-supersedes=\(s.Value)")
+		case json.Absent:
+		}
+		match x.Input.CreatedAt {
+		case json.Present[string] as s:
+			out = out.Append("-created-at=\(s.Value)")
+		case json.Absent:
+		}
+		out
+	case orchestrateapi.DecisionListRequest as x:
+		let mut out = []string{"decision-list"}
+		match x.Input.Repo {
+		case json.Present[string] as s:
+			out = out.Append("-repo=\(s.Value)")
+		case json.Absent:
+		}
+		match x.Input.Run {
+		case json.Present[string] as s:
+			out = out.Append("-run=\(s.Value)")
+		case json.Absent:
+		}
+		match x.Input.Category {
+		case json.Present[string] as s:
+			out = out.Append("-category=\(s.Value)")
+		case json.Absent:
+		}
+		match x.Input.Scope {
+		case json.Present[string] as s:
+			out = out.Append("-scope=\(s.Value)")
+		case json.Absent:
+		}
+		match x.Input.UnitID {
+		case json.Present[string] as s:
+			out = out.Append("-unit-id=\(s.Value)")
+		case json.Absent:
+		}
+		match x.Input.Status {
+		case json.Present[string] as s:
+			out = out.Append("-status=\(s.Value)")
+		case json.Absent:
+		}
+		match x.Input.Limit {
+		case json.Present[int] as s:
+			out = out.Append("-limit=\(s.Value)")
+		case json.Absent:
+		}
+		match x.Input.Offset {
+		case json.Present[int] as s:
+			out = out.Append("-offset=\(s.Value)")
+		case json.Absent:
+		}
+		out
+	case orchestrateapi.LandingRecordRequest as x:
+		let mut out = []string{"landing-record"}
+		out = out.Append("-command-id=\(x.Input.CommandID)")
+		out = out.Append("-actor=\(x.Input.Actor)")
+		out = out.Append("-repo=\(x.Input.Repo)")
+		out = out.Append("-run=\(x.Input.Run)")
+		out = out.Append("-landing-number=\(x.Input.LandingNumber)")
+		out = out.Append("-group-id=\(x.Input.GroupID)")
+		out = out.Append("-head=\(x.Input.Head)")
+		for e in x.Input.Tips {
+			out = out.Append("-tips=\(e)")
+		}
+		out = out.Append("-summary=\(x.Input.Summary)")
+		match x.Input.LogPath {
+		case json.Present[string] as s:
+			out = out.Append("-log-path=\(s.Value)")
+		case json.Absent:
+		}
+		match x.Input.LandedAt {
+		case json.Present[string] as s:
+			out = out.Append("-landed-at=\(s.Value)")
+		case json.Absent:
+		}
+		out
+	case orchestrateapi.LandingListRequest as x:
+		let mut out = []string{"landing-list"}
+		match x.Input.Repo {
+		case json.Present[string] as s:
+			out = out.Append("-repo=\(s.Value)")
+		case json.Absent:
+		}
+		match x.Input.Run {
+		case json.Present[string] as s:
+			out = out.Append("-run=\(s.Value)")
+		case json.Absent:
+		}
+		match x.Input.Limit {
+		case json.Present[int] as s:
+			out = out.Append("-limit=\(s.Value)")
+		case json.Absent:
+		}
+		match x.Input.Offset {
+		case json.Present[int] as s:
+			out = out.Append("-offset=\(s.Value)")
+		case json.Absent:
+		}
+		out
+	case orchestrateapi.EventRecordRequest as x:
+		let mut out = []string{"event-record"}
+		out = out.Append("-command-id=\(x.Input.CommandID)")
+		out = out.Append("-actor=\(x.Input.Actor)")
+		out = out.Append("-repo=\(x.Input.Repo)")
+		out = out.Append("-run=\(x.Input.Run)")
+		out = out.Append("-kind=\(x.Input.Kind)")
+		match x.Input.UnitID {
+		case json.Present[string] as s:
+			out = out.Append("-unit-id=\(s.Value)")
+		case json.Absent:
+		}
+		out = out.Append("-summary=\(x.Input.Summary)")
+		match x.Input.SourceKey {
+		case json.Present[string] as s:
+			out = out.Append("-source-key=\(s.Value)")
+		case json.Absent:
+		}
+		match x.Input.CreatedAt {
+		case json.Present[string] as s:
+			out = out.Append("-created-at=\(s.Value)")
+		case json.Absent:
+		}
+		out
+	case orchestrateapi.EventLogRequest as x:
+		let mut out = []string{"event-log"}
+		match x.Input.Repo {
+		case json.Present[string] as s:
+			out = out.Append("-repo=\(s.Value)")
+		case json.Absent:
+		}
+		match x.Input.Run {
+		case json.Present[string] as s:
+			out = out.Append("-run=\(s.Value)")
+		case json.Absent:
+		}
+		match x.Input.Kind {
+		case json.Present[string] as s:
+			out = out.Append("-kind=\(s.Value)")
+		case json.Absent:
+		}
+		match x.Input.UnitID {
+		case json.Present[string] as s:
+			out = out.Append("-unit-id=\(s.Value)")
+		case json.Absent:
+		}
+		match x.Input.Actor {
+		case json.Present[string] as s:
+			out = out.Append("-actor=\(s.Value)")
+		case json.Absent:
+		}
+		match x.Input.Order {
+		case json.Present[string] as s:
+			out = out.Append("-order=\(s.Value)")
+		case json.Absent:
+		}
+		match x.Input.Limit {
+		case json.Present[int] as s:
+			out = out.Append("-limit=\(s.Value)")
+		case json.Absent:
+		}
+		match x.Input.Offset {
+		case json.Present[int] as s:
+			out = out.Append("-offset=\(s.Value)")
+		case json.Absent:
+		}
+		out
+	case orchestrateapi.ImportPlanRequest as x:
+		let mut out = []string{"import-plan"}
+		out = out.Append("-command-id=\(x.Input.CommandID)")
+		out = out.Append("-actor=\(x.Input.Actor)")
+		out = out.Append("-repo=\(x.Input.Repo)")
+		out = out.Append("-run=\(x.Input.Run)")
+		out = out.Append("-text=\(x.Input.Text)")
+		out
 	}
 }
 
@@ -648,6 +1282,46 @@ func Show(o orchestrateapi.Outcome, asJSON bool, p Policy) Output {
 			let v = reply.Value
 			let encoded = rpc.Encode(v)
 			answer(asJSON, encoded, encoded)
+		case orchestrateapi.RunHeadSetReply as reply:
+			let v = reply.Value
+			let encoded = rpc.Encode(v)
+			answer(asJSON, encoded, encoded)
+		case orchestrateapi.RunSummaryReply as reply:
+			let v = reply.Value
+			let encoded = rpc.Encode(v)
+			answer(asJSON, encoded, encoded)
+		case orchestrateapi.UnitListReply as reply:
+			let v = reply.Value
+			let encoded = rpc.Encode(v)
+			answer(asJSON, encoded, encoded)
+		case orchestrateapi.DecisionRecordReply as reply:
+			let v = reply.Value
+			let encoded = rpc.Encode(v)
+			answer(asJSON, encoded, encoded)
+		case orchestrateapi.DecisionListReply as reply:
+			let v = reply.Value
+			let encoded = rpc.Encode(v)
+			answer(asJSON, encoded, encoded)
+		case orchestrateapi.LandingRecordReply as reply:
+			let v = reply.Value
+			let encoded = rpc.Encode(v)
+			answer(asJSON, encoded, encoded)
+		case orchestrateapi.LandingListReply as reply:
+			let v = reply.Value
+			let encoded = rpc.Encode(v)
+			answer(asJSON, encoded, encoded)
+		case orchestrateapi.EventRecordReply as reply:
+			let v = reply.Value
+			let encoded = rpc.Encode(v)
+			answer(asJSON, encoded, encoded)
+		case orchestrateapi.EventLogReply as reply:
+			let v = reply.Value
+			let encoded = rpc.Encode(v)
+			answer(asJSON, encoded, encoded)
+		case orchestrateapi.ImportPlanReply as reply:
+			let v = reply.Value
+			let encoded = rpc.Encode(v)
+			answer(asJSON, encoded, encoded)
 		}
 	case orchestrateapi.Rejected as rejected:
 		let status = p.Code(rejected.Failure)
@@ -733,6 +1407,36 @@ func Read(r Request, out Output) orchestrateapi.Outcome fails rpc.Transport {
 		case orchestrateapi.QuestionListRequest:
 			let v = try rpc.Decode[[]orchestrate.Question]("value", text)
 			orchestrateapi.Done{Reply: orchestrateapi.QuestionListReply{Value: v}}
+		case orchestrateapi.RunHeadSetRequest:
+			let v = try rpc.Decode[orchestrate.RunMeta]("value", text)
+			orchestrateapi.Done{Reply: orchestrateapi.RunHeadSetReply{Value: v}}
+		case orchestrateapi.RunSummaryRequest:
+			let v = try rpc.Decode[orchestrate.RunOverview]("value", text)
+			orchestrateapi.Done{Reply: orchestrateapi.RunSummaryReply{Value: v}}
+		case orchestrateapi.UnitListRequest:
+			let v = try rpc.Decode[orchestrate.UnitPage]("value", text)
+			orchestrateapi.Done{Reply: orchestrateapi.UnitListReply{Value: v}}
+		case orchestrateapi.DecisionRecordRequest:
+			let v = try rpc.Decode[orchestrate.Decision]("value", text)
+			orchestrateapi.Done{Reply: orchestrateapi.DecisionRecordReply{Value: v}}
+		case orchestrateapi.DecisionListRequest:
+			let v = try rpc.Decode[orchestrate.DecisionPage]("value", text)
+			orchestrateapi.Done{Reply: orchestrateapi.DecisionListReply{Value: v}}
+		case orchestrateapi.LandingRecordRequest:
+			let v = try rpc.Decode[orchestrate.Landing]("value", text)
+			orchestrateapi.Done{Reply: orchestrateapi.LandingRecordReply{Value: v}}
+		case orchestrateapi.LandingListRequest:
+			let v = try rpc.Decode[orchestrate.LandingPage]("value", text)
+			orchestrateapi.Done{Reply: orchestrateapi.LandingListReply{Value: v}}
+		case orchestrateapi.EventRecordRequest:
+			let v = try rpc.Decode[orchestrate.LedgerEvent]("value", text)
+			orchestrateapi.Done{Reply: orchestrateapi.EventRecordReply{Value: v}}
+		case orchestrateapi.EventLogRequest:
+			let v = try rpc.Decode[orchestrate.EventPage]("value", text)
+			orchestrateapi.Done{Reply: orchestrateapi.EventLogReply{Value: v}}
+		case orchestrateapi.ImportPlanRequest:
+			let v = try rpc.Decode[orchestrate.ImportReport]("value", text)
+			orchestrateapi.Done{Reply: orchestrateapi.ImportPlanReply{Value: v}}
 		}
 	} else if out.Code == 1 {
 		match r {
@@ -1157,6 +1861,206 @@ func Read(r Request, out Output) orchestrateapi.Outcome fails rpc.Transport {
 			case _:
 				return rpc.Transport{Reason: "the command line answered QuestionList with an undeclared failure: " + text}
 			}
+		case orchestrateapi.RunHeadSetRequest:
+			match rpc.TagOf(text) {
+			case "NotFound":
+				let e = try rpc.Decode[orchestrate.NotFound]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NotFound{E: e}}
+			case "AlreadyExists":
+				let e = try rpc.Decode[orchestrate.AlreadyExists]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.AlreadyExists{E: e}}
+			case "InvalidTransition":
+				let e = try rpc.Decode[orchestrate.InvalidTransition]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.InvalidTransition{E: e}}
+			case "CommandReused":
+				let e = try rpc.Decode[orchestrate.CommandReused]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.CommandReused{E: e}}
+			case "InvalidInput":
+				let e = try rpc.Decode[orchestrate.InvalidInput]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.InvalidInput{E: e}}
+			case "Unverified":
+				let e = try rpc.Decode[orchestrate.Unverified]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.Unverified{E: e}}
+			case "NotAcceptedHead":
+				let e = try rpc.Decode[orchestrate.NotAcceptedHead]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NotAcceptedHead{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[orchestrate.StoreFailed]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.StoreFailed{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the command line answered RunHeadSet with an undeclared failure: " + text}
+			}
+		case orchestrateapi.RunSummaryRequest:
+			match rpc.TagOf(text) {
+			case "InvalidInput":
+				let e = try rpc.Decode[orchestrate.InvalidInput]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.InvalidInput{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[orchestrate.StoreFailed]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.StoreFailed{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the command line answered RunSummary with an undeclared failure: " + text}
+			}
+		case orchestrateapi.UnitListRequest:
+			match rpc.TagOf(text) {
+			case "InvalidInput":
+				let e = try rpc.Decode[orchestrate.InvalidInput]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.InvalidInput{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[orchestrate.StoreFailed]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.StoreFailed{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the command line answered UnitList with an undeclared failure: " + text}
+			}
+		case orchestrateapi.DecisionRecordRequest:
+			match rpc.TagOf(text) {
+			case "NotFound":
+				let e = try rpc.Decode[orchestrate.NotFound]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NotFound{E: e}}
+			case "AlreadyExists":
+				let e = try rpc.Decode[orchestrate.AlreadyExists]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.AlreadyExists{E: e}}
+			case "InvalidTransition":
+				let e = try rpc.Decode[orchestrate.InvalidTransition]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.InvalidTransition{E: e}}
+			case "CommandReused":
+				let e = try rpc.Decode[orchestrate.CommandReused]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.CommandReused{E: e}}
+			case "InvalidInput":
+				let e = try rpc.Decode[orchestrate.InvalidInput]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.InvalidInput{E: e}}
+			case "Unverified":
+				let e = try rpc.Decode[orchestrate.Unverified]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.Unverified{E: e}}
+			case "NotAcceptedHead":
+				let e = try rpc.Decode[orchestrate.NotAcceptedHead]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NotAcceptedHead{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[orchestrate.StoreFailed]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.StoreFailed{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the command line answered DecisionRecord with an undeclared failure: " + text}
+			}
+		case orchestrateapi.DecisionListRequest:
+			match rpc.TagOf(text) {
+			case "InvalidInput":
+				let e = try rpc.Decode[orchestrate.InvalidInput]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.InvalidInput{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[orchestrate.StoreFailed]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.StoreFailed{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the command line answered DecisionList with an undeclared failure: " + text}
+			}
+		case orchestrateapi.LandingRecordRequest:
+			match rpc.TagOf(text) {
+			case "NotFound":
+				let e = try rpc.Decode[orchestrate.NotFound]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NotFound{E: e}}
+			case "AlreadyExists":
+				let e = try rpc.Decode[orchestrate.AlreadyExists]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.AlreadyExists{E: e}}
+			case "InvalidTransition":
+				let e = try rpc.Decode[orchestrate.InvalidTransition]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.InvalidTransition{E: e}}
+			case "CommandReused":
+				let e = try rpc.Decode[orchestrate.CommandReused]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.CommandReused{E: e}}
+			case "InvalidInput":
+				let e = try rpc.Decode[orchestrate.InvalidInput]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.InvalidInput{E: e}}
+			case "Unverified":
+				let e = try rpc.Decode[orchestrate.Unverified]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.Unverified{E: e}}
+			case "NotAcceptedHead":
+				let e = try rpc.Decode[orchestrate.NotAcceptedHead]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NotAcceptedHead{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[orchestrate.StoreFailed]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.StoreFailed{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the command line answered LandingRecord with an undeclared failure: " + text}
+			}
+		case orchestrateapi.LandingListRequest:
+			match rpc.TagOf(text) {
+			case "InvalidInput":
+				let e = try rpc.Decode[orchestrate.InvalidInput]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.InvalidInput{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[orchestrate.StoreFailed]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.StoreFailed{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the command line answered LandingList with an undeclared failure: " + text}
+			}
+		case orchestrateapi.EventRecordRequest:
+			match rpc.TagOf(text) {
+			case "NotFound":
+				let e = try rpc.Decode[orchestrate.NotFound]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NotFound{E: e}}
+			case "AlreadyExists":
+				let e = try rpc.Decode[orchestrate.AlreadyExists]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.AlreadyExists{E: e}}
+			case "InvalidTransition":
+				let e = try rpc.Decode[orchestrate.InvalidTransition]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.InvalidTransition{E: e}}
+			case "CommandReused":
+				let e = try rpc.Decode[orchestrate.CommandReused]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.CommandReused{E: e}}
+			case "InvalidInput":
+				let e = try rpc.Decode[orchestrate.InvalidInput]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.InvalidInput{E: e}}
+			case "Unverified":
+				let e = try rpc.Decode[orchestrate.Unverified]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.Unverified{E: e}}
+			case "NotAcceptedHead":
+				let e = try rpc.Decode[orchestrate.NotAcceptedHead]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NotAcceptedHead{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[orchestrate.StoreFailed]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.StoreFailed{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the command line answered EventRecord with an undeclared failure: " + text}
+			}
+		case orchestrateapi.EventLogRequest:
+			match rpc.TagOf(text) {
+			case "InvalidInput":
+				let e = try rpc.Decode[orchestrate.InvalidInput]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.InvalidInput{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[orchestrate.StoreFailed]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.StoreFailed{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the command line answered EventLog with an undeclared failure: " + text}
+			}
+		case orchestrateapi.ImportPlanRequest:
+			match rpc.TagOf(text) {
+			case "NotFound":
+				let e = try rpc.Decode[orchestrate.NotFound]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NotFound{E: e}}
+			case "AlreadyExists":
+				let e = try rpc.Decode[orchestrate.AlreadyExists]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.AlreadyExists{E: e}}
+			case "InvalidTransition":
+				let e = try rpc.Decode[orchestrate.InvalidTransition]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.InvalidTransition{E: e}}
+			case "CommandReused":
+				let e = try rpc.Decode[orchestrate.CommandReused]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.CommandReused{E: e}}
+			case "InvalidInput":
+				let e = try rpc.Decode[orchestrate.InvalidInput]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.InvalidInput{E: e}}
+			case "Unverified":
+				let e = try rpc.Decode[orchestrate.Unverified]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.Unverified{E: e}}
+			case "NotAcceptedHead":
+				let e = try rpc.Decode[orchestrate.NotAcceptedHead]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NotAcceptedHead{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[orchestrate.StoreFailed]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.StoreFailed{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the command line answered ImportPlan with an undeclared failure: " + text}
+			}
 		}
 	} else {
 		return rpc.Transport{Reason: "the command line answered status \(out.Code): " + out.Err}
@@ -1254,7 +2158,7 @@ func RunOnTerminal(args []string, p Policy) Output needs orchestrate.Api | term.
 
 // Completion is the script that completes orchestrate's commands in shell.
 func Completion(shell api.Shell) string {
-	api.Completion("orchestrate", shell, []api.Entry{api.Entry{Name: orchestrateapi.Name(orchestrateapi.UnitOpenOp), Doc: orchestrateapi.Doc(orchestrateapi.UnitOpenOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.ReceiptRecordOp), Doc: orchestrateapi.Doc(orchestrateapi.ReceiptRecordOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.UnitStateOp), Doc: orchestrateapi.Doc(orchestrateapi.UnitStateOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.UnitAcceptOp), Doc: orchestrateapi.Doc(orchestrateapi.UnitAcceptOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.UnitLandOp), Doc: orchestrateapi.Doc(orchestrateapi.UnitLandOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.UnitCloseOp), Doc: orchestrateapi.Doc(orchestrateapi.UnitCloseOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.CommitmentAddOp), Doc: orchestrateapi.Doc(orchestrateapi.CommitmentAddOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.CommitmentAssignOp), Doc: orchestrateapi.Doc(orchestrateapi.CommitmentAssignOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.CommitmentLandOp), Doc: orchestrateapi.Doc(orchestrateapi.CommitmentLandOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.CommitmentDecideOp), Doc: orchestrateapi.Doc(orchestrateapi.CommitmentDecideOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.CommitmentListOp), Doc: orchestrateapi.Doc(orchestrateapi.CommitmentListOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.QueueUpsertOp), Doc: orchestrateapi.Doc(orchestrateapi.QueueUpsertOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.QueueRemoveOp), Doc: orchestrateapi.Doc(orchestrateapi.QueueRemoveOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.QueueListOp), Doc: orchestrateapi.Doc(orchestrateapi.QueueListOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.QuestionAskOp), Doc: orchestrateapi.Doc(orchestrateapi.QuestionAskOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.QuestionAnswerOp), Doc: orchestrateapi.Doc(orchestrateapi.QuestionAnswerOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.QuestionListOp), Doc: orchestrateapi.Doc(orchestrateapi.QuestionListOp)}})
+	api.Completion("orchestrate", shell, []api.Entry{api.Entry{Name: orchestrateapi.Name(orchestrateapi.UnitOpenOp), Doc: orchestrateapi.Doc(orchestrateapi.UnitOpenOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.ReceiptRecordOp), Doc: orchestrateapi.Doc(orchestrateapi.ReceiptRecordOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.UnitStateOp), Doc: orchestrateapi.Doc(orchestrateapi.UnitStateOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.UnitAcceptOp), Doc: orchestrateapi.Doc(orchestrateapi.UnitAcceptOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.UnitLandOp), Doc: orchestrateapi.Doc(orchestrateapi.UnitLandOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.UnitCloseOp), Doc: orchestrateapi.Doc(orchestrateapi.UnitCloseOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.CommitmentAddOp), Doc: orchestrateapi.Doc(orchestrateapi.CommitmentAddOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.CommitmentAssignOp), Doc: orchestrateapi.Doc(orchestrateapi.CommitmentAssignOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.CommitmentLandOp), Doc: orchestrateapi.Doc(orchestrateapi.CommitmentLandOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.CommitmentDecideOp), Doc: orchestrateapi.Doc(orchestrateapi.CommitmentDecideOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.CommitmentListOp), Doc: orchestrateapi.Doc(orchestrateapi.CommitmentListOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.QueueUpsertOp), Doc: orchestrateapi.Doc(orchestrateapi.QueueUpsertOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.QueueRemoveOp), Doc: orchestrateapi.Doc(orchestrateapi.QueueRemoveOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.QueueListOp), Doc: orchestrateapi.Doc(orchestrateapi.QueueListOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.QuestionAskOp), Doc: orchestrateapi.Doc(orchestrateapi.QuestionAskOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.QuestionAnswerOp), Doc: orchestrateapi.Doc(orchestrateapi.QuestionAnswerOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.QuestionListOp), Doc: orchestrateapi.Doc(orchestrateapi.QuestionListOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.RunHeadSetOp), Doc: orchestrateapi.Doc(orchestrateapi.RunHeadSetOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.RunSummaryOp), Doc: orchestrateapi.Doc(orchestrateapi.RunSummaryOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.UnitListOp), Doc: orchestrateapi.Doc(orchestrateapi.UnitListOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.DecisionRecordOp), Doc: orchestrateapi.Doc(orchestrateapi.DecisionRecordOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.DecisionListOp), Doc: orchestrateapi.Doc(orchestrateapi.DecisionListOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.LandingRecordOp), Doc: orchestrateapi.Doc(orchestrateapi.LandingRecordOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.LandingListOp), Doc: orchestrateapi.Doc(orchestrateapi.LandingListOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.EventRecordOp), Doc: orchestrateapi.Doc(orchestrateapi.EventRecordOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.EventLogOp), Doc: orchestrateapi.Doc(orchestrateapi.EventLogOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.ImportPlanOp), Doc: orchestrateapi.Doc(orchestrateapi.ImportPlanOp)}})
 }
 
 // Wire is the command line as a transport of the hub's calls.

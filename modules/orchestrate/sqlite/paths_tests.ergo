@@ -5,16 +5,21 @@ import option
 import sync
 import testing
 
-type osCmd = osOpenUnit{} | osReuseConflict{} | osGreen{} | osAccept{} | osReopen{}
+type osCmd = osOpenUnit{} | osReuseConflict{} | osGreen{} | osAccept{} | osImportPlan{} | osReopen{}
 
 type osState {
 	Ops []osCmd,
 }
 
 type osObs {
-	Seq      int,
-	Status   string,
-	Receipts int,
+	Seq           int,
+	Status        string,
+	Receipts      int,
+	UnitCount     int,
+	OpenDecisions int,
+	Landings      int,
+	Events        int,
+	MainHead      option.Option[string],
 }
 
 type osReply =
@@ -59,6 +64,14 @@ func osEnvelope(cmd osCmd, step int) orchestrate.Envelope {
 			At:      ts,
 			Command: orchestrate.AcceptUnit{Unit: osKey, Head: "h"},
 		}
+	case osImportPlan:
+		let plan = "- 2026-11-26T10:00:00Z RULED (SQL Path Rule): keep ACID.\nMAIN MOVED 2026-11-26T10:01:00Z: main = deadbeef (Landing 1, group g1). Tips: u1\n"
+		orchestrate.Envelope{
+			ID:      orchestrate.CommandID("sql-paths-imp-1"),
+			Actor:   "coord",
+			At:      ts,
+			Command: orchestrate.IngestPlan{Repo: "repo", Run: "sql-paths", Text: plan},
+		}
 	}
 }
 
@@ -66,7 +79,7 @@ func osApplyModel(st orchestrate.State, seq int, cmd osCmd, step int) (orchestra
 	match cmd {
 	case osReopen:
 		return (st, seq, osReopened{Seq: seq})
-	case osOpenUnit, osReuseConflict, osGreen, osAccept:
+	case osOpenUnit, osReuseConflict, osGreen, osAccept, osImportPlan:
 		let env = osEnvelope(cmd, step)
 		let evts = orchestrate.Decide(st, env) catch {
 		case orchestrate.NotFound:
@@ -104,25 +117,36 @@ func osFold(ops []osCmd) (orchestrate.State, int) {
 	(st, seq)
 }
 
-func osObsFrom(u option.Option[orchestrate.Unit], receipts int, seq int) osObs {
+func osObsFrom(u option.Option[orchestrate.Unit], receipts int, seq int, sum orchestrate.RunOverview, evTotal int) osObs {
 	let status = match u {
 	case option.Some[orchestrate.Unit] as found:
 		orchestrate.UnitStatusName(found.Value.Status)
 	case option.None:
 		"none"
 	}
-	osObs{Seq: seq, Status: status, Receipts: receipts}
+	osObs{
+		Seq:           seq,
+		Status:        status,
+		Receipts:      receipts,
+		UnitCount:     sum.TotalUnits,
+		OpenDecisions: sum.OpenDecisions,
+		Landings:      sum.RecentLandings.Len(),
+		Events:        evTotal,
+		MainHead:      sum.MainHead,
+	}
 }
 
 func osObsOf(st orchestrate.State, seq int) osObs {
-	osObsFrom(orchestrate.UnitByKey(st, osKey), orchestrate.ReceiptsOf(st, osKey).Len(), seq)
+	let sum = orchestrate.QueryRunSummary(st, "repo", "sql-paths", 5)
+	let evs = orchestrate.QueryEventLog(st, orchestrate.EventLogFilter{Repo: option.Some[string]{Value: "repo"}, Run: option.Some[string]{Value: "sql-paths"}, Kind: option.None, UnitID: option.None, Actor: option.None, Ascending: false, Limit: 50, Offset: 0})
+	osObsFrom(orchestrate.UnitByKey(st, osKey), orchestrate.ReceiptsOf(st, osKey).Len(), seq, sum, evs.Total)
 }
 
 func osModel() explore.PathModel[osState, osCmd, osObs, osReply, core.Never] {
 	explore.PathModel[osState, osCmd, osObs, osReply, core.Never]{
 		Graph: explore.ConcreteGraph[osState, osCmd, explore.StepObs[osObs, osReply, core.Never]]{
 			Starts:  []osState{osState{Ops: []osCmd{}}},
-			Signals: []osCmd{osOpenUnit, osReuseConflict, osGreen, osAccept, osReopen},
+			Signals: []osCmd{osOpenUnit, osReuseConflict, osGreen, osAccept, osImportPlan, osReopen},
 			Step:    func(s osState, cmd osCmd) explore.EdgeOutcome[osState, explore.StepObs[osObs, osReply, core.Never]] {
 				let (curSt, curSeq) = osFold(s.Ops)
 				let step = s.Ops.Len() + 1
@@ -206,7 +230,15 @@ func osObserveLive(st Store) osObs fails OrchSqlDriveErr needs go.Foreign {
 	case orchestrate.StoreFailed as e:
 		return OrchSqlDriveErr{Why: e.Reason}
 	}
-	osObsFrom(u, rs.Len(), evts.Len())
+	let sum = st.RunSummary("repo", "sql-paths", 5) catch {
+	case orchestrate.StoreFailed as e:
+		return OrchSqlDriveErr{Why: e.Reason}
+	}
+	let epage = st.ListEventLog(orchestrate.EventLogFilter{Repo: option.Some[string]{Value: "repo"}, Run: option.Some[string]{Value: "sql-paths"}, Kind: option.None, UnitID: option.None, Actor: option.None, Ascending: false, Limit: 50, Offset: 0}) catch {
+	case orchestrate.StoreFailed as e:
+		return OrchSqlDriveErr{Why: e.Reason}
+	}
+	osObsFrom(u, rs.Len(), evts.Len(), sum, epage.Total)
 }
 
 func osRejected(st Store, kind string) explore.Observed[osObs, osReply, core.Never] fails OrchSqlDriveErr needs go.Foreign {
@@ -239,12 +271,12 @@ type OrchSQLitePaths {
 			osModel(),
 			explore.ToDepth{Depth: 3},
 			explore.PathBounds{
-				MaxStates: 256,
-				MaxEdges:  1024,
-				MaxPaths:  256,
-				MaxSteps:  1024,
-				MaxWork:   65536,
-				MaxBytes:  262144,
+				MaxStates: 512,
+				MaxEdges:  2048,
+				MaxPaths:  512,
+				MaxSteps:  2048,
+				MaxWork:   131072,
+				MaxBytes:  524288,
 			},
 			func(_ osState) explore.PathSession[osCmd, explore.Observed[osObs, osReply, core.Never], OrchSqlDriveErr] fails OrchSqlOpenErr {
 				let id = try OpenSession()
@@ -380,7 +412,7 @@ func ApplySession(_ OrchSQLitePathProvider, id int, cmd osCmd) explore.Observed[
 			Error:    option.None,
 			Terminal: false,
 		}}
-	case osOpenUnit, osReuseConflict, osGreen, osAccept:
+	case osOpenUnit, osReuseConflict, osGreen, osAccept, osImportPlan:
 		let st = slot.store.Get()
 		let env = osEnvelope(cmd, n)
 		let res = st.Execute(env) catch {

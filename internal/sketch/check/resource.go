@@ -158,7 +158,7 @@ func (w *resWalk) visit(t Type) (bool, int) {
 			if c.hostClose(t) != nil {
 				return true, noLow
 			}
-			if it := asInterface(t); it != nil && c.hostCloseOp(t, it) != nil {
+			if it := c.asInterface(t); it != nil && c.hostCloseOp(t, it) != nil {
 				return true, noLow
 			}
 			return false, noLow
@@ -445,7 +445,7 @@ func (c *checker) ownParams(field *syntax.Field, sig *Signature, n int) {
 	c.ownSeen[field] = true
 	for k := len(sig.Params) - n; k < len(sig.Params); k++ {
 		p := sig.Params[k]
-		if _, fn := under(p.Type).(*Signature); fn || isInvalid(p.Type) {
+		if _, fn := c.under(p.Type).(*Signature); fn || isInvalid(p.Type) {
 			continue
 		}
 		if slices.Contains(sig.Takes, k) {
@@ -590,7 +590,7 @@ func (c *checker) recordOwnership(name string, tparams []*TypeParam, targs []Typ
 			continue
 		}
 		cons := c.subst(tp.Constraint, m)
-		if it := asInterface(cons); it == nil || it.Set != SetAll || len(it.Methods) == 0 {
+		if it := c.asInterface(cons); it == nil || it.Set != SetAll || len(it.Methods) == 0 {
 			continue
 		}
 		c.addOwnershipSite(ownershipSite{file: c.cur, at: at, name: name, tp: tp, from: targs[i], to: cons})
@@ -604,7 +604,7 @@ func (c *checker) recordConversion(x syntax.Expr, v, t Type) {
 	if c.silent > 0 || x == nil || c.providing || c.hostLendArg(t) || !namesTypeParam(v) {
 		return
 	}
-	if it := asInterface(t); it == nil || it.Set != SetAll || len(it.Methods) == 0 {
+	if it := c.asInterface(t); it == nil || it.Set != SetAll || len(it.Methods) == 0 {
 		return
 	}
 	c.addOwnershipSite(ownershipSite{file: c.cur, at: x, from: v, to: t})

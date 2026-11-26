@@ -143,7 +143,7 @@ type QuestionListInput {
 	OpenOnly bool,
 }
 
-// Api is the operation contract the orchestrate CLI and MCP tools are generated from: units, verdicts, commitments, queue entries, and async questions.
+// Api is the operation contract the orchestrate CLI and MCP tools are generated from: units, verdicts, commitments, queue entries, async questions, and progressive-disclosure ledger queries.
 type Api {
 	// UnitOpen opens a unit with the receipt kinds its verdict requires.
 	UnitOpen(input UnitOpenInput) Unit fails NotFound | AlreadyExists | InvalidTransition | CommandReused | InvalidInput | Unverified | NotAcceptedHead | StoreFailed,
@@ -195,6 +195,36 @@ type Api {
 
 	// QuestionList lists async questions, optionally restricting to open questions only.
 	QuestionList(input QuestionListInput) []Question fails StoreFailed,
+
+	// RunHeadSet records the latest main branch head for a repository run.
+	RunHeadSet(input RunHeadSetInput) RunMeta fails NotFound | AlreadyExists | InvalidTransition | CommandReused | InvalidInput | Unverified | NotAcceptedHead | StoreFailed,
+
+	// RunSummary returns a compact progressive-disclosure overview for a repository run.
+	RunSummary(input RunSummaryInput) RunOverview fails InvalidInput | StoreFailed,
+
+	// UnitList lists compact unit summaries filtered by repo, run, and status without receipt payloads.
+	UnitList(input UnitListInput) UnitPage fails InvalidInput | StoreFailed,
+
+	// DecisionRecord creates or updates a structured ruling, architectural decision, or owner directive.
+	DecisionRecord(input DecisionRecordInput) Decision fails NotFound | AlreadyExists | InvalidTransition | CommandReused | InvalidInput | Unverified | NotAcceptedHead | StoreFailed,
+
+	// DecisionList lists structured decisions filtered and paginated.
+	DecisionList(input DecisionListInput) DecisionPage fails InvalidInput | StoreFailed,
+
+	// LandingRecord creates or updates a structured integration landing record.
+	LandingRecord(input LandingRecordInput) Landing fails NotFound | AlreadyExists | InvalidTransition | CommandReused | InvalidInput | Unverified | NotAcceptedHead | StoreFailed,
+
+	// LandingList lists structured integration landing records filtered and paginated.
+	LandingList(input LandingListInput) LandingPage fails InvalidInput | StoreFailed,
+
+	// EventRecord appends an operational event to the structured event log.
+	EventRecord(input EventRecordInput) LedgerEvent fails NotFound | AlreadyExists | InvalidTransition | CommandReused | InvalidInput | Unverified | NotAcceptedHead | StoreFailed,
+
+	// EventLog lists operational event log entries filtered, ordered, and paginated.
+	EventLog(input EventLogInput) EventPage fails InvalidInput | StoreFailed,
+
+	// ImportPlan idempotently parses run log or fallout markdown lines into structured decisions, landings, run head, and events.
+	ImportPlan(input ImportPlanInput) ImportReport fails NotFound | AlreadyExists | InvalidTransition | CommandReused | InvalidInput | Unverified | NotAcceptedHead | StoreFailed,
 
 	// ApiUnitOpenIsIdempotent verifies that opening a unit through Api is idempotent on retry and readable via UnitState.
 	law ApiUnitOpenIsIdempotent(tag int) {
@@ -449,6 +479,191 @@ type Api {
 			return false
 		}
 		q1.ID >= 1 && q1Replay == q1 && q2.ID == q1.ID+2 && nonMonotonic && openBefore == []Question{q1, q2} && answered.Status == QuestionAnswered && withdrawn.Status == QuestionWithdrawn && reanswerBlocked && openAfter.Len() == 0 && allAfter == []Question{answered, withdrawn}
+	},
+
+	// ApiProgressiveDisclosureRoundTrips verifies RunHeadSet, UnitList filtering/pagination, DecisionRecord/DecisionList superseding, LandingRecord/LandingList, EventRecord/EventLog, and RunSummary through Api.
+	law ApiProgressiveDisclosureRoundTrips(tag int) {
+		let run = "pd-\(tag)"
+		let u1 = UnitStateInput{Repo: "repo", Run: run, ID: "u1"}
+		let u2 = UnitStateInput{Repo: "repo", Run: run, ID: "u2"}
+		let u3 = UnitStateInput{Repo: "repo", Run: run, ID: "u3"}
+		let _ = UnitOpen(UnitOpenInput{CommandID: CommandID("pd-o1-\(tag)"), Actor: "root", Repo: "repo", Run: run, ID: "u1", Title: "One", Requires: []string{"test"}, Lane: json.Absent, Branch: json.Absent}) catch {
+		case _:
+			return false
+		}
+		let _ = UnitOpen(UnitOpenInput{CommandID: CommandID("pd-o2-\(tag)"), Actor: "root", Repo: "repo", Run: run, ID: "u2", Title: "Two", Requires: []string{"test"}, Lane: json.Absent, Branch: json.Absent}) catch {
+		case _:
+			return false
+		}
+		let _ = UnitOpen(UnitOpenInput{CommandID: CommandID("pd-o3-\(tag)"), Actor: "root", Repo: "repo", Run: run, ID: "u3", Title: "Three", Requires: []string{"test"}, Lane: json.Absent, Branch: json.Absent}) catch {
+		case _:
+			return false
+		}
+		let _ = ReceiptRecord(ReceiptRecordInput{CommandID: CommandID("pd-r2-\(tag)"), Actor: "w", Repo: "repo", Run: run, ID: "u2", Kind: "test", Command: "ergo test", Head: "h2", ExitCode: 0, ExitLines: "PASS long-blob-omitted-in-unit-list"}) catch {
+		case _:
+			return false
+		}
+		let _ = UnitAccept(UnitVerdictInput{CommandID: CommandID("pd-a2-\(tag)"), Actor: "root", Repo: "repo", Run: run, ID: "u2", Head: "h2"}) catch {
+		case _:
+			return false
+		}
+		let _ = ReceiptRecord(ReceiptRecordInput{CommandID: CommandID("pd-r3-\(tag)"), Actor: "w", Repo: "repo", Run: run, ID: "u3", Kind: "test", Command: "ergo test", Head: "h3", ExitCode: 0, ExitLines: "PASS"}) catch {
+		case _:
+			return false
+		}
+		let _ = UnitAccept(UnitVerdictInput{CommandID: CommandID("pd-a3-\(tag)"), Actor: "root", Repo: "repo", Run: run, ID: "u3", Head: "h3"}) catch {
+		case _:
+			return false
+		}
+		let _ = UnitLand(UnitVerdictInput{CommandID: CommandID("pd-l3-\(tag)"), Actor: "root", Repo: "repo", Run: run, ID: "u3", Head: "h3"}) catch {
+		case _:
+			return false
+		}
+		let rm = RunHeadSet(RunHeadSetInput{CommandID: CommandID("pd-rh-\(tag)"), Actor: "root", Repo: "repo", Run: run, Head: "main-sha-2"}) catch {
+		case _:
+			return false
+		}
+		let d1 = DecisionRecord(DecisionRecordInput{CommandID: CommandID("pd-d1-\(tag)"), Actor: "owner", Repo: "repo", Run: run, ID: "d1", Category: "ruling", Scope: "run", UnitID: json.Absent, Title: "Rule 1", Body: "First body", Status: json.Absent, Supersedes: json.Absent, CreatedAt: json.Present[string]{Value: "2026-11-26T10:00:00Z"}}) catch {
+		case _:
+			return false
+		}
+		let d2 = DecisionRecord(DecisionRecordInput{CommandID: CommandID("pd-d2-\(tag)"), Actor: "owner", Repo: "repo", Run: run, ID: "d2", Category: "directive", Scope: "u2", UnitID: json.Present[string]{Value: "u2"}, Title: "Rule 2", Body: "Superseding body", Status: json.Absent, Supersedes: json.Present[string]{Value: "d1"}, CreatedAt: json.Present[string]{Value: "2026-11-26T11:00:00Z"}}) catch {
+		case _:
+			return false
+		}
+		let _ = LandingRecord(LandingRecordInput{CommandID: CommandID("pd-ln1-\(tag)"), Actor: "root", Repo: "repo", Run: run, LandingNumber: 1, GroupID: "g1", Head: "main-sha-1", Tips: []string{"u1"}, Summary: "First land", LogPath: json.Absent, LandedAt: json.Present[string]{Value: "2026-11-26T09:00:00Z"}}) catch {
+		case _:
+			return false
+		}
+		let l2 = LandingRecord(LandingRecordInput{CommandID: CommandID("pd-ln2-\(tag)"), Actor: "root", Repo: "repo", Run: run, LandingNumber: 2, GroupID: "g2", Head: "main-sha-2", Tips: []string{"u2", "u3"}, Summary: "Second land", LogPath: json.Present[string]{Value: "/logs/g2.log"}, LandedAt: json.Present[string]{Value: "2026-11-26T12:00:00Z"}}) catch {
+		case _:
+			return false
+		}
+		let evReq = EventRecordInput{CommandID: CommandID("pd-ev1-\(tag)"), Actor: "w", Repo: "repo", Run: run, Kind: "hand-back", UnitID: json.Present[string]{Value: "u2"}, Summary: "Ready for merge", SourceKey: json.Present[string]{Value: "hb-u2-\(tag)"}, CreatedAt: json.Absent}
+		let ev1 = EventRecord(evReq) catch {
+		case _:
+			return false
+		}
+		let ev1Replay = EventRecord(evReq) catch {
+		case _:
+			return false
+		}
+		let p1 = UnitList(UnitListInput{Repo: json.Present[string]{Value: "repo"}, Run: json.Present[string]{Value: run}, Status: json.Absent, Limit: json.Present[int]{Value: 2}, Offset: json.Present[int]{Value: 0}}) catch {
+		case _:
+			return false
+		}
+		let p2 = UnitList(UnitListInput{Repo: json.Present[string]{Value: "repo"}, Run: json.Present[string]{Value: run}, Status: json.Absent, Limit: json.Present[int]{Value: 2}, Offset: json.Present[int]{Value: 2}}) catch {
+		case _:
+			return false
+		}
+		let acceptedOnly = UnitList(UnitListInput{Repo: json.Present[string]{Value: "repo"}, Run: json.Present[string]{Value: run}, Status: json.Present[string]{Value: "accepted"}, Limit: json.Absent, Offset: json.Absent}) catch {
+		case _:
+			return false
+		}
+		let openDecs = DecisionList(DecisionListInput{Repo: json.Present[string]{Value: "repo"}, Run: json.Present[string]{Value: run}, Category: json.Absent, Scope: json.Absent, UnitID: json.Absent, Status: json.Present[string]{Value: "open"}, Limit: json.Absent, Offset: json.Absent}) catch {
+		case _:
+			return false
+		}
+		let supDecs = DecisionList(DecisionListInput{Repo: json.Present[string]{Value: "repo"}, Run: json.Present[string]{Value: run}, Category: json.Absent, Scope: json.Absent, UnitID: json.Absent, Status: json.Present[string]{Value: "superseded"}, Limit: json.Absent, Offset: json.Absent}) catch {
+		case _:
+			return false
+		}
+		let landings = LandingList(LandingListInput{Repo: json.Present[string]{Value: "repo"}, Run: json.Present[string]{Value: run}, Limit: json.Present[int]{Value: 1}, Offset: json.Present[int]{Value: 0}}) catch {
+		case _:
+			return false
+		}
+		let evPage = EventLog(EventLogInput{Repo: json.Present[string]{Value: "repo"}, Run: json.Present[string]{Value: run}, Kind: json.Present[string]{Value: "hand-back"}, UnitID: json.Present[string]{Value: "u2"}, Actor: json.Absent, Order: json.Present[string]{Value: "desc"}, Limit: json.Present[int]{Value: 10}, Offset: json.Absent}) catch {
+		case _:
+			return false
+		}
+		let overview = RunSummary(RunSummaryInput{Repo: "repo", Run: run, LandingsLimit: json.Present[int]{Value: 1}}) catch {
+		case _:
+			return false
+		}
+		let mut badUnitStatus = false
+		let _ = UnitList(UnitListInput{Repo: json.Absent, Run: json.Absent, Status: json.Present[string]{Value: "bogus"}, Limit: json.Absent, Offset: json.Absent}) catch {
+		case InvalidInput as inv:
+			badUnitStatus = inv.Field == "status"
+			p1
+		case _:
+			return false
+		}
+		let mut badLimit = false
+		let _ = UnitList(UnitListInput{Repo: json.Absent, Run: json.Absent, Status: json.Absent, Limit: json.Present[int]{Value: 0}, Offset: json.Absent}) catch {
+		case InvalidInput as inv:
+			badLimit = inv.Field == "limit"
+			p1
+		case _:
+			return false
+		}
+		let mut badOrder = false
+		let _ = EventLog(EventLogInput{Repo: json.Absent, Run: json.Absent, Kind: json.Absent, UnitID: json.Absent, Actor: json.Absent, Order: json.Present[string]{Value: "sideways"}, Limit: json.Absent, Offset: json.Absent}) catch {
+		case InvalidInput as inv:
+			badOrder = inv.Field == "order"
+			evPage
+		case _:
+			return false
+		}
+		let drill = UnitState(u2) catch {
+		case _:
+			return false
+		}
+		let _ = u1
+		let _ = u3
+			rm.MainHead == option.Some[string]{Value: "main-sha-2"} &&
+			d1.ID == "d1" && d2.Status == DecisionOpen &&
+			ev1 == ev1Replay &&
+			p1.Total == 3 && p1.Items.Len() == 2 && p1.HasMore && p1.Items[0].ReceiptCount == 0 && p1.Items[1].ReceiptCount == 1 &&
+			p2.Total == 3 && p2.Items.Len() == 1 && !p2.HasMore &&
+			acceptedOnly.Items.Len() == 1 && acceptedOnly.Items[0].Key.ID == "u2" &&
+			openDecs.Items == []Decision{d2} &&
+			supDecs.Items.Len() == 1 && supDecs.Items[0].ID == "d1" && supDecs.Items[0].Status == DecisionSuperseded &&
+			landings.Total == 2 && landings.HasMore && landings.Items == []Landing{l2} &&
+			evPage.Total == 1 && evPage.Items == []LedgerEvent{ev1} &&
+			overview.MainHead == option.Some[string]{Value: "main-sha-2"} &&
+			overview.OpenUnits == 1 && overview.AcceptedUnits == 1 && overview.LandedUnits == 1 && overview.TotalUnits == 3 &&
+			overview.OpenDecisions == 1 && overview.RecentLandings.Len() == 1 && overview.RecentLandings[0].LandingNumber == 2 &&
+			overview.RecentLandings[0].TipCount == 2 &&
+			drill.Receipts.Len() == 1 &&
+			badUnitStatus && badLimit && badOrder
+	},
+
+	// ApiImportPlanIsIdempotent verifies that importing run log and fallout lines upserts decisions, landings, run head, and deduplicates events across replays and re-imports.
+	law ApiImportPlanIsIdempotent(tag int) {
+		let run = "imp-\(tag)"
+		let plan1 = "- 2026-11-26T18:39:45Z HAND-BACK CHECK-FOOTPRINTS r1 (head c4c78ce41): all green.\n" +
+			"- 2026-11-26T19:00:00Z RULED (Content Mapper Contract): Per owner follow-up, unify mapping.\n" +
+			"MAIN MOVED 2026-11-26T19:00:30Z: main = origin/main = base = 6ebc20fc2 (Landing 122, group group-a, orchestrator). Tips: 1202 MOD-A r1 32aaff7e6 + 1203 MOD-B r2 d63976b25. Check (/var/log/group-a.log): ALL exit 0.\n" +
+			"- 2026-11-26T19:06:00Z DISPATCHED (Worker, Slot 10) ORCH-LEDGER-PD (lane /work/orch): implement ledger.\n"
+		let req1 = ImportPlanInput{CommandID: CommandID("api-imp-1-\(tag)"), Actor: "orchestrator", Repo: "repo", Run: run, Text: plan1}
+		let r1 = ImportPlan(req1) catch {
+		case _:
+			return false
+		}
+		let r1Replay = ImportPlan(req1) catch {
+		case _:
+			return false
+		}
+		let plan2 = plan1 + "- 2026-11-26T19:10:00Z LANDING-START group-b: staged 1206 CHECK-FOOTPRINTS r1.\n"
+		let r2 = ImportPlan(ImportPlanInput{CommandID: CommandID("api-imp-2-\(tag)"), Actor: "orchestrator", Repo: "repo", Run: run, Text: plan2}) catch {
+		case _:
+			return false
+		}
+		let evs = EventLog(EventLogInput{Repo: json.Present[string]{Value: "repo"}, Run: json.Present[string]{Value: run}, Kind: json.Absent, UnitID: json.Absent, Actor: json.Absent, Order: json.Present[string]{Value: "asc"}, Limit: json.Absent, Offset: json.Absent}) catch {
+		case _:
+			return false
+		}
+		let sum = RunSummary(RunSummaryInput{Repo: "repo", Run: run, LandingsLimit: json.Absent}) catch {
+		case _:
+			return false
+		}
+			r1 == r1Replay &&
+			r1.DecisionsUpserted == 1 && r1.LandingsUpserted == 1 && r1.EventsAdded == 4 && r1.EventsSkipped == 0 &&
+			r1.MainHead == option.Some[string]{Value: "6ebc20fc2"} &&
+			r2.EventsAdded == 1 && r2.EventsSkipped == 4 &&
+			evs.Total == 5 &&
+			sum.MainHead == option.Some[string]{Value: "6ebc20fc2"} &&
+			sum.OpenDecisions == 1 && sum.RecentLandings.Len() == 1
 	},
 }
 

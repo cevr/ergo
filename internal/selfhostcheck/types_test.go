@@ -8,10 +8,13 @@ import (
 	"path/filepath"
 	"reflect"
 	"regexp"
+	"runtime"
 	"slices"
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"unsafe"
@@ -274,19 +277,35 @@ func typesPackage(dir string) *check.Package {
 }
 
 // eachGoPackage calls f with the Go checker's package of each of dirs
-// that checks (typesPackage), one folder at a time and in order. Not on
-// workers: the Go checker checks one package at a time (check.Std). Its
-// std importer shares its packages between checks, and a check completes
-// their lazy parts (a host binding's declarations, the underlying type of
-// an instance a std package wrote) on first read, so two checks at once
-// race on them (go test -race; the crash "concurrent map writes" in
-// TestCompilerCheckAgrees).
+// that checks (typesPackage), across GOMAXPROCS workers.
 func eachGoPackage(dirs []string, f func(i int, pkg *check.Package)) {
-	for i, dir := range dirs {
-		if pkg := typesPackage(dir); pkg != nil {
-			f(i, pkg)
+	workers := min(max(runtime.GOMAXPROCS(0), 1), len(dirs))
+	if workers <= 1 {
+		for i, dir := range dirs {
+			if pkg := typesPackage(dir); pkg != nil {
+				f(i, pkg)
+			}
 		}
+		return
 	}
+	var next atomic.Int64
+	var wg sync.WaitGroup
+	wg.Add(workers)
+	for range workers {
+		go func() {
+			defer wg.Done()
+			for {
+				i := int(next.Add(1) - 1)
+				if i >= len(dirs) {
+					return
+				}
+				if pkg := typesPackage(dirs[i]); pkg != nil {
+					f(i, pkg)
+				}
+			}
+		}()
+	}
+	wg.Wait()
 }
 
 // fieldOf reads field name of the struct v points to.
@@ -436,8 +455,7 @@ func goTypes(pkg *check.Package) (fields, foreign []string) {
 			fields = append(fields, "def "+tn.Name+" "+def.String())
 			continue
 		}
-		u, _ := fieldOf(reflect.ValueOf(n), "under").Interface().(check.Type)
-		s, ok := u.(*check.Struct)
+		s, ok := n.Underlying().(*check.Struct)
 		if !ok {
 			continue
 		}
@@ -479,7 +497,7 @@ func goTypes(pkg *check.Package) (fields, foreign []string) {
 		if !ok {
 			return
 		}
-		u, ok := fieldOf(reflect.ValueOf(n), "under").Interface().(*check.Union)
+		u, ok := n.Underlying().(*check.Union)
 		if !ok || u == nil || len(u.Variants) == 0 {
 			return
 		}

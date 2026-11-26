@@ -324,6 +324,8 @@ func (n *Named) Defined() Type {
 	if n.Orig.def == nil || n.ctx == nil {
 		return nil
 	}
+	n.ctx.lazyMu.Lock()
+	defer n.ctx.lazyMu.Unlock()
 	return n.ctx.subst(n.Orig.def, paramMap(n.Orig.TParams, n.TArgs))
 }
 

@@ -413,6 +413,9 @@ func (s *shaper) node(n syntax.Node) {
 		if x.Takes != nil {
 			s.child(x.Takes)
 		}
+		for _, fc := range x.Facts {
+			s.child(fc)
+		}
 		s.b.putByte(')')
 	case *syntax.FieldList:
 		s.b.WriteString("(FieldList")
@@ -472,6 +475,14 @@ func (s *shaper) node(n syntax.Node) {
 		s.b.putByte(')')
 	case *syntax.TakesClause:
 		s.b.WriteString("(TakesClause)")
+	case *syntax.FactClause:
+		s.b.WriteString("(FactClause Kind=")
+		s.writeInt(int64(x.Kind))
+		s.child(x.Cond)
+		if x.When != nil {
+			s.child(x.When)
+		}
+		s.b.putByte(')')
 	case *syntax.StructType:
 		s.b.WriteString("(StructType")
 		if x.Fields != nil {

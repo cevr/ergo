@@ -103,7 +103,9 @@ func ParseFiles(srcs []string) (files []*File, errs []error) {
 // (word 7), and kDieStmt (65) is added.
 // 9: a law's fixed row ends with the optional quantifier token (word 9),
 // and kAlwaysStmt (66) and kSometimesStmt (67) are added.
-const ColumnsVersion = 9
+// 10: a function type ends its fixed row with TypeParams (word 8) so its
+// variable items hold FactClauses, and kFactClause (68) is added.
+const ColumnsVersion = 10
 
 // PreviousColumnsVersion is the layout before ColumnsVersion, which this
 // decoder still reads: the linked parser writes it until scripts/linked
@@ -111,7 +113,7 @@ const ColumnsVersion = 9
 // bootstrapped in two stages (go run ./scripts/linked -bootstrap): stage 1
 // regenerates with the linked parser one layout behind, stage 2 with the
 // parser stage 1 wrote.
-const PreviousColumnsVersion = 8
+const PreviousColumnsVersion = 9
 
 // LayoutError is a parse whose rows have a layout this decoder cannot
 // read: the linked parser is more than one layout behind or ahead.
@@ -312,7 +314,9 @@ func (d *rowDecoder) file(r uint32) *File {
 		decl := one[Decl](d, row)
 		f.Decls = append(f.Decls, decl)
 		if td, ok := decl.(*TypeDecl); ok && td.Where != nil && td.TypeParams == nil {
-			f.Decls = append(f.Decls, d.refinement(row, td)...)
+			if _, isStruct := td.Spec.(*StructType); !isStruct {
+				f.Decls = append(f.Decls, d.refinement(row, td)...)
+			}
 		}
 	}
 	derivePairs(f, d.src)
@@ -401,9 +405,6 @@ func (d *rowDecoder) node(r uint32) Node {
 		return x
 	case kLawDecl:
 		w, s := 10, 1
-		if d.layout == PreviousColumnsVersion {
-			w = 9
-		}
 		l := &LawDecl{Doc: d.doc(d.fixed(r, w, 0)), Law: d.pos(t), Name: one[*Ident](d, d.fixed(r, w, 1)), Params: opt[*FieldList](d, d.fixed(r, w, 2+s)), Body: opt[*BlockStmt](d, d.fixed(r, w, 3+s)), Reach: opt[*LawReach](d, d.fixed(r, w, 4+s))}
 		l.TypeParams = opt[*FieldList](d, d.fixed(r, w, 2))
 		if w == 10 {
@@ -472,6 +473,14 @@ func (d *rowDecoder) node(r uint32) Node {
 		return &TakesClause{Takes: d.pos(t), Names: list[*Ident](d, r, 0, d.items(r, 0))}
 	case kProvidesClause:
 		return &ProvidesClause{Provides: d.pos(t), Names: list[Expr](d, r, 0, d.items(r, 0))}
+	case kFactClause:
+		return &FactClause{
+			Kind:    FactKind(d.fixed(r, 4, 0)),
+			WordPos: d.pos(t),
+			Cond:    one[Expr](d, d.fixed(r, 4, 1)),
+			WhenPos: d.zpos(d.fixed(r, 4, 2)),
+			When:    opt[Expr](d, d.fixed(r, 4, 3)),
+		}
 	case kMachineEntry:
 		return &MachineEntry{Doc: d.doc(b), NamePos: d.pos(t), Name: d.text(t), Colon: d.pos(t + 1), Value: one[Expr](d, a)}
 	case kCatchArm:
@@ -533,14 +542,27 @@ func (d *rowDecoder) node(r uint32) Node {
 		}
 		return x
 	case kFuncType:
-		w := 8
+		w := 9
+		if d.layout == PreviousColumnsVersion {
+			w = 8
+		}
 		x := &FuncType{Escaping: d.opos(d.fixed(r, w, 0)), EntryPos: d.zpos(d.fixed(r, w, 1)), Func: d.opos(d.fixed(r, w, 2)), Params: one[*FieldList](d, d.fixed(r, w, 3)), Results: opt[*FieldList](d, d.fixed(r, w, 4)), Needs: opt[*NeedsClause](d, d.fixed(r, w, 5)), Takes: opt[*TakesClause](d, d.fixed(r, w, 6))}
 		x.Entry = d.fixed(r, w, 1) != 0
 		x.Defects = d.fixed(r, w, 7) != 0
 		x.DefectsPos = d.zpos(d.fixed(r, w, 7))
-		if d.items(r, w) == 1 {
-			// An operation's own type parameters (GENERIC-OP).
-			x.TypeParams = one[*FieldList](d, d.item(r, 0))
+		if d.layout == PreviousColumnsVersion {
+			if d.items(r, w) == 1 {
+				// An operation's own type parameters (GENERIC-OP).
+				x.TypeParams = one[*FieldList](d, d.item(r, 0))
+			}
+		} else {
+			x.TypeParams = opt[*FieldList](d, d.fixed(r, w, 8))
+			if n := d.items(r, w); n > 0 {
+				x.Facts = make([]*FactClause, n)
+				for i := 0; i < n; i++ {
+					x.Facts[i] = one[*FactClause](d, d.item(r, i))
+				}
+			}
 		}
 		return x
 	case kStructType:
@@ -765,6 +787,7 @@ const (
 	kDieStmt            = 65
 	kAlwaysStmt         = 66
 	kSometimesStmt      = 67
+	kFactClause         = 68
 )
 
 // equation sets a top-level rewrite law's Equation (word 2; LAWFFI LF6a)
