@@ -1082,6 +1082,7 @@ case internal/sketch/std/mcp
 case internal/sketch/std/mcp/httpmcp
 case internal/sketch/std/mcp/memory
 case internal/sketch/std/mcp/stdio
+case internal/sketch/std/metric
 case internal/sketch/std/net
 case internal/sketch/std/nettest
 case internal/sketch/std/option
