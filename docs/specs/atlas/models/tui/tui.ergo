@@ -1,0 +1,187 @@
+type Act = FocusSession{} | FocusSubagent{} | FocusTool{} | FocusPath{} | FocusQuestion{} | FocusLink{} | FocusTab{} | StartDragSelect{} | EndDragSelect{} | ToggleDisabled{} | KeyActivate{} | MouseClick{}
+
+type World {
+	Focused            int,
+	HasClickTarget     bool,
+	DragSelecting      bool,
+	TargetDisabled     bool,
+	LastKeyAction      int,
+	LastClickAction    int,
+	MissingClickTarget bool,
+	ClickDiverged      bool,
+	ClickedDuringDrag  bool,
+	DisabledActivated  bool,
+}
+
+let ElemSession = 1
+let ElemSubagent = 2
+let ElemTool = 3
+let ElemPath = 4
+let ElemQuestion = 5
+let ElemLink = 6
+let ElemTab = 7
+
+let NoMutant = 0
+let UnclickableElementMutant = 1
+let ClickDiffersFromKeyMutant = 2
+let ClickOnDragMutant = 3
+let ActivateDisabledMutant = 4
+
+func first() World {
+	World{
+		Focused:            ElemSession,
+		HasClickTarget:     true,
+		DragSelecting:      false,
+		TargetDisabled:     false,
+		LastKeyAction:      0,
+		LastClickAction:    0,
+		MissingClickTarget: false,
+		ClickDiverged:      false,
+		ClickedDuringDrag:  false,
+		DisabledActivated:  false,
+	}
+}
+
+func setFocus(s World, elem int, hasTarget bool) World {
+	let mut w = s
+	w.Focused = elem
+	w.HasClickTarget = hasTarget
+	if !hasTarget {
+		w.MissingClickTarget = true
+	}
+	return w
+}
+
+func step(s World, act Act, mutant int) Decision[World, string] {
+	let mut w = s
+	match act {
+	case FocusSession:
+		return Enter{setFocus(w, ElemSession, true)}
+	case FocusSubagent:
+		return Enter{setFocus(w, ElemSubagent, true)}
+	case FocusTool:
+		return Enter{setFocus(w, ElemTool, true)}
+	case FocusPath:
+		let ok = mutant != UnclickableElementMutant
+		return Enter{setFocus(w, ElemPath, ok)}
+	case FocusQuestion:
+		return Enter{setFocus(w, ElemQuestion, true)}
+	case FocusLink:
+		let ok = mutant != UnclickableElementMutant
+		return Enter{setFocus(w, ElemLink, ok)}
+	case FocusTab:
+		return Enter{setFocus(w, ElemTab, true)}
+	case StartDragSelect:
+		if w.DragSelecting {
+			return Ignore
+		}
+		w.DragSelecting = true
+		return Enter{w}
+	case EndDragSelect:
+		if !w.DragSelecting {
+			return Ignore
+		}
+		w.DragSelecting = false
+		return Enter{w}
+	case ToggleDisabled:
+		w.TargetDisabled = !w.TargetDisabled
+		return Enter{w}
+	case KeyActivate:
+		if w.TargetDisabled {
+			if mutant == ActivateDisabledMutant && !w.DisabledActivated {
+				w.DisabledActivated = true
+				return Enter{w}
+			}
+			return Ignore
+		}
+		w.LastKeyAction = w.Focused
+		return Enter{w}
+	case MouseClick:
+		if w.DragSelecting {
+			if mutant == ClickOnDragMutant && !w.ClickedDuringDrag {
+				w.ClickedDuringDrag = true
+				return Enter{w}
+			}
+			return Ignore
+		}
+		if w.TargetDisabled {
+			if mutant == ActivateDisabledMutant && !w.DisabledActivated {
+				w.DisabledActivated = true
+				return Enter{w}
+			}
+			return Ignore
+		}
+		if !w.HasClickTarget {
+			return Ignore
+		}
+		if mutant == ClickDiffersFromKeyMutant {
+			w.LastClickAction = 99
+			w.ClickDiverged = true
+			return Enter{w}
+		}
+		w.LastClickAction = w.Focused
+		return Enter{w}
+	}
+}
+
+func everyFocusableHasClickTarget(w World) bool { !w.MissingClickTarget }
+func clickMatchesKeyAction(w World) bool        { !w.ClickDiverged }
+func dragSelectSuppressesClick(w World) bool    { !w.ClickedDuringDrag }
+func disabledIgnoresClickAndKey(w World) bool   { !w.DisabledActivated }
+
+func brokeClickTarget(w World) bool   { !everyFocusableHasClickTarget(w) }
+func brokeClickParity(w World) bool   { !clickMatchesKeyAction(w) }
+func brokeDragSuppress(w World) bool  { !dragSelectSuppressesClick(w) }
+func brokeDisabledGuard(w World) bool { !disabledIgnoresClickAndKey(w) }
+
+func mouseOpenedFilePath(w World) bool   { w.LastClickAction == ElemPath && !w.ClickDiverged }
+func mouseAnsweredQuestion(w World) bool { w.LastClickAction == ElemQuestion && !w.ClickDiverged }
+func mouseOpenedLink(w World) bool       { w.LastClickAction == ElemLink && !w.ClickDiverged }
+func mouseSelectedSubagent(w World) bool { w.LastClickAction == ElemSubagent && !w.ClickDiverged }
+func keyAndClickMatched(w World) bool    { w.LastKeyAction == ElemTool && w.LastClickAction == ElemTool }
+
+func design(s World, a Act) Decision[World, string]              { return step(s, a, NoMutant) }
+func mutUnclickable(s World, a Act) Decision[World, string]      { return step(s, a, UnclickableElementMutant) }
+func mutClickDiverges(s World, a Act) Decision[World, string]    { return step(s, a, ClickDiffersFromKeyMutant) }
+func mutClickDrag(s World, a Act) Decision[World, string]        { return step(s, a, ClickOnDragMutant) }
+func mutActivateDisabled(s World, a Act) Decision[World, string] { return step(s, a, ActivateDisabledMutant) }
+
+type Design machine[World, Act] {
+	initial: first(),
+	step:    design,
+
+	law EveryFocusableHasClickTarget always everyFocusableHasClickTarget,
+	law ClickMatchesKeyAction always clickMatchesKeyAction,
+	law DragSelectSuppressesClick always dragSelectSuppressesClick,
+	law DisabledIgnoresClickAndKey always disabledIgnoresClickAndKey,
+
+	law MouseOpenedFilePath sometimes mouseOpenedFilePath,
+	law MouseAnsweredQuestion sometimes mouseAnsweredQuestion,
+	law MouseOpenedLink sometimes mouseOpenedLink,
+	law MouseSelectedSubagent sometimes mouseSelectedSubagent,
+	law KeyAndClickMatched sometimes keyAndClickMatched,
+}
+
+type UnclickableElement machine[World, Act] {
+	initial: first(),
+	step:    mutUnclickable,
+	law Breaks sometimes brokeClickTarget,
+}
+
+type ClickDiffersFromKey machine[World, Act] {
+	initial: first(),
+	step:    mutClickDiverges,
+	law Breaks sometimes brokeClickParity,
+}
+
+type ClickDuringDragSelect machine[World, Act] {
+	initial: first(),
+	step:    mutClickDrag,
+	law Breaks sometimes brokeDragSuppress,
+}
+
+type ActivateDisabledTarget machine[World, Act] {
+	initial: first(),
+	step:    mutActivateDisabled,
+	law Breaks sometimes brokeDisabledGuard,
+}

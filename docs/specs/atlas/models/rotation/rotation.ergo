@@ -1,0 +1,227 @@
+type Acct = A0{} | A1{}
+
+type Act = Open{Pooled bool} | Place{} | TurnBegin{} | TurnEnd{Hit bool} | Rotate{} | Reset{A Acct} | Reading{A Acct} | Stop{}
+
+type World {
+	Opened     bool,
+	Pooled     bool,
+	On         int,
+	Sessions   int,
+	InTurn     bool,
+	Limited    []bool,
+	Switches   int,
+	MidTurn    bool,
+	FixedMoved bool,
+	OnLimited  bool,
+	Turns      int,
+}
+
+let MaxSwitches = 2
+let MaxTurns = 3
+
+let NoMutant = 0
+let RotateMidTurnMutant = 1
+let RotateFixedMutant = 2
+let PlaceBlindMutant = 3
+let KeepOldSessionMutant = 4
+
+func ai(a Acct) int {
+	match a {
+	case A0:
+		return 0
+	case A1:
+		return 1
+	}
+}
+
+func first() World {
+	World{Opened: false, Pooled: false, On: -1, Sessions: 0, InTurn: false, Limited: []bool{false, false},
+		Switches: 0, MidTurn: false, FixedMoved: false, OnLimited: false, Turns: 0}
+}
+
+func pick(w World, mutant int) int {
+	if !w.Pooled {
+		if mutant == PlaceBlindMutant || !w.Limited[0] {
+			return 0
+		}
+		return -1
+	}
+	if mutant == PlaceBlindMutant {
+		return 0
+	}
+	if !w.Limited[0] {
+		return 0
+	}
+	if !w.Limited[1] {
+		return 1
+	}
+	return -1
+}
+
+func step(s World, act Act, mutant int) Decision[World, string] {
+	let mut w = s
+	match act {
+	case Open as a:
+		if w.Opened {
+			return Ignore
+		}
+		w.Opened = true
+		w.Pooled = a.Pooled
+		return Enter{w}
+	case Place:
+		if !w.Opened || w.Sessions > 0 {
+			return Ignore
+		}
+		let to = pick(w, mutant)
+		if to < 0 {
+			return Ignore
+		}
+		if w.Limited[to] {
+			w.OnLimited = true
+		}
+		w.On = to
+		w.Sessions = 1
+		return Enter{w}
+	case TurnBegin:
+		if w.Sessions == 0 || w.InTurn || w.Turns >= MaxTurns || w.Limited[w.On] {
+			return Ignore
+		}
+		w.InTurn = true
+		w.Turns = w.Turns + 1
+		return Enter{w}
+	case TurnEnd as a:
+		if !w.InTurn {
+			return Ignore
+		}
+		w.InTurn = false
+		if a.Hit {
+			w.Limited[w.On] = true
+		}
+		return Enter{w}
+	case Rotate:
+		if w.Sessions == 0 || w.Switches >= MaxSwitches {
+			return Ignore
+		}
+		if w.InTurn && mutant != RotateMidTurnMutant {
+			return Ignore
+		}
+		if !w.Pooled && mutant != RotateFixedMutant {
+			return Ignore
+		}
+		let to = 1 - w.On
+		if w.Limited[to] || !w.Limited[w.On] {
+			return Ignore
+		}
+		if w.InTurn {
+			w.MidTurn = true
+		}
+		if !w.Pooled {
+			w.FixedMoved = true
+		}
+		if mutant == KeepOldSessionMutant {
+			w.Sessions = w.Sessions + 1
+		}
+		w.On = to
+		w.Switches = w.Switches + 1
+		return Enter{w}
+	case Reset as a:
+		let i = ai(a.A)
+		if !w.Limited[i] {
+			return Ignore
+		}
+		w.Limited[i] = false
+		return Enter{w}
+	case Reading as a:
+		let i = ai(a.A)
+		if w.Limited[i] || !w.Opened {
+			return Ignore
+		}
+		w.Limited[i] = true
+		return Enter{w}
+	case Stop:
+		if w.Sessions == 0 || w.InTurn {
+			return Ignore
+		}
+		w.Sessions = 0
+		w.On = -1
+		return Enter{w}
+	}
+}
+
+func oneSessionAThread(w World) bool { w.Sessions <= 1 }
+
+func neverMidTurn(w World) bool { !w.MidTurn }
+
+func fixedAccountNeverMoves(w World) bool {
+	if w.FixedMoved {
+		return false
+	}
+	w.Pooled || w.On <= 0
+}
+
+func neverPlacedOnLimited(w World) bool { !w.OnLimited }
+
+func turnHasSession(w World) bool {
+	if !w.InTurn {
+		return true
+	}
+	w.Sessions >= 1
+}
+
+func twoSessions(w World) bool     { !oneSessionAThread(w) }
+func movedMidTurn(w World) bool    { !neverMidTurn(w) }
+func fixedMoved(w World) bool      { !fixedAccountNeverMoves(w) }
+func placedOnLimited(w World) bool { !neverPlacedOnLimited(w) }
+
+func rotatedOnce(w World) bool    { w.Pooled && w.Switches == 1 && w.On == 1 && w.Sessions == 1 }
+func rotatedBack(w World) bool    { w.Pooled && w.Switches == 2 && w.On == 0 }
+func heldAllLimited(w World) bool { w.Pooled && w.Limited[0] && w.Limited[1] && w.Sessions == 0 }
+func fixedHeld(w World) bool      { w.Opened && !w.Pooled && w.Limited[0] && w.Sessions == 1 && !w.InTurn }
+func fixedResumed(w World) bool   { w.Opened && !w.Pooled && w.Turns == 2 && !w.Limited[0] }
+
+func design(s World, a Act) Decision[World, string]         { return step(s, a, NoMutant) }
+func rotateMidTurn(s World, a Act) Decision[World, string]  { return step(s, a, RotateMidTurnMutant) }
+func rotateFixed(s World, a Act) Decision[World, string]    { return step(s, a, RotateFixedMutant) }
+func placeBlind(s World, a Act) Decision[World, string]     { return step(s, a, PlaceBlindMutant) }
+func keepOldSession(s World, a Act) Decision[World, string] { return step(s, a, KeepOldSessionMutant) }
+
+type Design machine[World, Act] {
+	initial: first(),
+	step:    design,
+
+	law OneSessionAThread always oneSessionAThread,
+	law NeverMidTurn always neverMidTurn,
+	law FixedAccountNeverMoves always fixedAccountNeverMoves,
+	law NeverPlacedOnLimited always neverPlacedOnLimited,
+	law TurnHasSession always turnHasSession,
+
+	law RotatedOnce sometimes rotatedOnce,
+	law RotatedBack sometimes rotatedBack,
+	law HeldAllLimited sometimes heldAllLimited,
+	law FixedHeld sometimes fixedHeld,
+	law FixedResumed sometimes fixedResumed,
+}
+
+type RotateMidTurn machine[World, Act] {
+	initial: first(),
+	step:    rotateMidTurn,
+	law Breaks sometimes movedMidTurn,
+}
+
+type RotateFixed machine[World, Act] {
+	initial: first(),
+	step:    rotateFixed,
+	law Breaks sometimes fixedMoved,
+}
+
+type PlaceBlind machine[World, Act] {
+	initial: first(),
+	step:    placeBlind,
+	law Breaks sometimes placedOnLimited,
+}
+
+type KeepOldSession machine[World, Act] {
+	initial: first(),
+	step:    keepOldSession,
+	law Breaks sometimes twoSessions,
+}

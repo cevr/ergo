@@ -1,0 +1,200 @@
+type T = T0{} | T1{} | T2{} | T3{}
+
+type Act = OpenChild{By T} | Send{By T, On T} | Close{By T, On T} | OwnerSend{On T}
+
+type World {
+	Parent  []int,
+	Depth   []int,
+	Kids    []int,
+	Closed  []bool,
+	Next    int,
+	Sends   int,
+	Outside bool,
+	Owner   int,
+}
+
+let MaxDepth = 2
+let MaxFan = 1
+let Budget = 2
+let Unopened = -2
+
+let NoMutant = 0
+let NoDepthMutant = 1
+let NoFanMutant = 2
+let NoBudgetMutant = 3
+let ActOnAnyMutant = 4
+
+func ti(t T) int {
+	match t {
+	case T0:
+		return 0
+	case T1:
+		return 1
+	case T2:
+		return 2
+	case T3:
+		return 3
+	}
+}
+
+func first() World {
+	World{Parent: []int{-1, Unopened, Unopened, Unopened}, Depth: []int{0, 0, 0, 0}, Kids: []int{0, 0, 0, 0},
+		Closed: []bool{false, false, false, false}, Next: 1, Sends: 0, Outside: false, Owner: 0}
+}
+
+func open(w World, t int) bool { w.Parent[t] != Unopened && !w.Closed[t] }
+
+func under(w World, t int, by int) bool {
+	let mut at = t
+	for _, _ in w.Parent {
+		if at == by {
+			return true
+		}
+		if at < 0 || w.Parent[at] < 0 {
+			return false
+		}
+		at = w.Parent[at]
+	}
+	return at == by
+}
+
+func step(s World, act Act, mutant int) Decision[World, string] {
+	let mut w = s
+	match act {
+	case OpenChild as a:
+		let by = ti(a.By)
+		if !open(w, by) || w.Next > 3 {
+			return Ignore
+		}
+		if w.Depth[by] >= MaxDepth && mutant != NoDepthMutant {
+			return Ignore
+		}
+		if w.Kids[by] >= MaxFan && mutant != NoFanMutant {
+			return Ignore
+		}
+		let c = w.Next
+		w.Next = w.Next + 1
+		w.Parent[c] = by
+		w.Depth[c] = w.Depth[by] + 1
+		w.Kids[by] = w.Kids[by] + 1
+		return Enter{w}
+	case Send as a:
+		let by = ti(a.By)
+		let on = ti(a.On)
+		if !open(w, by) || !open(w, on) || by == on {
+			return Ignore
+		}
+		if !under(w, on, by) && mutant != ActOnAnyMutant {
+			return Ignore
+		}
+		if w.Sends >= Budget && mutant != NoBudgetMutant {
+			return Ignore
+		}
+		if w.Sends >= Budget+1 {
+			return Ignore
+		}
+		if !under(w, on, by) {
+			w.Outside = true
+		}
+		w.Sends = w.Sends + 1
+		return Enter{w}
+	case Close as a:
+		let by = ti(a.By)
+		let on = ti(a.On)
+		if !open(w, by) || !open(w, on) || on == 0 || w.Kids[on] > 0 {
+			return Ignore
+		}
+		if (by == on || !under(w, on, by)) && mutant != ActOnAnyMutant {
+			return Ignore
+		}
+		if !under(w, on, by) {
+			w.Outside = true
+		}
+		w.Closed[on] = true
+		return Enter{w}
+	case OwnerSend as a:
+		let on = ti(a.On)
+		if !open(w, on) || w.Owner >= 1 {
+			return Ignore
+		}
+		w.Owner = w.Owner + 1
+		return Enter{w}
+	}
+}
+
+func depthBounded(w World) bool {
+	for t, d in w.Depth {
+		if w.Parent[t] != Unopened && d > MaxDepth {
+			return false
+		}
+	}
+	return true
+}
+
+func fanOutBounded(w World) bool {
+	for k in w.Kids {
+		if k > MaxFan {
+			return false
+		}
+	}
+	return true
+}
+
+func budgetHeld(w World) bool { w.Sends <= Budget }
+
+func onlyInOwnSubtree(w World) bool { !w.Outside }
+
+func tooDeep(w World) bool      { !depthBounded(w) }
+func tooWide(w World) bool      { !fanOutBounded(w) }
+func overBudget(w World) bool   { !budgetHeld(w) }
+func actedOutside(w World) bool { !onlyInOwnSubtree(w) }
+
+func fullChain(w World) bool               { w.Next == 3 && w.Depth[2] == 2 }
+func parentSteeredGrandchild(w World) bool { w.Sends == 2 && w.Depth[2] == 2 }
+func childClosedByParent(w World) bool     { w.Closed[2] && !w.Outside }
+func ownerReachedAChild(w World) bool      { w.Owner == 1 && w.Sends == Budget }
+
+func design(s World, a Act) Decision[World, string]   { return step(s, a, NoMutant) }
+func noDepth(s World, a Act) Decision[World, string]  { return step(s, a, NoDepthMutant) }
+func noFan(s World, a Act) Decision[World, string]    { return step(s, a, NoFanMutant) }
+func noBudget(s World, a Act) Decision[World, string] { return step(s, a, NoBudgetMutant) }
+func actOnAny(s World, a Act) Decision[World, string] { return step(s, a, ActOnAnyMutant) }
+
+type Design machine[World, Act] {
+	initial: first(),
+	step:    design,
+
+	law DepthBounded always depthBounded,
+	law FanOutBounded always fanOutBounded,
+	law BudgetHeld always budgetHeld,
+	law OnlyInOwnSubtree always onlyInOwnSubtree,
+
+	law FullChain sometimes fullChain,
+	law ParentSteeredGrandchild sometimes parentSteeredGrandchild,
+	law ChildClosedByParent sometimes childClosedByParent,
+	law OwnerReachedAChild sometimes ownerReachedAChild,
+}
+
+type NoDepth machine[World, Act] {
+	initial: first(),
+	step:    noDepth,
+	law Breaks sometimes tooDeep,
+}
+
+type NoFan machine[World, Act] {
+	initial: first(),
+	step:    noFan,
+	law Breaks sometimes tooWide,
+}
+
+type NoBudget machine[World, Act] {
+	initial: first(),
+	step:    noBudget,
+	law Breaks sometimes overBudget,
+}
+
+type ActOnAny machine[World, Act] {
+	initial: first(),
+	step:    actOnAny,
+	law Breaks sometimes actedOutside,
+}
