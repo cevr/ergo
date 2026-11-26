@@ -458,7 +458,7 @@ func irBaseFields(fn *irFunc, originals, typeHeads map[string]string) {
 					if name, ok := originals[e.Name]; ok {
 						e.Name = name
 					}
-				case "lit":
+				case "lit", "zero":
 					elem := e.T
 					for strings.HasPrefix(elem, "[]") {
 						elem = elem[2:]
@@ -483,8 +483,9 @@ func irBaseFields(fn *irFunc, originals, typeHeads map[string]string) {
 	walk(reflect.ValueOf(fn))
 }
 
-// TestIRAgreementKeepsUnrenamedOperands kills lower-agree-guess-split-export:
-// a difference in either operand is real unless that build exported it.
+// TestIRAgreementKeepsUnrenamedOperands kills lower-agree-guess-split-export
+// and lower-agree-zero-keeps-split-export: a difference in either operand,
+// or in a zero row's type, is real unless that build exported it.
 func TestIRAgreementKeepsUnrenamedOperands(t *testing.T) {
 	body := func(typ, member string) *irFunc {
 		return &irFunc{Body: []*irStmt{{K: "ret", X: &irExpr{
@@ -507,6 +508,24 @@ func TestIRAgreementKeepsUnrenamedOperands(t *testing.T) {
 			if equal := reflect.DeepEqual(got, want); equal != tc.equal {
 				call := got.Body[0].X
 				t.Errorf("normalized %s.%s, equality = %v, want %v", call.X.T, call.Name, equal, tc.equal)
+			}
+		})
+	}
+	zero := func(typ string) *irFunc {
+		return &irFunc{Body: []*irStmt{{K: "ret", X: &irExpr{K: "zero", T: typ}}}}
+	}
+	for _, tc := range []struct {
+		name, typ string
+		equal     bool
+	}{
+		{"proven zero export", "XXpkg__cell", true},
+		{"real zero difference", "Xpkg__cell", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := zero(tc.typ)
+			irBaseFields(got, exports, nil)
+			if equal := reflect.DeepEqual(got, zero("pkg__cell")); equal != tc.equal {
+				t.Errorf("normalized zero %s, equality = %v, want %v", got.Body[0].X.T, equal, tc.equal)
 			}
 		})
 	}

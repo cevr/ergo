@@ -78,6 +78,18 @@
       ]
     },
     {
+      "name": "lower-agree-zero-keeps-split-export",
+      "origin": "wf10/selfhost/S4-PORT FAIL-FRAME-SHAPES",
+      "file": "internal/selfhostcheck/irbuild_test.go",
+      "decl": "irBaseFields",
+      "from": "\t\t\t\tcase \"lit\", \"zero\":",
+      "to": "\t\t\t\tcase \"lit\":",
+      "rule": "A zero row's type is a type spelling the split may export, unexported as a literal's type is.",
+      "killers": [
+        "internal/selfhostcheck:TestIRAgreementKeepsUnrenamedOperands"
+      ]
+    },
+    {
       "name": "lower-agree-guess-slice-element-export",
       "origin": "wf10/selfhost/S4-PORT DRIVER (not-run-crunch)",
       "file": "internal/selfhostcheck/irbuild_test.go",
