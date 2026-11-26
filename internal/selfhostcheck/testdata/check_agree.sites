@@ -1147,6 +1147,7 @@ case internal/sketch/std/workflow
 case internal/sketch/std/workflow/file
 case internal/sketch/std/workflow/memory
 case internal/sketch/std/xml
+case internal/sketch/std/yaml
 case internal/sketch/std/zlib
 case unused examples/address-routes/files/tree.ergo
 case unused examples/address-routes/people/people.ergo
@@ -1394,6 +1395,7 @@ case unused internal/sketch/std/uuid/uuid.ergo
 case unused internal/sketch/std/workflow/file/file.ergo
 case unused internal/sketch/std/workflow/memory/memory.ergo
 case unused internal/sketch/std/workflow/store.ergo
+case unused internal/sketch/std/yaml/scalar.ergo
 case unused internal/sketch/std/zlib/adler32.ergo
 site S101 missing in internal/sketch/check/testdata/fixtures/negative/codec-rows.ergo: codec-rows.ergo 62:2: S101 {WireMissingField | WireUnknownTag} escapes function optional, whose error row {WireWrongKind | wired[T]} does not list it; write: func optional[T wire](r Reader) Option[T] fails wired[T] | WireMissingField | WireUnknownTag needs wired[T]
 site S101 missing in internal/sketch/check/testdata/fixtures/negative/codec-rows.ergo: codec-rows.ergo 70:2: S101 {BadHost | Unsatisfied | WireMissingField | WireUnknownTag} escapes function usesNarrow, whose error row {WireWrongKind} does not list it; write: func usesNarrow(r Reader) []State fails WireWrongKind | BadHost | Unsatisfied | WireMissingField | WireUnknownTag
@@ -1439,6 +1441,7 @@ site S105 missing in internal/sketch/check/testdata/fixtures/negative/unhandled-
 site S105 missing in internal/sketch/check/testdata/fixtures/negative/unhandled-define.ergo: unhandled-define.ergo 6:10: S105 the failure {Fault} of this expression is not handled: use try, catch or return (rows.md, Error rows 3)
 site S105 missing in internal/sketch/check/testdata/v1/C4-rows.neg.ergo: C4-rows.neg.ergo 20:13: S105 the failure {NotFound} of this expression is not handled: use try, catch or return (rows.md, Error rows 3)
 site S105 missing in internal/sketch/check/testdata/v1/E7-interpolation.neg.ergo: E7-interpolation.neg.ergo 11:11: S105 the failure {NotFound} of this expression is not handled: use try, catch or return (rows.md, Error rows 3)
+site S106 extra in examples/gointerop/cmd/uptime: main.ergo 11:30: S106 hostClock does not implement clock: hostClock.Now requires {}, which the interface's method does not (README Gap 17: a provider's build holds go.Foreign or Ambient for it; any other capability stays with context construction) (types.md, Interface assignability 1)
 site S107 missing in internal/sketch/check/testdata/fixtures/negative/missing-return.ergo: missing-return.ergo 1:50: S107 function pick can reach the end of its body without returning a value (rows.md, Totality 3)
 site S107 missing in internal/sketch/check/testdata/v1/C1-tail-result.neg.ergo: C1-tail-result.neg.ergo 13:1: S107 function pick can reach the end of its body without returning a value (rows.md, Totality 3)
 site S107 missing in internal/sketch/check/testdata/v1/C1-tail-result.neg.ergo: C1-tail-result.neg.ergo 7:1: S107 function add can reach the end of its body without returning a value (rows.md, Totality 3)
