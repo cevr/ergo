@@ -247,11 +247,17 @@ type lowerer struct {
 	captureRoots map[syntax.Node]string
 	libs         []*check.Package // the libraries the program reaches (libraries)
 	libsDone     bool
-	goPkgs       []*check.Package        // the Go packages the program reaches (import go; libraryPackages)
-	stdSrc       map[syntax.Node]stdFile // the std nodes locate placed, and their files (stdFileOf)
-	siteIDs      map[siteKey]siteNum     // each call position's CallSite Pkg and Id (siteid.go)
-	sitePkgs     []sitePkg               // the packages in the call-site numbering (siteid.go)
-	initPkgs     []*check.Package        // the sourced libraries in initialization order
+	goPkgs       []*check.Package            // the Go packages the program reaches (import go; libraryPackages)
+	stdSrc       map[syntax.Node]int32       // the std nodes stdFileOf placed or answered: their file in stdFiles, -1 for none
+	stdLibs      []*check.Package            // the reached std packages, in libraries order (stdFileOf)
+	stdPlaced    map[syntax.Node]bool        // the std declarations whose every node stdSrc holds (placeStd)
+	stdWalks     int                         // the placing walks placeStd made: at most one per std declaration
+	stdFiles     []stdFile                   // the std files stdSrc names, by index
+	stdFileIDs   map[*syntax.File]int32      // each file's index in stdFiles
+	stdAdmit     map[syntax.Node]syntax.Node // each node a std admission law made, by its law's declaration (stdAdmissions)
+	siteIDs      map[siteKey]siteNum         // each call position's CallSite Pkg and Id (siteid.go)
+	sitePkgs     []sitePkg                   // the packages in the call-site numbering (siteid.go)
+	initPkgs     []*check.Package            // the sourced libraries in initialization order
 
 	names *namer // the Go package scope: every package-scope name (pkgnames.go)
 	fixed *namer // its parent: the fixed generated names and the prelude's (pkgnames.go, rules 4 and 5)

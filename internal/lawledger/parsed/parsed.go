@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 
 	"ergo.local/prototype/internal/lawledger"
@@ -18,7 +19,7 @@ import (
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
-var spaces = regexp.MustCompile(`\s+`)
+var spaces = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\s+`) })
 
 // Statement is the source text of d from its name to its closing brace,
 // with each run of white space made one space, as lawledger.Statement cuts
@@ -31,7 +32,7 @@ func Statement(f *syntax.File, d *syntax.LawDecl) string {
 	if td := d.Derived; td != nil {
 		// Derived nodes retain the type's source positions, not a source
 		// slice of the generated law. State the parser's derived law.
-		base := spaces.ReplaceAllString(f.Src[td.Spec.Pos():td.Spec.End()], " ")
+		base := spaces().ReplaceAllString(f.Src[td.Spec.Pos():td.Spec.End()], " ")
 		binding := "let it " + base + " = v"
 		switch td.Spec.(type) {
 		case *syntax.Ident, *syntax.SelectorExpr:
@@ -42,7 +43,7 @@ func Statement(f *syntax.File, d *syntax.LawDecl) string {
 	if w := d.Pair; w != nil {
 		return pairStatement(d, w)
 	}
-	return spaces.ReplaceAllString(f.Src[d.Name.Pos():d.Body.End()], " ")
+	return spaces().ReplaceAllString(f.Src[d.Name.Pos():d.Body.End()], " ")
 }
 
 // pairStatement is the round-trip law the parser derives for the by-name

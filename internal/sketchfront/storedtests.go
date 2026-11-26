@@ -24,9 +24,10 @@ import (
 // the same thing. A note is never a verdict: it lives under a key of its
 // own and says only which tier answers.
 
-// testKey is the store's key of test t of pkg's verdict at seed.
-func testKey(pkg *check.Package, t *check.Test, seed uint64, keys lower.ForeignKeys) string {
-	return lawcache.Key("test", t.Name, lower.TestDigestWith(pkg, t, keys), strconv.FormatUint(seed, 10))
+// testKey is the store's key of test t of pkg's verdict at seed, read
+// through memo as targetKey reads.
+func testKey(memo *lower.Digests, pkg *check.Package, t *check.Test, seed uint64, keys lower.ForeignKeys) string {
+	return lawcache.Key("test", t.Name, lower.TestDigestIn(memo, pkg, t, keys), strconv.FormatUint(seed, 10))
 }
 
 // routeKey is the key of the route note of the obligation whose verdict
@@ -47,12 +48,14 @@ type testVerdicts struct {
 	keys  map[*check.Test]string
 	// foreign are the program's foreign keys (testKey).
 	foreign lower.ForeignKeys
+	// memo is the declarations' memo the keys share (testKey).
+	memo *lower.Digests
 }
 
 func (v *testVerdicts) key(t *check.Test) string {
 	k, ok := v.keys[t]
 	if !ok {
-		k = testKey(v.pkg, t, v.seed, v.foreign)
+		k = testKey(v.memo, v.pkg, t, v.seed, v.foreign)
 		v.keys[t] = k
 	}
 	return k
@@ -85,14 +88,15 @@ func (v *testVerdicts) Held(t *check.Test, held eval.Verdict) {
 }
 
 // routes are the route-note keys of a package's obligations at a seed and
-// budget, by obligation name, as TestLines names them.
-func routes(pkg *check.Package, seed uint64, states int, steps int64, keys lower.ForeignKeys) map[string]string {
+// budget, by obligation name, as TestLines names them, keyed through memo
+// (targetKey).
+func routes(memo *lower.Digests, pkg *check.Package, seed uint64, states int, steps int64, keys lower.ForeignKeys) map[string]string {
 	out := map[string]string{}
 	for _, t := range pkg.Tests {
-		out[t.Name] = routeKey(testKey(pkg, t, seed, keys), steps)
+		out[t.Name] = routeKey(testKey(memo, pkg, t, seed, keys), steps)
 	}
 	for _, t := range lower.RunTargets(pkg) {
-		out[t.Label] = routeKey(targetKey(pkg, t, seed, states, runnerEval, keys), steps)
+		out[t.Label] = routeKey(targetKey(memo, pkg, t, seed, states, runnerEval, keys), steps)
 	}
 	return out
 }

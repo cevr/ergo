@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
+	"sync"
 
 	"ergo.local/prototype/internal/producer"
 	"ergo.local/prototype/internal/receipt"
@@ -426,7 +427,7 @@ func declarationFiles(a sketchfront.Analysis, root string) map[string][]string {
 // it, and a kept answer would print where it was. The other texts a reason
 // quotes from the source are a failed assert's and a refuted licence's,
 // whose package does not pass, so it is not kept.
-var treeSiteText = regexp.MustCompile(`\.ergo:[0-9]|(^|\s):[0-9]`)
+var treeSiteText = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\.ergo:[0-9]|(^|\s):[0-9]`) })
 
 // treeUnkept, when not nil, hears why a request was not kept (a test's
 // account of what the store leaves out).
@@ -572,7 +573,7 @@ func treeEntryOf(a sketchfront.Analysis, out []byte, root string, srcs map[strin
 	}
 	for i, o := range env.Evaluation.Obligations {
 		switch {
-		case treeSiteText.MatchString(o.Reason):
+		case treeSiteText().MatchString(o.Reason):
 			return treeEntry{}, "a reason that names a site"
 		case o.Advice != "":
 			return treeEntry{}, "advice"
