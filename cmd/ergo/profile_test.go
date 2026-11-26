@@ -7,6 +7,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"ergo.local/prototype/internal/ergobuild"
 )
 
 func TestProfileExtractConfig(t *testing.T) {
@@ -98,7 +100,7 @@ func TestProfileCLICPUAndHeapMarkdown(t *testing.T) {
 		t.Fatalf("repoRoot: %v", err)
 	}
 
-	buildCmd := exec.Command("go", "build", "-o", bin, "./cmd/ergo")
+	buildCmd := ergobuild.Command(bin, "./cmd/ergo")
 	buildCmd.Dir = repoRoot
 	if out, err := buildCmd.CombinedOutput(); err != nil {
 		t.Fatalf("go build ./cmd/ergo: %v\n%s", err, out)
