@@ -241,6 +241,11 @@ prelude	Sleep	provider
 prelude	Task	type
 prelude	Unreachable	provider
 prelude	hostAlarms	provider
+process	StartFailed	type
+process	childLine	type
+process	childProc	type
+process	childStatus	type
+process	hostStartProc	host
 queue	Closed	type
 queue	Full	type
 queue	New	provider

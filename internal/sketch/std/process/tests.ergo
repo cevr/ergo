@@ -1,0 +1,12 @@
+import fstest
+import os
+
+let onChild = context needs fstest.TestAmbient {
+	Runner: NewTestChild(Spec{
+		..NewSpec(os.NewTestHost().Executable() catch {
+		case os.NoDir:
+			""
+		}),
+		Args: []string{"-ergo.runtime.process-worker"},
+	}),
+}

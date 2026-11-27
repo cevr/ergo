@@ -138,7 +138,7 @@ func main() fails os.Exit {
 		}
 
 		let bothMarks = queue.New[int](2)
-		let bothStepsFirst = process.Run(process.Limits{Time: 10ms, Steps: 5}) {
+		let bothStepsFirst = process.Run(process.Limits{..process.Unlimited, Time: 10ms, Steps: 5}) {
 			scope.OnExit() {
 				bothMarks.Push(1) catch {
 				case queue.Closed:
@@ -159,7 +159,7 @@ func main() fails os.Exit {
 
 		let timeMarks = queue.New[int](2)
 		let runner = task.Go() {
-			process.Run(process.Limits{Time: 2ms, Steps: 100}) {
+			process.Run(process.Limits{..process.Unlimited, Time: 2ms, Steps: 100}) {
 				scope.OnExit() {
 					timeMarks.Push(1) catch {
 					case queue.Closed:

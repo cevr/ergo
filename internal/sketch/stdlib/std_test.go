@@ -756,7 +756,7 @@ func TestStdHostProvidersHaveAuthority(t *testing.T) {
 	// built, and only Dial's reaches the host (rpc.Loopback's runs in
 	// process). Dial's authority is TestStdExternCallersHoldAuthority's:
 	// Dial without Ambient fails it (measured, R3b).
-	if want := []string{"exec.Host", "fs.Host", "host.Local", "host.Zones", "http.Client", "http.Remote", "io.Errors", "io.Host", "io.In", "net.Host", "os.Host", "prelude.LiveScheduler", "rand.Host", "rand.SecureHost", "signal.Watched", "sql.Host", "sql.hostTx", "sql.pool", "term.Host", "time.Host"}; !slices.Equal(found, want) {
+	if want := []string{"exec.Host", "fs.Host", "host.Local", "host.Zones", "http.Client", "http.Remote", "io.Errors", "io.Host", "io.In", "net.Host", "os.Host", "prelude.LiveScheduler", "process.ChildRunner", "rand.Host", "rand.SecureHost", "signal.Watched", "sql.Host", "sql.hostTx", "sql.pool", "term.Host", "time.Host"}; !slices.Equal(found, want) {
 		t.Errorf("host providers %v, want %v: a new one follows the rule, and this list names it", found, want)
 	}
 	for name, unit := range unguardedHosts {
