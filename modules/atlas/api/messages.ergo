@@ -1,0 +1,774 @@
+import github.com/cevr/ergo/modules/atlas/cutover
+import github.com/cevr/ergo/modules/atlas/handle
+import github.com/cevr/ergo/modules/atlas/subagent
+import github.com/cevr/ergo/modules/atlas/thread
+import github.com/cevr/ergo/modules/atlas/turn
+import json
+import option
+
+// ThreadTargetInput identifies one thread by ThreadID for read operations.
+type ThreadTargetInput {
+	ThreadID string,
+}
+
+// ThreadListInput filters and paginates threads.
+type ThreadListInput {
+	IncludeArchived bool,
+	Limit           json.Optional[int],
+	Offset          json.Optional[int],
+}
+
+// ThreadCreateInput creates a persisted Atlas thread and optional parent branch edge.
+type ThreadCreateInput {
+	CommandID          string,
+	Actor              string,
+	AtMs               int64,
+	ThreadID           string,
+	Driver             string,
+	PermissionMode     string,
+	Instance           string,
+	ConfigDir          string,
+	Model              string,
+	AgyDirectSupported bool,
+	ParentThreadID     json.Optional[string],
+	EdgeLabel          json.Optional[string],
+	SharedHome         json.Optional[string],
+	LinkOriginKind     json.Optional[string],
+	LinkOriginTarget   json.Optional[string],
+}
+
+// ThreadArchiveInput archives an idle thread and revokes its /mcp bearer tokens.
+type ThreadArchiveInput {
+	CommandID     string,
+	Actor         string,
+	AtMs          int64,
+	ThreadID      string,
+	ArchiveReason json.Optional[string],
+}
+
+// DriverSwitchInput switches a thread's Meta or Direct driver between turns.
+type DriverSwitchInput {
+	CommandID          string,
+	Actor              string,
+	AtMs               int64,
+	ThreadID           string,
+	NextDriver         string,
+	PermissionMode     string,
+	Instance           string,
+	ConfigDir          string,
+	AgyDirectSupported bool,
+	SharedHome         json.Optional[string],
+}
+
+// PromptEnqueueInput pushes one follow-up prompt onto a thread's FIFO prompt queue.
+type PromptEnqueueInput {
+	CommandID     string,
+	Actor         string,
+	AtMs          int64,
+	ThreadID      string,
+	PromptID      string,
+	Body          string,
+	RequestedMode string,
+}
+
+// PromptDequeueInput pops the head queued prompt from an idle thread.
+type PromptDequeueInput {
+	CommandID string,
+	Actor     string,
+	AtMs      int64,
+	ThreadID  string,
+}
+
+// TurnStartInput allocates or reuses a live session and dispatches one active turn on ThreadID.
+type TurnStartInput {
+	CommandID string,
+	Actor     string,
+	AtMs      int64,
+	ThreadID  string,
+	TurnID    string,
+}
+
+// TurnStepInput advances the active turn on ThreadID using a typed lifecycle action.
+type TurnStepInput {
+	CommandID     string,
+	Actor         string,
+	AtMs          int64,
+	ThreadID      string,
+	Action        string,
+	FailureClass  json.Optional[string],
+	FailureDetail json.Optional[string],
+	ResetAtMs     json.Optional[int],
+}
+
+// QueuedPromptView summarizes one queued FIFO follow-up prompt on a ThreadSnapshot.
+type QueuedPromptView {
+	PromptID      string,
+	Body          string,
+	RequestedMode string,
+}
+
+// BranchEdgeView summarizes one directed parent-child thread relationship.
+type BranchEdgeView {
+	ParentThreadID string,
+	ChildThreadID  string,
+	Kind           string,
+	Label          string,
+	CreatedAtMs    int64,
+}
+
+// ThreadSnapshot projects a durable thread together with its session, turn, edges, and queue.
+type ThreadSnapshot {
+	ThreadID        string,
+	ParentThreadID  json.Optional[string],
+	Driver          string,
+	Path            string,
+	PermissionMode  string,
+	Model           string,
+	LinkOrigin      string,
+	Archived        bool,
+	ActiveSessionID json.Optional[string],
+	SessionGen      int,
+	ActiveTurnID    json.Optional[string],
+	ActiveTurnPhase json.Optional[string],
+	LastTurnOutcome json.Optional[string],
+	QueuedPrompts   []QueuedPromptView,
+	Edges           []BranchEdgeView,
+	TurnsStarted    int,
+	TurnsCompleted  int,
+	ModeSwitchCount int,
+}
+
+// ThreadSummary summarizes one listed thread row.
+type ThreadSummary {
+	ThreadID       string,
+	Driver         string,
+	Path           string,
+	Archived       bool,
+	InTurn         bool,
+	QueuedCount    int,
+	TurnsStarted   int,
+	TurnsCompleted int,
+}
+
+// ThreadListOutput returns paginated ThreadSummary rows.
+type ThreadListOutput {
+	Threads []ThreadSummary,
+	Total   int,
+}
+
+// SubagentTreeInitInput initializes a bounded recursive subagent tree at RootID.
+type SubagentTreeInitInput {
+	CommandID string,
+	Actor     string,
+	AtMs      int64,
+	RootID    string,
+	MaxDepth  int,
+	MaxFanOut int,
+	MaxBudget int,
+}
+
+// SubagentSpawnInput spawns a bounded child subagent under ParentID in RootID's tree.
+type SubagentSpawnInput {
+	CommandID string,
+	Actor     string,
+	AtMs      int64,
+	RootID    string,
+	ParentID  string,
+	ChildID   string,
+	Role      string,
+}
+
+// SubagentControlHandleInput opens an unsettled subagent handle strictly within CallerID's subtree.
+type SubagentControlHandleInput {
+	CommandID string,
+	Actor     string,
+	AtMs      int64,
+	RootID    string,
+	CallerID  string,
+	TargetID  string,
+	HandleID  string,
+}
+
+// SubagentSettleHandleInput settles HandleID on NodeID and unparks it when clear.
+type SubagentSettleHandleInput {
+	CommandID string,
+	Actor     string,
+	AtMs      int64,
+	RootID    string,
+	NodeID    string,
+	HandleID  string,
+}
+
+// SubagentHandBackInput completes hand-back for a subagent child node when unblocked.
+type SubagentHandBackInput {
+	CommandID string,
+	Actor     string,
+	AtMs      int64,
+	RootID    string,
+	NodeID    string,
+}
+
+// SubagentTreeGetInput queries one subagent tree by RootID.
+type SubagentTreeGetInput {
+	RootID string,
+}
+
+// SubagentNodeView summarizes one node in a subagent tree.
+type SubagentNodeView {
+	ThreadID       string,
+	ParentThreadID json.Optional[string],
+	Role           string,
+	Depth          int,
+	State          string,
+	OpenHandles    []string,
+	Children       []string,
+	HandBackCount  int,
+}
+
+// SubagentTreeOutput returns a wire-safe snapshot of a bounded subagent tree.
+type SubagentTreeOutput {
+	RootID     string,
+	MaxDepth   int,
+	MaxFanOut  int,
+	MaxBudget  int,
+	BudgetUsed int,
+	Nodes      []SubagentNodeView,
+}
+
+// HandleOpenInput opens a DELIVERS wake handle with optional subagent node linkage.
+type HandleOpenInput {
+	CommandID     string,
+	Actor         string,
+	AtMs          int64,
+	HandleID      string,
+	Kind          string,
+	OwnerServer   string,
+	OwnerLocation string,
+	OwnerEpoch    int,
+	SessionID     string,
+	Summary       string,
+	SubagentRoot  json.Optional[string],
+	NodeID        json.Optional[string],
+}
+
+// HandleSettleInput settles an open DELIVERS handle once to a terminal disposition.
+type HandleSettleInput {
+	CommandID    string,
+	Actor        string,
+	AtMs         int64,
+	HandleID     string,
+	Disposition  string,
+	Summary      string,
+	SubagentRoot json.Optional[string],
+	NodeID       json.Optional[string],
+}
+
+// HandleListInput queries DELIVERS handles, wakes, and pool holds.
+type HandleListInput {
+	SessionID     json.Optional[string],
+	OwnerServer   json.Optional[string],
+	OwnerLocation json.Optional[string],
+	OwnerEpoch    json.Optional[int],
+	OpenOnly      bool,
+}
+
+// OwnerCallsRetireInput retires all open KindCall handles owned by a dead server incarnation.
+type OwnerCallsRetireInput {
+	CommandID     string,
+	Actor         string,
+	AtMs          int64,
+	OwnerServer   string,
+	OwnerLocation string,
+	OwnerEpoch    int,
+}
+
+// HandleEntryView summarizes one DELIVERS WakeHandle.
+type HandleEntryView {
+	HandleID    string,
+	Kind        string,
+	Owner       string,
+	SessionID   string,
+	Deliverer   string,
+	Disposition string,
+	Summary     string,
+	WakeEmitted bool,
+}
+
+// WakeEntryView summarizes one durable wake record.
+type WakeEntryView {
+	DeliveryID string,
+	HandleID   string,
+	Delivered  bool,
+	Payload    string,
+}
+
+// PoolHoldView summarizes one durable quota pool hold.
+type PoolHoldView {
+	HoldKey        string,
+	ThreadID       string,
+	AccountID      string,
+	RetryAtMs      int64,
+	DeliveryID     string,
+	Status         string,
+	ParentNotified bool,
+}
+
+// HandleViewOutput returns matching DELIVERS handles, pending wakes, and pool holds.
+type HandleViewOutput {
+	Handles []HandleEntryView,
+	Wakes   []WakeEntryView,
+	Holds   []PoolHoldView,
+}
+
+// RetiredCallsOutput reports the open KindCall owners after retiring a dead owner.
+type RetiredCallsOutput {
+	Owner               string,
+	RemainingOpenOwners []string,
+}
+
+// QuestionAskInput persists one asynchronous user question linked to a KindQuestion handle.
+type QuestionAskInput {
+	CommandID     string,
+	Actor         string,
+	AtMs          int64,
+	QuestionID    string,
+	ThreadID      string,
+	HandleID      string,
+	OwnerServer   string,
+	OwnerLocation string,
+	OwnerEpoch    int,
+	SessionID     string,
+	Header        string,
+	Prompt        string,
+	Assumption    string,
+	Options       []string,
+	TargetRole    string,
+}
+
+// QuestionAnswerInput records an answer to an open ask_user_async question.
+type QuestionAnswerInput {
+	CommandID  string,
+	Actor      string,
+	AtMs       int64,
+	QuestionID string,
+	Answer     string,
+	Responder  string,
+}
+
+// QuestionWithdrawInput silently withdraws an open ask_user_async question.
+type QuestionWithdrawInput {
+	CommandID  string,
+	Actor      string,
+	AtMs       int64,
+	QuestionID string,
+}
+
+// QuestionListInput filters ask_user_async questions by optional ThreadID and Status.
+type QuestionListInput {
+	ThreadID json.Optional[string],
+	Status   json.Optional[string],
+}
+
+// AsyncQuestionView summarizes one persistent ask_user_async entry.
+type AsyncQuestionView {
+	QuestionID  string,
+	ThreadID    string,
+	HandleID    string,
+	Header      string,
+	Prompt      string,
+	Assumption  string,
+	Options     []string,
+	TargetRole  string,
+	Status      string,
+	Answer      json.Optional[string],
+	AnsweredBy  json.Optional[string],
+	AskedAtMs   int64,
+	UpdatedAtMs int64,
+}
+
+// AsyncQuestionListOutput returns ordered ask_user_async entries.
+type AsyncQuestionListOutput {
+	Questions []AsyncQuestionView,
+}
+
+// PoolAccountUpsertInput records quota utilization windows and health state on an account slot.
+type PoolAccountUpsertInput {
+	CommandID       string,
+	Actor           string,
+	AtMs            int64,
+	AccountID       string,
+	Provider        string,
+	Priority        int,
+	Healthy         bool,
+	Window5hUsedPct int,
+	Window5hResetMs int64,
+	Window7dUsedPct int,
+	Window7dResetMs int64,
+	InflightStarts  int,
+	LimitedUntilMs  int64,
+}
+
+// PoolHoldOpenInput registers a waiting quota pool hold keyed by HoldKey.
+type PoolHoldOpenInput {
+	CommandID      string,
+	Actor          string,
+	AtMs           int64,
+	HoldKey        string,
+	ThreadID       string,
+	AccountID      string,
+	RetryAtMs      int64,
+	ParentNotified bool,
+}
+
+// PoolHoldTransitionInput wakes or cancels an existing pool hold.
+type PoolHoldTransitionInput {
+	CommandID string,
+	Actor     string,
+	AtMs      int64,
+	HoldKey   string,
+	Action    string,
+}
+
+// PoolViewInput queries quota pool accounts, reset claims, and holds at NowMs.
+type PoolViewInput {
+	NowMs int64,
+}
+
+// PoolAccountView summarizes one quota pool account.
+type PoolAccountView {
+	AccountID       string,
+	Provider        string,
+	Priority        int,
+	Healthy         bool,
+	Window5hUsedPct int,
+	Window5hResetMs int64,
+	Window7dUsedPct int,
+	Window7dResetMs int64,
+	InflightStarts  int,
+	LimitedUntilMs  int64,
+}
+
+// PoolViewOutput aggregates quota accounts and due/all holds.
+type PoolViewOutput {
+	Accounts []PoolAccountView,
+	DueHolds []PoolHoldView,
+	AllHolds []PoolHoldView,
+}
+
+// KernelSnapshotSaveInput saves a bounded kernel binding snapshot for one session.
+type KernelSnapshotSaveInput {
+	CommandID     string,
+	Actor         string,
+	AtMs          int64,
+	SessionID     string,
+	ThreadID      string,
+	RootThreadID  string,
+	BindingsJSON  string,
+	SnapshotBytes int,
+	LostNotice    string,
+}
+
+// KernelCutRecordInput records one cut.calls / cut.maps journal entry and updates hourly root accounting.
+type KernelCutRecordInput {
+	CommandID    string,
+	Actor        string,
+	AtMs         int64,
+	CutID        string,
+	SessionID    string,
+	ThreadID     string,
+	RootThreadID string,
+	CallsJSON    string,
+	MapsJSON     string,
+	StartedAtMs  int64,
+	EndedAtMs    int64,
+	Reason       string,
+}
+
+// KernelViewInput queries persisted kernel snapshot, journals, root usage, and recovery counts.
+type KernelViewInput {
+	SessionID string,
+}
+
+// KernelSnapshotSummary summarizes the saved kernel snapshot without raw opaque binding maps.
+type KernelSnapshotSummary {
+	SessionID     string,
+	ThreadID      string,
+	RootThreadID  string,
+	SnapshotSeq   int,
+	SnapshotBytes int,
+	LostNotice    string,
+	UpdatedAtMs   int64,
+}
+
+// KernelRootUsageView reports per-root hourly active kernel cell accounting.
+type KernelRootUsageView {
+	RootThreadID string,
+	ActiveCellMs int64,
+	Flagged      bool,
+}
+
+// KernelViewOutput summarizes kernel snapshots, root usages, journals, limits, and requests.
+type KernelViewOutput {
+	Snapshot     json.Optional[KernelSnapshotSummary],
+	JournalCount int,
+	RootUsages   []KernelRootUsageView,
+	LimitCount   int,
+	RequestCount int,
+}
+
+// LeaseAcquireInput acquires or CAS-advances a fenced server ownership lease.
+type LeaseAcquireInput {
+	CommandID     string,
+	Actor         string,
+	AtMs          int64,
+	LeaseID       string,
+	OwnerServer   string,
+	OwnerLocation string,
+	OwnerEpoch    int,
+	ExpectedEpoch int,
+}
+
+// BootReconcileInput runs atomic startup reconciliation across handles, wakes, turns, requests, and subagents.
+type BootReconcileInput {
+	CommandID                  string,
+	Actor                      string,
+	AtMs                       int64,
+	LeaseID                    string,
+	RootID                     json.Optional[string],
+	BootingServer              string,
+	BootingLocation            string,
+	BootingEpoch               int,
+	PendingRequestsSurviveBoot bool,
+}
+
+// BootStatusInput inspects the current ownership lease and boot reconciliation plan.
+type BootStatusInput {
+	LeaseID                    string,
+	BootingServer              string,
+	BootingLocation            string,
+	BootingEpoch               int,
+	PendingRequestsSurviveBoot bool,
+}
+
+// LeaseSummary summarizes an active fenced ownership lease.
+type LeaseSummary {
+	LeaseID         string,
+	Owner           string,
+	Epoch           int,
+	FencingToken    int64,
+	Phase           string,
+	ActiveOwner     string,
+	CommitPersisted bool,
+}
+
+// BootLeaseOutput summarizes active ownership lease, open volatile call owners, and reconciliation actions.
+type BootLeaseOutput {
+	ActiveLease     json.Optional[LeaseSummary],
+	OpenOwners      []string,
+	RetiredCalls    int,
+	RequeuedWakes   int,
+	TerminatedTurns int,
+	ExpiredRequests int,
+}
+
+// HostCapacityInput configures requested filesystem volume mount paths for non-blocking host telemetry.
+type HostCapacityInput {
+	Volumes []string,
+}
+
+// WellnessReportInput configures on-demand non-spawning wellness evaluation.
+type WellnessReportInput {
+	NowMs                int64,
+	Volumes              []string,
+	LiveOwnersConfigured bool,
+	LiveOwners           []string,
+	MaxLoadPerCore       json.Optional[string],
+	MinMemAvailGiB       json.Optional[string],
+	MaxDiskUsedPct       json.Optional[string],
+}
+
+// McpTokenMintInput mints or rotates a SHA-256-hashed per-thread /mcp bearer credential.
+type McpTokenMintInput {
+	TokenID        string,
+	ThreadID       string,
+	SessionID      string,
+	Gen            int,
+	NowMs          int64,
+	AudienceKind   string,
+	ClientID       json.Optional[string],
+	Scopes         []string,
+	RotateExisting bool,
+}
+
+// McpTokenRevokeInput revokes /mcp bearer tokens matching ThreadID or SessionID.
+type McpTokenRevokeInput {
+	ThreadID  json.Optional[string],
+	SessionID json.Optional[string],
+}
+
+// McpTokenRevokeOutput reports how many active /mcp bearer credentials were revoked.
+type McpTokenRevokeOutput {
+	RevokedCount int,
+}
+
+// McpTokenListInput queries redacted /mcp token records for ThreadID.
+type McpTokenListInput {
+	ThreadID       string,
+	IncludeRevoked bool,
+}
+
+// McpTokenListOutput returns redacted /mcp token summaries without exposing secrets or digests.
+type McpTokenListOutput {
+	Tokens []McpTokenInfo,
+}
+
+// FormatAgentRole returns the canonical lowercase name of r.
+func FormatAgentRole(r subagent.AgentRole) string {
+	match r {
+	case subagent.RoleRoot:
+		"root"
+	case subagent.RolePlanner:
+		"planner"
+	case subagent.RoleImplementor:
+		"implementor"
+	case subagent.RoleVerifier:
+		"verifier"
+	case subagent.RoleReviewer:
+		"reviewer"
+	case subagent.RoleWorker:
+		"worker"
+	}
+}
+
+// ParseAgentRole parses a canonical external subagent role name.
+func ParseAgentRole(raw string) option.Option[subagent.AgentRole] {
+	match raw {
+	case "root":
+		option.Some[subagent.AgentRole]{Value: subagent.RoleRoot}
+	case "planner":
+		option.Some[subagent.AgentRole]{Value: subagent.RolePlanner}
+	case "implementor":
+		option.Some[subagent.AgentRole]{Value: subagent.RoleImplementor}
+	case "verifier":
+		option.Some[subagent.AgentRole]{Value: subagent.RoleVerifier}
+	case "reviewer":
+		option.Some[subagent.AgentRole]{Value: subagent.RoleReviewer}
+	case "worker":
+		option.Some[subagent.AgentRole]{Value: subagent.RoleWorker}
+	case _:
+		option.None
+	}
+}
+
+// AgentRoleNameRoundTrips verifies every AgentRole round-trips via its string name.
+law AgentRoleNameRoundTrips(r subagent.AgentRole) {
+	ParseAgentRole(FormatAgentRole(r)) == option.Some[subagent.AgentRole]{Value: r}
+}
+
+// FormatLinkOrigin formats a thread.LinkOrigin into a canonical label.
+func FormatLinkOrigin(o thread.LinkOrigin) string {
+	match o {
+	case thread.OriginLocal:
+		"local"
+	case thread.OriginMcpScoped as m:
+		"mcp:" + string(m.BoundThread)
+	case thread.OriginRemotePeer as p:
+		"peer:" + p.PeerID
+	case thread.OriginSubagentChild as c:
+		"subagent:" + string(c.ParentID)
+	}
+}
+
+// FormatTurnPhase returns the canonical lowercase phase name of p.
+func FormatTurnPhase(p turn.TurnPhase) string {
+	match p {
+	case turn.PhaseQueued:
+		"queued"
+	case turn.PhaseUnsure:
+		"unsure"
+	case turn.PhaseDispatched:
+		"dispatched"
+	case turn.PhaseConfirmed:
+		"confirmed"
+	case turn.PhaseEnded:
+		"ended"
+	}
+}
+
+// FormatTurnOutcome returns a concise wire label for o.
+func FormatTurnOutcome(o turn.TurnOutcome) string {
+	match o {
+	case turn.OutcomeCompleted:
+		"completed"
+	case turn.OutcomeCancelled:
+		"cancelled"
+	case turn.OutcomeLost:
+		"lost"
+	case turn.OutcomeFailed as f:
+		"failed:" + f.Detail
+	}
+}
+
+// FormatNodeState returns the canonical lowercase name of s.
+func FormatNodeState(s subagent.NodeState) string {
+	match s {
+	case subagent.NodeIdle:
+		"idle"
+	case subagent.NodeRunning:
+		"running"
+	case subagent.NodeParked:
+		"parked"
+	case subagent.NodeDone:
+		"done"
+	}
+}
+
+// FormatCutoverPhase returns the canonical lowercase name of p.
+func FormatCutoverPhase(p cutover.CutoverPhase) string {
+	match p {
+	case cutover.CutoverOld:
+		"old"
+	case cutover.CutoverQuiesce:
+		"quiesce"
+	case cutover.CutoverTransfer:
+		"transfer"
+	case cutover.CutoverCommitted:
+		"committed"
+	case cutover.CutoverDone:
+		"done"
+	}
+}
+
+// FormatLeaseOwner returns the canonical lowercase name of o.
+func FormatLeaseOwner(o cutover.LeaseOwner) string {
+	match o {
+	case cutover.OwnerNone:
+		"none"
+	case cutover.OwnerOld:
+		"old"
+	case cutover.OwnerNew:
+		"new"
+	case cutover.OwnerBoth:
+		"both"
+	}
+}
+
+// ParseDisposition parses a canonical terminal handle Disposition name.
+func ParseDisposition(raw string) option.Option[handle.Disposition] {
+	match raw {
+	case "succeeded":
+		option.Some[handle.Disposition]{Value: handle.DispSucceeded}
+	case "failed":
+		option.Some[handle.Disposition]{Value: handle.DispFailed}
+	case "lost":
+		option.Some[handle.Disposition]{Value: handle.DispLost}
+	case "declined":
+		option.Some[handle.Disposition]{Value: handle.DispDeclined}
+	case "cancelled":
+		option.Some[handle.Disposition]{Value: handle.DispCancelled}
+	case "handed":
+		option.Some[handle.Disposition]{Value: handle.DispHanded}
+	case _:
+		option.None
+	}
+}

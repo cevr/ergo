@@ -1,0 +1,748 @@
+import github.com/cevr/ergo/modules/atlas/handle
+import github.com/cevr/ergo/modules/atlas/memory
+import github.com/cevr/ergo/modules/atlas/reconcile
+import github.com/cevr/ergo/modules/atlas/subagent
+import github.com/cevr/ergo/modules/atlas/thread
+import github.com/cevr/ergo/modules/atlas/turn
+import json
+import option
+import os/host
+
+// WellnessHealthy indicates all store consistency, handle/pool, and host capacity checks passed.
+type WellnessHealthy {}
+
+// WellnessDegraded indicates non-fatal pressure such as elevated load, due holds, or kernel share flags.
+type WellnessDegraded {}
+
+// WellnessUnhealthy indicates a critical store, memory, disk, host telemetry, or dead-owner failure.
+type WellnessUnhealthy {}
+
+// WellnessStatus classifies overall node wellness reported by EvaluateWellness.
+type WellnessStatus = WellnessHealthy | WellnessDegraded | WellnessUnhealthy
+
+// WellnessStatusName returns the canonical external string of s.
+func WellnessStatusName(s WellnessStatus) string {
+	match s {
+	case WellnessHealthy:
+		"healthy"
+	case WellnessDegraded:
+		"degraded"
+	case WellnessUnhealthy:
+		"unhealthy"
+	}
+}
+
+// ParseWellnessStatus parses a canonical WellnessStatus string.
+func ParseWellnessStatus(raw string) option.Option[WellnessStatus] {
+	match raw {
+	case "healthy":
+		option.Some[WellnessStatus]{Value: WellnessHealthy}
+	case "degraded":
+		option.Some[WellnessStatus]{Value: WellnessDegraded}
+	case "unhealthy":
+		option.Some[WellnessStatus]{Value: WellnessUnhealthy}
+	case _:
+		option.None
+	}
+}
+
+// WellnessStatusNameRoundTrips verifies every WellnessStatus survives formatting and parsing.
+law WellnessStatusNameRoundTrips(s WellnessStatus) {
+	ParseWellnessStatus(WellnessStatusName(s)) == option.Some[WellnessStatus]{Value: s}
+}
+
+// SeverityInfo classifies an informational wellness observation.
+type SeverityInfo {}
+
+// SeverityWarn classifies degraded capacity or operational backlog.
+type SeverityWarn {}
+
+// SeverityCritical classifies a critical wellness failure.
+type SeverityCritical {}
+
+// WellnessSeverity classifies individual WellnessFinding entries.
+type WellnessSeverity = SeverityInfo | SeverityWarn | SeverityCritical
+
+// WellnessSeverityName returns the canonical lowercase name of s.
+func WellnessSeverityName(s WellnessSeverity) string {
+	match s {
+	case SeverityInfo:
+		"info"
+	case SeverityWarn:
+		"warn"
+	case SeverityCritical:
+		"critical"
+	}
+}
+
+// ParseWellnessSeverity parses a canonical severity name.
+func ParseWellnessSeverity(raw string) option.Option[WellnessSeverity] {
+	match raw {
+	case "info":
+		option.Some[WellnessSeverity]{Value: SeverityInfo}
+	case "warn":
+		option.Some[WellnessSeverity]{Value: SeverityWarn}
+	case "critical":
+		option.Some[WellnessSeverity]{Value: SeverityCritical}
+	case _:
+		option.None
+	}
+}
+
+// WellnessSeverityNameRoundTrips verifies every WellnessSeverity round-trips via its name.
+law WellnessSeverityNameRoundTrips(s WellnessSeverity) {
+	ParseWellnessSeverity(WellnessSeverityName(s)) == option.Some[WellnessSeverity]{Value: s}
+}
+
+// WellnessPolicy parameterizes non-spawning periodic and on-demand wellness checks.
+type WellnessPolicy {
+	IntervalMs             int64,
+	MaxLoadPerCore         float64,
+	MinMemAvailGiB         float64,
+	MaxDiskUsedPct         float64,
+	MaxDueHolds            int,
+	RequiredUnhealthyTicks int,
+	RequiredRecoveryTicks  int,
+	Volumes                []string,
+	LiveOwnersConfigured   bool,
+	LiveOwners             []string,
+}
+
+// DefaultWellnessPolicy returns conservative non-blocking thresholds matching Atlas defaults.
+func DefaultWellnessPolicy() WellnessPolicy {
+	WellnessPolicy{
+		IntervalMs:             int64(15000),
+		MaxLoadPerCore:         2.0,
+		MinMemAvailGiB:         8.0,
+		MaxDiskUsedPct:         90.0,
+		MaxDueHolds:            0,
+		RequiredUnhealthyTicks: 2,
+		RequiredRecoveryTicks:  2,
+		Volumes:                []string{"/"},
+		LiveOwnersConfigured:   false,
+		LiveOwners:             []string{},
+	}
+}
+
+// WellnessFinding records one concrete problem or warning observed during a wellness check.
+type WellnessFinding {
+	Code      string,
+	Severity  string,
+	Component string,
+	Summary   string,
+}
+
+// WellnessCheck records the outcome of one subsystem check within a WellnessReport.
+type WellnessCheck {
+	Name    string,
+	Healthy bool,
+	Detail  string,
+}
+
+// WellnessReport summarizes store, handle, pool, kernel, and non-blocking host telemetry state.
+type WellnessReport {
+	CheckedAtMs          int64,
+	Status               string,
+	Healthy              bool,
+	StoreReadable        bool,
+	StoreSeq             int,
+	ThreadCount          int,
+	ActiveTurnCount      int,
+	ArchivedThreadCount  int,
+	OpenCallCount        int,
+	DeadOwnerCallCount   int,
+	DueHoldCount         int,
+	UndeliveredWakeCount int,
+	FlaggedRootCount     int,
+	Host                 HostCapacityReport,
+	HostError            json.Optional[string],
+	Checks               []WellnessCheck,
+	Findings             []WellnessFinding,
+}
+
+type storeCounts {
+	seq             int,
+	threads         int,
+	activeTurns     int,
+	archivedThreads int,
+	openCalls       int,
+	deadOwnerCalls  int,
+	dueHolds        int,
+	pendingWakes    int,
+	flaggedRoots    int,
+}
+
+func containsString(items []string, target string) bool {
+	for _, x in items {
+		if x == target {
+			return true
+		}
+	}
+	false
+}
+
+func emptyCapacityReport() HostCapacityReport {
+	HostCapacityReport{
+		Cores:             0,
+		LoadOne:           0.0,
+		LoadFive:          0.0,
+		LoadFifteen:       0.0,
+		RunningProcs:      0,
+		TotalEntities:     0,
+		MemTotalBytes:     int64(0),
+		MemAvailableBytes: int64(0),
+		MemAvailGiB:       0.0,
+		Volumes:           []HostVolume{},
+	}
+}
+
+func countThreadStats(snap memory.State) (int, int) {
+	let mut active = 0
+	let mut archived = 0
+	for _, tid in snap.ThreadOrder {
+		match snap.Threads.Get(tid) {
+		case option.Some[thread.Thread] as t:
+			if t.Value.Archived {
+				archived = archived + 1
+			}
+			if thread.IsThreadInTurn(t.Value) {
+				active = active + 1
+			}
+		case option.None:
+		}
+	}
+	(active, archived)
+}
+
+func countCallHandleStats(snap memory.State, policy WellnessPolicy) (int, int) {
+	let mut openCalls = 0
+	let mut deadCalls = 0
+	for _, hid in snap.Registry.Order {
+		match snap.Registry.Handles.Get(hid) {
+		case option.Some[handle.WakeHandle] as h:
+			let hv = h.Value
+			if hv.Kind == handle.KindCall && handle.IsOpen(hv.Disposition) {
+				openCalls = openCalls + 1
+				if policy.LiveOwnersConfigured && !containsString(policy.LiveOwners, handle.OwnerText(hv.Owner)) {
+					deadCalls = deadCalls + 1
+				}
+			}
+		case option.None:
+		}
+	}
+	(openCalls, deadCalls)
+}
+
+func countPendingWakes(snap memory.State) int {
+	let mut pending = 0
+	for _, wid in snap.WakeOrder {
+		match snap.Wakes.Get(wid) {
+		case option.Some[reconcile.WakeRecord] as w:
+			if !w.Value.Delivered {
+				pending = pending + 1
+			}
+		case option.None:
+		}
+	}
+	pending
+}
+
+func countFlaggedRoots(snap memory.State) int {
+	let mut flagged = 0
+	for _, rid in snap.RootUsageOrd {
+		match snap.RootUsages.Get(rid) {
+		case option.Some[memory.KernelRootUsage] as u:
+			if u.Value.Flagged {
+				flagged = flagged + 1
+			}
+		case option.None:
+		}
+	}
+	flagged
+}
+
+func inspectStoreState(snap memory.State, policy WellnessPolicy, nowMs int64) storeCounts {
+	let (active, archived) = countThreadStats(snap)
+	let (openCalls, deadCalls) = countCallHandleStats(snap, policy)
+	let pendingWakes = countPendingWakes(snap)
+	let pool = memory.StatePoolView(snap, nowMs)
+	let flagged = countFlaggedRoots(snap)
+	storeCounts{
+		seq:             snap.Seq,
+		threads:         snap.ThreadOrder.Len(),
+		activeTurns:     active,
+		archivedThreads: archived,
+		openCalls:       openCalls,
+		deadOwnerCalls:  deadCalls,
+		dueHolds:        pool.DueHolds.Len(),
+		pendingWakes:    pendingWakes,
+		flaggedRoots:    flagged,
+	}
+}
+
+func appendStoreFindings(c storeCounts, policy WellnessPolicy, checks []WellnessCheck, findings []WellnessFinding) ([]WellnessCheck, []WellnessFinding) {
+	let mut nextChecks = checks
+	let mut nextFindings = findings
+	let deadOK = c.deadOwnerCalls == 0
+	nextChecks = nextChecks.Append(WellnessCheck{
+		Name:    "open_calls",
+		Healthy: deadOK,
+		Detail:  "open=\(c.openCalls) dead_owner=\(c.deadOwnerCalls)",
+	})
+	if !deadOK {
+		nextFindings = nextFindings.Append(WellnessFinding{
+			Code:      "dead_owner_open_calls",
+			Severity:  WellnessSeverityName(SeverityCritical),
+			Component: "handles",
+			Summary:   "\(c.deadOwnerCalls) open KindCall handle(s) belong to non-live owners",
+		})
+	}
+	let maxDue = if policy.MaxDueHolds < 0 { 0 } else { policy.MaxDueHolds }
+	let holdsOK = c.dueHolds <= maxDue
+	nextChecks = nextChecks.Append(WellnessCheck{
+		Name:    "pool_holds",
+		Healthy: holdsOK,
+		Detail:  "due=\(c.dueHolds) max=\(maxDue)",
+	})
+	if !holdsOK {
+		nextFindings = nextFindings.Append(WellnessFinding{
+			Code:      "due_holds_backlog",
+			Severity:  WellnessSeverityName(SeverityWarn),
+			Component: "pool",
+			Summary:   "\(c.dueHolds) pool hold(s) past RetryAtMs await wake dispatch",
+		})
+	}
+	let rootOK = c.flaggedRoots == 0
+	nextChecks = nextChecks.Append(WellnessCheck{
+		Name:    "kernel_root_share",
+		Healthy: rootOK,
+		Detail:  "flagged=\(c.flaggedRoots)",
+	})
+	if !rootOK {
+		nextFindings = nextFindings.Append(WellnessFinding{
+			Code:      "kernel_root_share_exceeded",
+			Severity:  WellnessSeverityName(SeverityWarn),
+			Component: "kernel",
+			Summary:   "\(c.flaggedRoots) root thread(s) exceeded hourly kernel share",
+		})
+	}
+	(nextChecks, nextFindings)
+}
+
+func appendHostFindings(rep HostCapacityReport, policy WellnessPolicy, checks []WellnessCheck, findings []WellnessFinding) ([]WellnessCheck, []WellnessFinding) {
+	let mut nextChecks = checks
+	let mut nextFindings = findings
+	let lpc = LoadPerCore(rep)
+	let loadOK = lpc <= policy.MaxLoadPerCore
+	nextChecks = nextChecks.Append(WellnessCheck{
+		Name:    "host_load",
+		Healthy: loadOK,
+		Detail:  "load_one=\(rep.LoadOne) cores=\(rep.Cores)",
+	})
+	if !loadOK {
+		nextFindings = nextFindings.Append(WellnessFinding{
+			Code:      "host_load_high",
+			Severity:  WellnessSeverityName(SeverityWarn),
+			Component: "host",
+			Summary:   "host 1m load per core exceeded threshold",
+		})
+	}
+	let memOK = rep.MemAvailGiB >= policy.MinMemAvailGiB
+	nextChecks = nextChecks.Append(WellnessCheck{
+		Name:    "host_memory",
+		Healthy: memOK,
+		Detail:  "mem_avail_gib=\(rep.MemAvailGiB)",
+	})
+	if !memOK {
+		nextFindings = nextFindings.Append(WellnessFinding{
+			Code:      "host_memory_low",
+			Severity:  WellnessSeverityName(SeverityCritical),
+			Component: "host",
+			Summary:   "available memory below minimum wellness threshold",
+		})
+	}
+	let diskPct = MaxVolumeUsedPct(rep)
+	let diskOK = diskPct <= policy.MaxDiskUsedPct
+	nextChecks = nextChecks.Append(WellnessCheck{
+		Name:    "host_disk",
+		Healthy: diskOK,
+		Detail:  "max_used_pct=\(diskPct)",
+	})
+	if !diskOK {
+		nextFindings = nextFindings.Append(WellnessFinding{
+			Code:      "host_disk_full",
+			Severity:  WellnessSeverityName(SeverityCritical),
+			Component: "host",
+			Summary:   "volume used percentage exceeded maximum wellness threshold",
+		})
+	}
+	(nextChecks, nextFindings)
+}
+
+func classifyFindings(findings []WellnessFinding) WellnessStatus {
+	let mut hasWarn = false
+	for _, f in findings {
+		if f.Severity == WellnessSeverityName(SeverityCritical) {
+			return WellnessUnhealthy
+		}
+		if f.Severity == WellnessSeverityName(SeverityWarn) {
+			hasWarn = true
+		}
+	}
+	if hasWarn { WellnessDegraded } else { WellnessHealthy }
+}
+
+// EvaluateWellness performs a non-spawning consistency and capacity evaluation across store and cap.
+func EvaluateWellness(store memory.Store, cap HostCapacity, policy WellnessPolicy, nowMs int64) WellnessReport {
+	let mut checks = []WellnessCheck{}
+	let mut findings = []WellnessFinding{}
+	let mut readable = true
+	let mut counts = storeCounts{
+		seq:             0,
+		threads:         0,
+		activeTurns:     0,
+		archivedThreads: 0,
+		openCalls:       0,
+		deadOwnerCalls:  0,
+		dueHolds:        0,
+		pendingWakes:    0,
+		flaggedRoots:    0,
+	}
+	let snapRes = readStoreForWellness(store)
+	match snapRes {
+	case option.Some[wellnessStoreState] as st:
+		let consistent = st.Value.eventsCount <= st.Value.snap.Seq && st.Value.snap.Seq >= 0
+		checks = checks.Append(WellnessCheck{
+			Name:    "store_consistency",
+			Healthy: consistent,
+			Detail:  "seq=\(st.Value.snap.Seq) events=\(st.Value.eventsCount)",
+		})
+		if !consistent {
+			findings = findings.Append(WellnessFinding{
+				Code:      "store_inconsistent",
+				Severity:  WellnessSeverityName(SeverityCritical),
+				Component: "store",
+				Summary:   "store event log count exceeded projected sequence",
+			})
+		}
+		counts = inspectStoreState(st.Value.snap, policy, nowMs)
+		let (c2, f2) = appendStoreFindings(counts, policy, checks, findings)
+		checks = c2
+		findings = f2
+	case option.None:
+		readable = false
+		checks = checks.Append(WellnessCheck{
+			Name:    "store_consistency",
+			Healthy: false,
+			Detail:  "store read failed",
+		})
+		findings = findings.Append(WellnessFinding{
+			Code:      "store_unavailable",
+			Severity:  WellnessSeverityName(SeverityCritical),
+			Component: "store",
+			Summary:   "store snapshot or event log read failed",
+		})
+	}
+	let mut hostReport = emptyCapacityReport()
+	let mut hostErr json.Optional[string] = json.Absent
+	let measured = measureCapacityForWellness(cap, policy.Volumes)
+	match measured {
+	case option.Some[HostCapacityReport] as okRep:
+		hostReport = okRep.Value
+		let (c3, f3) = appendHostFindings(hostReport, policy, checks, findings)
+		checks = c3
+		findings = f3
+	case option.None:
+		let errText = measureErrorText(cap, policy.Volumes)
+		hostErr = json.Present[string]{Value: errText}
+		checks = checks.Append(WellnessCheck{
+			Name:    "host_capacity",
+			Healthy: false,
+			Detail:  errText,
+		})
+		findings = findings.Append(WellnessFinding{
+			Code:      "host_telemetry_failed",
+			Severity:  WellnessSeverityName(SeverityCritical),
+			Component: "host",
+			Summary:   errText,
+		})
+	}
+	let status = classifyFindings(findings)
+	WellnessReport{
+		CheckedAtMs:          nowMs,
+		Status:               WellnessStatusName(status),
+		Healthy:              status == WellnessHealthy,
+		StoreReadable:        readable,
+		StoreSeq:             counts.seq,
+		ThreadCount:          counts.threads,
+		ActiveTurnCount:      counts.activeTurns,
+		ArchivedThreadCount:  counts.archivedThreads,
+		OpenCallCount:        counts.openCalls,
+		DeadOwnerCallCount:   counts.deadOwnerCalls,
+		DueHoldCount:         counts.dueHolds,
+		UndeliveredWakeCount: counts.pendingWakes,
+		FlaggedRootCount:     counts.flaggedRoots,
+		Host:                 hostReport,
+		HostError:            hostErr,
+		Checks:               checks,
+		Findings:             findings,
+	}
+}
+
+type wellnessStoreState {
+	snap        memory.State,
+	eventsCount int,
+}
+
+func readStoreForWellness(store memory.Store) option.Option[wellnessStoreState] {
+	let snap = store.Snapshot() catch {
+	case memory.StoreFailed:
+		return option.None
+	}
+	let evs = store.Events(0) catch {
+	case memory.StoreFailed:
+		return option.None
+	}
+	option.Some[wellnessStoreState]{Value: wellnessStoreState{snap: snap, eventsCount: evs.Len()}}
+}
+
+func measureCapacityForWellness(cap HostCapacity, vols []string) option.Option[HostCapacityReport] {
+	let rep = cap.Measure(vols) catch {
+	case HostCapacityFailed:
+		return option.None
+	}
+	option.Some[HostCapacityReport]{Value: rep}
+}
+
+func measureErrorText(cap HostCapacity, vols []string) string {
+	let _ = cap.Measure(vols) catch {
+	case HostCapacityFailed as err:
+		return err.Reason
+	}
+	""
+}
+
+// WellnessMonitor tracks periodic non-spawning wellness tick schedules and status hysteresis.
+type WellnessMonitor {
+	Policy             WellnessPolicy,
+	EffectiveStatus    WellnessStatus,
+	ConsecutiveBad     int,
+	ConsecutiveHealthy int,
+	LastCheckedAtMs    int64,
+	NextDueAtMs        int64,
+	TickCount          int,
+}
+
+// NewWellnessMonitor constructs a healthy WellnessMonitor scheduled at its first tick.
+func NewWellnessMonitor(policy WellnessPolicy) WellnessMonitor {
+	WellnessMonitor{
+		Policy:             policy,
+		EffectiveStatus:    WellnessHealthy,
+		ConsecutiveBad:     0,
+		ConsecutiveHealthy: 0,
+		LastCheckedAtMs:    int64(0),
+		NextDueAtMs:        int64(0),
+		TickCount:          0,
+	}
+}
+
+// IsWellnessTickDue reports whether nowMs has reached m's next periodic wellness check time.
+func IsWellnessTickDue(m WellnessMonitor, nowMs int64) bool {
+	m.TickCount == 0 || nowMs >= m.NextDueAtMs
+}
+
+// StepWellnessTick runs one non-spawning wellness check and applies hysteresis to EffectiveStatus.
+func StepWellnessTick(m WellnessMonitor, store memory.Store, cap HostCapacity, nowMs int64) (WellnessMonitor, WellnessReport) {
+	let rep = EvaluateWellness(store, cap, m.Policy, nowMs)
+	let raw = match ParseWellnessStatus(rep.Status) {
+	case option.Some[WellnessStatus] as parsed:
+		parsed.Value
+	case option.None:
+		WellnessUnhealthy
+	}
+	let badThreshold = if m.Policy.RequiredUnhealthyTicks < 1 { 1 } else { m.Policy.RequiredUnhealthyTicks }
+	let recThreshold = if m.Policy.RequiredRecoveryTicks < 1 { 1 } else { m.Policy.RequiredRecoveryTicks }
+	let mut nextBad = m.ConsecutiveBad
+	let mut nextHealthy = m.ConsecutiveHealthy
+	let mut nextStatus = m.EffectiveStatus
+	match raw {
+	case WellnessHealthy:
+		nextBad = 0
+		nextHealthy = nextHealthy + 1
+		if m.EffectiveStatus != WellnessHealthy && nextHealthy >= recThreshold {
+			nextStatus = WellnessHealthy
+		}
+	case WellnessDegraded, WellnessUnhealthy:
+		nextHealthy = 0
+		nextBad = nextBad + 1
+		if nextBad >= badThreshold || raw == WellnessUnhealthy {
+			nextStatus = raw
+		}
+	}
+	let interval = if m.Policy.IntervalMs <= int64(0) { int64(1000) } else { m.Policy.IntervalMs }
+	let nextMon = WellnessMonitor{
+		..m,
+		EffectiveStatus:    nextStatus,
+		ConsecutiveBad:     nextBad,
+		ConsecutiveHealthy: nextHealthy,
+		LastCheckedAtMs:    nowMs,
+		NextDueAtMs:        nowMs + interval,
+		TickCount:          m.TickCount + 1,
+	}
+	(nextMon, rep)
+}
+
+type failingStoreStub {} implements memory.Store
+
+func Execute(f failingStoreStub, env memory.Envelope) memory.ExecuteResult fails memory.NotFound | memory.AlreadyExists | memory.InvalidTransition | memory.CommandReused | memory.InvalidInput | memory.LeaseFenced | memory.ThreadDomainErr | memory.SubagentDomainErr | memory.HandleDomainErr | memory.LimitDomainErr | memory.RequestDomainErr | memory.CutoverDomainErr | memory.StoreFailed {
+	memory.StoreFailed{Reason: "injected store read error"}
+}
+
+func Snapshot(f failingStoreStub) memory.State fails memory.StoreFailed {
+	memory.StoreFailed{Reason: "injected snapshot error"}
+}
+
+func Events(f failingStoreStub, fromSeq int) []memory.StoredEvent fails memory.StoreFailed {
+	memory.StoreFailed{Reason: "injected events error"}
+}
+
+func GetThreadView(f failingStoreStub, id handle.ThreadID) option.Option[memory.ThreadView] fails memory.StoreFailed {
+	option.None
+}
+
+func GetSubagentTree(f failingStoreStub, rootID handle.ThreadID) option.Option[subagent.Tree] fails memory.StoreFailed {
+	option.None
+}
+
+func GetHandleView(f failingStoreStub, filter memory.HandleFilter) memory.HandleView fails memory.StoreFailed {
+	memory.HandleView{Handles: []handle.WakeHandle{}, Wakes: []reconcile.WakeRecord{}, Holds: []memory.PoolHold{}}
+}
+
+func GetQuestions(f failingStoreStub, filter memory.QuestionFilter) []memory.AsyncQuestion fails memory.StoreFailed {
+	[]memory.AsyncQuestion{}
+}
+
+func GetPoolView(f failingStoreStub, nowMs int64) memory.PoolView fails memory.StoreFailed {
+	memory.PoolView{Accounts: []memory.PoolAccount{}, ResetClaims: []memory.ResetClaim{}, ActivePushes: []memory.OwnerPush{}, DueHolds: []memory.PoolHold{}, AllHolds: []memory.PoolHold{}}
+}
+
+func GetKernelView(f failingStoreStub, sessionID handle.SessionID) memory.KernelView fails memory.StoreFailed {
+	memory.KernelView{Snapshot: option.None, Journals: []memory.KernelCutJournal{}, RootUsages: []memory.KernelRootUsage{}, Limits: []turn.LimitState{}, Requests: []turn.RequestState{}}
+}
+
+func GetLeaseAndBoot(f failingStoreStub, query memory.BootQuery) memory.BootLeaseView fails memory.StoreFailed {
+	memory.StoreFailed{Reason: "injected boot error"}
+}
+
+// WellnessDetectsHealthyDegradedAndFailures verifies EvaluateWellness surfaces dead-owner calls, due holds, high load, host failure, and store failures.
+law WellnessDetectsHealthyDegradedAndFailures() {
+	let store = memory.New()
+	let capOK = NewStaticHostCapacity(HealthyHostStatus([]string{"/"})) catch {
+	case HostCapacityFailed:
+		return false
+	}
+	let policy = DefaultWellnessPolicy()
+	let rOK = EvaluateWellness(store, capOK, policy, int64(1000))
+	if !rOK.Healthy || rOK.Status != "healthy" || rOK.Findings.Len() != 0 {
+		return false
+	}
+
+	let _ = store.Execute(memory.Envelope{
+		ID:         memory.CommandID("w-hold-1"),
+		Actor:      "test",
+		AtMs:       int64(100),
+		LeaseFence: option.None,
+		Command:    memory.CmdOpenPoolHold{
+			HoldKey:        "hold-w1",
+			ThreadID:       handle.ThreadID("th-w1"),
+			AccountID:      "acct-1",
+			RetryAtMs:      int64(500),
+			ParentNotified: false,
+		},
+	}) catch {
+	case _:
+		return false
+	}
+	let _ = store.Execute(memory.Envelope{
+		ID:         memory.CommandID("w-handle-1"),
+		Actor:      "test",
+		AtMs:       int64(110),
+		LeaseFence: option.None,
+		Command:    memory.CmdOpenHandle{
+			Spec: handle.OpenHandleSpec{
+				ID:      handle.HandleID("hc-1"),
+				Kind:    handle.KindCall,
+				Owner:   handle.OwnerID{ServerID: "srv-dead", Location: "loc1", Epoch: 1},
+				Session: handle.SessionID("sess-1"),
+				Summary: "orphaned",
+			},
+			SubagentRoot: option.None,
+			NodeID:       option.None,
+		},
+	}) catch {
+	case _:
+		return false
+	}
+	let policyDead = WellnessPolicy{
+		..policy,
+		LiveOwnersConfigured: true,
+		LiveOwners:           []string{"srv-live/loc1/2"},
+	}
+	let rBad = EvaluateWellness(store, capOK, policyDead, int64(1000))
+	if rBad.Healthy || rBad.Status != "unhealthy" || rBad.DeadOwnerCallCount != 1 || rBad.DueHoldCount != 1 {
+		return false
+	}
+
+	let gib = int64(1073741824)
+	let highLoadSt = host.Status{
+		Cores:   4,
+		Load:    host.LoadAvg{One: 12.0, Five: 8.0, Fifteen: 4.0, Running: 10, Entities: 200},
+		Memory:  host.Memory{TotalBytes: int64(64) * gib, AvailableBytes: int64(32) * gib, FreeBytes: int64(10) * gib, UsedBytes: int64(32) * gib},
+		Volumes: []host.Volume{host.Volume{Path: "/", TotalBytes: int64(100) * gib, FreeBytes: int64(50) * gib, AvailableBytes: int64(50) * gib, UsedBytes: int64(50) * gib}},
+	}
+	let capLoad = NewStaticHostCapacity(highLoadSt) catch {
+	case HostCapacityFailed:
+		return false
+	}
+	let cleanStore = memory.New()
+	let rDeg = EvaluateWellness(cleanStore, capLoad, policy, int64(2000))
+	let capMissing = NewStaticHostCapacity(HealthyHostStatus([]string{"/other"})) catch {
+	case HostCapacityFailed:
+		return false
+	}
+	let rHostErr = EvaluateWellness(cleanStore, capMissing, policy, int64(3000))
+	let rStoreErr = EvaluateWellness(failingStoreStub, capOK, policy, int64(4000))
+		!rDeg.Healthy && rDeg.Status == "degraded" &&
+		!rHostErr.Healthy && rHostErr.Status == "unhealthy" && rHostErr.HostError != json.Absent &&
+		!rStoreErr.Healthy && rStoreErr.Status == "unhealthy" && !rStoreErr.StoreReadable
+}
+
+// WellnessMonitorHysteresisAndPeriodicSchedule verifies tick scheduling and hysteresis recovery bounds.
+law WellnessMonitorHysteresisAndPeriodicSchedule() {
+	let store = memory.New()
+	let capOK = NewStaticHostCapacity(HealthyHostStatus([]string{"/"})) catch {
+	case HostCapacityFailed:
+		return false
+	}
+	let gib = int64(1073741824)
+	let capLoad = NewStaticHostCapacity(host.Status{
+		Cores:   4,
+		Load:    host.LoadAvg{One: 12.0, Five: 8.0, Fifteen: 4.0, Running: 10, Entities: 200},
+		Memory:  host.Memory{TotalBytes: int64(64) * gib, AvailableBytes: int64(32) * gib, FreeBytes: int64(10) * gib, UsedBytes: int64(32) * gib},
+		Volumes: []host.Volume{host.Volume{Path: "/", TotalBytes: int64(100) * gib, FreeBytes: int64(50) * gib, AvailableBytes: int64(50) * gib, UsedBytes: int64(50) * gib}},
+	}) catch {
+	case HostCapacityFailed:
+		return false
+	}
+	let m0 = NewWellnessMonitor(DefaultWellnessPolicy())
+	let (m1, _) = StepWellnessTick(m0, store, capLoad, int64(1000))
+	let (m2, _) = StepWellnessTick(m1, store, capLoad, int64(16000))
+	let (m3, _) = StepWellnessTick(m2, store, capOK, int64(31000))
+	let (m4, _) = StepWellnessTick(m3, store, capOK, int64(46000))
+		IsWellnessTickDue(m0, int64(1000)) &&
+		m1.EffectiveStatus == WellnessHealthy && m1.ConsecutiveBad == 1 &&
+		!IsWellnessTickDue(m1, int64(5000)) && IsWellnessTickDue(m1, int64(16000)) &&
+		m2.EffectiveStatus == WellnessDegraded && m2.ConsecutiveBad == 2 &&
+		m3.EffectiveStatus == WellnessDegraded && m3.ConsecutiveHealthy == 1 &&
+		m4.EffectiveStatus == WellnessHealthy && m4.TickCount == 4
+}

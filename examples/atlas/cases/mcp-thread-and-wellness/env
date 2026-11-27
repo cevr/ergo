@@ -1,0 +1,2 @@
+ATLAS_NOW=1764145200000
+ATLAS_HOST_STATIC={"status":{"cores":16,"load":{"one":2.0,"five":1.5,"fifteen":1.0,"running":2,"entities":120},"memory":{"totalBytes":34359738368,"availableBytes":21474836480,"freeBytes":8589934592,"usedBytes":12884901888},"volumes":[{"path":"/","totalBytes":107374182400,"freeBytes":53687091200,"availableBytes":42949672960,"usedBytes":53687091200}]}}
