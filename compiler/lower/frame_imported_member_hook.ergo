@@ -7,8 +7,13 @@ import option
 func frameImportedMemberAdmitted(st fnb, member dense.ID[store.TKey]) bool {
 	match importedShapeOf(st, member, shapeDeps(st)) {
 	case option.Some{Value: src}:
-		let (owner, t) = importedOwner(st, src)
-		importedRecord(owner, t) != option.None
+		let owner = fnb{..st, k: src.dep.K, s: src.dep.S, alias: pkgAlias(src.dep.Path), pkgPath: src.dep.Path, idx: depIdxOf(st.cache, src.dep.Path)}
+		match namedKeyIn(owner.idx, src.decl) {
+		case option.Some{Value: t}:
+			importedRecord(owner, t) != option.None
+		case option.None:
+			false
+		}
 	case option.None:
 		false
 	}

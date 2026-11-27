@@ -18,19 +18,19 @@ func testParamFrame(n int) framePlan {
 	framePlan{env: 0, slots: n + 1, pure: false, fallible: option.None, pollEntry: false, op: option.None}
 }
 
-func testFunction(st mut fnb, b mut ir.Builder, f expr.Fn, td syntax.TestDecl, planned GeneratedBody, path string) bool fails Unported | ir.Malformed {
+func testFunction(st0 fnb, b mut ir.Builder, f expr.Fn, td syntax.TestDecl, planned GeneratedBody, path string) bool fails Unported | ir.Malformed {
 	if planned.Symbol == "" {
 		return stop("test name taken (name_N)")
 	}
-	if lawHasAdmission(st.p, td.Params) {
+	if lawHasAdmission(st0.p, td.Params) {
 		return stop("test: admission clause")
 	}
-	let ops = store.OperandsOf(st.s, f.Sig)
-	if store.KindOfType(st.s, f.Sig) != store.KSig || ops.Len() < 3 {
+	let ops = store.OperandsOf(st0.s, f.Sig)
+	if store.KindOfType(st0.s, f.Sig) != store.KSig || ops.Len() < 3 {
 		return stop("signature")
 	}
 	let n = ops.Len() - 3
-	if !emptyRow(*st, ops[n+1]) || !emptyRow(*st, ops[n+2]) {
+	if !emptyRow(st0, ops[n+1]) || !emptyRow(st0, ops[n+2]) {
 		return stop("test: effect or failure row")
 	}
 	if f.Names.Len() != n {
@@ -40,8 +40,8 @@ func testFunction(st mut fnb, b mut ir.Builder, f expr.Fn, td syntax.TestDecl, p
 		if i < f.Takes.Len() && f.Takes[i] {
 			return stop("test: owned parameter")
 		}
-		if !admittedLawParam(*st, ops[i]) {
-			return stop("test: parameter " + typeCause(*st, ops[i]))
+		if !admittedLawParam(st0, ops[i]) {
+			return stop("test: parameter " + typeCause(st0, ops[i]))
 		}
 	}
 	let body = match dense.Unpack(td.Body) {
@@ -50,21 +50,22 @@ func testFunction(st mut fnb, b mut ir.Builder, f expr.Fn, td syntax.TestDecl, p
 	case option.None:
 		return stop("no body")
 	}
-	let p = st.p
+	let p = st0.p
 	let (list, rbrace) = match syntax.ViewOf(p.Tree, body) {
 	case syntax.BlockStmt as bl:
 		(bl.List, bl.Rbrace)
 	case _:
 		return stop("body that is no block")
 	}
-	st.frame = testParamFrame(n)
-	parameterSlots(st, f)
-	let prepared = try statementsTest(st, body, list, f.Names, st.frame.slots, ops[n])
-	st.fileIx = ir.FileOf(b, path)
-	let fp = pos(*st, syntax.TokPos(p, td.Test))
-	let end = pos(*st, syntax.TokPos(p, rbrace))
+	let frame = testParamFrame(n)
+	let st = fnb{..st0, frame: frame}
+	let binds = parameterSlots(st, f)
+	let prepared = try statementsTest(st, binds, body, list, f.Names, frame.slots, ops[n])
+	let st2 = fnb{..st, fileIx: ir.FileOf(b, path)}
+	let fp = pos(st2, syntax.TokPos(p, td.Test))
+	let end = pos(st2, syntax.TokPos(p, rbrace))
 	try ir.Begin(b, planned.Symbol, fp, end)
-	let roots = try controlEmit(*st, b, prepared, end)
+	let roots = try controlEmit(st2, b, prepared, end)
 	let rows = if roots.Len() == 0 { uint32(0) } else { ir.List(b, roots) }
 	try ir.End(b, rows)
 	true

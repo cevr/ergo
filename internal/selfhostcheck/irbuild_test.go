@@ -493,6 +493,12 @@ func irBaseFields(fn *irFunc, originals, typeHeads map[string]string) {
 				} else if name, ok := originals[elem]; ok {
 					loc.Type = loc.Type[:len(loc.Type)-len(elem)] + name
 				}
+				loc.Type = irBaseType(loc.Type, originals, typeHeads)
+			}
+			if c, ok := v.Addr().Interface().(*irCase); ok {
+				for i, typ := range c.Types {
+					c.Types[i] = irBaseType(typ, originals, typeHeads)
+				}
 			}
 			if e, ok := v.Addr().Interface().(*irExpr); ok {
 				switch e.K {
@@ -501,18 +507,32 @@ func irBaseFields(fn *irFunc, originals, typeHeads map[string]string) {
 						e.Name = name
 					}
 					e.Name = irCollisionSuffix.ReplaceAllString(e.Name, "")
+				case "call", "global":
+					if orig, ok := originals[e.Name]; ok {
+						e.Name = orig
+					}
 				case "mcall":
 					if name, ok := originals[e.Name]; ok {
 						e.Name = name
 					}
+				case "pcall":
+					e.V = irBaseType(e.V, originals, typeHeads)
+				case "of", "as", "tag", "assert", "conv", "cast", "make", "func", "type":
+					e.T = irBaseType(e.T, originals, typeHeads)
 				case "lit", "zero":
 					elem := e.T
 					for strings.HasPrefix(elem, "[]") {
 						elem = elem[2:]
 					}
+					prefixLen := len(e.T) - len(elem)
 					if head, args, generic := strings.Cut(elem, "["); generic {
 						if name, ok := typeHeads[head]; ok {
 							e.T = e.T[:len(e.T)-len(elem)] + name + "[" + args
+						} else if name, ok := originals[head]; ok {
+							e.T = e.T[:len(e.T)-len(elem)] + name + "[" + args
+						}
+						if restHead, restArgs, hasBracket := strings.Cut(e.T[prefixLen:], "["); hasBracket {
+							e.T = e.T[:prefixLen] + restHead + "[" + irBaseType(restArgs, originals, typeHeads)
 						}
 					} else if name, ok := originals[elem]; ok {
 						e.T = e.T[:len(e.T)-len(elem)] + name
@@ -528,6 +548,45 @@ func irBaseFields(fn *irFunc, originals, typeHeads map[string]string) {
 		}
 	}
 	walk(reflect.ValueOf(fn))
+}
+
+func irBaseType(s string, originals, typeHeads map[string]string) string {
+	isSpell := func(c byte) bool {
+		return c == '_' || c == '.' || c == '/' || c >= '0' && c <= '9' || c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z'
+	}
+	var out strings.Builder
+	changed := false
+	for i := 0; i < len(s); {
+		j := i
+		for j < len(s) && isSpell(s[j]) {
+			j++
+		}
+		if j == i {
+			out.WriteByte(s[i])
+			i++
+			continue
+		}
+		tok := s[i:j]
+		if j < len(s) && s[j] == '[' {
+			if name, ok := typeHeads[tok]; ok {
+				out.WriteString(name)
+				changed = true
+				i = j
+				continue
+			}
+		}
+		if name, ok := originals[tok]; ok {
+			out.WriteString(name)
+			changed = true
+		} else {
+			out.WriteString(tok)
+		}
+		i = j
+	}
+	if !changed {
+		return s
+	}
+	return out.String()
 }
 
 // TestIRAgreementKeepsUnrenamedOperands kills lower-agree-guess-split-export

@@ -1,3 +1,4 @@
+import compiler/check/store
 import compiler/syntax
 import dense
 import option
@@ -41,4 +42,60 @@ func compactBound(st fnb, r syntax.RangeStmt) dense.ID[syntax.Node] fails Unport
 		return stop("range: computed end takes counted form")
 	}
 	end
+}
+
+type collectionRange {
+	x       dense.ID[syntax.Node],
+	keyName string,
+	keyNode dense.Opt[syntax.Node],
+	valName string,
+	valNode dense.Opt[syntax.Node],
+	valTyp  string,
+}
+
+func collectionLoop(st fnb, binds localBinds, r syntax.RangeStmt) collectionRange fails Unported {
+	let p = st.p
+	match syntax.ViewOf(p.Tree, unparen(st, r.X)) {
+	case syntax.BinaryExpr as bx:
+		if syntax.TokKind(p, bx.Op) == syntax.DotDot {
+			return stop("range: dotdot in collectionLoop")
+		}
+	case _:
+	}
+	let xt = try typeOf(st, r.X, "range operand")
+	let elemTyp = if basicGo(st, xt) == "string" {
+		"int32"
+	} else if store.KindOfType(st.s, xt) == store.KSlice && shapeGo(st, xt) != "" {
+		shapeGo(st, store.OperandsOf(st.s, xt)[0])
+	} else {
+		return stop("range: not a direct integer range")
+	}
+	if elemTyp == "" {
+		return stop("range: unshaped element")
+	}
+	try check(st, binds, r.X)
+	if !directExpr(st, r.X) {
+		return stop("range: operand with statements")
+	}
+	let mut keyName = ""
+	let mut keyNode = dense.NoID[syntax.Node]()
+	match dense.Unpack(r.Key) {
+	case option.Some{Value: k}:
+		if syntax.KindOf(p.Tree, k) != syntax.KIdent {
+			return stop("range: for-in pattern")
+		}
+		let kn = nameText(p, k)
+		if kn != "_" {
+			keyName = kn
+			keyNode = dense.OptOf(k)
+		}
+	case option.None:
+	}
+	if syntax.KindOf(p.Tree, r.Value) != syntax.KIdent {
+		return stop("range: for-in pattern")
+	}
+	let vn = nameText(p, r.Value)
+	let valName = if vn == "_" { "" } else { vn }
+	let valNode = if vn == "_" { dense.NoID[syntax.Node]() } else { dense.OptOf(r.Value) }
+	collectionRange{x: r.X, keyName: keyName, keyNode: keyNode, valName: valName, valNode: valNode, valTyp: elemTyp}
 }

@@ -1,6 +1,5 @@
 import compiler/check/bind
 import compiler/check/expr
-import compiler/check/infer
 import compiler/check/store
 import compiler/ir
 import compiler/syntax
@@ -9,27 +8,60 @@ import option
 import strconv
 
 type unionVariant {
-	t     dense.ID[store.TKey],
-	decl  dense.ID[store.PNode],
-	name  string,
-	typ   string,
-	field option.Option[expr.Field],
+	t       dense.ID[store.TKey],
+	decl    dense.Opt[store.PNode],
+	impPath string,
+	name    string,
+	typ     string,
+	fields  []expr.Field,
+	holds   bool,
 }
 
+type unionLayout =
+	| UnionFlat{}
+	| UnionSealed{}
+	| UnionUnproved{}
+
 // The variants are indexed by the checked declaration order. The small
-// flat profile has one byte tag and at most one scalar shared slot.
+// flat profile holds one byte tag and SSA-fitting shared slots; sealed
+// interfaces handle all-error and above-128B unions.
 type unionShape {
 	name     string,
 	typ      string,
+	layout   unionLayout,
+	flat     bool,
 	variants []unionVariant,
 }
 
 func unionGo(st fnb, t dense.ID[store.TKey]) string {
-	match unionNamed(st, t) {
+	unionGoWithin(st, t, shapeTrail{seen: []shapeVisit{}, deps: shapeDeps(st)})
+}
+
+func unionGoWithin(st fnb, t dense.ID[store.TKey], trail shapeTrail) string {
+	match unionNamedWithin(st, t, trail) {
 	case option.Some{Value: shape}:
 		shape.typ
 	case option.None:
-		unionInstanceGo(st, t)
+		unionInstanceShape(st, t, trail)
+	}
+}
+
+func unionPlainDecl(st fnb, name string) bool {
+	let site = match syntaxTypeDecl(st, name) {
+	case option.Some{Value: s}:
+		s
+	case option.None:
+		return false
+	}
+	if dense.Unpack(site.td.Extern) != option.None || dense.Unpack(site.td.Where) != option.None || dense.Unpack(site.td.Derive) != option.None || syntax.Len(site.td.Implements) != 0 {
+		return false
+	}
+	let p = st.k.Parsed[site.file]
+	match dense.Unpack(site.td.Spec) {
+	case option.Some{Value: spec}:
+		syntax.KindOf(p.Tree, spec) == syntax.KInterfaceType
+	case option.None:
+		false
 	}
 }
 
@@ -37,25 +69,92 @@ func unionGo(st fnb, t dense.ID[store.TKey]) string {
 // generic union whether it has shared slots or a sealed interface.
 // Host/niche/row arguments do not acquire a Go type here.
 func unionInstanceGo(st fnb, t dense.ID[store.TKey]) string {
+	unionInstanceShape(st, t, shapeTrail{seen: []shapeVisit{}, deps: shapeDeps(st)})
+}
+
+func unionInstanceShape(st fnb, t dense.ID[store.TKey], trail shapeTrail) string {
+	let (okOpt, optElem) = optionKind(st, t)
+	if okOpt == "Option" {
+		let eg = shapeWithin(st, optElem, trail)
+		if eg == "" {
+			return ""
+		}
+		let head = if st.alias == "option" { "Option" } else { pkgAlias("option") + "__Option" }
+		return head + "[" + eg + "]"
+	}
 	if store.KindOfType(st.s, t) != store.KInstance {
 		return ""
 	}
 	let o = store.OriginOfType(st.s, t)
 	let i = int(o.Decl)
 	let args = store.OperandsOf(st.s, t)
-	if int(o.Import) != store.ForeignBit || i >= st.k.Foreign.Len() || args.Len() == 0 {
+	if args.Len() == 0 {
 		return ""
 	}
-	let f = st.k.Foreign[i]
-	let isPrelude = f.Path == "prelude" && has(st.prelude, f.Name)
-	let isOption = f.Path == "option" && f.Name == "Option"
-	if f.Qual != "-" || (!isPrelude && !isOption) || f.Variants.Len() == 0 || f.Arity != args.Len() {
+	let head = if int(o.Import) == store.ForeignBit {
+		if i >= st.k.Foreign.Len() {
+			return ""
+		}
+		let f = st.k.Foreign[i]
+		let isPrelude = f.Path == "prelude" && has(st.prelude, f.Name)
+		let isOption = f.Path == "option" && f.Name == "Option"
+		if (!isPrelude && !isOption) || (isPrelude && f.Qual != "-") || f.Variants.Len() == 0 || f.Arity != args.Len() {
+			return ""
+		}
+		if isOption { pkgAlias(f.Path) + "__" + f.Name } else { f.Name }
+	} else if int(o.Import) == 0 {
+		let name = store.DeclText(st.s, i)
+		if !unionPlainDecl(st, name) || !localAllTypeParams(st, name, args.Len()) {
+			return ""
+		}
+		let d = match store.Lookup(st.s, name) {
+		case option.Some{Value: id}:
+			id
+		case option.None:
+			return ""
+		}
+		let nt = match namedKeyIn(st.idx, d) {
+		case option.Some{Value: k}:
+			k
+		case option.None:
+			return ""
+		}
+		if unionVarsIn(st.idx, nt).Len() < 2 {
+			return ""
+		}
+		declName(st, name) catch {
+		case Unported:
+			return ""
+		}
+	} else if int(o.Import) <= st.k.Ifaces.Len() {
+		let imp = st.k.Ifaces[int(o.Import)-1]
+		if i < 0 || i >= imp.Decls.Len() {
+			return ""
+		}
+		let idecl = imp.Decls[i]
+		if !idecl.Type || idecl.Alias || idecl.Variants.Len() < 2 || !allKindType(idecl.Kinds, args.Len()) {
+			return ""
+		}
+		let dep = match trail.deps.Get(imp.Path) {
+		case option.Some{Value: d}:
+			d
+		case option.None:
+			return ""
+		}
+		let owner = fnb{..st, k: dep.K, s: dep.S, alias: pkgAlias(dep.Path), pkgPath: dep.Path, idx: depIdxOf(st.cache, dep.Path)}
+		if !unionPlainDecl(owner, idecl.Name) {
+			return ""
+		}
+		declName(owner, idecl.Name) catch {
+		case Unported:
+			return ""
+		}
+	} else {
 		return ""
 	}
-	let head = if isOption { pkgAlias(f.Path) + "__" + f.Name } else { f.Name }
 	let mut name = head + "["
 	for j, arg in args {
-		let gt = basicGo(st, arg)
+		let gt = shapeWithin(st, arg, trail)
 		if gt == "" {
 			return ""
 		}
@@ -64,13 +163,129 @@ func unionInstanceGo(st fnb, t dense.ID[store.TKey]) string {
 	name + "]"
 }
 
+func optionKind(st fnb, t dense.ID[store.TKey]) (string, dense.ID[store.TKey]) {
+	let kind = store.KindOfType(st.s, t)
+	if kind == store.KForeign {
+		let arg = store.ArgOf(st.s, t)
+		if arg < st.k.Foreign.Len() && st.k.Foreign[arg].Path == "option" && st.k.Foreign[arg].Name == "None" {
+			return ("None", t)
+		}
+		return ("", t)
+	}
+	if kind == store.KInstance {
+		let o = store.OriginOfType(st.s, t)
+		let ops = store.OperandsOf(st.s, t)
+		let di = int(o.Decl)
+		if int(o.Import) == store.ForeignBit {
+			if di < st.k.Foreign.Len() && st.k.Foreign[di].Path == "option" {
+				let nm = st.k.Foreign[di].Name
+				if nm == "None" && ops.Len() == 0 {
+					return ("None", t)
+				}
+				if (nm == "Some" || nm == "Option") && ops.Len() == 1 {
+					return (nm, ops[0])
+				}
+			}
+		} else if int(o.Import) == 0 {
+			if st.alias == "option" {
+				let nm = store.DeclText(st.s, di)
+				if nm == "None" && ops.Len() == 0 {
+					return ("None", t)
+				}
+				if (nm == "Some" || nm == "Option") && ops.Len() == 1 {
+					return (nm, ops[0])
+				}
+			}
+		} else if int(o.Import) <= st.k.Ifaces.Len() {
+			let imp = st.k.Ifaces[int(o.Import)-1]
+			if imp.Path == "option" && di >= 0 && di < imp.Decls.Len() {
+				let nm = imp.Decls[di].Name
+				if nm == "None" && ops.Len() == 0 {
+					return ("None", t)
+				}
+				if (nm == "Some" || nm == "Option") && ops.Len() == 1 {
+					return (nm, ops[0])
+				}
+			}
+		}
+		return ("", t)
+	}
+	if kind == store.KNamed && st.alias == "option" && store.TypeNameText(st.s, store.ArgOf(st.s, t)) == "None" {
+		return ("None", t)
+	}
+	("", t)
+}
+
+func optionVariantGo(st fnb, t dense.ID[store.TKey], trail shapeTrail) string {
+	let (ok, elem) = optionKind(st, t)
+	if ok == "None" {
+		return if st.alias == "option" { "None" } else { pkgAlias("option") + "__None" }
+	}
+	if ok == "Some" {
+		let eg = shapeWithin(st, elem, trail)
+		if eg == "" {
+			return ""
+		}
+		let head = if st.alias == "option" { "Some" } else { pkgAlias("option") + "__Some" }
+		return head + "[" + eg + "]"
+	}
+	""
+}
+
+func unionVariantRecordGo(st fnb, t dense.ID[store.TKey], trail shapeTrail) string {
+	if store.KindOfType(st.s, t) != store.KNamed {
+		return ""
+	}
+	let name = store.TypeNameText(st.s, store.ArgOf(st.s, t))
+	let (vp, v, _) = match unionDeclParent(st, name) {
+	case option.Some{Value: d}:
+		d
+	case option.None:
+		return ""
+	}
+	match syntax.ViewOf(vp.Tree, v) {
+	case syntax.VariantSpec as variant:
+		if dense.Unpack(variant.TypeArgs) != option.None {
+			return ""
+		}
+	case _:
+		return ""
+	}
+	let fields = match unionRecordFields(st, name) {
+	case option.Some{Value: fs}:
+		fs
+	case option.None:
+		return ""
+	}
+	let gt = declName(st, name) catch {
+	case Unported:
+		return ""
+	}
+	recordShape(st, t, fields, gt, trail)
+}
+
 func unionNamed(st fnb, t dense.ID[store.TKey]) option.Option[unionShape] {
+	let mut out = match unionNamedWithin(st, t, shapeTrail{seen: []shapeVisit{}, deps: shapeDeps(st)}) {
+	case option.Some{Value: shape}:
+		shape
+	case option.None:
+		return option.None
+	}
+	out.layout = classifyUnionLayout(st, out, t)
+	out.flat = match out.layout {
+	case UnionFlat:
+		true
+	case _:
+		false
+	}
+	option.Some{Value: out}
+}
+
+func unionNamedWithin(st fnb, t dense.ID[store.TKey], trail shapeTrail) option.Option[unionShape] {
 	if store.KindOfType(st.s, t) != store.KNamed {
 		return option.None
 	}
-	// VariantsOf on a local non-instance only reads the checked table.
-	let mut s = st.s
-	let vs = infer.VariantsOf(&s, st.k.Unions, t)
+	let vs = unionVarsIn(st.idx, t)
 	if vs.Len() < 2 || vs.Len() > 255 {
 		return option.None
 	}
@@ -107,17 +322,28 @@ func unionNamed(st fnb, t dense.ID[store.TKey]) option.Option[unionShape] {
 	case Unported:
 		return option.None
 	}
+	let visit = shapeVisit{owner: st.alias, t: t}
+	for id in trail.seen {
+		if id.owner == visit.owner && id.t == visit.t {
+			return option.Some{Value: unionShape{name: name, typ: gt, layout: UnionUnproved, flat: false, variants: []unionVariant{}}}
+		}
+	}
+	let path = shapeTrail{..trail, seen: trail.seen.Append(visit)}
 	let mut variants = []unionVariant{}
-	let mut payload = false
 	for tag, v in vs {
 		let node = syntax.Item(p.Tree, list, tag)
-		let vn = match syntax.ViewOf(p.Tree, node) {
+		let (vn, isRef) = match syntax.ViewOf(p.Tree, node) {
 		case syntax.VariantSpec as variant:
 			if dense.Unpack(variant.TypeArgs) != option.None {
 				return option.None
 			}
-			nameText(p, variant.Name)
+			(nameText(p, variant.Name), false)
+		case syntax.Name:
+			(nameText(p, node), true)
 		case _:
+			return option.None
+		}
+		if isRef && !structDecl(st, vn) {
 			return option.None
 		}
 		if store.KindOfType(st.s, v) != store.KNamed || store.TypeNameText(st.s, store.ArgOf(st.s, v)) != vn {
@@ -137,24 +363,29 @@ func unionNamed(st fnb, t dense.ID[store.TKey]) option.Option[unionShape] {
 		case option.None:
 			return option.None
 		}
-		let mut field option.Option[expr.Field] = option.None
-		if fields.Len() != 0 {
-			if payload || fields.Len() != 1 || basicGo(st, fields[0].T) == "" || !ordinaryFieldName(fields[0].Name) {
+		for f in fields {
+			if !ordinaryFieldName(f.Name) || shapeWithin(st, f.T, path) == "" {
 				return option.None
 			}
-			payload = true
-			field = option.Some{Value: fields[0]}
 		}
 		let vt = declName(st, vn) catch {
 		case Unported:
 			return option.None
 		}
-		variants = variants.Append(unionVariant{t: v, decl: id, name: vn, typ: vt, field: field})
+		variants = variants.Append(unionVariant{t: v, decl: dense.OptOf(id), impPath: "", name: vn, typ: vt, fields: fields, holds: holdsValue(st, v)})
 	}
-	option.Some{Value: unionShape{name: name, typ: gt, variants: variants}}
+	option.Some{Value: unionShape{name: name, typ: gt, layout: UnionUnproved, flat: false, variants: variants}}
 }
 
 func unionRecordFields(st fnb, name string) option.Option[[]expr.Field] {
+	if st.idx.valid {
+		return match st.idx.unionRecs.Get(name) {
+		case option.Some{Value: r}:
+			option.Some{Value: st.k.Recs[r].Fields}
+		case option.None:
+			option.None
+		}
+	}
 	for r in st.k.Recs {
 		if r.Name == name && !r.Op && r.Params.Len() == 0 {
 			return option.Some{Value: r.Fields}
@@ -182,98 +413,587 @@ func unionDeclParent(st fnb, name string) option.Option[(syntax.Parsed, dense.ID
 	}
 }
 
-// Layout-sensitive nodes require a root-local declaration: a consumer
-// of a library may name it in an extern or charge its variants to a
-// failure row. Root dependencies cannot refer back to the root's types.
-// Reject an extern or a wire form rather than predicting a restarted
-// interface layout. The admitted scalar slots fit the register profile.
-func unionFlat(st fnb, shape unionShape) bool {
-	if st.rootImports == option.None || st.alias != "" {
-		return false
+type goLayout { size int, align int, ssa bool, known bool }
+
+func maxInt(a int, b int) int { if a > b { a } else { b } }
+
+func roundUp(n int, align int) int {
+	if align <= 1 {
+		return n
 	}
+	(n + align - 1) / align * align
+}
+
+func structLayout(fields []goLayout) goLayout {
+	let mut off = 0
+	let mut align = 1
+	let mut ssa = fields.Len() <= 4
+	for f in fields {
+		if !f.known {
+			return goLayout{size: 0, align: 1, ssa: false, known: false}
+		}
+		off = roundUp(off, f.align) + f.size
+		align = maxInt(align, f.align)
+		ssa = ssa && f.ssa
+	}
+	let size = roundUp(off, align)
+	goLayout{size: size, align: align, ssa: ssa && size <= 32, known: true}
+}
+
+func goBasicSize(bt string) (int, int) {
+	if bt == "bool" || bt == "int8" || bt == "uint8" {
+		return (1, 1)
+	}
+	if bt == "int16" || bt == "uint16" {
+		return (2, 2)
+	}
+	if bt == "int32" || bt == "uint32" || bt == "float32" {
+		return (4, 4)
+	}
+	if bt == "string" {
+		return (16, 8)
+	}
+	(8, 8)
+}
+
+func goLayoutOf(st fnb, t dense.ID[store.TKey], seen []shapeVisit) goLayout {
+	let sb = scalarBasicGo(st, t)
+	if sb != "" {
+		let (sz, al) = goBasicSize(sb)
+		return goLayout{size: sz, align: al, ssa: true, known: true}
+	}
+	let kind = store.KindOfType(st.s, t)
+	if kind == store.KSlice {
+		return goLayout{size: 24, align: 8, ssa: true, known: true}
+	}
+	if kind == store.KMap || kind == store.KPointer || kind == store.KSig {
+		return goLayout{size: 8, align: 8, ssa: true, known: true}
+	}
+	if seen.Len() >= 32 {
+		return goLayout{size: 0, align: 1, ssa: false, known: false}
+	}
+	let visit = shapeVisit{owner: st.alias, t: t}
+	for id in seen {
+		if id.owner == visit.owner && id.t == visit.t {
+			return goLayout{size: 0, align: 1, ssa: false, known: false}
+		}
+	}
+	let next = seen.Append(visit)
+	if kind == store.KArray {
+		let ops = store.OperandsOf(st.s, t)
+		if ops.Len() < 2 {
+			return goLayout{size: 0, align: 1, ssa: false, known: false}
+		}
+		let n = store.ArrayLen(st.s, t)
+		let el = goLayoutOf(st, ops[1], next)
+		if !el.known {
+			return el
+		}
+		return goLayout{size: el.size * n, align: el.align, ssa: n == 0 || n == 1 && el.ssa, known: true}
+	}
+	if kind == store.KTuple {
+		let mut fs = []goLayout{}
+		for op in store.OperandsOf(st.s, t) {
+			fs = fs.Append(goLayoutOf(st, op, next))
+		}
+		return structLayout(fs)
+	}
+	let (okOpt, optElem) = optionKind(st, t)
+	if okOpt == "Option" {
+		let el = goLayoutOf(st, optElem, next)
+		return structLayout([]goLayout{goLayout{size: 1, align: 1, ssa: true, known: true}, el})
+	}
+	let r = ordinaryRecord(st, t)
+	if r >= 0 {
+		let mut fs = []goLayout{}
+		for f in st.k.Recs[r].Fields {
+			fs = fs.Append(goLayoutOf(st, f.T, next))
+		}
+		return structLayout(fs)
+	}
+	match importedShapeOf(st, t, shapeDeps(st)) {
+	case option.Some{Value: imported}:
+		let owner = fnb{..st, k: imported.dep.K, s: imported.dep.S, alias: pkgAlias(imported.dep.Path), pkgPath: imported.dep.Path, idx: depIdxOf(st.cache, imported.dep.Path)}
+		let named = match namedKeyIn(owner.idx, imported.decl) {
+		case option.Some{Value: k}:
+			k
+		case option.None:
+			return goLayout{size: 0, align: 1, ssa: false, known: false}
+		}
+		match importedRecord(owner, named) {
+		case option.Some{Value: rec}:
+			let mut fs = []goLayout{}
+			for f in rec.fields {
+				fs = fs.Append(goLayoutOf(owner, f.T, next))
+			}
+			return structLayout(fs)
+		case option.None:
+			return goLayout{size: 0, align: 1, ssa: false, known: false}
+		}
+	case option.None:
+	}
+	if kind == store.KNamed {
+		let name = store.TypeNameText(st.s, store.ArgOf(st.s, t))
+		match unionDeclParent(st, name) {
+		case option.Some{Value: parent}:
+			let (vp, v, _) = parent
+			if syntax.KindOf(vp.Tree, v) == syntax.KVariantSpec {
+				match unionRecordFields(st, name) {
+				case option.Some{Value: fields}:
+					let mut fs = []goLayout{}
+					for f in fields {
+						fs = fs.Append(goLayoutOf(st, f.T, next))
+					}
+					return structLayout(fs)
+				case option.None:
+				}
+			}
+		case option.None:
+		}
+		if unionVarsIn(st.idx, t).Len() >= 2 {
+			match unionNamedWithin(st, t, shapeTrail{seen: next, deps: shapeDeps(st)}) {
+			case option.Some{Value: nested}:
+				let nlay = unionSharedLayout(st, nested, next)
+				if nlay.known {
+					return nlay
+				}
+			case option.None:
+			}
+		}
+	}
+	goLayout{size: 0, align: 1, ssa: false, known: false}
+}
+
+func unionSlotKey(st fnb, t dense.ID[store.TKey]) string {
+	let kind = store.KindOfType(st.s, t)
+	if kind == store.KTuple || kind == store.KSig || kind == store.KInstance {
+		return ""
+	}
+	if kind == store.KSlice {
+		let ops = store.OperandsOf(st.s, t)
+		if ops.Len() < 1 {
+			return ""
+		}
+		let ek = unionSlotKey(st, ops[0])
+		return if ek == "" { "" } else { "[]" + ek }
+	}
+	if kind == store.KArray {
+		let ops = store.OperandsOf(st.s, t)
+		if ops.Len() < 2 {
+			return ""
+		}
+		let ek = unionSlotKey(st, ops[1])
+		return if ek == "" { "" } else { "[" + strconv.Itoa(store.ArrayLen(st.s, t)) + "]" + ek }
+	}
+	if kind == store.KMap {
+		let kv = store.OperandsOf(st.s, t)
+		if kv.Len() < 2 {
+			return ""
+		}
+		let kk = unionSlotKey(st, kv[0])
+		let vk = unionSlotKey(st, kv[1])
+		return if kk == "" || vk == "" { "" } else { "map[" + kk + "]" + vk }
+	}
+	if kind == store.KBasic {
+		return basicGo(st, t)
+	}
+	if kind == store.KNamed {
+		return shapeGo(st, t)
+	}
+	""
+}
+
+func unionSharedLayout(st fnb, shape unionShape, seen []shapeVisit) goLayout {
+	let mut slotKeys = []string{}
+	let mut slotLayouts = []goLayout{}
+	for v in shape.variants {
+		let mut used = []bool{}
+		for _ in 0..slotKeys.Len() {
+			used = used.Append(false)
+		}
+		for f in v.fields {
+			let key = unionSlotKey(st, f.T)
+			let mut matched = -1
+			if key != "" {
+				for j, kj in slotKeys {
+					if kj == key && !used[j] {
+						matched = j
+						used[j] = true
+						break
+					}
+				}
+			}
+			if matched < 0 {
+				slotKeys = slotKeys.Append(key)
+				used = used.Append(true)
+				slotLayouts = slotLayouts.Append(goLayoutOf(st, f.T, seen))
+			}
+		}
+	}
+	let mut allFields = []goLayout{goLayout{size: 1, align: 1, ssa: true, known: true}}
+	for fl in slotLayouts {
+		allFields = allFields.Append(fl)
+	}
+	structLayout(allFields)
+}
+
+func collectErrorTypeCheck(st fnb, shape unionShape) (bool, bool) {
+	let mut variantErr = []bool{}
+	for _ in shape.variants {
+		variantErr = variantErr.Append(false)
+	}
+	let mut anyUnionNameInRow = false
+	let markPkg = func(pkg fnb) {
+		for f in pkg.k.Fns {
+			let ops = store.OperandsOf(pkg.s, f.Sig)
+			if store.KindOfType(pkg.s, f.Sig) == store.KSig && ops.Len() >= 3 {
+				let row = ops[ops.Len()-2]
+				if store.KindOfType(pkg.s, row) == store.KRow {
+					for m in store.OperandsOf(pkg.s, row) {
+						if store.KindOfType(pkg.s, m) == store.KNamed {
+							let mn = store.TypeNameText(pkg.s, store.ArgOf(pkg.s, m))
+							for vi, v in shape.variants {
+								if mn == v.name && pkg.alias == st.alias {
+									variantErr[vi] = true
+								}
+							}
+						} else {
+							let (mp, mn, ma) = expr.ImportedRec(pkg.s, pkg.k, m)
+							if mp != "" && ma.Len() == 0 && pkgAlias(mp) == st.alias {
+								for vi, v in shape.variants {
+									if mn == v.name {
+										variantErr[vi] = true
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+		for fi, p in pkg.k.Parsed {
+			for i in 0..syntax.NumNodes(p.Tree) {
+				let n = syntax.NodeAt(p.Tree, i)
+				match syntax.ViewOf(p.Tree, n) {
+				case syntax.ErrorRow as r:
+					for j in 0..syntax.Len(r.Types) {
+						let item = syntax.Item(p.Tree, r.Types, j)
+						let samePkg = match syntax.ViewOf(p.Tree, item) {
+						case syntax.Name:
+							pkg.alias == st.alias
+						case syntax.SelectorExpr as se:
+							match bind.ResolutionOf(pkg.k.U, pkg.k.Ps, bind.PNodeOf(pkg.k.Ps, fi, se.Sel)) {
+							case bind.Imported as im:
+								let ix = int(im.Ref.Import) - 1
+								let paths = store.ImportPaths(pkg.s)
+								ix >= 0 && ix < paths.Len() && pkgAlias(paths[ix]) == st.alias
+							case _:
+								false
+							}
+						case _:
+							false
+						}
+						if samePkg && names(p, item, shape.name) {
+							anyUnionNameInRow = true
+						}
+						if samePkg {
+							for vi, v in shape.variants {
+								if names(p, item, v.name) {
+									variantErr[vi] = true
+								}
+							}
+						}
+					}
+				case _:
+				}
+			}
+		}
+	}
+	markPkg(st)
+	match st.rootImports {
+	case option.Some[[]expr.Dep] as deps:
+		for dep in deps.Value {
+			markPkg(fnb{..st, k: dep.K, s: dep.S, alias: pkgAlias(dep.Path)})
+		}
+	case option.None:
+	}
+	if anyUnionNameInRow {
+		return (true, true)
+	}
+	let mut all = true
+	let mut any = false
+	for ve in variantErr {
+		all = all && ve
+		any = any || ve
+	}
+	(all, any)
+}
+
+func isMachineUnion(st fnb, shape unionShape) bool {
+	let checkPkg = func(pkg fnb) bool {
+		for p in pkg.k.Parsed {
+			for i in 0..syntax.NumNodes(p.Tree) {
+				let n = syntax.NodeAt(p.Tree, i)
+				match syntax.ViewOf(p.Tree, n) {
+				case syntax.MachineType as mt:
+					if names(p, mt.State, shape.name) || names(p, mt.Signal, shape.name) {
+						return true
+					}
+				case _:
+				}
+			}
+		}
+		false
+	}
+	if checkPkg(st) {
+		return true
+	}
+	match st.rootImports {
+	case option.Some[[]expr.Dep] as deps:
+		for dep in deps.Value {
+			if checkPkg(fnb{..st, k: dep.K, s: dep.S, alias: pkgAlias(dep.Path)}) {
+				return true
+			}
+		}
+	case option.None:
+	}
+	false
+}
+
+func hasRootExternOrWire(st fnb) bool {
 	for p in st.k.Parsed {
 		for i in 0..syntax.NumNodes(p.Tree) {
 			let n = syntax.NodeAt(p.Tree, i)
 			let k = syntax.KindOf(p.Tree, n)
 			if k == syntax.KExternSpec || k == syntax.KIdent && nameText(p, n) == "WireForm" {
-				return false
+				return true
 			}
-			match syntax.ViewOf(p.Tree, n) {
-			case syntax.TypeDecl as td:
-				// Another declaration can hide a row head behind an
-				// alias, or use this union in a different wire shape.
-				if nameText(p, td.Name) != shape.name && unionNames(p, n, shape) {
-					return false
-				}
-			case syntax.IndexExpr as ix:
-				// A written generic row argument also charges its
-				// members as error types (collectRowArgs).
-				for j in 0..syntax.Len(ix.Indices) {
-					if unionNames(p, syntax.Item(p.Tree, ix.Indices, j), shape) {
-						return false
-					}
-				}
-			case _:
-			}
-			if k == syntax.KErrorRow || k == syntax.KCaseClause || k == syntax.KCatchArm {
-				let list = match syntax.ViewOf(p.Tree, n) {
-				case syntax.ErrorRow as r:
-					r.Types
-				case syntax.CaseClause as c:
-					c.List
-				case syntax.CatchArm as c:
-					c.Types
-				case _:
-					continue
-				}
-				for j in 0..syntax.Len(list) {
-					let site = syntax.Item(p.Tree, list, j)
-					// A case on the union's own name is not a variant
-					// test. A dynamic narrowing or a row needs its proof.
-					if names(p, site, shape.name) {
-						return false
-					}
-					if k != syntax.KCaseClause && unionNames(p, site, shape) {
-						return false
-					}
-				}
-			}
-		}
-	}
-	true
-}
-
-func unionNames(p syntax.Parsed, site dense.ID[syntax.Node], shape unionShape) bool {
-	if names(p, site, shape.name) {
-		return true
-	}
-	for v in shape.variants {
-		if names(p, site, v.name) {
-			return true
 		}
 	}
 	false
 }
 
+func classifyUnionLayout(st fnb, shape unionShape, t dense.ID[store.TKey]) unionLayout {
+	if st.cache.active {
+		if !st.cache.unionEnv.ready || st.cache.unionEnv.hasExt {
+			return UnionUnproved
+		}
+		if st.cache.unionEnv.errKey.Get(st.alias+"\x00"+shape.name) != option.None {
+			return UnionSealed
+		}
+		let mut allErr = true
+		let mut anyErr = false
+		for v in shape.variants {
+			let ve = st.cache.unionEnv.errKey.Get(st.alias+"\x00"+v.name) != option.None
+			allErr = allErr && ve
+			anyErr = anyErr || ve
+		}
+		if allErr {
+			return UnionSealed
+		}
+		if anyErr {
+			return UnionUnproved
+		}
+		let lay = unionSharedLayout(st, shape, []shapeVisit{shapeVisit{owner: st.alias, t: t}})
+		if !lay.known {
+			return UnionUnproved
+		}
+		if lay.ssa {
+			return UnionFlat
+		}
+		let mach = st.cache.unionEnv.machKey.Get(shape.name) != option.None
+		if !mach && lay.size > 128 {
+			return UnionSealed
+		}
+		return UnionUnproved
+	}
+	if st.rootImports == option.None || st.alias != "" {
+		return UnionUnproved
+	}
+	if hasRootExternOrWire(st) {
+		return UnionUnproved
+	}
+	let (allErr, anyErr) = collectErrorTypeCheck(st, shape)
+	if allErr {
+		return UnionSealed
+	}
+	if anyErr {
+		return UnionUnproved
+	}
+	let lay = unionSharedLayout(st, shape, []shapeVisit{shapeVisit{owner: st.alias, t: t}})
+	if !lay.known {
+		return UnionUnproved
+	}
+	if lay.ssa {
+		return UnionFlat
+	}
+	if !isMachineUnion(st, shape) && lay.size > 128 {
+		return UnionSealed
+	}
+	UnionUnproved
+}
+
+func unionDescriptor(st fnb, t dense.ID[store.TKey]) option.Option[unionShape] {
+	let (okOpt, optElem) = optionKind(st, t)
+	if okOpt == "Option" {
+		let eg = shapeGo(st, optElem)
+		let ug = unionInstanceGo(st, t)
+		if eg == "" || ug == "" {
+			return option.None
+		}
+		let someT = makeOptionMemberType(st.s, st.k, st.alias, "Some", []dense.ID[store.TKey]{optElem})
+		let noneT = makeOptionMemberType(st.s, st.k, st.alias, "None", []dense.ID[store.TKey]{})
+		match (someT, noneT) {
+		case (option.Some{Value: stype}, option.Some{Value: ntype}):
+			let someHead = if st.alias == "option" { "Some" } else { pkgAlias("option") + "__Some" }
+			let noneTyp = if st.alias == "option" { "None" } else { pkgAlias("option") + "__None" }
+			let someTyp = someHead + "[" + eg + "]"
+			let variants = []unionVariant{
+				unionVariant{t: stype, decl: dense.NoID[store.PNode](), impPath: "option", name: "Some", typ: someTyp, fields: []expr.Field{expr.Field{Name: "Value", T: optElem}}, holds: holdsValue(st, optElem)},
+				unionVariant{t: ntype, decl: dense.NoID[store.PNode](), impPath: "option", name: "None", typ: noneTyp, fields: []expr.Field{}, holds: false},
+			}
+			return option.Some{Value: unionShape{name: "Option", typ: ug, layout: UnionFlat, flat: true, variants: variants}}
+		case _:
+			return option.None
+		}
+	}
+	match unionNamed(st, t) {
+	case option.Some{Value: sh}:
+		return option.Some{Value: sh}
+	case option.None:
+	}
+	match importedShapeOf(st, t, shapeDeps(st)) {
+	case option.Some{Value: imp}:
+		let owner = fnb{..st, k: imp.dep.K, s: imp.dep.S, alias: pkgAlias(imp.dep.Path), pkgPath: imp.dep.Path, idx: depIdxOf(st.cache, imp.dep.Path)}
+		let named = match namedKeyIn(owner.idx, imp.decl) {
+		case option.Some{Value: k}:
+			k
+		case option.None:
+			return option.None
+		}
+		match unionNamed(owner, named) {
+		case option.Some{Value: sh}:
+			let mut vs = []unionVariant{}
+			for v in sh.variants {
+				vs = vs.Append(unionVariant{..v, decl: dense.NoID[store.PNode](), impPath: imp.dep.Path})
+			}
+			return option.Some{Value: unionShape{..sh, variants: vs}}
+		case option.None:
+		}
+	case option.None:
+	}
+	option.None
+}
+
+func makeOptionMemberType(s0 store.Store, k expr.Pkg, alias string, name string, args []dense.ID[store.TKey]) option.Option[dense.ID[store.TKey]] {
+	let mut s = s0
+	if alias == "option" {
+		match store.Lookup(s, name) {
+		case option.Some{Value: d}:
+			if args.Len() == 0 {
+				return option.Some{Value: store.TNamed(&s, d)}
+			}
+			return option.Some{Value: store.TInstance(&s, store.XRef{Import: uint32(0), Decl: uint32(dense.Index(d))}, args)}
+		case option.None:
+			return option.None
+		}
+	}
+	for i in 0..k.Ifaces.Len() {
+		let imp = k.Ifaces[i]
+		if imp.Path == "option" {
+			for di, d in imp.Decls {
+				if d.Name == name {
+					return option.Some{Value: store.TInstance(&s, store.XRef{Import: uint32(i + 1), Decl: uint32(di)}, args)}
+				}
+			}
+		}
+	}
+	for fi, f in k.Foreign {
+		if f.Path == "option" && f.Name == name {
+			if args.Len() == 0 && f.Arity == 0 {
+				return option.Some{Value: store.TForeign(&s, fi)}
+			}
+			return option.Some{Value: store.TInstance(&s, store.XRef{Import: uint32(store.ForeignBit), Decl: uint32(fi)}, args)}
+		}
+	}
+	option.None
+}
+
+func unionFlat(st fnb, shape unionShape) bool { shape.flat }
+
 func unionTagOfType(shape unionShape, t dense.ID[store.TKey]) int {
 	for i, v in shape.variants {
-		if v.t == t {
+		if (v.impPath == "" || v.impPath == "option") && v.t == t {
 			return i
 		}
 	}
 	-1
 }
 
-func unionTagOfName(st fnb, shape unionShape, n dense.ID[syntax.Node]) int {
-	if syntax.KindOf(st.p.Tree, n) != syntax.KIdent {
-		return -1
+func unionTagOfTypeOrOption(st fnb, shape unionShape, t dense.ID[store.TKey]) int {
+	let tag = unionTagOfType(shape, t)
+	if tag >= 0 {
+		return tag
 	}
-	match bind.ResolutionOf(st.k.U, st.k.Ps, bind.PNodeOf(st.k.Ps, st.file, n)) {
-	case bind.Declared as d:
+	let (okT, elemT) = optionKind(st, t)
+	if okT != "" {
 		for i, v in shape.variants {
-			if v.decl == d.At {
+			let (okV, elemV) = optionKind(st, v.t)
+			if okT == okV && (okT == "None" || elemT == elemV) {
 				return i
 			}
+		}
+	}
+	-1
+}
+
+func unionTagOfName(st fnb, shape unionShape, n dense.ID[syntax.Node]) int {
+	let q = match syntax.ViewOf(st.p.Tree, n) {
+	case syntax.IndexExpr as ix:
+		ix.X
+	case _:
+		n
+	}
+	match syntax.ViewOf(st.p.Tree, q) {
+	case syntax.Name:
+		match bind.ResolutionOf(st.k.U, st.k.Ps, bind.PNodeOf(st.k.Ps, st.file, q)) {
+		case bind.Declared as d:
+			for i, v in shape.variants {
+				match dense.Unpack(v.decl) {
+				case option.Some{Value: vd}:
+					if vd == d.At {
+						return i
+					}
+				case option.None:
+				}
+			}
+		case bind.Imported as im:
+			let ix = int(im.Ref.Import) - 1
+			let paths = store.ImportPaths(st.s)
+			if ix >= 0 && ix < paths.Len() {
+				let vn = nameText(st.p, q)
+				for i, v in shape.variants {
+					if v.impPath == paths[ix] && v.name == vn {
+						return i
+					}
+				}
+			}
+		case _:
+		}
+	case syntax.SelectorExpr as se:
+		match bind.ResolutionOf(st.k.U, st.k.Ps, bind.PNodeOf(st.k.Ps, st.file, se.Sel)) {
+		case bind.Imported as im:
+			let ix = int(im.Ref.Import) - 1
+			let paths = store.ImportPaths(st.s)
+			if ix >= 0 && ix < paths.Len() {
+				let vn = nameText(st.p, se.Sel)
+				for i, v in shape.variants {
+					if v.impPath == paths[ix] && v.name == vn {
+						return i
+					}
+				}
+			}
+		case _:
 		}
 	case _:
 	}
@@ -281,84 +1001,112 @@ func unionTagOfName(st fnb, shape unionShape, n dense.ID[syntax.Node]) int {
 }
 
 type unionInjection {
-	typ     string,
-	variant string,
-	tag     int,
-	at      int,
-	field   string,
-	operand dense.Opt[syntax.Node],
+	flat     bool,
+	typ      string,
+	variant  string,
+	tag      int,
+	at       int,
+	keys     []string,
+	operands []dense.ID[syntax.Node],
 }
 
-func unionReturn(st mut fnb, p mut controlPlan, x dense.ID[syntax.Node], result dense.ID[store.TKey]) option.Option[unionInjection] fails Unported {
-	if unionGo(*st, result) == "" {
-		return option.None
-	}
-	let v = unparen(*st, x)
-	let t = try typeOf(*st, v, "union result")
-	if t == result {
-		return option.None
-	}
-	let shape = match unionNamed(*st, result) {
+func unionReturn(st fnb, binds localBinds, p mut controlPlan, x dense.ID[syntax.Node], result dense.ID[store.TKey]) option.Option[unionInjection] fails Unported {
+	let shape = match unionDescriptor(st, result) {
 	case option.Some{Value: s}:
 		s
 	case option.None:
-		return stop("union: generic injection layout")
+		if unionGo(st, result) != "" {
+			return stop("union: generic injection layout")
+		}
+		return option.None
 	}
-	let tag = unionTagOfType(shape, t)
-	if tag < 0 || !unionFlat(*st, shape) {
+	let v = unparen(st, x)
+	let t = try typeOf(st, v, "union result")
+	if t == result {
+		return option.None
+	}
+	let tag = unionTagOfTypeOrOption(st, shape, t)
+	if tag < 0 {
+		return stop("union: unproved injection layout")
+	}
+	let flat = match shape.layout {
+	case UnionFlat:
+		true
+	case UnionSealed:
+		false
+	case UnionUnproved:
 		return stop("union: unproved injection layout")
 	}
 	let variant = shape.variants[tag]
 	let at = syntax.NodePos(st.p, v)
-	let mut j = unionInjection{typ: shape.typ, variant: variant.typ, tag: tag, at: at, field: "", operand: dense.NoID[syntax.Node]()}
+	let mut j = unionInjection{flat: flat, typ: shape.typ, variant: variant.typ, tag: tag, at: at, keys: []string{}, operands: []dense.ID[syntax.Node]{}}
 	match syntax.ViewOf(st.p.Tree, v) {
-	case syntax.Name:
-		if variant.field != option.None || unionTagOfName(*st, shape, v) != tag {
+	case syntax.Name, syntax.SelectorExpr:
+		if variant.fields.Len() != 0 || unionTagOfName(st, shape, v) != tag {
 			return stop("union: result is not a bare empty variant")
 		}
 	case syntax.CompositeLit as cl:
-		let f = match variant.field {
-		case option.Some{Value: f}:
-			f
-		case option.None:
+		if variant.fields.Len() == 0 {
 			return stop("union: explicit empty literal")
 		}
-		if dense.Unpack(cl.Base) != option.None || syntax.Len(cl.Elts) != 1 {
+		if dense.Unpack(cl.Base) != option.None || syntax.Len(cl.Elts) != variant.fields.Len() {
 			return stop("union: payload literal shape")
 		}
-		let e = syntax.Item(st.p.Tree, cl.Elts, 0)
-		let operand = match syntax.ViewOf(st.p.Tree, e) {
-		case syntax.KeyValueExpr as kv:
-			if nameText(st.p, kv.Key) != f.Name {
+		let n = syntax.Len(cl.Elts)
+		for k in 0..n {
+			let e = syntax.Item(st.p.Tree, cl.Elts, k)
+			let (fi, operand) = match syntax.ViewOf(st.p.Tree, e) {
+			case syntax.KeyValueExpr as kv:
+				(fieldIndex(variant.fields, nameText(st.p, kv.Key)), kv.Value)
+			case _:
+				(k, e)
+			}
+			if fi < 0 || fi >= variant.fields.Len() {
 				return stop("union: payload key")
 			}
-			kv.Value
-		case _:
-			e
+			let f = variant.fields[fi]
+			if has(j.keys, f.Name) || (try typeOf(st, operand, "union payload")) != f.T || callsIn(st.p, operand) || holdsValue(st, f.T) {
+				return stop("union: adapted payload")
+			}
+			try controlOperand(st, binds, p, operand)
+			j.keys = j.keys.Append(f.Name)
+			j.operands = j.operands.Append(operand)
 		}
-		if (try typeOf(*st, operand, "union payload")) != f.T || callsIn(st.p, operand) {
-			return stop("union: adapted payload")
-		}
-		try controlOperand(*st, p, operand)
-		j.field = f.Name
-		j.operand = dense.OptOf(operand)
 	case _:
 		return stop("union: injection operand")
 	}
 	option.Some{Value: j}
 }
 
-func unionEmitReturn(st fnb, b mut ir.Builder, j unionInjection, at ir.Pos) uint32 fails Unported | ir.Malformed {
+func unionEmitValue(st fnb, binds localBinds, b mut ir.Builder, j unionInjection) uint32 fails Unported | ir.Malformed {
 	let p = pos(st, j.at)
-	let variant = match dense.Unpack(j.operand) {
-	case option.Some{Value: x}:
-		let payload = try value(st, b, x)
-		try ir.Row(b, ir.KindCode(ir.TExpr, "lit"), p, []uint32{ir.Text(b, j.variant), ir.List(b, []uint32{payload}), ir.List(b, []uint32{ir.Text(b, j.field)})})
-	case option.None:
+	let variant = if j.operands.Len() > 0 {
+		let mut elems = []uint32{}
+		let mut keyIDs = []uint32{}
+		for operand in j.operands {
+			elems = elems.Append(try value(st, binds, b, operand))
+		}
+		for key in j.keys {
+			keyIDs = keyIDs.Append(ir.Text(b, key))
+		}
+		try ir.Row(b, ir.KindCode(ir.TExpr, "lit"), p, []uint32{ir.Text(b, j.variant), ir.List(b, elems), ir.List(b, keyIDs)})
+	} else {
 		try ir.Row(b, ir.KindCode(ir.TExpr, "zero"), p, []uint32{ir.Text(b, j.variant)})
+	}
+	if !j.flat {
+		return try ir.Row(b, ir.KindCode(ir.TExpr, "toiface"), p, []uint32{ir.Text(b, j.typ), variant})
 	}
 	let receiver = try ir.Row(b, ir.KindCode(ir.TExpr, "zero"), p, []uint32{ir.Text(b, j.typ)})
 	let method = "of" + strconv.Itoa(j.tag)
-	let injected = try ir.Row(b, ir.KindCode(ir.TExpr, "mcall"), p, []uint32{receiver, ir.Text(b, method), ir.List(b, []uint32{variant})})
+	try ir.Row(b, ir.KindCode(ir.TExpr, "mcall"), p, []uint32{receiver, ir.Text(b, method), ir.List(b, []uint32{variant})})
+}
+
+func unionEmitReturn(st fnb, binds localBinds, b mut ir.Builder, j unionInjection, at ir.Pos) uint32 fails Unported | ir.Malformed {
+	let injected = try unionEmitValue(st, binds, b, j)
 	try ir.Row(b, ir.KindCode(ir.TStmt, "ret"), at, []uint32{injected})
+}
+
+func unionEmitYield(st fnb, binds localBinds, b mut ir.Builder, j unionInjection, at ir.Pos, slot uint32) uint32 fails Unported | ir.Malformed {
+	let injected = try unionEmitValue(st, binds, b, j)
+	try ir.Row(b, ir.KindCode(ir.TStmt, "set"), at, []uint32{slot, injected, 0})
 }

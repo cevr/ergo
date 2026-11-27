@@ -43,10 +43,7 @@ func inspectCall(st fnb, i int, imports []ImportCallFacts) inspectedCall fails U
 	let name = nameText(st.k.Parsed[f.File], f.Name)
 	// Overloaded Go names are a call-site decision, not a purity fact.
 	let h = try callHeader(st, i, name, false)
-	if h.receiver {
-		return stop("callee: receiver purity facts")
-	}
-	let (body, edges) = try scanScalarBody(st, i, h.body, imports)
+	let (body, edges) = try scanScalarBody(st, emptyLocalBinds(), i, h.body, imports)
 	inspectedCall{valid: true, body: body, next: edges}
 }
 
@@ -213,9 +210,6 @@ type callBody { edges int, loop bool, decision bool, sizeFloor int }
 type callWalk { pending []uint32, targets []int, facts callBody }
 
 func directCallee(st fnb, i int, target ordinaryCallee, imports []ImportCallFacts) fails Unported {
-	if target.receiver {
-		return stop("callee: receiver purity facts")
-	}
 	let f = st.k.Fns[i]
 	let mut graph = callClosure{queue: []int{i}, seen: dense.NewSide[store.PNode, bool](false), start: i, recursive: false}
 	dense.SideSet(&graph.seen, bind.PNodeOf(st.k.Ps, f.File, f.Decl), true)
@@ -226,16 +220,13 @@ func directCallee(st fnb, i int, target ordinaryCallee, imports []ImportCallFact
 		head = head + 1
 		let dep = st.k.Fns[next]
 		let header = try callHeader(st, next, nameText(st.k.Parsed[dep.File], dep.Name), true)
-		if header.receiver {
-			return stop("callee: receiver purity facts")
-		}
 		let _ = try scanCallBody(st, next, header.body, imports, &graph)
 	}
 	try keepDirectCall(st, f, root, graph.recursive)
 }
 
 func scanCallBody(st fnb, i int, body dense.ID[syntax.Node], imports []ImportCallFacts, graph mut callClosure) callBody fails Unported {
-	let (facts, targets) = try scanScalarBody(st, i, body, imports)
+	let (facts, targets) = try scanScalarBody(st, emptyLocalBinds(), i, body, imports)
 	for next in targets {
 		graph.recursive = graph.recursive || next == graph.start
 		let dep = st.k.Fns[next]
@@ -248,16 +239,15 @@ func scanCallBody(st fnb, i int, body dense.ID[syntax.Node], imports []ImportCal
 	facts
 }
 
-func scanScalarBody(st fnb, i int, body dense.ID[syntax.Node], imports []ImportCallFacts) (callBody, []int) fails Unported {
-	let mut at = st
-	at.file = st.k.Fns[i].File
-	at.p = st.k.Parsed[at.file]
+func scanScalarBody(st fnb, binds localBinds, i int, body dense.ID[syntax.Node], imports []ImportCallFacts) (callBody, []int) fails Unported {
+	let f = st.k.Fns[i].File
+	let at = fnb{..st, file: f, p: st.k.Parsed[f]}
 	let mut walk = callWalk{pending: []uint32{uint32(dense.Index(body))}, targets: []int{}, facts: callBody{edges: 0, loop: false, decision: false, sizeFloor: 0}}
 	let mut head = 0
 	for head < walk.pending.Len() {
 		let x = syntax.NodeAt(at.p.Tree, int(walk.pending[head]))
 		head = head + 1
-		try scanPureNode(at, x, imports, &walk)
+		try scanPureNode(at, binds, x, imports, &walk)
 	}
 	(walk.facts, walk.targets)
 }
@@ -266,29 +256,56 @@ func scanScalarBody(st fnb, i int, body dense.ID[syntax.Node], imports []ImportC
 // cannot arise. All values read or written are typed scalars; unknown
 // expressions, implicit adapters, indirect calls, and resource forms do
 // not count as pure merely because the declaration's rows are empty.
-func scanPureNode(st fnb, x dense.ID[syntax.Node], imports []ImportCallFacts, walk mut callWalk) fails Unported {
+func scanPureNode(st fnb, binds localBinds, x dense.ID[syntax.Node], imports []ImportCallFacts, walk mut callWalk) fails Unported {
 	let p = st.p
 	match syntax.ViewOf(p.Tree, x) {
 	case syntax.Name, syntax.BasicLit, syntax.ParenExpr:
-		try pureScalar(st, x)
-		// These each contribute exactly one Go syntax node; other
-		// nodes may also contribute, so this is a lower bound.
+		try pureValue(st, x)
 		walk.facts.sizeFloor = walk.facts.sizeFloor + 1
 	case syntax.UnaryExpr as u:
 		let op = syntax.TokText(p, u.Op)
 		if op != "!" && op != "-" && op != "+" && op != "^" {
 			return stop("callee: unary form (purity)")
 		}
-		try pureScalar(st, x)
+		try pureValue(st, x)
 		walk.facts.sizeFloor = walk.facts.sizeFloor + 1
 	case syntax.BinaryExpr as v:
 		if !isIROp(syntax.TokText(p, v.Op)) {
 			return stop("callee: binary form (purity)")
 		}
-		try pureScalar(st, x)
+		try pureValue(st, x)
 		walk.facts.sizeFloor = walk.facts.sizeFloor + 1
+	case syntax.SelectorExpr as se:
+		try pureValue(st, x)
+		let _ = try field(st, binds, x, se)
+		walk.facts.sizeFloor = walk.facts.sizeFloor + 1
+		walk.pending = walk.pending.Append(uint32(dense.Index(se.X)))
+		return
+	case syntax.CompositeLit as cl:
+		try pureValue(st, x)
+		let a = try aggregateLiteral(st, binds, x, cl)
+		walk.facts.sizeFloor = walk.facts.sizeFloor + 1
+		match dense.Unpack(cl.Base) {
+		case option.Some{Value: bx}:
+			walk.pending = walk.pending.Append(uint32(dense.Index(bx)))
+		case option.None:
+		}
+		for v in a.values {
+			walk.pending = walk.pending.Append(uint32(dense.Index(v)))
+		}
+		return
+	case syntax.InterpolatedString as is:
+		try interpCheck(st, binds, x, is)
+		walk.facts.sizeFloor = walk.facts.sizeFloor + 1
+		let n = syntax.Len(is.Parts)
+		for j in 0..n {
+			if j%2 == 1 {
+				walk.pending = walk.pending.Append(uint32(dense.Index(syntax.Item(p.Tree, is.Parts, j))))
+			}
+		}
+		return
 	case syntax.CallExpr as ce:
-		try pureScalar(st, x)
+		try pureValue(st, x)
 		let next = try pureEdge(st, x, ce, imports)
 		if next != builtinEdge {
 			walk.facts.edges = walk.facts.edges + 1
@@ -323,6 +340,19 @@ func scanPureNode(st fnb, x dense.ID[syntax.Node], imports []ImportCallFacts, wa
 		if dense.Unpack(d.Extern) != option.None {
 			return stop("callee: local extern")
 		}
+		if d.Mut >= 0 {
+			match syntax.ViewOf(p.Tree, d.Spec) {
+			case syntax.VarSpec as s:
+				match dense.Unpack(s.Value) {
+				case option.Some{Value: v}:
+					if holdsValue(st, try typeOf(st, v, "callee local")) {
+						return stop("callee: local shape (purity)")
+					}
+				case option.None:
+				}
+			case _:
+			}
+		}
 	case syntax.VarSpec as s:
 		if dense.Unpack(s.Pattern) != option.None || syntax.Len(s.Names) != 1 || dense.Unpack(s.Type) != option.None {
 			return stop("callee: local shape (purity)")
@@ -340,8 +370,8 @@ func scanPureNode(st fnb, x dense.ID[syntax.Node], imports []ImportCallFacts, wa
 	walk.pending = syntax.Children(p.Tree, x, walk.pending)
 }
 
-func pureScalar(st fnb, node dense.ID[syntax.Node]) fails Unported {
-	if basicGo(st, try typeOf(st, node, "callee value")) == "" {
+func pureValue(st fnb, node dense.ID[syntax.Node]) fails Unported {
+	if !callAdmitsType(st, try typeOf(st, node, "callee value")) {
 		return stop("callee: non-scalar value (purity)")
 	}
 }
@@ -376,8 +406,8 @@ func pureEdge(st fnb, x dense.ID[syntax.Node], ce syntax.CallExpr, imports []Imp
 	match syntax.ViewOf(st.p.Tree, ce.Fun) {
 	case syntax.SelectorExpr as sel:
 		let (other, path) = try depOf(st, sel.Sel)
-		let at = bind.PNodeOf(other.k.Ps, to.Callee.File, to.Callee.Name)
-		let flag = importedCallFact(imports, path, expr.FnAt(other.k, at))
+		let at = bind.PNodeOf(other.K.Ps, to.Callee.File, to.Callee.Name)
+		let flag = importedCallFact(imports, path, expr.FnAt(other.K, at))
 		if flag != pureCallFact && flag != directCallFact {
 			return stop("callee: imported purity facts")
 		}
@@ -401,24 +431,24 @@ func pureEdge(st fnb, x dense.ID[syntax.Node], ce syntax.CallExpr, imports []Imp
 }
 
 // Go's closed query cannot call-fold an operand that reads a local.
-func callReadsLocal(st fnb, x dense.ID[syntax.Node]) bool {
+func callReadsLocal(st fnb, binds localBinds, x dense.ID[syntax.Node]) bool {
 	match syntax.ViewOf(st.p.Tree, x) {
 	case syntax.Name:
-		let local = paramLocal(st, x) catch {
+		let local = paramLocal(st, binds, x) catch {
 		case Unported:
 			-1
 		}
 		return local >= 0
 	case syntax.ParenExpr as pe:
-		callReadsLocal(st, pe.X)
+		callReadsLocal(st, binds, pe.X)
 	case syntax.UnaryExpr as u:
-		callReadsLocal(st, u.X)
+		callReadsLocal(st, binds, u.X)
 	case syntax.BinaryExpr as b:
-		callReadsLocal(st, b.X) || callReadsLocal(st, b.Y)
+		callReadsLocal(st, binds, b.X) || callReadsLocal(st, binds, b.Y)
 	case syntax.SelectorExpr as se:
-		callReadsLocal(st, se.X)
+		callReadsLocal(st, binds, se.X)
 	case syntax.IndexExpr as ie:
-		callReadsLocal(st, ie.X)
+		callReadsLocal(st, binds, ie.X)
 	case _:
 		false
 	}
@@ -428,9 +458,7 @@ func noImportedRewrite(st fnb, name string) fails Unported {
 	match st.rootImports {
 	case option.Some[[]expr.Dep] as deps:
 		for dep in deps.Value {
-			let mut other = st
-			other.k = dep.K
-			if lawOver(other, name) {
+			if lawOverPkg(dep.K, name) {
 				return stop("call under an imported rewrite law")
 			}
 		}

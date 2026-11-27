@@ -6,48 +6,76 @@ import dense
 import option
 import slices
 import strconv
+import strings
 
 // The ordered arms live next to CONTROL's flat statement spans. An arm
 // with one `T as x` binds a checked local at the case token, not at x.
 type matchArm {
-	at      int,
-	tags    []int,
-	binding int,
-	variant string,
-	payload bool,
-	span    controlSpan,
+	at       int,
+	tags     []int,
+	variants []string,
+	vals     []dense.ID[syntax.Node],
+	binding  int,
+	variant  string,
+	payload  bool,
+	span     controlSpan,
 }
 
-func matchPrepare(st mut fnb, p mut controlPlan, m syntax.TypeSwitchStmt, row controlStmt, tail bool, loops int) (controlStmt, []matchArm) fails Unported {
-	if loops != 0 || syntax.KindOf(st.p.Tree, m.Subject) != syntax.KIdent {
-		return stop("match: subject is not a plain parameter")
-	}
-	let src = try paramLocal(*st, m.Subject)
-	if src >= p.formals {
-		// Locals can take the oracle's scalar tag-and-slots in place.
-		return stop("match: local subject's scalar form")
-	}
-	let t = try typeOf(*st, m.Subject, "match subject")
-	let shape = match unionNamed(*st, t) {
+func matchPrepare(st fnb, binds mut localBinds, p mut controlPlan, m syntax.TypeSwitchStmt, row controlStmt, tail bool, loops int, yieldSlot int) (controlStmt, []matchArm) fails Unported {
+	let subj = unparen(st, m.Subject)
+	let t = try typeOf(st, subj, "match subject")
+	let shape = match unionDescriptor(st, t) {
 	case option.Some{Value: s}:
 		s
 	case option.None:
+		if unionGo(st, t) != "" {
+			return stop("match: unsupported union layout")
+		}
 		return stop("match: unsupported union layout")
 	}
-	if !unionFlat(*st, shape) {
+	let isFlat = match shape.layout {
+	case UnionFlat:
+		true
+	case UnionSealed:
+		false
+	case UnionUnproved:
 		return stop("match: unproved union layout")
 	}
+	match syntax.ViewOf(st.p.Tree, subj) {
+	case syntax.Name:
+		let src = try paramLocal(st, *binds, subj)
+		if src >= p.formals {
+			if p.locals[src-p.formals].mutable && !isFlat {
+				return stop("match: local subject's scalar form")
+			}
+		}
+		p.reads = p.reads.Append(src)
+	case syntax.SelectorExpr as se:
+		let _ = try field(st, *binds, subj, se)
+		try controlOperand(st, *binds, p, subj)
+	case syntax.IndexExpr as ie:
+		let _ = try sliceIndex(st, subj, ie)
+		try controlOperand(st, *binds, p, subj)
+	case _:
+		return stop("match: subject is not a plain parameter")
+	}
 	let start = syntax.TokPos(st.p, m.Switch)
-	let subject = try matchTemp(*st, p, shape.typ, start)
+	let subject = try matchTemp(st, p, shape.typ, start)
 	let mut s = row
-	s.op = CMatch
+	s.op = CMatch{kind: if isFlat { 0 } else { 1 }, tagType: dense.OptOf(t)}
 	s.offset = start
 	s.end = syntax.TokPos(st.p, m.Rbrace)
 	s.slot = subject
-	s.x = dense.OptOf(m.Subject)
-	s.assign = if tail { "return" } else { "" }
+	s.x = dense.OptOf(subj)
+	if tail && yieldSlot >= 0 {
+		s.assign = "yield"
+		s.srcSlot = yieldSlot
+	} else if tail {
+		s.assign = "return"
+	} else {
+		s.assign = ""
+	}
 	p.extended = true
-	p.reads = p.reads.Append(src)
 	s.readHi = p.reads.Len()
 	let mut arms = slices.WithCapacity[matchArm](syntax.Len(m.Clauses))
 	let mut tags = slices.WithCapacity[int](shape.variants.Len())
@@ -66,7 +94,8 @@ func matchPrepare(st mut fnb, p mut controlPlan, m syntax.TypeSwitchStmt, row co
 		}
 		fallback = count == 0
 		let tagsStart = tags.Len()
-		let mut a = matchArm{at: at, tags: []int{}, binding: -1, variant: "", payload: false, span: controlEmpty(p.stmts.Len())}
+		let mut armVariants = []string{}
+		let mut a = matchArm{at: at, tags: []int{}, variants: []string{}, vals: []dense.ID[syntax.Node]{}, binding: -1, variant: "", payload: false, span: controlEmpty(p.stmts.Len())}
 		for j in 0..count {
 			let item = syntax.Item(st.p.Tree, clause.List, j)
 			let (tested, name) = match syntax.ViewOf(st.p.Tree, item) {
@@ -75,47 +104,52 @@ func matchPrepare(st mut fnb, p mut controlPlan, m syntax.TypeSwitchStmt, row co
 					return stop("match: binding among alternatives")
 				}
 				(ap.X, dense.OptOf(ap.Name))
-			case syntax.Name:
+			case syntax.Name, syntax.SelectorExpr, syntax.IndexExpr:
 				(item, dense.NoID[syntax.Node]())
 			case _:
 				return stop("match: not a type test")
 			}
-			let tag = unionTagOfName(*st, shape, tested)
+			let tag = unionTagOfName(st, shape, tested)
 			if tag < 0 || seen[tag] {
 				return stop("match: foreign or repeated case")
 			}
 			seen[tag] = true
 			tags = tags.Append(tag)
+			armVariants = armVariants.Append(shape.variants[tag].typ)
 			match dense.Unpack(name) {
 			case option.Some{Value: binder}:
 				let v = shape.variants[tag]
-				let slot = try controlBind(st, p, binder, nameText(st.p, binder), v.typ, false)
+				let slot = try controlBind(st, binds, p, binder, nameText(st.p, binder), v.typ, false)
 				p.locals[slot-p.formals].at = at
 				a.binding = slot
 				a.variant = v.typ
-				a.payload = v.field != option.None
+				a.payload = v.fields.Len() > 0
 			case option.None:
 			}
 		}
 		a.tags = tags[tagsStart:tags.Len()]
+		a.variants = armVariants
 		let lo = p.reads.Len()
-		a.span = try controlList(st, p, clause.Body, tail, 0)
+		a.span = try controlListYield(st, binds, p, clause.Body, tail, loops, yieldSlot)
 		for j in a.span.lo..a.span.hi {
 			match p.stmts[j].op {
-			case CWhile, CRange:
+			case CWhile, CRange, CCollectionRange:
 				return stop("match: loop in case")
 			case _:
 			}
 		}
 		if a.binding >= 0 {
-			let mut uses = 0
-			for j in lo..p.reads.Len() {
-				if p.reads[j] == a.binding {
-					uses += 1
+			let v = shape.variants[a.tags[0]]
+			if v.holds {
+				let mut uses = 0
+				for j in lo..p.reads.Len() {
+					if p.reads[j] == a.binding {
+						uses += 1
+					}
 				}
-			}
-			if uses > 1 {
-				return stop("match: repeated read of a payload binding")
+				if uses > 1 {
+					return stop("match: repeated read of a payload binding")
+				}
 			}
 		}
 		complete = complete && a.span.terminates
@@ -127,6 +161,80 @@ func matchPrepare(st mut fnb, p mut controlPlan, m syntax.TypeSwitchStmt, row co
 				return stop("match: not exhaustive")
 			}
 		}
+	}
+	s.second.terminates = complete && (tail || fallback)
+	(s, arms)
+}
+
+func valueMatchPrepare(st fnb, binds mut localBinds, p mut controlPlan, m syntax.SwitchStmt, row controlStmt, tail bool, loops int, yieldSlot int) (controlStmt, []matchArm) fails Unported {
+	let tagExpr = m.Tag
+	let tt = try typeOf(st, tagExpr, "switch tag")
+	if scalarBasicGo(st, tt) == "" {
+		return stop("match: non-scalar switch tag")
+	}
+	try controlOperand(st, *binds, p, tagExpr)
+	let start = syntax.TokPos(st.p, m.Switch)
+	let mut s = row
+	s.op = CMatch{kind: 2, tagType: dense.OptOf(tt)}
+	s.offset = start
+	s.end = syntax.TokPos(st.p, m.Rbrace)
+	s.x = dense.OptOf(tagExpr)
+	if tail && yieldSlot >= 0 {
+		s.assign = "yield"
+		s.srcSlot = yieldSlot
+	} else if tail {
+		s.assign = "return"
+	} else {
+		s.assign = ""
+	}
+	p.extended = true
+	s.readHi = p.reads.Len()
+	let mut arms = slices.WithCapacity[matchArm](syntax.Len(m.Clauses))
+	let mut seen = []string{}
+	let mut fallback = false
+	for i in 0..syntax.Len(m.Clauses) {
+		let clause = syntax.CaseClauseOf(st.p.Tree, syntax.Item(st.p.Tree, m.Clauses, i))
+		let at = syntax.TokPos(st.p, clause.Case)
+		let count = syntax.Len(clause.List)
+		if fallback {
+			return stop("match: case after wildcard")
+		}
+		let mut isDef = count == 0
+		let mut vals = []dense.ID[syntax.Node]{}
+		for j in 0..count {
+			let item = syntax.Item(st.p.Tree, clause.List, j)
+			if syntax.KindOf(st.p.Tree, item) == syntax.KIdent && nameText(st.p, item) == "_" {
+				isDef = true
+				continue
+			}
+			if !isConst(st, item) {
+				return stop("match: value case not constant")
+			}
+			let val = try fold(st, item)
+			let key = try constText(st, tt, val)
+			if has(seen, key) {
+				return stop("match: duplicate value case")
+			}
+			seen = seen.Append(key)
+			vals = vals.Append(item)
+		}
+		if isDef {
+			fallback = true
+			vals = []dense.ID[syntax.Node]{}
+		}
+		let span = try controlListYield(st, binds, p, clause.Body, tail, loops, yieldSlot)
+		for j in span.lo..span.hi {
+			match p.stmts[j].op {
+			case CWhile, CRange, CCollectionRange:
+				return stop("match: loop in case")
+			case _:
+			}
+		}
+		arms = arms.Append(matchArm{at: at, tags: []int{}, variants: []string{}, vals: vals, binding: -1, variant: "", payload: false, span: span})
+	}
+	let mut complete = true
+	for a in arms {
+		complete = complete && a.span.terminates
 	}
 	s.second.terminates = complete && (tail || fallback)
 	(s, arms)
@@ -169,24 +277,35 @@ func unionField(st fnb, x dense.ID[syntax.Node], se syntax.SelectorExpr) string 
 		return stop("selector on no plain record")
 	}
 	let t = try typeOf(st, se.X, "variant selector operand")
+	let name = nameText(st.p, se.Sel)
+	let fieldType = try typeOf(st, x, "variant selector")
+	if !ordinaryFieldName(name) || shapeGo(st, fieldType) == "" {
+		return stop("selector on no plain record")
+	}
+	let (okOpt, optElem) = optionKind(st, t)
+	if okOpt == "Some" {
+		if name == "Value" && fieldType == optElem {
+			return name
+		}
+		return stop("selector on no plain record")
+	}
+	match importedFields(st, t) {
+	case option.Some{Value: fs}:
+		let fi = fieldIndex(fs, name)
+		if fi >= 0 && fs[fi].T == fieldType {
+			return name
+		}
+		return stop("selector on no plain record")
+	case option.None:
+	}
 	if store.KindOfType(st.s, t) != store.KNamed {
 		return stop("selector on no plain record")
 	}
-	let name = nameText(st.p, se.Sel)
-	let fieldType = try typeOf(st, x, "variant selector")
 	let typeName = store.TypeNameText(st.s, store.ArgOf(st.s, t))
-	let (vp, v, _) = match unionDeclParent(st, typeName) {
-	case option.Some{Value: decl}:
-		decl
-	case option.None:
-		return stop("selector on no plain record")
-	}
-	if syntax.KindOf(vp.Tree, v) != syntax.KVariantSpec {
-		return stop("selector on no plain record")
-	}
 	match unionRecordFields(st, typeName) {
 	case option.Some{Value: fields}:
-		if fields.Len() == 1 && fields[0].Name == name && fields[0].T == fieldType && basicGo(st, fieldType) != "" && ordinaryFieldName(name) {
+		let fi = fieldIndex(fields, name)
+		if fi >= 0 && fields[fi].T == fieldType {
 			return name
 		}
 	case option.None:
@@ -202,32 +321,100 @@ func matchBoundField(st fnb, x dense.ID[syntax.Node], se syntax.SelectorExpr) bo
 	name != ""
 }
 
-func matchEmit(st fnb, b mut ir.Builder, p controlPlan, s controlStmt, arms []matchArm, read []bool) []uint32 fails Unported | ir.Malformed {
+func matchDefectSite(st fnb, offset int) string {
+	let where = syntax.PositionOf(st.lines, offset)
+	let lineCol = strconv.Itoa(where.Line) + ":" + strconv.Itoa(where.Column)
+	let marker = "/internal/sketch/std/"
+	let ix = strings.Index(st.filePath, marker)
+	if ix >= 0 {
+		return "std/" + st.filePath[ix+marker.Len():st.filePath.Len()] + ":" + lineCol
+	}
+	if strings.HasPrefix(st.filePath, "std/") {
+		return st.filePath + ":" + lineCol
+	}
+	lineCol
+}
+
+func matchEmit(st fnb, binds localBinds, b mut ir.Builder, p controlPlan, s controlStmt, arms []matchArm, read []bool) []uint32 fails Unported | ir.Malformed {
 	let at = pos(st, s.offset)
 	let end = pos(st, s.end)
-	let slot = uint32(s.slot)
+	let (matchKind, tagType) = match s.op {
+	case CMatch as cm:
+		(cm.kind, cm.tagType)
+	case _:
+		return stop("match: unexpected op")
+	}
 	let operand = match dense.Unpack(s.x) {
 	case option.Some{Value: id}:
 		id
 	case option.None:
 		return stop("match: prepared subject missing")
 	}
-	let src = try value(st, b, operand)
+	if matchKind == 2 {
+		let tt = match dense.Unpack(tagType) {
+		case option.Some{Value: id}:
+			id
+		case option.None:
+			return stop("match: missing tag type")
+		}
+		let src = try value(st, binds, b, operand)
+		let tagGo = shapeGo(st, tt)
+		let mut cases = []uint32{}
+		let mut hasDefault = false
+		for arm in arms {
+			let cp = pos(st, arm.at)
+			let def = arm.vals.Len() == 0
+			let mut vals = []uint32{}
+			for v in arm.vals {
+				let cv = try constText(st, tt, try fold(st, v))
+				vals = vals.Append(try constRow(b, pos(st, syntax.NodePos(st.p, v)), tagGo, cv))
+			}
+			let bodyRows = try controlEmitSpan(st, binds, b, p, arm.span, read)
+			hasDefault = hasDefault || def
+			cases = cases.Append(try ir.Row(b, ir.KindCode(ir.TCase, ""), cp, []uint32{0, ir.List(b, bodyRows), if def || vals.Len() == 0 { uint32(0) } else { ir.List(b, vals) }, if def { uint32(1) } else { uint32(0) }}))
+		}
+		let mut fallback = []uint32{}
+		if !hasDefault && (s.assign == "return" || s.assign == "yield") {
+			let label = matchDefectSite(st, s.offset)
+			let msg = try constRow(b, end, "string", "ergo: defect: no case of the match at "+label+" matched")
+			fallback = fallback.Append(try ir.Row(b, ir.KindCode(ir.TStmt, "panic"), end, []uint32{msg}))
+		}
+		let endAt = ir.PosAt(b, end)
+		let epos = if hasDefault { uint32(0) } else { endAt }
+		let branch = try ir.Row(b, ir.KindCode(ir.TStmt, "switch"), at, []uint32{src, ir.List(b, fallback), endAt, epos, ir.List(b, cases)})
+		return []uint32{branch}
+	}
+	let slot = uint32(s.slot)
+	let src = try value(st, binds, b, operand)
 	let subject = try ir.Row(b, ir.KindCode(ir.TStmt, "def"), at, []uint32{slot, src})
 	let use = try ir.Row(b, ir.KindCode(ir.TExpr, "local"), at, []uint32{slot})
-	let tag = try ir.Row(b, ir.KindCode(ir.TExpr, "field"), at, []uint32{use, ir.Text(b, "tag")})
+	let scrutinee = if matchKind == 0 {
+		try ir.Row(b, ir.KindCode(ir.TExpr, "field"), at, []uint32{use, ir.Text(b, "tag")})
+	} else {
+		use
+	}
 	let mut cases = []uint32{}
 	let mut hasDefault = false
 	for arm in arms {
 		let cp = pos(st, arm.at)
 		let mut vals = []uint32{}
-		for k in arm.tags {
-			vals = vals.Append(try constRow(b, cp, "uint8", strconv.Itoa(k)))
+		let mut typeIDs = []uint32{}
+		if matchKind == 0 {
+			for k in arm.tags {
+				vals = vals.Append(try constRow(b, cp, "uint8", strconv.Itoa(k)))
+			}
+		} else {
+			for vt in arm.variants {
+				typeIDs = typeIDs.Append(ir.Text(b, vt))
+			}
 		}
 		let mut body = []uint32{}
 		if arm.binding >= 0 {
 			let i = uint32(arm.binding)
-			let narrowed = if arm.payload {
+			let narrowed = if matchKind == 1 {
+				let rec = try ir.Row(b, ir.KindCode(ir.TExpr, "local"), cp, []uint32{slot})
+				try ir.Row(b, ir.KindCode(ir.TExpr, "assert"), cp, []uint32{ir.Text(b, arm.variant), rec})
+			} else if arm.payload {
 				let rec = try ir.Row(b, ir.KindCode(ir.TExpr, "local"), cp, []uint32{slot})
 				let method = "as" + strconv.Itoa(arm.tags[0])
 				try ir.Row(b, ir.KindCode(ir.TExpr, "mcall"), cp, []uint32{rec, ir.Text(b, method), 0})
@@ -239,23 +426,23 @@ func matchEmit(st fnb, b mut ir.Builder, p controlPlan, s controlStmt, arms []ma
 				body = body.Append(try controlDiscard(b, cp, i))
 			}
 		}
-		let bodyRows = try controlEmitSpan(st, b, p, arm.span, read)
+		let bodyRows = try controlEmitSpan(st, binds, b, p, arm.span, read)
 		for child in bodyRows {
 			body = body.Append(child)
 		}
-		let def = vals.Len() == 0
+		let def = arm.tags.Len() == 0
 		hasDefault = hasDefault || def
-		cases = cases.Append(try ir.Row(b, ir.KindCode(ir.TCase, ""), cp, []uint32{0, ir.List(b, body), ir.List(b, vals), if def { uint32(1) } else { uint32(0) }}))
+		cases = cases.Append(try ir.Row(b, ir.KindCode(ir.TCase, ""), cp, []uint32{if def || typeIDs.Len() == 0 { uint32(0) } else { ir.List(b, typeIDs) }, ir.List(b, body), if def || vals.Len() == 0 { uint32(0) } else { ir.List(b, vals) }, if def { uint32(1) } else { uint32(0) }}))
 	}
 	let mut fallback = []uint32{}
-	if !hasDefault && s.assign == "return" {
-		let where = syntax.PositionOf(st.lines, s.offset)
-		let label = strconv.Itoa(where.Line) + ":" + strconv.Itoa(where.Column)
+	if !hasDefault && (s.assign == "return" || s.assign == "yield") {
+		let label = matchDefectSite(st, s.offset)
 		let msg = try constRow(b, end, "string", "ergo: defect: no case of the match at "+label+" matched")
 		fallback = fallback.Append(try ir.Row(b, ir.KindCode(ir.TStmt, "panic"), end, []uint32{msg}))
 	}
 	let endAt = ir.PosAt(b, end)
 	let epos = if hasDefault { uint32(0) } else { endAt }
-	let branch = try ir.Row(b, ir.KindCode(ir.TStmt, "switch"), at, []uint32{tag, ir.List(b, fallback), endAt, epos, ir.List(b, cases)})
+	let branchKind = if matchKind == 0 { "switch" } else { "tswitch" }
+	let branch = try ir.Row(b, ir.KindCode(ir.TStmt, branchKind), at, []uint32{scrutinee, ir.List(b, fallback), endAt, epos, ir.List(b, cases)})
 	[]uint32{subject, branch}
 }
