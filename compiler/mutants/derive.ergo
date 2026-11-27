@@ -1,0 +1,1503 @@
+import compiler/check/bind
+import compiler/check/diag
+import compiler/check/expr
+import compiler/check/facts
+import compiler/check/footprint
+import compiler/check/providing
+import compiler/check/rows
+import compiler/check/store
+import compiler/check/types
+import compiler/format
+import compiler/syntax
+import dense
+import hex
+import option
+import sha256
+import slices
+import strings
+
+// OpCmpSwap identifies the relational and boolean comparison swap operator.
+let OpCmpSwap = "cmp-swap"
+
+// OpBoundOffByOne identifies the slice and range off-by-one bound operator.
+let OpBoundOffByOne = "bound-off-by-one"
+
+// OpDropStmt identifies the statement deletion operator.
+let OpDropStmt = "drop-stmt"
+
+// OpMatchArmDefault identifies the match arm default-zero replacement operator.
+let OpMatchArmDefault = "match-arm-default"
+
+// OpReturnZero identifies the return-value zeroing operator.
+let OpReturnZero = "return-zero"
+
+// OpDropFails identifies the error-return dropping operator.
+let OpDropFails = "drop-fails"
+
+// OpWeakenLawPremise identifies the law premise weakening operator.
+let OpWeakenLawPremise = "weaken-law-premise"
+
+// OpFlipSomeNone identifies the option constructor Some/None flip operator.
+let OpFlipSomeNone = "flip-some-none"
+
+// SourceFile pairs a relative source path with its UTF-8 Ergo text.
+type SourceFile {
+	Path string,
+	Src  string,
+}
+
+// CheckInputs provides optional preloaded external tables and dependencies for
+// full multi-package type checking during derived mutant generation.
+type CheckInputs {
+	PkgPath string,
+	Ext     []types.Ext,
+	Foreign []types.Foreign,
+	Ifaces  []types.Iface,
+	Frozen  []store.Frozen,
+	Deps    []expr.Dep,
+	Prelude bool,
+}
+
+// EmptyCheckInputs returns standalone CheckInputs with no external tables.
+func EmptyCheckInputs() CheckInputs {
+	CheckInputs{
+		PkgPath: "main",
+		Ext:     []types.Ext{},
+		Foreign: []types.Foreign{},
+		Ifaces:  []types.Iface{},
+		Frozen:  []store.Frozen{},
+		Deps:    []expr.Dep{},
+		Prelude: false,
+	}
+}
+
+// DerivedMutant represents one viable, deduplicated derived mutation.
+type DerivedMutant {
+	ID             string,
+	File           string,
+	Decl           string,
+	Op             string,
+	Line           int,
+	Col            int,
+	Seq            int,
+	Offset         int,
+	End            int,
+	From           string,
+	To             string,
+	Rule           string,
+	NormalizedHash string,
+}
+
+// DuplicateMatch pairs a hand-authored ledger row with an equivalent derived mutant.
+type DuplicateMatch {
+	HandName  string,
+	DerivedID string,
+	File      string,
+	Decl      string,
+}
+
+// DerivedStrictFinding reports a --strict violation on derived law coverage.
+type DerivedStrictFinding {
+	DerivedID string,
+	Decl      string,
+	Op        string,
+	Message   string,
+}
+
+type rawCandidate {
+	fileIdx int,
+	file    string,
+	decl    string,
+	op      string,
+	line    int,
+	col     int,
+	offset  int,
+	end     int,
+	from    string,
+	to      string,
+	rule    string,
+}
+
+type checkedPkg {
+	s        store.Store,
+	k        expr.Pkg,
+	t        expr.Typer,
+	typesByP dense.Side[store.PNode, dense.Opt[store.TKey]],
+	diagKeys []string,
+}
+
+type deriveCtx {
+	file        int,
+	filePath    string,
+	src         string,
+	p           syntax.Parsed,
+	lines       syntax.Lines,
+	decl        string,
+	inLaw       bool,
+	inFunc      bool,
+	fnIndex     int,
+	normalRet   option.Option[dense.ID[store.TKey]],
+	hasFails    bool,
+	failsRow    []dense.ID[store.TKey],
+	optionAlias string,
+	checked     checkedPkg,
+	out         []rawCandidate,
+}
+
+// DeriveSource generates all viable, deduplicated derived mutants for one
+// standalone Ergo source file.
+func DeriveSource(path string, src string) []DerivedMutant {
+	DeriveFiles([]SourceFile{SourceFile{Path: path, Src: src}}, EmptyCheckInputs())
+}
+
+// DeriveFiles generates all viable, deduplicated derived mutants across files
+// in one package, validating syntax, formatting fixpoint, and diagnostic baseline.
+func DeriveFiles(files []SourceFile, inputs CheckInputs) []DerivedMutant {
+	if files.Len() == 0 {
+		return []DerivedMutant{}
+	}
+	let baseChecked = checkFiles(files, inputs)
+	let mut baseNorms = slices.WithCapacity[string](files.Len())
+	for sf in files {
+		baseNorms = baseNorms.Append(CheckText(sf.Src))
+	}
+	let mut all = []rawCandidate{}
+	for fi in 0..files.Len() {
+		let sf = files[fi]
+		if !strings.HasSuffix(sf.Path, ".ergo") {
+			continue
+		}
+		let p = baseChecked.k.Parsed[fi]
+		if p.Failed {
+			continue
+		}
+		let cands = collectFileCandidates(fi, sf.Path, sf.Src, p, baseChecked)
+		for c in cands {
+			all = all.Append(c)
+		}
+	}
+	let sorted = slices.SortFunc(all, compareRawCandidate)
+	let mut seen = dense.NewKeys()
+	let mut emitted = []DerivedMutant{}
+	let mut prevFile = ""
+	let mut prevDecl = ""
+	let mut prevOp = ""
+	let mut prevLine = -1
+	let mut seq = 0
+	for c in sorted {
+		let sf = files[c.fileIdx]
+		if c.offset < 0 || c.end < c.offset || c.end > sf.Src.Len() {
+			continue
+		}
+		let rawMut = sf.Src[0:c.offset] + c.to + sf.Src[c.end:sf.Src.Len()]
+		let formatted = format.Source(rawMut, 0) catch {
+		case format.SyntaxFailure:
+			continue
+		case format.OutputLimit:
+			continue
+		}
+		let reformatted = format.Source(formatted, 0) catch {
+		case format.SyntaxFailure:
+			continue
+		case format.OutputLimit:
+			continue
+		}
+		if reformatted != formatted {
+			continue
+		}
+		let normMut = CheckText(formatted)
+		if normMut == baseNorms[c.fileIdx] {
+			continue
+		}
+		let mut mutFiles = slices.WithCapacity[SourceFile](files.Len())
+		for j in 0..files.Len() {
+			if j == c.fileIdx {
+				mutFiles = mutFiles.Append(SourceFile{Path: sf.Path, Src: formatted})
+			} else {
+				mutFiles = mutFiles.Append(files[j])
+			}
+		}
+		let mutChecked = checkFiles(mutFiles, inputs)
+		if hasNewDiag(mutChecked.k.Parsed, baseChecked.diagKeys, mutChecked.diagKeys) {
+			continue
+		}
+		let normKeyInput = c.file + "\x00" + normMut
+		let sum = sha256.Sum(normKeyInput)
+		let hi = readU64BE(sum, 0)
+		let lo = readU64BE(sum, 8)
+		if !dense.AddKey(&seen, hi, lo) {
+			continue
+		}
+		if c.file == prevFile && c.decl == prevDecl && c.op == prevOp && c.line == prevLine {
+			seq = seq + 1
+		} else {
+			prevFile = c.file
+			prevDecl = c.decl
+			prevOp = c.op
+			prevLine = c.line
+			seq = 1
+		}
+		let anchored = anchorCandidateSpan(c.file, sf.Src, c.decl, c.offset, c.end, c.to)
+		let id = "derived:\(c.file):\(c.decl):\(c.op):L\(c.line):\(seq)"
+		emitted = emitted.Append(DerivedMutant{
+			ID:             id,
+			File:           c.file,
+			Decl:           c.decl,
+			Op:             c.op,
+			Line:           c.line,
+			Col:            c.col,
+			Seq:            seq,
+			Offset:         anchored.Start,
+			End:            anchored.End,
+			From:           anchored.From,
+			To:             anchored.To,
+			Rule:           c.rule,
+			NormalizedHash: hex.Encode(sum),
+		})
+	}
+	emitted
+}
+
+type anchoredEdit { Start int, End int, From string, To string }
+
+func anchorCandidateSpan(file string, src string, decl string, start0 int, end0 int, to0 string) anchoredEdit {
+	let from0 = src[start0:end0]
+	let mut unique = true
+	let _ = Locate(file, src, decl, from0) catch {
+	case AnchorError:
+		unique = false
+		(0, 0)
+	}
+	if unique {
+		return anchoredEdit{Start: start0, End: end0, From: from0, To: to0}
+	}
+	let mut boundLo = 0
+	let mut boundHi = src.Len()
+	for d in Decls(file, src) {
+		if d.Name == decl {
+			boundLo = d.Start
+			boundHi = d.End
+			break
+		}
+	}
+	let mut ls = start0
+	for ls > boundLo && src[ls-1] != '\n' {
+		ls = ls - 1
+	}
+	let mut le = end0
+	for le < boundHi && src[le] != '\n' {
+		le = le + 1
+	}
+	if le < boundHi && src[le] == '\n' {
+		le = le + 1
+	}
+	for _ in 0..8 {
+		let candFrom = src[ls:le]
+		let candTo = src[ls:start0] + to0 + src[end0:le]
+		let mut ok = true
+		let _ = Locate(file, src, decl, candFrom) catch {
+		case AnchorError:
+			ok = false
+			(0, 0)
+		}
+		if ok {
+			return anchoredEdit{Start: ls, End: le, From: candFrom, To: candTo}
+		}
+		let prevLs = ls
+		if ls > boundLo {
+			if ls > boundLo && src[ls-1] == '\n' {
+				ls = ls - 1
+			}
+			for ls > boundLo && src[ls-1] != '\n' {
+				ls = ls - 1
+			}
+		}
+		if prevLs == ls && le < boundHi {
+			for le < boundHi && src[le] != '\n' {
+				le = le + 1
+			}
+			if le < boundHi && src[le] == '\n' {
+				le = le + 1
+			}
+		}
+		if prevLs == ls && le >= boundHi {
+			break
+		}
+	}
+	anchoredEdit{Start: start0, End: end0, From: from0, To: to0}
+}
+
+func compareRawCandidate(a rawCandidate, b rawCandidate) int {
+	if a.file != b.file {
+		return if a.file < b.file { -1 } else { 1 }
+	}
+	if a.line != b.line {
+		return a.line - b.line
+	}
+	if a.offset != b.offset {
+		return a.offset - b.offset
+	}
+	if a.end != b.end {
+		return a.end - b.end
+	}
+	if a.op != b.op {
+		return if a.op < b.op { -1 } else { 1 }
+	}
+	if a.to != b.to {
+		return if a.to < b.to { -1 } else { 1 }
+	}
+	0
+}
+
+func readU64BE(b string, off int) uint64 {
+	let mut acc = uint64(0)
+	for i in 0..8 {
+		let idx = off + i
+		let v = if idx < b.Len() { uint64(b[idx]) } else { uint64(0) }
+		acc = acc*uint64(256) + v
+	}
+	acc
+}
+
+func baseName(path string) string {
+	let i = strings.LastIndex(path, "/")
+	if i < 0 { path } else { path[i+1 : path.Len()] }
+}
+
+func checkFiles(files []SourceFile, inputs CheckInputs) checkedPkg {
+	let mut bfiles = slices.WithCapacity[bind.File](files.Len())
+	let mut srcs = slices.WithCapacity[string](files.Len())
+	for sf in files {
+		bfiles = bfiles.Append(bind.File{Name: baseName(sf.Path), Parsed: syntax.Parse(sf.Src)})
+		srcs = srcs.Append(sf.Src)
+	}
+	let pkgPath = if inputs.PkgPath == "" { "main" } else { inputs.PkgPath }
+	let s0 = bind.Collect(pkgPath, bfiles)
+	let ps = bind.BuildParents(bfiles)
+	let (s1, u) = bind.Bind(s0, inputs.Frozen, ps, bfiles, 1)
+	let mut s = s1
+	let k0 = expr.Load(&s, bfiles, u, ps, inputs.Ext, inputs.Foreign, inputs.Ifaces, inputs.Prelude)
+	let k = expr.WithDeps(k0, inputs.Deps)
+	let t = expr.Check(&s, k)
+	let mut side = dense.NewSide[store.PNode, dense.Opt[store.TKey]](dense.NoID[store.TKey]())
+	for e in t.Entries {
+		dense.SideSet(&side, e.At, dense.OptOf(e.T))
+	}
+	let keys = collectDiagKeys(&s, k, t, srcs)
+	checkedPkg{s: s, k: k, t: t, typesByP: side, diagKeys: keys}
+}
+
+func collectDiagKeys(s mut store.Store, k expr.Pkg, t expr.Typer, srcs []string) []string {
+	let mut keys = []string{}
+	for fi in 0..k.Parsed.Len() {
+		let p = k.Parsed[fi]
+		if p.Failed {
+			keys = keys.Append("S001\x00\(fi)\x00\(p.Message)")
+		}
+	}
+	let emptyDeps = Map[string, Map[string, bool]]{}
+	let held = diag.Held(*s, k, t, emptyDeps)
+	let mut ds = diag.UnusedWithImports(k.Files, *s, k.U, k.Ps, []string{}, providing.Quiet(*s, k, held), t.UsedImports)
+	for g in diag.Flow(*s, k, t, srcs) {
+		ds = ds.Append(g)
+	}
+	for g in diag.OwnMarks(*s, k, t) {
+		ds = ds.Append(g)
+	}
+	for g in diag.Harnesses(k) {
+		ds = ds.Append(g)
+	}
+	for g in diag.AsWritten(k.Parsed) {
+		ds = ds.Append(g)
+	}
+	for g in diag.MachineTuples(k.Parsed) {
+		ds = ds.Append(g)
+	}
+	for g in rows.Rows(*s, k, t) {
+		ds = ds.Append(g)
+	}
+	for g in providing.Check(*s, k) {
+		ds = ds.Append(g)
+	}
+	for g in diag.Dropped(*s, k, t, footprint.Of(*s, k, t), emptyDeps) {
+		ds = ds.Append(g)
+	}
+	for g in facts.Diags(s, k) {
+		ds = ds.Append(g)
+	}
+	for d in ds {
+		if d.Code == "S108" || d.Code == "S101" || d.Code == "S102" || d.Code == "S106" || d.Code == "S110" || d.Code == "S001" {
+			keys = keys.Append("\(d.Code)\x00\(d.File)\x00\(d.Message)")
+		} else {
+			keys = keys.Append("\(d.Code)\x00\(d.File)\x00\(d.Message)")
+		}
+	}
+	for g in t.SelfInference {
+		keys = keys.Append("S108\x00\(g.File)\x00self:\(g.Param)")
+	}
+	for g in t.BareSelfCalls {
+		keys = keys.Append("S108\x00\(g.File)\x00bare:\(g.Name)")
+	}
+	for g in t.LookupDiags {
+		keys = keys.Append("\(g.Code)\x00\(g.File)\x00\(g.Message)")
+	}
+	for d in t.Diags {
+		keys = keys.Append("EXPR_DIAG\x00\(d.Fn)\x00\(dense.Index(d.At))")
+	}
+	keys
+}
+
+func hasNewDiag(mutParsed []syntax.Parsed, baseKeys []string, mutKeys []string) bool {
+	for p in mutParsed {
+		if p.Failed {
+			return true
+		}
+	}
+	let mut baseExprDiags = 0
+	let mut seen = dense.NewStrings()
+	for bk in baseKeys {
+		if strings.HasPrefix(bk, "EXPR_DIAG\x00") {
+			baseExprDiags = baseExprDiags + 1
+		} else {
+			let _ = dense.InternText(&seen, bk)
+		}
+	}
+	let mut mutExprDiags = 0
+	for mk in mutKeys {
+		if strings.HasPrefix(mk, "EXPR_DIAG\x00") {
+			mutExprDiags = mutExprDiags + 1
+		} else {
+			match dense.FindText(seen, mk) {
+			case option.Some[dense.ID[dense.Str]]:
+			case option.None:
+				return true
+			}
+		}
+	}
+	mutExprDiags > baseExprDiags
+}
+
+func findOptionAlias(p syntax.Parsed) string {
+	let tr = p.Tree
+	let f = syntax.FileOf(tr, syntax.Root(tr))
+	for i in 0..syntax.Len(f.Decls) {
+		let d = syntax.Item(tr, f.Decls, i)
+		if syntax.KindOf(tr, d) == syntax.KImportDecl {
+			let imp = syntax.ImportDeclOf(tr, d)
+			if syntax.KindOf(tr, imp.Spec) != syntax.KImportSpec {
+				continue
+			}
+			let sp = syntax.ImportSpecOf(tr, imp.Spec)
+			let pathNode = sp.Path
+			let pathText = nodeText(p, syntax.SourceOf(p), pathNode)
+			if pathText == "option" {
+				match dense.Unpack(sp.Name) {
+				case option.Some[dense.ID[syntax.Node]] as nm:
+					return nodeIdent(p, nm.Value)
+				case option.None:
+					return "option"
+				}
+			}
+		}
+	}
+	""
+}
+
+func nodeText(p syntax.Parsed, src string, id dense.ID[syntax.Node]) string {
+	let s = syntax.NodePos(p, id)
+	let e = syntax.NodeEnd(p, id)
+	if s >= 0 && e >= s && e <= src.Len() { src[s:e] } else { "" }
+}
+
+func collectFileCandidates(fileIdx int, path string, src string, p syntax.Parsed, cp checkedPkg) []rawCandidate {
+	let tr = p.Tree
+	let f = syntax.FileOf(tr, syntax.Root(tr))
+	let lines = syntax.LinesOf(src)
+	let optAlias = findOptionAlias(p)
+	let mut ctx = deriveCtx{
+		file:        fileIdx,
+		filePath:    path,
+		src:         src,
+		p:           p,
+		lines:       lines,
+		decl:        "",
+		inLaw:       false,
+		inFunc:      false,
+		fnIndex:     -1,
+		normalRet:   option.None,
+		hasFails:    false,
+		failsRow:    []dense.ID[store.TKey]{},
+		optionAlias: optAlias,
+		checked:     cp,
+		out:         []rawCandidate{},
+	}
+	for i in 0..syntax.Len(f.Decls) {
+		let d = syntax.Item(tr, f.Decls, i)
+		let kd = syntax.KindOf(tr, d)
+		if kd == syntax.KFuncDecl {
+			let fd = syntax.FuncDeclOf(tr, d)
+			ctx.decl = nodeIdent(p, fd.Name)
+			ctx.inLaw = false
+			ctx.inFunc = true
+			ctx.fnIndex = findFnIndex(cp.k, fileIdx, d)
+			setFnSignatureInfo(&ctx, fd.Type)
+			match dense.Unpack(fd.Body) {
+			case option.Some[dense.ID[syntax.Node]] as body:
+				visitFuncBody(&ctx, body.Value)
+			case option.None:
+			}
+		} else if kd == syntax.KLawDecl {
+			let ld = syntax.LawDeclOf(tr, d)
+			ctx.decl = "law:" + nodeIdent(p, ld.Name)
+			ctx.inLaw = true
+			ctx.inFunc = false
+			ctx.fnIndex = -1
+			ctx.normalRet = option.None
+			ctx.hasFails = false
+			ctx.failsRow = []dense.ID[store.TKey]{}
+			match dense.Unpack(ld.Body) {
+			case option.Some[dense.ID[syntax.Node]] as body:
+				visitLawBody(&ctx, body.Value)
+			case option.None:
+			}
+		} else if kd == syntax.KTestDecl {
+			let td = syntax.TestDeclOf(tr, d)
+			ctx.decl = nodeIdent(p, td.Name)
+			ctx.inLaw = false
+			ctx.inFunc = false
+			ctx.fnIndex = -1
+			ctx.normalRet = option.None
+			ctx.hasFails = false
+			ctx.failsRow = []dense.ID[store.TKey]{}
+			match dense.Unpack(td.Body) {
+			case option.Some[dense.ID[syntax.Node]] as body:
+				visitNode(&ctx, body.Value)
+			case option.None:
+			}
+		}
+	}
+	ctx.out
+}
+
+func findFnIndex(k expr.Pkg, fileIdx int, declNode dense.ID[syntax.Node]) int {
+	for i in 0..k.Fns.Len() {
+		let fn = k.Fns[i]
+		if fn.File == fileIdx && fn.Decl == declNode {
+			return i
+		}
+	}
+	-1
+}
+
+func setFnSignatureInfo(ctx mut deriveCtx, ftNode dense.ID[syntax.Node]) {
+	ctx.normalRet = option.None
+	ctx.hasFails = false
+	ctx.failsRow = []dense.ID[store.TKey]{}
+	let tr = ctx.p.Tree
+	if syntax.KindOf(tr, ftNode) != syntax.KFuncType {
+		return
+	}
+	let ft = syntax.FuncTypeOf(tr, ftNode)
+	let mut normalTypes = []dense.ID[syntax.Node]{}
+	match dense.Unpack(ft.Results) {
+	case option.Some[dense.ID[syntax.Node]] as rn:
+		if syntax.KindOf(tr, rn.Value) == syntax.KFieldList {
+			let fl = syntax.FieldListOf(tr, rn.Value)
+			for i in 0..syntax.Len(fl.List) {
+				let fldNode = syntax.Item(tr, fl.List, i)
+				let fld = syntax.FieldOf(tr, fldNode)
+				match dense.Unpack(fld.Type) {
+				case option.Some[dense.ID[syntax.Node]] as fty:
+					if syntax.KindOf(tr, fty.Value) == syntax.KErrorRow {
+						ctx.hasFails = true
+					} else {
+						normalTypes = normalTypes.Append(fty.Value)
+					}
+				case option.None:
+				}
+			}
+		}
+	case option.None:
+	}
+	if ctx.fnIndex >= 0 && ctx.fnIndex < ctx.checked.k.Fns.Len() {
+		let fn = ctx.checked.k.Fns[ctx.fnIndex]
+		let ops = store.OperandsOf(ctx.checked.s, fn.Sig)
+		if ops.Len() >= 3 && normalTypes.Len() == 1 {
+			let resT = ops[ops.Len()-3]
+			ctx.normalRet = option.Some[dense.ID[store.TKey]]{Value: resT}
+		}
+	}
+}
+
+func addCandidate(ctx mut deriveCtx, op string, offset int, end int, to string, rule string) {
+	if ctx.decl == "" || offset < 0 || end < offset || end > ctx.src.Len() {
+		return
+	}
+	let from = ctx.src[offset:end]
+	if from == to {
+		return
+	}
+	let pos = syntax.PositionOf(ctx.lines, offset)
+	ctx.out = ctx.out.Append(rawCandidate{
+		fileIdx: ctx.file,
+		file:    ctx.filePath,
+		decl:    ctx.decl,
+		op:      op,
+		line:    pos.Line,
+		col:     pos.Column,
+		offset:  offset,
+		end:     end,
+		from:    from,
+		to:      to,
+		rule:    rule,
+	})
+}
+
+func nodeType(ctx deriveCtx, id dense.ID[syntax.Node]) option.Option[dense.ID[store.TKey]] {
+	let pnode = bind.PNodeOf(ctx.checked.k.Ps, ctx.file, id)
+	dense.Unpack(dense.SideOf(ctx.checked.typesByP, pnode))
+}
+
+func visitFuncBody(ctx mut deriveCtx, bodyNode dense.ID[syntax.Node]) {
+	visitNode(ctx, bodyNode)
+	if syntax.KindOf(ctx.p.Tree, bodyNode) != syntax.KBlockStmt {
+		return
+	}
+	let blk = syntax.BlockStmtOf(ctx.p.Tree, bodyNode)
+	let n = syntax.Len(blk.List)
+	if n == 0 {
+		return
+	}
+	let last = syntax.Item(ctx.p.Tree, blk.List, n-1)
+	if syntax.KindOf(ctx.p.Tree, last) == syntax.KExprStmt {
+		let es = syntax.ExprStmtOf(ctx.p.Tree, last)
+		emitReturnZeroForExpr(ctx, es.X)
+	}
+}
+
+func visitLawBody(ctx mut deriveCtx, bodyNode dense.ID[syntax.Node]) {
+	visitNode(ctx, bodyNode)
+	if syntax.KindOf(ctx.p.Tree, bodyNode) != syntax.KBlockStmt {
+		return
+	}
+	let tr = ctx.p.Tree
+	let blk = syntax.BlockStmtOf(tr, bodyNode)
+	let n = syntax.Len(blk.List)
+	for i in 0..n {
+		let stmt = syntax.Item(tr, blk.List, i)
+		if syntax.KindOf(tr, stmt) == syntax.KIfStmt {
+			let ifs = syntax.IfStmtOf(tr, stmt)
+			if !isSomeNode(ifs.Else) && blockReturnsTrue(tr, ctx.p, ifs.Body) {
+				let cs = syntax.NodePos(ctx.p, ifs.Cond)
+				let ce = syntax.NodeEnd(ctx.p, ifs.Cond)
+				if cs >= 0 && ce > cs && ctx.src[cs:ce] != "true" {
+					addCandidate(ctx, OpWeakenLawPremise, cs, ce, "true", "weaken law premise guard to true")
+				}
+			}
+		}
+		if i == n-1 && syntax.KindOf(tr, stmt) == syntax.KExprStmt {
+			let es = syntax.ExprStmtOf(tr, stmt)
+			if syntax.KindOf(tr, es.X) == syntax.KBinaryExpr {
+				let be = syntax.BinaryExprOf(tr, es.X)
+				if syntax.TokKind(ctx.p, be.Op) == syntax.Lor {
+					let xs = syntax.NodePos(ctx.p, be.X)
+					let xe = syntax.NodeEnd(ctx.p, be.X)
+					if xs >= 0 && xe > xs && ctx.src[xs:xe] != "true" {
+						addCandidate(ctx, OpWeakenLawPremise, xs, xe, "true", "weaken law disjunction premise to true")
+					}
+				}
+			}
+		}
+	}
+}
+
+func blockReturnsTrue(tr syntax.Tree, p syntax.Parsed, blkNode dense.ID[syntax.Node]) bool {
+	if syntax.KindOf(tr, blkNode) != syntax.KBlockStmt {
+		return false
+	}
+	let blk = syntax.BlockStmtOf(tr, blkNode)
+	if syntax.Len(blk.List) != 1 {
+		return false
+	}
+	let only = syntax.Item(tr, blk.List, 0)
+	let kd = syntax.KindOf(tr, only)
+	if kd == syntax.KReturnStmt {
+		let rs = syntax.ReturnStmtOf(tr, only)
+		match dense.Unpack(rs.Result) {
+		case option.Some[dense.ID[syntax.Node]] as res:
+			return isTrueIdent(tr, p, res.Value)
+		case option.None:
+			return false
+		}
+	}
+	if kd == syntax.KExprStmt {
+		return isTrueIdent(tr, p, syntax.ExprStmtOf(tr, only).X)
+	}
+	false
+}
+
+func isTrueIdent(tr syntax.Tree, p syntax.Parsed, id dense.ID[syntax.Node]) bool {
+	syntax.KindOf(tr, id) == syntax.KIdent && nodeIdent(p, id) == "true"
+}
+
+func isSomeNode(o dense.Opt[syntax.Node]) bool {
+	match dense.Unpack(o) {
+	case option.Some[dense.ID[syntax.Node]]:
+		true
+	case option.None:
+		false
+	}
+}
+
+func visitNode(ctx mut deriveCtx, id dense.ID[syntax.Node]) {
+	let tr = ctx.p.Tree
+	if dense.Index(id) < 0 || dense.Index(id) >= syntax.NumNodes(tr) {
+		return
+	}
+	let kd = syntax.KindOf(tr, id)
+	if kd == syntax.KBlockStmt {
+		let blk = syntax.BlockStmtOf(tr, id)
+		let n = syntax.Len(blk.List)
+		for i in 0..n {
+			let st = syntax.Item(ctx.p.Tree, blk.List, i)
+			if n >= 2 && i < n-1 && droppableStmt(ctx.p.Tree, st) {
+				let ss = syntax.NodePos(ctx.p, st)
+				let se = syntax.NodeEnd(ctx.p, st)
+				addCandidate(ctx, OpDropStmt, ss, se, "", "drop statement")
+			}
+			visitNode(ctx, st)
+		}
+		return
+	}
+	if kd == syntax.KBinaryExpr {
+		let be = syntax.BinaryExprOf(tr, id)
+		let tk = syntax.TokKind(ctx.p, be.Op)
+		let swapped = swapBinaryOp(tk)
+		if swapped != "" {
+			let opPos = syntax.TokPos(ctx.p, be.Op)
+			let opEnd = syntax.TokEnd(ctx.p, be.Op)
+			addCandidate(ctx, OpCmpSwap, opPos, opEnd, swapped, "swap comparison or logical operator")
+		}
+		visitNode(ctx, be.X)
+		visitNode(ctx, be.Y)
+		return
+	}
+	if kd == syntax.KSliceExpr {
+		let se = syntax.SliceExprOf(tr, id)
+		visitNode(ctx, se.X)
+		match dense.Unpack(se.Low) {
+		case option.Some[dense.ID[syntax.Node]] as lo:
+			emitOffByOne(ctx, lo.Value, false)
+			visitNode(ctx, lo.Value)
+		case option.None:
+		}
+		match dense.Unpack(se.High) {
+		case option.Some[dense.ID[syntax.Node]] as hi:
+			emitOffByOne(ctx, hi.Value, true)
+			visitNode(ctx, hi.Value)
+		case option.None:
+		}
+		match dense.Unpack(se.Max) {
+		case option.Some[dense.ID[syntax.Node]] as mx:
+			visitNode(ctx, mx.Value)
+		case option.None:
+		}
+		return
+	}
+	if kd == syntax.KRangeStmt {
+		let rg = syntax.RangeStmtOf(tr, id)
+		if syntax.KindOf(tr, rg.X) == syntax.KBinaryExpr {
+			let be = syntax.BinaryExprOf(tr, rg.X)
+			if syntax.TokKind(ctx.p, be.Op) == syntax.DotDot {
+				emitOffByOne(ctx, be.Y, true)
+				emitOffByOne(ctx, be.X, false)
+			}
+		}
+		visitNode(ctx, rg.X)
+		visitNode(ctx, rg.Body)
+		return
+	}
+	if kd == syntax.KReturnStmt {
+		let rs = syntax.ReturnStmtOf(tr, id)
+		match dense.Unpack(rs.Result) {
+		case option.Some[dense.ID[syntax.Node]] as res:
+			if ctx.inFunc {
+				if ctx.hasFails && isFailReturn(*ctx, res.Value) {
+					let rsStart = syntax.NodePos(ctx.p, id)
+					let rsEnd = syntax.NodeEnd(ctx.p, id)
+					match ctx.normalRet {
+					case option.Some[dense.ID[store.TKey]] as rt:
+						match zeroExprForType(ctx.checked.s, ctx.checked.k, ctx.optionAlias, rt.Value) {
+						case option.Some[string] as z:
+							addCandidate(ctx, OpDropFails, rsStart, rsEnd, "return \(z.Value)", "drop failure return with zero value")
+						case option.None:
+						}
+					case option.None:
+						addCandidate(ctx, OpDropFails, rsStart, rsEnd, "return", "drop failure return")
+					}
+				} else {
+					emitReturnZeroForExpr(ctx, res.Value)
+				}
+			}
+			visitNode(ctx, res.Value)
+		case option.None:
+		}
+		return
+	}
+	if kd == syntax.KSwitchStmt {
+		let sw = syntax.SwitchStmtOf(tr, id)
+		visitNode(ctx, sw.Tag)
+		emitMatchArms(ctx, id, sw.Clauses)
+		return
+	}
+	if kd == syntax.KTypeSwitchStmt {
+		let ts = syntax.TypeSwitchStmtOf(tr, id)
+		visitNode(ctx, ts.Subject)
+		emitMatchArms(ctx, id, ts.Clauses)
+		return
+	}
+	if kd == syntax.KCaseClause {
+		let cc = syntax.CaseClauseOf(tr, id)
+		for i in 0..syntax.Len(cc.List) {
+			visitNode(ctx, syntax.Item(ctx.p.Tree, cc.List, i))
+		}
+		for i in 0..syntax.Len(cc.Body) {
+			visitNode(ctx, syntax.Item(ctx.p.Tree, cc.Body, i))
+		}
+		return
+	}
+	if kd == syntax.KIdent || kd == syntax.KSelectorExpr || kd == syntax.KCompositeLit || kd == syntax.KCallExpr {
+		tryEmitFlipSomeNone(ctx, id)
+	}
+	let kids = syntax.Children(tr, id, []uint32{})
+	for cidx in kids {
+		let child = syntax.NodeAt(tr, int(cidx))
+		visitNode(ctx, child)
+	}
+}
+
+func droppableStmt(tr syntax.Tree, st dense.ID[syntax.Node]) bool {
+	let kd = syntax.KindOf(tr, st)
+	if kd == syntax.KReturnStmt || kd == syntax.KBranchStmt || kd == syntax.KSkipStmt || kd == syntax.KDieStmt || kd == syntax.KAlwaysStmt || kd == syntax.KSometimesStmt || kd == syntax.KVarDecl || kd == syntax.KDeclStmt {
+		return false
+	}
+	true
+}
+
+func swapBinaryOp(tk uint8) string {
+	if tk == syntax.Lss {
+		return "<="
+	}
+	if tk == syntax.Leq {
+		return "<"
+	}
+	if tk == syntax.Gtr {
+		return ">="
+	}
+	if tk == syntax.Geq {
+		return ">"
+	}
+	if tk == syntax.Eql {
+		return "!="
+	}
+	if tk == syntax.Neq {
+		return "=="
+	}
+	if tk == syntax.Land {
+		return "||"
+	}
+	if tk == syntax.Lor {
+		return "&&"
+	}
+	""
+}
+
+func emitOffByOne(ctx mut deriveCtx, boundNode dense.ID[syntax.Node], upper bool) {
+	let s = syntax.NodePos(ctx.p, boundNode)
+	let e = syntax.NodeEnd(ctx.p, boundNode)
+	if s < 0 || e <= s || e > ctx.src.Len() {
+		return
+	}
+	let raw = ctx.src[s:e]
+	if !upper && raw == "0" {
+		return
+	}
+	let trimmed = strings.TrimSpace(raw)
+	if trimmed == "" {
+		return
+	}
+	if upper {
+		addCandidate(ctx, OpBoundOffByOne, s, e, "(\(trimmed) - 1)", "shift upper bound down by 1")
+		addCandidate(ctx, OpBoundOffByOne, s, e, "(\(trimmed) + 1)", "shift upper bound up by 1")
+	} else {
+		addCandidate(ctx, OpBoundOffByOne, s, e, "(\(trimmed) + 1)", "shift lower bound up by 1")
+	}
+}
+
+func emitReturnZeroForExpr(ctx mut deriveCtx, exprNode dense.ID[syntax.Node]) {
+	if !ctx.inFunc {
+		return
+	}
+	match ctx.normalRet {
+	case option.Some[dense.ID[store.TKey]] as rt:
+		match zeroExprForType(ctx.checked.s, ctx.checked.k, ctx.optionAlias, rt.Value) {
+		case option.Some[string] as z:
+			let xs = syntax.NodePos(ctx.p, exprNode)
+			let xe = syntax.NodeEnd(ctx.p, exprNode)
+			if xs >= 0 && xe > xs && xe <= ctx.src.Len() {
+				if CheckText(ctx.src[xs:xe]) != CheckText(z.Value) {
+					addCandidate(ctx, OpReturnZero, xs, xe, z.Value, "replace return value with zero expression")
+				}
+			}
+		case option.None:
+		}
+	case option.None:
+	}
+}
+
+func isFailReturn(ctx deriveCtx, resNode dense.ID[syntax.Node]) bool {
+	if !ctx.hasFails {
+		return false
+	}
+	match ctx.normalRet {
+	case option.None:
+		return true
+	case option.Some[dense.ID[store.TKey]] as rt:
+		match nodeType(ctx, resNode) {
+		case option.Some[dense.ID[store.TKey]] as actual:
+			return actual.Value != rt.Value
+		case option.None:
+			return false
+		}
+	}
+}
+
+func emitMatchArms(ctx mut deriveCtx, switchNode dense.ID[syntax.Node], clauses syntax.List) {
+	let switchT = nodeType(*ctx, switchNode)
+	let armType = match switchT {
+	case option.Some[dense.ID[store.TKey]] as st:
+		option.Some[dense.ID[store.TKey]]{Value: st.Value}
+	case option.None:
+		ctx.normalRet
+	}
+	let tr = ctx.p.Tree
+	for i in 0..syntax.Len(clauses) {
+		let cnode = syntax.Item(tr, clauses, i)
+		if syntax.KindOf(tr, cnode) == syntax.KCaseClause {
+			let cc = syntax.CaseClauseOf(tr, cnode)
+			let blen = syntax.Len(cc.Body)
+			if blen > 0 {
+				match armType {
+				case option.Some[dense.ID[store.TKey]] as ty:
+					match zeroExprForType(ctx.checked.s, ctx.checked.k, ctx.optionAlias, ty.Value) {
+					case option.Some[string] as z:
+						let first = syntax.Item(tr, cc.Body, 0)
+						let last = syntax.Item(tr, cc.Body, blen-1)
+						let bs = syntax.NodePos(ctx.p, first)
+						let be = syntax.NodeEnd(ctx.p, last)
+						if bs >= 0 && be > bs && be <= ctx.src.Len() {
+							if CheckText(ctx.src[bs:be]) != CheckText(z.Value) {
+								addCandidate(ctx, OpMatchArmDefault, bs, be, z.Value, "replace match arm result with zero value")
+							}
+						}
+					case option.None:
+					}
+				case option.None:
+				}
+			}
+			visitNode(ctx, cnode)
+		}
+	}
+}
+
+func tryEmitFlipSomeNone(ctx mut deriveCtx, id dense.ID[syntax.Node]) {
+	let tr = ctx.p.Tree
+	let kd = syntax.KindOf(tr, id)
+	let raw = nodeText(ctx.p, ctx.src, id)
+	let s = syntax.NodePos(ctx.p, id)
+	let e = syntax.NodeEnd(ctx.p, id)
+	if kd == syntax.KCompositeLit {
+		let cl = syntax.CompositeLitOf(tr, id)
+		match dense.Unpack(cl.Type) {
+		case option.Some[dense.ID[syntax.Node]] as tn:
+			let tname = compositeBaseName(ctx.p, tr, tn.Value)
+			if tname == "Some" || tname == "option.Some" || (ctx.optionAlias != "" && tname == ctx.optionAlias+".Some") {
+				let repl = if strings.IndexByte(tname, '.') >= 0 {
+					tname[0:strings.IndexByte(tname, '.')] + ".None"
+				} else if ctx.optionAlias != "" {
+					ctx.optionAlias + ".None"
+				} else {
+					"None"
+				}
+				addCandidate(ctx, OpFlipSomeNone, s, e, repl, "flip Some to None")
+			}
+		case option.None:
+		}
+		return
+	}
+	if kd == syntax.KCallExpr {
+		let ce = syntax.CallExprOf(tr, id)
+		if syntax.KindOf(tr, ce.Fun) == syntax.KIdent && nodeIdent(ctx.p, ce.Fun) == "some" {
+			let repl = if ctx.optionAlias != "" { ctx.optionAlias + ".None" } else { "None" }
+			addCandidate(ctx, OpFlipSomeNone, s, e, repl, "flip some(...) to None")
+		}
+		return
+	}
+	if raw == "None" || raw == "option.None" || (ctx.optionAlias != "" && raw == ctx.optionAlias+".None") {
+		let prefix = if strings.IndexByte(raw, '.') >= 0 {
+			raw[0:strings.IndexByte(raw, '.')] + "."
+		} else {
+			""
+		}
+		match nodeType(*ctx, id) {
+		case option.Some[dense.ID[store.TKey]] as ot:
+			let ops = store.OperandsOf(ctx.checked.s, ot.Value)
+			if ops.Len() >= 1 {
+				let inner = ops[0]
+				match zeroExprForType(ctx.checked.s, ctx.checked.k, ctx.optionAlias, inner) {
+				case option.Some[string] as z:
+					let tText = basicOrLocalTypeName(ctx.checked.s, ctx.checked.k, inner)
+					let repl = if tText != "" { "\(prefix)Some[\(tText)]{Value: \(z.Value)}" } else { "\(prefix)Some{Value: \(z.Value)}" }
+					addCandidate(ctx, OpFlipSomeNone, s, e, repl, "flip None to Some(zero)")
+				case option.None:
+				}
+			}
+		case option.None:
+		}
+	}
+}
+
+func compositeBaseName(p syntax.Parsed, tr syntax.Tree, tn dense.ID[syntax.Node]) string {
+	let kd = syntax.KindOf(tr, tn)
+	if kd == syntax.KIndexExpr {
+		return compositeBaseName(p, tr, syntax.IndexExprOf(tr, tn).X)
+	}
+	if kd == syntax.KIdent {
+		return nodeIdent(p, tn)
+	}
+	if kd == syntax.KSelectorExpr {
+		let sel = syntax.SelectorExprOf(tr, tn)
+		if syntax.KindOf(tr, sel.X) == syntax.KIdent && syntax.KindOf(tr, sel.Sel) == syntax.KIdent {
+			return nodeIdent(p, sel.X) + "." + nodeIdent(p, sel.Sel)
+		}
+	}
+	""
+}
+
+func basicOrLocalTypeName(s store.Store, k expr.Pkg, t dense.ID[store.TKey]) string {
+	let kind = store.KindOfType(s, t)
+	if kind == store.KBasic {
+		return basicName(store.ArgOf(s, t))
+	}
+	if kind == store.KSlice {
+		let ops = store.OperandsOf(s, t)
+		if ops.Len() == 1 {
+			let elem = basicOrLocalTypeName(s, k, ops[0])
+			if elem != "" {
+				return "[]" + elem
+			}
+		}
+	}
+	if kind == store.KMap {
+		let ops = store.OperandsOf(s, t)
+		if ops.Len() == 2 {
+			let kt = basicOrLocalTypeName(s, k, ops[0])
+			let vt = basicOrLocalTypeName(s, k, ops[1])
+			if kt != "" && vt != "" {
+				return "Map[\(kt), \(vt)]"
+			}
+		}
+	}
+	if kind == store.KNamed {
+		let idx = store.ArgOf(s, t)
+		if idx >= 0 && idx < k.Recs.Len() {
+			return k.Recs[idx].Name
+		}
+	}
+	""
+}
+
+func basicName(ord int) string {
+	if ord == 1 {
+		return "bool"
+	}
+	if ord == 2 {
+		return "string"
+	}
+	if ord == 3 {
+		return "int"
+	}
+	if ord == 4 {
+		return "int8"
+	}
+	if ord == 5 {
+		return "int16"
+	}
+	if ord == 6 {
+		return "int32"
+	}
+	if ord == 7 {
+		return "int64"
+	}
+	if ord == 8 {
+		return "uint"
+	}
+	if ord == 9 {
+		return "uint8"
+	}
+	if ord == 10 {
+		return "uint16"
+	}
+	if ord == 11 {
+		return "uint32"
+	}
+	if ord == 12 {
+		return "uint64"
+	}
+	if ord == 13 {
+		return "uintptr"
+	}
+	if ord == 14 {
+		return "float32"
+	}
+	if ord == 15 {
+		return "float64"
+	}
+	if ord == 18 {
+		return "duration"
+	}
+	""
+}
+
+func zeroExprForType(s store.Store, k expr.Pkg, optAlias string, t dense.ID[store.TKey]) option.Option[string] {
+	let kind = store.KindOfType(s, t)
+	if kind == store.KBasic {
+		let ord = store.ArgOf(s, t)
+		if ord == 1 {
+			return option.Some[string]{Value: "false"}
+		}
+		if ord == 2 {
+			return option.Some[string]{Value: "\"\""}
+		}
+		if ord == 3 {
+			return option.Some[string]{Value: "0"}
+		}
+		if ord >= 4 && ord <= 13 {
+			let nm = basicName(ord)
+			if nm != "" {
+				return option.Some[string]{Value: "\(nm)(0)"}
+			}
+		}
+		if ord == 14 {
+			return option.Some[string]{Value: "float32(0.0)"}
+		}
+		if ord == 15 {
+			return option.Some[string]{Value: "0.0"}
+		}
+		if ord == 18 {
+			return option.Some[string]{Value: "0s"}
+		}
+		return option.None
+	}
+	if kind == store.KSlice {
+		let ops = store.OperandsOf(s, t)
+		if ops.Len() == 1 {
+			let elem = basicOrLocalTypeName(s, k, ops[0])
+			if elem != "" {
+				return option.Some[string]{Value: "[]" + elem + "{}"}
+			}
+		}
+		return option.None
+	}
+	if kind == store.KMap {
+		let ops = store.OperandsOf(s, t)
+		if ops.Len() == 2 {
+			let kt = basicOrLocalTypeName(s, k, ops[0])
+			let vt = basicOrLocalTypeName(s, k, ops[1])
+			if kt != "" && vt != "" {
+				return option.Some[string]{Value: "Map[\(kt), \(vt)]{}"}
+			}
+		}
+		return option.None
+	}
+	if kind == store.KInstance {
+		let canon = store.Canon(s, []store.Frozen{}, t)
+		if strings.HasPrefix(canon, "option.Option[") {
+			let nm = if optAlias != "" { optAlias + ".None" } else { "None" }
+			return option.Some[string]{Value: nm}
+		}
+		return option.None
+	}
+	if kind == store.KNamed {
+		let idx = store.ArgOf(s, t)
+		if idx >= 0 && idx < k.Recs.Len() {
+			let rec = k.Recs[idx]
+			if rec.Op || rec.Params.Len() > 0 {
+				return option.None
+			}
+			let mut parts = []string{}
+			for f in rec.Fields {
+				if f.Name == "" || !strings.HasPrefix(f.Name, strings.ToUpper(f.Name[0:1])) {
+					return option.None
+				}
+				match zeroExprForType(s, k, optAlias, f.T) {
+				case option.Some[string] as z:
+					parts = parts.Append("\(f.Name): \(z.Value)")
+				case option.None:
+					return option.None
+				}
+			}
+			return option.Some[string]{Value: "\(rec.Name){" + strings.Join(parts, ", ") + "}"}
+		}
+	}
+	option.None
+}
+
+// DetectHandDuplicates finds hand-authored ledger rows whose normalized edited
+// file equals a generated derived mutant in the same file.
+func DetectHandDuplicates(rows []MutantRow, derived []DerivedMutant, filePaths []string, fileSrcs []string) []DuplicateMatch {
+	let mut seenFiles = dense.NewStrings()
+	let mut srcs = []string{}
+	for i in 0..filePaths.Len() {
+		if i < fileSrcs.Len() {
+			let id = dense.InternText(&seenFiles, filePaths[i])
+			for dense.Index(id) >= srcs.Len() {
+				srcs = srcs.Append("")
+			}
+			srcs[dense.Index(id)] = fileSrcs[i]
+		}
+	}
+	let mut hashToIdx = dense.NewStrings()
+	let mut firstDerivedIdx = []int{}
+	for di in 0..derived.Len() {
+		let d = derived[di]
+		if !isSomeStrID(dense.FindText(hashToIdx, d.NormalizedHash)) {
+			let hid = dense.InternText(&hashToIdx, d.NormalizedHash)
+			for dense.Index(hid) >= firstDerivedIdx.Len() {
+				firstDerivedIdx = firstDerivedIdx.Append(di)
+			}
+			firstDerivedIdx[dense.Index(hid)] = di
+		}
+	}
+	let mut dups = []DuplicateMatch{}
+	for r in rows {
+		match dense.FindText(seenFiles, r.File) {
+		case option.Some[dense.ID[dense.Str]] as fid:
+			let baseSrc = srcs[dense.Index(fid.Value)]
+			let edited = Apply(r.File, baseSrc, r.Decl, r.From, r.To) catch {
+			case AnchorError:
+				continue
+			}
+			let mutNorm = CheckText(formatOrSelf(r.File, edited))
+			let sum = sha256.Sum(r.File + "\x00" + mutNorm)
+			let key = hex.Encode(sum)
+			match dense.FindText(hashToIdx, key) {
+			case option.Some[dense.ID[dense.Str]] as hid:
+				let dm = derived[firstDerivedIdx[dense.Index(hid.Value)]]
+				dups = dups.Append(DuplicateMatch{
+					HandName:  r.Name,
+					DerivedID: dm.ID,
+					File:      r.File,
+					Decl:      dm.Decl,
+				})
+			case option.None:
+			}
+		case option.None:
+		}
+	}
+	dups
+}
+
+func formatOrSelf(path string, src string) string {
+	if !strings.HasSuffix(path, ".ergo") {
+		return src
+	}
+	format.Source(src, 0) catch {
+	case format.SyntaxFailure:
+		src
+	case format.OutputLimit:
+		src
+	}
+}
+
+func isSomeStrID(o option.Option[dense.ID[dense.Str]]) bool {
+	match o {
+	case option.Some[dense.ID[dense.Str]]:
+		true
+	case option.None:
+		false
+	}
+}
+
+// CheckDerivedStrict enforces the strict derived-mutant gate: every derived
+// mutant whose enclosing declaration is a law must be killed.
+func CheckDerivedStrict(items []DerivedMutant, killedIDs []string) []DerivedStrictFinding {
+	let mut killed = dense.NewStrings()
+	for id in killedIDs {
+		let _ = dense.InternText(&killed, id)
+	}
+	let mut findings = []DerivedStrictFinding{}
+	for d in items {
+		if strings.HasPrefix(d.Decl, "law:") && !isSomeStrID(dense.FindText(killed, d.ID)) {
+			findings = findings.Append(DerivedStrictFinding{
+				DerivedID: d.ID,
+				Decl:      d.Decl,
+				Op:        d.Op,
+				Message:   "FINDING: derived mutant on law \(d.Decl) survived (\(d.ID))",
+			})
+		}
+	}
+	findings
+}
+
+// DeriveIsDeterministic checks that DeriveSource emits identical candidate IDs,
+// operators, spans, and normalized hashes across repeated runs on the same input.
+law DeriveIsDeterministic(v int) {
+	let n = if v < 0 { -v % 10 } else { v % 10 }
+	let src = "func Cmp(x int) int {\n\tlet xs = []int{1, 2, 3}\n\tlet mut acc = 0\n\tfor i in 0..xs.Len() {\n\t\tacc = acc + xs[i]\n\t}\n\tif x < \(n) {\n\t\treturn acc\n\t}\n\treturn 0\n}\n"
+	let a = DeriveSource("a.ergo", src)
+	let b = DeriveSource("a.ergo", src)
+	if a.Len() != b.Len() || a.Len() == 0 {
+		return false
+	}
+	for i in 0..a.Len() {
+		if a[i].ID != b[i].ID || a[i].To != b[i].To || a[i].NormalizedHash != b[i].NormalizedHash {
+			return false
+		}
+	}
+	true
+}
+
+// DerivedEditsAlwaysApplyAndParse checks that every emitted derived mutant
+// applies cleanly via Apply and yields syntactically valid Ergo source.
+law DerivedEditsAlwaysApplyAndParse(limit int) {
+	let n = (limit%5+5)%5 + 1
+	let src = "func BoundCheck(xs []int) int {\n\tlet ys = xs[0:\(n)]\n\tlet mut s = 0\n\tfor i in 0..ys.Len() {\n\t\ts = s + ys[i]\n\t}\n\ts\n}\n"
+	let cands = DeriveSource("b.ergo", src)
+	if cands.Len() == 0 {
+		return false
+	}
+	for c in cands {
+		let mutSrc = Apply(c.File, src, c.Decl, c.From, c.To) catch {
+		case AnchorError:
+			return false
+		}
+		let parsed = syntax.Parse(mutSrc)
+		if parsed.Failed {
+			return false
+		}
+		if CheckText(mutSrc) == CheckText(src) {
+			return false
+		}
+	}
+	true
+}
+
+// StrictRefusesSurvivingLaw checks that surviving derived law mutants always
+// emit a FINDING under CheckDerivedStrict.
+law StrictRefusesSurvivingLaw(name string) {
+	if !isSafeIdent(name) {
+		return true
+	}
+	let dm = DerivedMutant{
+		ID:             "derived:a.ergo:law:\(name):weaken-law-premise:L2:1",
+		File:           "a.ergo",
+		Decl:           "law:" + name,
+		Op:             OpWeakenLawPremise,
+		Line:           2,
+		Col:            5,
+		Seq:            1,
+		Offset:         10,
+		End:            15,
+		From:           "x > 0",
+		To:             "true",
+		Rule:           "weaken premise",
+		NormalizedHash: "abcd",
+	}
+	let f0 = CheckDerivedStrict([]DerivedMutant{dm}, []string{})
+	let f1 = CheckDerivedStrict([]DerivedMutant{dm}, []string{dm.ID})
+	f0.Len() == 1 && f1.Len() == 0
+}
+
+test TestDeriveOperatorsDuplicatesAndStrict {
+	let src = "type OptSome { Value int }\ntype OptNone {}\ntype Opt = OptSome | OptNone\ntype BadErr {}\n\nfunc Pick(a int, b int, xs []int) int {\n\tlet mut sum = 0\n\tfor i in 0..xs.Len() {\n\t\tsum = sum + xs[i]\n\t}\n\tlet sub = xs[1:xs.Len()]\n\tlet mut res = 0\n\tmatch a < b {\n\tcase true:\n\t\tres = sum + sub.Len()\n\tcase false:\n\t\tres = 1\n\t}\n\tif a == b {\n\t\treturn 10\n\t}\n\tres\n}\n\nfunc MayFail(x int) int fails BadErr {\n\tif x < 0 {\n\t\treturn BadErr\n\t}\n\tx + 1\n}\n\nlaw Prop(x int) {\n\tif x < 0 {\n\t\treturn true\n\t}\n\tx >= 0\n}\n"
+	let cands = DeriveSource("sample.ergo", src)
+	assert cands.Len() > 0
+	let mut hasCmp = false
+	let mut hasLssToLeq = false
+	let mut hasBound = false
+	let mut hasDrop = false
+	let mut hasMatch = false
+	let mut hasRet = false
+	let mut hasDropFails = false
+	let mut hasWeaken = false
+	for c in cands {
+		if c.Op == OpCmpSwap {
+			hasCmp = true
+			if c.From == "<" && c.To == "<=" {
+				hasLssToLeq = true
+			}
+		}
+		if c.Op == OpBoundOffByOne {
+			hasBound = true
+		}
+		if c.Op == OpDropStmt {
+			hasDrop = true
+		}
+		if c.Op == OpMatchArmDefault {
+			hasMatch = true
+		}
+		if c.Op == OpReturnZero {
+			hasRet = true
+		}
+		if c.Op == OpDropFails {
+			hasDropFails = true
+		}
+		if c.Op == OpWeakenLawPremise {
+			hasWeaken = true
+		}
+	}
+	assert hasCmp
+	assert hasLssToLeq
+	assert hasBound
+	assert hasDrop
+	assert hasMatch
+	assert hasRet
+	assert hasDropFails
+	assert hasWeaken
+	let optSrc = "type Some[T] { Value T }\ntype None {}\ntype Option[T] = Some[T] | None\n\nfunc Wrap(ok bool) Option[int] {\n\tif ok {\n\t\treturn Some[int]{Value: 1}\n\t}\n\tNone\n}\n"
+	let optCands = DeriveSource("opt.ergo", optSrc)
+	let mut hasFlip = false
+	for c in optCands {
+		if c.Op == OpFlipSomeNone {
+			hasFlip = true
+		}
+	}
+	assert hasFlip
+	let mut firstCmp = cands[0]
+	for c in cands {
+		if c.Op == OpCmpSwap {
+			firstCmp = c
+			break
+		}
+	}
+	let hand = MutantRow{
+		Name:       "hand-dup",
+		Origin:     "test",
+		File:       "sample.ergo",
+		Decl:       firstCmp.Decl,
+		From:       firstCmp.From,
+		To:         firstCmp.To,
+		Rule:       "dup",
+		Killers:    []string{},
+		Gap:        "",
+		Anchor:     AnchorSpec{Files: []string{}, Decls: []string{}, Tests: []string{}},
+		Refused:    false,
+		Regenerate: option.None,
+	}
+	let dups = DetectHandDuplicates([]MutantRow{hand}, cands, []string{"sample.ergo"}, []string{src})
+	assert dups.Len() >= 1
+	assert dups[0].HandName == "hand-dup"
+	let strictFinds = CheckDerivedStrict(cands, []string{})
+	assert strictFinds.Len() >= 1
+}

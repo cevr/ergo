@@ -1,0 +1,182 @@
+// Package mutants is the pure-Ergo mutant anchor, derived-mutant generator,
+// execution planner, and verdict reporter. It lays out strings, declarations,
+// ledger rows, derived candidates, obligations, and reports as Data-Oriented
+// Design flat tables indexed by unsigned dense IDs with reusable scratch
+// buffers and zero pointer-keyed maps.
+
+import dense
+import option
+import slices
+
+// FileTag identifies an interned source file record inside Arena.
+type FileTag {}
+
+// DeclTag identifies a top-level Go or Ergo declaration span inside Arena.
+type DeclTag {}
+
+// MutantTag identifies a hand-authored or derived mutant row inside Arena.
+type MutantTag {}
+
+// CmdTag identifies a named command in a mutant ledger.
+type CmdTag {}
+
+// EnvTag identifies an environment entry in a mutant ledger.
+type EnvTag {}
+
+// CandidateTag identifies a typed derived mutant candidate inside Arena.
+type CandidateTag {}
+
+// ObligationTag identifies a test or law obligation inside Arena.
+type ObligationTag {}
+
+// PackageTag identifies a package target directory inside Arena.
+type PackageTag {}
+
+// VerdictTag identifies an aggregated report verdict row inside Arena.
+type VerdictTag {}
+
+// Str is an interned string handle stored in dense.Strings.
+type Str = dense.ID[dense.Str]
+
+// Scratch holds reusable temporary buffers shared across anchor scanning,
+// token normalization, derivation, and planning passes.
+type Scratch {
+	Buf  []byte,
+	U32  dense.Stack[uint32],
+	Strs dense.Stack[dense.ID[dense.Str]],
+	Ints dense.Stack[int],
+}
+
+// NewScratch allocates an empty Scratch with pre-sized backing slices.
+func NewScratch() Scratch {
+	Scratch{
+		Buf:  slices.WithCapacity[byte](256),
+		U32:  dense.StackWithCap[uint32](64),
+		Strs: dense.StackWithCap[dense.ID[dense.Str]](32),
+		Ints: dense.StackWithCap[int](32),
+	}
+}
+
+// ResetScratch clears all scratch cursors while keeping allocated capacity.
+func ResetScratch(s mut Scratch) {
+	s.Buf = s.Buf[0:0]
+	dense.Cut(&s.U32, 0)
+	dense.Cut(&s.Strs, 0)
+	dense.Cut(&s.Ints, 0)
+}
+
+// Arena stores interned strings and flat Structure-of-Arrays tables for
+// declarations, ledger mutants, derived candidates, and package plans.
+type Arena {
+	Strings       dense.Strings,
+	DeclCount     dense.Count[DeclTag],
+	DeclFile      dense.Col[DeclTag, Str],
+	DeclName      dense.Col[DeclTag, Str],
+	DeclDoc       dense.Col[DeclTag, Str],
+	DeclKind      dense.Col[DeclTag, uint8],
+	DeclStart     dense.Col[DeclTag, int],
+	DeclEnd       dense.Col[DeclTag, int],
+	DeclStartLine dense.Col[DeclTag, int],
+	DeclEndLine   dense.Col[DeclTag, int],
+	MutantCount   dense.Count[MutantTag],
+	MutantName    dense.Col[MutantTag, Str],
+	MutantOrigin  dense.Col[MutantTag, Str],
+	MutantFile    dense.Col[MutantTag, Str],
+	MutantDecl    dense.Col[MutantTag, Str],
+	MutantFrom    dense.Col[MutantTag, Str],
+	MutantTo      dense.Col[MutantTag, Str],
+	MutantRule    dense.Col[MutantTag, Str],
+	MutantGap     dense.Col[MutantTag, Str],
+	MutantRefused dense.Col[MutantTag, bool],
+	KillerRuns    dense.Pool[Str],
+	MutantKillers dense.Col[MutantTag, dense.Run[Str]],
+	Scratch       Scratch,
+}
+
+// NewArena constructs an initialized empty Arena.
+func NewArena() Arena {
+	Arena{
+		Strings:       dense.NewStrings(),
+		DeclCount:     dense.NewCount[DeclTag](),
+		DeclFile:      dense.NewCol[DeclTag, Str](),
+		DeclName:      dense.NewCol[DeclTag, Str](),
+		DeclDoc:       dense.NewCol[DeclTag, Str](),
+		DeclKind:      dense.NewCol[DeclTag, uint8](),
+		DeclStart:     dense.NewCol[DeclTag, int](),
+		DeclEnd:       dense.NewCol[DeclTag, int](),
+		DeclStartLine: dense.NewCol[DeclTag, int](),
+		DeclEndLine:   dense.NewCol[DeclTag, int](),
+		MutantCount:   dense.NewCount[MutantTag](),
+		MutantName:    dense.NewCol[MutantTag, Str](),
+		MutantOrigin:  dense.NewCol[MutantTag, Str](),
+		MutantFile:    dense.NewCol[MutantTag, Str](),
+		MutantDecl:    dense.NewCol[MutantTag, Str](),
+		MutantFrom:    dense.NewCol[MutantTag, Str](),
+		MutantTo:      dense.NewCol[MutantTag, Str](),
+		MutantRule:    dense.NewCol[MutantTag, Str](),
+		MutantGap:     dense.NewCol[MutantTag, Str](),
+		MutantRefused: dense.NewCol[MutantTag, bool](),
+		KillerRuns:    dense.NewPool[Str](),
+		MutantKillers: dense.NewCol[MutantTag, dense.Run[Str]](),
+		Scratch:       NewScratch(),
+	}
+}
+
+// Intern adds s to the Arena string table or returns its existing handle.
+func Intern(a mut Arena, s string) Str {
+	dense.InternText(&a.Strings, s)
+}
+
+// Text resolves an interned Str handle back to its string value.
+func Text(a Arena, id Str) string {
+	dense.Text(a.Strings, id)
+}
+
+// Find looks up s without inserting it.
+func Find(a Arena, s string) option.Option[Str] {
+	dense.FindText(a.Strings, s)
+}
+
+// AddDecl appends a declaration span row to the SoA declaration columns.
+func AddDecl(a mut Arena, file string, name string, doc string, kind uint8, start int, end int, startLine int, endLine int) dense.ID[DeclTag] {
+	let id = dense.Next(&a.DeclCount)
+	dense.Push(&a.DeclFile, Intern(a, file))
+	dense.Push(&a.DeclName, Intern(a, name))
+	dense.Push(&a.DeclDoc, Intern(a, doc))
+	dense.Push(&a.DeclKind, kind)
+	dense.Push(&a.DeclStart, start)
+	dense.Push(&a.DeclEnd, end)
+	dense.Push(&a.DeclStartLine, startLine)
+	dense.Push(&a.DeclEndLine, endLine)
+	id
+}
+
+// StoreInternDeduplicates checks that Arena string interning assigns equal
+// dense IDs to equal strings, distinct IDs to distinct strings, and recovers
+// the exact text.
+law StoreInternDeduplicates(a string, b string) {
+	let mut arena = NewArena()
+	let ia = Intern(&arena, a)
+	let ia2 = Intern(&arena, a)
+	let ib = Intern(&arena, b)
+	let same = if a == b { ia == ib } else { ia != ib }
+	ia == ia2 && same && Text(arena, ia) == a && Text(arena, ib) == b
+}
+
+// StoreScratchPreservesOrder checks that ResetScratch clears depth to zero
+// and subsequent pushes recover elements in order.
+law StoreScratchPreservesOrder(xs []int) {
+	let mut s = NewScratch()
+	dense.StackPush(&s.Ints, 99)
+	ResetScratch(&s)
+	let m = dense.Mark(s.Ints)
+	for x in xs {
+		dense.StackPush(&s.Ints, x)
+	}
+	let got = dense.Since(s.Ints, m)
+	let mut ok = m == 0 && got.Len() == xs.Len()
+	for i in 0..xs.Len() {
+		ok = ok && got[i] == xs[i]
+	}
+	ok
+}

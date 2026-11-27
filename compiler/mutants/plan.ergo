@@ -1,0 +1,426 @@
+import compiler/cachekey
+import dense
+import option
+import slices
+import strings
+
+// OblKindTest marks a unit test obligation.
+let OblKindTest = uint8(1)
+
+// OblKindLaw marks a property law obligation.
+let OblKindLaw = uint8(2)
+
+// OriginHand marks a hand-authored mutant ledger row.
+let OriginHand = uint8(1)
+
+// OriginDerived marks a compiler-generated derived mutant.
+let OriginDerived = uint8(2)
+
+// CoveredLineRange records an inclusive line span [StartLine, EndLine] in File
+// executed by an obligation.
+type CoveredLineRange {
+	File      string,
+	StartLine int,
+	EndLine   int,
+}
+
+// ObligationSpec describes one executable test or law obligation and its coverage ranges.
+type ObligationSpec {
+	Pkg     string,
+	Name    string,
+	Kind    uint8,
+	Covered []CoveredLineRange,
+}
+
+// NamedKillerTarget is a parsed killer identifier from mutants.json.
+type NamedKillerTarget {
+	Raw  string,
+	Pkg  string,
+	Kind uint8,
+	Name string,
+}
+
+// KillerFormatError reports an invalid killer string such as using a test: prefix.
+type KillerFormatError {
+	Raw    string,
+	Reason string,
+}
+
+// KillerMissingError reports a named killer absent from discovered obligations.
+type KillerMissingError {
+	Killer     string,
+	KnownCount int,
+}
+
+// PlanError enumerates killer parsing and resolution failures.
+type PlanError = KillerFormatError | KillerMissingError
+
+// PackageInput supplies a target package's source tree digest, ledger rows, and
+// derived candidates to the execution planner.
+type PackageInput {
+	Pkg            string,
+	SourceTreeHash string,
+	RunnerDigest   string,
+	HasLedger      bool,
+	Ledger         LedgerData,
+	Derived        []DerivedMutant,
+}
+
+// WorkItem is one scheduled mutant task with deterministic ordered killers and cache keys.
+type WorkItem {
+	ID       string,
+	Origin   uint8,
+	Pkg      string,
+	File     string,
+	Decl     string,
+	Rule     string,
+	Line     int,
+	Op       string,
+	CacheKey string,
+	Killers  []string,
+}
+
+// PkgWorkGroup collects scheduled WorkItems for one target package directory.
+type PkgWorkGroup {
+	Pkg   string,
+	Items []WorkItem,
+}
+
+// ExecutionPlan is the deterministic package-grouped schedule of all mutant work.
+type ExecutionPlan {
+	TotalMutants int,
+	SkippedGap   int,
+	Groups       []PkgWorkGroup,
+}
+
+// ObligationFullID formats the canonical identifier DIR:Name or DIR:law:Name.
+func ObligationFullID(pkg string, kind uint8, name string) string {
+	if kind == OblKindLaw {
+		"\(pkg):law:\(name)"
+	} else {
+		"\(pkg):\(name)"
+	}
+}
+
+// ParseKillerSpec parses DIR:TestName or DIR:law:LawName, rejecting empty fields
+// and explicit DIR:test:Name spellings.
+func ParseKillerSpec(raw string) NamedKillerTarget fails KillerFormatError {
+	if raw == "" {
+		return KillerFormatError{Raw: raw, Reason: "killer entry must not be empty"}
+	}
+	let first = strings.IndexByte(raw, ':')
+	if first <= 0 {
+		return KillerFormatError{Raw: raw, Reason: "expected DIR:Name or DIR:law:Name"}
+	}
+	let pkg = raw[0:first]
+	let rest = raw[first+1 : raw.Len()]
+	if rest == "" {
+		return KillerFormatError{Raw: raw, Reason: "missing obligation name"}
+	}
+	if strings.HasPrefix(rest, "law:") {
+		let nm = rest[4:rest.Len()]
+		if nm == "" || strings.IndexByte(nm, ':') >= 0 {
+			return KillerFormatError{Raw: raw, Reason: "invalid law name"}
+		}
+		return NamedKillerTarget{Raw: raw, Pkg: pkg, Kind: OblKindLaw, Name: nm}
+	}
+	if strings.HasPrefix(rest, "test:") {
+		return KillerFormatError{Raw: raw, Reason: "omit test: prefix; write DIR:TestName"}
+	}
+	if strings.IndexByte(rest, ':') >= 0 {
+		return KillerFormatError{Raw: raw, Reason: "unexpected colon in test name"}
+	}
+	NamedKillerTarget{Raw: raw, Pkg: pkg, Kind: OblKindTest, Name: rest}
+}
+
+// ResolveKillers validates that every named killer conforms to DIR:TestName or
+// DIR:law:LawName and exists in known, returning normalized full IDs.
+func ResolveKillers(killers []string, known []ObligationSpec) []string fails PlanError {
+	let mut knownSet = dense.NewStrings()
+	for o in known {
+		let _ = dense.InternText(&knownSet, ObligationFullID(o.Pkg, o.Kind, o.Name))
+	}
+	let mut resolved = slices.WithCapacity[string](killers.Len())
+	for raw in killers {
+		let parsed = ParseKillerSpec(raw) catch {
+		case KillerFormatError as e:
+			return e
+		}
+		let full = ObligationFullID(parsed.Pkg, parsed.Kind, parsed.Name)
+		match dense.FindText(knownSet, full) {
+		case option.Some[dense.ID[dense.Str]]:
+			resolved = resolved.Append(full)
+		case option.None:
+			return KillerMissingError{Killer: full, KnownCount: known.Len()}
+		}
+	}
+	resolved
+}
+
+type oblEntry {
+	fullID  string,
+	kind    uint8,
+	samePkg bool,
+}
+
+// ReachingObligations selects and deterministically orders all obligations that
+// cover [startLine, endLine] in file (or package fallback obligations with no
+// line ranges), ordering tests before laws, same-package before cross-package,
+// and tying alphabetically.
+func ReachingObligations(file string, startLine int, endLine int, mutantPkg string, obligations []ObligationSpec) []string {
+	let mut matched = []oblEntry{}
+	let mut seen = dense.NewStrings()
+	for o in obligations {
+		if !obligationCovers(o, file, startLine, endLine, mutantPkg) {
+			continue
+		}
+		let full = ObligationFullID(o.Pkg, o.Kind, o.Name)
+		match dense.FindText(seen, full) {
+		case option.Some[dense.ID[dense.Str]]:
+		case option.None:
+			let _ = dense.InternText(&seen, full)
+			matched = matched.Append(oblEntry{
+				fullID:  full,
+				kind:    o.Kind,
+				samePkg: o.Pkg == mutantPkg,
+			})
+		}
+	}
+	let sorted = slices.SortFunc(matched, func(a oblEntry, b oblEntry) int {
+		if a.kind != b.kind {
+			return if a.kind < b.kind { -1 } else { 1 }
+		}
+		if a.samePkg != b.samePkg {
+			return if a.samePkg { -1 } else { 1 }
+		}
+		if a.fullID != b.fullID {
+			return if a.fullID < b.fullID { -1 } else { 1 }
+		}
+		0
+	})
+	let mut out = slices.WithCapacity[string](sorted.Len())
+	for e in sorted {
+		out = out.Append(e.fullID)
+	}
+	out
+}
+
+func obligationCovers(o ObligationSpec, file string, startLine int, endLine int, mutantPkg string) bool {
+	if o.Covered.Len() == 0 {
+		return o.Pkg == mutantPkg
+	}
+	let lo = if startLine > 0 { startLine } else { 1 }
+	let hi = if endLine >= lo { endLine } else { lo }
+	for r in o.Covered {
+		if r.File == file {
+			let rlo = if r.StartLine > 0 { r.StartLine } else { 1 }
+			let rhi = if r.EndLine >= rlo { r.EndLine } else { rlo }
+			if rlo <= hi && lo <= rhi {
+				return true
+			}
+		}
+	}
+	false
+}
+
+// EditFingerprint computes the canonical hash key of a single edit specification.
+func EditFingerprint(file string, decl string, from string, to string) string {
+	cachekey.Fields([]cachekey.Field{
+		cachekey.Field{Name: "file", Value: file},
+		cachekey.Field{Name: "decl", Value: decl},
+		cachekey.Field{Name: "from", Value: from},
+		cachekey.Field{Name: "to", Value: to},
+	})
+}
+
+// VerdictCacheKey computes the deterministic action key for caching one mutant verdict.
+func VerdictCacheKey(runnerDigest string, treeHash string, editFP string, killers []string, derived bool) string {
+	let mut parts = slices.WithCapacity[string](4 + killers.Len())
+	parts = parts.Append(runnerDigest)
+	parts = parts.Append(treeHash)
+	parts = parts.Append(editFP)
+	parts = parts.Append(if derived { "derived" } else { "hand" })
+	for k in killers {
+		parts = parts.Append(k)
+	}
+	cachekey.Framed(parts)
+}
+
+// BuildExecutionPlan groups hand ledger rows and derived mutants by sorted package
+// directory with resolved/reaching killers and deterministic cache keys.
+func BuildExecutionPlan(targets []PackageInput, obligations []ObligationSpec, includeGaps bool) ExecutionPlan {
+	let sortedTargets = slices.SortFunc(targets, func(a PackageInput, b PackageInput) int {
+		if a.Pkg < b.Pkg {
+			return -1
+		}
+		if a.Pkg > b.Pkg {
+			return 1
+		}
+		0
+	})
+	let mut groups = []PkgWorkGroup{}
+	let mut total = 0
+	let mut skippedGap = 0
+	for t in sortedTargets {
+		let mut items = []WorkItem{}
+		if t.HasLedger {
+			for r in t.Ledger.Rows {
+				if r.Gap != "" && !includeGaps {
+					skippedGap = skippedGap + 1
+					continue
+				}
+				let killers = if r.Killers.Len() > 0 {
+					r.Killers
+				} else {
+					ReachingObligations(r.File, 0, 0, t.Pkg, obligations)
+				}
+				let fp = EditFingerprint(r.File, r.Decl, r.From, r.To)
+				let ck = VerdictCacheKey(t.RunnerDigest, t.SourceTreeHash, fp, killers, false)
+				items = items.Append(WorkItem{
+					ID:       r.Name,
+					Origin:   OriginHand,
+					Pkg:      t.Pkg,
+					File:     r.File,
+					Decl:     r.Decl,
+					Rule:     r.Rule,
+					Line:     0,
+					Op:       "hand",
+					CacheKey: ck,
+					Killers:  killers,
+				})
+				total = total + 1
+			}
+		}
+		let sortedDerived = slices.SortFunc(t.Derived, func(a DerivedMutant, b DerivedMutant) int {
+			if a.ID < b.ID {
+				return -1
+			}
+			if a.ID > b.ID {
+				return 1
+			}
+			0
+		})
+		for d in sortedDerived {
+			let killers = ReachingObligations(d.File, d.Line, d.Line, t.Pkg, obligations)
+			let fp = EditFingerprint(d.File, d.Decl, d.From, d.To)
+			let ck = VerdictCacheKey(t.RunnerDigest, t.SourceTreeHash, fp, killers, true)
+			items = items.Append(WorkItem{
+				ID:       d.ID,
+				Origin:   OriginDerived,
+				Pkg:      t.Pkg,
+				File:     d.File,
+				Decl:     d.Decl,
+				Rule:     d.Rule,
+				Line:     d.Line,
+				Op:       d.Op,
+				CacheKey: ck,
+				Killers:  killers,
+			})
+			total = total + 1
+		}
+		groups = groups.Append(PkgWorkGroup{Pkg: t.Pkg, Items: items})
+	}
+	ExecutionPlan{TotalMutants: total, SkippedGap: skippedGap, Groups: groups}
+}
+
+// PlanOrderTestsBeforeLaws checks that ReachingObligations places tests before laws
+// and same-package obligations before cross-package obligations regardless of input order.
+law PlanOrderTestsBeforeLaws(testName string, lawName string) {
+	if testName == "" || lawName == "" || strings.IndexByte(testName, ':') >= 0 || strings.IndexByte(lawName, ':') >= 0 {
+		return true
+	}
+	let r = CoveredLineRange{File: "a.ergo", StartLine: 1, EndLine: 20}
+	let oCrossTest = ObligationSpec{Pkg: "dep", Name: testName, Kind: OblKindTest, Covered: []CoveredLineRange{r}}
+	let oSameLaw = ObligationSpec{Pkg: "pkg", Name: lawName, Kind: OblKindLaw, Covered: []CoveredLineRange{r}}
+	let oSameTest = ObligationSpec{Pkg: "pkg", Name: testName, Kind: OblKindTest, Covered: []CoveredLineRange{r}}
+	let forward = ReachingObligations("a.ergo", 5, 5, "pkg", []ObligationSpec{oSameLaw, oCrossTest, oSameTest})
+	let reverse = ReachingObligations("a.ergo", 5, 5, "pkg", []ObligationSpec{oSameTest, oCrossTest, oSameLaw})
+	if forward.Len() != 3 || reverse.Len() != 3 {
+		return false
+	}
+	let want0 = "pkg:" + testName
+	let want1 = "dep:" + testName
+	let want2 = "pkg:law:" + lawName
+	forward[0] == want0 && forward[1] == want1 && forward[2] == want2 && reverse[0] == want0 && reverse[1] == want1 && reverse[2] == want2
+}
+
+// PlanAndCacheKeysDeterministic checks that target shuffling preserves plan grouping,
+// item order, killer lists, and cache keys.
+law PlanAndCacheKeysDeterministic(file string, decl string, from string, to string) {
+	let fpA = EditFingerprint(file, decl, from, to)
+	let fpB = EditFingerprint(file, decl, from, to)
+	let kA = VerdictCacheKey("run1", "tree1", fpA, []string{"pkg:TestOne", "pkg:law:LawOne"}, false)
+	let kB = VerdictCacheKey("run1", "tree1", fpB, []string{"pkg:TestOne", "pkg:law:LawOne"}, false)
+	let kDiff = VerdictCacheKey("run1", "tree1", fpB, []string{"pkg:TestOne", "pkg:law:LawOne"}, true)
+	fpA == fpB && kA == kB && kA != kDiff
+}
+
+test TestPlannerGroupingAndKillerResolution {
+	let okTest = ParseKillerSpec("compiler/mutants:TestAnchor") catch {
+	case KillerFormatError:
+		assert false
+		return
+	}
+	assert okTest.Kind == OblKindTest && okTest.Name == "TestAnchor"
+	let okLaw = ParseKillerSpec("compiler/mutants:law:StoreInternDeduplicates") catch {
+	case KillerFormatError:
+		assert false
+		return
+	}
+	assert okLaw.Kind == OblKindLaw && okLaw.Name == "StoreInternDeduplicates"
+	let mut badPrefix = false
+	let mut badReason = ""
+	let _ = ParseKillerSpec("compiler/mutants:test:Bad") catch {
+	case KillerFormatError as e:
+		badPrefix = true
+		badReason = e.Reason
+		NamedKillerTarget{Raw: "", Pkg: "", Kind: 0, Name: ""}
+	}
+	assert badPrefix
+	assert strings.Contains(badReason, "omit test:")
+	let known = []ObligationSpec{
+		ObligationSpec{Pkg: "p2", Name: "TestTwo", Kind: OblKindTest, Covered: []CoveredLineRange{CoveredLineRange{File: "p1/a.ergo", StartLine: 10, EndLine: 20}}},
+		ObligationSpec{Pkg: "p1", Name: "LawOne", Kind: OblKindLaw, Covered: []CoveredLineRange{CoveredLineRange{File: "p1/a.ergo", StartLine: 10, EndLine: 20}}},
+		ObligationSpec{Pkg: "p1", Name: "TestOne", Kind: OblKindTest, Covered: []CoveredLineRange{CoveredLineRange{File: "p1/a.ergo", StartLine: 10, EndLine: 20}}},
+	}
+	let res = ResolveKillers([]string{"p1:TestOne", "p1:law:LawOne"}, known) catch {
+	case PlanError:
+		assert false
+		return
+	}
+	assert res.Len() == 2
+	let mut missHit = false
+	let _ = ResolveKillers([]string{"p1:TestMissing"}, known) catch {
+	case PlanError as e:
+		match e {
+		case KillerMissingError:
+			missHit = true
+		case _:
+		}
+		[]string{}
+	}
+	assert missHit
+	let l1 = LedgerData{
+		About:    "p1",
+		Env:      []string{},
+		Commands: []NamedCommand{},
+		Rows:     []MutantRow{
+			MutantRow{Name: "m1", Origin: "h", File: "p1/a.ergo", Decl: "F", From: "<", To: "<=", Rule: "r1", Killers: []string{"p1:TestOne"}, Gap: "", Anchor: AnchorSpec{Files: []string{}, Decls: []string{}, Tests: []string{}}, Refused: false, Regenerate: option.None},
+			MutantRow{Name: "m2", Origin: "h", File: "p1/a.ergo", Decl: "F", From: ">", To: ">=", Rule: "r2", Killers: []string{}, Gap: "todo", Anchor: AnchorSpec{Files: []string{}, Decls: []string{}, Tests: []string{}}, Refused: false, Regenerate: option.None},
+		},
+	}
+	let dm = DerivedMutant{ID: "derived:p1/a.ergo:F:cmp-swap:L12:1", File: "p1/a.ergo", Decl: "F", Op: OpCmpSwap, Line: 12, Col: 5, Seq: 1, Offset: 10, End: 11, From: "<", To: "<=", Rule: "swap", NormalizedHash: "h1"}
+	let t1 = PackageInput{Pkg: "p1", SourceTreeHash: "th1", RunnerDigest: "rd1", HasLedger: true, Ledger: l1, Derived: []DerivedMutant{dm}}
+	let t0 = PackageInput{Pkg: "p0", SourceTreeHash: "th0", RunnerDigest: "rd1", HasLedger: false, Ledger: LedgerData{About: "", Env: []string{}, Commands: []NamedCommand{}, Rows: []MutantRow{}}, Derived: []DerivedMutant{}}
+	let plan = BuildExecutionPlan([]PackageInput{t1, t0}, known, false)
+	assert plan.TotalMutants == 2
+	assert plan.SkippedGap == 1
+	assert plan.Groups.Len() == 2
+	assert plan.Groups[0].Pkg == "p0"
+	assert plan.Groups[1].Pkg == "p1"
+	assert plan.Groups[1].Items.Len() == 2
+	assert plan.Groups[1].Items[1].Killers.Len() == 3
+	assert plan.Groups[1].Items[1].Killers[0] == "p1:TestOne"
+	assert plan.Groups[1].Items[1].Killers[1] == "p2:TestTwo"
+	assert plan.Groups[1].Items[1].Killers[2] == "p1:law:LawOne"
+}

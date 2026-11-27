@@ -1,0 +1,750 @@
+import dense
+import json
+import option
+import slices
+import strings
+
+// AnchorSpec narrows where a hand mutant's edit applies or what obligations cover it.
+type AnchorSpec {
+	Files []string,
+	Decls []string,
+	Tests []string,
+}
+
+// RegenerateSpec names the tool and arguments used to regenerate a row or ledger.
+type RegenerateSpec {
+	Tool string,
+	Args []string,
+	Note string,
+}
+
+// MutantRow is one hand-authored or generated mutant entry in mutants.json.
+type MutantRow {
+	Name       string,
+	Origin     string,
+	File       string,
+	Decl       string,
+	From       string,
+	To         string,
+	Rule       string,
+	Killers    []string,
+	Gap        string,
+	Anchor     AnchorSpec,
+	Refused    bool,
+	Regenerate option.Option[RegenerateSpec],
+}
+
+// NamedCommand is a named runner command in mutants.json.
+type NamedCommand {
+	Name  string,
+	Words []string,
+}
+
+// LedgerData holds a parsed and validated mutants.json ledger.
+type LedgerData {
+	About    string,
+	Env      []string,
+	Commands []NamedCommand,
+	Rows     []MutantRow,
+}
+
+// MalformedJSON reports syntactically invalid JSON input.
+type MalformedJSON { Reason string }
+
+// UnknownField reports an unrecognized JSON field name rejected by strict schema checks.
+type UnknownField { Path string, Field string }
+
+// WrongFieldType reports a JSON value whose type does not match the schema.
+type WrongFieldType { Path string, Want string, Got string }
+
+// DuplicateRow reports two ledger entries sharing the same mutant name.
+type DuplicateRow { Name string }
+
+// InvalidField reports a semantically invalid ledger field value.
+type InvalidField { Field string, Reason string }
+
+// LedgerError enumerates strict ledger parsing and validation failures.
+type LedgerError = MalformedJSON | UnknownField | WrongFieldType | DuplicateRow | InvalidField
+
+// ParseLedger parses and strictly validates raw mutants.json text without
+// permitting unknown fields, duplicate row names, no-op edits, malformed env
+// entries, or invalid command declarations.
+func ParseLedger(text string) LedgerData fails LedgerError {
+	let codec = json.Codec[json.Value]{MaxBytes: 0, MaxDepth: 0}
+	let root = json.Decode(codec, text) catch {
+	case json.Malformed as e:
+		return MalformedJSON{Reason: e.Reason}
+	case _:
+		return MalformedJSON{Reason: "failed to decode json value"}
+	}
+	let obj = try asObject(root, "$")
+	let mut about = ""
+	let mut env = []string{}
+	let mut cmds = []NamedCommand{}
+	let mut rows = []MutantRow{}
+	let mut seenRoot = dense.NewStrings()
+	for m in obj.Members {
+		let k = m.Key
+		if isSomeOpt(dense.FindText(seenRoot, k)) {
+			return InvalidField{Field: "$." + k, Reason: "duplicate json key"}
+		}
+		let _ = dense.InternText(&seenRoot, k)
+		if k == "about" {
+			about = try asString(m.Value, "$.about")
+		} else if k == "env" {
+			if !isNullValue(m.Value) {
+				env = try parseStringArray(m.Value, "$.env")
+			}
+		} else if k == "commands" {
+			if !isNullValue(m.Value) {
+				cmds = try parseCommands(m.Value, "$.commands")
+			}
+		} else if k == "mutants" {
+			if !isNullValue(m.Value) {
+				rows = try parseRows(m.Value, "$.mutants")
+			}
+		} else {
+			return UnknownField{Path: "$", Field: k}
+		}
+	}
+	try validateLedger(about, env, cmds, rows)
+	LedgerData{About: about, Env: env, Commands: cmds, Rows: rows}
+}
+
+func validateLedger(about string, env []string, cmds []NamedCommand, rows []MutantRow) fails LedgerError {
+	let _ = about
+	for entry in env {
+		let eq = strings.IndexByte(entry, '=')
+		if eq <= 0 {
+			return InvalidField{Field: "env", Reason: "entry \(entry) must be NAME=VALUE"}
+		}
+		let key = entry[0:eq]
+		if strings.IndexAny(key, " \t\n:") >= 0 {
+			return InvalidField{Field: "env", Reason: "invalid variable name \(key)"}
+		}
+	}
+	let mut seenCmd = dense.NewStrings()
+	for c in cmds {
+		if c.Name == "" || strings.IndexAny(c.Name, " \t\n:") >= 0 {
+			return InvalidField{Field: "commands", Reason: "invalid command name \(c.Name)"}
+		}
+		if isSomeOpt(dense.FindText(seenCmd, c.Name)) {
+			return InvalidField{Field: "commands", Reason: "duplicate command \(c.Name)"}
+		}
+		let _ = dense.InternText(&seenCmd, c.Name)
+		if c.Words.Len() == 0 {
+			return InvalidField{Field: "commands." + c.Name, Reason: "command word list must not be empty"}
+		}
+		for w in c.Words {
+			if w == "" {
+				return InvalidField{Field: "commands." + c.Name, Reason: "command word must not be empty"}
+			}
+		}
+	}
+	let mut seenRows = dense.NewStrings()
+	for r in rows {
+		if r.Name == "" {
+			return InvalidField{Field: "name", Reason: "mutant name must not be empty"}
+		}
+		if isSomeOpt(dense.FindText(seenRows, r.Name)) {
+			return DuplicateRow{Name: r.Name}
+		}
+		let _ = dense.InternText(&seenRows, r.Name)
+		if r.File == "" {
+			return InvalidField{Field: "\(r.Name).file", Reason: "file must not be empty"}
+		}
+		if r.From == "" {
+			return InvalidField{Field: "\(r.Name).from", Reason: "from must not be empty"}
+		}
+		if r.From == r.To {
+			return InvalidField{Field: "\(r.Name).to", Reason: "to must differ from from"}
+		}
+	}
+}
+
+func parseCommands(v json.Value, path string) []NamedCommand fails LedgerError {
+	let obj = try asObject(v, path)
+	let mut cmds = slices.WithCapacity[NamedCommand](obj.Members.Len())
+	let mut seen = dense.NewStrings()
+	for m in obj.Members {
+		if isSomeOpt(dense.FindText(seen, m.Key)) {
+			return InvalidField{Field: path + "." + m.Key, Reason: "duplicate command key"}
+		}
+		let _ = dense.InternText(&seen, m.Key)
+		let words = try parseStringArray(m.Value, path+"."+m.Key)
+		cmds = cmds.Append(NamedCommand{Name: m.Key, Words: words})
+	}
+	cmds
+}
+
+func parseRows(v json.Value, path string) []MutantRow fails LedgerError {
+	let arr = try asArray(v, path)
+	let mut rows = slices.WithCapacity[MutantRow](arr.Items.Len())
+	for i in 0..arr.Items.Len() {
+		let r = try parseOneRow(arr.Items[i], "\(path)[\(i)]")
+		rows = rows.Append(r)
+	}
+	rows
+}
+
+func parseOneRow(v json.Value, path string) MutantRow fails LedgerError {
+	let obj = try asObject(v, path)
+	let mut row = MutantRow{
+		Name:       "",
+		Origin:     "",
+		File:       "",
+		Decl:       "",
+		From:       "",
+		To:         "",
+		Rule:       "",
+		Killers:    []string{},
+		Gap:        "",
+		Anchor:     AnchorSpec{Files: []string{}, Decls: []string{}, Tests: []string{}},
+		Refused:    false,
+		Regenerate: option.None,
+	}
+	let mut seen = dense.NewStrings()
+	for m in obj.Members {
+		let k = m.Key
+		if isSomeOpt(dense.FindText(seen, k)) {
+			return InvalidField{Field: "\(path).\(k)", Reason: "duplicate json key"}
+		}
+		let _ = dense.InternText(&seen, k)
+		if k == "name" {
+			row.Name = try asString(m.Value, "\(path).name")
+		} else if k == "origin" {
+			row.Origin = try asString(m.Value, "\(path).origin")
+		} else if k == "file" {
+			row.File = try asString(m.Value, "\(path).file")
+		} else if k == "decl" {
+			row.Decl = try asString(m.Value, "\(path).decl")
+		} else if k == "from" {
+			row.From = try asString(m.Value, "\(path).from")
+		} else if k == "to" {
+			row.To = try asString(m.Value, "\(path).to")
+		} else if k == "rule" {
+			row.Rule = try asString(m.Value, "\(path).rule")
+		} else if k == "killers" {
+			if !isNullValue(m.Value) {
+				row.Killers = try parseStringArray(m.Value, "\(path).killers")
+			}
+		} else if k == "gap" {
+			row.Gap = try asString(m.Value, "\(path).gap")
+		} else if k == "anchor" {
+			if !isNullValue(m.Value) {
+				row.Anchor = try parseAnchorSpec(m.Value, "\(path).anchor")
+			}
+		} else if k == "refused" {
+			row.Refused = try asBool(m.Value, "\(path).refused")
+		} else if k == "regenerate" {
+			if !isNullValue(m.Value) {
+				let reg = try parseRegenerateSpec(m.Value, "\(path).regenerate")
+				row.Regenerate = option.Some[RegenerateSpec]{Value: reg}
+			}
+		} else {
+			return UnknownField{Path: path, Field: k}
+		}
+	}
+	row
+}
+
+func parseAnchorSpec(v json.Value, path string) AnchorSpec fails LedgerError {
+	let obj = try asObject(v, path)
+	let mut a = AnchorSpec{Files: []string{}, Decls: []string{}, Tests: []string{}}
+	for m in obj.Members {
+		let k = m.Key
+		if k == "files" {
+			if !isNullValue(m.Value) {
+				a.Files = try parseStringArray(m.Value, "\(path).files")
+			}
+		} else if k == "decls" {
+			if !isNullValue(m.Value) {
+				a.Decls = try parseStringArray(m.Value, "\(path).decls")
+			}
+		} else if k == "tests" {
+			if !isNullValue(m.Value) {
+				a.Tests = try parseStringArray(m.Value, "\(path).tests")
+			}
+		} else {
+			return UnknownField{Path: path, Field: k}
+		}
+	}
+	a
+}
+
+func parseRegenerateSpec(v json.Value, path string) RegenerateSpec fails LedgerError {
+	let obj = try asObject(v, path)
+	let mut r = RegenerateSpec{Tool: "", Args: []string{}, Note: ""}
+	for m in obj.Members {
+		let k = m.Key
+		if k == "tool" {
+			r.Tool = try asString(m.Value, "\(path).tool")
+		} else if k == "args" {
+			if !isNullValue(m.Value) {
+				r.Args = try parseStringArray(m.Value, "\(path).args")
+			}
+		} else if k == "note" {
+			r.Note = try asString(m.Value, "\(path).note")
+		} else {
+			return UnknownField{Path: path, Field: k}
+		}
+	}
+	r
+}
+
+func parseStringArray(v json.Value, path string) []string fails LedgerError {
+	let arr = try asArray(v, path)
+	let mut out = slices.WithCapacity[string](arr.Items.Len())
+	for i in 0..arr.Items.Len() {
+		let s = try asString(arr.Items[i], "\(path)[\(i)]")
+		out = out.Append(s)
+	}
+	out
+}
+
+func asObject(v json.Value, path string) json.Object fails WrongFieldType {
+	match v {
+	case json.Object as o:
+		o
+	case _:
+		return WrongFieldType{Path: path, Want: "object", Got: jsonKind(v)}
+	}
+}
+
+func asArray(v json.Value, path string) json.Array fails WrongFieldType {
+	match v {
+	case json.Array as a:
+		a
+	case _:
+		return WrongFieldType{Path: path, Want: "array", Got: jsonKind(v)}
+	}
+}
+
+func asString(v json.Value, path string) string fails WrongFieldType {
+	match v {
+	case json.Str as s:
+		s.Value
+	case _:
+		return WrongFieldType{Path: path, Want: "string", Got: jsonKind(v)}
+	}
+}
+
+func asBool(v json.Value, path string) bool fails WrongFieldType {
+	match v {
+	case json.Boolean as b:
+		b.Value
+	case _:
+		return WrongFieldType{Path: path, Want: "boolean", Got: jsonKind(v)}
+	}
+}
+
+func isNullValue(v json.Value) bool {
+	match v {
+	case json.Null:
+		true
+	case _:
+		false
+	}
+}
+
+func jsonKind(v json.Value) string {
+	match v {
+	case json.Null:
+		"null"
+	case json.Boolean:
+		"boolean"
+	case json.Num:
+		"number"
+	case json.Str:
+		"string"
+	case json.Array:
+		"array"
+	case json.Object:
+		"object"
+	}
+}
+
+func isSomeOpt[T](o option.Option[T]) bool {
+	match o {
+	case option.Some[T]:
+		true
+	case option.None:
+		false
+	}
+}
+
+// PopulateArena loads all rows of LedgerData into Arena SoA columns and returns
+// the dense MutantTag IDs allocated for each row in ledger order.
+func PopulateArena(a mut Arena, l LedgerData) []dense.ID[MutantTag] {
+	let mut ids = slices.WithCapacity[dense.ID[MutantTag]](l.Rows.Len())
+	for r in l.Rows {
+		let id = dense.Next(&a.MutantCount)
+		dense.Push(&a.MutantName, Intern(a, r.Name))
+		dense.Push(&a.MutantOrigin, Intern(a, r.Origin))
+		dense.Push(&a.MutantFile, Intern(a, r.File))
+		dense.Push(&a.MutantDecl, Intern(a, r.Decl))
+		dense.Push(&a.MutantFrom, Intern(a, r.From))
+		dense.Push(&a.MutantTo, Intern(a, r.To))
+		dense.Push(&a.MutantRule, Intern(a, r.Rule))
+		dense.Push(&a.MutantGap, Intern(a, r.Gap))
+		dense.Push(&a.MutantRefused, r.Refused)
+		let m = dense.Mark(a.Scratch.Strs)
+		for k in r.Killers {
+			dense.StackPush(&a.Scratch.Strs, Intern(a, k))
+		}
+		let run = dense.PutSince(&a.KillerRuns, &a.Scratch.Strs, m)
+		dense.Push(&a.MutantKillers, run)
+		ids = ids.Append(id)
+	}
+	ids
+}
+
+// EncodeLedger serializes LedgerData as canonical JSON matching mutants.json.
+func EncodeLedger(l LedgerData) string {
+	let t = json.NewText()
+	let mut fields = 1
+	if l.Env.Len() > 0 {
+		fields = fields + 1
+	}
+	if l.Commands.Len() > 0 {
+		fields = fields + 1
+	}
+	if l.Rows.Len() > 0 {
+		fields = fields + 1
+	}
+	t.BeginObject(fields)
+	t.Key("about")
+	t.String(l.About)
+	if l.Env.Len() > 0 {
+		t.Key("env")
+		t.BeginList(l.Env.Len())
+		for e in l.Env {
+			t.String(e)
+		}
+		t.EndList()
+	}
+	if l.Commands.Len() > 0 {
+		let sortedCmds = slices.SortFunc(l.Commands, func(a NamedCommand, b NamedCommand) int {
+			if a.Name < b.Name {
+				return -1
+			}
+			if a.Name > b.Name {
+				return 1
+			}
+			0
+		})
+		t.Key("commands")
+		t.BeginObject(sortedCmds.Len())
+		for c in sortedCmds {
+			t.Key(c.Name)
+			t.BeginList(c.Words.Len())
+			for w in c.Words {
+				t.String(w)
+			}
+			t.EndList()
+		}
+		t.EndObject()
+	}
+	if l.Rows.Len() > 0 {
+		t.Key("mutants")
+		t.BeginList(l.Rows.Len())
+		for r in l.Rows {
+			encodeMutantRow(t, r)
+		}
+		t.EndList()
+	}
+	t.EndObject()
+	t.Written()
+}
+
+func encodeMutantRow(t json.Text, r MutantRow) {
+	let hasAnchor = r.Anchor.Files.Len() > 0 || r.Anchor.Decls.Len() > 0 || r.Anchor.Tests.Len() > 0
+	let hasReg = isSomeOpt(r.Regenerate)
+	let mut n = 4
+	if r.Origin != "" {
+		n = n + 1
+	}
+	if r.Decl != "" {
+		n = n + 1
+	}
+	if r.Rule != "" {
+		n = n + 1
+	}
+	if r.Killers.Len() > 0 {
+		n = n + 1
+	}
+	if r.Gap != "" {
+		n = n + 1
+	}
+	if hasAnchor {
+		n = n + 1
+	}
+	if r.Refused {
+		n = n + 1
+	}
+	if hasReg {
+		n = n + 1
+	}
+	t.BeginObject(n)
+	t.Key("name")
+	t.String(r.Name)
+	if r.Origin != "" {
+		t.Key("origin")
+		t.String(r.Origin)
+	}
+	t.Key("file")
+	t.String(r.File)
+	if r.Decl != "" {
+		t.Key("decl")
+		t.String(r.Decl)
+	}
+	t.Key("from")
+	t.String(r.From)
+	t.Key("to")
+	t.String(r.To)
+	if r.Rule != "" {
+		t.Key("rule")
+		t.String(r.Rule)
+	}
+	if r.Killers.Len() > 0 {
+		t.Key("killers")
+		t.BeginList(r.Killers.Len())
+		for k in r.Killers {
+			t.String(k)
+		}
+		t.EndList()
+	}
+	if r.Gap != "" {
+		t.Key("gap")
+		t.String(r.Gap)
+	}
+	if hasAnchor {
+		let mut an = 0
+		if r.Anchor.Files.Len() > 0 {
+			an = an + 1
+		}
+		if r.Anchor.Decls.Len() > 0 {
+			an = an + 1
+		}
+		if r.Anchor.Tests.Len() > 0 {
+			an = an + 1
+		}
+		t.Key("anchor")
+		t.BeginObject(an)
+		if r.Anchor.Files.Len() > 0 {
+			t.Key("files")
+			t.BeginList(r.Anchor.Files.Len())
+			for f in r.Anchor.Files {
+				t.String(f)
+			}
+			t.EndList()
+		}
+		if r.Anchor.Decls.Len() > 0 {
+			t.Key("decls")
+			t.BeginList(r.Anchor.Decls.Len())
+			for d in r.Anchor.Decls {
+				t.String(d)
+			}
+			t.EndList()
+		}
+		if r.Anchor.Tests.Len() > 0 {
+			t.Key("tests")
+			t.BeginList(r.Anchor.Tests.Len())
+			for testName in r.Anchor.Tests {
+				t.String(testName)
+			}
+			t.EndList()
+		}
+		t.EndObject()
+	}
+	if r.Refused {
+		t.Key("refused")
+		t.Bool(true)
+	}
+	match r.Regenerate {
+	case option.Some[RegenerateSpec] as reg:
+		let rv = reg.Value
+		let mut rn = 0
+		if rv.Tool != "" {
+			rn = rn + 1
+		}
+		if rv.Args.Len() > 0 {
+			rn = rn + 1
+		}
+		if rv.Note != "" {
+			rn = rn + 1
+		}
+		t.Key("regenerate")
+		t.BeginObject(rn)
+		if rv.Tool != "" {
+			t.Key("tool")
+			t.String(rv.Tool)
+		}
+		if rv.Args.Len() > 0 {
+			t.Key("args")
+			t.BeginList(rv.Args.Len())
+			for a in rv.Args {
+				t.String(a)
+			}
+			t.EndList()
+		}
+		if rv.Note != "" {
+			t.Key("note")
+			t.String(rv.Note)
+		}
+		t.EndObject()
+	case option.None:
+	}
+	t.EndObject()
+}
+
+// LedgerEditIssue reports a mutant row whose anchor edit fails against the
+// supplied source map.
+type LedgerEditIssue {
+	RowName string,
+	File    string,
+	Reason  string,
+}
+
+// ValidateLedgerEdits checks that every row in l locates cleanly in its target file.
+func ValidateLedgerEdits(l LedgerData, filePaths []string, fileSrcs []string) []LedgerEditIssue {
+	let mut seen = dense.NewStrings()
+	let mut srcs = []string{}
+	for i in 0..filePaths.Len() {
+		if i < fileSrcs.Len() {
+			let id = dense.InternText(&seen, filePaths[i])
+			for dense.Index(id) >= srcs.Len() {
+				srcs = srcs.Append("")
+			}
+			srcs[dense.Index(id)] = fileSrcs[i]
+		}
+	}
+	let mut issues = []LedgerEditIssue{}
+	for r in l.Rows {
+		match dense.FindText(seen, r.File) {
+		case option.None:
+			issues = issues.Append(LedgerEditIssue{RowName: r.Name, File: r.File, Reason: "file not provided"})
+		case option.Some[dense.ID[dense.Str]] as fid:
+			let src = srcs[dense.Index(fid.Value)]
+			let _ = Locate(r.File, src, r.Decl, r.From) catch {
+			case AnchorError as e:
+				issues = issues.Append(LedgerEditIssue{RowName: r.Name, File: r.File, Reason: describeAnchorError(e)})
+				(0, 0)
+			}
+		}
+	}
+	issues
+}
+
+// LedgerRoundTripPreservesRows checks that valid ledgers encode to JSON and decode
+// back with identical about metadata and row fields.
+law LedgerRoundTripPreservesRows(about string, rowName string, file string, from string, to string) {
+	if rowName == "" || file == "" || from == "" || from == to {
+		return true
+	}
+	let ledger = LedgerData{
+		About:    about,
+		Env:      []string{"FOO=bar"},
+		Commands: []NamedCommand{NamedCommand{Name: "unit", Words: []string{"ergo", "test"}}},
+		Rows:     []MutantRow{
+			MutantRow{
+				Name:       rowName,
+				Origin:     "test",
+				File:       file,
+				Decl:       "Fn",
+				From:       from,
+				To:         to,
+				Rule:       "must kill",
+				Killers:    []string{"pkg:TestOne"},
+				Gap:        "",
+				Anchor:     AnchorSpec{Files: []string{file}, Decls: []string{"Fn"}, Tests: []string{"pkg:TestOne"}},
+				Refused:    false,
+				Regenerate: option.None,
+			},
+		},
+	}
+	let encoded = EncodeLedger(ledger)
+	let decoded = ParseLedger(encoded) catch {
+	case LedgerError:
+		return false
+	}
+	if decoded.Rows.Len() != 1 || decoded.About != about {
+		return false
+	}
+	let r = decoded.Rows[0]
+	r.Name == rowName && r.File == file && r.From == from && r.To == to && r.Decl == "Fn" && r.Rule == "must kill"
+}
+
+// LedgerRejectsUnknownField checks that strict ledger parsing fails with UnknownField
+// when any unrecognized key is present on the root object.
+law LedgerRejectsUnknownField(badKey string) {
+	if badKey == "" || badKey == "about" || badKey == "env" || badKey == "commands" || badKey == "mutants" {
+		return true
+	}
+	let t = json.NewText()
+	t.BeginObject(2)
+	t.Key("about")
+	t.String("test")
+	t.Key(badKey)
+	t.Bool(true)
+	t.EndObject()
+	let got = ParseLedger(t.Written()) catch {
+	case LedgerError as e:
+		match e {
+		case UnknownField as u:
+			return u.Field == badKey && u.Path == "$"
+		case _:
+			return false
+		}
+	}
+	let _ = got
+	false
+}
+
+func emptyLedger() LedgerData {
+	LedgerData{About: "", Env: []string{}, Commands: []NamedCommand{}, Rows: []MutantRow{}}
+}
+
+test TestParseAndValidateMutantsJSON {
+	let raw = "{\"about\":\"demo\",\"env\":[\"ERGO_TEST=1\"],\"commands\":{\"check\":[\"ergo\",\"test\"]},\"mutants\":[{\"name\":\"r1\",\"file\":\"a.ergo\",\"decl\":\"Add\",\"from\":\"a + b\",\"to\":\"a - b\",\"killers\":[\"p:TestAdd\"],\"anchor\":{\"tests\":[\"p:TestAdd\"]}},{\"name\":\"r2\",\"file\":\"a.ergo\",\"from\":\"a - b\",\"to\":\"a * b\",\"gap\":\"not covered\",\"refused\":true,\"regenerate\":{\"tool\":\"gen\",\"args\":[\"--all\"]}}]}"
+	let l = ParseLedger(raw) catch {
+	case LedgerError:
+		assert false
+		return
+	}
+	assert l.Rows.Len() == 2
+	assert l.Rows[0].Name == "r1"
+	assert l.Rows[1].Refused == true
+	let mut arena = NewArena()
+	let ids = PopulateArena(&arena, l)
+	assert ids.Len() == 2
+	assert Text(arena, dense.Of(arena.MutantName, ids[1])) == "r2"
+	let src = "func Add(a int, b int) int {\n\ta + b\n}\n"
+	let issues = ValidateLedgerEdits(l, []string{"a.ergo"}, []string{src})
+	assert issues.Len() == 1
+	assert issues[0].RowName == "r2"
+	let dup = "{\"about\":\"d\",\"mutants\":[{\"name\":\"x\",\"file\":\"a.ergo\",\"from\":\"1\",\"to\":\"2\"},{\"name\":\"x\",\"file\":\"a.ergo\",\"from\":\"2\",\"to\":\"3\"}]}"
+	let mut dupHit = false
+	let _ = ParseLedger(dup) catch {
+	case LedgerError as e:
+		match e {
+		case DuplicateRow:
+			dupHit = true
+		case _:
+		}
+		emptyLedger()
+	}
+	assert dupHit == true
+	let badEnv = "{\"about\":\"d\",\"env\":[\"NOEQUALS\"]}"
+	let mut badEnvHit = false
+	let _ = ParseLedger(badEnv) catch {
+	case LedgerError as e:
+		match e {
+		case InvalidField:
+			badEnvHit = true
+		case _:
+		}
+		emptyLedger()
+	}
+	assert badEnvHit == true
+}

@@ -1,0 +1,883 @@
+import compiler/syntax
+import dense
+import hex
+import option
+import sha256
+import slices
+import strings
+
+// DeclKindFunc marks a function declaration.
+let DeclKindFunc = uint8(1)
+
+// DeclKindType marks a type declaration.
+let DeclKindType = uint8(2)
+
+// DeclKindVar marks a Go var declaration.
+let DeclKindVar = uint8(3)
+
+// DeclKindConst marks a Go const declaration.
+let DeclKindConst = uint8(4)
+
+// DeclKindLet marks an Ergo let or context declaration.
+let DeclKindLet = uint8(5)
+
+// DeclKindTest marks an Ergo test declaration.
+let DeclKindTest = uint8(6)
+
+// DeclKindLaw marks an Ergo law declaration.
+let DeclKindLaw = uint8(7)
+
+// DeclSpan describes the source span of a top-level Go or Ergo declaration,
+// including any contiguous leading doc comment block.
+type DeclSpan {
+	Name      string,
+	Kind      uint8,
+	Start     int,
+	End       int,
+	StartLine int,
+	EndLine   int,
+}
+
+// NotFound reports that target did not occur inside scope.
+type NotFound { Target string, Scope string }
+
+// Ambiguous reports that target occurred more than once inside scope.
+type Ambiguous { Target string, Scope string, Count int }
+
+// MissingDecl reports that decl was not found in file.
+type MissingDecl { Decl string, File string }
+
+// MultipleDecls reports that decl matched multiple declarations in file.
+type MultipleDecls { Decl string, File string, Count int }
+
+// OutsideDecl reports that target existed in file but outside decl.
+type OutsideDecl { Decl string, File string }
+
+// MalformedEdit reports an empty or invalid anchor edit request.
+type MalformedEdit { Reason string }
+
+// AnchorError enumerates failures while locating, verifying, or applying edits.
+type AnchorError = NotFound | Ambiguous | MissingDecl | MultipleDecls | OutsideDecl | MalformedEdit
+
+// AnchorMatched reports a verified 3-way anchor match at [Start, End).
+type AnchorMatched { Start int, End int }
+
+// AnchorConflict reports a failed 3-way anchor verification with its reason.
+type AnchorConflict { Reason string }
+
+// AnchorOutcome is the result of VerifyAnchor3Way.
+type AnchorOutcome = AnchorMatched | AnchorConflict
+
+// Decls returns all top-level declaration spans in src for a .go or .ergo path.
+func Decls(file string, src string) []DeclSpan {
+	if strings.HasSuffix(file, ".ergo") {
+		return ErgoDecls(src)
+	}
+	if strings.HasSuffix(file, ".go") {
+		return GoDecls(src)
+	}
+	[]DeclSpan{}
+}
+
+// ErgoDecls returns every top-level declaration span in Ergo source src,
+// matching parser declaration boundaries and contiguous doc comments.
+func ErgoDecls(src string) []DeclSpan {
+	let p = syntax.Parse(src)
+	if !p.Failed {
+		return ergoDeclsAST(p, src)
+	}
+	ergoDeclsLexical(src)
+}
+
+func ergoDeclsAST(p syntax.Parsed, src string) []DeclSpan {
+	let lines = syntax.LinesOf(src)
+	let tr = p.Tree
+	let cmts = syntax.CommentsOf(p)
+	let f = syntax.FileOf(tr, syntax.Root(tr))
+	let n = syntax.Len(f.Decls)
+	let mut out = slices.WithCapacity[DeclSpan](n)
+	for i in 0..n {
+		let d = syntax.Item(tr, f.Decls, i)
+		let kd = syntax.KindOf(tr, d)
+		if kd == syntax.KImportDecl {
+			continue
+		}
+		let mut name = ""
+		let mut kind = uint8(0)
+		if kd == syntax.KFuncDecl {
+			let fd = syntax.FuncDeclOf(tr, d)
+			kind = DeclKindFunc
+			let base = nodeIdent(p, fd.Name)
+			match dense.Unpack(fd.Recv) {
+			case option.Some[dense.ID[syntax.Node]] as recNode:
+				let recText = extractGoReceiverType(nodeRawText(p, src, recNode.Value))
+				name = if recText == "" { base } else { recText + "." + base }
+			case option.None:
+				name = base
+			}
+		} else if kd == syntax.KTypeDecl {
+			let td = syntax.TypeDeclOf(tr, d)
+			kind = DeclKindType
+			name = nodeIdent(p, td.Name)
+		} else if kd == syntax.KVarDecl {
+			let vd = syntax.VarDeclOf(tr, d)
+			let vs = syntax.VarSpecOf(tr, vd.Spec)
+			kind = DeclKindLet
+			if syntax.Len(vs.Names) > 0 {
+				name = nodeIdent(p, syntax.Item(tr, vs.Names, 0))
+			}
+		} else if kd == syntax.KContextDecl {
+			let cd = syntax.ContextDeclOf(tr, d)
+			kind = DeclKindLet
+			name = nodeIdent(p, cd.Name)
+		} else if kd == syntax.KTestDecl {
+			let td = syntax.TestDeclOf(tr, d)
+			kind = DeclKindTest
+			name = nodeIdent(p, td.Name)
+		} else if kd == syntax.KLawDecl {
+			let ld = syntax.LawDeclOf(tr, d)
+			kind = DeclKindLaw
+			name = "law:" + nodeIdent(p, ld.Name)
+		}
+		if name == "" || name == "law:" {
+			continue
+		}
+		let rawStart = syntax.NodePos(p, d)
+		let mut start = docStartBefore(src, cmts, rawStart)
+		if start < 0 || start > rawStart {
+			start = rawStart
+		}
+		let rawEnd = syntax.NodeEnd(p, d)
+		let end = extendThroughLineEnd(src, rawEnd)
+		let startLine = syntax.PositionOf(lines, start).Line
+		let endPos = if end > start { end - 1 } else { start }
+		let endLine = syntax.PositionOf(lines, endPos).Line
+		out = out.Append(DeclSpan{
+			Name:      name,
+			Kind:      kind,
+			Start:     start,
+			End:       end,
+			StartLine: startLine,
+			EndLine:   endLine,
+		})
+	}
+	out
+}
+
+func nodeIdent(p syntax.Parsed, id dense.ID[syntax.Node]) string {
+	if syntax.KindOf(p.Tree, id) != syntax.KIdent {
+		return ""
+	}
+	syntax.TokText(p, syntax.NameOf(p.Tree, id).Tok)
+}
+
+func nodeRawText(p syntax.Parsed, src string, id dense.ID[syntax.Node]) string {
+	let s = syntax.NodePos(p, id)
+	let e = syntax.NodeEnd(p, id)
+	if s >= 0 && e >= s && e <= src.Len() { src[s:e] } else { "" }
+}
+
+func docStartBefore(src string, cmts syntax.Comments, rawStart int) int {
+	let nc = syntax.NumComments(cmts)
+	if nc == 0 {
+		return rawStart
+	}
+	let mut idx = -1
+	for i in 0..nc {
+		let cid = syntax.CommentAt(cmts, i)
+		if syntax.CommentEnd(cmts, cid) <= rawStart {
+			idx = i
+		} else {
+			break
+		}
+	}
+	let mut start = rawStart
+	let mut cur = idx
+	let mut boundary = rawStart
+	for cur >= 0 {
+		let cid = syntax.CommentAt(cmts, cur)
+		let cs = syntax.CommentStart(cmts, cid)
+		let ce = syntax.CommentEnd(cmts, cid)
+		if hasBlankLine(src, ce, boundary) || !onlySpaceAndTabsOrOneNL(src, ce, boundary) {
+			break
+		}
+		start = lineStartOf(src, cs)
+		boundary = start
+		cur = cur - 1
+	}
+	start
+}
+
+func hasBlankLine(src string, from int, to int) bool {
+	if from < 0 || to > src.Len() || from >= to {
+		return false
+	}
+	let mut nl = 0
+	for i in from..to {
+		if src[i] == '\n' {
+			nl = nl + 1
+			if nl >= 2 {
+				return true
+			}
+		}
+	}
+	false
+}
+
+func onlySpaceAndTabsOrOneNL(src string, from int, to int) bool {
+	if from < 0 || to > src.Len() || from > to {
+		return false
+	}
+	let mut nl = 0
+	for i in from..to {
+		let c = src[i]
+		if c == '\n' {
+			nl = nl + 1
+			if nl > 1 {
+				return false
+			}
+		} else if c != ' ' && c != '\t' && c != '\r' {
+			return false
+		}
+	}
+	true
+}
+
+func lineStartOf(src string, off int) int {
+	let mut i = off
+	for i > 0 && src[i-1] != '\n' {
+		i = i - 1
+	}
+	i
+}
+
+func extendThroughLineEnd(src string, off int) int {
+	let mut i = off
+	for i < src.Len() && src[i] != '\n' {
+		i = i + 1
+	}
+	if i < src.Len() && src[i] == '\n' {
+		i = i + 1
+	}
+	i
+}
+
+func ergoDeclsLexical(src string) []DeclSpan {
+	let lines = syntax.LinesOf(src)
+	let mut out = []DeclSpan{}
+	let n = src.Len()
+	let mut i = 0
+	let mut docStart = -1
+	for i < n {
+		let ls = i
+		let mut le = ls
+		for le < n && src[le] != '\n' {
+			le = le + 1
+		}
+		let nextI = if le < n { le + 1 } else { le }
+		let line = strings.TrimRight(src[ls:le], "\r")
+		if strings.TrimSpace(line) == "" {
+			docStart = -1
+			i = nextI
+			continue
+		}
+		if strings.HasPrefix(line, "//") {
+			if docStart < 0 {
+				docStart = ls
+			}
+			i = nextI
+			continue
+		}
+		let parsedLine = ergoTopDeclLine(line)
+		if parsedLine.Name != "" {
+			let start = if docStart >= 0 { docStart } else { ls }
+			let end = scanDeclBlockEnd(src, ls, le)
+			let startLine = syntax.PositionOf(lines, start).Line
+			let endPos = if end > start { end - 1 } else { start }
+			let endLine = syntax.PositionOf(lines, endPos).Line
+			out = out.Append(DeclSpan{
+				Name:      parsedLine.Name,
+				Kind:      parsedLine.Kind,
+				Start:     start,
+				End:       end,
+				StartLine: startLine,
+				EndLine:   endLine,
+			})
+			docStart = -1
+			i = end
+		} else {
+			docStart = -1
+			i = nextI
+		}
+	}
+	out
+}
+
+type declLineHit { Name string, Kind uint8 }
+
+func ergoTopDeclLine(line string) declLineHit {
+	let mut rest = line
+	let mut kind = uint8(0)
+	if strings.HasPrefix(rest, "extern ") {
+		let idxFunc = strings.Index(rest, " func ")
+		let idxType = strings.Index(rest, " type ")
+		let idxLet = strings.Index(rest, " let ")
+		if idxFunc >= 0 {
+			rest = rest[idxFunc+6 : rest.Len()]
+			kind = DeclKindFunc
+		} else if idxType >= 0 {
+			rest = rest[idxType+6 : rest.Len()]
+			kind = DeclKindType
+		} else if idxLet >= 0 {
+			rest = rest[idxLet+5 : rest.Len()]
+			kind = DeclKindLet
+		} else {
+			return declLineHit{Name: "", Kind: 0}
+		}
+		return declLineHit{Name: firstIdent(strings.TrimSpace(rest)), Kind: kind}
+	}
+	if strings.HasPrefix(rest, "func ") {
+		let after = strings.TrimSpace(rest[5:rest.Len()])
+		if strings.HasPrefix(after, "(") {
+			let close = findMatchingParen(after, 0)
+			if close > 0 && close+1 < after.Len() {
+				let recv = extractGoReceiverType(after[1:close])
+				let fnName = firstIdent(strings.TrimSpace(after[close+1 : after.Len()]))
+				let full = if recv == "" { fnName } else { recv + "." + fnName }
+				return declLineHit{Name: full, Kind: DeclKindFunc}
+			}
+		}
+		return declLineHit{Name: firstIdent(after), Kind: DeclKindFunc}
+	}
+	if strings.HasPrefix(rest, "type ") {
+		return declLineHit{Name: firstIdent(strings.TrimSpace(rest[5:rest.Len()])), Kind: DeclKindType}
+	}
+	if strings.HasPrefix(rest, "let ") {
+		let mut after = strings.TrimSpace(rest[4:rest.Len()])
+		if strings.HasPrefix(after, "context ") {
+			after = strings.TrimSpace(after[8:after.Len()])
+		}
+		if strings.HasPrefix(after, "mut ") {
+			after = strings.TrimSpace(after[4:after.Len()])
+		}
+		return declLineHit{Name: firstIdent(after), Kind: DeclKindLet}
+	}
+	if strings.HasPrefix(rest, "test ") {
+		return declLineHit{Name: firstIdent(strings.TrimSpace(rest[5:rest.Len()])), Kind: DeclKindTest}
+	}
+	if strings.HasPrefix(rest, "law ") {
+		let nm = firstIdent(strings.TrimSpace(rest[4:rest.Len()]))
+		if nm != "" {
+			return declLineHit{Name: "law:" + nm, Kind: DeclKindLaw}
+		}
+	}
+	declLineHit{Name: "", Kind: 0}
+}
+
+// GoDecls scans top-level Go declarations (func, receiver methods as T.Method,
+// type, var, const) and their contiguous leading // doc comments.
+func GoDecls(src string) []DeclSpan {
+	let lines = syntax.LinesOf(src)
+	let mut out = []DeclSpan{}
+	let n = src.Len()
+	let mut i = 0
+	let mut brace = 0
+	let mut paren = 0
+	let mut docStart = -1
+	for i < n {
+		if brace == 0 && paren == 0 {
+			let ls = i
+			let mut le = ls
+			for le < n && src[le] != '\n' {
+				le = le + 1
+			}
+			let nextI = if le < n { le + 1 } else { le }
+			let rawLine = strings.TrimRight(src[ls:le], "\r")
+			let trimmed = strings.TrimSpace(rawLine)
+			if trimmed == "" {
+				docStart = -1
+				i = nextI
+				continue
+			}
+			if strings.HasPrefix(trimmed, "//") {
+				if docStart < 0 {
+					docStart = ls
+				}
+				i = nextI
+				continue
+			}
+			if strings.HasPrefix(trimmed, "/*") {
+				docStart = -1
+				i = skipGoBlockComment(src, ls)
+				continue
+			}
+			let hit = goTopDeclLine(rawLine)
+			if hit.Name != "" {
+				let start = if docStart >= 0 { docStart } else { ls }
+				let end = scanDeclBlockEnd(src, ls, le)
+				let startLine = syntax.PositionOf(lines, start).Line
+				let endPos = if end > start { end - 1 } else { start }
+				let endLine = syntax.PositionOf(lines, endPos).Line
+				out = out.Append(DeclSpan{
+					Name:      hit.Name,
+					Kind:      hit.Kind,
+					Start:     start,
+					End:       end,
+					StartLine: startLine,
+					EndLine:   endLine,
+				})
+				docStart = -1
+				i = end
+				continue
+			}
+			docStart = -1
+			let adv = advanceLineDelims(src, ls, nextI, brace, paren)
+			brace = adv.Brace
+			paren = adv.Paren
+			i = adv.Next
+		} else {
+			let adv = advanceOneTokenOrChar(src, i, brace, paren)
+			brace = adv.Brace
+			paren = adv.Paren
+			i = adv.Next
+		}
+	}
+	out
+}
+
+func goTopDeclLine(line string) declLineHit {
+	if strings.HasPrefix(line, "func ") {
+		let after = strings.TrimSpace(line[5:line.Len()])
+		if strings.HasPrefix(after, "(") {
+			let close = findMatchingParen(after, 0)
+			if close > 0 && close+1 < after.Len() {
+				let recv = extractGoReceiverType(after[1:close])
+				let fnName = firstIdent(strings.TrimSpace(after[close+1 : after.Len()]))
+				if fnName != "" {
+					let full = if recv == "" { fnName } else { recv + "." + fnName }
+					return declLineHit{Name: full, Kind: DeclKindFunc}
+				}
+			}
+			return declLineHit{Name: "", Kind: 0}
+		}
+		return declLineHit{Name: firstIdent(after), Kind: DeclKindFunc}
+	}
+	if strings.HasPrefix(line, "type ") {
+		let nm = firstIdent(strings.TrimSpace(line[5:line.Len()]))
+		if nm != "" {
+			return declLineHit{Name: nm, Kind: DeclKindType}
+		}
+	}
+	if strings.HasPrefix(line, "var ") {
+		let nm = firstIdent(strings.TrimSpace(line[4:line.Len()]))
+		if nm != "" {
+			return declLineHit{Name: nm, Kind: DeclKindVar}
+		}
+	}
+	if strings.HasPrefix(line, "const ") {
+		let nm = firstIdent(strings.TrimSpace(line[6:line.Len()]))
+		if nm != "" {
+			return declLineHit{Name: nm, Kind: DeclKindConst}
+		}
+	}
+	declLineHit{Name: "", Kind: 0}
+}
+
+func extractGoReceiverType(recv string) string {
+	let brk = strings.IndexByte(recv, '[')
+	let trimmed = if brk >= 0 { recv[0:brk] } else { recv }
+	let parts = strings.Fields(trimmed)
+	if parts.Len() == 0 {
+		return ""
+	}
+	let raw = if parts.Len() >= 2 { parts[parts.Len()-1] } else { parts[0] }
+	let noStar = strings.TrimLeft(raw, "*")
+	firstIdent(noStar)
+}
+
+func findMatchingParen(s string, open int) int {
+	let mut depth = 0
+	for i in open..s.Len() {
+		if s[i] == '(' {
+			depth = depth + 1
+		} else if s[i] == ')' {
+			depth = depth - 1
+			if depth == 0 {
+				return i
+			}
+		}
+	}
+	-1
+}
+
+func firstIdent(s string) string {
+	if s == "" {
+		return ""
+	}
+	let mut end = 0
+	for end < s.Len() {
+		let c = int(s[end])
+		let isAlpha = (c >= 65 && c <= 90) || (c >= 97 && c <= 122) || c == 95
+		let isDigit = c >= 48 && c <= 57
+		if end == 0 && !isAlpha {
+			return ""
+		}
+		if end > 0 && !isAlpha && !isDigit {
+			break
+		}
+		end = end + 1
+	}
+	if end == 0 { "" } else { s[0:end] }
+}
+
+type delimState { Next int, Brace int, Paren int }
+
+func scanDeclBlockEnd(src string, start int, firstLineEnd int) int {
+	let n = src.Len()
+	let mut i = start
+	let mut brace = 0
+	let mut paren = 0
+	let mut sawDelim = false
+	for i < n {
+		if i >= firstLineEnd && !sawDelim && brace == 0 && paren == 0 {
+			return if firstLineEnd < n && src[firstLineEnd] == '\n' { firstLineEnd + 1 } else { firstLineEnd }
+		}
+		let adv = advanceOneTokenOrChar(src, i, brace, paren)
+		if adv.Brace > brace || adv.Paren > paren {
+			sawDelim = true
+		}
+		brace = adv.Brace
+		paren = adv.Paren
+		i = adv.Next
+		if sawDelim && brace == 0 && paren == 0 {
+			return extendThroughLineEnd(src, i)
+		}
+	}
+	n
+}
+
+func advanceLineDelims(src string, from int, to int, brace0 int, paren0 int) delimState {
+	let mut i = from
+	let mut b = brace0
+	let mut p = paren0
+	for i < to {
+		let st = advanceOneTokenOrChar(src, i, b, p)
+		b = st.Brace
+		p = st.Paren
+		i = st.Next
+	}
+	delimState{Next: i, Brace: b, Paren: p}
+}
+
+func advanceOneTokenOrChar(src string, i int, brace int, paren int) delimState {
+	let n = src.Len()
+	if i >= n {
+		return delimState{Next: n, Brace: brace, Paren: paren}
+	}
+	let c = src[i]
+	if c == '/' && i+1 < n && src[i+1] == '/' {
+		let mut j = i + 2
+		for j < n && src[j] != '\n' {
+			j = j + 1
+		}
+		return delimState{Next: if j < n { j + 1 } else { j }, Brace: brace, Paren: paren}
+	}
+	if c == '/' && i+1 < n && src[i+1] == '*' {
+		return delimState{Next: skipGoBlockComment(src, i), Brace: brace, Paren: paren}
+	}
+	if c == '"' {
+		return delimState{Next: skipQuoted(src, i, '"'), Brace: brace, Paren: paren}
+	}
+	if c == '\'' {
+		return delimState{Next: skipQuoted(src, i, '\''), Brace: brace, Paren: paren}
+	}
+	if c == '`' {
+		let mut j = i + 1
+		for j < n && src[j] != '`' {
+			j = j + 1
+		}
+		return delimState{Next: if j < n { j + 1 } else { j }, Brace: brace, Paren: paren}
+	}
+	if c == '{' {
+		return delimState{Next: i + 1, Brace: brace + 1, Paren: paren}
+	}
+	if c == '}' {
+		return delimState{Next: i + 1, Brace: if brace > 0 { brace - 1 } else { 0 }, Paren: paren}
+	}
+	if c == '(' {
+		return delimState{Next: i + 1, Brace: brace, Paren: paren + 1}
+	}
+	if c == ')' {
+		return delimState{Next: i + 1, Brace: brace, Paren: if paren > 0 { paren - 1 } else { 0 }}
+	}
+	delimState{Next: i + 1, Brace: brace, Paren: paren}
+}
+
+func skipGoBlockComment(src string, start int) int {
+	let n = src.Len()
+	let mut j = start + 2
+	for j+1 < n {
+		if src[j] == '*' && src[j+1] == '/' {
+			return j + 2
+		}
+		j = j + 1
+	}
+	n
+}
+
+func skipQuoted(src string, start int, quote byte) int {
+	let n = src.Len()
+	let mut j = start + 1
+	for j < n {
+		if src[j] == '\\' {
+			j = j + 2
+			continue
+		}
+		if src[j] == quote || src[j] == '\n' {
+			return j + 1
+		}
+		j = j + 1
+	}
+	n
+}
+
+// Locate finds the unique byte span [Start, End) of from inside decl (or anywhere
+// in src when decl is empty), failing with typed diagnostics on absence or ambiguity.
+func Locate(file string, src string, decl string, from string) (int, int) fails AnchorError {
+	if from == "" {
+		return MalformedEdit{Reason: "anchor from text must not be empty"}
+	}
+	if decl == "" {
+		let c = strings.Count(src, from)
+		if c == 0 {
+			return NotFound{Target: from, Scope: file}
+		}
+		if c > 1 {
+			return Ambiguous{Target: from, Scope: file, Count: c}
+		}
+		let at = strings.Index(src, from)
+		return (at, at + from.Len())
+	}
+	let ds = Decls(file, src)
+	let mut matches = []DeclSpan{}
+	for d in ds {
+		if d.Name == decl {
+			matches = matches.Append(d)
+		}
+	}
+	if matches.Len() == 0 {
+		return MissingDecl{Decl: decl, File: file}
+	}
+	if matches.Len() > 1 {
+		return MultipleDecls{Decl: decl, File: file, Count: matches.Len()}
+	}
+	let d = matches[0]
+	let sub = src[d.Start:d.End]
+	let c = strings.Count(sub, from)
+	if c == 0 {
+		if strings.Index(src, from) >= 0 {
+			return OutsideDecl{Decl: decl, File: file}
+		}
+		return NotFound{Target: from, Scope: decl}
+	}
+	if c > 1 {
+		return Ambiguous{Target: from, Scope: decl, Count: c}
+	}
+	let rel = strings.Index(sub, from)
+	(d.Start + rel, d.Start + rel + from.Len())
+}
+
+// Apply splices to in place of the unique anchored occurrence of from inside decl.
+func Apply(file string, src string, decl string, from string, to string) string fails AnchorError {
+	let (start, end) = try Locate(file, src, decl, from)
+	src[0:start] + to + src[end:src.Len()]
+}
+
+// Enclosing returns the top-level declaration enclosing the unique match of from
+// in src, or option.None when from is absent, ambiguous, or outside every declaration.
+func Enclosing(file string, src string, from string) option.Option[string] {
+	if from == "" || strings.Count(src, from) != 1 {
+		return option.None
+	}
+	let at = strings.Index(src, from)
+	let end = at + from.Len()
+	for d in Decls(file, src) {
+		if d.Start <= at && end <= d.End {
+			return option.Some[string]{Value: d.Name}
+		}
+	}
+	option.None
+}
+
+// VerifyAnchor3Way checks whether an anchored edit authored against baseSrc under
+// baseDecl cleanly locates uniquely in targetSrc and parses when file is Ergo.
+func VerifyAnchor3Way(file string, baseSrc string, baseDecl string, targetSrc string, from string, to string) AnchorOutcome {
+	if from == to {
+		return AnchorConflict{Reason: "anchor edit is a no-op"}
+	}
+	let (_, _) = Locate(file, baseSrc, baseDecl, from) catch {
+	case AnchorError as e:
+		return AnchorConflict{Reason: "base source invalid: \(describeAnchorError(e))"}
+	}
+	let (ts, te) = Locate(file, targetSrc, baseDecl, from) catch {
+	case AnchorError as e:
+		match e {
+		case MissingDecl:
+			if baseDecl != "" {
+				let (fs, fe) = Locate(file, targetSrc, "", from) catch {
+				case AnchorError as e2:
+					return AnchorConflict{Reason: "missing decl \(baseDecl): \(describeAnchorError(e2))"}
+				}
+				return verifyAppliedOutcome(file, targetSrc, fs, fe, to)
+			}
+			return AnchorConflict{Reason: "missing decl \(baseDecl)"}
+		case _:
+			return AnchorConflict{Reason: "target conflict: \(describeAnchorError(e))"}
+		}
+	}
+	verifyAppliedOutcome(file, targetSrc, ts, te, to)
+}
+
+func verifyAppliedOutcome(file string, targetSrc string, start int, end int, to string) AnchorOutcome {
+	let next = targetSrc[0:start] + to + targetSrc[end:targetSrc.Len()]
+	if strings.HasSuffix(file, ".ergo") {
+		let p = syntax.Parse(next)
+		if p.Failed {
+			return AnchorConflict{Reason: "mutated .ergo syntax error: \(p.Message)"}
+		}
+	}
+	AnchorMatched{Start: start, End: end}
+}
+
+func describeAnchorError(e AnchorError) string {
+	match e {
+	case NotFound as x:
+		"target not found in \(x.Scope)"
+	case Ambiguous as x:
+		"target matched \(x.Count) times in \(x.Scope)"
+	case MissingDecl as x:
+		"declaration \(x.Decl) missing in \(x.File)"
+	case MultipleDecls as x:
+		"declaration \(x.Decl) matched \(x.Count) times in \(x.File)"
+	case OutsideDecl as x:
+		"target matched outside \(x.Decl) in \(x.File)"
+	case MalformedEdit as x:
+		x.Reason
+	}
+}
+
+// DeclFingerprint computes the deterministic SHA-256 hex digest of a
+// declaration's normalized body in file.
+func DeclFingerprint(file string, src string, decl string) string fails MissingDecl | MultipleDecls {
+	let ds = Decls(file, src)
+	let mut hits = []DeclSpan{}
+	for d in ds {
+		if d.Name == decl {
+			hits = hits.Append(d)
+		}
+	}
+	if hits.Len() == 0 {
+		return MissingDecl{Decl: decl, File: file}
+	}
+	if hits.Len() > 1 {
+		return MultipleDecls{Decl: decl, File: file, Count: hits.Len()}
+	}
+	let d = hits[0]
+	let sub = src[d.Start:d.End]
+	let canon = if strings.HasSuffix(file, ".ergo") { CheckText(sub) } else { strings.Join(strings.Fields(sub), " ") }
+	hex.Encode(sha256.Sum(canon))
+}
+
+func isSafeIdent(s string) bool {
+	if s == "" {
+		return false
+	}
+	for i in 0..s.Len() {
+		let c = int(s[i])
+		let isAlpha = (c >= 65 && c <= 90) || (c >= 97 && c <= 122) || c == 95
+		let isDigit = c >= 48 && c <= 57
+		if i == 0 && !isAlpha {
+			return false
+		}
+		if i > 0 && !isAlpha && !isDigit {
+			return false
+		}
+	}
+	true
+}
+
+// AnchorApplyRoundTrips checks that applying a distinct replacement inside a
+// declaration and inverting it recovers the original source verbatim.
+law AnchorApplyRoundTrips(fnName string, v string) {
+	if !isSafeIdent(fnName) || !isSafeIdent(v) || fnName == "x" || v == "x" || v == "mutV" {
+		return true
+	}
+	let orig = "func \(fnName)(\(v) int) int {\n\t\(v) + 1\n}\n"
+	let edited = Apply("a.ergo", orig, fnName, "\(v) + 1", "\(v) + 2") catch {
+	case AnchorError:
+		return false
+	}
+	let restored = Apply("a.ergo", edited, fnName, "\(v) + 2", "\(v) + 1") catch {
+	case AnchorError:
+		return false
+	}
+	restored == orig && edited != orig
+}
+
+// EnclosingAgreesWithLocate checks that any unique target inside a top-level
+// declaration reports an enclosing declaration under which Locate finds the same span.
+law EnclosingAgreesWithLocate(fnName string) {
+	if !isSafeIdent(fnName) || fnName == "anchorSentinel" {
+		return true
+	}
+	let src = "// Doc line.\nfunc \(fnName)(x int) int {\n\tx + 42\n}\n"
+	let decl = match Enclosing("a.ergo", src, "x + 42") {
+	case option.Some[string] as s:
+		s.Value
+	case option.None:
+		return false
+	}
+	let (s0, e0) = Locate("a.ergo", src, "", "x + 42") catch {
+	case AnchorError:
+		return false
+	}
+	let (s1, e1) = Locate("a.ergo", src, decl, "x + 42") catch {
+	case AnchorError:
+		return false
+	}
+	decl == fnName && s0 == s1 && e0 == e1
+}
+
+test TestGoAndErgoDeclExtractionAnd3Way {
+	let ergoSrc = "// Helper computes sum.\nfunc Helper(a int, b int) int {\n\ta + b\n}\n\n// HelperZero checks zero.\nlaw HelperZero(x int) {\n\tHelper(x, 0) == x\n}\n"
+	let ed = ErgoDecls(ergoSrc)
+	assert ed.Len() == 2
+	assert ed[0].Name == "Helper"
+	assert ed[0].Kind == DeclKindFunc
+	assert ed[1].Name == "law:HelperZero"
+	assert ed[1].Kind == DeclKindLaw
+	let goSrc = "package demo\n\n// Serve handles one item.\nfunc (s *Server[K, V]) Serve(n int) int {\n\treturn n + 1\n}\n\nconst maxItems = 10\n"
+	let gd = GoDecls(goSrc)
+	assert gd.Len() == 2
+	assert gd[0].Name == "Server.Serve"
+	assert gd[0].Kind == DeclKindFunc
+	assert gd[1].Name == "maxItems"
+	assert gd[1].Kind == DeclKindConst
+	let shifted = "// Other decl added.\nfunc Extra() {}\n\n// Helper computes sum.\n// Another doc line.\nfunc Helper(a int, b int) int {\n\ta + b\n}\n"
+	let out = VerifyAnchor3Way("a.ergo", ergoSrc, "Helper", shifted, "a + b", "a - b")
+	let ok = match out {
+	case AnchorMatched as m:
+		m.Start > 0 && shifted[m.Start:m.End] == "a + b"
+	case AnchorConflict:
+		false
+	}
+	assert ok
+	let bad = VerifyAnchor3Way("a.ergo", ergoSrc, "Helper", shifted, "a + b", "a + )")
+	let badIsConflict = match bad {
+	case AnchorMatched:
+		false
+	case AnchorConflict:
+		true
+	}
+	assert badIsConflict
+}
