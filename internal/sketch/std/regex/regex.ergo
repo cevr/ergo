@@ -48,5 +48,6 @@ func MapPattern(input content.ContentInput) content.MappedErgo {
 			Digest: []byte{},
 		}
 	}
-	emitMappedErgo(input.Target, input.Bytes, shape, nfa)
+	let dfa = compileDFA(nfa)
+	emitMappedErgo(input.Target, input.Bytes, shape, nfa, dfa)
 }
