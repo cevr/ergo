@@ -550,12 +550,12 @@ func TestStdRegexDiagnosticsAndBudgets(t *testing.T) {
 	pkg, fn := lookupMapPattern(t)
 
 	for _, tc := range []struct {
-		name     string
-		pat      string
-		wantCode string
+		name      string
+		pat       string
+		wantCode  string
 		wantStart uint32
 		wantEnd   uint32
-		wantSub  string
+		wantSub   string
 	}{
 		{"mid caret", "a^b", "R001", 1, 2, "drop ^"},
 		{"mid dollar", "a$b", "R001", 1, 2, "drop $"},
