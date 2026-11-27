@@ -1,0 +1,74 @@
+// StandardAdapter provides an Adapter value backed by a DriverKind and static Capabilities.
+type StandardAdapter {
+	driver DriverKind,
+	caps   Capabilities,
+} implements Adapter
+
+// NewStandardAdapter constructs a StandardAdapter for driver with explicit official Antigravity Direct gate.
+func NewStandardAdapter(driver DriverKind, agyDirectSupported bool) StandardAdapter {
+	StandardAdapter{driver: driver, caps: CapabilitiesFor(driver, agyDirectSupported)}
+}
+
+// NewAntigravityMetaAdapter constructs an AntigravityMeta adapter calibrated by CLI >= 1.5.0.
+func NewAntigravityMetaAdapter(atLeast150 bool) StandardAdapter {
+	StandardAdapter{driver: AntigravityMeta, caps: AntigravityMetaCapabilities(atLeast150)}
+}
+
+// Driver returns the underlying DriverKind.
+func Driver(a StandardAdapter) DriverKind { a.driver }
+
+// Capabilities returns the honest capability record.
+func Capabilities(a StandardAdapter) Capabilities { a.caps }
+
+// ResolveMode resolves requested permission mode without emulation.
+func ResolveMode(a StandardAdapter, requested PermissionMode) PermissionMode {
+	ResolvePermissionMode(a.caps, requested)
+}
+
+// CheckSteer checks whether active steering is natively supported.
+func CheckSteer(a StandardAdapter, turnActive bool, pendingPerm bool) bool fails AdapterRefusal {
+	RequireSteer(a.driver, a.caps, turnActive, pendingPerm)
+}
+
+// CanStart verifies whether the adapter is officially enabled to start.
+func CanStart(a StandardAdapter) bool fails AdapterRefusal {
+	CanStartDriver(a.driver, a.caps)
+}
+
+// StandardAdapterChecksCapabilities verifies Meta and Direct adapters uphold their static capability contracts.
+test StandardAdapterChecksCapabilities {
+	let claude = NewStandardAdapter(ClaudeMeta, false)
+	assert try claude.CanStart()
+	assert try claude.CheckSteer(true, false)
+	assert claude.ResolveMode(ModeYolo) == ModeYolo
+
+	let codexDirect = NewStandardAdapter(CodexDirect, false)
+	assert try codexDirect.CanStart()
+	assert try codexDirect.CheckSteer(true, false)
+	assert PathOfDriver(codexDirect.Driver()) == DirectPath
+
+	let agyOld = NewAntigravityMetaAdapter(false)
+	assert try agyOld.CanStart()
+	assert agyOld.ResolveMode(ModeYolo) == ModeSupervised
+	assert agyOld.ResolveMode(ModeAutoEdit) == ModeSupervised
+	let mut steerRefused = false
+	let _ = agyOld.CheckSteer(true, false) catch {
+	case CapabilityUnsupported:
+		steerRefused = true
+		false
+	case _:
+		false
+	}
+	assert steerRefused
+
+	let agyDirectOff = NewStandardAdapter(AntigravityDirect, false)
+	let mut directRefused = false
+	let _ = agyDirectOff.CanStart() catch {
+	case DirectDriverDisabled:
+		directRefused = true
+		false
+	case _:
+		false
+	}
+	assert directRefused
+}

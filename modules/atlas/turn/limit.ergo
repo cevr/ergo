@@ -1,0 +1,522 @@
+import machines
+import option
+import strconv
+
+// LimitUsage classifies a quota/usage exhaustion reset window.
+type LimitUsage {}
+
+// LimitRate classifies a provider rate-limit reset window.
+type LimitRate {}
+
+// LimitQuota classifies an account-level quota reset window.
+type LimitQuota {}
+
+// LimitKind classifies the usage or rate limit triggering delayed recovery.
+type LimitKind = LimitUsage | LimitRate | LimitQuota
+
+// LimitRecoveryKey uniquely identifies one limit-recovery arm per D9.
+type LimitRecoveryKey {
+	ThreadID  string,
+	Kind      LimitKind,
+	ResetAtMs int64,
+}
+
+// MaxLimitOverdueMs returns the 24-hour bound beyond which stale resets must not auto-resume.
+func MaxLimitOverdueMs() int64 {
+	86400000
+}
+
+// FormatLimitRecoveryKey formats the canonical (threadID, limitKind, resetAtMs) deduplication key.
+func FormatLimitRecoveryKey(k LimitRecoveryKey) string {
+	let kindStr = match k.Kind {
+	case LimitUsage:
+		"usage"
+	case LimitRate:
+		"rate"
+	case LimitQuota:
+		"quota"
+	}
+	k.ThreadID + "|" + kindStr + "|" + strconv.FormatInt(k.ResetAtMs, 10)
+}
+
+// LimitGuardContext captures all preconditions checked before arming or firing limit recovery.
+type LimitGuardContext {
+	NowMs                int64,
+	ThreadArchived       bool,
+	SessionExpired       bool,
+	PendingRequest       bool,
+	AlreadyHandledForKey bool,
+}
+
+// ResetTimestampInvalid refuses recovery when the reset timestamp is missing or non-positive.
+type ResetTimestampInvalid {
+	ResetAtMs int64,
+}
+
+// ResetOverdueBeyond24h refuses auto-resuming a limit whose reset window is over 24 hours stale.
+type ResetOverdueBeyond24h {
+	ResetAtMs int64,
+	NowMs     int64,
+}
+
+// ThreadArchivedRefusal refuses auto-resume on an archived thread.
+type ThreadArchivedRefusal {}
+
+// SessionExpiredRefusal refuses auto-resume on an expired or dead session.
+type SessionExpiredRefusal {}
+
+// PendingRequestBlocking refuses auto-resume while an interactive approval or question is pending.
+type PendingRequestBlocking {}
+
+// DuplicateLimitKey refuses re-arming or re-firing a recovery key that already handled its reset.
+type DuplicateLimitKey {
+	Key string,
+}
+
+// ResetNotReachedYet refuses firing resume before the recorded reset timestamp arrives.
+type ResetNotReachedYet {
+	ResetAtMs int64,
+	NowMs     int64,
+}
+
+// LimitAlreadySettled refuses further transitions after the limit run has settled.
+type LimitAlreadySettled {}
+
+// LimitRefusal classifies rejected limit-recovery arm or resume operations.
+type LimitRefusal = ResetTimestampInvalid | ResetOverdueBeyond24h | ThreadArchivedRefusal | SessionExpiredRefusal | PendingRequestBlocking | DuplicateLimitKey | ResetNotReachedYet | LimitAlreadySettled
+
+// LimitPending indicates a rate/usage limit run has not armed yet.
+type LimitPending {}
+
+// LimitArmed indicates a valid timer is armed for the reset window.
+type LimitArmed {}
+
+// LimitResumed indicates the run safely auto-resumed once past the reset window.
+type LimitResumed {}
+
+// LimitCancelled indicates auto-resume was aborted safely and reported cleanly.
+type LimitCancelled {
+	Reason string,
+}
+
+// LimitDisposition records how a rate/usage limit run settled.
+type LimitDisposition = LimitPending | LimitArmed | LimitResumed | LimitCancelled
+
+// LimitState tracks the lifecycle of one limit recovery attempt per M3 and D9.
+type LimitState {
+	Key                LimitRecoveryKey,
+	Armed              bool,
+	PastReset          bool,
+	SessionExpired     bool,
+	ThreadArchived     bool,
+	PendingRequest     bool,
+	ResumeCount        int,
+	ResumedOnExpired   bool,
+	ResumedOverRequest bool,
+	Reported           bool,
+	Disposition        LimitDisposition,
+}
+
+// ActArmLimit attempts to arm recovery after passing D9 guards.
+type ActArmLimit {
+	NowMs          int64,
+	AlreadyHandled bool,
+}
+
+// ActReachReset advances logical time past the reset timestamp.
+type ActReachReset {}
+
+// ActFireResume attempts to execute the single automatic resume turn.
+type ActFireResume {}
+
+// ActMarkSessionExpired records session expiration and disarms pending recovery.
+type ActMarkSessionExpired {}
+
+// ActMarkThreadArchived records thread archival and disarms pending recovery.
+type ActMarkThreadArchived {}
+
+// ActOpenPendingRequest records an active interactive request that blocks auto-resume.
+type ActOpenPendingRequest {}
+
+// ActClearPendingRequest clears the pending request guard.
+type ActClearPendingRequest {}
+
+// ActCancelStale settles an unsettled recovery attempt cleanly as cancelled.
+type ActCancelStale {
+	Reason string,
+}
+
+// LimitAction enumerates pure commands applied to a LimitState.
+type LimitAction = ActArmLimit | ActReachReset | ActFireResume | ActMarkSessionExpired | ActMarkThreadArchived | ActOpenPendingRequest | ActClearPendingRequest | ActCancelStale
+
+// CanArmLimitRecovery enforces all D9 preconditions for arming a usage-limit timer.
+func CanArmLimitRecovery(key LimitRecoveryKey, ctx LimitGuardContext) bool fails LimitRefusal {
+	if key.ResetAtMs <= 0 {
+		return ResetTimestampInvalid{ResetAtMs: key.ResetAtMs}
+	}
+	if ctx.ThreadArchived {
+		return ThreadArchivedRefusal
+	}
+	if ctx.SessionExpired {
+		return SessionExpiredRefusal
+	}
+	if ctx.PendingRequest {
+		return PendingRequestBlocking
+	}
+	if ctx.AlreadyHandledForKey {
+		return DuplicateLimitKey{Key: FormatLimitRecoveryKey(key)}
+	}
+	if ctx.NowMs > key.ResetAtMs && ctx.NowMs-key.ResetAtMs > MaxLimitOverdueMs() {
+		return ResetOverdueBeyond24h{ResetAtMs: key.ResetAtMs, NowMs: ctx.NowMs}
+	}
+	true
+}
+
+// NewLimitState initializes an unarmed limit recovery record for a key.
+func NewLimitState(key LimitRecoveryKey) LimitState {
+	LimitState{
+		Key:                key,
+		Armed:              false,
+		PastReset:          false,
+		SessionExpired:     false,
+		ThreadArchived:     false,
+		PendingRequest:     false,
+		ResumeCount:        0,
+		ResumedOnExpired:   false,
+		ResumedOverRequest: false,
+		Reported:           false,
+		Disposition:        LimitPending,
+	}
+}
+
+// IsLimitSettled reports whether the limit recovery lifecycle has reached a final state.
+func IsLimitSettled(s LimitState) bool {
+	match s.Disposition {
+	case LimitResumed, LimitCancelled:
+		true
+	case LimitPending, LimitArmed:
+		false
+	}
+}
+
+// StepLimitRecovery validates and applies a single LimitAction to a LimitState.
+func StepLimitRecovery(s LimitState, act LimitAction) LimitState fails LimitRefusal {
+	match act {
+	case ActMarkSessionExpired:
+		if !IsLimitSettled(s) {
+			return LimitState{
+				..s,
+				SessionExpired: true,
+				Armed:          false,
+				Reported:       true,
+				Disposition:    LimitCancelled{Reason: "session_expired"},
+			}
+		}
+		LimitState{..s, SessionExpired: true}
+
+	case ActMarkThreadArchived:
+		if !IsLimitSettled(s) {
+			return LimitState{
+				..s,
+				ThreadArchived: true,
+				Armed:          false,
+				Reported:       true,
+				Disposition:    LimitCancelled{Reason: "thread_archived"},
+			}
+		}
+		LimitState{..s, ThreadArchived: true}
+
+	case ActOpenPendingRequest:
+		if !IsLimitSettled(s) {
+			return LimitState{
+				..s,
+				PendingRequest: true,
+				Armed:          false,
+				Reported:       true,
+				Disposition:    LimitCancelled{Reason: "pending_request"},
+			}
+		}
+		LimitState{..s, PendingRequest: true}
+
+	case ActClearPendingRequest:
+		LimitState{..s, PendingRequest: false}
+
+	case ActCancelStale as cs:
+		if IsLimitSettled(s) {
+			return LimitAlreadySettled
+		}
+		LimitState{
+			..s,
+			Armed:       false,
+			Reported:    true,
+			Disposition: LimitCancelled{Reason: cs.Reason},
+		}
+
+	case ActArmLimit as arm:
+		if IsLimitSettled(s) {
+			return LimitAlreadySettled
+		}
+		let ctx = LimitGuardContext{
+			NowMs:                arm.NowMs,
+			ThreadArchived:       s.ThreadArchived,
+			SessionExpired:       s.SessionExpired,
+			PendingRequest:       s.PendingRequest,
+			AlreadyHandledForKey: arm.AlreadyHandled,
+		}
+		let _ = CanArmLimitRecovery(s.Key, ctx) catch {
+		case e:
+			return e
+		}
+		let past = s.PastReset || arm.NowMs >= s.Key.ResetAtMs
+		LimitState{
+			..s,
+			Armed:       true,
+			PastReset:   past,
+			Disposition: LimitArmed,
+		}
+
+	case ActReachReset:
+		if IsLimitSettled(s) {
+			return LimitAlreadySettled
+		}
+		LimitState{..s, PastReset: true}
+
+	case ActFireResume:
+		if IsLimitSettled(s) {
+			return LimitAlreadySettled
+		}
+		if !s.Armed {
+			return ResetTimestampInvalid{ResetAtMs: s.Key.ResetAtMs}
+		}
+		if !s.PastReset {
+			return ResetNotReachedYet{ResetAtMs: s.Key.ResetAtMs, NowMs: 0}
+		}
+		if s.SessionExpired {
+			return SessionExpiredRefusal
+		}
+		if s.ThreadArchived {
+			return ThreadArchivedRefusal
+		}
+		if s.PendingRequest {
+			return PendingRequestBlocking
+		}
+		if s.ResumeCount >= 1 {
+			return DuplicateLimitKey{Key: FormatLimitRecoveryKey(s.Key)}
+		}
+		LimitState{
+			..s,
+			ResumeCount:        s.ResumeCount + 1,
+			Armed:              false,
+			ResumedOnExpired:   s.SessionExpired || s.ThreadArchived,
+			ResumedOverRequest: s.PendingRequest,
+			Reported:           true,
+			Disposition:        LimitResumed,
+		}
+	}
+}
+
+func resumedOncePerRun(s LimitState) bool {
+	s.ResumeCount <= 1
+}
+
+func neverBeforeReset(s LimitState) bool {
+	!(s.ResumeCount > 0 && !s.PastReset)
+}
+
+func neverOnExpired(s LimitState) bool {
+	!s.ResumedOnExpired
+}
+
+func neverOverARequest(s LimitState) bool {
+	!s.ResumedOverRequest
+}
+
+func limitedIsResumedOrReported(s LimitState) bool {
+	if !IsLimitSettled(s) {
+		return true
+	}
+	match s.Disposition {
+	case LimitResumed:
+		s.ResumeCount == 1
+	case LimitCancelled:
+		s.Reported
+	case LimitPending, LimitArmed:
+		false
+	}
+}
+
+law LimitKeyIncludesThreadKindAndReset(threadID string, kind LimitKind, resetAtMs int64) {
+	let k1 = LimitRecoveryKey{ThreadID: threadID, Kind: kind, ResetAtMs: resetAtMs}
+	let k2 = LimitRecoveryKey{ThreadID: threadID, Kind: kind, ResetAtMs: resetAtMs + 1}
+	FormatLimitRecoveryKey(k1) != FormatLimitRecoveryKey(k2)
+}
+
+law GuardRejectsOverdueAndArchived(nowMs int64) {
+	let k = LimitRecoveryKey{ThreadID: "th-1", Kind: LimitUsage, ResetAtMs: 1000}
+	let overdueCtx = LimitGuardContext{
+		NowMs:                1000 + MaxLimitOverdueMs() + 1,
+		ThreadArchived:       false,
+		SessionExpired:       false,
+		PendingRequest:       false,
+		AlreadyHandledForKey: false,
+	}
+	let mut overdueBlocked = false
+	let _ = CanArmLimitRecovery(k, overdueCtx) catch {
+	case ResetOverdueBeyond24h:
+		overdueBlocked = true
+		false
+	case ResetTimestampInvalid, ThreadArchivedRefusal, SessionExpiredRefusal, PendingRequestBlocking, DuplicateLimitKey, ResetNotReachedYet, LimitAlreadySettled:
+		false
+	}
+	let archivedCtx = LimitGuardContext{
+		NowMs:                nowMs,
+		ThreadArchived:       true,
+		SessionExpired:       false,
+		PendingRequest:       false,
+		AlreadyHandledForKey: false,
+	}
+	let mut archivedBlocked = false
+	let _ = CanArmLimitRecovery(k, archivedCtx) catch {
+	case ThreadArchivedRefusal:
+		archivedBlocked = true
+		false
+	case ResetTimestampInvalid, ResetOverdueBeyond24h, SessionExpiredRefusal, PendingRequestBlocking, DuplicateLimitKey, ResetNotReachedYet, LimitAlreadySettled:
+		false
+	}
+	overdueBlocked && archivedBlocked
+}
+
+law FireResumeRefusesExpiredArmed(resetAtMs int64) {
+	let k = LimitRecoveryKey{ThreadID: "th-exp", Kind: LimitUsage, ResetAtMs: resetAtMs}
+	let armedExpired = LimitState{
+		Key:                k,
+		Armed:              true,
+		PastReset:          true,
+		SessionExpired:     true,
+		ThreadArchived:     false,
+		PendingRequest:     false,
+		ResumeCount:        0,
+		ResumedOnExpired:   false,
+		ResumedOverRequest: false,
+		Reported:           false,
+		Disposition:        LimitArmed,
+	}
+	let mut expiredBlocked = false
+	let _ = StepLimitRecovery(armedExpired, ActFireResume) catch {
+	case SessionExpiredRefusal:
+		expiredBlocked = true
+		armedExpired
+	case ResetTimestampInvalid, ResetOverdueBeyond24h, ThreadArchivedRefusal, PendingRequestBlocking, DuplicateLimitKey, ResetNotReachedYet, LimitAlreadySettled:
+		armedExpired
+	}
+	expiredBlocked
+}
+
+type ActLimitArmBeforeReset {}
+
+type ActLimitAdvanceReset {}
+
+type ActLimitResume {}
+
+type ActLimitSessionExpire {}
+
+type ActLimitThreadArchive {}
+
+type ActLimitOpenRequest {}
+
+type ActLimitCancel {}
+
+type LimitAct = ActLimitArmBeforeReset | ActLimitAdvanceReset | ActLimitResume | ActLimitSessionExpire | ActLimitThreadArchive | ActLimitOpenRequest | ActLimitCancel
+
+func firstLimitState() LimitState {
+	NewLimitState(LimitRecoveryKey{ThreadID: "th-1", Kind: LimitUsage, ResetAtMs: 1000})
+}
+
+func stepLimitState(s LimitState, a LimitAct) machines.Decision[LimitState, string] {
+	let act = match a {
+	case ActLimitArmBeforeReset:
+		ActArmLimit{NowMs: 500, AlreadyHandled: false}
+	case ActLimitAdvanceReset:
+		ActReachReset
+	case ActLimitResume:
+		ActFireResume
+	case ActLimitSessionExpire:
+		ActMarkSessionExpired
+	case ActLimitThreadArchive:
+		ActMarkThreadArchived
+	case ActLimitOpenRequest:
+		ActOpenPendingRequest
+	case ActLimitCancel:
+		ActCancelStale{Reason: "manual_cancel"}
+	}
+	let next = StepLimitRecovery(s, act) catch {
+	case _:
+		return machines.Ignore
+	}
+	machines.Enter[LimitState]{Next: next}
+}
+
+func resumedCleanly(s LimitState) bool {
+	match s.Disposition {
+	case LimitResumed:
+		s.ResumeCount == 1 && s.PastReset
+	case LimitPending, LimitArmed, LimitCancelled:
+		false
+	}
+}
+
+func expiredNeverResumed(s LimitState) bool {
+	match s.Disposition {
+	case LimitCancelled:
+		s.SessionExpired && s.ResumeCount == 0 && s.Reported
+	case LimitPending, LimitArmed, LimitResumed:
+		false
+	}
+}
+
+func blockedByPendingRequest(s LimitState) bool {
+	match s.Disposition {
+	case LimitCancelled:
+		s.PendingRequest && s.ResumeCount == 0 && s.Reported
+	case LimitPending, LimitArmed, LimitResumed:
+		false
+	}
+}
+
+// LimitRecoveryLifecycle exhaustively models M3 usage-limit recovery safety and terminal guarantees.
+type LimitRecoveryLifecycle machine[LimitState, LimitAct] {
+	initial: firstLimitState(),
+	step:    stepLimitState,
+
+	law ResumedOncePerRun always resumedOncePerRun,
+	law NeverBeforeReset always neverBeforeReset,
+	law NeverOnExpired always neverOnExpired,
+	law NeverOverARequest always neverOverARequest,
+	law LimitedIsResumedOrReported always limitedIsResumedOrReported,
+
+	law ResumedCleanly sometimes resumedCleanly,
+	law ExpiredNeverResumed sometimes expiredNeverResumed,
+	law BlockedByPendingRequest sometimes blockedByPendingRequest,
+}
+
+test LimitRecoveryBlocksDuplicateAndBadReset {
+	let key = LimitRecoveryKey{ThreadID: "th-9", Kind: LimitRate, ResetAtMs: 5000}
+	let dupCtx = LimitGuardContext{
+		NowMs:                1000,
+		ThreadArchived:       false,
+		SessionExpired:       false,
+		PendingRequest:       false,
+		AlreadyHandledForKey: true,
+	}
+	let mut dupBlocked = false
+	let _ = CanArmLimitRecovery(key, dupCtx) catch {
+	case DuplicateLimitKey:
+		dupBlocked = true
+		false
+	case ResetTimestampInvalid, ResetOverdueBeyond24h, ThreadArchivedRefusal, SessionExpiredRefusal, PendingRequestBlocking, ResetNotReachedYet, LimitAlreadySettled:
+		false
+	}
+	assert dupBlocked
+	assert FailureResetAtMs(FailureUsageLimit{ResetAtMs: 5000}) == option.Some[int64]{Value: 5000}
+	assert FailureResetAtMs(FailureTransport) == option.None
+}
