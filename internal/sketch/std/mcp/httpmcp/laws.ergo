@@ -139,43 +139,45 @@ law ProtocolHeadersAndSecurity(seed int) {
 		},
 		Body: http.Buffered{Text: ping},
 	}
-	let okResp = Handle(ep, okReq)
-	if okResp.Status != 200 || http.Header(okResp.Header, ProtocolVersionHeader) != (option.Some[string]{Value: mcp.Version}) {
-		return false
+	with context { http.Streaming: http.NewRecorder() } {
+		let okResp = Handle(ep, okReq)
+		if okResp.Status != 200 || http.Header(okResp.Header, ProtocolVersionHeader) != (option.Some[string]{Value: mcp.Version}) {
+			return false
+		}
+		let notifResp = Handle(ep, http.Request{..okReq, Body: http.Buffered{Text: notif}})
+		if notifResp.Status != 202 || notifResp.Body != "" || http.Header(notifResp.Header, ProtocolVersionHeader) != (option.Some[string]{Value: mcp.Version}) {
+			return false
+		}
+		let evilOrigin = Handle(ep, http.Request{..okReq, Header: []http.Field{
+			http.Field{Name: "Origin", Value: "http://evil-\(seed).test"},
+			http.Field{Name: "Content-Type", Value: "application/json"},
+			http.Field{Name: "Accept", Value: "application/json"},
+		}})
+		if evilOrigin.Status != 403 {
+			return false
+		}
+		let badAccept = Handle(ep, http.Request{..okReq, Header: []http.Field{
+			http.Field{Name: "Content-Type", Value: "application/json"},
+			http.Field{Name: "Accept", Value: "text/plain"},
+		}})
+		if badAccept.Status != 406 {
+			return false
+		}
+		let badCT = Handle(ep, http.Request{..okReq, Header: []http.Field{
+			http.Field{Name: "Content-Type", Value: "text/plain"},
+			http.Field{Name: "Accept", Value: "application/json"},
+		}})
+		if badCT.Status != 415 {
+			return false
+		}
+		let tooBig = Handle(ep, http.Request{..okReq, Body: http.Buffered{Text: strings.Repeat("a", 128)}})
+		if tooBig.Status != 413 {
+			return false
+		}
+		let getResp = Handle(ep, http.Request{..okReq, Method: "GET"})
+		let delResp = Handle(ep, http.Request{..okReq, Method: "DELETE"})
+		getResp.Status == 405 && delResp.Status == 405
 	}
-	let notifResp = Handle(ep, http.Request{..okReq, Body: http.Buffered{Text: notif}})
-	if notifResp.Status != 202 || notifResp.Body != "" || http.Header(notifResp.Header, ProtocolVersionHeader) != (option.Some[string]{Value: mcp.Version}) {
-		return false
-	}
-	let evilOrigin = Handle(ep, http.Request{..okReq, Header: []http.Field{
-		http.Field{Name: "Origin", Value: "http://evil-\(seed).test"},
-		http.Field{Name: "Content-Type", Value: "application/json"},
-		http.Field{Name: "Accept", Value: "application/json"},
-	}})
-	if evilOrigin.Status != 403 {
-		return false
-	}
-	let badAccept = Handle(ep, http.Request{..okReq, Header: []http.Field{
-		http.Field{Name: "Content-Type", Value: "application/json"},
-		http.Field{Name: "Accept", Value: "text/plain"},
-	}})
-	if badAccept.Status != 406 {
-		return false
-	}
-	let badCT = Handle(ep, http.Request{..okReq, Header: []http.Field{
-		http.Field{Name: "Content-Type", Value: "text/plain"},
-		http.Field{Name: "Accept", Value: "application/json"},
-	}})
-	if badCT.Status != 415 {
-		return false
-	}
-	let tooBig = Handle(ep, http.Request{..okReq, Body: http.Buffered{Text: strings.Repeat("a", 128)}})
-	if tooBig.Status != 413 {
-		return false
-	}
-	let getResp = Handle(ep, http.Request{..okReq, Method: "GET"})
-	let delResp = Handle(ep, http.Request{..okReq, Method: "DELETE"})
-	getResp.Status == 405 && delResp.Status == 405
 }
 
 // SessionLifecycleAndIsolation: stateful endpoints mint Mcp-Session-Id on
@@ -264,19 +266,21 @@ law SessionLifecycleAndIsolation(seed int) {
 	if Has(store, aliceID) || !Has(store, bobID) {
 		return false
 	}
-	let postDelete = Handle(ep, http.Request{
-		Method:  "POST",
-		Path:    "/mcp",
-		RawPath: "/mcp",
-		Query:   []http.Field{},
-		Header:  []http.Field{
-			http.Field{Name: "Authorization", Value: "Bearer alice"},
-			http.Field{Name: "Content-Type", Value: "application/json"},
-			http.Field{Name: "Accept", Value: "application/json"},
-			http.Field{Name: SessionHeader, Value: aliceID},
-		},
-		Body: http.Buffered{Text: whoMsg},
-	})
+	let postDelete = with context { http.Streaming: http.NewRecorder() } {
+		Handle(ep, http.Request{
+			Method:  "POST",
+			Path:    "/mcp",
+			RawPath: "/mcp",
+			Query:   []http.Field{},
+			Header:  []http.Field{
+				http.Field{Name: "Authorization", Value: "Bearer alice"},
+				http.Field{Name: "Content-Type", Value: "application/json"},
+				http.Field{Name: "Accept", Value: "application/json"},
+				http.Field{Name: SessionHeader, Value: aliceID},
+			},
+			Body: http.Buffered{Text: whoMsg},
+		})
+	}
 	postDelete.Status == 404
 }
 
