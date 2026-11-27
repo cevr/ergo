@@ -1,0 +1,174 @@
+import option
+import strings
+
+func isChromeBinaryName(name string) bool {
+	let b = strings.ToLower(BasenamePosix(name))
+	b == "google-chrome" || b == "google-chrome-stable" || b == "chromium" || b == "chromium-browser" || b == "chrome" || b == "chrome-headless-shell" || b == "headless_shell" || b == "brave" || b == "brave-browser" || b == "msedge" || b == "microsoft-edge"
+}
+
+func isSafeChromeWrapper(raw string) bool {
+	strings.Contains(strings.ToLower(raw), "chrome-mock-keychain")
+}
+
+func hasChromeMockKeychainFlags(words []ShellWord) (bool, bool, bool) {
+	let mut hasMock = false
+	let mut hasBasicStore = false
+	let mut isMetaOnly = false
+	let mut i = 0
+	for i < words.Len() {
+		let w = words[i].Text
+		if w == "--use-mock-keychain" {
+			hasMock = true
+		} else if w == "--password-store=basic" {
+			hasBasicStore = true
+		} else if w == "--password-store" && i+1 < words.Len() && words[i+1].Text == "basic" {
+			hasBasicStore = true
+		} else if w == "--version" || w == "--help" || w == "-h" {
+			isMetaOnly = true
+		}
+		i = i + 1
+	}
+	(hasMock, hasBasicStore, isMetaOnly)
+}
+
+func hasChromeLaunchTrigger(words []ShellWord) bool {
+	for w in words {
+		let t = w.Text
+		if strings.HasPrefix(t, "--headless") || strings.HasPrefix(t, "--remote-debugging-port") || t == "--remote-debugging-pipe" {
+			return true
+		}
+	}
+	false
+}
+
+func isOpenChromeApp(words []ShellWord) bool {
+	if words.Len() < 3 || BasenamePosix(words[0].Text) != "open" {
+		return false
+	}
+	let mut i = 1
+	for i+1 < words.Len() {
+		if words[i].Text == "-a" {
+			let app = strings.ToLower(words[i+1].Text)
+			if strings.Contains(app, "chrome") || strings.Contains(app, "chromium") || strings.Contains(app, "edge") || strings.Contains(app, "brave") {
+				return true
+			}
+		}
+		i = i + 1
+	}
+	false
+}
+
+func chromeWordSafe(words []ShellWord, chromeEnv string) option.Option[GuardError] {
+	let (hasMock, hasBasicStore, isMetaOnly) = hasChromeMockKeychainFlags(words)
+	if isMetaOnly {
+		return option.None
+	}
+	let mut mentionsChrome = false
+	if isOpenChromeApp(words) {
+		mentionsChrome = true
+	} else if words.Len() > 0 && isChromeBinaryName(words[0].Text) {
+		if !isSafeChromeWrapper(words[0].Text) {
+			mentionsChrome = true
+		}
+	} else if words.Len() > 0 && (words[0].Text == "$CHROME" || words[0].Text == "${CHROME}") {
+		if !isSafeChromeWrapper(chromeEnv) {
+			mentionsChrome = true
+		}
+	} else if hasChromeLaunchTrigger(words) {
+		mentionsChrome = true
+	}
+	if !mentionsChrome {
+		return option.None
+	}
+	if hasMock && hasBasicStore {
+		return option.None
+	}
+	option.Some[GuardError]{Value: KeychainPrompt{
+		Rule:   RuleChromeKeychain,
+		Reason: "Chrome headless/DevTools launch missing required --use-mock-keychain --password-store=basic",
+	}}
+}
+
+func checkScriptContentsForChrome(scriptText string, ctx GuardContext) option.Option[GuardError] {
+	let subCmds = PlaceCommands(scriptText, "", ctx.DefaultEnv) catch {
+	case BadShellSyntax:
+		return option.None
+	}
+	for sc in subCmds {
+		match chromeWordSafe(sc.Words, "") {
+		case option.Some[GuardError] as ge:
+			return option.Some[GuardError]{Value: ge.Value}
+		case option.None:
+		}
+	}
+	option.None
+}
+
+func firstScriptArg(words []ShellWord) option.Option[string] {
+	let mut i = 1
+	for i < words.Len() {
+		let arg = words[i].Text
+		if !strings.HasPrefix(arg, "-") {
+			return option.Some[string]{Value: arg}
+		}
+		i = i + 1
+	}
+	option.None
+}
+
+func checkScriptWordForChrome(scriptName string, ctx GuardContext) option.Option[GuardError] {
+	match ctx.Scripts.Get(scriptName) {
+	case option.Some[string] as txt:
+		checkScriptContentsForChrome(txt.Value, ctx)
+	case option.None:
+		option.None
+	}
+}
+
+// CheckChromeCommand enforces --use-mock-keychain --password-store=basic on direct Chrome, open -a, git bisect run, and script invocations.
+func CheckChromeCommand(cmd PlacedCommand, ctx GuardContext) option.Option[GuardError] {
+	if cmd.Words.Len() == 0 {
+		return option.None
+	}
+	let chromeEnv = match cmd.Env.Get("CHROME") {
+	case option.Some[string] as c:
+		c.Value
+	case option.None:
+		""
+	}
+	match chromeWordSafe(cmd.Words, chromeEnv) {
+	case option.Some[GuardError] as ge:
+		return option.Some[GuardError]{Value: ge.Value}
+	case option.None:
+	}
+	if isGitCommand(cmd) && cmd.Words.Len() >= 4 && cmd.Words[1].Text == "bisect" && cmd.Words[2].Text == "run" {
+		if isChromeBinaryName(cmd.Words[3].Text) {
+			return chromeWordSafe(cmd.Words[3:cmd.Words.Len()], chromeEnv)
+		}
+		if !isSafeChromeWrapper(chromeEnv) {
+			return checkScriptWordForChrome(cmd.Words[3].Text, ctx)
+		}
+		return option.None
+	}
+	let head = BasenamePosix(cmd.Words[0].Text)
+	if isShellInterpreter(head) {
+		match firstScriptArg(cmd.Words) {
+		case option.Some[string] as s:
+			return checkScriptWordForChrome(s.Value, ctx)
+		case option.None:
+			return option.None
+		}
+	}
+	checkScriptWordForChrome(cmd.Words[0].Text, ctx)
+}
+
+// ChromeKeychainGuardLaw verifies Chrome invocations require both --use-mock-keychain and --password-store=basic.
+law ChromeKeychainGuardLaw() {
+	let ctx = DefaultTestContext()
+	let missingBoth = Evaluate(ctx, ShellCall{Command: "google-chrome --headless --remote-debugging-port=9222 https://example.com", Cwd: "/repo", Background: false, Actor: ActorKnown{Role: ActorRoot}})
+	let missingStore = Evaluate(ctx, ShellCall{Command: "chromium --headless --use-mock-keychain", Cwd: "/repo", Background: false, Actor: ActorKnown{Role: ActorRoot}})
+	let validLaunch = Evaluate(ctx, ShellCall{Command: "google-chrome --headless --remote-debugging-port=9222 --use-mock-keychain --password-store=basic https://example.com", Cwd: "/repo", Background: false, Actor: ActorKnown{Role: ActorRoot}})
+	let validBisectShim = Evaluate(ctx, ShellCall{Command: "CHROME=/home/exedev/bin/chrome-mock-keychain git bisect run ./test-ui.sh", Cwd: "/repo", Background: false, Actor: ActorKnown{Role: ActorRoot}})
+	let unsafeScript = Evaluate(ctx, ShellCall{Command: "bash ./launch-chrome.sh", Cwd: "/repo", Background: false, Actor: ActorKnown{Role: ActorRoot}})
+	!missingBoth.Allowed && !missingStore.Allowed && validLaunch.Allowed && validBisectShim.Allowed && !unsafeScript.Allowed
+}

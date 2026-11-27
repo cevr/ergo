@@ -1319,6 +1319,226 @@
       "killers": [
         "modules/atlas/queue:law:QueueFifoSteerAndCancelLaw"
       ]
+    },
+    {
+      "name": "atlas-direct-loop-guard-allows-rm-repo-root",
+      "origin": "ATLAS-DIRECT-LOOP",
+      "file": "modules/atlas/guard/rules_workspace.ergo",
+      "decl": "checkExpandedRmTarget",
+      "from": "\t\t\tif target == cr || (recursive && PosixWithin(cr, target)) {",
+      "to": "\t\t\tif false && (target == cr || (recursive && PosixWithin(cr, target))) {",
+      "rule": "Destructive rm guard must refuse deleting repository roots or containing ancestors.",
+      "killers": [
+        "modules/atlas/guard:law:WorkspaceGuardLaw"
+      ]
+    },
+    {
+      "name": "atlas-direct-loop-guard-unreadable-repos-fails-open",
+      "origin": "ATLAS-DIRECT-LOOP",
+      "file": "modules/atlas/guard/rules_workspace.ergo",
+      "decl": "checkExpandedRmTarget",
+      "from": "\tcase ReposUnreadable:\n\t\tif recursive {",
+      "to": "\tcase ReposUnreadable:\n\t\tif false && recursive {",
+      "rule": "Destructive rm guard must fail closed when repository roots are unreadable.",
+      "killers": [
+        "modules/atlas/guard:law:FailClosedWhenStateUnreadableLaw"
+      ]
+    },
+    {
+      "name": "atlas-direct-loop-guard-allows-git-reset-hard",
+      "origin": "ATLAS-DIRECT-LOOP",
+      "file": "modules/atlas/guard/rules_workspace.ergo",
+      "decl": "CheckGitCommand",
+      "from": "\t\t\tif w.Text == \"--hard\" {",
+      "to": "\t\t\tif false && w.Text == \"--hard\" {",
+      "rule": "Git guard must refuse git reset --hard.",
+      "killers": [
+        "modules/atlas/guard:law:WorkspaceGuardLaw"
+      ]
+    },
+    {
+      "name": "atlas-direct-loop-guard-allows-git-worktree-add",
+      "origin": "ATLAS-DIRECT-LOOP",
+      "file": "modules/atlas/guard/rules_workspace.ergo",
+      "decl": "checkoutRequiresCowWork",
+      "from": "\t\tif applies {\n\t\t\treturn option.Some[GuardError]{Value: FullCopy{Rule: RuleWorktreeAdd, Reason: \"repository uses CoW workspaces; use `work new <name>` instead of `git worktree add`\"}}",
+      "to": "\t\tif false && applies {\n\t\t\treturn option.Some[GuardError]{Value: FullCopy{Rule: RuleWorktreeAdd, Reason: \"repository uses CoW workspaces; use `work new <name>` instead of `git worktree add`\"}}",
+      "rule": "Workspace guard must refuse git worktree add with FullCopy where CoW workspaces apply.",
+      "killers": [
+        "modules/atlas/guard:law:WorkspaceGuardLaw"
+      ]
+    },
+    {
+      "name": "atlas-direct-loop-guard-allows-bare-work-gc",
+      "origin": "ATLAS-DIRECT-LOOP",
+      "file": "modules/atlas/guard/rules_workspace.ergo",
+      "decl": "checkWorkGc",
+      "from": "\t\tif ctx.RefuseBareWorkGc {",
+      "to": "\t\tif false && ctx.RefuseBareWorkGc {",
+      "rule": "Work guard must refuse bare work gc while permitting work rm <lane>.",
+      "killers": [
+        "modules/atlas/guard:law:WorkspaceGuardLaw"
+      ]
+    },
+    {
+      "name": "atlas-direct-loop-guard-allows-server-kill",
+      "origin": "ATLAS-DIRECT-LOOP",
+      "file": "modules/atlas/guard/rules_process.ergo",
+      "decl": "checkKillSingleTarget",
+      "from": "\tif prot {\n\t\treturn option.Some[GuardError]{Value: Destructive{Rule: RuleServerKill, Reason: \"refusing to kill protected \" + desc}}\n\t}",
+      "to": "\tif false && prot {\n\t\treturn option.Some[GuardError]{Value: Destructive{Rule: RuleServerKill, Reason: \"refusing to kill protected \" + desc}}\n\t}",
+      "rule": "Server-PID kill guard must refuse signals targeting protected server/daemon PIDs.",
+      "killers": [
+        "modules/atlas/guard:law:ProcessAndSleepGuardLaw"
+      ]
+    },
+    {
+      "name": "atlas-direct-loop-guard-allows-subagent-long-sleep",
+      "origin": "ATLAS-DIRECT-LOOP",
+      "file": "modules/atlas/guard/rules_process.ergo",
+      "decl": "CheckSleepCommand",
+      "from": "\tif totalMs >= SubagentSleepLimitMs() {",
+      "to": "\tif totalMs >= SubagentSleepLimitMs()*1000 {",
+      "rule": "Subagent foreground sleep >= 30s must be refused with Idle.",
+      "killers": [
+        "modules/atlas/guard:law:ProcessAndSleepGuardLaw"
+      ]
+    },
+    {
+      "name": "atlas-direct-loop-guard-allows-chrome-without-mock-keychain",
+      "origin": "ATLAS-DIRECT-LOOP",
+      "file": "modules/atlas/guard/rules_chrome.ergo",
+      "decl": "chromeWordSafe",
+      "from": "\tif hasMock && hasBasicStore {",
+      "to": "\tif hasMock || hasBasicStore {",
+      "rule": "Chrome launch guard must require BOTH --use-mock-keychain and --password-store=basic.",
+      "killers": [
+        "modules/atlas/guard:law:ChromeKeychainGuardLaw"
+      ]
+    },
+    {
+      "name": "atlas-direct-loop-tools-allows-blocking-question",
+      "origin": "ATLAS-DIRECT-LOOP",
+      "file": "modules/atlas/tools/schemas.ergo",
+      "decl": "ParseToolCall",
+      "from": "\tquestions.RequireAsyncOnly(role, name) catch {\n\tcase questions.BlockingQuestionForbidden as f:\n\t\treturn BlockingQuestionError{Cause: f}\n\t}",
+      "to": "\tlet _ = role",
+      "rule": "Tool parser must reject blocking question invocations with BlockingQuestionError.",
+      "killers": [
+        "modules/atlas/tools:law:ToolsIntegrationLaw"
+      ]
+    },
+    {
+      "name": "atlas-direct-loop-tools-yolo-bypasses-guard",
+      "origin": "ATLAS-DIRECT-LOOP",
+      "file": "modules/atlas/tools/policy.ergo",
+      "decl": "checkShellWithGuard",
+      "from": "\tcase guard.GuardError as ge:\n\t\treturn GuardBlockedError{Cause: ge}",
+      "to": "\tcase guard.GuardError as ge:\n\t\tlet _ = ge",
+      "rule": "Shell safety guard must remain non-bypassable even under PermissionMode yolo.",
+      "killers": [
+        "modules/atlas/tools:law:PermissionModesEnforceGuardAndGatesLaw",
+        "modules/atlas/tools:law:ToolsIntegrationLaw"
+      ]
+    },
+    {
+      "name": "atlas-direct-loop-tools-ask-auto-approves-edit",
+      "origin": "ATLAS-DIRECT-LOOP",
+      "file": "modules/atlas/tools/policy.ergo",
+      "decl": "checkEditPolicy",
+      "from": "\tcase adapter.ModeAsk, adapter.ModeSupervised:\n\t\tPolicyNeedsApproval{Request: ApprovalRequest{\n\t\t\tTool:       \"edit\",\n\t\t\tSummary:    \"edit workspace file\",\n\t\t\tTargetPath: resolved,\n\t\t\tCommand:    \"\",\n\t\t\tMode:       effMode,\n\t\t}}",
+      "to": "\tcase adapter.ModeAsk, adapter.ModeSupervised:\n\t\tPolicyAllow",
+      "rule": "PermissionMode ask and supervised must require confirmation for workspace edits.",
+      "killers": [
+        "modules/atlas/tools:law:PermissionModesEnforceGuardAndGatesLaw"
+      ]
+    },
+    {
+      "name": "atlas-direct-loop-tools-auto-edit-allows-shell",
+      "origin": "ATLAS-DIRECT-LOOP",
+      "file": "modules/atlas/tools/policy.ergo",
+      "decl": "checkShellWithGuard",
+      "from": "\tcase adapter.ModeAsk, adapter.ModeAutoEdit, adapter.ModeSupervised:",
+      "to": "\tcase adapter.ModeAutoEdit:\n\t\tPolicyAllow\n\tcase adapter.ModeAsk, adapter.ModeSupervised:",
+      "rule": "PermissionMode auto_edit must still ask confirmation before executing shell commands.",
+      "killers": [
+        "modules/atlas/tools:law:PermissionModesEnforceGuardAndGatesLaw",
+        "modules/atlas/tools:law:ToolsIntegrationLaw"
+      ]
+    },
+    {
+      "name": "atlas-direct-loop-tools-barrier-allows-stale-read-batch",
+      "origin": "ATLAS-DIRECT-LOOP",
+      "file": "modules/atlas/tools/dispatch.ergo",
+      "decl": "PartitionCallBatches",
+      "from": "\t\tif IsReadOnlyCall(role, c.Name, c.Arguments) {",
+      "to": "\t\tif true || IsReadOnlyCall(role, c.Name, c.Arguments) {",
+      "rule": "Read-only parallel batches must enforce ordered barriers before mutating tool calls.",
+      "killers": [
+        "modules/atlas/tools:law:ParallelBatchingBarrierLaw",
+        "modules/atlas/tools:law:ToolsIntegrationLaw"
+      ]
+    },
+    {
+      "name": "atlas-direct-loop-tools-subagent-allows-handback-open-handles",
+      "origin": "ATLAS-DIRECT-LOOP",
+      "file": "modules/atlas/tools/ops_runtime.ergo",
+      "decl": "runSubagentHandBack",
+      "from": "\tlet nextTree0 = subagent.FinalizeHandBack(state.Tree, childID) catch {\n\tcase subagent.SubagentRefusal as sr:\n\t\treturn ToolSubagentError{Cause: sr}\n\t}",
+      "to": "\tlet nextTree0 = state.Tree",
+      "rule": "Subagent hand_back must fail while child holds open handles or active descendants.",
+      "killers": [
+        "modules/atlas/tools:law:ToolsIntegrationLaw"
+      ]
+    },
+    {
+      "name": "atlas-direct-loop-direct-retries-after-first-delta",
+      "origin": "ATLAS-DIRECT-LOOP",
+      "file": "modules/atlas/direct/loop.ergo",
+      "decl": "streamWithPreDeltaRetry",
+      "from": "\t\t\tif seen.Len() > 0 {",
+      "to": "\t\t\tif false && seen.Len() > 0 {",
+      "rule": "Direct loop must never retry an LLM stream request after emitting >= 1 delta (NoRetryAfterFirstDelta).",
+      "killers": [
+        "modules/atlas/direct:law:DirectRetryAndNoRetryAfterDeltaLaw"
+      ]
+    },
+    {
+      "name": "atlas-direct-loop-direct-allows-unsupported-agy",
+      "origin": "ATLAS-DIRECT-LOOP",
+      "file": "modules/atlas/direct/loop.ergo",
+      "decl": "RunDirectLoop",
+      "from": "\tadapter.CanStartDriver(cfg.Driver, cfg.Capabilities) catch {\n\tcase adapter.AdapterRefusal as ar:\n\t\treturn UnsupportedDriverError{Cause: ar}\n\t}",
+      "to": "\tadapter.CanStartDriver(cfg.Driver, cfg.Capabilities) catch {\n\tcase adapter.AdapterRefusal as ar:\n\t\tlet _ = ar\n\t}",
+      "rule": "Direct loop must reject AntigravityDirect upfront when direct Antigravity is unsupported.",
+      "killers": [
+        "modules/atlas/direct:law:DirectSubagentAndDriverGateLaw"
+      ]
+    },
+    {
+      "name": "atlas-direct-loop-direct-compaction-splits-tool-group",
+      "origin": "ATLAS-DIRECT-LOOP",
+      "file": "modules/atlas/direct/compact.ergo",
+      "decl": "collectToolGroup",
+      "from": "\t\t\tif pos >= 0 {",
+      "to": "\t\t\tif false && pos >= 0 {",
+      "rule": "Branch compaction must keep Assistant tool calls paired atomically with their Result messages.",
+      "killers": [
+        "modules/atlas/direct:law:CompactionPreservesValidTranscriptLaw",
+        "modules/atlas/direct:law:DirectParallelBatchBarrierAndCompactionLaw"
+      ]
+    },
+    {
+      "name": "atlas-direct-loop-direct-drops-parent-thread-id",
+      "origin": "ATLAS-DIRECT-LOOP",
+      "file": "modules/atlas/direct/loop.ergo",
+      "decl": "SpawnAndRunSubagent",
+      "from": "\tlet childCfg = DirectConfig{\n\t\t..parentCfg,\n\t\tThreadID:       spec.ChildID,\n\t\tParentThreadID: option.Some[handle.ThreadID]{Value: parentCfg.ThreadID},",
+      "to": "\tlet childCfg = DirectConfig{\n\t\t..parentCfg,\n\t\tThreadID:       spec.ChildID,\n\t\tParentThreadID: option.None,",
+      "rule": "Spawned subagent child thread must carry ParentThreadID pointing to its spawning parent thread.",
+      "killers": [
+        "modules/atlas/direct:law:DirectSubagentAndDriverGateLaw"
+      ]
     }
   ]
 }

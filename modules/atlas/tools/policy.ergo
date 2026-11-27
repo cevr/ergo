@@ -1,0 +1,345 @@
+import github.com/cevr/ergo/modules/atlas/adapter
+import github.com/cevr/ergo/modules/atlas/guard
+import github.com/cevr/ergo/modules/atlas/handle
+import github.com/cevr/ergo/modules/atlas/handles
+import github.com/cevr/ergo/modules/atlas/questions
+import github.com/cevr/ergo/modules/atlas/subagent
+import option
+import strings
+
+// JobRecord tracks a durable background job opened under DelivererWakes.
+type JobRecord {
+	ID      handle.HandleID,
+	Command string,
+	Cwd     string,
+	Status  int,
+	Output  string,
+	Settled bool,
+}
+
+// ChildThreadRecord records the parent-child thread lineage created when spawning a subagent.
+type ChildThreadRecord {
+	ThreadID       handle.ThreadID,
+	ParentThreadID handle.ThreadID,
+	HandleID       handle.HandleID,
+	Role           subagent.AgentRole,
+	HandedBack     bool,
+}
+
+// ToolState captures deterministic domain state mutated by handles, questions, jobs, and subagent tree tools.
+type ToolState {
+	Handles      handles.Registry,
+	Questions    questions.QuestionBook,
+	Tree         subagent.Tree,
+	Jobs         Map[string, JobRecord],
+	JobOrder     []string,
+	ChildThreads Map[handle.ThreadID, ChildThreadRecord],
+	NextSeq      int,
+	NowMs        int,
+}
+
+// ToolContext captures thread, role, workspace, permission mode, capabilities, and safety guard context.
+type ToolContext {
+	SessionID        handle.SessionID,
+	ThreadID         handle.ThreadID,
+	RootThreadID     handle.ThreadID,
+	ParentThreadID   option.Option[handle.ThreadID],
+	Owner            handle.OwnerID,
+	Role             subagent.AgentRole,
+	WorkspaceRoot    string,
+	ConfineWorkspace bool,
+	PermissionMode   adapter.PermissionMode,
+	Capabilities     adapter.Capabilities,
+	Guard            guard.GuardContext,
+}
+
+// ApprovalRequest describes a mutating tool invocation presented to an operator approval policy.
+type ApprovalRequest {
+	Tool       string,
+	Summary    string,
+	TargetPath string,
+	Command    string,
+	Mode       adapter.PermissionMode,
+}
+
+// ApproveOnce grants approval for the current mutating tool call.
+type ApproveOnce {}
+
+// DenyApproval rejects the current mutating tool call with a reason.
+type DenyApproval {
+	Reason string,
+}
+
+// ApprovalOutcome represents the caller decision on a mutating tool call needing approval.
+type ApprovalOutcome = ApproveOnce | DenyApproval
+
+// Approver authorizes mutating tool calls that require interactive confirmation under PermissionMode.
+type Approver {
+	Approve(req ApprovalRequest) ApprovalOutcome,
+
+	// ApproveDeterministic guarantees a pure policy decision does not flicker for the same request.
+	law ApproveDeterministic(req ApprovalRequest) {
+		Approve(req) == Approve(req)
+	},
+}
+
+// AlwaysApprove grants approval for every PolicyNeedsApproval request (useful for programmatic approval).
+type AlwaysApprove {} implements Approver
+
+// Approve grants approval unconditionally.
+func Approve(_ AlwaysApprove, _ ApprovalRequest) ApprovalOutcome { ApproveOnce }
+
+// AlwaysDeny rejects every PolicyNeedsApproval request with its configured Reason.
+type AlwaysDeny {
+	Reason string,
+} implements Approver
+
+// Approve denies confirmation with the configured reason.
+func Approve(d AlwaysDeny, _ ApprovalRequest) ApprovalOutcome { DenyApproval{Reason: d.Reason} }
+
+// PolicyAllow indicates a call is cleared to execute (after guard checks).
+type PolicyAllow {}
+
+// PolicyNeedsApproval indicates the call requires explicit operator approval under the active PermissionMode.
+type PolicyNeedsApproval {
+	Request ApprovalRequest,
+}
+
+// PolicyDecision is the permission policy outcome before executing a tool.
+type PolicyDecision = PolicyAllow | PolicyNeedsApproval
+
+// NewToolState initializes an empty ToolState anchored at rootThreadID with bounded subagent tree limits.
+func NewToolState(rootThreadID handle.ThreadID, bounds subagent.TreeBounds, nowMs int) ToolState {
+	ToolState{
+		Handles:      handles.NewRegistry(),
+		Questions:    questions.NewBook(),
+		Tree:         subagent.NewTree(rootThreadID, bounds),
+		Jobs:         Map[string, JobRecord]{},
+		JobOrder:     []string{},
+		ChildThreads: Map[handle.ThreadID, ChildThreadRecord]{},
+		NextSeq:      1,
+		NowMs:        nowMs,
+	}
+}
+
+// DefaultToolContext returns a deterministic ToolContext for workspace tests and local execution.
+func DefaultToolContext(workspace string, mode adapter.PermissionMode, caps adapter.Capabilities) ToolContext {
+	let gctx = guard.GuardContext{
+		HomeDir:          "/home/tester",
+		WorkRoots:        []string{"/workspaces/.work", "/workspaces/.rifts"},
+		DefaultEnv:       Map[string, string]{"HOME": "/home/tester"},
+		Repos:            guard.ReposKnown{Roots: []string{workspace}},
+		Checkouts:        guard.CheckoutsKnown{Entries: []guard.CheckoutEntry{guard.CheckoutEntry{Path: workspace, FsType: "btrfs", HasWarmBase: true}}},
+		Processes:        guard.ProcsKnown{ServerPIDs: []int{4242}, Procs: []guard.ProcInfo{guard.ProcInfo{PID: 4242, Name: "atlas-serve", Cmdline: "atlas serve", Protected: true}}},
+		Reservations:     guard.ResKnown{Creating: []string{}},
+		RefuseBareWorkGc: true,
+		Scripts:          Map[string, string]{},
+	}
+	ToolContext{
+		SessionID:        "sess-1",
+		ThreadID:         "th-root",
+		RootThreadID:     "th-root",
+		ParentThreadID:   option.None,
+		Owner:            handle.OwnerID{ServerID: "srv-1", Location: "direct", Epoch: 1},
+		Role:             subagent.RoleRoot,
+		WorkspaceRoot:    workspace,
+		ConfineWorkspace: true,
+		PermissionMode:   mode,
+		Capabilities:     caps,
+		Guard:            gctx,
+	}
+}
+
+func resolveToolPath(ctx ToolContext, raw string) string {
+	guard.ResolvePosix(ctx.WorkspaceRoot, raw)
+}
+
+func targetsGitMetadata(resolved string) bool {
+	let base = guard.BasenamePosix(resolved)
+	base == ".git" || strings.Contains(resolved, "/.git/")
+}
+
+func checkShellWithGuard(command string, cwdArg string, bg bool, ctx ToolContext, effMode adapter.PermissionMode) PolicyDecision fails ToolError {
+	let effCwd = if strings.TrimSpace(cwdArg) == "" { ctx.WorkspaceRoot } else { resolveToolPath(ctx, cwdArg) }
+	guard.Judge(ctx.Guard, guard.ShellCall{
+		Command:    command,
+		Cwd:        effCwd,
+		Background: bg,
+		Actor:      guard.ActorFromSubagentRole(ctx.Role),
+	}) catch {
+	case guard.GuardError as ge:
+		return GuardBlockedError{Cause: ge}
+	}
+	match effMode {
+	case adapter.ModeYolo:
+		PolicyAllow
+	case adapter.ModeAsk, adapter.ModeAutoEdit, adapter.ModeSupervised:
+		PolicyNeedsApproval{Request: ApprovalRequest{
+			Tool:       if bg { "shell (background)" } else { "shell" },
+			Summary:    "execute shell command",
+			TargetPath: effCwd,
+			Command:    command,
+			Mode:       effMode,
+		}}
+	}
+}
+
+func checkEditPolicy(args EditArgs, ctx ToolContext, effMode adapter.PermissionMode) PolicyDecision fails ToolError {
+	let resolved = resolveToolPath(ctx, args.Path)
+	if targetsGitMetadata(resolved) {
+		return GuardBlockedError{Cause: guard.Destructive{Rule: guard.RuleDestructiveRm, Reason: "refusing edit inside .git metadata"}}
+	}
+	let inWorkspace = guard.PosixWithin(resolved, ctx.WorkspaceRoot)
+	if ctx.ConfineWorkspace && !inWorkspace {
+		return ApprovalDeniedError{Tool: "edit", Reason: "path escapes workspace root: " + resolved}
+	}
+	match effMode {
+	case adapter.ModeYolo:
+		PolicyAllow
+	case adapter.ModeAutoEdit:
+		if inWorkspace {
+			return PolicyAllow
+		}
+		PolicyNeedsApproval{Request: ApprovalRequest{
+			Tool:       "edit",
+			Summary:    "edit file outside workspace",
+			TargetPath: resolved,
+			Command:    "",
+			Mode:       effMode,
+		}}
+	case adapter.ModeAsk, adapter.ModeSupervised:
+		PolicyNeedsApproval{Request: ApprovalRequest{
+			Tool:       "edit",
+			Summary:    "edit workspace file",
+			TargetPath: resolved,
+			Command:    "",
+			Mode:       effMode,
+		}}
+	}
+}
+
+func checkControlWritePolicy(toolName string, summary string, ctx ToolContext, effMode adapter.PermissionMode) PolicyDecision {
+	let approved = adapter.RequireWriteApproval(effMode, false) catch {
+	case adapter.AdapterRefusal:
+		false
+	}
+	if approved {
+		return PolicyAllow
+	}
+	PolicyNeedsApproval{Request: ApprovalRequest{
+		Tool:       toolName,
+		Summary:    summary,
+		TargetPath: ctx.WorkspaceRoot,
+		Command:    "",
+		Mode:       effMode,
+	}}
+}
+
+// EvaluatePolicy checks non-bypassable guard rules and active PermissionMode policy for call.
+func EvaluatePolicy(call ParsedToolCall, ctx ToolContext) PolicyDecision fails ToolError {
+	if IsReadOnly(call) {
+		return PolicyAllow
+	}
+	let effMode = adapter.ResolvePermissionMode(ctx.Capabilities, ctx.PermissionMode)
+	match call {
+	case ParsedAskUserAsync, ParsedRead, ParsedSearch:
+		PolicyAllow
+	case ParsedShell as sh:
+		try checkShellWithGuard(sh.Args.Command, sh.Args.Cwd, sh.Args.Background, ctx, effMode)
+	case ParsedEdit as ed:
+		try checkEditPolicy(ed.Args, ctx, effMode)
+	case ParsedJob as jb:
+		if jb.Args.Action == "start" {
+			guard.Judge(ctx.Guard, guard.ShellCall{
+				Command:    jb.Args.Command,
+				Cwd:        if jb.Args.Cwd == "" { ctx.WorkspaceRoot } else { resolveToolPath(ctx, jb.Args.Cwd) },
+				Background: true,
+				Actor:      guard.ActorFromSubagentRole(ctx.Role),
+			}) catch {
+			case guard.GuardError as ge:
+				return GuardBlockedError{Cause: ge}
+			}
+		}
+		checkControlWritePolicy("job", "job "+jb.Args.Action, ctx, effMode)
+	case ParsedHandles as ha:
+		checkControlWritePolicy("handles", "handles "+ha.Args.Action, ctx, effMode)
+	case ParsedKernel as ka:
+		checkControlWritePolicy("kernel", "kernel "+ka.Args.Action, ctx, effMode)
+	case ParsedSubagent as sa:
+		checkControlWritePolicy("subagent", "subagent "+sa.Args.Action, ctx, effMode)
+	}
+}
+
+// AuthorizeCall evaluates policy and invokes Approver when PermissionMode requires confirmation.
+func AuthorizeCall(call ParsedToolCall, ctx ToolContext) fails ToolError needs Approver {
+	match try EvaluatePolicy(call, ctx) {
+	case PolicyAllow:
+	case PolicyNeedsApproval as need:
+		match Approver.Approve(need.Request) {
+		case ApproveOnce:
+		case DenyApproval as d:
+			return ApprovalDeniedError{Tool: need.Request.Tool, Reason: d.Reason}
+		}
+	}
+}
+
+// PermissionModesEnforceGuardAndGatesLaw verifies ask/auto_edit/yolo gates while keeping guard non-bypassable in yolo.
+law PermissionModesEnforceGuardAndGatesLaw() {
+	let caps = adapter.CapabilitiesFor(adapter.CodexDirect, false)
+	let ctxAsk = DefaultToolContext("/repo", adapter.ModeAsk, caps)
+	let ctxAuto = DefaultToolContext("/repo", adapter.ModeAutoEdit, caps)
+	let ctxYolo = DefaultToolContext("/repo", adapter.ModeYolo, caps)
+
+	let editCall = ParsedEdit{Args: EditArgs{Path: "a.txt", OldString: "x", NewString: "y", ReplaceAll: false, Create: false}}
+	let safeShell = ParsedShell{Args: ShellArgs{Command: "echo hi", Cwd: "/repo", Background: false}}
+	let badShell = ParsedShell{Args: ShellArgs{Command: "rm -rf /", Cwd: "/repo", Background: false}}
+
+	let askEdit = match (EvaluatePolicy(editCall, ctxAsk) catch {
+	case ToolError:
+		return false
+	}) {
+	case PolicyNeedsApproval:
+		true
+	case PolicyAllow:
+		false
+	}
+	let autoEdit = match (EvaluatePolicy(editCall, ctxAuto) catch {
+	case ToolError:
+		return false
+	}) {
+	case PolicyAllow:
+		true
+	case PolicyNeedsApproval:
+		false
+	}
+	let autoShell = match (EvaluatePolicy(safeShell, ctxAuto) catch {
+	case ToolError:
+		return false
+	}) {
+	case PolicyNeedsApproval:
+		true
+	case PolicyAllow:
+		false
+	}
+	let yoloShell = match (EvaluatePolicy(safeShell, ctxYolo) catch {
+	case ToolError:
+		return false
+	}) {
+	case PolicyAllow:
+		true
+	case PolicyNeedsApproval:
+		false
+	}
+	let mut yoloBlockedBad = false
+	let _ = EvaluatePolicy(badShell, ctxYolo) catch {
+	case ToolError as te:
+		yoloBlockedBad = match te {
+		case GuardBlockedError:
+			true
+		case UnknownToolError, BadToolArgs, BlockingQuestionError, ApprovalDeniedError, ToolIoError, ToolKernelError, ToolSubagentError, ToolHandleError, ToolQuestionError:
+			false
+		}
+		PolicyAllow
+	}
+	askEdit && autoEdit && autoShell && yoloShell && yoloBlockedBad
+}
