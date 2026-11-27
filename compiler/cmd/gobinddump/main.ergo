@@ -1,0 +1,650 @@
+// Command gobinddump runs pure-Ergo compiler/gofacts and compiler/gobind specs
+// for parity verification against Go's internal/gofacts and internal/gobind.
+
+import codec
+import compiler/gobind
+import compiler/gofacts
+import fs
+import fstest
+import io
+import json
+import option
+import os
+import slices
+import strconv
+import strings
+
+type SpecField {
+	Name  string,
+	Type  uint32,
+	Flags uint8,
+}
+
+type SpecParam {
+	Name string,
+	Type uint32,
+}
+
+type SpecMethod {
+	Name     string,
+	PkgPath  string,
+	PkgName  string,
+	SigType  uint32,
+	GoText   string,
+	OrigPkg  string,
+	OrigRecv string,
+	Flags    uint8,
+	InValSet bool,
+}
+
+type SpecTerm {
+	Tilde bool,
+	Type  uint32,
+}
+
+type SpecType {
+	Kind       uint8,
+	BasicKind  uint8,
+	BasicName  string,
+	Name       string,
+	PkgPath    string,
+	PkgName    string,
+	TypeText   string,
+	ShortText  string,
+	Elem       uint32,
+	Key        uint32,
+	ArrLen     uint32,
+	Underlying uint32,
+	RecvType   uint32,
+	RecvName   string,
+	Flags      uint32,
+	Fields     []SpecField,
+	Params     []SpecParam,
+	Results    []SpecParam,
+	Methods    []SpecMethod,
+	ValMethods []SpecMethod,
+	TypeParams []uint32,
+	TypeArgs   []uint32,
+	Terms      []SpecTerm,
+}
+
+type SpecDecl {
+	Kind       uint8,
+	Name       string,
+	TypeID     uint32,
+	GoText     string,
+	DeclTarget string,
+	Flags      uint32,
+}
+
+type SpecPkg {
+	Path  string,
+	Name  string,
+	Decls []SpecDecl,
+}
+
+type SpecImport {
+	Alias string,
+	Path  string,
+}
+
+type SpecAstNode {
+	Kind       uint8,
+	Op         uint8,
+	ObjKind    uint8,
+	Flags      uint32,
+	Name       string,
+	Target     string,
+	TypeID     uint32,
+	RecvTypeID uint32,
+	FuncSym    uint32,
+	X          uint32,
+	Y          uint32,
+	Z          uint32,
+	W          uint32,
+	Children   []uint32,
+	Lhs        []uint32,
+	Rhs        []uint32,
+	Imports    []SpecImport,
+}
+
+type SpecAstPkg {
+	Path  string,
+	Files []uint32,
+}
+
+type SpecParamSite {
+	Target string,
+	Param  string,
+	File   string,
+	Line   uint32,
+	Col    uint32,
+}
+
+type SpecPlatform {
+	GOOS      string "goos",
+	GOARCH    string "goarch",
+	Types     []SpecType,
+	Packages  []SpecPkg,
+	AstNodes  []SpecAstNode,
+	AstPkgs   []SpecAstPkg,
+	EscapeOut string,
+	EscapeDir string,
+	Sites     []SpecParamSite,
+}
+
+type SpecFact {
+	Target string,
+	Key    string,
+}
+
+type SpecBindTarget {
+	Path        string,
+	Name        string,
+	ModuleStamp string,
+}
+
+type SpecFile {
+	Path string,
+	Text string,
+}
+
+type DumpRequest {
+	Mode          string,
+	PkgPath       string,
+	PkgName       string,
+	GoVersion     string,
+	Toolchain     string,
+	ModuleStamp   string,
+	LedgerText    string,
+	Platforms     []SpecPlatform,
+	Facts         []SpecFact,
+	BindTargets   []SpecBindTarget,
+	Committed     []SpecFile,
+	Written       []SpecFile,
+	DirRoot       string,
+	StdRaw        []string,
+	GoVersionRaw  string,
+	RootCheckPath string,
+	RootCheckName string,
+}
+
+func readFileText(path string) string fails os.Exit needs fs.Files {
+	fs.Files.ReadFile(path) catch {
+	case fs.NotFound:
+		return os.Exit{Code: 1, Message: "gobinddump: no file " + path}
+	case fs.Denied:
+		return os.Exit{Code: 1, Message: "gobinddump: cannot read " + path}
+	case fs.Failed as e:
+		return os.Exit{Code: 1, Message: "gobinddump: cannot read " + path + ": " + e.Reason}
+	}
+}
+
+func buildTypeTable(specs []SpecType) gobind.GoTypeTable {
+	let mut gt = gobind.NewGoTypeTable()
+	for sp in specs {
+		let tid = gobind.AddType(&gt, gobind.TypeSpec{
+			Kind:       sp.Kind,
+			BasicKind:  sp.BasicKind,
+			BasicName:  sp.BasicName,
+			Name:       sp.Name,
+			PkgPath:    sp.PkgPath,
+			PkgName:    sp.PkgName,
+			TypeText:   sp.TypeText,
+			ShortText:  sp.ShortText,
+			Elem:       sp.Elem,
+			Key:        sp.Key,
+			ArrLen:     sp.ArrLen,
+			Underlying: sp.Underlying,
+			RecvType:   sp.RecvType,
+			RecvName:   sp.RecvName,
+			Flags:      sp.Flags,
+		})
+		if sp.Fields.Len() > 0 {
+			let mut fs = slices.WithCapacity[gobind.GoFieldRec](sp.Fields.Len())
+			for f in sp.Fields {
+				fs = fs.Append(gobind.GoFieldRec{Name: gobind.InternTypeStr(&gt, f.Name), Type: f.Type, Flags: f.Flags})
+			}
+			gobind.SetTypeFields(&gt, tid, fs)
+		}
+		if sp.Params.Len() > 0 {
+			let mut ps = slices.WithCapacity[gobind.GoParamRec](sp.Params.Len())
+			for p in sp.Params {
+				ps = ps.Append(gobind.GoParamRec{Name: gobind.InternTypeStr(&gt, p.Name), Type: p.Type})
+			}
+			gobind.SetTypeParams(&gt, tid, ps)
+		}
+		if sp.Results.Len() > 0 {
+			let mut rs = slices.WithCapacity[gobind.GoParamRec](sp.Results.Len())
+			for r in sp.Results {
+				rs = rs.Append(gobind.GoParamRec{Name: gobind.InternTypeStr(&gt, r.Name), Type: r.Type})
+			}
+			gobind.SetTypeResults(&gt, tid, rs)
+		}
+		if sp.Methods.Len() > 0 {
+			let mut ms = slices.WithCapacity[gobind.GoMethodRec](sp.Methods.Len())
+			for m in sp.Methods {
+				ms = ms.Append(gobind.GoMethodRec{
+					Name:     gobind.InternTypeStr(&gt, m.Name),
+					PkgPath:  gobind.InternTypeStr(&gt, m.PkgPath),
+					PkgName:  gobind.InternTypeStr(&gt, m.PkgName),
+					SigType:  m.SigType,
+					GoText:   gobind.InternTypeStr(&gt, m.GoText),
+					OrigPkg:  gobind.InternTypeStr(&gt, m.OrigPkg),
+					OrigRecv: gobind.InternTypeStr(&gt, m.OrigRecv),
+					Flags:    m.Flags,
+					InValSet: m.InValSet,
+				})
+			}
+			gobind.SetTypeMethods(&gt, tid, ms)
+		}
+		if sp.ValMethods.Len() > 0 {
+			let mut vms = slices.WithCapacity[gobind.GoMethodRec](sp.ValMethods.Len())
+			for m in sp.ValMethods {
+				vms = vms.Append(gobind.GoMethodRec{
+					Name:     gobind.InternTypeStr(&gt, m.Name),
+					PkgPath:  gobind.InternTypeStr(&gt, m.PkgPath),
+					PkgName:  gobind.InternTypeStr(&gt, m.PkgName),
+					SigType:  m.SigType,
+					GoText:   gobind.InternTypeStr(&gt, m.GoText),
+					OrigPkg:  gobind.InternTypeStr(&gt, m.OrigPkg),
+					OrigRecv: gobind.InternTypeStr(&gt, m.OrigRecv),
+					Flags:    m.Flags,
+					InValSet: m.InValSet,
+				})
+			}
+			gobind.SetTypeValMethods(&gt, tid, vms)
+		}
+		if sp.TypeParams.Len() > 0 {
+			gobind.SetTypeTypeParams(&gt, tid, sp.TypeParams)
+		}
+		if sp.TypeArgs.Len() > 0 {
+			gobind.SetTypeTypeArgs(&gt, tid, sp.TypeArgs)
+		}
+		if sp.Terms.Len() > 0 {
+			let mut ts = slices.WithCapacity[gobind.GoUnionTermRec](sp.Terms.Len())
+			for t in sp.Terms {
+				ts = ts.Append(gobind.GoUnionTermRec{Tilde: t.Tilde, Type: t.Type})
+			}
+			gobind.SetTypeTerms(&gt, tid, ts)
+		}
+	}
+	gt
+}
+
+func buildDeclTable(pkgs []SpecPkg) gobind.GoDeclTable {
+	let mut gd = gobind.NewGoDeclTable()
+	for pkg in pkgs {
+		for d in pkg.Decls {
+			let _ = gobind.AddGoDecl(&gd, d.Kind, pkg.Path, pkg.Name, d.Name, d.TypeID, d.GoText, d.DeclTarget, d.Flags)
+		}
+	}
+	gd
+}
+
+func buildAstTable(specs []SpecAstNode) gobind.GoAstTable {
+	let mut ga = gobind.NewGoAstTable()
+	for sp in specs {
+		let aid = gobind.AddAst(&ga, gobind.AstSpec{
+			Kind:       sp.Kind,
+			Op:         sp.Op,
+			ObjKind:    sp.ObjKind,
+			Flags:      sp.Flags,
+			Name:       sp.Name,
+			Target:     sp.Target,
+			TypeID:     sp.TypeID,
+			RecvTypeID: sp.RecvTypeID,
+			FuncSym:    sp.FuncSym,
+			X:          sp.X,
+			Y:          sp.Y,
+			Z:          sp.Z,
+			W:          sp.W,
+		})
+		if sp.Children.Len() > 0 {
+			gobind.SetAstChildren(&ga, aid, sp.Children)
+		}
+		if sp.Lhs.Len() > 0 {
+			gobind.SetAstLhs(&ga, aid, sp.Lhs)
+		}
+		if sp.Rhs.Len() > 0 {
+			gobind.SetAstRhs(&ga, aid, sp.Rhs)
+		}
+		if sp.Imports.Len() > 0 {
+			let mut imps = slices.WithCapacity[gobind.ImportRec](sp.Imports.Len())
+			for imp in sp.Imports {
+				imps = imps.Append(gobind.ImportRec{Alias: gobind.InternAstStr(&ga, imp.Alias), Path: gobind.InternAstStr(&ga, imp.Path)})
+			}
+			gobind.SetAstImports(&ga, aid, imps)
+		}
+	}
+	ga
+}
+
+func buildFactsTable(specs []SpecFact) gobind.FactsTable {
+	let mut f = gobind.NewFactsTable()
+	for s in specs {
+		gobind.AddFact(&f, s.Target, s.Key)
+	}
+	f
+}
+
+func derivePlatformFacts(gt gobind.GoTypeTable, sp SpecPlatform, baseFacts gobind.FactsTable) gobind.FactsTable {
+	let mut pf = buildFactsTable([]SpecFact{})
+	let mut hasAny = false
+	if sp.EscapeOut != "" || sp.Sites.Len() > 0 {
+		let es = gobind.ParseEscape(sp.EscapeOut, sp.EscapeDir)
+		let mut sites = slices.WithCapacity[gobind.ParamSite](sp.Sites.Len())
+		for s in sp.Sites {
+			sites = sites.Append(gobind.ParamSite{Target: s.Target, Param: s.Param, File: s.File, Line: s.Line, Col: s.Col})
+		}
+		let ef = gobind.ParamFacts(es, sites)
+		for line in gobind.AllFacts(ef) {
+			match strings.Cut(line, "\t") {
+			case option.Some{Value: h}:
+				gobind.AddFact(&pf, h.Before, h.After)
+			case option.None:
+			}
+		}
+		hasAny = true
+	}
+	if sp.AstPkgs.Len() > 0 {
+		let ga = buildAstTable(sp.AstNodes)
+		let mut pkgs = slices.WithCapacity[gobind.AstPackage](sp.AstPkgs.Len())
+		for ap in sp.AstPkgs {
+			pkgs = pkgs.Append(gobind.AstPackage{Path: ap.Path, Files: ap.Files})
+		}
+		gobind.DeriveNonNil(ga, pkgs, &pf)
+		gobind.DeriveTotal(gt, ga, pkgs, &pf)
+		hasAny = true
+	}
+	if !hasAny {
+		return baseFacts
+	}
+	for line in gobind.AllFacts(baseFacts) {
+		match strings.Cut(line, "\t") {
+		case option.Some{Value: h}:
+			gobind.AddFact(&pf, h.Before, h.After)
+		case option.None:
+		}
+	}
+	pf
+}
+
+func dumpGofacts(ledgerPath string) string fails os.Exit needs fs.Files {
+	let ft = gofacts.DefaultFactTable()
+	let et = gofacts.DefaultEffectTable()
+	let tc = gofacts.DefaultToolchain
+	let mut b = strings.NewBuilder()
+	for r in gofacts.AllTableRows(ft) {
+		strings.WriteString(&b, "row "+gofacts.RowKey(r)+"\t"+r.Source+"\t"+strconv.FormatBool(r.View)+"\t"+gofacts.RowDigest(r, tc)+"\n")
+	}
+	for e in gofacts.AllEffectsByKind(et, gofacts.KindEffectNone) {
+		strings.WriteString(&b, "effect "+e.Target+"\t"+e.Source+"\t"+gofacts.EffectDigest(e, tc)+"\n")
+	}
+	for h in gofacts.AllEffectsByKind(et, gofacts.KindEffectAmbient) {
+		strings.WriteString(&b, "host "+h.Target+"\t"+h.Source+"\t"+gofacts.HostDigest(h, tc)+"\n")
+	}
+	for s in gofacts.AllSyncTargets(et) {
+		let reason = match gofacts.SyncReason(et, s) {
+		case option.Some{Value: r}:
+			r
+		case option.None:
+			""
+		}
+		strings.WriteString(&b, "sync "+s+"\t"+gofacts.SyncDigest(s, reason, tc)+"\n")
+	}
+	for p in gofacts.AllPurePkgs(et) {
+		let ex = slices.Sort(slices.Clone(gofacts.PureExcept(et, p)))
+		strings.WriteString(&b, "pure "+p+"\t"+strings.Join(ex, ",")+"\t"+gofacts.PureDigest(p, ex, tc)+"\n")
+	}
+	for t in gofacts.AllTargetsOfKind(et, gofacts.KindGoWrite) {
+		match gofacts.GoWriteOf(et, t) {
+		case option.Some{Value: w}:
+			strings.WriteString(&b, "write "+t+"\t"+strconv.Itoa(w.Index)+"\n")
+		case option.None:
+		}
+	}
+	for t in gofacts.AllTargetsOfKind(et, gofacts.KindGoReadOnlyVar) {
+		strings.WriteString(&b, "rovar "+t+"\n")
+	}
+	for t in gofacts.AllTargetsOfKind(et, gofacts.KindGoConcurrent) {
+		strings.WriteString(&b, "concurrent "+t+"\n")
+	}
+	if ledgerPath != "" {
+		let lText = try readFileText(ledgerPath)
+		let guardLedger = gofacts.ParseGuardLines(lText)
+		let allLedger = gofacts.ParseAllLines(lText)
+		let issues = gofacts.VerifyLedger(ft, et, allLedger, tc)
+		strings.WriteString(&b, "ledger_issues "+strconv.Itoa(issues.Len())+"\n")
+		for iss in issues {
+			strings.WriteString(&b, "issue "+iss+"\n")
+		}
+		let rep = gofacts.CheckLedgerFile(ledgerPath, ft, et, tc) catch {
+		case _:
+			return os.Exit{Code: 1, Message: "gobinddump: failed reading ledger " + ledgerPath}
+		}
+		strings.WriteString(&b, "ledger_summary "+strconv.Itoa(int(rep.Total))+" "+strconv.Itoa(int(rep.Validated))+" "+strconv.Itoa(int(rep.Missing))+" "+strconv.Itoa(int(rep.Stale))+" "+strconv.Itoa(int(rep.Refuted))+"\n")
+		strings.WriteString(&b, "guard_entries "+strconv.Itoa(gofacts.NumEntries(guardLedger))+"\n")
+	}
+	strings.String(b)
+}
+
+func runRequest(req DumpRequest) string fails os.Exit needs fs.Files {
+	let ft = gofacts.DefaultFactTable()
+	let et = gofacts.DefaultEffectTable()
+	let tc = if req.Toolchain != "" { req.Toolchain } else { gofacts.DefaultToolchain }
+	let ledger = gofacts.ParseAllLines(req.LedgerText)
+	let baseFacts = buildFactsTable(req.Facts)
+
+	if req.Mode == "nonnil" || req.Mode == "total" || req.Mode == "escape" || req.Mode == "derive" {
+		let mut perPlat = slices.WithCapacity[gobind.FactsTable](req.Platforms.Len())
+		for sp in req.Platforms {
+			let gt = buildTypeTable(sp.Types)
+			perPlat = perPlat.Append(derivePlatformFacts(gt, sp, baseFacts))
+		}
+		let met = if perPlat.Len() > 0 { gobind.MeetFacts(perPlat) } else { baseFacts }
+		let mut b = strings.NewBuilder()
+		for line in gobind.AllFacts(met) {
+			strings.WriteString(&b, line+"\n")
+		}
+		return strings.String(b)
+	}
+
+	if req.Mode == "stale" {
+		let mut comm = slices.WithCapacity[gobind.BindingFile](req.Committed.Len())
+		for c in req.Committed {
+			comm = comm.Append(gobind.BindingFile{Path: c.Path, Text: c.Text})
+		}
+		let mut writ = slices.WithCapacity[gobind.BindingFile](req.Written.Len())
+		for w in req.Written {
+			writ = writ.Append(gobind.BindingFile{Path: w.Path, Text: w.Text})
+		}
+		if req.DirRoot != "" {
+			let rep = gobind.CheckDirBindings(req.DirRoot, writ) catch {
+			case _:
+				return os.Exit{Code: 1, Message: "gobinddump: failed reading dir " + req.DirRoot}
+			}
+			let mut b = strings.NewBuilder()
+			strings.WriteString(&b, "marker "+strconv.FormatBool(rep.MarkerFound)+" "+strconv.FormatBool(rep.MarkerHeld)+"\n")
+			for d in rep.Diffs {
+				strings.WriteString(&b, d+"\n")
+			}
+			return strings.String(b)
+		}
+		let diffs = gobind.Stale(comm, writ)
+		let mut b = strings.NewBuilder()
+		for d in diffs {
+			strings.WriteString(&b, d+"\n")
+		}
+		return strings.String(b)
+	}
+
+	if req.Mode == "std" {
+		let mut b = strings.NewBuilder()
+		let filtered = gobind.FilterStdPaths(req.StdRaw)
+		strings.WriteString(&b, "std "+strings.Join(filtered, " ")+"\n")
+		let ver = match gobind.ParseGoVersion(req.GoVersionRaw) {
+		case option.Some{Value: v}:
+			v
+		case option.None:
+			""
+		}
+		strings.WriteString(&b, "goversion "+ver+"\n")
+		strings.WriteString(&b, "filename "+gobind.FileName(req.PkgPath)+"\n")
+		strings.WriteString(&b, "rootrefusal "+gobind.RootRefusal(req.RootCheckPath, req.RootCheckName)+"\n")
+		return strings.String(b)
+	}
+
+	let mut platforms = slices.WithCapacity[gobind.Platform](req.Platforms.Len())
+	let mut perPlatCtxs = slices.WithCapacity[gobind.MapContext](req.Platforms.Len())
+	let mut perPlatFacts = slices.WithCapacity[gobind.FactsTable](req.Platforms.Len())
+	for sp in req.Platforms {
+		let gt = buildTypeTable(sp.Types)
+		let gd = buildDeclTable(sp.Packages)
+		let pf = derivePlatformFacts(gt, sp, baseFacts)
+		perPlatFacts = perPlatFacts.Append(pf)
+		platforms = platforms.Append(gobind.Platform{GOOS: sp.GOOS, GOARCH: sp.GOARCH})
+		perPlatCtxs = perPlatCtxs.Append(gobind.MapContext{
+			GT:        gt,
+			GD:        gd,
+			Facts:     pf,
+			FT:        ft,
+			ET:        et,
+			Ledger:    ledger,
+			Toolchain: tc,
+		})
+	}
+	let metFacts = if perPlatFacts.Len() > 0 { gobind.MeetFacts(perPlatFacts) } else { baseFacts }
+
+	if req.Mode == "map" {
+		if perPlatCtxs.Len() == 0 {
+			return ""
+		}
+		let ds = gobind.Decls(perPlatCtxs[0], req.PkgPath)
+		let mut b = strings.NewBuilder()
+		for d in ds {
+			strings.WriteString(&b, "decl "+strconv.Itoa(int(d.Kind))+" "+d.Name+"\tgo="+d.Go+"\tergo="+strings.ReplaceAll(d.Ergo, "\n", "\\n")+"\trefused="+d.Refused+"\thost="+d.Host+"\teffect="+d.Effect+"\twrites="+d.Writes+"\tmembers="+strconv.Itoa(d.Members.Len())+"\n")
+		}
+		return strings.String(b)
+	}
+
+	if req.Mode == "bindmany" {
+		let mut tgts = slices.WithCapacity[gobind.BindManyTarget](req.BindTargets.Len())
+		for t in req.BindTargets {
+			tgts = tgts.Append(gobind.BindManyTarget{Path: t.Path, Name: t.Name, ModuleStamp: t.ModuleStamp})
+		}
+		return gobind.BindFiles(platforms, req.GoVersion, tgts, perPlatCtxs, metFacts, ft) catch {
+		case gobind.RenderError as e:
+			return os.Exit{Code: 1, Message: "gobinddump: " + e.Reason}
+		}
+	}
+
+	gobind.BindFile(platforms, req.PkgPath, req.PkgName, req.GoVersion, req.ModuleStamp, perPlatCtxs, metFacts, ft) catch {
+	case gobind.RenderError as e:
+		return os.Exit{Code: 1, Message: "gobinddump: " + e.Reason}
+	}
+}
+
+func decodeRequest(jsonText string) DumpRequest fails os.Exit {
+	let c = json.Codec[DumpRequest]{MaxBytes: 0, MaxDepth: 0}
+	json.Decode(c, jsonText) catch {
+	case json.Malformed as m:
+		return os.Exit{Code: 1, Message: "gobinddump: malformed JSON at offset " + strconv.Itoa(m.Offset) + ": " + m.Reason}
+	case codec.WireMissingField as m:
+		return os.Exit{Code: 1, Message: "gobinddump: missing JSON field " + m.Path + "." + m.Field}
+	case codec.WireWrongKind as w:
+		return os.Exit{Code: 1, Message: "gobinddump: wrong JSON kind at " + w.Path + ": want " + w.Want}
+	}
+}
+
+func run(args []string) fails os.Exit needs fs.Files | io.Stdout {
+	if args.Len() == 0 {
+		return os.Exit{Code: 2, Message: "usage: gobinddump [-gofacts [LEDGER] | -sourcehash DIR TARGET... | -batch LIST | SPEC.json]"}
+	}
+	if args[0] == "-gofacts" {
+		let ledger = if args.Len() > 1 { args[1] } else { "" }
+		io.Stdout.Print(try dumpGofacts(ledger))
+		return
+	}
+	if args[0] == "-sourcehash" {
+		if args.Len() < 3 {
+			return os.Exit{Code: 2, Message: "usage: gobinddump -sourcehash DIR TARGET..."}
+		}
+		let dir = args[1]
+		let mut b = strings.NewBuilder()
+		for i in 2..args.Len() {
+			let tgt = args[i]
+			let h = gofacts.SourceHashDir(dir, tgt) catch {
+			case _:
+				return os.Exit{Code: 1, Message: "gobinddump: sourcehash failed for " + dir + " " + tgt}
+			}
+			strings.WriteString(&b, tgt+" "+h+"\n")
+		}
+		io.Stdout.Print(strings.String(b))
+		return
+	}
+	if args[0] == "-batch" {
+		if args.Len() != 2 {
+			return os.Exit{Code: 2, Message: "usage: gobinddump -batch MANIFEST"}
+		}
+		let listText = try readFileText(args[1])
+		for raw in strings.Split(listText, "\n") {
+			let line = strings.TrimSpace(raw)
+			if line == "" {
+				continue
+			}
+			let req = try decodeRequest(try readFileText(line))
+			let out = try runRequest(req)
+			io.Stdout.Println("@case " + line)
+			io.Stdout.Println("@len " + strconv.Itoa(out.Len()))
+			io.Stdout.Print(out)
+		}
+		return
+	}
+	let specPath = if args[0] == "-bind" && args.Len() > 1 { args[1] } else { args[0] }
+	let req = try decodeRequest(try readFileText(specPath))
+	io.Stdout.Print(try runRequest(req))
+}
+
+func main() fails os.Exit needs os.Ambient {
+	with context { os.Process: os.NewHost(), fs.Files: fs.NewHost(), io.Stdout: io.NewHost() } {
+		try run(os.Process.Args())
+	}
+}
+
+// GobinddumpGofactsAndRequest verifies -gofacts, -sourcehash, and JSON bind execution via virtual fs/io.
+test GobinddumpGofactsAndRequest {
+	let mem = fstest.NewMemory()
+	let rec = io.NewRecorder()
+	let ft = gofacts.DefaultFactTable()
+	let et = gofacts.DefaultEffectTable()
+	let ledgerLines = gofacts.RenderGuardLines(ft, et, "guard", gofacts.DefaultToolchain)
+	with context { fs.Files: mem, fs.Writes: mem, io.Stdout: rec } {
+		fs.Writes.WriteFile("ergo.laws", strings.Join(ledgerLines, "\n")+"\n") catch {
+		case _:
+			assert false
+		}
+		run([]string{"-gofacts", "ergo.laws"}) catch {
+		case _:
+			assert false
+		}
+	}
+	let out = io.Text(rec)
+	assert strings.Contains(out, "ledger_issues 0\n")
+	assert strings.Contains(out, "ledger_summary 172 172 0 0 0\n")
+
+	let reqJSON = "{\"mode\":\"stale\",\"pkgPath\":\"\",\"pkgName\":\"\",\"goVersion\":\"\",\"toolchain\":\"\",\"moduleStamp\":\"\",\"ledgerText\":\"\",\"platforms\":[],\"facts\":[],\"bindTargets\":[],\"committed\":[{\"path\":\"bytes\",\"text\":\"old\"}],\"written\":[{\"path\":\"bytes\",\"text\":\"new\"}],\"dirRoot\":\"\",\"stdRaw\":[],\"goVersionRaw\":\"\",\"rootCheckPath\":\"\",\"rootCheckName\":\"\"}"
+	let rec2 = io.NewRecorder()
+	let mem2 = fstest.NewMemory()
+	with context { fs.Files: mem2, fs.Writes: mem2, io.Stdout: rec2 } {
+		fs.Writes.WriteFile("req.json", reqJSON) catch {
+		case _:
+			assert false
+		}
+		run([]string{"req.json"}) catch {
+		case _:
+			assert false
+		}
+	}
+	assert strings.Contains(io.Text(rec2), "bytes: differs from what ergo bind go writes")
+}

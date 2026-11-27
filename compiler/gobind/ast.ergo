@@ -1,0 +1,502 @@
+// Pure-Ergo Data-Oriented Go AST SoA Arena representing Go files,
+// declarations, statements, and expressions for total and non-nil derivation.
+
+import dense
+import slices
+
+// AST node kind constants for GoAstTable.
+let NAIdent = uint8(1)
+let NABasicLit = uint8(2)
+let NAParen = uint8(3)
+let NASelector = uint8(4)
+let NAUnary = uint8(5)
+let NABinary = uint8(6)
+let NACall = uint8(7)
+let NACompLit = uint8(8)
+let NATypeAssert = uint8(9)
+let NAStar = uint8(10)
+let NAFuncLit = uint8(11)
+let NAEllipsis = uint8(12)
+let NAArrayType = uint8(13)
+let NAMapType = uint8(14)
+let NAOtherType = uint8(15)
+let NAField = uint8(16)
+let NAOtherExpr = uint8(17)
+
+let NSBlock = uint8(20)
+let NSAssign = uint8(21)
+let NSDecl = uint8(22)
+let NSReturn = uint8(23)
+let NSIf = uint8(24)
+let NSFor = uint8(25)
+let NSRange = uint8(26)
+let NSSwitch = uint8(27)
+let NSTypeSwitch = uint8(28)
+let NSSelect = uint8(29)
+let NSBranch = uint8(30)
+let NSExpr = uint8(31)
+let NSSend = uint8(32)
+let NSIncDec = uint8(33)
+let NSGo = uint8(34)
+let NSDefer = uint8(35)
+let NSLabeled = uint8(36)
+let NSEmpty = uint8(37)
+let NSCaseClause = uint8(38)
+let NSCommClause = uint8(39)
+let NSOtherStmt = uint8(40)
+
+let NDTypeSpec = uint8(50)
+let NDValueSpec = uint8(51)
+let NDFuncDecl = uint8(52)
+let NDFile = uint8(53)
+
+// Operator / statement token constants inside GoAstTable.Op.
+let OpNone = uint8(0)
+let OpAdd = uint8(1)
+let OpSub = uint8(2)
+let OpMul = uint8(3)
+let OpQuo = uint8(4)
+let OpRem = uint8(5)
+let OpAnd = uint8(6)
+let OpOr = uint8(7)
+let OpXor = uint8(8)
+let OpAndNot = uint8(9)
+let OpShl = uint8(10)
+let OpShr = uint8(11)
+let OpLand = uint8(12)
+let OpLor = uint8(13)
+let OpEql = uint8(14)
+let OpNeq = uint8(15)
+let OpLss = uint8(16)
+let OpLeq = uint8(17)
+let OpGtr = uint8(18)
+let OpGeq = uint8(19)
+let OpNot = uint8(20)
+let OpArrow = uint8(21)
+let OpAssign = uint8(22)
+let OpDefine = uint8(23)
+let OpAddAssign = uint8(24)
+let OpSubAssign = uint8(25)
+let OpMulAssign = uint8(26)
+let OpQuoAssign = uint8(27)
+let OpRemAssign = uint8(28)
+let OpAndAssign = uint8(29)
+let OpOrAssign = uint8(30)
+let OpXorAssign = uint8(31)
+let OpShlAssign = uint8(32)
+let OpShrAssign = uint8(33)
+let OpAndNotAssign = uint8(34)
+let OpInc = uint8(35)
+let OpDec = uint8(36)
+let OpBreak = uint8(37)
+let OpContinue = uint8(38)
+let OpFallthrough = uint8(39)
+let OpGoto = uint8(40)
+let OpVar = uint8(41)
+let OpConst = uint8(42)
+let OpAddr = uint8(43)
+
+// Type-checked object classification constants inside GoAstTable.ObjKind.
+let ObjNone = uint8(0)
+let ObjVar = uint8(1)
+let ObjConst = uint8(2)
+let ObjFunc = uint8(3)
+let ObjBuiltin = uint8(4)
+let ObjTypeName = uint8(5)
+
+// Bit flags stored in GoAstTable.Flags.
+let AFFlagTvConst = uint32(1)
+let AFFlagTvConstNonZero = uint32(2)
+let AFFlagTvIsType = uint32(4)
+let AFFlagObjPkgScope = uint32(8)
+let AFFlagObjIsField = uint32(16)
+let AFFlagEllipsis = uint32(32)
+let AFFlagIsIntZero = uint32(64)
+let AFFlagConcreteType = uint32(128)
+let AFFlagTypeAlias = uint32(256)
+let AFFlagHasTypeParams = uint32(512)
+let AFFlagPtrRecv = uint32(1024)
+let AFFlagIsDefault = uint32(2048)
+let AFFlagHasNilType = uint32(4096)
+let AFFlagBasicLitInt = uint32(8192)
+let AFFlagHasRecv = uint32(16384)
+let AFFlagTypeAssertNonNil = uint32(32768)
+let AFFlagPredeclaredString = uint32(65536)
+
+// AstTag identifies a node row in GoAstTable.
+type AstTag {}
+
+// AstID is a dense handle into GoAstTable.
+type AstID = dense.ID[AstTag]
+
+// ImportRec maps one file-local import alias to its canonical Go import path.
+type ImportRec {
+	Alias Str,
+	Path  Str,
+}
+
+// GoAstTable holds Go AST nodes for one or more packages in flat unsigned uint32 columns.
+type GoAstTable {
+	Strings    dense.Strings,
+	Count      dense.Count[AstTag],
+	Kind       dense.Col[AstTag, uint8],
+	Op         dense.Col[AstTag, uint8],
+	ObjKind    dense.Col[AstTag, uint8],
+	Flags      dense.Col[AstTag, uint32],
+	Name       dense.Col[AstTag, Str],
+	Target     dense.Col[AstTag, Str],
+	TypeID     dense.Col[AstTag, uint32],
+	RecvTypeID dense.Col[AstTag, uint32],
+	FuncSym    dense.Col[AstTag, uint32],
+	X          dense.Col[AstTag, uint32],
+	Y          dense.Col[AstTag, uint32],
+	Z          dense.Col[AstTag, uint32],
+	W          dense.Col[AstTag, uint32],
+	U32Pool    dense.Pool[uint32],
+	Children   dense.Col[AstTag, dense.Run[uint32]],
+	Lhs        dense.Col[AstTag, dense.Run[uint32]],
+	Rhs        dense.Col[AstTag, dense.Run[uint32]],
+	ImpPool    dense.Pool[ImportRec],
+	Imports    dense.Col[AstTag, dense.Run[ImportRec]],
+}
+
+// NewGoAstTable allocates an empty GoAstTable.
+func NewGoAstTable() GoAstTable {
+	GoAstTable{
+		Strings:    dense.NewStrings(),
+		Count:      dense.NewCount[AstTag](),
+		Kind:       dense.NewCol[AstTag, uint8](),
+		Op:         dense.NewCol[AstTag, uint8](),
+		ObjKind:    dense.NewCol[AstTag, uint8](),
+		Flags:      dense.NewCol[AstTag, uint32](),
+		Name:       dense.NewCol[AstTag, Str](),
+		Target:     dense.NewCol[AstTag, Str](),
+		TypeID:     dense.NewCol[AstTag, uint32](),
+		RecvTypeID: dense.NewCol[AstTag, uint32](),
+		FuncSym:    dense.NewCol[AstTag, uint32](),
+		X:          dense.NewCol[AstTag, uint32](),
+		Y:          dense.NewCol[AstTag, uint32](),
+		Z:          dense.NewCol[AstTag, uint32](),
+		W:          dense.NewCol[AstTag, uint32](),
+		U32Pool:    dense.NewPool[uint32](),
+		Children:   dense.NewCol[AstTag, dense.Run[uint32]](),
+		Lhs:        dense.NewCol[AstTag, dense.Run[uint32]](),
+		Rhs:        dense.NewCol[AstTag, dense.Run[uint32]](),
+		ImpPool:    dense.NewPool[ImportRec](),
+		Imports:    dense.NewCol[AstTag, dense.Run[ImportRec]](),
+	}
+}
+
+// AstSpec specifies fixed fields when appending a GoAstTable node.
+type AstSpec {
+	Kind       uint8,
+	Op         uint8,
+	ObjKind    uint8,
+	Flags      uint32,
+	Name       string,
+	Target     string,
+	TypeID     uint32,
+	RecvTypeID uint32,
+	FuncSym    uint32,
+	X          uint32,
+	Y          uint32,
+	Z          uint32,
+	W          uint32,
+}
+
+// EmptyAstSpec returns a zeroed AstSpec of kind.
+func EmptyAstSpec(kind uint8) AstSpec {
+	AstSpec{
+		Kind:       kind,
+		Op:         OpNone,
+		ObjKind:    ObjNone,
+		Flags:      uint32(0),
+		Name:       "",
+		Target:     "",
+		TypeID:     NoIndex,
+		RecvTypeID: NoIndex,
+		FuncSym:    NoIndex,
+		X:          NoIndex,
+		Y:          NoIndex,
+		Z:          NoIndex,
+		W:          NoIndex,
+	}
+}
+
+// AddAst appends a node row to ga and returns its uint32 index.
+func AddAst(ga mut GoAstTable, spec AstSpec) uint32 {
+	let id = dense.Next(&ga.Count)
+	dense.Push(&ga.Kind, spec.Kind)
+	dense.Push(&ga.Op, spec.Op)
+	dense.Push(&ga.ObjKind, spec.ObjKind)
+	dense.Push(&ga.Flags, spec.Flags)
+	dense.Push(&ga.Name, dense.InternText(&ga.Strings, spec.Name))
+	dense.Push(&ga.Target, dense.InternText(&ga.Strings, spec.Target))
+	dense.Push(&ga.TypeID, spec.TypeID)
+	dense.Push(&ga.RecvTypeID, spec.RecvTypeID)
+	dense.Push(&ga.FuncSym, spec.FuncSym)
+	dense.Push(&ga.X, spec.X)
+	dense.Push(&ga.Y, spec.Y)
+	dense.Push(&ga.Z, spec.Z)
+	dense.Push(&ga.W, spec.W)
+	let r0 = dense.PutList(&ga.U32Pool, []uint32{})
+	let r1 = dense.PutList(&ga.U32Pool, []uint32{})
+	let r2 = dense.PutList(&ga.U32Pool, []uint32{})
+	let ri = dense.PutList(&ga.ImpPool, []ImportRec{})
+	dense.Push(&ga.Children, r0)
+	dense.Push(&ga.Lhs, r1)
+	dense.Push(&ga.Rhs, r2)
+	dense.Push(&ga.Imports, ri)
+	uint32(dense.Index(id))
+}
+
+// AstIDAt returns the dense AstID for raw index idx.
+func AstIDAt(ga GoAstTable, idx uint32) AstID { dense.IDAt(ga.Count, int(idx)) }
+
+// SetAstChildren attaches child node IDs to node idx.
+func SetAstChildren(ga mut GoAstTable, idx uint32, xs []uint32) {
+	let r = dense.PutList(&ga.U32Pool, xs)
+	dense.SetOf(&ga.Children, AstIDAt(*ga, idx), r)
+}
+
+// SetAstLhs attaches LHS/list node IDs to node idx.
+func SetAstLhs(ga mut GoAstTable, idx uint32, xs []uint32) {
+	let r = dense.PutList(&ga.U32Pool, xs)
+	dense.SetOf(&ga.Lhs, AstIDAt(*ga, idx), r)
+}
+
+// SetAstRhs attaches RHS/results node IDs to node idx.
+func SetAstRhs(ga mut GoAstTable, idx uint32, xs []uint32) {
+	let r = dense.PutList(&ga.U32Pool, xs)
+	dense.SetOf(&ga.Rhs, AstIDAt(*ga, idx), r)
+}
+
+// SetAstImports attaches file import records to NDFile node idx.
+func SetAstImports(ga mut GoAstTable, idx uint32, imps []ImportRec) {
+	let r = dense.PutList(&ga.ImpPool, imps)
+	dense.SetOf(&ga.Imports, AstIDAt(*ga, idx), r)
+}
+
+// InternAstStr interns s in ga.Strings and returns its Str handle.
+func InternAstStr(ga mut GoAstTable, s string) Str { dense.InternText(&ga.Strings, s) }
+
+func astKind(ga GoAstTable, idx uint32) uint8 {
+	if idx == NoIndex {
+		return uint8(0)
+	}
+	dense.Of(ga.Kind, AstIDAt(ga, idx))
+}
+
+func astOp(ga GoAstTable, idx uint32) uint8 {
+	if idx == NoIndex {
+		return OpNone
+	}
+	dense.Of(ga.Op, AstIDAt(ga, idx))
+}
+
+func astObjKind(ga GoAstTable, idx uint32) uint8 {
+	if idx == NoIndex {
+		return ObjNone
+	}
+	dense.Of(ga.ObjKind, AstIDAt(ga, idx))
+}
+
+func astFlags(ga GoAstTable, idx uint32) uint32 {
+	if idx == NoIndex {
+		return uint32(0)
+	}
+	dense.Of(ga.Flags, AstIDAt(ga, idx))
+}
+
+func astName(ga GoAstTable, idx uint32) string {
+	if idx == NoIndex {
+		return ""
+	}
+	dense.Text(ga.Strings, dense.Of(ga.Name, AstIDAt(ga, idx)))
+}
+
+func astTarget(ga GoAstTable, idx uint32) string {
+	if idx == NoIndex {
+		return ""
+	}
+	dense.Text(ga.Strings, dense.Of(ga.Target, AstIDAt(ga, idx)))
+}
+
+func astType(ga GoAstTable, idx uint32) uint32 {
+	if idx == NoIndex {
+		return NoIndex
+	}
+	dense.Of(ga.TypeID, AstIDAt(ga, idx))
+}
+
+func astRecvType(ga GoAstTable, idx uint32) uint32 {
+	if idx == NoIndex {
+		return NoIndex
+	}
+	dense.Of(ga.RecvTypeID, AstIDAt(ga, idx))
+}
+
+func astFuncSym(ga GoAstTable, idx uint32) uint32 {
+	if idx == NoIndex {
+		return NoIndex
+	}
+	dense.Of(ga.FuncSym, AstIDAt(ga, idx))
+}
+
+func astX(ga GoAstTable, idx uint32) uint32 {
+	if idx == NoIndex {
+		return NoIndex
+	}
+	dense.Of(ga.X, AstIDAt(ga, idx))
+}
+
+func astY(ga GoAstTable, idx uint32) uint32 {
+	if idx == NoIndex {
+		return NoIndex
+	}
+	dense.Of(ga.Y, AstIDAt(ga, idx))
+}
+
+func astZ(ga GoAstTable, idx uint32) uint32 {
+	if idx == NoIndex {
+		return NoIndex
+	}
+	dense.Of(ga.Z, AstIDAt(ga, idx))
+}
+
+func astW(ga GoAstTable, idx uint32) uint32 {
+	if idx == NoIndex {
+		return NoIndex
+	}
+	dense.Of(ga.W, AstIDAt(ga, idx))
+}
+
+func astChildren(ga GoAstTable, idx uint32) []uint32 {
+	if idx == NoIndex {
+		return []uint32{}
+	}
+	dense.List(ga.U32Pool, dense.Of(ga.Children, AstIDAt(ga, idx)))
+}
+
+func astLhs(ga GoAstTable, idx uint32) []uint32 {
+	if idx == NoIndex {
+		return []uint32{}
+	}
+	dense.List(ga.U32Pool, dense.Of(ga.Lhs, AstIDAt(ga, idx)))
+}
+
+func astRhs(ga GoAstTable, idx uint32) []uint32 {
+	if idx == NoIndex {
+		return []uint32{}
+	}
+	dense.List(ga.U32Pool, dense.Of(ga.Rhs, AstIDAt(ga, idx)))
+}
+
+func astImports(ga GoAstTable, idx uint32) []ImportRec {
+	if idx == NoIndex {
+		return []ImportRec{}
+	}
+	dense.List(ga.ImpPool, dense.Of(ga.Imports, AstIDAt(ga, idx)))
+}
+
+func unparenAst(ga GoAstTable, raw uint32) uint32 {
+	let mut cur = raw
+	let limit = dense.Total(ga.Count) + 1
+	for _ in 0..limit {
+		if cur == NoIndex || astKind(ga, cur) != NAParen {
+			return cur
+		}
+		cur = astX(ga, cur)
+	}
+	cur
+}
+
+// AstPackage pairs one Go package path with its parsed NDFile node indices.
+type AstPackage {
+	Path  string,
+	Files []uint32,
+}
+
+// IdenticalType reports structural/named Go type equality inside GoTypeTable.
+func IdenticalType(gt GoTypeTable, a0 uint32, b0 uint32) bool {
+	let mut pairs = slices.WithCapacity[uint32](16)
+	identicalWithSeen(gt, a0, b0, &pairs)
+}
+
+func hasSeenPair(pairs []uint32, a uint32, b uint32) bool {
+	let mut i = 0
+	for i+1 < pairs.Len() {
+		if pairs[i] == a && pairs[i+1] == b {
+			return true
+		}
+		i = i + 2
+	}
+	false
+}
+
+func canonicalBasic(b uint8) uint8 {
+	if b == BByte {
+		return BUint8
+	}
+	if b == BRune {
+		return BInt32
+	}
+	b
+}
+
+func identicalWithSeen(gt GoTypeTable, rawA uint32, rawB uint32, seen mut []uint32) bool {
+	let a = unalias(gt, rawA)
+	let b = unalias(gt, rawB)
+	if a == b {
+		return a != NoIndex
+	}
+	if a == NoIndex || b == NoIndex {
+		return false
+	}
+	if hasSeenPair(*seen, a, b) {
+		return true
+	}
+	*seen = (*seen).Append(a)
+	*seen = (*seen).Append(b)
+	let ka = typeKind(gt, a)
+	let kb = typeKind(gt, b)
+	if ka != kb {
+		return false
+	}
+	if ka == TKBasic {
+		return canonicalBasic(typeBasicKind(gt, a)) == canonicalBasic(typeBasicKind(gt, b))
+	}
+	if ka == TKPointer || ka == TKSlice {
+		return identicalWithSeen(gt, typeElem(gt, a), typeElem(gt, b), seen)
+	}
+	if ka == TKArray {
+		return typeArrLen(gt, a) == typeArrLen(gt, b) && identicalWithSeen(gt, typeElem(gt, a), typeElem(gt, b), seen)
+	}
+	if ka == TKMap {
+		return identicalWithSeen(gt, typeKey(gt, a), typeKey(gt, b), seen) && identicalWithSeen(gt, typeElem(gt, a), typeElem(gt, b), seen)
+	}
+	if ka == TKNamed {
+		return typePkgPath(gt, a) == typePkgPath(gt, b) && typeName(gt, a) == typeName(gt, b) && typeTArgs(gt, a).Len() == typeTArgs(gt, b).Len()
+	}
+	if ka == TKTypeParam {
+		return typeName(gt, a) == typeName(gt, b) && typeShortText(gt, a) == typeShortText(gt, b)
+	}
+	typeText(gt, a) != "" && typeText(gt, a) == typeText(gt, b)
+}
+
+// AstRoundTripAndUnparen verifies GoAstTable children, flags, and IdenticalType behavior.
+test AstRoundTripAndUnparen {
+	let mut gt = NewGoTypeTable()
+	let tByte = AddType(&gt, TypeSpec{Kind: TKBasic, BasicKind: BByte, BasicName: "byte", Name: "", PkgPath: "", PkgName: "", TypeText: "byte", ShortText: "byte", Elem: NoIndex, Key: NoIndex, ArrLen: uint32(0), Underlying: NoIndex, RecvType: NoIndex, RecvName: "", Flags: TFFlagBasicUnsigned | TFFlagBasicInteger | TFFlagBasicNumeric})
+	let tU8 = AddType(&gt, TypeSpec{Kind: TKBasic, BasicKind: BUint8, BasicName: "uint8", Name: "", PkgPath: "", PkgName: "", TypeText: "uint8", ShortText: "uint8", Elem: NoIndex, Key: NoIndex, ArrLen: uint32(0), Underlying: NoIndex, RecvType: NoIndex, RecvName: "", Flags: TFFlagBasicUnsigned | TFFlagBasicInteger | TFFlagBasicNumeric})
+	assert IdenticalType(gt, tByte, tU8)
+
+	let mut ga = NewGoAstTable()
+	let mut lit = EmptyAstSpec(NABasicLit)
+	lit.Flags = AFFlagTvConst | AFFlagIsIntZero | AFFlagBasicLitInt
+	let litID = AddAst(&ga, lit)
+	let mut p = EmptyAstSpec(NAParen)
+	p.X = litID
+	let pID = AddAst(&ga, p)
+	assert unparenAst(ga, pID) == litID
+}

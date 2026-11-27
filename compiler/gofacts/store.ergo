@@ -1,0 +1,614 @@
+// Package gofacts implements pure-Ergo Data-Oriented Design tables, digests,
+// ledger checks, source-hash helpers, and hostguard admission models for Go
+// foreign facts.
+
+import base64
+import dense
+import hex
+import option
+import sha256
+import slices
+import strconv
+import strings
+
+// DefaultToolchain is the pinned Go toolchain string used in ledger digests.
+let DefaultToolchain = "go1.27.4"
+
+// Entry kinds stored in EffectTable.
+let KindEffectNone = uint8(1)
+let KindEffectAmbient = uint8(2)
+let KindSyncCallback = uint8(3)
+let KindPurePkg = uint8(4)
+let KindPureExcept = uint8(5)
+let KindGoWrite = uint8(6)
+let KindGoArgClause = uint8(7)
+let KindGoReadOnlyVar = uint8(8)
+let KindGoConcurrent = uint8(9)
+let KindPureHostMember = uint8(10)
+
+// Bit flags stored in EffectTable.Flags.
+let FlagLent = uint8(1)
+let FlagNilMembers = uint8(2)
+let FlagNegIndex = uint8(4)
+
+// FactTag identifies a vouched row in FactTable.
+type FactTag {}
+
+// EffectTag identifies a guard or runtime table row in EffectTable.
+type EffectTag {}
+
+// FactID is a dense handle into FactTable.
+type FactID = dense.ID[FactTag]
+
+// EffectID is a dense handle into EffectTable.
+type EffectID = dense.ID[EffectTag]
+
+// Str is an interned string handle stored in dense.Strings.
+type Str = dense.ID[dense.Str]
+
+// Scratch holds reusable buffers across lookups and formatting passes.
+type Scratch {
+	Buf     []byte,
+	Facts   dense.Stack[FactID],
+	Effects dense.Stack[EffectID],
+	U32     dense.Stack[uint32],
+	Strs    dense.Stack[Str],
+}
+
+// NewScratch allocates an empty Scratch with pre-sized backing slices.
+func NewScratch() Scratch {
+	Scratch{
+		Buf:     slices.WithCapacity[byte](256),
+		Facts:   dense.StackWithCap[FactID](16),
+		Effects: dense.StackWithCap[EffectID](16),
+		U32:     dense.StackWithCap[uint32](32),
+		Strs:    dense.StackWithCap[Str](16),
+	}
+}
+
+// ResetScratch resets all stack cursors while retaining capacity.
+func ResetScratch(s mut Scratch) {
+	s.Buf = s.Buf[0:0]
+	dense.Cut(&s.Facts, 0)
+	dense.Cut(&s.Effects, 0)
+	dense.Cut(&s.U32, 0)
+	dense.Cut(&s.Strs, 0)
+}
+
+// Row is one vouched Go read or fresh-allocation row.
+type Row {
+	Target string,
+	Fact   string,
+	Param  string,
+	Reason string,
+	Source string,
+	View   bool,
+}
+
+// Effect is one reviewed memory-only or host-effect entry.
+type Effect {
+	Target string,
+	Reason string,
+	Source string,
+}
+
+// ArgClause records a reviewed resource lend exception for a Go target parameter.
+type ArgClause {
+	Lent   bool,
+	Reason string,
+}
+
+// GoWrite records a reviewed Go function writing a slice parameter in place.
+type GoWrite {
+	Index  int,
+	Reason string,
+}
+
+// FactTable stores vouched Go read and fresh rows as flat unsigned uint32 columns.
+type FactTable {
+	Strings    dense.Strings,
+	Count      dense.Count[FactTag],
+	Target     dense.Col[FactTag, Str],
+	Fact       dense.Col[FactTag, Str],
+	Param      dense.Col[FactTag, Str],
+	Reason     dense.Col[FactTag, Str],
+	Source     dense.Col[FactTag, Str],
+	View       dense.Col[FactTag, bool],
+	TargetHead []uint32,
+	TargetTail []uint32,
+	TargetNext []uint32,
+	Scratch    Scratch,
+}
+
+// NewFactTable constructs an empty FactTable.
+func NewFactTable() FactTable {
+	FactTable{
+		Strings:    dense.NewStrings(),
+		Count:      dense.NewCount[FactTag](),
+		Target:     dense.NewCol[FactTag, Str](),
+		Fact:       dense.NewCol[FactTag, Str](),
+		Param:      dense.NewCol[FactTag, Str](),
+		Reason:     dense.NewCol[FactTag, Str](),
+		Source:     dense.NewCol[FactTag, Str](),
+		View:       dense.NewCol[FactTag, bool](),
+		TargetHead: []uint32{},
+		TargetTail: []uint32{},
+		TargetNext: []uint32{},
+		Scratch:    NewScratch(),
+	}
+}
+
+func growHeadTail(head mut []uint32, tail mut []uint32, idx int) {
+	for (*head).Len() <= idx {
+		*head = (*head).Append(uint32(0))
+		*tail = (*tail).Append(uint32(0))
+	}
+}
+
+// AddRow appends a vouched Row to tbl and links it into the target chain.
+func AddRow(tbl mut FactTable, r Row) FactID {
+	let id = dense.Next(&tbl.Count)
+	let tid = dense.InternText(&tbl.Strings, r.Target)
+	let fid = dense.InternText(&tbl.Strings, r.Fact)
+	let pid = dense.InternText(&tbl.Strings, r.Param)
+	let rid = dense.InternText(&tbl.Strings, r.Reason)
+	let sid = dense.InternText(&tbl.Strings, r.Source)
+	dense.Push(&tbl.Target, tid)
+	dense.Push(&tbl.Fact, fid)
+	dense.Push(&tbl.Param, pid)
+	dense.Push(&tbl.Reason, rid)
+	dense.Push(&tbl.Source, sid)
+	dense.Push(&tbl.View, r.View)
+	tbl.TargetNext = tbl.TargetNext.Append(uint32(0))
+	let ti = dense.Index(tid)
+	growHeadTail(&tbl.TargetHead, &tbl.TargetTail, ti)
+	let slot = uint32(dense.Index(id)) + uint32(1)
+	if tbl.TargetHead[ti] == uint32(0) {
+		tbl.TargetHead[ti] = slot
+		tbl.TargetTail[ti] = slot
+	} else {
+		let prev = int(tbl.TargetTail[ti] - uint32(1))
+		tbl.TargetNext[prev] = slot
+		tbl.TargetTail[ti] = slot
+	}
+	id
+}
+
+// NumRows is the number of rows in tbl.
+func NumRows(tbl FactTable) int { dense.Total(tbl.Count) }
+
+// RowAt is the FactID at position i in tbl.
+func RowAt(tbl FactTable, i int) FactID { dense.IDAt(tbl.Count, i) }
+
+// GetRow reconstructs the Row view for id.
+func GetRow(tbl FactTable, id FactID) Row {
+	Row{
+		Target: dense.Text(tbl.Strings, dense.Of(tbl.Target, id)),
+		Fact:   dense.Text(tbl.Strings, dense.Of(tbl.Fact, id)),
+		Param:  dense.Text(tbl.Strings, dense.Of(tbl.Param, id)),
+		Reason: dense.Text(tbl.Strings, dense.Of(tbl.Reason, id)),
+		Source: dense.Text(tbl.Strings, dense.Of(tbl.Source, id)),
+		View:   dense.Of(tbl.View, id),
+	}
+}
+
+// FindRowIDs appends the matching FactIDs for target into sc.Facts in insertion order.
+func FindRowIDs(tbl FactTable, target string, sc mut Scratch) []FactID {
+	let mark = dense.Mark(sc.Facts)
+	match dense.FindText(tbl.Strings, target) {
+	case option.None:
+		return []FactID{}
+	case option.Some{Value: tid}:
+		let ti = dense.Index(tid)
+		if ti >= tbl.TargetHead.Len() {
+			return []FactID{}
+		}
+		let mut cur = tbl.TargetHead[ti]
+		for cur > uint32(0) {
+			let idx = int(cur - uint32(1))
+			dense.StackPush(&sc.Facts, dense.IDAt(tbl.Count, idx))
+			cur = tbl.TargetNext[idx]
+		}
+	}
+	dense.Since(sc.Facts, mark)
+}
+
+// FindRows returns all vouched Rows matching target in insertion order.
+func FindRows(tbl FactTable, target string) []Row {
+	let mut sc = NewScratch()
+	let ids = FindRowIDs(tbl, target, &sc)
+	let mut out = slices.WithCapacity[Row](ids.Len())
+	for id in ids {
+		out = out.Append(GetRow(tbl, id))
+	}
+	out
+}
+
+// AllTableRows returns every Row stored in tbl in insertion order.
+func AllTableRows(tbl FactTable) []Row {
+	let n = NumRows(tbl)
+	let mut out = slices.WithCapacity[Row](n)
+	for i in 0..n {
+		out = out.Append(GetRow(tbl, RowAt(tbl, i)))
+	}
+	out
+}
+
+// RowKey returns the ledger key for r ("go <target> <fact> <param>").
+func RowKey(r Row) string {
+	"go " + r.Target + " " + r.Fact + " " + r.Param
+}
+
+// LineDigest returns the SHA-256 base64 ledger digest string ("h1:...").
+func LineDigest(text string) string {
+	"h1:" + base64.Encode(base64.StdEncoding, sha256.Sum(text))
+}
+
+// RowDigest returns the ledger digest for r at toolchain.
+func RowDigest(r Row, toolchain string) string {
+	LineDigest("fact " + RowKey(r) + "\nsource " + r.Source + "\nreason " + r.Reason + "\nview " + strconv.FormatBool(r.View) + "\ngo " + toolchain + "\n")
+}
+
+// EffectKey returns the ledger key for target's memory-only row.
+func EffectKey(target string) string { "go " + target + " effect none" }
+
+// HostKey returns the ledger key for target's host-effect row.
+func HostKey(target string) string { "go " + target + " effect ambient" }
+
+// SyncKey returns the ledger key for target's synchronous callback row.
+func SyncKey(target string) string { "go " + target + " sync callbacks" }
+
+// PureKey returns the ledger key for path's pure-members row.
+func PureKey(path string) string { "go " + path + " pure members" }
+
+// EffectDigest returns the ledger digest for e's memory-only row at toolchain.
+func EffectDigest(e Effect, toolchain string) string {
+	LineDigest("fact go " + e.Target + " effect none\nsource " + e.Source + "\nreason " + e.Reason + "\ngo " + toolchain + "\n")
+}
+
+// HostDigest returns the ledger digest for e's host-effect row at toolchain.
+func HostDigest(e Effect, toolchain string) string {
+	LineDigest("fact go " + e.Target + " effect ambient\nsource " + e.Source + "\nreason " + e.Reason + "\ngo " + toolchain + "\n")
+}
+
+// SyncDigest returns the ledger digest for target's synchronous callback row.
+func SyncDigest(target string, reason string, toolchain string) string {
+	LineDigest("fact go " + target + " sync callbacks\nreason " + reason + "\ngo " + toolchain + "\n")
+}
+
+// PureDigest returns the ledger digest for path's pure-members row with except sorted.
+func PureDigest(path string, except []string, toolchain string) string {
+	let sorted = slices.Sort(slices.Clone(except))
+	LineDigest("fact go " + path + " pure members\nexcept " + strings.Join(sorted, ",") + "\ngo " + toolchain + "\n")
+}
+
+// EffectTable stores effect, host, sync-callback, purity, write, arg-clause,
+// read-only var, and concurrent-type rows in flat unsigned uint32 columns.
+type EffectTable {
+	Strings    dense.Strings,
+	Count      dense.Count[EffectTag],
+	Kind       dense.Col[EffectTag, uint8],
+	Target     dense.Col[EffectTag, Str],
+	Member     dense.Col[EffectTag, Str],
+	Reason     dense.Col[EffectTag, Str],
+	Source     dense.Col[EffectTag, Str],
+	ParamIndex dense.Col[EffectTag, uint32],
+	Flags      dense.Col[EffectTag, uint8],
+	TargetHead []uint32,
+	TargetTail []uint32,
+	TargetNext []uint32,
+	Scratch    Scratch,
+}
+
+// NewEffectTable constructs an empty EffectTable.
+func NewEffectTable() EffectTable {
+	EffectTable{
+		Strings:    dense.NewStrings(),
+		Count:      dense.NewCount[EffectTag](),
+		Kind:       dense.NewCol[EffectTag, uint8](),
+		Target:     dense.NewCol[EffectTag, Str](),
+		Member:     dense.NewCol[EffectTag, Str](),
+		Reason:     dense.NewCol[EffectTag, Str](),
+		Source:     dense.NewCol[EffectTag, Str](),
+		ParamIndex: dense.NewCol[EffectTag, uint32](),
+		Flags:      dense.NewCol[EffectTag, uint8](),
+		TargetHead: []uint32{},
+		TargetTail: []uint32{},
+		TargetNext: []uint32{},
+		Scratch:    NewScratch(),
+	}
+}
+
+// AddEffectEntry appends an entry row to tbl and links it under target.
+func AddEffectEntry(tbl mut EffectTable, kind uint8, target string, member string, reason string, source string, paramIdx int, flags uint8) EffectID {
+	let id = dense.Next(&tbl.Count)
+	let tid = dense.InternText(&tbl.Strings, target)
+	let mid = dense.InternText(&tbl.Strings, member)
+	let rid = dense.InternText(&tbl.Strings, reason)
+	let sid = dense.InternText(&tbl.Strings, source)
+	let mut encodedIdx = uint32(0)
+	let mut nextFlags = flags
+	if paramIdx < 0 {
+		nextFlags = nextFlags | FlagNegIndex
+	} else {
+		encodedIdx = uint32(paramIdx)
+	}
+	dense.Push(&tbl.Kind, kind)
+	dense.Push(&tbl.Target, tid)
+	dense.Push(&tbl.Member, mid)
+	dense.Push(&tbl.Reason, rid)
+	dense.Push(&tbl.Source, sid)
+	dense.Push(&tbl.ParamIndex, encodedIdx)
+	dense.Push(&tbl.Flags, nextFlags)
+	tbl.TargetNext = tbl.TargetNext.Append(uint32(0))
+	let ti = dense.Index(tid)
+	growHeadTail(&tbl.TargetHead, &tbl.TargetTail, ti)
+	let slot = uint32(dense.Index(id)) + uint32(1)
+	if tbl.TargetHead[ti] == uint32(0) {
+		tbl.TargetHead[ti] = slot
+		tbl.TargetTail[ti] = slot
+	} else {
+		let prev = int(tbl.TargetTail[ti] - uint32(1))
+		tbl.TargetNext[prev] = slot
+		tbl.TargetTail[ti] = slot
+	}
+	id
+}
+
+func decodeParamIndex(encoded uint32, flags uint8) int {
+	if (flags & FlagNegIndex) != uint8(0) {
+		return -1
+	}
+	int(encoded)
+}
+
+// NumEffects is the total number of rows in tbl across all entry kinds.
+func NumEffects(tbl EffectTable) int { dense.Total(tbl.Count) }
+
+// EffectRowAt is the EffectID at position i in tbl.
+func EffectRowAt(tbl EffectTable, i int) EffectID { dense.IDAt(tbl.Count, i) }
+
+// FindEffectIDs appends every EffectID for target with matching kind into sc.Effects.
+func FindEffectIDs(tbl EffectTable, kind uint8, target string, sc mut Scratch) []EffectID {
+	let mark = dense.Mark(sc.Effects)
+	match dense.FindText(tbl.Strings, target) {
+	case option.None:
+		return []EffectID{}
+	case option.Some{Value: tid}:
+		let ti = dense.Index(tid)
+		if ti >= tbl.TargetHead.Len() {
+			return []EffectID{}
+		}
+		let mut cur = tbl.TargetHead[ti]
+		for cur > uint32(0) {
+			let idx = int(cur - uint32(1))
+			let id = dense.IDAt(tbl.Count, idx)
+			if dense.Of(tbl.Kind, id) == kind {
+				dense.StackPush(&sc.Effects, id)
+			}
+			cur = tbl.TargetNext[idx]
+		}
+	}
+	dense.Since(sc.Effects, mark)
+}
+
+func effectView(tbl EffectTable, id EffectID) Effect {
+	Effect{
+		Target: dense.Text(tbl.Strings, dense.Of(tbl.Target, id)),
+		Reason: dense.Text(tbl.Strings, dense.Of(tbl.Reason, id)),
+		Source: dense.Text(tbl.Strings, dense.Of(tbl.Source, id)),
+	}
+}
+
+// EffectOf looks up target's memory-only effect row in tbl.
+func EffectOf(tbl EffectTable, target string) option.Option[Effect] {
+	let mut sc = NewScratch()
+	let ids = FindEffectIDs(tbl, KindEffectNone, target, &sc)
+	if ids.Len() == 0 {
+		return option.None
+	}
+	option.Some{Value: effectView(tbl, ids[0])}
+}
+
+// HostOf looks up target's host-effect row in tbl.
+func HostOf(tbl EffectTable, target string) option.Option[Effect] {
+	let mut sc = NewScratch()
+	let ids = FindEffectIDs(tbl, KindEffectAmbient, target, &sc)
+	if ids.Len() == 0 {
+		return option.None
+	}
+	option.Some{Value: effectView(tbl, ids[0])}
+}
+
+// SyncReason looks up target's synchronous-callback review reason in tbl.
+func SyncReason(tbl EffectTable, target string) option.Option[string] {
+	let mut sc = NewScratch()
+	let ids = FindEffectIDs(tbl, KindSyncCallback, target, &sc)
+	if ids.Len() == 0 {
+		return option.None
+	}
+	let reason = dense.Text(tbl.Strings, dense.Of(tbl.Reason, ids[0]))
+	if reason == "" {
+		return option.None
+	}
+	option.Some{Value: reason}
+}
+
+// IsPurePkg reports whether pkgPath is listed as a pure package in tbl.
+func IsPurePkg(tbl EffectTable, pkgPath string) bool {
+	let mut sc = NewScratch()
+	FindEffectIDs(tbl, KindPurePkg, pkgPath, &sc).Len() > 0
+}
+
+// PureExcept returns the excluded host-reaching member names for pkgPath in insertion order.
+func PureExcept(tbl EffectTable, pkgPath string) []string {
+	let mut sc = NewScratch()
+	let ids = FindEffectIDs(tbl, KindPureExcept, pkgPath, &sc)
+	let mut out = slices.WithCapacity[string](ids.Len())
+	for id in ids {
+		out = out.Append(dense.Text(tbl.Strings, dense.Of(tbl.Member, id)))
+	}
+	out
+}
+
+// HasPureHostPkg reports whether pkgPath is in PureImportHostMembers.
+func HasPureHostPkg(tbl EffectTable, pkgPath string) bool {
+	let mut sc = NewScratch()
+	FindEffectIDs(tbl, KindPureHostMember, pkgPath, &sc).Len() > 0
+}
+
+// PureHostMembers returns the refused host-reaching members of pkgPath if pkgPath is present.
+func PureHostMembers(tbl EffectTable, pkgPath string) option.Option[[]string] {
+	let mut sc = NewScratch()
+	let ids = FindEffectIDs(tbl, KindPureHostMember, pkgPath, &sc)
+	if ids.Len() == 0 {
+		return option.None
+	}
+	let mut out = []string{}
+	for id in ids {
+		if (dense.Of(tbl.Flags, id) & FlagNilMembers) != uint8(0) {
+			continue
+		}
+		let m = dense.Text(tbl.Strings, dense.Of(tbl.Member, id))
+		if m != "" {
+			out = out.Append(m)
+		}
+	}
+	option.Some{Value: out}
+}
+
+// PureHostMemberDenied reports whether accessing member on pkgPath is forbidden in a pure body.
+func PureHostMemberDenied(tbl EffectTable, pkgPath string, member string) bool {
+	if IsPurePkg(tbl, pkgPath) {
+		return slices.Contains(PureExcept(tbl, pkgPath), member)
+	}
+	match PureHostMembers(tbl, pkgPath) {
+	case option.Some{Value: ms}:
+		slices.Contains(ms, member)
+	case option.None:
+		false
+	}
+}
+
+// GoWriteOf looks up a reviewed slice-in-place write clause for target.
+func GoWriteOf(tbl EffectTable, target string) option.Option[GoWrite] {
+	let mut sc = NewScratch()
+	let ids = FindEffectIDs(tbl, KindGoWrite, target, &sc)
+	if ids.Len() == 0 {
+		return option.None
+	}
+	let id = ids[0]
+	option.Some{Value: GoWrite{
+		Index:  decodeParamIndex(dense.Of(tbl.ParamIndex, id), dense.Of(tbl.Flags, id)),
+		Reason: dense.Text(tbl.Strings, dense.Of(tbl.Reason, id)),
+	}}
+}
+
+// GoArgClauseOf looks up a reviewed resource arg clause for (target, index).
+func GoArgClauseOf(tbl EffectTable, target string, index int) option.Option[ArgClause] {
+	let mut sc = NewScratch()
+	let ids = FindEffectIDs(tbl, KindGoArgClause, target, &sc)
+	for id in ids {
+		let idx = decodeParamIndex(dense.Of(tbl.ParamIndex, id), dense.Of(tbl.Flags, id))
+		if idx == index {
+			return option.Some{Value: ArgClause{
+				Lent:   (dense.Of(tbl.Flags, id) & FlagLent) != uint8(0),
+				Reason: dense.Text(tbl.Strings, dense.Of(tbl.Reason, id)),
+			}}
+		}
+	}
+	option.None
+}
+
+// GoArgLent reports a reviewed, reasoned resource lend in tbl.
+func GoArgLent(tbl EffectTable, target string, index int) bool {
+	match GoArgClauseOf(tbl, target, index) {
+	case option.Some{Value: c}:
+		c.Lent && c.Reason != ""
+	case option.None:
+		false
+	}
+}
+
+// ReadOnlyVarReason returns the review reason for a read-only Go global variable.
+func ReadOnlyVarReason(tbl EffectTable, target string) option.Option[string] {
+	let mut sc = NewScratch()
+	let ids = FindEffectIDs(tbl, KindGoReadOnlyVar, target, &sc)
+	if ids.Len() == 0 {
+		return option.None
+	}
+	option.Some{Value: dense.Text(tbl.Strings, dense.Of(tbl.Reason, idOfFirst(ids)))}
+}
+
+func idOfFirst(ids []EffectID) EffectID { ids[0] }
+
+// IsReadOnlyVar reports whether target is a reviewed read-only Go package variable.
+func IsReadOnlyVar(tbl EffectTable, target string) bool {
+	match ReadOnlyVarReason(tbl, target) {
+	case option.Some{Value: r}:
+		r != ""
+	case option.None:
+		false
+	}
+}
+
+// ConcurrentTypeReason returns the review reason if target is concurrency-safe.
+func ConcurrentTypeReason(tbl EffectTable, target string) option.Option[string] {
+	let mut sc = NewScratch()
+	let ids = FindEffectIDs(tbl, KindGoConcurrent, target, &sc)
+	if ids.Len() == 0 {
+		return option.None
+	}
+	option.Some{Value: dense.Text(tbl.Strings, dense.Of(tbl.Reason, ids[0]))}
+}
+
+// IsConcurrentType reports whether target is a reviewed concurrency-safe Go type.
+func IsConcurrentType(tbl EffectTable, target string) bool {
+	match ConcurrentTypeReason(tbl, target) {
+	case option.Some{Value: r}:
+		r != ""
+	case option.None:
+		false
+	}
+}
+
+// DigestHex encodes sum's prefix hex string using std hex.
+func DigestHex(raw string) string { hex.Encode(raw) }
+
+// FactTableOrderPreserved: inserting multiple rows for one target preserves order.
+law FactTableOrderPreserved(a string, b string) {
+	let mut tbl = NewFactTable()
+	let _ = AddRow(&tbl, Row{Target: a, Fact: "reads", Param: "p1", Reason: "r1", Source: "111111111111", View: false})
+	let _ = AddRow(&tbl, Row{Target: a, Fact: "reads", Param: "p2", Reason: "r2", Source: "111111111111", View: true})
+	let _ = AddRow(&tbl, Row{Target: b, Fact: "fresh", Param: "result", Reason: "r3", Source: "222222222222", View: false})
+	let rowsA = FindRows(tbl, a)
+	if a == b {
+		return rowsA.Len() == 3 && rowsA[0].Param == "p1" && rowsA[1].Param == "p2" && rowsA[2].Param == "result"
+	}
+	rowsA.Len() == 2 && rowsA[0].Param == "p1" && rowsA[1].Param == "p2"
+}
+
+// EffectTableNegIndexRoundTrips: negative and unsigned parameter indices decode losslessly.
+law EffectTableNegIndexRoundTrips(target string, neg bool, n uint8) {
+	let mut tbl = NewEffectTable()
+	let idx = if neg { -1 } else { int(n) }
+	let _ = AddEffectEntry(&tbl, KindGoArgClause, target, "", "reason", "", idx, FlagLent)
+	let lent = GoArgLent(tbl, target, idx)
+	let other = GoArgLent(tbl, target, idx+1)
+	lent && !other
+}
+
+// FactTableScratchReuse verifies Scratch reuse resets cleanly across FindRowIDs calls.
+test FactTableScratchReuse {
+	let mut tbl = NewFactTable()
+	let _ = AddRow(&tbl, Row{Target: "bytes.Index", Fact: "reads", Param: "s", Reason: "r", Source: "711d86f96509", View: false})
+	let _ = AddRow(&tbl, Row{Target: "bytes.Index", Fact: "reads", Param: "sep", Reason: "r", Source: "711d86f96509", View: false})
+	let _ = AddRow(&tbl, Row{Target: "strings.Split", Fact: "fresh", Param: "result", Reason: "r", Source: "65e3a355768c", View: false})
+	let mut sc = NewScratch()
+	let a = FindRowIDs(tbl, "bytes.Index", &sc)
+	assert a.Len() == 2
+	ResetScratch(&sc)
+	let b = FindRowIDs(tbl, "strings.Split", &sc)
+	assert b.Len() == 1
+	assert GetRow(tbl, b[0]).Target == "strings.Split"
+}

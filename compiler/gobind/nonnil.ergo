@@ -1,0 +1,591 @@
+// Package-wide non-nil return analysis matching internal/gobind/nonnil.go
+// over GoAstTable without pointer-keyed maps or heap AST pointers.
+
+import dense
+import maps
+import option
+import slices
+import strconv
+
+let nnOther = uint8(0)
+let nnPtr = uint8(1)
+let nnPtrErr = uint8(2)
+let nnErr = uint8(3)
+
+let nnNonEmpty = "[]"
+
+type nnFuncInfo {
+	pkg     string,
+	imports Map[string, string],
+	fd      uint32,
+	kind    uint8,
+	result  string,
+	recv    string,
+	recvTyp string,
+	target  string,
+}
+
+type nnVarInfo {
+	pkg     string,
+	imports Map[string, string],
+	typ     uint32,
+	value   uint32,
+	set     bool,
+}
+
+type nnWorld {
+	funcs      []nnFuncInfo,
+	funcIdx    Map[string, int],
+	vars       []nnVarInfo,
+	varIdx     Map[string, int],
+	consts     Map[string, bool],
+	types      Map[string, bool],
+	ptrMethods Map[string, bool],
+}
+
+func isPredeclaredNonNil(name string) bool {
+	match name {
+	case "bool", "byte", "complex64", "complex128", "error", "float32", "float64", "int", "int8", "int16", "int32", "int64",
+		"rune", "string", "uint", "uint8", "uint16", "uint32", "uint64", "uintptr", "any", "comparable":
+		true
+	case _:
+		false
+	}
+}
+
+func isIdentNamedAst(ga GoAstTable, raw uint32, name string) bool {
+	astKind(ga, raw) == NAIdent && astName(ga, raw) == name
+}
+
+func isExportedIdentName(name string) bool {
+	name.Len() > 0 && name[0] >= 'A' && name[0] <= 'Z'
+}
+
+func fileImportsMap(ga GoAstTable, fileAst uint32) Map[string, string] {
+	let mut m = Map[string, string]{}
+	for imp in astImports(ga, fileAst) {
+		m = m.Put(dense.Text(ga.Strings, imp.Alias), dense.Text(ga.Strings, imp.Path))
+	}
+	m
+}
+
+func astTypeKey(ga GoAstTable, raw uint32, path string, imports Map[string, string]) string {
+	let mut x = raw
+	if x != NoIndex && astKind(ga, x) == NAStar {
+		x = astX(ga, x)
+	}
+	x = unparenAst(ga, x)
+	let kd = astKind(ga, x)
+	if kd == NAIdent {
+		let nm = astName(ga, x)
+		if isExportedIdentName(nm) || !isPredeclaredNonNil(nm) {
+			return path + "." + nm
+		}
+		return ""
+	}
+	if kd == NASelector {
+		let px = astX(ga, x)
+		if astKind(ga, px) == NAIdent {
+			match imports.Get(astName(ga, px)) {
+			case option.Some{Value: impPath}:
+				if impPath != "" {
+					return impPath + "." + astName(ga, x)
+				}
+			case option.None:
+			}
+		}
+	}
+	""
+}
+
+func astConcreteType(ga GoAstTable, raw uint32) bool {
+	let x = unparenAst(ga, raw)
+	let kd = astKind(ga, x)
+	if (astFlags(ga, x) & AFFlagConcreteType) != uint32(0) {
+		return true
+	}
+	if kd == NAStar || kd == NAArrayType || kd == NAMapType {
+		return true
+	}
+	if kd == NAOtherType {
+		return (astFlags(ga, x) & AFFlagConcreteType) != uint32(0)
+	}
+	if kd == NAIdent {
+		let nm = astName(ga, x)
+		return isPredeclaredNonNil(nm) && nm != "error" && nm != "any" && nm != "comparable"
+	}
+	false
+}
+
+func astRecvTypeName(ga GoAstTable, raw uint32) string {
+	let mut x = raw
+	if x != NoIndex && astKind(ga, x) == NAStar {
+		x = astX(ga, x)
+	}
+	x = unparenAst(ga, x)
+	if astKind(ga, x) == NAIdent {
+		return astName(ga, x)
+	}
+	""
+}
+
+func readNNFunc(ga GoAstTable, path string, fd uint32, imports Map[string, string]) option.Option[nnFuncInfo] {
+	if (astFlags(ga, fd) & AFFlagHasTypeParams) != uint32(0) {
+		return option.None
+	}
+	let mut recvTyp = ""
+	let mut recvName = ""
+	let recvs = astLhs(ga, fd)
+	if recvs.Len() > 0 {
+		let rf = recvs[0]
+		recvTyp = astRecvTypeName(ga, astX(ga, rf))
+		if recvTyp == "" {
+			return option.None
+		}
+		let rNames = astLhs(ga, rf)
+		if rNames.Len() == 1 {
+			recvName = astName(ga, rNames[0])
+		}
+	}
+	let fnName = astName(ga, fd)
+	let target = if recvTyp != "" { path + "." + recvTyp + "." + fnName } else { path + "." + fnName }
+	let mut resTypes = []uint32{}
+	for f in astRhs(ga, fd) {
+		let cnt = astLhs(ga, f).Len()
+		let reps = if cnt > 1 { cnt } else { 1 }
+		let fTyp = astX(ga, f)
+		for _ in 0..reps {
+			resTypes = resTypes.Append(fTyp)
+		}
+	}
+	let mut kind = nnOther
+	let mut result = ""
+	if resTypes.Len() > 0 {
+		result = astTypeKey(ga, resTypes[0], path, imports)
+		let ptr = astKind(ga, resTypes[0]) == NAStar
+		if ptr && resTypes.Len() == 1 {
+			kind = nnPtr
+		} else if ptr && resTypes.Len() == 2 && isIdentNamedAst(ga, resTypes[1], "error") {
+			kind = nnPtrErr
+		} else if resTypes.Len() == 1 && isIdentNamedAst(ga, resTypes[0], "error") {
+			kind = nnErr
+		}
+	}
+	option.Some{Value: nnFuncInfo{
+		pkg:     path,
+		imports: imports,
+		fd:      fd,
+		kind:    kind,
+		result:  result,
+		recv:    recvName,
+		recvTyp: recvTyp,
+		target:  target,
+	}}
+}
+
+func errorValueAst(ga GoAstTable, raw uint32, imports Map[string, string]) bool {
+	let x = unparenAst(ga, raw)
+	let kd = astKind(ga, x)
+	if kd == NACompLit {
+		return true
+	}
+	if kd == NAUnary && astOp(ga, x) == OpAddr {
+		return astKind(ga, unparenAst(ga, astX(ga, x))) == NACompLit
+	}
+	if kd == NACall {
+		let sel = astX(ga, x)
+		if astKind(ga, sel) != NASelector {
+			return false
+		}
+		let px = astX(ga, sel)
+		if astKind(ga, px) != NAIdent {
+			return false
+		}
+		match imports.Get(astName(ga, px)) {
+		case option.Some{Value: p}:
+			let k = p + "." + astName(ga, sel)
+			return k == "errors.New" || k == "fmt.Errorf"
+		case option.None:
+			return false
+		}
+	}
+	false
+}
+
+func pointerValueAst(ga GoAstTable, raw uint32) bool {
+	let x = unparenAst(ga, raw)
+	let kd = astKind(ga, x)
+	if kd == NAUnary && astOp(ga, x) == OpAddr {
+		return true
+	}
+	if kd == NACall {
+		return isIdentNamedAst(ga, astX(ga, x), "new") && astChildren(ga, x).Len() == 1
+	}
+	false
+}
+
+func worldSentinel(ga GoAstTable, w nnWorld, key string) bool {
+	match w.varIdx.Get(key) {
+	case option.None:
+		false
+	case option.Some{Value: idx}:
+		let v = w.vars[idx]
+		!v.set && v.value != NoIndex && errorValueAst(ga, v.value, v.imports)
+	}
+}
+
+func worldPointerVar(ga GoAstTable, w nnWorld, key string) bool {
+	match w.varIdx.Get(key) {
+	case option.None:
+		false
+	case option.Some{Value: idx}:
+		let v = w.vars[idx]
+		!v.set && v.value != NoIndex && pointerValueAst(ga, v.value)
+	}
+}
+
+func worldConst(w nnWorld, key string) bool {
+	w.consts.Get(key) != option.None
+}
+
+func worldTypeConcrete(w nnWorld, key string) bool {
+	w.types.Get(key) != option.None
+}
+
+func worldVarType(ga GoAstTable, w nnWorld, key string) string {
+	let idx = match w.varIdx.Get(key) {
+	case option.Some{Value: i}:
+		i
+	case option.None:
+		return ""
+	}
+	let v = w.vars[idx]
+	if v.typ != NoIndex {
+		return astTypeKey(ga, v.typ, v.pkg, v.imports)
+	}
+	if v.value == NoIndex {
+		return ""
+	}
+	let x = unparenAst(ga, v.value)
+	let kd = astKind(ga, x)
+	if kd == NAUnary && astOp(ga, x) == OpAddr {
+		let lit = unparenAst(ga, astX(ga, x))
+		if astKind(ga, lit) == NACompLit {
+			return astTypeKey(ga, astX(ga, lit), v.pkg, v.imports)
+		}
+		return ""
+	}
+	if kd == NACompLit {
+		return astTypeKey(ga, astX(ga, x), v.pkg, v.imports)
+	}
+	if kd == NACall {
+		let fnExpr = astX(ga, x)
+		if isIdentNamedAst(ga, fnExpr, "new") && astChildren(ga, x).Len() == 1 {
+			return astTypeKey(ga, astChildren(ga, x)[0], v.pkg, v.imports)
+		}
+		let mut target = ""
+		let fkd = astKind(ga, fnExpr)
+		if fkd == NAIdent {
+			target = v.pkg + "." + astName(ga, fnExpr)
+		} else if fkd == NASelector {
+			let px = astX(ga, fnExpr)
+			if astKind(ga, px) == NAIdent {
+				match v.imports.Get(astName(ga, px)) {
+				case option.Some{Value: impPath}:
+					if impPath != "" {
+						target = impPath + "." + astName(ga, fnExpr)
+					}
+				case option.None:
+				}
+			}
+		}
+		match w.funcIdx.Get(target) {
+		case option.Some{Value: fi}:
+			return w.funcs[fi].result
+		case option.None:
+		}
+	}
+	""
+}
+
+func worldFuncProven(w nnWorld, proven []bool, target string, kind uint8) bool {
+	match w.funcIdx.Get(target) {
+	case option.Some{Value: i}:
+		let fn = w.funcs[i]
+		fn.kind == kind && i < proven.Len() && proven[i]
+	case option.None:
+		false
+	}
+}
+
+func markVarWritesInNode(ga GoAstTable, n uint32, imports Map[string, string], assigned mut Map[string, bool], written mut Map[string, bool]) {
+	if n == NoIndex {
+		return
+	}
+	let kd = astKind(ga, n)
+	if kd == NSAssign {
+		for l in astLhs(ga, n) {
+			markWriteExpr(ga, l, imports, assigned, written)
+		}
+	} else if kd == NSIncDec {
+		markWriteExpr(ga, astX(ga, n), imports, assigned, written)
+	} else if kd == NAUnary && astOp(ga, n) == OpAddr {
+		markWriteExpr(ga, astX(ga, n), imports, assigned, written)
+	}
+	for ch in directAstChildren(ga, n) {
+		markVarWritesInNode(ga, ch, imports, assigned, written)
+	}
+}
+
+func markWriteExpr(ga GoAstTable, raw uint32, imports Map[string, string], assigned mut Map[string, bool], written mut Map[string, bool]) {
+	let x = unparenAst(ga, raw)
+	let kd = astKind(ga, x)
+	if kd == NAIdent {
+		*assigned = (*assigned).Put(astName(ga, x), true)
+	} else if kd == NASelector {
+		let px = astX(ga, x)
+		if astKind(ga, px) == NAIdent {
+			match imports.Get(astName(ga, px)) {
+			case option.Some{Value: impPath}:
+				if impPath != "" {
+					*written = (*written).Put(impPath+"."+astName(ga, x), true)
+				}
+			case option.None:
+			}
+		}
+	}
+}
+
+func directAstChildren(ga GoAstTable, n uint32) []uint32 {
+	let mut out = []uint32{}
+	let x = astX(ga, n)
+	let y = astY(ga, n)
+	let z = astZ(ga, n)
+	let w = astW(ga, n)
+	if x != NoIndex {
+		out = out.Append(x)
+	}
+	if y != NoIndex {
+		out = out.Append(y)
+	}
+	if z != NoIndex {
+		out = out.Append(z)
+	}
+	if w != NoIndex {
+		out = out.Append(w)
+	}
+	for c in astChildren(ga, n) {
+		out = out.Append(c)
+	}
+	for c in astLhs(ga, n) {
+		out = out.Append(c)
+	}
+	for c in astRhs(ga, n) {
+		out = out.Append(c)
+	}
+	out
+}
+
+func buildNNWorld(ga GoAstTable, pkgs []AstPackage) nnWorld {
+	let mut funcs = []nnFuncInfo{}
+	let mut funcIdx = Map[string, int]{}
+	let mut vars = []nnVarInfo{}
+	let mut varIdx = Map[string, int]{}
+	let mut consts = Map[string, bool]{}
+	let mut types = Map[string, bool]{}
+	let mut ptrMethods = Map[string, bool]{}
+	let mut written = Map[string, bool]{}
+	for p in pkgs {
+		let mut assigned = Map[string, bool]{}
+		let mut pkgVars = []string{}
+		for f in p.Files {
+			let imports = fileImportsMap(ga, f)
+			for d in astChildren(ga, f) {
+				let dk = astKind(ga, d)
+				if dk == NSDecl {
+					for sp in astChildren(ga, d) {
+						let sk = astKind(ga, sp)
+						if sk == NDTypeSpec {
+							let fl = astFlags(ga, sp)
+							if (fl&AFFlagTypeAlias) == uint32(0) && (fl&AFFlagHasTypeParams) == uint32(0) && astConcreteType(ga, astX(ga, sp)) {
+								types = types.Put(p.Path+"."+astName(ga, sp), true)
+							}
+						} else if sk == NDValueSpec {
+							let isConst = astOp(ga, sp) == OpConst
+							let names = astLhs(ga, sp)
+							let vals = astRhs(ga, sp)
+							let specTyp = astX(ga, sp)
+							for i, nid in names {
+								let nName = astName(ga, nid)
+								let key = p.Path + "." + nName
+								if isConst {
+									consts = consts.Put(key, true)
+									continue
+								}
+								let val = if vals.Len() == names.Len() { vals[i] } else { NoIndex }
+								let vi = vars.Len()
+								vars = vars.Append(nnVarInfo{pkg: p.Path, imports: imports, typ: specTyp, value: val, set: false})
+								varIdx = varIdx.Put(key, vi)
+								pkgVars = pkgVars.Append(nName)
+							}
+						}
+					}
+				} else if dk == NDFuncDecl {
+					let recvs = astLhs(ga, d)
+					if recvs.Len() == 1 && astKind(ga, astX(ga, recvs[0])) == NAStar {
+						ptrMethods = ptrMethods.Put(astName(ga, d), true)
+					}
+					let body = astW(ga, d)
+					if body != NoIndex {
+						markVarWritesInNode(ga, body, imports, &assigned, &written)
+					}
+					match readNNFunc(ga, p.Path, d, imports) {
+					case option.Some{Value: fn}:
+						let fi = funcs.Len()
+						funcs = funcs.Append(fn)
+						funcIdx = funcIdx.Put(fn.target, fi)
+					case option.None:
+					}
+				}
+			}
+		}
+		for vName in pkgVars {
+			if assigned.Get(vName) != option.None {
+				match varIdx.Get(p.Path + "." + vName) {
+				case option.Some{Value: vi}:
+					vars[vi].set = true
+				case option.None:
+				}
+			}
+		}
+	}
+	for k in writtenKeys(written) {
+		match varIdx.Get(k) {
+		case option.Some{Value: vi}:
+			vars[vi].set = true
+		case option.None:
+		}
+	}
+	nnWorld{
+		funcs:      funcs,
+		funcIdx:    funcIdx,
+		vars:       vars,
+		varIdx:     varIdx,
+		consts:     consts,
+		types:      types,
+		ptrMethods: ptrMethods,
+	}
+}
+
+func analyzeWorld(ga GoAstTable, pkgs []AstPackage) (nnWorld, []bool) {
+	let w = buildNNWorld(ga, pkgs)
+	let mut proven = slices.WithCapacity[bool](w.funcs.Len())
+	for _ in 0..w.funcs.Len() {
+		proven = proven.Append(false)
+	}
+	let mut scratch = newNNResScratch(dense.Total(ga.Count))
+	let mut changed = true
+	for changed {
+		changed = false
+		for i in 0..w.funcs.Len() {
+			let fn = w.funcs[i]
+			if proven[i] || fn.kind == nnOther || astW(ga, fn.fd) == NoIndex {
+				continue
+			}
+			if proveFuncBody(ga, w, proven, fn, &scratch) {
+				proven[i] = true
+				changed = true
+			}
+		}
+	}
+	(w, proven)
+}
+
+func writtenKeys(m Map[string, bool]) []string {
+	let mut out = []string{}
+	for k in maps.Keys(m) {
+		match m.Get(k) {
+		case option.Some{Value: v}:
+			if v {
+				out = out.Append(k)
+			}
+		case option.None:
+		}
+	}
+	out
+}
+
+// DeriveNonNil runs inter-procedural non-nil pointer return analysis over pkgs
+// and records FactNonNilResult entries into out.
+func DeriveNonNil(ga GoAstTable, pkgs []AstPackage, out mut FactsTable) {
+	let (w, proven) = analyzeWorld(ga, pkgs)
+	for i, fn in w.funcs {
+		if i < proven.Len() && proven[i] && fn.kind == nnPtrErr {
+			AddFact(out, fn.target, FactNonNilResult)
+		}
+	}
+}
+
+// NonNilProvesPointerOrError verifies that (*T, error) returns proven non-nil
+// through literal/new/error paths and rejects uninitialized nil returns.
+test NonNilProvesPointerOrError {
+	let mut ga = NewGoAstTable()
+
+	let identStarSpec = AstSpec{
+		Kind: NAIdent, Op: OpNone, ObjKind: ObjNone, Flags: uint32(0),
+		Name: "T", Target: "", TypeID: NoIndex, RecvTypeID: NoIndex, FuncSym: NoIndex,
+		X:    NoIndex, Y: NoIndex, Z: NoIndex, W: NoIndex,
+	}
+	let tIdent = AddAst(&ga, identStarSpec)
+	let mut starSpec = EmptyAstSpec(NAStar)
+	starSpec.X = tIdent
+	let starT = AddAst(&ga, starSpec)
+	let rf1 = AddAst(&ga, AstSpec{Kind: NAField, Op: OpNone, ObjKind: ObjNone, Flags: uint32(0), Name: "", Target: "", TypeID: NoIndex, RecvTypeID: NoIndex, FuncSym: NoIndex, X: starT, Y: NoIndex, Z: NoIndex, W: NoIndex})
+
+	let mut errSpec = EmptyAstSpec(NAIdent)
+	errSpec.Name = "error"
+	let errIdent = AddAst(&ga, errSpec)
+	let rf2 = AddAst(&ga, AstSpec{Kind: NAField, Op: OpNone, ObjKind: ObjNone, Flags: uint32(0), Name: "", Target: "", TypeID: NoIndex, RecvTypeID: NoIndex, FuncSym: NoIndex, X: errIdent, Y: NoIndex, Z: NoIndex, W: NoIndex})
+
+	let mut newIdentSpec = EmptyAstSpec(NAIdent)
+	newIdentSpec.Name = "new"
+	let newId = AddAst(&ga, newIdentSpec)
+	let mut newCallSpec = EmptyAstSpec(NACall)
+	newCallSpec.X = newId
+	let newCall = AddAst(&ga, newCallSpec)
+	SetAstChildren(&ga, newCall, []uint32{tIdent})
+	let mut nilLit = EmptyAstSpec(NAIdent)
+	nilLit.Name = "nil"
+	let nilId = AddAst(&ga, nilLit)
+	let retGood = AddAst(&ga, EmptyAstSpec(NSReturn))
+	SetAstRhs(&ga, retGood, []uint32{newCall, nilId})
+	let blkGood = AddAst(&ga, EmptyAstSpec(NSBlock))
+	SetAstChildren(&ga, blkGood, []uint32{retGood})
+	let mut fnGood = EmptyAstSpec(NDFuncDecl)
+	fnGood.Name = "NewT"
+	fnGood.W = blkGood
+	let goodDecl = AddAst(&ga, fnGood)
+	SetAstRhs(&ga, goodDecl, []uint32{rf1, rf2})
+
+	let mut badNil = EmptyAstSpec(NAIdent)
+	badNil.Name = "nil"
+	let n1 = AddAst(&ga, badNil)
+	let n2 = AddAst(&ga, badNil)
+	let retBad = AddAst(&ga, EmptyAstSpec(NSReturn))
+	SetAstRhs(&ga, retBad, []uint32{n1, n2})
+	let blkBad = AddAst(&ga, EmptyAstSpec(NSBlock))
+	SetAstChildren(&ga, blkBad, []uint32{retBad})
+	let mut fnBad = EmptyAstSpec(NDFuncDecl)
+	fnBad.Name = "MaybeT"
+	fnBad.W = blkBad
+	let badDecl = AddAst(&ga, fnBad)
+	SetAstRhs(&ga, badDecl, []uint32{rf1, rf2})
+
+	let fileID = AddAst(&ga, EmptyAstSpec(NDFile))
+	SetAstChildren(&ga, fileID, []uint32{goodDecl, badDecl})
+	let mut facts = NewFactsTable()
+	DeriveNonNil(ga, []AstPackage{AstPackage{Path: "example.com/p", Files: []uint32{fileID}}}, &facts)
+	assert HasFact(facts, "example.com/p.NewT", FactNonNilResult)
+	assert !HasFact(facts, "example.com/p.MaybeT", FactNonNilResult)
+	let _ = strconv.Itoa(0)
+}

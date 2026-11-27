@@ -1,0 +1,423 @@
+// Pure-Ergo Go declaration extractor and SHA-256 SourceHash computation.
+
+import fs
+import fstest
+import hex
+import sha256
+import slices
+import strings
+
+// TargetSpec splits a qualified Go target ("pkg.Fn" or "pkg.Type.Method") into package, receiver, and function name.
+type TargetSpec {
+	Pkg  string,
+	Recv string,
+	Func string,
+}
+
+// SplitTarget parses target according to gofacts.SourceHash naming rules.
+func SplitTarget(target string) TargetSpec {
+	let slash = strings.LastIndex(target, "/")
+	let pkgStart = if slash >= 0 { slash + 1 } else { 0 }
+	let rest = target[pkgStart:target.Len()]
+	let parts = strings.Split(rest, ".")
+	if parts.Len() == 2 {
+		return TargetSpec{Pkg: target[0:pkgStart] + parts[0], Recv: "", Func: parts[1]}
+	}
+	if parts.Len() == 3 {
+		return TargetSpec{Pkg: target[0:pkgStart] + parts[0], Recv: parts[1], Func: parts[2]}
+	}
+	TargetSpec{Pkg: "", Recv: "", Func: ""}
+}
+
+func isSpace(b byte) bool {
+	b == ' ' || b == '\t' || b == '\n' || b == '\r'
+}
+
+func isIdentStart(b byte) bool {
+	(b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z') || b == '_'
+}
+
+func isIdentCont(b byte) bool {
+	isIdentStart(b) || (b >= '0' && b <= '9')
+}
+
+func skipLineComment(src string, i int) int {
+	let mut j = i + 2
+	for j < src.Len() && src[j] != '\n' {
+		j = j + 1
+	}
+	j
+}
+
+func skipBlockComment(src string, i int) int {
+	let mut j = i + 2
+	for j+1 < src.Len() {
+		if src[j] == '*' && src[j+1] == '/' {
+			return j + 2
+		}
+		j = j + 1
+	}
+	src.Len()
+}
+
+func skipStringLit(src string, i int) int {
+	let mut j = i + 1
+	for j < src.Len() {
+		if src[j] == '\\' {
+			j = j + 2
+			continue
+		}
+		if src[j] == '"' {
+			return j + 1
+		}
+		j = j + 1
+	}
+	src.Len()
+}
+
+func skipRawStringLit(src string, i int) int {
+	let mut j = i + 1
+	for j < src.Len() {
+		if src[j] == '`' {
+			return j + 1
+		}
+		j = j + 1
+	}
+	src.Len()
+}
+
+func skipRuneLit(src string, i int) int {
+	let mut j = i + 1
+	for j < src.Len() {
+		if src[j] == '\\' {
+			j = j + 2
+			continue
+		}
+		if src[j] == '\'' {
+			return j + 1
+		}
+		j = j + 1
+	}
+	src.Len()
+}
+
+func skipWSAndComments(src string, start int) int {
+	let mut i = start
+	for i < src.Len() {
+		let b = src[i]
+		if isSpace(b) {
+			i = i + 1
+			continue
+		}
+		if b == '/' && i+1 < src.Len() {
+			if src[i+1] == '/' {
+				i = skipLineComment(src, i)
+				continue
+			}
+			if src[i+1] == '*' {
+				i = skipBlockComment(src, i)
+				continue
+			}
+		}
+		break
+	}
+	i
+}
+
+func readIdent(src string, start int) (string, int) {
+	if start >= src.Len() || !isIdentStart(src[start]) {
+		return ("", start)
+	}
+	let mut i = start + 1
+	for i < src.Len() && isIdentCont(src[i]) {
+		i = i + 1
+	}
+	(src[start:i], i)
+}
+
+func findBalancedEnd(src string, start int, open byte, close byte) int {
+	let mut depth = 0
+	let mut i = start
+	for i < src.Len() {
+		let b = src[i]
+		if b == '/' && i+1 < src.Len() {
+			if src[i+1] == '/' {
+				i = skipLineComment(src, i)
+				continue
+			}
+			if src[i+1] == '*' {
+				i = skipBlockComment(src, i)
+				continue
+			}
+		}
+		if b == '"' {
+			i = skipStringLit(src, i)
+			continue
+		}
+		if b == '`' {
+			i = skipRawStringLit(src, i)
+			continue
+		}
+		if b == '\'' {
+			i = skipRuneLit(src, i)
+			continue
+		}
+		if b == open {
+			depth = depth + 1
+		} else if b == close {
+			depth = depth - 1
+			if depth == 0 {
+				return i + 1
+			}
+		}
+		i = i + 1
+	}
+	-1
+}
+
+func receiverNameFromList(listText string) string {
+	let inner = strings.TrimSpace(listText)
+	if inner.Len() < 2 {
+		return ""
+	}
+	let stripped = strings.TrimSpace(inner[1 : inner.Len()-1])
+	let mut typePart = stripped
+	let fields = strings.Fields(stripped)
+	if fields.Len() >= 2 {
+		typePart = fields[fields.Len()-1]
+	}
+	let noStar = strings.TrimPrefix(typePart, "*")
+	let br = strings.Index(noStar, "[")
+	if br >= 0 { noStar[0:br] } else { noStar }
+}
+
+func stripCommentsPreservingLits(s string) string {
+	let mut out = []byte{}
+	let mut i = 0
+	for i < s.Len() {
+		let b = s[i]
+		if b == '/' && i+1 < s.Len() {
+			if s[i+1] == '/' {
+				i = skipLineComment(s, i)
+				continue
+			}
+			if s[i+1] == '*' {
+				i = skipBlockComment(s, i)
+				continue
+			}
+		}
+		if b == '"' {
+			let end = skipStringLit(s, i)
+			out = out.AppendBytes(strings.Bytes(s[i:end]))
+			i = end
+			continue
+		}
+		if b == '`' {
+			let end = skipRawStringLit(s, i)
+			out = out.AppendBytes(strings.Bytes(s[i:end]))
+			i = end
+			continue
+		}
+		if b == '\'' {
+			let end = skipRuneLit(s, i)
+			out = out.AppendBytes(strings.Bytes(s[i:end]))
+			i = end
+			continue
+		}
+		out = out.Append(b)
+		i = i + 1
+	}
+	strings.TrimSpace(strings.FromBytes(out))
+}
+
+// ExtractFuncDecls finds top-level Go function or method declarations matching
+// recv and fnName in formatted Go source text.
+func ExtractFuncDecls(src string, recv string, fnName string) []string {
+	let mut out = []string{}
+	let mut i = 0
+	let mut braceDepth = 0
+	for i < src.Len() {
+		let b = src[i]
+		if b == '/' && i+1 < src.Len() {
+			if src[i+1] == '/' {
+				i = skipLineComment(src, i)
+				continue
+			}
+			if src[i+1] == '*' {
+				i = skipBlockComment(src, i)
+				continue
+			}
+		}
+		if b == '"' {
+			i = skipStringLit(src, i)
+			continue
+		}
+		if b == '`' {
+			i = skipRawStringLit(src, i)
+			continue
+		}
+		if b == '\'' {
+			i = skipRuneLit(src, i)
+			continue
+		}
+		if b == '{' {
+			braceDepth = braceDepth + 1
+			i = i + 1
+			continue
+		}
+		if b == '}' {
+			if braceDepth > 0 {
+				braceDepth = braceDepth - 1
+			}
+			i = i + 1
+			continue
+		}
+		if braceDepth == 0 && (i == 0 || !isIdentCont(src[i-1])) && i+4 <= src.Len() && src[i:i+4] == "func" && (i+4 == src.Len() || !isIdentCont(src[i+4])) {
+			let declStart = i
+			let mut cur = skipWSAndComments(src, i+4)
+			let mut gotRecv = ""
+			if cur < src.Len() && src[cur] == '(' {
+				let recvEnd = findBalancedEnd(src, cur, '(', ')')
+				if recvEnd < 0 {
+					break
+				}
+				gotRecv = receiverNameFromList(src[cur:recvEnd])
+				cur = skipWSAndComments(src, recvEnd)
+			}
+			let (gotName, afterName) = readIdent(src, cur)
+			cur = skipWSAndComments(src, afterName)
+			if cur < src.Len() && src[cur] == '[' {
+				let tpEnd = findBalancedEnd(src, cur, '[', ']')
+				if tpEnd < 0 {
+					break
+				}
+				cur = skipWSAndComments(src, tpEnd)
+			}
+			let mut sigDone = false
+			let mut declEnd = -1
+			for cur < src.Len() && !sigDone {
+				let cb = src[cur]
+				if cb == '/' && cur+1 < src.Len() {
+					if src[cur+1] == '/' {
+						cur = skipLineComment(src, cur)
+						continue
+					}
+					if src[cur+1] == '*' {
+						cur = skipBlockComment(src, cur)
+						continue
+					}
+				}
+				if cb == '"' {
+					cur = skipStringLit(src, cur)
+					continue
+				}
+				if cb == '`' {
+					cur = skipRawStringLit(src, cur)
+					continue
+				}
+				if cb == '\'' {
+					cur = skipRuneLit(src, cur)
+					continue
+				}
+				if cb == '{' {
+					let bodyEnd = findBalancedEnd(src, cur, '{', '}')
+					if bodyEnd < 0 {
+						sigDone = true
+						break
+					}
+					declEnd = bodyEnd
+					sigDone = true
+					break
+				}
+				if cb == '\n' {
+					if gotName != "" {
+						declEnd = cur
+					}
+					sigDone = true
+					break
+				}
+				cur = cur + 1
+			}
+			if gotName == fnName && gotRecv == recv && declEnd > declStart {
+				out = out.Append(stripCommentsPreservingLits(src[declStart:declEnd]))
+			}
+			if declEnd > i {
+				i = declEnd
+				continue
+			}
+		}
+		i = i + 1
+	}
+	out
+}
+
+// SourceHashFiles returns the 12-hex SHA-256 declaration hash across srcs for target.
+func SourceHashFiles(srcs []string, target string) string {
+	let spec = SplitTarget(target)
+	if spec.Func == "" {
+		return ""
+	}
+	let mut decls = []string{}
+	for src in srcs {
+		for d in ExtractFuncDecls(src, spec.Recv, spec.Func) {
+			decls = decls.Append(d)
+		}
+	}
+	if decls.Len() == 0 {
+		return ""
+	}
+	let sorted = slices.Sort(decls)
+	let joined = strings.Join(sorted, "\n")
+	hex.Encode(sha256.Sum(joined)[0:6])
+}
+
+// SourceHashDir computes SourceHash across all non-test Go files in dir via fs.Files.
+func SourceHashDir(dir string, target string) string fails fs.NotFound | fs.Denied | fs.Failed needs fs.Files {
+	let names = slices.Sort(try fs.Files.ReadDir(dir))
+	let mut srcs = []string{}
+	for name in names {
+		if !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		srcs = srcs.Append(try fs.Files.ReadFile(dir + "/" + name))
+	}
+	SourceHashFiles(srcs, target)
+}
+
+// SplitTargetShapes checks function and method target parsing across single- and multi-segment paths.
+law SplitTargetShapes() {
+	let a = SplitTarget("bytes.Contains")
+	let b = SplitTarget("os.File.Write")
+	let c = SplitTarget("ergo.local/prototype/runtime/v1/hostfs.Stat")
+	let d = SplitTarget("sync/atomic.Int64.CompareAndSwap")
+		a.Pkg == "bytes" && a.Recv == "" && a.Func == "Contains" &&
+		b.Pkg == "os" && b.Recv == "File" && b.Func == "Write" &&
+		c.Pkg == "ergo.local/prototype/runtime/v1/hostfs" && c.Recv == "" && c.Func == "Stat" &&
+		d.Pkg == "sync/atomic" && d.Recv == "Int64" && d.Func == "CompareAndSwap"
+}
+
+// SourceHashDirFixture verifies SourceHashDir over virtual files matching hostfs.Stat's shipped hash.
+test SourceHashDirFixture {
+	let mem = fstest.NewMemory()
+	let src = "package hostfs\n\nfunc Stat(name string) (Info, error) {\n\tfi, err := os.Stat(name)\n\tif err != nil {\n\t\treturn Info{}, err\n\t}\n\treturn Info{Name: fi.Name(), Size: fi.Size(), Mode: fi.Mode(), ModTime: fi.ModTime(), IsDir: fi.IsDir()}, nil\n}\n"
+	with context { fs.Files: mem, fs.Writes: mem } {
+		fs.Writes.MkdirAll("hostfs") catch {
+		case _:
+			assert false
+		}
+		fs.Writes.WriteFile("hostfs/hostfs.go", src) catch {
+		case _:
+			assert false
+		}
+		fs.Writes.WriteFile("hostfs/hostfs_test.go", "package hostfs\nfunc Stat(name string) (Info, error) { return Info{}, nil }\n") catch {
+		case _:
+			assert false
+		}
+		let hash = SourceHashDir("hostfs", "ergo.local/prototype/runtime/v1/hostfs.Stat") catch {
+		case _:
+			assert false
+			return
+		}
+		assert hash == "07a2c004939a"
+	}
+}

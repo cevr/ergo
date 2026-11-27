@@ -1,0 +1,283 @@
+// Escape analysis verdict parser, parameter position correlation, and
+// reads/vouched/total attribute attachment matching internal/gobind/derive.go.
+
+import compiler/gofacts
+import dense
+import filepath
+import option
+import strconv
+import strings
+
+// EscapeFlags names the Go compiler debug flags read by ParseEscape.
+let EscapeFlags = "-m -d=escapemutationscalls=1"
+
+let readsVerdict = " does not escape, mutate, or call"
+
+// EscapeTag identifies one parsed Go compiler escape-analysis position.
+type EscapeTag {}
+
+// EscapeID is a dense handle into EscapeSet.
+type EscapeID = dense.ID[EscapeTag]
+
+// EscapeSet holds parsed compiler -m positions using flat unsigned columns.
+type EscapeSet {
+	Strings  dense.Strings,
+	Count    dense.Count[EscapeTag],
+	File     dense.Col[EscapeTag, Str],
+	Line     dense.Col[EscapeTag, uint32],
+	Col      dense.Col[EscapeTag, uint32],
+	IsReads  dense.Col[EscapeTag, bool],
+	FileHead []uint32,
+	NextRow  []uint32,
+}
+
+// NewEscapeSet allocates an empty EscapeSet.
+func NewEscapeSet() EscapeSet {
+	EscapeSet{
+		Strings:  dense.NewStrings(),
+		Count:    dense.NewCount[EscapeTag](),
+		File:     dense.NewCol[EscapeTag, Str](),
+		Line:     dense.NewCol[EscapeTag, uint32](),
+		Col:      dense.NewCol[EscapeTag, uint32](),
+		IsReads:  dense.NewCol[EscapeTag, bool](),
+		FileHead: []uint32{},
+		NextRow:  []uint32{},
+	}
+}
+
+func growEscapeHead(xs mut []uint32, need int) {
+	for (*xs).Len() <= need {
+		*xs = (*xs).Append(uint32(0))
+	}
+}
+
+func addEscapePoint(es mut EscapeSet, file string, line uint32, col uint32, isReads bool) {
+	let id = dense.Next(&es.Count)
+	let fid = dense.InternText(&es.Strings, file)
+	dense.Push(&es.File, fid)
+	dense.Push(&es.Line, line)
+	dense.Push(&es.Col, col)
+	dense.Push(&es.IsReads, isReads)
+	let fi = dense.Index(fid)
+	growEscapeHead(&es.FileHead, fi)
+	es.NextRow = es.NextRow.Append(es.FileHead[fi])
+	es.FileHead[fi] = uint32(dense.Index(id)) + uint32(1)
+}
+
+func isGoIdent(s string) bool {
+	if s == "" {
+		return false
+	}
+	for i in 0..s.Len() {
+		let c = s[i]
+		let ok = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_' || (i > 0 && c >= '0' && c <= '9')
+		if !ok {
+			return false
+		}
+	}
+	true
+}
+
+func allDigits(s string) bool {
+	if s == "" {
+		return false
+	}
+	for i in 0..s.Len() {
+		if s[i] < '0' || s[i] > '9' {
+			return false
+		}
+	}
+	true
+}
+
+// ParseEscape parses `go build -gcflags='-m -d=escapemutationscalls=1'` output,
+// normalizing paths against dir.
+func ParseEscape(out string, dir string) EscapeSet {
+	let mut es = NewEscapeSet()
+	for lineText in strings.Split(out, "\n") {
+		let sep = strings.Index(lineText, ": ")
+		if sep < 0 {
+			continue
+		}
+		let prefix = lineText[0:sep]
+		let msg = lineText[sep+2 : lineText.Len()]
+		let cColon = strings.LastIndex(prefix, ":")
+		if cColon <= 0 {
+			continue
+		}
+		let colStr = prefix[cColon+1 : prefix.Len()]
+		if !allDigits(colStr) {
+			continue
+		}
+		let rest = prefix[0:cColon]
+		let lColon = strings.LastIndex(rest, ":")
+		if lColon <= 0 {
+			continue
+		}
+		let lineStr = rest[lColon+1 : rest.Len()]
+		if !allDigits(lineStr) {
+			continue
+		}
+		let fileRaw = rest[0:lColon]
+		if !strings.HasSuffix(fileRaw, ".go") {
+			continue
+		}
+		let ln = strconv.Atoi(lineStr) catch {
+		case _:
+			continue
+		}
+		let cl = strconv.Atoi(colStr) catch {
+		case _:
+			continue
+		}
+		if ln < 0 || cl < 0 {
+			continue
+		}
+		let joined = if strings.HasPrefix(fileRaw, "/") { fileRaw } else { filepath.Join([]string{dir, fileRaw}) }
+		let cleanFile = filepath.Clean(joined)
+		if strings.HasSuffix(msg, readsVerdict) {
+			let name = strings.TrimSuffix(msg, readsVerdict)
+			if isGoIdent(name) {
+				addEscapePoint(&es, cleanFile, uint32(ln), uint32(cl), true)
+				continue
+			}
+		}
+		addEscapePoint(&es, cleanFile, uint32(ln), uint32(cl), false)
+	}
+	es
+}
+
+// EscapeStatus queries whether (file, line, col) has a clean reads verdict and no conflicting line.
+func EscapeStatus(es EscapeSet, file string, line uint32, col uint32) bool {
+	let fid = match dense.FindText(es.Strings, file) {
+	case option.Some{Value: v}:
+		v
+	case option.None:
+		return false
+	}
+	let fi = dense.Index(fid)
+	if fi >= es.FileHead.Len() {
+		return false
+	}
+	let mut hasReads = false
+	let mut hasOther = false
+	let mut cur = es.FileHead[fi]
+	for cur > uint32(0) {
+		let idx = int(cur - uint32(1))
+		let id = dense.IDAt(es.Count, idx)
+		if dense.Of(es.Line, id) == line && dense.Of(es.Col, id) == col {
+			if dense.Of(es.IsReads, id) {
+				hasReads = true
+			} else {
+				hasOther = true
+			}
+		}
+		cur = es.NextRow[idx]
+	}
+	hasReads && !hasOther
+}
+
+// ParamSite describes one Go parameter declaration position for escape matching.
+type ParamSite {
+	Target string,
+	Param  string,
+	File   string,
+	Line   uint32,
+	Col    uint32,
+}
+
+// ParamFacts correlates Go parameter sites with parsed escape verdicts.
+func ParamFacts(es EscapeSet, sites []ParamSite) FactsTable {
+	let mut out = NewFactsTable()
+	let mut poisoned = Map[string, bool]{}
+	for s in sites {
+		let k = s.Target + "\t" + s.Param
+		if poisoned.Get(k) != option.None {
+			continue
+		}
+		let cleanFile = filepath.Clean(s.File)
+		if EscapeStatus(es, cleanFile, s.Line, s.Col) {
+			AddFact(&out, s.Target, s.Param)
+		} else {
+			poisoned = poisoned.Put(k, true)
+		}
+	}
+	let mut filtered = NewFactsTable()
+	let n = dense.Total(out.Count)
+	for i in 0..n {
+		let id = dense.IDAt(out.Count, i)
+		let t = dense.Text(out.Strings, dense.Of(out.Target, id))
+		let p = dense.Text(out.Strings, dense.Of(out.Key, id))
+		if poisoned.Get(t+"\t"+p) == option.None {
+			AddFact(&filtered, t, p)
+		}
+	}
+	filtered
+}
+
+// ApplyReadsAndTotal attaches derived Reads, Total, and vouched fallback Reads
+// onto decls for pkgPath.
+func ApplyReadsAndTotal(decls mut []Decl, pkgPath string, facts FactsTable, ft gofacts.FactTable) {
+	for i in 0..(*decls).Len() {
+		let mut d = (*decls)[i]
+		let target = DeclTarget(d, pkgPath)
+		d.Reads = []string{}
+		d.Vouched = []Vouch{}
+		d.Total = (d.Kind == BindFunc || d.Kind == BindMethod) && HasFact(facts, target, FactTotal)
+		let rows = gofacts.FindRows(ft, target)
+		for r in d.Readables {
+			if HasFact(facts, target, r.GoName) {
+				d.Reads = d.Reads.Append(r.ErgoName)
+				continue
+			}
+			for row in rows {
+				if row.Fact == "reads" && row.Param == r.GoName {
+					d.Vouched = d.Vouched.Append(Vouch{Param: r.ErgoName, Reason: row.Reason})
+				}
+			}
+		}
+		(*decls)[i] = d
+	}
+}
+
+// FactsMeetMonotonic: other escape lines override reads lines at the same source position.
+law FactsMeetMonotonic(ln uint8, col uint8) {
+	let l = uint32(ln) + uint32(1)
+	let c = uint32(col) + uint32(1)
+	let lStr = strconv.Itoa(int(l))
+	let cStr = strconv.Itoa(int(c))
+	let out1 = "foo.go:" + lStr + ":" + cStr + ": b does not escape, mutate, or call\n"
+	let out2 = out1 + "foo.go:" + lStr + ":" + cStr + ": b escapes to heap\n"
+	let e1 = ParseEscape(out1, "/src/p")
+	let e2 = ParseEscape(out2, "/src/p")
+	EscapeStatus(e1, "/src/p/foo.go", l, c) && !EscapeStatus(e2, "/src/p/foo.go", l, c)
+}
+
+// ParseEscapeAndParamFacts verifies escape parsing, multi-file poisoning, and ApplyReadsAndTotal.
+test ParseEscapeAndParamFacts {
+	let es = ParseEscape("a.go:10:6: s does not escape, mutate, or call\na.go:10:15: sep does not escape, mutate, or call\na.go:10:15: leaking param: sep\n", "/repo/p")
+	let sites = []ParamSite{
+		ParamSite{Target: "example.com/p.Find", Param: "s", File: "/repo/p/a.go", Line: uint32(10), Col: uint32(6)},
+		ParamSite{Target: "example.com/p.Find", Param: "sep", File: "/repo/p/a.go", Line: uint32(10), Col: uint32(15)},
+	}
+	let facts = ParamFacts(es, sites)
+	assert HasFact(facts, "example.com/p.Find", "s")
+	assert !HasFact(facts, "example.com/p.Find", "sep")
+
+	let ft = gofacts.DefaultFactTable()
+	let mut ds = []Decl{
+		Decl{
+			Kind:      BindFunc, Name: "Index", Go: "func Index(s, sep []byte) int",
+			Ergo:      "func Index(s []byte, sep []byte) int", Via: "", Variadic: false, Context: false, Writes: "",
+			Reads:     []string{}, Vouched: []Vouch{}, Effect: "", EffectFrom: "", Host: "", Total: false, Refused: "",
+			Members:   []Member{}, Refs: []string{}, Lines: []Line{}, RefPkgs: []string{},
+			Readables: []Readable{Readable{GoName: "b", ErgoName: "b"}, Readable{GoName: "s", ErgoName: "s"}},
+		},
+	}
+	let mut bytesFacts = NewFactsTable()
+	AddFact(&bytesFacts, "bytes.Index", "s")
+	AddFact(&bytesFacts, "bytes.Index", FactTotal)
+	ApplyReadsAndTotal(&ds, "bytes", bytesFacts, ft)
+	assert ds[0].Total
+	assert ds[0].Reads.Len() == 1 && ds[0].Reads[0] == "s"
+}
