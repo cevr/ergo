@@ -259,3 +259,95 @@ func BasicOrdinal(s mut Store, t dense.ID[TKey]) int {
 	let key = dense.Value(s.pool.keys, t)
 	if int(key.k) == tBasic { int(key.a) } else { -1 }
 }
+
+// TypeBudgetPerNode is the type steps allowed per syntax node beyond TypeBudgetFloor.
+let TypeBudgetPerNode = uint32(64)
+
+// TypeBudgetFloor is the type steps allowed to every package regardless of size.
+let TypeBudgetFloor = uint32(65536)
+
+// Limit returns the type step limit for a package of nodes syntax nodes.
+func Limit(nodes int) uint32 {
+	if nodes <= 0 {
+		return TypeBudgetFloor
+	}
+	uint32(nodes)*TypeBudgetPerNode + TypeBudgetFloor
+}
+
+// PoolSpent returns the type steps charged to s's pool.
+func PoolSpent(s Store) uint32 { s.pool.meter.Spent }
+
+// PoolOut reports whether s's pool passed its type budget.
+func PoolOut(s Store) bool { s.pool.meter.Out }
+
+// SetPoolLimit sets limit on s's pool meter.
+func SetPoolLimit(s mut Store, limit uint32) {
+	s.pool.meter.Limit = limit
+	if s.pool.meter.Spent > limit {
+		s.pool.meter.Out = true
+	}
+}
+
+// BodyMeter records one declaration's type steps in declaration order.
+type BodyMeter {
+	// Decl is the declaration's index in declaration order.
+	Decl uint32,
+	// Spent is the type steps charged while checking that declaration.
+	Spent uint32,
+	// Out reports whether that declaration passed the package limit on its own.
+	Out bool,
+}
+
+// BudgetVerdict is the thread-free result of folding per-body meters in declaration order.
+type BudgetVerdict {
+	// Refused reports whether the package passed its type budget.
+	Refused bool,
+	// Total is the steps charged up to completion or refusal.
+	Total uint32,
+	// RefusedDecl is the declaration index that first passed the limit.
+	RefusedDecl uint32,
+}
+
+// JoinBodyMeters checks base plus bodies in declaration order against limit.
+func JoinBodyMeters(base uint32, bodies []BodyMeter, limit uint32) BudgetVerdict {
+	let ordered = slices.SortFunc(slices.Clone(bodies), func(a BodyMeter, b BodyMeter) int {
+		if a.Decl < b.Decl { -1 } else if a.Decl > b.Decl { 1 } else { 0 }
+	})
+	let mut meter = NewMeter(limit)
+	if !Step(&meter, base) {
+		let decl = if ordered.Len() > 0 { ordered[0].Decl } else { uint32(0) }
+		return BudgetVerdict{Refused: true, Total: meter.Spent, RefusedDecl: decl}
+	}
+	for b in ordered {
+		if b.Out || !Step(&meter, b.Spent) {
+			return BudgetVerdict{Refused: true, Total: meter.Spent, RefusedDecl: b.Decl}
+		}
+	}
+	BudgetVerdict{Refused: false, Total: meter.Spent, RefusedDecl: uint32(0)}
+}
+
+law TypeWorkStaysUnderItsLimit(xs []int) {
+	let (s0, named) = setup("a", false)
+	let mut s = s0
+	let _ = build(&s, named, xs)
+	let spent = PoolSpent(s)
+	let lim = Limit(xs.Len() * 8)
+	spent <= lim/uint32(8) && Limit(100) > TypeBudgetFloor && Limit(200)-Limit(100) == uint32(100)*TypeBudgetPerNode
+}
+
+law TypeBudgetIsThreadFree(xs []int, lim int) {
+	let mut meters = []BodyMeter{}
+	let mut rev = []BodyMeter{}
+	for i, x in xs {
+		let v = uint32((if x < 0 { -x } else { x })%100 + 1)
+		meters = meters.Append(BodyMeter{Decl: uint32(i), Spent: v, Out: false})
+	}
+	let n = meters.Len()
+	for i in 0..n {
+		rev = rev.Append(meters[n-1-i])
+	}
+	let l = uint32(if lim < 0 { 0 } else { lim % 500 })
+	let a = JoinBodyMeters(uint32(10), meters, l)
+	let b = JoinBodyMeters(uint32(10), rev, l)
+	a.Refused == b.Refused && a.Total == b.Total && a.RefusedDecl == b.RefusedDecl
+}

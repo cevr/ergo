@@ -23,13 +23,9 @@ import (
 // log2(bytes(4n)/bytes(n))/2 passes 1.3, so 4n may cost at most about 6x n
 // (linear is 4x, quadratic 16x).
 //
-// Time is logged, and asserted only against a control (see
-// scaleShape.control): under load, shapes whose bytes grow linearly showed
-// time exponents up to 1.70 at these sizes, so a bare time bound loose
-// enough not to flake would catch nothing the bytes miss. No active shape
-// asserts time: the one shape with a control (long names) is skipped for
-// Capability hashing per context, so a time-only quadratic is caught only where a control exists, and
-// today no active shape has one.
+// Shapes that measure non-allocating linear bounds (such as capability name
+// hashing and comparison) also assert deterministic step or byte counters
+// through check.GrowthBounded; time is logged only, never asserted.
 //
 // Every shape comes from a review finding of run wf10 about memory or
 // quadratic cost; the finding is named at the shape. A valid shape must
@@ -57,11 +53,7 @@ func TestCheckerScalePart3(t *testing.T) { checkerScale.Part(t, 3) }
 // scaleKey is what a shape checks: its fields and its sources at every
 // size it is measured at.
 func scaleKey(s scaleShape) string {
-	k := s.name + "\x00" + s.finding + "\x00" + s.skip + fmt.Sprintf("\x00diagnostics=%d", s.diagnostics) + "\x00" + s.source(3)
-	if s.control != nil {
-		k += "\x00control\x00" + s.control(3)
-	}
-	return k
+	return s.name + "\x00" + s.finding + "\x00" + s.skip + fmt.Sprintf("\x00diagnostics=%d\x00capNameBytes=%v", s.diagnostics, s.countCapNameBytes) + "\x00" + s.source(3)
 }
 
 func runCheckerScale(t *testing.T, shapes iter.Seq[scaleShape]) {
@@ -79,11 +71,19 @@ func runCheckerScale(t *testing.T, shapes iter.Seq[scaleShape]) {
 			n := sizes[0]
 			var bytes [3]float64
 			var took [3]time.Duration
+			var namePer []float64
 			for i, size := range sizes {
 				src := shape.source(size)
+				nameBefore := check.CapNameBytes()
 				_, diags := check.CheckSource(src)
+				nameUsed := check.CapNameBytes() - nameBefore
 				if len(diags) != shape.diagnostics {
 					t.Fatalf("n=%d: want %d diagnostics, got %d:\n%s", size, shape.diagnostics, len(diags), listDiagnostics(diags))
+				}
+				if shape.countCapNameBytes {
+					nodes := check.SourceNodes(t, src)
+					namePer = append(namePer, float64(nameUsed)/float64(nodes))
+					t.Logf("n=%d: cap name bytes %d (%d nodes, %.2f/node)", size, nameUsed, nodes, float64(nameUsed)/float64(nodes))
 				}
 				b, d := measure(src)
 				bytes[i] = math.Max(float64(b-empty), 1)
@@ -98,21 +98,8 @@ func runCheckerScale(t *testing.T, shapes iter.Seq[scaleShape]) {
 				t.Errorf("4x the input allocates %.1fx the bytes (exponent %.2f > %.1f): the checker is superlinear on %s (%s)",
 					bytes[2]/bytes[0], exponent, maxScaleExponent, shape.name, shape.finding)
 			}
-			if shape.control == nil {
-				return
-			}
-			var ratio [2]float64
-			for i, size := range []int{n, sizes[2]} {
-				if _, diags := check.CheckSource(shape.control(size)); len(diags) != shape.diagnostics {
-					t.Fatalf("control n=%d: want %d diagnostics, got %d:\n%s", size, shape.diagnostics, len(diags), listDiagnostics(diags))
-				}
-				_, c := measure(shape.control(size))
-				ratio[i] = float64(took[2*i]) / float64(c)
-			}
-			t.Logf("time over the control's: %.2f at n, %.2f at 4n", ratio[0], ratio[1])
-			if growth := ratio[1] / ratio[0]; growth > maxControlGrowth {
-				t.Errorf("from n to 4n the time over the control's grows %.1fx (> %.1f): the checker is superlinear on %s (%s)",
-					growth, maxControlGrowth, shape.name, shape.finding)
+			if shape.countCapNameBytes {
+				check.GrowthBounded(t, "cap name bytes per node", sizes, namePer)
 			}
 		})
 	}
@@ -121,10 +108,6 @@ func runCheckerScale(t *testing.T, shapes iter.Seq[scaleShape]) {
 
 // maxScaleExponent is the largest fitted exponent a shape may show.
 const maxScaleExponent = 1.3
-
-// maxControlGrowth is how much a shape's time over its control's time may
-// grow from n to 4n: 1 when both are linear, 4 when the shape is quadratic.
-const maxControlGrowth = 2.0
 
 // measure is the least number of bytes check.CheckSource allocates for src
 // over three runs, and the least time a run takes; the first run also warms
@@ -170,16 +153,9 @@ type scaleShape struct {
 	maxN int
 	// diagnostics is the number of diagnostics at every size: 0 for a
 	// valid program.
-	diagnostics int
-	source      func(n int) string
-	// control, when set, writes a program of the same size and structure
-	// as source(n) without the cost under test. Some costs are time and
-	// allocate nothing (hashing a name, comparing strings), so bytes cannot
-	// see them, and time alone is too noisy at these sizes to fit an
-	// exponent. The shape then also fails when source's time over
-	// control's time grows by more than maxControlGrowth from n to 4n; the
-	// ratio of two runs of equal size cancels the box's load.
-	control func(n int) string
+	diagnostics       int
+	countCapNameBytes bool
+	source            func(n int) string
 	// skip, when set, says what makes a shape superlinear on main; the case
 	// is skipped until that is fixed, and the fix removes the skip.
 	skip string
@@ -187,27 +163,20 @@ type scaleShape struct {
 
 // longNames writes a capability whose name grows with n, named three times (its
 // declaration, P's clause and context B), and n contexts that each embed B: the source grows
-// linearly, and hashing the name once per context grows with n². The control
-// has the same size and structure, with a one-letter name and the same
-// bytes in three string literals instead.
-func longNames(n int, control bool) string {
+// linearly, and hashing or comparing the name per context would grow with n².
+func longNames(n int) string {
 	var g gen
 	long := strings.Repeat("x", 400*n)
-	name, pad := "C"+long, ""
-	if control {
-		name, pad = "C", long
-	}
+	name := "C" + long
 	g.line("type %s { Label() string }", name)
 	// P provides every capability, so it declares each one: the name
-	// is written a third time, and the control a third pad.
+	// is written a third time.
 	ys := make([]string, n)
 	for i := range n {
 		ys[i] = fmt.Sprintf(", Y%d", i)
 	}
 	g.line("type P {} implements %s%s", name, strings.Join(ys, ""))
-	g.line("func Label(_ P) string { return \"p%s\" }", pad)
-	g.line("func Pad() string { return \"p%s\" }", pad)
-	g.line("func Pad2() string { return \"p%s\" }", pad)
+	g.line("func Label(_ P) string { return \"p\" }")
 	g.line("let B = context { %s: P }", name)
 	for i := range n {
 		g.line("type Y%d { Label() string }", i)
@@ -650,26 +619,14 @@ var scaleShapes = []scaleShape{
 		},
 	},
 	{
-		name:    "long names",
-		finding: "checker-196 r21 m1: each context that reaches a capability hashes its whole name again, so the cost is the name length times the context count",
-		// Measured on main e36c9471: bytes exponent 1.02, time exponent
-		// 1.92 to 2.00; the time over the control's grows 3.2x to 3.9x
-		// from n to 4n. A linear stand-in (a 40-byte name) grew at most
-		// 1.45x in 15 runs of three concurrent copies. The margin is thin:
-		// in the round 2 review, unskipped, the shape failed 14 of 15 runs
-		// (one run grew only 1.93x, under maxControlGrowth), and the linear
-		// stand-in reached 1.60x. When capability hashing per context is fixed and the skip goes, check
-		// that margin again before the shape guards anything.
-		skip:    "a capability's priority (FNV over the whole name) and its key comparison run on every insert, once per context that reaches it, so check time is the name length times the context count (checker-196 r21 m1)",
-		source:  func(n int) string { return longNames(n, false) },
-		control: func(n int) string { return longNames(n, true) },
+		name:              "long names",
+		finding:           "checker-196 r21 m1: each context that reaches a capability hashes its whole name again, so the cost is the name length times the context count",
+		countCapNameBytes: true,
+		source:            longNames,
 	},
 	{
 		name:    "catch arms",
-		finding: "parse-v1 r14 M1: the duplicate-arm set and covered.with make a catch quadratic in its arm count",
-		// Measured on main e36c9471: exponent 1.35 at n = 250 and 1.69 at
-		// n = 1000 (20.7 MB, 63.0 MB, 214.0 MB).
-		skip: "catch arm coverage (the duplicate-arm set and covered.with) is quadratic in the arm count (parse-v1 r14 M1)",
+		finding: "parse-v1 r14 M1: Row.with and Row.minus made wide catches quadratic in arm count",
 		source: func(n int) string {
 			var g gen
 			var row []string
@@ -734,6 +691,28 @@ var scaleShapes = []scaleShape{
 			}
 			g.line("func many[%s](%s) {}", strings.Join(params, ", "), strings.Join(args, ", "))
 			g.line("func main() { many(%s) }", strings.Join(ones, ", "))
+			return g.String()
+		},
+	},
+	{
+		name:    "row build",
+		finding: "TYPETABLE-BOUND: sequential Row.with and Row.minus must grow near-linearly, never quadratically",
+		source: func(n int) string {
+			var g gen
+			var row []string
+			for i := range n {
+				g.line("type E%d {}", i)
+				row = append(row, fmt.Sprintf("E%d", i))
+			}
+			for i := range n {
+				g.line("func step%d() fails E%d { return E%d }", i, i, i)
+			}
+			g.line("func runAll() fails %s {", strings.Join(row, " | "))
+			for i := range n {
+				g.line("\ttry step%d()", i)
+			}
+			g.line("}")
+			g.line("func main() { runAll() catch { case _: } }")
 			return g.String()
 		},
 	},
