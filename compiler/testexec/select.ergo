@@ -1,0 +1,828 @@
+import option
+import slices
+import strings
+
+// PatternError reports an invalid regular expression supplied to --filter or --skip.
+type PatternError {
+	Flag    string,
+	Pattern string,
+	Reason  string,
+}
+
+let nfaSplit = uint8(1)
+let nfaMatch = uint8(2)
+let nfaLit = uint8(3)
+let nfaAny = uint8(4)
+let nfaClass = uint8(5)
+let nfaStart = uint8(6)
+let nfaEnd = uint8(7)
+
+// RegexProg holds a compiled linear-time Thompson NFA program in SoA columns.
+type RegexProg {
+	Kind       []uint8,
+	Char       []byte,
+	Out1       []uint32,
+	Out2       []uint32,
+	ClassStart []uint32,
+	ClassLen   []uint32,
+	ClassNeg   []bool,
+	RangeLo    []byte,
+	RangeHi    []byte,
+	StartState uint32,
+}
+
+type nfaFrag {
+	Start uint32,
+	Outs  []uint32,
+}
+
+type rxParser {
+	Src     string,
+	Pos     int,
+	Flag    string,
+	Kind    []uint8,
+	Char    []byte,
+	Out1    []uint32,
+	Out2    []uint32,
+	CStart  []uint32,
+	CLen    []uint32,
+	CNeg    []bool,
+	RangeLo []byte,
+	RangeHi []byte,
+}
+
+func newRxParser(flag string, pat string) rxParser {
+	rxParser{
+		Src:     pat,
+		Pos:     0,
+		Flag:    flag,
+		Kind:    []uint8{},
+		Char:    []byte{},
+		Out1:    []uint32{},
+		Out2:    []uint32{},
+		CStart:  []uint32{},
+		CLen:    []uint32{},
+		CNeg:    []bool{},
+		RangeLo: []byte{},
+		RangeHi: []byte{},
+	}
+}
+
+func addRxState(p mut rxParser, kind uint8, ch byte, out1 uint32, out2 uint32) uint32 {
+	let id = uint32((*p).Kind.Len())
+	(*p).Kind = (*p).Kind.Append(kind)
+	(*p).Char = (*p).Char.Append(ch)
+	(*p).Out1 = (*p).Out1.Append(out1)
+	(*p).Out2 = (*p).Out2.Append(out2)
+	(*p).CStart = (*p).CStart.Append(uint32(0))
+	(*p).CLen = (*p).CLen.Append(uint32(0))
+	(*p).CNeg = (*p).CNeg.Append(false)
+	id
+}
+
+func addOutRef(stateID uint32, slotTwo bool) uint32 {
+	let hi = if slotTwo { uint32(1) } else { uint32(0) }
+	(stateID << uint32(1)) | hi
+}
+
+func patchOuts(p mut rxParser, outs []uint32, target uint32) {
+	for ref in outs {
+		let sid = int(ref >> uint32(1))
+		if (ref & uint32(1)) != uint32(0) {
+			(*p).Out2[sid] = target
+		} else {
+			(*p).Out1[sid] = target
+		}
+	}
+}
+
+func appendOuts(a []uint32, b []uint32) []uint32 {
+	let mut res = []uint32{}
+	for x in a {
+		res = res.Append(x)
+	}
+	for y in b {
+		res = res.Append(y)
+	}
+	res
+}
+
+func isHexOrDigit(ch byte) bool {
+	ch >= '0' && ch <= '9'
+}
+
+func isWordByte(ch byte) bool {
+	(ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9') || ch == '_'
+}
+
+func isSpaceByte(ch byte) bool {
+	ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r' || ch == '\f' || ch == '\v'
+}
+
+func addEscapeClass(p mut rxParser, code byte) (bool, byte) {
+	if code == 'd' || code == 'D' {
+		(*p).RangeLo = (*p).RangeLo.Append('0')
+		(*p).RangeHi = (*p).RangeHi.Append('9')
+		return (true, code)
+	}
+	if code == 'w' || code == 'W' {
+		let mut lo = (*p).RangeLo
+		let mut hi = (*p).RangeHi
+		lo = lo.Append('A').Append('a').Append('0').Append('_')
+		hi = hi.Append('Z').Append('z').Append('9').Append('_')
+		(*p).RangeLo = lo
+		(*p).RangeHi = hi
+		return (true, code)
+	}
+	if code == 's' || code == 'S' {
+		let mut lo = (*p).RangeLo
+		let mut hi = (*p).RangeHi
+		lo = lo.Append(' ').Append('\t').Append('\n').Append('\r')
+		hi = hi.Append(' ').Append('\t').Append('\n').Append('\r')
+		(*p).RangeLo = lo
+		(*p).RangeHi = hi
+		return (true, code)
+	}
+	if code == 'n' {
+		return (false, '\n')
+	}
+	if code == 't' {
+		return (false, '\t')
+	}
+	if code == 'r' {
+		return (false, '\r')
+	}
+	(false, code)
+}
+
+func parseClassAtom(p mut rxParser) (bool, byte, int) fails PatternError {
+	let n = (*p).Src.Len()
+	if (*p).Pos >= n {
+		return PatternError{Flag: (*p).Flag, Pattern: (*p).Src, Reason: "unclosed character class ["}
+	}
+	let ch = (*p).Src[(*p).Pos]
+	if ch == '\\' {
+		(*p).Pos = (*p).Pos + 1
+		if (*p).Pos >= n {
+			return PatternError{Flag: (*p).Flag, Pattern: (*p).Src, Reason: "trailing backslash inside character class"}
+		}
+		let esc = (*p).Src[(*p).Pos]
+		(*p).Pos = (*p).Pos + 1
+		if esc == 'd' || esc == 'D' || esc == 'w' || esc == 'W' || esc == 's' || esc == 'S' {
+			return (true, esc, 0)
+		}
+		if esc == 'n' {
+			return (false, '\n', 0)
+		}
+		if esc == 't' {
+			return (false, '\t', 0)
+		}
+		if esc == 'r' {
+			return (false, '\r', 0)
+		}
+		return (false, esc, 0)
+	}
+	(*p).Pos = (*p).Pos + 1
+	(false, ch, 0)
+}
+
+func parseCharClass(p mut rxParser) uint32 fails PatternError {
+	let n = (*p).Src.Len()
+	(*p).Pos = (*p).Pos + 1
+	let mut neg = false
+	if (*p).Pos < n && (*p).Src[(*p).Pos] == '^' {
+		neg = true
+		(*p).Pos = (*p).Pos + 1
+	}
+	let rStart = uint32((*p).RangeLo.Len())
+	let mut first = true
+	for {
+		if (*p).Pos >= n {
+			return PatternError{Flag: (*p).Flag, Pattern: (*p).Src, Reason: "missing closing ] in character class"}
+		}
+		if (*p).Src[(*p).Pos] == ']' && !first {
+			(*p).Pos = (*p).Pos + 1
+			break
+		}
+		first = false
+		let (isMacro, loByte, _) = try parseClassAtom(p)
+		if isMacro {
+			if loByte == 'd' {
+				(*p).RangeLo = (*p).RangeLo.Append('0')
+				(*p).RangeHi = (*p).RangeHi.Append('9')
+			} else if loByte == 'w' {
+				(*p).RangeLo = (*p).RangeLo.Append('A').Append('a').Append('0').Append('_')
+				(*p).RangeHi = (*p).RangeHi.Append('Z').Append('z').Append('9').Append('_')
+			} else if loByte == 's' {
+				(*p).RangeLo = (*p).RangeLo.Append(' ').Append('\t').Append('\n').Append('\r')
+				(*p).RangeHi = (*p).RangeHi.Append(' ').Append('\t').Append('\n').Append('\r')
+			} else {
+				(*p).RangeLo = (*p).RangeLo.Append(byte(0))
+				(*p).RangeHi = (*p).RangeHi.Append(byte(255))
+			}
+			continue
+		}
+		if (*p).Pos+1 < n && (*p).Src[(*p).Pos] == '-' && (*p).Src[(*p).Pos+1] != ']' {
+			(*p).Pos = (*p).Pos + 1
+			let (isRightMacro, hiByte, _) = try parseClassAtom(p)
+			if isRightMacro || hiByte < loByte {
+				return PatternError{Flag: (*p).Flag, Pattern: (*p).Src, Reason: "invalid character class range"}
+			}
+			(*p).RangeLo = (*p).RangeLo.Append(loByte)
+			(*p).RangeHi = (*p).RangeHi.Append(hiByte)
+		} else {
+			(*p).RangeLo = (*p).RangeLo.Append(loByte)
+			(*p).RangeHi = (*p).RangeHi.Append(loByte)
+		}
+	}
+	let sid = addRxState(p, nfaClass, byte(0), NoObligation(), NoObligation())
+	let rLen = uint32((*p).RangeLo.Len()) - rStart
+	(*p).CStart[int(sid)] = rStart
+	(*p).CLen[int(sid)] = rLen
+	(*p).CNeg[int(sid)] = neg
+	sid
+}
+
+func parseAtom(p mut rxParser) option.Option[nfaFrag] fails PatternError {
+	let n = (*p).Src.Len()
+	if (*p).Pos >= n {
+		return option.None
+	}
+	let ch = (*p).Src[(*p).Pos]
+	if ch == '|' || ch == ')' {
+		return option.None
+	}
+	if ch == '*' || ch == '+' || ch == '?' {
+		return PatternError{Flag: (*p).Flag, Pattern: (*p).Src, Reason: "unexpected quantifier " + (*p).Src[(*p).Pos:(*p).Pos+1]}
+	}
+	if ch == '(' {
+		(*p).Pos = (*p).Pos + 1
+		let inner = try parseAlt(p)
+		if (*p).Pos >= (*p).Src.Len() || (*p).Src[(*p).Pos] != ')' {
+			return PatternError{Flag: (*p).Flag, Pattern: (*p).Src, Reason: "missing closing )"}
+		}
+		(*p).Pos = (*p).Pos + 1
+		return option.Some[nfaFrag]{Value: inner}
+	}
+	if ch == '[' {
+		let sid = try parseCharClass(p)
+		return option.Some[nfaFrag]{Value: nfaFrag{Start: sid, Outs: []uint32{addOutRef(sid, false)}}}
+	}
+	if ch == '^' {
+		(*p).Pos = (*p).Pos + 1
+		let sid = addRxState(p, nfaStart, byte(0), NoObligation(), NoObligation())
+		return option.Some[nfaFrag]{Value: nfaFrag{Start: sid, Outs: []uint32{addOutRef(sid, false)}}}
+	}
+	if ch == '$' {
+		(*p).Pos = (*p).Pos + 1
+		let sid = addRxState(p, nfaEnd, byte(0), NoObligation(), NoObligation())
+		return option.Some[nfaFrag]{Value: nfaFrag{Start: sid, Outs: []uint32{addOutRef(sid, false)}}}
+	}
+	if ch == '.' {
+		(*p).Pos = (*p).Pos + 1
+		let sid = addRxState(p, nfaAny, byte(0), NoObligation(), NoObligation())
+		return option.Some[nfaFrag]{Value: nfaFrag{Start: sid, Outs: []uint32{addOutRef(sid, false)}}}
+	}
+	if ch == '\\' {
+		(*p).Pos = (*p).Pos + 1
+		if (*p).Pos >= n {
+			return PatternError{Flag: (*p).Flag, Pattern: (*p).Src, Reason: "trailing backslash"}
+		}
+		let esc = (*p).Src[(*p).Pos]
+		(*p).Pos = (*p).Pos + 1
+		let rStart = uint32((*p).RangeLo.Len())
+		let (isCls, val) = addEscapeClass(p, esc)
+		if isCls {
+			let neg = val == 'D' || val == 'W' || val == 'S'
+			let sid = addRxState(p, nfaClass, byte(0), NoObligation(), NoObligation())
+			(*p).CStart[int(sid)] = rStart
+			(*p).CLen[int(sid)] = uint32((*p).RangeLo.Len()) - rStart
+			(*p).CNeg[int(sid)] = neg
+			return option.Some[nfaFrag]{Value: nfaFrag{Start: sid, Outs: []uint32{addOutRef(sid, false)}}}
+		}
+		let sid = addRxState(p, nfaLit, val, NoObligation(), NoObligation())
+		return option.Some[nfaFrag]{Value: nfaFrag{Start: sid, Outs: []uint32{addOutRef(sid, false)}}}
+	}
+	(*p).Pos = (*p).Pos + 1
+	let sid = addRxState(p, nfaLit, ch, NoObligation(), NoObligation())
+	option.Some[nfaFrag]{Value: nfaFrag{Start: sid, Outs: []uint32{addOutRef(sid, false)}}}
+}
+
+func parseQuant(p mut rxParser) option.Option[nfaFrag] fails PatternError {
+	let baseOpt = try parseAtom(p)
+	let mut frag = match baseOpt {
+	case option.Some[nfaFrag] as f:
+		f.Value
+	case option.None:
+		return option.None
+	}
+	if (*p).Pos < (*p).Src.Len() {
+		let q = (*p).Src[(*p).Pos]
+		if q == '*' {
+			(*p).Pos = (*p).Pos + 1
+			let sp = addRxState(p, nfaSplit, byte(0), frag.Start, NoObligation())
+			patchOuts(p, frag.Outs, sp)
+			frag = nfaFrag{Start: sp, Outs: []uint32{addOutRef(sp, true)}}
+		} else if q == '+' {
+			(*p).Pos = (*p).Pos + 1
+			let sp = addRxState(p, nfaSplit, byte(0), frag.Start, NoObligation())
+			patchOuts(p, frag.Outs, sp)
+			frag = nfaFrag{Start: frag.Start, Outs: []uint32{addOutRef(sp, true)}}
+		} else if q == '?' {
+			(*p).Pos = (*p).Pos + 1
+			let sp = addRxState(p, nfaSplit, byte(0), frag.Start, NoObligation())
+			frag = nfaFrag{Start: sp, Outs: appendOuts(frag.Outs, []uint32{addOutRef(sp, true)})}
+		} else {
+			return option.Some[nfaFrag]{Value: frag}
+		}
+		if (*p).Pos < (*p).Src.Len() && (*p).Src[(*p).Pos] == '?' {
+			(*p).Pos = (*p).Pos + 1
+		}
+	}
+	option.Some[nfaFrag]{Value: frag}
+}
+
+func emptyFrag(p mut rxParser) nfaFrag {
+	let sp = addRxState(p, nfaSplit, byte(0), NoObligation(), NoObligation())
+	nfaFrag{Start: sp, Outs: []uint32{addOutRef(sp, false)}}
+}
+
+func parseConcat(p mut rxParser) nfaFrag fails PatternError {
+	let first = try parseQuant(p)
+	let mut acc = match first {
+	case option.Some[nfaFrag] as f:
+		f.Value
+	case option.None:
+		return emptyFrag(p)
+	}
+	for {
+		let nxt = try parseQuant(p)
+		match nxt {
+		case option.Some[nfaFrag] as f:
+			patchOuts(p, acc.Outs, f.Value.Start)
+			acc = nfaFrag{Start: acc.Start, Outs: f.Value.Outs}
+		case option.None:
+			break
+		}
+	}
+	acc
+}
+
+func parseAlt(p mut rxParser) nfaFrag fails PatternError {
+	let mut left = try parseConcat(p)
+	for (*p).Pos < (*p).Src.Len() && (*p).Src[(*p).Pos] == '|' {
+		(*p).Pos = (*p).Pos + 1
+		let right = try parseConcat(p)
+		let sp = addRxState(p, nfaSplit, byte(0), left.Start, right.Start)
+		left = nfaFrag{Start: sp, Outs: appendOuts(left.Outs, right.Outs)}
+	}
+	left
+}
+
+// CompileRegex compiles pattern into a linear-time Thompson NFA program or fails with PatternError.
+func CompileRegex(flag string, pattern string) RegexProg fails PatternError {
+	let mut p = newRxParser(flag, pattern)
+	let frag = try parseAlt(&p)
+	if p.Pos < p.Src.Len() {
+		return PatternError{Flag: flag, Pattern: pattern, Reason: "unexpected character " + pattern[p.Pos:p.Pos+1]}
+	}
+	let mState = addRxState(&p, nfaMatch, byte(0), NoObligation(), NoObligation())
+	patchOuts(&p, frag.Outs, mState)
+	RegexProg{
+		Kind:       p.Kind,
+		Char:       p.Char,
+		Out1:       p.Out1,
+		Out2:       p.Out2,
+		ClassStart: p.CStart,
+		ClassLen:   p.CLen,
+		ClassNeg:   p.CNeg,
+		RangeLo:    p.RangeLo,
+		RangeHi:    p.RangeHi,
+		StartState: frag.Start,
+	}
+}
+
+func addEpsilonState(prog RegexProg, sid uint32, pos int, textLen int, stepGen uint32, seen mut []uint32, list mut []uint32) bool {
+	if sid == NoObligation() {
+		return false
+	}
+	let mut stack = []uint32{sid}
+	let mut matched = false
+	for stack.Len() > 0 {
+		let cur = stack[stack.Len()-1]
+		stack = stack[0 : stack.Len()-1]
+		if cur == NoObligation() {
+			continue
+		}
+		if (*seen)[int(cur)] == stepGen {
+			continue
+		}
+		(*seen)[int(cur)] = stepGen
+		let k = prog.Kind[int(cur)]
+		if k == nfaMatch {
+			matched = true
+		} else if k == nfaSplit {
+			if prog.Out2[int(cur)] != NoObligation() {
+				stack = stack.Append(prog.Out2[int(cur)])
+			}
+			if prog.Out1[int(cur)] != NoObligation() {
+				stack = stack.Append(prog.Out1[int(cur)])
+			}
+		} else if k == nfaStart {
+			if pos == 0 {
+				stack = stack.Append(prog.Out1[int(cur)])
+			}
+		} else if k == nfaEnd {
+			if pos == textLen {
+				stack = stack.Append(prog.Out1[int(cur)])
+			}
+		} else {
+			(*list) = (*list).Append(cur)
+		}
+	}
+	matched
+}
+
+func matchClassByte(prog RegexProg, sid uint32, ch byte) bool {
+	let start = int(prog.ClassStart[int(sid)])
+	let n = int(prog.ClassLen[int(sid)])
+	let mut hit = false
+	for i in 0..n {
+		if ch >= prog.RangeLo[start+i] && ch <= prog.RangeHi[start+i] {
+			hit = true
+			break
+		}
+	}
+	if prog.ClassNeg[int(sid)] {
+		return !hit
+	}
+	hit
+}
+
+// MatchRegex reports whether compiled prog matches any substring of text.
+func MatchRegex(prog RegexProg, text string) bool {
+	let numStates = prog.Kind.Len()
+	if numStates == 0 {
+		return false
+	}
+	let textLen = text.Len()
+	let mut seen = slices.Repeat([]uint32{uint32(0)}, numStates)
+	let mut stepGen = uint32(1)
+	for startPos in 0..textLen+1 {
+		let mut curr = []uint32{}
+		if addEpsilonState(prog, prog.StartState, startPos, textLen, stepGen, &seen, &curr) {
+			return true
+		}
+		stepGen = stepGen + uint32(1)
+		let mut i = startPos
+		for i < textLen && curr.Len() > 0 {
+			let ch = text[i]
+			let mut nextStates = []uint32{}
+			let mut hitMatch = false
+			for sid in curr {
+				let k = prog.Kind[int(sid)]
+				let ok = if k == nfaLit {
+					prog.Char[int(sid)] == ch
+				} else if k == nfaAny {
+					ch != '\n'
+				} else if k == nfaClass {
+					matchClassByte(prog, sid, ch)
+				} else {
+					false
+				}
+				if ok {
+					if addEpsilonState(prog, prog.Out1[int(sid)], i+1, textLen, stepGen, &seen, &nextStates) {
+						hitMatch = true
+					}
+				}
+			}
+			if hitMatch {
+				return true
+			}
+			stepGen = stepGen + uint32(1)
+			curr = nextStates
+			i = i + 1
+		}
+	}
+	false
+}
+
+// SelectionSpec describes test/law selection filters parsed from CLI flags.
+type SelectionSpec {
+	Filter  string,
+	Skip    string,
+	Law     string,
+	SkipLaw string,
+	Run     string,
+}
+
+// SelectionResult contains selected/skipped dense obligation IDs and resolved runner arguments.
+type SelectionResult {
+	KeepIDs             []uint32,
+	SkippedIDs          []uint32,
+	TotalCandidates     int,
+	Empty               bool,
+	FilterUnmatched     bool,
+	HasError            bool,
+	ErrorCode           int,
+	ErrorMessage        string,
+	ResolvedRun         string,
+	ResolvedSkipLaw     string,
+	ResolvedSelectNames string,
+}
+
+func matchesObligation(hasRx bool, prog RegexProg, exact string, title string, full string) bool {
+	if !hasRx {
+		return false
+	}
+	title == exact || MatchRegex(prog, title) || MatchRegex(prog, full)
+}
+
+// SelectObligations filters package pkgID in store according to spec or fails PatternError on invalid regex.
+func SelectObligations(st ObligationStore, pkgID uint32, spec SelectionSpec) SelectionResult fails PatternError {
+	let hasFilter = spec.Filter != ""
+	let hasSkip = spec.Skip != ""
+	let filterProg = if hasFilter {
+		try CompileRegex("--filter", spec.Filter)
+	} else {
+		try CompileRegex("", "")
+	}
+	let skipProg = if hasSkip {
+		try CompileRegex("--skip", spec.Skip)
+	} else {
+		try CompileRegex("", "")
+	}
+
+	let ids = PackageObligationIDs(st, pkgID)
+	let mut candidates = []uint32{}
+	for id in ids {
+		if IsReachAt(st, id) && IsUnrunAt(st, id) {
+			continue
+		}
+		candidates = candidates.Append(id)
+	}
+
+	if spec.Run != "" {
+		let mut foundRun = []uint32{}
+		let mut allNames = []string{}
+		for id in candidates {
+			let t = TitleAt(st, id)
+			allNames = allNames.Append(t)
+			if t == spec.Run || NameAt(st, id) == spec.Run {
+				foundRun = foundRun.Append(id)
+			}
+		}
+		if foundRun.Len() == 0 {
+			return SelectionResult{
+				KeepIDs:             []uint32{},
+				SkippedIDs:          []uint32{},
+				TotalCandidates:     candidates.Len(),
+				Empty:               true,
+				FilterUnmatched:     false,
+				HasError:            true,
+				ErrorCode:           2,
+				ErrorMessage:        "usage: --run NAME: no test or law is named \"" + spec.Run + "\"; the names: " + strings.Join(allNames, ", "),
+				ResolvedRun:         "",
+				ResolvedSkipLaw:     "",
+				ResolvedSelectNames: "",
+			}
+		}
+		return SelectionResult{
+			KeepIDs:             foundRun,
+			SkippedIDs:          []uint32{},
+			TotalCandidates:     candidates.Len(),
+			Empty:               false,
+			FilterUnmatched:     false,
+			HasError:            false,
+			ErrorCode:           0,
+			ErrorMessage:        "",
+			ResolvedRun:         spec.Run,
+			ResolvedSkipLaw:     spec.SkipLaw,
+			ResolvedSelectNames: "",
+		}
+	}
+
+	if spec.Law != "" {
+		let mut foundLaw = []uint32{}
+		for id in candidates {
+			if !IsLawAt(st, id) {
+				continue
+			}
+			let t = TitleAt(st, id)
+			let lbl = LabelAt(st, id)
+			if t == spec.Law || lbl == spec.Law {
+				foundLaw = foundLaw.Append(id)
+			}
+		}
+		if foundLaw.Len() == 0 {
+			return SelectionResult{
+				KeepIDs:             []uint32{},
+				SkippedIDs:          []uint32{},
+				TotalCandidates:     candidates.Len(),
+				Empty:               true,
+				FilterUnmatched:     false,
+				HasError:            true,
+				ErrorCode:           1,
+				ErrorMessage:        "FAIL no law " + spec.Law + " in this package (--law)",
+				ResolvedRun:         "",
+				ResolvedSkipLaw:     "",
+				ResolvedSelectNames: "",
+			}
+		}
+		return SelectionResult{
+			KeepIDs:             foundLaw,
+			SkippedIDs:          []uint32{},
+			TotalCandidates:     candidates.Len(),
+			Empty:               false,
+			FilterUnmatched:     false,
+			HasError:            false,
+			ErrorCode:           0,
+			ErrorMessage:        "",
+			ResolvedRun:         "",
+			ResolvedSkipLaw:     spec.SkipLaw,
+			ResolvedSelectNames: "",
+		}
+	}
+
+	let mut kept = []uint32{}
+	let mut skipped = []uint32{}
+	for id in candidates {
+		let title = TitleAt(st, id)
+		let full = FullAt(st, id)
+		if spec.SkipLaw != "" && IsLawAt(st, id) && title == spec.SkipLaw {
+			skipped = skipped.Append(id)
+			continue
+		}
+		let inMatch = !hasFilter || matchesObligation(true, filterProg, spec.Filter, title, full)
+		let outMatch = hasSkip && matchesObligation(true, skipProg, spec.Skip, title, full)
+		if inMatch && !outMatch {
+			kept = kept.Append(id)
+		} else if inMatch && outMatch {
+			skipped = skipped.Append(id)
+		}
+	}
+
+	if kept.Len() == 0 {
+		return SelectionResult{
+			KeepIDs:             []uint32{},
+			SkippedIDs:          skipped,
+			TotalCandidates:     candidates.Len(),
+			Empty:               true,
+			FilterUnmatched:     hasFilter,
+			HasError:            false,
+			ErrorCode:           0,
+			ErrorMessage:        "",
+			ResolvedRun:         "",
+			ResolvedSkipLaw:     spec.SkipLaw,
+			ResolvedSelectNames: "",
+		}
+	}
+
+	let mut resRun = ""
+	let mut resSkipLaw = spec.SkipLaw
+	let mut resNames = ""
+	if hasFilter && kept.Len() == 1 {
+		resRun = TitleAt(st, kept[0])
+	} else if !hasFilter && hasSkip && skipped.Len() == 1 && IsLawAt(st, skipped[0]) && spec.SkipLaw == "" {
+		resSkipLaw = TitleAt(st, skipped[0])
+	} else if kept.Len() < candidates.Len() {
+		let mut names = []string{}
+		for id in kept {
+			names = names.Append(TitleAt(st, id))
+		}
+		resNames = strings.Join(names, ",")
+	}
+
+	SelectionResult{
+		KeepIDs:             kept,
+		SkippedIDs:          skipped,
+		TotalCandidates:     candidates.Len(),
+		Empty:               false,
+		FilterUnmatched:     false,
+		HasError:            false,
+		ErrorCode:           0,
+		ErrorMessage:        "",
+		ResolvedRun:         resRun,
+		ResolvedSkipLaw:     resSkipLaw,
+		ResolvedSelectNames: resNames,
+	}
+}
+
+func checkSliceStrictSorted(ids []uint32) bool {
+	let mut i = 1
+	for i < ids.Len() {
+		if ids[i] <= ids[i-1] {
+			return false
+		}
+		i = i + 1
+	}
+	true
+}
+
+// FilterAndSkipDeterministic: repeated selection yields identical KeepIDs, SkippedIDs, and strictly increasing obligation indices.
+law FilterAndSkipDeterministic(filterPat string, skipPat string) {
+	let src = "test Alpha {\n\tassert true\n}\ntest BetaSlow {\n\tassert true\n}\nlaw ParsePreserves(x int) { x == x }\nlaw SlowParse(x int) { x == x }\n"
+	let st = DiscoverObligations([]SourcePackage{SourcePackage{Label: "app/p", Path: "app/p", Dir: "/p", Files: []SourceFile{SourceFile{Path: "p.ergo", Content: src}}}}) catch {
+	case ParseFailure:
+		return false
+	}
+	let spec = SelectionSpec{Filter: filterPat, Skip: skipPat, Law: "", SkipLaw: "", Run: ""}
+	let r1 = SelectObligations(st, uint32(0), spec) catch {
+	case PatternError:
+		return true
+	}
+	let r2 = SelectObligations(st, uint32(0), spec) catch {
+	case PatternError:
+		return false
+	}
+	slices.Equal(r1.KeepIDs, r2.KeepIDs) && slices.Equal(r1.SkippedIDs, r2.SkippedIDs) && checkSliceStrictSorted(r1.KeepIDs) && checkSliceStrictSorted(r1.SkippedIDs)
+}
+
+// FilterSubsetPreservesOrder: kept and skipped obligations form a disjoint order-preserving partition of filtered matches.
+law FilterSubsetPreservesOrder(useFilter bool, useSkip bool) {
+	let src = "test Alpha {\n\tassert true\n}\ntest BetaSlow {\n\tassert true\n}\nlaw ParseLaw(x int) { x == x }\n"
+	let st = DiscoverObligations([]SourcePackage{SourcePackage{Label: "app/p", Path: "app/p", Dir: "/p", Files: []SourceFile{SourceFile{Path: "p.ergo", Content: src}}}}) catch {
+	case ParseFailure:
+		return false
+	}
+	let spec = SelectionSpec{
+		Filter:  if useFilter { "^(test Alpha|Parse)" } else { "" },
+		Skip:    if useSkip { "Slow|Law" } else { "" },
+		Law:     "",
+		SkipLaw: "",
+		Run:     "",
+	}
+	let sel = SelectObligations(st, uint32(0), spec) catch {
+	case PatternError:
+		return false
+	}
+	if !checkSliceStrictSorted(sel.KeepIDs) || !checkSliceStrictSorted(sel.SkippedIDs) {
+		return false
+	}
+	for k in sel.KeepIDs {
+		for sk in sel.SkippedIDs {
+			if k == sk {
+				return false
+			}
+		}
+	}
+	if !useFilter && !useSkip {
+		return sel.KeepIDs.Len() == sel.TotalCandidates && sel.SkippedIDs.Len() == 0
+	}
+	true
+}
+
+// InvalidRegexReturnsError: malformed patterns reject cleanly with PatternError instead of matching or panicking.
+law InvalidRegexReturnsError(idx uint32) {
+	let bad = []string{"[abc", "(unclosed", "*leading", "a++", "foo\\"}
+	let pat = bad[int(idx%uint32(bad.Len()))]
+	let src = "test A {\n\tassert true\n}\n"
+	let st = DiscoverObligations([]SourcePackage{SourcePackage{Label: "app/p", Path: "app/p", Dir: "/p", Files: []SourceFile{SourceFile{Path: "p.ergo", Content: src}}}}) catch {
+	case ParseFailure:
+		return false
+	}
+	let _ = SelectObligations(st, uint32(0), SelectionSpec{Filter: pat, Skip: "", Law: "", SkipLaw: "", Run: ""}) catch {
+	case PatternError as pe:
+		return pe.Flag == "--filter" && pe.Pattern == pat
+	}
+	false
+}
+
+test SelectMatchesExactRegexSkipRunAndLaw {
+	let src = "test ParseAlpha {\n\tassert true\n}\ntest ParseSlow {\n\tassert true\n}\nlaw InverseLaw(x int) { x + 0 == x }\n"
+	let st = DiscoverObligations([]SourcePackage{SourcePackage{Label: "app/sel", Path: "app/sel", Dir: "/sel", Files: []SourceFile{SourceFile{Path: "sel.ergo", Content: src}}}}) catch {
+	case ParseFailure:
+		assert false
+		return
+	}
+	let r1 = SelectObligations(st, uint32(0), SelectionSpec{Filter: "^Parse", Skip: "Slow", Law: "", SkipLaw: "", Run: ""}) catch {
+	case PatternError:
+		assert false
+		return
+	}
+	assert !r1.Empty
+	assert r1.KeepIDs.Len() == 1
+	assert r1.ResolvedRun == "ParseAlpha"
+	assert r1.SkippedIDs.Len() == 1
+
+	let rMiss = SelectObligations(st, uint32(0), SelectionSpec{Filter: "DoesNotExist", Skip: "", Law: "", SkipLaw: "", Run: ""}) catch {
+	case PatternError:
+		assert false
+		return
+	}
+	assert rMiss.Empty && rMiss.FilterUnmatched
+
+	let rBadLaw = SelectObligations(st, uint32(0), SelectionSpec{Filter: "", Skip: "", Law: "MissingLaw", SkipLaw: "", Run: ""}) catch {
+	case PatternError:
+		assert false
+		return
+	}
+	assert rBadLaw.HasError && rBadLaw.ErrorCode == 1 && rBadLaw.ErrorMessage == "FAIL no law MissingLaw in this package (--law)"
+
+	let rBadRun = SelectObligations(st, uint32(0), SelectionSpec{Filter: "", Skip: "", Law: "", SkipLaw: "", Run: "MissingTest"}) catch {
+	case PatternError:
+		assert false
+		return
+	}
+	assert rBadRun.HasError && rBadRun.ErrorCode == 2
+}

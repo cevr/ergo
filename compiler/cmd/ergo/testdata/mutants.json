@@ -70,6 +70,56 @@
       "to": "\tcase driver.CycleError as ce:\n\t\temitCheckFailure(opts.Json, driver.FormatCycle(ce), \"E_CYCLE\", \"\")\n\t\treturn 0\n",
       "rule": "ergo check rejects import cycles with exit code 1.",
       "killers": ["compiler/cmd/ergo:CheckCmdChecksValidAndInvalidAndCycle"]
+    },
+    {
+      "name": "selfhost-test-runner-cmd-test-accepts-retired-native",
+      "origin": "wf10 SELFHOST-TEST-RUNNER",
+      "file": "compiler/cmd/ergo/test_cmd.ergo",
+      "decl": "ParseTestOptions",
+      "from": "\t\t\treturn FlagError{Code: 2, Message: \"ergo test: unknown option \" + arg}\n",
+      "to": "\t\t\topts.Paths = opts.Paths.Append(arg)\n\t\t\ti = i + 1\n\t\t\tcontinue\n",
+      "rule": "ergo test rejects unknown and retired backend flags with exit code 2.",
+      "killers": ["compiler/cmd/ergo:law:RetiredLeakageFlagsRejected", "compiler/cmd/ergo:law:TestOptionsRejectInvalidFlags"]
+    },
+    {
+      "name": "selfhost-test-runner-cmd-test-unmatched-filter-passes",
+      "origin": "wf10 SELFHOST-TEST-RUNNER",
+      "file": "compiler/cmd/ergo/test_cmd.ergo",
+      "decl": "RunTestExec",
+      "from": "\t\treturn 1\n\t}\n\n\tlet mut needBinary = false\n",
+      "to": "\t\treturn 0\n\t}\n\n\tlet mut needBinary = false\n",
+      "rule": "When --filter matches zero tests/laws across selected targets, ergo test fails with exit code 1.",
+      "killers": ["compiler/cmd/ergo:TestCmdRunsEmptyEmittedScriptedAndSharded"]
+    },
+    {
+      "name": "selfhost-test-runner-cmd-build-accepts-retired-native",
+      "origin": "wf10 SELFHOST-TEST-RUNNER",
+      "file": "compiler/cmd/ergo/build_cmd.ergo",
+      "decl": "ParseBuildOptions",
+      "from": "\t\t\treturn FlagError{Code: 2, Message: \"ergo build: unknown option \" + arg}\n",
+      "to": "\t\t\topts.Path = arg\n\t\t\ti = i + 1\n\t\t\tcontinue\n",
+      "rule": "ergo build rejects unknown and retired backend flags with exit code 2.",
+      "killers": ["compiler/cmd/ergo:law:RetiredLeakageFlagsRejected", "compiler/cmd/ergo:law:BuildOptionsAndLibValidation"]
+    },
+    {
+      "name": "selfhost-test-runner-cmd-run-drops-forwarded-args",
+      "origin": "wf10 SELFHOST-TEST-RUNNER",
+      "file": "compiler/cmd/ergo/build_cmd.ergo",
+      "decl": "ParseRunOptions",
+      "from": "\t\t\tif args[restStart] == \"--\" {\n\t\t\t\topts.Args = args[restStart+1 : args.Len()]\n\t\t\t} else {\n\t\t\t\topts.Args = args[restStart:args.Len()]\n\t\t\t}\n",
+      "to": "\t\t\topts.Args = []string{}\n",
+      "rule": "ergo run forwards all trailing child flags after PATH or -- untouched.",
+      "killers": ["compiler/cmd/ergo:law:RunOptionsForwardArgsCleanly", "compiler/cmd/ergo:BuildLibAndRunCmd"]
+    },
+    {
+      "name": "selfhost-test-runner-cmd-run-masks-child-exit",
+      "origin": "wf10 SELFHOST-TEST-RUNNER",
+      "file": "compiler/cmd/ergo/build_cmd.ergo",
+      "decl": "RunRunExec",
+      "from": "\tchildRes.Status\n",
+      "to": "\t0\n",
+      "rule": "ergo run propagates the executed child program's exit status.",
+      "killers": ["compiler/cmd/ergo:BuildLibAndRunCmd"]
     }
   ]
 }

@@ -1,0 +1,764 @@
+import compiler/driver
+import compiler/testexec
+import exec
+import filepath
+import fs
+import fstest
+import io
+import option
+import slices
+import strconv
+import strings
+
+// BuildOptions stores parsed flags and optional single source target for ergo build.
+type BuildOptions {
+	Path     string,
+	Output   string,
+	Lib      bool,
+	Locked   bool,
+	Debug    bool,
+	Release  bool,
+	Platform string,
+	Fresh    bool,
+	Emitted  bool,
+	Work     bool,
+	Json     bool,
+	Help     bool,
+	HelpAll  bool,
+}
+
+// RunOptions stores parsed flags, target path, and forwarded child arguments for ergo run.
+type RunOptions {
+	Path    string,
+	Args    []string,
+	Locked  bool,
+	Debug   bool,
+	Fresh   bool,
+	Json    bool,
+	Help    bool,
+	HelpAll bool,
+}
+
+// ParseBuildOptions parses flags and optional single target after `ergo build`, rejecting retired backend flags.
+func ParseBuildOptions(args []string) BuildOptions fails FlagError {
+	let mut opts = BuildOptions{
+		Path:     "",
+		Output:   "",
+		Lib:      false,
+		Locked:   false,
+		Debug:    false,
+		Release:  false,
+		Platform: "",
+		Fresh:    false,
+		Emitted:  false,
+		Work:     false,
+		Json:     false,
+		Help:     false,
+		HelpAll:  false,
+	}
+	let mut endFlags = false
+	let mut i = 0
+	for i < args.Len() {
+		let arg = args[i]
+		if !endFlags && arg == "--" {
+			endFlags = true
+			i = i + 1
+			continue
+		}
+		if !endFlags && strings.HasPrefix(arg, "-") && arg != "-" {
+			if arg == "--help" || arg == "-h" {
+				opts.Help = true
+				i = i + 1
+				continue
+			}
+			if arg == "--help-all" {
+				opts.HelpAll = true
+				i = i + 1
+				continue
+			}
+			if arg == "--lib" {
+				opts.Lib = true
+				i = i + 1
+				continue
+			}
+			if arg == "--locked" {
+				opts.Locked = true
+				i = i + 1
+				continue
+			}
+			if arg == "--debug" {
+				opts.Debug = true
+				i = i + 1
+				continue
+			}
+			if arg == "--release" {
+				opts.Release = true
+				i = i + 1
+				continue
+			}
+			if arg == "--fresh" {
+				opts.Fresh = true
+				i = i + 1
+				continue
+			}
+			if arg == "--emitted" {
+				opts.Emitted = true
+				i = i + 1
+				continue
+			}
+			if arg == "-work" || arg == "--work" {
+				opts.Work = true
+				i = i + 1
+				continue
+			}
+			if arg == "--json" {
+				opts.Json = true
+				i = i + 1
+				continue
+			}
+			let valOpt = try consumeFlagValue(args, &i, arg, []string{"-o", "--output", "--platform"})
+			match valOpt {
+			case option.Some[FlagVal] as fv:
+				let name = fv.Value.Name
+				let val = fv.Value.Value
+				if name == "-o" || name == "--output" {
+					opts.Output = val
+				} else if name == "--platform" {
+					opts.Platform = val
+				}
+				continue
+			case option.None:
+			}
+			return FlagError{Code: 2, Message: "ergo build: unknown option " + arg}
+		}
+		if opts.Path != "" {
+			return FlagError{Code: 2, Message: "ergo build takes at most one target"}
+		}
+		opts.Path = arg
+		i = i + 1
+	}
+	opts
+}
+
+// ParseRunOptions parses options for `ergo run`, forwarding every trailing token after PATH or -- to the program.
+func ParseRunOptions(args []string) RunOptions fails FlagError {
+	let mut opts = RunOptions{
+		Path:    "",
+		Args:    []string{},
+		Locked:  false,
+		Debug:   false,
+		Fresh:   false,
+		Json:    false,
+		Help:    false,
+		HelpAll: false,
+	}
+	let mut i = 0
+	for i < args.Len() {
+		let arg = args[i]
+		if arg == "--" {
+			opts.Args = args[i+1 : args.Len()]
+			return opts
+		}
+		if strings.HasPrefix(arg, "-") && arg != "-" {
+			if arg == "--help" || arg == "-h" {
+				opts.Help = true
+				i = i + 1
+				continue
+			}
+			if arg == "--help-all" {
+				opts.HelpAll = true
+				i = i + 1
+				continue
+			}
+			if arg == "--locked" {
+				opts.Locked = true
+				i = i + 1
+				continue
+			}
+			if arg == "--debug" {
+				opts.Debug = true
+				i = i + 1
+				continue
+			}
+			if arg == "--fresh" {
+				opts.Fresh = true
+				i = i + 1
+				continue
+			}
+			if arg == "--json" {
+				opts.Json = true
+				i = i + 1
+				continue
+			}
+			return FlagError{Code: 2, Message: "ergo run: unknown option " + arg}
+		}
+		opts.Path = arg
+		let restStart = i + 1
+		if restStart < args.Len() {
+			if args[restStart] == "--" {
+				opts.Args = args[restStart+1 : args.Len()]
+			} else {
+				opts.Args = args[restStart:args.Len()]
+			}
+		}
+		return opts
+	}
+	opts
+}
+
+func emitBuildError(cmd string, asJSON bool, code int, msg string) needs io.Stdout | io.Stderr {
+	if asJSON {
+		io.Stdout.Println("{\"ok\":false,\"command\":" + jsonQuote(cmd) + ",\"exit_code\":" + strconv.Itoa(code) + ",\"error\":" + jsonQuote(msg) + "}")
+		return
+	}
+	io.Stderr.Eprintln("ergo " + cmd + ": " + msg)
+}
+
+func writeEmittedFiles(rootDir string, files []testexec.EmittedFile) fails fs.NotFound | fs.Denied | fs.Failed needs fs.Writes {
+	for ef in files {
+		let fullPath = filepath.Join([]string{rootDir, ef.Path})
+		let parentDir = filepath.Dir(fullPath)
+		fs.Writes.MkdirAll(parentDir) catch {
+		case fs.Denied as dn:
+			return dn
+		case fs.Failed as ff:
+			return ff
+		}
+		try fs.Writes.WriteFile(fullPath, ef.Content)
+	}
+}
+
+func runBuildCore(opts BuildOptions, workDir string, environ []string, cmdName string) int needs exec.Runner | fs.Files | fs.Writes | io.Stdout | io.Stderr {
+	let target = if opts.Path != "" { opts.Path } else { "." }
+	let mode = if opts.Lib { driver.ModeLib } else { driver.ModeBuild }
+
+	let store = driver.Discover(workDir, []string{target}) catch {
+	case driver.DiscoverError as de:
+		emitBuildError(cmdName, opts.Json, 2, de.Path+": "+de.Reason)
+		return 2
+	case driver.ParseError as pe:
+		emitBuildError(cmdName, opts.Json, 1, driver.FormatParseError(pe))
+		return 1
+	case fs.NotFound as nf:
+		emitBuildError(cmdName, opts.Json, 2, nf.Path+": not found")
+		return 2
+	case fs.Denied as dn:
+		emitBuildError(cmdName, opts.Json, 2, dn.Path+": permission denied")
+		return 2
+	case fs.Failed as ff:
+		emitBuildError(cmdName, opts.Json, 2, ff.Path+": "+ff.Reason)
+		return 2
+	}
+
+	let pkgPath = if driver.PackageCount(store) > uint32(0) {
+		driver.PackagePath(store, uint32(0))
+	} else {
+		target
+	}
+
+	let plan = testexec.PlanBuildExecution(testexec.BuildPlanRequest{
+		Mode:        mode,
+		Source:      target,
+		PkgPath:     pkgPath,
+		Files:       []driver.FileDigest{},
+		ExplicitOut: opts.Output,
+		Platform:    opts.Platform,
+		Locked:      opts.Locked,
+		Debug:       opts.Debug,
+		Release:     opts.Release,
+		Environ:     environ,
+	}) catch {
+	case testexec.PlanError as pe:
+		let code = if pe.Code == "E_LIB_NAME" { 1 } else { 2 }
+		emitBuildError(cmdName, opts.Json, code, pe.Message)
+		return code
+	}
+
+	if !opts.Lib {
+		testexec.CheckOutputNotDirectory(plan.OutputPath) catch {
+		case testexec.PlanError as pe:
+			emitBuildError(cmdName, opts.Json, 2, pe.Message)
+			return 2
+		}
+	}
+
+	let checkRep = executeCheck(CheckOptions{
+		Paths:     []string{target},
+		Strict:    false,
+		Json:      opts.Json,
+		Fresh:     opts.Fresh,
+		Jobs:      1,
+		Seed:      1,
+		StdDir:    "",
+		EvalSteps: 0,
+		EvalBytes: 0,
+		Help:      false,
+		HelpAll:   false,
+	}, workDir, environ) catch {
+	case driver.DiscoverError as de:
+		emitBuildError(cmdName, opts.Json, 2, de.Path+": "+de.Reason)
+		return 2
+	case driver.ParseError as pe:
+		emitBuildError(cmdName, opts.Json, 1, driver.FormatParseError(pe))
+		return 1
+	case driver.CycleError as ce:
+		emitBuildError(cmdName, opts.Json, 1, driver.FormatCycle(ce))
+		return 1
+	case fs.NotFound as nf:
+		emitBuildError(cmdName, opts.Json, 2, nf.Path+": not found")
+		return 2
+	case fs.Denied as dn:
+		emitBuildError(cmdName, opts.Json, 2, dn.Path+": permission denied")
+		return 2
+	case fs.Failed as ff:
+		emitBuildError(cmdName, opts.Json, 2, ff.Path+": "+ff.Reason)
+		return 2
+	}
+
+	if !checkRep.Checked {
+		if opts.Json {
+			emitCheckReport(checkRep, true)
+		} else {
+			for d in checkRep.Diagnostics {
+				io.Stderr.Eprintln(d.File + ":" + strconv.Itoa(d.Line) + ":" + strconv.Itoa(d.Column) + ": " + d.Code + ": " + d.Message)
+			}
+		}
+		return 1
+	}
+
+	if opts.Emitted {
+		if opts.Json {
+			io.Stdout.Println("{\"emitted\":" + jsonQuote(plan.EmittedDigest) + ",\"platform\":" + jsonQuote(plan.Platform) + "}")
+		} else {
+			io.Stdout.Println("emitted " + plan.EmittedDigest + " " + plan.Platform)
+		}
+		return 0
+	}
+
+	if opts.Lib {
+		let outDir = if filepath.IsAbs(plan.OutputPath) {
+			plan.OutputPath
+		} else {
+			filepath.Join([]string{workDir, plan.OutputPath})
+		}
+		writeEmittedFiles(outDir, plan.Files) catch {
+		case fs.NotFound as nf:
+			emitBuildError(cmdName, opts.Json, 1, nf.Path+": write failed")
+			return 1
+		case fs.Denied as dn:
+			emitBuildError(cmdName, opts.Json, 1, dn.Path+": permission denied")
+			return 1
+		case fs.Failed as ff:
+			emitBuildError(cmdName, opts.Json, 1, ff.Path+": "+ff.Reason)
+			return 1
+		}
+		if opts.Json {
+			io.Stdout.Println("{\"ok\":true,\"mode\":\"lib\",\"output\":" + jsonQuote(plan.OutputPath) + ",\"package\":" + jsonQuote(plan.TargetName) + ",\"action_key\":" + jsonQuote(plan.ActionKey) + "}")
+		} else {
+			io.Stdout.Println(plan.OutputPath)
+		}
+		return 0
+	}
+
+	let buildWork = filepath.Join([]string{workDir, ".ergo-build", plan.TargetName})
+	writeEmittedFiles(buildWork, plan.Files) catch {
+	case fs.NotFound as nf:
+		emitBuildError(cmdName, opts.Json, 2, nf.Path+": cannot create build workspace")
+		return 2
+	case fs.Denied as dn:
+		emitBuildError(cmdName, opts.Json, 2, dn.Path+": cannot create build workspace")
+		return 2
+	case fs.Failed as ff:
+		emitBuildError(cmdName, opts.Json, 2, ff.Path+": "+ff.Reason)
+		return 2
+	}
+
+	let absOut = if filepath.IsAbs(plan.OutputPath) {
+		plan.OutputPath
+	} else {
+		filepath.Join([]string{workDir, plan.OutputPath})
+	}
+	let absOutDir = filepath.Dir(absOut)
+	fs.Writes.MkdirAll(absOutDir) catch {
+	case fs.Denied as dn:
+		emitBuildError(cmdName, opts.Json, 1, dn.Path+": permission denied")
+		return 1
+	case fs.Failed as ff:
+		emitBuildError(cmdName, opts.Json, 1, ff.Path+": "+ff.Reason)
+		return 1
+	}
+
+	let absPlan = testexec.BuildExecPlan{
+		..plan,
+		OutputPath:     absOut,
+		GoBuildCmdArgs: testexec.GoBuildArgs(absOut, opts.Debug, opts.Release),
+	}
+	let envMap = envListToMap(testexec.BoundedChildEnv(environ, uint64(0)))
+	let res = testexec.ExecuteBuildWithRunner(absPlan, buildWork, envMap) catch {
+	case exec.NotFound:
+		emitBuildError(cmdName, opts.Json, 2, "go toolchain not found on PATH")
+		return 2
+	case exec.Denied as dn:
+		emitBuildError(cmdName, opts.Json, 2, dn.Name+": execution denied")
+		return 2
+	case exec.Failed as ff:
+		emitBuildError(cmdName, opts.Json, 2, ff.Name+": "+ff.Reason)
+		return 2
+	}
+	if res.Status != 0 {
+		emitBuildError(cmdName, opts.Json, 1, strings.TrimSpace(res.Stderr))
+		return 1
+	}
+
+	if opts.Work {
+		io.Stderr.Eprintln("WORK=" + buildWork)
+	}
+	if opts.Json {
+		io.Stdout.Println("{\"ok\":true,\"mode\":\"build\",\"output\":" + jsonQuote(plan.OutputPath) + ",\"platform\":" + jsonQuote(plan.Platform) + ",\"action_key\":" + jsonQuote(plan.ActionKey) + "}")
+	} else {
+		io.Stdout.Println(plan.OutputPath)
+	}
+	0
+}
+
+// RunBuildExec executes `ergo build` using the supplied exec.Runner, filesystem, and stdio capabilities.
+func RunBuildExec(args []string, workDir string, environ []string) int needs exec.Runner | fs.Files | fs.Writes | io.Stdout | io.Stderr {
+	let opts = ParseBuildOptions(args) catch {
+	case FlagError as fe:
+		emitBuildError("build", hasJSONFlag(args), fe.Code, fe.Message)
+		return fe.Code
+	}
+	if opts.Help {
+		io.Stdout.Print(BuildHelp())
+		return 0
+	}
+	if opts.HelpAll {
+		io.Stdout.Print(BuildAllHelp())
+		return 0
+	}
+	runBuildCore(opts, workDir, environ, "build")
+}
+
+// RunBuild executes `ergo build` using file system and stdio capabilities.
+func RunBuild(args []string, workDir string, environ []string) int needs fs.Files | fs.Writes | io.Stdout | io.Stderr {
+	with context { exec.Runner: exec.Script{Results: Map[string, exec.Result]{}} } {
+		RunBuildExec(args, workDir, environ)
+	}
+}
+
+// RunLibExec executes `ergo lib` compatibility alias as `ergo build --lib`.
+func RunLibExec(args []string, workDir string, environ []string) int needs exec.Runner | fs.Files | fs.Writes | io.Stdout | io.Stderr {
+	let mut opts = ParseBuildOptions(args) catch {
+	case FlagError as fe:
+		emitBuildError("lib", hasJSONFlag(args), fe.Code, fe.Message)
+		return fe.Code
+	}
+	if opts.Help {
+		io.Stdout.Print(BuildHelp())
+		return 0
+	}
+	if opts.HelpAll {
+		io.Stdout.Print(BuildAllHelp())
+		return 0
+	}
+	opts.Lib = true
+	runBuildCore(opts, workDir, environ, "lib")
+}
+
+// RunLib executes `ergo lib` using file system and stdio capabilities.
+func RunLib(args []string, workDir string, environ []string) int needs fs.Files | fs.Writes | io.Stdout | io.Stderr {
+	with context { exec.Runner: exec.Script{Results: Map[string, exec.Result]{}} } {
+		RunLibExec(args, workDir, environ)
+	}
+}
+
+// RunRunExec executes `ergo run`, checking, planning/building, and invoking the target program with forwarded args.
+func RunRunExec(args []string, workDir string, environ []string) int needs exec.Runner | fs.Files | fs.Writes | io.Stdout | io.Stderr {
+	let opts = ParseRunOptions(args) catch {
+	case FlagError as fe:
+		emitBuildError("run", hasJSONFlag(args), fe.Code, fe.Message)
+		return fe.Code
+	}
+	if opts.Help {
+		io.Stdout.Print(RunHelp())
+		return 0
+	}
+	if opts.HelpAll {
+		io.Stdout.Print(RunAllHelp())
+		return 0
+	}
+
+	let target = if opts.Path != "" { opts.Path } else { "." }
+	let store = driver.Discover(workDir, []string{target}) catch {
+	case driver.DiscoverError as de:
+		emitBuildError("run", opts.Json, 2, de.Path+": "+de.Reason)
+		return 2
+	case driver.ParseError as pe:
+		emitBuildError("run", opts.Json, 1, driver.FormatParseError(pe))
+		return 1
+	case fs.NotFound as nf:
+		emitBuildError("run", opts.Json, 2, nf.Path+": not found")
+		return 2
+	case fs.Denied as dn:
+		emitBuildError("run", opts.Json, 2, dn.Path+": permission denied")
+		return 2
+	case fs.Failed as ff:
+		emitBuildError("run", opts.Json, 2, ff.Path+": "+ff.Reason)
+		return 2
+	}
+
+	let pkgPath = if driver.PackageCount(store) > uint32(0) {
+		driver.PackagePath(store, uint32(0))
+	} else {
+		target
+	}
+
+	let runBin = filepath.Join([]string{workDir, ".ergo-run", testexec.DefaultTargetName(target) + ".bin"})
+	let plan = testexec.PlanBuildExecution(testexec.BuildPlanRequest{
+		Mode:        driver.ModeRun,
+		Source:      target,
+		PkgPath:     pkgPath,
+		Files:       []driver.FileDigest{},
+		ExplicitOut: runBin,
+		Platform:    "",
+		Locked:      opts.Locked,
+		Debug:       opts.Debug,
+		Release:     false,
+		Environ:     environ,
+	}) catch {
+	case testexec.PlanError as pe:
+		emitBuildError("run", opts.Json, 2, pe.Message)
+		return 2
+	}
+
+	let checkRep = executeCheck(CheckOptions{
+		Paths:     []string{target},
+		Strict:    false,
+		Json:      opts.Json,
+		Fresh:     opts.Fresh,
+		Jobs:      1,
+		Seed:      1,
+		StdDir:    "",
+		EvalSteps: 0,
+		EvalBytes: 0,
+		Help:      false,
+		HelpAll:   false,
+	}, workDir, environ) catch {
+	case driver.DiscoverError as de:
+		emitBuildError("run", opts.Json, 2, de.Path+": "+de.Reason)
+		return 2
+	case driver.ParseError as pe:
+		emitBuildError("run", opts.Json, 1, driver.FormatParseError(pe))
+		return 1
+	case driver.CycleError as ce:
+		emitBuildError("run", opts.Json, 1, driver.FormatCycle(ce))
+		return 1
+	case fs.NotFound as nf:
+		emitBuildError("run", opts.Json, 2, nf.Path+": not found")
+		return 2
+	case fs.Denied as dn:
+		emitBuildError("run", opts.Json, 2, dn.Path+": permission denied")
+		return 2
+	case fs.Failed as ff:
+		emitBuildError("run", opts.Json, 2, ff.Path+": "+ff.Reason)
+		return 2
+	}
+
+	if !checkRep.Checked {
+		if opts.Json {
+			emitCheckReport(checkRep, true)
+		} else {
+			for d in checkRep.Diagnostics {
+				io.Stderr.Eprintln(d.File + ":" + strconv.Itoa(d.Line) + ":" + strconv.Itoa(d.Column) + ": " + d.Code + ": " + d.Message)
+			}
+		}
+		return 1
+	}
+
+	let buildWork = filepath.Join([]string{workDir, ".ergo-run", "mod"})
+	writeEmittedFiles(buildWork, plan.Files) catch {
+	case fs.NotFound as nf:
+		emitBuildError("run", opts.Json, 2, nf.Path+": write error")
+		return 2
+	case fs.Denied as dn:
+		emitBuildError("run", opts.Json, 2, dn.Path+": permission denied")
+		return 2
+	case fs.Failed as ff:
+		emitBuildError("run", opts.Json, 2, ff.Path+": "+ff.Reason)
+		return 2
+	}
+
+	let envMap = envListToMap(testexec.BoundedChildEnv(environ, uint64(0)))
+	let buildRes = testexec.ExecuteBuildWithRunner(plan, buildWork, envMap) catch {
+	case exec.NotFound:
+		emitBuildError("run", opts.Json, 2, "go toolchain not found on PATH")
+		return 2
+	case exec.Denied as dn:
+		emitBuildError("run", opts.Json, 2, dn.Name+": execution denied")
+		return 2
+	case exec.Failed as ff:
+		emitBuildError("run", opts.Json, 2, ff.Name+": "+ff.Reason)
+		return 2
+	}
+	if buildRes.Status != 0 {
+		emitBuildError("run", opts.Json, 1, strings.TrimSpace(buildRes.Stderr))
+		return 1
+	}
+
+	let runCmd = exec.New(runBin, opts.Args).WithDir(workDir).WithEnvFrom(envMap)
+	let childRes = exec.Runner.Run(runCmd) catch {
+	case exec.NotFound as nf:
+		emitBuildError("run", opts.Json, 2, nf.Name+": built program not found")
+		return 2
+	case exec.Denied as dn:
+		emitBuildError("run", opts.Json, 2, dn.Name+": execution denied")
+		return 2
+	case exec.Failed as ff:
+		emitBuildError("run", opts.Json, 2, ff.Name+": "+ff.Reason)
+		return 2
+	}
+	if childRes.Stdout != "" {
+		io.Stdout.Print(childRes.Stdout)
+	}
+	if childRes.Stderr != "" {
+		io.Stderr.Eprint(childRes.Stderr)
+	}
+	childRes.Status
+}
+
+// RunRun executes `ergo run` using file system and stdio capabilities.
+func RunRun(args []string, workDir string, environ []string) int needs fs.Files | fs.Writes | io.Stdout | io.Stderr {
+	with context { exec.Runner: exec.Script{Results: Map[string, exec.Result]{}} } {
+		RunRunExec(args, workDir, environ)
+	}
+}
+
+// BuildOptionsAndLibValidation: ParseBuildOptions rejects retired backend flags and missing --lib -o DIR yields exit 2.
+law BuildOptionsAndLibValidation(idx uint32) {
+	let retired = []string{"--native", "--compiled", "--target=go", "-go-text", "--go-trace"}
+	let f = retired[int(idx%uint32(retired.Len()))]
+	let _ = ParseBuildOptions([]string{f}) catch {
+	case FlagError as fe:
+		if fe.Code != 2 {
+			return false
+		}
+		let mem = fstest.NewMemory()
+		mem.MkdirAll("/ws/app") catch {
+		case fs.Denied, fs.Failed:
+			return false
+		}
+		mem.WriteFile("/ws/app/main.ergo", "func Main() int {\n\t1\n}\n") catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+			return false
+		}
+		let rec = io.NewRecorder()
+		let code = with context {
+			fs.Files:  mem,
+			fs.Writes: mem,
+			io.Stdout: rec,
+			io.Stderr: rec,
+		} {
+			RunBuild([]string{"--lib", "./app"}, "/ws", []string{})
+		}
+		return code == 2
+	}
+	false
+}
+
+// RunOptionsForwardArgsCleanly: ParseRunOptions preserves trailing child flags untouched after target path or --.
+law RunOptionsForwardArgsCleanly(arg string) {
+	let opts1 = ParseRunOptions([]string{"--locked", "./cmd/app", "--", arg}) catch {
+	case FlagError:
+		return false
+	}
+	let opts2 = ParseRunOptions([]string{"--", arg}) catch {
+	case FlagError:
+		return false
+	}
+	opts1.Locked && opts1.Path == "./cmd/app" && slices.Equal(opts1.Args, []string{arg}) && opts2.Path == "" && slices.Equal(opts2.Args, []string{arg})
+}
+
+test BuildLibAndRunCmd {
+	let mem = fstest.NewMemory()
+	mem.MkdirAll("/ws/calc") catch {
+	case fs.Denied, fs.Failed:
+		assert false
+	}
+	mem.WriteFile("/ws/ergo.mod", "module sample\n") catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		assert false
+	}
+	mem.WriteFile("/ws/calc/calc.ergo", "func Add(a int, b int) int {\n\ta + b\n}\n") catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		assert false
+	}
+
+	let recLib = io.NewRecorder()
+	let codeLib = with context {
+		fs.Files:  mem,
+		fs.Writes: mem,
+		io.Stdout: recLib,
+		io.Stderr: recLib,
+	} {
+		RunBuild([]string{"./calc", "--lib", "-o", "/ws/outlib"}, "/ws", []string{})
+	}
+	assert codeLib == 0
+	assert strings.Contains(recLib.Text(), "/ws/outlib")
+	let libMod = mem.ReadFile("/ws/outlib/go.mod") catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		assert false
+		return
+	}
+	assert strings.Contains(libMod, "module calc")
+
+	let recEmit = io.NewRecorder()
+	let codeEmit = with context {
+		fs.Files:  mem,
+		fs.Writes: mem,
+		io.Stdout: recEmit,
+		io.Stderr: recEmit,
+	} {
+		RunBuild([]string{"./calc", "--emitted", "--platform", "linux/arm64"}, "/ws", []string{})
+	}
+	assert codeEmit == 0
+	assert strings.Contains(recEmit.Text(), "emitted ")
+	assert strings.Contains(recEmit.Text(), "linux/arm64")
+
+	let outExe = "/ws/dist/calc"
+	let buildWork = "/ws/.ergo-build/calc"
+	let buildCmd = exec.New("go", testexec.GoBuildArgs(outExe, false, true)).WithDir(buildWork).WithEnv("GOOS", "linux").WithEnv("GOARCH", "amd64")
+	let runExe = "/ws/.ergo-run/calc.bin"
+	let runBuildCmd = exec.New("go", testexec.GoBuildArgs(runExe, false, false)).WithDir("/ws/.ergo-run/mod").WithEnv("GOOS", "linux").WithEnv("GOARCH", "amd64")
+	let childRunCmd = exec.New(runExe, []string{"--port", "8080"}).WithDir("/ws")
+	let mut resMap = Map[string, exec.Result]{}
+	resMap = resMap.Put(exec.Key(buildCmd), exec.Result{Status: 0, Stdout: "", Stderr: ""})
+	resMap = resMap.Put(exec.Key(runBuildCmd), exec.Result{Status: 0, Stdout: "", Stderr: ""})
+	resMap = resMap.Put(exec.Key(childRunCmd), exec.Result{Status: 7, Stdout: "served\n", Stderr: ""})
+	let sc = exec.Script{Results: resMap}
+
+	let recBuild = io.NewRecorder()
+	let codeBuild = with context {
+		exec.Runner: sc,
+		fs.Files:    mem,
+		fs.Writes:   mem,
+		io.Stdout:   recBuild,
+		io.Stderr:   recBuild,
+	} {
+		RunBuildExec([]string{"./calc", "--release"}, "/ws", []string{})
+	}
+	assert codeBuild == 0
+	assert strings.Contains(recBuild.Text(), "dist/calc")
+
+	let recRun = io.NewRecorder()
+	let codeRun = with context {
+		exec.Runner: sc,
+		fs.Files:    mem,
+		fs.Writes:   mem,
+		io.Stdout:   recRun,
+		io.Stderr:   recRun,
+	} {
+		RunRunExec([]string{"./calc", "--", "--port", "8080"}, "/ws", []string{})
+	}
+	assert codeRun == 7
+	assert recRun.Text() == "served\n"
+}

@@ -1,0 +1,615 @@
+import codec
+import compiler/driver
+import fs
+import json
+import math
+import option
+import slices
+import strconv
+import strings
+
+// ShardSpec describes an optional --shard i/n slice of test targets.
+type ShardSpec {
+	Enabled bool,
+	Index   int,
+	Total   int,
+}
+
+// ShardError reports an invalid --shard i/n flag argument.
+type ShardError {
+	Message string,
+}
+
+// TimingsError reports a malformed or invalid --timings history JSON document.
+type TimingsError {
+	Message string,
+}
+
+// TimingEntry associates one package timing key with its measured duration in seconds.
+type TimingEntry {
+	Key     string,
+	Seconds float64,
+}
+
+// TestTimings stores parsed v1 package test timing history for LPT shard balancing.
+type TestTimings {
+	Version int,
+	Entries []TimingEntry,
+	Index   Map[string, uint32],
+}
+
+// TargetTable holds test targets in pointer-free DoD SoA columns indexed by uint32 target ID.
+type TargetTable {
+	Count      uint32,
+	Labels     []string,
+	Dirs       []string,
+	ModRoots   []string,
+	TimingKeys []string,
+	PkgIndices []uint32,
+	IsFile     []bool,
+	Waves      []uint32,
+}
+
+// ShardScratch holds reusable caller-owned working arrays for PlanShards.
+type ShardScratch {
+	Sorted  []uint32,
+	Weights []float64,
+	Loads   []float64,
+	Counts  []uint32,
+	Quota   []uint32,
+}
+
+// ShardPlan holds the CSR assignment of dense target IDs across shards plus shard loads.
+type ShardPlan {
+	Total       int,
+	ShardStart  []uint32,
+	ShardLen    []uint32,
+	TargetIDs   []uint32,
+	TargetShard []uint32,
+	ShardLoads  []float64,
+}
+
+// NewTargetTable allocates an empty DoD TargetTable.
+func NewTargetTable() TargetTable {
+	TargetTable{
+		Count:      uint32(0),
+		Labels:     []string{},
+		Dirs:       []string{},
+		ModRoots:   []string{},
+		TimingKeys: []string{},
+		PkgIndices: []uint32{},
+		IsFile:     []bool{},
+		Waves:      []uint32{},
+	}
+}
+
+// AppendTarget adds one target row to tbl and returns its dense uint32 ID.
+func AppendTarget(tbl mut TargetTable, label string, dir string, modRoot string, timingKey string, pkgIdx uint32, isFile bool, wave uint32) uint32 {
+	let id = (*tbl).Count
+	(*tbl).Count = id + uint32(1)
+	(*tbl).Labels = (*tbl).Labels.Append(label)
+	(*tbl).Dirs = (*tbl).Dirs.Append(dir)
+	(*tbl).ModRoots = (*tbl).ModRoots.Append(modRoot)
+	(*tbl).TimingKeys = (*tbl).TimingKeys.Append(timingKey)
+	(*tbl).PkgIndices = (*tbl).PkgIndices.Append(pkgIdx)
+	(*tbl).IsFile = (*tbl).IsFile.Append(isFile)
+	(*tbl).Waves = (*tbl).Waves.Append(wave)
+	id
+}
+
+// NewShardScratch allocates reusable scratch buffers for sharding.
+func NewShardScratch() ShardScratch {
+	ShardScratch{
+		Sorted:  []uint32{},
+		Weights: []float64{},
+		Loads:   []float64{},
+		Counts:  []uint32{},
+		Quota:   []uint32{},
+	}
+}
+
+func isStrictPositiveDecimal(s string) bool {
+	if s == "" {
+		return false
+	}
+	if s[0] == '+' || s[0] == '-' {
+		return false
+	}
+	true
+}
+
+// ParseShardSpec parses a 1-indexed i/n shard specification or fails ShardError.
+func ParseShardSpec(spec string) ShardSpec fails ShardError {
+	let halves = match strings.Cut(spec, "/") {
+	case option.Some[strings.Halves] as h:
+		h.Value
+	case option.None:
+		return ShardError{Message: "--shard takes i/n (1 <= i <= n), not " + strconv.Quote(spec)}
+	}
+	if strings.Contains(halves.After, "/") {
+		return ShardError{Message: "--shard takes i/n (1 <= i <= n), not " + strconv.Quote(spec)}
+	}
+	if !isStrictPositiveDecimal(halves.Before) || !isStrictPositiveDecimal(halves.After) {
+		return ShardError{Message: "--shard takes i/n with 1 <= i <= n, not " + strconv.Quote(spec)}
+	}
+	let iVal = strconv.Atoi(halves.Before) catch {
+	case strconv.Malformed, strconv.OutOfRange:
+		return ShardError{Message: "--shard takes i/n with 1 <= i <= n, not " + strconv.Quote(spec)}
+	}
+	let nVal = strconv.Atoi(halves.After) catch {
+	case strconv.Malformed, strconv.OutOfRange:
+		return ShardError{Message: "--shard takes i/n with 1 <= i <= n, not " + strconv.Quote(spec)}
+	}
+	if iVal < 1 || nVal < 1 || iVal > nVal {
+		return ShardError{Message: "--shard takes i/n with 1 <= i <= n, not " + strconv.Quote(spec)}
+	}
+	ShardSpec{Enabled: true, Index: iVal, Total: nVal}
+}
+
+// EmptyTimings returns an empty v1 TestTimings record.
+func EmptyTimings() TestTimings {
+	TestTimings{Version: 1, Entries: []TimingEntry{}, Index: Map[string, uint32]{}}
+}
+
+// RoundSeconds rounds non-negative seconds to three decimal places (matching Go timings output).
+func RoundSeconds(s float64) float64 {
+	if s < 0.0 {
+		return 0.0
+	}
+	math.Round(s*1000.0) / 1000.0
+}
+
+// TimingsPut sets key to rounded seconds in timings, updating existing entries in place.
+func TimingsPut(timings mut TestTimings, key string, secs float64) {
+	let rounded = RoundSeconds(secs)
+	match (*timings).Index.Get(key) {
+	case option.Some[uint32] as hit:
+		(*timings).Entries[int(hit.Value)] = TimingEntry{Key: key, Seconds: rounded}
+		return
+	case option.None:
+	}
+	let id = uint32((*timings).Entries.Len())
+	(*timings).Entries = (*timings).Entries.Append(TimingEntry{Key: key, Seconds: rounded})
+	(*timings).Index = (*timings).Index.Put(key, id)
+}
+
+// TimingsLookup returns the recorded positive timing weight for key, if present.
+func TimingsLookup(timings TestTimings, key string) option.Option[float64] {
+	match timings.Index.Get(key) {
+	case option.Some[uint32] as hit:
+		option.Some[float64]{Value: timings.Entries[int(hit.Value)].Seconds}
+	case option.None:
+		option.None
+	}
+}
+
+func isValidDuration(v float64) bool {
+	!math.IsNaN(v) && !math.IsInf(v, 0) && v >= 0.0
+}
+
+// LoadTimingsJSON parses a v1 test-timings JSON payload or fails TimingsError.
+func LoadTimingsJSON(raw string) TestTimings fails TimingsError {
+	let r = json.Open(raw, 0, 0) catch {
+	case json.Malformed as m:
+		return TimingsError{Message: "malformed JSON at byte " + strconv.Itoa(m.Offset) + ": " + m.Reason}
+	}
+	r.BeginObject() catch {
+	case codec.WireWrongKind:
+		return TimingsError{Message: "expected top-level JSON object"}
+	}
+	let mut ver = 0
+	let mut out = EmptyTimings()
+	for r.More() {
+		let key = r.Key()
+		if key == "version" {
+			let v = r.Int() catch {
+			case codec.WireWrongKind:
+				return TimingsError{Message: "version must be an integer"}
+			}
+			ver = int(v)
+			if ver != 0 && ver != 1 {
+				return TimingsError{Message: "unsupported timings version " + strconv.Itoa(ver)}
+			}
+		} else if key == "packages" {
+			r.BeginObject() catch {
+			case codec.WireWrongKind:
+				return TimingsError{Message: "packages must be a JSON object"}
+			}
+			for r.More() {
+				let pkgKey = r.Key()
+				let sec = r.Float() catch {
+				case codec.WireWrongKind:
+					return TimingsError{Message: "duration for " + strconv.Quote(pkgKey) + " must be a number"}
+				}
+				if !isValidDuration(sec) {
+					return TimingsError{Message: "invalid negative or non-finite duration for " + strconv.Quote(pkgKey)}
+				}
+				TimingsPut(&out, pkgKey, sec)
+			}
+			r.End()
+		} else {
+			return TimingsError{Message: "unknown timings field " + strconv.Quote(key)}
+		}
+	}
+	r.End()
+	out.Version = 1
+	out
+}
+
+// RenderTimingsJSON serializes timings deterministically as formatted v1 JSON.
+func RenderTimingsJSON(timings TestTimings) string {
+	let mut sorted = []TimingEntry{}
+	for e in timings.Entries {
+		sorted = sorted.Append(e)
+	}
+	sorted = slices.SortFunc(sorted, func(a TimingEntry, b TimingEntry) int {
+		if a.Key < b.Key {
+			return -1
+		}
+		if a.Key > b.Key {
+			return 1
+		}
+		0
+	})
+	let mut lines = []string{
+		"{",
+		"  \"version\": 1,",
+		"  \"packages\": {",
+	}
+	for i, e in sorted {
+		let comma = if i+1 < sorted.Len() { "," } else { "" }
+		let vText = strconv.FormatFloat(RoundSeconds(e.Seconds), 'g', -1)
+		let keyJSON = json.Encode(json.Codec[string]{MaxBytes: 0, MaxDepth: 0}, e.Key)
+		lines = lines.Append("    " + keyJSON + ": " + vText + comma)
+	}
+	lines = lines.Append("  }")
+	lines = lines.Append("}")
+	strings.Join(lines, "\n") + "\n"
+}
+
+func targetLocalityGroup(tbl TargetTable, tid uint32) string {
+	let i = int(tid)
+	if tbl.ModRoots[i] != "" {
+		return tbl.ModRoots[i] + "|" + tbl.Dirs[i]
+	}
+	tbl.Dirs[i]
+}
+
+func medianWeightForTargets(timings TestTimings, tbl TargetTable) float64 {
+	let mut vals = []float64{}
+	let n = int(tbl.Count)
+	for i in 0..n {
+		match TimingsLookup(timings, tbl.TimingKeys[i]) {
+		case option.Some[float64] as hit:
+			if hit.Value > 0.0 {
+				vals = vals.Append(hit.Value)
+			}
+		case option.None:
+		}
+	}
+	if vals.Len() == 0 {
+		return 1.0
+	}
+	let sorted = slices.Sort(vals)
+	let mid = sorted.Len() / 2
+	if sorted.Len()%2 == 1 {
+		return sorted[mid]
+	}
+	(sorted[mid-1] + sorted[mid]) / 2.0
+}
+
+func compareShardItems(tbl TargetTable, weights []float64, a uint32, b uint32) int {
+	let ia = int(a)
+	let ib = int(b)
+	let wa = weights[ia]
+	let wb = weights[ib]
+	if wb < wa {
+		return -1
+	}
+	if wb > wa {
+		return 1
+	}
+	let la = targetLocalityGroup(tbl, a)
+	let lb = targetLocalityGroup(tbl, b)
+	if la < lb {
+		return -1
+	}
+	if la > lb {
+		return 1
+	}
+	if tbl.TimingKeys[ia] < tbl.TimingKeys[ib] {
+		return -1
+	}
+	if tbl.TimingKeys[ia] > tbl.TimingKeys[ib] {
+		return 1
+	}
+	if tbl.Dirs[ia] < tbl.Dirs[ib] {
+		return -1
+	}
+	if tbl.Dirs[ia] > tbl.Dirs[ib] {
+		return 1
+	}
+	if tbl.Labels[ia] < tbl.Labels[ib] {
+		return -1
+	}
+	if tbl.Labels[ia] > tbl.Labels[ib] {
+		return 1
+	}
+	if a < b {
+		return -1
+	}
+	if a > b {
+		return 1
+	}
+	0
+}
+
+func sortUint32Asc(xs mut []uint32) {
+	*xs = slices.SortFunc(*xs, func(a uint32, b uint32) int {
+		if a < b {
+			return -1
+		}
+		if a > b {
+			return 1
+		}
+		0
+	})
+}
+
+// PlanShards partitions tbl across total shards via LPT with locality grouping and order preservation.
+func PlanShards(tbl TargetTable, total int, timings TestTimings, sc mut ShardScratch) ShardPlan {
+	let effectiveTotal = if total < 1 { 1 } else { total }
+	let n = int(tbl.Count)
+	if effectiveTotal == 1 {
+		let mut all = []uint32{}
+		let mut ts = []uint32{}
+		for i in 0..n {
+			all = all.Append(uint32(i))
+			ts = ts.Append(uint32(0))
+		}
+		let mut load0 = 0.0
+		let fallback = medianWeightForTargets(timings, tbl)
+		for i in 0..n {
+			let w = match TimingsLookup(timings, tbl.TimingKeys[i]) {
+			case option.Some[float64] as hit:
+				if hit.Value > 0.0 { hit.Value } else { fallback }
+			case option.None:
+				fallback
+			}
+			load0 = load0 + w
+		}
+		return ShardPlan{
+			Total:       1,
+			ShardStart:  []uint32{uint32(0)},
+			ShardLen:    []uint32{uint32(n)},
+			TargetIDs:   all,
+			TargetShard: ts,
+			ShardLoads:  []float64{load0},
+		}
+	}
+
+	let fallback = medianWeightForTargets(timings, tbl)
+	(*sc).Sorted = []uint32{}
+	(*sc).Weights = []float64{}
+	for i in 0..n {
+		let w = match TimingsLookup(timings, tbl.TimingKeys[i]) {
+		case option.Some[float64] as hit:
+			if hit.Value > 0.0 { hit.Value } else { fallback }
+		case option.None:
+			fallback
+		}
+		(*sc).Sorted = (*sc).Sorted.Append(uint32(i))
+		(*sc).Weights = (*sc).Weights.Append(w)
+	}
+	let weights = (*sc).Weights
+	(*sc).Sorted = slices.SortFunc((*sc).Sorted, func(a uint32, b uint32) int {
+		compareShardItems(tbl, weights, a, b)
+	})
+
+	(*sc).Loads = slices.Repeat([]float64{0.0}, effectiveTotal)
+	(*sc).Counts = slices.Repeat([]uint32{uint32(0)}, effectiveTotal)
+	let mut targetShard = slices.Repeat([]uint32{uint32(0)}, n)
+
+	let mut start = 0
+	for start < n {
+		let startW = weights[int((*sc).Sorted[start])]
+		let mut end = start + 1
+		for end < n && weights[int((*sc).Sorted[end])] == startW {
+			end = end + 1
+		}
+		(*sc).Quota = slices.Repeat([]uint32{uint32(0)}, effectiveTotal)
+		for pos in start..end {
+			let tid = (*sc).Sorted[pos]
+			let mut best = 0
+			for s in 1..effectiveTotal {
+				let ls = (*sc).Loads[s]
+				let lb = (*sc).Loads[best]
+				if ls < lb || (ls == lb && (*sc).Counts[s] < (*sc).Counts[best]) {
+					best = s
+				}
+			}
+			(*sc).Quota[best] = (*sc).Quota[best] + uint32(1)
+			(*sc).Loads[best] = (*sc).Loads[best] + weights[int(tid)]
+			(*sc).Counts[best] = (*sc).Counts[best] + uint32(1)
+		}
+		let mut cursor = start
+		for s in 0..effectiveTotal {
+			let q = int((*sc).Quota[s])
+			for _ in 0..q {
+				let tid = (*sc).Sorted[cursor]
+				targetShard[int(tid)] = uint32(s)
+				cursor = cursor + 1
+			}
+		}
+		start = end
+	}
+
+	let mut sStart = []uint32{}
+	let mut sLen = []uint32{}
+	let mut outIDs = []uint32{}
+	for s in 0..effectiveTotal {
+		sStart = sStart.Append(uint32(outIDs.Len()))
+		let mut bucket = []uint32{}
+		for i in 0..n {
+			if targetShard[i] == uint32(s) {
+				bucket = bucket.Append(uint32(i))
+			}
+		}
+		sortUint32Asc(&bucket)
+		for tid in bucket {
+			outIDs = outIDs.Append(tid)
+		}
+		sLen = sLen.Append(uint32(bucket.Len()))
+	}
+
+	ShardPlan{
+		Total:       effectiveTotal,
+		ShardStart:  sStart,
+		ShardLen:    sLen,
+		TargetIDs:   outIDs,
+		TargetShard: targetShard,
+		ShardLoads:  (*sc).Loads,
+	}
+}
+
+// ShardTargets returns the ordered dense target IDs assigned to 1-indexed shardIdx in plan.
+func ShardTargets(plan ShardPlan, shardIdx int) []uint32 {
+	if shardIdx < 1 || shardIdx > plan.Total {
+		return []uint32{}
+	}
+	let s = shardIdx - 1
+	let start = int(plan.ShardStart[s])
+	let n = int(plan.ShardLen[s])
+	let mut out = []uint32{}
+	for k in 0..n {
+		out = out.Append(plan.TargetIDs[start+k])
+	}
+	out
+}
+
+// ScheduleWaveTargets builds a wave-ordered TargetTable from a discovered driver.PkgStore.
+func ScheduleWaveTargets(pkgStore driver.PkgStore, workDir string) (TargetTable, uint32) fails driver.CycleError | fs.NotFound | fs.Denied | fs.Failed needs fs.Files {
+	let g = try driver.CollectImportGraph(pkgStore)
+	let sched = try driver.ScheduleWaves(g)
+	let mut tbl = NewTargetTable()
+	for uid in sched.Order {
+		let pkgPath = driver.PackagePath(pkgStore, uid)
+		let dir = driver.PackageDir(pkgStore, uid)
+		let modID = pkgStore.PkgModID[int(uid)]
+		let modRoot = if int(modID) < pkgStore.ModDirs.Len() {
+			pkgStore.ModDirs[int(modID)]
+		} else {
+			""
+		}
+		let wave = if int(uid) < sched.WaveOf.Len() {
+			sched.WaveOf[int(uid)]
+		} else {
+			uint32(0)
+		}
+		let key = if pkgPath != "" { pkgPath } else { dir }
+		let label = if pkgPath != "" { pkgPath } else { workDir }
+		AppendTarget(&tbl, label, dir, modRoot, key, uid, false, wave)
+	}
+	(tbl, sched.WaveCount)
+}
+
+// ShardPartitionEquivalent: PlanShards partitions every target across all shards with union equal to all, zero overlap, accurate loads, and strictly increasing order inside each shard.
+law ShardPartitionEquivalent(nRaw uint32, totalRaw uint32) {
+	let n = int(nRaw % uint32(12))
+	let total = int(totalRaw%uint32(5)) + 1
+	let mut tbl = NewTargetTable()
+	let mut timings = EmptyTimings()
+	let mut weights = []float64{}
+	for i in 0..n {
+		let key = "mod/pkg" + strconv.Itoa(i)
+		let modR = if i%2 == 0 { "/m1" } else { "/m2" }
+		let w = float64((i%4)+1) * 0.25
+		AppendTarget(&tbl, key, modR+"/p"+strconv.Itoa(i), modR, key, uint32(i), false, uint32(0))
+		TimingsPut(&timings, key, w)
+		weights = weights.Append(w)
+	}
+	let mut sc = NewShardScratch()
+	let plan = PlanShards(tbl, total, timings, &sc)
+	let mut seen = slices.Repeat([]int{0}, n)
+	for s in 1..total+1 {
+		let ids = ShardTargets(plan, s)
+		if n >= total && ids.Len() == 0 {
+			return false
+		}
+		let mut loadSum = 0.0
+		let mut prev = -1
+		for id in ids {
+			let idx = int(id)
+			if idx < 0 || idx >= n || idx <= prev {
+				return false
+			}
+			prev = idx
+			seen[idx] = seen[idx] + 1
+			loadSum = loadSum + weights[idx]
+		}
+		if math.Abs(loadSum-plan.ShardLoads[s-1]) > 0.001 {
+			return false
+		}
+	}
+	for c in seen {
+		if c != 1 {
+			return false
+		}
+	}
+	true
+}
+
+// ParseShardSpecValidates: valid 1 <= i <= n strings parse and boundary violations fail ShardError.
+law ParseShardSpecValidates(i int, n int) {
+	let ii = (i%6+6)%6 + 1
+	let nn = (n%6+6)%6 + ii
+	let good = ParseShardSpec(strconv.Itoa(ii) + "/" + strconv.Itoa(nn)) catch {
+	case ShardError:
+		return false
+	}
+	if !good.Enabled || good.Index != ii || good.Total != nn {
+		return false
+	}
+	let _ = ParseShardSpec("0/" + strconv.Itoa(nn)) catch {
+	case ShardError:
+		let _ = ParseShardSpec(strconv.Itoa(nn+1) + "/" + strconv.Itoa(nn)) catch {
+		case ShardError:
+			return true
+		}
+		return false
+	}
+	false
+}
+
+test ShardDeterminismTimingsRoundTrip {
+	let jsonIn = "{\n  \"version\": 1,\n  \"packages\": {\n    \"app/a\": 1.25,\n    \"app/b\": 0.5\n  }\n}\n"
+	let t1 = LoadTimingsJSON(jsonIn) catch {
+	case TimingsError:
+		assert false
+		return
+	}
+	assert t1.Version == 1
+	let rendered = RenderTimingsJSON(t1)
+	let t2 = LoadTimingsJSON(rendered) catch {
+	case TimingsError:
+		assert false
+		return
+	}
+	assert t2.Entries.Len() == 2
+
+	let _ = LoadTimingsJSON("{\"version\":2,\"packages\":{}}") catch {
+	case TimingsError:
+		let mut tbl = NewTargetTable()
+		for k in []string{"app/a", "app/b", "app/c", "app/d"} {
+			AppendTarget(&tbl, k, "/ws/"+k, "/ws", k, uint32(0), false, uint32(0))
+		}
+		let mut sc = NewShardScratch()
+		let plan = PlanShards(tbl, 2, t1, &sc)
+		let s1 = ShardTargets(plan, 1)
+		let s2 = ShardTargets(plan, 2)
+		assert s1.Len() == 2 && s2.Len() == 2
+		assert math.Abs(plan.ShardLoads[0]-plan.ShardLoads[1]) <= 1.26
+		return
+	}
+	assert false
+}

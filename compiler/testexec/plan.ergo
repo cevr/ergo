@@ -1,0 +1,510 @@
+import compiler/driver
+import exec
+import filepath
+import fs
+import fstest
+import slices
+import strconv
+import strings
+
+// PlanError reports a build, platform, output-path, or library configuration failure.
+type PlanError {
+	Code    string,
+	Message string,
+}
+
+// BuildPlanRequest specifies parameters for planning a build, run, or library action.
+type BuildPlanRequest {
+	Mode        driver.TargetMode,
+	Source      string,
+	PkgPath     string,
+	Files       []driver.FileDigest,
+	ExplicitOut string,
+	Platform    string,
+	Locked      bool,
+	Debug       bool,
+	Release     bool,
+	Environ     []string,
+}
+
+// BuildExecPlan captures resolved outputs, flags, action cache key, and emitted files for a build or run action.
+type BuildExecPlan {
+	Mode           driver.TargetMode,
+	TargetName     string,
+	Platform       string,
+	IsPhone        bool,
+	OutputPath     string,
+	ActionKey      string,
+	GoBuildCmdArgs []string,
+	Files          []EmittedFile,
+	EmittedDigest  string,
+}
+
+// KnownPlatforms returns the primary desktop and server OS/ARCH target triples supported by the driver.
+func KnownPlatforms() []string {
+	[]string{
+		"linux/amd64",
+		"linux/arm64",
+		"darwin/amd64",
+		"darwin/arm64",
+		"windows/amd64",
+		"windows/arm64",
+	}
+}
+
+// IsPhonePlatform reports whether platform names a mobile toolchain package target.
+func IsPhonePlatform(platform string) bool {
+	platform == "ios/arm64" || platform == "android/arm64"
+}
+
+// ValidatePlatform validates raw OS/ARCH[/LEVEL] target syntax against supported targets.
+func ValidatePlatform(raw string) string fails PlanError {
+	if raw == "" {
+		return "linux/amd64"
+	}
+	let parts = strings.Split(raw, "/")
+	if parts.Len() < 2 || parts.Len() > 3 || parts[0] == "" || parts[1] == "" {
+		return PlanError{Code: "E_PLATFORM", Message: "--platform takes OS/ARCH or OS/ARCH/LEVEL, such as linux/arm64 or linux/amd64/v3, not " + strconv.Quote(raw)}
+	}
+	if parts.Len() == 3 {
+		let lvl = parts[2]
+		if parts[1] != "amd64" || (lvl != "v2" && lvl != "v3" && lvl != "v4") {
+			return PlanError{Code: "E_PLATFORM", Message: "unsupported microarchitecture level in --platform " + strconv.Quote(raw)}
+		}
+	}
+	let base = parts[0] + "/" + parts[1]
+	if IsPhonePlatform(base) && parts.Len() == 2 {
+		return base
+	}
+	for p in KnownPlatforms() {
+		if base == p {
+			return raw
+		}
+	}
+	PlanError{Code: "E_PLATFORM", Message: "E_PLATFORM: unsupported platform " + raw}
+}
+
+// DefaultTargetName derives the canonical binary or library identifier name from a source path or directory.
+func DefaultTargetName(source string) string {
+	let clean = filepath.Clean(source)
+	if strings.HasSuffix(clean, ".ergo") {
+		let base = filepath.Base(clean)
+		return strings.TrimSuffix(base, ".ergo")
+	}
+	let base = filepath.Base(clean)
+	if base == "" || base == "." || base == "/" {
+		return "app"
+	}
+	base
+}
+
+// ResolveOutputPath resolves explicit -o output paths or defaults to dist/<targetName>, rejecting trailing directory slashes.
+func ResolveOutputPath(targetName string, explicitOut string) string fails PlanError {
+	if explicitOut == "" {
+		return filepath.Join([]string{"dist", targetName})
+	}
+	if strings.HasSuffix(explicitOut, "/") {
+		return PlanError{Code: "E_OUTPUT", Message: "output " + explicitOut + " names a directory; name the file to write"}
+	}
+	filepath.Clean(explicitOut)
+}
+
+// CheckOutputNotDirectory fails E_OUTPUT if an existing directory resides at outPath.
+func CheckOutputNotDirectory(outPath string) fails PlanError needs fs.Files {
+	let info = fs.Files.Stat(outPath) catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		return
+	}
+	if info.Dir {
+		return PlanError{Code: "E_OUTPUT", Message: "output " + outPath + " is a directory; name the file to write"}
+	}
+}
+
+// GoBuildArgs constructs canonical Go compiler flags matching --debug and --release semantics.
+func GoBuildArgs(outputPath string, debug bool, release bool) []string {
+	let mut args = []string{"build", "-trimpath"}
+	if release && !debug {
+		args = args.Append("-ldflags=-s -w")
+	}
+	args = args.Append("-o").Append(outputPath).Append(".")
+	args
+}
+
+// BuildTestChildArgs builds the command-line arguments passed to one package execution inside a test binary.
+func BuildTestChildArgs(pkgIndex int, multiModule bool, sel SelectionResult, seed uint64, states int, receiptPath string, tapes bool) []string {
+	let mut args = []string{}
+	if multiModule {
+		args = args.Append(TestPackageFlag()).Append(strconv.Itoa(pkgIndex))
+	}
+	if sel.ResolvedRun != "" {
+		args = args.Append("--run").Append(sel.ResolvedRun)
+	}
+	if sel.ResolvedSkipLaw != "" {
+		args = args.Append("--skip-law").Append(sel.ResolvedSkipLaw)
+	}
+	if sel.ResolvedSelectNames != "" {
+		args = args.Append("--select").Append(sel.ResolvedSelectNames)
+	}
+	if seed > uint64(0) {
+		args = args.Append("--seed").Append(u64Decimal(seed))
+	}
+	if states > 0 {
+		args = args.Append("--states").Append(strconv.Itoa(states))
+	}
+	if receiptPath != "" {
+		args = args.Append("--receipt").Append(receiptPath)
+	}
+	if tapes {
+		args = args.Append("--tapes")
+	}
+	args
+}
+
+// BoundedChildEnv adds deterministic memory cap variables to child environments when memLimitBytes > 0.
+func BoundedChildEnv(environ []string, memLimitBytes uint64) []string {
+	let mut out = []string{}
+	let mut hasGoMem = false
+	let mut hasErgoMem = false
+	for kv in environ {
+		if strings.HasPrefix(kv, "GOMEMLIMIT=") {
+			hasGoMem = true
+		}
+		if strings.HasPrefix(kv, "ERGO_PROGRAM_MEMORY=") {
+			hasErgoMem = true
+		}
+		out = out.Append(kv)
+	}
+	if memLimitBytes > uint64(0) {
+		let limitStr = u64Decimal(memLimitBytes)
+		if !hasGoMem {
+			out = out.Append("GOMEMLIMIT=" + limitStr + "B")
+		}
+		if !hasErgoMem {
+			out = out.Append("ERGO_PROGRAM_MEMORY=" + limitStr)
+		}
+	}
+	slices.Sort(out)
+}
+
+func boolString(b bool) string {
+	if b { "true" } else { "false" }
+}
+
+func emitBuildStubMain(req BuildPlanRequest, targetName string, platform string) string {
+	"// Code generated by ergo build. DO NOT EDIT.\npackage main\n\nimport \"fmt\"\n\nfunc main() {\n\tfmt.Println(\"ergo: " + targetName + " (" + platform + ", locked=" + boolString(req.Locked) + ")\")\n}\n"
+}
+
+// PlanBuildExecution validates options and constructs a deterministic BuildExecPlan for build, run, or --lib modes.
+func PlanBuildExecution(req BuildPlanRequest) BuildExecPlan fails PlanError {
+	let targetName = DefaultTargetName(req.Source)
+	let platform = try ValidatePlatform(req.Platform)
+	let isPhone = IsPhonePlatform(platform)
+
+	let mut isLib = false
+	let mut isBuild = false
+	match req.Mode {
+	case driver.ModeLib:
+		isLib = true
+	case driver.ModeBuild:
+		isBuild = true
+	case driver.ModeRun, driver.ModeTest:
+	}
+
+	if isLib {
+		if req.ExplicitOut == "" {
+			return PlanError{Code: "E_OUTPUT", Message: "usage: ergo build --lib [PATH] -o DIR"}
+		}
+		if !ValidateLibPackageName(targetName) {
+			return PlanError{Code: "E_LIB_NAME", Message: "ergo build --lib: " + strconv.Quote(targetName) + " is not a Go package name; rename the file or folder"}
+		}
+	}
+
+	if isBuild && isPhone {
+		if req.Release {
+			return PlanError{Code: "E_PHONE_RELEASE", Message: "--release builds an executable; " + platform + " is a phone platform"}
+		}
+		if req.ExplicitOut != "" {
+			return PlanError{Code: "E_PHONE_OUTPUT", Message: "-o names an executable, and a build for " + platform + " links none"}
+		}
+	}
+
+	let outPath = if isLib {
+		filepath.Clean(req.ExplicitOut)
+	} else {
+		try ResolveOutputPath(targetName, req.ExplicitOut)
+	}
+
+	let libName = if isLib { targetName } else { "" }
+	let actionKey = driver.BuildActionKey(driver.BuildActionInput{
+		Action: driver.ActionInput{
+			Compiler:    "ergo-selfhost",
+			Target:      driver.TargetModeLabel(req.Mode),
+			PkgPath:     req.PkgPath,
+			Files:       req.Files,
+			DepKeys:     []string{},
+			Flags:       []string{},
+			Environ:     req.Environ,
+			Experiments: []string{},
+		},
+		Mode:     req.Mode,
+		LibName:  libName,
+		Platform: platform,
+		Locked:   req.Locked,
+		Debug:    req.Debug,
+		Release:  req.Release,
+	})
+
+	let files = if isLib {
+		let goBody = "// Code generated by ergo build --lib. DO NOT EDIT.\npackage " + targetName + "\n"
+		EmitLibraryModuleLayout(targetName, "1.24", targetName, goBody, []EmittedFile{})
+	} else {
+		[]EmittedFile{
+			EmittedFile{Path: "go.mod", Content: "module ergo.local/app\n\ngo 1.24\n"},
+			EmittedFile{Path: "main.go", Content: emitBuildStubMain(req, targetName, platform)},
+		}
+	}
+
+	let cmdArgs = if isLib {
+		[]string{}
+	} else {
+		GoBuildArgs(outPath, req.Debug, req.Release)
+	}
+
+	BuildExecPlan{
+		Mode:           req.Mode,
+		TargetName:     targetName,
+		Platform:       platform,
+		IsPhone:        isPhone,
+		OutputPath:     outPath,
+		ActionKey:      actionKey,
+		GoBuildCmdArgs: cmdArgs,
+		Files:          files,
+		EmittedDigest:  EmittedDigest(files),
+	}
+}
+
+// ExecuteEmptyTestTarget handles packages with zero runnable tests/laws, enforcing --run/--law errors and writing receipts.
+func ExecuteEmptyTestTarget(pkgLabel string, timingKey string, revision string, sel SelectionResult, seed uint64, receiptPath string) PackageOutcome fails fs.NotFound | fs.Denied | fs.Failed needs fs.Writes {
+	let effectiveSeed = if seed == uint64(0) { uint64(1) } else { seed }
+	if sel.HasError && sel.ErrorCode == 2 {
+		return PackageOutcome{
+			Label:      pkgLabel,
+			TimingKey:  timingKey,
+			Passed:     0,
+			Failed:     0,
+			Skipped:    0,
+			ExitCode:   2,
+			DurationMs: int64(0),
+			Replays:    []string{},
+			Stdout:     "",
+			Stderr:     sel.ErrorMessage + "\n",
+		}
+	}
+	if receiptPath != "" {
+		let dir = filepath.Dir(receiptPath)
+		if dir != "" && dir != "." {
+			fs.Writes.MkdirAll(dir) catch {
+			case fs.Denied, fs.Failed:
+				return fs.Failed{Path: dir, Reason: "cannot create receipt directory"}
+			}
+		}
+		try fs.Writes.WriteFile(receiptPath, FormatLawReceiptJSON(pkgLabel, revision, effectiveSeed, []LawReceiptEntry{}))
+	}
+	if sel.HasError {
+		return PackageOutcome{
+			Label:      pkgLabel,
+			TimingKey:  timingKey,
+			Passed:     0,
+			Failed:     1,
+			Skipped:    0,
+			ExitCode:   1,
+			DurationMs: int64(0),
+			Replays:    []string{},
+			Stdout:     sel.ErrorMessage + "\n",
+			Stderr:     "",
+		}
+	}
+	if sel.FilterUnmatched {
+		return PackageOutcome{
+			Label:      pkgLabel,
+			TimingKey:  timingKey,
+			Passed:     0,
+			Failed:     0,
+			Skipped:    0,
+			ExitCode:   1,
+			DurationMs: int64(0),
+			Replays:    []string{},
+			Stdout:     "FAIL no test or law matches filter\n",
+			Stderr:     "",
+		}
+	}
+	PackageOutcome{
+		Label:      pkgLabel,
+		TimingKey:  timingKey,
+		Passed:     0,
+		Failed:     0,
+		Skipped:    sel.SkippedIDs.Len(),
+		ExitCode:   0,
+		DurationMs: int64(0),
+		Replays:    []string{},
+		Stdout:     "PASS (0 tests)\n",
+		Stderr:     "",
+	}
+}
+
+// ExecuteBuildWithRunner runs `go build` for plan via the active exec.Runner capability.
+func ExecuteBuildWithRunner(plan BuildExecPlan, workDir string, envMap Map[string, string]) exec.Result fails exec.NotFound | exec.Denied | exec.Failed needs exec.Runner {
+	let mut cmd = exec.New("go", plan.GoBuildCmdArgs).WithDir(workDir).WithEnvFrom(envMap)
+	if plan.Platform != "" {
+		let halves = strings.Split(plan.Platform, "/")
+		if halves.Len() >= 2 {
+			cmd = cmd.WithEnv("GOOS", halves[0]).WithEnv("GOARCH", halves[1])
+		}
+	}
+	try exec.Runner.Run(cmd)
+}
+
+// ExecuteTestBinaryWithRunner executes one built test target via exec.Runner and parses its structured outcome.
+func ExecuteTestBinaryWithRunner(binPath string, childArgs []string, pkgLabel string, timingKey string, workDir string, envMap Map[string, string]) PackageOutcome fails exec.NotFound | exec.Denied | exec.Failed needs exec.Runner {
+	let cmd = exec.New(binPath, childArgs).WithDir(workDir).WithEnvFrom(envMap)
+	let res = try exec.Runner.Run(cmd)
+	ParseChildTestOutput(pkgLabel, timingKey, res.Stdout, res.Stderr, res.Status, int64(0))
+}
+
+// OutputNamingAndLibValidation: default outputs resolve to dist/<name>, trailing slashes fail E_OUTPUT, and ModeLib enforces -o and valid identifiers.
+law OutputNamingAndLibValidation(name string, badDir string) {
+	let cleanName = if name == "" { "app" } else { name }
+	let def = ResolveOutputPath(cleanName, "") catch {
+	case PlanError:
+		return false
+	}
+	if def != filepath.Join([]string{"dist", cleanName}) {
+		return false
+	}
+	let dirProbe = if badDir == "" { "out/" } else { badDir + "/" }
+	let _ = ResolveOutputPath(cleanName, dirProbe) catch {
+	case PlanError as pe:
+		if pe.Code != "E_OUTPUT" {
+			return false
+		}
+		let reqMissingOut = BuildPlanRequest{
+			Mode:        driver.ModeLib,
+			Source:      "validpkg",
+			PkgPath:     "app/validpkg",
+			Files:       []driver.FileDigest{},
+			ExplicitOut: "",
+			Platform:    "",
+			Locked:      false,
+			Debug:       false,
+			Release:     false,
+			Environ:     []string{},
+		}
+		let _ = PlanBuildExecution(reqMissingOut) catch {
+		case PlanError as libErr:
+			return libErr.Code == "E_OUTPUT"
+		}
+		return false
+	}
+	false
+}
+
+// BuildPlanDeterministic: normalization of source paths keeps identical EmittedDigest, OutputPath, and ActionKey.
+law BuildPlanDeterministic(locked bool, debug bool, release bool) {
+	let files = []driver.FileDigest{driver.FileDigest{Path: "main.ergo", ContentDigest: "abc123"}}
+	let r1 = BuildPlanRequest{
+		Mode:        driver.ModeBuild,
+		Source:      "./cmd/tool",
+		PkgPath:     "app/cmd/tool",
+		Files:       files,
+		ExplicitOut: "",
+		Platform:    "linux/amd64",
+		Locked:      locked,
+		Debug:       debug,
+		Release:     release,
+		Environ:     []string{},
+	}
+	let r2 = BuildPlanRequest{..r1, Source: "cmd/tool"}
+	let p1 = PlanBuildExecution(r1) catch {
+	case PlanError:
+		return false
+	}
+	let p2 = PlanBuildExecution(r2) catch {
+	case PlanError:
+		return false
+	}
+	p1.OutputPath == p2.OutputPath && p1.ActionKey == p2.ActionKey && p1.EmittedDigest == p2.EmittedDigest
+}
+
+test PlanBuildsLibRunAndRunner {
+	let mem = fstest.NewMemory()
+	mem.MkdirAll("/ws") catch {
+	case fs.Denied, fs.Failed:
+		assert false
+	}
+	let emptyRes = with context { fs.Writes: mem } {
+		ExecuteEmptyTestTarget("app/empty", "app/empty", "rev0", SelectionResult{
+			KeepIDs:             []uint32{},
+			SkippedIDs:          []uint32{},
+			TotalCandidates:     0,
+			Empty:               true,
+			FilterUnmatched:     false,
+			HasError:            false,
+			ErrorCode:           0,
+			ErrorMessage:        "",
+			ResolvedRun:         "",
+			ResolvedSkipLaw:     "",
+			ResolvedSelectNames: "",
+		}, uint64(5), "/ws/receipt.json") catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+			assert false
+			return
+		}
+	}
+	assert emptyRes.ExitCode == 0
+	assert emptyRes.Stdout == "PASS (0 tests)\n"
+	let rJson = mem.ReadFile("/ws/receipt.json") catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		assert false
+		return
+	}
+	assert strings.Contains(rJson, "\"seed\": 5")
+
+	let libPlan = PlanBuildExecution(BuildPlanRequest{
+		Mode:        driver.ModeLib,
+		Source:      "/ws/calc",
+		PkgPath:     "app/calc",
+		Files:       []driver.FileDigest{},
+		ExplicitOut: "/ws/outlib",
+		Platform:    "",
+		Locked:      true,
+		Debug:       false,
+		Release:     false,
+		Environ:     []string{},
+	}) catch {
+	case PlanError:
+		assert false
+		return
+	}
+	assert libPlan.TargetName == "calc"
+	assert libPlan.Files.Len() == 2
+
+	let _ = ValidatePlatform("bogus/arch") catch {
+	case PlanError:
+		let env = BoundedChildEnv([]string{"PATH=/bin"}, uint64(67108864))
+		assert slices.Contains(env, "ERGO_PROGRAM_MEMORY=67108864")
+		let runnerCmd = exec.New("/tmp/testbin", []string{"--seed", "3"}).WithDir("/ws")
+		let mut resMap = Map[string, exec.Result]{}
+		resMap = resMap.Put(exec.Key(runnerCmd), exec.Result{Status: 0, Stdout: "PASS Alpha\nPASS (1 tests)\n", Stderr: ""})
+		let sc = exec.Script{Results: resMap}
+		let binOut = with context { exec.Runner: sc } {
+			ExecuteTestBinaryWithRunner("/tmp/testbin", []string{"--seed", "3"}, "app/p", "app/p", "/ws", Map[string, string]{}) catch {
+			case exec.NotFound, exec.Denied, exec.Failed:
+				assert false
+				return
+			}
+		}
+		assert binOut.Passed == 1 && binOut.ExitCode == 0
+		return
+	}
+	assert false
+}

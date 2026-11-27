@@ -1,0 +1,695 @@
+import compiler/driver
+import compiler/testexec
+import exec
+import filepath
+import fs
+import fstest
+import io
+import option
+import strconv
+import strings
+
+// TestOptions captures parsed command-line options and targets for ergo test.
+type TestOptions {
+	Paths         []string,
+	Filter        string,
+	Skip          string,
+	Law           string,
+	SkipLaw       string,
+	Run           string,
+	Fresh         bool,
+	Jobs          int,
+	Seed          int,
+	States        int,
+	Locked        bool,
+	Debug         bool,
+	Json          bool,
+	Parallel      bool,
+	Shard         string,
+	Timings       string,
+	UpdateTimings string,
+	Receipt       string,
+	Emitted       bool,
+	Work          bool,
+	Trace         bool,
+	Tapes         bool,
+	Help          bool,
+	HelpAll       bool,
+}
+
+// ParseTestOptions parses flags and positional targets after `ergo test`, rejecting retired backend flags.
+func ParseTestOptions(args []string) TestOptions fails FlagError {
+	let mut opts = TestOptions{
+		Paths:         []string{},
+		Filter:        "",
+		Skip:          "",
+		Law:           "",
+		SkipLaw:       "",
+		Run:           "",
+		Fresh:         false,
+		Jobs:          1,
+		Seed:          1,
+		States:        0,
+		Locked:        false,
+		Debug:         false,
+		Json:          false,
+		Parallel:      false,
+		Shard:         "",
+		Timings:       "",
+		UpdateTimings: "",
+		Receipt:       "",
+		Emitted:       false,
+		Work:          false,
+		Trace:         false,
+		Tapes:         false,
+		Help:          false,
+		HelpAll:       false,
+	}
+	let mut endFlags = false
+	let mut i = 0
+	for i < args.Len() {
+		let arg = args[i]
+		if !endFlags && arg == "--" {
+			endFlags = true
+			i = i + 1
+			continue
+		}
+		if !endFlags && strings.HasPrefix(arg, "-") && arg != "-" {
+			if arg == "--help" || arg == "-h" {
+				opts.Help = true
+				i = i + 1
+				continue
+			}
+			if arg == "--help-all" {
+				opts.HelpAll = true
+				i = i + 1
+				continue
+			}
+			if arg == "--fresh" {
+				opts.Fresh = true
+				i = i + 1
+				continue
+			}
+			if arg == "--locked" {
+				opts.Locked = true
+				i = i + 1
+				continue
+			}
+			if arg == "--debug" {
+				opts.Debug = true
+				i = i + 1
+				continue
+			}
+			if arg == "--json" {
+				opts.Json = true
+				i = i + 1
+				continue
+			}
+			if arg == "--parallel" {
+				opts.Parallel = true
+				i = i + 1
+				continue
+			}
+			if arg == "--emitted" {
+				opts.Emitted = true
+				i = i + 1
+				continue
+			}
+			if arg == "-work" || arg == "--work" {
+				opts.Work = true
+				i = i + 1
+				continue
+			}
+			if arg == "--trace" {
+				opts.Trace = true
+				i = i + 1
+				continue
+			}
+			if arg == "--tapes" {
+				opts.Tapes = true
+				i = i + 1
+				continue
+			}
+			let valNames = []string{
+				"-k", "--filter", "--skip", "--law", "--skip-law", "--run",
+				"-j", "--jobs", "--seed", "--states", "--shard", "--timings",
+				"--update-timings", "--receipt",
+			}
+			let valOpt = try consumeFlagValue(args, &i, arg, valNames)
+			match valOpt {
+			case option.Some[FlagVal] as fv:
+				let name = fv.Value.Name
+				let val = fv.Value.Value
+				if name == "-k" || name == "--filter" {
+					opts.Filter = val
+				} else if name == "--skip" {
+					opts.Skip = val
+				} else if name == "--law" {
+					opts.Law = val
+				} else if name == "--skip-law" {
+					opts.SkipLaw = val
+				} else if name == "--run" {
+					opts.Run = val
+				} else if name == "-j" || name == "--jobs" {
+					opts.Jobs = try parsePositiveFlagInt("test", name, val)
+				} else if name == "--seed" {
+					opts.Seed = try parseNonNegativeFlagInt("test", name, val)
+				} else if name == "--states" {
+					opts.States = try parsePositiveFlagInt("test", name, val)
+				} else if name == "--shard" {
+					let _ = testexec.ParseShardSpec(val) catch {
+					case testexec.ShardError as se:
+						return FlagError{Code: 2, Message: "ergo test: " + se.Message}
+					}
+					opts.Shard = val
+				} else if name == "--timings" {
+					opts.Timings = val
+				} else if name == "--update-timings" {
+					opts.UpdateTimings = val
+				} else if name == "--receipt" {
+					opts.Receipt = val
+				}
+				continue
+			case option.None:
+			}
+			return FlagError{Code: 2, Message: "ergo test: unknown option " + arg}
+		}
+		opts.Paths = opts.Paths.Append(arg)
+		i = i + 1
+	}
+	opts
+}
+
+// RunTest executes `ergo test` using file system and stdio capabilities.
+func RunTest(args []string, workDir string, environ []string) int needs fs.Files | fs.Writes | io.Stdout | io.Stderr {
+	with context { exec.Runner: exec.Script{Results: Map[string, exec.Result]{}} } {
+		RunTestExec(args, workDir, environ)
+	}
+}
+
+func emitTestError(asJSON bool, code int, msg string) needs io.Stdout | io.Stderr {
+	if asJSON {
+		let sum = testexec.VerdictSummary{
+			PkgTotal:        0,
+			PkgPassed:       0,
+			PkgFailed:       0,
+			TestsPassed:     0,
+			TestsFailed:     0,
+			TestsSkipped:    0,
+			TotalDurationMs: int64(0),
+			ExitCode:        code,
+			StatusLabel:     "ERROR",
+			Replays:         []string{},
+			Outcomes:        []testexec.PackageOutcome{},
+		}
+		let raw = "{\"status\":\"ERROR\",\"exit_code\":" + strconv.Itoa(code) + ",\"error\":" + jsonQuote(msg) + ",\"summary\":" + testexec.FormatVerdictJSON(sum) + "}"
+		io.Stdout.Println(raw)
+		return
+	}
+	io.Stderr.Eprintln("ergo test: " + msg)
+}
+
+func hasJSONFlag(args []string) bool {
+	for a in args {
+		if a == "--" {
+			return false
+		}
+		if a == "--json" {
+			return true
+		}
+	}
+	false
+}
+
+func loadTimingsOptional(path string) testexec.TestTimings fails testexec.TimingsError | fs.Denied | fs.Failed needs fs.Files {
+	if path == "" {
+		return testexec.EmptyTimings()
+	}
+	let raw = fs.Files.ReadFile(path) catch {
+	case fs.NotFound:
+		return testexec.EmptyTimings()
+	case fs.Denied as dn:
+		return dn
+	case fs.Failed as ff:
+		return ff
+	}
+	try testexec.LoadTimingsJSON(raw)
+}
+
+func envListToMap(environ []string) Map[string, string] {
+	let mut out = Map[string, string]{}
+	for kv in environ {
+		match strings.Cut(kv, "=") {
+		case option.Some[strings.Halves] as h:
+			out = out.Put(h.Value.Before, h.Value.After)
+		case option.None:
+		}
+	}
+	out
+}
+
+// RunTestExec executes `ergo test` with driver discovery, DoD selection, LPT sharding, checking, harness planning, and exec.Runner execution.
+func RunTestExec(args []string, workDir string, environ []string) int needs exec.Runner | fs.Files | fs.Writes | io.Stdout | io.Stderr {
+	let opts = ParseTestOptions(args) catch {
+	case FlagError as fe:
+		emitTestError(hasJSONFlag(args), fe.Code, fe.Message)
+		return fe.Code
+	}
+	if opts.Help {
+		io.Stdout.Print(TestHelp())
+		return 0
+	}
+	if opts.HelpAll {
+		io.Stdout.Print(TestAllHelp())
+		return 0
+	}
+
+	let effTargets = if opts.Paths.Len() == 0 {
+		[]string{driver.ResolveTargetDefault(workDir)}
+	} else {
+		opts.Paths
+	}
+
+	let pkgStore = driver.Discover(workDir, effTargets) catch {
+	case driver.DiscoverError as de:
+		emitTestError(opts.Json, 2, de.Path+": "+de.Reason)
+		return 2
+	case driver.ParseError as pe:
+		emitTestError(opts.Json, 1, driver.FormatParseError(pe))
+		return 1
+	case fs.NotFound as nf:
+		emitTestError(opts.Json, 2, nf.Path+": not found")
+		return 2
+	case fs.Denied as dn:
+		emitTestError(opts.Json, 2, dn.Path+": permission denied")
+		return 2
+	case fs.Failed as ff:
+		emitTestError(opts.Json, 2, ff.Path+": "+ff.Reason)
+		return 2
+	}
+
+	let (targetTbl, _) = testexec.ScheduleWaveTargets(pkgStore, workDir) catch {
+	case driver.CycleError as ce:
+		emitTestError(opts.Json, 1, driver.FormatCycle(ce))
+		return 1
+	case fs.NotFound as nf:
+		emitTestError(opts.Json, 2, nf.Path+": not found")
+		return 2
+	case fs.Denied as dn:
+		emitTestError(opts.Json, 2, dn.Path+": permission denied")
+		return 2
+	case fs.Failed as ff:
+		emitTestError(opts.Json, 2, ff.Path+": "+ff.Reason)
+		return 2
+	}
+
+	let obStore = testexec.DiscoverFromDisk(pkgStore) catch {
+	case testexec.ParseFailure as pf:
+		emitTestError(opts.Json, 1, pf.File+":"+strconv.Itoa(pf.Line)+":"+strconv.Itoa(pf.Column)+": "+pf.Code+": "+pf.Message)
+		return 1
+	case fs.NotFound as nf:
+		emitTestError(opts.Json, 2, nf.Path+": not found")
+		return 2
+	case fs.Denied as dn:
+		emitTestError(opts.Json, 2, dn.Path+": permission denied")
+		return 2
+	case fs.Failed as ff:
+		emitTestError(opts.Json, 2, ff.Path+": "+ff.Reason)
+		return 2
+	}
+
+	let mut shardSpec = testexec.ShardSpec{Enabled: false, Index: 1, Total: 1}
+	if opts.Shard != "" {
+		shardSpec = testexec.ParseShardSpec(opts.Shard) catch {
+		case testexec.ShardError as se:
+			emitTestError(opts.Json, 2, se.Message)
+			return 2
+		}
+	}
+
+	let mut timings = loadTimingsOptional(opts.Timings) catch {
+	case testexec.TimingsError as te:
+		emitTestError(opts.Json, 2, te.Message)
+		return 2
+	case fs.Denied as dn:
+		emitTestError(opts.Json, 2, dn.Path+": permission denied")
+		return 2
+	case fs.Failed as ff:
+		emitTestError(opts.Json, 2, ff.Path+": "+ff.Reason)
+		return 2
+	}
+
+	let selectedTargetIDs = if shardSpec.Enabled {
+		let mut scratch = testexec.NewShardScratch()
+		let plan = testexec.PlanShards(targetTbl, shardSpec.Total, timings, &scratch)
+		testexec.ShardTargets(plan, shardSpec.Index)
+	} else {
+		let mut allIDs = []uint32{}
+		for i in 0..int(targetTbl.Count) {
+			allIDs = allIDs.Append(uint32(i))
+		}
+		allIDs
+	}
+
+	let checkRep = executeCheck(CheckOptions{
+		Paths:     effTargets,
+		Strict:    false,
+		Json:      opts.Json,
+		Fresh:     opts.Fresh,
+		Jobs:      opts.Jobs,
+		Seed:      opts.Seed,
+		StdDir:    "",
+		EvalSteps: 0,
+		EvalBytes: 0,
+		Help:      false,
+		HelpAll:   false,
+	}, workDir, environ) catch {
+	case driver.DiscoverError as de:
+		emitTestError(opts.Json, 2, de.Path+": "+de.Reason)
+		return 2
+	case driver.ParseError as pe:
+		emitTestError(opts.Json, 1, driver.FormatParseError(pe))
+		return 1
+	case driver.CycleError as ce:
+		emitTestError(opts.Json, 1, driver.FormatCycle(ce))
+		return 1
+	case fs.NotFound as nf:
+		emitTestError(opts.Json, 2, nf.Path+": not found")
+		return 2
+	case fs.Denied as dn:
+		emitTestError(opts.Json, 2, dn.Path+": permission denied")
+		return 2
+	case fs.Failed as ff:
+		emitTestError(opts.Json, 2, ff.Path+": "+ff.Reason)
+		return 2
+	}
+
+	if !checkRep.Checked {
+		if opts.Json {
+			emitCheckReport(checkRep, true)
+		} else {
+			for d in checkRep.Diagnostics {
+				io.Stderr.Eprintln(d.File + ":" + strconv.Itoa(d.Line) + ":" + strconv.Itoa(d.Column) + ": " + d.Code + ": " + d.Message)
+			}
+		}
+		return 1
+	}
+
+	let selSpec = testexec.SelectionSpec{
+		Filter:  opts.Filter,
+		Skip:    opts.Skip,
+		Law:     opts.Law,
+		SkipLaw: opts.SkipLaw,
+		Run:     opts.Run,
+	}
+
+	let mut selections = []testexec.SelectionResult{}
+	let mut pkgLabels = []string{}
+	let mut anyFilterMatched = false
+	for tid in selectedTargetIDs {
+		let pkgID = targetTbl.PkgIndices[int(tid)]
+		let label = targetTbl.Labels[int(tid)]
+		pkgLabels = pkgLabels.Append(label)
+		let sel = testexec.SelectObligations(obStore, pkgID, selSpec) catch {
+		case testexec.PatternError as pe:
+			emitTestError(opts.Json, 2, "invalid regex for "+pe.Flag+": "+pe.Reason)
+			return 2
+		}
+		if !sel.Empty {
+			anyFilterMatched = true
+		}
+		selections = selections.Append(sel)
+	}
+
+	let effSeed = uint64(if opts.Seed < 0 { 1 } else { opts.Seed })
+	let hOpts = testexec.HarnessOptions{
+		Seed:    effSeed,
+		States:  opts.States,
+		Locked:  opts.Locked,
+		Debug:   opts.Debug,
+		Release: false,
+		Trace:   opts.Trace,
+		Tapes:   opts.Tapes,
+	}
+
+	if opts.Emitted {
+		let mut unitMains = []string{}
+		for idx in 0..selectedTargetIDs.Len() {
+			unitMains = unitMains.Append(testexec.EmitSingleTestMainGo(pkgLabels[idx], obStore, selections[idx], hOpts))
+		}
+		let emittedFiles = testexec.EmitMultiTestModule("ergo.local/tests", "1.24", unitMains)
+		let digest = testexec.EmittedDigest(emittedFiles)
+		if opts.Json {
+			io.Stdout.Println("{\"emitted\":" + jsonQuote(digest) + ",\"packages\":" + strconv.Itoa(selectedTargetIDs.Len()) + "}")
+		} else {
+			io.Stdout.Println("emitted " + digest)
+		}
+		return 0
+	}
+
+	if opts.Filter != "" && !anyFilterMatched && selectedTargetIDs.Len() > 0 {
+		if opts.Json {
+			let sumFail = testexec.RollupVerdicts([]testexec.PackageOutcome{
+				testexec.PackageOutcome{Label: pkgLabels[0], TimingKey: pkgLabels[0], Passed: 0, Failed: 0, Skipped: 0, ExitCode: 1, DurationMs: int64(0), Replays: []string{}, Stdout: "FAIL no test or law matches filter\n", Stderr: ""},
+			})
+			io.Stdout.Println(testexec.FormatVerdictJSON(sumFail))
+		} else {
+			io.Stdout.Println("FAIL no test or law matches filter " + strconv.Quote(opts.Filter))
+		}
+		return 1
+	}
+
+	let mut needBinary = false
+	for sel in selections {
+		if !sel.Empty && !sel.HasError {
+			needBinary = true
+			break
+		}
+	}
+
+	let multiModule = selectedTargetIDs.Len() > 1
+	let modBuildDir = filepath.Join([]string{workDir, ".ergo-test-build"})
+	let binPath = filepath.Join([]string{modBuildDir, "ergotest.bin"})
+	let boundedEnv = testexec.BoundedChildEnv(environ, uint64(0))
+	let envMap = envListToMap(boundedEnv)
+
+	if needBinary {
+		let mut unitMains = []string{}
+		for idx, tid in selectedTargetIDs {
+			let _ = tid
+			unitMains = unitMains.Append(testexec.EmitSingleTestMainGo(pkgLabels[idx], obStore, selections[idx], hOpts))
+		}
+		let emitted = testexec.EmitMultiTestModule("ergo.local/tests", "1.24", unitMains)
+		for ef in emitted {
+			let fullPath = filepath.Join([]string{modBuildDir, ef.Path})
+			let parentDir = filepath.Dir(fullPath)
+			fs.Writes.MkdirAll(parentDir) catch {
+			case fs.Denied, fs.Failed:
+				emitTestError(opts.Json, 2, parentDir+": cannot prepare test harness directory")
+				return 2
+			}
+			fs.Writes.WriteFile(fullPath, ef.Content) catch {
+			case fs.NotFound, fs.Denied, fs.Failed:
+				emitTestError(opts.Json, 2, fullPath+": cannot write test harness")
+				return 2
+			}
+		}
+		let buildRes = exec.Runner.Run(exec.New("go", testexec.GoBuildArgs(binPath, opts.Debug, false)).WithDir(modBuildDir).WithEnvFrom(envMap)) catch {
+		case exec.NotFound:
+			emitTestError(opts.Json, 2, "go toolchain not found on PATH")
+			return 2
+		case exec.Denied as dn:
+			emitTestError(opts.Json, 2, dn.Name+": execution denied")
+			return 2
+		case exec.Failed as ff:
+			emitTestError(opts.Json, 2, ff.Name+": "+ff.Reason)
+			return 2
+		}
+		if buildRes.Status != 0 {
+			emitTestError(opts.Json, 1, strings.TrimSpace(buildRes.Stderr))
+			return 1
+		}
+	}
+
+	let mut outcomes = []testexec.PackageOutcome{}
+	for idx, tid in selectedTargetIDs {
+		let sel = selections[idx]
+		let label = pkgLabels[idx]
+		let tKey = targetTbl.TimingKeys[int(tid)]
+		if sel.Empty || sel.HasError {
+			let emptyOut = testexec.ExecuteEmptyTestTarget(label, tKey, checkRep.Revision, sel, effSeed, opts.Receipt) catch {
+			case fs.NotFound as nf:
+				emitTestError(opts.Json, 2, nf.Path+": not found")
+				return 2
+			case fs.Denied as dn:
+				emitTestError(opts.Json, 2, dn.Path+": permission denied")
+				return 2
+			case fs.Failed as ff:
+				emitTestError(opts.Json, 2, ff.Path+": "+ff.Reason)
+				return 2
+			}
+			outcomes = outcomes.Append(emptyOut)
+			continue
+		}
+		let cArgs = testexec.BuildTestChildArgs(idx, true, sel, effSeed, opts.States, opts.Receipt, opts.Tapes)
+		let runOut = testexec.ExecuteTestBinaryWithRunner(binPath, cArgs, label, tKey, workDir, envMap) catch {
+		case exec.NotFound as nf:
+			emitTestError(opts.Json, 2, nf.Name+": built test binary not found")
+			return 2
+		case exec.Denied as dn:
+			emitTestError(opts.Json, 2, dn.Name+": execution denied")
+			return 2
+		case exec.Failed as ff:
+			emitTestError(opts.Json, 2, ff.Name+": "+ff.Reason)
+			return 2
+		}
+		outcomes = outcomes.Append(runOut)
+	}
+
+	if opts.UpdateTimings != "" {
+		for o in outcomes {
+			testexec.TimingsPut(&timings, o.TimingKey, float64(o.DurationMs)/1000.0)
+		}
+		let tDir = filepath.Dir(opts.UpdateTimings)
+		if tDir != "" && tDir != "." {
+			fs.Writes.MkdirAll(tDir) catch {
+			case fs.Denied, fs.Failed:
+				emitTestError(opts.Json, 2, tDir+": cannot create timings directory")
+				return 2
+			}
+		}
+		fs.Writes.WriteFile(opts.UpdateTimings, testexec.RenderTimingsJSON(timings)) catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+			emitTestError(opts.Json, 2, opts.UpdateTimings+": cannot write timings file")
+			return 2
+		}
+	}
+
+	let summary = testexec.RollupVerdicts(outcomes)
+	if opts.Json {
+		io.Stdout.Println(testexec.FormatVerdictJSON(summary))
+	} else {
+		io.Stdout.Print(testexec.FormatHumanSummary(summary))
+	}
+	for o in outcomes {
+		if o.Stderr != "" && !opts.Json {
+			io.Stderr.Eprint(o.Stderr)
+		}
+	}
+	if opts.Work && !multiModule {
+		io.Stderr.Eprintln("WORK=" + modBuildDir)
+	}
+	summary.ExitCode
+}
+
+// TestOptionsRejectInvalidFlags: retired backend flags and bad --shard specifications fail ParseTestOptions with exit code 2.
+law TestOptionsRejectInvalidFlags(idx uint32) {
+	let badCases = [][]string{
+		[]string{"--native"},
+		[]string{"--compiled"},
+		[]string{"--target=go"},
+		[]string{"-go-text"},
+		[]string{"--go-trace"},
+		[]string{"--shard", "0/2"},
+		[]string{"--shard", "3/2"},
+		[]string{"-j", "0"},
+	}
+	let args = badCases[int(idx%uint32(badCases.Len()))]
+	let _ = ParseTestOptions(args) catch {
+	case FlagError as fe:
+		return fe.Code == 2
+	}
+	false
+}
+
+test TestCmdRunsEmptyEmittedScriptedAndSharded {
+	let mem = fstest.NewMemory()
+	mem.MkdirAll("/ws/empty") catch {
+	case fs.Denied, fs.Failed:
+		assert false
+	}
+	mem.WriteFile("/ws/ergo.mod", "module sample\n") catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		assert false
+	}
+	mem.WriteFile("/ws/empty/lib.ergo", "func Double(x int) int {\n\tx + x\n}\n") catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		assert false
+	}
+
+	let recEmpty = io.NewRecorder()
+	let codeEmpty = with context {
+		fs.Files:  mem,
+		fs.Writes: mem,
+		io.Stdout: recEmpty,
+		io.Stderr: recEmpty,
+	} {
+		RunTest([]string{"./empty", "--json"}, "/ws", []string{})
+	}
+	assert codeEmpty == 0
+	assert strings.Contains(recEmpty.Text(), "\"status\":\"PASS\"")
+
+	mem.MkdirAll("/ws/pkg") catch {
+	case fs.Denied, fs.Failed:
+		assert false
+	}
+	mem.WriteFile("/ws/pkg/p.ergo", "test Smoke {\n\tassert 1 == 1\n}\n") catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		assert false
+	}
+
+	let recEmit = io.NewRecorder()
+	let codeEmit = with context {
+		fs.Files:  mem,
+		fs.Writes: mem,
+		io.Stdout: recEmit,
+		io.Stderr: recEmit,
+	} {
+		RunTest([]string{"./pkg", "--emitted"}, "/ws", []string{})
+	}
+	assert codeEmit == 0
+	assert strings.HasPrefix(recEmit.Text(), "emitted ")
+
+	let recBadFilter = io.NewRecorder()
+	let codeBadFilter = with context {
+		fs.Files:  mem,
+		fs.Writes: mem,
+		io.Stdout: recBadFilter,
+		io.Stderr: recBadFilter,
+	} {
+		RunTest([]string{"./pkg", "-k", "[invalid"}, "/ws", []string{})
+	}
+	assert codeBadFilter == 2
+
+	let recUnmatched = io.NewRecorder()
+	let codeUnmatched = with context {
+		fs.Files:  mem,
+		fs.Writes: mem,
+		io.Stdout: recUnmatched,
+		io.Stderr: recUnmatched,
+	} {
+		RunTest([]string{"./pkg", "--filter", "Nope"}, "/ws", []string{})
+	}
+	assert codeUnmatched == 1
+
+	let binPath = "/ws/.ergo-test-build/ergotest.bin"
+	let buildCmd = exec.New("go", testexec.GoBuildArgs(binPath, false, false)).WithDir("/ws/.ergo-test-build")
+	let childArgs = []string{"--ergo-package", "0", "--seed", "7"}
+	let runCmd = exec.New(binPath, childArgs).WithDir("/ws")
+	let mut scriptRes = Map[string, exec.Result]{}
+	scriptRes = scriptRes.Put(exec.Key(buildCmd), exec.Result{Status: 0, Stdout: "", Stderr: ""})
+	scriptRes = scriptRes.Put(exec.Key(runCmd), exec.Result{Status: 0, Stdout: "PASS Smoke\nPASS (1 tests)\n", Stderr: ""})
+	let sc = exec.Script{Results: scriptRes}
+	let recRun = io.NewRecorder()
+	let codeRun = with context {
+		exec.Runner: sc,
+		fs.Files:    mem,
+		fs.Writes:   mem,
+		io.Stdout:   recRun,
+		io.Stderr:   recRun,
+	} {
+		RunTestExec([]string{"./pkg", "--seed", "7", "--fresh"}, "/ws", []string{})
+	}
+	assert codeRun == 0
+	assert strings.Contains(recRun.Text(), "PASS (1 tests)")
+}

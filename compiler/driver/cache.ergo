@@ -169,4 +169,169 @@ test CacheKeyDeterminismAndWarmParity {
 	assert keys.WarmKey == cachekey.WarmKey("ergo 1", []string{"compiler/driver", keys.PackageKey, keys.ListingKey, "1"}, in1.Environ, in1.Experiments)
 	let uncached = WorkspaceWarmKey("", []string{"part"}, []string{}, []string{})
 	assert uncached == ""
+
+	let ti = TestActionInput{
+		Action:     in1,
+		Seed:       uint64(42),
+		States:     128,
+		Filter:     "Parse",
+		Skip:       "Slow",
+		Law:        "",
+		SkipLaw:    "",
+		ShardIndex: 1,
+		ShardTotal: 2,
+	}
+	let tk = TestActionKey(ti)
+	assert tk != ""
+	assert tk == TestActionKey(ti)
+	assert tk != TestActionKey(TestActionInput{..ti, ShardIndex: 2})
+
+	let bi = BuildActionInput{
+		Action:   in1,
+		Mode:     ModeLib,
+		LibName:  "sample",
+		Platform: "linux/amd64",
+		Locked:   true,
+		Debug:    false,
+		Release:  true,
+	}
+	let bk = BuildActionKey(bi)
+	assert bk != ""
+	assert bk != BuildActionKey(BuildActionInput{..bi, Mode: ModeBuild})
+}
+
+// TargetMode selects which artifact a driver build or test action produces.
+type TargetMode =
+	| ModeBuild{}
+	| ModeRun{}
+	| ModeTest{}
+	| ModeLib{}
+
+// TargetModeLabel returns the canonical cache-key label for m.
+func TargetModeLabel(m TargetMode) string {
+	match m {
+	case ModeBuild:
+		"build"
+	case ModeRun:
+		"run"
+	case ModeTest:
+		"test"
+	case ModeLib:
+		"lib"
+	}
+}
+
+// TestActionInput describes all inputs that determine a cached test execution key.
+type TestActionInput {
+	Action     ActionInput,
+	Seed       uint64,
+	States     int,
+	Filter     string,
+	Skip       string,
+	Law        string,
+	SkipLaw    string,
+	ShardIndex int,
+	ShardTotal int,
+}
+
+// BuildActionInput describes all inputs that determine a build, run, or library action key.
+type BuildActionInput {
+	Action   ActionInput,
+	Mode     TargetMode,
+	LibName  string,
+	Platform string,
+	Locked   bool,
+	Debug    bool,
+	Release  bool,
+}
+
+func formatUint64Dec(v uint64) string {
+	let zero = uint64(0)
+	let ten = uint64(10)
+	if v == zero {
+		return "0"
+	}
+	let mut cur = v
+	let mut out = ""
+	for cur > zero {
+		let d = cur % ten
+		out = strconv.Itoa(int(d)) + out
+		cur = cur / ten
+	}
+	out
+}
+
+func boolKeyFlag(b bool) string {
+	if b { "1" } else { "0" }
+}
+
+// TestActionKey computes a deterministic action key for a test package run.
+func TestActionKey(input TestActionInput) string {
+	let baseInput = ActionInput{..input.Action, Target: "test"}
+	let baseKey = PackageActionKey(baseInput)
+	let shardTag = strconv.Itoa(input.ShardIndex) + "/" + strconv.Itoa(input.ShardTotal)
+	cachekey.Fields([]cachekey.Field{
+		cachekey.Field{Name: "mode", Value: "test"},
+		cachekey.Field{Name: "base", Value: baseKey},
+		cachekey.Field{Name: "seed", Value: formatUint64Dec(input.Seed)},
+		cachekey.Field{Name: "states", Value: strconv.Itoa(input.States)},
+		cachekey.Field{Name: "filter", Value: input.Filter},
+		cachekey.Field{Name: "skip", Value: input.Skip},
+		cachekey.Field{Name: "law", Value: input.Law},
+		cachekey.Field{Name: "skip_law", Value: input.SkipLaw},
+		cachekey.Field{Name: "shard", Value: shardTag},
+	})
+}
+
+// BuildActionKey computes a deterministic action key for a build, run, or library emission action.
+func BuildActionKey(input BuildActionInput) string {
+	let label = TargetModeLabel(input.Mode)
+	let baseInput = ActionInput{..input.Action, Target: label}
+	let baseKey = PackageActionKey(baseInput)
+	cachekey.Fields([]cachekey.Field{
+		cachekey.Field{Name: "mode", Value: label},
+		cachekey.Field{Name: "base", Value: baseKey},
+		cachekey.Field{Name: "lib", Value: input.LibName},
+		cachekey.Field{Name: "platform", Value: input.Platform},
+		cachekey.Field{Name: "locked", Value: boolKeyFlag(input.Locked)},
+		cachekey.Field{Name: "debug", Value: boolKeyFlag(input.Debug)},
+		cachekey.Field{Name: "release", Value: boolKeyFlag(input.Release)},
+	})
+}
+
+// TestActionKeySensitiveToSeedAndFilter: changing the seed or filter produces a distinct TestActionKey.
+law TestActionKeySensitiveToSeedAndFilter(s1 uint64, s2 uint64, f1 string, f2 string) {
+	if s1 == s2 && f1 == f2 {
+		return true
+	}
+	let base = ActionInput{
+		Compiler:    "ergo 1",
+		Target:      "test",
+		PkgPath:     "app/pkg",
+		Files:       []FileDigest{FileDigest{Path: "pkg.ergo", ContentDigest: "digest"}},
+		DepKeys:     []string{},
+		Flags:       []string{},
+		Environ:     []string{},
+		Experiments: []string{},
+	}
+	let a = TestActionInput{Action: base, Seed: s1, States: 10, Filter: f1, Skip: "", Law: "", SkipLaw: "", ShardIndex: 0, ShardTotal: 1}
+	let b = TestActionInput{Action: base, Seed: s2, States: 10, Filter: f2, Skip: "", Law: "", SkipLaw: "", ShardIndex: 0, ShardTotal: 1}
+	TestActionKey(a) != TestActionKey(b)
+}
+
+// BuildActionKeySensitiveToModeAndPlatform: changing build flags or platform invalidates BuildActionKey.
+law BuildActionKeySensitiveToModeAndPlatform(p1 string, p2 string, debug bool, release bool) {
+	let base = ActionInput{
+		Compiler:    "ergo 1",
+		Target:      "build",
+		PkgPath:     "app/cmd",
+		Files:       []FileDigest{FileDigest{Path: "main.ergo", ContentDigest: "digest"}},
+		DepKeys:     []string{},
+		Flags:       []string{},
+		Environ:     []string{},
+		Experiments: []string{},
+	}
+	let a = BuildActionInput{Action: base, Mode: ModeBuild, LibName: "", Platform: p1, Locked: false, Debug: debug, Release: release}
+	let b = BuildActionInput{Action: base, Mode: ModeBuild, LibName: "", Platform: p2, Locked: false, Debug: !debug, Release: release}
+	(p1 != p2 && BuildActionKey(a) != BuildActionKey(BuildActionInput{..a, Platform: p2})) || (p1 == p2 && BuildActionKey(a) != BuildActionKey(b))
 }
