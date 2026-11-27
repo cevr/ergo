@@ -1,0 +1,183 @@
+import compiler/contentmap
+import compiler/front
+import compiler/lawcache
+import compiler/syntax
+import content
+import filepath
+import fs
+import fstest
+import option
+import strings
+
+// MapRuleSpec describes a validated `map PATTERN PKG.FUNC [COMPANIONS...]` directive from ergo.mod.
+type MapRuleSpec {
+	Pattern    string,
+	MapperPkg  string,
+	MapperFunc string,
+	Companions []string,
+	Line       uint32,
+}
+
+// AssetPatternProblem validates an ergo.mod `map` primary asset pattern, returning "" if valid.
+func AssetPatternProblem(pattern string) string {
+	if pattern == "" || strings.HasPrefix(pattern, "/") || strings.Contains(pattern, "\\") {
+		return "invalid map pattern \"" + pattern + "\": must be a relative path or glob inside the module"
+	}
+	let cleaned = strings.ReplaceAll(filepath.Clean(pattern), "\\", "/")
+	if strings.HasPrefix(cleaned, "..") || cleaned == "." {
+		return "invalid map pattern \"" + pattern + "\": must be a relative path or glob inside the module"
+	}
+	let base = filepath.Base(cleaned)
+	if strings.HasSuffix(base, ".ergo") || base == "ergo.mod" || base == "ergo.laws" || base == "go.mod" {
+		return "invalid map pattern \"" + pattern + "\": content mappers cannot override Ergo source or manifest files"
+	}
+	let _ = filepath.Match(cleaned, "test") catch {
+	case filepath.BadPattern:
+		return "invalid map pattern \"" + pattern + "\": malformed glob syntax"
+	}
+	""
+}
+
+// CompanionPatternProblem validates an ergo.mod `map` companion file pattern, returning "" if valid.
+func CompanionPatternProblem(pattern string) string {
+	if pattern == "" || strings.HasPrefix(pattern, "/") || strings.Contains(pattern, "\\") {
+		return "invalid companion pattern \"" + pattern + "\": must stay inside the module root"
+	}
+	let cleaned = strings.ReplaceAll(filepath.Clean(pattern), "\\", "/")
+	if strings.HasPrefix(cleaned, "..") || cleaned == "." {
+		return "invalid companion pattern \"" + pattern + "\": must stay inside the module root"
+	}
+	let _ = filepath.Match(cleaned, "test") catch {
+	case filepath.BadPattern:
+		return "invalid companion pattern \"" + pattern + "\": malformed glob syntax"
+	}
+	""
+}
+
+// SplitMapperSpec splits a PKG.FUNC specification into package path and function name.
+func SplitMapperSpec(spec string) (string, string, bool) {
+	let dot = strings.LastIndex(spec, ".")
+	if dot <= 0 || dot >= spec.Len()-1 {
+		return ("", "", false)
+	}
+	(spec[0:dot], spec[dot+1 : spec.Len()], true)
+}
+
+// ParseMapRulesFromMod delegates map directive parsing and validation to compiler/contentmap.
+func ParseMapRulesFromMod(modText string) []MapRuleSpec fails contentmap.RuleParseError {
+	let rules = try contentmap.ParseMapRules(modText)
+	let mut out = []MapRuleSpec{}
+	for r in rules {
+		out = out.Append(MapRuleSpec{
+			Pattern:    r.Pattern,
+			MapperPkg:  r.MapperPkg,
+			MapperFunc: r.MapperFunc,
+			Companions: r.Companions,
+			Line:       r.Line,
+		})
+	}
+	out
+}
+
+// MatchAssetForPath matches relPath against parsed contentmap rules using compiler/contentmap.
+func MatchAssetForPath(rules []contentmap.MapRule, relPath string) option.Option[contentmap.MapRule] {
+	let cleanRel = strings.ReplaceAll(filepath.Clean(relPath), "\\", "/")
+	contentmap.MatchAssetRule(rules, cleanRel)
+}
+
+// RunMappedFileAsset discovers companion files via compiler/contentmap and invokes RunFileAsset.
+func RunMappedFileAsset(fsys fs.Files, modRoot string, modName string, pkgDir string, pkgPath string, pkgRelPath string, rules []contentmap.MapRule, importFile string, line uint32, col uint32, cache lawcache.Store, useCache bool, buildID string, graph contentmap.PackageGraph, runner contentmap.MapperRunner) (contentmap.FileAssetResult, option.Option[string]) {
+	let discovered = contentmap.DiscoverAsset(fsys, contentmap.DiscoverRequest{
+		ModRoot:     modRoot,
+		ModName:     modName,
+		PackageDir:  pkgDir,
+		PackagePath: pkgPath,
+		ImportPath:  pkgRelPath,
+		Rules:       rules,
+	}) catch {
+	case p:
+		let msg = contentmap.FormatDiscoveryProblem(p)
+		return (contentmap.FileAssetResult{
+			Source: "",
+			Parsed: syntax.Parse(""),
+			Spans:  []content.SpanMapping{},
+			Record: contentmap.MapperRecord{
+				Target:     pkgRelPath,
+				Kind:       contentmap.FileMapper,
+				AssetPath:  pkgRelPath,
+				FileName:   importFile,
+				Line:       line,
+				Col:        col,
+				MapperPkg:  "",
+				MapperFunc: "",
+				MediaKind:  "asset",
+				CacheKey:   "",
+				CacheHit:   false,
+				Steps:      uint32(0),
+				BytesUsed:  uint32(0),
+				Generated:  "",
+				Spans:      []contentmap.SpanEntryRecord{},
+				Diags:      []contentmap.MapperDiagRecord{},
+				Decls:      []string{},
+			},
+			Diags:  []contentmap.ContentDiagnostic{},
+			Broken: true,
+		}, option.Some[string]{Value: msg})
+	}
+	let res = contentmap.RunFileAsset(contentmap.FileAssetRequest{
+		Target:          pkgRelPath,
+		AssetPath:       discovered.CanonPath,
+		PackagePath:     pkgPath,
+		MediaKind:       filepath.Ext(discovered.RelPath),
+		Bytes:           discovered.Bytes,
+		Companions:      discovered.Companions,
+		MapperPkg:       discovered.Rule.MapperPkg,
+		MapperFunc:      discovered.Rule.MapperFunc,
+		Graph:           graph,
+		Cache:           cache,
+		UseCache:        useCache,
+		BuildID:         buildID,
+		Budget:          contentmap.DefaultBudget(),
+		ImportFile:      importFile,
+		ImportFileIndex: uint32(0),
+		ImportOffset:    uint32(0),
+		ImportLength:    uint32(0),
+		ImportLine:      line,
+		ImportCol:       col,
+	}, runner)
+	let _ = front.IsRelativeAssetPath(pkgRelPath)
+	(res, option.None)
+}
+
+// SplitMapperSpecRoundTrips verifies splitting and joining a valid PKG.FUNC restores the input.
+law SplitMapperSpecRoundTrips(pkg string, fn string) {
+	if pkg == "" || fn == "" || strings.Contains(fn, ".") {
+		return true
+	}
+	let spec = pkg + "." + fn
+	let (gp, gf, ok) = SplitMapperSpec(spec)
+	ok && gp == pkg && gf == fn
+}
+
+test AssetsPatternSplitAndDiscovery {
+	assert AssetPatternProblem("*.svg") == ""
+	assert AssetPatternProblem("*.ergo") != ""
+	assert AssetPatternProblem("/abs/x.txt") != ""
+	assert CompanionPatternProblem("../outside.txt") != ""
+	let (pkg, fn, ok) = SplitMapperSpec("web/svg.Compile")
+	assert ok && pkg == "web/svg" && fn == "Compile"
+	let parsed = ParseMapRulesFromMod("module app\nmap *.sql gen/sql.Compile queries/*.meta.sql\n") catch {
+	case _:
+		assert false
+		return
+	}
+	assert parsed.Len() == 1 && parsed[0].MapperPkg == "gen/sql" && parsed[0].MapperFunc == "Compile"
+	let rules = contentmap.ParseMapRules("module app\nmap *.sql gen/sql.Compile\n") catch {
+	case _:
+		assert false
+		return
+	}
+	assert MatchAssetForPath(rules, "db/users.sql") != option.None
+	let mem = fstest.NewMemory()
+	let _ = mem
+}

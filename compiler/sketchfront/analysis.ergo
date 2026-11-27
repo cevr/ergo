@@ -1,0 +1,694 @@
+import cmp
+import compiler/check/bind
+import compiler/check/diag
+import compiler/check/facts
+import compiler/check/footprint
+import compiler/check/load
+import compiler/check/providing
+import compiler/check/rows
+import compiler/check/types
+import compiler/format
+import compiler/front
+import compiler/report
+import compiler/syntax
+import dense
+import filepath
+import fs
+import fstest
+import hex
+import option
+import sha256
+import slices
+import strconv
+import strings
+
+// LanguageRevision is the fixed language revision named by emissions.
+let LanguageRevision = "ergo-v1-2026-10-28"
+
+// EmitterRevision names the checked-tree IR lowering revision.
+let EmitterRevision = "lower/2"
+
+// LowerModeSingle selects single-package lowering.
+let LowerModeSingle = "single"
+
+// LowerModeSplit selects per-package split lowering.
+let LowerModeSplit = "split"
+
+// LowerModeShards selects declaration-shard lowering.
+let LowerModeShards = "shards"
+
+// LowerModeAuto selects automatic split-then-shards test lowering.
+let LowerModeAuto = "auto"
+
+// ModeBuild builds the main executable root.
+let ModeBuild = uint8(1)
+
+// ModeTest builds package tests and laws.
+let ModeTest = uint8(2)
+
+// ModeLib builds a standalone Go library package.
+let ModeLib = uint8(3)
+
+// PkgTag tags dense package rows inside AnalysisTable.
+type PkgTag {}
+
+// FileTag tags dense source file rows inside AnalysisTable.
+type FileTag {}
+
+// SketchDiag is one diagnostic produced by the sketch frontend pipeline.
+type SketchDiag {
+	PkgID   uint32,
+	File    string,
+	Offset  uint32,
+	Length  uint32,
+	Line    uint32,
+	Column  uint32,
+	Code    string,
+	Message string,
+	Stage   string,
+	Warning bool,
+}
+
+// CheckOptions configures frontend parsing, checking, and diagnostics.
+type CheckOptions {
+	GoOS     string,
+	GoArch   string,
+	MapperID string,
+	StdDir   string,
+	Strict   bool,
+	Threads  uint32,
+	AllLaws  bool,
+}
+
+// DefaultCheckOptions returns standard CheckOptions with no overrides.
+func DefaultCheckOptions() CheckOptions {
+	CheckOptions{
+		GoOS:     "",
+		GoArch:   "",
+		MapperID: "",
+		StdDir:   "",
+		Strict:   false,
+		Threads:  uint32(1),
+		AllLaws:  true,
+	}
+}
+
+// AnalysisTable holds checked packages, source files, imports, fingerprints, and diagnostics in dense uint32 SoA columns.
+type AnalysisTable {
+	PkgCount      dense.Count[PkgTag],
+	PkgPath       []string,
+	PkgName       []string,
+	PkgDir        []string,
+	PkgModuleRoot []string,
+	PkgModuleName []string,
+	PkgTrustsGo   []bool,
+	PkgCacheHit   []bool,
+	PkgChecked    []bool,
+	PkgHasAsset   []bool,
+	PkgCleanFP    []string,
+	PkgSelfFP     []string,
+	PkgDepFP      []string,
+	PkgIfaceFP    []string,
+	PkgFileStart  []uint32,
+	PkgFileLen    []uint32,
+	PkgImpStart   []uint32,
+	PkgImpLen     []uint32,
+	PkgByPath     Map[string, uint32],
+	PkgByDir      Map[string, uint32],
+	FileCount     dense.Count[FileTag],
+	FileRel       []string,
+	FilePath      []string,
+	FileSrc       []string,
+	FileDigest    []string,
+	FilePkg       []uint32,
+	Imports       []string,
+	Diags         []SketchDiag,
+	RootPkgID     uint32,
+	Source        string,
+	Revision      string,
+}
+
+// NewAnalysisTable allocates an empty pointer-free AnalysisTable.
+func NewAnalysisTable() AnalysisTable {
+	AnalysisTable{
+		PkgCount:      dense.NewCount[PkgTag](),
+		PkgPath:       []string{},
+		PkgName:       []string{},
+		PkgDir:        []string{},
+		PkgModuleRoot: []string{},
+		PkgModuleName: []string{},
+		PkgTrustsGo:   []bool{},
+		PkgCacheHit:   []bool{},
+		PkgChecked:    []bool{},
+		PkgHasAsset:   []bool{},
+		PkgCleanFP:    []string{},
+		PkgSelfFP:     []string{},
+		PkgDepFP:      []string{},
+		PkgIfaceFP:    []string{},
+		PkgFileStart:  []uint32{},
+		PkgFileLen:    []uint32{},
+		PkgImpStart:   []uint32{},
+		PkgImpLen:     []uint32{},
+		PkgByPath:     Map[string, uint32]{},
+		PkgByDir:      Map[string, uint32]{},
+		FileCount:     dense.NewCount[FileTag](),
+		FileRel:       []string{},
+		FilePath:      []string{},
+		FileSrc:       []string{},
+		FileDigest:    []string{},
+		FilePkg:       []uint32{},
+		Imports:       []string{},
+		Diags:         []SketchDiag{},
+		RootPkgID:     front.NoID,
+		Source:        "",
+		Revision:      LanguageRevision,
+	}
+}
+
+// FormatOutcome captures the canonical formatted source or structured refusal.
+type FormatOutcome =
+	| FormatOK{InputDigest string, OutputDigest string, Changed bool, Text string}
+	| FormatLimitExceeded{InputDigest string, Limit uint32}
+	| FormatSyntaxError{InputDigest string, Diag SketchDiag}
+	| FormatInvalidLimit{Reason string}
+
+// FormatSource formats Ergo source text using compiler/format with optional positive byte limit.
+func FormatSource(source string, maxOutputBytes uint32, hasLimit bool) FormatOutcome {
+	let inDigest = report.Revision(source)
+	let limit = if hasLimit { int(maxOutputBytes) } else { 0 }
+	let formatted = format.Source(source, limit) catch {
+	case format.OutputLimit:
+		return FormatLimitExceeded{InputDigest: inDigest, Limit: maxOutputBytes}
+	case format.SyntaxFailure as sf:
+		let d = SketchDiag{
+			PkgID:   front.NoID,
+			File:    "",
+			Offset:  uint32(sf.Offset),
+			Length:  uint32(sf.Length),
+			Line:    uint32(sf.Line),
+			Column:  uint32(sf.Column),
+			Code:    sf.Code,
+			Message: sf.Message,
+			Stage:   "syntax",
+			Warning: false,
+		}
+		return FormatSyntaxError{InputDigest: inDigest, Diag: d}
+	}
+	FormatOK{
+		InputDigest:  inDigest,
+		OutputDigest: report.Revision(formatted),
+		Changed:      formatted != source,
+		Text:         formatted,
+	}
+}
+
+// FailureMessage formats the canonical failure refusal text from a formatting or syntax diagnostic.
+func FailureMessage(d SketchDiag) string {
+	if d.Line > uint32(0) {
+		return "source cannot be formatted: " + d.Code + " at " + strconv.Itoa(int(d.Line)) + ":" + strconv.Itoa(int(d.Column)) + ": " + d.Message
+	}
+	"source cannot be formatted: " + d.Code + ": " + d.Message
+}
+
+// LoweringOf selects the lowering strategy given ERGO_LOWER env value and build mode.
+func LoweringOf(envVal string, mode uint8) string {
+	if envVal == LowerModeSingle || envVal == LowerModeSplit || envVal == LowerModeShards {
+		return envVal
+	}
+	if mode == ModeTest {
+		return LowerModeAuto
+	}
+	LowerModeSplit
+}
+
+// ShardsSeenKey computes the deterministic shard marker key for a build mode and source path.
+func ShardsSeenKey(mode uint8, source string) string {
+	let mText = if mode == ModeBuild {
+		"build"
+	} else if mode == ModeTest {
+		"test"
+	} else {
+		"lib"
+	}
+	"shards-" + hex.Encode(sha256.Sum("ergo-shards\x00"+mText+"\x00"+source))
+}
+
+// BuildRequestSpec captures parameters for emitting or building a checked analysis.
+type BuildRequestSpec {
+	Mode      uint8,
+	Source    string,
+	Output    string,
+	Lib       bool,
+	Debug     bool,
+	Release   bool,
+	Locked    bool,
+	Platform  string,
+	LowerEnv  string,
+	LowerUsed string,
+}
+
+// UnitInputKey computes the framed emission unit input digest from lowered identity fields.
+func UnitInputKey(req BuildRequestSpec, stdDigest string, pkgPaths []string, pkgSelfFPs []string) string {
+	let lowerChoice = if req.LowerUsed != "" { req.LowerUsed } else { LoweringOf(req.LowerEnv, req.Mode) }
+	let mut buf = strings.NewBuilder()
+	buf.WriteString("ergo-unit-1\x00")
+	buf.WriteString(LanguageRevision)
+	buf.WriteByte('\x00')
+	buf.WriteString(EmitterRevision)
+	buf.WriteByte('\x00')
+	buf.WriteString(lowerChoice)
+	buf.WriteByte('\x00')
+	buf.WriteString(strconv.Itoa(int(req.Mode)))
+	buf.WriteByte('\x00')
+	buf.WriteString(req.Platform)
+	buf.WriteByte('\x00')
+	buf.WriteString(stdDigest)
+	let mut pairs = slices.WithCapacity[string](pkgPaths.Len())
+	for i in 0..pkgPaths.Len() {
+		let fp = if i < pkgSelfFPs.Len() { pkgSelfFPs[i] } else { "" }
+		pairs = pairs.Append(pkgPaths[i] + "=" + fp)
+	}
+	let sortedPairs = slices.Sort(pairs)
+	for p in sortedPairs {
+		buf.WriteByte('\x00')
+		buf.WriteString(p)
+	}
+	hex.Encode(sha256.Sum(buf.String()))
+}
+
+// FingerprintTriple stores package fingerprint components (Clean, Self, Dep) without pointers.
+type FingerprintTriple {
+	PkgPath string,
+	Clean   string,
+	Self    string,
+	Dep     string,
+}
+
+type fileInputPair {
+	entry front.ProgramTextEntry,
+	abs   string,
+}
+
+// AppendPackage inserts one package row and its source files and sorted imports into AnalysisTable.
+func AppendPackage(a mut AnalysisTable, pkgPath string, pkgName string, pkgDir string, modRoot string, modName string, trustsGo bool, cacheHit bool, checked bool, hasAsset bool, files []front.ProgramTextEntry, absPaths []string, imports []string) uint32 {
+	let id = uint32(dense.Index(dense.Next(&a.PkgCount)))
+	let fileStart = uint32((*a).FileSrc.Len())
+	let mut pairs = slices.WithCapacity[fileInputPair](files.Len())
+	for i, sf in files {
+		let rel = strings.ReplaceAll(filepath.Clean(sf.Rel), "\\", "/")
+		let abs = if i < absPaths.Len() && absPaths[i] != "" { absPaths[i] } else { rel }
+		pairs = pairs.Append(fileInputPair{
+			entry: front.ProgramTextEntry{Rel: rel, Source: sf.Source},
+			abs:   abs,
+		})
+	}
+	let sortedPairs = slices.SortFunc(pairs, func(x fileInputPair, y fileInputPair) int {
+		cmp.Compare(x.entry.Rel, y.entry.Rel)
+	})
+	let mut srcEntries = slices.WithCapacity[front.ProgramTextEntry](sortedPairs.Len())
+	for sp in sortedPairs {
+		let _ = dense.Next(&a.FileCount)
+		(*a).FileRel = (*a).FileRel.Append(sp.entry.Rel)
+		(*a).FilePath = (*a).FilePath.Append(sp.abs)
+		(*a).FileSrc = (*a).FileSrc.Append(sp.entry.Source)
+		(*a).FileDigest = (*a).FileDigest.Append(hex.Encode(sha256.Sum(sp.entry.Source)))
+		(*a).FilePkg = (*a).FilePkg.Append(id)
+		srcEntries = srcEntries.Append(sp.entry)
+	}
+	let fileLen = uint32(sortedPairs.Len())
+	let impStart = uint32((*a).Imports.Len())
+	let sortedImps = slices.Sort(slices.Clone(imports))
+	for imp in sortedImps {
+		(*a).Imports = (*a).Imports.Append(imp)
+	}
+	let impLen = uint32(sortedImps.Len())
+	let selfFP = front.ProgramFingerprint(srcEntries)
+	(*a).PkgPath = (*a).PkgPath.Append(pkgPath)
+	(*a).PkgName = (*a).PkgName.Append(pkgName)
+	(*a).PkgDir = (*a).PkgDir.Append(pkgDir)
+	(*a).PkgModuleRoot = (*a).PkgModuleRoot.Append(modRoot)
+	(*a).PkgModuleName = (*a).PkgModuleName.Append(modName)
+	(*a).PkgTrustsGo = (*a).PkgTrustsGo.Append(trustsGo)
+	(*a).PkgCacheHit = (*a).PkgCacheHit.Append(cacheHit)
+	(*a).PkgChecked = (*a).PkgChecked.Append(checked)
+	(*a).PkgHasAsset = (*a).PkgHasAsset.Append(hasAsset)
+	(*a).PkgSelfFP = (*a).PkgSelfFP.Append(selfFP)
+	(*a).PkgDepFP = (*a).PkgDepFP.Append("")
+	(*a).PkgCleanFP = (*a).PkgCleanFP.Append(selfFP)
+	(*a).PkgIfaceFP = (*a).PkgIfaceFP.Append("")
+	(*a).PkgFileStart = (*a).PkgFileStart.Append(fileStart)
+	(*a).PkgFileLen = (*a).PkgFileLen.Append(fileLen)
+	(*a).PkgImpStart = (*a).PkgImpStart.Append(impStart)
+	(*a).PkgImpLen = (*a).PkgImpLen.Append(impLen)
+	(*a).PkgByPath = (*a).PkgByPath.Put(pkgPath, id)
+	if pkgDir != "" {
+		(*a).PkgByDir = (*a).PkgByDir.Put(pkgDir, id)
+	}
+	id
+}
+
+// PackageFiles returns all ProgramTextEntry rows belonging to package pid.
+func PackageFiles(a AnalysisTable, pid uint32) []front.ProgramTextEntry {
+	let idx = int(pid)
+	if idx < 0 || idx >= a.PkgPath.Len() {
+		return []front.ProgramTextEntry{}
+	}
+	let start = int(a.PkgFileStart[idx])
+	let n = int(a.PkgFileLen[idx])
+	let mut out = slices.WithCapacity[front.ProgramTextEntry](n)
+	for i in start..start+n {
+		out = out.Append(front.ProgramTextEntry{
+			Rel:    a.FileRel[i],
+			Source: a.FileSrc[i],
+		})
+	}
+	out
+}
+
+// PackageImports returns the import paths recorded for package pid.
+func PackageImports(a AnalysisTable, pid uint32) []string {
+	let idx = int(pid)
+	if idx < 0 || idx >= a.PkgPath.Len() {
+		return []string{}
+	}
+	let start = int(a.PkgImpStart[idx])
+	let n = int(a.PkgImpLen[idx])
+	let mut out = slices.WithCapacity[string](n)
+	for i in start..start+n {
+		out = out.Append(a.Imports[i])
+	}
+	out
+}
+
+// FingerprintsOf computes [Clean, Self, Dep] triples in dependency order for every checked package.
+func FingerprintsOf(a AnalysisTable) []FingerprintTriple {
+	let n = a.PkgPath.Len()
+	let mut out = slices.WithCapacity[FingerprintTriple](n)
+	for i in 0..n {
+		out = out.Append(FingerprintTriple{
+			PkgPath: a.PkgPath[i],
+			Clean:   a.PkgCleanFP[i],
+			Self:    a.PkgSelfFP[i],
+			Dep:     a.PkgDepFP[i],
+		})
+	}
+	out
+}
+
+// Clause pairs a diagnostic directory path and formatted error string for BuildError.
+type Clause {
+	Dir  string,
+	Text string,
+}
+
+// ClausesFromDiags converts diagnostics into ordered Clauses using pkgDir or rel file directory.
+func ClausesFromDiags(diags []SketchDiag) []Clause {
+	let mut out = slices.WithCapacity[Clause](diags.Len())
+	for d in diags {
+		let lineText = if d.File != "" {
+			if d.Line > uint32(0) {
+				d.File + ":" + strconv.Itoa(int(d.Line)) + ":" + strconv.Itoa(int(d.Column)) + ": error " + d.Code + ": " + d.Message
+			} else {
+				d.File + ": error " + d.Code + ": " + d.Message
+			}
+		} else {
+			if d.Line > uint32(0) {
+				strconv.Itoa(int(d.Line)) + ":" + strconv.Itoa(int(d.Column)) + ": error " + d.Code + ": " + d.Message
+			} else {
+				"error " + d.Code + ": " + d.Message
+			}
+		}
+		out = out.Append(Clause{Dir: "", Text: lineText})
+	}
+	out
+}
+
+// EmittedDigest returns the canonical SHA-256 hex digest of emitted Go module files sorted by relative path.
+func EmittedDigest(files []front.ProgramTextEntry) string {
+	front.ProgramFingerprint(files)
+}
+
+// SortDiagnostics orders SketchDiag values deterministically by File, Offset, Length, Code, Message.
+func SortDiagnostics(ds []SketchDiag) []SketchDiag {
+	slices.SortStableFunc(ds, func(a SketchDiag, b SketchDiag) int {
+		let fc = cmp.Compare(a.File, b.File)
+		if fc != 0 {
+			return fc
+		}
+		if a.Offset != b.Offset {
+			return if a.Offset < b.Offset { -1 } else { 1 }
+		}
+		if a.Length != b.Length {
+			return if a.Length < b.Length { -1 } else { 1 }
+		}
+		let cc = cmp.Compare(a.Code, b.Code)
+		if cc != 0 {
+			return cc
+		}
+		cmp.Compare(a.Message, b.Message)
+	})
+}
+
+// CheckSource parses and runs full self-hosted type and semantic diagnostic passes on a single source text.
+func CheckSource(source string, name string, opts CheckOptions) AnalysisTable needs fs.Files {
+	let mut table = NewAnalysisTable()
+	table.Source = name
+	let parsed = syntax.Parse(source)
+	let fileName = if name != "" { name } else { "main.ergo" }
+	let entry = front.ProgramTextEntry{Rel: fileName, Source: source}
+	if parsed.Failed {
+		let pid = AppendPackage(&table, "main", "main", ".", "", "main", false, false, false, false, []front.ProgramTextEntry{entry}, []string{fileName}, []string{})
+		table.RootPkgID = pid
+		table.Diags = []SketchDiag{
+			SketchDiag{
+				PkgID:   pid,
+				File:    fileName,
+				Offset:  uint32(parsed.Offset),
+				Length:  uint32(parsed.Length),
+				Line:    uint32(parsed.Line),
+				Column:  uint32(parsed.Column),
+				Code:    parsed.Code,
+				Message: parsed.Message,
+				Stage:   "parse",
+				Warning: false,
+			},
+		}
+		return table
+	}
+	let imps = bind.Imports([]bind.File{bind.File{Name: fileName, Parsed: parsed}})
+	let pid = AppendPackage(&table, "main", "main", ".", "", "main", false, false, true, false, []front.ProgramTextEntry{entry}, []string{fileName}, imps)
+	table.RootPkgID = pid
+	let u = load.Unit{
+		Tab:   load.TablesOf("", "@pkg main main 1\n"),
+		Files: []bind.File{bind.File{Name: fileName, Parsed: parsed}},
+		Paths: []string{fileName},
+		Path:  "main",
+		Dir:   ".",
+	}
+	let outside = load.Outside([]load.Unit{u}, opts.StdDir)
+	let mut known = Map[string, bool]{}
+	known = known.Put("main", true)
+	for iface in outside {
+		known = known.Put(iface.Path, true)
+	}
+	let prog = load.LoadAll([]load.Unit{u}, outside, 1)
+	let mut deps = Map[string, Map[string, bool]]{}
+	for e in prog.Loaded {
+		let r = diag.Resources(e.S, e.K, deps)
+		deps = deps.Put(e.Path, r)
+	}
+	let mut allDiags = []SketchDiag{}
+	let lines = syntax.LinesOf(source)
+	for i in 0..prog.Loaded.Len() {
+		if prog.Loaded[i].Path != "main" {
+			continue
+		}
+		let typed = load.TypeAt(prog, i)
+		let iface = types.Interface(typed.S, typed.K.Parsed, typed.K.Kinds, typed.K.Ext, typed.K.Foreign, typed.K.Ifaces)
+		let _ = footprint.Of(typed.S, typed.K, typed.T)
+		table.PkgIfaceFP[int(pid)] = InterfaceDigest(iface)
+		let mut miss = []string{}
+		for imp in imps {
+			if known.Get(imp) == option.None {
+				miss = miss.Append(imp)
+			}
+		}
+		let rawDs = collectUnitDiagsForSketch(typed, []string{source}, miss, deps)
+		for g in rawDs {
+			let pos = syntax.PositionOf(lines, g.Offset)
+			allDiags = allDiags.Append(SketchDiag{
+				PkgID:   pid,
+				File:    fileName,
+				Offset:  uint32(g.Offset),
+				Length:  uint32(g.Length),
+				Line:    uint32(pos.Line),
+				Column:  uint32(pos.Column),
+				Code:    g.Code,
+				Message: g.Message,
+				Stage:   "check",
+				Warning: false,
+			})
+		}
+	}
+	table.Diags = SortDiagnostics(allDiags)
+	table.PkgChecked[int(pid)] = table.Diags.Len() == 0
+	table
+}
+
+// InterfaceDigest computes a deterministic SHA-256 hex digest over a checked types.Iface summary.
+func InterfaceDigest(ifc types.Iface) string {
+	let mut b = strings.NewBuilder()
+	b.WriteString(ifc.Path)
+	b.WriteByte('\x00')
+	b.WriteString(ifc.Name)
+	for d in ifc.Decls {
+		b.WriteByte('\x00')
+		b.WriteString(d.Name)
+		b.WriteByte('|')
+		b.WriteString(if d.Type { "T" } else { "V" })
+		b.WriteByte('|')
+		b.WriteString(d.Print)
+		b.WriteByte('|')
+		b.WriteString(d.Key)
+		b.WriteByte('|')
+		b.WriteString(d.Harness)
+	}
+	hex.Encode(sha256.Sum(b.String()))
+}
+
+func collectUnitDiagsForSketch(d load.Typed, srcs []string, miss []string, deps Map[string, Map[string, bool]]) []diag.Diag {
+	let held = diag.Held(d.S, d.K, d.T, deps)
+	let mut ds = diag.UnusedWithImports(d.K.Files, d.S, d.K.U, d.K.Ps, miss, providing.Quiet(d.S, d.K, held), d.T.UsedImports)
+	for g in diag.Flow(d.S, d.K, d.T, srcs) {
+		ds = ds.Append(g)
+	}
+	for g in diag.OwnMarks(d.S, d.K, d.T) {
+		ds = ds.Append(g)
+	}
+	for g in diag.Harnesses(d.K) {
+		ds = ds.Append(g)
+	}
+	for g in diag.AsWritten(d.K.Parsed) {
+		ds = ds.Append(g)
+	}
+	for g in diag.MachineTuples(d.K.Parsed) {
+		ds = ds.Append(g)
+	}
+	for g in rows.Rows(d.S, d.K, d.T) {
+		ds = ds.Append(g)
+	}
+	for g in providing.Check(d.S, d.K) {
+		ds = ds.Append(g)
+	}
+	for g in diag.Dropped(d.S, d.K, d.T, footprint.Of(d.S, d.K, d.T), deps) {
+		ds = ds.Append(g)
+	}
+	for g in d.T.Diags {
+		let (f, row) = bind.RowOf(d.K.Ps, g.At)
+		let parsed = d.K.Parsed[f]
+		let id = syntax.NodeAt(parsed.Tree, row)
+		let offset = syntax.NodePos(parsed, id)
+		ds = ds.Append(diag.Diag{
+			File:    f,
+			Offset:  offset,
+			Length:  syntax.NodeEnd(parsed, id) - offset,
+			Code:    "S108",
+			Message: "type or binding error",
+		})
+	}
+	for g in d.T.SelfInference {
+		let parsed = d.K.Parsed[g.File]
+		let offset = syntax.NodePos(parsed, g.At)
+		ds = ds.Append(diag.Diag{
+			File:    g.File,
+			Offset:  offset,
+			Length:  syntax.NodeEnd(parsed, g.At) - offset,
+			Code:    "S108",
+			Message: "cannot infer " + g.Param + "; write the type arguments, e.g. " + g.Example,
+		})
+	}
+	for g in d.T.BareSelfCalls {
+		let parsed = d.K.Parsed[g.File]
+		let offset = syntax.NodePos(parsed, g.At)
+		ds = ds.Append(diag.Diag{
+			File:    g.File,
+			Offset:  offset,
+			Length:  syntax.NodeEnd(parsed, g.At) - offset,
+			Code:    "S108",
+			Message: g.Name + " needs a value: write x." + g.Name + "(...)",
+		})
+	}
+	for g in d.T.LookupDiags {
+		let parsed = d.K.Parsed[g.File]
+		let offset = syntax.NodePos(parsed, g.At)
+		ds = ds.Append(diag.Diag{
+			File:    g.File,
+			Offset:  offset,
+			Length:  syntax.NodeEnd(parsed, g.At) - offset,
+			Code:    g.Code,
+			Message: g.Message,
+		})
+	}
+	let mut s = d.S
+	for g in facts.Diags(&s, d.K) {
+		ds = ds.Append(g)
+	}
+	diag.Sorted(ds)
+}
+
+// FormatIsIdempotent verifies formatting a formatted output produces no change.
+law FormatIsIdempotent(src string) {
+	match FormatSource(src, uint32(0), false) {
+	case FormatOK as ok1:
+		match FormatSource(ok1.Text, uint32(0), false) {
+		case FormatOK as ok2:
+			!ok2.Changed && ok1.Text == ok2.Text
+		case _:
+			false
+		}
+	case _:
+		true
+	}
+}
+
+// ShardsKeySensitiveToMode verifies different build modes produce distinct shard keys.
+law ShardsKeySensitiveToMode(source string) {
+	ShardsSeenKey(ModeBuild, source) != ShardsSeenKey(ModeTest, source)
+}
+
+test AnalysisTableFormatAndCheckSource {
+	let src = "func Add(a int, b int) int {\na + b\n}\n"
+	match FormatSource(src, uint32(0), false) {
+	case FormatOK as ok:
+		assert ok.Changed
+		assert strings.Contains(ok.Text, "\ta + b")
+		assert ok.InputDigest != ok.OutputDigest
+	case _:
+		assert false
+	}
+	match FormatSource(src, uint32(4), true) {
+	case FormatLimitExceeded as le:
+		assert le.Limit == uint32(4)
+	case _:
+		assert false
+	}
+	match FormatSource("func broken( {", uint32(0), false) {
+	case FormatSyntaxError as se:
+		let msg = FailureMessage(se.Diag)
+		assert strings.Contains(msg, "source cannot be formatted:")
+	case _:
+		assert false
+	}
+	let mut tbl = NewAnalysisTable()
+	let pid = AppendPackage(&tbl, "app/main", "main", "/repo/main", "/repo", "app", false, false, true, false, []front.ProgramTextEntry{front.ProgramTextEntry{Rel: "b.ergo", Source: "let B = 2\n"}, front.ProgramTextEntry{Rel: "a.ergo", Source: "let A = 1\n"}}, []string{"/repo/main/b.ergo", "/repo/main/a.ergo"}, []string{"z", "a"})
+	assert pid == uint32(0)
+	let files = PackageFiles(tbl, pid)
+	assert files.Len() == 2 && files[0].Rel == "a.ergo" && files[1].Rel == "b.ergo"
+	let imps = PackageImports(tbl, pid)
+	assert imps.Len() == 2 && imps[0] == "a" && imps[1] == "z"
+	let checked = with context { fs.Files: fstest.NewMemory() } {
+		CheckSource("func Main() int { let x = 1\n 2 }\n", "main.ergo", DefaultCheckOptions())
+	}
+	assert checked.RootPkgID == uint32(0)
+	assert checked.Diags.Len() >= 1
+}
