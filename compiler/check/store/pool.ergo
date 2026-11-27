@@ -20,6 +20,34 @@ let tUnion = 8
 let tRow = 9
 let tInstance = 10
 
+// Meter counts repeatable type steps against a package limit.
+type Meter {
+	// Spent is the steps charged so far.
+	Spent uint32,
+	// Limit is the maximum steps allowed.
+	Limit uint32,
+	// Out reports whether the meter has passed its limit.
+	Out bool,
+}
+
+// NewMeter returns a meter with limit steps available.
+func NewMeter(limit uint32) Meter {
+	Meter{Spent: uint32(0), Limit: limit, Out: false}
+}
+
+// Step adds n steps to m and reports whether m stayed within its limit.
+func Step(m mut Meter, n uint32) bool {
+	if m.Out {
+		return false
+	}
+	if n > m.Limit || m.Spent > m.Limit-n {
+		m.Out = true
+		return false
+	}
+	m.Spent = m.Spent + n
+	true
+}
+
 // Pool interns one package's types, so equal ids are equal types. An
 // operand list is interned by its content (its text in lists), so two
 // equal lists are one list, and a key names its list by number (starts
@@ -36,6 +64,8 @@ type Pool {
 	layouts        dense.Side[TKey, []ClaimLayout],
 	sigDefects     dense.Side[TKey, bool],
 	functionClaims FunctionClaims,
+	meter          Meter,
+	unset          dense.Opt[TKey],
 }
 
 // NewPool is a pool of no types.
@@ -50,6 +80,23 @@ func NewPool() Pool {
 		layouts:        dense.NewSide[TKey, []ClaimLayout]([]ClaimLayout{}),
 		sigDefects:     dense.NewSide[TKey, bool](false),
 		functionClaims: newFunctionClaims(),
+		meter:          NewMeter(uint32(4294967295)),
+		unset:          dense.NoID[TKey](),
+	}
+}
+
+func unsetID(p mut Pool) dense.ID[TKey] {
+	match dense.Unpack(p.unset) {
+	case option.Some{Value: id}:
+		id
+	case option.None:
+		let n = dense.Interned(p.keys)
+		let id = dense.Intern(&p.keys, TKey{k: uint8(tBasic), a: uint32(0), b: uint32(0)})
+		if dense.Index(id) == n {
+			dense.Push(&p.open, false)
+		}
+		p.unset = dense.OptOf(id)
+		id
 	}
 }
 
@@ -57,10 +104,20 @@ func NewPool() Pool {
 // the type mentions a type parameter (a pure function of the key, so it
 // is the same at 1 and at 8 threads).
 func intern(p mut Pool, k TKey, open bool) dense.ID[TKey] {
+	if !Step(&p.meter, uint32(1)) {
+		return unsetID(p)
+	}
 	let n = dense.Interned(p.keys)
 	let id = dense.Intern(&p.keys, k)
 	if dense.Index(id) == n {
 		dense.Push(&p.open, open)
+	}
+	if int(k.k) == tBasic && k.a == uint32(0) && k.b == uint32(0) {
+		match dense.Unpack(p.unset) {
+		case option.Some:
+		case option.None:
+			p.unset = dense.OptOf(id)
+		}
 	}
 	id
 }
@@ -68,6 +125,9 @@ func intern(p mut Pool, k TKey, open bool) dense.ID[TKey] {
 // list is the number of the list prefix then ts: a list equal to one
 // interned before shares its number.
 func list(p mut Pool, prefix string, ts []dense.ID[TKey]) uint32 {
+	if !Step(&p.meter, uint32(1+ts.Len())) {
+		return uint32(0)
+	}
 	let mut b = strings.NewBuilder()
 	b.WriteString(prefix)
 	for t in ts {
@@ -99,18 +159,29 @@ func anyOpen(p Pool, ts []dense.ID[TKey]) bool {
 // composite interns a type of kind k over the operands ts.
 func composite(p mut Pool, k int, ts []dense.ID[TKey]) dense.ID[TKey] {
 	let l = list(p, "", ts)
+	if p.meter.Out {
+		return unsetID(p)
+	}
 	intern(p, TKey{k: uint8(k), a: l, b: uint32(ts.Len())}, anyOpen(*p, ts))
 }
 
 func sigDefects(p mut Pool, ts []dense.ID[TKey]) dense.ID[TKey] {
 	let l = list(p, "d", ts)
+	if p.meter.Out {
+		return unsetID(p)
+	}
 	let id = intern(p, TKey{k: uint8(tSig), a: l, b: uint32(ts.Len())}, anyOpen(*p, ts))
-	dense.SideSet(&p.sigDefects, id, true)
+	if !p.meter.Out {
+		dense.SideSet(&p.sigDefects, id, true)
+	}
 	id
 }
 
 func symbolic(p mut Pool, k int, ts []dense.ID[TKey]) dense.ID[TKey] {
 	let l = list(p, "", ts)
+	if p.meter.Out {
+		return unsetID(p)
+	}
 	intern(p, TKey{k: uint8(k), a: l, b: uint32(ts.Len())}, true)
 }
 
@@ -135,6 +206,9 @@ func FuncOf(p mut Pool, params []dense.ID[TKey], result dense.ID[TKey]) dense.ID
 // Row is the row of the types ts: a sorted run with no repeats, so two
 // rows of the same types are one id (design.md: a row is a sorted set).
 func Row(p mut Pool, ts []dense.ID[TKey]) dense.ID[TKey] {
+	if !Step(&p.meter, uint32(1+ts.Len())) {
+		return unsetID(p)
+	}
 	let sorted = slices.SortFunc(ts, func(a dense.ID[TKey], b dense.ID[TKey]) int { dense.Index(a) - dense.Index(b) })
 	let mut set = []dense.ID[TKey]{}
 	for t in sorted {
@@ -150,8 +224,13 @@ func Row(p mut Pool, ts []dense.ID[TKey]) dense.ID[TKey] {
 // ruling: identity across packages is Canon's key, never this id).
 func Instance(p mut Pool, o XRef, args []dense.ID[TKey]) dense.ID[TKey] {
 	let l = list(p, "\(o.Import).\(o.Decl)", args)
+	if p.meter.Out {
+		return unsetID(p)
+	}
 	let id = intern(p, TKey{k: uint8(tInstance), a: l, b: uint32(args.Len())}, anyOpen(*p, args))
-	dense.SideSet(&p.origin, id, o)
+	if !p.meter.Out {
+		dense.SideSet(&p.origin, id, o)
+	}
 	id
 }
 
@@ -183,6 +262,9 @@ func Subst(p mut Pool, t dense.ID[TKey], args []dense.ID[TKey]) dense.ID[TKey] {
 }
 
 func replaceAt(p mut Pool, recv dense.ID[TKey], args []dense.ID[TKey], positions []int) dense.ID[TKey] {
+	if !Step(&p.meter, uint32(1+args.Len())) {
+		return unsetID(p)
+	}
 	if args.Len() == 0 {
 		return recv
 	}
@@ -200,6 +282,9 @@ func replaceAt(p mut Pool, recv dense.ID[TKey], args []dense.ID[TKey], positions
 }
 
 func reapply(p mut Pool, recv dense.ID[TKey], op dense.ID[TKey], args []dense.ID[TKey]) dense.ID[TKey] {
+	if !Step(&p.meter, uint32(1+args.Len())) {
+		return unsetID(p)
+	}
 	match reapplyFunctionClaim(p, recv, op, args) {
 	case option.Some{Value: applied}:
 		return applied
@@ -221,6 +306,9 @@ func reapply(p mut Pool, recv dense.ID[TKey], op dense.ID[TKey], args []dense.ID
 }
 
 func substAt(p mut Pool, t dense.ID[TKey], args []dense.ID[TKey], self dense.Opt[TKey], op dense.Opt[TKey], positions []int, shape []bool) dense.ID[TKey] {
+	if !Step(&p.meter, uint32(1)) {
+		return unsetID(p)
+	}
 	if !Open(*p, t) {
 		return t
 	}
@@ -394,4 +482,42 @@ law SubstAgreesWithModel(xs []int) {
 		}
 	}
 	ok
+}
+
+law MeterStopsPastLimit(steps []int) {
+	let mut m = NewMeter(uint32(50))
+	let mut expectOut = false
+	let mut ok = true
+	for raw in steps {
+		let step = uint32((if raw < 0 { -raw } else { raw })%25 + 1)
+		let fits = Step(&m, step)
+		if expectOut {
+			ok = ok && !fits && m.Out
+		} else if m.Out {
+			expectOut = true
+			ok = ok && !fits
+		} else {
+			ok = ok && fits && m.Spent <= m.Limit
+		}
+	}
+	ok && m.Spent <= m.Limit
+}
+
+law PoolStopsPastLimit(xs []int, lim int) {
+	let (s0, named) = setup("a", false)
+	let base = PoolSpent(s0)
+	let m = base + uint32(if lim < 0 { 0 } else { lim%40 + 1 })
+	let mut s = s0
+	SetPoolLimit(&s, m)
+	let _ = build(&s, named, xs)
+	let spent1 = PoolSpent(s)
+	let out1 = PoolOut(s)
+	let _ = build(&s, named, xs)
+	let spent2 = PoolSpent(s)
+	let out2 = PoolOut(s)
+	let mut sSubst = s0
+	let closed = Basic(&sSubst.pool, 1)
+	SetPoolLimit(&sSubst, PoolSpent(sSubst))
+	let _ = Subst(&sSubst.pool, closed, []dense.ID[TKey]{})
+	spent1 >= base && spent1 <= m && (!out1 || (out2 && spent2 == spent1)) && PoolOut(sSubst)
 }

@@ -38,52 +38,146 @@ import compiler/syntax
 import dense
 import option
 import slices
+import strings
+import tasks
 
 // The two clauses a site exceeds.
 let kErrors = 0
 let kUses = 1
 
-// site is one place where a body exceeds a clause of kind: its node and
+// site is one place where a site exceeds a clause of kind: its node and
 // the elements outside the written clause.
 type site { at dense.ID[syntax.Node], kind int, extra []dense.ID[store.TKey], lit bool, decl []dense.ID[store.TKey] }
 
-// walker is one function body's walk: the tables read for every node, the
-// declared rows (known is false for one with an element this pass does
-// not read: nothing is reported against it), the try depth and the sites.
-type walker {
-	types   dense.Col[store.PNode, dense.Opt[store.TKey]],
-	calls   dense.Col[store.PNode, dense.Opt[store.TKey]],
-	caps    dense.Col[store.PNode, dense.Opt[store.TKey]],
-	lits    dense.Col[store.PNode, int],
-	litRows []expr.LitRows,
-	// decs is the index in decRows of each decode[T](r) whose row expr
-	// reads (expr.DecodeRow), -1 for none.
-	decs    dense.Col[store.PNode, int],
-	decRows []expr.DecodeRow,
-	file    int,
-	errs    []dense.ID[store.TKey],
-	uses    []dense.ID[store.TKey],
-	known   []bool,
-	tries   int,
-	sites   []site,
-	// lit is whether the body walked is a function literal's.
-	lit bool,
-	// result is the declaration's one result, none for none or several;
-	// failures is each named type an error row of the package lists (an
-	// error type: types.md, Error types 1).
-	result   option.Option[dense.ID[store.TKey]],
-	failures []dense.ID[store.TKey],
+type rowEnv {
+	types      dense.Col[store.PNode, dense.Opt[store.TKey]],
+	calls      dense.Col[store.PNode, dense.Opt[store.TKey]],
+	caps       dense.Col[store.PNode, dense.Opt[store.TKey]],
+	lits       dense.Col[store.PNode, int],
+	litRows    []expr.LitRows,
+	decs       dense.Col[store.PNode, int],
+	decRows    []expr.DecodeRow,
+	failures   []dense.ID[store.TKey],
+	failureSet Map[uint32, bool],
+	recSet     Map[string, bool],
 }
 
-// Rows is the S101 and S102 diagnostics of one typed package, in the Go
-// checker's order.
-func Rows(s store.Store, k expr.Pkg, t expr.Typer) []diag.Diag {
+// walker is one function body's walk: the declared rows (known is false
+// for one with an element this pass does not read: nothing is reported
+// against it), the try depth and the sites.
+type walker {
+	file   int,
+	errs   []dense.ID[store.TKey],
+	uses   []dense.ID[store.TKey],
+	errIDs []uint32,
+	useIDs []uint32,
+	known  []bool,
+	tries  int,
+	sites  []site,
+	// lit is whether the body walked is a function literal's.
+	lit bool,
+	// result is the declaration's one result, none for none or several.
+	result option.Option[dense.ID[store.TKey]],
+	meter  store.Meter,
+}
+
+type declItem { decl uint32, fnIdx int, file int, pos int }
+
+type bodySpan { from int, to int }
+
+type bodyResult { decl uint32, diags []diag.Diag, meter store.BodyMeter }
+
+func splitSpans(n int, pieces int) []bodySpan {
+	if n <= 0 {
+		return []bodySpan{}
+	}
+	let k = if pieces <= 1 { 1 } else if pieces > n { n } else { pieces }
+	let mut out = slices.WithCapacity[bodySpan](k)
+	let base = n / k
+	let rem = n % k
+	let mut off = 0
+	for i in 0..k {
+		let size = base + if i < rem { 1 } else { 0 }
+		out = out.Append(bodySpan{from: off, to: off + size})
+		off = off + size
+	}
+	out
+}
+
+func addSat(a uint32, b uint32) uint32 {
+	let maxU = uint32(4294967295)
+	if a > maxU-b { maxU } else { a + b }
+}
+
+func step(w mut walker, n uint32) bool {
+	store.Step(&w.meter, n)
+}
+
+func sortRowIDs(row []dense.ID[store.TKey]) []uint32 {
+	let n = row.Len()
+	if n == 0 {
+		return []uint32{}
+	}
+	if n == 1 {
+		return []uint32{uint32(dense.Index(row[0]))}
+	}
+	if n == 2 {
+		let a = uint32(dense.Index(row[0]))
+		let b = uint32(dense.Index(row[1]))
+		return if a <= b { []uint32{a, b} } else { []uint32{b, a} }
+	}
+	let mut out = slices.WithCapacity[uint32](n)
+	for e in row {
+		out = out.Append(uint32(dense.Index(e)))
+	}
+	slices.Sort(out)
+}
+
+func hasRowID(sorted []uint32, id dense.ID[store.TKey]) bool {
+	let target = uint32(dense.Index(id))
+	let mut lo = 0
+	let mut hi = sorted.Len()
+	for lo < hi {
+		let mid = lo + (hi-lo)/2
+		let v = sorted[mid]
+		if v < target {
+			lo = mid + 1
+		} else if v > target {
+			hi = mid
+		} else {
+			return true
+		}
+	}
+	false
+}
+
+func packageNodes(k expr.Pkg) int {
 	let mut rows = 0
 	for p in k.Parsed {
 		if !p.Failed {
 			rows = rows + syntax.NumNodes(p.Tree)
 		}
 	}
+	rows
+}
+
+// Rows is the S101 and S102 diagnostics of one typed package, in the Go
+// checker's order.
+func Rows(s store.Store, k expr.Pkg, t expr.Typer) []diag.Diag {
+	let (ds, _) = RowsWithLimit(s, k, t, store.Limit(packageNodes(k)), 4)
+	ds
+}
+
+// RowsSteps returns the total type and row work steps for one typed package.
+func RowsSteps(s store.Store, k expr.Pkg, t expr.Typer) uint32 {
+	let (_, v) = RowsWithLimit(s, k, t, uint32(4294967295), 1)
+	v.Total
+}
+
+// RowsWithLimit runs the row pass against limit across at most threads workers
+// and joins the per-body meters deterministically in declaration order.
+func RowsWithLimit(s store.Store, k expr.Pkg, t expr.Typer, limit uint32, threads int) ([]diag.Diag, store.BudgetVerdict) {
+	let rows = packageNodes(k)
 	let mut ts = dense.ColWithCap[store.PNode, dense.Opt[store.TKey]](rows)
 	let mut cs = dense.ColWithCap[store.PNode, dense.Opt[store.TKey]](rows)
 	let mut ks = dense.ColWithCap[store.PNode, dense.Opt[store.TKey]](rows)
@@ -121,66 +215,224 @@ func Rows(s store.Store, k expr.Pkg, t expr.Typer) []diag.Diag {
 			dense.SetOf(&ks, c.Call, dense.OptOf(c.T))
 		}
 	}
-	let mut w = walker{types: ts, calls: cs, caps: ks, lits: ls, litRows: t.Lits, decs: ds, decRows: t.Decodes, file: 0, errs: []dense.ID[store.TKey]{}, uses: []dense.ID[store.TKey]{}, known: []bool{true, true}, tries: 0, sites: []site{}, lit: false, result: option.None, failures: errorTypes(s, k)}
-	let mut out = []diag.Diag{}
-	let mut seen = Map[string, bool]{}
-	for f in k.Fns {
+	let (failures, failureSet, errSteps) = errorTypes(s, k)
+	let mut recSet = Map[string, bool]{}
+	for r in k.Recs {
+		if !r.Op {
+			recSet[r.Name] = true
+		}
+	}
+	let base = addSat(addSat(store.PoolSpent(s), uint32(expr.Steps(t))), errSteps)
+	let mut items = []declItem{}
+	for idx, f in k.Fns {
 		let p = k.Parsed[f.File]
 		if p.Failed {
 			continue
 		}
+		let kind = syntax.KindOf(p.Tree, f.Decl)
+		if kind == syntax.KTestDecl || kind == syntax.KFuncDecl {
+			items = items.Append(declItem{decl: uint32(0), fnIdx: idx, file: f.File, pos: syntax.NodePos(p, f.Decl)})
+		}
+	}
+	items = slices.SortFunc(items, func(a declItem, b declItem) int {
+		if a.file != b.file {
+			if a.file < b.file { -1 } else { 1 }
+		} else if a.pos != b.pos {
+			if a.pos < b.pos { -1 } else { 1 }
+		} else if a.fnIdx < b.fnIdx {
+			-1
+		} else if a.fnIdx > b.fnIdx {
+			1
+		} else {
+			0
+		}
+	})
+	for ord in 0..items.Len() {
+		items[ord] = declItem{..items[ord], decl: uint32(ord)}
+	}
+	let env = rowEnv{
+		types:      ts,
+		calls:      cs,
+		caps:       ks,
+		lits:       ls,
+		litRows:    t.Lits,
+		decs:       ds,
+		decRows:    t.Decodes,
+		failures:   failures,
+		failureSet: failureSet,
+		recSet:     recSet,
+	}
+	if base > limit {
+		let verdict = store.JoinBodyMeters(base, []store.BodyMeter{}, limit)
+		let d = if items.Len() > 0 { refusalDiag(k, items[0].fnIdx) } else { pkgRefusalDiag(k) }
+		return ([]diag.Diag{d}, verdict)
+	}
+	let bodyCap = limit - base
+	let nthreads = if threads > 0 { threads } else { 1 }
+	let mut results = []bodyResult{}
+	if nthreads <= 1 || items.Len() <= 1 {
+		results = checkRange(env, s, k, items, 0, items.Len(), bodyCap)
+	} else {
+		let spans = splitSpans(items.Len(), nthreads*4)
+		let chunks = tasks.Transform(spans, nthreads, func(sp bodySpan) []bodyResult {
+			checkRange(env, s, k, items, sp.from, sp.to, bodyCap)
+		})
+		for chunk in chunks {
+			for r in chunk {
+				results = results.Append(r)
+			}
+		}
+	}
+	let mut meters = slices.WithCapacity[store.BodyMeter](results.Len())
+	for r in results {
+		meters = meters.Append(r.meter)
+	}
+	let verdict = store.JoinBodyMeters(base, meters, limit)
+	let mut out = []diag.Diag{}
+	let mut seen = Map[string, bool]{}
+	for r in results {
+		if verdict.Refused {
+			if r.decl > verdict.RefusedDecl {
+				continue
+			}
+			if r.decl == verdict.RefusedDecl {
+				let d = refusalDiag(k, items[int(r.decl)].fnIdx)
+				let key = "\(d.File):\(d.Offset):\(d.Code):\(d.Message)"
+				if !isSome(seen.Get(key)) {
+					seen[key] = true
+					out = out.Append(d)
+				}
+				continue
+			}
+		}
+		for d in r.diags {
+			let key = "\(d.File):\(d.Offset):\(d.Code):\(d.Message)"
+			if !isSome(seen.Get(key)) {
+				seen[key] = true
+				out = out.Append(d)
+			}
+		}
+	}
+	if verdict.Refused && items.Len() == 0 {
+		let d = pkgRefusalDiag(k)
+		out = out.Append(d)
+	}
+	(diag.Sorted(out), verdict)
+}
+
+func checkRange(env rowEnv, s store.Store, k expr.Pkg, items []declItem, from int, to int, bodyCap uint32) []bodyResult {
+	let mut out = slices.WithCapacity[bodyResult](to - from)
+	let mut w = walker{
+		file:   0,
+		errs:   []dense.ID[store.TKey]{},
+		uses:   []dense.ID[store.TKey]{},
+		errIDs: []uint32{},
+		useIDs: []uint32{},
+		known:  []bool{false, false},
+		tries:  0,
+		sites:  []site{},
+		lit:    false,
+		result: option.None,
+		meter:  store.NewMeter(bodyCap),
+	}
+	for idx in from..to {
+		out = out.Append(checkBody(env, &w, s, k, items[idx], bodyCap))
+	}
+	out
+}
+
+func checkBody(env rowEnv, w mut walker, s store.Store, k expr.Pkg, item declItem, bodyCap uint32) bodyResult {
+	w.meter = store.NewMeter(bodyCap)
+	w.lit = false
+	w.result = option.None
+	let f = k.Fns[item.fnIdx]
+	let p = k.Parsed[f.File]
+	let mut ds = []diag.Diag{}
+	if !p.Failed {
 		if syntax.KindOf(p.Tree, f.Decl) == syntax.KTestDecl {
-			// A test's capability row is empty: what it charges outside a
-			// with is S102 (E4). Its failures are not read here.
+			if !step(w, uint32(1)) {
+				return bodyResult{decl: item.decl, diags: []diag.Diag{}, meter: store.BodyMeter{Decl: item.decl, Spent: w.meter.Spent, Out: true}}
+			}
 			w.file = f.File
 			w.errs = []dense.ID[store.TKey]{}
 			w.uses = []dense.ID[store.TKey]{}
+			w.errIDs = []uint32{}
+			w.useIDs = []uint32{}
 			w.known = []bool{false, true}
 			w.tries = 0
 			w.sites = []site{}
 			match dense.Unpack(syntax.TestDeclOf(p.Tree, f.Decl).Body) {
 			case option.Some[dense.ID[syntax.Node]] as tb:
-				body(&w, s, k, tb.Value)
+				body(env, w, s, k, tb.Value)
 			case option.None:
 			}
-			for d in reportTest(&w, s, k, f) {
-				let key = "\(d.File):\(d.Offset):\(d.Code):\(d.Message)"
-				if !isSome(seen.Get(key)) {
-					seen[key] = true
-					out = out.Append(d)
+			if !w.meter.Out {
+				ds = reportTest(w, s, k, f)
+			}
+		} else if syntax.KindOf(p.Tree, f.Decl) == syntax.KFuncDecl {
+			let fd = syntax.FuncDeclOf(p.Tree, f.Decl)
+			match dense.Unpack(f.Body) {
+			case option.Some[dense.ID[syntax.Node]] as b:
+				let ops = store.OperandsOf(s, f.Sig)
+				if ops.Len() >= 3 && step(w, uint32(1)) {
+					w.file = f.File
+					w.errs = store.OperandsOf(s, ops[ops.Len()-2])
+					w.uses = store.OperandsOf(s, ops[ops.Len()-1])
+					let (ek, eids) = prepareRow(w, s, w.errs)
+					let (uk, uids) = prepareRow(w, s, w.uses)
+					w.errIDs = eids
+					w.useIDs = uids
+					w.result = oneResult(s, ops[ops.Len()-3])
+					w.known = []bool{ek, uk}
+					w.tries = 0
+					w.sites = []site{}
+					if !w.meter.Out {
+						body(env, w, s, k, b.Value)
+					}
+					if !w.meter.Out {
+						ds = report(w, s, k, f, fd)
+					}
 				}
+			case option.None:
 			}
-			continue
-		}
-		if syntax.KindOf(p.Tree, f.Decl) != syntax.KFuncDecl {
-			continue
-		}
-		let fd = syntax.FuncDeclOf(p.Tree, f.Decl)
-		match dense.Unpack(f.Body) {
-		case option.Some[dense.ID[syntax.Node]] as b:
-			let ops = store.OperandsOf(s, f.Sig)
-			if ops.Len() < 3 {
-				continue
-			}
-			w.file = f.File
-			w.errs = store.OperandsOf(s, ops[ops.Len()-2])
-			w.uses = store.OperandsOf(s, ops[ops.Len()-1])
-			w.result = oneResult(s, ops[ops.Len()-3])
-			w.known = []bool{simple(s, w.errs), simple(s, w.uses)}
-			w.tries = 0
-			w.sites = []site{}
-			body(&w, s, k, b.Value)
-			for d in report(&w, s, k, f, fd) {
-				let key = "\(d.File):\(d.Offset):\(d.Code):\(d.Message)"
-				if !isSome(seen.Get(key)) {
-					seen[key] = true
-					out = out.Append(d)
-				}
-			}
-		case option.None:
 		}
 	}
-	diag.Sorted(out)
+	if w.meter.Out {
+		ds = []diag.Diag{}
+	}
+	bodyResult{decl: item.decl, diags: ds, meter: store.BodyMeter{Decl: item.decl, Spent: w.meter.Spent, Out: w.meter.Out}}
+}
+
+func prepareRow(w mut walker, s store.Store, row []dense.ID[store.TKey]) (bool, []uint32) {
+	if !step(w, uint32(row.Len())) {
+		return (false, []uint32{})
+	}
+	let ok = simple(s, row)
+	if !ok {
+		return (false, []uint32{})
+	}
+	(true, sortRowIDs(row))
+}
+
+func refusalDiag(k expr.Pkg, fnIdx int) diag.Diag {
+	let f = k.Fns[fnIdx]
+	let p = k.Parsed[f.File]
+	let at = syntax.NodePos(p, f.Name)
+	let len = spanLen(p, at, syntax.NodeEnd(p, f.Name))
+	if syntax.KindOf(p.Tree, f.Decl) == syntax.KFuncDecl {
+		let name = types.NameText(p, f.Name)
+		return diag.Diag{File: f.File, Offset: at, Length: len, Code: "S108", Message: "the types of this package need more work than its type budget; the work passed it in function \(name): split the function, or name the row it builds as a union and write that name (D16)"}
+	}
+	diag.Diag{File: f.File, Offset: at, Length: len, Code: "S108", Message: "the types of this package need more work than its type budget: split large types or declarations (D16)"}
+}
+
+func pkgRefusalDiag(k expr.Pkg) diag.Diag {
+	for i, p in k.Parsed {
+		if !p.Failed {
+			return diag.Diag{File: i, Offset: 0, Length: 0, Code: "S108", Message: "the types of this package need more work than its type budget: split large types or declarations (D16)"}
+		}
+	}
+	diag.Diag{File: 0, Offset: 0, Length: 0, Code: "S108", Message: "the types of this package need more work than its type budget: split large types or declarations (D16)"}
 }
 
 func isSome[T](o option.Option[T]) bool {
@@ -213,16 +465,22 @@ func un(tr syntax.Tree, x dense.ID[syntax.Node]) dense.ID[syntax.Node] {
 
 // body walks a function body: its statements, the last one the body's
 // value (a tail: rows.md, Error rows 4).
-func body(w mut walker, s store.Store, k expr.Pkg, b dense.ID[syntax.Node]) {
+func body(env rowEnv, w mut walker, s store.Store, k expr.Pkg, b dense.ID[syntax.Node]) {
+	if !step(w, uint32(1)) {
+		return
+	}
 	let tr = k.Parsed[w.file].Tree
 	let l = syntax.BlockStmtOf(tr, b).List
 	let n = syntax.Len(l)
 	for i in 0..n {
+		if w.meter.Out {
+			return
+		}
 		let x = syntax.Item(tr, l, i)
 		if i == n-1 {
-			tailStmt(w, s, k, x)
+			tailStmt(env, w, s, k, x)
 		} else {
-			walk(w, s, k, x)
+			walk(env, w, s, k, x)
 		}
 	}
 }
@@ -230,62 +488,74 @@ func body(w mut walker, s store.Store, k expr.Pkg, b dense.ID[syntax.Node]) {
 // tailStmt walks the statement x that ends the body, or a branch of an
 // if or match that ends it: a fallible call there is the body's value,
 // whose failure escapes (tails.go, k.ret).
-func tailStmt(w mut walker, s store.Store, k expr.Pkg, x dense.ID[syntax.Node]) {
+func tailStmt(env rowEnv, w mut walker, s store.Store, k expr.Pkg, x dense.ID[syntax.Node]) {
+	if !step(w, uint32(1)) {
+		return
+	}
 	let tr = k.Parsed[w.file].Tree
 	match syntax.ViewOf(tr, x) {
 	case syntax.ExprStmt as es:
 		let y = un(tr, es.X)
 		if syntax.KindOf(tr, y) == syntax.KIfStmt || syntax.KindOf(tr, y) == syntax.KSwitchStmt || syntax.KindOf(tr, y) == syntax.KTypeSwitchStmt {
-			tailStmt(w, s, k, y)
+			tailStmt(env, w, s, k, y)
 		} else {
-			valueAt(w, s, k, es.X, es.X)
+			valueAt(env, w, s, k, es.X, es.X)
 		}
 	case syntax.IfStmt as is:
-		walk(w, s, k, is.Cond)
-		body(w, s, k, is.Body)
+		walk(env, w, s, k, is.Cond)
+		body(env, w, s, k, is.Body)
 		match dense.Unpack(is.Else) {
 		case option.Some[dense.ID[syntax.Node]] as e:
-			if syntax.KindOf(tr, e.Value) == syntax.KBlockStmt { body(w, s, k, e.Value) } else { tailStmt(w, s, k, e.Value) }
+			if syntax.KindOf(tr, e.Value) == syntax.KBlockStmt { body(env, w, s, k, e.Value) } else { tailStmt(env, w, s, k, e.Value) }
 		case option.None:
 		}
 	case syntax.SwitchStmt as ss:
-		walk(w, s, k, ss.Tag)
-		clauses(w, s, k, ss.Clauses)
+		walk(env, w, s, k, ss.Tag)
+		clauses(env, w, s, k, ss.Clauses)
 	case syntax.TypeSwitchStmt as ss:
-		walk(w, s, k, ss.Subject)
-		clauses(w, s, k, ss.Clauses)
+		walk(env, w, s, k, ss.Subject)
+		clauses(env, w, s, k, ss.Clauses)
 	case _:
-		walk(w, s, k, x)
+		walk(env, w, s, k, x)
 	}
 }
 
 // clauses walks the case clauses of a match that ends the body: each
 // clause's last statement is a tail.
-func clauses(w mut walker, s store.Store, k expr.Pkg, l syntax.List) {
+func clauses(env rowEnv, w mut walker, s store.Store, k expr.Pkg, l syntax.List) {
 	let tr = k.Parsed[w.file].Tree
 	for i in 0..syntax.Len(l) {
+		if w.meter.Out {
+			return
+		}
 		let cc = syntax.CaseClauseOf(tr, syntax.Item(tr, l, i))
 		for j in 0..syntax.Len(cc.List) {
-			walk(w, s, k, syntax.Item(tr, cc.List, j))
+			if w.meter.Out {
+				return
+			}
+			walk(env, w, s, k, syntax.Item(tr, cc.List, j))
 		}
 		let n = syntax.Len(cc.Body)
 		for j in 0..n {
+			if w.meter.Out {
+				return
+			}
 			let y = syntax.Item(tr, cc.Body, j)
-			if j == n-1 { tailStmt(w, s, k, y) } else { walk(w, s, k, y) }
+			if j == n-1 { tailStmt(env, w, s, k, y) } else { walk(env, w, s, k, y) }
 		}
 	}
 }
 
 // valueAt walks x, a value that leaves the body (returned or its tail):
 // when x is a call that can fail, its failure escapes at at.
-func valueAt(w mut walker, s store.Store, k expr.Pkg, x dense.ID[syntax.Node], at dense.ID[syntax.Node]) {
+func valueAt(env rowEnv, w mut walker, s store.Store, k expr.Pkg, x dense.ID[syntax.Node], at dense.ID[syntax.Node]) {
 	let tr = k.Parsed[w.file].Tree
 	let y = un(tr, x)
 	if syntax.KindOf(tr, y) == syntax.KCallExpr {
-		call(w, s, k, y, option.Some[dense.ID[syntax.Node]]{Value: at})
+		call(env, w, s, k, y, option.Some[dense.ID[syntax.Node]]{Value: at})
 	} else {
-		walk(w, s, k, x)
-		errorValue(w, s, k, x, at)
+		walk(env, w, s, k, x)
+		errorValue(env, w, s, k, x, at)
 	}
 }
 
@@ -295,8 +565,8 @@ func valueAt(w mut walker, s store.Store, k expr.Pkg, x dense.ID[syntax.Node], a
 // union and no type parameter: a result that is the value's own type
 // makes it the success value (a constructor, K1); a union result may take
 // it as a variant (variantExit), which this part does not decide.
-func errorValue(w mut walker, s store.Store, k expr.Pkg, x dense.ID[syntax.Node], at dense.ID[syntax.Node]) {
-	if w.lit {
+func errorValue(env rowEnv, w mut walker, s store.Store, k expr.Pkg, x dense.ID[syntax.Node], at dense.ID[syntax.Node]) {
+	if w.lit || w.meter.Out {
 		return
 	}
 	let r = match w.result {
@@ -306,17 +576,17 @@ func errorValue(w mut walker, s store.Store, k expr.Pkg, x dense.ID[syntax.Node]
 		return
 	}
 	let n = bind.PNodeOf(k.Ps, w.file, un(k.Parsed[w.file].Tree, x))
-	if !dense.In(w.types, n) {
+	if !dense.In(env.types, n) {
 		return
 	}
-	match dense.Unpack(dense.Of(w.types, n)) {
+	match dense.Unpack(dense.Of(env.types, n)) {
 	case option.Some[dense.ID[store.TKey]] as ty:
 		let t = ty.Value
-		if t == r || !slices.Contains(w.failures, t) {
+		if t == r || !isSome(env.failureSet.Get(uint32(dense.Index(t)))) {
 			return
 		}
 		let rk = store.KindOfType(s, r)
-		if rk == store.KNamed && !isRecord(k, store.TypeNameText(s, store.ArgOf(s, r))) {
+		if rk == store.KNamed && !isSome(env.recSet.Get(store.TypeNameText(s, store.ArgOf(s, r)))) {
 			return
 		}
 		if rk != store.KBasic && rk != store.KNamed && rk != store.KSlice && rk != store.KMap {
@@ -327,17 +597,6 @@ func errorValue(w mut walker, s store.Store, k expr.Pkg, x dense.ID[syntax.Node]
 	}
 }
 
-// isRecord is whether the package declares a record (no operation type)
-// named name.
-func isRecord(k expr.Pkg, name string) bool {
-	for r in k.Recs {
-		if r.Name == name && !r.Op {
-			return true
-		}
-	}
-	false
-}
-
 // oneResult is a signature's result when it is one type: none for no
 // result (the empty tuple) or a tuple of several.
 func oneResult(s store.Store, r dense.ID[store.TKey]) option.Option[dense.ID[store.TKey]] {
@@ -346,28 +605,39 @@ func oneResult(s store.Store, r dense.ID[store.TKey]) option.Option[dense.ID[sto
 
 // errorTypes is each of the package's named types that an error row of
 // one of its functions lists (owners.go: an error type of its package).
-func errorTypes(s store.Store, k expr.Pkg) []dense.ID[store.TKey] {
+func errorTypes(s store.Store, k expr.Pkg) ([]dense.ID[store.TKey], Map[uint32, bool], uint32) {
 	let mut out = []dense.ID[store.TKey]{}
+	let mut seen = Map[uint32, bool]{}
+	let mut steps = uint32(0)
 	for f in k.Fns {
+		steps = addSat(steps, uint32(1))
 		let ops = store.OperandsOf(s, f.Sig)
 		if ops.Len() < 3 {
 			continue
 		}
 		for e in store.OperandsOf(s, ops[ops.Len()-2]) {
-			if store.KindOfType(s, e) == store.KNamed && !slices.Contains(out, e) {
-				out = out.Append(e)
+			steps = addSat(steps, uint32(1))
+			if store.KindOfType(s, e) == store.KNamed {
+				let key = uint32(dense.Index(e))
+				if !isSome(seen.Get(key)) {
+					seen[key] = true
+					out = out.Append(e)
+				}
 			}
 		}
 	}
-	out
+	(out, seen, steps)
 }
 
 // walk walks the node x of the body.
-func walk(w mut walker, s store.Store, k expr.Pkg, x dense.ID[syntax.Node]) {
+func walk(env rowEnv, w mut walker, s store.Store, k expr.Pkg, x dense.ID[syntax.Node]) {
+	if !step(w, uint32(1)) {
+		return
+	}
 	let tr = k.Parsed[w.file].Tree
 	let kind = syntax.KindOf(tr, x)
 	if kind == syntax.KFuncLit {
-		funcLit(w, s, k, x)
+		funcLit(env, w, s, k, x)
 		return
 	}
 	if kind == syntax.KContextLit {
@@ -377,21 +647,21 @@ func walk(w mut walker, s store.Store, k expr.Pkg, x dense.ID[syntax.Node]) {
 	}
 	if kind == syntax.KCallExpr {
 		let at = if w.tries > 0 { option.Some[dense.ID[syntax.Node]]{Value: x} } else { option.None }
-		call(w, s, k, x, at)
+		call(env, w, s, k, x, at)
 		return
 	}
 	if kind == syntax.KTryExpr {
 		let te = syntax.TryExprOf(tr, x)
 		let y = un(tr, te.X)
 		if syntax.KindOf(tr, y) == syntax.KCatchExpr {
-			tryCatch(w, s, k, x, y)
+			tryCatch(env, w, s, k, x, y)
 			return
 		}
 		w.tries = w.tries + 1
 		if syntax.KindOf(tr, y) == syntax.KCallExpr {
-			call(w, s, k, y, option.Some[dense.ID[syntax.Node]]{Value: x})
+			call(env, w, s, k, y, option.Some[dense.ID[syntax.Node]]{Value: x})
 		} else {
-			walk(w, s, k, te.X)
+			walk(env, w, s, k, te.X)
 		}
 		w.tries = w.tries - 1
 		return
@@ -401,28 +671,34 @@ func walk(w mut walker, s store.Store, k expr.Pkg, x dense.ID[syntax.Node]) {
 		let ce = syntax.CatchExprOf(tr, x)
 		let saved = w.tries
 		w.tries = 0
-		walkNoEscape(w, s, k, ce.X)
+		walkNoEscape(env, w, s, k, ce.X)
 		w.tries = saved
 		for i in 0..syntax.Len(ce.Arms) {
-			walk(w, s, k, syntax.Item(tr, ce.Arms, i))
+			if w.meter.Out {
+				return
+			}
+			walk(env, w, s, k, syntax.Item(tr, ce.Arms, i))
 		}
 		return
 	}
 	if kind == syntax.KReturnStmt {
 		match dense.Unpack(syntax.ReturnStmtOf(tr, x).Result) {
 		case option.Some[dense.ID[syntax.Node]] as r:
-			valueAt(w, s, k, r.Value, r.Value)
+			valueAt(env, w, s, k, r.Value, r.Value)
 		case option.None:
 		}
 		return
 	}
 	if kind == syntax.KDieStmt {
 		let d = syntax.DieStmtOf(tr, x)
-		valueAt(w, s, k, d.X, d.X)
+		valueAt(env, w, s, k, d.X, d.X)
 		return
 	}
 	for c in syntax.Children(tr, x, []uint32{}) {
-		walk(w, s, k, syntax.NodeAt(tr, int(c)))
+		if w.meter.Out {
+			return
+		}
+		walk(env, w, s, k, syntax.NodeAt(tr, int(c)))
 	}
 }
 
@@ -430,23 +706,30 @@ func walk(w mut walker, s store.Store, k expr.Pkg, x dense.ID[syntax.Node]) {
 // (call.go funcLit): its rows are the ones it writes, else its context's
 // function type's when closed (expr.LitRows). A row the literal infers is
 // checked against nothing.
-func funcLit(w mut walker, s store.Store, k expr.Pkg, x dense.ID[syntax.Node]) {
+func funcLit(env rowEnv, w mut walker, s store.Store, k expr.Pkg, x dense.ID[syntax.Node]) {
 	let n = bind.PNodeOf(k.Ps, w.file, x)
-	if !dense.In(w.lits, n) || dense.Of(w.lits, n) < 0 {
+	if !dense.In(env.lits, n) || dense.Of(env.lits, n) < 0 {
 		return
 	}
-	let lr = w.litRows[dense.Of(w.lits, n)]
-	let (errs, uses, known, tries, lit) = (w.errs, w.uses, w.known, w.tries, w.lit)
-	let (e, ek) = rowOf(s, lr.Errs)
-	let (u, uk) = rowOf(s, lr.Uses)
+	if !step(w, uint32(1)) {
+		return
+	}
+	let lr = env.litRows[dense.Of(env.lits, n)]
+	let (errs, uses, errIDs, useIDs, known, tries, lit) = (w.errs, w.uses, w.errIDs, w.useIDs, w.known, w.tries, w.lit)
+	let (e, ek, eids) = rowOf(w, s, lr.Errs)
+	let (u, uk, uids) = rowOf(w, s, lr.Uses)
 	w.errs = e
 	w.uses = u
+	w.errIDs = eids
+	w.useIDs = uids
 	w.known = []bool{ek, uk}
 	w.tries = 0
 	w.lit = true
-	body(w, s, k, syntax.FuncLitOf(k.Parsed[w.file].Tree, x).Body)
+	body(env, w, s, k, syntax.FuncLitOf(k.Parsed[w.file].Tree, x).Body)
 	w.errs = errs
 	w.uses = uses
+	w.errIDs = errIDs
+	w.useIDs = useIDs
 	w.known = known
 	w.tries = tries
 	w.lit = lit
@@ -454,13 +737,14 @@ func funcLit(w mut walker, s store.Store, k expr.Pkg, x dense.ID[syntax.Node]) {
 
 // rowOf is the elements of a literal's row and whether it is known: a row
 // it infers, or one with an element this pass does not read, is not.
-func rowOf(s store.Store, r option.Option[dense.ID[store.TKey]]) ([]dense.ID[store.TKey], bool) {
+func rowOf(w mut walker, s store.Store, r option.Option[dense.ID[store.TKey]]) ([]dense.ID[store.TKey], bool, []uint32) {
 	match r {
 	case option.Some[dense.ID[store.TKey]] as row:
 		let xs = store.OperandsOf(s, row.Value)
-		(xs, simple(s, xs))
+		let (ok, ids) = prepareRow(w, s, xs)
+		(xs, ok, ids)
 	case option.None:
-		([]dense.ID[store.TKey]{}, false)
+		([]dense.ID[store.TKey]{}, false, []uint32{})
 	}
 }
 
@@ -470,21 +754,30 @@ func rowOf(s store.Store, r option.Option[dense.ID[store.TKey]]) ([]dense.ID[sto
 // every arm names one of them by a bare name: an arm of another form (a
 // rest `case err:` or `case _`, an as-pattern, a record pattern) may
 // handle more, so nothing is reported then.
-func tryCatch(w mut walker, s store.Store, k expr.Pkg, x dense.ID[syntax.Node], y dense.ID[syntax.Node]) {
+func tryCatch(env rowEnv, w mut walker, s store.Store, k expr.Pkg, x dense.ID[syntax.Node], y dense.ID[syntax.Node]) {
+	if !step(w, uint32(1)) {
+		return
+	}
 	let tr = k.Parsed[w.file].Tree
 	let ce = syntax.CatchExprOf(tr, y)
 	let saved = w.tries
 	w.tries = 0
-	walkNoEscape(w, s, k, ce.X)
+	walkNoEscape(env, w, s, k, ce.X)
 	w.tries = saved
 	for i in 0..syntax.Len(ce.Arms) {
-		walk(w, s, k, syntax.Item(tr, ce.Arms, i))
+		if w.meter.Out {
+			return
+		}
+		walk(env, w, s, k, syntax.Item(tr, ce.Arms, i))
+	}
+	if w.meter.Out {
+		return
 	}
 	let op = un(tr, ce.X)
 	if syntax.KindOf(tr, op) != syntax.KCallExpr {
 		return
 	}
-	let row = match sigOf(w, s, k, op, syntax.CallExprOf(tr, op).Fun) {
+	let row = match sigOf(env, w, s, k, op, syntax.CallExprOf(tr, op).Fun) {
 	case option.Some[dense.ID[store.TKey]] as sig:
 		let ops = store.OperandsOf(s, sig.Value)
 		if ops.Len() < 3 {
@@ -494,35 +787,55 @@ func tryCatch(w mut walker, s store.Store, k expr.Pkg, x dense.ID[syntax.Node], 
 	case option.None:
 		return
 	}
-	for e in row {
+	let mut byName = Map[string, int]{}
+	let mut next = slices.WithCapacity[int](row.Len())
+	let mut seen = slices.WithCapacity[bool](row.Len())
+	for i, e in row {
+		if !step(w, uint32(1)) {
+			return
+		}
 		if store.KindOfType(s, e) != store.KNamed {
 			return
 		}
+		let tname = store.TypeNameText(s, store.ArgOf(s, e))
+		let prev = match byName.Get(tname) {
+		case option.Some{Value: idx}:
+			idx
+		case option.None:
+			-1
+		}
+		next = next.Append(prev)
+		seen = seen.Append(false)
+		byName[tname] = i
 	}
-	let mut covered = []dense.ID[store.TKey]{}
 	for i in 0..syntax.Len(ce.Arms) {
 		let arm = syntax.CatchArmOf(tr, syntax.Item(tr, ce.Arms, i))
 		for j in 0..syntax.Len(arm.Types) {
+			if !step(w, uint32(1)) {
+				return
+			}
 			let te = syntax.Item(tr, arm.Types, j)
 			if syntax.KindOf(tr, te) != syntax.KIdent {
 				return
 			}
 			let name = types.NameText(k.Parsed[w.file], te)
-			let mut found = false
-			for e in row {
-				if store.TypeNameText(s, store.ArgOf(s, e)) == name {
-					covered = covered.Append(e)
-					found = true
+			match byName.Get(name) {
+			case option.Some{Value: head}:
+				if !seen[head] {
+					let mut cur = head
+					for cur >= 0 {
+						seen[cur] = true
+						cur = next[cur]
+					}
 				}
-			}
-			if !found {
+			case option.None:
 				return
 			}
 		}
 	}
 	let mut rest = []dense.ID[store.TKey]{}
-	for e in row {
-		if !slices.Contains(covered, e) {
+	for i, e in row {
+		if !seen[i] {
 			rest = rest.Append(e)
 		}
 	}
@@ -533,82 +846,104 @@ func tryCatch(w mut walker, s store.Store, k expr.Pkg, x dense.ID[syntax.Node], 
 
 // walkNoEscape walks a catch's operand: its calls charge, and its
 // failures are the catch's, so a call there escapes nothing.
-func walkNoEscape(w mut walker, s store.Store, k expr.Pkg, x dense.ID[syntax.Node]) {
+func walkNoEscape(env rowEnv, w mut walker, s store.Store, k expr.Pkg, x dense.ID[syntax.Node]) {
+	if w.meter.Out {
+		return
+	}
 	let tr = k.Parsed[w.file].Tree
 	if syntax.KindOf(tr, un(tr, x)) == syntax.KCallExpr {
-		call(w, s, k, un(tr, x), option.None)
+		call(env, w, s, k, un(tr, x), option.None)
 	} else {
-		walk(w, s, k, x)
+		walk(env, w, s, k, x)
 	}
 }
 
 // call walks the call x: its callee and arguments, then what it charges
 // and, when esc is set, its failure escaping at esc.
-func call(w mut walker, s store.Store, k expr.Pkg, x dense.ID[syntax.Node], esc option.Option[dense.ID[syntax.Node]]) {
+func call(env rowEnv, w mut walker, s store.Store, k expr.Pkg, x dense.ID[syntax.Node], esc option.Option[dense.ID[syntax.Node]]) {
+	if !step(w, uint32(1)) {
+		return
+	}
 	let tr = k.Parsed[w.file].Tree
 	let c = syntax.CallExprOf(tr, x)
 	match dense.Unpack(c.Trailing) {
 	case option.Some[dense.ID[syntax.Node]] as b:
 		if isWith(k.Parsed[w.file], c.Fun) && syntax.KindOf(tr, b.Value) == syntax.KBlockStmt {
-			withBlock(w, s, k, b.Value)
+			withBlock(env, w, s, k, b.Value)
 		}
 		// A go block or a block argument: not walked yet.
 		return
 	case option.None:
 	}
-	walk(w, s, k, c.Fun)
+	walk(env, w, s, k, c.Fun)
 	for i in 0..syntax.Len(c.Args) {
+		if w.meter.Out {
+			return
+		}
 		let a = syntax.Item(tr, c.Args, i)
 		if w.tries > 0 && syntax.KindOf(tr, un(tr, a)) == syntax.KCallExpr {
 			// Under try an argument's failure escapes at the argument
 			// (handled, argValue).
-			call(w, s, k, un(tr, a), option.Some[dense.ID[syntax.Node]]{Value: a})
+			call(env, w, s, k, un(tr, a), option.Some[dense.ID[syntax.Node]]{Value: a})
 		} else {
-			walk(w, s, k, a)
+			walk(env, w, s, k, a)
 		}
 	}
+	if w.meter.Out {
+		return
+	}
 	let n = bind.PNodeOf(k.Ps, w.file, x)
-	if dense.In(w.caps, n) {
-		match dense.Unpack(dense.Of(w.caps, n)) {
+	if dense.In(env.caps, n) {
+		match dense.Unpack(dense.Of(env.caps, n)) {
 		case option.Some[dense.ID[store.TKey]] as cap:
 			charge(w, s, x, cap.Value)
 		case option.None:
 		}
 	}
-	if dense.In(w.decs, n) && dense.Of(w.decs, n) >= 0 {
+	if dense.In(env.decs, n) && dense.Of(env.decs, n) >= 0 {
 		// decode[T](r): its row is the codec's (expr.DecodeRow).
 		match esc {
 		case option.Some[dense.ID[syntax.Node]] as at:
-			let errs = w.decRows[dense.Of(w.decs, n)].Errs
-			if simple(s, errs) {
+			let errs = env.decRows[dense.Of(env.decs, n)].Errs
+			if checkSimple(w, s, errs) {
 				escape(w, at.Value, errs)
 			}
 		case option.None:
 		}
 		return
 	}
-	match sigOf(w, s, k, x, c.Fun) {
+	match sigOf(env, w, s, k, x, c.Fun) {
 	case option.Some[dense.ID[store.TKey]] as sig:
 		let ops = store.OperandsOf(s, sig.Value)
 		if ops.Len() < 3 {
 			return
 		}
 		let uses = store.OperandsOf(s, ops[ops.Len()-1])
-		if simple(s, uses) {
+		if checkSimple(w, s, uses) {
 			for u in uses {
+				if w.meter.Out {
+					return
+				}
 				charge(w, s, x, u)
 			}
 		}
 		match esc {
 		case option.Some[dense.ID[syntax.Node]] as at:
 			let errs = store.OperandsOf(s, ops[ops.Len()-2])
-			if simple(s, errs) {
+			if checkSimple(w, s, errs) {
 				escape(w, at.Value, errs)
 			}
 		case option.None:
 		}
 	case option.None:
 	}
+}
+
+func checkSimple(w mut walker, s store.Store, row []dense.ID[store.TKey]) bool {
+	if row.Len() > 0 && !step(w, uint32(row.Len())) {
+		return false
+	}
+	simple(s, row)
 }
 
 // isWith is whether the callee fun of a call with a trailing block is the
@@ -625,14 +960,17 @@ func isWith(p syntax.Parsed, fun dense.ID[syntax.Node]) bool {
 // context's providers charge the target and a local context's are charged
 // at the with (D-E5), both unread here. Its last expression is the with's
 // value, not the body's, so no tail escapes from it.
-func withBlock(w mut walker, s store.Store, k expr.Pkg, b dense.ID[syntax.Node]) {
+func withBlock(env rowEnv, w mut walker, s store.Store, k expr.Pkg, b dense.ID[syntax.Node]) {
 	let tr = k.Parsed[w.file].Tree
 	let (known, tries) = (w.known[kUses], w.tries)
 	w.known[kUses] = false
 	w.tries = 0
 	let l = syntax.BlockStmtOf(tr, b).List
 	for i in 0..syntax.Len(l) {
-		walk(w, s, k, syntax.Item(tr, l, i))
+		if w.meter.Out {
+			break
+		}
+		walk(env, w, s, k, syntax.Item(tr, l, i))
 	}
 	w.known[kUses] = known
 	w.tries = tries
@@ -640,21 +978,21 @@ func withBlock(w mut walker, s store.Store, k expr.Pkg, b dense.ID[syntax.Node])
 
 // sigOf is the signature the typer gave the callee of the call x: the
 // package function it resolved, else the type of the callee expression.
-func sigOf(w mut walker, s store.Store, k expr.Pkg, x dense.ID[syntax.Node], fun dense.ID[syntax.Node]) option.Option[dense.ID[store.TKey]] {
+func sigOf(env rowEnv, w mut walker, s store.Store, k expr.Pkg, x dense.ID[syntax.Node], fun dense.ID[syntax.Node]) option.Option[dense.ID[store.TKey]] {
 	let tr = k.Parsed[w.file].Tree
 	let n = bind.PNodeOf(k.Ps, w.file, x)
-	if dense.In(w.calls, n) {
-		match dense.Unpack(dense.Of(w.calls, n)) {
+	if dense.In(env.calls, n) {
+		match dense.Unpack(dense.Of(env.calls, n)) {
 		case option.Some[dense.ID[store.TKey]] as sig:
 			return option.Some[dense.ID[store.TKey]]{Value: sig.Value}
 		case option.None:
 		}
 	}
 	let f = bind.PNodeOf(k.Ps, w.file, un(tr, fun))
-	if !dense.In(w.types, f) {
+	if !dense.In(env.types, f) {
 		return option.None
 	}
-	match dense.Unpack(dense.Of(w.types, f)) {
+	match dense.Unpack(dense.Of(env.types, f)) {
 	case option.Some[dense.ID[store.TKey]] as ty:
 		if store.KindOfType(s, ty.Value) == store.KSig { option.Some[dense.ID[store.TKey]]{Value: ty.Value} } else { option.None }
 	case option.None:
@@ -665,7 +1003,10 @@ func sigOf(w mut walker, s store.Store, k expr.Pkg, x dense.ID[syntax.Node], fun
 // charge records that the call x charges cap: a site when the capability
 // row does not hold it.
 func charge(w mut walker, s store.Store, x dense.ID[syntax.Node], cap dense.ID[store.TKey]) {
-	if !w.known[kUses] || slices.Contains(w.uses, cap) {
+	if !step(w, uint32(1)) {
+		return
+	}
+	if !w.known[kUses] || hasRowID(w.useIDs, cap) {
 		return
 	}
 	w.sites = w.sites.Append(site{at: x, kind: kUses, extra: []dense.ID[store.TKey]{cap}, lit: w.lit, decl: w.uses})
@@ -679,11 +1020,134 @@ func escape(w mut walker, x dense.ID[syntax.Node], errs []dense.ID[store.TKey]) 
 	}
 	let mut extra = []dense.ID[store.TKey]{}
 	for e in errs {
-		if !slices.Contains(w.errs, e) {
+		if !step(w, uint32(1)) {
+			return
+		}
+		if !hasRowID(w.errIDs, e) {
 			extra = extra.Append(e)
 		}
 	}
 	if extra.Len() > 0 {
 		w.sites = w.sites.Append(site{at: x, kind: kErrors, extra: extra, lit: w.lit, decl: w.errs})
 	}
+}
+
+func runRowsSrc(src string, limit uint32, threads int) (int, uint32, []diag.Diag, store.BudgetVerdict) {
+	let files = []bind.File{bind.File{Name: "p.ergo", Parsed: syntax.Parse(src)}}
+	let ps = bind.BuildParents(files)
+	let (bound, u) = bind.Bind(bind.Collect("p", files), []store.Frozen{}, ps, files, 1)
+	let mut s = bound
+	let k = expr.Load(&s, files, u, ps, []types.Ext{}, []types.Foreign{}, []types.Iface{}, false)
+	let t = expr.Check(&s, k)
+	let (ds, verdict) = RowsWithLimit(s, k, t, limit, threads)
+	let floor = addSat(store.PoolSpent(s), uint32(expr.Steps(t)))
+	(packageNodes(k), floor, ds, verdict)
+}
+
+func rowShapeSrc(m int) string {
+	let mut b = strings.NewBuilder()
+	for i in 0..m {
+		b.WriteString("type E\(i) {}\nfunc g\(i)() fails E\(i) { E\(i){} }\n")
+	}
+	b.WriteString("func runAll() fails ")
+	for i in 0..m {
+		if i > 0 {
+			b.WriteString(" | ")
+		}
+		b.WriteString("E\(i)")
+	}
+	b.WriteString(" {\n")
+	for i in 0..m {
+		b.WriteString("\ttry g\(i)()\n")
+	}
+	b.WriteString("}\n")
+	b.String()
+}
+
+func catchShapeSrc(m int) string {
+	let mut b = strings.NewBuilder()
+	for i in 0..m {
+		b.WriteString("type E\(i) {}\n")
+	}
+	b.WriteString("func fall() fails ")
+	for i in 0..m {
+		if i > 0 {
+			b.WriteString(" | ")
+		}
+		b.WriteString("E\(i)")
+	}
+	b.WriteString(" { E0{} }\nfunc handle() {\n\ttry fall() catch {\n")
+	for i in 0..m {
+		b.WriteString("\tcase E\(i):\n")
+	}
+	b.WriteString("\t}\n}\n")
+	b.String()
+}
+
+func overflowShapeSrc(rows int, repeats int) string {
+	let mut b = strings.NewBuilder()
+	b.WriteString("type ExtraErr {}\n")
+	for i in 0..rows {
+		b.WriteString("type E\(i) {}\n")
+	}
+	let mut row = strings.NewBuilder()
+	for i in 0..rows {
+		if i > 0 {
+			row.WriteString(" | ")
+		}
+		row.WriteString("E\(i)")
+	}
+	let rowStr = row.String()
+	b.WriteString("func extra() fails ExtraErr { ExtraErr{} }\n")
+	b.WriteString("func big() fails " + rowStr + " { E0{} }\n")
+	b.WriteString("func ok() fails " + rowStr + " {\n")
+	for _ in 0..15 {
+		b.WriteString("\ttry big()\n")
+	}
+	b.WriteString("}\n")
+	b.WriteString("func overflow() fails " + rowStr + " {\n\ttry extra()\n")
+	for _ in 0..repeats {
+		b.WriteString("\ttry big()\n")
+	}
+	b.WriteString("}\nfunc after() {\n\ttry big()\n}\n")
+	b.String()
+}
+
+law RowsWorkIsNearLinear(n int) {
+	let m = 12 + ((n%4+4)%4)*4
+	let (rn1, rfloor1, rds1, rv1) = runRowsSrc(rowShapeSrc(m), uint32(4294967295), 1)
+	let (rn2, rfloor2, rds2, rv2) = runRowsSrc(rowShapeSrc(2*m), uint32(4294967295), 1)
+	let (cn1, cfloor1, cds1, cv1) = runRowsSrc(catchShapeSrc(m), uint32(4294967295), 1)
+	let (cn2, cfloor2, cds2, cv2) = runRowsSrc(catchShapeSrc(2*m), uint32(4294967295), 1)
+	let rOk = rds1.Len() == 0 && rds2.Len() == 0 && rv1.Total >= rfloor1 && rv2.Total >= rfloor2 && rv2.Total > rv1.Total && rv2.Total <= uint32(2)*rv1.Total+uint32(128) && rv1.Total <= store.Limit(rn1)/uint32(8) && rv2.Total <= store.Limit(rn2)/uint32(8)
+	let cOk = cds1.Len() == 0 && cds2.Len() == 0 && cv1.Total >= cfloor1 && cv2.Total >= cfloor2 && cv2.Total > cv1.Total && cv2.Total <= uint32(2)*cv1.Total+uint32(128) && cv1.Total <= store.Limit(cn1)/uint32(8) && cv2.Total <= store.Limit(cn2)/uint32(8)
+	rOk && cOk
+}
+
+law TypeBudgetRefusesGrowth(n int) {
+	let reps = 20 + ((n%4+4)%4)*5
+	let src = overflowShapeSrc(20, reps)
+	let (nodes, fullFloor, fullDs, fullV) = runRowsSrc(src, uint32(4294967295), 1)
+	let tight = fullV.Total - uint32(200)
+	let (_, _, cutDs, cutV) = runRowsSrc(src, tight, 1)
+	let naturalOk = !fullV.Refused && fullDs.Len() == 2 && fullDs[0].Code == "S101" && fullDs[1].Code == "S101" && fullV.Total > fullFloor && fullV.Total < store.Limit(nodes)/uint32(8)
+	let cutOk = cutV.Refused && cutV.Total <= tight && cutDs.Len() == 1 && cutDs[0].Code == "S108" && strings.Contains(cutDs[0].Message, "function overflow")
+	naturalOk && cutOk
+}
+
+law TypeBudgetIsThreadFree(n int) {
+	let src = overflowShapeSrc(10, 6)
+	let (_, _, _, fullV) = runRowsSrc(src, uint32(4294967295), 1)
+	let step = if fullV.Total > uint32(4) { fullV.Total / uint32(4) } else { uint32(1) }
+	let idx = uint32((n%5 + 5) % 5)
+	let limit = if idx == uint32(4) { store.Limit(200) } else { idx * step }
+	let (_, _, ds1, v1) = runRowsSrc(src, limit, 1)
+	let (_, _, ds4, v4) = runRowsSrc(src, limit, 4)
+	let mut same = ds1.Len() == ds4.Len() && v1.Refused == v4.Refused && v1.Total == v4.Total && v1.RefusedDecl == v4.RefusedDecl
+	if same {
+		for i in 0..ds1.Len() {
+			same = same && ds1[i].File == ds4[i].File && ds1[i].Offset == ds4[i].Offset && ds1[i].Length == ds4[i].Length && ds1[i].Code == ds4[i].Code && ds1[i].Message == ds4[i].Message
+		}
+	}
+	same
 }

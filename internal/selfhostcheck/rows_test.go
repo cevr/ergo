@@ -25,6 +25,12 @@ func goRows(file string, ds []check.Diagnostic) []string {
 	return out
 }
 
+// TestCompilerRowsLawsRun runs the laws of compiler/check/rows through `ergo test`.
+func TestCompilerRowsLawsRun(t *testing.T) {
+	needsBuild(t)
+	runCompilerLaws(t, "./check/rows")
+}
+
 // TestCompilerRowsAgreeWithChecker is S3-ROWS's agreement: the S101s and
 // S102s compiler/check/rows reports (exprdump -corpus, its S lines) are
 // the Go checker's, text, position and order, over testdata/rows: a

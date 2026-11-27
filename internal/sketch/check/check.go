@@ -3,12 +3,14 @@ package check
 import (
 	"fmt"
 	"io/fs"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"unicode"
 	"unicode/utf8"
+	"weak"
 
 	"ergo.local/prototype/internal/sketch/derive"
 	"ergo.local/prototype/internal/sketch/stdlib"
@@ -125,6 +127,7 @@ func check(path string, files []*syntax.File, imp Importer, under *Package, opts
 		opts.shapesWritten = true
 		return check(path, files, imp, under, opts)
 	}
+	c.finishTypeBudget()
 	for _, d := range derivedDiags {
 		d.File = rank[d.File]
 		c.diags = append(c.diags, d)
@@ -394,9 +397,11 @@ type checker struct {
 	// budget for a package of the given source size. withRefused is the
 	// first with operand whose push did not fit, in its file, reported
 	// once at the end of the run (reportWithBudget).
-	withs       *contextMeter
-	withLimit   func(size int) int
-	withRefused *withRefusal
+	withs        *contextMeter
+	withLimit    func(size int) int
+	withRefused  *withRefusal
+	hasTypeLimit bool
+	typeLimitVal int
 	// contextComp maps each named context to its embedding component (contextSummaries).
 	contextComp map[*Context]*contextComp
 	// contextBodies holds each context body's summary, decided once (contextSummaries,
@@ -637,14 +642,134 @@ func newChecker(path string, imp Importer, universe *Scope) *checker {
 		inferredRefs:   map[*syntax.Ident]*Func{},
 		dupNames:       map[string]bool{},
 	}
+	c.types.c = c
 	c.types.substRow = c.substRow
 	return c
+}
+
+const (
+	typeBudgetPerNode = 16
+	typeBudgetFloor   = 1 << 16
+)
+
+// TypeLimit is the type budget of a package whose files hold nodes syntax nodes.
+func TypeLimit(nodes int) int { return typeBudgetPerNode*nodes + typeBudgetFloor }
+
+var (
+	typeWorkMu  sync.Mutex
+	typeWorkMap = map[weak.Pointer[Package]]int{}
+)
+
+func recordTypeWork(pkg *Package, work int) {
+	if pkg == nil {
+		return
+	}
+	wp := weak.Make(pkg)
+	typeWorkMu.Lock()
+	_, had := typeWorkMap[wp]
+	typeWorkMap[wp] = work
+	typeWorkMu.Unlock()
+	if !had {
+		runtime.AddCleanup(pkg, func(w weak.Pointer[Package]) {
+			typeWorkMu.Lock()
+			delete(typeWorkMap, w)
+			typeWorkMu.Unlock()
+		}, wp)
+	}
+}
+
+// TypeWork returns the type table work spent by this package's own check;
+// ok is false for a package not checked in this process (e.g. a snapshot).
+func (p *Package) TypeWork() (work int, ok bool) {
+	if p == nil {
+		return 0, false
+	}
+	wp := weak.Make(p)
+	typeWorkMu.Lock()
+	work, ok = typeWorkMap[wp]
+	typeWorkMu.Unlock()
+	return work, ok
+}
+
+func (c *checker) replayTypeBudget() *Func {
+	if len(c.funcs) == 0 {
+		return c.types.refusedFn
+	}
+	savedTypes := c.types
+	savedCur := c.cur
+	savedFn := c.fn
+	c.silent++
+	defer func() {
+		c.silent--
+		c.types = savedTypes
+		c.cur = savedCur
+		c.fn = savedFn
+	}()
+	tmp := newTypeTable()
+	tmp.c = c
+	tmp.limit = savedTypes.limit
+	tmp.limitSet = true
+	tmp.work = savedTypes.preBodyWork
+	tmp.substRow = c.substRow
+	tmp.rowOf = c.namedRowOf
+	c.types = tmp
+	if tmp.work > tmp.limit {
+		tmp.out = true
+		return nil
+	}
+	for _, f := range c.funcs {
+		if f.Decl == nil || f.Decl.Body == nil {
+			continue
+		}
+		c.checkFuncBody(f)
+		if tmp.out {
+			return f
+		}
+	}
+	return savedTypes.refusedFn
+}
+
+func (c *checker) finishTypeBudget() {
+	if c == nil || c.types == nil {
+		return
+	}
+	if c.pkg != nil {
+		recordTypeWork(c.pkg, c.types.work)
+	}
+	if !c.types.out || c.types.reported {
+		return
+	}
+	c.types.reported = true
+	savedCur := c.cur
+	c.types.reporting = true
+	defer func() {
+		c.types.reporting = false
+		c.cur = savedCur
+	}()
+	refFn := c.replayTypeBudget()
+	if refFn != nil && refFn.Decl != nil && refFn.Decl.Name != nil && refFn.file != nil {
+		c.cur = refFn.file
+		c.errorf(refFn.Decl.Name, CodeType, "the types of this package need more work than its type budget; the work passed it in function %s: split the function, or name the row it builds as a union and write that name (D16)", refFn.Name)
+		return
+	}
+	fi := c.types.refusedCur
+	if fi == nil && len(c.files) > 0 {
+		fi = c.files[0]
+	}
+	if fi != nil && fi.syntax != nil {
+		c.cur = fi
+		var at syntax.Node = fi.syntax
+		if len(fi.syntax.Decls) > 0 {
+			at = fi.syntax.Decls[0]
+		}
+		c.errorf(at, CodeType, "the types of this package need more work than its type budget: split large types or declarations (D16)")
+	}
 }
 
 // errorf reports a diagnostic at the node's span in the current file,
 // which must hold the node (owner.go).
 func (c *checker) errorf(n syntax.Node, code, format string, args ...any) {
-	if c.silent > 0 {
+	if c.silent > 0 || (c.types != nil && c.types.out && !c.types.reporting) {
 		return
 	}
 	c.assertOwner(n, code, format, args)
@@ -657,7 +782,7 @@ func (c *checker) errorf(n syntax.Node, code, format string, args ...any) {
 // at.Pos() <= pos <= end <= at.End(), both positions valid; an empty span
 // (end == pos) marks the one place pos, which may be at's end.
 func (c *checker) errorIn(at syntax.Node, pos, end syntax.Pos, code, format string, args ...any) {
-	if c.silent > 0 {
+	if c.silent > 0 || (c.types != nil && c.types.out && !c.types.reporting) {
 		return
 	}
 	c.assertOwner(at, code, format, args)
@@ -725,6 +850,7 @@ func (c *checker) report(pos, end syntax.Pos, code, format string, args ...any) 
 // message: one total order of what a diagnostic shows. File must still be
 // the index of the file as met.
 func (c *checker) sorted() []Diagnostic {
+	c.finishTypeBudget()
 	out := append([]Diagnostic(nil), c.diags...)
 	sort.SliceStable(out, func(i, j int) bool {
 		a, b := out[i], out[j]
@@ -915,6 +1041,7 @@ func prelude() preludeResult {
 			"TestLoopback": testAuthorityLoopback,
 		}
 		pkg := c.run(files)
+		c.finishTypeBudget()
 		pkg.qualify = false
 		// Install the language call forms once, on the canonical
 		// declarations. The lowering only sees the resulting action.
@@ -1203,6 +1330,7 @@ func (s *stdImporter) load(path string) (*Package, error) {
 	c.pkg.module = StdModule // its laws are judged over std as one module (lawmodule.go)
 	c.pkg.testOf = s.testOf(path)
 	pkg := c.run(files)
+	c.finishTypeBudget()
 	var err error
 	if len(c.diags) > 0 {
 		// The importer says why, with the first diagnostic and its file, so
@@ -1311,6 +1439,7 @@ func StdFixture(path string, files []*syntax.File) (*Package, []Diagnostic) {
 	c.pkg.module = StdModule
 	c.pkg.testOf = Std.(*stdImporter).testOf(path)
 	pkg := c.run(files)
+	c.finishTypeBudget()
 	return pkg, c.sorted()
 }
 

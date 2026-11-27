@@ -1,9 +1,11 @@
 package check
 
 import (
+	"math/bits"
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 
 	"ergo.local/prototype/internal/sketch/syntax"
@@ -622,11 +624,146 @@ func (*noValue) String() string { return "no value" }
 // may intern takes the check's table; a row built by another check is
 // re-interned in this one, never written to. Printing sorts the elements by
 // typeString (String, list), so output does not follow id order.
+const rowSmallMax = 8
+
+type rowNode struct {
+	id          int32
+	t           Type
+	pri         uint32
+	size        uint32
+	left, right *rowNode
+}
+
+func rowPri(id int32) uint32 {
+	x := uint32(id) + 0x9e3779b9
+	x = (x ^ (x >> 16)) * 0x85ebca6b
+	x = (x ^ (x >> 13)) * 0xc2b2ae35
+	return x ^ (x >> 16)
+}
+
+func rowNodeSize(n *rowNode) uint32 {
+	if n == nil {
+		return 0
+	}
+	return n.size
+}
+
+func rowNodeHas(n *rowNode, id int32) bool {
+	for n != nil {
+		if id < n.id {
+			n = n.left
+		} else if id > n.id {
+			n = n.right
+		} else {
+			return true
+		}
+	}
+	return false
+}
+
+func rowNodeInsert(n *rowNode, id int32, t Type, pri uint32, depth *int) (*rowNode, bool) {
+	if n == nil {
+		return &rowNode{id: id, t: t, pri: pri, size: 1}, true
+	}
+	*depth++
+	if id < n.id {
+		left, added := rowNodeInsert(n.left, id, t, pri, depth)
+		if !added {
+			return n, false
+		}
+		cur := &rowNode{id: n.id, t: n.t, pri: n.pri, size: n.size + 1, left: left, right: n.right}
+		if cur.left.pri > cur.pri {
+			l := cur.left
+			rotatedRight := &rowNode{id: cur.id, t: cur.t, pri: cur.pri, size: 1 + rowNodeSize(l.right) + rowNodeSize(cur.right), left: l.right, right: cur.right}
+			return &rowNode{id: l.id, t: l.t, pri: l.pri, size: cur.size, left: l.left, right: rotatedRight}, true
+		}
+		return cur, true
+	}
+	if id > n.id {
+		right, added := rowNodeInsert(n.right, id, t, pri, depth)
+		if !added {
+			return n, false
+		}
+		cur := &rowNode{id: n.id, t: n.t, pri: n.pri, size: n.size + 1, left: n.left, right: right}
+		if cur.right.pri > cur.pri {
+			r := cur.right
+			rotatedLeft := &rowNode{id: cur.id, t: cur.t, pri: cur.pri, size: 1 + rowNodeSize(cur.left) + rowNodeSize(r.left), left: cur.left, right: r.left}
+			return &rowNode{id: r.id, t: r.t, pri: r.pri, size: cur.size, left: rotatedLeft, right: r.right}, true
+		}
+		return cur, true
+	}
+	return n, false
+}
+
+func rowNodeCollect(n *rowNode, elems *[]Type, ids *[]int32) {
+	if n == nil {
+		return
+	}
+	rowNodeCollect(n.left, elems, ids)
+	*elems = append(*elems, n.t)
+	if ids != nil {
+		*ids = append(*ids, n.id)
+	}
+	rowNodeCollect(n.right, elems, ids)
+}
+
+func buildRowTree(elems []Type, ids []int32) *rowNode {
+	if len(ids) == 0 {
+		return nil
+	}
+	stack := make([]*rowNode, 0, len(ids))
+	for i, id := range ids {
+		cur := &rowNode{id: id, t: elems[i], pri: rowPri(id), size: 1}
+		var last *rowNode
+		for len(stack) > 0 && stack[len(stack)-1].pri < cur.pri {
+			top := stack[len(stack)-1]
+			stack = stack[:len(stack)-1]
+			top.right = last
+			top.size = 1 + rowNodeSize(top.left) + rowNodeSize(top.right)
+			last = top
+		}
+		cur.left = last
+		if len(stack) > 0 {
+			stack[len(stack)-1].right = cur
+		}
+		stack = append(stack, cur)
+	}
+	var root *rowNode
+	for i := len(stack) - 1; i >= 0; i-- {
+		n := stack[i]
+		n.right = root
+		n.size = 1 + rowNodeSize(n.left) + rowNodeSize(n.right)
+		root = n
+	}
+	return root
+}
+
+type rowTreeEntry struct {
+	root     *rowNode
+	rowID    int32
+	elems    []Type
+	ids      []int32
+	flatOnce sync.Once
+}
+
+func (e *rowTreeEntry) flat() ([]Type, []int32) {
+	e.flatOnce.Do(func() {
+		if e.elems != nil {
+			return
+		}
+		elems := make([]Type, 0, e.root.size)
+		ids := make([]int32, 0, e.root.size)
+		rowNodeCollect(e.root, &elems, &ids)
+		e.elems, e.ids = elems, ids
+	})
+	return e.elems, e.ids
+}
+
 type Row struct {
 	elems []Type
 	ids   []int32
 	tab   *typeTable // the table of ids; nil for an empty row
-	rid   int32      // the row's own id in tab, once computed and final
+	rid   int32      // >0: interned row id; <0: -(treeIndex+1) in tab.trees
 	// vars: an element is a row variable (class F). infer: an element's id
 	// was built while a variable in it was unbound, so it holds only until
 	// that variable's component is final (intern.go local).
@@ -636,14 +773,54 @@ type Row struct {
 
 func newRow() *Row { return &Row{} }
 
+func (r *Row) tree() *rowNode {
+	if r == nil || r.rid >= 0 || r.tab == nil {
+		return nil
+	}
+	return r.tab.trees[int(-r.rid-1)].root
+}
+
 // Empty reports whether the row has no element.
-func (r *Row) Empty() bool { return r == nil || len(r.elems) == 0 }
+func (r *Row) Empty() bool { return r == nil || (len(r.elems) == 0 && r.rid >= 0) }
+
+func (r *Row) len() int {
+	if r == nil {
+		return 0
+	}
+	if tree := r.tree(); tree != nil {
+		return int(tree.size)
+	}
+	return len(r.elems)
+}
+
+func (r *Row) flat() ([]Type, []int32) {
+	if r == nil {
+		return nil, nil
+	}
+	if r.rid < 0 && r.tab != nil {
+		return r.tab.trees[int(-r.rid-1)].flat()
+	}
+	return r.elems, r.ids
+}
+
+func (r *Row) flattened() *Row {
+	if r == nil || r.rid >= 0 || r.tab == nil {
+		return r
+	}
+	e := r.tab.trees[int(-r.rid-1)]
+	elems, ids := e.flat()
+	return &Row{elems: elems, ids: ids, tab: r.tab, rid: e.rowID, vars: r.vars, infer: r.infer, gen: r.gen}
+}
 
 // Elems returns the row's elements in the check's identity order, which
 // depends on the source alone. Print them with String.
 func (r *Row) Elems() []Type {
 	if r == nil {
 		return nil
+	}
+	if r.rid < 0 && r.tab != nil {
+		elems, _ := r.tab.trees[int(-r.rid-1)].flat()
+		return elems
 	}
 	return r.elems
 }
@@ -652,19 +829,39 @@ func (r *Row) find(id int32) (int, bool) {
 	if r == nil {
 		return 0, false
 	}
-	i := sort.Search(len(r.ids), func(i int) bool { return r.ids[i] >= id })
-	return i, i < len(r.ids) && r.ids[i] == id
+	_, ids := r.flat()
+	i := sort.Search(len(ids), func(i int) bool { return ids[i] >= id })
+	return i, i < len(ids) && ids[i] == id
+}
+
+func (r *Row) hasID(id int32) bool {
+	if r == nil {
+		return false
+	}
+	if tree := r.tree(); tree != nil {
+		return rowNodeHas(tree, id)
+	}
+	_, ok := r.find(id)
+	return ok
 }
 
 // has reports whether t is an element.
 func (r *Row) has(tab *typeTable, t Type) bool {
+	if tab.out {
+		return true
+	}
 	r = tab.set(r)
 	tab.charge(1)
-	_, ok := r.find(tab.id(t))
-	return ok
+	if tab.out {
+		return true
+	}
+	return r.hasID(tab.id(t))
 }
 
 func (r *Row) with(tab *typeTable, t Type) *Row {
+	if tab.out {
+		return tab.unknownRow()
+	}
 	if ra, ok := t.(*RowArg); ok {
 		return r.union(tab, ra.Row)
 	}
@@ -676,25 +873,62 @@ func (r *Row) with(tab *typeTable, t Type) *Row {
 		}
 	}
 	r = tab.local(r)
-	id, inf := tab.intern(t)
-	i, ok := r.find(id)
-	if ok {
-		return r
+	if tab.out {
+		return tab.unknownRow()
 	}
-	tab.charge(1 + len(r.Elems()))
-	_, isVar := t.(*RowVar)
-	out := &Row{tab: tab, gen: tab.gen, vars: isVar, infer: inf}
-	if r != nil {
+	id, inf := tab.intern(t)
+	if tab.out {
+		return tab.unknownRow()
+	}
+	if r != nil && r.rid >= 0 && len(r.ids) < rowSmallMax {
+		i, ok := r.find(id)
+		if ok {
+			return r
+		}
+		tab.charge(1 + len(r.ids))
+		if tab.out {
+			return tab.unknownRow()
+		}
+		_, isVar := t.(*RowVar)
+		out := &Row{tab: tab, gen: tab.gen, vars: isVar, infer: inf}
 		out.vars, out.infer = out.vars || r.vars, out.infer || r.infer
 		out.elems = append(append(append(make([]Type, 0, len(r.elems)+1), r.elems[:i]...), t), r.elems[i:]...)
 		out.ids = append(append(append(make([]int32, 0, len(r.ids)+1), r.ids[:i]...), id), r.ids[i:]...)
-	} else {
-		out.elems, out.ids = []Type{t}, []int32{id}
+		return out
 	}
-	return out
+	if r == nil {
+		tab.charge(1)
+		if tab.out {
+			return tab.unknownRow()
+		}
+		_, isVar := t.(*RowVar)
+		return &Row{tab: tab, gen: tab.gen, vars: isVar, infer: inf, elems: []Type{t}, ids: []int32{id}}
+	}
+	tree := r.tree()
+	if tree == nil {
+		tree = buildRowTree(r.elems, r.ids)
+	}
+	depth := 1
+	next, added := rowNodeInsert(tree, id, t, rowPri(id), &depth)
+	if !added {
+		tab.charge(depth)
+		if tab.out {
+			return tab.unknownRow()
+		}
+		return r
+	}
+	tab.charge(depth)
+	if tab.out {
+		return tab.unknownRow()
+	}
+	_, isVar := t.(*RowVar)
+	return tab.newTreeRow(next, isVar || r.vars, inf || r.infer)
 }
 
 func (r *Row) union(tab *typeTable, o *Row) *Row {
+	if tab.out {
+		return tab.unknownRow()
+	}
 	if o.Empty() {
 		if r == nil {
 			return &Row{}
@@ -705,19 +939,62 @@ func (r *Row) union(tab *typeTable, o *Row) *Row {
 		return o
 	}
 	r, o = tab.local(r), tab.local(o)
-	tab.charge(len(r.ids) + len(o.ids))
-	out := &Row{tab: tab, gen: tab.gen, vars: r.vars || o.vars, infer: r.infer || o.infer, elems: make([]Type, 0, len(r.elems)+len(o.elems)), ids: make([]int32, 0, len(r.ids)+len(o.ids))}
+	if tab.out {
+		return tab.unknownRow()
+	}
+	nr, no := r.len(), o.len()
+	if nr < no {
+		r, o = o, r
+		nr, no = no, nr
+	}
+	if nr >= rowSmallMax && no*max(1, bits.Len(uint(nr))) < nr {
+		tree := r.tree()
+		if tree == nil {
+			tree = buildRowTree(r.elems, r.ids)
+			tab.charge(nr)
+			if tab.out {
+				return tab.unknownRow()
+			}
+		}
+		oe, oi := o.flat()
+		steps := 0
+		changed := false
+		for i, id := range oi {
+			depth := 1
+			next, added := rowNodeInsert(tree, id, oe[i], rowPri(id), &depth)
+			steps += depth
+			if added {
+				tree = next
+				changed = true
+			}
+		}
+		tab.charge(steps)
+		if tab.out {
+			return tab.unknownRow()
+		}
+		if !changed && r.rid < 0 {
+			return r
+		}
+		return tab.newTreeRow(tree, r.vars || o.vars, r.infer || o.infer)
+	}
+	re, ri := r.flat()
+	oe, oi := o.flat()
+	tab.charge(len(ri) + len(oi))
+	if tab.out {
+		return tab.unknownRow()
+	}
+	out := &Row{tab: tab, gen: tab.gen, vars: r.vars || o.vars, infer: r.infer || o.infer, elems: make([]Type, 0, len(re)+len(oe)), ids: make([]int32, 0, len(ri)+len(oi))}
 	i, j := 0, 0
-	for i < len(r.ids) || j < len(o.ids) {
+	for i < len(ri) || j < len(oi) {
 		switch {
-		case j >= len(o.ids) || i < len(r.ids) && r.ids[i] < o.ids[j]:
-			out.elems, out.ids = append(out.elems, r.elems[i]), append(out.ids, r.ids[i])
+		case j >= len(oi) || i < len(ri) && ri[i] < oi[j]:
+			out.elems, out.ids = append(out.elems, re[i]), append(out.ids, ri[i])
 			i++
-		case i >= len(r.ids) || o.ids[j] < r.ids[i]:
-			out.elems, out.ids = append(out.elems, o.elems[j]), append(out.ids, o.ids[j])
+		case i >= len(ri) || oi[j] < ri[i]:
+			out.elems, out.ids = append(out.elems, oe[j]), append(out.ids, oi[j])
 			j++
 		default:
-			out.elems, out.ids = append(out.elems, r.elems[i]), append(out.ids, r.ids[i])
+			out.elems, out.ids = append(out.elems, re[i]), append(out.ids, ri[i])
 			i++
 			j++
 		}
@@ -728,11 +1005,48 @@ func (r *Row) union(tab *typeTable, o *Row) *Row {
 // minus returns the elements of r that are not in o.
 func (r *Row) minus(tab *typeTable, o *Row) *Row {
 	out := &Row{}
-	if r.Empty() {
+	if tab.out || r.Empty() {
 		return out
 	}
 	r, o = tab.set(r), tab.set(o)
-	tab.charge(len(r.Elems()) + len(o.Elems()))
+	if tab.out {
+		return out
+	}
+	nr, no := r.len(), o.len()
+	if nr == 0 {
+		return out
+	}
+	if no == 0 {
+		return r.flattened()
+	}
+	if nr*max(1, bits.Len(uint(no))) < no {
+		re, ri := r.flat()
+		tab.charge(nr * max(1, bits.Len(uint(no))))
+		if tab.out {
+			return out
+		}
+		if nr == 1 {
+			if o.hasID(ri[0]) {
+				return out
+			}
+			out.tab, out.gen, out.vars, out.infer = tab, tab.gen, r.vars, r.infer
+			out.elems, out.ids = re, ri
+			return out
+		}
+		for i, id := range ri {
+			if o.hasID(id) {
+				continue
+			}
+			out.tab, out.gen, out.vars, out.infer = tab, tab.gen, r.vars, r.infer
+			out.elems, out.ids = append(out.elems, re[i]), append(out.ids, id)
+		}
+		return out
+	}
+	r, o = r.flattened(), o.flattened()
+	tab.charge(len(r.elems) + len(o.elems))
+	if tab.out {
+		return out
+	}
 	j := 0
 	for i, id := range r.ids {
 		for o != nil && j < len(o.ids) && o.ids[j] < id {
@@ -751,17 +1065,24 @@ func (r *Row) minus(tab *typeTable, o *Row) *Row {
 // against a hash set of ids, linear in r (a catch's arms, handlers.go).
 func (r *Row) without(tab *typeTable, drop map[int32]bool) *Row {
 	out := &Row{}
-	if r.Empty() {
+	if tab.out || r.Empty() {
 		return out
 	}
 	r = tab.set(r)
-	tab.charge(len(r.Elems()))
-	for i, id := range r.ids {
+	if tab.out {
+		return out
+	}
+	re, ri := r.flat()
+	tab.charge(len(ri))
+	if tab.out {
+		return out
+	}
+	for i, id := range ri {
 		if drop[id] {
 			continue
 		}
 		out.tab, out.gen, out.vars, out.infer = tab, tab.gen, r.vars, r.infer
-		out.elems, out.ids = append(out.elems, r.elems[i]), append(out.ids, id)
+		out.elems, out.ids = append(out.elems, re[i]), append(out.ids, id)
 	}
 	return out
 }

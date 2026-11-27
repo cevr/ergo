@@ -3,10 +3,15 @@ package check
 import (
 	"fmt"
 	"iter"
+	"os"
+	"path/filepath"
+	"reflect"
+	"sort"
 	"strings"
 	"testing"
 	"time"
 
+	"ergo.local/prototype/internal/sketch/stdlib"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
@@ -489,6 +494,345 @@ func TestSelfCallWaitsForRow(t *testing.T) {
 			}
 			if p := RefWalkProblems(tc.src); len(p) > 0 {
 				t.Errorf("%s, settle-only=%v: %s", tc.name, settleOnly, strings.Join(p, "; "))
+			}
+		}
+	}
+}
+
+func rowBuildSource(n int, inferred bool) string {
+	var b strings.Builder
+	var row []string
+	for i := range n {
+		fmt.Fprintf(&b, "type E%d {}\n", i)
+		row = append(row, fmt.Sprintf("E%d", i))
+	}
+	for i := range n {
+		fmt.Fprintf(&b, "func step%d() fails E%d { return E%d }\n", i, i, i)
+	}
+	if inferred {
+		b.WriteString("func runAll() {\n")
+	} else {
+		fmt.Fprintf(&b, "func runAll() fails %s {\n", strings.Join(row, " | "))
+	}
+	for i := range n {
+		fmt.Fprintf(&b, "\ttry step%d()\n", i)
+	}
+	b.WriteString("}\nfunc main() { runAll() catch { case _: } }\n")
+	return b.String()
+}
+
+func TestRowBuildWorkLinear(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		inferred bool
+	}{
+		{"written", false},
+		{"inferred", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			sizes := GrowthSizes(t, GrowthMaxNodes, func(n int) int { return sourceNodes(t, rowBuildSource(n, tc.inferred)) })
+			var per []float64
+			for _, n := range sizes {
+				src := rowBuildSource(n, tc.inferred)
+				nodes := sourceNodes(t, src)
+				c, _ := checkSettling(src, false)
+				per = append(per, float64(c.types.work)/float64(nodes))
+				if c.types.work > workFactor*nodes {
+					t.Errorf("n=%d: type work %d for %d syntax nodes (bound %d)", n, c.types.work, nodes, workFactor*nodes)
+				}
+			}
+			GrowthBounded(t, "row build type work per node", sizes, per)
+		})
+	}
+}
+
+func checkWithTypeBudget(t *testing.T, src string, limit *int, infer bool) ([]Diagnostic, *checker) {
+	t.Helper()
+	file, err := syntax.Parse(src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := newChecker("main", Std, prelude().scope)
+	c.opts.Infer = infer
+	if limit != nil {
+		c.hasTypeLimit = true
+		c.typeLimitVal = *limit
+	}
+	c.run([]*syntax.File{file})
+	return c.sorted(), c
+}
+
+func typeRefusals(diags []Diagnostic) int {
+	n := 0
+	for _, d := range diags {
+		if d.Code == CodeType && strings.Contains(d.Message, "type budget") {
+			n++
+		}
+	}
+	return n
+}
+
+func TestTypeBudgetHeadroom(t *testing.T) {
+	var files []string
+	for _, pattern := range []string{
+		"testdata/fixtures/*/*.ergo",
+		"testdata/classf/*.ergo",
+		"testdata/totality/*.ergo",
+		"../testdata/*.ergo",
+		"../testdata/*/*.ergo",
+		"../syntax/testdata/corpus/*/*.ergo",
+		"../syntax/testdata/corpus/*/*/*.ergo",
+		"../../../internal/sketch/sketchtest/testdata/migrated/*.ergo",
+	} {
+		m, _ := filepath.Glob(pattern)
+		files = append(files, m...)
+	}
+	if len(files) < 300 {
+		t.Fatalf("found %d sources", len(files))
+	}
+	worst, worstName := 0.0, ""
+	for _, f := range files {
+		data, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		src := usesKeyword.ReplaceAllString(string(data), "needs")
+		pf, err := syntax.Parse(src)
+		if err != nil {
+			continue
+		}
+		nodes := 0
+		syntax.Inspect(pf, func(syntax.Node) bool { nodes++; return true })
+		pkg, diags := Check("main", []*syntax.File{pf}, nil)
+		if typeRefusals(diags) > 0 {
+			t.Errorf("%s: refused by type budget", f)
+		}
+		w, ok := pkg.TypeWork()
+		if !ok {
+			t.Fatalf("%s: TypeWork missing", f)
+		}
+		lim := TypeLimit(nodes)
+		share := float64(w) / float64(lim)
+		if share >= 0.125 {
+			t.Errorf("%s: %d of %d type steps (%.2f%%), want under 12.5%%", f, w, lim, 100*share)
+		}
+		if share > worst {
+			worst, worstName = share, f
+		}
+	}
+	for _, sp := range stdlib.Packages() {
+		srcs, ok := stdlib.Package(sp)
+		if !ok {
+			continue
+		}
+		names := make([]string, 0, len(srcs))
+		for k := range srcs {
+			names = append(names, k)
+		}
+		sort.Strings(names)
+		var pfiles []*syntax.File
+		nodes := 0
+		for _, nm := range names {
+			pf, err := syntax.Parse(srcs[nm])
+			if err != nil {
+				t.Fatal(err)
+			}
+			pf.Name = nm
+			syntax.Inspect(pf, func(syntax.Node) bool { nodes++; return true })
+			pfiles = append(pfiles, pf)
+		}
+		parent := universe()
+		if sp != "core" && sp != "option" && sp != "collections" {
+			parent = prelude().scope
+		}
+		c := newChecker(sp, Std, parent)
+		c.pkg.std = true
+		c.pkg.trusted = true
+		c.pkg.module = StdModule
+		c.pkg.testOf = Std.(*stdImporter).testOf(sp)
+		c.run(pfiles)
+		diags := c.sorted()
+		if typeRefusals(diags) > 0 {
+			t.Errorf("std/%s: refused by type budget", sp)
+		}
+		lim := TypeLimit(nodes)
+		share := float64(c.types.work) / float64(lim)
+		if share >= 0.125 {
+			t.Errorf("std/%s: %d of %d type steps (%.2f%%), want under 12.5%%", sp, c.types.work, lim, 100*share)
+		}
+		if share > worst {
+			worst, worstName = share, "std/"+sp
+		}
+	}
+	t.Logf("%d corpus+std checks; worst share is %.2f%% (%s)", len(files)+len(stdlib.Packages()), 100*worst, worstName)
+}
+
+func typeOverflowSource(repeatCalls int, withCascades bool) string {
+	var b strings.Builder
+	const errs = 500
+	var row []string
+	for i := range errs {
+		fmt.Fprintf(&b, "type E%d {}\n", i)
+		row = append(row, fmt.Sprintf("E%d", i))
+	}
+	b.WriteString("func helper() int64 fails ")
+	b.WriteString(strings.Join(row, " | "))
+	b.WriteString(" { return 0 }\n")
+	b.WriteString("func first() {}\n")
+	b.WriteString("func overflow() {\n")
+	for range repeatCalls {
+		b.WriteString("\tlet _ = helper() catch { case _: 0 }\n")
+	}
+	if withCascades {
+		b.WriteString("\tlet bad int64 = \"wrong\"\n\tlet _ = bad\n")
+	}
+	b.WriteString("}\n")
+	b.WriteString("func overflow2() {\n")
+	for range repeatCalls {
+		b.WriteString("\tlet _ = helper() catch { case _: 0 }\n")
+	}
+	b.WriteString("}\nfunc main() {}\n")
+	return b.String()
+}
+
+func TestTypeBudgetRefuses(t *testing.T) {
+	small := typeOverflowSource(2, false)
+	pkg, diags := CheckSource(small)
+	if len(diags) != 0 {
+		t.Fatalf("small: unexpected diags: %v", diags)
+	}
+	if w, ok := pkg.TypeWork(); !ok || w <= 0 {
+		t.Fatalf("small TypeWork: (%d, %v)", w, ok)
+	}
+
+	// Natural refusal under real TypeLimit(nodes), with cascading error after overflow
+	// and a second overflowing function, must report exactly one S108 at overflow.
+	huge := typeOverflowSource(500, true)
+	bigPkg, ds := CheckSource(huge)
+	if len(ds) != 1 || typeRefusals(ds) != 1 {
+		t.Fatalf("huge: want exactly 1 type-budget S108 (no cascades), got %d: %v", len(ds), ds)
+	}
+	if !strings.Contains(ds[0].Message, "function overflow:") {
+		t.Fatalf("huge: want S108 naming function overflow, got %v", ds[0].Message)
+	}
+	nodes := sourceNodes(t, huge)
+	lim := TypeLimit(nodes)
+	if w, ok := bigPkg.TypeWork(); !ok || w <= lim || w > lim+4096 {
+		t.Fatalf("huge: work=%d limit=%d", w, lim)
+	}
+	_, again := CheckSource(huge)
+	if !reflect.DeepEqual(again, ds) {
+		t.Fatalf("second check differs: %v vs %v", again, ds)
+	}
+
+	// Adding a large comment does not change syntax node count or type budget verdict.
+	commentPad := "// " + strings.Repeat("comment ", 4000) + "\n"
+	limitVal := 1500
+	srcA := rowBuildSource(20, false)
+	srcB := commentPad + srcA
+	if sourceNodes(t, srcA) != sourceNodes(t, srcB) {
+		t.Fatalf("comment changed node count: %d vs %d", sourceNodes(t, srcA), sourceNodes(t, srcB))
+	}
+	dA, cA := checkWithTypeBudget(t, srcA, &limitVal, false)
+	dB, cB := checkWithTypeBudget(t, srcB, &limitVal, false)
+	if cA.types.limit != cB.types.limit || typeRefusals(dA) != typeRefusals(dB) {
+		t.Fatalf("comment changed limit/verdict: %d/%v vs %d/%v", cA.types.limit, dA, cB.types.limit, dB)
+	}
+
+	// Declaration-order S108 even when SCC order checks dependencies before caller.
+	var declB strings.Builder
+	declB.WriteString("type E0 {}\ntype E1 {}\ntype E2 {}\ntype E3 {}\ntype E4 {}\ntype E5 {}\ntype E6 {}\ntype E7 {}\n")
+	declB.WriteString("func caller() {\n\ttry callee()\n")
+	for i := 0; i < 8; i++ {
+		fmt.Fprintf(&declB, "\ttry g%d()\n", i)
+	}
+	declB.WriteString("}\nfunc callee() {\n")
+	for i := 0; i < 8; i++ {
+		fmt.Fprintf(&declB, "\ttry g%d()\n", i)
+	}
+	declB.WriteString("}\n")
+	for i := 0; i < 8; i++ {
+		fmt.Fprintf(&declB, "func g%d() fails E%d { return E%d }\n", i, i, i)
+	}
+	declValid := declB.String()
+	fullValid, cFull := checkWithTypeBudget(t, declValid, nil, true)
+	if len(fullValid) != 0 {
+		t.Fatalf("declValid: %v", fullValid)
+	}
+	if !cFull.types.outOfOrder {
+		t.Fatalf("declValid expected outOfOrder under inference")
+	}
+	limSplit := cFull.types.preBodyWork + 20
+	dsDecl, cDecl := checkWithTypeBudget(t, declValid, &limSplit, true)
+	if len(dsDecl) != 1 || typeRefusals(dsDecl) != 1 {
+		t.Fatalf("declValid refused: %v", dsDecl)
+	}
+	if cDecl.types.refusedFn == nil || cDecl.types.refusedFn.Name == "caller" {
+		t.Fatalf("expected SCC order not to stop in caller first, got %v", cDecl.types.refusedFn)
+	}
+	if !strings.Contains(dsDecl[0].Message, "function caller:") {
+		t.Fatalf("declValid: expected refusal in caller in declaration order, got %v", dsDecl[0].Message)
+	}
+
+	// charge must still enforce the budget even when a lookup counter is attached.
+	tab := newTypeTable()
+	tab.limitSet = true
+	tab.limit = 5
+	restore := tab.attach(&lookupSteps{ops: new(int)})
+	tab.charge(6)
+	restore()
+	if !tab.out {
+		t.Fatalf("charge skipped budget when lookup counter was attached")
+	}
+}
+
+func TestTypeBudgetPrefixes(t *testing.T) {
+	cascade := `type E0 {}
+type E1 {}
+func step() fails E0 { return E0 }
+func first() {
+	try step() catch { case E0: }
+}
+func second() {
+	let _ = step() catch { case E0: 1 }
+	let x int64 = "bad"
+	let _ = x
+}
+func main() {}
+`
+	cases := []struct {
+		name  string
+		src   string
+		infer bool
+	}{
+		{"row-build", rowBuildSource(12, false), false},
+		{"row-infer", rowBuildSource(12, true), true},
+		{"catch", rowBuildSource(8, false), false},
+		{"cascade", cascade, false},
+	}
+	for _, tc := range cases {
+		full, cFull := checkWithTypeBudget(t, tc.src, nil, tc.infer)
+		work := cFull.types.work
+		if work == 0 {
+			t.Fatalf("%s: no type work charged", tc.name)
+		}
+		for limit := 0; limit <= work+1; limit++ {
+			l := limit
+			diags, c := checkWithTypeBudget(t, tc.src, &l, tc.infer)
+			if c.types.work > limit+512 {
+				t.Fatalf("%s limit %d: charged %d steps (far past limit)", tc.name, limit, c.types.work)
+			}
+			if limit >= work {
+				if !reflect.DeepEqual(diags, full) {
+					t.Fatalf("%s limit %d >= work %d: got %v, want %v", tc.name, limit, work, diags, full)
+				}
+				continue
+			}
+			if typeRefusals(diags) != 1 {
+				t.Fatalf("%s limit %d of %d: got %d type-budget S108 in %v, want 1", tc.name, limit, work, typeRefusals(diags), diags)
+			}
+			if tc.name != "cascade" && len(diags) != 1 {
+				t.Fatalf("%s limit %d of %d: expected single refusal without cascades, got %v", tc.name, limit, work, diags)
 			}
 		}
 	}

@@ -2,9 +2,13 @@ package check
 
 import (
 	"math/bits"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
+	"weak"
 )
 
 // A capSet is a persistent set of capabilities, keyed by their qualified
@@ -116,10 +120,41 @@ func (m *contextMeter) shapes() map[keyShape]*keyShape {
 	return m.shapeTab
 }
 
-// A capKey is a capability's qualified name. A capability is a named,
-// non-generic interface declared at package level (isCapability), so its
-// package path and name identify it in every package that names it.
-type capKey struct{ path, name string }
+// A capKey is a capability's qualified name and its 64-bit FNV-1a hash.
+// A capability is a named, non-generic interface declared at package level
+// (isCapability), so its package path and name identify it in every
+// package that names it.
+type capKey struct {
+	hash uint64
+	path string
+	name string
+}
+
+var (
+	capKeyCache  sync.Map
+	capNameBytes atomic.Int64
+)
+
+// CapNameBytes returns the count of capability name and path bytes hashed
+// or compared across the process.
+func CapNameBytes() int64 { return capNameBytes.Load() }
+
+func hashCapKey(path, name string) uint64 {
+	const (
+		offset64 = 14695981039346656037
+		prime64  = 1099511628211
+	)
+	capNameBytes.Add(int64(len(path) + len(name)))
+	h := uint64(offset64)
+	for i := 0; i < len(path); i++ {
+		h = (h ^ uint64(path[i])) * prime64
+	}
+	h = (h ^ 0xff) * prime64
+	for i := 0; i < len(name); i++ {
+		h = (h ^ uint64(name[i])) * prime64
+	}
+	return h
+}
 
 // keyOf returns t's key; ok is false when t is not a declared named type.
 func keyOf(t Type) (k capKey, ok bool) {
@@ -127,11 +162,20 @@ func keyOf(t Type) (k capKey, ok bool) {
 		// A capability row parameter, which a with of a Context[R] value
 		// discharges (rows.md, Context values). No declared name has a
 		// NUL in its path, so the key meets no capability's.
-		return capKey{path: "\x00row", name: tp.Name + "#" + strconv.Itoa(tp.id)}, true
+		p := "\x00row"
+		nm := tp.Name + "#" + strconv.Itoa(tp.id)
+		return capKey{hash: hashCapKey(p, nm), path: p, name: nm}, true
 	}
 	n, isNamed := t.(*Named)
 	if !isNamed || n.Obj == nil || n.Orig != nil && !isCapability(n) {
 		return capKey{}, false
+	}
+	var wp weak.Pointer[Named]
+	if n.state == 2 {
+		wp = weak.Make(n)
+		if v, hit := capKeyCache.Load(wp); hit {
+			return *v.(*capKey), true
+		}
 	}
 	if n.Obj.Pkg != nil {
 		k.path = n.Obj.Pkg.Path
@@ -143,31 +187,40 @@ func keyOf(t Type) (k capKey, ok bool) {
 		// concrete, so their package-qualified text names them.
 		k.name = strings.TrimPrefix(typeString(n), k.path+".")
 	}
+	k.hash = hashCapKey(k.path, k.name)
+	if n.state == 2 {
+		entry := k
+		if _, loaded := capKeyCache.LoadOrStore(wp, &entry); !loaded {
+			runtime.AddCleanup(n, func(w weak.Pointer[Named]) { capKeyCache.Delete(w) }, wp)
+		}
+	}
 	return k, true
 }
 
 func (a capKey) compare(b capKey) int {
+	if a.hash < b.hash {
+		return -1
+	}
+	if a.hash > b.hash {
+		return 1
+	}
+	capNameBytes.Add(int64(len(a.path) + len(b.path) + len(a.name) + len(b.name)))
 	if c := strings.Compare(a.path, b.path); c != 0 {
 		return c
 	}
 	return strings.Compare(a.name, b.name)
 }
 
-// priority hashes a key (FNV-1a), so a set's shape is a function of its
-// elements' names.
+// priority mixes a.hash without reading name or path bytes, so a set's
+// shape is a function of its elements' names alone.
 func (a capKey) priority() uint32 {
-	h := uint32(2166136261)
-	for i := 0; i < len(a.path); i++ {
-		h = (h ^ uint32(a.path[i])) * 16777619
-	}
-	h = (h ^ 0xff) * 16777619
-	for i := 0; i < len(a.name); i++ {
-		h = (h ^ uint32(a.name[i])) * 16777619
-	}
-	h ^= h >> 15
-	h *= 0x2c1b3c6d
-	h ^= h >> 12
-	return h
+	x := a.hash
+	x ^= x >> 33
+	x *= 0xff51afd7ed558ccd
+	x ^= x >> 33
+	x *= 0xc4ceb9fe1a85ec53
+	x ^= x >> 33
+	return uint32(x ^ (x >> 32))
 }
 
 func height(n *capNode) int32 {

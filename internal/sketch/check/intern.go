@@ -6,6 +6,8 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+
+	"ergo.local/prototype/internal/sketch/syntax"
 )
 
 // typeTable is the check's hash-consing table (class E): the one identity
@@ -59,6 +61,22 @@ type typeTable struct {
 	// gen counts the finished components: an infer row built in an earlier
 	// generation has stale ids.
 	gen int32
+
+	trees  []*rowTreeEntry
+	invRow *Row
+
+	c           *checker
+	limit       int
+	limitSet    bool
+	out         bool
+	outOfOrder  bool
+	reported    bool
+	reporting   bool
+	deadID      int32
+	preBodyWork int
+	lastFn      *Func
+	refusedFn   *Func
+	refusedCur  *fileInfo
 
 	b *lookupSteps
 	// rowOf is the row a named type names, or nil (checker.namedRowOf):
@@ -114,11 +132,94 @@ func newTypeTable() *typeTable {
 	}
 }
 
-// charge charges w steps to the running lookup, if any.
+func fnBefore(a, b *Func) bool {
+	if a.file != b.file {
+		if a.file == nil {
+			return true
+		}
+		if b.file == nil {
+			return false
+		}
+		return a.file.index < b.file.index
+	}
+	if a.Decl != nil && b.Decl != nil {
+		return a.Decl.Pos() < b.Decl.Pos()
+	}
+	return false
+}
+
+func (tab *typeTable) start() {
+	tab.limitSet = true
+	if tab.c != nil && tab.c.hasTypeLimit {
+		tab.limit = tab.c.typeLimitVal
+		return
+	}
+	nodes := 0
+	if tab.c != nil {
+		for _, fi := range tab.c.files {
+			if fi != nil && fi.syntax != nil {
+				syntax.Inspect(fi.syntax, func(syntax.Node) bool {
+					nodes++
+					return true
+				})
+			}
+		}
+	}
+	tab.limit = TypeLimit(nodes)
+}
+
+func (tab *typeTable) unknownRow() *Row {
+	if tab.invRow == nil {
+		tab.invRow = &Row{elems: []Type{invalid}, ids: []int32{0}, tab: tab, gen: tab.gen}
+	}
+	return tab.invRow
+}
+
+func (tab *typeTable) dead(t Type) int32 {
+	tab.deadID--
+	id := tab.deadID
+	if t != nil {
+		tab.scoped[t] = id
+	}
+	return id
+}
+
+// charge charges w steps to the running lookup and to the package's type budget.
 func (tab *typeTable) charge(w int) {
+	if !tab.limitSet {
+		tab.start()
+	}
+	if tab.c != nil && tab.c.fn != nil && tab.c.fn.fn != nil {
+		f := tab.c.fn.fn
+		if tab.lastFn != nil && tab.lastFn != f && fnBefore(f, tab.lastFn) {
+			tab.outOfOrder = true
+		}
+		tab.lastFn = f
+	} else if !tab.out && tab.lastFn == nil {
+		tab.preBodyWork += w
+	}
+	if tab.out {
+		return
+	}
 	tab.work += w
 	if tab.b != nil {
 		tab.b.charge(w)
+	}
+	if tab.work > tab.limit {
+		tab.out = true
+		if tab.c != nil {
+			if tab.c.fn != nil && tab.c.fn.fn != nil {
+				tab.refusedFn = tab.c.fn.fn
+			} else {
+				for _, f := range tab.c.funcs {
+					if f.state == 1 {
+						tab.refusedFn = f
+						break
+					}
+				}
+			}
+			tab.refusedCur = tab.c.cur
+		}
 	}
 }
 
@@ -178,7 +279,11 @@ func (tab *typeTable) id(t Type) int32 {
 
 // size is the number of nodes of t (saturated): the cost of substituting it.
 func (tab *typeTable) size(t Type) int {
-	return int(tab.sizes[tab.id(t)])
+	id := tab.id(t)
+	if id <= 0 || int(id) >= len(tab.sizes) {
+		return 0
+	}
+	return int(tab.sizes[id])
 }
 
 // intern returns t's id, and whether it depends on an unbound variable (the
@@ -190,6 +295,9 @@ func (tab *typeTable) intern(t Type) (int32, bool) {
 	case *RowArg:
 		return tab.rowID(t.Row)
 	case *RowVar:
+		if tab.out {
+			return tab.dead(t), true
+		}
 		// A use as a row element: the variable and its substitution, the
 		// bindings of the function's type parameters in order. A row
 		// reads it as its solution (rowID, resolve).
@@ -212,6 +320,9 @@ func (tab *typeTable) intern(t Type) (int32, bool) {
 	if id, ok := tab.scoped[t]; ok {
 		return id, true
 	}
+	if tab.out {
+		return tab.dead(t), true
+	}
 	if n, ok := t.(*Named); ok && tab.rowOf != nil {
 		if r := tab.rowOf(n); r != nil {
 			// A named row is its row (namedrow.go): its id is the row
@@ -226,7 +337,9 @@ func (tab *typeTable) intern(t Type) (int32, bool) {
 		tab.sigBuilds += 1 + len(kids)
 	}
 	id, infer := tab.build(kind, ref, n, s, kids)
-	tab.remember(t, id, infer)
+	if !tab.out {
+		tab.remember(t, id, infer)
+	}
 	return id, infer
 }
 
@@ -241,6 +354,9 @@ func (tab *typeTable) named(orig *Named, targs []Type) (int32, bool) {
 // built.
 func (tab *typeTable) build(kind byte, ref any, n int64, s string, kids []Type) (int32, bool) {
 	tab.charge(1 + len(kids))
+	if tab.out {
+		return 0, false
+	}
 	if tab.b != nil {
 		tab.lookupBuilds++
 	}
@@ -396,10 +512,19 @@ func shape(t Type) (kind byte, ref any, n int64, s string, kids []Type) {
 
 // ---------------------------------------------------------------- rows
 
+func (tab *typeTable) newTreeRow(tree *rowNode, vars, infer bool) *Row {
+	idx := len(tab.trees)
+	tab.trees = append(tab.trees, &rowTreeEntry{root: tree})
+	return &Row{tab: tab, rid: -int32(idx + 1), vars: vars, infer: infer, gen: tab.gen}
+}
+
 // rowID is a row's identity: the set of its elements' ids, a final row
 // variable replaced by its solution. It depends on an unbound variable when
 // the row holds one, or an element whose id does.
 func (tab *typeTable) rowID(r *Row) (int32, bool) {
+	if tab.out {
+		return 0, false
+	}
 	if r.Empty() {
 		if tab.empty == 0 {
 			tab.empty = tab.node(nodeKey{kind: vRow}, 1)
@@ -407,16 +532,22 @@ func (tab *typeTable) rowID(r *Row) (int32, bool) {
 		return tab.empty, false
 	}
 	r = tab.local(r)
-	if r.rid != 0 {
+	if r.rid > 0 {
 		return r.rid, false
 	}
-	ids, infer := r.ids, r.infer
+	if r.rid < 0 {
+		if rid := tab.trees[int(-r.rid-1)].rowID; rid > 0 {
+			return rid, false
+		}
+	}
+	elems, rids := r.flat()
+	ids, infer := rids, r.infer
 	if r.vars {
-		ids = make([]int32, 0, len(r.ids))
-		for i, e := range r.elems {
+		ids = make([]int32, 0, len(rids))
+		for i, e := range elems {
 			v, ok := e.(*RowVar)
 			if !ok {
-				ids = append(ids, r.ids[i])
+				ids = append(ids, rids[i])
 				continue
 			}
 			// A variable reads as its solution so far, with the use's
@@ -424,7 +555,8 @@ func (tab *typeTable) rowID(r *Row) (int32, bool) {
 			// 12 M2), then the id holds only in the inference context.
 			vr, inf := tab.varRow(v)
 			if vr = tab.local(vr); vr != nil {
-				ids = append(ids, vr.ids...)
+				_, vrIDs := vr.flat()
+				ids = append(ids, vrIDs...)
 				infer = infer || vr.infer
 			}
 			infer = infer || inf
@@ -434,12 +566,19 @@ func (tab *typeTable) rowID(r *Row) (int32, bool) {
 		if len(ids) == 0 {
 			id, _ := tab.rowID(nil)
 			if !infer {
-				r.rid = id
+				if r.rid < 0 {
+					tab.trees[int(-r.rid-1)].rowID = id
+				} else {
+					r.rid = id
+				}
 			}
 			return id, infer
 		}
 	}
 	tab.charge(1 + len(ids))
+	if tab.out {
+		return 0, false
+	}
 	buf := make([]byte, 4*len(ids))
 	size := int64(1)
 	for i, id := range ids {
@@ -448,7 +587,11 @@ func (tab *typeTable) rowID(r *Row) (int32, bool) {
 	}
 	id := tab.node(nodeKey{kind: vRow, kids: string(buf)}, size)
 	if !infer {
-		r.rid = id
+		if r.rid < 0 {
+			tab.trees[int(-r.rid-1)].rowID = id
+		} else {
+			r.rid = id
+		}
 	}
 	return id, infer
 }
@@ -472,6 +615,9 @@ func (tab *typeTable) sortIDs(ids []int32) {
 // elements re-interned here, once for the check (a row of another check, or
 // one whose variables are now final) or once for the component's inference.
 func (tab *typeTable) local(r *Row) *Row {
+	if tab.out {
+		return tab.unknownRow()
+	}
 	if r.Empty() || r.tab == tab && (!r.infer || r.gen == tab.gen) {
 		return r
 	}
@@ -481,7 +627,7 @@ func (tab *typeTable) local(r *Row) *Row {
 	if l, ok := tab.scopedRows[r]; ok {
 		return l
 	}
-	l := tab.row(r.elems...)
+	l := tab.row(r.Elems()...)
 	if l.infer {
 		tab.scopedRows[r] = l
 	} else {
@@ -499,7 +645,8 @@ func (r *Row) idsOf(tab *typeTable) []int32 {
 	if l.Empty() || l.infer {
 		return nil
 	}
-	return l.ids
+	_, ids := l.flat()
+	return ids
 }
 
 // row builds the row of elems.
@@ -520,6 +667,9 @@ func (tab *typeTable) set(r *Row) *Row { return tab.local(tab.resolve(r)) }
 // the row a body charges or a call escapes with, which holds no variable.
 // A row whose variables are all final is resolved once for the check.
 func (tab *typeTable) resolve(r *Row) *Row {
+	if tab.out {
+		return tab.unknownRow()
+	}
 	if r == nil || !r.vars {
 		return r
 	}
@@ -528,7 +678,7 @@ func (tab *typeTable) resolve(r *Row) *Row {
 	}
 	out := newRow()
 	final := true
-	for _, e := range r.elems {
+	for _, e := range r.Elems() {
 		if v, ok := e.(*RowVar); ok {
 			vr, infer := tab.varRow(v)
 			final = final && !infer && (vr == nil || !vr.infer)
