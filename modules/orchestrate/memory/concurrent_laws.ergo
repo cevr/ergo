@@ -45,6 +45,16 @@ func orchStoryStep(st orchStory, a orchAct) (orchStory, orchRes) {
 			return (st, OrchRefused{Kind: "Unverified"})
 		case orchestrate.NotAcceptedHead:
 			return (st, OrchRefused{Kind: "NotAcceptedHead"})
+		case orchestrate.LaneHeld:
+			return (st, OrchRefused{Kind: "LaneHeld"})
+		case orchestrate.NotOwner:
+			return (st, OrchRefused{Kind: "NotOwner"})
+		case orchestrate.LandingBusy:
+			return (st, OrchRefused{Kind: "LandingBusy"})
+		case orchestrate.StaleHead:
+			return (st, OrchRefused{Kind: "StaleHead"})
+		case orchestrate.NoLease:
+			return (st, OrchRefused{Kind: "NoLease"})
 		}
 		if events.Len() == 0 {
 			return (st, OrchExecOK{Seq: st.seq, Duplicate: true})
@@ -74,6 +84,16 @@ func runOrchAct(store Store, a orchAct) orchRes {
 			return OrchRefused{Kind: "Unverified"}
 		case orchestrate.NotAcceptedHead:
 			return OrchRefused{Kind: "NotAcceptedHead"}
+		case orchestrate.LaneHeld:
+			return OrchRefused{Kind: "LaneHeld"}
+		case orchestrate.NotOwner:
+			return OrchRefused{Kind: "NotOwner"}
+		case orchestrate.LandingBusy:
+			return OrchRefused{Kind: "LandingBusy"}
+		case orchestrate.StaleHead:
+			return OrchRefused{Kind: "StaleHead"}
+		case orchestrate.NoLease:
+			return OrchRefused{Kind: "NoLease"}
 		case orchestrate.StoreFailed:
 			return OrchRefused{Kind: "StoreFailed"}
 		}

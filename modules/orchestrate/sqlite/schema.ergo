@@ -7,7 +7,7 @@ import sql
 import strconv
 
 // CurrentSchemaVersion is the SQLite schema version written and accepted by this package.
-let CurrentSchemaVersion = 3
+let CurrentSchemaVersion = 4
 
 func initSchema() fails orchestrate.StoreFailed needs sql.Tx {
 	let uvRows = try queryTx("PRAGMA user_version", []sql.Value{})
@@ -76,10 +76,44 @@ func migrateSchemaTx(fromVer int) fails orchestrate.StoreFailed needs sql.Tx {
 	} else {
 		try createTablesTx()
 	}
+	for col in []string{"lease_actor", "lease_base_head", "lease_since", "lease_until"} {
+		if !(try hasColumnTx("run_meta", col)) {
+			let _ = try execTx("ALTER TABLE run_meta ADD COLUMN "+col+" TEXT", []sql.Value{})
+		}
+	}
+	if !(try hasColumnTx("units", "owner")) {
+		let _ = try execTx("ALTER TABLE units ADD COLUMN owner TEXT NOT NULL DEFAULT 'unknown'", []sql.Value{})
+		try migrateOwnersTx()
+	}
 	let _ = try execTx(
 		"UPDATE schema_meta SET schema_version = ? WHERE id = 1",
 		[]sql.Value{sql.Int{N: int64(CurrentSchemaVersion)}},
 	)
+}
+
+func migrateOwnersTx() fails orchestrate.StoreFailed needs sql.Tx {
+	let mut actor = orchestrate.UnknownOwner
+	let mut changes = []orchestrate.Event{}
+	for stored in try queryEventsTx(0) {
+		match stored.Event {
+		case orchestrate.CommandAccepted as e:
+			actor = e.Actor
+		case orchestrate.UnitOpened as e:
+			if actor != orchestrate.UnknownOwner {
+				changes = changes.Append(orchestrate.UnitOwnerChanged{Unit: e.Key, From: orchestrate.UnknownOwner, To: actor, At: e.At})
+			}
+		case _:
+		}
+	}
+	let mut seq = try lastSeqTx()
+	for ev in changes {
+		seq = seq + 1
+		let _ = try execTx(
+			"INSERT INTO events (seq, command_id, payload_digest, event_json) VALUES (?, 'schema-v4-owner', '', ?)",
+			[]sql.Value{sql.Int{N: int64(seq)}, sql.Text{S: encodeEvent(ev)}},
+		)
+		try applyEventSQL(ev, seq)
+	}
 }
 
 func hasTableTx(table string) bool fails orchestrate.StoreFailed needs sql.Tx {
@@ -104,7 +138,7 @@ func createTablesTx() fails orchestrate.StoreFailed needs sql.Tx {
 	let ddl = "CREATE TABLE IF NOT EXISTS commands (command_id TEXT PRIMARY KEY, actor TEXT NOT NULL, at TEXT NOT NULL, payload_json TEXT NOT NULL, payload_digest TEXT NOT NULL);" +
 		"CREATE TABLE IF NOT EXISTS events (seq INTEGER PRIMARY KEY, command_id TEXT NOT NULL, payload_digest TEXT NOT NULL, event_json TEXT NOT NULL);" +
 		"CREATE INDEX IF NOT EXISTS idx_events_command_id ON events (command_id);" +
-		"CREATE TABLE IF NOT EXISTS units (repo TEXT NOT NULL, run TEXT NOT NULL, id TEXT NOT NULL, title TEXT NOT NULL, requires_json TEXT NOT NULL, lane TEXT, branch TEXT, status TEXT NOT NULL, head TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY (repo, run, id));" +
+		"CREATE TABLE IF NOT EXISTS units (repo TEXT NOT NULL, run TEXT NOT NULL, id TEXT NOT NULL, title TEXT NOT NULL, requires_json TEXT NOT NULL, lane TEXT, branch TEXT, status TEXT NOT NULL, head TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, owner TEXT NOT NULL DEFAULT 'unknown', PRIMARY KEY (repo, run, id));" +
 		"CREATE INDEX IF NOT EXISTS idx_units_repo_run_status ON units (repo, run, status, id);" +
 		"CREATE TABLE IF NOT EXISTS receipts (id TEXT PRIMARY KEY, seq_order INTEGER NOT NULL, repo TEXT NOT NULL, run TEXT NOT NULL, unit_id TEXT NOT NULL, kind TEXT NOT NULL, command TEXT NOT NULL, head TEXT NOT NULL, exit_code INTEGER NOT NULL, exit_lines TEXT NOT NULL, recorded_at TEXT NOT NULL, recorded_by TEXT NOT NULL, FOREIGN KEY (repo, run, unit_id) REFERENCES units (repo, run, id));" +
 		"CREATE INDEX IF NOT EXISTS idx_receipts_unit_head ON receipts (repo, run, unit_id, head, seq_order);" +
@@ -114,7 +148,7 @@ func createTablesTx() fails orchestrate.StoreFailed needs sql.Tx {
 		"CREATE INDEX IF NOT EXISTS idx_queue_order ON queue (status, priority, key);" +
 		"CREATE TABLE IF NOT EXISTS questions (id INTEGER PRIMARY KEY, command_id TEXT NOT NULL UNIQUE, prompt TEXT NOT NULL, assumption TEXT NOT NULL, concrete_action TEXT NOT NULL, status TEXT NOT NULL, answer TEXT, asked_by TEXT NOT NULL, asked_at TEXT NOT NULL, answered_by TEXT, answered_at TEXT);" +
 		"CREATE INDEX IF NOT EXISTS idx_questions_status ON questions (status, id);" +
-		"CREATE TABLE IF NOT EXISTS run_meta (repo TEXT NOT NULL, run TEXT NOT NULL, main_head TEXT, updated_at TEXT NOT NULL, PRIMARY KEY (repo, run));" +
+		"CREATE TABLE IF NOT EXISTS run_meta (repo TEXT NOT NULL, run TEXT NOT NULL, main_head TEXT, updated_at TEXT NOT NULL, lease_actor TEXT, lease_base_head TEXT, lease_since TEXT, lease_until TEXT, PRIMARY KEY (repo, run));" +
 		"CREATE TABLE IF NOT EXISTS decisions (repo TEXT NOT NULL, run TEXT NOT NULL, id TEXT NOT NULL, category TEXT NOT NULL, scope TEXT NOT NULL, unit_id TEXT, title TEXT NOT NULL, body TEXT NOT NULL, status TEXT NOT NULL, supersedes TEXT, actor TEXT NOT NULL, created_at TEXT NOT NULL, PRIMARY KEY (repo, run, id));" +
 		"CREATE INDEX IF NOT EXISTS idx_decisions_filter ON decisions (repo, run, status, category, created_at DESC, id);" +
 		"CREATE TABLE IF NOT EXISTS landings (repo TEXT NOT NULL, run TEXT NOT NULL, landing_number INTEGER NOT NULL, group_id TEXT NOT NULL, head TEXT NOT NULL, tips_json TEXT NOT NULL, summary TEXT NOT NULL, log_path TEXT, landed_at TEXT NOT NULL, PRIMARY KEY (repo, run, landing_number));" +

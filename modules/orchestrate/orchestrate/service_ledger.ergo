@@ -1,13 +1,33 @@
 import json
 import option
 
-// RunHeadSetInput records the latest main branch head for a repository run.
-type RunHeadSetInput {
+// UnitTransferInput hands the unit (repo, run, id) to the actor To: by its owner, or by any actor claiming a unit of unknown owner for itself.
+type UnitTransferInput {
 	CommandID CommandID,
 	Actor     string,
 	Repo      string,
 	Run       string,
-	Head      string,
+	ID        string,
+	To        string,
+}
+
+// LandingBeginInput takes the landing lease of a repository run for LifetimeSeconds, from ExpectedHead, which must be the run head.
+type LandingBeginInput {
+	CommandID       CommandID,
+	Actor           string,
+	Repo            string,
+	Run             string,
+	ExpectedHead    string,
+	LifetimeSeconds int,
+}
+
+// LandingEndInput moves the run head to NewHead and frees the caller's live landing lease.
+type LandingEndInput {
+	CommandID CommandID,
+	Actor     string,
+	Repo      string,
+	Run       string,
+	NewHead   string,
 }
 
 // RunSummaryInput requests a compact progressive-disclosure overview of one repository run.
@@ -212,9 +232,33 @@ func optTextFilter(field string, v json.Optional[string]) option.Option[string] 
 	opt
 }
 
-// RunHeadSet executes SetRunHead and returns the updated RunMeta.
-func RunHeadSet(s Service, req RunHeadSetInput) RunMeta fails NotFound | AlreadyExists | InvalidTransition | CommandReused | InvalidInput | Unverified | NotAcceptedHead | StoreFailed {
-	let _ = try s.store.Execute(envelope(s, req.CommandID, req.Actor, SetRunHead{Repo: req.Repo, Run: req.Run, Head: req.Head}))
+// UnitTransfer executes TransferUnit and returns the Unit under its new owner.
+func UnitTransfer(s Service, req UnitTransferInput) Unit fails NotFound | AlreadyExists | InvalidTransition | CommandReused | InvalidInput | Unverified | NotAcceptedHead | LaneHeld | NotOwner | LandingBusy | StaleHead | NoLease | StoreFailed {
+	let key = keyOf(req.Repo, req.Run, req.ID)
+	runUnitCommand(s, req.CommandID, req.Actor, key, TransferUnit{Unit: key, To: req.To})
+}
+
+// LandingBegin executes BeginLanding and returns the caller's lease.
+func LandingBegin(s Service, req LandingBeginInput) LandingLease fails NotFound | AlreadyExists | InvalidTransition | CommandReused | InvalidInput | Unverified | NotAcceptedHead | LaneHeld | NotOwner | LandingBusy | StaleHead | NoLease | StoreFailed {
+	let done = try s.store.Execute(envelope(s, req.CommandID, req.Actor, BeginLanding{Repo: req.Repo, Run: req.Run, ExpectedHead: req.ExpectedHead, LifetimeSeconds: req.LifetimeSeconds}))
+	for ev in done.Events {
+		match ev {
+		case LandingLeaseTaken as e:
+			return e.Lease
+		case _:
+		}
+	}
+	match LeaseOf(try s.store.Snapshot(), req.Repo, req.Run) {
+	case option.Some[LandingLease] as l:
+		l.Value
+	case option.None:
+		StoreFailed{Reason: "lease missing after execute"}
+	}
+}
+
+// LandingEnd executes EndLanding and returns the run's RunMeta at its new head.
+func LandingEnd(s Service, req LandingEndInput) RunMeta fails NotFound | AlreadyExists | InvalidTransition | CommandReused | InvalidInput | Unverified | NotAcceptedHead | LaneHeld | NotOwner | LandingBusy | StaleHead | NoLease | StoreFailed {
+	let _ = try s.store.Execute(envelope(s, req.CommandID, req.Actor, EndLanding{Repo: req.Repo, Run: req.Run, NewHead: req.NewHead}))
 	match try s.store.RunMeta(req.Repo, req.Run) {
 	case option.Some[RunMeta] as m:
 		m.Value
@@ -242,7 +286,7 @@ func UnitList(s Service, req UnitListInput) UnitPage fails InvalidInput | StoreF
 }
 
 // DecisionRecord executes RecordDecision and returns the recorded Decision.
-func DecisionRecord(s Service, req DecisionRecordInput) Decision fails NotFound | AlreadyExists | InvalidTransition | CommandReused | InvalidInput | Unverified | NotAcceptedHead | StoreFailed {
+func DecisionRecord(s Service, req DecisionRecordInput) Decision fails NotFound | AlreadyExists | InvalidTransition | CommandReused | InvalidInput | Unverified | NotAcceptedHead | LaneHeld | NotOwner | LandingBusy | StaleHead | NoLease | StoreFailed {
 	let status = match try parseDecisionStatusOpt(req.Status) {
 	case option.Some[DecisionStatus] as st:
 		st.Value
@@ -287,7 +331,7 @@ func DecisionList(s Service, req DecisionListInput) DecisionPage fails InvalidIn
 }
 
 // LandingRecord executes RecordLanding and returns the recorded Landing.
-func LandingRecord(s Service, req LandingRecordInput) Landing fails NotFound | AlreadyExists | InvalidTransition | CommandReused | InvalidInput | Unverified | NotAcceptedHead | StoreFailed {
+func LandingRecord(s Service, req LandingRecordInput) Landing fails NotFound | AlreadyExists | InvalidTransition | CommandReused | InvalidInput | Unverified | NotAcceptedHead | LaneHeld | NotOwner | LandingBusy | StaleHead | NoLease | StoreFailed {
 	let cmd = RecordLanding{
 		Repo:          req.Repo,
 		Run:           req.Run,
@@ -320,7 +364,7 @@ func LandingList(s Service, req LandingListInput) LandingPage fails InvalidInput
 }
 
 // EventRecord executes RecordLedgerEvent and returns the appended LedgerEvent.
-func EventRecord(s Service, req EventRecordInput) LedgerEvent fails NotFound | AlreadyExists | InvalidTransition | CommandReused | InvalidInput | Unverified | NotAcceptedHead | StoreFailed {
+func EventRecord(s Service, req EventRecordInput) LedgerEvent fails NotFound | AlreadyExists | InvalidTransition | CommandReused | InvalidInput | Unverified | NotAcceptedHead | LaneHeld | NotOwner | LandingBusy | StaleHead | NoLease | StoreFailed {
 	let cmd = RecordLedgerEvent{
 		Repo:      req.Repo,
 		Run:       req.Run,
@@ -371,7 +415,7 @@ func EventLog(s Service, req EventLogInput) EventPage fails InvalidInput | Store
 }
 
 // ImportPlan executes IngestPlan and returns a summary of imported and skipped items.
-func ImportPlan(s Service, req ImportPlanInput) ImportReport fails NotFound | AlreadyExists | InvalidTransition | CommandReused | InvalidInput | Unverified | NotAcceptedHead | StoreFailed {
+func ImportPlan(s Service, req ImportPlanInput) ImportReport fails NotFound | AlreadyExists | InvalidTransition | CommandReused | InvalidInput | Unverified | NotAcceptedHead | LaneHeld | NotOwner | LandingBusy | StaleHead | NoLease | StoreFailed {
 	let env = envelope(s, req.CommandID, req.Actor, IngestPlan{Repo: req.Repo, Run: req.Run, Text: req.Text})
 	let done = try s.store.Execute(env)
 	let parsed = ParsePlanLines(req.Repo, req.Run, req.Actor, env.At, req.Text)
@@ -406,7 +450,7 @@ func ImportPlan(s Service, req ImportPlanInput) ImportReport fails NotFound | Al
 			if matched {
 				head = option.Some[string]{Value: h.Head}
 			}
-		case UnitOpened, ReceiptRecorded, UnitWasAccepted, UnitWasLanded, UnitWasClosed, CommitmentAdded, CommitmentWasAssigned, CommitmentWasLanded, CommitmentWasDecided, CommitmentWasWithdrawn, QueueUpserted, QueueRemoved, QuestionAsked, QuestionWasAnswered, QuestionWasWithdrawn:
+		case UnitOpened, ReceiptRecorded, UnitWasAccepted, UnitWasLanded, UnitWasClosed, CommitmentAdded, CommitmentWasAssigned, CommitmentWasLanded, CommitmentWasDecided, CommitmentWasWithdrawn, QueueUpserted, QueueRemoved, QuestionAsked, QuestionWasAnswered, QuestionWasWithdrawn, UnitOwnerChanged, LandingLeaseTaken, LandingLeaseTakenOver, LandingLeaseEnded:
 		}
 	}
 	let skipped = if parsed.Events.Len() >= added { parsed.Events.Len() - added } else { 0 }
@@ -437,7 +481,7 @@ func reportFromEvents(repo string, run string, parsed ParsedPlan, evs []Event) I
 			added = added + 1
 		case RunHeadUpdated as h:
 			head = option.Some[string]{Value: h.Head}
-		case CommandAccepted, UnitOpened, ReceiptRecorded, UnitWasAccepted, UnitWasLanded, UnitWasClosed, CommitmentAdded, CommitmentWasAssigned, CommitmentWasLanded, CommitmentWasDecided, CommitmentWasWithdrawn, QueueUpserted, QueueRemoved, QuestionAsked, QuestionWasAnswered, QuestionWasWithdrawn:
+		case CommandAccepted, UnitOpened, ReceiptRecorded, UnitWasAccepted, UnitWasLanded, UnitWasClosed, CommitmentAdded, CommitmentWasAssigned, CommitmentWasLanded, CommitmentWasDecided, CommitmentWasWithdrawn, QueueUpserted, QueueRemoved, QuestionAsked, QuestionWasAnswered, QuestionWasWithdrawn, UnitOwnerChanged, LandingLeaseTaken, LandingLeaseTakenOver, LandingLeaseEnded:
 		}
 	}
 	let skipped = if parsed.Events.Len() >= added { parsed.Events.Len() - added } else { 0 }

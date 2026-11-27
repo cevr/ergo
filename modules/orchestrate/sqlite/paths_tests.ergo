@@ -94,6 +94,16 @@ func osApplyModel(st orchestrate.State, seq int, cmd osCmd, step int) (orchestra
 			return (st, seq, osRefused{Kind: "command_reused"})
 		case orchestrate.NotAcceptedHead:
 			return (st, seq, osRefused{Kind: "not_accepted_head"})
+		case orchestrate.LaneHeld:
+			return (st, seq, osRefused{Kind: "lane_held"})
+		case orchestrate.NotOwner:
+			return (st, seq, osRefused{Kind: "not_owner"})
+		case orchestrate.LandingBusy:
+			return (st, seq, osRefused{Kind: "landing_busy"})
+		case orchestrate.StaleHead:
+			return (st, seq, osRefused{Kind: "stale_head"})
+		case orchestrate.NoLease:
+			return (st, seq, osRefused{Kind: "no_lease"})
 		case orchestrate.InvalidInput:
 			return (st, seq, osRefused{Kind: "invalid_input"})
 		}
@@ -426,6 +436,16 @@ func ApplySession(_ OrchSQLitePathProvider, id int, cmd osCmd) explore.Observed[
 			return try osRejected(st, "unverified")
 		case orchestrate.NotAcceptedHead:
 			return try osRejected(st, "not_accepted_head")
+		case orchestrate.LaneHeld:
+			return try osRejected(st, "lane_held")
+		case orchestrate.NotOwner:
+			return try osRejected(st, "not_owner")
+		case orchestrate.LandingBusy:
+			return try osRejected(st, "landing_busy")
+		case orchestrate.StaleHead:
+			return try osRejected(st, "stale_head")
+		case orchestrate.NoLease:
+			return try osRejected(st, "no_lease")
 		case orchestrate.CommandReused:
 			return try osRejected(st, "command_reused")
 		case orchestrate.InvalidInput:

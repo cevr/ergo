@@ -53,7 +53,7 @@ law ServiceHandlesFaultyStoreCleanly() {
 		}) catch {
 		case _:
 			openFailed = true
-			orchestrate.Unit{Key: orchestrate.UnitKey{Repo: "", Run: "", ID: ""}, Title: "", Requires: []string{}, Lane: option.None, Branch: option.None, Status: orchestrate.UnitClosed, Head: option.None, CreatedAt: "", UpdatedAt: ""}
+			orchestrate.Unit{Key: orchestrate.UnitKey{Repo: "", Run: "", ID: ""}, Owner: "", Title: "", Requires: []string{}, Lane: option.None, Branch: option.None, Status: orchestrate.UnitClosed, Head: option.None, CreatedAt: "", UpdatedAt: ""}
 		}
 		if faulty.Execute.Faults().Len() > execFaults0 {
 			writeFault = true
@@ -80,7 +80,7 @@ law ServiceHandlesFaultyStoreCleanly() {
 			case orchestrate.StoreFailed:
 				return false
 			}
-			if after1.Len() != 1 || after1[0].Seq != 2 || after2.Len() != 0 {
+			if after1.Len() != 2 || after1[0].Seq != 2 || after2.Len() != 1 || after2[0].Seq != 3 {
 				gen.Draws.Show("events-cursor", "Events(fromSeq) was not strictly exclusive")
 				return false
 			}

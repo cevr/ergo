@@ -7,6 +7,7 @@ import strconv
 import strings
 import sync
 import task
+import time
 
 type probeFailure {}
 
@@ -51,7 +52,7 @@ type PersistenceChecks {
 		CheckConcurrentMultiWriter(0) && CheckConcurrentMultiWriter(1) && CheckConcurrentMultiWriter(2)
 	},
 
-	// MigrationV2ToV3PreservesExistingData verifies that opening a populated v2 SQLite database under v3 upgrades cleanly and keeps every existing row intact.
+	// MigrationV2ToV3PreservesExistingData verifies that opening a populated v2 SQLite database under the current schema upgrades cleanly, keeps every existing row intact, gives each unit the actor of its opening command as owner (else the unknown owner), and lets exactly one actor claim a unit of unknown owner.
 	law MigrationV2ToV3PreservesExistingData() {
 		CheckMigrationV2ToV3()
 	},
@@ -94,6 +95,16 @@ func execOutcomeTag(st orchestrate.Store, env orchestrate.Envelope) string {
 		return "Unverified:" + orchestrate.UnitKeyText(e.Unit) + ":" + e.Head + ":" + strings.Join(e.Missing, ",") + ":" + strings.Join(e.Red, ",")
 	case orchestrate.NotAcceptedHead as e:
 		return "NotAcceptedHead:" + orchestrate.UnitKeyText(e.Unit) + ":" + e.Accepted + ":" + e.Head
+	case orchestrate.LaneHeld as e:
+		return "LaneHeld:" + e.Lane + ":" + orchestrate.UnitKeyText(e.Unit) + ":" + e.Actor
+	case orchestrate.NotOwner as e:
+		return "NotOwner:" + orchestrate.UnitKeyText(e.Unit) + ":" + e.Owner + ":" + e.Actor
+	case orchestrate.LandingBusy as e:
+		return "LandingBusy:" + e.Actor + ":" + e.Since
+	case orchestrate.StaleHead as e:
+		return "StaleHead:" + e.Have + ":" + e.Want
+	case orchestrate.NoLease as e:
+		return "NoLease:" + e.Repo + ":" + e.Run + ":" + e.Actor
 	case orchestrate.CommandReused as e:
 		return "CommandReused:" + string(e.ID)
 	case orchestrate.InvalidInput as e:
@@ -261,7 +272,7 @@ func makeStepEnvelope(index int, code int, prevAccepted option.Option[orchestrat
 	let kind = ((code % 21) + 21) % 21
 	let slot = (((code / 21) % 3) + 3) % 3
 	let id = orchestrate.CommandID("agree-\(index)")
-	let at = "2026-11-24T01:00:\(index)Z"
+	let at = time.Unix(int64(1795482000+index*20), 0).Format(time.RFC3339)
 	let key = orchestrate.UnitKey{Repo: "repo", Run: "agree", ID: "u-\(slot)"}
 	let head = "h-\(((code/63)%2 + 2) % 2)"
 	let commitID = "c-\(slot)"
@@ -298,7 +309,14 @@ func makeStepEnvelope(index int, code int, prevAccepted option.Option[orchestrat
 	case 14:
 		orchestrate.AnswerQuestion{ID: slot + 1, Answer: "yes", Withdraw: slot == 2}
 	case 15:
-		orchestrate.SetRunHead{Repo: "repo", Run: "agree", Head: "main-\(slot)"}
+		match slot {
+		case 0:
+			orchestrate.BeginLanding{Repo: "repo", Run: "agree", ExpectedHead: head, LifetimeSeconds: 60}
+		case 1:
+			orchestrate.EndLanding{Repo: "repo", Run: "agree", NewHead: head}
+		case _:
+			orchestrate.TransferUnit{Unit: key, To: "actor-0"}
+		}
 	case 16:
 		let sup = if slot == 2 { option.Some[string]{Value: "dec-0"} } else { option.None }
 		orchestrate.RecordDecision{Repo: "repo", Run: "agree", ID: "dec-\(slot)", Category: "ruling", Scope: "run", UnitID: option.Some[string]{Value: "u-\(slot)"}, Title: "Decision \(slot)", Body: "Body \(slot)", Status: orchestrate.DecisionOpen, Supersedes: sup, CreatedAt: option.None}
@@ -312,7 +330,8 @@ func makeStepEnvelope(index int, code int, prevAccepted option.Option[orchestrat
 	case _:
 		orchestrate.RecordReceipt{Unit: key, Kind: "gate", Command: "go vet", Head: head, ExitCode: 0, ExitLines: "ok"}
 	}
-	orchestrate.Envelope{ID: id, Actor: "actor-\(slot)", At: at, Command: cmd}
+	let actor = if kind == 15 || kind == 4 { "actor-0" } else { "actor-\(slot)" }
+	orchestrate.Envelope{ID: id, Actor: actor, At: at, Command: cmd}
 }
 
 let agreeCachedStore = sync.NewRef[option.Option[Store]](option.None)
@@ -761,5 +780,5 @@ func CheckConcurrentMultiWriter(_ livePersistence, tag int) bool needs go.Foreig
 			dense = false
 		}
 	}
-	r1 && r2 && units.Units.Len() == 8 && queue.Len() == 4 && snap.Receipts.Len() == 4 && evs.Len() == 32 && dense && orchestrate.Fold(orchestrate.EventList(evs)) == snap
+	r1 && r2 && units.Units.Len() == 8 && queue.Len() == 4 && snap.Receipts.Len() == 4 && evs.Len() == 40 && dense && orchestrate.Fold(orchestrate.EventList(evs)) == snap
 }
