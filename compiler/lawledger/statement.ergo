@@ -1,0 +1,568 @@
+import option
+import strings
+
+func isIdentStart(b byte) bool {
+	(b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z') || b == '_' || b >= 0x80
+}
+
+func isIdentCont(b byte) bool {
+	isIdentStart(b) || (b >= '0' && b <= '9')
+}
+
+func isDigit(b byte) bool {
+	b >= '0' && b <= '9'
+}
+
+func skipLineComment(src string, i int) int {
+	let n = src.Len()
+	let mut j = i + 2
+	for j < n && src[j] != '\n' {
+		j = j + 1
+	}
+	j
+}
+
+func skipBlockComment(src string, i int) int {
+	let n = src.Len()
+	let mut j = i + 2
+	for j+1 < n {
+		if src[j] == '*' && src[j+1] == '/' {
+			return j + 2
+		}
+		j = j + 1
+	}
+	n
+}
+
+func skipRawString(src string, i int) int {
+	let n = src.Len()
+	let mut j = i + 1
+	for j < n {
+		if src[j] == '`' {
+			return j + 1
+		}
+		j = j + 1
+	}
+	n
+}
+
+func skipCharLit(src string, i int) int {
+	let n = src.Len()
+	let mut j = i + 1
+	for j < n {
+		let c = src[j]
+		if c == '\\' {
+			j = j + 2
+			continue
+		}
+		if c == '\'' {
+			return j + 1
+		}
+		if c == '\n' {
+			return j
+		}
+		j = j + 1
+	}
+	n
+}
+
+func skipQuotedString(src string, i int) int {
+	let n = src.Len()
+	let mut j = i + 1
+	for j < n {
+		let c = src[j]
+		if c == '\\' {
+			if j+1 < n && src[j+1] == '(' {
+				j = j + 2
+				let mut depth = 1
+				for j < n && depth > 0 {
+					let cc = src[j]
+					if cc == '"' {
+						j = skipQuotedString(src, j)
+					} else if cc == '`' {
+						j = skipRawString(src, j)
+					} else if cc == '\'' {
+						j = skipCharLit(src, j)
+					} else if cc == '/' && j+1 < n && src[j+1] == '/' {
+						j = skipLineComment(src, j)
+					} else if cc == '/' && j+1 < n && src[j+1] == '*' {
+						j = skipBlockComment(src, j)
+					} else if cc == '(' {
+						depth = depth + 1
+						j = j + 1
+					} else if cc == ')' {
+						depth = depth - 1
+						j = j + 1
+					} else {
+						j = j + 1
+					}
+				}
+				continue
+			}
+			j = j + 2
+			continue
+		}
+		if c == '"' {
+			return j + 1
+		}
+		if c == '\n' {
+			return j
+		}
+		j = j + 1
+	}
+	n
+}
+
+func skipSpacesAndComments(src string, start int) int {
+	let n = src.Len()
+	let mut i = start
+	for i < n {
+		let c = src[i]
+		if isASCIIBlank(c) {
+			i = i + 1
+		} else if c == '/' && i+1 < n && src[i+1] == '/' {
+			i = skipLineComment(src, i)
+		} else if c == '/' && i+1 < n && src[i+1] == '*' {
+			i = skipBlockComment(src, i)
+		} else {
+			return i
+		}
+	}
+	i
+}
+
+func skipBalancedParen(src string, openPos int) int {
+	let n = src.Len()
+	let mut j = openPos + 1
+	let mut depth = 1
+	for j < n && depth > 0 {
+		let c = src[j]
+		if c == '"' {
+			j = skipQuotedString(src, j)
+		} else if c == '`' {
+			j = skipRawString(src, j)
+		} else if c == '\'' {
+			j = skipCharLit(src, j)
+		} else if c == '/' && j+1 < n && src[j+1] == '/' {
+			j = skipLineComment(src, j)
+		} else if c == '/' && j+1 < n && src[j+1] == '*' {
+			j = skipBlockComment(src, j)
+		} else if c == '(' {
+			depth = depth + 1
+			j = j + 1
+		} else if c == ')' {
+			depth = depth - 1
+			j = j + 1
+		} else {
+			j = j + 1
+		}
+	}
+	j
+}
+
+func matchLawDeclRange(src string, lawPos int, targetName string) option.Option[cutPair] {
+	let n = src.Len()
+	let mut j = lawPos + 3
+	if j >= n || !isASCIIBlank(src[j]) {
+		return option.None
+	}
+	j = skipSpacesAndComments(src, j)
+	if j >= n {
+		return option.None
+	}
+	if src[j] == '(' {
+		j = skipBalancedParen(src, j)
+		j = skipSpacesAndComments(src, j)
+		if j >= n {
+			return option.None
+		}
+	}
+	let nameStart = j
+	if !isIdentStart(src[j]) {
+		return option.None
+	}
+	for j < n && isIdentCont(src[j]) {
+		j = j + 1
+	}
+	let foundName = src[nameStart:j]
+	let mut okName = foundName == targetName
+	let nextAfterName = skipSpacesAndComments(src, j)
+	if !okName && nextAfterName < n && src[nextAfterName] == '.' {
+		let dotPos = skipSpacesAndComments(src, nextAfterName+1)
+		if dotPos < n && isIdentStart(src[dotPos]) {
+			let mut k = dotPos
+			for k < n && isIdentCont(src[k]) {
+				k = k + 1
+			}
+			if src[dotPos:k] == targetName || src[nameStart:k] == targetName {
+				okName = true
+				j = k
+			}
+		}
+	}
+	if !okName {
+		return option.None
+	}
+	let mut paren = 0
+	for j < n {
+		let c = src[j]
+		if c == '"' {
+			j = skipQuotedString(src, j)
+		} else if c == '`' {
+			j = skipRawString(src, j)
+		} else if c == '\'' {
+			j = skipCharLit(src, j)
+		} else if c == '/' && j+1 < n && src[j+1] == '/' {
+			j = skipLineComment(src, j)
+		} else if c == '/' && j+1 < n && src[j+1] == '*' {
+			j = skipBlockComment(src, j)
+		} else if c == '(' {
+			paren = paren + 1
+			j = j + 1
+		} else if c == ')' {
+			if paren > 0 {
+				paren = paren - 1
+			}
+			j = j + 1
+		} else if paren == 0 && c == '{' {
+			let mut brace = 1
+			j = j + 1
+			for j < n && brace > 0 {
+				let bc = src[j]
+				if bc == '"' {
+					j = skipQuotedString(src, j)
+				} else if bc == '`' {
+					j = skipRawString(src, j)
+				} else if bc == '\'' {
+					j = skipCharLit(src, j)
+				} else if bc == '/' && j+1 < n && src[j+1] == '/' {
+					j = skipLineComment(src, j)
+				} else if bc == '/' && j+1 < n && src[j+1] == '*' {
+					j = skipBlockComment(src, j)
+				} else if bc == '{' {
+					brace = brace + 1
+					j = j + 1
+				} else if bc == '}' {
+					brace = brace - 1
+					j = j + 1
+				} else {
+					j = j + 1
+				}
+			}
+			return option.Some[cutPair]{Value: cutPair{ok: true, before: src[nameStart:j], after: ""}}
+		} else if paren == 0 && (c == '\n' || c == ';') {
+			let peek = skipSpacesAndComments(src, j+1)
+			if peek < n && (src[peek] == 'f' || src[peek] == 't' || src[peek] == 'l') {
+				return option.Some[cutPair]{Value: cutPair{ok: true, before: src[nameStart:j], after: ""}}
+			}
+			j = j + 1
+		} else {
+			j = j + 1
+		}
+	}
+	option.Some[cutPair]{Value: cutPair{ok: true, before: src[nameStart:n], after: ""}}
+}
+
+func stripCommentsForNormalize(src string) string {
+	let n = src.Len()
+	let mut parts = []string{}
+	let mut i = 0
+	let mut seg = 0
+	for i < n {
+		let c = src[i]
+		if c == '"' {
+			i = skipQuotedString(src, i)
+		} else if c == '`' {
+			i = skipRawString(src, i)
+		} else if c == '\'' {
+			i = skipCharLit(src, i)
+		} else if c == '/' && i+1 < n && src[i+1] == '/' {
+			if seg < i {
+				parts = parts.Append(src[seg:i])
+			}
+			i = skipLineComment(src, i)
+			seg = i
+		} else if c == '/' && i+1 < n && src[i+1] == '*' {
+			if seg < i {
+				parts = parts.Append(src[seg:i])
+			}
+			i = skipBlockComment(src, i)
+			parts = parts.Append(" ")
+			seg = i
+		} else if c == ';' {
+			if seg < i {
+				parts = parts.Append(src[seg:i])
+			}
+			parts = parts.Append(" ")
+			i = i + 1
+			seg = i
+		} else {
+			i = i + 1
+		}
+	}
+	if seg < n {
+		parts = parts.Append(src[seg:n])
+	}
+	strings.Join(parts, "")
+}
+
+// Statement extracts and normalizes the named top-level law declaration from source text.
+func Statement(src string, name string, sc mut Scratch) option.Option[string] {
+	let n = src.Len()
+	let mut i = 0
+	let mut brace = 0
+	let mut paren = 0
+	for i < n {
+		let c = src[i]
+		if isASCIIBlank(c) {
+			i = i + 1
+			continue
+		}
+		if c == '/' && i+1 < n && src[i+1] == '/' {
+			i = skipLineComment(src, i)
+			continue
+		}
+		if c == '/' && i+1 < n && src[i+1] == '*' {
+			i = skipBlockComment(src, i)
+			continue
+		}
+		if c == '"' {
+			i = skipQuotedString(src, i)
+			continue
+		}
+		if c == '`' {
+			i = skipRawString(src, i)
+			continue
+		}
+		if c == '\'' {
+			i = skipCharLit(src, i)
+			continue
+		}
+		if c == '{' {
+			brace = brace + 1
+			i = i + 1
+			continue
+		}
+		if c == '}' {
+			if brace > 0 {
+				brace = brace - 1
+			}
+			i = i + 1
+			continue
+		}
+		if c == '(' {
+			paren = paren + 1
+			i = i + 1
+			continue
+		}
+		if c == ')' {
+			if paren > 0 {
+				paren = paren - 1
+			}
+			i = i + 1
+			continue
+		}
+		if brace == 0 && paren == 0 && i+3 < n && src[i:i+3] == "law" {
+			let atBoundary = i == 0 || !isIdentCont(src[i-1])
+			if atBoundary {
+				match matchLawDeclRange(src, i, name) {
+				case option.Some[cutPair] as rng:
+					return option.Some[string]{Value: NormalizeWhitespace(rng.Value.before, sc)}
+				case option.None:
+				}
+			}
+		}
+		i = i + 1
+	}
+	option.None
+}
+
+func matchThreeCharOp(s string, i int) bool {
+	if i+3 > s.Len() {
+		return false
+	}
+	let sub = s[i : i+3]
+	sub == "&^=" || sub == "<<=" || sub == ">>=" || sub == "..."
+}
+
+func matchTwoCharOp(s string, i int) bool {
+	if i+2 > s.Len() {
+		return false
+	}
+	let sub = s[i : i+2]
+	sub == "!=" || sub == "%=" || sub == "&&" || sub == "&=" || sub == "&^" || sub == "*=" || sub == "++" || sub == "+=" || sub == "--" || sub == "-=" || sub == ".." || sub == "/=" || sub == ":=" || sub == "<-" || sub == "<<" || sub == "<=" || sub == "==" || sub == ">=" || sub == ">>" || sub == "^=" || sub == "|=" || sub == "||"
+}
+
+func emitQuotedTokens(s string, start int, out mut []string, sc mut Scratch) int {
+	let n = s.Len()
+	let mut j = start + 1
+	let mut seg = start
+	for j < n {
+		let c = s[j]
+		if c == '\\' {
+			if j+1 < n && s[j+1] == '(' {
+				let chunk = NormalizeWhitespace(s[seg:j], sc)
+				*out = (*out).Append(chunk + "\\(")
+				j = j + 2
+				let exprStart = j
+				let mut depth = 1
+				for j < n && depth > 0 {
+					let ec = s[j]
+					if ec == '"' {
+						j = skipQuotedString(s, j)
+					} else if ec == '`' {
+						j = skipRawString(s, j)
+					} else if ec == '\'' {
+						j = skipCharLit(s, j)
+					} else if ec == '/' && j+1 < n && s[j+1] == '/' {
+						j = skipLineComment(s, j)
+					} else if ec == '/' && j+1 < n && s[j+1] == '*' {
+						j = skipBlockComment(s, j)
+					} else if ec == '(' {
+						depth = depth + 1
+						j = j + 1
+					} else if ec == ')' {
+						depth = depth - 1
+						if depth > 0 {
+							j = j + 1
+						}
+					} else {
+						j = j + 1
+					}
+				}
+				let innerEnd = j
+				if j < n && s[j] == ')' {
+					j = j + 1
+				}
+				let innerToks = tokenizeSlice(s[exprStart:innerEnd], sc)
+				for tk in innerToks {
+					*out = (*out).Append(tk)
+				}
+				*out = (*out).Append(")")
+				seg = j
+				continue
+			}
+			j = j + 2
+			continue
+		}
+		if c == '"' {
+			let tail = NormalizeWhitespace(s[seg:j+1], sc)
+			*out = (*out).Append(tail)
+			return j + 1
+		}
+		j = j + 1
+	}
+	*out = (*out).Append(NormalizeWhitespace(s[seg:n], sc))
+	n
+}
+
+func tokenizeSlice(s string, sc mut Scratch) []string {
+	let mut out = []string{}
+	let n = s.Len()
+	let mut i = 0
+	for i < n {
+		let c = s[i]
+		if isASCIIBlank(c) || c == ';' {
+			i = i + 1
+			continue
+		}
+		if c == '/' && i+1 < n && s[i+1] == '/' {
+			i = skipLineComment(s, i)
+			continue
+		}
+		if c == '/' && i+1 < n && s[i+1] == '*' {
+			i = skipBlockComment(s, i)
+			continue
+		}
+		if c == '"' {
+			i = emitQuotedTokens(s, i, &out, sc)
+			continue
+		}
+		if c == '`' {
+			let end = skipRawString(s, i)
+			out = out.Append(s[i:end])
+			i = end
+			continue
+		}
+		if c == '\'' {
+			let end = skipCharLit(s, i)
+			out = out.Append(s[i:end])
+			i = end
+			continue
+		}
+		if isIdentStart(c) {
+			let mut j = i + 1
+			for j < n && isIdentCont(s[j]) {
+				j = j + 1
+			}
+			out = out.Append(s[i:j])
+			i = j
+			continue
+		}
+		if isDigit(c) {
+			let mut j = i + 1
+			for j < n && (isIdentCont(s[j]) || (s[j] == '.' && j+1 < n && s[j+1] != '.')) {
+				j = j + 1
+			}
+			out = out.Append(s[i:j])
+			i = j
+			continue
+		}
+		if matchThreeCharOp(s, i) {
+			out = out.Append(s[i : i+3])
+			i = i + 3
+			continue
+		}
+		if matchTwoCharOp(s, i) {
+			out = out.Append(s[i : i+2])
+			i = i + 2
+			continue
+		}
+		out = out.Append(s[i : i+1])
+		i = i + 1
+	}
+	out
+}
+
+// Tokens splits a normalized law or runner statement into canonical comparison tokens.
+func Tokens(s string, sc mut Scratch) []string {
+	tokenizeSlice(s, sc)
+}
+
+// Same reports whether two law or runner statements have identical token streams.
+func Same(a string, b string, sc mut Scratch) bool {
+	let ta = tokenizeSlice(a, sc)
+	let tb = tokenizeSlice(b, sc)
+	if ta.Len() != tb.Len() {
+		return false
+	}
+	let mut i = 0
+	for i < ta.Len() {
+		if ta[i] != tb[i] {
+			return false
+		}
+		i = i + 1
+	}
+	true
+}
+
+// SameIsReflexive holds because every statement matches its own token stream.
+law SameIsReflexive(s string) {
+	let mut sc = NewScratch()
+	Same(s, s, &sc)
+}
+
+test TestStatementExtractionAndSame {
+	let src = "// head\nlaw AddCommutes(a int, b int) {\n\ta + b == b + a;\n}\n"
+	let mut sc = NewScratch()
+	match Statement(src, "AddCommutes", &sc) {
+	case option.Some[string] as st:
+		assert st.Value == "AddCommutes(a int, b int) { a + b == b + a; }"
+		assert Same(st.Value, "AddCommutes(a int, b int){a+b==b+a}", &sc)
+	case option.None:
+		assert false
+	}
+	assert !Same("law F(x int) { x+1 == 2 }", "law F(x int) { x+2 == 2 }", &sc)
+	assert !Same("a <<= b", "a << = b", &sc)
+	assert Same("\"hi  \\(a + b)  ok\"", "\"hi \\(a+b) ok\"", &sc)
+}

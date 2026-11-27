@@ -1,0 +1,469 @@
+import dense
+import filepath
+import fs
+import fstest
+import hex
+import option
+import sha256
+import slices
+import strings
+import zlib
+
+// PinContent specifies one entry inside a content-addressed pinset archive bundle.
+type PinContent {
+	Path   string,
+	Data   string,
+	Export string,
+	Mode   uint32,
+}
+
+// IndexEntry holds one parsed record from a bundle's index manifest.
+type IndexEntry {
+	Path   string,
+	Digest string,
+	Export string,
+}
+
+// ProducedBundle holds the encoded tar.gz archive bytes and uncompressed tar SHA-256 hex digest.
+type ProducedBundle {
+	Name      string,
+	ArchiveGZ string,
+	TarDigest string,
+	FileCount uint32,
+	ByteCount uint64,
+}
+
+func formatOctal(val uint64, width int) string {
+	let nDigits = width - 1
+	let mut rev = slices.WithCapacity[string](nDigits)
+	let digits = "01234567"
+	let mut v = val
+	let mut k = 0
+	for k < nDigits {
+		let d = int(v & uint64(7))
+		rev = rev.Append(digits[d : d+1])
+		v = v >> uint64(3)
+		k = k + 1
+	}
+	let mut out = slices.WithCapacity[string](width)
+	let mut j = nDigits - 1
+	for j >= 0 {
+		out = out.Append(rev[j])
+		j = j - 1
+	}
+	out = out.Append("\x00")
+	strings.Join(out, "")
+}
+
+func padString(s string, width int) string {
+	if s.Len() >= width {
+		return s[:width]
+	}
+	let mut need = width - s.Len()
+	let mut parts = []string{s}
+	let zeros32 = "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+	for need >= 32 {
+		parts = parts.Append(zeros32)
+		need = need - 32
+	}
+	let mut i = 0
+	for i < need {
+		parts = parts.Append("\x00")
+		i = i + 1
+	}
+	strings.Join(parts, "")
+}
+
+func formatTarHeader(name string, mode uint32, size uint64, typeflag string, linkname string) string fails PinError {
+	let mut shortName = name
+	let mut prefix = ""
+	if name.Len() > 100 {
+		let mut splitIdx = -1
+		let mut i = name.Len() - 1
+		for i > 0 {
+			if name[i] == '/' {
+				let p = name[:i]
+				let b = name[i+1:]
+				if p.Len() <= 155 && b.Len() <= 100 {
+					splitIdx = i
+					break
+				}
+			}
+			i = i - 1
+		}
+		if splitIdx < 0 {
+			return PinError{Field: name, Reason: "ustar_name", Message: "tar path exceeds USTAR length limit: \(name)"}
+		}
+		prefix = name[:splitIdx]
+		shortName = name[splitIdx+1:]
+	}
+	let headBeforeSum = padString(shortName, 100) + formatOctal(uint64(mode)&uint64(0o7777), 8) + formatOctal(uint64(0), 8) + formatOctal(uint64(0), 8) + formatOctal(size, 12) + formatOctal(uint64(0), 12)
+	let spaces8 = "        "
+	let afterSum = typeflag + padString(linkname, 100) + "ustar\x00" + "00" + padString("", 32) + padString("", 32) + formatOctal(uint64(0), 8) + formatOctal(uint64(0), 8) + padString(prefix, 155) + padString("", 12)
+	let raw = headBeforeSum + spaces8 + afterSum
+	let mut sum = uint64(0)
+	let mut k = 0
+	for k < 512 {
+		sum = sum + uint64(raw[k])
+		k = k + 1
+	}
+	let chk = formatOctal(sum, 7)[:7] + " "
+	headBeforeSum + chk + afterSum
+}
+
+func zeroPadBlock(nBytes int) string {
+	let rem = nBytes % 512
+	if rem == 0 {
+		return ""
+	}
+	padString("", 512-rem)
+}
+
+func parseOctalUint64(s string) uint64 {
+	let trimmed = strings.TrimSpace(s)
+	let mut v = uint64(0)
+	let mut i = 0
+	for i < trimmed.Len() {
+		let c = trimmed[i]
+		if c == '\x00' || c == ' ' {
+			break
+		}
+		if c >= '0' && c <= '7' {
+			v = (v << uint64(3)) | uint64(c-'0')
+		}
+		i = i + 1
+	}
+	v
+}
+
+// ParseIndex parses a pinset bundle index manifest into ordered IndexEntry values.
+func ParseIndex(text string) []IndexEntry fails PinError {
+	let lines = strings.Split(text, "\n")
+	let mut out = []IndexEntry{}
+	for raw in lines {
+		let line = strings.TrimSpace(raw)
+		if line == "" || line == Schema {
+			continue
+		}
+		let fields = strings.Fields(line)
+		if fields.Len() != 3 {
+			return PinError{Field: line, Reason: "index_line", Message: "malformed index entry: \(line)"}
+		}
+		if !IsDigest(fields[1]) {
+			return PinError{Field: fields[1], Reason: "digest", Message: "invalid index digest for \(fields[0])"}
+		}
+		out = out.Append(IndexEntry{Path: fields[0], Digest: fields[1], Export: fields[2]})
+	}
+	out
+}
+
+// FormatIndex serializes IndexEntry records cleanly in deterministic sorted NAME DIGEST EXPORT form.
+func FormatIndex(entries []IndexEntry) string {
+	let sorted = slices.SortFunc(entries, func(a IndexEntry, b IndexEntry) int {
+		if a.Path < b.Path {
+			return -1
+		}
+		if a.Path > b.Path {
+			return 1
+		}
+		0
+	})
+	let mut lines = slices.WithCapacity[string](sorted.Len())
+	for e in sorted {
+		let exp = if e.Export == "" { "-" } else { e.Export }
+		lines = lines.Append("\(e.Path) \(e.Digest) \(exp)")
+	}
+	if lines.Len() == 0 {
+		return ""
+	}
+	strings.Join(lines, "\n") + "\n"
+}
+
+// WriteSetBundle builds a deterministic content-addressed pinset tar.gz archive matching Go pinset.Write.
+func WriteSetBundle(name string, contents []PinContent) ProducedBundle fails PinError {
+	let sorted = slices.SortFunc(contents, func(a PinContent, b PinContent) int {
+		if a.Path < b.Path {
+			return -1
+		}
+		if a.Path > b.Path {
+			return 1
+		}
+		0
+	})
+	let mut idxEntries = slices.WithCapacity[IndexEntry](sorted.Len())
+	let mut blobDigests = []string{}
+	let mut blobBodies = []string{}
+	let mut seenBlobs = dense.NewStrings()
+	let mut byteTotal = uint64(0)
+	for c in sorted {
+		let dig = hex.Encode(sha256.Sum(c.Data))
+		let exp = if c.Export == "" { "-" } else { c.Export }
+		idxEntries = idxEntries.Append(IndexEntry{Path: c.Path, Digest: dig, Export: exp})
+		byteTotal = byteTotal + uint64(c.Data.Len())
+		match dense.FindText(seenBlobs, dig) {
+		case option.None:
+			let _ = dense.InternText(&seenBlobs, dig)
+			blobDigests = blobDigests.Append(dig)
+			blobBodies = blobBodies.Append(c.Data)
+		case option.Some[dense.ID[dense.Str]]:
+		}
+	}
+	let indexBody = FormatIndex(idxEntries)
+	let mut tarParts = []string{}
+	let idxHead = try formatTarHeader("index", uint32(0o644), uint64(indexBody.Len()), "0", "")
+	tarParts = tarParts.Append(idxHead)
+	tarParts = tarParts.Append(indexBody)
+	tarParts = tarParts.Append(zeroPadBlock(indexBody.Len()))
+	let mut sortedIndices = slices.WithCapacity[int](blobDigests.Len())
+	for k in 0..blobDigests.Len() {
+		sortedIndices = sortedIndices.Append(k)
+	}
+	let blobOrder = slices.SortFunc(sortedIndices, func(a int, b int) int {
+		if blobDigests[a] < blobDigests[b] {
+			return -1
+		}
+		if blobDigests[a] > blobDigests[b] {
+			return 1
+		}
+		0
+	})
+	for idx in blobOrder {
+		let d = blobDigests[idx]
+		let b = blobBodies[idx]
+		let hdr = try formatTarHeader("a/\(d)", uint32(0o644), uint64(b.Len()), "0", "")
+		tarParts = tarParts.Append(hdr)
+		tarParts = tarParts.Append(b)
+		tarParts = tarParts.Append(zeroPadBlock(b.Len()))
+	}
+	tarParts = tarParts.Append(padString("", 1024))
+	let tarStream = strings.Join(tarParts, "")
+	let tarDigest = hex.Encode(sha256.Sum(tarStream))
+	let gz = zlib.Gzip(tarStream.Bytes()).Text()
+	ProducedBundle{
+		Name:      name,
+		ArchiveGZ: gz,
+		TarDigest: tarDigest,
+		FileCount: uint32(sorted.Len()),
+		ByteCount: byteTotal,
+	}
+}
+
+func trimTarZeroStr(raw string) string {
+	let n = raw.Len()
+	let mut i = 0
+	for i < n {
+		if raw[i] == '\x00' {
+			return raw[:i]
+		}
+		i = i + 1
+	}
+	raw
+}
+
+func verifyTarChecksum(hdr string) bool {
+	if hdr.Len() != 512 {
+		return false
+	}
+	let recorded = parseOctalUint64(hdr[148:156])
+	let mut sum = uint64(0)
+	let mut i = 0
+	for i < 512 {
+		let b = if i >= 148 && i < 156 { uint64(32) } else { uint64(hdr[i]) }
+		sum = sum + b
+		i = i + 1
+	}
+	sum == recorded
+}
+
+func isZeroBlock(blk string) bool {
+	let mut i = 0
+	for i < blk.Len() {
+		if blk[i] != '\x00' {
+			return false
+		}
+		i = i + 1
+	}
+	true
+}
+
+// VerifyAndUnpackBundle decompresses a tar.gz bundle, verifies tar and blob digests, and returns contents.
+func VerifyAndUnpackBundle(gzBytes string, expectedTarDigest string) []PinContent fails PinError | zlib.BadGzip | zlib.BadBlock | zlib.BadDistance | zlib.BadHuffman | zlib.BadChecksum | zlib.Truncated | zlib.LimitExceeded {
+	let tarBytes = try zlib.Gunzip(gzBytes.Bytes(), int(MaxSetBytes))
+	let tarStream = tarBytes.Text()
+	let actualDigest = hex.Encode(sha256.Sum(tarStream))
+	if expectedTarDigest != "" && actualDigest != expectedTarDigest {
+		return PinError{Field: expectedTarDigest, Reason: "tar_digest", Message: "pinset tar digest mismatch: got \(actualDigest), want \(expectedTarDigest)"}
+	}
+	if tarStream.Len()%512 != 0 {
+		return PinError{Field: "", Reason: "tar_align", Message: "unaligned tar stream"}
+	}
+	let mut hasIndex = false
+	let mut indexText = ""
+	let mut blobPool = dense.NewStrings()
+	let mut blobStrs = []string{}
+	let mut off = 0
+	for off+512 <= tarStream.Len() {
+		let hdr = tarStream[off : off+512]
+		off = off + 512
+		if isZeroBlock(hdr) {
+			break
+		}
+		if !verifyTarChecksum(hdr) {
+			return PinError{Field: "", Reason: "tar_checksum", Message: "corrupt tar header checksum"}
+		}
+		let namePart = trimTarZeroStr(hdr[0:100])
+		let prefPart = trimTarZeroStr(hdr[345:500])
+		let fullName = if prefPart == "" { namePart } else { prefPart + "/" + namePart }
+		let size = int(parseOctalUint64(hdr[124:136]))
+		if off+size > tarStream.Len() {
+			return PinError{Field: fullName, Reason: "tar_eof", Message: "truncated tar entry \(fullName)"}
+		}
+		let payload = tarStream[off : off+size]
+		let rem = size % 512
+		let padded = if rem == 0 { size } else { size + (512 - rem) }
+		off = off + padded
+		if fullName == "index" {
+			hasIndex = true
+			indexText = payload
+		} else if strings.HasPrefix(fullName, "a/") {
+			let dig = fullName[2:]
+			let gotDig = hex.Encode(sha256.Sum(payload))
+			if gotDig != dig {
+				return PinError{Field: fullName, Reason: "blob_digest", Message: "blob digest mismatch at \(fullName)"}
+			}
+			let bodyKey = "BODY:" + dig
+			let bid = dense.Index(dense.InternText(&blobPool, bodyKey))
+			for blobStrs.Len() <= bid {
+				blobStrs = blobStrs.Append("")
+			}
+			blobStrs[bid] = payload
+		}
+	}
+	if !hasIndex {
+		return PinError{Field: "index", Reason: "missing_index", Message: "pinset bundle missing index"}
+	}
+	let entries = try ParseIndex(indexText)
+	let mut contents = slices.WithCapacity[PinContent](entries.Len())
+	for e in entries {
+		match findPinStr(blobPool, "BODY:"+e.Digest) {
+		case option.None:
+			return PinError{Field: e.Path, Reason: "missing_blob", Message: "missing blob \(e.Digest) for \(e.Path)"}
+		case option.Some[uint32] as idx:
+			let body = pinStrAt(blobStrs, idx.Value)
+			contents = contents.Append(PinContent{Path: e.Path, Data: body, Export: e.Export, Mode: uint32(0o644)})
+		}
+	}
+	contents
+}
+
+// InstallLockedBundle verifies an archive against PinTable and writes its unpacked blobs and index via fs.Writes.
+func InstallLockedBundle(t mut PinTable, setName string, gzBytes string, destDir string) uint32 fails PinError | zlib.BadGzip | zlib.BadBlock | zlib.BadDistance | zlib.BadHuffman | zlib.BadChecksum | zlib.Truncated | zlib.LimitExceeded | fs.NotFound | fs.Denied | fs.Failed needs fs.Writes {
+	let expected = match LookupLockedSet(*t, setName) {
+	case option.Some[string] as d:
+		d.Value
+	case option.None:
+		return PinError{Field: setName, Reason: "not_locked", Message: "pinset \(setName) is not in lock table"}
+	}
+	let contents = try VerifyAndUnpackBundle(gzBytes, expected)
+	let sid = match findPinStr((*t).Strings, setName) {
+	case option.Some[uint32] as s:
+		int((*t).SetKeyIndex[int(s.Value)] - uint32(1))
+	case option.None:
+		return PinError{Field: setName, Reason: "not_locked", Message: "pinset \(setName) not indexed"}
+	}
+	let start = (*t).EntryCount
+	let mut bytesSum = uint64(0)
+	let mut idxEntries = slices.WithCapacity[IndexEntry](contents.Len())
+	try fs.Writes.MkdirAll(filepath.Join([]string{destDir, "a"}))
+	for c in contents {
+		let dig = hex.Encode(sha256.Sum(c.Data))
+		let blobPath = filepath.Join([]string{destDir, "a", dig})
+		try fs.Writes.WriteFile(blobPath, c.Data)
+		bytesSum = bytesSum + uint64(c.Data.Len())
+		idxEntries = idxEntries.Append(IndexEntry{Path: c.Path, Digest: dig, Export: c.Export})
+		(*t).EntryCount = (*t).EntryCount + uint32(1)
+		(*t).EntrySetID = (*t).EntrySetID.Append(uint32(sid))
+		(*t).EntryPath = (*t).EntryPath.Append(internPinStr(&((*t).Strings), &((*t).StrPool), c.Path))
+		(*t).EntryDigest = (*t).EntryDigest.Append(internPinStr(&((*t).Strings), &((*t).StrPool), dig))
+		(*t).EntryExport = (*t).EntryExport.Append(internPinStr(&((*t).Strings), &((*t).StrPool), c.Export))
+		(*t).EntryMode = (*t).EntryMode.Append(c.Mode)
+		(*t).EntrySize = (*t).EntrySize.Append(uint64(c.Data.Len()))
+	}
+	try fs.Writes.WriteFile(filepath.Join([]string{destDir, "index"}), FormatIndex(idxEntries))
+	(*t).SetByteSize[sid] = bytesSum
+	(*t).SetFileCount[sid] = uint32(contents.Len())
+	(*t).SetEntryStart[sid] = start
+	(*t).SetEntryLen[sid] = uint32(contents.Len())
+	(*t).SetInstalled[sid] = true
+	(*t).SetVerified[sid] = true
+	uint32(contents.Len())
+}
+
+// PinBundleRoundTrips verifies every valid PinContent slice round-trips through WriteSetBundle and VerifyAndUnpackBundle.
+law PinBundleRoundTrips(path string, body string) {
+	let fs = strings.Fields(path)
+	if path == "" || path.Len() > 90 || fs.Len() != 1 || fs[0] != path || strings.Contains(path, "\x00") {
+		return true
+	}
+	let bundle = WriteSetBundle("test-bundle", []PinContent{PinContent{Path: path, Data: body, Export: "-", Mode: uint32(0o644)}}) catch {
+	case PinError:
+		return false
+	}
+	let got = VerifyAndUnpackBundle(bundle.ArchiveGZ, bundle.TarDigest) catch {
+	case PinError, zlib.BadGzip, zlib.BadBlock, zlib.BadDistance, zlib.BadHuffman, zlib.BadChecksum, zlib.Truncated, zlib.LimitExceeded:
+		return false
+	}
+	got.Len() == 1 && got[0].Path == path && got[0].Data == body && got[0].Export == "-"
+}
+
+test TestPinBundleArchiveVerifyAndInstall {
+	let mem = fstest.NewMemory()
+	let contents = []PinContent{
+		PinContent{Path: "fmt", Data: "fmt-archive", Export: "0123", Mode: uint32(0o644)},
+		PinContent{Path: "runtime/v1", Data: "rt-archive", Export: "-", Mode: uint32(0o644)},
+	}
+	let bundle = WriteSetBundle("std-1.0", contents) catch {
+	case PinError:
+		assert false
+		return
+	}
+	let mut tbl = NewPinTable()
+	let _ = AddLockedSet(&tbl, "std-1.0", bundle.TarDigest) catch {
+	case PinError:
+		assert false
+		return
+	}
+	with context { fs.Files: mem, fs.Writes: mem } {
+		let count = InstallLockedBundle(&tbl, "std-1.0", bundle.ArchiveGZ, "/store/std-1.0") catch {
+		case PinError, zlib.BadGzip, zlib.BadBlock, zlib.BadDistance, zlib.BadHuffman, zlib.BadChecksum, zlib.Truncated, zlib.LimitExceeded, fs.NotFound, fs.Denied, fs.Failed:
+			assert false
+			return
+		}
+		assert count == uint32(2)
+		assert PinSetAt(tbl, uint32(0)).Verified
+		assert PinEntryAt(tbl, uint32(0)).Export == "0123"
+		let blobDig = hex.Encode(sha256.Sum("fmt-archive"))
+		let gotDig = FileDigest("/store/std-1.0/a/\(blobDig)") catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+			assert false
+			return
+		}
+		assert gotDig == blobDig
+	}
+	let mut idxErr = false
+	let _ = ParseIndex("bin/tool not-a-digest -\n") catch {
+	case PinError:
+		idxErr = true
+		[]IndexEntry{}
+	}
+	assert idxErr
+	let mut digestErr = false
+	let _ = VerifyAndUnpackBundle(bundle.ArchiveGZ, "0000000000000000000000000000000000000000000000000000000000000000") catch {
+	case PinError:
+		digestErr = true
+		[]PinContent{}
+	case zlib.BadGzip, zlib.BadBlock, zlib.BadDistance, zlib.BadHuffman, zlib.BadChecksum, zlib.Truncated, zlib.LimitExceeded:
+		[]PinContent{}
+	}
+	assert digestErr
+}

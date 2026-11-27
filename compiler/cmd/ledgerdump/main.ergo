@@ -1,0 +1,820 @@
+import compiler/lawledger
+import compiler/pinset
+import compiler/receipt
+import filepath
+import fs
+import fstest
+import hex
+import io
+import json
+import option
+import os
+import sha256
+import slices
+import strings
+import zlib
+
+// RunnerRowOut represents one serialized runner table entry emitted by ledgerdump.
+type RunnerRowOut {
+	Pkg    string,
+	Law    string,
+	Runner string,
+}
+
+// RunnersOut holds the JSON payload for the runners subcommand.
+type RunnersOut {
+	Count     uint32,
+	Entries   []RunnerRowOut,
+	Formatted string,
+}
+
+// StatementOut holds the JSON payload for the statement subcommand.
+type StatementOut {
+	Found     bool,
+	Statement string,
+}
+
+// SameOut holds the JSON payload for the same subcommand.
+type SameOut {
+	Same    bool,
+	TokensA []string,
+	TokensB []string,
+}
+
+// LedgerRowOut holds one serialized law entry emitted by ledgerdump.
+type LedgerRowOut {
+	Name     string,
+	Subject  string,
+	Instance string,
+	Kind     string,
+	Tool     string,
+	Producer string,
+	Digest   string,
+}
+
+// GuardRowOut holds one serialized guard/admit directive emitted by ledgerdump.
+type GuardRowOut {
+	Kind   uint8,
+	Text   string,
+	Digest string,
+}
+
+// LedgerOut holds the JSON payload for the ledger subcommand.
+type LedgerOut {
+	Count      uint32,
+	GuardCount uint32,
+	Formatted  string,
+	Entries    []LedgerRowOut,
+	Guards     []GuardRowOut,
+}
+
+// DigestIn holds the JSON input for the lawdigest subcommand.
+type DigestIn {
+	Decls   []string,
+	Checks  []string,
+	Imports []string,
+	Facts   []string,
+}
+
+// DigestOut holds the JSON output for the lawdigest subcommand.
+type DigestOut {
+	LawDigest  string,
+	SyncDigest string,
+	PureDigest string,
+}
+
+// CasePropOut holds one serialized property tape row emitted by ledgerdump.
+type CasePropOut {
+	Key     string,
+	Digest  string,
+	TapeHex string,
+}
+
+// CasesOut holds the JSON payload for the cases subcommand.
+type CasesOut {
+	ShadowCount uint32,
+	PropCount   uint32,
+	Formatted   string,
+	Properties  []CasePropOut,
+}
+
+// TapeRTOut holds the JSON payload for the tapert subcommand.
+type TapeRTOut {
+	Encoded string,
+	Words   []uint64,
+}
+
+// KillerOut holds the JSON payload for the killer subcommand.
+type KillerOut {
+	ModuleDir    string,
+	ModulePath   string,
+	Status       uint8,
+	Runner       string,
+	RunnerDir    string,
+	DeclaredFile string,
+	ImportedDirs []string,
+}
+
+// ParsedLawOut holds one serialized extracted/derived law emitted by ledgerdump.
+type ParsedLawOut {
+	Name      string,
+	Receiver  string,
+	Statement string,
+	Derived   bool,
+}
+
+// ParsedOut holds the JSON payload for the parsed subcommand.
+type ParsedOut {
+	Count uint32,
+	Laws  []ParsedLawOut,
+}
+
+// ReceiptIn holds optional flags and symlink hints for receipt-locate.
+type ReceiptIn {
+	WorkDir string,
+	Spelled string,
+	Race    bool,
+	Cover   bool,
+	Links   []receipt.LinkSpec,
+}
+
+// ReceiptOut holds the JSON payload for the receipt-locate subcommand.
+type ReceiptOut {
+	Flags        []string,
+	Locate       receipt.Location,
+	LocateErr    string,
+	LocateSource receipt.Location,
+	SourceErr    string,
+	Unfiled      receipt.Location,
+}
+
+// AccessActionIn describes one scripted testinputs observation for the access subcommand.
+type AccessActionIn {
+	Kind    string,
+	Path    string,
+	Digest  string,
+	Existed bool,
+	IsDir   bool,
+	Present bool,
+	Size    uint64,
+}
+
+// AccessIn holds the JSON input for the access subcommand.
+type AccessIn {
+	Pkg          string,
+	TestName     string,
+	WorkDir      string,
+	ModRoot      string,
+	TmpDir       string,
+	ToolVersions string,
+	Env          []string,
+	Args         []string,
+	Ignores      []string,
+	Actions      []AccessActionIn,
+}
+
+// AccessOut holds the JSON payload for the access subcommand.
+type AccessOut {
+	FilteredEnv    []string,
+	TestLogFlag    bool,
+	WritablePlaces []string,
+	ManifestLines  []string,
+	ManifestDigest string,
+	RecordText     string,
+	RecordJSON     string,
+}
+
+// PinSetRowOut holds one serialized lock entry emitted by ledgerdump.
+type PinSetRowOut {
+	Name   string,
+	Digest string,
+}
+
+// PinLockOut holds the JSON payload for the pinlock subcommand.
+type PinLockOut {
+	LockVersion string,
+	Count       uint32,
+	Entries     []PinSetRowOut,
+	Formatted   string,
+}
+
+// PinKeyOut holds the JSON payload for the pinkey subcommand.
+type PinKeyOut {
+	Name string,
+}
+
+// PinBundleOut holds the JSON payload for the pinbundle subcommand.
+type PinBundleOut {
+	Name       string,
+	TarDigest  string,
+	ArchiveHex string,
+	FileCount  uint32,
+	ByteCount  uint64,
+	RoundTrip  uint32,
+}
+
+// PinEntryOut holds one unpacked archive file entry emitted by pinverify.
+type PinEntryOut {
+	Path   string,
+	Digest string,
+	Export string,
+	Mode   uint32,
+	Size   uint64,
+}
+
+// PinVerifyOut holds the JSON payload for the pinverify subcommand.
+type PinVerifyOut {
+	Count   uint32,
+	Entries []PinEntryOut,
+}
+
+func failExit(msg string) os.Exit {
+	os.Exit{Code: 1, Message: "ledgerdump: " + msg}
+}
+
+func readText(path string) string fails os.Exit needs fs.Files {
+	fs.Files.ReadFile(path) catch {
+	case fs.NotFound, fs.Denied:
+		return failExit("cannot read \(path)")
+	case fs.Failed as e:
+		return failExit("cannot read \(path): \(e.Reason)")
+	}
+}
+
+func cmdRunners(path string) string fails os.Exit needs fs.Files {
+	let text = try readText(path)
+	let mut sc = lawledger.NewScratch()
+	let tbl = lawledger.ParseRunners(text, &sc) catch {
+	case lawledger.RunnerFormatError as e:
+		return failExit(e.Message)
+	}
+	let n = int(lawledger.RunnerCount(tbl))
+	let mut entries = slices.WithCapacity[RunnerRowOut](n)
+	for i in 0..n {
+		let r = lawledger.RunnerEntryAt(tbl, uint32(i))
+		entries = entries.Append(RunnerRowOut{Pkg: r.Pkg, Law: r.Law, Runner: r.Runner})
+	}
+	let sorted = slices.SortFunc(entries, func(a RunnerRowOut, b RunnerRowOut) int {
+		if a.Pkg != b.Pkg {
+			return if a.Pkg < b.Pkg { -1 } else { 1 }
+		}
+		if a.Law != b.Law {
+			return if a.Law < b.Law { -1 } else { 1 }
+		}
+		0
+	})
+	let out = RunnersOut{Count: lawledger.RunnerCount(tbl), Entries: sorted, Formatted: lawledger.FormatRunners(tbl, &sc)}
+	json.Encode(json.Codec[RunnersOut]{MaxBytes: 0, MaxDepth: 0}, out)
+}
+
+func cmdStatement(path string, lawName string) string fails os.Exit needs fs.Files {
+	let src = try readText(path)
+	let mut sc = lawledger.NewScratch()
+	let out = match lawledger.Statement(src, lawName, &sc) {
+	case option.Some[string] as st:
+		StatementOut{Found: true, Statement: st.Value}
+	case option.None:
+		StatementOut{Found: false, Statement: ""}
+	}
+	json.Encode(json.Codec[StatementOut]{MaxBytes: 0, MaxDepth: 0}, out)
+}
+
+func cmdSame(stmtA string, stmtB string) string {
+	let mut sc = lawledger.NewScratch()
+	let out = SameOut{
+		Same:    lawledger.Same(stmtA, stmtB, &sc),
+		TokensA: lawledger.Tokens(stmtA, &sc),
+		TokensB: lawledger.Tokens(stmtB, &sc),
+	}
+	json.Encode(json.Codec[SameOut]{MaxBytes: 0, MaxDepth: 0}, out)
+}
+
+func cmdLedger(path string) string fails os.Exit needs fs.Files {
+	let text = try readText(path)
+	let mut sc = lawledger.NewScratch()
+	let tbl = lawledger.ParseLedger(text, &sc) catch {
+	case lawledger.LedgerFormatError as e:
+		return failExit(e.Message)
+	}
+	let n = int(lawledger.LedgerCount(tbl))
+	let mut entries = slices.WithCapacity[LedgerRowOut](n)
+	for i in 0..n {
+		let r = lawledger.LedgerEntryAt(tbl, uint32(i))
+		entries = entries.Append(LedgerRowOut{
+			Name:     r.Name,
+			Subject:  r.Subject,
+			Instance: r.Instance,
+			Kind:     r.Kind,
+			Tool:     r.Tool,
+			Producer: r.Producer,
+			Digest:   r.Digest,
+		})
+	}
+	let mut guards = slices.WithCapacity[GuardRowOut](int(tbl.GuardCount))
+	for j in 0..int(tbl.GuardCount) {
+		let gt = if tbl.StrPool.Len() > int(tbl.GuardText[j]) { tbl.StrPool[int(tbl.GuardText[j])] } else { "" }
+		let gd = if tbl.StrPool.Len() > int(tbl.GuardDigest[j]) { tbl.StrPool[int(tbl.GuardDigest[j])] } else { "" }
+		guards = guards.Append(GuardRowOut{Kind: tbl.GuardKind[j], Text: gt, Digest: gd})
+	}
+	let out = LedgerOut{
+		Count:      tbl.Count,
+		GuardCount: tbl.GuardCount,
+		Formatted:  lawledger.FormatLedger(tbl, &sc),
+		Entries:    entries,
+		Guards:     guards,
+	}
+	json.Encode(json.Codec[LedgerOut]{MaxBytes: 0, MaxDepth: 0}, out)
+}
+
+func cmdLawDigest(path string) string fails os.Exit needs fs.Files {
+	let raw = try readText(path)
+	let inVal = json.Decode(json.Codec[DigestIn]{MaxBytes: 0, MaxDepth: 0}, raw) catch {
+	case json.Malformed, WireMissingField, WireWrongKind:
+		return failExit("malformed DigestIn json")
+	}
+	let mut sc = lawledger.NewScratch()
+	let out = DigestOut{
+		LawDigest:  lawledger.LawDigest(inVal.Decls, inVal.Checks, inVal.Imports, inVal.Facts, &sc),
+		SyncDigest: lawledger.SyncDigest(inVal.Facts, &sc),
+		PureDigest: lawledger.PureDigest(inVal.Facts, &sc),
+	}
+	json.Encode(json.Codec[DigestOut]{MaxBytes: 0, MaxDepth: 0}, out)
+}
+
+func cmdCases(path string) string fails os.Exit needs fs.Files {
+	let text = try readText(path)
+	let mut sc = lawledger.NewScratch()
+	let tbl = lawledger.ParseCases(text, &sc) catch {
+	case lawledger.CaseFormatError as e:
+		return failExit(e.Message)
+	}
+	let mut props = slices.WithCapacity[CasePropOut](int(tbl.PropCount))
+	for i in 0..int(tbl.PropCount) {
+		if tbl.PropDeleted[i] {
+			continue
+		}
+		let k = tbl.StrPool[int(tbl.PropKey[i])]
+		let d = tbl.StrPool[int(tbl.PropDigest[i])]
+		let s = int(tbl.PropTapeStart[i])
+		let n = int(tbl.PropTapeLen[i])
+		let words = if n == 0 { []uint64{} } else { tbl.TapeWords[s : s+n] }
+		props = props.Append(CasePropOut{Key: k, Digest: d, TapeHex: lawledger.EncodeTape(words, &sc)})
+	}
+	let out = CasesOut{
+		ShadowCount: tbl.ShadowCount,
+		PropCount:   tbl.PropCount,
+		Formatted:   lawledger.FormatCases(tbl, &sc),
+		Properties:  props,
+	}
+	json.Encode(json.Codec[CasesOut]{MaxBytes: 0, MaxDepth: 0}, out)
+}
+
+func cmdTapeRT(raw string) string fails os.Exit {
+	let mut sc = lawledger.NewScratch()
+	let mut words = []uint64{}
+	if raw != "" && raw != "-" {
+		for p in strings.Split(raw, ",") {
+			match lawledger.ParseUint64(strings.TrimSpace(p)) {
+			case option.Some[uint64] as u:
+				words = words.Append(u.Value)
+			case option.None:
+				return failExit("invalid uint64: \(p)")
+			}
+		}
+	}
+	let enc = lawledger.EncodeTape(words, &sc)
+	let dec = lawledger.DecodeTape(enc, &sc) catch {
+	case lawledger.CaseFormatError as e:
+		return failExit(e.Message)
+	}
+	json.Encode(json.Codec[TapeRTOut]{MaxBytes: 0, MaxDepth: 0}, TapeRTOut{Encoded: enc, Words: dec})
+}
+
+func cmdKiller(workDir string, runnersPath string, pkg string, lawName string) string fails os.Exit needs fs.Files {
+	let rtxt = try readText(runnersPath)
+	let mut sc = lawledger.NewScratch()
+	let rt = lawledger.ParseRunners(rtxt, &sc) catch {
+	case lawledger.RunnerFormatError as e:
+		return failExit(e.Message)
+	}
+	let modInfo = match lawledger.ModuleOf(workDir) {
+	case option.Some[lawledger.ModRoot] as mr:
+		mr.Value
+	case option.None:
+		lawledger.ModRoot{Dir: "", ModulePath: "", HasGoMod: false, HasErgoMod: false}
+	}
+	let kt = lawledger.ResolveKillers(workDir, rt, []lawledger.KillerQuery{lawledger.KillerQuery{Pkg: pkg, Law: lawName}}) catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		return failExit("killer resolution fs error")
+	}
+	let row = lawledger.KillerRowAt(kt, uint32(0))
+	let out = KillerOut{
+		ModuleDir:    modInfo.Dir,
+		ModulePath:   modInfo.ModulePath,
+		Status:       row.Status,
+		Runner:       row.Runner,
+		RunnerDir:    row.RunnerDir,
+		DeclaredFile: row.DeclaredFile,
+		ImportedDirs: row.ImportedDirs,
+	}
+	json.Encode(json.Codec[KillerOut]{MaxBytes: 0, MaxDepth: 0}, out)
+}
+
+func cmdParsed(paths []string) string fails os.Exit needs fs.Files {
+	let mut srcs = slices.WithCapacity[string](paths.Len())
+	for p in paths {
+		srcs = srcs.Append(try readText(p))
+	}
+	let mut sc = lawledger.NewScratch()
+	let tbl = lawledger.PackageLaws(srcs, &sc)
+	let n = int(lawledger.ParsedLawCount(tbl))
+	let mut laws = slices.WithCapacity[ParsedLawOut](n)
+	for i in 0..n {
+		let r = lawledger.ParsedLawAt(tbl, uint32(i))
+		laws = laws.Append(ParsedLawOut{Name: r.Name, Receiver: r.Receiver, Statement: r.Statement, Derived: r.Derived})
+	}
+	json.Encode(json.Codec[ParsedOut]{MaxBytes: 0, MaxDepth: 0}, ParsedOut{Count: tbl.Count, Laws: laws})
+}
+
+func emptyLocation() receipt.Location {
+	receipt.Location{Spelled: "", Resolved: "", Via: "", Virtual: "", Exists: false, Dir: false, Unfiled: false}
+}
+
+func cmdReceipt(req ReceiptIn, extraLinks []receipt.LinkSpec) string needs fs.Files {
+	let mut allLinks = req.Links
+	for x in extraLinks {
+		allLinks = allLinks.Append(x)
+	}
+	let mut locErr = ""
+	let loc = receipt.Locate(req.WorkDir, req.Spelled, allLinks) catch {
+	case receipt.ResolveError as e:
+		locErr = e.Message
+		emptyLocation()
+	}
+	let mut srcErr = ""
+	let srcLoc = receipt.LocateSource(req.WorkDir, req.Spelled, allLinks) catch {
+	case receipt.ResolveError as e:
+		srcErr = e.Message
+		emptyLocation()
+	}
+	let out = ReceiptOut{
+		Flags:        receipt.GoBuildFlagsWithOptions(req.Race, req.Cover),
+		Locate:       loc,
+		LocateErr:    locErr,
+		LocateSource: srcLoc,
+		SourceErr:    srcErr,
+		Unfiled:      receipt.Unfiled(req.WorkDir, req.Spelled),
+	}
+	json.Encode(json.Codec[ReceiptOut]{MaxBytes: 0, MaxDepth: 0}, out)
+}
+
+func cmdAccess(path string) string fails os.Exit needs fs.Files {
+	let raw = try readText(path)
+	let inVal = json.Decode(json.Codec[AccessIn]{MaxBytes: 0, MaxDepth: 0}, raw) catch {
+	case json.Malformed, WireMissingField, WireWrongKind:
+		return failExit("malformed AccessIn json")
+	}
+	let fenv = receipt.FilterEnvironment(inVal.Env) catch {
+	case receipt.AccessError as e:
+		return failExit(e.Message)
+	}
+	let mut tbl = receipt.NewAccessTable()
+	for act in inVal.Actions {
+		if act.Kind == "open" {
+			let _ = receipt.RecordOpen(&tbl, act.Path, act.Digest, act.Existed, act.Size)
+		} else if act.Kind == "stat" {
+			let _ = receipt.RecordStat(&tbl, act.Path, act.Existed, act.IsDir, act.Size)
+		} else if act.Kind == "exec" {
+			let _ = receipt.RecordExec(&tbl, act.Path, act.Digest)
+		} else if act.Kind == "wrote" {
+			let _ = receipt.RecordWrote(&tbl, act.Path)
+		} else if act.Kind == "getenv" {
+			let _ = receipt.RecordEnv(&tbl, act.Path, act.Digest, act.Present)
+		}
+	}
+	let man = receipt.FilterAndSortManifest(&tbl, inVal.Ignores, inVal.ToolVersions) catch {
+	case receipt.AccessError as e:
+		return failExit(e.Message)
+	}
+	let mut tbl2 = tbl
+	let rec = receipt.BuildRecordManifest(inVal.Pkg, inVal.TestName, &tbl2, inVal.Ignores, inVal.ToolVersions, true) catch {
+	case receipt.AccessError as e:
+		return failExit(e.Message)
+	}
+	let out = AccessOut{
+		FilteredEnv:    fenv,
+		TestLogFlag:    receipt.TestLogFlag(inVal.Args),
+		WritablePlaces: receipt.WritablePlaces(inVal.WorkDir, inVal.ModRoot, inVal.TmpDir),
+		ManifestLines:  man.Lines,
+		ManifestDigest: man.Digest,
+		RecordText:     receipt.FormatRecordText(rec),
+		RecordJSON:     receipt.EncodeRecordJSON(rec),
+	}
+	json.Encode(json.Codec[AccessOut]{MaxBytes: 0, MaxDepth: 0}, out)
+}
+
+func cmdPinLock(path string) string fails os.Exit needs fs.Files {
+	let tbl = pinset.ReadLockFile(path) catch {
+	case pinset.PinError as e:
+		return failExit(e.Message)
+	case fs.NotFound, fs.Denied, fs.Failed:
+		return failExit("cannot read pin lock \(path)")
+	}
+	let n = int(pinset.PinSetCount(tbl))
+	let mut entries = slices.WithCapacity[PinSetRowOut](n)
+	for i in 0..n {
+		let r = pinset.PinSetAt(tbl, uint32(i))
+		entries = entries.Append(PinSetRowOut{Name: r.Name, Digest: r.Digest})
+	}
+	let out = PinLockOut{LockVersion: tbl.LockVersion, Count: tbl.SetCount, Entries: entries, Formatted: pinset.FormatLock(tbl)}
+	json.Encode(json.Codec[PinLockOut]{MaxBytes: 0, MaxDepth: 0}, out)
+}
+
+func cmdPinKey(path string) string fails os.Exit needs fs.Files {
+	let raw = try readText(path)
+	let k = json.Decode(json.Codec[pinset.Key]{MaxBytes: 0, MaxDepth: 0}, raw) catch {
+	case json.Malformed, WireMissingField, WireWrongKind:
+		return failExit("malformed Key json")
+	}
+	json.Encode(json.Codec[PinKeyOut]{MaxBytes: 0, MaxDepth: 0}, PinKeyOut{Name: pinset.KeyName(k)})
+}
+
+func cmdPinBundle(name string, manifestPath string, outTarPath string) string fails os.Exit needs fs.Files | fs.Writes {
+	let raw = try readText(manifestPath)
+	let items = json.Decode(json.Codec[[]pinset.PinContent]{MaxBytes: 0, MaxDepth: 0}, raw) catch {
+	case json.Malformed, WireMissingField, WireWrongKind:
+		return failExit("malformed PinContent list json")
+	}
+	let bundle = pinset.WriteSetBundle(name, items) catch {
+	case pinset.PinError as e:
+		return failExit(e.Message)
+	}
+	let roundTrip = pinset.VerifyAndUnpackBundle(bundle.ArchiveGZ, bundle.TarDigest) catch {
+	case pinset.PinError as e:
+		return failExit(e.Message)
+	case zlib.BadGzip, zlib.BadBlock, zlib.BadDistance, zlib.BadHuffman, zlib.BadChecksum, zlib.Truncated, zlib.LimitExceeded:
+		return failExit("zlib round-trip failed")
+	}
+	if outTarPath != "" && outTarPath != "-" {
+		fs.Writes.MkdirAll(filepath.Dir(outTarPath)) catch {
+		case fs.Denied, fs.Failed:
+			return failExit("cannot mkdir for \(outTarPath)")
+		}
+		fs.Writes.WriteFile(outTarPath, bundle.ArchiveGZ) catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+			return failExit("cannot write bundle \(outTarPath)")
+		}
+	}
+	let out = PinBundleOut{
+		Name:       bundle.Name,
+		TarDigest:  bundle.TarDigest,
+		ArchiveHex: hex.Encode(bundle.ArchiveGZ),
+		FileCount:  bundle.FileCount,
+		ByteCount:  bundle.ByteCount,
+		RoundTrip:  uint32(roundTrip.Len()),
+	}
+	json.Encode(json.Codec[PinBundleOut]{MaxBytes: 0, MaxDepth: 0}, out)
+}
+
+func cmdPinVerify(tarGzPath string, expectedDigest string) string fails os.Exit needs fs.Files {
+	let gz = try readText(tarGzPath)
+	let contents = pinset.VerifyAndUnpackBundle(gz, expectedDigest) catch {
+	case pinset.PinError as e:
+		return failExit(e.Message)
+	case zlib.BadGzip, zlib.BadBlock, zlib.BadDistance, zlib.BadHuffman, zlib.BadChecksum, zlib.Truncated, zlib.LimitExceeded:
+		return failExit("corrupt gzip archive")
+	}
+	let mut entries = slices.WithCapacity[PinEntryOut](contents.Len())
+	for c in contents {
+		let dig = hex.Encode(sha256.Sum(c.Data))
+		entries = entries.Append(PinEntryOut{
+			Path:   c.Path,
+			Digest: dig,
+			Export: c.Export,
+			Mode:   c.Mode,
+			Size:   uint64(c.Data.Len()),
+		})
+	}
+	json.Encode(json.Codec[PinVerifyOut]{MaxBytes: 0, MaxDepth: 0}, PinVerifyOut{Count: uint32(entries.Len()), Entries: entries})
+}
+
+func isStatMissing(path string) bool needs fs.Files {
+	let _ = fs.Files.Stat(path) catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		return true
+	}
+	false
+}
+
+func probeHostLinksOnPath(h fs.Host, absPath string, out mut []receipt.LinkSpec, seen mut []string, hops int) needs fs.Files {
+	if hops > 40 {
+		return
+	}
+	let trimmed = strings.TrimPrefix(absPath, "/")
+	if trimmed == "" {
+		return
+	}
+	let parts = strings.Split(trimmed, "/")
+	let mut cur = if strings.HasPrefix(absPath, "/") { "" } else { "." }
+	for seg in parts {
+		if seg == "" || seg == "." || seg == ".." {
+			continue
+		}
+		cur = if cur == "" { "/" + seg } else if cur == "." { seg } else { cur + "/" + seg }
+		let mut already = false
+		for s in *seen {
+			if s == cur {
+				already = true
+				break
+			}
+		}
+		if already {
+			continue
+		}
+		*seen = (*seen).Append(cur)
+		let tgt = fs.Readlink(h, cur) catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+			continue
+		}
+		let dangling = isStatMissing(cur)
+		*out = (*out).Append(receipt.LinkSpec{Path: cur, Target: tgt, Dangling: dangling})
+		let nextAbs = if strings.HasPrefix(tgt, "/") { tgt } else { filepath.Join([]string{filepath.Dir(cur), tgt}) }
+		probeHostLinksOnPath(h, nextAbs, out, seen, hops+1)
+	}
+}
+
+func collectHostLinks(h fs.Host, wd string, spelled string) []receipt.LinkSpec needs fs.Files {
+	let mut links = []receipt.LinkSpec{}
+	let mut seen = []string{}
+	let rawJoined = if strings.HasPrefix(spelled, "/") { spelled } else { wd + "/" + spelled }
+	probeHostLinksOnPath(h, rawJoined, &links, &seen, 0)
+	probeHostLinksOnPath(h, filepath.Clean(filepath.AbsFrom(wd, spelled)), &links, &seen, 0)
+	links
+}
+
+// RunArgs executes one ledgerdump subcommand cleanly over fs.Files and fs.Writes.
+func RunArgs(args []string, extraLinks []receipt.LinkSpec) string fails os.Exit needs fs.Files | fs.Writes {
+	if args.Len() == 0 {
+		return failExit("usage: ledgerdump <subcommand> [args...]")
+	}
+	let cmd = args[0]
+	if cmd == "runners" && args.Len() == 2 {
+		return try cmdRunners(args[1])
+	}
+	if cmd == "statement" && args.Len() == 3 {
+		return try cmdStatement(args[1], args[2])
+	}
+	if cmd == "same" && args.Len() == 3 {
+		return cmdSame(args[1], args[2])
+	}
+	if cmd == "ledger" && args.Len() == 2 {
+		return try cmdLedger(args[1])
+	}
+	if cmd == "lawdigest" && args.Len() == 2 {
+		return try cmdLawDigest(args[1])
+	}
+	if cmd == "cases" && args.Len() == 2 {
+		return try cmdCases(args[1])
+	}
+	if cmd == "tapert" && args.Len() == 2 {
+		return try cmdTapeRT(args[1])
+	}
+	if cmd == "killer" && args.Len() == 5 {
+		return try cmdKiller(args[1], args[2], args[3], args[4])
+	}
+	if cmd == "parsed" && args.Len() >= 2 {
+		return try cmdParsed(args[1:])
+	}
+	if cmd == "receipt" && args.Len() == 2 {
+		let raw = try readText(args[1])
+		let req = json.Decode(json.Codec[ReceiptIn]{MaxBytes: 0, MaxDepth: 0}, raw) catch {
+		case json.Malformed, WireMissingField, WireWrongKind:
+			return failExit("malformed ReceiptIn json")
+		}
+		return cmdReceipt(req, extraLinks)
+	}
+	if cmd == "access" && args.Len() == 2 {
+		return try cmdAccess(args[1])
+	}
+	if cmd == "pinlock" && args.Len() == 2 {
+		return try cmdPinLock(args[1])
+	}
+	if cmd == "pinkey" && args.Len() == 2 {
+		return try cmdPinKey(args[1])
+	}
+	if cmd == "pinbundle" && args.Len() == 4 {
+		return try cmdPinBundle(args[1], args[2], args[3])
+	}
+	if cmd == "pinverify" && args.Len() == 3 {
+		return try cmdPinVerify(args[1], args[2])
+	}
+	failExit("unknown command or arg count for \(cmd)")
+}
+
+func main() fails os.Exit needs os.Ambient {
+	let host = fs.NewHost()
+	with context { os.Process: os.NewHost(), fs.Files: host, fs.Writes: host, io.Stdout: io.NewHost() } {
+		let mut args = os.Process.Args()
+		if args.Len() > 0 && args[0] == "--" {
+			args = args[1:args.Len()]
+		}
+		let mut extra = []receipt.LinkSpec{}
+		if args.Len() == 2 && args[0] == "receipt" {
+			let raw = try readText(args[1])
+			let req = json.Decode(json.Codec[ReceiptIn]{MaxBytes: 0, MaxDepth: 0}, raw) catch {
+			case json.Malformed, WireMissingField, WireWrongKind:
+				return failExit("malformed ReceiptIn json")
+			}
+			extra = collectHostLinks(host, req.WorkDir, req.Spelled)
+		}
+		let res = try RunArgs(args, extra)
+		io.Stdout.Println(res)
+	}
+}
+
+test TestLedgerdumpSubcommandsOverMemFS {
+	let mem = fstest.NewMemory()
+	mem.MkdirAll("/repo/pkg/a") catch {
+	case fs.Denied, fs.Failed:
+		assert false
+	}
+	mem.MkdirAll("/repo/pkg/run") catch {
+	case fs.Denied, fs.Failed:
+		assert false
+	}
+	mem.WriteFile("/repo/go.mod", "module ex\ngo 1.27\n") catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		assert false
+	}
+	mem.WriteFile("/repo/runners.txt", "ex/pkg/a LawOne\tex/pkg/run\n") catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		assert false
+	}
+	mem.WriteFile("/repo/pkg/run/r.go", "package run\nvar Laws = map[string]bool{\"LawOne\": true}\n") catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		assert false
+	}
+	mem.WriteFile("/repo/ergo.laws", "law slices.FilterFuses validated by eval with go1.27.4 h1:abc=\n") catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		assert false
+	}
+	mem.WriteFile("/repo/ergo.cases", "property ex.LawOne tape h1:abc 1,ff\n") catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		assert false
+	}
+	mem.WriteFile("/repo/lock", "\(pinset.Schema)\nbin-1.0 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\n") catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		assert false
+	}
+	let itemsJson = json.Encode(json.Codec[[]pinset.PinContent]{MaxBytes: 0, MaxDepth: 0}, []pinset.PinContent{
+		pinset.PinContent{Path: "a.txt", Data: "hi", Export: "-", Mode: uint32(420)},
+	})
+	mem.WriteFile("/repo/items.json", itemsJson) catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		assert false
+	}
+	with context { fs.Files: mem, fs.Writes: mem } {
+		let rOut = RunArgs([]string{"runners", "/repo/runners.txt"}, []receipt.LinkSpec{}) catch {
+		case os.Exit:
+			assert false
+			return
+		}
+		assert strings.Contains(rOut, "LawOne")
+		let lOut = RunArgs([]string{"ledger", "/repo/ergo.laws"}, []receipt.LinkSpec{}) catch {
+		case os.Exit:
+			assert false
+			return
+		}
+		assert strings.Contains(lOut, "slices.FilterFuses")
+		let cOut = RunArgs([]string{"cases", "/repo/ergo.cases"}, []receipt.LinkSpec{}) catch {
+		case os.Exit:
+			assert false
+			return
+		}
+		assert strings.Contains(cOut, "1,ff")
+		let kOut = RunArgs([]string{"killer", "/repo/pkg/a", "/repo/runners.txt", "ex/pkg/a", "LawOne"}, []receipt.LinkSpec{}) catch {
+		case os.Exit:
+			assert false
+			return
+		}
+		assert strings.Contains(kOut, "r.go")
+		let pOut = RunArgs([]string{"pinlock", "/repo/lock"}, []receipt.LinkSpec{}) catch {
+		case os.Exit:
+			assert false
+			return
+		}
+		assert strings.Contains(pOut, "bin-1.0")
+		let bOut = RunArgs([]string{"pinbundle", "b", "/repo/items.json", "/repo/out.tar.gz"}, []receipt.LinkSpec{}) catch {
+		case os.Exit:
+			assert false
+			return
+		}
+		assert strings.Contains(bOut, "tarDigest") || strings.Contains(bOut, "TarDigest")
+		let vOut = RunArgs([]string{"pinverify", "/repo/out.tar.gz", ""}, []receipt.LinkSpec{}) catch {
+		case os.Exit:
+			assert false
+			return
+		}
+		assert strings.Contains(vOut, "a.txt")
+	}
+}

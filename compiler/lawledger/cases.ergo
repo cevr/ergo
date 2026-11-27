@@ -1,0 +1,423 @@
+import dense
+import fs
+import fstest
+import option
+import slices
+import strings
+
+// CaseFormatError reports a malformed line in an ergo.cases file.
+type CaseFormatError {
+	Line    uint32,
+	Text    string,
+	Message string,
+}
+
+// CaseSample holds one property tape sample row from a CaseTable.
+type CaseSample {
+	Key    string,
+	Digest string,
+	Tape   []uint64,
+	Line   uint32,
+}
+
+// CaseTable stores shadow law calls and property sample tapes in flat unsigned SoA columns.
+type CaseTable {
+	Strings       dense.Strings,
+	StrPool       []string,
+	ShadowCount   uint32,
+	ShadowKey     []uint32,
+	ShadowArgs    []uint32,
+	ShadowLine    []uint32,
+	PropCount     uint32,
+	PropKey       []uint32,
+	PropDigest    []uint32,
+	PropTapeStart []uint32,
+	PropTapeLen   []uint32,
+	PropLine      []uint32,
+	PropDeleted   []bool,
+	TapeWords     []uint64,
+}
+
+// NewCaseTable allocates an empty CaseTable.
+func NewCaseTable() CaseTable {
+	CaseTable{
+		Strings:       dense.NewStrings(),
+		StrPool:       []string{},
+		ShadowCount:   uint32(0),
+		ShadowKey:     []uint32{},
+		ShadowArgs:    []uint32{},
+		ShadowLine:    []uint32{},
+		PropCount:     uint32(0),
+		PropKey:       []uint32{},
+		PropDigest:    []uint32{},
+		PropTapeStart: []uint32{},
+		PropTapeLen:   []uint32{},
+		PropLine:      []uint32{},
+		PropDeleted:   []bool{},
+		TapeWords:     []uint64{},
+	}
+}
+
+// PropertyKey formats a canonical case key for pkgPath and lawName.
+func PropertyKey(pkgPath string, lawName string) string {
+	if pkgPath == "" {
+		return lawName
+	}
+	"\(pkgPath).\(lawName)"
+}
+
+// EncodeTape encodes a slice of uint64 choice words as lowercase hex without 0x, or "-" if empty.
+func EncodeTape(words []uint64, sc mut Scratch) string {
+	if words.Len() == 0 {
+		return "-"
+	}
+	(*sc).Strs = (*sc).Strs[:0]
+	for w in words {
+		(*sc).Strs = (*sc).Strs.Append(FormatUint64Hex(w))
+	}
+	strings.Join((*sc).Strs, ",")
+}
+
+// DecodeTape decodes a comma-separated hex tape or "-" into uint64 words.
+func DecodeTape(s string, sc mut Scratch) []uint64 fails CaseFormatError {
+	ResetScratch(sc)
+	if s == "-" {
+		return []uint64{}
+	}
+	if s == "" {
+		return CaseFormatError{Line: uint32(0), Text: s, Message: "empty tape encoding"}
+	}
+	let parts = strings.Split(s, ",")
+	let mut words = slices.WithCapacity[uint64](parts.Len())
+	for p in parts {
+		match ParseUint64Hex(p) {
+		case option.Some[uint64] as u:
+			words = words.Append(u.Value)
+		case option.None:
+			return CaseFormatError{Line: uint32(0), Text: s, Message: "invalid tape hex word \(p)"}
+		}
+	}
+	words
+}
+
+// AddShadow appends a shadow call row to t.
+func AddShadow(t mut CaseTable, key string, args string, line uint32) {
+	let kid = internPoolStr(&((*t).Strings), &((*t).StrPool), key)
+	let aid = internPoolStr(&((*t).Strings), &((*t).StrPool), args)
+	(*t).ShadowCount = (*t).ShadowCount + uint32(1)
+	(*t).ShadowKey = (*t).ShadowKey.Append(kid)
+	(*t).ShadowArgs = (*t).ShadowArgs.Append(aid)
+	(*t).ShadowLine = (*t).ShadowLine.Append(line)
+}
+
+// AddProperty appends a property tape sample row to t.
+func AddProperty(t mut CaseTable, key string, digest string, words []uint64, line uint32) {
+	let kid = internPoolStr(&((*t).Strings), &((*t).StrPool), key)
+	let did = internPoolStr(&((*t).Strings), &((*t).StrPool), digest)
+	let start = uint32((*t).TapeWords.Len())
+	let nWords = uint32(words.Len())
+	for w in words {
+		(*t).TapeWords = (*t).TapeWords.Append(w)
+	}
+	(*t).PropCount = (*t).PropCount + uint32(1)
+	(*t).PropKey = (*t).PropKey.Append(kid)
+	(*t).PropDigest = (*t).PropDigest.Append(did)
+	(*t).PropTapeStart = (*t).PropTapeStart.Append(start)
+	(*t).PropTapeLen = (*t).PropTapeLen.Append(nWords)
+	(*t).PropLine = (*t).PropLine.Append(line)
+	(*t).PropDeleted = (*t).PropDeleted.Append(false)
+}
+
+// ForProperty returns all non-deleted CaseSample rows registered for key.
+func ForProperty(t CaseTable, key string) []CaseSample {
+	let mut out = []CaseSample{}
+	let mut i = 0
+	for i < int(t.PropCount) {
+		if t.PropDeleted[i] {
+			i = i + 1
+			continue
+		}
+		if poolStrAt(t.StrPool, t.PropKey[i]) == key {
+			let s = int(t.PropTapeStart[i])
+			let n = int(t.PropTapeLen[i])
+			let words = if n == 0 { []uint64{} } else { t.TapeWords[s : s+n] }
+			out = out.Append(CaseSample{
+				Key:    key,
+				Digest: poolStrAt(t.StrPool, t.PropDigest[i]),
+				Tape:   words,
+				Line:   t.PropLine[i],
+			})
+		}
+		i = i + 1
+	}
+	out
+}
+
+// RemoveProperty deletes all property and shadow rows matching key and returns the removed row count.
+func RemoveProperty(t mut CaseTable, key string) uint32 {
+	let mut removed = uint32(0)
+	let mut i = 0
+	for i < int((*t).PropCount) {
+		if !(*t).PropDeleted[i] && poolStrAt((*t).StrPool, (*t).PropKey[i]) == key {
+			(*t).PropDeleted[i] = true
+			removed = removed + uint32(1)
+		}
+		i = i + 1
+	}
+	let mut newKeys = []uint32{}
+	let mut newArgs = []uint32{}
+	let mut newLines = []uint32{}
+	let mut j = 0
+	for j < int((*t).ShadowCount) {
+		if poolStrAt((*t).StrPool, (*t).ShadowKey[j]) == key {
+			removed = removed + uint32(1)
+		} else {
+			newKeys = newKeys.Append((*t).ShadowKey[j])
+			newArgs = newArgs.Append((*t).ShadowArgs[j])
+			newLines = newLines.Append((*t).ShadowLine[j])
+		}
+		j = j + 1
+	}
+	(*t).ShadowKey = newKeys
+	(*t).ShadowArgs = newArgs
+	(*t).ShadowLine = newLines
+	(*t).ShadowCount = uint32(newKeys.Len())
+	removed
+}
+
+// PruneOrphans removes all rows whose keys do not appear in liveKeys and returns removed count.
+func PruneOrphans(t mut CaseTable, liveKeys []string) uint32 {
+	let mut live = dense.NewStrings()
+	for k in liveKeys {
+		let _ = dense.InternText(&live, k)
+	}
+	let mut removed = uint32(0)
+	let mut i = 0
+	for i < int((*t).PropCount) {
+		if !(*t).PropDeleted[i] {
+			let k = poolStrAt((*t).StrPool, (*t).PropKey[i])
+			match dense.FindText(live, k) {
+			case option.None:
+				(*t).PropDeleted[i] = true
+				removed = removed + uint32(1)
+			case option.Some[dense.ID[dense.Str]]:
+			}
+		}
+		i = i + 1
+	}
+	let mut newKeys = []uint32{}
+	let mut newArgs = []uint32{}
+	let mut newLines = []uint32{}
+	let mut j = 0
+	for j < int((*t).ShadowCount) {
+		let k = poolStrAt((*t).StrPool, (*t).ShadowKey[j])
+		match dense.FindText(live, k) {
+		case option.None:
+			removed = removed + uint32(1)
+		case option.Some[dense.ID[dense.Str]]:
+			newKeys = newKeys.Append((*t).ShadowKey[j])
+			newArgs = newArgs.Append((*t).ShadowArgs[j])
+			newLines = newLines.Append((*t).ShadowLine[j])
+		}
+		j = j + 1
+	}
+	(*t).ShadowKey = newKeys
+	(*t).ShadowArgs = newArgs
+	(*t).ShadowLine = newLines
+	(*t).ShadowCount = uint32(newKeys.Len())
+	removed
+}
+
+// ParseCases parses ergo.cases text into a flat CaseTable.
+func ParseCases(text string, sc mut Scratch) CaseTable fails CaseFormatError {
+	let mut t = NewCaseTable()
+	ResetScratch(sc)
+	let lines = strings.Split(text, "\n")
+	let mut i = 0
+	for i < lines.Len() {
+		let raw = lines[i]
+		let line = strings.TrimSpace(raw)
+		let lineNo = uint32(i + 1)
+		i = i + 1
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		if strings.HasPrefix(line, "law ") {
+			let body = strings.TrimSpace(line[4:])
+			let sp = cutFirst(body, " ")
+			if !sp.ok {
+				return CaseFormatError{Line: lineNo, Text: raw, Message: "ergo.cases:\(FormatUint32(lineNo)): malformed law shadow line"}
+			}
+			let key = sp.before
+			let args = strings.TrimSpace(sp.after)
+			if key == "" || !strings.HasPrefix(args, "(") || !strings.HasSuffix(args, ")") {
+				return CaseFormatError{Line: lineNo, Text: raw, Message: "ergo.cases:\(FormatUint32(lineNo)): shadow call arguments must be parenthesized"}
+			}
+			AddShadow(&t, key, args, lineNo)
+			continue
+		}
+		if strings.HasPrefix(line, "property ") {
+			let fields = strings.Fields(line)
+			if fields.Len() != 5 || fields[2] != "tape" {
+				return CaseFormatError{Line: lineNo, Text: raw, Message: "ergo.cases:\(FormatUint32(lineNo)): expected `property <key> tape <digest> <hex>`"}
+			}
+			let words = DecodeTape(fields[4], sc) catch {
+			case CaseFormatError as ce:
+				return CaseFormatError{Line: lineNo, Text: raw, Message: "ergo.cases:\(FormatUint32(lineNo)): \(ce.Message)"}
+			}
+			AddProperty(&t, fields[1], fields[3], words, lineNo)
+			continue
+		}
+		return CaseFormatError{Line: lineNo, Text: raw, Message: "ergo.cases:\(FormatUint32(lineNo)): unknown record prefix"}
+	}
+	t
+}
+
+type indexedCaseLine {
+	key string,
+	seq int,
+	row int,
+}
+
+func sortKeyPreservingOrder(keys []string, rows []int) []int {
+	let n = keys.Len()
+	let mut pairs = slices.WithCapacity[indexedCaseLine](n)
+	let mut i = 0
+	for i < n {
+		pairs = pairs.Append(indexedCaseLine{key: keys[i], seq: i, row: rows[i]})
+		i = i + 1
+	}
+	let sorted = slices.SortFunc(pairs, func(a indexedCaseLine, b indexedCaseLine) int {
+		if a.key < b.key {
+			return -1
+		}
+		if a.key > b.key {
+			return 1
+		}
+		if a.seq < b.seq {
+			return -1
+		}
+		if a.seq > b.seq {
+			return 1
+		}
+		0
+	})
+	let mut out = slices.WithCapacity[int](n)
+	for p in sorted {
+		out = out.Append(p.row)
+	}
+	out
+}
+
+// FormatCases formats t cleanly sorted by key (preserving insertion order within a key).
+func FormatCases(t CaseTable, sc mut Scratch) string {
+	ResetScratch(sc)
+	let mut outLines = []string{}
+	if t.ShadowCount > uint32(0) {
+		let n = int(t.ShadowCount)
+		let mut skeys = slices.WithCapacity[string](n)
+		let mut srows = slices.WithCapacity[int](n)
+		let mut i = 0
+		for i < n {
+			skeys = skeys.Append(poolStrAt(t.StrPool, t.ShadowKey[i]))
+			srows = srows.Append(i)
+			i = i + 1
+		}
+		let order = sortKeyPreservingOrder(skeys, srows)
+		for idx in order {
+			let k = poolStrAt(t.StrPool, t.ShadowKey[idx])
+			let a = poolStrAt(t.StrPool, t.ShadowArgs[idx])
+			outLines = outLines.Append("law \(k) \(a)")
+		}
+	}
+	let mut pkeys = []string{}
+	let mut prows = []int{}
+	let mut j = 0
+	for j < int(t.PropCount) {
+		if !t.PropDeleted[j] {
+			pkeys = pkeys.Append(poolStrAt(t.StrPool, t.PropKey[j]))
+			prows = prows.Append(j)
+		}
+		j = j + 1
+	}
+	if prows.Len() > 0 {
+		let order = sortKeyPreservingOrder(pkeys, prows)
+		for idx in order {
+			let k = poolStrAt(t.StrPool, t.PropKey[idx])
+			let d = poolStrAt(t.StrPool, t.PropDigest[idx])
+			let s = int(t.PropTapeStart[idx])
+			let n = int(t.PropTapeLen[idx])
+			let words = if n == 0 { []uint64{} } else { t.TapeWords[s : s+n] }
+			let tapeText = EncodeTape(words, sc)
+			outLines = outLines.Append("property \(k) tape \(d) \(tapeText)")
+		}
+	}
+	if outLines.Len() == 0 {
+		return ""
+	}
+	strings.Join(outLines, "\n") + "\n"
+}
+
+// ReadCasesFile reads and parses an ergo.cases file through fs.Files.
+func ReadCasesFile(path string, sc mut Scratch) CaseTable fails CaseFormatError | fs.NotFound | fs.Denied | fs.Failed needs fs.Files {
+	let text = try fs.Files.ReadFile(path)
+	ParseCases(text, sc)
+}
+
+// WriteCasesFile formats and writes a CaseTable atomically to path through fs.Writes.
+func WriteCasesFile(path string, t CaseTable, sc mut Scratch) fails fs.NotFound | fs.Denied | fs.Failed needs fs.Writes {
+	let body = FormatCases(t, sc)
+	try fs.Writes.WriteFile(path, body)
+}
+
+// TapeEncodeDecodeRoundTrips holds because DecodeTape inverts EncodeTape for all uint64 words.
+law TapeEncodeDecodeRoundTrips(words []uint64) {
+	let mut sc = NewScratch()
+	let enc = EncodeTape(words, &sc)
+	let dec = DecodeTape(enc, &sc) catch {
+	case CaseFormatError:
+		return false
+	}
+	if dec.Len() != words.Len() {
+		return false
+	}
+	let mut i = 0
+	for i < words.Len() {
+		if dec[i] != words[i] {
+			return false
+		}
+		i = i + 1
+	}
+	true
+}
+
+test TestCaseTableRoundTripAndPrune {
+	let mut sc = NewScratch()
+	let mem = fstest.NewMemory()
+	with context { fs.Files: mem, fs.Writes: mem } {
+		let mut ct = NewCaseTable()
+		let k1 = PropertyKey("pkg/a", "PropOne")
+		let k2 = PropertyKey("pkg/b", "PropTwo")
+		AddShadow(&ct, k1, "(1, \"x\")", uint32(1))
+		AddProperty(&ct, k2, "h1:d2", []uint64{}, uint32(2))
+		AddProperty(&ct, k1, "h1:d1", []uint64{uint64(10), uint64(255)}, uint32(3))
+		WriteCasesFile("/ergo.cases", ct, &sc) catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+			assert false
+			return
+		}
+		let loaded = ReadCasesFile("/ergo.cases", &sc) catch {
+		case CaseFormatError, fs.NotFound, fs.Denied, fs.Failed:
+			assert false
+			return
+		}
+		let samples = ForProperty(loaded, k1)
+		assert samples.Len() == 1
+		assert samples[0].Tape.Len() == 2 && samples[0].Tape[0] == uint64(10) && samples[0].Tape[1] == uint64(255)
+		let mut pruned = loaded
+		let rem = PruneOrphans(&pruned, []string{k1})
+		assert rem == uint32(1)
+		assert ForProperty(pruned, k2).Len() == 0
+		assert ForProperty(pruned, k1).Len() == 1
+	}
+}

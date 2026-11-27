@@ -1,0 +1,395 @@
+import dense
+import fs
+import fstest
+import hex
+import option
+import sha256
+import slices
+import strconv
+import strings
+
+// Schema identifies the pinset archive and lock format version.
+let Schema = "ergo pin set 1"
+
+// MaxSetBytes bounds uncompressed pinset archive size (1 GiB).
+let MaxSetBytes uint64 = uint64(1073741824)
+
+// PinError reports a malformed pinset lock, index, key, or archive integrity violation.
+type PinError {
+	Field   string,
+	Reason  string,
+	Message string,
+}
+
+// Key identifies a pinned toolchain or artifact bundle dimension tuple.
+type Key {
+	Schema  string,
+	Kind    string,
+	Release string,
+	Patch   string,
+	GOOS    string,
+	GOARCH  string,
+	Level   string,
+	Flags   string,
+}
+
+// PinSetRow holds the unpacked metadata of one pinned bundle in PinTable.
+type PinSetRow {
+	Name      string,
+	Digest    string,
+	ByteSize  uint64,
+	FileCount uint32,
+	Installed bool,
+	Verified  bool,
+}
+
+// PinEntryRow holds one unpacked installed file entry belonging to a pinned bundle.
+type PinEntryRow {
+	SetID  uint32,
+	Path   string,
+	Digest string,
+	Export string,
+	Mode   uint32,
+	Size   uint64,
+}
+
+// PinTable stores pinned locksets and resolved file entries in flat unsigned SoA columns.
+type PinTable {
+	LockVersion   string,
+	LockGo        string,
+	LockPatch     string,
+	Strings       dense.Strings,
+	StrPool       []string,
+	SetCount      uint32,
+	SetName       []uint32,
+	SetDigest     []uint32,
+	SetByteSize   []uint64,
+	SetFileCount  []uint32,
+	SetEntryStart []uint32,
+	SetEntryLen   []uint32,
+	SetInstalled  []bool,
+	SetVerified   []bool,
+	SetKeyIndex   []uint32,
+	EntryCount    uint32,
+	EntrySetID    []uint32,
+	EntryPath     []uint32,
+	EntryDigest   []uint32,
+	EntryExport   []uint32,
+	EntryMode     []uint32,
+	EntrySize     []uint64,
+}
+
+func internPinStr(st mut dense.Strings, pool mut []string, s string) uint32 {
+	let id = dense.InternText(st, s)
+	let idx = dense.Index(id)
+	for (*pool).Len() <= idx {
+		*pool = (*pool).Append("")
+	}
+	(*pool)[idx] = s
+	uint32(idx)
+}
+
+func findPinStr(st dense.Strings, s string) option.Option[uint32] {
+	match dense.FindText(st, s) {
+	case option.Some[dense.ID[dense.Str]] as found:
+		option.Some[uint32]{Value: uint32(dense.Index(found.Value))}
+	case option.None:
+		option.None
+	}
+}
+
+func pinStrAt(pool []string, id uint32) string {
+	let idx = int(id)
+	if idx < 0 || idx >= pool.Len() {
+		return ""
+	}
+	pool[idx]
+}
+
+// NewPinTable allocates an empty PinTable.
+func NewPinTable() PinTable {
+	PinTable{
+		LockVersion:   Schema,
+		LockGo:        "",
+		LockPatch:     "",
+		Strings:       dense.NewStrings(),
+		StrPool:       []string{},
+		SetCount:      uint32(0),
+		SetName:       []uint32{},
+		SetDigest:     []uint32{},
+		SetByteSize:   []uint64{},
+		SetFileCount:  []uint32{},
+		SetEntryStart: []uint32{},
+		SetEntryLen:   []uint32{},
+		SetInstalled:  []bool{},
+		SetVerified:   []bool{},
+		SetKeyIndex:   []uint32{},
+		EntryCount:    uint32(0),
+		EntrySetID:    []uint32{},
+		EntryPath:     []uint32{},
+		EntryDigest:   []uint32{},
+		EntryExport:   []uint32{},
+		EntryMode:     []uint32{},
+		EntrySize:     []uint64{},
+	}
+}
+
+// IsDigest reports whether s is a 64-character lowercase SHA-256 hex digest.
+func IsDigest(s string) bool {
+	if s.Len() != 64 {
+		return false
+	}
+	let mut i = 0
+	for i < 64 {
+		let c = s[i]
+		let isDigit = c >= '0' && c <= '9'
+		let isHexLower = c >= 'a' && c <= 'f'
+		if !isDigit && !isHexLower {
+			return false
+		}
+		i = i + 1
+	}
+	true
+}
+
+func appendPairLP(parts mut []string, k string, v string) {
+	*parts = (*parts).Append("\(strconv.Itoa(k.Len())):\(k)\(strconv.Itoa(v.Len())):\(v)")
+}
+
+// KeyName computes the deterministic bundle filename stem Kind-Release-GOOS-GOARCH[-Level]-<16hex> for k.
+func KeyName(k Key) string {
+	let schema = if k.Schema == "" { Schema } else { k.Schema }
+	let mut parts = []string{}
+	appendPairLP(&parts, "schema", schema)
+	appendPairLP(&parts, "kind", k.Kind)
+	appendPairLP(&parts, "release", k.Release)
+	appendPairLP(&parts, "patch", k.Patch)
+	appendPairLP(&parts, "goos", k.GOOS)
+	appendPairLP(&parts, "goarch", k.GOARCH)
+	appendPairLP(&parts, "level", k.Level)
+	appendPairLP(&parts, "flags", k.Flags)
+	let hex16 = hex.Encode(sha256.Sum(strings.Join(parts, "")))[:16]
+	let mut segs = []string{}
+	if k.Kind != "" {
+		segs = segs.Append(k.Kind)
+	}
+	if k.Release != "" {
+		segs = segs.Append(k.Release)
+	}
+	if k.GOOS != "" {
+		segs = segs.Append(k.GOOS)
+	}
+	if k.GOARCH != "" {
+		segs = segs.Append(k.GOARCH)
+	}
+	if k.Level != "" {
+		segs = segs.Append(k.Level)
+	}
+	segs = segs.Append(hex16)
+	strings.Join(segs, "-")
+}
+
+// PinSetCount returns the number of pinned bundle rows in t.
+func PinSetCount(t PinTable) uint32 {
+	t.SetCount
+}
+
+// PinSetAt returns the unpacked PinSetRow at dense set index id.
+func PinSetAt(t PinTable, id uint32) PinSetRow {
+	let idx = int(id)
+	if idx < 0 || uint32(idx) >= t.SetCount {
+		return PinSetRow{Name: "", Digest: "", ByteSize: uint64(0), FileCount: uint32(0), Installed: false, Verified: false}
+	}
+	PinSetRow{
+		Name:      pinStrAt(t.StrPool, t.SetName[idx]),
+		Digest:    pinStrAt(t.StrPool, t.SetDigest[idx]),
+		ByteSize:  t.SetByteSize[idx],
+		FileCount: t.SetFileCount[idx],
+		Installed: t.SetInstalled[idx],
+		Verified:  t.SetVerified[idx],
+	}
+}
+
+// PinEntryAt returns the unpacked PinEntryRow at dense entry index id.
+func PinEntryAt(t PinTable, id uint32) PinEntryRow {
+	let idx = int(id)
+	if idx < 0 || uint32(idx) >= t.EntryCount {
+		return PinEntryRow{SetID: uint32(0), Path: "", Digest: "", Export: "", Mode: uint32(0), Size: uint64(0)}
+	}
+	PinEntryRow{
+		SetID:  t.EntrySetID[idx],
+		Path:   pinStrAt(t.StrPool, t.EntryPath[idx]),
+		Digest: pinStrAt(t.StrPool, t.EntryDigest[idx]),
+		Export: pinStrAt(t.StrPool, t.EntryExport[idx]),
+		Mode:   t.EntryMode[idx],
+		Size:   t.EntrySize[idx],
+	}
+}
+
+// AddLockedSet adds or updates a locked bundle digest row in t and returns its dense set id.
+func AddLockedSet(t mut PinTable, name string, digest string) uint32 fails PinError {
+	if name == "" || strings.Contains(name, "/") || strings.Contains(name, " ") {
+		return PinError{Field: name, Reason: "name", Message: "invalid pinset bundle name \(name)"}
+	}
+	let cleanDig = strings.TrimPrefix(digest, "sha256:")
+	if !IsDigest(cleanDig) {
+		return PinError{Field: digest, Reason: "digest", Message: "invalid sha256 digest for \(name)"}
+	}
+	let nid = internPinStr(&((*t).Strings), &((*t).StrPool), name)
+	let did = internPinStr(&((*t).Strings), &((*t).StrPool), cleanDig)
+	let ki = int(nid)
+	for (*t).SetKeyIndex.Len() <= ki {
+		(*t).SetKeyIndex = (*t).SetKeyIndex.Append(uint32(0))
+	}
+	let existing = (*t).SetKeyIndex[ki]
+	if existing > uint32(0) {
+		let r = int(existing - uint32(1))
+		(*t).SetDigest[r] = did
+		return uint32(r)
+	}
+	let r = (*t).SetCount
+	(*t).SetCount = r + uint32(1)
+	(*t).SetName = (*t).SetName.Append(nid)
+	(*t).SetDigest = (*t).SetDigest.Append(did)
+	(*t).SetByteSize = (*t).SetByteSize.Append(uint64(0))
+	(*t).SetFileCount = (*t).SetFileCount.Append(uint32(0))
+	(*t).SetEntryStart = (*t).SetEntryStart.Append(uint32(0))
+	(*t).SetEntryLen = (*t).SetEntryLen.Append(uint32(0))
+	(*t).SetInstalled = (*t).SetInstalled.Append(false)
+	(*t).SetVerified = (*t).SetVerified.Append(false)
+	(*t).SetKeyIndex[ki] = r + uint32(1)
+	r
+}
+
+// LookupLockedSet returns the expected digest for bundle name if registered in t.
+func LookupLockedSet(t PinTable, name string) option.Option[string] {
+	match findPinStr(t.Strings, name) {
+	case option.Some[uint32] as nid:
+		let ki = int(nid.Value)
+		if ki < t.SetKeyIndex.Len() && t.SetKeyIndex[ki] > uint32(0) {
+			let r = int(t.SetKeyIndex[ki] - uint32(1))
+			return option.Some[string]{Value: pinStrAt(t.StrPool, t.SetDigest[r])}
+		}
+		option.None
+	case option.None:
+		option.None
+	}
+}
+
+// ParseLock parses a toolchain/pin/lock text manifest into a flat PinTable.
+func ParseLock(text string) PinTable fails PinError {
+	let mut t = NewPinTable()
+	let lines = strings.Split(text, "\n")
+	let mut i = 0
+	for i < lines.Len() {
+		let line = strings.TrimSpace(lines[i])
+		i = i + 1
+		if line == "" || strings.HasPrefix(line, "#") || line == Schema {
+			continue
+		}
+		let fields = strings.Fields(line)
+		if fields.Len() == 2 {
+			if fields[0] == "go" {
+				t.LockGo = fields[1]
+				continue
+			}
+			if fields[0] == "patch" {
+				t.LockPatch = fields[1]
+				continue
+			}
+			let _ = try AddLockedSet(&t, fields[0], fields[1])
+			continue
+		}
+		if fields.Len() == 3 && fields[0] == "set" {
+			let _ = try AddLockedSet(&t, fields[1], fields[2])
+			continue
+		}
+		return PinError{Field: line, Reason: "lock_line", Message: "invalid lock line: \(line)"}
+	}
+	t
+}
+
+// FormatLock formats t cleanly into canonical sorted lockfile lines.
+func FormatLock(t PinTable) string {
+	let mut out = []string{}
+	if t.LockGo != "" {
+		out = out.Append("go \(t.LockGo)")
+	}
+	if t.LockPatch != "" {
+		out = out.Append("patch \(t.LockPatch)")
+	}
+	if t.LockGo == "" && t.LockPatch == "" {
+		out = out.Append(t.LockVersion)
+	}
+	let mut rows = slices.WithCapacity[string](int(t.SetCount))
+	let mut i = 0
+	for i < int(t.SetCount) {
+		let name = pinStrAt(t.StrPool, t.SetName[i])
+		let dig = pinStrAt(t.StrPool, t.SetDigest[i])
+		if t.LockGo != "" || t.LockPatch != "" {
+			rows = rows.Append("set \(name) sha256:\(dig)")
+		} else {
+			rows = rows.Append("\(name) \(dig)")
+		}
+		i = i + 1
+	}
+	let sorted = slices.Sort(rows)
+	for r in sorted {
+		out = out.Append(r)
+	}
+	strings.Join(out, "\n") + "\n"
+}
+
+// ReadLockFile reads and parses a lockfile from path using fs.Files.
+func ReadLockFile(path string) PinTable fails PinError | fs.NotFound | fs.Denied | fs.Failed needs fs.Files {
+	let text = try fs.Files.ReadFile(path)
+	ParseLock(text)
+}
+
+// FileDigest computes the lowercase SHA-256 hex digest of file contents at path using fs.Files.
+func FileDigest(path string) string fails fs.NotFound | fs.Denied | fs.Failed needs fs.Files {
+	let body = try fs.Files.ReadFile(path)
+	hex.Encode(sha256.Sum(body))
+}
+
+// KeyNameDeterministic ensures equal keys always yield identical bundle stem names starting with Kind.
+law KeyNameDeterministic(kind string, release string, goos string, goarch string) {
+	if kind == "" || strings.Contains(kind, "-") {
+		return true
+	}
+	let k = Key{Schema: Schema, Kind: kind, Release: release, Patch: "0", GOOS: goos, GOARCH: goarch, Level: "", Flags: ""}
+	let n1 = KeyName(k)
+	let n2 = KeyName(k)
+	n1 == n2 && strings.HasPrefix(n1, kind) && n1.Len() > 16
+}
+
+test TestPinLockAndKeys {
+	let mem = fstest.NewMemory()
+	let k = Key{Schema: Schema, Kind: "go", Release: "1.27.4", Patch: "", GOOS: "linux", GOARCH: "amd64", Level: "", Flags: ""}
+	let kV1 = Key{Schema: Schema, Kind: "go", Release: "1.27.4", Patch: "", GOOS: "linux", GOARCH: "amd64", Level: "v1", Flags: ""}
+	let name = KeyName(k)
+	assert strings.HasPrefix(name, "go-1.27.4-linux-amd64-")
+	assert KeyName(kV1) != name && strings.HasPrefix(KeyName(kV1), "go-1.27.4-linux-amd64-v1-")
+	let dig = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+	assert IsDigest(dig)
+	assert !IsDigest("0123")
+	mem.WriteFile("/lock", "go go1.27.4\nset \(name) sha256:\(dig)\n") catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		assert false
+	}
+	with context { fs.Files: mem } {
+		let tbl = ReadLockFile("/lock") catch {
+		case PinError, fs.NotFound, fs.Denied, fs.Failed:
+			assert false
+			return
+		}
+		assert PinSetCount(tbl) == uint32(1)
+		assert LookupLockedSet(tbl, name) == option.Some[string]{Value: dig}
+		let reparsed = ParseLock(FormatLock(tbl)) catch {
+		case PinError:
+			assert false
+			return
+		}
+		assert FormatLock(reparsed) == FormatLock(tbl)
+	}
+}

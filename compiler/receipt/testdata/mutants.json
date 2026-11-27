@@ -1,0 +1,65 @@
+{
+  "about": "compiler/receipt: deterministic location resolution across symlinks, Go build flags, build/test receipts, and pure testinputs closure manifests (SELFHOST-LEDGER-RECEIPT).",
+  "mutants": [
+    {
+      "name": "selfhost-ledger-receipt-dangling-link",
+      "origin": "wf10 SELFHOST-LEDGER-RECEIPT",
+      "file": "compiler/receipt/receipt.ergo",
+      "decl": "resolveRawPreserveDotDot",
+      "from": "\t\t\tif lk.Value.Dangling {\n\t\t\t\treturn ResolveError{\n\t\t\t\t\tPath:    spelled,\n\t\t\t\t\tReason:  \"dangling\",\n\t\t\t\t\tMessage: \"\\(spelled): cannot be resolved (a dangling link or a non-directory)\",\n\t\t\t\t}\n\t\t\t}\n",
+      "to": "\t\t\tif false && lk.Value.Dangling {\n\t\t\t\treturn ResolveError{\n\t\t\t\t\tPath:    spelled,\n\t\t\t\t\tReason:  \"dangling\",\n\t\t\t\t\tMessage: \"\\(spelled): cannot be resolved (a dangling link or a non-directory)\",\n\t\t\t\t}\n\t\t\t}\n",
+      "rule": "resolveRawPreserveDotDot must fail immediately with dangling-link reason rather than walking into missing targets.",
+      "killers": ["compiler/receipt:TestReceiptResolveAndSigningOverMemFS"]
+    },
+    {
+      "name": "selfhost-ledger-receipt-inputs-digest-verify",
+      "origin": "wf10 SELFHOST-LEDGER-RECEIPT",
+      "file": "compiler/receipt/receipt.ergo",
+      "decl": "VerifyBuildReceipt",
+      "from": "\tif expectedInputsDigest != \"\" && r.InputsDigest != expectedInputsDigest {\n\t\treturn false\n\t}\n",
+      "to": "\tif false && expectedInputsDigest != \"\" && r.InputsDigest != expectedInputsDigest {\n\t\treturn false\n\t}\n",
+      "rule": "VerifyBuildReceipt must reject receipts whose InputsDigest does not match the expected digest.",
+      "killers": ["compiler/receipt:TestReceiptResolveAndSigningOverMemFS"]
+    },
+    {
+      "name": "selfhost-ledger-receipt-locate-links-before-dotdot",
+      "origin": "wf10 SELFHOST-LEDGER-RECEIPT",
+      "file": "compiler/receipt/receipt.ergo",
+      "decl": "Locate",
+      "from": "\tlet res = try resolveRawPreserveDotDot(wd, spelled, links)\n",
+      "to": "\tlet res = try Physical(filepath.Clean(filepath.AbsFrom(wd, spelled)), links)\n",
+      "rule": "Locate must resolve symlinks before collapsing .. segments rather than lexically cleaning first.",
+      "killers": ["compiler/receipt:TestReceiptResolveAndSigningOverMemFS"]
+    },
+    {
+      "name": "selfhost-ledger-access-stop-at-dash",
+      "origin": "wf10 SELFHOST-LEDGER-RECEIPT",
+      "file": "compiler/receipt/access.ergo",
+      "decl": "TestLogFlag",
+      "from": "\t\tif a == \"--\" {\n\t\t\treturn false\n\t\t}\n",
+      "to": "\t\tif false && a == \"--\" {\n\t\t\treturn false\n\t\t}\n",
+      "rule": "TestLogFlag must stop scanning CLI flags at the -- argument separator.",
+      "killers": ["compiler/receipt:TestAccessTableClosureAndFiltering"]
+    },
+    {
+      "name": "selfhost-ledger-access-filter-virtual",
+      "origin": "wf10 SELFHOST-LEDGER-RECEIPT",
+      "file": "compiler/receipt/access.ergo",
+      "decl": "FilterAndSortManifest",
+      "from": "\t\t\tif VirtualPath(e.Path) {\n\t\t\t\tcontinue\n\t\t\t}\n",
+      "to": "\t\t\tif false && VirtualPath(e.Path) {\n\t\t\t\tcontinue\n\t\t\t}\n",
+      "rule": "FilterAndSortManifest must exclude virtual procfs, sysfs, and devfs paths from recorded inputs.",
+      "killers": ["compiler/receipt:TestAccessTableClosureAndFiltering"]
+    },
+    {
+      "name": "selfhost-ledger-access-reject-newline",
+      "origin": "wf10 SELFHOST-LEDGER-RECEIPT",
+      "file": "compiler/receipt/access.ergo",
+      "decl": "FilterAndSortManifest",
+      "from": "\t\tif strings.Contains(e.Path, \"\\n\") || strings.Contains(e.Path, \"\\r\") {\n\t\t\treturn AccessError{Field: e.Path, Reason: \"newline\", Message: \"manifest entry contains newline\"}\n\t\t}\n",
+      "to": "\t\tif false && strings.Contains(e.Path, \"\\n\") {\n\t\t\treturn AccessError{Field: e.Path, Reason: \"newline\", Message: \"manifest entry contains newline\"}\n\t\t}\n",
+      "rule": "FilterAndSortManifest must fail closed when a recorded path contains a newline character.",
+      "killers": ["compiler/receipt:TestAccessTableClosureAndFiltering"]
+    }
+  ]
+}

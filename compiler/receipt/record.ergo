@@ -1,0 +1,373 @@
+import dense
+import filepath
+import fs
+import fstest
+import json
+import option
+import slices
+import strings
+
+// RecordSchema identifies the JSON encoding schema for persisted testinputs manifests.
+let RecordSchema = "ergo-testinputs/1"
+
+// RecordInput describes one observed file read inside a serialized RecordManifest.
+type RecordInput {
+	Path    string,
+	Digest  string,
+	Size    uint64,
+	Existed bool,
+}
+
+// RecordStatEntry describes one observed path stat inside a serialized RecordManifest.
+type RecordStatEntry {
+	Path    string,
+	Existed bool,
+	IsDir   bool,
+}
+
+// RecordExecEntry describes one observed binary execution inside a serialized RecordManifest.
+type RecordExecEntry {
+	Path   string,
+	Digest string,
+}
+
+// RecordEnvEntry describes one observed environment variable inside a serialized RecordManifest.
+type RecordEnvEntry {
+	Name    string,
+	Present bool,
+	Digest  string,
+}
+
+// RecordManifest holds the complete self-contained testinputs closure record for one test or package.
+type RecordManifest {
+	Schema       string,
+	Pkg          string,
+	TestName     string,
+	ToolDigest   string,
+	InputsDigest string,
+	Passed       bool,
+	Opens        []RecordInput,
+	Stats        []RecordStatEntry,
+	Execs        []RecordExecEntry,
+	Envs         []RecordEnvEntry,
+	Writes       []string,
+}
+
+// UnobservedAccess reports an access occurring outside expected testinputs recording boundaries.
+type UnobservedAccess {
+	Kind   string,
+	Path   string,
+	Detail string,
+}
+
+// RecordRow holds one indexed testinputs manifest summary row inside RecordTable.
+type RecordRow {
+	Pkg          string,
+	TestName     string,
+	ToolDigest   string,
+	InputsDigest string,
+	Passed       bool,
+	OpenCount    uint32,
+	StatCount    uint32,
+	ExecCount    uint32,
+	EnvCount     uint32,
+	WriteCount   uint32,
+}
+
+// RecordTable indexes multiple testinputs records in flat unsigned SoA columns.
+type RecordTable {
+	Strings      dense.Strings,
+	StrPool      []string,
+	Count        uint32,
+	Pkg          []uint32,
+	TestName     []uint32,
+	ToolDigest   []uint32,
+	InputsDigest []uint32,
+	Passed       []bool,
+	OpenCount    []uint32,
+	StatCount    []uint32,
+	ExecCount    []uint32,
+	EnvCount     []uint32,
+	WriteCount   []uint32,
+	KeyIndex     []uint32,
+}
+
+// NewRecordTable allocates an empty RecordTable.
+func NewRecordTable() RecordTable {
+	RecordTable{
+		Strings:      dense.NewStrings(),
+		StrPool:      []string{},
+		Count:        uint32(0),
+		Pkg:          []uint32{},
+		TestName:     []uint32{},
+		ToolDigest:   []uint32{},
+		InputsDigest: []uint32{},
+		Passed:       []bool{},
+		OpenCount:    []uint32{},
+		StatCount:    []uint32{},
+		ExecCount:    []uint32{},
+		EnvCount:     []uint32{},
+		WriteCount:   []uint32{},
+		KeyIndex:     []uint32{},
+	}
+}
+
+// RecordCount returns the number of indexed manifests in t.
+func RecordCount(t RecordTable) uint32 {
+	t.Count
+}
+
+// RecordRowAt returns the unpacked RecordRow at dense index id.
+func RecordRowAt(t RecordTable, id uint32) RecordRow {
+	let idx = int(id)
+	if idx < 0 || uint32(idx) >= t.Count {
+		return RecordRow{
+			Pkg:       "", TestName: "", ToolDigest: "", InputsDigest: "", Passed: false,
+			OpenCount: uint32(0), StatCount: uint32(0), ExecCount: uint32(0), EnvCount: uint32(0), WriteCount: uint32(0),
+		}
+	}
+	RecordRow{
+		Pkg:          recStrAt(t.StrPool, t.Pkg[idx]),
+		TestName:     recStrAt(t.StrPool, t.TestName[idx]),
+		ToolDigest:   recStrAt(t.StrPool, t.ToolDigest[idx]),
+		InputsDigest: recStrAt(t.StrPool, t.InputsDigest[idx]),
+		Passed:       t.Passed[idx],
+		OpenCount:    t.OpenCount[idx],
+		StatCount:    t.StatCount[idx],
+		ExecCount:    t.ExecCount[idx],
+		EnvCount:     t.EnvCount[idx],
+		WriteCount:   t.WriteCount[idx],
+	}
+}
+
+// AddRecordSummary adds a RecordManifest summary row to t.
+func AddRecordSummary(t mut RecordTable, rec RecordManifest) uint32 {
+	let key = "\(rec.Pkg)\x00\(rec.TestName)"
+	let kid = internRecStr(&((*t).Strings), &((*t).StrPool), key)
+	let pid = internRecStr(&((*t).Strings), &((*t).StrPool), rec.Pkg)
+	let tid = internRecStr(&((*t).Strings), &((*t).StrPool), rec.TestName)
+	let tdid = internRecStr(&((*t).Strings), &((*t).StrPool), rec.ToolDigest)
+	let idid = internRecStr(&((*t).Strings), &((*t).StrPool), rec.InputsDigest)
+	let ki = int(kid)
+	for (*t).KeyIndex.Len() <= ki {
+		(*t).KeyIndex = (*t).KeyIndex.Append(uint32(0))
+	}
+	let r = (*t).Count
+	(*t).Count = r + uint32(1)
+	(*t).Pkg = (*t).Pkg.Append(pid)
+	(*t).TestName = (*t).TestName.Append(tid)
+	(*t).ToolDigest = (*t).ToolDigest.Append(tdid)
+	(*t).InputsDigest = (*t).InputsDigest.Append(idid)
+	(*t).Passed = (*t).Passed.Append(rec.Passed)
+	(*t).OpenCount = (*t).OpenCount.Append(uint32(rec.Opens.Len()))
+	(*t).StatCount = (*t).StatCount.Append(uint32(rec.Stats.Len()))
+	(*t).ExecCount = (*t).ExecCount.Append(uint32(rec.Execs.Len()))
+	(*t).EnvCount = (*t).EnvCount.Append(uint32(rec.Envs.Len()))
+	(*t).WriteCount = (*t).WriteCount.Append(uint32(rec.Writes.Len()))
+	(*t).KeyIndex[ki] = r + uint32(1)
+	r
+}
+
+// LookupRecordSummary finds the dense row id matching (pkg, testName).
+func LookupRecordSummary(t RecordTable, pkg string, testName string) option.Option[uint32] {
+	let key = "\(pkg)\x00\(testName)"
+	match findRecStr(t.Strings, key) {
+	case option.Some[uint32] as kid:
+		let ki = int(kid.Value)
+		if ki < t.KeyIndex.Len() && t.KeyIndex[ki] > uint32(0) {
+			return option.Some[uint32]{Value: t.KeyIndex[ki] - uint32(1)}
+		}
+		option.None
+	case option.None:
+		option.None
+	}
+}
+
+// WritablePlaces returns cleaned deduplicated directories permitted for test writes.
+func WritablePlaces(workDir string, modRoot string, tmpDir string) []string {
+	let mut seen = dense.NewStrings()
+	let mut out = []string{}
+	let candidates = []string{tmpDir, filepath.Join([]string{workDir, "testdata"}), modRoot}
+	for raw in candidates {
+		if raw == "" {
+			continue
+		}
+		let clean = filepath.Clean(raw)
+		match dense.FindText(seen, clean) {
+		case option.None:
+			let _ = dense.InternText(&seen, clean)
+			out = out.Append(clean)
+		case option.Some[dense.ID[dense.Str]]:
+		}
+	}
+	slices.Sort(out)
+}
+
+// BuildRecordManifest converts an AccessTable into a canonical RecordManifest.
+func BuildRecordManifest(pkg string, testName string, tbl mut AccessTable, ignores []string, toolVersionsEnv string, passed bool) RecordManifest fails AccessError {
+	let man = try FilterAndSortManifest(tbl, ignores, toolVersionsEnv)
+	let mut opens = []RecordInput{}
+	let mut stats = []RecordStatEntry{}
+	let mut execs = []RecordExecEntry{}
+	let mut envs = []RecordEnvEntry{}
+	let mut writes = []string{}
+	for e in man.Entries {
+		if e.Kind == AccessOpen {
+			opens = opens.Append(RecordInput{Path: e.Path, Digest: e.Digest, Size: e.Size, Existed: e.Existed})
+		} else if e.Kind == AccessStat {
+			stats = stats.Append(RecordStatEntry{Path: e.Path, Existed: e.Existed, IsDir: e.IsDir})
+		} else if e.Kind == AccessExec {
+			execs = execs.Append(RecordExecEntry{Path: e.Path, Digest: e.Digest})
+		} else if e.Kind == AccessEnv {
+			envs = envs.Append(RecordEnvEntry{Name: e.Path, Present: e.Present, Digest: e.Digest})
+		} else if e.Kind == AccessWrote {
+			writes = writes.Append(e.Path)
+		}
+	}
+	RecordManifest{
+		Schema:       RecordSchema,
+		Pkg:          pkg,
+		TestName:     testName,
+		ToolDigest:   ToolDigest(toolVersionsEnv),
+		InputsDigest: man.Digest,
+		Passed:       passed,
+		Opens:        opens,
+		Stats:        stats,
+		Execs:        execs,
+		Envs:         envs,
+		Writes:       writes,
+	}
+}
+
+// EncodeRecordJSON encodes rec as compact deterministic JSON.
+func EncodeRecordJSON(rec RecordManifest) string {
+	let codec = json.Codec[RecordManifest]{MaxBytes: 0, MaxDepth: 0}
+	json.Encode(codec, rec)
+}
+
+// DecodeRecordJSON decodes a RecordManifest from JSON text.
+func DecodeRecordJSON(text string) RecordManifest fails json.Malformed | WireMissingField | WireWrongKind {
+	let codec = json.Codec[RecordManifest]{MaxBytes: 0, MaxDepth: 0}
+	try json.Decode(codec, text)
+}
+
+// FormatRecordText formats rec into deterministic canonical manifest lines.
+func FormatRecordText(rec RecordManifest) string {
+	let mut out = []string{
+		"schema \(rec.Schema)",
+		"pkg \(rec.Pkg) \(rec.TestName)",
+		"tool \(rec.ToolDigest)",
+		"inputs \(rec.InputsDigest)",
+	}
+	for o in rec.Opens {
+		let dig = if o.Digest == "" { "-" } else { o.Digest }
+		out = out.Append("open \(o.Path) \(dig)")
+	}
+	for s in rec.Stats {
+		let tag = if !s.Existed { "missing" } else if s.IsDir { "dir" } else { "file" }
+		out = out.Append("stat \(s.Path) \(tag)")
+	}
+	for x in rec.Execs {
+		out = out.Append("exec \(x.Path) \(x.Digest)")
+	}
+	for v in rec.Envs {
+		let st = if !v.Present { "unset" } else if v.Digest == "" { "empty" } else { v.Digest }
+		out = out.Append("getenv \(v.Name) \(st)")
+	}
+	for w in rec.Writes {
+		out = out.Append("wrote \(w)")
+	}
+	strings.Join(out, "\n") + "\n"
+}
+
+// FormatUnobservedLog formats unobserved access events in deterministic sorted lines.
+func FormatUnobservedLog(events []UnobservedAccess) string {
+	if events.Len() == 0 {
+		return ""
+	}
+	let sorted = slices.SortFunc(events, func(a UnobservedAccess, b UnobservedAccess) int {
+		if a.Kind != b.Kind {
+			return if a.Kind < b.Kind { -1 } else { 1 }
+		}
+		if a.Path != b.Path {
+			return if a.Path < b.Path { -1 } else { 1 }
+		}
+		if a.Detail < b.Detail {
+			return -1
+		}
+		if a.Detail > b.Detail {
+			return 1
+		}
+		0
+	})
+	let mut lines = slices.WithCapacity[string](sorted.Len())
+	for e in sorted {
+		if e.Detail == "" {
+			lines = lines.Append("\(e.Kind) \(e.Path)")
+		} else {
+			lines = lines.Append("\(e.Kind) \(e.Path) \(e.Detail)")
+		}
+	}
+	strings.Join(lines, "\n") + "\n"
+}
+
+// WriteRecordFile encodes and persists rec to path using fs.Writes.
+func WriteRecordFile(path string, rec RecordManifest) fails fs.NotFound | fs.Denied | fs.Failed needs fs.Writes {
+	let raw = EncodeRecordJSON(rec)
+	try fs.Writes.WriteFile(path, raw)
+}
+
+// ReadRecordFile reads and decodes a RecordManifest from path using fs.Files.
+func ReadRecordFile(path string) RecordManifest fails json.Malformed | WireMissingField | WireWrongKind | fs.NotFound | fs.Denied | fs.Failed needs fs.Files {
+	let raw = try fs.Files.ReadFile(path)
+	try DecodeRecordJSON(raw)
+}
+
+// RecordJSONRoundTrips ensures DecodeRecordJSON inverts EncodeRecordJSON for valid manifests.
+law RecordJSONRoundTrips(pkg string, testName string) {
+	let mut tbl = NewAccessTable()
+	let _ = RecordOpen(&tbl, "/ws/input.ergo", "h1:in", true, uint64(5))
+	let rec = BuildRecordManifest(pkg, testName, &tbl, []string{}, "ergo=1", true) catch {
+	case AccessError:
+		return false
+	}
+	let enc = EncodeRecordJSON(rec)
+	let dec = DecodeRecordJSON(enc) catch {
+	case json.Malformed, WireMissingField, WireWrongKind:
+		return false
+	}
+	dec.Schema == rec.Schema && dec.Pkg == rec.Pkg && dec.TestName == rec.TestName && dec.InputsDigest == rec.InputsDigest && dec.Opens.Len() == 1
+}
+
+test TestRecordManifestJSONAndMemFS {
+	let mem = fstest.NewMemory()
+	let mut tbl = NewAccessTable()
+	let _ = RecordOpen(&tbl, "/ws/file.txt", "h1:f", true, uint64(4))
+	let _ = RecordWrote(&tbl, "/ws/out.txt")
+	let rec = BuildRecordManifest("pkg/x", "TestX", &tbl, []string{}, "ergo=2", true) catch {
+	case AccessError:
+		assert false
+		return
+	}
+	with context { fs.Files: mem, fs.Writes: mem } {
+		WriteRecordFile("/rec.json", rec) catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+			assert false
+			return
+		}
+		let loaded = ReadRecordFile("/rec.json") catch {
+		case json.Malformed, WireMissingField, WireWrongKind, fs.NotFound, fs.Denied, fs.Failed:
+			assert false
+			return
+		}
+		assert loaded.InputsDigest == rec.InputsDigest
+		assert loaded.Writes.Len() == 1 && loaded.Writes[0] == "/ws/out.txt"
+		let mut rt = NewRecordTable()
+		let _ = AddRecordSummary(&rt, loaded)
+		assert RecordCount(rt) == uint32(1)
+		assert LookupRecordSummary(rt, "pkg/x", "TestX") == option.Some[uint32]{Value: uint32(0)}
+		assert WritablePlaces("/ws", "/ws", "/tmp").Len() == 3
+		assert strings.Contains(FormatRecordText(loaded), "inputs ")
+		assert strings.Contains(FormatUnobservedLog([]UnobservedAccess{UnobservedAccess{Kind: "open", Path: "/etc/passwd", Detail: ""}}), "/etc/passwd")
+	}
+}
