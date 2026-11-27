@@ -3179,11 +3179,11 @@ A program that has ended gives its status at once and arms no deadline, whatever
 
 ### signal
 
-Std `signal` is the stops the host sends a process from outside (CAP-SIGNAL and CAP-INTERRUPT, the self-host driver's census): Ctrl-C at a terminal, a service manager's terminate, a closed terminal. Its model is Go's `os/signal` for SIGINT, SIGTERM and SIGHUP; its guarantee is Effect's interruption of the main fiber on SIGINT: a stop becomes structured cancellation, so the work it ends runs its exit actions.
+Std `signal` is the stops the host sends a process from outside (CAP-SIGNAL and CAP-INTERRUPT, the self-host driver's census): Ctrl-C at a terminal, a service manager's terminate, a closed terminal, and user-defined signals often used to trigger graceful reload or live server cutover. Its model is Go's `os/signal` for SIGINT, SIGTERM, SIGHUP, SIGUSR1 and SIGUSR2; its guarantee is Effect's interruption of the main fiber on SIGINT: a stop becomes structured cancellation, so the work it ends runs its exit actions.
 
 | Item | Meaning |
 | --- | --- |
-| `type Stop = Interrupt \| Terminate \| Hangup`; `type Stopped { Kind Stop }` | A stop the host sent, as a closed union a `match` covers; the failure of `UntilStop` when a stop ended its body. |
+| `type Stop = Interrupt \| Terminate \| Hangup \| User1 \| User2`; `type Stopped { Kind Stop }` | A stop the host sent, as a closed union a `match` covers; the failure of `UntilStop` when a stop ended its body. |
 | `type Stops { Next() Stop, Poll() Option[Stop] }` | The capability: `Next` waits for the next stop and takes it, an interruption point of the calling task; `Poll` takes a stop already delivered and never waits. |
 | `type Watched { … }`; `func Watch(kinds []Stop) Watched needs Ambient`; `func Unwatch(w Watched)` | The host's provider: from `Watch` until `Unwatch`, a stop of `kinds` no longer ends the process but is delivered to `Next` ([Host packages](#host-packages)). |
 | `type Script { … }`; `func NewScript(raised []Stop) Script`; `func Raise(s Script, k Stop)` | The provider a test or a law raises stops on, in order. |
@@ -3193,7 +3193,7 @@ Std `signal` is the stops the host sends a process from outside (CAP-SIGNAL and 
 1. Both providers deliver through a `queue.Queue`, so `Next` waits as `Pop` does: a stopped task never hangs in it. A stop that comes while eight wait untaken is dropped, as the host coalesces stops of one kind.
 2. `Watch` needs `Ambient`: only code that may choose the host's behaviour takes its stops. `Watched`'s fields give the package construction authority, so only `Watch` makes one (`TestStdHostProvidersHaveAuthority`). Pair it with `scope.OnExit() { signal.Unwatch(w) }`.
 3. When a stop comes first, `UntilStop` stops `body`'s task, whose exit actions run before `UntilStop` returns, and fails `Stopped{Kind}`. A stop that comes as `body` ends may be taken and dropped, as a loser of `tasks.Race` may take a value.
-4. `StatusOf(k)` is 128 plus the signal's number: 130 for `Interrupt`, 143 for `Terminate`, 129 for `Hangup`, the same on every Unix host, and never a status of a program's own failure (1 to 125; [os](#os) 3). A `main` ends with it as `signal.UntilStop(stops, run) catch { case signal.Stopped as s: return os.Exit{Code: signal.StatusOf(s.Kind), Message: ""} }`.
+4. `StatusOf(k)` is 128 plus the signal's number: 130 for `Interrupt`, 143 for `Terminate`, 129 for `Hangup` on every Unix host, and for `User1`/`User2`, 138/140 on Linux (144/145 on MIPS) and 158/159 on Darwin and the BSDs, never a status of a program's own failure (1 to 125; [os](#os) 3). A `main` ends with it as `signal.UntilStop(stops, run) catch { case signal.Stopped as s: return os.Exit{Code: signal.StatusOf(s.Kind), Message: ""} }`.
 5. Laws: `RaisedInOrder`, `PollTakesOnce`, `QuietRunsBody`, `StopEndsBody` and `StatusIsTheShells` ([Std laws](#std-laws)). `Stops` states no member law: it has no operation that makes a stop, so the laws state `Next` and `Poll` on `Script`.
 
 *Prior art:* Go's `signal.Notify` with `signal.Stop`, and `signal.NotifyContext` for the cancellation; Effect's runtime interrupts the main fiber on SIGINT (`runMain`); Elixir's `:os.set_signal/2` hands a signal to the `:erl_signal_server` event manager; Gleam and ReScript leave signals to their hosts (Erlang, Node's `process.on("SIGINT")`).
