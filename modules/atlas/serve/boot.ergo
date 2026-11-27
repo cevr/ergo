@@ -1,0 +1,491 @@
+import actor
+import github.com/cevr/ergo/modules/atlas/adapter
+import github.com/cevr/ergo/modules/atlas/handle
+import github.com/cevr/ergo/modules/atlas/memory
+import github.com/cevr/ergo/modules/atlas/pool
+import github.com/cevr/ergo/modules/atlas/reconcile
+import github.com/cevr/ergo/modules/atlas/session
+import github.com/cevr/ergo/modules/atlas/sqlite
+import github.com/cevr/ergo/modules/atlas/subagent
+import github.com/cevr/ergo/modules/atlas/thread
+import github.com/cevr/ergo/modules/atlas/turn
+import option
+import testing
+import time
+
+// BootReport summarizes idempotent startup reconciliation across leases, handles, turns, questions, and pool holds.
+type BootReport {
+	Lease                LeaseState,
+	LostCallIDs          []handle.HandleID,
+	LostNotice           string,
+	ReattachedDurableIDs []handle.HandleID,
+	KeptLiveForeignCalls []handle.HandleID,
+	DeliveredWakeIDs     []string,
+	ReconciledTurnCount  int,
+	OpenQuestionCount    int,
+	DueHoldsWoken        int,
+	DueHoldsGone         int,
+	DueHoldsBlocked      int,
+	UpcomingHoldCount    int,
+	EarliestHoldRetryMs  option.Option[int64],
+	NextHoldAnchor       actor.TimerAnchor,
+}
+
+// HoldRetryAnchor constructs a cross-restart TimerAnchor for a pool hold opening at retryAtMs (Unix ms).
+func HoldRetryAnchor(retryAtMs int64) actor.TimerAnchor {
+	if retryAtMs <= int64(0) {
+		return actor.NoAnchor()
+	}
+	actor.AnchorFromWallNS(retryAtMs * int64(1000000))
+}
+
+// ComputeEarliestHoldAnchor finds the earliest waiting pool hold and constructs its TimerAnchor.
+func ComputeEarliestHoldAnchor(holds []memory.PoolHold) (int, option.Option[int64], actor.TimerAnchor) {
+	let mut waitingCount = 0
+	let mut found = false
+	let mut earliest = int64(0)
+	for _, h in holds {
+		if h.Status == memory.HoldWaiting {
+			waitingCount = waitingCount + 1
+			if !found || h.RetryAtMs < earliest {
+				found = true
+				earliest = h.RetryAtMs
+			}
+		}
+	}
+	if !found {
+		return (0, option.None, actor.NoAnchor())
+	}
+	(waitingCount, option.Some[int64]{Value: earliest}, HoldRetryAnchor(earliest))
+}
+
+func acquireOrResumeLease(store memory.Store, cfg DaemonConfig, nowMs int64, cmdPrefix string) LeaseState fails ServeError {
+	let owner = OwnerOfConfig(cfg)
+	let bl = store.GetLeaseAndBoot(memory.BootQuery{
+		RootID:                     option.None,
+		BootingOwner:               owner,
+		LiveForeignOwners:          cfg.LiveForeignOwners,
+		PendingRequestsSurviveBoot: cfg.PendingRequestsSurviveBoot,
+		LeaseID:                    cfg.LeaseID,
+	}) catch {
+	case memory.StoreFailed as e:
+		return StoreOperationFailed{Operation: "get_lease_and_boot", Detail: e.Reason}
+	}
+	match bl.ActiveLease {
+	case option.None:
+		let env = memory.Envelope{
+			ID:         memory.CommandID("\(cmdPrefix):lease-acquire"),
+			Actor:      "serve-boot",
+			AtMs:       nowMs,
+			LeaseFence: option.None,
+			Command:    memory.CmdAcquireLease{
+				LeaseID:       cfg.LeaseID,
+				Owner:         owner,
+				ExpectedEpoch: 0,
+			},
+		}
+		let _ = try ExecuteFencedStore(store, "lease_acquire", env)
+	case option.Some[memory.LeaseRecord] as existing:
+		let rec = existing.Value
+		if rec.Owner == owner {
+			return LeaseStateFromRecord(rec)
+		}
+		if owner.Epoch < rec.Epoch {
+			return ReconcileFailed{Reason: "booting epoch \(owner.Epoch) precedes active lease epoch \(rec.Epoch)"}
+		}
+		if owner.Epoch == rec.Epoch {
+			return ReconcileFailed{Reason: "lease \(cfg.LeaseID) held by distinct owner \(rec.Owner.ServerID) at epoch \(rec.Epoch)"}
+		}
+		let env = memory.Envelope{
+			ID:         memory.CommandID("\(cmdPrefix):lease-advance:\(owner.Epoch)"),
+			Actor:      "serve-boot",
+			AtMs:       nowMs,
+			LeaseFence: option.None,
+			Command:    memory.CmdAcquireLease{
+				LeaseID:       cfg.LeaseID,
+				Owner:         owner,
+				ExpectedEpoch: rec.Epoch,
+			},
+		}
+		let _ = try ExecuteFencedStore(store, "lease_advance", env)
+	}
+	let after = store.GetLeaseAndBoot(memory.BootQuery{
+		RootID:                     option.None,
+		BootingOwner:               owner,
+		LiveForeignOwners:          cfg.LiveForeignOwners,
+		PendingRequestsSurviveBoot: cfg.PendingRequestsSurviveBoot,
+		LeaseID:                    cfg.LeaseID,
+	}) catch {
+	case memory.StoreFailed as e:
+		return StoreOperationFailed{Operation: "reload_lease", Detail: e.Reason}
+	}
+	match after.ActiveLease {
+	case option.Some[memory.LeaseRecord] as rec:
+		LeaseStateFromRecord(rec.Value)
+	case option.None:
+		ReconcileFailed{Reason: "lease missing immediately after acquire"}
+	}
+}
+
+func makeHoldWakeEnvelope(actorName string, cmdID string, nowMs int64, holdKey string, action memory.HoldTransition) memory.Envelope {
+	memory.Envelope{
+		ID:         memory.CommandID(cmdID),
+		Actor:      actorName,
+		AtMs:       nowMs,
+		LeaseFence: option.None,
+		Command:    memory.CmdTransitionHold{HoldKey: holdKey, Action: action},
+	}
+}
+
+func makeGoneNoticeEnvelope(actorName string, cmdID string, nowMs int64, h memory.PoolHold) memory.Envelope {
+	memory.Envelope{
+		ID:         memory.CommandID(cmdID),
+		Actor:      actorName,
+		AtMs:       nowMs,
+		LeaseFence: option.None,
+		Command:    memory.CmdRecordWake{
+			Wake: reconcile.WakeRecord{
+				DeliveryID:     pool.GoneNoticeDeliveryID(h.ThreadID, h.RetryAtMs),
+				HandleID:       handle.HandleID(h.HoldKey),
+				Delivered:      true,
+				PayloadSummary: "held child vanished before opening",
+			},
+		},
+	}
+}
+
+// RunHoldSweep evaluates due pool holds at nowMs across any memory.Store, enforcing single-wake wakeDeliveryId and gone-child notices.
+func RunHoldSweep(store memory.Store, actorName string, cmdPrefix string, nowMs int64) pool.StoreReconcileReport fails ServeError {
+	let pv = store.GetPoolView(nowMs) catch {
+	case memory.StoreFailed as e:
+		return StoreOperationFailed{Operation: "get_pool_view", Detail: e.Reason}
+	}
+	let snap = try SnapshotStore(store, "hold_sweep_snapshot")
+	let openQs = store.GetQuestions(memory.QuestionFilter{
+		ThreadID: option.None,
+		Status:   option.Some[memory.QuestionStatus]{Value: memory.QuestionOpen},
+	}) catch {
+	case memory.StoreFailed as e:
+		return StoreOperationFailed{Operation: "get_open_questions", Detail: e.Reason}
+	}
+	let mut report = pool.StoreReconcileReport{
+		DueSeen:              pv.DueHolds.Len(),
+		WakesDispatched:      0,
+		DeduplicatedWakes:    0,
+		GoneChildrenHandled:  0,
+		ParentNoticesEmitted: 0,
+		BlockedByQuestions:   0,
+	}
+	for _, h in pv.DueHolds {
+		let tv = store.GetThreadView(h.ThreadID) catch {
+		case memory.StoreFailed as e:
+			return StoreOperationFailed{Operation: "get_thread_view", Detail: e.Reason}
+		}
+		match pool.ClassifyDueHold(h, tv, openQs, snap) {
+		case pool.DueActionCancelGoneChild as goneAct:
+			let _ = try ExecuteFencedStore(store, "cancel_gone_hold", makeHoldWakeEnvelope(actorName, "\(cmdPrefix):cancel:\(h.HoldKey)", nowMs, h.HoldKey, memory.HoldActionCancel))
+			report = pool.StoreReconcileReport{..report, GoneChildrenHandled: report.GoneChildrenHandled + 1}
+			if goneAct.EmitParentNotice {
+				let _ = try ExecuteFencedStore(store, "gone_notice", makeGoneNoticeEnvelope(actorName, "\(cmdPrefix):gone:\(h.HoldKey)", nowMs, h))
+				report = pool.StoreReconcileReport{..report, ParentNoticesEmitted: report.ParentNoticesEmitted + 1}
+			}
+		case pool.DueActionWaitPendingQuestion:
+			report = pool.StoreReconcileReport{..report, BlockedByQuestions: report.BlockedByQuestions + 1}
+		case pool.DueActionWakeChild as wakeAct:
+			let _ = try ExecuteFencedStore(store, "wake_due_hold", makeHoldWakeEnvelope(actorName, "\(cmdPrefix):wake:\(h.HoldKey)", nowMs, h.HoldKey, memory.HoldActionWake))
+			if wakeAct.AlreadyRecorded {
+				report = pool.StoreReconcileReport{..report, DeduplicatedWakes: report.DeduplicatedWakes + 1}
+			} else {
+				report = pool.StoreReconcileReport{..report, WakesDispatched: report.WakesDispatched + 1}
+			}
+		}
+	}
+	report
+}
+
+func runBootTreeReconcile(store memory.Store, cfg DaemonConfig, owner handle.OwnerID, nowMs int64, cmdPrefix string) reconcile.ReconcilePlan fails ServeError {
+	let snapBefore = try SnapshotStore(store, "boot_snapshot")
+	let baseQuery = memory.BootQuery{
+		RootID:                     option.None,
+		BootingOwner:               owner,
+		LiveForeignOwners:          cfg.LiveForeignOwners,
+		PendingRequestsSurviveBoot: cfg.PendingRequestsSurviveBoot,
+		LeaseID:                    cfg.LeaseID,
+	}
+	let plan = reconcile.BootReconcile(memory.BuildBootSnapshot(snapBefore, baseQuery))
+	if snapBefore.TreeOrder.Len() == 0 {
+		let _ = try ExecuteFencedStore(store, "boot_reconcile", memory.Envelope{
+			ID:         memory.CommandID("\(cmdPrefix):reconcile:0"),
+			Actor:      "serve-boot",
+			AtMs:       nowMs,
+			LeaseFence: option.None,
+			Command:    memory.CmdApplyBootReconcile{
+				RootID:                     option.None,
+				BootingOwner:               owner,
+				LiveForeignOwners:          cfg.LiveForeignOwners,
+				PendingRequestsSurviveBoot: cfg.PendingRequestsSurviveBoot,
+			},
+		})
+	} else {
+		for idx, rootID in snapBefore.TreeOrder {
+			let _ = try ExecuteFencedStore(store, "boot_reconcile_tree", memory.Envelope{
+				ID:         memory.CommandID("\(cmdPrefix):reconcile:\(idx)"),
+				Actor:      "serve-boot",
+				AtMs:       nowMs,
+				LeaseFence: option.None,
+				Command:    memory.CmdApplyBootReconcile{
+					RootID:                     option.Some[handle.ThreadID]{Value: rootID},
+					BootingOwner:               owner,
+					LiveForeignOwners:          cfg.LiveForeignOwners,
+					PendingRequestsSurviveBoot: cfg.PendingRequestsSurviveBoot,
+				},
+			})
+		}
+	}
+	plan
+}
+
+// BootReconcileDaemon runs idempotent crash/startup reconciliation across leases, handles, turns, questions, and due pool holds before traffic admission.
+func BootReconcileDaemon(store memory.Store, cfg DaemonConfig, nowMs int64, cmdPrefix string) BootReport fails ServeError {
+	try ValidateDaemonConfig(cfg)
+	let lease = try acquireOrResumeLease(store, cfg, nowMs, cmdPrefix)
+	let owner = OwnerOfConfig(cfg)
+	let plan = try runBootTreeReconcile(store, cfg, owner, nowMs, cmdPrefix)
+	let holdRep = try RunHoldSweep(store, "serve-boot", "\(cmdPrefix):holds", nowMs)
+	let openQs = store.GetQuestions(memory.QuestionFilter{
+		ThreadID: option.None,
+		Status:   option.Some[memory.QuestionStatus]{Value: memory.QuestionOpen},
+	}) catch {
+	case memory.StoreFailed as e:
+		return StoreOperationFailed{Operation: "boot_open_questions", Detail: e.Reason}
+	}
+	let pv = store.GetPoolView(nowMs) catch {
+	case memory.StoreFailed as e:
+		return StoreOperationFailed{Operation: "boot_pool_view", Detail: e.Reason}
+	}
+	let (upcomingCount, earliestOpt, nextAnchor) = ComputeEarliestHoldAnchor(pv.AllHolds)
+	BootReport{
+		Lease:                lease,
+		LostCallIDs:          plan.LostCallIDs,
+		LostNotice:           plan.LostNotice,
+		ReattachedDurableIDs: plan.ReattachedDurableIDs,
+		KeptLiveForeignCalls: plan.KeptLiveForeignCalls,
+		DeliveredWakeIDs:     plan.DeliveredWakeIDs,
+		ReconciledTurnCount:  plan.ReconciledTurns.Len(),
+		OpenQuestionCount:    openQs.Len(),
+		DueHoldsWoken:        holdRep.WakesDispatched,
+		DueHoldsGone:         holdRep.GoneChildrenHandled,
+		DueHoldsBlocked:      holdRep.BlockedByQuestions,
+		UpcomingHoldCount:    upcomingCount,
+		EarliestHoldRetryMs:  earliestOpt,
+		NextHoldAnchor:       nextAnchor,
+	}
+}
+
+func makeBootTestThreadSpec(tid handle.ThreadID) thread.ThreadSpec {
+	thread.ThreadSpec{
+		ID:                 tid,
+		ParentThreadID:     option.None,
+		Driver:             adapter.CodexDirect,
+		AgyDirectSupported: false,
+		RequestedMode:      adapter.ModeAutoEdit,
+		Instance:           adapter.InstanceID("inst-boot"),
+		ConfigDir:          "/var/atlas/boot",
+		SharedHome:         option.None,
+		Model:              adapter.ModelID("gpt-5"),
+		LinkOrigin:         thread.OriginLocal,
+	}
+}
+
+func seedBootCrashState(store memory.Store, nowMs int64, deadOwner handle.OwnerID, liveForeign handle.OwnerID) bool {
+	let thRoot = handle.ThreadID("boot-th-root")
+	let thDue = handle.ThreadID("boot-th-due")
+	let cmds = []memory.Envelope{
+		memory.Envelope{ID: memory.CommandID("seed-1"), Actor: "test", AtMs: nowMs, LeaseFence: option.None, Command: memory.CmdCreateThread{Spec: makeBootTestThreadSpec(thRoot), EdgeLabel: "root"}},
+		memory.Envelope{ID: memory.CommandID("seed-2"), Actor: "test", AtMs: nowMs, LeaseFence: option.None, Command: memory.CmdCreateThread{Spec: makeBootTestThreadSpec(thDue), EdgeLabel: "due"}},
+		memory.Envelope{ID: memory.CommandID("seed-3"), Actor: "test", AtMs: nowMs, LeaseFence: option.None, Command: memory.CmdStartTurn{ThreadID: thRoot, TurnID: turn.TurnID("t-active")}},
+		memory.Envelope{ID: memory.CommandID("seed-4"), Actor: "test", AtMs: nowMs, LeaseFence: option.None, Command: memory.CmdOpenHandle{
+			Spec:         handle.OpenHandleSpec{ID: handle.HandleID("call-orphan"), Kind: handle.KindCall, Owner: deadOwner, Session: handle.SessionID("s-dead"), Summary: "orphan call"},
+			SubagentRoot: option.None,
+			NodeID:       option.None,
+		}},
+		memory.Envelope{ID: memory.CommandID("seed-5"), Actor: "test", AtMs: nowMs, LeaseFence: option.None, Command: memory.CmdOpenHandle{
+			Spec:         handle.OpenHandleSpec{ID: handle.HandleID("call-foreign"), Kind: handle.KindCall, Owner: liveForeign, Session: handle.SessionID("s-for"), Summary: "foreign call"},
+			SubagentRoot: option.None,
+			NodeID:       option.None,
+		}},
+		memory.Envelope{ID: memory.CommandID("seed-6"), Actor: "test", AtMs: nowMs, LeaseFence: option.None, Command: memory.CmdOpenHandle{
+			Spec:         handle.OpenHandleSpec{ID: handle.HandleID("job-durable"), Kind: handle.KindJob, Owner: deadOwner, Session: handle.SessionID("s-dead"), Summary: "durable job"},
+			SubagentRoot: option.None,
+			NodeID:       option.None,
+		}},
+		memory.Envelope{ID: memory.CommandID("seed-7"), Actor: "test", AtMs: nowMs, LeaseFence: option.None, Command: memory.CmdAskUserAsync{
+			ID:         turn.RequestID("q-open"),
+			ThreadID:   thRoot,
+			HandleID:   handle.HandleID("qh-open"),
+			Owner:      deadOwner,
+			Session:    handle.SessionID("s-dead"),
+			Header:     "Confirm",
+			Prompt:     "Keep open across boot?",
+			Assumption: "yes",
+			Options:    []string{"yes", "no"},
+			TargetRole: subagent.RoleRoot,
+		}},
+		memory.Envelope{ID: memory.CommandID("seed-8"), Actor: "test", AtMs: nowMs, LeaseFence: option.None, Command: memory.CmdOpenPoolHold{
+			HoldKey:        "hold-due",
+			ThreadID:       thDue,
+			AccountID:      session.AccountID("acct-1"),
+			RetryAtMs:      nowMs + int64(5000),
+			ParentNotified: false,
+		}},
+		memory.Envelope{ID: memory.CommandID("seed-9"), Actor: "test", AtMs: nowMs, LeaseFence: option.None, Command: memory.CmdOpenPoolHold{
+			HoldKey:        "hold-future",
+			ThreadID:       thRoot,
+			AccountID:      session.AccountID("acct-1"),
+			RetryAtMs:      nowMs + int64(30000),
+			ParentNotified: false,
+		}},
+	}
+	for _, env in cmds {
+		let _ = store.Execute(env) catch {
+		case _:
+			return false
+		}
+	}
+	true
+}
+
+// BootReconcileIsIdempotentAndSettlesLostCallsOnce proves BootReconcile settles dead-owner calls once, preserves foreign calls/durable jobs/questions, wakes due holds once, and is idempotent across reboots.
+law BootReconcileIsIdempotentAndSettlesLostCallsOnce(epochSeed int) {
+	let e = if epochSeed > 1 { (epochSeed % 50) + 2 } else { 2 }
+	let store = memory.New()
+	let baseMs = int64(1700000000000)
+	let deadOwner = handle.OwnerID{ServerID: "srv-1", Location: "local", Epoch: 1}
+	let liveForeign = handle.OwnerID{ServerID: "srv-peer", Location: "remote", Epoch: 1}
+	if !seedBootCrashState(store, baseMs, deadOwner, liveForeign) {
+		return false
+	}
+	let mut cfg = DefaultDaemonConfig("srv-1", e)
+	cfg = DaemonConfig{..cfg, LiveForeignOwners: []handle.OwnerID{liveForeign}}
+	let bootMs = baseMs + int64(10000)
+	let r1 = BootReconcileDaemon(store, cfg, bootMs, "boot-1") catch {
+	case _:
+		return false
+	}
+	let snapAfter1 = store.Snapshot() catch {
+	case _:
+		return false
+	}
+	let r2 = BootReconcileDaemon(store, cfg, bootMs+int64(100), "boot-2") catch {
+	case _:
+		return false
+	}
+	let snapAfter2 = store.Snapshot() catch {
+	case _:
+		return false
+	}
+	let r3 = BootReconcileDaemon(store, cfg, bootMs+int64(200), "boot-3") catch {
+	case _:
+		return false
+	}
+	let snapAfter3 = store.Snapshot() catch {
+	case _:
+		return false
+	}
+	let wakeKey = pool.WakeDeliveryID(handle.ThreadID("boot-th-due"), baseMs+int64(5000))
+	let hasDueWake = match snapAfter2.Wakes.Get(wakeKey) {
+	case option.Some:
+		true
+	case option.None:
+		false
+	}
+	let turnSettledLost = match snapAfter1.Threads.Get(handle.ThreadID("boot-th-root")) {
+	case option.Some[thread.Thread] as th:
+		match th.Value.ActiveTurn {
+		case option.Some[turn.TurnState] as at:
+			at.Value.Phase == turn.PhaseEnded && at.Value.Outcome == option.Some[turn.TurnOutcome]{Value: turn.OutcomeLost}
+		case option.None:
+			false
+		}
+	case option.None:
+		false
+	}
+		r1.LostCallIDs == []handle.HandleID{handle.HandleID("call-orphan")} &&
+		r1.KeptLiveForeignCalls == []handle.HandleID{handle.HandleID("call-foreign")} &&
+		r1.ReattachedDurableIDs.Len() == 2 &&
+		r1.OpenQuestionCount == 1 &&
+		r1.DueHoldsWoken == 1 &&
+		r1.UpcomingHoldCount == 1 &&
+		r1.EarliestHoldRetryMs == option.Some[int64]{Value: baseMs + int64(30000)} &&
+		r2.LostCallIDs.Len() == 0 &&
+		r2.DueHoldsWoken == 0 &&
+		r3.LostCallIDs.Len() == 0 &&
+		r3.DueHoldsWoken == 0 &&
+		turnSettledLost &&
+		snapAfter2.Registry == snapAfter1.Registry &&
+		snapAfter2.Wakes.Len() == snapAfter1.Wakes.Len() &&
+		snapAfter2.Holds == snapAfter1.Holds &&
+		snapAfter3.Registry == snapAfter2.Registry &&
+		snapAfter3.Wakes == snapAfter2.Wakes &&
+		snapAfter3.Holds == snapAfter2.Holds &&
+		hasDueWake
+}
+
+// HoldAnchorPreservesRemainingDeadlineAcrossRestart proves monotonic/wall hold anchors preserve remaining delay across restarts without resetting to full duration.
+law HoldAnchorPreservesRemainingDeadlineAcrossRestart(offsetSec int) {
+	let elapsedSec = ((offsetSec%9)+9)%9 + 1
+	let baseWallSec = int64(1700000000)
+	let baseWallMs = baseWallSec * int64(1000)
+	let retryAtMs = baseWallMs + int64(10000)
+	let anchor = HoldRetryAnchor(retryAtMs)
+	let clk = testing.NewVirtualClock(baseWallSec)
+	clk.Sleep(duration(int64(elapsedSec) * int64(1000000000)))
+	let rem = with context { time.Clock: clk } {
+		actor.RemainingDelay(anchor)
+	}
+	let expectedRem = duration(int64(10-elapsedSec) * int64(1000000000))
+	clk.Sleep(expectedRem + 1s)
+	let expired = with context { time.Clock: clk } {
+		actor.RemainingDelay(anchor)
+	}
+	rem == expectedRem && expired == actor.DueNow()
+}
+
+// BootWalChecks verifies crash BootReconcile and hold scheduling persistence against WAL SQLite.
+type BootWalChecks {
+	CheckBootWalReconcile(tag int) bool,
+
+	// SqliteBootReconcilesIdempotently verifies WAL SQLite boot reconciliation settles dead-owner calls once and wakes due holds once.
+	law SqliteBootReconcilesIdempotently(x Self) { x.CheckBootWalReconcile(1) },
+}
+
+type goBootWalChecks {} implements BootWalChecks
+
+func verifyBootWalReconcile() bool fails ServeError | memory.StoreFailed needs go.Foreign {
+	let wal = sqlite.NewWALStore()
+	let baseMs = int64(1700000000000)
+	let deadOwner = handle.OwnerID{ServerID: "srv-wal", Location: "local", Epoch: 1}
+	let liveForeign = handle.OwnerID{ServerID: "srv-peer", Location: "remote", Epoch: 1}
+	if !seedBootCrashState(wal, baseMs, deadOwner, liveForeign) {
+		try wal.CloseWAL()
+		return false
+	}
+	let mut cfg = DefaultDaemonConfig("srv-wal", 2)
+	cfg = DaemonConfig{..cfg, LiveForeignOwners: []handle.OwnerID{liveForeign}}
+	let r1 = try BootReconcileDaemon(wal, cfg, baseMs+int64(10000), "wal-boot-1")
+	let r2 = try BootReconcileDaemon(wal, cfg, baseMs+int64(10500), "wal-boot-2")
+	try wal.CloseWAL()
+		r1.LostCallIDs == []handle.HandleID{handle.HandleID("call-orphan")} &&
+		r1.KeptLiveForeignCalls == []handle.HandleID{handle.HandleID("call-foreign")} &&
+		r1.DueHoldsWoken == 1 &&
+		r2.LostCallIDs.Len() == 0 &&
+		r2.DueHoldsWoken == 0
+}
+
+// CheckBootWalReconcile executes WAL SQLite boot reconciliation verification under go.Foreign.
+func CheckBootWalReconcile(_ goBootWalChecks, _ int) bool needs go.Foreign {
+	verifyBootWalReconcile() catch {
+	case _:
+		false
+	}
+}

@@ -60,15 +60,20 @@ func needsFrame(st fnb, f expr.Fn, body dense.ID[syntax.Node], name string, ops 
 func parameterSlots(st fnb, f expr.Fn) localBinds {
 	let mut params = []dense.ID[store.PNode]{}
 	let mut locals = []int{}
+	let mut types = []dense.Opt[store.TKey]{}
+	let ops = store.OperandsOf(st.s, f.Sig)
+	let hasOps = store.KindOfType(st.s, f.Sig) == store.KSig && ops.Len() >= 3
+	let np = if hasOps { ops.Len() - 3 } else { 0 }
 	for i, pn in f.Names {
 		match dense.Unpack(pn) {
 		case option.Some[dense.ID[syntax.Node]] as x:
 			params = params.Append(bind.PNodeOf(st.k.Ps, st.file, x.Value))
 			locals = locals.Append(if st.frame.env >= 0 && i >= st.frame.env { i + 1 } else { i })
+			types = types.Append(if hasOps && i < np { dense.OptOf(ops[i]) } else { dense.NoID[store.TKey]() })
 		case option.None:
 		}
 	}
-	localBinds{params: params, locals: locals}
+	localBinds{params: params, locals: locals, types: types}
 }
 
 // frameBody writes the effect profile's single tail after its frame and

@@ -1,0 +1,404 @@
+import machines
+import option
+import sync
+
+// PhaseUninitialized is the initial LSP lifecycle state before receiving initialize.
+type PhaseUninitialized {}
+
+// PhaseInitializing is the LSP lifecycle state after initialize succeeds and before initialized.
+type PhaseInitializing {}
+
+// PhaseRunning is the active LSP lifecycle state after receiving initialized.
+type PhaseRunning {}
+
+// PhaseShuttingDown is the LSP lifecycle state after shutdown succeeds and before exit.
+type PhaseShuttingDown {}
+
+// PhaseExitedClean is the terminal LSP lifecycle state entered when exit follows shutdown (exit code 0).
+type PhaseExitedClean {}
+
+// PhaseExitedDirty is the terminal LSP lifecycle state entered when exit occurs before shutdown (exit code 1).
+type PhaseExitedDirty {}
+
+// LifecycleState enumerates all LSP server lifecycle states.
+type LifecycleState = PhaseUninitialized | PhaseInitializing | PhaseRunning | PhaseShuttingDown | PhaseExitedClean | PhaseExitedDirty
+
+// SigInitialize represents an incoming LSP initialize request.
+type SigInitialize {}
+
+// SigInitialized represents an incoming LSP initialized notification.
+type SigInitialized {}
+
+// SigShutdown represents an incoming LSP shutdown request.
+type SigShutdown {}
+
+// SigExit represents an incoming LSP exit notification.
+type SigExit {}
+
+// SigRequest represents any non-lifecycle LSP request.
+type SigRequest {}
+
+// SigNotification represents any non-lifecycle LSP notification.
+type SigNotification {}
+
+// LifecycleSignal enumerates protocol signals driving the LSP Lifecycle state machine.
+type LifecycleSignal = SigInitialize | SigInitialized | SigShutdown | SigExit | SigRequest | SigNotification
+
+// OutcomeAccepted indicates the lifecycle accepted the request or notification.
+type OutcomeAccepted {}
+
+// OutcomeRefusedNotInitialized indicates refusal with JSON-RPC -32002 (ServerNotInitialized).
+type OutcomeRefusedNotInitialized {}
+
+// OutcomeRefusedInvalidRequest indicates refusal with JSON-RPC -32600 (InvalidRequest).
+type OutcomeRefusedInvalidRequest {}
+
+// OutcomeIgnored indicates a protocol notification ignored in the current lifecycle state.
+type OutcomeIgnored {}
+
+// OutcomeExited indicates transition into a terminal exited phase with exit Code (0 or 1).
+type OutcomeExited { Code int }
+
+// LifecycleOutcome describes the protocol authorization decision produced by StepLifecycle.
+type LifecycleOutcome = OutcomeAccepted | OutcomeRefusedNotInitialized | OutcomeRefusedInvalidRequest | OutcomeIgnored | OutcomeExited
+
+// ExitCodeOf returns 0 for clean exit, 1 for dirty exit, or -1 if still active.
+func ExitCodeOf(s LifecycleState) int {
+	match s {
+	case PhaseExitedClean:
+		0
+	case PhaseExitedDirty:
+		1
+	case _:
+		-1
+	}
+}
+
+// IsExited reports whether s is a terminal exited lifecycle state.
+func IsExited(s LifecycleState) bool {
+	match s {
+	case PhaseExitedClean, PhaseExitedDirty:
+		true
+	case _:
+		false
+	}
+}
+
+// StepLifecycle executes one LSP lifecycle transition from s on sig.
+func StepLifecycle(s LifecycleState, sig LifecycleSignal) Decision[LifecycleState, LifecycleOutcome] {
+	match s {
+	case PhaseUninitialized:
+		match sig {
+		case SigInitialize:
+			Emit[LifecycleState, LifecycleOutcome]{Next: PhaseInitializing, Output: OutcomeAccepted}
+		case SigExit:
+			Emit[LifecycleState, LifecycleOutcome]{Next: PhaseExitedDirty, Output: OutcomeExited{Code: 1}}
+		case SigInitialized, SigNotification:
+			Tell[LifecycleState, LifecycleOutcome]{Next: s, Output: OutcomeIgnored}
+		case SigShutdown, SigRequest:
+			Tell[LifecycleState, LifecycleOutcome]{Next: s, Output: OutcomeRefusedNotInitialized}
+		}
+	case PhaseInitializing:
+		match sig {
+		case SigInitialized:
+			Emit[LifecycleState, LifecycleOutcome]{Next: PhaseRunning, Output: OutcomeAccepted}
+		case SigExit:
+			Emit[LifecycleState, LifecycleOutcome]{Next: PhaseExitedDirty, Output: OutcomeExited{Code: 1}}
+		case SigInitialize:
+			Tell[LifecycleState, LifecycleOutcome]{Next: s, Output: OutcomeRefusedInvalidRequest}
+		case SigShutdown, SigRequest:
+			Tell[LifecycleState, LifecycleOutcome]{Next: s, Output: OutcomeRefusedNotInitialized}
+		case SigNotification:
+			Tell[LifecycleState, LifecycleOutcome]{Next: s, Output: OutcomeIgnored}
+		}
+	case PhaseRunning:
+		match sig {
+		case SigShutdown:
+			Emit[LifecycleState, LifecycleOutcome]{Next: PhaseShuttingDown, Output: OutcomeAccepted}
+		case SigExit:
+			Emit[LifecycleState, LifecycleOutcome]{Next: PhaseExitedDirty, Output: OutcomeExited{Code: 1}}
+		case SigInitialize:
+			Tell[LifecycleState, LifecycleOutcome]{Next: s, Output: OutcomeRefusedInvalidRequest}
+		case SigRequest, SigNotification:
+			Tell[LifecycleState, LifecycleOutcome]{Next: s, Output: OutcomeAccepted}
+		case SigInitialized:
+			Tell[LifecycleState, LifecycleOutcome]{Next: s, Output: OutcomeIgnored}
+		}
+	case PhaseShuttingDown:
+		match sig {
+		case SigExit:
+			Emit[LifecycleState, LifecycleOutcome]{Next: PhaseExitedClean, Output: OutcomeExited{Code: 0}}
+		case SigInitialize, SigShutdown, SigRequest:
+			Tell[LifecycleState, LifecycleOutcome]{Next: s, Output: OutcomeRefusedInvalidRequest}
+		case SigInitialized, SigNotification:
+			Tell[LifecycleState, LifecycleOutcome]{Next: s, Output: OutcomeIgnored}
+		}
+	case PhaseExitedClean, PhaseExitedDirty:
+		match sig {
+		case SigInitialize, SigShutdown, SigRequest:
+			Tell[LifecycleState, LifecycleOutcome]{Next: s, Output: OutcomeRefusedInvalidRequest}
+		case SigInitialized, SigExit, SigNotification:
+			Tell[LifecycleState, LifecycleOutcome]{Next: s, Output: OutcomeIgnored}
+		}
+	}
+}
+
+// NextLifecycle returns the resulting state and decision outcome of one StepLifecycle transition.
+func NextLifecycle(s LifecycleState, sig LifecycleSignal) (LifecycleState, LifecycleOutcome) {
+	match StepLifecycle(s, sig) {
+	case Emit as d:
+		(d.Next, d.Output)
+	case Tell as d:
+		(d.Next, d.Output)
+	case Enter as d:
+		(d.Next, OutcomeAccepted)
+	case Stay as d:
+		(d.Next, OutcomeAccepted)
+	case Ignore, Reject:
+		(s, OutcomeIgnored)
+	case Done as d:
+		(s, d.Output)
+	}
+}
+
+// Lifecycle is the checked Ergo state machine governing LSP initialization, running, shutdown, and exit.
+type Lifecycle machine[LifecycleState, LifecycleSignal] {
+	initial: PhaseUninitialized,
+	step:    StepLifecycle,
+}
+
+law LifecycleGraphComplete() {
+	let allStates = []LifecycleState{
+		PhaseUninitialized,
+		PhaseInitializing,
+		PhaseRunning,
+		PhaseShuttingDown,
+		PhaseExitedClean,
+		PhaseExitedDirty,
+	}
+	let cleanPath = []LifecycleSignal{SigInitialize, SigInitialized, SigShutdown, SigExit}
+	let cleanRun = machines.Run(Lifecycle{}, cleanPath) catch {
+	case machines.Rejected:
+		return false
+	}
+	let cleanState = machines.LastState(cleanRun)
+	if cleanState != PhaseExitedClean || ExitCodeOf(cleanState) != 0 {
+		return false
+	}
+	let dirtyRun = machines.Run(Lifecycle{}, []LifecycleSignal{SigInitialize, SigExit}) catch {
+	case machines.Rejected:
+		return false
+	}
+	let dirtyState = machines.LastState(dirtyRun)
+	if dirtyState != PhaseExitedDirty || ExitCodeOf(dirtyState) != 1 {
+		return false
+	}
+	let uninitDirty = machines.Run(Lifecycle{}, []LifecycleSignal{SigExit}) catch {
+	case machines.Rejected:
+		return false
+	}
+	if machines.LastState(uninitDirty) != PhaseExitedDirty {
+		return false
+	}
+	let mut seenRunning = false
+	for st in allStates {
+		let (nextOnExit, _) = NextLifecycle(st, SigExit)
+		match st {
+		case PhaseShuttingDown:
+			if nextOnExit != PhaseExitedClean {
+				return false
+			}
+		case PhaseExitedClean:
+			if nextOnExit != PhaseExitedClean {
+				return false
+			}
+		case _:
+			if nextOnExit != PhaseExitedDirty {
+				return false
+			}
+		}
+		match st {
+		case PhaseRunning:
+			seenRunning = true
+		case _:
+		}
+	}
+	seenRunning
+}
+
+law NothingBeforeInitialize(signals []LifecycleSignal) {
+	let mut state LifecycleState = PhaseUninitialized
+	for sig in signals {
+		let (next, out) = NextLifecycle(state, sig)
+		match state {
+		case PhaseUninitialized, PhaseInitializing:
+			match sig {
+			case SigRequest, SigShutdown:
+				match out {
+				case OutcomeRefusedNotInitialized:
+				case _:
+					return false
+				}
+			case SigNotification:
+				match out {
+				case OutcomeIgnored:
+				case _:
+					return false
+				}
+			case _:
+			}
+		case _:
+		}
+		state = next
+	}
+	true
+}
+
+law OnlyExitAfterShutdown(signals []LifecycleSignal) {
+	let mut state LifecycleState = PhaseUninitialized
+	let mut sawShutdown = false
+	for sig in signals {
+		let wasShutdown = match state {
+		case PhaseShuttingDown:
+			true
+		case _:
+			false
+		}
+		let (next, out) = NextLifecycle(state, sig)
+		if wasShutdown {
+			sawShutdown = true
+		}
+		match out {
+		case OutcomeExited as ex:
+			if ex.Code == 0 && !wasShutdown {
+				return false
+			}
+			if ex.Code != 0 && wasShutdown {
+				return false
+			}
+		case _:
+		}
+		match next {
+		case PhaseExitedClean:
+			if !sawShutdown {
+				return false
+			}
+		case _:
+		}
+		state = next
+	}
+	let finalCode = ExitCodeOf(state)
+	!(finalCode == 0 && !sawShutdown)
+}
+
+law ShutdownIsFinal(signals []LifecycleSignal) {
+	let _ = machines.Run(Lifecycle{}, signals) catch {
+	case machines.Rejected:
+		return false
+	}
+	let mut state LifecycleState = PhaseUninitialized
+	let mut closed = false
+	for sig in signals {
+		let (next, out) = NextLifecycle(state, sig)
+		if closed {
+			match sig {
+			case SigInitialize, SigShutdown, SigRequest:
+				match out {
+				case OutcomeRefusedInvalidRequest:
+				case _:
+					return false
+				}
+			case _:
+			}
+			match next {
+			case PhaseUninitialized, PhaseInitializing, PhaseRunning:
+				return false
+			case _:
+			}
+		}
+		match next {
+		case PhaseShuttingDown, PhaseExitedClean, PhaseExitedDirty:
+			closed = true
+		case _:
+		}
+		state = next
+	}
+	true
+}
+
+type cancelState { active Map[string, bool] }
+
+// CancelRegistry tracks active in-flight request IDs and pending $/cancelRequest signals.
+type CancelRegistry { state sync.Ref[cancelState] }
+
+// NewCancelRegistry creates an empty CancelRegistry.
+func NewCancelRegistry() CancelRegistry {
+	CancelRegistry{state: sync.NewRef(cancelState{active: Map[string, bool]{}})}
+}
+
+// BeginRequest registers key as an active in-flight request.
+func BeginRequest(reg CancelRegistry, key string) {
+	reg.state.Update(func(st cancelState) cancelState {
+		cancelState{active: st.active.Put(key, false)}
+	})
+}
+
+// CancelRequest marks an active key as cancelled, returning true if key was active.
+func CancelRequest(reg CancelRegistry, key string) bool {
+	sync.Modify[cancelState, bool](reg.state, func(st cancelState) (bool, cancelState) {
+		match st.active.Get(key) {
+		case option.None:
+			(false, st)
+		case option.Some:
+			(true, cancelState{active: st.active.Put(key, true)})
+		}
+	})
+}
+
+// IsCancelled reports whether active key has received a cancellation request.
+func IsCancelled(reg CancelRegistry, key string) bool {
+	match reg.state.Get().active.Get(key) {
+	case option.None:
+		false
+	case option.Some as v:
+		v.Value
+	}
+}
+
+// FinishRequest removes key when its handler completes.
+func FinishRequest(reg CancelRegistry, key string) {
+	reg.state.Update(func(st cancelState) cancelState {
+		cancelState{active: st.active.Delete(key)}
+	})
+}
+
+// ActiveRequestCount returns the number of currently active in-flight requests.
+func ActiveRequestCount(reg CancelRegistry) int {
+	reg.state.Get().active.Len()
+}
+
+law CancellationTracksActiveRequests(idA string, idB string) {
+	let keyA = "a:" + idA
+	let keyB = "b:" + idB
+	let reg = NewCancelRegistry()
+	if CancelRequest(reg, keyA) {
+		return false
+	}
+	BeginRequest(reg, keyA)
+	BeginRequest(reg, keyB)
+	if ActiveRequestCount(reg) != 2 || IsCancelled(reg, keyA) || IsCancelled(reg, keyB) {
+		return false
+	}
+	if !CancelRequest(reg, keyA) || !CancelRequest(reg, keyA) {
+		return false
+	}
+	if !IsCancelled(reg, keyA) || IsCancelled(reg, keyB) {
+		return false
+	}
+	FinishRequest(reg, keyA)
+	if IsCancelled(reg, keyA) || CancelRequest(reg, keyA) || ActiveRequestCount(reg) != 1 {
+		return false
+	}
+	FinishRequest(reg, keyB)
+	ActiveRequestCount(reg) == 0
+}

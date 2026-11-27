@@ -6,8 +6,11 @@ let kindConcat = 2
 let kindAlt = 3
 let kindRepeat = 4
 let kindCapture = 5
+let kindStart = 6
+let kindEnd = 7
 
 let maxPatternNodes = 4096
+let maxUnicodeRune = 0x10FFFF
 
 type byteSet {
 	w0 uint64,
@@ -16,12 +19,30 @@ type byteSet {
 	w3 uint64,
 }
 
+type runeRange {
+	lo int,
+	hi int,
+}
+
+type utf8Seq {
+	length int,
+	lo0    byte,
+	hi0    byte,
+	lo1    byte,
+	hi1    byte,
+	lo2    byte,
+	hi2    byte,
+	lo3    byte,
+	hi3    byte,
+}
+
 type astNode {
 	kind  int,
 	set   byteSet,
 	kids  []int,
 	min   int,
 	max   int,
+	lazy  bool,
 	name  string,
 	tag   int,
 	start uint32,
@@ -41,6 +62,25 @@ func emptySet() byteSet {
 func fullSet() byteSet {
 	let all = ^uint64(0)
 	byteSet{w0: all, w1: all, w2: all, w3: all}
+}
+
+func isEmptyByteSet(s byteSet) bool {
+	s.w0 == uint64(0) && s.w1 == uint64(0) && s.w2 == uint64(0) && s.w3 == uint64(0)
+}
+
+func setContainsByte(s byteSet, b byte) bool {
+	let idx = int(b) / 64
+	let bit = uint64(1) << uint64(int(b)&63)
+	if idx == 0 {
+		return (s.w0 & bit) != uint64(0)
+	}
+	if idx == 1 {
+		return (s.w1 & bit) != uint64(0)
+	}
+	if idx == 2 {
+		return (s.w2 & bit) != uint64(0)
+	}
+	(s.w3 & bit) != uint64(0)
 }
 
 func setBit(s byteSet, b byte) byteSet {
@@ -81,27 +121,370 @@ func complementSet(s byteSet) byteSet {
 	byteSet{w0: ^s.w0, w1: ^s.w1, w2: ^s.w2, w3: ^s.w3}
 }
 
-func digitSet() byteSet {
-	setRange(emptySet(), byte('0'), byte('9'))
+func foldASCIIByteSet(s byteSet) byteSet {
+	let mut out = s
+	let mut c = int('A')
+	for c <= int('Z') {
+		let up = byte(c)
+		let lo = byte(c + 32)
+		if setContainsByte(s, up) || setContainsByte(s, lo) {
+			out = setBit(out, up)
+			out = setBit(out, lo)
+		}
+		c = c + 1
+	}
+	out
 }
 
-func wordSet() byteSet {
-	let mut s = setRange(emptySet(), byte('0'), byte('9'))
-	s = setRange(s, byte('A'), byte('Z'))
-	s = setBit(s, byte('_'))
-	setRange(s, byte('a'), byte('z'))
+func digitRanges() []runeRange {
+	[]runeRange{runeRange{lo: int('0'), hi: int('9')}}
 }
 
-func spaceSet() byteSet {
-	let mut s = setBit(emptySet(), byte('\t'))
-	s = setBit(s, byte('\n'))
-	s = setBit(s, byte('\f'))
-	s = setBit(s, byte('\r'))
-	setBit(s, byte(' '))
+func wordRanges() []runeRange {
+	[]runeRange{
+		runeRange{lo: int('0'), hi: int('9')},
+		runeRange{lo: int('A'), hi: int('Z')},
+		runeRange{lo: int('_'), hi: int('_')},
+		runeRange{lo: int('a'), hi: int('z')},
+	}
 }
 
-func dotSet() byteSet {
-	complementSet(singleByteSet(byte('\n')))
+func spaceRanges() []runeRange {
+	[]runeRange{
+		runeRange{lo: int('\t'), hi: int('\n')},
+		runeRange{lo: int('\f'), hi: int('\r')},
+		runeRange{lo: int(' '), hi: int(' ')},
+	}
+}
+
+func dotRuneRanges() []runeRange {
+	[]runeRange{
+		runeRange{lo: 0, hi: int('\n') - 1},
+		runeRange{lo: int('\n') + 1, hi: 0xD7FF},
+		runeRange{lo: 0xE000, hi: maxUnicodeRune},
+	}
+}
+
+func isValidCodePoint(cp int) bool {
+	cp >= 0 && cp <= maxUnicodeRune && (cp < 0xD800 || cp > 0xDFFF)
+}
+
+func sortRuneRanges(rs []runeRange) []runeRange {
+	let mut out = []runeRange{}
+	for r in rs {
+		out = out.Append(r)
+	}
+	for i in 1..out.Len() {
+		let key = out[i]
+		let mut j = i - 1
+		for j >= 0 && (out[j].lo > key.lo || (out[j].lo == key.lo && out[j].hi > key.hi)) {
+			out[j+1] = out[j]
+			j = j - 1
+		}
+		out[j+1] = key
+	}
+	out
+}
+
+func normalizeRuneRanges(rs []runeRange) []runeRange {
+	let mut valid = []runeRange{}
+	for r in rs {
+		let mut lo = r.lo
+		let mut hi = r.hi
+		if lo < 0 {
+			lo = 0
+		}
+		if hi > maxUnicodeRune {
+			hi = maxUnicodeRune
+		}
+		if lo > hi {
+			continue
+		}
+		if hi < 0xD800 || lo > 0xDFFF {
+			valid = valid.Append(runeRange{lo: lo, hi: hi})
+		} else {
+			if lo < 0xD800 {
+				valid = valid.Append(runeRange{lo: lo, hi: 0xD7FF})
+			}
+			if hi > 0xDFFF {
+				valid = valid.Append(runeRange{lo: 0xE000, hi: hi})
+			}
+		}
+	}
+	let sorted = sortRuneRanges(valid)
+	let mut out = []runeRange{}
+	for r in sorted {
+		if out.Len() == 0 {
+			out = out.Append(r)
+		} else {
+			let lastIdx = out.Len() - 1
+			let last = out[lastIdx]
+			let adjacent = last.hi+1 >= r.lo && !(last.hi == 0xD7FF && r.lo == 0xE000)
+			if adjacent {
+				if r.hi > last.hi {
+					out[lastIdx] = runeRange{lo: last.lo, hi: r.hi}
+				}
+			} else {
+				out = out.Append(r)
+			}
+		}
+	}
+	out
+}
+
+func foldRuneRangesASCII(rs []runeRange) []runeRange {
+	let mut expanded = []runeRange{}
+	for r in rs {
+		expanded = expanded.Append(r)
+		if r.lo <= int('Z') && r.hi >= int('A') {
+			let alo = if r.lo > int('A') { r.lo } else { int('A') }
+			let ahi = if r.hi < int('Z') { r.hi } else { int('Z') }
+			expanded = expanded.Append(runeRange{lo: alo + 32, hi: ahi + 32})
+		}
+		if r.lo <= int('z') && r.hi >= int('a') {
+			let zlo = if r.lo > int('a') { r.lo } else { int('a') }
+			let zhi = if r.hi < int('z') { r.hi } else { int('z') }
+			expanded = expanded.Append(runeRange{lo: zlo - 32, hi: zhi - 32})
+		}
+	}
+	normalizeRuneRanges(expanded)
+}
+
+func complementRuneRanges(rs []runeRange) []runeRange {
+	let norm = normalizeRuneRanges(rs)
+	let univ = []runeRange{
+		runeRange{lo: 0, hi: 0xD7FF},
+		runeRange{lo: 0xE000, hi: maxUnicodeRune},
+	}
+	let mut out = []runeRange{}
+	let mut ri = 0
+	for seg in univ {
+		let mut cur = seg.lo
+		for ri < norm.Len() && norm[ri].hi < cur {
+			ri = ri + 1
+		}
+		for ri < norm.Len() && norm[ri].lo <= seg.hi {
+			let r = norm[ri]
+			if r.lo > cur {
+				out = out.Append(runeRange{lo: cur, hi: r.lo - 1})
+			}
+			if r.hi >= seg.hi {
+				cur = seg.hi + 1
+				break
+			}
+			cur = r.hi + 1
+			ri = ri + 1
+		}
+		if cur <= seg.hi {
+			out = out.Append(runeRange{lo: cur, hi: seg.hi})
+		}
+	}
+	out
+}
+
+func utf8RuneByteLen(cp int) int {
+	if cp <= 0x7F {
+		return 1
+	}
+	if cp <= 0x7FF {
+		return 2
+	}
+	if cp <= 0xFFFF {
+		return 3
+	}
+	4
+}
+
+func encodeRuneBytes(cp int) []byte {
+	if cp <= 0x7F {
+		return []byte{byte(cp)}
+	}
+	if cp <= 0x7FF {
+		return []byte{
+			byte(0xC0 | (cp >> 6)),
+			byte(0x80 | (cp & 0x3F)),
+		}
+	}
+	if cp <= 0xFFFF {
+		return []byte{
+			byte(0xE0 | (cp >> 12)),
+			byte(0x80 | ((cp >> 6) & 0x3F)),
+			byte(0x80 | (cp & 0x3F)),
+		}
+	}
+	[]byte{
+		byte(0xF0 | (cp >> 18)),
+		byte(0x80 | ((cp >> 12) & 0x3F)),
+		byte(0x80 | ((cp >> 6) & 0x3F)),
+		byte(0x80 | (cp & 0x3F)),
+	}
+}
+
+func makeUTF8LeafSeq(lo int, hi int, origLen int, sufLen int) utf8Seq {
+	let fullLo = lo << (sufLen * 6)
+	let fullHi = hi << (sufLen * 6)
+	let encLo = encodeRuneBytes(fullLo)
+	let encHi = encodeRuneBytes(fullHi)
+	let varyIdx = origLen - 1 - sufLen
+	let mut seq = utf8Seq{
+		length: origLen,
+		lo0:    byte(0),
+		hi0:    byte(0),
+		lo1:    byte(0),
+		hi1:    byte(0),
+		lo2:    byte(0),
+		hi2:    byte(0),
+		lo3:    byte(0),
+		hi3:    byte(0),
+	}
+	for k in 0..origLen {
+		let mut bLo = byte(0x80)
+		let mut bHi = byte(0xBF)
+		if k < varyIdx {
+			bLo = encLo[k]
+			bHi = encLo[k]
+		} else if k == varyIdx {
+			bLo = encLo[k]
+			bHi = encHi[k]
+			if k > 0 {
+				let low6Hi = hi & 0x3F
+				bHi = byte(0x80 | low6Hi)
+			}
+		}
+		if k == 0 {
+			seq = utf8Seq{length: seq.length, lo0: bLo, hi0: bHi, lo1: seq.lo1, hi1: seq.hi1, lo2: seq.lo2, hi2: seq.hi2, lo3: seq.lo3, hi3: seq.hi3}
+		} else if k == 1 {
+			seq = utf8Seq{length: seq.length, lo0: seq.lo0, hi0: seq.hi0, lo1: bLo, hi1: bHi, lo2: seq.lo2, hi2: seq.hi2, lo3: seq.lo3, hi3: seq.hi3}
+		} else if k == 2 {
+			seq = utf8Seq{length: seq.length, lo0: seq.lo0, hi0: seq.hi0, lo1: seq.lo1, hi1: seq.hi1, lo2: bLo, hi2: bHi, lo3: seq.lo3, hi3: seq.hi3}
+		} else {
+			seq = utf8Seq{length: seq.length, lo0: seq.lo0, hi0: seq.hi0, lo1: seq.lo1, hi1: seq.hi1, lo2: seq.lo2, hi2: seq.hi2, lo3: bLo, hi3: bHi}
+		}
+	}
+	seq
+}
+
+func appendUTF8Fixed(out []utf8Seq, loIn int, hiIn int, origLen int, sufLen int) []utf8Seq {
+	let mut res = out
+	let mut lo = loIn
+	let mut hi = hiIn
+	if lo > hi {
+		return res
+	}
+	let remBytes = origLen - sufLen
+	if remBytes == 1 || (lo>>6) == (hi>>6) {
+		return res.Append(makeUTF8LeafSeq(lo, hi, origLen, sufLen))
+	}
+	if (lo & 0x3F) != 0 {
+		let top = lo | 0x3F
+		res = res.Append(makeUTF8LeafSeq(lo, top, origLen, sufLen))
+		lo = top + 1
+	}
+	let mut hasTail = false
+	let mut tailLo = 0
+	let mut tailHi = 0
+	if lo <= hi && (hi&0x3F) != 0x3F {
+		tailLo = hi - (hi & 0x3F)
+		tailHi = hi
+		hasTail = true
+		hi = tailLo - 1
+	}
+	if lo <= hi {
+		res = appendUTF8Fixed(res, lo>>6, hi>>6, origLen, sufLen+1)
+	}
+	if hasTail {
+		res = res.Append(makeUTF8LeafSeq(tailLo, tailHi, origLen, sufLen))
+	}
+	res
+}
+
+func runeRangesToUTF8Seqs(rs []runeRange) (byteSet, []utf8Seq) {
+	let norm = normalizeRuneRanges(rs)
+	let mut ascii = emptySet()
+	let mut multi = []utf8Seq{}
+	let bounds = []int{0x7F, 0x7FF, 0xD7FF, 0xFFFF, maxUnicodeRune}
+	for r in norm {
+		let mut cur = r.lo
+		for bnd in bounds {
+			if cur > r.hi {
+				break
+			}
+			if cur == 0xD800 {
+				cur = 0xE000
+			}
+			if cur > bnd {
+				continue
+			}
+			let end = if r.hi < bnd { r.hi } else { bnd }
+			if cur <= end {
+				let l = utf8RuneByteLen(cur)
+				if l == 1 {
+					ascii = setRange(ascii, byte(cur), byte(end))
+				} else {
+					multi = appendUTF8Fixed(multi, cur, end, l, 0)
+				}
+				cur = end + 1
+			}
+		}
+	}
+	(ascii, multi)
+}
+
+func emitUTF8SeqNode(p parserState, seq utf8Seq, start uint32, end uint32) (parserState, int) {
+	let mut cur = p
+	let mut kids = []int{}
+	for k in 0..seq.length {
+		let mut lo = seq.lo0
+		let mut hi = seq.hi0
+		if k == 1 {
+			lo = seq.lo1
+			hi = seq.hi1
+		} else if k == 2 {
+			lo = seq.lo2
+			hi = seq.hi2
+		} else if k == 3 {
+			lo = seq.lo3
+			hi = seq.hi3
+		}
+		let s = setRange(emptySet(), lo, hi)
+		let (pNext, bid) = addNode(cur, makeNode(kindBytes, s, []int{}, 0, 0, false, "", start, end))
+		cur = pNext
+		if cur.diags.Len() > 0 {
+			return (cur, -1)
+		}
+		kids = kids.Append(bid)
+	}
+	addNode(cur, makeNode(kindConcat, emptySet(), kids, 0, 0, false, "", start, end))
+}
+
+func compileRuneRangesNode(p parserState, rs []runeRange, extraBytes byteSet, hasExtraBytes bool, start uint32, end uint32) (parserState, int) {
+	let (ascii, multi) = runeRangesToUTF8Seqs(rs)
+	let combined = if hasExtraBytes { unionSet(ascii, extraBytes) } else { ascii }
+	let mut cur = p
+	let mut branches = []int{}
+	if !isEmptyByteSet(combined) {
+		let (pNext, bid) = addNode(cur, makeNode(kindBytes, combined, []int{}, 0, 0, false, "", start, end))
+		cur = pNext
+		if cur.diags.Len() > 0 {
+			return (cur, -1)
+		}
+		branches = branches.Append(bid)
+	}
+	for seq in multi {
+		let (pNext, sid) = emitUTF8SeqNode(cur, seq, start, end)
+		cur = pNext
+		if cur.diags.Len() > 0 {
+			return (cur, -1)
+		}
+		branches = branches.Append(sid)
+	}
+	if branches.Len() == 0 {
+		return (failAt(cur, int(start), int(end), "R001", "character class matches no byte or rune", "ensure the character class is non-empty"), -1)
+	}
+	if branches.Len() == 1 {
+		return (cur, branches[0])
+	}
+	addNode(cur, makeNode(kindAlt, emptySet(), branches, 0, 0, false, "", start, end))
 }
 
 func isASCIIDigit(b byte) bool {
@@ -130,7 +513,7 @@ func isValidIdent(s string) bool {
 }
 
 func isErgoKeyword(s string) bool {
-	s == "break" || s == "case" || s == "catch" || s == "continue" || s == "default" ||
+		s == "break" || s == "case" || s == "catch" || s == "continue" || s == "default" ||
 		s == "else" || s == "fails" || s == "false" || s == "for" || s == "func" ||
 		s == "go" || s == "if" || s == "import" || s == "in" || s == "interface" ||
 		s == "law" || s == "let" || s == "machine" || s == "match" || s == "mut" ||
@@ -165,6 +548,24 @@ func utf8SeqLen(first byte) int {
 		return 4
 	}
 	-1
+}
+
+func decodeUTF8Rune(src []byte, pos int) (int, int) {
+	let b0 = src[pos]
+	let l = utf8SeqLen(b0)
+	if l == 1 {
+		return (int(b0), 1)
+	}
+	if l == 2 {
+		let r = (int(b0&byte(0x1F)) << 6) | int(src[pos+1]&byte(0x3F))
+		return (r, 2)
+	}
+	if l == 3 {
+		let r = (int(b0&byte(0x0F)) << 12) | (int(src[pos+1]&byte(0x3F)) << 6) | int(src[pos+2]&byte(0x3F))
+		return (r, 3)
+	}
+	let r = (int(b0&byte(0x07)) << 18) | (int(src[pos+1]&byte(0x3F)) << 12) | (int(src[pos+2]&byte(0x3F)) << 6) | int(src[pos+3]&byte(0x3F))
+	(r, 4)
 }
 
 func validUTF8(src []byte) (int, bool) {
@@ -212,19 +613,28 @@ type parserState {
 	pos   int,
 	nodes []astNode,
 	diags []content.MapperDiag,
+	foldI bool,
 }
 
-func makeNode(kind int, set byteSet, kids []int, min int, max int, name string, start uint32, end uint32) astNode {
-	astNode{kind: kind, set: set, kids: kids, min: min, max: max, name: name, tag: 0, start: start, end: end}
+func withPos(p parserState, newPos int) parserState {
+	parserState{src: p.src, pos: newPos, nodes: p.nodes, diags: p.diags, foldI: p.foldI}
+}
+
+func withFold(p parserState, newPos int, fold bool) parserState {
+	parserState{src: p.src, pos: newPos, nodes: p.nodes, diags: p.diags, foldI: fold}
+}
+
+func makeNode(kind int, set byteSet, kids []int, min int, max int, lazy bool, name string, start uint32, end uint32) astNode {
+	astNode{kind: kind, set: set, kids: kids, min: min, max: max, lazy: lazy, name: name, tag: 0, start: start, end: end}
 }
 
 func addNode(p parserState, n astNode) (parserState, int) {
 	if p.nodes.Len() >= maxPatternNodes {
 		let d = content.ErrorDiag(n.start, n.end, "R005", "pattern exceeds node limit", "simplify the pattern")
-		return (parserState{src: p.src, pos: p.pos, nodes: p.nodes, diags: p.diags.Append(d)}, -1)
+		return (parserState{src: p.src, pos: p.pos, nodes: p.nodes, diags: p.diags.Append(d), foldI: p.foldI}, -1)
 	}
 	let id = p.nodes.Len()
-	(parserState{src: p.src, pos: p.pos, nodes: p.nodes.Append(n), diags: p.diags}, id)
+	(parserState{src: p.src, pos: p.pos, nodes: p.nodes.Append(n), diags: p.diags, foldI: p.foldI}, id)
 }
 
 func failAt(p parserState, start int, end int, code string, msg string, hint string) parserState {
@@ -244,7 +654,130 @@ func failAt(p parserState, start int, end int, code string, msg string, hint str
 		e = lim
 	}
 	let d = content.ErrorDiag(uint32(s), uint32(e), code, msg, hint)
-	parserState{src: p.src, pos: p.pos, nodes: p.nodes, diags: p.diags.Append(d)}
+	parserState{src: p.src, pos: p.pos, nodes: p.nodes, diags: p.diags.Append(d), foldI: p.foldI}
+}
+
+func isNullableNode(nodes []astNode, id int) bool {
+	if id < 0 || id >= nodes.Len() {
+		return true
+	}
+	let n = nodes[id]
+	if n.kind == kindEmpty || n.kind == kindStart || n.kind == kindEnd {
+		return true
+	}
+	if n.kind == kindBytes {
+		return false
+	}
+	if n.kind == kindConcat {
+		for k in n.kids {
+			if !isNullableNode(nodes, k) {
+				return false
+			}
+		}
+		return true
+	}
+	if n.kind == kindAlt {
+		for k in n.kids {
+			if isNullableNode(nodes, k) {
+				return true
+			}
+		}
+		return false
+	}
+	if n.kind == kindRepeat {
+		if n.min == 0 {
+			return true
+		}
+		return isNullableNode(nodes, n.kids[0])
+	}
+	if n.kind == kindCapture {
+		return isNullableNode(nodes, n.kids[0])
+	}
+	false
+}
+
+func mustConsumeByte(nodes []astNode, id int) bool {
+	!isNullableNode(nodes, id)
+}
+
+func validateAnchors(nodes []astNode, id int, mustBefore bool, mustAfter bool) []content.MapperDiag {
+	if id < 0 || id >= nodes.Len() {
+		return []content.MapperDiag{}
+	}
+	let n = nodes[id]
+	if n.kind == kindStart {
+		if mustBefore {
+			return []content.MapperDiag{
+				content.ErrorDiag(n.start, n.end, "R001", "drop ^: anchor '^' after required bytes can never match", "move '^' to branch start or escape \\^ for a literal byte"),
+			}
+		}
+		return []content.MapperDiag{}
+	}
+	if n.kind == kindEnd {
+		if mustAfter {
+			return []content.MapperDiag{
+				content.ErrorDiag(n.start, n.end, "R001", "drop $: anchor '$' before required bytes can never match", "move '$' to branch end or escape \\$ for a literal byte"),
+			}
+		}
+		return []content.MapperDiag{}
+	}
+	if n.kind == kindEmpty || n.kind == kindBytes {
+		return []content.MapperDiag{}
+	}
+	if n.kind == kindConcat {
+		let kcount = n.kids.Len()
+		let mut afterFlags = []bool{}
+		for _ in 0..kcount {
+			afterFlags = afterFlags.Append(false)
+		}
+		let mut aft = mustAfter
+		let mut idx = kcount - 1
+		for idx >= 0 {
+			afterFlags[idx] = aft
+			if mustConsumeByte(nodes, n.kids[idx]) {
+				aft = true
+			}
+			idx = idx - 1
+		}
+		let mut diags = []content.MapperDiag{}
+		let mut bef = mustBefore
+		for i in 0..kcount {
+			let kid = n.kids[i]
+			let sub = validateAnchors(nodes, kid, bef, afterFlags[i])
+			for d in sub {
+				diags = diags.Append(d)
+			}
+			if mustConsumeByte(nodes, kid) {
+				bef = true
+			}
+		}
+		return diags
+	}
+	if n.kind == kindAlt {
+		let mut diags = []content.MapperDiag{}
+		for kid in n.kids {
+			let sub = validateAnchors(nodes, kid, mustBefore, mustAfter)
+			for d in sub {
+				diags = diags.Append(d)
+			}
+		}
+		return diags
+	}
+	if n.kind == kindCapture {
+		return validateAnchors(nodes, n.kids[0], mustBefore, mustAfter)
+	}
+	if n.kind == kindRepeat {
+		let sub = validateAnchors(nodes, n.kids[0], mustBefore, mustAfter)
+		if sub.Len() > 0 {
+			return sub
+		}
+		let repeatedMulti = n.max == -1 || n.max > 1
+		if repeatedMulti {
+			return validateAnchors(nodes, n.kids[0], mustBefore || mustConsumeByte(nodes, n.kids[0]), mustAfter || mustConsumeByte(nodes, n.kids[0]))
+		}
+		return []content.MapperDiag{}
+	}
+	[]content.MapperDiag{}
 }
 
 func parseRegexAST(src []byte) regexAST {
@@ -260,17 +793,23 @@ func parseRegexAST(src []byte) regexAST {
 			diags: []content.MapperDiag{content.ErrorDiag(uint32(badOff), uint32(end), "R001", "pattern contains invalid UTF-8 bytes", "use \\xHH byte escapes in the pattern")},
 		}
 	}
-	let mut p = parserState{src: src, pos: 0, nodes: []astNode{}, diags: []content.MapperDiag{}}
+	let p = parserState{src: src, pos: 0, nodes: []astNode{}, diags: []content.MapperDiag{}, foldI: false}
 	let (p1, root) = parseAlt(p)
-	p = p1
-	if p.diags.Len() == 0 && p.pos < p.src.Len() {
-		if p.src[p.pos] == byte(')') {
-			p = failAt(p, p.pos, p.pos+1, "R001", "unmatched ')' in pattern", "remove the extra ')' or escape it as \\)")
+	let mut cur = p1
+	if cur.diags.Len() == 0 && cur.pos < cur.src.Len() {
+		if cur.src[cur.pos] == byte(')') {
+			cur = failAt(cur, cur.pos, cur.pos+1, "R001", "unmatched ')' in pattern", "remove the extra ')' or escape it as \\)")
 		} else {
-			p = failAt(p, p.pos, p.pos+1, "R001", "unexpected trailing syntax in pattern", "")
+			cur = failAt(cur, cur.pos, cur.pos+1, "R001", "unexpected trailing syntax in pattern", "")
 		}
 	}
-	regexAST{nodes: p.nodes, root: root, diags: p.diags}
+	if cur.diags.Len() == 0 {
+		let anchorDiags = validateAnchors(cur.nodes, root, false, false)
+		for d in anchorDiags {
+			cur = parserState{src: cur.src, pos: cur.pos, nodes: cur.nodes, diags: cur.diags.Append(d), foldI: cur.foldI}
+		}
+	}
+	regexAST{nodes: cur.nodes, root: root, diags: cur.diags}
 }
 
 func parseAlt(p parserState) (parserState, int) {
@@ -284,7 +823,7 @@ func parseAlt(p parserState) (parserState, int) {
 	}
 	branches = branches.Append(first)
 	for cur.pos < cur.src.Len() && cur.src[cur.pos] == byte('|') {
-		cur = parserState{src: cur.src, pos: cur.pos + 1, nodes: cur.nodes, diags: cur.diags}
+		cur = withPos(cur, cur.pos+1)
 		let (pNext, branch) = parseConcat(cur)
 		cur = pNext
 		if cur.diags.Len() > 0 {
@@ -295,7 +834,7 @@ func parseAlt(p parserState) (parserState, int) {
 	if branches.Len() == 1 {
 		return (cur, branches[0])
 	}
-	addNode(cur, makeNode(kindAlt, emptySet(), branches, 0, 0, "", uint32(startPos), uint32(cur.pos)))
+	addNode(cur, makeNode(kindAlt, emptySet(), branches, 0, 0, false, "", uint32(startPos), uint32(cur.pos)))
 }
 
 func parseConcat(p parserState) (parserState, int) {
@@ -315,17 +854,17 @@ func parseConcat(p parserState) (parserState, int) {
 		items = items.Append(item)
 	}
 	if items.Len() == 0 {
-		return addNode(cur, makeNode(kindEmpty, emptySet(), []int{}, 0, 0, "", uint32(startPos), uint32(cur.pos)))
+		return addNode(cur, makeNode(kindEmpty, emptySet(), []int{}, 0, 0, false, "", uint32(startPos), uint32(cur.pos)))
 	}
 	if items.Len() == 1 {
 		return (cur, items[0])
 	}
-	addNode(cur, makeNode(kindConcat, emptySet(), items, 0, 0, "", uint32(startPos), uint32(cur.pos)))
+	addNode(cur, makeNode(kindConcat, emptySet(), items, 0, 0, false, "", uint32(startPos), uint32(cur.pos)))
 }
 
 func parseRepeat(p parserState) (parserState, int) {
 	let startPos = p.pos
-	let (p1, firstAtom) = parseAtom(p)
+	let (p1, firstAtom, flagOnly) = parseAtom(p)
 	let mut cur = p1
 	let mut atom = firstAtom
 	if cur.diags.Len() > 0 {
@@ -333,67 +872,60 @@ func parseRepeat(p parserState) (parserState, int) {
 	}
 	for cur.pos < cur.src.Len() {
 		let c = cur.src[cur.pos]
+		let isRepOp = c == byte('*') || c == byte('+') || c == byte('?') || c == byte('{')
+		if !isRepOp {
+			break
+		}
+		if flagOnly {
+			return (failAt(cur, cur.pos, cur.pos+1, "R001", "cannot repeat inline flag group", "place flags inside (?i:...) or apply quantifier to a pattern atom"), -1)
+		}
+		let akind = cur.nodes[atom].kind
+		if akind == kindStart || akind == kindEnd {
+			return (failAt(cur, cur.pos, cur.pos+1, "R001", "cannot apply quantifier to anchor", "remove the quantifier after '^' or '$'"), -1)
+		}
+		let repStart = cur.pos
+		let mut minVal = 0
+		let mut maxVal = 0
 		if c == byte('*') {
-			let repStart = cur.pos
-			cur = parserState{src: cur.src, pos: cur.pos + 1, nodes: cur.nodes, diags: cur.diags}
-			if cur.pos < cur.src.Len() && (cur.src[cur.pos] == byte('?') || cur.src[cur.pos] == byte('+')) {
-				return (failAt(cur, repStart, cur.pos+1, "R001", "lazy and possessive quantifiers are outside the pattern subset", "use greedy *"), -1)
-			}
-			let (p2, id) = addNode(cur, makeNode(kindRepeat, emptySet(), []int{atom}, 0, -1, "", uint32(startPos), uint32(cur.pos)))
+			cur = withPos(cur, cur.pos+1)
+			minVal = 0
+			maxVal = -1
+		} else if c == byte('+') {
+			cur = withPos(cur, cur.pos+1)
+			minVal = 1
+			maxVal = -1
+		} else if c == byte('?') {
+			cur = withPos(cur, cur.pos+1)
+			minVal = 0
+			maxVal = 1
+		} else {
+			let (p2, lo, hi) = parseBracedQuantifier(cur)
 			cur = p2
 			if cur.diags.Len() > 0 {
 				return (cur, -1)
 			}
-			atom = id
-			continue
+			minVal = lo
+			maxVal = hi
 		}
-		if c == byte('+') {
-			let repStart = cur.pos
-			cur = parserState{src: cur.src, pos: cur.pos + 1, nodes: cur.nodes, diags: cur.diags}
-			if cur.pos < cur.src.Len() && (cur.src[cur.pos] == byte('?') || cur.src[cur.pos] == byte('+')) {
-				return (failAt(cur, repStart, cur.pos+1, "R001", "lazy and possessive quantifiers are outside the pattern subset", "use greedy +"), -1)
+		let mut lazy = false
+		if cur.pos < cur.src.Len() {
+			let qmod = cur.src[cur.pos]
+			if qmod == byte('?') {
+				lazy = true
+				cur = withPos(cur, cur.pos+1)
+			} else if qmod == byte('+') {
+				return (failAt(cur, repStart, cur.pos+1, "R001", "possessive quantifiers are outside the pattern subset", "drop the trailing '+' qualifier"), -1)
 			}
-			let (p2, id) = addNode(cur, makeNode(kindRepeat, emptySet(), []int{atom}, 1, -1, "", uint32(startPos), uint32(cur.pos)))
-			cur = p2
-			if cur.diags.Len() > 0 {
-				return (cur, -1)
-			}
-			atom = id
-			continue
 		}
-		if c == byte('?') {
-			let repStart = cur.pos
-			cur = parserState{src: cur.src, pos: cur.pos + 1, nodes: cur.nodes, diags: cur.diags}
-			if cur.pos < cur.src.Len() && (cur.src[cur.pos] == byte('?') || cur.src[cur.pos] == byte('+')) {
-				return (failAt(cur, repStart, cur.pos+1, "R001", "lazy and possessive quantifiers are outside the pattern subset", "use greedy ?"), -1)
-			}
-			let (p2, id) = addNode(cur, makeNode(kindRepeat, emptySet(), []int{atom}, 0, 1, "", uint32(startPos), uint32(cur.pos)))
-			cur = p2
-			if cur.diags.Len() > 0 {
-				return (cur, -1)
-			}
-			atom = id
-			continue
+		if maxVal == -1 && isNullableNode(cur.nodes, atom) {
+			return (failAt(cur, startPos, cur.pos, "R001", "repeat body can match the empty string", "require at least one byte inside the repeated group or use bounded {m,n}"), -1)
 		}
-		if c == byte('{') {
-			let repStart = cur.pos
-			let (p2, minVal, maxVal) = parseBracedQuantifier(cur)
-			cur = p2
-			if cur.diags.Len() > 0 {
-				return (cur, -1)
-			}
-			if cur.pos < cur.src.Len() && (cur.src[cur.pos] == byte('?') || cur.src[cur.pos] == byte('+')) {
-				return (failAt(cur, repStart, cur.pos+1, "R001", "lazy and possessive quantifiers are outside the pattern subset", "drop the trailing qualifier"), -1)
-			}
-			let (p3, id) = addNode(cur, makeNode(kindRepeat, emptySet(), []int{atom}, minVal, maxVal, "", uint32(startPos), uint32(cur.pos)))
-			cur = p3
-			if cur.diags.Len() > 0 {
-				return (cur, -1)
-			}
-			atom = id
-			continue
+		let (p3, id) = addNode(cur, makeNode(kindRepeat, emptySet(), []int{atom}, minVal, maxVal, lazy, "", uint32(startPos), uint32(cur.pos)))
+		cur = p3
+		if cur.diags.Len() > 0 {
+			return (cur, -1)
 		}
-		break
+		atom = id
 	}
 	(cur, atom)
 }
@@ -431,7 +963,7 @@ func parseBracedQuantifier(p parserState) (parserState, int, int) {
 		return (failAt(p, start, n, "R001", "unclosed repetition quantifier", "add closing '}' or escape \\{"), 0, 0)
 	}
 	if p.src[i] == byte('}') {
-		return (parserState{src: p.src, pos: i + 1, nodes: p.nodes, diags: p.diags}, lo, lo)
+		return (withPos(p, i+1), lo, lo)
 	}
 	if p.src[i] != byte(',') {
 		return (failAt(p, start, i+1, "R001", "malformed repetition quantifier", "use {n}, {m,}, or {m,n}"), 0, 0)
@@ -441,7 +973,7 @@ func parseBracedQuantifier(p parserState) (parserState, int, int) {
 		return (failAt(p, start, n, "R001", "unclosed repetition quantifier", "add closing '}'"), 0, 0)
 	}
 	if p.src[i] == byte('}') {
-		return (parserState{src: p.src, pos: i + 1, nodes: p.nodes, diags: p.diags}, lo, -1)
+		return (withPos(p, i+1), lo, -1)
 	}
 	let (i2, hi, hasHi) = parseCount(p.src, i)
 	if !hasHi || i2 >= n || p.src[i2] != byte('}') {
@@ -454,192 +986,396 @@ func parseBracedQuantifier(p parserState) (parserState, int, int) {
 	if hi < lo {
 		return (failAt(p, start, i2+1, "R001", "invalid repetition range where max < min", "ensure the upper bound is at least the lower bound"), 0, 0)
 	}
-	(parserState{src: p.src, pos: i2 + 1, nodes: p.nodes, diags: p.diags}, lo, hi)
+	(withPos(p, i2+1), lo, hi)
 }
 
-func parseAtom(p parserState) (parserState, int) {
+func parseAtom(p parserState) (parserState, int, bool) {
 	if p.pos >= p.src.Len() {
-		return (failAt(p, p.pos, p.pos, "R001", "unexpected end of pattern", ""), -1)
+		return (failAt(p, p.pos, p.pos, "R001", "unexpected end of pattern", ""), -1, false)
 	}
 	let c = p.src[p.pos]
 	if c == byte('^') {
-		return (failAt(p, p.pos, p.pos+1, "R001", "drop ^: patterns already match the whole string", "remove '^' or escape \\^ for a literal byte"), -1)
+		let cur = withPos(p, p.pos+1)
+		let (p1, id) = addNode(cur, makeNode(kindStart, emptySet(), []int{}, 0, 0, false, "", uint32(p.pos), uint32(p.pos+1)))
+		return (p1, id, false)
 	}
 	if c == byte('$') {
-		return (failAt(p, p.pos, p.pos+1, "R001", "drop $: patterns already match the whole string", "remove '$' or escape \\$ for a literal byte"), -1)
+		let cur = withPos(p, p.pos+1)
+		let (p1, id) = addNode(cur, makeNode(kindEnd, emptySet(), []int{}, 0, 0, false, "", uint32(p.pos), uint32(p.pos+1)))
+		return (p1, id, false)
 	}
 	if c == byte('*') || c == byte('+') || c == byte('?') || c == byte('{') {
-		return (failAt(p, p.pos, p.pos+1, "R001", "nothing to repeat before quantifier", "escape the character or place an atom before it"), -1)
+		return (failAt(p, p.pos, p.pos+1, "R001", "nothing to repeat before quantifier", "escape the character or place an atom before it"), -1, false)
 	}
 	if c == byte('.') {
-		let cur = parserState{src: p.src, pos: p.pos + 1, nodes: p.nodes, diags: p.diags}
-		return addNode(cur, makeNode(kindBytes, dotSet(), []int{}, 0, 0, "", uint32(p.pos), uint32(p.pos+1)))
+		let cur = withPos(p, p.pos+1)
+		let (p1, id) = compileRuneRangesNode(cur, dotRuneRanges(), emptySet(), false, uint32(p.pos), uint32(p.pos+1))
+		return (p1, id, false)
 	}
 	if c == byte('(') {
 		return parseGroup(p)
 	}
 	if c == byte('[') {
-		return parseCharClass(p)
+		let (p1, id) = parseCharClass(p)
+		return (p1, id, false)
 	}
 	if c == byte('\\') {
-		return parseEscapeNode(p)
+		let (p1, id) = parseEscapeNode(p)
+		return (p1, id, false)
 	}
 	let l = utf8SeqLen(c)
 	let start = p.pos
 	let end = start + l
-	let mut cur = parserState{src: p.src, pos: end, nodes: p.nodes, diags: p.diags}
+	let mut cur = withPos(p, end)
 	if l == 1 {
-		return addNode(cur, makeNode(kindBytes, singleByteSet(c), []int{}, 0, 0, "", uint32(start), uint32(end)))
+		let s = if cur.foldI { foldASCIIByteSet(singleByteSet(c)) } else { singleByteSet(c) }
+		let (p1, id) = addNode(cur, makeNode(kindBytes, s, []int{}, 0, 0, false, "", uint32(start), uint32(end)))
+		return (p1, id, false)
 	}
 	let mut kids = []int{}
 	for k in start..end {
-		let (pNext, bid) = addNode(cur, makeNode(kindBytes, singleByteSet(p.src[k]), []int{}, 0, 0, "", uint32(k), uint32(k+1)))
+		let (pNext, bid) = addNode(cur, makeNode(kindBytes, singleByteSet(p.src[k]), []int{}, 0, 0, false, "", uint32(k), uint32(k+1)))
 		cur = pNext
 		if cur.diags.Len() > 0 {
-			return (cur, -1)
+			return (cur, -1, false)
 		}
 		kids = kids.Append(bid)
 	}
-	addNode(cur, makeNode(kindConcat, emptySet(), kids, 0, 0, "", uint32(start), uint32(end)))
+	let (p1, id) = addNode(cur, makeNode(kindConcat, emptySet(), kids, 0, 0, false, "", uint32(start), uint32(end)))
+	(p1, id, false)
 }
 
-func parseGroup(p parserState) (parserState, int) {
+func parseGroupFlags(p parserState, start int) (parserState, bool, bool) {
+	let n = p.src.Len()
+	let mut i = start + 2
+	let mut nextFold = p.foldI
+	let mut neg = false
+	let mut sawFlag = false
+	for i < n {
+		let ch = p.src[i]
+		if ch == byte(')') {
+			if !sawFlag {
+				return (failAt(p, start, i+1, "R001", "empty flag group '(?...'", "use (?i) or (?i:...) for case folding"), false, false)
+			}
+			let cur = withFold(p, i+1, nextFold)
+			return (cur, nextFold, true)
+		}
+		if ch == byte(':') {
+			let cur = withPos(p, i+1)
+			return (cur, nextFold, false)
+		}
+		if ch == byte('-') {
+			if neg {
+				return (failAt(p, start, i+1, "R001", "duplicate '-' in group flags", "use (?i), (?-i), (?i:...), or (?-i:...)"), false, false)
+			}
+			neg = true
+			i = i + 1
+			continue
+		}
+		if ch == byte('i') {
+			sawFlag = true
+			nextFold = !neg
+			i = i + 1
+			continue
+		}
+		return (failAt(p, start, i+1, "R001", "unsupported inline group flag syntax '(?'", "only case-folding flags (?i), (?-i), (?i:...), (?-i:...) are supported"), false, false)
+	}
+	(failAt(p, start, n, "R001", "unclosed inline group flag '(?'", "close with ')' or ':'"), false, false)
+}
+
+func parseGroup(p parserState) (parserState, int, bool) {
 	let start = p.pos
 	let n = p.src.Len()
+	let savedFold = p.foldI
 	if start+1 < n && p.src[start+1] == byte('?') {
 		if start+2 >= n {
-			return (failAt(p, start, n, "R001", "incomplete group opener '(?'", "use (?<Name>...) for named capture or (...) for grouping"), -1)
+			return (failAt(p, start, n, "R001", "incomplete group opener '(?'", "use (?<Name>...) for named capture, (?:...) for grouping, or (?i:...) for case folding"), -1, false)
 		}
 		let kind = p.src[start+2]
 		if kind == byte('P') && start+3 < n && p.src[start+3] == byte('<') {
-			return (failAt(p, start, start+4, "R001", "use (?<Name>...) instead of Python-style (?P<Name>...)", "replace '(?P<' with '(?<'"), -1)
-		}
-		if kind == byte(':') {
-			return (failAt(p, start, start+3, "R001", "use ( ... ) instead of (?: ... ) for plain grouping", "remove '?:'"), -1)
+			return (failAt(p, start, start+4, "R001", "use (?<Name>...) instead of Python-style (?P<Name>...)", "replace '(?P<' with '(?<'"), -1, false)
 		}
 		if kind == byte('=') || kind == byte('!') {
-			return (failAt(p, start, start+3, "R001", "lookahead assertions are outside the pattern subset", ""), -1)
+			return (failAt(p, start, start+3, "R001", "lookahead assertions are outside the pattern subset", ""), -1, false)
 		}
 		if kind == byte('<') && start+3 < n && (p.src[start+3] == byte('=') || p.src[start+3] == byte('!')) {
-			return (failAt(p, start, start+4, "R001", "lookbehind assertions are outside the pattern subset", ""), -1)
+			return (failAt(p, start, start+4, "R001", "lookbehind assertions are outside the pattern subset", ""), -1, false)
 		}
-		if kind != byte('<') {
-			return (failAt(p, start, start+3, "R001", "unsupported group flag syntax '(?'", "use (?<Name>...) for named capture or (...) for grouping"), -1)
+		if kind == byte('<') {
+			let nameStart = start + 3
+			let mut i = nameStart
+			for i < n && p.src[i] != byte('>') {
+				i = i + 1
+			}
+			if i >= n {
+				return (failAt(p, start, n, "R001", "unclosed capture group name", "close the capture name with '>'"), -1, false)
+			}
+			let capName = p.src[nameStart:i].Text()
+			if !isValidIdent(capName) {
+				return (failAt(p, nameStart, i, "R001", "invalid capture group name '"+capName+"'", "capture names must be non-empty Ergo identifiers"), -1, false)
+			}
+			let cur0 = withPos(p, i+1)
+			let (pBody, body) = parseAlt(cur0)
+			if pBody.diags.Len() > 0 {
+				return (pBody, -1, false)
+			}
+			if pBody.pos >= pBody.src.Len() || pBody.src[pBody.pos] != byte(')') {
+				return (failAt(pBody, start, pBody.pos, "R001", "unclosed capture group '(?<"+capName+">...'", "add closing ')'"), -1, false)
+			}
+			let endPos = pBody.pos + 1
+			let cur1 = withFold(pBody, endPos, savedFold)
+			let (pOut, id) = addNode(cur1, makeNode(kindCapture, emptySet(), []int{body}, 0, 0, false, capName, uint32(start), uint32(endPos)))
+			return (pOut, id, false)
 		}
-		let nameStart = start + 3
-		let mut i = nameStart
-		for i < n && p.src[i] != byte('>') {
-			i = i + 1
+		if kind == byte(':') || kind == byte('i') || kind == byte('-') {
+			let (pFlags, groupFold, isFlagOnly) = parseGroupFlags(p, start)
+			if pFlags.diags.Len() > 0 {
+				return (pFlags, -1, false)
+			}
+			if isFlagOnly {
+				let (pEmpty, eid) = addNode(pFlags, makeNode(kindEmpty, emptySet(), []int{}, 0, 0, false, "", uint32(start), uint32(pFlags.pos)))
+				return (pEmpty, eid, true)
+			}
+			let cur0 = withFold(pFlags, pFlags.pos, groupFold)
+			let (pBody, body) = parseAlt(cur0)
+			if pBody.diags.Len() > 0 {
+				return (pBody, -1, false)
+			}
+			if pBody.pos >= pBody.src.Len() || pBody.src[pBody.pos] != byte(')') {
+				return (failAt(pBody, start, pBody.pos, "R001", "unclosed '(?' group", "add closing ')'"), -1, false)
+			}
+			let cur1 = withFold(pBody, pBody.pos+1, savedFold)
+			return (cur1, body, false)
 		}
-		if i >= n {
-			return (failAt(p, start, n, "R001", "unclosed capture group name", "close the capture name with '>'"), -1)
-		}
-		let capName = p.src[nameStart:i].Text()
-		if !isValidIdent(capName) {
-			return (failAt(p, nameStart, i, "R001", "invalid capture group name '"+capName+"'", "capture names must be non-empty Ergo identifiers"), -1)
-		}
-		let mut cur = parserState{src: p.src, pos: i + 1, nodes: p.nodes, diags: p.diags}
-		let (pBody, body) = parseAlt(cur)
-		cur = pBody
-		if cur.diags.Len() > 0 {
-			return (cur, -1)
-		}
-		if cur.pos >= cur.src.Len() || cur.src[cur.pos] != byte(')') {
-			return (failAt(cur, start, cur.pos, "R001", "unclosed capture group '(?<"+capName+">...'", "add closing ')'"), -1)
-		}
-		let endPos = cur.pos + 1
-		cur = parserState{src: cur.src, pos: endPos, nodes: cur.nodes, diags: cur.diags}
-		return addNode(cur, makeNode(kindCapture, emptySet(), []int{body}, 0, 0, capName, uint32(start), uint32(endPos)))
+		return (failAt(p, start, start+3, "R001", "unsupported group flag syntax '(?'", "use (?<Name>...) for named capture, (?:...) for grouping, or (?i:...) for case folding"), -1, false)
 	}
-	let mut cur = parserState{src: p.src, pos: start + 1, nodes: p.nodes, diags: p.diags}
-	let (pBody, body) = parseAlt(cur)
-	cur = pBody
-	if cur.diags.Len() > 0 {
-		return (cur, -1)
+	let cur0 = withPos(p, start+1)
+	let (pBody, body) = parseAlt(cur0)
+	if pBody.diags.Len() > 0 {
+		return (pBody, -1, false)
 	}
-	if cur.pos >= cur.src.Len() || cur.src[cur.pos] != byte(')') {
-		return (failAt(cur, start, cur.pos, "R001", "unclosed '(' group", "add closing ')'"), -1)
+	if pBody.pos >= pBody.src.Len() || pBody.src[pBody.pos] != byte(')') {
+		return (failAt(pBody, start, pBody.pos, "R001", "unclosed '(' group", "add closing ')'"), -1, false)
 	}
-	(parserState{src: cur.src, pos: cur.pos + 1, nodes: cur.nodes, diags: cur.diags}, body)
+	(withFold(pBody, pBody.pos+1, savedFold), body, false)
 }
 
-func parseEscapeItem(p parserState, inClass bool) (parserState, bool, byte, byteSet) {
+type parsedEscape {
+	st      parserState,
+	kind    int,
+	cp      int,
+	rawByte byte,
+	ranges  []runeRange,
+	rawSet  byteSet,
+}
+
+let escRune = 0
+let escRawByte = 1
+let escRuneClass = 2
+
+func parseHexDigitsExact(p parserState, start int, offset int, count int, label string) (parserState, int) {
+	let n = p.src.Len()
+	if offset+count > n {
+		return (failAt(p, start, n, "R001", "incomplete "+label+" escape", "provide exact hexadecimal digits"), 0)
+	}
+	let mut val = 0
+	for k in 0..count {
+		let hv = hexVal(p.src[offset+k])
+		if hv < 0 {
+			return (failAt(p, start, offset+k+1, "R001", "invalid hexadecimal digit in "+label+" escape", "use hexadecimal digits 0-9 or a-f"), 0)
+		}
+		val = val*16 + hv
+	}
+	(withPos(p, offset+count), val)
+}
+
+func parseBracedCodePoint(p parserState, start int, bracePos int, label string) (parserState, int) {
+	let n = p.src.Len()
+	let mut i = bracePos + 1
+	let mut val = 0
+	let mut digits = 0
+	for i < n && p.src[i] != byte('}') {
+		let hv = hexVal(p.src[i])
+		if hv < 0 {
+			return (failAt(p, start, i+1, "R001", "invalid hexadecimal digit in "+label+" escape", "use 1 to 6 hex digits inside {...}"), 0)
+		}
+		val = val*16 + hv
+		digits = digits + 1
+		if digits > 8 || val > maxUnicodeRune {
+			return (failAt(p, start, i+1, "R001", "Unicode code point exceeds U+10FFFF", "use a valid code point at most U+10FFFF"), 0)
+		}
+		i = i + 1
+	}
+	if i >= n {
+		return (failAt(p, start, n, "R001", "unclosed braced "+label+" escape", "close the escape with '}'"), 0)
+	}
+	if digits == 0 {
+		return (failAt(p, start, i+1, "R001", "empty braced "+label+" escape", "provide at least one hex digit inside {...}"), 0)
+	}
+	if !isValidCodePoint(val) {
+		return (failAt(p, start, i+1, "R001", "surrogate Unicode code point is invalid in UTF-8", "choose a non-surrogate code point"), 0)
+	}
+	(withPos(p, i+1), val)
+}
+
+func parseEscapeItem(p parserState, inClass bool) parsedEscape {
 	let start = p.pos
 	let n = p.src.Len()
 	if start+1 >= n {
-		return (failAt(p, start, n, "R001", "trailing backslash in pattern", "remove the trailing '\\' or escape it as \\\\"), false, byte(0), emptySet())
+		return parsedEscape{
+			st:      failAt(p, start, n, "R001", "trailing backslash in pattern", "remove the trailing '\\' or escape it as \\\\"),
+			kind:    escRawByte,
+			cp:      0,
+			rawByte: byte(0),
+			ranges:  []runeRange{},
+			rawSet:  emptySet(),
+		}
 	}
 	let esc = p.src[start+1]
 	if esc == byte('d') {
-		return (parserState{src: p.src, pos: start + 2, nodes: p.nodes, diags: p.diags}, false, byte(0), digitSet())
+		return parsedEscape{st: withPos(p, start+2), kind: escRuneClass, cp: 0, rawByte: byte(0), ranges: digitRanges(), rawSet: emptySet()}
 	}
 	if esc == byte('D') {
-		return (parserState{src: p.src, pos: start + 2, nodes: p.nodes, diags: p.diags}, false, byte(0), complementSet(digitSet()))
+		return parsedEscape{st: withPos(p, start+2), kind: escRuneClass, cp: 0, rawByte: byte(0), ranges: complementRuneRanges(digitRanges()), rawSet: emptySet()}
 	}
 	if esc == byte('w') {
-		return (parserState{src: p.src, pos: start + 2, nodes: p.nodes, diags: p.diags}, false, byte(0), wordSet())
+		return parsedEscape{st: withPos(p, start+2), kind: escRuneClass, cp: 0, rawByte: byte(0), ranges: wordRanges(), rawSet: emptySet()}
 	}
 	if esc == byte('W') {
-		return (parserState{src: p.src, pos: start + 2, nodes: p.nodes, diags: p.diags}, false, byte(0), complementSet(wordSet()))
+		return parsedEscape{st: withPos(p, start+2), kind: escRuneClass, cp: 0, rawByte: byte(0), ranges: complementRuneRanges(wordRanges()), rawSet: emptySet()}
 	}
 	if esc == byte('s') {
-		return (parserState{src: p.src, pos: start + 2, nodes: p.nodes, diags: p.diags}, false, byte(0), spaceSet())
+		return parsedEscape{st: withPos(p, start+2), kind: escRuneClass, cp: 0, rawByte: byte(0), ranges: spaceRanges(), rawSet: emptySet()}
 	}
 	if esc == byte('S') {
-		return (parserState{src: p.src, pos: start + 2, nodes: p.nodes, diags: p.diags}, false, byte(0), complementSet(spaceSet()))
+		return parsedEscape{st: withPos(p, start+2), kind: escRuneClass, cp: 0, rawByte: byte(0), ranges: complementRuneRanges(spaceRanges()), rawSet: emptySet()}
 	}
 	if esc == byte('n') {
-		return (parserState{src: p.src, pos: start + 2, nodes: p.nodes, diags: p.diags}, true, byte('\n'), singleByteSet(byte('\n')))
+		return parsedEscape{st: withPos(p, start+2), kind: escRune, cp: int('\n'), rawByte: byte('\n'), ranges: []runeRange{}, rawSet: emptySet()}
 	}
 	if esc == byte('r') {
-		return (parserState{src: p.src, pos: start + 2, nodes: p.nodes, diags: p.diags}, true, byte('\r'), singleByteSet(byte('\r')))
+		return parsedEscape{st: withPos(p, start+2), kind: escRune, cp: int('\r'), rawByte: byte('\r'), ranges: []runeRange{}, rawSet: emptySet()}
 	}
 	if esc == byte('t') {
-		return (parserState{src: p.src, pos: start + 2, nodes: p.nodes, diags: p.diags}, true, byte('\t'), singleByteSet(byte('\t')))
+		return parsedEscape{st: withPos(p, start+2), kind: escRune, cp: int('\t'), rawByte: byte('\t'), ranges: []runeRange{}, rawSet: emptySet()}
 	}
 	if esc == byte('f') {
-		return (parserState{src: p.src, pos: start + 2, nodes: p.nodes, diags: p.diags}, true, byte('\f'), singleByteSet(byte('\f')))
+		return parsedEscape{st: withPos(p, start+2), kind: escRune, cp: int('\f'), rawByte: byte('\f'), ranges: []runeRange{}, rawSet: emptySet()}
 	}
 	if esc == byte('v') {
-		return (parserState{src: p.src, pos: start + 2, nodes: p.nodes, diags: p.diags}, true, byte(11), singleByteSet(byte(11)))
+		return parsedEscape{st: withPos(p, start+2), kind: escRune, cp: 11, rawByte: byte(11), ranges: []runeRange{}, rawSet: emptySet()}
 	}
 	if esc == byte('a') {
-		return (parserState{src: p.src, pos: start + 2, nodes: p.nodes, diags: p.diags}, true, byte(7), singleByteSet(byte(7)))
+		return parsedEscape{st: withPos(p, start+2), kind: escRune, cp: 7, rawByte: byte(7), ranges: []runeRange{}, rawSet: emptySet()}
 	}
 	if esc == byte('x') {
-		if start+3 >= n {
-			return (failAt(p, start, n, "R001", "incomplete \\xHH hex byte escape", "provide two hex digits after \\x"), false, byte(0), emptySet())
+		if start+2 < n && p.src[start+2] == byte('{') {
+			let (pNext, cp) = parseBracedCodePoint(p, start, start+2, "\\x{...}")
+			return parsedEscape{st: pNext, kind: escRune, cp: cp, rawByte: byte(0), ranges: []runeRange{}, rawSet: emptySet()}
 		}
-		let hi = hexVal(p.src[start+2])
-		let lo = hexVal(p.src[start+3])
-		if hi < 0 || lo < 0 {
-			return (failAt(p, start, start+4, "R001", "invalid \\xHH hex byte escape", "use two hexadecimal digits 0-9 or a-f"), false, byte(0), emptySet())
+		let (pNext, bv) = parseHexDigitsExact(p, start, start+2, 2, "\\xHH")
+		if pNext.diags.Len() > 0 {
+			return parsedEscape{st: pNext, kind: escRawByte, cp: 0, rawByte: byte(0), ranges: []runeRange{}, rawSet: emptySet()}
 		}
-		let b = byte(hi*16 + lo)
-		return (parserState{src: p.src, pos: start + 4, nodes: p.nodes, diags: p.diags}, true, b, singleByteSet(b))
+		let b = byte(bv)
+		return parsedEscape{st: pNext, kind: escRawByte, cp: bv, rawByte: b, ranges: []runeRange{}, rawSet: singleByteSet(b)}
+	}
+	if esc == byte('u') {
+		if start+2 < n && p.src[start+2] == byte('{') {
+			let (pNext, cp) = parseBracedCodePoint(p, start, start+2, "\\u{...}")
+			return parsedEscape{st: pNext, kind: escRune, cp: cp, rawByte: byte(0), ranges: []runeRange{}, rawSet: emptySet()}
+		}
+		let (pNext, cp) = parseHexDigitsExact(p, start, start+2, 4, "\\uXXXX")
+		if pNext.diags.Len() > 0 {
+			return parsedEscape{st: pNext, kind: escRune, cp: 0, rawByte: byte(0), ranges: []runeRange{}, rawSet: emptySet()}
+		}
+		if !isValidCodePoint(cp) {
+			return parsedEscape{
+				st:      failAt(p, start, start+6, "R001", "surrogate Unicode code point is invalid in UTF-8", "use a non-surrogate code point"),
+				kind:    escRune,
+				cp:      0,
+				rawByte: byte(0),
+				ranges:  []runeRange{},
+				rawSet:  emptySet(),
+			}
+		}
+		return parsedEscape{st: pNext, kind: escRune, cp: cp, rawByte: byte(0), ranges: []runeRange{}, rawSet: emptySet()}
+	}
+	if esc == byte('U') {
+		let (pNext, cp) = parseHexDigitsExact(p, start, start+2, 8, "\\UXXXXXXXX")
+		if pNext.diags.Len() > 0 {
+			return parsedEscape{st: pNext, kind: escRune, cp: 0, rawByte: byte(0), ranges: []runeRange{}, rawSet: emptySet()}
+		}
+		if !isValidCodePoint(cp) {
+			return parsedEscape{
+				st:      failAt(p, start, start+10, "R001", "invalid or surrogate Unicode code point in \\UXXXXXXXX", "use a non-surrogate code point <= 10FFFF"),
+				kind:    escRune,
+				cp:      0,
+				rawByte: byte(0),
+				ranges:  []runeRange{},
+				rawSet:  emptySet(),
+			}
+		}
+		return parsedEscape{st: pNext, kind: escRune, cp: cp, rawByte: byte(0), ranges: []runeRange{}, rawSet: emptySet()}
 	}
 	if !inClass && (esc == byte('b') || esc == byte('B')) {
-		return (failAt(p, start, start+2, "R001", "word boundaries \\b and \\B are outside the pattern subset", ""), false, byte(0), emptySet())
+		return parsedEscape{st: failAt(p, start, start+2, "R001", "word boundaries \\b and \\B are outside the pattern subset", ""), kind: escRawByte, cp: 0, rawByte: byte(0), ranges: []runeRange{}, rawSet: emptySet()}
+	}
+	if !inClass && (esc == byte('A') || esc == byte('z') || esc == byte('Z')) {
+		return parsedEscape{st: failAt(p, start, start+2, "R001", "buffer anchors \\A, \\z, \\Z are outside the pattern subset", "use ^ and $ instead"), kind: escRawByte, cp: 0, rawByte: byte(0), ranges: []runeRange{}, rawSet: emptySet()}
+	}
+	if !inClass && esc == byte('k') {
+		return parsedEscape{st: failAt(p, start, start+2, "R001", "backreferences \\k<...> are outside the pattern subset", ""), kind: escRawByte, cp: 0, rawByte: byte(0), ranges: []runeRange{}, rawSet: emptySet()}
 	}
 	if esc == byte('p') || esc == byte('P') {
-		return (failAt(p, start, start+2, "R001", "Unicode character properties \\p and \\P are outside the pattern subset", ""), false, byte(0), emptySet())
+		return parsedEscape{st: failAt(p, start, start+2, "R001", "Unicode character properties \\p and \\P are outside the pattern subset", ""), kind: escRawByte, cp: 0, rawByte: byte(0), ranges: []runeRange{}, rawSet: emptySet()}
 	}
 	if esc >= byte('0') && esc <= byte('9') {
-		return (failAt(p, start, start+2, "R001", "backreferences and octal escapes are outside the pattern subset", "use \\xHH for literal byte values"), false, byte(0), emptySet())
+		return parsedEscape{st: failAt(p, start, start+2, "R001", "backreferences and octal escapes are outside the pattern subset", "use \\xHH for literal byte values"), kind: escRawByte, cp: 0, rawByte: byte(0), ranges: []runeRange{}, rawSet: emptySet()}
 	}
-	if isASCIIIdentStart(esc) {
-		return (failAt(p, start, start+2, "R001", "unsupported escape \\"+[]byte{esc}.Text(), ""), false, byte(0), emptySet())
+	if (esc >= byte('a') && esc <= byte('z')) || (esc >= byte('A') && esc <= byte('Z')) {
+		return parsedEscape{st: failAt(p, start, start+2, "R001", "unsupported escape \\"+[]byte{esc}.Text(), ""), kind: escRawByte, cp: 0, rawByte: byte(0), ranges: []runeRange{}, rawSet: emptySet()}
 	}
-	(parserState{src: p.src, pos: start + 2, nodes: p.nodes, diags: p.diags}, true, esc, singleByteSet(esc))
+	if esc >= byte(0x80) {
+		let (cp, l) = decodeUTF8Rune(p.src, start+1)
+		return parsedEscape{st: withPos(p, start+1+l), kind: escRune, cp: cp, rawByte: byte(0), ranges: []runeRange{}, rawSet: emptySet()}
+	}
+	parsedEscape{st: withPos(p, start+2), kind: escRune, cp: int(esc), rawByte: esc, ranges: []runeRange{}, rawSet: emptySet()}
 }
 
 func parseEscapeNode(p parserState) (parserState, int) {
 	let start = p.pos
-	let (p1, _, _, s) = parseEscapeItem(p, false)
-	if p1.diags.Len() > 0 {
-		return (p1, -1)
+	let pe = parseEscapeItem(p, false)
+	if pe.st.diags.Len() > 0 {
+		return (pe.st, -1)
 	}
-	addNode(p1, makeNode(kindBytes, s, []int{}, 0, 0, "", uint32(start), uint32(p1.pos)))
+	if pe.kind == escRawByte {
+		let mut s = pe.rawSet
+		if pe.st.foldI {
+			s = foldASCIIByteSet(s)
+		}
+		return addNode(pe.st, makeNode(kindBytes, s, []int{}, 0, 0, false, "", uint32(start), uint32(pe.st.pos)))
+	}
+	let mut rs = if pe.kind == escRuneClass { pe.ranges } else { []runeRange{runeRange{lo: pe.cp, hi: pe.cp}} }
+	if pe.st.foldI {
+		rs = foldRuneRangesASCII(rs)
+	}
+	compileRuneRangesNode(pe.st, rs, emptySet(), false, uint32(start), uint32(pe.st.pos))
+}
+
+func looksLikePOSIXClass(src []byte, pos int) (int, bool) {
+	let n = src.Len()
+	if pos+4 >= n || src[pos] != byte('[') || src[pos+1] != byte(':') {
+		return (0, false)
+	}
+	let mut j = pos + 2
+	for j < n && isASCIIIdentCont(src[j]) {
+		j = j + 1
+	}
+	if j > pos+2 && j+1 < n && src[j] == byte(':') && src[j+1] == byte(']') {
+		return (j + 2, true)
+	}
+	(0, false)
 }
 
 func parseCharClass(p parserState) (parserState, int) {
@@ -651,77 +1387,178 @@ func parseCharClass(p parserState) (parserState, int) {
 		neg = true
 		i = i + 1
 	}
-	let mut cur = parserState{src: p.src, pos: i, nodes: p.nodes, diags: p.diags}
-	let mut set = emptySet()
+	let mut cur = withPos(p, i)
+	let mut runes = []runeRange{}
+	let mut rawBytes = emptySet()
+	let mut hasHighRaw = false
+	let mut hasWideRune = false
 	let mut first = true
 	for cur.pos < n {
 		let c = cur.src[cur.pos]
 		if c == byte(']') && !first {
 			let endPos = cur.pos + 1
-			if neg {
-				set = complementSet(set)
+			let out = withPos(cur, endPos)
+			if hasHighRaw && !hasWideRune && !neg {
+				let mut merged = rawBytes
+				for r in runes {
+					if r.hi <= 0x7F {
+						merged = setRange(merged, byte(r.lo), byte(r.hi))
+					}
+				}
+				let s = if out.foldI { foldASCIIByteSet(merged) } else { merged }
+				return addNode(out, makeNode(kindBytes, s, []int{}, 0, 0, false, "", uint32(start), uint32(endPos)))
 			}
-			let out = parserState{src: cur.src, pos: endPos, nodes: cur.nodes, diags: cur.diags}
-			return addNode(out, makeNode(kindBytes, set, []int{}, 0, 0, "", uint32(start), uint32(endPos)))
+			if hasHighRaw && !hasWideRune && neg {
+				let mut merged = rawBytes
+				for r in runes {
+					if r.hi <= 0x7F {
+						merged = setRange(merged, byte(r.lo), byte(r.hi))
+					}
+				}
+				if out.foldI {
+					merged = foldASCIIByteSet(merged)
+				}
+				let comp = complementSet(merged)
+				if isEmptyByteSet(comp) {
+					return (failAt(out, start, endPos, "R001", "character class matches no byte", "adjust negated class ranges"), -1)
+				}
+				return addNode(out, makeNode(kindBytes, comp, []int{}, 0, 0, false, "", uint32(start), uint32(endPos)))
+			}
+			if hasHighRaw && neg {
+				return (failAt(out, start, endPos, "R001", "negated character class cannot mix raw hex bytes >= 0x80 with multi-byte Unicode runes", "separate raw byte escapes from Unicode ranges"), -1)
+			}
+			let mut mergedRunes = []runeRange{}
+			for r in runes {
+				mergedRunes = mergedRunes.Append(r)
+			}
+			if !hasHighRaw {
+				for bv in 0..128 {
+					if setContainsByte(rawBytes, byte(bv)) {
+						mergedRunes = mergedRunes.Append(runeRange{lo: bv, hi: bv})
+					}
+				}
+			}
+			let mut norm = normalizeRuneRanges(mergedRunes)
+			if out.foldI {
+				norm = foldRuneRangesASCII(norm)
+			}
+			if neg {
+				norm = complementRuneRanges(norm)
+			}
+			let mut finalRaw = emptySet()
+			if hasHighRaw {
+				finalRaw = if out.foldI { foldASCIIByteSet(rawBytes) } else { rawBytes }
+			}
+			return compileRuneRangesNode(out, norm, finalRaw, hasHighRaw, uint32(start), uint32(endPos))
 		}
 		first = false
+		let (posixEnd, isPOSIX) = looksLikePOSIXClass(cur.src, cur.pos)
+		if isPOSIX {
+			return (failAt(cur, cur.pos, posixEnd, "R001", "POSIX character classes [[:...:]] are outside the pattern subset", "use explicit ranges or \\d, \\w, \\s"), -1)
+		}
 		let itemStart = cur.pos
-		let mut single = false
-		let mut ch = byte(0)
-		let mut itemSet = emptySet()
+		let mut singleKind = -1
+		let mut singleVal = 0
+		let mut itemRunes = []runeRange{}
+		let mut itemRaw = emptySet()
+		let mut itemWide = false
+		let mut itemHighRaw = false
 		if c == byte('\\') {
-			let (pNext, okSingle, bVal, sVal) = parseEscapeItem(cur, true)
-			cur = pNext
+			let pe = parseEscapeItem(cur, true)
+			cur = pe.st
 			if cur.diags.Len() > 0 {
 				return (cur, -1)
 			}
-			single = okSingle
-			ch = bVal
-			itemSet = sVal
-		} else {
-			if c >= byte(0x80) {
-				let l = utf8SeqLen(c)
-				return (failAt(cur, cur.pos, cur.pos+l, "R001", "character classes [...] operate on single ASCII bytes", "move multi-byte UTF-8 alternatives outside [...] as (a|b)"), -1)
+			if pe.kind == escRune {
+				singleKind = escRune
+				singleVal = pe.cp
+				itemWide = pe.cp > 0x7F
+			} else if pe.kind == escRawByte {
+				singleKind = escRawByte
+				singleVal = int(pe.rawByte)
+				itemRaw = pe.rawSet
+				itemHighRaw = singleVal > 0x7F
+			} else {
+				itemRunes = pe.ranges
+				for rr in pe.ranges {
+					if rr.hi > 0x7F {
+						itemWide = true
+					}
+				}
 			}
-			single = true
-			ch = c
-			itemSet = singleByteSet(c)
-			cur = parserState{src: cur.src, pos: cur.pos + 1, nodes: cur.nodes, diags: cur.diags}
+		} else {
+			let (cp, l) = decodeUTF8Rune(cur.src, cur.pos)
+			singleKind = escRune
+			singleVal = cp
+			itemWide = cp > 0x7F
+			cur = withPos(cur, cur.pos+l)
 		}
 		if cur.pos+1 < n && cur.src[cur.pos] == byte('-') && cur.src[cur.pos+1] != byte(']') {
-			if !single {
+			if singleKind < 0 {
 				return (failAt(cur, itemStart, cur.pos+1, "R001", "character class escape cannot start a range", ""), -1)
 			}
-			let dashCur = parserState{src: cur.src, pos: cur.pos + 1, nodes: cur.nodes, diags: cur.diags}
-			let mut hiSingle = false
-			let mut hiByte = byte(0)
+			let dashCur = withPos(cur, cur.pos+1)
+			let mut hiKind = -1
+			let mut hiVal = 0
 			if dashCur.src[dashCur.pos] == byte('\\') {
-				let (pNext, okSingle, bVal, _) = parseEscapeItem(dashCur, true)
-				cur = pNext
+				let pe = parseEscapeItem(dashCur, true)
+				cur = pe.st
 				if cur.diags.Len() > 0 {
 					return (cur, -1)
 				}
-				hiSingle = okSingle
-				hiByte = bVal
-			} else {
-				let hc = dashCur.src[dashCur.pos]
-				if hc >= byte(0x80) {
-					let l = utf8SeqLen(hc)
-					return (failAt(dashCur, dashCur.pos, dashCur.pos+l, "R001", "character class ranges require ASCII bytes", ""), -1)
+				if pe.kind == escRune || pe.kind == escRawByte {
+					hiKind = pe.kind
+					hiVal = pe.cp
 				}
-				hiSingle = true
-				hiByte = hc
-				cur = parserState{src: dashCur.src, pos: dashCur.pos + 1, nodes: dashCur.nodes, diags: dashCur.diags}
+			} else {
+				let (cp, l) = decodeUTF8Rune(dashCur.src, dashCur.pos)
+				hiKind = escRune
+				hiVal = cp
+				cur = withPos(dashCur, dashCur.pos+l)
 			}
-			if !hiSingle {
+			if hiKind < 0 {
 				return (failAt(cur, itemStart, cur.pos, "R001", "character class escape cannot end a range", ""), -1)
 			}
-			if hiByte < ch {
-				return (failAt(cur, itemStart, cur.pos, "R001", "invalid byte range in character class where end < start", "swap the range endpoints"), -1)
+			if hiVal < singleVal {
+				return (failAt(cur, itemStart, cur.pos, "R001", "invalid range in character class where end < start", "swap the range endpoints"), -1)
 			}
-			set = setRange(set, ch, hiByte)
+			let loRawHigh = singleKind == escRawByte && singleVal > 0x7F
+			let hiRawHigh = hiKind == escRawByte && hiVal > 0x7F
+			let loWideRune = singleKind == escRune && singleVal > 0x7F
+			let hiWideRune = hiKind == escRune && hiVal > 0x7F
+			if (loRawHigh && hiWideRune) || (loWideRune && hiRawHigh) {
+				return (failAt(cur, itemStart, cur.pos, "R001", "character class range cannot mix raw hex byte \\xHH with Unicode rune", "use matching \\xHH-\\xHH bytes or Unicode escapes"), -1)
+			}
+			if loRawHigh || hiRawHigh || (singleKind == escRawByte && hiKind == escRawByte && hiVal > 0x7F) {
+				rawBytes = setRange(rawBytes, byte(singleVal), byte(hiVal))
+				if hiVal > 0x7F {
+					hasHighRaw = true
+				}
+			} else {
+				runes = runes.Append(runeRange{lo: singleVal, hi: hiVal})
+				if hiVal > 0x7F {
+					hasWideRune = true
+				}
+			}
 		} else {
-			set = unionSet(set, itemSet)
+			if singleKind == escRune {
+				runes = runes.Append(runeRange{lo: singleVal, hi: singleVal})
+				if itemWide {
+					hasWideRune = true
+				}
+			} else if singleKind == escRawByte {
+				rawBytes = unionSet(rawBytes, itemRaw)
+				if itemHighRaw {
+					hasHighRaw = true
+				}
+			} else {
+				for rr in itemRunes {
+					runes = runes.Append(rr)
+					if rr.hi > 0x7F {
+						hasWideRune = true
+					}
+				}
+			}
 		}
 	}
 	(failAt(cur, start, n, "R001", "unclosed character class '['", "add closing ']'"), -1)

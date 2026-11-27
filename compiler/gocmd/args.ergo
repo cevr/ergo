@@ -1,0 +1,400 @@
+import filepath
+import slices
+import strconv
+import strings
+
+// BuildVerbs enumerates Go subcommands whose package arguments and flags ergo parses.
+let BuildVerbs = []string{"build", "install", "list", "run", "test", "vet"}
+
+let valueFlags = []string{
+	"C", "p", "o", "asmflags", "buildmode", "compiler", "gccgoflags",
+	"gcflags", "installsuffix", "ldflags", "mod", "modfile", "overlay",
+	"pgo", "pkgdir", "tags", "toolexec", "covermode", "coverpkg", "exec",
+	"f", "vettool", "reuse",
+	"run", "skip", "bench", "benchtime", "count", "cpu", "parallel",
+	"timeout", "list", "shuffle", "fuzz", "fuzztime", "fuzzminimizetime",
+	"coverprofile", "cpuprofile", "memprofile", "memprofilerate", "blockprofile",
+	"blockprofilerate", "mutexprofile", "mutexprofilefraction", "outputdir", "trace",
+	"vet",
+}
+
+// GoCmdError reports invalid go command invocations, quoting, or module/package errors.
+type GoCmdError {
+	Message string,
+}
+
+// Line captures parsed go command build verb arguments, user flags, and package targets.
+type Line {
+	Verb     string,
+	Args     []string,
+	GCFlags  []string,
+	Overlay  string,
+	Modfile  string,
+	Packages []string,
+}
+
+// Package identifies a Go/Ergo package directory and import path for pattern matching.
+type Package {
+	ImportPath string,
+	Dir        string,
+}
+
+// IsBuildVerb reports whether verb is one of BuildVerbs.
+func IsBuildVerb(verb string) bool {
+	slices.Contains(BuildVerbs, verb)
+}
+
+// Parse reads a go command invocation after "go" together with GOFLAGS into Line.
+func Parse(args []string, goflags string) Line fails GoCmdError {
+	if args.Len() == 0 || !IsBuildVerb(args[0]) {
+		return GoCmdError{Message: "gocmd: \(strconv.Quote(strings.Join(args, " "))) is not a build verb"}
+	}
+	let mut l = Line{
+		Verb:     args[0],
+		Args:     []string{},
+		GCFlags:  []string{},
+		Overlay:  "",
+		Modfile:  "",
+		Packages: []string{},
+	}
+	for f in strings.Fields(goflags) {
+		let (name, value, has) = cutFlag(f)
+		if !has {
+			continue
+		}
+		if name == "gcflags" {
+			l.GCFlags = l.GCFlags.Append(value)
+		} else if name == "overlay" {
+			l.Overlay = value
+		} else if name == "modfile" {
+			l.Modfile = value
+		}
+	}
+	let rest = args[1:args.Len()]
+	let mut program = false
+	let mut i = 0
+	for i < rest.Len() {
+		let a = rest[i]
+		if program {
+			l.Args = l.Args.Append(a)
+			i = i + 1
+			continue
+		}
+		if (a == "-args" && l.Verb == "test") || a == "--" {
+			for k in i..rest.Len() {
+				l.Args = l.Args.Append(rest[k])
+			}
+			break
+		}
+		if !strings.HasPrefix(a, "-") || a == "-" {
+			l.Args = l.Args.Append(a)
+			if l.Verb == "run" && l.Packages.Len() > 0 && !strings.HasSuffix(a, ".go") {
+				program = true
+				i = i + 1
+				continue
+			}
+			l.Packages = l.Packages.Append(a)
+			if l.Verb == "run" && !strings.HasSuffix(a, ".go") {
+				program = true
+			}
+			i = i + 1
+			continue
+		}
+		let (name, value0, has0) = cutFlag(a)
+		let mut value = value0
+		let mut has = has0
+		if !has && slices.Contains(valueFlags, name) && i+1 < rest.Len() {
+			value = rest[i+1]
+			has = true
+			i = i + 1
+			if name != "gcflags" && name != "overlay" && name != "modfile" {
+				l.Args = l.Args.Append(a)
+				l.Args = l.Args.Append(value)
+				i = i + 1
+				continue
+			}
+		}
+		if name == "gcflags" && has {
+			l.GCFlags = l.GCFlags.Append(value)
+		} else if name == "overlay" && has {
+			l.Overlay = value
+		} else if name == "modfile" && has {
+			l.Modfile = value
+		} else {
+			l.Args = l.Args.Append(a)
+		}
+		i = i + 1
+	}
+	l
+}
+
+// PackageFlags returns the resolved compiler flags that l.GCFlags assigns to package p.
+func PackageFlags(l Line, p Package, cwd string) []string fails GoCmdError {
+	let mut named = false
+	for arg in l.Packages {
+		if strings.HasSuffix(arg, ".go") {
+			continue
+		}
+		if MatchPackage(arg, cwd, p) {
+			named = true
+		}
+	}
+	let mut flags = []string{}
+	for rawV in l.GCFlags {
+		let mut v = strings.TrimSpace(rawV)
+		let mut matches = named
+		if v != "" && !strings.HasPrefix(v, "-") {
+			let eq = strings.Index(v, "=")
+			if eq <= 0 {
+				return GoCmdError{Message: "-gcflags=\(v): missing <pattern>=<value>"}
+			}
+			let pat = strings.TrimSpace(v[0:eq])
+			matches = MatchPackage(pat, cwd, p)
+			v = v[eq+1 : v.Len()]
+		}
+		let split = SplitQuoted(v) catch {
+		case GoCmdError as e:
+			return GoCmdError{Message: "-gcflags: \(e.Message)"}
+		}
+		if matches {
+			flags = split
+		}
+	}
+	flags
+}
+
+// MatchPackage reports whether cmd/go pattern matches package p from working directory cwd.
+func MatchPackage(pattern string, cwd string, p Package) bool {
+	if pattern == "." || pattern == ".." || strings.HasPrefix(pattern, "./") || strings.HasPrefix(pattern, "../") {
+		let mut dir = pattern
+		let mut rest = ""
+		let idx = strings.Index(pattern, "...")
+		if idx >= 0 {
+			let j = strings.LastIndex(pattern[0:idx], "/")
+			dir = pattern[0:j]
+			rest = pattern[j+1 : pattern.Len()]
+		}
+		dir = filepath.Join([]string{cwd, dir})
+		if rest == "" {
+			return p.Dir == dir
+		}
+		let rel = filepath.Rel(dir, p.Dir) catch {
+		case filepath.NotRelative:
+			return false
+		}
+		return rel != ".." && !strings.HasPrefix(rel, "../") && MatchPattern(rest, rel)
+	}
+	if pattern == "all" {
+		return true
+	}
+	if pattern == "std" || pattern == "cmd" {
+		return false
+	}
+	MatchPattern(pattern, p.ImportPath)
+}
+
+// MatchPattern implements Go internal/pkgpattern matching (... wildcards never span vendor elements).
+func MatchPattern(pattern string, name string) bool {
+	let vendorChar = "\x00"
+	if strings.Contains(pattern, vendorChar) || strings.Contains(pattern, "\\") {
+		return false
+	}
+	if strings.Contains(name, vendorChar) {
+		return false
+	}
+	let pat = replaceVendor(pattern, vendorChar)
+	let subj = replaceVendor(name, vendorChar)
+	let vendorTail = "/\(vendorChar)/..."
+	let rootVendor = "\(vendorChar)/..."
+	if strings.HasSuffix(pat, vendorTail) {
+		let prefix = strings.TrimSuffix(pat, vendorTail)
+		return matchWildcard(prefix+"/vendor", subj) || matchWildcard(prefix+vendorTail, subj)
+	}
+	if pat == rootVendor {
+		return subj == "/vendor" || matchWildcard(rootVendor, subj)
+	}
+	if strings.HasSuffix(pat, "/...") {
+		let prefix = strings.TrimSuffix(pat, "/...")
+		return matchWildcard(prefix, subj) || matchWildcard(prefix+"/...", subj)
+	}
+	matchWildcard(pat, subj)
+}
+
+// SplitQuoted splits shell-like space-separated fields supporting single and double quotes without escapes.
+func SplitQuoted(s string) []string fails GoCmdError {
+	let mut rest = s
+	let mut out = []string{}
+	for rest.Len() > 0 {
+		for rest.Len() > 0 && isQuoteSpace(rest[0]) {
+			rest = rest[1:rest.Len()]
+		}
+		if rest.Len() == 0 {
+			break
+		}
+		let first = rest[0]
+		if first == byte('"') || first == byte('\'') {
+			let quote = first
+			rest = rest[1:rest.Len()]
+			let mut i = 0
+			for i < rest.Len() && rest[i] != quote {
+				i = i + 1
+			}
+			if i >= rest.Len() {
+				let chStr = []byte{quote}.Text()
+				return GoCmdError{Message: "unterminated \(chStr) string"}
+			}
+			out = out.Append(rest[0:i])
+			rest = rest[i+1 : rest.Len()]
+			continue
+		}
+		let mut i = 0
+		for i < rest.Len() && !isQuoteSpace(rest[i]) {
+			i = i + 1
+		}
+		out = out.Append(rest[0:i])
+		rest = rest[i:rest.Len()]
+	}
+	out
+}
+
+// JoinQuoted joins flags so SplitQuoted recovers args identically.
+func JoinQuoted(args []string) string fails GoCmdError {
+	let mut b = strings.NewBuilder()
+	for i in 0..args.Len() {
+		if i > 0 {
+			strings.WriteByte(&b, byte(' '))
+		}
+		let a = args[i]
+		let hasSpace = strings.IndexAny(a, " \t\n\r") >= 0
+		let hasSingle = strings.Contains(a, "'")
+		let hasDouble = strings.Contains(a, "\"")
+		if a != "" && !hasSpace && !hasSingle && !hasDouble {
+			strings.WriteString(&b, a)
+		} else if !hasSingle {
+			strings.WriteString(&b, "'\(a)'")
+		} else if !hasDouble {
+			strings.WriteString(&b, "\"\(a)\"")
+		} else {
+			return GoCmdError{Message: "argument \(strconv.Quote(a)) contains both quote characters"}
+		}
+	}
+	strings.String(b)
+}
+
+func cutFlag(a string) (string, string, bool) {
+	let trimmed = strings.TrimPrefix(strings.TrimPrefix(a, "-"), "-")
+	let eq = strings.Index(trimmed, "=")
+	if eq < 0 {
+		return (trimmed, "", false)
+	}
+	(trimmed[0:eq], trimmed[eq+1 : trimmed.Len()], true)
+}
+
+func replaceVendor(x string, repl string) string {
+	if !strings.Contains(x, "vendor") {
+		return x
+	}
+	let mut elem = strings.Split(x, "/")
+	for i in 0..(elem.Len() - 1) {
+		if elem[i] == "vendor" {
+			elem[i] = repl
+		}
+	}
+	strings.Join(elem, "/")
+}
+
+func matchWildcard(pat string, subj string) bool {
+	let segs = strings.Split(pat, "...")
+	if segs.Len() == 1 {
+		return subj == segs[0]
+	}
+	if !strings.HasPrefix(subj, segs[0]) {
+		return false
+	}
+	matchWildSegs(segs, 1, subj, segs[0].Len())
+}
+
+func matchWildSegs(segs []string, si int, subj string, pos int) bool {
+	if si == segs.Len()-1 {
+		let tail = segs[si]
+		let endPos = subj.Len() - tail.Len()
+		if endPos < pos || subj[endPos:subj.Len()] != tail {
+			return false
+		}
+		return !strings.Contains(subj[pos:endPos], "\x00")
+	}
+	let seg = segs[si]
+	let maxStart = subj.Len() - seg.Len()
+	let mut p = pos
+	for p <= maxStart {
+		if subj[p:p+seg.Len()] == seg && matchWildSegs(segs, si+1, subj, p+seg.Len()) {
+			return true
+		}
+		if subj[p] == uint8(0) {
+			return false
+		}
+		p = p + 1
+	}
+	false
+}
+
+func isQuoteSpace(c uint8) bool {
+	c == byte(' ') || c == byte('\t') || c == byte('\n') || c == byte('\r')
+}
+
+// SplitJoinQuotedRoundTrip checks that JoinQuoted and SplitQuoted are inverses when args avoid mixing both quotes.
+law SplitJoinQuotedRoundTrip(a string, b string) {
+	let c1 = strings.ReplaceAll(strings.ReplaceAll(a, "'", ""), "\"", "")
+	let c2 = strings.ReplaceAll(b, "\"", "'")
+	let joined = JoinQuoted([]string{c1, c2}) catch {
+	case GoCmdError:
+		return false
+	}
+	let back = SplitQuoted(joined) catch {
+	case GoCmdError:
+		return false
+	}
+	back.Len() == 2 && back[0] == c1 && back[1] == c2
+}
+
+test TestGoCmdParseAndMatch {
+	let line = Parse([]string{"test", "-v", "-gcflags=./...=-l", "-DFOO", "-count", "2", "-modfile=m.mod", "./pkg/..."}, "-gcflags=all=-N -overlay=u.json") catch {
+	case GoCmdError:
+		assert false
+		Line{Verb: "", Args: []string{}, GCFlags: []string{}, Overlay: "", Modfile: "", Packages: []string{}}
+	}
+	assert line.Verb == "test" && line.Overlay == "u.json" && line.Modfile == "m.mod"
+	assert line.GCFlags.Len() == 2 && line.Packages.Len() == 1 && line.Packages[0] == "./pkg/..."
+
+	let pkg = Package{ImportPath: "example.com/m/pkg/sub", Dir: "/repo/pkg/sub"}
+	assert MatchPackage("./pkg/...", "/repo", pkg)
+	assert MatchPattern("a/.../b", "a/x/y/b") && !MatchPattern("a/.../b", "a/vendor/y/b")
+	assert !MatchPattern("a/.../y/.../c", "a/vendor/y/b/c")
+	assert MatchPattern("a/vendor/...", "a/vendor") && !MatchPattern("a/...", "a/vendor/pkg")
+
+	let flags = PackageFlags(line, pkg, "/repo") catch {
+	case GoCmdError:
+		assert false
+		[]string{}
+	}
+	let _ = flags
+
+	let line2 = Parse([]string{"build", "-gcflags=-N", "-gcflags=./pkg/sub=-l -m", "./pkg/sub"}, "") catch {
+	case GoCmdError:
+		assert false
+		line
+	}
+	let pflags = PackageFlags(line2, pkg, "/repo") catch {
+	case GoCmdError:
+		assert false
+		[]string{}
+	}
+	assert pflags.Len() == 2 && pflags[0] == "-l" && pflags[1] == "-m"
+
+	let runLine = Parse([]string{"run", "./cmd/app", "-flag", "val"}, "") catch {
+	case GoCmdError:
+		assert false
+		line
+	}
+	assert runLine.Packages.Len() == 1 && runLine.Packages[0] == "./cmd/app" && runLine.Args.Len() == 3
+}

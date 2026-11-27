@@ -21,7 +21,7 @@ type Output = api.Output
 
 // Commands are the commands of orchestrate.Api, one per operation, in its order.
 func Commands() []flag.Command[Request] {
-	[]flag.Command[Request]{commandUnitOpen(), commandReceiptRecord(), commandUnitState(), commandUnitAccept(), commandUnitLand(), commandUnitClose(), commandCommitmentAdd(), commandCommitmentAssign(), commandCommitmentLand(), commandCommitmentDecide(), commandCommitmentList(), commandQueueUpsert(), commandQueueRemove(), commandQueueList(), commandQuestionAsk(), commandQuestionAnswer(), commandQuestionList(), commandRunHeadSet(), commandRunSummary(), commandUnitList(), commandDecisionRecord(), commandDecisionList(), commandLandingRecord(), commandLandingList(), commandEventRecord(), commandEventLog(), commandImportPlan(), commandHostStatus(), commandHostProcesses(), commandHostReadiness(), commandEventsSince()}
+	[]flag.Command[Request]{commandUnitOpen(), commandReceiptRecord(), commandUnitState(), commandUnitAccept(), commandUnitLand(), commandUnitClose(), commandCommitmentAdd(), commandCommitmentAssign(), commandCommitmentLand(), commandCommitmentDecide(), commandCommitmentList(), commandQueueUpsert(), commandQueueRemove(), commandQueueList(), commandQuestionAsk(), commandQuestionAnswer(), commandQuestionList(), commandUnitTransfer(), commandLandingBegin(), commandLandingEnd(), commandRunSummary(), commandUnitList(), commandDecisionRecord(), commandDecisionList(), commandLandingRecord(), commandLandingList(), commandEventRecord(), commandEventLog(), commandImportPlan(), commandHostStatus(), commandHostProcesses(), commandHostReadiness(), commandEventsSince()}
 }
 
 func commandUnitOpen() flag.Command[Request] {
@@ -263,15 +263,41 @@ func commandQuestionList() flag.Command[Request] {
 	}, Commands: []flag.Command[Request]{}}
 }
 
-func commandRunHeadSet() flag.Command[Request] {
+func commandUnitTransfer() flag.Command[Request] {
 	let f0 = flag.RequiredString("command-id", "input.CommandID (orchestrate.CommandID)")
 	let f1 = flag.RequiredString("actor", "input.Actor (string)")
 	let f2 = flag.RequiredString("repo", "input.Repo (string)")
 	let f3 = flag.RequiredString("run", "input.Run (string)")
-	let f4 = flag.RequiredString("head", "input.Head (string)")
-	let usage = orchestrateapi.Doc(orchestrateapi.RunHeadSetOp)
-	flag.Command[Request]{Name: "run-head-set", Usage: usage, Set: flag.Set{Name: "run-head-set", Usage: usage, Flags: []flag.Flag{f0, f1, f2, f3, f4}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
-		orchestrateapi.RunHeadSetRequest{Input: orchestrate.RunHeadSetInput{CommandID: orchestrate.CommandID(f0.Get(v)), Actor: f1.Get(v), Repo: f2.Get(v), Run: f3.Get(v), Head: f4.Get(v)}}
+	let f4 = flag.RequiredString("id", "input.ID (string)")
+	let f5 = flag.RequiredString("to", "input.To (string)")
+	let usage = orchestrateapi.Doc(orchestrateapi.UnitTransferOp)
+	flag.Command[Request]{Name: "unit-transfer", Usage: usage, Set: flag.Set{Name: "unit-transfer", Usage: usage, Flags: []flag.Flag{f0, f1, f2, f3, f4, f5}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
+		orchestrateapi.UnitTransferRequest{Input: orchestrate.UnitTransferInput{CommandID: orchestrate.CommandID(f0.Get(v)), Actor: f1.Get(v), Repo: f2.Get(v), Run: f3.Get(v), ID: f4.Get(v), To: f5.Get(v)}}
+	}, Commands: []flag.Command[Request]{}}
+}
+
+func commandLandingBegin() flag.Command[Request] {
+	let f0 = flag.RequiredString("command-id", "input.CommandID (orchestrate.CommandID)")
+	let f1 = flag.RequiredString("actor", "input.Actor (string)")
+	let f2 = flag.RequiredString("repo", "input.Repo (string)")
+	let f3 = flag.RequiredString("run", "input.Run (string)")
+	let f4 = flag.RequiredString("expected-head", "input.ExpectedHead (string)")
+	let f5 = flag.RequiredInt("lifetime-seconds", "input.LifetimeSeconds (int)")
+	let usage = orchestrateapi.Doc(orchestrateapi.LandingBeginOp)
+	flag.Command[Request]{Name: "landing-begin", Usage: usage, Set: flag.Set{Name: "landing-begin", Usage: usage, Flags: []flag.Flag{f0, f1, f2, f3, f4, f5}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
+		orchestrateapi.LandingBeginRequest{Input: orchestrate.LandingBeginInput{CommandID: orchestrate.CommandID(f0.Get(v)), Actor: f1.Get(v), Repo: f2.Get(v), Run: f3.Get(v), ExpectedHead: f4.Get(v), LifetimeSeconds: f5.Get(v)}}
+	}, Commands: []flag.Command[Request]{}}
+}
+
+func commandLandingEnd() flag.Command[Request] {
+	let f0 = flag.RequiredString("command-id", "input.CommandID (orchestrate.CommandID)")
+	let f1 = flag.RequiredString("actor", "input.Actor (string)")
+	let f2 = flag.RequiredString("repo", "input.Repo (string)")
+	let f3 = flag.RequiredString("run", "input.Run (string)")
+	let f4 = flag.RequiredString("new-head", "input.NewHead (string)")
+	let usage = orchestrateapi.Doc(orchestrateapi.LandingEndOp)
+	flag.Command[Request]{Name: "landing-end", Usage: usage, Set: flag.Set{Name: "landing-end", Usage: usage, Flags: []flag.Flag{f0, f1, f2, f3, f4}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
+		orchestrateapi.LandingEndRequest{Input: orchestrate.LandingEndInput{CommandID: orchestrate.CommandID(f0.Get(v)), Actor: f1.Get(v), Repo: f2.Get(v), Run: f3.Get(v), NewHead: f4.Get(v)}}
 	}, Commands: []flag.Command[Request]{}}
 }
 
@@ -852,9 +878,17 @@ func Parse(args []string) Request fails flag.Failure {
 		let c = commandQuestionList()
 		let v = try flag.Parse(flag.Set{..c.Set, Name: "orchestrate question-list"}, slices.Slice(args, 1, args.Len()))
 		try c.Build(v)
-	case "run-head-set":
-		let c = commandRunHeadSet()
-		let v = try flag.Parse(flag.Set{..c.Set, Name: "orchestrate run-head-set"}, slices.Slice(args, 1, args.Len()))
+	case "unit-transfer":
+		let c = commandUnitTransfer()
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "orchestrate unit-transfer"}, slices.Slice(args, 1, args.Len()))
+		try c.Build(v)
+	case "landing-begin":
+		let c = commandLandingBegin()
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "orchestrate landing-begin"}, slices.Slice(args, 1, args.Len()))
+		try c.Build(v)
+	case "landing-end":
+		let c = commandLandingEnd()
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "orchestrate landing-end"}, slices.Slice(args, 1, args.Len()))
 		try c.Build(v)
 	case "run-summary":
 		let c = commandRunSummary()
@@ -1080,13 +1114,31 @@ func Print(r Request) []string {
 		let mut out = []string{"question-list"}
 		out = out.Append("-open-only=\(x.Input.OpenOnly)")
 		out
-	case orchestrateapi.RunHeadSetRequest as x:
-		let mut out = []string{"run-head-set"}
+	case orchestrateapi.UnitTransferRequest as x:
+		let mut out = []string{"unit-transfer"}
 		out = out.Append("-command-id=\(x.Input.CommandID)")
 		out = out.Append("-actor=\(x.Input.Actor)")
 		out = out.Append("-repo=\(x.Input.Repo)")
 		out = out.Append("-run=\(x.Input.Run)")
-		out = out.Append("-head=\(x.Input.Head)")
+		out = out.Append("-id=\(x.Input.ID)")
+		out = out.Append("-to=\(x.Input.To)")
+		out
+	case orchestrateapi.LandingBeginRequest as x:
+		let mut out = []string{"landing-begin"}
+		out = out.Append("-command-id=\(x.Input.CommandID)")
+		out = out.Append("-actor=\(x.Input.Actor)")
+		out = out.Append("-repo=\(x.Input.Repo)")
+		out = out.Append("-run=\(x.Input.Run)")
+		out = out.Append("-expected-head=\(x.Input.ExpectedHead)")
+		out = out.Append("-lifetime-seconds=\(x.Input.LifetimeSeconds)")
+		out
+	case orchestrateapi.LandingEndRequest as x:
+		let mut out = []string{"landing-end"}
+		out = out.Append("-command-id=\(x.Input.CommandID)")
+		out = out.Append("-actor=\(x.Input.Actor)")
+		out = out.Append("-repo=\(x.Input.Repo)")
+		out = out.Append("-run=\(x.Input.Run)")
+		out = out.Append("-new-head=\(x.Input.NewHead)")
 		out
 	case orchestrateapi.RunSummaryRequest as x:
 		let mut out = []string{"run-summary"}
@@ -1559,7 +1611,15 @@ func Show(o orchestrateapi.Outcome, asJSON bool, p Policy) Output {
 			let v = reply.Value
 			let encoded = rpc.Encode(v)
 			answer(asJSON, encoded, encoded)
-		case orchestrateapi.RunHeadSetReply as reply:
+		case orchestrateapi.UnitTransferReply as reply:
+			let v = reply.Value
+			let encoded = rpc.Encode(v)
+			answer(asJSON, encoded, encoded)
+		case orchestrateapi.LandingBeginReply as reply:
+			let v = reply.Value
+			let encoded = rpc.Encode(v)
+			answer(asJSON, encoded, encoded)
+		case orchestrateapi.LandingEndReply as reply:
 			let v = reply.Value
 			let encoded = rpc.Encode(v)
 			answer(asJSON, encoded, encoded)
@@ -1633,6 +1693,16 @@ func Show(o orchestrateapi.Outcome, asJSON bool, p Policy) Output {
 			failed(asJSON, rpc.Tagged("Unverified", rpc.Encode(failure.E)), status)
 		case orchestrateapi.NotAcceptedHead as failure:
 			failed(asJSON, rpc.Tagged("NotAcceptedHead", rpc.Encode(failure.E)), status)
+		case orchestrateapi.LaneHeld as failure:
+			failed(asJSON, rpc.Tagged("LaneHeld", rpc.Encode(failure.E)), status)
+		case orchestrateapi.NotOwner as failure:
+			failed(asJSON, rpc.Tagged("NotOwner", rpc.Encode(failure.E)), status)
+		case orchestrateapi.LandingBusy as failure:
+			failed(asJSON, rpc.Tagged("LandingBusy", rpc.Encode(failure.E)), status)
+		case orchestrateapi.StaleHead as failure:
+			failed(asJSON, rpc.Tagged("StaleHead", rpc.Encode(failure.E)), status)
+		case orchestrateapi.NoLease as failure:
+			failed(asJSON, rpc.Tagged("NoLease", rpc.Encode(failure.E)), status)
 		case orchestrateapi.StoreFailed as failure:
 			failed(asJSON, rpc.Tagged("StoreFailed", rpc.Encode(failure.E)), status)
 		case orchestrateapi.Unavailable as failure:
@@ -1704,9 +1774,15 @@ func Read(r Request, out Output) orchestrateapi.Outcome fails rpc.Transport {
 		case orchestrateapi.QuestionListRequest:
 			let v = try rpc.Decode[[]orchestrate.Question]("value", text)
 			orchestrateapi.Done{Reply: orchestrateapi.QuestionListReply{Value: v}}
-		case orchestrateapi.RunHeadSetRequest:
+		case orchestrateapi.UnitTransferRequest:
+			let v = try rpc.Decode[orchestrate.Unit]("value", text)
+			orchestrateapi.Done{Reply: orchestrateapi.UnitTransferReply{Value: v}}
+		case orchestrateapi.LandingBeginRequest:
+			let v = try rpc.Decode[orchestrate.LandingLease]("value", text)
+			orchestrateapi.Done{Reply: orchestrateapi.LandingBeginReply{Value: v}}
+		case orchestrateapi.LandingEndRequest:
 			let v = try rpc.Decode[orchestrate.RunMeta]("value", text)
-			orchestrateapi.Done{Reply: orchestrateapi.RunHeadSetReply{Value: v}}
+			orchestrateapi.Done{Reply: orchestrateapi.LandingEndReply{Value: v}}
 		case orchestrateapi.RunSummaryRequest:
 			let v = try rpc.Decode[orchestrate.RunOverview]("value", text)
 			orchestrateapi.Done{Reply: orchestrateapi.RunSummaryReply{Value: v}}
@@ -1772,6 +1848,21 @@ func Read(r Request, out Output) orchestrateapi.Outcome fails rpc.Transport {
 			case "NotAcceptedHead":
 				let e = try rpc.Decode[orchestrate.NotAcceptedHead]("failure", text)
 				orchestrateapi.Rejected{Failure: orchestrateapi.NotAcceptedHead{E: e}}
+			case "LaneHeld":
+				let e = try rpc.Decode[orchestrate.LaneHeld]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.LaneHeld{E: e}}
+			case "NotOwner":
+				let e = try rpc.Decode[orchestrate.NotOwner]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NotOwner{E: e}}
+			case "LandingBusy":
+				let e = try rpc.Decode[orchestrate.LandingBusy]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.LandingBusy{E: e}}
+			case "StaleHead":
+				let e = try rpc.Decode[orchestrate.StaleHead]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.StaleHead{E: e}}
+			case "NoLease":
+				let e = try rpc.Decode[orchestrate.NoLease]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NoLease{E: e}}
 			case "StoreFailed":
 				let e = try rpc.Decode[orchestrate.StoreFailed]("failure", text)
 				orchestrateapi.Rejected{Failure: orchestrateapi.StoreFailed{E: e}}
@@ -1801,6 +1892,21 @@ func Read(r Request, out Output) orchestrateapi.Outcome fails rpc.Transport {
 			case "NotAcceptedHead":
 				let e = try rpc.Decode[orchestrate.NotAcceptedHead]("failure", text)
 				orchestrateapi.Rejected{Failure: orchestrateapi.NotAcceptedHead{E: e}}
+			case "LaneHeld":
+				let e = try rpc.Decode[orchestrate.LaneHeld]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.LaneHeld{E: e}}
+			case "NotOwner":
+				let e = try rpc.Decode[orchestrate.NotOwner]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NotOwner{E: e}}
+			case "LandingBusy":
+				let e = try rpc.Decode[orchestrate.LandingBusy]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.LandingBusy{E: e}}
+			case "StaleHead":
+				let e = try rpc.Decode[orchestrate.StaleHead]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.StaleHead{E: e}}
+			case "NoLease":
+				let e = try rpc.Decode[orchestrate.NoLease]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NoLease{E: e}}
 			case "StoreFailed":
 				let e = try rpc.Decode[orchestrate.StoreFailed]("failure", text)
 				orchestrateapi.Rejected{Failure: orchestrateapi.StoreFailed{E: e}}
@@ -1844,6 +1950,21 @@ func Read(r Request, out Output) orchestrateapi.Outcome fails rpc.Transport {
 			case "NotAcceptedHead":
 				let e = try rpc.Decode[orchestrate.NotAcceptedHead]("failure", text)
 				orchestrateapi.Rejected{Failure: orchestrateapi.NotAcceptedHead{E: e}}
+			case "LaneHeld":
+				let e = try rpc.Decode[orchestrate.LaneHeld]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.LaneHeld{E: e}}
+			case "NotOwner":
+				let e = try rpc.Decode[orchestrate.NotOwner]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NotOwner{E: e}}
+			case "LandingBusy":
+				let e = try rpc.Decode[orchestrate.LandingBusy]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.LandingBusy{E: e}}
+			case "StaleHead":
+				let e = try rpc.Decode[orchestrate.StaleHead]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.StaleHead{E: e}}
+			case "NoLease":
+				let e = try rpc.Decode[orchestrate.NoLease]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NoLease{E: e}}
 			case "StoreFailed":
 				let e = try rpc.Decode[orchestrate.StoreFailed]("failure", text)
 				orchestrateapi.Rejected{Failure: orchestrateapi.StoreFailed{E: e}}
@@ -1873,6 +1994,21 @@ func Read(r Request, out Output) orchestrateapi.Outcome fails rpc.Transport {
 			case "NotAcceptedHead":
 				let e = try rpc.Decode[orchestrate.NotAcceptedHead]("failure", text)
 				orchestrateapi.Rejected{Failure: orchestrateapi.NotAcceptedHead{E: e}}
+			case "LaneHeld":
+				let e = try rpc.Decode[orchestrate.LaneHeld]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.LaneHeld{E: e}}
+			case "NotOwner":
+				let e = try rpc.Decode[orchestrate.NotOwner]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NotOwner{E: e}}
+			case "LandingBusy":
+				let e = try rpc.Decode[orchestrate.LandingBusy]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.LandingBusy{E: e}}
+			case "StaleHead":
+				let e = try rpc.Decode[orchestrate.StaleHead]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.StaleHead{E: e}}
+			case "NoLease":
+				let e = try rpc.Decode[orchestrate.NoLease]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NoLease{E: e}}
 			case "StoreFailed":
 				let e = try rpc.Decode[orchestrate.StoreFailed]("failure", text)
 				orchestrateapi.Rejected{Failure: orchestrateapi.StoreFailed{E: e}}
@@ -1902,6 +2038,21 @@ func Read(r Request, out Output) orchestrateapi.Outcome fails rpc.Transport {
 			case "NotAcceptedHead":
 				let e = try rpc.Decode[orchestrate.NotAcceptedHead]("failure", text)
 				orchestrateapi.Rejected{Failure: orchestrateapi.NotAcceptedHead{E: e}}
+			case "LaneHeld":
+				let e = try rpc.Decode[orchestrate.LaneHeld]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.LaneHeld{E: e}}
+			case "NotOwner":
+				let e = try rpc.Decode[orchestrate.NotOwner]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NotOwner{E: e}}
+			case "LandingBusy":
+				let e = try rpc.Decode[orchestrate.LandingBusy]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.LandingBusy{E: e}}
+			case "StaleHead":
+				let e = try rpc.Decode[orchestrate.StaleHead]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.StaleHead{E: e}}
+			case "NoLease":
+				let e = try rpc.Decode[orchestrate.NoLease]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NoLease{E: e}}
 			case "StoreFailed":
 				let e = try rpc.Decode[orchestrate.StoreFailed]("failure", text)
 				orchestrateapi.Rejected{Failure: orchestrateapi.StoreFailed{E: e}}
@@ -1931,6 +2082,21 @@ func Read(r Request, out Output) orchestrateapi.Outcome fails rpc.Transport {
 			case "NotAcceptedHead":
 				let e = try rpc.Decode[orchestrate.NotAcceptedHead]("failure", text)
 				orchestrateapi.Rejected{Failure: orchestrateapi.NotAcceptedHead{E: e}}
+			case "LaneHeld":
+				let e = try rpc.Decode[orchestrate.LaneHeld]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.LaneHeld{E: e}}
+			case "NotOwner":
+				let e = try rpc.Decode[orchestrate.NotOwner]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NotOwner{E: e}}
+			case "LandingBusy":
+				let e = try rpc.Decode[orchestrate.LandingBusy]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.LandingBusy{E: e}}
+			case "StaleHead":
+				let e = try rpc.Decode[orchestrate.StaleHead]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.StaleHead{E: e}}
+			case "NoLease":
+				let e = try rpc.Decode[orchestrate.NoLease]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NoLease{E: e}}
 			case "StoreFailed":
 				let e = try rpc.Decode[orchestrate.StoreFailed]("failure", text)
 				orchestrateapi.Rejected{Failure: orchestrateapi.StoreFailed{E: e}}
@@ -1960,6 +2126,21 @@ func Read(r Request, out Output) orchestrateapi.Outcome fails rpc.Transport {
 			case "NotAcceptedHead":
 				let e = try rpc.Decode[orchestrate.NotAcceptedHead]("failure", text)
 				orchestrateapi.Rejected{Failure: orchestrateapi.NotAcceptedHead{E: e}}
+			case "LaneHeld":
+				let e = try rpc.Decode[orchestrate.LaneHeld]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.LaneHeld{E: e}}
+			case "NotOwner":
+				let e = try rpc.Decode[orchestrate.NotOwner]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NotOwner{E: e}}
+			case "LandingBusy":
+				let e = try rpc.Decode[orchestrate.LandingBusy]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.LandingBusy{E: e}}
+			case "StaleHead":
+				let e = try rpc.Decode[orchestrate.StaleHead]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.StaleHead{E: e}}
+			case "NoLease":
+				let e = try rpc.Decode[orchestrate.NoLease]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NoLease{E: e}}
 			case "StoreFailed":
 				let e = try rpc.Decode[orchestrate.StoreFailed]("failure", text)
 				orchestrateapi.Rejected{Failure: orchestrateapi.StoreFailed{E: e}}
@@ -1989,6 +2170,21 @@ func Read(r Request, out Output) orchestrateapi.Outcome fails rpc.Transport {
 			case "NotAcceptedHead":
 				let e = try rpc.Decode[orchestrate.NotAcceptedHead]("failure", text)
 				orchestrateapi.Rejected{Failure: orchestrateapi.NotAcceptedHead{E: e}}
+			case "LaneHeld":
+				let e = try rpc.Decode[orchestrate.LaneHeld]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.LaneHeld{E: e}}
+			case "NotOwner":
+				let e = try rpc.Decode[orchestrate.NotOwner]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NotOwner{E: e}}
+			case "LandingBusy":
+				let e = try rpc.Decode[orchestrate.LandingBusy]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.LandingBusy{E: e}}
+			case "StaleHead":
+				let e = try rpc.Decode[orchestrate.StaleHead]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.StaleHead{E: e}}
+			case "NoLease":
+				let e = try rpc.Decode[orchestrate.NoLease]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NoLease{E: e}}
 			case "StoreFailed":
 				let e = try rpc.Decode[orchestrate.StoreFailed]("failure", text)
 				orchestrateapi.Rejected{Failure: orchestrateapi.StoreFailed{E: e}}
@@ -2018,6 +2214,21 @@ func Read(r Request, out Output) orchestrateapi.Outcome fails rpc.Transport {
 			case "NotAcceptedHead":
 				let e = try rpc.Decode[orchestrate.NotAcceptedHead]("failure", text)
 				orchestrateapi.Rejected{Failure: orchestrateapi.NotAcceptedHead{E: e}}
+			case "LaneHeld":
+				let e = try rpc.Decode[orchestrate.LaneHeld]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.LaneHeld{E: e}}
+			case "NotOwner":
+				let e = try rpc.Decode[orchestrate.NotOwner]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NotOwner{E: e}}
+			case "LandingBusy":
+				let e = try rpc.Decode[orchestrate.LandingBusy]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.LandingBusy{E: e}}
+			case "StaleHead":
+				let e = try rpc.Decode[orchestrate.StaleHead]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.StaleHead{E: e}}
+			case "NoLease":
+				let e = try rpc.Decode[orchestrate.NoLease]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NoLease{E: e}}
 			case "StoreFailed":
 				let e = try rpc.Decode[orchestrate.StoreFailed]("failure", text)
 				orchestrateapi.Rejected{Failure: orchestrateapi.StoreFailed{E: e}}
@@ -2058,6 +2269,21 @@ func Read(r Request, out Output) orchestrateapi.Outcome fails rpc.Transport {
 			case "NotAcceptedHead":
 				let e = try rpc.Decode[orchestrate.NotAcceptedHead]("failure", text)
 				orchestrateapi.Rejected{Failure: orchestrateapi.NotAcceptedHead{E: e}}
+			case "LaneHeld":
+				let e = try rpc.Decode[orchestrate.LaneHeld]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.LaneHeld{E: e}}
+			case "NotOwner":
+				let e = try rpc.Decode[orchestrate.NotOwner]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NotOwner{E: e}}
+			case "LandingBusy":
+				let e = try rpc.Decode[orchestrate.LandingBusy]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.LandingBusy{E: e}}
+			case "StaleHead":
+				let e = try rpc.Decode[orchestrate.StaleHead]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.StaleHead{E: e}}
+			case "NoLease":
+				let e = try rpc.Decode[orchestrate.NoLease]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NoLease{E: e}}
 			case "StoreFailed":
 				let e = try rpc.Decode[orchestrate.StoreFailed]("failure", text)
 				orchestrateapi.Rejected{Failure: orchestrateapi.StoreFailed{E: e}}
@@ -2087,6 +2313,21 @@ func Read(r Request, out Output) orchestrateapi.Outcome fails rpc.Transport {
 			case "NotAcceptedHead":
 				let e = try rpc.Decode[orchestrate.NotAcceptedHead]("failure", text)
 				orchestrateapi.Rejected{Failure: orchestrateapi.NotAcceptedHead{E: e}}
+			case "LaneHeld":
+				let e = try rpc.Decode[orchestrate.LaneHeld]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.LaneHeld{E: e}}
+			case "NotOwner":
+				let e = try rpc.Decode[orchestrate.NotOwner]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NotOwner{E: e}}
+			case "LandingBusy":
+				let e = try rpc.Decode[orchestrate.LandingBusy]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.LandingBusy{E: e}}
+			case "StaleHead":
+				let e = try rpc.Decode[orchestrate.StaleHead]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.StaleHead{E: e}}
+			case "NoLease":
+				let e = try rpc.Decode[orchestrate.NoLease]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NoLease{E: e}}
 			case "StoreFailed":
 				let e = try rpc.Decode[orchestrate.StoreFailed]("failure", text)
 				orchestrateapi.Rejected{Failure: orchestrateapi.StoreFailed{E: e}}
@@ -2127,6 +2368,21 @@ func Read(r Request, out Output) orchestrateapi.Outcome fails rpc.Transport {
 			case "NotAcceptedHead":
 				let e = try rpc.Decode[orchestrate.NotAcceptedHead]("failure", text)
 				orchestrateapi.Rejected{Failure: orchestrateapi.NotAcceptedHead{E: e}}
+			case "LaneHeld":
+				let e = try rpc.Decode[orchestrate.LaneHeld]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.LaneHeld{E: e}}
+			case "NotOwner":
+				let e = try rpc.Decode[orchestrate.NotOwner]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NotOwner{E: e}}
+			case "LandingBusy":
+				let e = try rpc.Decode[orchestrate.LandingBusy]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.LandingBusy{E: e}}
+			case "StaleHead":
+				let e = try rpc.Decode[orchestrate.StaleHead]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.StaleHead{E: e}}
+			case "NoLease":
+				let e = try rpc.Decode[orchestrate.NoLease]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NoLease{E: e}}
 			case "StoreFailed":
 				let e = try rpc.Decode[orchestrate.StoreFailed]("failure", text)
 				orchestrateapi.Rejected{Failure: orchestrateapi.StoreFailed{E: e}}
@@ -2156,6 +2412,21 @@ func Read(r Request, out Output) orchestrateapi.Outcome fails rpc.Transport {
 			case "NotAcceptedHead":
 				let e = try rpc.Decode[orchestrate.NotAcceptedHead]("failure", text)
 				orchestrateapi.Rejected{Failure: orchestrateapi.NotAcceptedHead{E: e}}
+			case "LaneHeld":
+				let e = try rpc.Decode[orchestrate.LaneHeld]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.LaneHeld{E: e}}
+			case "NotOwner":
+				let e = try rpc.Decode[orchestrate.NotOwner]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NotOwner{E: e}}
+			case "LandingBusy":
+				let e = try rpc.Decode[orchestrate.LandingBusy]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.LandingBusy{E: e}}
+			case "StaleHead":
+				let e = try rpc.Decode[orchestrate.StaleHead]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.StaleHead{E: e}}
+			case "NoLease":
+				let e = try rpc.Decode[orchestrate.NoLease]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NoLease{E: e}}
 			case "StoreFailed":
 				let e = try rpc.Decode[orchestrate.StoreFailed]("failure", text)
 				orchestrateapi.Rejected{Failure: orchestrateapi.StoreFailed{E: e}}
@@ -2170,7 +2441,7 @@ func Read(r Request, out Output) orchestrateapi.Outcome fails rpc.Transport {
 			case _:
 				return rpc.Transport{Reason: "the command line answered QuestionList with an undeclared failure: " + text}
 			}
-		case orchestrateapi.RunHeadSetRequest:
+		case orchestrateapi.UnitTransferRequest:
 			match rpc.TagOf(text) {
 			case "NotFound":
 				let e = try rpc.Decode[orchestrate.NotFound]("failure", text)
@@ -2193,11 +2464,114 @@ func Read(r Request, out Output) orchestrateapi.Outcome fails rpc.Transport {
 			case "NotAcceptedHead":
 				let e = try rpc.Decode[orchestrate.NotAcceptedHead]("failure", text)
 				orchestrateapi.Rejected{Failure: orchestrateapi.NotAcceptedHead{E: e}}
+			case "LaneHeld":
+				let e = try rpc.Decode[orchestrate.LaneHeld]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.LaneHeld{E: e}}
+			case "NotOwner":
+				let e = try rpc.Decode[orchestrate.NotOwner]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NotOwner{E: e}}
+			case "LandingBusy":
+				let e = try rpc.Decode[orchestrate.LandingBusy]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.LandingBusy{E: e}}
+			case "StaleHead":
+				let e = try rpc.Decode[orchestrate.StaleHead]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.StaleHead{E: e}}
+			case "NoLease":
+				let e = try rpc.Decode[orchestrate.NoLease]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NoLease{E: e}}
 			case "StoreFailed":
 				let e = try rpc.Decode[orchestrate.StoreFailed]("failure", text)
 				orchestrateapi.Rejected{Failure: orchestrateapi.StoreFailed{E: e}}
 			case _:
-				return rpc.Transport{Reason: "the command line answered RunHeadSet with an undeclared failure: " + text}
+				return rpc.Transport{Reason: "the command line answered UnitTransfer with an undeclared failure: " + text}
+			}
+		case orchestrateapi.LandingBeginRequest:
+			match rpc.TagOf(text) {
+			case "NotFound":
+				let e = try rpc.Decode[orchestrate.NotFound]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NotFound{E: e}}
+			case "AlreadyExists":
+				let e = try rpc.Decode[orchestrate.AlreadyExists]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.AlreadyExists{E: e}}
+			case "InvalidTransition":
+				let e = try rpc.Decode[orchestrate.InvalidTransition]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.InvalidTransition{E: e}}
+			case "CommandReused":
+				let e = try rpc.Decode[orchestrate.CommandReused]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.CommandReused{E: e}}
+			case "InvalidInput":
+				let e = try rpc.Decode[orchestrate.InvalidInput]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.InvalidInput{E: e}}
+			case "Unverified":
+				let e = try rpc.Decode[orchestrate.Unverified]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.Unverified{E: e}}
+			case "NotAcceptedHead":
+				let e = try rpc.Decode[orchestrate.NotAcceptedHead]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NotAcceptedHead{E: e}}
+			case "LaneHeld":
+				let e = try rpc.Decode[orchestrate.LaneHeld]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.LaneHeld{E: e}}
+			case "NotOwner":
+				let e = try rpc.Decode[orchestrate.NotOwner]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NotOwner{E: e}}
+			case "LandingBusy":
+				let e = try rpc.Decode[orchestrate.LandingBusy]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.LandingBusy{E: e}}
+			case "StaleHead":
+				let e = try rpc.Decode[orchestrate.StaleHead]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.StaleHead{E: e}}
+			case "NoLease":
+				let e = try rpc.Decode[orchestrate.NoLease]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NoLease{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[orchestrate.StoreFailed]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.StoreFailed{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the command line answered LandingBegin with an undeclared failure: " + text}
+			}
+		case orchestrateapi.LandingEndRequest:
+			match rpc.TagOf(text) {
+			case "NotFound":
+				let e = try rpc.Decode[orchestrate.NotFound]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NotFound{E: e}}
+			case "AlreadyExists":
+				let e = try rpc.Decode[orchestrate.AlreadyExists]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.AlreadyExists{E: e}}
+			case "InvalidTransition":
+				let e = try rpc.Decode[orchestrate.InvalidTransition]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.InvalidTransition{E: e}}
+			case "CommandReused":
+				let e = try rpc.Decode[orchestrate.CommandReused]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.CommandReused{E: e}}
+			case "InvalidInput":
+				let e = try rpc.Decode[orchestrate.InvalidInput]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.InvalidInput{E: e}}
+			case "Unverified":
+				let e = try rpc.Decode[orchestrate.Unverified]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.Unverified{E: e}}
+			case "NotAcceptedHead":
+				let e = try rpc.Decode[orchestrate.NotAcceptedHead]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NotAcceptedHead{E: e}}
+			case "LaneHeld":
+				let e = try rpc.Decode[orchestrate.LaneHeld]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.LaneHeld{E: e}}
+			case "NotOwner":
+				let e = try rpc.Decode[orchestrate.NotOwner]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NotOwner{E: e}}
+			case "LandingBusy":
+				let e = try rpc.Decode[orchestrate.LandingBusy]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.LandingBusy{E: e}}
+			case "StaleHead":
+				let e = try rpc.Decode[orchestrate.StaleHead]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.StaleHead{E: e}}
+			case "NoLease":
+				let e = try rpc.Decode[orchestrate.NoLease]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NoLease{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[orchestrate.StoreFailed]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.StoreFailed{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the command line answered LandingEnd with an undeclared failure: " + text}
 			}
 		case orchestrateapi.RunSummaryRequest:
 			match rpc.TagOf(text) {
@@ -2244,6 +2618,21 @@ func Read(r Request, out Output) orchestrateapi.Outcome fails rpc.Transport {
 			case "NotAcceptedHead":
 				let e = try rpc.Decode[orchestrate.NotAcceptedHead]("failure", text)
 				orchestrateapi.Rejected{Failure: orchestrateapi.NotAcceptedHead{E: e}}
+			case "LaneHeld":
+				let e = try rpc.Decode[orchestrate.LaneHeld]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.LaneHeld{E: e}}
+			case "NotOwner":
+				let e = try rpc.Decode[orchestrate.NotOwner]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NotOwner{E: e}}
+			case "LandingBusy":
+				let e = try rpc.Decode[orchestrate.LandingBusy]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.LandingBusy{E: e}}
+			case "StaleHead":
+				let e = try rpc.Decode[orchestrate.StaleHead]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.StaleHead{E: e}}
+			case "NoLease":
+				let e = try rpc.Decode[orchestrate.NoLease]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NoLease{E: e}}
 			case "StoreFailed":
 				let e = try rpc.Decode[orchestrate.StoreFailed]("failure", text)
 				orchestrateapi.Rejected{Failure: orchestrateapi.StoreFailed{E: e}}
@@ -2284,6 +2673,21 @@ func Read(r Request, out Output) orchestrateapi.Outcome fails rpc.Transport {
 			case "NotAcceptedHead":
 				let e = try rpc.Decode[orchestrate.NotAcceptedHead]("failure", text)
 				orchestrateapi.Rejected{Failure: orchestrateapi.NotAcceptedHead{E: e}}
+			case "LaneHeld":
+				let e = try rpc.Decode[orchestrate.LaneHeld]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.LaneHeld{E: e}}
+			case "NotOwner":
+				let e = try rpc.Decode[orchestrate.NotOwner]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NotOwner{E: e}}
+			case "LandingBusy":
+				let e = try rpc.Decode[orchestrate.LandingBusy]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.LandingBusy{E: e}}
+			case "StaleHead":
+				let e = try rpc.Decode[orchestrate.StaleHead]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.StaleHead{E: e}}
+			case "NoLease":
+				let e = try rpc.Decode[orchestrate.NoLease]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NoLease{E: e}}
 			case "StoreFailed":
 				let e = try rpc.Decode[orchestrate.StoreFailed]("failure", text)
 				orchestrateapi.Rejected{Failure: orchestrateapi.StoreFailed{E: e}}
@@ -2324,6 +2728,21 @@ func Read(r Request, out Output) orchestrateapi.Outcome fails rpc.Transport {
 			case "NotAcceptedHead":
 				let e = try rpc.Decode[orchestrate.NotAcceptedHead]("failure", text)
 				orchestrateapi.Rejected{Failure: orchestrateapi.NotAcceptedHead{E: e}}
+			case "LaneHeld":
+				let e = try rpc.Decode[orchestrate.LaneHeld]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.LaneHeld{E: e}}
+			case "NotOwner":
+				let e = try rpc.Decode[orchestrate.NotOwner]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NotOwner{E: e}}
+			case "LandingBusy":
+				let e = try rpc.Decode[orchestrate.LandingBusy]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.LandingBusy{E: e}}
+			case "StaleHead":
+				let e = try rpc.Decode[orchestrate.StaleHead]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.StaleHead{E: e}}
+			case "NoLease":
+				let e = try rpc.Decode[orchestrate.NoLease]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NoLease{E: e}}
 			case "StoreFailed":
 				let e = try rpc.Decode[orchestrate.StoreFailed]("failure", text)
 				orchestrateapi.Rejected{Failure: orchestrateapi.StoreFailed{E: e}}
@@ -2364,6 +2783,21 @@ func Read(r Request, out Output) orchestrateapi.Outcome fails rpc.Transport {
 			case "NotAcceptedHead":
 				let e = try rpc.Decode[orchestrate.NotAcceptedHead]("failure", text)
 				orchestrateapi.Rejected{Failure: orchestrateapi.NotAcceptedHead{E: e}}
+			case "LaneHeld":
+				let e = try rpc.Decode[orchestrate.LaneHeld]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.LaneHeld{E: e}}
+			case "NotOwner":
+				let e = try rpc.Decode[orchestrate.NotOwner]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NotOwner{E: e}}
+			case "LandingBusy":
+				let e = try rpc.Decode[orchestrate.LandingBusy]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.LandingBusy{E: e}}
+			case "StaleHead":
+				let e = try rpc.Decode[orchestrate.StaleHead]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.StaleHead{E: e}}
+			case "NoLease":
+				let e = try rpc.Decode[orchestrate.NoLease]("failure", text)
+				orchestrateapi.Rejected{Failure: orchestrateapi.NoLease{E: e}}
 			case "StoreFailed":
 				let e = try rpc.Decode[orchestrate.StoreFailed]("failure", text)
 				orchestrateapi.Rejected{Failure: orchestrateapi.StoreFailed{E: e}}
@@ -2520,7 +2954,7 @@ func RunOnTerminal(args []string, p Policy) Output needs orchestrate.Api | term.
 
 // Completion is the script that completes orchestrate's commands in shell.
 func Completion(shell api.Shell) string {
-	api.Completion("orchestrate", shell, []api.Entry{api.Entry{Name: orchestrateapi.Name(orchestrateapi.UnitOpenOp), Doc: orchestrateapi.Doc(orchestrateapi.UnitOpenOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.ReceiptRecordOp), Doc: orchestrateapi.Doc(orchestrateapi.ReceiptRecordOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.UnitStateOp), Doc: orchestrateapi.Doc(orchestrateapi.UnitStateOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.UnitAcceptOp), Doc: orchestrateapi.Doc(orchestrateapi.UnitAcceptOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.UnitLandOp), Doc: orchestrateapi.Doc(orchestrateapi.UnitLandOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.UnitCloseOp), Doc: orchestrateapi.Doc(orchestrateapi.UnitCloseOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.CommitmentAddOp), Doc: orchestrateapi.Doc(orchestrateapi.CommitmentAddOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.CommitmentAssignOp), Doc: orchestrateapi.Doc(orchestrateapi.CommitmentAssignOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.CommitmentLandOp), Doc: orchestrateapi.Doc(orchestrateapi.CommitmentLandOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.CommitmentDecideOp), Doc: orchestrateapi.Doc(orchestrateapi.CommitmentDecideOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.CommitmentListOp), Doc: orchestrateapi.Doc(orchestrateapi.CommitmentListOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.QueueUpsertOp), Doc: orchestrateapi.Doc(orchestrateapi.QueueUpsertOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.QueueRemoveOp), Doc: orchestrateapi.Doc(orchestrateapi.QueueRemoveOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.QueueListOp), Doc: orchestrateapi.Doc(orchestrateapi.QueueListOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.QuestionAskOp), Doc: orchestrateapi.Doc(orchestrateapi.QuestionAskOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.QuestionAnswerOp), Doc: orchestrateapi.Doc(orchestrateapi.QuestionAnswerOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.QuestionListOp), Doc: orchestrateapi.Doc(orchestrateapi.QuestionListOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.RunHeadSetOp), Doc: orchestrateapi.Doc(orchestrateapi.RunHeadSetOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.RunSummaryOp), Doc: orchestrateapi.Doc(orchestrateapi.RunSummaryOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.UnitListOp), Doc: orchestrateapi.Doc(orchestrateapi.UnitListOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.DecisionRecordOp), Doc: orchestrateapi.Doc(orchestrateapi.DecisionRecordOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.DecisionListOp), Doc: orchestrateapi.Doc(orchestrateapi.DecisionListOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.LandingRecordOp), Doc: orchestrateapi.Doc(orchestrateapi.LandingRecordOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.LandingListOp), Doc: orchestrateapi.Doc(orchestrateapi.LandingListOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.EventRecordOp), Doc: orchestrateapi.Doc(orchestrateapi.EventRecordOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.EventLogOp), Doc: orchestrateapi.Doc(orchestrateapi.EventLogOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.ImportPlanOp), Doc: orchestrateapi.Doc(orchestrateapi.ImportPlanOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.HostStatusOp), Doc: orchestrateapi.Doc(orchestrateapi.HostStatusOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.HostProcessesOp), Doc: orchestrateapi.Doc(orchestrateapi.HostProcessesOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.HostReadinessOp), Doc: orchestrateapi.Doc(orchestrateapi.HostReadinessOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.EventsSinceOp), Doc: orchestrateapi.Doc(orchestrateapi.EventsSinceOp)}})
+	api.Completion("orchestrate", shell, []api.Entry{api.Entry{Name: orchestrateapi.Name(orchestrateapi.UnitOpenOp), Doc: orchestrateapi.Doc(orchestrateapi.UnitOpenOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.ReceiptRecordOp), Doc: orchestrateapi.Doc(orchestrateapi.ReceiptRecordOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.UnitStateOp), Doc: orchestrateapi.Doc(orchestrateapi.UnitStateOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.UnitAcceptOp), Doc: orchestrateapi.Doc(orchestrateapi.UnitAcceptOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.UnitLandOp), Doc: orchestrateapi.Doc(orchestrateapi.UnitLandOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.UnitCloseOp), Doc: orchestrateapi.Doc(orchestrateapi.UnitCloseOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.CommitmentAddOp), Doc: orchestrateapi.Doc(orchestrateapi.CommitmentAddOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.CommitmentAssignOp), Doc: orchestrateapi.Doc(orchestrateapi.CommitmentAssignOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.CommitmentLandOp), Doc: orchestrateapi.Doc(orchestrateapi.CommitmentLandOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.CommitmentDecideOp), Doc: orchestrateapi.Doc(orchestrateapi.CommitmentDecideOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.CommitmentListOp), Doc: orchestrateapi.Doc(orchestrateapi.CommitmentListOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.QueueUpsertOp), Doc: orchestrateapi.Doc(orchestrateapi.QueueUpsertOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.QueueRemoveOp), Doc: orchestrateapi.Doc(orchestrateapi.QueueRemoveOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.QueueListOp), Doc: orchestrateapi.Doc(orchestrateapi.QueueListOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.QuestionAskOp), Doc: orchestrateapi.Doc(orchestrateapi.QuestionAskOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.QuestionAnswerOp), Doc: orchestrateapi.Doc(orchestrateapi.QuestionAnswerOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.QuestionListOp), Doc: orchestrateapi.Doc(orchestrateapi.QuestionListOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.UnitTransferOp), Doc: orchestrateapi.Doc(orchestrateapi.UnitTransferOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.LandingBeginOp), Doc: orchestrateapi.Doc(orchestrateapi.LandingBeginOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.LandingEndOp), Doc: orchestrateapi.Doc(orchestrateapi.LandingEndOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.RunSummaryOp), Doc: orchestrateapi.Doc(orchestrateapi.RunSummaryOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.UnitListOp), Doc: orchestrateapi.Doc(orchestrateapi.UnitListOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.DecisionRecordOp), Doc: orchestrateapi.Doc(orchestrateapi.DecisionRecordOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.DecisionListOp), Doc: orchestrateapi.Doc(orchestrateapi.DecisionListOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.LandingRecordOp), Doc: orchestrateapi.Doc(orchestrateapi.LandingRecordOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.LandingListOp), Doc: orchestrateapi.Doc(orchestrateapi.LandingListOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.EventRecordOp), Doc: orchestrateapi.Doc(orchestrateapi.EventRecordOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.EventLogOp), Doc: orchestrateapi.Doc(orchestrateapi.EventLogOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.ImportPlanOp), Doc: orchestrateapi.Doc(orchestrateapi.ImportPlanOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.HostStatusOp), Doc: orchestrateapi.Doc(orchestrateapi.HostStatusOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.HostProcessesOp), Doc: orchestrateapi.Doc(orchestrateapi.HostProcessesOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.HostReadinessOp), Doc: orchestrateapi.Doc(orchestrateapi.HostReadinessOp)}, api.Entry{Name: orchestrateapi.Name(orchestrateapi.EventsSinceOp), Doc: orchestrateapi.Doc(orchestrateapi.EventsSinceOp)}})
 }
 
 // Wire is the command line as a transport of the hub's calls.

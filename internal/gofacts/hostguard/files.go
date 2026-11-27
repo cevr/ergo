@@ -8,7 +8,9 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
+	"syscall"
 
 	"ergo.local/prototype/runtime/v1/hostfs"
 )
@@ -26,12 +28,13 @@ import (
 // fileCalls are the guarded file calls, one per file row.
 func fileCalls() map[string]func(s ambient) error {
 	return map[string]func(s ambient) error{
-		"os.ReadFile":            readFileCheck(os.ReadFile),
-		"os.WriteFile":           writeFileCheck,
-		hostfs.Path + ".ReadDir": readDirCheck,
-		hostfs.Path + ".Stat":    statCheck(hostfs.Stat, false),
-		hostfs.Path + ".Lstat":   statCheck(hostfs.Lstat, true),
-		hostfs.Path + ".Statfs":  statfsCheck,
+		"os.ReadFile":              readFileCheck(os.ReadFile),
+		"os.WriteFile":             writeFileCheck,
+		hostfs.Path + ".ReadDir":   readDirCheck,
+		hostfs.Path + ".Stat":      statCheck(hostfs.Stat, false),
+		hostfs.Path + ".Lstat":     statCheck(hostfs.Lstat, true),
+		hostfs.Path + ".Statfs":    statfsCheck,
+		hostfs.Path + ".Getfsstat": getfsstatCheck,
 		"os.Mkdir": func(s ambient) error {
 			return madeDir(s, "hg-mkdir", "hg-mkdir", func() error { return os.Mkdir("hg-mkdir", 0o755) })
 		},
@@ -349,6 +352,30 @@ func statfsCheck(s ambient) error {
 	}
 	if _, err := hostfs.Statfs("hg-statfs-missing"); !errors.Is(err, fs.ErrNotExist) {
 		return fmt.Errorf("Statfs(hg-statfs-missing) in %s is %v, want NotExist", s.dir, err)
+	}
+	return nil
+}
+
+// getfsstatCheck: Getfsstat returns ENOSYS outside darwin and valid mounted
+// filesystem records on darwin.
+func getfsstatCheck(s ambient) error {
+	mounts, err := hostfs.Getfsstat()
+	if runtime.GOOS != "darwin" {
+		if !errors.Is(err, syscall.ENOSYS) {
+			return fmt.Errorf("Getfsstat on %s in %s returned (%v, %v), want ENOSYS", runtime.GOOS, s.dir, mounts, err)
+		}
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if len(mounts) == 0 {
+		return fmt.Errorf("Getfsstat on darwin in %s returned 0 mounts", s.dir)
+	}
+	for _, m := range mounts {
+		if m.MountPoint == "" || m.DeviceID == "" || m.Total < 0 || m.Free < 0 || m.Available < 0 || m.Free > m.Total || m.Available > m.Total {
+			return fmt.Errorf("Getfsstat on darwin in %s returned invalid mount %+v", s.dir, m)
+		}
 	}
 	return nil
 }

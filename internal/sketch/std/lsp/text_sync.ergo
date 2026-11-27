@@ -1,0 +1,646 @@
+import json
+import option
+import slices
+import strconv
+import strings
+import sync
+
+// TextDocumentSyncKind identifies how text document changes are synchronized with the client.
+type TextDocumentSyncKind = SyncNone | SyncFull | SyncIncremental
+
+// SyncNone indicates the server does not track text document contents.
+type SyncNone {}
+
+// SyncFull indicates the client sends full document contents on change.
+type SyncFull {}
+
+// SyncIncremental indicates the client sends ranged incremental edits on change.
+type SyncIncremental {}
+
+// SyncKindCode converts kind to the LSP numeric code (0=None, 1=Full, 2=Incremental).
+func SyncKindCode(kind TextDocumentSyncKind) int {
+	match kind {
+	case SyncNone:
+		0
+	case SyncFull:
+		1
+	case SyncIncremental:
+		2
+	}
+}
+
+// DocumentAlreadyOpen reports a DidOpen call for a URI that is already tracked.
+type DocumentAlreadyOpen { URI string }
+
+// DocumentNotOpen reports a DidChange or DidClose call for a URI that is not open.
+type DocumentNotOpen { URI string }
+
+// StaleVersion reports a DidChange whose version does not strictly advance the open version.
+type StaleVersion { URI string, Current int, Received int }
+
+// MalformedParams reports invalid LSP textDocument notification parameters.
+type MalformedParams { Detail string }
+
+// SyncError enumerates every failure returned by Overlay text synchronization operations.
+type SyncError = DocumentAlreadyOpen | DocumentNotOpen | StaleVersion | InvalidRange | MalformedParams
+
+// TextDocumentItem describes an opened document sent via textDocument/didOpen.
+type TextDocumentItem { URI string "uri", LanguageID string "languageId", Version int "version", Text string "text" }
+
+// VersionedTextDocumentIdentifier identifies a specific version of an open document.
+type VersionedTextDocumentIdentifier { URI string "uri", Version int "version" }
+
+// TextDocumentIdentifier identifies a document by URI.
+type TextDocumentIdentifier { URI string "uri" }
+
+// ContentChange describes a single incremental (ranged) or full-document edit event.
+type ContentChange { Range option.Option[Range], RangeLength option.Option[int], Text string }
+
+// DidOpenParams carries decoded parameters for textDocument/didOpen.
+type DidOpenParams { TextDocument TextDocumentItem }
+
+// DidChangeParams carries decoded parameters for textDocument/didChange.
+type DidChangeParams { TextDocument VersionedTextDocumentIdentifier, ContentChanges []ContentChange }
+
+// DidCloseParams carries decoded parameters for textDocument/didClose.
+type DidCloseParams { TextDocument TextDocumentIdentifier }
+
+// Document stores the synchronized state of an open LSP text document.
+type Document { URI string, LanguageID string, Version int, Revision int, Text string }
+
+// OverlaySnapshot captures an immutable sorted view of all open documents at one revision.
+type OverlaySnapshot { Revision int, Encoding PositionEncoding, Documents []Document }
+
+func validateEditRange(r Range) fails InvalidRange {
+	try ValidateRange(r)
+}
+
+// ApplyChange applies one incremental or full-document ContentChange to text under encoding.
+func ApplyChange(text string, encoding PositionEncoding, change ContentChange) string fails InvalidRange {
+	match change.Range {
+	case option.None:
+		change.Text
+	case option.Some as r:
+		try validateEditRange(r.Value)
+		let idx = NewLineIndex(text, encoding)
+		let span = try RangeToSpan(idx, r.Value)
+		strings.Slice(text, 0, span.Start) + change.Text + strings.Slice(text, span.End, text.Len())
+	}
+}
+
+// ApplyChanges applies a sequential slice of ContentChange edits to text atomically.
+func ApplyChanges(text string, encoding PositionEncoding, changes []ContentChange) string fails InvalidRange {
+	let mut cur = text
+	for ch in changes {
+		cur = try ApplyChange(cur, encoding, ch)
+	}
+	cur
+}
+
+func jsonField(obj json.Object, key string) option.Option[json.Value] {
+	for m in obj.Members {
+		if m.Key == key {
+			return option.Some{Value: m.Value}
+		}
+	}
+	option.None
+}
+
+func jsonObject(v json.Value, ctx string) json.Object fails MalformedParams {
+	match v {
+	case json.Object as o:
+		o
+	case _:
+		return MalformedParams{Detail: ctx + " must be a JSON object"}
+	}
+}
+
+func jsonStringField(obj json.Object, key string, ctx string) string fails MalformedParams {
+	let raw = match jsonField(obj, key) {
+	case option.None:
+		return MalformedParams{Detail: ctx + " missing field " + key}
+	case option.Some as v:
+		v.Value
+	}
+	match raw {
+	case json.Str as s:
+		s.Value
+	case _:
+		return MalformedParams{Detail: ctx + "." + key + " must be a string"}
+	}
+}
+
+func jsonIntValue(v json.Value, ctx string) int fails MalformedParams {
+	match v {
+	case json.Num as n:
+		let raw = n.Wire()
+		strconv.Atoi(raw) catch {
+		case _:
+			return MalformedParams{Detail: ctx + " must be an integer"}
+		}
+	case _:
+		return MalformedParams{Detail: ctx + " must be an integer"}
+	}
+}
+
+func jsonIntField(obj json.Object, key string, ctx string) int fails MalformedParams {
+	let raw = match jsonField(obj, key) {
+	case option.None:
+		return MalformedParams{Detail: ctx + " missing field " + key}
+	case option.Some as v:
+		v.Value
+	}
+	try jsonIntValue(raw, ctx+"."+key)
+}
+
+func jsonPosition(v json.Value, ctx string) Position fails MalformedParams {
+	let obj = try jsonObject(v, ctx)
+	let line = try jsonIntField(obj, "line", ctx)
+	let ch = try jsonIntField(obj, "character", ctx)
+	Position{Line: line, Character: ch}
+}
+
+func jsonRange(v json.Value, ctx string) Range fails MalformedParams {
+	let obj = try jsonObject(v, ctx)
+	let startRaw = match jsonField(obj, "start") {
+	case option.None:
+		return MalformedParams{Detail: ctx + " missing field start"}
+	case option.Some as s:
+		s.Value
+	}
+	let endRaw = match jsonField(obj, "end") {
+	case option.None:
+		return MalformedParams{Detail: ctx + " missing field end"}
+	case option.Some as e:
+		e.Value
+	}
+	let start = try jsonPosition(startRaw, ctx+".start")
+	let end = try jsonPosition(endRaw, ctx+".end")
+	Range{Start: start, End: end}
+}
+
+// DecodeDidOpenParams decodes LSP textDocument/didOpen notification params from v.
+func DecodeDidOpenParams(v json.Value) DidOpenParams fails MalformedParams {
+	let root = try jsonObject(v, "didOpen.params")
+	let tdVal = match jsonField(root, "textDocument") {
+	case option.None:
+		return MalformedParams{Detail: "didOpen.params missing textDocument"}
+	case option.Some as s:
+		s.Value
+	}
+	let td = try jsonObject(tdVal, "didOpen.params.textDocument")
+	let uri = try jsonStringField(td, "uri", "textDocument")
+	let lang = match jsonField(td, "languageId") {
+	case option.None:
+		""
+	case option.Some as l:
+		match l.Value {
+		case json.Str as s:
+			s.Value
+		case _:
+			return MalformedParams{Detail: "textDocument.languageId must be a string"}
+		}
+	}
+	let version = try jsonIntField(td, "version", "textDocument")
+	let text = try jsonStringField(td, "text", "textDocument")
+	DidOpenParams{TextDocument: TextDocumentItem{URI: uri, LanguageID: lang, Version: version, Text: text}}
+}
+
+// DecodeDidChangeParams decodes LSP textDocument/didChange notification params from v.
+func DecodeDidChangeParams(v json.Value) DidChangeParams fails MalformedParams {
+	let root = try jsonObject(v, "didChange.params")
+	let tdVal = match jsonField(root, "textDocument") {
+	case option.None:
+		return MalformedParams{Detail: "didChange.params missing textDocument"}
+	case option.Some as s:
+		s.Value
+	}
+	let td = try jsonObject(tdVal, "didChange.params.textDocument")
+	let uri = try jsonStringField(td, "uri", "textDocument")
+	let version = try jsonIntField(td, "version", "textDocument")
+	let changesVal = match jsonField(root, "contentChanges") {
+	case option.None:
+		return MalformedParams{Detail: "didChange.params missing contentChanges"}
+	case option.Some as s:
+		s.Value
+	}
+	let items = match changesVal {
+	case json.Array as arr:
+		arr.Items
+	case _:
+		return MalformedParams{Detail: "didChange.params.contentChanges must be an array"}
+	}
+	let mut changes = []ContentChange{}
+	for item in items {
+		let chObj = try jsonObject(item, "contentChange")
+		let rng = match jsonField(chObj, "range") {
+		case option.None:
+			option.None
+		case option.Some as r:
+			match r.Value {
+			case json.Null:
+				option.None
+			case _:
+				option.Some{Value: try jsonRange(r.Value, "contentChange.range")}
+			}
+		}
+		let rngLen = match jsonField(chObj, "rangeLength") {
+		case option.None:
+			option.None
+		case option.Some as rl:
+			match rl.Value {
+			case json.Null:
+				option.None
+			case _:
+				option.Some{Value: try jsonIntValue(rl.Value, "contentChange.rangeLength")}
+			}
+		}
+		let text = try jsonStringField(chObj, "text", "contentChange")
+		changes = changes.Append(ContentChange{Range: rng, RangeLength: rngLen, Text: text})
+	}
+	DidChangeParams{
+		TextDocument:   VersionedTextDocumentIdentifier{URI: uri, Version: version},
+		ContentChanges: changes,
+	}
+}
+
+// DecodeDidCloseParams decodes LSP textDocument/didClose notification params from v.
+func DecodeDidCloseParams(v json.Value) DidCloseParams fails MalformedParams {
+	let root = try jsonObject(v, "didClose.params")
+	let tdVal = match jsonField(root, "textDocument") {
+	case option.None:
+		return MalformedParams{Detail: "didClose.params missing textDocument"}
+	case option.Some as s:
+		s.Value
+	}
+	let td = try jsonObject(tdVal, "didClose.params.textDocument")
+	let uri = try jsonStringField(td, "uri", "textDocument")
+	DidCloseParams{TextDocument: TextDocumentIdentifier{URI: uri}}
+}
+
+type overlayState { revision int, encoding PositionEncoding, docs Map[string, Document] }
+
+// Overlay maintains a thread-safe versioned working copy of open LSP text documents.
+type Overlay { state sync.Ref[overlayState] }
+
+// NewOverlay creates an empty Overlay using EncodingUTF16.
+func NewOverlay() Overlay {
+	NewOverlayWithEncoding(EncodingUTF16)
+}
+
+// NewOverlayWithEncoding creates an empty Overlay configured with encoding.
+func NewOverlayWithEncoding(encoding PositionEncoding) Overlay {
+	Overlay{
+		state: sync.NewRef(overlayState{
+			revision: 0,
+			encoding: encoding,
+			docs:     Map[string, Document]{},
+		}),
+	}
+}
+
+// SetEncoding updates the coordinate PositionEncoding used by subsequent DidChange edits.
+func SetEncoding(o Overlay, encoding PositionEncoding) {
+	o.state.Update(func(st overlayState) overlayState {
+		overlayState{revision: st.revision, encoding: encoding, docs: st.docs}
+	})
+}
+
+// Encoding returns the active PositionEncoding of o.
+func Encoding(o Overlay) PositionEncoding {
+	o.state.Get().encoding
+}
+
+// Revision returns the monotonic change sequence counter of o.
+func Revision(o Overlay) int {
+	o.state.Get().revision
+}
+
+// DidOpen registers doc in o, failing DocumentAlreadyOpen if doc.URI is already open.
+func DidOpen(o Overlay, doc TextDocumentItem) fails DocumentAlreadyOpen {
+	let res = sync.Modify[overlayState, option.Option[DocumentAlreadyOpen]](o.state, func(st overlayState) (option.Option[DocumentAlreadyOpen], overlayState) {
+		match st.docs.Get(doc.URI) {
+		case option.Some:
+			(option.Some{Value: DocumentAlreadyOpen{URI: doc.URI}}, st)
+		case option.None:
+			let nextRev = st.revision + 1
+			let nextDocs = st.docs.Put(doc.URI, Document{
+				URI:        doc.URI,
+				LanguageID: doc.LanguageID,
+				Version:    doc.Version,
+				Revision:   nextRev,
+				Text:       doc.Text,
+			})
+			(option.None, overlayState{revision: nextRev, encoding: st.encoding, docs: nextDocs})
+		}
+	})
+	match res {
+	case option.Some as err:
+		return err.Value
+	case option.None:
+	}
+}
+
+type changeOutcome = changeOK | changeNotOpen | changeStale | changeBadRange
+
+type changeOK {}
+
+type changeNotOpen { uri string }
+
+type changeStale { uri string, cur int, rec int }
+
+type changeBadRange { err InvalidRange }
+
+// DidChange atomically validates version and applies changes sequentially to doc.URI.
+func DidChange(o Overlay, doc VersionedTextDocumentIdentifier, changes []ContentChange) fails DocumentNotOpen | StaleVersion | InvalidRange {
+	let res = sync.Modify[overlayState, changeOutcome](o.state, func(st overlayState) (changeOutcome, overlayState) {
+		let cur = match st.docs.Get(doc.URI) {
+		case option.None:
+			return (changeNotOpen{uri: doc.URI}, st)
+		case option.Some as found:
+			found.Value
+		}
+		if doc.Version <= cur.Version {
+			return (changeStale{uri: doc.URI, cur: cur.Version, rec: doc.Version}, st)
+		}
+		let nextText = ApplyChanges(cur.Text, st.encoding, changes) catch {
+		case InvalidRange as r:
+			return (changeBadRange{err: r}, st)
+		}
+		let nextRev = st.revision + 1
+		let updated = Document{
+			URI:        cur.URI,
+			LanguageID: cur.LanguageID,
+			Version:    doc.Version,
+			Revision:   nextRev,
+			Text:       nextText,
+		}
+		let nextDocs = st.docs.Put(doc.URI, updated)
+		(changeOK, overlayState{revision: nextRev, encoding: st.encoding, docs: nextDocs})
+	})
+	match res {
+	case changeOK:
+	case changeNotOpen as e:
+		return DocumentNotOpen{URI: e.uri}
+	case changeStale as e:
+		return StaleVersion{URI: e.uri, Current: e.cur, Received: e.rec}
+	case changeBadRange as e:
+		return e.err
+	}
+}
+
+// DidClose removes uri from o, failing DocumentNotOpen if not open.
+func DidClose(o Overlay, uri string) fails DocumentNotOpen {
+	let res = sync.Modify[overlayState, option.Option[DocumentNotOpen]](o.state, func(st overlayState) (option.Option[DocumentNotOpen], overlayState) {
+		match st.docs.Get(uri) {
+		case option.None:
+			(option.Some{Value: DocumentNotOpen{URI: uri}}, st)
+		case option.Some:
+			let nextRev = st.revision + 1
+			let nextDocs = st.docs.Delete(uri)
+			(option.None, overlayState{revision: nextRev, encoding: st.encoding, docs: nextDocs})
+		}
+	})
+	match res {
+	case option.Some as err:
+		return err.Value
+	case option.None:
+	}
+}
+
+// Get returns the current Document for uri if open.
+func Get(o Overlay, uri string) option.Option[Document] {
+	o.state.Get().docs.Get(uri)
+}
+
+// Text returns the current text of uri if open.
+func Text(o Overlay, uri string) option.Option[string] {
+	match o.state.Get().docs.Get(uri) {
+	case option.None:
+		option.None
+	case option.Some as doc:
+		option.Some{Value: doc.Value.Text}
+	}
+}
+
+// Snapshot returns an immutable URI-sorted snapshot of all currently open documents.
+func Snapshot(o Overlay) OverlaySnapshot {
+	let st = o.state.Get()
+	let mut docs = []Document{}
+	for _, doc in st.docs {
+		docs = docs.Append(doc)
+	}
+	let sorted = slices.SortFunc(docs, func(a Document, b Document) int {
+		strings.Compare(a.URI, b.URI)
+	})
+	OverlaySnapshot{
+		Revision:  st.revision,
+		Encoding:  st.encoding,
+		Documents: sorted,
+	}
+}
+
+func stripLineBreaks(s string) string {
+	let mut b = strings.NewBuilder()
+	let bs = s.Bytes()
+	let mut i = 0
+	for i < bs.Len() {
+		if bs[i] != '\r' && bs[i] != '\n' {
+			b.WriteByte(bs[i])
+		}
+		i = i + 1
+	}
+	b.String()
+}
+
+law EditsGiveTheModelText(insert string, replace string, useUTF8 bool) {
+	let seg = stripLineBreaks(insert)
+	let rep = stripLineBreaks(replace)
+	let enc = if useUTF8 { EncodingUTF8 } else { EncodingUTF16 }
+	let o = NewOverlayWithEncoding(enc)
+	let uri = "file:///doc.ergo"
+	DidOpen(o, TextDocumentItem{
+		URI:        "file:///z.ergo",
+		LanguageID: "ergo",
+		Version:    1,
+		Text:       "other",
+	}) catch {
+	case _:
+		return false
+	}
+	DidOpen(o, TextDocumentItem{
+		URI:        uri,
+		LanguageID: "ergo",
+		Version:    1,
+		Text:       "ab😀c\r\ndéf",
+	}) catch {
+	case _:
+		return false
+	}
+	let c1 = ContentChange{
+		Range: option.Some{Value: Range{
+			Start: Position{Line: 0, Character: 4},
+			End:   Position{Line: 0, Character: 5},
+		}},
+		RangeLength: option.None,
+		Text:        seg + "é",
+	}
+	let c2 = ContentChange{
+		Range: option.Some{Value: Range{
+			Start: Position{Line: 1, Character: 1},
+			End:   Position{Line: 1, Character: 3},
+		}},
+		RangeLength: option.None,
+		Text:        rep,
+	}
+	let ok1 = match enc {
+	case EncodingUTF16:
+		DidChange(o, VersionedTextDocumentIdentifier{URI: uri, Version: 2}, []ContentChange{c1, c2}) catch {
+		case _:
+			return false
+		}
+		match Text(o, uri) {
+		case option.Some as s:
+			s.Value == "ab😀"+seg+"é\r\nd"+rep
+		case option.None:
+			false
+		}
+	case EncodingUTF8:
+		let c1utf8 = ContentChange{
+			Range: option.Some{Value: Range{
+				Start: Position{Line: 0, Character: 6},
+				End:   Position{Line: 0, Character: 7},
+			}},
+			RangeLength: option.None,
+			Text:        seg + "x",
+		}
+		DidChange(o, VersionedTextDocumentIdentifier{URI: uri, Version: 2}, []ContentChange{c1utf8}) catch {
+		case _:
+			return false
+		}
+		match Text(o, uri) {
+		case option.Some as s:
+			s.Value == "ab😀"+seg+"x\r\ndéf"
+		case option.None:
+			false
+		}
+	}
+	if !ok1 {
+		return false
+	}
+	let splitEdit = ContentChange{
+		Range: option.Some{Value: Range{
+			Start: Position{Line: 0, Character: 1},
+			End:   Position{Line: 0, Character: 1},
+		}},
+		RangeLength: option.None,
+		Text:        "\nSPLIT\r\n",
+	}
+	let afterSplitEdit = ContentChange{
+		Range: option.Some{Value: Range{
+			Start: Position{Line: 1, Character: 0},
+			End:   Position{Line: 1, Character: 5},
+		}},
+		RangeLength: option.None,
+		Text:        "TAIL",
+	}
+	DidChange(o, VersionedTextDocumentIdentifier{URI: uri, Version: 3}, []ContentChange{splitEdit, afterSplitEdit}) catch {
+	case _:
+		return false
+	}
+	let splitOK = match Text(o, uri) {
+	case option.Some as s:
+		strings.HasPrefix(s.Value, "a\nTAIL\r\n")
+	case option.None:
+		false
+	}
+	if !splitOK {
+		return false
+	}
+	let full = ContentChange{Range: option.None, RangeLength: option.None, Text: "final:" + rep}
+	DidChange(o, VersionedTextDocumentIdentifier{URI: uri, Version: 4}, []ContentChange{full}) catch {
+	case _:
+		return false
+	}
+	let snap = Snapshot(o)
+	if snap.Documents.Len() != 2 || snap.Documents[0].URI != uri || snap.Documents[1].URI != "file:///z.ergo" {
+		return false
+	}
+	if snap.Documents[0].Text != "final:"+rep || snap.Documents[0].Version != 4 {
+		return false
+	}
+	DidClose(o, uri) catch {
+	case _:
+		return false
+	}
+	let closedSnap = Snapshot(o)
+	closedSnap.Documents.Len() == 1 && closedSnap.Documents[0].URI == "file:///z.ergo"
+}
+
+law RejectsStaleVersionsAndInvalidEdits(text string) {
+	let o = NewOverlay()
+	let uri = "file:///a.ergo"
+	DidOpen(o, TextDocumentItem{URI: uri, LanguageID: "ergo", Version: 5, Text: "line0\nline1"}) catch {
+	case _:
+		return false
+	}
+	let mut dupRejected = false
+	DidOpen(o, TextDocumentItem{URI: uri, LanguageID: "ergo", Version: 6, Text: text}) catch {
+	case DocumentAlreadyOpen:
+		dupRejected = true
+	}
+	let mut eqVersionRejected = false
+	DidChange(o, VersionedTextDocumentIdentifier{URI: uri, Version: 5}, []ContentChange{}) catch {
+	case StaleVersion as sv:
+		eqVersionRejected = sv.Current == 5 && sv.Received == 5
+	case _:
+		eqVersionRejected = false
+	}
+	let mut olderVersionRejected = false
+	DidChange(o, VersionedTextDocumentIdentifier{URI: uri, Version: 3}, []ContentChange{}) catch {
+	case StaleVersion:
+		olderVersionRejected = true
+	case _:
+		olderVersionRejected = false
+	}
+	let goodEdit = ContentChange{
+		Range:       option.Some{Value: Range{Start: Position{Line: 0, Character: 0}, End: Position{Line: 0, Character: 1}}},
+		RangeLength: option.None,
+		Text:        "X",
+	}
+	let badEdit = ContentChange{
+		Range:       option.Some{Value: Range{Start: Position{Line: 1, Character: 2}, End: Position{Line: 0, Character: 0}}},
+		RangeLength: option.None,
+		Text:        "Y",
+	}
+	let mut badRangeAtomic = false
+	DidChange(o, VersionedTextDocumentIdentifier{URI: uri, Version: 6}, []ContentChange{goodEdit, badEdit}) catch {
+	case InvalidRange:
+		badRangeAtomic = true
+	case _:
+		badRangeAtomic = false
+	}
+	let unchangedAfterBad = match Get(o, uri) {
+	case option.Some as doc:
+		doc.Value.Version == 5 && doc.Value.Text == "line0\nline1"
+	case option.None:
+		false
+	}
+	DidClose(o, uri) catch {
+	case _:
+		return false
+	}
+	let mut closeTwiceRejected = false
+	DidClose(o, uri) catch {
+	case DocumentNotOpen:
+		closeTwiceRejected = true
+	}
+	let mut changeClosedRejected = false
+	DidChange(o, VersionedTextDocumentIdentifier{URI: uri, Version: 7}, []ContentChange{}) catch {
+	case DocumentNotOpen:
+		changeClosedRejected = true
+	case _:
+		changeClosedRejected = false
+	}
+	dupRejected && eqVersionRejected && olderVersionRejected && badRangeAtomic && unchangedAfterBad && closeTwiceRejected && changeClosedRejected
+}

@@ -1,0 +1,391 @@
+import json
+import option
+import strings
+import utf8
+
+// PositionEncoding selects how LSP character offsets within a line are measured.
+type PositionEncoding = EncodingUTF16 | EncodingUTF8
+
+// EncodingUTF16 measures line character columns in UTF-16 code units (LSP default).
+type EncodingUTF16 {}
+
+// EncodingUTF8 measures line character columns in UTF-8 bytes.
+type EncodingUTF8 {}
+
+// EncodingWire returns the LSP wire identifier for enc ("utf-16" or "utf-8").
+func EncodingWire(enc PositionEncoding) string {
+	match enc {
+	case EncodingUTF16:
+		"utf-16"
+	case EncodingUTF8:
+		"utf-8"
+	}
+}
+
+// ParseEncoding parses an LSP position encoding wire name if supported.
+func ParseEncoding(name string) option.Option[PositionEncoding] {
+	if name == "utf-8" {
+		return option.Some{Value: EncodingUTF8}
+	}
+	if name == "utf-16" {
+		return option.Some{Value: EncodingUTF16}
+	}
+	option.None
+}
+
+// NegotiateEncoding selects EncodingUTF8 when supported by clientEncodings, defaulting to EncodingUTF16.
+func NegotiateEncoding(clientEncodings []string) PositionEncoding {
+	for enc in clientEncodings {
+		if enc == "utf-8" {
+			return EncodingUTF8
+		}
+	}
+	EncodingUTF16
+}
+
+// NegotiateEncodingFromParams reads client capabilities.general.positionEncodings from initialize params.
+func NegotiateEncodingFromParams(initParams json.Value) PositionEncoding {
+	let caps = match objectMember(initParams, "capabilities") {
+	case option.None:
+		return EncodingUTF16
+	case option.Some as v:
+		v.Value
+	}
+	let general = match objectMember(caps, "general") {
+	case option.None:
+		return EncodingUTF16
+	case option.Some as v:
+		v.Value
+	}
+	let rawList = match objectMember(general, "positionEncodings") {
+	case option.None:
+		return EncodingUTF16
+	case option.Some as v:
+		v.Value
+	}
+	let items = match rawList {
+	case json.Array as arr:
+		arr.Items
+	case _:
+		return EncodingUTF16
+	}
+	let mut encs = []string{}
+	for item in items {
+		match item {
+		case json.Str as s:
+			encs = encs.Append(s.Value)
+		case _:
+		}
+	}
+	NegotiateEncoding(encs)
+}
+
+func objectMember(v json.Value, key string) option.Option[json.Value] {
+	match v {
+	case json.Object as obj:
+		for m in obj.Members {
+			if m.Key == key {
+				return option.Some{Value: m.Value}
+			}
+		}
+		option.None
+	case _:
+		option.None
+	}
+}
+
+// Position identifies a zero-based line and character offset inside a text document.
+type Position { Line int "line", Character int "character" }
+
+// Range spans from Start (inclusive) to End (exclusive) using LSP Positions.
+type Range { Start Position "start", End Position "end" }
+
+// Span represents a half-open zero-based UTF-8 byte interval [Start, End).
+type Span { Start int, End int }
+
+// InvalidRange reports negative coordinates or a Range whose Start follows its End.
+type InvalidRange { Detail string }
+
+type lineSpan { start int, end int }
+
+// LineIndex caches line boundaries of a document for fast Position and byte offset conversion.
+type LineIndex { text string, encoding PositionEncoding, lines []lineSpan }
+
+func buildLines(text string) []lineSpan {
+	let bs = text.Bytes()
+	let n = bs.Len()
+	let mut lines = []lineSpan{}
+	let mut start = 0
+	let mut i = 0
+	for i < n {
+		let b = bs[i]
+		if b == '\r' {
+			lines = lines.Append(lineSpan{start: start, end: i})
+			if i+1 < n && bs[i+1] == '\n' {
+				i = i + 2
+			} else {
+				i = i + 1
+			}
+			start = i
+		} else if b == '\n' {
+			lines = lines.Append(lineSpan{start: start, end: i})
+			i = i + 1
+			start = i
+		} else {
+			i = i + 1
+		}
+	}
+	lines = lines.Append(lineSpan{start: start, end: n})
+	lines
+}
+
+// NewLineIndex builds a LineIndex over text using the supplied PositionEncoding.
+func NewLineIndex(text string, encoding PositionEncoding) LineIndex {
+	LineIndex{text: text, encoding: encoding, lines: buildLines(text)}
+}
+
+// LineCount returns the number of lines in idx (always at least 1).
+func LineCount(idx LineIndex) int {
+	idx.lines.Len()
+}
+
+// LineText returns the content of zero-based line without its trailing line break, or "" if out of range.
+func LineText(idx LineIndex, line int) string {
+	if line < 0 || line >= idx.lines.Len() {
+		return ""
+	}
+	let ls = idx.lines[line]
+	strings.Slice(idx.text, ls.start, ls.end)
+}
+
+// ComparePositions returns -1 if a precedes b, 0 if equal, and 1 if a follows b.
+func ComparePositions(a Position, b Position) int {
+	if a.Line < b.Line {
+		return -1
+	}
+	if a.Line > b.Line {
+		return 1
+	}
+	if a.Character < b.Character {
+		return -1
+	}
+	if a.Character > b.Character {
+		return 1
+	}
+	0
+}
+
+func findLine(lines []lineSpan, offset int) int {
+	let mut lo = 0
+	let mut hi = lines.Len() - 1
+	for lo < hi {
+		let mid = lo + (hi-lo+1)/2
+		if lines[mid].start <= offset {
+			lo = mid
+		} else {
+			hi = mid - 1
+		}
+	}
+	lo
+}
+
+// OffsetToPosition converts a UTF-8 byte offset in idx to a clamped LSP Position.
+func OffsetToPosition(idx LineIndex, offset int) Position {
+	let n = idx.text.Len()
+	let clamped = if offset < 0 { 0 } else if offset > n { n } else { offset }
+	let li = findLine(idx.lines, clamped)
+	let ls = idx.lines[li]
+	let target = if clamped > ls.end { ls.end } else { clamped }
+	match idx.encoding {
+	case EncodingUTF8:
+		Position{Line: li, Character: target - ls.start}
+	case EncodingUTF16:
+		let bs = idx.text.Bytes()
+		let mut p = ls.start
+		let mut units = 0
+		for p < target {
+			if bs[p] < 128 {
+				units = units + 1
+				p = p + 1
+			} else {
+				let dec = utf8.DecodeRuneInString(strings.Slice(idx.text, p, ls.end))
+				if dec.Size <= 0 || p+dec.Size > target {
+					break
+				}
+				let w = if int(dec.Rune) >= 65536 { 2 } else { 1 }
+				units = units + w
+				p = p + dec.Size
+			}
+		}
+		Position{Line: li, Character: units}
+	}
+}
+
+// PositionToOffset converts an LSP Position to a clamped UTF-8 byte offset in idx.
+func PositionToOffset(idx LineIndex, pos Position) int {
+	if pos.Line < 0 {
+		return 0
+	}
+	if pos.Line >= idx.lines.Len() {
+		return idx.text.Len()
+	}
+	if pos.Character <= 0 {
+		return idx.lines[pos.Line].start
+	}
+	let ls = idx.lines[pos.Line]
+	match idx.encoding {
+	case EncodingUTF8:
+		let off = ls.start + pos.Character
+		if off > ls.end {
+			return ls.end
+		}
+		off
+	case EncodingUTF16:
+		let bs = idx.text.Bytes()
+		let mut p = ls.start
+		let mut units = 0
+		for p < ls.end && units < pos.Character {
+			if bs[p] < 128 {
+				units = units + 1
+				p = p + 1
+			} else {
+				let dec = utf8.DecodeRuneInString(strings.Slice(idx.text, p, ls.end))
+				if dec.Size <= 0 {
+					break
+				}
+				let w = if int(dec.Rune) >= 65536 { 2 } else { 1 }
+				if units+w > pos.Character {
+					return p
+				}
+				units = units + w
+				p = p + dec.Size
+			}
+		}
+		p
+	}
+}
+
+// ValidateRange verifies that r has non-negative coordinates and Start does not follow End.
+func ValidateRange(r Range) fails InvalidRange {
+	if r.Start.Line < 0 || r.Start.Character < 0 || r.End.Line < 0 || r.End.Character < 0 {
+		return InvalidRange{Detail: "negative line or character position"}
+	}
+	if ComparePositions(r.Start, r.End) > 0 {
+		return InvalidRange{Detail: "range start follows range end"}
+	}
+}
+
+// SpanToRange converts a UTF-8 byte Span to an LSP Range under idx.
+func SpanToRange(idx LineIndex, span Span) Range {
+	let lo = if span.Start < 0 { 0 } else { span.Start }
+	let hi = if span.End < lo { lo } else { span.End }
+	Range{
+		Start: OffsetToPosition(idx, lo),
+		End:   OffsetToPosition(idx, hi),
+	}
+}
+
+// RangeToSpan converts an LSP Range to a validated UTF-8 byte Span under idx.
+func RangeToSpan(idx LineIndex, r Range) Span fails InvalidRange {
+	try ValidateRange(r)
+	let startOff = PositionToOffset(idx, r.Start)
+	let endOff = PositionToOffset(idx, r.End)
+	Span{
+		Start: startOff,
+		End:   if endOff < startOff { startOff } else { endOff },
+	}
+}
+
+// ByteOffsetToPosition converts a UTF-8 byte offset in text directly under encoding.
+func ByteOffsetToPosition(text string, encoding PositionEncoding, offset int) Position {
+	OffsetToPosition(NewLineIndex(text, encoding), offset)
+}
+
+// PositionToByteOffset converts a Position in text directly under encoding.
+func PositionToByteOffset(text string, encoding PositionEncoding, pos Position) int {
+	PositionToOffset(NewLineIndex(text, encoding), pos)
+}
+
+func collectValidBoundaries(idx LineIndex) []int {
+	let mut out = []int{}
+	for ls in idx.lines {
+		let mut p = ls.start
+		out = out.Append(p)
+		for p < ls.end {
+			let dec = utf8.DecodeRuneInString(strings.Slice(idx.text, p, ls.end))
+			if dec.Size <= 0 {
+				break
+			}
+			p = p + dec.Size
+			out = out.Append(p)
+		}
+	}
+	out
+}
+
+law PositionsRoundTrip(mid string, tail string, useCRLF bool, useUTF8 bool) {
+	let br = if useCRLF { "\r\n" } else { "\n" }
+	let doc = "\uFEFFa" + br + "é😀" + mid + "\r" + tail + "🚀\r\nz"
+	let enc = if useUTF8 { EncodingUTF8 } else { EncodingUTF16 }
+	let idx = NewLineIndex(doc, enc)
+	let crlfIdx = NewLineIndex("a\r\nb", EncodingUTF16)
+	if LineCount(crlfIdx) != 2 || PositionToOffset(crlfIdx, Position{Line: 1, Character: 0}) != 3 {
+		return false
+	}
+	let astralIdx = NewLineIndex("😀éx", EncodingUTF16)
+	let afterAstral = OffsetToPosition(astralIdx, 4)
+	let afterAccented = OffsetToPosition(astralIdx, 6)
+	if afterAstral != (Position{Line: 0, Character: 2}) || afterAccented != (Position{Line: 0, Character: 3}) {
+		return false
+	}
+	if PositionToOffset(astralIdx, Position{Line: 0, Character: 1}) != 0 {
+		return false
+	}
+	if PositionToOffset(astralIdx, Position{Line: 99, Character: 0}) != 7 || PositionToOffset(astralIdx, Position{Line: 0, Character: 999}) != 7 {
+		return false
+	}
+	let boundaries = collectValidBoundaries(idx)
+	let mut prev = -1
+	for off in boundaries {
+		let pos = OffsetToPosition(idx, off)
+		let back = PositionToOffset(idx, pos)
+		if back != off {
+			return false
+		}
+		if off < prev {
+			return false
+		}
+		prev = off
+	}
+	let full = Span{Start: 0, End: doc.Len()}
+	let rng = SpanToRange(idx, full)
+	let spanBack = RangeToSpan(idx, rng) catch {
+	case _:
+		return false
+	}
+	spanBack == Span{Start: 0, End: doc.Len()}
+}
+
+law NegotiationPrefersUTF8(first string, second string) {
+	if NegotiateEncoding([]string{"utf-16", "utf-8"}) != (EncodingUTF8) {
+		return false
+	}
+	if NegotiateEncoding([]string{"utf-8", first}) != (EncodingUTF8) {
+		return false
+	}
+	if NegotiateEncoding([]string{first, "utf-8", second}) != (EncodingUTF8) {
+		return false
+	}
+	if NegotiateEncoding([]string{"utf-16"}) != (EncodingUTF16) {
+		return false
+	}
+	if NegotiateEncoding([]string{}) != (EncodingUTF16) {
+		return false
+	}
+	let raw = "{\"capabilities\":{\"general\":{\"positionEncodings\":[\"utf-16\",\"utf-8\"]}}}"
+	let val = json.Decode[json.Value](json.Codec[json.Value]{MaxBytes: 0, MaxDepth: 0}, raw) catch {
+	case _:
+		return false
+	}
+	NegotiateEncodingFromParams(val) == EncodingUTF8
+}

@@ -212,6 +212,7 @@ func HandleHTTP(s Server, req http.Request) http.Response needs time.Scheduler {
 	let limits = process.Limits{
 		Time:  s.cfg.RequestTimeout,
 		Steps: s.cfg.RequestStepLimit,
+		Bytes: 0,
 	}
 	process.Run(limits, func() http.Response {
 		with context { http.Streaming: http.NewRecorder() } {

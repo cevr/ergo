@@ -55,7 +55,21 @@ import time
 // fields are unexported, so NewMemory and NewVolumes are its constructors.
 // mounts are the cleaned paths of the directories that are file systems of
 // their own (NewVolumes): a Rename between two is CrossDevice.
-type Memory { state sync.Ref[memState], mounts []string } implements fs.Files, fs.Writes, fs.Entries
+type Memory { state sync.Ref[memState], mounts []string } implements fs.Files, fs.Writes, fs.Entries, fs.Scans
+
+// ReadDirEntries lists every direct child of path with its non-following
+// Entry in sorted Name order, failing identically to ReadDir on missing,
+// denied, or non-directory paths.
+func ReadDirEntries(m Memory, path string) []fs.DirChild fails fs.NotFound | fs.Denied | fs.Failed {
+	let names = try m.ReadDir(path)
+	let mut out = []fs.DirChild{}
+	for name in names {
+		let child = filepath.Join([]string{path, name})
+		let entry = try m.ReadEntry(child)
+		out = out.Append(fs.DirChild{Name: name, Entry: entry})
+	}
+	out
+}
 
 type memState { tree Map[string, entry], nextIno uint64, tick int64 }
 

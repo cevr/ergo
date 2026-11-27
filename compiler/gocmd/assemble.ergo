@@ -1,0 +1,582 @@
+import dense
+import filepath
+import hex
+import json
+import option
+import sha256
+import slices
+import strconv
+import strings
+
+// DeclFile names the overlay Go declaration stub file inside an Ergo package folder.
+let DeclFile = "ergo_gen.go"
+
+// IRFile names the lowered IR payload file emitted per package.
+let IRFile = "ergoir.json"
+
+// GenDir names the synthetic module folder holding generated Go dependencies.
+let GenDir = "_ergo"
+
+// RuntimeModule is the module import path of the embedded Ergo runtime.
+let RuntimeModule = "ergo.local/prototype"
+
+// FileSpec describes one emitted or overlaid file path and byte content.
+type FileSpec {
+	Path string,
+	Data string,
+}
+
+// Module identifies a Go module root, path, and go.mod bytes.
+type Module {
+	Root  string,
+	Path  string,
+	GoMod string,
+}
+
+// ErgoPackage describes one pure-Ergo package discovered inside a Go module.
+type ErgoPackage {
+	ImportPath string,
+	Dir        string,
+	Name       string,
+}
+
+// AssemblePlan describes the rewritten go command invocation, generated go.mod, overlay JSON, and content trees.
+type AssemblePlan {
+	Args       []string,
+	ModDir     string,
+	GoMod      string,
+	Overlay    string,
+	TreeDirs   Map[string, string],
+	RuntimeDir string,
+	OverlayDir string,
+}
+
+// EmittedFileTag identifies a lowered file row inside TreeTable.
+type EmittedFileTag {}
+
+// TreeTable stores lowered file specs in dense unsigned SoA columns.
+type TreeTable {
+	Count dense.Count[EmittedFileTag],
+	Path  dense.Col[EmittedFileTag, string],
+	Data  dense.Col[EmittedFileTag, string],
+}
+
+// NewTreeTable constructs an empty SoA TreeTable.
+func NewTreeTable() TreeTable {
+	TreeTable{
+		Count: dense.NewCount[EmittedFileTag](),
+		Path:  dense.NewCol[EmittedFileTag, string](),
+		Data:  dense.NewCol[EmittedFileTag, string](),
+	}
+}
+
+// Directive extracts the first Go module directive argument (e.g. "module" or "go") from mod text.
+func Directive(mod string, verb string) string {
+	for raw in strings.Split(mod, "\n") {
+		let line = strings.TrimSpace(strings.TrimSuffix(raw, "\r"))
+		if !strings.HasPrefix(line, verb) {
+			continue
+		}
+		let mut rest = strings.TrimPrefix(line, verb)
+		if rest == "" || (rest[0] != byte(' ') && rest[0] != byte('\t') && rest[0] != byte('"')) {
+			continue
+		}
+		rest = strings.TrimSpace(rest)
+		let cmt = strings.Index(rest, "//")
+		if cmt >= 0 {
+			rest = strings.TrimSpace(rest[0:cmt])
+		}
+		if strings.HasPrefix(rest, "\"") {
+			let unq = strconv.Unquote(rest) catch {
+			case strconv.Malformed:
+				""
+			}
+			return unq
+		}
+		return rest
+	}
+	""
+}
+
+// ModulePath returns the module directive path of go.mod text.
+func ModulePath(mod string) string {
+	Directive(mod, "module")
+}
+
+// Requires reports whether go.mod text references path in any require or replace line.
+func Requires(mod string, path string) bool {
+	for raw in strings.Split(mod, "\n") {
+		let mut line = raw
+		let cmt = strings.Index(line, "//")
+		if cmt >= 0 {
+			line = line[0:cmt]
+		}
+		for f in strings.Fields(line) {
+			if strings.TrimLeft(strings.TrimRight(f, "\""), "\"") == path {
+				return true
+			}
+		}
+	}
+	false
+}
+
+// IsAssetDigest reports whether s is a 24-character lowercase hex asset snapshot hash.
+func IsAssetDigest(s string) bool {
+	if s.Len() != 24 {
+		return false
+	}
+	for i in 0..s.Len() {
+		let c = s[i]
+		if !((c >= byte('0') && c <= byte('9')) || (c >= byte('a') && c <= byte('f'))) {
+			return false
+		}
+	}
+	true
+}
+
+// PackageDir resolves the module-relative package folder for a lowered file slash path.
+func PackageDir(p string) string {
+	let parts = strings.Split(p, "/")
+	if parts.Len() >= 3 {
+		let mut i = parts.Len() - 3
+		for i >= 0 {
+			if parts[i] == "assets" && IsAssetDigest(parts[i+1]) {
+				let mut joined = []string{"."}
+				for k in 0..i {
+					joined = joined.Append(parts[k])
+				}
+				return slashClean(strings.Join(joined, "/"))
+			}
+			i = i - 1
+		}
+	}
+	slashDir(p)
+}
+
+// TreeDir computes the content-addressed cache directory path `cache/kind-DIGEST[:32]` for files.
+func TreeDir(cache string, kind string, files []FileSpec) string {
+	let mut tbl = NewTreeTable()
+	for f in files {
+		let _ = dense.Next(&tbl.Count)
+		dense.Push(&tbl.Path, f.Path)
+		dense.Push(&tbl.Data, f.Data)
+	}
+	let total = dense.Total(tbl.Count)
+	let mut ids = slices.WithCapacity[dense.ID[EmittedFileTag]](total)
+	for i in 0..total {
+		ids = ids.Append(dense.IDAt(tbl.Count, i))
+	}
+	ids = slices.SortFunc(ids, func(a dense.ID[EmittedFileTag], b dense.ID[EmittedFileTag]) int {
+		let pa = dense.Of(tbl.Path, a)
+		let pb = dense.Of(tbl.Path, b)
+		if pa < pb {
+			return -1
+		}
+		if pa > pb {
+			return 1
+		}
+		0
+	})
+	let mut buf = strings.NewBuilder()
+	for id in ids {
+		let p = dense.Of(tbl.Path, id)
+		let d = dense.Of(tbl.Data, id)
+		strings.WriteString(&buf, "\(strconv.Quote(p)) \(d.Len())\n")
+		strings.WriteString(&buf, d)
+	}
+	let sum = hex.Encode(sha256.Sum(strings.String(buf)))[0:32]
+	filepath.Join([]string{cache, "\(kind)-\(sum)"})
+}
+
+// BuildAssemblePlan computes the complete content-addressed go invocation plan purely without filesystem side effects.
+func BuildAssemblePlan(
+	cache string,
+	m Module,
+	l Line,
+	cwd string,
+	runtime []FileSpec,
+	pkgs []ErgoPackage,
+	files []FileSpec,
+	userOverlayRaw string,
+	userModRaw string,
+	modDir string,
+) AssemblePlan fails GoCmdError {
+	let mut rt = []FileSpec{}
+	for f in runtime {
+		if !strings.HasPrefix(f.Path, "ergo/") {
+			return GoCmdError{Message: "gocmd: the runtime file \(f.Path) is not under ergo/"}
+		}
+		rt = rt.Append(FileSpec{Path: strings.TrimPrefix(f.Path, "ergo/"), Data: f.Data})
+	}
+	let rtDir = TreeDir(cache, "runtime", rt)
+	let mut replace = Map[string, string]{}
+	if l.Overlay != "" && userOverlayRaw != "" {
+		let userRep = try parseOverlayJSON(l.Overlay, userOverlayRaw)
+		for k, v in userRep {
+			let ak = if filepath.IsAbs(k) { k } else { filepath.Join([]string{cwd, k}) }
+			let av = if v != "" && !filepath.IsAbs(v) { filepath.Join([]string{cwd, v}) } else { v }
+			replace = replace.Put(ak, av)
+		}
+	}
+	let mut gcflags = []string{}
+	for v in l.GCFlags {
+		gcflags = gcflags.Append("-gcflags=" + v)
+	}
+	let mut ergoAt = Map[string, ErgoPackage]{}
+	for p in pkgs {
+		let rel = filepath.Rel(m.Root, p.Dir) catch {
+		case filepath.NotRelative:
+			return GoCmdError{Message: "package \(p.Dir) outside module \(m.Root)"}
+		}
+		ergoAt = ergoAt.Put(slashClean(rel), p)
+	}
+	let mut mod = if l.Modfile != "" { userModRaw } else { m.GoMod }
+	if Requires(mod, RuntimeModule) {
+		return GoCmdError{Message: "go.mod names \(RuntimeModule), Ergo's runtime, which ergo go supplies itself: remove its require and replace lines"}
+	}
+	let mut goLine = Directive(mod, "go")
+	if goLine == "" {
+		for f in rt {
+			if f.Path == "go.mod" {
+				goLine = Directive(f.Data, "go")
+				break
+			}
+		}
+	}
+	let mut byDir = Map[string, []FileSpec]{}
+	for f in files {
+		if f.Path == "go.mod" || f.Path == "go.sum" {
+			continue
+		}
+		let d = PackageDir(f.Path)
+		let rel = if d != "." { strings.TrimPrefix(f.Path, d+"/") } else { f.Path }
+		let cur = match byDir.Get(d) {
+		case option.Some{Value: xs}:
+			xs
+		case option.None:
+			[]FileSpec{}
+		}
+		byDir = byDir.Put(d, cur.Append(FileSpec{Path: rel, Data: f.Data}))
+	}
+	let mut dirs = []string{}
+	for d, _ in byDir {
+		dirs = dirs.Append(d)
+	}
+	dirs = slices.Sort(dirs)
+	let mut treeDirs = Map[string, string]{}
+	let mut genMods = []string{}
+	for d in dirs {
+		let (p, isErgo) = match ergoAt.Get(d) {
+		case option.Some{Value: ep}:
+			(ep, true)
+		case option.None:
+			(ErgoPackage{ImportPath: "", Dir: "", Name: ""}, false)
+		}
+		if !isErgo && d != GenDir && !strings.HasPrefix(d, GenDir+"/") {
+			return GoCmdError{Message: "gocmd: the lowering wrote the Go package \(d), neither an Ergo package of the module nor below \(GenDir)"}
+		}
+		let dirFiles = match byDir.Get(d) {
+		case option.Some{Value: xs}:
+			xs
+		case option.None:
+			[]FileSpec{}
+		}
+		let mut tree = slices.Clone(dirFiles)
+		let mut pkg = Package{ImportPath: p.ImportPath, Dir: p.Dir}
+		if !isErgo {
+			pkg.ImportPath = if m.Path == "" { d } else { "\(m.Path)/\(d)" }
+			let mut gomod = "module \(pkg.ImportPath)\n"
+			if goLine != "" {
+				gomod = gomod + "\ngo \(goLine)\n"
+			}
+			tree = tree.Append(FileSpec{Path: "go.mod", Data: gomod})
+		}
+		let dir = TreeDir(cache, "pkg", tree)
+		treeDirs = treeDirs.Put(d, dir)
+		if !isErgo {
+			pkg.Dir = dir
+			genMods = genMods.Append(pkg.ImportPath)
+			genMods = genMods.Append(dir)
+		}
+		let mut irPath = ""
+		for f in dirFiles {
+			if f.Path == IRFile {
+				irPath = filepath.Join([]string{dir, IRFile})
+				continue
+			}
+			if !isErgo {
+				continue
+			}
+			let targetName = if f.Path == p.Name+".go" { DeclFile } else { f.Path }
+			let target = filepath.Join([]string{pkg.Dir, targetName})
+			if replace.Get(target) != option.None {
+				return GoCmdError{Message: "-overlay names \(target), which ergo writes for the Go package \(pkg.ImportPath)"}
+			}
+			replace = replace.Put(target, filepath.Join([]string{dir, f.Path}))
+		}
+		let user = try PackageFlags(l, pkg, cwd)
+		let mut pkgArgs = slices.Clone(user)
+		if irPath != "" {
+			pkgArgs = pkgArgs.Append("-ergoir=" + irPath)
+		}
+		let joined = JoinQuoted(pkgArgs) catch {
+		case GoCmdError as e:
+			return GoCmdError{Message: "-gcflags for \(pkg.ImportPath): \(e.Message)"}
+		}
+		gcflags = gcflags.Append("-gcflags=\(pkg.ImportPath)=\(joined)")
+	}
+	let overlayJSON = encodeOverlayJSON(replace)
+	let ovDir = TreeDir(cache, "overlay", []FileSpec{FileSpec{Path: "overlay.json", Data: overlayJSON}})
+	mod = mod + "\n// Added by ergo go: Ergo's runtime.\nrequire \(RuntimeModule) v0.0.0\n\nreplace \(RuntimeModule) => \(rtDir)\n"
+	if genMods.Len() > 0 {
+		mod = mod + "\n// Added by ergo go: the Go packages the lowering adds.\n"
+		for k in 0..(genMods.Len() / 2) {
+			let mp = genMods[k*2]
+			let md = genMods[k*2+1]
+			mod = mod + "require \(mp) v0.0.0\nreplace \(mp) => \(md)\n"
+		}
+	}
+	let mut outArgs = []string{l.Verb, "-modfile=" + filepath.Join([]string{modDir, "go.mod"}), "-overlay=" + filepath.Join([]string{ovDir, "overlay.json"})}
+	for gf in gcflags {
+		outArgs = outArgs.Append(gf)
+	}
+	for a in l.Args {
+		outArgs = outArgs.Append(a)
+	}
+	AssemblePlan{
+		Args:       outArgs,
+		ModDir:     modDir,
+		GoMod:      mod,
+		Overlay:    overlayJSON,
+		TreeDirs:   treeDirs,
+		RuntimeDir: rtDir,
+		OverlayDir: ovDir,
+	}
+}
+
+// ValidatePackageFiles checks one directory's filenames and Go package declarations against one-language-per-package rules.
+func ValidatePackageFiles(dir string, importPath string, pkgName string, files []FileSpec) bool fails GoCmdError {
+	let mut ergoFiles = []string{}
+	let mut goFiles = []FileSpec{}
+	for f in files {
+		if strings.HasSuffix(f.Path, ".ergo") {
+			ergoFiles = ergoFiles.Append(f.Path)
+		} else if strings.HasSuffix(f.Path, ".go") {
+			goFiles = goFiles.Append(f)
+		}
+	}
+	if ergoFiles.Len() == 0 {
+		return false
+	}
+	if !isGoIdentifier(pkgName) || pkgName == "main" {
+		return GoCmdError{Message: "\(dir): an Ergo package's folder name is its Go package name, and \(strconv.Quote(pkgName)) is not one: rename the folder"}
+	}
+	for gf in goFiles {
+		let declPkg = extractGoPackageClause(gf.Data)
+		if strings.HasSuffix(gf.Path, "_test.go") && declPkg == pkgName+"_test" {
+			continue
+		}
+		return GoCmdError{Message: "\(dir): package \(importPath) holds both .ergo files (\(strings.Join(ergoFiles, ", "))) and the Go file \(gf.Path): one package is one language (owner q296); move the Go into another package, or the Ergo out (SPLIT-OUT)"}
+	}
+	true
+}
+
+func slashClean(p string) string {
+	let c = filepath.Clean(p)
+	if c == "" { "." } else { c }
+}
+
+func slashDir(p string) string {
+	let i = strings.LastIndex(p, "/")
+	if i < 0 {
+		return "."
+	}
+	if i == 0 {
+		return "/"
+	}
+	p[0:i]
+}
+
+func parseOverlayJSON(path string, raw string) Map[string, string] fails GoCmdError {
+	let codec = json.Codec[json.Value]{MaxBytes: 0, MaxDepth: 0}
+	let root = json.Decode(codec, raw) catch {
+	case json.Malformed as e:
+		return GoCmdError{Message: "-overlay \(path): \(e.Reason)"}
+	case _:
+		return GoCmdError{Message: "-overlay \(path): invalid json"}
+	}
+	let obj = match root {
+	case json.Object as o:
+		o
+	case _:
+		return GoCmdError{Message: "-overlay \(path): must be object"}
+	}
+	let mut out = Map[string, string]{}
+	for m in obj.Members {
+		if m.Key == "Replace" {
+			match m.Value {
+			case json.Object as rep:
+				for rm in rep.Members {
+					match rm.Value {
+					case json.Str as s:
+						out = out.Put(rm.Key, s.Value)
+					case _:
+						return GoCmdError{Message: "-overlay \(path): replace target must be string"}
+					}
+				}
+			case _:
+				return GoCmdError{Message: "-overlay \(path): Replace must be object"}
+			}
+		}
+	}
+	out
+}
+
+func encodeOverlayJSON(replace Map[string, string]) string {
+	let mut keys = []string{}
+	for k, _ in replace {
+		keys = keys.Append(k)
+	}
+	keys = slices.Sort(keys)
+	let t = json.NewText()
+	t.BeginObject(1)
+	t.Key("Replace")
+	t.BeginObject(keys.Len())
+	for k in keys {
+		t.Key(k)
+		match replace.Get(k) {
+		case option.Some{Value: v}:
+			t.String(v)
+		case option.None:
+			t.String("")
+		}
+	}
+	t.EndObject()
+	t.EndObject()
+	t.Written()
+}
+
+func isGoIdentifier(s string) bool {
+	if s.Len() == 0 {
+		return false
+	}
+	for i in 0..s.Len() {
+		let c = s[i]
+		let alpha = (c >= byte('a') && c <= byte('z')) || (c >= byte('A') && c <= byte('Z')) || c == byte('_')
+		let digit = c >= byte('0') && c <= byte('9')
+		if i == 0 && !alpha {
+			return false
+		}
+		if !alpha && !digit {
+			return false
+		}
+	}
+	true
+}
+
+func extractGoPackageClause(src string) string {
+	let mut i = 0
+	for i < src.Len() {
+		let c = src[i]
+		if isQuoteSpace(c) {
+			i = i + 1
+			continue
+		}
+		if i+1 < src.Len() && src[i] == byte('/') && src[i+1] == byte('/') {
+			i = i + 2
+			for i < src.Len() && src[i] != byte('\n') {
+				i = i + 1
+			}
+			continue
+		}
+		if i+1 < src.Len() && src[i] == byte('/') && src[i+1] == byte('*') {
+			i = i + 2
+			for i+1 < src.Len() && !(src[i] == byte('*') && src[i+1] == byte('/')) {
+				i = i + 1
+			}
+			i = i + 2
+			continue
+		}
+		let rest = src[i:src.Len()]
+		if strings.HasPrefix(rest, "package") && rest.Len() > 7 && isQuoteSpace(rest[7]) {
+			let mut j = i + 7
+			for j < src.Len() && isQuoteSpace(src[j]) {
+				j = j + 1
+			}
+			let start = j
+			for j < src.Len() && !isQuoteSpace(src[j]) && src[j] != byte(';') && src[j] != byte('/') {
+				j = j + 1
+			}
+			return src[start:j]
+		}
+		return ""
+	}
+	""
+}
+
+// TreeDirOrderIndependent verifies TreeDir computes identical hashes regardless of input FileSpec ordering.
+law TreeDirOrderIndependent(p1 string, d1 string, p2 string, d2 string) {
+	let a = FileSpec{Path: p1 + "a.go", Data: d1}
+	let b = FileSpec{Path: p2 + "b.go", Data: d2}
+	TreeDir("/cache", "pkg", []FileSpec{a, b}) == TreeDir("/cache", "pkg", []FileSpec{b, a})
+}
+
+test TestAssemblePlanAndPackageValidation {
+	let mod = Module{Root: "/mod", Path: "example.com/mod", GoMod: "module example.com/mod\n\ngo 1.27\n"}
+	assert ModulePath(mod.GoMod) == "example.com/mod" && Directive(mod.GoMod, "go") == "1.27"
+	assert !Requires(mod.GoMod, RuntimeModule)
+
+	let assetPath = "sub/assets/0123456789abcdef01234567/data.txt"
+	assert PackageDir(assetPath) == "sub"
+	assert !IsAssetDigest("short")
+
+	let line = Parse([]string{"build", "-gcflags=./sub=-N", "./sub"}, "") catch {
+	case GoCmdError:
+		assert false
+		Line{Verb: "", Args: []string{}, GCFlags: []string{}, Overlay: "", Modfile: "", Packages: []string{}}
+	}
+	let plan = BuildAssemblePlan(
+		"/cache",
+		mod,
+		line,
+		"/mod",
+		[]FileSpec{FileSpec{Path: "ergo/go.mod", Data: "module ergo.local/prototype\n"}},
+		[]ErgoPackage{ErgoPackage{ImportPath: "example.com/mod/sub", Dir: "/mod/sub", Name: "sub"}},
+		[]FileSpec{
+			FileSpec{Path: "sub/sub.go", Data: "package sub\n"},
+			FileSpec{Path: "sub/ergoir.json", Data: "{}"},
+			FileSpec{Path: "_ergo/dep/dep.go", Data: "package dep\n"},
+		},
+		"",
+		"",
+		"/cache/mod-1",
+	) catch {
+	case GoCmdError:
+		assert false
+		AssemblePlan{Args: []string{}, ModDir: "", GoMod: "", Overlay: "", TreeDirs: Map[string, string]{}, RuntimeDir: "", OverlayDir: ""}
+	}
+	assert strings.Contains(plan.GoMod, "require ergo.local/prototype v0.0.0")
+	assert strings.Contains(plan.Overlay, "ergo_gen.go")
+	assert strings.Contains(strings.Join(plan.Args, " "), "-ergoir=")
+
+	let okXTest = ValidatePackageFiles("/mod/sub", "example.com/mod/sub", "sub", []FileSpec{
+		FileSpec{Path: "a.ergo", Data: "func F() int { 1 }\n"},
+		FileSpec{Path: "a_test.go", Data: "package sub_test\n"},
+	}) catch {
+	case GoCmdError:
+		assert false
+		false
+	}
+	assert okXTest
+
+	let mut mixedRejected = false
+	let _ = ValidatePackageFiles("/mod/sub", "example.com/mod/sub", "sub", []FileSpec{
+		FileSpec{Path: "a.ergo", Data: "func F() int { 1 }\n"},
+		FileSpec{Path: "b.go", Data: "package sub\n"},
+	}) catch {
+	case GoCmdError:
+		mixedRejected = true
+		false
+	}
+	assert mixedRejected
+}

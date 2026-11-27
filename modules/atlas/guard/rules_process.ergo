@@ -1,0 +1,347 @@
+import option
+import strconv
+import strings
+
+// SubagentSleepLimitMs returns the 30-second foreground sleep refusal threshold in milliseconds.
+func SubagentSleepLimitMs() int64 { 30000 }
+
+func isPgrepOrPidof(words []ShellWord) bool {
+	if words.Len() == 0 {
+		return false
+	}
+	let b = BasenamePosix(words[0].Text)
+	b == "pgrep" || b == "pidof"
+}
+
+func isKillTargetCommand(words []ShellWord) (bool, string) {
+	if words.Len() == 0 {
+		return (false, "")
+	}
+	let b = BasenamePosix(words[0].Text)
+	if b == "kill" || b == "pkill" || b == "killall" {
+		return (true, b)
+	}
+	if b == "xargs" {
+		let mut i = 1
+		for i < words.Len() {
+			let t = words[i].Text
+			if strings.HasPrefix(t, "-") {
+				if t == "-I" || t == "-L" || t == "-n" || t == "-P" || t == "-d" || t == "-s" || t == "-a" {
+					i = i + 2
+				} else {
+					i = i + 1
+				}
+				continue
+			}
+			let kb = BasenamePosix(t)
+			if kb == "kill" {
+				return (true, "xargs-kill")
+			}
+			return (false, "")
+		}
+	}
+	(false, "")
+}
+
+func parseKillTargets(words []ShellWord) (bool, []string) {
+	let mut probeOnly = false
+	let mut operands = []string{}
+	let mut i = 1
+	let mut endOpts = false
+	for i < words.Len() {
+		let t = words[i].Text
+		if !endOpts && t == "--" {
+			endOpts = true
+			i = i + 1
+		} else if !endOpts && (t == "-l" || t == "-L") {
+			return (true, []string{})
+		} else if !endOpts && (t == "-0" || t == "-s0") {
+			probeOnly = true
+			i = i + 1
+		} else if !endOpts && (t == "-s" || t == "--signal") {
+			if i+1 < words.Len() && (words[i+1].Text == "0" || words[i+1].Text == "SIGNULL") {
+				probeOnly = true
+			}
+			i = i + 2
+		} else if !endOpts && t != "-1" && strings.HasPrefix(t, "-") && t.Len() > 1 {
+			i = i + 1
+		} else {
+			operands = operands.Append(t)
+			i = i + 1
+		}
+	}
+	(probeOnly, operands)
+}
+
+func extractPatternOperands(words []ShellWord, allowFlagsWithArg bool) []string {
+	let mut patterns = []string{}
+	let mut i = 1
+	let mut endOpts = false
+	for i < words.Len() {
+		let t = words[i].Text
+		if !endOpts && t == "--" {
+			endOpts = true
+			i = i + 1
+			continue
+		}
+		if !endOpts && strings.HasPrefix(t, "-") {
+			if allowFlagsWithArg && (t == "-u" || t == "-U" || t == "-g" || t == "-G" || t == "-P" || t == "-s" || t == "-t" || t == "-F" || t == "-d" || t == "--signal") {
+				i = i + 2
+			} else {
+				i = i + 1
+			}
+			continue
+		}
+		patterns = patterns.Append(t)
+		i = i + 1
+	}
+	patterns
+}
+
+func isProtectedPid(pid int, snap ProcessSnapshot) (bool, string) fails GuardError {
+	match snap {
+	case ProcsUnreadable:
+		return Destructive{Rule: RuleServerKill, Reason: "process list unreadable; refusing kill fail-closed"}
+	case ProcsKnown as pk:
+		for sp in pk.ServerPIDs {
+			if sp == pid {
+				return (true, "server/daemon PID " + strconv.Itoa(pid))
+			}
+		}
+		for proc in pk.Procs {
+			if proc.PID == pid && proc.Protected {
+				return (true, proc.Name + " PID " + strconv.Itoa(pid))
+			}
+		}
+		(false, "")
+	}
+}
+
+func procMatchesPattern(proc ProcInfo, pat string, exactName bool) bool {
+	if !proc.Protected {
+		return false
+	}
+	let pname = strings.ToLower(proc.Name)
+	if exactName {
+		return pname == pat || BasenamePosix(pname) == pat
+	}
+	strings.Contains(pname, pat) || strings.Contains(strings.ToLower(proc.Cmdline), pat)
+}
+
+func isReservedServerPattern(pat string) bool {
+	pat == "atlas" || pat == "opencode" || pat == "ergo" || pat == "daemon" || pat == "node"
+}
+
+func patternMatchesProtected(pattern string, snap ProcessSnapshot, exactName bool) option.Option[GuardError] {
+	if pattern == "" {
+		return option.None
+	}
+	let pat = strings.ToLower(pattern)
+	match snap {
+	case ProcsUnreadable:
+		option.Some[GuardError]{Value: Destructive{Rule: RuleServerKill, Reason: "process table unreadable; refusing pattern kill fail-closed"}}
+	case ProcsKnown as pk:
+		for proc in pk.Procs {
+			if procMatchesPattern(proc, pat, exactName) {
+				return option.Some[GuardError]{Value: Destructive{Rule: RuleServerKill, Reason: "refusing pattern kill targeting protected process " + proc.Name}}
+			}
+		}
+		if !exactName && isReservedServerPattern(pat) {
+			return option.Some[GuardError]{Value: Destructive{Rule: RuleServerKill, Reason: "refusing broad kill pattern matching server/daemon processes"}}
+		}
+		option.None
+	}
+}
+
+func checkPatternsCommand(words []ShellWord, exactName bool, ctx GuardContext) option.Option[GuardError] {
+	for p in extractPatternOperands(words, true) {
+		match patternMatchesProtected(p, ctx.Processes, exactName) {
+		case option.Some[GuardError] as ge:
+			return option.Some[GuardError]{Value: ge.Value}
+		case option.None:
+		}
+	}
+	option.None
+}
+
+func checkKillSingleTarget(tgt string, ctx GuardContext) option.Option[GuardError] {
+	if tgt == "-1" || tgt == "1" {
+		return option.Some[GuardError]{Value: Destructive{Rule: RuleServerKill, Reason: "refusing kill targeting broadcast -1 or PID 1"}}
+	}
+	if strings.Contains(tgt, "$(") || strings.Contains(tgt, "`") {
+		match ctx.Processes {
+		case ProcsUnreadable:
+			return option.Some[GuardError]{Value: Destructive{Rule: RuleServerKill, Reason: "process list unreadable for dynamic kill target; failing closed"}}
+		case ProcsKnown:
+			return option.None
+		}
+	}
+	let parsedPid = strconv.Atoi(tgt) catch {
+	case strconv.Malformed, strconv.OutOfRange:
+		0
+	}
+	if parsedPid <= 0 {
+		return option.None
+	}
+	let (prot, desc) = isProtectedPid(parsedPid, ctx.Processes) catch {
+	case GuardError as ge:
+		return option.Some[GuardError]{Value: ge}
+	}
+	if prot {
+		return option.Some[GuardError]{Value: Destructive{Rule: RuleServerKill, Reason: "refusing to kill protected " + desc}}
+	}
+	option.None
+}
+
+func checkDirectKill(cmd PlacedCommand, ctx GuardContext) option.Option[GuardError] {
+	let (probeOnly, targets) = parseKillTargets(cmd.Words)
+	if probeOnly {
+		return option.None
+	}
+	for tgt in targets {
+		match checkKillSingleTarget(tgt, ctx) {
+		case option.Some[GuardError] as ge:
+			return option.Some[GuardError]{Value: ge.Value}
+		case option.None:
+		}
+	}
+	option.None
+}
+
+func checkKillDispatch(cmds []PlacedCommand, i int, kind string, ctx GuardContext) option.Option[GuardError] {
+	let cmd = cmds[i]
+	if kind == "kill" {
+		return checkDirectKill(cmd, ctx)
+	}
+	if kind == "pkill" || kind == "killall" {
+		return checkPatternsCommand(cmd.Words, kind == "killall", ctx)
+	}
+	if kind == "xargs-kill" && cmd.PrecededByPipe && i > 0 {
+		let prev = cmds[i-1]
+		if isPgrepOrPidof(prev.Words) {
+			return checkPatternsCommand(prev.Words, BasenamePosix(prev.Words[0].Text) == "pidof", ctx)
+		}
+	}
+	option.None
+}
+
+func checkSingleKillStatement(cmds []PlacedCommand, i int, ctx GuardContext) option.Option[GuardError] {
+	let cmd = cmds[i]
+	let (isKill, kind) = isKillTargetCommand(cmd.Words)
+	if isKill {
+		match checkKillDispatch(cmds, i, kind, ctx) {
+		case option.Some[GuardError] as ge:
+			return option.Some[GuardError]{Value: ge.Value}
+		case option.None:
+		}
+	}
+	if isPgrepOrPidof(cmd.Words) && cmd.FromSubshell {
+		return checkPatternsCommand(cmd.Words, BasenamePosix(cmd.Words[0].Text) == "pidof", ctx)
+	}
+	option.None
+}
+
+// CheckKillCommands inspects placed commands (including pgrep/pidof pipes into xargs kill) to protect server/daemon PIDs.
+func CheckKillCommands(cmds []PlacedCommand, ctx GuardContext) option.Option[GuardError] {
+	let mut i = 0
+	for i < cmds.Len() {
+		match checkSingleKillStatement(cmds, i, ctx) {
+		case option.Some[GuardError] as ge:
+			return option.Some[GuardError]{Value: ge.Value}
+		case option.None:
+		}
+		i = i + 1
+	}
+	option.None
+}
+
+func parseDurationOperandMs(raw string) option.Option[int64] {
+	let s = strings.ToLower(strings.TrimSpace(raw))
+	if s == "" {
+		return option.None
+	}
+	if s == "inf" || s == "infinity" {
+		return option.Some[int64]{Value: 86400000}
+	}
+	let mut unitMult = int64(1000)
+	let mut numText = s
+	if strings.HasSuffix(s, "s") {
+		numText = strings.TrimSuffix(s, "s")
+	} else if strings.HasSuffix(s, "m") {
+		unitMult = 60000
+		numText = strings.TrimSuffix(s, "m")
+	} else if strings.HasSuffix(s, "h") {
+		unitMult = 3600000
+		numText = strings.TrimSuffix(s, "h")
+	} else if strings.HasSuffix(s, "d") {
+		unitMult = 86400000
+		numText = strings.TrimSuffix(s, "d")
+	}
+	let val = strconv.ParseFloat(numText) catch {
+	case strconv.Malformed, strconv.OutOfRange:
+		return option.None
+	}
+	if val < 0.0 {
+		return option.None
+	}
+	option.Some[int64]{Value: int64(val * float64(unitMult))}
+}
+
+// CheckSleepCommand enforces the subagent 30-second foreground sleep limit while failing open if actor status is unreadable.
+func CheckSleepCommand(cmd PlacedCommand, call ShellCall, ctx GuardContext) option.Option[GuardError] {
+	if call.Background {
+		return option.None
+	}
+	let role = match call.Actor {
+	case ActorUnreadable:
+		return option.None
+	case ActorKnown as ak:
+		ak.Role
+	}
+	if role != ActorSubagent {
+		return option.None
+	}
+	if cmd.Words.Len() < 2 || BasenamePosix(cmd.Words[0].Text) != "sleep" {
+		return option.None
+	}
+	let mut totalMs = int64(0)
+	let mut i = 1
+	for i < cmd.Words.Len() {
+		let op = cmd.Words[i].Text
+		if op == "--" {
+			i = i + 1
+			continue
+		}
+		if strings.HasPrefix(op, "-") {
+			i = i + 1
+			continue
+		}
+		match parseDurationOperandMs(op) {
+		case option.Some[int64] as ms:
+			totalMs = totalMs + ms.Value
+		case option.None:
+		}
+		i = i + 1
+	}
+	if totalMs >= SubagentSleepLimitMs() {
+		return option.Some[GuardError]{Value: Idle{Rule: RuleSubagentSleep, Reason: "subagent foreground sleep >= 30s wastes turn loop; wait on handles/events instead"}}
+	}
+	let _ = ctx
+	option.None
+}
+
+// ProcessAndSleepGuardLaw verifies server PID/pattern kill refusals, fail-closed unreadable procs, and subagent foreground sleep rules.
+law ProcessAndSleepGuardLaw() {
+	let ctx = DefaultTestContext()
+	let k1 = Evaluate(ctx, ShellCall{Command: "kill -9 4242", Cwd: "/repo", Background: false, Actor: ActorKnown{Role: ActorRoot}})
+	let k2 = Evaluate(ctx, ShellCall{Command: "pkill -f atlas-serve", Cwd: "/repo", Background: false, Actor: ActorKnown{Role: ActorRoot}})
+	let kPipe = Evaluate(ctx, ShellCall{Command: "pgrep atlas-serve | xargs kill -9", Cwd: "/repo", Background: false, Actor: ActorKnown{Role: ActorRoot}})
+	let kSub = Evaluate(ctx, ShellCall{Command: "kill $(pgrep atlas-serve)", Cwd: "/repo", Background: false, Actor: ActorKnown{Role: ActorRoot}})
+	let kBroadcast = Evaluate(ctx, ShellCall{Command: "kill -TERM -1", Cwd: "/repo", Background: false, Actor: ActorKnown{Role: ActorRoot}})
+	let kSafe = Evaluate(ctx, ShellCall{Command: "kill -9 99991", Cwd: "/repo", Background: false, Actor: ActorKnown{Role: ActorRoot}})
+	let sSubBad = Evaluate(ctx, ShellCall{Command: "sleep 10 25", Cwd: "/repo", Background: false, Actor: ActorKnown{Role: ActorSubagent}})
+	let sSubBg = Evaluate(ctx, ShellCall{Command: "sleep 60", Cwd: "/repo", Background: true, Actor: ActorKnown{Role: ActorSubagent}})
+	let sRootOk = Evaluate(ctx, ShellCall{Command: "sleep 60", Cwd: "/repo", Background: false, Actor: ActorKnown{Role: ActorRoot}})
+	let sFailOpen = Evaluate(ctx, ShellCall{Command: "sleep 120", Cwd: "/repo", Background: false, Actor: ActorUnreadable})
+	!k1.Allowed && !k2.Allowed && !kPipe.Allowed && !kSub.Allowed && !kBroadcast.Allowed && kSafe.Allowed && !sSubBad.Allowed && sSubBg.Allowed && sRootOk.Allowed && sFailOpen.Allowed
+}

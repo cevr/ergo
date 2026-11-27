@@ -363,6 +363,13 @@ func checkCompilerStaticDoD(t *testing.T, root string) {
 		return base == "laws.ergo" || base == "fixture.ergo" || base == "lexerror.ergo" || base == "typeset.ergo"
 	}
 	scalarPayloads := map[string]bool{
+		"compiler/build/cache.ergo:Lease.ExpiresUnix":                   true,
+		"compiler/build/cache.ergo:WarmRecord.CreatedUnix":              true,
+		"compiler/build/slot.ergo:SlotPool.HeldSince":                   true,
+		"compiler/build/store_cap.ergo:DirItem.Size":                    true,
+		"compiler/build/store_cap.ergo:StoreStat.Size":                  true,
+		"compiler/build/store_cap.ergo:memState.NowSec":                 true,
+		"compiler/build/trim.ergo:TrimStamp.LastRunUnix":                true,
 		"compiler/ir/ir.ergo:File.V":                                    true,
 		"compiler/lower/lower.ergo:CInt.I":                              true,
 		"compiler/mutants/report.ergo:AttemptOutcome.DurationMs":        true,

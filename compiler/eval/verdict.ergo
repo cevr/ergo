@@ -1,0 +1,578 @@
+import go math
+import go strconv
+import slices
+import strings
+
+// CaseFormNone marks an obligation not executed by a case plan.
+let CaseFormNone = uint8(0)
+
+// CaseFormSingle marks a parameterless test run once.
+let CaseFormSingle = uint8(1)
+
+// CaseFormListed marks an exhaustive finite-domain proof run.
+let CaseFormListed = uint8(2)
+
+// CaseFormDrawn marks a random seeded property run.
+let CaseFormDrawn = uint8(3)
+
+// DefectMessage is the summary string printed on a FAIL line when evaluation hits a defect.
+let DefectMessage = "a defect, which stops the run"
+
+// LawArg formats one named case argument in replay literal syntax.
+type LawArg {
+	Name  string,
+	Value string,
+}
+
+// LawVerdict holds the full execution verdict, evidence, counterexamples, and replay data for a law or test.
+type LawVerdict {
+	Name            string,
+	Title           string,
+	Kind            string,
+	Status          uint8,
+	Reason          string,
+	Message         string,
+	Evidence        string,
+	Form            uint8,
+	CaseIdx         uint32,
+	TotalCases      uint32,
+	CasesRun        uint32,
+	Seed            uint64,
+	Arguments       []LawArg,
+	Drawn           []LawArg,
+	HasDrawn        bool,
+	ShrunkTape      []uint64,
+	StoredCaseHit   bool,
+	StoredStale     bool,
+	ExtraStaleCases uint32,
+	Site            Site,
+	DeclSite        Site,
+	Steps           uint64,
+	VerdictLine     string,
+	Escaped         bool,
+	BodyFalse       bool,
+}
+
+// SometimesState tracks per-statement hit counts for `sometimes` assertions in one law body.
+type SometimesState {
+	NodeIds   []uint32,
+	Hits      []uint32,
+	ExprTexts []string,
+	Files     []string,
+	Lines     []uint32,
+	Cols      []uint32,
+}
+
+// NewSometimesState constructs an empty tracker for `sometimes` statements.
+func NewSometimesState() SometimesState {
+	SometimesState{
+		NodeIds:   []uint32{},
+		Hits:      []uint32{},
+		ExprTexts: []string{},
+		Files:     []string{},
+		Lines:     []uint32{},
+		Cols:      []uint32{},
+	}
+}
+
+// AddSometimesStmt registers one static `sometimes` statement slot before case execution.
+func AddSometimesStmt(st mut SometimesState, nodeId uint32, exprText string, site Site) {
+	st.NodeIds = st.NodeIds.Append(nodeId)
+	st.Hits = st.Hits.Append(uint32(0))
+	st.ExprTexts = st.ExprTexts.Append(exprText)
+	st.Files = st.Files.Append(site.File)
+	st.Lines = st.Lines.Append(site.Line)
+	st.Cols = st.Cols.Append(site.Col)
+}
+
+// RecordSometimesHit increments the hit counter for the executed `sometimes` node id.
+func RecordSometimesHit(st mut SometimesState, nodeId uint32) {
+	for i, nid in st.NodeIds {
+		if nid == nodeId {
+			st.Hits[i] = st.Hits[i] + uint32(1)
+			return
+		}
+	}
+}
+
+// CheckSometimesMissed verifies every registered `sometimes` statement fired at least once.
+func CheckSometimesMissed(st SometimesState, casesRun uint32) (string, Site, bool) {
+	for i, h in st.Hits {
+		if h == uint32(0) {
+			let s = Site{File: st.Files[i], Line: st.Lines[i], Col: st.Cols[i]}
+			let msg = NativeSiteText(s) + ": sometimes " + st.ExprTexts[i] + " was never true across " + strconv.FormatUint(uint64(casesRun), 10) + " cases"
+			return (msg, s, false)
+		}
+	}
+	("", Site{File: "", Line: uint32(0), Col: uint32(0)}, true)
+}
+
+func pathBaseName(p string) string {
+	let norm = strings.ReplaceAll(p, "\\", "/")
+	let idx = strings.LastIndex(norm, "/")
+	if idx < 0 {
+		return norm
+	}
+	norm[idx+1:]
+}
+
+// NativeSiteText formats site s in native runner notation (file:line:col).
+func NativeSiteText(s Site) string {
+	pathBaseName(s.File) + ":" + strconv.FormatUint(uint64(s.Line), 10) + ":" + strconv.FormatUint(uint64(s.Col), 10)
+}
+
+func formatFloatLiteral(f float64, bits int) string {
+	let s = strconv.FormatFloat(f, 'g', -1, bits)
+	if !strings.Contains(s, ".") && !strings.Contains(s, "e") && !strings.Contains(s, "E") && !strings.Contains(s, "n") && !strings.Contains(s, "N") {
+		return s + ".0"
+	}
+	s
+}
+
+func formatDurationLiteral(v int64) string {
+	let minI64 = int64(-9223372036854775807) - int64(1)
+	if v == minI64 {
+		return "-9223372036854775807ns - 1ns"
+	}
+	let units = []int64{int64(3600000000000), int64(60000000000), int64(1000000000), int64(1000000), int64(1000)}
+	let names = []string{"h", "m", "s", "ms", "us"}
+	for i in 0..units.Len() {
+		let u = units[i]
+		if v != int64(0) && v%u == int64(0) {
+			return strconv.FormatInt(v/u, 10) + names[i]
+		}
+	}
+	strconv.FormatInt(v, 10) + "ns"
+}
+
+// ArgumentTypeName formats runtime typeIdx in source replay syntax.
+func ArgumentTypeName(prog Program, typeIdx uint32) string {
+	if int(typeIdx) >= prog.Types.Kind.Len() {
+		return "unknown"
+	}
+	let kd = prog.Types.Kind[int(typeIdx)]
+	if kd == KindSlice {
+		return "[]" + ArgumentTypeName(prog, prog.Types.Elem[int(typeIdx)])
+	}
+	if kd == KindMap {
+		return "Map[" + ArgumentTypeName(prog, prog.Types.Elem[int(typeIdx)]) + ", " + ArgumentTypeName(prog, prog.Types.Aux[int(typeIdx)]) + "]"
+	}
+	prog.Types.Name[int(typeIdx)]
+}
+
+func isStringLikeType(tp TypePool, typeIdx uint32) bool {
+	let under = UnwrapType(tp, typeIdx)
+	under == TypeString || (int(under) < tp.Kind.Len() && tp.Kind[int(under)] == KindString)
+}
+
+func sortArgumentMapEntries(prog Program, arena ValArena, keys mut []Val, vals mut []Val, keyType uint32) {
+	let n = (*keys).Len()
+	for i in 1..n {
+		let curK = (*keys)[i]
+		let curV = (*vals)[i]
+		let mut j = i - 1
+		for j >= 0 {
+			let prevK = (*keys)[j]
+			let (cmpRes, ok) = CompareVals(prog.Types, arena, prevK, curK)
+			let swap = if ok {
+				cmpRes > 0
+			} else {
+				FormatArgument(prog, arena, keyType, prevK) > FormatArgument(prog, arena, keyType, curK)
+			}
+			if !swap {
+				break
+			}
+			(*keys)[j+1] = (*keys)[j]
+			(*vals)[j+1] = (*vals)[j]
+			j = j - 1
+		}
+		(*keys)[j+1] = curK
+		(*vals)[j+1] = curV
+	}
+}
+
+// FormatArgument formats v at typeIdx as a replayable Go/Ergo literal string.
+func FormatArgument(prog Program, arena ValArena, typeIdx uint32, v Val) string {
+	let tid = if typeIdx != TypeVoid { typeIdx } else { v.Type }
+	if int(tid) >= prog.Types.Kind.Len() {
+		return DescribeVal(prog.Types, arena, v)
+	}
+	let kd = prog.Types.Kind[int(tid)]
+	if kd == KindBool {
+		return if v.Data == uint64(0) { "false" } else { "true" }
+	}
+	if kd == KindString {
+		return strconv.Quote(ReadStr(arena, v))
+	}
+	if kd == KindDuration || tid == TypeDuration {
+		return formatDurationLiteral(Int64FromBits(v.Data))
+	}
+	if kd == KindFloat {
+		let bits = if prog.Types.Width[int(tid)] == uint8(32) { 32 } else { 64 }
+		let f = if bits == 32 { float64(math.Float32frombits(uint32(v.Data))) } else { Float64FromBits(v.Data) }
+		return formatFloatLiteral(f, bits)
+	}
+	if kd == KindInt {
+		if prog.Types.Signed[int(tid)] {
+			return strconv.FormatInt(Int64FromBits(v.Data), 10)
+		}
+		return strconv.FormatUint(v.Data, 10)
+	}
+	if kd == KindTuple {
+		let n = int(PackLen(arena, v))
+		let eStart = int(prog.Types.Aux[int(tid)])
+		let eCnt = int(prog.Types.Count[int(tid)])
+		let mut parts = slices.WithCapacity[string](n)
+		for i in 0..n {
+			let et = if i < eCnt { prog.Types.FieldType[eStart+i] } else { TypeVoid }
+			parts = parts.Append(FormatArgument(prog, arena, et, ReadPackElem(arena, v, uint32(i))))
+		}
+		return "(" + strings.Join(parts, ", ") + ")"
+	}
+	if kd == KindSlice {
+		let elemT = prog.Types.Elem[int(tid)]
+		let n = int(ReadSliceLen(arena, v))
+		let mut parts = slices.WithCapacity[string](n)
+		for i in 0..n {
+			parts = parts.Append(FormatArgument(prog, arena, elemT, ReadSliceElem(arena, v, uint32(i))))
+		}
+		return ArgumentTypeName(prog, tid) + "{" + strings.Join(parts, ", ") + "}"
+	}
+	if kd == KindMap {
+		let keyT = prog.Types.Elem[int(tid)]
+		let valT = prog.Types.Aux[int(tid)]
+		let hi = int(v.Aux)
+		if hi >= arena.MapHeads.Len() {
+			return ArgumentTypeName(prog, tid) + "{}"
+		}
+		let bi = int(arena.MapHeads[hi].Back)
+		if bi >= arena.MapBacks.Len() {
+			return ArgumentTypeName(prog, tid) + "{}"
+		}
+		let b = arena.MapBacks[bi]
+		let mut keys = slices.WithCapacity[Val](int(b.Len))
+		let mut vals = slices.WithCapacity[Val](int(b.Len))
+		for i in 0..int(b.Len) {
+			keys = keys.Append(arena.MapKeys[int(b.Start)+i])
+			vals = vals.Append(arena.MapVals[int(b.Start)+i])
+		}
+		sortArgumentMapEntries(prog, arena, &keys, &vals, keyT)
+		let mut parts = slices.WithCapacity[string](keys.Len())
+		for i in 0..keys.Len() {
+			parts = parts.Append(FormatArgument(prog, arena, keyT, keys[i]) + ": " + FormatArgument(prog, arena, valT, vals[i]))
+		}
+		return ArgumentTypeName(prog, tid) + "{" + strings.Join(parts, ", ") + "}"
+	}
+	if kd == KindRecord {
+		let n = int(PackLen(arena, v))
+		let typeName = ArgumentTypeName(prog, tid)
+		if n == 0 {
+			return typeName
+		}
+		let fStart = int(prog.Types.Aux[int(tid)])
+		let fCnt = int(prog.Types.Count[int(tid)])
+		let mut parts = slices.WithCapacity[string](n)
+		for i in 0..n {
+			let fn = if i < fCnt { prog.Types.FieldName[fStart+i] } else { "" }
+			let ft = if i < fCnt { prog.Types.FieldType[fStart+i] } else { TypeVoid }
+			parts = parts.Append(fn + ": " + FormatArgument(prog, arena, ft, ReadPackElem(arena, v, uint32(i))))
+		}
+		return typeName + "{" + strings.Join(parts, ", ") + "}"
+	}
+	if kd == KindUnion {
+		if v.Type != TypeVoid && v.Type != tid {
+			return FormatArgument(prog, arena, v.Type, v)
+		}
+		return DescribeVal(prog.Types, arena, v)
+	}
+	if kd == KindDefined {
+		let under = prog.Types.Elem[int(tid)]
+		if under != TypeVoid {
+			let innerT = if v.Tag == TagRecord || v.Tag == TagTuple { under } else { under }
+			return ArgumentTypeName(prog, tid) + "(" + FormatArgument(prog, arena, innerT, v) + ")"
+		}
+	}
+	if v.Tag == TagFunc && int(v.Aux) < arena.Closures.Len() {
+		let cl = arena.Closures[int(v.Aux)]
+		if cl.NativeName == "__law_cb" {
+			return "callback class " + strconv.FormatUint(uint64(cl.TypeArgCount), 10)
+		}
+	}
+	DescribeVal(prog.Types, arena, v)
+}
+
+// AssertDiff produces a deterministic LCS line diff for differing multi-line string assertions.
+func AssertDiff(a string, b string) string {
+	if a == b || (!strings.Contains(a, "\n") && !strings.Contains(b, "\n")) {
+		return ""
+	}
+	let x = strings.Split(a, "\n")
+	let y = strings.Split(b, "\n")
+	let rows = x.Len() + 1
+	let cols = y.Len() + 1
+	let mut lcs = slices.WithCapacity[int](rows * cols)
+	for k in 0..(rows * cols) {
+		let _ = k
+		lcs = lcs.Append(0)
+	}
+	let mut i = x.Len() - 1
+	for i >= 0 {
+		let mut j = y.Len() - 1
+		for j >= 0 {
+			let cur = i*cols + j
+			if x[i] == y[j] {
+				lcs[cur] = lcs[(i+1)*cols+j+1] + 1
+			} else if lcs[(i+1)*cols+j] >= lcs[i*cols+j+1] {
+				lcs[cur] = lcs[(i+1)*cols+j]
+			} else {
+				lcs[cur] = lcs[i*cols+j+1]
+			}
+			j = j - 1
+		}
+		i = i - 1
+	}
+	let mut lines = []string{"\n--- left\n+++ right"}
+	let mut ii = 0
+	let mut jj = 0
+	for ii < x.Len() || jj < y.Len() {
+		if ii < x.Len() && jj < y.Len() && x[ii] == y[jj] {
+			lines = lines.Append("\n  " + x[ii])
+			ii = ii + 1
+			jj = jj + 1
+		} else if jj == y.Len() || (ii < x.Len() && lcs[(ii+1)*cols+jj] >= lcs[ii*cols+jj+1]) {
+			lines = lines.Append("\n- " + x[ii])
+			ii = ii + 1
+		} else {
+			lines = lines.Append("\n+ " + y[jj])
+			jj = jj + 1
+		}
+	}
+	strings.Join(lines, "")
+}
+
+// FormatLawFalseMessage formats the native runner message for a law body evaluating to false.
+func FormatLawFalseMessage(site Site, declSite Site) string {
+	"law refuted at " + NativeSiteText(site) + ": the law is false\n\tlaw declared at " + NativeSiteText(declSite)
+}
+
+// FormatAssertMessage formats an assert or always failure message including operand formatting and line diff.
+func FormatAssertMessage(what string, site Site, exprText string, hasOperands bool, leftType uint32, rightType uint32, leftVal Val, rightVal Val, prog Program, arena ValArena) string {
+	let label = if what == "" { "assert failed" } else { what }
+	let mut text = exprText
+	if hasOperands {
+		let l = FormatArgument(prog, arena, leftType, leftVal)
+		let r = FormatArgument(prog, arena, rightType, rightVal)
+		text = text + ": left " + l + ", right " + r
+		if isStringLikeType(prog.Types, leftType) && isStringLikeType(prog.Types, rightType) && leftVal.Tag == TagStr && rightVal.Tag == TagStr {
+			text = text + AssertDiff(ReadStr(arena, leftVal), ReadStr(arena, rightVal))
+		}
+	}
+	label + " at " + NativeSiteText(site) + ": " + text
+}
+
+func writeLawArgsText(args []LawArg) string {
+	if args.Len() == 0 {
+		return ""
+	}
+	let mut parts = slices.WithCapacity[string](args.Len())
+	for a in args {
+		parts = parts.Append(a.Name + " = " + a.Value)
+	}
+	": " + strings.Join(parts, ", ")
+}
+
+func provedCaseText(cases uint32) string {
+	if cases == uint32(1) {
+		return "proved: 1 case"
+	}
+	"proved: all " + strconv.FormatUint(uint64(cases), 10) + " cases"
+}
+
+// FormatVerdictLine renders one test or law outcome byte-for-byte in native runner format.
+func FormatVerdictLine(r LawVerdict, source string) (string, bool) {
+	if r.Form == CaseFormNone {
+		return ("", false)
+	}
+	if r.Status == StatusPassed {
+		if r.Evidence == "evaluated" {
+			return ("ok " + r.Name, true)
+		}
+		if r.Evidence == "proved" {
+			return ("ok " + r.Name + " (" + provedCaseText(r.CasesRun) + ")", true)
+		}
+		if r.Evidence == "tested" {
+			if r.Reason != "" {
+				return ("ok " + r.Name + " (tested: " + r.Reason + ")", true)
+			}
+			let mut text = strconv.FormatUint(uint64(r.CasesRun), 10) + " cases"
+			if r.ExtraStaleCases > uint32(0) {
+				text = text + ", " + strconv.FormatUint(uint64(r.ExtraStaleCases), 10) + " extra case(s): digest changed"
+			}
+			return ("ok " + r.Name + " (" + text + ")", true)
+		}
+		return ("", false)
+	}
+	if r.Status != StatusRefuted || r.Message == "" {
+		return ("", false)
+	}
+	let isLaw = strings.HasPrefix(r.Name, "law ")
+	let mut out = "FAIL " + r.Name
+	if r.Form == CaseFormListed {
+		out = out + " (case " + strconv.FormatUint(uint64(r.CaseIdx), 10) + " of " + strconv.FormatUint(uint64(r.TotalCases), 10) + ", every value" + writeLawArgsText(r.Arguments) + ")"
+	} else if r.Form == CaseFormDrawn {
+		if r.StoredCaseHit {
+			let mut head = " (case 0, stored case"
+			if r.StoredStale {
+				head = " (case 0, extra case, digest changed"
+			}
+			out = out + head + writeLawArgsText(r.Arguments)
+			if r.HasDrawn {
+				out = out + "; shrunk from" + writeLawArgsText(r.Drawn)
+			}
+			out = out + ")"
+		} else {
+			let seedText = strconv.FormatUint(r.Seed, 10)
+			out = out + " (case " + strconv.FormatUint(uint64(r.CaseIdx), 10) + " of " + strconv.FormatUint(uint64(r.TotalCases), 10) + ", seed " + seedText + ", size " + strconv.FormatUint(uint64(r.CaseIdx/uint32(4)), 10) + writeLawArgsText(r.Arguments)
+			if r.HasDrawn {
+				out = out + "; shrunk from" + writeLawArgsText(r.Drawn)
+			}
+			if source != "" && !isLaw {
+				out = out + "; replay: ergo test " + source + " --seed " + seedText
+			}
+			out = out + ")"
+		}
+	}
+	out = out + ": " + r.Message
+	if isLaw {
+		let file = if source != "" {
+			source
+		} else {
+			let ns = NativeSiteText(r.Site)
+			let colon = strings.Index(ns, ":")
+			if colon >= 0 { ns[:colon] } else { ns }
+		}
+		out = out + "\n\treplay: ergo test " + file + " --law " + r.Title
+		if r.Form == CaseFormDrawn {
+			out = out + " --seed " + strconv.FormatUint(r.Seed, 10)
+		}
+	}
+	(out, true)
+}
+
+// FormatSummary renders stdout lines, stderr error line, exit code, and completeness flag for results.
+func FormatSummary(results []LawVerdict, source string) ([]string, string, int, bool) {
+	if results.Len() == 0 {
+		return ([]string{}, "", 0, false)
+	}
+	let mut stdout = slices.WithCapacity[string](results.Len() + 1)
+	let mut failed = 0
+	for r in results {
+		let (line, decided) = FormatVerdictLine(r, source)
+		if !decided {
+			return ([]string{}, "", 0, false)
+		}
+		stdout = stdout.Append(line)
+		if r.Status != StatusPassed {
+			failed = failed + 1
+		}
+	}
+	let n = strconv.Itoa(results.Len())
+	if failed > 0 {
+		let k = strconv.Itoa(failed)
+		stdout = stdout.Append("FAIL (" + k + " of " + n + " tests)")
+		return (stdout, "error: " + k + " of " + n + " tests failed", 1, true)
+	}
+	stdout = stdout.Append("PASS (" + n + " tests)")
+	(stdout, "", 0, true)
+}
+
+law AssertDiffEmptyWhenSingleLineOrEqual(a string, b string) {
+	if !strings.Contains(a, "\n") && !strings.Contains(b, "\n") {
+		assert AssertDiff(a, b) == ""
+	}
+	assert AssertDiff(a, a) == ""
+	true
+}
+
+test FormatArgumentMatchesReplayLiterals {
+	let prog = NewProgram()
+	let mut arena = NewValArena()
+	let b = BoolVal(TypeBool, true)
+	let i = MakeIntVal(prog.Types, TypeInt, uint64(42))
+	let f = MakeFloatVal(prog.Types, TypeFloat64, 3.0)
+	let d = MakeIntVal(prog.Types, TypeDuration, uint64(5000000000))
+	let s = AllocStrVal(&arena, TypeString, "hi\n")
+	assert FormatArgument(prog, arena, TypeBool, b) == "true"
+	assert FormatArgument(prog, arena, TypeInt, i) == "42"
+	assert FormatArgument(prog, arena, TypeFloat64, f) == "3.0"
+	assert FormatArgument(prog, arena, TypeDuration, d) == "5s"
+	assert FormatArgument(prog, arena, TypeString, s) == "\"hi\\n\""
+}
+
+test VerdictLineAndSummaryFormatMatchesNativeRunner {
+	let passProved = LawVerdict{
+		Name:            "law Commutes",
+		Title:           "Commutes",
+		Kind:            "law",
+		Status:          StatusPassed,
+		Reason:          "",
+		Message:         "",
+		Evidence:        "proved",
+		Form:            CaseFormListed,
+		CaseIdx:         uint32(0),
+		TotalCases:      uint32(4),
+		CasesRun:        uint32(4),
+		Seed:            uint64(1),
+		Arguments:       []LawArg{},
+		Drawn:           []LawArg{},
+		HasDrawn:        false,
+		ShrunkTape:      []uint64{},
+		StoredCaseHit:   false,
+		StoredStale:     false,
+		ExtraStaleCases: uint32(0),
+		Site:            Site{File: "a.ergo", Line: uint32(10), Col: uint32(2)},
+		DeclSite:        Site{File: "a.ergo", Line: uint32(9), Col: uint32(1)},
+		Steps:           uint64(12),
+		VerdictLine:     "",
+		Escaped:         false,
+		BodyFalse:       false,
+	}
+	let failDrawn = LawVerdict{
+		Name:            "law Broken",
+		Title:           "Broken",
+		Kind:            "law",
+		Status:          StatusRefuted,
+		Reason:          "assertion failed",
+		Message:         "assert failed at pkg/a.ergo:5:2: x > 0: left -1, right 0",
+		Evidence:        "",
+		Form:            CaseFormDrawn,
+		CaseIdx:         uint32(3),
+		TotalCases:      uint32(100),
+		CasesRun:        uint32(3),
+		Seed:            uint64(99),
+		Arguments:       []LawArg{LawArg{Name: "x", Value: "-1"}},
+		Drawn:           []LawArg{LawArg{Name: "x", Value: "-99"}},
+		HasDrawn:        true,
+		ShrunkTape:      []uint64{uint64(1), uint64(1)},
+		StoredCaseHit:   false,
+		StoredStale:     false,
+		ExtraStaleCases: uint32(0),
+		Site:            Site{File: "pkg/a.ergo", Line: uint32(5), Col: uint32(2)},
+		DeclSite:        Site{File: "pkg/a.ergo", Line: uint32(4), Col: uint32(1)},
+		Steps:           uint64(40),
+		VerdictLine:     "",
+		Escaped:         false,
+		BodyFalse:       false,
+	}
+	let (l1, ok1) = FormatVerdictLine(passProved, "")
+	assert ok1
+	assert l1 == "ok law Commutes (proved: all 4 cases)"
+	let (lines, errLine, exitCode, ok2) = FormatSummary([]LawVerdict{passProved, failDrawn}, "pkg/a.ergo")
+	assert ok2
+	assert exitCode == 1
+	assert errLine == "error: 1 of 2 tests failed"
+	assert lines.Len() == 3
+	assert strings.Contains(lines[1], "FAIL law Broken (case 3 of 100, seed 99, size 0: x = -1; shrunk from: x = -99)")
+	assert strings.Contains(lines[1], "replay: ergo test pkg/a.ergo --law Broken --seed 99")
+	assert lines[2] == "FAIL (1 of 2 tests)"
+}

@@ -38,7 +38,7 @@ import (
 //go:embed v1/path.go v1/numbers.go v1/goerror.go v1/goreads.go v1/goarg.go v1/gocall.go v1/gocallback.go
 //go:embed v1/view.go v1/guard.go v1/guard_unix.go v1/guard_other.go v1/cguard.go v1/cguard_unix.go v1/cguard_other.go
 //go:embed v1/digest/digest.go v1/digest/keyed.go v1/csv/csv.go v1/rand/rand.go v1/gofmt/gofmt.go v1/hostwalk/hostwalk.go
-//go:embed v1/hostfs/hostfs.go v1/hostfs/statfs_linux.go v1/hostfs/statfs_darwin.go
+//go:embed v1/hostfs/hostfs.go v1/hostfs/getfsstat_darwin.go v1/hostfs/getfsstat_other.go v1/hostfs/statfs_linux.go v1/hostfs/statfs_darwin.go
 //go:embed v1/exec/exec.go v1/exec/exec_confine.go v1/exec/exec_exit_kqueue.go v1/exec/exec_exit_linux.go v1/exec/exec_pty.go v1/exec/exec_pty_bsd_other.go v1/exec/exec_pty_darwin.go v1/exec/exec_pty_kqueue.go v1/exec/exec_pty_linux.go v1/exec/exec_pty_mem.go v1/exec/exec_pty_other.go v1/exec/exec_pty_unix.go v1/exec/exec_start.go v1/exec/exec_sandbox_linux.go v1/exec/exec_sandbox_other.go
 //go:embed explore/explore.go
 //go:embed testgen/classes.go testgen/near.go testgen/stream.go
@@ -51,7 +51,7 @@ import (
 //go:embed rt/group.go v1/buffer.go v1/heap.go v1/term_bsd.go v1/unsupported_os.go v1/exec/exec_spawn.go v1/exec/exec_spawn_darwin.go v1/exec/exec_spawn_linux.go v1/exec/exec_spawn_other.go v1/http/http_local.go v1/http/http_query.go
 //go:embed v1/exchange_darwin.go v1/exchange_linux.go v1/exchange_linux_amd64.go v1/exchange_linux_arm64.go v1/exchange_other.go
 //go:embed tzdata/tzdata.go tzdata/zones.bin
-//go:embed v1/self.go v1/signal.go v1/trees.go v1/fs_entry.go v1/fs_entry_atim.go v1/fs_entry_timespec.go v1/fs_entry_other.go v1/bounded.go v1/bounded_linux.go v1/bounded_darwin.go v1/bounded_other.go v1/digest/stream.go v1/exec/exec_replace_unix.go
+//go:embed v1/self.go v1/signal.go v1/process.go v1/process_linux.go v1/process_other.go v1/process_worker.go v1/trees.go v1/fs_entry.go v1/fs_entry_atim.go v1/fs_entry_timespec.go v1/fs_entry_other.go v1/fs_scan.go v1/fs_scan_darwin.go v1/fs_scan_linux.go v1/fs_scan_linux_amd64.go v1/fs_scan_linux_arm64.go v1/fs_scan_linux_other.go v1/fs_scan_other.go v1/bounded.go v1/bounded_linux.go v1/bounded_darwin.go v1/bounded_other.go v1/digest/stream.go v1/exec/exec_replace_unix.go
 var sources embed.FS
 
 // Module is the path of the runtime's Go module, which an emitted module
@@ -79,7 +79,7 @@ var packages = sync.OnceValue(func() map[string]pkg {
 			files: []string{"alone.go", "budget.go", "carrier.go", "cause.go", "clock.go", "doc.go", "gcknobs.go", "gocontext.go", "group.go", "handle.go", "held.go", "idle.go", "machine.go", "mapfault.go", "pace.go", "park.go", "park_stock.go", "park_word.go", "readsmall.go", "readsmall_other.go", "regions.go", "run.go", "sched.go", "sched_explore.go", "sched_live.go", "scope.go", "stall.go", "task.go", "tasks.go", "text.go", "timeout.go", "trace.go", "values.go", "waiter.go"},
 		},
 		"runtime/v1": {
-			files:   []string{"actor.go", "actor_host.go", "actor_recover.go", "actor_trace.go", "allocs.go", "atomic.go", "bounded.go", "bounded_darwin.go", "bounded_linux.go", "bounded_other.go", "buffer.go", "cguard.go", "cguard_other.go", "cguard_unix.go", "civil.go", "collections.go", "config_names.go", "context.go", "data.go", "deadline.go", "defect.go", "embed.go", "evidence.go", "exchange_darwin.go", "exchange_linux.go", "exchange_linux_amd64.go", "exchange_linux_arm64.go", "exchange_other.go", "exit.go", "exits.go", "explore_conform.go", "explore_off.go", "explore_on.go", "fs_entry.go", "fs_entry_atim.go", "fs_entry_other.go", "fs_entry_timespec.go", "fuse.go", "goarg.go", "gocall.go", "gocallback.go", "goerror.go", "goreads.go", "gotrace_off.go", "gotrace_on.go", "guard.go", "guard_other.go", "guard_unix.go", "heap.go", "hook.go", "host.go", "intmap.go", "json.go", "json_append.go", "json_bytes.go", "leaves.go", "lineage.go", "mailbox.go", "mapfile_unix.go", "mapped.go", "moves.go", "numbers.go", "owned.go", "path.go", "queue.go", "runtime.go", "script.go", "sealed.go", "self.go", "set.go", "shrink.go", "signal.go", "sometimes.go", "static.go", "stdout.go", "strbuf.go", "sync.go", "task.go", "term.go", "term_bsd.go", "term_darwin.go", "term_linux.go", "term_unix.go", "testhost.go", "text.go", "time.go", "timeappend.go", "timetext.go", "toml.go", "toml_encode.go", "trace.go", "trees.go", "tzdata.go", "tzhost.go", "ui_args.go", "unchecked.go", "unsupported_os.go", "view.go", "wide.go", "wire.go"},
+			files:   []string{"actor.go", "actor_host.go", "actor_recover.go", "actor_trace.go", "allocs.go", "atomic.go", "bounded.go", "bounded_darwin.go", "bounded_linux.go", "bounded_other.go", "buffer.go", "cguard.go", "cguard_other.go", "cguard_unix.go", "civil.go", "collections.go", "config_names.go", "context.go", "data.go", "deadline.go", "defect.go", "embed.go", "evidence.go", "exchange_darwin.go", "exchange_linux.go", "exchange_linux_amd64.go", "exchange_linux_arm64.go", "exchange_other.go", "exit.go", "exits.go", "explore_conform.go", "explore_off.go", "explore_on.go", "fs_entry.go", "fs_entry_atim.go", "fs_entry_other.go", "fs_entry_timespec.go", "fs_scan.go", "fs_scan_darwin.go", "fs_scan_linux.go", "fs_scan_linux_amd64.go", "fs_scan_linux_arm64.go", "fs_scan_linux_other.go", "fs_scan_other.go", "fuse.go", "goarg.go", "gocall.go", "gocallback.go", "goerror.go", "goreads.go", "gotrace_off.go", "gotrace_on.go", "guard.go", "guard_other.go", "guard_unix.go", "heap.go", "hook.go", "host.go", "intmap.go", "json.go", "json_append.go", "json_bytes.go", "leaves.go", "lineage.go", "mailbox.go", "mapfile_unix.go", "mapped.go", "moves.go", "numbers.go", "owned.go", "path.go", "process.go", "process_linux.go", "process_other.go", "process_worker.go", "queue.go", "runtime.go", "script.go", "sealed.go", "self.go", "set.go", "shrink.go", "signal.go", "sometimes.go", "static.go", "stdout.go", "strbuf.go", "sync.go", "task.go", "term.go", "term_bsd.go", "term_darwin.go", "term_linux.go", "term_unix.go", "testhost.go", "text.go", "time.go", "timeappend.go", "timetext.go", "toml.go", "toml_encode.go", "trace.go", "trees.go", "tzdata.go", "tzhost.go", "ui_args.go", "unchecked.go", "unsupported_os.go", "view.go", "wide.go", "wire.go"},
 			imports: []string{"runtime/explore/sched", "runtime/obs", "runtime/rt", "runtime/rt/rttrace", "runtime/tzdata"},
 		},
 		// std tz/iana's copy of the IANA zone database: runtime/v1 imports it,
@@ -143,7 +143,7 @@ var packages = sync.OnceValue(func() map[string]pkg {
 		// to it (HOST-ROW-3). Plain Go, bound as any Go package is, not a leaf
 		// of bodies (v1.Owns).
 		"runtime/v1/hostfs": {
-			files: []string{"hostfs.go", "statfs_darwin.go", "statfs_linux.go"},
+			files: []string{"hostfs.go", "getfsstat_darwin.go", "getfsstat_other.go", "statfs_darwin.go", "statfs_linux.go"},
 		},
 		// net/http links fmt, reflect, crypto/tls and encoding/* (binsize BS8).
 		"runtime/v1/http": {

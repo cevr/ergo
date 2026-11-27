@@ -1,0 +1,641 @@
+import actor
+import github.com/cevr/ergo/modules/atlas/handle
+import github.com/cevr/ergo/modules/atlas/memory
+import github.com/cevr/ergo/modules/atlas/pool
+import github.com/cevr/ergo/modules/atlas/session
+import machines
+import option
+import schedule
+import sync
+import tasks
+import testing
+import time
+
+// StoreOwnerState holds the serialized daemon store handle, fenced lease, boot report, and admission state.
+type StoreOwnerState {
+	Store     memory.Store,
+	Config    DaemonConfig,
+	Lease     LeaseState,
+	Boot      BootReport,
+	Admitting bool,
+	Quiescing bool,
+	Executed  int,
+}
+
+// FencedWriteReq packages a single lease-fenced store command for execution through StoreOwner.
+type FencedWriteReq {
+	CommandID memory.CommandID,
+	Actor     string,
+	AtMs      int64,
+	Command   memory.Command,
+}
+
+// HoldTickDue triggers a due-hold wake sweep when the armed deadline arrives.
+type HoldTickDue {}
+
+// HoldRecompute refreshes the earliest upcoming pool hold deadline at NowMs.
+type HoldRecompute {
+	NowMs int64,
+}
+
+// HoldPause suspends automatic pool-hold wake sweeps during cutover quiesce.
+type HoldPause {}
+
+// HoldResume resumes pool-hold wake sweeps and re-evaluates due holds at NowMs.
+type HoldResume {
+	NowMs int64,
+}
+
+// HoldCrashProbe injects a deliberate defect to verify supervision restart and deadline preservation.
+type HoldCrashProbe {
+	Reason string,
+}
+
+// HoldSchedSignal enumerates mailbox signals handled by the durable pool-hold resume scheduler.
+type HoldSchedSignal = HoldTickDue | HoldRecompute | HoldPause | HoldResume | HoldCrashProbe
+
+// HoldSchedDefect is raised when HoldCrashProbe exercises supervision recovery.
+type HoldSchedDefect {
+	Reason string,
+}
+
+// HoldSweepEmitted reports one completed pool-hold sweep to subscribers.
+type HoldSweepEmitted {
+	Report pool.StoreReconcileReport,
+	AtMs   int64,
+}
+
+// HoldSchedState stores the durable pool-hold scheduler checkpoint and monotonic deadline anchor.
+type HoldSchedState {
+	NextRetryAtMs   option.Option[int64],
+	Anchor          actor.TimerAnchor,
+	PendingDelay    option.Option[duration],
+	SweepsRun       int,
+	WakesDispatched int,
+	GoneHandled     int,
+	Paused          bool,
+}
+
+// SubsystemHandles holds live references to the active supervised subsystem actors.
+type SubsystemHandles {
+	StoreOwnerRef sync.Ref[option.Option[actor.Agent[StoreOwnerState]]],
+	HoldSchedRef  sync.Ref[option.Option[actor.Actor[HoldSchedState, HoldSchedSignal, machines.Decision[HoldSchedState, HoldSweepEmitted], ServeError]]],
+	HandleSupRef  sync.Ref[option.Option[actor.DynamicSupervisor]],
+	TurnSupRef    sync.Ref[option.Option[actor.DynamicSupervisor]],
+}
+
+// DaemonSupervisor supervises core Atlas daemon subsystems under BEAM/OTP RestForOne and OneForOne trees.
+type DaemonSupervisor {
+	Core           actor.ScopedSupervisor[time.Clock],
+	StoreOwnerID   actor.ChildID,
+	HoldSchedID    actor.ChildID,
+	HandleSupID    actor.ChildID,
+	TurnSupID      actor.ChildID,
+	Handles        SubsystemHandles,
+	HoldCheckpoint sync.Ref[option.Option[HoldSchedState]],
+}
+
+// DefaultCorePolicy returns the RestForOne supervision policy governing core daemon subsystems.
+func DefaultCorePolicy() tasks.Supervision {
+	tasks.Supervision{
+		Strategy:  tasks.RestForOne,
+		Intensity: tasks.Intensity{Max: 8, Period: 30s},
+		Backoff:   schedule.Forever(),
+	}
+}
+
+// DefaultWorkerPolicy returns the OneForOne supervision policy governing dynamic handle and turn workers.
+func DefaultWorkerPolicy() tasks.Supervision {
+	tasks.Supervision{
+		Strategy:  tasks.OneForOne,
+		Intensity: tasks.Intensity{Max: 16, Period: 30s},
+		Backoff:   schedule.Forever(),
+	}
+}
+
+func nowMsFromClock() int64 needs time.Clock {
+	let t = time.Clock.Now()
+	time.UnixSeconds(t)*int64(1000) + time.Nanosecond(t)/int64(1000000)
+}
+
+func initialHoldSchedState(boot BootReport) HoldSchedState {
+	HoldSchedState{
+		NextRetryAtMs:   boot.EarliestHoldRetryMs,
+		Anchor:          boot.NextHoldAnchor,
+		PendingDelay:    option.None,
+		SweepsRun:       0,
+		WakesDispatched: boot.DueHoldsWoken,
+		GoneHandled:     boot.DueHoldsGone,
+		Paused:          false,
+	}
+}
+
+func newSubsystemHandles() SubsystemHandles {
+	SubsystemHandles{
+		StoreOwnerRef: sync.NewRef[option.Option[actor.Agent[StoreOwnerState]]](option.None),
+		HoldSchedRef:  sync.NewRef[option.Option[actor.Actor[HoldSchedState, HoldSchedSignal, machines.Decision[HoldSchedState, HoldSweepEmitted], ServeError]]](option.None),
+		HandleSupRef:  sync.NewRef[option.Option[actor.DynamicSupervisor]](option.None),
+		TurnSupRef:    sync.NewRef[option.Option[actor.DynamicSupervisor]](option.None),
+	}
+}
+
+// StartStoreOwner spawns the serialized StoreOwner Agent holding lease fencing and admission control.
+func StartStoreOwner(store memory.Store, cfg DaemonConfig, boot BootReport) actor.Agent[StoreOwnerState] needs time.Scheduler {
+	actor.StartAgent(StoreOwnerState{
+		Store:     store,
+		Config:    cfg,
+		Lease:     boot.Lease,
+		Boot:      boot,
+		Admitting: true,
+		Quiescing: false,
+		Executed:  0,
+	})
+}
+
+// StoreOwnerSnapshot returns the latest committed StoreOwnerState from ag.
+func StoreOwnerSnapshot(ag actor.Agent[StoreOwnerState]) StoreOwnerState {
+	actor.Snapshot(ag)
+}
+
+// PauseStoreAdmission marks StoreOwner as paused (and optionally quiescing for live cutover).
+func PauseStoreAdmission(ag actor.Agent[StoreOwnerState], quiescing bool) StoreOwnerState fails actor.Stopped | actor.NoReply {
+	try actor.Call(ag, func(s mut StoreOwnerState) StoreOwnerState {
+		s.Admitting = false
+		s.Quiescing = quiescing
+		*s
+	})
+}
+
+// ResumeStoreAdmission restores normal traffic admission on StoreOwner after a pre-commit rollback.
+func ResumeStoreAdmission(ag actor.Agent[StoreOwnerState]) StoreOwnerState fails actor.Stopped | actor.NoReply {
+	try actor.Call(ag, func(s mut StoreOwnerState) StoreOwnerState {
+		s.Admitting = true
+		s.Quiescing = false
+		*s
+	})
+}
+
+// UpdateStoreOwnerLease updates the active LeaseState tracked by StoreOwner.
+func UpdateStoreOwnerLease(ag actor.Agent[StoreOwnerState], lease LeaseState) StoreOwnerState fails actor.Stopped | actor.NoReply {
+	try actor.Call(ag, func(s mut StoreOwnerState) StoreOwnerState {
+		s.Lease = lease
+		*s
+	})
+}
+
+// ExecuteThroughStoreOwner executes req against the fenced store only while StoreOwner is admitting traffic.
+func ExecuteThroughStoreOwner(ag actor.Agent[StoreOwnerState], req FencedWriteReq) memory.ExecuteResult fails actor.Stopped | actor.NoReply | ServeError {
+	try actor.Call(ag, func(s mut StoreOwnerState) memory.ExecuteResult fails ServeError {
+		if !s.Admitting || s.Quiescing {
+			return CutoverProtocolFailed{
+				Phase:  CutoverPhaseLabel(s.Lease.Phase),
+				Reason: "admission paused during cutover or drain",
+			}
+		}
+		let env = memory.Envelope{
+			ID:         req.CommandID,
+			Actor:      req.Actor,
+			AtMs:       req.AtMs,
+			LeaseFence: option.Some[memory.LeaseFenceCheck]{Value: MakeLeaseFence(s.Lease)},
+			Command:    req.Command,
+		}
+		let res = try ExecuteFencedStore(s.Store, "store_owner_exec", env)
+		s.Executed = s.Executed + 1
+		res
+	})
+}
+
+func sweepAndScheduleHolds(store memory.Store, state HoldSchedState, nowMs int64, emitSink bool) machines.Decision[HoldSchedState, HoldSweepEmitted] {
+	let sweepIdx = state.SweepsRun + 1
+	let rep = RunHoldSweep(store, "pool-hold-sched", "sched-\(sweepIdx)", nowMs) catch {
+	case _:
+		pool.StoreReconcileReport{
+			DueSeen:              0,
+			WakesDispatched:      0,
+			DeduplicatedWakes:    0,
+			GoneChildrenHandled:  0,
+			ParentNoticesEmitted: 0,
+			BlockedByQuestions:   0,
+		}
+	}
+	let pv = store.GetPoolView(nowMs) catch {
+	case memory.StoreFailed:
+		memory.PoolView{
+			Accounts:     []memory.PoolAccount{},
+			ResetClaims:  []memory.ResetClaim{},
+			ActivePushes: []memory.OwnerPush{},
+			DueHolds:     []memory.PoolHold{},
+			AllHolds:     []memory.PoolHold{},
+		}
+	}
+	let (_, earliestOpt, nextAnchor) = ComputeEarliestHoldAnchor(pv.AllHolds)
+	let nextState = HoldSchedState{
+		NextRetryAtMs:   earliestOpt,
+		Anchor:          nextAnchor,
+		PendingDelay:    option.None,
+		SweepsRun:       sweepIdx,
+		WakesDispatched: state.WakesDispatched + rep.WakesDispatched,
+		GoneHandled:     state.GoneHandled + rep.GoneChildrenHandled,
+		Paused:          state.Paused,
+	}
+	if emitSink && (rep.WakesDispatched > 0 || rep.GoneChildrenHandled > 0) {
+		return machines.Emit[HoldSchedState, HoldSweepEmitted]{
+			Next:   nextState,
+			Output: HoldSweepEmitted{Report: rep, AtMs: nowMs},
+		}
+	}
+	machines.Enter[HoldSchedState]{Next: nextState}
+}
+
+func buildHoldSchedulerMachine(
+	store memory.Store,
+	initial HoldSchedState,
+	sweepIntervalMs int64,
+) actor.LiveMachine[HoldSchedState, HoldSchedSignal, HoldSweepEmitted, ServeError, time.Clock, time.Clock] {
+	actor.LiveMachine[HoldSchedState, HoldSchedSignal, HoldSweepEmitted, ServeError, time.Clock, time.Clock]{
+		Initial: initial,
+		Step:    func(s HoldSchedState, sig HoldSchedSignal) machines.Decision[HoldSchedState, HoldSweepEmitted] fails ServeError needs time.Clock defects {
+			match sig {
+			case HoldTickDue:
+				if s.Paused {
+					return machines.Stay[HoldSchedState]{Next: HoldSchedState{..s, PendingDelay: option.None}}
+				}
+				sweepAndScheduleHolds(store, s, nowMsFromClock(), true)
+			case HoldRecompute as rc:
+				sweepAndScheduleHolds(store, s, rc.NowMs, true)
+			case HoldPause:
+				machines.Enter[HoldSchedState]{Next: HoldSchedState{..s, Paused: true, PendingDelay: option.None}}
+			case HoldResume as rs:
+				let resumed = HoldSchedState{..s, Paused: false}
+				sweepAndScheduleHolds(store, resumed, rs.NowMs, true)
+			case HoldCrashProbe as cp:
+				die HoldSchedDefect{Reason: cp.Reason}
+			}
+		},
+		After: func(s HoldSchedState) option.Option[machines.Timeout[HoldSchedSignal]] {
+			if s.Paused {
+				return option.None
+			}
+			match s.PendingDelay {
+			case option.Some[duration] as rem:
+				return option.Some[machines.Timeout[HoldSchedSignal]]{
+					Value: machines.Timeout[HoldSchedSignal]{In: rem.Value, Signal: HoldTickDue},
+				}
+			case option.None:
+			}
+			if !s.Anchor.Active {
+				return option.None
+			}
+			option.Some[machines.Timeout[HoldSchedSignal]]{
+				Value: machines.Timeout[HoldSchedSignal]{In: duration(sweepIntervalMs * int64(1000000)), Signal: HoldTickDue},
+			}
+		},
+		Work: func(s HoldSchedState) option.Option[func(send entry func(e HoldSchedSignal)) needs time.Clock defects] {
+			let _ = s
+			option.None
+		},
+		Exit: func(s HoldSchedState) option.Option[func() needs time.Clock] {
+			let _ = s
+			option.None
+		},
+	}
+}
+
+// HoldSchedLaunch groups the store, lease config, checkpoint ref, initial state, and supervision policy for StartHoldSchedulerWithPolicy.
+type HoldSchedLaunch {
+	Store      memory.Store,
+	Config     DaemonConfig,
+	Checkpoint sync.Ref[option.Option[HoldSchedState]],
+	Initial    HoldSchedState,
+	Policy     tasks.Supervision,
+}
+
+// StartHoldSchedulerWithPolicy launches the durable pool-hold scheduler actor under an explicit supervision policy.
+func StartHoldSchedulerWithPolicy(
+	launch HoldSchedLaunch,
+	onSweep own func(out HoldSweepEmitted),
+) actor.Actor[HoldSchedState, HoldSchedSignal, machines.Decision[HoldSchedState, HoldSweepEmitted], ServeError] needs time.Scheduler | time.Clock {
+	let store = launch.Store
+	let cfg = launch.Config
+	let checkpoint = launch.Checkpoint
+	let initial = launch.Initial
+	let policy = launch.Policy
+	let spec = buildHoldSchedulerMachine(store, initial, cfg.SweepIntervalMs)
+	actor.SuperviseDurableLiveWith(
+		spec,
+		64,
+		func(out HoldSweepEmitted) needs time.Clock {
+			onSweep(out)
+		},
+		policy,
+		func() option.Option[HoldSchedState] fails ServeError needs time.Clock {
+			match checkpoint.Get() {
+			case option.None:
+				let nowMs = nowMsFromClock()
+				let pv = store.GetPoolView(nowMs) catch {
+				case memory.StoreFailed as e:
+					return StoreOperationFailed{Operation: "sched_recover_pool_view", Detail: e.Reason}
+				}
+				let (_, earliestOpt, anchor) = ComputeEarliestHoldAnchor(pv.AllHolds)
+				if !anchor.Active {
+					return option.None
+				}
+				let rem = actor.RemainingDelay(anchor)
+				option.Some[HoldSchedState]{Value: HoldSchedState{
+					..initial,
+					NextRetryAtMs: earliestOpt,
+					Anchor:        anchor,
+					PendingDelay:  option.Some[duration]{Value: rem},
+				}}
+			case option.Some[HoldSchedState] as saved:
+				let st = saved.Value
+				if st.Anchor.Active && !st.Paused {
+					let rem = actor.RemainingDelay(st.Anchor)
+					return option.Some[HoldSchedState]{Value: HoldSchedState{
+						..st,
+						PendingDelay: option.Some[duration]{Value: rem},
+					}}
+				}
+				option.Some[HoldSchedState]{Value: st}
+			}
+		},
+		func(prev HoldSchedState, next HoldSchedState, sig HoldSchedSignal) fails ServeError needs time.Clock {
+			let _ = (prev, sig)
+			let withDelay = if next.Anchor.Active && !next.Paused {
+				let rem = actor.RemainingDelay(next.Anchor)
+				HoldSchedState{..next, PendingDelay: option.Some[duration]{Value: rem}}
+			} else {
+				HoldSchedState{..next, PendingDelay: option.None}
+			}
+			checkpoint.Set(option.Some[HoldSchedState]{Value: withDelay})
+		},
+	) catch {
+	case ServeError as se:
+		let _ = se
+		actor.StartLive(spec, 64, func(out HoldSweepEmitted) needs time.Clock { onSweep(out) })
+	}
+}
+
+// StartDaemonSupervisor starts the BEAM/OTP supervision tree over StoreOwner, PoolHoldScheduler, HandleSup, and TurnSup.
+func StartDaemonSupervisor(
+	store memory.Store,
+	cfg DaemonConfig,
+	boot BootReport,
+	onSweep own func(out HoldSweepEmitted),
+) DaemonSupervisor fails ServeError needs time.Scheduler | time.Clock {
+	try ValidateDaemonConfig(cfg)
+	let handles = newSubsystemHandles()
+	let checkpoint = sync.NewRef[option.Option[HoldSchedState]](option.Some[HoldSchedState]{Value: initialHoldSchedState(boot)})
+	let core = actor.StartScopedSupervisor[time.Clock]([]actor.ScopedChildSpec[time.Clock]{}, DefaultCorePolicy()) catch {
+	case actor.Stopped:
+		return SupervisionFailed{Reason: "core supervisor stopped during start"}
+	case tasks.GaveUp as g:
+		return SupervisionFailed{Reason: "core supervisor gave up: \(g.Reason)"}
+	}
+	let storeOwnerID = actor.AddScopedChild(core, actor.ScopedPermanentChild[time.Clock]("store-owner", func() actor.Target needs time.Clock | time.Scheduler {
+		let ag = StartStoreOwner(store, cfg, boot)
+		handles.StoreOwnerRef.Set(option.Some[actor.Agent[StoreOwnerState]]{Value: ag})
+		ag
+	})) catch {
+	case actor.Stopped:
+		return SupervisionFailed{Reason: "store-owner stopped"}
+	case tasks.GaveUp as g:
+		return SupervisionFailed{Reason: "store-owner gave up: \(g.Reason)"}
+	}
+	let holdSchedID = actor.AddScopedChild(core, actor.ScopedPermanentChild[time.Clock]("pool-hold-scheduler", func() actor.Target needs time.Clock | time.Scheduler {
+		let zeroSelfPolicy = tasks.Supervision{
+			Strategy:  tasks.OneForOne,
+			Intensity: tasks.Intensity{Max: 0, Period: 30s},
+			Backoff:   schedule.Forever(),
+		}
+		let sched = StartHoldSchedulerWithPolicy(HoldSchedLaunch{
+			Store:      store,
+			Config:     cfg,
+			Checkpoint: checkpoint,
+			Initial:    initialHoldSchedState(boot),
+			Policy:     zeroSelfPolicy,
+		}, onSweep)
+		handles.HoldSchedRef.Set(option.Some[actor.Actor[HoldSchedState, HoldSchedSignal, machines.Decision[HoldSchedState, HoldSweepEmitted], ServeError]]{Value: sched})
+		actor.FromActor(sched)
+	})) catch {
+	case actor.Stopped:
+		return SupervisionFailed{Reason: "pool-hold-scheduler stopped"}
+	case tasks.GaveUp as g:
+		return SupervisionFailed{Reason: "pool-hold-scheduler gave up: \(g.Reason)"}
+	}
+	let handleSupID = actor.AddScopedChild(core, actor.ScopedPermanentChild[time.Clock]("handle-kernel-sup", func() actor.Target needs time.Clock | time.Scheduler {
+		let hsup = actor.StartDynamicSupervisor(DefaultWorkerPolicy())
+		handles.HandleSupRef.Set(option.Some[actor.DynamicSupervisor]{Value: hsup})
+		hsup
+	})) catch {
+	case actor.Stopped:
+		return SupervisionFailed{Reason: "handle-kernel-sup stopped"}
+	case tasks.GaveUp as g:
+		return SupervisionFailed{Reason: "handle-kernel-sup gave up: \(g.Reason)"}
+	}
+	let turnSupID = actor.AddScopedChild(core, actor.ScopedPermanentChild[time.Clock]("turn-subagent-sup", func() actor.Target needs time.Clock | time.Scheduler {
+		let tsup = actor.StartDynamicSupervisor(DefaultWorkerPolicy())
+		handles.TurnSupRef.Set(option.Some[actor.DynamicSupervisor]{Value: tsup})
+		tsup
+	})) catch {
+	case actor.Stopped:
+		return SupervisionFailed{Reason: "turn-subagent-sup stopped"}
+	case tasks.GaveUp as g:
+		return SupervisionFailed{Reason: "turn-subagent-sup gave up: \(g.Reason)"}
+	}
+	DaemonSupervisor{
+		Core:           core,
+		StoreOwnerID:   storeOwnerID,
+		HoldSchedID:    holdSchedID,
+		HandleSupID:    handleSupID,
+		TurnSupID:      turnSupID,
+		Handles:        handles,
+		HoldCheckpoint: checkpoint,
+	}
+}
+
+// ShutdownDaemonSupervisor cleanly shuts down all supervised subsystems in reverse startup order.
+func ShutdownDaemonSupervisor(sup DaemonSupervisor) fails ServeError {
+	actor.ShutdownScoped(sup.Core) catch {
+	case tasks.GaveUp as g:
+		return SupervisionFailed{Reason: "shutdown gave up: \(g.Reason)"}
+	}
+}
+
+// RecomputeHoldSchedule asks the supervised PoolHoldScheduler to sweep and re-arm at nowMs.
+func RecomputeHoldSchedule(sup DaemonSupervisor, nowMs int64) HoldSchedState fails ServeError {
+	let sched = match sup.Handles.HoldSchedRef.Get() {
+	case option.Some[actor.Actor[HoldSchedState, HoldSchedSignal, machines.Decision[HoldSchedState, HoldSweepEmitted], ServeError]] as a:
+		a.Value
+	case option.None:
+		return SupervisionFailed{Reason: "pool-hold-scheduler unavailable"}
+	}
+	let _ = sched.Ask(HoldRecompute{NowMs: nowMs}) catch {
+	case actor.Stopped:
+		return SupervisionFailed{Reason: "pool-hold-scheduler stopped during recompute"}
+	case ServeError as se:
+		return SupervisionFailed{Reason: DescribeServeError(se)}
+	}
+	sched.State()
+}
+
+// ActiveStoreOwner returns the current StoreOwner agent managed by sup.
+func ActiveStoreOwner(sup DaemonSupervisor) actor.Agent[StoreOwnerState] fails ServeError {
+	match sup.Handles.StoreOwnerRef.Get() {
+	case option.Some[actor.Agent[StoreOwnerState]] as a:
+		a.Value
+	case option.None:
+		SupervisionFailed{Reason: "store-owner unavailable"}
+	}
+}
+
+// ActiveTurnSupervisor returns the current OneForOne Turn/Subagent DynamicSupervisor managed by sup.
+func ActiveTurnSupervisor(sup DaemonSupervisor) actor.DynamicSupervisor fails ServeError {
+	match sup.Handles.TurnSupRef.Get() {
+	case option.Some[actor.DynamicSupervisor] as d:
+		d.Value
+	case option.None:
+		SupervisionFailed{Reason: "turn-subagent-sup unavailable"}
+	}
+}
+
+test RestForOneRestartsDownstreamWithoutDroppingStoreOwner {
+	let clk = testing.NewVirtualClock(1700000000)
+	let store = memory.New()
+	let cfg = DefaultDaemonConfig("srv-sup", 1)
+	let nowMs = int64(1700000000000)
+	let boot = try BootReconcileDaemon(store, cfg, nowMs, "sup-boot")
+	with context { time.Scheduler: clk, time.Clock: clk } {
+		let sup = try StartDaemonSupervisor(store, cfg, boot, func(_ HoldSweepEmitted) {})
+		let ownerBefore = try ActiveStoreOwner(sup)
+		let tsupBefore = try ActiveTurnSupervisor(sup)
+		let thSpec = makeBootTestThreadSpec(handle.ThreadID("sup-th-1"))
+		let _ = try ExecuteThroughStoreOwner(ownerBefore, FencedWriteReq{
+			CommandID: memory.CommandID("sup-cmd-1"),
+			Actor:     "sup-test",
+			AtMs:      nowMs + int64(10),
+			Command:   memory.CmdCreateThread{Spec: thSpec, EdgeLabel: "root"},
+		})
+		let sched = match sup.Handles.HoldSchedRef.Get() {
+		case option.Some as a:
+			a.Value
+		case option.None:
+			assert false
+			return
+		}
+		let _ = sched.Ask(HoldCrashProbe{Reason: "boom"}) catch {
+		case actor.Stopped, ServeError:
+			machines.Ignore
+		}
+		let _ = actor.PeerExit(tsupBefore)
+		let _ = actor.ScopedChildren(sup.Core)
+		let _ = try RecomputeHoldSchedule(sup, nowMs+int64(20))
+		assert actor.ScopedRestartsOf(sup.Core, sup.StoreOwnerID) == 0
+		assert actor.ScopedRestartsOf(sup.Core, sup.HoldSchedID) >= 1
+		assert actor.PeerEnded(tsupBefore)
+		let ownerAfter = try ActiveStoreOwner(sup)
+		assert StoreOwnerSnapshot(ownerAfter).Executed == 1
+		try ShutdownDaemonSupervisor(sup)
+	}
+}
+
+test HoldSchedulerPreservesMonotonicDeadlineAcrossCrashAndFiresOnce {
+	let baseSec = int64(1700000000)
+	let baseMs = baseSec * int64(1000)
+	let retryAtMs = baseMs + int64(10000)
+	let clk = testing.NewVirtualClock(baseSec)
+	let store = memory.New()
+	let th = handle.ThreadID("hold-th-1")
+	let _ = try store.Execute(memory.Envelope{
+		ID:         memory.CommandID("ht-1"),
+		Actor:      "test",
+		AtMs:       baseMs,
+		LeaseFence: option.None,
+		Command:    memory.CmdCreateThread{Spec: makeBootTestThreadSpec(th), EdgeLabel: "root"},
+	})
+	let _ = try store.Execute(memory.Envelope{
+		ID:         memory.CommandID("ht-2"),
+		Actor:      "test",
+		AtMs:       baseMs,
+		LeaseFence: option.None,
+		Command:    memory.CmdOpenPoolHold{
+			HoldKey:        "hold-mono-1",
+			ThreadID:       th,
+			AccountID:      session.AccountID("acct-1"),
+			RetryAtMs:      retryAtMs,
+			ParentNotified: false,
+		},
+	})
+	let cfg = DefaultDaemonConfig("srv-hold", 1)
+	let boot = try BootReconcileDaemon(store, cfg, baseMs, "hold-boot")
+	assert boot.UpcomingHoldCount == 1
+	assert boot.EarliestHoldRetryMs == option.Some[int64]{Value: retryAtMs}
+
+	let wokeAtRef = sync.NewRef(int64(0))
+	let wokeLatch = sync.NewLatch()
+	with context { time.Scheduler: clk, time.Clock: clk } {
+		let checkpoint = sync.NewRef[option.Option[HoldSchedState]](option.Some[HoldSchedState]{Value: initialHoldSchedState(boot)})
+		let schedPolicy = tasks.Supervision{
+			Strategy:  tasks.OneForOne,
+			Intensity: tasks.Intensity{Max: 8, Period: 30s},
+			Backoff:   schedule.Forever(),
+		}
+		let sched = StartHoldSchedulerWithPolicy(HoldSchedLaunch{
+			Store:      store,
+			Config:     cfg,
+			Checkpoint: checkpoint,
+			Initial:    initialHoldSchedState(boot),
+			Policy:     schedPolicy,
+		}, func(out HoldSweepEmitted) {
+			if out.Report.WakesDispatched > 0 {
+				wokeAtRef.Set(out.AtMs)
+				let _ = sync.Open(wokeLatch)
+			}
+		})
+		clk.Sleep(6s)
+		assert !sync.IsOpen(wokeLatch)
+		let _ = sched.Ask(HoldCrashProbe{Reason: "mid-wait-crash"}) catch {
+		case actor.Stopped, ServeError:
+			machines.Ignore
+		}
+		assert actor.Restarts(sched) == 1
+		sync.Await(wokeLatch)
+		let wokeAt = wokeAtRef.Get()
+		assert wokeAt == retryAtMs
+		let snap = try store.Snapshot()
+		let wakeKey = pool.WakeDeliveryID(th, retryAtMs)
+		assert snap.Wakes.Get(wakeKey) != option.None
+		sched.Stop()
+	}
+}
+
+test LinkPropagatesAbnormalTurnExitToSupervisorPeer {
+	let clk = testing.NewVirtualClock(0)
+	with context { time.Scheduler: clk, time.Clock: clk } {
+		let sup = actor.StartDynamicSupervisor(DefaultWorkerPolicy())
+		let watcher = actor.StartAgent(0)
+		let workerRef = sync.NewRef[option.Option[actor.Process[int, HoldSchedDefect]]](option.None)
+		let _ = try actor.AddChild(sup, actor.TransientChild("turn-worker", func() actor.Target needs time.Scheduler {
+			let w = actor.Start(0, 4, func(s int, sig int) actor.Next[int] fails HoldSchedDefect {
+				if sig < 0 {
+					return HoldSchedDefect{Reason: "worker-crash"}
+				}
+				actor.Continue[int]{State: s + sig}
+			})
+			workerRef.Set(option.Some[actor.Process[int, HoldSchedDefect]]{Value: w})
+			w
+		}))
+		let firstWorker = match workerRef.Get() {
+		case option.Some[actor.Process[int, HoldSchedDefect]] as w:
+			w.Value
+		case option.None:
+			assert false
+			return
+		}
+		let _ = actor.Link(watcher, firstWorker)
+		try actor.Send(actor.Addr(firstWorker), -1)
+		let reason = actor.PeerExit(watcher)
+		assert reason == actor.AbnormalExit
+		try actor.Shutdown(sup)
+	}
+}

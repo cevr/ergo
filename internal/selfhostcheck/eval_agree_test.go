@@ -2,6 +2,7 @@ package selfhostcheck
 
 import (
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -20,15 +21,16 @@ import (
 )
 
 type evalDumpOutcome struct {
-	Name   string `json:"name"`
-	Kind   string `json:"kind"`
-	Status string `json:"status"`
-	Reason string `json:"reason"`
-	File   string `json:"file"`
-	Line   int    `json:"line"`
-	Col    int    `json:"col"`
-	Steps  int64  `json:"steps"`
-	Value  string `json:"value"`
+	Name     string `json:"name"`
+	Kind     string `json:"kind"`
+	Status   string `json:"status"`
+	Reason   string `json:"reason"`
+	File     string `json:"file"`
+	Line     int    `json:"line"`
+	Col      int    `json:"col"`
+	Steps    int64  `json:"steps"`
+	Value    string `json:"value"`
+	ValueHex string `json:"value_hex"`
 }
 
 type evalDumpStats struct {
@@ -150,6 +152,13 @@ func parseEvalDumpOutput(t *testing.T, lines []string) (map[int][]evalDumpOutcom
 		var out evalDumpOutcome
 		if err := json.Unmarshal([]byte(l), &out); err != nil {
 			t.Fatalf("bad outcome json line %q: %v", l, err)
+		}
+		if out.ValueHex != "" {
+			raw, herr := hex.DecodeString(out.ValueHex)
+			if herr != nil {
+				t.Fatalf("bad value_hex %q: %v", out.ValueHex, herr)
+			}
+			out.Value = string(raw)
 		}
 		byPkg[cur] = append(byPkg[cur], out)
 	}
@@ -1146,6 +1155,490 @@ test WorkLinear {
 	} else {
 		t.Logf("opcount PMU unavailable on host: %v", err)
 	}
+}
+
+type evalDumpLawArg struct {
+	Name  string `json:"name"`
+	Value string `json:"value"`
+}
+
+type evalDumpLawVerdict struct {
+	Name        string           `json:"name"`
+	Title       string           `json:"title"`
+	Kind        string           `json:"kind"`
+	Status      string           `json:"status"`
+	Reason      string           `json:"reason"`
+	Message     string           `json:"message"`
+	Evidence    string           `json:"evidence"`
+	Form        int              `json:"form"`
+	CaseIdx     int              `json:"case_idx"`
+	TotalCases  int              `json:"total_cases"`
+	CasesRun    int              `json:"cases_run"`
+	Seed        uint64           `json:"seed"`
+	Arguments   []evalDumpLawArg `json:"arguments"`
+	Drawn       []evalDumpLawArg `json:"drawn"`
+	HasDrawn    bool             `json:"has_drawn"`
+	File        string           `json:"file"`
+	Line        int              `json:"line"`
+	Col         int              `json:"col"`
+	Steps       int64            `json:"steps"`
+	VerdictLine string           `json:"verdict_line"`
+}
+
+type evalDumpLicenceClass struct {
+	Name  string `json:"name"`
+	Cases int    `json:"cases"`
+}
+
+type evalDumpLicenceVerdict struct {
+	Name     string                 `json:"name"`
+	Verdict  string                 `json:"verdict"`
+	Reason   string                 `json:"reason"`
+	Cases    int                    `json:"cases"`
+	Classes  []evalDumpLicenceClass `json:"classes"`
+	Missed   []string               `json:"missed"`
+	CaseText string                 `json:"case_text"`
+	Replayed int                    `json:"replayed"`
+	Steps    int64                  `json:"steps"`
+	LineText string                 `json:"line_text"`
+}
+
+type evalDumpFoldOutcome struct {
+	Ok         bool   `json:"ok"`
+	Text       string `json:"text"`
+	Reason     string `json:"reason"`
+	OverBudget bool   `json:"over_budget"`
+	Steps      int64  `json:"steps"`
+}
+
+type evalLawsParsedPkg struct {
+	Laws     []evalDumpLawVerdict
+	Licences []evalDumpLicenceVerdict
+	Folds    []evalDumpFoldOutcome
+}
+
+func parseEvalLawsDumpOutput(t *testing.T, lines []string) map[int]*evalLawsParsedPkg {
+	t.Helper()
+	out := map[int]*evalLawsParsedPkg{}
+	cur := -1
+	ensure := func(idx int) *evalLawsParsedPkg {
+		if p, ok := out[idx]; ok {
+			return p
+		}
+		p := &evalLawsParsedPkg{}
+		out[idx] = p
+		return p
+	}
+	for _, l := range lines {
+		l = strings.TrimSpace(l)
+		if l == "" || strings.HasPrefix(l, "@stats ") {
+			continue
+		}
+		if strings.HasPrefix(l, "@pkg ") {
+			n, err := strconv.Atoi(strings.TrimSpace(strings.TrimPrefix(l, "@pkg ")))
+			if err != nil {
+				t.Fatalf("bad @pkg line %q: %v", l, err)
+			}
+			cur = n
+			ensure(cur)
+			continue
+		}
+		p := ensure(cur)
+		switch {
+		case strings.HasPrefix(l, "@law "):
+			var lv evalDumpLawVerdict
+			if err := json.Unmarshal([]byte(strings.TrimPrefix(l, "@law ")), &lv); err != nil {
+				t.Fatalf("bad @law line %q: %v", l, err)
+			}
+			p.Laws = append(p.Laws, lv)
+		case strings.HasPrefix(l, "@licence "):
+			var lic evalDumpLicenceVerdict
+			if err := json.Unmarshal([]byte(strings.TrimPrefix(l, "@licence ")), &lic); err != nil {
+				t.Fatalf("bad @licence line %q: %v", l, err)
+			}
+			p.Licences = append(p.Licences, lic)
+		case strings.HasPrefix(l, "@fold "):
+			var f evalDumpFoldOutcome
+			if err := json.Unmarshal([]byte(strings.TrimPrefix(l, "@fold ")), &f); err != nil {
+				t.Fatalf("bad @fold line %q: %v", l, err)
+			}
+			p.Folds = append(p.Folds, f)
+		default:
+			t.Fatalf("unexpected evaldump laws line %q", l)
+		}
+	}
+	return out
+}
+
+func TestCompilerEvalLawsAgree(t *testing.T) {
+	needsBuild(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
+	defer cancel()
+	bin := evalDumpBin(t, ctx)
+
+	lawCorpus := []evalCase{
+		singlePkgCase("finite_domains_proved", `
+type Pair {
+	A bool,
+	B bool,
+}
+
+type Light = Red{} | Green{}
+
+type Tiny int where it >= 0 && it <= 3
+
+law PairBoolEq(p Pair) { p.A == p.A && (p.B || !p.B) }
+
+law UnionExhaustive(l Light) {
+	match l {
+	case Red: true
+	case Green: true
+	}
+}
+
+law TinyBounded(n Tiny) { int(n) >= 0 && int(n) <= 3 }
+`, false),
+
+		singlePkgCase("shrinking_counterexamples_and_assertions", `
+type BadNum {
+	Val int,
+}
+
+func parseNeg(n int) int fails BadNum {
+	if n > 5 {
+		return BadNum{Val: n}
+	}
+	n
+}
+
+law BadSliceLen(xs []int) {
+	assert xs.Len() < 3
+	true
+}
+
+law BadAssertCmp(a int) {
+	assert a == a + 1
+	true
+}
+
+law BadAlways(x int) {
+	always x == x + 1
+	true
+}
+
+law BadReturnFalse(n int) {
+	n < -999999999
+}
+
+law BadEscape(x int) {
+	let v = try parseNeg(x)
+	v >= 0 || v < 0
+}
+`, false),
+
+		singlePkgCase("sometimes_callbacks_ties_where", `
+law WitnessExists sometimes(x int) { x > 0 && x < 200 }
+
+law NoWitness sometimes(a bool, b bool) { a && !a && b }
+
+law MissedSometimes(b bool) {
+	if false {
+		sometimes b
+	}
+	true
+}
+
+law TieSubtraction(a int, b int) {
+	let _ = b
+	(a - a) == 0
+}
+
+law HigherOrderInside(x int) {
+	let a = x + 1
+	let b = x + 1
+	a == b
+}
+
+law DependentWhereAdmit(a int, b int where b > a) {
+	b > a
+}
+`, false),
+
+		singlePkgCase("round2_pure_stdlib_natives", `
+import build
+import csv
+import go crypto/sha256
+import go encoding/base64
+import filepath
+import go hash/crc32
+import hmac
+import http
+import math
+import go gmath math
+import sha1
+import sha512
+import slices
+import go strconv
+import strings
+import time
+import go unicode
+
+func EvalMain() string {
+	let rows = csv.ReadAll("a,b\n\"x,y\",z\n") catch {
+	case csv.ParseError: [][]string{}
+	}
+	let formattedCsv = csv.Format(rows)
+	let d = time.ParseDuration("1h30m") catch {
+	case _: 0s
+	}
+	let iso = time.DurationISO(d)
+	let dBack = time.ParseDurationISO(iso) catch {
+	case time.ParseError: 0s
+	}
+	let rel = filepath.Rel("/a/b", "/a/c/d") catch {
+	case filepath.NotRelative: ""
+	}
+	let sp = filepath.Split("/tmp/demo.txt")
+	let joined = filepath.Join([]string{"a", "b", "c"})
+	let q = http.EncodeQuery([]http.Field{http.Field{Name: "k v", Value: "1+2"}})
+	let i8 = math.ToInt8(42.0) catch {
+	case math.OutOfRange: int8(0)
+	}
+	let u16Overflow = math.ToUint16(70000.0) catch {
+	case math.OutOfRange: uint16(99)
+	}
+	let fbits = gmath.Float64bits(1.5)
+	let fback = gmath.Float64frombits(fbits)
+	let f32bits = gmath.Float32bits(float32(2.5))
+	let cmpStr = strings.Compare("abc", "abd")
+	let qr = strconv.QuoteRune('λ')
+	let emptyCap = slices.WithCapacity[int](8)
+	let bs = []byte{byte('e'), byte('r'), byte('g'), byte('o')}
+	let b64 = base64.StdEncoding.EncodeToString(bs)
+	let sum = sha256.Sum256(bs)
+	let s1 = sha1.Sum("ergo")
+	let s512 = sha512.Sum("ergo")
+	let crc = crc32.ChecksumIEEE(bs)
+	let crc2 = crc32.Update(uint32(0), crc32.IEEETable, bs)
+	let eqMac = hmac.Equal("abc", "abc")
+	let isL = unicode.IsLetter('G') && unicode.IsUpper('G') && unicode.IsDigit('7') && unicode.IsSpace(' ')
+	"\(rows.Len()):\(formattedCsv.Len()):\(time.DurationText(d)):\(iso):\(int64(dBack)):\(rel):\(sp.Dir):\(sp.File):\(joined):\(filepath.Base(joined)):\(filepath.Dir(joined)):\(filepath.Ext(sp.File)):\(filepath.Clean("a/../b")):\(filepath.IsAbs("/x")):\(q):\(i8):\(u16Overflow):\(fbits):\(fback):\(f32bits):\(cmpStr):\(qr):\(emptyCap.Len()):\(b64):\(sum[0]):\(s1):\(s512.Len()):\(crc == crc2):\(eqMac):\(isL):\(build.InFold())"
+}
+
+test Round2PureNatives {
+	assert EvalMain() != ""
+	assert strings.Compare("a", "a") == 0
+	assert gmath.Float64frombits(gmath.Float64bits(-3.25)) == -3.25
+}
+`, true),
+	}
+
+	t.Run("law_runner_parity", func(t *testing.T) {
+		tmp := t.TempDir()
+		var manifest []string
+		rootPkgs := make([]*check.Package, len(lawCorpus))
+		for i, c := range lawCorpus {
+			cDir := filepath.Join(tmp, fmt.Sprintf("law_%d_%s", i, c.Name))
+			lines, rp, ok := checkEvalCaseUnits(t, c, cDir)
+			if !ok {
+				t.FailNow()
+			}
+			rootPkgs[i] = rp
+			manifest = append(manifest, lines...)
+		}
+		mfPath := filepath.Join(tmp, "manifest")
+		writeLines(t, mfPath, manifest)
+
+		dumpLines1 := runDump(t, ctx, bin, "-each", "-laws", "-seed", "1", "-std", stdDir(), "-steps", "1000000", "-depth", "256", "-cases", "100", "-corpus", mfPath)
+		dumpLines2 := runDump(t, ctx, bin, "-each", "-laws", "-seed", "1", "-std", stdDir(), "-steps", "1000000", "-depth", "256", "-cases", "100", "-corpus", mfPath)
+		if strings.Join(dumpLines1, "\n") != strings.Join(dumpLines2, "\n") {
+			t.Fatalf("compiler/eval laws output not deterministic across identical seeds")
+		}
+		byPkg := parseEvalLawsDumpOutput(t, dumpLines1)
+		goBudget := eval.Budget{Steps: 1_000_000, Depth: 256, Bytes: 8 << 20, Seed: 1}
+		mismatches := 0
+
+		for i, c := range lawCorpus {
+			rep, err := eval.Run(rootPkgs[i], goBudget)
+			if err != nil {
+				t.Fatalf("case %s: Go eval.Run error: %v", c.Name, err)
+			}
+			gotPkg := byPkg[i]
+			if gotPkg == nil || len(gotPkg.Laws) != len(rep.Results) {
+				t.Fatalf("case %s: verdict count mismatch: got=%+v, want=%d", c.Name, gotPkg, len(rep.Results))
+			}
+			for k, gr := range rep.Results {
+				glv := gotPkg.Laws[k]
+				if glv.Name != gr.Name {
+					t.Errorf("case %s [%d]: name mismatch: got %q, want %q", c.Name, k, glv.Name, gr.Name)
+					mismatches++
+				}
+				if glv.Status != string(gr.Status) {
+					t.Errorf("case %s [%s]: status mismatch: compiler/eval=%q (reason=%q), go=%q (reason=%q)",
+						c.Name, gr.Name, glv.Status, glv.Reason, gr.Status, gr.Reason)
+					mismatches++
+				}
+				if gr.Status == eval.Passed && gr.Evidence != "" && glv.Evidence != gr.Evidence {
+					t.Errorf("case %s [%s]: evidence mismatch: got %q, want %q", c.Name, gr.Name, glv.Evidence, gr.Evidence)
+					mismatches++
+				}
+				if gr.Evidence == "proved" && glv.TotalCases != gr.TotalCases {
+					t.Errorf("case %s [%s]: proved TotalCases mismatch: got %d, want %d", c.Name, gr.Name, glv.TotalCases, gr.TotalCases)
+					mismatches++
+				}
+				if gr.Status == eval.Refuted && len(gr.Arguments) > 0 && len(glv.Arguments) != len(gr.Arguments) {
+					t.Errorf("case %s [%s]: counterexample arg count mismatch: got %d, want %d",
+						c.Name, gr.Name, len(glv.Arguments), len(gr.Arguments))
+					mismatches++
+				}
+				if gr.Name == "law MissedSometimes" && !strings.Contains(glv.Reason, "sometimes b was never true") {
+					t.Errorf("case %s: MissedSometimes missing expected reason: got %q", c.Name, glv.Reason)
+					mismatches++
+				}
+				if gr.Name == "law BadSliceLen" && len(glv.Arguments) == 1 && !strings.HasPrefix(glv.Arguments[0].Value, "[]int{0, 0, 0}") {
+					t.Errorf("case %s: BadSliceLen did not shrink to minimal []int{0, 0, 0}: got %+v", c.Name, glv.Arguments)
+					mismatches++
+				}
+				wantLine, wantOk := eval.VerdictLine(gr, "")
+				if wantOk && glv.VerdictLine == "" {
+					t.Errorf("case %s [%s]: empty VerdictLine while Go VerdictLine=%q", c.Name, gr.Name, wantLine)
+					mismatches++
+				}
+			}
+			if c.HasEvalMain {
+				ex, eerr := eval.RunEntry(rootPkgs[i], "EvalMain", goBudget, eval.Process{})
+				if eerr != nil {
+					t.Fatalf("case %s: Go RunEntry error: %v", c.Name, eerr)
+				}
+				edLines := runDump(t, ctx, bin, "-each", "-std", stdDir(), "-steps", "1000000", "-depth", "256", "-entry", "EvalMain", "-corpus", mfPath)
+				edPkgs, _ := parseEvalDumpOutput(t, edLines)
+				var gotMain string
+				for _, o := range edPkgs[i] {
+					if o.Kind == "expr" && o.Name == "EvalMain" {
+						gotMain = o.Value
+					}
+				}
+				wantMain := strings.TrimSuffix(ex.Stdout, "\n")
+				if gotMain != wantMain {
+					t.Errorf("case %s EvalMain mismatch:\n  compiler/eval: %q\n  go eval:       %q", c.Name, gotMain, wantMain)
+					mismatches++
+				}
+			}
+		}
+		if mismatches > 0 {
+			t.Fatalf("TestCompilerEvalLawsAgree law_runner_parity had %d mismatches", mismatches)
+		}
+	})
+
+	t.Run("licence_parity", func(t *testing.T) {
+		rwCase := singlePkgCase("rewrite_licences", `
+func addTwo(x int, y int) int { x + y }
+
+func wrapStr(s string) string { s }
+
+func addOne(x int) int { x + 1 }
+
+law AddSelf(x int) { addTwo(x, x) } == { x * 2 }
+
+law StringAppendEmpty(s string) { wrapStr(wrapStr(s)) } == { wrapStr(s) }
+
+law BadIncrement(x int) { addOne(x) } == { x }
+`, false)
+		tmp := t.TempDir()
+		lines, pkg, ok := checkEvalCaseUnits(t, rwCase, tmp)
+		if !ok {
+			t.FailNow()
+		}
+		mf := filepath.Join(tmp, "manifest")
+		writeLines(t, mf, lines)
+		dumpLines := runDump(t, ctx, bin, "-laws", "-licence", "-seed", "1", "-std", stdDir(), "-corpus", mf)
+		byPkg := parseEvalLawsDumpOutput(t, dumpLines)
+		p := byPkg[0]
+		if p == nil || len(p.Licences) != len(pkg.Laws) {
+			t.Fatalf("licence count mismatch: got=%+v, want=%d", p, len(pkg.Laws))
+		}
+		lb := eval.LicenceBudget()
+		lb.Seed = 1
+		for i, lw := range pkg.Laws {
+			goLic, err := eval.LicenceRun(pkg, lw, lb, nil, nil)
+			if err != nil {
+				t.Fatalf("Go LicenceRun(%s): %v", lw.Name, err)
+			}
+			gotLic := p.Licences[i]
+			if gotLic.Verdict != string(goLic.Verdict) {
+				t.Errorf("licence %s verdict mismatch: compiler/eval=%q (reason=%q), go=%q (reason=%q)",
+					lw.Name, gotLic.Verdict, gotLic.Reason, goLic.Verdict, goLic.Reason)
+			}
+			if len(gotLic.Missed) != len(goLic.Missed) {
+				t.Errorf("licence %s missed classes mismatch: got=%v, want=%v", lw.Name, gotLic.Missed, goLic.Missed)
+			}
+		}
+	})
+
+	t.Run("fold_parity", func(t *testing.T) {
+		foldCase := singlePkgCase("fold_consts", `
+import build
+import strings
+
+func FoldArith() int { (6 * 7) + 10 - 2 }
+
+func FoldUpper() string { strings.ToUpper("ergo") }
+
+func FoldBuildFlag() bool { build.InFold() }
+
+func FoldDivZero() int {
+	let z = 0
+	1 / z
+}
+`, false)
+		tmp := t.TempDir()
+		lines, pkg, ok := checkEvalCaseUnits(t, foldCase, tmp)
+		if !ok {
+			t.FailNow()
+		}
+		mf := filepath.Join(tmp, "manifest")
+		writeLines(t, mf, lines)
+
+		goBudget := eval.DefaultBudget()
+		type foldCheck struct {
+			name string
+		}
+		checks := []foldCheck{{"FoldArith"}, {"FoldUpper"}, {"FoldBuildFlag"}, {"FoldDivZero"}}
+		for _, fc := range checks {
+			var goFn *check.Func
+			for _, fn := range pkg.Funcs {
+				if fn.Name == fc.name {
+					goFn = fn
+					break
+				}
+			}
+			if goFn == nil {
+				t.Fatalf("missing Go func %s", fc.name)
+			}
+			stmts := goFn.Decl.Body.List
+			lastExpr := stmts[len(stmts)-1].(*syntax.ExprStmt).X
+			goConst, goWhy, goOver := eval.FoldValue(pkg, goFn.Decl, lastExpr, goBudget)
+
+			dumpLines := runDump(t, ctx, bin, "-fold", fc.name, "-std", stdDir(), "-corpus", mf)
+			byPkg := parseEvalLawsDumpOutput(t, dumpLines)
+			p := byPkg[0]
+			if p == nil || len(p.Folds) != 1 {
+				t.Fatalf("fold %s expected 1 @fold line, got %+v", fc.name, dumpLines)
+			}
+			gf := p.Folds[0]
+			wantOk := goWhy == ""
+			if gf.Ok != wantOk || gf.OverBudget != goOver {
+				t.Errorf("fold %s ok/over mismatch: compiler/eval=(ok=%v over=%v text=%q reason=%q), go=(ok=%v over=%v c=%+v why=%q)",
+					fc.name, gf.Ok, gf.OverBudget, gf.Text, gf.Reason, wantOk, goOver, goConst, goWhy)
+			}
+			if wantOk && goConst.Kind == eval.ConstBasic {
+				wantText := goConst.Basic.ExactString()
+				if gf.Text != wantText && gf.Text != goConst.Basic.String() {
+					t.Errorf("fold %s text mismatch: got %q, want %q / %q", fc.name, gf.Text, wantText, goConst.Basic.String())
+				}
+			}
+		}
+	})
 }
 
 func BenchmarkCompilerEvalVM(b *testing.B) {

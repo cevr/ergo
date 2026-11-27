@@ -7,17 +7,17 @@ import os/host
 
 // Request is one call of orchestrate.Api: a variant per operation, whose fields
 // are the operation's parameters. It is the request every transport carries.
-type Request = UnitOpenRequest{Input orchestrate.UnitOpenInput} | ReceiptRecordRequest{Input orchestrate.ReceiptRecordInput} | UnitStateRequest{Input orchestrate.UnitStateInput} | UnitAcceptRequest{Input orchestrate.UnitVerdictInput} | UnitLandRequest{Input orchestrate.UnitVerdictInput} | UnitCloseRequest{Input orchestrate.UnitCloseInput} | CommitmentAddRequest{Input orchestrate.CommitmentAddInput} | CommitmentAssignRequest{Input orchestrate.CommitmentAssignInput} | CommitmentLandRequest{Input orchestrate.CommitmentLandInput} | CommitmentDecideRequest{Input orchestrate.CommitmentDecideInput} | CommitmentListRequest{Input orchestrate.CommitmentListInput} | QueueUpsertRequest{Input orchestrate.QueueUpsertInput} | QueueRemoveRequest{Input orchestrate.QueueRemoveInput} | QueueListRequest{Input orchestrate.QueueListInput} | QuestionAskRequest{Input orchestrate.QuestionAskInput} | QuestionAnswerRequest{Input orchestrate.QuestionAnswerInput} | QuestionListRequest{Input orchestrate.QuestionListInput} | RunHeadSetRequest{Input orchestrate.RunHeadSetInput} | RunSummaryRequest{Input orchestrate.RunSummaryInput} | UnitListRequest{Input orchestrate.UnitListInput} | DecisionRecordRequest{Input orchestrate.DecisionRecordInput} | DecisionListRequest{Input orchestrate.DecisionListInput} | LandingRecordRequest{Input orchestrate.LandingRecordInput} | LandingListRequest{Input orchestrate.LandingListInput} | EventRecordRequest{Input orchestrate.EventRecordInput} | EventLogRequest{Input orchestrate.EventLogInput} | ImportPlanRequest{Input orchestrate.ImportPlanInput} | HostStatusRequest{Input orchestrate.HostStatusInput} | HostProcessesRequest{Input orchestrate.HostProcessesInput} | HostReadinessRequest{Input orchestrate.HostReadinessInput} | EventsSinceRequest{Input orchestrate.EventsSinceInput}
+type Request = UnitOpenRequest{Input orchestrate.UnitOpenInput} | ReceiptRecordRequest{Input orchestrate.ReceiptRecordInput} | UnitStateRequest{Input orchestrate.UnitStateInput} | UnitAcceptRequest{Input orchestrate.UnitVerdictInput} | UnitLandRequest{Input orchestrate.UnitVerdictInput} | UnitCloseRequest{Input orchestrate.UnitCloseInput} | CommitmentAddRequest{Input orchestrate.CommitmentAddInput} | CommitmentAssignRequest{Input orchestrate.CommitmentAssignInput} | CommitmentLandRequest{Input orchestrate.CommitmentLandInput} | CommitmentDecideRequest{Input orchestrate.CommitmentDecideInput} | CommitmentListRequest{Input orchestrate.CommitmentListInput} | QueueUpsertRequest{Input orchestrate.QueueUpsertInput} | QueueRemoveRequest{Input orchestrate.QueueRemoveInput} | QueueListRequest{Input orchestrate.QueueListInput} | QuestionAskRequest{Input orchestrate.QuestionAskInput} | QuestionAnswerRequest{Input orchestrate.QuestionAnswerInput} | QuestionListRequest{Input orchestrate.QuestionListInput} | UnitTransferRequest{Input orchestrate.UnitTransferInput} | LandingBeginRequest{Input orchestrate.LandingBeginInput} | LandingEndRequest{Input orchestrate.LandingEndInput} | RunSummaryRequest{Input orchestrate.RunSummaryInput} | UnitListRequest{Input orchestrate.UnitListInput} | DecisionRecordRequest{Input orchestrate.DecisionRecordInput} | DecisionListRequest{Input orchestrate.DecisionListInput} | LandingRecordRequest{Input orchestrate.LandingRecordInput} | LandingListRequest{Input orchestrate.LandingListInput} | EventRecordRequest{Input orchestrate.EventRecordInput} | EventLogRequest{Input orchestrate.EventLogInput} | ImportPlanRequest{Input orchestrate.ImportPlanInput} | HostStatusRequest{Input orchestrate.HostStatusInput} | HostProcessesRequest{Input orchestrate.HostProcessesInput} | HostReadinessRequest{Input orchestrate.HostReadinessInput} | EventsSinceRequest{Input orchestrate.EventsSinceInput}
 
 // Op is an operation of orchestrate.Api: what a policy matches on.
-type Op = UnitOpenOp{} | ReceiptRecordOp{} | UnitStateOp{} | UnitAcceptOp{} | UnitLandOp{} | UnitCloseOp{} | CommitmentAddOp{} | CommitmentAssignOp{} | CommitmentLandOp{} | CommitmentDecideOp{} | CommitmentListOp{} | QueueUpsertOp{} | QueueRemoveOp{} | QueueListOp{} | QuestionAskOp{} | QuestionAnswerOp{} | QuestionListOp{} | RunHeadSetOp{} | RunSummaryOp{} | UnitListOp{} | DecisionRecordOp{} | DecisionListOp{} | LandingRecordOp{} | LandingListOp{} | EventRecordOp{} | EventLogOp{} | ImportPlanOp{} | HostStatusOp{} | HostProcessesOp{} | HostReadinessOp{} | EventsSinceOp{}
+type Op = UnitOpenOp{} | ReceiptRecordOp{} | UnitStateOp{} | UnitAcceptOp{} | UnitLandOp{} | UnitCloseOp{} | CommitmentAddOp{} | CommitmentAssignOp{} | CommitmentLandOp{} | CommitmentDecideOp{} | CommitmentListOp{} | QueueUpsertOp{} | QueueRemoveOp{} | QueueListOp{} | QuestionAskOp{} | QuestionAnswerOp{} | QuestionListOp{} | UnitTransferOp{} | LandingBeginOp{} | LandingEndOp{} | RunSummaryOp{} | UnitListOp{} | DecisionRecordOp{} | DecisionListOp{} | LandingRecordOp{} | LandingListOp{} | EventRecordOp{} | EventLogOp{} | ImportPlanOp{} | HostStatusOp{} | HostProcessesOp{} | HostReadinessOp{} | EventsSinceOp{}
 
 // Reply is the value of an operation: a variant per operation.
-type Reply = UnitOpenReply{Value orchestrate.Unit} | ReceiptRecordReply{Value orchestrate.Receipt} | UnitStateReply{Value orchestrate.UnitView} | UnitAcceptReply{Value orchestrate.Unit} | UnitLandReply{Value orchestrate.Unit} | UnitCloseReply{Value orchestrate.Unit} | CommitmentAddReply{Value orchestrate.Commitment} | CommitmentAssignReply{Value orchestrate.Commitment} | CommitmentLandReply{Value orchestrate.Commitment} | CommitmentDecideReply{Value orchestrate.Commitment} | CommitmentListReply{Value []orchestrate.Commitment} | QueueUpsertReply{Value orchestrate.QueueItem} | QueueRemoveReply{} | QueueListReply{Value []orchestrate.QueueItem} | QuestionAskReply{Value orchestrate.Question} | QuestionAnswerReply{Value orchestrate.Question} | QuestionListReply{Value []orchestrate.Question} | RunHeadSetReply{Value orchestrate.RunMeta} | RunSummaryReply{Value orchestrate.RunOverview} | UnitListReply{Value orchestrate.UnitPage} | DecisionRecordReply{Value orchestrate.Decision} | DecisionListReply{Value orchestrate.DecisionPage} | LandingRecordReply{Value orchestrate.Landing} | LandingListReply{Value orchestrate.LandingPage} | EventRecordReply{Value orchestrate.LedgerEvent} | EventLogReply{Value orchestrate.EventPage} | ImportPlanReply{Value orchestrate.ImportReport} | HostStatusReply{Value orchestrate.HostStatusReport} | HostProcessesReply{Value orchestrate.HostProcessList} | HostReadinessReply{Value orchestrate.HostReadinessReport} | EventsSinceReply{Value orchestrate.EventStreamPage}
+type Reply = UnitOpenReply{Value orchestrate.Unit} | ReceiptRecordReply{Value orchestrate.Receipt} | UnitStateReply{Value orchestrate.UnitView} | UnitAcceptReply{Value orchestrate.Unit} | UnitLandReply{Value orchestrate.Unit} | UnitCloseReply{Value orchestrate.Unit} | CommitmentAddReply{Value orchestrate.Commitment} | CommitmentAssignReply{Value orchestrate.Commitment} | CommitmentLandReply{Value orchestrate.Commitment} | CommitmentDecideReply{Value orchestrate.Commitment} | CommitmentListReply{Value []orchestrate.Commitment} | QueueUpsertReply{Value orchestrate.QueueItem} | QueueRemoveReply{} | QueueListReply{Value []orchestrate.QueueItem} | QuestionAskReply{Value orchestrate.Question} | QuestionAnswerReply{Value orchestrate.Question} | QuestionListReply{Value []orchestrate.Question} | UnitTransferReply{Value orchestrate.Unit} | LandingBeginReply{Value orchestrate.LandingLease} | LandingEndReply{Value orchestrate.RunMeta} | RunSummaryReply{Value orchestrate.RunOverview} | UnitListReply{Value orchestrate.UnitPage} | DecisionRecordReply{Value orchestrate.Decision} | DecisionListReply{Value orchestrate.DecisionPage} | LandingRecordReply{Value orchestrate.Landing} | LandingListReply{Value orchestrate.LandingPage} | EventRecordReply{Value orchestrate.LedgerEvent} | EventLogReply{Value orchestrate.EventPage} | ImportPlanReply{Value orchestrate.ImportReport} | HostStatusReply{Value orchestrate.HostStatusReport} | HostProcessesReply{Value orchestrate.HostProcessList} | HostReadinessReply{Value orchestrate.HostReadinessReport} | EventsSinceReply{Value orchestrate.EventStreamPage}
 
 // Failure is a failure of an operation: a variant per failure type of
 // any row, named like the type (its JSON tag).
-type Failure = NotFound{E orchestrate.NotFound} | AlreadyExists{E orchestrate.AlreadyExists} | InvalidTransition{E orchestrate.InvalidTransition} | CommandReused{E orchestrate.CommandReused} | InvalidInput{E orchestrate.InvalidInput} | Unverified{E orchestrate.Unverified} | NotAcceptedHead{E orchestrate.NotAcceptedHead} | StoreFailed{E orchestrate.StoreFailed} | Unavailable{E host.Unavailable} | Malformed{E host.Malformed}
+type Failure = NotFound{E orchestrate.NotFound} | AlreadyExists{E orchestrate.AlreadyExists} | InvalidTransition{E orchestrate.InvalidTransition} | CommandReused{E orchestrate.CommandReused} | InvalidInput{E orchestrate.InvalidInput} | Unverified{E orchestrate.Unverified} | NotAcceptedHead{E orchestrate.NotAcceptedHead} | LaneHeld{E orchestrate.LaneHeld} | NotOwner{E orchestrate.NotOwner} | LandingBusy{E orchestrate.LandingBusy} | StaleHead{E orchestrate.StaleHead} | NoLease{E orchestrate.NoLease} | StoreFailed{E orchestrate.StoreFailed} | Unavailable{E host.Unavailable} | Malformed{E host.Malformed}
 
 // Outcome is what one call ends in: its operation's value or one of
 // its failures.
@@ -60,8 +60,12 @@ func OpOf(r Request) Op {
 		QuestionAnswerOp
 	case QuestionListRequest:
 		QuestionListOp
-	case RunHeadSetRequest:
-		RunHeadSetOp
+	case UnitTransferRequest:
+		UnitTransferOp
+	case LandingBeginRequest:
+		LandingBeginOp
+	case LandingEndRequest:
+		LandingEndOp
 	case RunSummaryRequest:
 		RunSummaryOp
 	case UnitListRequest:
@@ -128,8 +132,12 @@ func Name(op Op) string {
 		"question-answer"
 	case QuestionListOp:
 		"question-list"
-	case RunHeadSetOp:
-		"run-head-set"
+	case UnitTransferOp:
+		"unit-transfer"
+	case LandingBeginOp:
+		"landing-begin"
+	case LandingEndOp:
+		"landing-end"
 	case RunSummaryOp:
 		"run-summary"
 	case UnitListOp:
@@ -196,8 +204,12 @@ func Doc(op Op) string {
 		"QuestionAnswer answers or withdraws an open async question."
 	case QuestionListOp:
 		"QuestionList lists async questions, optionally restricting to open questions only."
-	case RunHeadSetOp:
-		"RunHeadSet records the latest main branch head for a repository run."
+	case UnitTransferOp:
+		"UnitTransfer hands a unit to another actor; only its owner may, or any actor claiming a unit of unknown owner for itself."
+	case LandingBeginOp:
+		"LandingBegin takes the run's landing lease from the run head; refused LandingBusy while another actor's lease is live and StaleHead when the expected head is not the run head."
+	case LandingEndOp:
+		"LandingEnd moves the run head and frees the caller's live landing lease, the only way a run head moves."
 	case RunSummaryOp:
 		"RunSummary returns a compact progressive-disclosure overview for a repository run."
 	case UnitListOp:
@@ -272,8 +284,12 @@ func Schema(op Op) json.Value {
 		valueOf("{\"type\":\"object\",\"properties\":{\"commandID\":{\"type\":\"string\"},\"actor\":{\"type\":\"string\"},\"id\":{\"type\":\"integer\"},\"answer\":{\"type\":\"string\"},\"withdraw\":{\"type\":\"boolean\"}},\"required\":[\"commandID\",\"actor\",\"id\",\"answer\",\"withdraw\"]}")
 	case QuestionListOp:
 		valueOf("{\"type\":\"object\",\"properties\":{\"openOnly\":{\"type\":\"boolean\"}},\"required\":[\"openOnly\"]}")
-	case RunHeadSetOp:
-		valueOf("{\"type\":\"object\",\"properties\":{\"commandID\":{\"type\":\"string\"},\"actor\":{\"type\":\"string\"},\"repo\":{\"type\":\"string\"},\"run\":{\"type\":\"string\"},\"head\":{\"type\":\"string\"}},\"required\":[\"commandID\",\"actor\",\"repo\",\"run\",\"head\"]}")
+	case UnitTransferOp:
+		valueOf("{\"type\":\"object\",\"properties\":{\"commandID\":{\"type\":\"string\"},\"actor\":{\"type\":\"string\"},\"repo\":{\"type\":\"string\"},\"run\":{\"type\":\"string\"},\"id\":{\"type\":\"string\"},\"to\":{\"type\":\"string\"}},\"required\":[\"commandID\",\"actor\",\"repo\",\"run\",\"id\",\"to\"]}")
+	case LandingBeginOp:
+		valueOf("{\"type\":\"object\",\"properties\":{\"commandID\":{\"type\":\"string\"},\"actor\":{\"type\":\"string\"},\"repo\":{\"type\":\"string\"},\"run\":{\"type\":\"string\"},\"expectedHead\":{\"type\":\"string\"},\"lifetimeSeconds\":{\"type\":\"integer\"}},\"required\":[\"commandID\",\"actor\",\"repo\",\"run\",\"expectedHead\",\"lifetimeSeconds\"]}")
+	case LandingEndOp:
+		valueOf("{\"type\":\"object\",\"properties\":{\"commandID\":{\"type\":\"string\"},\"actor\":{\"type\":\"string\"},\"repo\":{\"type\":\"string\"},\"run\":{\"type\":\"string\"},\"newHead\":{\"type\":\"string\"}},\"required\":[\"commandID\",\"actor\",\"repo\",\"run\",\"newHead\"]}")
 	case RunSummaryOp:
 		valueOf("{\"type\":\"object\",\"properties\":{\"repo\":{\"type\":\"string\"},\"run\":{\"type\":\"string\"},\"landingsLimit\":{\"type\":\"integer\"}},\"required\":[\"repo\",\"run\"]}")
 	case UnitListOp:
@@ -323,6 +339,16 @@ func Call(r Request) Outcome needs orchestrate.Api {
 			return Rejected{Failure: Unverified{E: e}}
 		case orchestrate.NotAcceptedHead as e:
 			return Rejected{Failure: NotAcceptedHead{E: e}}
+		case orchestrate.LaneHeld as e:
+			return Rejected{Failure: LaneHeld{E: e}}
+		case orchestrate.NotOwner as e:
+			return Rejected{Failure: NotOwner{E: e}}
+		case orchestrate.LandingBusy as e:
+			return Rejected{Failure: LandingBusy{E: e}}
+		case orchestrate.StaleHead as e:
+			return Rejected{Failure: StaleHead{E: e}}
+		case orchestrate.NoLease as e:
+			return Rejected{Failure: NoLease{E: e}}
 		case orchestrate.StoreFailed as e:
 			return Rejected{Failure: StoreFailed{E: e}}
 		}
@@ -343,6 +369,16 @@ func Call(r Request) Outcome needs orchestrate.Api {
 			return Rejected{Failure: Unverified{E: e}}
 		case orchestrate.NotAcceptedHead as e:
 			return Rejected{Failure: NotAcceptedHead{E: e}}
+		case orchestrate.LaneHeld as e:
+			return Rejected{Failure: LaneHeld{E: e}}
+		case orchestrate.NotOwner as e:
+			return Rejected{Failure: NotOwner{E: e}}
+		case orchestrate.LandingBusy as e:
+			return Rejected{Failure: LandingBusy{E: e}}
+		case orchestrate.StaleHead as e:
+			return Rejected{Failure: StaleHead{E: e}}
+		case orchestrate.NoLease as e:
+			return Rejected{Failure: NoLease{E: e}}
 		case orchestrate.StoreFailed as e:
 			return Rejected{Failure: StoreFailed{E: e}}
 		}
@@ -373,6 +409,16 @@ func Call(r Request) Outcome needs orchestrate.Api {
 			return Rejected{Failure: Unverified{E: e}}
 		case orchestrate.NotAcceptedHead as e:
 			return Rejected{Failure: NotAcceptedHead{E: e}}
+		case orchestrate.LaneHeld as e:
+			return Rejected{Failure: LaneHeld{E: e}}
+		case orchestrate.NotOwner as e:
+			return Rejected{Failure: NotOwner{E: e}}
+		case orchestrate.LandingBusy as e:
+			return Rejected{Failure: LandingBusy{E: e}}
+		case orchestrate.StaleHead as e:
+			return Rejected{Failure: StaleHead{E: e}}
+		case orchestrate.NoLease as e:
+			return Rejected{Failure: NoLease{E: e}}
 		case orchestrate.StoreFailed as e:
 			return Rejected{Failure: StoreFailed{E: e}}
 		}
@@ -393,6 +439,16 @@ func Call(r Request) Outcome needs orchestrate.Api {
 			return Rejected{Failure: Unverified{E: e}}
 		case orchestrate.NotAcceptedHead as e:
 			return Rejected{Failure: NotAcceptedHead{E: e}}
+		case orchestrate.LaneHeld as e:
+			return Rejected{Failure: LaneHeld{E: e}}
+		case orchestrate.NotOwner as e:
+			return Rejected{Failure: NotOwner{E: e}}
+		case orchestrate.LandingBusy as e:
+			return Rejected{Failure: LandingBusy{E: e}}
+		case orchestrate.StaleHead as e:
+			return Rejected{Failure: StaleHead{E: e}}
+		case orchestrate.NoLease as e:
+			return Rejected{Failure: NoLease{E: e}}
 		case orchestrate.StoreFailed as e:
 			return Rejected{Failure: StoreFailed{E: e}}
 		}
@@ -413,6 +469,16 @@ func Call(r Request) Outcome needs orchestrate.Api {
 			return Rejected{Failure: Unverified{E: e}}
 		case orchestrate.NotAcceptedHead as e:
 			return Rejected{Failure: NotAcceptedHead{E: e}}
+		case orchestrate.LaneHeld as e:
+			return Rejected{Failure: LaneHeld{E: e}}
+		case orchestrate.NotOwner as e:
+			return Rejected{Failure: NotOwner{E: e}}
+		case orchestrate.LandingBusy as e:
+			return Rejected{Failure: LandingBusy{E: e}}
+		case orchestrate.StaleHead as e:
+			return Rejected{Failure: StaleHead{E: e}}
+		case orchestrate.NoLease as e:
+			return Rejected{Failure: NoLease{E: e}}
 		case orchestrate.StoreFailed as e:
 			return Rejected{Failure: StoreFailed{E: e}}
 		}
@@ -433,6 +499,16 @@ func Call(r Request) Outcome needs orchestrate.Api {
 			return Rejected{Failure: Unverified{E: e}}
 		case orchestrate.NotAcceptedHead as e:
 			return Rejected{Failure: NotAcceptedHead{E: e}}
+		case orchestrate.LaneHeld as e:
+			return Rejected{Failure: LaneHeld{E: e}}
+		case orchestrate.NotOwner as e:
+			return Rejected{Failure: NotOwner{E: e}}
+		case orchestrate.LandingBusy as e:
+			return Rejected{Failure: LandingBusy{E: e}}
+		case orchestrate.StaleHead as e:
+			return Rejected{Failure: StaleHead{E: e}}
+		case orchestrate.NoLease as e:
+			return Rejected{Failure: NoLease{E: e}}
 		case orchestrate.StoreFailed as e:
 			return Rejected{Failure: StoreFailed{E: e}}
 		}
@@ -453,6 +529,16 @@ func Call(r Request) Outcome needs orchestrate.Api {
 			return Rejected{Failure: Unverified{E: e}}
 		case orchestrate.NotAcceptedHead as e:
 			return Rejected{Failure: NotAcceptedHead{E: e}}
+		case orchestrate.LaneHeld as e:
+			return Rejected{Failure: LaneHeld{E: e}}
+		case orchestrate.NotOwner as e:
+			return Rejected{Failure: NotOwner{E: e}}
+		case orchestrate.LandingBusy as e:
+			return Rejected{Failure: LandingBusy{E: e}}
+		case orchestrate.StaleHead as e:
+			return Rejected{Failure: StaleHead{E: e}}
+		case orchestrate.NoLease as e:
+			return Rejected{Failure: NoLease{E: e}}
 		case orchestrate.StoreFailed as e:
 			return Rejected{Failure: StoreFailed{E: e}}
 		}
@@ -473,6 +559,16 @@ func Call(r Request) Outcome needs orchestrate.Api {
 			return Rejected{Failure: Unverified{E: e}}
 		case orchestrate.NotAcceptedHead as e:
 			return Rejected{Failure: NotAcceptedHead{E: e}}
+		case orchestrate.LaneHeld as e:
+			return Rejected{Failure: LaneHeld{E: e}}
+		case orchestrate.NotOwner as e:
+			return Rejected{Failure: NotOwner{E: e}}
+		case orchestrate.LandingBusy as e:
+			return Rejected{Failure: LandingBusy{E: e}}
+		case orchestrate.StaleHead as e:
+			return Rejected{Failure: StaleHead{E: e}}
+		case orchestrate.NoLease as e:
+			return Rejected{Failure: NoLease{E: e}}
 		case orchestrate.StoreFailed as e:
 			return Rejected{Failure: StoreFailed{E: e}}
 		}
@@ -493,6 +589,16 @@ func Call(r Request) Outcome needs orchestrate.Api {
 			return Rejected{Failure: Unverified{E: e}}
 		case orchestrate.NotAcceptedHead as e:
 			return Rejected{Failure: NotAcceptedHead{E: e}}
+		case orchestrate.LaneHeld as e:
+			return Rejected{Failure: LaneHeld{E: e}}
+		case orchestrate.NotOwner as e:
+			return Rejected{Failure: NotOwner{E: e}}
+		case orchestrate.LandingBusy as e:
+			return Rejected{Failure: LandingBusy{E: e}}
+		case orchestrate.StaleHead as e:
+			return Rejected{Failure: StaleHead{E: e}}
+		case orchestrate.NoLease as e:
+			return Rejected{Failure: NoLease{E: e}}
 		case orchestrate.StoreFailed as e:
 			return Rejected{Failure: StoreFailed{E: e}}
 		}
@@ -521,6 +627,16 @@ func Call(r Request) Outcome needs orchestrate.Api {
 			return Rejected{Failure: Unverified{E: e}}
 		case orchestrate.NotAcceptedHead as e:
 			return Rejected{Failure: NotAcceptedHead{E: e}}
+		case orchestrate.LaneHeld as e:
+			return Rejected{Failure: LaneHeld{E: e}}
+		case orchestrate.NotOwner as e:
+			return Rejected{Failure: NotOwner{E: e}}
+		case orchestrate.LandingBusy as e:
+			return Rejected{Failure: LandingBusy{E: e}}
+		case orchestrate.StaleHead as e:
+			return Rejected{Failure: StaleHead{E: e}}
+		case orchestrate.NoLease as e:
+			return Rejected{Failure: NoLease{E: e}}
 		case orchestrate.StoreFailed as e:
 			return Rejected{Failure: StoreFailed{E: e}}
 		}
@@ -541,6 +657,16 @@ func Call(r Request) Outcome needs orchestrate.Api {
 			return Rejected{Failure: Unverified{E: e}}
 		case orchestrate.NotAcceptedHead as e:
 			return Rejected{Failure: NotAcceptedHead{E: e}}
+		case orchestrate.LaneHeld as e:
+			return Rejected{Failure: LaneHeld{E: e}}
+		case orchestrate.NotOwner as e:
+			return Rejected{Failure: NotOwner{E: e}}
+		case orchestrate.LandingBusy as e:
+			return Rejected{Failure: LandingBusy{E: e}}
+		case orchestrate.StaleHead as e:
+			return Rejected{Failure: StaleHead{E: e}}
+		case orchestrate.NoLease as e:
+			return Rejected{Failure: NoLease{E: e}}
 		case orchestrate.StoreFailed as e:
 			return Rejected{Failure: StoreFailed{E: e}}
 		}
@@ -569,6 +695,16 @@ func Call(r Request) Outcome needs orchestrate.Api {
 			return Rejected{Failure: Unverified{E: e}}
 		case orchestrate.NotAcceptedHead as e:
 			return Rejected{Failure: NotAcceptedHead{E: e}}
+		case orchestrate.LaneHeld as e:
+			return Rejected{Failure: LaneHeld{E: e}}
+		case orchestrate.NotOwner as e:
+			return Rejected{Failure: NotOwner{E: e}}
+		case orchestrate.LandingBusy as e:
+			return Rejected{Failure: LandingBusy{E: e}}
+		case orchestrate.StaleHead as e:
+			return Rejected{Failure: StaleHead{E: e}}
+		case orchestrate.NoLease as e:
+			return Rejected{Failure: NoLease{E: e}}
 		case orchestrate.StoreFailed as e:
 			return Rejected{Failure: StoreFailed{E: e}}
 		}
@@ -589,6 +725,16 @@ func Call(r Request) Outcome needs orchestrate.Api {
 			return Rejected{Failure: Unverified{E: e}}
 		case orchestrate.NotAcceptedHead as e:
 			return Rejected{Failure: NotAcceptedHead{E: e}}
+		case orchestrate.LaneHeld as e:
+			return Rejected{Failure: LaneHeld{E: e}}
+		case orchestrate.NotOwner as e:
+			return Rejected{Failure: NotOwner{E: e}}
+		case orchestrate.LandingBusy as e:
+			return Rejected{Failure: LandingBusy{E: e}}
+		case orchestrate.StaleHead as e:
+			return Rejected{Failure: StaleHead{E: e}}
+		case orchestrate.NoLease as e:
+			return Rejected{Failure: NoLease{E: e}}
 		case orchestrate.StoreFailed as e:
 			return Rejected{Failure: StoreFailed{E: e}}
 		}
@@ -599,8 +745,8 @@ func Call(r Request) Outcome needs orchestrate.Api {
 			return Rejected{Failure: StoreFailed{E: e}}
 		}
 		Done{Reply: QuestionListReply{Value: v}}
-	case RunHeadSetRequest as x:
-		let v = orchestrate.Api.RunHeadSet(x.Input) catch {
+	case UnitTransferRequest as x:
+		let v = orchestrate.Api.UnitTransfer(x.Input) catch {
 		case orchestrate.NotFound as e:
 			return Rejected{Failure: NotFound{E: e}}
 		case orchestrate.AlreadyExists as e:
@@ -615,10 +761,80 @@ func Call(r Request) Outcome needs orchestrate.Api {
 			return Rejected{Failure: Unverified{E: e}}
 		case orchestrate.NotAcceptedHead as e:
 			return Rejected{Failure: NotAcceptedHead{E: e}}
+		case orchestrate.LaneHeld as e:
+			return Rejected{Failure: LaneHeld{E: e}}
+		case orchestrate.NotOwner as e:
+			return Rejected{Failure: NotOwner{E: e}}
+		case orchestrate.LandingBusy as e:
+			return Rejected{Failure: LandingBusy{E: e}}
+		case orchestrate.StaleHead as e:
+			return Rejected{Failure: StaleHead{E: e}}
+		case orchestrate.NoLease as e:
+			return Rejected{Failure: NoLease{E: e}}
 		case orchestrate.StoreFailed as e:
 			return Rejected{Failure: StoreFailed{E: e}}
 		}
-		Done{Reply: RunHeadSetReply{Value: v}}
+		Done{Reply: UnitTransferReply{Value: v}}
+	case LandingBeginRequest as x:
+		let v = orchestrate.Api.LandingBegin(x.Input) catch {
+		case orchestrate.NotFound as e:
+			return Rejected{Failure: NotFound{E: e}}
+		case orchestrate.AlreadyExists as e:
+			return Rejected{Failure: AlreadyExists{E: e}}
+		case orchestrate.InvalidTransition as e:
+			return Rejected{Failure: InvalidTransition{E: e}}
+		case orchestrate.CommandReused as e:
+			return Rejected{Failure: CommandReused{E: e}}
+		case orchestrate.InvalidInput as e:
+			return Rejected{Failure: InvalidInput{E: e}}
+		case orchestrate.Unverified as e:
+			return Rejected{Failure: Unverified{E: e}}
+		case orchestrate.NotAcceptedHead as e:
+			return Rejected{Failure: NotAcceptedHead{E: e}}
+		case orchestrate.LaneHeld as e:
+			return Rejected{Failure: LaneHeld{E: e}}
+		case orchestrate.NotOwner as e:
+			return Rejected{Failure: NotOwner{E: e}}
+		case orchestrate.LandingBusy as e:
+			return Rejected{Failure: LandingBusy{E: e}}
+		case orchestrate.StaleHead as e:
+			return Rejected{Failure: StaleHead{E: e}}
+		case orchestrate.NoLease as e:
+			return Rejected{Failure: NoLease{E: e}}
+		case orchestrate.StoreFailed as e:
+			return Rejected{Failure: StoreFailed{E: e}}
+		}
+		Done{Reply: LandingBeginReply{Value: v}}
+	case LandingEndRequest as x:
+		let v = orchestrate.Api.LandingEnd(x.Input) catch {
+		case orchestrate.NotFound as e:
+			return Rejected{Failure: NotFound{E: e}}
+		case orchestrate.AlreadyExists as e:
+			return Rejected{Failure: AlreadyExists{E: e}}
+		case orchestrate.InvalidTransition as e:
+			return Rejected{Failure: InvalidTransition{E: e}}
+		case orchestrate.CommandReused as e:
+			return Rejected{Failure: CommandReused{E: e}}
+		case orchestrate.InvalidInput as e:
+			return Rejected{Failure: InvalidInput{E: e}}
+		case orchestrate.Unverified as e:
+			return Rejected{Failure: Unverified{E: e}}
+		case orchestrate.NotAcceptedHead as e:
+			return Rejected{Failure: NotAcceptedHead{E: e}}
+		case orchestrate.LaneHeld as e:
+			return Rejected{Failure: LaneHeld{E: e}}
+		case orchestrate.NotOwner as e:
+			return Rejected{Failure: NotOwner{E: e}}
+		case orchestrate.LandingBusy as e:
+			return Rejected{Failure: LandingBusy{E: e}}
+		case orchestrate.StaleHead as e:
+			return Rejected{Failure: StaleHead{E: e}}
+		case orchestrate.NoLease as e:
+			return Rejected{Failure: NoLease{E: e}}
+		case orchestrate.StoreFailed as e:
+			return Rejected{Failure: StoreFailed{E: e}}
+		}
+		Done{Reply: LandingEndReply{Value: v}}
 	case RunSummaryRequest as x:
 		let v = orchestrate.Api.RunSummary(x.Input) catch {
 		case orchestrate.InvalidInput as e:
@@ -651,6 +867,16 @@ func Call(r Request) Outcome needs orchestrate.Api {
 			return Rejected{Failure: Unverified{E: e}}
 		case orchestrate.NotAcceptedHead as e:
 			return Rejected{Failure: NotAcceptedHead{E: e}}
+		case orchestrate.LaneHeld as e:
+			return Rejected{Failure: LaneHeld{E: e}}
+		case orchestrate.NotOwner as e:
+			return Rejected{Failure: NotOwner{E: e}}
+		case orchestrate.LandingBusy as e:
+			return Rejected{Failure: LandingBusy{E: e}}
+		case orchestrate.StaleHead as e:
+			return Rejected{Failure: StaleHead{E: e}}
+		case orchestrate.NoLease as e:
+			return Rejected{Failure: NoLease{E: e}}
 		case orchestrate.StoreFailed as e:
 			return Rejected{Failure: StoreFailed{E: e}}
 		}
@@ -679,6 +905,16 @@ func Call(r Request) Outcome needs orchestrate.Api {
 			return Rejected{Failure: Unverified{E: e}}
 		case orchestrate.NotAcceptedHead as e:
 			return Rejected{Failure: NotAcceptedHead{E: e}}
+		case orchestrate.LaneHeld as e:
+			return Rejected{Failure: LaneHeld{E: e}}
+		case orchestrate.NotOwner as e:
+			return Rejected{Failure: NotOwner{E: e}}
+		case orchestrate.LandingBusy as e:
+			return Rejected{Failure: LandingBusy{E: e}}
+		case orchestrate.StaleHead as e:
+			return Rejected{Failure: StaleHead{E: e}}
+		case orchestrate.NoLease as e:
+			return Rejected{Failure: NoLease{E: e}}
 		case orchestrate.StoreFailed as e:
 			return Rejected{Failure: StoreFailed{E: e}}
 		}
@@ -707,6 +943,16 @@ func Call(r Request) Outcome needs orchestrate.Api {
 			return Rejected{Failure: Unverified{E: e}}
 		case orchestrate.NotAcceptedHead as e:
 			return Rejected{Failure: NotAcceptedHead{E: e}}
+		case orchestrate.LaneHeld as e:
+			return Rejected{Failure: LaneHeld{E: e}}
+		case orchestrate.NotOwner as e:
+			return Rejected{Failure: NotOwner{E: e}}
+		case orchestrate.LandingBusy as e:
+			return Rejected{Failure: LandingBusy{E: e}}
+		case orchestrate.StaleHead as e:
+			return Rejected{Failure: StaleHead{E: e}}
+		case orchestrate.NoLease as e:
+			return Rejected{Failure: NoLease{E: e}}
 		case orchestrate.StoreFailed as e:
 			return Rejected{Failure: StoreFailed{E: e}}
 		}
@@ -735,6 +981,16 @@ func Call(r Request) Outcome needs orchestrate.Api {
 			return Rejected{Failure: Unverified{E: e}}
 		case orchestrate.NotAcceptedHead as e:
 			return Rejected{Failure: NotAcceptedHead{E: e}}
+		case orchestrate.LaneHeld as e:
+			return Rejected{Failure: LaneHeld{E: e}}
+		case orchestrate.NotOwner as e:
+			return Rejected{Failure: NotOwner{E: e}}
+		case orchestrate.LandingBusy as e:
+			return Rejected{Failure: LandingBusy{E: e}}
+		case orchestrate.StaleHead as e:
+			return Rejected{Failure: StaleHead{E: e}}
+		case orchestrate.NoLease as e:
+			return Rejected{Failure: NoLease{E: e}}
 		case orchestrate.StoreFailed as e:
 			return Rejected{Failure: StoreFailed{E: e}}
 		}
@@ -782,38 +1038,40 @@ func Call(r Request) Outcome needs orchestrate.Api {
 
 // Client provides orchestrate.Api by invoking typed per-operation handlers directly:
 // a direct call returns its exact value or declared failure row with no Outcome boxing.
-type Client { opUnitOpen func(orchestrate.UnitOpenInput) orchestrate.Unit fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed, opReceiptRecord func(orchestrate.ReceiptRecordInput) orchestrate.Receipt fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed, opUnitState func(orchestrate.UnitStateInput) orchestrate.UnitView fails orchestrate.NotFound | orchestrate.InvalidInput | orchestrate.StoreFailed, opUnitAccept func(orchestrate.UnitVerdictInput) orchestrate.Unit fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed, opUnitLand func(orchestrate.UnitVerdictInput) orchestrate.Unit fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed, opUnitClose func(orchestrate.UnitCloseInput) orchestrate.Unit fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed, opCommitmentAdd func(orchestrate.CommitmentAddInput) orchestrate.Commitment fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed, opCommitmentAssign func(orchestrate.CommitmentAssignInput) orchestrate.Commitment fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed, opCommitmentLand func(orchestrate.CommitmentLandInput) orchestrate.Commitment fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed, opCommitmentDecide func(orchestrate.CommitmentDecideInput) orchestrate.Commitment fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed, opCommitmentList func(orchestrate.CommitmentListInput) []orchestrate.Commitment fails orchestrate.InvalidInput | orchestrate.StoreFailed, opQueueUpsert func(orchestrate.QueueUpsertInput) orchestrate.QueueItem fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed, opQueueRemove func(orchestrate.QueueRemoveInput) fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed, opQueueList func(orchestrate.QueueListInput) []orchestrate.QueueItem fails orchestrate.InvalidInput | orchestrate.StoreFailed, opQuestionAsk func(orchestrate.QuestionAskInput) orchestrate.Question fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed, opQuestionAnswer func(orchestrate.QuestionAnswerInput) orchestrate.Question fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed, opQuestionList func(orchestrate.QuestionListInput) []orchestrate.Question fails orchestrate.StoreFailed, opRunHeadSet func(orchestrate.RunHeadSetInput) orchestrate.RunMeta fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed, opRunSummary func(orchestrate.RunSummaryInput) orchestrate.RunOverview fails orchestrate.InvalidInput | orchestrate.StoreFailed, opUnitList func(orchestrate.UnitListInput) orchestrate.UnitPage fails orchestrate.InvalidInput | orchestrate.StoreFailed, opDecisionRecord func(orchestrate.DecisionRecordInput) orchestrate.Decision fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed, opDecisionList func(orchestrate.DecisionListInput) orchestrate.DecisionPage fails orchestrate.InvalidInput | orchestrate.StoreFailed, opLandingRecord func(orchestrate.LandingRecordInput) orchestrate.Landing fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed, opLandingList func(orchestrate.LandingListInput) orchestrate.LandingPage fails orchestrate.InvalidInput | orchestrate.StoreFailed, opEventRecord func(orchestrate.EventRecordInput) orchestrate.LedgerEvent fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed, opEventLog func(orchestrate.EventLogInput) orchestrate.EventPage fails orchestrate.InvalidInput | orchestrate.StoreFailed, opImportPlan func(orchestrate.ImportPlanInput) orchestrate.ImportReport fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed, opHostStatus func(orchestrate.HostStatusInput) orchestrate.HostStatusReport fails orchestrate.InvalidInput | host.Unavailable | host.Malformed, opHostProcesses func(orchestrate.HostProcessesInput) orchestrate.HostProcessList fails orchestrate.InvalidInput | host.Unavailable | host.Malformed, opHostReadiness func(orchestrate.HostReadinessInput) orchestrate.HostReadinessReport fails orchestrate.InvalidInput | host.Unavailable | host.Malformed, opEventsSince func(orchestrate.EventsSinceInput) orchestrate.EventStreamPage fails orchestrate.InvalidInput | orchestrate.StoreFailed } implements orchestrate.Api
+type Client { opUnitOpen func(orchestrate.UnitOpenInput) orchestrate.Unit fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.LaneHeld | orchestrate.NotOwner | orchestrate.LandingBusy | orchestrate.StaleHead | orchestrate.NoLease | orchestrate.StoreFailed, opReceiptRecord func(orchestrate.ReceiptRecordInput) orchestrate.Receipt fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.LaneHeld | orchestrate.NotOwner | orchestrate.LandingBusy | orchestrate.StaleHead | orchestrate.NoLease | orchestrate.StoreFailed, opUnitState func(orchestrate.UnitStateInput) orchestrate.UnitView fails orchestrate.NotFound | orchestrate.InvalidInput | orchestrate.StoreFailed, opUnitAccept func(orchestrate.UnitVerdictInput) orchestrate.Unit fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.LaneHeld | orchestrate.NotOwner | orchestrate.LandingBusy | orchestrate.StaleHead | orchestrate.NoLease | orchestrate.StoreFailed, opUnitLand func(orchestrate.UnitVerdictInput) orchestrate.Unit fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.LaneHeld | orchestrate.NotOwner | orchestrate.LandingBusy | orchestrate.StaleHead | orchestrate.NoLease | orchestrate.StoreFailed, opUnitClose func(orchestrate.UnitCloseInput) orchestrate.Unit fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.LaneHeld | orchestrate.NotOwner | orchestrate.LandingBusy | orchestrate.StaleHead | orchestrate.NoLease | orchestrate.StoreFailed, opCommitmentAdd func(orchestrate.CommitmentAddInput) orchestrate.Commitment fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.LaneHeld | orchestrate.NotOwner | orchestrate.LandingBusy | orchestrate.StaleHead | orchestrate.NoLease | orchestrate.StoreFailed, opCommitmentAssign func(orchestrate.CommitmentAssignInput) orchestrate.Commitment fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.LaneHeld | orchestrate.NotOwner | orchestrate.LandingBusy | orchestrate.StaleHead | orchestrate.NoLease | orchestrate.StoreFailed, opCommitmentLand func(orchestrate.CommitmentLandInput) orchestrate.Commitment fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.LaneHeld | orchestrate.NotOwner | orchestrate.LandingBusy | orchestrate.StaleHead | orchestrate.NoLease | orchestrate.StoreFailed, opCommitmentDecide func(orchestrate.CommitmentDecideInput) orchestrate.Commitment fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.LaneHeld | orchestrate.NotOwner | orchestrate.LandingBusy | orchestrate.StaleHead | orchestrate.NoLease | orchestrate.StoreFailed, opCommitmentList func(orchestrate.CommitmentListInput) []orchestrate.Commitment fails orchestrate.InvalidInput | orchestrate.StoreFailed, opQueueUpsert func(orchestrate.QueueUpsertInput) orchestrate.QueueItem fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.LaneHeld | orchestrate.NotOwner | orchestrate.LandingBusy | orchestrate.StaleHead | orchestrate.NoLease | orchestrate.StoreFailed, opQueueRemove func(orchestrate.QueueRemoveInput) fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.LaneHeld | orchestrate.NotOwner | orchestrate.LandingBusy | orchestrate.StaleHead | orchestrate.NoLease | orchestrate.StoreFailed, opQueueList func(orchestrate.QueueListInput) []orchestrate.QueueItem fails orchestrate.InvalidInput | orchestrate.StoreFailed, opQuestionAsk func(orchestrate.QuestionAskInput) orchestrate.Question fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.LaneHeld | orchestrate.NotOwner | orchestrate.LandingBusy | orchestrate.StaleHead | orchestrate.NoLease | orchestrate.StoreFailed, opQuestionAnswer func(orchestrate.QuestionAnswerInput) orchestrate.Question fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.LaneHeld | orchestrate.NotOwner | orchestrate.LandingBusy | orchestrate.StaleHead | orchestrate.NoLease | orchestrate.StoreFailed, opQuestionList func(orchestrate.QuestionListInput) []orchestrate.Question fails orchestrate.StoreFailed, opUnitTransfer func(orchestrate.UnitTransferInput) orchestrate.Unit fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.LaneHeld | orchestrate.NotOwner | orchestrate.LandingBusy | orchestrate.StaleHead | orchestrate.NoLease | orchestrate.StoreFailed, opLandingBegin func(orchestrate.LandingBeginInput) orchestrate.LandingLease fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.LaneHeld | orchestrate.NotOwner | orchestrate.LandingBusy | orchestrate.StaleHead | orchestrate.NoLease | orchestrate.StoreFailed, opLandingEnd func(orchestrate.LandingEndInput) orchestrate.RunMeta fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.LaneHeld | orchestrate.NotOwner | orchestrate.LandingBusy | orchestrate.StaleHead | orchestrate.NoLease | orchestrate.StoreFailed, opRunSummary func(orchestrate.RunSummaryInput) orchestrate.RunOverview fails orchestrate.InvalidInput | orchestrate.StoreFailed, opUnitList func(orchestrate.UnitListInput) orchestrate.UnitPage fails orchestrate.InvalidInput | orchestrate.StoreFailed, opDecisionRecord func(orchestrate.DecisionRecordInput) orchestrate.Decision fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.LaneHeld | orchestrate.NotOwner | orchestrate.LandingBusy | orchestrate.StaleHead | orchestrate.NoLease | orchestrate.StoreFailed, opDecisionList func(orchestrate.DecisionListInput) orchestrate.DecisionPage fails orchestrate.InvalidInput | orchestrate.StoreFailed, opLandingRecord func(orchestrate.LandingRecordInput) orchestrate.Landing fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.LaneHeld | orchestrate.NotOwner | orchestrate.LandingBusy | orchestrate.StaleHead | orchestrate.NoLease | orchestrate.StoreFailed, opLandingList func(orchestrate.LandingListInput) orchestrate.LandingPage fails orchestrate.InvalidInput | orchestrate.StoreFailed, opEventRecord func(orchestrate.EventRecordInput) orchestrate.LedgerEvent fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.LaneHeld | orchestrate.NotOwner | orchestrate.LandingBusy | orchestrate.StaleHead | orchestrate.NoLease | orchestrate.StoreFailed, opEventLog func(orchestrate.EventLogInput) orchestrate.EventPage fails orchestrate.InvalidInput | orchestrate.StoreFailed, opImportPlan func(orchestrate.ImportPlanInput) orchestrate.ImportReport fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.LaneHeld | orchestrate.NotOwner | orchestrate.LandingBusy | orchestrate.StaleHead | orchestrate.NoLease | orchestrate.StoreFailed, opHostStatus func(orchestrate.HostStatusInput) orchestrate.HostStatusReport fails orchestrate.InvalidInput | host.Unavailable | host.Malformed, opHostProcesses func(orchestrate.HostProcessesInput) orchestrate.HostProcessList fails orchestrate.InvalidInput | host.Unavailable | host.Malformed, opHostReadiness func(orchestrate.HostReadinessInput) orchestrate.HostReadinessReport fails orchestrate.InvalidInput | host.Unavailable | host.Malformed, opEventsSince func(orchestrate.EventsSinceInput) orchestrate.EventStreamPage fails orchestrate.InvalidInput | orchestrate.StoreFailed } implements orchestrate.Api
 
 // NewClient is the orchestrate.Api that invokes inner directly per operation.
 func NewClient(inner orchestrate.Api) Client {
 	Client{
-		opUnitOpen:         func(input orchestrate.UnitOpenInput) orchestrate.Unit fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed { try inner.UnitOpen(input) },
-		opReceiptRecord:    func(input orchestrate.ReceiptRecordInput) orchestrate.Receipt fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed { try inner.ReceiptRecord(input) },
+		opUnitOpen:         func(input orchestrate.UnitOpenInput) orchestrate.Unit fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.LaneHeld | orchestrate.NotOwner | orchestrate.LandingBusy | orchestrate.StaleHead | orchestrate.NoLease | orchestrate.StoreFailed { try inner.UnitOpen(input) },
+		opReceiptRecord:    func(input orchestrate.ReceiptRecordInput) orchestrate.Receipt fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.LaneHeld | orchestrate.NotOwner | orchestrate.LandingBusy | orchestrate.StaleHead | orchestrate.NoLease | orchestrate.StoreFailed { try inner.ReceiptRecord(input) },
 		opUnitState:        func(input orchestrate.UnitStateInput) orchestrate.UnitView fails orchestrate.NotFound | orchestrate.InvalidInput | orchestrate.StoreFailed { try inner.UnitState(input) },
-		opUnitAccept:       func(input orchestrate.UnitVerdictInput) orchestrate.Unit fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed { try inner.UnitAccept(input) },
-		opUnitLand:         func(input orchestrate.UnitVerdictInput) orchestrate.Unit fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed { try inner.UnitLand(input) },
-		opUnitClose:        func(input orchestrate.UnitCloseInput) orchestrate.Unit fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed { try inner.UnitClose(input) },
-		opCommitmentAdd:    func(input orchestrate.CommitmentAddInput) orchestrate.Commitment fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed { try inner.CommitmentAdd(input) },
-		opCommitmentAssign: func(input orchestrate.CommitmentAssignInput) orchestrate.Commitment fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed { try inner.CommitmentAssign(input) },
-		opCommitmentLand:   func(input orchestrate.CommitmentLandInput) orchestrate.Commitment fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed { try inner.CommitmentLand(input) },
-		opCommitmentDecide: func(input orchestrate.CommitmentDecideInput) orchestrate.Commitment fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed { try inner.CommitmentDecide(input) },
+		opUnitAccept:       func(input orchestrate.UnitVerdictInput) orchestrate.Unit fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.LaneHeld | orchestrate.NotOwner | orchestrate.LandingBusy | orchestrate.StaleHead | orchestrate.NoLease | orchestrate.StoreFailed { try inner.UnitAccept(input) },
+		opUnitLand:         func(input orchestrate.UnitVerdictInput) orchestrate.Unit fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.LaneHeld | orchestrate.NotOwner | orchestrate.LandingBusy | orchestrate.StaleHead | orchestrate.NoLease | orchestrate.StoreFailed { try inner.UnitLand(input) },
+		opUnitClose:        func(input orchestrate.UnitCloseInput) orchestrate.Unit fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.LaneHeld | orchestrate.NotOwner | orchestrate.LandingBusy | orchestrate.StaleHead | orchestrate.NoLease | orchestrate.StoreFailed { try inner.UnitClose(input) },
+		opCommitmentAdd:    func(input orchestrate.CommitmentAddInput) orchestrate.Commitment fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.LaneHeld | orchestrate.NotOwner | orchestrate.LandingBusy | orchestrate.StaleHead | orchestrate.NoLease | orchestrate.StoreFailed { try inner.CommitmentAdd(input) },
+		opCommitmentAssign: func(input orchestrate.CommitmentAssignInput) orchestrate.Commitment fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.LaneHeld | orchestrate.NotOwner | orchestrate.LandingBusy | orchestrate.StaleHead | orchestrate.NoLease | orchestrate.StoreFailed { try inner.CommitmentAssign(input) },
+		opCommitmentLand:   func(input orchestrate.CommitmentLandInput) orchestrate.Commitment fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.LaneHeld | orchestrate.NotOwner | orchestrate.LandingBusy | orchestrate.StaleHead | orchestrate.NoLease | orchestrate.StoreFailed { try inner.CommitmentLand(input) },
+		opCommitmentDecide: func(input orchestrate.CommitmentDecideInput) orchestrate.Commitment fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.LaneHeld | orchestrate.NotOwner | orchestrate.LandingBusy | orchestrate.StaleHead | orchestrate.NoLease | orchestrate.StoreFailed { try inner.CommitmentDecide(input) },
 		opCommitmentList:   func(input orchestrate.CommitmentListInput) []orchestrate.Commitment fails orchestrate.InvalidInput | orchestrate.StoreFailed { try inner.CommitmentList(input) },
-		opQueueUpsert:      func(input orchestrate.QueueUpsertInput) orchestrate.QueueItem fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed { try inner.QueueUpsert(input) },
-		opQueueRemove:      func(input orchestrate.QueueRemoveInput) fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed { try inner.QueueRemove(input) },
+		opQueueUpsert:      func(input orchestrate.QueueUpsertInput) orchestrate.QueueItem fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.LaneHeld | orchestrate.NotOwner | orchestrate.LandingBusy | orchestrate.StaleHead | orchestrate.NoLease | orchestrate.StoreFailed { try inner.QueueUpsert(input) },
+		opQueueRemove:      func(input orchestrate.QueueRemoveInput) fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.LaneHeld | orchestrate.NotOwner | orchestrate.LandingBusy | orchestrate.StaleHead | orchestrate.NoLease | orchestrate.StoreFailed { try inner.QueueRemove(input) },
 		opQueueList:        func(input orchestrate.QueueListInput) []orchestrate.QueueItem fails orchestrate.InvalidInput | orchestrate.StoreFailed { try inner.QueueList(input) },
-		opQuestionAsk:      func(input orchestrate.QuestionAskInput) orchestrate.Question fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed { try inner.QuestionAsk(input) },
-		opQuestionAnswer:   func(input orchestrate.QuestionAnswerInput) orchestrate.Question fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed { try inner.QuestionAnswer(input) },
+		opQuestionAsk:      func(input orchestrate.QuestionAskInput) orchestrate.Question fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.LaneHeld | orchestrate.NotOwner | orchestrate.LandingBusy | orchestrate.StaleHead | orchestrate.NoLease | orchestrate.StoreFailed { try inner.QuestionAsk(input) },
+		opQuestionAnswer:   func(input orchestrate.QuestionAnswerInput) orchestrate.Question fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.LaneHeld | orchestrate.NotOwner | orchestrate.LandingBusy | orchestrate.StaleHead | orchestrate.NoLease | orchestrate.StoreFailed { try inner.QuestionAnswer(input) },
 		opQuestionList:     func(input orchestrate.QuestionListInput) []orchestrate.Question fails orchestrate.StoreFailed { try inner.QuestionList(input) },
-		opRunHeadSet:       func(input orchestrate.RunHeadSetInput) orchestrate.RunMeta fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed { try inner.RunHeadSet(input) },
+		opUnitTransfer:     func(input orchestrate.UnitTransferInput) orchestrate.Unit fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.LaneHeld | orchestrate.NotOwner | orchestrate.LandingBusy | orchestrate.StaleHead | orchestrate.NoLease | orchestrate.StoreFailed { try inner.UnitTransfer(input) },
+		opLandingBegin:     func(input orchestrate.LandingBeginInput) orchestrate.LandingLease fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.LaneHeld | orchestrate.NotOwner | orchestrate.LandingBusy | orchestrate.StaleHead | orchestrate.NoLease | orchestrate.StoreFailed { try inner.LandingBegin(input) },
+		opLandingEnd:       func(input orchestrate.LandingEndInput) orchestrate.RunMeta fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.LaneHeld | orchestrate.NotOwner | orchestrate.LandingBusy | orchestrate.StaleHead | orchestrate.NoLease | orchestrate.StoreFailed { try inner.LandingEnd(input) },
 		opRunSummary:       func(input orchestrate.RunSummaryInput) orchestrate.RunOverview fails orchestrate.InvalidInput | orchestrate.StoreFailed { try inner.RunSummary(input) },
 		opUnitList:         func(input orchestrate.UnitListInput) orchestrate.UnitPage fails orchestrate.InvalidInput | orchestrate.StoreFailed { try inner.UnitList(input) },
-		opDecisionRecord:   func(input orchestrate.DecisionRecordInput) orchestrate.Decision fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed { try inner.DecisionRecord(input) },
+		opDecisionRecord:   func(input orchestrate.DecisionRecordInput) orchestrate.Decision fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.LaneHeld | orchestrate.NotOwner | orchestrate.LandingBusy | orchestrate.StaleHead | orchestrate.NoLease | orchestrate.StoreFailed { try inner.DecisionRecord(input) },
 		opDecisionList:     func(input orchestrate.DecisionListInput) orchestrate.DecisionPage fails orchestrate.InvalidInput | orchestrate.StoreFailed { try inner.DecisionList(input) },
-		opLandingRecord:    func(input orchestrate.LandingRecordInput) orchestrate.Landing fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed { try inner.LandingRecord(input) },
+		opLandingRecord:    func(input orchestrate.LandingRecordInput) orchestrate.Landing fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.LaneHeld | orchestrate.NotOwner | orchestrate.LandingBusy | orchestrate.StaleHead | orchestrate.NoLease | orchestrate.StoreFailed { try inner.LandingRecord(input) },
 		opLandingList:      func(input orchestrate.LandingListInput) orchestrate.LandingPage fails orchestrate.InvalidInput | orchestrate.StoreFailed { try inner.LandingList(input) },
-		opEventRecord:      func(input orchestrate.EventRecordInput) orchestrate.LedgerEvent fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed { try inner.EventRecord(input) },
+		opEventRecord:      func(input orchestrate.EventRecordInput) orchestrate.LedgerEvent fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.LaneHeld | orchestrate.NotOwner | orchestrate.LandingBusy | orchestrate.StaleHead | orchestrate.NoLease | orchestrate.StoreFailed { try inner.EventRecord(input) },
 		opEventLog:         func(input orchestrate.EventLogInput) orchestrate.EventPage fails orchestrate.InvalidInput | orchestrate.StoreFailed { try inner.EventLog(input) },
-		opImportPlan:       func(input orchestrate.ImportPlanInput) orchestrate.ImportReport fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed { try inner.ImportPlan(input) },
+		opImportPlan:       func(input orchestrate.ImportPlanInput) orchestrate.ImportReport fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.LaneHeld | orchestrate.NotOwner | orchestrate.LandingBusy | orchestrate.StaleHead | orchestrate.NoLease | orchestrate.StoreFailed { try inner.ImportPlan(input) },
 		opHostStatus:       func(input orchestrate.HostStatusInput) orchestrate.HostStatusReport fails orchestrate.InvalidInput | host.Unavailable | host.Malformed { try inner.HostStatus(input) },
 		opHostProcesses:    func(input orchestrate.HostProcessesInput) orchestrate.HostProcessList fails orchestrate.InvalidInput | host.Unavailable | host.Malformed { try inner.HostProcesses(input) },
 		opHostReadiness:    func(input orchestrate.HostReadinessInput) orchestrate.HostReadinessReport fails orchestrate.InvalidInput | host.Unavailable | host.Malformed { try inner.HostReadiness(input) },
@@ -825,33 +1083,35 @@ func NewClient(inner orchestrate.Api) Client {
 func ClientInForce() Client needs orchestrate.Api {
 	let held = scope.InForce[orchestrate.Api]()
 	Client{
-		opUnitOpen:         func(input orchestrate.UnitOpenInput) orchestrate.Unit fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed { with held { try orchestrate.Api.UnitOpen(input) } },
-		opReceiptRecord:    func(input orchestrate.ReceiptRecordInput) orchestrate.Receipt fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed { with held { try orchestrate.Api.ReceiptRecord(input) } },
+		opUnitOpen:         func(input orchestrate.UnitOpenInput) orchestrate.Unit fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.LaneHeld | orchestrate.NotOwner | orchestrate.LandingBusy | orchestrate.StaleHead | orchestrate.NoLease | orchestrate.StoreFailed { with held { try orchestrate.Api.UnitOpen(input) } },
+		opReceiptRecord:    func(input orchestrate.ReceiptRecordInput) orchestrate.Receipt fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.LaneHeld | orchestrate.NotOwner | orchestrate.LandingBusy | orchestrate.StaleHead | orchestrate.NoLease | orchestrate.StoreFailed { with held { try orchestrate.Api.ReceiptRecord(input) } },
 		opUnitState:        func(input orchestrate.UnitStateInput) orchestrate.UnitView fails orchestrate.NotFound | orchestrate.InvalidInput | orchestrate.StoreFailed { with held { try orchestrate.Api.UnitState(input) } },
-		opUnitAccept:       func(input orchestrate.UnitVerdictInput) orchestrate.Unit fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed { with held { try orchestrate.Api.UnitAccept(input) } },
-		opUnitLand:         func(input orchestrate.UnitVerdictInput) orchestrate.Unit fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed { with held { try orchestrate.Api.UnitLand(input) } },
-		opUnitClose:        func(input orchestrate.UnitCloseInput) orchestrate.Unit fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed { with held { try orchestrate.Api.UnitClose(input) } },
-		opCommitmentAdd:    func(input orchestrate.CommitmentAddInput) orchestrate.Commitment fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed { with held { try orchestrate.Api.CommitmentAdd(input) } },
-		opCommitmentAssign: func(input orchestrate.CommitmentAssignInput) orchestrate.Commitment fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed { with held { try orchestrate.Api.CommitmentAssign(input) } },
-		opCommitmentLand:   func(input orchestrate.CommitmentLandInput) orchestrate.Commitment fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed { with held { try orchestrate.Api.CommitmentLand(input) } },
-		opCommitmentDecide: func(input orchestrate.CommitmentDecideInput) orchestrate.Commitment fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed { with held { try orchestrate.Api.CommitmentDecide(input) } },
+		opUnitAccept:       func(input orchestrate.UnitVerdictInput) orchestrate.Unit fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.LaneHeld | orchestrate.NotOwner | orchestrate.LandingBusy | orchestrate.StaleHead | orchestrate.NoLease | orchestrate.StoreFailed { with held { try orchestrate.Api.UnitAccept(input) } },
+		opUnitLand:         func(input orchestrate.UnitVerdictInput) orchestrate.Unit fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.LaneHeld | orchestrate.NotOwner | orchestrate.LandingBusy | orchestrate.StaleHead | orchestrate.NoLease | orchestrate.StoreFailed { with held { try orchestrate.Api.UnitLand(input) } },
+		opUnitClose:        func(input orchestrate.UnitCloseInput) orchestrate.Unit fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.LaneHeld | orchestrate.NotOwner | orchestrate.LandingBusy | orchestrate.StaleHead | orchestrate.NoLease | orchestrate.StoreFailed { with held { try orchestrate.Api.UnitClose(input) } },
+		opCommitmentAdd:    func(input orchestrate.CommitmentAddInput) orchestrate.Commitment fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.LaneHeld | orchestrate.NotOwner | orchestrate.LandingBusy | orchestrate.StaleHead | orchestrate.NoLease | orchestrate.StoreFailed { with held { try orchestrate.Api.CommitmentAdd(input) } },
+		opCommitmentAssign: func(input orchestrate.CommitmentAssignInput) orchestrate.Commitment fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.LaneHeld | orchestrate.NotOwner | orchestrate.LandingBusy | orchestrate.StaleHead | orchestrate.NoLease | orchestrate.StoreFailed { with held { try orchestrate.Api.CommitmentAssign(input) } },
+		opCommitmentLand:   func(input orchestrate.CommitmentLandInput) orchestrate.Commitment fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.LaneHeld | orchestrate.NotOwner | orchestrate.LandingBusy | orchestrate.StaleHead | orchestrate.NoLease | orchestrate.StoreFailed { with held { try orchestrate.Api.CommitmentLand(input) } },
+		opCommitmentDecide: func(input orchestrate.CommitmentDecideInput) orchestrate.Commitment fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.LaneHeld | orchestrate.NotOwner | orchestrate.LandingBusy | orchestrate.StaleHead | orchestrate.NoLease | orchestrate.StoreFailed { with held { try orchestrate.Api.CommitmentDecide(input) } },
 		opCommitmentList:   func(input orchestrate.CommitmentListInput) []orchestrate.Commitment fails orchestrate.InvalidInput | orchestrate.StoreFailed { with held { try orchestrate.Api.CommitmentList(input) } },
-		opQueueUpsert:      func(input orchestrate.QueueUpsertInput) orchestrate.QueueItem fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed { with held { try orchestrate.Api.QueueUpsert(input) } },
-		opQueueRemove:      func(input orchestrate.QueueRemoveInput) fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed { with held { try orchestrate.Api.QueueRemove(input) } },
+		opQueueUpsert:      func(input orchestrate.QueueUpsertInput) orchestrate.QueueItem fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.LaneHeld | orchestrate.NotOwner | orchestrate.LandingBusy | orchestrate.StaleHead | orchestrate.NoLease | orchestrate.StoreFailed { with held { try orchestrate.Api.QueueUpsert(input) } },
+		opQueueRemove:      func(input orchestrate.QueueRemoveInput) fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.LaneHeld | orchestrate.NotOwner | orchestrate.LandingBusy | orchestrate.StaleHead | orchestrate.NoLease | orchestrate.StoreFailed { with held { try orchestrate.Api.QueueRemove(input) } },
 		opQueueList:        func(input orchestrate.QueueListInput) []orchestrate.QueueItem fails orchestrate.InvalidInput | orchestrate.StoreFailed { with held { try orchestrate.Api.QueueList(input) } },
-		opQuestionAsk:      func(input orchestrate.QuestionAskInput) orchestrate.Question fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed { with held { try orchestrate.Api.QuestionAsk(input) } },
-		opQuestionAnswer:   func(input orchestrate.QuestionAnswerInput) orchestrate.Question fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed { with held { try orchestrate.Api.QuestionAnswer(input) } },
+		opQuestionAsk:      func(input orchestrate.QuestionAskInput) orchestrate.Question fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.LaneHeld | orchestrate.NotOwner | orchestrate.LandingBusy | orchestrate.StaleHead | orchestrate.NoLease | orchestrate.StoreFailed { with held { try orchestrate.Api.QuestionAsk(input) } },
+		opQuestionAnswer:   func(input orchestrate.QuestionAnswerInput) orchestrate.Question fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.LaneHeld | orchestrate.NotOwner | orchestrate.LandingBusy | orchestrate.StaleHead | orchestrate.NoLease | orchestrate.StoreFailed { with held { try orchestrate.Api.QuestionAnswer(input) } },
 		opQuestionList:     func(input orchestrate.QuestionListInput) []orchestrate.Question fails orchestrate.StoreFailed { with held { try orchestrate.Api.QuestionList(input) } },
-		opRunHeadSet:       func(input orchestrate.RunHeadSetInput) orchestrate.RunMeta fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed { with held { try orchestrate.Api.RunHeadSet(input) } },
+		opUnitTransfer:     func(input orchestrate.UnitTransferInput) orchestrate.Unit fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.LaneHeld | orchestrate.NotOwner | orchestrate.LandingBusy | orchestrate.StaleHead | orchestrate.NoLease | orchestrate.StoreFailed { with held { try orchestrate.Api.UnitTransfer(input) } },
+		opLandingBegin:     func(input orchestrate.LandingBeginInput) orchestrate.LandingLease fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.LaneHeld | orchestrate.NotOwner | orchestrate.LandingBusy | orchestrate.StaleHead | orchestrate.NoLease | orchestrate.StoreFailed { with held { try orchestrate.Api.LandingBegin(input) } },
+		opLandingEnd:       func(input orchestrate.LandingEndInput) orchestrate.RunMeta fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.LaneHeld | orchestrate.NotOwner | orchestrate.LandingBusy | orchestrate.StaleHead | orchestrate.NoLease | orchestrate.StoreFailed { with held { try orchestrate.Api.LandingEnd(input) } },
 		opRunSummary:       func(input orchestrate.RunSummaryInput) orchestrate.RunOverview fails orchestrate.InvalidInput | orchestrate.StoreFailed { with held { try orchestrate.Api.RunSummary(input) } },
 		opUnitList:         func(input orchestrate.UnitListInput) orchestrate.UnitPage fails orchestrate.InvalidInput | orchestrate.StoreFailed { with held { try orchestrate.Api.UnitList(input) } },
-		opDecisionRecord:   func(input orchestrate.DecisionRecordInput) orchestrate.Decision fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed { with held { try orchestrate.Api.DecisionRecord(input) } },
+		opDecisionRecord:   func(input orchestrate.DecisionRecordInput) orchestrate.Decision fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.LaneHeld | orchestrate.NotOwner | orchestrate.LandingBusy | orchestrate.StaleHead | orchestrate.NoLease | orchestrate.StoreFailed { with held { try orchestrate.Api.DecisionRecord(input) } },
 		opDecisionList:     func(input orchestrate.DecisionListInput) orchestrate.DecisionPage fails orchestrate.InvalidInput | orchestrate.StoreFailed { with held { try orchestrate.Api.DecisionList(input) } },
-		opLandingRecord:    func(input orchestrate.LandingRecordInput) orchestrate.Landing fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed { with held { try orchestrate.Api.LandingRecord(input) } },
+		opLandingRecord:    func(input orchestrate.LandingRecordInput) orchestrate.Landing fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.LaneHeld | orchestrate.NotOwner | orchestrate.LandingBusy | orchestrate.StaleHead | orchestrate.NoLease | orchestrate.StoreFailed { with held { try orchestrate.Api.LandingRecord(input) } },
 		opLandingList:      func(input orchestrate.LandingListInput) orchestrate.LandingPage fails orchestrate.InvalidInput | orchestrate.StoreFailed { with held { try orchestrate.Api.LandingList(input) } },
-		opEventRecord:      func(input orchestrate.EventRecordInput) orchestrate.LedgerEvent fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed { with held { try orchestrate.Api.EventRecord(input) } },
+		opEventRecord:      func(input orchestrate.EventRecordInput) orchestrate.LedgerEvent fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.LaneHeld | orchestrate.NotOwner | orchestrate.LandingBusy | orchestrate.StaleHead | orchestrate.NoLease | orchestrate.StoreFailed { with held { try orchestrate.Api.EventRecord(input) } },
 		opEventLog:         func(input orchestrate.EventLogInput) orchestrate.EventPage fails orchestrate.InvalidInput | orchestrate.StoreFailed { with held { try orchestrate.Api.EventLog(input) } },
-		opImportPlan:       func(input orchestrate.ImportPlanInput) orchestrate.ImportReport fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed { with held { try orchestrate.Api.ImportPlan(input) } },
+		opImportPlan:       func(input orchestrate.ImportPlanInput) orchestrate.ImportReport fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.LaneHeld | orchestrate.NotOwner | orchestrate.LandingBusy | orchestrate.StaleHead | orchestrate.NoLease | orchestrate.StoreFailed { with held { try orchestrate.Api.ImportPlan(input) } },
 		opHostStatus:       func(input orchestrate.HostStatusInput) orchestrate.HostStatusReport fails orchestrate.InvalidInput | host.Unavailable | host.Malformed { with held { try orchestrate.Api.HostStatus(input) } },
 		opHostProcesses:    func(input orchestrate.HostProcessesInput) orchestrate.HostProcessList fails orchestrate.InvalidInput | host.Unavailable | host.Malformed { with held { try orchestrate.Api.HostProcesses(input) } },
 		opHostReadiness:    func(input orchestrate.HostReadinessInput) orchestrate.HostReadinessReport fails orchestrate.InvalidInput | host.Unavailable | host.Malformed { with held { try orchestrate.Api.HostReadiness(input) } },
@@ -860,12 +1120,12 @@ func ClientInForce() Client needs orchestrate.Api {
 }
 
 // UnitOpen invokes orchestrate.Api's UnitOpen directly.
-func UnitOpen(client Client, input orchestrate.UnitOpenInput) orchestrate.Unit fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed {
+func UnitOpen(client Client, input orchestrate.UnitOpenInput) orchestrate.Unit fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.LaneHeld | orchestrate.NotOwner | orchestrate.LandingBusy | orchestrate.StaleHead | orchestrate.NoLease | orchestrate.StoreFailed {
 	try client.opUnitOpen(input)
 }
 
 // ReceiptRecord invokes orchestrate.Api's ReceiptRecord directly.
-func ReceiptRecord(client Client, input orchestrate.ReceiptRecordInput) orchestrate.Receipt fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed {
+func ReceiptRecord(client Client, input orchestrate.ReceiptRecordInput) orchestrate.Receipt fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.LaneHeld | orchestrate.NotOwner | orchestrate.LandingBusy | orchestrate.StaleHead | orchestrate.NoLease | orchestrate.StoreFailed {
 	try client.opReceiptRecord(input)
 }
 
@@ -875,37 +1135,37 @@ func UnitState(client Client, input orchestrate.UnitStateInput) orchestrate.Unit
 }
 
 // UnitAccept invokes orchestrate.Api's UnitAccept directly.
-func UnitAccept(client Client, input orchestrate.UnitVerdictInput) orchestrate.Unit fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed {
+func UnitAccept(client Client, input orchestrate.UnitVerdictInput) orchestrate.Unit fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.LaneHeld | orchestrate.NotOwner | orchestrate.LandingBusy | orchestrate.StaleHead | orchestrate.NoLease | orchestrate.StoreFailed {
 	try client.opUnitAccept(input)
 }
 
 // UnitLand invokes orchestrate.Api's UnitLand directly.
-func UnitLand(client Client, input orchestrate.UnitVerdictInput) orchestrate.Unit fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed {
+func UnitLand(client Client, input orchestrate.UnitVerdictInput) orchestrate.Unit fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.LaneHeld | orchestrate.NotOwner | orchestrate.LandingBusy | orchestrate.StaleHead | orchestrate.NoLease | orchestrate.StoreFailed {
 	try client.opUnitLand(input)
 }
 
 // UnitClose invokes orchestrate.Api's UnitClose directly.
-func UnitClose(client Client, input orchestrate.UnitCloseInput) orchestrate.Unit fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed {
+func UnitClose(client Client, input orchestrate.UnitCloseInput) orchestrate.Unit fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.LaneHeld | orchestrate.NotOwner | orchestrate.LandingBusy | orchestrate.StaleHead | orchestrate.NoLease | orchestrate.StoreFailed {
 	try client.opUnitClose(input)
 }
 
 // CommitmentAdd invokes orchestrate.Api's CommitmentAdd directly.
-func CommitmentAdd(client Client, input orchestrate.CommitmentAddInput) orchestrate.Commitment fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed {
+func CommitmentAdd(client Client, input orchestrate.CommitmentAddInput) orchestrate.Commitment fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.LaneHeld | orchestrate.NotOwner | orchestrate.LandingBusy | orchestrate.StaleHead | orchestrate.NoLease | orchestrate.StoreFailed {
 	try client.opCommitmentAdd(input)
 }
 
 // CommitmentAssign invokes orchestrate.Api's CommitmentAssign directly.
-func CommitmentAssign(client Client, input orchestrate.CommitmentAssignInput) orchestrate.Commitment fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed {
+func CommitmentAssign(client Client, input orchestrate.CommitmentAssignInput) orchestrate.Commitment fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.LaneHeld | orchestrate.NotOwner | orchestrate.LandingBusy | orchestrate.StaleHead | orchestrate.NoLease | orchestrate.StoreFailed {
 	try client.opCommitmentAssign(input)
 }
 
 // CommitmentLand invokes orchestrate.Api's CommitmentLand directly.
-func CommitmentLand(client Client, input orchestrate.CommitmentLandInput) orchestrate.Commitment fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed {
+func CommitmentLand(client Client, input orchestrate.CommitmentLandInput) orchestrate.Commitment fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.LaneHeld | orchestrate.NotOwner | orchestrate.LandingBusy | orchestrate.StaleHead | orchestrate.NoLease | orchestrate.StoreFailed {
 	try client.opCommitmentLand(input)
 }
 
 // CommitmentDecide invokes orchestrate.Api's CommitmentDecide directly.
-func CommitmentDecide(client Client, input orchestrate.CommitmentDecideInput) orchestrate.Commitment fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed {
+func CommitmentDecide(client Client, input orchestrate.CommitmentDecideInput) orchestrate.Commitment fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.LaneHeld | orchestrate.NotOwner | orchestrate.LandingBusy | orchestrate.StaleHead | orchestrate.NoLease | orchestrate.StoreFailed {
 	try client.opCommitmentDecide(input)
 }
 
@@ -915,12 +1175,12 @@ func CommitmentList(client Client, input orchestrate.CommitmentListInput) []orch
 }
 
 // QueueUpsert invokes orchestrate.Api's QueueUpsert directly.
-func QueueUpsert(client Client, input orchestrate.QueueUpsertInput) orchestrate.QueueItem fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed {
+func QueueUpsert(client Client, input orchestrate.QueueUpsertInput) orchestrate.QueueItem fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.LaneHeld | orchestrate.NotOwner | orchestrate.LandingBusy | orchestrate.StaleHead | orchestrate.NoLease | orchestrate.StoreFailed {
 	try client.opQueueUpsert(input)
 }
 
 // QueueRemove invokes orchestrate.Api's QueueRemove directly.
-func QueueRemove(client Client, input orchestrate.QueueRemoveInput) fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed {
+func QueueRemove(client Client, input orchestrate.QueueRemoveInput) fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.LaneHeld | orchestrate.NotOwner | orchestrate.LandingBusy | orchestrate.StaleHead | orchestrate.NoLease | orchestrate.StoreFailed {
 	try client.opQueueRemove(input)
 }
 
@@ -930,12 +1190,12 @@ func QueueList(client Client, input orchestrate.QueueListInput) []orchestrate.Qu
 }
 
 // QuestionAsk invokes orchestrate.Api's QuestionAsk directly.
-func QuestionAsk(client Client, input orchestrate.QuestionAskInput) orchestrate.Question fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed {
+func QuestionAsk(client Client, input orchestrate.QuestionAskInput) orchestrate.Question fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.LaneHeld | orchestrate.NotOwner | orchestrate.LandingBusy | orchestrate.StaleHead | orchestrate.NoLease | orchestrate.StoreFailed {
 	try client.opQuestionAsk(input)
 }
 
 // QuestionAnswer invokes orchestrate.Api's QuestionAnswer directly.
-func QuestionAnswer(client Client, input orchestrate.QuestionAnswerInput) orchestrate.Question fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed {
+func QuestionAnswer(client Client, input orchestrate.QuestionAnswerInput) orchestrate.Question fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.LaneHeld | orchestrate.NotOwner | orchestrate.LandingBusy | orchestrate.StaleHead | orchestrate.NoLease | orchestrate.StoreFailed {
 	try client.opQuestionAnswer(input)
 }
 
@@ -944,9 +1204,19 @@ func QuestionList(client Client, input orchestrate.QuestionListInput) []orchestr
 	try client.opQuestionList(input)
 }
 
-// RunHeadSet invokes orchestrate.Api's RunHeadSet directly.
-func RunHeadSet(client Client, input orchestrate.RunHeadSetInput) orchestrate.RunMeta fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed {
-	try client.opRunHeadSet(input)
+// UnitTransfer invokes orchestrate.Api's UnitTransfer directly.
+func UnitTransfer(client Client, input orchestrate.UnitTransferInput) orchestrate.Unit fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.LaneHeld | orchestrate.NotOwner | orchestrate.LandingBusy | orchestrate.StaleHead | orchestrate.NoLease | orchestrate.StoreFailed {
+	try client.opUnitTransfer(input)
+}
+
+// LandingBegin invokes orchestrate.Api's LandingBegin directly.
+func LandingBegin(client Client, input orchestrate.LandingBeginInput) orchestrate.LandingLease fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.LaneHeld | orchestrate.NotOwner | orchestrate.LandingBusy | orchestrate.StaleHead | orchestrate.NoLease | orchestrate.StoreFailed {
+	try client.opLandingBegin(input)
+}
+
+// LandingEnd invokes orchestrate.Api's LandingEnd directly.
+func LandingEnd(client Client, input orchestrate.LandingEndInput) orchestrate.RunMeta fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.LaneHeld | orchestrate.NotOwner | orchestrate.LandingBusy | orchestrate.StaleHead | orchestrate.NoLease | orchestrate.StoreFailed {
+	try client.opLandingEnd(input)
 }
 
 // RunSummary invokes orchestrate.Api's RunSummary directly.
@@ -960,7 +1230,7 @@ func UnitList(client Client, input orchestrate.UnitListInput) orchestrate.UnitPa
 }
 
 // DecisionRecord invokes orchestrate.Api's DecisionRecord directly.
-func DecisionRecord(client Client, input orchestrate.DecisionRecordInput) orchestrate.Decision fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed {
+func DecisionRecord(client Client, input orchestrate.DecisionRecordInput) orchestrate.Decision fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.LaneHeld | orchestrate.NotOwner | orchestrate.LandingBusy | orchestrate.StaleHead | orchestrate.NoLease | orchestrate.StoreFailed {
 	try client.opDecisionRecord(input)
 }
 
@@ -970,7 +1240,7 @@ func DecisionList(client Client, input orchestrate.DecisionListInput) orchestrat
 }
 
 // LandingRecord invokes orchestrate.Api's LandingRecord directly.
-func LandingRecord(client Client, input orchestrate.LandingRecordInput) orchestrate.Landing fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed {
+func LandingRecord(client Client, input orchestrate.LandingRecordInput) orchestrate.Landing fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.LaneHeld | orchestrate.NotOwner | orchestrate.LandingBusy | orchestrate.StaleHead | orchestrate.NoLease | orchestrate.StoreFailed {
 	try client.opLandingRecord(input)
 }
 
@@ -980,7 +1250,7 @@ func LandingList(client Client, input orchestrate.LandingListInput) orchestrate.
 }
 
 // EventRecord invokes orchestrate.Api's EventRecord directly.
-func EventRecord(client Client, input orchestrate.EventRecordInput) orchestrate.LedgerEvent fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed {
+func EventRecord(client Client, input orchestrate.EventRecordInput) orchestrate.LedgerEvent fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.LaneHeld | orchestrate.NotOwner | orchestrate.LandingBusy | orchestrate.StaleHead | orchestrate.NoLease | orchestrate.StoreFailed {
 	try client.opEventRecord(input)
 }
 
@@ -990,7 +1260,7 @@ func EventLog(client Client, input orchestrate.EventLogInput) orchestrate.EventP
 }
 
 // ImportPlan invokes orchestrate.Api's ImportPlan directly.
-func ImportPlan(client Client, input orchestrate.ImportPlanInput) orchestrate.ImportReport fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed {
+func ImportPlan(client Client, input orchestrate.ImportPlanInput) orchestrate.ImportReport fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.LaneHeld | orchestrate.NotOwner | orchestrate.LandingBusy | orchestrate.StaleHead | orchestrate.NoLease | orchestrate.StoreFailed {
 	try client.opImportPlan(input)
 }
 
@@ -1023,7 +1293,7 @@ type CheckedClient { send func(r Request) Outcome fails rpc.Transport }
 func NewCheckedClient(send own func(r Request) Outcome fails rpc.Transport) CheckedClient { CheckedClient{send: send} }
 
 // UnitOpenChecked sends orchestrate.Api's UnitOpen over send and validates its Outcome.
-func UnitOpenChecked(client CheckedClient, input orchestrate.UnitOpenInput) orchestrate.Unit fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed | rpc.Transport {
+func UnitOpenChecked(client CheckedClient, input orchestrate.UnitOpenInput) orchestrate.Unit fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.LaneHeld | orchestrate.NotOwner | orchestrate.LandingBusy | orchestrate.StaleHead | orchestrate.NoLease | orchestrate.StoreFailed | rpc.Transport {
 	match try client.send(UnitOpenRequest{Input: input}) {
 	case Done as done:
 		match done.Reply {
@@ -1048,6 +1318,16 @@ func UnitOpenChecked(client CheckedClient, input orchestrate.UnitOpenInput) orch
 			return failure.E
 		case NotAcceptedHead as failure:
 			return failure.E
+		case LaneHeld as failure:
+			return failure.E
+		case NotOwner as failure:
+			return failure.E
+		case LandingBusy as failure:
+			return failure.E
+		case StaleHead as failure:
+			return failure.E
+		case NoLease as failure:
+			return failure.E
 		case StoreFailed as failure:
 			return failure.E
 		case _:
@@ -1057,7 +1337,7 @@ func UnitOpenChecked(client CheckedClient, input orchestrate.UnitOpenInput) orch
 }
 
 // ReceiptRecordChecked sends orchestrate.Api's ReceiptRecord over send and validates its Outcome.
-func ReceiptRecordChecked(client CheckedClient, input orchestrate.ReceiptRecordInput) orchestrate.Receipt fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed | rpc.Transport {
+func ReceiptRecordChecked(client CheckedClient, input orchestrate.ReceiptRecordInput) orchestrate.Receipt fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.LaneHeld | orchestrate.NotOwner | orchestrate.LandingBusy | orchestrate.StaleHead | orchestrate.NoLease | orchestrate.StoreFailed | rpc.Transport {
 	match try client.send(ReceiptRecordRequest{Input: input}) {
 	case Done as done:
 		match done.Reply {
@@ -1081,6 +1361,16 @@ func ReceiptRecordChecked(client CheckedClient, input orchestrate.ReceiptRecordI
 		case Unverified as failure:
 			return failure.E
 		case NotAcceptedHead as failure:
+			return failure.E
+		case LaneHeld as failure:
+			return failure.E
+		case NotOwner as failure:
+			return failure.E
+		case LandingBusy as failure:
+			return failure.E
+		case StaleHead as failure:
+			return failure.E
+		case NoLease as failure:
 			return failure.E
 		case StoreFailed as failure:
 			return failure.E
@@ -1115,7 +1405,7 @@ func UnitStateChecked(client CheckedClient, input orchestrate.UnitStateInput) or
 }
 
 // UnitAcceptChecked sends orchestrate.Api's UnitAccept over send and validates its Outcome.
-func UnitAcceptChecked(client CheckedClient, input orchestrate.UnitVerdictInput) orchestrate.Unit fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed | rpc.Transport {
+func UnitAcceptChecked(client CheckedClient, input orchestrate.UnitVerdictInput) orchestrate.Unit fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.LaneHeld | orchestrate.NotOwner | orchestrate.LandingBusy | orchestrate.StaleHead | orchestrate.NoLease | orchestrate.StoreFailed | rpc.Transport {
 	match try client.send(UnitAcceptRequest{Input: input}) {
 	case Done as done:
 		match done.Reply {
@@ -1140,6 +1430,16 @@ func UnitAcceptChecked(client CheckedClient, input orchestrate.UnitVerdictInput)
 			return failure.E
 		case NotAcceptedHead as failure:
 			return failure.E
+		case LaneHeld as failure:
+			return failure.E
+		case NotOwner as failure:
+			return failure.E
+		case LandingBusy as failure:
+			return failure.E
+		case StaleHead as failure:
+			return failure.E
+		case NoLease as failure:
+			return failure.E
 		case StoreFailed as failure:
 			return failure.E
 		case _:
@@ -1149,7 +1449,7 @@ func UnitAcceptChecked(client CheckedClient, input orchestrate.UnitVerdictInput)
 }
 
 // UnitLandChecked sends orchestrate.Api's UnitLand over send and validates its Outcome.
-func UnitLandChecked(client CheckedClient, input orchestrate.UnitVerdictInput) orchestrate.Unit fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed | rpc.Transport {
+func UnitLandChecked(client CheckedClient, input orchestrate.UnitVerdictInput) orchestrate.Unit fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.LaneHeld | orchestrate.NotOwner | orchestrate.LandingBusy | orchestrate.StaleHead | orchestrate.NoLease | orchestrate.StoreFailed | rpc.Transport {
 	match try client.send(UnitLandRequest{Input: input}) {
 	case Done as done:
 		match done.Reply {
@@ -1174,6 +1474,16 @@ func UnitLandChecked(client CheckedClient, input orchestrate.UnitVerdictInput) o
 			return failure.E
 		case NotAcceptedHead as failure:
 			return failure.E
+		case LaneHeld as failure:
+			return failure.E
+		case NotOwner as failure:
+			return failure.E
+		case LandingBusy as failure:
+			return failure.E
+		case StaleHead as failure:
+			return failure.E
+		case NoLease as failure:
+			return failure.E
 		case StoreFailed as failure:
 			return failure.E
 		case _:
@@ -1183,7 +1493,7 @@ func UnitLandChecked(client CheckedClient, input orchestrate.UnitVerdictInput) o
 }
 
 // UnitCloseChecked sends orchestrate.Api's UnitClose over send and validates its Outcome.
-func UnitCloseChecked(client CheckedClient, input orchestrate.UnitCloseInput) orchestrate.Unit fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed | rpc.Transport {
+func UnitCloseChecked(client CheckedClient, input orchestrate.UnitCloseInput) orchestrate.Unit fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.LaneHeld | orchestrate.NotOwner | orchestrate.LandingBusy | orchestrate.StaleHead | orchestrate.NoLease | orchestrate.StoreFailed | rpc.Transport {
 	match try client.send(UnitCloseRequest{Input: input}) {
 	case Done as done:
 		match done.Reply {
@@ -1208,6 +1518,16 @@ func UnitCloseChecked(client CheckedClient, input orchestrate.UnitCloseInput) or
 			return failure.E
 		case NotAcceptedHead as failure:
 			return failure.E
+		case LaneHeld as failure:
+			return failure.E
+		case NotOwner as failure:
+			return failure.E
+		case LandingBusy as failure:
+			return failure.E
+		case StaleHead as failure:
+			return failure.E
+		case NoLease as failure:
+			return failure.E
 		case StoreFailed as failure:
 			return failure.E
 		case _:
@@ -1217,7 +1537,7 @@ func UnitCloseChecked(client CheckedClient, input orchestrate.UnitCloseInput) or
 }
 
 // CommitmentAddChecked sends orchestrate.Api's CommitmentAdd over send and validates its Outcome.
-func CommitmentAddChecked(client CheckedClient, input orchestrate.CommitmentAddInput) orchestrate.Commitment fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed | rpc.Transport {
+func CommitmentAddChecked(client CheckedClient, input orchestrate.CommitmentAddInput) orchestrate.Commitment fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.LaneHeld | orchestrate.NotOwner | orchestrate.LandingBusy | orchestrate.StaleHead | orchestrate.NoLease | orchestrate.StoreFailed | rpc.Transport {
 	match try client.send(CommitmentAddRequest{Input: input}) {
 	case Done as done:
 		match done.Reply {
@@ -1242,6 +1562,16 @@ func CommitmentAddChecked(client CheckedClient, input orchestrate.CommitmentAddI
 			return failure.E
 		case NotAcceptedHead as failure:
 			return failure.E
+		case LaneHeld as failure:
+			return failure.E
+		case NotOwner as failure:
+			return failure.E
+		case LandingBusy as failure:
+			return failure.E
+		case StaleHead as failure:
+			return failure.E
+		case NoLease as failure:
+			return failure.E
 		case StoreFailed as failure:
 			return failure.E
 		case _:
@@ -1251,7 +1581,7 @@ func CommitmentAddChecked(client CheckedClient, input orchestrate.CommitmentAddI
 }
 
 // CommitmentAssignChecked sends orchestrate.Api's CommitmentAssign over send and validates its Outcome.
-func CommitmentAssignChecked(client CheckedClient, input orchestrate.CommitmentAssignInput) orchestrate.Commitment fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed | rpc.Transport {
+func CommitmentAssignChecked(client CheckedClient, input orchestrate.CommitmentAssignInput) orchestrate.Commitment fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.LaneHeld | orchestrate.NotOwner | orchestrate.LandingBusy | orchestrate.StaleHead | orchestrate.NoLease | orchestrate.StoreFailed | rpc.Transport {
 	match try client.send(CommitmentAssignRequest{Input: input}) {
 	case Done as done:
 		match done.Reply {
@@ -1276,6 +1606,16 @@ func CommitmentAssignChecked(client CheckedClient, input orchestrate.CommitmentA
 			return failure.E
 		case NotAcceptedHead as failure:
 			return failure.E
+		case LaneHeld as failure:
+			return failure.E
+		case NotOwner as failure:
+			return failure.E
+		case LandingBusy as failure:
+			return failure.E
+		case StaleHead as failure:
+			return failure.E
+		case NoLease as failure:
+			return failure.E
 		case StoreFailed as failure:
 			return failure.E
 		case _:
@@ -1285,7 +1625,7 @@ func CommitmentAssignChecked(client CheckedClient, input orchestrate.CommitmentA
 }
 
 // CommitmentLandChecked sends orchestrate.Api's CommitmentLand over send and validates its Outcome.
-func CommitmentLandChecked(client CheckedClient, input orchestrate.CommitmentLandInput) orchestrate.Commitment fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed | rpc.Transport {
+func CommitmentLandChecked(client CheckedClient, input orchestrate.CommitmentLandInput) orchestrate.Commitment fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.LaneHeld | orchestrate.NotOwner | orchestrate.LandingBusy | orchestrate.StaleHead | orchestrate.NoLease | orchestrate.StoreFailed | rpc.Transport {
 	match try client.send(CommitmentLandRequest{Input: input}) {
 	case Done as done:
 		match done.Reply {
@@ -1310,6 +1650,16 @@ func CommitmentLandChecked(client CheckedClient, input orchestrate.CommitmentLan
 			return failure.E
 		case NotAcceptedHead as failure:
 			return failure.E
+		case LaneHeld as failure:
+			return failure.E
+		case NotOwner as failure:
+			return failure.E
+		case LandingBusy as failure:
+			return failure.E
+		case StaleHead as failure:
+			return failure.E
+		case NoLease as failure:
+			return failure.E
 		case StoreFailed as failure:
 			return failure.E
 		case _:
@@ -1319,7 +1669,7 @@ func CommitmentLandChecked(client CheckedClient, input orchestrate.CommitmentLan
 }
 
 // CommitmentDecideChecked sends orchestrate.Api's CommitmentDecide over send and validates its Outcome.
-func CommitmentDecideChecked(client CheckedClient, input orchestrate.CommitmentDecideInput) orchestrate.Commitment fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed | rpc.Transport {
+func CommitmentDecideChecked(client CheckedClient, input orchestrate.CommitmentDecideInput) orchestrate.Commitment fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.LaneHeld | orchestrate.NotOwner | orchestrate.LandingBusy | orchestrate.StaleHead | orchestrate.NoLease | orchestrate.StoreFailed | rpc.Transport {
 	match try client.send(CommitmentDecideRequest{Input: input}) {
 	case Done as done:
 		match done.Reply {
@@ -1343,6 +1693,16 @@ func CommitmentDecideChecked(client CheckedClient, input orchestrate.CommitmentD
 		case Unverified as failure:
 			return failure.E
 		case NotAcceptedHead as failure:
+			return failure.E
+		case LaneHeld as failure:
+			return failure.E
+		case NotOwner as failure:
+			return failure.E
+		case LandingBusy as failure:
+			return failure.E
+		case StaleHead as failure:
+			return failure.E
+		case NoLease as failure:
 			return failure.E
 		case StoreFailed as failure:
 			return failure.E
@@ -1375,7 +1735,7 @@ func CommitmentListChecked(client CheckedClient, input orchestrate.CommitmentLis
 }
 
 // QueueUpsertChecked sends orchestrate.Api's QueueUpsert over send and validates its Outcome.
-func QueueUpsertChecked(client CheckedClient, input orchestrate.QueueUpsertInput) orchestrate.QueueItem fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed | rpc.Transport {
+func QueueUpsertChecked(client CheckedClient, input orchestrate.QueueUpsertInput) orchestrate.QueueItem fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.LaneHeld | orchestrate.NotOwner | orchestrate.LandingBusy | orchestrate.StaleHead | orchestrate.NoLease | orchestrate.StoreFailed | rpc.Transport {
 	match try client.send(QueueUpsertRequest{Input: input}) {
 	case Done as done:
 		match done.Reply {
@@ -1400,6 +1760,16 @@ func QueueUpsertChecked(client CheckedClient, input orchestrate.QueueUpsertInput
 			return failure.E
 		case NotAcceptedHead as failure:
 			return failure.E
+		case LaneHeld as failure:
+			return failure.E
+		case NotOwner as failure:
+			return failure.E
+		case LandingBusy as failure:
+			return failure.E
+		case StaleHead as failure:
+			return failure.E
+		case NoLease as failure:
+			return failure.E
 		case StoreFailed as failure:
 			return failure.E
 		case _:
@@ -1409,7 +1779,7 @@ func QueueUpsertChecked(client CheckedClient, input orchestrate.QueueUpsertInput
 }
 
 // QueueRemoveChecked sends orchestrate.Api's QueueRemove over send and validates its Outcome.
-func QueueRemoveChecked(client CheckedClient, input orchestrate.QueueRemoveInput) fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed | rpc.Transport {
+func QueueRemoveChecked(client CheckedClient, input orchestrate.QueueRemoveInput) fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.LaneHeld | orchestrate.NotOwner | orchestrate.LandingBusy | orchestrate.StaleHead | orchestrate.NoLease | orchestrate.StoreFailed | rpc.Transport {
 	match try client.send(QueueRemoveRequest{Input: input}) {
 	case Done as done:
 		match done.Reply {
@@ -1432,6 +1802,16 @@ func QueueRemoveChecked(client CheckedClient, input orchestrate.QueueRemoveInput
 		case Unverified as failure:
 			return failure.E
 		case NotAcceptedHead as failure:
+			return failure.E
+		case LaneHeld as failure:
+			return failure.E
+		case NotOwner as failure:
+			return failure.E
+		case LandingBusy as failure:
+			return failure.E
+		case StaleHead as failure:
+			return failure.E
+		case NoLease as failure:
 			return failure.E
 		case StoreFailed as failure:
 			return failure.E
@@ -1464,7 +1844,7 @@ func QueueListChecked(client CheckedClient, input orchestrate.QueueListInput) []
 }
 
 // QuestionAskChecked sends orchestrate.Api's QuestionAsk over send and validates its Outcome.
-func QuestionAskChecked(client CheckedClient, input orchestrate.QuestionAskInput) orchestrate.Question fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed | rpc.Transport {
+func QuestionAskChecked(client CheckedClient, input orchestrate.QuestionAskInput) orchestrate.Question fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.LaneHeld | orchestrate.NotOwner | orchestrate.LandingBusy | orchestrate.StaleHead | orchestrate.NoLease | orchestrate.StoreFailed | rpc.Transport {
 	match try client.send(QuestionAskRequest{Input: input}) {
 	case Done as done:
 		match done.Reply {
@@ -1489,6 +1869,16 @@ func QuestionAskChecked(client CheckedClient, input orchestrate.QuestionAskInput
 			return failure.E
 		case NotAcceptedHead as failure:
 			return failure.E
+		case LaneHeld as failure:
+			return failure.E
+		case NotOwner as failure:
+			return failure.E
+		case LandingBusy as failure:
+			return failure.E
+		case StaleHead as failure:
+			return failure.E
+		case NoLease as failure:
+			return failure.E
 		case StoreFailed as failure:
 			return failure.E
 		case _:
@@ -1498,7 +1888,7 @@ func QuestionAskChecked(client CheckedClient, input orchestrate.QuestionAskInput
 }
 
 // QuestionAnswerChecked sends orchestrate.Api's QuestionAnswer over send and validates its Outcome.
-func QuestionAnswerChecked(client CheckedClient, input orchestrate.QuestionAnswerInput) orchestrate.Question fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed | rpc.Transport {
+func QuestionAnswerChecked(client CheckedClient, input orchestrate.QuestionAnswerInput) orchestrate.Question fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.LaneHeld | orchestrate.NotOwner | orchestrate.LandingBusy | orchestrate.StaleHead | orchestrate.NoLease | orchestrate.StoreFailed | rpc.Transport {
 	match try client.send(QuestionAnswerRequest{Input: input}) {
 	case Done as done:
 		match done.Reply {
@@ -1522,6 +1912,16 @@ func QuestionAnswerChecked(client CheckedClient, input orchestrate.QuestionAnswe
 		case Unverified as failure:
 			return failure.E
 		case NotAcceptedHead as failure:
+			return failure.E
+		case LaneHeld as failure:
+			return failure.E
+		case NotOwner as failure:
+			return failure.E
+		case LandingBusy as failure:
+			return failure.E
+		case StaleHead as failure:
+			return failure.E
+		case NoLease as failure:
 			return failure.E
 		case StoreFailed as failure:
 			return failure.E
@@ -1551,15 +1951,15 @@ func QuestionListChecked(client CheckedClient, input orchestrate.QuestionListInp
 	}
 }
 
-// RunHeadSetChecked sends orchestrate.Api's RunHeadSet over send and validates its Outcome.
-func RunHeadSetChecked(client CheckedClient, input orchestrate.RunHeadSetInput) orchestrate.RunMeta fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed | rpc.Transport {
-	match try client.send(RunHeadSetRequest{Input: input}) {
+// UnitTransferChecked sends orchestrate.Api's UnitTransfer over send and validates its Outcome.
+func UnitTransferChecked(client CheckedClient, input orchestrate.UnitTransferInput) orchestrate.Unit fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.LaneHeld | orchestrate.NotOwner | orchestrate.LandingBusy | orchestrate.StaleHead | orchestrate.NoLease | orchestrate.StoreFailed | rpc.Transport {
+	match try client.send(UnitTransferRequest{Input: input}) {
 	case Done as done:
 		match done.Reply {
-		case RunHeadSetReply as reply:
+		case UnitTransferReply as reply:
 			reply.Value
 		case _:
-			return rpc.Transport{Reason: "orchestrateapi: RunHeadSet was answered with the value of another operation"}
+			return rpc.Transport{Reason: "orchestrateapi: UnitTransfer was answered with the value of another operation"}
 		}
 	case Rejected as rejected:
 		match rejected.Failure {
@@ -1577,10 +1977,108 @@ func RunHeadSetChecked(client CheckedClient, input orchestrate.RunHeadSetInput) 
 			return failure.E
 		case NotAcceptedHead as failure:
 			return failure.E
+		case LaneHeld as failure:
+			return failure.E
+		case NotOwner as failure:
+			return failure.E
+		case LandingBusy as failure:
+			return failure.E
+		case StaleHead as failure:
+			return failure.E
+		case NoLease as failure:
+			return failure.E
 		case StoreFailed as failure:
 			return failure.E
 		case _:
-			return rpc.Transport{Reason: "orchestrateapi: RunHeadSet was answered with a failure outside its row"}
+			return rpc.Transport{Reason: "orchestrateapi: UnitTransfer was answered with a failure outside its row"}
+		}
+	}
+}
+
+// LandingBeginChecked sends orchestrate.Api's LandingBegin over send and validates its Outcome.
+func LandingBeginChecked(client CheckedClient, input orchestrate.LandingBeginInput) orchestrate.LandingLease fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.LaneHeld | orchestrate.NotOwner | orchestrate.LandingBusy | orchestrate.StaleHead | orchestrate.NoLease | orchestrate.StoreFailed | rpc.Transport {
+	match try client.send(LandingBeginRequest{Input: input}) {
+	case Done as done:
+		match done.Reply {
+		case LandingBeginReply as reply:
+			reply.Value
+		case _:
+			return rpc.Transport{Reason: "orchestrateapi: LandingBegin was answered with the value of another operation"}
+		}
+	case Rejected as rejected:
+		match rejected.Failure {
+		case NotFound as failure:
+			return failure.E
+		case AlreadyExists as failure:
+			return failure.E
+		case InvalidTransition as failure:
+			return failure.E
+		case CommandReused as failure:
+			return failure.E
+		case InvalidInput as failure:
+			return failure.E
+		case Unverified as failure:
+			return failure.E
+		case NotAcceptedHead as failure:
+			return failure.E
+		case LaneHeld as failure:
+			return failure.E
+		case NotOwner as failure:
+			return failure.E
+		case LandingBusy as failure:
+			return failure.E
+		case StaleHead as failure:
+			return failure.E
+		case NoLease as failure:
+			return failure.E
+		case StoreFailed as failure:
+			return failure.E
+		case _:
+			return rpc.Transport{Reason: "orchestrateapi: LandingBegin was answered with a failure outside its row"}
+		}
+	}
+}
+
+// LandingEndChecked sends orchestrate.Api's LandingEnd over send and validates its Outcome.
+func LandingEndChecked(client CheckedClient, input orchestrate.LandingEndInput) orchestrate.RunMeta fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.LaneHeld | orchestrate.NotOwner | orchestrate.LandingBusy | orchestrate.StaleHead | orchestrate.NoLease | orchestrate.StoreFailed | rpc.Transport {
+	match try client.send(LandingEndRequest{Input: input}) {
+	case Done as done:
+		match done.Reply {
+		case LandingEndReply as reply:
+			reply.Value
+		case _:
+			return rpc.Transport{Reason: "orchestrateapi: LandingEnd was answered with the value of another operation"}
+		}
+	case Rejected as rejected:
+		match rejected.Failure {
+		case NotFound as failure:
+			return failure.E
+		case AlreadyExists as failure:
+			return failure.E
+		case InvalidTransition as failure:
+			return failure.E
+		case CommandReused as failure:
+			return failure.E
+		case InvalidInput as failure:
+			return failure.E
+		case Unverified as failure:
+			return failure.E
+		case NotAcceptedHead as failure:
+			return failure.E
+		case LaneHeld as failure:
+			return failure.E
+		case NotOwner as failure:
+			return failure.E
+		case LandingBusy as failure:
+			return failure.E
+		case StaleHead as failure:
+			return failure.E
+		case NoLease as failure:
+			return failure.E
+		case StoreFailed as failure:
+			return failure.E
+		case _:
+			return rpc.Transport{Reason: "orchestrateapi: LandingEnd was answered with a failure outside its row"}
 		}
 	}
 }
@@ -1630,7 +2128,7 @@ func UnitListChecked(client CheckedClient, input orchestrate.UnitListInput) orch
 }
 
 // DecisionRecordChecked sends orchestrate.Api's DecisionRecord over send and validates its Outcome.
-func DecisionRecordChecked(client CheckedClient, input orchestrate.DecisionRecordInput) orchestrate.Decision fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed | rpc.Transport {
+func DecisionRecordChecked(client CheckedClient, input orchestrate.DecisionRecordInput) orchestrate.Decision fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.LaneHeld | orchestrate.NotOwner | orchestrate.LandingBusy | orchestrate.StaleHead | orchestrate.NoLease | orchestrate.StoreFailed | rpc.Transport {
 	match try client.send(DecisionRecordRequest{Input: input}) {
 	case Done as done:
 		match done.Reply {
@@ -1654,6 +2152,16 @@ func DecisionRecordChecked(client CheckedClient, input orchestrate.DecisionRecor
 		case Unverified as failure:
 			return failure.E
 		case NotAcceptedHead as failure:
+			return failure.E
+		case LaneHeld as failure:
+			return failure.E
+		case NotOwner as failure:
+			return failure.E
+		case LandingBusy as failure:
+			return failure.E
+		case StaleHead as failure:
+			return failure.E
+		case NoLease as failure:
 			return failure.E
 		case StoreFailed as failure:
 			return failure.E
@@ -1686,7 +2194,7 @@ func DecisionListChecked(client CheckedClient, input orchestrate.DecisionListInp
 }
 
 // LandingRecordChecked sends orchestrate.Api's LandingRecord over send and validates its Outcome.
-func LandingRecordChecked(client CheckedClient, input orchestrate.LandingRecordInput) orchestrate.Landing fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed | rpc.Transport {
+func LandingRecordChecked(client CheckedClient, input orchestrate.LandingRecordInput) orchestrate.Landing fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.LaneHeld | orchestrate.NotOwner | orchestrate.LandingBusy | orchestrate.StaleHead | orchestrate.NoLease | orchestrate.StoreFailed | rpc.Transport {
 	match try client.send(LandingRecordRequest{Input: input}) {
 	case Done as done:
 		match done.Reply {
@@ -1710,6 +2218,16 @@ func LandingRecordChecked(client CheckedClient, input orchestrate.LandingRecordI
 		case Unverified as failure:
 			return failure.E
 		case NotAcceptedHead as failure:
+			return failure.E
+		case LaneHeld as failure:
+			return failure.E
+		case NotOwner as failure:
+			return failure.E
+		case LandingBusy as failure:
+			return failure.E
+		case StaleHead as failure:
+			return failure.E
+		case NoLease as failure:
 			return failure.E
 		case StoreFailed as failure:
 			return failure.E
@@ -1742,7 +2260,7 @@ func LandingListChecked(client CheckedClient, input orchestrate.LandingListInput
 }
 
 // EventRecordChecked sends orchestrate.Api's EventRecord over send and validates its Outcome.
-func EventRecordChecked(client CheckedClient, input orchestrate.EventRecordInput) orchestrate.LedgerEvent fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed | rpc.Transport {
+func EventRecordChecked(client CheckedClient, input orchestrate.EventRecordInput) orchestrate.LedgerEvent fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.LaneHeld | orchestrate.NotOwner | orchestrate.LandingBusy | orchestrate.StaleHead | orchestrate.NoLease | orchestrate.StoreFailed | rpc.Transport {
 	match try client.send(EventRecordRequest{Input: input}) {
 	case Done as done:
 		match done.Reply {
@@ -1766,6 +2284,16 @@ func EventRecordChecked(client CheckedClient, input orchestrate.EventRecordInput
 		case Unverified as failure:
 			return failure.E
 		case NotAcceptedHead as failure:
+			return failure.E
+		case LaneHeld as failure:
+			return failure.E
+		case NotOwner as failure:
+			return failure.E
+		case LandingBusy as failure:
+			return failure.E
+		case StaleHead as failure:
+			return failure.E
+		case NoLease as failure:
 			return failure.E
 		case StoreFailed as failure:
 			return failure.E
@@ -1798,7 +2326,7 @@ func EventLogChecked(client CheckedClient, input orchestrate.EventLogInput) orch
 }
 
 // ImportPlanChecked sends orchestrate.Api's ImportPlan over send and validates its Outcome.
-func ImportPlanChecked(client CheckedClient, input orchestrate.ImportPlanInput) orchestrate.ImportReport fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed | rpc.Transport {
+func ImportPlanChecked(client CheckedClient, input orchestrate.ImportPlanInput) orchestrate.ImportReport fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.LaneHeld | orchestrate.NotOwner | orchestrate.LandingBusy | orchestrate.StaleHead | orchestrate.NoLease | orchestrate.StoreFailed | rpc.Transport {
 	match try client.send(ImportPlanRequest{Input: input}) {
 	case Done as done:
 		match done.Reply {
@@ -1822,6 +2350,16 @@ func ImportPlanChecked(client CheckedClient, input orchestrate.ImportPlanInput) 
 		case Unverified as failure:
 			return failure.E
 		case NotAcceptedHead as failure:
+			return failure.E
+		case LaneHeld as failure:
+			return failure.E
+		case NotOwner as failure:
+			return failure.E
+		case LandingBusy as failure:
+			return failure.E
+		case StaleHead as failure:
+			return failure.E
+		case NoLease as failure:
 			return failure.E
 		case StoreFailed as failure:
 			return failure.E
@@ -1927,20 +2465,20 @@ func EventsSinceChecked(client CheckedClient, input orchestrate.EventsSinceInput
 
 // Values holds a value of each operation's value type, so a law can
 // answer any operation.
-type Values { UnitOpen orchestrate.Unit, ReceiptRecord orchestrate.Receipt, UnitState orchestrate.UnitView, UnitAccept orchestrate.Unit, UnitLand orchestrate.Unit, UnitClose orchestrate.Unit, CommitmentAdd orchestrate.Commitment, CommitmentAssign orchestrate.Commitment, CommitmentLand orchestrate.Commitment, CommitmentDecide orchestrate.Commitment, CommitmentList []orchestrate.Commitment, QueueUpsert orchestrate.QueueItem, QueueList []orchestrate.QueueItem, QuestionAsk orchestrate.Question, QuestionAnswer orchestrate.Question, QuestionList []orchestrate.Question, RunHeadSet orchestrate.RunMeta, RunSummary orchestrate.RunOverview, UnitList orchestrate.UnitPage, DecisionRecord orchestrate.Decision, DecisionList orchestrate.DecisionPage, LandingRecord orchestrate.Landing, LandingList orchestrate.LandingPage, EventRecord orchestrate.LedgerEvent, EventLog orchestrate.EventPage, ImportPlan orchestrate.ImportReport, HostStatus orchestrate.HostStatusReport, HostProcesses orchestrate.HostProcessList, HostReadiness orchestrate.HostReadinessReport, EventsSince orchestrate.EventStreamPage }
+type Values { UnitOpen orchestrate.Unit, ReceiptRecord orchestrate.Receipt, UnitState orchestrate.UnitView, UnitAccept orchestrate.Unit, UnitLand orchestrate.Unit, UnitClose orchestrate.Unit, CommitmentAdd orchestrate.Commitment, CommitmentAssign orchestrate.Commitment, CommitmentLand orchestrate.Commitment, CommitmentDecide orchestrate.Commitment, CommitmentList []orchestrate.Commitment, QueueUpsert orchestrate.QueueItem, QueueList []orchestrate.QueueItem, QuestionAsk orchestrate.Question, QuestionAnswer orchestrate.Question, QuestionList []orchestrate.Question, UnitTransfer orchestrate.Unit, LandingBegin orchestrate.LandingLease, LandingEnd orchestrate.RunMeta, RunSummary orchestrate.RunOverview, UnitList orchestrate.UnitPage, DecisionRecord orchestrate.Decision, DecisionList orchestrate.DecisionPage, LandingRecord orchestrate.Landing, LandingList orchestrate.LandingPage, EventRecord orchestrate.LedgerEvent, EventLog orchestrate.EventPage, ImportPlan orchestrate.ImportReport, HostStatus orchestrate.HostStatusReport, HostProcesses orchestrate.HostProcessList, HostReadiness orchestrate.HostReadinessReport, EventsSince orchestrate.EventStreamPage }
 
 func inRow(op Op, f Failure) bool {
 	match op {
 	case UnitOpenOp:
 		match f {
-		case NotFound, AlreadyExists, InvalidTransition, CommandReused, InvalidInput, Unverified, NotAcceptedHead, StoreFailed:
+		case NotFound, AlreadyExists, InvalidTransition, CommandReused, InvalidInput, Unverified, NotAcceptedHead, LaneHeld, NotOwner, LandingBusy, StaleHead, NoLease, StoreFailed:
 			true
 		case _:
 			false
 		}
 	case ReceiptRecordOp:
 		match f {
-		case NotFound, AlreadyExists, InvalidTransition, CommandReused, InvalidInput, Unverified, NotAcceptedHead, StoreFailed:
+		case NotFound, AlreadyExists, InvalidTransition, CommandReused, InvalidInput, Unverified, NotAcceptedHead, LaneHeld, NotOwner, LandingBusy, StaleHead, NoLease, StoreFailed:
 			true
 		case _:
 			false
@@ -1954,49 +2492,49 @@ func inRow(op Op, f Failure) bool {
 		}
 	case UnitAcceptOp:
 		match f {
-		case NotFound, AlreadyExists, InvalidTransition, CommandReused, InvalidInput, Unverified, NotAcceptedHead, StoreFailed:
+		case NotFound, AlreadyExists, InvalidTransition, CommandReused, InvalidInput, Unverified, NotAcceptedHead, LaneHeld, NotOwner, LandingBusy, StaleHead, NoLease, StoreFailed:
 			true
 		case _:
 			false
 		}
 	case UnitLandOp:
 		match f {
-		case NotFound, AlreadyExists, InvalidTransition, CommandReused, InvalidInput, Unverified, NotAcceptedHead, StoreFailed:
+		case NotFound, AlreadyExists, InvalidTransition, CommandReused, InvalidInput, Unverified, NotAcceptedHead, LaneHeld, NotOwner, LandingBusy, StaleHead, NoLease, StoreFailed:
 			true
 		case _:
 			false
 		}
 	case UnitCloseOp:
 		match f {
-		case NotFound, AlreadyExists, InvalidTransition, CommandReused, InvalidInput, Unverified, NotAcceptedHead, StoreFailed:
+		case NotFound, AlreadyExists, InvalidTransition, CommandReused, InvalidInput, Unverified, NotAcceptedHead, LaneHeld, NotOwner, LandingBusy, StaleHead, NoLease, StoreFailed:
 			true
 		case _:
 			false
 		}
 	case CommitmentAddOp:
 		match f {
-		case NotFound, AlreadyExists, InvalidTransition, CommandReused, InvalidInput, Unverified, NotAcceptedHead, StoreFailed:
+		case NotFound, AlreadyExists, InvalidTransition, CommandReused, InvalidInput, Unverified, NotAcceptedHead, LaneHeld, NotOwner, LandingBusy, StaleHead, NoLease, StoreFailed:
 			true
 		case _:
 			false
 		}
 	case CommitmentAssignOp:
 		match f {
-		case NotFound, AlreadyExists, InvalidTransition, CommandReused, InvalidInput, Unverified, NotAcceptedHead, StoreFailed:
+		case NotFound, AlreadyExists, InvalidTransition, CommandReused, InvalidInput, Unverified, NotAcceptedHead, LaneHeld, NotOwner, LandingBusy, StaleHead, NoLease, StoreFailed:
 			true
 		case _:
 			false
 		}
 	case CommitmentLandOp:
 		match f {
-		case NotFound, AlreadyExists, InvalidTransition, CommandReused, InvalidInput, Unverified, NotAcceptedHead, StoreFailed:
+		case NotFound, AlreadyExists, InvalidTransition, CommandReused, InvalidInput, Unverified, NotAcceptedHead, LaneHeld, NotOwner, LandingBusy, StaleHead, NoLease, StoreFailed:
 			true
 		case _:
 			false
 		}
 	case CommitmentDecideOp:
 		match f {
-		case NotFound, AlreadyExists, InvalidTransition, CommandReused, InvalidInput, Unverified, NotAcceptedHead, StoreFailed:
+		case NotFound, AlreadyExists, InvalidTransition, CommandReused, InvalidInput, Unverified, NotAcceptedHead, LaneHeld, NotOwner, LandingBusy, StaleHead, NoLease, StoreFailed:
 			true
 		case _:
 			false
@@ -2010,14 +2548,14 @@ func inRow(op Op, f Failure) bool {
 		}
 	case QueueUpsertOp:
 		match f {
-		case NotFound, AlreadyExists, InvalidTransition, CommandReused, InvalidInput, Unverified, NotAcceptedHead, StoreFailed:
+		case NotFound, AlreadyExists, InvalidTransition, CommandReused, InvalidInput, Unverified, NotAcceptedHead, LaneHeld, NotOwner, LandingBusy, StaleHead, NoLease, StoreFailed:
 			true
 		case _:
 			false
 		}
 	case QueueRemoveOp:
 		match f {
-		case NotFound, AlreadyExists, InvalidTransition, CommandReused, InvalidInput, Unverified, NotAcceptedHead, StoreFailed:
+		case NotFound, AlreadyExists, InvalidTransition, CommandReused, InvalidInput, Unverified, NotAcceptedHead, LaneHeld, NotOwner, LandingBusy, StaleHead, NoLease, StoreFailed:
 			true
 		case _:
 			false
@@ -2031,14 +2569,14 @@ func inRow(op Op, f Failure) bool {
 		}
 	case QuestionAskOp:
 		match f {
-		case NotFound, AlreadyExists, InvalidTransition, CommandReused, InvalidInput, Unverified, NotAcceptedHead, StoreFailed:
+		case NotFound, AlreadyExists, InvalidTransition, CommandReused, InvalidInput, Unverified, NotAcceptedHead, LaneHeld, NotOwner, LandingBusy, StaleHead, NoLease, StoreFailed:
 			true
 		case _:
 			false
 		}
 	case QuestionAnswerOp:
 		match f {
-		case NotFound, AlreadyExists, InvalidTransition, CommandReused, InvalidInput, Unverified, NotAcceptedHead, StoreFailed:
+		case NotFound, AlreadyExists, InvalidTransition, CommandReused, InvalidInput, Unverified, NotAcceptedHead, LaneHeld, NotOwner, LandingBusy, StaleHead, NoLease, StoreFailed:
 			true
 		case _:
 			false
@@ -2050,9 +2588,23 @@ func inRow(op Op, f Failure) bool {
 		case _:
 			false
 		}
-	case RunHeadSetOp:
+	case UnitTransferOp:
 		match f {
-		case NotFound, AlreadyExists, InvalidTransition, CommandReused, InvalidInput, Unverified, NotAcceptedHead, StoreFailed:
+		case NotFound, AlreadyExists, InvalidTransition, CommandReused, InvalidInput, Unverified, NotAcceptedHead, LaneHeld, NotOwner, LandingBusy, StaleHead, NoLease, StoreFailed:
+			true
+		case _:
+			false
+		}
+	case LandingBeginOp:
+		match f {
+		case NotFound, AlreadyExists, InvalidTransition, CommandReused, InvalidInput, Unverified, NotAcceptedHead, LaneHeld, NotOwner, LandingBusy, StaleHead, NoLease, StoreFailed:
+			true
+		case _:
+			false
+		}
+	case LandingEndOp:
+		match f {
+		case NotFound, AlreadyExists, InvalidTransition, CommandReused, InvalidInput, Unverified, NotAcceptedHead, LaneHeld, NotOwner, LandingBusy, StaleHead, NoLease, StoreFailed:
 			true
 		case _:
 			false
@@ -2073,7 +2625,7 @@ func inRow(op Op, f Failure) bool {
 		}
 	case DecisionRecordOp:
 		match f {
-		case NotFound, AlreadyExists, InvalidTransition, CommandReused, InvalidInput, Unverified, NotAcceptedHead, StoreFailed:
+		case NotFound, AlreadyExists, InvalidTransition, CommandReused, InvalidInput, Unverified, NotAcceptedHead, LaneHeld, NotOwner, LandingBusy, StaleHead, NoLease, StoreFailed:
 			true
 		case _:
 			false
@@ -2087,7 +2639,7 @@ func inRow(op Op, f Failure) bool {
 		}
 	case LandingRecordOp:
 		match f {
-		case NotFound, AlreadyExists, InvalidTransition, CommandReused, InvalidInput, Unverified, NotAcceptedHead, StoreFailed:
+		case NotFound, AlreadyExists, InvalidTransition, CommandReused, InvalidInput, Unverified, NotAcceptedHead, LaneHeld, NotOwner, LandingBusy, StaleHead, NoLease, StoreFailed:
 			true
 		case _:
 			false
@@ -2101,7 +2653,7 @@ func inRow(op Op, f Failure) bool {
 		}
 	case EventRecordOp:
 		match f {
-		case NotFound, AlreadyExists, InvalidTransition, CommandReused, InvalidInput, Unverified, NotAcceptedHead, StoreFailed:
+		case NotFound, AlreadyExists, InvalidTransition, CommandReused, InvalidInput, Unverified, NotAcceptedHead, LaneHeld, NotOwner, LandingBusy, StaleHead, NoLease, StoreFailed:
 			true
 		case _:
 			false
@@ -2115,7 +2667,7 @@ func inRow(op Op, f Failure) bool {
 		}
 	case ImportPlanOp:
 		match f {
-		case NotFound, AlreadyExists, InvalidTransition, CommandReused, InvalidInput, Unverified, NotAcceptedHead, StoreFailed:
+		case NotFound, AlreadyExists, InvalidTransition, CommandReused, InvalidInput, Unverified, NotAcceptedHead, LaneHeld, NotOwner, LandingBusy, StaleHead, NoLease, StoreFailed:
 			true
 		case _:
 			false
@@ -2197,8 +2749,12 @@ func OutcomeOf(r Request, g Given) Outcome {
 		Done{Reply: QuestionAnswerReply{Value: g.Values.QuestionAnswer}}
 	case QuestionListRequest:
 		Done{Reply: QuestionListReply{Value: g.Values.QuestionList}}
-	case RunHeadSetRequest:
-		Done{Reply: RunHeadSetReply{Value: g.Values.RunHeadSet}}
+	case UnitTransferRequest:
+		Done{Reply: UnitTransferReply{Value: g.Values.UnitTransfer}}
+	case LandingBeginRequest:
+		Done{Reply: LandingBeginReply{Value: g.Values.LandingBegin}}
+	case LandingEndRequest:
+		Done{Reply: LandingEndReply{Value: g.Values.LandingEnd}}
 	case RunSummaryRequest:
 		Done{Reply: RunSummaryReply{Value: g.Values.RunSummary}}
 	case UnitListRequest:
@@ -2230,7 +2786,7 @@ func OutcomeOf(r Request, g Given) Outcome {
 
 func scripted(g Given, sent sync.Ref[[]Request]) Client {
 	Client{
-		opUnitOpen: func(input orchestrate.UnitOpenInput) orchestrate.Unit fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed {
+		opUnitOpen: func(input orchestrate.UnitOpenInput) orchestrate.Unit fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.LaneHeld | orchestrate.NotOwner | orchestrate.LandingBusy | orchestrate.StaleHead | orchestrate.NoLease | orchestrate.StoreFailed {
 			sent.Update(func(rs []Request) []Request { rs.Append(UnitOpenRequest{Input: input}) })
 			if g.Failing {
 				match g.Failure {
@@ -2248,6 +2804,16 @@ func scripted(g Given, sent sync.Ref[[]Request]) Client {
 					return err.E
 				case NotAcceptedHead as err:
 					return err.E
+				case LaneHeld as err:
+					return err.E
+				case NotOwner as err:
+					return err.E
+				case LandingBusy as err:
+					return err.E
+				case StaleHead as err:
+					return err.E
+				case NoLease as err:
+					return err.E
 				case StoreFailed as err:
 					return err.E
 				case _:
@@ -2255,7 +2821,7 @@ func scripted(g Given, sent sync.Ref[[]Request]) Client {
 			}
 			g.Values.UnitOpen
 		},
-		opReceiptRecord: func(input orchestrate.ReceiptRecordInput) orchestrate.Receipt fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed {
+		opReceiptRecord: func(input orchestrate.ReceiptRecordInput) orchestrate.Receipt fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.LaneHeld | orchestrate.NotOwner | orchestrate.LandingBusy | orchestrate.StaleHead | orchestrate.NoLease | orchestrate.StoreFailed {
 			sent.Update(func(rs []Request) []Request { rs.Append(ReceiptRecordRequest{Input: input}) })
 			if g.Failing {
 				match g.Failure {
@@ -2272,6 +2838,16 @@ func scripted(g Given, sent sync.Ref[[]Request]) Client {
 				case Unverified as err:
 					return err.E
 				case NotAcceptedHead as err:
+					return err.E
+				case LaneHeld as err:
+					return err.E
+				case NotOwner as err:
+					return err.E
+				case LandingBusy as err:
+					return err.E
+				case StaleHead as err:
+					return err.E
+				case NoLease as err:
 					return err.E
 				case StoreFailed as err:
 					return err.E
@@ -2295,7 +2871,7 @@ func scripted(g Given, sent sync.Ref[[]Request]) Client {
 			}
 			g.Values.UnitState
 		},
-		opUnitAccept: func(input orchestrate.UnitVerdictInput) orchestrate.Unit fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed {
+		opUnitAccept: func(input orchestrate.UnitVerdictInput) orchestrate.Unit fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.LaneHeld | orchestrate.NotOwner | orchestrate.LandingBusy | orchestrate.StaleHead | orchestrate.NoLease | orchestrate.StoreFailed {
 			sent.Update(func(rs []Request) []Request { rs.Append(UnitAcceptRequest{Input: input}) })
 			if g.Failing {
 				match g.Failure {
@@ -2313,6 +2889,16 @@ func scripted(g Given, sent sync.Ref[[]Request]) Client {
 					return err.E
 				case NotAcceptedHead as err:
 					return err.E
+				case LaneHeld as err:
+					return err.E
+				case NotOwner as err:
+					return err.E
+				case LandingBusy as err:
+					return err.E
+				case StaleHead as err:
+					return err.E
+				case NoLease as err:
+					return err.E
 				case StoreFailed as err:
 					return err.E
 				case _:
@@ -2320,7 +2906,7 @@ func scripted(g Given, sent sync.Ref[[]Request]) Client {
 			}
 			g.Values.UnitAccept
 		},
-		opUnitLand: func(input orchestrate.UnitVerdictInput) orchestrate.Unit fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed {
+		opUnitLand: func(input orchestrate.UnitVerdictInput) orchestrate.Unit fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.LaneHeld | orchestrate.NotOwner | orchestrate.LandingBusy | orchestrate.StaleHead | orchestrate.NoLease | orchestrate.StoreFailed {
 			sent.Update(func(rs []Request) []Request { rs.Append(UnitLandRequest{Input: input}) })
 			if g.Failing {
 				match g.Failure {
@@ -2338,6 +2924,16 @@ func scripted(g Given, sent sync.Ref[[]Request]) Client {
 					return err.E
 				case NotAcceptedHead as err:
 					return err.E
+				case LaneHeld as err:
+					return err.E
+				case NotOwner as err:
+					return err.E
+				case LandingBusy as err:
+					return err.E
+				case StaleHead as err:
+					return err.E
+				case NoLease as err:
+					return err.E
 				case StoreFailed as err:
 					return err.E
 				case _:
@@ -2345,7 +2941,7 @@ func scripted(g Given, sent sync.Ref[[]Request]) Client {
 			}
 			g.Values.UnitLand
 		},
-		opUnitClose: func(input orchestrate.UnitCloseInput) orchestrate.Unit fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed {
+		opUnitClose: func(input orchestrate.UnitCloseInput) orchestrate.Unit fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.LaneHeld | orchestrate.NotOwner | orchestrate.LandingBusy | orchestrate.StaleHead | orchestrate.NoLease | orchestrate.StoreFailed {
 			sent.Update(func(rs []Request) []Request { rs.Append(UnitCloseRequest{Input: input}) })
 			if g.Failing {
 				match g.Failure {
@@ -2363,6 +2959,16 @@ func scripted(g Given, sent sync.Ref[[]Request]) Client {
 					return err.E
 				case NotAcceptedHead as err:
 					return err.E
+				case LaneHeld as err:
+					return err.E
+				case NotOwner as err:
+					return err.E
+				case LandingBusy as err:
+					return err.E
+				case StaleHead as err:
+					return err.E
+				case NoLease as err:
+					return err.E
 				case StoreFailed as err:
 					return err.E
 				case _:
@@ -2370,7 +2976,7 @@ func scripted(g Given, sent sync.Ref[[]Request]) Client {
 			}
 			g.Values.UnitClose
 		},
-		opCommitmentAdd: func(input orchestrate.CommitmentAddInput) orchestrate.Commitment fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed {
+		opCommitmentAdd: func(input orchestrate.CommitmentAddInput) orchestrate.Commitment fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.LaneHeld | orchestrate.NotOwner | orchestrate.LandingBusy | orchestrate.StaleHead | orchestrate.NoLease | orchestrate.StoreFailed {
 			sent.Update(func(rs []Request) []Request { rs.Append(CommitmentAddRequest{Input: input}) })
 			if g.Failing {
 				match g.Failure {
@@ -2388,6 +2994,16 @@ func scripted(g Given, sent sync.Ref[[]Request]) Client {
 					return err.E
 				case NotAcceptedHead as err:
 					return err.E
+				case LaneHeld as err:
+					return err.E
+				case NotOwner as err:
+					return err.E
+				case LandingBusy as err:
+					return err.E
+				case StaleHead as err:
+					return err.E
+				case NoLease as err:
+					return err.E
 				case StoreFailed as err:
 					return err.E
 				case _:
@@ -2395,7 +3011,7 @@ func scripted(g Given, sent sync.Ref[[]Request]) Client {
 			}
 			g.Values.CommitmentAdd
 		},
-		opCommitmentAssign: func(input orchestrate.CommitmentAssignInput) orchestrate.Commitment fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed {
+		opCommitmentAssign: func(input orchestrate.CommitmentAssignInput) orchestrate.Commitment fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.LaneHeld | orchestrate.NotOwner | orchestrate.LandingBusy | orchestrate.StaleHead | orchestrate.NoLease | orchestrate.StoreFailed {
 			sent.Update(func(rs []Request) []Request { rs.Append(CommitmentAssignRequest{Input: input}) })
 			if g.Failing {
 				match g.Failure {
@@ -2413,6 +3029,16 @@ func scripted(g Given, sent sync.Ref[[]Request]) Client {
 					return err.E
 				case NotAcceptedHead as err:
 					return err.E
+				case LaneHeld as err:
+					return err.E
+				case NotOwner as err:
+					return err.E
+				case LandingBusy as err:
+					return err.E
+				case StaleHead as err:
+					return err.E
+				case NoLease as err:
+					return err.E
 				case StoreFailed as err:
 					return err.E
 				case _:
@@ -2420,7 +3046,7 @@ func scripted(g Given, sent sync.Ref[[]Request]) Client {
 			}
 			g.Values.CommitmentAssign
 		},
-		opCommitmentLand: func(input orchestrate.CommitmentLandInput) orchestrate.Commitment fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed {
+		opCommitmentLand: func(input orchestrate.CommitmentLandInput) orchestrate.Commitment fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.LaneHeld | orchestrate.NotOwner | orchestrate.LandingBusy | orchestrate.StaleHead | orchestrate.NoLease | orchestrate.StoreFailed {
 			sent.Update(func(rs []Request) []Request { rs.Append(CommitmentLandRequest{Input: input}) })
 			if g.Failing {
 				match g.Failure {
@@ -2438,6 +3064,16 @@ func scripted(g Given, sent sync.Ref[[]Request]) Client {
 					return err.E
 				case NotAcceptedHead as err:
 					return err.E
+				case LaneHeld as err:
+					return err.E
+				case NotOwner as err:
+					return err.E
+				case LandingBusy as err:
+					return err.E
+				case StaleHead as err:
+					return err.E
+				case NoLease as err:
+					return err.E
 				case StoreFailed as err:
 					return err.E
 				case _:
@@ -2445,7 +3081,7 @@ func scripted(g Given, sent sync.Ref[[]Request]) Client {
 			}
 			g.Values.CommitmentLand
 		},
-		opCommitmentDecide: func(input orchestrate.CommitmentDecideInput) orchestrate.Commitment fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed {
+		opCommitmentDecide: func(input orchestrate.CommitmentDecideInput) orchestrate.Commitment fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.LaneHeld | orchestrate.NotOwner | orchestrate.LandingBusy | orchestrate.StaleHead | orchestrate.NoLease | orchestrate.StoreFailed {
 			sent.Update(func(rs []Request) []Request { rs.Append(CommitmentDecideRequest{Input: input}) })
 			if g.Failing {
 				match g.Failure {
@@ -2462,6 +3098,16 @@ func scripted(g Given, sent sync.Ref[[]Request]) Client {
 				case Unverified as err:
 					return err.E
 				case NotAcceptedHead as err:
+					return err.E
+				case LaneHeld as err:
+					return err.E
+				case NotOwner as err:
+					return err.E
+				case LandingBusy as err:
+					return err.E
+				case StaleHead as err:
+					return err.E
+				case NoLease as err:
 					return err.E
 				case StoreFailed as err:
 					return err.E
@@ -2483,7 +3129,7 @@ func scripted(g Given, sent sync.Ref[[]Request]) Client {
 			}
 			g.Values.CommitmentList
 		},
-		opQueueUpsert: func(input orchestrate.QueueUpsertInput) orchestrate.QueueItem fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed {
+		opQueueUpsert: func(input orchestrate.QueueUpsertInput) orchestrate.QueueItem fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.LaneHeld | orchestrate.NotOwner | orchestrate.LandingBusy | orchestrate.StaleHead | orchestrate.NoLease | orchestrate.StoreFailed {
 			sent.Update(func(rs []Request) []Request { rs.Append(QueueUpsertRequest{Input: input}) })
 			if g.Failing {
 				match g.Failure {
@@ -2501,6 +3147,16 @@ func scripted(g Given, sent sync.Ref[[]Request]) Client {
 					return err.E
 				case NotAcceptedHead as err:
 					return err.E
+				case LaneHeld as err:
+					return err.E
+				case NotOwner as err:
+					return err.E
+				case LandingBusy as err:
+					return err.E
+				case StaleHead as err:
+					return err.E
+				case NoLease as err:
+					return err.E
 				case StoreFailed as err:
 					return err.E
 				case _:
@@ -2508,7 +3164,7 @@ func scripted(g Given, sent sync.Ref[[]Request]) Client {
 			}
 			g.Values.QueueUpsert
 		},
-		opQueueRemove: func(input orchestrate.QueueRemoveInput) fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed {
+		opQueueRemove: func(input orchestrate.QueueRemoveInput) fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.LaneHeld | orchestrate.NotOwner | orchestrate.LandingBusy | orchestrate.StaleHead | orchestrate.NoLease | orchestrate.StoreFailed {
 			sent.Update(func(rs []Request) []Request { rs.Append(QueueRemoveRequest{Input: input}) })
 			if g.Failing {
 				match g.Failure {
@@ -2525,6 +3181,16 @@ func scripted(g Given, sent sync.Ref[[]Request]) Client {
 				case Unverified as err:
 					return err.E
 				case NotAcceptedHead as err:
+					return err.E
+				case LaneHeld as err:
+					return err.E
+				case NotOwner as err:
+					return err.E
+				case LandingBusy as err:
+					return err.E
+				case StaleHead as err:
+					return err.E
+				case NoLease as err:
 					return err.E
 				case StoreFailed as err:
 					return err.E
@@ -2545,7 +3211,7 @@ func scripted(g Given, sent sync.Ref[[]Request]) Client {
 			}
 			g.Values.QueueList
 		},
-		opQuestionAsk: func(input orchestrate.QuestionAskInput) orchestrate.Question fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed {
+		opQuestionAsk: func(input orchestrate.QuestionAskInput) orchestrate.Question fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.LaneHeld | orchestrate.NotOwner | orchestrate.LandingBusy | orchestrate.StaleHead | orchestrate.NoLease | orchestrate.StoreFailed {
 			sent.Update(func(rs []Request) []Request { rs.Append(QuestionAskRequest{Input: input}) })
 			if g.Failing {
 				match g.Failure {
@@ -2563,6 +3229,16 @@ func scripted(g Given, sent sync.Ref[[]Request]) Client {
 					return err.E
 				case NotAcceptedHead as err:
 					return err.E
+				case LaneHeld as err:
+					return err.E
+				case NotOwner as err:
+					return err.E
+				case LandingBusy as err:
+					return err.E
+				case StaleHead as err:
+					return err.E
+				case NoLease as err:
+					return err.E
 				case StoreFailed as err:
 					return err.E
 				case _:
@@ -2570,7 +3246,7 @@ func scripted(g Given, sent sync.Ref[[]Request]) Client {
 			}
 			g.Values.QuestionAsk
 		},
-		opQuestionAnswer: func(input orchestrate.QuestionAnswerInput) orchestrate.Question fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed {
+		opQuestionAnswer: func(input orchestrate.QuestionAnswerInput) orchestrate.Question fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.LaneHeld | orchestrate.NotOwner | orchestrate.LandingBusy | orchestrate.StaleHead | orchestrate.NoLease | orchestrate.StoreFailed {
 			sent.Update(func(rs []Request) []Request { rs.Append(QuestionAnswerRequest{Input: input}) })
 			if g.Failing {
 				match g.Failure {
@@ -2587,6 +3263,16 @@ func scripted(g Given, sent sync.Ref[[]Request]) Client {
 				case Unverified as err:
 					return err.E
 				case NotAcceptedHead as err:
+					return err.E
+				case LaneHeld as err:
+					return err.E
+				case NotOwner as err:
+					return err.E
+				case LandingBusy as err:
+					return err.E
+				case StaleHead as err:
+					return err.E
+				case NoLease as err:
 					return err.E
 				case StoreFailed as err:
 					return err.E
@@ -2606,8 +3292,8 @@ func scripted(g Given, sent sync.Ref[[]Request]) Client {
 			}
 			g.Values.QuestionList
 		},
-		opRunHeadSet: func(input orchestrate.RunHeadSetInput) orchestrate.RunMeta fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed {
-			sent.Update(func(rs []Request) []Request { rs.Append(RunHeadSetRequest{Input: input}) })
+		opUnitTransfer: func(input orchestrate.UnitTransferInput) orchestrate.Unit fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.LaneHeld | orchestrate.NotOwner | orchestrate.LandingBusy | orchestrate.StaleHead | orchestrate.NoLease | orchestrate.StoreFailed {
+			sent.Update(func(rs []Request) []Request { rs.Append(UnitTransferRequest{Input: input}) })
 			if g.Failing {
 				match g.Failure {
 				case NotFound as err:
@@ -2624,12 +3310,92 @@ func scripted(g Given, sent sync.Ref[[]Request]) Client {
 					return err.E
 				case NotAcceptedHead as err:
 					return err.E
+				case LaneHeld as err:
+					return err.E
+				case NotOwner as err:
+					return err.E
+				case LandingBusy as err:
+					return err.E
+				case StaleHead as err:
+					return err.E
+				case NoLease as err:
+					return err.E
 				case StoreFailed as err:
 					return err.E
 				case _:
 				}
 			}
-			g.Values.RunHeadSet
+			g.Values.UnitTransfer
+		},
+		opLandingBegin: func(input orchestrate.LandingBeginInput) orchestrate.LandingLease fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.LaneHeld | orchestrate.NotOwner | orchestrate.LandingBusy | orchestrate.StaleHead | orchestrate.NoLease | orchestrate.StoreFailed {
+			sent.Update(func(rs []Request) []Request { rs.Append(LandingBeginRequest{Input: input}) })
+			if g.Failing {
+				match g.Failure {
+				case NotFound as err:
+					return err.E
+				case AlreadyExists as err:
+					return err.E
+				case InvalidTransition as err:
+					return err.E
+				case CommandReused as err:
+					return err.E
+				case InvalidInput as err:
+					return err.E
+				case Unverified as err:
+					return err.E
+				case NotAcceptedHead as err:
+					return err.E
+				case LaneHeld as err:
+					return err.E
+				case NotOwner as err:
+					return err.E
+				case LandingBusy as err:
+					return err.E
+				case StaleHead as err:
+					return err.E
+				case NoLease as err:
+					return err.E
+				case StoreFailed as err:
+					return err.E
+				case _:
+				}
+			}
+			g.Values.LandingBegin
+		},
+		opLandingEnd: func(input orchestrate.LandingEndInput) orchestrate.RunMeta fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.LaneHeld | orchestrate.NotOwner | orchestrate.LandingBusy | orchestrate.StaleHead | orchestrate.NoLease | orchestrate.StoreFailed {
+			sent.Update(func(rs []Request) []Request { rs.Append(LandingEndRequest{Input: input}) })
+			if g.Failing {
+				match g.Failure {
+				case NotFound as err:
+					return err.E
+				case AlreadyExists as err:
+					return err.E
+				case InvalidTransition as err:
+					return err.E
+				case CommandReused as err:
+					return err.E
+				case InvalidInput as err:
+					return err.E
+				case Unverified as err:
+					return err.E
+				case NotAcceptedHead as err:
+					return err.E
+				case LaneHeld as err:
+					return err.E
+				case NotOwner as err:
+					return err.E
+				case LandingBusy as err:
+					return err.E
+				case StaleHead as err:
+					return err.E
+				case NoLease as err:
+					return err.E
+				case StoreFailed as err:
+					return err.E
+				case _:
+				}
+			}
+			g.Values.LandingEnd
 		},
 		opRunSummary: func(input orchestrate.RunSummaryInput) orchestrate.RunOverview fails orchestrate.InvalidInput | orchestrate.StoreFailed {
 			sent.Update(func(rs []Request) []Request { rs.Append(RunSummaryRequest{Input: input}) })
@@ -2657,7 +3423,7 @@ func scripted(g Given, sent sync.Ref[[]Request]) Client {
 			}
 			g.Values.UnitList
 		},
-		opDecisionRecord: func(input orchestrate.DecisionRecordInput) orchestrate.Decision fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed {
+		opDecisionRecord: func(input orchestrate.DecisionRecordInput) orchestrate.Decision fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.LaneHeld | orchestrate.NotOwner | orchestrate.LandingBusy | orchestrate.StaleHead | orchestrate.NoLease | orchestrate.StoreFailed {
 			sent.Update(func(rs []Request) []Request { rs.Append(DecisionRecordRequest{Input: input}) })
 			if g.Failing {
 				match g.Failure {
@@ -2674,6 +3440,16 @@ func scripted(g Given, sent sync.Ref[[]Request]) Client {
 				case Unverified as err:
 					return err.E
 				case NotAcceptedHead as err:
+					return err.E
+				case LaneHeld as err:
+					return err.E
+				case NotOwner as err:
+					return err.E
+				case LandingBusy as err:
+					return err.E
+				case StaleHead as err:
+					return err.E
+				case NoLease as err:
 					return err.E
 				case StoreFailed as err:
 					return err.E
@@ -2695,7 +3471,7 @@ func scripted(g Given, sent sync.Ref[[]Request]) Client {
 			}
 			g.Values.DecisionList
 		},
-		opLandingRecord: func(input orchestrate.LandingRecordInput) orchestrate.Landing fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed {
+		opLandingRecord: func(input orchestrate.LandingRecordInput) orchestrate.Landing fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.LaneHeld | orchestrate.NotOwner | orchestrate.LandingBusy | orchestrate.StaleHead | orchestrate.NoLease | orchestrate.StoreFailed {
 			sent.Update(func(rs []Request) []Request { rs.Append(LandingRecordRequest{Input: input}) })
 			if g.Failing {
 				match g.Failure {
@@ -2712,6 +3488,16 @@ func scripted(g Given, sent sync.Ref[[]Request]) Client {
 				case Unverified as err:
 					return err.E
 				case NotAcceptedHead as err:
+					return err.E
+				case LaneHeld as err:
+					return err.E
+				case NotOwner as err:
+					return err.E
+				case LandingBusy as err:
+					return err.E
+				case StaleHead as err:
+					return err.E
+				case NoLease as err:
 					return err.E
 				case StoreFailed as err:
 					return err.E
@@ -2733,7 +3519,7 @@ func scripted(g Given, sent sync.Ref[[]Request]) Client {
 			}
 			g.Values.LandingList
 		},
-		opEventRecord: func(input orchestrate.EventRecordInput) orchestrate.LedgerEvent fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed {
+		opEventRecord: func(input orchestrate.EventRecordInput) orchestrate.LedgerEvent fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.LaneHeld | orchestrate.NotOwner | orchestrate.LandingBusy | orchestrate.StaleHead | orchestrate.NoLease | orchestrate.StoreFailed {
 			sent.Update(func(rs []Request) []Request { rs.Append(EventRecordRequest{Input: input}) })
 			if g.Failing {
 				match g.Failure {
@@ -2750,6 +3536,16 @@ func scripted(g Given, sent sync.Ref[[]Request]) Client {
 				case Unverified as err:
 					return err.E
 				case NotAcceptedHead as err:
+					return err.E
+				case LaneHeld as err:
+					return err.E
+				case NotOwner as err:
+					return err.E
+				case LandingBusy as err:
+					return err.E
+				case StaleHead as err:
+					return err.E
+				case NoLease as err:
 					return err.E
 				case StoreFailed as err:
 					return err.E
@@ -2771,7 +3567,7 @@ func scripted(g Given, sent sync.Ref[[]Request]) Client {
 			}
 			g.Values.EventLog
 		},
-		opImportPlan: func(input orchestrate.ImportPlanInput) orchestrate.ImportReport fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed {
+		opImportPlan: func(input orchestrate.ImportPlanInput) orchestrate.ImportReport fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.LaneHeld | orchestrate.NotOwner | orchestrate.LandingBusy | orchestrate.StaleHead | orchestrate.NoLease | orchestrate.StoreFailed {
 			sent.Update(func(rs []Request) []Request { rs.Append(ImportPlanRequest{Input: input}) })
 			if g.Failing {
 				match g.Failure {
@@ -2788,6 +3584,16 @@ func scripted(g Given, sent sync.Ref[[]Request]) Client {
 				case Unverified as err:
 					return err.E
 				case NotAcceptedHead as err:
+					return err.E
+				case LaneHeld as err:
+					return err.E
+				case NotOwner as err:
+					return err.E
+				case LandingBusy as err:
+					return err.E
+				case StaleHead as err:
+					return err.E
+				case NoLease as err:
 					return err.E
 				case StoreFailed as err:
 					return err.E
@@ -2875,6 +3681,16 @@ func callChecked(client CheckedClient, r Request) Outcome fails rpc.Transport {
 			return Rejected{Failure: Unverified{E: e}}
 		case orchestrate.NotAcceptedHead as e:
 			return Rejected{Failure: NotAcceptedHead{E: e}}
+		case orchestrate.LaneHeld as e:
+			return Rejected{Failure: LaneHeld{E: e}}
+		case orchestrate.NotOwner as e:
+			return Rejected{Failure: NotOwner{E: e}}
+		case orchestrate.LandingBusy as e:
+			return Rejected{Failure: LandingBusy{E: e}}
+		case orchestrate.StaleHead as e:
+			return Rejected{Failure: StaleHead{E: e}}
+		case orchestrate.NoLease as e:
+			return Rejected{Failure: NoLease{E: e}}
 		case orchestrate.StoreFailed as e:
 			return Rejected{Failure: StoreFailed{E: e}}
 		case rpc.Transport as t:
@@ -2897,6 +3713,16 @@ func callChecked(client CheckedClient, r Request) Outcome fails rpc.Transport {
 			return Rejected{Failure: Unverified{E: e}}
 		case orchestrate.NotAcceptedHead as e:
 			return Rejected{Failure: NotAcceptedHead{E: e}}
+		case orchestrate.LaneHeld as e:
+			return Rejected{Failure: LaneHeld{E: e}}
+		case orchestrate.NotOwner as e:
+			return Rejected{Failure: NotOwner{E: e}}
+		case orchestrate.LandingBusy as e:
+			return Rejected{Failure: LandingBusy{E: e}}
+		case orchestrate.StaleHead as e:
+			return Rejected{Failure: StaleHead{E: e}}
+		case orchestrate.NoLease as e:
+			return Rejected{Failure: NoLease{E: e}}
 		case orchestrate.StoreFailed as e:
 			return Rejected{Failure: StoreFailed{E: e}}
 		case rpc.Transport as t:
@@ -2931,6 +3757,16 @@ func callChecked(client CheckedClient, r Request) Outcome fails rpc.Transport {
 			return Rejected{Failure: Unverified{E: e}}
 		case orchestrate.NotAcceptedHead as e:
 			return Rejected{Failure: NotAcceptedHead{E: e}}
+		case orchestrate.LaneHeld as e:
+			return Rejected{Failure: LaneHeld{E: e}}
+		case orchestrate.NotOwner as e:
+			return Rejected{Failure: NotOwner{E: e}}
+		case orchestrate.LandingBusy as e:
+			return Rejected{Failure: LandingBusy{E: e}}
+		case orchestrate.StaleHead as e:
+			return Rejected{Failure: StaleHead{E: e}}
+		case orchestrate.NoLease as e:
+			return Rejected{Failure: NoLease{E: e}}
 		case orchestrate.StoreFailed as e:
 			return Rejected{Failure: StoreFailed{E: e}}
 		case rpc.Transport as t:
@@ -2953,6 +3789,16 @@ func callChecked(client CheckedClient, r Request) Outcome fails rpc.Transport {
 			return Rejected{Failure: Unverified{E: e}}
 		case orchestrate.NotAcceptedHead as e:
 			return Rejected{Failure: NotAcceptedHead{E: e}}
+		case orchestrate.LaneHeld as e:
+			return Rejected{Failure: LaneHeld{E: e}}
+		case orchestrate.NotOwner as e:
+			return Rejected{Failure: NotOwner{E: e}}
+		case orchestrate.LandingBusy as e:
+			return Rejected{Failure: LandingBusy{E: e}}
+		case orchestrate.StaleHead as e:
+			return Rejected{Failure: StaleHead{E: e}}
+		case orchestrate.NoLease as e:
+			return Rejected{Failure: NoLease{E: e}}
 		case orchestrate.StoreFailed as e:
 			return Rejected{Failure: StoreFailed{E: e}}
 		case rpc.Transport as t:
@@ -2975,6 +3821,16 @@ func callChecked(client CheckedClient, r Request) Outcome fails rpc.Transport {
 			return Rejected{Failure: Unverified{E: e}}
 		case orchestrate.NotAcceptedHead as e:
 			return Rejected{Failure: NotAcceptedHead{E: e}}
+		case orchestrate.LaneHeld as e:
+			return Rejected{Failure: LaneHeld{E: e}}
+		case orchestrate.NotOwner as e:
+			return Rejected{Failure: NotOwner{E: e}}
+		case orchestrate.LandingBusy as e:
+			return Rejected{Failure: LandingBusy{E: e}}
+		case orchestrate.StaleHead as e:
+			return Rejected{Failure: StaleHead{E: e}}
+		case orchestrate.NoLease as e:
+			return Rejected{Failure: NoLease{E: e}}
 		case orchestrate.StoreFailed as e:
 			return Rejected{Failure: StoreFailed{E: e}}
 		case rpc.Transport as t:
@@ -2997,6 +3853,16 @@ func callChecked(client CheckedClient, r Request) Outcome fails rpc.Transport {
 			return Rejected{Failure: Unverified{E: e}}
 		case orchestrate.NotAcceptedHead as e:
 			return Rejected{Failure: NotAcceptedHead{E: e}}
+		case orchestrate.LaneHeld as e:
+			return Rejected{Failure: LaneHeld{E: e}}
+		case orchestrate.NotOwner as e:
+			return Rejected{Failure: NotOwner{E: e}}
+		case orchestrate.LandingBusy as e:
+			return Rejected{Failure: LandingBusy{E: e}}
+		case orchestrate.StaleHead as e:
+			return Rejected{Failure: StaleHead{E: e}}
+		case orchestrate.NoLease as e:
+			return Rejected{Failure: NoLease{E: e}}
 		case orchestrate.StoreFailed as e:
 			return Rejected{Failure: StoreFailed{E: e}}
 		case rpc.Transport as t:
@@ -3019,6 +3885,16 @@ func callChecked(client CheckedClient, r Request) Outcome fails rpc.Transport {
 			return Rejected{Failure: Unverified{E: e}}
 		case orchestrate.NotAcceptedHead as e:
 			return Rejected{Failure: NotAcceptedHead{E: e}}
+		case orchestrate.LaneHeld as e:
+			return Rejected{Failure: LaneHeld{E: e}}
+		case orchestrate.NotOwner as e:
+			return Rejected{Failure: NotOwner{E: e}}
+		case orchestrate.LandingBusy as e:
+			return Rejected{Failure: LandingBusy{E: e}}
+		case orchestrate.StaleHead as e:
+			return Rejected{Failure: StaleHead{E: e}}
+		case orchestrate.NoLease as e:
+			return Rejected{Failure: NoLease{E: e}}
 		case orchestrate.StoreFailed as e:
 			return Rejected{Failure: StoreFailed{E: e}}
 		case rpc.Transport as t:
@@ -3041,6 +3917,16 @@ func callChecked(client CheckedClient, r Request) Outcome fails rpc.Transport {
 			return Rejected{Failure: Unverified{E: e}}
 		case orchestrate.NotAcceptedHead as e:
 			return Rejected{Failure: NotAcceptedHead{E: e}}
+		case orchestrate.LaneHeld as e:
+			return Rejected{Failure: LaneHeld{E: e}}
+		case orchestrate.NotOwner as e:
+			return Rejected{Failure: NotOwner{E: e}}
+		case orchestrate.LandingBusy as e:
+			return Rejected{Failure: LandingBusy{E: e}}
+		case orchestrate.StaleHead as e:
+			return Rejected{Failure: StaleHead{E: e}}
+		case orchestrate.NoLease as e:
+			return Rejected{Failure: NoLease{E: e}}
 		case orchestrate.StoreFailed as e:
 			return Rejected{Failure: StoreFailed{E: e}}
 		case rpc.Transport as t:
@@ -3063,6 +3949,16 @@ func callChecked(client CheckedClient, r Request) Outcome fails rpc.Transport {
 			return Rejected{Failure: Unverified{E: e}}
 		case orchestrate.NotAcceptedHead as e:
 			return Rejected{Failure: NotAcceptedHead{E: e}}
+		case orchestrate.LaneHeld as e:
+			return Rejected{Failure: LaneHeld{E: e}}
+		case orchestrate.NotOwner as e:
+			return Rejected{Failure: NotOwner{E: e}}
+		case orchestrate.LandingBusy as e:
+			return Rejected{Failure: LandingBusy{E: e}}
+		case orchestrate.StaleHead as e:
+			return Rejected{Failure: StaleHead{E: e}}
+		case orchestrate.NoLease as e:
+			return Rejected{Failure: NoLease{E: e}}
 		case orchestrate.StoreFailed as e:
 			return Rejected{Failure: StoreFailed{E: e}}
 		case rpc.Transport as t:
@@ -3095,6 +3991,16 @@ func callChecked(client CheckedClient, r Request) Outcome fails rpc.Transport {
 			return Rejected{Failure: Unverified{E: e}}
 		case orchestrate.NotAcceptedHead as e:
 			return Rejected{Failure: NotAcceptedHead{E: e}}
+		case orchestrate.LaneHeld as e:
+			return Rejected{Failure: LaneHeld{E: e}}
+		case orchestrate.NotOwner as e:
+			return Rejected{Failure: NotOwner{E: e}}
+		case orchestrate.LandingBusy as e:
+			return Rejected{Failure: LandingBusy{E: e}}
+		case orchestrate.StaleHead as e:
+			return Rejected{Failure: StaleHead{E: e}}
+		case orchestrate.NoLease as e:
+			return Rejected{Failure: NoLease{E: e}}
 		case orchestrate.StoreFailed as e:
 			return Rejected{Failure: StoreFailed{E: e}}
 		case rpc.Transport as t:
@@ -3117,6 +4023,16 @@ func callChecked(client CheckedClient, r Request) Outcome fails rpc.Transport {
 			return Rejected{Failure: Unverified{E: e}}
 		case orchestrate.NotAcceptedHead as e:
 			return Rejected{Failure: NotAcceptedHead{E: e}}
+		case orchestrate.LaneHeld as e:
+			return Rejected{Failure: LaneHeld{E: e}}
+		case orchestrate.NotOwner as e:
+			return Rejected{Failure: NotOwner{E: e}}
+		case orchestrate.LandingBusy as e:
+			return Rejected{Failure: LandingBusy{E: e}}
+		case orchestrate.StaleHead as e:
+			return Rejected{Failure: StaleHead{E: e}}
+		case orchestrate.NoLease as e:
+			return Rejected{Failure: NoLease{E: e}}
 		case orchestrate.StoreFailed as e:
 			return Rejected{Failure: StoreFailed{E: e}}
 		case rpc.Transport as t:
@@ -3149,6 +4065,16 @@ func callChecked(client CheckedClient, r Request) Outcome fails rpc.Transport {
 			return Rejected{Failure: Unverified{E: e}}
 		case orchestrate.NotAcceptedHead as e:
 			return Rejected{Failure: NotAcceptedHead{E: e}}
+		case orchestrate.LaneHeld as e:
+			return Rejected{Failure: LaneHeld{E: e}}
+		case orchestrate.NotOwner as e:
+			return Rejected{Failure: NotOwner{E: e}}
+		case orchestrate.LandingBusy as e:
+			return Rejected{Failure: LandingBusy{E: e}}
+		case orchestrate.StaleHead as e:
+			return Rejected{Failure: StaleHead{E: e}}
+		case orchestrate.NoLease as e:
+			return Rejected{Failure: NoLease{E: e}}
 		case orchestrate.StoreFailed as e:
 			return Rejected{Failure: StoreFailed{E: e}}
 		case rpc.Transport as t:
@@ -3171,6 +4097,16 @@ func callChecked(client CheckedClient, r Request) Outcome fails rpc.Transport {
 			return Rejected{Failure: Unverified{E: e}}
 		case orchestrate.NotAcceptedHead as e:
 			return Rejected{Failure: NotAcceptedHead{E: e}}
+		case orchestrate.LaneHeld as e:
+			return Rejected{Failure: LaneHeld{E: e}}
+		case orchestrate.NotOwner as e:
+			return Rejected{Failure: NotOwner{E: e}}
+		case orchestrate.LandingBusy as e:
+			return Rejected{Failure: LandingBusy{E: e}}
+		case orchestrate.StaleHead as e:
+			return Rejected{Failure: StaleHead{E: e}}
+		case orchestrate.NoLease as e:
+			return Rejected{Failure: NoLease{E: e}}
 		case orchestrate.StoreFailed as e:
 			return Rejected{Failure: StoreFailed{E: e}}
 		case rpc.Transport as t:
@@ -3185,8 +4121,8 @@ func callChecked(client CheckedClient, r Request) Outcome fails rpc.Transport {
 			return t
 		}
 		Done{Reply: QuestionListReply{Value: v}}
-	case RunHeadSetRequest as x:
-		let v = RunHeadSetChecked(client, x.Input) catch {
+	case UnitTransferRequest as x:
+		let v = UnitTransferChecked(client, x.Input) catch {
 		case orchestrate.NotFound as e:
 			return Rejected{Failure: NotFound{E: e}}
 		case orchestrate.AlreadyExists as e:
@@ -3201,12 +4137,86 @@ func callChecked(client CheckedClient, r Request) Outcome fails rpc.Transport {
 			return Rejected{Failure: Unverified{E: e}}
 		case orchestrate.NotAcceptedHead as e:
 			return Rejected{Failure: NotAcceptedHead{E: e}}
+		case orchestrate.LaneHeld as e:
+			return Rejected{Failure: LaneHeld{E: e}}
+		case orchestrate.NotOwner as e:
+			return Rejected{Failure: NotOwner{E: e}}
+		case orchestrate.LandingBusy as e:
+			return Rejected{Failure: LandingBusy{E: e}}
+		case orchestrate.StaleHead as e:
+			return Rejected{Failure: StaleHead{E: e}}
+		case orchestrate.NoLease as e:
+			return Rejected{Failure: NoLease{E: e}}
 		case orchestrate.StoreFailed as e:
 			return Rejected{Failure: StoreFailed{E: e}}
 		case rpc.Transport as t:
 			return t
 		}
-		Done{Reply: RunHeadSetReply{Value: v}}
+		Done{Reply: UnitTransferReply{Value: v}}
+	case LandingBeginRequest as x:
+		let v = LandingBeginChecked(client, x.Input) catch {
+		case orchestrate.NotFound as e:
+			return Rejected{Failure: NotFound{E: e}}
+		case orchestrate.AlreadyExists as e:
+			return Rejected{Failure: AlreadyExists{E: e}}
+		case orchestrate.InvalidTransition as e:
+			return Rejected{Failure: InvalidTransition{E: e}}
+		case orchestrate.CommandReused as e:
+			return Rejected{Failure: CommandReused{E: e}}
+		case orchestrate.InvalidInput as e:
+			return Rejected{Failure: InvalidInput{E: e}}
+		case orchestrate.Unverified as e:
+			return Rejected{Failure: Unverified{E: e}}
+		case orchestrate.NotAcceptedHead as e:
+			return Rejected{Failure: NotAcceptedHead{E: e}}
+		case orchestrate.LaneHeld as e:
+			return Rejected{Failure: LaneHeld{E: e}}
+		case orchestrate.NotOwner as e:
+			return Rejected{Failure: NotOwner{E: e}}
+		case orchestrate.LandingBusy as e:
+			return Rejected{Failure: LandingBusy{E: e}}
+		case orchestrate.StaleHead as e:
+			return Rejected{Failure: StaleHead{E: e}}
+		case orchestrate.NoLease as e:
+			return Rejected{Failure: NoLease{E: e}}
+		case orchestrate.StoreFailed as e:
+			return Rejected{Failure: StoreFailed{E: e}}
+		case rpc.Transport as t:
+			return t
+		}
+		Done{Reply: LandingBeginReply{Value: v}}
+	case LandingEndRequest as x:
+		let v = LandingEndChecked(client, x.Input) catch {
+		case orchestrate.NotFound as e:
+			return Rejected{Failure: NotFound{E: e}}
+		case orchestrate.AlreadyExists as e:
+			return Rejected{Failure: AlreadyExists{E: e}}
+		case orchestrate.InvalidTransition as e:
+			return Rejected{Failure: InvalidTransition{E: e}}
+		case orchestrate.CommandReused as e:
+			return Rejected{Failure: CommandReused{E: e}}
+		case orchestrate.InvalidInput as e:
+			return Rejected{Failure: InvalidInput{E: e}}
+		case orchestrate.Unverified as e:
+			return Rejected{Failure: Unverified{E: e}}
+		case orchestrate.NotAcceptedHead as e:
+			return Rejected{Failure: NotAcceptedHead{E: e}}
+		case orchestrate.LaneHeld as e:
+			return Rejected{Failure: LaneHeld{E: e}}
+		case orchestrate.NotOwner as e:
+			return Rejected{Failure: NotOwner{E: e}}
+		case orchestrate.LandingBusy as e:
+			return Rejected{Failure: LandingBusy{E: e}}
+		case orchestrate.StaleHead as e:
+			return Rejected{Failure: StaleHead{E: e}}
+		case orchestrate.NoLease as e:
+			return Rejected{Failure: NoLease{E: e}}
+		case orchestrate.StoreFailed as e:
+			return Rejected{Failure: StoreFailed{E: e}}
+		case rpc.Transport as t:
+			return t
+		}
+		Done{Reply: LandingEndReply{Value: v}}
 	case RunSummaryRequest as x:
 		let v = RunSummaryChecked(client, x.Input) catch {
 		case orchestrate.InvalidInput as e:
@@ -3243,6 +4253,16 @@ func callChecked(client CheckedClient, r Request) Outcome fails rpc.Transport {
 			return Rejected{Failure: Unverified{E: e}}
 		case orchestrate.NotAcceptedHead as e:
 			return Rejected{Failure: NotAcceptedHead{E: e}}
+		case orchestrate.LaneHeld as e:
+			return Rejected{Failure: LaneHeld{E: e}}
+		case orchestrate.NotOwner as e:
+			return Rejected{Failure: NotOwner{E: e}}
+		case orchestrate.LandingBusy as e:
+			return Rejected{Failure: LandingBusy{E: e}}
+		case orchestrate.StaleHead as e:
+			return Rejected{Failure: StaleHead{E: e}}
+		case orchestrate.NoLease as e:
+			return Rejected{Failure: NoLease{E: e}}
 		case orchestrate.StoreFailed as e:
 			return Rejected{Failure: StoreFailed{E: e}}
 		case rpc.Transport as t:
@@ -3275,6 +4295,16 @@ func callChecked(client CheckedClient, r Request) Outcome fails rpc.Transport {
 			return Rejected{Failure: Unverified{E: e}}
 		case orchestrate.NotAcceptedHead as e:
 			return Rejected{Failure: NotAcceptedHead{E: e}}
+		case orchestrate.LaneHeld as e:
+			return Rejected{Failure: LaneHeld{E: e}}
+		case orchestrate.NotOwner as e:
+			return Rejected{Failure: NotOwner{E: e}}
+		case orchestrate.LandingBusy as e:
+			return Rejected{Failure: LandingBusy{E: e}}
+		case orchestrate.StaleHead as e:
+			return Rejected{Failure: StaleHead{E: e}}
+		case orchestrate.NoLease as e:
+			return Rejected{Failure: NoLease{E: e}}
 		case orchestrate.StoreFailed as e:
 			return Rejected{Failure: StoreFailed{E: e}}
 		case rpc.Transport as t:
@@ -3307,6 +4337,16 @@ func callChecked(client CheckedClient, r Request) Outcome fails rpc.Transport {
 			return Rejected{Failure: Unverified{E: e}}
 		case orchestrate.NotAcceptedHead as e:
 			return Rejected{Failure: NotAcceptedHead{E: e}}
+		case orchestrate.LaneHeld as e:
+			return Rejected{Failure: LaneHeld{E: e}}
+		case orchestrate.NotOwner as e:
+			return Rejected{Failure: NotOwner{E: e}}
+		case orchestrate.LandingBusy as e:
+			return Rejected{Failure: LandingBusy{E: e}}
+		case orchestrate.StaleHead as e:
+			return Rejected{Failure: StaleHead{E: e}}
+		case orchestrate.NoLease as e:
+			return Rejected{Failure: NoLease{E: e}}
 		case orchestrate.StoreFailed as e:
 			return Rejected{Failure: StoreFailed{E: e}}
 		case rpc.Transport as t:
@@ -3339,6 +4379,16 @@ func callChecked(client CheckedClient, r Request) Outcome fails rpc.Transport {
 			return Rejected{Failure: Unverified{E: e}}
 		case orchestrate.NotAcceptedHead as e:
 			return Rejected{Failure: NotAcceptedHead{E: e}}
+		case orchestrate.LaneHeld as e:
+			return Rejected{Failure: LaneHeld{E: e}}
+		case orchestrate.NotOwner as e:
+			return Rejected{Failure: NotOwner{E: e}}
+		case orchestrate.LandingBusy as e:
+			return Rejected{Failure: LandingBusy{E: e}}
+		case orchestrate.StaleHead as e:
+			return Rejected{Failure: StaleHead{E: e}}
+		case orchestrate.NoLease as e:
+			return Rejected{Failure: NoLease{E: e}}
 		case orchestrate.StoreFailed as e:
 			return Rejected{Failure: StoreFailed{E: e}}
 		case rpc.Transport as t:

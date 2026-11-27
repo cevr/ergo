@@ -83,6 +83,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	flags.StringVar(&cfg.Work, "work", "", "scratch `DIR`: the copies, the binaries and the kept coverage (default: a private directory, removed at the end)")
 	flags.StringVar(&selectRE, "run", "", "judge only the mutants whose name matches `REGEXP`")
 	flags.BoolVar(&cfg.All, "all", false, "run every covering test of each mutant, to name every killer")
+	flags.BoolVar(&cfg.Schemata, "schemata", true, "fold the Go rows whose edit keeps every type and signature into one tree whose suites build once, each row run in its own process behind ERGO_MUTANT; a row it cannot fold or judge beyond doubt is judged on its own copy (false: every row on its own copy)")
 	flags.BoolVar(&write, "write", false, "record the killers found (and the gaps of mutants judged for the first time) in the ledgers")
 	flags.IntVar(&cfg.Workers, "workers", 2, "mutants judged at once, each in its own copy")
 	flags.IntVar(&cfg.Tests, "tests", 2, "tests of one mutant run at once, until the first kill (workers × tests children run at once, each under -memory)")

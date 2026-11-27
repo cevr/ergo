@@ -1,0 +1,172 @@
+import strings
+import time
+
+// Devel is the version reported when no module version or VCS stamp is available.
+let Devel = "devel"
+
+// BuildSetting mirrors one key/value setting from Go debug.BuildSetting.
+type BuildSetting {
+	Key   string,
+	Value string,
+}
+
+// BuildInfo mirrors Go debug.BuildInfo fields consumed by producer and ergoversion.
+type BuildInfo {
+	GoVersion   string,
+	MainPath    string,
+	MainVersion string,
+	Settings    []BuildSetting,
+}
+
+// VersionOf derives the Ergo version string from build metadata matching internal/ergoversion.Of.
+func VersionOf(hasInfo bool, info BuildInfo) string {
+	if !hasInfo {
+		return Devel
+	}
+	let mv = info.MainVersion
+	if mv != "" && mv != "(devel)" && ValidVersion(mv) == "" {
+		return mv
+	}
+	let mut revision = ""
+	let mut when = ""
+	let mut modified = ""
+	for s in info.Settings {
+		if s.Key == "vcs.revision" {
+			revision = s.Value
+		} else if s.Key == "vcs.time" {
+			when = s.Value
+		} else if s.Key == "vcs.modified" {
+			modified = s.Value
+		}
+	}
+	if revision.Len() < 12 {
+		return Devel
+	}
+	let at = time.Parse(time.RFC3339, when) catch {
+	case time.ParseError:
+		return Devel
+	}
+	let mut v = "v0.0.0-" + time.Format(at, time.Custom{Text: "20060102150405"}) + "-" + revision[0:12]
+	if modified == "true" {
+		v = v + "+dirty"
+	}
+	if ValidVersion(v) != "" {
+		return Devel
+	}
+	v
+}
+
+// InstallCommand formats the Go install invocation for an Ergo version with cgoSetting.
+func InstallCommand(version string, cgoSetting string) string {
+	"\(cgoSetting) go install github.com/cevr/ergo/cmd/ergo@\(version)"
+}
+
+// ValidVersion validates a Go-style vMAJOR.MINOR.PATCH[-PRE][+BUILD] semantic version, returning "" if valid.
+func ValidVersion(v string) string {
+	if !strings.HasPrefix(v, "v") {
+		return "it does not start with v"
+	}
+	let rest0 = strings.TrimPrefix(v, "v")
+	let plusIdx = strings.Index(rest0, "+")
+	let hasBuild = plusIdx >= 0
+	let beforeBuild = if hasBuild { rest0[0:plusIdx] } else { rest0 }
+	let build = if hasBuild { rest0[plusIdx+1 : rest0.Len()] } else { "" }
+	let dashIdx = strings.Index(beforeBuild, "-")
+	let hasPre = dashIdx >= 0
+	let core = if hasPre { beforeBuild[0:dashIdx] } else { beforeBuild }
+	let pre = if hasPre { beforeBuild[dashIdx+1 : beforeBuild.Len()] } else { "" }
+	let numbers = strings.Split(core, ".")
+	if numbers.Len() != 3 {
+		return "it is not vMAJOR.MINOR.PATCH"
+	}
+	for n in numbers {
+		if !isSemverNumeral(n) {
+			return "its numbers are not decimal numbers without leading zeros"
+		}
+	}
+	if hasPre && !isSemverIdentifiers(pre, true) {
+		return "its pre-release is not dot-separated identifiers of letters, digits and -"
+	}
+	if hasBuild && !isSemverIdentifiers(build, false) {
+		return "its build metadata is not dot-separated identifiers of letters, digits and -"
+	}
+	""
+}
+
+func isSemverNumeral(s string) bool {
+	if s.Len() == 0 || (s.Len() > 1 && s[0] == byte('0')) {
+		return false
+	}
+	for i in 0..s.Len() {
+		if s[i] < byte('0') || s[i] > byte('9') {
+			return false
+		}
+	}
+	true
+}
+
+func isSemverIdentifiers(s string, pre bool) bool {
+	for id in strings.Split(s, ".") {
+		if id.Len() == 0 {
+			return false
+		}
+		let mut digits = true
+		for i in 0..id.Len() {
+			let c = id[i]
+			let isDigit = c >= byte('0') && c <= byte('9')
+			let isLetterOrDash = (c >= byte('a') && c <= byte('z')) || (c >= byte('A') && c <= byte('Z')) || c == byte('-')
+			if isDigit {
+			} else if isLetterOrDash {
+				digits = false
+			} else {
+				return false
+			}
+		}
+		if pre && digits && !isSemverNumeral(id) {
+			return false
+		}
+	}
+	true
+}
+
+// VersionOfPseudoAlwaysValid checks that any synthesized pseudo-version passes ValidVersion.
+law VersionOfPseudoAlwaysValid(hexByte uint8, dirty bool) {
+	let nibs = "0123456789abcdef"
+	let a = nibs[int(hexByte)%16 : int(hexByte)%16+1]
+	let b = nibs[int(hexByte/uint8(16))%16 : int(hexByte/uint8(16))%16+1]
+	let rev = strings.Repeat(a+b, 6) + "00"
+	let mod = if dirty { "true" } else { "false" }
+	let info = BuildInfo{
+		GoVersion:   "go1.27.4",
+		MainPath:    "ergo.local/prototype",
+		MainVersion: "(devel)",
+		Settings:    []BuildSetting{
+			BuildSetting{Key: "vcs.revision", Value: rev},
+			BuildSetting{Key: "vcs.time", Value: "2026-11-27T12:00:00Z"},
+			BuildSetting{Key: "vcs.modified", Value: mod},
+		},
+	}
+	let v = VersionOf(true, info)
+	v != Devel && ValidVersion(v) == ""
+}
+
+test TestVersionValidationAndDerivation {
+	assert ValidVersion("v1.2.3") == ""
+	assert ValidVersion("v0.0.0-20261127120000-abcdef012345+dirty") == ""
+	assert ValidVersion("v01.2.3") != ""
+	assert ValidVersion("1.2.3") != ""
+	assert ValidVersion("v1.2.3-01") != ""
+	assert VersionOf(false, BuildInfo{GoVersion: "", MainPath: "", MainVersion: "", Settings: []BuildSetting{}}) == Devel
+
+	let info = BuildInfo{
+		GoVersion:   "go1.27.4",
+		MainPath:    "ergo.local/prototype",
+		MainVersion: "(devel)",
+		Settings:    []BuildSetting{
+			BuildSetting{Key: "vcs.revision", Value: "b83aa00f2b4298b8b760bf57370ea94c41c95460"},
+			BuildSetting{Key: "vcs.time", Value: "2026-11-27T10:00:00+02:00"},
+			BuildSetting{Key: "vcs.modified", Value: "true"},
+		},
+	}
+	assert VersionOf(true, info) == "v0.0.0-20261127080000-b83aa00f2b42+dirty"
+}

@@ -1,0 +1,546 @@
+import option
+import strings
+
+func isRmCommand(cmd PlacedCommand) bool {
+	cmd.Words.Len() > 0 && BasenamePosix(cmd.Words[0].Text) == "rm"
+}
+
+func isGitCommand(cmd PlacedCommand) bool {
+	cmd.Words.Len() > 0 && BasenamePosix(cmd.Words[0].Text) == "git"
+}
+
+func isWorkCommand(cmd PlacedCommand) bool {
+	cmd.Words.Len() > 0 && BasenamePosix(cmd.Words[0].Text) == "work"
+}
+
+func isCpOrRsyncCommand(cmd PlacedCommand) bool {
+	if cmd.Words.Len() == 0 {
+		return false
+	}
+	let b = BasenamePosix(cmd.Words[0].Text)
+	b == "cp" || b == "rsync"
+}
+
+func containsWildcardGlob(raw string) bool {
+	raw == "*" || strings.HasSuffix(raw, "/*") || strings.Contains(raw, "/**") || strings.HasPrefix(raw, "*/")
+}
+
+func targetsDotGit(raw string) bool {
+	let c = CleanPosix(raw)
+	c == ".git" || BasenamePosix(c) == ".git" || strings.Contains(c, "/.git/")
+}
+
+func targetsWorkRoot(raw string, workRoots []string) bool {
+	let c = CleanPosix(raw)
+	if c == ".work" || c == ".rifts" || BasenamePosix(c) == ".work" || BasenamePosix(c) == ".rifts" {
+		return true
+	}
+	for wr in workRoots {
+		if PosixWithin(wr, c) {
+			return true
+		}
+	}
+	false
+}
+
+func parseRmArgs(words []ShellWord) (bool, []ShellWord) {
+	let mut recursive = false
+	let mut operands = []ShellWord{}
+	let mut endOpts = false
+	let mut i = 1
+	for i < words.Len() {
+		let w = words[i]
+		let t = w.Text
+		if !endOpts && t == "--" {
+			endOpts = true
+			i = i + 1
+			continue
+		}
+		if !endOpts && strings.HasPrefix(t, "--") {
+			if t == "--recursive" {
+				recursive = true
+			}
+			i = i + 1
+			continue
+		}
+		if !endOpts && strings.HasPrefix(t, "-") && t.Len() > 1 {
+			let bs = t.Bytes()
+			let mut k = 1
+			for k < bs.Len() {
+				if bs[k] == byte('r') || bs[k] == byte('R') {
+					recursive = true
+				}
+				k = k + 1
+			}
+			i = i + 1
+			continue
+		}
+		operands = operands.Append(w)
+		i = i + 1
+	}
+	(recursive, operands)
+}
+
+func checkExpandedRmTarget(raw string, target string, recursive bool, cmd PlacedCommand, ctx GuardContext) option.Option[GuardError] {
+	if target == "/" || targetsDotGit(target) {
+		return option.Some[GuardError]{Value: Destructive{Rule: RuleDestructiveRm, Reason: "refusing rm on filesystem root or .git directory"}}
+	}
+	if recursive && targetsWorkRoot(target, ctx.WorkRoots) {
+		return option.Some[GuardError]{Value: Destructive{Rule: RuleDestructiveRm, Reason: "refusing recursive rm on .work/.rifts workspace root"}}
+	}
+	if recursive && ctx.HomeDir != "" && PosixWithin(ctx.HomeDir, target) {
+		return option.Some[GuardError]{Value: Destructive{Rule: RuleDestructiveRm, Reason: "refusing recursive rm on home directory or ancestor"}}
+	}
+	if recursive && cmd.Dir != "" && PosixWithin(cmd.Dir, target) {
+		return option.Some[GuardError]{Value: Destructive{Rule: RuleDestructiveRm, Reason: "refusing recursive rm on current working directory or ancestor"}}
+	}
+	if recursive && cmd.Dir == "" && !strings.HasPrefix(raw, "/") {
+		return option.Some[GuardError]{Value: Destructive{Rule: RuleDestructiveRm, Reason: "working directory unknown for relative recursive rm; failing closed"}}
+	}
+	match ctx.Repos {
+	case ReposUnreadable:
+		if recursive {
+			return option.Some[GuardError]{Value: Destructive{Rule: RuleDestructiveRm, Reason: "repository roots unreadable; refusing recursive rm fail-closed"}}
+		}
+	case ReposKnown as rk:
+		for r in rk.Roots {
+			let cr = CleanPosix(r)
+			if target == cr || (recursive && PosixWithin(cr, target)) {
+				return option.Some[GuardError]{Value: Destructive{Rule: RuleDestructiveRm, Reason: "refusing rm on repository root or containing ancestor"}}
+			}
+		}
+	}
+	option.None
+}
+
+func checkSingleRmOperand(op ShellWord, recursive bool, cmd PlacedCommand, ctx GuardContext) option.Option[GuardError] {
+	let raw = op.Text
+	if raw == "/" || targetsDotGit(raw) {
+		return option.Some[GuardError]{Value: Destructive{Rule: RuleDestructiveRm, Reason: "refusing rm on filesystem root or .git metadata"}}
+	}
+	if recursive && (containsWildcardGlob(raw) || raw == "~" || raw == "$HOME" || raw == "${HOME}") {
+		return option.Some[GuardError]{Value: Destructive{Rule: RuleDestructiveRm, Reason: "refusing recursive rm on wildcard, home, or protected root"}}
+	}
+	match ExpandWord(op, cmd.Dir, ctx.HomeDir, cmd.Env) {
+	case option.None:
+		if recursive {
+			return option.Some[GuardError]{Value: Destructive{Rule: RuleDestructiveRm, Reason: "cannot resolve recursive rm target safely; failing closed"}}
+		}
+		option.None
+	case option.Some[string] as expanded:
+		checkExpandedRmTarget(raw, expanded.Value, recursive, cmd, ctx)
+	}
+}
+
+// CheckDestructiveRm inspects an rm command for dangerous root, home, repo root, .work, .git, or glob deletions.
+func CheckDestructiveRm(cmd PlacedCommand, ctx GuardContext) option.Option[GuardError] {
+	if !isRmCommand(cmd) {
+		return option.None
+	}
+	let (recursive, operands) = parseRmArgs(cmd.Words)
+	for op in operands {
+		match checkSingleRmOperand(op, recursive, cmd, ctx) {
+		case option.Some[GuardError] as ge:
+			return option.Some[GuardError]{Value: ge.Value}
+		case option.None:
+		}
+	}
+	option.None
+}
+
+func isGitBareGlobalOpt(opt string) bool {
+	opt == "--version" || opt == "-v" || opt == "--help" || opt == "-h" || opt == "-p" || opt == "--paginate" || opt == "-P" || opt == "--no-pager" || opt == "--no-replace-objects" || opt == "--bare" || opt == "--literal-pathspecs" || opt == "--glob-pathspecs" || opt == "--noglob-pathspecs" || opt == "--icase-pathspecs" || opt == "--no-optional-locks" || opt == "--no-lazy-fetch" || opt == "--html-path" || opt == "--man-path" || opt == "--info-path"
+}
+
+func isGitValueGlobalOpt(opt string) bool {
+	opt == "-C" || opt == "-c" || opt == "--exec-path" || opt == "--git-dir" || opt == "--work-tree" || opt == "--namespace" || opt == "--super-prefix" || opt == "--list-cmds" || opt == "--config-env"
+}
+
+type parsedGit {
+	Subcommand string,
+	Rest       []ShellWord,
+	GitDir     string,
+}
+
+func expandGitDirFlag(w ShellWord, curDir string, home string, env Map[string, string]) string {
+	match ExpandWord(w, curDir, home, env) {
+	case option.Some[string] as next:
+		next.Value
+	case option.None:
+		""
+	}
+}
+
+func isGitValueEqOpt(t string) bool {
+	match strings.Cut(t, "=") {
+	case option.Some[strings.Halves] as h:
+		isGitValueGlobalOpt(h.Value.Before)
+	case option.None:
+		false
+	}
+}
+
+func parseGitInvocation(cmd PlacedCommand, ctx GuardContext) parsedGit fails GuardError {
+	let words = cmd.Words
+	let mut i = 1
+	let mut dir = cmd.Dir
+	for i < words.Len() {
+		let w = words[i]
+		let t = w.Text
+		if t == "--" {
+			i = i + 1
+			break
+		}
+		if !strings.HasPrefix(t, "-") || t == "-" {
+			return parsedGit{Subcommand: t, Rest: words[i+1 : words.Len()], GitDir: dir}
+		}
+		if isGitBareGlobalOpt(t) || isGitValueEqOpt(t) {
+			i = i + 1
+		} else if strings.HasPrefix(t, "-C") && t.Len() > 2 {
+			let arg = strings.Slice(t, 2, t.Len())
+			dir = expandGitDirFlag(ShellWord{Text: arg, BareStart: false, SingleQuoted: w.SingleQuoted}, dir, ctx.HomeDir, cmd.Env)
+			i = i + 1
+		} else if isGitValueGlobalOpt(t) {
+			if i+1 >= words.Len() {
+				return Destructive{Rule: RuleMalformedCommand, Reason: "missing value for git global option " + t}
+			}
+			if t == "-C" {
+				dir = expandGitDirFlag(words[i+1], dir, ctx.HomeDir, cmd.Env)
+			}
+			i = i + 2
+		} else {
+			return Destructive{Rule: RuleMalformedCommand, Reason: "unrecognized git global option " + t + "; failing closed"}
+		}
+	}
+	if i < words.Len() {
+		return parsedGit{Subcommand: words[i].Text, Rest: words[i+1 : words.Len()], GitDir: dir}
+	}
+	parsedGit{Subcommand: "", Rest: []ShellWord{}, GitDir: dir}
+}
+
+type cleanFlags {
+	DryRun bool,
+	Force  bool,
+	Wide   bool,
+}
+
+func applyShortCleanFlags(t string, cur cleanFlags) cleanFlags fails GuardError {
+	let mut out = cur
+	let bs = t.Bytes()
+	let mut k = 1
+	for k < bs.Len() {
+		let c = bs[k]
+		if c == byte('n') {
+			out.DryRun = true
+		} else if c == byte('f') {
+			out.Force = true
+		} else if c == byte('d') || c == byte('x') || c == byte('X') {
+			out.Wide = true
+		} else if c != byte('q') && c != byte('i') {
+			return Destructive{Rule: RuleMalformedCommand, Reason: "unrecognized git clean flag " + t}
+		}
+		k = k + 1
+	}
+	out
+}
+
+func checkGitClean(rest []ShellWord) option.Option[GuardError] {
+	let mut st = cleanFlags{DryRun: false, Force: false, Wide: false}
+	let mut i = 0
+	for i < rest.Len() {
+		let t = rest[i].Text
+		if t == "--" {
+			break
+		}
+		if t == "--dry-run" {
+			st.DryRun = true
+			i = i + 1
+		} else if t == "--force" {
+			st.Force = true
+			i = i + 1
+		} else if t == "--quiet" || t == "--interactive" || strings.HasPrefix(t, "--exclude=") || (strings.HasPrefix(t, "-e") && t.Len() > 2) {
+			i = i + 1
+		} else if t == "-e" || t == "--exclude" {
+			i = i + 2
+		} else if strings.HasPrefix(t, "--") {
+			return option.Some[GuardError]{Value: Destructive{Rule: RuleMalformedCommand, Reason: "unrecognized git clean option " + t}}
+		} else if strings.HasPrefix(t, "-") {
+			st = applyShortCleanFlags(t, st) catch {
+			case GuardError as ge:
+				return option.Some[GuardError]{Value: ge}
+			}
+			i = i + 1
+		} else {
+			i = i + 1
+		}
+	}
+	if !st.DryRun && st.Force && st.Wide {
+		return option.Some[GuardError]{Value: Destructive{Rule: RuleGitClean, Reason: "git clean -f with -d/-x/-X permanently removes untracked or ignored files"}}
+	}
+	option.None
+}
+
+func isCloningFsType(fsType string) bool {
+	let f = strings.ToLower(strings.TrimSpace(fsType))
+	f == "apfs" || f == "btrfs" || f == "xfs"
+}
+
+func checkoutRequiresCowWork(dir string, table CheckoutTable) option.Option[GuardError] {
+	if dir == "" {
+		return option.Some[GuardError]{Value: FullCopy{Rule: RuleWorktreeAdd, Reason: "working directory unknown for git worktree add; failing closed"}}
+	}
+	match table {
+	case CheckoutsUnreadable:
+		return option.Some[GuardError]{Value: FullCopy{Rule: RuleWorktreeAdd, Reason: "checkout filesystem state unreadable; refusing git worktree add fail-closed"}}
+	case CheckoutsKnown as ck:
+		let mut bestLen = -1
+		let mut matched = false
+		let mut applies = false
+		for entry in ck.Entries {
+			if PosixWithin(dir, entry.Path) && entry.Path.Len() > bestLen {
+				bestLen = entry.Path.Len()
+				matched = true
+				applies = entry.HasWarmBase || isCloningFsType(entry.FsType)
+			}
+		}
+		if !matched {
+			return option.Some[GuardError]{Value: FullCopy{Rule: RuleWorktreeAdd, Reason: "no known checkout entry for " + dir + "; refusing git worktree add fail-closed"}}
+		}
+		if applies {
+			return option.Some[GuardError]{Value: FullCopy{Rule: RuleWorktreeAdd, Reason: "repository uses CoW workspaces; use `work new <name>` instead of `git worktree add`"}}
+		}
+	}
+	option.None
+}
+
+func checkGitWorktree(rest []ShellWord, gitDir string, ctx GuardContext) option.Option[GuardError] {
+	if rest.Len() == 0 {
+		return option.None
+	}
+	let sub = rest[0].Text
+	if sub == "list" || sub == "remove" || sub == "prune" || sub == "lock" || sub == "unlock" {
+		return option.None
+	}
+	if sub == "add" {
+		return checkoutRequiresCowWork(gitDir, ctx.Checkouts)
+	}
+	option.None
+}
+
+// CheckGitCommand enforces safety rules on git reset --hard, git clean -fdx/-fd, git worktree add, and unreadable git global options.
+func CheckGitCommand(cmd PlacedCommand, ctx GuardContext) option.Option[GuardError] {
+	if !isGitCommand(cmd) {
+		return option.None
+	}
+	let parsed = parseGitInvocation(cmd, ctx) catch {
+	case GuardError as ge:
+		return option.Some[GuardError]{Value: ge}
+	}
+	if parsed.Subcommand == "reset" {
+		for w in parsed.Rest {
+			if w.Text == "--" {
+				break
+			}
+			if w.Text == "--hard" {
+				return option.Some[GuardError]{Value: Destructive{Rule: RuleGitResetHard, Reason: "git reset --hard discards local changes permanently"}}
+			}
+		}
+		return option.None
+	}
+	if parsed.Subcommand == "clean" {
+		return checkGitClean(parsed.Rest)
+	}
+	if parsed.Subcommand == "worktree" {
+		return checkGitWorktree(parsed.Rest, parsed.GitDir, ctx)
+	}
+	option.None
+}
+
+func hasRecursiveCopyShortFlag(t string) bool {
+	let bs = t.Bytes()
+	let mut k = 1
+	for k < bs.Len() {
+		let c = bs[k]
+		if c == byte('r') || c == byte('R') || c == byte('a') {
+			return true
+		}
+		k = k + 1
+	}
+	false
+}
+
+func parseCopyOperands(cmd PlacedCommand, bin string) (bool, []ShellWord) {
+	let mut recursive = false
+	let mut operands = []ShellWord{}
+	let mut i = 1
+	let mut endOpts = false
+	for i < cmd.Words.Len() {
+		let t = cmd.Words[i].Text
+		if !endOpts && t == "--" {
+			endOpts = true
+			i = i + 1
+		} else if !endOpts && strings.HasPrefix(t, "-") {
+			if t == "--recursive" || t == "--archive" || t == "--mirror" || (!strings.HasPrefix(t, "--") && hasRecursiveCopyShortFlag(t)) {
+				recursive = true
+			}
+			if bin == "cp" && (t == "-t" || t == "--target-directory") && i+1 < cmd.Words.Len() {
+				i = i + 2
+			} else {
+				i = i + 1
+			}
+		} else {
+			operands = operands.Append(cmd.Words[i])
+			i = i + 1
+		}
+	}
+	(recursive, operands)
+}
+
+func checkCopySource(op ShellWord, bin string, cmd PlacedCommand, ctx GuardContext) option.Option[GuardError] {
+	let raw = strings.TrimSuffix(op.Text, "/")
+	if targetsDotGit(raw) {
+		return option.Some[GuardError]{Value: FullCopy{Rule: RuleRepoClone, Reason: "refusing " + bin + " copy of .git repository data; use `work new <name>`"}}
+	}
+	let src = match ExpandWord(op, cmd.Dir, ctx.HomeDir, cmd.Env) {
+	case option.None:
+		if raw == "." || raw == ".." {
+			return option.Some[GuardError]{Value: FullCopy{Rule: RuleRepoClone, Reason: "cannot verify recursive " + bin + " source safely; failing closed"}}
+		}
+		return option.None
+	case option.Some[string] as expanded:
+		expanded.Value
+	}
+	if targetsDotGit(src) {
+		return option.Some[GuardError]{Value: FullCopy{Rule: RuleRepoClone, Reason: "refusing recursive " + bin + " of .git metadata"}}
+	}
+	match ctx.Repos {
+	case ReposUnreadable:
+		return option.Some[GuardError]{Value: FullCopy{Rule: RuleRepoClone, Reason: "repository roots unreadable; refusing recursive " + bin + " fail-closed"}}
+	case ReposKnown as rk:
+		for root in rk.Roots {
+			if PosixWithin(CleanPosix(root), src) {
+				return option.Some[GuardError]{Value: FullCopy{Rule: RuleRepoClone, Reason: "refusing whole-repo copy via " + bin + "; use `work new <name>`"}}
+			}
+		}
+	}
+	option.None
+}
+
+// CheckRepoCopy refuses cp -r / rsync whole-repository copies that bypass CoW workspaces.
+func CheckRepoCopy(cmd PlacedCommand, ctx GuardContext) option.Option[GuardError] {
+	if !isCpOrRsyncCommand(cmd) {
+		return option.None
+	}
+	let bin = BasenamePosix(cmd.Words[0].Text)
+	let (recursive, operands) = parseCopyOperands(cmd, bin)
+	if !recursive || operands.Len() < 2 {
+		return option.None
+	}
+	for op in operands[0 : operands.Len()-1] {
+		match checkCopySource(op, bin, cmd, ctx) {
+		case option.Some[GuardError] as ge:
+			return option.Some[GuardError]{Value: ge.Value}
+		case option.None:
+		}
+	}
+	option.None
+}
+
+func wordsContainAny(words []ShellWord, start int, targets []string) bool {
+	let mut k = start
+	for k < words.Len() {
+		for t in targets {
+			if words[k].Text == t {
+				return true
+			}
+		}
+		k = k + 1
+	}
+	false
+}
+
+func checkWorkGc(words []ShellWord, idx int, ctx GuardContext) option.Option[GuardError] {
+	if wordsContainAny(words, idx+1, []string{"--dry-run", "-n"}) {
+		return option.None
+	}
+	match ctx.Reservations {
+	case ResUnreadable:
+		option.Some[GuardError]{Value: Destructive{Rule: RuleWorkGc, Reason: "workspace reservations unreadable; refusing work gc fail-closed"}}
+	case ResKnown as rk:
+		if rk.Creating.Len() > 0 {
+			return option.Some[GuardError]{Value: Destructive{Rule: RuleWorkGc, Reason: "refusing work gc while workspace creation reservation is active"}}
+		}
+		if ctx.RefuseBareWorkGc {
+			return option.Some[GuardError]{Value: Destructive{Rule: RuleWorkGc, Reason: "bare work gc is forbidden; remove a specific lane with `work rm <lane>`"}}
+		}
+		option.None
+	}
+}
+
+// CheckWorkCommand refuses bare work gc (and work doctor -unguard) while permitting work rm <lane> and --dry-run.
+func CheckWorkCommand(cmd PlacedCommand, ctx GuardContext) option.Option[GuardError] {
+	if !isWorkCommand(cmd) || cmd.Words.Len() < 2 {
+		return option.None
+	}
+	let mut idx = 1
+	for idx < cmd.Words.Len() && strings.HasPrefix(cmd.Words[idx].Text, "-") {
+		idx = idx + 1
+	}
+	if idx >= cmd.Words.Len() {
+		return option.None
+	}
+	let sub = cmd.Words[idx].Text
+	if sub == "doctor" && wordsContainAny(cmd.Words, idx+1, []string{"-unguard", "--unguard"}) {
+		return option.Some[GuardError]{Value: Destructive{Rule: RuleWorkGc, Reason: "work doctor -unguard bypasses workspace safety guards"}}
+	}
+	if sub == "gc" {
+		return checkWorkGc(cmd.Words, idx, ctx)
+	}
+	option.None
+}
+
+// WorkspaceGuardLaw verifies destructive rm/git/worktree/work-gc refusals and safe allowances on representative commands.
+law WorkspaceGuardLaw() {
+	let ctx = DefaultTestContext()
+	let mut ok = true
+	let bad = []string{
+		"rm -rf /",
+		"rm -rf ~",
+		"rm -rf /repo",
+		"rm -rf /workspaces/.work",
+		"git reset --hard",
+		"git clean -fdx",
+		"git worktree add ../dup main",
+		"cp -r /repo /tmp/copy-repo",
+		"rsync -a /repo /tmp/copy-repo",
+		"work gc",
+		"work doctor -unguard",
+	}
+	for cmd in bad {
+		let v = Evaluate(ctx, ShellCall{Command: cmd, Cwd: "/repo", Background: false, Actor: ActorKnown{Role: ActorRoot}})
+		if v.Allowed {
+			ok = false
+		}
+	}
+	let vOutsideRepo = Evaluate(ctx, ShellCall{Command: "rm -rf /repo", Cwd: "/tmp", Background: false, Actor: ActorKnown{Role: ActorRoot}})
+	if vOutsideRepo.Allowed {
+		ok = false
+	}
+	let good = []string{
+		"rm -rf /repo/tmp/build",
+		"git clean -nfdx",
+		"git worktree list",
+		"git worktree remove ../old",
+		"git worktree prune",
+		"cp -r /repo/src/assets /tmp/assets",
+		"work rm old-lane",
+		"work gc --dry-run",
+	}
+	for cmd in good {
+		let v = Evaluate(ctx, ShellCall{Command: cmd, Cwd: "/repo", Background: false, Actor: ActorKnown{Role: ActorRoot}})
+		if !v.Allowed {
+			ok = false
+		}
+	}
+	ok
+}

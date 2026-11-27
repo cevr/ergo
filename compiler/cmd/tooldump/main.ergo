@@ -1,0 +1,827 @@
+// tooldump runs pure-Ergo toolchain, proclimit, budget, opcount, producer,
+// and gocmd operations from a JSON request file for selfhostcheck parity verification.
+
+import base64
+import compiler/budget
+import compiler/gocmd
+import compiler/producer
+import compiler/proclimit
+import compiler/toolchain
+import fs
+import hex
+import io
+import json
+import option
+import os
+import sha256
+import slices
+import strings
+
+type runErr {
+	msg string,
+}
+
+func main() fails os.Exit needs os.Ambient {
+	with context { os.Process: os.NewHost(), fs.Files: fs.NewHost(), io.Stdout: io.NewHost() } {
+		try run(os.Process.Args())
+	}
+}
+
+func run(args []string) fails os.Exit needs fs.Files | io.Stdout {
+	let mut reqPath = ""
+	let mut probe = false
+	let mut i = 0
+	for i < args.Len() {
+		if args[i] == "-req" && i+1 < args.Len() {
+			reqPath = args[i+1]
+			i = i + 2
+		} else if args[i] == "-probe" {
+			probe = true
+			i = i + 1
+		} else {
+			return os.Exit{Code: 2, Message: "usage: tooldump [-req FILE] [-probe]"}
+		}
+	}
+	if probe {
+		let q = proclimit.DetectHostQuota(uint32(4), uint64(2147483648))
+		let t = json.NewText()
+		t.BeginObject(4)
+		t.Key("effective_cpus")
+		t.Uint(uint64(q.EffectiveCPUs))
+		t.Key("effective_ram")
+		t.Uint(q.EffectiveRAM)
+		t.Key("workers")
+		t.Uint(uint64(q.Workers))
+		t.Key("go_env")
+		encodeStringSlice(t, proclimit.DeriveGoEnv(q))
+		t.EndObject()
+		io.Stdout.Print(t.Written() + "\n")
+		return
+	}
+	if reqPath == "" {
+		return os.Exit{Code: 2, Message: "usage: tooldump [-req FILE] [-probe]"}
+	}
+	let raw = fs.Files.ReadFile(reqPath) catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		return os.Exit{Code: 1, Message: "tooldump: cannot read \(reqPath)"}
+	}
+	let out = DispatchJSON(raw) catch {
+	case runErr as e:
+		return os.Exit{Code: 1, Message: "tooldump: \(e.msg)"}
+	}
+	io.Stdout.Print(out + "\n")
+}
+
+// DispatchJSON evaluates a single JSON request payload and returns a JSON response string.
+func DispatchJSON(raw string) string fails runErr {
+	let codec = json.Codec[json.Value]{MaxBytes: 0, MaxDepth: 0}
+	let root = json.Decode(codec, raw) catch {
+	case json.Malformed as e:
+		return runErr{msg: e.Reason}
+	case _:
+		return runErr{msg: "bad json"}
+	}
+	let obj = try asObj(root)
+	let mut kind = ""
+	for m in obj.Members {
+		if m.Key == "op" {
+			kind = try asStr(m.Value)
+		}
+	}
+	if kind == "proclimit" {
+		return try handleProclimit(obj)
+	}
+	if kind == "budget" {
+		return try handleBudget(obj)
+	}
+	if kind == "opcount" {
+		return try handleOpcount(obj)
+	}
+	if kind == "producer" {
+		return try handleProducer(obj)
+	}
+	if kind == "toolchain" {
+		return try handleToolchain(obj)
+	}
+	if kind == "gocmd" {
+		return try handleGoCmd(obj)
+	}
+	runErr{msg: "unknown op \(kind)"}
+}
+
+func handleProclimit(obj json.Object) string fails runErr {
+	let sizes = try strListField(obj, "sizes")
+	let env = try strListField(obj, "env")
+	let defLim = try u64Field(obj, "default_limit")
+	let chunks = try strListField(obj, "chunks")
+	let cpuMax = try strField(obj, "cpu_max")
+	let memMax = try strField(obj, "mem_max")
+	let selfCg = try strField(obj, "self_cgroup")
+	let cpuOn = try strField(obj, "cpu_online")
+	let memInfo = try strField(obj, "meminfo")
+
+	let t = json.NewText()
+	t.BeginObject(7)
+	t.Key("sizes")
+	t.BeginList(sizes.Len())
+	for s in sizes {
+		let mut ok = true
+		let mut errStr = ""
+		let val = proclimit.ParseSize(s) catch {
+		case proclimit.SizeError as e:
+			ok = false
+			errStr = e.Message
+			uint64(0)
+		}
+		t.BeginObject(4)
+		t.Key("ok")
+		t.Bool(ok)
+		t.Key("val")
+		t.Uint(val)
+		t.Key("formatted")
+		t.String(if ok { proclimit.Format(val) } else { "" })
+		t.Key("err")
+		t.String(errStr)
+		t.EndObject()
+	}
+	t.EndList()
+
+	t.Key("limit")
+	let mut limOk = true
+	let mut limErr = ""
+	let limVal = proclimit.Limit(env, defLim) catch {
+	case proclimit.SizeError as e:
+		limOk = false
+		limErr = e.Message
+		uint64(0)
+	}
+	t.BeginObject(3)
+	t.Key("ok")
+	t.Bool(limOk)
+	t.Key("val")
+	t.Uint(limVal)
+	t.Key("err")
+	t.String(limErr)
+	t.EndObject()
+
+	let mut sc = proclimit.NewScanner()
+	for ch in chunks {
+		sc = proclimit.ScanWrite(sc, ch)
+	}
+	let streamCause = proclimit.ScanCause(sc)
+	let full = strings.Join(chunks, "")
+	let fullCause = proclimit.CauseOf(full)
+	t.Key("stream_cause")
+	t.Uint(uint64(proclimit.CauseCode(streamCause)))
+	t.Key("full_cause")
+	t.Uint(uint64(proclimit.CauseCode(fullCause)))
+	t.Key("watched_stderr")
+	t.String(proclimit.WatchedStderr(streamCause))
+	t.Key("check_exit")
+	t.String(proclimit.CheckExit("prog", defLim, true, "exit status 2", full))
+
+	let (hostRAM, hostAvail) = proclimit.ParseProcMeminfoBytes(memInfo)
+	let q = proclimit.DeriveQuota(proclimit.ParseCPUOnline(cpuOn), proclimit.ParseCPUMax(cpuMax), hostRAM, hostAvail, proclimit.ParseMemoryMax(memMax), uint64(2147483648), uint32(8))
+	t.Key("quota")
+	t.BeginObject(6)
+	t.Key("cgroup_rel")
+	t.String(proclimit.ParseSelfCgroup(selfCg))
+	t.Key("effective_cpus")
+	t.Uint(uint64(q.EffectiveCPUs))
+	t.Key("effective_ram")
+	t.Uint(q.EffectiveRAM)
+	t.Key("workers")
+	t.Uint(uint64(q.Workers))
+	t.Key("max_procs")
+	t.Uint(uint64(q.MaxProcs))
+	t.Key("go_env")
+	encodeStringSlice(t, proclimit.DeriveGoEnv(q))
+	t.EndObject()
+
+	t.EndObject()
+	t.Written()
+}
+
+func handleBudget(obj json.Object) string fails runErr {
+	let cfgText = try strField(obj, "config_text")
+	let cfgPath = try strField(obj, "config_path")
+	let cores = uint32(try u64Field(obj, "cores"))
+	let mem = try u64Field(obj, "memory")
+	let share = uint32(try u64Field(obj, "share"))
+	let backfill = uint32(try u64Field(obj, "backfill"))
+	let dflt = try u64Field(obj, "default_memory")
+	let stateRaw = try strField(obj, "state_json")
+	let peaksRaw = try strField(obj, "peaks_json")
+	let ops = try objListField(obj, "actions")
+	let argv = try strListField(obj, "argv")
+	let wd = try strField(obj, "wd")
+	let peakText = try strField(obj, "peak_text")
+
+	let mut cfgOk = true
+	let mut cfgErr = ""
+	let cfg = budget.ParseConfig(cfgText, cfgPath) catch {
+	case budget.ConfigError as e:
+		cfgOk = false
+		cfgErr = e.Message
+		budget.Config{Path: cfgPath, Cores: uint32(0), Memory: uint64(0), DefaultMemory: uint64(0), Share: uint32(0), Backfill: uint32(0), State: "", Log: ""}
+	}
+	let peaks = budget.DecodePeaksJSON(peaksRaw) catch {
+	case budget.BudgetError as e:
+		return runErr{msg: e.Message}
+	}
+	let mut st = budget.DecodeStateJSON(stateRaw) catch {
+	case budget.BudgetError as e:
+		return runErr{msg: e.Message}
+	}
+	let rules = budget.Rules{Cores: cores, Memory: mem, Share: share, Backfill: backfill, HasPeaks: true, Peaks: peaks, Default: dflt}
+
+	let mut stepMoves = [][]string{}
+	for opObj in ops {
+		let kind = try strField(opObj, "op")
+		if kind == "join" {
+			let entryRaw = try strField(opObj, "entry_json")
+			let est = budget.DecodeStateJSON("{\"holders\":[],\"waiters\":[\(entryRaw)],\"next_ticket\":0}") catch {
+			case budget.BudgetError as e:
+				return runErr{msg: e.Message}
+			}
+			let m = budget.Join(&st, rules, est.Waiters[0])
+			stepMoves = stepMoves.Append(m)
+		} else if kind == "remove" {
+			let id = try strField(opObj, "id")
+			let m = budget.Remove(&st, rules, id)
+			stepMoves = stepMoves.Append(m)
+		} else if kind == "admit" {
+			let m = budget.Admit(&st, rules)
+			stepMoves = stepMoves.Append(m)
+		}
+	}
+	let (pkBytes, pkKilled) = budget.ParsePeakText(peakText)
+
+	let t = json.NewText()
+	t.BeginObject(11)
+	t.Key("cfg_ok")
+	t.Bool(cfgOk)
+	t.Key("cfg_err")
+	t.String(cfgErr)
+	t.Key("cfg_cores")
+	t.Uint(uint64(cfg.Cores))
+	t.Key("cfg_memory")
+	t.Uint(cfg.Memory)
+	t.Key("cfg_default_memory")
+	t.Uint(cfg.DefaultMemory)
+	t.Key("state_json")
+	t.String(budget.EncodeStateJSON(st))
+	t.Key("moves")
+	t.BeginList(stepMoves.Len())
+	for mv in stepMoves {
+		encodeStringSlice(t, mv)
+	}
+	t.EndList()
+	t.Key("why")
+	t.String(budget.Why(st, rules))
+	t.Key("status")
+	t.String(budget.FormatStatus(st, rules))
+	t.Key("command_key")
+	t.String(budget.CommandKey(argv, wd))
+	t.Key("kept_peak")
+	t.Uint(budget.KeptPeak(dflt, uint32(1), pkKilled, pkBytes))
+	t.EndObject()
+	t.Written()
+}
+
+func handleOpcount(obj json.Object) string fails runErr {
+	let syms = try strListField(obj, "symbols")
+	let wlText = try strField(obj, "workload_text")
+	let wlN = uint32(try u64Field(obj, "workload_n"))
+	let wlIn = try strField(obj, "workload_input")
+	let envPeriod = try strField(obj, "env_period")
+	let rateText = try strField(obj, "rate_text")
+	let cpuList = try strField(obj, "cpu_online")
+	let valCount = try u64Field(obj, "counter_val")
+	let enCount = try u64Field(obj, "counter_enabled")
+	let runCount = try u64Field(obj, "counter_running")
+
+	let mut partNames = []string{}
+	for sym in syms {
+		partNames = partNames.Append(budget.PartCounter(budget.Classify(sym)))
+	}
+	let (w, probs) = budget.ParseWorkload(wlText)
+	let mut probStrs = []string{}
+	for p in probs {
+		probStrs = probStrs.Append(budget.FormatProblem(p))
+	}
+	let (dcVal, dcRef, dcWhy) = budget.DecodeCounter(valCount, enCount, runCount)
+	let mut cpus = []uint32{}
+	let mut cpuErr = ""
+	cpus = budget.ParseOnlineCPUs(cpuList) catch {
+	case budget.OpcountError as e:
+		cpuErr = e.Message
+		[]uint32{}
+	}
+
+	let t = json.NewText()
+	t.BeginObject(9)
+	t.Key("parts")
+	encodeStringSlice(t, partNames)
+	t.Key("problems")
+	encodeStringSlice(t, probStrs)
+	t.Key("from_stdin")
+	t.Bool(budget.FromStdin(w))
+	t.Key("expanded")
+	encodeStringSlice(t, budget.ExpandWorkload(w.Args, wlN, wlIn))
+	t.Key("period")
+	t.Uint(budget.PeriodFromRate(envPeriod, rateText))
+	t.Key("cpu_count")
+	t.Uint(uint64(cpus.Len()))
+	t.Key("cpu_err")
+	t.String(cpuErr)
+	t.Key("decode")
+	t.BeginObject(3)
+	t.Key("val")
+	t.Uint(dcVal)
+	t.Key("refusal")
+	t.String(dcRef)
+	t.Key("why")
+	t.String(dcWhy)
+	t.EndObject()
+	t.Key("hook_ok")
+	t.Bool(strings.Contains(budget.Hook, "opcountExithookAdd") && strings.Contains(budget.ProfileHook, "opcountProfileHookAdd"))
+	t.EndObject()
+	t.Written()
+}
+
+func handleProducer(obj json.Object) string fails runErr {
+	let openErr = try strField(obj, "open_err")
+	let imgB64 = try strField(obj, "image_b64")
+	let readErr = try strField(obj, "read_err")
+	let nonce = try strField(obj, "nonce")
+	let memoText = try strField(obj, "memo_text")
+	let imgKey = try strField(obj, "image_key")
+	let hasKey = try boolField(obj, "has_key")
+	let goVer = try strField(obj, "go_version")
+	let mainPath = try strField(obj, "main_path")
+	let mainVer = try strField(obj, "main_version")
+	let settingObjs = try objListField(obj, "settings")
+	let machoB64 = try strField(obj, "macho_b64")
+	let cdhashB64 = try strField(obj, "cdhash_b64")
+
+	let mut settings = []producer.BuildSetting{}
+	for so in settingObjs {
+		settings = settings.Append(producer.BuildSetting{Key: try strField(so, "key"), Value: try strField(so, "value")})
+	}
+	let info = producer.BuildInfo{GoVersion: goVer, MainPath: mainPath, MainVersion: mainVer, Settings: settings}
+	let imgStr = base64.Decode(base64.StdEncoding, imgB64) catch {
+	case base64.Malformed:
+		return runErr{msg: "bad base64 image"}
+	}
+	let mut memo = producer.ParseMemo(memoText)
+	let id = producer.AcquireFromImage(openErr, imgStr.Bytes(), readErr, true, info, nonce, &memo, imgKey, hasKey)
+
+	let mut csOk = true
+	let mut csErr = ""
+	let mut csLen = 0
+	if machoB64 != "" {
+		let mStr = base64.Decode(base64.StdEncoding, machoB64) catch {
+		case base64.Malformed:
+			return runErr{msg: "bad base64 macho"}
+		}
+		let cStr = base64.Decode(base64.StdEncoding, cdhashB64) catch {
+		case base64.Malformed:
+			return runErr{msg: "bad base64 cdhash"}
+		}
+		let authed = producer.VerifyCodeSignature(mStr.Bytes(), cStr.Bytes()) catch {
+		case producer.VerifyError as e:
+			csOk = false
+			csErr = e.Kind
+			[]byte{}
+		}
+		csLen = authed.Len()
+	}
+
+	let t = json.NewText()
+	t.BeginObject(6)
+	t.Key("identity_json")
+	t.String(producer.EncodeIdentityJSON(id))
+	t.Key("memo_text")
+	t.String(producer.FormatMemo(memo))
+	t.Key("version")
+	t.String(producer.VersionOf(true, info))
+	t.Key("cs_ok")
+	t.Bool(csOk)
+	t.Key("cs_err")
+	t.String(csErr)
+	t.Key("cs_len")
+	t.Uint(uint64(csLen))
+	t.EndObject()
+	t.Written()
+}
+
+func handleToolchain(obj json.Object) string fails runErr {
+	let ergoGo = try strField(obj, "ergo_go")
+	let cache = try strField(obj, "cache")
+	let hostOS = try strField(obj, "goos")
+	let hostArch = try strField(obj, "goarch")
+	let installed = try boolField(obj, "installed")
+	let patchText = try strField(obj, "patch_text")
+	let baseFiles = try strMapField(obj, "base_files")
+	let srcFiles = try strMapField(obj, "src_files")
+	let hookPatch = try strField(obj, "hook_patch")
+	let source = try strField(obj, "source")
+	let release = try strField(obj, "release")
+	let goCmdDigest = try strField(obj, "go_cmd_digest")
+	let environ = try strListField(obj, "environ")
+	let goMod = try strField(obj, "go_mod")
+	let vkey = try strField(obj, "vkey")
+	let noteMsg = try strField(obj, "note_msg")
+	let zipB64 = try strField(obj, "zip_b64")
+	let zipPrefix = try strField(obj, "zip_prefix")
+	let pinLockText = try strField(obj, "pin_lock")
+
+	let (st, stInst) = toolchain.Status(ergoGo, cache, hostOS, hostArch, installed)
+
+	let mut patchOk = true
+	let mut patchErr = ""
+	let applied = toolchain.ApplyPatchMap(patchText, baseFiles) catch {
+	case toolchain.ToolchainError as e:
+		patchOk = false
+		patchErr = e.Message
+		toolchain.AppliedPatch{Files: Map[string, string]{}, Hunks: 0, Rejected: []string{}}
+	}
+
+	let mut drvOk = true
+	let mut drvPatch = ""
+	let mut drvErr = ""
+	drvPatch = toolchain.DerivePatchMap(srcFiles, hookPatch) catch {
+	case toolchain.ToolchainError as e:
+		drvOk = false
+		drvErr = e.Message
+		""
+	}
+
+	let pDigest = hex.Encode(sha256.Sum(drvPatch))
+	let (ins, unk) = toolchain.IRCInputs(source, release, pDigest, goCmdDigest, "\(hostOS)_\(hostArch)", environ)
+	let ircKey = toolchain.KeyOf(ins)
+
+	let mut noteOk = true
+	let mut noteText = ""
+	let mut noteErr = ""
+	if vkey != "" {
+		let db = toolchain.ParseVerifierKey(vkey) catch {
+		case toolchain.ToolchainError as e:
+			noteOk = false
+			noteErr = e.Message
+			toolchain.SumDB{Name: "", Hash: uint32(0), Key: []byte{}, URL: "", Height: 0}
+		}
+		if noteOk && noteMsg != "" {
+			noteText = toolchain.VerifyNote(db, noteMsg) catch {
+			case toolchain.ToolchainError as e:
+				noteOk = false
+				noteErr = e.Message
+				""
+			}
+		}
+	}
+
+	let mut zipHash = ""
+	let mut zipErr = ""
+	if zipB64 != "" {
+		let zStr = base64.Decode(base64.StdEncoding, zipB64) catch {
+		case base64.Malformed:
+			return runErr{msg: "bad base64 zip"}
+		}
+		zipHash = toolchain.HashZipBytes(zStr.Bytes()) catch {
+		case toolchain.ToolchainError as e:
+			zipErr = e.Message
+			""
+		}
+		let _ = zipPrefix
+	}
+
+	let mut pinGo = ""
+	let mut pinPatch = ""
+	if pinLockText != "" {
+		let pl = toolchain.ParsePinLock(pinLockText) catch {
+		case toolchain.ToolchainError as e:
+			return runErr{msg: e.Message}
+		}
+		pinGo = pl.Go
+		pinPatch = pl.Patch
+	}
+
+	let t = json.NewText()
+	t.BeginObject(16)
+	t.Key("status_mode")
+	t.String(st.Mode)
+	t.Key("status_go")
+	t.String(st.Go)
+	t.Key("status_root")
+	t.String(st.Root)
+	t.Key("status_installed")
+	t.Bool(stInst)
+	t.Key("patch_ok")
+	t.Bool(patchOk)
+	t.Key("patch_err")
+	t.String(patchErr)
+	t.Key("patch_rejected")
+	encodeStringSlice(t, applied.Rejected)
+	t.Key("patch_files")
+	encodeStrMap(t, applied.Files)
+	t.Key("derive_ok")
+	t.Bool(drvOk)
+	t.Key("derive_err")
+	t.String(drvErr)
+	t.Key("derive_sha256")
+	t.String(pDigest)
+	t.Key("irc_key")
+	t.String(ircKey)
+	t.Key("irc_unknown")
+	encodeStringSlice(t, unk)
+	t.Key("with_toolchain")
+	t.String(toolchain.WithToolchain(goMod))
+	t.Key("note")
+	t.BeginObject(3)
+	t.Key("ok")
+	t.Bool(noteOk)
+	t.Key("text")
+	t.String(noteText)
+	t.Key("err")
+	t.String(noteErr)
+	t.EndObject()
+	t.Key("zip")
+	t.BeginObject(4)
+	t.Key("h1")
+	t.String(zipHash)
+	t.Key("err")
+	t.String(zipErr)
+	t.Key("pin_go")
+	t.String(pinGo)
+	t.Key("pin_patch")
+	t.String(pinPatch)
+	t.EndObject()
+	t.EndObject()
+	t.Written()
+}
+
+func handleGoCmd(obj json.Object) string fails runErr {
+	let args = try strListField(obj, "args")
+	let goflags = try strField(obj, "goflags")
+	let cwd = try strField(obj, "cwd")
+	let pkgPat = try strField(obj, "pattern")
+	let pkgImp = try strField(obj, "import_path")
+	let pkgDir = try strField(obj, "dir")
+	let cache = try strField(obj, "cache")
+	let modRoot = try strField(obj, "mod_root")
+	let modPath = try strField(obj, "mod_path")
+	let modGo = try strField(obj, "mod_go")
+	let modDir = try strField(obj, "mod_dir")
+	let rtPath = try strField(obj, "rt_path")
+	let rtData = try strField(obj, "rt_data")
+	let epDir = try strField(obj, "ep_dir")
+	let epImp = try strField(obj, "ep_import")
+	let epName = try strField(obj, "ep_name")
+	let emitFiles = try objListField(obj, "files")
+
+	let mut parseOk = true
+	let mut parseErr = ""
+	let line = gocmd.Parse(args, goflags) catch {
+	case gocmd.GoCmdError as e:
+		parseOk = false
+		parseErr = e.Message
+		gocmd.Line{Verb: "", Args: []string{}, GCFlags: []string{}, Overlay: "", Modfile: "", Packages: []string{}}
+	}
+	let pkg = gocmd.Package{ImportPath: pkgImp, Dir: pkgDir}
+	let mut pfOk = parseOk
+	let mut pfErr = ""
+	let mut pflags = []string{}
+	if parseOk {
+		pflags = gocmd.PackageFlags(line, pkg, cwd) catch {
+		case gocmd.GoCmdError as e:
+			pfOk = false
+			pfErr = e.Message
+			[]string{}
+		}
+	}
+	let matches = gocmd.MatchPackage(pkgPat, cwd, pkg)
+
+	let mut files = []gocmd.FileSpec{}
+	for fo in emitFiles {
+		files = files.Append(gocmd.FileSpec{Path: try strField(fo, "path"), Data: try strField(fo, "data")})
+	}
+	let mut asmOk = parseOk
+	let mut asmErr = ""
+	let mut plan = gocmd.AssemblePlan{Args: []string{}, ModDir: "", GoMod: "", Overlay: "", TreeDirs: Map[string, string]{}, RuntimeDir: "", OverlayDir: ""}
+	if parseOk && modPath != "" {
+		let m = gocmd.Module{Root: modRoot, Path: modPath, GoMod: modGo}
+		let rt = []gocmd.FileSpec{gocmd.FileSpec{Path: rtPath, Data: rtData}}
+		let eps = []gocmd.ErgoPackage{gocmd.ErgoPackage{ImportPath: epImp, Dir: epDir, Name: epName}}
+		plan = gocmd.BuildAssemblePlan(cache, m, line, cwd, rt, eps, files, "", "", modDir) catch {
+		case gocmd.GoCmdError as e:
+			asmOk = false
+			asmErr = e.Message
+			plan
+		}
+	}
+
+	let t = json.NewText()
+	t.BeginObject(11)
+	t.Key("parse_ok")
+	t.Bool(parseOk)
+	t.Key("parse_err")
+	t.String(parseErr)
+	t.Key("packages")
+	encodeStringSlice(t, line.Packages)
+	t.Key("gcflags")
+	encodeStringSlice(t, line.GCFlags)
+	t.Key("matches")
+	t.Bool(matches)
+	t.Key("pflags_ok")
+	t.Bool(pfOk)
+	t.Key("pflags_err")
+	t.String(pfErr)
+	t.Key("pflags")
+	encodeStringSlice(t, pflags)
+	t.Key("asm_ok")
+	t.Bool(asmOk)
+	t.Key("asm_err")
+	t.String(asmErr)
+	t.Key("plan_args")
+	encodeStringSlice(t, plan.Args)
+	t.EndObject()
+	t.Written()
+}
+
+func encodeStringSlice(t json.Text, xs []string) {
+	t.BeginList(xs.Len())
+	for x in xs {
+		t.String(x)
+	}
+	t.EndList()
+}
+
+func encodeStrMap(t json.Text, m Map[string, string]) {
+	let mut keys = []string{}
+	for k, _ in m {
+		keys = keys.Append(k)
+	}
+	keys = slices.Sort(keys)
+	t.BeginObject(keys.Len())
+	for k in keys {
+		t.Key(k)
+		match m.Get(k) {
+		case option.Some{Value: v}:
+			t.String(v)
+		case option.None:
+			t.String("")
+		}
+	}
+	t.EndObject()
+}
+
+func asObj(v json.Value) json.Object fails runErr {
+	match v {
+	case json.Object as o:
+		o
+	case _:
+		return runErr{msg: "expected json object"}
+	}
+}
+
+func asStr(v json.Value) string fails runErr {
+	match v {
+	case json.Str as s:
+		s.Value
+	case _:
+		return runErr{msg: "expected json string"}
+	}
+}
+
+func findField(obj json.Object, key string) option.Option[json.Value] {
+	for m in obj.Members {
+		if m.Key == key {
+			return option.Some{Value: m.Value}
+		}
+	}
+	option.None
+}
+
+func strField(obj json.Object, key string) string fails runErr {
+	match findField(obj, key) {
+	case option.Some{Value: v}:
+		try asStr(v)
+	case option.None:
+		""
+	}
+}
+
+func boolField(obj json.Object, key string) bool fails runErr {
+	match findField(obj, key) {
+	case option.Some{Value: v}:
+		match v {
+		case json.Boolean as b:
+			b.Value
+		case _:
+			return runErr{msg: "expected bool"}
+		}
+	case option.None:
+		false
+	}
+}
+
+func u64Field(obj json.Object, key string) uint64 fails runErr {
+	match findField(obj, key) {
+	case option.Some{Value: v}:
+		match v {
+		case json.Num:
+			let raw = json.Encode(json.Codec[json.Value]{MaxBytes: 0, MaxDepth: 0}, v)
+			let mut acc = uint64(0)
+			for i in 0..raw.Len() {
+				let c = raw[i]
+				if c < byte('0') || c > byte('9') {
+					return runErr{msg: "bad uint64"}
+				}
+				acc = acc*uint64(10) + uint64(c-byte('0'))
+			}
+			return acc
+		case _:
+			return runErr{msg: "expected number"}
+		}
+	case option.None:
+		uint64(0)
+	}
+}
+
+func strListField(obj json.Object, key string) []string fails runErr {
+	match findField(obj, key) {
+	case option.Some{Value: v}:
+		match v {
+		case json.Null:
+			[]string{}
+		case json.Array as a:
+			let mut out = []string{}
+			for it in a.Items {
+				out = out.Append(try asStr(it))
+			}
+			out
+		case _:
+			return runErr{msg: "expected array"}
+		}
+	case option.None:
+		[]string{}
+	}
+}
+
+func objListField(obj json.Object, key string) []json.Object fails runErr {
+	match findField(obj, key) {
+	case option.Some{Value: v}:
+		match v {
+		case json.Null:
+			[]json.Object{}
+		case json.Array as a:
+			let mut out = []json.Object{}
+			for it in a.Items {
+				out = out.Append(try asObj(it))
+			}
+			out
+		case _:
+			return runErr{msg: "expected array of objects"}
+		}
+	case option.None:
+		[]json.Object{}
+	}
+}
+
+func strMapField(obj json.Object, key string) Map[string, string] fails runErr {
+	match findField(obj, key) {
+	case option.Some{Value: v}:
+		match v {
+		case json.Null:
+			Map[string, string]{}
+		case json.Object as mobj:
+			let mut out = Map[string, string]{}
+			for m in mobj.Members {
+				out = out.Put(m.Key, try asStr(m.Value))
+			}
+			out
+		case _:
+			return runErr{msg: "expected string map"}
+		}
+	case option.None:
+		Map[string, string]{}
+	}
+}
+
+test TestToolDumpDispatch {
+	let r1 = DispatchJSON("{\"op\":\"proclimit\",\"sizes\":[\"2 GiB\",\"off\"],\"default_limit\":2147483648,\"chunks\":[\"out of memory\\n\"]}") catch {
+	case runErr:
+		assert false
+		""
+	}
+	assert strings.Contains(r1, "\"formatted\":\"2 GiB\"") && strings.Contains(r1, "\"stream_cause\":1")
+
+	let r2 = DispatchJSON("{\"op\":\"gocmd\",\"args\":[\"test\",\"./pkg/...\"],\"cwd\":\"/r\",\"pattern\":\"./pkg/...\",\"import_path\":\"example.com/pkg/sub\",\"dir\":\"/r/pkg/sub\"}") catch {
+	case runErr:
+		assert false
+		""
+	}
+	assert strings.Contains(r2, "\"matches\":true")
+}

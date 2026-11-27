@@ -1,0 +1,57 @@
+{
+  "about": "Pure-Ergo toolchain patching, shared IR cache keying, eviction, and sumdb verification guards.",
+  "mutants": [
+    {
+      "name": "selfhost-toolchain-apply-no-offset",
+      "origin": "selfhost-toolchain-runtime",
+      "file": "compiler/toolchain/patch.ergo",
+      "decl": "findHunkAt",
+      "from": "\tfor d in 0..(lines.Len() + 1) {",
+      "to": "\tfor d in 0..1 {",
+      "rule": "Unified diff application must search nearest offset lines when target lines moved.",
+      "killers": ["compiler/toolchain:TestApplyPatchMovedAndRejectedHunks"],
+      "anchor": {
+        "tests": ["compiler/toolchain:TestApplyPatchMovedAndRejectedHunks"]
+      }
+    },
+    {
+      "name": "selfhost-toolchain-sumdb-sig-unchecked",
+      "origin": "selfhost-toolchain-runtime",
+      "file": "compiler/toolchain/sumdb.ergo",
+      "decl": "ed25519Verify",
+      "from": "\tbytesEq(checkR, sig[0:32])",
+      "to": "\tcheckR.Len() == 32 && bytesEq(sig[0:32], sig[0:32])",
+      "rule": "Ed25519 verification must check computed R matches the signature prefix.",
+      "killers": ["compiler/toolchain:TestSumDBVerifyNoteAndProveRecord"],
+      "anchor": {
+        "tests": ["compiler/toolchain:TestSumDBVerifyNoteAndProveRecord"]
+      }
+    },
+    {
+      "name": "selfhost-toolchain-sumdb-root-unchecked",
+      "origin": "selfhost-toolchain-runtime",
+      "file": "compiler/toolchain/sumdb.ergo",
+      "decl": "ProveRecord",
+      "from": "\tif !bytesEq(root, t.Root) {",
+      "to": "\tif root.Len() != t.Root.Len() {",
+      "rule": "SumDB Merkle verification must refuse tile proofs that reconstruct a different tree root.",
+      "killers": ["compiler/toolchain:TestSumDBVerifyNoteAndProveRecord"],
+      "anchor": {
+        "tests": ["compiler/toolchain:TestSumDBVerifyNoteAndProveRecord"]
+      }
+    },
+    {
+      "name": "selfhost-toolchain-irc-key-drops-unknown-env",
+      "origin": "selfhost-toolchain-runtime",
+      "file": "compiler/toolchain/irc.ergo",
+      "decl": "IRCInputs",
+      "from": "\t\tinputs = inputs.Put(\"env \"+name, value)",
+      "to": "\t\tinputs = inputs.Put(\"env \"+name, value[0:0])",
+      "rule": "Unknown GO*/CGO_* environment variables visible to the build must participate in IRCInputs.",
+      "killers": ["compiler/toolchain:TestIRCInputsManifestEvictAndPinset"],
+      "anchor": {
+        "tests": ["compiler/toolchain:TestIRCInputsManifestEvictAndPinset"]
+      }
+    }
+  ]
+}

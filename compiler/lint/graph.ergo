@@ -1070,6 +1070,30 @@ func unwrapPtrOwnType(s store.Store, t dense.ID[store.TKey]) dense.ID[store.TKey
 	cur
 }
 
+func lookupRecFieldType(recTyped load.Typed, recMod string, recPath string, xRes exprTypeRes, xt dense.ID[store.TKey], ownerType string, fieldName string) exprTypeRes {
+	for rec in recTyped.K.Recs {
+		if rec.Name == ownerType {
+			for fld in rec.Fields {
+				if fld.Name == fieldName {
+					if store.KindOfType(recTyped.S, fld.T) == store.KParam {
+						let base = unwrapPtrOwnType(xRes.typed.S, xt)
+						if store.KindOfType(xRes.typed.S, base) == store.KInstance {
+							let args = store.OperandsOf(xRes.typed.S, base)
+							let pIdx = store.ArgOf(recTyped.S, fld.T)
+							if pIdx >= 0 && pIdx < args.Len() {
+								return exprTypeRes{typed: xRes.typed, uMod: xRes.uMod, uPath: xRes.uPath, t: dense.OptOf(args[pIdx])}
+							}
+						}
+					}
+					return exprTypeRes{typed: recTyped, uMod: recMod, uPath: recPath, t: dense.OptOf(fld.T)}
+				}
+			}
+			break
+		}
+	}
+	exprTypeRes{typed: xRes.typed, uMod: xRes.uMod, uPath: xRes.uPath, t: dense.NoID[store.TKey]()}
+}
+
 func lookupStructFieldType(ctx edgeCtx, xRes exprTypeRes, xt dense.ID[store.TKey], fieldName string) exprTypeRes {
 	let (ownerMod, ownerPath, ownerType, okNom) = resolveNominalOwner(ctx, xRes.typed, xRes.uMod, xRes.uPath, xt)
 	if okNom && ownerPath != "" && ownerType != "" {
@@ -1077,29 +1101,39 @@ func lookupStructFieldType(ctx edgeCtx, xRes exprTypeRes, xt dense.ID[store.TKey
 		case option.Some{Value: ouIdx}:
 			match ctx.units[ouIdx].Typed {
 			case option.Some{Value: otd}:
-				for rec in otd.K.Recs {
-					if rec.Name == ownerType {
-						for fld in rec.Fields {
-							if fld.Name == fieldName {
-								if store.KindOfType(otd.S, fld.T) == store.KParam {
-									let base = unwrapPtrOwnType(xRes.typed.S, xt)
-									if store.KindOfType(xRes.typed.S, base) == store.KInstance {
-										let args = store.OperandsOf(xRes.typed.S, base)
-										let pIdx = store.ArgOf(otd.S, fld.T)
-										if pIdx >= 0 && pIdx < args.Len() {
-											return exprTypeRes{typed: xRes.typed, uMod: xRes.uMod, uPath: xRes.uPath, t: dense.OptOf(args[pIdx])}
-										}
-									}
-								}
-								return exprTypeRes{typed: otd, uMod: ownerMod, uPath: ownerPath, t: dense.OptOf(fld.T)}
-							}
-						}
-						break
-					}
+				let res = lookupRecFieldType(otd, ownerMod, ownerPath, xRes, xt, ownerType, fieldName)
+				if dense.Unpack(res.t) != option.None {
+					return res
 				}
 			case option.None:
 			}
 		case option.None:
+			for dep in xRes.typed.K.Deps {
+				if dep.Path == ownerPath {
+					let depMod = match ctx.modByPkg.Get(dep.Path) {
+					case option.Some{Value: m}:
+						m
+					case option.None:
+						""
+					}
+					let depTyped = load.Typed{S: dep.S, K: dep.K, T: xRes.typed.T}
+					let res = lookupRecFieldType(depTyped, depMod, dep.Path, xRes, xt, ownerType, fieldName)
+					if dense.Unpack(res.t) != option.None {
+						return res
+					}
+					break
+				}
+			}
+		}
+		let shortPkg = stdShortPath(ownerPath)
+		if ownerType == "Some" && fieldName == "Value" && (ownerPath == "option" || shortPkg == "option") {
+			let base = unwrapPtrOwnType(xRes.typed.S, xt)
+			if store.KindOfType(xRes.typed.S, base) == store.KInstance {
+				let args = store.OperandsOf(xRes.typed.S, base)
+				if args.Len() > 0 {
+					return exprTypeRes{typed: xRes.typed, uMod: xRes.uMod, uPath: xRes.uPath, t: dense.OptOf(args[0])}
+				}
+			}
 		}
 	}
 	exprTypeRes{typed: xRes.typed, uMod: xRes.uMod, uPath: xRes.uPath, t: dense.NoID[store.TKey]()}
@@ -1166,6 +1200,57 @@ func resolveOutsideSliceCall(
 		}
 	}
 	exprTypeRes{typed: typed, uMod: uMod, uPath: uPath, t: dense.NoID[store.TKey]()}
+}
+
+type calleeHere {}
+
+type calleeUnit {}
+
+type calleeDep { at int }
+
+type calleeFrom = calleeHere | calleeUnit | calleeDep
+
+type calleeSrc {
+	from calleeFrom,
+	sig  dense.Opt[store.TKey],
+}
+
+func calleeSource(ctx edgeCtx, typed load.Typed, fnUnit int, fnName string, declAt dense.Opt[store.PNode], fnPathFound string, callSig dense.Opt[store.TKey]) calleeSrc {
+	if fnUnit >= 0 && fnUnit < ctx.units.Len() && fnName != "" {
+		match ctx.units[fnUnit].Typed {
+		case option.Some{Value: td}:
+			match dense.Unpack(declAt) {
+			case option.Some{Value: da}:
+				let fi = expr.FnAt(td.K, da)
+				if fi >= 0 && fi < td.K.Fns.Len() {
+					return calleeSrc{from: calleeUnit, sig: dense.OptOf(td.K.Fns[fi].Sig)}
+				}
+			case option.None:
+			}
+			for tfn in td.K.Fns {
+				if tfn.File >= 0 && tfn.File < td.K.Parsed.Len() && !td.K.Parsed[tfn.File].Failed && validTreeNode(td.K.Parsed[tfn.File], tfn.Name) && NodeText(td.K.Parsed[tfn.File], tfn.Name) == fnName {
+					return calleeSrc{from: calleeUnit, sig: dense.OptOf(tfn.Sig)}
+				}
+			}
+		case option.None:
+		}
+	}
+	if fnPathFound != "" {
+		for di, dep in typed.K.Deps {
+			if dep.Path == fnPathFound {
+				for tfn in dep.K.Fns {
+					if tfn.File >= 0 && tfn.File < dep.K.Parsed.Len() && !dep.K.Parsed[tfn.File].Failed && validTreeNode(dep.K.Parsed[tfn.File], tfn.Name) && NodeText(dep.K.Parsed[tfn.File], tfn.Name) == fnName {
+						return calleeSrc{from: calleeDep{at: di}, sig: dense.OptOf(tfn.Sig)}
+					}
+				}
+				if dense.Unpack(callSig) != option.None {
+					return calleeSrc{from: calleeDep{at: di}, sig: callSig}
+				}
+				break
+			}
+		}
+	}
+	calleeSrc{from: calleeHere, sig: callSig}
 }
 
 func resolveGenericCallSliceElem(ctx edgeCtx, typed load.Typed, uIdx int, fIdx int, uMod string, uPath string, callNode dense.ID[syntax.Node], depth int) exprTypeRes {
@@ -1239,66 +1324,43 @@ func resolveGenericCallSliceElem(ctx edgeCtx, typed load.Typed, uIdx int, fIdx i
 		case _:
 		}
 	}
-	let mut fnTyped = typed
-	let mut fnMod = uMod
-	let mut fnPath = uPath
-	let mut sigOpt = dense.NoID[store.TKey]()
-	if fnUnit >= 0 && fnUnit < ctx.units.Len() && fnName != "" {
-		let fnU = ctx.units[fnUnit]
-		match fnU.Typed {
+	let src = calleeSource(ctx, typed, fnUnit, fnName, declAt, fnPathFound, callSig)
+	let fnTyped = match src.from {
+	case calleeUnit:
+		match ctx.units[fnUnit].Typed {
 		case option.Some{Value: td}:
-			fnTyped = td
-			fnMod = fnU.Module
-			fnPath = unitPkgPath(fnU)
-			match dense.Unpack(declAt) {
-			case option.Some{Value: da}:
-				let fi = expr.FnAt(fnTyped.K, da)
-				if fi >= 0 && fi < fnTyped.K.Fns.Len() {
-					sigOpt = dense.OptOf(fnTyped.K.Fns[fi].Sig)
-				}
-			case option.None:
-			}
-			if dense.Unpack(sigOpt) == option.None {
-				for tfn in fnTyped.K.Fns {
-					if tfn.File >= 0 && tfn.File < fnTyped.K.Parsed.Len() && !fnTyped.K.Parsed[tfn.File].Failed && validTreeNode(fnTyped.K.Parsed[tfn.File], tfn.Name) && NodeText(fnTyped.K.Parsed[tfn.File], tfn.Name) == fnName {
-						sigOpt = dense.OptOf(tfn.Sig)
-						break
-					}
-				}
-			}
+			td
 		case option.None:
+			typed
 		}
+	case calleeDep as d:
+		let dep = typed.K.Deps[d.at]
+		load.Typed{S: dep.S, K: dep.K, T: typed.T}
+	case calleeHere:
+		typed
 	}
-	if dense.Unpack(sigOpt) == option.None && fnPathFound != "" {
-		for dep in typed.K.Deps {
-			if dep.Path == fnPathFound {
-				fnTyped = load.Typed{S: dep.S, K: dep.K, T: typed.T}
-				fnMod = match ctx.modByPkg.Get(dep.Path) {
-				case option.Some{Value: m}:
-					m
-				case option.None:
-					""
-				}
-				fnPath = dep.Path
-				for tfn in dep.K.Fns {
-					if tfn.File >= 0 && tfn.File < dep.K.Parsed.Len() && !dep.K.Parsed[tfn.File].Failed && validTreeNode(dep.K.Parsed[tfn.File], tfn.Name) && NodeText(dep.K.Parsed[tfn.File], tfn.Name) == fnName {
-						sigOpt = dense.OptOf(tfn.Sig)
-						break
-					}
-				}
-				if dense.Unpack(sigOpt) == option.None {
-					sigOpt = callSig
-				}
-				break
-			}
+	let fnMod = match src.from {
+	case calleeUnit:
+		ctx.units[fnUnit].Module
+	case calleeDep as d:
+		match ctx.modByPkg.Get(typed.K.Deps[d.at].Path) {
+		case option.Some{Value: m}:
+			m
+		case option.None:
+			""
 		}
+	case calleeHere:
+		uMod
 	}
-	if dense.Unpack(sigOpt) == option.None {
-		fnTyped = typed
-		fnMod = uMod
-		fnPath = uPath
-		sigOpt = callSig
+	let fnPath = match src.from {
+	case calleeUnit:
+		unitPkgPath(ctx.units[fnUnit])
+	case calleeDep as d:
+		typed.K.Deps[d.at].Path
+	case calleeHere:
+		uPath
 	}
+	let sigOpt = src.sig
 	let sig = match dense.Unpack(sigOpt) {
 	case option.Some{Value: s}:
 		s

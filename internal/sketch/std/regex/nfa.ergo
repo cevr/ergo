@@ -4,6 +4,8 @@ let opAccept = 0
 let opByte = 1
 let opSplit = 2
 let opTag = 3
+let opStart = 4
+let opEnd = 5
 
 let maxNFAInsts = 65536
 
@@ -46,18 +48,98 @@ func addByteSet(b nfaBuilder, s byteSet) (nfaBuilder, int) {
 	(nfaBuilder{code: b.code, sets: words, overflow: b.overflow}, n)
 }
 
+func capCost(a int, b int) int {
+	let sum = a + b
+	if sum > maxNFAInsts {
+		return maxNFAInsts + 1
+	}
+	sum
+}
+
+func estimateNodeInsts(ast regexAST, tags []int, id int) int {
+	if id < 0 || id >= ast.nodes.Len() {
+		return 0
+	}
+	let n = ast.nodes[id]
+	if n.kind == kindEmpty {
+		return 0
+	}
+	if n.kind == kindBytes || n.kind == kindStart || n.kind == kindEnd {
+		return 1
+	}
+	if n.kind == kindConcat {
+		let mut tot = 0
+		for kid in n.kids {
+			tot = capCost(tot, estimateNodeInsts(ast, tags, kid))
+			if tot > maxNFAInsts {
+				return tot
+			}
+		}
+		return tot
+	}
+	if n.kind == kindAlt {
+		let mut tot = if n.kids.Len() > 1 { n.kids.Len() - 1 } else { 0 }
+		for kid in n.kids {
+			tot = capCost(tot, estimateNodeInsts(ast, tags, kid))
+			if tot > maxNFAInsts {
+				return tot
+			}
+		}
+		return tot
+	}
+	if n.kind == kindCapture {
+		let c = estimateNodeInsts(ast, tags, n.kids[0])
+		if tags[id] != 0 {
+			return capCost(c, 2)
+		}
+		return c
+	}
+	if n.kind == kindRepeat {
+		let c = estimateNodeInsts(ast, tags, n.kids[0])
+		let mut copies = n.min
+		let mut splits = 0
+		if n.max == -1 {
+			copies = copies + 1
+			splits = 1
+		} else {
+			copies = n.max
+			splits = n.max - n.min
+		}
+		let mut tot = splits
+		for _ in 0..copies {
+			tot = capCost(tot, c)
+			if tot > maxNFAInsts {
+				return tot
+			}
+		}
+		return tot
+	}
+	1
+}
+
 func compileASTToNFA(ast regexAST, tags []int) compiledNFA {
+	let est = estimateNodeInsts(ast, tags, ast.root) + 1
+	if est > maxNFAInsts {
+		let rn = ast.nodes[ast.root]
+		return compiledNFA{
+			code:  []int{},
+			sets:  []uint64{},
+			start: 0,
+			diags: []content.MapperDiag{content.ErrorDiag(rn.start, rn.end, "R005", "compiled NFA exceeds instruction limit", "simplify repeated quantifiers or pattern size")},
+		}
+	}
 	let mut b = nfaBuilder{code: []int{}, sets: []uint64{}, overflow: false}
 	let (b1, acceptPC) = emitInst(b, opAccept, 0, 0)
 	b = b1
 	let (b2, startPC) = compileNode(ast, tags, b, ast.root, acceptPC)
 	b = b2
 	if b.overflow {
+		let rn = ast.nodes[ast.root]
 		return compiledNFA{
 			code:  []int{},
 			sets:  []uint64{},
 			start: 0,
-			diags: []content.MapperDiag{content.ErrorDiag(uint32(0), uint32(0), "R005", "compiled NFA exceeds instruction limit", "simplify repeated quantifiers or pattern size")},
+			diags: []content.MapperDiag{content.ErrorDiag(rn.start, rn.end, "R005", "compiled NFA exceeds instruction limit", "simplify repeated quantifiers or pattern size")},
 		}
 	}
 	compiledNFA{code: b.code, sets: b.sets, start: startPC, diags: []content.MapperDiag{}}
@@ -70,6 +152,12 @@ func compileNode(ast regexAST, tags []int, b nfaBuilder, id int, next int) (nfaB
 	let n = ast.nodes[id]
 	if n.kind == kindEmpty {
 		return (b, next)
+	}
+	if n.kind == kindStart {
+		return emitInst(b, opStart, next, 0)
+	}
+	if n.kind == kindEnd {
+		return emitInst(b, opEnd, next, 0)
 	}
 	if n.kind == kindBytes {
 		let (b1, si) = addByteSet(b, n.set)
@@ -121,20 +209,28 @@ func compileNode(ast regexAST, tags []int, b nfaBuilder, id int, next int) (nfaB
 		let mut cur = next
 		let mut mutB = b
 		if n.max == -1 {
-			let (b1, splitPC) = emitInst(mutB, opSplit, 0, next)
+			let (b1, splitPC) = emitInst(mutB, opSplit, 0, 0)
 			let (b2, bodyPC) = compileNode(ast, tags, b1, n.kids[0], splitPC)
 			if b2.overflow {
 				return (b2, 0)
 			}
 			let mut patched = b2.code
-			patched[splitPC*3+1] = bodyPC
+			if n.lazy {
+				patched[splitPC*3+1] = next
+				patched[splitPC*3+2] = bodyPC
+			} else {
+				patched[splitPC*3+1] = bodyPC
+				patched[splitPC*3+2] = next
+			}
 			mutB = nfaBuilder{code: patched, sets: b2.sets, overflow: false}
 			cur = splitPC
 		} else {
 			let mut k = n.min
 			for k < n.max {
 				let (b1, bodyPC) = compileNode(ast, tags, mutB, n.kids[0], cur)
-				let (b2, splitPC) = emitInst(b1, opSplit, bodyPC, next)
+				let left = if n.lazy { next } else { bodyPC }
+				let right = if n.lazy { bodyPC } else { next }
+				let (b2, splitPC) = emitInst(b1, opSplit, left, right)
 				mutB = b2
 				cur = splitPC
 				if mutB.overflow {
@@ -158,10 +254,75 @@ func compileNode(ast regexAST, tags []int, b nfaBuilder, id int, next int) (nfaB
 	(b, next)
 }
 
+func analyzeNFAStart(code []int, sets []uint64, startPC int) (bool, bool, byteSet) {
+	let instCount = code.Len() / 3
+	let mut seen = []bool{}
+	for _ in 0..instCount {
+		seen = seen.Append(false)
+	}
+	let mut first = emptySet()
+	let mut canEmpty = false
+	let mut stk = []int{startPC}
+	for stk.Len() > 0 {
+		let top = stk.Len() - 1
+		let pc = stk[top]
+		stk = stk[0:top]
+		if seen[pc] {
+			continue
+		}
+		seen[pc] = true
+		let base = pc * 3
+		let op = code[base]
+		if op == opAccept {
+			canEmpty = true
+		} else if op == opSplit {
+			stk = stk.Append(code[base+2])
+			stk = stk.Append(code[base+1])
+		} else if op == opTag || op == opStart || op == opEnd {
+			stk = stk.Append(code[base+1])
+		} else if op == opByte {
+			let si = code[base+2] * 4
+			first = unionSet(first, byteSet{w0: sets[si], w1: sets[si+1], w2: sets[si+2], w3: sets[si+3]})
+		}
+	}
+	let mut seenNoStart = []bool{}
+	for _ in 0..instCount {
+		seenNoStart = seenNoStart.Append(false)
+	}
+	let mut unanchoredReach = false
+	let mut stk2 = []int{startPC}
+	for stk2.Len() > 0 {
+		let top = stk2.Len() - 1
+		let pc = stk2[top]
+		stk2 = stk2[0:top]
+		if seenNoStart[pc] {
+			continue
+		}
+		seenNoStart[pc] = true
+		let base = pc * 3
+		let op = code[base]
+		if op == opAccept || op == opByte || op == opEnd {
+			unanchoredReach = true
+			break
+		}
+		if op == opSplit {
+			stk2 = stk2.Append(code[base+2])
+			stk2 = stk2.Append(code[base+1])
+		} else if op == opTag {
+			stk2 = stk2.Append(code[base+1])
+		}
+	}
+	(!unanchoredReach, canEmpty, first)
+}
+
 func runNFA(code []int, sets []uint64, startPC int, s string, anchored bool, from int) (bool, int, int, []int, []int, int) {
 	let n = s.Len()
 	let instCount = code.Len() / 3
 	if !anchored && (from < 0 || from > n) {
+		return (false, 0, 0, []int{}, []int{}, 0)
+	}
+	let (onlyStartAnchored, canEmpty, firstBytes) = analyzeNFAStart(code, sets, startPC)
+	if !anchored && onlyStartAnchored && from > 0 {
 		return (false, 0, 0, []int{}, []int{}, 0)
 	}
 	let startFrom = if anchored { 0 } else { from }
@@ -186,20 +347,47 @@ func runNFA(code []int, sets []uint64, startPC int, s string, anchored bool, fro
 	let mut bestHist = -1
 	let mut stamp = 0
 	let mut failAt = 0
-	for pos in startFrom..(n + 1) {
-		if !anchored && !bestOK {
+	let mut stkPC = []int{}
+	let mut stkStart = []int{}
+	let mut stkHist = []int{}
+	let mut readyPC = []int{}
+	let mut readyStart = []int{}
+	let mut readyHist = []int{}
+	let mut nextPC = []int{}
+	let mut nextStart = []int{}
+	let mut nextHist = []int{}
+	let mut pos = startFrom
+	for pos <= n {
+		if !anchored && curPC.Len() == 0 && !bestOK && !canEmpty {
+			if onlyStartAnchored && pos > 0 {
+				break
+			}
+			for pos < n && !setContainsByte(firstBytes, s[pos]) {
+				pos = pos + 1
+			}
+			if pos == n {
+				break
+			}
+		}
+		if !anchored && !bestOK && (!onlyStartAnchored || pos == 0) {
 			curPC = curPC.Append(startPC)
 			curStart = curStart.Append(pos)
 			curHist = curHist.Append(-1)
 		}
+		if !anchored && curPC.Len() == 0 && (bestOK || (onlyStartAnchored && pos > 0)) {
+			break
+		}
 		stamp = stamp + 1
-		let mut readyPC = []int{}
-		let mut readyStart = []int{}
-		let mut readyHist = []int{}
+		readyPC = readyPC[0:0]
+		readyStart = readyStart[0:0]
+		readyHist = readyHist[0:0]
 		for ci in 0..curPC.Len() {
-			let mut stkPC = []int{curPC[ci]}
-			let mut stkStart = []int{curStart[ci]}
-			let mut stkHist = []int{curHist[ci]}
+			stkPC = stkPC[0:0]
+			stkStart = stkStart[0:0]
+			stkHist = stkHist[0:0]
+			stkPC = stkPC.Append(curPC[ci])
+			stkStart = stkStart.Append(curStart[ci])
+			stkHist = stkHist.Append(curHist[ci])
 			for stkPC.Len() > 0 {
 				let top = stkPC.Len() - 1
 				let pc = stkPC[top]
@@ -223,6 +411,22 @@ func runNFA(code []int, sets []uint64, startPC int, s string, anchored bool, fro
 					stkPC = stkPC.Append(left)
 					stkStart = stkStart.Append(ts)
 					stkHist = stkHist.Append(th)
+					continue
+				}
+				if op == opStart {
+					if pos == 0 {
+						stkPC = stkPC.Append(code[base+1])
+						stkStart = stkStart.Append(ts)
+						stkHist = stkHist.Append(th)
+					}
+					continue
+				}
+				if op == opEnd {
+					if pos == n {
+						stkPC = stkPC.Append(code[base+1])
+						stkStart = stkStart.Append(ts)
+						stkHist = stkHist.Append(th)
+					}
 					continue
 				}
 				if op == opTag {
@@ -259,9 +463,9 @@ func runNFA(code []int, sets []uint64, startPC int, s string, anchored bool, fro
 			}
 			break
 		}
-		let mut nextPC = []int{}
-		let mut nextStart = []int{}
-		let mut nextHist = []int{}
+		nextPC = nextPC[0:0]
+		nextStart = nextStart[0:0]
+		nextHist = nextHist[0:0]
 		for ri in 0..readyPC.Len() {
 			let pc = readyPC[ri]
 			let base = pc * 3
@@ -296,9 +500,16 @@ func runNFA(code []int, sets []uint64, startPC int, s string, anchored bool, fro
 				break
 			}
 		}
+		let tmpPC = curPC
+		let tmpStart = curStart
+		let tmpHist = curHist
 		curPC = nextPC
 		curStart = nextStart
 		curHist = nextHist
+		nextPC = tmpPC
+		nextStart = tmpStart
+		nextHist = tmpHist
+		pos = pos + 1
 	}
 	if !bestOK {
 		return (false, 0, 0, []int{}, []int{}, failAt)

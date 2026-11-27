@@ -1,0 +1,844 @@
+import core
+import exec
+import fstest
+import io
+import option
+import os
+import queue
+import rpc
+import scope
+import strconv
+import strings
+import sync
+import task
+import time
+
+// Spec describes how to launch a child OS process under resource Limits.
+type Spec {
+	Binary string,
+	Args   []string,
+	Env    Map[string, string],
+	Dir    string,
+	Limits Limits,
+	Grace  duration,
+}
+
+// NewSpec returns a Spec for binary with empty arguments and environment,
+// the caller's working directory, Unlimited bounds, and immediate SIGKILL
+// (Grace: 0s) on stop or timeout.
+func NewSpec(binary string) Spec {
+	Spec{Binary: binary, Args: []string{}, Env: Map[string, string]{}, Dir: "", Limits: Unlimited, Grace: 0s}
+}
+
+// StartFailed is returned when a child OS process cannot be launched.
+extern go ergo.local/prototype/runtime/v1.ProcessStartFailed type StartFailed { Reason string }
+
+extern go ergo.local/prototype/runtime/v1.ChildLine type childLine { Text string, Open bool }
+
+extern go ergo.local/prototype/runtime/v1.ChildStatus type childStatus { Pid int, Status int, Signal int, Stderr string, KillFailed bool }
+
+extern go ergo.local/prototype/runtime/v1.ChildProc type childProc {
+	runtimeOnly(),
+	..core.Closer,
+	WriteLine(line string) bool,
+	CloseStdin(),
+	ReadLine() childLine,
+	ReadLineWithin(d duration) childLine,
+	Kill(),
+	Wait() childStatus,
+}
+
+extern go ergo.local/prototype/runtime/v1.ProcessStart func hostStartProc(name string, args []string, env Map[string, string], dir string, limitBytes int, grace duration) childProc fails StartFailed
+
+type childOnly {}
+
+// ChildRunner executes scripts or typed wire RPC calls inside isolated
+// child OS processes and implements Runner.
+type ChildRunner {
+	live childOnly,
+	spec Spec,
+	base Map[string, string],
+} implements Runner
+
+// Child constructs a ChildRunner authorized under os.Ambient to launch child
+// OS processes for spec using the host environment.
+func Child(spec Spec) ChildRunner needs os.Ambient {
+	ChildRunner{
+		live: childOnly,
+		spec: spec,
+		base: os.NewHost().Environ(),
+	}
+}
+
+// NewTestChild constructs a ChildRunner authorized under fstest.TestAmbient
+// for test suites running child OS processes.
+func NewTestChild(spec Spec) ChildRunner needs fstest.TestAmbient {
+	ChildRunner{
+		live: childOnly,
+		spec: spec,
+		base: os.NewTestHost().Environ(),
+	}
+}
+
+// ExecRunner executes one-shot scripts or RPC calls over an explicit
+// exec.Runner.
+type ExecRunner {
+	spec   Spec,
+	runner exec.Runner,
+}
+
+// ChildWithExec constructs an ExecRunner backed by an explicit exec.Runner
+// for one-shot stdio command invocations over exec.
+func ChildWithExec(spec Spec, runner exec.Runner) ExecRunner {
+	ExecRunner{
+		spec:   spec,
+		runner: runner,
+	}
+}
+
+type wireEnvelope {
+	Tag     string,
+	ID      string,
+	RPC     string,
+	Payload string,
+}
+
+type wireLimits {
+	TimeNanos int64,
+	Steps     int,
+	Bytes     int,
+}
+
+type wireEnd {
+	Kind  string,
+	Value int,
+	Code  int,
+	Text  string,
+}
+
+type wireScript {
+	Cleanups  int,
+	WaitNanos int64,
+	Steps     int,
+	End       wireEnd,
+}
+
+type wirePlay {
+	Limits  wireLimits,
+	Script  wireScript,
+	OneShot bool,
+}
+
+type wireWait {
+	Nanos int64,
+}
+
+type wireReport {
+	Kind       string,
+	Value      int,
+	Code       int,
+	Text       string,
+	LimitNanos int64,
+	LimitSteps int,
+	Cleaned    int,
+}
+
+type workerStep =
+	| workerReport{Report Report}
+	| workerNeedSleep{Duration duration}
+	| workerInvalid{Reason string}
+
+type childWaiter {
+	send func(d duration),
+	base time.Manual,
+} implements time.Scheduler
+
+func Sleep(w childWaiter, d duration) {
+	w.send(d)
+}
+
+func Alarms(w childWaiter) time.AlarmClock {
+	w.base.Alarms()
+}
+
+func mergeEnv(env Map[string, string], base Map[string, string]) Map[string, string] {
+	let mut out = Map[string, string]{}
+	for k, v in base {
+		out[k] = v
+	}
+	for k, v in env {
+		out[k] = v
+	}
+	out
+}
+
+func minPos(a int, b int) int {
+	if a > 0 && b > 0 {
+		if a < b { a } else { b }
+	} else if a > 0 {
+		a
+	} else {
+		b
+	}
+}
+
+func minPosDur(a duration, b duration) duration {
+	if a > 0ns && b > 0ns {
+		if a < b { a } else { b }
+	} else if a > 0ns {
+		a
+	} else {
+		b
+	}
+}
+
+func effectiveLimits(call Limits, base Limits) Limits {
+	Limits{
+		Time:  minPosDur(call.Time, base.Time),
+		Steps: minPos(call.Steps, base.Steps),
+		Bytes: minPos(call.Bytes, base.Bytes),
+	}
+}
+
+func encodePlayRequest(l Limits, s Script, oneShot bool) string {
+	let end = match s.End {
+	case Gives as g:
+		wireEnd{Kind: "Gives", Value: g.Value, Code: 0, Text: ""}
+	case Fails as f:
+		wireEnd{Kind: "Fails", Value: 0, Code: f.Code, Text: ""}
+	case Panics as p:
+		wireEnd{Kind: "Panics", Value: 0, Code: 0, Text: p.Text}
+	}
+	let q = wirePlay{
+		Limits:  wireLimits{TimeNanos: int64(l.Time), Steps: l.Steps, Bytes: l.Bytes},
+		Script:  wireScript{Cleanups: s.Cleanups, WaitNanos: int64(s.Waits), Steps: s.Steps, End: end},
+		OneShot: oneShot,
+	}
+	rpc.Encode(wireEnvelope{Tag: "Request", ID: "1", RPC: "process.Play", Payload: rpc.Encode(q)})
+}
+
+func goEnvelope() string {
+	rpc.Encode(wireEnvelope{Tag: "Go", ID: "1", RPC: "process.Play", Payload: ""})
+}
+
+func stopEnvelope() string {
+	rpc.Encode(wireEnvelope{Tag: "Stop", ID: "1", RPC: "process.Play", Payload: ""})
+}
+
+func decodeWireReport(payload string) option.Option[Report] {
+	let r = rpc.Decode[wireReport]("process report", payload) catch {
+	case rpc.Transport:
+		return option.None
+	}
+	let ended option.Option[Ended] = match r.Kind {
+	case "Gives":
+		option.Some[Ended]{Value: Gives{Value: r.Value}}
+	case "Fails":
+		option.Some[Ended]{Value: Fails{Code: r.Code}}
+	case "OverTime":
+		option.Some[Ended]{Value: OverTime{Limit: duration(r.LimitNanos)}}
+	case "OverSteps":
+		option.Some[Ended]{Value: OverSteps{Limit: r.LimitSteps}}
+	case "Crashed":
+		option.Some[Ended]{Value: Crashed{Reason: r.Text}}
+	case _:
+		option.None
+	}
+	match ended {
+	case option.Some[Ended] as e:
+		option.Some[Report]{Value: Report{Ended: e.Value, Cleaned: r.Cleaned}}
+	case option.None:
+		option.None
+	}
+}
+
+func encodeWireReport(r Report) string {
+	let wr = match r.Ended {
+	case Gives as g:
+		wireReport{Kind: "Gives", Value: g.Value, Code: 0, Text: "", LimitNanos: int64(0), LimitSteps: 0, Cleaned: r.Cleaned}
+	case Fails as f:
+		wireReport{Kind: "Fails", Value: 0, Code: f.Code, Text: "", LimitNanos: int64(0), LimitSteps: 0, Cleaned: r.Cleaned}
+	case OverTime as o:
+		wireReport{Kind: "OverTime", Value: 0, Code: 0, Text: "", LimitNanos: int64(o.Limit), LimitSteps: 0, Cleaned: r.Cleaned}
+	case OverSteps as o:
+		wireReport{Kind: "OverSteps", Value: 0, Code: 0, Text: "", LimitNanos: int64(0), LimitSteps: o.Limit, Cleaned: r.Cleaned}
+	case Crashed as c:
+		wireReport{Kind: "Crashed", Value: 0, Code: 0, Text: c.Reason, LimitNanos: int64(0), LimitSteps: 0, Cleaned: r.Cleaned}
+	}
+	rpc.Encode(wr)
+}
+
+func parseWorkerLine(line string) workerStep {
+	let env = rpc.Decode[wireEnvelope]("child rpc envelope", line) catch {
+	case rpc.Transport as tr:
+		return workerInvalid{Reason: tr.Reason}
+	}
+	match env.Tag {
+	case "NeedSleep":
+		let w = rpc.Decode[wireWait]("sleep request", env.Payload) catch {
+		case rpc.Transport as tr:
+			return workerInvalid{Reason: tr.Reason}
+		}
+		workerNeedSleep{Duration: duration(w.Nanos)}
+	case "Reply":
+		match decodeWireReport(env.Payload) {
+		case option.Some[Report] as rep:
+			workerReport{Report: rep.Value}
+		case option.None:
+			workerInvalid{Reason: "malformed process report"}
+		}
+	case "Defect":
+		workerReport{Report: Report{Ended: Crashed{Reason: env.Payload}, Cleaned: 0}}
+	case "Fail":
+		workerReport{Report: Report{Ended: Crashed{Reason: env.Payload}, Cleaned: 0}}
+	case _:
+		workerInvalid{Reason: "unexpected child envelope tag \(env.Tag)"}
+	}
+}
+
+func hasStackOverflow(stderr string) bool {
+	strings.Contains(stderr, "stack overflow") || strings.Contains(stderr, "goroutine stack exceeds")
+}
+
+func hasOOM(stderr string) bool {
+	if strings.Contains(stderr, "out of memory") || strings.Contains(stderr, "OutOfMemory") || strings.Contains(stderr, "cannot allocate memory") {
+		return true
+	}
+	strings.Contains(stderr, "SIGSEGV: segmentation violation") && strings.Contains(stderr, "addr=0x0") && strings.Contains(stderr, "spanQueue")
+}
+
+func firstNonEmptyLine(text string) string {
+	for line in strings.Lines(text) {
+		let trimmed = strings.TrimSpace(line)
+		if trimmed != "" {
+			return trimmed
+		}
+	}
+	""
+}
+
+func classifyExitReason(status int, signal int, stderr string, killFailed bool, limitBytes int) string {
+	if killFailed {
+		return "child did not terminate on SIGKILL"
+	}
+	let detail = firstNonEmptyLine(stderr)
+	if hasStackOverflow(stderr) {
+		if detail != "" {
+			return "child stack overflow: \(detail)"
+		}
+		return "child stack overflow"
+	}
+	if hasOOM(stderr) {
+		if detail != "" {
+			return "child out of memory: \(detail)"
+		}
+		return "child out of memory"
+	}
+	if signal != 0 {
+		if limitBytes > 0 && signal == 9 {
+			return "child killed by signal 9 (memory/kill)"
+		}
+		if detail != "" {
+			return "child killed by signal \(signal): \(detail)"
+		}
+		return "child killed by signal \(signal)"
+	}
+	if detail != "" {
+		return "child exited with status \(status): \(detail)"
+	}
+	"child exited with status \(status)"
+}
+
+func statusToReport(st childStatus, eff Limits) Report {
+	Report{Ended: Crashed{Reason: classifyExitReason(st.Status, st.Signal, st.Stderr, st.KillFailed, eff.Bytes)}, Cleaned: 0}
+}
+
+// Play runs s inside a child OS process under l, scheduling s.Waits and l.Time
+// on the Scheduler on, and returns its Report.
+func Play(c ChildRunner, l Limits, s Script, on time.Scheduler) Report {
+	let eff = effectiveLimits(l, c.spec.Limits)
+	playLive(c, eff, s, on)
+}
+
+// PlayExec runs s as a one-shot command through r's exec.Runner under l.
+func PlayExec(r ExecRunner, l Limits, s Script, on time.Scheduler) Report {
+	let eff = effectiveLimits(l, r.spec.Limits)
+	playExec(r.spec, r.runner, eff, s, on)
+}
+
+func runLivePlay(c ChildRunner, eff Limits, s Script, killFailed sync.Ref[bool], finalReport sync.Ref[option.Option[Report]]) Report needs time.Scheduler {
+	let p = hostStartProc(c.spec.Binary, c.spec.Args, mergeEnv(c.spec.Env, c.base), c.spec.Dir, eff.Bytes, c.spec.Grace) catch {
+	case StartFailed as sf:
+		return Report{Ended: Crashed{Reason: "start failed: \(sf.Reason)"}, Cleaned: 0}
+	}
+	let waiting = sync.NewRef[bool](false)
+	let done = sync.NewRef[bool](false)
+	scope.OnExit() {
+		if !done.Get() {
+			if waiting.Get() {
+				let _ = p.WriteLine(stopEnvelope())
+				let reply = p.ReadLineWithin(250ms)
+				if reply.Open {
+					match parseWorkerLine(reply.Text) {
+					case workerReport as rep:
+						finalReport.Set(option.Some[Report]{Value: rep.Report})
+					case _:
+					}
+				}
+			}
+			p.Kill()
+			let st = p.Wait()
+			if st.KillFailed {
+				killFailed.Set(true)
+			}
+		}
+	}
+	let req = encodePlayRequest(eff, s, false)
+	if !p.WriteLine(req) {
+		p.CloseStdin()
+		let st = p.Wait()
+		done.Set(true)
+		return statusToReport(st, eff)
+	}
+	let line1 = p.ReadLine()
+	if !line1.Open {
+		let st = p.Wait()
+		done.Set(true)
+		return statusToReport(st, eff)
+	}
+	match parseWorkerLine(line1.Text) {
+	case workerReport as r:
+		p.CloseStdin()
+		let st = p.Wait()
+		done.Set(true)
+		if st.KillFailed || st.Status != 0 || st.Signal != 0 {
+			return statusToReport(st, eff)
+		}
+		r.Report
+	case workerNeedSleep as w:
+		waiting.Set(true)
+		time.Scheduler.Sleep(w.Duration)
+		waiting.Set(false)
+		let _ = p.WriteLine(goEnvelope())
+		let line2 = p.ReadLine()
+		p.CloseStdin()
+		let st = p.Wait()
+		done.Set(true)
+		if st.KillFailed || st.Status != 0 || st.Signal != 0 {
+			return statusToReport(st, eff)
+		}
+		if !line2.Open {
+			return statusToReport(st, eff)
+		}
+		match parseWorkerLine(line2.Text) {
+		case workerReport as r2:
+			r2.Report
+		case workerInvalid as bad:
+			Report{Ended: Crashed{Reason: bad.Reason}, Cleaned: 0}
+		case workerNeedSleep:
+			Report{Ended: Crashed{Reason: "unexpected second NeedSleep from child"}, Cleaned: 0}
+		}
+	case workerInvalid as bad:
+		p.CloseStdin()
+		let st = p.Wait()
+		done.Set(true)
+		if st.KillFailed || st.Status != 0 || st.Signal != 0 {
+			return statusToReport(st, eff)
+		}
+		Report{Ended: Crashed{Reason: bad.Reason}, Cleaned: 0}
+	}
+}
+
+func playLive(c ChildRunner, eff Limits, s Script, on time.Scheduler) Report {
+	let killFailed = sync.NewRef[bool](false)
+	let finalReport = sync.NewRef[option.Option[Report]](option.None)
+	with context { time.Scheduler: on } {
+		let t = task.Go() { runLivePlay(c, eff, s, killFailed, finalReport) }
+		let exit = if eff.Time > 0ns {
+			let limit task.Alarm = task.StopAfter(t, eff.Time)
+			task.OutcomeOf(t)
+		} else {
+			task.OutcomeOf(t)
+		}
+		match exit {
+		case task.Done[Report] as d:
+			d.Value
+		case task.Failed:
+			Report{Ended: Crashed{Reason: "unreachable"}, Cleaned: 0}
+		case task.Defected as cr:
+			Report{Ended: Crashed{Reason: cr.Reason}, Cleaned: 0}
+		case task.OverSteps:
+			Report{Ended: OverSteps{Limit: eff.Steps}, Cleaned: 0}
+		case task.Stopped:
+			if killFailed.Get() {
+				Report{Ended: Crashed{Reason: "child did not terminate on SIGKILL"}, Cleaned: 0}
+			} else {
+				match finalReport.Get() {
+				case option.Some[Report] as rep:
+					rep.Value
+				case option.None:
+					Report{Ended: OverTime{Limit: eff.Time}, Cleaned: 0}
+				}
+			}
+		}
+	}
+}
+
+func buildExecCommand(spec Spec, runner exec.Runner, eff Limits, stdinText string) exec.Command {
+	let mut cmd = exec.New(spec.Binary, spec.Args)
+	if spec.Dir != "" {
+		cmd = exec.WithDir(cmd, spec.Dir)
+	}
+	for k, v in spec.Env {
+		cmd = exec.WithEnv(cmd, k, v)
+	}
+	cmd = exec.WithEnvFrom(cmd, runner.Env())
+	if eff.Bytes > 0 {
+		let b = strconv.Itoa(eff.Bytes)
+		cmd = exec.WithEnv(cmd, "GOMEMLIMIT", b+"B")
+		cmd = exec.WithEnv(cmd, "__ERGO_PROCESS_BYTES", b)
+	}
+	cmd = exec.WithEnv(cmd, "__ERGO_PROCESS_ONESHOT", "1")
+	cmd = exec.WithGrace(cmd, spec.Grace)
+	exec.WithStdin(cmd, stdinText)
+}
+
+func runExecPlay(spec Spec, runner exec.Runner, eff Limits, s Script) Report {
+	let req = encodePlayRequest(eff, s, true) + "\n"
+	let cmd = buildExecCommand(spec, runner, eff, req)
+	let run = runner.Start(cmd, exec.Streams{Stdout: exec.ToCaller, Stderr: exec.ToCaller}) catch {
+	case exec.NotFound as e:
+		return Report{Ended: Crashed{Reason: "not found: \(e.Name)"}, Cleaned: 0}
+	case exec.Denied as e:
+		return Report{Ended: Crashed{Reason: "denied: \(e.Name)"}, Cleaned: 0}
+	case exec.Failed as e:
+		return Report{Ended: Crashed{Reason: "start failed: \(e.Reason)"}, Cleaned: 0}
+	}
+	let mut outLines = []string{}
+	let mut errLines = []string{}
+	for line in run.Lines() {
+		if line.Stderr {
+			errLines = errLines.Append(line.Text)
+		} else {
+			outLines = outLines.Append(line.Text)
+		}
+	}
+	let status = run.Wait()
+	let stderrText = strings.Join(errLines, "\n")
+	if status != 0 {
+		let sig = if status > 128 { status - 128 } else { 0 }
+		return Report{Ended: Crashed{Reason: classifyExitReason(status, sig, stderrText, false, eff.Bytes)}, Cleaned: 0}
+	}
+	if outLines.Len() == 0 {
+		return Report{Ended: Crashed{Reason: "empty output from child"}, Cleaned: 0}
+	}
+	match parseWorkerLine(outLines[outLines.Len()-1]) {
+	case workerReport as r:
+		r.Report
+	case workerInvalid as bad:
+		Report{Ended: Crashed{Reason: bad.Reason}, Cleaned: 0}
+	case workerNeedSleep:
+		Report{Ended: Crashed{Reason: "one-shot exec child requested interactive sleep"}, Cleaned: 0}
+	}
+}
+
+func playExec(spec Spec, runner exec.Runner, eff Limits, s Script, on time.Scheduler) Report {
+	with context { time.Scheduler: on } {
+		let t = task.Go() { runExecPlay(spec, runner, eff, s) }
+		let exit = if eff.Time > 0ns {
+			let limit task.Alarm = task.StopAfter(t, eff.Time)
+			task.OutcomeOf(t)
+		} else {
+			task.OutcomeOf(t)
+		}
+		match exit {
+		case task.Done[Report] as d:
+			d.Value
+		case task.Failed:
+			Report{Ended: Crashed{Reason: "unreachable"}, Cleaned: 0}
+		case task.Defected as cr:
+			Report{Ended: Crashed{Reason: cr.Reason}, Cleaned: 0}
+		case task.OverSteps:
+			Report{Ended: OverSteps{Limit: eff.Steps}, Cleaned: 0}
+		case task.Stopped:
+			Report{Ended: OverTime{Limit: eff.Time}, Cleaned: 0}
+		}
+	}
+}
+
+// Call invokes RPC operation tag with wire-serializable request req in a
+// child OS process under effective limits of limits and c's Spec, decoding
+// reply A or failing with rpc.Failed, rpc.Transport, or process Exit.
+func Call[Q wire, A wire](c ChildRunner, tag string, req Q, limits Limits) A fails rpc.Failed | rpc.Transport | Exit needs wired[Q] | wired[A] | time.Scheduler {
+	let eff = effectiveLimits(limits, c.spec.Limits)
+	let payload = rpc.Encode(wireEnvelope{Tag: "Request", ID: "1", RPC: tag, Payload: rpc.Encode(req)})
+	try callLive[A](c, eff, tag, payload)
+}
+
+// CallExec invokes RPC operation tag through an ExecRunner's exec.Runner.
+func CallExec[Q wire, A wire](r ExecRunner, tag string, req Q, limits Limits) A fails rpc.Failed | rpc.Transport | Exit needs wired[Q] | wired[A] | time.Scheduler {
+	let eff = effectiveLimits(limits, r.spec.Limits)
+	let payload = rpc.Encode(wireEnvelope{Tag: "Request", ID: "1", RPC: tag, Payload: rpc.Encode(req)})
+	try callExec[A](r.spec, r.runner, eff, tag, payload)
+}
+
+func decodeCallEnvelope[A wire](tag string, line string) A fails rpc.Failed | rpc.Transport | Crashed needs wired[A] {
+	let env = try rpc.Decode[wireEnvelope]("child rpc reply", line)
+	match env.Tag {
+	case "Reply":
+		try rpc.Decode[A](tag, env.Payload)
+	case "Fail":
+		return rpc.Failed{Text: env.Payload}
+	case "Defect":
+		return Crashed{Reason: env.Payload}
+	case _:
+		return rpc.Transport{Reason: "unexpected child envelope tag \(env.Tag)"}
+	}
+}
+
+func runLiveCall[A wire](c ChildRunner, eff Limits, tag string, payload string, killFailed sync.Ref[bool]) A fails rpc.Failed | rpc.Transport | Exit needs wired[A] {
+	let p = hostStartProc(c.spec.Binary, c.spec.Args, mergeEnv(c.spec.Env, c.base), c.spec.Dir, eff.Bytes, c.spec.Grace) catch {
+	case StartFailed as sf:
+		return Crashed{Reason: "start failed: \(sf.Reason)"}
+	}
+	let done = sync.NewRef[bool](false)
+	scope.OnExit() {
+		if !done.Get() {
+			p.Kill()
+			let st = p.Wait()
+			if st.KillFailed {
+				killFailed.Set(true)
+			}
+		}
+	}
+	if !p.WriteLine(payload) {
+		p.CloseStdin()
+		let st = p.Wait()
+		done.Set(true)
+		return Crashed{Reason: classifyExitReason(st.Status, st.Signal, st.Stderr, st.KillFailed, eff.Bytes)}
+	}
+	p.CloseStdin()
+	let mut lastLine = ""
+	let mut gotLine = false
+	for _ in 0..1024 {
+		let l = p.ReadLine()
+		if !l.Open {
+			break
+		}
+		lastLine = l.Text
+		gotLine = true
+	}
+	let st = p.Wait()
+	done.Set(true)
+	if st.KillFailed || st.Status != 0 || st.Signal != 0 {
+		return Crashed{Reason: classifyExitReason(st.Status, st.Signal, st.Stderr, st.KillFailed, eff.Bytes)}
+	}
+	if !gotLine {
+		return rpc.Transport{Reason: "child closed stdout without replying"}
+	}
+	try decodeCallEnvelope[A](tag, lastLine)
+}
+
+func callLive[A wire](c ChildRunner, eff Limits, tag string, payload string) A fails rpc.Failed | rpc.Transport | Exit needs wired[A] | time.Scheduler {
+	let killFailed = sync.NewRef[bool](false)
+	let t = task.Go() { try runLiveCall[A](c, eff, tag, payload, killFailed) }
+	let exit = if eff.Time > 0ns {
+		let limit task.Alarm = task.StopAfter(t, eff.Time)
+		task.OutcomeOf(t)
+	} else {
+		task.OutcomeOf(t)
+	}
+	match exit {
+	case task.Done[A] as d:
+		d.Value
+	case task.Failed[rpc.Failed | rpc.Transport | Exit] as e:
+		return e.Error
+	case task.Defected as cr:
+		return Crashed{Reason: cr.Reason}
+	case task.OverSteps:
+		return OverSteps{Limit: eff.Steps}
+	case task.Stopped:
+		if killFailed.Get() {
+			return Crashed{Reason: "child did not terminate on SIGKILL"}
+		}
+		return OverTime{Limit: eff.Time}
+	}
+}
+
+func runExecCall[A wire](spec Spec, runner exec.Runner, eff Limits, tag string, payload string) A fails rpc.Failed | rpc.Transport | Exit needs wired[A] {
+	let cmd = buildExecCommand(spec, runner, eff, payload+"\n")
+	let run = runner.Start(cmd, exec.Streams{Stdout: exec.ToCaller, Stderr: exec.ToCaller}) catch {
+	case exec.NotFound as e:
+		return Crashed{Reason: "not found: \(e.Name)"}
+	case exec.Denied as e:
+		return Crashed{Reason: "denied: \(e.Name)"}
+	case exec.Failed as e:
+		return Crashed{Reason: "start failed: \(e.Reason)"}
+	}
+	let mut outLines = []string{}
+	let mut errLines = []string{}
+	for line in run.Lines() {
+		if line.Stderr {
+			errLines = errLines.Append(line.Text)
+		} else {
+			outLines = outLines.Append(line.Text)
+		}
+	}
+	let status = run.Wait()
+	let stderrText = strings.Join(errLines, "\n")
+	if status != 0 {
+		let sig = if status > 128 { status - 128 } else { 0 }
+		return Crashed{Reason: classifyExitReason(status, sig, stderrText, false, eff.Bytes)}
+	}
+	if outLines.Len() == 0 {
+		return rpc.Transport{Reason: "child closed stdout without replying"}
+	}
+	try decodeCallEnvelope[A](tag, outLines[outLines.Len()-1])
+}
+
+func callExec[A wire](spec Spec, runner exec.Runner, eff Limits, tag string, payload string) A fails rpc.Failed | rpc.Transport | Exit needs wired[A] | time.Scheduler {
+	let t = task.Go() { try runExecCall[A](spec, runner, eff, tag, payload) }
+	let exit = if eff.Time > 0ns {
+		let limit task.Alarm = task.StopAfter(t, eff.Time)
+		task.OutcomeOf(t)
+	} else {
+		task.OutcomeOf(t)
+	}
+	match exit {
+	case task.Done[A] as d:
+		d.Value
+	case task.Failed[rpc.Failed | rpc.Transport | Exit] as e:
+		return e.Error
+	case task.Defected as cr:
+		return Crashed{Reason: cr.Reason}
+	case task.OverSteps:
+		return OverSteps{Limit: eff.Steps}
+	case task.Stopped:
+		return OverTime{Limit: eff.Time}
+	}
+}
+
+func feedInbox(lines core.Seq[string], inbox queue.Queue[string]) {
+	for line in lines {
+		inbox.Push(line) catch {
+		case queue.Closed:
+			return
+		}
+	}
+	inbox.End()
+}
+
+// ServeRunner serves Runner.Play requests over standard input and output.
+func ServeRunner() needs os.Ambient | time.Scheduler {
+	ServeWith(io.NewStdin(), io.NewHost(), func(tag string, _ string) string fails rpc.Failed {
+		return rpc.Failed{Text: "unknown rpc \(tag)"}
+	})
+}
+
+// ServeWith serves Runner.Play requests and custom RPC operations over input
+// and out using newline-delimited wire envelopes.
+func ServeWith[R](input io.Stdin, out io.Stdout, handle own func(tag string, payload string) string fails rpc.Failed needs R defects) needs R | time.Scheduler {
+	let inbox = queue.New[string](8)
+	let lines = input.Lines()
+	let reader = task.Go() { feedInbox(lines, inbox) }
+	for {
+		let raw = inbox.Pop() catch {
+		case queue.Closed:
+			break
+		}
+		let trimmed = strings.TrimSpace(raw)
+		if trimmed == "" {
+			continue
+		}
+		let env = rpc.Decode[wireEnvelope]("worker request", trimmed) catch {
+		case rpc.Transport as tr:
+			out.Println(rpc.Encode(wireEnvelope{Tag: "Defect", ID: "", RPC: "", Payload: tr.Reason}))
+			continue
+		}
+		if env.Tag != "Request" {
+			continue
+		}
+		if env.RPC == "process.Play" {
+			let q = rpc.Decode[wirePlay]("play payload", env.Payload) catch {
+			case rpc.Transport as tr:
+				out.Println(rpc.Encode(wireEnvelope{Tag: "Defect", ID: env.ID, RPC: env.RPC, Payload: tr.Reason}))
+				continue
+			}
+			let rep = servePlay(q, env.ID, inbox, func(s string) { out.Println(s) })
+			out.Println(rpc.Encode(wireEnvelope{Tag: "Reply", ID: env.ID, RPC: env.RPC, Payload: encodeWireReport(rep)}))
+			continue
+		}
+		let ans = Run(Unlimited) { try handle(env.RPC, env.Payload) } catch {
+		case rpc.Failed as rf:
+			out.Println(rpc.Encode(wireEnvelope{Tag: "Fail", ID: env.ID, RPC: env.RPC, Payload: rf.Text}))
+			continue
+		case OverTime as o:
+			out.Println(rpc.Encode(wireEnvelope{Tag: "Defect", ID: env.ID, RPC: env.RPC, Payload: "over time \(o.Limit)"}))
+			continue
+		case OverSteps as o:
+			out.Println(rpc.Encode(wireEnvelope{Tag: "Defect", ID: env.ID, RPC: env.RPC, Payload: "over steps \(o.Limit)"}))
+			continue
+		case Crashed as cr:
+			out.Println(rpc.Encode(wireEnvelope{Tag: "Defect", ID: env.ID, RPC: env.RPC, Payload: cr.Reason}))
+			continue
+		}
+		out.Println(rpc.Encode(wireEnvelope{Tag: "Reply", ID: env.ID, RPC: env.RPC, Payload: ans}))
+	}
+	reader.Wait()
+}
+
+func decodePlayScript(s wireScript) Script {
+	let end End = match s.End.Kind {
+	case "Gives":
+		Gives{Value: s.End.Value}
+	case "Fails":
+		Fails{Code: s.End.Code}
+	case _:
+		Panics{Text: s.End.Text}
+	}
+	Script{Cleanups: s.Cleanups, Waits: duration(s.WaitNanos), Steps: s.Steps, End: end}
+}
+
+func waitSleepAck(inbox queue.Queue[string], aborted sync.Ref[bool]) {
+	let cmdLine = inbox.Pop() catch {
+	case queue.Closed:
+		aborted.Set(true)
+		return
+	}
+	let cmd = rpc.Decode[wireEnvelope]("sleep ack", cmdLine) catch {
+	case rpc.Transport:
+		aborted.Set(true)
+		return
+	}
+	if cmd.Tag != "Go" {
+		aborted.Set(true)
+	}
+}
+
+func servePlay(q wirePlay, reqID string, inbox queue.Queue[string], writeLine own func(string)) Report needs time.Scheduler {
+	let l = Limits{Time: duration(q.Limits.TimeNanos), Steps: q.Limits.Steps, Bytes: q.Limits.Bytes}
+	let s = decodePlayScript(q.Script)
+	let aborted = sync.NewRef[bool](false)
+	let rep = if q.OneShot {
+		Local.Play(Limits{..Unlimited, Steps: l.Steps}, s, time.NewManual(0))
+	} else {
+		let w = childWaiter{
+			base: time.NewManual(0),
+			send: func(d duration) {
+				writeLine(rpc.Encode(wireEnvelope{Tag: "NeedSleep", ID: reqID, RPC: "process.Play", Payload: rpc.Encode(wireWait{Nanos: int64(d)})}))
+				waitSleepAck(inbox, aborted)
+			},
+		}
+		Local.Play(Limits{..Unlimited, Steps: l.Steps}, s, w)
+	}
+	if aborted.Get() {
+		match rep.Ended {
+		case OverSteps:
+			rep
+		case _:
+			Report{Ended: OverTime{Limit: l.Time}, Cleaned: rep.Cleaned}
+		}
+	} else {
+		rep
+	}
+}

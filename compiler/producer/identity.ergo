@@ -1,0 +1,556 @@
+import dense
+import hex
+import json
+import sha256
+import strconv
+import strings
+
+// MaxImageBytes caps executing image hashing at 256 MiB.
+let MaxImageBytes = 256 * 1024 * 1024
+
+// MemoFile names the executing image digest memo inside the compiler cache root.
+let MemoFile = "producer-images"
+
+// MemoEntries caps cached executing image memo entries at 16.
+let MemoEntries = 16
+
+// MemoBytes caps serialized memo file reads at 16 KiB.
+let MemoBytes = 16 * 1024
+
+// ErrUnsupportedReason identifies platforms lacking executing image identity.
+let ErrUnsupportedReason = "unsupported"
+
+// ErrUnverifiedReason identifies unverified image code signatures.
+let ErrUnverifiedReason = "unverified"
+
+// ErrNoSignatureRecordReason identifies missing kernel cdhash records.
+let ErrNoSignatureRecordReason = "no-signature-record"
+
+// ErrUniversalReason identifies universal multi-slice Mach-O images.
+let ErrUniversalReason = "universal"
+
+// ErrWeakDirectoryReason identifies CodeDirectory entries without full SHA-256 hashes.
+let ErrWeakDirectoryReason = "weak-directory"
+
+// ErrImageTooLargeReason identifies images exceeding MaxImageBytes.
+let ErrImageTooLargeReason = "too-large"
+
+// ProducerError reports invalid producer qualification or malformed identity JSON.
+type ProducerError {
+	Message string,
+}
+
+// Declaration carries non-qualifying informative compiler build metadata.
+type Declaration {
+	GoVersion   string,
+	Module      string,
+	Version     string,
+	VCSRevision string,
+	VCSModified string,
+	GOOS        string,
+	GOARCH      string,
+	CGOEnabled  string,
+}
+
+// Identity identifies the executing compiler artifact or fallback process qualifier.
+type Identity {
+	Strength    string,
+	Digest      string,
+	Qualifier   string,
+	ReuseScope  string,
+	Reason      string,
+	Declaration Declaration,
+}
+
+// MemoTag identifies one entry inside MemoTable.
+type MemoTag {}
+
+// MemoTable stores executing image digest memo entries in dense SoA columns.
+type MemoTable {
+	Count  dense.Count[MemoTag],
+	Key    dense.Col[MemoTag, string],
+	Digest dense.Col[MemoTag, string],
+}
+
+// NewMemoTable creates an initialized empty SoA MemoTable.
+func NewMemoTable() MemoTable {
+	MemoTable{
+		Count:  dense.NewCount[MemoTag](),
+		Key:    dense.NewCol[MemoTag, string](),
+		Digest: dense.NewCol[MemoTag, string](),
+	}
+}
+
+// DeclarationOf extracts bounded build declaration metadata matching internal/producer.
+func DeclarationOf(hasInfo bool, info BuildInfo) Declaration {
+	if !hasInfo {
+		return Declaration{
+			GoVersion:   "",
+			Module:      "",
+			Version:     "",
+			VCSRevision: "",
+			VCSModified: "",
+			GOOS:        "",
+			GOARCH:      "",
+			CGOEnabled:  "",
+		}
+	}
+	let mut d = Declaration{
+		GoVersion:   boundedDeclVal(info.GoVersion),
+		Module:      boundedDeclVal(info.MainPath),
+		Version:     boundedDeclVal(VersionOf(true, info)),
+		VCSRevision: "",
+		VCSModified: "",
+		GOOS:        "",
+		GOARCH:      "",
+		CGOEnabled:  "",
+	}
+	for s in info.Settings {
+		if s.Key == "vcs.revision" {
+			d.VCSRevision = boundedDeclVal(s.Value)
+		} else if s.Key == "vcs.modified" {
+			if s.Value == "true" || s.Value == "false" {
+				d.VCSModified = s.Value
+			}
+		} else if s.Key == "GOOS" {
+			d.GOOS = boundedDeclVal(s.Value)
+		} else if s.Key == "GOARCH" {
+			d.GOARCH = boundedDeclVal(s.Value)
+		} else if s.Key == "CGO_ENABLED" {
+			if s.Value == "0" || s.Value == "1" {
+				d.CGOEnabled = s.Value
+			}
+		}
+	}
+	d
+}
+
+// Require verifies that id qualifies reuse when expected is non-empty.
+func Require(id Identity, expected string) fails ProducerError {
+	if expected != "" && (id.Qualifier == "" || expected != id.Qualifier) {
+		return ProducerError{Message: "stale producer qualification"}
+	}
+}
+
+// ImageReason maps an acquisition error tag to the canonical producer unavailability reason.
+func ImageReason(errTag string, otherwise string) string {
+	if errTag == ErrUnsupportedReason {
+		return "executing image identity is unsupported on this platform"
+	} else if errTag == ErrUnverifiedReason {
+		return "executing image does not match the kernel's code signature record"
+	} else if errTag == ErrNoSignatureRecordReason {
+		return "executing image has no kernel code signature record"
+	} else if errTag == ErrUniversalReason {
+		return "executing image is a universal file, whose other slices the kernel check does not cover"
+	} else if errTag == ErrWeakDirectoryReason {
+		return "executing image's code directory does not use full SHA-256 page hashes"
+	} else if errTag == ErrImageTooLargeReason {
+		return "executing image cannot be read within its byte limit"
+	}
+	otherwise
+}
+
+// ValidDigest checks whether digest matches "sha256:" followed by 64 hexadecimal characters.
+func ValidDigest(digest string) bool {
+	if !strings.HasPrefix(digest, "sha256:") {
+		return false
+	}
+	let h = strings.TrimPrefix(digest, "sha256:")
+	if h.Len() != 64 {
+		return false
+	}
+	let _ = hex.Decode(h) catch {
+	case hex.Malformed:
+		return false
+	}
+	true
+}
+
+// StatKey formats the stat portion of an image memo key matching internal/producer.
+func StatKey(dev uint64, ino uint64, size uint64, mtimeSec uint64, mtimeNsec uint64, ctimeSec uint64, ctimeNsec uint64) string {
+	"\(dev):\(ino):\(size):\(mtimeSec).\(pad9(mtimeNsec)):\(ctimeSec).\(pad9(ctimeNsec))"
+}
+
+// ParseMemo reads valid key-digest lines (up to MemoEntries within MemoBytes) into MemoTable.
+func ParseMemo(text string) MemoTable {
+	let mut tbl = NewMemoTable()
+	let capped = if text.Len() > MemoBytes { text[0:MemoBytes] } else { text }
+	for raw in strings.Split(capped, "\n") {
+		if dense.Total(tbl.Count) >= MemoEntries {
+			break
+		}
+		let line = strings.TrimSuffix(raw, "\r")
+		let idx = strings.Index(line, " ")
+		if idx <= 0 {
+			continue
+		}
+		let key = line[0:idx]
+		let digest = line[idx+1 : line.Len()]
+		if strings.Contains(key, "\n") || !ValidDigest(digest) {
+			continue
+		}
+		let _ = dense.Next(&tbl.Count)
+		dense.Push(&tbl.Key, key)
+		dense.Push(&tbl.Digest, digest)
+	}
+	tbl
+}
+
+// RecallMemo searches tbl for key and returns (digest, found).
+func RecallMemo(tbl MemoTable, key string) (string, bool) {
+	let total = dense.Total(tbl.Count)
+	for i in 0..total {
+		let id = dense.IDAt(tbl.Count, i)
+		if dense.Of(tbl.Key, id) == key {
+			return (dense.Of(tbl.Digest, id), true)
+		}
+	}
+	("", false)
+}
+
+// RecordMemo returns a new MemoTable with (key, digest) moved to the front, keeping up to MemoEntries.
+func RecordMemo(tbl MemoTable, key string, digest string) MemoTable {
+	let mut next = NewMemoTable()
+	if key != "" && ValidDigest(digest) {
+		let _ = dense.Next(&next.Count)
+		dense.Push(&next.Key, key)
+		dense.Push(&next.Digest, digest)
+	}
+	let total = dense.Total(tbl.Count)
+	for i in 0..total {
+		if dense.Total(next.Count) >= MemoEntries {
+			break
+		}
+		let id = dense.IDAt(tbl.Count, i)
+		let k = dense.Of(tbl.Key, id)
+		let d = dense.Of(tbl.Digest, id)
+		if k != key {
+			let _ = dense.Next(&next.Count)
+			dense.Push(&next.Key, k)
+			dense.Push(&next.Digest, d)
+		}
+	}
+	next
+}
+
+// FormatMemo serializes tbl in canonical line format.
+func FormatMemo(tbl MemoTable) string {
+	let mut out = strings.NewBuilder()
+	let total = dense.Total(tbl.Count)
+	for i in 0..total {
+		let id = dense.IDAt(tbl.Count, i)
+		strings.WriteString(&out, dense.Of(tbl.Key, id))
+		strings.WriteByte(&out, byte(' '))
+		strings.WriteString(&out, dense.Of(tbl.Digest, id))
+		strings.WriteByte(&out, byte('\n'))
+	}
+	strings.String(out)
+}
+
+// AcquireFromImage derives Identity from image bytes (or fallback nonce on open/read failure), updating memo when keyed.
+func AcquireFromImage(openErrTag string, imageBytes []byte, readErrTag string, hasInfo bool, info BuildInfo, nonce string, memo mut MemoTable, imageKey string, hasKey bool) Identity {
+	let decl = DeclarationOf(hasInfo, info)
+	let mut identity = Identity{
+		Strength:    "unavailable",
+		Digest:      "",
+		Qualifier:   "",
+		ReuseScope:  "none",
+		Reason:      "",
+		Declaration: decl,
+	}
+	if openErrTag != "" {
+		identity.Reason = ImageReason(openErrTag, "executing image cannot be opened")
+		return withFallbackNonce(identity, nonce)
+	}
+	let mut digest = ""
+	let mut recalled = false
+	if hasKey && imageKey != "" {
+		let (d, ok) = RecallMemo(*memo, imageKey)
+		if ok {
+			digest = d
+			recalled = true
+		}
+	}
+	if !recalled {
+		if readErrTag != "" || imageBytes.Len() > MaxImageBytes {
+			identity.Reason = ImageReason(readErrTag, "executing image cannot be read within its byte limit")
+			return withFallbackNonce(identity, nonce)
+		}
+		digest = "sha256:" + hex.Encode(sha256.Sum(imageBytes.Text()))
+		if hasKey && imageKey != "" {
+			*memo = RecordMemo(*memo, imageKey, digest)
+		}
+	}
+	identity.Strength = "executing-artifact"
+	identity.ReuseScope = "artifact"
+	identity.Digest = digest
+	identity.Qualifier = digest
+	identity
+}
+
+// EncodeIdentityJSON serializes Identity in JSON matching internal/producer Go tags.
+func EncodeIdentityJSON(id Identity) string {
+	let declEmpty = isEmptyDecl(id.Declaration)
+	let mut n = 3
+	if id.Digest != "" {
+		n = n + 1
+	}
+	if id.Reason != "" {
+		n = n + 1
+	}
+	if !declEmpty {
+		n = n + 1
+	}
+	let t = json.NewText()
+	t.BeginObject(n)
+	t.Key("strength")
+	t.String(id.Strength)
+	if id.Digest != "" {
+		t.Key("digest")
+		t.String(id.Digest)
+	}
+	t.Key("qualifier")
+	t.String(id.Qualifier)
+	t.Key("reuseScope")
+	t.String(id.ReuseScope)
+	if id.Reason != "" {
+		t.Key("reason")
+		t.String(id.Reason)
+	}
+	if !declEmpty {
+		t.Key("declaration")
+		encodeDeclarationJSON(t, id.Declaration)
+	}
+	t.EndObject()
+	t.Written()
+}
+
+// DecodeIdentityJSON parses JSON text into Identity.
+func DecodeIdentityJSON(raw string) Identity fails ProducerError {
+	let codec = json.Codec[json.Value]{MaxBytes: 0, MaxDepth: 0}
+	let root = json.Decode(codec, raw) catch {
+	case json.Malformed as e:
+		return ProducerError{Message: e.Reason}
+	case _:
+		return ProducerError{Message: "malformed identity json"}
+	}
+	let obj = match root {
+	case json.Object as o:
+		o
+	case _:
+		return ProducerError{Message: "identity json must be object"}
+	}
+	let mut out = Identity{
+		Strength:    "",
+		Digest:      "",
+		Qualifier:   "",
+		ReuseScope:  "",
+		Reason:      "",
+		Declaration: emptyDecl(),
+	}
+	for m in obj.Members {
+		if m.Key == "strength" {
+			out.Strength = try decodeString(m.Value)
+		} else if m.Key == "digest" {
+			out.Digest = try decodeString(m.Value)
+		} else if m.Key == "qualifier" {
+			out.Qualifier = try decodeString(m.Value)
+		} else if m.Key == "reuseScope" {
+			out.ReuseScope = try decodeString(m.Value)
+		} else if m.Key == "reason" {
+			out.Reason = try decodeString(m.Value)
+		} else if m.Key == "declaration" {
+			out.Declaration = try decodeDeclJSON(m.Value)
+		}
+	}
+	out
+}
+
+func withFallbackNonce(id Identity, nonce string) Identity {
+	let mut res = id
+	if nonce != "" {
+		res.ReuseScope = "process"
+		res.Qualifier = "process:" + nonce
+	}
+	res
+}
+
+func boundedDeclVal(s string) string {
+	if s.Len() > 256 { "" } else { s }
+}
+
+func pad9(n uint64) string {
+	let s = strconv.AppendUint([]byte{}, n, 10).Text()
+	if s.Len() >= 9 {
+		return s
+	}
+	strings.Repeat("0", 9-s.Len()) + s
+}
+
+func emptyDecl() Declaration {
+	Declaration{GoVersion: "", Module: "", Version: "", VCSRevision: "", VCSModified: "", GOOS: "", GOARCH: "", CGOEnabled: ""}
+}
+
+func isEmptyDecl(d Declaration) bool {
+	d.GoVersion == "" && d.Module == "" && d.Version == "" && d.VCSRevision == "" && d.VCSModified == "" && d.GOOS == "" && d.GOARCH == "" && d.CGOEnabled == ""
+}
+
+func encodeDeclarationJSON(t json.Text, d Declaration) {
+	let mut n = 0
+	if d.GoVersion != "" {
+		n = n + 1
+	}
+	if d.Module != "" {
+		n = n + 1
+	}
+	if d.Version != "" {
+		n = n + 1
+	}
+	if d.VCSRevision != "" {
+		n = n + 1
+	}
+	if d.VCSModified != "" {
+		n = n + 1
+	}
+	if d.GOOS != "" {
+		n = n + 1
+	}
+	if d.GOARCH != "" {
+		n = n + 1
+	}
+	if d.CGOEnabled != "" {
+		n = n + 1
+	}
+	t.BeginObject(n)
+	if d.GoVersion != "" {
+		t.Key("goVersion")
+		t.String(d.GoVersion)
+	}
+	if d.Module != "" {
+		t.Key("module")
+		t.String(d.Module)
+	}
+	if d.Version != "" {
+		t.Key("version")
+		t.String(d.Version)
+	}
+	if d.VCSRevision != "" {
+		t.Key("vcsRevision")
+		t.String(d.VCSRevision)
+	}
+	if d.VCSModified != "" {
+		t.Key("vcsModified")
+		t.String(d.VCSModified)
+	}
+	if d.GOOS != "" {
+		t.Key("goos")
+		t.String(d.GOOS)
+	}
+	if d.GOARCH != "" {
+		t.Key("goarch")
+		t.String(d.GOARCH)
+	}
+	if d.CGOEnabled != "" {
+		t.Key("cgoEnabled")
+		t.String(d.CGOEnabled)
+	}
+	t.EndObject()
+}
+
+func decodeDeclJSON(v json.Value) Declaration fails ProducerError {
+	let obj = match v {
+	case json.Object as o:
+		o
+	case _:
+		return ProducerError{Message: "declaration must be object"}
+	}
+	let mut d = emptyDecl()
+	for m in obj.Members {
+		if m.Key == "goVersion" {
+			d.GoVersion = try decodeString(m.Value)
+		} else if m.Key == "module" {
+			d.Module = try decodeString(m.Value)
+		} else if m.Key == "version" {
+			d.Version = try decodeString(m.Value)
+		} else if m.Key == "vcsRevision" {
+			d.VCSRevision = try decodeString(m.Value)
+		} else if m.Key == "vcsModified" {
+			d.VCSModified = try decodeString(m.Value)
+		} else if m.Key == "goos" {
+			d.GOOS = try decodeString(m.Value)
+		} else if m.Key == "goarch" {
+			d.GOARCH = try decodeString(m.Value)
+		} else if m.Key == "cgoEnabled" {
+			d.CGOEnabled = try decodeString(m.Value)
+		}
+	}
+	d
+}
+
+func decodeString(v json.Value) string fails ProducerError {
+	match v {
+	case json.Str as s:
+		s.Value
+	case _:
+		return ProducerError{Message: "expected string"}
+	}
+}
+
+// AcquireArtifactDeterministic checks that identical image bytes always yield identical Digest and Qualifier.
+law AcquireArtifactDeterministic(img []byte, key string) {
+	let mut m1 = NewMemoTable()
+	let mut m2 = NewMemoTable()
+	let info = BuildInfo{
+		GoVersion:   "go1.27.4",
+		MainPath:    "ergo.local/prototype",
+		MainVersion: "(devel)",
+		Settings:    []BuildSetting{BuildSetting{Key: "GOOS", Value: "linux"}, BuildSetting{Key: "GOARCH", Value: "amd64"}, BuildSetting{Key: "CGO_ENABLED", Value: "0"}},
+	}
+	let cleanKey = strings.ReplaceAll(strings.ReplaceAll(key, " ", "_"), "\n", "_")
+	let id1 = AcquireFromImage("", img, "", true, info, "n1", &m1, cleanKey, cleanKey != "")
+	let id2 = AcquireFromImage("", img, "", true, info, "n2", &m2, "", false)
+	let (rec, okRec) = RecallMemo(m1, cleanKey)
+	let memoOk = if cleanKey == "" { true } else { okRec && rec == id1.Digest }
+	id1.Strength == "executing-artifact" && id1.Qualifier == id1.Digest && id1 == id2 && memoOk
+}
+
+test TestProducerMemoRequireAndJSON {
+	let mut memo = NewMemoTable()
+	let d1 = "sha256:" + strings.Repeat("a", 64)
+	let d2 = "sha256:" + strings.Repeat("b", 64)
+	assert ValidDigest(d1) && !ValidDigest("sha256:short") && !ValidDigest("md5:1234")
+	assert StatKey(uint64(1), uint64(2), uint64(3), uint64(100), uint64(42), uint64(100), uint64(7)) == "1:2:3:100.000000042:100.000000007"
+
+	memo = RecordMemo(memo, "k1", d1)
+	memo = RecordMemo(memo, "k2", d2)
+	let parsed = ParseMemo(FormatMemo(memo) + "badline\nk3 sha256:bad\n")
+	let (got1, ok1) = RecallMemo(parsed, "k1")
+	let (got2, ok2) = RecallMemo(parsed, "k2")
+	assert ok1 && got1 == d1 && ok2 && got2 == d2
+
+	let info = BuildInfo{
+		GoVersion:   "go1.27.4",
+		MainPath:    "ergo.local/prototype",
+		MainVersion: "(devel)",
+		Settings:    []BuildSetting{BuildSetting{Key: "GOOS", Value: "linux"}, BuildSetting{Key: "CGO_ENABLED", Value: "0"}},
+	}
+	let mut emptyMemo = NewMemoTable()
+	let failID = AcquireFromImage(ErrUnsupportedReason, []byte{}, "", true, info, "nonce1", &emptyMemo, "", false)
+	assert failID.Strength == "unavailable" && failID.ReuseScope == "process" && failID.Qualifier == "process:nonce1"
+	assert strings.Contains(failID.Reason, "unsupported on this platform")
+
+	let encoded = EncodeIdentityJSON(failID)
+	let decoded = DecodeIdentityJSON(encoded) catch {
+	case ProducerError:
+		assert false
+		failID
+	}
+	assert decoded == failID
+
+	let mut staleErr = false
+	Require(failID, "sha256:other") catch {
+	case ProducerError:
+		staleErr = true
+	}
+	assert staleErr
+}

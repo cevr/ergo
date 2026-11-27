@@ -4,11 +4,13 @@ import compiler/check/types
 import compiler/eval
 import compiler/syntax
 import fs
+import hex
 import io
 import json
 import os
 import strconv
 import strings
+import utf8
 
 func baseName(path string) string {
 	let i = strings.LastIndex(path, "/")
@@ -46,7 +48,8 @@ func loadManifestUnit(sp manifestSpec) load.Unit fails os.Exit needs fs.Files {
 
 func formatOutcomeJSON(o eval.Outcome) string {
 	let t = json.NewText()
-	t.BeginObject(9)
+	let hasHex = !utf8.ValidString(o.ValueText)
+	t.BeginObject(if hasHex { 10 } else { 9 })
 	t.Key("name")
 	t.String(o.Name)
 	t.Key("kind")
@@ -65,6 +68,10 @@ func formatOutcomeJSON(o eval.Outcome) string {
 	t.Int(int64(o.Steps))
 	t.Key("value")
 	t.String(o.ValueText)
+	if hasHex {
+		t.Key("value_hex")
+		t.String(hex.Encode(o.ValueText))
+	}
 	t.EndObject()
 	t.Written()
 }
@@ -77,7 +84,124 @@ func parseUintArg(s string, fallback uint64) uint64 {
 	if v < 0 { fallback } else { uint64(v) }
 }
 
-func evalLoadedUnits(units []load.Unit, std string, budget eval.Budget, entryName string, stats bool) string needs fs.Files {
+func writeLawArgsJSON(t json.Text, args []eval.LawArg) {
+	t.BeginList(args.Len())
+	for a in args {
+		t.BeginObject(2)
+		t.Key("name")
+		t.String(a.Name)
+		t.Key("value")
+		t.String(a.Value)
+		t.EndObject()
+	}
+	t.EndList()
+}
+
+func formatLawVerdictJSON(lv eval.LawVerdict) string {
+	let t = json.NewText()
+	t.BeginObject(20)
+	t.Key("name")
+	t.String(lv.Name)
+	t.Key("title")
+	t.String(lv.Title)
+	t.Key("kind")
+	t.String(lv.Kind)
+	t.Key("status")
+	t.String(eval.StatusName(lv.Status))
+	t.Key("reason")
+	t.String(lv.Reason)
+	t.Key("message")
+	t.String(lv.Message)
+	t.Key("evidence")
+	t.String(lv.Evidence)
+	t.Key("form")
+	t.Int(int64(lv.Form))
+	t.Key("case_idx")
+	t.Int(int64(lv.CaseIdx))
+	t.Key("total_cases")
+	t.Int(int64(lv.TotalCases))
+	t.Key("cases_run")
+	t.Int(int64(lv.CasesRun))
+	t.Key("seed")
+	t.Int(int64(lv.Seed))
+	t.Key("arguments")
+	writeLawArgsJSON(t, lv.Arguments)
+	t.Key("drawn")
+	writeLawArgsJSON(t, lv.Drawn)
+	t.Key("has_drawn")
+	t.Bool(lv.HasDrawn)
+	t.Key("file")
+	t.String(lv.Site.File)
+	t.Key("line")
+	t.Int(int64(lv.Site.Line))
+	t.Key("col")
+	t.Int(int64(lv.Site.Col))
+	t.Key("steps")
+	t.Int(int64(lv.Steps))
+	t.Key("verdict_line")
+	t.String(lv.VerdictLine)
+	t.EndObject()
+	t.Written()
+}
+
+func formatLicenceVerdictJSON(l eval.LicenceVerdict) string {
+	let t = json.NewText()
+	t.BeginObject(10)
+	t.Key("name")
+	t.String(l.Name)
+	t.Key("verdict")
+	t.String(l.Verdict)
+	t.Key("reason")
+	t.String(l.Reason)
+	t.Key("cases")
+	t.Int(int64(l.Cases))
+	t.Key("classes")
+	t.BeginList(l.Classes.Len())
+	for c in l.Classes {
+		t.BeginObject(2)
+		t.Key("name")
+		t.String(c.Name)
+		t.Key("cases")
+		t.Int(int64(c.Cases))
+		t.EndObject()
+	}
+	t.EndList()
+	t.Key("missed")
+	t.BeginList(l.Missed.Len())
+	for m in l.Missed {
+		t.String(m)
+	}
+	t.EndList()
+	t.Key("case_text")
+	t.String(l.CaseText)
+	t.Key("replayed")
+	t.Int(int64(l.Replayed))
+	t.Key("steps")
+	t.Int(int64(l.Steps))
+	t.Key("line_text")
+	t.String(l.LineText)
+	t.EndObject()
+	t.Written()
+}
+
+func formatFoldOutcomeJSON(f eval.FoldOutcome) string {
+	let t = json.NewText()
+	t.BeginObject(5)
+	t.Key("ok")
+	t.Bool(f.Ok)
+	t.Key("text")
+	t.String(f.ConstText)
+	t.Key("reason")
+	t.String(f.Reason)
+	t.Key("over_budget")
+	t.Bool(f.OverBudget)
+	t.Key("steps")
+	t.Int(int64(f.Steps))
+	t.EndObject()
+	t.Written()
+}
+
+func evalLoadedUnits(units []load.Unit, std string, budget eval.Budget, entryName string, stats bool, lawsMode bool, licenceMode bool, foldName string, seed uint64, source string) string needs fs.Files {
 	let outside = if std != "" { load.Outside(units, std) } else { []types.Iface{} }
 	let lp = load.LoadAll(units, outside, 1)
 	let (progVal, errs) = eval.CompileProgram(lp)
@@ -94,6 +218,36 @@ func evalLoadedUnits(units []load.Unit, std string, budget eval.Budget, entryNam
 			ValueText: "",
 		}) + "\n")
 	}
+	if lawsMode {
+		let mut cfg = eval.DefaultLawRunConfig(budget, seed)
+		cfg.Source = source
+		cfg.CaseLimit = budget.CaseLimit
+		let (lvs, totalSteps) = eval.EvalPackageLaws(&prog, prog.RootPkg, cfg)
+		for lv in lvs {
+			b.WriteString("@law " + formatLawVerdictJSON(lv) + "\n")
+		}
+		if licenceMode {
+			let lics = eval.EvalPackageLicences(&prog, prog.RootPkg, budget, seed)
+			for lic in lics {
+				b.WriteString("@licence " + formatLicenceVerdictJSON(lic) + "\n")
+			}
+		}
+		if stats {
+			let t = json.NewText()
+			t.BeginObject(2)
+			t.Key("total_steps")
+			t.Int(int64(totalSteps))
+			t.Key("builtins_hit")
+			t.Int(int64(0))
+			t.EndObject()
+			b.WriteString("@stats " + t.Written() + "\n")
+		}
+		if foldName != "" {
+			let f = eval.EvalFoldEntry(&prog, prog.RootPkg, foldName, budget)
+			b.WriteString("@fold " + formatFoldOutcomeJSON(f) + "\n")
+		}
+		return b.String()
+	}
 	let rpt = eval.EvalPackage(&prog, prog.RootPkg, budget)
 	for o in rpt.Outcomes {
 		b.WriteString(formatOutcomeJSON(o) + "\n")
@@ -103,6 +257,10 @@ func evalLoadedUnits(units []load.Unit, std string, budget eval.Budget, entryNam
 		if entryOut.Status != eval.StatusNotRun {
 			b.WriteString(formatOutcomeJSON(entryOut) + "\n")
 		}
+	}
+	if foldName != "" {
+		let f = eval.EvalFoldEntry(&prog, prog.RootPkg, foldName, budget)
+		b.WriteString("@fold " + formatFoldOutcomeJSON(f) + "\n")
 	}
 	if stats {
 		let t = json.NewText()
@@ -123,8 +281,13 @@ func runEvalDump(argv0 []string) fails os.Exit needs fs.Files | io.Stdout {
 	let mut depth = uint32(256)
 	let mut cases = uint32(100)
 	let mut entryName = ""
+	let mut foldName = ""
+	let mut source = ""
+	let mut seed = uint64(1)
 	let mut eachMode = false
 	let mut stats = false
+	let mut lawsMode = false
+	let mut licenceMode = false
 	let mut corpus = ""
 	let mut i = 0
 	for i < argv0.Len() {
@@ -144,9 +307,24 @@ func runEvalDump(argv0 []string) fails os.Exit needs fs.Files | io.Stdout {
 		} else if a == "-entry" && i+1 < argv0.Len() {
 			entryName = argv0[i+1]
 			i = i + 2
+		} else if a == "-fold" && i+1 < argv0.Len() {
+			foldName = argv0[i+1]
+			i = i + 2
+		} else if a == "-seed" && i+1 < argv0.Len() {
+			seed = parseUintArg(argv0[i+1], seed)
+			i = i + 2
+		} else if a == "-source" && i+1 < argv0.Len() {
+			source = argv0[i+1]
+			i = i + 2
 		} else if a == "-corpus" && i+1 < argv0.Len() {
 			corpus = argv0[i+1]
 			i = i + 2
+		} else if a == "-laws" {
+			lawsMode = true
+			i = i + 1
+		} else if a == "-licence" {
+			licenceMode = true
+			i = i + 1
 		} else if a == "-each" {
 			eachMode = true
 			i = i + 1
@@ -154,7 +332,7 @@ func runEvalDump(argv0 []string) fails os.Exit needs fs.Files | io.Stdout {
 			stats = true
 			i = i + 1
 		} else {
-			return os.Exit{Code: 2, Message: "usage: evaldump [-std DIR] [-steps N] [-depth N] [-cases N] [-entry NAME] [-each] [-stats] -corpus MANIFEST"}
+			return os.Exit{Code: 2, Message: "usage: evaldump [-std DIR] [-steps N] [-depth N] [-cases N] [-entry NAME] [-fold NAME] [-seed N] [-source PKG] [-laws] [-licence] [-each] [-stats] -corpus MANIFEST"}
 		}
 	}
 	if corpus == "" {
@@ -176,7 +354,7 @@ func runEvalDump(argv0 []string) fails os.Exit needs fs.Files | io.Stdout {
 		for idx, sp in specs {
 			let u = try loadManifestUnit(sp)
 			out.WriteString("@pkg \(idx)\n")
-			out.WriteString(evalLoadedUnits([]load.Unit{u}, std, budget, entryName, stats))
+			out.WriteString(evalLoadedUnits([]load.Unit{u}, std, budget, entryName, stats, lawsMode, licenceMode, foldName, seed, source))
 		}
 	} else {
 		let mut units = []load.Unit{}
@@ -184,7 +362,7 @@ func runEvalDump(argv0 []string) fails os.Exit needs fs.Files | io.Stdout {
 			units = units.Append(try loadManifestUnit(sp))
 		}
 		out.WriteString("@pkg 0\n")
-		out.WriteString(evalLoadedUnits(units, std, budget, entryName, stats))
+		out.WriteString(evalLoadedUnits(units, std, budget, entryName, stats, lawsMode, licenceMode, foldName, seed, source))
 	}
 	io.Stdout.Print(out.String())
 }

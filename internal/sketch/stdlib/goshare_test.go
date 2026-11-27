@@ -41,12 +41,12 @@ func TestStdGoShareOnlyFalls(t *testing.T) {
 // may hold. It only falls: a move lowers its class's ceiling to the count
 // it leaves.
 var stdGoShareCeiling = map[string]int{
-	"provider":    90,  // NOU-PROVIDER-ROWS: +1 queue.NewOpen (non-closable queue projection; runtime wait/interruption primitive); PROC-RUN-FLOOR: +1 task.StopAfter (an rt alarm that interrupts a task; no Ergo construct arms a runtime alarm); PROCESS-RUN: +3 task.exitOf, exitReason, exitValue (rt primitives: the join of a task's handle and its exit kind; PROC-REVERT-TASKEXIT folds exitReason into exitOf); CAP stack (917): +2 fs.confineLast, fs.hostMapBounded; I-FLIP: +1 prelude.AsWritten (LF6w, a runtime mark: the call tree kept as written), -1 again by AW-ERGO (// ergo:aswritten, an Ergo body); I22: +25 batch-22 externs; NET1: +1 nettest.newPipeNet; PTY-REATTACH: +4 exec.memNewSessions, memOpenPipe, memPollDetached, memWaitDetached
-	"host":        56,  // CAP stack (917): +5 host leaves (exec.hostReplace, fs.hostSameAs, signal.hostWatch, hostUnwatch, hostNumber); I22: +14 batch-22 externs; NET1: +2 net.hostDial, net.hostListen; UC1: +1 (term.hostPeek and hostDrop replace hostReadKey); Unix sockets & FD passing: +4 (net.confineUnix, net.hostAdoptFD, net.hostDialUnix, net.hostListenUnix); PTY-REATTACH: +10 (exec.hostOpenPTY, hostOpenPipe, hostPollDetached, hostReattachPTY, hostReattachPipe, hostSpawnWithPTY, hostStartInteractive, hostStartInteractiveIn, hostStartWithPTY, hostWaitDetached); FS-ENTRY: +1 (fs.hostLstatEntry)
-	"library":     89,  // CAP stack (917): +11 HOST-ROW leaves (fs Lstat, IsLink, Mkdir, Readlink, Resolve, Symlink; os Pid, HomeDir, CacheDir, ConfigDir, Executable), +1 sha256.New (LF2); I22: +14 batch-22 externs (I22-B22CLASS rows)
-	"language":    3,   // I22: +2 batch-22 externs
-	"computation": 43,  // I22: +5 batch-22 externs; NP4f-15: -2, NP4f-16: -5, NP4f-17: -2, NP4f-URL: -2 (moved to Ergo); HTTP-RAWPATH: +1 http.DecodePath
-	"type":        107, // NOU-PROVIDER-ROWS: +1 queue.OpenQueue (non-closable queue projection); PROC-RUN-FLOOR: +1 task.Alarm (StopAfter's runtime alarm); CAP stack (917): +5 fs.Exists, NotRegular, TooLarge, os.NoDir, sha256.Hasher; I22: +4 batch-22 externs; NET1 +6 (net Conn, Listener, three failures; nettest.PipeNet) less http.Listener, HTTP-RAWPATH +1 http.BadEscape; STD-COPY-SAME: +1 fs.Text, which names the runtime's MappedText (extern go), not the path fs; UC1: +1 term.peeked (hostPeek's answer); Unix sockets & FD passing: +6 (net.Denied, FD, ReceivedFDs, UnixConn, UnixListener, Unsupported); PTY-REATTACH: +6 (exec.DetachedRun, PTY, Pipe, Unsupported, Winsize, memSessions); FS-ENTRY: +1 (fs.rawEntry)
+	"provider":    103, // NOU-PROVIDER-ROWS: +1 queue.NewOpen; PROC-RUN-FLOOR: +1 task.StopAfter; PROCESS-RUN: +3; CAP stack (917): +2; I-FLIP: +1/-1; I22: +25; NET1: +1; PTY-REATTACH: +4; baseline sync (actor 3, log 1, prelude 1, task 4, tasks +2, testing 1, trace 2): 89 + 14 = 103
+	"host":        67,  // CAP stack (917): +5; I22: +14; NET1: +2; UC1: +1; Unix sockets: +4; PTY-REATTACH: +10; FS-ENTRY: +1; PROCESS-CHILD: +1; FS-SCAN: +1; FS-TEST-ROOT: +1 (fs.OpenTestRoot); SQL: +8 (sql.host*)
+	"library":     93,  // CAP stack (917): +12; I22: +14; hmac/totp digest keyState/number: +4
+	"language":    12,  // I22: +2; NO-PRELUDE core map/slice ops: +9
+	"computation": 47,  // I22: +5; NP4f: -11; HTTP-RAWPATH: +1; json check helpers +3; net.loopbackAddress +1
+	"type":        119, // NOU/PROC-RUN/CAP/I22/NET1/STD-COPY/UC1/Unix/PTY/FS-ENTRY: 107; PROCESS-CHILD: +4; FS-SCAN: +1 (fs.rawDirEntry); http.Denied/prelude.TestDirectory/task.Defect/sql.*: +7
 }
 
 // stdGoShareClasses are the classes a row may name; the true ones need a

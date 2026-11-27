@@ -1,0 +1,55 @@
+{
+  "about": "compiler/testplan: finite domain enumeration, value ranks, constructor display, canonical key scalars, and case plans.",
+  "mutants": [
+    {
+      "name": "selfhost-testplan-domain-typecap-overflow",
+      "origin": "SELFHOST-TESTPLAN-LAWFIX",
+      "file": "compiler/testplan/domain.ergo",
+      "decl": "domainWalk",
+      "from": "\t\t\t\tlet (cnt, fits) = spanCountWithinCap(p.RefSpans[sStart+j], TypeCap-total)\n",
+      "to": "\t\t\t\tlet (cnt, fits) = spanCountWithinCap(p.RefSpans[sStart+j], TypeCap+1-total)\n",
+      "rule": "TypeCap caps finite domain enumeration at 256 values so 257-value domains are sampled instead.",
+      "killers": ["compiler/testplan:DomainEnumeratesFiniteTypesTest", "internal/selfhostcheck:TestCompilerTestplanAgrees"]
+    },
+    {
+      "name": "selfhost-testplan-domain-ctor-not-listed",
+      "origin": "SELFHOST-TESTPLAN-LAWFIX",
+      "file": "compiler/testplan/domain.ergo",
+      "decl": "domainWalk",
+      "from": "\t\tif hasCtor {\n\t\t\treturn ([]uint32{}, false)\n\t\t}\n",
+      "to": "\t\tif false && hasCtor {\n\t\t\treturn ([]uint32{}, false)\n\t\t}\n",
+      "rule": "Constructor-backed named types are sampled rather than enumerated as finite domains.",
+      "killers": ["compiler/testplan:DomainEnumeratesFiniteTypesTest", "internal/selfhostcheck:TestCompilerTestplanAgrees"]
+    },
+    {
+      "name": "selfhost-testplan-encoding-duration-scalar",
+      "origin": "SELFHOST-TESTPLAN-LAWFIX",
+      "file": "compiler/testplan/encoding.ergo",
+      "decl": "ScalarOf",
+      "from": "\tif k == BDuration || (k >= BInt && k <= BInt64) {\n\t\treturn ScalarInt\n\t}\n",
+      "to": "\tif k >= BInt && k <= BInt64 {\n\t\treturn ScalarInt\n\t}\n",
+      "rule": "Duration basic kind maps to ScalarInt for canonical state key encoding.",
+      "killers": ["compiler/testplan:law:ScalarOfCategorizesKinds", "internal/selfhostcheck:TestCompilerTestplanAgrees"]
+    },
+    {
+      "name": "selfhost-testplan-plan-ties-skip-provider",
+      "origin": "SELFHOST-TESTPLAN-LAWFIX",
+      "file": "compiler/testplan/plan.ergo",
+      "decl": "WithTies",
+      "from": "\t\tif at >= nIn || plan.Inputs[at].HasProvider {\n\t\t\tcontinue\n\t\t}\n",
+      "to": "\t\tif at >= nIn {\n\t\t\tcontinue\n\t\t}\n",
+      "rule": "WithTies never binds ties onto provider inputs.",
+      "killers": ["compiler/testplan:PlanAtAndWithTiesTest"]
+    },
+    {
+      "name": "selfhost-testplan-domain-byctor-op-field",
+      "origin": "SELFHOST-TESTPLAN-LAWFIX",
+      "file": "compiler/testplan/domain.ergo",
+      "decl": "valueTextWalk",
+      "from": "\t\tif seen.v[idx] || (tid != root && hasCtor) {\n",
+      "to": "\t\tif seen.v[idx] || hasCtor {\n",
+      "rule": "ByConstructor inspects the root type's own fields rather than assuming a constructor-backed root prints structurally.",
+      "killers": ["compiler/testplan:ByConstructorMatchesSpecTest", "internal/selfhostcheck:TestCompilerTestplanAgrees"]
+    }
+  ]
+}

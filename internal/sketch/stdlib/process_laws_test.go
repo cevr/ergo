@@ -57,7 +57,12 @@ func TestStdProcessLaws(t *testing.T) {
 	lawledger.Run(t, laws)
 }
 
-// evaluatedLaws checks the std package pkg's files as the root package
+type processTrust struct{}
+
+func (processTrust) Import(path string) (*check.Package, error) { return check.Std.Import(path) }
+func (processTrust) TrustsGo() (string, bool)                   { return "process", true }
+
+// evaluatedLaws checks the std package pkg's files as a trusted package
 // and evaluates its tests and laws.
 func evaluatedLaws(t *testing.T, pkg string) []eval.Result {
 	t.Helper()
@@ -78,7 +83,7 @@ func evaluatedLaws(t *testing.T, pkg string) []eval.Result {
 		}
 		files = append(files, f)
 	}
-	p, diags := check.Check(pkg, files, nil)
+	p, diags := check.Check(pkg, files, processTrust{})
 	if len(diags) > 0 {
 		t.Fatalf("check %s: %v", pkg, diags)
 	}

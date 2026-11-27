@@ -1,9 +1,11 @@
+import compiler/check/bind
 import compiler/check/expr
 import compiler/check/store
 import compiler/check/types
 import compiler/syntax
 import dense
 import option
+import strconv
 import strings
 
 type importedShape { dep expr.Dep, decl dense.ID[store.Decl] }
@@ -127,6 +129,216 @@ func runtimeRecordType(owner fnb, name string) string {
 	if path == rt || strings.HasPrefix(path, rt+"/") { target } else { "" }
 }
 
+func hasIfacePath(ifaces []types.Iface, path string) bool {
+	for imp in ifaces {
+		if imp.Path == path {
+			return true
+		}
+	}
+	false
+}
+
+func runtimeTypeDecl(owner fnb, name string) (string, bool, bool) {
+	let (p, parent, at) = match unionDeclParent(owner, name) {
+	case option.Some{Value: decl}:
+		decl
+	case option.None:
+		return ("", false, false)
+	}
+	let td = match syntax.ViewOf(p.Tree, parent) {
+	case syntax.TypeDecl as d:
+		d
+	case _:
+		return ("", false, false)
+	}
+	if td.Name != at || dense.Unpack(td.Where) != option.None || dense.Unpack(td.Derive) != option.None || syntax.Len(td.Implements) != 0 {
+		return ("", false, false)
+	}
+	let isOps = match dense.Unpack(td.Spec) {
+	case option.Some{Value: spec}:
+		let sk = syntax.KindOf(p.Tree, spec)
+		if sk == syntax.KStructType {
+			false
+		} else if sk == syntax.KInterfaceType {
+			let it = syntax.InterfaceTypeOf(p.Tree, spec)
+			let mut hasVar = false
+			for j in 0..syntax.Len(it.Members) {
+				if syntax.KindOf(p.Tree, syntax.Item(p.Tree, it.Members, j)) == syntax.KVariantSpec {
+					hasVar = true
+					break
+				}
+			}
+			let hasUV = match store.Lookup(owner.s, name) {
+			case option.Some{Value: d}:
+				match namedKeyIn(owner.idx, d) {
+				case option.Some{Value: k}:
+					unionVarsIn(owner.idx, k).Len() > 0
+				case option.None:
+					false
+				}
+			case option.None:
+				false
+			}
+			if hasVar || hasUV {
+				return ("", false, false)
+			}
+			true
+		} else {
+			return ("", false, false)
+		}
+	case option.None:
+		return ("", false, false)
+	}
+	let target = match dense.Unpack(td.Extern) {
+	case option.Some{Value: ext}:
+		syntax.TokText(p, syntax.BasicLitOf(p.Tree, syntax.ExternSpecOf(p.Tree, ext).Target).Tok)
+	case option.None:
+		return ("", false, false)
+	}
+	let dot = strings.LastIndex(target, ".")
+	if dot < 0 {
+		return ("", false, false)
+	}
+	let path = target[:dot]
+	let rt = "ergo.local/prototype/runtime/v1"
+	if path != rt && !strings.HasPrefix(path, rt+"/") {
+		return ("", false, false)
+	}
+	let hasParams = dense.Unpack(td.TypeParams) != option.None
+	(if isOps { "*" + target } else { target }, hasParams, isOps)
+}
+
+func runtimeGenericShape(owner fnb, idecl types.IfaceDecl, caller fnb, args []dense.ID[store.TKey], trail shapeTrail) string {
+	let (head, hasParams, _) = runtimeTypeDecl(owner, idecl.Name)
+	if head == "" || !hasParams || idecl.Kinds.Len() != args.Len() {
+		return ""
+	}
+	let mut argSpell = ""
+	let mut count = 0
+	for j, k in idecl.Kinds {
+		if k != 1 {
+			continue
+		}
+		let gt = shapeWithin(caller, args[j], trail)
+		if gt == "" {
+			return ""
+		}
+		argSpell += (if count == 0 { "" } else { ", " }) + gt
+		count = count + 1
+	}
+	if count == 0 {
+		return ""
+	}
+	head + "[" + argSpell + "]"
+}
+
+func runtimeOpsShape(owner fnb, name string) string {
+	let (head, hasParams, isOps) = runtimeTypeDecl(owner, name)
+	if head != "" && !hasParams && isOps { head } else { "" }
+}
+
+func localRuntimeGenericShape(st fnb, t dense.ID[store.TKey], o store.XRef, args []dense.ID[store.TKey], trail shapeTrail) string {
+	let name = store.DeclText(st.s, int(o.Decl))
+	let (head, hasParams, _) = runtimeTypeDecl(st, name)
+	if head == "" || !hasParams || !localRuntimeTypeParams(st, name, args.Len()) {
+		return ""
+	}
+	let mut argSpell = ""
+	for j, arg in args {
+		let gt = shapeWithin(st, arg, trail)
+		if gt == "" {
+			return ""
+		}
+		argSpell += (if j == 0 { "" } else { ", " }) + gt
+	}
+	head + "[" + argSpell + "]"
+}
+
+func localRuntimeTypeParams(st fnb, name string, n int) bool {
+	let td = match syntaxTypeDecl(st, name) {
+	case option.Some{Value: found}:
+		found
+	case option.None:
+		return false
+	}
+	let tpNode = match dense.Unpack(td.td.TypeParams) {
+	case option.Some{Value: id}:
+		id
+	case option.None:
+		return false
+	}
+	let p = st.k.Parsed[td.file]
+	let fl = match syntax.ViewOf(p.Tree, tpNode) {
+	case syntax.FieldList as list:
+		list
+	case _:
+		return false
+	}
+	let mut count = 0
+	for i in 0..syntax.Len(fl.List) {
+		match syntax.ViewOf(p.Tree, syntax.Item(p.Tree, fl.List, i)) {
+		case syntax.Field as fld:
+			if dense.Unpack(fld.Lent) != option.None || dense.Unpack(fld.Where) != option.None {
+				return false
+			}
+			match dense.Unpack(fld.Type) {
+			case option.Some{Value: ct}:
+				let tn = nameText(p, ct)
+				if !outside(fnb{..st, file: td.file, p: p}, ct) || (tn != "any" && tn != "comparable" && tn != "ordered") {
+					return false
+				}
+			case option.None:
+			}
+			count = count + syntax.Len(fld.Names)
+		case _:
+			return false
+		}
+	}
+	count == n
+}
+
+func isRuntimeOpsType(owner fnb, name string) bool {
+	let (head, _, isOps) = runtimeTypeDecl(owner, name)
+	head != "" && isOps
+}
+
+func hostShapeWithin(st fnb, t dense.ID[store.TKey], trail shapeTrail) string {
+	let kind = store.KindOfType(st.s, t)
+	if kind == store.KForeign {
+		let i = store.ArgOf(st.s, t)
+		if i >= st.k.Foreign.Len() {
+			return ""
+		}
+		let f = st.k.Foreign[i]
+		if f.Qual == "go" && f.Arity == 0 {
+			if f.Name == "Error" {
+				return "ergo.local/prototype/runtime/v1.GoError"
+			}
+			if f.Name == "Any" {
+				return "any"
+			}
+		}
+		if f.Arity == 0 && f.Path != "" && f.Path != "-" && f.Path != "prelude" && !hasIfacePath(st.k.Ifaces, f.Path) {
+			return f.Path + "." + f.Name
+		}
+		return ""
+	}
+	if kind == store.KInstance {
+		let o = store.OriginOfType(st.s, t)
+		if int(o.Import) == store.ForeignBit && int(o.Decl) < st.k.Foreign.Len() {
+			let f = st.k.Foreign[int(o.Decl)]
+			let args = store.OperandsOf(st.s, t)
+			if f.Qual == "go" && f.Name == "Ref" && args.Len() == 1 {
+				let inner = shapeWithin(st, args[0], trail)
+				if inner != "" {
+					return "*" + inner
+				}
+			}
+		}
+	}
+	""
+}
+
 // Verify and port only the fields of a declared, admitted record. The
 // checked owner type and the consumer's expression types are in different
 // pools, even when their printed spellings happen to be identical.
@@ -245,7 +457,78 @@ func importedGenericRecordShape(st fnb, t dense.ID[store.TKey], trail shapeTrail
 		return ""
 	}
 	if int(o.Import) == 0 {
+		let rtShape = localRuntimeGenericShape(st, t, o, args, trail)
+		if rtShape != "" {
+			return rtShape
+		}
 		return localGenericRecordShape(st, t, o, args, trail)
+	}
+	if int(o.Import) == store.ForeignBit {
+		let fi = int(o.Decl)
+		if fi < 0 || fi >= st.k.Foreign.Len() {
+			return ""
+		}
+		let f = st.k.Foreign[fi]
+		if f.Path != "prelude" || f.Qual != "-" || f.Arity != args.Len() {
+			return ""
+		}
+		let dep = match trail.deps.Get("prelude") {
+		case option.Some{Value: d}:
+			d
+		case option.None:
+			return ""
+		}
+		let owner = fnb{..st, k: dep.K, s: dep.S, alias: "", pkgPath: "prelude", idx: depIdxOf(st.cache, "prelude")}
+		if !genericStructDecl(owner, f.Name) {
+			return ""
+		}
+		let mut rFound = -1
+		for r, rec in owner.k.Recs {
+			if rec.Name == f.Name && !rec.Op && rec.Params.Len() == args.Len() {
+				rFound = r
+				break
+			}
+		}
+		if rFound < 0 {
+			return ""
+		}
+		let head = declName(owner, f.Name) catch {
+		case Unported:
+			return ""
+		}
+		let mut argSpell = ""
+		for j, arg in args {
+			let gt = shapeWithin(st, arg, trail)
+			if gt == "" {
+				return ""
+			}
+			argSpell += (if j == 0 { "" } else { ", " }) + gt
+		}
+		let gt = head + "[" + argSpell + "]"
+		let visit = shapeVisit{owner: st.alias, t: t}
+		for id in trail.seen {
+			if id.owner == visit.owner && id.t == visit.t {
+				return gt
+			}
+		}
+		let path = shapeTrail{..trail, seen: trail.seen.Append(visit)}
+		let mut local = st.s
+		for fld in owner.k.Recs[rFound].Fields {
+			if !ordinaryFieldName(fld.Name) {
+				return ""
+			}
+			let ported = match types.Port(&local, st.k.Ifaces, st.k.Foreign, owner.s, "prelude", func(ref store.XRef) option.Option[types.DeclIdentity] { types.DepIdentity(owner.k.Ifaces, ref) }, owner.k.Foreign, fld.T) {
+			case option.Some{Value: pt}:
+				pt
+			case option.None:
+				return ""
+			}
+			let sub = store.TSubst(&local, ported, args)
+			if shapeWithin(fnb{..st, s: local, pkgPath: ""}, sub, path) == "" {
+				return ""
+			}
+		}
+		return gt
 	}
 	if int(o.Import) <= 0 || int(o.Import) > st.k.Ifaces.Len() {
 		return ""
@@ -256,7 +539,7 @@ func importedGenericRecordShape(st fnb, t dense.ID[store.TKey], trail shapeTrail
 		return ""
 	}
 	let idecl = imp.Decls[di]
-	if !idecl.Type || idecl.Alias || idecl.Variants.Len() != 0 || !allKindType(idecl.Kinds, args.Len()) {
+	if !idecl.Type || idecl.Alias || idecl.Variants.Len() != 0 {
 		return ""
 	}
 	let dep = match trail.deps.Get(imp.Path) {
@@ -266,7 +549,14 @@ func importedGenericRecordShape(st fnb, t dense.ID[store.TKey], trail shapeTrail
 		return ""
 	}
 	let owner = fnb{..st, k: dep.K, s: dep.S, alias: pkgAlias(dep.Path), pkgPath: dep.Path, idx: depIdxOf(st.cache, dep.Path)}
-	if !structDecl(owner, idecl.Name) {
+	let rtShape = runtimeGenericShape(owner, idecl, st, args, trail)
+	if rtShape != "" {
+		return rtShape
+	}
+	if !allKindType(idecl.Kinds, args.Len()) {
+		return ""
+	}
+	if !genericStructDecl(owner, idecl.Name) {
 		return ""
 	}
 	let mut rFound = -1
@@ -320,7 +610,7 @@ func importedGenericRecordShape(st fnb, t dense.ID[store.TKey], trail shapeTrail
 
 func localGenericRecordShape(st fnb, t dense.ID[store.TKey], o store.XRef, args []dense.ID[store.TKey], trail shapeTrail) string {
 	let name = store.DeclText(st.s, int(o.Decl))
-	if !structDecl(st, name) || !localAllTypeParams(st, name, args.Len()) {
+	if !genericStructDecl(st, name) || !localAllTypeParams(st, name, args.Len()) {
 		return ""
 	}
 	let mut rFound = -1
@@ -364,4 +654,528 @@ func localGenericRecordShape(st fnb, t dense.ID[store.TKey], o store.XRef, args 
 		}
 	}
 	gt
+}
+
+func aliasDeclTarget(owner fnb, name string) option.Option[(int, dense.ID[syntax.Node])] {
+	let td = match syntaxTypeDecl(owner, name) {
+	case option.Some{Value: found}:
+		found
+	case option.None:
+		return option.None
+	}
+	if dense.Unpack(td.td.Extern) != option.None || dense.Unpack(td.td.TypeParams) != option.None || dense.Unpack(td.td.Where) != option.None || dense.Unpack(td.td.Derive) != option.None || syntax.Len(td.td.Implements) != 0 {
+		return option.None
+	}
+	let p = owner.k.Parsed[td.file]
+	let spec = match dense.Unpack(td.td.Spec) {
+	case option.Some{Value: sp}:
+		sp
+	case option.None:
+		return option.None
+	}
+	match syntax.ViewOf(p.Tree, spec) {
+	case syntax.InterfaceType as it:
+		if syntax.Len(it.Members) != 1 {
+			return option.None
+		}
+		let m = syntax.Item(p.Tree, it.Members, 0)
+		let mk = syntax.KindOf(p.Tree, m)
+		if mk == syntax.KVariantSpec || mk == syntax.KField || mk == syntax.KLawDecl || mk == syntax.KTestDecl {
+			return option.None
+		}
+		option.Some{Value: (td.file, m)}
+	case _:
+		option.None
+	}
+}
+
+func foreignIdxFor(k expr.Pkg, path string, name string) int {
+	for i, f in k.Foreign {
+		if f.Path == path && f.Name == name {
+			return i
+		}
+	}
+	-1
+}
+
+func resolveAliasSyntax(owner fnb, file int, node dense.ID[syntax.Node], s mut store.Store) option.Option[dense.ID[store.TKey]] {
+	let p = owner.k.Parsed[file]
+	let at = fnb{..owner, file: file, p: p}
+	match syntax.ViewOf(p.Tree, node) {
+	case syntax.ParenExpr as pe:
+		resolveAliasSyntax(owner, file, pe.X, s)
+	case syntax.Name:
+		let name = nameText(p, node)
+		if outside(at, node) {
+			if name == "duration" {
+				return option.Some{Value: store.TBasic(s, 18)}
+			}
+			let bn = basicNameText(name)
+			for j in 1..basicNames.Len() {
+				if basicNames[j] == bn {
+					return option.Some{Value: store.TBasic(s, j)}
+				}
+			}
+			return option.None
+		}
+		match store.Lookup(owner.s, name) {
+		case option.Some{Value: d}:
+			if store.KindName(int(store.DeclOf(owner.s, d).Kind)) == "type" {
+				return option.Some{Value: store.TNamed(s, d)}
+			}
+			option.None
+		case option.None:
+			option.None
+		}
+	case syntax.SelectorExpr as se:
+		let selName = nameText(p, se.Sel)
+		match bind.ResolutionOf(owner.k.U, owner.k.Ps, bind.PNodeOf(owner.k.Ps, file, se.Sel)) {
+		case bind.Imported as im:
+			let paths = store.ImportPaths(owner.s)
+			let ix = int(im.Ref.Import) - 1
+			if ix < 0 || ix >= paths.Len() {
+				return option.None
+			}
+			let path = paths[ix]
+			let fi = foreignIdxFor(owner.k, path, selName)
+			if fi >= 0 {
+				return option.Some{Value: store.TForeign(s, fi)}
+			}
+			option.Some{Value: store.TInstance(s, im.Ref, []dense.ID[store.TKey]{})}
+		case _:
+			option.None
+		}
+	case syntax.ArrayType as ar:
+		let elem = match resolveAliasSyntax(owner, file, ar.Elt, s) {
+		case option.Some{Value: et}:
+			et
+		case option.None:
+			return option.None
+		}
+		if ar.Len < 0 {
+			return option.Some{Value: store.TSlice(s, elem)}
+		}
+		let n = strconv.Atoi(syntax.TokText(p, ar.Len)) catch {
+		case strconv.Malformed, strconv.OutOfRange:
+			return option.None
+		}
+		option.Some{Value: store.TArray(s, n, elem)}
+	case syntax.MapType as mp:
+		if dense.Unpack(mp.Hashing) != option.None {
+			return option.None
+		}
+		let kt = match resolveAliasSyntax(owner, file, mp.Key, s) {
+		case option.Some{Value: k}:
+			k
+		case option.None:
+			return option.None
+		}
+		let vt = match resolveAliasSyntax(owner, file, mp.Value, s) {
+		case option.Some{Value: v}:
+			v
+		case option.None:
+			return option.None
+		}
+		option.Some{Value: store.TMap(s, kt, vt)}
+	case syntax.TupleExpr as te:
+		let mut ts = []dense.ID[store.TKey]{}
+		for i in 0..syntax.Len(te.Elts) {
+			match resolveAliasSyntax(owner, file, syntax.Item(p.Tree, te.Elts, i), s) {
+			case option.Some{Value: et}:
+				ts = ts.Append(et)
+			case option.None:
+				return option.None
+			}
+		}
+		if ts.Len() < 2 {
+			return option.None
+		}
+		option.Some{Value: store.TTuple(s, ts)}
+	case syntax.IndexExpr as ix:
+		let mut args = []dense.ID[store.TKey]{}
+		for i in 0..syntax.Len(ix.Indices) {
+			match resolveAliasSyntax(owner, file, syntax.Item(p.Tree, ix.Indices, i), s) {
+			case option.Some{Value: a}:
+				args = args.Append(a)
+			case option.None:
+				return option.None
+			}
+		}
+		if args.Len() == 0 {
+			return option.None
+		}
+		match syntax.ViewOf(p.Tree, ix.X) {
+		case syntax.Name:
+			let name = nameText(p, ix.X)
+			if outside(at, ix.X) {
+				let fi = foreignIdxFor(owner.k, "prelude", name)
+				if fi >= 0 {
+					return option.Some{Value: store.TInstance(s, store.XRef{Import: uint32(store.ForeignBit), Decl: uint32(fi)}, args)}
+				}
+				return option.None
+			}
+			match store.Lookup(owner.s, name) {
+			case option.Some{Value: d}:
+				option.Some{Value: store.TInstance(s, store.XRef{Import: uint32(0), Decl: uint32(dense.Index(d))}, args)}
+			case option.None:
+				option.None
+			}
+		case syntax.SelectorExpr as se:
+			let selName = nameText(p, se.Sel)
+			match bind.ResolutionOf(owner.k.U, owner.k.Ps, bind.PNodeOf(owner.k.Ps, file, se.Sel)) {
+			case bind.Imported as im:
+				let paths = store.ImportPaths(owner.s)
+				let imp = int(im.Ref.Import) - 1
+				if imp < 0 || imp >= paths.Len() {
+					return option.None
+				}
+				let fi = foreignIdxFor(owner.k, paths[imp], selName)
+				if fi >= 0 {
+					return option.Some{Value: store.TInstance(s, store.XRef{Import: uint32(store.ForeignBit), Decl: uint32(fi)}, args)}
+				}
+				option.Some{Value: store.TInstance(s, im.Ref, args)}
+			case _:
+				option.None
+			}
+		case _:
+			option.None
+		}
+	case _:
+		option.None
+	}
+}
+
+func aliasShapeWithin(owner fnb, t dense.ID[store.TKey], name string, trail shapeTrail) string {
+	let target = match aliasDeclTarget(owner, name) {
+	case option.Some{Value: found}:
+		found
+	case option.None:
+		return ""
+	}
+	let gt = declName(owner, name) catch {
+	case Unported:
+		return ""
+	}
+	let visit = shapeVisit{owner: owner.alias, t: t}
+	for id in trail.seen {
+		if id.owner == visit.owner && id.t == visit.t {
+			return gt
+		}
+	}
+	let next = shapeTrail{..trail, seen: trail.seen.Append(visit)}
+	let (file, m) = target
+	let mut local = owner.s
+	let tt = match resolveAliasSyntax(owner, file, m, &local) {
+	case option.Some{Value: resolved}:
+		resolved
+	case option.None:
+		return ""
+	}
+	let nextOwner = fnb{..owner, s: local}
+	if shapeWithin(nextOwner, tt, next) == "" {
+		return ""
+	}
+	gt
+}
+
+func definedArrayShapeWithin(owner fnb, t dense.ID[store.TKey], name string, trail shapeTrail) string {
+	let td = match syntaxTypeDecl(owner, name) {
+	case option.Some{Value: found}:
+		found
+	case option.None:
+		return ""
+	}
+	if dense.Unpack(td.td.Extern) != option.None || dense.Unpack(td.td.TypeParams) != option.None || dense.Unpack(td.td.Where) != option.None || dense.Unpack(td.td.Derive) != option.None || syntax.Len(td.td.Implements) != 0 {
+		return ""
+	}
+	let p = owner.k.Parsed[td.file]
+	let spec = match dense.Unpack(td.td.Spec) {
+	case option.Some{Value: sp}:
+		sp
+	case option.None:
+		return ""
+	}
+	match syntax.ViewOf(p.Tree, spec) {
+	case syntax.ArrayType as ar:
+		if ar.Len < 0 {
+			return ""
+		}
+		let gt = declName(owner, name) catch {
+		case Unported:
+			return ""
+		}
+		let visit = shapeVisit{owner: owner.alias, t: t}
+		for id in trail.seen {
+			if id.owner == visit.owner && id.t == visit.t {
+				return gt
+			}
+		}
+		let next = shapeTrail{..trail, seen: trail.seen.Append(visit)}
+		let mut local = owner.s
+		let elt = match resolveAliasSyntax(owner, td.file, ar.Elt, &local) {
+		case option.Some{Value: et}:
+			et
+		case option.None:
+			return ""
+		}
+		if shapeWithin(fnb{..owner, s: local}, elt, next) == "" {
+			return ""
+		}
+		gt
+	case _:
+		""
+	}
+}
+
+func definedArrayHoldsValue(owner fnb, t dense.ID[store.TKey], name string, trail shapeTrail) option.Option[bool] {
+	let td = match syntaxTypeDecl(owner, name) {
+	case option.Some{Value: found}:
+		found
+	case option.None:
+		return option.None
+	}
+	if dense.Unpack(td.td.Extern) != option.None || dense.Unpack(td.td.TypeParams) != option.None || dense.Unpack(td.td.Where) != option.None || dense.Unpack(td.td.Derive) != option.None || syntax.Len(td.td.Implements) != 0 {
+		return option.None
+	}
+	let p = owner.k.Parsed[td.file]
+	let spec = match dense.Unpack(td.td.Spec) {
+	case option.Some{Value: sp}:
+		sp
+	case option.None:
+		return option.None
+	}
+	match syntax.ViewOf(p.Tree, spec) {
+	case syntax.ArrayType as ar:
+		if ar.Len < 0 {
+			return option.None
+		}
+		let mut local = owner.s
+		let elt = match resolveAliasSyntax(owner, td.file, ar.Elt, &local) {
+		case option.Some{Value: et}:
+			et
+		case option.None:
+			return option.None
+		}
+		option.Some{Value: holdsValueWithin(fnb{..owner, s: local}, elt, trail)}
+	case _:
+		option.None
+	}
+}
+
+func aliasTargetNamed(owner fnb, name string, s mut store.Store) option.Option[(fnb, dense.ID[store.TKey])] {
+	let (file, m) = match aliasDeclTarget(owner, name) {
+	case option.Some{Value: found}:
+		found
+	case option.None:
+		return option.None
+	}
+	let tt = match resolveAliasSyntax(owner, file, m, s) {
+	case option.Some{Value: resolved}:
+		resolved
+	case option.None:
+		return option.None
+	}
+	option.Some{Value: (fnb{..owner, s: *s}, tt)}
+}
+
+func isGenericVariantDecl(st fnb, name string) bool {
+	let td = match syntaxTypeDecl(st, name) {
+	case option.Some{Value: found}:
+		found
+	case option.None:
+		return false
+	}
+	if dense.Unpack(td.td.Extern) != option.None || dense.Unpack(td.td.Where) != option.None || dense.Unpack(td.td.Derive) != option.None || syntax.Len(td.td.Implements) != 0 {
+		return false
+	}
+	let p = st.k.Parsed[td.file]
+	let spec = match dense.Unpack(td.td.Spec) {
+	case option.Some{Value: sp}:
+		sp
+	case option.None:
+		return false
+	}
+	if syntax.KindOf(p.Tree, spec) == syntax.KStructType {
+		return dense.Unpack(td.td.TypeParams) != option.None
+	}
+	match syntax.ViewOf(p.Tree, spec) {
+	case syntax.InterfaceType as it:
+		let n = syntax.Len(it.Members)
+		for i in 0..n {
+			match syntax.ViewOf(p.Tree, syntax.Item(p.Tree, it.Members, i)) {
+			case syntax.VariantSpec as vs:
+				if nameText(p, vs.Name) == name {
+					return true
+				}
+			case _:
+			}
+		}
+		false
+	case _:
+		false
+	}
+}
+
+func recordFieldsOf(st fnb, t dense.ID[store.TKey]) option.Option[[]expr.Field] {
+	match recordFieldsOfStore(st, t) {
+	case option.Some{Value: got}:
+		let (_, fs) = got
+		option.Some{Value: fs}
+	case option.None:
+		option.None
+	}
+}
+
+func recordFieldsOfStore(st fnb, t dense.ID[store.TKey]) option.Option[(store.Store, []expr.Field)] {
+	let deps = shapeDeps(st)
+	if store.KindOfType(st.s, t) == store.KInstance && store.OperandsOf(st.s, t).Len() > 0 {
+		let o = store.OriginOfType(st.s, t)
+		let args = store.OperandsOf(st.s, t)
+		if int(o.Import) == store.ForeignBit && int(o.Decl) < st.k.Foreign.Len() {
+			let f = st.k.Foreign[int(o.Decl)]
+			if f.Path == "prelude" && f.Qual == "-" && f.Arity == args.Len() {
+				match deps.Get("prelude") {
+				case option.Some{Value: dep}:
+					let owner = fnb{..st, k: dep.K, s: dep.S, alias: "", pkgPath: "prelude", idx: depIdxOf(st.cache, "prelude")}
+					for rec in owner.k.Recs {
+						if rec.Name == f.Name && !rec.Op && rec.Params.Len() == args.Len() {
+							let mut out = []expr.Field{}
+							let mut local = st.s
+							for fld in rec.Fields {
+								let ported = match types.Port(&local, st.k.Ifaces, st.k.Foreign, owner.s, "prelude", func(ref store.XRef) option.Option[types.DeclIdentity] { types.DepIdentity(owner.k.Ifaces, ref) }, owner.k.Foreign, fld.T) {
+								case option.Some{Value: pt}:
+									pt
+								case option.None:
+									return option.None
+								}
+								out = out.Append(expr.Field{Name: fld.Name, T: store.TSubst(&local, ported, args)})
+							}
+							return option.Some{Value: (local, out)}
+						}
+					}
+				case option.None:
+				}
+			}
+			return option.None
+		}
+		if int(o.Import) == 0 {
+			let name = store.DeclText(st.s, int(o.Decl))
+			if !isGenericVariantDecl(st, name) {
+				return option.None
+			}
+			for rec in st.k.Recs {
+				if rec.Name == name && !rec.Op && rec.Params.Len() == args.Len() {
+					let mut out = []expr.Field{}
+					let mut local = st.s
+					for f in rec.Fields {
+						out = out.Append(expr.Field{Name: f.Name, T: store.TSubst(&local, f.T, args)})
+					}
+					return option.Some{Value: (local, out)}
+				}
+			}
+			return option.None
+		}
+		if int(o.Import) > 0 && int(o.Import) <= st.k.Ifaces.Len() {
+			let imp = st.k.Ifaces[int(o.Import)-1]
+			let di = int(o.Decl)
+			if di >= 0 && di < imp.Decls.Len() {
+				match deps.Get(imp.Path) {
+				case option.Some{Value: dep}:
+					let owner = fnb{..st, k: dep.K, s: dep.S, alias: pkgAlias(dep.Path), pkgPath: dep.Path, idx: depIdxOf(st.cache, dep.Path)}
+					for rec in owner.k.Recs {
+						if rec.Name == imp.Decls[di].Name && !rec.Op && rec.Params.Len() == args.Len() {
+							let mut out = []expr.Field{}
+							let mut local = st.s
+							for f in rec.Fields {
+								let ported = match types.Port(&local, st.k.Ifaces, st.k.Foreign, owner.s, dep.Path, func(ref store.XRef) option.Option[types.DeclIdentity] { types.DepIdentity(owner.k.Ifaces, ref) }, owner.k.Foreign, f.T) {
+								case option.Some{Value: pt}:
+									pt
+								case option.None:
+									return option.None
+								}
+								out = out.Append(expr.Field{Name: f.Name, T: store.TSubst(&local, ported, args)})
+							}
+							return option.Some{Value: (local, out)}
+						}
+					}
+				case option.None:
+				}
+			}
+		}
+		return option.None
+	}
+	match importedFields(st, t) {
+	case option.Some{Value: fields}:
+		return option.Some{Value: (st.s, fields)}
+	case option.None:
+	}
+	match aliasFieldsOwner(st, t, []shapeVisit{}) {
+	case option.Some{Value: fields}:
+		option.Some{Value: (st.s, fields)}
+	case option.None:
+		option.None
+	}
+}
+
+func aliasFieldsOwner(st fnb, t dense.ID[store.TKey], seen []shapeVisit) option.Option[[]expr.Field] {
+	if seen.Len() >= 16 {
+		return option.None
+	}
+	let visit = shapeVisit{owner: st.alias, t: t}
+	for id in seen {
+		if id.owner == visit.owner && id.t == visit.t {
+			return option.None
+		}
+	}
+	let next = seen.Append(visit)
+	let deps = shapeDeps(st)
+	let (owner, name) = match importedShapeOf(st, t, deps) {
+	case option.Some{Value: src}:
+		let own = fnb{..st, k: src.dep.K, s: src.dep.S, alias: pkgAlias(src.dep.Path), pkgPath: src.dep.Path, idx: depIdxOf(st.cache, src.dep.Path)}
+		let decl = store.DeclOf(own.s, src.decl)
+		let fn = int(decl.File)
+		let nm = nameText(own.k.Parsed[fn], syntax.NodeAt(own.k.Parsed[fn].Tree, int(decl.Node)))
+		(own, nm)
+	case option.None:
+		if store.KindOfType(st.s, t) != store.KNamed {
+			return option.None
+		}
+		(st, store.TypeNameText(st.s, store.ArgOf(st.s, t)))
+	}
+	let mut local = owner.s
+	let (ownLocal, tt) = match aliasTargetNamed(owner, name, &local) {
+	case option.Some{Value: res}:
+		res
+	case option.None:
+		return option.None
+	}
+	let rawOpt = if ordinaryRecord(ownLocal, tt) >= 0 {
+		option.Some{Value: ownLocal.k.Recs[ordinaryRecord(ownLocal, tt)].Fields}
+	} else {
+		match recordFieldsOf(ownLocal, tt) {
+		case option.Some{Value: fs}:
+			option.Some{Value: fs}
+		case option.None:
+			aliasFieldsOwner(ownLocal, tt, next)
+		}
+	}
+	match rawOpt {
+	case option.Some{Value: raw}:
+		if ownLocal.alias == st.alias {
+			return option.Some{Value: raw}
+		}
+		let mut out = []expr.Field{}
+		let mut dst = st.s
+		for f in raw {
+			match types.Port(&dst, st.k.Ifaces, st.k.Foreign, ownLocal.s, ownLocal.pkgPath, func(ref store.XRef) option.Option[types.DeclIdentity] { types.DepIdentity(ownLocal.k.Ifaces, ref) }, ownLocal.k.Foreign, f.T) {
+			case option.Some{Value: pt}:
+				out = out.Append(expr.Field{Name: f.Name, T: pt})
+			case option.None:
+				return option.None
+			}
+		}
+		option.Some{Value: out}
+	case option.None:
+		option.None
+	}
 }

@@ -1,0 +1,343 @@
+import slices
+
+// ShrinkBudget is the maximum number of candidate replays attempted when shrinking a refuted case.
+let ShrinkBudget = uint32(500)
+
+// ShrinkMiss indicates a candidate tape did not reproduce the same refutation.
+let ShrinkMiss = uint8(0)
+
+// ShrinkHit indicates a candidate tape reproduced the same refutation.
+let ShrinkHit = uint8(1)
+
+// ShrinkStop indicates shrinking must abort immediately and return the drawn case.
+let ShrinkStop = uint8(2)
+
+// ShrinkTapeResult holds the shrunk tape, replay count, and whether shrinking aborted early.
+type ShrinkTapeResult {
+	Tape    []uint64,
+	Tries   uint32,
+	Stopped bool,
+}
+
+func cloneU64Slice(xs []uint64) []uint64 {
+	let mut out = slices.WithCapacity[uint64](xs.Len())
+	for x in xs {
+		out = out.Append(x)
+	}
+	out
+}
+
+func spliceOutU64(xs []uint64, start int, k int) []uint64 {
+	let mut out = slices.WithCapacity[uint64](xs.Len() - k)
+	for i in 0..start {
+		out = out.Append(xs[i])
+	}
+	for i in (start + k)..xs.Len() {
+		out = out.Append(xs[i])
+	}
+	out
+}
+
+// ShortlexLess reports whether tape a precedes tape b in shortlex order.
+func ShortlexLess(a []uint64, b []uint64) bool {
+	if a.Len() != b.Len() {
+		return a.Len() < b.Len()
+	}
+	for i in 0..a.Len() {
+		if a[i] != b[i] {
+			return a[i] < b[i]
+		}
+	}
+	false
+}
+
+let shrinkPhaseDel = uint8(0)
+let shrinkPhaseZero = uint8(1)
+let shrinkPhaseElemZero = uint8(2)
+let shrinkPhaseElemBin = uint8(3)
+let shrinkPhaseElemDec = uint8(4)
+
+// ShrinkIter holds incremental state-machine progress for shortlex tape shrinking without closures.
+type ShrinkIter {
+	Best     []uint64,
+	Pending  []uint64,
+	Tries    uint32,
+	Budget   uint32,
+	Stopped  bool,
+	Done     bool,
+	Improved bool,
+	Phase    uint8,
+	ChunkIdx uint8,
+	Pos      int,
+	Lo       uint64,
+}
+
+// NewShrinkIter constructs a stepped shortlex tape shrinker bounded by budget tries.
+func NewShrinkIter(tape []uint64, budget uint32) ShrinkIter {
+	ShrinkIter{
+		Best:     cloneU64Slice(tape),
+		Pending:  []uint64{},
+		Tries:    uint32(0),
+		Budget:   budget,
+		Stopped:  false,
+		Done:     tape.Len() == 0 || budget == uint32(0),
+		Improved: false,
+		Phase:    shrinkPhaseDel,
+		ChunkIdx: uint8(0),
+		Pos:      0,
+		Lo:       uint64(0),
+	}
+}
+
+func delChunkSize(idx uint8) int {
+	if idx == uint8(0) { return 8 }
+	if idx == uint8(1) { return 4 }
+	if idx == uint8(2) { return 2 }
+	1
+}
+
+func zeroChunkSize(idx uint8) int {
+	if idx == uint8(0) { return 8 }
+	if idx == uint8(1) { return 4 }
+	2
+}
+
+// NextShrinkCandidate emits the next shortlex-smaller tape candidate, or false when finished.
+func NextShrinkCandidate(it mut ShrinkIter) ([]uint64, bool) {
+	for !it.Done && !it.Stopped && it.Tries < it.Budget {
+		if it.Phase == shrinkPhaseDel {
+			if it.ChunkIdx >= uint8(4) {
+				it.Phase = shrinkPhaseZero
+				it.ChunkIdx = uint8(0)
+				it.Pos = 0
+				continue
+			}
+			let k = delChunkSize(it.ChunkIdx)
+			if it.Pos+k <= it.Best.Len() {
+				let c = spliceOutU64(it.Best, it.Pos, k)
+				it.Pending = c
+				it.Tries = it.Tries + uint32(1)
+				return (c, true)
+			}
+			it.ChunkIdx = it.ChunkIdx + uint8(1)
+			it.Pos = 0
+			continue
+		}
+		if it.Phase == shrinkPhaseZero {
+			if it.ChunkIdx >= uint8(3) {
+				it.Phase = shrinkPhaseElemZero
+				it.Pos = 0
+				it.Lo = uint64(0)
+				continue
+			}
+			let k = zeroChunkSize(it.ChunkIdx)
+			if it.Pos+k > it.Best.Len() {
+				it.ChunkIdx = it.ChunkIdx + uint8(1)
+				it.Pos = 0
+				continue
+			}
+			let mut zero = true
+			for j in it.Pos..(it.Pos + k) {
+				if it.Best[j] != uint64(0) {
+					zero = false
+					break
+				}
+			}
+			if zero {
+				it.Pos = it.Pos + 1
+				continue
+			}
+			let mut c = cloneU64Slice(it.Best)
+			for j in it.Pos..(it.Pos + k) {
+				c[j] = uint64(0)
+			}
+			it.Pending = c
+			it.Tries = it.Tries + uint32(1)
+			return (c, true)
+		}
+		if it.Phase == shrinkPhaseElemZero {
+			for it.Pos < it.Best.Len() && it.Best[it.Pos] == uint64(0) {
+				it.Pos = it.Pos + 1
+			}
+			if it.Pos >= it.Best.Len() {
+				if it.Improved {
+					it.Improved = false
+					it.Phase = shrinkPhaseDel
+					it.ChunkIdx = uint8(0)
+					it.Pos = 0
+					continue
+				}
+				it.Done = true
+				break
+			}
+			let mut c0 = cloneU64Slice(it.Best)
+			c0[it.Pos] = uint64(0)
+			it.Pending = c0
+			it.Tries = it.Tries + uint32(1)
+			return (c0, true)
+		}
+		if it.Phase == shrinkPhaseElemBin {
+			if it.Pos < it.Best.Len() && it.Best[it.Pos]-it.Lo > uint64(2) {
+				let mut c = cloneU64Slice(it.Best)
+				c[it.Pos] = it.Lo + (it.Best[it.Pos]-it.Lo)/uint64(2)
+				it.Pending = c
+				it.Tries = it.Tries + uint32(1)
+				return (c, true)
+			}
+			it.Phase = shrinkPhaseElemDec
+			continue
+		}
+		if it.Phase == shrinkPhaseElemDec {
+			if it.Pos < it.Best.Len() && it.Best[it.Pos] > uint64(0) {
+				let mut c = cloneU64Slice(it.Best)
+				c[it.Pos] = c[it.Pos] - uint64(1)
+				it.Pending = c
+				it.Tries = it.Tries + uint32(1)
+				return (c, true)
+			}
+			it.Pos = it.Pos + 1
+			it.Phase = shrinkPhaseElemZero
+			continue
+		}
+	}
+	it.Done = true
+	([]uint64{}, false)
+}
+
+// ReportShrinkOutcome advances the shrink state machine using the evaluation outcome of the last candidate.
+func ReportShrinkOutcome(it mut ShrinkIter, res uint8) {
+	if res == ShrinkStop {
+		it.Stopped = true
+		it.Done = true
+		return
+	}
+	if it.Phase == shrinkPhaseDel {
+		if res == ShrinkHit {
+			it.Best = it.Pending
+			it.Improved = true
+		} else {
+			it.Pos = it.Pos + 1
+		}
+		return
+	}
+	if it.Phase == shrinkPhaseZero {
+		if res == ShrinkHit {
+			it.Best = it.Pending
+			it.Improved = true
+		}
+		it.Pos = it.Pos + 1
+		return
+	}
+	if it.Phase == shrinkPhaseElemZero {
+		if res == ShrinkHit {
+			it.Best = it.Pending
+			it.Improved = true
+			it.Pos = it.Pos + 1
+		} else {
+			it.Lo = uint64(0)
+			it.Phase = shrinkPhaseElemBin
+		}
+		return
+	}
+	if it.Phase == shrinkPhaseElemBin {
+		if res == ShrinkHit {
+			it.Best = it.Pending
+			it.Improved = true
+		} else {
+			it.Lo = it.Pending[it.Pos]
+		}
+		return
+	}
+	if it.Phase == shrinkPhaseElemDec {
+		if res == ShrinkHit {
+			it.Best = it.Pending
+			it.Improved = true
+		} else {
+			it.Pos = it.Pos + 1
+			it.Phase = shrinkPhaseElemZero
+		}
+		return
+	}
+}
+
+// ShrinkTapeOutcome reduces a failing draw tape in shortlex order until minimal or budget exhausted.
+func ShrinkTapeOutcome(tape []uint64, budget uint32, evalFn func(c []uint64) uint8) ShrinkTapeResult {
+	let mut it = NewShrinkIter(tape, budget)
+	for {
+		let (cand, more) = NextShrinkCandidate(&it)
+		if !more {
+			break
+		}
+		ReportShrinkOutcome(&it, evalFn(cand))
+	}
+	ShrinkTapeResult{Tape: it.Best, Tries: it.Tries, Stopped: it.Stopped}
+}
+
+// ShrinkTape reduces a failing draw tape using a boolean failure predicate.
+func ShrinkTape(tape []uint64, budget uint32, refutesFn func(c []uint64) bool) ([]uint64, uint32) {
+	let r = ShrinkTapeOutcome(tape, budget, func(c []uint64) uint8 {
+		if refutesFn(c) {
+			return ShrinkHit
+		}
+		ShrinkMiss
+	})
+	return (r.Tape, r.Tries)
+}
+
+law ShrinkRespectsBudget(a uint64, b uint64, budget uint8) {
+	let tape = []uint64{a, b}
+	let bLimit = uint32(budget)
+	let (got, tries) = ShrinkTape(tape, bLimit, func(c []uint64) bool {
+		c.Len() > 0
+	})
+	assert tries <= bLimit
+	assert got.Len() <= tape.Len()
+	true
+}
+
+law ShrinkPreservesRefutationInShortlexOrder(a uint64, b uint64, c uint64) {
+	let tape = []uint64{a, b, c}
+	let mut total = uint64(0)
+	for x in tape {
+		total = total + x
+	}
+	if total >= uint64(5) {
+		let (got, _) = ShrinkTape(tape, ShrinkBudget, func(cand []uint64) bool {
+			let mut s = uint64(0)
+			for v in cand {
+				s = s + v
+			}
+			s >= uint64(5)
+		})
+		assert ShortlexLess(got, tape) || (got.Len() == tape.Len() && got[0] == tape[0])
+		let mut s = uint64(0)
+		for v in got {
+			s = s + v
+		}
+		assert s >= uint64(5)
+	}
+	true
+}
+
+test ShrinkTapeBinarySearchesLargeCounterexample {
+	let tape = []uint64{uint64(1) << 40, uint64(99), uint64(7)}
+	let (got, tries) = ShrinkTape(tape, ShrinkBudget, func(c []uint64) bool {
+		c.Len() >= 2 && c[0] >= uint64(13) && c[1] >= uint64(5)
+	})
+	assert tries <= ShrinkBudget
+	assert got.Len() == 2
+	assert got[0] == uint64(13)
+	assert got[1] == uint64(5)
+}
+
+test ShrinkTapeAbortsOnStopStatus {
+	let tape = []uint64{uint64(10), uint64(20)}
+	let r = ShrinkTapeOutcome(tape, ShrinkBudget, func(c []uint64) uint8 {
+		if c.Len() < 2 {
+			return ShrinkStop
+		}
+		ShrinkHit
+	})
+	assert r.Stopped
+	assert r.Tries == uint32(1)
+}

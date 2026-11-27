@@ -1,12 +1,14 @@
 // Package signal is the stops the host sends a process from outside:
-// Ctrl-C, a service manager's terminate, a closed terminal (Go's
-// os/signal for SIGINT, SIGTERM and SIGHUP; Effect's interruption of the
-// main fiber on SIGINT). Stops is the capability; Watched is the host's
-// provider and Script the provider a test or a law raises stops on. Both
-// providers deliver through a queue.Queue, so Next waits as Pop does: it
-// is an interruption point, and a stopped task never hangs in it.
-// UntilStop turns a stop into structured cancellation: the body is
-// stopped, its exit actions run, and UntilStop fails with Stopped.
+// Ctrl-C, a service manager's terminate, a closed terminal, and
+// user-defined signals often used to trigger a graceful reload or live
+// server cutover (Go's os/signal for SIGINT, SIGTERM, SIGHUP, SIGUSR1,
+// and SIGUSR2; Effect's interruption of the main fiber on SIGINT).
+// Stops is the capability; Watched is the host's provider and Script
+// the provider a test or a law raises stops on. Both providers deliver
+// through a queue.Queue, so Next waits as Pop does: it is an
+// interruption point, and a stopped task never hangs in it. UntilStop
+// turns a stop into structured cancellation: the body is stopped, its
+// exit actions run, and UntilStop fails with Stopped.
 
 import option
 import os
@@ -25,8 +27,16 @@ type Terminate {}
 // Hangup is SIGHUP: the controlling terminal went away.
 type Hangup {}
 
+// User1 is SIGUSR1: a user-defined signal, commonly used to trigger a
+// graceful reload or live server cutover handover.
+type User1 {}
+
+// User2 is SIGUSR2: a second user-defined signal, commonly used to
+// trigger a graceful reload or live server cutover handover.
+type User2 {}
+
 // Stop is a stop the host sent.
-type Stop = Interrupt | Terminate | Hangup
+type Stop = Interrupt | Terminate | Hangup | User1 | User2
 
 // Stopped is the failure of UntilStop when a stop ended its body: Kind
 // says which.
@@ -93,7 +103,7 @@ func Poll(s Script) option.Option[Stop] { pollOf(s.q) }
 law RaisedInOrder(picks []int) {
 	let mut raised = []Stop{}
 	for p in picks {
-		raised = raised.Append(stopOf((p%3+3)%3 + 1))
+		raised = raised.Append(stopOf((p%5+5)%5 + 1))
 	}
 	let s = NewScript(raised)
 	for k in raised {
@@ -106,7 +116,7 @@ law RaisedInOrder(picks []int) {
 
 // PollTakesOnce: a stop Poll took is gone; a second Poll is None.
 law PollTakesOnce(pick int) {
-	let k = stopOf((pick%3+3)%3 + 1)
+	let k = stopOf((pick%5+5)%5 + 1)
 	let s = NewScript([]Stop{k})
 	s.Poll() == option.Some[Stop]{Value: k} && s.Poll() == option.None
 }
@@ -138,7 +148,7 @@ law QuietRunsBody(n int) {
 // already there may win before the body runs at all, and then the body
 // has no exit action to run.
 law StopEndsBody(pick int) {
-	let k = stopOf((pick%3+3)%3 + 1)
+	let k = stopOf((pick%5+5)%5 + 1)
 	let cleaned = sync.NewRef[int](0)
 	let started = queue.New[int](1)
 	let never = queue.New[int](0)
@@ -173,13 +183,17 @@ func Next(a afterStart) Stop {
 func Poll(_ afterStart) option.Option[Stop] { option.None }
 
 // StatusOf is the exit status of a program a stop of kind k ended: 128
-// plus the signal's number, as a shell reports it: 130 for Interrupt, 143
-// for Terminate, 129 for Hangup (the numbers are one on every Unix host).
-// A main ends with it as signal.UntilStop(stops, run) catch { case
-// signal.Stopped as s: return os.Exit{Code: signal.StatusOf(s.Kind),
-// Message: ""} }, which writes no text, as the Go driver passes a stopped
-// program's status on.
+// plus the signal's number, as a shell reports it (130 for Interrupt,
+// 143 for Terminate, 129 for Hangup on every Unix host; for User1 and
+// User2, 138 and 140 on Linux (144 and 145 on MIPS) and 158 and 159 on
+// Darwin and the BSDs). A main ends with it as
+// signal.UntilStop(stops, run) catch { case signal.Stopped as s: return
+// os.Exit{Code: signal.StatusOf(s.Kind), Message: ""} }, which writes
+// no text, as the Go driver passes a stopped program's status on.
 func StatusOf(k Stop) os.Code {
+	let p = os.Current()
+	let linux = p.OS == "linux" || p.OS == "android"
+	let mips = p.Arch == "mips" || p.Arch == "mips64" || p.Arch == "mips64le" || p.Arch == "mipsle"
 	match k {
 	case Interrupt:
 		130
@@ -187,13 +201,33 @@ func StatusOf(k Stop) os.Code {
 		143
 	case Hangup:
 		129
+	case User1:
+		if linux {
+			if mips {
+				144
+			} else {
+				138
+			}
+		} else {
+			158
+		}
+	case User2:
+		if linux {
+			if mips {
+				145
+			} else {
+				140
+			}
+		} else {
+			159
+		}
 	}
 }
 
 // StatusIsTheShells: StatusOf(k) is 128 plus the host's number of k's
 // signal, and never a status of a program's own failure (1..125).
 law StatusIsTheShells(pick int) {
-	let k = stopOf((pick%3+3)%3 + 1)
+	let k = stopOf((pick%5+5)%5 + 1)
 	let s = int(StatusOf(k))
 	s == 128+hostNumber(codeOf(k)) && !(1 <= s && s <= 125)
 }
@@ -222,6 +256,10 @@ func codeOf(k Stop) int {
 		2
 	case Hangup:
 		3
+	case User1:
+		4
+	case User2:
+		5
 	}
 }
 
@@ -231,7 +269,11 @@ func stopOf(c int) Stop {
 		Interrupt
 	} else if c == 2 {
 		Terminate
-	} else {
+	} else if c == 3 {
 		Hangup
+	} else if c == 4 {
+		User1
+	} else {
+		User2
 	}
 }

@@ -1,0 +1,737 @@
+import exec
+import fs
+import fstest
+import github.com/cevr/ergo/modules/atlas/adapter
+import github.com/cevr/ergo/modules/atlas/handle
+import github.com/cevr/ergo/modules/atlas/handles
+import github.com/cevr/ergo/modules/atlas/kernel
+import github.com/cevr/ergo/modules/atlas/queue
+import github.com/cevr/ergo/modules/atlas/subagent
+import github.com/cevr/ergo/modules/atlas/thread
+import github.com/cevr/ergo/modules/atlas/tools
+import github.com/cevr/ergo/modules/atlas/turn
+import llm
+import llm/memory
+import option
+import strings
+import sync
+
+// UnsupportedDriverError indicates the configured direct driver is unsupported on this host (e.g. AntigravityDirect without support).
+type UnsupportedDriverError {
+	Cause adapter.AdapterRefusal,
+}
+
+// SteerCapabilityError indicates steering was attempted on a driver lacking native steer (never emulated).
+type SteerCapabilityError {
+	Cause adapter.AdapterRefusal,
+}
+
+// AbortedAfterFirstDeltaError enforces NoRetryAfterFirstDelta when a stream fails after emitting >= 1 delta.
+type AbortedAfterFirstDeltaError {
+	DeltasReceived int,
+	PartialText    string,
+	Reason         string,
+}
+
+// ModelFailureBeforeDeltaError reports a terminal or retry-exhausted model failure before any delta arrived.
+type ModelFailureBeforeDeltaError {
+	Attempts int,
+	Reason   string,
+}
+
+// LoopThreadError wraps a thread lifecycle or D63 origin transition refusal.
+type LoopThreadError {
+	Cause thread.ThreadRefusal,
+}
+
+// LoopSubagentError wraps a subagent hierarchy or open-handle hand-back refusal.
+type LoopSubagentError {
+	Cause subagent.SubagentRefusal,
+}
+
+// LoopHandleError wraps a DELIVERS registry failure.
+type LoopHandleError {
+	Cause handles.HandleServiceError,
+}
+
+// MaxTurnsExceededError reports reaching MaxTurns before the model finished without tool calls.
+type MaxTurnsExceededError {
+	Turns int,
+}
+
+// InvalidDirectConfigError reports invalid loop settings or inconsistent transcript setup.
+type InvalidDirectConfigError {
+	Reason string,
+}
+
+// DirectError enumerates all typed failures of the native direct agent loop.
+type DirectError = UnsupportedDriverError | SteerCapabilityError | AbortedAfterFirstDeltaError | ModelFailureBeforeDeltaError | LoopThreadError | LoopSubagentError | LoopHandleError | MaxTurnsExceededError | InvalidDirectConfigError
+
+// DirectConfig configures one native direct agent loop session/thread run.
+type DirectConfig {
+	ThreadID                 handle.ThreadID,
+	ParentThreadID           option.Option[handle.ThreadID],
+	SessionID                handle.SessionID,
+	RootThreadID             handle.ThreadID,
+	Driver                   adapter.DriverKind,
+	AgyDirectSupported       bool,
+	Capabilities             adapter.Capabilities,
+	PermissionMode           adapter.PermissionMode,
+	Role                     subagent.AgentRole,
+	ModelID                  adapter.ModelID,
+	ModelOrigin              adapter.ModelOrigin,
+	WorkspaceRoot            string,
+	SystemPrompt             string,
+	MaxTurns                 int,
+	MaxPreDeltaRetries       int,
+	MaxParallelReads         int,
+	CompactionThresholdChars int,
+	CompactionKeepTailGroups int,
+	MaxOutputTokens          int,
+	ToolContext              tools.ToolContext,
+}
+
+// DirectLoopResult reports final answer, updated transcript, domain state, and telemetry of a direct loop run.
+type DirectLoopResult {
+	FinalText         string,
+	Messages          []llm.Message,
+	Thread            thread.Thread,
+	ToolState         tools.ToolState,
+	TurnsCompleted    int,
+	PreDeltaRetries   int,
+	Compactions       int,
+	ToolCallsExecuted int,
+	SteersConsumed    int,
+	SubagentsHanded   int,
+}
+
+// DefaultDirectConfig builds a baseline DirectConfig for a driver and workspace root.
+func DefaultDirectConfig(workspace string, driver adapter.DriverKind, agySupported bool, mode adapter.PermissionMode) DirectConfig {
+	let caps = adapter.CapabilitiesFor(driver, agySupported)
+	let effMode = adapter.ResolvePermissionMode(caps, mode)
+	DirectConfig{
+		ThreadID:                 "th-root",
+		ParentThreadID:           option.None,
+		SessionID:                "sess-1",
+		RootThreadID:             "th-root",
+		Driver:                   driver,
+		AgyDirectSupported:       agySupported,
+		Capabilities:             caps,
+		PermissionMode:           effMode,
+		Role:                     subagent.RoleRoot,
+		ModelID:                  "direct-model",
+		ModelOrigin:              adapter.DefaultOrigin,
+		WorkspaceRoot:            workspace,
+		SystemPrompt:             "You are Atlas running natively on DirectPath.",
+		MaxTurns:                 16,
+		MaxPreDeltaRetries:       2,
+		MaxParallelReads:         4,
+		CompactionThresholdChars: 12000,
+		CompactionKeepTailGroups: 4,
+		MaxOutputTokens:          4096,
+		ToolContext:              tools.DefaultToolContext(workspace, effMode, caps),
+	}
+}
+
+func isRetryableBeforeDelta(f llm.Failure) bool {
+	match f {
+	case llm.RateLimited, llm.Overloaded, llm.Transport, llm.Truncated, llm.InvalidResponse:
+		true
+	case llm.Unauthorized, llm.Refused, llm.InvalidRequest, llm.UnsupportedSchema:
+		false
+	}
+}
+
+func formatLlmFailureReason(f llm.Failure) string {
+	match f {
+	case llm.RateLimited:
+		"rate_limited"
+	case llm.Overloaded:
+		"overloaded"
+	case llm.Unauthorized:
+		"unauthorized"
+	case llm.Refused as r:
+		"refused: " + r.Reason
+	case llm.Truncated:
+		"truncated"
+	case llm.Transport as tr:
+		"transport: " + tr.Reason
+	case llm.InvalidRequest as ir:
+		"invalid_request: " + ir.Reason
+	case llm.InvalidResponse as rs:
+		"invalid_response: " + rs.Reason
+	case llm.UnsupportedSchema as us:
+		"unsupported_schema: " + us.Reason
+	}
+}
+
+func collectPartialDeltaText(deltas []llm.Delta) string {
+	let mut txt = ""
+	for d in deltas {
+		match d {
+		case llm.Text as t:
+			txt = txt + t.Text
+		case llm.Reasoning, llm.CallStart, llm.CallArgs, llm.CallEnd:
+		}
+	}
+	txt
+}
+
+type streamOutcome {
+	Turn       llm.Turn,
+	Attempts   int,
+	Retries    int,
+	DeltaCount int,
+}
+
+func streamWithPreDeltaRetry(req llm.Request, maxRetries int) streamOutcome fails DirectError needs llm.Model {
+	let mut retriesUsed = 0
+	let mut attempts = 0
+	for true {
+		attempts = attempts + 1
+		let deltaRef = sync.NewRef([]llm.Delta{})
+		let turnRes = llm.Model.StreamEach(req, func(d llm.Delta) {
+			deltaRef.Update(func(prev []llm.Delta) []llm.Delta {
+				prev.Append(d)
+			})
+		}) catch {
+		case llm.Failure as f:
+			let seen = deltaRef.Get()
+			let reason = formatLlmFailureReason(f)
+			if seen.Len() > 0 {
+				return AbortedAfterFirstDeltaError{
+					DeltasReceived: seen.Len(),
+					PartialText:    collectPartialDeltaText(seen),
+					Reason:         reason,
+				}
+			}
+			if isRetryableBeforeDelta(f) && retriesUsed < maxRetries {
+				retriesUsed = retriesUsed + 1
+				continue
+			}
+			return ModelFailureBeforeDeltaError{Attempts: attempts, Reason: reason}
+		}
+		let seen = deltaRef.Get()
+		return streamOutcome{
+			Turn:       turnRes,
+			Attempts:   attempts,
+			Retries:    retriesUsed,
+			DeltaCount: seen.Len(),
+		}
+	}
+	ModelFailureBeforeDeltaError{Attempts: attempts, Reason: "unreachable loop exit"}
+}
+
+func makeThreadForConfig(cfg DirectConfig) thread.Thread fails DirectError {
+	let origin = match cfg.ParentThreadID {
+	case option.Some[handle.ThreadID] as pid:
+		thread.OriginSubagentChild{ParentID: pid.Value}
+	case option.None:
+		thread.OriginLocal
+	}
+	let spec = thread.ThreadSpec{
+		ID:                 cfg.ThreadID,
+		ParentThreadID:     cfg.ParentThreadID,
+		Driver:             cfg.Driver,
+		AgyDirectSupported: cfg.AgyDirectSupported,
+		RequestedMode:      cfg.PermissionMode,
+		Instance:           "direct",
+		ConfigDir:          cfg.WorkspaceRoot,
+		SharedHome:         option.None,
+		Model:              cfg.ModelID,
+		LinkOrigin:         origin,
+	}
+	thread.NewThread(spec) catch {
+	case thread.ThreadRefusal as tr:
+		return LoopThreadError{Cause: tr}
+	}
+}
+
+func startLoopTurn(th thread.Thread, turnSeq int, nowMs int64) thread.Thread fails DirectError {
+	thread.StartTurnOnThread(th, turn.TurnID("turn-\(turnSeq)"), nowMs) catch {
+	case thread.ThreadRefusal as tr:
+		return LoopThreadError{Cause: tr}
+	}
+}
+
+func finishLoopTurn(th thread.Thread) thread.Thread fails DirectError {
+	let th1 = thread.StepThreadTurn(th, turn.ActionReceiveDelta) catch {
+	case thread.ThreadRefusal as tr:
+		return LoopThreadError{Cause: tr}
+	}
+	thread.StepThreadTurn(th1, turn.ActionFinishTurn{Outcome: turn.OutcomeCompleted}) catch {
+	case thread.ThreadRefusal as tr:
+		return LoopThreadError{Cause: tr}
+	}
+}
+
+func maybeConsumeSteer(th thread.Thread, q queue.ThreadQueue, cfg DirectConfig) (queue.ThreadQueue, option.Option[string]) fails DirectError {
+	if q.Items.Len() == 0 {
+		return (q, option.None)
+	}
+	let (nextQ, dequeued) = queue.Dequeue(q, true, false) catch {
+	case queue.QueueError:
+		return (q, option.None)
+	}
+	match dequeued {
+	case option.None:
+		(nextQ, option.None)
+	case option.Some[queue.QueuedItem] as item:
+		let isSteer = match item.Value.Priority {
+		case queue.PrioritySteer:
+			true
+		case queue.PriorityNormal:
+			false
+		}
+		if isSteer {
+			adapter.RequireSteer(cfg.Driver, cfg.Capabilities, false, false) catch {
+			case adapter.AdapterRefusal as ar:
+				return SteerCapabilityError{Cause: ar}
+			}
+		}
+		let _ = th
+		(nextQ, option.Some[string]{Value: item.Value.Prompt.Body})
+	}
+}
+
+type loopExecState {
+	Messages    []llm.Message,
+	Thread      thread.Thread,
+	Tools       tools.ToolState,
+	SteerQueue  queue.ThreadQueue,
+	Turns       int,
+	Retries     int,
+	Compactions int,
+	ToolCalls   int,
+	SteersUsed  int,
+}
+
+func maybeCompactBetweenTurns(st loopExecState, cfg DirectConfig) loopExecState {
+	if cfg.CompactionThresholdChars <= 0 {
+		return st
+	}
+	let comp = CompactTranscript(st.Messages, cfg.CompactionThresholdChars, cfg.CompactionKeepTailGroups)
+	if !comp.Compacted {
+		return st
+	}
+	loopExecState{
+		..st,
+		Messages:    comp.Messages,
+		Compactions: st.Compactions + 1,
+	}
+}
+
+func appendToolOutcomes(messages []llm.Message, outcomes []tools.ToolCallOutcome) []llm.Message {
+	let mut out = messages
+	for o in outcomes {
+		out = out.Append(llm.Result{CallId: o.CallID, Text: o.Text, Failed: o.Failed})
+	}
+	out
+}
+
+func countHandedSubagents(before tools.ToolState, after tools.ToolState) int {
+	let mut n = 0
+	for cid, rec in after.ChildThreads {
+		if rec.HandedBack {
+			let wasHanded = match before.ChildThreads.Get(cid) {
+			case option.Some[tools.ChildThreadRecord] as b:
+				b.Value.HandedBack
+			case option.None:
+				false
+			}
+			if !wasHanded {
+				n = n + 1
+			}
+		}
+	}
+	n
+}
+
+// RunDirectLoop executes the native multi-turn direct agent loop with streaming retry guard, parallel read batching, barriers, and compaction.
+func RunDirectLoop(cfg DirectConfig, prompt string, initTools tools.ToolState, steers queue.ThreadQueue) DirectLoopResult fails DirectError needs llm.Model | fs.Files | fs.Writes | exec.Runner | tools.Approver | tools.KernelPort {
+	adapter.CanStartDriver(cfg.Driver, cfg.Capabilities) catch {
+	case adapter.AdapterRefusal as ar:
+		return UnsupportedDriverError{Cause: ar}
+	}
+	if strings.TrimSpace(prompt) == "" {
+		return InvalidDirectConfigError{Reason: "initial prompt cannot be empty"}
+	}
+	let maxTurns = if cfg.MaxTurns <= 0 { 16 } else { cfg.MaxTurns }
+	let now0 = int64(initTools.NowMs)
+	let startThread = try makeThreadForConfig(cfg)
+	let toolSpecs = tools.ToolSpecsForRole(cfg.Role)
+	let mut st = loopExecState{
+		Messages:    []llm.Message{llm.User{Text: prompt}},
+		Thread:      startThread,
+		Tools:       initTools,
+		SteerQueue:  steers,
+		Turns:       0,
+		Retries:     0,
+		Compactions: 0,
+		ToolCalls:   0,
+		SteersUsed:  0,
+	}
+	let mut handedCount = 0
+
+	for st.Turns < maxTurns {
+		if st.Turns > 0 {
+			st = maybeCompactBetweenTurns(st, cfg)
+		}
+		let turnNow = now0 + int64(st.Turns*100)
+		let thActive = try startLoopTurn(st.Thread, st.Turns+1, turnNow)
+		let req = llm.Request{
+			System:    cfg.SystemPrompt,
+			Messages:  st.Messages,
+			Tools:     toolSpecs,
+			Choice:    llm.Auto,
+			Format:    llm.Prose,
+			MaxTokens: cfg.MaxOutputTokens,
+		}
+		let so = try streamWithPreDeltaRetry(req, cfg.MaxPreDeltaRetries)
+		st = loopExecState{..st, Retries: st.Retries + so.Retries}
+
+		let asstMsg = llm.Assistant{Text: so.Turn.Text, Calls: so.Turn.Calls}
+		let nextMsgs = st.Messages.Append(asstMsg)
+		let thDone = try finishLoopTurn(thActive)
+		st = loopExecState{..st, Messages: nextMsgs, Thread: thDone, Turns: st.Turns + 1}
+
+		if so.Turn.Calls.Len() == 0 {
+			let (nextQ, steerOpt) = try maybeConsumeSteer(st.Thread, st.SteerQueue, cfg)
+			match steerOpt {
+			case option.Some[string] as txt:
+				st = loopExecState{
+					..st,
+					Messages:   st.Messages.Append(llm.User{Text: txt.Value}),
+					SteerQueue: nextQ,
+					SteersUsed: st.SteersUsed + 1,
+				}
+				continue
+			case option.None:
+				return DirectLoopResult{
+					FinalText:         so.Turn.Text,
+					Messages:          st.Messages,
+					Thread:            st.Thread,
+					ToolState:         st.Tools,
+					TurnsCompleted:    st.Turns,
+					PreDeltaRetries:   st.Retries,
+					Compactions:       st.Compactions,
+					ToolCallsExecuted: st.ToolCalls,
+					SteersConsumed:    st.SteersUsed,
+					SubagentsHanded:   handedCount,
+				}
+			}
+		}
+
+		let prevTools = st.Tools
+		let (nextTools, outcomes) = tools.ExecuteToolCalls(tools.DispatchRequest{
+			Calls:       so.Turn.Calls,
+			MaxParallel: cfg.MaxParallelReads,
+		}, st.Tools, cfg.ToolContext)
+		handedCount = handedCount + countHandedSubagents(prevTools, nextTools)
+		let msgsWithResults = appendToolOutcomes(st.Messages, outcomes)
+		st = loopExecState{
+			..st,
+			Messages:  msgsWithResults,
+			Tools:     nextTools,
+			ToolCalls: st.ToolCalls + outcomes.Len(),
+		}
+	}
+	MaxTurnsExceededError{Turns: st.Turns}
+}
+
+// SubagentRunSpec configures one delegated child subagent turn anchored to its parent thread.
+type SubagentRunSpec {
+	ChildID  handle.ThreadID,
+	Role     subagent.AgentRole,
+	Prompt   string,
+	MaxTurns int,
+}
+
+// SpawnAndRunSubagent spawns a child node/handle, enforces ParentThreadID, runs its direct loop, and blocks hand-back on open handles.
+func SpawnAndRunSubagent(parentCfg DirectConfig, parentState tools.ToolState, spec SubagentRunSpec) (tools.ToolState, DirectLoopResult) fails DirectError needs llm.Model | fs.Files | fs.Writes | exec.Runner | tools.Approver | tools.KernelPort {
+	let tree1 = subagent.SpawnChild(parentState.Tree, parentCfg.ThreadID, spec.ChildID, spec.Role) catch {
+	case subagent.SubagentRefusal as sr:
+		return LoopSubagentError{Cause: sr}
+	}
+	let hid = handle.HandleID("sub-\(parentState.NextSeq)-\(spec.ChildID)")
+	let hSpec = handle.OpenHandleSpec{
+		ID:      hid,
+		Kind:    handle.KindSubagent,
+		Owner:   parentCfg.ToolContext.Owner,
+		Session: parentCfg.SessionID,
+		Summary: "subagent " + string(spec.ChildID),
+	}
+	let reg1 = handles.OpenHostHandle(parentState.Handles, hSpec, parentCfg.ThreadID, string(spec.ChildID)) catch {
+	case handles.HandleServiceError as hs:
+		return LoopHandleError{Cause: hs}
+	}
+	let tree2 = subagent.OpenHandleOnNode(tree1, parentCfg.ThreadID, hid) catch {
+	case subagent.SubagentRefusal as sr:
+		return LoopSubagentError{Cause: sr}
+	}
+	let parentStateReady = tools.ToolState{
+		..parentState,
+		Handles: reg1,
+		Tree:    tree2,
+		NextSeq: parentState.NextSeq + 1,
+		NowMs:   parentState.NowMs + 10,
+	}
+	let childToolCtx = tools.ToolContext{
+		..parentCfg.ToolContext,
+		ThreadID:       spec.ChildID,
+		ParentThreadID: option.Some[handle.ThreadID]{Value: parentCfg.ThreadID},
+		Role:           spec.Role,
+	}
+	let childCfg = DirectConfig{
+		..parentCfg,
+		ThreadID:       spec.ChildID,
+		ParentThreadID: option.Some[handle.ThreadID]{Value: parentCfg.ThreadID},
+		Role:           spec.Role,
+		MaxTurns:       if spec.MaxTurns <= 0 { parentCfg.MaxTurns } else { spec.MaxTurns },
+		ToolContext:    childToolCtx,
+	}
+	let childRes = try RunDirectLoop(childCfg, spec.Prompt, parentStateReady, queue.NewQueue(spec.ChildID))
+	let treeFinal = subagent.FinalizeHandBack(childRes.ToolState.Tree, spec.ChildID) catch {
+	case subagent.SubagentRefusal as sr:
+		return LoopSubagentError{Cause: sr}
+	}
+	let treeSettled = subagent.SettleHandleOnNode(treeFinal, parentCfg.ThreadID, hid) catch {
+	case subagent.SubagentRefusal as sr:
+		return LoopSubagentError{Cause: sr}
+	}
+	let deliv = handles.HostDeliveryReq{
+		ID:        hid,
+		Deliverer: handle.DelivererSubagentHost,
+		Disp:      handle.DispSucceeded,
+		Summary:   "subagent \(spec.ChildID) finished",
+		NowMs:     childRes.ToolState.NowMs,
+	}
+	let (regFinal, _) = handles.DeliverFromHost(childRes.ToolState.Handles, deliv) catch {
+	case handles.HandleServiceError as hs:
+		return LoopHandleError{Cause: hs}
+	}
+	let mergedState = tools.ToolState{..childRes.ToolState, Tree: treeSettled, Handles: regFinal}
+	(mergedState, DirectLoopResult{..childRes, ToolState: mergedState, SubagentsHanded: childRes.SubagentsHanded + 1})
+}
+
+func makeTestUsage() llm.Usage {
+	llm.Usage{Input: 10, Output: 5, CacheRead: 0, CacheWrite: 0}
+}
+
+func setupDirectTestEnv() (fstest.Memory, exec.Script, tools.ScriptedKernelPort) fails fstest.BadFixture {
+	let fix = try fstest.NewFixture(
+		[]string{"/repo", "/repo/src"},
+		Map[string, string]{
+			"/repo/src/a.txt": "line-1\nline-2\n",
+			"/repo/src/b.txt": "line-1\nother\n",
+		},
+	)
+	let mem = fstest.MemoryOf(fix)
+	let cmdRun = exec.New("sh", []string{"-c", "echo ok"})
+	let script = exec.Script{Results: Map[string, exec.Result]{
+		exec.Key(exec.WithDir(cmdRun, "/repo")): exec.Result{Stdout: "ok\n", Stderr: "", Status: 0},
+	}}
+	let eng = kernel.NewScriptedEngine(Map[string, kernel.ScriptedOutcome]{})
+	(mem, script, tools.ScriptedKernelPort{Engine: eng})
+}
+
+func checkRetryAndNoRetryAfterDelta() bool {
+	let (mem, script, kport) = setupDirectTestEnv() catch {
+	case fstest.BadFixture:
+		return false
+	}
+	let u = makeTestUsage()
+	let preDeltaModel = memory.NewScriptedModel([]memory.ScriptStep{
+		memory.ScriptFault{Error: llm.RateLimited{After: option.Some[int]{Value: 100}}},
+		memory.ScriptReply{Text: "recovered before delta", Reasoning: "", ToolCalls: []llm.Call{}, Stop: llm.Ended, Usage: u},
+	})
+	let postDeltaModel = memory.NewScriptedModel([]memory.ScriptStep{
+		memory.ScriptRaw{Reply: memory.Breaks{
+			Deltas:  []llm.Delta{llm.Text{Text: "partial chunk"}},
+			Failure: llm.Transport{Reason: "stream drop"},
+		}},
+		memory.ScriptReply{Text: "must-never-retry", Reasoning: "", ToolCalls: []llm.Call{}, Stop: llm.Ended, Usage: u},
+	})
+	let cfg = DefaultDirectConfig("/repo", adapter.CodexDirect, false, adapter.ModeYolo)
+	let initState = tools.NewToolState("th-root", subagent.TreeBounds{MaxDepth: 3, MaxFanOut: 4, MaxBudget: 8}, 1000)
+
+	let mut preOk = false
+	with context { fs.Files: mem, fs.Writes: mem, exec.Runner: script, tools.Approver: tools.AlwaysApprove, tools.KernelPort: kport, llm.Model: preDeltaModel } {
+		let res = RunDirectLoop(cfg, "hello", initState, queue.NewQueue("th-root")) catch {
+		case DirectError:
+			return false
+		}
+		preOk = res.FinalText == "recovered before delta" && res.PreDeltaRetries == 1 && memory.CallCount(preDeltaModel) == 2
+	}
+	if !preOk {
+		return false
+	}
+
+	let fallbackThread = makeThreadForConfig(cfg) catch {
+	case DirectError:
+		return false
+	}
+	let mut abortedAfterDelta = false
+	with context { fs.Files: mem, fs.Writes: mem, exec.Runner: script, tools.Approver: tools.AlwaysApprove, tools.KernelPort: kport, llm.Model: postDeltaModel } {
+		let _ = RunDirectLoop(cfg, "hello", initState, queue.NewQueue("th-root")) catch {
+		case DirectError as de:
+			match de {
+			case AbortedAfterFirstDeltaError as ae:
+				abortedAfterDelta = ae.DeltasReceived == 1 && ae.PartialText == "partial chunk"
+			case UnsupportedDriverError, SteerCapabilityError, ModelFailureBeforeDeltaError, LoopThreadError, LoopSubagentError, LoopHandleError, MaxTurnsExceededError, InvalidDirectConfigError:
+				abortedAfterDelta = false
+			}
+			DirectLoopResult{FinalText: "", Messages: []llm.Message{}, Thread: fallbackThread, ToolState: initState, TurnsCompleted: 0, PreDeltaRetries: 0, Compactions: 0, ToolCallsExecuted: 0, SteersConsumed: 0, SubagentsHanded: 0}
+		}
+	}
+	abortedAfterDelta && memory.CallCount(postDeltaModel) == 1
+}
+
+// DirectRetryAndNoRetryAfterDeltaLaw verifies pre-delta retry succeeds while post-delta failure aborts immediately without re-asking.
+law DirectRetryAndNoRetryAfterDeltaLaw() {
+	checkRetryAndNoRetryAfterDelta()
+}
+
+// DirectRetryAndNoRetryAfterDeltaTest verifies pre-delta retry succeeds while post-delta failure aborts immediately without re-asking.
+test DirectRetryAndNoRetryAfterDeltaTest {
+	assert checkRetryAndNoRetryAfterDelta()
+}
+
+func checkParallelBatchBarrierAndCompaction() bool {
+	let (mem, script, kport) = setupDirectTestEnv() catch {
+	case fstest.BadFixture:
+		return false
+	}
+	let u = makeTestUsage()
+	let pad = strings.Repeat("p", 350)
+	let model = memory.NewScriptedModel([]memory.ScriptStep{
+		memory.ScriptReply{
+			Text:      "batching",
+			Reasoning: "",
+			ToolCalls: []llm.Call{
+				llm.Call{Id: "t1", Name: "read", Arguments: "{\"path\":\"src/a.txt\"}"},
+				llm.Call{Id: "t2", Name: "search", Arguments: "{\"pattern\":\"line-1\"}"},
+				llm.Call{Id: "t3", Name: "edit", Arguments: "{\"path\":\"src/a.txt\",\"old_string\":\"line-2\",\"new_string\":\"" + pad + "\"}"},
+				llm.Call{Id: "t4", Name: "read", Arguments: "{\"path\":\"src/a.txt\"}"},
+				llm.Call{Id: "t5", Name: "shell", Arguments: "{\"command\":\"rm -rf /\"}"},
+				llm.Call{Id: "t6", Name: "shell", Arguments: "{\"command\":\"echo ok\"}"},
+			},
+			Stop:  llm.ToolUse,
+			Usage: u,
+		},
+		memory.ScriptReply{
+			Text:      "done cleanly",
+			Reasoning: "",
+			ToolCalls: []llm.Call{},
+			Stop:      llm.Ended,
+			Usage:     u,
+		},
+	})
+	let baseCfg = DefaultDirectConfig("/repo", adapter.CodexDirect, false, adapter.ModeYolo)
+	let cfg = DirectConfig{..baseCfg, CompactionThresholdChars: 300, CompactionKeepTailGroups: 2}
+	let initState = tools.NewToolState("th-root", subagent.TreeBounds{MaxDepth: 3, MaxFanOut: 4, MaxBudget: 8}, 1000)
+
+	with context { fs.Files: mem, fs.Writes: mem, exec.Runner: script, tools.Approver: tools.AlwaysApprove, tools.KernelPort: kport, llm.Model: model } {
+		let res = RunDirectLoop(cfg, "update file safely", initState, queue.NewQueue("th-root")) catch {
+		case DirectError:
+			return false
+		}
+		res.FinalText == "done cleanly" && res.TurnsCompleted == 2 && res.ToolCallsExecuted == 6 && res.Compactions >= 1 && llm.Valid(res.Messages) && res.Thread.ID == "th-root"
+	}
+}
+
+// DirectParallelBatchBarrierAndCompactionLaw verifies parallel read batching, write barrier, guard enforcement, and compaction.
+law DirectParallelBatchBarrierAndCompactionLaw() {
+	checkParallelBatchBarrierAndCompaction()
+}
+
+// DirectParallelBatchBarrierAndCompactionTest exercises parallel read batching, write barrier, guard enforcement, and between-turn compaction.
+test DirectParallelBatchBarrierAndCompactionTest {
+	assert checkParallelBatchBarrierAndCompaction()
+}
+
+func checkSubagentAndDriverGate() bool {
+	let (mem, script, kport) = setupDirectTestEnv() catch {
+	case fstest.BadFixture:
+		return false
+	}
+	let u = makeTestUsage()
+	let childOkModel = memory.NewScriptedModel([]memory.ScriptStep{
+		memory.ScriptReply{Text: "child finished cleanly", Reasoning: "", ToolCalls: []llm.Call{}, Stop: llm.Ended, Usage: u},
+	})
+	let childLeakyModel = memory.NewScriptedModel([]memory.ScriptStep{
+		memory.ScriptReply{
+			Text:      "opening child handle without settling",
+			Reasoning: "",
+			ToolCalls: []llm.Call{
+				llm.Call{Id: "sh1", Name: "subagent", Arguments: "{\"action\":\"open_handle\",\"child_id\":\"child-leaky\",\"handle_id\":\"h-leak\"}"},
+			},
+			Stop:  llm.ToolUse,
+			Usage: u,
+		},
+		memory.ScriptReply{Text: "trying premature hand-back", Reasoning: "", ToolCalls: []llm.Call{}, Stop: llm.Ended, Usage: u},
+	})
+	let cfg = DefaultDirectConfig("/repo", adapter.CodexDirect, false, adapter.ModeYolo)
+	let initState = tools.NewToolState("th-root", subagent.TreeBounds{MaxDepth: 3, MaxFanOut: 4, MaxBudget: 8}, 1000)
+	let fallbackThread = makeThreadForConfig(cfg) catch {
+	case DirectError:
+		return false
+	}
+
+	let badCfg = DefaultDirectConfig("/repo", adapter.AntigravityDirect, false, adapter.ModeYolo)
+	let mut agyRefused = false
+	let mut childOk = false
+	with context { fs.Files: mem, fs.Writes: mem, exec.Runner: script, tools.Approver: tools.AlwaysApprove, tools.KernelPort: kport, llm.Model: childOkModel } {
+		let _ = RunDirectLoop(badCfg, "hi", initState, queue.NewQueue("th-root")) catch {
+		case DirectError as de:
+			match de {
+			case UnsupportedDriverError:
+				agyRefused = true
+			case SteerCapabilityError, AbortedAfterFirstDeltaError, ModelFailureBeforeDeltaError, LoopThreadError, LoopSubagentError, LoopHandleError, MaxTurnsExceededError, InvalidDirectConfigError:
+				agyRefused = false
+			}
+			DirectLoopResult{FinalText: "", Messages: []llm.Message{}, Thread: fallbackThread, ToolState: initState, TurnsCompleted: 0, PreDeltaRetries: 0, Compactions: 0, ToolCallsExecuted: 0, SteersConsumed: 0, SubagentsHanded: 0}
+		}
+		if !agyRefused {
+			return false
+		}
+		let (stOk, childRes) = SpawnAndRunSubagent(cfg, initState, SubagentRunSpec{ChildID: "child-ok", Role: subagent.RoleImplementor, Prompt: "do work", MaxTurns: 4}) catch {
+		case DirectError:
+			return false
+		}
+		childOk = childRes.FinalText == "child finished cleanly" && childRes.Thread.ParentThreadID == option.Some[handle.ThreadID]{Value: "th-root"} && subagent.ThreadMatchesParent(stOk.Tree, childRes.Thread)
+	}
+	if !childOk {
+		return false
+	}
+
+	let mut blockedOpenHandle = false
+	with context { fs.Files: mem, fs.Writes: mem, exec.Runner: script, tools.Approver: tools.AlwaysApprove, tools.KernelPort: kport, llm.Model: childLeakyModel } {
+		let _ = SpawnAndRunSubagent(cfg, initState, SubagentRunSpec{ChildID: "child-leaky", Role: subagent.RoleWorker, Prompt: "leak handle", MaxTurns: 4}) catch {
+		case DirectError as de:
+			match de {
+			case LoopSubagentError as lse:
+				match lse.Cause {
+				case subagent.OpenHandlesBlockHandBack:
+					blockedOpenHandle = true
+				case subagent.ParentNodeNotFound, subagent.NodeNotFound, subagent.DuplicateSubagentID, subagent.MaxDepthExceeded, subagent.MaxFanOutExceeded, subagent.BudgetExhausted, subagent.OutsideSubtreeScope, subagent.ActiveChildBlocksHandBack, subagent.InvalidSubagentState:
+					blockedOpenHandle = false
+				}
+			case UnsupportedDriverError, SteerCapabilityError, AbortedAfterFirstDeltaError, ModelFailureBeforeDeltaError, LoopThreadError, LoopHandleError, MaxTurnsExceededError, InvalidDirectConfigError:
+				blockedOpenHandle = false
+			}
+			(initState, DirectLoopResult{FinalText: "", Messages: []llm.Message{}, Thread: fallbackThread, ToolState: initState, TurnsCompleted: 0, PreDeltaRetries: 0, Compactions: 0, ToolCallsExecuted: 0, SteersConsumed: 0, SubagentsHanded: 0})
+		}
+	}
+	blockedOpenHandle
+}
+
+// DirectSubagentAndDriverGateLaw verifies child ParentThreadID linkage, open-handle hand-back refusal, and AntigravityDirect refusal.
+law DirectSubagentAndDriverGateLaw() {
+	checkSubagentAndDriverGate()
+}
+
+// DirectSubagentAndDriverGateTest tests recursive subagent ParentThreadID linkage, open-handle hand-back refusal, and AntigravityDirect refusal.
+test DirectSubagentAndDriverGateTest {
+	assert checkSubagentAndDriverGate()
+}

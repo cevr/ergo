@@ -1,0 +1,710 @@
+import codec
+import github.com/cevr/ergo/modules/atlas/turn
+import http
+import json
+import jsonschema
+import llm
+import option
+import strconv
+import strings
+
+// WireMode selects streaming SSE vs buffered JSON transport for a request.
+type WireMode = WireStream{} | WireBuffered{}
+
+// RateLimitInfo holds normalized retry-after and quota window readings parsed from provider headers.
+type RateLimitInfo {
+	RetryAfterMs       option.Option[int64],
+	PrimaryUsedPct     option.Option[int],
+	PrimaryResetAtMs   option.Option[int64],
+	SecondaryUsedPct   option.Option[int],
+	SecondaryResetAtMs option.Option[int64],
+	UnifiedStatus      option.Option[string],
+}
+
+// EmptyRateLimitInfo returns a RateLimitInfo with all readings unset.
+func EmptyRateLimitInfo() RateLimitInfo {
+	RateLimitInfo{
+		RetryAfterMs:       option.None,
+		PrimaryUsedPct:     option.None,
+		PrimaryResetAtMs:   option.None,
+		SecondaryUsedPct:   option.None,
+		SecondaryResetAtMs: option.None,
+		UnifiedStatus:      option.None,
+	}
+}
+
+// ProviderErrorDetails carries an extracted upstream API error message and optional type/code tag.
+type ProviderErrorDetails {
+	Message string,
+	Code    option.Option[string],
+}
+
+// HTTPFailureMapping pairs classified LLM and turn failures with parsed rate-limit telemetry.
+type HTTPFailureMapping {
+	LLM       llm.Failure,
+	Turn      turn.FailureClass,
+	RateLimit RateLimitInfo,
+}
+
+func jsonCodec() json.Codec[json.Value] {
+	json.Codec[json.Value]{MaxBytes: 0, MaxDepth: 0}
+}
+
+// JSONObject constructs a JSON object Value from ordered members.
+func JSONObject(members []json.Member) json.Value {
+	json.Object{Members: members}
+}
+
+// JSONArray constructs a JSON array Value from items.
+func JSONArray(items []json.Value) json.Value {
+	json.Array{Items: items}
+}
+
+// JSONString constructs a JSON string Value.
+func JSONString(s string) json.Value {
+	json.Str{Value: s}
+}
+
+// JSONBool constructs a JSON boolean Value.
+func JSONBool(b bool) json.Value {
+	json.Boolean{Value: b}
+}
+
+// EncodeJSONValue serializes v as canonical JSON text.
+func EncodeJSONValue(v json.Value) string {
+	json.Encode(jsonCodec(), v)
+}
+
+// DecodeJSONObject parses body as a JSON object, failing InvalidResponse otherwise.
+func DecodeJSONObject(body string) json.Value fails llm.InvalidResponse {
+	let v = json.Decode[json.Value](jsonCodec(), body) catch {
+	case json.Malformed as m:
+		return llm.InvalidResponse{Reason: "malformed json at \(m.Offset): \(m.Reason)"}
+	case codec.WireMissingField as wm:
+		return llm.InvalidResponse{Reason: "missing wire field: \(wm.Path)"}
+	case codec.WireUnknownTag as wt:
+		return llm.InvalidResponse{Reason: "unknown wire tag: \(wt.Tag)"}
+	case codec.WireWrongKind as wk:
+		return llm.InvalidResponse{Reason: "wrong wire kind at \(wk.Path): \(wk.Want)"}
+	}
+	match v {
+	case json.Object:
+		v
+	case _:
+		return llm.InvalidResponse{Reason: "expected json object"}
+	}
+}
+
+// JSONField returns key's member value when v is a JSON object containing key.
+func JSONField(v json.Value, key string) option.Option[json.Value] {
+	match v {
+	case json.Object as obj:
+		for m in obj.Members {
+			if m.Key == key {
+				return option.Some[json.Value]{Value: m.Value}
+			}
+		}
+		option.None
+	case _:
+		option.None
+	}
+}
+
+// JSONStringField returns key's string value when present and a JSON string.
+func JSONStringField(v json.Value, key string) option.Option[string] {
+	match JSONField(v, key) {
+	case option.Some[json.Value] as found:
+		match found.Value {
+		case json.Str as s:
+			option.Some[string]{Value: s.Value}
+		case _:
+			option.None
+		}
+	case option.None:
+		option.None
+	}
+}
+
+// JSONNumberInt64 extracts an integer from a numeric JSON value.
+func JSONNumberInt64(v json.Value) option.Option[int64] {
+	match v {
+	case json.Num:
+		let txt = EncodeJSONValue(v)
+		let parsed = strconv.ParseInt(txt, 10, 64) catch {
+		case strconv.Malformed, strconv.OutOfRange:
+			return parseFloatAsInt64(txt)
+		}
+		option.Some[int64]{Value: parsed}
+	case _:
+		option.None
+	}
+}
+
+func parseFloatAsInt64(txt string) option.Option[int64] {
+	let f = strconv.ParseFloat(txt) catch {
+	case strconv.Malformed, strconv.OutOfRange:
+		return option.None
+	}
+	option.Some[int64]{Value: int64(f)}
+}
+
+// JSONIntField returns key's integer value when present and numeric.
+func JSONIntField(v json.Value, key string) option.Option[int64] {
+	match JSONField(v, key) {
+	case option.Some[json.Value] as found:
+		JSONNumberInt64(found.Value)
+	case option.None:
+		option.None
+	}
+}
+
+// JSONBoolField returns key's boolean value when present and boolean.
+func JSONBoolField(v json.Value, key string) option.Option[bool] {
+	match JSONField(v, key) {
+	case option.Some[json.Value] as found:
+		match found.Value {
+		case json.Boolean as b:
+			option.Some[bool]{Value: b.Value}
+		case _:
+			option.None
+		}
+	case option.None:
+		option.None
+	}
+}
+
+// JSONArrayField returns key's array elements or an empty slice when absent or non-array.
+func JSONArrayField(v json.Value, key string) []json.Value {
+	match JSONField(v, key) {
+	case option.Some[json.Value] as found:
+		match found.Value {
+		case json.Array as arr:
+			arr.Items
+		case _:
+			[]json.Value{}
+		}
+	case option.None:
+		[]json.Value{}
+	}
+}
+
+// ParseSchemaValue parses a JSON Schema text into a validated json.Value or fails UnsupportedSchema.
+func ParseSchemaValue(raw string) json.Value fails llm.UnsupportedSchema {
+	let sch = jsonschema.Parse(raw) catch {
+	case jsonschema.Invalid as inv:
+		return llm.UnsupportedSchema{Reason: "invalid schema at \(inv.Path): \(inv.Reason)"}
+	}
+	jsonschema.Value(sch)
+}
+
+// EncodeToolSchemaValue returns the raw JSON Schema Value for a tool input specification.
+func EncodeToolSchemaValue(spec llm.ToolSpec) json.Value {
+	jsonschema.Value(jsonschema.SchemaOf(spec.Input))
+}
+
+// HeaderFolded looks up name case-insensitively across HTTP header fields.
+func HeaderFolded(fields []http.Field, name string) option.Option[string] {
+	let want = strings.ToLower(name)
+	for f in fields {
+		if strings.ToLower(f.Name) == want {
+			return option.Some[string]{Value: f.Value}
+		}
+	}
+	option.None
+}
+
+func parsePositiveInt64(raw string) option.Option[int64] {
+	let trimmed = strings.TrimSpace(raw)
+	if trimmed == "" {
+		return option.None
+	}
+	let iv = strconv.ParseInt(trimmed, 10, 64) catch {
+	case strconv.Malformed, strconv.OutOfRange:
+		return parsePositiveFloatFloor(trimmed)
+	}
+	if iv >= 0 {
+		return option.Some[int64]{Value: iv}
+	}
+	option.None
+}
+
+func parsePositiveFloatFloor(trimmed string) option.Option[int64] {
+	let fv = strconv.ParseFloat(trimmed) catch {
+	case strconv.Malformed, strconv.OutOfRange:
+		return option.None
+	}
+	if fv >= 0.0 {
+		return option.Some[int64]{Value: int64(fv)}
+	}
+	option.None
+}
+
+func clampPercent(pct int) int {
+	if pct < 0 {
+		return 0
+	}
+	if pct > 100 {
+		return 100
+	}
+	pct
+}
+
+func parsePercentHeader(fields []http.Field, name string) option.Option[int] {
+	let raw = HeaderFolded(fields, name)
+	match raw {
+	case option.Some[string] as s:
+		let fv = strconv.ParseFloat(strings.TrimSpace(s.Value)) catch {
+		case strconv.Malformed, strconv.OutOfRange:
+			return option.None
+		}
+		let rounded = int(fv + 0.5)
+		option.Some[int]{Value: clampPercent(rounded)}
+	case option.None:
+		option.None
+	}
+}
+
+func parseUnitUtilizationHeader(fields []http.Field, name string) option.Option[int] {
+	let raw = HeaderFolded(fields, name)
+	match raw {
+	case option.Some[string] as s:
+		let fv = strconv.ParseFloat(strings.TrimSpace(s.Value)) catch {
+		case strconv.Malformed, strconv.OutOfRange:
+			return option.None
+		}
+		let scaled = int(fv*100.0 + 0.5)
+		option.Some[int]{Value: clampPercent(scaled)}
+	case option.None:
+		option.None
+	}
+}
+
+func parseResetTimestampHeader(fields []http.Field, name string) option.Option[int64] {
+	let raw = HeaderFolded(fields, name)
+	match raw {
+	case option.Some[string] as s:
+		match parsePositiveInt64(s.Value) {
+		case option.Some[int64] as v:
+			let ms = if v.Value > 0 && v.Value < int64(100000000000) { v.Value * int64(1000) } else { v.Value }
+			option.Some[int64]{Value: ms}
+		case option.None:
+			option.None
+		}
+	case option.None:
+		option.None
+	}
+}
+
+func parseResetAfterHeader(fields []http.Field, name string, nowMs int64) option.Option[int64] {
+	let raw = HeaderFolded(fields, name)
+	match raw {
+	case option.Some[string] as s:
+		let fv = strconv.ParseFloat(strings.TrimSpace(s.Value)) catch {
+		case strconv.Malformed, strconv.OutOfRange:
+			return option.None
+		}
+		if fv <= 0.0 {
+			return option.None
+		}
+		option.Some[int64]{Value: nowMs + int64(fv*1000.0)}
+	case option.None:
+		option.None
+	}
+}
+
+func parseRetryAfterMsHeader(headers []http.Field) option.Option[int64] {
+	match HeaderFolded(headers, "retry-after-ms") {
+	case option.Some[string] as msText:
+		match parsePositiveInt64(msText.Value) {
+		case option.Some[int64] as ms:
+			if ms.Value > 0 {
+				return option.Some[int64]{Value: ms.Value}
+			}
+			option.None
+		case option.None:
+			option.None
+		}
+	case option.None:
+		match HeaderFolded(headers, "retry-after") {
+		case option.Some[string] as secText:
+			let fv = strconv.ParseFloat(strings.TrimSpace(secText.Value)) catch {
+			case strconv.Malformed, strconv.OutOfRange:
+				return option.None
+			}
+			let ms = int64(fv * 1000.0)
+			if ms > 0 {
+				return option.Some[int64]{Value: ms}
+			}
+			option.None
+		case option.None:
+			option.None
+		}
+	}
+}
+
+func firstSomeInt64(a option.Option[int64], b option.Option[int64]) option.Option[int64] {
+	match a {
+	case option.Some[int64]:
+		a
+	case option.None:
+		b
+	}
+}
+
+func firstSomeInt(a option.Option[int], b option.Option[int]) option.Option[int] {
+	match a {
+	case option.Some[int]:
+		a
+	case option.None:
+		b
+	}
+}
+
+// ParseRateLimitHeaders extracts retry delays and primary/secondary quota windows from HTTP headers.
+func ParseRateLimitHeaders(headers []http.Field, nowMs int64) RateLimitInfo {
+	let retryAfter = parseRetryAfterMsHeader(headers)
+	let codexPrimaryPct = parsePercentHeader(headers, "x-codex-primary-used-percent")
+	let codexSecondaryPct = parsePercentHeader(headers, "x-codex-secondary-used-percent")
+	let codexPrimaryReset = firstSomeInt64(
+		parseResetAfterHeader(headers, "x-codex-primary-reset-after-seconds", nowMs),
+		parseResetTimestampHeader(headers, "x-codex-primary-reset-at"),
+	)
+	let codexSecondaryReset = firstSomeInt64(
+		parseResetAfterHeader(headers, "x-codex-secondary-reset-after-seconds", nowMs),
+		parseResetTimestampHeader(headers, "x-codex-secondary-reset-at"),
+	)
+	let anthPrimaryPct = parseUnitUtilizationHeader(headers, "anthropic-ratelimit-unified-5h-utilization")
+	let anthSecondaryPct = parseUnitUtilizationHeader(headers, "anthropic-ratelimit-unified-7d-utilization")
+	let anthPrimaryReset = parseResetTimestampHeader(headers, "anthropic-ratelimit-unified-5h-reset")
+	let anthSecondaryReset = parseResetTimestampHeader(headers, "anthropic-ratelimit-unified-7d-reset")
+	let unifiedStatus = HeaderFolded(headers, "anthropic-ratelimit-unified-status")
+	RateLimitInfo{
+		RetryAfterMs:       retryAfter,
+		PrimaryUsedPct:     firstSomeInt(codexPrimaryPct, anthPrimaryPct),
+		PrimaryResetAtMs:   firstSomeInt64(codexPrimaryReset, anthPrimaryReset),
+		SecondaryUsedPct:   firstSomeInt(codexSecondaryPct, anthSecondaryPct),
+		SecondaryResetAtMs: firstSomeInt64(codexSecondaryReset, anthSecondaryReset),
+		UnifiedStatus:      unifiedStatus,
+	}
+}
+
+// ExtractErrorDetails pulls structured message and error code/type fields from a JSON error body.
+func ExtractErrorDetails(body string) ProviderErrorDetails {
+	let obj = DecodeJSONObject(body) catch {
+	case llm.InvalidResponse:
+		return ProviderErrorDetails{Message: trimmedBodyPreview(body), Code: option.None}
+	}
+	match JSONField(obj, "error") {
+	case option.Some[json.Value] as errVal:
+		let msgOpt = JSONStringField(errVal.Value, "message")
+		let codeOpt = firstSomeString(JSONStringField(errVal.Value, "code"), JSONStringField(errVal.Value, "type"))
+		let msg = match msgOpt {
+		case option.Some[string] as m:
+			m.Value
+		case option.None:
+			trimmedBodyPreview(body)
+		}
+		ProviderErrorDetails{Message: msg, Code: codeOpt}
+	case option.None:
+		let topMsg = match JSONStringField(obj, "message") {
+		case option.Some[string] as m:
+			m.Value
+		case option.None:
+			trimmedBodyPreview(body)
+		}
+		ProviderErrorDetails{Message: topMsg, Code: JSONStringField(obj, "type")}
+	}
+}
+
+func firstSomeString(a option.Option[string], b option.Option[string]) option.Option[string] {
+	match a {
+	case option.Some[string]:
+		a
+	case option.None:
+		b
+	}
+}
+
+func trimmedBodyPreview(body string) string {
+	let trimmed = strings.TrimSpace(body)
+	if trimmed == "" {
+		return "empty error response"
+	}
+	if trimmed.Len() > 240 {
+		return strings.Slice(trimmed, 0, 240)
+	}
+	trimmed
+}
+
+func rateLimitedAfterOption(info RateLimitInfo) option.Option[int] {
+	match info.RetryAfterMs {
+	case option.Some[int64] as ms:
+		option.Some[int]{Value: int(ms.Value)}
+	case option.None:
+		option.None
+	}
+}
+
+func resolveRateLimitResetMs(info RateLimitInfo, nowMs int64) int64 {
+	match info.RetryAfterMs {
+	case option.Some[int64] as ms:
+		if ms.Value > 0 {
+			return nowMs + ms.Value
+		}
+	case option.None:
+	}
+	match info.PrimaryResetAtMs {
+	case option.Some[int64] as resetAt:
+		if resetAt.Value > nowMs {
+			return resetAt.Value
+		}
+	case option.None:
+	}
+	nowMs + int64(60000)
+}
+
+func containsAnyKeyword(text string, keywords []string) bool {
+	let lower = strings.ToLower(text)
+	for kw in keywords {
+		if strings.Contains(lower, kw) {
+			return true
+		}
+	}
+	false
+}
+
+func classifyBadRequestDetails(details ProviderErrorDetails) llm.Failure {
+	let detailText = match details.Code {
+	case option.Some[string] as c:
+		c.Value + " " + details.Message
+	case option.None:
+		details.Message
+	}
+	if containsAnyKeyword(detailText, []string{"unsupported_schema", "invalid_json_schema", "schema", "output_format"}) {
+		return llm.UnsupportedSchema{Reason: details.Message}
+	}
+	if containsAnyKeyword(detailText, []string{"content_policy", "safety", "refus", "policy_violation"}) {
+		return llm.Refused{Reason: details.Message}
+	}
+	llm.InvalidRequest{Reason: details.Message}
+}
+
+// ClassifyHTTPFailure maps an HTTP error status, headers, and body into llm.Failure and turn.FailureClass.
+func ClassifyHTTPFailure(status int, headers []http.Field, body string, nowMs int64) HTTPFailureMapping {
+	let rate = ParseRateLimitHeaders(headers, nowMs)
+	let details = ExtractErrorDetails(body)
+	if status == 429 {
+		return HTTPFailureMapping{
+			LLM:       llm.RateLimited{After: rateLimitedAfterOption(rate)},
+			Turn:      turn.FailureUsageLimit{ResetAtMs: resolveRateLimitResetMs(rate, nowMs)},
+			RateLimit: rate,
+		}
+	}
+	if status == 401 || status == 403 {
+		return HTTPFailureMapping{
+			LLM:       llm.Unauthorized,
+			Turn:      turn.FailureProvider,
+			RateLimit: rate,
+		}
+	}
+	if status == 500 || status == 502 || status == 503 || status == 504 || status == 529 {
+		return HTTPFailureMapping{
+			LLM:       llm.Overloaded,
+			Turn:      turn.FailureProvider,
+			RateLimit: rate,
+		}
+	}
+	if status == 408 {
+		return HTTPFailureMapping{
+			LLM:       llm.Transport{Reason: details.Message},
+			Turn:      turn.FailureTransport,
+			RateLimit: rate,
+		}
+	}
+	if status == 400 || status == 404 || status == 413 || status == 422 {
+		return HTTPFailureMapping{
+			LLM:       classifyBadRequestDetails(details),
+			Turn:      turn.FailureValidation,
+			RateLimit: rate,
+		}
+	}
+	HTTPFailureMapping{
+		LLM:       llm.Refused{Reason: "http \(status): \(details.Message)"},
+		Turn:      turn.FailureProvider,
+		RateLimit: rate,
+	}
+}
+
+type finishReasonRow {
+	Tag  string,
+	Stop llm.Stop,
+}
+
+func finishReasonTable() []finishReasonRow {
+	[]finishReasonRow{
+		finishReasonRow{Tag: "stop", Stop: llm.Ended},
+		finishReasonRow{Tag: "end_turn", Stop: llm.Ended},
+		finishReasonRow{Tag: "completed", Stop: llm.Ended},
+		finishReasonRow{Tag: "tool_calls", Stop: llm.ToolUse},
+		finishReasonRow{Tag: "tool_use", Stop: llm.ToolUse},
+		finishReasonRow{Tag: "length", Stop: llm.Length},
+		finishReasonRow{Tag: "max_tokens", Stop: llm.Length},
+		finishReasonRow{Tag: "max_output_tokens", Stop: llm.Length},
+		finishReasonRow{Tag: "content_filter", Stop: llm.Blocked},
+		finishReasonRow{Tag: "refusal", Stop: llm.Blocked},
+		finishReasonRow{Tag: "stop_sequence", Stop: llm.Ended},
+		finishReasonRow{Tag: "incomplete", Stop: llm.Length},
+	}
+}
+
+// NormalizeFinishReason converts provider stop/finish strings into canonical llm.Stop.
+func NormalizeFinishReason(raw string, hasCalls bool) llm.Stop {
+	if hasCalls {
+		return llm.ToolUse
+	}
+	let norm = strings.ToLower(strings.TrimSpace(raw))
+	for row in finishReasonTable() {
+		if row.Tag == norm {
+			return row.Stop
+		}
+	}
+	llm.Ended
+}
+
+// ValidateCompletedTurn verifies canonical tool-call ids, names, uniqueness, and JSON argument syntax.
+func ValidateCompletedTurn(t llm.Turn) llm.Turn fails llm.InvalidResponse {
+	let mut seenIDs = []string{}
+	for c in t.Calls {
+		if strings.TrimSpace(c.Id) == "" {
+			return llm.InvalidResponse{Reason: "tool call missing id"}
+		}
+		if strings.TrimSpace(c.Name) == "" {
+			return llm.InvalidResponse{Reason: "tool call \(c.Id) missing name"}
+		}
+		for prev in seenIDs {
+			if prev == c.Id {
+				return llm.InvalidResponse{Reason: "duplicate tool call id: \(c.Id)"}
+			}
+		}
+		seenIDs = seenIDs.Append(c.Id)
+		let trimmedArgs = strings.TrimSpace(c.Arguments)
+		if trimmedArgs != "" {
+			let _ = json.Decode[json.Value](jsonCodec(), trimmedArgs) catch {
+			case json.Malformed as m:
+				return llm.InvalidResponse{Reason: "tool call \(c.Id) malformed arguments json: \(m.Reason)"}
+			case codec.WireMissingField as wm:
+				return llm.InvalidResponse{Reason: "tool call \(c.Id) missing wire field: \(wm.Path)"}
+			case codec.WireUnknownTag as wt:
+				return llm.InvalidResponse{Reason: "tool call \(c.Id) unknown wire tag: \(wt.Tag)"}
+			case codec.WireWrongKind as wk:
+				return llm.InvalidResponse{Reason: "tool call \(c.Id) wrong wire kind at \(wk.Path): \(wk.Want)"}
+			}
+		}
+	}
+	t
+}
+
+func safeLawBaseMs(now int64) int64 {
+	let offsetMs = if now == int64(-9223372036854775808) {
+		int64(0)
+	} else if now < 0 {
+		(-now) % int64(1000000000)
+	} else {
+		now % int64(1000000000)
+	}
+	int64(1700000000000) + offsetMs
+}
+
+law HTTPStatusClassificationMatchesSafetyAndReset(now int64, delaySec int) {
+	let baseMs = safeLawBaseMs(now)
+	let absDelay = if delaySec < 0 { -(delaySec % 3600) } else { delaySec % 3600 }
+	let clampedSec = absDelay + 1
+	let headers429 = []http.Field{
+		http.Field{Name: "Retry-After", Value: strconv.Itoa(clampedSec)},
+		http.Field{Name: "x-codex-primary-used-percent", Value: "84"},
+	}
+	let m429 = ClassifyHTTPFailure(429, headers429, `{"error":{"message":"rate limit hit"}}`, baseMs)
+	let resetOk = match m429.Turn {
+	case turn.FailureUsageLimit as ul:
+		ul.ResetAtMs == baseMs+int64(clampedSec)*int64(1000)
+	case _:
+		false
+	}
+	let m401 = ClassifyHTTPFailure(401, []http.Field{}, `{"error":{"message":"bad token"}}`, baseMs)
+	let m503 = ClassifyHTTPFailure(503, []http.Field{}, `{"error":{"message":"busy"}}`, baseMs)
+	let m400Schema = ClassifyHTTPFailure(400, []http.Field{}, `{"error":{"code":"invalid_json_schema","message":"bad schema"}}`, baseMs)
+	let schemaRejected = match m400Schema.LLM {
+	case llm.UnsupportedSchema:
+		true
+	case _:
+		false
+	}
+		resetOk &&
+		m429.LLM == llm.RateLimited{After: option.Some[int]{Value: clampedSec * 1000}} &&
+		m429.RateLimit.PrimaryUsedPct == option.Some[int]{Value: 84} &&
+		m401.LLM == llm.Unauthorized &&
+		m401.Turn == turn.FailureProvider &&
+		m503.LLM == llm.Overloaded &&
+		m503.Turn == turn.FailureProvider &&
+		schemaRejected &&
+		turn.FailureResetAtMs(m401.Turn) == option.None
+}
+
+law RateLimitHeadersParseRetryAfterAndWindows(now int64, msDelay int) {
+	let baseMs = safeLawBaseMs(now)
+	let absMs = if msDelay < 0 { -(msDelay % 120000) } else { msDelay % 120000 }
+	let posMs = absMs + 1
+	let headers = []http.Field{
+		http.Field{Name: "Retry-After-Ms", Value: strconv.Itoa(posMs)},
+		http.Field{Name: "Retry-After", Value: "999"},
+		http.Field{Name: "anthropic-ratelimit-unified-5h-utilization", Value: "0.75"},
+		http.Field{Name: "anthropic-ratelimit-unified-5h-reset", Value: "1700005000"},
+		http.Field{Name: "anthropic-ratelimit-unified-7d-utilization", Value: "0.25"},
+		http.Field{Name: "anthropic-ratelimit-unified-status", Value: "allowed_warning"},
+	}
+	let info = ParseRateLimitHeaders(headers, baseMs)
+		info.RetryAfterMs == option.Some[int64]{Value: int64(posMs)} &&
+		info.PrimaryUsedPct == option.Some[int]{Value: 75} &&
+		info.PrimaryResetAtMs == option.Some[int64]{Value: int64(1700005000000)} &&
+		info.SecondaryUsedPct == option.Some[int]{Value: 25} &&
+		info.UnifiedStatus == option.Some[string]{Value: "allowed_warning"}
+}
+
+test CompletedTurnValidationRejectsDuplicateCallIDs {
+	let valid = try ValidateCompletedTurn(llm.Turn{
+		Text:  "ok",
+		Calls: []llm.Call{llm.Call{Id: "c1", Name: "read", Arguments: `{"path":"a"}`}},
+		Stop:  llm.ToolUse,
+		Usage: llm.Usage{Input: 10, Output: 5, CacheRead: 0, CacheWrite: 0},
+	})
+	assert valid.Calls.Len() == 1
+
+	let mut dupRejected = false
+	let _ = ValidateCompletedTurn(llm.Turn{
+		Text:  "",
+		Calls: []llm.Call{
+			llm.Call{Id: "c1", Name: "read", Arguments: "{}"},
+			llm.Call{Id: "c1", Name: "glob", Arguments: "{}"},
+		},
+		Stop:  llm.ToolUse,
+		Usage: llm.Usage{Input: 1, Output: 1, CacheRead: 0, CacheWrite: 0},
+	}) catch {
+	case llm.InvalidResponse:
+		dupRejected = true
+		valid
+	}
+	assert dupRejected
+
+	let mut badArgsRejected = false
+	let _ = ValidateCompletedTurn(llm.Turn{
+		Text:  "",
+		Calls: []llm.Call{llm.Call{Id: "c2", Name: "read", Arguments: "{broken"}},
+		Stop:  llm.ToolUse,
+		Usage: llm.Usage{Input: 1, Output: 1, CacheRead: 0, CacheWrite: 0},
+	}) catch {
+	case llm.InvalidResponse:
+		badArgsRejected = true
+		valid
+	}
+	assert badArgsRejected
+}

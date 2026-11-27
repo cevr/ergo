@@ -1,3 +1,5 @@
+//go:build linux || darwin || dragonfly || freebsd || netbsd || openbsd
+
 package v1
 
 import (
@@ -8,8 +10,8 @@ import (
 )
 
 // The bodies of std signal's host provider (signal.Watch and Unwatch).
-// A code names a stop: 1 SIGINT, 2 SIGTERM, 3 SIGHUP (std signal's
-// codeOf).
+// A code names a stop: 1 SIGINT, 2 SIGTERM, 3 SIGHUP, 4 SIGUSR1,
+// 5 SIGUSR2 (std signal's codeOf).
 
 // signalWatches holds each Watch's channel by the number SignalWatch gave.
 var signalWatches = struct {
@@ -25,8 +27,12 @@ func signalOfCode(c int) os.Signal {
 		return syscall.SIGINT
 	case 2:
 		return syscall.SIGTERM
-	default:
+	case 3:
 		return syscall.SIGHUP
+	case 4:
+		return syscall.SIGUSR1
+	default:
+		return syscall.SIGUSR2
 	}
 }
 
@@ -37,8 +43,12 @@ func codeOfSignal(s os.Signal) int {
 		return 1
 	case syscall.SIGTERM:
 		return 2
-	default:
+	case syscall.SIGHUP:
 		return 3
+	case syscall.SIGUSR1:
+		return 4
+	default:
+		return 5
 	}
 }
 
@@ -82,8 +92,10 @@ func SignalWatch(q *OpenQueue[int], kinds []int) int {
 }
 
 // SignalUnwatch is the body of signal.Unwatch: the kinds watch n took go
-// back to their default action, unless another watch still takes them,
-// and its forwarding goroutine ends. A second call of n does nothing.
+// back to Go's os/signal default action (ending the process for SIGINT,
+// SIGTERM, and SIGHUP; taking no action for SIGUSR1 and SIGUSR2), unless
+// another watch still takes them, and its forwarding goroutine ends. A
+// second call of n does nothing.
 //
 //ergo:host
 //ergo:wait none

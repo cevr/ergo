@@ -1,0 +1,588 @@
+import utf8
+
+// NeedsDataCount reports whether m requires a DataCount section (section 12).
+func NeedsDataCount(m Module) bool {
+	if m.EmitDataCount {
+		return true
+	}
+	for fd in m.Funcs {
+		if fd.UsesBulk || fd.UsesData {
+			return true
+		}
+	}
+	for ds in m.DataSegs {
+		if ds.Passive {
+			return true
+		}
+	}
+	false
+}
+
+func validateValSlice(bs []byte, label string) fails WasmError {
+	for i, b in bs {
+		if !IsValidValType(b) {
+			return errAt("invalid-valtype", uint32(i), "invalid \(label) valtype \(b)")
+		}
+	}
+}
+
+func validateLimits(minPages uint32, maxPages uint32, hasMax bool, label string) fails WasmError {
+	if minPages > uint32(65536) {
+		return errAt("invalid-limit", uint32(0), "\(label) min pages \(minPages) exceeds 65536")
+	}
+	if hasMax {
+		if maxPages < minPages {
+			return errAt("invalid-limit", uint32(0), "\(label) max pages \(maxPages) < min \(minPages)")
+		}
+		if maxPages > uint32(65536) {
+			return errAt("invalid-limit", uint32(0), "\(label) max pages \(maxPages) exceeds 65536")
+		}
+	}
+}
+
+func validateInitExpr(m Module, expr InitExpr, wantType byte, label string) fails WasmError {
+	if expr.Kind == InitI32 {
+		if wantType != ValI32 {
+			return errAt("invalid-init", uint32(0), "\(label) expected i32 initializer")
+		}
+		return
+	}
+	if expr.Kind == InitI64 {
+		if wantType != ValI64 {
+			return errAt("invalid-init", uint32(0), "\(label) expected i64 initializer")
+		}
+		return
+	}
+	if expr.Kind == InitF32 {
+		if wantType != ValF32 {
+			return errAt("invalid-init", uint32(0), "\(label) expected f32 initializer")
+		}
+		return
+	}
+	if expr.Kind == InitF64 {
+		if wantType != ValF64 {
+			return errAt("invalid-init", uint32(0), "\(label) expected f64 initializer")
+		}
+		return
+	}
+	if expr.Kind == InitGlobalGet {
+		let impGlobals = m.ImportedGlobalCount()
+		if expr.GlobalIdx >= impGlobals {
+			return errAt("invalid-init", uint32(0), "\(label) global.get index \(expr.GlobalIdx) is not an imported global")
+		}
+		let gImp = importedGlobalAt(m, expr.GlobalIdx)
+		if gImp.GlobalMut {
+			return errAt("invalid-init", uint32(0), "\(label) global.get index \(expr.GlobalIdx) must be immutable")
+		}
+		if gImp.GlobalType != wantType {
+			return errAt("invalid-init", uint32(0), "\(label) global.get type mismatch")
+		}
+		return
+	}
+	errAt("invalid-init", uint32(0), "\(label) has unknown init expr kind \(expr.Kind)")
+}
+
+func importedGlobalAt(m Module, gIdx uint32) ImportDef {
+	let mut seen = uint32(0)
+	for imp in m.Imports {
+		if imp.Kind == KindGlobal {
+			if seen == gIdx {
+				return imp
+			}
+			seen = seen + uint32(1)
+		}
+	}
+	ImportDef{Module: "", Name: "", Kind: KindGlobal, TypeIdx: uint32(0), MemMin: uint32(0), MemMax: uint32(0), MemHasMax: false, GlobalType: byte(0), GlobalMut: false}
+}
+
+func validateSigs(m Module) fails WasmError {
+	for i, s in m.Sigs {
+		if uint64(s.ParamOff)+uint64(s.ParamLen) > uint64(m.ParamTypes.Len()) {
+			return errAt("invalid-index", uint32(i), "sig \(i) params span out of bounds")
+		}
+		if uint64(s.ResultOff)+uint64(s.ResultLen) > uint64(m.ResultTypes.Len()) {
+			return errAt("invalid-index", uint32(i), "sig \(i) results span out of bounds")
+		}
+		try validateValSlice(m.SigParams(uint32(i)), "param")
+		try validateValSlice(m.SigResults(uint32(i)), "result")
+	}
+}
+
+func validateImports(m Module) fails WasmError {
+	for i, imp in m.Imports {
+		if !utf8.ValidString(imp.Module) || !utf8.ValidString(imp.Name) {
+			return errAt("bad-utf8", uint32(i), "import \(i) has invalid UTF-8 name")
+		}
+		if imp.Kind == KindFunc {
+			if int(imp.TypeIdx) >= m.Sigs.Len() {
+				return errAt("invalid-index", uint32(i), "import func type \(imp.TypeIdx) out of range")
+			}
+		} else if imp.Kind == KindMem {
+			try validateLimits(imp.MemMin, imp.MemMax, imp.MemHasMax, "import memory")
+		} else if imp.Kind == KindGlobal {
+			if !IsValidValType(imp.GlobalType) {
+				return errAt("invalid-valtype", uint32(i), "import global invalid valtype \(imp.GlobalType)")
+			}
+		} else {
+			return errAt("invalid-index", uint32(i), "unsupported import kind \(imp.Kind)")
+		}
+	}
+}
+
+func validateFuncs(m Module) fails WasmError {
+	for i, fd in m.Funcs {
+		if int(fd.TypeIdx) >= m.Sigs.Len() {
+			return errAt("invalid-index", uint32(i), "func \(i) type \(fd.TypeIdx) out of range")
+		}
+		if uint64(fd.LocalOff)+uint64(fd.LocalLen) > uint64(m.LocalRuns.Len()) {
+			return errAt("invalid-index", uint32(i), "func \(i) locals span out of bounds")
+		}
+		if uint64(fd.CodeOff)+uint64(fd.CodeLen) > uint64(m.CodeBytes.Len()) {
+			return errAt("invalid-index", uint32(i), "func \(i) code span out of bounds")
+		}
+		let mut totalLocals = uint64(0)
+		for k in 0..int(fd.LocalLen) {
+			let r = m.LocalRuns[int(fd.LocalOff)+k]
+			if !IsValidValType(r.ValType) {
+				return errAt("invalid-valtype", uint32(i), "func \(i) local valtype \(r.ValType) invalid")
+			}
+			totalLocals = totalLocals + uint64(r.Count)
+			if totalLocals > uint64(0xffffffff) {
+				return errAt("invalid-code", uint32(i), "func \(i) total locals overflow uint32")
+			}
+		}
+	}
+}
+
+func validateExports(m Module) fails WasmError {
+	let nFuncs = m.TotalFuncCount()
+	let nMems = m.TotalMemCount()
+	let nGlobals = m.TotalGlobalCount()
+	for i, ex in m.Exports {
+		if !utf8.ValidString(ex.Name) {
+			return errAt("bad-utf8", uint32(i), "export \(i) has invalid UTF-8 name")
+		}
+		for j in 0..i {
+			if m.Exports[j].Name == ex.Name {
+				return errAt("invalid-export", uint32(i), "duplicate export name \(ex.Name)")
+			}
+		}
+		if ex.Kind == KindFunc {
+			if ex.Index >= nFuncs {
+				return errAt("invalid-index", uint32(i), "export func index \(ex.Index) out of range")
+			}
+		} else if ex.Kind == KindMem {
+			if ex.Index >= nMems {
+				return errAt("invalid-index", uint32(i), "export mem index \(ex.Index) out of range")
+			}
+		} else if ex.Kind == KindGlobal {
+			if ex.Index >= nGlobals {
+				return errAt("invalid-index", uint32(i), "export global index \(ex.Index) out of range")
+			}
+		} else {
+			return errAt("invalid-export", uint32(i), "unsupported export kind \(ex.Kind)")
+		}
+	}
+}
+
+func validateStart(m Module) fails WasmError {
+	if !m.HasStart {
+		return
+	}
+	let nFuncs = m.TotalFuncCount()
+	if m.StartIdx >= nFuncs {
+		return errAt("invalid-index", m.StartIdx, "start function index \(m.StartIdx) out of range")
+	}
+	let impFuncs = m.ImportedFuncCount()
+	let sigIdx = if m.StartIdx < impFuncs {
+		importedFuncSigAt(m, m.StartIdx)
+	} else {
+		m.Funcs[int(m.StartIdx-impFuncs)].TypeIdx
+	}
+	let sig = m.Sigs[int(sigIdx)]
+	if sig.ParamLen != uint32(0) || sig.ResultLen != uint32(0) {
+		return errAt("invalid-index", m.StartIdx, "start function must have () -> () signature")
+	}
+}
+
+func importedFuncSigAt(m Module, fIdx uint32) uint32 {
+	let mut seen = uint32(0)
+	for imp in m.Imports {
+		if imp.Kind == KindFunc {
+			if seen == fIdx {
+				return imp.TypeIdx
+			}
+			seen = seen + uint32(1)
+		}
+	}
+	uint32(0)
+}
+
+func validateDataSegs(m Module) fails WasmError {
+	let nMems = m.TotalMemCount()
+	for i, ds in m.DataSegs {
+		if uint64(ds.DataOff)+uint64(ds.DataLen) > uint64(m.DataPool.Len()) {
+			return errAt("invalid-index", uint32(i), "data segment \(i) span out of bounds")
+		}
+		if !ds.Passive {
+			if ds.MemIdx >= nMems {
+				return errAt("invalid-index", uint32(i), "data segment \(i) mem \(ds.MemIdx) out of range")
+			}
+			try validateInitExpr(m, ds.Offset, ValI32, "data segment offset")
+		}
+	}
+}
+
+// ValidateModule checks all structural invariants on m before binary emission.
+func ValidateModule(m Module) fails WasmError {
+	try validateSigs(m)
+	try validateImports(m)
+	try validateFuncs(m)
+	for _, mem in m.Mems {
+		try validateLimits(mem.Min, mem.Max, mem.HasMax, "memory")
+	}
+	for i, g in m.Globals {
+		if !IsValidValType(g.ValType) {
+			return errAt("invalid-valtype", uint32(i), "global \(i) invalid valtype \(g.ValType)")
+		}
+		try validateInitExpr(m, g.Init, g.ValType, "global \(i)")
+	}
+	try validateExports(m)
+	try validateStart(m)
+	try validateDataSegs(m)
+}
+
+// WriteInitExpr encodes a constant initializer expression followed by 0x0b.
+func WriteInitExpr(w mut Buf, expr InitExpr) fails WasmError {
+	if expr.Kind == InitI32 {
+		w.U8(OpI32Const)
+		w.SLEB32Bits(uint32(expr.Bits & uint64(0xffffffff)))
+		w.U8(OpEnd)
+		return
+	}
+	if expr.Kind == InitI64 {
+		w.U8(OpI64Const)
+		w.SLEB64Bits(expr.Bits)
+		w.U8(OpEnd)
+		return
+	}
+	if expr.Kind == InitF32 {
+		w.U8(OpF32Const)
+		w.U32LE(uint32(expr.Bits & uint64(0xffffffff)))
+		w.U8(OpEnd)
+		return
+	}
+	if expr.Kind == InitF64 {
+		w.U8(OpF64Const)
+		w.U64LE(expr.Bits)
+		w.U8(OpEnd)
+		return
+	}
+	if expr.Kind == InitGlobalGet {
+		w.U8(OpGlobalGet)
+		w.ULEB32(expr.GlobalIdx)
+		w.U8(OpEnd)
+		return
+	}
+	errAt("invalid-init", uint32(0), "unknown init expr kind \(expr.Kind)")
+}
+
+func writeLimits(w mut Buf, minPages uint32, maxPages uint32, hasMax bool) {
+	if hasMax {
+		w.U8(LimitMinMax)
+		w.ULEB32(minPages)
+		w.ULEB32(maxPages)
+		return
+	}
+	w.U8(LimitMin)
+	w.ULEB32(minPages)
+}
+
+func emitTypeSection(out mut Buf, m Module) {
+	if m.Sigs.Len() == 0 {
+		return
+	}
+	let mut sec = NewBuf()
+	sec.ULEB32(uint32(m.Sigs.Len()))
+	for i in 0..m.Sigs.Len() {
+		let ps = m.SigParams(uint32(i))
+		let rs = m.SigResults(uint32(i))
+		sec.U8(FuncTypeTag)
+		sec.ULEB32(uint32(ps.Len()))
+		sec.RawBytes(ps)
+		sec.ULEB32(uint32(rs.Len()))
+		sec.RawBytes(rs)
+	}
+	out.WriteSection(SecType, sec.BufBytes())
+}
+
+func emitImportSection(out mut Buf, m Module) {
+	if m.Imports.Len() == 0 {
+		return
+	}
+	let mut sec = NewBuf()
+	sec.ULEB32(uint32(m.Imports.Len()))
+	for imp in m.Imports {
+		sec.WriteName(imp.Module)
+		sec.WriteName(imp.Name)
+		sec.U8(imp.Kind)
+		if imp.Kind == KindFunc {
+			sec.ULEB32(imp.TypeIdx)
+		} else if imp.Kind == KindMem {
+			sec.writeLimits(imp.MemMin, imp.MemMax, imp.MemHasMax)
+		} else if imp.Kind == KindGlobal {
+			sec.U8(imp.GlobalType)
+			sec.U8(if imp.GlobalMut { MutVar } else { MutConst })
+		}
+	}
+	out.WriteSection(SecImport, sec.BufBytes())
+}
+
+func emitFunctionSection(out mut Buf, m Module) {
+	if m.Funcs.Len() == 0 {
+		return
+	}
+	let mut sec = NewBuf()
+	sec.ULEB32(uint32(m.Funcs.Len()))
+	for fd in m.Funcs {
+		sec.ULEB32(fd.TypeIdx)
+	}
+	out.WriteSection(SecFunction, sec.BufBytes())
+}
+
+func emitMemorySection(out mut Buf, m Module) {
+	if m.Mems.Len() == 0 {
+		return
+	}
+	let mut sec = NewBuf()
+	sec.ULEB32(uint32(m.Mems.Len()))
+	for mem in m.Mems {
+		sec.writeLimits(mem.Min, mem.Max, mem.HasMax)
+	}
+	out.WriteSection(SecMemory, sec.BufBytes())
+}
+
+func emitGlobalSection(out mut Buf, m Module) fails WasmError {
+	if m.Globals.Len() == 0 {
+		return
+	}
+	let mut sec = NewBuf()
+	sec.ULEB32(uint32(m.Globals.Len()))
+	for g in m.Globals {
+		sec.U8(g.ValType)
+		sec.U8(if g.Mutable { MutVar } else { MutConst })
+		try sec.WriteInitExpr(g.Init)
+	}
+	out.WriteSection(SecGlobal, sec.BufBytes())
+}
+
+func emitExportSection(out mut Buf, m Module) {
+	if m.Exports.Len() == 0 {
+		return
+	}
+	let mut sec = NewBuf()
+	sec.ULEB32(uint32(m.Exports.Len()))
+	for ex in m.Exports {
+		sec.WriteName(ex.Name)
+		sec.U8(ex.Kind)
+		sec.ULEB32(ex.Index)
+	}
+	out.WriteSection(SecExport, sec.BufBytes())
+}
+
+func emitStartSection(out mut Buf, m Module) {
+	if !m.HasStart {
+		return
+	}
+	let mut sec = NewBuf()
+	sec.ULEB32(m.StartIdx)
+	out.WriteSection(SecStart, sec.BufBytes())
+}
+
+func emitDataCountSection(out mut Buf, m Module) {
+	if !NeedsDataCount(m) {
+		return
+	}
+	let mut sec = NewBuf()
+	sec.ULEB32(uint32(m.DataSegs.Len()))
+	out.WriteSection(SecDataCount, sec.BufBytes())
+}
+
+func emitCodeSection(out mut Buf, m Module) {
+	if m.Funcs.Len() == 0 {
+		return
+	}
+	let mut sec = NewBuf()
+	sec.ULEB32(uint32(m.Funcs.Len()))
+	for i in 0..m.Funcs.Len() {
+		let runs = m.FuncLocals(uint32(i))
+		let code = m.FuncCode(uint32(i))
+		let mut body = NewBuf()
+		body.ULEB32(uint32(runs.Len()))
+		for r in runs {
+			body.ULEB32(r.Count)
+			body.U8(r.ValType)
+		}
+		body.RawBytes(code)
+		body.U8(OpEnd)
+		sec.ULEB32(body.BufLen())
+		sec.RawBytes(body.BufBytes())
+	}
+	out.WriteSection(SecCode, sec.BufBytes())
+}
+
+func emitDataSection(out mut Buf, m Module) fails WasmError {
+	if m.DataSegs.Len() == 0 {
+		return
+	}
+	let mut sec = NewBuf()
+	sec.ULEB32(uint32(m.DataSegs.Len()))
+	for i, ds in m.DataSegs {
+		let bs = m.DataBytes(uint32(i))
+		if ds.Passive {
+			sec.U8(byte(0x01))
+		} else if ds.MemIdx == uint32(0) {
+			sec.U8(byte(0x00))
+			try sec.WriteInitExpr(ds.Offset)
+		} else {
+			sec.U8(byte(0x02))
+			sec.ULEB32(ds.MemIdx)
+			try sec.WriteInitExpr(ds.Offset)
+		}
+		sec.ULEB32(uint32(bs.Len()))
+		sec.RawBytes(bs)
+	}
+	out.WriteSection(SecData, sec.BufBytes())
+}
+
+// Emit validates m and encodes it as a canonical WebAssembly 1.0 + bulk-memory binary module.
+func Emit(m Module) []byte fails WasmError {
+	try ValidateModule(m)
+	let mut out = NewBuf()
+	out.WriteHeader()
+	emitTypeSection(&out, m)
+	emitImportSection(&out, m)
+	emitFunctionSection(&out, m)
+	emitMemorySection(&out, m)
+	try emitGlobalSection(&out, m)
+	emitExportSection(&out, m)
+	emitStartSection(&out, m)
+	emitDataCountSection(&out, m)
+	emitCodeSection(&out, m)
+	try emitDataSection(&out, m)
+	out.BufBytes()
+}
+
+// BuildAddModule builds the smallest useful module: one function add(i32, i32) i32 exported as "add".
+func BuildAddModule() Module fails WasmError {
+	let mut m = NewModule()
+	let sig = m.InternType([]byte{ValI32, ValI32}, []byte{ValI32})
+	let mut cb = NewCodeBuf()
+	cb.LocalGet(uint32(0))
+	cb.LocalGet(uint32(1))
+	cb.I32Add()
+	let f = try m.AddFunc(sig, []byte{}, cb)
+	m.AddExportFunc("add", f)
+	m
+}
+
+test AddModuleBytesAreTheSpecAndValidate {
+	let m = BuildAddModule() catch {
+	case WasmError:
+		NewModule()
+	}
+	let bin = Emit(m) catch {
+	case WasmError:
+		[]byte{}
+	}
+	let want = []byte{
+		byte(0x00), byte(0x61), byte(0x73), byte(0x6d), byte(0x01), byte(0x00), byte(0x00), byte(0x00),
+		byte(0x01), byte(0x07), byte(0x01), byte(0x60), byte(0x02), byte(0x7f), byte(0x7f), byte(0x01), byte(0x7f),
+		byte(0x03), byte(0x02), byte(0x01), byte(0x00),
+		byte(0x07), byte(0x07), byte(0x01), byte(0x03), byte(0x61), byte(0x64), byte(0x64), byte(0x00), byte(0x00),
+		byte(0x0a), byte(0x09), byte(0x01), byte(0x07), byte(0x00), byte(0x20), byte(0x00), byte(0x20), byte(0x01), byte(0x6a), byte(0x0b),
+	}
+	assert bin == want
+	let d = Decode(bin) catch {
+	case WasmError:
+		emptyDecodedModule(uint32(0))
+	}
+	assert d.Exports.Len() == 1
+	assert d.Bodies.Len() == 1
+	assert d.DecodedSigParams(uint32(0)) == []byte{ValI32, ValI32}
+	assert d.DecodedSigResults(uint32(0)) == []byte{ValI32}
+}
+
+test EmitRejectsInvalidModuleContracts {
+	let mut dupExp = NewModule()
+	let sig = dupExp.AddType([]byte{}, []byte{})
+	let cb = NewCodeBuf()
+	let f0 = dupExp.AddFunc(sig, []byte{}, cb) catch {
+	case WasmError:
+		uint32(0)
+	}
+	dupExp.AddExportFunc("f", f0)
+	dupExp.AddExportFunc("f", f0)
+	let mut gotErr = ""
+	let _ = Emit(dupExp) catch {
+	case WasmError as e:
+		gotErr = e.Kind
+		[]byte{}
+	}
+	assert gotErr == "invalid-export"
+
+	let mut badLim = NewModule()
+	let _ = badLim.AddMemoryBounded(uint32(4), uint32(2))
+	gotErr = ""
+	let _ = Emit(badLim) catch {
+	case WasmError as e:
+		gotErr = e.Kind
+		[]byte{}
+	}
+	assert gotErr == "invalid-limit"
+
+	let mut badSig = NewModule()
+	let _ = badSig.AddFunc(uint32(0), []byte{}, NewCodeBuf()) catch {
+	case WasmError:
+		uint32(0)
+	}
+	gotErr = ""
+	let _ = Emit(badSig) catch {
+	case WasmError as e:
+		gotErr = e.Kind
+		[]byte{}
+	}
+	assert gotErr == "invalid-index"
+
+	let mut badStart = NewModule()
+	let sigRet = badStart.AddType([]byte{}, []byte{ValI32})
+	let mut cbStart = NewCodeBuf()
+	cbStart.I32Const(int32(1))
+	let fStart = badStart.AddFunc(sigRet, []byte{}, cbStart) catch {
+	case WasmError:
+		uint32(0)
+	}
+	badStart.SetStart(fStart)
+	gotErr = ""
+	let _ = Emit(badStart) catch {
+	case WasmError as e:
+		gotErr = e.Kind
+		[]byte{}
+	}
+	assert gotErr == "invalid-index"
+
+	let mut badUTF8 = NewModule()
+	let sigV = badUTF8.AddType([]byte{}, []byte{})
+	let fV = badUTF8.AddFunc(sigV, []byte{}, NewCodeBuf()) catch {
+	case WasmError:
+		uint32(0)
+	}
+	badUTF8.AddExportFunc([]byte{byte(0xff)}.Text(), fV)
+	gotErr = ""
+	let _ = Emit(badUTF8) catch {
+	case WasmError as e:
+		gotErr = e.Kind
+		[]byte{}
+	}
+	assert gotErr == "bad-utf8"
+}

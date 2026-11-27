@@ -914,6 +914,35 @@ func main() {
 	use(Mine)
 }
 `,
+	"fs.Scans": `import fs
+import time
+
+type Mine {} implements fs.Scans
+
+func ReadFile(_ Mine, path string) string fails fs.NotFound | fs.Denied | fs.Failed { "" }
+func ReadDir(_ Mine, path string) []string fails fs.NotFound | fs.Denied | fs.Failed { []string{} }
+func Stat(_ Mine, path string) fs.Info fails fs.NotFound | fs.Denied | fs.Failed {
+	fs.Info{Name: path, Size: 0, Dir: false, Perm: 0}
+}
+
+func Lstat(_ Mine, path string) fs.Info fails fs.NotFound | fs.Denied | fs.Failed {
+	fs.Info{Name: path, Size: 0, Dir: false, Perm: 0}
+}
+
+func ReadEntry(_ Mine, path string) fs.Entry fails fs.NotFound | fs.Denied | fs.Failed {
+	fs.Entry{Kind: fs.FileEntry, Size: 0, AllocatedBytes: 0, ModTime: time.Unix(0, 0), AccessTime: time.Unix(0, 0), Nlink: 1, ID: fs.NewFileID(1, 1)}
+}
+
+func ReadDirEntries(_ Mine, path string) []fs.DirChild fails fs.NotFound | fs.Denied | fs.Failed {
+	[]fs.DirChild{}
+}
+
+func use(f fs.Scans) { _ = f.ReadDirEntries("a") catch { case fs.NotFound, fs.Denied, fs.Failed: []fs.DirChild{} } }
+
+func main() {
+	use(Mine)
+}
+`,
 	"fs.Files": `import fs
 
 type Mine {} implements fs.Files
@@ -1786,6 +1815,21 @@ func main() {
 	use(Mine)
 }
 `,
+	"os/host.Volumes": `import os/host
+
+type Mine {} implements host.Volumes
+
+func Mounts(_ Mine) []host.Mount fails host.Unavailable | host.Malformed { []host.Mount{} }
+func MountForPath(_ Mine, path string) host.Mount fails host.Unavailable | host.NotFound | host.Malformed {
+	return host.NotFound{Target: path}
+}
+
+func use(v host.Volumes) { _ = v.Mounts() catch { case host.Unavailable, host.Malformed: return } }
+
+func main() {
+	use(Mine)
+}
+`,
 	// std pace (PACE1): open; a program provides it (pace.Default,
 	// pace.Percent).
 	// The store contracts of ST3 (stdlib.md, Stores): a program or a
@@ -2048,9 +2092,11 @@ var openStd = map[string]bool{
 	"os.Process":        true,
 	"os.Self":           true,
 	"os/host.System":    true,
+	"os/host.Volumes":   true,
 	"fs/mapped.Maps":    true, // open: a program may provide its own store of mapped files (CAP-FILE), as fs.Files and fs.Writes are open
 	"signal.Stops":      true,
 	"fs.Entries":        true,
+	"fs.Scans":          true,
 	"fs.Files":          true,
 	"fs.Writes":         true,
 	"fs.Root":           true,

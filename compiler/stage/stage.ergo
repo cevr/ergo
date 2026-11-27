@@ -1,0 +1,413 @@
+import cmp
+import fs
+import json
+import option
+import os
+import slices
+import sync
+
+// StageReportVariable names the environment variable pointing to the JSON
+// report file written when non-empty.
+let StageReportVariable string = "ERGO_STAGE_REPORT"
+
+// NoCounter is the sentinel dense counter ID returned when a counter name is
+// unknown.
+let NoCounter uint32 = 4294967295
+
+// CounterCount is the total number of compiler stage counters.
+let CounterCount uint32 = 30
+
+// FilesRead counts files opened for reading.
+let FilesRead uint32 = 0
+
+// BytesRead counts file bytes read.
+let BytesRead uint32 = 1
+
+// FilesParsed counts parsed source files.
+let FilesParsed uint32 = 2
+
+// BytesParsed counts source bytes parsed.
+let BytesParsed uint32 = 3
+
+// PackagesChecked counts packages type-checked.
+let PackagesChecked uint32 = 4
+
+// DeclsChecked counts top-level declarations type-checked.
+let DeclsChecked uint32 = 5
+
+// PackagesReused counts packages satisfied from cache without re-checking.
+let PackagesReused uint32 = 6
+
+// ModulesLowered counts Go modules lowered.
+let ModulesLowered uint32 = 7
+
+// GoBytesLowered counts Go source bytes emitted during lowering.
+let GoBytesLowered uint32 = 8
+
+// ModulesReused counts lowered Go modules reused from cache.
+let ModulesReused uint32 = 9
+
+// BytesHashed counts bytes fed into content hashes.
+let BytesHashed uint32 = 10
+
+// GoCompiles counts Go compiler invocations.
+let GoCompiles uint32 = 11
+
+// GoCompilesReused counts Go compile steps satisfied from cache.
+let GoCompilesReused uint32 = 12
+
+// Links counts linker invocations.
+let Links uint32 = 13
+
+// LinksReused counts link steps satisfied from cache.
+let LinksReused uint32 = 14
+
+// GoCommands counts invocations of the external go tool.
+let GoCommands uint32 = 15
+
+// Processes counts child processes started.
+let Processes uint32 = 16
+
+// BytesWritten counts bytes written to output files.
+let BytesWritten uint32 = 17
+
+// OutputsPlaced counts compiled outputs placed into destination paths.
+let OutputsPlaced uint32 = 18
+
+// StdExports counts decoded standard-library package exports.
+let StdExports uint32 = 19
+
+// ObligationsAffected counts proof obligations marked affected by edits.
+let ObligationsAffected uint32 = 20
+
+// SharedFallbacks counts fallbacks onto shared compilation units.
+let SharedFallbacks uint32 = 21
+
+// BinariesIR counts binaries built via the IR lowering path.
+let BinariesIR uint32 = 22
+
+// BinariesText counts binaries built via the Go text lowering path.
+let BinariesText uint32 = 23
+
+// ObligationsEvaluated counts proof obligations decided by check-time eval.
+let ObligationsEvaluated uint32 = 24
+
+// EvalSteps counts evaluator steps executed during check-time eval.
+let EvalSteps uint32 = 25
+
+// ObligationsNative counts proof obligations decided by compiled test binaries.
+let ObligationsNative uint32 = 26
+
+// ObligationsStored counts proof obligations answered by stored verdicts.
+let ObligationsStored uint32 = 27
+
+// PackagesRouted counts packages routed straight to test binaries.
+let PackagesRouted uint32 = 28
+
+// SharedTestModules counts shared test modules linked during recursive runs.
+let SharedTestModules uint32 = 29
+
+// CounterTable stores the dense vector of stage counter totals indexed by
+// uint32 counter ID.
+type CounterTable {
+	Values []uint64,
+}
+
+// StdWork records standard-library checker counts merged into stage reports.
+type StdWork {
+	FilesParsed     uint64,
+	PackagesChecked uint64,
+	PackagesDecoded uint64,
+}
+
+// CounterEntry pairs one report counter key with its uint64 total.
+type CounterEntry {
+	Name  string,
+	Value uint64,
+}
+
+// Store holds a synchronized dense counter vector for concurrent updates.
+type Store {
+	ref sync.Ref[[]uint64],
+}
+
+// Names returns all stage counter report names in dense CounterID order.
+func Names() []string {
+	[]string{
+		"files_read",
+		"bytes_read",
+		"files_parsed",
+		"bytes_parsed",
+		"packages_checked",
+		"decls_checked",
+		"packages_reused",
+		"modules_lowered",
+		"go_bytes_lowered",
+		"modules_reused",
+		"bytes_hashed",
+		"go_compiles",
+		"go_compiles_reused",
+		"links",
+		"links_reused",
+		"go_commands",
+		"processes",
+		"bytes_written",
+		"outputs_placed",
+		"std_exports",
+		"obligations_affected",
+		"shared_fallbacks",
+		"binaries_ir",
+		"binaries_text",
+		"obligations_evaluated",
+		"eval_steps",
+		"obligations_native",
+		"obligations_stored",
+		"packages_routed",
+		"shared_test_modules",
+	}
+}
+
+// Name returns the report name for counter id, or "" when out of range.
+func Name(id uint32) string {
+	let all = Names()
+	if id >= uint32(all.Len()) {
+		return ""
+	}
+	all[int(id)]
+}
+
+// CounterID returns the dense counter ID for a report name, or NoCounter when
+// unknown.
+func CounterID(name string) uint32 {
+	let all = Names()
+	for i, n in all {
+		if n == name {
+			return uint32(i)
+		}
+	}
+	NoCounter
+}
+
+func zeroValues() []uint64 {
+	let mut vals = slices.WithCapacity[uint64](int(CounterCount))
+	for _ in 0..int(CounterCount) {
+		vals = vals.Append(uint64(0))
+	}
+	vals
+}
+
+// NewTable allocates a zeroed CounterTable covering every stage counter.
+func NewTable() CounterTable {
+	CounterTable{Values: zeroValues()}
+}
+
+// Add increments counter id in t by delta.
+func Add(t mut CounterTable, id uint32, delta uint64) {
+	if id >= CounterCount {
+		return
+	}
+	let mut next = slices.Clone(t.Values)
+	for next.Len() < int(CounterCount) {
+		next = next.Append(uint64(0))
+	}
+	next[int(id)] = next[int(id)] + delta
+	t.Values = next
+}
+
+// Get returns the current total for counter id in t.
+func Get(t CounterTable, id uint32) uint64 {
+	if id >= CounterCount || int(id) >= t.Values.Len() {
+		return uint64(0)
+	}
+	t.Values[int(id)]
+}
+
+// Reset zeroes every counter in t.
+func Reset(t mut CounterTable) {
+	t.Values = zeroValues()
+}
+
+// NewStore creates a synchronized counter store initialized to zero.
+func NewStore() Store {
+	Store{ref: sync.NewRef[[]uint64](zeroValues())}
+}
+
+// StoreAdd atomically adds delta to counter id in s.
+func StoreAdd(s Store, id uint32, delta uint64) {
+	if id >= CounterCount {
+		return
+	}
+	let _ = sync.Modify(s.ref, func(vals []uint64) (int, []uint64) {
+		let mut out = slices.Clone(vals)
+		for out.Len() < int(CounterCount) {
+			out = out.Append(uint64(0))
+		}
+		out[int(id)] = out[int(id)] + delta
+		(0, out)
+	})
+}
+
+// StoreGet returns counter id's current value in s.
+func StoreGet(s Store, id uint32) uint64 {
+	if id >= CounterCount {
+		return uint64(0)
+	}
+	let vals = s.ref.Get()
+	if int(id) >= vals.Len() {
+		return uint64(0)
+	}
+	vals[int(id)]
+}
+
+// StoreReset resets all counters in s to zero.
+func StoreReset(s Store) {
+	s.ref.Set(zeroValues())
+}
+
+// StoreTable snapshots s into a value CounterTable.
+func StoreTable(s Store) CounterTable {
+	let vals = s.ref.Get()
+	let mut out = slices.WithCapacity[uint64](int(CounterCount))
+	for i in 0..int(CounterCount) {
+		let v = if i < vals.Len() { vals[i] } else { uint64(0) }
+		out = out.Append(v)
+	}
+	CounterTable{Values: out}
+}
+
+// Snapshot returns all 30 counters in dense ID order.
+func Snapshot(t CounterTable) []CounterEntry {
+	let all = Names()
+	let mut out = slices.WithCapacity[CounterEntry](all.Len())
+	for i, name in all {
+		let v = if i < t.Values.Len() { t.Values[i] } else { uint64(0) }
+		out = out.Append(CounterEntry{Name: name, Value: v})
+	}
+	out
+}
+
+type entryOrder {} implements cmp.Order[CounterEntry]
+
+func Compare(_ entryOrder, a CounterEntry, b CounterEntry) int {
+	if a.Name < b.Name {
+		return -1
+	}
+	if a.Name > b.Name {
+		return 1
+	}
+	0
+}
+
+// StageReport combines t with StdWork and returns every report entry sorted
+// lexicographically by counter name.
+func StageReport(t CounterTable, w StdWork) []CounterEntry {
+	let all = Names()
+	let mut out = slices.WithCapacity[CounterEntry](all.Len() + 3)
+	for i, name in all {
+		let mut v = if i < t.Values.Len() { t.Values[i] } else { uint64(0) }
+		if uint32(i) == FilesParsed {
+			v = v + w.FilesParsed
+		} else if uint32(i) == PackagesChecked {
+			v = v + w.PackagesChecked
+		}
+		out = out.Append(CounterEntry{Name: name, Value: v})
+	}
+	out = out.Append(CounterEntry{Name: "std_files_parsed", Value: w.FilesParsed})
+	out = out.Append(CounterEntry{Name: "std_packages_checked", Value: w.PackagesChecked})
+	out = out.Append(CounterEntry{Name: "std_packages_decoded", Value: w.PackagesDecoded})
+	slices.SortBy(out, entryOrder)
+}
+
+// FormatReportJSON encodes report entries into two-space indented JSON ending
+// with a trailing newline, matching Go's encoding/json.MarshalIndent output.
+func FormatReportJSON(entries []CounterEntry) string fails json.Malformed {
+	let t = json.NewText()
+	t.BeginObject(entries.Len())
+	for _, e in entries {
+		t.Key(e.Name)
+		t.Uint(e.Value)
+	}
+	t.EndObject()
+	let indented = try json.Indent(t.Written(), "", "  ")
+	indented + "\n"
+}
+
+// WriteStageReport writes the JSON stage report to the path in
+// ERGO_STAGE_REPORT when that environment variable is non-empty.
+func WriteStageReport(t CounterTable, w StdWork) fails fs.NotFound | fs.Denied | fs.Failed | json.Malformed needs os.Process | fs.Writes {
+	let envPath = os.Process.Getenv(StageReportVariable)
+	match envPath {
+	case option.Some{Value: path}:
+		if path != "" {
+			let body = try FormatReportJSON(StageReport(t, w))
+			try fs.Writes.WriteFile(path, body)
+		}
+	case option.None:
+	}
+}
+
+law AddIncreasesGet(id uint32, a uint64, b uint64) {
+	if id >= CounterCount {
+		return true
+	}
+	let mut t = NewTable()
+	Add(&t, id, a)
+	Add(&t, id, b)
+	Get(t, id) == a+b
+}
+
+law ResetClearsEveryCounter(id uint32, a uint64) {
+	let mut t = NewTable()
+	Add(&t, id, a)
+	Reset(&t)
+	if id >= CounterCount {
+		return Get(t, id) == uint64(0)
+	}
+	Get(t, id) == uint64(0) && Get(t, FilesRead) == uint64(0) && Get(t, SharedTestModules) == uint64(0)
+}
+
+test CounterTableAndReportRoundTrip {
+	assert Names().Len() == int(CounterCount)
+	assert Name(FilesRead) == "files_read"
+	assert Name(SharedTestModules) == "shared_test_modules"
+	assert Name(CounterCount) == ""
+	assert CounterID("eval_steps") == EvalSteps
+	assert CounterID("missing") == NoCounter
+
+	let s = NewStore()
+	StoreAdd(s, FilesParsed, uint64(4))
+	StoreAdd(s, PackagesChecked, uint64(2))
+	StoreAdd(s, EvalSteps, uint64(19))
+	assert StoreGet(s, EvalSteps) == uint64(19)
+	let rep = StageReport(StoreTable(s), StdWork{
+		FilesParsed:     uint64(10),
+		PackagesChecked: uint64(3),
+		PackagesDecoded: uint64(7),
+	})
+	assert rep.Len() == 33
+	assert rep[0].Name == "binaries_ir"
+	assert rep[32].Name == "std_packages_decoded"
+	let mut gotFiles = uint64(0)
+	let mut gotPkgs = uint64(0)
+	let mut gotStdFiles = uint64(0)
+	for _, e in rep {
+		if e.Name == "files_parsed" {
+			gotFiles = e.Value
+		} else if e.Name == "packages_checked" {
+			gotPkgs = e.Value
+		} else if e.Name == "std_files_parsed" {
+			gotStdFiles = e.Value
+		}
+	}
+	assert gotFiles == uint64(14)
+	assert gotPkgs == uint64(5)
+	assert gotStdFiles == uint64(10)
+	let encoded = FormatReportJSON(rep) catch {
+	case _:
+		assert false
+		return
+	}
+	assert encoded[0] == '{'
+	StoreReset(s)
+	assert StoreGet(s, EvalSteps) == uint64(0)
+}

@@ -1,0 +1,497 @@
+import dense
+import filepath
+import option
+import slices
+import strings
+
+// NoRecorderPath is the sentinel dense path ID in RecorderTable.
+let NoRecorderPath uint32 = 4294967295
+
+// KeyOpen marks a recorded path as opened for reading or directory listing.
+let KeyOpen uint8 = 1
+
+// KeyStat marks a recorded path as looked up or traversed via a symlink.
+let KeyStat uint8 = 2
+
+// LinkTarget classifies one filesystem path lookup without following a trailing
+// symbolic link.
+type LinkTarget = LinkMissing{} | LinkDir{} | LinkFile{} | LinkSymlink{Target string} | LinkOther{}
+
+// PathResolver inspects filesystem links and script headers for test input
+// path walking.
+type PathResolver {
+	EntryKindAt(path string) LinkTarget,
+	PhysicalDir(dir string) option.Option[string],
+	ReadHead(path string) string,
+}
+
+// MemPathResolver is an in-memory PathResolver provider used in pure-Ergo laws
+// and tests.
+type MemPathResolver {
+	Links   Map[string, LinkTarget],
+	Phys    Map[string, string],
+	Headers Map[string, string],
+} implements PathResolver
+
+// EntryKindAt returns the configured LinkTarget for path, defaulting to
+// LinkMissing.
+func EntryKindAt(m MemPathResolver, path string) LinkTarget {
+	match m.Links.Get(path) {
+	case option.Some{Value: t}:
+		t
+	case option.None:
+		LinkMissing
+	}
+}
+
+// PhysicalDir returns any resolved physical directory mapped for dir.
+func PhysicalDir(m MemPathResolver, dir string) option.Option[string] {
+	m.Phys.Get(dir)
+}
+
+// ReadHead returns the header bytes configured for path, or "".
+func ReadHead(m MemPathResolver, path string) string {
+	match m.Headers.Get(path) {
+	case option.Some{Value: h}:
+		h
+	case option.None:
+		""
+	}
+}
+
+// RecorderTable accumulates recorded test-log path keys and environment variable
+// names using dense interned string pools and flat key columns.
+type RecorderTable {
+	Logical  string,
+	Physical string,
+	Paths    dense.Strings,
+	PathList []string,
+	PathKeys []uint8,
+	Envs     dense.Strings,
+	EnvList  []string,
+	Execs    uint32,
+	Stopped  bool,
+	Failure  string,
+}
+
+// NewRecorder allocates a RecorderTable anchored at logicalRoot and its
+// symlink-resolved physicalRoot.
+func NewRecorder(logicalRoot string, physicalRoot string) RecorderTable {
+	let logical = filepath.Clean(logicalRoot)
+	let phys = if physicalRoot == "" { logical } else { filepath.Clean(physicalRoot) }
+	RecorderTable{
+		Logical:  logical,
+		Physical: phys,
+		Paths:    dense.NewStrings(),
+		PathList: []string{},
+		PathKeys: []uint8{},
+		Envs:     dense.NewStrings(),
+		EnvList:  []string{},
+		Execs:    uint32(0),
+		Stopped:  false,
+		Failure:  "",
+	}
+}
+
+// HasDotDot reports whether path contains any ".." path component.
+func HasDotDot(path string) bool {
+	for _, element in strings.Split(path, "/") {
+		if element == ".." {
+			return true
+		}
+	}
+	false
+}
+
+// CleanPath cleans path unless it contains a ".." component, which kernel
+// lookups resolve only after traversing preceding symlinks.
+func CleanPath(path string) string {
+	if HasDotDot(path) {
+		return path
+	}
+	filepath.Clean(path)
+}
+
+// Under reports whether path equals root or lies beneath root, returning the
+// trailing relative suffix starting with "/" (or "" when equal).
+func Under(path string, root string) (string, bool) {
+	if path == root {
+		return ("", true)
+	}
+	if root == "/" {
+		return (path, strings.HasPrefix(path, "/"))
+	}
+	if strings.HasPrefix(path, root) {
+		let rest = strings.Slice(path, root.Len(), path.Len())
+		if strings.HasPrefix(rest, "/") {
+			return (rest, true)
+		}
+	}
+	("", false)
+}
+
+// Within reports whether path lies inside r's logical or physical module root,
+// returning the relative suffix under that root.
+func Within(r RecorderTable, path string) (string, bool) {
+	withinRoots(r.Logical, r.Physical, path)
+}
+
+func withinRoots(logical string, physical string, path string) (string, bool) {
+	let (rest, ok) = Under(path, logical)
+	if ok {
+		return (rest, true)
+	}
+	Under(path, physical)
+}
+
+func lastSlashIndex(s string) int {
+	let b = s.Bytes()
+	let mut i = b.Len() - 1
+	for i >= 0 {
+		if b[i] == '/' {
+			return i
+		}
+		i = i - 1
+	}
+	-1
+}
+
+// Virtual reports whether path resolves under /proc, /dev, or /sys after
+// resolving any parent symlink before ".." via PathResolver.
+func Virtual(path string) bool needs PathResolver {
+	let mut p = path
+	if HasDotDot(p) {
+		let cut = lastSlashIndex(p) + 1
+		let mut dir = strings.Slice(p, 0, cut)
+		let mut base = strings.Slice(p, cut, p.Len())
+		if base == ".." || base == "." {
+			dir = p
+			base = ""
+		}
+		match PathResolver.PhysicalDir(dir) {
+		case option.Some{Value: phys}:
+			p = if base == "" { phys } else { filepath.Join([]string{phys, base}) }
+		case option.None:
+			p = filepath.Clean(p)
+		}
+	}
+	for _, prefix in []string{"/proc", "/dev", "/sys"} {
+		if p == prefix || strings.HasPrefix(p, prefix+"/") {
+			return true
+		}
+	}
+	false
+}
+
+// Shebang extracts the absolute interpreter path from a script's leading "#!"
+// line (up to 256 bytes), returning "" otherwise.
+func Shebang(head string) string {
+	let bounded = if head.Len() > 256 { strings.Slice(head, 0, 256) } else { head }
+	if !strings.HasPrefix(bounded, "#!") {
+		return ""
+	}
+	let after = strings.TrimPrefix(bounded, "#!")
+	let line = match strings.Cut(after, "\n") {
+	case option.Some{Value: h}:
+		h.Before
+	case option.None:
+		after
+	}
+	let fields = strings.Fields(line)
+	if fields.Len() == 0 || !strings.HasPrefix(fields[0], "/") {
+		return ""
+	}
+	fields[0]
+}
+
+// RecorderFail records the first observation failure unless recording already
+// stopped.
+func RecorderFail(r mut RecorderTable, reason string) {
+	if !r.Stopped && r.Failure == "" {
+		r.Failure = reason
+	}
+}
+
+// RecorderRefuse records an observation failure even after recording stopped.
+func RecorderRefuse(r mut RecorderTable, reason string) {
+	if r.Failure == "" {
+		r.Failure = reason
+	}
+}
+
+// RecorderStop marks the observed process tree as exited.
+func RecorderStop(r mut RecorderTable) {
+	r.Stopped = true
+}
+
+// RecorderWalk resolves path component by component from "/" following up to 40
+// symbolic links, returning the logical root path once entered.
+func RecorderWalk(r RecorderTable, path string) (string, bool) needs PathResolver {
+	walkRoots(r.Logical, r.Physical, path)
+}
+
+func walkRoots(logical string, physical string, path string) (string, bool) needs PathResolver {
+	let mut pending = strings.Split(path, "/")
+	let mut current = "/"
+	let mut hops = 0
+	for true {
+		let (rest0, ok) = withinRoots(logical, physical, current)
+		let mut rest = rest0
+		if ok {
+			for _, name in pending {
+				if name != "" && name != "." {
+					rest = rest + "/" + name
+				}
+			}
+			return (logical + rest, true)
+		}
+		if pending.Len() == 0 {
+			return ("", false)
+		}
+		let name = pending[0]
+		pending = slices.Slice(pending, 1, pending.Len())
+		if name == "" || name == "." {
+			continue
+		}
+		if name == ".." {
+			current = filepath.Dir(current)
+			continue
+		}
+		let next = if current == "/" { "/" + name } else { current + "/" + name }
+		match PathResolver.EntryKindAt(next) {
+		case LinkMissing:
+			return ("", false)
+		case LinkDir, LinkFile, LinkOther:
+			current = next
+		case LinkSymlink{Target: target}:
+			hops = hops + 1
+			if hops > 40 {
+				return ("", false)
+			}
+			if strings.HasPrefix(target, "/") {
+				current = "/"
+			}
+			let tparts = strings.Split(target, "/")
+			pending = slices.Concat(tparts, pending)
+		}
+	}
+	("", false)
+}
+
+// RecorderInside maps cleaned path into r.Logical when reachable.
+func RecorderInside(r RecorderTable, path string) (string, bool) needs PathResolver {
+	insideRoots(r.Logical, r.Physical, path)
+}
+
+func insideRoots(logical string, physical string, path string) (string, bool) needs PathResolver {
+	let (rest, ok) = withinRoots(logical, physical, path)
+	if ok {
+		return (logical + rest, true)
+	}
+	if !strings.Contains(path, "/..") {
+		let dir = filepath.Dir(path)
+		match PathResolver.PhysicalDir(dir) {
+		case option.Some{Value: phys}:
+			if phys == dir {
+				match PathResolver.EntryKindAt(path) {
+				case LinkSymlink:
+				case LinkMissing, LinkDir, LinkFile, LinkOther:
+					return ("", false)
+				}
+			}
+		case option.None:
+		}
+	}
+	walkRoots(logical, physical, path)
+}
+
+// RecorderOpen records a read-open (KeyOpen) or write-only open (KeyStat).
+func RecorderOpen(r mut RecorderTable, path string, read bool) needs PathResolver {
+	if read {
+		RecorderRecord(r, path, KeyOpen)
+	} else {
+		RecorderRecord(r, path, KeyStat)
+	}
+}
+
+// RecorderStat records a stat lookup for path.
+func RecorderStat(r mut RecorderTable, path string) needs PathResolver {
+	RecorderRecord(r, path, KeyStat)
+}
+
+// RecorderRecord validates and inserts key bits for path when inside r's root.
+func RecorderRecord(r mut RecorderTable, path string, key uint8) needs PathResolver {
+	if Virtual(path) {
+		return
+	}
+	if strings.Contains(path, "\n") {
+		RecorderFail(r, "a path holds a newline, which the test log cannot carry")
+		return
+	}
+	let (inside, ok) = insideRoots(r.Logical, r.Physical, CleanPath(path))
+	if !ok || r.Stopped {
+		return
+	}
+	addRecordedPath(r, inside, key)
+}
+
+// RecorderExec records execution of path, up to 4 nested shebang interpreters,
+// and the received environment variable names.
+func RecorderExec(r mut RecorderTable, path string, envNames []string) needs PathResolver {
+	let mut cur = path
+	let mut files = []string{path}
+	for _ in 0..4 {
+		let interp = Shebang(PathResolver.ReadHead(cur))
+		if interp == "" {
+			break
+		}
+		files = files.Append(interp)
+		cur = interp
+	}
+	for _, f in files {
+		RecorderRecord(r, f, KeyOpen)
+	}
+	if r.Stopped {
+		return
+	}
+	r.Execs = r.Execs + uint32(1)
+	for _, name in envNames {
+		if strings.Contains(name, "\n") {
+			if r.Failure == "" {
+				r.Failure = "an environment variable name holds a newline"
+			}
+			continue
+		}
+		addRecordedEnv(r, name)
+	}
+}
+
+// StatLinksAlongPaths ensures every symlink inside r.Logical traversed by any
+// recorded path is also recorded with KeyStat, returning those link paths.
+func StatLinksAlongPaths(r mut RecorderTable) []string needs PathResolver {
+	let mut seen = Map[string, uint8]{}
+	let mut found = []string{}
+	for _, path in r.PathList {
+		let (rest, ok) = Under(path, r.Logical)
+		if !ok {
+			continue
+		}
+		let mut prefix = r.Logical
+		for _, element in strings.Split(rest, "/") {
+			if element == "" {
+				continue
+			}
+			prefix = strings.TrimSuffix(prefix, "/") + "/" + element
+			let what = match seen.Get(prefix) {
+			case option.Some{Value: v}:
+				v
+			case option.None:
+				let k = match PathResolver.EntryKindAt(prefix) {
+				case LinkMissing:
+					uint8(3)
+				case LinkSymlink:
+					found = found.Append(prefix)
+					uint8(2)
+				case LinkDir, LinkFile, LinkOther:
+					uint8(1)
+				}
+				seen[prefix] = k
+				k
+			}
+			if what == uint8(3) {
+				break
+			}
+		}
+	}
+	for _, link in found {
+		addRecordedPath(r, link, KeyStat)
+	}
+	found
+}
+
+// RecorderLines materializes and sorts all test-log lines ("getenv ", "open ",
+// "stat "), recording symlink lookups along recorded paths and adding
+// ERGO_TOOL_VERSIONS when any process executed.
+func RecorderLines(r mut RecorderTable) []string needs PathResolver {
+	if r.Execs > uint32(0) {
+		addRecordedEnv(r, ToolDigest)
+	}
+	let _ = StatLinksAlongPaths(r)
+	let mut lines = []string{}
+	for _, envName in r.EnvList {
+		lines = lines.Append("getenv " + envName + "\n")
+	}
+	for i, p in r.PathList {
+		let key = r.PathKeys[i]
+		if (key & KeyOpen) != uint8(0) {
+			lines = lines.Append("open " + p + "\n")
+		}
+		if (key & KeyStat) != uint8(0) {
+			lines = lines.Append("stat " + p + "\n")
+		}
+	}
+	slices.Sort(lines)
+}
+
+func addRecordedEnv(r mut RecorderTable, name string) {
+	let id = dense.InternText(&r.Envs, name)
+	let idx = dense.Index(id)
+	for r.EnvList.Len() <= idx {
+		r.EnvList = r.EnvList.Append(name)
+	}
+}
+
+func addRecordedPath(r mut RecorderTable, path string, key uint8) {
+	let id = dense.InternText(&r.Paths, path)
+	let idx = dense.Index(id)
+	for r.PathList.Len() <= idx {
+		r.PathList = r.PathList.Append(path)
+	}
+	for r.PathKeys.Len() <= idx {
+		r.PathKeys = r.PathKeys.Append(uint8(0))
+	}
+	r.PathKeys[idx] = r.PathKeys[idx] | key
+}
+
+law RecorderUnderMatchesSelf(root string) {
+	if root == "" || !strings.HasPrefix(root, "/") {
+		return true
+	}
+	let (rest, ok) = Under(root, root)
+	ok && rest == ""
+}
+
+test RecorderWalkAndLinesCoverSymlinksAndEnv {
+	let mut links = Map[string, LinkTarget]{}
+	links["/out"] = LinkDir
+	links["/out/link"] = LinkSymlink{Target: "/root/sub"}
+	links["/root"] = LinkDir
+	links["/root/linkdir"] = LinkSymlink{Target: "real"}
+	links["/root/linkdir/file.txt"] = LinkFile
+	let mut phys = Map[string, string]{}
+	phys["/out"] = "/out"
+	phys["/tmp/../proc/1"] = "/proc/1"
+	let mut headers = Map[string, string]{}
+	headers["/root/script.sh"] = "#!/bin/sh -eu\necho hi\n"
+	let res = MemPathResolver{Links: links, Phys: phys, Headers: headers}
+
+	with context { PathResolver: res } {
+		assert Virtual("/proc/self/maps")
+		assert Virtual("/tmp/../proc/1/fd/0")
+		assert !Virtual("/tmp/../root/a")
+
+		let mut rec = NewRecorder("/root", "")
+		RecorderOpen(&rec, "/out/link/target.go", true)
+		RecorderOpen(&rec, "/root/linkdir/file.txt", true)
+		RecorderStat(&rec, "/out/missing/x")
+		RecorderExec(&rec, "/root/script.sh", []string{"PATH"})
+		RecorderOpen(&rec, "/root/bad\nname", true)
+		assert rec.Failure == "a path holds a newline, which the test log cannot carry"
+		let lines = RecorderLines(&rec)
+		assert slices.Contains(lines, "getenv ERGO_TOOL_VERSIONS\n")
+		assert slices.Contains(lines, "getenv PATH\n")
+		assert slices.Contains(lines, "open /root/script.sh\n")
+		assert slices.Contains(lines, "open /root/sub/target.go\n")
+		assert slices.Contains(lines, "stat /root/linkdir\n")
+	}
+}

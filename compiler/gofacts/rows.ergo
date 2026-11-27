@@ -126,6 +126,7 @@ func addEffectAmbient(tbl mut EffectTable) {
 	let _ = AddEffectEntry(tbl, KindEffectAmbient, "runtime.NumCPU", "", "it returns the number of logical CPUs reported by the operating system at process startup", "9ef49458017b", 0, uint8(0))
 	let _ = AddEffectEntry(tbl, KindEffectAmbient, "os.Getpagesize", "", "it returns the operating system's memory page size", "e147c7c13ec8", 0, uint8(0))
 	let _ = AddEffectEntry(tbl, KindEffectAmbient, "ergo.local/prototype/runtime/v1/hostfs.Statfs", "", "it calls syscall.Statfs on one path and copies the volume total, free and available byte counts into a new struct", "73314a4cd754", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindEffectAmbient, "ergo.local/prototype/runtime/v1/hostfs.Getfsstat", "", "it calls Darwin syscall.Getfsstat(MNT_NOWAIT) to enumerate mounted filesystems and their byte capacities (returning ENOSYS elsewhere)", "072e63cf1ed8", 0, uint8(0))
 }
 
 func addSyncCallbacks(tbl mut EffectTable) {
@@ -322,7 +323,7 @@ test DefaultTablesCounts {
 	let et = DefaultEffectTable()
 	assert NumRows(ft) == 24
 	assert AllEffectsByKind(et, KindEffectNone).Len() == 30
-	assert AllEffectsByKind(et, KindEffectAmbient).Len() == 46
+	assert AllEffectsByKind(et, KindEffectAmbient).Len() == 47
 	assert AllSyncTargets(et).Len() == 52
 	assert AllPurePkgs(et).Len() == 20
 	assert PureExcept(et, "path/filepath").Len() == 5

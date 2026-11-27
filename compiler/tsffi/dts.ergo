@@ -1,0 +1,380 @@
+import strings
+
+func isUpper(b byte) bool {
+	b >= 'A' && b <= 'Z'
+}
+
+func isLower(b byte) bool {
+	b >= 'a' && b <= 'z'
+}
+
+func isDigit(b byte) bool {
+	b >= '0' && b <= '9'
+}
+
+func identWords(raw string) []string {
+	let mut words = []string{}
+	let mut start = -1
+	let n = raw.Len()
+	for i in 0..n {
+		let b = raw[i]
+		if !isUpper(b) && !isLower(b) && !isDigit(b) {
+			if start >= 0 {
+				words = words.Append(raw[start:i])
+				start = -1
+			}
+			continue
+		}
+		if start >= 0 && isUpper(b) {
+			let prev = raw[i-1]
+			let nextLower = i+1 < n && isLower(raw[i+1])
+			if isLower(prev) || isDigit(prev) || (isUpper(prev) && nextLower) {
+				words = words.Append(raw[start:i])
+				start = i
+			}
+		}
+		if start < 0 {
+			start = i
+		}
+	}
+	if start >= 0 {
+		words = words.Append(raw[start:n])
+	}
+	words
+}
+
+// TSMember is the lowerCamelCase TypeScript spelling of the Ergo identifier raw, for functions, fields and parameters: UserID is userId, HTTPServer is httpServer; a JavaScript reserved word gets a trailing _.
+func TSMember(raw string) string {
+	let words = identWords(raw)
+	if words.Len() == 0 {
+		return raw
+	}
+	let mut b = strings.NewBuilder()
+	for i, w in words {
+		let lw = strings.ToLower(w)
+		if i == 0 {
+			b.WriteString(lw)
+		} else {
+			b.WriteString(strings.ToUpper(lw[0:1]))
+			b.WriteString(lw[1:lw.Len()])
+		}
+	}
+	let out = b.String()
+	if IsJSReserved(out) {
+		return out + "_"
+	}
+	out
+}
+
+// IsJSReserved reports whether name is a JavaScript or TypeScript reserved word, which no binding may take.
+func IsJSReserved(name string) bool {
+	match name {
+	case "arguments", "await", "break", "case", "catch", "class", "const", "continue", "debugger",
+		"default", "delete", "do", "else", "enum", "eval", "export", "extends", "false", "finally",
+		"for", "function", "if", "implements", "import", "in", "instanceof", "interface", "let",
+		"new", "null", "package", "private", "protected", "public", "return", "static", "super",
+		"switch", "this", "throw", "true", "try", "typeof", "var", "void", "while", "with", "yield":
+		true
+	case _:
+		false
+	}
+}
+
+// IsTSReservedType reports whether name is a type name the emitted declarations use or a global the bridge passes, so a contract type may not take it.
+func IsTSReservedType(name string) bool {
+	match name {
+	case "Result", "Uint8Array", "Array", "ReadonlyArray", "Error", "Object", "Function", "String",
+		"Number", "Boolean", "BigInt", "Symbol", "Promise", "any", "unknown", "never", "object",
+		"undefined", "number", "bigint", "boolean", "string", "symbol":
+		true
+	case _:
+		false
+	}
+}
+
+// TSType is the TypeScript spelling of type id of k: 64-bit integers are bigint, other numbers number, bytes Uint8Array, a slice readonly T[] (T[] when writable), an option T | undefined, and a named type its name.
+func TSType(k Checked, id uint32, writable bool) string {
+	let c = ContractOf(k)
+	let i = int(id)
+	let kind = c.Types.Kind[i]
+	if kind == KindVoid {
+		return "void"
+	}
+	if kind == KindBool {
+		return "boolean"
+	}
+	if kind == KindInt64 || kind == KindUint64 {
+		return "bigint"
+	}
+	if kind <= KindFloat64 {
+		return "number"
+	}
+	if kind == KindString {
+		return "string"
+	}
+	if kind == KindBytes {
+		return "Uint8Array"
+	}
+	if kind == KindSlice {
+		let elem = c.Types.Elem[i]
+		let mut inner = TSType(k, elem, false)
+		if c.Types.Kind[int(elem)] == KindOption {
+			inner = "(" + inner + ")"
+		}
+		if writable {
+			return inner + "[]"
+		}
+		return "readonly " + inner + "[]"
+	}
+	if kind == KindOption {
+		return TSType(k, c.Types.Elem[i], false) + " | undefined"
+	}
+	Text(c, c.Types.Name[i])
+}
+
+func writeDoc(b mut strings.Builder, doc string, indent string) {
+	if doc == "" {
+		return
+	}
+	let safe = strings.ReplaceAll(doc, "*/", "*\\/")
+	b.WriteString(indent + "/** " + strings.ReplaceAll(safe, "\n", "\n"+indent+" * ") + " */\n")
+}
+
+func checkTSNames(c Contract, names []string, what string) fails SpecFailure {
+	for i in 0..names.Len() {
+		for j in (i + 1)..names.Len() {
+			if names[i] == names[j] {
+				return SpecFailure{Code: "ts-clash", Message: what + " spell " + names[i] + " twice in TypeScript"}
+			}
+		}
+	}
+}
+
+func failRow(k Checked, fn int) string {
+	let c = ContractOf(k)
+	let mut parts = []string{}
+	for m in 0..int(c.Funcs.FailLen[fn]) {
+		let t = c.Members[int(c.Funcs.FailStart[fn])+m]
+		parts = parts.Append(Text(c, c.Types.Name[int(t)]))
+	}
+	strings.Join(parts, " | ")
+}
+
+func writeType(b mut strings.Builder, k Checked, id int) fails SpecFailure {
+	let c = ContractOf(k)
+	let kind = c.Types.Kind[id]
+	let name = Text(c, c.Types.Name[id])
+	if kind < KindNominal {
+		return
+	}
+	if IsTSReservedType(name) {
+		return SpecFailure{Code: "ts-reserved", Message: "type " + name + " takes a name TypeScript or the bridge reserves"}
+	}
+	writeDoc(b, Text(c, c.Types.Doc[id]), "")
+	if kind == KindNominal {
+		b.WriteString("export type " + name + " = " + TSType(k, c.Types.Elem[id], false) + " & { readonly __brand: \"" + name + "\" };\n\n")
+	} else if kind == KindRecord {
+		b.WriteString("export interface " + name + " {\n")
+		b.WriteString("\treadonly _tag: \"" + name + "\";\n")
+		let mut seen = []string{}
+		for f in 0..int(c.Types.Len[id]) {
+			let fi = int(c.Types.Start[id]) + f
+			let member = TSMember(Text(c, c.Fields.Name[fi]))
+			seen = seen.Append(member)
+			b.WriteString("\treadonly " + member + ": " + TSType(k, c.Fields.Type[fi], false) + ";\n")
+		}
+		try checkTSNames(c, seen, name+" fields")
+		b.WriteString("}\n\n")
+	} else {
+		let mut parts = []string{}
+		for m in 0..int(c.Types.Len[id]) {
+			parts = parts.Append(Text(c, c.Types.Name[int(c.Members[int(c.Types.Start[id])+m])]))
+		}
+		b.WriteString("export type " + name + " = " + strings.Join(parts, " | ") + ";\n\n")
+	}
+}
+
+func writeFunc(b mut strings.Builder, k Checked, fn int) fails SpecFailure {
+	let c = ContractOf(k)
+	let mut params = []string{}
+	let mut seen = []string{}
+	for p in 0..int(c.Funcs.ParamLen[fn]) {
+		let pi = int(c.Funcs.ParamStart[fn]) + p
+		let member = TSMember(Text(c, c.Params.Name[pi]))
+		seen = seen.Append(member)
+		params = params.Append(member + ": " + TSType(k, c.Params.Type[pi], c.Params.Mut[pi]))
+	}
+	let name = Text(c, c.Funcs.Name[fn])
+	try checkTSNames(c, seen, name+" parameters")
+	let mut result = TSType(k, c.Funcs.Result[fn], false)
+	if c.Funcs.FailLen[fn] > 0 {
+		result = "Result<" + result + ", " + failRow(k, fn) + ">"
+	}
+	writeDoc(b, Text(c, c.Funcs.Doc[fn]), "")
+	b.WriteString("export function " + TSMember(name) + "(" + strings.Join(params, ", ") + "): " + result + ";\n")
+}
+
+// EmitDTS is the strict .d.ts text of k's library: a branded type per nominal type, a readonly interface tagged _tag per record, a union of its members per closed union, Result when a function can fail, and one declaration per function, in ID order; it fails when two names meet in TypeScript or a type takes a reserved name.
+func EmitDTS(k Checked) string fails SpecFailure {
+	let c = ContractOf(k)
+	let mut b = strings.NewBuilder()
+	b.WriteString("// Code generated by ergo tsffi from module " + c.Module + ". DO NOT EDIT.\n\n")
+	for id in 0..int(TypeCount(c)) {
+		try writeType(&b, k, id)
+	}
+	let mut fallible = false
+	let mut funcs = []string{}
+	for fn in 0..int(FuncCount(c)) {
+		fallible = fallible || c.Funcs.FailLen[fn] > 0
+		funcs = funcs.Append(TSMember(Text(c, c.Funcs.Name[fn])))
+	}
+	try checkTSNames(c, funcs, "the contract's functions")
+	if fallible {
+		b.WriteString("/** Result is a fallible call's outcome: its value, or a failure of the function's fails row. */\n")
+		b.WriteString("export type Result<T, E> = { readonly ok: true; readonly value: T } | { readonly ok: false; readonly error: E };\n\n")
+	}
+	for fn in 0..int(FuncCount(c)) {
+		if fn > 0 {
+			b.WriteByte('\n')
+		}
+		try writeFunc(&b, k, fn)
+	}
+	b.String()
+}
+
+// TSMemberIsCamelAndUnreserved: the member spelling of an identifier with letters or digits starts with a lower-case letter or digit, holds no _ before a trailing escape, and is never a reserved word.
+law TSMemberIsCamelAndUnreserved(raw string) {
+	let out = TSMember(raw)
+	let named = identWords(raw).Len() > 0
+	let mut clean = true
+	for i in 0..out.Len()-1 {
+		clean = clean && (isUpper(out[i]) || isLower(out[i]) || isDigit(out[i]))
+	}
+	let concrete = TSMember("UserID") == "userId" && TSMember("HTTPServer") == "httpServer" &&
+		TSMember("X") == "x" && TSMember("V2Name") == "v2Name" && TSMember("Default") == "default_" && TSMember("snake_case") == "snakeCase"
+	concrete && !IsJSReserved(out) && (!named || (clean && (isLower(out[0]) || isDigit(out[0]))))
+}
+
+func spellOf(c Contract, id uint32, writable bool) string {
+	let k = Validate(c) catch {
+	case SpecFailure as f:
+		return "invalid " + f.Code
+	}
+	TSType(k, id, writable)
+}
+
+// TSTypeSpellsEachKind: each kind of type has its one TypeScript spelling, a slice is readonly unless writable, and an option inside a slice is parenthesized.
+law TSTypeSpellsEachKind(pick uint8, writable bool) {
+	let mut c = NewContract("spell")
+	let rec = AddRecord(&c, "Rec", []FieldSpec{}, "")
+	let id = AddNominal(&c, "Id", Uint64ID, "")
+	let opt = AddOption(&c, Int32ID)
+	let ro = if writable { "" } else { "readonly " }
+	let (t, want) = match pick % 14 {
+	case 0:
+		(VoidID, "void")
+	case 1:
+		(BoolID, "boolean")
+	case 2:
+		(Int32ID, "number")
+	case 3:
+		(Uint32ID, "number")
+	case 4:
+		(Int64ID, "bigint")
+	case 5:
+		(Uint64ID, "bigint")
+	case 6:
+		(Float64ID, "number")
+	case 7:
+		(StringID, "string")
+	case 8:
+		(BytesID, "Uint8Array")
+	case 9:
+		(AddSlice(&c, rec), ro + "Rec[]")
+	case 10:
+		(AddSlice(&c, opt), ro + "(number | undefined)[]")
+	case 11:
+		(AddOption(&c, rec), "Rec | undefined")
+	case 12:
+		(id, "Id")
+	case _:
+		(AddUnion(&c, "One", []uint32{rec}, ""), "One")
+	}
+	spellOf(c, t, writable) == want
+}
+
+func emitCode(c Contract) string {
+	let k = Validate(c) catch {
+	case SpecFailure as f:
+		return "invalid " + f.Code
+	}
+	let _ = EmitDTS(k) catch {
+	case SpecFailure as f:
+		return f.Code
+	}
+	"ok"
+}
+
+// EmitDTSRefusesClashes: a contract whose distinct Ergo names meet in TypeScript, or whose type takes a reserved name, is refused; the same contract with distinct spellings emits.
+law EmitDTSRefusesClashes(pick uint8) {
+	let mut c = NewContract("clash")
+	let fine = pick%2 == 0
+	let other = if fine { "Name" } else { "Id" }
+	match pick / 2 % 4 {
+	case 0:
+		let _ = AddRecord(&c, "R", []FieldSpec{FieldSpec{Name: "ID", Type: BoolID}, FieldSpec{Name: other, Type: BoolID}}, "")
+	case 1:
+		let _ = AddFunc(&c, FuncSpec{Name: "F", Params: []ParamSpec{ParamSpec{Name: "ID", Type: BoolID, Mut: false}, ParamSpec{Name: other, Type: BoolID, Mut: false}}, Result: VoidID, Fails: []uint32{}, Doc: ""})
+	case 2:
+		let _ = AddFunc(&c, FuncSpec{Name: "ID", Params: []ParamSpec{}, Result: VoidID, Fails: []uint32{}, Doc: ""})
+		let _ = AddFunc(&c, FuncSpec{Name: other, Params: []ParamSpec{}, Result: VoidID, Fails: []uint32{}, Doc: ""})
+	case _:
+		let name = if fine { "Outcome" } else { "Result" }
+		let _ = AddRecord(&c, name, []FieldSpec{}, "")
+	}
+	let code = emitCode(c)
+	if fine {
+		return code == "ok"
+	}
+	if pick/2%4 == 3 {
+		return code == "ts-reserved"
+	}
+	code == "ts-clash"
+}
+
+// The text of the geo contract is the spec of the emitted declarations: tags, branded nominal types, readonly and writable slices, options, Result only for fallible functions, docs and ID order.
+test GeoDeclarationsAreTheEmittedText {
+	let got = GeoDeclarations() catch {
+	case SpecFailure as f:
+		assert f.Code == ""
+		return
+	}
+	let want = "// Code generated by ergo tsffi from module geo. DO NOT EDIT.\n\n" +
+		"/** Meters is a length in meters. */\n" +
+		"export type Meters = number & { readonly __brand: \"Meters\" };\n\n" +
+		"/** Point is a position in the plane. */\n" +
+		"export interface Point {\n\treadonly _tag: \"Point\";\n\treadonly x: Meters;\n\treadonly y: Meters;\n}\n\n" +
+		"export interface Circle {\n\treadonly _tag: \"Circle\";\n\treadonly center: Point;\n\treadonly radius: Meters;\n}\n\n" +
+		"export interface Polygon {\n\treadonly _tag: \"Polygon\";\n\treadonly points: readonly Point[];\n\treadonly label: string | undefined;\n}\n\n" +
+		"/** Shape is a closed union of the shapes geo measures. */\n" +
+		"export type Shape = Circle | Polygon;\n\n" +
+		"/** Degenerate is a polygon of fewer than three points. */\n" +
+		"export interface Degenerate {\n\treadonly _tag: \"Degenerate\";\n\treadonly points: bigint;\n}\n\n" +
+		"export interface NegativeRadius {\n\treadonly _tag: \"NegativeRadius\";\n\treadonly radius: Meters;\n}\n\n" +
+		"/** Result is a fallible call's outcome: its value, or a failure of the function's fails row. */\n" +
+		"export type Result<T, E> = { readonly ok: true; readonly value: T } | { readonly ok: false; readonly error: E };\n\n" +
+		"/** Area is the area of s. */\n" +
+		"export function area(s: Shape): Result<Meters, Degenerate | NegativeRadius>;\n\n" +
+		"/** Centroid is the mean of points, or none when there are none. */\n" +
+		"export function centroid(points: readonly Point[]): Point | undefined;\n\n" +
+		"export function scale(points: Point[], by: number): void;\n\n" +
+		"export function checksum(data: Uint8Array): bigint;\n"
+	assert got == want
+}
+
+// Docs keep their lines under the comment's star and cannot close the comment early.
+test DocsCannotCloseTheComment {
+	let mut b = strings.NewBuilder()
+	writeDoc(&b, "a */ b\nc", "")
+	assert b.String() == "/** a *\\/ b\n * c */\n"
+}

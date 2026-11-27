@@ -1,0 +1,231 @@
+import slices
+import strconv
+import strings
+
+// Width is the number of generated packages in each dependency layer.
+let Width int = 8
+
+// DefaultGroups is the upper bound on function groups drawn per package when
+// groups <= 0.
+let DefaultGroups int = 4
+
+// GenFile holds one generated relative file path and its source text.
+type GenFile {
+	Path    string,
+	Content string,
+}
+
+// GeneratedProgram holds the generated module path, files, and package list.
+type GeneratedProgram {
+	Module   string,
+	Files    []GenFile,
+	Packages []string,
+}
+
+type pcgState {
+	hi uint64,
+	lo uint64,
+}
+
+func newPCG(seed1 uint64, seed2 uint64) pcgState {
+	pcgState{hi: seed1, lo: seed2}
+}
+
+func mul64(x uint64, y uint64) (uint64, uint64) {
+	let mask uint64 = 4294967295
+	let x0 = x & mask
+	let x1 = x >> uint64(32)
+	let y0 = y & mask
+	let y1 = y >> uint64(32)
+	let w0 = x0 * y0
+	let t = x1*y0 + (w0 >> uint64(32))
+	let mut w1 = t & mask
+	let w2 = t >> uint64(32)
+	w1 = w1 + x0*y1
+	let hi = x1*y1 + w2 + (w1 >> uint64(32))
+	let lo = x * y
+	(hi, lo)
+}
+
+func add64(x uint64, y uint64, carry uint64) (uint64, uint64) {
+	let sum = x + y + carry
+	let c = if sum < x || (carry != uint64(0) && sum == x) { uint64(1) } else { uint64(0) }
+	(sum, c)
+}
+
+func pcgUint64(p mut pcgState) uint64 {
+	let mulHi uint64 = 2549297995355413924
+	let mulLo uint64 = 4865540595714422341
+	let incHi uint64 = 6364136223846793005
+	let incLo uint64 = 1442695040888963407
+	let cheapMul uint64 = 15750249268501108917
+	let (hi0, lo0) = mul64(p.lo, mulLo)
+	let mut hi = hi0
+	let lo = lo0
+	hi = hi + p.hi*mulLo + p.lo*mulHi
+	let (nextLo, c) = add64(lo, incLo, uint64(0))
+	let (nextHi, _) = add64(hi, incHi, c)
+	p.lo = nextLo
+	p.hi = nextHi
+	let mut out = nextHi
+	out = out ^ (out >> uint64(32))
+	out = out * cheapMul
+	out = out ^ (out >> uint64(48))
+	out = out * (nextLo | uint64(1))
+	out
+}
+
+func pcgIntN(p mut pcgState, n int) int {
+	if n <= 1 {
+		let _ = pcgUint64(&p)
+		return 0
+	}
+	let un = uint64(n)
+	if (un & (un - uint64(1))) == uint64(0) {
+		return int(pcgUint64(&p) & (un - uint64(1)))
+	}
+	let (hi0, lo0) = mul64(pcgUint64(&p), un)
+	let mut hi = hi0
+	let mut lo = lo0
+	if lo < un {
+		let zero uint64 = 0
+		let thresh = (zero - un) % un
+		for lo < thresh {
+			let (nhi, nlo) = mul64(pcgUint64(&p), un)
+			hi = nhi
+			lo = nlo
+		}
+	}
+	int(hi)
+}
+
+// PackageName returns the generated directory and package name ("p000", ...).
+func PackageName(i int) string {
+	let s = strconv.Itoa(i)
+	if i >= 0 && i < 10 {
+		return "p00" + s
+	}
+	if i >= 10 && i < 100 {
+		return "p0" + s
+	}
+	"p" + s
+}
+
+// GenerateProgram deterministically produces a layered module of n packages
+// plus cmd/app from seed and group bound groups (0 defaults to DefaultGroups).
+func GenerateProgram(seed uint64, n int, groups int) GeneratedProgram {
+	let gmax = if groups <= 0 { DefaultGroups } else { groups }
+	let xorConst uint64 = 11400714819323198485
+	let mut rng = newPCG(seed, seed^xorConst)
+	let mod = "gen" + strconv.Itoa(n)
+	let mut files = []GenFile{GenFile{Path: "ergo.mod", Content: "module " + mod + "\n"}}
+	let mut pkgs = slices.WithCapacity[string](n + 1)
+	for i in 0..n {
+		let deps = depsOf(&rng, i)
+		let count = 1 + pcgIntN(&rng, gmax)
+		let name = PackageName(i)
+		files = files.Append(GenFile{Path: name + "/" + name + ".ergo", Content: genPkg(&rng, mod, i, deps, count)})
+		files = files.Append(GenFile{Path: name + "/tests.ergo", Content: genTests(i)})
+		pkgs = pkgs.Append(mod + "/" + name)
+	}
+	files = files.Append(GenFile{Path: "cmd/app/main.ergo", Content: genMainFile(mod, n)})
+	pkgs = pkgs.Append(mod + "/cmd/app")
+	GeneratedProgram{Module: mod, Files: files, Packages: pkgs}
+}
+
+func depsOf(rng mut pcgState, i int) []int {
+	if i < Width {
+		return []int{}
+	}
+	let base = (i/Width - 1) * Width
+	let a = base + pcgIntN(rng, Width)
+	if pcgIntN(rng, 2) == 0 {
+		return []int{a}
+	}
+	let b = base + pcgIntN(rng, Width)
+	if b == a {
+		return []int{a}
+	}
+	if a < b { []int{a, b} } else { []int{b, a} }
+}
+
+func genPkg(rng mut pcgState, mod string, i int, deps []int, groups int) string {
+	let mut out = "// Package " + PackageName(i) + " is generated: items, shapes and their sums.\n\nimport strings\n"
+	for _, d in deps {
+		out = out + "import " + mod + "/" + PackageName(d) + "\n"
+	}
+	out = out + "\n"
+	out = out + "// Item is one row.\ntype Item { ID int, Name string, Weight int }\n\n"
+	out = out + "// Shape is a closed set of forms.\ntype Shape = Circle{R int} | Rect{W int, H int} | Dot{}\n\n"
+	out = out + "// Bad is a refused input.\ntype Bad { Reason string }\n\n"
+	out = out + "// Area is the area of s.\nfunc Area(s Shape) int {\n\tmatch s {\n\tcase Circle as c:\n\t\t3 * c.R * c.R\n\tcase Rect as r:\n\t\tr.W * r.H\n\tcase Dot:\n\t\t0\n\t}\n}\n\n"
+	for f in 0..groups {
+		let k = 1 + pcgIntN(rng, 1000)
+		let fs = strconv.Itoa(f)
+		out = out + "// Make" + fs + " is the items 0 to n-1 of group " + fs + ".\n"
+		out = out + "func Make" + fs + "(n int) []Item {\n\tlet mut out = []Item{}\n\tfor j in 0..n {\n"
+		out = out + "\t\tout = out.Append(Item{ID: j + " + strconv.Itoa(k) + ", Name: \"g" + fs + "-\\(j)\", Weight: (j * " + strconv.Itoa(k%13+2) + ") % " + strconv.Itoa(k%7+3) + "})\n\t}\n\tout\n}\n\n"
+		out = out + "func shape" + fs + "(it Item) Shape {\n\tif it.Weight > " + strconv.Itoa(k%5) + " {\n\t\treturn Rect{W: it.Weight, H: " + strconv.Itoa(k%4+1) + "}\n\t}\n\tCircle{R: it.ID % " + strconv.Itoa(k%6+2) + "}\n}\n\n"
+		out = out + "// Sum" + fs + " is the weight of items, with a shape's area for each heavy one.\n"
+		out = out + "func Sum" + fs + "(items []Item) int {\n\tlet mut total = 0\n\tfor it in items {\n\t\ttotal = total + Area(shape" + fs + "(it)) + it.Weight\n\t}\n"
+		if deps.Len() > 0 {
+			let d = PackageName(deps[f%deps.Len()])
+			out = out + "\ttotal + " + d + ".Sum0(" + d + ".Make0(len(items) % 5))\n"
+		} else {
+			out = out + "\ttotal\n"
+		}
+		out = out + "}\n\n"
+		out = out + "// Pick" + fs + " is the item named name, or Bad.\n"
+		out = out + "func Pick" + fs + "(items []Item, name string) Item fails Bad {\n\tfor it in items {\n\t\tif it.Name == name {\n\t\t\treturn it\n\t\t}\n\t}\n\tBad{Reason: \"group " + fs + " has no \" + name}\n}\n\n"
+		let sep = if f%2 == 1 { ";" } else { "," }
+		out = out + "// Text" + fs + " is one line for each item.\n"
+		out = out + "func Text" + fs + "(items []Item) string {\n\tlet mut parts = []string{}\n\tfor it in items {\n\t\tparts = parts.Append(\"\\(it.ID):\\(it.Name)=\\(it.Weight)\")\n\t}\n\tstrings.Join(parts, " + strconv.Quote(sep) + ")\n}\n\n"
+	}
+	out = out + "// Total is every group's sum at size n.\nfunc Total(n int) int {\n\tlet mut t = 0\n"
+	for f in 0..groups {
+		let fs = strconv.Itoa(f)
+		out = out + "\tt = t + Sum" + fs + "(Make" + fs + "(n))\n"
+	}
+	for _, d in deps {
+		out = out + "\tt = t + len(" + PackageName(d) + ".Make0(0))\n"
+	}
+	out = out + "\tt\n}\n"
+	out
+}
+
+func genTests(i int) string {
+	let name = PackageName(i)
+	"// The tests of " + name + ".\n\ntest TotalIsStable {\n\tassert Total(3) == Total(3)\n}\n\ntest PickFindsOrFails {\n\tlet items = Make0(4)\n\tlet got = Pick0(items, \"g0-2\") catch {\n\tcase Bad:\n\t\tassert false\n\t\treturn\n\t}\n\tassert got.Name == \"g0-2\"\n}\n"
+}
+
+func genMainFile(mod string, n int) string {
+	let start = if n > 2*Width { n - 2*Width } else { 0 }
+	let mut out = "// app prints the total of the generated packages.\n\n"
+	for i in start..n {
+		out = out + "import " + mod + "/" + PackageName(i) + "\n"
+	}
+	out = out + "import io\nimport os\n\nfunc total(n int) int {\n\tlet mut t = 0\n"
+	for i in start..n {
+		out = out + "\tt = t + " + PackageName(i) + ".Total(n)\n"
+	}
+	out = out + "\tt\n}\n\n"
+	out = out + "func main() fails os.Exit needs Ambient {\n\twith context { io.Stdout: io.NewHost() } {\n\t\tio.Stdout.Println(\"total \\(total(3))\")\n\t}\n}\n\ntest TotalRuns {\n\tassert total(2) == total(2)\n}\n"
+	out
+}
+
+law GenerateProgramDeterministic(seed uint64) {
+	let a = GenerateProgram(seed, 3, 2)
+	let b = GenerateProgram(seed, 3, 2)
+	a.Module == b.Module && a.Packages.Len() == 4 && a.Files.Len() == 8 && a.Files[1].Content == b.Files[1].Content
+}
+
+test GenerateProgramShapesAndLayers {
+	let p = GenerateProgram(uint64(42), 10, 3)
+	assert p.Module == "gen10"
+	assert p.Packages.Len() == 11
+	assert p.Packages[10] == "gen10/cmd/app"
+	assert p.Files.Len() == 22
+	assert p.Files[0].Path == "ergo.mod"
+	assert p.Files[0].Content == "module gen10\n"
+	assert strings.Contains(p.Files[17].Content, "import gen10/p00")
+}

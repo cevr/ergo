@@ -1,0 +1,923 @@
+import slices
+
+// TransformStats summarizes the RC, reuse, arena, and compensation transformations applied by LowerProgram.
+type TransformStats {
+	// DupsInserted is the number of OpDup instructions inserted.
+	DupsInserted int,
+	// DropsInserted is the number of OpDrop instructions remaining after reuse pairing.
+	DropsInserted int,
+	// ReusesPaired is the number of (OpDrop, OpAlloc) pairs fused into OpReuseAlloc.
+	ReusesPaired int,
+	// ArenaPromotedCount is the number of ValArenaCand allocations promoted to OpArenaAlloc.
+	ArenaPromotedCount int,
+	// ArenaMarksInserted is the number of OpArenaMark instructions emitted.
+	ArenaMarksInserted int,
+	// ArenaResetsInserted is the number of OpArenaReset instructions emitted.
+	ArenaResetsInserted int,
+	// CompBlocksInserted is the number of edge-compensation blocks created.
+	CompBlocksInserted int,
+}
+
+// LowerResult holds the Perceus-transformed Program together with transformation statistics.
+type LowerResult {
+	// Program is the transformed CFG ready for execution or verification.
+	Program Program,
+	// Stats records counts of inserted RC, reuse, arena, and compensation operations.
+	Stats TransformStats,
+}
+
+type edgeState {
+	hasEdge bool,
+	target  uint32,
+	args    []uint32,
+	have    []uint64,
+}
+
+type lowerCtx {
+	src          Program,
+	live         LivenessInfo,
+	esc          EscapeInfo,
+	crossBlock   []bool,
+	needsFrame   bool,
+	nw           int,
+	nv           int,
+	outInsts     [][]Inst,
+	outCallArgs  []uint32,
+	outSucc0     []uint32,
+	outSucc1     []uint32,
+	outUnwind    []uint32,
+	outS0Args    [][]uint32,
+	outS1Args    [][]uint32,
+	outUwArgs    [][]uint32,
+	outBlkKind   []uint8,
+	outBlkParams [][]uint32,
+	compBlocks   int,
+}
+
+func isHeapRC(p Program, esc EscapeInfo, v uint32) bool {
+	if v == NoID || int(v) >= NumValues(p) {
+		return false
+	}
+	IsRCManagedKind(p.ValKind[int(v)]) && !esc.ArenaPromoted[int(v)]
+}
+
+func propagateCrossBlockStep(p Program, live LivenessInfo, esc EscapeInfo, parents mut []uint32, cross mut []bool) bool {
+	let nv = NumValues(p)
+	let mut changed = false
+	let mut rootCross = initBoolSlice(nv, false)
+	for v in 0..nv {
+		if (*cross)[v] && esc.ArenaPromoted[v] {
+			rootCross[int(AliasFind(parents, uint32(v)))] = true
+		}
+	}
+	for v in 0..nv {
+		if esc.ArenaPromoted[v] && !(*cross)[v] && rootCross[int(AliasFind(parents, uint32(v)))] {
+			(*cross)[v] = true
+			changed = true
+		}
+	}
+	for bi in 0..NumBlocks(p) {
+		if !live.Reachable[bi] {
+			continue
+		}
+		let blk = BlockAt(p, uint32(bi))
+		let start = int(blk.InstStart)
+		for k in start..start+int(blk.InstLen) {
+			let ins = InstAt(p, uint32(k))
+			if ins.Op == OpStore && ins.Arg0 != NoID && ins.Arg1 != NoID {
+				let base = int(ins.Arg0)
+				let val = int(ins.Arg1)
+				if esc.ArenaPromoted[base] && esc.ArenaPromoted[val] && (*cross)[base] && !(*cross)[val] {
+					(*cross)[val] = true
+					changed = true
+				}
+			}
+		}
+	}
+	changed
+}
+
+func findCrossBlockArena(p Program, live LivenessInfo, esc EscapeInfo) ([]bool, bool) {
+	let nv = NumValues(p)
+	let nw = live.Words
+	let mut parents = slices.Clone(esc.AliasParent)
+	let mut cross = initBoolSlice(nv, false)
+	let mut anyFrame = false
+	for bi in 0..NumBlocks(p) {
+		if !live.Reachable[bi] {
+			continue
+		}
+		let b = uint32(bi)
+		let blk = BlockAt(p, b)
+		let off = bi * nw
+		for v in 0..nv {
+			if esc.ArenaPromoted[v] && BitTest(live.LiveOut, off, uint32(v)) {
+				cross[v] = true
+				anyFrame = true
+			}
+		}
+		if blk.InstLen > uint32(0) {
+			let lastIdx = blk.InstStart + blk.InstLen - uint32(1)
+			let last = InstAt(p, lastIdx)
+			if last.Op == OpCall && last.Aux1 == uint32(1) {
+				for a in InstArgs(p, lastIdx) {
+					if int(a) < nv && esc.ArenaPromoted[int(a)] {
+						cross[int(a)] = true
+						anyFrame = true
+					}
+				}
+			}
+		}
+	}
+	for propagateCrossBlockStep(p, live, esc, &parents, &cross) {
+		anyFrame = true
+	}
+	(cross, anyFrame)
+}
+
+func makeInst0(op uint8) Inst {
+	Inst{Op: op, Dst: NoID, Arg0: NoID, Arg1: NoID, Aux0: uint32(0), Aux1: uint32(0), ArgStart: uint32(0), ArgLen: uint32(0)}
+}
+
+func makeDupInst(v uint32) Inst {
+	Inst{Op: OpDup, Dst: NoID, Arg0: v, Arg1: NoID, Aux0: uint32(0), Aux1: uint32(0), ArgStart: uint32(0), ArgLen: uint32(0)}
+}
+
+func makeDropInst(v uint32) Inst {
+	Inst{Op: OpDrop, Dst: NoID, Arg0: v, Arg1: NoID, Aux0: uint32(0), Aux1: uint32(0), ArgStart: uint32(0), ArgLen: uint32(0)}
+}
+
+func appendCallArgsCopy(ctx mut lowerCtx, args []uint32) (uint32, uint32) {
+	let start = uint32(ctx.outCallArgs.Len())
+	for a in args {
+		ctx.outCallArgs = ctx.outCallArgs.Append(a)
+	}
+	(start, uint32(args.Len()))
+}
+
+func uniqueRCValues(p Program, esc EscapeInfo, xs []uint32) ([]uint32, []int) {
+	let mut vals = []uint32{}
+	let mut counts = []int{}
+	for x in xs {
+		if !isHeapRC(p, esc, x) {
+			continue
+		}
+		let mut found = -1
+		for i, u in vals {
+			if u == x {
+				found = i
+				break
+			}
+		}
+		if found >= 0 {
+			counts[found] = counts[found] + 1
+		} else {
+			vals = vals.Append(x)
+			counts = counts.Append(1)
+		}
+	}
+	(vals, counts)
+}
+
+func emitRev(rev mut []Inst, xs []Inst) {
+	let mut i = xs.Len() - 1
+	for i >= 0 {
+		*rev = (*rev).Append(xs[i])
+		i = i - 1
+	}
+}
+
+func reverseInsts(rev []Inst) []Inst {
+	let n = rev.Len()
+	let mut out = slices.WithCapacity[Inst](n)
+	let mut i = n - 1
+	for i >= 0 {
+		out = out.Append(rev[i])
+		i = i - 1
+	}
+	out
+}
+
+func hasPredecessor(p Program, target uint32) bool {
+	for bi in 0..NumBlocks(p) {
+		let blk = BlockAt(p, uint32(bi))
+		if blk.Succ0 == target || blk.Succ1 == target || blk.UnwindSucc == target {
+			return true
+		}
+	}
+	false
+}
+
+func emitInteriorCall(ctx mut lowerCtx, idx uint32, workLive mut []uint64, rev mut []Inst) {
+	let ins = InstAt(ctx.src, idx)
+	let args = InstArgs(ctx.src, idx)
+	let (cStart, cLen) = appendCallArgsCopy(ctx, args)
+	let newIns = Inst{..ins, ArgStart: cStart, ArgLen: cLen}
+	let (uVals, uCounts) = uniqueRCValues(ctx.src, ctx.esc, args)
+	let mut before = []Inst{}
+	let mut after = []Inst{}
+	if ins.Aux0 == uint32(1) {
+		for j in 0..uVals.Len() {
+			let v = uVals[j]
+			let keep = if BitTest(*workLive, 0, v) { 1 } else { 0 }
+			let dups = uCounts[j] + keep - 1
+			for _ in 0..dups {
+				before = before.Append(makeDupInst(v))
+			}
+		}
+	} else {
+		for v in uVals {
+			if !BitTest(*workLive, 0, v) {
+				after = after.Append(makeDropInst(v))
+			}
+		}
+	}
+	if ins.Dst != NoID && isHeapRC(ctx.src, ctx.esc, ins.Dst) && !BitTest(*workLive, 0, ins.Dst) {
+		after = after.Append(makeDropInst(ins.Dst))
+	}
+	emitRev(rev, after)
+	*rev = (*rev).Append(newIns)
+	emitRev(rev, before)
+	if ins.Dst != NoID {
+		BitClear(workLive, 0, ins.Dst)
+	}
+	for a in args {
+		if a != NoID {
+			BitSet(workLive, 0, a)
+		}
+	}
+}
+
+func emitReturnInst(ctx mut lowerCtx, idx uint32, workLive mut []uint64, rev mut []Inst) {
+	let ins = InstAt(ctx.src, idx)
+	let args = InstArgs(ctx.src, idx)
+	let (cStart, cLen) = appendCallArgsCopy(ctx, args)
+	let newIns = Inst{..ins, ArgStart: cStart, ArgLen: cLen}
+	let (uVals, uCounts) = uniqueRCValues(ctx.src, ctx.esc, args)
+	let mut before = []Inst{}
+	for j in 0..uVals.Len() {
+		let dups = uCounts[j] - 1
+		for _ in 0..dups {
+			before = before.Append(makeDupInst(uVals[j]))
+		}
+	}
+	if ctx.needsFrame {
+		before = before.Append(makeInst0(OpArenaReset))
+	}
+	*rev = (*rev).Append(newIns)
+	emitRev(rev, before)
+	for a in args {
+		if a != NoID {
+			BitSet(workLive, 0, a)
+		}
+	}
+}
+
+func emitMayFailCall(ctx mut lowerCtx, b uint32, idx uint32, workLive mut []uint64, rev mut []Inst) (edgeState, edgeState) {
+	let blk = BlockAt(ctx.src, b)
+	let ins = InstAt(ctx.src, idx)
+	let args = InstArgs(ctx.src, idx)
+	let nw = ctx.nw
+	let normArgs = Succ0Args(ctx.src, b)
+	let uwArgs = UnwindArgs(ctx.src, b)
+	let mut normNeed = zeroU64Slice(nw)
+	AccumulateEdgeNeed(&normNeed, 0, ctx.live.LiveBeforeParams, nw, blk.Succ0, normArgs)
+	let mut uwNeed = zeroU64Slice(nw)
+	AccumulateEdgeNeed(&uwNeed, 0, ctx.live.LiveBeforeParams, nw, blk.UnwindSucc, uwArgs)
+	let mut afterCall = zeroU64Slice(nw)
+	BitCopyRange(&afterCall, 0, normNeed, 0, nw)
+	if ins.Dst != NoID {
+		BitClear(&afterCall, 0, ins.Dst)
+	}
+	let _ = BitOrInto(&afterCall, 0, uwNeed, 0, nw)
+	let mut haveNorm = zeroU64Slice(nw)
+	BitCopyRange(&haveNorm, 0, afterCall, 0, nw)
+	if ins.Dst != NoID && isHeapRC(ctx.src, ctx.esc, ins.Dst) {
+		BitSet(&haveNorm, 0, ins.Dst)
+	}
+	let mut haveUw = zeroU64Slice(nw)
+	BitCopyRange(&haveUw, 0, afterCall, 0, nw)
+	let (cStart, cLen) = appendCallArgsCopy(ctx, args)
+	let newIns = Inst{..ins, ArgStart: cStart, ArgLen: cLen}
+	let (uVals, uCounts) = uniqueRCValues(ctx.src, ctx.esc, args)
+	let mut before = []Inst{}
+	if ins.Aux0 == uint32(1) {
+		for j in 0..uVals.Len() {
+			let v = uVals[j]
+			let keep = if BitTest(afterCall, 0, v) { 1 } else { 0 }
+			let dups = uCounts[j] + keep - 1
+			for _ in 0..dups {
+				before = before.Append(makeDupInst(v))
+			}
+		}
+	} else {
+		for v in uVals {
+			BitSet(&haveNorm, 0, v)
+			BitSet(&haveUw, 0, v)
+		}
+	}
+	*rev = (*rev).Append(newIns)
+	emitRev(rev, before)
+	BitCopyRange(workLive, 0, afterCall, 0, nw)
+	for a in args {
+		if a != NoID {
+			BitSet(workLive, 0, a)
+		}
+	}
+	let e0 = edgeState{hasEdge: true, target: blk.Succ0, args: slices.Clone(normArgs), have: haveNorm}
+	let eUw = edgeState{hasEdge: true, target: blk.UnwindSucc, args: slices.Clone(uwArgs), have: haveUw}
+	(e0, eUw)
+}
+
+func emitRegularInst(ctx mut lowerCtx, idx uint32, workLive mut []uint64, rev mut []Inst) {
+	let ins = InstAt(ctx.src, idx)
+	let p = ctx.src
+	let esc = ctx.esc
+	let mut before = []Inst{}
+	let mut after = []Inst{}
+	let mut emitted = ins
+	if ins.Op == OpAlloc {
+		if ins.Dst != NoID && esc.ArenaPromoted[int(ins.Dst)] {
+			emitted = Inst{..ins, Op: OpArenaAlloc}
+		} else if ins.Dst != NoID && isHeapRC(p, esc, ins.Dst) && !BitTest(*workLive, 0, ins.Dst) {
+			after = after.Append(makeDropInst(ins.Dst))
+		}
+	} else if ins.Op == OpFieldRead {
+		if ins.Arg0 != NoID && isHeapRC(p, esc, ins.Arg0) && !BitTest(*workLive, 0, ins.Arg0) {
+			after = after.Append(makeDropInst(ins.Arg0))
+		}
+		if ins.Dst != NoID && isHeapRC(p, esc, ins.Dst) && !BitTest(*workLive, 0, ins.Dst) {
+			after = after.Append(makeDropInst(ins.Dst))
+		}
+	} else if ins.Op == OpUse {
+		if ins.Dst != NoID && isHeapRC(p, esc, ins.Dst) {
+			if ins.Arg0 != NoID && isHeapRC(p, esc, ins.Arg0) && BitTest(*workLive, 0, ins.Arg0) {
+				before = before.Append(makeDupInst(ins.Arg0))
+			}
+			if !BitTest(*workLive, 0, ins.Dst) {
+				after = after.Append(makeDropInst(ins.Dst))
+			}
+		} else if ins.Arg0 != NoID && isHeapRC(p, esc, ins.Arg0) && !BitTest(*workLive, 0, ins.Arg0) {
+			after = after.Append(makeDropInst(ins.Arg0))
+		}
+	} else if ins.Op == OpStore {
+		if ins.Arg1 != NoID && isHeapRC(p, esc, ins.Arg1) && BitTest(*workLive, 0, ins.Arg1) {
+			before = before.Append(makeDupInst(ins.Arg1))
+		}
+		if ins.Arg0 != NoID && isHeapRC(p, esc, ins.Arg0) && !BitTest(*workLive, 0, ins.Arg0) && ins.Arg0 != ins.Arg1 {
+			after = after.Append(makeDropInst(ins.Arg0))
+		}
+	}
+	emitRev(rev, after)
+	*rev = (*rev).Append(emitted)
+	emitRev(rev, before)
+	if ins.Dst != NoID {
+		BitClear(workLive, 0, ins.Dst)
+	}
+	if ins.Arg0 != NoID {
+		BitSet(workLive, 0, ins.Arg0)
+	}
+	if ins.Arg1 != NoID {
+		BitSet(workLive, 0, ins.Arg1)
+	}
+}
+
+func wrapBlockLocalArena(ctx lowerCtx, insts []Inst) []Inst {
+	let n = insts.Len()
+	let mut hasCross = false
+	let mut firstLocal = -1
+	let mut localVals = slices.WithCapacity[bool](ctx.nv)
+	for _ in 0..ctx.nv {
+		localVals = localVals.Append(false)
+	}
+	for i in 0..n {
+		let ins = insts[i]
+		if ins.Op == OpArenaAlloc && ins.Dst != NoID {
+			if ctx.crossBlock[int(ins.Dst)] {
+				hasCross = true
+			} else {
+				if firstLocal < 0 {
+					firstLocal = i
+				}
+				localVals[int(ins.Dst)] = true
+			}
+		}
+	}
+	if hasCross || firstLocal < 0 {
+		return insts
+	}
+	let mut lastUse = firstLocal
+	for i in firstLocal+1..n {
+		let ins = insts[i]
+		let usedArg0 = ins.Arg0 != NoID && localVals[int(ins.Arg0)]
+		let usedArg1 = ins.Arg1 != NoID && localVals[int(ins.Arg1)]
+		let allocated = ins.Op == OpArenaAlloc && ins.Dst != NoID && localVals[int(ins.Dst)]
+		if usedArg0 || usedArg1 || allocated {
+			lastUse = i
+			if ins.Op == OpUse && ins.Dst != NoID && usedArg0 && ctx.esc.ArenaPromoted[int(ins.Dst)] {
+				localVals[int(ins.Dst)] = true
+			}
+		}
+		if ins.Op == OpCall {
+			let s = int(ins.ArgStart)
+			for k in s..s+int(ins.ArgLen) {
+				let a = ctx.outCallArgs[k]
+				if a != NoID && localVals[int(a)] {
+					lastUse = i
+				}
+			}
+		}
+	}
+	let mut out = slices.WithCapacity[Inst](n + 2)
+	for i in 0..n {
+		if i == firstLocal {
+			out = out.Append(makeInst0(OpArenaMark))
+		}
+		out = out.Append(insts[i])
+		if i == lastUse {
+			out = out.Append(makeInst0(OpArenaReset))
+		}
+	}
+	out
+}
+
+func edgeCompOps(ctx lowerCtx, edge edgeState) []Inst {
+	if !edge.hasEdge || edge.target == NoID {
+		return []Inst{}
+	}
+	let nw = ctx.nw
+	let tOff = int(edge.target) * nw
+	let mut dups = []Inst{}
+	let mut drops = []Inst{}
+	for vi in 0..ctx.nv {
+		let v = uint32(vi)
+		if !isHeapRC(ctx.src, ctx.esc, v) {
+			continue
+		}
+		let have = if BitTest(edge.have, 0, v) { 1 } else { 0 }
+		if have == 0 {
+			continue
+		}
+		let mut need = if BitTest(ctx.live.LiveBeforeParams, tOff, v) { 1 } else { 0 }
+		for a in edge.args {
+			if a == v {
+				need = need + 1
+			}
+		}
+		if need == 0 {
+			drops = drops.Append(makeDropInst(v))
+		} else if need > 1 {
+			for _ in 0..need-1 {
+				dups = dups.Append(makeDupInst(v))
+			}
+		}
+	}
+	let mut all = slices.WithCapacity[Inst](dups.Len() + drops.Len())
+	for d in dups {
+		all = all.Append(d)
+	}
+	for d in drops {
+		all = all.Append(d)
+	}
+	all
+}
+
+func appendCompBlock(ctx mut lowerCtx, target uint32, args []uint32, ops []Inst) uint32 {
+	let id = uint32(ctx.outBlkKind.Len())
+	let mut insts = slices.WithCapacity[Inst](ops.Len() + 1)
+	for op in ops {
+		insts = insts.Append(op)
+	}
+	insts = insts.Append(makeInst0(OpBr))
+	ctx.outInsts = ctx.outInsts.Append(insts)
+	ctx.outBlkKind = ctx.outBlkKind.Append(BlockComp)
+	ctx.outBlkParams = ctx.outBlkParams.Append([]uint32{})
+	ctx.outSucc0 = ctx.outSucc0.Append(target)
+	ctx.outSucc1 = ctx.outSucc1.Append(NoID)
+	ctx.outUnwind = ctx.outUnwind.Append(NoID)
+	ctx.outS0Args = ctx.outS0Args.Append(slices.Clone(args))
+	ctx.outS1Args = ctx.outS1Args.Append([]uint32{})
+	ctx.outUwArgs = ctx.outUwArgs.Append([]uint32{})
+	ctx.compBlocks = ctx.compBlocks + 1
+	id
+}
+
+func insertBeforeLast(insts []Inst, extra []Inst) []Inst {
+	let n = insts.Len()
+	let mut out = slices.WithCapacity[Inst](n + extra.Len())
+	for i in 0..n-1 {
+		out = out.Append(insts[i])
+	}
+	for e in extra {
+		out = out.Append(e)
+	}
+	out = out.Append(insts[n-1])
+	out
+}
+
+func prependInsts(prefix []Inst, insts []Inst) []Inst {
+	let mut out = slices.WithCapacity[Inst](prefix.Len() + insts.Len())
+	for p in prefix {
+		out = out.Append(p)
+	}
+	for ins in insts {
+		out = out.Append(ins)
+	}
+	out
+}
+
+func transformBlock(ctx mut lowerCtx, b uint32) (edgeState, edgeState, edgeState) {
+	let bi = int(b)
+	let blk = BlockAt(ctx.src, b)
+	let nw = ctx.nw
+	let start = int(blk.InstStart)
+	let n = int(blk.InstLen)
+	let mut workLive = zeroU64Slice(nw)
+	BitCopyRange(&workLive, 0, ctx.live.LiveOut, bi*nw, nw)
+	let mut rev = slices.WithCapacity[Inst](n * 2)
+	let mut e0 = edgeState{hasEdge: false, target: NoID, args: []uint32{}, have: []uint64{}}
+	let mut e1 = edgeState{hasEdge: false, target: NoID, args: []uint32{}, have: []uint64{}}
+	let mut eUw = edgeState{hasEdge: false, target: NoID, args: []uint32{}, have: []uint64{}}
+	let lastIdx = uint32(start + n - 1)
+	let lastIns = InstAt(ctx.src, lastIdx)
+	if lastIns.Op == OpReturn {
+		emitReturnInst(ctx, lastIdx, &workLive, &rev)
+	} else if lastIns.Op == OpCall && lastIns.Aux1 == uint32(1) {
+		let (nEdge, uwEdge) = emitMayFailCall(ctx, b, lastIdx, &workLive, &rev)
+		e0 = nEdge
+		eUw = uwEdge
+	} else if lastIns.Op == OpBr {
+		let mut h0 = zeroU64Slice(nw)
+		BitCopyRange(&h0, 0, workLive, 0, nw)
+		e0 = edgeState{hasEdge: true, target: blk.Succ0, args: slices.Clone(Succ0Args(ctx.src, b)), have: h0}
+		rev = rev.Append(lastIns)
+	} else if lastIns.Op == OpCondBr {
+		let mut hBoth = zeroU64Slice(nw)
+		BitCopyRange(&hBoth, 0, workLive, 0, nw)
+		if lastIns.Arg0 != NoID && isHeapRC(ctx.src, ctx.esc, lastIns.Arg0) {
+			BitSet(&hBoth, 0, lastIns.Arg0)
+		}
+		let mut h1 = zeroU64Slice(nw)
+		BitCopyRange(&h1, 0, hBoth, 0, nw)
+		e0 = edgeState{hasEdge: true, target: blk.Succ0, args: slices.Clone(Succ0Args(ctx.src, b)), have: hBoth}
+		e1 = edgeState{hasEdge: true, target: blk.Succ1, args: slices.Clone(Succ1Args(ctx.src, b)), have: h1}
+		rev = rev.Append(lastIns)
+		if lastIns.Arg0 != NoID {
+			BitSet(&workLive, 0, lastIns.Arg0)
+		}
+	}
+	let mut k = start + n - 2
+	for k >= start {
+		let ins = InstAt(ctx.src, uint32(k))
+		if ins.Op == OpCall {
+			emitInteriorCall(ctx, uint32(k), &workLive, &rev)
+		} else {
+			emitRegularInst(ctx, uint32(k), &workLive, &rev)
+		}
+		k = k - 1
+	}
+	let mut fwd = reverseInsts(rev)
+	let mut deadParamDrops = []Inst{}
+	for bp in BlockParams(ctx.src, b) {
+		if isHeapRC(ctx.src, ctx.esc, bp) && !BitTest(ctx.live.LiveIn, bi*nw, bp) {
+			deadParamDrops = deadParamDrops.Append(makeDropInst(bp))
+		}
+	}
+	if deadParamDrops.Len() > 0 {
+		fwd = prependInsts(deadParamDrops, fwd)
+	}
+	fwd = wrapBlockLocalArena(*ctx, fwd)
+	ctx.outInsts[bi] = fwd
+	(e0, e1, eUw)
+}
+
+func packLoweredProgram(ctx lowerCtx, entry uint32) Program {
+	let p = ctx.src
+	let nb = ctx.outBlkKind.Len()
+	let mut out = Program{
+		Entry:               entry,
+		Params:              slices.Clone(p.Params),
+		ValKind:             slices.Clone(p.ValKind),
+		ValTypeTag:          slices.Clone(p.ValTypeTag),
+		ValSize:             slices.Clone(p.ValSize),
+		ValParam:            slices.Clone(p.ValParam),
+		BlockInstStart:      slices.WithCapacity[uint32](nb),
+		BlockInstLen:        slices.WithCapacity[uint32](nb),
+		BlockSucc0:          slices.Clone(ctx.outSucc0),
+		BlockSucc1:          slices.Clone(ctx.outSucc1),
+		BlockUnwindSucc:     slices.Clone(ctx.outUnwind),
+		BlockKind:           slices.Clone(ctx.outBlkKind),
+		BlockParamStart:     slices.WithCapacity[uint32](nb),
+		BlockParamLen:       slices.WithCapacity[uint32](nb),
+		BlockParamPool:      []uint32{},
+		BlockSucc0ArgStart:  slices.WithCapacity[uint32](nb),
+		BlockSucc0ArgLen:    slices.WithCapacity[uint32](nb),
+		BlockSucc1ArgStart:  slices.WithCapacity[uint32](nb),
+		BlockSucc1ArgLen:    slices.WithCapacity[uint32](nb),
+		BlockUnwindArgStart: slices.WithCapacity[uint32](nb),
+		BlockUnwindArgLen:   slices.WithCapacity[uint32](nb),
+		EdgeArgPool:         []uint32{},
+		InstOp:              []uint8{},
+		InstDst:             []uint32{},
+		InstArg0:            []uint32{},
+		InstArg1:            []uint32{},
+		InstAux0:            []uint32{},
+		InstAux1:            []uint32{},
+		InstArgStart:        []uint32{},
+		InstArgLen:          []uint32{},
+		CallArgPool:         slices.Clone(ctx.outCallArgs),
+	}
+	for b in 0..nb {
+		out.BlockParamStart = out.BlockParamStart.Append(uint32(out.BlockParamPool.Len()))
+		let bps = ctx.outBlkParams[b]
+		for bp in bps {
+			out.BlockParamPool = out.BlockParamPool.Append(bp)
+		}
+		out.BlockParamLen = out.BlockParamLen.Append(uint32(bps.Len()))
+
+		out.BlockSucc0ArgStart = out.BlockSucc0ArgStart.Append(uint32(out.EdgeArgPool.Len()))
+		for a in ctx.outS0Args[b] {
+			out.EdgeArgPool = out.EdgeArgPool.Append(a)
+		}
+		out.BlockSucc0ArgLen = out.BlockSucc0ArgLen.Append(uint32(ctx.outS0Args[b].Len()))
+
+		out.BlockSucc1ArgStart = out.BlockSucc1ArgStart.Append(uint32(out.EdgeArgPool.Len()))
+		for a in ctx.outS1Args[b] {
+			out.EdgeArgPool = out.EdgeArgPool.Append(a)
+		}
+		out.BlockSucc1ArgLen = out.BlockSucc1ArgLen.Append(uint32(ctx.outS1Args[b].Len()))
+
+		out.BlockUnwindArgStart = out.BlockUnwindArgStart.Append(uint32(out.EdgeArgPool.Len()))
+		for a in ctx.outUwArgs[b] {
+			out.EdgeArgPool = out.EdgeArgPool.Append(a)
+		}
+		out.BlockUnwindArgLen = out.BlockUnwindArgLen.Append(uint32(ctx.outUwArgs[b].Len()))
+
+		out.BlockInstStart = out.BlockInstStart.Append(uint32(out.InstOp.Len()))
+		let insList = ctx.outInsts[b]
+		for ins in insList {
+			out.InstOp = out.InstOp.Append(ins.Op)
+			out.InstDst = out.InstDst.Append(ins.Dst)
+			out.InstArg0 = out.InstArg0.Append(ins.Arg0)
+			out.InstArg1 = out.InstArg1.Append(ins.Arg1)
+			out.InstAux0 = out.InstAux0.Append(ins.Aux0)
+			out.InstAux1 = out.InstAux1.Append(ins.Aux1)
+			out.InstArgStart = out.InstArgStart.Append(ins.ArgStart)
+			out.InstArgLen = out.InstArgLen.Append(ins.ArgLen)
+		}
+		out.BlockInstLen = out.BlockInstLen.Append(uint32(insList.Len()))
+	}
+	out
+}
+
+func applyEdgeComp(ctx mut lowerCtx, b int, e0 edgeState, e1 edgeState, eUw edgeState) {
+	let c0 = edgeCompOps(*ctx, e0)
+	if c0.Len() > 0 {
+		if ctx.outBlkKind[b] != BlockComp && ctx.outInsts[b].Len() > 0 && ctx.outInsts[b][ctx.outInsts[b].Len()-1].Op == OpBr {
+			ctx.outInsts[b] = insertBeforeLast(ctx.outInsts[b], c0)
+		} else {
+			let comp = appendCompBlock(ctx, e0.target, e0.args, c0)
+			ctx.outSucc0[b] = comp
+			ctx.outS0Args[b] = []uint32{}
+		}
+	}
+	let c1 = edgeCompOps(*ctx, e1)
+	if c1.Len() > 0 {
+		let comp = appendCompBlock(ctx, e1.target, e1.args, c1)
+		ctx.outSucc1[b] = comp
+		ctx.outS1Args[b] = []uint32{}
+	}
+	let cUw = edgeCompOps(*ctx, eUw)
+	if cUw.Len() > 0 {
+		let comp = appendCompBlock(ctx, eUw.target, eUw.args, cUw)
+		ctx.outUnwind[b] = comp
+		ctx.outUwArgs[b] = []uint32{}
+	}
+}
+
+func countStats(p Program, esc EscapeInfo, compBlocks int, paired int) TransformStats {
+	let mut dups = 0
+	let mut drops = 0
+	let mut marks = 0
+	let mut resets = 0
+	let mut promoted = 0
+	for v in 0..NumValues(p) {
+		if esc.ArenaPromoted[v] {
+			promoted = promoted + 1
+		}
+	}
+	let reach = ComputeReachable(p)
+	for bi in 0..NumBlocks(p) {
+		if !reach[bi] {
+			continue
+		}
+		let blk = BlockAt(p, uint32(bi))
+		let s = int(blk.InstStart)
+		for k in s..s+int(blk.InstLen) {
+			let op = p.InstOp[k]
+			if op == OpDup {
+				dups = dups + 1
+			} else if op == OpDrop {
+				drops = drops + 1
+			} else if op == OpArenaMark {
+				marks = marks + 1
+			} else if op == OpArenaReset {
+				resets = resets + 1
+			}
+		}
+	}
+	TransformStats{
+		DupsInserted:        dups,
+		DropsInserted:       drops,
+		ReusesPaired:        paired,
+		ArenaPromotedCount:  promoted,
+		ArenaMarksInserted:  marks,
+		ArenaResetsInserted: resets,
+		CompBlocksInserted:  compBlocks,
+	}
+}
+
+// LowerProgram applies arena promotion, Perceus dup/drop insertion, edge compensation, and own reuse pairing to p.
+func LowerProgram(p Program) LowerResult fails InvalidCFG {
+	try ValidateProgram(p)
+	let live = AnalyzeLiveness(p)
+	let esc = AnalyzeEscapes(p, live)
+	let (cross, needsFrame) = findCrossBlockArena(p, live, esc)
+	let nb = NumBlocks(p)
+	let mut ctx = lowerCtx{
+		src:          p,
+		live:         live,
+		esc:          esc,
+		crossBlock:   cross,
+		needsFrame:   needsFrame,
+		nw:           live.Words,
+		nv:           NumValues(p),
+		outInsts:     slices.WithCapacity[[]Inst](nb),
+		outCallArgs:  []uint32{},
+		outSucc0:     slices.Clone(p.BlockSucc0),
+		outSucc1:     slices.Clone(p.BlockSucc1),
+		outUnwind:    slices.Clone(p.BlockUnwindSucc),
+		outS0Args:    slices.WithCapacity[[]uint32](nb),
+		outS1Args:    slices.WithCapacity[[]uint32](nb),
+		outUwArgs:    slices.WithCapacity[[]uint32](nb),
+		outBlkKind:   slices.Clone(p.BlockKind),
+		outBlkParams: slices.WithCapacity[[]uint32](nb),
+		compBlocks:   0,
+	}
+	for b in 0..nb {
+		ctx.outInsts = ctx.outInsts.Append([]Inst{})
+		ctx.outS0Args = ctx.outS0Args.Append(slices.Clone(Succ0Args(p, uint32(b))))
+		ctx.outS1Args = ctx.outS1Args.Append(slices.Clone(Succ1Args(p, uint32(b))))
+		ctx.outUwArgs = ctx.outUwArgs.Append(slices.Clone(UnwindArgs(p, uint32(b))))
+		ctx.outBlkParams = ctx.outBlkParams.Append(slices.Clone(BlockParams(p, uint32(b))))
+	}
+	let mut e0List = slices.WithCapacity[edgeState](nb)
+	let mut e1List = slices.WithCapacity[edgeState](nb)
+	let mut eUwList = slices.WithCapacity[edgeState](nb)
+	let emptyEdge = edgeState{hasEdge: false, target: NoID, args: []uint32{}, have: []uint64{}}
+	for b in 0..nb {
+		if live.Reachable[b] {
+			let (e0, e1, eUw) = transformBlock(&ctx, uint32(b))
+			e0List = e0List.Append(e0)
+			e1List = e1List.Append(e1)
+			eUwList = eUwList.Append(eUw)
+		} else {
+			let blk = BlockAt(p, uint32(b))
+			let mut deadInsts = slices.WithCapacity[Inst](int(blk.InstLen))
+			for k in int(blk.InstStart)..int(blk.InstStart)+int(blk.InstLen) {
+				let ins = InstAt(p, uint32(k))
+				if ins.Op == OpCall || ins.Op == OpReturn {
+					let (cs, cn) = appendCallArgsCopy(&ctx, InstArgs(p, uint32(k)))
+					deadInsts = deadInsts.Append(Inst{..ins, ArgStart: cs, ArgLen: cn})
+				} else {
+					deadInsts = deadInsts.Append(ins)
+				}
+			}
+			ctx.outInsts[b] = deadInsts
+			e0List = e0List.Append(emptyEdge)
+			e1List = e1List.Append(emptyEdge)
+			eUwList = eUwList.Append(emptyEdge)
+		}
+	}
+	for b in 0..nb {
+		if live.Reachable[b] {
+			applyEdgeComp(&ctx, b, e0List[b], e1List[b], eUwList[b])
+		}
+	}
+	let mut entryBlk = p.Entry
+	let mut entryPrefix = []Inst{}
+	let entryOff = int(p.Entry) * ctx.nw
+	for pv in p.Params {
+		if isHeapRC(p, esc, pv) && !BitTest(live.LiveIn, entryOff, pv) {
+			entryPrefix = entryPrefix.Append(makeDropInst(pv))
+		}
+	}
+	if needsFrame {
+		entryPrefix = entryPrefix.Append(makeInst0(OpArenaMark))
+	}
+	if entryPrefix.Len() > 0 {
+		if hasPredecessor(p, p.Entry) {
+			let pro = uint32(ctx.outBlkKind.Len())
+			let mut proInsts = entryPrefix
+			proInsts = proInsts.Append(makeInst0(OpBr))
+			ctx.outInsts = ctx.outInsts.Append(proInsts)
+			ctx.outBlkKind = ctx.outBlkKind.Append(BlockEntry)
+			ctx.outBlkParams = ctx.outBlkParams.Append([]uint32{})
+			ctx.outSucc0 = ctx.outSucc0.Append(p.Entry)
+			ctx.outSucc1 = ctx.outSucc1.Append(NoID)
+			ctx.outUnwind = ctx.outUnwind.Append(NoID)
+			ctx.outS0Args = ctx.outS0Args.Append([]uint32{})
+			ctx.outS1Args = ctx.outS1Args.Append([]uint32{})
+			ctx.outUwArgs = ctx.outUwArgs.Append([]uint32{})
+			entryBlk = pro
+		} else {
+			ctx.outInsts[int(p.Entry)] = prependInsts(entryPrefix, ctx.outInsts[int(p.Entry)])
+		}
+	}
+	let preReuse = packLoweredProgram(ctx, entryBlk)
+	let reused = PairProgramReuse(preReuse)
+	let stats = countStats(reused.Program, esc, ctx.compBlocks, reused.Paired)
+	LowerResult{Program: reused.Program, Stats: stats}
+}
+
+// LastUseMovesWithoutDup checks that passing or binding an RC value at its last use moves it with zero OpDup and zero OpDrop.
+law LastUseMovesWithoutDup(kindPick int) {
+	let k = if (kindPick & 1) == 0 { ValRC } else { ValOwn }
+	let mut b = NewBuilder()
+	let b0 = NewBlock(&b, BlockEntry)
+	let x = EmitAlloc(&b, b0, ValueSpec{Kind: k, TypeTag: uint32(1), Size: uint32(32)})
+	let moved = EmitMoveUse(&b, b0, x, ValueSpec{Kind: k, TypeTag: uint32(1), Size: uint32(32)})
+	let _ = EmitCall(&b, b0, CallSpec{Args: []uint32{moved}, DstSpec: ValueSpec{Kind: ValScalar, TypeTag: uint32(0), Size: uint32(0)}, Escapes: true, MayFail: false, HasDst: false})
+	EmitReturn(&b, b0, []uint32{})
+	let res = LowerProgram(BuildProgram(b)) catch {
+	case InvalidCFG:
+		return false
+	}
+	res.Stats.DupsInserted == 0 && res.Stats.DropsInserted == 0
+}
+
+// LiveUseAfterCallInsertsExactDup checks that reusing an RC value after an escaping call inserts exactly one OpDup and one OpDrop.
+law LiveUseAfterCallInsertsExactDup(tag uint32) {
+	let mut b = NewBuilder()
+	let b0 = NewBlock(&b, BlockEntry)
+	let x = EmitAlloc(&b, b0, ValueSpec{Kind: ValRC, TypeTag: tag, Size: uint32(32)})
+	let _ = EmitCall(&b, b0, CallSpec{Args: []uint32{x}, DstSpec: ValueSpec{Kind: ValScalar, TypeTag: uint32(0), Size: uint32(0)}, Escapes: true, MayFail: false, HasDst: false})
+	EmitBorrowUse(&b, b0, x)
+	EmitReturn(&b, b0, []uint32{})
+	let res = LowerProgram(BuildProgram(b)) catch {
+	case InvalidCFG:
+		return false
+	}
+	res.Stats.DupsInserted == 1 && res.Stats.DropsInserted == 1
+}
+
+test UnusedArenaTemporariesStayInsideTheirScope {
+	let mut b = NewBuilder()
+	let b0 = NewBlock(&b, BlockEntry)
+	let _ = EmitAlloc(&b, b0, ValueSpec{Kind: ValArenaCand, TypeTag: uint32(3), Size: uint32(16)})
+	let _ = EmitAlloc(&b, b0, ValueSpec{Kind: ValArenaCand, TypeTag: uint32(3), Size: uint32(16)})
+	EmitReturn(&b, b0, []uint32{})
+	let res = LowerProgram(BuildProgram(b)) catch {
+	case InvalidCFG:
+		assert false
+		return
+	}
+	assert verifyFailureTag(res.Program) == "ok"
+}
+
+test TransformInsertsUnwindAndBranchEdgeDrops {
+	let mut b = NewBuilder()
+	let b0 = NewBlock(&b, BlockEntry)
+	let bNorm = NewBlock(&b, BlockExit)
+	let bErr = NewBlock(&b, BlockUnwind)
+	let v = EmitAlloc(&b, b0, ValueSpec{Kind: ValRC, TypeTag: uint32(4), Size: uint32(32)})
+	let _ = EmitUnwindCall(&b, b0, CallSpec{Args: []uint32{v}, DstSpec: ValueSpec{Kind: ValScalar, TypeTag: uint32(0), Size: uint32(0)}, Escapes: false, MayFail: true, HasDst: false}, BranchTarget{Block: bNorm, Args: []uint32{}}, BranchTarget{Block: bErr, Args: []uint32{}})
+	EmitReturn(&b, bNorm, []uint32{v})
+	EmitReturn(&b, bErr, []uint32{})
+	let res = LowerProgram(BuildProgram(b)) catch {
+	case InvalidCFG:
+		assert false
+		return
+	}
+	assert res.Stats.DupsInserted == 0
+	assert res.Stats.DropsInserted == 1
+	assert res.Stats.CompBlocksInserted == 1
+
+	let mut bc = NewBuilder()
+	let c0 = NewBlock(&bc, BlockEntry)
+	let cT = NewBlock(&bc, BlockExit)
+	let cF = NewBlock(&bc, BlockExit)
+	let cond = EmitConstScalar(&bc, c0, uint32(1))
+	let w = EmitAlloc(&bc, c0, ValueSpec{Kind: ValRC, TypeTag: uint32(4), Size: uint32(32)})
+	EmitCondBr(&bc, c0, cond, BranchTarget{Block: cT, Args: []uint32{}}, BranchTarget{Block: cF, Args: []uint32{}})
+	EmitReturn(&bc, cT, []uint32{w})
+	EmitReturn(&bc, cF, []uint32{})
+	let resC = LowerProgram(BuildProgram(bc)) catch {
+	case InvalidCFG:
+		assert false
+		return
+	}
+	assert resC.Stats.DupsInserted == 0
+	assert resC.Stats.DropsInserted == 1
+	assert resC.Stats.CompBlocksInserted == 1
+}

@@ -263,13 +263,14 @@ func TestStdExternCallersHoldAuthority(t *testing.T) {
 	slices.Sort(hosts)
 	want := []string{
 		"exec.confine", "exec.confineSink", "exec.hostAlive", "exec.hostKill", "exec.hostOpenPTY", "exec.hostOpenPipe", "exec.hostPollDetached", "exec.hostReattachPTY", "exec.hostReattachPipe", "exec.hostReplace", "exec.hostRun", "exec.hostRunIn", "exec.hostSpawn", "exec.hostSpawnWithPTY", "exec.hostStart", "exec.hostStartIn", "exec.hostStartInteractive", "exec.hostStartInteractiveIn", "exec.hostStartWithPTY", "exec.hostWaitDetached",
-		"fs.OpenRoot", "fs.confine", "fs.confineLast", "fs.hostAppendFile", "fs.hostChmod", "fs.hostExchange", "fs.hostIsLink", "fs.hostLink", "fs.hostLockFile", "fs.hostLstat", "fs.hostLstatEntry", "fs.hostMapBounded", "fs.hostMapFile", "fs.hostMkdir", "fs.hostMkdirAll", "fs.hostMkdirAllMode", "fs.hostReadDir", "fs.hostReadFile", "fs.hostReadlink", "fs.hostRemove", "fs.hostRename", "fs.hostResolve", "fs.hostSameAs", "fs.hostSameFile", "fs.hostStat", "fs.hostSymlink", "fs.hostUnlockFile", "fs.hostWriteFile", "fs.hostWriteFileMode",
+		"fs.OpenRoot", "fs.OpenTestRoot", "fs.confine", "fs.confineLast", "fs.hostAppendFile", "fs.hostChmod", "fs.hostExchange", "fs.hostIsLink", "fs.hostLink", "fs.hostLockFile", "fs.hostLstat", "fs.hostLstatEntry", "fs.hostMapBounded", "fs.hostMapFile", "fs.hostMkdir", "fs.hostMkdirAll", "fs.hostMkdirAllMode", "fs.hostReadDir", "fs.hostReadFile", "fs.hostReadlink", "fs.hostRemove", "fs.hostRename", "fs.hostResolve", "fs.hostSameAs", "fs.hostSameFile", "fs.hostScanDir", "fs.hostStat", "fs.hostSymlink", "fs.hostUnlockFile", "fs.hostWriteFile", "fs.hostWriteFileMode",
 		"host.hostEnv", "host.hostLocal", "host.hostZone",
 		"http.IntoFile", "http.Listen", "http.fetch", "http.fetchInto", "http.send", "http.sendInto", "http.serve",
 		"io.hostEprint", "io.hostIsTerminal", "io.hostLines", "io.hostPrint", "io.hostRead", "io.hostReadAll", "io.hostStderrIsTerminal", "io.hostStdinIsTerminal",
 		"net.confineUnix", "net.hostAdoptFD", "net.hostDial", "net.hostDialUnix", "net.hostListen", "net.hostListenUnix",
 		"os.hostArgs", "os.hostCacheDir", "os.hostConfigDir", "os.hostEnviron", "os.hostExecutable", "os.hostGetenv", "os.hostGetwd", "os.hostHasEnv", "os.hostHomeDir", "os.hostPid",
 		"prelude.Sleep", "prelude.hostAlarms",
+		"process.hostStartProc",
 		"rand.hostFloat64", "rand.hostIntN", "rand.hostUint64", "rand.secureBytes",
 		"rpc.call",
 		"signal.hostNumber", "signal.hostUnwatch", "signal.hostWatch",

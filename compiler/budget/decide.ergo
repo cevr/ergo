@@ -1,0 +1,865 @@
+import cmp
+import dense
+import hex
+import json
+import option
+import sha256
+import slices
+import strconv
+import strings
+
+// GrantEnv names the environment variable passing a budget grant to child processes.
+let GrantEnv = "ERGO_BUDGET_GRANT"
+
+// BudgetError reports malformed budget JSON or integer conversion errors.
+type BudgetError {
+	Message string,
+}
+
+// Entry represents a runner currently holding or waiting for budget resources.
+type Entry {
+	ID      string,
+	PID     uint32,
+	Width   uint32,
+	Memory  uint64,
+	Crit    bool,
+	Ticket  uint64,
+	Lane    string,
+	Key     string,
+	Asked   uint64,
+	Ceiling uint64,
+	Cap     uint64,
+	Passed  uint32,
+}
+
+// State captures active budget holders, waiting entries, and ticket sequence.
+type State {
+	Holders    []Entry,
+	Waiters    []Entry,
+	NextTicket uint64,
+}
+
+// Rules specifies admission limits and peak lookup configuration.
+type Rules {
+	Cores    uint32,
+	Memory   uint64,
+	Share    uint32,
+	Backfill uint32,
+	HasPeaks bool,
+	Peaks    Map[string, uint64],
+	Default  uint64,
+}
+
+// EntryTag identifies an entry row in SoA StateTable.
+type EntryTag {}
+
+// StateTable stores budget entries in dense unsigned Structure-of-Arrays columns.
+type StateTable {
+	Count      dense.Count[EntryTag],
+	ID         dense.Col[EntryTag, string],
+	PID        dense.Col[EntryTag, uint32],
+	Width      dense.Col[EntryTag, uint32],
+	Memory     dense.Col[EntryTag, uint64],
+	Crit       dense.Col[EntryTag, bool],
+	Ticket     dense.Col[EntryTag, uint64],
+	Lane       dense.Col[EntryTag, string],
+	Key        dense.Col[EntryTag, string],
+	Asked      dense.Col[EntryTag, uint64],
+	Ceiling    dense.Col[EntryTag, uint64],
+	Cap        dense.Col[EntryTag, uint64],
+	Passed     dense.Col[EntryTag, uint32],
+	IsHolder   dense.Col[EntryTag, bool],
+	Removed    dense.Col[EntryTag, bool],
+	NextTicket uint64,
+}
+
+// NewState constructs an empty budget State.
+func NewState() State {
+	State{Holders: []Entry{}, Waiters: []Entry{}, NextTicket: uint64(0)}
+}
+
+// NewStateTable constructs an initialized empty SoA StateTable.
+func NewStateTable() StateTable {
+	StateTable{
+		Count:      dense.NewCount[EntryTag](),
+		ID:         dense.NewCol[EntryTag, string](),
+		PID:        dense.NewCol[EntryTag, uint32](),
+		Width:      dense.NewCol[EntryTag, uint32](),
+		Memory:     dense.NewCol[EntryTag, uint64](),
+		Crit:       dense.NewCol[EntryTag, bool](),
+		Ticket:     dense.NewCol[EntryTag, uint64](),
+		Lane:       dense.NewCol[EntryTag, string](),
+		Key:        dense.NewCol[EntryTag, string](),
+		Asked:      dense.NewCol[EntryTag, uint64](),
+		Ceiling:    dense.NewCol[EntryTag, uint64](),
+		Cap:        dense.NewCol[EntryTag, uint64](),
+		Passed:     dense.NewCol[EntryTag, uint32](),
+		IsHolder:   dense.NewCol[EntryTag, bool](),
+		Removed:    dense.NewCol[EntryTag, bool](),
+		NextTicket: uint64(0),
+	}
+}
+
+// LoadStateTable populates an SoA StateTable from s.
+func LoadStateTable(s State) StateTable {
+	let mut tbl = NewStateTable()
+	tbl.NextTicket = s.NextTicket
+	for h in s.Holders {
+		appendEntryRow(&tbl, h, true)
+	}
+	for w in s.Waiters {
+		appendEntryRow(&tbl, w, false)
+	}
+	tbl
+}
+
+// ExportState materializes Holders and Waiters slices from an SoA StateTable.
+func ExportState(tbl StateTable) State {
+	let mut holders = []Entry{}
+	let mut waiters = []Entry{}
+	let total = dense.Total(tbl.Count)
+	for i in 0..total {
+		let id = dense.IDAt(tbl.Count, i)
+		if dense.Of(tbl.Removed, id) {
+			continue
+		}
+		let e = entryFromTable(tbl, id)
+		if dense.Of(tbl.IsHolder, id) {
+			holders = holders.Append(e)
+		} else {
+			waiters = waiters.Append(e)
+		}
+	}
+	State{Holders: holders, Waiters: waiters, NextTicket: tbl.NextTicket}
+}
+
+// Used returns total cores currently held by Holders in s.
+func Used(s State) uint32 {
+	let mut n = uint32(0)
+	for h in s.Holders {
+		n = n + h.Width
+	}
+	n
+}
+
+// MemoryUsed returns total reserved memory bytes held by Holders in s.
+func MemoryUsed(s State) uint64 {
+	let mut n = uint64(0)
+	for h in s.Holders {
+		n = n + h.Memory
+	}
+	n
+}
+
+// LaneUsed returns total cores currently held by non-crit Holders.
+func LaneUsed(s State) uint32 {
+	let mut n = uint32(0)
+	for h in s.Holders {
+		if !h.Crit {
+			n = n + h.Width
+		}
+	}
+	n
+}
+
+// Next returns the waiter index to serve next according to lane share and ticket order, or -1 if empty.
+func Next(s State, r Rules) int {
+	let lane = oldestIndex(s.Waiters, false)
+	let crit = oldestIndex(s.Waiters, true)
+	if lane != -1 && LaneUsed(s) < r.Share {
+		return lane
+	}
+	if crit != -1 {
+		return crit
+	}
+	lane
+}
+
+// Fits reports whether entry e fits within remaining core and memory budgets under r.
+func Fits(s State, r Rules, e Entry) bool {
+	Used(s)+e.Width <= r.Cores && (r.Memory == uint64(0) || MemoryUsed(s)+e.Memory <= r.Memory)
+}
+
+// Reservation computes the admission charge and cap from asked, peak, and dflt under r.
+func Reservation(r Rules, asked uint64, peak uint64, dflt uint64) (uint64, uint64) {
+	let mut res = uint64(0)
+	let mut capAt = uint64(0)
+	if asked > uint64(0) {
+		res = asked
+		capAt = asked
+	} else if peak > uint64(0) {
+		res = peak + peak/uint64(4)
+		capAt = cmp.Max(res, dflt)
+	} else {
+		res = dflt
+	}
+	if r.Memory > uint64(0) {
+		res = cmp.Min(res, r.Memory)
+		capAt = cmp.Min(capAt, r.Memory)
+	}
+	(res, capAt)
+}
+
+// CapAtCeiling lowers capAt to ceiling when ceiling is positive and tighter than capAt.
+func CapAtCeiling(capAt uint64, ceiling uint64) uint64 {
+	if ceiling > uint64(0) && (capAt == uint64(0) || ceiling < capAt) {
+		return ceiling
+	}
+	capAt
+}
+
+// Join assigns e the next ticket, enqueues it in Waiters, and runs Admit.
+func Join(s mut State, r Rules, e Entry) []string {
+	let mut item = e
+	item.Ticket = s.NextTicket
+	s.NextTicket = s.NextTicket + uint64(1)
+	s.Waiters = s.Waiters.Append(item)
+	Admit(s, r)
+}
+
+// Remove deletes id from Holders and Waiters and runs Admit.
+func Remove(s mut State, r Rules, id string) []string {
+	let mut nextHolders = []Entry{}
+	for h in s.Holders {
+		if h.ID != id {
+			nextHolders = nextHolders.Append(h)
+		}
+	}
+	s.Holders = nextHolders
+	let mut nextWaiters = []Entry{}
+	for w in s.Waiters {
+		if w.ID != id {
+			nextWaiters = nextWaiters.Append(w)
+		}
+	}
+	s.Waiters = nextWaiters
+	Admit(s, r)
+}
+
+// Admit promotes eligible waiters to Holders according to lane share, fit, and backfill bound.
+func Admit(s mut State, r Rules) []string {
+	let mut moved = []string{}
+	for true {
+		let h = Next(*s, r)
+		if h == -1 {
+			return moved
+		}
+		chargeWaiter(s, r, h)
+		let mut take = h
+		if !Fits(*s, r, s.Waiters[h]) {
+			if s.Waiters[h].Passed >= r.Backfill {
+				return moved
+			}
+			take = oldestFitting(s, r, h)
+			if take == -1 {
+				return moved
+			}
+			s.Waiters[h] = withPassed(s.Waiters[h], s.Waiters[h].Passed+uint32(1))
+		}
+		let admitted = withPassed(s.Waiters[take], uint32(0))
+		s.Waiters = deleteAt(s.Waiters, take)
+		s.Holders = s.Holders.Append(admitted)
+		moved = moved.Append(admitted.ID)
+	}
+	moved
+}
+
+// Holds reports whether id currently holds cores in s.
+func Holds(s State, id string) bool {
+	for h in s.Holders {
+		if h.ID == id {
+			return true
+		}
+	}
+	false
+}
+
+// Why explains why the next waiter is currently waiting, or returns empty when no waiters exist.
+func Why(s State, r Rules) string {
+	let h = Next(s, r)
+	if h == -1 {
+		return ""
+	}
+	let w = s.Waiters[h]
+	let mut parts = []string{}
+	let freeCores = int(r.Cores) - int(Used(s))
+	if int(w.Width) > freeCores {
+		parts = parts.Append("needs \(w.Width) cores, \(freeCores) free")
+	}
+	if r.Memory > uint64(0) {
+		let mu = MemoryUsed(s)
+		let neg = mu > r.Memory
+		let mag = if neg { mu - r.Memory } else { r.Memory - mu }
+		if neg || w.Memory > mag {
+			parts = parts.Append("memory: needs \(Size(w.Memory)), \(SizeSigned(neg, mag)) free")
+		}
+	}
+	if parts.Len() == 0 {
+		parts = parts.Append("fits: it takes at the next decision")
+	}
+	if w.Crit && LaneUsed(s) >= r.Share && oldestIndex(s.Waiters, false) != -1 {
+		parts = parts.Append("lane share used (\(LaneUsed(s)) of \(r.Share) cores): crit is served first")
+	}
+	let mut pass = "passed \(w.Passed) of \(r.Backfill)"
+	if w.Passed >= r.Backfill {
+		pass = pass + ": no more passes, it waits for holders to end"
+	}
+	"head \(w.ID): \(strings.Join(parts, "; ")); \(pass)"
+}
+
+// Size formats byte counts in G or M with one decimal place.
+func Size(n uint64) string { SizeSigned(false, n) }
+
+// SizeSigned formats signed byte magnitude in G or M with one decimal place.
+func SizeSigned(neg bool, mag uint64) string {
+	let f = float64(mag)
+	let signed = if neg { -f } else { f }
+	if mag >= gibBytes {
+		return strconv.FormatFloat(signed/float64(gibBytes), byte('f'), 1) + "G"
+	}
+	strconv.FormatFloat(signed/float64(1048576), byte('f'), 1) + "M"
+}
+
+// FormatStatus renders holders, ticket-ordered waiters, and wait reason matching `ergo budget status`.
+func FormatStatus(s State, r Rules) string {
+	let mut out = strings.NewBuilder()
+	for h in s.Holders {
+		appendStatusLine(&out, "hold", h, r)
+	}
+	let sortedWaiters = slices.SortFunc(s.Waiters, func(a Entry, b Entry) int {
+		if a.Ticket < b.Ticket {
+			return -1
+		}
+		if a.Ticket > b.Ticket {
+			return 1
+		}
+		0
+	})
+	for w in sortedWaiters {
+		appendStatusLine(&out, "wait", w, r)
+	}
+	let why = Why(s, r)
+	if why != "" {
+		strings.WriteString(&out, why)
+		strings.WriteByte(&out, byte('\n'))
+	}
+	strings.String(out)
+}
+
+// GrantEnvLine returns the KEY=VALUE environment entry lending grant id at width.
+func GrantEnvLine(width uint32, id string) string {
+	"\(GrantEnv)=\(width):\(id)"
+}
+
+// CPUQuota returns systemd CPUQuota syntax (e.g. "400%") for cores.
+func CPUQuota(cores uint32) string {
+	let c = if cores < uint32(1) { uint32(1) } else { cores }
+	"\(uint64(c) * uint64(100))%"
+}
+
+// SliceName derives the deterministic systemd slice unit name for state directory state.
+func SliceName(state string) string {
+	let sum = sha256.Sum(state)
+	"ergo-budget-\(hex.Encode(sum[0:4])).slice"
+}
+
+// CommandKey normalizes argv relative to working directory wd for peak tracking.
+func CommandKey(argv []string, wd string) string {
+	let mut parts = slices.WithCapacity[string](argv.Len())
+	for a in argv {
+		let item = if wd != "" && wd != "/" { strings.ReplaceAll(a, wd, ".") } else { a }
+		parts = parts.Append(item)
+	}
+	strings.Join(parts, " ")
+}
+
+// KeptPeak returns the next peak to persist after a command exits or is OOM-killed.
+func KeptPeak(own uint64, code uint32, killed bool, peak uint64) uint64 {
+	if killed && own > uint64(0) && peak >= own {
+		return cmp.Max(peak, uint64(2)*own)
+	}
+	if killed || code == uint32(0) {
+		return peak
+	}
+	uint64(0)
+}
+
+// ParsePeakText parses memory peak bytes and OOM-kill flag from cgroup peak output text.
+func ParsePeakText(text string) (uint64, bool) {
+	let fields = strings.Fields(text)
+	if fields.Len() == 0 {
+		return (uint64(0), false)
+	}
+	let peak = parseBudgetU64(fields[0]) catch {
+	case BudgetError:
+		return (uint64(0), false)
+	}
+	let mut kills = uint64(0)
+	if fields.Len() > 1 {
+		kills = parseBudgetU64(fields[1]) catch {
+		case BudgetError:
+			uint64(0)
+		}
+	}
+	(peak, kills > uint64(0))
+}
+
+// EncodeStateJSON serializes State into canonical JSON compatible with Go internal/budget.
+func EncodeStateJSON(s State) string {
+	let t = json.NewText()
+	t.BeginObject(3)
+	t.Key("holders")
+	encodeEntrySlice(t, s.Holders)
+	t.Key("waiters")
+	encodeEntrySlice(t, s.Waiters)
+	t.Key("next_ticket")
+	t.Uint(s.NextTicket)
+	t.EndObject()
+	t.Written()
+}
+
+// DecodeStateJSON parses JSON text produced by internal/budget into State.
+func DecodeStateJSON(raw string) State fails BudgetError {
+	let codec = json.Codec[json.Value]{MaxBytes: 0, MaxDepth: 0}
+	let root = json.Decode(codec, raw) catch {
+	case json.Malformed as e:
+		return BudgetError{Message: e.Reason}
+	case _:
+		return BudgetError{Message: "malformed budget state json"}
+	}
+	let obj = match root {
+	case json.Object as o:
+		o
+	case _:
+		return BudgetError{Message: "budget state must be object"}
+	}
+	let mut st = NewState()
+	for m in obj.Members {
+		if m.Key == "holders" {
+			st.Holders = try parseEntryList(m.Value)
+		} else if m.Key == "waiters" {
+			st.Waiters = try parseEntryList(m.Value)
+		} else if m.Key == "next_ticket" {
+			st.NextTicket = try jsonNumToU64(m.Value)
+		}
+	}
+	st
+}
+
+// EncodePeaksJSON serializes a sorted Map[string, uint64] peak table as JSON.
+func EncodePeaksJSON(peaks Map[string, uint64]) string {
+	let mut keys = []string{}
+	for k, _ in peaks {
+		keys = keys.Append(k)
+	}
+	keys = slices.Sort(keys)
+	let t = json.NewText()
+	t.BeginObject(keys.Len())
+	for k in keys {
+		t.Key(k)
+		let val = match peaks.Get(k) {
+		case option.Some{Value: v}:
+			v
+		case option.None:
+			uint64(0)
+		}
+		t.Uint(val)
+	}
+	t.EndObject()
+	t.Written()
+}
+
+// DecodePeaksJSON decodes peaks.json into Map[string, uint64].
+func DecodePeaksJSON(raw string) Map[string, uint64] fails BudgetError {
+	let codec = json.Codec[json.Value]{MaxBytes: 0, MaxDepth: 0}
+	let root = json.Decode(codec, raw) catch {
+	case json.Malformed as e:
+		return BudgetError{Message: e.Reason}
+	case _:
+		return BudgetError{Message: "malformed peaks json"}
+	}
+	let mut out = Map[string, uint64]{}
+	match root {
+	case json.Null:
+		return out
+	case json.Object as o:
+		for m in o.Members {
+			let v = try jsonNumToU64(m.Value)
+			out = out.Put(m.Key, v)
+		}
+		out
+	case _:
+		return BudgetError{Message: "peaks json must be object"}
+	}
+}
+
+func appendEntryRow(tbl mut StateTable, e Entry, isHolder bool) {
+	let _ = dense.Next(&tbl.Count)
+	dense.Push(&tbl.ID, e.ID)
+	dense.Push(&tbl.PID, e.PID)
+	dense.Push(&tbl.Width, e.Width)
+	dense.Push(&tbl.Memory, e.Memory)
+	dense.Push(&tbl.Crit, e.Crit)
+	dense.Push(&tbl.Ticket, e.Ticket)
+	dense.Push(&tbl.Lane, e.Lane)
+	dense.Push(&tbl.Key, e.Key)
+	dense.Push(&tbl.Asked, e.Asked)
+	dense.Push(&tbl.Ceiling, e.Ceiling)
+	dense.Push(&tbl.Cap, e.Cap)
+	dense.Push(&tbl.Passed, e.Passed)
+	dense.Push(&tbl.IsHolder, isHolder)
+	dense.Push(&tbl.Removed, false)
+}
+
+func entryFromTable(tbl StateTable, id dense.ID[EntryTag]) Entry {
+	Entry{
+		ID:      dense.Of(tbl.ID, id),
+		PID:     dense.Of(tbl.PID, id),
+		Width:   dense.Of(tbl.Width, id),
+		Memory:  dense.Of(tbl.Memory, id),
+		Crit:    dense.Of(tbl.Crit, id),
+		Ticket:  dense.Of(tbl.Ticket, id),
+		Lane:    dense.Of(tbl.Lane, id),
+		Key:     dense.Of(tbl.Key, id),
+		Asked:   dense.Of(tbl.Asked, id),
+		Ceiling: dense.Of(tbl.Ceiling, id),
+		Cap:     dense.Of(tbl.Cap, id),
+		Passed:  dense.Of(tbl.Passed, id),
+	}
+}
+
+func oldestIndex(ws []Entry, crit bool) int {
+	let mut best = -1
+	for i in 0..ws.Len() {
+		let w = ws[i]
+		if w.Crit == crit && (best == -1 || w.Ticket < ws[best].Ticket) {
+			best = i
+		}
+	}
+	best
+}
+
+func chargeWaiter(s mut State, r Rules, i int) {
+	let mut w = s.Waiters[i]
+	if r.HasPeaks && r.Memory > uint64(0) {
+		let peak = match r.Peaks.Get(w.Key) {
+		case option.Some{Value: v}:
+			v
+		case option.None:
+			uint64(0)
+		}
+		let (res, capAt) = Reservation(r, w.Asked, peak, r.Default)
+		w.Memory = res
+		w.Cap = capAt
+	}
+	w.Cap = CapAtCeiling(w.Cap, w.Ceiling)
+	s.Waiters[i] = w
+}
+
+func oldestFitting(s mut State, r Rules, h int) int {
+	let mut best = -1
+	for i in 0..s.Waiters.Len() {
+		if i == h || (best != -1 && s.Waiters[i].Ticket > s.Waiters[best].Ticket) {
+			continue
+		}
+		chargeWaiter(s, r, i)
+		if Fits(*s, r, s.Waiters[i]) {
+			best = i
+		}
+	}
+	best
+}
+
+func withPassed(e Entry, passed uint32) Entry {
+	Entry{
+		ID:      e.ID,
+		PID:     e.PID,
+		Width:   e.Width,
+		Memory:  e.Memory,
+		Crit:    e.Crit,
+		Ticket:  e.Ticket,
+		Lane:    e.Lane,
+		Key:     e.Key,
+		Asked:   e.Asked,
+		Ceiling: e.Ceiling,
+		Cap:     e.Cap,
+		Passed:  passed,
+	}
+}
+
+func deleteAt(xs []Entry, idx int) []Entry {
+	let mut out = slices.WithCapacity[Entry](xs.Len() - 1)
+	for i in 0..xs.Len() {
+		if i != idx {
+			out = out.Append(xs[i])
+		}
+	}
+	out
+}
+
+func appendStatusLine(out mut strings.Builder, verb string, e Entry, r Rules) {
+	let classStr = if e.Crit { "crit/\(e.Width)" } else { "lane/\(e.Width)" }
+	strings.WriteString(out, "\(verb) \(e.ID) \(e.Lane) \(classStr)")
+	if r.Memory > uint64(0) {
+		strings.WriteString(out, " charge \(Size(e.Memory))")
+	}
+	if e.Cap > uint64(0) {
+		strings.WriteString(out, " cap \(Size(e.Cap))")
+	}
+	if e.Passed > uint32(0) {
+		strings.WriteString(out, " passed \(e.Passed)")
+	}
+	strings.WriteByte(out, byte('\n'))
+}
+
+func encodeEntrySlice(t json.Text, xs []Entry) {
+	t.BeginList(xs.Len())
+	for e in xs {
+		let mut count = 5
+		if e.Memory > uint64(0) {
+			count = count + 1
+		}
+		if e.Lane != "" {
+			count = count + 1
+		}
+		if e.Key != "" {
+			count = count + 1
+		}
+		if e.Asked > uint64(0) {
+			count = count + 1
+		}
+		if e.Ceiling > uint64(0) {
+			count = count + 1
+		}
+		if e.Cap > uint64(0) {
+			count = count + 1
+		}
+		if e.Passed > uint32(0) {
+			count = count + 1
+		}
+		t.BeginObject(count)
+		t.Key("id")
+		t.String(e.ID)
+		t.Key("pid")
+		t.Uint(uint64(e.PID))
+		t.Key("width")
+		t.Uint(uint64(e.Width))
+		if e.Memory > uint64(0) {
+			t.Key("memory")
+			t.Uint(e.Memory)
+		}
+		t.Key("crit")
+		t.Bool(e.Crit)
+		t.Key("ticket")
+		t.Uint(e.Ticket)
+		if e.Lane != "" {
+			t.Key("lane")
+			t.String(e.Lane)
+		}
+		if e.Key != "" {
+			t.Key("key")
+			t.String(e.Key)
+		}
+		if e.Asked > uint64(0) {
+			t.Key("asked")
+			t.Uint(e.Asked)
+		}
+		if e.Ceiling > uint64(0) {
+			t.Key("ceiling")
+			t.Uint(e.Ceiling)
+		}
+		if e.Cap > uint64(0) {
+			t.Key("cap")
+			t.Uint(e.Cap)
+		}
+		if e.Passed > uint32(0) {
+			t.Key("passed")
+			t.Uint(uint64(e.Passed))
+		}
+		t.EndObject()
+	}
+	t.EndList()
+}
+
+func parseEntryList(v json.Value) []Entry fails BudgetError {
+	match v {
+	case json.Null:
+		[]Entry{}
+	case json.Array as a:
+		let mut out = []Entry{}
+		for item in a.Items {
+			out = out.Append(try parseEntryObj(item))
+		}
+		out
+	case _:
+		return BudgetError{Message: "entries must be array or null"}
+	}
+}
+
+func parseEntryObj(v json.Value) Entry fails BudgetError {
+	let obj = match v {
+	case json.Object as o:
+		o
+	case _:
+		return BudgetError{Message: "entry must be object"}
+	}
+	let mut e = Entry{
+		ID:      "",
+		PID:     uint32(0),
+		Width:   uint32(0),
+		Memory:  uint64(0),
+		Crit:    false,
+		Ticket:  uint64(0),
+		Lane:    "",
+		Key:     "",
+		Asked:   uint64(0),
+		Ceiling: uint64(0),
+		Cap:     uint64(0),
+		Passed:  uint32(0),
+	}
+	for m in obj.Members {
+		if m.Key == "id" {
+			e.ID = try jsonStr(m.Value)
+		} else if m.Key == "pid" {
+			e.PID = uint32(try jsonNumToU64(m.Value))
+		} else if m.Key == "width" {
+			e.Width = uint32(try jsonNumToU64(m.Value))
+		} else if m.Key == "memory" {
+			e.Memory = try jsonNumToU64(m.Value)
+		} else if m.Key == "crit" {
+			e.Crit = try jsonBool(m.Value)
+		} else if m.Key == "ticket" {
+			e.Ticket = try jsonNumToU64(m.Value)
+		} else if m.Key == "lane" {
+			e.Lane = try jsonStr(m.Value)
+		} else if m.Key == "key" {
+			e.Key = try jsonStr(m.Value)
+		} else if m.Key == "asked" {
+			e.Asked = try jsonNumToU64(m.Value)
+		} else if m.Key == "ceiling" {
+			e.Ceiling = try jsonNumToU64(m.Value)
+		} else if m.Key == "cap" {
+			e.Cap = try jsonNumToU64(m.Value)
+		} else if m.Key == "passed" {
+			e.Passed = uint32(try jsonNumToU64(m.Value))
+		}
+	}
+	e
+}
+
+func jsonStr(v json.Value) string fails BudgetError {
+	match v {
+	case json.Str as s:
+		s.Value
+	case _:
+		return BudgetError{Message: "expected string"}
+	}
+}
+
+func jsonBool(v json.Value) bool fails BudgetError {
+	match v {
+	case json.Boolean as b:
+		b.Value
+	case _:
+		return BudgetError{Message: "expected bool"}
+	}
+}
+
+func jsonNumToU64(v json.Value) uint64 fails BudgetError {
+	match v {
+	case json.Num:
+		let raw = json.Encode(json.Codec[json.Value]{MaxBytes: 0, MaxDepth: 0}, v)
+		parseBudgetU64(raw)
+	case _:
+		return BudgetError{Message: "expected number"}
+	}
+}
+
+func parseBudgetU64(s string) uint64 fails BudgetError {
+	let clean = strings.TrimSpace(s)
+	if clean.Len() == 0 {
+		return BudgetError{Message: "empty uint64"}
+	}
+	let mut acc = uint64(0)
+	let maxU = ^uint64(0)
+	let maxDiv = maxU / uint64(10)
+	for i in 0..clean.Len() {
+		let b = clean[i]
+		if b < byte('0') || b > byte('9') {
+			return BudgetError{Message: "invalid uint64"}
+		}
+		let d = uint64(b - byte('0'))
+		if acc > maxDiv || (acc == maxDiv && d > maxU-acc*uint64(10)) {
+			return BudgetError{Message: "uint64 overflow"}
+		}
+		acc = acc*uint64(10) + d
+	}
+	acc
+}
+
+// AdmitPreservesCapacityInvariant checks that Join and Remove never admit beyond Cores or Memory bounds.
+law AdmitPreservesCapacityInvariant(w1 uint32, w2 uint32, w3 uint32, c1 bool) {
+	let cores = uint32(8)
+	let memBudget = uint64(6) * gibBytes
+	let dflt = uint64(4) * gibBytes
+	let rules = Rules{Cores: cores, Memory: memBudget, Share: uint32(4), Backfill: uint32(2), HasPeaks: true, Peaks: Map[string, uint64]{}, Default: dflt}
+	let mut st = NewState()
+	let width1 = (w1 % uint32(2)) + uint32(1)
+	let width2 = (w2 % uint32(2)) + uint32(1)
+	let width3 = (w3 % uint32(2)) + uint32(1)
+	let _ = Join(&st, rules, Entry{ID: "a", PID: uint32(1), Width: width1, Memory: uint64(0), Crit: c1, Ticket: uint64(0), Lane: "l1", Key: "k1", Asked: uint64(0), Ceiling: uint64(0), Cap: uint64(0), Passed: uint32(0)})
+	let _ = Join(&st, rules, Entry{ID: "b", PID: uint32(2), Width: width2, Memory: uint64(0), Crit: !c1, Ticket: uint64(0), Lane: "l2", Key: "k2", Asked: uint64(0), Ceiling: uint64(0), Cap: uint64(0), Passed: uint32(0)})
+	let _ = Join(&st, rules, Entry{ID: "c", PID: uint32(3), Width: width3, Memory: uint64(0), Crit: false, Ticket: uint64(0), Lane: "l3", Key: "k3", Asked: uint64(0), Ceiling: uint64(0), Cap: uint64(0), Passed: uint32(0)})
+	let okAfterJoin = Used(st) <= cores && MemoryUsed(st) <= memBudget
+	let _ = Remove(&st, rules, "a")
+	let okAfterRemove = Used(st) <= cores && MemoryUsed(st) <= memBudget
+	let exported = ExportState(LoadStateTable(st))
+	okAfterJoin && okAfterRemove && exported.Holders.Len() == st.Holders.Len() && exported.Waiters.Len() == st.Waiters.Len()
+}
+
+// ReservationNeverExceedsMemoryBudget checks that Reservation clamps both charge and cap to budget memory.
+law ReservationNeverExceedsMemoryBudget(asked uint64, peak uint64, budget uint64, dflt uint64) {
+	let b = if budget == uint64(0) { uint64(1) } else { budget }
+	let rules = Rules{Cores: uint32(8), Memory: b, Share: uint32(2), Backfill: uint32(4), HasPeaks: true, Peaks: Map[string, uint64]{}, Default: dflt}
+	let p = peak % (uint64(1) << uint64(40))
+	let (res, capAt) = Reservation(rules, asked, p, dflt)
+	res <= b && capAt <= b
+}
+
+test TestDecideAdmissionAndJSON {
+	let rules = Rules{
+		Cores:    uint32(8),
+		Memory:   uint64(16) * gibBytes,
+		Share:    uint32(4),
+		Backfill: uint32(1),
+		HasPeaks: true,
+		Peaks:    Map[string, uint64]{"big": uint64(8) * gibBytes, "small": uint64(2) * gibBytes},
+		Default:  uint64(4) * gibBytes,
+	}
+	let mut st = NewState()
+	let m1 = Join(&st, rules, Entry{ID: "e1", PID: uint32(10), Width: uint32(4), Memory: uint64(0), Crit: false, Ticket: uint64(0), Lane: "w1", Key: "small", Asked: uint64(0), Ceiling: uint64(0), Cap: uint64(0), Passed: uint32(0)})
+	assert m1.Len() == 1 && m1[0] == "e1" && Holds(st, "e1")
+	let m2 = Join(&st, rules, Entry{ID: "e2", PID: uint32(11), Width: uint32(6), Memory: uint64(0), Crit: true, Ticket: uint64(0), Lane: "w2", Key: "big", Asked: uint64(0), Ceiling: uint64(0), Cap: uint64(0), Passed: uint32(0)})
+	assert m2.Len() == 0
+	let why = Why(st, rules)
+	assert strings.Contains(why, "head e2:") && strings.Contains(why, "needs 6 cores, 4 free")
+
+	let raw = EncodeStateJSON(st)
+	let decoded = DecodeStateJSON(raw) catch {
+	case BudgetError:
+		assert false
+		NewState()
+	}
+	assert decoded.Holders.Len() == 1 && decoded.Waiters.Len() == 1 && decoded.NextTicket == uint64(2)
+
+	let (uRes, uCap) = Reservation(rules, uint64(0), uint64(0), rules.Default)
+	assert uRes == rules.Default && uCap == uint64(0)
+
+	let (pk, killed) = ParsePeakText("1073741824\n2\n")
+	assert pk == uint64(1073741824) && killed
+	assert KeptPeak(uint64(1073741824), uint32(1), true, uint64(1073741824)) == uint64(2)*uint64(1073741824)
+	assert CPUQuota(uint32(4)) == "400%"
+	assert CommandKey([]string{"/repo/bin/ergo", "/repo/foo"}, "/repo") == "./bin/ergo ./foo"
+	assert GrantEnvLine(uint32(4), "abc") == "ERGO_BUDGET_GRANT=4:abc"
+	assert strings.HasPrefix(SliceName("/tmp/s"), "ergo-budget-") && strings.HasSuffix(SliceName("/tmp/s"), ".slice")
+}

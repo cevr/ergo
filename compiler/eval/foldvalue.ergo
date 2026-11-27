@@ -1,0 +1,221 @@
+import slices
+import strings
+
+// ConstBasic identifies a folded scalar constant.
+let ConstBasic = uint8(1)
+
+// ConstRecord identifies a folded named record constant.
+let ConstRecord = uint8(2)
+
+// ConstSlice identifies a folded slice constant.
+let ConstSlice = uint8(3)
+
+// ConstTuple identifies a folded tuple constant.
+let ConstTuple = uint8(4)
+
+// ConstHole identifies a folded template hole placeholder.
+let ConstHole = uint8(5)
+
+// FoldLetSteps is the fixed per-initializer budget for lazy package let folding.
+let FoldLetSteps = uint64(50000000)
+
+// ConstPool stores folded constant graphs and template trees in flat unsigned SoA columns.
+type ConstPool {
+	Kind      []uint8,
+	TypeIdx   []uint32,
+	BasicVal  []Val,
+	HoleIdx   []uint32,
+	ElemStart []uint32,
+	ElemCount []uint32,
+	Elems     []uint32,
+}
+
+// NewConstPool initializes an empty folded constant tree arena.
+func NewConstPool() ConstPool {
+	ConstPool{
+		Kind:      []uint8{},
+		TypeIdx:   []uint32{},
+		BasicVal:  []Val{},
+		HoleIdx:   []uint32{},
+		ElemStart: []uint32{},
+		ElemCount: []uint32{},
+		Elems:     []uint32{},
+	}
+}
+
+func appendConstNode(cp mut ConstPool, kind uint8, typeIdx uint32, bval Val, holeIdx uint32, kids []uint32) uint32 {
+	let id = uint32(cp.Kind.Len())
+	let start = uint32(cp.Elems.Len())
+	for k in kids {
+		cp.Elems = cp.Elems.Append(k)
+	}
+	cp.Kind = cp.Kind.Append(kind)
+	cp.TypeIdx = cp.TypeIdx.Append(typeIdx)
+	cp.BasicVal = cp.BasicVal.Append(bval)
+	cp.HoleIdx = cp.HoleIdx.Append(holeIdx)
+	cp.ElemStart = cp.ElemStart.Append(start)
+	cp.ElemCount = cp.ElemCount.Append(uint32(kids.Len()))
+	id
+}
+
+// ToConstPool materializes Val v into ConstPool if it contains only foldable constant structures and mapped holes.
+func ToConstPool(prog Program, arena ValArena, cp mut ConstPool, v Val, holeIndex Map[string, uint32]) (uint32, bool) {
+	if v.Tag == TagBool || v.Tag == TagInt || v.Tag == TagUint || v.Tag == TagFloat || v.Tag == TagStr {
+		if v.Tag == TagFloat {
+			let bits = if prog.Types.Width[int(v.Type)] == uint8(32) { 32 } else { 64 }
+			let _ = bits
+		}
+		return (appendConstNode(cp, ConstBasic, v.Type, v, uint32(0), []uint32{}), true)
+	}
+	if v.Tag == TagSlice {
+		let n = ReadSliceLen(arena, v)
+		let mut kids = slices.WithCapacity[uint32](int(n))
+		for i in uint32(0)..n {
+			let (cid, ok) = ToConstPool(prog, arena, cp, ReadSliceElem(arena, v, i), holeIndex)
+			if !ok {
+				return (uint32(0), false)
+			}
+			kids = kids.Append(cid)
+		}
+		return (appendConstNode(cp, ConstSlice, v.Type, UnitVal(), uint32(0), kids), true)
+	}
+	if v.Tag == TagTuple || v.Tag == TagRecord {
+		let kd = if v.Tag == TagRecord { ConstRecord } else { ConstTuple }
+		let n = PackLen(arena, v)
+		let mut kids = slices.WithCapacity[uint32](int(n))
+		for i in uint32(0)..n {
+			let (cid, ok) = ToConstPool(prog, arena, cp, ReadPackElem(arena, v, i), holeIndex)
+			if !ok {
+				return (uint32(0), false)
+			}
+			kids = kids.Append(cid)
+		}
+		return (appendConstNode(cp, kd, v.Type, UnitVal(), uint32(0), kids), true)
+	}
+	let _ = holeIndex.Len()
+	(uint32(0), false)
+}
+
+// ConstText renders folded constant tree node id canonically for inspection and parity checks.
+func ConstText(prog Program, arena ValArena, cp ConstPool, id uint32) string {
+	if int(id) >= cp.Kind.Len() {
+		return ""
+	}
+	let kd = cp.Kind[int(id)]
+	if kd == ConstBasic {
+		return FormatArgument(prog, arena, cp.TypeIdx[int(id)], cp.BasicVal[int(id)])
+	}
+	if kd == ConstHole {
+		return "hole#" + DescribeVal(prog.Types, arena, MakeIntVal(prog.Types, TypeUint, uint64(cp.HoleIdx[int(id)])))
+	}
+	let st = int(cp.ElemStart[int(id)])
+	let cnt = int(cp.ElemCount[int(id)])
+	let mut parts = slices.WithCapacity[string](cnt)
+	for i in 0..cnt {
+		parts = parts.Append(ConstText(prog, arena, cp, cp.Elems[st+i]))
+	}
+	if kd == ConstTuple {
+		return "(" + strings.Join(parts, ", ") + ")"
+	}
+	if kd == ConstSlice {
+		return "[" + strings.Join(parts, ", ") + "]"
+	}
+	let tname = ArgumentTypeName(prog, cp.TypeIdx[int(id)])
+	tname + "{" + strings.Join(parts, ", ") + "}"
+}
+
+// CheckNoNativeFold reports whether a fold failure message reflects a missing Go pure native.
+func CheckNoNativeFold(why string) bool {
+	strings.Contains(why, "), even a pure one")
+}
+
+// FoldOutcome captures the result or refusal reason of a compile-time constant or template fold.
+type FoldOutcome {
+	Ok         bool,
+	ConstId    uint32,
+	ConstText  string,
+	Reason     string,
+	OverBudget bool,
+	Steps      uint64,
+	Pool       ConstPool,
+}
+
+// FoldValueFn evaluates pure compiled bytecode fnIdx over constant args into a canonical ConstPool entry.
+func FoldValueFn(prog mut Program, fnIdx uint32, args []Val, budget Budget) FoldOutcome {
+	if budget.Steps == uint64(0) || budget.Depth == uint32(0) {
+		return FoldOutcome{
+			Ok:         false,
+			ConstId:    uint32(0),
+			ConstText:  "",
+			Reason:     "no evaluation budget",
+			OverBudget: false,
+			Steps:      uint64(0),
+			Pool:       NewConstPool(),
+		}
+	}
+	let mut vm = NewVM(*prog, budget)
+	vm.InFold = true
+	let fm = prog.Fns[int(fnIdx)]
+	let _ = initAllGlobals(prog, &vm, fm.Pkg)
+	let ret = if vm.Ctl == CtlNone { ExecuteFunction(prog, &vm, fnIdx, args) } else { UnitVal() }
+	if vm.Ctl != CtlNone && vm.Ctl != CtlReturn {
+		let msg = if vm.Reason != "" { vm.Reason } else { "the expression does not end in a value" }
+		return FoldOutcome{
+			Ok:         false,
+			ConstId:    uint32(0),
+			ConstText:  "",
+			Reason:     msg,
+			OverBudget: vm.Ctl == CtlIncomplete,
+			Steps:      vm.StepsUsed,
+			Pool:       NewConstPool(),
+		}
+	}
+	let mut cp = NewConstPool()
+	let (cid, ok) = ToConstPool(*prog, prog.Arena, &cp, ret, Map[string, uint32]{})
+	if !ok {
+		return FoldOutcome{
+			Ok:         false,
+			ConstId:    uint32(0),
+			ConstText:  "",
+			Reason:     "the value holds a part a constant cannot: a function, a pointer, a map or a cell",
+			OverBudget: false,
+			Steps:      vm.StepsUsed,
+			Pool:       cp,
+		}
+	}
+	FoldOutcome{
+		Ok:         true,
+		ConstId:    cid,
+		ConstText:  ConstText(*prog, prog.Arena, cp, cid),
+		Reason:     "",
+		OverBudget: false,
+		Steps:      vm.StepsUsed,
+		Pool:       cp,
+	}
+}
+
+law FoldConstScalarRoundtrips(n int64, b bool, s string) {
+	let mut prog = NewProgram()
+	let mut cp = NewConstPool()
+	let iv = MakeIntVal(prog.Types, TypeInt64, uint64(n))
+	let bv = BoolVal(TypeBool, b)
+	let sv = AllocStrVal(&prog.Arena, TypeString, s)
+	let tup = MakeTupleVal(&prog.Arena, TypeVoid, []Val{iv, bv, sv})
+	let (cid, ok) = ToConstPool(prog, prog.Arena, &cp, tup, Map[string, uint32]{})
+	assert ok
+	assert cp.Kind[int(cid)] == ConstTuple
+	assert cp.ElemCount[int(cid)] == uint32(3)
+	assert ConstText(prog, prog.Arena, cp, cid) != ""
+	true
+}
+
+test FoldValueFnRefusesZeroBudgetAndClosureValue {
+	let mut prog = NewProgram()
+	let zero = FoldValueFn(&prog, uint32(0), []Val{}, Budget{Steps: uint64(0), Depth: uint32(0), Bytes: uint64(0), CaseLimit: uint32(0)})
+	assert !zero.Ok
+	assert zero.Reason == "no evaluation budget"
+	let mut cp = NewConstPool()
+	let fnVal = Val{Tag: TagFunc, Type: TypeVoid, Aux: uint32(0), Data: uint64(0)}
+	let (_, okFn) = ToConstPool(prog, prog.Arena, &cp, fnVal, Map[string, uint32]{})
+	assert !okFn
+}

@@ -18,8 +18,14 @@ type CmdWellness {}
 // CmdCLI dispatches generated CLI commands.
 type CmdCLI {}
 
+// CmdWork runs one daemon incarnation on a durable job: BootReconcile, the supervision tree, start or resume, finish on a "finish" line of stdin.
+type CmdWork {}
+
+// CmdRestartDrill runs the daemon on a job, kills it with SIGKILL mid-work, and restarts it until the job resumed and finished once.
+type CmdRestartDrill {}
+
 // TopCommand classifies top-level CLI dispatch modes cleanly without string comparisons.
-type TopCommand = CmdMCP | CmdServe | CmdWellness | CmdCLI
+type TopCommand = CmdMCP | CmdServe | CmdWellness | CmdWork | CmdRestartDrill | CmdCLI
 
 // ParsedArgs holds top-level store path selection, command mode, and remaining flags.
 type ParsedArgs {
@@ -111,6 +117,10 @@ func modeOfHead(head string) option.Option[TopCommand] {
 		option.Some[TopCommand]{Value: CmdServe}
 	case "wellness":
 		option.Some[TopCommand]{Value: CmdWellness}
+	case "work":
+		option.Some[TopCommand]{Value: CmdWork}
+	case "restart-drill":
+		option.Some[TopCommand]{Value: CmdRestartDrill}
 	case _:
 		option.None
 	}

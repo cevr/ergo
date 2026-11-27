@@ -5,6 +5,7 @@ import http
 import option
 import strings
 import sync
+import time
 
 func drawS3Key() string needs gen.Draws {
 	let seg1 = gen.OneOf([]string{"alpha", "dir", "a-b", "v1"})
@@ -98,4 +99,68 @@ law S3ClientWireLaws(seed int) {
 	case gen.Refuted, gen.GaveUp:
 		false
 	}
+}
+
+// S3ClientOptionalWireMembers: PutObject and HeadObject encode optional
+// int, bool, time, text, and enum fields cleanly onto the HTTP request's
+// headers and query fields through aws.Put*.
+law S3ClientOptionalWireMembers(n int, rawSec int64, flag bool) {
+	let part = (n%1000+1000)%1000 + 1
+	let sec = (rawSec%2000000000 + 2000000000) % 2000000000
+	let ts = time.Unix(sec, 0)
+	let seen = NewSeen()
+	let client = s3.New(http.InMemory(Handler(NewMemory())), seen)
+	let putReq = s3.PutObjectRequest{
+		..s3.NewPutObjectRequest("wire-bucket", "item"),
+		Body:                      "abc",
+		ContentLength:             option.Some[int]{3},
+		BucketKeyEnabled:          option.Some[bool]{flag},
+		ObjectLockRetainUntilDate: option.Some[time.Time]{ts},
+		StorageClass:              option.Some[s3.StorageClass]{s3.StorageClassStandardIa},
+	}
+	let _ = client.PutObject(putReq) catch {
+	case _:
+		return false
+	}
+	let headReq = s3.HeadObjectRequest{
+		..s3.NewHeadObjectRequest("wire-bucket", "item"),
+		PartNumber:      option.Some[int]{part},
+		IfModifiedSince: option.Some[time.Time]{ts},
+	}
+	let _ = client.HeadObject(headReq) catch {
+	case _:
+		return false
+	}
+	let reqs = seen.Requests()
+	if reqs.Len() != 2 {
+		return false
+	}
+	let p = reqs[0]
+	let h = reqs[1]
+	let gotLen = aws.IntIn(p.Header, "Content-Length") catch {
+	case _:
+		return false
+	}
+	let gotFlag = aws.BoolIn(p.Header, "x-amz-server-side-encryption-bucket-key-enabled") catch {
+	case _:
+		return false
+	}
+	let gotDate = aws.TimeIn(p.Header, "x-amz-object-lock-retain-until-date", aws.DateTime) catch {
+	case _:
+		return false
+	}
+	let gotPart = aws.IntIn(h.Query, "partNumber") catch {
+	case _:
+		return false
+	}
+	let gotSince = aws.TimeIn(h.Header, "If-Modified-Since", aws.HTTPDate) catch {
+	case _:
+		return false
+	}
+		gotLen == option.Some[int]{3} &&
+		gotFlag == option.Some[bool]{flag} &&
+		gotDate == option.Some[time.Time]{ts} &&
+		aws.TextIn(p.Header, "x-amz-storage-class") == option.Some[string]{"STANDARD_IA"} &&
+		gotPart == option.Some[int]{part} &&
+		gotSince == option.Some[time.Time]{ts}
 }

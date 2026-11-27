@@ -1,3 +1,4 @@
+import compiler/syntax
 import option
 import slices
 import strings
@@ -74,28 +75,36 @@ type IterState {
 
 // VM holds the complete flat runtime machine state without heap pointers or int32/int64 fields.
 type VM {
-	Stack         []Val,
-	Cells         []Val,
-	SlotCells     []uint32,
-	Frames        []CallFrame,
-	FrameTypeArgs []uint32,
-	Catches       []CatchEntry,
-	Iters         []IterState,
-	Globals       []Val,
-	GlobalState   []uint8,
-	Ctl           uint8,
-	ErrVal        Val,
-	RetVal        Val,
-	Reason        string,
-	FaultFile     uint32,
-	FaultNode     uint32,
-	StepsUsed     uint64,
-	BytesUsed     uint64,
-	BuiltinsHit   uint64,
-	Budget        Budget,
-	SometimesHit  bool,
-	MapDesc       bool,
-	MapIterated   bool,
+	Stack          []Val,
+	Cells          []Val,
+	SlotCells      []uint32,
+	Frames         []CallFrame,
+	FrameTypeArgs  []uint32,
+	Catches        []CatchEntry,
+	Iters          []IterState,
+	Globals        []Val,
+	GlobalState    []uint8,
+	Ctl            uint8,
+	ErrVal         Val,
+	RetVal         Val,
+	Reason         string,
+	FaultFile      uint32,
+	FaultNode      uint32,
+	StepsUsed      uint64,
+	BytesUsed      uint64,
+	BuiltinsHit    uint64,
+	Budget         Budget,
+	SometimesHit   bool,
+	MapDesc        bool,
+	MapIterated    bool,
+	NativeObjs     NativeObjArena,
+	OpCells        OpArena,
+	InFold         bool,
+	SometimesNodes []uint32,
+	LastCmpValid   bool,
+	LastCmpNode    uint32,
+	LastCmpLeft    Val,
+	LastCmpRight   Val,
 }
 
 // NewVM initializes a clean VM configured with budget and global slots matching prog.
@@ -108,28 +117,36 @@ func NewVM(prog Program, budget Budget) VM {
 		gstate = gstate.Append(uint8(0))
 	}
 	VM{
-		Stack:         []Val{},
-		Cells:         []Val{},
-		SlotCells:     []uint32{},
-		Frames:        []CallFrame{},
-		FrameTypeArgs: []uint32{},
-		Catches:       []CatchEntry{},
-		Iters:         []IterState{},
-		Globals:       globals,
-		GlobalState:   gstate,
-		Ctl:           CtlNone,
-		ErrVal:        UnitVal(),
-		RetVal:        UnitVal(),
-		Reason:        "",
-		FaultFile:     uint32(0),
-		FaultNode:     uint32(0),
-		StepsUsed:     uint64(0),
-		BytesUsed:     uint64(0),
-		BuiltinsHit:   uint64(0),
-		Budget:        budget,
-		SometimesHit:  false,
-		MapDesc:       false,
-		MapIterated:   false,
+		Stack:          []Val{},
+		Cells:          []Val{},
+		SlotCells:      []uint32{},
+		Frames:         []CallFrame{},
+		FrameTypeArgs:  []uint32{},
+		Catches:        []CatchEntry{},
+		Iters:          []IterState{},
+		Globals:        globals,
+		GlobalState:    gstate,
+		Ctl:            CtlNone,
+		ErrVal:         UnitVal(),
+		RetVal:         UnitVal(),
+		Reason:         "",
+		FaultFile:      uint32(0),
+		FaultNode:      uint32(0),
+		StepsUsed:      uint64(0),
+		BytesUsed:      uint64(0),
+		BuiltinsHit:    uint64(0),
+		Budget:         budget,
+		SometimesHit:   false,
+		MapDesc:        false,
+		MapIterated:    false,
+		NativeObjs:     NewNativeObjArena(),
+		OpCells:        NewOpArena(),
+		InFold:         false,
+		SometimesNodes: []uint32{},
+		LastCmpValid:   false,
+		LastCmpNode:    uint32(0),
+		LastCmpLeft:    UnitVal(),
+		LastCmpRight:   UnitVal(),
 	}
 }
 
@@ -524,6 +541,19 @@ func execOneInsn(prog mut Program, vm mut VM, fIdx int, insn Insn) {
 		let x = popVMVal(vm)
 		let outT = resolveFrameType(*prog, *vm, insn.A)
 		let (res, err) = EvalBinary(prog.Types, &prog.Arena, insn.Aux, outT, x, y)
+		let cmpOp = insn.Aux == syntax.Eql || insn.Aux == syntax.Neq || insn.Aux == syntax.Lss || insn.Aux == syntax.Leq || insn.Aux == syntax.Gtr || insn.Aux == syntax.Geq
+		if err == "" && cmpOp {
+			if vm.LastCmpValid {
+				ReleaseVal(&prog.Arena, vm.LastCmpLeft)
+				ReleaseVal(&prog.Arena, vm.LastCmpRight)
+			}
+			RetainVal(&prog.Arena, x)
+			RetainVal(&prog.Arena, y)
+			vm.LastCmpValid = true
+			vm.LastCmpNode = insn.Node
+			vm.LastCmpLeft = x
+			vm.LastCmpRight = y
+		}
 		ReleaseVal(&prog.Arena, x)
 		ReleaseVal(&prog.Arena, y)
 		if err != "" {
@@ -1032,7 +1062,15 @@ func execOneInsn(prog mut Program, vm mut VM, fIdx int, insn Insn) {
 	if op == OpAssert || op == OpAlways {
 		let b = popVMVal(vm)
 		if b.Data == uint64(0) {
-			setVMFault(vm, CtlRefuted, if op == OpAssert { "assertion failed" } else { "always assertion failed" }, insn.File, insn.Node)
+			let what = if op == OpAlways { "always failed" } else { "" }
+			let mut msg = if op == OpAssert { "assertion failed" } else { "always assertion failed" }
+			let aIdx = int(insn.A) - 1
+			if insn.A > uint32(0) && aIdx < prog.AssertExpr.Len() {
+				let hasOps = vm.LastCmpValid && vm.LastCmpNode == prog.AssertBinNode[aIdx]
+				let site = Site{File: prog.AssertFile[aIdx], Line: prog.AssertLine[aIdx], Col: prog.AssertCol[aIdx]}
+				msg = FormatAssertMessage(what, site, prog.AssertExpr[aIdx], hasOps, prog.AssertLeftT[aIdx], prog.AssertRightT[aIdx], vm.LastCmpLeft, vm.LastCmpRight, *prog, prog.Arena)
+			}
+			setVMFault(vm, CtlRefuted, msg, insn.File, insn.Node)
 		}
 		return
 	}
@@ -1040,6 +1078,7 @@ func execOneInsn(prog mut Program, vm mut VM, fIdx int, insn Insn) {
 		let b = popVMVal(vm)
 		if b.Data != uint64(0) {
 			vm.SometimesHit = true
+			vm.SometimesNodes = vm.SometimesNodes.Append((insn.File << uint32(20)) | insn.Node)
 		}
 		return
 	}
@@ -1420,6 +1459,19 @@ func execCallVal(prog mut Program, vm mut VM, fnVal Val, args []Val, targRunIdx 
 		return
 	}
 	let cl = prog.Arena.Closures[int(fnVal.Aux)]
+	if cl.IsNative && cl.NativeName == "__law_cb" {
+		let cbIdx = int(cl.BoundRecv)
+		let mut out = if cbIdx < prog.SyntheticCBA.Len() { prog.SyntheticCBA[cbIdx] } else { UnitVal() }
+		if args.Len() > 0 && args[args.Len()-1].Tag == TagInt && cbIdx < prog.SyntheticCBB.Len() {
+			if CallbackSecond(int(prog.SyntheticCBVariant[cbIdx]), Int64FromBits(args[args.Len()-1].Data)) {
+				out = prog.SyntheticCBB[cbIdx]
+			}
+		}
+		RetainVal(&prog.Arena, out)
+		for a in args { ReleaseVal(&prog.Arena, a) }
+		pushVMVal(vm, out)
+		return
+	}
 	if cl.IsMethodVal && cl.HasRecv {
 		let recv = vm.Cells[int(cl.BoundRecv)]
 		RetainVal(&prog.Arena, recv)
@@ -1438,10 +1490,53 @@ func execCallVal(prog mut Program, vm mut VM, fnVal Val, args []Val, targRunIdx 
 }
 
 func execDynamicMethodCall(prog mut Program, vm mut VM, recv Val, methodName string, args []Val, targRunIdx uint32, file uint32, node uint32) {
+	if recv.Tag == TagNativeObj {
+		let (res, ok) = InvokeNativeObjMethod(prog, &vm.NativeObjs, recv, methodName, args)
+		ReleaseVal(&prog.Arena, recv)
+		for a in args { ReleaseVal(&prog.Arena, a) }
+		if ok {
+			pushVMVal(vm, res)
+			return
+		}
+		setVMFault(vm, CtlDefect, "runtime error: unknown native method \(methodName)", file, node)
+		return
+	}
+	if recv.Tag == TagOperation {
+		let (provVal, provType, claimIdx, okCell) = ReadOperationCell(vm.OpCells, recv.Aux)
+		if okCell {
+			let (mFnIdx, isMut, okM) = ResolveClaimMethod(prog.Witnesses, claimIdx, methodName)
+			if okM {
+				let targs = resolveTypeArgsForFrame(prog, *vm, targRunIdx)
+				if isMut {
+					let cellIdx = allocVMCell(vm, provVal)
+					let refRecv = Val{Tag: TagRef, Type: provType, Aux: cellIdx, Data: uint64(0)}
+					let mut mArgs = []Val{refRecv}
+					for a in args { mArgs = mArgs.Append(a) }
+					let stopDepth = vm.Frames.Len()
+					let _ = pushFnFrame(*prog, vm, mFnIdx, mArgs, targs, uint32(0), false, file, node)
+					runVMLoop(prog, vm, stopDepth)
+					if vm.Ctl == CtlNone {
+						UpdateOperationCell(&vm.OpCells, recv.Aux, vm.Cells[int(cellIdx)])
+						pushVMVal(vm, vm.RetVal)
+					}
+					return
+				}
+				RetainVal(&prog.Arena, provVal)
+				let mut mArgs = []Val{provVal}
+				for a in args { mArgs = mArgs.Append(a) }
+				let _ = pushFnFrame(*prog, vm, mFnIdx, mArgs, targs, uint32(0), false, file, node)
+				return
+			}
+		}
+	}
 	let nat = ResolveMethodNativeID(recv.Tag, methodName)
 	let mut fullArgs = []Val{recv}
 	for a in args {
 		fullArgs = fullArgs.Append(a)
+	}
+	if recv.Tag == TagStr && methodName == "EncodeToString" && strings.HasPrefix(ReadStr(prog.Arena, recv), "__govar__:encoding/base64.") {
+		execNativeCall(prog, vm, NatBase64EncodeToString, []uint32{}, fullArgs, file, node)
+		return
 	}
 	if nat != NatNone {
 		execNativeCall(prog, vm, nat, resolveTypeArgsForFrame(prog, *vm, targRunIdx), fullArgs, file, node)
@@ -1470,11 +1565,11 @@ func execDynamicMethodCall(prog mut Program, vm mut VM, recv Val, methodName str
 
 func execNativeCall(prog mut Program, vm mut VM, id uint32, targs []uint32, args []Val, file uint32, node uint32) {
 	vm.BuiltinsHit = vm.BuiltinsHit + uint64(1)
-	if id >= NatCbOptionMap && id <= NatCbStrTrimFunc {
+	if (id >= NatCbOptionMap && id <= NatCbStrTrimFunc) || id == NatCbCsvScan {
 		execCallbackNative(prog, vm, id, targs, args, file, node)
 		return
 	}
-	let (res, errVal, defect, extraWork) = InvokePureNative(prog, id, targs, args)
+	let (res, errVal, defect, extraWork) = InvokePureNativeWithEnv(prog, &vm.NativeObjs, vm.InFold, id, targs, args)
 	for a in args { ReleaseVal(&prog.Arena, a) }
 	if extraWork > uint64(1) {
 		if !chargeSteps(vm, extraWork-uint64(1), file, node) {
@@ -1726,6 +1821,47 @@ func execCallbackNative(prog mut Program, vm mut VM, id uint32, targs []uint32, 
 			right = prev
 		}
 		pushVMVal(vm, AllocStrVal(&prog.Arena, TypeString, s[left:right]))
+		return
+	}
+	if id == NatCbCsvScan {
+		let txt = ReadStr(prog.Arena, args[0])
+		let fnVal = args[1]
+		let (parsed, line, col, reason, msg) = csvParseAll(txt)
+		let strSliceT = InternSlice(&prog.Types, TypeString)
+		let posType = findPkgTypeByName(prog, "csv", "Position", []uint32{})
+		for ri in 0..parsed.Fields.Len() {
+			let row = parsed.Fields[ri]
+			let rLines = parsed.Lines[ri]
+			let rCols = parsed.Cols[ri]
+			let mut fVals = slices.WithCapacity[Val](row.Len())
+			let mut pVals = slices.WithCapacity[Val](row.Len())
+			for fi in 0..row.Len() {
+				fVals = fVals.Append(AllocStrVal(&prog.Arena, TypeString, row[fi]))
+				pVals = pVals.Append(makeStdRecordVal(prog, "Position", []string{"Line", "Column"}, []Val{
+					MakeIntVal(prog.Types, TypeInt, uint64(rLines[fi])),
+					MakeIntVal(prog.Types, TypeInt, uint64(rCols[fi])),
+				}))
+			}
+			let fieldsVal = MakeSliceVal(&prog.Arena, strSliceT, fVals, uint32(fVals.Len()))
+			let posSliceVal = MakeSliceVal(&prog.Arena, InternSlice(&prog.Types, posType), pVals, uint32(pVals.Len()))
+			let (moreVal, ok) = invokeCallbackSync(prog, vm, fnVal, []Val{fieldsVal, posSliceVal}, file, node)
+			if !ok { return }
+			if moreVal.Data == uint64(0) {
+				pushVMVal(vm, makeStdRecordVal(prog, "ParseError", []string{"Line", "Column", "Reason", "Message"}, []Val{
+					MakeIntVal(prog.Types, TypeInt, uint64(0)),
+					MakeIntVal(prog.Types, TypeInt, uint64(0)),
+					AllocStrVal(&prog.Arena, TypeString, ""),
+					AllocStrVal(&prog.Arena, TypeString, ""),
+				}))
+				return
+			}
+		}
+		pushVMVal(vm, makeStdRecordVal(prog, "ParseError", []string{"Line", "Column", "Reason", "Message"}, []Val{
+			MakeIntVal(prog.Types, TypeInt, uint64(line)),
+			MakeIntVal(prog.Types, TypeInt, uint64(col)),
+			AllocStrVal(&prog.Arena, TypeString, reason),
+			AllocStrVal(&prog.Arena, TypeString, msg),
+		}))
 		return
 	}
 }

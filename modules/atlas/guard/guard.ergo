@@ -1,0 +1,301 @@
+import github.com/cevr/ergo/modules/atlas/subagent
+import option
+
+// GuardRule identifies the exact safety rule that refused a shell command.
+type GuardRule = RuleDestructiveRm{} | RuleGitResetHard{} | RuleGitClean{} | RuleWorktreeAdd{} | RuleRepoClone{} | RuleWorkGc{} | RuleServerKill{} | RuleSubagentSleep{} | RuleChromeKeychain{} | RuleMalformedCommand{}
+
+// Destructive classifies rm/reset/clean/kill/work-gc/malformed shell refusals.
+type Destructive {
+	Rule   GuardRule,
+	Reason string,
+}
+
+// FullCopy classifies git worktree add and whole-repo cp/rsync refusals where CoW workspaces apply.
+type FullCopy {
+	Rule   GuardRule,
+	Reason string,
+}
+
+// Idle classifies subagent foreground sleep refusals exceeding the 30-second event-wait rule.
+type Idle {
+	Rule   GuardRule,
+	Reason string,
+}
+
+// KeychainPrompt classifies Chrome headless/DevTools launches lacking mock-keychain flags.
+type KeychainPrompt {
+	Rule   GuardRule,
+	Reason string,
+}
+
+// GuardError is the typed refusal union returned when the shell guard blocks a command.
+type GuardError = Destructive | FullCopy | Idle | KeychainPrompt
+
+// ActorRoot denotes a top-level root session caller.
+type ActorRoot {}
+
+// ActorSubagent denotes a delegated child subagent caller.
+type ActorSubagent {}
+
+// ActorRole classifies whether a shell caller is root or a subagent.
+type ActorRole = ActorRoot | ActorSubagent
+
+// ActorKnown supplies the resolved caller role.
+type ActorKnown {
+	Role ActorRole,
+}
+
+// ActorUnreadable signals caller role could not be determined (fail-open for sleep rule).
+type ActorUnreadable {}
+
+// ActorLookup resolves the shell caller role.
+type ActorLookup = ActorKnown | ActorUnreadable
+
+// ActorFromSubagentRole maps atlas/subagent.AgentRole to guard.ActorLookup.
+func ActorFromSubagentRole(r subagent.AgentRole) ActorLookup {
+	match r {
+	case subagent.RoleRoot:
+		ActorKnown{Role: ActorRoot}
+	case subagent.RolePlanner, subagent.RoleImplementor, subagent.RoleVerifier, subagent.RoleReviewer, subagent.RoleWorker:
+		ActorKnown{Role: ActorSubagent}
+	}
+}
+
+// ReposKnown carries resolved repository roots.
+type ReposKnown {
+	Roots []string,
+}
+
+// ReposUnreadable signals repository roots could not be discovered (fail-closed for rm/copy).
+type ReposUnreadable {}
+
+// RepoList represents known or unreadable git repository roots.
+type RepoList = ReposKnown | ReposUnreadable
+
+// CheckoutEntry describes filesystem and workspace state at a repository path.
+type CheckoutEntry {
+	Path        string,
+	FsType      string,
+	HasWarmBase bool,
+}
+
+// CheckoutsKnown supplies known checkout metadata entries.
+type CheckoutsKnown {
+	Entries []CheckoutEntry,
+}
+
+// CheckoutsUnreadable signals checkout metadata could not be read (fail-closed for git worktree add).
+type CheckoutsUnreadable {}
+
+// CheckoutTable holds known or unreadable checkout filesystem entries.
+type CheckoutTable = CheckoutsKnown | CheckoutsUnreadable
+
+// ProcInfo describes one live OS process visible to the guard.
+type ProcInfo {
+	PID       int,
+	Name      string,
+	Cmdline   string,
+	Protected bool,
+}
+
+// ProcsKnown holds resolved live processes and protected server/daemon PIDs.
+type ProcsKnown {
+	ServerPIDs []int,
+	Procs      []ProcInfo,
+}
+
+// ProcsUnreadable signals the OS process table could not be read (fail-closed for kill/pkill).
+type ProcsUnreadable {}
+
+// ProcessSnapshot supplies known or unreadable live process state.
+type ProcessSnapshot = ProcsKnown | ProcsUnreadable
+
+// ResKnown supplies active workspace reservation lane names in creating state.
+type ResKnown {
+	Creating []string,
+}
+
+// ResUnreadable signals workspace reservations could not be read (fail-closed for work gc).
+type ResUnreadable {}
+
+// ReservationSnapshot represents active workspace creation reservations.
+type ReservationSnapshot = ResKnown | ResUnreadable
+
+// ShellCall describes one shell tool invocation checked by the guard.
+type ShellCall {
+	Command    string,
+	Cwd        string,
+	Background bool,
+	Actor      ActorLookup,
+}
+
+// GuardContext supplies deterministic host/environment state to Judge and Evaluate.
+type GuardContext {
+	HomeDir          string,
+	WorkRoots        []string,
+	DefaultEnv       Map[string, string],
+	Repos            RepoList,
+	Checkouts        CheckoutTable,
+	Processes        ProcessSnapshot,
+	Reservations     ReservationSnapshot,
+	RefuseBareWorkGc bool,
+	Scripts          Map[string, string],
+}
+
+// GuardVerdict reports whether a shell call is allowed or blocked with a typed GuardError.
+type GuardVerdict {
+	Allowed bool,
+	Error   option.Option[GuardError],
+}
+
+// DefaultTestContext constructs a representative GuardContext with known repo, server PID, checkout, and scripts.
+func DefaultTestContext() GuardContext {
+	GuardContext{
+		HomeDir:          "/home/tester",
+		WorkRoots:        []string{"/workspaces/.work", "/workspaces/.rifts"},
+		DefaultEnv:       Map[string, string]{"HOME": "/home/tester"},
+		Repos:            ReposKnown{Roots: []string{"/repo"}},
+		Checkouts:        CheckoutsKnown{Entries: []CheckoutEntry{CheckoutEntry{Path: "/repo", FsType: "btrfs", HasWarmBase: true}}},
+		Processes:        ProcsKnown{ServerPIDs: []int{4242}, Procs: []ProcInfo{ProcInfo{PID: 4242, Name: "atlas-serve", Cmdline: "atlas serve --port 8080", Protected: true}, ProcInfo{PID: 99991, Name: "worker-tmp", Cmdline: "python worker.py", Protected: false}}},
+		Reservations:     ResKnown{Creating: []string{}},
+		RefuseBareWorkGc: true,
+		Scripts:          Map[string, string]{"./launch-chrome.sh": "google-chrome --headless --remote-debugging-port=9222", "./test-ui.sh": "playwright test"},
+	}
+}
+
+func checkPlacedCommand(cmd PlacedCommand, call ShellCall, ctx GuardContext) option.Option[GuardError] {
+	match CheckDestructiveRm(cmd, ctx) {
+	case option.Some[GuardError] as ge:
+		return option.Some[GuardError]{Value: ge.Value}
+	case option.None:
+	}
+	match CheckGitCommand(cmd, ctx) {
+	case option.Some[GuardError] as ge:
+		return option.Some[GuardError]{Value: ge.Value}
+	case option.None:
+	}
+	match CheckRepoCopy(cmd, ctx) {
+	case option.Some[GuardError] as ge:
+		return option.Some[GuardError]{Value: ge.Value}
+	case option.None:
+	}
+	match CheckWorkCommand(cmd, ctx) {
+	case option.Some[GuardError] as ge:
+		return option.Some[GuardError]{Value: ge.Value}
+	case option.None:
+	}
+	match CheckSleepCommand(cmd, call, ctx) {
+	case option.Some[GuardError] as ge:
+		return option.Some[GuardError]{Value: ge.Value}
+	case option.None:
+	}
+	CheckChromeCommand(cmd, ctx)
+}
+
+func evaluatePlaced(ctx GuardContext, call ShellCall) option.Option[GuardError] {
+	let mut env = cloneStringMap(ctx.DefaultEnv)
+	if ctx.HomeDir != "" {
+		env["HOME"] = ctx.HomeDir
+	}
+	let cmds = PlaceCommands(call.Command, call.Cwd, env) catch {
+	case BadShellSyntax as b:
+		return option.Some[GuardError]{Value: Destructive{Rule: RuleMalformedCommand, Reason: b.Reason}}
+	}
+	match CheckKillCommands(cmds, ctx) {
+	case option.Some[GuardError] as ge:
+		return option.Some[GuardError]{Value: ge.Value}
+	case option.None:
+	}
+	for cmd in cmds {
+		match checkPlacedCommand(cmd, call, ctx) {
+		case option.Some[GuardError] as ge:
+			return option.Some[GuardError]{Value: ge.Value}
+		case option.None:
+		}
+	}
+	option.None
+}
+
+// Judge validates call against ctx and returns a typed GuardError on refusal.
+func Judge(ctx GuardContext, call ShellCall) fails GuardError {
+	match evaluatePlaced(ctx, call) {
+	case option.None:
+	case option.Some[GuardError] as ge:
+		match ge.Value {
+		case Destructive as d:
+			return d
+		case FullCopy as f:
+			return f
+		case Idle as i:
+			return i
+		case KeychainPrompt as k:
+			return k
+		}
+	}
+}
+
+// Evaluate checks call against ctx and returns a GuardVerdict value.
+func Evaluate(ctx GuardContext, call ShellCall) GuardVerdict {
+	Judge(ctx, call) catch {
+	case GuardError as ge:
+		return GuardVerdict{Allowed: false, Error: option.Some[GuardError]{Value: ge}}
+	}
+	GuardVerdict{Allowed: true, Error: option.None}
+}
+
+// AllowHeavyWithoutWrappersLaw verifies direct heavy commands succeed without deleted host-admit/light.sh/nice wrappers.
+law AllowHeavyWithoutWrappersLaw() {
+	let ctx = DefaultTestContext()
+	let cmds = []string{
+		"go test ./...",
+		"cargo build --release",
+		"bun test",
+		"pytest -q",
+	}
+	for cmd in cmds {
+		let v = Evaluate(ctx, ShellCall{Command: cmd, Cwd: "/repo", Background: false, Actor: ActorKnown{Role: ActorSubagent}})
+		if !v.Allowed {
+			return false
+		}
+	}
+	true
+}
+
+// FailClosedWhenStateUnreadableLaw verifies destructive, worktree, kill, and work-gc guards fail closed when state is unreadable.
+law FailClosedWhenStateUnreadableLaw() {
+	let unreadable = GuardContext{
+		HomeDir:          "/home/tester",
+		WorkRoots:        []string{"/workspaces/.work"},
+		DefaultEnv:       Map[string, string]{"HOME": "/home/tester"},
+		Repos:            ReposUnreadable,
+		Checkouts:        CheckoutsUnreadable,
+		Processes:        ProcsUnreadable,
+		Reservations:     ResUnreadable,
+		RefuseBareWorkGc: false,
+		Scripts:          Map[string, string]{},
+	}
+	let vRm = Evaluate(unreadable, ShellCall{Command: "rm -rf /tmp/maybe-repo", Cwd: "/repo", Background: false, Actor: ActorKnown{Role: ActorRoot}})
+	let vWt = Evaluate(unreadable, ShellCall{Command: "git worktree add ../lane", Cwd: "/repo", Background: false, Actor: ActorKnown{Role: ActorRoot}})
+	let vKill = Evaluate(unreadable, ShellCall{Command: "kill -9 12345", Cwd: "/repo", Background: false, Actor: ActorKnown{Role: ActorRoot}})
+	let vGc = Evaluate(unreadable, ShellCall{Command: "work gc", Cwd: "/repo", Background: false, Actor: ActorKnown{Role: ActorRoot}})
+	!vRm.Allowed && !vWt.Allowed && !vKill.Allowed && !vGc.Allowed
+}
+
+// GuardEndToEndTests verifies complex chained commands, wrapper unwrapping, work gc reservations, and safe commands.
+test GuardEndToEndTests {
+	let mut ctx = DefaultTestContext()
+	let vWrapper = Evaluate(ctx, ShellCall{Command: "FOO=1 sudo env BAR=2 rm -rf /repo/.git", Cwd: "/repo", Background: false, Actor: ActorKnown{Role: ActorRoot}})
+	assert !vWrapper.Allowed
+
+	ctx.RefuseBareWorkGc = false
+	ctx.Reservations = ResKnown{Creating: []string{"atlas-next"}}
+	let vGcCreating = Evaluate(ctx, ShellCall{Command: "work gc", Cwd: "/repo", Background: false, Actor: ActorKnown{Role: ActorRoot}})
+	assert !vGcCreating.Allowed
+
+	ctx.Reservations = ResKnown{Creating: []string{}}
+	let vGcIdle = Evaluate(ctx, ShellCall{Command: "work gc", Cwd: "/repo", Background: false, Actor: ActorKnown{Role: ActorRoot}})
+	assert vGcIdle.Allowed
+
+	let vWorkRm = Evaluate(ctx, ShellCall{Command: "work rm stale-lane", Cwd: "/repo", Background: false, Actor: ActorKnown{Role: ActorRoot}})
+	assert vWorkRm.Allowed
+}

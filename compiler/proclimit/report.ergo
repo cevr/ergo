@@ -1,0 +1,240 @@
+import dense
+import slices
+import strings
+
+// RuntimeIssue names the Go runtime bug behind QueueFault.
+let RuntimeIssue = "golang/go#82667"
+
+// RuntimeIssueURL is the web address of RuntimeIssue.
+let RuntimeIssueURL = "https://github.com/golang/go/issues/82667"
+
+// OutOfMemory is what the Go runtime prints when the kernel refuses it memory.
+let OutOfMemory = "out of memory"
+
+let mappingRefused = "cannot allocate memory"
+let signalLine = "SIGSEGV: segmentation violation"
+let faultFrame = "runtime.(*spanQueue)."
+let lineKeep = 256
+let reportKeep = 21
+let queueFaultReport = "SIGSEGV: segmentation violation\nPC=0x0 addr=0x0\n\nruntime.(*spanQueue).\n"
+
+// NoCause indicates stderr holds no report of refused memory.
+type NoCause {}
+
+// RuntimeReport indicates the Go runtime reported refused memory.
+type RuntimeReport {}
+
+// QueueFault indicates a Go collector span-queue SIGSEGV at address zero.
+type QueueFault {}
+
+// Cause classifies how a program's stderr reported an out-of-memory condition.
+type Cause = NoCause | RuntimeReport | QueueFault
+
+// CauseCode returns the dense byte code for c (0=NoCause, 1=RuntimeReport, 2=QueueFault).
+func CauseCode(c Cause) uint8 {
+	match c {
+	case NoCause:
+		uint8(0)
+	case RuntimeReport:
+		uint8(1)
+	case QueueFault:
+		uint8(2)
+	}
+}
+
+// CauseFromCode decodes a Cause from its dense byte code.
+func CauseFromCode(code uint8) Cause {
+	if code == uint8(1) {
+		RuntimeReport
+	} else if code == uint8(2) {
+		QueueFault
+	} else {
+		NoCause
+	}
+}
+
+// CauseName returns the canonical identifier string for c.
+func CauseName(c Cause) string {
+	match c {
+	case NoCause:
+		"none"
+	case RuntimeReport:
+		"runtime-report"
+	case QueueFault:
+		"queue-fault"
+	}
+}
+
+// Scanner scans program stderr across chunks of any size to classify memory-limit failures.
+type Scanner {
+	carry string,
+	line  string,
+	state uint8,
+	cause Cause,
+}
+
+// NewScanner returns an initialized zero-state stderr scanner.
+func NewScanner() Scanner {
+	Scanner{carry: "", line: "", state: uint8(0), cause: NoCause}
+}
+
+// ScanWrite feeds one chunk of stderr bytes into s and returns the updated Scanner.
+func ScanWrite(s Scanner, p string) Scanner {
+	if CauseCode(s.cause) != uint8(0) {
+		return s
+	}
+	let joined = s.carry + p
+	if strings.Contains(joined, OutOfMemory) || strings.Contains(joined, mappingRefused) {
+		return Scanner{carry: s.carry, line: s.line, state: s.state, cause: RuntimeReport}
+	}
+	let keep = if joined.Len() < reportKeep { joined.Len() } else { reportKeep }
+	let curCarry = if keep == 0 { "" } else { joined[joined.Len()-keep : joined.Len()] }
+	let mut curLine = s.line
+	let mut curState = s.state
+	let mut curCause Cause = NoCause
+	let mut rest = p
+	for rest.Len() > 0 && CauseCode(curCause) == uint8(0) {
+		let end = strings.IndexByte(rest, byte('\n'))
+		let part = if end >= 0 { rest[0:end] } else { rest }
+		let room = lineKeep - curLine.Len()
+		if room > 0 {
+			let take = if part.Len() < room { part.Len() } else { room }
+			curLine = curLine + part[0:take]
+		}
+		if end < 0 {
+			return Scanner{carry: curCarry, line: curLine, state: curState, cause: curCause}
+		}
+		let (nextState, nextCause) = advanceLine(curState, curLine)
+		curState = nextState
+		curCause = nextCause
+		curLine = ""
+		rest = rest[end+1 : rest.Len()]
+	}
+	Scanner{carry: curCarry, line: curLine, state: curState, cause: curCause}
+}
+
+// ScanCause returns the Cause observed by s.
+func ScanCause(s Scanner) Cause { s.cause }
+
+// CauseOf classifies a complete stderr buffer.
+func CauseOf(stderr string) Cause {
+	let s = ScanWrite(NewScanner(), stderr)
+	ScanCause(ScanWrite(s, "\n"))
+}
+
+// WatchedStderr returns the compact normalized stderr snippet representing c.
+func WatchedStderr(c Cause) string {
+	match c {
+	case RuntimeReport:
+		OutOfMemory
+	case QueueFault:
+		queueFaultReport
+	case NoCause:
+		""
+	}
+}
+
+// StreamTag identifies a stream scanner row inside ScannerTable.
+type StreamTag {}
+
+// ScannerTable stores multiple concurrent stderr scanners in dense unsigned SoA columns.
+type ScannerTable {
+	Count dense.Count[StreamTag],
+	Carry dense.Col[StreamTag, string],
+	Line  dense.Col[StreamTag, string],
+	State dense.Col[StreamTag, uint8],
+	Cause dense.Col[StreamTag, uint8],
+}
+
+// NewScannerTable constructs an empty SoA ScannerTable.
+func NewScannerTable() ScannerTable {
+	ScannerTable{
+		Count: dense.NewCount[StreamTag](),
+		Carry: dense.NewCol[StreamTag, string](),
+		Line:  dense.NewCol[StreamTag, string](),
+		State: dense.NewCol[StreamTag, uint8](),
+		Cause: dense.NewCol[StreamTag, uint8](),
+	}
+}
+
+// AllocScanner allocates a fresh scanner slot and returns its dense ID.
+func AllocScanner(t mut ScannerTable) dense.ID[StreamTag] {
+	let id = dense.Next(&t.Count)
+	dense.Push(&t.Carry, "")
+	dense.Push(&t.Line, "")
+	dense.Push(&t.State, uint8(0))
+	dense.Push(&t.Cause, uint8(0))
+	id
+}
+
+// WriteStream writes a stderr chunk to scanner id in t.
+func WriteStream(t mut ScannerTable, id dense.ID[StreamTag], chunk string) {
+	let cur = Scanner{
+		carry: dense.Of(t.Carry, id),
+		line:  dense.Of(t.Line, id),
+		state: dense.Of(t.State, id),
+		cause: CauseFromCode(dense.Of(t.Cause, id)),
+	}
+	let next = ScanWrite(cur, chunk)
+	dense.SetOf(&t.Carry, id, next.carry)
+	dense.SetOf(&t.Line, id, next.line)
+	dense.SetOf(&t.State, id, next.state)
+	dense.SetOf(&t.Cause, id, CauseCode(next.cause))
+}
+
+// StreamCause returns the Cause recorded for scanner id in t.
+func StreamCause(t ScannerTable, id dense.ID[StreamTag]) Cause {
+	CauseFromCode(dense.Of(t.Cause, id))
+}
+
+func advanceLine(state uint8, line string) (uint8, Cause) {
+	if state == uint8(1) {
+		if strings.HasPrefix(line, "PC=") && slices.Contains(strings.Fields(line), "addr=0x0") {
+			return (uint8(2), NoCause)
+		}
+	} else if state == uint8(2) {
+		if line == "" || strings.HasPrefix(line, "goroutine ") {
+			return (uint8(2), NoCause)
+		}
+		if strings.HasPrefix(line, faultFrame) {
+			return (uint8(2), QueueFault)
+		}
+	}
+	let nextState = if line == signalLine { uint8(1) } else { uint8(0) }
+	(nextState, NoCause)
+}
+
+// SplitWritesMatchWhole verifies that feeding stderr in arbitrary splits yields the same CauseOf result.
+law SplitWritesMatchWhole(head string, tail string, splitAt int) {
+	let full = head + "\nPC=0x1 addr=0x0\n\nruntime.(*spanQueue).tryDrain\n" + tail
+	let bound = if full.Len() == 0 { 0 } else if splitAt < 0 { 0 } else { splitAt % (full.Len() + 1) }
+	let a = full[0:bound]
+	let b = full[bound:full.Len()]
+	let mut s = NewScanner()
+	s = ScanWrite(s, a)
+	s = ScanWrite(s, b)
+	s = ScanWrite(s, "\n")
+	CauseCode(ScanCause(s)) == CauseCode(CauseOf(full))
+}
+
+test TestCauseOfAndSplitScanner {
+	assert CauseCode(CauseOf("fatal error: runtime: out of memory\n")) == uint8(1)
+	assert CauseCode(CauseOf("cannot allocate memory\n")) == uint8(1)
+	assert CauseCode(CauseOf("SIGSEGV: segmentation violation\nPC=0x42 m=3 addr=0x0\n\nruntime.(*spanQueue).tryDrain(0x0)\n")) == uint8(2)
+	assert CauseCode(CauseOf("SIGSEGV: segmentation violation\nPC=0x42 m=3 addr=0x10\n\nruntime.(*spanQueue).tryDrain(0x0)\n")) == uint8(0)
+	assert CauseCode(CauseOf("SIGSEGV: segmentation violation\nPC=0x42 m=3 addr=0x0\n\nmain.crash()\n")) == uint8(0)
+
+	let mut s = NewScanner()
+	for ch in []string{"cannot ", "allocate", " memory"} {
+		s = ScanWrite(s, ch)
+	}
+	assert CauseCode(ScanCause(s)) == uint8(1)
+
+	let mut tbl = NewScannerTable()
+	let id = AllocScanner(&tbl)
+	WriteStream(&tbl, id, "SIGSEGV: segmentation violation\n")
+	WriteStream(&tbl, id, "PC=0x1 addr=0x0\n\n")
+	WriteStream(&tbl, id, "runtime.(*spanQueue).pop()\n")
+	assert CauseCode(StreamCause(tbl, id)) == uint8(2)
+	assert WatchedStderr(StreamCause(tbl, id)) == queueFaultReport
+}

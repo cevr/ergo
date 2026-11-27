@@ -1,0 +1,492 @@
+import slices
+import strconv
+import strings
+
+// NoLayout is the dense uint32 sentinel representing an absent struct layout entry.
+let NoLayout = uint32(4294967295)
+
+// InvalidLayout reports an invalid C11 field specification or struct layout overflow.
+type InvalidLayout {
+	// Why explains which layout invariant was violated.
+	Why string,
+}
+
+// FieldSpec describes one C struct field's name, byte width, and alignment.
+type FieldSpec {
+	// Name is the C member identifier.
+	Name string,
+	// Size is the member width in bytes.
+	Size uint32,
+	// Align is the member alignment in bytes, which must be a power of two.
+	Align uint32,
+}
+
+// StructLayout is the computed C11 ABI size, alignment, tail padding, and field offsets.
+type StructLayout {
+	// Size is the padded total struct size in bytes.
+	Size uint32,
+	// Align is the maximum alignment across all fields.
+	Align uint32,
+	// TailPad is the trailing padding bytes after the last field.
+	TailPad uint32,
+	// FieldOffsets stores the byte offset of each field in declaration order.
+	FieldOffsets []uint32,
+}
+
+// LayoutTable stores native C struct layouts across flat SoA columns indexed by dense uint32 IDs.
+type LayoutTable {
+	// StructNames holds each registered C struct name.
+	StructNames []string,
+	// StructSizes holds each struct's total byte size.
+	StructSizes []uint32,
+	// StructAligns holds each struct's maximum byte alignment.
+	StructAligns []uint32,
+	// StructTails holds each struct's trailing padding byte count.
+	StructTails []uint32,
+	// FieldStart holds the starting index in the field columns for each struct.
+	FieldStart []uint32,
+	// FieldLen holds the field count for each struct.
+	FieldLen []uint32,
+	// FieldNames holds flattened C member names across all structs.
+	FieldNames []string,
+	// FieldSizes holds flattened C member widths across all structs.
+	FieldSizes []uint32,
+	// FieldAligns holds flattened C member alignments across all structs.
+	FieldAligns []uint32,
+	// FieldOffsets holds flattened C member byte offsets across all structs.
+	FieldOffsets []uint32,
+}
+
+// IsPowerOfTwo reports whether align is a non-zero power of two.
+func IsPowerOfTwo(align uint32) bool {
+	align != uint32(0) && (align&(align-uint32(1))) == uint32(0)
+}
+
+// AlignUp rounds n up to the smallest multiple of align >= n.
+func AlignUp(n uint32, align uint32) uint32 fails InvalidLayout {
+	if !IsPowerOfTwo(align) {
+		return InvalidLayout{Why: "alignment must be a non-zero power of two"}
+	}
+	let mask = align - uint32(1)
+	if n > uint32(4294967295)-mask {
+		return InvalidLayout{Why: "alignment overflow"}
+	}
+	(n + mask) & ^mask
+}
+
+// ComputeStructLayout computes C11 ABI field offsets, alignment, and tail padding for fields.
+func ComputeStructLayout(fields []FieldSpec) StructLayout fails InvalidLayout {
+	if fields.Len() == 0 {
+		return InvalidLayout{Why: "C11 struct must contain at least one field"}
+	}
+	let mut cursor = uint32(0)
+	let mut maxAlign = uint32(1)
+	let mut offs = slices.WithCapacity[uint32](fields.Len())
+	for i in 0..fields.Len() {
+		let f = fields[i]
+		if f.Size == uint32(0) {
+			return InvalidLayout{Why: "field \(f.Name) has zero size"}
+		}
+		let off = try AlignUp(cursor, f.Align)
+		if f.Size > uint32(2147483647)-off {
+			return InvalidLayout{Why: "struct offset overflow at field \(f.Name)"}
+		}
+		offs = offs.Append(off)
+		cursor = off + f.Size
+		if f.Align > maxAlign {
+			maxAlign = f.Align
+		}
+	}
+	let total = try AlignUp(cursor, maxAlign)
+	if total > uint32(2147483647) {
+		return InvalidLayout{Why: "struct total size exceeds 31-bit object limit"}
+	}
+	StructLayout{
+		Size:         total,
+		Align:        maxAlign,
+		TailPad:      total - cursor,
+		FieldOffsets: offs,
+	}
+}
+
+// NewLayoutTable creates an empty flat SoA LayoutTable.
+func NewLayoutTable() LayoutTable {
+	LayoutTable{
+		StructNames:  []string{},
+		StructSizes:  []uint32{},
+		StructAligns: []uint32{},
+		StructTails:  []uint32{},
+		FieldStart:   []uint32{},
+		FieldLen:     []uint32{},
+		FieldNames:   []string{},
+		FieldSizes:   []uint32{},
+		FieldAligns:  []uint32{},
+		FieldOffsets: []uint32{},
+	}
+}
+
+// AddStruct computes and appends a named C struct layout to t and returns its dense uint32 ID.
+func AddStruct(t mut LayoutTable, name string, fields []FieldSpec) uint32 fails InvalidLayout {
+	if name == "" {
+		return InvalidLayout{Why: "struct name must be non-empty"}
+	}
+	if FindStruct(*t, name) != NoLayout {
+		return InvalidLayout{Why: "duplicate struct \(name)"}
+	}
+	let computed = try ComputeStructLayout(fields)
+	let id = uint32(t.StructNames.Len())
+	let start = uint32(t.FieldNames.Len())
+	t.StructNames = t.StructNames.Append(name)
+	t.StructSizes = t.StructSizes.Append(computed.Size)
+	t.StructAligns = t.StructAligns.Append(computed.Align)
+	t.StructTails = t.StructTails.Append(computed.TailPad)
+	t.FieldStart = t.FieldStart.Append(start)
+	t.FieldLen = t.FieldLen.Append(uint32(fields.Len()))
+	for i in 0..fields.Len() {
+		t.FieldNames = t.FieldNames.Append(fields[i].Name)
+		t.FieldSizes = t.FieldSizes.Append(fields[i].Size)
+		t.FieldAligns = t.FieldAligns.Append(fields[i].Align)
+		t.FieldOffsets = t.FieldOffsets.Append(computed.FieldOffsets[i])
+	}
+	id
+}
+
+// FindStruct looks up name in t and returns its dense uint32 ID or NoLayout.
+func FindStruct(t LayoutTable, name string) uint32 {
+	for i in 0..t.StructNames.Len() {
+		if t.StructNames[i] == name {
+			return uint32(i)
+		}
+	}
+	NoLayout
+}
+
+// FieldOffset looks up fieldName inside structID of t and returns its byte offset or NoLayout.
+func FieldOffset(t LayoutTable, structID uint32, fieldName string) uint32 {
+	if int(structID) >= t.StructNames.Len() {
+		return NoLayout
+	}
+	let start = int(t.FieldStart[int(structID)])
+	let cnt = int(t.FieldLen[int(structID)])
+	for k in 0..cnt {
+		if t.FieldNames[start+k] == fieldName {
+			return t.FieldOffsets[start+k]
+		}
+	}
+	NoLayout
+}
+
+// BuiltinLayoutTable constructs the layout table of every C11 runtime ABI struct.
+func BuiltinLayoutTable() LayoutTable fails InvalidLayout {
+	let mut t = NewLayoutTable()
+	let _ = try AddStruct(&t, "ErgoRCHeader", []FieldSpec{
+		FieldSpec{Name: "rc", Size: U32Size, Align: U32Align},
+		FieldSpec{Name: "flags", Size: U32Size, Align: U32Align},
+		FieldSpec{Name: "payload_size", Size: U32Size, Align: U32Align},
+		FieldSpec{Name: "type_tag", Size: U32Size, Align: U32Align},
+	})
+	let _ = try AddStruct(&t, "ErgoStr", []FieldSpec{
+		FieldSpec{Name: "ptr", Size: PtrSize, Align: PtrAlign},
+		FieldSpec{Name: "len", Size: I64Size, Align: I64Align},
+	})
+	let _ = try AddStruct(&t, "ErgoBytes", []FieldSpec{
+		FieldSpec{Name: "ptr", Size: PtrSize, Align: PtrAlign},
+		FieldSpec{Name: "len", Size: I64Size, Align: I64Align},
+		FieldSpec{Name: "cap", Size: I64Size, Align: I64Align},
+	})
+	let _ = try AddStruct(&t, "ErgoSlice", []FieldSpec{
+		FieldSpec{Name: "ptr", Size: PtrSize, Align: PtrAlign},
+		FieldSpec{Name: "len", Size: I64Size, Align: I64Align},
+		FieldSpec{Name: "cap", Size: I64Size, Align: I64Align},
+	})
+	let _ = try AddStruct(&t, "ErgoError", []FieldSpec{
+		FieldSpec{Name: "tag", Size: U32Size, Align: U32Align},
+		FieldSpec{Name: "_pad", Size: U32Size, Align: U32Align},
+		FieldSpec{Name: "msg", Size: StrSize, Align: StrAlign},
+	})
+	let _ = try AddStruct(&t, "ErgoArenaMark", []FieldSpec{
+		FieldSpec{Name: "chunk", Size: PtrSize, Align: PtrAlign},
+		FieldSpec{Name: "offset", Size: U64Size, Align: U64Align},
+		FieldSpec{Name: "total_used", Size: U64Size, Align: U64Align},
+	})
+	let _ = try AddStruct(&t, "ErgoActorLimits", []FieldSpec{
+		FieldSpec{Name: "limit_bytes", Size: U64Size, Align: U64Align},
+		FieldSpec{Name: "limit_steps", Size: U64Size, Align: U64Align},
+	})
+	let _ = try AddStruct(&t, "ErgoActorHeap", []FieldSpec{
+		FieldSpec{Name: "slabs", Size: PtrSize, Align: PtrAlign},
+		FieldSpec{Name: "current", Size: PtrSize, Align: PtrAlign},
+		FieldSpec{Name: "limit_bytes", Size: U64Size, Align: U64Align},
+		FieldSpec{Name: "used_bytes", Size: U64Size, Align: U64Align},
+		FieldSpec{Name: "peak_bytes", Size: U64Size, Align: U64Align},
+	})
+	let _ = try AddStruct(&t, "ErgoCrashReport", []FieldSpec{
+		FieldSpec{Name: "panicked", Size: BoolSize, Align: BoolAlign},
+		FieldSpec{Name: "code", Size: U32Size, Align: U32Align},
+		FieldSpec{Name: "msg", Size: PtrSize, Align: PtrAlign},
+		FieldSpec{Name: "heap_peak_bytes", Size: U64Size, Align: U64Align},
+	})
+	t
+}
+
+// FormatLayoutLines formats every struct in t in the canonical LAYOUT line format.
+func FormatLayoutLines(t LayoutTable) []string {
+	let mut out = slices.WithCapacity[string](t.StructNames.Len())
+	for i in 0..t.StructNames.Len() {
+		let mut parts = []string{
+			"LAYOUT",
+			t.StructNames[i],
+			"size=" + strconv.Itoa(int(t.StructSizes[i])),
+			"align=" + strconv.Itoa(int(t.StructAligns[i])),
+		}
+		let start = int(t.FieldStart[i])
+		let cnt = int(t.FieldLen[i])
+		for k in 0..cnt {
+			parts = parts.Append(t.FieldNames[start+k] + "=" + strconv.Itoa(int(t.FieldOffsets[start+k])))
+		}
+		out = out.Append(strings.Join(parts, " "))
+	}
+	out
+}
+
+func alignOfShift(s uint8) uint32 {
+	uint32(1) << uint32(s%uint8(5))
+}
+
+func sizeFromByte(b uint8) uint32 {
+	uint32(1) + uint32(b%uint8(32))
+}
+
+// AlignUpIsIdempotentAndAligned checks alignment monotonicity, divisibility, and idempotence.
+law AlignUpIsIdempotentAndAligned(raw uint32, shift uint8) {
+	let a = alignOfShift(shift)
+	let n = raw & uint32(1073741823)
+	let aligned = AlignUp(n, a) catch {
+	case InvalidLayout:
+		return false
+	}
+	let again = AlignUp(aligned, a) catch {
+	case InvalidLayout:
+		return false
+	}
+	aligned >= n && (aligned%a) == uint32(0) && (aligned-n) < a && again == aligned
+}
+
+// StructLayoutPreservesAlignmentAndNonOverlap checks size divisibility, field alignment, containment, and non-overlap.
+law StructLayoutPreservesAlignmentAndNonOverlap(rawSizes []uint8, rawAligns []uint8) {
+	let count = if rawSizes.Len() == 0 {
+		1
+	} else if rawSizes.Len() > 8 {
+		8
+	} else {
+		rawSizes.Len()
+	}
+	let mut fields = slices.WithCapacity[FieldSpec](count)
+	let mut expectedMax = uint32(1)
+	let mut sumSizes = uint32(0)
+	for i in 0..count {
+		let sb = if i < rawSizes.Len() { rawSizes[i] } else { uint8(1) }
+		let ab = if i < rawAligns.Len() { rawAligns[i] } else { uint8(0) }
+		let sz = sizeFromByte(sb)
+		let al = alignOfShift(ab)
+		fields = fields.Append(FieldSpec{Name: "f" + strconv.Itoa(i), Size: sz, Align: al})
+		if al > expectedMax {
+			expectedMax = al
+		}
+		sumSizes = sumSizes + sz
+	}
+	let out = ComputeStructLayout(fields) catch {
+	case InvalidLayout:
+		return false
+	}
+	let mut ok = out.Align == expectedMax && (out.Size%out.Align) == uint32(0) && out.Size >= sumSizes && out.TailPad < out.Align && out.FieldOffsets.Len() == fields.Len()
+	for i in 0..fields.Len() {
+		let off = out.FieldOffsets[i]
+		let f = fields[i]
+		ok = ok && (off%f.Align) == uint32(0) && off+f.Size <= out.Size
+		if i > 0 {
+			ok = ok && out.FieldOffsets[i-1]+fields[i-1].Size <= off
+		}
+	}
+	ok
+}
+
+// InvalidLayoutRejected verifies that ComputeStructLayout, AlignUp, and AddStruct refuse invalid specifications.
+law InvalidLayoutRejected(x uint8) {
+	let badAlign = uint32(3) + uint32(x%uint8(2))*uint32(2)
+	let mut alignFailed = false
+	let _ = AlignUp(uint32(8), badAlign) catch {
+	case InvalidLayout:
+		alignFailed = true
+		uint32(0)
+	}
+	let mut alignOvfFailed = false
+	let _ = AlignUp(uint32(4294967281), uint32(16)) catch {
+	case InvalidLayout:
+		alignOvfFailed = true
+		uint32(0)
+	}
+	let maxAlignExact = AlignUp(uint32(4294967280), uint32(16)) catch {
+	case InvalidLayout:
+		uint32(0)
+	}
+	let mut emptyFailed = false
+	let _ = ComputeStructLayout([]FieldSpec{}) catch {
+	case InvalidLayout:
+		emptyFailed = true
+		StructLayout{Size: uint32(0), Align: uint32(1), TailPad: uint32(0), FieldOffsets: []uint32{}}
+	}
+	let maxObjExact = ComputeStructLayout([]FieldSpec{
+		FieldSpec{Name: "a", Size: uint32(2147483647), Align: BoolAlign},
+	}) catch {
+	case InvalidLayout:
+		StructLayout{Size: uint32(0), Align: uint32(1), TailPad: uint32(0), FieldOffsets: []uint32{}}
+	}
+	let mut ovfFieldFailed = false
+	let _ = ComputeStructLayout([]FieldSpec{
+		FieldSpec{Name: "a", Size: uint32(4), Align: U32Align},
+		FieldSpec{Name: "b", Size: uint32(2147483644), Align: U32Align},
+	}) catch {
+	case InvalidLayout:
+		ovfFieldFailed = true
+		StructLayout{Size: uint32(0), Align: uint32(1), TailPad: uint32(0), FieldOffsets: []uint32{}}
+	}
+	let mut ovfTotalFailed = false
+	let _ = ComputeStructLayout([]FieldSpec{
+		FieldSpec{Name: "a", Size: uint32(2147483644), Align: U32Align},
+		FieldSpec{Name: "b", Size: uint32(1), Align: U64Align},
+	}) catch {
+	case InvalidLayout:
+		ovfTotalFailed = true
+		StructLayout{Size: uint32(0), Align: uint32(1), TailPad: uint32(0), FieldOffsets: []uint32{}}
+	}
+	let mut t = NewLayoutTable()
+	let first = AddStruct(&t, "Dup", []FieldSpec{FieldSpec{Name: "a", Size: U32Size, Align: U32Align}}) catch {
+	case InvalidLayout:
+		NoLayout
+	}
+	let mut emptyNameFailed = false
+	let _ = AddStruct(&t, "", []FieldSpec{FieldSpec{Name: "a", Size: U32Size, Align: U32Align}}) catch {
+	case InvalidLayout:
+		emptyNameFailed = true
+		NoLayout
+	}
+	let mut dupFailed = false
+	let _ = AddStruct(&t, "Dup", []FieldSpec{FieldSpec{Name: "b", Size: U32Size, Align: U32Align}}) catch {
+	case InvalidLayout:
+		dupFailed = true
+		NoLayout
+	}
+	let mut zeroFailed = false
+	let _ = AddStruct(&t, "Zero", []FieldSpec{FieldSpec{Name: "z", Size: uint32(0), Align: U32Align}}) catch {
+	case InvalidLayout:
+		zeroFailed = true
+		NoLayout
+	}
+	alignFailed && alignOvfFailed && maxAlignExact == uint32(4294967280) && emptyFailed && maxObjExact.Size == uint32(2147483647) && ovfFieldFailed && ovfTotalFailed && first == uint32(0) && emptyNameFailed && dupFailed && zeroFailed && !IsPowerOfTwo(badAlign) && IsPowerOfTwo(uint32(16))
+}
+
+test BuiltinLayoutsMatchRuntimeCABI {
+	let tbl = BuiltinLayoutTable() catch {
+	case InvalidLayout:
+		assert false
+		NewLayoutTable()
+	}
+
+	let rcID = FindStruct(tbl, "ErgoRCHeader")
+	assert rcID != NoLayout
+	assert tbl.StructSizes[int(rcID)] == RCHeaderSize
+	assert tbl.StructAligns[int(rcID)] == RCHeaderAlign
+	assert FieldOffset(tbl, rcID, "rc") == RCHeaderRcOff
+	assert FieldOffset(tbl, rcID, "flags") == RCHeaderFlagsOff
+	assert FieldOffset(tbl, rcID, "payload_size") == RCHeaderPayloadSizeOff
+	assert FieldOffset(tbl, rcID, "type_tag") == RCHeaderTypeTagOff
+
+	let strID = FindStruct(tbl, "ErgoStr")
+	assert strID != NoLayout
+	assert tbl.StructSizes[int(strID)] == StrSize
+	assert tbl.StructAligns[int(strID)] == StrAlign
+	assert FieldOffset(tbl, strID, "ptr") == StrPtrOff
+	assert FieldOffset(tbl, strID, "len") == StrLenOff
+
+	let bytesID = FindStruct(tbl, "ErgoBytes")
+	assert bytesID != NoLayout
+	assert tbl.StructSizes[int(bytesID)] == BytesSize
+	assert tbl.StructAligns[int(bytesID)] == BytesAlign
+	assert FieldOffset(tbl, bytesID, "ptr") == BytesPtrOff
+	assert FieldOffset(tbl, bytesID, "len") == BytesLenOff
+	assert FieldOffset(tbl, bytesID, "cap") == BytesCapOff
+
+	let sliceID = FindStruct(tbl, "ErgoSlice")
+	assert sliceID != NoLayout
+	assert tbl.StructSizes[int(sliceID)] == SliceSize
+	assert tbl.StructAligns[int(sliceID)] == SliceAlign
+	assert FieldOffset(tbl, sliceID, "ptr") == SlicePtrOff
+	assert FieldOffset(tbl, sliceID, "len") == SliceLenOff
+	assert FieldOffset(tbl, sliceID, "cap") == SliceCapOff
+
+	let errID = FindStruct(tbl, "ErgoError")
+	assert errID != NoLayout
+	assert tbl.StructSizes[int(errID)] == ErrorSize
+	assert tbl.StructAligns[int(errID)] == ErrorAlign
+	assert FieldOffset(tbl, errID, "tag") == ErrorTagOff
+	assert FieldOffset(tbl, errID, "_pad") == ErrorPadOff
+	assert FieldOffset(tbl, errID, "msg") == ErrorMsgOff
+
+	let markID = FindStruct(tbl, "ErgoArenaMark")
+	assert markID != NoLayout
+	assert tbl.StructSizes[int(markID)] == ArenaMarkSize
+	assert tbl.StructAligns[int(markID)] == ArenaMarkAlign
+	assert FieldOffset(tbl, markID, "chunk") == ArenaMarkChunkOff
+	assert FieldOffset(tbl, markID, "offset") == ArenaMarkOffsetOff
+	assert FieldOffset(tbl, markID, "total_used") == ArenaMarkTotalUsedOff
+
+	let limID = FindStruct(tbl, "ErgoActorLimits")
+	assert limID != NoLayout
+	assert tbl.StructSizes[int(limID)] == ActorLimitsSize
+	assert tbl.StructAligns[int(limID)] == ActorLimitsAlign
+	assert FieldOffset(tbl, limID, "limit_bytes") == ActorLimitsBytesOff
+	assert FieldOffset(tbl, limID, "limit_steps") == ActorLimitsStepsOff
+
+	let heapID = FindStruct(tbl, "ErgoActorHeap")
+	assert heapID != NoLayout
+	assert tbl.StructSizes[int(heapID)] == ActorHeapSize
+	assert tbl.StructAligns[int(heapID)] == ActorHeapAlign
+	assert FieldOffset(tbl, heapID, "slabs") == ActorHeapSlabsOff
+	assert FieldOffset(tbl, heapID, "current") == ActorHeapCurrentOff
+	assert FieldOffset(tbl, heapID, "limit_bytes") == ActorHeapLimitOff
+	assert FieldOffset(tbl, heapID, "used_bytes") == ActorHeapUsedOff
+	assert FieldOffset(tbl, heapID, "peak_bytes") == ActorHeapPeakOff
+
+	let crashID = FindStruct(tbl, "ErgoCrashReport")
+	assert crashID != NoLayout
+	assert tbl.StructSizes[int(crashID)] == CrashReportSize
+	assert tbl.StructAligns[int(crashID)] == CrashReportAlign
+	assert tbl.StructTails[int(crashID)] == uint32(0)
+	assert FieldOffset(tbl, crashID, "panicked") == CrashReportPanickedOff
+	assert FieldOffset(tbl, crashID, "code") == CrashReportCodeOff
+	assert FieldOffset(tbl, crashID, "msg") == CrashReportMsgOff
+	assert FieldOffset(tbl, crashID, "heap_peak_bytes") == CrashReportHeapPeakOff
+	let crashStart = int(tbl.FieldStart[int(crashID)])
+	assert tbl.FieldSizes[crashStart] == BoolSize && tbl.FieldAligns[crashStart] == BoolAlign
+	assert tbl.FieldSizes[crashStart+1] == U32Size && tbl.FieldAligns[crashStart+1] == U32Align
+	assert FieldOffset(tbl, NoLayout, "panicked") == NoLayout
+	assert FieldOffset(tbl, crashID, "missing") == NoLayout
+
+	let lines = FormatLayoutLines(tbl)
+	let expected = []string{
+		"LAYOUT ErgoRCHeader size=16 align=4 rc=0 flags=4 payload_size=8 type_tag=12",
+		"LAYOUT ErgoStr size=16 align=8 ptr=0 len=8",
+		"LAYOUT ErgoBytes size=24 align=8 ptr=0 len=8 cap=16",
+		"LAYOUT ErgoSlice size=24 align=8 ptr=0 len=8 cap=16",
+		"LAYOUT ErgoError size=24 align=8 tag=0 _pad=4 msg=8",
+		"LAYOUT ErgoArenaMark size=24 align=8 chunk=0 offset=8 total_used=16",
+		"LAYOUT ErgoActorLimits size=16 align=8 limit_bytes=0 limit_steps=8",
+		"LAYOUT ErgoActorHeap size=40 align=8 slabs=0 current=8 limit_bytes=16 used_bytes=24 peak_bytes=32",
+		"LAYOUT ErgoCrashReport size=24 align=8 panicked=0 code=4 msg=8 heap_peak_bytes=16",
+	}
+	assert lines.Len() == expected.Len()
+	for i in 0..expected.Len() {
+		assert lines[i] == expected[i]
+	}
+}

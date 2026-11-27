@@ -1,0 +1,85 @@
+import exec
+import github.com/cevr/ergo/modules/atlas/handle
+import github.com/cevr/ergo/modules/atlas/memory
+import github.com/cevr/ergo/modules/atlas/serve
+
+// DrillFailed reports the stage of the restart drill that could not run and why.
+type DrillFailed {
+	Stage  string,
+	Reason string,
+}
+
+// Daemon is how the drill starts the atlas daemon: its executable, its store and the durable job it runs.
+type Daemon {
+	Exe       string,
+	StorePath string,
+	Job       string,
+}
+
+// RunEnd is how the drill ends one daemon run: kill -9 it once its job is mid-work, or let it finish the job.
+type RunEnd = KillMidWork{} | LetFinish{}
+
+type drillRun {
+	Label string,
+	End   RunEnd,
+}
+
+func workCommand(d Daemon) exec.Command {
+	exec.New(d.Exe, []string{"--store", d.StorePath, "work", d.Job})
+}
+
+func startFailed(stage string, reason string) DrillFailed {
+	DrillFailed{Stage: stage, Reason: reason}
+}
+
+func runDaemon(sessions exec.Sessions, spawner exec.Spawner, d Daemon, run drillRun, out func(line string)) fails DrillFailed {
+	let label = run.Label
+	let end = run.End
+	let running = sessions.StartInteractive(workCommand(d), exec.Streams{Stdout: exec.ToCaller, Stderr: exec.Discard}) catch {
+	case exec.NotFound as e:
+		return startFailed(label, "not found: \(e.Name)")
+	case exec.Denied as e:
+		return startFailed(label, "denied: \(e.Name)")
+	case exec.Failed as e:
+		return startFailed(label, e.Reason)
+	}
+	let working = "working \(d.Job)"
+	let mut midWork = false
+	for line in running.Lines() {
+		out("\(label): \(line.Text)")
+		if line.Text == working {
+			match end {
+			case KillMidWork:
+				midWork = true
+				break
+			case LetFinish:
+				running.WriteStdin("finish\n") catch {
+				case exec.Failed as e:
+					return startFailed(label, e.Reason)
+				}
+			}
+		}
+	}
+	if midWork {
+		let detached = running.Detach() catch {
+		case exec.Failed as e:
+			return startFailed(label, e.Reason)
+		}
+		spawner.Kill(detached.IntoDetached(), 0s)
+		out("\(label): kill -9")
+		return
+	}
+	out("\(label): exit \(running.Wait())")
+}
+
+// RestartDrill starts the daemon on a job, kills it with SIGKILL mid-work, starts it again so BootReconcile resumes the job and it finishes, starts it a third time to show nothing runs twice, and reports how many times the job was settled.
+func RestartDrill(sessions exec.Sessions, spawner exec.Spawner, d Daemon, store memory.Store, out func(line string)) fails DrillFailed {
+	try runDaemon(sessions, spawner, d, drillRun{Label: "run 1", End: KillMidWork}, out)
+	try runDaemon(sessions, spawner, d, drillRun{Label: "run 2", End: LetFinish}, out)
+	try runDaemon(sessions, spawner, d, drillRun{Label: "run 3", End: LetFinish}, out)
+	let settled = serve.WorkSettlements(store, handle.HandleID(d.Job)) catch {
+	case serve.ServeError as e:
+		return startFailed("settlements", serve.DescribeServeError(e))
+	}
+	out("settlements \(d.Job)=\(settled)")
+}

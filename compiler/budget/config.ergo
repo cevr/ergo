@@ -1,0 +1,217 @@
+import filepath
+import strconv
+import strings
+
+// ConfigError reports a malformed budget configuration file or size value.
+type ConfigError {
+	Message string,
+}
+
+// Config is a parsed host budget configuration file.
+type Config {
+	Path          string,
+	Cores         uint32,
+	Memory        uint64,
+	DefaultMemory uint64,
+	Share         uint32,
+	Backfill      uint32,
+	State         string,
+	Log           string,
+}
+
+let maxSigned64 = uint64(9223372036854775807)
+let gibBytes = uint64(1073741824)
+
+// ParseSize reads a size in bytes: a whole number with an optional K, M, G, or T suffix.
+func ParseSize(s string) uint64 fails ConfigError {
+	let mut mult = uint64(1)
+	if strings.HasSuffix(s, "K") {
+		mult = uint64(1024)
+	} else if strings.HasSuffix(s, "M") {
+		mult = uint64(1048576)
+	} else if strings.HasSuffix(s, "G") {
+		mult = gibBytes
+	} else if strings.HasSuffix(s, "T") {
+		mult = uint64(1099511627776)
+	}
+	let raw = if mult > uint64(1) { s[0 : s.Len()-1] } else { s }
+	let v = parseNonNegInt64Text(raw) catch {
+	case ConfigError:
+		return ConfigError{Message: "budget: \(strconv.Quote(raw)) is not a size (40G, 512M, bytes)"}
+	}
+	if v > maxSigned64/mult {
+		return ConfigError{Message: "budget: \(strconv.Quote(raw)) is not a size (40G, 512M, bytes)"}
+	}
+	v * mult
+}
+
+// ParseConfig parses the contents of a budget configuration file located at path.
+func ParseConfig(text string, path string) Config fails ConfigError {
+	let mut cfg = Config{
+		Path:          path,
+		Cores:         uint32(0),
+		Memory:        uint64(0),
+		DefaultMemory: uint64(8) * gibBytes,
+		Share:         uint32(0),
+		Backfill:      uint32(4),
+		State:         path + ".state",
+		Log:           "",
+	}
+	if text == "" {
+		return ConfigError{Message: "\(path): no cores line: the budget is the host owner's number"}
+	}
+	let rawLines = strings.Split(text, "\n")
+	let limit = if strings.HasSuffix(text, "\n") { rawLines.Len() - 1 } else { rawLines.Len() }
+	for idx in 0..limit {
+		let lineNo = idx + 1
+		let raw = strings.TrimSuffix(rawLines[idx], "\r")
+		let (beforeComment, _) = cutHalf(raw, "#")
+		let (key, valRaw) = cutHalf(strings.TrimSpace(beforeComment), " ")
+		let value = strings.TrimSpace(valRaw)
+		if key == "" {
+			continue
+		} else if key == "cores" || key == "share" || key == "backfill" {
+			let v = parseNonNegUint32Strict(value) catch {
+			case ConfigError:
+				return ConfigError{Message: "\(path):\(lineNo): \(key) wants a value, has \(strconv.Quote(value))"}
+			}
+			if key == "cores" {
+				cfg.Cores = v
+			} else if key == "share" {
+				cfg.Share = v
+			} else {
+				cfg.Backfill = v
+			}
+		} else if key == "memory" || key == "default-memory" {
+			let v = ParseSize(value) catch {
+			case ConfigError:
+				return ConfigError{Message: "\(path):\(lineNo): \(key) wants a value, has \(strconv.Quote(value))"}
+			}
+			if key == "memory" {
+				cfg.Memory = v
+			} else {
+				cfg.DefaultMemory = v
+			}
+		} else if key == "gate-load" {
+			if value != "0" {
+				return ConfigError{Message: "\(path):\(lineNo): gate-load was removed: memory admission replaces the load gate (WS4c); delete the line"}
+			}
+		} else if key == "state" || key == "log" {
+			if value == "" {
+				return ConfigError{Message: "\(path):\(lineNo): \(key) wants a value, has \(strconv.Quote(value))"}
+			}
+			let resolved = if filepath.IsAbs(value) { value } else { filepath.Join([]string{filepath.Dir(path), value}) }
+			if key == "state" {
+				cfg.State = resolved
+			} else {
+				cfg.Log = resolved
+			}
+		} else {
+			return ConfigError{Message: "\(path):\(lineNo): unknown key \(strconv.Quote(key)) (cores, memory, default-memory, share, backfill, state, log)"}
+		}
+	}
+	if cfg.Cores < uint32(1) {
+		return ConfigError{Message: "\(path): no cores line: the budget is the host owner's number"}
+	}
+	if cfg.Share > cfg.Cores {
+		return ConfigError{Message: "\(path): share \(cfg.Share) is over cores \(cfg.Cores)"}
+	}
+	if cfg.Memory > uint64(0) && cfg.DefaultMemory > cfg.Memory {
+		cfg.DefaultMemory = cfg.Memory
+	}
+	cfg
+}
+
+func cutHalf(s string, sep string) (string, string) {
+	let i = strings.Index(s, sep)
+	if i < 0 {
+		return (s, "")
+	}
+	(s[0:i], s[i+sep.Len() : s.Len()])
+}
+
+func parseNonNegInt64Text(s string) uint64 fails ConfigError {
+	if s.Len() == 0 {
+		return ConfigError{Message: "empty"}
+	}
+	let mut start = 0
+	if s[0] == byte('+') {
+		start = 1
+		if s.Len() == 1 {
+			return ConfigError{Message: "empty"}
+		}
+	}
+	let mut acc = uint64(0)
+	let maxDiv = maxSigned64 / uint64(10)
+	for i in start..s.Len() {
+		let b = s[i]
+		if b < byte('0') || b > byte('9') {
+			return ConfigError{Message: "bad digit"}
+		}
+		let d = uint64(b - byte('0'))
+		if acc > maxDiv || (acc == maxDiv && d > maxSigned64-acc*uint64(10)) {
+			return ConfigError{Message: "overflow"}
+		}
+		acc = acc*uint64(10) + d
+	}
+	acc
+}
+
+func parseNonNegUint32Strict(s string) uint32 fails ConfigError {
+	let v = strconv.Atoi(s) catch {
+	case strconv.Malformed, strconv.OutOfRange:
+		return ConfigError{Message: "bad int"}
+	}
+	if v < 0 || v > 2147483647 {
+		return ConfigError{Message: "range"}
+	}
+	uint32(v)
+}
+
+// ConfigClampDefaultMemory checks that DefaultMemory never exceeds positive Memory after parsing.
+law ConfigClampDefaultMemory(memG uint32, dfltG uint32) {
+	let m = (memG % uint32(64)) + uint32(1)
+	let d = (dfltG % uint32(128)) + uint32(1)
+	let text = "cores 8\nmemory \(m)G\ndefault-memory \(d)G\n"
+	let cfg = ParseConfig(text, "/tmp/budget.conf") catch {
+	case ConfigError:
+		return false
+	}
+	cfg.DefaultMemory <= cfg.Memory && cfg.DefaultMemory >= uint64(1)*gibBytes
+}
+
+test TestConfigParseAndSize {
+	let m = ParseSize("40G") catch {
+	case ConfigError:
+		assert false
+		uint64(0)
+	}
+	assert m == uint64(40)*gibBytes
+	let k = ParseSize("512K") catch {
+	case ConfigError:
+		assert false
+		uint64(0)
+	}
+	assert k == uint64(512)*uint64(1024)
+
+	let cfg = ParseConfig("cores 16\nmemory 24G\ndefault-memory 30G\nshare 8\nbackfill 3\ngate-load 0\nstate st\nlog b.log\n", "/etc/ergo/budget.conf") catch {
+	case ConfigError:
+		assert false
+		Config{Path: "", Cores: uint32(0), Memory: uint64(0), DefaultMemory: uint64(0), Share: uint32(0), Backfill: uint32(0), State: "", Log: ""}
+	}
+	assert cfg.Cores == uint32(16)
+	assert cfg.Memory == uint64(24)*gibBytes
+	assert cfg.DefaultMemory == uint64(24)*gibBytes
+	assert cfg.Share == uint32(8)
+	assert cfg.Backfill == uint32(3)
+	assert cfg.State == "/etc/ergo/st"
+	assert cfg.Log == "/etc/ergo/b.log"
+
+	let mut gateErr = ""
+	let _ = ParseConfig("cores 4\ngate-load 1\n", "/tmp/b") catch {
+	case ConfigError as e:
+		gateErr = e.Message
+		cfg
+	}
+	assert strings.Contains(gateErr, "gate-load was removed")
+}

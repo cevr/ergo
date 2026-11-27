@@ -1,0 +1,44 @@
+{
+  "about": "Pure-Ergo producer qualification, semantic version checking, and Mach-O signature guards.",
+  "mutants": [
+    {
+      "name": "selfhost-toolchain-producer-require-empty",
+      "origin": "selfhost-toolchain-runtime",
+      "file": "compiler/producer/identity.ergo",
+      "decl": "Require",
+      "from": "\tif expected != \"\" && (id.Qualifier == \"\" || expected != id.Qualifier) {",
+      "to": "\tif false {",
+      "rule": "Producer Require must fail when expected qualification does not match the artifact qualifier.",
+      "killers": ["compiler/producer:TestProducerMemoRequireAndJSON"],
+      "anchor": {
+        "tests": ["compiler/producer:TestProducerMemoRequireAndJSON"]
+      }
+    },
+    {
+      "name": "selfhost-toolchain-producer-universal-accepted",
+      "origin": "selfhost-toolchain-runtime",
+      "file": "compiler/producer/codesign.ergo",
+      "decl": "VerifyCodeSignature",
+      "from": "\t\tif magic == FatMagic || magic == FatMagic64 {",
+      "to": "\t\tif magic == FatMagic && magic == FatMagic64 {",
+      "rule": "Universal fat Mach-O images must be refused explicitly rather than accepted or treated as thin headers.",
+      "killers": ["compiler/producer:TestSha384AndMachoVerifyErrorCases"],
+      "anchor": {
+        "tests": ["compiler/producer:TestSha384AndMachoVerifyErrorCases"]
+      }
+    },
+    {
+      "name": "selfhost-toolchain-producer-version-leading-zero",
+      "origin": "selfhost-toolchain-runtime",
+      "file": "compiler/producer/version.ergo",
+      "decl": "isSemverNumeral",
+      "from": "\tif s.Len() == 0 || (s.Len() > 1 && s[0] == byte('0')) {",
+      "to": "\tif s.Len() == 0 {",
+      "rule": "Semantic version components with leading zeroes must be rejected.",
+      "killers": ["compiler/producer:TestVersionValidationAndDerivation"],
+      "anchor": {
+        "tests": ["compiler/producer:TestVersionValidationAndDerivation"]
+      }
+    }
+  ]
+}

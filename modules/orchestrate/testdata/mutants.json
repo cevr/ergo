@@ -676,6 +676,175 @@
           "examples:modules/orchestrate"
         ]
       }
+    },
+    {
+      "name": "tandem-lane-held-ignored",
+      "origin": "wf10/ORCH-TANDEM",
+      "file": "modules/orchestrate/orchestrate/decide.ergo",
+      "from": "\t\t\t\treturn LaneHeld{Lane: lane.Value, Unit: holder.Value.Key, Actor: holder.Value.Owner}\n",
+      "to": "\t\t\t\tlet _ = holder\n",
+      "rule": "OpenUnit on a lane a live unit of the same repo holds is refused LaneHeld: LaneHeldAtMostOneLive.",
+      "killers": [],
+      "anchor": {
+        "tests": [
+          "examples:modules/orchestrate"
+        ]
+      }
+    },
+    {
+      "name": "tandem-lane-holder-counts-landed",
+      "origin": "wf10/ORCH-TANDEM",
+      "file": "modules/orchestrate/orchestrate/decide.ergo",
+      "from": "\tu.Key.Repo == repo && u.Lane == option.Some[string]{Value: lane} && !UnitFinal(u.Status)\n",
+      "to": "\tu.Key.Repo == repo && u.Lane == option.Some[string]{Value: lane}\n",
+      "rule": "A landed or closed unit frees its lane: LaneHeldAtMostOneLive.",
+      "killers": [],
+      "anchor": {
+        "tests": [
+          "examples:modules/orchestrate"
+        ]
+      }
+    },
+    {
+      "name": "tandem-sqlite-scope-omits-lane-holders",
+      "origin": "wf10/ORCH-TANDEM",
+      "file": "modules/orchestrate/sqlite/project.ergo",
+      "from": "\t\t\t\tunits = units.Put(u.Key, u)\n\t\t\t}\n\t\t\torchestrate.State{..withUnit, Units: units}\n",
+      "to": "\t\t\t\tlet _ = u\n\t\t\t}\n\t\t\torchestrate.State{..withUnit, Units: units}\n",
+      "rule": "The SQLite scope of OpenUnit loads the live units holding its lane: PersistenceChecks.SqliteAgreesWithMemory.",
+      "killers": [],
+      "anchor": {
+        "tests": [
+          "examples:modules/orchestrate"
+        ]
+      }
+    },
+    {
+      "name": "tandem-owner-check-skipped",
+      "origin": "wf10/ORCH-TANDEM",
+      "file": "modules/orchestrate/orchestrate/decide.ergo",
+      "from": "\tif u.Owner != actor {\n\t\treturn NotOwner{Unit: u.Key, Owner: u.Owner, Actor: actor}\n\t}\n",
+      "to": "\tif u.Owner == \"\" {\n\t\treturn NotOwner{Unit: u.Key, Owner: u.Owner, Actor: actor}\n\t}\n",
+      "rule": "A receipt, accept, land, close or transfer by a non-owner is refused NotOwner: NoMutationByNonOwner.",
+      "killers": [],
+      "anchor": {
+        "tests": [
+          "examples:modules/orchestrate"
+        ]
+      }
+    },
+    {
+      "name": "tandem-open-records-no-owner",
+      "origin": "wf10/ORCH-TANDEM",
+      "file": "modules/orchestrate/orchestrate/decide.ergo",
+      "from": "\t\t\tUnitOwnerChanged{Unit: c.Key, From: UnknownOwner, To: env.Actor, At: env.At},\n\t\t}\n",
+      "to": "\t\t}\n",
+      "rule": "The actor that opens a unit owns it: NoMutationByNonOwner, LaneHeldAtMostOneLive.",
+      "killers": [],
+      "anchor": {
+        "tests": [
+          "examples:modules/orchestrate"
+        ]
+      }
+    },
+    {
+      "name": "tandem-migration-skips-owners",
+      "origin": "wf10/ORCH-TANDEM",
+      "file": "modules/orchestrate/sqlite/schema.ergo",
+      "from": "\t\tlet _ = try execTx(\"ALTER TABLE units ADD COLUMN owner TEXT NOT NULL DEFAULT 'unknown'\", []sql.Value{})\n\t\ttry migrateOwnersTx()\n",
+      "to": "\t\tlet _ = try execTx(\"ALTER TABLE units ADD COLUMN owner TEXT NOT NULL DEFAULT 'unknown'\", []sql.Value{})\n",
+      "rule": "Migration gives each stored unit the actor of its opening command as owner: PersistenceChecks.MigrationV2ToV3PreservesExistingData.",
+      "killers": [],
+      "anchor": {
+        "tests": [
+          "examples:modules/orchestrate"
+        ]
+      }
+    },
+    {
+      "name": "tandem-busy-lease-taken",
+      "origin": "wf10/ORCH-TANDEM",
+      "file": "modules/orchestrate/orchestrate/decide.ergo",
+      "from": "\t\t\t\tif LeaseLive(held.Value, now) {\n\t\t\t\t\treturn LandingBusy{Actor: held.Value.Actor, Since: held.Value.Since}\n\t\t\t\t}\n",
+      "to": "\t\t\t\tif LeaseLive(held.Value, now) && false {\n\t\t\t\t\treturn LandingBusy{Actor: held.Value.Actor, Since: held.Value.Since}\n\t\t\t\t}\n",
+      "rule": "landing-begin during another actor's live lease is refused LandingBusy: LandingHeadMovesOnlyByLeaseHolder.",
+      "killers": [],
+      "anchor": {
+        "tests": [
+          "examples:modules/orchestrate"
+        ]
+      }
+    },
+    {
+      "name": "tandem-stale-head-accepted",
+      "origin": "wf10/ORCH-TANDEM",
+      "file": "modules/orchestrate/orchestrate/decide.ergo",
+      "from": "\t\t\tif h.Value != c.ExpectedHead {\n\t\t\t\treturn StaleHead{Have: c.ExpectedHead, Want: h.Value}\n",
+      "to": "\t\t\tif h.Value == \"\" {\n\t\t\t\treturn StaleHead{Have: c.ExpectedHead, Want: h.Value}\n",
+      "rule": "landing-begin from a head other than the run head is refused StaleHead; the head never moves from another: LandingHeadMovesOnlyByLeaseHolder.",
+      "killers": [],
+      "anchor": {
+        "tests": [
+          "examples:modules/orchestrate"
+        ]
+      }
+    },
+    {
+      "name": "tandem-takeover-silent",
+      "origin": "wf10/ORCH-TANDEM",
+      "file": "modules/orchestrate/orchestrate/decide.ergo",
+      "from": "\t\t\t\tout = out.Append(LandingLeaseTakenOver{Repo: c.Repo, Run: c.Run, From: held.Value.Actor, FromSince: held.Value.Since, To: env.Actor, At: env.At})\n",
+      "to": "",
+      "rule": "Taking over an expired lease is a recorded LandingLeaseTakenOver: LandingHeadMovesOnlyByLeaseHolder.",
+      "killers": [],
+      "anchor": {
+        "tests": [
+          "examples:modules/orchestrate"
+        ]
+      }
+    },
+    {
+      "name": "tandem-land-outside-lease",
+      "origin": "wf10/ORCH-TANDEM",
+      "file": "modules/orchestrate/orchestrate/decide.ergo",
+      "from": "\t\tlet _ = try heldLease(state, c.Unit.Repo, c.Unit.Run, env.Actor, try unixAt(env.At))\n",
+      "to": "",
+      "rule": "unit-land outside the actor's live lease is refused: LandingHeadMovesOnlyByLeaseHolder.",
+      "killers": [],
+      "anchor": {
+        "tests": [
+          "examples:modules/orchestrate"
+        ]
+      }
+    },
+    {
+      "name": "tandem-end-by-anyone",
+      "origin": "wf10/ORCH-TANDEM",
+      "file": "modules/orchestrate/orchestrate/decide.ergo",
+      "from": "\t\tif l.Value.Actor != actor || !live {\n",
+      "to": "\t\tif !live {\n",
+      "rule": "Only the live lease's holder ends a landing and moves the head: LandingHeadMovesOnlyByLeaseHolder.",
+      "killers": [],
+      "anchor": {
+        "tests": [
+          "examples:modules/orchestrate"
+        ]
+      }
+    },
+    {
+      "name": "tandem-import-moves-head",
+      "origin": "wf10/ORCH-TANDEM",
+      "file": "modules/orchestrate/orchestrate/decide.ergo",
+      "from": "\t\t\tif RunHead(state, c.Repo, c.Run) == option.None {\n",
+      "to": "\t\t\tif true {\n",
+      "rule": "import-plan sets only an empty run's head; the head otherwise moves only by landing-end.",
+      "killers": [],
+      "gap": "no law drives an import into a run that has a head (follow-up)",
+      "anchor": {
+        "tests": [
+          "examples:modules/orchestrate"
+        ]
+      }
     }
   ]
 }

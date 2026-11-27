@@ -1,0 +1,455 @@
+import filepath
+import json
+import option
+import slices
+import strconv
+import strings
+
+// WorkloadFile names a program directory's workload specification file.
+let WorkloadFile = "workload"
+
+// HookFile names the injected exit counter hook source file in measured builds.
+let HookFile = "zz_opcount_hook.go"
+
+// HookVariable names the environment variable configuring the exit hook output file.
+let HookVariable = "OPCOUNT_OUT"
+
+// ProfileHookFile names the injected CPU profile hook file in profiling builds.
+let ProfileHookFile = "zz_opcount_profile.go"
+
+// ProfileVariable names the environment variable configuring the CPU profile output file.
+let ProfileVariable = "OPCOUNT_PROFILE"
+
+// Hook is the Go source template injected into measured package main builds.
+let Hook = strings.Join([]string{
+	"package main",
+	"",
+	"// Exit hook of scripts/opcount (internal/opcount/hook.go); a measured",
+	"// build only.",
+	"",
+	"import (",
+	"\t\"fmt\"",
+	"\t\"os\"",
+	"\t\"runtime\"",
+	"\t\"runtime/metrics\"",
+	"\t\"strings\"",
+	"\t_ \"unsafe\"",
+	")",
+	"",
+	"type opcountExitHook struct {",
+	"\tF            func()",
+	"\tRunOnFailure bool",
+	"}",
+	"",
+	"//go:linkname opcountExithookAdd internal/runtime/exithook.Add",
+	"func opcountExithookAdd(h opcountExitHook)",
+	"",
+	"func init() {",
+	"\tout := os.Getenv(\"" + HookVariable + "\")",
+	"\tif out == \"\" {",
+	"\t\treturn",
+	"\t}",
+	"\topcountExithookAdd(opcountExitHook{F: func() {",
+	"\t\tvar m runtime.MemStats",
+	"\t\truntime.ReadMemStats(&m)",
+	"\t\tvar b strings.Builder",
+	"\t\tfmt.Fprintf(&b, \"allocs %d\\nalloc_bytes %d\\ngc_cycles %d\\n\", m.Mallocs, m.TotalAlloc, m.NumGC)",
+	"\t\truntime.GC()",
+	"\t\tsamples := []metrics.Sample{{Name: \"/gc/heap/live:bytes\"}, {Name: \"/cpu/classes/gc/total:cpu-seconds\"}, {Name: \"/cpu/classes/total:cpu-seconds\"}, {Name: \"/cpu/classes/idle:cpu-seconds\"}}",
+	"\t\tmetrics.Read(samples)",
+	"\t\tfmt.Fprintf(&b, \"live_heap_bytes %d\\n\", samples[0].Value.Uint64())",
+	"\t\tif busy := samples[2].Value.Float64() - samples[3].Value.Float64(); busy > 0 {",
+	"\t\t\tfmt.Fprintf(&b, \"gc_cpu_share %g\\n\", samples[1].Value.Float64()/busy)",
+	"\t\t}",
+	"\t\tif status, err := os.ReadFile(\"/proc/self/status\"); err == nil {",
+	"\t\t\tfor _, line := range strings.Split(string(status), \"\\n\") {",
+	"\t\t\t\tif v, ok := strings.CutPrefix(line, \"VmHWM:\"); ok {",
+	"\t\t\t\t\tfmt.Fprintf(&b, \"peak_rss_kib %s\\n\", strings.TrimSuffix(strings.TrimSpace(v), \" kB\"))",
+	"\t\t\t\t}",
+	"\t\t\t}",
+	"\t\t}",
+	"\t\tos.WriteFile(out, []byte(b.String()), 0o644)",
+	"\t}, RunOnFailure: true})",
+	"}",
+	"",
+}, "\n")
+
+// ProfileHook is the Go source template injected into profiling package main builds.
+let ProfileHook = strings.Join([]string{
+	"package main",
+	"",
+	"// Profile hook of scripts/opcount -profile (internal/opcount/hook.go); a",
+	"// profiling build only.",
+	"",
+	"import (",
+	"\t\"os\"",
+	"\t\"runtime/pprof\"",
+	"\t_ \"unsafe\"",
+	")",
+	"",
+	"type opcountProfileHook struct {",
+	"\tF            func()",
+	"\tRunOnFailure bool",
+	"}",
+	"",
+	"//go:linkname opcountProfileHookAdd internal/runtime/exithook.Add",
+	"func opcountProfileHookAdd(h opcountProfileHook)",
+	"",
+	"func init() {",
+	"\tout := os.Getenv(\"" + ProfileVariable + "\")",
+	"\tif out == \"\" {",
+	"\t\treturn",
+	"\t}",
+	"\tf, err := os.Create(out)",
+	"\tif err != nil {",
+	"\t\treturn",
+	"\t}",
+	"\tif pprof.StartCPUProfile(f) != nil {",
+	"\t\tf.Close()",
+	"\t\treturn",
+	"\t}",
+	"\topcountProfileHookAdd(opcountProfileHook{F: func() {",
+	"\t\tpprof.StopCPUProfile()",
+	"\t\tf.Close()",
+	"\t}, RunOnFailure: true})",
+	"}",
+	"",
+}, "\n")
+
+// Workload describes a parsed opcount workload configuration.
+type Workload {
+	Unit      string,
+	Small     uint32,
+	Large     uint32,
+	Args      []string,
+	Binary    string,
+	Procs     uint32,
+	InputKind string,
+	InputDir  string,
+	InputArgs []string,
+	Control   string,
+	Floor     string,
+}
+
+// Problem describes one diagnostic line in a workload file (Line 0 for whole-file issues).
+type Problem {
+	Line uint32,
+	Text string,
+}
+
+// FormatProblem renders p cleanly matching Go Problem.String().
+func FormatProblem(p Problem) string {
+	if p.Line == uint32(0) {
+		return p.Text
+	}
+	"line \(p.Line): \(p.Text)"
+}
+
+// ParseWorkload parses and validates a workload specification string, returning all problems found.
+func ParseWorkload(text string) (Workload, []Problem) {
+	let mut w = Workload{
+		Unit:      "",
+		Small:     uint32(0),
+		Large:     uint32(0),
+		Args:      []string{},
+		Binary:    "",
+		Procs:     uint32(1),
+		InputKind: "",
+		InputDir:  "",
+		InputArgs: []string{},
+		Control:   "",
+		Floor:     "",
+	}
+	let mut hasArgs = false
+	let mut problems = []Problem{}
+	let mut seen = Map[string, uint32]{}
+	let mut usesInput = false
+	let mut sized = false
+
+	let rawLines = strings.Split(text, "\n")
+	for idx in 0..rawLines.Len() {
+		let line = uint32(idx + 1)
+		let trimmed = strings.TrimSpace(rawLines[idx])
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+		let fields = strings.Fields(trimmed)
+		let key = fields[0]
+		let rest = fields[1:fields.Len()]
+		match seen.Get(key) {
+		case option.Some{Value: first}:
+			problems = problems.Append(Problem{Line: line, Text: "\(key) again (first on line \(first))"})
+			continue
+		case option.None:
+		}
+		seen = seen.Put(key, line)
+		if key == "unit" {
+			if rest.Len() != 1 || !isValidUnitName(rest[0]) {
+				problems = problems.Append(Problem{Line: line, Text: "unit takes one lower-case name, such as op or row"})
+				continue
+			}
+			w.Unit = rest[0]
+		} else if key == "sizes" {
+			if rest.Len() != 2 {
+				problems = problems.Append(Problem{Line: line, Text: "sizes takes two sizes, SMALL LARGE"})
+				continue
+			}
+			let mut ok1 = true
+			let small = strconv.Atoi(rest[0]) catch {
+			case strconv.Malformed, strconv.OutOfRange:
+				ok1 = false
+				0
+			}
+			let mut ok2 = true
+			let large = strconv.Atoi(rest[1]) catch {
+			case strconv.Malformed, strconv.OutOfRange:
+				ok2 = false
+				0
+			}
+			if !ok1 || !ok2 || small <= 0 || large <= small {
+				problems = problems.Append(Problem{Line: line, Text: "sizes \(rest[0]) \(rest[1]): want two whole numbers with 0 < SMALL < LARGE"})
+				continue
+			}
+			w.Small = uint32(small)
+			w.Large = uint32(large)
+		} else if key == "args" {
+			if rest.Len() == 0 {
+				problems = problems.Append(Problem{Line: line, Text: "args takes the program's arguments"})
+				continue
+			}
+			let (nextProblems, nextSized, nextUsesInput) = scanPlaceholders(line, rest, true, problems, sized, usesInput)
+			problems = nextProblems
+			sized = nextSized
+			usesInput = nextUsesInput
+			w.Args = rest
+			hasArgs = true
+		} else if key == "binary" {
+			if rest.Len() != 1 || strings.IndexAny(rest[0], "/\\.") >= 0 {
+				problems = problems.Append(Problem{Line: line, Text: "binary takes the name of one cmd/NAME folder"})
+				continue
+			}
+			w.Binary = rest[0]
+		} else if key == "procs" {
+			let mut okP = true
+			let n = strconv.Atoi(strings.Join(rest, " ")) catch {
+			case strconv.Malformed, strconv.OutOfRange:
+				okP = false
+				0
+			}
+			if !okP || n < 1 {
+				problems = problems.Append(Problem{Line: line, Text: "procs takes a whole number of at least 1"})
+				continue
+			}
+			w.Procs = uint32(n)
+		} else if key == "input" {
+			if rest.Len() >= 2 && rest[0] == "self" {
+				w.InputKind = "self"
+				w.InputArgs = rest[1:rest.Len()]
+			} else if rest.Len() >= 2 && rest[0] == "go" && cleanRel(rest[1]) {
+				w.InputKind = "go"
+				w.InputDir = rest[1]
+				w.InputArgs = rest[2:rest.Len()]
+			} else {
+				problems = problems.Append(Problem{Line: line, Text: "input takes `self ARGS…` or `go DIR ARGS…` (DIR relative to the repository root)"})
+				continue
+			}
+			let (nextProblems, nextSized, nextUsesInput) = scanPlaceholders(line, w.InputArgs, false, problems, sized, usesInput)
+			problems = nextProblems
+			sized = nextSized
+			usesInput = nextUsesInput
+		} else if key == "control" {
+			if rest.Len() != 1 || !cleanRel(rest[0]) {
+				problems = problems.Append(Problem{Line: line, Text: "control takes one Go package folder, relative to the repository root"})
+				continue
+			}
+			w.Control = rest[0]
+		} else if key == "floor" {
+			if rest.Len() != 1 || !cleanRel(rest[0]) {
+				problems = problems.Append(Problem{Line: line, Text: "floor takes one Go package folder, relative to the repository root"})
+				continue
+			}
+			w.Floor = rest[0]
+		} else {
+			problems = problems.Append(Problem{Line: line, Text: "unknown key \(strconv.Quote(key)); a workload has unit, sizes, args, binary, procs, input, control and floor"})
+		}
+	}
+	for reqKey in []string{"unit", "sizes", "args"} {
+		if seen.Get(reqKey) == option.None {
+			problems = problems.Append(Problem{Line: uint32(0), Text: "no \(reqKey) line"})
+		}
+	}
+	match seen.Get("args") {
+	case option.Some{Value: line}:
+		if hasArgs {
+			if usesInput && w.InputKind == "" {
+				problems = problems.Append(Problem{Line: line, Text: "args name {input}, and there is no input line"})
+			}
+			if !sized {
+				problems = problems.Append(Problem{Line: line, Text: "neither args nor the input name {n}: both sizes would do the same work"})
+			}
+		}
+	case option.None:
+	}
+	(w, problems)
+}
+
+// ExpandWorkload replaces {n} and {input} placeholders across args.
+func ExpandWorkload(args []string, n uint32, input string) []string {
+	let nStr = strconv.Itoa(int(n))
+	let mut out = slices.WithCapacity[string](args.Len())
+	for a in args {
+		let r1 = strings.ReplaceAll(a, "{n}", nStr)
+		out = out.Append(strings.ReplaceAll(r1, "{input}", input))
+	}
+	out
+}
+
+// FromStdin reports whether w sends generated input via stdin instead of {input}.
+func FromStdin(w Workload) bool {
+	if w.InputKind == "" {
+		return false
+	}
+	for a in w.Args {
+		if strings.Contains(a, "{input}") {
+			return false
+		}
+	}
+	true
+}
+
+func encodeWorkloadJSON(t json.Text, w Workload) {
+	let mut n = 3
+	if w.Binary != "" {
+		n = n + 1
+	}
+	if w.InputKind != "" {
+		n = n + 1
+	}
+	if w.InputDir != "" {
+		n = n + 1
+	}
+	if w.InputArgs.Len() > 0 {
+		n = n + 1
+	}
+	if w.Control != "" {
+		n = n + 1
+	}
+	if w.Floor != "" {
+		n = n + 1
+	}
+	t.BeginObject(n)
+	t.Key("unit")
+	t.String(w.Unit)
+	t.Key("args")
+	t.BeginList(w.Args.Len())
+	for a in w.Args {
+		t.String(a)
+	}
+	t.EndList()
+	if w.Binary != "" {
+		t.Key("binary")
+		t.String(w.Binary)
+	}
+	t.Key("procs")
+	t.Uint(uint64(w.Procs))
+	if w.InputKind != "" {
+		t.Key("input_kind")
+		t.String(w.InputKind)
+	}
+	if w.InputDir != "" {
+		t.Key("input_dir")
+		t.String(w.InputDir)
+	}
+	if w.InputArgs.Len() > 0 {
+		t.Key("input_args")
+		t.BeginList(w.InputArgs.Len())
+		for a in w.InputArgs {
+			t.String(a)
+		}
+		t.EndList()
+	}
+	if w.Control != "" {
+		t.Key("control")
+		t.String(w.Control)
+	}
+	if w.Floor != "" {
+		t.Key("floor")
+		t.String(w.Floor)
+	}
+	t.EndObject()
+}
+
+func cleanRel(p string) bool {
+	p != "" && p != "." && !filepath.IsAbs(p) && filepath.Clean(p) == p && !strings.HasPrefix(p, "../") && p != ".."
+}
+
+func isValidUnitName(s string) bool {
+	if s.Len() == 0 {
+		return false
+	}
+	let first = s[0]
+	if first < byte('a') || first > byte('z') {
+		return false
+	}
+	for i in 1..s.Len() {
+		let b = s[i]
+		let isLower = b >= byte('a') && b <= byte('z')
+		let isDigit = b >= byte('0') && b <= byte('9')
+		if !isLower && !isDigit && b != byte('-') {
+			return false
+		}
+	}
+	true
+}
+
+func scanPlaceholders(line uint32, fields []string, inputOK bool, problemsIn []Problem, sizedIn bool, usesInputIn bool) ([]Problem, bool, bool) {
+	let mut problems = problemsIn
+	let mut sized = sizedIn
+	let mut usesInput = usesInputIn
+	for f in fields {
+		let mut pos = 0
+		for pos < f.Len() {
+			let relOpen = strings.IndexByte(f[pos:f.Len()], byte('{'))
+			if relOpen < 0 {
+				break
+			}
+			let open = pos + relOpen
+			let relClose = strings.IndexByte(f[open+1:f.Len()], byte('}'))
+			if relClose < 0 {
+				break
+			}
+			let close = open + 1 + relClose
+			let p = f[open : close+1]
+			if p == "{n}" {
+				sized = true
+			} else if p == "{input}" && inputOK {
+				usesInput = true
+			} else {
+				problems = problems.Append(Problem{Line: line, Text: "\(p): unknown placeholder; args take {n} and {input}, an input's arguments {n}"})
+			}
+			pos = close + 1
+		}
+	}
+	(problems, sized, usesInput)
+}
+
+// ExpandReplacesPlaceholders checks that ExpandWorkload substitutes {n} and {input} in every element.
+law ExpandReplacesPlaceholders(a string, b string, n uint32) {
+	let out = ExpandWorkload([]string{"{n}-" + a, b + "-{input}"}, n, "in.dat")
+	out.Len() == 2 && !strings.Contains(out[0], "{n}") && !strings.Contains(out[1], "{input}")
+}
+
+test TestWorkloadAndHookTemplates {
+	let (w, ps) = ParseWorkload("unit op\nsizes 10 100\nargs run {n} {input}\ninput self gen {n}\ncontrol ref/ctrl\nfloor ref/floor\nprocs 4\n")
+	assert ps.Len() == 0
+	assert w.Unit == "op" && w.Small == uint32(10) && w.Large == uint32(100)
+	assert w.Procs == uint32(4) && w.Control == "ref/ctrl" && w.Floor == "ref/floor"
+	assert !FromStdin(w)
+
+	let (badW, badPs) = ParseWorkload("unit BAD\nsizes 100 10\nargs run\nfoo bar\n")
+	assert badPs.Len() >= 3
+	let _ = badW
+
+	assert strings.Contains(Hook, "opcountExithookAdd") && strings.Contains(Hook, HookVariable)
+	assert strings.Contains(ProfileHook, "opcountProfileHookAdd") && strings.Contains(ProfileHook, ProfileVariable)
+}

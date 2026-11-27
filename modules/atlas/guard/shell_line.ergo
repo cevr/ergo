@@ -1,0 +1,942 @@
+import option
+import strings
+
+// ShellWord represents one parsed shell token and whether it was quoted or bare at start.
+type ShellWord {
+	Text         string,
+	BareStart    bool,
+	SingleQuoted bool,
+}
+
+// ShellStatement represents a single command invocation slice separated by shell operators.
+type ShellStatement {
+	Words          []ShellWord,
+	Op             string,
+	PrecededByPipe bool,
+	Raw            string,
+}
+
+// PlacedCommand pairs an unwrapped command's words with resolved working directory and env bindings.
+type PlacedCommand {
+	Words          []ShellWord,
+	Dir            string,
+	Env            Map[string, string],
+	FromSubshell   bool,
+	PrecededByPipe bool,
+}
+
+// BadShellSyntax indicates a shell command could not be tokenized or exceeded expansion bounds.
+type BadShellSyntax {
+	Reason string,
+}
+
+func maxExpandDepth() int { 4 }
+
+func isSpaceByte(b byte) bool {
+	b == byte(' ') || b == byte('\t') || b == byte('\r')
+}
+
+func isOperatorByte(b byte) bool {
+	b == byte(';') || b == byte('&') || b == byte('|') || b == byte('\n') || b == byte('(') || b == byte(')')
+}
+
+func isWordStop(b byte) bool {
+	isSpaceByte(b) || isOperatorByte(b)
+}
+
+func cloneStringMap(m Map[string, string]) Map[string, string] {
+	let mut out = Map[string, string]{}
+	for k, v in m {
+		out[k] = v
+	}
+	out
+}
+
+func isValidEnvName(name string) bool {
+	let bs = name.Bytes()
+	let n = bs.Len()
+	if n == 0 {
+		return false
+	}
+	let first = bs[0]
+	if !((first >= byte('A') && first <= byte('Z')) || (first >= byte('a') && first <= byte('z')) || first == byte('_')) {
+		return false
+	}
+	let mut i = 1
+	for i < n {
+		let b = bs[i]
+		if !((b >= byte('A') && b <= byte('Z')) || (b >= byte('a') && b <= byte('z')) || (b >= byte('0') && b <= byte('9')) || b == byte('_')) {
+			return false
+		}
+		i = i + 1
+	}
+	true
+}
+
+func parseEnvAssignment(text string) option.Option[strings.Halves] {
+	match strings.Cut(text, "=") {
+	case option.Some[strings.Halves] as h:
+		if isValidEnvName(h.Value.Before) {
+			return h
+		}
+		option.None
+	case option.None:
+		option.None
+	}
+}
+
+func isPrefixCommand(name string) bool {
+	name == "sudo" || name == "env" || name == "command" || name == "builtin" || name == "exec" || name == "nohup" || name == "time" || name == "!" || name == "{"
+}
+
+func isSudoFlagWithArg(flag string) bool {
+	flag == "-u" || flag == "--user" || flag == "-g" || flag == "--group" || flag == "-h" || flag == "--host" || flag == "-p" || flag == "--prompt" || flag == "-C" || flag == "-D" || flag == "--chdir" || flag == "-R" || flag == "--chroot" || flag == "-T"
+}
+
+func isEnvFlagWithArg(flag string) bool {
+	flag == "-u" || flag == "--unset" || flag == "-C" || flag == "--chdir" || flag == "-S" || flag == "--split-string"
+}
+
+func isShellInterpreter(name string) bool {
+	let base = BasenamePosix(name)
+	base == "sh" || base == "bash" || base == "zsh" || base == "dash" || base == "ash" || base == "ksh"
+}
+
+func readQuotedHeredoc(bs []byte, start int, q byte) (string, int) {
+	let n = bs.Len()
+	let mut i = start + 1
+	let mut out = ""
+	for i < n && bs[i] != q {
+		if q == byte('"') && bs[i] == byte('\\') && i+1 < n {
+			out = out + bs[i+1:i+2].Text()
+			i = i + 2
+		} else {
+			out = out + bs[i:i+1].Text()
+			i = i + 1
+		}
+	}
+	if i < n {
+		i = i + 1
+	}
+	(out, i)
+}
+
+func readHeredocDelim(bs []byte, start int) (int, option.Option[string]) {
+	let n = bs.Len()
+	let mut i = start
+	let mut delim = ""
+	for i < n && !isSpaceByte(bs[i]) && !isOperatorByte(bs[i]) {
+		if bs[i] == byte('\'') || bs[i] == byte('"') {
+			let (seg, next) = readQuotedHeredoc(bs, i, bs[i])
+			delim = delim + seg
+			i = next
+		} else if bs[i] == byte('\\') && i+1 < n {
+			delim = delim + bs[i+1:i+2].Text()
+			i = i + 2
+		} else {
+			delim = delim + bs[i:i+1].Text()
+			i = i + 1
+		}
+	}
+	if delim == "" {
+		return (i, option.None)
+	}
+	(i, option.Some[string]{Value: delim})
+}
+
+func parseRedirAndHeredoc(bs []byte, start int) (int, option.Option[string], bool) {
+	let n = bs.Len()
+	if start+1 >= n || bs[start] != byte('<') || bs[start+1] != byte('<') {
+		return (start, option.None, false)
+	}
+	let mut i = start + 2
+	let mut stripTabs = false
+	if i < n && bs[i] == byte('-') {
+		stripTabs = true
+		i = i + 1
+	}
+	for i < n && (bs[i] == byte(' ') || bs[i] == byte('\t')) {
+		i = i + 1
+	}
+	if i >= n || isOperatorByte(bs[i]) {
+		return (i, option.None, stripTabs)
+	}
+	let (nextI, delimOpt) = readHeredocDelim(bs, i)
+	(nextI, delimOpt, stripTabs)
+}
+
+func skipHeredocBodies(bs []byte, start int, delims []string, stripTabs []bool) int {
+	let n = bs.Len()
+	let mut i = start
+	let mut k = 0
+	for k < delims.Len() {
+		let delim = delims[k]
+		let strip = stripTabs[k]
+		let mut found = false
+		for i < n && !found {
+			let lineStart = i
+			for i < n && bs[i] != byte('\n') {
+				i = i + 1
+			}
+			let mut line = bs[lineStart:i].Text()
+			if strings.HasSuffix(line, "\r") {
+				line = strings.TrimSuffix(line, "\r")
+			}
+			if strip {
+				line = strings.TrimLeft(line, "\t")
+			}
+			if line == delim {
+				found = true
+			}
+			if i < n && bs[i] == byte('\n') {
+				i = i + 1
+			}
+		}
+		k = k + 1
+	}
+	i
+}
+
+type wordReadResult {
+	Word ShellWord,
+	Next int,
+}
+
+func readSingleQuoted(bs []byte, start int) (string, int) fails BadShellSyntax {
+	let n = bs.Len()
+	let mut i = start + 1
+	for i < n && bs[i] != byte('\'') {
+		i = i + 1
+	}
+	if i >= n {
+		return BadShellSyntax{Reason: "unterminated single quote"}
+	}
+	(bs[start+1 : i].Text(), i + 1)
+}
+
+func scanParenSubst(bs []byte, start int) (string, int) fails BadShellSyntax {
+	let n = bs.Len()
+	let mut depth = 1
+	let mut i = start + 2
+	for i < n && depth > 0 {
+		let b = bs[i]
+		if b == byte('\\') && i+1 < n {
+			i = i + 2
+		} else if b == byte('\'') {
+			let (_, next) = try readSingleQuoted(bs, i)
+			i = next
+		} else if b == byte('(') {
+			depth = depth + 1
+			i = i + 1
+		} else if b == byte(')') {
+			depth = depth - 1
+			i = i + 1
+		} else {
+			i = i + 1
+		}
+	}
+	if depth != 0 {
+		return BadShellSyntax{Reason: "unterminated command substitution"}
+	}
+	(bs[start:i].Text(), i)
+}
+
+func readDoubleQuoted(bs []byte, start int) (string, int) fails BadShellSyntax {
+	let n = bs.Len()
+	let mut i = start + 1
+	let mut text = ""
+	for i < n && bs[i] != byte('"') {
+		let b = bs[i]
+		if b == byte('\\') {
+			if i+1 >= n {
+				return BadShellSyntax{Reason: "unterminated escape in double quote"}
+			}
+			let next = bs[i+1]
+			if next == byte('"') || next == byte('\\') || next == byte('$') || next == byte('`') || next == byte('\n') {
+				if next != byte('\n') {
+					text = text + bs[i+1:i+2].Text()
+				}
+			} else {
+				text = text + bs[i:i+2].Text()
+			}
+			i = i + 2
+		} else if b == byte('$') && i+1 < n && bs[i+1] == byte('(') {
+			let (sub, next) = try scanParenSubst(bs, i)
+			text = text + sub
+			i = next
+		} else {
+			text = text + bs[i:i+1].Text()
+			i = i + 1
+		}
+	}
+	if i >= n {
+		return BadShellSyntax{Reason: "unterminated double quote"}
+	}
+	(text, i + 1)
+}
+
+func scanBacktickSubst(bs []byte, start int) (string, int) fails BadShellSyntax {
+	let n = bs.Len()
+	let mut i = start + 1
+	for i < n && bs[i] != byte('`') {
+		if bs[i] == byte('\\') && i+1 < n {
+			i = i + 2
+		} else {
+			i = i + 1
+		}
+	}
+	if i >= n {
+		return BadShellSyntax{Reason: "unterminated backtick command substitution"}
+	}
+	(bs[start : i+1].Text(), i + 1)
+}
+
+func readShellWord(bs []byte, start int) wordReadResult fails BadShellSyntax {
+	let n = bs.Len()
+	let mut i = start
+	let mut text = ""
+	let bareStart = bs[i] != byte('\'') && bs[i] != byte('"')
+	let mut sawSingle = false
+	let mut sawOther = false
+
+	for i < n && !isWordStop(bs[i]) {
+		let b = bs[i]
+		if b == byte('\'') {
+			sawSingle = true
+			let (seg, next) = try readSingleQuoted(bs, i)
+			text = text + seg
+			i = next
+		} else if b == byte('"') {
+			sawOther = true
+			let (seg, next) = try readDoubleQuoted(bs, i)
+			text = text + seg
+			i = next
+		} else if b == byte('\\') {
+			sawOther = true
+			if i+1 >= n {
+				return BadShellSyntax{Reason: "trailing backslash"}
+			}
+			if bs[i+1] != byte('\n') {
+				text = text + bs[i+1:i+2].Text()
+			}
+			i = i + 2
+		} else if b == byte('$') && i+1 < n && bs[i+1] == byte('(') {
+			sawOther = true
+			let (sub, next) = try scanParenSubst(bs, i)
+			text = text + sub
+			i = next
+		} else if b == byte('`') {
+			sawOther = true
+			let (sub, next) = try scanBacktickSubst(bs, i)
+			text = text + sub
+			i = next
+		} else {
+			sawOther = true
+			text = text + bs[i:i+1].Text()
+			i = i + 1
+		}
+	}
+
+	wordReadResult{
+		Word: ShellWord{Text: text, BareStart: bareStart, SingleQuoted: sawSingle && !sawOther},
+		Next: i,
+	}
+}
+
+func readOperator(bs []byte, i int) (string, int) {
+	let n = bs.Len()
+	let b = bs[i]
+	if b == byte('&') && i+1 < n && bs[i+1] == byte('&') {
+		return ("&&", i + 2)
+	}
+	if b == byte('|') && i+1 < n && bs[i+1] == byte('|') {
+		return ("||", i + 2)
+	}
+	if b == byte(';') && i+1 < n && bs[i+1] == byte(';') {
+		return (";;", i + 2)
+	}
+	(bs[i : i+1].Text(), i + 1)
+}
+
+func isCommentHash(bs []byte, i int, wordsLen int) bool {
+	if bs[i] != byte('#') {
+		return false
+	}
+	wordsLen == 0 || (i > 0 && (isSpaceByte(bs[i-1]) || isOperatorByte(bs[i-1])))
+}
+
+func skipToNewline(bs []byte, start int) int {
+	let n = bs.Len()
+	let mut i = start
+	for i < n && bs[i] != byte('\n') {
+		i = i + 1
+	}
+	i
+}
+
+// SplitStatements splits a shell script into operator-separated statements while skipping comments and heredoc bodies.
+func SplitStatements(command string) []ShellStatement fails BadShellSyntax {
+	let bs = command.Bytes()
+	let n = bs.Len()
+	let mut i = 0
+	let mut stmts = []ShellStatement{}
+	let mut words = []ShellWord{}
+	let mut stmtStart = 0
+	let mut heredocDelims = []string{}
+	let mut heredocStrips = []bool{}
+	let mut precededByPipe = false
+
+	for i < n {
+		let b = bs[i]
+		if isSpaceByte(b) {
+			i = i + 1
+		} else if b == byte('\\') && i+1 < n && bs[i+1] == byte('\n') {
+			i = i + 2
+		} else if isCommentHash(bs, i, words.Len()) {
+			i = skipToNewline(bs, i)
+		} else if b == byte('<') && i+1 < n && bs[i+1] == byte('<') {
+			let (nextI, delimOpt, strip) = parseRedirAndHeredoc(bs, i)
+			match delimOpt {
+			case option.Some[string] as d:
+				heredocDelims = heredocDelims.Append(d.Value)
+				heredocStrips = heredocStrips.Append(strip)
+				i = nextI
+			case option.None:
+				let wr = try readShellWord(bs, i)
+				words = words.Append(wr.Word)
+				i = wr.Next
+			}
+		} else if isOperatorByte(b) {
+			let (op, nextI) = readOperator(bs, i)
+			if words.Len() > 0 {
+				stmts = stmts.Append(ShellStatement{
+					Words:          words,
+					Op:             op,
+					PrecededByPipe: precededByPipe,
+					Raw:            strings.TrimSpace(bs[stmtStart:i].Text()),
+				})
+				words = []ShellWord{}
+			}
+			precededByPipe = op == "|"
+			i = nextI
+			if b == byte('\n') && heredocDelims.Len() > 0 {
+				i = skipHeredocBodies(bs, i, heredocDelims, heredocStrips)
+				heredocDelims = []string{}
+				heredocStrips = []bool{}
+			}
+			stmtStart = i
+		} else {
+			let wr = try readShellWord(bs, i)
+			words = words.Append(wr.Word)
+			i = wr.Next
+		}
+	}
+	if words.Len() > 0 {
+		stmts = stmts.Append(ShellStatement{
+			Words:          words,
+			Op:             "",
+			PrecededByPipe: precededByPipe,
+			Raw:            strings.TrimSpace(bs[stmtStart:n].Text()),
+		})
+	}
+	stmts
+}
+
+// CleanPosix normalizes ".", "..", and redundant "/" separators in a POSIX path string.
+func CleanPosix(raw string) string {
+	if raw == "" {
+		return "."
+	}
+	let isAbs = strings.HasPrefix(raw, "/")
+	let parts = strings.Split(raw, "/")
+	let mut stack = []string{}
+	for p in parts {
+		if p == "" || p == "." {
+			continue
+		}
+		if p == ".." {
+			if stack.Len() > 0 && stack[stack.Len()-1] != ".." {
+				stack = stack[0 : stack.Len()-1]
+			} else if !isAbs {
+				stack = stack.Append("..")
+			}
+		} else {
+			stack = stack.Append(p)
+		}
+	}
+	let joined = strings.Join(stack, "/")
+	if isAbs {
+		if joined == "" {
+			return "/"
+		}
+		return "/" + joined
+	}
+	if joined == "" {
+		return "."
+	}
+	joined
+}
+
+// ResolvePosix resolves raw against baseDir using POSIX path cleaning.
+func ResolvePosix(baseDir string, raw string) string {
+	if raw == "" {
+		return CleanPosix(baseDir)
+	}
+	if strings.HasPrefix(raw, "/") {
+		return CleanPosix(raw)
+	}
+	if baseDir == "" {
+		return CleanPosix(raw)
+	}
+	if baseDir == "/" {
+		return CleanPosix("/" + raw)
+	}
+	CleanPosix(baseDir + "/" + raw)
+}
+
+// BasenamePosix returns the final POSIX path component for raw.
+func BasenamePosix(raw string) string {
+	let c = CleanPosix(raw)
+	if c == "/" {
+		return "/"
+	}
+	let idx = strings.LastIndex(c, "/")
+	if idx < 0 {
+		return c
+	}
+	strings.Slice(c, idx+1, c.Len())
+}
+
+// PosixWithin reports whether target equals ancestor or lies strictly inside ancestor.
+func PosixWithin(target string, ancestor string) bool {
+	let t = CleanPosix(target)
+	let a = CleanPosix(ancestor)
+	if a == "/" {
+		return strings.HasPrefix(t, "/")
+	}
+	t == a || strings.HasPrefix(t, a+"/")
+}
+
+func isVarCharByte(b byte) bool {
+	(b >= byte('A') && b <= byte('Z')) || (b >= byte('a') && b <= byte('z')) || (b >= byte('0') && b <= byte('9')) || b == byte('_')
+}
+
+func resolveVarValue(varName string, dir string, home string, env Map[string, string]) option.Option[string] {
+	if varName == "HOME" {
+		if home == "" {
+			return option.None
+		}
+		return option.Some[string]{Value: home}
+	}
+	if varName == "PWD" {
+		if dir == "" {
+			return option.None
+		}
+		return option.Some[string]{Value: dir}
+	}
+	env.Get(varName)
+}
+
+func expandDollarAt(bs []byte, pos int, dir string, home string, env Map[string, string]) option.Option[wordReadResult] {
+	let n = bs.Len()
+	if pos+1 >= n {
+		return option.Some[wordReadResult]{Value: wordReadResult{Word: ShellWord{Text: "$", BareStart: false, SingleQuoted: false}, Next: pos + 1}}
+	}
+	let mut varName = ""
+	let mut next = pos
+	if bs[pos+1] == byte('{') {
+		let mut j = pos + 2
+		for j < n && bs[j] != byte('}') {
+			j = j + 1
+		}
+		if j >= n {
+			return option.None
+		}
+		varName = bs[pos+2 : j].Text()
+		next = j + 1
+	} else {
+		let mut j = pos + 1
+		for j < n && isVarCharByte(bs[j]) {
+			j = j + 1
+		}
+		if j == pos+1 {
+			return option.None
+		}
+		varName = bs[pos+1 : j].Text()
+		next = j
+	}
+	match resolveVarValue(varName, dir, home, env) {
+	case option.None:
+		option.None
+	case option.Some[string] as val:
+		option.Some[wordReadResult]{Value: wordReadResult{Word: ShellWord{Text: val.Value, BareStart: false, SingleQuoted: false}, Next: next}}
+	}
+}
+
+func expandLeadingTilde(s string, home string) option.Option[string] {
+	if s == "~" {
+		if home == "" {
+			return option.None
+		}
+		return option.Some[string]{Value: home}
+	}
+	if strings.HasPrefix(s, "~/") {
+		if home == "" {
+			return option.None
+		}
+		return option.Some[string]{Value: home + strings.Slice(s, 1, s.Len())}
+	}
+	option.Some[string]{Value: s}
+}
+
+// ExpandWord resolves leading ~ and known $VAR/${VAR} references when statically safe.
+func ExpandWord(word ShellWord, dir string, home string, env Map[string, string]) option.Option[string] {
+	if word.SingleQuoted {
+		if dir == "" && !strings.HasPrefix(word.Text, "/") {
+			return option.None
+		}
+		return option.Some[string]{Value: ResolvePosix(dir, word.Text)}
+	}
+	let s = match expandLeadingTilde(word.Text, home) {
+	case option.None:
+		return option.None
+	case option.Some[string] as v:
+		v.Value
+	}
+	let mut expanded = ""
+	let bs = s.Bytes()
+	let n = bs.Len()
+	let mut i = 0
+	for i < n {
+		if bs[i] == byte('$') {
+			match expandDollarAt(bs, i, dir, home, env) {
+			case option.None:
+				return option.None
+			case option.Some[wordReadResult] as res:
+				expanded = expanded + res.Value.Word.Text
+				i = res.Value.Next
+			}
+		} else {
+			expanded = expanded + bs[i:i+1].Text()
+			i = i + 1
+		}
+	}
+	if strings.Contains(expanded, "`") || strings.Contains(expanded, "$(") {
+		return option.None
+	}
+	if !strings.HasPrefix(expanded, "/") && dir == "" {
+		return option.None
+	}
+	option.Some[string]{Value: ResolvePosix(dir, expanded)}
+}
+
+func skipSudoWrapper(words []ShellWord, start int) int {
+	let mut idx = start
+	for idx < words.Len() && strings.HasPrefix(words[idx].Text, "-") {
+		let fl = words[idx].Text
+		idx = idx + 1
+		if fl == "--" {
+			break
+		}
+		if isSudoFlagWithArg(fl) && idx < words.Len() {
+			idx = idx + 1
+		}
+	}
+	idx
+}
+
+func skipEnvWrapper(words []ShellWord, start int, env Map[string, string]) (int, Map[string, string]) {
+	let mut idx = start
+	let mut outEnv = env
+	for idx < words.Len() {
+		let nxt = words[idx].Text
+		if nxt == "--" {
+			return (idx + 1, outEnv)
+		}
+		if strings.HasPrefix(nxt, "-") {
+			idx = idx + 1
+			if isEnvFlagWithArg(nxt) && idx < words.Len() {
+				idx = idx + 1
+			}
+			continue
+		}
+		match parseEnvAssignment(nxt) {
+		case option.Some[strings.Halves] as h:
+			outEnv[h.Value.Before] = h.Value.After
+			idx = idx + 1
+		case option.None:
+			break
+		}
+	}
+	(idx, outEnv)
+}
+
+func skipSimpleFlagWrapper(words []ShellWord, start int) int {
+	let mut idx = start
+	for idx < words.Len() && strings.HasPrefix(words[idx].Text, "-") {
+		let fl = words[idx].Text
+		idx = idx + 1
+		if fl == "--" {
+			break
+		}
+	}
+	idx
+}
+
+// UnwrapCommandWords strips leading env assignments and POSIX command wrappers while accumulating env vars.
+func UnwrapCommandWords(words []ShellWord, baseEnv Map[string, string]) ([]ShellWord, Map[string, string]) {
+	let mut env = cloneStringMap(baseEnv)
+	let mut idx = 0
+	for idx < words.Len() {
+		let cur = words[idx]
+		match parseEnvAssignment(cur.Text) {
+		case option.Some[strings.Halves] as h:
+			env[h.Value.Before] = h.Value.After
+			idx = idx + 1
+			continue
+		case option.None:
+		}
+		let base = BasenamePosix(cur.Text)
+		if !isPrefixCommand(base) {
+			break
+		}
+		idx = idx + 1
+		if base == "sudo" {
+			idx = skipSudoWrapper(words, idx)
+		} else if base == "env" {
+			let (nextIdx, nextEnv) = skipEnvWrapper(words, idx, env)
+			idx = nextIdx
+			env = nextEnv
+		} else if base == "command" || base == "exec" || base == "time" || base == "nohup" {
+			idx = skipSimpleFlagWrapper(words, idx)
+		}
+	}
+	(words[idx:words.Len()], env)
+}
+
+func extractShellHeadCommands(words []ShellWord) []string {
+	let mut out = []string{}
+	if words.Len() == 0 {
+		return out
+	}
+	let head = BasenamePosix(words[0].Text)
+	if head == "eval" {
+		let mut parts = []string{}
+		let mut i = 1
+		for i < words.Len() {
+			if words[i].Text != "--" {
+				parts = parts.Append(words[i].Text)
+			}
+			i = i + 1
+		}
+		let joined = strings.TrimSpace(strings.Join(parts, " "))
+		if joined != "" {
+			out = out.Append(joined)
+		}
+		return out
+	}
+	if !isShellInterpreter(words[0].Text) {
+		return out
+	}
+	let mut i = 1
+	let mut wantsCmd = false
+	for i < words.Len() {
+		let w = words[i].Text
+		let doubleDash = strings.HasPrefix(w, "--")
+		let hasDash = strings.HasPrefix(w, "-")
+		if w == "--" {
+			i = i + 1
+			break
+		}
+		if hasDash && !doubleDash && strings.Contains(w, "c") {
+			wantsCmd = true
+			i = i + 1
+			break
+		}
+		if !hasDash {
+			break
+		}
+		i = i + 1
+	}
+	if wantsCmd && i < words.Len() {
+		out = out.Append(words[i].Text)
+	}
+	out
+}
+
+func scanSubstBody(bs []byte, i int) (option.Option[string], int) {
+	let n = bs.Len()
+	let start = i + 2
+	let mut depth = 1
+	let mut j = start
+	for j < n && depth > 0 {
+		if bs[j] == byte('(') {
+			depth = depth + 1
+		} else if bs[j] == byte(')') {
+			depth = depth - 1
+		}
+		if depth > 0 {
+			j = j + 1
+		}
+	}
+	if depth == 0 && j > start {
+		return (option.Some[string]{Value: bs[start:j].Text()}, j + 1)
+	}
+	(option.None, j + 1)
+}
+
+func scanBacktickBody(bs []byte, i int) (option.Option[string], int) {
+	let n = bs.Len()
+	let start = i + 1
+	let mut j = start
+	for j < n && bs[j] != byte('`') {
+		j = j + 1
+	}
+	if j < n && j > start {
+		return (option.Some[string]{Value: bs[start:j].Text()}, j + 1)
+	}
+	(option.None, j + 1)
+}
+
+func extractSubstInWord(raw string) []string {
+	let mut out = []string{}
+	let bs = raw.Bytes()
+	let n = bs.Len()
+	let mut i = 0
+	for i < n {
+		if bs[i] == byte('$') && i+1 < n && bs[i+1] == byte('(') {
+			let (sub, next) = scanSubstBody(bs, i)
+			match sub {
+			case option.Some[string] as s:
+				out = out.Append(s.Value)
+			case option.None:
+			}
+			i = next
+		} else if bs[i] == byte('`') {
+			let (sub, next) = scanBacktickBody(bs, i)
+			match sub {
+			case option.Some[string] as s:
+				out = out.Append(s.Value)
+			case option.None:
+			}
+			i = next
+		} else {
+			i = i + 1
+		}
+	}
+	out
+}
+
+func extractInlineSubshellStrings(words []ShellWord) []string {
+	let mut out = extractShellHeadCommands(words)
+	for w in words {
+		if !w.SingleQuoted {
+			for s in extractSubstInWord(w.Text) {
+				out = out.Append(s)
+			}
+		}
+	}
+	out
+}
+
+func nextDirAfterCd(words []ShellWord, curDir string, home string, cmdEnv Map[string, string]) string {
+	let targetArg = if words.Len() == 1 { "~" } else { words[1].Text }
+	if targetArg == "-" {
+		return ""
+	}
+	let sq = words.Len() > 1 && words[1].SingleQuoted
+	match ExpandWord(ShellWord{Text: targetArg, BareStart: true, SingleQuoted: sq}, curDir, home, cmdEnv) {
+	case option.Some[string] as nextDir:
+		nextDir.Value
+	case option.None:
+		""
+	}
+}
+
+func resolveHomeFromEnv(env Map[string, string]) string {
+	match env.Get("HOME") {
+	case option.Some[string] as h:
+		h.Value
+	case option.None:
+		""
+	}
+}
+
+func mergeAssignEnv(curEnv Map[string, string], cmdEnv Map[string, string], curHome string) (Map[string, string], string) {
+	let mut outEnv = curEnv
+	let mut outHome = curHome
+	for k, v in cmdEnv {
+		outEnv[k] = v
+		if k == "HOME" {
+			outHome = v
+		}
+	}
+	(outEnv, outHome)
+}
+
+func placeRecursive(command string, initialDir string, initialEnv Map[string, string], fromSubshell bool, depth int) []PlacedCommand fails BadShellSyntax {
+	if depth > maxExpandDepth() {
+		return BadShellSyntax{Reason: "nested subshell expansion exceeded depth bound"}
+	}
+	let stmts = try SplitStatements(command)
+	let mut out = []PlacedCommand{}
+	let mut curDir = if initialDir == "" { "" } else { CleanPosix(initialDir) }
+	let mut curEnv = cloneStringMap(initialEnv)
+	let mut home = resolveHomeFromEnv(curEnv)
+
+	for st in stmts {
+		let (words, cmdEnv) = UnwrapCommandWords(st.Words, curEnv)
+		let effectiveDir = curDir
+		if words.Len() == 0 {
+			let (nextEnv, nextHome) = mergeAssignEnv(curEnv, cmdEnv, home)
+			curEnv = nextEnv
+			home = nextHome
+			continue
+		}
+		out = out.Append(PlacedCommand{
+			Words:          words,
+			Dir:            effectiveDir,
+			Env:            cmdEnv,
+			FromSubshell:   fromSubshell,
+			PrecededByPipe: st.PrecededByPipe,
+		})
+		for sub in extractInlineSubshellStrings(words) {
+			out = out.Concat(try placeRecursive(sub, effectiveDir, cmdEnv, true, depth+1))
+		}
+		if st.Op != "|" && !st.PrecededByPipe && st.Op != "&" && BasenamePosix(words[0].Text) == "cd" {
+			curDir = nextDirAfterCd(words, curDir, home, cmdEnv)
+		}
+		if st.Op == "||" {
+			curDir = ""
+		}
+	}
+	out
+}
+
+// PlaceCommands splits and unwraps a shell line, tracking cd directories and nested sh -c / eval / $() invocations.
+func PlaceCommands(command string, initialDir string, initialEnv Map[string, string]) []PlacedCommand fails BadShellSyntax {
+	try placeRecursive(command, initialDir, initialEnv, false, 0)
+}
+
+// SplitAndTrackCdLaw verifies cd updates working directory across ; and && while preserving PosixWithin semantics.
+law SplitAndTrackCdLaw() {
+	let placed = PlaceCommands("cd sub && rm -rf target; cd / && ls", "/work/repo", Map[string, string]{"HOME": "/home/u"}) catch {
+	case BadShellSyntax:
+		return false
+	}
+	if placed.Len() != 4 {
+		return false
+	}
+	placed[1].Dir == "/work/repo/sub" && placed[3].Dir == "/" && PosixWithin("/work/repo/sub", "/work/repo")
+}
+
+// ShellLineSkipsHeredocAndExpandsNested verifies heredocs do not leak fake commands while sh -c expands cleanly.
+test ShellLineSkipsHeredocAndExpandsNested {
+	let script = "cat <<'EOF'\nrm -rf /\nEOF\nFOO=1 sudo bash -c 'git reset --hard'"
+	let placed = try PlaceCommands(script, "/repo", Map[string, string]{})
+	assert placed.Len() == 3
+	assert placed[0].Words[0].Text == "cat"
+	assert placed[1].Words[0].Text == "bash"
+	assert placed[2].Words[0].Text == "git"
+	assert placed[2].FromSubshell
+}

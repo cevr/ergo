@@ -1,0 +1,475 @@
+import compiler/ergoversion
+import compiler/stage
+import compiler/testinputs
+import hex
+import io
+import json
+import option
+import os
+import slices
+import strconv
+import strings
+
+func main() fails os.Exit needs os.Ambient {
+	let proc = os.NewHost()
+	let out = io.NewHost()
+	let err = io.NewErrors()
+	let inp = io.NewStdin()
+	let args = proc.Args()
+	with context {
+		io.Stdout: out,
+		io.Stderr: err,
+		io.Stdin:  inp,
+	} {
+		try Run(args)
+	}
+}
+
+// Run dispatches the parity-dump CLI subcommands against the active
+// capability providers.
+func Run(args []string) fails os.Exit needs io.Stdout | io.Stderr | io.Stdin {
+	if args.Len() < 1 {
+		return exitErr("usage: testinputsdump <ergoversion|stage|testinputs> ...")
+	}
+	let cmd = args[0]
+	let rest = slices.Slice(args, 1, args.Len())
+	if cmd == "ergoversion" {
+		return runErgoversion(rest)
+	}
+	if cmd == "stage" {
+		return runStage(rest)
+	}
+	if cmd == "testinputs" {
+		return runTestinputs(rest)
+	}
+	exitErr("unknown subcommand: " + cmd)
+}
+
+func runErgoversion(args []string) fails os.Exit needs io.Stdout | io.Stderr {
+	if args.Len() < 1 {
+		return exitErr("usage: testinputsdump ergoversion <of|check> ...")
+	}
+	if args[0] == "of" {
+		let mainVer = if args.Len() >= 2 { args[1] } else { "" }
+		let mut settings = []ergoversion.BuildSetting{}
+		for i in 2..args.Len() {
+			match strings.Cut(args[i], "=") {
+			case option.Some{Value: h}:
+				settings = settings.Append(ergoversion.BuildSetting{Key: h.Before, Value: h.After})
+			case option.None:
+			}
+		}
+		let v = ergoversion.Of(ergoversion.BuildInfo{MainVersion: mainVer, Settings: settings})
+		let t = json.NewText()
+		t.BeginObject(3)
+		t.Key("version")
+		t.String(v)
+		t.Key("valid")
+		t.String(ergoversion.Valid(v))
+		t.Key("install")
+		t.String(ergoversion.InstallCommand(v))
+		t.EndObject()
+		io.Stdout.Println(t.Written())
+		return
+	}
+	if args[0] == "check" && args.Len() >= 3 {
+		let a = args[1]
+		let b = args[2]
+		let t = json.NewText()
+		t.BeginObject(4)
+		t.Key("validA")
+		t.String(ergoversion.Valid(a))
+		t.Key("validB")
+		t.String(ergoversion.Valid(b))
+		t.Key("cmp")
+		t.Int(int64(ergoversion.Compare(a, b)))
+		t.Key("satisfies")
+		t.Bool(ergoversion.Satisfies(a, b))
+		t.EndObject()
+		io.Stdout.Println(t.Written())
+		return
+	}
+	exitErr("invalid ergoversion arguments")
+}
+
+func runStage(args []string) fails os.Exit needs io.Stdout | io.Stderr {
+	if args.Len() < 1 {
+		return exitErr("usage: testinputsdump stage <names|report> ...")
+	}
+	if args[0] == "names" {
+		let all = stage.Names()
+		let t = json.NewText()
+		t.BeginList(all.Len())
+		for _, n in all {
+			t.String(n)
+		}
+		t.EndList()
+		io.Stdout.Println(t.Written())
+		return
+	}
+	if args[0] == "report" && args.Len() >= 4 {
+		let sp = parseU64Arg(args[1]) catch {
+		case badNum as e:
+			return exitErr(e.Msg)
+		}
+		let sc = parseU64Arg(args[2]) catch {
+		case badNum as e:
+			return exitErr(e.Msg)
+		}
+		let sd = parseU64Arg(args[3]) catch {
+		case badNum as e:
+			return exitErr(e.Msg)
+		}
+		let mut tbl = stage.NewTable()
+		for i in 4..args.Len() {
+			match strings.Cut(args[i], "=") {
+			case option.Some{Value: h}:
+				let id = stage.CounterID(h.Before)
+				if id == stage.NoCounter {
+					return exitErr("unknown counter: " + h.Before)
+				}
+				let delta = parseU64Arg(h.After) catch {
+				case badNum as e:
+					return exitErr(e.Msg)
+				}
+				stage.Add(&tbl, id, delta)
+			case option.None:
+				return exitErr("bad counter assignment: " + args[i])
+			}
+		}
+		let rep = stage.StageReport(tbl, stage.StdWork{
+			FilesParsed:     sp,
+			PackagesChecked: sc,
+			PackagesDecoded: sd,
+		})
+		let body = stage.FormatReportJSON(rep) catch {
+		case json.Malformed as e:
+			return exitErr(e.Reason)
+		}
+		io.Stdout.Print(body)
+		return
+	}
+	exitErr("invalid stage arguments")
+}
+
+func runTestinputs(args []string) fails os.Exit needs io.Stdout | io.Stderr | io.Stdin {
+	if args.Len() < 1 {
+		return exitErr("usage: testinputsdump testinputs <testenv|genprogram|testlog|recordjson|mountverdict|seccomp|decode> ...")
+	}
+	if args[0] == "testenv" {
+		let raw = io.Stdin.ReadAll() catch {
+		case io.ReadFailed as e:
+			return exitErr(e.Reason)
+		}
+		let lines = if raw == "" { []string{} } else { strings.Split(strings.TrimSuffix(raw, "\n"), "\n") }
+		let kept = testinputs.Environment(lines)
+		let names = testinputs.Names()
+		let t = json.NewText()
+		t.BeginObject(2)
+		t.Key("names")
+		t.BeginList(names.Len())
+		for _, n in names {
+			t.String(n)
+		}
+		t.EndList()
+		t.Key("kept")
+		t.BeginList(kept.Len())
+		for _, k in kept {
+			t.String(k)
+		}
+		t.EndList()
+		t.EndObject()
+		io.Stdout.Println(t.Written())
+		return
+	}
+	if args[0] == "genprogram" && args.Len() >= 4 {
+		let seed = parseU64Arg(args[1]) catch {
+		case badNum as e:
+			return exitErr(e.Msg)
+		}
+		let n = int(parseU64Arg(args[2]) catch {
+		case badNum as e:
+			return exitErr(e.Msg)
+		})
+		let groups = int(parseU64Arg(args[3]) catch {
+		case badNum as e:
+			return exitErr(e.Msg)
+		})
+		let prog = testinputs.GenerateProgram(seed, n, groups)
+		let t = json.NewText()
+		t.BeginObject(3)
+		t.Key("module")
+		t.String(prog.Module)
+		t.Key("packages")
+		t.BeginList(prog.Packages.Len())
+		for _, p in prog.Packages {
+			t.String(p)
+		}
+		t.EndList()
+		t.Key("files")
+		t.BeginList(prog.Files.Len())
+		for _, f in prog.Files {
+			t.BeginObject(2)
+			t.Key("path")
+			t.String(f.Path)
+			t.Key("content")
+			t.String(f.Content)
+			t.EndObject()
+		}
+		t.EndList()
+		t.EndObject()
+		io.Stdout.Println(t.Written())
+		return
+	}
+	if args[0] == "testlog" {
+		let rest = slices.Slice(args, 1, args.Len())
+		let flag = testinputs.TestLogFlag(rest)
+		let t = json.NewText()
+		t.BeginObject(1)
+		t.Key("log")
+		t.String(flag)
+		t.EndObject()
+		io.Stdout.Println(t.Written())
+		return
+	}
+	if args[0] == "recordjson" {
+		let raw = io.Stdin.ReadAll() catch {
+		case io.ReadFailed as e:
+			return exitErr(e.Reason)
+		}
+		let rec = testinputs.DecodeRecordJSON(raw) catch {
+		case testinputs.RecordError as e:
+			return exitErr(e.Reason)
+		}
+		let encoded = testinputs.EncodeRecordJSON(rec) catch {
+		case json.Malformed as e:
+			return exitErr(e.Reason)
+		}
+		io.Stdout.Println(encoded)
+		return
+	}
+	if args[0] == "mountverdict" {
+		let raw = io.Stdin.ReadAll() catch {
+		case io.ReadFailed as e:
+			return exitErr(e.Reason)
+		}
+		let r = json.Open(raw, 0, 0) catch {
+		case json.Malformed as e:
+			return exitErr(e.Reason)
+		}
+		r.BeginObject() catch {
+		case WireWrongKind as e:
+			return exitErr(e.Path)
+		}
+		let mut start = ""
+		let mut end = ""
+		let mut watched = []string{}
+		let mut visited = []string{}
+		for r.More() {
+			let k = r.Key()
+			if k == "start" {
+				start = rStr(r) catch {
+				case badNum as e:
+					return exitErr(e.Msg)
+				}
+			} else if k == "end" {
+				end = rStr(r) catch {
+				case badNum as e:
+					return exitErr(e.Msg)
+				}
+			} else if k == "watched" {
+				watched = rStrList(r) catch {
+				case badNum as e:
+					return exitErr(e.Msg)
+				}
+			} else if k == "visited" {
+				visited = rStrList(r) catch {
+				case badNum as e:
+					return exitErr(e.Msg)
+				}
+			} else {
+				r.Skip()
+			}
+		}
+		r.End()
+		let v = testinputs.MountVerdict(start, end, watched, visited)
+		let t = json.NewText()
+		t.BeginObject(1)
+		t.Key("verdict")
+		t.String(v)
+		t.EndObject()
+		io.Stdout.Println(t.Written())
+		return
+	}
+	if args[0] == "seccomp" && args.Len() >= 3 {
+		let arch = if args[1] == "arm64" { testinputs.ArchARM64 } else { testinputs.ArchAMD64 }
+		let target = args[2] == "1"
+		let filter = testinputs.BuildFilter(arch, target)
+		let t = json.NewText()
+		t.BeginList(filter.Len())
+		for _, ins in filter {
+			t.BeginObject(4)
+			t.Key("code")
+			t.Uint(uint64(ins.Code))
+			t.Key("jt")
+			t.Uint(uint64(ins.JT))
+			t.Key("jf")
+			t.Uint(uint64(ins.JF))
+			t.Key("k")
+			t.Uint(uint64(ins.K))
+			t.EndObject()
+		}
+		t.EndList()
+		io.Stdout.Println(t.Written())
+		return
+	}
+	if args[0] == "decode" && args.Len() >= 2 {
+		let raw = io.Stdin.ReadAll() catch {
+		case io.ReadFailed as e:
+			return exitErr(e.Reason)
+		}
+		let bytesStr = hex.Decode(strings.TrimSpace(raw)) catch {
+		case hex.Malformed as e:
+			return exitErr("bad hex at " + strconv.Itoa(e.Offset))
+		}
+		let b = bytesStr.Bytes()
+		let t = json.NewText()
+		if args[1] == "sockpath" {
+			t.BeginObject(1)
+			t.Key("path")
+			t.String(testinputs.DecodeSockaddrPath(b))
+			t.EndObject()
+			io.Stdout.Println(t.Written())
+			return
+		}
+		if args[1] == "sockpeer" {
+			let p = testinputs.DecodeSockaddrPeer(b)
+			t.BeginObject(4)
+			t.Key("family")
+			t.Uint(uint64(p.Family))
+			t.Key("name")
+			t.String(p.Name)
+			t.Key("addr")
+			t.String(p.Addr)
+			t.Key("port")
+			t.Uint(uint64(p.Port))
+			t.EndObject()
+			io.Stdout.Println(t.Written())
+			return
+		}
+		if args[1] == "inotify" {
+			let (evs, errStr) = testinputs.ParseInotifyEvents(b)
+			t.BeginObject(2)
+			t.Key("error")
+			t.String(errStr)
+			t.Key("events")
+			t.BeginList(evs.Len())
+			for _, ev in evs {
+				t.BeginObject(4)
+				t.Key("wd")
+				t.Uint(uint64(ev.Wd))
+				t.Key("mask")
+				t.Uint(uint64(ev.Mask))
+				t.Key("cookie")
+				t.Uint(uint64(ev.Cookie))
+				t.Key("name")
+				t.String(ev.Name)
+				t.EndObject()
+			}
+			t.EndList()
+			t.EndObject()
+			io.Stdout.Println(t.Written())
+			return
+		}
+	}
+	exitErr("invalid testinputs arguments")
+}
+
+type badNum {
+	Msg string,
+}
+
+func rStr(r json.Reader) string fails badNum {
+	r.String() catch {
+	case WireWrongKind as e:
+		return badNum{Msg: e.Path}
+	}
+}
+
+func rStrList(r json.Reader) []string fails badNum {
+	r.BeginList() catch {
+	case WireWrongKind as e:
+		return badNum{Msg: e.Path}
+	}
+	let mut out = []string{}
+	for r.More() {
+		let s = rStr(r) catch {
+		case badNum as e:
+			return e
+		}
+		out = out.Append(s)
+	}
+	r.End()
+	out
+}
+
+func parseU64Arg(s string) uint64 fails badNum {
+	let b = s.Bytes()
+	if b.Len() == 0 {
+		return badNum{Msg: "empty integer"}
+	}
+	let mut acc = uint64(0)
+	let maxDiv10 = uint64(1844674407370955161)
+	for _, c in b {
+		if c < '0' || c > '9' {
+			return badNum{Msg: "invalid integer: " + s}
+		}
+		let d = uint64(c - '0')
+		if acc > maxDiv10 || (acc == maxDiv10 && d > uint64(5)) {
+			return badNum{Msg: "overflow: " + s}
+		}
+		acc = acc*uint64(10) + d
+	}
+	acc
+}
+
+func exitErr(msg string) os.Exit needs io.Stderr {
+	io.Stderr.Eprintln(msg)
+	os.Exit{Code: 1, Message: ""}
+}
+
+test TestinputsdumpSubcommandsSmoke {
+	let rec = io.NewRecorder()
+	let errRec = io.NewRecorder()
+	with context {
+		io.Stdout: rec,
+		io.Stderr: errRec,
+		io.Stdin:  io.NewInput(""),
+	} {
+		Run([]string{"ergoversion", "of", "v1.2.3"}) catch {
+		case os.Exit:
+			assert false
+			return
+		}
+		Run([]string{"stage", "report", "2", "1", "3", "files_read=5"}) catch {
+		case os.Exit:
+			assert false
+			return
+		}
+		Run([]string{"testinputs", "genprogram", "7", "2", "2"}) catch {
+		case os.Exit:
+			assert false
+			return
+		}
+		Run([]string{"testinputs", "seccomp", "amd64", "0"}) catch {
+		case os.Exit:
+			assert false
+			return
+		}
+	}
+	let outText = io.Text(rec)
+	assert strings.Contains(outText, "\"version\":\"v1.2.3\"")
+	assert strings.Contains(outText, "\"files_read\": 5")
+	assert strings.Contains(outText, "\"module\":\"gen2\"")
+	assert strings.Contains(outText, "\"code\":32")
+}

@@ -2,9 +2,11 @@ import compiler/check/bind
 import compiler/check/expr
 import compiler/check/infer
 import compiler/check/store
+import compiler/check/types
 import compiler/syntax
 import dense
 import option
+import strconv
 
 type pkgFlatIndex {
 	valid        bool,
@@ -17,10 +19,12 @@ type pkgFlatIndex {
 }
 
 type unionLayoutCache {
-	ready   bool,
-	hasExt  bool,
-	errKey  Map[string, bool],
-	machKey Map[string, bool],
+	ready       bool,
+	hasWireForm bool,
+	extKey      Map[string, bool],
+	errKey      Map[string, bool],
+	machKey     Map[string, bool],
+	carriedKey  Map[string, bool],
 }
 
 type pkgMemo {
@@ -44,10 +48,12 @@ func emptyPkgFlatIndex() pkgFlatIndex {
 
 func emptyUnionLayoutCache() unionLayoutCache {
 	unionLayoutCache{
-		ready:   false,
-		hasExt:  false,
-		errKey:  Map[string, bool]{},
-		machKey: Map[string, bool]{},
+		ready:       false,
+		hasWireForm: false,
+		extKey:      Map[string, bool]{},
+		errKey:      Map[string, bool]{},
+		machKey:     Map[string, bool]{},
+		carriedKey:  Map[string, bool]{},
 	}
 }
 
@@ -60,32 +66,56 @@ func emptyPkgMemo() pkgMemo {
 	}
 }
 
-func structDeclIn(k expr.Pkg, s store.Store, name string) bool {
+func typeDeclNodeIn(k expr.Pkg, s store.Store, name string) (int, dense.ID[syntax.Node], bool) {
 	let d = match store.Lookup(s, name) {
 	case option.Some{Value: id}:
 		store.DeclOf(s, id)
 	case option.None:
-		return false
+		return (-1, syntax.NodeAt(k.Parsed[0].Tree, 0), false)
 	}
 	let f = int(d.File)
-	let p = k.Parsed[f]
-	let n = syntax.NodeAt(p.Tree, int(d.Node))
+	let tree = k.Parsed[f].Tree
+	let n = syntax.NodeAt(tree, int(d.Node))
 	let pn = bind.PNodeOf(k.Ps, f, n)
 	let parent = match dense.Unpack(bind.ParentOf(k.Ps, pn)) {
 	case option.Some{Value: id}:
 		id
 	case option.None:
-		return false
+		return (-1, n, false)
 	}
 	let i = dense.Index(parent) - dense.Index(pn) + int(d.Node)
-	match syntax.ViewOf(p.Tree, syntax.NodeAt(p.Tree, i)) {
+	let tdNode = syntax.NodeAt(tree, i)
+	match syntax.ViewOf(tree, tdNode) {
 	case syntax.TypeDecl as td:
-		if td.Name != n || dense.Unpack(td.Extern) != option.None || dense.Unpack(td.TypeParams) != option.None || dense.Unpack(td.Where) != option.None || dense.Unpack(td.Derive) != option.None {
+		if td.Name != n {
+			return (-1, tdNode, false)
+		}
+		(f, tdNode, true)
+	case _:
+		(-1, tdNode, false)
+	}
+}
+
+func structDeclWithParamsIn(k expr.Pkg, s store.Store, name string, allowTypeParams bool) bool {
+	if k.Parsed.Len() == 0 {
+		return false
+	}
+	let (f, tdNode, ok) = typeDeclNodeIn(k, s, name)
+	if !ok {
+		return false
+	}
+	let tree = k.Parsed[f].Tree
+	match syntax.ViewOf(tree, tdNode) {
+	case syntax.TypeDecl as td:
+		if dense.Unpack(td.Extern) != option.None || dense.Unpack(td.Where) != option.None || dense.Unpack(td.Derive) != option.None {
+			return false
+		}
+		if !allowTypeParams && dense.Unpack(td.TypeParams) != option.None {
 			return false
 		}
 		match dense.Unpack(td.Spec) {
 		case option.Some{Value: sp}:
-			syntax.KindOf(p.Tree, sp) == syntax.KStructType
+			syntax.KindOf(tree, sp) == syntax.KStructType
 		case option.None:
 			false
 		}
@@ -94,10 +124,20 @@ func structDeclIn(k expr.Pkg, s store.Store, name string) bool {
 	}
 }
 
+func structDeclIn(k expr.Pkg, s store.Store, name string) bool {
+	structDeclWithParamsIn(k, s, name, false)
+}
+
+func genericStructDeclIn(k expr.Pkg, s store.Store, name string) bool {
+	structDeclWithParamsIn(k, s, name, true)
+}
+
 func buildPkgFlatIndex(k expr.Pkg, s store.Store) pkgFlatIndex {
 	let mut counts = Map[string, int]{}
 	let mut decls = Map[string, bool]{}
-	for p in k.Parsed {
+	let mut hasUnionCand = false
+	for fi in 0..k.Parsed.Len() {
+		let p = k.Parsed[fi]
 		let list = match syntax.ViewOf(p.Tree, syntax.Root(p.Tree)) {
 		case syntax.File as pf:
 			pf.Decls
@@ -127,6 +167,16 @@ func buildPkgFlatIndex(k expr.Pkg, s store.Store) pkgFlatIndex {
 				}
 				counts = counts.Put(name, prev+1)
 				decls = decls.Put(name, true)
+				match dense.Unpack(td.Spec) {
+				case option.Some{Value: sp}:
+					let sk = syntax.KindOf(p.Tree, sp)
+					if sk != syntax.KStructType && sk != syntax.KMachineType {
+						hasUnionCand = true
+					}
+				case option.None:
+				}
+			case syntax.ErrorRow:
+				hasUnionCand = true
 			case syntax.VarDecl as vd:
 				match syntax.ViewOf(p.Tree, vd.Spec) {
 				case syntax.VarSpec as sp:
@@ -151,17 +201,19 @@ func buildPkgFlatIndex(k expr.Pkg, s store.Store) pkgFlatIndex {
 			}
 		}
 	}
-	let mut ms = s
 	let mut namedKeys = Map[uint32, dense.ID[store.TKey]]{}
 	let mut unionVars = Map[uint32, []dense.ID[store.TKey]]{}
+	let mut ms = s
 	for i in 0..store.NumDecls(s) {
 		let id = store.DeclAt(s, i)
 		if store.KindName(int(store.DeclOf(s, id).Kind)) == "type" {
 			let nt = store.TNamed(&ms, id)
 			namedKeys = namedKeys.Put(uint32(i), nt)
-			let vs = infer.VariantsOf(&ms, k.Unions, nt)
-			if vs.Len() > 0 {
-				unionVars = unionVars.Put(uint32(dense.Index(nt)), vs)
+			if hasUnionCand {
+				let vs = infer.VariantsOf(&ms, k.Unions, nt)
+				if vs.Len() > 0 {
+					unionVars = unionVars.Put(uint32(dense.Index(nt)), vs)
+				}
 			}
 		}
 	}
@@ -178,119 +230,1400 @@ func buildPkgFlatIndex(k expr.Pkg, s store.Store) pkgFlatIndex {
 
 func buildDepIndexes(k expr.Pkg, s store.Store, shapeImports Map[string, expr.Dep]) Map[string, pkgFlatIndex] {
 	let mut out = Map[string, pkgFlatIndex]{}
-	let mut deps = []expr.Dep{}
 	for d in k.Deps {
-		deps = deps.Append(d)
+		if out.Get(d.Path) == option.None {
+			out = out.Put(d.Path, buildPkgFlatIndex(d.K, d.S))
+		}
 	}
 	for p in store.ImportPaths(s) {
-		match shapeImports.Get(p) {
-		case option.Some{Value: d}:
-			deps = deps.Append(d)
-		case option.None:
+		if out.Get(p) == option.None {
+			match shapeImports.Get(p) {
+			case option.Some{Value: d}:
+				out = out.Put(d.Path, buildPkgFlatIndex(d.K, d.S))
+			case option.None:
+			}
 		}
 	}
 	match shapeImports.Get("prelude") {
 	case option.Some{Value: d}:
-		deps = deps.Append(d)
+		if out.Get(d.Path) == option.None {
+			out = out.Put(d.Path, buildPkgFlatIndex(d.K, d.S))
+		}
 	case option.None:
 	}
 	for _, d in shapeImports {
-		deps = deps.Append(d)
-	}
-	for dep in deps {
-		if out.Get(dep.Path) == option.None {
-			out = out.Put(dep.Path, buildPkgFlatIndex(dep.K, dep.S))
+		if out.Get(d.Path) == option.None {
+			out = out.Put(d.Path, buildPkgFlatIndex(d.K, d.S))
 		}
 	}
 	out
 }
 
-func recordMachineName(p syntax.Parsed, node dense.ID[syntax.Node], machKey mut Map[string, bool]) {
+func recordMachineNode(pk expr.Pkg, ps store.Store, fi int, pa string, node dense.ID[syntax.Node], machKey mut Map[string, bool]) {
+	let p = pk.Parsed[fi]
 	match syntax.ViewOf(p.Tree, node) {
 	case syntax.Name:
-		*machKey = (*machKey).Put(nameText(p, node), true)
+		*machKey = (*machKey).Put(pa+"\x00"+nameText(p, node), true)
 	case syntax.SelectorExpr as se:
-		*machKey = (*machKey).Put(nameText(p, se.Sel), true)
+		match bind.ResolutionOf(pk.U, pk.Ps, bind.PNodeOf(pk.Ps, fi, se.Sel)) {
+		case bind.Imported as im:
+			let ix = int(im.Ref.Import) - 1
+			let paths = store.ImportPaths(ps)
+			if ix >= 0 && ix < paths.Len() {
+				*machKey = (*machKey).Put(pkgAlias(paths[ix])+"\x00"+nameText(p, se.Sel), true)
+			}
+		case _:
+		}
 	case _:
 	}
 }
 
-func buildUnionLayoutCache(k expr.Pkg, s store.Store, alias string, imports option.Option[[]expr.Dep]) unionLayoutCache {
-	let deps = match imports {
-	case option.Some[[]expr.Dep] as ds:
-		if alias != "" {
-			return emptyUnionLayoutCache()
-		}
-		ds.Value
-	case option.None:
-		return emptyUnionLayoutCache()
+let scanPkgRoot = -1
+let scanPkgNone = -2
+
+type scanCtx {
+	depIdx    Map[string, pkgFlatIndex],
+	depByPath Map[string, int],
+}
+
+func scanAlias(st fnb, deps []expr.Dep, pi int) string {
+	if pi == scanPkgRoot {
+		return st.alias
 	}
-	for p in k.Parsed {
-		for i in 0..syntax.NumNodes(p.Tree) {
-			let n = syntax.NodeAt(p.Tree, i)
-			let kind = syntax.KindOf(p.Tree, n)
-			if kind == syntax.KExternSpec || kind == syntax.KIdent && nameText(p, n) == "WireForm" {
-				return unionLayoutCache{ready: true, hasExt: true, errKey: Map[string, bool]{}, machKey: Map[string, bool]{}}
+	pkgAlias(deps[pi].Path)
+}
+
+func scanPath(st fnb, deps []expr.Dep, pi int) string {
+	if pi == scanPkgRoot {
+		return st.pkgPath
+	}
+	deps[pi].Path
+}
+
+func scanStore(st fnb, deps []expr.Dep, pi int) store.Store {
+	if pi == scanPkgRoot {
+		return st.s
+	}
+	deps[pi].S
+}
+
+func scanIdx(rootIdx pkgFlatIndex, deps []expr.Dep, depIdx Map[string, pkgFlatIndex], pi int) pkgFlatIndex {
+	if pi == scanPkgRoot {
+		return rootIdx
+	}
+	match depIdx.Get(deps[pi].Path) {
+	case option.Some{Value: idx}:
+		idx
+	case option.None:
+		emptyPkgFlatIndex()
+	}
+}
+
+func scanPkgNamedKey(ps store.Store, pk expr.Pkg, pa string, t dense.ID[store.TKey]) string {
+	let kind = store.KindOfType(ps, t)
+	if kind == store.KNamed {
+		return pa + "\x00" + store.TypeNameText(ps, store.ArgOf(ps, t))
+	}
+	let (mp, mn, ma) = expr.ImportedRec(ps, pk, t)
+	if mp != "" && mp != "prelude" && mp != "-" && ma.Len() == 0 {
+		return pkgAlias(mp) + "\x00" + mn
+	}
+	""
+}
+
+func unionKeyIfUnion(st fnb, rootIdx pkgFlatIndex, deps []expr.Dep, ctx scanCtx, pi int, ps store.Store, t dense.ID[store.TKey]) string {
+	let kind = store.KindOfType(ps, t)
+	if kind == store.KNamed {
+		let idx = scanIdx(rootIdx, deps, ctx.depIdx, pi)
+		let name = store.TypeNameText(ps, store.ArgOf(ps, t))
+		let d = match store.Lookup(ps, name) {
+		case option.Some{Value: decl}:
+			decl
+		case option.None:
+			return ""
+		}
+		match namedKeyIn(idx, d) {
+		case option.Some{Value: nt}:
+			if unionVarsIn(idx, nt).Len() >= 2 {
+				return scanAlias(st, deps, pi) + "\x00" + name
+			}
+		case option.None:
+		}
+		return ""
+	}
+	let (mp, mn, ma) = if pi == scanPkgRoot {
+		expr.ImportedRec(ps, st.k, t)
+	} else {
+		expr.ImportedRec(ps, deps[pi].K, t)
+	}
+	if mp == "" || mp == "prelude" || mp == "-" || ma.Len() != 0 {
+		return ""
+	}
+	let dpi = match ctx.depByPath.Get(mp) {
+	case option.Some{Value: i}:
+		i
+	case option.None:
+		return ""
+	}
+	let ds = scanStore(st, deps, dpi)
+	let didx = scanIdx(rootIdx, deps, ctx.depIdx, dpi)
+	match store.Lookup(ds, mn) {
+	case option.Some{Value: decl}:
+		match namedKeyIn(didx, decl) {
+		case option.Some{Value: nt}:
+			if unionVarsIn(didx, nt).Len() >= 2 {
+				return scanAlias(st, deps, dpi) + "\x00" + mn
+			}
+		case option.None:
+		}
+	case option.None:
+	}
+	""
+}
+
+func isOrdinaryStructInPkg(rootIdx pkgFlatIndex, deps []expr.Dep, depIdx Map[string, pkgFlatIndex], pi int, ps store.Store, t dense.ID[store.TKey]) bool {
+	if store.KindOfType(ps, t) != store.KNamed {
+		return false
+	}
+	let idx = scanIdx(rootIdx, deps, depIdx, pi)
+	match idx.ordinaryRecs.Get(store.TypeNameText(ps, store.ArgOf(ps, t))) {
+	case option.Some{Value: r}:
+		r >= 0
+	case option.None:
+		false
+	}
+}
+
+func markNamedUnionInKey(st fnb, rootIdx pkgFlatIndex, deps []expr.Dep, ctx scanCtx, pi int, ps store.Store, t dense.ID[store.TKey], key mut Map[string, bool]) {
+	let uk = unionKeyIfUnion(st, rootIdx, deps, ctx, pi, ps, t)
+	if uk != "" {
+		*key = (*key).Put(uk, true)
+	}
+}
+
+func markPayloadTree(st fnb, rootIdx pkgFlatIndex, deps []expr.Dep, ctx scanCtx, pi int, t dense.ID[store.TKey], seen mut Map[string, bool], key mut Map[string, bool]) {
+	let pa = scanAlias(st, deps, pi)
+	let ps = scanStore(st, deps, pi)
+	let vk = pa + "\x00" + strconv.Itoa(dense.Index(t))
+	if (*seen).Get(vk) != option.None {
+		return
+	}
+	*seen = (*seen).Put(vk, true)
+	let kind = store.KindOfType(ps, t)
+	if kind == store.KSlice || kind == store.KMap || kind == store.KPointer || kind == store.KSig || kind == store.KParam || kind == store.KRow {
+		return
+	}
+	if kind == store.KTuple {
+		for op in store.OperandsOf(ps, t) {
+			markPayloadTree(st, rootIdx, deps, ctx, pi, op, seen, key)
+		}
+		return
+	}
+	if kind == store.KArray {
+		let ops = store.OperandsOf(ps, t)
+		if ops.Len() >= 2 {
+			markPayloadTree(st, rootIdx, deps, ctx, pi, ops[1], seen, key)
+		}
+		return
+	}
+	if kind == store.KNamed {
+		let idx = scanIdx(rootIdx, deps, ctx.depIdx, pi)
+		let name = store.TypeNameText(ps, store.ArgOf(ps, t))
+		match idx.ordinaryRecs.Get(name) {
+		case option.Some{Value: r}:
+			if r >= 0 {
+				let rec = if pi == scanPkgRoot { st.k.Recs[r] } else { deps[pi].K.Recs[r] }
+				for f in rec.Fields {
+					markPayloadTree(st, rootIdx, deps, ctx, pi, f.T, seen, key)
+				}
+				return
+			}
+		case option.None:
+		}
+		let vs = unionVarsIn(idx, t)
+		if vs.Len() >= 2 {
+			*key = (*key).Put(pa+"\x00"+name, true)
+			for v in vs {
+				markPayloadTree(st, rootIdx, deps, ctx, pi, v, seen, key)
+			}
+			return
+		}
+		match idx.unionRecs.Get(name) {
+		case option.Some{Value: r}:
+			let rec = if pi == scanPkgRoot { st.k.Recs[r] } else { deps[pi].K.Recs[r] }
+			for f in rec.Fields {
+				markPayloadTree(st, rootIdx, deps, ctx, pi, f.T, seen, key)
+			}
+			return
+		case option.None:
+		}
+		return
+	}
+	let (mp, mn, ma) = if pi == scanPkgRoot {
+		expr.ImportedRec(ps, st.k, t)
+	} else {
+		expr.ImportedRec(ps, deps[pi].K, t)
+	}
+	if mp == "option" && mn == "Option" && ma.Len() == 1 {
+		markPayloadTree(st, rootIdx, deps, ctx, pi, ma[0], seen, key)
+		return
+	}
+	if mp != "" && mp != "prelude" && mp != "-" {
+		if ma.Len() > 0 {
+			*key = (*key).Put(pkgAlias(mp)+"\x00"+mn, true)
+			for a in ma {
+				markPayloadTree(st, rootIdx, deps, ctx, pi, a, seen, key)
+			}
+			return
+		}
+		match ctx.depByPath.Get(mp) {
+		case option.Some{Value: dpi}:
+			let ds = scanStore(st, deps, dpi)
+			let didx = scanIdx(rootIdx, deps, ctx.depIdx, dpi)
+			match store.Lookup(ds, mn) {
+			case option.Some{Value: d}:
+				match namedKeyIn(didx, d) {
+				case option.Some{Value: nt}:
+					markPayloadTree(st, rootIdx, deps, ctx, dpi, nt, seen, key)
+				case option.None:
+				}
+			case option.None:
+			}
+		case option.None:
+		}
+	}
+	if kind == store.KInstance {
+		let o = store.OriginOfType(ps, t)
+		if int(o.Import) == 0 {
+			let dname = store.DeclText(ps, int(o.Decl))
+			if dname != "" && !(pa == "option" && dname == "Option") {
+				*key = (*key).Put(pa+"\x00"+dname, true)
 			}
 		}
+		for a in store.OperandsOf(ps, t) {
+			markPayloadTree(st, rootIdx, deps, ctx, pi, a, seen, key)
+		}
 	}
-	let mut errKey = Map[string, bool]{}
-	let mut machKey = Map[string, bool]{}
-	let scan = func(pk expr.Pkg, ps store.Store, pa string) {
-		for f in pk.Fns {
-			let ops = store.OperandsOf(ps, f.Sig)
-			if store.KindOfType(ps, f.Sig) == store.KSig && ops.Len() >= 3 {
-				let row = ops[ops.Len()-2]
-				if store.KindOfType(ps, row) == store.KRow {
-					for m in store.OperandsOf(ps, row) {
-						if store.KindOfType(ps, m) == store.KNamed {
-							errKey = errKey.Put(pa+"\x00"+store.TypeNameText(ps, store.ArgOf(ps, m)), true)
-						} else {
-							let (mp, mn, ma) = expr.ImportedRec(ps, pk, m)
-							if mp != "" && ma.Len() == 0 {
-								errKey = errKey.Put(pkgAlias(mp)+"\x00"+mn, true)
-							}
+}
+
+func markSigCarry(st fnb, rootIdx pkgFlatIndex, deps []expr.Dep, ctx scanCtx, pi int, ps store.Store, sig dense.ID[store.TKey], key mut Map[string, bool]) {
+	if store.KindOfType(ps, sig) != store.KSig {
+		return
+	}
+	let ops = store.OperandsOf(ps, sig)
+	if ops.Len() < 3 {
+		return
+	}
+	let paramEnd = ops.Len() - 3
+	for i in 0..paramEnd {
+		markNamedUnionInKey(st, rootIdx, deps, ctx, pi, ps, ops[i], key)
+	}
+	let res = ops[ops.Len()-3]
+	if store.KindOfType(ps, res) != store.KTuple {
+		markNamedUnionInKey(st, rootIdx, deps, ctx, pi, ps, res, key)
+	}
+}
+
+func markSigRowErrors(st fnb, deps []expr.Dep, pi int, ps store.Store, sig dense.ID[store.TKey], errKey mut Map[string, bool]) {
+	if store.KindOfType(ps, sig) != store.KSig {
+		return
+	}
+	let ops = store.OperandsOf(ps, sig)
+	if ops.Len() < 3 {
+		return
+	}
+	let row = ops[ops.Len()-2]
+	if store.KindOfType(ps, row) != store.KRow {
+		return
+	}
+	let pa = scanAlias(st, deps, pi)
+	for m in store.OperandsOf(ps, row) {
+		let mk = if pi == scanPkgRoot {
+			scanPkgNamedKey(ps, st.k, pa, m)
+		} else {
+			scanPkgNamedKey(ps, deps[pi].K, pa, m)
+		}
+		if mk != "" {
+			*errKey = (*errKey).Put(mk, true)
+		}
+	}
+}
+
+func cacheUnparen(tree syntax.Tree, x dense.ID[syntax.Node]) dense.ID[syntax.Node] {
+	let mut cur = x
+	for true {
+		match syntax.ViewOf(tree, cur) {
+		case syntax.ParenExpr as pe:
+			cur = pe.X
+		case _:
+			return cur
+		}
+	}
+	cur
+}
+
+func isTailStmtInFn(tree syntax.Tree, ps bind.Parents, fi int, stmt dense.ID[syntax.Node], body dense.ID[syntax.Node]) bool {
+	let mut cur = stmt
+	for true {
+		let pnode = match dense.Unpack(bind.ParentOf(ps, bind.PNodeOf(ps, fi, cur))) {
+		case option.Some{Value: parent}:
+			parent
+		case option.None:
+			return false
+		}
+		let (pf, row) = bind.RowOf(ps, pnode)
+		if pf != fi {
+			return false
+		}
+		let pn = syntax.NodeAt(tree, row)
+		if pn == body {
+			match syntax.ViewOf(tree, pn) {
+			case syntax.BlockStmt as bs:
+				let n = syntax.Len(bs.List)
+				return n > 0 && syntax.Item(tree, bs.List, n-1) == cur
+			case _:
+				return false
+			}
+		}
+		match syntax.ViewOf(tree, pn) {
+		case syntax.BlockStmt as bs:
+			let n = syntax.Len(bs.List)
+			if n == 0 || syntax.Item(tree, bs.List, n-1) != cur {
+				return false
+			}
+			cur = pn
+		case syntax.IfStmt as ifs:
+			let elseMatches = match dense.Unpack(ifs.Else) {
+			case option.Some{Value: ex}:
+				ex == cur
+			case option.None:
+				false
+			}
+			if ifs.Body != cur && !elseMatches {
+				return false
+			}
+			if !isTailStmtInFn(tree, ps, fi, pn, body) {
+				return false
+			}
+			return true
+		case syntax.CaseClause as cc:
+			let n = syntax.Len(cc.Body)
+			if n == 0 || syntax.Item(tree, cc.Body, n-1) != cur {
+				return false
+			}
+			cur = pn
+		case syntax.SwitchStmt, syntax.TypeSwitchStmt:
+			cur = pn
+		case _:
+			return false
+		}
+	}
+	false
+}
+
+func resolveCarryCallee(st fnb, deps []expr.Dep, ctx scanCtx, pi int, fi int, ce syntax.CallExpr) (int, int, bool, bool) {
+	let p = if pi == scanPkgRoot { st.k.Parsed[fi] } else { deps[pi].K.Parsed[fi] }
+	let u = if pi == scanPkgRoot { st.k.U } else { deps[pi].K.U }
+	let psBind = if pi == scanPkgRoot { st.k.Ps } else { deps[pi].K.Ps }
+	let mut fun = cacheUnparen(p.Tree, ce.Fun)
+	match syntax.ViewOf(p.Tree, fun) {
+	case syntax.IndexExpr as ix:
+		fun = cacheUnparen(p.Tree, ix.X)
+	case _:
+	}
+	match syntax.ViewOf(p.Tree, fun) {
+	case syntax.Name:
+		match bind.ResolutionOf(u, psBind, bind.PNodeOf(psBind, fi, fun)) {
+		case bind.Declared as d:
+			let fidx = if pi == scanPkgRoot { expr.FnAt(st.k, d.At) } else { expr.FnAt(deps[pi].K, d.At) }
+			if fidx >= 0 {
+				return (pi, fidx, false, false)
+			}
+			return (scanPkgNone, -1, false, true)
+		case bind.Outside:
+			if nameText(p, fun) == "len" {
+				return (scanPkgNone, -1, false, false)
+			}
+			return (scanPkgNone, -1, false, true)
+		case _:
+			return (scanPkgNone, -1, false, true)
+		}
+	case syntax.SelectorExpr as se:
+		match bind.ResolutionOf(u, psBind, bind.PNodeOf(psBind, fi, se.Sel)) {
+		case bind.Imported as im:
+			let ix = int(im.Ref.Import) - 1
+			let paths = store.ImportPaths(scanStore(st, deps, pi))
+			if ix >= 0 && ix < paths.Len() {
+				match ctx.depByPath.Get(paths[ix]) {
+				case option.Some{Value: dpi}:
+					let ds = scanStore(st, deps, dpi)
+					let selName = nameText(p, se.Sel)
+					match store.Lookup(ds, selName) {
+					case option.Some{Value: declId}:
+						let d = store.DeclOf(ds, declId)
+						let dTree = if dpi == scanPkgRoot { st.k.Parsed[int(d.File)].Tree } else { deps[dpi].K.Parsed[int(d.File)].Tree }
+						let dPs = if dpi == scanPkgRoot { st.k.Ps } else { deps[dpi].K.Ps }
+						let dp = bind.PNodeOf(dPs, int(d.File), syntax.NodeAt(dTree, int(d.Node)))
+						let fidx = if dpi == scanPkgRoot { expr.FnAt(st.k, dp) } else { expr.FnAt(deps[dpi].K, dp) }
+						if fidx >= 0 {
+							return (dpi, fidx, false, false)
 						}
+					case option.None:
 					}
+				case option.None:
 				}
 			}
+			return (scanPkgNone, -1, false, true)
+		case _:
+			return (scanPkgNone, -1, true, true)
 		}
-		for fi, p in pk.Parsed {
-			for i in 0..syntax.NumNodes(p.Tree) {
-				let n = syntax.NodeAt(p.Tree, i)
-				match syntax.ViewOf(p.Tree, n) {
-				case syntax.ErrorRow as r:
-					for j in 0..syntax.Len(r.Types) {
-						let item = syntax.Item(p.Tree, r.Types, j)
-						match syntax.ViewOf(p.Tree, item) {
-						case syntax.Name:
-							errKey = errKey.Put(pa+"\x00"+nameText(p, item), true)
-						case syntax.SelectorExpr as se:
-							match bind.ResolutionOf(pk.U, pk.Ps, bind.PNodeOf(pk.Ps, fi, se.Sel)) {
-							case bind.Imported as im:
-								let ix = int(im.Ref.Import) - 1
-								let paths = store.ImportPaths(ps)
-								if ix >= 0 && ix < paths.Len() {
-									errKey = errKey.Put(pkgAlias(paths[ix])+"\x00"+nameText(p, se.Sel), true)
-								}
-							case _:
-							}
-						case _:
-						}
+	case _:
+		return (scanPkgNone, -1, false, true)
+	}
+}
+
+func fnIsExtern(pk expr.Pkg, f expr.Fn) bool {
+	if f.File < 0 || f.File >= pk.Parsed.Len() || dense.Index(f.Decl) < 0 {
+		return false
+	}
+	match syntax.ViewOf(pk.Parsed[f.File].Tree, f.Decl) {
+	case syntax.FuncDecl as fd:
+		dense.Unpack(fd.Extern) != option.None
+	case _:
+		false
+	}
+}
+
+func carryPassAt(st fnb, deps []expr.Dep, ctx scanCtx, pi int, fi int, ce syntax.CallExpr, j int, memo mut Map[string, []bool], visiting mut Map[string, bool]) bool {
+	let (cpi, cfidx, _, fallback) = resolveCarryCallee(st, deps, ctx, pi, fi, ce)
+	if cpi == scanPkgNone {
+		return fallback
+	}
+	let cf = if cpi == scanPkgRoot { st.k.Fns[cfidx] } else { deps[cpi].K.Fns[cfidx] }
+	let isExt = if cpi == scanPkgRoot { fnIsExtern(st.k, cf) } else { fnIsExtern(deps[cpi].K, cf) }
+	if isExt {
+		return false
+	}
+	let ks = carrySummaryFor(st, deps, ctx, cpi, cfidx, memo, visiting)
+	j >= ks.Len() || ks[j]
+}
+
+func carryClimbUse(st fnb, deps []expr.Dep, ctx scanCtx, pi int, f expr.Fn, body dense.ID[syntax.Node], node dense.ID[syntax.Node], memo mut Map[string, []bool], visiting mut Map[string, bool]) bool {
+	let fp = if pi == scanPkgRoot { st.k.Parsed[f.File] } else { deps[pi].K.Parsed[f.File] }
+	let psBind = if pi == scanPkgRoot { st.k.Ps } else { deps[pi].K.Ps }
+	let mut cur = node
+	for true {
+		let pnode = match dense.Unpack(bind.ParentOf(psBind, bind.PNodeOf(psBind, f.File, cur))) {
+		case option.Some{Value: parent}:
+			parent
+		case option.None:
+			return false
+		}
+		let (pf, row) = bind.RowOf(psBind, pnode)
+		if pf != f.File {
+			return false
+		}
+		let pn = syntax.NodeAt(fp.Tree, row)
+		match syntax.ViewOf(fp.Tree, pn) {
+		case syntax.ParenExpr:
+			cur = pn
+		case syntax.ReturnStmt:
+			return true
+		case syntax.ExprStmt:
+			return isTailStmtInFn(fp.Tree, psBind, f.File, pn, body)
+		case syntax.VarSpec as vs:
+			return match dense.Unpack(vs.Value) {
+			case option.Some{Value: vx}:
+				vx == cur
+			case option.None:
+				false
+			}
+		case syntax.AssignStmt as astmt:
+			if astmt.Rhs != cur {
+				return false
+			}
+			return syntax.KindOf(fp.Tree, cacheUnparen(fp.Tree, astmt.Lhs)) == syntax.KIdent
+		case syntax.CallExpr as ce:
+			let isTrail = match dense.Unpack(ce.Trailing) {
+			case option.Some{Value: tr}:
+				tr == cur
+			case option.None:
+				false
+			}
+			if isTrail {
+				return true
+			}
+			let (_, _, isRecvCall, _) = resolveCarryCallee(st, deps, ctx, pi, f.File, ce)
+			let mut j = -1
+			if isRecvCall {
+				match syntax.ViewOf(fp.Tree, cacheUnparen(fp.Tree, ce.Fun)) {
+				case syntax.SelectorExpr as se:
+					if se.X == cur {
+						j = 0
 					}
-				case syntax.MachineType as mt:
-					recordMachineName(p, mt.State, &machKey)
-					recordMachineName(p, mt.Signal, &machKey)
 				case _:
 				}
 			}
+			if j < 0 {
+				let argOff = if isRecvCall { 1 } else { 0 }
+				for k in 0..syntax.Len(ce.Args) {
+					if syntax.Item(fp.Tree, ce.Args, k) == cur {
+						j = argOff + k
+						break
+					}
+				}
+			}
+			if j < 0 {
+				return false
+			}
+			return carryPassAt(st, deps, ctx, pi, f.File, ce, j, memo, visiting)
+		case _:
+			return false
 		}
 	}
-	scan(k, s, alias)
-	for dep in deps {
-		scan(dep.K, dep.S, pkgAlias(dep.Path))
+	false
+}
+
+func carryDfsOpt(st fnb, deps []expr.Dep, ctx scanCtx, pi int, f expr.Fn, body dense.ID[syntax.Node], paramPNodes []uint32, opt dense.Opt[syntax.Node], inLit bool, out mut []bool, memo mut Map[string, []bool], visiting mut Map[string, bool]) {
+	match dense.Unpack(opt) {
+	case option.Some{Value: x}:
+		carryDfsNode(st, deps, ctx, pi, f, body, paramPNodes, x, inLit, out, memo, visiting)
+	case option.None:
 	}
-	unionLayoutCache{ready: true, hasExt: false, errKey: errKey, machKey: machKey}
+}
+
+func carryDfsList(st fnb, deps []expr.Dep, ctx scanCtx, pi int, f expr.Fn, body dense.ID[syntax.Node], paramPNodes []uint32, list syntax.List, inLit bool, out mut []bool, memo mut Map[string, []bool], visiting mut Map[string, bool]) {
+	let fp = if pi == scanPkgRoot { st.k.Parsed[f.File] } else { deps[pi].K.Parsed[f.File] }
+	for i in 0..syntax.Len(list) {
+		carryDfsNode(st, deps, ctx, pi, f, body, paramPNodes, syntax.Item(fp.Tree, list, i), inLit, out, memo, visiting)
+	}
+}
+
+func carryDfsNode(st fnb, deps []expr.Dep, ctx scanCtx, pi int, f expr.Fn, body dense.ID[syntax.Node], paramPNodes []uint32, node dense.ID[syntax.Node], inLit bool, out mut []bool, memo mut Map[string, []bool], visiting mut Map[string, bool]) {
+	let fp = if pi == scanPkgRoot { st.k.Parsed[f.File] } else { deps[pi].K.Parsed[f.File] }
+	let litHere = inLit || syntax.KindOf(fp.Tree, node) == syntax.KFuncLit
+	match syntax.ViewOf(fp.Tree, node) {
+	case syntax.Name:
+		let u = if pi == scanPkgRoot { st.k.U } else { deps[pi].K.U }
+		let psBind = if pi == scanPkgRoot { st.k.Ps } else { deps[pi].K.Ps }
+		match bind.ResolutionOf(u, psBind, bind.PNodeOf(psBind, f.File, node)) {
+		case bind.Declared as d:
+			let di = uint32(dense.Index(d.At))
+			for idx, pni in paramPNodes {
+				if di == pni && !(*out)[idx] {
+					if inLit || carryClimbUse(st, deps, ctx, pi, f, body, node, memo, visiting) {
+						(*out)[idx] = true
+					}
+				}
+			}
+		case _:
+		}
+	case syntax.CallExpr as ce:
+		carryDfsOpt(st, deps, ctx, pi, f, body, paramPNodes, ce.Trailing, true, out, memo, visiting)
+		carryDfsNode(st, deps, ctx, pi, f, body, paramPNodes, ce.Fun, litHere, out, memo, visiting)
+		carryDfsList(st, deps, ctx, pi, f, body, paramPNodes, ce.Args, litHere, out, memo, visiting)
+	case syntax.File as x:
+		carryDfsList(st, deps, ctx, pi, f, body, paramPNodes, x.Decls, litHere, out, memo, visiting)
+	case syntax.VarDecl as x:
+		carryDfsOpt(st, deps, ctx, pi, f, body, paramPNodes, x.Extern, litHere, out, memo, visiting)
+		carryDfsNode(st, deps, ctx, pi, f, body, paramPNodes, x.Spec, litHere, out, memo, visiting)
+	case syntax.VarSpec as x:
+		carryDfsOpt(st, deps, ctx, pi, f, body, paramPNodes, x.Pattern, litHere, out, memo, visiting)
+		carryDfsOpt(st, deps, ctx, pi, f, body, paramPNodes, x.Type, litHere, out, memo, visiting)
+		carryDfsOpt(st, deps, ctx, pi, f, body, paramPNodes, x.Value, litHere, out, memo, visiting)
+	case syntax.FuncDecl as x:
+		carryDfsOpt(st, deps, ctx, pi, f, body, paramPNodes, x.Body, litHere, out, memo, visiting)
+	case syntax.FuncLit as x:
+		carryDfsNode(st, deps, ctx, pi, f, body, paramPNodes, x.Type, litHere, out, memo, visiting)
+		carryDfsNode(st, deps, ctx, pi, f, body, paramPNodes, x.Body, litHere, out, memo, visiting)
+	case syntax.ParenExpr as x:
+		carryDfsNode(st, deps, ctx, pi, f, body, paramPNodes, x.X, litHere, out, memo, visiting)
+	case syntax.SelectorExpr as x:
+		carryDfsNode(st, deps, ctx, pi, f, body, paramPNodes, x.X, litHere, out, memo, visiting)
+	case syntax.IndexExpr as x:
+		carryDfsNode(st, deps, ctx, pi, f, body, paramPNodes, x.X, litHere, out, memo, visiting)
+		carryDfsList(st, deps, ctx, pi, f, body, paramPNodes, x.Indices, litHere, out, memo, visiting)
+	case syntax.SliceExpr as x:
+		carryDfsNode(st, deps, ctx, pi, f, body, paramPNodes, x.X, litHere, out, memo, visiting)
+		carryDfsOpt(st, deps, ctx, pi, f, body, paramPNodes, x.Low, litHere, out, memo, visiting)
+		carryDfsOpt(st, deps, ctx, pi, f, body, paramPNodes, x.High, litHere, out, memo, visiting)
+		carryDfsOpt(st, deps, ctx, pi, f, body, paramPNodes, x.Max, litHere, out, memo, visiting)
+	case syntax.StarExpr as x:
+		carryDfsNode(st, deps, ctx, pi, f, body, paramPNodes, x.X, litHere, out, memo, visiting)
+	case syntax.UnaryExpr as x:
+		carryDfsNode(st, deps, ctx, pi, f, body, paramPNodes, x.X, litHere, out, memo, visiting)
+	case syntax.BinaryExpr as x:
+		carryDfsNode(st, deps, ctx, pi, f, body, paramPNodes, x.X, litHere, out, memo, visiting)
+		carryDfsNode(st, deps, ctx, pi, f, body, paramPNodes, x.Y, litHere, out, memo, visiting)
+	case syntax.TryExpr as x:
+		carryDfsNode(st, deps, ctx, pi, f, body, paramPNodes, x.X, litHere, out, memo, visiting)
+	case syntax.CatchExpr as x:
+		carryDfsNode(st, deps, ctx, pi, f, body, paramPNodes, x.X, litHere, out, memo, visiting)
+		carryDfsList(st, deps, ctx, pi, f, body, paramPNodes, x.Arms, litHere, out, memo, visiting)
+	case syntax.CatchArm as x:
+		carryDfsList(st, deps, ctx, pi, f, body, paramPNodes, x.Body, litHere, out, memo, visiting)
+	case syntax.ContextLit as x:
+		carryDfsOpt(st, deps, ctx, pi, f, body, paramPNodes, x.Provides, litHere, out, memo, visiting)
+		carryDfsOpt(st, deps, ctx, pi, f, body, paramPNodes, x.Fails, litHere, out, memo, visiting)
+		carryDfsOpt(st, deps, ctx, pi, f, body, paramPNodes, x.Needs, litHere, out, memo, visiting)
+		carryDfsNode(st, deps, ctx, pi, f, body, paramPNodes, x.Body, litHere, out, memo, visiting)
+	case syntax.CompositeLit as x:
+		carryDfsOpt(st, deps, ctx, pi, f, body, paramPNodes, x.Base, litHere, out, memo, visiting)
+		carryDfsList(st, deps, ctx, pi, f, body, paramPNodes, x.Elts, litHere, out, memo, visiting)
+	case syntax.KeyValueExpr as x:
+		carryDfsNode(st, deps, ctx, pi, f, body, paramPNodes, x.Key, litHere, out, memo, visiting)
+		carryDfsNode(st, deps, ctx, pi, f, body, paramPNodes, x.Value, litHere, out, memo, visiting)
+	case syntax.TupleExpr as x:
+		carryDfsList(st, deps, ctx, pi, f, body, paramPNodes, x.Elts, litHere, out, memo, visiting)
+	case syntax.AsPattern as x:
+		carryDfsNode(st, deps, ctx, pi, f, body, paramPNodes, x.X, litHere, out, memo, visiting)
+	case syntax.OrPattern as x:
+		carryDfsList(st, deps, ctx, pi, f, body, paramPNodes, x.Alts, litHere, out, memo, visiting)
+	case syntax.InterpolatedString as x:
+		carryDfsList(st, deps, ctx, pi, f, body, paramPNodes, x.Parts, litHere, out, memo, visiting)
+	case syntax.DeclStmt as x:
+		carryDfsNode(st, deps, ctx, pi, f, body, paramPNodes, x.Decl, litHere, out, memo, visiting)
+	case syntax.ExprStmt as x:
+		carryDfsNode(st, deps, ctx, pi, f, body, paramPNodes, x.X, litHere, out, memo, visiting)
+	case syntax.AssignStmt as x:
+		carryDfsNode(st, deps, ctx, pi, f, body, paramPNodes, x.Lhs, litHere, out, memo, visiting)
+		carryDfsNode(st, deps, ctx, pi, f, body, paramPNodes, x.Rhs, litHere, out, memo, visiting)
+	case syntax.ReturnStmt as x:
+		carryDfsOpt(st, deps, ctx, pi, f, body, paramPNodes, x.Result, litHere, out, memo, visiting)
+	case syntax.BlockStmt as x:
+		carryDfsList(st, deps, ctx, pi, f, body, paramPNodes, x.List, litHere, out, memo, visiting)
+	case syntax.IfStmt as x:
+		carryDfsNode(st, deps, ctx, pi, f, body, paramPNodes, x.Cond, litHere, out, memo, visiting)
+		carryDfsNode(st, deps, ctx, pi, f, body, paramPNodes, x.Body, litHere, out, memo, visiting)
+		carryDfsOpt(st, deps, ctx, pi, f, body, paramPNodes, x.Else, litHere, out, memo, visiting)
+	case syntax.SwitchStmt as x:
+		carryDfsNode(st, deps, ctx, pi, f, body, paramPNodes, x.Tag, litHere, out, memo, visiting)
+		carryDfsList(st, deps, ctx, pi, f, body, paramPNodes, x.Clauses, litHere, out, memo, visiting)
+	case syntax.TypeSwitchStmt as x:
+		carryDfsNode(st, deps, ctx, pi, f, body, paramPNodes, x.Subject, litHere, out, memo, visiting)
+		carryDfsList(st, deps, ctx, pi, f, body, paramPNodes, x.Clauses, litHere, out, memo, visiting)
+	case syntax.CaseClause as x:
+		carryDfsList(st, deps, ctx, pi, f, body, paramPNodes, x.List, litHere, out, memo, visiting)
+		carryDfsList(st, deps, ctx, pi, f, body, paramPNodes, x.Body, litHere, out, memo, visiting)
+	case syntax.ForStmt as x:
+		carryDfsOpt(st, deps, ctx, pi, f, body, paramPNodes, x.Cond, litHere, out, memo, visiting)
+		carryDfsNode(st, deps, ctx, pi, f, body, paramPNodes, x.Body, litHere, out, memo, visiting)
+	case syntax.RangeStmt as x:
+		carryDfsNode(st, deps, ctx, pi, f, body, paramPNodes, x.X, litHere, out, memo, visiting)
+		carryDfsNode(st, deps, ctx, pi, f, body, paramPNodes, x.Body, litHere, out, memo, visiting)
+	case syntax.AssertStmt as x:
+		carryDfsNode(st, deps, ctx, pi, f, body, paramPNodes, x.X, litHere, out, memo, visiting)
+	case syntax.DieStmt as x:
+		carryDfsNode(st, deps, ctx, pi, f, body, paramPNodes, x.X, litHere, out, memo, visiting)
+	case syntax.AlwaysStmt as x:
+		carryDfsNode(st, deps, ctx, pi, f, body, paramPNodes, x.X, litHere, out, memo, visiting)
+	case syntax.SometimesStmt as x:
+		carryDfsNode(st, deps, ctx, pi, f, body, paramPNodes, x.X, litHere, out, memo, visiting)
+	case _:
+	}
+}
+
+func carryAllTrue(n int) []bool {
+	let mut out = []bool{}
+	for _ in 0..n {
+		out = out.Append(true)
+	}
+	out
+}
+
+func carrySummaryFor(st fnb, deps []expr.Dep, ctx scanCtx, pi int, fidx int, memo mut Map[string, []bool], visiting mut Map[string, bool]) []bool {
+	let f = if pi == scanPkgRoot { st.k.Fns[fidx] } else { deps[pi].K.Fns[fidx] }
+	let n = f.Names.Len()
+	let mkey = scanAlias(st, deps, pi) + "\x00" + strconv.Itoa(fidx)
+	match (*memo).Get(mkey) {
+	case option.Some{Value: got}:
+		return got
+	case option.None:
+	}
+	if (*visiting).Get(mkey) != option.None {
+		return carryAllTrue(n)
+	}
+	let body = match dense.Unpack(f.Body) {
+	case option.Some{Value: b}:
+		b
+	case option.None:
+		return carryAllTrue(n)
+	}
+	let isExt = if pi == scanPkgRoot { fnIsExtern(st.k, f) } else { fnIsExtern(deps[pi].K, f) }
+	let fs = scanStore(st, deps, pi)
+	let fops = store.OperandsOf(fs, f.Sig)
+	let pCount = if store.KindOfType(fs, f.Sig) == store.KSig && fops.Len() >= 3 { fops.Len() - 3 } else { -1 }
+	if isExt || n != pCount {
+		return carryAllTrue(n)
+	}
+	*visiting = (*visiting).Put(mkey, true)
+	let psBind = if pi == scanPkgRoot { st.k.Ps } else { deps[pi].K.Ps }
+	let mut paramPNodes = []uint32{}
+	for optN in f.Names {
+		match dense.Unpack(optN) {
+		case option.Some{Value: pn}:
+			paramPNodes = paramPNodes.Append(uint32(dense.Index(bind.PNodeOf(psBind, f.File, pn))))
+		case option.None:
+			paramPNodes = paramPNodes.Append(uint32(0))
+		}
+	}
+	let mut out = []bool{}
+	for _ in 0..n {
+		out = out.Append(false)
+	}
+	carryDfsNode(st, deps, ctx, pi, f, body, paramPNodes, body, false, &out, memo, visiting)
+	*memo = (*memo).Put(mkey, out)
+	out
+}
+
+func scanExprUnionType(st fnb, deps []expr.Dep, ctx scanCtx, pi int, fi int, node dense.ID[syntax.Node], s mut store.Store, fnParamMap Map[uint32, dense.ID[store.TKey]], depth int) option.Option[dense.ID[store.TKey]] {
+	if depth >= 8 {
+		return option.None
+	}
+	let parsed = if pi == scanPkgRoot { st.k.Parsed } else { deps[pi].K.Parsed }
+	let kinds = if pi == scanPkgRoot { st.k.Kinds } else { deps[pi].K.Kinds }
+	let ext = if pi == scanPkgRoot { st.k.Ext } else { deps[pi].K.Ext }
+	let foreign = if pi == scanPkgRoot { st.k.Foreign } else { deps[pi].K.Foreign }
+	let ifaces = if pi == scanPkgRoot { st.k.Ifaces } else { deps[pi].K.Ifaces }
+	let u = if pi == scanPkgRoot { st.k.U } else { deps[pi].K.U }
+	let psBind = if pi == scanPkgRoot { st.k.Ps } else { deps[pi].K.Ps }
+	let p = parsed[fi]
+	let cur = cacheUnparen(p.Tree, node)
+	match syntax.ViewOf(p.Tree, cur) {
+	case syntax.TryExpr as te:
+		return scanExprUnionType(st, deps, ctx, pi, fi, te.X, s, fnParamMap, depth+1)
+	case syntax.Name:
+		match bind.ResolutionOf(u, psBind, bind.PNodeOf(psBind, fi, cur)) {
+		case bind.Declared as d:
+			match fnParamMap.Get(uint32(dense.Index(d.At))) {
+			case option.Some{Value: pt}:
+				return option.Some{Value: pt}
+			case option.None:
+			}
+			let (_, _) = bind.RowOf(psBind, d.At)
+			match dense.Unpack(bind.ParentOf(psBind, d.At)) {
+			case option.Some{Value: pnode}:
+				let (pf, prow) = bind.RowOf(psBind, pnode)
+				let pp = parsed[pf]
+				match syntax.ViewOf(pp.Tree, syntax.NodeAt(pp.Tree, prow)) {
+				case syntax.VarSpec as vs:
+					match dense.Unpack(vs.Type) {
+					case option.Some{Value: tn}:
+						let env = types.NewEnv(*s, parsed, pp, []string{}, kinds, ext, foreign, ifaces)
+						return option.Some{Value: types.Resolve(s, env, tn)}
+					case option.None:
+					}
+					match dense.Unpack(vs.Value) {
+					case option.Some{Value: vx}:
+						return scanExprUnionType(st, deps, ctx, pi, pf, vx, s, fnParamMap, depth+1)
+					case option.None:
+					}
+				case syntax.AsPattern as ap:
+					let env = types.NewEnv(*s, parsed, pp, []string{}, kinds, ext, foreign, ifaces)
+					return option.Some{Value: types.Resolve(s, env, ap.X)}
+				case _:
+				}
+			case option.None:
+			}
+			return option.None
+		case _:
+			return option.None
+		}
+	case syntax.CallExpr as ce:
+		let (cpi, cfidx, _, fallback) = resolveCarryCallee(st, deps, ctx, pi, fi, ce)
+		if cpi == scanPkgNone || fallback {
+			return option.None
+		}
+		let cf = if cpi == scanPkgRoot { st.k.Fns[cfidx] } else { deps[cpi].K.Fns[cfidx] }
+		let cs = scanStore(st, deps, cpi)
+		if store.KindOfType(cs, cf.Sig) == store.KSig {
+			let ops = store.OperandsOf(cs, cf.Sig)
+			if ops.Len() >= 3 {
+				let rt = ops[ops.Len()-3]
+				if cpi == pi {
+					return option.Some{Value: rt}
+				}
+				let cIfaces = if cpi == scanPkgRoot { st.k.Ifaces } else { deps[cpi].K.Ifaces }
+				let cForeign = if cpi == scanPkgRoot { st.k.Foreign } else { deps[cpi].K.Foreign }
+				let cPath = scanPath(st, deps, cpi)
+				return types.Port(s, ifaces, foreign, cs, cPath, func(ref store.XRef) option.Option[types.DeclIdentity] { types.DepIdentity(cIfaces, ref) }, cForeign, rt)
+			}
+		}
+		option.None
+	case syntax.CompositeLit as cl:
+		match dense.Unpack(cl.Type) {
+		case option.Some{Value: tn}:
+			let env = types.NewEnv(*s, parsed, p, []string{}, kinds, ext, foreign, ifaces)
+			return option.Some{Value: types.Resolve(s, env, tn)}
+		case option.None:
+			return option.None
+		}
+	case _:
+		option.None
+	}
+}
+
+func recordErrorRowNode(pk expr.Pkg, ps store.Store, fi int, pa string, r syntax.ErrorRow, errKey mut Map[string, bool]) {
+	let p = pk.Parsed[fi]
+	for j in 0..syntax.Len(r.Types) {
+		let item = syntax.Item(p.Tree, r.Types, j)
+		match syntax.ViewOf(p.Tree, item) {
+		case syntax.Name:
+			*errKey = (*errKey).Put(pa+"\x00"+nameText(p, item), true)
+		case syntax.SelectorExpr as se:
+			match bind.ResolutionOf(pk.U, pk.Ps, bind.PNodeOf(pk.Ps, fi, se.Sel)) {
+			case bind.Imported as im:
+				let ix = int(im.Ref.Import) - 1
+				let paths = store.ImportPaths(ps)
+				if ix >= 0 && ix < paths.Len() {
+					*errKey = (*errKey).Put(pkgAlias(paths[ix])+"\x00"+nameText(p, se.Sel), true)
+				}
+			case _:
+			}
+		case _:
+		}
+	}
+}
+
+func scanPass1Pkg(st fnb, rootIdx pkgFlatIndex, deps []expr.Dep, ctx scanCtx, pi int, extSeen mut Map[string, bool], extKey mut Map[string, bool], errKey mut Map[string, bool], machKey mut Map[string, bool]) (bool, bool, bool) {
+	let k = if pi == scanPkgRoot { st.k } else { deps[pi].K }
+	let s = scanStore(st, deps, pi)
+	let pa = scanAlias(st, deps, pi)
+	let mut hasBodies = false
+	let mut hasVarInits = false
+	let mut hasWireForm = false
+	for f in k.Fns {
+		if store.KindOfType(s, f.Sig) == store.KSig {
+			let ops = store.OperandsOf(s, f.Sig)
+			if ops.Len() >= 3 {
+				let row = ops[ops.Len()-2]
+				if store.KindOfType(s, row) == store.KRow {
+					for m in store.OperandsOf(s, row) {
+						let mk = scanPkgNamedKey(s, k, pa, m)
+						if mk != "" {
+							*errKey = (*errKey).Put(mk, true)
+						}
+					}
+				}
+				if fnIsExtern(k, f) {
+					for i in 0..ops.Len()-3 {
+						markPayloadTree(st, rootIdx, deps, ctx, pi, ops[i], extSeen, extKey)
+					}
+					markPayloadTree(st, rootIdx, deps, ctx, pi, ops[ops.Len()-3], extSeen, extKey)
+				}
+			}
+		}
+		if !fnIsExtern(k, f) && dense.Unpack(f.Body) != option.None {
+			hasBodies = true
+		}
+	}
+	let idx = scanIdx(rootIdx, deps, ctx.depIdx, pi)
+	for fi, p in k.Parsed {
+		let list = match syntax.ViewOf(p.Tree, syntax.Root(p.Tree)) {
+		case syntax.File as pf:
+			pf.Decls
+		case _:
+			continue
+		}
+		for i in 0..syntax.Len(list) {
+			let dn = syntax.Item(p.Tree, list, i)
+			match syntax.ViewOf(p.Tree, dn) {
+			case syntax.FuncDecl as fd:
+				if pi == scanPkgRoot && nameText(p, fd.Name) == "WireForm" {
+					hasWireForm = true
+				}
+			case syntax.ErrorRow as r:
+				recordErrorRowNode(k, s, fi, pa, r, errKey)
+			case syntax.TypeDecl as td:
+				if pi == scanPkgRoot && nameText(p, td.Name) == "WireForm" {
+					hasWireForm = true
+				}
+				if dense.Unpack(td.Extern) != option.None {
+					let tname = nameText(p, td.Name)
+					match store.Lookup(s, tname) {
+					case option.Some{Value: decl}:
+						match namedKeyIn(idx, decl) {
+						case option.Some{Value: nt}:
+							markPayloadTree(st, rootIdx, deps, ctx, pi, nt, extSeen, extKey)
+						case option.None:
+						}
+					case option.None:
+					}
+				}
+				match dense.Unpack(td.Spec) {
+				case option.Some{Value: sp}:
+					match syntax.ViewOf(p.Tree, sp) {
+					case syntax.MachineType as mt:
+						recordMachineNode(k, s, fi, pa, mt.State, machKey)
+						recordMachineNode(k, s, fi, pa, mt.Signal, machKey)
+						hasVarInits = true
+					case syntax.ErrorRow as r:
+						recordErrorRowNode(k, s, fi, pa, r, errKey)
+					case _:
+					}
+				case option.None:
+				}
+			case syntax.VarDecl as vd:
+				match syntax.ViewOf(p.Tree, vd.Spec) {
+				case syntax.VarSpec as vs:
+					if dense.Unpack(vs.Value) != option.None {
+						hasVarInits = true
+					}
+				case _:
+				}
+			case syntax.ContextDecl, syntax.TestDecl, syntax.LawDecl:
+				hasVarInits = true
+			case _:
+			}
+		}
+	}
+	(hasBodies, hasVarInits, hasWireForm)
+}
+
+func scanCarryOpt(st fnb, rootIdx pkgFlatIndex, deps []expr.Dep, ctx scanCtx, pi int, fi int, opt dense.Opt[syntax.Node], inCallFun bool, localS mut store.Store, fnParamMap Map[uint32, dense.ID[store.TKey]], errKey mut Map[string, bool], carriedKey mut Map[string, bool], carryMemo mut Map[string, []bool], carryVisit mut Map[string, bool]) {
+	match dense.Unpack(opt) {
+	case option.Some{Value: x}:
+		scanCarryNode(st, rootIdx, deps, ctx, pi, fi, x, inCallFun, localS, fnParamMap, errKey, carriedKey, carryMemo, carryVisit)
+	case option.None:
+	}
+}
+
+func scanCarryList(st fnb, rootIdx pkgFlatIndex, deps []expr.Dep, ctx scanCtx, pi int, fi int, list syntax.List, inCallFun bool, localS mut store.Store, fnParamMap Map[uint32, dense.ID[store.TKey]], errKey mut Map[string, bool], carriedKey mut Map[string, bool], carryMemo mut Map[string, []bool], carryVisit mut Map[string, bool]) {
+	let tree = if pi == scanPkgRoot { st.k.Parsed[fi].Tree } else { deps[pi].K.Parsed[fi].Tree }
+	for i in 0..syntax.Len(list) {
+		scanCarryNode(st, rootIdx, deps, ctx, pi, fi, syntax.Item(tree, list, i), inCallFun, localS, fnParamMap, errKey, carriedKey, carryMemo, carryVisit)
+	}
+}
+
+func maybeMarkCarriedArg(st fnb, rootIdx pkgFlatIndex, deps []expr.Dep, ctx scanCtx, pi int, fi int, ce syntax.CallExpr, cpi int, cfidx int, isRecvCall bool, fallback bool, j int, arg dense.ID[syntax.Node], localS mut store.Store, fnParamMap Map[uint32, dense.ID[store.TKey]], ksLoaded mut bool, ks mut []bool, fnExtern bool, carriedKey mut Map[string, bool], carryMemo mut Map[string, []bool], carryVisit mut Map[string, bool]) {
+	if fnExtern {
+		return
+	}
+	if pi == scanPkgRoot {
+		let ap = bind.PNodeOf(st.k.Ps, fi, arg)
+		let kt = match dense.Unpack(dense.SideOf(st.types, ap)) {
+		case option.Some{Value: t}:
+			t
+		case option.None:
+			return
+		}
+		let uk = unionKeyIfUnion(st, rootIdx, deps, ctx, pi, st.s, kt)
+		if uk == "" || (*carriedKey).Get(uk) != option.None {
+			return
+		}
+		if !*ksLoaded {
+			*ksLoaded = true
+			if cpi != scanPkgNone {
+				*ks = carrySummaryFor(st, deps, ctx, cpi, cfidx, carryMemo, carryVisit)
+			}
+		}
+		let passed = if cpi == scanPkgNone { fallback } else { j >= (*ks).Len() || (*ks)[j] }
+		if passed {
+			*carriedKey = (*carriedKey).Put(uk, true)
+		}
+		return
+	}
+	let mut knownUnionKey = ""
+	let mut needArgExprType = true
+	if cpi != scanPkgNone {
+		let cs = scanStore(st, deps, cpi)
+		let cf = if cpi == scanPkgRoot { st.k.Fns[cfidx] } else { deps[cpi].K.Fns[cfidx] }
+		if store.KindOfType(cs, cf.Sig) == store.KSig {
+			let cOps = store.OperandsOf(cs, cf.Sig)
+			let cParamEnd = if cOps.Len() >= 3 { cOps.Len() - 3 } else { 0 }
+			if j < cParamEnd {
+				let pt = cOps[j]
+				let ptk = store.KindOfType(cs, pt)
+				if ptk == store.KNamed || ptk == store.KInstance {
+					let uk = unionKeyIfUnion(st, rootIdx, deps, ctx, cpi, cs, pt)
+					if uk != "" {
+						knownUnionKey = uk
+						needArgExprType = false
+					} else if isOrdinaryStructInPkg(rootIdx, deps, ctx.depIdx, cpi, cs, pt) {
+						return
+					}
+				} else if ptk != store.KParam && ptk != store.KForeign && ptk != store.KRow && ptk != store.KSelf && ptk != store.KReapplied {
+					return
+				}
+			}
+		}
+	}
+	if knownUnionKey != "" && (*carriedKey).Get(knownUnionKey) != option.None {
+		return
+	}
+	let argKey = if !needArgExprType {
+		knownUnionKey
+	} else {
+		match scanExprUnionType(st, deps, ctx, pi, fi, arg, localS, fnParamMap, 0) {
+		case option.Some{Value: ut}:
+			unionKeyIfUnion(st, rootIdx, deps, ctx, pi, *localS, ut)
+		case option.None:
+			""
+		}
+	}
+	let targetKey = if argKey != "" { argKey } else { knownUnionKey }
+	if targetKey == "" || (*carriedKey).Get(targetKey) != option.None {
+		return
+	}
+	if !*ksLoaded {
+		*ksLoaded = true
+		if cpi != scanPkgNone {
+			*ks = carrySummaryFor(st, deps, ctx, cpi, cfidx, carryMemo, carryVisit)
+		}
+	}
+	let passed = if cpi == scanPkgNone { fallback } else { j >= (*ks).Len() || (*ks)[j] }
+	if passed {
+		*carriedKey = (*carriedKey).Put(targetKey, true)
+	}
+}
+
+func scanCarryNode(st fnb, rootIdx pkgFlatIndex, deps []expr.Dep, ctx scanCtx, pi int, fi int, node dense.ID[syntax.Node], inCallFun bool, localS mut store.Store, fnParamMap Map[uint32, dense.ID[store.TKey]], errKey mut Map[string, bool], carriedKey mut Map[string, bool], carryMemo mut Map[string, []bool], carryVisit mut Map[string, bool]) {
+	let p = if pi == scanPkgRoot { st.k.Parsed[fi] } else { deps[pi].K.Parsed[fi] }
+	let u = if pi == scanPkgRoot { st.k.U } else { deps[pi].K.U }
+	let psBind = if pi == scanPkgRoot { st.k.Ps } else { deps[pi].K.Ps }
+	match syntax.ViewOf(p.Tree, node) {
+	case syntax.FuncLit as fl:
+		let sig = if pi == scanPkgRoot {
+			match dense.Unpack(dense.SideOf(st.types, bind.PNodeOf(psBind, fi, node))) {
+			case option.Some{Value: t}:
+				t
+			case option.None:
+				let env = types.NewEnv(*localS, st.k.Parsed, p, []string{}, st.k.Kinds, st.k.Ext, st.k.Foreign, st.k.Ifaces)
+				types.Resolve(localS, env, fl.Type)
+			}
+		} else {
+			let env = types.NewEnv(*localS, deps[pi].K.Parsed, p, []string{}, deps[pi].K.Kinds, deps[pi].K.Ext, deps[pi].K.Foreign, deps[pi].K.Ifaces)
+			types.Resolve(localS, env, fl.Type)
+		}
+		markSigCarry(st, rootIdx, deps, ctx, pi, *localS, sig, carriedKey)
+		markSigRowErrors(st, deps, pi, *localS, sig, errKey)
+		scanCarryNode(st, rootIdx, deps, ctx, pi, fi, fl.Body, false, localS, fnParamMap, errKey, carriedKey, carryMemo, carryVisit)
+	case syntax.Name:
+		if !inCallFun {
+			match bind.ResolutionOf(u, psBind, bind.PNodeOf(psBind, fi, node)) {
+			case bind.Declared as d:
+				let fidx = if pi == scanPkgRoot { expr.FnAt(st.k, d.At) } else { expr.FnAt(deps[pi].K, d.At) }
+				if fidx >= 0 {
+					let fsig = if pi == scanPkgRoot { st.k.Fns[fidx].Sig } else { deps[pi].K.Fns[fidx].Sig }
+					markSigCarry(st, rootIdx, deps, ctx, pi, *localS, fsig, carriedKey)
+				}
+			case _:
+			}
+		}
+	case syntax.SelectorExpr as se:
+		if !inCallFun {
+			match bind.ResolutionOf(u, psBind, bind.PNodeOf(psBind, fi, se.Sel)) {
+			case bind.Imported as im:
+				let ix = int(im.Ref.Import) - 1
+				let paths = store.ImportPaths(scanStore(st, deps, pi))
+				if ix >= 0 && ix < paths.Len() {
+					match ctx.depByPath.Get(paths[ix]) {
+					case option.Some{Value: dpi}:
+						let ds = scanStore(st, deps, dpi)
+						match store.Lookup(ds, nameText(p, se.Sel)) {
+						case option.Some{Value: declId}:
+							let d = store.DeclOf(ds, declId)
+							let dTree = if dpi == scanPkgRoot { st.k.Parsed[int(d.File)].Tree } else { deps[dpi].K.Parsed[int(d.File)].Tree }
+							let dPs = if dpi == scanPkgRoot { st.k.Ps } else { deps[dpi].K.Ps }
+							let dpn = bind.PNodeOf(dPs, int(d.File), syntax.NodeAt(dTree, int(d.Node)))
+							let fidx = if dpi == scanPkgRoot { expr.FnAt(st.k, dpn) } else { expr.FnAt(deps[dpi].K, dpn) }
+							if fidx >= 0 {
+								let fsig = if dpi == scanPkgRoot { st.k.Fns[fidx].Sig } else { deps[dpi].K.Fns[fidx].Sig }
+								markSigCarry(st, rootIdx, deps, ctx, dpi, ds, fsig, carriedKey)
+							}
+						case option.None:
+						}
+					case option.None:
+					}
+				}
+			case _:
+			}
+		}
+		scanCarryNode(st, rootIdx, deps, ctx, pi, fi, se.X, false, localS, fnParamMap, errKey, carriedKey, carryMemo, carryVisit)
+	case syntax.CallExpr as ce:
+		let mut fun = cacheUnparen(p.Tree, ce.Fun)
+		match syntax.ViewOf(p.Tree, fun) {
+		case syntax.IndexExpr as ix:
+			fun = cacheUnparen(p.Tree, ix.X)
+		case _:
+		}
+		match syntax.ViewOf(p.Tree, fun) {
+		case syntax.Name:
+		case syntax.SelectorExpr:
+			scanCarryNode(st, rootIdx, deps, ctx, pi, fi, fun, true, localS, fnParamMap, errKey, carriedKey, carryMemo, carryVisit)
+		case _:
+			scanCarryNode(st, rootIdx, deps, ctx, pi, fi, fun, false, localS, fnParamMap, errKey, carriedKey, carryMemo, carryVisit)
+		}
+		scanCarryList(st, rootIdx, deps, ctx, pi, fi, ce.Args, false, localS, fnParamMap, errKey, carriedKey, carryMemo, carryVisit)
+		scanCarryOpt(st, rootIdx, deps, ctx, pi, fi, ce.Trailing, false, localS, fnParamMap, errKey, carriedKey, carryMemo, carryVisit)
+		let (cpi, cfidx, isRecvCall, fallback) = resolveCarryCallee(st, deps, ctx, pi, fi, ce)
+		let fnExtern = if cpi != scanPkgNone {
+			let cf = if cpi == scanPkgRoot { st.k.Fns[cfidx] } else { deps[cpi].K.Fns[cfidx] }
+			if cpi == scanPkgRoot { fnIsExtern(st.k, cf) } else { fnIsExtern(deps[cpi].K, cf) }
+		} else {
+			false
+		}
+		if !fnExtern {
+			let mut ksLoaded = false
+			let mut ks = []bool{}
+			let mut j = 0
+			if isRecvCall {
+				match syntax.ViewOf(p.Tree, cacheUnparen(p.Tree, ce.Fun)) {
+				case syntax.SelectorExpr as se:
+					maybeMarkCarriedArg(st, rootIdx, deps, ctx, pi, fi, ce, cpi, cfidx, true, fallback, 0, se.X, localS, fnParamMap, &ksLoaded, &ks, fnExtern, carriedKey, carryMemo, carryVisit)
+					j = 1
+				case _:
+				}
+			}
+			for k in 0..syntax.Len(ce.Args) {
+				maybeMarkCarriedArg(st, rootIdx, deps, ctx, pi, fi, ce, cpi, cfidx, isRecvCall, fallback, j+k, syntax.Item(p.Tree, ce.Args, k), localS, fnParamMap, &ksLoaded, &ks, fnExtern, carriedKey, carryMemo, carryVisit)
+			}
+		}
+	case syntax.ErrorRow as r:
+		recordErrorRowNode(if pi == scanPkgRoot { st.k } else { deps[pi].K }, scanStore(st, deps, pi), fi, scanAlias(st, deps, pi), r, errKey)
+	case syntax.VarDecl as x:
+		scanCarryNode(st, rootIdx, deps, ctx, pi, fi, x.Spec, false, localS, fnParamMap, errKey, carriedKey, carryMemo, carryVisit)
+	case syntax.VarSpec as x:
+		scanCarryOpt(st, rootIdx, deps, ctx, pi, fi, x.Value, false, localS, fnParamMap, errKey, carriedKey, carryMemo, carryVisit)
+	case syntax.FuncDecl as x:
+		scanCarryOpt(st, rootIdx, deps, ctx, pi, fi, x.Body, false, localS, fnParamMap, errKey, carriedKey, carryMemo, carryVisit)
+	case syntax.ParenExpr as x:
+		scanCarryNode(st, rootIdx, deps, ctx, pi, fi, x.X, false, localS, fnParamMap, errKey, carriedKey, carryMemo, carryVisit)
+	case syntax.IndexExpr as x:
+		scanCarryNode(st, rootIdx, deps, ctx, pi, fi, x.X, false, localS, fnParamMap, errKey, carriedKey, carryMemo, carryVisit)
+	case syntax.SliceExpr as x:
+		scanCarryNode(st, rootIdx, deps, ctx, pi, fi, x.X, false, localS, fnParamMap, errKey, carriedKey, carryMemo, carryVisit)
+		scanCarryOpt(st, rootIdx, deps, ctx, pi, fi, x.Low, false, localS, fnParamMap, errKey, carriedKey, carryMemo, carryVisit)
+		scanCarryOpt(st, rootIdx, deps, ctx, pi, fi, x.High, false, localS, fnParamMap, errKey, carriedKey, carryMemo, carryVisit)
+		scanCarryOpt(st, rootIdx, deps, ctx, pi, fi, x.Max, false, localS, fnParamMap, errKey, carriedKey, carryMemo, carryVisit)
+	case syntax.StarExpr as x:
+		scanCarryNode(st, rootIdx, deps, ctx, pi, fi, x.X, false, localS, fnParamMap, errKey, carriedKey, carryMemo, carryVisit)
+	case syntax.UnaryExpr as x:
+		scanCarryNode(st, rootIdx, deps, ctx, pi, fi, x.X, false, localS, fnParamMap, errKey, carriedKey, carryMemo, carryVisit)
+	case syntax.BinaryExpr as x:
+		scanCarryNode(st, rootIdx, deps, ctx, pi, fi, x.X, false, localS, fnParamMap, errKey, carriedKey, carryMemo, carryVisit)
+		scanCarryNode(st, rootIdx, deps, ctx, pi, fi, x.Y, false, localS, fnParamMap, errKey, carriedKey, carryMemo, carryVisit)
+	case syntax.TryExpr as x:
+		scanCarryNode(st, rootIdx, deps, ctx, pi, fi, x.X, false, localS, fnParamMap, errKey, carriedKey, carryMemo, carryVisit)
+	case syntax.CatchExpr as x:
+		scanCarryNode(st, rootIdx, deps, ctx, pi, fi, x.X, false, localS, fnParamMap, errKey, carriedKey, carryMemo, carryVisit)
+		scanCarryList(st, rootIdx, deps, ctx, pi, fi, x.Arms, false, localS, fnParamMap, errKey, carriedKey, carryMemo, carryVisit)
+	case syntax.CatchArm as x:
+		scanCarryList(st, rootIdx, deps, ctx, pi, fi, x.Body, false, localS, fnParamMap, errKey, carriedKey, carryMemo, carryVisit)
+	case syntax.ContextDecl as x:
+		scanCarryOpt(st, rootIdx, deps, ctx, pi, fi, x.Fails, false, localS, fnParamMap, errKey, carriedKey, carryMemo, carryVisit)
+		scanCarryNode(st, rootIdx, deps, ctx, pi, fi, x.Body, false, localS, fnParamMap, errKey, carriedKey, carryMemo, carryVisit)
+	case syntax.ContextLit as x:
+		scanCarryOpt(st, rootIdx, deps, ctx, pi, fi, x.Fails, false, localS, fnParamMap, errKey, carriedKey, carryMemo, carryVisit)
+		scanCarryNode(st, rootIdx, deps, ctx, pi, fi, x.Body, false, localS, fnParamMap, errKey, carriedKey, carryMemo, carryVisit)
+	case syntax.TestDecl as x:
+		scanCarryOpt(st, rootIdx, deps, ctx, pi, fi, x.Body, false, localS, fnParamMap, errKey, carriedKey, carryMemo, carryVisit)
+	case syntax.CompositeLit as x:
+		scanCarryOpt(st, rootIdx, deps, ctx, pi, fi, x.Base, false, localS, fnParamMap, errKey, carriedKey, carryMemo, carryVisit)
+		scanCarryList(st, rootIdx, deps, ctx, pi, fi, x.Elts, false, localS, fnParamMap, errKey, carriedKey, carryMemo, carryVisit)
+	case syntax.KeyValueExpr as x:
+		scanCarryNode(st, rootIdx, deps, ctx, pi, fi, x.Key, false, localS, fnParamMap, errKey, carriedKey, carryMemo, carryVisit)
+		scanCarryNode(st, rootIdx, deps, ctx, pi, fi, x.Value, false, localS, fnParamMap, errKey, carriedKey, carryMemo, carryVisit)
+	case syntax.TupleExpr as x:
+		scanCarryList(st, rootIdx, deps, ctx, pi, fi, x.Elts, false, localS, fnParamMap, errKey, carriedKey, carryMemo, carryVisit)
+	case syntax.InterpolatedString as x:
+		scanCarryList(st, rootIdx, deps, ctx, pi, fi, x.Parts, false, localS, fnParamMap, errKey, carriedKey, carryMemo, carryVisit)
+	case syntax.DeclStmt as x:
+		scanCarryNode(st, rootIdx, deps, ctx, pi, fi, x.Decl, false, localS, fnParamMap, errKey, carriedKey, carryMemo, carryVisit)
+	case syntax.ExprStmt as x:
+		scanCarryNode(st, rootIdx, deps, ctx, pi, fi, x.X, false, localS, fnParamMap, errKey, carriedKey, carryMemo, carryVisit)
+	case syntax.AssignStmt as x:
+		scanCarryNode(st, rootIdx, deps, ctx, pi, fi, x.Lhs, false, localS, fnParamMap, errKey, carriedKey, carryMemo, carryVisit)
+		scanCarryNode(st, rootIdx, deps, ctx, pi, fi, x.Rhs, false, localS, fnParamMap, errKey, carriedKey, carryMemo, carryVisit)
+	case syntax.ReturnStmt as x:
+		scanCarryOpt(st, rootIdx, deps, ctx, pi, fi, x.Result, false, localS, fnParamMap, errKey, carriedKey, carryMemo, carryVisit)
+	case syntax.BlockStmt as x:
+		scanCarryList(st, rootIdx, deps, ctx, pi, fi, x.List, false, localS, fnParamMap, errKey, carriedKey, carryMemo, carryVisit)
+	case syntax.IfStmt as x:
+		scanCarryNode(st, rootIdx, deps, ctx, pi, fi, x.Cond, false, localS, fnParamMap, errKey, carriedKey, carryMemo, carryVisit)
+		scanCarryNode(st, rootIdx, deps, ctx, pi, fi, x.Body, false, localS, fnParamMap, errKey, carriedKey, carryMemo, carryVisit)
+		scanCarryOpt(st, rootIdx, deps, ctx, pi, fi, x.Else, false, localS, fnParamMap, errKey, carriedKey, carryMemo, carryVisit)
+	case syntax.SwitchStmt as x:
+		scanCarryNode(st, rootIdx, deps, ctx, pi, fi, x.Tag, false, localS, fnParamMap, errKey, carriedKey, carryMemo, carryVisit)
+		scanCarryList(st, rootIdx, deps, ctx, pi, fi, x.Clauses, false, localS, fnParamMap, errKey, carriedKey, carryMemo, carryVisit)
+	case syntax.TypeSwitchStmt as x:
+		scanCarryNode(st, rootIdx, deps, ctx, pi, fi, x.Subject, false, localS, fnParamMap, errKey, carriedKey, carryMemo, carryVisit)
+		scanCarryList(st, rootIdx, deps, ctx, pi, fi, x.Clauses, false, localS, fnParamMap, errKey, carriedKey, carryMemo, carryVisit)
+	case syntax.CaseClause as x:
+		scanCarryList(st, rootIdx, deps, ctx, pi, fi, x.List, false, localS, fnParamMap, errKey, carriedKey, carryMemo, carryVisit)
+		scanCarryList(st, rootIdx, deps, ctx, pi, fi, x.Body, false, localS, fnParamMap, errKey, carriedKey, carryMemo, carryVisit)
+	case syntax.ForStmt as x:
+		scanCarryOpt(st, rootIdx, deps, ctx, pi, fi, x.Cond, false, localS, fnParamMap, errKey, carriedKey, carryMemo, carryVisit)
+		scanCarryNode(st, rootIdx, deps, ctx, pi, fi, x.Body, false, localS, fnParamMap, errKey, carriedKey, carryMemo, carryVisit)
+	case syntax.RangeStmt as x:
+		scanCarryNode(st, rootIdx, deps, ctx, pi, fi, x.X, false, localS, fnParamMap, errKey, carriedKey, carryMemo, carryVisit)
+		scanCarryNode(st, rootIdx, deps, ctx, pi, fi, x.Body, false, localS, fnParamMap, errKey, carriedKey, carryMemo, carryVisit)
+	case syntax.AssertStmt as x:
+		scanCarryNode(st, rootIdx, deps, ctx, pi, fi, x.X, false, localS, fnParamMap, errKey, carriedKey, carryMemo, carryVisit)
+	case syntax.DieStmt as x:
+		scanCarryNode(st, rootIdx, deps, ctx, pi, fi, x.X, false, localS, fnParamMap, errKey, carriedKey, carryMemo, carryVisit)
+	case syntax.AlwaysStmt as x:
+		scanCarryNode(st, rootIdx, deps, ctx, pi, fi, x.X, false, localS, fnParamMap, errKey, carriedKey, carryMemo, carryVisit)
+	case syntax.SometimesStmt as x:
+		scanCarryNode(st, rootIdx, deps, ctx, pi, fi, x.X, false, localS, fnParamMap, errKey, carriedKey, carryMemo, carryVisit)
+	case _:
+	}
+}
+
+func scanPass2Pkg(st fnb, rootIdx pkgFlatIndex, deps []expr.Dep, ctx scanCtx, pi int, errKey mut Map[string, bool], carriedKey mut Map[string, bool], carryMemo mut Map[string, []bool], carryVisit mut Map[string, bool]) {
+	let fns = if pi == scanPkgRoot { st.k.Fns } else { deps[pi].K.Fns }
+	let parsed = if pi == scanPkgRoot { st.k.Parsed } else { deps[pi].K.Parsed }
+	let psBind = if pi == scanPkgRoot { st.k.Ps } else { deps[pi].K.Ps }
+	let s = scanStore(st, deps, pi)
+	let mut localS = s
+	let mut fnParamMap = Map[uint32, dense.ID[store.TKey]]{}
+	for f in fns {
+		if store.KindOfType(s, f.Sig) == store.KSig {
+			let ops = store.OperandsOf(s, f.Sig)
+			let pCount = if ops.Len() >= 3 { ops.Len() - 3 } else { 0 }
+			for k, optN in f.Names {
+				if k < pCount {
+					match dense.Unpack(optN) {
+					case option.Some{Value: pn}:
+						let pni = uint32(dense.Index(bind.PNodeOf(psBind, f.File, pn)))
+						fnParamMap = fnParamMap.Put(pni, ops[k])
+					case option.None:
+					}
+				}
+			}
+		}
+	}
+	for f in fns {
+		let isExt = if pi == scanPkgRoot { fnIsExtern(st.k, f) } else { fnIsExtern(deps[pi].K, f) }
+		if !isExt {
+			match dense.Unpack(f.Body) {
+			case option.Some{Value: body}:
+				scanCarryNode(st, rootIdx, deps, ctx, pi, f.File, body, false, &localS, fnParamMap, errKey, carriedKey, carryMemo, carryVisit)
+			case option.None:
+			}
+		}
+	}
+	for fi, p in parsed {
+		let list = match syntax.ViewOf(p.Tree, syntax.Root(p.Tree)) {
+		case syntax.File as pf:
+			pf.Decls
+		case _:
+			continue
+		}
+		for i in 0..syntax.Len(list) {
+			let dn = syntax.Item(p.Tree, list, i)
+			match syntax.ViewOf(p.Tree, dn) {
+			case syntax.VarDecl as vd:
+				scanCarryNode(st, rootIdx, deps, ctx, pi, fi, vd.Spec, false, &localS, fnParamMap, errKey, carriedKey, carryMemo, carryVisit)
+			case syntax.TypeDecl as td:
+				match dense.Unpack(td.Spec) {
+				case option.Some{Value: sp}:
+					match syntax.ViewOf(p.Tree, sp) {
+					case syntax.MachineType as mt:
+						for j in 0..syntax.Len(mt.Members) {
+							let mem = syntax.Item(p.Tree, mt.Members, j)
+							match syntax.ViewOf(p.Tree, mem) {
+							case syntax.MachineEntry as me:
+								scanCarryNode(st, rootIdx, deps, ctx, pi, fi, me.Value, false, &localS, fnParamMap, errKey, carriedKey, carryMemo, carryVisit)
+							case _:
+							}
+						}
+					case _:
+					}
+				case option.None:
+				}
+			case syntax.ContextDecl, syntax.TestDecl:
+				scanCarryNode(st, rootIdx, deps, ctx, pi, fi, dn, false, &localS, fnParamMap, errKey, carriedKey, carryMemo, carryVisit)
+			case _:
+			}
+		}
+	}
+}
+
+func buildUnionLayoutCache(st fnb, rootIdx pkgFlatIndex, depIdx Map[string, pkgFlatIndex]) (Map[string, pkgFlatIndex], unionLayoutCache) {
+	let deps = match st.rootImports {
+	case option.Some[[]expr.Dep] as ds:
+		if st.alias != "" {
+			return (depIdx, emptyUnionLayoutCache())
+		}
+		ds.Value
+	case option.None:
+		return (depIdx, emptyUnionLayoutCache())
+	}
+	let mut fullDepIdx = depIdx
+	let mut depByPath = Map[string, int]{}
+	depByPath = depByPath.Put(st.pkgPath, scanPkgRoot)
+	for i, dep in deps {
+		if dep.Path != st.pkgPath {
+			depByPath = depByPath.Put(dep.Path, i)
+			if fullDepIdx.Get(dep.Path) == option.None {
+				fullDepIdx = fullDepIdx.Put(dep.Path, buildPkgFlatIndex(dep.K, dep.S))
+			}
+		}
+	}
+	let ctx = scanCtx{depIdx: fullDepIdx, depByPath: depByPath}
+	let mut hasWireForm = false
+	let mut errKey = Map[string, bool]{}
+	let mut machKey = Map[string, bool]{}
+	let mut extKey = Map[string, bool]{}
+	let mut carriedKey = Map[string, bool]{}
+	let mut carryMemo = Map[string, []bool]{}
+	let mut carryVisit = Map[string, bool]{}
+	let mut extSeen = Map[string, bool]{}
+	let mut carrySeen = Map[string, bool]{}
+	let (rootBodies, rootVars, wf) = scanPass1Pkg(st, rootIdx, deps, ctx, scanPkgRoot, &extSeen, &extKey, &errKey, &machKey)
+	hasWireForm = wf
+	let mut scanPkg2 = []int{}
+	if rootBodies || rootVars {
+		scanPkg2 = scanPkg2.Append(scanPkgRoot)
+	}
+	for i, dep in deps {
+		if dep.Path != st.pkgPath {
+			let (db, dv, _) = scanPass1Pkg(st, rootIdx, deps, ctx, i, &extSeen, &extKey, &errKey, &machKey)
+			if db || dv {
+				scanPkg2 = scanPkg2.Append(i)
+			}
+		}
+	}
+	for _, pi in scanPkg2 {
+		scanPass2Pkg(st, rootIdx, deps, ctx, pi, &errKey, &carriedKey, &carryMemo, &carryVisit)
+	}
+	if carriedKey.Len() > 0 {
+		let mut unionPkgs = []int{}
+		if rootIdx.unionVars.Len() > 0 {
+			unionPkgs = unionPkgs.Append(scanPkgRoot)
+		}
+		for i, dep in deps {
+			if dep.Path != st.pkgPath {
+				if scanIdx(rootIdx, deps, fullDepIdx, i).unionVars.Len() > 0 {
+					unionPkgs = unionPkgs.Append(i)
+				}
+			}
+		}
+		let mut prevLen = -1
+		for carriedKey.Len() != prevLen && unionPkgs.Len() > 0 {
+			prevLen = carriedKey.Len()
+			for _, pi in unionPkgs {
+				let ps = scanStore(st, deps, pi)
+				let pa = scanAlias(st, deps, pi)
+				let pidx = scanIdx(rootIdx, deps, fullDepIdx, pi)
+				for di in 0..store.NumDecls(ps) {
+					let d = store.DeclAt(ps, di)
+					let dname = pa + "\x00" + store.DeclText(ps, di)
+					if carriedKey.Get(dname) != option.None {
+						match namedKeyIn(pidx, d) {
+						case option.Some{Value: nt}:
+							if unionVarsIn(pidx, nt).Len() >= 2 {
+								markPayloadTree(st, rootIdx, deps, ctx, pi, nt, &carrySeen, &carriedKey)
+							}
+						case option.None:
+						}
+					}
+				}
+			}
+		}
+	}
+	(fullDepIdx, unionLayoutCache{ready: true, hasWireForm: hasWireForm, extKey: extKey, errKey: errKey, machKey: machKey, carriedKey: carriedKey})
 }
 
 func depIdxOf(cache pkgMemo, path string) pkgFlatIndex {
@@ -349,8 +1682,8 @@ func declCountInPkg(k expr.Pkg, idx pkgFlatIndex, name string) int {
 
 func buildPkgMemo(st fnb, path string) (pkgFlatIndex, pkgMemo) {
 	let rootIdx = buildPkgFlatIndex(st.k, st.s)
-	let depIdx = buildDepIndexes(st.k, st.s, st.shapeImports)
-	let unionEnv = buildUnionLayoutCache(st.k, st.s, st.alias, st.rootImports)
+	let depIdx0 = buildDepIndexes(st.k, st.s, st.shapeImports)
+	let (depIdx, unionEnv) = buildUnionLayoutCache(st, rootIdx, depIdx0)
 	let out = pkgMemo{
 		active:   true,
 		rootPath: path,

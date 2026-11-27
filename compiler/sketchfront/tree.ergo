@@ -1,0 +1,545 @@
+import compiler/check/bind
+import compiler/check/diag
+import compiler/check/load
+import compiler/check/types
+import compiler/front
+import compiler/syntax
+import dense
+import filepath
+import fs
+import fstest
+import option
+import slices
+import strings
+
+// DefaultPinTags returns the standard Go build tags applied to pinned release builds.
+func DefaultPinTags() []string {
+	[]string{"release", "pinned"}
+}
+
+// ReleaseSourceMode selects the effective std/runtime source strategy given envVal and pin state.
+func ReleaseSourceMode(envVal string, hasPin bool) string {
+	if envVal == "patched" || envVal == "upstream" {
+		return envVal
+	}
+	if hasPin {
+		return "pinned"
+	}
+	"patched"
+}
+
+// PinTargetSpec describes a target Go/Ergo module platform pin configuration.
+type PinTargetSpec {
+	ModulePath string,
+	Version    string,
+	GoOS       string,
+	GoArch     string,
+	Tags       []string,
+}
+
+// RenderPinGoMod emits deterministic go.mod pin directives for target specification cfg.
+func RenderPinGoMod(cfg PinTargetSpec) string {
+	let mut b = strings.NewBuilder()
+	b.WriteString("module ")
+	b.WriteString(cfg.ModulePath)
+	b.WriteString("\n\ngo 1.27\n")
+	if cfg.Version != "" {
+		b.WriteString("// ergo-pin: ")
+		b.WriteString(cfg.Version)
+		b.WriteByte('\n')
+	}
+	if cfg.GoOS != "" || cfg.GoArch != "" {
+		b.WriteString("// platform: ")
+		b.WriteString(cfg.GoOS)
+		b.WriteByte('/')
+		b.WriteString(cfg.GoArch)
+		b.WriteByte('\n')
+	}
+	let rawTags = if cfg.Tags.Len() > 0 { slices.Clone(cfg.Tags) } else { DefaultPinTags() }
+	let tags = slices.Sort(rawTags)
+	b.WriteString("// tags: ")
+	b.WriteString(strings.Join(tags, ","))
+	b.WriteByte('\n')
+	b.String()
+}
+
+// DetectGoExperiments parses GOEXPERIMENT tokens from environ entries into sorted deduplicated flags.
+func DetectGoExperiments(environ []string) []string {
+	let mut out = []string{}
+	let mut seen = Map[string, bool]{}
+	for kv in environ {
+		if !strings.HasPrefix(kv, "GOEXPERIMENT=") {
+			continue
+		}
+		let raw = strings.TrimPrefix(kv, "GOEXPERIMENT=")
+		for item in strings.Split(raw, ",") {
+			let t = strings.TrimSpace(item)
+			if t != "" && seen.Get(t) == option.None {
+				seen = seen.Put(t, true)
+				out = out.Append(t)
+			}
+		}
+	}
+	slices.Sort(out)
+}
+
+// OverlayTag tags dense source overlay rows inside OverlayTable.
+type OverlayTag {}
+
+// OverlayTable stores unsaved or synthetic source overlays by clean path in dense SoA columns.
+type OverlayTable {
+	Count  dense.Count[OverlayTag],
+	Rel    []string,
+	Abs    []string,
+	Source []string,
+	ByAbs  Map[string, uint32],
+	ByRel  Map[string, uint32],
+}
+
+// NewOverlayTable allocates an empty pointer-free OverlayTable.
+func NewOverlayTable() OverlayTable {
+	OverlayTable{
+		Count:  dense.NewCount[OverlayTag](),
+		Rel:    []string{},
+		Abs:    []string{},
+		Source: []string{},
+		ByAbs:  Map[string, uint32]{},
+		ByRel:  Map[string, uint32]{},
+	}
+}
+
+// AddOverlay registers or updates an in-memory file overlay for absPath and relPath.
+func AddOverlay(ov mut OverlayTable, relPath string, absPath string, src string) uint32 {
+	let cleanAbs = filepath.Clean(absPath)
+	let cleanRel = strings.ReplaceAll(filepath.Clean(relPath), "\\", "/")
+	if cleanAbs != "" {
+		match (*ov).ByAbs.Get(cleanAbs) {
+		case option.Some[uint32] as id:
+			(*ov).Source[int(id.Value)] = src
+			return id.Value
+		case option.None:
+		}
+	}
+	if cleanRel != "" {
+		match (*ov).ByRel.Get(cleanRel) {
+		case option.Some[uint32] as id:
+			(*ov).Source[int(id.Value)] = src
+			return id.Value
+		case option.None:
+		}
+	}
+	let id = uint32(dense.Index(dense.Next(&ov.Count)))
+	(*ov).Rel = (*ov).Rel.Append(cleanRel)
+	(*ov).Abs = (*ov).Abs.Append(cleanAbs)
+	(*ov).Source = (*ov).Source.Append(src)
+	if cleanAbs != "" {
+		(*ov).ByAbs = (*ov).ByAbs.Put(cleanAbs, id)
+	}
+	if cleanRel != "" {
+		(*ov).ByRel = (*ov).ByRel.Put(cleanRel, id)
+	}
+	id
+}
+
+// ApplyOverlay returns matching overlaid text from ov if present, otherwise returns fallbackSrc.
+func ApplyOverlay(ov OverlayTable, absPath string, relPath string, fallbackSrc string) string {
+	let cleanAbs = filepath.Clean(absPath)
+	match ov.ByAbs.Get(cleanAbs) {
+	case option.Some[uint32] as id:
+		return ov.Source[int(id.Value)]
+	case option.None:
+	}
+	let cleanRel = strings.ReplaceAll(filepath.Clean(relPath), "\\", "/")
+	match ov.ByRel.Get(cleanRel) {
+	case option.Some[uint32] as id:
+		return ov.Source[int(id.Value)]
+	case option.None:
+	}
+	fallbackSrc
+}
+
+// CheckTree loads and checks target directory dir (plus its imported packages) into AnalysisTable.
+func CheckTree(dir string, opts CheckOptions) AnalysisTable needs fs.Files {
+	CheckTreeOverlay(dir, NewOverlayTable(), opts)
+}
+
+// CheckTreeOverlay loads and checks target directory dir applying source overlays from ov.
+func CheckTreeOverlay(dir string, ov OverlayTable, opts CheckOptions) AnalysisTable needs fs.Files {
+	let cleanDir = if dir == "" { "." } else { filepath.Clean(dir) }
+	let stdDir = if opts.StdDir != "" { opts.StdDir } else { front.FindStdRoot(cleanDir) }
+	let stdIdx = if stdDir != "" {
+		front.DiscoverStdIndex(stdDir) catch {
+		case _:
+			front.NewStdIndex()
+		}
+	} else {
+		front.NewStdIndex()
+	}
+	let g = front.LoadProgram([]string{cleanDir}, front.LoadOptions{
+		WorkDir:         cleanDir,
+		StdIdx:          stdIdx,
+		ModCacheDir:     "",
+		CompilerVersion: "",
+	})
+	let mut table = NewAnalysisTable()
+	table.Source = cleanDir
+	let mut diags = []SketchDiag{}
+	for fd in g.Diags {
+		diags = diags.Append(SketchDiag{
+			PkgID:   front.NoID,
+			File:    fd.File,
+			Offset:  fd.Offset,
+			Length:  fd.Length,
+			Line:    fd.Line,
+			Column:  fd.Column,
+			Code:    fd.Code,
+			Message: fd.Message,
+			Stage:   "front",
+			Warning: false,
+		})
+	}
+	let mut units = []load.Unit{}
+	let mut unitPkgIDs = []uint32{}
+	let mut unitSrcs = [][]string{}
+	let mut unitFileNames = [][]string{}
+	for idx in g.Order {
+		let pIdx = int(idx)
+		if pIdx < 0 || pIdx >= g.Pkgs.ImportPath.Len() {
+			continue
+		}
+		let pkgPath = g.Pkgs.ImportPath[pIdx]
+		let pkgDir = g.Pkgs.Dir[pIdx]
+		let isAsset = g.Pkgs.IsAsset[pIdx]
+		let modID = g.Pkgs.ModuleID[pIdx]
+		let modRoot = if modID != front.NoID && int(modID) < g.Modules.Dir.Len() { g.Modules.Dir[int(modID)] } else { "" }
+		let modName = if modID != front.NoID && int(modID) < g.Modules.Name.Len() { g.Modules.Name[int(modID)] } else { "" }
+		let trustsGo = modID != front.NoID && int(modID) < g.Modules.TrustGoCount.Len() && g.Modules.TrustGoCount[int(modID)] > uint32(0)
+		let fStart = int(g.Pkgs.FileStart[pIdx])
+		let fCount = int(g.Pkgs.FileCount[pIdx])
+		let mut entries = slices.WithCapacity[front.ProgramTextEntry](fCount)
+		let mut absPaths = slices.WithCapacity[string](fCount)
+		let mut bfiles = slices.WithCapacity[bind.File](fCount)
+		let mut srcs = slices.WithCapacity[string](fCount)
+		let mut fNames = slices.WithCapacity[string](fCount)
+		let mut anyParseFailed = false
+		for fi in fStart..fStart+fCount {
+			let fPath = g.Files.Path[fi]
+			let fRel = g.Files.Rel[fi]
+			let fName = g.Files.Name[fi]
+			let fContent = ApplyOverlay(ov, fPath, fRel, g.Files.Content[fi])
+			entries = entries.Append(front.ProgramTextEntry{Rel: fRel, Source: fContent})
+			absPaths = absPaths.Append(fPath)
+			if !isAsset && strings.HasSuffix(fName, ".ergo") {
+				let parsed = syntax.Parse(fContent)
+				if parsed.Failed {
+					anyParseFailed = true
+					diags = diags.Append(SketchDiag{
+						PkgID:   front.NoID,
+						File:    fRel,
+						Offset:  uint32(parsed.Offset),
+						Length:  uint32(parsed.Length),
+						Line:    uint32(parsed.Line),
+						Column:  uint32(parsed.Column),
+						Code:    parsed.Code,
+						Message: parsed.Message,
+						Stage:   "parse",
+						Warning: false,
+					})
+				}
+				bfiles = bfiles.Append(bind.File{Name: fName, Parsed: parsed})
+				srcs = srcs.Append(fContent)
+				fNames = fNames.Append(fRel)
+			}
+		}
+		let eStart = int(g.Pkgs.ImportStart[pIdx])
+		let eCount = int(g.Pkgs.ImportCount[pIdx])
+		let mut imps = slices.WithCapacity[string](eCount)
+		for ei in eStart..eStart+eCount {
+			imps = imps.Append(g.Edges.RawPath[ei])
+		}
+		let declName = if g.Pkgs.Name[pIdx] != "" { g.Pkgs.Name[pIdx] } else { filepath.Base(pkgDir) }
+		let pid = AppendPackage(&table, pkgPath, declName, pkgDir, modRoot, modName, trustsGo, false, !anyParseFailed, isAsset, entries, absPaths, imps)
+		if isRootID(g.Roots, idx) {
+			table.RootPkgID = pid
+		}
+		if !isAsset && bfiles.Len() > 0 && !anyParseFailed {
+			let foreignPkgLine = "@pkg " + declName + " " + pkgPath + " 1\n"
+			units = units.Append(load.Unit{
+				Tab:   load.TablesOf("", foreignPkgLine),
+				Files: bfiles,
+				Paths: absPaths,
+				Path:  pkgPath,
+				Dir:   pkgDir,
+			})
+			unitPkgIDs = unitPkgIDs.Append(pid)
+			unitSrcs = unitSrcs.Append(srcs)
+			unitFileNames = unitFileNames.Append(fNames)
+		}
+	}
+	let mut pkgIfaceMap = Map[string, string]{}
+	if units.Len() > 0 && diags.Len() == 0 {
+		let outside = load.Outside(units, stdDir)
+		let mut known = Map[string, bool]{}
+		for u in units {
+			known = known.Put(u.Path, true)
+		}
+		for iface in outside {
+			known = known.Put(iface.Path, true)
+		}
+		let threads = if opts.Threads > uint32(0) { int(opts.Threads) } else { 1 }
+		let prog = load.LoadAll(units, outside, threads)
+		let mut deps = Map[string, Map[string, bool]]{}
+		for e in prog.Loaded {
+			let r = diag.Resources(e.S, e.K, deps)
+			deps = deps.Put(e.Path, r)
+		}
+		for i in 0..prog.Loaded.Len() {
+			let ui = prog.Units[i]
+			let pid = unitPkgIDs[ui]
+			let typed = load.TypeAt(prog, i)
+			let iface = types.Interface(typed.S, typed.K.Parsed, typed.K.Kinds, typed.K.Ext, typed.K.Foreign, typed.K.Ifaces)
+			let ifaceHex = InterfaceDigest(iface)
+			table.PkgIfaceFP[int(pid)] = ifaceHex
+			pkgIfaceMap = pkgIfaceMap.Put(units[ui].Path, ifaceHex)
+			let mut miss = []string{}
+			for imp in bind.Imports(typed.K.Files) {
+				if known.Get(imp) == option.None {
+					miss = miss.Append(imp)
+				}
+			}
+			let rawDs = collectUnitDiagsForSketch(typed, unitSrcs[ui], miss, deps)
+			let mut lineTables = slices.WithCapacity[syntax.Lines](unitSrcs[ui].Len())
+			for s in unitSrcs[ui] {
+				lineTables = lineTables.Append(syntax.LinesOf(s))
+			}
+			for dg in rawDs {
+				let fi = dg.File
+				let fDisp = if fi >= 0 && fi < unitFileNames[ui].Len() { unitFileNames[ui][fi] } else { units[ui].Path }
+				let pos = if fi >= 0 && fi < lineTables.Len() { syntax.PositionOf(lineTables[fi], dg.Offset) } else { syntax.Position{Line: 1, Column: 1} }
+				diags = diags.Append(SketchDiag{
+					PkgID:   pid,
+					File:    fDisp,
+					Offset:  uint32(dg.Offset),
+					Length:  uint32(dg.Length),
+					Line:    uint32(pos.Line),
+					Column:  uint32(pos.Column),
+					Code:    dg.Code,
+					Message: dg.Message,
+					Stage:   "check",
+					Warning: false,
+				})
+			}
+		}
+	}
+	for i in 0..table.PkgPath.Len() {
+		let mut depIfaces = []front.ImportIfaceEntry{}
+		for imp in PackageImports(table, uint32(i)) {
+			match pkgIfaceMap.Get(imp) {
+			case option.Some[string] as ifp:
+				depIfaces = depIfaces.Append(front.ImportIfaceEntry{ImportPath: imp, IfaceFingerprint: ifp.Value})
+			case option.None:
+			}
+		}
+		let (cleanFP, depFP) = FingerprintAfter(table.PkgSelfFP[i], depIfaces)
+		table.PkgCleanFP[i] = cleanFP
+		table.PkgDepFP[i] = depFP
+	}
+	table.Diags = SortDiagnostics(diags)
+	for d in table.Diags {
+		if d.PkgID != front.NoID && int(d.PkgID) < table.PkgChecked.Len() {
+			table.PkgChecked[int(d.PkgID)] = false
+		}
+	}
+	table
+}
+
+func isRootID(roots []uint32, id uint32) bool {
+	for r in roots {
+		if r == id {
+			return true
+		}
+	}
+	false
+}
+
+// CoversModule reports whether every module root in pkgModRoots matches modRoot.
+func CoversModule(modRoot string, pkgModRoots []string) bool {
+	let cleanRoot = filepath.Clean(modRoot)
+	for mr in pkgModRoots {
+		if mr == "" || filepath.Clean(mr) != cleanRoot {
+			return false
+		}
+	}
+	pkgModRoots.Len() > 0
+}
+
+// CheckSharedPackagesPlan validates shared module packages form a cycle-free DAG.
+func CheckSharedPackagesPlan(pkgPaths []string, importsByPkg [][]string) (bool, []uint32, string) {
+	let n = pkgPaths.Len()
+	let mut idxMap = Map[string, uint32]{}
+	for i, p in pkgPaths {
+		idxMap = idxMap.Put(p, uint32(i))
+	}
+	let mut indeg = []int{}
+	let mut dependents = [][]int{}
+	let mut depsOf = [][]int{}
+	for i in 0..n {
+		let _ = i
+		indeg = indeg.Append(0)
+		dependents = dependents.Append([]int{})
+		depsOf = depsOf.Append([]int{})
+	}
+	for i in 0..n {
+		let mut seen = Map[string, bool]{}
+		if i < importsByPkg.Len() {
+			for imp in importsByPkg[i] {
+				if seen.Get(imp) != option.None {
+					continue
+				}
+				seen = seen.Put(imp, true)
+				match idxMap.Get(imp) {
+				case option.Some[uint32] as did:
+					let d = int(did.Value)
+					if d >= 0 && d < n {
+						indeg[i] = indeg[i] + 1
+						dependents[d] = dependents[d].Append(i)
+						depsOf[i] = depsOf[i].Append(d)
+					}
+				case option.None:
+				}
+			}
+		}
+	}
+	let mut ready = []int{}
+	for i in 0..n {
+		if indeg[i] == 0 {
+			ready = ready.Append(i)
+		}
+	}
+	let mut order = []uint32{}
+	for ready.Len() > 0 {
+		let mut bestPos = 0
+		for k in 1..ready.Len() {
+			if pkgPaths[ready[k]] < pkgPaths[ready[bestPos]] {
+				bestPos = k
+			}
+		}
+		let cur = ready[bestPos]
+		ready[bestPos] = ready[ready.Len()-1]
+		ready = slices.Slice(ready, 0, ready.Len()-1)
+		order = order.Append(uint32(cur))
+		for nxt in dependents[cur] {
+			indeg[nxt] = indeg[nxt] - 1
+			if indeg[nxt] == 0 {
+				ready = ready.Append(nxt)
+			}
+		}
+	}
+	if order.Len() < n {
+		let mut start = -1
+		for i in 0..n {
+			if indeg[i] > 0 {
+				start = i
+				break
+			}
+		}
+		let mut chain = []string{}
+		if start >= 0 {
+			let mut cur = start
+			let mut visited = []int{}
+			for {
+				chain = chain.Append(pkgPaths[cur])
+				let mut found = -1
+				for d in depsOf[cur] {
+					if indeg[d] > 0 {
+						found = d
+						break
+					}
+				}
+				if found < 0 {
+					break
+				}
+				let mut loopHit = false
+				for v in visited {
+					if v == found {
+						loopHit = true
+						break
+					}
+				}
+				visited = visited.Append(cur)
+				cur = found
+				if loopHit || visited.Len() > n {
+					chain = chain.Append(pkgPaths[cur])
+					break
+				}
+			}
+		}
+		return (false, []uint32{}, "import cycle: " + strings.Join(chain, " -> "))
+	}
+	(true, order, "")
+}
+
+// DetectUnfedTestPackages returns discovered test packages not covered by a single shared test binary.
+func DetectUnfedTestPackages(discovered []string, covered []string) []string {
+	let mut cov = Map[string, bool]{}
+	for c in covered {
+		cov = cov.Put(c, true)
+	}
+	let mut out = []string{}
+	for d in discovered {
+		if cov.Get(d) == option.None {
+			out = out.Append(d)
+		}
+	}
+	slices.Sort(out)
+}
+
+test CheckTreeOverlaySharedAndPins {
+	let mem = fstest.NewMemory()
+	mem.MkdirAll("/mod/sub") catch {
+	case fs.Denied, fs.Failed:
+		assert false
+	}
+	mem.WriteFile("/mod/ergo.mod", "module app\n") catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		assert false
+	}
+	mem.WriteFile("/mod/sub/sub.ergo", "func Double(x int) int { x + x }\n") catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		assert false
+	}
+	mem.WriteFile("/mod/main.ergo", "import app/sub\nfunc Main() int { sub.Double(21) }\n") catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		assert false
+	}
+	let tbl = with context { fs.Files: mem } {
+		CheckTree("/mod", DefaultCheckOptions())
+	}
+	assert tbl.Diags.Len() == 0
+	assert tbl.PkgPath.Len() == 2
+	assert tbl.RootPkgID != front.NoID
+	assert tbl.PkgPath[int(tbl.RootPkgID)] == "app"
+
+	let mut ovRel = NewOverlayTable()
+	let _ = AddOverlay(&ovRel, "relonly.ergo", "", "rel-content")
+	assert ApplyOverlay(ovRel, "/other/relonly.ergo", "relonly.ergo", "disk") == "rel-content"
+	let mut ov = NewOverlayTable()
+	let _ = AddOverlay(&ov, "main.ergo", "/mod/main.ergo", "import app/sub\nfunc Main() int {\n\tlet unused = 1\n\tsub.Double(21)\n}\n")
+	let tblOv = with context { fs.Files: mem } {
+		CheckTreeOverlay("/mod", ov, DefaultCheckOptions())
+	}
+	assert tblOv.Diags.Len() >= 1 && tblOv.Diags[0].Code == "S110"
+
+	let (okDAG, order, errMsg) = CheckSharedPackagesPlan([]string{"app", "app/sub"}, [][]string{[]string{"app/sub"}, []string{}})
+	assert okDAG && errMsg == "" && order.Len() == 2 && order[0] == uint32(1)
+	let (okCyc, _, cycErr) = CheckSharedPackagesPlan([]string{"a", "b"}, [][]string{[]string{"b"}, []string{"a"}})
+	assert !okCyc && strings.Contains(cycErr, "import cycle:")
+	assert CoversModule("/mod", []string{"/mod", "/mod"})
+	assert !CoversModule("/mod", []string{"/mod", "/other"})
+	assert !CoversModule("/mod", []string{"/mod", ""})
+	let unfed = DetectUnfedTestPackages([]string{"p/a", "p/b"}, []string{"p/a"})
+	assert unfed.Len() == 1 && unfed[0] == "p/b"
+	let pinTxt = RenderPinGoMod(PinTargetSpec{ModulePath: "example.com/pin", Version: "v0.1.0", GoOS: "linux", GoArch: "amd64", Tags: []string{}})
+	assert strings.Contains(pinTxt, "// tags: pinned,release")
+	assert DetectGoExperiments([]string{"GOEXPERIMENT=arenas,boringcrypto"}).Len() == 2
+}

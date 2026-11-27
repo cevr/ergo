@@ -1,0 +1,10 @@
+import io
+import wasmhello/numbers
+
+func main() needs io.Console {
+	io.Console.Println("hello, wasm")
+	io.Console.Println("fib(10) = \(numbers.Fib(10))")
+	io.Console.Println("gcd(1071, 462) = \(numbers.Gcd(1071, 462))")
+	io.Console.Println("collatz(27) = \(numbers.Collatz(27))")
+	io.Console.Println("sum35(200) = \(numbers.Sum35(200))")
+}

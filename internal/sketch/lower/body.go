@@ -393,6 +393,9 @@ func (fc *funcCtx) stmt(s syntax.Stmt) bool {
 	case *syntax.ReturnStmt:
 		fc.ret(s)
 		return true
+	case *syntax.DieStmt:
+		fc.dieStmt(s)
+		return true
 	case *syntax.ExprStmt:
 		fc.exprStmt(s.X)
 		// Unreachable(reason) is a Go panic statement, which Go counts as

@@ -1,0 +1,475 @@
+import option
+
+// CaseCap caps the total cartesian product size of a listed finite test plan.
+let CaseCap = 4096
+
+// Cases is the default sample count for non-listed property and test plans.
+let Cases = 100
+
+// Depth is the recursive generator depth bound matching runtime/testgen.
+let Depth = 4
+
+// CallbackVariants is the family size for claim callback predicates.
+let CallbackVariants = 4
+
+// NativeRoot describes a package root planned for native test execution.
+type NativeRoot { Path string, Required bool }
+
+// LawProviderSpec holds resolved provider facts needed to plan a law input.
+type LawProviderSpec {
+	Type       uint32,
+	Name       string,
+	Params     []uint32,
+	ClaimAt    uint32,
+	HasClaimAt bool,
+	HasCtor    bool,
+	ClaimCtor  bool,
+	Native     bool,
+	Unrun      string,
+}
+
+// PlanInput describes one generated value in draw order.
+type PlanInput {
+	Name         string,
+	Type         uint32,
+	HasParam     bool,
+	Param        uint32,
+	HasProvider  bool,
+	ProviderIdx  uint32,
+	HasWhere     bool,
+	HasClaimCtor bool,
+	HasCallback  bool,
+	CallbackArg  uint32,
+	CallbackRes  uint32,
+}
+
+// Plan holds listed domains or sample counts plus tie groups for a test or law.
+type Plan {
+	Inputs     []PlanInput,
+	ListStart  []uint32,
+	ListLen    []uint32,
+	ListVals   []uint32,
+	Count      uint32,
+	Listed     bool,
+	Reason     string,
+	HasTies    bool,
+	TieStart   []uint32,
+	TieLen     []uint32,
+	TieTargets []uint32,
+	Native     string,
+}
+
+// MakePlan computes a listed or sampled Plan over inputs.
+func MakePlan(p TypePool, arena mut ValArena, inputs []PlanInput, providers []LawProviderSpec) Plan {
+	let mut count = 1
+	let mut listed = true
+	let mut reason = ""
+	let mut native = ""
+	let mut listStart = []uint32{}
+	let mut listLen = []uint32{}
+	let mut listVals = []uint32{}
+	for inp in inputs {
+		if inp.HasClaimCtor {
+			listed = false
+		}
+		if inp.HasProvider {
+			let pr = providers[int(inp.ProviderIdx)]
+			if pr.Unrun != "" {
+				reason = pr.Unrun
+			}
+			if pr.Native && native == "" {
+				native = pr.Name
+			}
+			if pr.HasCtor {
+				listed = false
+			}
+		}
+		let (vs, domOk) = Domain(p, arena, inp.Type)
+		let ok = if inp.HasWhere { false } else { domOk }
+		if !ok || vs.Len() == 0 || count > CaseCap/vs.Len() {
+			listed = false
+		}
+		if listed {
+			count = count * vs.Len()
+			listStart = listStart.Append(uint32(listVals.Len()))
+			listLen = listLen.Append(uint32(vs.Len()))
+			for v in vs {
+				listVals = listVals.Append(v)
+			}
+		}
+	}
+	if !listed {
+		count = Cases
+		listStart = []uint32{}
+		listLen = []uint32{}
+		listVals = []uint32{}
+	}
+	Plan{
+		Inputs:     inputs,
+		ListStart:  listStart,
+		ListLen:    listLen,
+		ListVals:   listVals,
+		Count:      uint32(count),
+		Listed:     listed,
+		Reason:     reason,
+		HasTies:    false,
+		TieStart:   []uint32{},
+		TieLen:     []uint32{},
+		TieTargets: []uint32{},
+		Native:     native,
+	}
+}
+
+// WithTies attaches parameter tie groups (shifted by offset, skipping provider inputs).
+func WithTies(plan Plan, tieStart []uint32, tieLen []uint32, tieTargets []uint32, offset uint32) Plan {
+	if tieStart.Len() == 0 {
+		return plan
+	}
+	let nIn = plan.Inputs.Len()
+	let mut outStart = MakeSlice[uint32](nIn)
+	let mut outLen = MakeSlice[uint32](nIn)
+	let mut outTargets = []uint32{}
+	let mut some = false
+	for _ in 0..nIn {
+		outStart = outStart.Append(uint32(0))
+		outLen = outLen.Append(uint32(0))
+	}
+	for i in 0..tieStart.Len() {
+		let at = i + int(offset)
+		if at >= nIn || plan.Inputs[at].HasProvider {
+			continue
+		}
+		let start = int(tieStart[i])
+		let n = int(tieLen[i])
+		let destStart = uint32(outTargets.Len())
+		let mut added = uint32(0)
+		for k in 0..n {
+			let jAt = int(tieTargets[start+k]) + int(offset)
+			if jAt < nIn && !plan.Inputs[jAt].HasProvider {
+				outTargets = outTargets.Append(uint32(jAt))
+				added = added + uint32(1)
+				some = true
+			}
+		}
+		outStart[at] = destStart
+		outLen[at] = added
+	}
+	if !some {
+		return plan
+	}
+	Plan{
+		..plan,
+		HasTies:    true,
+		TieStart:   outStart,
+		TieLen:     outLen,
+		TieTargets: outTargets,
+	}
+}
+
+// PlanTest builds a Plan for a test declaration's parameters and ties.
+func PlanTest(p TypePool, arena mut ValArena, paramNames []string, paramTypes []uint32, tieStart []uint32, tieLen []uint32, tieTargets []uint32) Plan {
+	let mut inputs = []PlanInput{}
+	for i, nm in paramNames {
+		inputs = inputs.Append(PlanInput{
+			Name:         nm,
+			Type:         paramTypes[i],
+			HasParam:     true,
+			Param:        uint32(i),
+			HasProvider:  false,
+			ProviderIdx:  NoType,
+			HasWhere:     false,
+			HasClaimCtor: false,
+			HasCallback:  false,
+			CallbackArg:  NoType,
+			CallbackRes:  NoType,
+		})
+	}
+	WithTies(MakePlan(p, arena, inputs, []LawProviderSpec{}), tieStart, tieLen, tieTargets, uint32(0))
+}
+
+// PlanContext builds a Plan for a law run under a named context.
+func PlanContext(p TypePool, arena mut ValArena, paramNames []string, paramTypes []uint32, hasSupplied bool, supplied uint32) Plan {
+	let mut inputs = []PlanInput{}
+	for i, nm in paramNames {
+		if hasSupplied && uint32(i) == supplied {
+			continue
+		}
+		inputs = inputs.Append(PlanInput{
+			Name:         nm,
+			Type:         paramTypes[i],
+			HasParam:     true,
+			Param:        uint32(i),
+			HasProvider:  false,
+			ProviderIdx:  NoType,
+			HasWhere:     false,
+			HasClaimCtor: false,
+			HasCallback:  false,
+			CallbackArg:  NoType,
+			CallbackRes:  NoType,
+		})
+	}
+	MakePlan(p, arena, inputs, []LawProviderSpec{})
+}
+
+// LawSlotSpec describes a law slot binding in source order.
+type LawSlotSpec {
+	HasParam    bool,
+	Param       uint32,
+	SlotType    uint32,
+	GenericSlot bool,
+}
+
+// ClaimCallbackSig extracts first parameter and single result type when a signature is a claim callback.
+func ClaimCallbackSig(p TypePool, tid uint32) (bool, uint32, uint32) {
+	let idx = int(tid)
+	if idx < 0 || idx >= p.Kind.Len() || p.Kind[idx] != KTSig || p.HasRow[idx] {
+		return (false, NoType, NoType)
+	}
+	let pLen = int(p.ChildLen[idx])
+	let rLen = int(p.SigResLen[idx])
+	if pLen != 1 || rLen != 1 {
+		return (false, NoType, NoType)
+	}
+	let arg = p.Children[int(p.ChildStart[idx])]
+	let res = p.SigResults[int(p.SigResStart[idx])]
+	(true, arg, res)
+}
+
+// GenericOwner reports whether an un-claimed member law owns a generic operation type.
+func GenericOwner(claimed bool, slots []LawSlotSpec) uint32 {
+	if !claimed && slots.Len() > 0 && !slots[0].HasParam && slots[0].GenericSlot {
+		return slots[0].SlotType
+	}
+	NoType
+}
+
+// PlanLaw computes the Plan for a claimed or un-claimed law with slot bindings.
+func PlanLaw(p TypePool, arena mut ValArena, claimed bool, claimantTitle string, slots []LawSlotSpec, paramNames []string, paramTypes []uint32, paramWhere []bool, tieStart []uint32, tieLen []uint32, tieTargets []uint32, unrun string, bindings []LawProviderSpec) Plan {
+	if bindings.Len() != slots.Len() {
+		return MakeUnrunPlan("no binding of the law runs in this package")
+	}
+	if claimed {
+		let pr = bindings[0]
+		if pr.Unrun != "" {
+			return MakeUnrunPlan(pr.Unrun)
+		}
+		let mut inputs = []PlanInput{}
+		for i, nm in paramNames {
+			let pt = pr.Params[i]
+			let (isCb, cbArg, cbRes) = ClaimCallbackSig(p, pt)
+			let claimCtor = pr.ClaimCtor && pr.HasClaimAt && ((pt == pr.ClaimAt) || (isCb && cbRes == pr.ClaimAt))
+			inputs = inputs.Append(PlanInput{
+				Name:         nm,
+				Type:         pt,
+				HasParam:     true,
+				Param:        uint32(i),
+				HasProvider:  false,
+				ProviderIdx:  NoType,
+				HasWhere:     i < paramWhere.Len() && paramWhere[i],
+				HasClaimCtor: claimCtor,
+				HasCallback:  isCb,
+				CallbackArg:  cbArg,
+				CallbackRes:  cbRes,
+			})
+		}
+		let out = WithTies(MakePlan(p, arena, inputs, bindings), tieStart, tieLen, tieTargets, uint32(0))
+		if pr.Native {
+			return Plan{..out, Native: claimantTitle}
+		}
+		return out
+	}
+	let mut inputs = []PlanInput{}
+	let mut bound = []uint32{}
+	for _ in paramNames {
+		bound = bound.Append(NoType)
+	}
+	for k, slot in slots {
+		if !slot.HasParam {
+			inputs = inputs.Append(PlanInput{
+				Name:         "provider",
+				Type:         bindings[k].Type,
+				HasParam:     false,
+				Param:        NoType,
+				HasProvider:  true,
+				ProviderIdx:  uint32(k),
+				HasWhere:     false,
+				HasClaimCtor: false,
+				HasCallback:  false,
+				CallbackArg:  NoType,
+				CallbackRes:  NoType,
+			})
+		} else {
+			let pi = int(slot.Param)
+			if pi >= 0 && pi < bound.Len() {
+				bound[pi] = uint32(k)
+			}
+		}
+	}
+	let genOwn = GenericOwner(claimed, slots) != NoType
+	let offset = uint32(inputs.Len())
+	for i, nm in paramNames {
+		let mut t = paramTypes[i]
+		if genOwn && bindings.Len() > 0 && i < bindings[0].Params.Len() {
+			t = bindings[0].Params[i]
+		}
+		let bIdx = bound[i]
+		let hasProv = bIdx != NoType
+		if hasProv {
+			t = bindings[int(bIdx)].Type
+		}
+		inputs = inputs.Append(PlanInput{
+			Name:         nm,
+			Type:         t,
+			HasParam:     true,
+			Param:        uint32(i),
+			HasProvider:  hasProv,
+			ProviderIdx:  bIdx,
+			HasWhere:     i < paramWhere.Len() && paramWhere[i],
+			HasClaimCtor: false,
+			HasCallback:  false,
+			CallbackArg:  NoType,
+			CallbackRes:  NoType,
+		})
+	}
+	let pl = WithTies(MakePlan(p, arena, inputs, bindings), tieStart, tieLen, tieTargets, offset)
+	if unrun != "" {
+		return Plan{..pl, Reason: unrun}
+	}
+	pl
+}
+
+// MakeUnrunPlan constructs an un-runnable Plan explaining reason.
+func MakeUnrunPlan(reason string) Plan {
+	Plan{
+		Inputs:     []PlanInput{},
+		ListStart:  []uint32{},
+		ListLen:    []uint32{},
+		ListVals:   []uint32{},
+		Count:      uint32(0),
+		Listed:     false,
+		Reason:     reason,
+		HasTies:    false,
+		TieStart:   []uint32{},
+		TieLen:     []uint32{},
+		TieTargets: []uint32{},
+		Native:     "",
+	}
+}
+
+// PlanAt returns the value indices in arena for the k-th listed case, varying the last input fastest.
+func PlanAt(plan Plan, k0 uint32) []uint32 {
+	let n = plan.ListLen.Len()
+	let mut out = MakeSlice[uint32](n)
+	for _ in 0..n {
+		out = out.Append(uint32(0))
+	}
+	let mut k = int(k0)
+	let mut i = n - 1
+	for i >= 0 {
+		let l = int(plan.ListLen[i])
+		let start = int(plan.ListStart[i])
+		out[i] = plan.ListVals[start+(k%l)]
+		k = k / l
+		i = i - 1
+	}
+	out
+}
+
+// CallbackSecond selects the second-choice result among CallbackVariants for an integer argument.
+func CallbackSecond(k int, x int64) bool {
+	if k == 1 {
+		return true
+	}
+	if k == 2 {
+		return x%int64(2) != int64(0)
+	}
+	if k == 3 {
+		return x < int64(0)
+	}
+	false
+}
+
+// TiePick selects an earlier bound input index when tieDraw selects >= 0.
+func TiePick(plan Plan, inputIdx int, tieDraw func(int) int) option.Option[uint32] {
+	if !plan.HasTies || inputIdx < 0 || inputIdx >= plan.TieLen.Len() {
+		return option.None
+	}
+	let n = int(plan.TieLen[inputIdx])
+	if n <= 0 {
+		return option.None
+	}
+	let picked = tieDraw(n)
+	if picked < 0 || picked >= n {
+		return option.None
+	}
+	let start = int(plan.TieStart[inputIdx])
+	option.Some[uint32]{Value: plan.TieTargets[start+picked]}
+}
+
+// PlanListedCountMatchesLists verifies Count equals product of listed domains for small tuples.
+law PlanListedCountMatchesLists(n0 uint8) {
+	let mut p = NewTypePool()
+	let b = AddBasic(&p, BBool)
+	let n = int(n0%uint8(4)) + 1
+	let mut names = []string{}
+	let mut types = []uint32{}
+	for idx in 0..n {
+		names = names.Append("x\(idx)")
+		types = types.Append(b)
+	}
+	let mut arena = NewValArena()
+	let pl = PlanTest(p, &arena, names, types, []uint32{}, []uint32{}, []uint32{})
+	let mut prod = 1
+	for l in pl.ListLen {
+		prod = prod * int(l)
+	}
+	pl.Listed && int(pl.Count) == prod && int(pl.Count) <= CaseCap
+}
+
+// CallbackSecondMatchesSpec verifies CallbackSecond returns false for variant 0 and k >= 4.
+law CallbackSecondMatchesSpec(x int64) {
+	!CallbackSecond(0, x) && CallbackSecond(1, x) && (CallbackSecond(2, x) == (x%int64(2) != int64(0))) && (CallbackSecond(3, x) == (x < int64(0))) && !CallbackSecond(4, x)
+}
+
+// PlanAtAndWithTiesTest exercises PlanAt mixed-radix order, WithTies provider skipping, and PlanLaw.
+test PlanAtAndWithTiesTest {
+	let mut p = NewTypePool()
+	let b = AddBasic(&p, BBool)
+	let i = AddBasic(&p, BInt)
+	let opI = AddOp(&p, []string{}, []uint32{}, "Op")
+	let opN = AddNamed(&p, "pkg", "Op", "pkg.Op", opI)
+	let provSt = AddStruct(&p, []string{}, []uint32{}, false, "Prov")
+	let prov = AddNamed(&p, "pkg", "Prov", "pkg.Prov", provSt)
+
+	let mut arena = NewValArena()
+	let slots = []LawSlotSpec{LawSlotSpec{HasParam: false, Param: NoType, SlotType: opN, GenericSlot: false}}
+	let binds = []LawProviderSpec{LawProviderSpec{Type: prov, Name: "Prov", Params: []uint32{}, ClaimAt: NoType, HasClaimAt: false, HasCtor: false, ClaimCtor: false, Native: false, Unrun: ""}}
+	let tieStart = []uint32{uint32(0), uint32(0), uint32(0)}
+	let tieLen = []uint32{uint32(0), uint32(1), uint32(0)}
+	let tieTargets = []uint32{uint32(0)}
+	let pl = PlanLaw(p, &arena, false, "", slots, []string{"x", "y", "z"}, []uint32{b, b, i}, []bool{false, false, false}, tieStart, tieLen, tieTargets, "", binds)
+	assert !pl.Listed && int(pl.Count) == Cases
+	assert pl.HasTies && pl.TieLen.Len() == 4 && pl.TieLen[0] == uint32(0) && pl.TieLen[2] == uint32(1) && pl.TieTargets[0] == uint32(1)
+
+	let pl2 = PlanContext(p, &arena, []string{"a", "b"}, []uint32{b, b}, false, uint32(0))
+	assert pl2.Listed && int(pl2.Count) == 4
+	let c1 = PlanAt(pl2, uint32(1))
+	assert FormatVal(arena, p, c1[0]) == "false" && FormatVal(arena, p, c1[1]) == "true"
+	let c2 = PlanAt(pl2, uint32(2))
+	assert FormatVal(arena, p, c2[0]) == "true" && FormatVal(arena, p, c2[1]) == "false"
+
+	match TiePick(pl, 2, func(_ int) int { 0 }) {
+	case option.Some{Value: idx}:
+		assert idx == uint32(1)
+	case option.None:
+		assert false
+	}
+
+	let slots2 = []LawSlotSpec{LawSlotSpec{HasParam: true, Param: uint32(0), SlotType: opN, GenericSlot: false}}
+	let binds2 = []LawProviderSpec{LawProviderSpec{Type: prov, Name: "Prov", Params: []uint32{}, ClaimAt: NoType, HasClaimAt: false, HasCtor: false, ClaimCtor: false, Native: false, Unrun: ""}}
+	let tStart2 = []uint32{uint32(0), uint32(1)}
+	let tLen2 = []uint32{uint32(1), uint32(1)}
+	let tTarg2 = []uint32{uint32(1), uint32(0)}
+	let pl3 = PlanLaw(p, &arena, false, "", slots2, []string{"s", "x"}, []uint32{opN, b}, []bool{false, false}, tStart2, tLen2, tTarg2, "", binds2)
+	assert !pl3.HasTies
+}
