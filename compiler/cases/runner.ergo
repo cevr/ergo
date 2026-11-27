@@ -1,0 +1,527 @@
+import filepath
+import fs
+import fstest
+import option
+import slices
+import strconv
+import strings
+
+// OutputCap is the maximum byte count buffered from each command output stream (1 MiB).
+let OutputCap = 1 << 20
+
+// MemoryVariable is the environment variable configuring per-process memory limits.
+let MemoryVariable = "ERGO_PROGRAM_MEMORY"
+
+// DefaultMemoryLimit is the default per-process memory limit (2 GiB).
+let DefaultMemoryLimit = uint64(2) << 30
+
+// OutOfMemory is the substring identifying Go runtime allocation exhaustion.
+let OutOfMemory = "out of memory"
+
+let signalLine = "SIGSEGV: segmentation violation"
+let faultFrame = "runtime.(*spanQueue)."
+let mappingRefused = "cannot allocate memory"
+
+// Cause describes how stderr indicates a memory limit termination.
+type Cause = NoCause{} | RuntimeReport{} | QueueFault{}
+
+// Case holds one golden test folder's specification and expected outputs.
+type Case {
+	Name   string,
+	Dir    string,
+	Args   []string,
+	Env    []string,
+	Stdin  string,
+	Setup  bool,
+	Out    string,
+	HasOut bool,
+	Err    string,
+	Status uint32,
+}
+
+// Outcome holds the captured result of running one command or setup script.
+type Outcome {
+	Stdout     string,
+	Stderr     string,
+	StdoutOver bool,
+	StderrOver bool,
+	Status     uint32,
+	Signaled   bool,
+	Signal     string,
+	TimedOut   bool,
+	Limited    bool,
+}
+
+// Verdict records the golden comparison result for one case execution.
+type Verdict {
+	Fatal  string,
+	What   []string,
+	Stdout bool,
+	Stderr bool,
+}
+
+// ParseLimitFailure indicates an invalid memory limit string in ParseSize or LimitFromEnv.
+type ParseLimitFailure { Message string }
+
+// AllowedFiles returns the canonical list of permissible file names inside a case folder.
+func AllowedFiles() []string {
+	[]string{"args", "stdin", "env", "setup.sh", "expected.out", "expected.err", "expected.status"}
+}
+
+// CauseOf inspects stderr for Go runtime out-of-memory or span-queue allocation faults.
+func CauseOf(stderr string) Cause {
+	if strings.Contains(stderr, OutOfMemory) || strings.Contains(stderr, mappingRefused) {
+		return RuntimeReport
+	}
+	let lines = strings.Split(stderr, "\n")
+	let mut state = 0
+	for raw in lines {
+		let line = if raw.Len() > 256 { raw[0:256] } else { raw }
+		if state == 1 {
+			if strings.HasPrefix(line, "PC=") && slices.Contains(strings.Fields(line), "addr=0x0") {
+				state = 2
+				continue
+			}
+		} else if state == 2 {
+			if line == "" || strings.HasPrefix(line, "goroutine ") {
+				continue
+			}
+			if strings.HasPrefix(line, faultFrame) {
+				return QueueFault
+			}
+		}
+		state = if line == signalLine { 1 } else { 0 }
+	}
+	NoCause
+}
+
+// FormatSize formats a memory byte count in the largest binary unit that divides it.
+func FormatSize(n uint64) string {
+	let gib = uint64(1) << uint64(30)
+	if n != uint64(0) && n%gib == uint64(0) {
+		return strings.FromBytes(strconv.AppendUint([]byte{}, n>>uint64(30), 10)) + " GiB"
+	}
+	let mib = uint64(1) << uint64(20)
+	if n != uint64(0) && n%mib == uint64(0) {
+		return strings.FromBytes(strconv.AppendUint([]byte{}, n>>uint64(20), 10)) + " MiB"
+	}
+	let kib = uint64(1) << uint64(10)
+	if n != uint64(0) && n%kib == uint64(0) {
+		return strings.FromBytes(strconv.AppendUint([]byte{}, n>>uint64(10), 10)) + " KiB"
+	}
+	strings.FromBytes(strconv.AppendUint([]byte{}, n, 10)) + " bytes"
+}
+
+func parseDecUint64(s string) uint64 fails ParseLimitFailure {
+	if s.Len() == 0 {
+		return ParseLimitFailure{Message: "not a size: use bytes, KiB, MiB or GiB, or 0 for no limit"}
+	}
+	let mut acc = uint64(0)
+	let maxDiv10 = ((uint64(0xffffffff) << uint64(32)) | uint64(0xffffffff)) / uint64(10)
+	let maxMod10 = uint64(5)
+	for i in 0..s.Len() {
+		let b = s[i]
+		if b < byte(48) || b > byte(57) {
+			return ParseLimitFailure{Message: "not a size: use bytes, KiB, MiB or GiB, or 0 for no limit"}
+		}
+		let d = uint64(b - byte(48))
+		if acc > maxDiv10 || (acc == maxDiv10 && d > maxMod10) {
+			return ParseLimitFailure{Message: "size out of range"}
+		}
+		acc = acc*uint64(10) + d
+	}
+	acc
+}
+
+// ParseSize parses a byte count or binary-unit size string, returning 0 for "off".
+func ParseSize(raw string) uint64 fails ParseLimitFailure {
+	let mut s = strings.TrimSpace(raw)
+	if s == "off" {
+		return uint64(0)
+	}
+	let mut shift = uint64(0)
+	if strings.HasSuffix(s, "KiB") {
+		s = s[0 : s.Len()-3]
+		shift = uint64(10)
+	} else if strings.HasSuffix(s, "MiB") {
+		s = s[0 : s.Len()-3]
+		shift = uint64(20)
+	} else if strings.HasSuffix(s, "GiB") {
+		s = s[0 : s.Len()-3]
+		shift = uint64(30)
+	}
+	let n = try parseDecUint64(strings.TrimSpace(s))
+	let maxU64 = (uint64(0xffffffff) << uint64(32)) | uint64(0xffffffff)
+	if n > (maxU64 >> shift) {
+		return ParseLimitFailure{Message: "size out of range"}
+	}
+	n << shift
+}
+
+// LimitFromEnv parses ERGO_PROGRAM_MEMORY from KEY=VALUE lines, falling back to def.
+func LimitFromEnv(env []string, def uint64) uint64 fails ParseLimitFailure {
+	let mut value = ""
+	let mut found = false
+	for kv in env {
+		if strings.HasPrefix(kv, MemoryVariable+"=") {
+			value = kv[MemoryVariable.Len()+1 : kv.Len()]
+			found = true
+		}
+	}
+	if !found {
+		return def
+	}
+	ParseSize(value) catch {
+	case ParseLimitFailure as e:
+		return ParseLimitFailure{Message: "\(MemoryVariable)=\"\(value)\": \(e.Message)"}
+	}
+}
+
+// Lines splits content into lines, stripping one trailing newline; empty input returns empty.
+func Lines(content string) []string {
+	if content.Len() == 0 {
+		return []string{}
+	}
+	strings.Split(strings.TrimSuffix(content, "\n"), "\n")
+}
+
+// OutcomePassed reports whether o exited normally within caps and timeouts.
+func OutcomePassed(o Outcome) bool {
+	!o.TimedOut && !o.Signaled && o.Status == uint32(0) && !o.StdoutOver && !o.StderrOver
+}
+
+// OutcomeStatusText formats o's exit status or terminating signal name.
+func OutcomeStatusText(o Outcome) string {
+	if o.Signaled {
+		return "signal " + o.Signal
+	}
+	"\(int(o.Status))"
+}
+
+// OutcomeOverCap names each output stream exceeding OutputCap, joined by "; ".
+func OutcomeOverCap(o Outcome) string {
+	let mut over = []string{}
+	if o.StdoutOver {
+		over = over.Append("stdout over \(OutputCap) bytes")
+	}
+	if o.StderrOver {
+		over = over.Append("stderr over \(OutputCap) bytes")
+	}
+	strings.Join(over, "; ")
+}
+
+// OutcomeWhy describes why a command did not finish normally, or "" if it exited cleanly.
+func OutcomeWhy(o Outcome, timeout duration) string {
+	if o.TimedOut {
+		return " hung: no end after \(timeout), stopped"
+	}
+	if o.Signaled {
+		return " ended by signal " + o.Signal
+	}
+	""
+}
+
+// ClassifyLimit marks o.Limited when a memory-bounded run exited non-zero with a runtime limit report.
+func ClassifyLimit(o Outcome, memory uint64) Outcome {
+	if memory == uint64(0) || (!o.Signaled && o.Status == uint32(0)) {
+		return o
+	}
+	match CauseOf(o.Stderr) {
+	case NoCause:
+		o
+	case RuntimeReport, QueueFault:
+		Outcome{..o, Limited: true}
+	}
+}
+
+// VerdictPassed reports whether v found neither fatal errors nor golden mismatches.
+func VerdictPassed(v Verdict) bool {
+	v.Fatal == "" && v.What.Len() == 0
+}
+
+// Judge compares execution outcome o against case c's golden expectations.
+func Judge(c Case, o Outcome, program string, memory uint64, timeout duration) Verdict {
+	if o.Limited {
+		return Verdict{Fatal: "program \(program) exceeded its memory limit of \(FormatSize(memory)) (set \(MemoryVariable) to change it, 0 for none)", What: []string{}, Stdout: false, Stderr: false}
+	}
+	let capMsg = OutcomeOverCap(o)
+	if capMsg != "" {
+		return Verdict{Fatal: capMsg, What: []string{}, Stdout: false, Stderr: false}
+	}
+	if o.TimedOut {
+		return Verdict{Fatal: strings.TrimPrefix(OutcomeWhy(o, timeout), " "), What: []string{}, Stdout: false, Stderr: false}
+	}
+	let mut what = []string{}
+	let outDiff = o.Stdout != c.Out || !c.HasOut
+	let errDiff = o.Stderr != c.Err
+	if outDiff {
+		what = what.Append("stdout differs")
+	}
+	if errDiff {
+		what = what.Append("stderr differs")
+	}
+	if o.Signaled || o.Status != c.Status {
+		what = what.Append("status differs: got \(OutcomeStatusText(o)), want \(int(c.Status))")
+	}
+	Verdict{Fatal: "", What: what, Stdout: outDiff, Stderr: errDiff}
+}
+
+// VerdictFormatDiff renders unified diffs for any streams marked differing in v.
+func VerdictFormatDiff(v Verdict, c Case, o Outcome) string {
+	let mut b = strings.NewBuilder()
+	if v.Stdout {
+		b.WriteString("stdout:\n" + Diff(c.Out, o.Stdout))
+	}
+	if v.Stderr {
+		b.WriteString("stderr:\n" + Diff(c.Err, o.Stderr))
+	}
+	b.String()
+}
+
+// FormatVerdictLine formats a complete single-case report line (and diff) matching cases.Live.Run.
+func FormatVerdictLine(c Case, o Outcome, v Verdict) string {
+	if v.Fatal != "" {
+		return "FAIL \(c.Name): \(v.Fatal)\n"
+	}
+	if v.What.Len() > 0 {
+		return "FAIL \(c.Name): " + strings.Join(v.What, "; ") + "\n" + VerdictFormatDiff(v, c, o)
+	}
+	"ok \(c.Name)\n"
+}
+
+// FormatProblems formats Load directory validation problems, returning exit code 1 if non-empty.
+func FormatProblems(problems []string) (string, int) {
+	if problems.Len() == 0 {
+		return ("", 0)
+	}
+	let mut b = strings.NewBuilder()
+	for p in problems {
+		b.WriteString("FAIL " + p + "\n")
+	}
+	b.WriteString("FAIL\n")
+	(b.String(), 1)
+}
+
+func unexpectedFileMessage(file string) string {
+	let mut rest = []string{}
+	for f in AllowedFiles() {
+		if f != "expected.out" {
+			rest = rest.Append(f)
+		}
+	}
+	"unexpected \(file); a case holds expected.out and may hold " + strings.Join(rest, ", ")
+}
+
+func resolveAbsDir(dir string, cwd string) string {
+	if filepath.IsAbs(dir) || cwd == "" {
+		return filepath.Clean(dir)
+	}
+	filepath.Join([]string{cwd, dir})
+}
+
+// LoadCaseDir reads and validates one case directory named name, resolving relative paths using cwd.
+func LoadCaseDir(dir string, cwd string, name string, record bool) (Case, []string) needs fs.Files {
+	let absDir = resolveAbsDir(dir, cwd)
+	let mut c = Case{
+		Name:   name,
+		Dir:    absDir,
+		Args:   []string{},
+		Env:    []string{},
+		Stdin:  "",
+		Setup:  false,
+		Out:    "",
+		HasOut: false,
+		Err:    "",
+		Status: uint32(0),
+	}
+	let mut problems = []string{}
+	let entries = fs.Files.ReadDir(absDir) catch {
+	case fs.NotFound:
+		return (c, []string{"stat \(absDir): no such file or directory"})
+	case fs.Denied:
+		return (c, []string{"stat \(absDir): permission denied"})
+	case fs.Failed as e:
+		return (c, []string{"stat \(absDir): \(e.Reason)"})
+	}
+	let allowed = AllowedFiles()
+	let mut present = Map[string, bool]{}
+	for file in entries {
+		if !slices.Contains(allowed, file) {
+			problems = problems.Append(unexpectedFileMessage(file))
+			continue
+		}
+		let sub = filepath.Join([]string{absDir, file})
+		let info = fs.Files.Lstat(sub) catch {
+		case fs.NotFound:
+			problems = problems.Append("stat \(sub): no such file or directory")
+			continue
+		case fs.Denied:
+			problems = problems.Append("stat \(sub): permission denied")
+			continue
+		case fs.Failed as e:
+			problems = problems.Append("stat \(sub): \(e.Reason)")
+			continue
+		}
+		if info.Dir {
+			problems = problems.Append("\(file) is not a regular file")
+			continue
+		}
+		present[file] = true
+	}
+	let has = func(file string) bool {
+		match present.Get(file) {
+		case option.Some{Value: v}:
+			v
+		case option.None:
+			false
+		}
+	}
+	let readCaseFile = func(file string) string {
+		if !has(file) {
+			return ""
+		}
+		let p = filepath.Join([]string{absDir, file})
+		fs.Files.ReadFile(p) catch {
+		case fs.NotFound:
+			problems = problems.Append("open \(p): no such file or directory")
+			""
+		case fs.Denied:
+			problems = problems.Append("open \(p): permission denied")
+			""
+		case fs.Failed as e:
+			problems = problems.Append("open \(p): \(e.Reason)")
+			""
+		}
+	}
+	if !has("expected.out") && !record {
+		problems = problems.Append("no expected.out")
+	}
+	c.HasOut = has("expected.out")
+	c.Out = readCaseFile("expected.out")
+	c.Err = readCaseFile("expected.err")
+	c.Args = Lines(readCaseFile("args"))
+	for line in Lines(readCaseFile("env")) {
+		let eq = strings.Index(line, "=")
+		if eq <= 0 {
+			problems = problems.Append("env: line \"\(line)\" is not KEY=VALUE")
+		}
+		c.Env = c.Env.Append(line)
+	}
+	if has("expected.status") {
+		let text = strings.TrimSuffix(readCaseFile("expected.status"), "\n")
+		let mut valid = true
+		let status = strconv.Atoi(text) catch {
+		case strconv.Malformed, strconv.OutOfRange:
+			valid = false
+			0
+		}
+		if !valid || status < 0 || status > 255 || strconv.Itoa(status) != text {
+			problems = problems.Append("expected.status: \"\(text)\" is not an exit status (decimal 0 to 255)")
+		} else {
+			c.Status = uint32(status)
+		}
+	}
+	if has("stdin") {
+		c.Stdin = filepath.Join([]string{absDir, "stdin"})
+	}
+	c.Setup = has("setup.sh")
+	(c, problems)
+}
+
+// LoadDir reads and validates every case subdirectory under dir.
+func LoadDir(dir string, cwd string, record bool) ([]Case, []string) needs fs.Files {
+	let entries = fs.Files.ReadDir(dir) catch {
+	case fs.NotFound:
+		return ([]Case{}, []string{"open \(dir): no such file or directory"})
+	case fs.Denied:
+		return ([]Case{}, []string{"open \(dir): permission denied"})
+	case fs.Failed as e:
+		return ([]Case{}, []string{"open \(dir): \(e.Reason)"})
+	}
+	let base = filepath.Base(dir)
+	let mut loaded = []Case{}
+	let mut problems = []string{}
+	for name in entries {
+		let label = base + "/" + name
+		let sub = filepath.Join([]string{dir, name})
+		let info = fs.Files.Lstat(sub) catch {
+		case fs.NotFound:
+			problems = problems.Append(label + ": stat \(sub): no such file or directory")
+			continue
+		case fs.Denied:
+			problems = problems.Append(label + ": stat \(sub): permission denied")
+			continue
+		case fs.Failed as e:
+			problems = problems.Append(label + ": stat \(sub): \(e.Reason)")
+			continue
+		}
+		if !info.Dir {
+			problems = problems.Append(label + ": not a case folder")
+			continue
+		}
+		let (c, found) = LoadCaseDir(sub, cwd, name, record)
+		for p in found {
+			problems = problems.Append(label + ": " + p)
+		}
+		if found.Len() == 0 {
+			loaded = loaded.Append(c)
+		}
+	}
+	if entries.Len() == 0 {
+		problems = problems.Append(base + "/ holds no case")
+	}
+	(loaded, problems)
+}
+
+// CauseOfDetectsOOMTest checks QueueFault and RuntimeReport detection in CauseOf.
+test CauseOfDetectsOOMTest {
+	let qf = "SIGSEGV: segmentation violation\nPC=0x42d21c m=3 sigcode=1 addr=0x0\n\ngoroutine 0 gp=0x16 [idle]:\nruntime.(*spanQueue).tryDrain(0x1?)\n"
+	assert CauseOf(qf) == QueueFault
+	assert CauseOf("fatal error: runtime: out of memory") == RuntimeReport
+	assert CauseOf("SIGSEGV: segmentation violation\nPC=0x42 m=0 addr=0x10\nruntime.(*spanQueue).tryDrain()\n") == NoCause
+}
+
+// JudgeMatchesSpecTest verifies memory limits, output cap, timeout, and stream/status diffs in Judge.
+test JudgeMatchesSpecTest {
+	let c = Case{Name: "ex", Dir: "/tmp/ex", Args: []string{}, Env: []string{}, Stdin: "", Setup: false, Out: "ok\n", HasOut: true, Err: "", Status: uint32(0)}
+	let okOut = Outcome{Stdout: "ok\n", Stderr: "", StdoutOver: false, StderrOver: false, Status: uint32(0), Signaled: false, Signal: "", TimedOut: false, Limited: false}
+	assert VerdictPassed(Judge(c, okOut, "p", DefaultMemoryLimit, 5s))
+	let badOut = Outcome{..okOut, Stdout: "no\n", Status: uint32(2)}
+	let v = Judge(c, badOut, "p", DefaultMemoryLimit, 5s)
+	assert !VerdictPassed(v) && v.Stdout && !v.Stderr && v.What.Len() == 2
+	let lim = ClassifyLimit(Outcome{..okOut, Status: uint32(2), Stderr: "runtime: cannot allocate memory"}, DefaultMemoryLimit)
+	assert lim.Limited
+	let lv = Judge(c, lim, "prog", DefaultMemoryLimit, 5s)
+	assert strings.Contains(lv.Fatal, "2 GiB")
+}
+
+// LoadDirValidatesLayoutTest exercises LoadDir with fstest.Memory on valid, empty, and malformed cases.
+test LoadDirValidatesLayoutTest {
+	let m = fstest.NewMemory()
+	let (loaded, probs) = with context { fs.Files: m, fs.Writes: m } {
+		try fs.Writes.MkdirAll("/cases/good")
+		try fs.Writes.WriteFile("/cases/good/expected.out", "hello\n")
+		try fs.Writes.WriteFile("/cases/good/args", "-v\n")
+		try fs.Writes.WriteFile("/cases/good/env", "FOO=bar\n")
+		try fs.Writes.WriteFile("/cases/good/expected.status", "0\n")
+		LoadDir("/cases", "/", false)
+	}
+	assert probs.Len() == 0 && loaded.Len() == 1
+	assert loaded[0].Out == "hello\n" && loaded[0].Args.Len() == 1 && loaded[0].Env[0] == "FOO=bar"
+
+	let m2 = fstest.NewMemory()
+	let (l2, p2) = with context { fs.Files: m2, fs.Writes: m2 } {
+		try fs.Writes.MkdirAll("/empty")
+		LoadDir("/empty", "/", false)
+	}
+	assert l2.Len() == 0 && p2.Len() == 1 && p2[0] == "empty/ holds no case"
+
+	let m3 = fstest.NewMemory()
+	let (l3, p3) = with context { fs.Files: m3, fs.Writes: m3 } {
+		try fs.Writes.MkdirAll("/bad/c1")
+		try fs.Writes.WriteFile("/bad/c1/expected.out", "")
+		try fs.Writes.WriteFile("/bad/c1/expected.status", "999\n")
+		LoadDir("/bad", "/", false)
+	}
+	assert l3.Len() == 0 && p3.Len() == 1 && strings.Contains(p3[0], "is not an exit status")
+}

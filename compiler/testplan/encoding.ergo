@@ -1,0 +1,167 @@
+import option
+import strings
+
+// Scalar represents how a machine state key encodes a basic value.
+type Scalar = NoScalar{} | ScalarBool{} | ScalarString{} | ScalarInt{} | ScalarUint{} | ScalarFloat{} | ScalarComplex{}
+
+// ScalarOf returns the state key scalar encoding for a basic type ordinal.
+func ScalarOf(k uint8) Scalar {
+	if k == BBool {
+		return ScalarBool
+	}
+	if k == BString {
+		return ScalarString
+	}
+	if k == BDuration || (k >= BInt && k <= BInt64) {
+		return ScalarInt
+	}
+	if k >= BUint && k <= BUintptr {
+		return ScalarUint
+	}
+	if k == BFloat32 || k == BFloat64 {
+		return ScalarFloat
+	}
+	if k == BComplex64 || k == BComplex128 {
+		return ScalarComplex
+	}
+	NoScalar
+}
+
+// ScalarName returns the symbolic Go constant name matching internal/sketch/testplan.Scalar.
+func ScalarName(s Scalar) string {
+	match s {
+	case NoScalar:
+		"NoScalar"
+	case ScalarBool:
+		"ScalarBool"
+	case ScalarString:
+		"ScalarString"
+	case ScalarInt:
+		"ScalarInt"
+	case ScalarUint:
+		"ScalarUint"
+	case ScalarFloat:
+		"ScalarFloat"
+	case ScalarComplex:
+		"ScalarComplex"
+	}
+}
+
+type strSet { m Map[string, bool] }
+
+func keyWhyAll(p TypePool, ts []uint32, seen mut strSet) string {
+	for e in ts {
+		let why = keyWhyWalk(p, e, seen)
+		if why != "" {
+			return why
+		}
+	}
+	""
+}
+
+func keyWhyWalk(p TypePool, tid uint32, seen mut strSet) string {
+	let idx = int(tid)
+	if idx < 0 || idx >= p.Kind.Len() {
+		return ""
+	}
+	let kind = p.Kind[idx]
+	let txt = p.Print[idx]
+	if kind == KTBasic {
+		return ""
+	}
+	if kind == KTSlice || kind == KTMap || kind == KTTuple {
+		return keyWhyAll(p, childrenOf(p, tid), seen)
+	}
+	if kind == KTUnion {
+		if !p.HasRow[idx] {
+			return keyWhyAll(p, childrenOf(p, tid), seen)
+		}
+		return txt + " holds a value with no key"
+	}
+	if kind == KTNamed {
+		match seen.m.Get(txt) {
+		case option.Some:
+			return ""
+		case option.None:
+		}
+		seen.m[txt] = true
+		if p.IsGoRef[idx] || !p.HasDecl[idx] || p.IsHost[idx] || p.IsGoError[idx] {
+			return txt + " is a Go type"
+		}
+		let under = underlyingOf(p, tid)
+		let uIdx = int(under)
+		if under != NoType && uIdx >= 0 && uIdx < p.Kind.Len() && p.Kind[uIdx] == KTOp {
+			return txt + " is an operation type"
+		}
+		if p.IsRuntime[idx] {
+			return txt + " is a runtime handle"
+		}
+		if under != NoType && uIdx >= 0 && uIdx < p.Kind.Len() {
+			let uKind = p.Kind[uIdx]
+			if uKind == KTStruct || uKind == KTUnion {
+				return keyWhyAll(p, childrenOf(p, under), seen)
+			}
+			if uKind == KTBasic || uKind == KTSlice || uKind == KTMap || uKind == KTTuple {
+				return keyWhyWalk(p, under, seen)
+			}
+		}
+	}
+	txt + " holds a value with no key"
+}
+
+// KeyWhy explains why values of tid have no canonical state key, or "" if keyable.
+func KeyWhy(p TypePool, tid uint32) string {
+	let mut seen = strSet{m: Map[string, bool]{}}
+	keyWhyWalk(p, tid, &seen)
+}
+
+// ScalarOfCategorizesKinds checks every basic ordinal against ScalarOf's partition.
+law ScalarOfCategorizesKinds(raw uint8) {
+	let k = raw % uint8(20)
+	let s = ScalarOf(k)
+	if k == BInvalid || k > BDuration {
+		s == NoScalar
+	} else if k == BBool {
+		s == ScalarBool
+	} else if k == BString {
+		s == ScalarString
+	} else if k == BDuration || (k >= BInt && k <= BInt64) {
+		s == ScalarInt
+	} else if k >= BUint && k <= BUintptr {
+		s == ScalarUint
+	} else if k == BFloat32 || k == BFloat64 {
+		s == ScalarFloat
+	} else {
+		s == ScalarComplex
+	}
+}
+
+// KeyWhyMatchesSpecTest verifies KeyWhy messages for basic, Go, operation, runtime, signature, and recursive types.
+test KeyWhyMatchesSpecTest {
+	let mut p = NewTypePool()
+	let s = AddBasic(&p, BString)
+	let i = AddBasic(&p, BInt)
+	assert KeyWhy(p, s) == ""
+
+	let sig = AddSig(&p, []uint32{i}, []uint32{s}, false, "func(int) string")
+	assert KeyWhy(p, sig) == "func(int) string holds a value with no key"
+
+	let goT = AddNamed(&p, "host", "Reader", "host.Reader", NoType)
+	p.IsHost[int(goT)] = true
+	assert KeyWhy(p, goT) == "host.Reader is a Go type"
+
+	let opI = AddOp(&p, []string{}, []uint32{}, "Store")
+	let opN = AddNamed(&p, "pkg", "Store", "pkg.Store", opI)
+	assert KeyWhy(p, opN) == "pkg.Store is an operation type"
+
+	let rtI = AddStruct(&p, []string{"h"}, []uint32{i}, false, "Handle")
+	let rtN = AddNamed(&p, "std", "Handle", "std.Handle", rtI)
+	p.IsRuntime[int(rtN)] = true
+	assert KeyWhy(p, rtN) == "std.Handle is a runtime handle"
+
+	let node = AddNamed(&p, "pkg", "Node", "pkg.Node", NoType)
+	let nodeSt = AddStruct(&p, []string{"v", "next"}, []uint32{i, node}, false, "NodeSt")
+	SetUnder(&p, node, nodeSt)
+	assert KeyWhy(p, node) == ""
+	assert strings.Contains(ScalarName(ScalarOf(BFloat64)), "Float")
+}
