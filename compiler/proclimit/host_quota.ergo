@@ -1,0 +1,373 @@
+import cmp
+import dense
+import fs
+import option
+import os/host
+import strings
+
+// HostQuota describes the effective CPU/RAM limits, worker count, and Go runtime settings.
+type HostQuota {
+	HostCPUs      uint32,
+	CgroupCPUs    uint32,
+	EffectiveCPUs uint32,
+	HostRAM       uint64,
+	HostAvailable uint64,
+	CgroupRAM     uint64,
+	EffectiveRAM  uint64,
+	Workers       uint32,
+	MaxProcs      uint32,
+	MemLimit      uint64,
+}
+
+// ParseCPUMax parses a cgroup v2 cpu.max line ("QUOTA PERIOD" or "max PERIOD"), returning CPU ceiling (0 = unlimited).
+func ParseCPUMax(text string) uint32 {
+	let fields = strings.Fields(text)
+	if fields.Len() < 2 {
+		return uint32(0)
+	}
+	if fields[0] == "max" {
+		return uint32(0)
+	}
+	let quota = parseDecimalU64(fields[0]) catch {
+	case SizeError:
+		return uint32(0)
+	}
+	let period = parseDecimalU64(fields[1]) catch {
+	case SizeError:
+		return uint32(0)
+	}
+	if period == uint64(0) || quota == uint64(0) {
+		return uint32(0)
+	}
+	let rounded = (quota + period - uint64(1)) / period
+	if rounded > uint64(4294967295) {
+		return uint32(4294967295)
+	}
+	let n = uint32(rounded)
+	if n == uint32(0) { uint32(1) } else { n }
+}
+
+// ParseMemoryMax parses a cgroup v2 memory.max file ("max" or integer bytes), returning 0 when unlimited.
+func ParseMemoryMax(text string) uint64 {
+	let s = strings.TrimSpace(text)
+	if s == "" || s == "max" {
+		return uint64(0)
+	}
+	parseDecimalU64(s) catch {
+	case SizeError:
+		uint64(0)
+	}
+}
+
+// ParseSelfCgroup extracts the cgroup v2 relative path from /proc/self/cgroup content.
+func ParseSelfCgroup(text string) string {
+	for raw in strings.Lines(text) {
+		let line = strings.TrimSpace(raw)
+		if strings.HasPrefix(line, "0::") {
+			let path = strings.TrimPrefix(line, "0::")
+			return strings.TrimLeft(path, "/")
+		}
+	}
+	""
+}
+
+// ParseCPUOnline counts online CPUs from /sys/devices/system/cpu/online syntax (e.g. "0-15" or "0,2-3").
+func ParseCPUOnline(text string) uint32 {
+	let clean = strings.TrimSpace(text)
+	if clean == "" {
+		return uint32(0)
+	}
+	let mut total = uint32(0)
+	for part in strings.Split(clean, ",") {
+		let seg = strings.TrimSpace(part)
+		if seg == "" {
+			return uint32(0)
+		}
+		match strings.Cut(seg, "-") {
+		case option.Some{Value: h}:
+			let lo = parseDecimalU64(h.Before) catch {
+			case SizeError:
+				return uint32(0)
+			}
+			let hi = parseDecimalU64(h.After) catch {
+			case SizeError:
+				return uint32(0)
+			}
+			if hi < lo {
+				return uint32(0)
+			}
+			let span = hi - lo + uint64(1)
+			total = total + uint32(span)
+		case option.None:
+			let _ = parseDecimalU64(seg) catch {
+			case SizeError:
+				return uint32(0)
+			}
+			total = total + uint32(1)
+		}
+	}
+	total
+}
+
+// ParseProcMeminfoBytes extracts total and available host RAM bytes from /proc/meminfo text.
+func ParseProcMeminfoBytes(text string) (uint64, uint64) {
+	let mem = host.ParseMeminfo(text) catch {
+	case host.Malformed:
+		return (uint64(0), uint64(0))
+	}
+	let total = if mem.TotalBytes > int64(0) { uint64(mem.TotalBytes) } else { uint64(0) }
+	let avail = if mem.AvailableBytes > int64(0) { uint64(mem.AvailableBytes) } else { uint64(0) }
+	(total, avail)
+}
+
+// DeriveQuota computes effective CPU/RAM ceilings, worker concurrency, GOMAXPROCS, and GOMEMLIMIT.
+func DeriveQuota(hostCPUs uint32, cgroupCPUs uint32, hostRAM uint64, hostAvail uint64, cgroupRAM uint64, perWorkerRAM uint64, capWorkers uint32) HostQuota {
+	let effCPUs = if cgroupCPUs > uint32(0) && (hostCPUs == uint32(0) || cgroupCPUs < hostCPUs) {
+		cgroupCPUs
+	} else if hostCPUs > uint32(0) {
+		hostCPUs
+	} else {
+		uint32(1)
+	}
+	let availRAM = if hostAvail > uint64(0) { hostAvail } else { hostRAM }
+	let effRAM = if cgroupRAM > uint64(0) && (availRAM == uint64(0) || cgroupRAM < availRAM) {
+		cgroupRAM
+	} else {
+		availRAM
+	}
+	let mut workers = effCPUs
+	if perWorkerRAM > uint64(0) && effRAM > uint64(0) {
+		let byRAM = effRAM / perWorkerRAM
+		let cappedRAM = if byRAM == uint64(0) {
+			uint32(1)
+		} else if byRAM > uint64(4294967295) {
+			uint32(4294967295)
+		} else {
+			uint32(byRAM)
+		}
+		if cappedRAM < workers {
+			workers = cappedRAM
+		}
+	}
+	if capWorkers > uint32(0) && workers > capWorkers {
+		workers = capWorkers
+	}
+	if workers == uint32(0) {
+		workers = uint32(1)
+	}
+	let softLimit = (effRAM * uint64(9)) / uint64(10)
+	HostQuota{
+		HostCPUs:      hostCPUs,
+		CgroupCPUs:    cgroupCPUs,
+		EffectiveCPUs: effCPUs,
+		HostRAM:       hostRAM,
+		HostAvailable: hostAvail,
+		CgroupRAM:     cgroupRAM,
+		EffectiveRAM:  effRAM,
+		Workers:       workers,
+		MaxProcs:      effCPUs,
+		MemLimit:      softLimit,
+	}
+}
+
+// FormatGoMemLimit formats n in compact Go GOMEMLIMIT syntax without spaces (or "off" when 0).
+func FormatGoMemLimit(n uint64) string {
+	if n == uint64(0) {
+		return "off"
+	}
+	if n%gib == uint64(0) {
+		return formatUint64(n/gib) + "GiB"
+	}
+	if n%mib == uint64(0) {
+		return formatUint64(n/mib) + "MiB"
+	}
+	if n%kib == uint64(0) {
+		return formatUint64(n/kib) + "KiB"
+	}
+	formatUint64(n) + "B"
+}
+
+// DeriveGoEnv returns derived GOMAXPROCS and GOMEMLIMIT environment assignments for q.
+func DeriveGoEnv(q HostQuota) []string {
+	let procs = "GOMAXPROCS=" + formatUint64(uint64(cmp.Max(q.MaxProcs, uint32(1))))
+	if q.MemLimit == uint64(0) {
+		return []string{procs}
+	}
+	[]string{procs, "GOMEMLIMIT=" + FormatGoMemLimit(q.MemLimit)}
+}
+
+// DetectHostQuota reads Linux /proc and /sys/fs/cgroup limits to derive current HostQuota.
+func DetectHostQuota(capWorkers uint32, perWorkerRAM uint64) HostQuota needs fs.Files {
+	let onlineText = readOptionalFile("/sys/devices/system/cpu/online")
+	let hostCPUs = ParseCPUOnline(onlineText)
+	let memText = readOptionalFile("/proc/meminfo")
+	let (hostRAM, hostAvail) = ParseProcMeminfoBytes(memText)
+	let cgRel = ParseSelfCgroup(readOptionalFile("/proc/self/cgroup"))
+	let (cgCPUs, cgRAM) = readCgroupLimits(cgRel)
+	DeriveQuota(hostCPUs, cgCPUs, hostRAM, hostAvail, cgRAM, perWorkerRAM, capWorkers)
+}
+
+// ChildEnvWithLimit appends or replaces Variable in env with limit formatted via Format.
+func ChildEnvWithLimit(env []string, limit uint64) []string {
+	let mut out = []string{}
+	let prefix = Variable + "="
+	for kv in env {
+		if !strings.HasPrefix(kv, prefix) {
+			out = out.Append(kv)
+		}
+	}
+	let val = if limit == uint64(0) { "0" } else { formatUint64(limit) }
+	out.Append(prefix + val)
+}
+
+// QuotaTag identifies a HostQuota row inside QuotaTable.
+type QuotaTag {}
+
+// QuotaTable stores derived host quotas in dense unsigned SoA columns.
+type QuotaTable {
+	Count         dense.Count[QuotaTag],
+	HostCPUs      dense.Col[QuotaTag, uint32],
+	CgroupCPUs    dense.Col[QuotaTag, uint32],
+	EffectiveCPUs dense.Col[QuotaTag, uint32],
+	HostRAM       dense.Col[QuotaTag, uint64],
+	HostAvailable dense.Col[QuotaTag, uint64],
+	CgroupRAM     dense.Col[QuotaTag, uint64],
+	EffectiveRAM  dense.Col[QuotaTag, uint64],
+	Workers       dense.Col[QuotaTag, uint32],
+	MaxProcs      dense.Col[QuotaTag, uint32],
+	MemLimit      dense.Col[QuotaTag, uint64],
+}
+
+// NewQuotaTable returns an empty SoA QuotaTable.
+func NewQuotaTable() QuotaTable {
+	QuotaTable{
+		Count:         dense.NewCount[QuotaTag](),
+		HostCPUs:      dense.NewCol[QuotaTag, uint32](),
+		CgroupCPUs:    dense.NewCol[QuotaTag, uint32](),
+		EffectiveCPUs: dense.NewCol[QuotaTag, uint32](),
+		HostRAM:       dense.NewCol[QuotaTag, uint64](),
+		HostAvailable: dense.NewCol[QuotaTag, uint64](),
+		CgroupRAM:     dense.NewCol[QuotaTag, uint64](),
+		EffectiveRAM:  dense.NewCol[QuotaTag, uint64](),
+		Workers:       dense.NewCol[QuotaTag, uint32](),
+		MaxProcs:      dense.NewCol[QuotaTag, uint32](),
+		MemLimit:      dense.NewCol[QuotaTag, uint64](),
+	}
+}
+
+// RecordQuota appends q to t and returns its dense ID.
+func RecordQuota(t mut QuotaTable, q HostQuota) dense.ID[QuotaTag] {
+	let id = dense.Next(&t.Count)
+	dense.Push(&t.HostCPUs, q.HostCPUs)
+	dense.Push(&t.CgroupCPUs, q.CgroupCPUs)
+	dense.Push(&t.EffectiveCPUs, q.EffectiveCPUs)
+	dense.Push(&t.HostRAM, q.HostRAM)
+	dense.Push(&t.HostAvailable, q.HostAvailable)
+	dense.Push(&t.CgroupRAM, q.CgroupRAM)
+	dense.Push(&t.EffectiveRAM, q.EffectiveRAM)
+	dense.Push(&t.Workers, q.Workers)
+	dense.Push(&t.MaxProcs, q.MaxProcs)
+	dense.Push(&t.MemLimit, q.MemLimit)
+	id
+}
+
+// QuotaAt returns the HostQuota stored at dense row id.
+func QuotaAt(t QuotaTable, id dense.ID[QuotaTag]) HostQuota {
+	HostQuota{
+		HostCPUs:      dense.Of(t.HostCPUs, id),
+		CgroupCPUs:    dense.Of(t.CgroupCPUs, id),
+		EffectiveCPUs: dense.Of(t.EffectiveCPUs, id),
+		HostRAM:       dense.Of(t.HostRAM, id),
+		HostAvailable: dense.Of(t.HostAvailable, id),
+		CgroupRAM:     dense.Of(t.CgroupRAM, id),
+		EffectiveRAM:  dense.Of(t.EffectiveRAM, id),
+		Workers:       dense.Of(t.Workers, id),
+		MaxProcs:      dense.Of(t.MaxProcs, id),
+		MemLimit:      dense.Of(t.MemLimit, id),
+	}
+}
+
+func readOptionalFile(path string) string needs fs.Files {
+	fs.Files.ReadFile(path) catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		""
+	}
+}
+
+func readCgroupLimits(rel string) (uint32, uint64) needs fs.Files {
+	let mut minCPUs = uint32(0)
+	let mut minRAM = uint64(0)
+	let mut parts = if rel == "" { []string{} } else { strings.Split(rel, "/") }
+	for true {
+		let prefix = if parts.Len() == 0 {
+			"/sys/fs/cgroup"
+		} else {
+			"/sys/fs/cgroup/" + strings.Join(parts, "/")
+		}
+		let c = ParseCPUMax(readOptionalFile(prefix + "/cpu.max"))
+		if c > uint32(0) && (minCPUs == uint32(0) || c < minCPUs) {
+			minCPUs = c
+		}
+		let m = ParseMemoryMax(readOptionalFile(prefix + "/memory.max"))
+		if m > uint64(0) && (minRAM == uint64(0) || m < minRAM) {
+			minRAM = m
+		}
+		if parts.Len() == 0 {
+			return (minCPUs, minRAM)
+		}
+		parts = parts[0 : parts.Len()-1]
+	}
+	(minCPUs, minRAM)
+}
+
+func parseDecimalU64(s string) uint64 fails SizeError {
+	let clean = strings.TrimSpace(s)
+	if clean.Len() == 0 {
+		return SizeError{Message: "empty integer"}
+	}
+	let mut acc = uint64(0)
+	let maxDiv = maxU64 / uint64(10)
+	for i in 0..clean.Len() {
+		let b = clean[i]
+		if b < byte('0') || b > byte('9') {
+			return SizeError{Message: "invalid integer"}
+		}
+		let d = uint64(b - byte('0'))
+		if acc > maxDiv || (acc == maxDiv && d > maxU64-acc*uint64(10)) {
+			return SizeError{Message: "integer overflow"}
+		}
+		acc = acc*uint64(10) + d
+	}
+	acc
+}
+
+// DeriveQuotaBounds checks that derived workers never fall below 1 or exceed effective CPUs, and RAM limits stay bounded.
+law DeriveQuotaBounds(hostCPUs uint32, cgroupCPUs uint32, hostAvail uint64, cgroupRAM uint64, capW uint32) {
+	let q = DeriveQuota(hostCPUs, cgroupCPUs, hostAvail, hostAvail, cgroupRAM, uint64(1073741824), capW)
+	let cpuOk = q.EffectiveCPUs >= uint32(1) && (hostCPUs == uint32(0) || q.EffectiveCPUs <= hostCPUs) && (cgroupCPUs == uint32(0) || q.EffectiveCPUs <= cgroupCPUs)
+	let ramOk = q.MemLimit <= q.EffectiveRAM && (cgroupRAM == uint64(0) || q.EffectiveRAM <= cgroupRAM)
+	let wrkOk = q.Workers >= uint32(1) && q.Workers <= q.EffectiveCPUs && (capW == uint32(0) || q.Workers <= capW)
+	cpuOk && ramOk && wrkOk
+}
+
+test TestHostQuotaAndCgroupParsing {
+	assert ParseCPUMax("max 100000\n") == uint32(0)
+	assert ParseCPUMax("400000 100000\n") == uint32(4)
+	assert ParseCPUMax("250000 100000\n") == uint32(3)
+	assert ParseMemoryMax("max\n") == uint64(0)
+	assert ParseMemoryMax("8589934592\n") == uint64(8)*gib
+	assert ParseCPUOnline("0-15\n") == uint32(16)
+	assert ParseCPUOnline("0,2-5,8\n") == uint32(6)
+	assert ParseSelfCgroup("0::/user.slice/user-1000.slice\n") == "user.slice/user-1000.slice"
+
+	let q = DeriveQuota(uint32(16), uint32(8), uint64(64)*gib, uint64(32)*gib, uint64(12)*gib, uint64(2)*gib, uint32(4))
+	assert q.EffectiveCPUs == uint32(8)
+	assert q.EffectiveRAM == uint64(12)*gib
+	assert q.Workers == uint32(4)
+	let env = DeriveGoEnv(q)
+	assert env.Len() == 2 && env[0] == "GOMAXPROCS=8" && strings.HasPrefix(env[1], "GOMEMLIMIT=")
+
+	let mut tbl = NewQuotaTable()
+	let id = RecordQuota(&tbl, q)
+	assert QuotaAt(tbl, id) == q
+}

@@ -1,0 +1,501 @@
+import cmp
+import dense
+import hex
+import sha1
+import sha256
+import slices
+
+// MachoMagic64 identifies a thin 64-bit little-endian Mach-O header.
+let MachoMagic64 = uint32(0xfeedfacf)
+
+// FatMagic identifies a 32-bit universal Mach-O header.
+let FatMagic = uint32(0xcafebabe)
+
+// FatMagic64 identifies a 64-bit universal Mach-O header.
+let FatMagic64 = uint32(0xcafebabf)
+
+// LCCodeSignature is Mach-O LC_CODE_SIGNATURE load command tag.
+let LCCodeSignature = uint32(0x1d)
+
+// CSMagicEmbedded identifies an embedded CodeSignature SuperBlob.
+let CSMagicEmbedded = uint32(0xfade0cc0)
+
+// CSMagicCodeDirectory identifies a CodeDirectory blob inside SuperBlob.
+let CSMagicCodeDirectory = uint32(0xfade0c02)
+
+// CSSlotCodeDirectory is the primary CodeDirectory slot index.
+let CSSlotCodeDirectory = uint32(0)
+
+// CSSlotAlternateFirst is the first alternate CodeDirectory slot index.
+let CSSlotAlternateFirst = uint32(0x1000)
+
+// CSSlotAlternateLast is the last alternate CodeDirectory slot index.
+let CSSlotAlternateLast = uint32(0x1004)
+
+// CSCodeDirectoryHeader is the minimum header byte length of a CodeDirectory blob.
+let CSCodeDirectoryHeader = uint64(44)
+
+// CSVersionScatter is the CodeDirectory version introducing scatter offset field.
+let CSVersionScatter = uint32(0x20100)
+
+// CSVersionCodeLimit64 is the CodeDirectory version introducing 64-bit codeLimit.
+let CSVersionCodeLimit64 = uint32(0x20300)
+
+// CDHashSize is the 20-byte truncated code directory hash length.
+let CDHashSize = 20
+
+// CSHashTypeSHA256 identifies SHA-256 page hashes in CodeDirectory byte 37.
+let CSHashTypeSHA256 = uint8(2)
+
+// VerifyErrUnverified names unverified or malformed Mach-O code signatures.
+let VerifyErrUnverified = "unverified"
+
+// VerifyErrUniversal names refused universal Mach-O fat binaries.
+let VerifyErrUniversal = "universal"
+
+// VerifyErrWeakDirectory names CodeDirectory blobs lacking full SHA-256 page hashes.
+let VerifyErrWeakDirectory = "weak-directory"
+
+// VerifyError reports why a Mach-O code signature verification failed.
+type VerifyError {
+	Kind string,
+}
+
+// DirectoryTag identifies a parsed CodeDirectory blob slot inside DirectoryTable.
+type DirectoryTag {}
+
+// DirectoryTable stores parsed SuperBlob CodeDirectory slots in dense SoA columns.
+type DirectoryTable {
+	Count  dense.Count[DirectoryTag],
+	Slot   dense.Col[DirectoryTag, uint32],
+	Offset dense.Col[DirectoryTag, uint32],
+	Length dense.Col[DirectoryTag, uint32],
+}
+
+// NewDirectoryTable constructs an empty SoA DirectoryTable.
+func NewDirectoryTable() DirectoryTable {
+	DirectoryTable{
+		Count:  dense.NewCount[DirectoryTag](),
+		Slot:   dense.NewCol[DirectoryTag, uint32](),
+		Offset: dense.NewCol[DirectoryTag, uint32](),
+		Length: dense.NewCol[DirectoryTag, uint32](),
+	}
+}
+
+// VerifyCodeSignature verifies a thin 64-bit Mach-O image against cdhash and returns authenticated code bytes.
+func VerifyCodeSignature(image []byte, cdhash []byte) []byte fails VerifyError {
+	if image.Len() >= 4 {
+		let magic = readU32BE(image, 0)
+		if magic == FatMagic || magic == FatMagic64 {
+			return VerifyError{Kind: VerifyErrUniversal}
+		}
+	}
+	if cdhash.Len() != CDHashSize || image.Len() < 32 || readU32LE(image, 0) != MachoMagic64 {
+		return VerifyError{Kind: VerifyErrUnverified}
+	}
+	let (sigStart, sigLen, codeEnd, okSig) = locateCodeSignature(image)
+	if !okSig {
+		return VerifyError{Kind: VerifyErrUnverified}
+	}
+	let sig = image[sigStart : sigStart+sigLen]
+	let dirs = parseCodeDirectories(sig)
+	let mut weak = false
+	for d in dirs {
+		let (sum, okSum) = directoryHash(d)
+		if !okSum || sum.Len() < CDHashSize || !bytesEqual(sum[0:CDHashSize], cdhash) {
+			continue
+		}
+		if d[37] != CSHashTypeSHA256 || d[36] != uint8(32) {
+			weak = true
+			continue
+		}
+		if pagesMatch(image, d, codeEnd) {
+			return image[0:int(codeEnd)]
+		}
+	}
+	if weak {
+		return VerifyError{Kind: VerifyErrWeakDirectory}
+	}
+	VerifyError{Kind: VerifyErrUnverified}
+}
+
+func locateCodeSignature(image []byte) (int, int, uint64, bool) {
+	let commands = readU32LE(image, 16)
+	let size = uint64(readU32LE(image, 20))
+	if uint64(32)+size > uint64(image.Len()) {
+		return (0, 0, uint64(0), false)
+	}
+	let mut off = 32
+	let limit = 32 + int(size)
+	for _ in uint32(0)..commands {
+		if off+8 > limit {
+			return (0, 0, uint64(0), false)
+		}
+		let cmd = readU32LE(image, off)
+		let length = int(readU32LE(image, off+4))
+		if length < 8 || off+length > limit {
+			return (0, 0, uint64(0), false)
+		}
+		if cmd == LCCodeSignature {
+			if length < 16 {
+				return (0, 0, uint64(0), false)
+			}
+			let sigOff = uint64(readU32LE(image, off+8))
+			let sigSize = uint64(readU32LE(image, off+12))
+			if sigOff+sigSize > uint64(image.Len()) {
+				return (0, 0, uint64(0), false)
+			}
+			return (int(sigOff), int(sigSize), sigOff, true)
+		}
+		off = off + length
+	}
+	(0, 0, uint64(0), false)
+}
+
+func parseCodeDirectories(signature []byte) [][]byte {
+	if signature.Len() < 12 || readU32BE(signature, 0) != CSMagicEmbedded {
+		return [][]byte{}
+	}
+	let length = uint64(readU32BE(signature, 4))
+	let count = uint64(readU32BE(signature, 8))
+	if length > uint64(signature.Len()) || uint64(12)+count*uint64(8) > length {
+		return [][]byte{}
+	}
+	let mut tbl = NewDirectoryTable()
+	let mut seen = []bool{false, false, false, false, false, false}
+	for i in uint64(0)..count {
+		let entryOff = 12 + int(i)*8
+		let slot = readU32BE(signature, entryOff)
+		let offset = uint64(readU32BE(signature, entryOff+4))
+		let idx = if slot == CSSlotCodeDirectory {
+			0
+		} else if slot >= CSSlotAlternateFirst && slot <= CSSlotAlternateLast {
+			int(uint32(1) + slot - CSSlotAlternateFirst)
+		} else {
+			-1
+		}
+		if idx < 0 {
+			continue
+		}
+		if seen[idx] {
+			return [][]byte{}
+		}
+		seen[idx] = true
+		if offset+uint64(8) > length || readU32BE(signature, int(offset)) != CSMagicCodeDirectory {
+			continue
+		}
+		let size = uint64(readU32BE(signature, int(offset)+4))
+		if size < CSCodeDirectoryHeader || offset+size > length {
+			continue
+		}
+		let _ = dense.Next(&tbl.Count)
+		dense.Push(&tbl.Slot, slot)
+		dense.Push(&tbl.Offset, uint32(offset))
+		dense.Push(&tbl.Length, uint32(size))
+	}
+	let n = dense.Total(tbl.Count)
+	let mut dirs = slices.WithCapacity[[]byte](n)
+	for i in 0..n {
+		let id = dense.IDAt(tbl.Count, i)
+		let o = int(dense.Of(tbl.Offset, id))
+		let l = int(dense.Of(tbl.Length, id))
+		dirs = dirs.Append(signature[o : o+l])
+	}
+	dirs
+}
+
+func directoryHash(directory []byte) ([]byte, bool) {
+	let kind = directory[37]
+	let text = directory.Text()
+	if kind == uint8(1) {
+		return (sha1.Sum(text).Bytes(), true)
+	}
+	if kind == uint8(2) || kind == uint8(3) {
+		return (sha256.Sum(text).Bytes(), true)
+	}
+	if kind == uint8(4) {
+		return (sha384Bytes(directory), true)
+	}
+	([]byte{}, false)
+}
+
+func directoryHashSize(kind uint8) uint64 {
+	if kind == uint8(1) {
+		uint64(20)
+	} else if kind == uint8(2) || kind == uint8(3) {
+		uint64(32)
+	} else if kind == uint8(4) {
+		uint64(48)
+	} else {
+		uint64(0)
+	}
+}
+
+func hashSlice(kind uint8, chunk []byte) []byte {
+	let text = chunk.Text()
+	if kind == uint8(1) {
+		return sha1.Sum(text).Bytes()
+	}
+	if kind == uint8(2) || kind == uint8(3) {
+		return sha256.Sum(text).Bytes()
+	}
+	if kind == uint8(4) {
+		return sha384Bytes(chunk)
+	}
+	[]byte{}
+}
+
+func pagesMatch(image []byte, directory []byte, codeEnd uint64) bool {
+	let version = readU32BE(directory, 8)
+	let hashOffset = uint64(readU32BE(directory, 16))
+	let slots = uint64(readU32BE(directory, 28))
+	let mut limit = uint64(readU32BE(directory, 32))
+	let hashSize = uint64(directory[36])
+	let hashKind = directory[37]
+	let pageBits = directory[39]
+	if version >= CSVersionScatter && (directory.Len() < 48 || readU32BE(directory, 44) != uint32(0)) {
+		return false
+	}
+	if version >= CSVersionCodeLimit64 && directory.Len() >= 64 {
+		let wide = readU64BE(directory, 56)
+		if wide != uint64(0) {
+			limit = wide
+		}
+	}
+	let fullLen = directoryHashSize(hashKind)
+	if fullLen == uint64(0) || limit != codeEnd || hashSize == uint64(0) || hashSize > fullLen || pageBits >= uint8(32) {
+		return false
+	}
+	let page = if pageBits != uint8(0) { uint64(1) << uint64(pageBits) } else { limit }
+	if page == uint64(0) || slots != (limit+page-uint64(1))/page || hashOffset+slots*hashSize > uint64(directory.Len()) {
+		return false
+	}
+	for i in uint64(0)..slots {
+		let start = i * page
+		let end = cmp.Min((i+uint64(1))*page, limit)
+		let sum = hashSlice(hashKind, image[int(start):int(end)])
+		let wantOff = int(hashOffset + i*hashSize)
+		let want = directory[wantOff : wantOff+int(hashSize)]
+		if !bytesEqual(sum[0:int(hashSize)], want) {
+			return false
+		}
+	}
+	true
+}
+
+func readU32BE(b []byte, off int) uint32 {
+	(uint32(b[off]) << uint32(24)) | (uint32(b[off+1]) << uint32(16)) | (uint32(b[off+2]) << uint32(8)) | uint32(b[off+3])
+}
+
+func readU32LE(b []byte, off int) uint32 {
+	uint32(b[off]) | (uint32(b[off+1]) << uint32(8)) | (uint32(b[off+2]) << uint32(16)) | (uint32(b[off+3]) << uint32(24))
+}
+
+func readU64BE(b []byte, off int) uint64 {
+	(uint64(readU32BE(b, off)) << uint64(32)) | uint64(readU32BE(b, off+4))
+}
+
+func bytesEqual(a []byte, b []byte) bool {
+	if a.Len() != b.Len() {
+		return false
+	}
+	for i in 0..a.Len() {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	true
+}
+
+let sha512K []uint64 = []uint64{
+	0x428a2f98d728ae22, 0x7137449123ef65cd, 0xb5c0fbcfec4d3b2f, 0xe9b5dba58189dbbc,
+	0x3956c25bf348b538, 0x59f111f1b605d019, 0x923f82a4af194f9b, 0xab1c5ed5da6d8118,
+	0xd807aa98a3030242, 0x12835b0145706fbe, 0x243185be4ee4b28c, 0x550c7dc3d5ffb4e2,
+	0x72be5d74f27b896f, 0x80deb1fe3b1696b1, 0x9bdc06a725c71235, 0xc19bf174cf692694,
+	0xe49b69c19ef14ad2, 0xefbe4786384f25e3, 0x0fc19dc68b8cd5b5, 0x240ca1cc77ac9c65,
+	0x2de92c6f592b0275, 0x4a7484aa6ea6e483, 0x5cb0a9dcbd41fbd4, 0x76f988da831153b5,
+	0x983e5152ee66dfab, 0xa831c66d2db43210, 0xb00327c898fb213f, 0xbf597fc7beef0ee4,
+	0xc6e00bf33da88fc2, 0xd5a79147930aa725, 0x06ca6351e003826f, 0x142929670a0e6e70,
+	0x27b70a8546d22ffc, 0x2e1b21385c26c926, 0x4d2c6dfc5ac42aed, 0x53380d139d95b3df,
+	0x650a73548baf63de, 0x766a0abb3c77b2a8, 0x81c2c92e47edaee6, 0x92722c851482353b,
+	0xa2bfe8a14cf10364, 0xa81a664bbc423001, 0xc24b8b70d0f89791, 0xc76c51a30654be30,
+	0xd192e819d6ef5218, 0xd69906245565a910, 0xf40e35855771202a, 0x106aa07032bbd1b8,
+	0x19a4c116b8d2d0c8, 0x1e376c085141ab53, 0x2748774cdf8eeb99, 0x34b0bcb5e19b48a8,
+	0x391c0cb3c5c95a63, 0x4ed8aa4ae3418acb, 0x5b9cca4f7763e373, 0x682e6ff3d6b2b8a3,
+	0x748f82ee5defb2fc, 0x78a5636f43172f60, 0x84c87814a1f0ab72, 0x8cc702081a6439ec,
+	0x90befffa23631e28, 0xa4506cebde82bde9, 0xbef9a3f7b2c67915, 0xc67178f2e372532b,
+	0xca273eceea26619c, 0xd186b8c721c0c207, 0xeada7dd6cde0eb1e, 0xf57d4f7fee6ed178,
+	0x06f067aa72176fba, 0x0a637dc5a2c898a6, 0x113f9804bef90dae, 0x1b710b35131c471b,
+	0x28db77f523047d84, 0x32caab7b40c72493, 0x3c9ebe0a15c9bebc, 0x431d67c49c100d4c,
+	0x4cc5d4becb3e42b6, 0x597f299cfc657e2a, 0x5fcb6fab3ad6faec, 0x6c44198c4a475817,
+}
+
+func rotr64(x uint64, n uint64) uint64 {
+	(x >> n) | (x << (uint64(64) - n))
+}
+
+func sha384Bytes(msg []byte) []byte {
+	let mut h0 uint64 = 0xcbbb9d5dc1059ed8
+	let mut h1 uint64 = 0x629a292a367cd507
+	let mut h2 uint64 = 0x9159015a3070dd17
+	let mut h3 uint64 = 0x152fecd8f70e5939
+	let mut h4 uint64 = 0x67332667ffc00b31
+	let mut h5 uint64 = 0x8eb44a8768581511
+	let mut h6 uint64 = 0xdb0c2e0d64f98fa7
+	let mut h7 uint64 = 0x47b5481dbefa4fa4
+
+	let msgLen = uint64(msg.Len())
+	let mut padded = slices.Clone(msg)
+	padded = padded.Append(uint8(0x80))
+	for padded.Len()%128 != 112 {
+		padded = padded.Append(uint8(0))
+	}
+	let bitHi = msgLen >> uint64(61)
+	let bitLo = msgLen << uint64(3)
+	for shift in []uint64{uint64(56), uint64(48), uint64(40), uint64(32), uint64(24), uint64(16), uint64(8), uint64(0)} {
+		padded = padded.Append(uint8(bitHi >> shift))
+	}
+	for shift in []uint64{uint64(56), uint64(48), uint64(40), uint64(32), uint64(24), uint64(16), uint64(8), uint64(0)} {
+		padded = padded.Append(uint8(bitLo >> shift))
+	}
+
+	let mut w = slices.WithCapacity[uint64](80)
+	for _ in 0..80 {
+		w = w.Append(uint64(0))
+	}
+	let blocks = padded.Len() / 128
+	for blk in 0..blocks {
+		let base = blk * 128
+		for i in 0..16 {
+			w[i] = readU64BE(padded, base+i*8)
+		}
+		for i in 16..80 {
+			let s0 = rotr64(w[i-15], uint64(1)) ^ rotr64(w[i-15], uint64(8)) ^ (w[i-15] >> uint64(7))
+			let s1 = rotr64(w[i-2], uint64(19)) ^ rotr64(w[i-2], uint64(61)) ^ (w[i-2] >> uint64(6))
+			w[i] = w[i-16] + s0 + w[i-7] + s1
+		}
+		let mut a = h0
+		let mut b = h1
+		let mut c = h2
+		let mut d = h3
+		let mut e = h4
+		let mut f = h5
+		let mut g = h6
+		let mut h = h7
+		for i in 0..80 {
+			let s1 = rotr64(e, uint64(14)) ^ rotr64(e, uint64(18)) ^ rotr64(e, uint64(41))
+			let ch = (e & f) ^ ((^e) & g)
+			let temp1 = h + s1 + ch + sha512K[i] + w[i]
+			let s0 = rotr64(a, uint64(28)) ^ rotr64(a, uint64(34)) ^ rotr64(a, uint64(39))
+			let maj = (a & b) ^ (a & c) ^ (b & c)
+			let temp2 = s0 + maj
+			h = g
+			g = f
+			f = e
+			e = d + temp1
+			d = c
+			c = b
+			b = a
+			a = temp1 + temp2
+		}
+		h0 = h0 + a
+		h1 = h1 + b
+		h2 = h2 + c
+		h3 = h3 + d
+		h4 = h4 + e
+		h5 = h5 + f
+		h6 = h6 + g
+		h7 = h7 + h
+	}
+	let mut out = slices.WithCapacity[byte](48)
+	for v in []uint64{h0, h1, h2, h3, h4, h5} {
+		for shift in []uint64{uint64(56), uint64(48), uint64(40), uint64(32), uint64(24), uint64(16), uint64(8), uint64(0)} {
+			out = out.Append(uint8(v >> shift))
+		}
+	}
+	out
+}
+
+func appendU32BE(out []byte, v uint32) []byte {
+	let r = out.Append(uint8(v >> uint32(24)))
+	let r2 = r.Append(uint8(v >> uint32(16)))
+	let r3 = r2.Append(uint8(v >> uint32(8)))
+	r3.Append(uint8(v))
+}
+
+func appendU32LE(out []byte, v uint32) []byte {
+	let r = out.Append(uint8(v))
+	let r2 = r.Append(uint8(v >> uint32(8)))
+	let r3 = r2.Append(uint8(v >> uint32(16)))
+	r3.Append(uint8(v >> uint32(24)))
+}
+
+// SignAndVerifyCodeRoundTrip verifies SHA-384 empty digest parity and Mach-O signed code extraction.
+law SignAndVerifyCodeRoundTrip(payload []byte) {
+	let codeLen = cmp.Min(payload.Len(), 512)
+	let code = if codeLen == 0 { []byte{uint8(0xc3)} } else { payload[0:codeLen] }
+	let sigOff = 32 + 16 + code.Len()
+	let sigLen = 20 + 44 + 32
+	let mut img = []byte{}
+	img = appendU32LE(img, MachoMagic64)
+	img = appendU32LE(img, uint32(0))
+	img = appendU32LE(img, uint32(0))
+	img = appendU32LE(img, uint32(2))
+	img = appendU32LE(img, uint32(1))
+	img = appendU32LE(img, uint32(16))
+	img = appendU32LE(img, uint32(0))
+	img = appendU32LE(img, uint32(0))
+	img = appendU32LE(img, LCCodeSignature)
+	img = appendU32LE(img, uint32(16))
+	img = appendU32LE(img, uint32(sigOff))
+	img = appendU32LE(img, uint32(sigLen))
+	img = img.AppendBytes(code)
+
+	let realPageSum = sha256.Sum(img.Text()).Bytes()
+	let mut dir = []byte{}
+	dir = appendU32BE(dir, CSMagicCodeDirectory)
+	dir = appendU32BE(dir, uint32(44+32))
+	dir = appendU32BE(dir, uint32(0x20000))
+	dir = appendU32BE(dir, uint32(0))
+	dir = appendU32BE(dir, uint32(44))
+	dir = appendU32BE(dir, uint32(44))
+	dir = appendU32BE(dir, uint32(0))
+	dir = appendU32BE(dir, uint32(1))
+	dir = appendU32BE(dir, uint32(sigOff))
+	let mut b36 = dir.Append(uint8(32))
+	b36 = b36.Append(CSHashTypeSHA256)
+	b36 = b36.Append(uint8(0))
+	dir = b36.Append(uint8(0))
+	dir = appendU32BE(dir, uint32(0))
+	dir = dir.AppendBytes(realPageSum)
+
+	let cdhash = sha256.Sum(dir.Text()).Bytes()[0:CDHashSize]
+
+	let mut sig = []byte{}
+	sig = appendU32BE(sig, CSMagicEmbedded)
+	sig = appendU32BE(sig, uint32(sigLen))
+	sig = appendU32BE(sig, uint32(1))
+	sig = appendU32BE(sig, CSSlotCodeDirectory)
+	sig = appendU32BE(sig, uint32(20))
+	sig = sig.AppendBytes(dir)
+	img = img.AppendBytes(sig)
+
+	let got = VerifyCodeSignature(img, cdhash) catch {
+	case VerifyError:
+		return false
+	}
+	got.Len() == sigOff && bytesEqual(got[48:sigOff], code)
+}
+
+test TestSha384AndMachoVerifyErrorCases {
+	let hEmpty = hex.Encode(sha384Bytes([]byte{}).Text())
+	assert hEmpty == "38b060a751ac96384cd9327eb1b1e36a21fdb71114be07434c0cc7bf63f6e1da274edebfe76f65fbd51ad2f14898b95b"
+
+	let mut fatErr = ""
+	let _ = VerifyCodeSignature([]byte{uint8(0xca), uint8(0xfe), uint8(0xba), uint8(0xbe)}, []byte{uint8(0)}) catch {
+	case VerifyError as e:
+		fatErr = e.Kind
+		[]byte{}
+	}
+	assert fatErr == VerifyErrUniversal
+}

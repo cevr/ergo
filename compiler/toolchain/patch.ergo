@@ -1,0 +1,506 @@
+import dense
+import hex
+import option
+import sha1
+import sha256
+import slices
+import strconv
+import strings
+
+// AppliedPatch captures the resulting modified/new files and rejected hunk headers of ApplyPatch.
+type AppliedPatch {
+	Files    Map[string, string],
+	Hunks    int,
+	Rejected []string,
+}
+
+// DiffFileTag identifies one file diff entry inside ParsedDiff.
+type DiffFileTag {}
+
+// HunkTag identifies one unified diff hunk inside ParsedDiff.
+type HunkTag {}
+
+// ParsedDiff stores parsed diff files and hunks in dense unsigned SoA columns.
+type ParsedDiff {
+	FileCount dense.Count[DiffFileTag],
+	FilePath  dense.Col[DiffFileTag, string],
+	FileIsNew dense.Col[DiffFileTag, bool],
+	HunkCount dense.Count[HunkTag],
+	HunkFile  dense.Col[HunkTag, uint32],
+	HunkHead  dense.Col[HunkTag, string],
+	HunkStart dense.Col[HunkTag, uint32],
+	HunkOld   dense.Pool[string],
+	HunkNew   dense.Pool[string],
+	OldRuns   dense.Col[HunkTag, dense.Run[string]],
+	NewRuns   dense.Col[HunkTag, dense.Run[string]],
+}
+
+// ParseDiff parses a git unified diff into a dense SoA ParsedDiff table.
+func ParseDiff(patchText string) ParsedDiff fails ToolchainError {
+	let mut pd = ParsedDiff{
+		FileCount: dense.NewCount[DiffFileTag](),
+		FilePath:  dense.NewCol[DiffFileTag, string](),
+		FileIsNew: dense.NewCol[DiffFileTag, bool](),
+		HunkCount: dense.NewCount[HunkTag](),
+		HunkFile:  dense.NewCol[HunkTag, uint32](),
+		HunkHead:  dense.NewCol[HunkTag, string](),
+		HunkStart: dense.NewCol[HunkTag, uint32](),
+		HunkOld:   dense.NewPool[string](),
+		HunkNew:   dense.NewPool[string](),
+		OldRuns:   dense.NewCol[HunkTag, dense.Run[string]](),
+		NewRuns:   dense.NewCol[HunkTag, dense.Run[string]](),
+	}
+	let lines = SplitLines(patchText)
+	let mut i = 0
+	for i < lines.Len() {
+		let l = strings.TrimSuffix(lines[i], "\n")
+		if strings.HasPrefix(l, "diff --git ") {
+			let _ = dense.Next(&pd.FileCount)
+			dense.Push(&pd.FilePath, "")
+			dense.Push(&pd.FileIsNew, false)
+		} else if strings.HasPrefix(l, "new file mode ") {
+			let nf = dense.Total(pd.FileCount)
+			if nf == 0 {
+				return ToolchainError{Message: "patch line \(i + 1): \(strconv.Quote(l)) before a diff header"}
+			}
+			dense.SetOf(&pd.FileIsNew, dense.IDAt(pd.FileCount, nf-1), true)
+		} else if strings.HasPrefix(l, "deleted file mode ") || strings.HasPrefix(l, "rename ") || strings.HasPrefix(l, "Binary files ") || strings.HasPrefix(l, "GIT binary patch") {
+			return ToolchainError{Message: "patch line \(i + 1): \(strconv.Quote(l)) is not supported"}
+		} else if strings.HasPrefix(l, "+++ ") {
+			let nf = dense.Total(pd.FileCount)
+			if nf == 0 {
+				return ToolchainError{Message: "patch line \(i + 1): \(strconv.Quote(l)) before a diff header"}
+			}
+			if !strings.HasPrefix(l, "+++ b/") {
+				return ToolchainError{Message: "patch line \(i + 1): bad file name \(strconv.Quote(l))"}
+			}
+			let name = strings.TrimPrefix(l, "+++ b/")
+			if name == "" || !isSafeLocalRel(name) || strings.HasPrefix(name, "/") {
+				return ToolchainError{Message: "patch line \(i + 1): bad file name \(strconv.Quote(l))"}
+			}
+			dense.SetOf(&pd.FilePath, dense.IDAt(pd.FileCount, nf-1), name)
+		} else if strings.HasPrefix(l, "@@ ") {
+			let nf = dense.Total(pd.FileCount)
+			if nf == 0 || dense.Of(pd.FilePath, dense.IDAt(pd.FileCount, nf-1)) == "" {
+				return ToolchainError{Message: "patch line \(i + 1): a hunk before its file"}
+			}
+			let (header, oldStart, oldLines, newLines, consumed) = try parseHunkLines(lines[i:lines.Len()], i+1)
+			let _ = dense.Next(&pd.HunkCount)
+			dense.Push(&pd.HunkFile, uint32(nf-1))
+			dense.Push(&pd.HunkHead, header)
+			dense.Push(&pd.HunkStart, uint32(oldStart))
+			dense.Push(&pd.OldRuns, dense.PutList(&pd.HunkOld, oldLines))
+			dense.Push(&pd.NewRuns, dense.PutList(&pd.HunkNew, newLines))
+			i = i + consumed
+		}
+		i = i + 1
+	}
+	let nf = dense.Total(pd.FileCount)
+	let nh = dense.Total(pd.HunkCount)
+	for f in 0..nf {
+		let fid = dense.IDAt(pd.FileCount, f)
+		if dense.Of(pd.FilePath, fid) == "" {
+			return ToolchainError{Message: "patch: a file without a name or hunks"}
+		}
+		let mut hasHunk = false
+		for h in 0..nh {
+			if dense.Of(pd.HunkFile, dense.IDAt(pd.HunkCount, h)) == uint32(f) {
+				hasHunk = true
+				break
+			}
+		}
+		if !hasHunk {
+			return ToolchainError{Message: "patch: a file without a name or hunks"}
+		}
+	}
+	pd
+}
+
+// ApplyPatchMap applies patchText against an in-memory tree existing without fuzz.
+func ApplyPatchMap(patchText string, existing Map[string, string]) AppliedPatch fails ToolchainError {
+	let pd = try ParseDiff(patchText)
+	let nf = dense.Total(pd.FileCount)
+	let nh = dense.Total(pd.HunkCount)
+	let mut outFiles = Map[string, string]{}
+	let mut rejected = []string{}
+	for f in 0..nf {
+		let fid = dense.IDAt(pd.FileCount, f)
+		let fpath = dense.Of(pd.FilePath, fid)
+		let isNew = dense.Of(pd.FileIsNew, fid)
+		let mut lines = []string{}
+		if !isNew {
+			let text = match existing.Get(fpath) {
+			case option.Some{Value: v}:
+				v
+			case option.None:
+				return ToolchainError{Message: "open \(fpath): file does not exist"}
+			}
+			lines = SplitLines(text)
+		} else if existing.Get(fpath) != option.None {
+			rejected = rejected.Append("\(fpath): the new file exists")
+			continue
+		}
+		let mut shift = 0
+		for h in 0..nh {
+			let hid = dense.IDAt(pd.HunkCount, h)
+			if dense.Of(pd.HunkFile, hid) != uint32(f) {
+				continue
+			}
+			let head = dense.Of(pd.HunkHead, hid)
+			let oldStart = int(dense.Of(pd.HunkStart, hid))
+			let oldRun = dense.List(pd.HunkOld, dense.Of(pd.OldRuns, hid))
+			let newRun = dense.List(pd.HunkNew, dense.Of(pd.NewRuns, hid))
+			let at = findHunkAt(lines, oldRun, oldStart-1+shift)
+			if at < 0 {
+				rejected = rejected.Append("\(fpath): \(head)")
+				continue
+			}
+			let mut nextLines = slices.WithCapacity[string](lines.Len() - oldRun.Len() + newRun.Len())
+			for k in 0..at {
+				nextLines = nextLines.Append(lines[k])
+			}
+			for nl in newRun {
+				nextLines = nextLines.Append(nl)
+			}
+			for k in (at + oldRun.Len())..lines.Len() {
+				nextLines = nextLines.Append(lines[k])
+			}
+			lines = nextLines
+			shift = at - (oldStart - 1) + newRun.Len() - oldRun.Len()
+		}
+		outFiles = outFiles.Put(fpath, strings.Join(lines, ""))
+	}
+	AppliedPatch{Files: outFiles, Hunks: nh, Rejected: rejected}
+}
+
+// DerivePatchMap synthesizes a canonical path-sorted patch from src/... files and goFilesPatch.
+func DerivePatchMap(srcFiles Map[string, string], goFilesPatch string) string fails ToolchainError {
+	let mut chunks = Map[string, string]{}
+	let mut keys = []string{}
+	for rel, _ in srcFiles {
+		keys = keys.Append(rel)
+	}
+	keys = slices.Sort(keys)
+	for rel in keys {
+		let data = match srcFiles.Get(rel) {
+		case option.Some{Value: v}:
+			v
+		case option.None:
+			""
+		}
+		if data.Len() == 0 || data[data.Len()-1] != byte('\n') {
+			return ToolchainError{Message: "\(rel): empty, or without a final newline"}
+		}
+		chunks = chunks.Put(rel, NewFileDiff(rel, data))
+	}
+	for c in SplitDiffChunks(goFilesPatch) {
+		if chunks.Get(c.Path) != option.None {
+			return ToolchainError{Message: "\(c.Path): both a file under _go/src and a diff in \(GoFilesPatch)"}
+		}
+		if c.IsNew {
+			return ToolchainError{Message: "\(c.Path): \(GoFilesPatch) adds the file; put it under _go/src instead"}
+		}
+		chunks = chunks.Put(c.Path, c.Text)
+	}
+	let mut paths = []string{}
+	for p, _ in chunks {
+		paths = paths.Append(p)
+	}
+	paths = slices.Sort(paths)
+	let mut out = strings.NewBuilder()
+	for p in paths {
+		match chunks.Get(p) {
+		case option.Some{Value: t}:
+			strings.WriteString(&out, t)
+		case option.None:
+		}
+	}
+	strings.String(out)
+}
+
+// ExtractPatchText splits a patch into new files map and combined hook diffs matching internal/toolchain.ExtractPatch.
+func ExtractPatchText(patchText string) (Map[string, string], string) fails ToolchainError {
+	let mut files = Map[string, string]{}
+	let mut hooks = strings.NewBuilder()
+	for c in SplitDiffChunks(patchText) {
+		if !c.IsNew {
+			strings.WriteString(&hooks, c.Text)
+			continue
+		}
+		let pd = ParseDiff(c.Text) catch {
+		case ToolchainError as e:
+			return ToolchainError{Message: "\(c.Path): \(e.Message)"}
+		}
+		let mut content = strings.NewBuilder()
+		let nh = dense.Total(pd.HunkCount)
+		for h in 0..nh {
+			let hid = dense.IDAt(pd.HunkCount, h)
+			for l in dense.List(pd.HunkNew, dense.Of(pd.NewRuns, hid)) {
+				strings.WriteString(&content, l)
+			}
+		}
+		files = files.Put(c.Path, strings.String(content))
+	}
+	(files, strings.String(hooks))
+}
+
+// LockDigest updates the unique `patch NAME sha256:HEX` line in lockText to match patchText.
+func LockDigest(lockText string, name string, patchText string) string fails ToolchainError {
+	let sum = hex.Encode(sha256.Sum(patchText))
+	let lines = SplitLines(lockText)
+	let mut matches = 0
+	let mut out = strings.NewBuilder()
+	let prefix = "patch " + name + " sha256:"
+	for raw in lines {
+		let bare = strings.TrimSuffix(raw, "\n")
+		if strings.HasPrefix(bare, prefix) && isHexLower(strings.TrimPrefix(bare, prefix)) {
+			matches = matches + 1
+			strings.WriteString(&out, prefix+sum)
+			if strings.HasSuffix(raw, "\n") {
+				strings.WriteByte(&out, byte('\n'))
+			}
+		} else {
+			strings.WriteString(&out, raw)
+		}
+	}
+	if matches != 1 {
+		return ToolchainError{Message: "the lock has no one line `patch \(name) sha256:…`"}
+	}
+	strings.String(out)
+}
+
+// BlobID returns git's SHA-1 object ID hex string for data.
+func BlobID(data string) string {
+	let header = "blob \(data.Len())\x00"
+	hex.Encode(sha1.Sum(header + data))
+}
+
+// NewFileDiff renders a git diff new-file chunk (mode 100644) for path p and content data.
+func NewFileDiff(p string, data string) string {
+	let id7 = BlobID(data)[0:7]
+	let lines = SplitLines(data)
+	let mut b = strings.NewBuilder()
+	strings.WriteString(&b, "diff --git a/\(p) b/\(p)\nnew file mode 100644\nindex 0000000..\(id7)\n--- /dev/null\n+++ b/\(p)\n")
+	if lines.Len() == 1 {
+		strings.WriteString(&b, "@@ -0,0 +1 @@\n")
+	} else {
+		strings.WriteString(&b, "@@ -0,0 +1,\(lines.Len()) @@\n")
+	}
+	for l in lines {
+		strings.WriteByte(&b, byte('+'))
+		strings.WriteString(&b, l)
+	}
+	strings.String(b)
+}
+
+// DiffChunk is one per-file section split from a combined git diff.
+type DiffChunk {
+	Path  string,
+	IsNew bool,
+	Text  string,
+}
+
+// SplitDiffChunks splits patchText into individual `diff --git` sections.
+func SplitDiffChunks(patchText string) []DiffChunk {
+	let lines = SplitLines(patchText)
+	let mut out = []DiffChunk{}
+	let mut i = 0
+	for i < lines.Len() {
+		let mut j = i + 1
+		for j < lines.Len() && !strings.HasPrefix(lines[j], "diff --git ") {
+			j = j + 1
+		}
+		let head = strings.TrimSuffix(lines[i], "\n")
+		let mut p = ""
+		let k = strings.LastIndex(head, " b/")
+		if strings.HasPrefix(head, "diff --git ") && k >= 0 {
+			p = head[k+3 : head.Len()]
+		}
+		let isNew = j > i+1 && strings.HasPrefix(lines[i+1], "new file mode ")
+		out = out.Append(DiffChunk{Path: p, IsNew: isNew, Text: strings.Join(lines[i:j], "")})
+		i = j
+	}
+	out
+}
+
+// SplitLines splits text into lines retaining trailing newline characters.
+func SplitLines(text string) []string {
+	let mut rest = text
+	let mut lines = []string{}
+	for rest != "" {
+		let i = strings.IndexByte(rest, byte('\n'))
+		if i < 0 {
+			lines = lines.Append(rest)
+			break
+		}
+		lines = lines.Append(rest[0 : i+1])
+		rest = rest[i+1 : rest.Len()]
+	}
+	lines
+}
+
+func parseHunkLines(lines []string, baseLine int) (string, int, []string, []string, int) fails ToolchainError {
+	let header = strings.TrimSuffix(lines[0], "\n")
+	let fields = strings.Fields(header)
+	if fields.Len() < 4 || fields[3] != "@@" {
+		return ToolchainError{Message: "patch line \(baseLine): bad hunk header \(strconv.Quote(header))"}
+	}
+	let (oldStartRaw, oldCount) = parseHunkRange(fields[1], "-", baseLine, header) catch {
+	case ToolchainError as e:
+		return e
+	}
+	let (_, newCount) = parseHunkRange(fields[2], "+", baseLine, header) catch {
+	case ToolchainError as e:
+		return e
+	}
+	let oldStart = if oldCount == 0 { oldStartRaw + 1 } else { oldStartRaw }
+	let mut oldLines = []string{}
+	let mut newLines = []string{}
+	let mut n = 0
+	for oldLines.Len() < oldCount || newLines.Len() < newCount {
+		n = n + 1
+		if n >= lines.Len() {
+			return ToolchainError{Message: "patch line \(baseLine): hunk \(strconv.Quote(header)) ends early"}
+		}
+		let l = lines[n]
+		if lines.Len() > n+1 && strings.HasPrefix(lines[n+1], "\\ No newline at end of file") {
+			return ToolchainError{Message: "patch line \(baseLine): hunk \(strconv.Quote(header)): a file without a final newline is not supported"}
+		}
+		if l == "" {
+			return ToolchainError{Message: "patch line \(baseLine): hunk \(strconv.Quote(header)): empty line"}
+		}
+		let text = l[1:l.Len()]
+		let tag = l[0]
+		if tag == byte(' ') {
+			oldLines = oldLines.Append(text)
+			newLines = newLines.Append(text)
+		} else if tag == byte('-') {
+			oldLines = oldLines.Append(text)
+		} else if tag == byte('+') {
+			newLines = newLines.Append(text)
+		} else {
+			return ToolchainError{Message: "patch line \(baseLine): hunk \(strconv.Quote(header)): line \(strconv.Quote(strings.TrimSuffix(l, "\n")))"}
+		}
+	}
+	if oldLines.Len() != oldCount || newLines.Len() != newCount {
+		return ToolchainError{Message: "patch line \(baseLine): hunk \(strconv.Quote(header)): counts do not match its lines"}
+	}
+	(header, oldStart, oldLines, newLines, n)
+}
+
+func parseHunkRange(field string, sign string, baseLine int, header string) (int, int) fails ToolchainError {
+	if !strings.HasPrefix(field, sign) {
+		return ToolchainError{Message: "patch line \(baseLine): hunk header \(strconv.Quote(header)): range \(strconv.Quote(field))"}
+	}
+	let r = strings.TrimPrefix(field, sign)
+	let comma = strings.Index(r, ",")
+	let startStr = if comma < 0 { r } else { r[0:comma] }
+	let countStr = if comma < 0 { "1" } else { r[comma+1 : r.Len()] }
+	let mut ok = true
+	let s = strconv.Atoi(startStr) catch {
+	case strconv.Malformed, strconv.OutOfRange:
+		ok = false
+		0
+	}
+	let c = strconv.Atoi(countStr) catch {
+	case strconv.Malformed, strconv.OutOfRange:
+		ok = false
+		0
+	}
+	if !ok || s < 0 || c < 0 {
+		return ToolchainError{Message: "patch line \(baseLine): hunk header \(strconv.Quote(header)): range \(strconv.Quote(field))"}
+	}
+	(s, c)
+}
+
+func findHunkAt(lines []string, oldLines []string, want int) int {
+	for d in 0..(lines.Len() + 1) {
+		if hunkMatchesAt(lines, oldLines, want-d) {
+			return want - d
+		}
+		if hunkMatchesAt(lines, oldLines, want+d) {
+			return want + d
+		}
+	}
+	-1
+}
+
+func hunkMatchesAt(lines []string, oldLines []string, at int) bool {
+	if at < 0 || at+oldLines.Len() > lines.Len() {
+		return false
+	}
+	for i in 0..oldLines.Len() {
+		if lines[at+i] != oldLines[i] {
+			return false
+		}
+	}
+	true
+}
+
+func isHexLower(s string) bool {
+	if s.Len() == 0 {
+		return false
+	}
+	for i in 0..s.Len() {
+		let c = s[i]
+		if !((c >= byte('0') && c <= byte('9')) || (c >= byte('a') && c <= byte('f'))) {
+			return false
+		}
+	}
+	true
+}
+
+// DeriveExtractPatchRoundTrip verifies DerivePatchMap and ExtractPatchText are mutual inverses.
+law DeriveExtractPatchRoundTrip(contentA string, contentB string) {
+	let a = if contentA == "" { "package a\n" } else { contentA + "\n" }
+	let b = if contentB == "" { "package b\n" } else { contentB + "\n" }
+	let src = Map[string, string]{"src/a/a.go": a, "src/b/b.go": b}
+	let patch = DerivePatchMap(src, "") catch {
+	case ToolchainError:
+		return false
+	}
+	let (extracted, hooks) = ExtractPatchText(patch) catch {
+	case ToolchainError:
+		return false
+	}
+	let p2 = DerivePatchMap(extracted, hooks) catch {
+	case ToolchainError:
+		return false
+	}
+	patch == p2
+}
+
+test TestApplyPatchMovedAndRejectedHunks {
+	let patch = strings.Join([]string{
+		"diff --git a/f.txt b/f.txt",
+		"--- a/f.txt",
+		"+++ b/f.txt",
+		"@@ -2,3 +2,3 @@",
+		" b",
+		"-c",
+		"+C",
+		" d",
+		"",
+	}, "\n")
+	let moved = ApplyPatchMap(patch, Map[string, string]{"f.txt": "x\ny\na\nb\nc\nd\n"}) catch {
+	case ToolchainError:
+		assert false
+		AppliedPatch{Files: Map[string, string]{}, Hunks: 0, Rejected: []string{}}
+	}
+	assert moved.Rejected.Len() == 0 && moved.Hunks == 1
+	assert moved.Files.Get("f.txt") == option.Some{Value: "x\ny\na\nb\nC\nd\n"}
+
+	let bad = ApplyPatchMap(patch, Map[string, string]{"f.txt": "x\nb\nchanged\nd\n"}) catch {
+	case ToolchainError:
+		assert false
+		AppliedPatch{Files: Map[string, string]{}, Hunks: 0, Rejected: []string{}}
+	}
+	assert bad.Rejected.Len() == 1 && strings.Contains(bad.Rejected[0], "f.txt: @@ -2,3 +2,3 @@")
+
+	let updatedLock = LockDigest("patch p1 sha256:0000\n", "p1", patch) catch {
+	case ToolchainError:
+		assert false
+		""
+	}
+	assert strings.Contains(updatedLock, hex.Encode(sha256.Sum(patch)))
+}

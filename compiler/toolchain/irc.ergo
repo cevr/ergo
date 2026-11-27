@@ -1,0 +1,530 @@
+import dense
+import filepath
+import hex
+import json
+import option
+import sha256
+import slices
+import strconv
+import strings
+
+let buildEnvLocations = []string{
+	"GOCACHE", "GOTMPDIR", "GOPATH", "GOTELEMETRY", "GOTELEMETRYDIR",
+	"GOMAXPROCS", "GOMEMLIMIT", "GODEBUG", "GOTRACEBACK", "GOPROXY",
+	"GOSUMDB", "GONOSUMDB", "GOPRIVATE", "GONOPROXY", "GOINSECURE", "GOVCS",
+}
+
+let buildEnvPinned = []string{
+	"GOROOT", "GOTOOLCHAIN", "GOFLAGS", "GOWORK", "GOOS", "GOARCH",
+	"GOAMD64", "GOARM64", "GOEXPERIMENT", "CGO_ENABLED", "GOMODCACHE", "GOGC", "GOENV",
+}
+
+let ircKeyPinned = []string{"GOROOT", "GOTOOLCHAIN", "GOFLAGS", "GOWORK", "CGO_ENABLED", "GOMODCACHE", "GOENV"}
+
+// PortSpec holds the matched IR patch file name, SHA-256 digest, and contents.
+type PortSpec {
+	Name   string,
+	Digest string,
+	Data   string,
+}
+
+// Manifest is the verification manifest JSON stored inside an IR compiler cache entry.
+type Manifest {
+	Key    string,
+	Inputs Map[string, string],
+	Files  Map[string, string],
+}
+
+// PinKey identifies a cached pinset archive by kind, Go release, patch, platform, and flags.
+type PinKey {
+	Kind    string,
+	Release string,
+	Patch   string,
+	GOOS    string,
+	GOARCH  string,
+	Level   string,
+	Flags   string,
+}
+
+// PinLock stores the Go release, patch digest, and set archive SHA-256 checksums.
+type PinLock {
+	Go    string,
+	Patch string,
+	Sets  Map[string, string],
+}
+
+// PinEntry describes one archived package or tool in an installed pinset index.
+type PinEntry {
+	Name   string,
+	Digest string,
+	Export string,
+}
+
+// EvictCandidateTag identifies an entry in the eviction SoA table.
+type EvictCandidateTag {}
+
+// EvictTable stores shared IR compiler entries pending LRU eviction in SoA columns.
+type EvictTable {
+	Count dense.Count[EvictCandidateTag],
+	Name  dense.Col[EvictCandidateTag, string],
+	MTime dense.Col[EvictCandidateTag, uint64],
+}
+
+// BuildEnviron strips user build-altering Go env vars and appends pinned build settings plus target.
+func BuildEnviron(environ []string, target []string) []string {
+	let mut out = []string{}
+	for kv in environ {
+		let idx = strings.Index(kv, "=")
+		let name = if idx < 0 { kv } else { kv[0:idx] }
+		if !slices.Contains(buildEnvPinned, name) {
+			out = out.Append(kv)
+		}
+	}
+	out = out.Append("GOTOOLCHAIN=local")
+	out = out.Append("GOFLAGS=")
+	out = out.Append("GOWORK=off")
+	out = out.Append("CGO_ENABLED=0")
+	out = out.Append("GOENV=off")
+	for kv in target {
+		out = out.Append(kv)
+	}
+	out
+}
+
+// IRCInputs computes the input map and unknown env variable names for a patched compile key.
+func IRCInputs(source string, release string, digest string, goCmdDigest string, hostTools string, environ []string) (Map[string, string], []string) {
+	let mut inputs = Map[string, string]{
+		"schema":  PatchedSchema,
+		"patch":   digest,
+		"release": release,
+		"source":  source,
+		"go":      goCmdDigest,
+		"host":    hostTools,
+	}
+	let mut unknown = []string{}
+	for kv in BuildEnviron(environ, []string{}) {
+		let idx = strings.Index(kv, "=")
+		let name = if idx < 0 { kv } else { kv[0:idx] }
+		let value = if idx < 0 { "" } else { kv[idx+1 : kv.Len()] }
+		if !strings.HasPrefix(name, "GO") && !strings.HasPrefix(name, "CGO_") {
+			continue
+		}
+		if slices.Contains(buildEnvLocations, name) || slices.Contains(ircKeyPinned, name) {
+			continue
+		}
+		inputs = inputs.Put("env "+name, value)
+		unknown = unknown.Append(name)
+	}
+	(inputs, slices.Sort(unknown))
+}
+
+// KeyOf hashes length-prefixed sorted inputs into a lowercase hex SHA-256 key.
+func KeyOf(inputs Map[string, string]) string {
+	let mut keys = []string{}
+	for k, _ in inputs {
+		keys = keys.Append(k)
+	}
+	keys = slices.Sort(keys)
+	let mut buf = strings.NewBuilder()
+	for k in keys {
+		let v = match inputs.Get(k) {
+		case option.Some{Value: val}:
+			val
+		case option.None:
+			""
+		}
+		strings.WriteString(&buf, "\(k.Len()):\(k)\(v.Len()):\(v)")
+	}
+	hex.Encode(sha256.Sum(strings.String(buf)))
+}
+
+// WithToolchain ensures goMod carries a toolchain line naming Version when absent.
+func WithToolchain(goMod string) string {
+	for line in strings.Split(goMod, "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), "toolchain ") {
+			return goMod
+		}
+	}
+	let mut out = goMod
+	if out.Len() > 0 && out[out.Len()-1] != byte('\n') {
+		out = out + "\n"
+	}
+	out + "\ntoolchain " + Version + "\n"
+}
+
+// ProbeKeyFromData computes the 16-hex probe key from go binary stats, go.env, env vars, and GOENV text.
+func ProbeKeyFromData(resolvedGoPath string, size uint64, mtimeNS uint64, goEnvFile string, environ []string, hasGoEnvContent bool, goenvContent string) string {
+	let mut b = strings.NewBuilder()
+	strings.WriteString(&b, "go \(resolvedGoPath) \(size) \(mtimeNS)\n")
+	strings.WriteString(&b, "go.env \(strconv.Quote(goEnvFile))\n")
+	let mut vars = []string{}
+	for kv in environ {
+		if strings.HasPrefix(kv, "GO") || strings.HasPrefix(kv, "HOME=") || strings.HasPrefix(kv, "XDG_CONFIG_HOME=") {
+			vars = vars.Append(kv)
+		}
+	}
+	vars = slices.Sort(vars)
+	strings.WriteString(&b, "env \(quoteStringSlice(vars))\n")
+	if hasGoEnvContent {
+		strings.WriteString(&b, "GOENV \(strconv.Quote(goenvContent))\n")
+	}
+	hex.Encode(sha256.Sum(strings.String(b)))[0:16]
+}
+
+// PortOfText resolves release in lockText against patches and verifies its SHA-256 digest.
+func PortOfText(lockText string, release string, patches Map[string, string]) PortSpec fails ToolchainError {
+	let mut digests = Map[string, string]{}
+	let mut name = ""
+	let mut ported = []string{}
+	for line in strings.Split(lockText, "\n") {
+		let f = strings.Fields(line)
+		if f.Len() == 3 && f[0] == "patch" {
+			digests = digests.Put(f[1], strings.TrimPrefix(f[2], "sha256:"))
+		} else if f.Len() == 3 && f[0] == "port" {
+			ported = ported.Append(f[1])
+			if f[1] == release {
+				name = f[2]
+			}
+		}
+	}
+	if name == "" {
+		let mut want = Version
+		if !slices.Contains(ported, want) && ported.Len() > 0 {
+			want = ported[ported.Len()-1]
+		}
+		return ToolchainError{Message: "Go \(release) has no port of the IR compiler patch (toolchain/ir/lock ports \(strings.Join(ported, ", "))); build with one of those: unset ERGO_GO (ergo installs \(Version)), let the go command switch to it (GOTOOLCHAIN=auto), or install it with `go install golang.org/dl/\(want)@latest && \(want) download` and set ERGO_GO=$(go env GOPATH)/bin/\(want)"}
+	}
+	let patchData = match patches.Get(name) {
+	case option.Some{Value: d}:
+		d
+	case option.None:
+		return ToolchainError{Message: "patch \(name): not found"}
+	}
+	let digest = hex.Encode(sha256.Sum(patchData))
+	let expected = match digests.Get(name) {
+	case option.Some{Value: d}:
+		d
+	case option.None:
+		""
+	}
+	if expected != digest {
+		return ToolchainError{Message: "toolchain/ir/lock does not lock \(name) at its content (sha256:\(digest))"}
+	}
+	PortSpec{Name: name, Digest: digest, Data: patchData}
+}
+
+// EncodeManifestJSON serializes Manifest to deterministic JSON matching internal/toolchain.
+func EncodeManifestJSON(m Manifest) string {
+	let t = json.NewText()
+	t.BeginObject(3)
+	t.Key("key")
+	t.String(m.Key)
+	t.Key("inputs")
+	encodeStringMapJSON(t, m.Inputs)
+	t.Key("files")
+	encodeStringMapJSON(t, m.Files)
+	t.EndObject()
+	t.Written()
+}
+
+// DecodeManifestJSON parses a Manifest JSON file.
+func DecodeManifestJSON(raw string) Manifest fails ToolchainError {
+	let codec = json.Codec[json.Value]{MaxBytes: 0, MaxDepth: 0}
+	let root = json.Decode(codec, raw) catch {
+	case json.Malformed as e:
+		return ToolchainError{Message: e.Reason}
+	case _:
+		return ToolchainError{Message: "manifest invalid"}
+	}
+	let obj = match root {
+	case json.Object as o:
+		o
+	case _:
+		return ToolchainError{Message: "manifest must be object"}
+	}
+	let mut key = ""
+	let mut inputs = Map[string, string]{}
+	let mut files = Map[string, string]{}
+	for m in obj.Members {
+		if m.Key == "key" {
+			match m.Value {
+			case json.Str as s:
+				key = s.Value
+			case _:
+				return ToolchainError{Message: "manifest key not string"}
+			}
+		} else if m.Key == "inputs" {
+			inputs = try decodeStringMapJSON(m.Value)
+		} else if m.Key == "files" {
+			files = try decodeStringMapJSON(m.Value)
+		}
+	}
+	Manifest{Key: key, Inputs: inputs, Files: files}
+}
+
+// EntryProblem validates a patched cache entry's existence, manifest key, and recorded file digests.
+func EntryProblem(exists bool, manifestRaw string, manifestExists bool, ready bool, key string, actualDigests Map[string, string], hostTools string, exe string) string {
+	if !exists {
+		return "not built yet"
+	}
+	if !manifestExists {
+		return "it has no manifest"
+	}
+	let m = DecodeManifestJSON(manifestRaw) catch {
+	case ToolchainError:
+		return "its manifest does not read"
+	}
+	if m.Key != key {
+		return "its manifest names another key"
+	}
+	if !ready {
+		return "its compile or its release is missing"
+	}
+	let compileRel = "goroot/pkg/tool/\(hostTools)/compile\(exe)"
+	let hasCompile = match m.Files.Get(compileRel) {
+	case option.Some{Value: v}:
+		v != ""
+	case option.None:
+		false
+	}
+	if !hasCompile {
+		return "its manifest lists no compile"
+	}
+	let mut names = []string{}
+	for name, _ in m.Files {
+		names = names.Append(name)
+	}
+	names = slices.Sort(names)
+	for name in names {
+		let want = match m.Files.Get(name) {
+		case option.Some{Value: v}:
+			v
+		case option.None:
+			""
+		}
+		let got = match actualDigests.Get(name) {
+		case option.Some{Value: v}:
+			v
+		case option.None:
+			""
+		}
+		if got == "" || got != want {
+			return "\(name) is not the file its manifest lists"
+		}
+	}
+	""
+}
+
+// PatchedWork computes the sibling work directory beside a patched entry's GOROOT.
+func PatchedWork(root string) string {
+	let entry = filepath.Dir(root)
+	filepath.Join([]string{filepath.Dir(entry), "work", filepath.Base(entry)})
+}
+
+// EvictPlan returns entry names to remove so at most limit entries remain (newest first), never removing keep.
+func EvictPlan(names []string, mtimes Map[string, uint64], keep string, limit int) []string {
+	let mut tbl = EvictTable{
+		Count: dense.NewCount[EvictCandidateTag](),
+		Name:  dense.NewCol[EvictCandidateTag, string](),
+		MTime: dense.NewCol[EvictCandidateTag, uint64](),
+	}
+	for name in names {
+		if name == keep {
+			continue
+		}
+		let mt = match mtimes.Get(name) {
+		case option.Some{Value: v}:
+			v
+		case option.None:
+			uint64(0)
+		}
+		let _ = dense.Next(&tbl.Count)
+		dense.Push(&tbl.Name, name)
+		dense.Push(&tbl.MTime, mt)
+	}
+	let total = dense.Total(tbl.Count)
+	let mut ids = slices.WithCapacity[dense.ID[EvictCandidateTag]](total)
+	for i in 0..total {
+		ids = ids.Append(dense.IDAt(tbl.Count, i))
+	}
+	ids = slices.SortFunc(ids, func(a dense.ID[EvictCandidateTag], b dense.ID[EvictCandidateTag]) int {
+		let ma = dense.Of(tbl.MTime, a)
+		let mb = dense.Of(tbl.MTime, b)
+		if mb > ma {
+			return 1
+		}
+		if mb < ma {
+			return -1
+		}
+		let na = dense.Of(tbl.Name, a)
+		let nb = dense.Of(tbl.Name, b)
+		if na < nb {
+			return -1
+		}
+		if na > nb {
+			return 1
+		}
+		0
+	})
+	let mut evict = []string{}
+	let keepOther = if limit > 1 { limit - 1 } else { 0 }
+	for i in 0..ids.Len() {
+		if i < keepOther {
+			continue
+		}
+		evict = evict.Append(dense.Of(tbl.Name, ids[i]))
+	}
+	evict
+}
+
+// PinKeyName computes the deterministic pinset archive name matching internal/pinset.Key.Name.
+func PinKeyName(k PinKey) string {
+	let pairs = []string{
+		"schema", "ergo pin set 1",
+		"kind", k.Kind,
+		"release", k.Release,
+		"patch", k.Patch,
+		"goos", k.GOOS,
+		"goarch", k.GOARCH,
+		"level", k.Level,
+		"flags", k.Flags,
+	}
+	let mut b = strings.NewBuilder()
+	for idx in 0..(pairs.Len() / 2) {
+		let key = pairs[idx*2]
+		let val = pairs[idx*2+1]
+		strings.WriteString(&b, "\(key.Len()):\(key)\(val.Len()):\(val)")
+	}
+	let sum = hex.Encode(sha256.Sum(strings.String(b)))[0:16]
+	let mut parts = []string{k.Kind, k.Release, k.GOOS, k.GOARCH}
+	if k.Level != "" {
+		parts = parts.Append(k.Level)
+	}
+	strings.Join(parts, "-") + "-" + sum
+}
+
+// ParsePinLock parses toolchain/pin/lock contents into PinLock.
+func ParsePinLock(text string) PinLock fails ToolchainError {
+	let mut lock = PinLock{Go: "", Patch: "", Sets: Map[string, string]{}}
+	let lines = strings.Split(text, "\n")
+	for i in 0..lines.Len() {
+		let f = strings.Fields(lines[i])
+		if f.Len() == 0 || strings.HasPrefix(f[0], "#") {
+			continue
+		} else if f.Len() == 2 && f[0] == "go" {
+			lock.Go = f[1]
+		} else if f.Len() == 2 && f[0] == "patch" && strings.HasPrefix(f[1], "sha256:") {
+			lock.Patch = strings.TrimPrefix(f[1], "sha256:")
+		} else if f.Len() == 3 && f[0] == "set" && strings.HasPrefix(f[2], "sha256:") {
+			lock.Sets = lock.Sets.Put(f[1], strings.TrimPrefix(f[2], "sha256:"))
+		} else {
+			return ToolchainError{Message: "pin lock line \(i + 1): \(strconv.Quote(lines[i]))"}
+		}
+	}
+	lock
+}
+
+// ParsePinIndex parses a pinset archive index file into sorted entry lookups.
+func ParsePinIndex(text string) Map[string, PinEntry] fails ToolchainError {
+	let mut entries = Map[string, PinEntry]{}
+	let lines = strings.Split(text, "\n")
+	for i in 0..lines.Len() {
+		let trimmed = strings.TrimSpace(lines[i])
+		if trimmed == "" {
+			continue
+		}
+		let f = strings.Fields(trimmed)
+		if f.Len() != 3 {
+			return ToolchainError{Message: "pin index line \(i + 1): \(strconv.Quote(trimmed))"}
+		}
+		entries = entries.Put(f[0], PinEntry{Name: f[0], Digest: f[1], Export: f[2]})
+	}
+	entries
+}
+
+func quoteStringSlice(xs []string) string {
+	let mut parts = slices.WithCapacity[string](xs.Len())
+	for x in xs {
+		parts = parts.Append(strconv.Quote(x))
+	}
+	"[\(strings.Join(parts, " "))]"
+}
+
+func encodeStringMapJSON(t json.Text, m Map[string, string]) {
+	let mut keys = []string{}
+	for k, _ in m {
+		keys = keys.Append(k)
+	}
+	keys = slices.Sort(keys)
+	t.BeginObject(keys.Len())
+	for k in keys {
+		t.Key(k)
+		match m.Get(k) {
+		case option.Some{Value: v}:
+			t.String(v)
+		case option.None:
+			t.String("")
+		}
+	}
+	t.EndObject()
+}
+
+func decodeStringMapJSON(v json.Value) Map[string, string] fails ToolchainError {
+	let obj = match v {
+	case json.Object as o:
+		o
+	case _:
+		return ToolchainError{Message: "expected object"}
+	}
+	let mut out = Map[string, string]{}
+	for m in obj.Members {
+		match m.Value {
+		case json.Str as s:
+			out = out.Put(m.Key, s.Value)
+		case _:
+			return ToolchainError{Message: "expected string value"}
+		}
+	}
+	out
+}
+
+// KeyOfOrderIndependent verifies that KeyOf produces identical digests regardless of input insertion order.
+law KeyOfOrderIndependent(a string, b string) {
+	let m1 = Map[string, string]{"k1": a, "k2": b}
+	let m2 = Map[string, string]{"k2": b, "k1": a}
+	let kDiff = Map[string, string]{"k1": a + "x", "k2": b}
+	KeyOf(m1) == KeyOf(m2) && KeyOf(m1) != KeyOf(kDiff)
+}
+
+test TestIRCInputsManifestEvictAndPinset {
+	let patchDigest = hex.Encode(sha256.Sum("p"))
+	let (ins, unk) = IRCInputs("/src/go", Version, patchDigest, "abcd", "linux_amd64", []string{"GOROOT=/user", "GOGC=400", "GOEXPERIMENT=arenas", "GOSOMEFLAG=on", "GOMAXPROCS=2", "FOO=bar"})
+	assert unk.Len() == 1 && unk[0] == "GOSOMEFLAG"
+	assert ins.Get("env GOSOMEFLAG") == option.Some{Value: "on"}
+	assert ins.Get("env GOROOT") == option.None && ins.Get("env GOGC") == option.None
+
+	assert strings.Contains(WithToolchain("module x\ngo 1.27\n"), "\ntoolchain \(Version)\n")
+	assert !strings.Contains(WithToolchain("module x\ntoolchain go1.26.0\n"), Version)
+
+	let m = Manifest{
+		Key:    "k1",
+		Inputs: Map[string, string]{"schema": PatchedSchema},
+		Files:  Map[string, string]{"goroot/pkg/tool/linux_amd64/compile": "abc"},
+	}
+	let mraw = EncodeManifestJSON(m)
+	assert EntryProblem(true, mraw, true, true, "k1", Map[string, string]{"goroot/pkg/tool/linux_amd64/compile": "abc"}, "linux_amd64", "") == ""
+	assert EntryProblem(true, mraw, true, true, "k1", Map[string, string]{"goroot/pkg/tool/linux_amd64/compile": "bad"}, "linux_amd64", "") != ""
+
+	assert PatchedWork("/cache/patched-a/goroot") == "/cache/work/patched-a"
+
+	let evict = EvictPlan([]string{"p1", "p2", "p3", "p4"}, Map[string, uint64]{"p1": uint64(10), "p2": uint64(30), "p3": uint64(20), "p4": uint64(5)}, "p4", 2)
+	assert evict.Len() == 2 && evict[0] == "p3" && evict[1] == "p1"
+
+	let lock = ParsePinLock("# c\ngo \(Version)\npatch sha256:\(patchDigest)\nset std-\(Version) sha256:beef\n") catch {
+	case ToolchainError:
+		assert false
+		PinLock{Go: "", Patch: "", Sets: Map[string, string]{}}
+	}
+	assert lock.Go == Version && lock.Sets.Get("std-\(Version)") == option.Some{Value: "beef"}
+	assert strings.HasPrefix(PinKeyName(PinKey{Kind: "tools", Release: Version, Patch: patchDigest, GOOS: "linux", GOARCH: "amd64", Level: "", Flags: "-trimpath"}), "tools-\(Version)-linux-amd64-")
+}
