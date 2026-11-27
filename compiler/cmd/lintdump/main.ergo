@@ -1,0 +1,248 @@
+import compiler/check/bind
+import compiler/check/load
+import compiler/check/types
+import compiler/lint
+import compiler/syntax
+import fs
+import io
+import option
+import os
+import slices
+import strconv
+import strings
+
+type pkgSpec {
+	module  string,
+	path    string,
+	dir     string,
+	name    string,
+	isDep   bool,
+	isEntry bool,
+	ext     string,
+	foreign string,
+	rels    []string,
+	paths   []string,
+}
+
+func read(path string) string fails os.Exit needs fs.Files {
+	fs.Files.ReadFile(path) catch {
+	case fs.NotFound:
+		return os.Exit{Code: 1, Message: "lintdump: no file \(path)"}
+	case fs.Denied:
+		return os.Exit{Code: 1, Message: "lintdump: cannot read \(path)"}
+	case fs.Failed as e:
+		return os.Exit{Code: 1, Message: "lintdump: cannot read \(path): \(e.Reason)"}
+	}
+}
+
+func parseCorpusLine(line string) pkgSpec fails os.Exit {
+	let cols = strings.Fields(line)
+	if cols.Len() < 8 {
+		return os.Exit{Code: 2, Message: "lintdump: expected MODULE PATH DIR NAME FLAGS EXT FOREIGN REL=ABS..."}
+	}
+	let flag = cols[4]
+	let mut rels = []string{}
+	let mut paths = []string{}
+	for item in cols[7:] {
+		match strings.Cut(item, "=") {
+		case option.Some{Value: c}:
+			rels = rels.Append(c.Before)
+			paths = paths.Append(c.After)
+		case option.None:
+			rels = rels.Append(item)
+			paths = paths.Append(item)
+		}
+	}
+	pkgSpec{
+		module:  cols[0],
+		path:    cols[1],
+		dir:     cols[2],
+		name:    cols[3],
+		isDep:   flag == "dep",
+		isEntry: flag == "entry",
+		ext:     cols[5],
+		foreign: cols[6],
+		rels:    rels,
+		paths:   paths,
+	}
+}
+
+func parseIntFlag(flagName string, s string) int fails os.Exit {
+	let n = strconv.Atoi(s) catch {
+	case _:
+		return os.Exit{Code: 2, Message: "lintdump: invalid integer for \(flagName): \(s)"}
+	}
+	if n < 1 {
+		return os.Exit{Code: 2, Message: "lintdump: \(flagName) requires >= 1"}
+	}
+	n
+}
+
+func run(argv0 []string) fails os.Exit needs fs.Files | io.Stdout {
+	let usage = os.Exit{Code: 2, Message: "usage: lintdump [-std DIR] [-config FILE] [-preset NAME] [-threads N] [-bench N] [-closed] [-strict] -corpus MANIFEST"}
+	let mut std = ""
+	let mut configPath = ""
+	let mut corpusPath = ""
+	let mut presets = []string{}
+	let mut threads = 1
+	let mut bench = 1
+	let mut closed = false
+	let mut strict = false
+	let mut unchecked = false
+	let mut i = 0
+	for i < argv0.Len() {
+		let a = argv0[i]
+		if a == "-std" || a == "-config" || a == "-preset" || a == "-threads" || a == "-bench" || a == "-corpus" {
+			if i+1 >= argv0.Len() {
+				return usage
+			}
+			let v = argv0[i+1]
+			if a == "-std" {
+				std = v
+			} else if a == "-config" {
+				configPath = v
+			} else if a == "-preset" {
+				presets = presets.Append(v)
+			} else if a == "-threads" {
+				threads = try parseIntFlag("-threads", v)
+			} else if a == "-bench" {
+				bench = try parseIntFlag("-bench", v)
+			} else if a == "-corpus" {
+				corpusPath = v
+			}
+			i += 2
+			continue
+		}
+		if a == "-closed" {
+			closed = true
+			i += 1
+			continue
+		}
+		if a == "-strict" {
+			strict = true
+			i += 1
+			continue
+		}
+		if a == "-unchecked" {
+			unchecked = true
+			i += 1
+			continue
+		}
+		return usage
+	}
+	if corpusPath == "" {
+		return usage
+	}
+	let confDoc = if configPath == "" {
+		lint.DefaultConfig()
+	} else {
+		let txt = try read(configPath)
+		lint.ParseConfig(txt) catch {
+		case lint.BadConfig as e:
+			return os.Exit{Code: 2, Message: "lintdump: \(e.Message)"}
+		}
+	}
+	let conf = lint.Configure(confDoc, presets, Map[string, string]{}) catch {
+	case lint.BadConfig as e:
+		return os.Exit{Code: 2, Message: "lintdump: \(e.Message)"}
+	}
+
+	let manifest = try read(corpusPath)
+	let mut specs = []pkgSpec{}
+	for rawLine in strings.Split(manifest, "\n") {
+		let line = strings.TrimSpace(rawLine)
+		if line != "" && !strings.HasPrefix(line, "#") {
+			specs = specs.Append(try parseCorpusLine(line))
+		}
+	}
+
+	let mut pkgFiles = slices.WithCapacity[[]lint.FileInput](specs.Len())
+	let mut pkgBind = slices.WithCapacity[[]bind.File](specs.Len())
+	let mut loadUnits = slices.WithCapacity[load.Unit](specs.Len())
+	let mut anyParseErr = false
+	for sp in specs {
+		let mut files = []lint.FileInput{}
+		let mut bfiles = []bind.File{}
+		for fi in 0..sp.paths.Len() {
+			let src = try read(sp.paths[fi])
+			let parsed = syntax.Parse(src)
+			if parsed.Failed {
+				anyParseErr = true
+			}
+			files = files.Append(lint.FileInput{Rel: sp.rels[fi], Src: src, Parsed: parsed})
+			bfiles = bfiles.Append(bind.File{Name: lint.SlashBase(sp.rels[fi]), Parsed: parsed})
+		}
+		pkgFiles = pkgFiles.Append(files)
+		pkgBind = pkgBind.Append(bfiles)
+		let extTxt = if sp.ext == "-" { "" } else { try read(sp.ext) }
+		let foreignTxt = if sp.foreign == "-" { "" } else { try read(sp.foreign) }
+		let tab = load.TablesOf(extTxt, foreignTxt)
+		let mut lu = load.UnitOf(tab, bfiles, sp.paths)
+		lu.Path = sp.path
+		loadUnits = loadUnits.Append(lu)
+	}
+
+	let mut units = slices.WithCapacity[lint.UnitInput](specs.Len())
+	if !anyParseErr && !unchecked && loadUnits.Len() > 0 {
+		let outside = if std != "" { load.Outside(loadUnits, std) } else { []types.Iface{} }
+		let prog = load.LoadAll(loadUnits, outside, threads)
+		let mut typedByUnit = slices.Repeat([]int{-1}, specs.Len())
+		for li, uIdx in prog.Units {
+			typedByUnit[uIdx] = li
+		}
+		for iSpec, sp in specs {
+			let typedOpt = if typedByUnit[iSpec] >= 0 {
+				option.Some[load.Typed]{Value: load.TypeAt(prog, typedByUnit[iSpec])}
+			} else {
+				option.None
+			}
+			units = units.Append(lint.UnitInput{
+				Module:     sp.module,
+				Path:       sp.path,
+				Dir:        sp.dir,
+				Name:       sp.name,
+				Dependency: sp.isDep,
+				HasEntry:   sp.isEntry,
+				Files:      pkgFiles[iSpec],
+				BindFiles:  pkgBind[iSpec],
+				Typed:      typedOpt,
+			})
+		}
+	} else {
+		for iSpec, sp in specs {
+			units = units.Append(lint.UnitInput{
+				Module:     sp.module,
+				Path:       sp.path,
+				Dir:        sp.dir,
+				Name:       sp.name,
+				Dependency: sp.isDep,
+				HasEntry:   sp.isEntry,
+				Files:      pkgFiles[iSpec],
+				BindFiles:  pkgBind[iSpec],
+				Typed:      option.None,
+			})
+		}
+	}
+
+	let inp = lint.Input{
+		Checked:    !anyParseErr && !unchecked,
+		Closed:     closed,
+		ModuleDirs: Map[string, string]{},
+		Glossaries: Map[string, string]{},
+		Units:      units,
+	}
+	let mut res = lint.Run(conf, inp)
+	for _ in 1..bench {
+		res = lint.Run(conf, inp)
+	}
+	io.Stdout.Print(lint.FormatResultJSON(res) + "\n")
+	if !lint.PolicyPassed(res, strict) {
+		return os.Exit{Code: 1, Message: ""}
+	}
+}
+
+func main() fails os.Exit needs os.Ambient {
+	with context { os.Process: os.NewHost(), fs.Files: fs.NewHost(), io.Stdout: io.NewHost() } {
+		try run(os.Process.Args())
+	}
+}

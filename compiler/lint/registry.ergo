@@ -1,0 +1,244 @@
+import option
+
+// RuleMeta describes a single built-in lint rule.
+type RuleMeta {
+	// Name is the kebab-case rule identifier.
+	Name string,
+	// Code is the stable diagnostic code such as L172.
+	Code string,
+	// Doc describes what the rule checks.
+	Doc string,
+	// Instead describes what to write or do instead.
+	Instead string,
+	// Default is the rule's default severity rank when enabled without explicit severity.
+	Default uint8,
+	// SafeFix reports whether fixes from this rule are safe for ergo fix --lint.
+	SafeFix bool,
+	// HasOptions reports whether this rule accepts configuration options.
+	HasOptions bool,
+	// HasPrecision reports whether this rule carries a published precision measurement.
+	HasPrecision bool,
+	// Precision is the published precision in hundredths when HasPrecision is true.
+	Precision int,
+}
+
+func ruleDef(name string, code string, def uint8, instead string, safeFix bool, hasOpts bool) RuleMeta {
+	let (prec, hasPrec) = PrecisionOf(name)
+	RuleMeta{
+		Name:         name,
+		Code:         code,
+		Doc:          "",
+		Instead:      instead,
+		Default:      def,
+		SafeFix:      safeFix,
+		HasOptions:   hasOpts,
+		HasPrecision: hasPrec,
+		Precision:    prec,
+	}
+}
+
+// PrecisionOf returns the published precision in hundredths for a built-in rule.
+func PrecisionOf(rule string) (int, bool) {
+	if rule == "banned-words" {
+		return (33, true)
+	}
+	if rule == "cognitive-complexity" {
+		return (64, true)
+	}
+	if rule == "cyclomatic-complexity" {
+		return (25, true)
+	}
+	if rule == "halstead-difficulty" {
+		return (0, true)
+	}
+	if rule == "known-value-widening" {
+		return (95, true)
+	}
+	if rule == "silent-catch" {
+		return (16, true)
+	}
+	if rule == "unbounded-collect" {
+		return (0, true)
+	}
+	(0, false)
+}
+
+// BuiltinRules returns all 71 built-in rules ordered by rule name.
+func BuiltinRules() []RuleMeta {
+	[]RuleMeta{
+		ruleDef("added-clone", "L130", SeverityWarning, "call the existing function", false, false),
+		ruleDef("banned-words", "L111", SeverityWarning, "name what the thing is, or what the function does to what", false, true),
+		ruleDef("capability-outside-owner", "L133", SeverityWarning, "call a function of the owner package that runs the operation, and keep the capability's operations in the packages the owners option names", false, true),
+		ruleDef("cause-dropped", "L136", SeverityWarning, "name the failures the arm expects, or bind the failure and carry what the caller needs of it into the new failure's fields", false, false),
+		ruleDef("cognitive-complexity", "L107", SeverityWarning, "split it into functions that each do one thing", false, true),
+		ruleDef("commented-code", "L143", SeverityHint, "delete it; the history keeps it", false, false),
+		ruleDef("concat-in-loop", "L147", SeverityHint, "append the parts to a []string and strings.Join them after the loop, or write them to a strings.Builder", false, false),
+		ruleDef("concept-file-names", "L113", SeverityWarning, "name it for what it holds (AGENTS.md, Go layout)", false, true),
+		ruleDef("console-outside-entry", "L134", SeverityWarning, "return the text to the caller and print it in the entry or a host package", false, false),
+		ruleDef("constant-argument", "L140", SeverityWarning, "drop the parameter and use the constant inside the function", false, false),
+		ruleDef("constant-restated", "L153", SeverityHint, "assert what a function computes from the constant, or delete the assert", false, false),
+		ruleDef("cyclomatic-complexity", "L108", SeverityWarning, "split it into functions that each do one thing", false, true),
+		ruleDef("declaration-tangle", "L171", SeverityHint, "co-locate inseparable declarations in one file, or extract a one-way mediator for distinct responsibilities", false, true),
+		ruleDef("default-on-failure", "L126", SeverityWarning, "catch the failures you expect by name and let the others propagate, or record the failure before you give the default", false, false),
+		ruleDef("deprecated", "L104", SeverityWarning, "use what its Deprecated: paragraph names", false, false),
+		ruleDef("derived-field", "L149", SeverityHint, "drop the field and compute it from the others with a function where it is read", false, false),
+		ruleDef("domain-imports-implementation", "L157", SeverityWarning, "need the operation type, and bind the implementation in the binary's main", false, false),
+		ruleDef("duplicate-shape", "L118", SeverityWarning, "keep one", false, false),
+		ruleDef("duplicate-test", "L117", SeverityWarning, "delete one", false, false),
+		ruleDef("eta-method-value", "L162", SeverityHint, "write the method value r.f", true, false),
+		ruleDef("failure-as-variant", "L137", SeverityWarning, "fail with it: move the type from the result union into the function's fails row", false, false),
+		ruleDef("file-cycle", "L155", SeverityHint, "move the declarations the two files share into one of them, or into a file both use", false, false),
+		ruleDef("file-name-case", "L172", SeverityWarning, "rename the file or directory to match the configured case style", false, true),
+		ruleDef("foreign-error-public", "L102", SeverityWarning, "map it to a closed union of error types at this boundary (docs/spec/interop.md)", false, false),
+		ruleDef("foreign-outside-adapter", "L132", SeverityWarning, "move the code that uses the Go package into an adapter package named after it, which implements the operation type, and bind it at the entry", false, false),
+		ruleDef("foreign-record-field-write", "L167", SeverityHint, "expose a behavioral update on the owning package where the invariant belongs, or make the record an all-public data type", false, false),
+		ruleDef("foreign-where-std", "L103", SeverityWarning, "import the std package that covers it (docs/spec/stdlib.md)", false, false),
+		ruleDef("forwarding-func", "L121", SeverityWarning, "call the function it forwards to directly, and delete it", false, false),
+		ruleDef("guard-the-type-proves", "L128", SeverityWarning, "delete the guard and the branch it cannot take; the type already promises it", false, false),
+		ruleDef("halstead-difficulty", "L109", SeverityWarning, "split it into functions that each do one thing", false, true),
+		ruleDef("hidden-dependency", "L158", SeverityWarning, "name the declaration itself and import its package", false, false),
+		ruleDef("identical-arms", "L119", SeverityWarning, "list their patterns in one arm", false, false),
+		ruleDef("independent-waits", "L152", SeverityHint, "start the first with task.Go and wait for it after the second, if their order does not matter", false, false),
+		ruleDef("known-value-widening", "L110", SeverityWarning, "write no type, so the binding keeps the variant", false, false),
+		ruleDef("large-value-copy", "L148", SeverityHint, "loop over the indices and read the fields you need through the collection, or keep the large part behind a handle", false, true),
+		ruleDef("layer", "L156", SeverityWarning, "move what the lower package needs from the upper one down, or pass it in", false, true),
+		ruleDef("lone-provider", "L122", SeverityWarning, "use the provider directly, or state the operation type's laws so a second provider is held to them", false, false),
+		ruleDef("long-file", "L165", SeverityHint, "split the file along concept boundaries rather than by line count", false, true),
+		ruleDef("long-parameter-list", "L141", SeverityWarning, "group the parameters that travel together into a record and pass it", false, true),
+		ruleDef("mode-parameter", "L123", SeverityWarning, "split the function into one per mode, and let each caller call the one it means", false, false),
+		ruleDef("narration-comment", "L142", SeverityHint, "delete the comment, or replace it with why the line is there", false, false),
+		ruleDef("no-comments", "L163", SeverityError, "say it in the code: a name, a function or type that carries it, a refinement or a law that makes it true; ergo fix removes the comment", true, false),
+		ruleDef("option-fields-follow-variant", "L150", SeverityHint, "move the field into that variant's record and drop the Option", false, false),
+		ruleDef("parameter-clump", "L139", SeverityWarning, "name the group as a record and pass it, or pass the record that already holds these fields", false, false),
+		ruleDef("production-uses-test-support", "L168", SeverityHint, "move the fixture use into a test or law, or pass a capability provider bound at entry", false, true),
+		ruleDef("quadratic-scan", "L146", SeverityHint, "build a map (or a set) from the collection once, before the loop, and look each value up in it", false, false),
+		ruleDef("race-for-timeout", "L106", SeverityHint, "write timeout.After(d, block) and catch timeout.Expired with the fallback", false, false),
+		ruleDef("repeated-case", "L154", SeverityHint, "delete the repeat, or assert the case it was meant to be", false, false),
+		ruleDef("repeated-guard", "L129", SeverityWarning, "declare a refined type (type T base where …) for the values the guard accepts, and take it as the parameter's type", false, false),
+		ruleDef("repeated-pure-call", "L127", SeverityWarning, "bind the first call's value with let and read the name", false, false),
+		ruleDef("repeated-traversal", "L145", SeverityHint, "do the second loop's work in the first, in one pass", false, false),
+		ruleDef("scattered-edit", "L131", SeverityWarning, "write it once in a package they all import", false, false),
+		ruleDef("seam-entrypoints", "L169", SeverityHint, "import an allowed entry package of the seam instead of its internal package", false, true),
+		ruleDef("self-assignment", "L159", SeverityWarning, "delete it; an arm with nothing to do has no statements (case X:)", false, false),
+		ruleDef("sibling-folder-cycle", "L170", SeverityHint, "move shared policy into a dependency both folders can import, or compose them from a layer above", false, false),
+		ruleDef("sign-decided-comparison", "L160", SeverityWarning, "compare with a value it can take, or delete the comparison", false, false),
+		ruleDef("silent-catch", "L101", SeverityWarning, "handle it, or say why with // ergo-lint-disable-next-line silent-catch -- REASON", false, false),
+		ruleDef("snapshot-argument", "L144", SeverityHint, "bind the later argument with let before the call, then pass *s", false, false),
+		ruleDef("stringly-state", "L124", SeverityWarning, "declare a union with one variant per value, and match on it", false, false),
+		ruleDef("take-one-by-law", "L151", SeverityHint, "call the function the law names, which gives the element without building the whole result", false, false),
+		ruleDef("test-reads-unexported", "L135", SeverityWarning, "test the behaviour through the package's exported functions, or state the internal's property as a law beside it", false, false),
+		ruleDef("test-waits-on-time", "L125", SeverityWarning, "wait on the event itself: the task's Wait, a deferred, a latch, a queue the work fills, or the scheduler's idle (Advance(0s), a Stage's Settle)", false, false),
+		ruleDef("unbounded-collect", "L105", SeverityWarning, "loop over it and handle each value, or say why with // ergo-lint-disable-next-line unbounded-collect -- REASON", false, false),
+		ruleDef("unbuilt-variant", "L120", SeverityWarning, "delete it, or build it where the domain reaches that state", false, false),
+		ruleDef("unused-declaration", "L114", SeverityWarning, "delete it", false, false),
+		ruleDef("unused-type-parameter", "L116", SeverityWarning, "delete it", false, false),
+		ruleDef("vacuous-test", "L138", SeverityWarning, "assert on what the code under test returns, or delete the test", false, false),
+		ruleDef("wide-directory", "L166", SeverityHint, "split the directory into coherent concept subpackages rather than moving files arbitrarily", false, true),
+		ruleDef("wide-observed-interface", "L164", SeverityHint, "put the entries clients use together behind one operation with a real contract, or split the package by responsibility", false, true),
+		ruleDef("wire-key-quote", "L161", SeverityWarning, "write the key alone: \"name\"", false, false),
+		ruleDef("with-at-entry", "L112", SeverityWarning, "bind it in cmd/NAME/main.ergo, or in a test file for the tests", false, true),
+	}
+}
+
+let allRulesList = BuiltinRules()
+
+func makeRuleMap() Map[string, int] {
+	let mut m = Map[string, int]{}
+	for i, r in allRulesList {
+		m[r.Name] = i
+	}
+	m
+}
+
+let ruleIndexByName = makeRuleMap()
+
+// RuleIndex returns the dense index of a built-in rule name if registered.
+func RuleIndex(name string) option.Option[int] {
+	ruleIndexByName.Get(name)
+}
+
+// RuleByName returns metadata for a built-in rule name.
+func RuleByName(name string) (RuleMeta, bool) {
+	match ruleIndexByName.Get(name) {
+	case option.Some{Value: i}:
+		(allRulesList[i], true)
+	case option.None:
+		(allRulesList[0], false)
+	}
+}
+
+// IsReservedRuleName reports whether name is reserved for runner or suppression diagnostics.
+func IsReservedRuleName(name string) bool {
+	name == "lint-runner" || name == "invalid-suppression"
+}
+
+let builtinPresetMap = Map[string, []string]{
+	Recommended: []string{},
+	Justifiers:  []string{
+		"silent-catch", "foreign-error-public", "foreign-where-std",
+		"deprecated", "unbounded-collect", "race-for-timeout",
+	},
+	Strict: []string{
+		"cognitive-complexity", "cyclomatic-complexity", "halstead-difficulty",
+		"known-value-widening", "banned-words",
+		"unused-declaration", "unused-type-parameter", "duplicate-test",
+		"duplicate-shape", "identical-arms", "unbuilt-variant",
+		"forwarding-func", "lone-provider", "mode-parameter", "stringly-state",
+		"eta-method-value", "test-waits-on-time",
+		"default-on-failure", "repeated-pure-call", "guard-the-type-proves",
+		"repeated-guard",
+		"cause-dropped", "failure-as-variant", "vacuous-test", "parameter-clump",
+		"constant-argument", "long-parameter-list",
+		"derived-field", "option-fields-follow-variant", "constant-restated",
+		"repeated-case",
+		"self-assignment", "sign-decided-comparison", "wire-key-quote",
+	},
+	Layout: []string{
+		"with-at-entry", "concept-file-names", "file-name-case",
+		"foreign-outside-adapter", "capability-outside-owner",
+		"console-outside-entry", "test-reads-unexported",
+		"layer", "domain-imports-implementation", "hidden-dependency",
+		"wide-observed-interface", "long-file", "wide-directory",
+		"foreign-record-field-write", "production-uses-test-support",
+		"seam-entrypoints", "sibling-folder-cycle", "declaration-tangle",
+	},
+	Advisory: []string{"narration-comment", "commented-code"},
+	Speed:    []string{
+		"snapshot-argument", "repeated-traversal", "quadratic-scan",
+		"concat-in-loop", "large-value-copy", "take-one-by-law", "independent-waits",
+	},
+	Change: []string{"added-clone", "scattered-edit"},
+}
+
+// PresetRuleNames returns the rule names belonging to a built-in preset.
+func PresetRuleNames(name string) ([]string, bool) {
+	match builtinPresetMap.Get(name) {
+	case option.Some{Value: rs}:
+		(rs, true)
+	case option.None:
+		([]string{}, false)
+	}
+}
+
+test RegistryHasAll71BuiltinsAnd7Presets {
+	assert allRulesList.Len() == 71
+	let mut codes = Map[string, bool]{}
+	for r in allRulesList {
+		assert ValidKebabName(r.Name)
+		assert r.Instead != ""
+		match codes.Get(r.Code) {
+		case option.Some:
+			assert false
+		case option.None:
+			codes[r.Code] = true
+		}
+	}
+	for pn in []string{Recommended, Justifiers, Strict, Layout, Advisory, Speed, Change} {
+		let (rs, ok) = PresetRuleNames(pn)
+		assert ok
+		for rn in rs {
+			let (_, found) = RuleByName(rn)
+			assert found
+		}
+	}
+}

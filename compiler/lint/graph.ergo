@@ -1,0 +1,2813 @@
+import cmp
+import codegraph
+import compiler/check/bind
+import compiler/check/expr
+import compiler/check/load
+import compiler/check/store
+import compiler/syntax
+import dense
+import option
+import slices
+import strings
+
+let edgeKindOrd = Map[string, int]{
+	"contains":  1,
+	"imports":   2,
+	"uses":      3,
+	"needs":     4,
+	"fails":     5,
+	"provides":  6,
+	"reexports": 7,
+	"testof":    8,
+	"lawof":     9,
+	"input":     10,
+	"requires":  11,
+}
+
+let siteKindOrd = Map[string, int]{
+	"":          0,
+	"def":       1,
+	"read":      2,
+	"write":     3,
+	"call":      4,
+	"typeuse":   5,
+	"construct": 6,
+	"match":     7,
+	"import":    8,
+	"needs":     9,
+	"fails":     10,
+	"provides":  11,
+	"binds":     12,
+	"handles":   13,
+}
+
+// ProgramGraph holds dense unsigned-32-bit SoA columns and codegraph.Rows for a program.
+type ProgramGraph {
+	// Rows holds canonical graph nodes and canonically sorted edges for std codegraph queries.
+	Rows codegraph.Rows,
+	// NodePkg maps each graph node index to its enclosing package node index or NoID.
+	NodePkg []uint32,
+	// NodeFile maps each graph node index to its enclosing file node index or NoID.
+	NodeFile []uint32,
+	// NodeAtFile maps each graph node index to the file node of its source position or NoID.
+	NodeAtFile []uint32,
+	// NodeAtOff maps each graph node index to its zero-based byte offset.
+	NodeAtOff []uint32,
+	// NodeAtLine maps each graph node index to its one-based line number.
+	NodeAtLine []uint32,
+	// NodeAtCol maps each graph node index to its one-based column number.
+	NodeAtCol []uint32,
+	// SubjectPkg marks package nodes belonging to the linted module.
+	SubjectPkg []bool,
+	// FileNodes lists file node indices in unit and file order.
+	FileNodes []uint32,
+	// FileIndexOfNode maps a graph node index to its index in FileNodes or NoID.
+	FileIndexOfNode []uint32,
+	// UnitFileFirst holds the starting index in FileNodes for each unit.
+	UnitFileFirst []int,
+	// TestCodeFile marks file indices considered test or test-support code for layout rules.
+	TestCodeFile []bool,
+	// EdgeFile maps each canonically sorted edge index to its position file node or NoID.
+	EdgeFile []uint32,
+	// EdgeOff maps each canonically sorted edge index to its zero-based byte offset.
+	EdgeOff []uint32,
+	// EdgeLine maps each canonically sorted edge index to its one-based line number.
+	EdgeLine []uint32,
+	// EdgeCol maps each canonically sorted edge index to its one-based column number.
+	EdgeCol []uint32,
+	// EdgeAtStart holds CSR start offsets into EdgeAtIdx per file index.
+	EdgeAtStart []uint32,
+	// EdgeAtIdx holds edge indices positioned in each file.
+	EdgeAtIdx []uint32,
+	// IntoStart holds CSR start offsets into IntoIdx per file index.
+	IntoStart []uint32,
+	// IntoIdx holds uses-edge indices targeting declarations in each file.
+	IntoIdx []uint32,
+	// ReExportTo maps a re-exporting let node index to its target declaration node index or NoID.
+	ReExportTo []uint32,
+	// PkgImports tracks direct package-to-package import edges as "pkgA\x00pkgB".
+	PkgImports Map[string, bool],
+	// PkgNames maps package paths to declared package names.
+	PkgNames Map[string, string],
+	// ImplPkgs marks implementation package paths that implement another package's operation type.
+	ImplPkgs Map[string, bool],
+	// DomainPkgs marks domain package paths that declare at least one operation type.
+	DomainPkgs Map[string, bool],
+	// ModuleIDs lists distinct module node indices for the linted subject packages.
+	ModuleIDs []int,
+	// FileUnitIdx maps each file index to its UnitInput index.
+	FileUnitIdx []uint32,
+	// FileRelIdx maps each file index to its file index within its unit.
+	FileRelIdx []uint32,
+	// FileIndexes caches the per-unit FileIndex values built for the program.
+	FileIndexes [][]FileIndex,
+}
+
+type edgeRec {
+	edge codegraph.EdgeRow,
+	file uint32,
+	off  uint32,
+	line uint32,
+	col  uint32,
+	seq  uint32,
+}
+
+type nodePosRec {
+	file uint32,
+	off  uint32,
+	line uint32,
+	col  uint32,
+}
+
+type pendingFieldRec {
+	key       string,
+	ownerNode uint32,
+	handle    string,
+	at        nodePosRec,
+	pkgNode   uint32,
+	fileNode  uint32,
+	pnodeIdx  int,
+	unitIdx   int,
+	fileIdx   int,
+	declRow   int,
+}
+
+type graphBuilder {
+	nodes         []codegraph.NodeRow,
+	nodePkg       []uint32,
+	nodeFile      []uint32,
+	nodeAt        []nodePosRec,
+	nodeTopRank   []uint32,
+	edges         []edgeRec,
+	modMap        Map[string, uint32],
+	pkgMap        Map[string, uint32],
+	modByPkg      Map[string, string],
+	handleMap     Map[string, uint32],
+	memberMap     Map[string, uint32],
+	pendingFields []pendingFieldRec,
+	pendingByKey  Map[string, int],
+	pendingDone   []bool,
+	pendingNode   []uint32,
+	unitTopNext   uint32,
+	subjectPkgs   []bool,
+	pkgNames      Map[string, string],
+	domainPkgs    Map[string, bool],
+	implPkgs      Map[string, bool],
+	subModIDs     []int,
+}
+
+func newGraphBuilder() graphBuilder {
+	graphBuilder{
+		nodes:         []codegraph.NodeRow{},
+		nodePkg:       []uint32{},
+		nodeFile:      []uint32{},
+		nodeAt:        []nodePosRec{},
+		nodeTopRank:   []uint32{},
+		edges:         []edgeRec{},
+		modMap:        Map[string, uint32]{},
+		pkgMap:        Map[string, uint32]{},
+		modByPkg:      Map[string, string]{},
+		handleMap:     Map[string, uint32]{},
+		memberMap:     Map[string, uint32]{},
+		pendingFields: []pendingFieldRec{},
+		pendingByKey:  Map[string, int]{},
+		pendingDone:   []bool{},
+		pendingNode:   []uint32{},
+		unitTopNext:   uint32(0),
+		subjectPkgs:   []bool{},
+		pkgNames:      Map[string, string]{},
+		domainPkgs:    Map[string, bool]{},
+		implPkgs:      Map[string, bool]{},
+		subModIDs:     []int{},
+	}
+}
+
+func addGraphNode(b mut graphBuilder, row codegraph.NodeRow, at nodePosRec, pkg uint32, file uint32) uint32 {
+	let id = uint32(b.nodes.Len())
+	let fileField = if at.file == NoID { -1 } else { int(at.file) }
+	let offField = if at.file == NoID { 0 } else { int(at.off) }
+	let lineField = if at.file == NoID { 0 } else { int(at.line) }
+	let colField = if at.file == NoID { 0 } else { int(at.col) }
+	b.nodes = b.nodes.Append(codegraph.NodeRow{
+		..row,
+		Id:     int(id),
+		File:   fileField,
+		Offset: offField,
+		Line:   lineField,
+		Column: colField,
+	})
+	b.nodePkg = b.nodePkg.Append(pkg)
+	b.nodeFile = b.nodeFile.Append(file)
+	b.nodeAt = b.nodeAt.Append(at)
+	b.nodeTopRank = b.nodeTopRank.Append(NoID)
+	b.subjectPkgs = b.subjectPkgs.Append(false)
+	id
+}
+
+func addGraphEdge(b mut graphBuilder, row codegraph.EdgeRow, at nodePosRec) {
+	let fileField = if at.file == NoID { -1 } else { int(at.file) }
+	let offField = if at.file == NoID { 0 } else { int(at.off) }
+	let lineField = if at.file == NoID { 0 } else { int(at.line) }
+	let colField = if at.file == NoID { 0 } else { int(at.col) }
+	let stamped = codegraph.EdgeRow{
+		..row,
+		File:   fileField,
+		Offset: offField,
+		Line:   lineField,
+		Column: colField,
+	}
+	let seq = uint32(b.edges.Len())
+	b.edges = b.edges.Append(edgeRec{edge: stamped, file: at.file, off: at.off, line: at.line, col: at.col, seq: seq})
+}
+
+func ensureModuleNode(b mut graphBuilder, modPath string) uint32 {
+	match b.modMap.Get(modPath) {
+	case option.Some{Value: id}:
+		id
+	case option.None:
+		let id = addGraphNode(b, codegraph.NodeRow{
+			Id:      0, Kind: "module", Sub: "", Parent: -1, Name: modPath, Digest: "",
+			Subject: -1, Lines: 0, File: -1, Offset: 0, Line: 0, Column: 0,
+		}, nodePosRec{file: NoID, off: 0, line: 0, col: 0}, NoID, NoID)
+		b.modMap[modPath] = id
+		id
+	}
+}
+
+func unitPkgPath(u UnitInput) string {
+	if u.Path != "" {
+		return u.Path
+	}
+	match u.Typed {
+	case option.Some{Value: td}:
+		store.PathOf(td.S)
+	case option.None:
+		""
+	}
+}
+
+func ensurePackageNode(b mut graphBuilder, modName string, pkgPath string, sub string) uint32 {
+	let key = modName + "\x00" + pkgPath
+	match b.pkgMap.Get(key) {
+	case option.Some{Value: id}:
+		id
+	case option.None:
+		let parent = if modName != "" { int(ensureModuleNode(b, modName)) } else { -1 }
+		let id = addGraphNode(b, codegraph.NodeRow{
+			Id:      0, Kind: "package", Sub: sub, Parent: parent, Name: pkgPath, Digest: "",
+			Subject: -1, Lines: 0, File: -1, Offset: 0, Line: 0, Column: 0,
+		}, nodePosRec{file: NoID, off: 0, line: 0, col: 0}, NoID, NoID)
+		b.nodePkg[int(id)] = id
+		b.pkgMap[key] = id
+		if parent >= 0 {
+			addGraphEdge(b, codegraph.EdgeRow{
+				Kind: "contains", How: "", From: parent, To: int(id), File: -1, Offset: 0, Line: 0, Column: 0,
+			}, nodePosRec{file: NoID, off: 0, line: 0, col: 0})
+		}
+		id
+	}
+}
+
+func posAt(fi FileIndex, fileNode uint32, off int) nodePosRec {
+	let p = syntax.PositionOf(fi.Lines, off)
+	nodePosRec{file: fileNode, off: uint32(off), line: uint32(p.Line), col: uint32(p.Column)}
+}
+
+func resolveNominalOwner(ctx edgeCtx, typed load.Typed, uMod string, uPath string, t dense.ID[store.TKey]) (string, string, string, bool) {
+	let s = typed.S
+	let mut cur = t
+	for {
+		let k = store.KindOfType(s, cur)
+		if k == store.KPointer || k == store.KOwn {
+			let ops = store.OperandsOf(s, cur)
+			if ops.Len() > 0 {
+				cur = ops[0]
+				continue
+			}
+			return ("", "", "", false)
+		}
+		if k == store.KReapplied {
+			let ops = store.OperandsOf(s, cur)
+			if ops.Len() > 1 {
+				cur = ops[1]
+				continue
+			}
+			return ("", "", "", false)
+		}
+		if k == store.KNamed {
+			let idx = store.ArgOf(s, cur)
+			if idx >= 0 {
+				return (uMod, uPath, store.TypeNameText(s, idx), true)
+			}
+			return ("", "", "", false)
+		}
+		if k == store.KForeign {
+			let idx = store.ArgOf(s, cur)
+			if idx >= 0 && idx < typed.K.Foreign.Len() {
+				let fr = typed.K.Foreign[idx]
+				let tm = match ctx.modByPkg.Get(fr.Path) {
+				case option.Some{Value: m}:
+					m
+				case option.None:
+					""
+				}
+				return (tm, fr.Path, fr.Name, true)
+			}
+			return ("", "", "", false)
+		}
+		if k == store.KInstance {
+			let xref = store.OriginOfType(s, cur)
+			let (om, op, ot) = resolveXRefPkg(ctx, typed, uMod, uPath, xref)
+			return (om, op, ot, ot != "" || op != "")
+		}
+		return ("", "", "", false)
+	}
+	("", "", "", false)
+}
+
+func buildPNodeTypeCol(typed load.Typed) []dense.Opt[store.TKey] {
+	let total = bind.Written(typed.K.Ps)
+	let mut col = slices.Repeat([]dense.Opt[store.TKey]{dense.NoID[store.TKey]()}, total+1)
+	for ent in typed.T.Entries {
+		let pi = dense.Index(ent.At)
+		if pi >= 0 && pi < col.Len() {
+			col[pi] = dense.OptOf(ent.T)
+		}
+	}
+	col
+}
+
+func buildPNodeCallCol(typed load.Typed) []int {
+	let total = bind.Written(typed.K.Ps)
+	let mut col = slices.Repeat([]int{-1}, total+1)
+	for i, c in typed.T.Calls {
+		let pi = dense.Index(c.Call)
+		if pi >= 0 && pi < col.Len() {
+			col[pi] = i
+		}
+	}
+	col
+}
+
+func buildPNodeCapCol(typed load.Typed) []dense.Opt[store.TKey] {
+	let total = bind.Written(typed.K.Ps)
+	let mut col = slices.Repeat([]dense.Opt[store.TKey]{dense.NoID[store.TKey]()}, total+1)
+	for c in typed.T.Caps {
+		let pi = dense.Index(c.Call)
+		if pi >= 0 && pi < col.Len() {
+			col[pi] = dense.OptOf(c.T)
+		}
+	}
+	col
+}
+
+func declKindForSyntax(p syntax.Parsed, id dense.ID[syntax.Node]) (string, string, dense.Opt[syntax.Node]) {
+	let t = p.Tree
+	let k = syntax.KindOf(t, id)
+	if k == syntax.KFuncDecl {
+		let fd = syntax.FuncDeclOf(t, id)
+		return ("func", NodeText(p, fd.Name), dense.OptOf(fd.Name))
+	}
+	if k == syntax.KTypeDecl {
+		let td = syntax.TypeDeclOf(t, id)
+		let mut sub = "type"
+		match dense.Unpack(td.Spec) {
+		case option.Some{Value: sp}:
+			if syntax.KindOf(t, sp) == syntax.KMachineType {
+				sub = "machine"
+			}
+		case option.None:
+		}
+		return (sub, NodeText(p, td.Name), dense.OptOf(td.Name))
+	}
+	if k == syntax.KVarDecl {
+		let vs = syntax.VarSpecOf(t, syntax.VarDeclOf(t, id).Spec)
+		if syntax.Len(vs.Names) > 0 {
+			let n0 = syntax.Item(t, vs.Names, 0)
+			return ("let", NodeText(p, n0), dense.OptOf(n0))
+		}
+		return ("", "", dense.NoID[syntax.Node]())
+	}
+	if k == syntax.KContextDecl {
+		let cd = syntax.ContextDeclOf(t, id)
+		return ("context", NodeText(p, cd.Name), dense.OptOf(cd.Name))
+	}
+	if k == syntax.KLawDecl {
+		let ld = syntax.LawDeclOf(t, id)
+		return ("law", NodeText(p, ld.Name) + "#law", dense.OptOf(ld.Name))
+	}
+	if k == syntax.KTestDecl {
+		let td = syntax.TestDeclOf(t, id)
+		return ("test", NodeText(p, td.Name) + "#test", dense.OptOf(td.Name))
+	}
+	("", "", dense.NoID[syntax.Node]())
+}
+
+type declEnv {
+	modName  string,
+	pkgPath  string,
+	pkgNode  uint32,
+	fileNode uint32,
+	unitIdx  int,
+	fileIdx  int,
+	p        syntax.Parsed,
+	fi       FileIndex,
+	hasTyped bool,
+	ps       bind.Parents,
+}
+
+func registerPNode(env declEnv, pnodeNodes mut []uint32, row dense.ID[syntax.Node], gnode uint32) {
+	if !env.hasTyped {
+		return
+	}
+	let pn = bind.PNodeOf(env.ps, env.fileIdx, row)
+	let pi = dense.Index(pn)
+	if pi >= 0 && pi < (*pnodeNodes).Len() {
+		(*pnodeNodes)[pi] = gnode
+	}
+}
+
+func addMemberNode(b mut graphBuilder, pnodeNodes mut []uint32, env declEnv, ownerNode uint32, sub string, handle string, at dense.ID[syntax.Node]) uint32 {
+	let mn = addGraphNode(b, codegraph.NodeRow{
+		Id:      0, Kind: "decl", Sub: sub, Parent: int(ownerNode), Name: handle, Digest: "",
+		Subject: -1, Lines: 0, File: -1, Offset: 0, Line: 0, Column: 0,
+	}, posAt(env.fi, env.fileNode, syntax.NodePos(env.p, at)), env.pkgNode, env.fileNode)
+	addGraphEdge(b, codegraph.EdgeRow{
+		Kind: "contains", How: "", From: int(ownerNode), To: int(mn), File: -1, Offset: 0, Line: 0, Column: 0,
+	}, nodePosRec{file: NoID, off: 0, line: 0, col: 0})
+	(*b).handleMap[env.modName+"\x00"+env.pkgPath+"\x00"+handle] = mn
+	if sub == "field" || sub == "operation" {
+		(*b).memberMap[env.modName+"\x00"+env.pkgPath+"\x00"+handle] = mn
+	}
+	registerPNode(env, pnodeNodes, at, mn)
+	mn
+}
+
+func addTypeMembers(b mut graphBuilder, pnodeNodes mut []uint32, env declEnv, tdID dense.ID[syntax.Node], ownerNode uint32, ownerName string) {
+	let t = env.p.Tree
+	let td = syntax.TypeDeclOf(t, tdID)
+	let sid = match dense.Unpack(td.Spec) {
+	case option.Some{Value: s}:
+		s
+	case option.None:
+		return
+	}
+	let sk = syntax.KindOf(t, sid)
+	if sk == syntax.KStructType {
+		let fl = syntax.FieldListOf(t, syntax.StructTypeOf(t, sid).Fields)
+		for i in 0..syntax.Len(fl.List) {
+			let fd = syntax.FieldOf(t, syntax.Item(t, fl.List, i))
+			for j in 0..syntax.Len(fd.Names) {
+				let nid = syntax.Item(t, fd.Names, j)
+				let handle = ownerName + "." + NodeText(env.p, nid)
+				let key = env.modName + "\x00" + env.pkgPath + "\x00" + handle
+				let pi = if env.hasTyped { dense.Index(bind.PNodeOf(env.ps, env.fileIdx, nid)) } else { -1 }
+				let pfIdx = (*b).pendingFields.Len()
+				(*b).pendingFields = (*b).pendingFields.Append(pendingFieldRec{
+					key:       key,
+					ownerNode: ownerNode,
+					handle:    handle,
+					at:        posAt(env.fi, env.fileNode, syntax.NodePos(env.p, nid)),
+					pkgNode:   env.pkgNode,
+					fileNode:  env.fileNode,
+					pnodeIdx:  pi,
+					unitIdx:   env.unitIdx,
+					fileIdx:   env.fileIdx,
+					declRow:   dense.Index(tdID),
+				})
+				(*b).pendingDone = (*b).pendingDone.Append(false)
+				(*b).pendingNode = (*b).pendingNode.Append(NoID)
+				match (*b).pendingByKey.Get(key) {
+				case option.Some:
+				case option.None:
+					(*b).pendingByKey[key] = pfIdx
+				}
+			}
+		}
+	} else if sk == syntax.KInterfaceType {
+		let it = syntax.InterfaceTypeOf(t, sid)
+		for i in 0..syntax.Len(it.Members) {
+			let mid = syntax.Item(t, it.Members, i)
+			let mk = syntax.KindOf(t, mid)
+			if mk == syntax.KField {
+				let fd = syntax.FieldOf(t, mid)
+				let isOp = syntax.Len(fd.Names) >= 1 && match dense.Unpack(fd.Type) {
+				case option.Some{Value: ft}:
+					syntax.KindOf(t, ft) == syntax.KFuncType
+				case option.None:
+					false
+				}
+				if isOp {
+					(*b).domainPkgs[env.pkgPath] = true
+				}
+				for j in 0..syntax.Len(fd.Names) {
+					let nid = syntax.Item(t, fd.Names, j)
+					let _ = addMemberNode(b, pnodeNodes, env, ownerNode, "operation", ownerName+"."+NodeText(env.p, nid), nid)
+				}
+			} else if mk == syntax.KVariantSpec {
+				let vs = syntax.VariantSpecOf(t, mid)
+				let vname = NodeText(env.p, vs.Name)
+				let vkey = env.modName + "\x00" + env.pkgPath + "\x00" + vname
+				match (*b).handleMap.Get(vkey) {
+				case option.Some{Value: existing}:
+					registerPNode(env, pnodeNodes, vs.Name, existing)
+				case option.None:
+					let _ = addMemberNode(b, pnodeNodes, env, ownerNode, "variant", vname, vs.Name)
+				}
+			} else if mk == syntax.KLawDecl {
+				let ld = syntax.LawDeclOf(t, mid)
+				let _ = addMemberNode(b, pnodeNodes, env, ownerNode, "law", ownerName+"."+NodeText(env.p, ld.Name)+"#law", ld.Name)
+			}
+		}
+	} else if sk == syntax.KMachineType {
+		let mt = syntax.MachineTypeOf(t, sid)
+		for i in 0..syntax.Len(mt.Members) {
+			let mid = syntax.Item(t, mt.Members, i)
+			if syntax.KindOf(t, mid) == syntax.KLawDecl {
+				let ld = syntax.LawDeclOf(t, mid)
+				let _ = addMemberNode(b, pnodeNodes, env, ownerNode, "law", ownerName+"."+NodeText(env.p, ld.Name)+"#law", ld.Name)
+			}
+		}
+	}
+}
+
+func importSpecInfo(p syntax.Parsed, is syntax.ImportSpec) (string, bool) {
+	let path = strings.TrimRight(strings.TrimLeft(NodeText(p, is.Path), "\"`"), "\"`")
+	let isGo = match dense.Unpack(is.Name) {
+	case option.Some{Value: n}:
+		NodeText(p, n) == "go"
+	case option.None:
+		is.NamePos >= 0 && syntax.TokKind(p, is.NamePos) == syntax.Go
+	}
+	(path, isGo)
+}
+
+func typeNodeLastIdent(p syntax.Parsed, t syntax.Tree, node dense.ID[syntax.Node]) string {
+	let mut cur = node
+	for {
+		let k = syntax.KindOf(t, cur)
+		if k == syntax.KStarExpr {
+			cur = syntax.StarExprOf(t, cur).X
+			continue
+		}
+		if k == syntax.KIndexExpr {
+			cur = syntax.IndexExprOf(t, cur).X
+			continue
+		}
+		if k == syntax.KIdent {
+			return NodeText(p, cur)
+		}
+		if k == syntax.KSelectorExpr {
+			return NodeText(p, syntax.SelectorExprOf(t, cur).Sel)
+		}
+		return ""
+	}
+	""
+}
+
+func recordTopDecls(b mut graphBuilder, pnodeNodes mut []uint32, env declEnv, declNodeByRow mut []uint32) {
+	let t = env.p.Tree
+	for dr in env.fi.Decls {
+		let id = syntax.NodeAt(t, int(dr.Node))
+		let (sub, local, nameOpt) = declKindForSyntax(env.p, id)
+		if sub == "" {
+			continue
+		}
+		let nid = match dense.Unpack(nameOpt) {
+		case option.Some{Value: n}:
+			n
+		case option.None:
+			continue
+		}
+		let gn = addGraphNode(b, codegraph.NodeRow{
+			Id:      0, Kind: "decl", Sub: sub, Parent: int(env.fileNode), Name: local, Digest: "",
+			Subject: -1, Lines: 0, File: -1, Offset: 0, Line: 0, Column: 0,
+		}, posAt(env.fi, env.fileNode, syntax.NodePos(env.p, nid)), env.pkgNode, env.fileNode)
+		addGraphEdge(b, codegraph.EdgeRow{
+			Kind: "contains", How: "", From: int(env.fileNode), To: int(gn), File: -1, Offset: 0, Line: 0, Column: 0,
+		}, nodePosRec{file: NoID, off: 0, line: 0, col: 0})
+		(*declNodeByRow)[int(dr.Node)] = gn
+		(*b).nodeTopRank[int(gn)] = (*b).unitTopNext
+		(*b).unitTopNext += uint32(1)
+		registerPNode(env, pnodeNodes, nid, gn)
+		let key = env.modName + "\x00" + env.pkgPath + "\x00" + local
+		match (*b).handleMap.Get(key) {
+		case option.Some{Value: existing}:
+			if sub != "func" || (*b).nodes[int(existing)].Sub != "func" {
+				registerPNode(env, pnodeNodes, nid, existing)
+			}
+		case option.None:
+			(*b).handleMap[key] = gn
+		}
+		if dr.Kind == syntax.KFuncDecl {
+			let fd = syntax.FuncDeclOf(t, id)
+			let recv0 = match dense.Unpack(fd.Recv) {
+			case option.Some{Value: rfl}:
+				if syntax.KindOf(t, rfl) == syntax.KFieldList {
+					let fl = syntax.FieldListOf(t, rfl)
+					if syntax.Len(fl.List) > 0 {
+						let f0 = syntax.FieldOf(t, syntax.Item(t, fl.List, 0))
+						match dense.Unpack(f0.Type) {
+						case option.Some{Value: ty}:
+							typeNodeLastIdent(env.p, t, ty)
+						case option.None:
+							""
+						}
+					} else {
+						""
+					}
+				} else {
+					""
+				}
+			case option.None:
+				if syntax.KindOf(t, fd.Type) == syntax.KFuncType {
+					firstParamTypeLastIdent(env.p, t, syntax.FuncTypeOf(t, fd.Type))
+				} else {
+					""
+				}
+			}
+			if recv0 != "" {
+				let mkey = env.modName + "\x00" + env.pkgPath + "\x00" + recv0 + "." + local
+				match (*b).handleMap.Get(mkey) {
+				case option.Some:
+				case option.None:
+					(*b).handleMap[mkey] = gn
+				}
+			}
+		} else if dr.Kind == syntax.KVarDecl {
+			let vs = syntax.VarSpecOf(t, syntax.VarDeclOf(t, id).Spec)
+			for j in 1..syntax.Len(vs.Names) {
+				let extraN = syntax.Item(t, vs.Names, j)
+				registerPNode(env, pnodeNodes, extraN, gn)
+				let ek = env.modName + "\x00" + env.pkgPath + "\x00" + NodeText(env.p, extraN)
+				match (*b).handleMap.Get(ek) {
+				case option.Some:
+				case option.None:
+					(*b).handleMap[ek] = gn
+				}
+			}
+		}
+	}
+}
+
+func recordDeclMembers(b mut graphBuilder, pnodeNodes mut []uint32, env declEnv, declNodeByRow []uint32) {
+	let t = env.p.Tree
+	for dr in env.fi.Decls {
+		if dr.Kind != syntax.KTypeDecl {
+			continue
+		}
+		let gn = declNodeByRow[int(dr.Node)]
+		if gn == NoID {
+			continue
+		}
+		let id = syntax.NodeAt(t, int(dr.Node))
+		let td = syntax.TypeDeclOf(t, id)
+		addTypeMembers(b, pnodeNodes, env, id, gn, NodeText(env.p, td.Name))
+	}
+}
+
+func resolveExternalDecl(b mut graphBuilder, modByPkg Map[string, string], pkgPath string, symName string) uint32 {
+	let modName = match modByPkg.Get(pkgPath) {
+	case option.Some{Value: m}:
+		m
+	case option.None:
+		""
+	}
+	let key = modName + "\x00" + pkgPath + "\x00" + symName
+	match (*b).handleMap.Get(key) {
+	case option.Some{Value: id}:
+		return id
+	case option.None:
+	}
+	if modName != "" {
+		return NoID
+	}
+	let pn = ensurePackageNode(b, "", pkgPath, "")
+	let mn = addGraphNode(b, codegraph.NodeRow{
+		Id:      0, Kind: "decl", Sub: "func", Parent: int(pn), Name: symName, Digest: "",
+		Subject: -1, Lines: 0, File: -1, Offset: 0, Line: 0, Column: 0,
+	}, nodePosRec{file: NoID, off: 0, line: 0, col: 0}, pn, NoID)
+	(*b).handleMap[key] = mn
+	mn
+}
+
+func resolveExternalMethod(b mut graphBuilder, modByPkg Map[string, string], pkgPath string, ownerType string, symName string) uint32 {
+	if ownerType != "" {
+		let modName = match modByPkg.Get(pkgPath) {
+		case option.Some{Value: m}:
+			m
+		case option.None:
+			""
+		}
+		match (*b).handleMap.Get(modName + "\x00" + pkgPath + "\x00" + ownerType + "." + symName) {
+		case option.Some{Value: id}:
+			return id
+		case option.None:
+		}
+	}
+	resolveExternalDecl(b, modByPkg, pkgPath, symName)
+}
+
+type edgeCtx {
+	modByPkg   Map[string, string],
+	units      []UnitInput,
+	unitByPkg  Map[string, int],
+	pnodeNodes [][]uint32,
+	pnodeTypes [][]dense.Opt[store.TKey],
+	pnodeCalls [][]int,
+	pnodeCaps  [][]dense.Opt[store.TKey],
+}
+
+func resolveDepDeclName(typed load.Typed, pkgPath string, declIdx int, fallback string) string {
+	for ifc in typed.K.Ifaces {
+		if ifc.Path == pkgPath && declIdx >= 0 && declIdx < ifc.Decls.Len() {
+			return ifc.Decls[declIdx].Name
+		}
+	}
+	for dep in typed.K.Deps {
+		if store.PathOf(dep.S) == pkgPath {
+			if declIdx >= 0 && declIdx < store.NumDecls(dep.S) {
+				return store.DeclText(dep.S, declIdx)
+			}
+		}
+	}
+	fallback
+}
+
+func resolveXRefPkg(ctx edgeCtx, typed load.Typed, uMod string, uPath string, xref store.XRef) (string, string, string) {
+	if int(xref.Import) == store.ForeignBit {
+		let di = int(xref.Decl)
+		if di >= 0 && di < typed.K.Foreign.Len() {
+			let fr = typed.K.Foreign[di]
+			let tm = match ctx.modByPkg.Get(fr.Path) {
+			case option.Some{Value: m}:
+				m
+			case option.None:
+				""
+			}
+			return (tm, fr.Path, fr.Name)
+		}
+		return ("", "", "")
+	}
+	let imps = store.ImportPaths(typed.S)
+	if xref.Import == uint32(0) {
+		let di = int(xref.Decl)
+		let tname = if di >= 0 && di < store.NumDecls(typed.S) { store.DeclText(typed.S, di) } else { "" }
+		return (uMod, uPath, tname)
+	}
+	if int(xref.Import) > 0 && int(xref.Import) <= typed.K.Ifaces.Len() {
+		let ifc = typed.K.Ifaces[int(xref.Import)-1]
+		let di = int(xref.Decl)
+		let tname = if di >= 0 && di < ifc.Decls.Len() { ifc.Decls[di].Name } else { "" }
+		let tm = match ctx.modByPkg.Get(ifc.Path) {
+		case option.Some{Value: m}:
+			m
+		case option.None:
+			""
+		}
+		return (tm, ifc.Path, tname)
+	}
+	if int(xref.Import) <= imps.Len() {
+		let tp = imps[int(xref.Import)-1]
+		let tm = match ctx.modByPkg.Get(tp) {
+		case option.Some{Value: m}:
+			m
+		case option.None:
+			""
+		}
+		let tname = resolveDepDeclName(typed, tp, int(xref.Decl), "")
+		return (tm, tp, tname)
+	}
+	("", "", "")
+}
+
+func resolveXRefDecl(b mut graphBuilder, ctx edgeCtx, typed load.Typed, ref store.XRef, fallback string) uint32 {
+	if ref.Import == uint32(store.ForeignBit) {
+		return NoID
+	}
+	let imps = store.ImportPaths(typed.S)
+	if ref.Import == uint32(0) || int(ref.Import) > imps.Len() {
+		return NoID
+	}
+	let targetPath = imps[int(ref.Import)-1]
+	let sym = resolveDepDeclName(typed, targetPath, int(ref.Decl), fallback)
+	let tMod = match ctx.modByPkg.Get(targetPath) {
+	case option.Some{Value: m}:
+		m
+	case option.None:
+		""
+	}
+	let key = tMod + "\x00" + targetPath + "\x00" + sym
+	match (*b).handleMap.Get(key) {
+	case option.Some{Value: id}:
+		id
+	case option.None:
+		resolveExternalDecl(b, ctx.modByPkg, targetPath, sym)
+	}
+}
+
+func materializePendingField(b mut graphBuilder, pnodeNodes mut [][]uint32, pfIdx int) uint32 {
+	let pf = (*b).pendingFields[pfIdx]
+	if (*b).pendingDone[pfIdx] {
+		match (*b).memberMap.Get(pf.key) {
+		case option.Some{Value: id}:
+			return id
+		case option.None:
+			return NoID
+		}
+	}
+	(*b).pendingDone[pfIdx] = true
+	let mn = addGraphNode(b, codegraph.NodeRow{
+		Id:      0, Kind: "decl", Sub: "field", Parent: int(pf.ownerNode), Name: pf.handle, Digest: "",
+		Subject: -1, Lines: 0, File: -1, Offset: 0, Line: 0, Column: 0,
+	}, pf.at, pf.pkgNode, pf.fileNode)
+	addGraphEdge(b, codegraph.EdgeRow{
+		Kind: "contains", How: "", From: int(pf.ownerNode), To: int(mn), File: -1, Offset: 0, Line: 0, Column: 0,
+	}, nodePosRec{file: NoID, off: 0, line: 0, col: 0})
+	(*b).handleMap[pf.key] = mn
+	(*b).memberMap[pf.key] = mn
+	if pfIdx >= 0 && pfIdx < (*b).pendingNode.Len() {
+		(*b).pendingNode[pfIdx] = mn
+	}
+	if pf.pnodeIdx >= 0 && pf.unitIdx >= 0 && pf.unitIdx < (*pnodeNodes).Len() && pf.pnodeIdx < (*pnodeNodes)[pf.unitIdx].Len() {
+		(*pnodeNodes)[pf.unitIdx][pf.pnodeIdx] = mn
+	}
+	mn
+}
+
+func resolveOwnerMember(b mut graphBuilder, pnodeNodes mut [][]uint32, ctx edgeCtx, ownerMod string, ownerPath string, ownerType string, member string) (uint32, string) {
+	if ownerType == "" || member == "" {
+		return (NoID, ownerPath)
+	}
+	let handle = ownerType + "." + member
+	let key = ownerMod + "\x00" + ownerPath + "\x00" + handle
+	match (*b).memberMap.Get(key) {
+	case option.Some{Value: id}:
+		(id, ownerPath)
+	case option.None:
+		match (*b).pendingByKey.Get(key) {
+		case option.Some{Value: pfIdx}:
+			return (materializePendingField(b, pnodeNodes, pfIdx), ownerPath)
+		case option.None:
+		}
+		if ownerMod == "" && ownerPath != "" {
+			let pn = ensurePackageNode(b, "", ownerPath, "")
+			let mn = addGraphNode(b, codegraph.NodeRow{
+				Id:      0, Kind: "decl", Sub: "field", Parent: int(pn), Name: handle, Digest: "",
+				Subject: -1, Lines: 0, File: -1, Offset: 0, Line: 0, Column: 0,
+			}, nodePosRec{file: NoID, off: 0, line: 0, col: 0}, pn, NoID)
+			(*b).memberMap[key] = mn
+			return (mn, ownerPath)
+		}
+		(NoID, ownerPath)
+	}
+}
+
+func resolveIdentUse(b mut graphBuilder, ctx edgeCtx, typed load.Typed, uIdx int, fIdx int, row dense.ID[syntax.Node], text string) uint32 {
+	if fIdx < 0 || fIdx >= typed.K.Parsed.Len() || !validTreeNode(typed.K.Parsed[fIdx], row) {
+		return NoID
+	}
+	let pn = bind.PNodeOf(typed.K.Ps, fIdx, row)
+	match bind.ResolutionOf(typed.K.U, typed.K.Ps, pn) {
+	case bind.Declared as dec:
+		let di = dense.Index(dec.At)
+		if di >= 0 && di < ctx.pnodeNodes[uIdx].Len() {
+			return ctx.pnodeNodes[uIdx][di]
+		}
+		NoID
+	case bind.Imported as im:
+		resolveXRefDecl(b, ctx, typed, im.Ref, text)
+	case bind.Outside:
+		NoID
+	case bind.NotUse:
+		NoID
+	}
+}
+
+func emitUse(b mut graphBuilder, from uint32, to uint32, how string, at nodePosRec) {
+	if from == NoID || to == NoID || from == to {
+		return
+	}
+	if at.file != NoID && (*b).nodeAt[int(to)].file == at.file && (*b).nodeAt[int(to)].off == at.off {
+		return
+	}
+	addGraphEdge(b, codegraph.EdgeRow{
+		Kind: "uses", How: how, From: int(from), To: int(to), File: -1, Offset: 0, Line: 0, Column: 0,
+	}, at)
+	if (*b).nodes[int(from)].Kind == "decl" && (*b).nodes[int(from)].Sub == "test" {
+		let mut top = to
+		for top != NoID && (*b).nodes[int(top)].Kind == "decl" {
+			let p = (*b).nodes[int(top)].Parent
+			if p < 0 || (*b).nodes[p].Kind != "decl" {
+				break
+			}
+			top = uint32(p)
+		}
+		if top != NoID && top != from && (*b).nodePkg[int(top)] == (*b).nodePkg[int(from)] {
+			addGraphEdge(b, codegraph.EdgeRow{
+				Kind: "testof", How: "", From: int(from), To: int(top), File: -1, Offset: 0, Line: 0, Column: 0,
+			}, nodePosRec{file: NoID, off: 0, line: 0, col: 0})
+		}
+	}
+}
+
+func markPlaceWrite(t syntax.Tree, node dense.ID[syntax.Node], written mut []bool) {
+	let mut cur = node
+	for {
+		cur = Unparen(t, cur)
+		let idx = dense.Index(cur)
+		if idx >= 0 && idx < (*written).Len() {
+			(*written)[idx] = true
+		}
+		let k = syntax.KindOf(t, cur)
+		if k == syntax.KSelectorExpr {
+			let se = syntax.SelectorExprOf(t, cur)
+			let selIdx = dense.Index(se.Sel)
+			if selIdx >= 0 && selIdx < (*written).Len() {
+				(*written)[selIdx] = true
+			}
+			cur = se.X
+			continue
+		}
+		break
+	}
+}
+
+func markWriteLhsNodes(p syntax.Parsed, fi FileIndex, written mut []bool) {
+	let t = p.Tree
+	for aRow in fi.Assigns {
+		let asgn = syntax.AssignStmtOf(t, syntax.NodeAt(t, int(aRow)))
+		let lhs = Unparen(t, asgn.Lhs)
+		if syntax.KindOf(t, lhs) == syntax.KTupleExpr {
+			let te = syntax.TupleExprOf(t, lhs)
+			for i in 0..syntax.Len(te.Elts) {
+				markPlaceWrite(t, syntax.Item(t, te.Elts, i), written)
+			}
+		} else {
+			markPlaceWrite(t, lhs, written)
+		}
+	}
+}
+
+func stripCallTarget(t syntax.Tree, fun dense.ID[syntax.Node]) dense.ID[syntax.Node] {
+	let mut cur = Unparen(t, fun)
+	for syntax.KindOf(t, cur) == syntax.KIndexExpr {
+		cur = Unparen(t, syntax.IndexExprOf(t, cur).X)
+	}
+	cur
+}
+
+func markCallFuns(p syntax.Parsed, fi FileIndex, callFuns mut []bool, callFunSels mut []bool) {
+	let t = p.Tree
+	for cRow in fi.Calls {
+		let ce = syntax.CallExprOf(t, syntax.NodeAt(t, int(cRow)))
+		let target = stripCallTarget(t, ce.Fun)
+		let tk = syntax.KindOf(t, target)
+		if tk == syntax.KIdent {
+			(*callFuns)[dense.Index(target)] = true
+		} else if tk == syntax.KSelectorExpr {
+			let se = syntax.SelectorExprOf(t, target)
+			(*callFunSels)[dense.Index(target)] = true
+			(*callFuns)[dense.Index(se.Sel)] = true
+		}
+	}
+}
+
+func emitImplementsTarget(b mut graphBuilder, ctx edgeCtx, typed load.Typed, uIdx int, fIdx int, uPath string, fi FileIndex, fileNode uint32, p syntax.Parsed, from uint32, impNode dense.ID[syntax.Node], handledIdents mut []bool) {
+	let t = p.Tree
+	let target = stripCallTarget(t, impNode)
+	let tk = syntax.KindOf(t, target)
+	let targetIdent = if tk == syntax.KSelectorExpr {
+		syntax.SelectorExprOf(t, target).Sel
+	} else {
+		target
+	}
+	if syntax.KindOf(t, targetIdent) != syntax.KIdent {
+		return
+	}
+	let to = resolveIdentUse(b, ctx, typed, uIdx, fIdx, targetIdent, NodeText(p, targetIdent))
+	if to == NoID {
+		return
+	}
+	let tid = dense.Index(targetIdent)
+	if tid >= 0 && tid < (*handledIdents).Len() {
+		(*handledIdents)[tid] = true
+	}
+	emitUse(b, from, to, "provides", posAt(fi, fileNode, syntax.NodePos(p, targetIdent)))
+	addGraphEdge(b, codegraph.EdgeRow{
+		Kind: "provides", How: "", From: int(from), To: int(to), File: -1, Offset: 0, Line: 0, Column: 0,
+	}, nodePosRec{file: NoID, off: 0, line: 0, col: 0})
+	let toPkg = (*b).nodePkg[int(to)]
+	if toPkg != NoID && (*b).nodes[int(toPkg)].Name != uPath {
+		match (*b).domainPkgs.Get(uPath) {
+		case option.Some:
+		case option.None:
+			(*b).implPkgs[uPath] = true
+		}
+	}
+}
+
+func validTreeNode(p syntax.Parsed, node dense.ID[syntax.Node]) bool {
+	if p.Failed {
+		return false
+	}
+	let idx = dense.Index(node)
+	idx >= 0 && idx < syntax.NumNodes(p.Tree)
+}
+
+func resolveNodeType(ctx edgeCtx, typed load.Typed, uIdx int, fIdx int, node dense.ID[syntax.Node]) dense.Opt[store.TKey] {
+	if fIdx < 0 || fIdx >= typed.K.Parsed.Len() || !validTreeNode(typed.K.Parsed[fIdx], node) {
+		return dense.NoID[store.TKey]()
+	}
+	let pn = bind.PNodeOf(typed.K.Ps, fIdx, node)
+	let pi = dense.Index(pn)
+	if pi >= 0 && pi < ctx.pnodeTypes[uIdx].Len() {
+		let direct = ctx.pnodeTypes[uIdx][pi]
+		match dense.Unpack(direct) {
+		case option.Some:
+			return direct
+		case option.None:
+		}
+	}
+	dense.NoID[store.TKey]()
+}
+
+type exprTypeRes {
+	typed load.Typed,
+	uMod  string,
+	uPath string,
+	t     dense.Opt[store.TKey],
+}
+
+func unwrapPtrOwnType(s store.Store, t dense.ID[store.TKey]) dense.ID[store.TKey] {
+	let mut cur = t
+	for {
+		let k = store.KindOfType(s, cur)
+		if k == store.KPointer || k == store.KOwn {
+			let ops = store.OperandsOf(s, cur)
+			if ops.Len() > 0 {
+				cur = ops[0]
+				continue
+			}
+			return cur
+		}
+		return cur
+	}
+	cur
+}
+
+func lookupStructFieldType(ctx edgeCtx, xRes exprTypeRes, xt dense.ID[store.TKey], fieldName string) exprTypeRes {
+	let (ownerMod, ownerPath, ownerType, okNom) = resolveNominalOwner(ctx, xRes.typed, xRes.uMod, xRes.uPath, xt)
+	if okNom && ownerPath != "" && ownerType != "" {
+		match ctx.unitByPkg.Get(ownerPath) {
+		case option.Some{Value: ouIdx}:
+			match ctx.units[ouIdx].Typed {
+			case option.Some{Value: otd}:
+				for rec in otd.K.Recs {
+					if rec.Name == ownerType {
+						for fld in rec.Fields {
+							if fld.Name == fieldName {
+								if store.KindOfType(otd.S, fld.T) == store.KParam {
+									let base = unwrapPtrOwnType(xRes.typed.S, xt)
+									if store.KindOfType(xRes.typed.S, base) == store.KInstance {
+										let args = store.OperandsOf(xRes.typed.S, base)
+										let pIdx = store.ArgOf(otd.S, fld.T)
+										if pIdx >= 0 && pIdx < args.Len() {
+											return exprTypeRes{typed: xRes.typed, uMod: xRes.uMod, uPath: xRes.uPath, t: dense.OptOf(args[pIdx])}
+										}
+									}
+								}
+								return exprTypeRes{typed: otd, uMod: ownerMod, uPath: ownerPath, t: dense.OptOf(fld.T)}
+							}
+						}
+						break
+					}
+				}
+			case option.None:
+			}
+		case option.None:
+		}
+	}
+	exprTypeRes{typed: xRes.typed, uMod: xRes.uMod, uPath: xRes.uPath, t: dense.NoID[store.TKey]()}
+}
+
+func resolveOutsideSliceCall(
+	ctx edgeCtx,
+	typed load.Typed,
+	uIdx int,
+	fIdx int,
+	uMod string,
+	uPath string,
+	target dense.ID[syntax.Node],
+	ce syntax.CallExpr,
+	depth int,
+) exprTypeRes {
+	let p = typed.K.Parsed[fIdx]
+	let t = p.Tree
+	if syntax.KindOf(t, target) == syntax.KSelectorExpr && syntax.Len(ce.Args) > 0 {
+		let se = syntax.SelectorExprOf(t, target)
+		if syntax.KindOf(t, se.X) == syntax.KIdent {
+			let qName = NodeText(p, se.X)
+			let selName = NodeText(p, se.Sel)
+			let mut pkgMatch = qName
+			let decls = syntax.FileOf(t, syntax.Root(t)).Decls
+			for di in 0..syntax.Len(decls) {
+				let dn = syntax.Item(t, decls, di)
+				if syntax.KindOf(t, dn) == syntax.KImportDecl {
+					let sp = syntax.ImportSpecOf(t, syntax.ImportDeclOf(t, dn).Spec)
+					let (ip, _) = importSpecInfo(p, sp)
+					let alias = match dense.Unpack(sp.Name) {
+					case option.Some{Value: an}:
+						NodeText(p, an)
+					case option.None:
+						let slash = strings.LastIndex(ip, "/")
+						if slash >= 0 { ip[slash+1 : ip.Len()] } else { ip }
+					}
+					if alias == qName {
+						pkgMatch = ip
+						break
+					}
+				}
+			}
+			let arg0 = syntax.Item(t, ce.Args, 0)
+			let argRes = resolveExprTypeEx(ctx, typed, uIdx, fIdx, uMod, uPath, arg0, depth+1)
+			match dense.Unpack(argRes.t) {
+			case option.Some{Value: rawAt}:
+				let at = unwrapPtrOwnType(argRes.typed.S, rawAt)
+				let ak = store.KindOfType(argRes.typed.S, at)
+				if pkgMatch == "dense" && selName == "Rows" && ak == store.KInstance {
+					let aArgs = store.OperandsOf(argRes.typed.S, at)
+					if aArgs.Len() > 0 {
+						return exprTypeRes{typed: argRes.typed, uMod: argRes.uMod, uPath: argRes.uPath, t: dense.OptOf(aArgs[0])}
+					}
+				}
+				if pkgMatch == "slices" && ak == store.KSlice && (selName == "Sort" || selName == "SortFunc" || selName == "Reverse" || selName == "Clone" || selName == "Concat" || selName == "Filter" || selName == "Append") {
+					let aOps = store.OperandsOf(argRes.typed.S, at)
+					if aOps.Len() > 0 {
+						return exprTypeRes{typed: argRes.typed, uMod: argRes.uMod, uPath: argRes.uPath, t: dense.OptOf(aOps[0])}
+					}
+				}
+			case option.None:
+			}
+		}
+	}
+	exprTypeRes{typed: typed, uMod: uMod, uPath: uPath, t: dense.NoID[store.TKey]()}
+}
+
+func resolveGenericCallSliceElem(ctx edgeCtx, typed load.Typed, uIdx int, fIdx int, uMod string, uPath string, callNode dense.ID[syntax.Node], depth int) exprTypeRes {
+	if depth >= 12 || fIdx < 0 || fIdx >= typed.K.Parsed.Len() || !validTreeNode(typed.K.Parsed[fIdx], callNode) {
+		return exprTypeRes{typed: typed, uMod: uMod, uPath: uPath, t: dense.NoID[store.TKey]()}
+	}
+	let p = typed.K.Parsed[fIdx]
+	let t = p.Tree
+	let ce = syntax.CallExprOf(t, callNode)
+	let target = stripCallTarget(t, ce.Fun)
+	let tk = syntax.KindOf(t, target)
+	let mut fnUnit = -1
+	let mut fnPathFound = ""
+	let mut fnName = ""
+	let mut declAt = dense.NoID[store.PNode]()
+	let mut callSig = dense.NoID[store.TKey]()
+	let callPI = dense.Index(bind.PNodeOf(typed.K.Ps, fIdx, callNode))
+	if callPI >= 0 && callPI < ctx.pnodeCalls[uIdx].Len() {
+		let cIdx = ctx.pnodeCalls[uIdx][callPI]
+		if cIdx >= 0 && cIdx < typed.T.Calls.Len() {
+			callSig = dense.OptOf(typed.T.Calls[cIdx].Callee.Sig)
+		}
+	}
+	if tk == syntax.KSelectorExpr {
+		let se = syntax.SelectorExprOf(t, target)
+		fnName = NodeText(p, se.Sel)
+		match bind.ResolutionOf(typed.K.U, typed.K.Ps, bind.PNodeOf(typed.K.Ps, fIdx, se.Sel)) {
+		case bind.Imported as im:
+			let imps = store.ImportPaths(typed.S)
+			if im.Ref.Import > uint32(0) && int(im.Ref.Import) <= imps.Len() {
+				fnPathFound = imps[int(im.Ref.Import)-1]
+				match ctx.unitByPkg.Get(fnPathFound) {
+				case option.Some{Value: tu}:
+					fnUnit = tu
+				case option.None:
+				}
+			}
+		case _:
+		}
+		if fnUnit < 0 && fnPathFound == "" {
+			match bind.ResolutionOf(typed.K.U, typed.K.Ps, bind.PNodeOf(typed.K.Ps, fIdx, se.X)) {
+			case bind.Imported as im:
+				let imps = store.ImportPaths(typed.S)
+				if im.Ref.Import > uint32(0) && int(im.Ref.Import) <= imps.Len() {
+					fnPathFound = imps[int(im.Ref.Import)-1]
+					match ctx.unitByPkg.Get(fnPathFound) {
+					case option.Some{Value: tu}:
+						fnUnit = tu
+					case option.None:
+					}
+				}
+			case _:
+			}
+		}
+	} else if tk == syntax.KIdent {
+		fnName = NodeText(p, target)
+		match bind.ResolutionOf(typed.K.U, typed.K.Ps, bind.PNodeOf(typed.K.Ps, fIdx, target)) {
+		case bind.Declared as dec:
+			fnUnit = uIdx
+			declAt = dense.OptOf(dec.At)
+		case bind.Imported as im:
+			let imps = store.ImportPaths(typed.S)
+			if im.Ref.Import > uint32(0) && int(im.Ref.Import) <= imps.Len() {
+				fnPathFound = imps[int(im.Ref.Import)-1]
+				match ctx.unitByPkg.Get(fnPathFound) {
+				case option.Some{Value: tu}:
+					fnUnit = tu
+				case option.None:
+				}
+			}
+		case _:
+		}
+	}
+	let mut fnTyped = typed
+	let mut fnMod = uMod
+	let mut fnPath = uPath
+	let mut sigOpt = dense.NoID[store.TKey]()
+	if fnUnit >= 0 && fnUnit < ctx.units.Len() && fnName != "" {
+		let fnU = ctx.units[fnUnit]
+		match fnU.Typed {
+		case option.Some{Value: td}:
+			fnTyped = td
+			fnMod = fnU.Module
+			fnPath = unitPkgPath(fnU)
+			match dense.Unpack(declAt) {
+			case option.Some{Value: da}:
+				let fi = expr.FnAt(fnTyped.K, da)
+				if fi >= 0 && fi < fnTyped.K.Fns.Len() {
+					sigOpt = dense.OptOf(fnTyped.K.Fns[fi].Sig)
+				}
+			case option.None:
+			}
+			if dense.Unpack(sigOpt) == option.None {
+				for tfn in fnTyped.K.Fns {
+					if tfn.File >= 0 && tfn.File < fnTyped.K.Parsed.Len() && !fnTyped.K.Parsed[tfn.File].Failed && validTreeNode(fnTyped.K.Parsed[tfn.File], tfn.Name) && NodeText(fnTyped.K.Parsed[tfn.File], tfn.Name) == fnName {
+						sigOpt = dense.OptOf(tfn.Sig)
+						break
+					}
+				}
+			}
+		case option.None:
+		}
+	}
+	if dense.Unpack(sigOpt) == option.None && fnPathFound != "" {
+		for dep in typed.K.Deps {
+			if dep.Path == fnPathFound {
+				fnTyped = load.Typed{S: dep.S, K: dep.K, T: typed.T}
+				fnMod = match ctx.modByPkg.Get(dep.Path) {
+				case option.Some{Value: m}:
+					m
+				case option.None:
+					""
+				}
+				fnPath = dep.Path
+				for tfn in dep.K.Fns {
+					if tfn.File >= 0 && tfn.File < dep.K.Parsed.Len() && !dep.K.Parsed[tfn.File].Failed && validTreeNode(dep.K.Parsed[tfn.File], tfn.Name) && NodeText(dep.K.Parsed[tfn.File], tfn.Name) == fnName {
+						sigOpt = dense.OptOf(tfn.Sig)
+						break
+					}
+				}
+				if dense.Unpack(sigOpt) == option.None {
+					sigOpt = callSig
+				}
+				break
+			}
+		}
+	}
+	if dense.Unpack(sigOpt) == option.None {
+		fnTyped = typed
+		fnMod = uMod
+		fnPath = uPath
+		sigOpt = callSig
+	}
+	let sig = match dense.Unpack(sigOpt) {
+	case option.Some{Value: s}:
+		s
+	case option.None:
+		return resolveOutsideSliceCall(ctx, typed, uIdx, fIdx, uMod, uPath, target, ce, depth)
+	}
+	if store.KindOfType(fnTyped.S, sig) != store.KSig {
+		return resolveOutsideSliceCall(ctx, typed, uIdx, fIdx, uMod, uPath, target, ce, depth)
+	}
+	let ops = store.OperandsOf(fnTyped.S, sig)
+	if ops.Len() < 3 {
+		return exprTypeRes{typed: typed, uMod: uMod, uPath: uPath, t: dense.NoID[store.TKey]()}
+	}
+	let resT = ops[ops.Len()-3]
+	if store.KindOfType(fnTyped.S, resT) != store.KSlice {
+		return exprTypeRes{typed: typed, uMod: uMod, uPath: uPath, t: dense.NoID[store.TKey]()}
+	}
+	let resOps = store.OperandsOf(fnTyped.S, resT)
+	if resOps.Len() == 0 {
+		return exprTypeRes{typed: typed, uMod: uMod, uPath: uPath, t: dense.NoID[store.TKey]()}
+	}
+	let elT = resOps[0]
+	if store.KindOfType(fnTyped.S, elT) != store.KParam {
+		return exprTypeRes{typed: fnTyped, uMod: fnMod, uPath: fnPath, t: dense.OptOf(elT)}
+	}
+	let wantParam = store.ArgOf(fnTyped.S, elT)
+	let nParams = ops.Len() - 3
+	let nArgs = syntax.Len(ce.Args)
+	let lim = if nParams < nArgs { nParams } else { nArgs }
+	for ai in 0..lim {
+		let pt = unwrapPtrOwnType(fnTyped.S, ops[ai])
+		let pk = store.KindOfType(fnTyped.S, pt)
+		if pk == store.KSlice {
+			let pOps = store.OperandsOf(fnTyped.S, pt)
+			if pOps.Len() > 0 && store.KindOfType(fnTyped.S, pOps[0]) == store.KParam && store.ArgOf(fnTyped.S, pOps[0]) == wantParam {
+				let argRes = resolveExprTypeEx(ctx, typed, uIdx, fIdx, uMod, uPath, syntax.Item(t, ce.Args, ai), depth+1)
+				match dense.Unpack(argRes.t) {
+				case option.Some{Value: rawAt}:
+					let at = unwrapPtrOwnType(argRes.typed.S, rawAt)
+					if store.KindOfType(argRes.typed.S, at) == store.KSlice {
+						let aOps = store.OperandsOf(argRes.typed.S, at)
+						if aOps.Len() > 0 {
+							return exprTypeRes{typed: argRes.typed, uMod: argRes.uMod, uPath: argRes.uPath, t: dense.OptOf(aOps[0])}
+						}
+					}
+				case option.None:
+				}
+			}
+		} else if pk == store.KInstance {
+			let pArgs = store.OperandsOf(fnTyped.S, pt)
+			for ji in 0..pArgs.Len() {
+				if store.KindOfType(fnTyped.S, pArgs[ji]) == store.KParam && store.ArgOf(fnTyped.S, pArgs[ji]) == wantParam {
+					let argRes = resolveExprTypeEx(ctx, typed, uIdx, fIdx, uMod, uPath, syntax.Item(t, ce.Args, ai), depth+1)
+					match dense.Unpack(argRes.t) {
+					case option.Some{Value: rawAt}:
+						let at = unwrapPtrOwnType(argRes.typed.S, rawAt)
+						if store.KindOfType(argRes.typed.S, at) == store.KInstance {
+							let aArgs = store.OperandsOf(argRes.typed.S, at)
+							if ji < aArgs.Len() {
+								return exprTypeRes{typed: argRes.typed, uMod: argRes.uMod, uPath: argRes.uPath, t: dense.OptOf(aArgs[ji])}
+							}
+						}
+					case option.None:
+					}
+				}
+			}
+		}
+	}
+	resolveOutsideSliceCall(ctx, typed, uIdx, fIdx, uMod, uPath, target, ce, depth)
+}
+
+func findEnclosingSwitchStmt(typed load.Typed, ccPN dense.ID[store.PNode], ccFile int, ccT syntax.Tree, ccNode dense.ID[syntax.Node]) (int, dense.Opt[syntax.Node]) {
+	match dense.Unpack(bind.ParentOf(typed.K.Ps, ccPN)) {
+	case option.Some{Value: swPN}:
+		let (swFile, swRow) = bind.RowOf(typed.K.Ps, swPN)
+		if swFile >= 0 && swFile < typed.K.Parsed.Len() && !typed.K.Parsed[swFile].Failed {
+			let swT = typed.K.Parsed[swFile].Tree
+			let swNode = syntax.NodeAt(swT, swRow)
+			let swk = syntax.KindOf(swT, swNode)
+			if swk == syntax.KSwitchStmt || swk == syntax.KTypeSwitchStmt {
+				return (swFile, dense.OptOf(swNode))
+			}
+		}
+	case option.None:
+	}
+	for ni in 0..syntax.NumNodes(ccT) {
+		let cand = syntax.NodeAt(ccT, ni)
+		let ck = syntax.KindOf(ccT, cand)
+		if ck == syntax.KSwitchStmt {
+			let sw = syntax.SwitchStmtOf(ccT, cand)
+			for ci in 0..syntax.Len(sw.Clauses) {
+				if syntax.Item(ccT, sw.Clauses, ci) == ccNode {
+					return (ccFile, dense.OptOf(cand))
+				}
+			}
+		} else if ck == syntax.KTypeSwitchStmt {
+			let sw = syntax.TypeSwitchStmtOf(ccT, cand)
+			for ci in 0..syntax.Len(sw.Clauses) {
+				if syntax.Item(ccT, sw.Clauses, ci) == ccNode {
+					return (ccFile, dense.OptOf(cand))
+				}
+			}
+		}
+	}
+	(-1, dense.NoID[syntax.Node]())
+}
+
+func resolvePatternKVField(
+	ctx edgeCtx,
+	typed load.Typed,
+	uIdx int,
+	uMod string,
+	uPath string,
+	clPN dense.ID[store.PNode],
+	clFile int,
+	clT syntax.Tree,
+	clNode dense.ID[syntax.Node],
+	fieldName string,
+	depth int,
+) exprTypeRes {
+	let empty = exprTypeRes{typed: typed, uMod: uMod, uPath: uPath, t: dense.NoID[store.TKey]()}
+	let clRes = resolveExprTypeEx(ctx, typed, uIdx, clFile, uMod, uPath, clNode, depth+1)
+	match dense.Unpack(clRes.t) {
+	case option.Some{Value: ct}:
+		let fRes = lookupStructFieldType(ctx, clRes, ct, fieldName)
+		if dense.Unpack(fRes.t) != option.None {
+			return fRes
+		}
+	case option.None:
+		match dense.Unpack(bind.ParentOf(typed.K.Ps, clPN)) {
+		case option.Some{Value: ccPN}:
+			let (ccFile, ccRow) = bind.RowOf(typed.K.Ps, ccPN)
+			if ccFile >= 0 && ccFile < typed.K.Parsed.Len() && !typed.K.Parsed[ccFile].Failed {
+				let ccT = typed.K.Parsed[ccFile].Tree
+				let ccNode = syntax.NodeAt(ccT, ccRow)
+				if syntax.KindOf(ccT, ccNode) == syntax.KCaseClause {
+					let (swFile, swOpt) = findEnclosingSwitchStmt(typed, ccPN, ccFile, ccT, ccNode)
+					match dense.Unpack(swOpt) {
+					case option.Some{Value: swNode}:
+						let swT = typed.K.Parsed[swFile].Tree
+						let swExpr = if syntax.KindOf(swT, swNode) == syntax.KTypeSwitchStmt {
+							syntax.TypeSwitchStmtOf(swT, swNode).Subject
+						} else {
+							syntax.SwitchStmtOf(swT, swNode).Tag
+						}
+						let swRes = resolveExprTypeEx(ctx, typed, uIdx, swFile, uMod, uPath, swExpr, depth+1)
+						match dense.Unpack(swRes.t) {
+						case option.Some{Value: swt}:
+							let (_, swPath, _, _) = resolveNominalOwner(ctx, swRes.typed, swRes.uMod, swRes.uPath, swt)
+							let cl = syntax.CompositeLitOf(clT, clNode)
+							let (varPkg, varType) = match dense.Unpack(cl.Type) {
+							case option.Some{Value: cty}:
+								let baseTy = stripCallTarget(clT, cty)
+								let ctk = syntax.KindOf(clT, baseTy)
+								if ctk == syntax.KIdent {
+									(uPath, NodeText(typed.K.Parsed[clFile], baseTy))
+								} else if ctk == syntax.KSelectorExpr {
+									let cse = syntax.SelectorExprOf(clT, baseTy)
+									let vn = NodeText(typed.K.Parsed[clFile], cse.Sel)
+									let vp = if swPath != "" { swPath } else { uPath }
+									(vp, vn)
+								} else {
+									("", "")
+								}
+							case option.None:
+								("", "")
+							}
+							let effPkg = if swPath != "" && varPkg == uPath && swPath != uPath { swPath } else { varPkg }
+							let mut tryPkg = effPkg
+							if tryPkg == "" {
+								tryPkg = uPath
+							}
+							if varType != "" {
+								match ctx.unitByPkg.Get(tryPkg) {
+								case option.Some{Value: vuIdx}:
+									match ctx.units[vuIdx].Typed {
+									case option.Some{Value: vtd}:
+										for rec in vtd.K.Recs {
+											if rec.Name == varType {
+												for fld in rec.Fields {
+													if fld.Name == fieldName {
+														if store.KindOfType(vtd.S, fld.T) == store.KParam {
+															let swBase = unwrapPtrOwnType(swRes.typed.S, swt)
+															if store.KindOfType(swRes.typed.S, swBase) == store.KInstance {
+																let args = store.OperandsOf(swRes.typed.S, swBase)
+																let pIdx = store.ArgOf(vtd.S, fld.T)
+																if pIdx >= 0 && pIdx < args.Len() {
+																	return exprTypeRes{typed: swRes.typed, uMod: swRes.uMod, uPath: swRes.uPath, t: dense.OptOf(args[pIdx])}
+																}
+															}
+														}
+														return exprTypeRes{typed: vtd, uMod: ctx.units[vuIdx].Module, uPath: unitPkgPath(ctx.units[vuIdx]), t: dense.OptOf(fld.T)}
+													}
+												}
+												break
+											}
+										}
+									case option.None:
+									}
+								case option.None:
+								}
+								let shortPkg = stdShortPath(tryPkg)
+								if varType == "Some" && fieldName == "Value" && (tryPkg == "option" || shortPkg == "option") {
+									let swBase = unwrapPtrOwnType(swRes.typed.S, swt)
+									if store.KindOfType(swRes.typed.S, swBase) == store.KInstance {
+										let args = store.OperandsOf(swRes.typed.S, swBase)
+										if args.Len() > 0 {
+											return exprTypeRes{typed: swRes.typed, uMod: swRes.uMod, uPath: swRes.uPath, t: dense.OptOf(args[0])}
+										}
+									}
+								}
+							}
+						case option.None:
+						}
+					case option.None:
+					}
+				}
+			}
+		case option.None:
+		}
+	}
+	empty
+}
+
+func resolveExprTypeEx(ctx edgeCtx, typed load.Typed, uIdx int, fIdx int, uMod string, uPath string, node dense.ID[syntax.Node], depth int) exprTypeRes {
+	let direct = resolveNodeType(ctx, typed, uIdx, fIdx, node)
+	match dense.Unpack(direct) {
+	case option.Some:
+		return exprTypeRes{typed: typed, uMod: uMod, uPath: uPath, t: direct}
+	case option.None:
+	}
+	if depth >= 12 || fIdx < 0 || fIdx >= typed.K.Parsed.Len() || !validTreeNode(typed.K.Parsed[fIdx], node) {
+		return exprTypeRes{typed: typed, uMod: uMod, uPath: uPath, t: dense.NoID[store.TKey]()}
+	}
+	let p = typed.K.Parsed[fIdx]
+	let t = p.Tree
+	let k = syntax.KindOf(t, node)
+	if k == syntax.KParenExpr {
+		return resolveExprTypeEx(ctx, typed, uIdx, fIdx, uMod, uPath, syntax.ParenExprOf(t, node).X, depth+1)
+	}
+	if k == syntax.KTryExpr {
+		return resolveExprTypeEx(ctx, typed, uIdx, fIdx, uMod, uPath, syntax.TryExprOf(t, node).X, depth+1)
+	}
+	if k == syntax.KUnaryExpr {
+		return resolveExprTypeEx(ctx, typed, uIdx, fIdx, uMod, uPath, syntax.UnaryExprOf(t, node).X, depth+1)
+	}
+	if k == syntax.KCallExpr {
+		let pi = dense.Index(bind.PNodeOf(typed.K.Ps, fIdx, node))
+		if pi >= 0 && pi < ctx.pnodeCalls[uIdx].Len() {
+			let cIdx = ctx.pnodeCalls[uIdx][pi]
+			if cIdx >= 0 && cIdx < typed.T.Calls.Len() {
+				let sig = typed.T.Calls[cIdx].Callee.Sig
+				if store.KindOfType(typed.S, sig) == store.KSig {
+					let ops = store.OperandsOf(typed.S, sig)
+					if ops.Len() >= 3 {
+						return exprTypeRes{typed: typed, uMod: uMod, uPath: uPath, t: dense.OptOf(ops[ops.Len()-3])}
+					}
+				}
+			}
+		}
+		let ce = syntax.CallExprOf(t, node)
+		let fRes = resolveExprTypeEx(ctx, typed, uIdx, fIdx, uMod, uPath, ce.Fun, depth+1)
+		match dense.Unpack(fRes.t) {
+		case option.Some{Value: ft}:
+			if store.KindOfType(fRes.typed.S, ft) == store.KSig {
+				let ops = store.OperandsOf(fRes.typed.S, ft)
+				if ops.Len() >= 3 {
+					return exprTypeRes{typed: fRes.typed, uMod: fRes.uMod, uPath: fRes.uPath, t: dense.OptOf(ops[ops.Len()-3])}
+				}
+			}
+		case option.None:
+		}
+		return exprTypeRes{typed: typed, uMod: uMod, uPath: uPath, t: dense.NoID[store.TKey]()}
+	}
+	if k == syntax.KIndexExpr {
+		let ie = syntax.IndexExprOf(t, node)
+		let xRes = resolveExprTypeEx(ctx, typed, uIdx, fIdx, uMod, uPath, ie.X, depth+1)
+		match dense.Unpack(xRes.t) {
+		case option.Some{Value: xt}:
+			let cur = unwrapPtrOwnType(xRes.typed.S, xt)
+			let xk = store.KindOfType(xRes.typed.S, cur)
+			if xk == store.KSlice || xk == store.KArray {
+				let ops = store.OperandsOf(xRes.typed.S, cur)
+				if ops.Len() > 0 && store.KindOfType(xRes.typed.S, ops[0]) != store.KParam {
+					return exprTypeRes{typed: xRes.typed, uMod: xRes.uMod, uPath: xRes.uPath, t: dense.OptOf(ops[0])}
+				}
+			}
+			if xk == store.KMap {
+				let ops = store.OperandsOf(xRes.typed.S, cur)
+				if ops.Len() > 1 && store.KindOfType(xRes.typed.S, ops[1]) != store.KParam {
+					return exprTypeRes{typed: xRes.typed, uMod: xRes.uMod, uPath: xRes.uPath, t: dense.OptOf(ops[1])}
+				}
+			}
+		case option.None:
+		}
+		if syntax.KindOf(t, ie.X) == syntax.KCallExpr {
+			return resolveGenericCallSliceElem(ctx, typed, uIdx, fIdx, uMod, uPath, ie.X, depth+1)
+		}
+		return exprTypeRes{typed: typed, uMod: uMod, uPath: uPath, t: dense.NoID[store.TKey]()}
+	}
+	if k == syntax.KSelectorExpr {
+		let se = syntax.SelectorExprOf(t, node)
+		let selName = NodeText(p, se.Sel)
+		let xRes = resolveExprTypeEx(ctx, typed, uIdx, fIdx, uMod, uPath, se.X, depth+1)
+		match dense.Unpack(xRes.t) {
+		case option.Some{Value: xt}:
+			let fRes = lookupStructFieldType(ctx, xRes, xt, selName)
+			if dense.Unpack(fRes.t) != option.None {
+				return fRes
+			}
+		case option.None:
+		}
+		return exprTypeRes{typed: typed, uMod: uMod, uPath: uPath, t: dense.NoID[store.TKey]()}
+	}
+	if k == syntax.KIdent {
+		let pn = bind.PNodeOf(typed.K.Ps, fIdx, node)
+		match bind.ResolutionOf(typed.K.U, typed.K.Ps, pn) {
+		case bind.Declared as dec:
+			let di = dense.Index(dec.At)
+			if di >= 0 && di < ctx.pnodeTypes[uIdx].Len() {
+				match dense.Unpack(ctx.pnodeTypes[uIdx][di]) {
+				case option.Some:
+					return exprTypeRes{typed: typed, uMod: uMod, uPath: uPath, t: ctx.pnodeTypes[uIdx][di]}
+				case option.None:
+				}
+			}
+			match dense.Unpack(bind.ParentOf(typed.K.Ps, dec.At)) {
+			case option.Some{Value: parPN}:
+				let (parFile, parRow) = bind.RowOf(typed.K.Ps, parPN)
+				let (decFile, decRow) = bind.RowOf(typed.K.Ps, dec.At)
+				if parFile >= 0 && parFile < typed.K.Parsed.Len() && !typed.K.Parsed[parFile].Failed && decFile >= 0 && decFile < typed.K.Parsed.Len() && !typed.K.Parsed[decFile].Failed {
+					let pt = typed.K.Parsed[parFile].Tree
+					let parNode = syntax.NodeAt(pt, parRow)
+					let decNode = syntax.NodeAt(typed.K.Parsed[decFile].Tree, decRow)
+					let parKind = syntax.KindOf(pt, parNode)
+					if parKind == syntax.KRangeStmt {
+						let rs = syntax.RangeStmtOf(pt, parNode)
+						let colRes = resolveExprTypeEx(ctx, typed, uIdx, parFile, uMod, uPath, rs.X, depth+1)
+						match dense.Unpack(colRes.t) {
+						case option.Some{Value: ct}:
+							let cur = unwrapPtrOwnType(colRes.typed.S, ct)
+							let ck = store.KindOfType(colRes.typed.S, cur)
+							let isKey = match dense.Unpack(rs.Key) {
+							case option.Some{Value: kn}:
+								kn == decNode
+							case option.None:
+								false
+							}
+							if !isKey {
+								if ck == store.KSlice || ck == store.KArray {
+									let ops = store.OperandsOf(colRes.typed.S, cur)
+									if ops.Len() > 0 {
+										return exprTypeRes{typed: colRes.typed, uMod: colRes.uMod, uPath: colRes.uPath, t: dense.OptOf(ops[0])}
+									}
+								}
+								if ck == store.KMap {
+									let ops = store.OperandsOf(colRes.typed.S, cur)
+									if ops.Len() > 1 {
+										return exprTypeRes{typed: colRes.typed, uMod: colRes.uMod, uPath: colRes.uPath, t: dense.OptOf(ops[1])}
+									}
+								}
+							} else if ck == store.KMap {
+								let ops = store.OperandsOf(colRes.typed.S, cur)
+								if ops.Len() > 0 {
+									return exprTypeRes{typed: colRes.typed, uMod: colRes.uMod, uPath: colRes.uPath, t: dense.OptOf(ops[0])}
+								}
+							}
+						case option.None:
+							if syntax.KindOf(pt, rs.X) == syntax.KCallExpr {
+								let elRes = resolveGenericCallSliceElem(ctx, typed, uIdx, parFile, uMod, uPath, rs.X, depth+1)
+								let isKey = match dense.Unpack(rs.Key) {
+								case option.Some{Value: kn}:
+									kn == decNode
+								case option.None:
+									false
+								}
+								if dense.Unpack(elRes.t) != option.None && !isKey {
+									return elRes
+								}
+							}
+						}
+					} else if parKind == syntax.KVarSpec {
+						let vs = syntax.VarSpecOf(pt, parNode)
+						if syntax.Len(vs.Names) == 1 {
+							match dense.Unpack(vs.Value) {
+							case option.Some{Value: v}:
+								return resolveExprTypeEx(ctx, typed, uIdx, parFile, uMod, uPath, v, depth+1)
+							case option.None:
+							}
+						}
+					} else if parKind == syntax.KKeyValueExpr {
+						let kv = syntax.KeyValueExprOf(pt, parNode)
+						if kv.Value == decNode && syntax.KindOf(pt, kv.Key) == syntax.KIdent {
+							let fieldName = NodeText(typed.K.Parsed[parFile], kv.Key)
+							match dense.Unpack(bind.ParentOf(typed.K.Ps, parPN)) {
+							case option.Some{Value: clPN}:
+								let (clFile, clRow) = bind.RowOf(typed.K.Ps, clPN)
+								if clFile >= 0 && clFile < typed.K.Parsed.Len() && !typed.K.Parsed[clFile].Failed {
+									let clT = typed.K.Parsed[clFile].Tree
+									let clNode = syntax.NodeAt(clT, clRow)
+									if syntax.KindOf(clT, clNode) == syntax.KCompositeLit {
+										let kvRes = resolvePatternKVField(ctx, typed, uIdx, uMod, uPath, clPN, clFile, clT, clNode, fieldName, depth)
+										if dense.Unpack(kvRes.t) != option.None {
+											return kvRes
+										}
+									}
+								}
+							case option.None:
+							}
+						}
+					} else if parKind == syntax.KCompositeLit {
+						let cl = syntax.CompositeLitOf(pt, parNode)
+						for ei in 0..syntax.Len(cl.Elts) {
+							let el = syntax.Item(pt, cl.Elts, ei)
+							if syntax.KindOf(pt, el) == syntax.KKeyValueExpr {
+								let kv = syntax.KeyValueExprOf(pt, el)
+								if kv.Value == decNode && syntax.KindOf(pt, kv.Key) == syntax.KIdent {
+									let fieldName = NodeText(typed.K.Parsed[parFile], kv.Key)
+									let kvRes = resolvePatternKVField(ctx, typed, uIdx, uMod, uPath, parPN, parFile, pt, parNode, fieldName, depth)
+									if dense.Unpack(kvRes.t) != option.None {
+										return kvRes
+									}
+									break
+								}
+							}
+						}
+					} else if parKind == syntax.KAsPattern {
+						let ap = syntax.AsPatternOf(pt, parNode)
+						if ap.Name == decNode {
+							let xRes = resolveExprTypeEx(ctx, typed, uIdx, parFile, uMod, uPath, ap.X, depth+1)
+							if dense.Unpack(xRes.t) != option.None {
+								return xRes
+							}
+						}
+					} else if parKind == syntax.KField {
+						let fld = syntax.FieldOf(pt, parNode)
+						match dense.Unpack(fld.Type) {
+						case option.Some{Value: ft}:
+							let fRes = resolveExprTypeEx(ctx, typed, uIdx, parFile, uMod, uPath, ft, depth+1)
+							if dense.Unpack(fRes.t) != option.None {
+								return fRes
+							}
+						case option.None:
+						}
+					}
+				}
+			case option.None:
+			}
+		case _:
+		}
+	}
+	exprTypeRes{typed: typed, uMod: uMod, uPath: uPath, t: dense.NoID[store.TKey]()}
+}
+
+func resolveExprType(ctx edgeCtx, typed load.Typed, uIdx int, fIdx int, t syntax.Tree, node dense.ID[syntax.Node]) dense.Opt[store.TKey] {
+	resolveExprTypeEx(ctx, typed, uIdx, fIdx, "", "", node, 0).t
+}
+
+func isTypeSub(sub string) bool {
+	sub == "type" || sub == "machine" || sub == "variant"
+}
+
+func isLocalFn(typed load.Typed, callee expr.Fn) bool {
+	if callee.File < 0 || callee.File >= typed.K.Parsed.Len() {
+		return false
+	}
+	let p = typed.K.Parsed[callee.File]
+	if !validTreeNode(p, callee.Decl) || !validTreeNode(p, callee.Name) {
+		return false
+	}
+	if syntax.KindOf(p.Tree, callee.Decl) != syntax.KFuncDecl {
+		return false
+	}
+	let declPN = bind.PNodeOf(typed.K.Ps, callee.File, callee.Name)
+	let fi = expr.FnAt(typed.K, declPN)
+	if fi < 0 || fi >= typed.K.Fns.Len() {
+		return false
+	}
+	let f = typed.K.Fns[fi]
+	f.File == callee.File && f.Decl == callee.Decl && f.Name == callee.Name && f.Sig == callee.Sig
+}
+
+func emitCallEdge(
+	b mut graphBuilder,
+	pnodeNodes mut [][]uint32,
+	ctx edgeCtx,
+	typed load.Typed,
+	uIdx int,
+	fIdx int,
+	uMod string,
+	uPath string,
+	fi FileIndex,
+	fileNode uint32,
+	p syntax.Parsed,
+	from uint32,
+	cRow uint32,
+) bool {
+	let t = p.Tree
+	let cNode = syntax.NodeAt(t, int(cRow))
+	let ce = syntax.CallExprOf(t, cNode)
+	let pn = bind.PNodeOf(typed.K.Ps, fIdx, cNode)
+	let pi = dense.Index(pn)
+	let target = stripCallTarget(t, ce.Fun)
+	let tk = syntax.KindOf(t, target)
+	let callPosNode = if tk == syntax.KSelectorExpr {
+		syntax.SelectorExprOf(t, target).Sel
+	} else {
+		target
+	}
+	let at = posAt(fi, fileNode, syntax.NodePos(p, callPosNode))
+	if pi >= 0 && pi < ctx.pnodeCaps[uIdx].Len() {
+		match dense.Unpack(ctx.pnodeCaps[uIdx][pi]) {
+		case option.Some{Value: opT}:
+			if tk == syntax.KSelectorExpr {
+				let se = syntax.SelectorExprOf(t, target)
+				let (ownerMod, ownerPath, ownerType, okNom) = resolveNominalOwner(ctx, typed, uMod, uPath, opT)
+				if okNom {
+					let (to, _) = resolveOwnerMember(b, pnodeNodes, ctx, ownerMod, ownerPath, ownerType, NodeText(p, se.Sel))
+					if to != NoID {
+						emitUse(b, from, to, "call", at)
+						return true
+					}
+				}
+			}
+		case option.None:
+		}
+	}
+	if pi >= 0 && pi < ctx.pnodeCalls[uIdx].Len() {
+		let cIdx = ctx.pnodeCalls[uIdx][pi]
+		if cIdx >= 0 {
+			let callTo = typed.T.Calls[cIdx]
+			if !callTo.Recv {
+				if tk == syntax.KIdent && isLocalFn(typed, callTo.Callee) {
+					let fnPN = bind.PNodeOf(typed.K.Ps, callTo.Callee.File, callTo.Callee.Name)
+					let fiPN = dense.Index(fnPN)
+					if fiPN >= 0 && fiPN < ctx.pnodeNodes[uIdx].Len() {
+						emitUse(b, from, ctx.pnodeNodes[uIdx][fiPN], "call", at)
+						return true
+					}
+				}
+				if tk == syntax.KIdent {
+					let to = resolveIdentUse(b, ctx, typed, uIdx, fIdx, target, NodeText(p, target))
+					if to != NoID {
+						emitUse(b, from, to, "call", at)
+						return true
+					}
+				} else if tk == syntax.KSelectorExpr {
+					let se = syntax.SelectorExprOf(t, target)
+					let to = resolveIdentUse(b, ctx, typed, uIdx, fIdx, se.Sel, NodeText(p, se.Sel))
+					if to != NoID {
+						emitUse(b, from, to, "call", at)
+						return true
+					}
+				}
+				return false
+			}
+			if tk == syntax.KSelectorExpr {
+				let se = syntax.SelectorExprOf(t, target)
+				let mname = NodeText(p, se.Sel)
+				if isLocalFn(typed, callTo.Callee) && callTo.Callee.File < typed.K.Parsed.Len() && NodeText(typed.K.Parsed[callTo.Callee.File], callTo.Callee.Name) == mname {
+					let fnPN = bind.PNodeOf(typed.K.Ps, callTo.Callee.File, callTo.Callee.Name)
+					let fiPN = dense.Index(fnPN)
+					if fiPN >= 0 && fiPN < ctx.pnodeNodes[uIdx].Len() {
+						emitUse(b, from, ctx.pnodeNodes[uIdx][fiPN], "call", at)
+						return true
+					}
+				}
+				let xRes = resolveExprTypeEx(ctx, typed, uIdx, fIdx, uMod, uPath, se.X, 0)
+				match dense.Unpack(xRes.t) {
+				case option.Some{Value: xt}:
+					let (_, ownerPath, ownerType, okNom) = resolveNominalOwner(ctx, xRes.typed, xRes.uMod, xRes.uPath, xt)
+					if okNom && ownerPath != "" {
+						let to = resolveExternalMethod(b, ctx.modByPkg, ownerPath, ownerType, mname)
+						if to != NoID {
+							emitUse(b, from, to, "call", at)
+							return true
+						}
+					}
+				case option.None:
+				}
+			}
+		}
+	}
+	false
+}
+
+func emitSelectorFieldEdge(
+	b mut graphBuilder,
+	pnodeNodes mut [][]uint32,
+	ctx edgeCtx,
+	typed load.Typed,
+	uIdx int,
+	fIdx int,
+	uMod string,
+	uPath string,
+	fi FileIndex,
+	fileNode uint32,
+	p syntax.Parsed,
+	from uint32,
+	selRow uint32,
+	isWrite bool,
+) {
+	let t = p.Tree
+	let selNode = syntax.NodeAt(t, int(selRow))
+	let se = syntax.SelectorExprOf(t, selNode)
+	let pn = bind.PNodeOf(typed.K.Ps, fIdx, se.Sel)
+	match bind.ResolutionOf(typed.K.U, typed.K.Ps, pn) {
+	case bind.Declared:
+		return
+	case bind.Imported:
+		return
+	case bind.Outside:
+	case bind.NotUse:
+	}
+	let xRes = resolveExprTypeEx(ctx, typed, uIdx, fIdx, uMod, uPath, se.X, 0)
+	match dense.Unpack(xRes.t) {
+	case option.Some{Value: xt}:
+		let (ownerMod, ownerPath, ownerType, okNom) = resolveNominalOwner(ctx, xRes.typed, xRes.uMod, xRes.uPath, xt)
+		if okNom {
+			let (to, _) = resolveOwnerMember(b, pnodeNodes, ctx, ownerMod, ownerPath, ownerType, NodeText(p, se.Sel))
+			if to != NoID {
+				let how = if isWrite { "write" } else { "read" }
+				emitUse(b, from, to, how, posAt(fi, fileNode, syntax.NodePos(p, se.Sel)))
+			}
+		}
+	case option.None:
+	}
+}
+
+type lawSpan {
+	startPos int,
+	endPos   int,
+	node     uint32,
+}
+
+func collectTypeLawSpans(b graphBuilder, uMod string, uPath string, p syntax.Parsed, tdID dense.ID[syntax.Node]) []lawSpan {
+	let t = p.Tree
+	let td = syntax.TypeDeclOf(t, tdID)
+	let sid = match dense.Unpack(td.Spec) {
+	case option.Some{Value: s}:
+		s
+	case option.None:
+		return []lawSpan{}
+	}
+	let ownerName = NodeText(p, td.Name)
+	let sk = syntax.KindOf(t, sid)
+	let mut spans = []lawSpan{}
+	if sk == syntax.KInterfaceType {
+		let it = syntax.InterfaceTypeOf(t, sid)
+		for i in 0..syntax.Len(it.Members) {
+			let mid = syntax.Item(t, it.Members, i)
+			if syntax.KindOf(t, mid) == syntax.KLawDecl {
+				let ld = syntax.LawDeclOf(t, mid)
+				let key = uMod + "\x00" + uPath + "\x00" + ownerName + "." + NodeText(p, ld.Name) + "#law"
+				match b.handleMap.Get(key) {
+				case option.Some{Value: ln}:
+					spans = spans.Append(lawSpan{startPos: syntax.NodePos(p, mid), endPos: syntax.NodeEnd(p, mid), node: ln})
+				case option.None:
+				}
+			}
+		}
+	} else if sk == syntax.KMachineType {
+		let mt = syntax.MachineTypeOf(t, sid)
+		for i in 0..syntax.Len(mt.Members) {
+			let mid = syntax.Item(t, mt.Members, i)
+			if syntax.KindOf(t, mid) == syntax.KLawDecl {
+				let ld = syntax.LawDeclOf(t, mid)
+				let key = uMod + "\x00" + uPath + "\x00" + ownerName + "." + NodeText(p, ld.Name) + "#law"
+				match b.handleMap.Get(key) {
+				case option.Some{Value: ln}:
+					spans = spans.Append(lawSpan{startPos: syntax.NodePos(p, mid), endPos: syntax.NodeEnd(p, mid), node: ln})
+				case option.None:
+				}
+			}
+		}
+	}
+	spans
+}
+
+func declFromForPos(lawSpans []lawSpan, pos int, defFrom uint32) uint32 {
+	for ls in lawSpans {
+		if pos >= ls.startPos && pos <= ls.endPos {
+			return ls.node
+		}
+	}
+	defFrom
+}
+
+let siteHowDefault = uint8(0)
+let siteHowNeeds = uint8(1)
+let siteHowFails = uint8(2)
+let siteHowProvides = uint8(3)
+let siteHowHandles = uint8(4)
+let siteHowBinds = uint8(5)
+
+func markHowExpr(t syntax.Tree, expr dense.ID[syntax.Node], code uint8, siteHow mut []uint8) {
+	let mut cur = expr
+	for {
+		let k = syntax.KindOf(t, cur)
+		if k == syntax.KParenExpr {
+			cur = syntax.ParenExprOf(t, cur).X
+			continue
+		}
+		if k == syntax.KStarExpr {
+			cur = syntax.StarExprOf(t, cur).X
+			continue
+		}
+		if k == syntax.KIndexExpr {
+			cur = syntax.IndexExprOf(t, cur).X
+			continue
+		}
+		if k == syntax.KSelectorExpr {
+			let sel = syntax.SelectorExprOf(t, cur).Sel
+			let si = dense.Index(sel)
+			if si >= 0 && si < (*siteHow).Len() {
+				(*siteHow)[si] = code
+			}
+		} else if k == syntax.KIdent {
+			let ii = dense.Index(cur)
+			if ii >= 0 && ii < (*siteHow).Len() {
+				(*siteHow)[ii] = code
+			}
+		}
+		break
+	}
+}
+
+func buildSiteHow(t syntax.Tree) []uint8 {
+	let nNodes = syntax.NumNodes(t)
+	let mut siteHow = slices.Repeat([]uint8{siteHowDefault}, nNodes)
+	for i in 0..nNodes {
+		let n = syntax.NodeAt(t, i)
+		let k = syntax.KindOf(t, n)
+		if k == syntax.KNeedsClause {
+			let nc = syntax.NeedsClauseOf(t, n)
+			for j in 0..syntax.Len(nc.Names) {
+				markHowExpr(t, syntax.Item(t, nc.Names, j), siteHowNeeds, &siteHow)
+			}
+		} else if k == syntax.KErrorRow {
+			let er = syntax.ErrorRowOf(t, n)
+			for j in 0..syntax.Len(er.Types) {
+				markHowExpr(t, syntax.Item(t, er.Types, j), siteHowFails, &siteHow)
+			}
+		} else if k == syntax.KProvidesClause {
+			let pc = syntax.ProvidesClauseOf(t, n)
+			for j in 0..syntax.Len(pc.Names) {
+				markHowExpr(t, syntax.Item(t, pc.Names, j), siteHowProvides, &siteHow)
+			}
+		} else if k == syntax.KCatchArm {
+			let ca = syntax.CatchArmOf(t, n)
+			for j in 0..syntax.Len(ca.Types) {
+				markHowExpr(t, syntax.Item(t, ca.Types, j), siteHowHandles, &siteHow)
+			}
+		} else if k == syntax.KContextEntry {
+			let ce = syntax.ContextEntryOf(t, n)
+			if ce.Assign >= 0 {
+				markHowExpr(t, ce.Key, siteHowBinds, &siteHow)
+				for j in 0..syntax.Len(ce.Keys) {
+					markHowExpr(t, syntax.Item(t, ce.Keys, j), siteHowBinds, &siteHow)
+				}
+			}
+		}
+	}
+	siteHow
+}
+
+func processDeclEdges(
+	b mut graphBuilder,
+	pnodeNodes mut [][]uint32,
+	reExports mut []uint32,
+	ctx edgeCtx,
+	uIdx int,
+	fIdx int,
+	u UnitInput,
+	typed load.Typed,
+	fileNode uint32,
+	p syntax.Parsed,
+	fi FileIndex,
+	declNodeByRow []uint32,
+	written []bool,
+	callFuns []bool,
+	siteHow []uint8,
+	filePendingFields []int,
+) {
+	let t = p.Tree
+	let uMod = u.Module
+	let uPath = unitPkgPath(u)
+	let nCalls = syntax.NumNodes(t)
+	let mut handledCallSel = slices.Repeat([]bool{false}, nCalls)
+	let mut handledIdents = slices.Repeat([]bool{false}, nCalls)
+	for dr in fi.Decls {
+		if dr.Kind == syntax.KTypeDecl {
+			for pfIdx in filePendingFields {
+				if (*b).pendingFields[pfIdx].declRow == int(dr.Node) && !(*b).pendingDone[pfIdx] {
+					let _ = materializePendingField(b, pnodeNodes, pfIdx)
+				}
+			}
+		}
+		let from = declNodeByRow[int(dr.Node)]
+		if from == NoID {
+			continue
+		}
+		let mut lawSpans = []lawSpan{}
+		if dr.Kind == syntax.KTypeDecl {
+			let tdNode = syntax.NodeAt(t, int(dr.Node))
+			let td = syntax.TypeDeclOf(t, tdNode)
+			for j in 0..syntax.Len(td.Implements) {
+				emitImplementsTarget(b, ctx, typed, uIdx, fIdx, uPath, fi, fileNode, p, from, syntax.Item(t, td.Implements, j), &handledIdents)
+			}
+			lawSpans = collectTypeLawSpans(*b, uMod, uPath, p, tdNode)
+		} else if dr.Kind == syntax.KFuncDecl {
+			let fd = syntax.FuncDeclOf(t, syntax.NodeAt(t, int(dr.Node)))
+			match dense.Unpack(fd.Implements) {
+			case option.Some{Value: impNode}:
+				emitImplementsTarget(b, ctx, typed, uIdx, fIdx, uPath, fi, fileNode, p, from, impNode, &handledIdents)
+			case option.None:
+			}
+		} else if dr.Kind == syntax.KVarDecl {
+			let vd = syntax.VarDeclOf(t, syntax.NodeAt(t, int(dr.Node)))
+			let vs = syntax.VarSpecOf(t, vd.Spec)
+			if syntax.Len(vs.Names) == 1 {
+				match dense.Unpack(vs.Value) {
+				case option.Some{Value: val}:
+					let vk = syntax.KindOf(t, val)
+					let mut reName = dense.NoID[syntax.Node]()
+					if vk == syntax.KIdent {
+						reName = dense.OptOf(val)
+					} else if vk == syntax.KSelectorExpr {
+						let se = syntax.SelectorExprOf(t, val)
+						if syntax.KindOf(t, se.X) == syntax.KIdent {
+							reName = dense.OptOf(se.Sel)
+						}
+					}
+					match dense.Unpack(reName) {
+					case option.Some{Value: rn}:
+						let to = resolveIdentUse(b, ctx, typed, uIdx, fIdx, rn, NodeText(p, rn))
+						if to != NoID && to != from {
+							addGraphEdge(b, codegraph.EdgeRow{
+								Kind: "reexports", How: "", From: int(from), To: int(to), File: -1, Offset: 0, Line: 0, Column: 0,
+							}, nodePosRec{file: NoID, off: 0, line: 0, col: 0})
+							(*reExports)[int(from)] = to
+						}
+					case option.None:
+					}
+				case option.None:
+				}
+			}
+		}
+		for ci in int(dr.CallStart)..int(dr.CallEnd) {
+			let cRow = fi.Calls[ci]
+			let cNode = syntax.NodeAt(t, int(cRow))
+			let effFrom = declFromForPos(lawSpans, syntax.NodePos(p, cNode), from)
+			if emitCallEdge(b, pnodeNodes, ctx, typed, uIdx, fIdx, uMod, uPath, fi, fileNode, p, effFrom, cRow) {
+				let ce = syntax.CallExprOf(t, cNode)
+				let target = stripCallTarget(t, ce.Fun)
+				let tk = syntax.KindOf(t, target)
+				if tk == syntax.KSelectorExpr {
+					handledCallSel[dense.Index(target)] = true
+					let se = syntax.SelectorExprOf(t, target)
+					let selIdx = dense.Index(se.Sel)
+					if selIdx >= 0 && selIdx < handledIdents.Len() {
+						handledIdents[selIdx] = true
+					}
+				} else if tk == syntax.KIdent {
+					let tidx = dense.Index(target)
+					if tidx >= 0 && tidx < handledIdents.Len() {
+						handledIdents[tidx] = true
+					}
+				}
+			}
+		}
+		for ii in int(dr.IdentStart)..int(dr.IdentEnd) {
+			let idRow = fi.Idents[ii]
+			if handledIdents[int(idRow)] {
+				continue
+			}
+			let idNode = syntax.NodeAt(t, int(idRow))
+			let to = resolveIdentUse(b, ctx, typed, uIdx, fIdx, idNode, NodeText(p, idNode))
+			if to != NoID {
+				let pos = syntax.NodePos(p, idNode)
+				let effFrom = declFromForPos(lawSpans, pos, from)
+				let sw = siteHow[int(idRow)]
+				let how = if written[int(idRow)] {
+					"write"
+				} else if callFuns[int(idRow)] {
+					"call"
+				} else if sw == siteHowNeeds {
+					"needs"
+				} else if sw == siteHowFails {
+					"fails"
+				} else if sw == siteHowProvides {
+					"provides"
+				} else if sw == siteHowHandles {
+					"handles"
+				} else if sw == siteHowBinds {
+					"binds"
+				} else if isTypeSub((*b).nodes[int(to)].Sub) {
+					"typeuse"
+				} else {
+					"read"
+				}
+				emitUse(b, effFrom, to, how, posAt(fi, fileNode, pos))
+				if sw == siteHowProvides || sw == siteHowBinds {
+					addGraphEdge(b, codegraph.EdgeRow{
+						Kind: "provides", How: "", From: int(effFrom), To: int(to), File: -1, Offset: 0, Line: 0, Column: 0,
+					}, nodePosRec{file: NoID, off: 0, line: 0, col: 0})
+				}
+			}
+		}
+		for si in int(dr.SelStart)..int(dr.SelEnd) {
+			let selRow = fi.Selectors[si]
+			if handledCallSel[int(selRow)] {
+				continue
+			}
+			let selNode = syntax.NodeAt(t, int(selRow))
+			let effFrom = declFromForPos(lawSpans, syntax.NodePos(p, selNode), from)
+			emitSelectorFieldEdge(b, pnodeNodes, ctx, typed, uIdx, fIdx, uMod, uPath, fi, fileNode, p, effFrom, selRow, written[int(selRow)])
+		}
+		for li in int(dr.LitStart)..int(dr.LitEnd) {
+			let litRow = fi.Lits[li]
+			let litNode = syntax.NodeAt(t, int(litRow))
+			let cl = syntax.CompositeLitOf(t, litNode)
+			let effFrom = declFromForPos(lawSpans, syntax.NodePos(p, litNode), from)
+			match dense.Unpack(resolveExprType(ctx, typed, uIdx, fIdx, t, litNode)) {
+			case option.Some{Value: xt}:
+				let (ownerMod, ownerPath, ownerType, okNom) = resolveNominalOwner(ctx, typed, uMod, uPath, xt)
+				if okNom {
+					for ei in 0..syntax.Len(cl.Elts) {
+						let el = syntax.Item(t, cl.Elts, ei)
+						if syntax.KindOf(t, el) == syntax.KKeyValueExpr {
+							let kv = syntax.KeyValueExprOf(t, el)
+							if syntax.KindOf(t, kv.Key) == syntax.KIdent {
+								let (fieldNode, _) = resolveOwnerMember(b, pnodeNodes, ctx, ownerMod, ownerPath, ownerType, NodeText(p, kv.Key))
+								if fieldNode != NoID {
+									emitUse(b, effFrom, fieldNode, "construct", posAt(fi, fileNode, syntax.NodePos(p, kv.Key)))
+								}
+							}
+						}
+					}
+				}
+			case option.None:
+			}
+		}
+	}
+}
+
+func edgeKindOrder(kind string) int {
+	match edgeKindOrd.Get(kind) {
+	case option.Some{Value: v}:
+		v
+	case option.None:
+		99
+	}
+}
+
+func siteKindOrder(how string) int {
+	match siteKindOrd.Get(how) {
+	case option.Some{Value: v}:
+		v
+	case option.None:
+		99
+	}
+}
+
+func compareEdgeRec(a edgeRec, b edgeRec) int {
+	let ko = cmp.Compare(edgeKindOrder(a.edge.Kind), edgeKindOrder(b.edge.Kind))
+	if ko != 0 {
+		return ko
+	}
+	if a.edge.From != b.edge.From {
+		return cmp.Compare(a.edge.From, b.edge.From)
+	}
+	if a.edge.To != b.edge.To {
+		return cmp.Compare(a.edge.To, b.edge.To)
+	}
+	let ho = cmp.Compare(siteKindOrder(a.edge.How), siteKindOrder(b.edge.How))
+	if ho != 0 {
+		return ho
+	}
+	let fa = if a.file == NoID { -1 } else { int(a.file) }
+	let fb = if b.file == NoID { -1 } else { int(b.file) }
+	if fa != fb {
+		return cmp.Compare(fa, fb)
+	}
+	cmp.Compare(a.off, b.off)
+}
+
+type touchEvent {
+	fileIdx uint32,
+	off     uint32,
+	seq     uint32,
+	edgeIdx int,
+	node    uint32,
+}
+
+func compareTouchEvent(a touchEvent, b touchEvent) int {
+	let fc = cmp.Compare(a.fileIdx, b.fileIdx)
+	if fc != 0 {
+		return fc
+	}
+	let oc = cmp.Compare(a.off, b.off)
+	if oc != 0 {
+		return oc
+	}
+	cmp.Compare(a.seq, b.seq)
+}
+
+type atEdgeEntry {
+	ei      int,
+	isUses  int,
+	symRank int,
+	off     uint32,
+	seq     uint32,
+}
+
+func compareAtEdgeEntry(a atEdgeEntry, b atEdgeEntry) int {
+	let kc = cmp.Compare(a.isUses, b.isUses)
+	if kc != 0 {
+		return kc
+	}
+	let rc = cmp.Compare(a.symRank, b.symRank)
+	if rc != 0 {
+		return rc
+	}
+	let oc = cmp.Compare(a.off, b.off)
+	if oc != 0 {
+		return oc
+	}
+	cmp.Compare(a.seq, b.seq)
+}
+
+func isTestCodeFileName(rel string, fi FileIndex) bool {
+	strings.HasSuffix(rel, "_test.ergo") || strings.HasSuffix(rel, "_law.ergo") || fi.TestFile
+}
+
+// BuildFileIndexes builds per-unit, per-file FileIndex tables once for reuse across rules.
+func BuildFileIndexes(units []UnitInput) [][]FileIndex {
+	let mut out = slices.WithCapacity[[]FileIndex](units.Len())
+	for u in units {
+		let mut fis = slices.WithCapacity[FileIndex](u.Files.Len())
+		for f in u.Files {
+			fis = fis.Append(BuildFileIndex(f.Parsed))
+		}
+		out = out.Append(fis)
+	}
+	out
+}
+
+// BuildProgramGraph constructs the full dense ProgramGraph and codegraph.Rows for inp.
+func BuildProgramGraph(inp Input) ProgramGraph {
+	BuildProgramGraphWithIndexes(inp, BuildFileIndexes(inp.Units))
+}
+
+// BuildProgramGraphWithIndexes constructs ProgramGraph using prebuilt per-file FileIndex values.
+func BuildProgramGraphWithIndexes(inp Input, fileIndexes [][]FileIndex) ProgramGraph {
+	let mut b = newGraphBuilder()
+	for u in inp.Units {
+		let up = unitPkgPath(u)
+		if up != "" {
+			b.modByPkg[up] = u.Module
+			if u.Name != "" {
+				b.pkgNames[up] = u.Name
+			}
+		}
+	}
+	for u in inp.Units {
+		if !u.Dependency && u.Module != "" {
+			let m = ensureModuleNode(&b, u.Module)
+			if !slices.Contains(b.subModIDs, int(m)) {
+				b.subModIDs = b.subModIDs.Append(int(m))
+			}
+		}
+	}
+	let mut pnodeNodes = slices.WithCapacity[[]uint32](inp.Units.Len())
+	let mut pnodeTypes = slices.WithCapacity[[]dense.Opt[store.TKey]](inp.Units.Len())
+	let mut pnodeCalls = slices.WithCapacity[[]int](inp.Units.Len())
+	let mut pnodeCaps = slices.WithCapacity[[]dense.Opt[store.TKey]](inp.Units.Len())
+	let mut pkgNodes = slices.WithCapacity[uint32](inp.Units.Len())
+	let mut unitTopCounts = slices.WithCapacity[int](inp.Units.Len())
+	let mut unitFileFirst = slices.WithCapacity[int](inp.Units.Len())
+	let mut fileNodes = []uint32{}
+	let mut fileUnitIdx = []uint32{}
+	let mut fileRelIdx = []uint32{}
+	let mut testCodeFile = []bool{}
+	let mut declNodeByFile = slices.WithCapacity[[][]uint32](inp.Units.Len())
+
+	for uIdx, u in inp.Units {
+		let uPath = unitPkgPath(u)
+		let pn = ensurePackageNode(&b, u.Module, uPath, "")
+		if !u.Dependency {
+			b.subjectPkgs[int(pn)] = true
+		}
+		pkgNodes = pkgNodes.Append(pn)
+		b.unitTopNext = uint32(0)
+		let (pns, pts, pcs, kcs, hasTyped, ps) = match u.Typed {
+		case option.Some{Value: td}:
+			let total = bind.Written(td.K.Ps)
+			(
+				slices.Repeat([]uint32{NoID}, total+1),
+				buildPNodeTypeCol(td),
+				buildPNodeCallCol(td),
+				buildPNodeCapCol(td),
+				true,
+				td.K.Ps,
+			)
+		case option.None:
+			([]uint32{}, []dense.Opt[store.TKey]{}, []int{}, []dense.Opt[store.TKey]{}, false, bind.BuildParents([]bind.File{}))
+		}
+		pnodeNodes = pnodeNodes.Append(pns)
+		pnodeTypes = pnodeTypes.Append(pts)
+		pnodeCalls = pnodeCalls.Append(pcs)
+		pnodeCaps = pnodeCaps.Append(kcs)
+
+		unitFileFirst = unitFileFirst.Append(fileNodes.Len())
+		let mut uDeclRows = slices.WithCapacity[[]uint32](u.Files.Len())
+		for fIdx, f in u.Files {
+			let fi = fileIndexes[uIdx][fIdx]
+			let fn = addGraphNode(&b, codegraph.NodeRow{
+				Id:      0, Kind: "file", Sub: "", Parent: int(pn), Name: f.Rel, Digest: "",
+				Subject: -1, Lines: fi.LineCount, File: -1, Offset: 0, Line: 0, Column: 0,
+			}, nodePosRec{file: NoID, off: 0, line: 0, col: 0}, pn, NoID)
+			b.nodeFile[int(fn)] = fn
+			addGraphEdge(&b, codegraph.EdgeRow{
+				Kind: "contains", How: "", From: int(pn), To: int(fn), File: -1, Offset: 0, Line: 0, Column: 0,
+			}, nodePosRec{file: NoID, off: 0, line: 0, col: 0})
+			fileNodes = fileNodes.Append(fn)
+			fileUnitIdx = fileUnitIdx.Append(uint32(uIdx))
+			fileRelIdx = fileRelIdx.Append(uint32(fIdx))
+			testCodeFile = testCodeFile.Append(isTestCodeFileName(f.Rel, fi))
+			let nSyntax = if !f.Parsed.Failed { syntax.NumNodes(f.Parsed.Tree) } else { 0 }
+			let mut declRows = slices.Repeat([]uint32{NoID}, nSyntax)
+			let env = declEnv{
+				modName:  u.Module,
+				pkgPath:  uPath,
+				pkgNode:  pn,
+				fileNode: fn,
+				unitIdx:  uIdx,
+				fileIdx:  fIdx,
+				p:        f.Parsed,
+				fi:       fi,
+				hasTyped: hasTyped,
+				ps:       ps,
+			}
+			recordTopDecls(&b, &pnodeNodes[uIdx], env, &declRows)
+			uDeclRows = uDeclRows.Append(declRows)
+		}
+		unitTopCounts = unitTopCounts.Append(int(b.unitTopNext))
+		for fIdx, f in u.Files {
+			if f.Parsed.Failed {
+				continue
+			}
+			let fi = fileIndexes[uIdx][fIdx]
+			let fn = fileNodes[unitFileFirst[uIdx]+fIdx]
+			let env = declEnv{
+				modName:  u.Module,
+				pkgPath:  uPath,
+				pkgNode:  pn,
+				fileNode: fn,
+				unitIdx:  uIdx,
+				fileIdx:  fIdx,
+				p:        f.Parsed,
+				fi:       fi,
+				hasTyped: hasTyped,
+				ps:       ps,
+			}
+			recordDeclMembers(&b, &pnodeNodes[uIdx], env, uDeclRows[fIdx])
+		}
+		declNodeByFile = declNodeByFile.Append(uDeclRows)
+	}
+
+	let mut pkgImports = Map[string, bool]{}
+	for uIdx, u in inp.Units {
+		let uPath = unitPkgPath(u)
+		let first = unitFileFirst[uIdx]
+		for fIdx, f in u.Files {
+			if f.Parsed.Failed {
+				continue
+			}
+			let t = f.Parsed.Tree
+			let fi = fileIndexes[uIdx][fIdx]
+			let fn = fileNodes[first+fIdx]
+			for dr in fi.Decls {
+				if dr.Kind != syntax.KImportDecl {
+					continue
+				}
+				let id = syntax.ImportDeclOf(t, syntax.NodeAt(t, int(dr.Node)))
+				let sp = syntax.ImportSpecOf(t, id.Spec)
+				let (impPath, isGo) = importSpecInfo(f.Parsed, sp)
+				let impMod = match b.modByPkg.Get(impPath) {
+				case option.Some{Value: m}:
+					m
+				case option.None:
+					""
+				}
+				let impSub = if isGo { "go" } else { "" }
+				let impPkg = ensurePackageNode(&b, impMod, impPath, impSub)
+				addGraphEdge(&b, codegraph.EdgeRow{
+					Kind: "imports", How: "import", From: int(fn), To: int(impPkg), File: -1, Offset: 0, Line: 0, Column: 0,
+				}, posAt(fi, fn, syntax.NodePos(f.Parsed, sp.Path)))
+				pkgImports[uPath+"\x00"+impPath] = true
+			}
+		}
+	}
+
+	let mut reExports = slices.Repeat([]uint32{NoID}, b.nodes.Len())
+	let mut unitByPkg = Map[string, int]{}
+	for uIdx, u in inp.Units {
+		let up = unitPkgPath(u)
+		if up != "" {
+			unitByPkg[up] = uIdx
+			let short = stdShortPath(up)
+			if short != "" {
+				unitByPkg[short] = uIdx
+			}
+		}
+	}
+	let mut pendingByFile = slices.Repeat([][]int{[]int{}}, fileNodes.Len())
+	for pfIdx, pf in b.pendingFields {
+		let absFile = unitFileFirst[pf.unitIdx] + pf.fileIdx
+		if absFile >= 0 && absFile < pendingByFile.Len() {
+			pendingByFile[absFile] = pendingByFile[absFile].Append(pfIdx)
+		}
+	}
+
+	let ctx = edgeCtx{
+		modByPkg:   b.modByPkg,
+		units:      inp.Units,
+		unitByPkg:  unitByPkg,
+		pnodeNodes: pnodeNodes,
+		pnodeTypes: pnodeTypes,
+		pnodeCalls: pnodeCalls,
+		pnodeCaps:  pnodeCaps,
+	}
+
+	for uIdx, u in inp.Units {
+		let typed = match u.Typed {
+		case option.Some{Value: td}:
+			td
+		case option.None:
+			continue
+		}
+		let first = unitFileFirst[uIdx]
+		for fIdx, f in u.Files {
+			if f.Parsed.Failed {
+				continue
+			}
+			let t = f.Parsed.Tree
+			let fi = fileIndexes[uIdx][fIdx]
+			let fn = fileNodes[first+fIdx]
+			let nNodes = syntax.NumNodes(t)
+			let mut written = slices.Repeat([]bool{false}, nNodes)
+			let mut callFuns = slices.Repeat([]bool{false}, nNodes)
+			let mut callFunSels = slices.Repeat([]bool{false}, nNodes)
+			markWriteLhsNodes(f.Parsed, fi, &written)
+			markCallFuns(f.Parsed, fi, &callFuns, &callFunSels)
+			let siteHow = buildSiteHow(t)
+			let absFile = first + fIdx
+			processDeclEdges(&b, &pnodeNodes, &reExports, ctx, uIdx, fIdx, u, typed, fn, f.Parsed, fi, declNodeByFile[uIdx][fIdx], written, callFuns, siteHow, pendingByFile[absFile])
+			for pfIdx in pendingByFile[absFile] {
+				if !b.pendingDone[pfIdx] {
+					let _ = materializePendingField(&b, &pnodeNodes, pfIdx)
+				}
+			}
+		}
+	}
+	for pfIdx in 0..b.pendingFields.Len() {
+		if !b.pendingDone[pfIdx] {
+			let _ = materializePendingField(&b, &pnodeNodes, pfIdx)
+		}
+	}
+
+	let nNodesTotal = b.nodes.Len()
+	for reExports.Len() < nNodesTotal {
+		reExports = reExports.Append(NoID)
+	}
+	let mut fileIndexOfNode = slices.Repeat([]uint32{NoID}, nNodesTotal)
+	for fiIdx, fn in fileNodes {
+		fileIndexOfNode[int(fn)] = uint32(fiIdx)
+	}
+
+	let mut nodeAtFile = slices.WithCapacity[uint32](nNodesTotal)
+	let mut nodeAtOff = slices.WithCapacity[uint32](nNodesTotal)
+	let mut nodeAtLine = slices.WithCapacity[uint32](nNodesTotal)
+	let mut nodeAtCol = slices.WithCapacity[uint32](nNodesTotal)
+	for na in b.nodeAt {
+		nodeAtFile = nodeAtFile.Append(na.file)
+		nodeAtOff = nodeAtOff.Append(na.off)
+		nodeAtLine = nodeAtLine.Append(na.line)
+		nodeAtCol = nodeAtCol.Append(na.col)
+	}
+
+	let sortedEdges = slices.SortFunc(b.edges, compareEdgeRec)
+	let nEdges = sortedEdges.Len()
+	let mut edgeRows = slices.WithCapacity[codegraph.EdgeRow](nEdges)
+	let mut edgeFile = slices.WithCapacity[uint32](nEdges)
+	let mut edgeOff = slices.WithCapacity[uint32](nEdges)
+	let mut edgeLine = slices.WithCapacity[uint32](nEdges)
+	let mut edgeCol = slices.WithCapacity[uint32](nEdges)
+	let nFilesTotal = fileNodes.Len()
+	let mut atCounts = slices.Repeat([]uint32{uint32(0)}, nFilesTotal)
+	let mut intoCounts = slices.Repeat([]uint32{uint32(0)}, nFilesTotal)
+
+	for ei, er in sortedEdges {
+		edgeRows = edgeRows.Append(er.edge)
+		edgeFile = edgeFile.Append(er.file)
+		edgeOff = edgeOff.Append(er.off)
+		edgeLine = edgeLine.Append(er.line)
+		edgeCol = edgeCol.Append(er.col)
+		if er.file != NoID && int(er.file) < nNodesTotal {
+			let fIdx = fileIndexOfNode[int(er.file)]
+			if fIdx != NoID {
+				atCounts[int(fIdx)] += uint32(1)
+			}
+		}
+		if er.edge.Kind == "uses" && er.edge.To >= 0 && er.edge.To < nNodesTotal {
+			let toFileNode = b.nodeFile[er.edge.To]
+			if toFileNode != NoID && int(toFileNode) < nNodesTotal {
+				let tIdx = fileIndexOfNode[int(toFileNode)]
+				if tIdx != NoID {
+					intoCounts[int(tIdx)] += uint32(1)
+				}
+			}
+		}
+		let _ = ei
+	}
+
+	let mut edgeAtStart = slices.Repeat([]uint32{uint32(0)}, nFilesTotal+1)
+	let mut intoStart = slices.Repeat([]uint32{uint32(0)}, nFilesTotal+1)
+	for i in 0..nFilesTotal {
+		edgeAtStart[i+1] = edgeAtStart[i] + atCounts[i]
+		intoStart[i+1] = intoStart[i] + intoCounts[i]
+	}
+	let mut atCursor = slices.Repeat([]uint32{uint32(0)}, nFilesTotal)
+	let mut intoCursor = slices.Repeat([]uint32{uint32(0)}, nFilesTotal)
+	for i in 0..nFilesTotal {
+		atCursor[i] = edgeAtStart[i]
+		intoCursor[i] = intoStart[i]
+	}
+	let mut edgeAtIdx = slices.Repeat([]uint32{uint32(0)}, int(edgeAtStart[nFilesTotal]))
+	let mut intoIdx = slices.Repeat([]uint32{uint32(0)}, int(intoStart[nFilesTotal]))
+
+	let mut edgeSiteRank = slices.Repeat([]int{0}, nEdges)
+	let mut usesByUnit = slices.Repeat([][]int{[]int{}}, inp.Units.Len())
+	let mut pfByUnit = slices.Repeat([][]int{[]int{}}, inp.Units.Len())
+	for pfIdx, pf in b.pendingFields {
+		if pfIdx < b.pendingNode.Len() && b.pendingNode[pfIdx] != NoID {
+			pfByUnit[pf.unitIdx] = pfByUnit[pf.unitIdx].Append(pfIdx)
+		}
+	}
+	for ei, er in sortedEdges {
+		if er.edge.Kind == "uses" && er.file != NoID && int(er.file) < nNodesTotal {
+			let fIdxAbs = fileIndexOfNode[int(er.file)]
+			if fIdxAbs != NoID {
+				let uIdx = int(fileUnitIdx[int(fIdxAbs)])
+				usesByUnit[uIdx] = usesByUnit[uIdx].Append(ei)
+			}
+		}
+	}
+	for uIdx in 0..inp.Units.Len() {
+		let mut events = []touchEvent{}
+		for pfIdx in pfByUnit[uIdx] {
+			let pf = b.pendingFields[pfIdx]
+			events = events.Append(touchEvent{fileIdx: uint32(pf.fileIdx), off: pf.at.off, seq: uint32(0), edgeIdx: -1, node: b.pendingNode[pfIdx]})
+		}
+		for ei in usesByUnit[uIdx] {
+			let er = sortedEdges[ei]
+			let fIdxAbs = fileIndexOfNode[int(er.file)]
+			let fRel = fileRelIdx[int(fIdxAbs)]
+			events = events.Append(touchEvent{fileIdx: fRel, off: er.off, seq: er.seq + uint32(1), edgeIdx: ei, node: uint32(er.edge.To)})
+		}
+		let sortedEv = slices.SortFunc(events, compareTouchEvent)
+		let mut symRank = Map[uint32, int]{}
+		let mut nextRank = unitTopCounts[uIdx]
+		let uPkgNode = pkgNodes[uIdx]
+		for ev in sortedEv {
+			let rank = if int(ev.node) < nNodesTotal && b.nodePkg[int(ev.node)] == uPkgNode && b.nodeTopRank[int(ev.node)] != NoID {
+				int(b.nodeTopRank[int(ev.node)])
+			} else {
+				match symRank.Get(ev.node) {
+				case option.Some{Value: r}:
+					r
+				case option.None:
+					let r = nextRank
+					nextRank += 1
+					symRank[ev.node] = r
+					r
+				}
+			}
+			if ev.edgeIdx >= 0 {
+				edgeSiteRank[ev.edgeIdx] = rank
+			}
+		}
+	}
+
+	let mut atEntries = slices.WithCapacity[atEdgeEntry](int(edgeAtStart[nFilesTotal]))
+	for ei, er in sortedEdges {
+		if er.file != NoID && int(er.file) < nNodesTotal {
+			let fIdx = fileIndexOfNode[int(er.file)]
+			if fIdx != NoID {
+				let isUses = if er.edge.Kind == "uses" { 1 } else { 0 }
+				atEntries = atEntries.Append(atEdgeEntry{ei: ei, isUses: isUses, symRank: edgeSiteRank[ei], off: er.off, seq: er.seq})
+			}
+		}
+		if er.edge.Kind == "uses" && er.edge.To >= 0 && er.edge.To < nNodesTotal {
+			let toFileNode = b.nodeFile[er.edge.To]
+			if toFileNode != NoID && int(toFileNode) < nNodesTotal {
+				let tIdx = fileIndexOfNode[int(toFileNode)]
+				if tIdx != NoID {
+					let pos = intoCursor[int(tIdx)]
+					intoCursor[int(tIdx)] = pos + uint32(1)
+					intoIdx[int(pos)] = uint32(ei)
+				}
+			}
+		}
+	}
+	let sortedAtEntries = slices.SortFunc(atEntries, compareAtEdgeEntry)
+	for ent in sortedAtEntries {
+		let er = sortedEdges[ent.ei]
+		let fIdx = fileIndexOfNode[int(er.file)]
+		let pos = atCursor[int(fIdx)]
+		atCursor[int(fIdx)] = pos + uint32(1)
+		edgeAtIdx[int(pos)] = uint32(ent.ei)
+	}
+
+	ProgramGraph{
+		Rows:            codegraph.Rows{Version: 1, Nodes: b.nodes, Edges: edgeRows},
+		NodePkg:         b.nodePkg,
+		NodeFile:        b.nodeFile,
+		NodeAtFile:      nodeAtFile,
+		NodeAtOff:       nodeAtOff,
+		NodeAtLine:      nodeAtLine,
+		NodeAtCol:       nodeAtCol,
+		SubjectPkg:      b.subjectPkgs,
+		FileNodes:       fileNodes,
+		FileIndexOfNode: fileIndexOfNode,
+		UnitFileFirst:   unitFileFirst,
+		TestCodeFile:    testCodeFile,
+		EdgeFile:        edgeFile,
+		EdgeOff:         edgeOff,
+		EdgeLine:        edgeLine,
+		EdgeCol:         edgeCol,
+		EdgeAtStart:     edgeAtStart,
+		EdgeAtIdx:       edgeAtIdx,
+		IntoStart:       intoStart,
+		IntoIdx:         intoIdx,
+		ReExportTo:      reExports,
+		PkgImports:      pkgImports,
+		PkgNames:        b.pkgNames,
+		ImplPkgs:        b.implPkgs,
+		DomainPkgs:      b.domainPkgs,
+		ModuleIDs:       b.subModIDs,
+		FileUnitIdx:     fileUnitIdx,
+		FileRelIdx:      fileRelIdx,
+		FileIndexes:     fileIndexes,
+	}
+}
+
+law ProgramGraphCSRBoundsHold(lines int) {
+	let n = if lines < 1 { 1 } else if lines > 40 { 40 } else { lines }
+	let mut src = "import example.com/m/dep\n"
+	for i in 0..n {
+		if i == 0 {
+			src = src + "func F0() int { 1 }\n"
+		} else {
+			src = src + "func F\(i)() int { F\(i - 1)() }\n"
+		}
+	}
+	let p = syntax.Parse(src)
+	if p.Failed {
+		return false
+	}
+	let inp = Input{
+		Checked:    false,
+		Closed:     false,
+		ModuleDirs: Map[string, string]{},
+		Glossaries: Map[string, string]{},
+		Units:      []UnitInput{UnitInput{
+			Module:     "example.com/m", Path: "example.com/m/p", Dir: "p", Name: "p",
+			Dependency: false, HasEntry: false,
+			Files:      []FileInput{FileInput{Rel: "p/a.ergo", Src: src, Parsed: p}},
+			BindFiles:  []bind.File{}, Typed: option.None,
+		}},
+	}
+	let g = BuildProgramGraph(inp)
+		g.EdgeAtStart.Len() == g.FileNodes.Len()+1 &&
+		g.IntoStart.Len() == g.FileNodes.Len()+1 &&
+		int(g.EdgeAtStart[g.FileNodes.Len()]) == g.EdgeAtIdx.Len() &&
+		g.EdgeAtIdx.Len() >= 1 &&
+		int(g.IntoStart[g.FileNodes.Len()]) == g.IntoIdx.Len() &&
+		g.ModuleIDs.Len() == 1
+}
+
+test ProgramGraphBuildsDeclImportAndLineRows {
+	let srcA = "type Console { Write(s string) }\nfunc Run(x int) int {\n\tlet y = x + 1\n\ty\n}\n"
+	let srcB = "import m/a\nfunc Main() int { 1 }\n"
+	let pA = syntax.Parse(srcA)
+	let pB = syntax.Parse(srcB)
+	assert !pA.Failed
+	assert !pB.Failed
+	let inp = Input{
+		Checked:    false,
+		Closed:     false,
+		ModuleDirs: Map[string, string]{},
+		Glossaries: Map[string, string]{},
+		Units:      []UnitInput{
+			UnitInput{
+				Module:     "example.com/m", Path: "m/a", Dir: "a", Name: "a",
+				Dependency: false, HasEntry: false,
+				Files:      []FileInput{FileInput{Rel: "a/a.ergo", Src: srcA, Parsed: pA}},
+				BindFiles:  []bind.File{}, Typed: option.None,
+			},
+			UnitInput{
+				Module:     "example.com/m", Path: "m/b", Dir: "b", Name: "b",
+				Dependency: false, HasEntry: true,
+				Files:      []FileInput{FileInput{Rel: "b/main.ergo", Src: srcB, Parsed: pB}},
+				BindFiles:  []bind.File{}, Typed: option.None,
+			},
+		},
+	}
+	let g = BuildProgramGraph(inp)
+	assert g.DomainPkgs.Get("m/a") != option.None
+	assert g.PkgImports.Get("m/b\x00m/a") != option.None
+	let pl = codegraph.PhysicalLines(g.Rows, g.ModuleIDs)
+	assert pl.Files.Len() == 2
+	assert g.Rows.Nodes[pl.Files[0].File].Lines == 5
+}

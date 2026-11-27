@@ -1,0 +1,3931 @@
+import compiler/check/bind
+import compiler/check/expr
+import compiler/check/load
+import compiler/check/store
+import compiler/syntax
+import dense
+import option
+import slices
+import strconv
+import strings
+
+func semFinding(rule string, sev uint8, file string, fi FileIndex, off int, spanLen int, msg string, related []Related) Finding {
+	let pos = syntax.PositionOf(fi.Lines, off)
+	let (code, instead, prec, hasPrec) = match RuleByName(rule) {
+	case (m, true):
+		(m.Code, m.Instead, m.Precision, m.HasPrecision)
+	case (_, false):
+		("L000", "", 0, false)
+	}
+	Finding{
+		Code:         code,
+		Rule:         rule,
+		Severity:     sev,
+		Message:      msg,
+		Instead:      instead,
+		File:         file,
+		Offset:       off,
+		Length:       spanLen,
+		Line:         pos.Line,
+		Column:       pos.Column,
+		Precision:    prec,
+		HasPrecision: hasPrec,
+		HasFix:       false,
+		Fix:          EmptyFix(),
+		Related:      related,
+	}
+}
+
+func sameExprTree(p syntax.Parsed, hasTyped bool, fIdx int, u bind.Uses, ps bind.Parents, a dense.ID[syntax.Node], b dense.ID[syntax.Node]) bool {
+	let t = p.Tree
+	let x = Unparen(t, a)
+	let y = Unparen(t, b)
+	let kx = syntax.KindOf(t, x)
+	let ky = syntax.KindOf(t, y)
+	if kx != ky {
+		return false
+	}
+	if kx == syntax.KIdent {
+		if NodeText(p, x) != NodeText(p, y) {
+			return false
+		}
+		if !hasTyped {
+			return true
+		}
+		let rx = bind.ResolutionOf(u, ps, bind.PNodeOf(ps, fIdx, x))
+		let ry = bind.ResolutionOf(u, ps, bind.PNodeOf(ps, fIdx, y))
+		match (rx, ry) {
+		case (bind.Declared as dx, bind.Declared as dy):
+			return dx.At == dy.At
+		case (bind.Imported as ix, bind.Imported as iy):
+			return ix.Ref == iy.Ref
+		case _:
+			return true
+		}
+	}
+	if kx == syntax.KSelectorExpr {
+		let sx = syntax.SelectorExprOf(t, x)
+		let sy = syntax.SelectorExprOf(t, y)
+		return NodeText(p, sx.Sel) == NodeText(p, sy.Sel) && sameExprTree(p, hasTyped, fIdx, u, ps, sx.X, sy.X)
+	}
+	if kx == syntax.KIndexExpr {
+		let ix = syntax.IndexExprOf(t, x)
+		let iy = syntax.IndexExprOf(t, y)
+		if syntax.Len(ix.Indices) != syntax.Len(iy.Indices) {
+			return false
+		}
+		if !sameExprTree(p, hasTyped, fIdx, u, ps, ix.X, iy.X) {
+			return false
+		}
+		for i in 0..syntax.Len(ix.Indices) {
+			if !sameExprTree(p, hasTyped, fIdx, u, ps, syntax.Item(t, ix.Indices, i), syntax.Item(t, iy.Indices, i)) {
+				return false
+			}
+		}
+		return true
+	}
+	false
+}
+
+// CheckSelfAssignment emits self-assignment (L159) findings for statements assigning an expression to itself.
+func CheckSelfAssignment(inp Input, g ProgramGraph, sev uint8, out mut []Finding) {
+	if sev == SeverityOff {
+		return
+	}
+	for uIdx, u in inp.Units {
+		if u.Dependency {
+			continue
+		}
+		let (hasTyped, ps, uses) = match u.Typed {
+		case option.Some{Value: td}:
+			(true, td.K.Ps, td.K.U)
+		case option.None:
+			(false, bind.BuildParents([]bind.File{}), bind.NoUses())
+		}
+		for fIdx, f in u.Files {
+			let fi = g.FileIndexes[uIdx][fIdx]
+			if f.Parsed.Failed || fi.Generated {
+				continue
+			}
+			let t = f.Parsed.Tree
+			for aRow in fi.Assigns {
+				let aNode = syntax.NodeAt(t, int(aRow))
+				let asgn = syntax.AssignStmtOf(t, aNode)
+				let lhs = Unparen(t, asgn.Lhs)
+				let rhs = Unparen(t, asgn.Rhs)
+				let lk = syntax.KindOf(t, lhs)
+				if lk != syntax.KIdent && lk != syntax.KSelectorExpr && lk != syntax.KIndexExpr && lk != syntax.KTupleExpr {
+					continue
+				}
+				let mut selfAssigned = false
+				if lk == syntax.KTupleExpr && syntax.KindOf(t, rhs) == syntax.KTupleExpr {
+					let lt = syntax.TupleExprOf(t, lhs)
+					let rt = syntax.TupleExprOf(t, rhs)
+					let n = syntax.Len(lt.Elts)
+					if n > 0 && n == syntax.Len(rt.Elts) {
+						selfAssigned = true
+						for i in 0..n {
+							if !sameExprTree(f.Parsed, hasTyped, fIdx, uses, ps, syntax.Item(t, lt.Elts, i), syntax.Item(t, rt.Elts, i)) {
+								selfAssigned = false
+								break
+							}
+						}
+					}
+				} else {
+					selfAssigned = sameExprTree(f.Parsed, hasTyped, fIdx, uses, ps, lhs, rhs)
+				}
+				if selfAssigned {
+					let off = syntax.NodePos(f.Parsed, aNode)
+					let spanLen = syntax.NodeEnd(f.Parsed, aNode) - off
+					*out = (*out).Append(semFinding("self-assignment", sev, f.Rel, fi, off, spanLen, "self-assignment has no effect", []Related{}))
+				}
+			}
+		}
+	}
+}
+
+func stripRawOrQuotedLiteral(raw string) (string, bool) {
+	if raw.Len() < 2 {
+		return ("", false)
+	}
+	if raw[0] == '`' && raw[raw.Len()-1] == '`' {
+		return (raw[1 : raw.Len()-1], true)
+	}
+	if raw[0] == '"' && raw[raw.Len()-1] == '"' {
+		let unq = strconv.Unquote(raw) catch {
+		case _:
+			return ("", false)
+		}
+		return (unq, true)
+	}
+	("", false)
+}
+
+// CheckWireKeyQuote emits wire-key-quote (L161) findings for quoted quotes inside struct wire keys.
+func CheckWireKeyQuote(inp Input, g ProgramGraph, sev uint8, out mut []Finding) {
+	if sev == SeverityOff {
+		return
+	}
+	for uIdx, u in inp.Units {
+		if u.Dependency {
+			continue
+		}
+		for fIdx, f in u.Files {
+			let fi = g.FileIndexes[uIdx][fIdx]
+			if f.Parsed.Failed || fi.Generated {
+				continue
+			}
+			let t = f.Parsed.Tree
+			for fdRow in fi.Fields {
+				let fd = syntax.FieldOf(t, syntax.NodeAt(t, int(fdRow)))
+				match dense.Unpack(fd.Key) {
+				case option.Some{Value: keyNode}:
+					let raw = NodeText(f.Parsed, keyNode)
+					let (unq, ok) = stripRawOrQuotedLiteral(raw)
+					if !ok || unq.Len() < 2 {
+						continue
+					}
+					let q0 = unq[0]
+					let q1 = unq[unq.Len()-1]
+					if (q0 == '"' && q1 == '"') || (q0 == '\'' && q1 == '\'') || (q0 == '`' && q1 == '`') {
+						let off = syntax.NodePos(f.Parsed, keyNode)
+						let msg = "wire key \(raw) includes literal quotes"
+						*out = (*out).Append(semFinding("wire-key-quote", sev, f.Rel, fi, off, raw.Len(), msg, []Related{}))
+					}
+				case option.None:
+				}
+			}
+		}
+	}
+}
+
+func countFieldListParams(t syntax.Tree, flID dense.ID[syntax.Node]) int {
+	if syntax.KindOf(t, flID) != syntax.KFieldList {
+		return 0
+	}
+	let fl = syntax.FieldListOf(t, flID)
+	let mut count = 0
+	for i in 0..syntax.Len(fl.List) {
+		let fd = syntax.FieldOf(t, syntax.Item(t, fl.List, i))
+		let nn = syntax.Len(fd.Names)
+		count += if nn == 0 { 1 } else { nn }
+	}
+	count
+}
+
+func isStdPkgPath(path string) bool {
+	path != "" && path != "main" && !strings.Contains(path, ".") && !strings.HasPrefix(path, "cmd/")
+}
+
+func stdShortPath(path string) string {
+	match strings.Cut(path, "/internal/sketch/std/") {
+	case option.Some{Value: c}:
+		c.After
+	case option.None:
+		""
+	}
+}
+
+func isHostForeignPath(path string) bool {
+	path == "" || path == "-" || path == "universe" || path == "builtin" || path == "go"
+}
+
+func nominalTypeOwner(typed load.Typed, uPath string, t dense.ID[store.TKey]) (string, string, bool) {
+	let s = typed.S
+	let mut cur = t
+	for {
+		let k = store.KindOfType(s, cur)
+		if k == store.KPointer || k == store.KOwn {
+			let ops = store.OperandsOf(s, cur)
+			if ops.Len() > 0 {
+				cur = ops[0]
+				continue
+			}
+			return ("", "", false)
+		}
+		if k == store.KReapplied {
+			let ops = store.OperandsOf(s, cur)
+			if ops.Len() >= 2 {
+				cur = ops[1]
+				continue
+			}
+			return ("", "", false)
+		}
+		if k == store.KNamed {
+			let idx = store.ArgOf(s, cur)
+			if idx >= 0 {
+				return (uPath, store.TypeNameText(s, idx), false)
+			}
+			return ("", "", false)
+		}
+		if k == store.KForeign {
+			let idx = store.ArgOf(s, cur)
+			if idx >= 0 && idx < typed.K.Foreign.Len() {
+				let fr = typed.K.Foreign[idx]
+				return (fr.Path, fr.Name, isHostForeignPath(fr.Path))
+			}
+			return ("", "", true)
+		}
+		if k == store.KInstance {
+			let xref = store.OriginOfType(s, cur)
+			if int(xref.Import) == store.ForeignBit {
+				let di = int(xref.Decl)
+				if di >= 0 && di < typed.K.Foreign.Len() {
+					let fr = typed.K.Foreign[di]
+					return (fr.Path, fr.Name, isHostForeignPath(fr.Path))
+				}
+				return ("", "", true)
+			}
+			return xrefOwnerName(typed, uPath, xref)
+		}
+		return ("", "", false)
+	}
+	("", "", false)
+}
+
+func xrefOwnerName(typed load.Typed, uPath string, xref store.XRef) (string, string, bool) {
+	if int(xref.Import) == store.ForeignBit {
+		let di = int(xref.Decl)
+		if di >= 0 && di < typed.K.Foreign.Len() {
+			let fr = typed.K.Foreign[di]
+			return (fr.Path, fr.Name, isHostForeignPath(fr.Path))
+		}
+		return ("", "", true)
+	}
+	let imps = store.ImportPaths(typed.S)
+	if xref.Import == uint32(0) {
+		let di = int(xref.Decl)
+		let dn = if di >= 0 && di < store.NumDecls(typed.S) { store.DeclText(typed.S, di) } else { "" }
+		return (uPath, dn, false)
+	}
+	if int(xref.Import) > 0 && int(xref.Import) <= typed.K.Ifaces.Len() {
+		let dep = typed.K.Ifaces[int(xref.Import)-1]
+		let di = int(xref.Decl)
+		let dn = if di >= 0 && di < dep.Decls.Len() { dep.Decls[di].Name } else { "" }
+		return (dep.Path, dn, false)
+	}
+	if int(xref.Import) > 0 && int(xref.Import) <= imps.Len() {
+		let tp = imps[int(xref.Import)-1]
+		let mut dn = ""
+		for dep in typed.K.Deps {
+			if store.PathOf(dep.S) == tp && int(xref.Decl) >= 0 && int(xref.Decl) < store.NumDecls(dep.S) {
+				dn = store.DeclText(dep.S, int(xref.Decl))
+				break
+			}
+		}
+		return (tp, dn, false)
+	}
+	("", "", false)
+}
+
+func addUnitOpMethods(u UnitInput, opMethods mut Map[string, []string]) {
+	let up = unitPkgPath(u)
+	let short = stdShortPath(up)
+	for f in u.Files {
+		if f.Parsed.Failed {
+			continue
+		}
+		let t = f.Parsed.Tree
+		let root = syntax.Root(t)
+		let fl = syntax.FileOf(t, root)
+		for i in 0..syntax.Len(fl.Decls) {
+			let d = syntax.Item(t, fl.Decls, i)
+			if syntax.KindOf(t, d) != syntax.KTypeDecl {
+				continue
+			}
+			let td = syntax.TypeDeclOf(t, d)
+			match dense.Unpack(td.Spec) {
+			case option.Some{Value: sp}:
+				if syntax.KindOf(t, sp) == syntax.KInterfaceType {
+					let it = syntax.InterfaceTypeOf(t, sp)
+					let mut ms = []string{}
+					for mi in 0..syntax.Len(it.Members) {
+						let mn = syntax.Item(t, it.Members, mi)
+						if syntax.KindOf(t, mn) == syntax.KField {
+							let fd = syntax.FieldOf(t, mn)
+							for ni in 0..syntax.Len(fd.Names) {
+								ms = ms.Append(NodeText(f.Parsed, syntax.Item(t, fd.Names, ni)))
+							}
+						}
+					}
+					if ms.Len() > 0 {
+						let nm = NodeText(f.Parsed, td.Name)
+						if up != "" {
+							(*opMethods)[up+"\x00"+nm] = ms
+						}
+						if short != "" {
+							(*opMethods)[short+"\x00"+nm] = ms
+						}
+					}
+				}
+			case option.None:
+			}
+		}
+	}
+}
+
+func fileImportAliasesDecls(p syntax.Parsed) Map[string, string] {
+	let mut aliases = Map[string, string]{}
+	if p.Failed {
+		return aliases
+	}
+	let t = p.Tree
+	let fl = syntax.FileOf(t, syntax.Root(t))
+	for i in 0..syntax.Len(fl.Decls) {
+		let d = syntax.Item(t, fl.Decls, i)
+		if syntax.KindOf(t, d) != syntax.KImportDecl {
+			continue
+		}
+		let sp = syntax.ImportSpecOf(t, syntax.ImportDeclOf(t, d).Spec)
+		let (path, isGo) = importSpecInfo(p, sp)
+		if isGo || path == "" {
+			continue
+		}
+		let alias = match dense.Unpack(sp.Name) {
+		case option.Some{Value: n}:
+			NodeText(p, n)
+		case option.None:
+			SlashBase(path)
+		}
+		if alias != "" && alias != "_" {
+			aliases[alias] = path
+		}
+	}
+	aliases
+}
+
+func buildUnitImplMethods(inp Input, uIdx int) Map[string, bool] {
+	let u = inp.Units[uIdx]
+	let uPath = unitPkgPath(u)
+	let uShort = stdShortPath(uPath)
+	let mut opMethods = Map[string, []string]{}
+	match u.Typed {
+	case option.Some{Value: td}:
+		for ifc in td.K.Ifaces {
+			for role in ifc.Roles {
+				let mut ms = slices.WithCapacity[string](role.Members.Len())
+				for m in role.Members {
+					ms = ms.Append(m.Name)
+				}
+				if ms.Len() > 0 {
+					opMethods[ifc.Path+"\x00"+role.Name] = ms
+					let rs = stdShortPath(ifc.Path)
+					if rs != "" {
+						opMethods[rs+"\x00"+role.Name] = ms
+					}
+				}
+			}
+		}
+	case option.None:
+	}
+	for iu in inp.Units {
+		addUnitOpMethods(iu, &opMethods)
+	}
+	let mut out = Map[string, bool]{}
+	for f in u.Files {
+		if f.Parsed.Failed {
+			continue
+		}
+		let aliases = fileImportAliasesDecls(f.Parsed)
+		let t = f.Parsed.Tree
+		let root = syntax.Root(t)
+		let fl = syntax.FileOf(t, root)
+		for i in 0..syntax.Len(fl.Decls) {
+			let d = syntax.Item(t, fl.Decls, i)
+			if syntax.KindOf(t, d) != syntax.KTypeDecl {
+				continue
+			}
+			let td = syntax.TypeDeclOf(t, d)
+			let tname = NodeText(f.Parsed, td.Name)
+			for j in 0..syntax.Len(td.Implements) {
+				let imp = syntax.Item(t, td.Implements, j)
+				let impBase = if syntax.KindOf(t, imp) == syntax.KIndexExpr {
+					syntax.IndexExprOf(t, imp).X
+				} else {
+					imp
+				}
+				let mut msOpt option.Option[[]string] = option.None
+				if syntax.KindOf(t, impBase) == syntax.KSelectorExpr {
+					let se = syntax.SelectorExprOf(t, impBase)
+					let sel = NodeText(f.Parsed, se.Sel)
+					if syntax.KindOf(t, se.X) == syntax.KIdent {
+						let qual = NodeText(f.Parsed, se.X)
+						match aliases.Get(qual) {
+						case option.Some{Value: pkg}:
+							msOpt = opMethods.Get(pkg + "\x00" + sel)
+						case option.None:
+						}
+					}
+				} else if syntax.KindOf(t, impBase) == syntax.KIdent {
+					let nm = NodeText(f.Parsed, impBase)
+					msOpt = opMethods.Get(uPath + "\x00" + nm)
+					if msOpt == option.None && uShort != "" {
+						msOpt = opMethods.Get(uShort + "\x00" + nm)
+					}
+					if msOpt == option.None {
+						msOpt = opMethods.Get("builtin\x00" + nm)
+					}
+					if msOpt == option.None {
+						msOpt = opMethods.Get("\x00" + nm)
+					}
+				}
+				match msOpt {
+				case option.Some{Value: ms}:
+					for m in ms {
+						out[tname+"\x00"+m] = true
+					}
+				case option.None:
+				}
+			}
+		}
+	}
+	out
+}
+
+func firstParamTypeLastIdent(p syntax.Parsed, t syntax.Tree, ft syntax.FuncType) string {
+	if syntax.KindOf(t, ft.Params) != syntax.KFieldList {
+		return ""
+	}
+	let fl = syntax.FieldListOf(t, ft.Params)
+	if syntax.Len(fl.List) == 0 {
+		return ""
+	}
+	let f0 = syntax.FieldOf(t, syntax.Item(t, fl.List, 0))
+	let mut cur = match dense.Unpack(f0.Type) {
+	case option.Some{Value: ty}:
+		ty
+	case option.None:
+		return ""
+	}
+	for {
+		let k = syntax.KindOf(t, cur)
+		if k == syntax.KStarExpr {
+			cur = syntax.StarExprOf(t, cur).X
+			continue
+		}
+		if k == syntax.KIndexExpr {
+			cur = syntax.IndexExprOf(t, cur).X
+			continue
+		}
+		if k == syntax.KIdent {
+			return NodeText(p, cur)
+		}
+		if k == syntax.KSelectorExpr {
+			return NodeText(p, syntax.SelectorExprOf(p.Tree, cur).Sel)
+		}
+		return ""
+	}
+	""
+}
+
+// CheckLongParameterList emits long-parameter-list (L141) findings when a function exceeds max parameters.
+func CheckLongParameterList(inp Input, g ProgramGraph, sev uint8, maxParams int, out mut []Finding) {
+	if sev == SeverityOff || maxParams <= 0 {
+		return
+	}
+	for uIdx, u in inp.Units {
+		if u.Dependency {
+			continue
+		}
+		let implMethods = buildUnitImplMethods(inp, uIdx)
+		for fIdx, f in u.Files {
+			let fi = g.FileIndexes[uIdx][fIdx]
+			if f.Parsed.Failed {
+				continue
+			}
+			let t = f.Parsed.Tree
+			for dr in fi.Decls {
+				if dr.Kind != syntax.KFuncDecl {
+					continue
+				}
+				let fd = syntax.FuncDeclOf(t, syntax.NodeAt(t, int(dr.Node)))
+				if dense.Unpack(fd.Extern) != option.None || dense.Unpack(fd.Recv) != option.None {
+					continue
+				}
+				let fname = NodeText(f.Parsed, fd.Name)
+				let ft = syntax.FuncTypeOf(t, fd.Type)
+				let recv0 = firstParamTypeLastIdent(f.Parsed, t, ft)
+				if recv0 != "" && (implMethods.Get(recv0+"\x00"+fname) != option.None || implMethods.Get(recv0+"\x00*") != option.None) {
+					continue
+				}
+				let nParams = countFieldListParams(t, ft.Params)
+				if nParams > maxParams {
+					let off = syntax.NodePos(f.Parsed, fd.Name)
+					let msg = "\(fname) takes \(nParams) parameters, more than \(maxParams)"
+					*out = (*out).Append(semFinding("long-parameter-list", sev, f.Rel, fi, off, fname.Len(), msg, []Related{}))
+				}
+			}
+		}
+	}
+}
+
+func markPatternDefs(t syntax.Tree, pat dense.ID[syntax.Node], isDef mut []bool) {
+	let mut stack = []uint32{uint32(dense.Index(pat))}
+	for stack.Len() > 0 {
+		let cur = syntax.NodeAt(t, int(stack[stack.Len()-1]))
+		stack = stack[:stack.Len()-1]
+		let k = syntax.KindOf(t, cur)
+		if k == syntax.KIdent {
+			(*isDef)[dense.Index(cur)] = true
+		} else if k == syntax.KAsPattern {
+			(*isDef)[dense.Index(syntax.AsPatternOf(t, cur).Name)] = true
+		} else if k == syntax.KTupleExpr {
+			let te = syntax.TupleExprOf(t, cur)
+			for i in 0..syntax.Len(te.Elts) {
+				stack = stack.Append(uint32(dense.Index(syntax.Item(t, te.Elts, i))))
+			}
+		} else if k == syntax.KCompositeLit {
+			let cl = syntax.CompositeLitOf(t, cur)
+			for i in 0..syntax.Len(cl.Elts) {
+				stack = stack.Append(uint32(dense.Index(syntax.Item(t, cl.Elts, i))))
+			}
+		} else if k == syntax.KKeyValueExpr {
+			stack = stack.Append(uint32(dense.Index(syntax.KeyValueExprOf(t, cur).Value)))
+		} else if k == syntax.KParenExpr {
+			stack = stack.Append(uint32(dense.Index(syntax.ParenExprOf(t, cur).X)))
+		}
+	}
+}
+
+func markCasePatternDefs(t syntax.Tree, pat dense.ID[syntax.Node], isDef mut []bool) {
+	let mut stack = []uint32{uint32(dense.Index(pat))}
+	for stack.Len() > 0 {
+		let cur = syntax.NodeAt(t, int(stack[stack.Len()-1]))
+		stack = stack[:stack.Len()-1]
+		let k = syntax.KindOf(t, cur)
+		if k == syntax.KAsPattern {
+			(*isDef)[dense.Index(syntax.AsPatternOf(t, cur).Name)] = true
+		} else if k == syntax.KTupleExpr {
+			let te = syntax.TupleExprOf(t, cur)
+			for i in 0..syntax.Len(te.Elts) {
+				let el = syntax.Item(t, te.Elts, i)
+				if syntax.KindOf(t, el) == syntax.KIdent {
+					(*isDef)[dense.Index(el)] = true
+				} else {
+					stack = stack.Append(uint32(dense.Index(el)))
+				}
+			}
+		} else if k == syntax.KCompositeLit {
+			let cl = syntax.CompositeLitOf(t, cur)
+			for i in 0..syntax.Len(cl.Elts) {
+				let el = syntax.Item(t, cl.Elts, i)
+				if syntax.KindOf(t, el) == syntax.KKeyValueExpr {
+					markPatternDefs(t, syntax.KeyValueExprOf(t, el).Value, isDef)
+				} else {
+					stack = stack.Append(uint32(dense.Index(el)))
+				}
+			}
+		} else if k == syntax.KParenExpr {
+			stack = stack.Append(uint32(dense.Index(syntax.ParenExprOf(t, cur).X)))
+		}
+	}
+}
+
+func markAllDefIdents(t syntax.Tree, isDef mut []bool) {
+	let n = syntax.NumNodes(t)
+	for i in 0..n {
+		let cur = syntax.NodeAt(t, i)
+		let k = syntax.KindOf(t, cur)
+		if k == syntax.KFuncDecl {
+			(*isDef)[dense.Index(syntax.FuncDeclOf(t, cur).Name)] = true
+		} else if k == syntax.KTypeDecl {
+			(*isDef)[dense.Index(syntax.TypeDeclOf(t, cur).Name)] = true
+		} else if k == syntax.KContextDecl {
+			(*isDef)[dense.Index(syntax.ContextDeclOf(t, cur).Name)] = true
+		} else if k == syntax.KVariantSpec {
+			(*isDef)[dense.Index(syntax.VariantSpecOf(t, cur).Name)] = true
+		} else if k == syntax.KLawDecl {
+			(*isDef)[dense.Index(syntax.LawDeclOf(t, cur).Name)] = true
+		} else if k == syntax.KVarSpec {
+			let vs = syntax.VarSpecOf(t, cur)
+			for j in 0..syntax.Len(vs.Names) {
+				(*isDef)[dense.Index(syntax.Item(t, vs.Names, j))] = true
+			}
+			match dense.Unpack(vs.Pattern) {
+			case option.Some{Value: pat}:
+				markPatternDefs(t, pat, isDef)
+			case option.None:
+			}
+		} else if k == syntax.KField {
+			let fd = syntax.FieldOf(t, cur)
+			for j in 0..syntax.Len(fd.Names) {
+				(*isDef)[dense.Index(syntax.Item(t, fd.Names, j))] = true
+			}
+		} else if k == syntax.KAsPattern {
+			(*isDef)[dense.Index(syntax.AsPatternOf(t, cur).Name)] = true
+		} else if k == syntax.KCaseClause {
+			let cc = syntax.CaseClauseOf(t, cur)
+			for j in 0..syntax.Len(cc.List) {
+				markCasePatternDefs(t, syntax.Item(t, cc.List, j), isDef)
+			}
+		} else if k == syntax.KCatchArm {
+			let ca = syntax.CatchArmOf(t, cur)
+			for j in 0..syntax.Len(ca.Types) {
+				markCasePatternDefs(t, syntax.Item(t, ca.Types, j), isDef)
+			}
+		} else if k == syntax.KRangeStmt {
+			let rs = syntax.RangeStmtOf(t, cur)
+			match dense.Unpack(rs.Key) {
+			case option.Some{Value: kn}:
+				if syntax.KindOf(t, kn) == syntax.KIdent {
+					(*isDef)[dense.Index(kn)] = true
+				}
+			case option.None:
+			}
+			if syntax.KindOf(t, rs.Value) == syntax.KIdent {
+				(*isDef)[dense.Index(rs.Value)] = true
+			}
+		} else if k == syntax.KImportSpec {
+			let sp = syntax.ImportSpecOf(t, cur)
+			match dense.Unpack(sp.Name) {
+			case option.Some{Value: nm}:
+				(*isDef)[dense.Index(nm)] = true
+			case option.None:
+			}
+		}
+	}
+}
+
+func checkBannedName(
+	name string,
+	isBareVerbCandidate bool,
+	fileRel string,
+	fi FileIndex,
+	off int,
+	opts WordOptions,
+	sev uint8,
+	out mut []Finding,
+) {
+	if name == "" || name == "_" {
+		return
+	}
+	let (term, hitAvoid) = AvoidedTerm(name, opts.Avoid)
+	if hitAvoid {
+		let msg = "the name \(name) holds \(term.Avoid), which the glossary lists under Avoid"
+		*out = (*out).Append(semFinding("banned-words", sev, fileRel, fi, off, name.Len(), msg, []Related{}))
+		return
+	}
+	let (bw, hitWord) = BannedWord(name, opts.Words)
+	if hitWord {
+		let msg = "the name \(name) holds the banned word \(bw)"
+		*out = (*out).Append(semFinding("banned-words", sev, fileRel, fi, off, name.Len(), msg, []Related{}))
+		return
+	}
+	if isBareVerbCandidate && BareVerb(name, opts.Verbs) {
+		let msg = "the function \(name) is named by a generic verb alone"
+		*out = (*out).Append(semFinding("banned-words", sev, fileRel, fi, off, name.Len(), msg, []Related{}))
+	}
+}
+
+// CheckBannedWords emits banned-words (L111) findings for discouraged words, bare verbs, and glossary violations.
+func CheckBannedWords(inp Input, g ProgramGraph, sev uint8, opts WordOptions, out mut []Finding) {
+	if sev == SeverityOff {
+		return
+	}
+	for uIdx, u in inp.Units {
+		if u.Dependency {
+			continue
+		}
+		for fIdx, f in u.Files {
+			let fi = g.FileIndexes[uIdx][fIdx]
+			if f.Parsed.Failed {
+				continue
+			}
+			let t = f.Parsed.Tree
+			let mut isDef = slices.Repeat([]bool{false}, syntax.NumNodes(t))
+			markAllDefIdents(t, &isDef)
+			if !u.HasEntry {
+				for dr in fi.Decls {
+					if dr.Kind != syntax.KFuncDecl {
+						continue
+					}
+					let fd = syntax.FuncDeclOf(t, syntax.NodeAt(t, int(dr.Node)))
+					if dense.Unpack(fd.Recv) != option.None {
+						continue
+					}
+					let fname = NodeText(f.Parsed, fd.Name)
+					if !isExportedIdent(fname) && BareVerb(fname, opts.Verbs) {
+						let off = syntax.NodePos(f.Parsed, fd.Name)
+						*out = (*out).Append(semFinding("banned-words", sev, f.Rel, fi, off, fname.Len(), "the function \(fname) is named by a generic verb alone", []Related{}))
+					}
+				}
+			}
+			for idRow in fi.Idents {
+				if int(idRow) >= isDef.Len() || !isDef[int(idRow)] {
+					continue
+				}
+				let idNode = syntax.NodeAt(t, int(idRow))
+				checkBannedName(NodeText(f.Parsed, idNode), false, f.Rel, fi, syntax.NodePos(f.Parsed, idNode), opts, sev, out)
+			}
+		}
+	}
+}
+
+func declDocGroupIndex(t syntax.Tree, dNode dense.ID[syntax.Node], dk uint8) int {
+	if dk == syntax.KFuncDecl {
+		return syntax.FuncDeclOf(t, dNode).Doc
+	}
+	if dk == syntax.KTypeDecl {
+		return syntax.TypeDeclOf(t, dNode).Doc
+	}
+	if dk == syntax.KVarDecl {
+		return syntax.VarDeclOf(t, dNode).Doc
+	}
+	if dk == syntax.KContextDecl {
+		return syntax.ContextDeclOf(t, dNode).Doc
+	}
+	-1
+}
+
+func deprecatedReasonInDocGroup(p syntax.Parsed, groupIdx int) string {
+	if groupIdx < 0 || groupIdx >= syntax.NumGroups(p) {
+		return ""
+	}
+	let src = syntax.SourceOf(p)
+	let gp = syntax.GroupPos(p, groupIdx)
+	let ge = syntax.GroupEnd(p, groupIdx)
+	if gp < 0 || ge < gp || ge > src.Len() {
+		return ""
+	}
+	let lines = strings.Split(src[gp:ge], "\n")
+	for raw in lines {
+		let mut line = strings.TrimSpace(raw)
+		if strings.HasPrefix(line, "//") {
+			line = strings.TrimSpace(line[2:])
+		}
+		if strings.HasPrefix(line, "Deprecated:") {
+			let rest = strings.TrimSpace(line[11:])
+			return if rest == "" { "deprecated" } else { rest }
+		}
+	}
+	""
+}
+
+// CheckDeprecated emits deprecated (L104) findings for uses of declarations marked Deprecated:.
+func CheckDeprecated(inp Input, g ProgramGraph, sev uint8, out mut []Finding) {
+	if sev == SeverityOff {
+		return
+	}
+	let nNodes = g.Rows.Nodes.Len()
+	let mut depNotice = slices.Repeat([]string{""}, nNodes)
+	let mut anyDep = false
+	for uIdx, u in inp.Units {
+		let first = g.UnitFileFirst[uIdx]
+		for fIdx, f in u.Files {
+			if f.Parsed.Failed {
+				continue
+			}
+			let t = f.Parsed.Tree
+			let fi = g.FileIndexes[uIdx][fIdx]
+			let fNode = int(g.FileNodes[first+fIdx])
+			let pkgNode = g.NodePkg[fNode]
+			if pkgNode == NoID {
+				continue
+			}
+			let uMod = u.Module
+			let uPath = unitPkgPath(u)
+			for dr in fi.Decls {
+				let dNode = syntax.NodeAt(t, int(dr.Node))
+				let docIdx = declDocGroupIndex(t, dNode, dr.Kind)
+				let notice = deprecatedReasonInDocGroup(f.Parsed, docIdx)
+				if notice == "" {
+					continue
+				}
+				let (_, local, nameOpt) = declKindForSyntax(f.Parsed, dNode)
+				match dense.Unpack(nameOpt) {
+				case option.Some:
+					let off = syntax.NodePos(f.Parsed, syntax.NodeAt(t, int(dr.Node)))
+					let _ = off
+					for ni, n in g.Rows.Nodes {
+						if n.Kind == "decl" && n.Parent == fNode && n.Name == local && g.NodePkg[ni] == pkgNode {
+							depNotice[ni] = notice
+							anyDep = true
+						}
+					}
+					let _ = uMod
+					let _ = uPath
+				case option.None:
+				}
+			}
+		}
+	}
+	if !anyDep {
+		return
+	}
+	for ei, e in g.Rows.Edges {
+		if e.Kind != "uses" || e.To < 0 || e.To >= nNodes || depNotice[e.To] == "" {
+			continue
+		}
+		let fNode = g.EdgeFile[ei]
+		if fNode == NoID {
+			continue
+		}
+		let fp = g.NodePkg[e.From]
+		if fp == NoID || !g.SubjectPkg[int(fp)] || g.NodePkg[e.From] == g.NodePkg[e.To] {
+			continue
+		}
+		let span = edgeSiteSpan(inp, g, ei)
+		if !span.ok {
+			continue
+		}
+		let msg = "\(g.Rows.Nodes[e.To].Name) is deprecated: \(depNotice[e.To])"
+		*out = (*out).Append(graphFinding("deprecated", sev, span, msg, []Related{}))
+	}
+}
+
+func packageLastSeg(pkgPath string) string {
+	SlashBase(pkgPath)
+}
+
+func importSpecSpan(p syntax.Parsed, sp syntax.ImportSpec) (int, int) {
+	let off = if sp.NamePos >= 0 {
+		syntax.TokPos(p, sp.NamePos)
+	} else {
+		syntax.NodePos(p, sp.Path)
+	}
+	let endOff = syntax.NodeEnd(p, sp.Path)
+	let spanLen = if endOff > off { endOff - off } else { 1 }
+	(off, spanLen)
+}
+
+// CheckForeignWhereStd emits foreign-where-std (L103) findings for Go imports covered by the stdlib.
+func CheckForeignWhereStd(inp Input, g ProgramGraph, sev uint8, out mut []Finding) {
+	if sev == SeverityOff {
+		return
+	}
+	for uIdx, u in inp.Units {
+		if u.Dependency {
+			continue
+		}
+		for fIdx, f in u.Files {
+			let fi = g.FileIndexes[uIdx][fIdx]
+			if f.Parsed.Failed {
+				continue
+			}
+			let t = f.Parsed.Tree
+			for dr in fi.Decls {
+				if dr.Kind != syntax.KImportDecl {
+					continue
+				}
+				let sp = syntax.ImportSpecOf(t, syntax.ImportDeclOf(t, syntax.NodeAt(t, int(dr.Node))).Spec)
+				let (impPath, isGo) = importSpecInfo(f.Parsed, sp)
+				if !isGo {
+					continue
+				}
+				let (stdPkg, covered) = StdCoveredBy(impPath)
+				if covered && stdPkg != "" {
+					let (off, spanLen) = importSpecSpan(f.Parsed, sp)
+					let msg = "import go \(impPath) runs unreviewed Go where std covers it"
+					*out = (*out).Append(semFinding("foreign-where-std", sev, f.Rel, fi, off, spanLen, msg, []Related{}))
+				}
+			}
+		}
+	}
+}
+
+// CheckForeignOutsideAdapter emits foreign-outside-adapter (L132) findings for non-pure Go imports in domain packages.
+func CheckForeignOutsideAdapter(inp Input, g ProgramGraph, sev uint8, out mut []Finding) {
+	if sev == SeverityOff {
+		return
+	}
+	for uIdx, u in inp.Units {
+		if u.Dependency {
+			continue
+		}
+		let uPath = unitPkgPath(u)
+		if g.DomainPkgs.Get(uPath) == option.None {
+			continue
+		}
+		for fIdx, f in u.Files {
+			let fi = g.FileIndexes[uIdx][fIdx]
+			if f.Parsed.Failed {
+				continue
+			}
+			let t = f.Parsed.Tree
+			for dr in fi.Decls {
+				if dr.Kind != syntax.KImportDecl {
+					continue
+				}
+				let sp = syntax.ImportSpecOf(t, syntax.ImportDeclOf(t, syntax.NodeAt(t, int(dr.Node))).Spec)
+				let (impPath, isGo) = importSpecInfo(f.Parsed, sp)
+				if !isGo || IsPureGoPackage(impPath) {
+					continue
+				}
+				let (off, spanLen) = importSpecSpan(f.Parsed, sp)
+				let msg = "this package declares an operation type, a contract, and imports Go code that an adapter should hold"
+				*out = (*out).Append(semFinding("foreign-outside-adapter", sev, f.Rel, fi, off, spanLen, msg, []Related{}))
+			}
+		}
+	}
+}
+
+// CheckConsoleOutsideEntry emits console-outside-entry (L134) findings for console imports in domain packages.
+func CheckConsoleOutsideEntry(inp Input, g ProgramGraph, sev uint8, out mut []Finding) {
+	if sev == SeverityOff {
+		return
+	}
+	for uIdx, u in inp.Units {
+		if u.Dependency || u.HasEntry {
+			continue
+		}
+		let uPath = unitPkgPath(u)
+		if g.DomainPkgs.Get(uPath) == option.None {
+			continue
+		}
+		for fIdx, f in u.Files {
+			let fi = g.FileIndexes[uIdx][fIdx]
+			if f.Parsed.Failed || fi.TestFile {
+				continue
+			}
+			let t = f.Parsed.Tree
+			for dr in fi.Decls {
+				if dr.Kind != syntax.KImportDecl {
+					continue
+				}
+				let sp = syntax.ImportSpecOf(t, syntax.ImportDeclOf(t, syntax.NodeAt(t, int(dr.Node))).Spec)
+				let (impPath, isGo) = importSpecInfo(f.Parsed, sp)
+				if isGo || impPath != "console" {
+					continue
+				}
+				let (off, spanLen) = importSpecSpan(f.Parsed, sp)
+				*out = (*out).Append(semFinding("console-outside-entry", sev, f.Rel, fi, off, spanLen, "this Console write is in a package that declares an operation type", []Related{}))
+			}
+		}
+	}
+}
+
+func typeMentionsForeignError(s store.Store, td expr.Pkg, t dense.ID[store.TKey]) bool {
+	let mut stack = []dense.ID[store.TKey]{t}
+	for stack.Len() > 0 {
+		let cur = stack[stack.Len()-1]
+		stack = stack[:stack.Len()-1]
+		let k = store.KindOfType(s, cur)
+		if k == store.KForeign {
+			let idx = store.ArgOf(s, cur)
+			if idx >= 0 && idx < td.Foreign.Len() {
+				let fr = td.Foreign[idx]
+				if fr.Name == "error" && (fr.Path == "universe" || fr.Path == "builtin" || fr.Path == "") {
+					return true
+				}
+			}
+		}
+		for op in store.OperandsOf(s, cur) {
+			stack = stack.Append(op)
+		}
+	}
+	false
+}
+
+// CheckForeignErrorPublic emits foreign-error-public (L102) findings when exported signatures expose Go error.
+func CheckForeignErrorPublic(inp Input, g ProgramGraph, sev uint8, out mut []Finding) {
+	if sev == SeverityOff {
+		return
+	}
+	for uIdx, u in inp.Units {
+		if u.Dependency {
+			continue
+		}
+		let typed = match u.Typed {
+		case option.Some{Value: td}:
+			td
+		case option.None:
+			continue
+		}
+		for fn in typed.K.Fns {
+			if fn.File < 0 || fn.File >= u.Files.Len() {
+				continue
+			}
+			let f = u.Files[fn.File]
+			let fi = g.FileIndexes[uIdx][fn.File]
+			if f.Parsed.Failed {
+				continue
+			}
+			if !validTreeNode(f.Parsed, fn.Decl) || !validTreeNode(f.Parsed, fn.Name) || syntax.KindOf(f.Parsed.Tree, fn.Decl) != syntax.KFuncDecl {
+				continue
+			}
+			let fd = syntax.FuncDeclOf(f.Parsed.Tree, fn.Decl)
+			if dense.Unpack(fd.Extern) != option.None || dense.Unpack(fd.Body) == option.None {
+				continue
+			}
+			let ft = syntax.FuncTypeOf(f.Parsed.Tree, fd.Type)
+			let mut writesErrors = false
+			match dense.Unpack(ft.Results) {
+			case option.Some{Value: rl}:
+				if syntax.KindOf(f.Parsed.Tree, rl) == syntax.KFieldList {
+					let fl = syntax.FieldListOf(f.Parsed.Tree, rl)
+					for ri in 0..syntax.Len(fl.List) {
+						let fld = syntax.FieldOf(f.Parsed.Tree, syntax.Item(f.Parsed.Tree, fl.List, ri))
+						match dense.Unpack(fld.Type) {
+						case option.Some{Value: ty}:
+							if syntax.KindOf(f.Parsed.Tree, ty) == syntax.KErrorRow {
+								writesErrors = true
+							}
+						case option.None:
+						}
+					}
+				}
+			case option.None:
+			}
+			if !writesErrors {
+				continue
+			}
+			let fname = NodeText(f.Parsed, fn.Name)
+			if !isExportedIdent(fname) {
+				continue
+			}
+			let sigOps = store.OperandsOf(typed.S, fn.Sig)
+			if sigOps.Len() >= 2 && typeMentionsForeignError(typed.S, typed.K, sigOps[sigOps.Len()-2]) {
+				let off = syntax.NodePos(f.Parsed, fn.Name)
+				let msg = "exported \(fname) fails with go.Error, Go's open error"
+				*out = (*out).Append(semFinding("foreign-error-public", sev, f.Rel, fi, off, fname.Len(), msg, []Related{}))
+			}
+		}
+	}
+}
+
+func isExemptWithFunction(u UnitInput, fnName string, exempts []string) bool {
+	if exempts.Len() == 0 {
+		return false
+	}
+	let dirName = SlashBase(u.Dir)
+	let cand = dirName + "." + fnName
+	for ex in exempts {
+		if ex == cand || ex == fnName {
+			return true
+		}
+	}
+	false
+}
+
+func buildUnitTypedCols(typed load.Typed) ([]dense.Opt[store.TKey], []int, []dense.Opt[store.TKey]) {
+	let total = bind.Written(typed.K.Ps) + 1
+	let mut types = slices.Repeat([]dense.Opt[store.TKey]{dense.NoID[store.TKey]()}, total)
+	for ent in typed.T.Entries {
+		let pi = dense.Index(ent.At)
+		if pi >= 0 && pi < total {
+			types[pi] = dense.OptOf(ent.T)
+		}
+	}
+	let mut calls = slices.Repeat([]int{-1}, total)
+	for i, c in typed.T.Calls {
+		let pi = dense.Index(c.Call)
+		if pi >= 0 && pi < total {
+			calls[pi] = i
+		}
+	}
+	let mut caps = slices.Repeat([]dense.Opt[store.TKey]{dense.NoID[store.TKey]()}, total)
+	for c in typed.T.Caps {
+		let pi = dense.Index(c.Call)
+		if pi >= 0 && pi < total {
+			caps[pi] = dense.OptOf(c.T)
+		}
+	}
+	(types, calls, caps)
+}
+
+func unitFileImportAliases(p syntax.Parsed, fi FileIndex) Map[string, string] {
+	let mut out = Map[string, string]{}
+	let t = p.Tree
+	for dr in fi.Decls {
+		if dr.Kind != syntax.KImportDecl {
+			continue
+		}
+		let sp = syntax.ImportSpecOf(t, syntax.ImportDeclOf(t, syntax.NodeAt(t, int(dr.Node))).Spec)
+		let (impPath, isGo) = importSpecInfo(p, sp)
+		if isGo {
+			continue
+		}
+		let alias = match dense.Unpack(sp.Name) {
+		case option.Some{Value: nm}:
+			NodeText(p, nm)
+		case option.None:
+			SlashBase(impPath)
+		}
+		out[alias] = impPath
+	}
+	out
+}
+
+func contextKeyPkgAndName(p syntax.Parsed, typed load.Typed, fIdx int, uPath string, aliases Map[string, string], keyNode dense.ID[syntax.Node]) (string, string) {
+	let t = p.Tree
+	let k = syntax.KindOf(t, keyNode)
+	if k == syntax.KIdent {
+		let name = NodeText(p, keyNode)
+		let pn = bind.PNodeOf(typed.K.Ps, fIdx, keyNode)
+		match bind.ResolutionOf(typed.K.U, typed.K.Ps, pn) {
+		case bind.Declared:
+			return (uPath, name)
+		case bind.Imported as im:
+			let imps = store.ImportPaths(typed.S)
+			if im.Ref.Import > uint32(0) && int(im.Ref.Import) <= imps.Len() {
+				return (imps[int(im.Ref.Import)-1], name)
+			}
+			return ("", name)
+		case _:
+			return ("", name)
+		}
+	}
+	if k == syntax.KSelectorExpr {
+		let se = syntax.SelectorExprOf(t, keyNode)
+		let selName = NodeText(p, se.Sel)
+		if syntax.KindOf(t, se.X) == syntax.KIdent {
+			let qual = NodeText(p, se.X)
+			match aliases.Get(qual) {
+			case option.Some{Value: path}:
+				return (path, selName)
+			case option.None:
+			}
+		}
+		return ("", selName)
+	}
+	("", "")
+}
+
+type unitCtxDeclRec {
+	fIdx int,
+	body dense.ID[syntax.Node],
+}
+
+func sigResultType(s store.Store, sig dense.ID[store.TKey]) option.Option[dense.ID[store.TKey]] {
+	if store.KindOfType(s, sig) != store.KSig {
+		return option.None
+	}
+	let ops = store.OperandsOf(s, sig)
+	if ops.Len() < 3 {
+		return option.None
+	}
+	option.Some{Value: ops[ops.Len()-3]}
+}
+
+func resolveTypeExprOwner(
+	uPath string,
+	fIdx int,
+	typed load.Typed,
+	p syntax.Parsed,
+	aliases Map[string, string],
+	tyNode dense.ID[syntax.Node],
+) (string, string, bool) {
+	let t = p.Tree
+	let mut cur = tyNode
+	for {
+		let k = syntax.KindOf(t, cur)
+		if k == syntax.KStarExpr {
+			cur = syntax.StarExprOf(t, cur).X
+			continue
+		}
+		if k == syntax.KIndexExpr {
+			cur = syntax.IndexExprOf(t, cur).X
+			continue
+		}
+		if k == syntax.KParenExpr {
+			cur = syntax.ParenExprOf(t, cur).X
+			continue
+		}
+		break
+	}
+	let k = syntax.KindOf(t, cur)
+	if k == syntax.KIdent {
+		let nm = NodeText(p, cur)
+		let pn = bind.PNodeOf(typed.K.Ps, fIdx, cur)
+		match bind.ResolutionOf(typed.K.U, typed.K.Ps, pn) {
+		case bind.Declared:
+			return (uPath, nm, false)
+		case bind.Imported as im:
+			let (op, on, fr) = xrefOwnerName(typed, uPath, im.Ref)
+			if on != "" || op != "" {
+				return (op, if on != "" { on } else { nm }, fr)
+			}
+			return ("", "", false)
+		case _:
+			return ("", "", true)
+		}
+	}
+	if k == syntax.KSelectorExpr {
+		let se = syntax.SelectorExprOf(t, cur)
+		let sel = NodeText(p, se.Sel)
+		if syntax.KindOf(t, se.X) == syntax.KIdent {
+			match aliases.Get(NodeText(p, se.X)) {
+			case option.Some{Value: pkg}:
+				return (pkg, sel, false)
+			case option.None:
+			}
+		}
+	}
+	("", "", false)
+}
+
+func findStructFieldOwner(
+	inp Input,
+	unitByPkg Map[string, int],
+	ownerPkg string,
+	ownerType string,
+	fieldName string,
+) (string, string, bool) {
+	let tuIdx = match unitByPkg.Get(ownerPkg) {
+	case option.Some{Value: idx}:
+		idx
+	case option.None:
+		return ("", "", false)
+	}
+	let tu = inp.Units[tuIdx]
+	let ttyped = match tu.Typed {
+	case option.Some{Value: td}:
+		td
+	case option.None:
+		return ("", "", false)
+	}
+	let tuPath = unitPkgPath(tu)
+	for tfIdx, tf in tu.Files {
+		if tf.Parsed.Failed {
+			continue
+		}
+		let tt = tf.Parsed.Tree
+		let fl = syntax.FileOf(tt, syntax.Root(tt))
+		for i in 0..syntax.Len(fl.Decls) {
+			let d = syntax.Item(tt, fl.Decls, i)
+			if syntax.KindOf(tt, d) != syntax.KTypeDecl {
+				continue
+			}
+			let td = syntax.TypeDeclOf(tt, d)
+			if NodeText(tf.Parsed, td.Name) != ownerType {
+				continue
+			}
+			match dense.Unpack(td.Spec) {
+			case option.Some{Value: sp}:
+				if syntax.KindOf(tt, sp) == syntax.KStructType {
+					let fls = syntax.FieldListOf(tt, syntax.StructTypeOf(tt, sp).Fields)
+					for fi in 0..syntax.Len(fls.List) {
+						let fld = syntax.FieldOf(tt, syntax.Item(tt, fls.List, fi))
+						for ni in 0..syntax.Len(fld.Names) {
+							if NodeText(tf.Parsed, syntax.Item(tt, fld.Names, ni)) == fieldName {
+								match dense.Unpack(fld.Type) {
+								case option.Some{Value: fty}:
+									let tAliases = unitFileImportAliases(tf.Parsed, BuildFileIndex(tf.Parsed))
+									return resolveTypeExprOwner(tuPath, tfIdx, ttyped, tf.Parsed, tAliases, fty)
+								case option.None:
+								}
+							}
+						}
+					}
+				}
+			case option.None:
+			}
+		}
+	}
+	("", "", false)
+}
+
+func inferVarValueNode(
+	u UnitInput,
+	typed load.Typed,
+	targetAt dense.ID[store.PNode],
+) (int, dense.Opt[syntax.Node], dense.Opt[syntax.Node]) {
+	for fIdx, f in u.Files {
+		if f.Parsed.Failed {
+			continue
+		}
+		let t = f.Parsed.Tree
+		for ni in 0..syntax.NumNodes(t) {
+			let cur = syntax.NodeAt(t, ni)
+			let k = syntax.KindOf(t, cur)
+			if k == syntax.KVarSpec {
+				let vs = syntax.VarSpecOf(t, cur)
+				for j in 0..syntax.Len(vs.Names) {
+					if bind.PNodeOf(typed.K.Ps, fIdx, syntax.Item(t, vs.Names, j)) == targetAt {
+						return (fIdx, vs.Type, vs.Value)
+					}
+				}
+			} else if k == syntax.KField {
+				let fld = syntax.FieldOf(t, cur)
+				for j in 0..syntax.Len(fld.Names) {
+					if bind.PNodeOf(typed.K.Ps, fIdx, syntax.Item(t, fld.Names, j)) == targetAt {
+						return (fIdx, fld.Type, dense.NoID[syntax.Node]())
+					}
+				}
+			}
+		}
+	}
+	(-1, dense.NoID[syntax.Node](), dense.NoID[syntax.Node]())
+}
+
+func inferSwitchTailExpr(t syntax.Tree, sw dense.ID[syntax.Node]) option.Option[dense.ID[syntax.Node]] {
+	let clauses = if syntax.KindOf(t, sw) == syntax.KTypeSwitchStmt {
+		syntax.TypeSwitchStmtOf(t, sw).Clauses
+	} else if syntax.KindOf(t, sw) == syntax.KSwitchStmt {
+		syntax.SwitchStmtOf(t, sw).Clauses
+	} else {
+		return option.None
+	}
+	for ci in 0..syntax.Len(clauses) {
+		let cNode = syntax.Item(t, clauses, ci)
+		if syntax.KindOf(t, cNode) != syntax.KCaseClause {
+			continue
+		}
+		let cc = syntax.CaseClauseOf(t, cNode)
+		let n = syntax.Len(cc.Body)
+		if n == 0 {
+			continue
+		}
+		let last = syntax.Item(t, cc.Body, n-1)
+		if syntax.KindOf(t, last) == syntax.KExprStmt {
+			return option.Some{Value: syntax.ExprStmtOf(t, last).X}
+		}
+	}
+	option.None
+}
+
+func findMethodResultOwner(
+	inp Input,
+	unitByPkg Map[string, int],
+	uIdx int,
+	typed load.Typed,
+	recPkg string,
+	recType string,
+	sel string,
+) (string, string, bool) {
+	let targetUnitIdx = match unitByPkg.Get(recPkg) {
+	case option.Some{Value: idx}:
+		idx
+	case option.None:
+		if recPkg == unitPkgPath(inp.Units[uIdx]) { uIdx } else { -1 }
+	}
+	if targetUnitIdx < 0 || targetUnitIdx >= inp.Units.Len() {
+		return ("", "", false)
+	}
+	let tu = inp.Units[targetUnitIdx]
+	let tuPath = unitPkgPath(tu)
+	let ttyped = match tu.Typed {
+	case option.Some{Value: td}:
+		td
+	case option.None:
+		return ("", "", false)
+	}
+	for tfn in ttyped.K.Fns {
+		if tfn.File < 0 || tfn.File >= ttyped.K.Parsed.Len() {
+			continue
+		}
+		let tfp = ttyped.K.Parsed[tfn.File]
+		if tfp.Failed || !validTreeNode(tfp, tfn.Name) || NodeText(tfp, tfn.Name) != sel {
+			continue
+		}
+		if !validTreeNode(tfp, tfn.Decl) || syntax.KindOf(tfp.Tree, tfn.Decl) != syntax.KFuncDecl {
+			continue
+		}
+		let ops = store.OperandsOf(ttyped.S, tfn.Sig)
+		if ops.Len() < 4 {
+			continue
+		}
+		let (pPkg, pType, pFor) = nominalTypeOwner(ttyped, tuPath, ops[0])
+		if !pFor && pType == recType && (pPkg == tuPath || pPkg == recPkg) {
+			match sigResultType(ttyped.S, tfn.Sig) {
+			case option.Some{Value: rt}:
+				return nominalTypeOwner(ttyped, tuPath, rt)
+			case option.None:
+			}
+		}
+	}
+	("", "", false)
+}
+
+func inferContextExprOwner(
+	inp Input,
+	unitByPkg Map[string, int],
+	uIdx int,
+	fIdx int,
+	typed load.Typed,
+	pnodeTypes []dense.Opt[store.TKey],
+	unitAliases []Map[string, string],
+	exprNode dense.ID[syntax.Node],
+	depth int,
+) (string, string, bool) {
+	if depth >= 8 || fIdx < 0 || fIdx >= inp.Units[uIdx].Files.Len() {
+		return ("", "", false)
+	}
+	let u = inp.Units[uIdx]
+	let uPath = unitPkgPath(u)
+	let f = u.Files[fIdx]
+	let t = f.Parsed.Tree
+	let mut cur = exprNode
+	for {
+		let ck = syntax.KindOf(t, cur)
+		if ck == syntax.KParenExpr {
+			cur = syntax.ParenExprOf(t, cur).X
+			continue
+		}
+		if ck == syntax.KTryExpr {
+			cur = syntax.TryExprOf(t, cur).X
+			continue
+		}
+		break
+	}
+	let pn = bind.PNodeOf(typed.K.Ps, fIdx, cur)
+	let pi = dense.Index(pn)
+	if pi >= 0 && pi < pnodeTypes.Len() {
+		match dense.Unpack(pnodeTypes[pi]) {
+		case option.Some{Value: ty}:
+			return nominalTypeOwner(typed, uPath, ty)
+		case option.None:
+		}
+	}
+	let k = syntax.KindOf(t, cur)
+	if k == syntax.KCompositeLit {
+		let cl = syntax.CompositeLitOf(t, cur)
+		match dense.Unpack(cl.Type) {
+		case option.Some{Value: ct}:
+			return resolveTypeExprOwner(uPath, fIdx, typed, f.Parsed, unitAliases[fIdx], ct)
+		case option.None:
+		}
+		return ("", "", false)
+	}
+	if k == syntax.KCallExpr {
+		let ce = syntax.CallExprOf(t, cur)
+		let fun = unwrapCallFun(t, ce.Fun)
+		let fk = syntax.KindOf(t, fun)
+		if fk == syntax.KIdent {
+			let fpn = bind.PNodeOf(typed.K.Ps, fIdx, fun)
+			match bind.ResolutionOf(typed.K.U, typed.K.Ps, fpn) {
+			case bind.Declared as dec:
+				let fnIdx = expr.FnAt(typed.K, dec.At)
+				if fnIdx >= 0 && fnIdx < typed.K.Fns.Len() {
+					match sigResultType(typed.S, typed.K.Fns[fnIdx].Sig) {
+					case option.Some{Value: rt}:
+						return nominalTypeOwner(typed, uPath, rt)
+					case option.None:
+					}
+				}
+				return (uPath, NodeText(f.Parsed, fun), false)
+			case _:
+			}
+		} else if fk == syntax.KSelectorExpr {
+			let se = syntax.SelectorExprOf(t, fun)
+			let sel = NodeText(f.Parsed, se.Sel)
+			let mut matchedAlias = false
+			if syntax.KindOf(t, se.X) == syntax.KIdent {
+				match unitAliases[fIdx].Get(NodeText(f.Parsed, se.X)) {
+				case option.Some{Value: pkgPath}:
+					matchedAlias = true
+					match unitByPkg.Get(pkgPath) {
+					case option.Some{Value: tuIdx}:
+						let tu = inp.Units[tuIdx]
+						match tu.Typed {
+						case option.Some{Value: ttd}:
+							for tfn in ttd.K.Fns {
+								if tfn.File >= 0 && tfn.File < ttd.K.Parsed.Len() && !ttd.K.Parsed[tfn.File].Failed && validTreeNode(ttd.K.Parsed[tfn.File], tfn.Name) && NodeText(ttd.K.Parsed[tfn.File], tfn.Name) == sel {
+									match sigResultType(ttd.S, tfn.Sig) {
+									case option.Some{Value: rt}:
+										return nominalTypeOwner(ttd, pkgPath, rt)
+									case option.None:
+									}
+								}
+							}
+						case option.None:
+						}
+					case option.None:
+					}
+					return (pkgPath, sel, false)
+				case option.None:
+				}
+			}
+			if !matchedAlias {
+				let (recPkg, recType, recForeign) = inferContextExprOwner(inp, unitByPkg, uIdx, fIdx, typed, pnodeTypes, unitAliases, se.X, depth+1)
+				if !recForeign && recPkg != "" && recType != "" {
+					let (mp, mt, mf) = findMethodResultOwner(inp, unitByPkg, uIdx, typed, recPkg, recType, sel)
+					if mp != "" && mt != "" {
+						return (mp, mt, mf)
+					}
+				}
+			}
+		}
+		return ("", "", false)
+	}
+	if k == syntax.KTypeSwitchStmt || k == syntax.KSwitchStmt {
+		match inferSwitchTailExpr(t, cur) {
+		case option.Some{Value: tail}:
+			return inferContextExprOwner(inp, unitByPkg, uIdx, fIdx, typed, pnodeTypes, unitAliases, tail, depth+1)
+		case option.None:
+		}
+		return ("", "", false)
+	}
+	if k == syntax.KIdent {
+		match bind.ResolutionOf(typed.K.U, typed.K.Ps, pn) {
+		case bind.Declared as dec:
+			let (vfIdx, vtOpt, vvOpt) = inferVarValueNode(u, typed, dec.At)
+			if vfIdx >= 0 {
+				match dense.Unpack(vtOpt) {
+				case option.Some{Value: vt}:
+					return resolveTypeExprOwner(uPath, vfIdx, typed, u.Files[vfIdx].Parsed, unitAliases[vfIdx], vt)
+				case option.None:
+				}
+				match dense.Unpack(vvOpt) {
+				case option.Some{Value: vv}:
+					return inferContextExprOwner(inp, unitByPkg, uIdx, vfIdx, typed, pnodeTypes, unitAliases, vv, depth+1)
+				case option.None:
+				}
+			}
+		case _:
+		}
+		return ("", "", false)
+	}
+	if k == syntax.KSelectorExpr {
+		let se = syntax.SelectorExprOf(t, cur)
+		let sel = NodeText(f.Parsed, se.Sel)
+		let (xPkg, xType, _) = inferContextExprOwner(inp, unitByPkg, uIdx, fIdx, typed, pnodeTypes, unitAliases, se.X, depth+1)
+		if xPkg != "" && xType != "" {
+			if (xPkg == "option" || strings.HasSuffix(xPkg, "/option")) && sel == "Value" {
+				let sx = Unparen(t, se.X)
+				if syntax.KindOf(t, sx) == syntax.KIdent {
+					match bind.ResolutionOf(typed.K.U, typed.K.Ps, bind.PNodeOf(typed.K.Ps, fIdx, sx)) {
+					case bind.Declared as dec:
+						for ni in 0..syntax.NumNodes(t) {
+							let n = syntax.NodeAt(t, ni)
+							if syntax.KindOf(t, n) == syntax.KAsPattern {
+								let ap = syntax.AsPatternOf(t, n)
+								if bind.PNodeOf(typed.K.Ps, fIdx, ap.Name) == dec.At && syntax.KindOf(t, ap.X) == syntax.KIndexExpr {
+									let ix = syntax.IndexExprOf(t, ap.X)
+									if syntax.Len(ix.Indices) == 1 {
+										return resolveTypeExprOwner(uPath, fIdx, typed, f.Parsed, unitAliases[fIdx], syntax.Item(t, ix.Indices, 0))
+									}
+								}
+							}
+						}
+					case _:
+					}
+				}
+			}
+			return findStructFieldOwner(inp, unitByPkg, xPkg, xType, sel)
+		}
+	}
+	("", "", false)
+}
+
+func contextBodyPicksProgramType(
+	inp Input,
+	unitByPkg Map[string, int],
+	uIdx int,
+	typed load.Typed,
+	pnodeTypes []dense.Opt[store.TKey],
+	unitCtxDecls Map[string, unitCtxDeclRec],
+	unitAliases []Map[string, string],
+	fIdx int,
+	bodyNode dense.ID[syntax.Node],
+	seenCtx mut Map[string, bool],
+) (bool, string) {
+	let u = inp.Units[uIdx]
+	let uPath = unitPkgPath(u)
+	let f = u.Files[fIdx]
+	let t = f.Parsed.Tree
+	if syntax.KindOf(t, bodyNode) != syntax.KContextBody {
+		return (false, "")
+	}
+	let cb = syntax.ContextBodyOf(t, bodyNode)
+	for i in 0..syntax.Len(cb.Entries) {
+		let entNode = syntax.Item(t, cb.Entries, i)
+		if syntax.KindOf(t, entNode) != syntax.KContextEntry {
+			continue
+		}
+		let ce = syntax.ContextEntryOf(t, entNode)
+		match dense.Unpack(ce.Value) {
+		case option.Some{Value: valNode}:
+			let pn = bind.PNodeOf(typed.K.Ps, fIdx, valNode)
+			let pi = dense.Index(pn)
+			let (fromPkg, fromName, isForeign) = if pi >= 0 && pi < pnodeTypes.Len() {
+				match dense.Unpack(pnodeTypes[pi]) {
+				case option.Some{Value: fromT}:
+					nominalTypeOwner(typed, uPath, fromT)
+				case option.None:
+					inferContextExprOwner(inp, unitByPkg, uIdx, fIdx, typed, pnodeTypes, unitAliases, valNode, 0)
+				}
+			} else {
+				inferContextExprOwner(inp, unitByPkg, uIdx, fIdx, typed, pnodeTypes, unitAliases, valNode, 0)
+			}
+			if !isForeign && fromPkg != "" && fromName != "" && (!isStdPkgPath(fromPkg) || fromPkg == uPath) {
+				let (keyPkg, keyName) = contextKeyPkgAndName(f.Parsed, typed, fIdx, uPath, unitAliases[fIdx], ce.Key)
+				if !(fromPkg == keyPkg && fromName == keyName) {
+					let disp = if fromPkg == uPath { fromName } else { SlashBase(fromPkg) + "." + fromName }
+					return (true, disp)
+				}
+			}
+		case option.None:
+			if syntax.KindOf(t, ce.Key) == syntax.KIdent {
+				let cname = NodeText(f.Parsed, ce.Key)
+				if (*seenCtx).Get(cname) == option.None {
+					(*seenCtx)[cname] = true
+					match unitCtxDecls.Get(cname) {
+					case option.Some{Value: rec}:
+						let (hit, disp) = contextBodyPicksProgramType(inp, unitByPkg, uIdx, typed, pnodeTypes, unitCtxDecls, unitAliases, rec.fIdx, rec.body, seenCtx)
+						if hit {
+							return (true, disp)
+						}
+					case option.None:
+					}
+				}
+			}
+		}
+	}
+	(false, "")
+}
+
+// CheckWithAtEntry emits with-at-entry (L112) findings for with or context declarations picking program implementations away from entry.
+func CheckWithAtEntry(inp Input, g ProgramGraph, sev uint8, opts FunctionOptions, out mut []Finding) {
+	if sev == SeverityOff {
+		return
+	}
+	let mut unitByPkg = Map[string, int]{}
+	for uIdx, u in inp.Units {
+		let up = unitPkgPath(u)
+		if up != "" {
+			unitByPkg[up] = uIdx
+			let short = stdShortPath(up)
+			if short != "" {
+				unitByPkg[short] = uIdx
+			}
+		}
+	}
+	for uIdx, u in inp.Units {
+		if u.Dependency {
+			continue
+		}
+		let typed = match u.Typed {
+		case option.Some{Value: td}:
+			td
+		case option.None:
+			continue
+		}
+		let (pnodeTypes, _, _) = buildUnitTypedCols(typed)
+		let mut unitCtxDecls = Map[string, unitCtxDeclRec]{}
+		let mut unitAliases = slices.WithCapacity[Map[string, string]](u.Files.Len())
+		for fIdx, f in u.Files {
+			let fi = g.FileIndexes[uIdx][fIdx]
+			if f.Parsed.Failed {
+				unitAliases = unitAliases.Append(Map[string, string]{})
+				continue
+			}
+			unitAliases = unitAliases.Append(unitFileImportAliases(f.Parsed, fi))
+			let t = f.Parsed.Tree
+			for dr in fi.Decls {
+				if dr.Kind == syntax.KContextDecl {
+					let cd = syntax.ContextDeclOf(t, syntax.NodeAt(t, int(dr.Node)))
+					unitCtxDecls[NodeText(f.Parsed, cd.Name)] = unitCtxDeclRec{fIdx: fIdx, body: cd.Body}
+				}
+			}
+		}
+		for fIdx, f in u.Files {
+			let fi = g.FileIndexes[uIdx][fIdx]
+			if f.Parsed.Failed || fi.TestFile || IsEntryFile(f.Rel) {
+				continue
+			}
+			let t = f.Parsed.Tree
+			let mut declSpans = []int{}
+			let mut declExempt = []bool{}
+			for dr in fi.Decls {
+				if dr.Kind == syntax.KContextDecl {
+					let cd = syntax.ContextDeclOf(t, syntax.NodeAt(t, int(dr.Node)))
+					let mut seen = Map[string, bool]{}
+					seen[NodeText(f.Parsed, cd.Name)] = true
+					let (hit, disp) = contextBodyPicksProgramType(inp, unitByPkg, uIdx, typed, pnodeTypes, unitCtxDecls, unitAliases, fIdx, cd.Body, &seen)
+					if hit {
+						let off = syntax.NodePos(f.Parsed, cd.Name)
+						let cname = NodeText(f.Parsed, cd.Name)
+						let msg = "this context picks a program implementation (\(disp)) away from the entry"
+						*out = (*out).Append(semFinding("with-at-entry", sev, f.Rel, fi, off, cname.Len(), msg, []Related{}))
+					}
+					continue
+				}
+				if dr.Kind == syntax.KFuncDecl {
+					let dNode = syntax.NodeAt(t, int(dr.Node))
+					let fd = syntax.FuncDeclOf(t, dNode)
+					let fname = NodeText(f.Parsed, fd.Name)
+					declSpans = declSpans.Append(syntax.NodePos(f.Parsed, dNode))
+					declSpans = declSpans.Append(syntax.NodeEnd(f.Parsed, dNode))
+					declExempt = declExempt.Append(isExemptWithFunction(u, fname, opts.Functions))
+				}
+			}
+			for cRow in fi.Calls {
+				let cNode = syntax.NodeAt(t, int(cRow))
+				let ce = syntax.CallExprOf(t, cNode)
+				if syntax.KindOf(t, ce.Fun) != syntax.KIdent || NodeText(f.Parsed, ce.Fun) != "with" {
+					continue
+				}
+				let cPos = syntax.NodePos(f.Parsed, cNode)
+				let mut exempt = false
+				let mut inFunc = false
+				for di in 0..declExempt.Len() {
+					if cPos >= declSpans[di*2] && cPos < declSpans[di*2+1] {
+						inFunc = true
+						exempt = declExempt[di]
+						break
+					}
+				}
+				if !inFunc || exempt {
+					continue
+				}
+				for ai in 0..syntax.Len(ce.Args) {
+					let arg = Unparen(t, syntax.Item(t, ce.Args, ai))
+					let ak = syntax.KindOf(t, arg)
+					let (hit, disp) = if ak == syntax.KContextLit {
+						let cl = syntax.ContextLitOf(t, arg)
+						let mut seen = Map[string, bool]{}
+						contextBodyPicksProgramType(inp, unitByPkg, uIdx, typed, pnodeTypes, unitCtxDecls, unitAliases, fIdx, cl.Body, &seen)
+					} else if ak == syntax.KIdent {
+						let cname = NodeText(f.Parsed, arg)
+						match unitCtxDecls.Get(cname) {
+						case option.Some{Value: rec}:
+							let mut seen = Map[string, bool]{}
+							seen[cname] = true
+							contextBodyPicksProgramType(inp, unitByPkg, uIdx, typed, pnodeTypes, unitCtxDecls, unitAliases, rec.fIdx, rec.body, &seen)
+						case option.None:
+							(false, "")
+						}
+					} else {
+						(false, "")
+					}
+					if hit {
+						let wStart = syntax.NodePos(f.Parsed, ce.Fun)
+						let wEnd = syntax.NodeEnd(f.Parsed, ce.Fun)
+						let msg = "this with picks a program implementation (\(disp)) away from the entry"
+						*out = (*out).Append(semFinding("with-at-entry", sev, f.Rel, fi, wStart, wEnd-wStart, msg, []Related{}))
+						break
+					}
+				}
+			}
+		}
+	}
+}
+
+// CheckCapabilityOutsideOwner emits capability-outside-owner (L133) findings when capabilities are invoked outside owner packages.
+func CheckCapabilityOutsideOwner(inp Input, g ProgramGraph, sev uint8, opts OwnerOptions, out mut []Finding) {
+	if sev == SeverityOff || opts.Owners.Len() == 0 {
+		return
+	}
+	for ei, e in g.Rows.Edges {
+		if e.Kind != "uses" || e.How != "call" || e.To < 0 || e.To >= g.Rows.Nodes.Len() {
+			continue
+		}
+		let toNode = g.Rows.Nodes[e.To]
+		if toNode.Sub != "operation" {
+			continue
+		}
+		let fNode = g.EdgeFile[ei]
+		if fNode == NoID {
+			continue
+		}
+		let (uIdx, rIdx, okFile) = unitFileFromNode(inp, g, int(fNode))
+		if !okFile || g.FileIndexes[uIdx][rIdx].TestFile {
+			continue
+		}
+		let fromNode = g.Rows.Nodes[e.From]
+		if fromNode.Sub == "test" || fromNode.Sub == "law" {
+			continue
+		}
+		let fp = g.NodePkg[e.From]
+		if fp == NoID || !g.SubjectPkg[int(fp)] {
+			continue
+		}
+		let typeName = match strings.Cut(toNode.Name, ".") {
+		case option.Some{Value: h}:
+			h.Before
+		case option.None:
+			toNode.Name
+		}
+		let allowed = match opts.Owners.Get(typeName) {
+		case option.Some{Value: ps}:
+			ps
+		case option.None:
+			continue
+		}
+		let callerPkg = g.Rows.Nodes[int(fp)].Name
+		let callerLast = SlashBase(callerPkg)
+		let mut ok = false
+		for pat in allowed {
+			if pat == callerPkg || pat == callerLast || strings.HasSuffix(callerPkg, "/"+pat) {
+				ok = true
+				break
+			}
+		}
+		if !ok {
+			let span = edgeSiteSpan(inp, g, ei)
+			if span.ok {
+				let msg = "capability \(toNode.Name) is called outside its owning packages"
+				*out = (*out).Append(graphFinding("capability-outside-owner", sev, span, msg, []Related{}))
+			}
+		}
+	}
+}
+
+func resolveLocalCalledFnIdx(typed load.Typed, cIdx int) int {
+	if cIdx < 0 || cIdx >= typed.T.Calls.Len() {
+		return -1
+	}
+	let callee = typed.T.Calls[cIdx].Callee
+	if callee.File < 0 || callee.File >= typed.K.Parsed.Len() {
+		return -1
+	}
+	let p = typed.K.Parsed[callee.File]
+	if p.Failed {
+		return -1
+	}
+	let n = syntax.NumNodes(p.Tree)
+	let dIdx = dense.Index(callee.Decl)
+	let nIdx = dense.Index(callee.Name)
+	if dIdx < 0 || dIdx >= n || nIdx < 0 || nIdx >= n || syntax.KindOf(p.Tree, callee.Decl) != syntax.KFuncDecl {
+		return -1
+	}
+	let fi = expr.FnAt(typed.K, bind.PNodeOf(typed.K.Ps, callee.File, callee.Name))
+	if fi < 0 || fi >= typed.K.Fns.Len() {
+		return -1
+	}
+	let f = typed.K.Fns[fi]
+	if f.File == callee.File && f.Decl == callee.Decl && f.Name == callee.Name && f.Sig == callee.Sig {
+		fi
+	} else {
+		-1
+	}
+}
+
+// CheckTestReadsUnexported emits test-reads-unexported (L135) findings when tests call internal unexported package functions.
+func CheckTestReadsUnexported(inp Input, g ProgramGraph, sev uint8, out mut []Finding) {
+	if sev == SeverityOff {
+		return
+	}
+	for uIdx, u in inp.Units {
+		if u.Dependency {
+			continue
+		}
+		let typed = match u.Typed {
+		case option.Some{Value: td}:
+			td
+		case option.None:
+			continue
+		}
+		let nFns = typed.K.Fns.Len()
+		if nFns == 0 {
+			continue
+		}
+		let (_, pnodeCalls, _) = buildUnitTypedCols(typed)
+		let mut candidate = slices.Repeat([]bool{false}, nFns)
+		let mut fnNames = slices.Repeat([]string{""}, nFns)
+		let mut nonTestCalled = slices.Repeat([]bool{false}, nFns)
+		for fiIdx, fn in typed.K.Fns {
+			if fn.File < 0 || fn.File >= u.Files.Len() {
+				continue
+			}
+			let f = u.Files[fn.File]
+			if f.Parsed.Failed || !validTreeNode(f.Parsed, fn.Name) {
+				continue
+			}
+			let fname = NodeText(f.Parsed, fn.Name)
+			fnNames[fiIdx] = fname
+			if !g.FileIndexes[uIdx][fn.File].TestFile && !isExportedIdent(fname) && fname != "main" {
+				candidate[fiIdx] = true
+			}
+		}
+		for fIdx, f in u.Files {
+			if f.Parsed.Failed {
+				continue
+			}
+			let fi = g.FileIndexes[uIdx][fIdx]
+			let t = f.Parsed.Tree
+			for ci in 0..fi.Calls.Len() {
+				if (fi.CallFlags[ci] & FlagInTestLaw) != uint8(0) {
+					continue
+				}
+				let cNode = syntax.NodeAt(t, int(fi.Calls[ci]))
+				let pi = dense.Index(bind.PNodeOf(typed.K.Ps, fIdx, cNode))
+				if pi < 0 || pi >= pnodeCalls.Len() {
+					continue
+				}
+				let targetFn = resolveLocalCalledFnIdx(typed, pnodeCalls[pi])
+				if targetFn >= 0 && candidate[targetFn] {
+					nonTestCalled[targetFn] = true
+				}
+			}
+		}
+		for fIdx, f in u.Files {
+			if f.Parsed.Failed {
+				continue
+			}
+			let fi = g.FileIndexes[uIdx][fIdx]
+			let t = f.Parsed.Tree
+			for dr in fi.Decls {
+				if dr.Kind != syntax.KTestDecl {
+					continue
+				}
+				let td = syntax.TestDeclOf(t, syntax.NodeAt(t, int(dr.Node)))
+				let body = match dense.Unpack(td.Body) {
+				case option.Some{Value: b}:
+					b
+				case option.None:
+					continue
+				}
+				let bStart = syntax.NodePos(f.Parsed, body)
+				let bEnd = syntax.NodeEnd(f.Parsed, body)
+				for ci in int(dr.CallStart)..int(dr.CallEnd) {
+					let cNode = syntax.NodeAt(t, int(fi.Calls[ci]))
+					let cPos = syntax.NodePos(f.Parsed, cNode)
+					if cPos < bStart || cPos >= bEnd {
+						continue
+					}
+					let pi = dense.Index(bind.PNodeOf(typed.K.Ps, fIdx, cNode))
+					if pi < 0 || pi >= pnodeCalls.Len() {
+						continue
+					}
+					let targetFn = resolveLocalCalledFnIdx(typed, pnodeCalls[pi])
+					if targetFn >= 0 && candidate[targetFn] && nonTestCalled[targetFn] {
+						let cEnd = syntax.NodeEnd(f.Parsed, cNode)
+						let msg = "this test calls \(fnNames[targetFn]), an unexported function of the package's code"
+						*out = (*out).Append(semFinding("test-reads-unexported", sev, f.Rel, fi, cPos, cEnd-cPos, msg, []Related{}))
+					}
+				}
+			}
+		}
+	}
+}
+
+// CheckUnusedDeclaration emits unused-declaration (L114) findings for unreferenced unexported declarations.
+func CheckUnusedDeclaration(inp Input, g ProgramGraph, sev uint8, out mut []Finding) {
+	if sev == SeverityOff {
+		return
+	}
+	for uIdx, u in inp.Units {
+		if u.Dependency {
+			continue
+		}
+		let typed = match u.Typed {
+		case option.Some{Value: td}:
+			td
+		case option.None:
+			continue
+		}
+		let pTotal = bind.Written(typed.K.Ps) + 1
+		let (_, pnodeCalls, _) = buildUnitTypedCols(typed)
+		let implMethods = buildUnitImplMethods(inp, uIdx)
+		let mut usedElsewhere = slices.Repeat([]bool{false}, pTotal)
+		let mut ownGen = slices.Repeat([]int{0}, pTotal)
+		let mut curGen = 0
+		for fIdx, f in u.Files {
+			if f.Parsed.Failed {
+				continue
+			}
+			let t = f.Parsed.Tree
+			let fi = g.FileIndexes[uIdx][fIdx]
+			for dr in fi.Decls {
+				curGen += 1
+				let dNode = syntax.NodeAt(t, int(dr.Node))
+				if dr.Kind == syntax.KFuncDecl {
+					let fd = syntax.FuncDeclOf(t, dNode)
+					let pi = dense.Index(bind.PNodeOf(typed.K.Ps, fIdx, fd.Name))
+					if pi >= 0 && pi < pTotal {
+						ownGen[pi] = curGen
+					}
+				} else if dr.Kind == syntax.KTypeDecl {
+					let td = syntax.TypeDeclOf(t, dNode)
+					let pi = dense.Index(bind.PNodeOf(typed.K.Ps, fIdx, td.Name))
+					if pi >= 0 && pi < pTotal {
+						ownGen[pi] = curGen
+					}
+				} else if dr.Kind == syntax.KVarDecl {
+					let vs = syntax.VarSpecOf(t, syntax.VarDeclOf(t, dNode).Spec)
+					for j in 0..syntax.Len(vs.Names) {
+						let pi = dense.Index(bind.PNodeOf(typed.K.Ps, fIdx, syntax.Item(t, vs.Names, j)))
+						if pi >= 0 && pi < pTotal {
+							ownGen[pi] = curGen
+						}
+					}
+				} else if dr.Kind == syntax.KContextDecl {
+					let cd = syntax.ContextDeclOf(t, dNode)
+					let pi = dense.Index(bind.PNodeOf(typed.K.Ps, fIdx, cd.Name))
+					if pi >= 0 && pi < pTotal {
+						ownGen[pi] = curGen
+					}
+				} else if dr.Kind == syntax.KTestDecl {
+					let td = syntax.TestDeclOf(t, dNode)
+					let pi = dense.Index(bind.PNodeOf(typed.K.Ps, fIdx, td.Name))
+					if pi >= 0 && pi < pTotal {
+						ownGen[pi] = curGen
+					}
+				} else if dr.Kind == syntax.KLawDecl {
+					let ld = syntax.LawDeclOf(t, dNode)
+					let pi = dense.Index(bind.PNodeOf(typed.K.Ps, fIdx, ld.Name))
+					if pi >= 0 && pi < pTotal {
+						ownGen[pi] = curGen
+					}
+				}
+				for ii in int(dr.IdentStart)..int(dr.IdentEnd) {
+					let idNode = syntax.NodeAt(t, int(fi.Idents[ii]))
+					let pn = bind.PNodeOf(typed.K.Ps, fIdx, idNode)
+					match bind.ResolutionOf(typed.K.U, typed.K.Ps, pn) {
+					case bind.Declared as dec:
+						let di = dense.Index(dec.At)
+						if di >= 0 && di < pTotal && ownGen[di] != curGen {
+							usedElsewhere[di] = true
+						}
+					case _:
+					}
+				}
+				for ci in int(dr.CallStart)..int(dr.CallEnd) {
+					let cNode = syntax.NodeAt(t, int(fi.Calls[ci]))
+					let pi = dense.Index(bind.PNodeOf(typed.K.Ps, fIdx, cNode))
+					if pi < 0 || pi >= pnodeCalls.Len() {
+						continue
+					}
+					let targetFn = resolveLocalCalledFnIdx(typed, pnodeCalls[pi])
+					if targetFn >= 0 {
+						let tf = typed.K.Fns[targetFn]
+						if tf.File >= 0 && tf.File < u.Files.Len() && !u.Files[tf.File].Parsed.Failed && validTreeNode(u.Files[tf.File].Parsed, tf.Name) {
+							let tpi = dense.Index(bind.PNodeOf(typed.K.Ps, tf.File, tf.Name))
+							if tpi >= 0 && tpi < pTotal && ownGen[tpi] != curGen {
+								usedElsewhere[tpi] = true
+							}
+						}
+					}
+				}
+			}
+		}
+		for fIdx, f in u.Files {
+			if f.Parsed.Failed {
+				continue
+			}
+			let t = f.Parsed.Tree
+			let fi = g.FileIndexes[uIdx][fIdx]
+			for dr in fi.Decls {
+				let dNode = syntax.NodeAt(t, int(dr.Node))
+				if dr.Kind == syntax.KFuncDecl {
+					let fd = syntax.FuncDeclOf(t, dNode)
+					if dense.Unpack(fd.Recv) != option.None || dense.Unpack(fd.Extern) != option.None || dense.Unpack(fd.Body) == option.None {
+						continue
+					}
+					let fname = NodeText(f.Parsed, fd.Name)
+					if isExportedIdent(fname) || fname == "main" {
+						continue
+					}
+					let recv0 = firstParamTypeLastIdent(f.Parsed, t, syntax.FuncTypeOf(t, fd.Type))
+					if recv0 != "" && (implMethods.Get(recv0+"\x00"+fname) != option.None || implMethods.Get(recv0+"\x00*") != option.None) {
+						continue
+					}
+					let pi = dense.Index(bind.PNodeOf(typed.K.Ps, fIdx, fd.Name))
+					if pi >= 0 && pi < pTotal && !usedElsewhere[pi] {
+						let off = syntax.NodePos(f.Parsed, fd.Name)
+						*out = (*out).Append(semFinding("unused-declaration", sev, f.Rel, fi, off, fname.Len(), "\(fname) is declared and never used in its package", []Related{}))
+					}
+				} else if dr.Kind == syntax.KTypeDecl {
+					let td = syntax.TypeDeclOf(t, dNode)
+					if dense.Unpack(td.Extern) != option.None {
+						continue
+					}
+					let tname = NodeText(f.Parsed, td.Name)
+					if isExportedIdent(tname) {
+						continue
+					}
+					let pi = dense.Index(bind.PNodeOf(typed.K.Ps, fIdx, td.Name))
+					if pi >= 0 && pi < pTotal && !usedElsewhere[pi] {
+						let off = syntax.NodePos(f.Parsed, td.Name)
+						*out = (*out).Append(semFinding("unused-declaration", sev, f.Rel, fi, off, tname.Len(), "\(tname) is declared and never used in its package", []Related{}))
+					}
+				} else if dr.Kind == syntax.KVarDecl {
+					let vd = syntax.VarDeclOf(t, dNode)
+					if dense.Unpack(vd.Extern) != option.None {
+						continue
+					}
+					let vs = syntax.VarSpecOf(t, vd.Spec)
+					for j in 0..syntax.Len(vs.Names) {
+						let vn = syntax.Item(t, vs.Names, j)
+						let vname = NodeText(f.Parsed, vn)
+						if isExportedIdent(vname) {
+							continue
+						}
+						let pi = dense.Index(bind.PNodeOf(typed.K.Ps, fIdx, vn))
+						if pi >= 0 && pi < pTotal && !usedElsewhere[pi] {
+							let off = syntax.NodePos(f.Parsed, vn)
+							*out = (*out).Append(semFinding("unused-declaration", sev, f.Rel, fi, off, vname.Len(), "\(vname) is declared and never used in its package", []Related{}))
+						}
+					}
+				}
+			}
+		}
+	}
+}
+
+func collectTypeParamIdentUses(
+	p syntax.Parsed,
+	hasTyped bool,
+	fIdx int,
+	uses bind.Uses,
+	ps bind.Parents,
+	root dense.ID[syntax.Node],
+	tpRangeStart int,
+	tpRangeEnd int,
+	tpNodes []dense.ID[syntax.Node],
+	used mut []bool,
+) {
+	let t = p.Tree
+	let mut stack = []uint32{uint32(dense.Index(root))}
+	let mut kids = []uint32{}
+	for stack.Len() > 0 {
+		let curIdx = stack[stack.Len()-1]
+		stack = stack[:stack.Len()-1]
+		let cur = syntax.NodeAt(t, int(curIdx))
+		let cp = syntax.NodePos(p, cur)
+		if syntax.KindOf(t, cur) == syntax.KIdent && !(cp >= tpRangeStart && cp < tpRangeEnd) {
+			if hasTyped {
+				let pn = bind.PNodeOf(ps, fIdx, cur)
+				match bind.ResolutionOf(uses, ps, pn) {
+				case bind.Declared as dec:
+					for ti, tpn in tpNodes {
+						if bind.PNodeOf(ps, fIdx, tpn) == dec.At {
+							(*used)[ti] = true
+						}
+					}
+				case _:
+				}
+			} else {
+				let nm = NodeText(p, cur)
+				for ti, tpn in tpNodes {
+					if NodeText(p, tpn) == nm {
+						(*used)[ti] = true
+					}
+				}
+			}
+		}
+		kids = syntax.Children(t, cur, kids[:0])
+		for c in kids {
+			stack = stack.Append(c)
+		}
+	}
+}
+
+// CheckUnusedTypeParameter emits unused-type-parameter (L116) findings when a generic function's type parameter is unused.
+func CheckUnusedTypeParameter(inp Input, g ProgramGraph, sev uint8, out mut []Finding) {
+	if sev == SeverityOff {
+		return
+	}
+	for uIdx, u in inp.Units {
+		if u.Dependency {
+			continue
+		}
+		let (hasTyped, ps, uses) = match u.Typed {
+		case option.Some{Value: td}:
+			(true, td.K.Ps, td.K.U)
+		case option.None:
+			(false, bind.BuildParents([]bind.File{}), bind.NoUses())
+		}
+		for fIdx, f in u.Files {
+			let fi = g.FileIndexes[uIdx][fIdx]
+			if f.Parsed.Failed {
+				continue
+			}
+			let t = f.Parsed.Tree
+			for dr in fi.Decls {
+				if dr.Kind != syntax.KFuncDecl {
+					continue
+				}
+				let dNode = syntax.NodeAt(t, int(dr.Node))
+				let fd = syntax.FuncDeclOf(t, dNode)
+				if dense.Unpack(fd.Extern) != option.None {
+					continue
+				}
+				let tpListID = match dense.Unpack(fd.TypeParams) {
+				case option.Some{Value: tp}:
+					tp
+				case option.None:
+					continue
+				}
+				if syntax.KindOf(t, tpListID) != syntax.KFieldList {
+					continue
+				}
+				let fname = NodeText(f.Parsed, fd.Name)
+				let fl = syntax.FieldListOf(t, tpListID)
+				let mut tpNodes = []dense.ID[syntax.Node]{}
+				for i in 0..syntax.Len(fl.List) {
+					let fld = syntax.FieldOf(t, syntax.Item(t, fl.List, i))
+					let isRow = match dense.Unpack(fld.Type) {
+					case option.Some{Value: fty}:
+						syntax.KindOf(t, fty) == syntax.KIdent && NodeText(f.Parsed, fty) == "row"
+					case option.None:
+						false
+					}
+					if isRow {
+						continue
+					}
+					for j in 0..syntax.Len(fld.Names) {
+						tpNodes = tpNodes.Append(syntax.Item(t, fld.Names, j))
+					}
+				}
+				if tpNodes.Len() == 0 {
+					continue
+				}
+				let tpStart = syntax.NodePos(f.Parsed, tpListID)
+				let tpEnd = syntax.NodeEnd(f.Parsed, tpListID)
+				let mut used = slices.Repeat([]bool{false}, tpNodes.Len())
+				collectTypeParamIdentUses(f.Parsed, hasTyped, fIdx, uses, ps, dNode, tpStart, tpEnd, tpNodes, &used)
+				for ti, tpn in tpNodes {
+					if !used[ti] {
+						let tname = NodeText(f.Parsed, tpn)
+						if tname == "_" {
+							continue
+						}
+						let off = syntax.NodePos(f.Parsed, tpn)
+						let msg = "the type parameter \(tname) of \(fname) is named nowhere in it"
+						*out = (*out).Append(semFinding("unused-type-parameter", sev, f.Rel, fi, off, tname.Len(), msg, []Related{}))
+					}
+				}
+			}
+		}
+	}
+}
+
+func markFileTypeNodes(f FileInput, fIdx int, td load.Typed, pTotal int, typeNodes mut []bool) {
+	if f.Parsed.Failed {
+		return
+	}
+	let t = f.Parsed.Tree
+	for ni in 0..syntax.NumNodes(t) {
+		let cur = syntax.NodeAt(t, ni)
+		let ck = syntax.KindOf(t, cur)
+		if ck == syntax.KTypeDecl {
+			let pi = dense.Index(bind.PNodeOf(td.K.Ps, fIdx, syntax.TypeDeclOf(t, cur).Name))
+			if pi >= 0 && pi < pTotal {
+				(*typeNodes)[pi] = true
+			}
+		} else if ck == syntax.KVariantSpec {
+			let pi = dense.Index(bind.PNodeOf(td.K.Ps, fIdx, syntax.VariantSpecOf(t, cur).Name))
+			if pi >= 0 && pi < pTotal {
+				(*typeNodes)[pi] = true
+			}
+		}
+	}
+}
+
+type vacEnv {
+	p          syntax.Parsed,
+	typedOpt   option.Option[load.Typed],
+	fIdx       int,
+	pnodeCalls []int,
+	pnodeCaps  []dense.Opt[store.TKey],
+	typeNodes  []bool,
+}
+
+type vacState {
+	builtNodes []bool,
+	builtNames Map[string, bool],
+	changed    bool,
+	can        bool,
+}
+
+func vacCallIsReal(env vacEnv, cNode dense.ID[syntax.Node]) bool {
+	let typed = match env.typedOpt {
+	case option.Some{Value: td}:
+		td
+	case option.None:
+		return true
+	}
+	let pn = bind.PNodeOf(typed.K.Ps, env.fIdx, cNode)
+	let pi = dense.Index(pn)
+	if pi >= 0 && pi < env.pnodeCaps.Len() && dense.Unpack(env.pnodeCaps[pi]) != option.None {
+		return true
+	}
+	if pi >= 0 && pi < env.pnodeCalls.Len() && env.pnodeCalls[pi] >= 0 {
+		return true
+	}
+	let ce = syntax.CallExprOf(env.p.Tree, cNode)
+	let fun = Unparen(env.p.Tree, ce.Fun)
+	let fk = syntax.KindOf(env.p.Tree, fun)
+	if fk == syntax.KIdent {
+		let nm = NodeText(env.p, fun)
+		if nm == "len" || nm == "hash" || nm == "append" || nm == "with" || nm == "within" {
+			return true
+		}
+		if isBuiltinConversionIdent(nm) {
+			return false
+		}
+		match bind.ResolutionOf(typed.K.U, typed.K.Ps, bind.PNodeOf(typed.K.Ps, env.fIdx, fun)) {
+		case bind.Outside:
+			return true
+		case bind.Declared as dec:
+			let di = dense.Index(dec.At)
+			return expr.FnAt(typed.K, dec.At) >= 0 || !(di >= 0 && di < env.typeNodes.Len() && env.typeNodes[di])
+		case _:
+			return true
+		}
+	}
+	if fk == syntax.KSelectorExpr {
+		let se = syntax.SelectorExprOf(env.p.Tree, fun)
+		match bind.ResolutionOf(typed.K.U, typed.K.Ps, bind.PNodeOf(typed.K.Ps, env.fIdx, se.Sel)) {
+		case bind.Imported as im:
+			if int(im.Ref.Import) > 0 && int(im.Ref.Import) <= typed.K.Ifaces.Len() {
+				let ifc = typed.K.Ifaces[int(im.Ref.Import)-1]
+				if int(im.Ref.Decl) >= 0 && int(im.Ref.Decl) < ifc.Decls.Len() && ifc.Decls[int(im.Ref.Decl)].Type {
+					return false
+				}
+			}
+			return true
+		case _:
+			return true
+		}
+	}
+	true
+}
+
+func vacReadsCall(env vacEnv, st vacState, exprNode dense.ID[syntax.Node]) bool {
+	let t = env.p.Tree
+	let mut stack = []uint32{uint32(dense.Index(exprNode))}
+	let mut kids = []uint32{}
+	for stack.Len() > 0 {
+		let cur = syntax.NodeAt(t, int(stack[stack.Len()-1]))
+		stack = stack[:stack.Len()-1]
+		let k = syntax.KindOf(t, cur)
+		if k == syntax.KCallExpr {
+			if vacCallIsReal(env, cur) {
+				return true
+			}
+		} else if k == syntax.KIdent {
+			match env.typedOpt {
+			case option.Some{Value: typed}:
+				match bind.ResolutionOf(typed.K.U, typed.K.Ps, bind.PNodeOf(typed.K.Ps, env.fIdx, cur)) {
+				case bind.Declared as dec:
+					let di = dense.Index(dec.At)
+					if di >= 0 && di < st.builtNodes.Len() && st.builtNodes[di] {
+						return true
+					}
+				case _:
+				}
+			case option.None:
+				if st.builtNames.Get(NodeText(env.p, cur)) != option.None {
+					return true
+				}
+			}
+		}
+		kids = syntax.Children(t, cur, kids[:0])
+		for c in kids {
+			stack = stack.Append(c)
+		}
+	}
+	false
+}
+
+func vacMarkIdentsSubtree(env vacEnv, node dense.ID[syntax.Node], st mut vacState) {
+	let t = env.p.Tree
+	let mut stack = []uint32{uint32(dense.Index(node))}
+	let mut kids = []uint32{}
+	for stack.Len() > 0 {
+		let cur = syntax.NodeAt(t, int(stack[stack.Len()-1]))
+		stack = stack[:stack.Len()-1]
+		if syntax.KindOf(t, cur) == syntax.KIdent {
+			match env.typedOpt {
+			case option.Some{Value: typed}:
+				let pn = bind.PNodeOf(typed.K.Ps, env.fIdx, cur)
+				let pi = dense.Index(pn)
+				if pi >= 0 && pi < (*st).builtNodes.Len() && !(*st).builtNodes[pi] {
+					(*st).builtNodes[pi] = true
+					(*st).changed = true
+				}
+				match bind.ResolutionOf(typed.K.U, typed.K.Ps, pn) {
+				case bind.Declared as dec:
+					let di = dense.Index(dec.At)
+					if di >= 0 && di < (*st).builtNodes.Len() && !(*st).builtNodes[di] {
+						(*st).builtNodes[di] = true
+						(*st).changed = true
+					}
+				case _:
+				}
+			case option.None:
+				let nm = NodeText(env.p, cur)
+				if (*st).builtNames.Get(nm) == option.None {
+					(*st).builtNames[nm] = true
+					(*st).changed = true
+				}
+			}
+		}
+		kids = syntax.Children(t, cur, kids[:0])
+		for c in kids {
+			stack = stack.Append(c)
+		}
+	}
+}
+
+func vacVisitNode(env vacEnv, root dense.ID[syntax.Node], ctl bool, st mut vacState) {
+	let t = env.p.Tree
+	let mut stack = []uint32{uint32(dense.Index(root))}
+	let mut kids = []uint32{}
+	for stack.Len() > 0 {
+		let cur = syntax.NodeAt(t, int(stack[stack.Len()-1]))
+		stack = stack[:stack.Len()-1]
+		let k = syntax.KindOf(t, cur)
+		if cur != root {
+			if k == syntax.KIfStmt {
+				let ifs = syntax.IfStmtOf(t, cur)
+				let gCtl = ctl || vacReadsCall(env, *st, ifs.Cond)
+				vacVisitNode(env, cur, gCtl, st)
+				continue
+			}
+			if k == syntax.KSwitchStmt {
+				let sw = syntax.SwitchStmtOf(t, cur)
+				let gCtl = ctl || vacReadsCall(env, *st, sw.Tag)
+				vacVisitNode(env, cur, gCtl, st)
+				continue
+			}
+			if k == syntax.KTypeSwitchStmt {
+				let ts = syntax.TypeSwitchStmtOf(t, cur)
+				let gCtl = ctl || vacReadsCall(env, *st, ts.Subject)
+				vacVisitNode(env, cur, gCtl, st)
+				continue
+			}
+			if k == syntax.KForStmt {
+				let fs = syntax.ForStmtOf(t, cur)
+				let gCtl = ctl || match dense.Unpack(fs.Cond) {
+				case option.Some{Value: c}:
+					vacReadsCall(env, *st, c)
+				case option.None:
+					false
+				}
+				vacVisitNode(env, cur, gCtl, st)
+				continue
+			}
+			if k == syntax.KRangeStmt {
+				let rs = syntax.RangeStmtOf(t, cur)
+				let gCtl = ctl || vacReadsCall(env, *st, rs.X)
+				vacVisitNode(env, cur, gCtl, st)
+				continue
+			}
+			if k == syntax.KCatchExpr {
+				let ce = syntax.CatchExprOf(t, cur)
+				let gCtl = ctl || vacReadsCall(env, *st, ce.X)
+				vacVisitNode(env, cur, gCtl, st)
+				continue
+			}
+		}
+		if k == syntax.KFuncLit {
+			continue
+		}
+		if k == syntax.KTryExpr {
+			(*st).can = true
+		} else if k == syntax.KAssertStmt {
+			let ax = syntax.AssertStmtOf(t, cur).X
+			if ctl || vacReadsCall(env, *st, ax) {
+				(*st).can = true
+			}
+		} else if k == syntax.KAlwaysStmt {
+			let ax = syntax.AlwaysStmtOf(t, cur).X
+			if ctl || vacReadsCall(env, *st, ax) {
+				(*st).can = true
+			}
+		} else if k == syntax.KSometimesStmt {
+			let ax = syntax.SometimesStmtOf(t, cur).X
+			if ctl || vacReadsCall(env, *st, ax) {
+				(*st).can = true
+			}
+		} else if k == syntax.KDieStmt {
+			(*st).can = true
+		} else if k == syntax.KVarSpec {
+			let vs = syntax.VarSpecOf(t, cur)
+			let hit = ctl || match dense.Unpack(vs.Value) {
+			case option.Some{Value: vv}:
+				vacReadsCall(env, *st, vv)
+			case option.None:
+				false
+			}
+			if hit {
+				for j in 0..syntax.Len(vs.Names) {
+					vacMarkIdentsSubtree(env, syntax.Item(t, vs.Names, j), st)
+				}
+				match dense.Unpack(vs.Pattern) {
+				case option.Some{Value: pat}:
+					vacMarkIdentsSubtree(env, pat, st)
+				case option.None:
+				}
+			}
+		} else if k == syntax.KAssignStmt {
+			let asgn = syntax.AssignStmtOf(t, cur)
+			if ctl || vacReadsCall(env, *st, asgn.Rhs) {
+				let lhs = Unparen(t, asgn.Lhs)
+				if syntax.KindOf(t, lhs) == syntax.KTupleExpr {
+					let te = syntax.TupleExprOf(t, lhs)
+					for j in 0..syntax.Len(te.Elts) {
+						match dense.Unpack(assignRootIdent(t, syntax.Item(t, te.Elts, j))) {
+						case option.Some{Value: rid}:
+							vacMarkIdentsSubtree(env, rid, st)
+						case option.None:
+						}
+					}
+				} else {
+					match dense.Unpack(assignRootIdent(t, lhs)) {
+					case option.Some{Value: rid}:
+						vacMarkIdentsSubtree(env, rid, st)
+					case option.None:
+					}
+				}
+			}
+		} else if k == syntax.KRangeStmt {
+			if ctl {
+				let rs = syntax.RangeStmtOf(t, cur)
+				match dense.Unpack(rs.Key) {
+				case option.Some{Value: kn}:
+					vacMarkIdentsSubtree(env, kn, st)
+				case option.None:
+				}
+				vacMarkIdentsSubtree(env, rs.Value, st)
+			}
+		} else if k == syntax.KCatchExpr {
+			if ctl {
+				let ce = syntax.CatchExprOf(t, cur)
+				for ai in 0..syntax.Len(ce.Arms) {
+					let an = syntax.Item(t, ce.Arms, ai)
+					if syntax.KindOf(t, an) == syntax.KCatchArm {
+						let ca = syntax.CatchArmOf(t, an)
+						for ti in 0..syntax.Len(ca.Types) {
+							vacMarkIdentsSubtree(env, syntax.Item(t, ca.Types, ti), st)
+						}
+					}
+				}
+			}
+		}
+		kids = syntax.Children(t, cur, kids[:0])
+		for c in kids {
+			stack = stack.Append(c)
+		}
+	}
+}
+
+func testCanFail(env vacEnv, pTotal int, body dense.ID[syntax.Node]) bool {
+	let hasTyped = match env.typedOpt {
+	case option.Some:
+		true
+	case option.None:
+		false
+	}
+	let mut st = vacState{
+		builtNodes: if hasTyped { slices.Repeat([]bool{false}, pTotal) } else { []bool{} },
+		builtNames: Map[string, bool]{},
+		changed:    true,
+		can:        false,
+	}
+	for st.changed {
+		st.changed = false
+		vacVisitNode(env, body, false, &st)
+		if st.can {
+			return true
+		}
+	}
+	st.can
+}
+
+// CheckVacuousTest emits vacuous-test (L138) findings for tests with no assertions or invariants.
+func CheckVacuousTest(inp Input, g ProgramGraph, sev uint8, out mut []Finding) {
+	if sev == SeverityOff {
+		return
+	}
+	for uIdx, u in inp.Units {
+		if u.Dependency {
+			continue
+		}
+		let (pnodeCalls, pnodeCaps, pTotal, typeNodes) = match u.Typed {
+		case option.Some{Value: td}:
+			let (_, calls, caps) = buildUnitTypedCols(td)
+			let pt = bind.Written(td.K.Ps) + 1
+			let mut tns = slices.Repeat([]bool{false}, pt)
+			for fi, ff in u.Files {
+				markFileTypeNodes(ff, fi, td, pt, &tns)
+			}
+			(calls, caps, pt, tns)
+		case option.None:
+			([]int{}, []dense.Opt[store.TKey]{}, 0, []bool{})
+		}
+		for fIdx, f in u.Files {
+			let fi = g.FileIndexes[uIdx][fIdx]
+			if f.Parsed.Failed {
+				continue
+			}
+			let t = f.Parsed.Tree
+			let env = vacEnv{
+				p:          f.Parsed,
+				typedOpt:   u.Typed,
+				fIdx:       fIdx,
+				pnodeCalls: pnodeCalls,
+				pnodeCaps:  pnodeCaps,
+				typeNodes:  typeNodes,
+			}
+			for dr in fi.Decls {
+				if dr.Kind != syntax.KTestDecl {
+					continue
+				}
+				let td = syntax.TestDeclOf(t, syntax.NodeAt(t, int(dr.Node)))
+				let body = match dense.Unpack(td.Body) {
+				case option.Some{Value: b}:
+					b
+				case option.None:
+					continue
+				}
+				if !testCanFail(env, pTotal, body) {
+					let tname = NodeText(f.Parsed, td.Name)
+					let off = syntax.NodePos(f.Parsed, td.Name)
+					let msg = "test \(tname) asserts no outcome"
+					*out = (*out).Append(semFinding("vacuous-test", sev, f.Rel, fi, off, tname.Len(), msg, []Related{}))
+				}
+			}
+		}
+	}
+}
+
+let impureStdNoNeedsMap = Map[string, bool]{
+	"actor.Restarts":        true,
+	"actor.OnEnd":           true,
+	"actor.Ended":           true,
+	"atomic.NewInt64":       true,
+	"atomic.NewBool":        true,
+	"config.NewRedacted":    true,
+	"core.Delete":           true,
+	"embed.NewEmpty":        true,
+	"explore.Replay":        true,
+	"http.DecodePath":       true,
+	"prelude.Sleep":         true,
+	"prelude.Delete":        true,
+	"queue.New":             true,
+	"queue.NewOpen":         true,
+	"rpc.Tagged":            true,
+	"rpc.TagOf":             true,
+	"rpc.Die":               true,
+	"rpc.Exact":             true,
+	"rpc.ExactUint":         true,
+	"rpc.Refuse":            true,
+	"sha256.New":            true,
+	"slices.SortFunc":       true,
+	"slices.SortStableFunc": true,
+	"strings.Hint":          true,
+	"strings.Borrow":        true,
+	"strings.Give":          true,
+	"sync.NewRef":           true,
+	"sync.Modify":           true,
+	"task.LimitSteps":       true,
+	"testing.At":            true,
+	"testing.Point":         true,
+	"testing.Unanswered":    true,
+	"timeout.PopBefore":     true,
+	"tz/iana.Names":         true,
+	"tz/iana.Release":       true,
+	"tz/iana.TZif":          true,
+}
+
+func sigHasEmptyUses(s store.Store, sig dense.ID[store.TKey]) bool {
+	if store.KindOfType(s, sig) != store.KSig {
+		return false
+	}
+	let ops = store.OperandsOf(s, sig)
+	if ops.Len() < 1 {
+		return false
+	}
+	let usesRow = ops[ops.Len()-1]
+	store.OperandsOf(s, usesRow).Len() == 0
+}
+
+func sigHasFuncParam(s store.Store, sig dense.ID[store.TKey]) bool {
+	if store.KindOfType(s, sig) != store.KSig {
+		return false
+	}
+	let ops = store.OperandsOf(s, sig)
+	let nParams = if ops.Len() > 3 { ops.Len() - 3 } else { 0 }
+	for i in 0..nParams {
+		let k = store.KindOfType(s, ops[i])
+		if k == store.KSig || k == store.KOwn || k == store.KEntry {
+			return true
+		}
+	}
+	false
+}
+
+func catchArmReadsFailure(p syntax.Parsed, fIdx int, typed load.Typed, arm syntax.CatchArm) bool {
+	let t = p.Tree
+	let mut bound = []int{}
+	let mut stack = slices.WithCapacity[uint32](8)
+	let mut kids = slices.WithCapacity[uint32](8)
+	for ti in 0..syntax.Len(arm.Types) {
+		stack = stack.Append(uint32(dense.Index(syntax.Item(t, arm.Types, ti))))
+	}
+	for stack.Len() > 0 {
+		let cur = syntax.NodeAt(t, int(stack[stack.Len()-1]))
+		stack = stack[:stack.Len()-1]
+		if syntax.KindOf(t, cur) == syntax.KAsPattern {
+			let ap = syntax.AsPatternOf(t, cur)
+			let pi = dense.Index(bind.PNodeOf(typed.K.Ps, fIdx, ap.Name))
+			if pi >= 0 {
+				bound = bound.Append(pi)
+			}
+		}
+		kids = syntax.Children(t, cur, kids[:0])
+		for c in kids {
+			stack = stack.Append(c)
+		}
+	}
+	if bound.Len() == 0 {
+		return false
+	}
+	for si in 0..syntax.Len(arm.Body) {
+		stack = stack.Append(uint32(dense.Index(syntax.Item(t, arm.Body, si))))
+	}
+	for stack.Len() > 0 {
+		let cur = syntax.NodeAt(t, int(stack[stack.Len()-1]))
+		stack = stack[:stack.Len()-1]
+		if syntax.KindOf(t, cur) == syntax.KIdent {
+			match bind.ResolutionOf(typed.K.U, typed.K.Ps, bind.PNodeOf(typed.K.Ps, fIdx, cur)) {
+			case bind.Declared as dec:
+				let di = dense.Index(dec.At)
+				if slices.Contains(bound, di) {
+					return true
+				}
+			case _:
+			}
+		}
+		kids = syntax.Children(t, cur, kids[:0])
+		for c in kids {
+			stack = stack.Append(c)
+		}
+	}
+	false
+}
+
+func assignRootIdent(t syntax.Tree, exprNode dense.ID[syntax.Node]) dense.Opt[syntax.Node] {
+	let mut cur = exprNode
+	for {
+		let k = syntax.KindOf(t, cur)
+		if k == syntax.KIdent {
+			return dense.OptOf(cur)
+		}
+		if k == syntax.KSelectorExpr {
+			cur = syntax.SelectorExprOf(t, cur).X
+			continue
+		}
+		if k == syntax.KIndexExpr {
+			cur = syntax.IndexExprOf(t, cur).X
+			continue
+		}
+		if k == syntax.KParenExpr {
+			cur = syntax.ParenExprOf(t, cur).X
+			continue
+		}
+		return dense.NoID[syntax.Node]()
+	}
+	dense.NoID[syntax.Node]()
+}
+
+func externTargetShortName(p syntax.Parsed, extNode dense.ID[syntax.Node]) string {
+	let t = p.Tree
+	let es = syntax.ExternSpecOf(t, extNode)
+	let tk = syntax.KindOf(t, es.Target)
+	if tk == syntax.KSelectorExpr {
+		return NodeText(p, syntax.SelectorExprOf(t, es.Target).Sel)
+	}
+	if tk == syntax.KIdent {
+		return NodeText(p, es.Target)
+	}
+	""
+}
+
+func unwrapCallFun(t syntax.Tree, n dense.ID[syntax.Node]) dense.ID[syntax.Node] {
+	let mut cur = n
+	for {
+		let k = syntax.KindOf(t, cur)
+		if k == syntax.KParenExpr {
+			cur = syntax.ParenExprOf(t, cur).X
+			continue
+		}
+		if k == syntax.KIndexExpr {
+			cur = syntax.IndexExprOf(t, cur).X
+			continue
+		}
+		return cur
+	}
+	cur
+}
+
+func isGoEffectPkg(path string) bool {
+	match path {
+	case "ergo.local/prototype/runtime/v1/hostfs", "time", "sync/atomic", "runtime", "os", "math/rand/v2", "io/fs":
+		true
+	case _:
+		false
+	}
+}
+
+type silentCtx {
+	inp           Input,
+	unitByPkg     Map[string, int],
+	opTypes       Map[string, bool],
+	unitBuilt     []bool,
+	unitTypes     [][]dense.Opt[store.TKey],
+	unitCalls     [][]int,
+	unitCaps      [][]dense.Opt[store.TKey],
+	unitTypeNodes [][]bool,
+	unitAliases   [][]Map[string, string],
+	unitGoAliases [][]Map[string, string],
+	fnPureState   [][]uint8,
+}
+
+func unitFileGoAliases(p syntax.Parsed, fi FileIndex) Map[string, string] {
+	let mut out = Map[string, string]{}
+	let t = p.Tree
+	for dr in fi.Decls {
+		if dr.Kind != syntax.KImportDecl {
+			continue
+		}
+		let sp = syntax.ImportSpecOf(t, syntax.ImportDeclOf(t, syntax.NodeAt(t, int(dr.Node))).Spec)
+		let (impPath, isGo) = importSpecInfo(p, sp)
+		if !isGo {
+			continue
+		}
+		let alias = match dense.Unpack(sp.Name) {
+		case option.Some{Value: nm}:
+			NodeText(p, nm)
+		case option.None:
+			SlashBase(impPath)
+		}
+		out[alias] = impPath
+	}
+	out
+}
+
+func ensureSilentUnit(sc mut silentCtx, g ProgramGraph, uIdx int) {
+	if (*sc).unitBuilt[uIdx] {
+		return
+	}
+	(*sc).unitBuilt[uIdx] = true
+	let u = (*sc).inp.Units[uIdx]
+	match u.Typed {
+	case option.Some{Value: td}:
+		let (ts, cs, cps) = buildUnitTypedCols(td)
+		(*sc).unitTypes[uIdx] = ts
+		(*sc).unitCalls[uIdx] = cs
+		(*sc).unitCaps[uIdx] = cps
+		let pTotal = bind.Written(td.K.Ps) + 1
+		let mut typeNodes = slices.Repeat([]bool{false}, pTotal)
+		let mut aliases = slices.WithCapacity[Map[string, string]](u.Files.Len())
+		let mut goAliases = slices.WithCapacity[Map[string, string]](u.Files.Len())
+		for fIdx, f in u.Files {
+			if f.Parsed.Failed {
+				aliases = aliases.Append(Map[string, string]{})
+				goAliases = goAliases.Append(Map[string, string]{})
+				continue
+			}
+			let fi = g.FileIndexes[uIdx][fIdx]
+			aliases = aliases.Append(unitFileImportAliases(f.Parsed, fi))
+			goAliases = goAliases.Append(unitFileGoAliases(f.Parsed, fi))
+			markFileTypeNodes(f, fIdx, td, pTotal, &typeNodes)
+		}
+		(*sc).unitTypeNodes[uIdx] = typeNodes
+		(*sc).unitAliases[uIdx] = aliases
+		(*sc).unitGoAliases[uIdx] = goAliases
+		(*sc).fnPureState[uIdx] = slices.Repeat([]uint8{uint8(0)}, td.K.Fns.Len())
+	case option.None:
+	}
+}
+
+func isBuiltinConversionIdent(name string) bool {
+	match name {
+	case "int", "int8", "int16", "int32", "int64", "uint", "uint8", "uint16", "uint32", "uint64", "uintptr", "float32", "float64", "string", "bool", "byte", "rune":
+		true
+	case _:
+		false
+	}
+}
+
+func isSilentConversionCall(sc silentCtx, uIdx int, fIdx int, typed load.Typed, p syntax.Parsed, fun dense.ID[syntax.Node]) bool {
+	let fk = syntax.KindOf(p.Tree, fun)
+	if fk == syntax.KIdent {
+		let nm = NodeText(p, fun)
+		if isBuiltinConversionIdent(nm) {
+			return true
+		}
+		match bind.ResolutionOf(typed.K.U, typed.K.Ps, bind.PNodeOf(typed.K.Ps, fIdx, fun)) {
+		case bind.Declared as dec:
+			let di = dense.Index(dec.At)
+			return di >= 0 && di < sc.unitTypeNodes[uIdx].Len() && sc.unitTypeNodes[uIdx][di]
+		case _:
+			return false
+		}
+	}
+	if fk == syntax.KSelectorExpr {
+		let se = syntax.SelectorExprOf(p.Tree, fun)
+		match bind.ResolutionOf(typed.K.U, typed.K.Ps, bind.PNodeOf(typed.K.Ps, fIdx, se.Sel)) {
+		case bind.Imported as im:
+			if int(im.Ref.Import) > 0 && int(im.Ref.Import) <= typed.K.Ifaces.Len() {
+				let ifc = typed.K.Ifaces[int(im.Ref.Import)-1]
+				if int(im.Ref.Decl) >= 0 && int(im.Ref.Decl) < ifc.Decls.Len() && ifc.Decls[int(im.Ref.Decl)].Type {
+					return true
+				}
+			}
+		case _:
+		}
+	}
+	false
+}
+
+func findMatchingUnitFn(
+	ttd load.Typed,
+	tuPath string,
+	fnName string,
+	sigOpt option.Option[dense.ID[store.TKey]],
+	isRecv bool,
+	knownRecv bool,
+	recvType string,
+	sameUnit bool,
+) int {
+	let mut candIdx = -1
+	for tfi, tfn in ttd.K.Fns {
+		if tfn.File < 0 || tfn.File >= ttd.K.Parsed.Len() {
+			continue
+		}
+		let tfp = ttd.K.Parsed[tfn.File]
+		if tfp.Failed || !validTreeNode(tfp, tfn.Name) || !validTreeNode(tfp, tfn.Decl) {
+			continue
+		}
+		if NodeText(tfp, tfn.Name) != fnName {
+			continue
+		}
+		if syntax.KindOf(tfp.Tree, tfn.Decl) != syntax.KFuncDecl {
+			continue
+		}
+		if sameUnit {
+			match sigOpt {
+			case option.Some{Value: sig}:
+				if tfn.Sig == sig {
+					return tfi
+				}
+			case option.None:
+			}
+		}
+		let tfd = syntax.FuncDeclOf(tfp.Tree, tfn.Decl)
+		let tRecv = dense.Unpack(tfd.Recv) != option.None
+		if knownRecv && tRecv != isRecv {
+			continue
+		}
+		if knownRecv && isRecv && recvType != "" {
+			let ops = store.OperandsOf(ttd.S, tfn.Sig)
+			if ops.Len() < 4 {
+				continue
+			}
+			let (_, rName, _) = nominalTypeOwner(ttd, tuPath, ops[0])
+			if rName != recvType {
+				continue
+			}
+		}
+		if candIdx < 0 {
+			candIdx = tfi
+		}
+	}
+	candIdx
+}
+
+func unitFnImpureMemo(sc mut silentCtx, g ProgramGraph, uIdx int, fnIdx int) bool {
+	ensureSilentUnit(sc, g, uIdx)
+	if fnIdx < 0 || fnIdx >= (*sc).fnPureState[uIdx].Len() {
+		return true
+	}
+	let prev = (*sc).fnPureState[uIdx][fnIdx]
+	if prev == uint8(2) {
+		return false
+	}
+	if prev == uint8(3) {
+		return true
+	}
+	if prev == uint8(1) {
+		return false
+	}
+	(*sc).fnPureState[uIdx][fnIdx] = uint8(1)
+	let u = (*sc).inp.Units[uIdx]
+	let typed = match u.Typed {
+	case option.Some{Value: td}:
+		td
+	case option.None:
+		(*sc).fnPureState[uIdx][fnIdx] = uint8(3)
+		return true
+	}
+	let fn = typed.K.Fns[fnIdx]
+	if fn.File < 0 || fn.File >= typed.K.Parsed.Len() {
+		(*sc).fnPureState[uIdx][fnIdx] = uint8(2)
+		return false
+	}
+	let fp = typed.K.Parsed[fn.File]
+	if fp.Failed || !validTreeNode(fp, fn.Decl) || syntax.KindOf(fp.Tree, fn.Decl) != syntax.KFuncDecl {
+		(*sc).fnPureState[uIdx][fnIdx] = uint8(2)
+		return false
+	}
+	let fd = syntax.FuncDeclOf(fp.Tree, fn.Decl)
+	match dense.Unpack(fd.Extern) {
+	case option.Some{Value: extNode}:
+		let target = externTargetShortName(fp, extNode)
+		let imp = !(target != "" && IsStdRuntimePureOrInert(target))
+		(*sc).fnPureState[uIdx][fnIdx] = if imp { uint8(3) } else { uint8(2) }
+		return imp
+	case option.None:
+	}
+	let body = match dense.Unpack(fd.Body) {
+	case option.Some{Value: b}:
+		b
+	case option.None:
+		(*sc).fnPureState[uIdx][fnIdx] = uint8(3)
+		return true
+	}
+	if !sigHasEmptyUses(typed.S, fn.Sig) {
+		(*sc).fnPureState[uIdx][fnIdx] = uint8(3)
+		return true
+	}
+	let t = fp.Tree
+	let mut stack = []uint32{uint32(dense.Index(body))}
+	let mut kids = slices.WithCapacity[uint32](8)
+	for stack.Len() > 0 {
+		let cur = syntax.NodeAt(t, int(stack[stack.Len()-1]))
+		stack = stack[:stack.Len()-1]
+		let k = syntax.KindOf(t, cur)
+		if k == syntax.KFuncLit {
+			continue
+		}
+		if k == syntax.KCallExpr {
+			if catchCallLeavesTrace(sc, g, uIdx, fn.File, fp, cur) {
+				(*sc).fnPureState[uIdx][fnIdx] = uint8(3)
+				return true
+			}
+			let ce = syntax.CallExprOf(t, cur)
+			stack = stack.Append(uint32(dense.Index(ce.Fun)))
+			for ai in 0..syntax.Len(ce.Args) {
+				stack = stack.Append(uint32(dense.Index(syntax.Item(t, ce.Args, ai))))
+			}
+			if syntax.KindOf(t, Unparen(t, ce.Fun)) == syntax.KIdent && NodeText(fp, Unparen(t, ce.Fun)) == "with" {
+				match dense.Unpack(ce.Trailing) {
+				case option.Some{Value: tr}:
+					stack = stack.Append(uint32(dense.Index(tr)))
+				case option.None:
+				}
+			}
+			continue
+		}
+		kids = syntax.Children(t, cur, kids[:0])
+		for c in kids {
+			stack = stack.Append(c)
+		}
+	}
+	(*sc).fnPureState[uIdx][fnIdx] = uint8(2)
+	false
+}
+
+func resolveSilentNodeTKey(
+	sc mut silentCtx,
+	g ProgramGraph,
+	uIdx int,
+	fIdx int,
+	typed load.Typed,
+	node dense.ID[syntax.Node],
+	depth int,
+) (load.Typed, string, dense.Opt[store.TKey]) {
+	let uPath = unitPkgPath((*sc).inp.Units[uIdx])
+	if depth >= 8 || fIdx < 0 || fIdx >= typed.K.Parsed.Len() || !validTreeNode(typed.K.Parsed[fIdx], node) {
+		return (typed, uPath, dense.NoID[store.TKey]())
+	}
+	ensureSilentUnit(sc, g, uIdx)
+	let pnodeTypes = (*sc).unitTypes[uIdx]
+	let pnodeCalls = (*sc).unitCalls[uIdx]
+	let pn = bind.PNodeOf(typed.K.Ps, fIdx, node)
+	let pi = dense.Index(pn)
+	if pi >= 0 && pi < pnodeTypes.Len() {
+		match dense.Unpack(pnodeTypes[pi]) {
+		case option.Some:
+			return (typed, uPath, pnodeTypes[pi])
+		case option.None:
+		}
+	}
+	let p = typed.K.Parsed[fIdx]
+	let t = p.Tree
+	let k = syntax.KindOf(t, node)
+	if k == syntax.KParenExpr {
+		return resolveSilentNodeTKey(sc, g, uIdx, fIdx, typed, syntax.ParenExprOf(t, node).X, depth+1)
+	}
+	if k == syntax.KTryExpr {
+		return resolveSilentNodeTKey(sc, g, uIdx, fIdx, typed, syntax.TryExprOf(t, node).X, depth+1)
+	}
+	if k == syntax.KIdent {
+		match bind.ResolutionOf(typed.K.U, typed.K.Ps, pn) {
+		case bind.Declared as dec:
+			let di = dense.Index(dec.At)
+			if di >= 0 && di < pnodeTypes.Len() {
+				match dense.Unpack(pnodeTypes[di]) {
+				case option.Some:
+					return (typed, uPath, pnodeTypes[di])
+				case option.None:
+				}
+			}
+			match dense.Unpack(bind.ParentOf(typed.K.Ps, dec.At)) {
+			case option.Some{Value: parPN}:
+				let (parFile, parRow) = bind.RowOf(typed.K.Ps, parPN)
+				if parFile >= 0 && parFile < typed.K.Parsed.Len() && !typed.K.Parsed[parFile].Failed {
+					let pt = typed.K.Parsed[parFile].Tree
+					let parNode = syntax.NodeAt(pt, parRow)
+					if syntax.KindOf(pt, parNode) == syntax.KVarSpec {
+						let vs = syntax.VarSpecOf(pt, parNode)
+						if syntax.Len(vs.Names) == 1 {
+							match dense.Unpack(vs.Value) {
+							case option.Some{Value: v}:
+								return resolveSilentNodeTKey(sc, g, uIdx, parFile, typed, v, depth+1)
+							case option.None:
+							}
+						}
+					}
+				}
+			case option.None:
+			}
+		case _:
+		}
+		return (typed, uPath, dense.NoID[store.TKey]())
+	}
+	if k == syntax.KCallExpr {
+		if pi >= 0 && pi < pnodeCalls.Len() {
+			let cIdx = pnodeCalls[pi]
+			if cIdx >= 0 && cIdx < typed.T.Calls.Len() {
+				match sigResultType(typed.S, typed.T.Calls[cIdx].Callee.Sig) {
+				case option.Some{Value: rt}:
+					return (typed, uPath, dense.OptOf(rt))
+				case option.None:
+				}
+			}
+		}
+		let ce = syntax.CallExprOf(t, node)
+		let fun = unwrapCallFun(t, ce.Fun)
+		if syntax.KindOf(t, fun) == syntax.KSelectorExpr {
+			let se = syntax.SelectorExprOf(t, fun)
+			if syntax.KindOf(t, se.X) == syntax.KIdent {
+				let aliases = (*sc).unitAliases[uIdx][fIdx]
+				match aliases.Get(NodeText(p, se.X)) {
+				case option.Some{Value: path}:
+					match (*sc).unitByPkg.Get(path) {
+					case option.Some{Value: tuIdx}:
+						match (*sc).inp.Units[tuIdx].Typed {
+						case option.Some{Value: ttd}:
+							let fnName = NodeText(p, se.Sel)
+							for tfn in ttd.K.Fns {
+								if tfn.File >= 0 && tfn.File < ttd.K.Parsed.Len() && !ttd.K.Parsed[tfn.File].Failed && validTreeNode(ttd.K.Parsed[tfn.File], tfn.Name) && NodeText(ttd.K.Parsed[tfn.File], tfn.Name) == fnName {
+									match sigResultType(ttd.S, tfn.Sig) {
+									case option.Some{Value: rt}:
+										return (ttd, unitPkgPath((*sc).inp.Units[tuIdx]), dense.OptOf(rt))
+									case option.None:
+									}
+								}
+							}
+						case option.None:
+						}
+					case option.None:
+					}
+				case option.None:
+				}
+			}
+		}
+		return (typed, uPath, dense.NoID[store.TKey]())
+	}
+	if k == syntax.KSelectorExpr {
+		let se = syntax.SelectorExprOf(t, node)
+		let (xTyped, xuPath, xOpt) = resolveSilentNodeTKey(sc, g, uIdx, fIdx, typed, se.X, depth+1)
+		match dense.Unpack(xOpt) {
+		case option.Some{Value: xt}:
+			let (ownerPath, ownerType, _) = nominalTypeOwner(xTyped, xuPath, xt)
+			if ownerPath != "" && ownerType != "" {
+				match (*sc).unitByPkg.Get(ownerPath) {
+				case option.Some{Value: ouIdx}:
+					match (*sc).inp.Units[ouIdx].Typed {
+					case option.Some{Value: otd}:
+						let selName = NodeText(p, se.Sel)
+						for rec in otd.K.Recs {
+							if rec.Name == ownerType {
+								for fld in rec.Fields {
+									if fld.Name == selName {
+										if store.KindOfType(otd.S, fld.T) == store.KParam {
+											let mut base = xt
+											for {
+												let bk = store.KindOfType(xTyped.S, base)
+												if bk == store.KPointer || bk == store.KOwn {
+													let ops = store.OperandsOf(xTyped.S, base)
+													if ops.Len() > 0 {
+														base = ops[0]
+														continue
+													}
+												}
+												break
+											}
+											if store.KindOfType(xTyped.S, base) == store.KInstance {
+												let args = store.OperandsOf(xTyped.S, base)
+												let pIdx = store.ArgOf(otd.S, fld.T)
+												if pIdx >= 0 && pIdx < args.Len() {
+													return (xTyped, xuPath, dense.OptOf(args[pIdx]))
+												}
+											}
+										}
+										return (otd, unitPkgPath((*sc).inp.Units[ouIdx]), dense.OptOf(fld.T))
+									}
+								}
+								break
+							}
+						}
+					case option.None:
+					}
+				case option.None:
+				}
+			}
+		case option.None:
+		}
+	}
+	(typed, uPath, dense.NoID[store.TKey]())
+}
+
+func goArgsHaveFuncValue(
+	sc mut silentCtx,
+	g ProgramGraph,
+	uIdx int,
+	fIdx int,
+	typed load.Typed,
+	t syntax.Tree,
+	ce syntax.CallExpr,
+) bool {
+	for ai in 0..syntax.Len(ce.Args) {
+		let arg = syntax.Item(t, ce.Args, ai)
+		if syntax.KindOf(t, arg) == syntax.KFuncLit {
+			return true
+		}
+		let (atTyped, _, argOpt) = resolveSilentNodeTKey(sc, g, uIdx, fIdx, typed, arg, 0)
+		match dense.Unpack(argOpt) {
+		case option.Some{Value: at}:
+			let ak = store.KindOfType(atTyped.S, at)
+			if ak == store.KSig || ak == store.KOwn || ak == store.KEntry {
+				return true
+			}
+		case option.None:
+		}
+	}
+	false
+}
+
+func catchCallLeavesTrace(
+	sc mut silentCtx,
+	g ProgramGraph,
+	uIdx int,
+	fIdx int,
+	p syntax.Parsed,
+	cNode dense.ID[syntax.Node],
+) bool {
+	ensureSilentUnit(sc, g, uIdx)
+	let u = (*sc).inp.Units[uIdx]
+	let typed = match u.Typed {
+	case option.Some{Value: td}:
+		td
+	case option.None:
+		return false
+	}
+	let pnodeTypes = (*sc).unitTypes[uIdx]
+	let pnodeCalls = (*sc).unitCalls[uIdx]
+	let pnodeCaps = (*sc).unitCaps[uIdx]
+	let aliases = (*sc).unitAliases[uIdx][fIdx]
+	let goAliases = (*sc).unitGoAliases[uIdx][fIdx]
+	let t = p.Tree
+	let ce = syntax.CallExprOf(t, cNode)
+	let fun = unwrapCallFun(t, ce.Fun)
+	let fk = syntax.KindOf(t, fun)
+	if fk == syntax.KIdent {
+		let fname = NodeText(p, fun)
+		if fname == "with" {
+			return true
+		}
+		if fname == "Unreachable" {
+			match bind.ResolutionOf(typed.K.U, typed.K.Ps, bind.PNodeOf(typed.K.Ps, fIdx, fun)) {
+			case bind.Outside:
+				return true
+			case _:
+			}
+		}
+	}
+	let pn = bind.PNodeOf(typed.K.Ps, fIdx, cNode)
+	let pi = dense.Index(pn)
+	if pi >= 0 && pi < pnodeCaps.Len() && dense.Unpack(pnodeCaps[pi]) != option.None {
+		return true
+	}
+	if isSilentConversionCall(*sc, uIdx, fIdx, typed, p, fun) {
+		return false
+	}
+	let cIdx = if pi >= 0 && pi < pnodeCalls.Len() { pnodeCalls[pi] } else { -1 }
+	let mut pkgPath = ""
+	let mut fnName = ""
+	let mut recvType = ""
+	let mut sigOpt option.Option[dense.ID[store.TKey]] = option.None
+	let mut isRecv = false
+	let mut knownRecv = false
+	if cIdx < 0 {
+		if fk == syntax.KFuncLit {
+			return false
+		}
+		if fk == syntax.KIdent {
+			match bind.ResolutionOf(typed.K.U, typed.K.Ps, bind.PNodeOf(typed.K.Ps, fIdx, fun)) {
+			case bind.Declared as dec:
+				let fnIdx = expr.FnAt(typed.K, dec.At)
+				if fnIdx >= 0 && fnIdx < typed.K.Fns.Len() {
+					return unitFnImpureMemo(sc, g, uIdx, fnIdx)
+				}
+				return true
+			case _:
+				return false
+			}
+		}
+		if fk == syntax.KSelectorExpr {
+			let se = syntax.SelectorExprOf(t, fun)
+			let sel = NodeText(p, se.Sel)
+			fnName = sel
+			if syntax.KindOf(t, se.X) == syntax.KIdent {
+				let xname = NodeText(p, se.X)
+				match goAliases.Get(xname) {
+				case option.Some{Value: goPath}:
+					let fpi = dense.Index(bind.PNodeOf(typed.K.Ps, fIdx, fun))
+					if fpi >= 0 && fpi < pnodeTypes.Len() {
+						match dense.Unpack(pnodeTypes[fpi]) {
+						case option.Some{Value: ft}:
+							if store.KindOfType(typed.S, ft) == store.KSig {
+								return isGoEffectPkg(goPath) || !sigHasEmptyUses(typed.S, ft) || sigHasFuncParam(typed.S, ft)
+							}
+						case option.None:
+						}
+					}
+					return isGoEffectPkg(goPath) || goArgsHaveFuncValue(sc, g, uIdx, fIdx, typed, t, ce)
+				case option.None:
+				}
+				match aliases.Get(xname) {
+				case option.Some{Value: path}:
+					pkgPath = path
+					knownRecv = true
+					isRecv = false
+				case option.None:
+				}
+			}
+			if pkgPath == "" {
+				let (xTyped, xuPath, xOpt) = resolveSilentNodeTKey(sc, g, uIdx, fIdx, typed, se.X, 0)
+				match dense.Unpack(xOpt) {
+				case option.Some{Value: xt}:
+					let (ownerPath, ownerType, _) = nominalTypeOwner(xTyped, xuPath, xt)
+					if ownerType != "" && (*sc).opTypes.Get(ownerPath+"\x00"+ownerType) != option.None {
+						return true
+					}
+					let xk = store.KindOfType(xTyped.S, xt)
+					if xk == store.KSlice || xk == store.KMap || xk == store.KBasic {
+						return false
+					}
+					pkgPath = ownerPath
+					recvType = ownerType
+					if pkgPath != "" {
+						knownRecv = true
+						isRecv = true
+					}
+				case option.None:
+				}
+			}
+			if sel == "Len" || sel == "Append" || sel == "Get" || sel == "Put" || sel == "Delete" || sel == "Slice" || sel == "Clone" || sel == "Contains" || sel == "Concat" {
+				return false
+			}
+			if pkgPath == "" {
+				match bind.ResolutionOf(typed.K.U, typed.K.Ps, bind.PNodeOf(typed.K.Ps, fIdx, se.Sel)) {
+				case bind.Imported as im:
+					let imps = store.ImportPaths(typed.S)
+					if im.Ref.Import > uint32(0) && int(im.Ref.Import) <= imps.Len() {
+						pkgPath = imps[int(im.Ref.Import)-1]
+					}
+				case _:
+				}
+			}
+		}
+		if pkgPath == "" || fnName == "" {
+			return false
+		}
+	} else {
+		let callTo = typed.T.Calls[cIdx]
+		sigOpt = option.Some[dense.ID[store.TKey]]{Value: callTo.Callee.Sig}
+		isRecv = callTo.Recv
+		knownRecv = true
+		let localFn = resolveLocalCalledFnIdx(typed, cIdx)
+		if localFn >= 0 {
+			return unitFnImpureMemo(sc, g, uIdx, localFn)
+		}
+		if !callTo.Recv && fk == syntax.KSelectorExpr {
+			let se = syntax.SelectorExprOf(t, fun)
+			fnName = NodeText(p, se.Sel)
+			if syntax.KindOf(t, se.X) == syntax.KIdent {
+				let xname = NodeText(p, se.X)
+				match goAliases.Get(xname) {
+				case option.Some{Value: goPath}:
+					return isGoEffectPkg(goPath) || !sigHasEmptyUses(typed.S, callTo.Callee.Sig) || sigHasFuncParam(typed.S, callTo.Callee.Sig)
+				case option.None:
+				}
+				match aliases.Get(xname) {
+				case option.Some{Value: path}:
+					pkgPath = path
+				case option.None:
+				}
+			}
+		} else if callTo.Recv && fk == syntax.KSelectorExpr {
+			let se = syntax.SelectorExprOf(t, fun)
+			fnName = NodeText(p, se.Sel)
+			let (xTyped, xuPath, xOpt) = resolveSilentNodeTKey(sc, g, uIdx, fIdx, typed, se.X, 0)
+			match dense.Unpack(xOpt) {
+			case option.Some{Value: xt}:
+				let (ownerPath, ownerType, _) = nominalTypeOwner(xTyped, xuPath, xt)
+				if ownerType != "" && (*sc).opTypes.Get(ownerPath+"\x00"+ownerType) != option.None {
+					return true
+				}
+				pkgPath = ownerPath
+				recvType = ownerType
+			case option.None:
+			}
+		}
+	}
+	if pkgPath != "" && fnName != "" {
+		match (*sc).unitByPkg.Get(pkgPath) {
+		case option.Some{Value: tuIdx}:
+			match (*sc).inp.Units[tuIdx].Typed {
+			case option.Some{Value: ttd}:
+				let candIdx = findMatchingUnitFn(ttd, unitPkgPath((*sc).inp.Units[tuIdx]), fnName, sigOpt, isRecv, knownRecv, recvType, tuIdx == uIdx)
+				if candIdx >= 0 {
+					return unitFnImpureMemo(sc, g, tuIdx, candIdx)
+				}
+			case option.None:
+			}
+		case option.None:
+		}
+		if impureStdNoNeedsMap.Get(pkgPath+"."+fnName) != option.None {
+			return true
+		}
+		if isStdPkgPath(pkgPath) {
+			match sigOpt {
+			case option.Some{Value: sig}:
+				if !sigHasEmptyUses(typed.S, sig) {
+					return true
+				}
+			case option.None:
+			}
+			return false
+		}
+		match sigOpt {
+		case option.Some{Value: sig}:
+			if !sigHasEmptyUses(typed.S, sig) || sigHasFuncParam(typed.S, sig) {
+				return true
+			}
+		case option.None:
+		}
+		return false
+	}
+	match sigOpt {
+	case option.Some{Value: sig}:
+		if !sigHasEmptyUses(typed.S, sig) {
+			return true
+		}
+	case option.None:
+	}
+	false
+}
+
+func catchArmLeavesTrace(
+	sc mut silentCtx,
+	g ProgramGraph,
+	uIdx int,
+	fIdx int,
+	typed load.Typed,
+	p syntax.Parsed,
+	arm syntax.CatchArm,
+) bool {
+	let t = p.Tree
+	let mut ownDefs = Map[int, bool]{}
+	let mut stack = slices.WithCapacity[uint32](16)
+	let mut kids = slices.WithCapacity[uint32](8)
+	for si in 0..syntax.Len(arm.Body) {
+		stack = stack.Append(uint32(dense.Index(syntax.Item(t, arm.Body, si))))
+	}
+	for stack.Len() > 0 {
+		let cur = syntax.NodeAt(t, int(stack[stack.Len()-1]))
+		stack = stack[:stack.Len()-1]
+		let k = syntax.KindOf(t, cur)
+		if k == syntax.KVarSpec {
+			let vs = syntax.VarSpecOf(t, cur)
+			for j in 0..syntax.Len(vs.Names) {
+				ownDefs[dense.Index(bind.PNodeOf(typed.K.Ps, fIdx, syntax.Item(t, vs.Names, j)))] = true
+			}
+		} else if k == syntax.KAsPattern {
+			ownDefs[dense.Index(bind.PNodeOf(typed.K.Ps, fIdx, syntax.AsPatternOf(t, cur).Name))] = true
+		} else if k == syntax.KRangeStmt {
+			let rs = syntax.RangeStmtOf(t, cur)
+			match dense.Unpack(rs.Key) {
+			case option.Some{Value: kn}:
+				if syntax.KindOf(t, kn) == syntax.KIdent {
+					ownDefs[dense.Index(bind.PNodeOf(typed.K.Ps, fIdx, kn))] = true
+				}
+			case option.None:
+			}
+			if syntax.KindOf(t, rs.Value) == syntax.KIdent {
+				ownDefs[dense.Index(bind.PNodeOf(typed.K.Ps, fIdx, rs.Value))] = true
+			}
+		}
+		kids = syntax.Children(t, cur, kids[:0])
+		for c in kids {
+			stack = stack.Append(c)
+		}
+	}
+	for si in 0..syntax.Len(arm.Body) {
+		stack = stack.Append(uint32(dense.Index(syntax.Item(t, arm.Body, si))))
+	}
+	for stack.Len() > 0 {
+		let cur = syntax.NodeAt(t, int(stack[stack.Len()-1]))
+		stack = stack[:stack.Len()-1]
+		let k = syntax.KindOf(t, cur)
+		if k == syntax.KFuncLit {
+			continue
+		}
+		if k == syntax.KReturnStmt || k == syntax.KTryExpr || k == syntax.KAssertStmt {
+			return true
+		}
+		if k == syntax.KAssignStmt {
+			let asgn = syntax.AssignStmtOf(t, cur)
+			let lhs = Unparen(t, asgn.Lhs)
+			if syntax.KindOf(t, lhs) == syntax.KTupleExpr {
+				let te = syntax.TupleExprOf(t, lhs)
+				for i in 0..syntax.Len(te.Elts) {
+					match dense.Unpack(assignRootIdent(t, syntax.Item(t, te.Elts, i))) {
+					case option.Some{Value: rid}:
+						match bind.ResolutionOf(typed.K.U, typed.K.Ps, bind.PNodeOf(typed.K.Ps, fIdx, rid)) {
+						case bind.Declared as dec:
+							if ownDefs.Get(dense.Index(dec.At)) == option.None {
+								return true
+							}
+						case _:
+						}
+					case option.None:
+					}
+				}
+			} else {
+				match dense.Unpack(assignRootIdent(t, lhs)) {
+				case option.Some{Value: rid}:
+					match bind.ResolutionOf(typed.K.U, typed.K.Ps, bind.PNodeOf(typed.K.Ps, fIdx, rid)) {
+					case bind.Declared as dec:
+						if ownDefs.Get(dense.Index(dec.At)) == option.None {
+							return true
+						}
+					case _:
+					}
+				case option.None:
+				}
+			}
+		}
+		if k == syntax.KCallExpr {
+			if catchCallLeavesTrace(sc, g, uIdx, fIdx, p, cur) {
+				return true
+			}
+			let ce = syntax.CallExprOf(t, cur)
+			stack = stack.Append(uint32(dense.Index(ce.Fun)))
+			for ai in 0..syntax.Len(ce.Args) {
+				stack = stack.Append(uint32(dense.Index(syntax.Item(t, ce.Args, ai))))
+			}
+			if syntax.KindOf(t, Unparen(t, ce.Fun)) == syntax.KIdent && NodeText(p, Unparen(t, ce.Fun)) == "with" {
+				match dense.Unpack(ce.Trailing) {
+				case option.Some{Value: tr}:
+					stack = stack.Append(uint32(dense.Index(tr)))
+				case option.None:
+				}
+			}
+			continue
+		}
+		kids = syntax.Children(t, cur, kids[:0])
+		for c in kids {
+			stack = stack.Append(c)
+		}
+	}
+	false
+}
+
+func collectSilentOpTypes(inp Input) Map[string, bool] {
+	let mut out = Map[string, bool]{}
+	for u in inp.Units {
+		let up = unitPkgPath(u)
+		let short = stdShortPath(up)
+		match u.Typed {
+		case option.Some{Value: td}:
+			for ifc in td.K.Ifaces {
+				for r in ifc.Roles {
+					if r.Members.Len() > 0 {
+						out[ifc.Path+"\x00"+r.Name] = true
+						let rs = stdShortPath(ifc.Path)
+						if rs != "" {
+							out[rs+"\x00"+r.Name] = true
+						}
+					}
+				}
+			}
+		case option.None:
+		}
+		for f in u.Files {
+			if f.Parsed.Failed {
+				continue
+			}
+			let t = f.Parsed.Tree
+			let fl = syntax.FileOf(t, syntax.Root(t))
+			for i in 0..syntax.Len(fl.Decls) {
+				let d = syntax.Item(t, fl.Decls, i)
+				if syntax.KindOf(t, d) != syntax.KTypeDecl {
+					continue
+				}
+				let td = syntax.TypeDeclOf(t, d)
+				match dense.Unpack(td.Spec) {
+				case option.Some{Value: sp}:
+					if syntax.KindOf(t, sp) == syntax.KInterfaceType {
+						let it = syntax.InterfaceTypeOf(t, sp)
+						let mut hasOp = false
+						for mi in 0..syntax.Len(it.Members) {
+							if syntax.KindOf(t, syntax.Item(t, it.Members, mi)) == syntax.KField {
+								hasOp = true
+								break
+							}
+						}
+						if hasOp {
+							let tn = NodeText(f.Parsed, td.Name)
+							out[up+"\x00"+tn] = true
+							if short != "" {
+								out[short+"\x00"+tn] = true
+							}
+							match dense.Unpack(td.Extern) {
+							case option.Some{Value: extNode}:
+								let es = syntax.ExternSpecOf(t, extNode)
+								if syntax.KindOf(t, es.Target) == syntax.KSelectorExpr {
+									let se = syntax.SelectorExprOf(t, es.Target)
+									out[NodeText(f.Parsed, se.X)+"\x00"+NodeText(f.Parsed, se.Sel)] = true
+								}
+							case option.None:
+							}
+						}
+					}
+				case option.None:
+				}
+			}
+		}
+	}
+	out
+}
+
+// CheckSilentCatch emits silent-catch (L101) findings for catch arms ignoring failures without action.
+func CheckSilentCatch(inp Input, g ProgramGraph, sev uint8, out mut []Finding) {
+	if sev == SeverityOff {
+		return
+	}
+	let nUnits = inp.Units.Len()
+	let mut unitByPkg = Map[string, int]{}
+	for uIdx, u in inp.Units {
+		let up = unitPkgPath(u)
+		if up != "" {
+			unitByPkg[up] = uIdx
+			let short = stdShortPath(up)
+			if short != "" {
+				unitByPkg[short] = uIdx
+			}
+		}
+	}
+	let mut sc = silentCtx{
+		inp:           inp,
+		unitByPkg:     unitByPkg,
+		opTypes:       collectSilentOpTypes(inp),
+		unitBuilt:     slices.Repeat([]bool{false}, nUnits),
+		unitTypes:     slices.Repeat([][]dense.Opt[store.TKey]{[]dense.Opt[store.TKey]{}}, nUnits),
+		unitCalls:     slices.Repeat([][]int{[]int{}}, nUnits),
+		unitCaps:      slices.Repeat([][]dense.Opt[store.TKey]{[]dense.Opt[store.TKey]{}}, nUnits),
+		unitTypeNodes: slices.Repeat([][]bool{[]bool{}}, nUnits),
+		unitAliases:   slices.Repeat([][]Map[string, string]{[]Map[string, string]{}}, nUnits),
+		unitGoAliases: slices.Repeat([][]Map[string, string]{[]Map[string, string]{}}, nUnits),
+		fnPureState:   slices.Repeat([][]uint8{[]uint8{}}, nUnits),
+	}
+	for uIdx, u in inp.Units {
+		if u.Dependency {
+			continue
+		}
+		let typed = match u.Typed {
+		case option.Some{Value: td}:
+			td
+		case option.None:
+			continue
+		}
+		ensureSilentUnit(&sc, g, uIdx)
+		for fIdx, f in u.Files {
+			let fi = g.FileIndexes[uIdx][fIdx]
+			if f.Parsed.Failed {
+				continue
+			}
+			let t = f.Parsed.Tree
+			for cRow in fi.Catches {
+				let cNode = syntax.NodeAt(t, int(cRow))
+				let ce = syntax.CatchExprOf(t, cNode)
+				for ai in 0..syntax.Len(ce.Arms) {
+					let armNode = syntax.Item(t, ce.Arms, ai)
+					if syntax.KindOf(t, armNode) != syntax.KCatchArm {
+						continue
+					}
+					let arm = syntax.CatchArmOf(t, armNode)
+					if catchArmReadsFailure(f.Parsed, fIdx, typed, arm) {
+						continue
+					}
+					if catchArmLeavesTrace(&sc, g, uIdx, fIdx, typed, f.Parsed, arm) {
+						continue
+					}
+					let off = syntax.TokPos(f.Parsed, arm.Case)
+					let endOff = syntax.TokEnd(f.Parsed, arm.Colon)
+					let spanLen = if endOff >= off { endOff - off } else { 1 }
+					*out = (*out).Append(semFinding("silent-catch", sev, f.Rel, fi, off, spanLen, "this arm drops the failure: it does not read it, return, fail, or call anything with an effect", []Related{}))
+				}
+			}
+		}
+	}
+}
+
+// RunSemanticRules executes the checked semantic, boundary, style, and vet rules configured on conf.
+func RunSemanticRules(conf Configuration, inp Input, g ProgramGraph, out mut []Finding) {
+	match RuleIndex("self-assignment") {
+	case option.Some{Value: idx}:
+		CheckSelfAssignment(inp, g, conf.Severities[idx], out)
+	case option.None:
+	}
+	match RuleIndex("wire-key-quote") {
+	case option.Some{Value: idx}:
+		CheckWireKeyQuote(inp, g, conf.Severities[idx], out)
+	case option.None:
+	}
+	match RuleIndex("long-parameter-list") {
+	case option.Some{Value: idx}:
+		let maxP = match conf.Options[idx] {
+		case OptMax as m:
+			int(m.V.Max)
+		case _:
+			5
+		}
+		CheckLongParameterList(inp, g, conf.Severities[idx], maxP, out)
+	case option.None:
+	}
+	match RuleIndex("banned-words") {
+	case option.Some{Value: idx}:
+		let opts = match conf.Options[idx] {
+		case OptWords as w:
+			w.V
+		case _:
+			WordOptions{Words: []string{"shape"}, Verbs: DefaultGenericVerbs(), Glossary: "", Avoid: []AvoidTerm{}}
+		}
+		CheckBannedWords(inp, g, conf.Severities[idx], opts, out)
+	case option.None:
+	}
+	match RuleIndex("deprecated") {
+	case option.Some{Value: idx}:
+		CheckDeprecated(inp, g, conf.Severities[idx], out)
+	case option.None:
+	}
+	match RuleIndex("foreign-where-std") {
+	case option.Some{Value: idx}:
+		CheckForeignWhereStd(inp, g, conf.Severities[idx], out)
+	case option.None:
+	}
+	match RuleIndex("foreign-outside-adapter") {
+	case option.Some{Value: idx}:
+		CheckForeignOutsideAdapter(inp, g, conf.Severities[idx], out)
+	case option.None:
+	}
+	match RuleIndex("console-outside-entry") {
+	case option.Some{Value: idx}:
+		CheckConsoleOutsideEntry(inp, g, conf.Severities[idx], out)
+	case option.None:
+	}
+	match RuleIndex("foreign-error-public") {
+	case option.Some{Value: idx}:
+		CheckForeignErrorPublic(inp, g, conf.Severities[idx], out)
+	case option.None:
+	}
+	match RuleIndex("with-at-entry") {
+	case option.Some{Value: idx}:
+		let opts = match conf.Options[idx] {
+		case OptFunctions as fn:
+			fn.V
+		case _:
+			FunctionOptions{Functions: []string{}}
+		}
+		CheckWithAtEntry(inp, g, conf.Severities[idx], opts, out)
+	case option.None:
+	}
+	match RuleIndex("capability-outside-owner") {
+	case option.Some{Value: idx}:
+		let opts = match conf.Options[idx] {
+		case OptOwners as ow:
+			ow.V
+		case _:
+			OwnerOptions{Owners: Map[string, []string]{}}
+		}
+		CheckCapabilityOutsideOwner(inp, g, conf.Severities[idx], opts, out)
+	case option.None:
+	}
+	match RuleIndex("test-reads-unexported") {
+	case option.Some{Value: idx}:
+		CheckTestReadsUnexported(inp, g, conf.Severities[idx], out)
+	case option.None:
+	}
+	match RuleIndex("unused-declaration") {
+	case option.Some{Value: idx}:
+		CheckUnusedDeclaration(inp, g, conf.Severities[idx], out)
+	case option.None:
+	}
+	match RuleIndex("unused-type-parameter") {
+	case option.Some{Value: idx}:
+		CheckUnusedTypeParameter(inp, g, conf.Severities[idx], out)
+	case option.None:
+	}
+	match RuleIndex("vacuous-test") {
+	case option.Some{Value: idx}:
+		CheckVacuousTest(inp, g, conf.Severities[idx], out)
+	case option.None:
+	}
+	match RuleIndex("silent-catch") {
+	case option.Some{Value: idx}:
+		CheckSilentCatch(inp, g, conf.Severities[idx], out)
+	case option.None:
+	}
+}
+
+test SemanticRulesCatchSelfAssignLongParamForeignStdAndVacuousTest {
+	let src = "import go strings\nfunc F(a int, b int, c int, d int, e int, f int) int {\n\tlet mut x = a\n\tx = x\n\tx\n}\nfunc BadTp[T](n int) int { n }\ntest Empty {\n\tlet v = 1\n\tlet _ = v\n}\n"
+	let p = syntax.Parse(src)
+	assert !p.Failed
+	let inp = Input{
+		Checked:    false,
+		Closed:     false,
+		ModuleDirs: Map[string, string]{},
+		Glossaries: Map[string, string]{},
+		Units:      []UnitInput{UnitInput{
+			Module:     "m", Path: "m/p", Dir: "p", Name: "p",
+			Dependency: false, HasEntry: false,
+			Files:      []FileInput{FileInput{Rel: "p/a.ergo", Src: src, Parsed: p}},
+			BindFiles:  []bind.File{}, Typed: option.None,
+		}},
+	}
+	let g = BuildProgramGraph(inp)
+	let mut out = []Finding{}
+	CheckSelfAssignment(inp, g, SeverityWarning, &out)
+	CheckLongParameterList(inp, g, SeverityWarning, 5, &out)
+	CheckForeignWhereStd(inp, g, SeverityWarning, &out)
+	CheckUnusedTypeParameter(inp, g, SeverityWarning, &out)
+	CheckVacuousTest(inp, g, SeverityWarning, &out)
+	let mut c159 = false
+	let mut c141 = false
+	let mut c103 = false
+	let mut c116 = false
+	let mut c138 = false
+	for fn in out {
+		if fn.Code == "L159" {
+			c159 = true
+		}
+		if fn.Code == "L141" {
+			c141 = true
+		}
+		if fn.Code == "L103" {
+			c103 = true
+		}
+		if fn.Code == "L116" {
+			c116 = true
+		}
+		if fn.Code == "L138" {
+			c138 = true
+		}
+	}
+	assert c159 && c141 && c103 && c116 && c138
+}

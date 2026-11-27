@@ -1,0 +1,865 @@
+import compiler/syntax
+import dense
+import option
+import slices
+import strings
+import utf8
+
+// BannedComment describes a disallowed comment and the edit that removes it.
+type BannedComment {
+	// Group is the zero-based syntax comment group index.
+	Group int,
+	// Pos is the start byte offset of the comment group.
+	Pos int,
+	// End is the exclusive end byte offset of the comment group.
+	End int,
+	// From is the byte offset where removal starts.
+	From int,
+	// To is the exclusive byte offset where removal ends.
+	To int,
+	// Text is the replacement text for [From, To).
+	Text string,
+	// Decl is the handle of the enclosing or following declaration.
+	Decl string,
+	// Position classifies where the group stands: trailing, doc, header, body, or loose.
+	Position string,
+}
+
+// ParsedDirective holds the parsed fields of a suppression comment line.
+type ParsedDirective {
+	// IsDirective reports whether the comment starts with DirectiveWord.
+	IsDirective bool,
+	// Form is 0 for malformed, 1 for plain rule, and 2 for qualified namespace/rule.
+	Form int,
+	// Rule is the parsed rule name or joined tokens on malformed input.
+	Rule string,
+	// Reason is the required explanation after " -- ".
+	Reason string,
+	// Namespace holds the pack namespace when Form is 2.
+	Namespace string,
+	// File is the module-relative path containing the directive.
+	File string,
+	// Offset is the start byte offset of the comment.
+	Offset int,
+	// Length is the byte length of the comment.
+	Length int,
+	// Line is the one-based line number of the comment.
+	Line int,
+	// Column is the one-based column number of the comment.
+	Column int,
+}
+
+// FormMalformed indicates a malformed suppression comment.
+let FormMalformed = 0
+
+// FormPlain indicates a built-in rule suppression.
+let FormPlain = 1
+
+// FormQualified indicates a namespace/rule suppression.
+let FormQualified = 2
+
+let reservedNamespaces = []string{"ergo", "builtin"}
+
+// IsReservedNamespace reports whether ns is reserved for the lint runner.
+func IsReservedNamespace(ns string) bool {
+	for r in reservedNamespaces {
+		if r == ns {
+			return true
+		}
+	}
+	false
+}
+
+// ValidKebabName reports whether name is a valid kebab-case rule or preset identifier.
+func ValidKebabName(name string) bool {
+	if name.Len() == 0 {
+		return false
+	}
+	let c0 = name[0]
+	if (ByteMask(c0)&ByteLower) == 0 || name[name.Len()-1] == '-' {
+		return false
+	}
+	for i in 0..name.Len() {
+		let b = name[i]
+		let m = ByteMask(b)
+		if (m & (ByteLower | ByteDigit)) != 0 {
+			continue
+		}
+		if b == '-' && i > 0 && name[i-1] != '-' {
+			continue
+		}
+		return false
+	}
+	true
+}
+
+func trimLeftBlank(s string) string {
+	let mut i = 0
+	for i < s.Len() && (s[i] == ' ' || s[i] == '\t') {
+		i += 1
+	}
+	s[i:]
+}
+
+// ParseDirective parses a single comment line as an ergo-lint-disable-next-line directive.
+func ParseDirective(text string) ParsedDirective {
+	let empty = ParsedDirective{
+		IsDirective: false,
+		Form:        FormMalformed,
+		Rule:        "",
+		Reason:      "",
+		Namespace:   "",
+		File:        "",
+		Offset:      0,
+		Length:      0,
+		Line:        0,
+		Column:      0,
+	}
+	if !strings.HasPrefix(text, "//") {
+		return empty
+	}
+	let body = trimLeftBlank(text[2:])
+	if !strings.HasPrefix(body, DirectiveWord) {
+		return empty
+	}
+	let rest = body[DirectiveWord.Len():]
+	if rest.Len() > 0 && rest[0] != ' ' && rest[0] != '\t' {
+		return empty
+	}
+	let cutOpt = strings.Cut(rest, " --")
+	let (before, after, found) = match cutOpt {
+	case option.Some{Value: h}:
+		(h.Before, h.After, true)
+	case option.None:
+		("", "", false)
+	}
+	let words = strings.Fields(before)
+	let reason = strings.TrimSpace(after)
+	let badSpace = after.Len() > 0 && after[0] != ' ' && after[0] != '\t'
+	if !found || words.Len() != 1 || reason == "" || badSpace {
+		return ParsedDirective{..empty, IsDirective: true, Form: FormMalformed, Rule: strings.Join(words, " "), Reason: reason}
+	}
+	let rule = words[0]
+	match strings.Cut(rule, "/") {
+	case option.Some{Value: h}:
+		if !ValidKebabName(h.Before) || !ValidKebabName(h.After) {
+			return ParsedDirective{..empty, IsDirective: true, Form: FormMalformed, Rule: rule, Reason: reason}
+		}
+		ParsedDirective{..empty, IsDirective: true, Form: FormQualified, Rule: rule, Reason: reason, Namespace: h.Before}
+	case option.None:
+		if !ValidKebabName(rule) {
+			return ParsedDirective{..empty, IsDirective: true, Form: FormMalformed, Rule: rule, Reason: reason}
+		}
+		ParsedDirective{..empty, IsDirective: true, Form: FormPlain, Rule: rule, Reason: reason}
+	}
+}
+
+// DirectivesOf collects all suppression directives present in a parsed file's comments.
+func DirectivesOf(p syntax.Parsed, fi FileIndex, rel string) []ParsedDirective {
+	let cmts = syntax.CommentsOf(p)
+	let n = syntax.NumComments(cmts)
+	let src = syntax.SourceOf(p)
+	let mut out = []ParsedDirective{}
+	for i in 0..n {
+		let c = syntax.CommentAt(cmts, i)
+		let cs = syntax.CommentStart(cmts, c)
+		let ce = syntax.CommentEnd(cmts, c)
+		let d = ParseDirective(src[cs:ce])
+		if !d.IsDirective {
+			continue
+		}
+		let pos = syntax.PositionOf(fi.Lines, cs)
+		out = out.Append(ParsedDirective{
+			..d,
+			File:   rel,
+			Offset: cs,
+			Length: ce - cs,
+			Line:   pos.Line,
+			Column: pos.Column,
+		})
+	}
+	out
+}
+
+func isExportedIdent(name string) bool {
+	if name.Len() == 0 {
+		return false
+	}
+	if name[0] < 0x80 {
+		return (ByteMask(name[0]) & ByteUpper) != 0
+	}
+	utf8.IsUpper(utf8.DecodeRuneInString(name).Rune)
+}
+
+func markKept(kept mut []bool, g int) {
+	if g >= 0 && g < (*kept).Len() {
+		(*kept)[g] = true
+	}
+}
+
+func keepTypeMembers(p syntax.Parsed, spec dense.Opt[syntax.Node], kept mut []bool) {
+	let t = p.Tree
+	let sid = match dense.Unpack(spec) {
+	case option.Some{Value: s}:
+		s
+	case option.None:
+		return
+	}
+	let sk = syntax.KindOf(t, sid)
+	if sk == syntax.KStructType {
+		let fl = syntax.FieldListOf(t, syntax.StructTypeOf(t, sid).Fields)
+		for i in 0..syntax.Len(fl.List) {
+			let fd = syntax.FieldOf(t, syntax.Item(t, fl.List, i))
+			let pub = syntax.Len(fd.Names) == 0 || isExportedIdent(NodeText(p, syntax.Item(t, fd.Names, 0)))
+			if pub {
+				markKept(kept, fd.Doc)
+			}
+		}
+	} else if sk == syntax.KInterfaceType {
+		let it = syntax.InterfaceTypeOf(t, sid)
+		for i in 0..syntax.Len(it.Members) {
+			let mid = syntax.Item(t, it.Members, i)
+			let mk = syntax.KindOf(t, mid)
+			if mk == syntax.KField {
+				let fd = syntax.FieldOf(t, mid)
+				let pub = syntax.Len(fd.Names) == 0 || isExportedIdent(NodeText(p, syntax.Item(t, fd.Names, 0)))
+				if pub {
+					markKept(kept, fd.Doc)
+				}
+			} else if mk == syntax.KLawDecl {
+				let ld = syntax.LawDeclOf(t, mid)
+				if isExportedIdent(NodeText(p, ld.Name)) {
+					markKept(kept, ld.Doc)
+				}
+			}
+		}
+	} else if sk == syntax.KMachineType {
+		let mt = syntax.MachineTypeOf(t, sid)
+		for i in 0..syntax.Len(mt.Members) {
+			let mid = syntax.Item(t, mt.Members, i)
+			if syntax.KindOf(t, mid) == syntax.KLawDecl {
+				let ld = syntax.LawDeclOf(t, mid)
+				if isExportedIdent(NodeText(p, ld.Name)) {
+					markKept(kept, ld.Doc)
+				}
+			}
+		}
+	}
+}
+
+// KeptDocGroups marks comment group indices that serve as doc comments on public declarations.
+func KeptDocGroups(p syntax.Parsed) []bool {
+	let ng = syntax.NumGroups(p)
+	let mut kept = slices.Repeat([]bool{false}, ng)
+	if p.Failed || syntax.NumNodes(p.Tree) == 0 {
+		return kept
+	}
+	let t = p.Tree
+	let f = syntax.FileOf(t, syntax.Root(t))
+	for i in 0..syntax.Len(f.Decls) {
+		let did = syntax.Item(t, f.Decls, i)
+		let dk = syntax.KindOf(t, did)
+		if dk == syntax.KTypeDecl {
+			let td = syntax.TypeDeclOf(t, did)
+			let pub = isExportedIdent(NodeText(p, td.Name))
+			if pub {
+				markKept(&kept, td.Doc)
+				keepTypeMembers(p, td.Spec, &kept)
+			}
+		} else if dk == syntax.KFuncDecl {
+			let fd = syntax.FuncDeclOf(t, did)
+			if isExportedIdent(NodeText(p, fd.Name)) {
+				markKept(&kept, fd.Doc)
+			}
+		} else if dk == syntax.KContextDecl {
+			let cd = syntax.ContextDeclOf(t, did)
+			if isExportedIdent(NodeText(p, cd.Name)) {
+				markKept(&kept, cd.Doc)
+			}
+		} else if dk == syntax.KLawDecl {
+			let ld = syntax.LawDeclOf(t, did)
+			if isExportedIdent(NodeText(p, ld.Name)) {
+				markKept(&kept, ld.Doc)
+			}
+		} else if dk == syntax.KVarDecl {
+			let vd = syntax.VarDeclOf(t, did)
+			let vs = syntax.VarSpecOf(t, vd.Spec)
+			let mut pub = false
+			for j in 0..syntax.Len(vs.Names) {
+				if isExportedIdent(NodeText(p, syntax.Item(t, vs.Names, j))) {
+					pub = true
+					break
+				}
+			}
+			if pub {
+				markKept(&kept, vd.Doc)
+			}
+		}
+	}
+	kept
+}
+
+func isAloneOnLine(src string, pos int) bool {
+	let (start, _) = LineBounds(src, pos)
+	for i in start..pos {
+		if src[i] != ' ' && src[i] != '\t' {
+			return false
+		}
+	}
+	true
+}
+
+func isLineCommentText(txt string) bool {
+	txt.Len() >= 2 && txt[0] == '/' && txt[1] == '/'
+}
+
+func isBlankSlice(s string) bool {
+	strings.TrimSpace(s) == ""
+}
+
+func opensDelimLine(line string) bool {
+	let t = strings.TrimRight(line, " \t\r")
+	strings.HasSuffix(t, "{") || strings.HasSuffix(t, "(") || strings.HasSuffix(t, "[")
+}
+
+func closesDelimLine(line string) bool {
+	let t = strings.TrimLeft(line, " \t")
+	strings.HasPrefix(t, "}") || strings.HasPrefix(t, ")") || strings.HasPrefix(t, "]")
+}
+
+func computeRemoval(src string, from0 int, to0 int) (int, int, string) {
+	let mut from = from0
+	let mut to = to0
+	let (start, end0) = LineBounds(src, from)
+	let (_, end) = LineBounds(src, to)
+	let codeBefore = strings.TrimLeft(src[start:from], " \t") != ""
+	let codeAfter = strings.TrimRight(src[to:end], " \t\r") != ""
+	if codeBefore && codeAfter {
+		if strings.Contains(src[from:to], "\n") {
+			return (from, to, "\n")
+		}
+		if to < src.Len() && src[to] == ' ' {
+			return (from, to + 1, "")
+		}
+		if from > 0 && src[from-1] == ' ' {
+			return (from - 1, to, "")
+		}
+		return (from, to, "")
+	}
+	if codeBefore {
+		for from > start && (src[from-1] == ' ' || src[from-1] == '\t') {
+			from -= 1
+		}
+		return (from, end, "")
+	}
+	if codeAfter {
+		for to < end && (src[to] == ' ' || src[to] == '\t') {
+			to += 1
+		}
+		return (from, to, "")
+	}
+	let mut lineEnd = end
+	if lineEnd < src.Len() {
+		lineEnd += 1
+	}
+	let hasPrev = start > 0
+	let mut prevS = 0
+	let mut prevE = 0
+	if hasPrev {
+		let (ps, pe) = LineBounds(src, start-1)
+		prevS = ps
+		prevE = pe
+	}
+	let hasNext = lineEnd < src.Len()
+	let mut nextS = 0
+	let mut nextE = 0
+	if hasNext {
+		let (ns, ne) = LineBounds(src, lineEnd)
+		nextS = ns
+		nextE = ne
+	}
+	let prevBlank = !hasPrev || isBlankSlice(src[prevS:prevE])
+	let nextBlank = !hasNext || isBlankSlice(src[nextS:nextE])
+	let mut outStart = start
+	let mut outEnd = lineEnd
+	if !hasPrev && hasNext && nextBlank {
+		outEnd = nextE + if nextE < src.Len() { 1 } else { 0 }
+	} else if !hasNext && hasPrev && prevBlank {
+		outStart = prevS
+	} else if hasPrev && hasNext && prevBlank && nextBlank {
+		outEnd = nextE + if nextE < src.Len() { 1 } else { 0 }
+	} else if hasPrev && hasNext && nextBlank && opensDelimLine(src[prevS:prevE]) {
+		outEnd = nextE + if nextE < src.Len() { 1 } else { 0 }
+	} else if hasPrev && hasNext && prevBlank && closesDelimLine(src[nextS:nextE]) {
+		outStart = prevS
+	}
+	let _ = end0
+	(outStart, outEnd, "")
+}
+
+func declHandleOf(p syntax.Parsed, id dense.ID[syntax.Node]) string {
+	let t = p.Tree
+	let k = syntax.KindOf(t, id)
+	if k == syntax.KTypeDecl {
+		return NodeText(p, syntax.TypeDeclOf(t, id).Name)
+	}
+	if k == syntax.KFuncDecl {
+		return NodeText(p, syntax.FuncDeclOf(t, id).Name)
+	}
+	if k == syntax.KContextDecl {
+		return NodeText(p, syntax.ContextDeclOf(t, id).Name)
+	}
+	if k == syntax.KLawDecl {
+		return NodeText(p, syntax.LawDeclOf(t, id).Name) + "#law"
+	}
+	if k == syntax.KTestDecl {
+		return NodeText(p, syntax.TestDeclOf(t, id).Name) + "#test"
+	}
+	if k == syntax.KVarDecl {
+		let vs = syntax.VarSpecOf(t, syntax.VarDeclOf(t, id).Spec)
+		if syntax.Len(vs.Names) > 0 {
+			return NodeText(p, syntax.Item(t, vs.Names, 0))
+		}
+	}
+	""
+}
+
+func enclosingDeclHandle(p syntax.Parsed, fi FileIndex, pos int) string {
+	for dr in fi.Decls {
+		let id = syntax.NodeAt(p.Tree, int(dr.Node))
+		if pos < syntax.NodePos(p, id) || pos < syntax.NodeEnd(p, id) {
+			return declHandleOf(p, id)
+		}
+	}
+	""
+}
+
+func commentPosition(p syntax.Parsed, fi FileIndex, g int, pos int, end int) string {
+	if !isAloneOnLine(syntax.SourceOf(p), pos) {
+		return "trailing"
+	}
+	if g >= 0 && g < fi.DocGroups.Len() && fi.DocGroups[g] {
+		return "doc"
+	}
+	if fi.Decls.Len() == 0 || end <= fi.FirstDeclPos {
+		return "header"
+	}
+	if InBody(fi, uint32(pos)) {
+		return "body"
+	}
+	"loose"
+}
+
+// CheckNoComments reports all comments in p that are not doc comments of public declarations.
+func CheckNoComments(p syntax.Parsed, fi FileIndex, rel string, out mut []Finding) {
+	let ng = syntax.NumGroups(p)
+	if ng == 0 {
+		return
+	}
+	let kept = KeptDocGroups(p)
+	let src = syntax.SourceOf(p)
+	for g in 0..ng {
+		if kept[g] {
+			continue
+		}
+		let gpos = syntax.GroupPos(p, g)
+		let gend = syntax.GroupEnd(p, g)
+		let (from, to, text) = computeRemoval(src, gpos, gend)
+		let pos = syntax.PositionOf(fi.Lines, gpos)
+		*out = (*out).Append(Finding{
+			..EmptyFinding(),
+			File:    rel,
+			Offset:  gpos,
+			Length:  gend - gpos,
+			Line:    pos.Line,
+			Column:  pos.Column,
+			Message: "this comment is not the doc comment of a public declaration",
+			HasFix:  true,
+			Fix:     Fix{Rule: "no-comments", InsertAt: from, Replace: to - from, Text: text},
+		})
+	}
+}
+
+// BannedCommentList returns detailed BannedComment records for a parsed file.
+func BannedCommentList(p syntax.Parsed, fi FileIndex) []BannedComment {
+	let ng = syntax.NumGroups(p)
+	let mut out = []BannedComment{}
+	if ng == 0 {
+		return out
+	}
+	let kept = KeptDocGroups(p)
+	let src = syntax.SourceOf(p)
+	for g in 0..ng {
+		if kept[g] {
+			continue
+		}
+		let gpos = syntax.GroupPos(p, g)
+		let gend = syntax.GroupEnd(p, g)
+		let (from, to, text) = computeRemoval(src, gpos, gend)
+		out = out.Append(BannedComment{
+			Group:    g,
+			Pos:      gpos,
+			End:      gend,
+			From:     from,
+			To:       to,
+			Text:     text,
+			Decl:     enclosingDeclHandle(p, fi, gpos),
+			Position: commentPosition(p, fi, g, gpos, gend),
+		})
+	}
+	out
+}
+
+func lineContentKind(src string, start int, end int) int {
+	for i in start..end {
+		let c = src[i]
+		if c == ' ' || c == '\t' || c == '\r' {
+			continue
+		}
+		if c == '/' && i+1 < end && (src[i+1] == '/' || src[i+1] == '*') {
+			return 1
+		}
+		return 2
+	}
+	0
+}
+
+func textWordsOut(dst mut []string, s string) {
+	let mut start = -1
+	let mut prevLower = false
+	let mut i = 0
+	for i < s.Len() {
+		let d = utf8.DecodeRuneInString(s[i:])
+		let r = d.Rune
+		let step = if d.Size > 0 { d.Size } else { 1 }
+		if !utf8.IsLetter(r) {
+			if start >= 0 && i-start >= 3 {
+				*dst = (*dst).Append(strings.ToLower(s[start:i]))
+			}
+			start = -1
+			prevLower = false
+			i += step
+			continue
+		}
+		if start >= 0 && utf8.IsUpper(r) && prevLower {
+			if i-start >= 3 {
+				*dst = (*dst).Append(strings.ToLower(s[start:i]))
+			}
+			start = -1
+		}
+		if start < 0 {
+			start = i
+		}
+		prevLower = isLowerRune(r)
+		i += step
+	}
+	if start >= 0 && s.Len()-start >= 3 {
+		*dst = (*dst).Append(strings.ToLower(s[start:]))
+	}
+}
+
+func codeLineWords(src string, start int, end int) []string {
+	let mut out = []string{}
+	let mut from = start
+	let mut i = start
+	for i < end {
+		let b = src[i]
+		if b == '"' || b == '\'' || b == '`' {
+			textWordsOut(&out, src[from:i])
+			i += 1
+			for i < end && src[i] != b {
+				if src[i] == '\\' && b != '`' {
+					i += 1
+				}
+				i += 1
+			}
+			i += 1
+			from = i
+		} else if b == '/' && i+1 < end && src[i+1] == '/' {
+			textWordsOut(&out, src[from:i])
+			return out
+		} else {
+			let d = utf8.DecodeRuneInString(src[i:])
+			i += if d.Size > 0 { d.Size } else { 1 }
+		}
+	}
+	if from < end {
+		textWordsOut(&out, src[from:end])
+	}
+	out
+}
+
+func sharedWordCount(comment []string, code []string) int {
+	let mut n = 0
+	for w in comment {
+		for c in code {
+			if w == c {
+				n += 1
+				break
+			}
+		}
+	}
+	n
+}
+
+// CheckNarrationComment reports single-line comments inside bodies that repeat the line below.
+func CheckNarrationComment(p syntax.Parsed, fi FileIndex, rel string, out mut []Finding) {
+	let cmts = syntax.CommentsOf(p)
+	let nc = syntax.NumComments(cmts)
+	if nc == 0 {
+		return
+	}
+	let src = syntax.SourceOf(p)
+	let mut words = []string{}
+	for i in 0..nc {
+		let c = syntax.CommentAt(cmts, i)
+		let cs = syntax.CommentStart(cmts, c)
+		let ce = syntax.CommentEnd(cmts, c)
+		let txt = src[cs:ce]
+		if !isLineCommentText(txt) || !isAloneOnLine(src, cs) || !InBody(fi, uint32(cs)) {
+			continue
+		}
+		let (start, end) = LineBounds(src, cs)
+		if start > 0 {
+			let (prevS, _) = LineBounds(src, start-1)
+			if lineContentKind(src, prevS, start-1) == 1 {
+				continue
+			}
+		}
+		if end >= src.Len() {
+			continue
+		}
+		let (nextS, nextE) = LineBounds(src, end+1)
+		if lineContentKind(src, nextS, nextE) != 2 {
+			continue
+		}
+		words = words[:0]
+		textWordsOut(&words, txt)
+		let shared = sharedWordCount(words, codeLineWords(src, nextS, nextE))
+		if shared >= 2 && 2*shared >= words.Len() {
+			let pos = syntax.PositionOf(fi.Lines, cs)
+			*out = (*out).Append(Finding{
+				..EmptyFinding(),
+				File:    rel,
+				Offset:  cs,
+				Length:  ce - cs,
+				Line:    pos.Line,
+				Column:  pos.Column,
+				Message: "this comment repeats the words of the line under it",
+			})
+		}
+	}
+}
+
+let allErgoKeywords = Map[string, bool]{
+	"break":  true, "case": true, "continue": true, "else": true, "for": true, "func": true,
+	"if":     true, "import": true, "return": true, "type": true, "try": true, "catch": true,
+	"needs":  true, "provides": true, "context": true, "machine": true, "let": true, "mut": true,
+	"in":     true, "match": true, "escaping": true, "fails": true, "test": true, "law": true,
+	"assert": true, "extern": true, "with": true, "takes": true, "as": true,
+	"chan":   true, "const": true, "default": true, "defer": true, "fallthrough": true,
+	"go":     true, "goto": true, "interface": true, "map": true, "package": true,
+	"range":  true, "select": true, "struct": true, "switch": true, "var": true,
+}
+
+func isKeywordOrReserved(w string) bool {
+	match allErgoKeywords.Get(w) {
+	case option.Some{Value: v}:
+		v
+	case option.None:
+		false
+	}
+}
+
+func identLeadByte(c byte) bool {
+	(ByteMask(c) & (ByteLower | ByteUpper | ByteUnderscore)) != 0
+}
+
+func identContByte(c byte) bool {
+	(ByteMask(c) & (ByteLower | ByteUpper | ByteDigit | ByteUnderscore)) != 0
+}
+
+func looksLikeProse(text string) bool {
+	let mut i = 0
+	for i < text.Len() && (ByteMask(text[i])&ByteBlank) != 0 {
+		i += 1
+	}
+	if i >= text.Len() {
+		return true
+	}
+	if !identLeadByte(text[i]) {
+		return false
+	}
+	let w1Start = i
+	i += 1
+	for i < text.Len() && identContByte(text[i]) {
+		i += 1
+	}
+	let w1 = text[w1Start:i]
+	let spStart = i
+	for i < text.Len() && (text[i] == ' ' || text[i] == '\t') {
+		i += 1
+	}
+	if i == spStart || i >= text.Len() || !identLeadByte(text[i]) {
+		return false
+	}
+	let w2Start = i
+	i += 1
+	for i < text.Len() && identContByte(text[i]) {
+		i += 1
+	}
+	let w2 = text[w2Start:i]
+	if isKeywordOrReserved(w1) || isKeywordOrReserved(w2) {
+		return false
+	}
+	if w1 == "always" || w1 == "sometimes" || w1 == "die" || w1 == "skip" || w1 == "entry" || w1 == "pure" || w1 == "never" || w1 == "reaches" || w1 == "path" || w1 == "when" || w1 == "own" || w1 == "replace" || w1 == "defects" || w1 == "initial" || w1 == "step" || w1 == "after" || w1 == "work" || w1 == "exit" {
+		return false
+	}
+	if w2 == "implements" || w2 == "where" || w2 == "derive" || w2 == "when" || w2 == "reaches" || w2 == "defects" {
+		return false
+	}
+	true
+}
+
+func startsWithDeclLead(text string) bool {
+	let mut i = 0
+	for i < text.Len() && (ByteMask(text[i])&ByteBlank) != 0 {
+		i += 1
+	}
+	if i >= text.Len() {
+		return false
+	}
+	if text[i] == '/' && i+1 < text.Len() && (text[i+1] == '/' || text[i+1] == '*') {
+		return true
+	}
+	let mut end = i
+	for end < text.Len() && (ByteMask(text[end])&ByteLower) != 0 {
+		end += 1
+	}
+	if end == i {
+		return false
+	}
+	if end < text.Len() && (ByteMask(text[end])&(ByteUpper|ByteDigit|ByteUnderscore)) != 0 {
+		return false
+	}
+	let w = text[i:end]
+	w == "import" || w == "let" || w == "type" || w == "func" || w == "context" || w == "test" || w == "law" || w == "extern" || w == "entry"
+}
+
+func isLoneOperandStmt(t syntax.Tree, stmtID dense.ID[syntax.Node]) bool {
+	if syntax.KindOf(t, stmtID) != syntax.KExprStmt {
+		return false
+	}
+	let mut cur = syntax.ExprStmtOf(t, stmtID).X
+	for {
+		let k = syntax.KindOf(t, cur)
+		if k == syntax.KIdent || k == syntax.KBasicLit {
+			return true
+		}
+		if k == syntax.KSelectorExpr {
+			cur = syntax.SelectorExprOf(t, cur).X
+			continue
+		}
+		return false
+	}
+}
+
+func parsesAsCode(text string) bool {
+	if looksLikeProse(text) {
+		return false
+	}
+	let fp = syntax.Parse("func commented() {\n" + text + "\n}\n")
+	if !fp.Failed && syntax.NumNodes(fp.Tree) > 0 {
+		let root = syntax.FileOf(fp.Tree, syntax.Root(fp.Tree))
+		if syntax.Len(root.Decls) == 1 {
+			let d = syntax.Item(fp.Tree, root.Decls, 0)
+			if syntax.KindOf(fp.Tree, d) == syntax.KFuncDecl {
+				match dense.Unpack(syntax.FuncDeclOf(fp.Tree, d).Body) {
+				case option.Some{Value: b}:
+					let bl = syntax.BlockStmtOf(fp.Tree, b)
+					for i in 0..syntax.Len(bl.List) {
+						if !isLoneOperandStmt(fp.Tree, syntax.Item(fp.Tree, bl.List, i)) {
+							return true
+						}
+					}
+				case option.None:
+				}
+			}
+		}
+	}
+	if !startsWithDeclLead(text) {
+		return false
+	}
+	let dp = syntax.Parse(text + "\n")
+	!dp.Failed && syntax.NumNodes(dp.Tree) > 0 && syntax.Len(syntax.FileOf(dp.Tree, syntax.Root(dp.Tree)).Decls) > 0
+}
+
+func groupBody(p syntax.Parsed, firstCmt int, count int) string {
+	let cmts = syntax.CommentsOf(p)
+	let src = syntax.SourceOf(p)
+	let mut b = strings.NewBuilder()
+	for j in 0..count {
+		if j > 0 {
+			b.WriteByte('\n')
+		}
+		let c = syntax.CommentAt(cmts, firstCmt+j)
+		let raw = src[syntax.CommentStart(cmts, c):syntax.CommentEnd(cmts, c)]
+		let mut txt = if raw.Len() >= 2 { raw[2:] } else { "" }
+		if !isLineCommentText(raw) && txt.Len() >= 2 {
+			txt = txt[:txt.Len()-2]
+		}
+		if txt.Len() > 0 && txt[0] == ' ' {
+			txt = txt[1:]
+		}
+		b.WriteString(txt)
+	}
+	b.String()
+}
+
+// CheckCommentedCode reports non-doc comment groups whose stripped body parses as Ergo code.
+func CheckCommentedCode(p syntax.Parsed, fi FileIndex, rel string, out mut []Finding) {
+	let ng = syntax.NumGroups(p)
+	if ng == 0 {
+		return
+	}
+	let mut cIdx = 0
+	for g in 0..ng {
+		let glen = syntax.GroupLen(p, g)
+		let isDoc = g < fi.DocGroups.Len() && fi.DocGroups[g]
+		if !isDoc && parsesAsCode(groupBody(p, cIdx, glen)) {
+			let gpos = syntax.GroupPos(p, g)
+			let gend = syntax.GroupEnd(p, g)
+			let pos = syntax.PositionOf(fi.Lines, gpos)
+			*out = (*out).Append(Finding{
+				..EmptyFinding(),
+				File:    rel,
+				Offset:  gpos,
+				Length:  gend - gpos,
+				Line:    pos.Line,
+				Column:  pos.Column,
+				Message: "this comment parses as code",
+			})
+		}
+		cIdx += glen
+	}
+}
+
+test CommentsAndDirectives {
+	let d1 = ParseDirective("// ergo-lint-disable-next-line no-comments -- keep note")
+	assert d1.IsDirective && d1.Form == FormPlain && d1.Rule == "no-comments" && d1.Reason == "keep note"
+	let d2 = ParseDirective("// ergo-lint-disable-next-line pack/rule -- ok")
+	assert d2.IsDirective && d2.Form == FormQualified && d2.Namespace == "pack" && d2.Rule == "pack/rule"
+	let d3 = ParseDirective("// ergo-lint-disable-next-line no-comments")
+	assert d3.IsDirective && d3.Form == FormMalformed
+
+	let src = "// Pub doc\nfunc Pub() int {\n\t// return value of x\n\tlet x = 1\n\t// let y = x + 2\n\tx\n}\n"
+	let p = syntax.Parse(src)
+	assert !p.Failed
+	let fi = BuildFileIndex(p)
+	let mut noC = []Finding{}
+	CheckNoComments(p, fi, "a.ergo", &noC)
+	assert noC.Len() == 2
+	let mut cc = []Finding{}
+	CheckCommentedCode(p, fi, "a.ergo", &cc)
+	assert cc.Len() == 1
+}

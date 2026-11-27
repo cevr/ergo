@@ -1,0 +1,702 @@
+import compiler/check/bind
+import compiler/syntax
+import json
+import option
+import slices
+import strconv
+import strings
+
+func stampFinding(rule string, sev uint8, base Finding) Finding {
+	let (code, instead, prec, hasPrec) = match RuleByName(rule) {
+	case (m, true):
+		(m.Code, m.Instead, m.Precision, m.HasPrecision)
+	case (_, false):
+		("L000", "", 0, false)
+	}
+	Finding{
+		..base,
+		Code:         code,
+		Rule:         rule,
+		Severity:     sev,
+		Instead:      instead,
+		Precision:    prec,
+		HasPrecision: hasPrec,
+	}
+}
+
+func runCommentRules(conf Configuration, p syntax.Parsed, fi FileIndex, rel string, out mut []Finding) {
+	match RuleIndex("no-comments") {
+	case option.Some{Value: idx}:
+		let sev = conf.Severities[idx]
+		if sev != SeverityOff {
+			let mut tmp = []Finding{}
+			CheckNoComments(p, fi, rel, &tmp)
+			for f in tmp {
+				*out = (*out).Append(stampFinding("no-comments", sev, f))
+			}
+		}
+	case option.None:
+	}
+	match RuleIndex("narration-comment") {
+	case option.Some{Value: idx}:
+		let sev = conf.Severities[idx]
+		if sev != SeverityOff {
+			let mut tmp = []Finding{}
+			CheckNarrationComment(p, fi, rel, &tmp)
+			for f in tmp {
+				*out = (*out).Append(stampFinding("narration-comment", sev, f))
+			}
+		}
+	case option.None:
+	}
+	match RuleIndex("commented-code") {
+	case option.Some{Value: idx}:
+		let sev = conf.Severities[idx]
+		if sev != SeverityOff {
+			let mut tmp = []Finding{}
+			CheckCommentedCode(p, fi, rel, &tmp)
+			for f in tmp {
+				*out = (*out).Append(stampFinding("commented-code", sev, f))
+			}
+		}
+	case option.None:
+	}
+}
+
+func runComplexityRules(conf Configuration, p syntax.Parsed, fi FileIndex, rel string, out mut []Finding) {
+	let rules = []string{"cognitive-complexity", "cyclomatic-complexity", "halstead-difficulty"}
+	for rule in rules {
+		match RuleIndex(rule) {
+		case option.Some{Value: idx}:
+			let sev = conf.Severities[idx]
+			if sev != SeverityOff {
+				let maxVal = match conf.Options[idx] {
+				case OptMax as m:
+					m.V.Max
+				case _:
+					defaultCapVal(rule)
+				}
+				let mut tmp = []Finding{}
+				CheckComplexity(p, fi, rel, rule, maxVal, &tmp)
+				for f in tmp {
+					*out = (*out).Append(stampFinding(rule, sev, f))
+				}
+			}
+		case option.None:
+		}
+	}
+}
+
+func runFileCaseRules(conf Configuration, inp Input, f FileInput, fi FileIndex, out mut []Finding) {
+	if conf.FileNameCaseActive {
+		match RuleIndex("file-name-case") {
+		case option.Some{Value: idx}:
+			let sev = conf.Severities[idx]
+			if sev != SeverityOff {
+				let (msg, _, hit) = CheckFileNameCase(inp.Units, f.Rel, conf.FileNameCaseOpts)
+				if hit {
+					let pos = syntax.PositionOf(fi.Lines, fi.FirstDeclPos)
+					*out = (*out).Append(stampFinding("file-name-case", sev, Finding{
+						..EmptyFinding(),
+						File:    f.Rel,
+						Offset:  fi.FirstDeclPos,
+						Length:  0,
+						Line:    pos.Line,
+						Column:  pos.Column,
+						Message: msg,
+					}))
+				}
+			}
+		case option.None:
+		}
+	}
+	match RuleIndex("concept-file-names") {
+	case option.Some{Value: idx}:
+		let sev = conf.Severities[idx]
+		if sev != SeverityOff {
+			let suffixes = match conf.Options[idx] {
+			case OptSuffixes as so:
+				so.V.Suffixes
+			case _:
+				DefaultConceptSuffixes()
+			}
+			let (suf, hit) = KindSuffix(f.Rel, suffixes)
+			if hit {
+				let pos = syntax.PositionOf(fi.Lines, fi.FirstDeclPos)
+				let msg = "filename \(SlashBase(f.Rel)) ends with generic kind suffix \(strconv.Quote(suf))"
+				*out = (*out).Append(stampFinding("concept-file-names", sev, Finding{
+					..EmptyFinding(),
+					File:    f.Rel,
+					Offset:  fi.FirstDeclPos,
+					Length:  0,
+					Line:    pos.Line,
+					Column:  pos.Column,
+					Message: msg,
+				}))
+			}
+		}
+	case option.None:
+	}
+}
+
+func ruleHasRunner(name string) bool {
+		name == "banned-words" ||
+		name == "capability-outside-owner" ||
+		name == "cognitive-complexity" ||
+		name == "commented-code" ||
+		name == "concept-file-names" ||
+		name == "console-outside-entry" ||
+		name == "cyclomatic-complexity" ||
+		name == "declaration-tangle" ||
+		name == "deprecated" ||
+		name == "domain-imports-implementation" ||
+		name == "duplicate-shape" ||
+		name == "duplicate-test" ||
+		name == "file-cycle" ||
+		name == "file-name-case" ||
+		name == "foreign-error-public" ||
+		name == "foreign-outside-adapter" ||
+		name == "foreign-record-field-write" ||
+		name == "foreign-where-std" ||
+		name == "halstead-difficulty" ||
+		name == "hidden-dependency" ||
+		name == "identical-arms" ||
+		name == "layer" ||
+		name == "long-file" ||
+		name == "long-parameter-list" ||
+		name == "narration-comment" ||
+		name == "no-comments" ||
+		name == "production-uses-test-support" ||
+		name == "seam-entrypoints" ||
+		name == "self-assignment" ||
+		name == "sibling-folder-cycle" ||
+		name == "silent-catch" ||
+		name == "test-reads-unexported" ||
+		name == "unbuilt-variant" ||
+		name == "unused-declaration" ||
+		name == "unused-type-parameter" ||
+		name == "vacuous-test" ||
+		name == "wide-directory" ||
+		name == "wide-observed-interface" ||
+		name == "wire-key-quote" ||
+		name == "with-at-entry"
+}
+
+func computeRuleStatuses(conf Configuration, inp Input) []RuleStatus {
+	let mut statuses = ConfigStatuses(conf)
+	for i, st in statuses {
+		if st.Severity == "off" {
+			continue
+		}
+		if !inp.Checked {
+			statuses[i] = RuleStatus{..st, Status: StatusNotEvaluated, Reason: ReasonUnchecked}
+			continue
+		}
+		if ruleHasRunner(st.Rule) {
+			statuses[i] = RuleStatus{..st, Status: StatusCompleted, Reason: ""}
+			continue
+		}
+		statuses[i] = RuleStatus{..st, Status: StatusNotEvaluated, Reason: ReasonFactsUnavailable}
+	}
+	statuses
+}
+
+func suppressionFinding(d ParsedDirective, msg string) Finding {
+	Finding{
+		Code:         CodeSuppression,
+		Rule:         "",
+		Severity:     SeverityError,
+		Message:      msg,
+		Instead:      "",
+		File:         d.File,
+		Offset:       d.Offset,
+		Length:       d.Length,
+		Line:         d.Line,
+		Column:       d.Column,
+		Precision:    0,
+		HasPrecision: false,
+		HasFix:       false,
+		Fix:          EmptyFix(),
+		Related:      []Related{},
+	}
+}
+
+func applySuppressions(
+	statuses []RuleStatus,
+	inp Input,
+	g ProgramGraph,
+	raw []Finding,
+) ([]Finding, []Suppression) {
+	let mut dirs = []ParsedDirective{}
+	for uIdx, u in inp.Units {
+		if u.Dependency {
+			continue
+		}
+		for fIdx, f in u.Files {
+			if f.Parsed.Failed {
+				continue
+			}
+			let fi = g.FileIndexes[uIdx][fIdx]
+			for d in DirectivesOf(f.Parsed, fi, f.Rel) {
+				dirs = dirs.Append(d)
+			}
+		}
+	}
+	if dirs.Len() == 0 {
+		return (raw, []Suppression{})
+	}
+	let mut suppressed = slices.Repeat([]bool{false}, raw.Len())
+	let mut dirMap = Map[string, []int]{}
+	for fiIdx, f in raw {
+		if f.Code == CodeRunner || f.Code == CodeSuppression {
+			continue
+		}
+		let k = "\(f.File)\x00\(f.Line)\x00\(f.Rule)"
+		match dirMap.Get(k) {
+		case option.Some{Value: lst}:
+			dirMap[k] = lst.Append(fiIdx)
+		case option.None:
+			dirMap[k] = []int{fiIdx}
+		}
+	}
+	let mut extra = []Finding{}
+	let mut supOut = []Suppression{}
+	for d in dirs {
+		if d.Form == FormMalformed {
+			extra = extra.Append(suppressionFinding(d, "malformed suppression comment; write // \(DirectiveWord) RULE -- REASON"))
+			continue
+		}
+		if d.Form == FormQualified {
+			if IsReservedNamespace(d.Namespace) {
+				extra = extra.Append(suppressionFinding(d, "cannot suppress reserved namespace \(d.Namespace)"))
+			} else {
+				supOut = supOut.Append(Suppression{
+					Rule:    d.Rule,
+					Status:  SuppressionNotEvaluated,
+					Reason:  ReasonPackNotSelected,
+					File:    d.File,
+					Offset:  d.Offset,
+					Length:  d.Length,
+					Line:    d.Line,
+					Column:  d.Column,
+					Covered: d.Line + 1,
+				})
+			}
+			continue
+		}
+		if IsReservedRuleName(d.Rule) {
+			extra = extra.Append(suppressionFinding(d, "cannot suppress reserved rule \(d.Rule)"))
+			continue
+		}
+		let rIdx = match RuleIndex(d.Rule) {
+		case option.Some{Value: i}:
+			i
+		case option.None:
+			extra = extra.Append(suppressionFinding(d, "unknown lint rule \(d.Rule)"))
+			continue
+		}
+		let rs = statuses[rIdx]
+		if rs.Severity == "off" {
+			supOut = supOut.Append(Suppression{
+				Rule:    d.Rule,
+				Status:  SuppressionNotEvaluated,
+				Reason:  ReasonRuleOff,
+				File:    d.File,
+				Offset:  d.Offset,
+				Length:  d.Length,
+				Line:    d.Line,
+				Column:  d.Column,
+				Covered: d.Line + 1,
+			})
+			continue
+		}
+		if rs.Status != StatusCompleted {
+			supOut = supOut.Append(Suppression{
+				Rule:    d.Rule,
+				Status:  SuppressionNotEvaluated,
+				Reason:  rs.Reason,
+				File:    d.File,
+				Offset:  d.Offset,
+				Length:  d.Length,
+				Line:    d.Line,
+				Column:  d.Column,
+				Covered: d.Line + 1,
+			})
+			continue
+		}
+		let k = "\(d.File)\x00\(d.Line + 1)\x00\(d.Rule)"
+		match dirMap.Get(k) {
+		case option.Some{Value: hits}:
+			for hi in hits {
+				suppressed[hi] = true
+			}
+			supOut = supOut.Append(Suppression{
+				Rule:    d.Rule,
+				Status:  SuppressionApplied,
+				Reason:  "",
+				File:    d.File,
+				Offset:  d.Offset,
+				Length:  d.Length,
+				Line:    d.Line,
+				Column:  d.Column,
+				Covered: d.Line + 1,
+			})
+		case option.None:
+			supOut = supOut.Append(Suppression{
+				Rule:    d.Rule,
+				Status:  SuppressionUnused,
+				Reason:  "",
+				File:    d.File,
+				Offset:  d.Offset,
+				Length:  d.Length,
+				Line:    d.Line,
+				Column:  d.Column,
+				Covered: d.Line + 1,
+			})
+			extra = extra.Append(suppressionFinding(d, "unused suppression for rule \(d.Rule) on line \(d.Line + 1)"))
+		}
+	}
+	let mut finalOut = slices.WithCapacity[Finding](raw.Len() + extra.Len())
+	for i, f in raw {
+		if !suppressed[i] {
+			finalOut = finalOut.Append(f)
+		}
+	}
+	for ef in extra {
+		finalOut = finalOut.Append(ef)
+	}
+	(finalOut, supOut)
+}
+
+// Run executes all configured lint rules over inp and returns canonically sorted Result.
+func Run(conf Configuration, inp Input) Result {
+	let g = BuildProgramGraph(inp)
+	RunWithGraph(conf, inp, g)
+}
+
+// RunWithGraph executes all configured lint rules reusing a prebuilt ProgramGraph.
+func RunWithGraph(conf Configuration, inp Input, g ProgramGraph) Result {
+	let statuses = computeRuleStatuses(conf, inp)
+	let mut raw = []Finding{}
+	if !inp.Checked {
+		let (kept, supps) = applySuppressions(statuses, inp, g, raw)
+		return Result{
+			Checked:      false,
+			Complete:     true,
+			Findings:     SortFindings(kept),
+			Rules:        statuses,
+			Suppressions: supps,
+		}
+	}
+	for uIdx, u in inp.Units {
+		if u.Dependency {
+			continue
+		}
+		for fIdx, f in u.Files {
+			if f.Parsed.Failed {
+				continue
+			}
+			let fi = g.FileIndexes[uIdx][fIdx]
+			runFileCaseRules(conf, inp, f, fi, &raw)
+			runCommentRules(conf, f.Parsed, fi, f.Rel, &raw)
+			runComplexityRules(conf, f.Parsed, fi, f.Rel, &raw)
+		}
+	}
+	RunGraphLayoutRules(conf, inp, g, &raw)
+	match RuleIndex("duplicate-test") {
+	case option.Some{Value: idx}:
+		CheckDuplicateTests(inp, g, conf.Severities[idx], &raw)
+	case option.None:
+	}
+	match RuleIndex("duplicate-shape") {
+	case option.Some{Value: idx}:
+		CheckDuplicateShape(inp, g, conf.Severities[idx], &raw)
+	case option.None:
+	}
+	match RuleIndex("identical-arms") {
+	case option.Some{Value: idx}:
+		CheckIdenticalArms(inp, g, conf.Severities[idx], &raw)
+	case option.None:
+	}
+	match RuleIndex("unbuilt-variant") {
+	case option.Some{Value: idx}:
+		CheckUnbuiltVariant(inp, g, conf.Severities[idx], &raw)
+	case option.None:
+	}
+	RunSemanticRules(conf, inp, g, &raw)
+	let (kept, supps) = applySuppressions(statuses, inp, g, raw)
+	Result{
+		Checked:      inp.Checked,
+		Complete:     true,
+		Findings:     SortFindings(kept),
+		Rules:        statuses,
+		Suppressions: supps,
+	}
+}
+
+// ApplyFixes applies non-overlapping source fixes sorted by byte offset and returns updated source.
+func ApplyFixes(src string, fixes []Fix) string {
+	if fixes.Len() == 0 {
+		return src
+	}
+	let sorted = slices.SortFunc(fixes, func(a Fix, b Fix) int {
+		if a.InsertAt != b.InsertAt {
+			return a.InsertAt - b.InsertAt
+		}
+		a.Replace - b.Replace
+	})
+	let mut parts = []string{}
+	let mut cursor = 0
+	for fx in sorted {
+		if fx.InsertAt < cursor || fx.Replace < 0 || fx.InsertAt+fx.Replace > src.Len() {
+			continue
+		}
+		parts = parts.Append(src[cursor:fx.InsertAt])
+		parts = parts.Append(fx.Text)
+		cursor = fx.InsertAt + fx.Replace
+	}
+	parts = parts.Append(src[cursor:])
+	strings.Join(parts, "")
+}
+
+// ParseChangedLines extracts 1-based added/modified line numbers per normalized path from unified diff text.
+func ParseChangedLines(diffText string) Map[string, Map[int, bool]] {
+	let mut out = Map[string, Map[int, bool]]{}
+	let mut curFile = ""
+	let mut curLine = 0
+	for raw in strings.Split(diffText, "\n") {
+		let line = strings.TrimRight(raw, "\r")
+		if strings.HasPrefix(line, "+++ ") {
+			let mut p = strings.TrimSpace(line[4:])
+			if strings.HasPrefix(p, "b/") {
+				p = p[2:]
+			}
+			curFile = if p == "/dev/null" { "" } else { CleanSlashPath(p) }
+			continue
+		}
+		if strings.HasPrefix(line, "@@ ") {
+			match strings.Cut(line, "+") {
+			case option.Some{Value: c1}:
+				let rest = match strings.Cut(c1.After, " ") {
+				case option.Some{Value: c2}:
+					c2.Before
+				case option.None:
+					c1.After
+				}
+				let numText = match strings.Cut(rest, ",") {
+				case option.Some{Value: c3}:
+					c3.Before
+				case option.None:
+					rest
+				}
+				curLine = strconv.Atoi(numText) catch {
+				case _:
+					0
+				}
+			case option.None:
+			}
+			continue
+		}
+		if curFile == "" || curLine <= 0 {
+			continue
+		}
+		if strings.HasPrefix(line, "+") && !strings.HasPrefix(line, "+++") {
+			let mut m = match out.Get(curFile) {
+			case option.Some{Value: existing}:
+				existing
+			case option.None:
+				Map[int, bool]{}
+			}
+			m[curLine] = true
+			out[curFile] = m
+			curLine += 1
+		} else if !strings.HasPrefix(line, "-") {
+			curLine += 1
+		}
+	}
+	out
+}
+
+test RunnerProducesSortedFindingsAndAppliesSuppressions {
+	let src = "// comment removed\nfunc F() int {\n\tlet mut a = 1\n\t// ergo-lint-disable-next-line self-assignment -- keep\n\ta = a\n\ta = a\n\t// ergo-lint-disable-next-line long-file -- unused\n\ta\n}\n"
+	let p = syntax.Parse(src)
+	assert !p.Failed
+	let cfg = ParseConfig(`{"version":1,"extends":["strict"],"rules":{"no-comments":"error"}}`) catch {
+	case _:
+		assert false
+		return
+	}
+	let conf = Configure(cfg, []string{}, Map[string, string]{}) catch {
+	case _:
+		assert false
+		return
+	}
+	let inp = Input{
+		Checked:    true,
+		Closed:     false,
+		ModuleDirs: Map[string, string]{},
+		Glossaries: Map[string, string]{},
+		Units:      []UnitInput{UnitInput{
+			Module:     "m", Path: "m/p", Dir: "p", Name: "p",
+			Dependency: false, HasEntry: false,
+			Files:      []FileInput{FileInput{Rel: "p/a.ergo", Src: src, Parsed: p}},
+			BindFiles:  []bind.File{}, Typed: option.None,
+		}},
+	}
+	let res = Run(conf, inp)
+	assert res.Complete
+	let mut sawNoComments = false
+	let mut l159Count = 0
+	for f in res.Findings {
+		if f.Code == "L163" {
+			sawNoComments = true
+		}
+		if f.Code == "L159" {
+			l159Count += 1
+		}
+	}
+	assert sawNoComments && l159Count == 1
+	assert ApplyFixes("abc// hi\ndef", []Fix{Fix{Rule: "no-comments", InsertAt: 3, Replace: 5, Text: ""}}) == "abc\ndef"
+	let diff = ParseChangedLines("+++ b/p/a.ergo\n@@ -1,0 +5,2 @@\n+line5\n+line6\n")
+	match diff.Get("p/a.ergo") {
+	case option.Some{Value: lm}:
+		assert lm.Get(5) != option.None && lm.Get(6) != option.None
+	case option.None:
+		assert false
+	}
+	let j = FormatResultJSON(res)
+	assert strings.Contains(j, `"findings"`) && strings.Contains(j, `"complete":true`)
+}
+
+// FormatResultJSON encodes Result as canonical JSON text.
+func FormatResultJSON(r Result) string {
+	let t = json.NewText()
+	t.BeginObject(5)
+	t.Key("checked")
+	t.Bool(r.Checked)
+	t.Key("complete")
+	t.Bool(r.Complete)
+	t.Key("findings")
+	t.BeginList(r.Findings.Len())
+	for f in r.Findings {
+		let mut fc = 12
+		if f.HasPrecision {
+			fc += 1
+		}
+		if f.HasFix {
+			fc += 1
+		}
+		if f.Related.Len() > 0 {
+			fc += 1
+		}
+		t.BeginObject(fc)
+		t.Key("code")
+		t.String(f.Code)
+		t.Key("rule")
+		t.String(f.Rule)
+		t.Key("severity")
+		t.String(SeverityName(f.Severity))
+		t.Key("message")
+		t.String(f.Message)
+		t.Key("instead")
+		t.String(f.Instead)
+		t.Key("file")
+		t.String(f.File)
+		t.Key("offset")
+		t.Int(int64(f.Offset))
+		t.Key("length")
+		t.Int(int64(f.Length))
+		t.Key("line")
+		t.Int(int64(f.Line))
+		t.Key("column")
+		t.Int(int64(f.Column))
+		t.Key("hasPrecision")
+		t.Bool(f.HasPrecision)
+		t.Key("hasFix")
+		t.Bool(f.HasFix)
+		if f.HasPrecision {
+			t.Key("precision")
+			t.Int(int64(f.Precision))
+		}
+		if f.HasFix {
+			t.Key("fix")
+			t.BeginObject(4)
+			t.Key("rule")
+			t.String(f.Fix.Rule)
+			t.Key("insertAt")
+			t.Int(int64(f.Fix.InsertAt))
+			t.Key("replace")
+			t.Int(int64(f.Fix.Replace))
+			t.Key("text")
+			t.String(f.Fix.Text)
+			t.EndObject()
+		}
+		if f.Related.Len() > 0 {
+			t.Key("related")
+			t.BeginList(f.Related.Len())
+			for rel in f.Related {
+				t.BeginObject(6)
+				t.Key("message")
+				t.String(rel.Message)
+				t.Key("file")
+				t.String(rel.File)
+				t.Key("offset")
+				t.Int(int64(rel.Offset))
+				t.Key("length")
+				t.Int(int64(rel.Length))
+				t.Key("line")
+				t.Int(int64(rel.Line))
+				t.Key("column")
+				t.Int(int64(rel.Column))
+				t.EndObject()
+			}
+			t.EndList()
+		}
+		t.EndObject()
+	}
+	t.EndList()
+	t.Key("rules")
+	t.BeginList(r.Rules.Len())
+	for rs in r.Rules {
+		t.BeginObject(5)
+		t.Key("rule")
+		t.String(rs.Rule)
+		t.Key("code")
+		t.String(rs.Code)
+		t.Key("severity")
+		t.String(rs.Severity)
+		t.Key("status")
+		t.String(rs.Status)
+		t.Key("reason")
+		t.String(rs.Reason)
+		t.EndObject()
+	}
+	t.EndList()
+	t.Key("suppressions")
+	t.BeginList(r.Suppressions.Len())
+	for sp in r.Suppressions {
+		t.BeginObject(9)
+		t.Key("rule")
+		t.String(sp.Rule)
+		t.Key("status")
+		t.String(sp.Status)
+		t.Key("reason")
+		t.String(sp.Reason)
+		t.Key("file")
+		t.String(sp.File)
+		t.Key("offset")
+		t.Int(int64(sp.Offset))
+		t.Key("length")
+		t.Int(int64(sp.Length))
+		t.Key("line")
+		t.Int(int64(sp.Line))
+		t.Key("column")
+		t.Int(int64(sp.Column))
+		t.Key("covered")
+		t.Int(int64(sp.Covered))
+		t.EndObject()
+	}
+	t.EndList()
+	t.EndObject()
+	t.Written()
+}
