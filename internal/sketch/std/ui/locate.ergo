@@ -365,7 +365,7 @@ func textOf(sh Shape[int]) string {
 
 // wants is whether the model says loc finds x: a role and a name (any
 // name for an empty one); a label, the name of a node whose primitive
-// takes one; a placeholder, a TextBox's name; a text, a Static's name.
+// takes one; a placeholder, a TextBox's name; a text, a Text's value.
 func wants(loc Locator, x seen) bool {
 	match loc {
 	case WithRole as l:
@@ -388,7 +388,12 @@ func wants(loc Locator, x seen) bool {
 			false
 		}
 	case WithText as l:
-		x.a.Role == Static && x.a.Name == l.Text
+		match x.node {
+		case TextNode as t:
+			t.Value == l.Text
+		case _:
+			false
+		}
 	case WithZone:
 		// The generated programs write no zone.
 		false

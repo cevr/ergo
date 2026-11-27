@@ -1016,15 +1016,30 @@ func main() {
 	use(Mine)
 }
 `,
-	// std ansi (UC2): open; a program may decide colour its own way, as
-	// Always, Never and Detect's provider do.
-	"ansi.Colors": `import ansi
+	// std term: open; a program may decide colour its own way, as Always,
+	// Never and Detect's provider do.
+	"term.Colors": `import term
 
-type Mine {} implements ansi.Colors
+type Mine {} implements term.Colors
 
 func On(_ Mine) bool { true }
 
-func use(_ ansi.Colors) {}
+func use(_ term.Colors) {}
+
+func main() {
+	use(Mine)
+}
+`,
+	"term.Depth": `import color
+import option
+import term
+
+type Mine {} implements term.Depth
+
+func Quantize(_ Mine, _ color.RGBA) term.Color { term.DefaultColor }
+func Expand(_ Mine, _ term.Color) option.Option[color.RGBA] { option.None }
+
+func use(_ term.Depth) {}
 
 func main() {
 	use(Mine)
@@ -1961,7 +1976,8 @@ var openStd = map[string]bool{
 	"io.Source":         true,
 	"bench.Meter":       true,
 	"pace.Pacing":       true,
-	"ansi.Colors":       true,
+	"term.Colors":       true,
+	"term.Depth":        true,
 	"code.Reader":       true,
 	"code.Files":        true,
 	"code.Checker":      true,

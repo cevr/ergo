@@ -93,6 +93,9 @@ func declSpansDiffer(src []byte) string {
 		if fd, ok := d.(*syntax.FuncDecl); ok && fd.Derived != nil {
 			continue
 		}
+		if ld, ok := d.(*syntax.LawDecl); ok && (ld.Derived != nil || ld.Pair != nil) {
+			continue
+		}
 		start := int(d.Pos())
 		if doc := declDoc(d); doc != nil && len(doc.List) > 0 {
 			start = int(doc.List[0].Pos())

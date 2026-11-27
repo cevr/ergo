@@ -1,6 +1,7 @@
 // The canvas app, as hosts/mygo's hostagree has it, and the check that a
 // canvas's last opaque fill colors the cell at its centre.
 
+import color
 import go ergo.local/prototype/hosts/opentui/screen
 import ergo.local/prototype/hosts/opentui/tui
 import machines
@@ -130,7 +131,7 @@ func inked[E comparable, S, D, F](d mut tui.Driver[S, E, D, F], s go.Ref[screen.
 				let cx = b.X + int(p.Value.x/8)
 				let cy = b.Y + int(p.Value.y/cellH)
 				let c = s.Cell(cx, cy)
-				let want = uint32(p.Value.color.R)<<24 | uint32(p.Value.color.G)<<16 | uint32(p.Value.color.B)<<8 | uint32(p.Value.color.A)
+				let want = color.RGBA32(p.Value.color)
 				let got = if c.Text == "█" { c.Fg } else { c.Bg }
 				if got != want || (c.Text != "█" && c.Text != " " && c.Text != "") {
 					return option.Some{Value: "canvas \(x.Label): cell \(cx),\(cy) shows \(c.Text) fg \(c.Fg) bg \(c.Bg), want the color \(want)"}

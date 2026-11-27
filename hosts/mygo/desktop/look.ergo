@@ -5,6 +5,7 @@
 // driver keeps no colour of its own for a node with a Style: the default
 // looks are std's (ui.PressLook).
 
+import color
 import option
 import ui
 import ui/layout
@@ -22,9 +23,7 @@ type LookAt { Label string, State ui.LookState, Look ui.Look }
 type painted { opacity float64, under option.Option[uint32] }
 
 // rgba is a ui Color as 0xRRGGBBAA.
-func rgba(c ui.Color) uint32 {
-	(uint32(c.R) << 24) | (uint32(c.G) << 16) | (uint32(c.B) << 8) | uint32(c.A)
-}
+func rgba(c ui.Color) uint32 { color.RGBA32(c) }
 
 // lookOf is the look the window paints for the node id showing n: the
 // look of its LookId for the state std decides (ui.SessionLookState,

@@ -1019,7 +1019,6 @@ case internal/sketch/check/testdata/v1/L8-C1-lends.neg.ergo
 case internal/sketch/check/testdata/v1/L8-captures.neg.ergo
 case internal/sketch/std
 case internal/sketch/std/actor
-case internal/sketch/std/ansi
 case internal/sketch/std/api
 case internal/sketch/std/archive
 case internal/sketch/std/arena
@@ -1317,7 +1316,6 @@ case unused internal/selfhostcheck/testdata/bind/port_shapes.ergo
 case unused internal/selfhostcheck/testdata/bind/port_union.ergo
 case unused internal/selfhostcheck/testdata/bind/port_unit.ergo
 case unused internal/selfhostcheck/testdata/bind/wired.ergo
-case unused internal/sketch/std/ansi/ansi.ergo
 case unused internal/sketch/std/api/api.ergo
 case unused internal/sketch/std/archive/archive.ergo
 case unused internal/sketch/std/bench/stats.ergo

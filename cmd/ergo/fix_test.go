@@ -135,12 +135,12 @@ func TestFixRespellsAStdThatDoesNotCheck(t *testing.T) {
 	t.Setenv("XDG_CACHE_HOME", t.TempDir())
 	t.Setenv("HOME", t.TempDir())
 	std := t.TempDir()
-	path := filepath.Join(std, "ansi", "ansi.ergo")
+	path := filepath.Join(std, "term", "style.ergo")
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	const src = "// Package ansi is std-shaped.\n\ntype Box { N int }\n\nfunc Bump(b *Box) {\n\tb.N = b.N + 1\n}\n"
-	const want = "// Package ansi is std-shaped.\n\ntype Box { N int }\n\nfunc Bump(b mut Box) {\n\tb.N = b.N + 1\n}\n"
+	const src = "// Package term is std-shaped.\n\ntype Box { N int }\n\nfunc Bump(b *Box) {\n\tb.N = b.N + 1\n}\n"
+	const want = "// Package term is std-shaped.\n\ntype Box { N int }\n\nfunc Bump(b mut Box) {\n\tb.N = b.N + 1\n}\n"
 	if err := os.WriteFile(path, []byte(src), 0o644); err != nil {
 		t.Fatal(err)
 	}

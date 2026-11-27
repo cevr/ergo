@@ -1,7 +1,9 @@
-// Package term is the terminal of standard input (docs/spec/stdlib.md,
-// term): a mode that reads each key as it comes (Raw) or that hides what is
-// typed (NoEcho), one key at a time, and the window's size. It is what a
-// prompt needs; io.Stdin.IsTerminal says whether a program may ask.
+// Package term provides terminal input modes, key decoding, ANSI styles
+// and escapes, capability detection, and colour depth quantization
+// (docs/spec/stdlib.md, term): a mode that reads each key as it comes
+// (Raw) or that hides what is typed (NoEcho), one key at a time, and
+// the window's size, plus Style/SGR/Paint/Strip, cursor and screen
+// controls, and Depth quantization over color.RGBA.
 //
 // A mode is a resource. Raw and NoEcho set it for the length of a block
 // and restore the state before it on every exit of the block: a return, a

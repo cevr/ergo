@@ -1,108 +1,75 @@
-// Package ansi is the escape codes of a terminal (docs/spec/stdlib.md,
-// ansi): styles and colours (the 16 basic colours, the 256 indexed ones
-// and RGB), the cursor's moves and the screen's clears, and Strip, which
-// takes every escape sequence out of a text. A style is painted only
-// where colour is on: Paint needs Colors; its providers are Always,
-// Never and Detect's (NO_COLOR, TERM=dumb, and whether standard output is
-// a terminal), so a program that pipes its output, or a person who set
-// NO_COLOR, gets plain text with no change to the program.
-//
-// The codes are ECMA-48's (SGR, CUU and the rest) as xterm reads them.
-// Prior art: Go has no standard package (fatih/color and lipgloss read
-// NO_COLOR; x/term only sizes); Effect's cli has a colour flag on its
-// output; Bun has Bun.color and Bun.stripANSI; Rust's anstyle and
-// anstream split the style from the stream that decides colour, as
-// Paint and Colors do here. https://no-color.org: a NO_COLOR present
-// and not empty turns colour off.
-
-import io
 import option
-import os
 import strings
 
-// Color is a text's or a background's colour: the terminal's own
-// (DefaultColor), one of the 16 basic colours (Basic 0 to 7, and 8 to 15
-// the bright ones), one of the 256 indexed colours (Indexed), or an RGB
-// colour (each part 0 to 255). A number outside its range is held to it
-// where it is written. Its variants carry no pointer, so a Style is flat.
+// Color is a terminal SGR colour: the terminal's default, a basic 16
+// colour (0 to 7 standard, 8 to 15 bright), a 256-palette index, or
+// 24-bit RGB. Numbers outside range are clamped when written.
 type Color = DefaultColor{} | Basic{N int} | Indexed{N int} | RGB{R int, G int, B int}
 
-// The basic colours by name.
+// Black is basic ANSI colour 0.
 let Black = Basic{N: 0}
+
+// Red is basic ANSI colour 1.
 let Red = Basic{N: 1}
+
+// Green is basic ANSI colour 2.
 let Green = Basic{N: 2}
+
+// Yellow is basic ANSI colour 3.
 let Yellow = Basic{N: 3}
+
+// Blue is basic ANSI colour 4.
 let Blue = Basic{N: 4}
+
+// Magenta is basic ANSI colour 5.
 let Magenta = Basic{N: 5}
+
+// Cyan is basic ANSI colour 6.
 let Cyan = Basic{N: 6}
+
+// White is basic ANSI colour 7.
 let White = Basic{N: 7}
 
-// Style is how a text is painted: its colour, its background, and its
-// attributes.
+// Style is the colours and text attributes painted onto a string.
 type Style { Fg Color, Bg Color, Bold bool, Dim bool, Italic bool, Underline bool, Reverse bool, Strike bool }
 
-// Plain is the style with no colour and no attribute: Paint writes the
-// text alone.
+// Plain is the unstyled default: no colours and no attributes.
 let Plain = Style{Fg: DefaultColor, Bg: DefaultColor, Bold: false, Dim: false, Italic: false, Underline: false, Reverse: false, Strike: false}
 
-// Colors decides whether a style is painted.
+// Colors is the capability that decides whether terminal output carries
+// ANSI styles. A program takes it from its context so piped output or
+// NO_COLOR produces plain text with no change to callers.
 type Colors {
-	// On is whether colour is on.
 	On() bool,
 
-	// OnIsStable: two asks agree.
-	law OnIsStable() { On() == On() },
+	// OnIsStable: two reads of On agree in the same context.
+	law OnIsStable() { Colors.On() == Colors.On() },
 }
 
-// Always is the Colors provider with colour on.
+// Always is the Colors provider that always paints styles.
 type Always {} implements Colors
 
-// On is true.
+// On reports true for Always.
 func On(_ Always) bool { true }
 
-// Never is the Colors provider with colour off.
+// Never is the Colors provider that never paints styles.
 type Never {} implements Colors
 
-// On is false.
+// On reports false for Never.
 func On(_ Never) bool { false }
 
-// Detected is the Colors provider Detect decides once.
-type Detected { on bool } implements Colors
-
-// On is what Detect decided.
-func On(d Detected) bool { d.on }
-
-// Detect is colour as the environment asks: off when NO_COLOR is set and
-// not empty, when TERM is dumb, or when standard output is not a
-// terminal; on otherwise.
-func Detect() Detected needs os.Process | io.Stdout {
-	Decide(os.Process.Getenv("NO_COLOR"), os.Process.Getenv("TERM"), io.Stdout.IsTerminal())
+let onTerminal = context {
+	Colors: Decide(Env{NoColor: option.None, ForceColor: option.None, Term: option.Some[string]{Value: "xterm-256color"}, ColorTerm: option.None, Terminal: true}),
+	Depth:  Decide(Env{NoColor: option.None, ForceColor: option.None, Term: option.Some[string]{Value: "xterm-256color"}, ColorTerm: option.None, Terminal: true}),
 }
 
-// Decide is colour for NO_COLOR's and TERM's values and whether
-// standard output is a terminal, as Detect decides; for a program that
-// reads them itself.
-func Decide(noColor option.Option[string], term option.Option[string], terminal bool) Detected {
-	let off = match noColor {
-	case option.Some[string] as v:
-		v.Value != ""
-	case option.None:
-		false
-	}
-	let dumb = match term {
-	case option.Some[string] as v:
-		v.Value == "dumb"
-	case option.None:
-		false
-	}
-	Detected{on: !off && !dumb && terminal}
+let onDumbTerminal = context {
+	Colors: Decide(Env{NoColor: option.None, ForceColor: option.None, Term: option.Some[string]{Value: "dumb"}, ColorTerm: option.None, Terminal: true}),
+	Depth:  Decide(Env{NoColor: option.None, ForceColor: option.None, Term: option.Some[string]{Value: "dumb"}, ColorTerm: option.None, Terminal: true}),
 }
 
-let onTerminal = context { Colors: Decide(option.None, option.None, true) }
-let onDumbTerminal = context { Colors: Decide(option.None, option.Some[string]{Value: "dumb"}, true) }
-
-// Paint is text in style s when colour is on: s's codes (SGR), text, and
-// the reset. With colour off, or s Plain, it is text.
+// Paint is text wrapped in s's SGR sequence and Reset when Colors is on
+// and s is not Plain, otherwise text.
 func Paint(s Style, text string) string needs Colors {
 	if s == Plain || !Colors.On() {
 		return text
@@ -114,7 +81,7 @@ func Paint(s Style, text string) string needs Colors {
 	b.String()
 }
 
-// WritePaint writes Paint(s, text) to b.
+// WritePaint appends Paint(s, text) to b.
 func WritePaint(b mut strings.Builder, s Style, text string) needs Colors {
 	if s == Plain || !Colors.On() {
 		b.WriteString(text)
@@ -125,9 +92,8 @@ func WritePaint(b mut strings.Builder, s Style, text string) needs Colors {
 	b.WriteString(Reset)
 }
 
-// SGR is s's codes: the one sequence that sets s's colours and
-// attributes; "" for Plain. It is no capability's: a caller that writes
-// it decides colour itself.
+// SGR is s's Select Graphic Rendition escape sequence, or "" for Plain.
+// Callers that emit SGR directly manage colour gating themselves.
 func SGR(s Style) string {
 	if s == Plain {
 		return ""
@@ -137,10 +103,9 @@ func SGR(s Style) string {
 	b.String()
 }
 
-// Reset is the sequence that ends every style.
+// Reset is the SGR sequence that resets all attributes and colours.
 let Reset = "\x1b[0m"
 
-// writeSGR writes s's codes to b: ESC [, the codes split by ';', m.
 func writeSGR(b mut strings.Builder, s Style) {
 	b.WriteString("\x1b[")
 	let mut first = true
@@ -157,7 +122,6 @@ func writeSGR(b mut strings.Builder, s Style) {
 	b.WriteByte('m')
 }
 
-// sep writes ';' unless first; it is false.
 func sep(b mut strings.Builder, first bool) bool {
 	if !first {
 		b.WriteByte(';')
@@ -165,8 +129,6 @@ func sep(b mut strings.Builder, first bool) bool {
 	false
 }
 
-// writeColor writes the codes of c as a foreground (base 30) or a
-// background (base 40), and is whether nothing is written yet.
 func writeColor(b mut strings.Builder, c Color, base int, first bool) bool {
 	match c {
 	case DefaultColor:
@@ -195,10 +157,8 @@ func writeColor(b mut strings.Builder, c Color, base int, first bool) bool {
 	}
 }
 
-// clamp is n held to [0, most].
 func clamp(n int, most int) int { if n < 0 { 0 } else if n > most { most } else { n } }
 
-// writeInt writes n, which is 0 or more, in decimal.
 func writeInt(b mut strings.Builder, n int) {
 	if n >= 10 {
 		writeInt(b, n/10)
@@ -206,14 +166,17 @@ func writeInt(b mut strings.Builder, n int) {
 	b.WriteByte(byte('0' + n%10))
 }
 
-// Up, Down, Forward and Back move the cursor n cells (n under 1 is 1).
-func Up(n int) string { move(n, 'A') }
+// CursorUp moves the cursor up n cells (n under 1 becomes 1).
+func CursorUp(n int) string { move(n, 'A') }
 
-func Down(n int) string { move(n, 'B') }
+// CursorDown moves the cursor down n cells (n under 1 becomes 1).
+func CursorDown(n int) string { move(n, 'B') }
 
-func Forward(n int) string { move(n, 'C') }
+// CursorForward moves the cursor right n cells (n under 1 becomes 1).
+func CursorForward(n int) string { move(n, 'C') }
 
-func Back(n int) string { move(n, 'D') }
+// CursorBack moves the cursor left n cells (n under 1 becomes 1).
+func CursorBack(n int) string { move(n, 'D') }
 
 func move(n int, final byte) string {
 	let mut b = strings.NewBuilder()
@@ -223,8 +186,8 @@ func move(n int, final byte) string {
 	b.String()
 }
 
-// MoveTo moves the cursor to row and col, counted from 1 at the top left
-// (under 1 is 1).
+// MoveTo moves the cursor to row and col, 1-based from the top left
+// (values under 1 become 1).
 func MoveTo(row int, col int) string {
 	let mut b = strings.NewBuilder()
 	b.WriteString("\x1b[")
@@ -235,20 +198,34 @@ func MoveTo(row int, col int) string {
 	b.String()
 }
 
-// The screen's and the cursor's other sequences.
+// ClearScreen erases the entire screen.
 let ClearScreen = "\x1b[2J"
+
+// ClearLine erases the entire current line.
 let ClearLine = "\x1b[2K"
+
+// ClearToEnd erases from the cursor to the end of the screen.
 let ClearToEnd = "\x1b[0J"
-let Home = "\x1b[H"
+
+// CursorHome moves the cursor to row 1, column 1.
+let CursorHome = "\x1b[H"
+
+// HideCursor hides the terminal cursor.
 let HideCursor = "\x1b[?25l"
+
+// ShowCursor shows the terminal cursor.
 let ShowCursor = "\x1b[?25h"
+
+// AltScreen switches to the alternate screen buffer.
 let AltScreen = "\x1b[?1049h"
+
+// MainScreen returns to the main screen buffer.
 let MainScreen = "\x1b[?1049l"
 
-// Strip is s with every escape sequence taken out: CSI (ESC [, parameter
-// and intermediate bytes, a final byte in 0x40-0x7e), OSC (ESC ], up to a
-// BEL or ESC \), and ESC with one byte after it. A sequence that s ends
-// inside is taken out to the end.
+// Strip removes every escape sequence from s: CSI sequences (ESC [ up
+// to the first byte in 0x40..0x7e), OSC sequences (ESC ] up to BEL or
+// ESC \), and two-byte ESC sequences. Incomplete trailing sequences are
+// stripped to the end of s.
 func Strip(s string) string {
 	if strings.IndexByte(s, 0x1b) < 0 {
 		return s
@@ -268,8 +245,6 @@ func Strip(s string) string {
 	b.String()
 }
 
-// sequenceLen is the length of the escape sequence at the front of s,
-// which starts with ESC.
 func sequenceLen(s string) int {
 	if s.Len() < 2 {
 		return s.Len()
@@ -297,8 +272,7 @@ func sequenceLen(s string) int {
 }
 
 // StripUndoesPaint: with colour on, Strip of a text painted in any drawn
-// style is the text (Strip of the text, so the text holds no escape of
-// its own); and Strip twice is Strip once.
+// style is the stripped text, and Strip is idempotent.
 law StripUndoesPaint(seed int, text string) {
 	let t = Strip(text)
 	let s = drawStyle(seed)
@@ -306,8 +280,7 @@ law StripUndoesPaint(seed int, text string) {
 	Strip(painted) == t && Strip(t) == t
 }
 
-// NeverPaints: with colour off, Paint is the text, whatever the style,
-// and so is WritePaint.
+// NeverPaints: with colour off, Paint and WritePaint leave text unchanged.
 law NeverPaints(seed int, text string) {
 	let s = drawStyle(seed)
 	with context { Colors: Never } {
@@ -317,8 +290,8 @@ law NeverPaints(seed int, text string) {
 	}
 }
 
-// PaintIsSGRAndReset: with colour on, Paint is SGR's codes, the text and
-// Reset, or the text alone for Plain; WritePaint writes the same.
+// PaintIsSGRAndReset: with colour on, Paint wraps non-Plain text in SGR
+// and Reset; Plain writes text alone.
 law PaintIsSGRAndReset(seed int, text string) {
 	let s = drawStyle(seed)
 	with context { Colors: Always } {
@@ -329,10 +302,8 @@ law PaintIsSGRAndReset(seed int, text string) {
 	}
 }
 
-// SGRIsTheTable: the codes of recorded styles are xterm's (ECMA-48 SGR:
-// 1 bold, 2 dim, 3 italic, 4 underline, 7 reverse, 9 strike; 30-37 and
-// 90-97 the basic and bright colours, 38;5;n indexed, 38;2;r;g;b RGB,
-// and 40 more for a background), with a number out of range held to it.
+// SGRIsTheTable: SGR encodes recorded attributes and colour forms while
+// clamping out-of-range colour numbers.
 law SGRIsTheTable() {
 	let p = Plain
 		SGR(p) == "" &&
@@ -348,9 +319,8 @@ law SGRIsTheTable() {
 		SGR(Style{..p, Dim: true, Italic: true, Reverse: true, Strike: true}) == "\x1b[2;3;7;9m"
 }
 
-// StripIsTheTable: Strip takes out recorded sequences whole: SGR, cursor
-// moves, private modes, OSC titles and links ended by BEL or ESC \, and
-// a two-byte escape; and a sequence the text ends inside.
+// StripIsTheTable: Strip drops CSI, OSC, two-byte, and truncated escape
+// sequences while preserving surrounding UTF-8 text.
 law StripIsTheTable() {
 		Strip("a\x1b[1;31mb\x1b[0mc") == "abc" &&
 		Strip("\x1b[2J\x1b[Hx\x1b[10;4H") == "x" &&
@@ -364,17 +334,6 @@ law StripIsTheTable() {
 		Strip("plain") == "plain"
 }
 
-// DetectIsTheEnvironment: colour is on just when NO_COLOR is unset or
-// empty, TERM is not dumb, and standard output is a terminal.
-law DetectIsTheEnvironment(noColor int, term int, terminal bool) {
-	let nc = []option.Option[string]{option.None, option.Some[string]{Value: ""}, option.Some[string]{Value: "1"}}[(noColor%3+3)%3]
-	let tm = []option.Option[string]{option.None, option.Some[string]{Value: "xterm-256color"}, option.Some[string]{Value: "dumb"}}[(term%3+3)%3]
-	let off = nc == (option.Some[string]{Value: "1"}) || tm == (option.Some[string]{Value: "dumb"}) || !terminal
-	Decide(nc, tm, terminal).On() == !off
-}
-
-// drawStyle is a style drawn from seed: each attribute, and colours of
-// every kind, out-of-range numbers too. (a law's helper)
 func drawStyle(seed int) Style {
 	let mut x = (seed%2147483648 + 2147483648) % 2147483648
 	let mut bits = []int{}
@@ -394,8 +353,6 @@ func drawStyle(seed int) Style {
 	}
 }
 
-// drawColor is a colour of kind k%4 and number n, from -20 to 299. (a
-// law's helper)
 func drawColor(k int, n int) Color {
 	let v = n%320 - 20
 	match k % 4 {

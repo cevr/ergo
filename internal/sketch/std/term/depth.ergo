@@ -1,12 +1,10 @@
-import ansi
+import color
 import io
 import option
 import os
 import strings
 
 let xterm16 = []int{0x000000, 0xcd0000, 0x00cd00, 0xcdcd00, 0x0000ee, 0xcd00cd, 0x00cdcd, 0xe5e5e5, 0x7f7f7f, 0xff0000, 0x00ff00, 0xffff00, 0x5c5cff, 0xff00ff, 0x00ffff, 0xffffff}
-
-func packed(v int) RGBA { RGBA{R: uint8(v / 65536), G: uint8(v / 256 % 256), B: uint8(v % 256), A: 255} }
 
 type byteValue int where it >= 0 && it <= 255
 
@@ -16,17 +14,17 @@ func cubeLevel(i int) int { if i == 0 { 0 } else { 55 + 40*i } }
 // basic colours of xterm's default theme, 16 to 231 the 6x6x6 cube (levels
 // 0, 95, 135, 175, 215, 255), 232 to 255 the greys 8 to 238 in steps of
 // 10. It is opaque.
-func Palette(n int) RGBA {
+func Palette(n int) color.RGBA {
 	let i = if n < 0 { 0 } else if n > 255 { 255 } else { n }
 	if i < 16 {
-		return packed(xterm16[i])
+		return color.FromRGB24(uint32(xterm16[i]))
 	}
 	if i < 232 {
 		let k = i - 16
-		return RGBA{R: uint8(cubeLevel(k / 36)), G: uint8(cubeLevel(k / 6 % 6)), B: uint8(cubeLevel(k % 6)), A: 255}
+		return color.RGB(uint8(cubeLevel(k/36)), uint8(cubeLevel(k/6%6)), uint8(cubeLevel(k%6)))
 	}
 	let g = uint8(8 + 10*(i-232))
-	RGBA{R: g, G: g, B: g, A: 255}
+	color.RGB(g, g, g)
 }
 
 func cubeAxis(v int) int {
@@ -39,7 +37,7 @@ func cubeAxis(v int) int {
 	2 + (v-116)/40
 }
 
-func distance(c RGBA, r int, g int, b int) int {
+func distance(c color.RGBA, r int, g int, b int) int {
 	let dr = int(c.R) - r
 	let dg = int(c.G) - g
 	let db = int(c.B) - b
@@ -49,7 +47,7 @@ func distance(c RGBA, r int, g int, b int) int {
 // Nearest256 is the colour of 16 to 255 of Palette nearest to c by
 // squared distance in sRGB, the lowest index on a tie; c's alpha is not
 // read. The 16 basic colours are left out, since terminals theme them.
-func Nearest256(c RGBA) int {
+func Nearest256(c color.RGBA) int {
 	let r = cubeAxis(int(c.R))
 	let g = cubeAxis(int(c.G))
 	let b = cubeAxis(int(c.B))
@@ -73,7 +71,7 @@ func Nearest256(c RGBA) int {
 	if dg < dc { 232 + grey } else { cube }
 }
 
-func nearestIn(c RGBA, from int, to int) int {
+func nearestIn(c color.RGBA, from int, to int) int {
 	let mut best = from
 	let mut bestD = -1
 	for i in from..to {
@@ -89,7 +87,7 @@ func nearestIn(c RGBA, from int, to int) int {
 
 // Nearest256IsBruteForce: Nearest256 is the nearest of every colour 16 to
 // 255 of Palette, found by trying each in turn.
-law Nearest256IsBruteForce(c RGBA) { Nearest256(c) == nearestIn(c, 16, 256) }
+law Nearest256IsBruteForce(c color.RGBA) { Nearest256(c) == nearestIn(c, 16, 256) }
 
 // Nearest256AtTheBoundaries: for every channel value v, the colours
 // whose channels are v, 0 and 255 in turn, the greys among them, are
@@ -97,7 +95,7 @@ law Nearest256IsBruteForce(c RGBA) { Nearest256(c) == nearestIn(c, 16, 256) }
 law Nearest256AtTheBoundaries(n byteValue) {
 	let v = uint8(int(n))
 	let w = 255 - v
-	let probes = []RGBA{RGBA{R: v, G: 0, B: 0, A: 255}, RGBA{R: 0, G: v, B: 255, A: 255}, RGBA{R: v, G: v, B: v, A: 255}, RGBA{R: v, G: v, B: w, A: 255}, RGBA{R: w, G: v, B: v, A: 255}}
+	let probes = []color.RGBA{color.RGB(v, 0, 0), color.RGB(0, v, 255), color.RGB(v, v, v), color.RGB(v, v, w), color.RGB(w, v, v)}
 	let mut ok = true
 	for p in probes {
 		if Nearest256(p) != nearestIn(p, 16, 256) {
@@ -109,7 +107,7 @@ law Nearest256AtTheBoundaries(n byteValue) {
 
 // Nearest16 is the colour of 0 to 15 of Palette (xterm's default theme)
 // nearest to c by squared distance in sRGB, the lowest index on a tie.
-func Nearest16(c RGBA) int { nearestIn(c, 0, 16) }
+func Nearest16(c color.RGBA) int { nearestIn(c, 0, 16) }
 
 // PaletteIsFixed: each colour of Palette is its own nearest: n for 16 to
 // 255 by Nearest256, and n for 0 to 15 by Nearest16.
@@ -120,28 +118,28 @@ law PaletteIsFixed(n byteValue) {
 
 // PaletteIsTheTable: recorded xterm palette entries and nearest colours.
 law PaletteIsTheTable() {
-	let red = RGBA{R: 255, G: 0, B: 0, A: 255}
-		Palette(0) == Black &&
-		Palette(12) == RGBA{R: 0x5c, G: 0x5c, B: 0xff, A: 255} &&
-		Palette(16) == Black &&
+	let red = color.RGB(255, 0, 0)
+		Palette(0) == color.Black &&
+		Palette(12) == color.RGB(0x5c, 0x5c, 0xff) &&
+		Palette(16) == color.Black &&
 		Palette(196) == red &&
-		Palette(231) == White &&
-		Palette(232) == RGBA{R: 8, G: 8, B: 8, A: 255} &&
-		Palette(255) == RGBA{R: 238, G: 238, B: 238, A: 255} &&
+		Palette(231) == color.White &&
+		Palette(232) == color.RGB(8, 8, 8) &&
+		Palette(255) == color.RGB(238, 238, 238) &&
 		Palette(-4) == Palette(0) &&
 		Palette(999) == Palette(255) &&
 		Nearest256(red) == 196 &&
-		Nearest256(RGBA{R: 128, G: 128, B: 128, A: 255}) == 244 &&
+		Nearest256(color.RGB(128, 128, 128)) == 244 &&
 		Nearest16(red) == 9 &&
-		Nearest16(RGBA{R: 200, G: 10, B: 10, A: 255}) == 1
+		Nearest16(color.RGB(200, 10, 10)) == 1
 }
 
 // Palette16IsNearest: a Palette16 of any 16 colours writes a colour as
 // the nearest of them (the lowest on a tie), writes again what it shows
 // the same, and Xterm16 agrees with Nearest16; a palette of another size
 // fails InvalidPalette.
-law Palette16IsNearest(c RGBA, drawn []RGBA) {
-	let mut cs = []RGBA{}
+law Palette16IsNearest(c color.RGBA, drawn []color.RGBA) {
+	let mut cs = []color.RGBA{}
 	for i in 0..16 {
 		cs = cs.Append(if i < drawn.Len() { drawn[i] } else { Palette(i) })
 	}
@@ -160,7 +158,7 @@ law Palette16IsNearest(c RGBA, drawn []RGBA) {
 	}
 	let q = p.Quantize(c)
 	let again = match p.Expand(q) {
-	case option.Some[RGBA] as e:
+	case option.Some[color.RGBA] as e:
 		p.Quantize(e.Value) == q
 	case option.None:
 		false
@@ -171,32 +169,32 @@ law Palette16IsNearest(c RGBA, drawn []RGBA) {
 		short = e.Len == 15
 		p
 	}
-	q == ansi.Basic{N: best} && again && Xterm16().Quantize(c) == ansi.Basic{N: Nearest16(c)} && short
+	q == Basic{N: best} && again && Xterm16().Quantize(c) == Basic{N: Nearest16(c)} && short
 }
 
-// Depth is what a terminal can show: Quantize is the ansi colour it
-// writes for c, and Expand the colour it shows for an ansi colour, None
+// Depth is what a terminal can show: Quantize is the terminal colour it
+// writes for c, and Expand the colour it shows for a terminal colour, None
 // when it shows none.
 type Depth {
-	Quantize(c RGBA) ansi.Color,
-	Expand(c ansi.Color) option.Option[RGBA],
+	Quantize(c color.RGBA) Color,
+	Expand(c Color) option.Option[color.RGBA],
 
 	// QuantizeIsIdempotent: what Quantize writes, shown and quantized
 	// again, is written the same.
-	law QuantizeIsIdempotent(c RGBA) {
+	law QuantizeIsIdempotent(c color.RGBA) {
 		let q = Quantize(c)
 		match Expand(q) {
-		case option.Some[RGBA] as e:
+		case option.Some[color.RGBA] as e:
 			Quantize(e.Value) == q
 		case option.None:
-			q == ansi.DefaultColor
+			q == DefaultColor
 		}
 	},
 
 	// ExpandIsOpaque: a colour a terminal shows is opaque.
-	law ExpandIsOpaque(c RGBA) {
+	law ExpandIsOpaque(c color.RGBA) {
 		match Expand(Quantize(c)) {
-		case option.Some[RGBA] as e:
+		case option.Some[color.RGBA] as e:
 			e.Value.A == 255
 		case option.None:
 			true
@@ -204,21 +202,21 @@ type Depth {
 	},
 }
 
-func expandWith(c ansi.Color, system []RGBA) option.Option[RGBA] {
+func expandWith(c Color, system []color.RGBA) option.Option[color.RGBA] {
 	match c {
-	case ansi.DefaultColor:
+	case DefaultColor:
 		option.None
-	case ansi.Basic as b:
-		option.Some[RGBA]{Value: shown(system, if b.N < 0 { 0 } else if b.N > 15 { 15 } else { b.N })}
-	case ansi.Indexed as x:
-		option.Some[RGBA]{Value: shown(system, if x.N < 0 { 0 } else if x.N > 255 { 255 } else { x.N })}
-	case ansi.RGB as x:
-		option.Some[RGBA]{Value: RGBA{R: toByte(float64(x.R) / 255.0), G: toByte(float64(x.G) / 255.0), B: toByte(float64(x.B) / 255.0), A: 255}}
+	case Basic as b:
+		option.Some[color.RGBA]{Value: shown(system, if b.N < 0 { 0 } else if b.N > 15 { 15 } else { b.N })}
+	case Indexed as x:
+		option.Some[color.RGBA]{Value: shown(system, if x.N < 0 { 0 } else if x.N > 255 { 255 } else { x.N })}
+	case RGB as x:
+		option.Some[color.RGBA]{Value: color.RGBA{R: uint8(clamp(x.R, 255)), G: uint8(clamp(x.G, 255)), B: uint8(clamp(x.B, 255)), A: 255}}
 	}
 }
 
-func shown(system []RGBA, n int) RGBA {
-	if n < 16 && n < system.Len() { RGBA{..system[n], A: 255} } else { Palette(n) }
+func shown(system []color.RGBA, n int) color.RGBA {
+	if n < 16 && n < system.Len() { color.RGB(system[n].R, system[n].G, system[n].B) } else { Palette(n) }
 }
 
 // TrueColor is the Depth of a 24-bit terminal: every colour is written as
@@ -226,27 +224,27 @@ func shown(system []RGBA, n int) RGBA {
 type TrueColor {} implements Depth
 
 // Quantize is c's RGB.
-func Quantize(_ TrueColor, c RGBA) ansi.Color { ansi.RGB{R: int(c.R), G: int(c.G), B: int(c.B)} }
+func Quantize(_ TrueColor, c color.RGBA) Color { RGB{R: int(c.R), G: int(c.G), B: int(c.B)} }
 
 // Expand is c as xterm shows it.
-func Expand(_ TrueColor, c ansi.Color) option.Option[RGBA] { expandWith(c, []RGBA{}) }
+func Expand(_ TrueColor, c Color) option.Option[color.RGBA] { expandWith(c, []color.RGBA{}) }
 
 // Palette256 is the Depth of a 256-colour terminal: a colour is written
 // as its Nearest256.
 type Palette256 {} implements Depth
 
-// Quantize is ansi.Indexed of Nearest256(c).
-func Quantize(_ Palette256, c RGBA) ansi.Color { ansi.Indexed{N: Nearest256(c)} }
+// Quantize is Indexed of Nearest256(c).
+func Quantize(_ Palette256, c color.RGBA) Color { Indexed{N: Nearest256(c)} }
 
 // Expand is c as xterm shows it.
-func Expand(_ Palette256, c ansi.Color) option.Option[RGBA] { expandWith(c, []RGBA{}) }
+func Expand(_ Palette256, c Color) option.Option[color.RGBA] { expandWith(c, []color.RGBA{}) }
 
 let onXterm16 = context { Depth: Xterm16() }
 
 // Palette16 is the Depth of a 16-colour terminal with its 16 colours:
 // xterm's (Xterm16) or the ones a program read from its terminal
 // (NewPalette16). A colour is written as the nearest of them.
-type Palette16 { colors []RGBA } implements Depth
+type Palette16 { colors []color.RGBA } implements Depth
 
 // InvalidPalette is a palette of other than 16 colours; Len is how many
 // it has.
@@ -254,7 +252,7 @@ type InvalidPalette { Len int }
 
 // Xterm16 is the Palette16 of xterm's default theme: Palette 0 to 15.
 func Xterm16() Palette16 {
-	let mut cs = []RGBA{}
+	let mut cs = []color.RGBA{}
 	for i in 0..16 {
 		cs = cs.Append(Palette(i))
 	}
@@ -263,23 +261,22 @@ func Xterm16() Palette16 {
 
 // NewPalette16 is the Palette16 of colors, the terminal's colours 0 to 15
 // in order, made opaque.
-func NewPalette16(colors []RGBA) Palette16 fails InvalidPalette {
+func NewPalette16(colors []color.RGBA) Palette16 fails InvalidPalette {
 	if colors.Len() != 16 {
 		return InvalidPalette{Len: colors.Len()}
 	}
-	let mut cs = []RGBA{}
+	let mut cs = []color.RGBA{}
 	for c in colors {
-		cs = cs.Append(RGBA{..c, A: 255})
+		cs = cs.Append(color.RGB(c.R, c.G, c.B))
 	}
 	Palette16{colors: cs}
 }
 
-// Quantize is ansi.Basic of the nearest of p's colours (the lowest on a
-// tie).
-func Quantize(p Palette16, c RGBA) ansi.Color {
+// Quantize is Basic of the nearest of p's colours (the lowest on a tie).
+func Quantize(p Palette16, c color.RGBA) Color {
 	let n = if p.colors.Len() < 16 { p.colors.Len() } else { 16 }
 	if n == 0 {
-		return ansi.Basic{N: Nearest16(c)}
+		return Basic{N: Nearest16(c)}
 	}
 	let mut best = 0
 	let mut bestD = -1
@@ -291,32 +288,33 @@ func Quantize(p Palette16, c RGBA) ansi.Color {
 			bestD = d
 		}
 	}
-	ansi.Basic{N: best}
+	Basic{N: best}
 }
 
 // Expand is c as a terminal with p's colours shows it.
-func Expand(p Palette16, c ansi.Color) option.Option[RGBA] { expandWith(c, p.colors) }
+func Expand(p Palette16, c Color) option.Option[color.RGBA] { expandWith(c, p.colors) }
 
 // Uncolored is the Depth of a terminal that shows no colour: every colour
 // is written as the terminal's own.
 type Uncolored {} implements Depth
 
-// Quantize is ansi.DefaultColor.
-func Quantize(_ Uncolored, c RGBA) ansi.Color { ansi.DefaultColor }
+// Quantize is DefaultColor.
+func Quantize(_ Uncolored, c color.RGBA) Color { DefaultColor }
 
 // Expand is None.
-func Expand(_ Uncolored, c ansi.Color) option.Option[RGBA] { option.None }
+func Expand(_ Uncolored, c Color) option.Option[color.RGBA] { option.None }
 
 // Level is how many colours a terminal shows: none, the 16 basic ones,
 // the 256 indexed ones, or 24-bit colour.
 type Level = LevelOff{} | Level16{} | Level256{} | LevelTrue{}
 
-// Env is what DecideDepth reads: the variables NO_COLOR, FORCE_COLOR,
-// TERM and COLORTERM, and whether the output is a terminal.
+// Env is what Decide reads: the variables NO_COLOR, FORCE_COLOR, TERM and
+// COLORTERM, and whether the output is a terminal.
 type Env { NoColor option.Option[string], ForceColor option.Option[string], Term option.Option[string], ColorTerm option.Option[string], Terminal bool }
 
-// Detected is the Depth that DecideDepth decides.
-type Detected { level Level } implements Depth
+// Detected is the terminal colour capability that Decide produces: it
+// provides both Depth and Colors.
+type Detected { level Level } implements Depth, Colors
 
 // NewDetected is the Detected of level l, for a program that knows its
 // terminal's level (a flag, a configuration).
@@ -325,28 +323,31 @@ func NewDetected(l Level) Detected { Detected{level: l} }
 // LevelOf is d's level.
 func LevelOf(d Detected) Level { d.level }
 
+// On reports whether d enables terminal colour output.
+func On(d Detected) bool { d.level != LevelOff }
+
 // Quantize is c at d's level: Uncolored's, Xterm16's, Palette256's or
 // TrueColor's.
-func Quantize(d Detected, c RGBA) ansi.Color {
+func Quantize(d Detected, c color.RGBA) Color {
 	match d.level {
 	case LevelOff:
-		ansi.DefaultColor
+		DefaultColor
 	case Level16:
-		ansi.Basic{N: Nearest16(c)}
+		Basic{N: Nearest16(c)}
 	case Level256:
-		ansi.Indexed{N: Nearest256(c)}
+		Indexed{N: Nearest256(c)}
 	case LevelTrue:
-		ansi.RGB{R: int(c.R), G: int(c.G), B: int(c.B)}
+		RGB{R: int(c.R), G: int(c.G), B: int(c.B)}
 	}
 }
 
 // Expand is c as a terminal of d's level shows it.
-func Expand(d Detected, c ansi.Color) option.Option[RGBA] {
+func Expand(d Detected, c Color) option.Option[color.RGBA] {
 	match d.level {
 	case LevelOff:
 		option.None
 	case Level16, Level256, LevelTrue:
-		expandWith(c, []RGBA{})
+		expandWith(c, []color.RGBA{})
 	}
 }
 
@@ -363,6 +364,8 @@ func rank(l Level) int {
 	}
 }
 
+func nonNeg(n int) int { if n < 0 { -(n + 1) } else { n } }
+
 func text(v option.Option[string]) string {
 	match v {
 	case option.Some[string] as s:
@@ -372,30 +375,38 @@ func text(v option.Option[string]) string {
 	}
 }
 
+func hasNoColor(v option.Option[string]) bool {
+	match v {
+	case option.Some[string] as s:
+		s.Value != ""
+	case option.None:
+		false
+	}
+}
+
 func termLevel(env Env) Level {
-	let term = strings.ToLower(text(env.Term))
-	if term == "" || term == "dumb" {
+	let tm = strings.ToLower(text(env.Term))
+	if tm == "" || tm == "dumb" {
 		return LevelOff
 	}
 	let ct = strings.ToLower(text(env.ColorTerm))
-	if ct == "truecolor" || ct == "24bit" || strings.HasSuffix(term, "-direct") || strings.Contains(term, "truecolor") || strings.Contains(term, "24bit") {
+	if ct == "truecolor" || ct == "24bit" || strings.HasSuffix(tm, "-direct") || strings.Contains(tm, "truecolor") || strings.Contains(tm, "24bit") {
 		return LevelTrue
 	}
-	if strings.Contains(term, "256color") {
+	if strings.Contains(tm, "256color") {
 		return Level256
 	}
 	Level16
 }
 
-// DecideDepth is the depth env asks for, as supports-color decides: a
-// FORCE_COLOR of 0 or false is no colour, of 1, true or empty at least 16
-// colours, of 2 at least 256 and of 3 24-bit, whatever else env says;
-// without FORCE_COLOR a NO_COLOR present and not empty, an output that is
-// not a terminal, or a TERM unset, empty or dumb is no colour; otherwise
-// COLORTERM truecolor or 24bit, or a TERM ending -direct or naming
-// truecolor or 24bit, is 24-bit, a TERM naming 256color is 256, and any
-// other TERM 16.
-func DecideDepth(env Env) Detected {
+// Decide is the colour capability env asks for: a FORCE_COLOR of 0 or
+// false is no colour, of 1, true or empty at least 16 colours, of 2 at
+// least 256 and of 3 24-bit; without FORCE_COLOR a NO_COLOR present and
+// not empty, an output that is not a terminal, or a TERM unset, empty or
+// dumb is no colour; otherwise COLORTERM truecolor or 24bit, or a TERM
+// ending -direct or naming truecolor or 24bit, is 24-bit, a TERM naming
+// 256color is 256, and any other TERM 16.
+func Decide(env Env) Detected {
 	match env.ForceColor {
 	case option.Some[string] as f:
 		let v = strings.ToLower(f.Value)
@@ -407,16 +418,15 @@ func DecideDepth(env Env) Detected {
 		return Detected{level: if rank(seen) > rank(floor) { seen } else { floor }}
 	case option.None:
 	}
-	if text(env.NoColor) != "" || !env.Terminal {
+	if hasNoColor(env.NoColor) || !env.Terminal {
 		return Detected{level: LevelOff}
 	}
 	Detected{level: termLevel(env)}
 }
 
-// DetectDepth is DecideDepth of this process's environment and standard
-// output.
-func DetectDepth() Detected needs os.Process | io.Stdout {
-	DecideDepth(Env{
+// Detect is Decide of this process's environment and standard output.
+func Detect() Detected needs os.Process | io.Stdout {
+	Decide(Env{
 		NoColor:    os.Process.Getenv("NO_COLOR"),
 		ForceColor: os.Process.Getenv("FORCE_COLOR"),
 		Term:       os.Process.Getenv("TERM"),
@@ -425,16 +435,16 @@ func DetectDepth() Detected needs os.Process | io.Stdout {
 	})
 }
 
-// DecideDepthIsTheTable: over every drawn NO_COLOR, FORCE_COLOR, TERM,
-// COLORTERM and terminal, the level is the one the rules give, read in
-// order: a FORCE_COLOR of 0 is off; one of 1 to 3 raises the TERM's
-// level to it; else NO_COLOR, no terminal or no usable TERM is off.
-law DecideDepthIsTheTable(nc int, fc int, tm int, ct int, terminal bool) {
-	let some = func(s string) option.Option[string] { option.Some[string]{Value: s} }
-	let ncs = []option.Option[string]{option.None, some(""), some("1")}
-	let fcs = []option.Option[string]{option.None, some("0"), some(""), some("1"), some("2"), some("3"), some("false")}
-	let tms = []option.Option[string]{option.None, some("dumb"), some("xterm"), some("xterm-256color"), some("xterm-direct"), some("")}
-	let cts = []option.Option[string]{option.None, some("truecolor"), some("24bit")}
+// DetectIsTheEnvironment: over every drawn NO_COLOR, FORCE_COLOR, TERM,
+// COLORTERM and terminal, Decide's level and Colors.On follow the rules
+// in order: a FORCE_COLOR of 0 or false is off; one of 1 to 3 raises
+// the TERM's level to it; else non-empty NO_COLOR, no terminal, or no
+// usable TERM is off.
+law DetectIsTheEnvironment(nc int, fc int, tm int, ct int, terminal bool) {
+	let ncs = []option.Option[string]{option.None, option.Some[string]{Value: ""}, option.Some[string]{Value: "1"}}
+	let fcs = []option.Option[string]{option.None, option.Some[string]{Value: "0"}, option.Some[string]{Value: ""}, option.Some[string]{Value: "1"}, option.Some[string]{Value: "2"}, option.Some[string]{Value: "3"}, option.Some[string]{Value: "false"}}
+	let tms = []option.Option[string]{option.None, option.Some[string]{Value: "dumb"}, option.Some[string]{Value: "xterm"}, option.Some[string]{Value: "xterm-256color"}, option.Some[string]{Value: "xterm-direct"}, option.Some[string]{Value: ""}}
+	let cts = []option.Option[string]{option.None, option.Some[string]{Value: "truecolor"}, option.Some[string]{Value: "24bit"}}
 	let env = Env{NoColor: ncs[nonNeg(nc)%3], ForceColor: fcs[nonNeg(fc)%7], Term: tms[nonNeg(tm)%6], ColorTerm: cts[nonNeg(ct)%3], Terminal: terminal}
 	let t = nonNeg(tm) % 6
 	let usable = t >= 2 && t <= 4
@@ -450,5 +460,6 @@ law DecideDepthIsTheTable(nc int, fc int, tm int, ct int, terminal bool) {
 	} else {
 		fromTerm
 	}
-	rank(LevelOf(DecideDepth(env))) == want
+	let d = Decide(env)
+	rank(LevelOf(d)) == want && d.On() == (want != 0)
 }
