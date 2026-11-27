@@ -1,0 +1,949 @@
+// Package lsp implements the Language Server Protocol (LSP 3.17) in pure Ergo:
+// Content-Length framing, checked lifecycle state machine with request
+// cancellation tracking, versioned incremental text document overlays,
+// UTF-8/UTF-16 position codecs and encoding negotiation, and stdio, memory,
+// and live queue-backed transports.
+
+import io
+import json
+import option
+import sync
+import task
+import tasks
+
+// CodeParseError is the JSON-RPC 2.0 parse error code (-32700).
+let CodeParseError = -32700
+
+// CodeInvalidRequest is the JSON-RPC 2.0 invalid request error code (-32600).
+let CodeInvalidRequest = -32600
+
+// CodeMethodNotFound is the JSON-RPC 2.0 method not found error code (-32601).
+let CodeMethodNotFound = -32601
+
+// CodeInvalidParams is the JSON-RPC 2.0 invalid parameters error code (-32602).
+let CodeInvalidParams = -32602
+
+// CodeInternalError is the JSON-RPC 2.0 internal error code (-32603).
+let CodeInternalError = -32603
+
+// CodeServerNotInitialized is the LSP error code for requests prior to initialize (-32002).
+let CodeServerNotInitialized = -32002
+
+// CodeRequestCancelled is the LSP error code returned when a request is cancelled (-32800).
+let CodeRequestCancelled = -32800
+
+// CodeContentModified is the LSP error code indicating document state changed concurrently (-32801).
+let CodeContentModified = -32801
+
+// ServerInfo identifies the language server in the LSP initialize response.
+type ServerInfo { Name string, Version string }
+
+// Server configures metadata and text synchronization mode for an LSP session.
+type Server { Info ServerInfo, SyncKind TextDocumentSyncKind }
+
+// RPCError carries a JSON-RPC 2.0 error code, diagnostic message, and optional data payload.
+type RPCError { Code int, Message string, Data option.Option[json.Value] }
+
+// Answer represents the wire output produced by handling one LSP message.
+type Answer = Answered | Silent
+
+// Answered indicates a serialized JSON-RPC 2.0 response to transmit back to the client.
+type Answered { JSON string }
+
+// Silent indicates a notification that produces no JSON-RPC response message.
+type Silent {}
+
+// RequestContext exposes decoded LSP method metadata, overlay access, and cancellation polling to handlers.
+type RequestContext {
+	Method      string,
+	Params      json.Value,
+	Documents   Overlay,
+	Encoding    PositionEncoding,
+	IsCancelled func() bool,
+}
+
+// Notification represents an unsolicited JSON-RPC 2.0 notification message.
+type Notification { Method string, Params json.Value }
+
+func jsonValueCodec() json.Codec[json.Value] {
+	json.Codec[json.Value]{MaxBytes: 0, MaxDepth: 0}
+}
+
+func encodeJSONValue(v json.Value) string {
+	json.Encode[json.Value](jsonValueCodec(), v)
+}
+
+func decodeJSONValue(raw string) json.Value fails MalformedParams {
+	json.Decode[json.Value](jsonValueCodec(), raw) catch {
+	case json.Malformed as m:
+		return MalformedParams{Detail: m.Reason}
+	case _:
+		return MalformedParams{Detail: "invalid JSON"}
+	}
+}
+
+// EncodeResponse encodes a JSON-RPC 2.0 success response object for id and result.
+func EncodeResponse(id json.Value, result json.Value) string {
+	encodeJSONValue(json.Object{
+		Members: []json.Member{
+			json.Member{Key: "jsonrpc", Value: json.Str{Value: "2.0"}},
+			json.Member{Key: "id", Value: id},
+			json.Member{Key: "result", Value: result},
+		},
+	})
+}
+
+// EncodeErrorResponse encodes a JSON-RPC 2.0 error response object for id and err.
+func EncodeErrorResponse(id json.Value, err RPCError) string {
+	let mut errMembers = []json.Member{
+		json.Member{Key: "code", Value: json.IntNumber(int64(err.Code))},
+		json.Member{Key: "message", Value: json.Str{Value: err.Message}},
+	}
+	match err.Data {
+	case option.Some as d:
+		errMembers = errMembers.Append(json.Member{Key: "data", Value: d.Value})
+	case option.None:
+	}
+	encodeJSONValue(json.Object{
+		Members: []json.Member{
+			json.Member{Key: "jsonrpc", Value: json.Str{Value: "2.0"}},
+			json.Member{Key: "id", Value: id},
+			json.Member{Key: "error", Value: json.Object{Members: errMembers}},
+		},
+	})
+}
+
+// EncodeNotification encodes n as a JSON-RPC 2.0 notification string.
+func EncodeNotification(n Notification) string {
+	encodeJSONValue(json.Object{
+		Members: []json.Member{
+			json.Member{Key: "jsonrpc", Value: json.Str{Value: "2.0"}},
+			json.Member{Key: "method", Value: json.Str{Value: n.Method}},
+			json.Member{Key: "params", Value: n.Params},
+		},
+	})
+}
+
+// ParseNotification parses rawJSON into an LSP Notification.
+func ParseNotification(rawJSON string) Notification fails MalformedParams {
+	let v = try decodeJSONValue(rawJSON)
+	let obj = try jsonObject(v, "notification")
+	let rpc = try jsonStringField(obj, "jsonrpc", "notification")
+	if rpc != "2.0" {
+		return MalformedParams{Detail: "notification jsonrpc must be 2.0"}
+	}
+	match jsonField(obj, "id") {
+	case option.Some:
+		return MalformedParams{Detail: "notification must not include id"}
+	case option.None:
+	}
+	let method = try jsonStringField(obj, "method", "notification")
+	if method == "" {
+		return MalformedParams{Detail: "notification method must be non-empty"}
+	}
+	let params = match jsonField(obj, "params") {
+	case option.None:
+		json.Null
+	case option.Some as p:
+		p.Value
+	}
+	Notification{Method: method, Params: params}
+}
+
+type sessionState {
+	lifecycle LifecycleState,
+	encoding  PositionEncoding,
+	overlay   Overlay,
+	cancels   CancelRegistry,
+}
+
+// Session holds synchronized protocol phase, negotiated encoding, document overlay, and cancellation state.
+type Session { state sync.Ref[sessionState] }
+
+// NewSession allocates an uninitialized LSP Session ready to accept an initialize request.
+func NewSession() Session {
+	Session{
+		state: sync.NewRef(sessionState{
+			lifecycle: PhaseUninitialized,
+			encoding:  EncodingUTF16,
+			overlay:   NewOverlay(),
+			cancels:   NewCancelRegistry(),
+		}),
+	}
+}
+
+// SessionPhase returns the current LifecycleState of s.
+func SessionPhase(s Session) LifecycleState {
+	s.state.Get().lifecycle
+}
+
+// SessionEncoding returns the active PositionEncoding of s.
+func SessionEncoding(s Session) PositionEncoding {
+	s.state.Get().encoding
+}
+
+// SessionOverlay returns the Overlay holding s's synchronized documents.
+func SessionOverlay(s Session) Overlay {
+	s.state.Get().overlay
+}
+
+// SessionCancels returns the active request CancelRegistry of s.
+func SessionCancels(s Session) CancelRegistry {
+	s.state.Get().cancels
+}
+
+// SessionExitCode returns 0 on clean shutdown+exit, 1 on dirty exit, or -1 while open.
+func SessionExitCode(s Session) int {
+	ExitCodeOf(s.state.Get().lifecycle)
+}
+
+// SessionExited reports whether s has processed an exit notification.
+func SessionExited(s Session) bool {
+	IsExited(s.state.Get().lifecycle)
+}
+
+func idKey(id json.Value) option.Option[string] {
+	match id {
+	case json.Null:
+		option.Some{Value: "null"}
+	case json.Num as n:
+		option.Some{Value: "n:" + n.Wire()}
+	case json.Str as s:
+		option.Some{Value: "s:" + s.Value}
+	case _:
+		option.None
+	}
+}
+
+type parsedWireMessage {
+	hasID  bool,
+	id     json.Value,
+	idText string,
+	method string,
+	params json.Value,
+}
+
+type wireParseOutcome = wireParsedOK | wireParsedInvalid
+
+type wireParsedOK { msg parsedWireMessage }
+
+type wireParsedInvalid { reply string }
+
+func parseWireMessage(rawJSON string) wireParseOutcome {
+	let v = decodeJSONValue(rawJSON) catch {
+	case MalformedParams:
+		return wireParsedInvalid{
+			reply: EncodeErrorResponse(json.Null, RPCError{Code: CodeParseError, Message: "parse error", Data: option.None}),
+		}
+	}
+	let obj = match v {
+	case json.Object as o:
+		o
+	case _:
+		return wireParsedInvalid{
+			reply: EncodeErrorResponse(json.Null, RPCError{Code: CodeInvalidRequest, Message: "request must be a JSON object", Data: option.None}),
+		}
+	}
+	let mut hasID = false
+	let mut reqID json.Value = json.Null
+	let mut reqKey = ""
+	match jsonField(obj, "id") {
+	case option.Some as rawID:
+		match idKey(rawID.Value) {
+		case option.None:
+			return wireParsedInvalid{
+				reply: EncodeErrorResponse(json.Null, RPCError{Code: CodeInvalidRequest, Message: "invalid JSON-RPC id type", Data: option.None}),
+			}
+		case option.Some as k:
+			hasID = true
+			reqID = rawID.Value
+			reqKey = k.Value
+		}
+	case option.None:
+	}
+	let errID = if hasID { reqID } else { json.Null }
+	let rpcOK = match jsonField(obj, "jsonrpc") {
+	case option.Some as r:
+		match r.Value {
+		case json.Str as s:
+			s.Value == "2.0"
+		case _:
+			false
+		}
+	case option.None:
+		false
+	}
+	if !rpcOK {
+		return wireParsedInvalid{
+			reply: EncodeErrorResponse(errID, RPCError{Code: CodeInvalidRequest, Message: "jsonrpc must be 2.0", Data: option.None}),
+		}
+	}
+	let method = match jsonField(obj, "method") {
+	case option.Some as m:
+		match m.Value {
+		case json.Str as s:
+			s.Value
+		case _:
+			return wireParsedInvalid{
+				reply: EncodeErrorResponse(errID, RPCError{Code: CodeInvalidRequest, Message: "method must be a string", Data: option.None}),
+			}
+		}
+	case option.None:
+		return wireParsedInvalid{
+			reply: EncodeErrorResponse(errID, RPCError{Code: CodeInvalidRequest, Message: "missing method", Data: option.None}),
+		}
+	}
+	if method == "" {
+		return wireParsedInvalid{
+			reply: EncodeErrorResponse(errID, RPCError{Code: CodeInvalidRequest, Message: "empty method", Data: option.None}),
+		}
+	}
+	let params = match jsonField(obj, "params") {
+	case option.None:
+		json.Null
+	case option.Some as p:
+		match p.Value {
+		case json.Null, json.Object, json.Array:
+			p.Value
+		case _:
+			return wireParsedInvalid{
+				reply: EncodeErrorResponse(errID, RPCError{Code: CodeInvalidRequest, Message: "params must be structured or null", Data: option.None}),
+			}
+		}
+	}
+	wireParsedOK{
+		msg: parsedWireMessage{
+			hasID:  hasID,
+			id:     reqID,
+			idText: reqKey,
+			method: method,
+			params: params,
+		},
+	}
+}
+
+func encodeInitializeResult(srv Server, enc PositionEncoding) json.Value {
+	let caps = json.Object{
+		Members: []json.Member{
+			json.Member{Key: "positionEncoding", Value: json.Str{Value: EncodingWire(enc)}},
+			json.Member{Key: "textDocumentSync", Value: json.IntNumber(int64(SyncKindCode(srv.SyncKind)))},
+		},
+	}
+	let info = json.Object{
+		Members: []json.Member{
+			json.Member{Key: "name", Value: json.Str{Value: srv.Info.Name}},
+			json.Member{Key: "version", Value: json.Str{Value: srv.Info.Version}},
+		},
+	}
+	json.Object{
+		Members: []json.Member{
+			json.Member{Key: "capabilities", Value: caps},
+			json.Member{Key: "serverInfo", Value: info},
+		},
+	}
+}
+
+type stepSnapshot {
+	outcome  LifecycleOutcome,
+	encoding PositionEncoding,
+	overlay  Overlay,
+	cancels  CancelRegistry,
+}
+
+func transitionSession(s Session, sig LifecycleSignal, isInit bool, params json.Value) stepSnapshot {
+	sync.Modify[sessionState, stepSnapshot](s.state, func(st sessionState) (stepSnapshot, sessionState) {
+		let (nextPhase, out) = NextLifecycle(st.lifecycle, sig)
+		let mut nextEnc = st.encoding
+		if isInit {
+			match out {
+			case OutcomeAccepted:
+				nextEnc = NegotiateEncodingFromParams(params)
+				SetEncoding(st.overlay, nextEnc)
+			case _:
+			}
+		}
+		let snap = stepSnapshot{outcome: out, encoding: nextEnc, overlay: st.overlay, cancels: st.cancels}
+		(snap, sessionState{lifecycle: nextPhase, encoding: nextEnc, overlay: st.overlay, cancels: st.cancels})
+	})
+}
+
+func applySessionNotification(step stepSnapshot, msg parsedWireMessage) {
+	match step.outcome {
+	case OutcomeAccepted:
+		if msg.method == "$/cancelRequest" {
+			match objectMember(msg.params, "id") {
+			case option.Some as rawID:
+				match idKey(rawID.Value) {
+				case option.Some as k:
+					let _ = CancelRequest(step.cancels, k.Value)
+				case option.None:
+				}
+			case option.None:
+			}
+		} else if msg.method == "textDocument/didOpen" {
+			let p = DecodeDidOpenParams(msg.params) catch {
+			case MalformedParams:
+				return
+			}
+			DidOpen(step.overlay, p.TextDocument) catch {
+			case DocumentAlreadyOpen:
+			}
+		} else if msg.method == "textDocument/didChange" {
+			let p = DecodeDidChangeParams(msg.params) catch {
+			case MalformedParams:
+				return
+			}
+			DidChange(step.overlay, p.TextDocument, p.ContentChanges) catch {
+			case _:
+			}
+		} else if msg.method == "textDocument/didClose" {
+			let p = DecodeDidCloseParams(msg.params) catch {
+			case MalformedParams:
+				return
+			}
+			DidClose(step.overlay, p.TextDocument.URI) catch {
+			case DocumentNotOpen:
+			}
+		}
+	case _:
+	}
+}
+
+func dispatchRequest[R](step stepSnapshot, srv Server, handle func(ctx RequestContext) json.Value fails RPCError needs R, msg parsedWireMessage) Answer needs R {
+	match step.outcome {
+	case OutcomeRefusedNotInitialized:
+		return Answered{
+			JSON: EncodeErrorResponse(msg.id, RPCError{Code: CodeServerNotInitialized, Message: "server not initialized", Data: option.None}),
+		}
+	case OutcomeRefusedInvalidRequest:
+		return Answered{
+			JSON: EncodeErrorResponse(msg.id, RPCError{Code: CodeInvalidRequest, Message: "request not valid in current lifecycle state", Data: option.None}),
+		}
+	case OutcomeIgnored, OutcomeExited:
+		return Answered{
+			JSON: EncodeErrorResponse(msg.id, RPCError{Code: CodeInvalidRequest, Message: "request ignored", Data: option.None}),
+		}
+	case OutcomeAccepted:
+	}
+	if msg.method == "initialize" {
+		return Answered{JSON: EncodeResponse(msg.id, encodeInitializeResult(srv, step.encoding))}
+	}
+	if msg.method == "shutdown" {
+		return Answered{JSON: EncodeResponse(msg.id, json.Null)}
+	}
+	let key = msg.idText
+	BeginRequest(step.cancels, key)
+	let ctx = RequestContext{
+		Method:      msg.method,
+		Params:      msg.params,
+		Documents:   step.overlay,
+		Encoding:    step.encoding,
+		IsCancelled: func() bool { IsCancelled(step.cancels, key) },
+	}
+	let res = handle(ctx) catch {
+	case RPCError as e:
+		let cancelled = IsCancelled(step.cancels, key)
+		FinishRequest(step.cancels, key)
+		if cancelled {
+			return Answered{
+				JSON: EncodeErrorResponse(msg.id, RPCError{Code: CodeRequestCancelled, Message: "request cancelled", Data: option.None}),
+			}
+		}
+		return Answered{JSON: EncodeErrorResponse(msg.id, e)}
+	}
+	let cancelled = IsCancelled(step.cancels, key)
+	FinishRequest(step.cancels, key)
+	if cancelled {
+		return Answered{
+			JSON: EncodeErrorResponse(msg.id, RPCError{Code: CodeRequestCancelled, Message: "request cancelled", Data: option.None}),
+		}
+	}
+	Answered{JSON: EncodeResponse(msg.id, res)}
+}
+
+// HandleMessage processes one raw JSON-RPC 2.0 LSP message against s and returns an Answer.
+func HandleMessage[R](s Session, srv Server, handle func(ctx RequestContext) json.Value fails RPCError needs R, rawJSON string) Answer needs R {
+	let msg = match parseWireMessage(rawJSON) {
+	case wireParsedInvalid as inv:
+		return Answered{JSON: inv.reply}
+	case wireParsedOK as ok:
+		ok.msg
+	}
+	if !msg.hasID {
+		let sig LifecycleSignal = if msg.method == "exit" {
+			SigExit
+		} else if msg.method == "initialized" {
+			SigInitialized
+		} else {
+			SigNotification
+		}
+		let step = transitionSession(s, sig, false, msg.params)
+		applySessionNotification(step, msg)
+		return Silent
+	}
+	let isInit = msg.method == "initialize"
+	let sig LifecycleSignal = if isInit {
+		SigInitialize
+	} else if msg.method == "shutdown" {
+		SigShutdown
+	} else {
+		SigRequest
+	}
+	let step = transitionSession(s, sig, isInit, msg.params)
+	dispatchRequest[R](step, srv, handle, msg)
+}
+
+// Serve runs a synchronous ordered LSP message loop over Transport until exit or EOF, returning the process exit code (0 clean, 1 unclean).
+func Serve[R](s Session, srv Server, handle func(ctx RequestContext) json.Value fails RPCError needs R) int fails TransportError needs Transport | R {
+	for {
+		let next = try Transport.Read()
+		match next {
+		case option.None:
+			Transport.Close()
+			let code = SessionExitCode(s)
+			return if code >= 0 { code } else { 1 }
+		case option.Some as raw:
+			let ans = HandleMessage[R](s, srv, handle, raw.Value)
+			match ans {
+			case Answered as reply:
+				try Transport.Send(reply.JSON)
+			case Silent:
+			}
+			if SessionExited(s) {
+				Transport.Close()
+				return SessionExitCode(s)
+			}
+		}
+	}
+}
+
+func rethrowTransportError(err TransportError) fails TransportError {
+	match err {
+	case MalformedHeader as x:
+		return x
+	case InvalidLength as x:
+		return x
+	case HeaderTooLarge as x:
+		return x
+	case BodyTooLarge as x:
+		return x
+	case TruncatedFrame as x:
+		return x
+	case TransportReadError as x:
+		return x
+	case TransportWriteError as x:
+		return x
+	case TransportClosed as x:
+		return x
+	}
+}
+
+func runConcurrentRequest[R](step stepSnapshot, handle own func(ctx RequestContext) json.Value fails RPCError needs R, msg parsedWireMessage) fails TransportError needs Transport | R {
+	let key = msg.idText
+	let ctx = RequestContext{
+		Method:      msg.method,
+		Params:      msg.params,
+		Documents:   step.overlay,
+		Encoding:    step.encoding,
+		IsCancelled: func() bool { IsCancelled(step.cancels, key) },
+	}
+	let mut failed = false
+	let mut rpcErr = RPCError{Code: CodeInternalError, Message: "", Data: option.None}
+	let mut result json.Value = json.Null
+	let res = handle(ctx) catch {
+	case RPCError as e:
+		failed = true
+		rpcErr = e
+		json.Null
+	}
+	if !failed {
+		result = res
+	}
+	let cancelled = IsCancelled(step.cancels, key)
+	FinishRequest(step.cancels, key)
+	let replyJSON = if cancelled {
+		EncodeErrorResponse(msg.id, RPCError{Code: CodeRequestCancelled, Message: "request cancelled", Data: option.None})
+	} else if failed {
+		EncodeErrorResponse(msg.id, rpcErr)
+	} else {
+		EncodeResponse(msg.id, result)
+	}
+	try Transport.Send(replyJSON)
+}
+
+type workerTransportFail { err TransportError }
+
+func waitWorkers(workers tasks.Set[workerTransportFail]) fails TransportError {
+	workers.Wait() catch {
+	case workerTransportFail as e:
+		try rethrowTransportError(e.err)
+	}
+}
+
+func serveConcurrentLoop[R](workers tasks.Set[workerTransportFail], s Session, srv Server, handle own func(ctx RequestContext) json.Value fails RPCError needs R) int fails TransportError needs Transport | R {
+	for {
+		let next = try Transport.Read()
+		match next {
+		case option.None:
+			try waitWorkers(workers)
+			let code = SessionExitCode(s)
+			return if code >= 0 { code } else { 1 }
+		case option.Some as raw:
+			let msg = match parseWireMessage(raw.Value) {
+			case wireParsedInvalid as inv:
+				try Transport.Send(inv.reply)
+				continue
+			case wireParsedOK as ok:
+				ok.msg
+			}
+			if !msg.hasID {
+				let sig LifecycleSignal = if msg.method == "exit" {
+					SigExit
+				} else if msg.method == "initialized" {
+					SigInitialized
+				} else {
+					SigNotification
+				}
+				let step = transitionSession(s, sig, false, msg.params)
+				applySessionNotification(step, msg)
+				if SessionExited(s) {
+					workers.Stop()
+					return SessionExitCode(s)
+				}
+				continue
+			}
+			let isInit = msg.method == "initialize"
+			let isShutdown = msg.method == "shutdown"
+			let sig LifecycleSignal = if isInit {
+				SigInitialize
+			} else if isShutdown {
+				SigShutdown
+			} else {
+				SigRequest
+			}
+			if isShutdown {
+				try waitWorkers(workers)
+			}
+			let step = transitionSession(s, sig, isInit, msg.params)
+			if isInit || isShutdown {
+				let ans = dispatchRequest[R](step, srv, handle, msg)
+				match ans {
+				case Answered as reply:
+					try Transport.Send(reply.JSON)
+				case Silent:
+				}
+				continue
+			}
+			match step.outcome {
+			case OutcomeAccepted:
+				BeginRequest(step.cancels, msg.idText)
+				workers.Go(func() fails workerTransportFail needs Transport | R {
+					runConcurrentRequest[R](step, handle, msg) catch {
+					case TransportError as err:
+						return workerTransportFail{err: err}
+					}
+				}) catch {
+				case tasks.Closed:
+					FinishRequest(step.cancels, msg.idText)
+				}
+			case _:
+				let ans = dispatchRequest[R](step, srv, handle, msg)
+				match ans {
+				case Answered as reply:
+					try Transport.Send(reply.JSON)
+				case Silent:
+				}
+			}
+		}
+	}
+}
+
+// ServeConcurrent runs an LSP session dispatching regular requests concurrently so $/cancelRequest preempts in-flight handlers while preserving lifecycle and overlay ordering.
+func ServeConcurrent[R](s Session, srv Server, handle own func(ctx RequestContext) json.Value fails RPCError needs R) int fails TransportError needs Transport | R {
+	let workers = tasks.NewSet[workerTransportFail](tasks.LogFailures)
+	let code = serveConcurrentLoop[R](workers, s, srv, handle) catch {
+	case TransportError as err:
+		workers.Stop()
+		Transport.Close()
+		try rethrowTransportError(err)
+		return -1
+	}
+	Transport.Close()
+	code
+}
+
+func extractErrorCode(replyJSON string) option.Option[int] {
+	let v = decodeJSONValue(replyJSON) catch {
+	case MalformedParams:
+		return option.None
+	}
+	let obj = match v {
+	case json.Object as o:
+		o
+	case _:
+		return option.None
+	}
+	let errVal = match jsonField(obj, "error") {
+	case option.Some as e:
+		e.Value
+	case option.None:
+		return option.None
+	}
+	let errObj = match errVal {
+	case json.Object as o:
+		o
+	case _:
+		return option.None
+	}
+	let code = jsonIntField(errObj, "code", "error") catch {
+	case MalformedParams:
+		return option.None
+	}
+	option.Some{Value: code}
+}
+
+func extractResult(replyJSON string) option.Option[json.Value] {
+	let v = decodeJSONValue(replyJSON) catch {
+	case MalformedParams:
+		return option.None
+	}
+	objectMember(v, "result")
+}
+
+law LifecycleEnforcedOnWire(method string, extra string) {
+	let srv = Server{Info: ServerInfo{Name: "ergo-lsp", Version: "1.0"}, SyncKind: SyncIncremental}
+	let sess = NewSession()
+	let handler = func(ctx RequestContext) json.Value fails RPCError {
+		if ctx.Method == "ergo/echo" {
+			let txt = match Text(ctx.Documents, "file:///main.ergo") {
+			case option.Some as t:
+				t.Value
+			case option.None:
+				""
+			}
+			return json.Str{Value: txt}
+		}
+		return RPCError{Code: CodeMethodNotFound, Message: "unknown method", Data: option.None}
+	}
+	let safeMethod = if method == "" || method == "initialize" || method == "shutdown" { "textDocument/hover" } else { method }
+	let preInitReq = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":" + json.Encode(json.Codec[string]{MaxBytes: 0, MaxDepth: 0}, safeMethod) + "}"
+	let preInitOK = match HandleMessage(sess, srv, handler, preInitReq) {
+	case Answered as a:
+		extractErrorCode(a.JSON) == (option.Some{Value: CodeServerNotInitialized})
+	case Silent:
+		false
+	}
+	let initReq = "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"initialize\",\"params\":{\"capabilities\":{\"general\":{\"positionEncodings\":[\"utf-16\",\"utf-8\"]}}}}"
+	let initOK = match HandleMessage(sess, srv, handler, initReq) {
+	case Answered as a:
+		match extractResult(a.JSON) {
+		case option.Some as res:
+			let caps = objectMember(res.Value, "capabilities")
+			match caps {
+			case option.Some as c:
+				objectMember(c.Value, "positionEncoding") == (option.Some{Value: json.Str{Value: "utf-8"}})
+			case option.None:
+				false
+			}
+		case option.None:
+			false
+		}
+	case Silent:
+		false
+	}
+	let doubleInitOK = match HandleMessage(sess, srv, handler, initReq) {
+	case Answered as a:
+		extractErrorCode(a.JSON) == (option.Some{Value: CodeInvalidRequest})
+	case Silent:
+		false
+	}
+	let beforeInitializedOK = match HandleMessage(sess, srv, handler, "{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"textDocument/hover\"}") {
+	case Answered as a:
+		extractErrorCode(a.JSON) == (option.Some{Value: CodeServerNotInitialized})
+	case Silent:
+		false
+	}
+	let initializedOK = match HandleMessage(sess, srv, handler, "{\"jsonrpc\":\"2.0\",\"method\":\"initialized\",\"params\":{}}") {
+	case Silent:
+		true
+	case Answered:
+		false
+	}
+	let openReq = "{\"jsonrpc\":\"2.0\",\"method\":\"textDocument/didOpen\",\"params\":{\"textDocument\":{\"uri\":\"file:///main.ergo\",\"languageId\":\"ergo\",\"version\":1,\"text\":\"a😀b\"}}}"
+	let _ = HandleMessage(sess, srv, handler, openReq)
+	let chReq = "{\"jsonrpc\":\"2.0\",\"method\":\"textDocument/didChange\",\"params\":{\"textDocument\":{\"uri\":\"file:///main.ergo\",\"version\":2},\"contentChanges\":[{\"range\":{\"start\":{\"line\":0,\"character\":5},\"end\":{\"line\":0,\"character\":6}},\"text\":" + json.Encode(json.Codec[string]{MaxBytes: 0, MaxDepth: 0}, extra) + "}]}}"
+	let _ = HandleMessage(sess, srv, handler, chReq)
+	let echoOK = match HandleMessage(sess, srv, handler, "{\"jsonrpc\":\"2.0\",\"id\":4,\"method\":\"ergo/echo\"}") {
+	case Answered as a:
+		extractResult(a.JSON) == (option.Some{Value: json.Str{Value: "a😀" + extra}})
+	case Silent:
+		false
+	}
+	let shutdownOK = match HandleMessage(sess, srv, handler, "{\"jsonrpc\":\"2.0\",\"id\":5,\"method\":\"shutdown\"}") {
+	case Answered as a:
+		extractResult(a.JSON) == (option.Some{Value: json.Null})
+	case Silent:
+		false
+	}
+	let postShutdownOK = match HandleMessage(sess, srv, handler, "{\"jsonrpc\":\"2.0\",\"id\":6,\"method\":\"ergo/echo\"}") {
+	case Answered as a:
+		extractErrorCode(a.JSON) == (option.Some{Value: CodeInvalidRequest})
+	case Silent:
+		false
+	}
+	let _ = HandleMessage(sess, srv, handler, "{\"jsonrpc\":\"2.0\",\"method\":\"exit\"}")
+	let cleanExit = SessionExitCode(sess) == 0 && SessionExited(sess)
+	let dirtySess = NewSession()
+	let _ = HandleMessage(dirtySess, srv, handler, "{\"jsonrpc\":\"2.0\",\"method\":\"exit\"}")
+	let dirtyExit = SessionExitCode(dirtySess) == 1 && SessionExited(dirtySess)
+	preInitOK && initOK && doubleInitOK && beforeInitializedOK && initializedOK && echoOK && shutdownOK && postShutdownOK && cleanExit && dirtyExit
+}
+
+law StdioAndMemoryTransportsAgree(docText string, insert string) {
+	let srv = Server{Info: ServerInfo{Name: "parity", Version: "0.1"}, SyncKind: SyncIncremental}
+	let handler = func(ctx RequestContext) json.Value fails RPCError {
+		let txt = match Text(ctx.Documents, "file:///p.ergo") {
+		case option.Some as t:
+			t.Value
+		case option.None:
+			""
+		}
+		json.Str{Value: txt}
+	}
+	let initDoc = "hx\r\n" + docText
+	let msgs = []string{
+		"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"capabilities\":{\"general\":{\"positionEncodings\":[\"utf-16\"]}}}}",
+		"{\"jsonrpc\":\"2.0\",\"method\":\"initialized\"}",
+		"{\"jsonrpc\":\"2.0\",\"method\":\"textDocument/didOpen\",\"params\":{\"textDocument\":{\"uri\":\"file:///p.ergo\",\"languageId\":\"ergo\",\"version\":1,\"text\":" + json.Encode(json.Codec[string]{MaxBytes: 0, MaxDepth: 0}, initDoc) + "}}}",
+		"{\"jsonrpc\":\"2.0\",\"method\":\"textDocument/didChange\",\"params\":{\"textDocument\":{\"uri\":\"file:///p.ergo\",\"version\":2},\"contentChanges\":[{\"range\":{\"start\":{\"line\":0,\"character\":1},\"end\":{\"line\":0,\"character\":2}},\"text\":" + json.Encode(json.Codec[string]{MaxBytes: 0, MaxDepth: 0}, insert) + "}]}}",
+		"{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"workspace/inspect\"}",
+		"{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"shutdown\"}",
+		"{\"jsonrpc\":\"2.0\",\"method\":\"exit\"}",
+	}
+	let mem = NewMemoryTransport(msgs)
+	let memSess = NewSession()
+	let memCode = with context { Transport: mem } {
+		Serve(memSess, srv, handler) catch {
+		case _:
+			return false
+		}
+	}
+	let mut wireText = ""
+	for m in msgs {
+		wireText = wireText + EncodeFrame(m)
+	}
+	let n = wireText.Len()
+	let src = io.CutAt(wireText, []int{3, 17, n / 2, n - 5})
+	let rec = io.NewRecorder()
+	let stdio = NewStdioTransportFrom(src, rec, DefaultLimits())
+	let stdioSess = NewSession()
+	let stdioCode = with context { Transport: stdio } {
+		Serve(stdioSess, srv, handler) catch {
+		case _:
+			return false
+		}
+	}
+	let decoded = ReadAllFrames(io.CutAt(rec.Text(), []int{}), DefaultLimits()) catch {
+	case _:
+		return false
+	}
+	let memOut = SentMessages(mem)
+	if memCode != 0 || stdioCode != 0 || decoded.Len() != memOut.Len() {
+		return false
+	}
+	let mut i = 0
+	for i < memOut.Len() {
+		if decoded[i].Payload != memOut[i] {
+			return false
+		}
+		i = i + 1
+	}
+	true
+}
+
+law LiveConcurrentCancellationWorks(tag string) {
+	let srv = Server{Info: ServerInfo{Name: "live", Version: "1.0"}, SyncKind: SyncIncremental}
+	let started = sync.NewLatch()
+	let release = sync.NewLatch()
+	let sawCancel = sync.NewRef(false)
+	let live = NewLive(16)
+	let sess = NewSession()
+	let handler = func(ctx RequestContext) json.Value fails RPCError {
+		if ctx.Method == "textDocument/slow" {
+			let _ = sync.Open(started)
+			sync.Await(release)
+			sawCancel.Set(ctx.IsCancelled())
+			return json.Str{Value: tag}
+		}
+		json.Null
+	}
+	let serverTask = task.Go() {
+		with context { Transport: live } {
+			ServeConcurrent(sess, srv, handler) catch {
+			case _:
+				-1
+			}
+		}
+	}
+	SendClient(live, "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{}}") catch {
+	case _:
+		return false
+	}
+	let initReply = match NextServer(live) {
+	case option.Some as s:
+		s.Value
+	case option.None:
+		return false
+	}
+	let _ = initReply
+	SendClient(live, "{\"jsonrpc\":\"2.0\",\"method\":\"initialized\"}") catch {
+	case _:
+		return false
+	}
+	SendClient(live, "{\"jsonrpc\":\"2.0\",\"id\":42,\"method\":\"textDocument/slow\"}") catch {
+	case _:
+		return false
+	}
+	sync.Await(started)
+	SendClient(live, "{\"jsonrpc\":\"2.0\",\"method\":\"$/cancelRequest\",\"params\":{\"id\":42}}") catch {
+	case _:
+		return false
+	}
+	SendClient(live, "{\"jsonrpc\":\"2.0\",\"id\":43,\"method\":\"textDocument/fast\"}") catch {
+	case _:
+		return false
+	}
+	let mut gotFast = false
+	let mut gotCancelled = false
+	let fastReply = match NextServer(live) {
+	case option.Some as s:
+		s.Value
+	case option.None:
+		return false
+	}
+	if extractResult(fastReply) == (option.Some{Value: json.Null}) {
+		gotFast = true
+	}
+	let _ = sync.Open(release)
+	let slowReply = match NextServer(live) {
+	case option.Some as s:
+		s.Value
+	case option.None:
+		return false
+	}
+	if extractErrorCode(slowReply) == (option.Some{Value: CodeRequestCancelled}) {
+		gotCancelled = true
+	}
+	SendClient(live, "{\"jsonrpc\":\"2.0\",\"id\":99,\"method\":\"shutdown\"}") catch {
+	case _:
+		return false
+	}
+	let _ = NextServer(live)
+	SendClient(live, "{\"jsonrpc\":\"2.0\",\"method\":\"exit\"}") catch {
+	case _:
+		return false
+	}
+	CloseClient(live)
+	let code = serverTask.Wait()
+	code == 0 && gotFast && gotCancelled && sawCancel.Get()
+}
