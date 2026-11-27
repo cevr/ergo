@@ -1,0 +1,608 @@
+import compiler/check/bind
+import compiler/check/store
+import compiler/syntax
+import dense
+import hex
+import option
+import sha256
+import slices
+import strconv
+import strings
+
+// SourceFile pairs an Ergo source file name with its raw source text.
+type SourceFile {
+	Name string,
+	Src  string,
+}
+
+// TopDeclTag identifies a top-level declaration row in a ParsedPackage.
+type TopDeclTag {}
+
+// ParsedPackage holds a parsed and name-bound Ergo package plus flat DoD decl indices.
+type ParsedPackage {
+	Path      string,
+	Files     []bind.File,
+	Store     store.Store,
+	Parents   bind.Parents,
+	Uses      bind.Uses,
+	DeclCount dense.Count[TopDeclTag],
+	DeclFile  dense.Col[TopDeclTag, uint32],
+	DeclNode  dense.Col[TopDeclTag, uint32],
+	DeclPos   dense.Col[TopDeclTag, uint32],
+	DeclEnd   dense.Col[TopDeclTag, uint32],
+	DeclKind  dense.Col[TopDeclTag, uint8],
+	DeclNames dense.Strings,
+	DeclName  dense.Col[TopDeclTag, dense.Opt[dense.Str]],
+}
+
+let topDeclImport = uint8(1)
+let topDeclFunc = uint8(2)
+let topDeclVar = uint8(3)
+let topDeclType = uint8(4)
+let topDeclOther = uint8(5)
+
+// BuildParsedPackage parses, collects declarations, and binds identifier uses for one package.
+func BuildParsedPackage(pkgPath string, srcs []SourceFile) ParsedPackage {
+	let mut bfiles = slices.WithCapacity[bind.File](srcs.Len())
+	for sf in srcs {
+		let p = syntax.Parse(sf.Src)
+		bfiles = bfiles.Append(bind.File{Name: sf.Name, Parsed: p})
+	}
+	let st = bind.Collect(pkgPath, bfiles)
+	let ps = bind.BuildParents(bfiles)
+	let uses = bind.BindUses(st, ps, bfiles)
+	let mut pkg = ParsedPackage{
+		Path:      pkgPath,
+		Files:     bfiles,
+		Store:     st,
+		Parents:   ps,
+		Uses:      uses,
+		DeclCount: dense.NewCount[TopDeclTag](),
+		DeclFile:  dense.NewCol[TopDeclTag, uint32](),
+		DeclNode:  dense.NewCol[TopDeclTag, uint32](),
+		DeclPos:   dense.NewCol[TopDeclTag, uint32](),
+		DeclEnd:   dense.NewCol[TopDeclTag, uint32](),
+		DeclKind:  dense.NewCol[TopDeclTag, uint8](),
+		DeclNames: dense.NewStrings(),
+		DeclName:  dense.NewCol[TopDeclTag, dense.Opt[dense.Str]](),
+	}
+	indexPackageTopDecls(&pkg)
+	pkg
+}
+
+func indexPackageTopDecls(pkg mut ParsedPackage) {
+	for fi, bf in (*pkg).Files {
+		let p = bf.Parsed
+		if p.Failed {
+			continue
+		}
+		match syntax.ViewOf(p.Tree, syntax.Root(p.Tree)) {
+		case syntax.File as fileView:
+			for i in 0..syntax.Len(fileView.Decls) {
+				let declID = syntax.Item(p.Tree, fileView.Decls, i)
+				let k = classifyTopDeclKind(p.Tree, declID)
+				let nameText = primaryTopDeclName(p, declID)
+				let _ = dense.Next(&pkg.DeclCount)
+				dense.Push(&pkg.DeclFile, uint32(fi))
+				dense.Push(&pkg.DeclNode, uint32(dense.Index(declID)))
+				dense.Push(&pkg.DeclPos, uint32(syntax.NodePos(p, declID)))
+				dense.Push(&pkg.DeclEnd, uint32(syntax.NodeEnd(p, declID)))
+				dense.Push(&pkg.DeclKind, k)
+				if nameText == "" {
+					dense.Push(&pkg.DeclName, dense.NoID[dense.Str]())
+				} else {
+					let sid = dense.InternText(&pkg.DeclNames, nameText)
+					dense.Push(&pkg.DeclName, dense.OptOf(sid))
+				}
+			}
+		case _:
+		}
+	}
+}
+
+func classifyTopDeclKind(t syntax.Tree, declID dense.ID[syntax.Node]) uint8 {
+	let k = syntax.KindOf(t, declID)
+	if k == syntax.KImportDecl {
+		return topDeclImport
+	}
+	if k == syntax.KFuncDecl {
+		return topDeclFunc
+	}
+	if k == syntax.KVarDecl {
+		return topDeclVar
+	}
+	if k == syntax.KTypeDecl {
+		return topDeclType
+	}
+	topDeclOther
+}
+
+func nodeFirstTokText(p syntax.Parsed, id dense.ID[syntax.Node]) string {
+	let j = syntax.TokStartingAt(p, syntax.NodePos(p, id))
+	if j < 0 { "" } else { syntax.TokText(p, j) }
+}
+
+func primaryTopDeclName(p syntax.Parsed, declID dense.ID[syntax.Node]) string {
+	match syntax.ViewOf(p.Tree, declID) {
+	case syntax.FuncDecl as fd:
+		nodeFirstTokText(p, fd.Name)
+	case syntax.TypeDecl as td:
+		nodeFirstTokText(p, td.Name)
+	case syntax.VarDecl as vd:
+		match syntax.ViewOf(p.Tree, vd.Spec) {
+		case syntax.VarSpec as vs:
+			if syntax.Len(vs.Names) > 0 {
+				return nodeFirstTokText(p, syntax.Item(p.Tree, vs.Names, 0))
+			}
+			""
+		case _:
+			""
+		}
+	case _:
+		""
+	}
+}
+
+// PackageGraph stores an indexed collection of ParsedPackages keyed via dense.Strings.
+type PackageGraph {
+	Pkgs      []ParsedPackage,
+	PathPool  dense.Strings,
+	PkgByPath dense.Col[dense.Str, uint32],
+}
+
+// BuildPackageGraph indexes pkgs by import path with zero pointer-keyed maps.
+func BuildPackageGraph(pkgs []ParsedPackage) PackageGraph {
+	let mut pool = dense.NewStrings()
+	let mut byPath = dense.NewCol[dense.Str, uint32]()
+	for i, p in pkgs {
+		let sid = dense.InternText(&pool, p.Path)
+		for !dense.In(byPath, sid) {
+			dense.Push(&byPath, uint32(0))
+		}
+		dense.SetOf(&byPath, sid, uint32(i+1))
+	}
+	PackageGraph{Pkgs: pkgs, PathPool: pool, PkgByPath: byPath}
+}
+
+// LookupPkgIndex finds the slice index of pkgPath inside g.
+func LookupPkgIndex(g PackageGraph, pkgPath string) option.Option[uint32] {
+	match dense.FindText(g.PathPool, pkgPath) {
+	case option.Some{Value: sid}:
+		if !dense.In(g.PkgByPath, sid) {
+			return option.None
+		}
+		let v = dense.Of(g.PkgByPath, sid)
+		if v == uint32(0) { option.None } else { option.Some[uint32]{Value: v - uint32(1)} }
+	case option.None:
+		option.None
+	}
+}
+
+type queuedDecl {
+	PkgIdx  uint32,
+	DeclRow uint32,
+}
+
+type digestWalkState {
+	Graph       PackageGraph,
+	Out         strings.Builder,
+	VisitedKeys dense.Strings,
+	SeenPkgs    []bool,
+	InitQueue   []uint32,
+	DeclQueue   []queuedDecl,
+	ChildrenBuf []uint32,
+}
+
+// MapperSemanticDigest computes a deterministic SHA-256 digest of the canonical AST
+// and token semantics reachable from fnName in rootPkgPath (or all funcs/types when fnName is "").
+func MapperSemanticDigest(graph PackageGraph, rootPkgPath string, fnName string) string {
+	let rootOpt = LookupPkgIndex(graph, rootPkgPath)
+	let rootIdx = match rootOpt {
+	case option.Some{Value: idx}:
+		idx
+	case option.None:
+		return hex.Encode(sha256.Sum("nilpkg"))
+	}
+	let mut st = digestWalkState{
+		Graph:       graph,
+		Out:         strings.NewBuilder(),
+		VisitedKeys: dense.NewStrings(),
+		SeenPkgs:    slices.Repeat([]bool{false}, graph.Pkgs.Len()),
+		InitQueue:   []uint32{},
+		DeclQueue:   []queuedDecl{},
+		ChildrenBuf: slices.WithCapacity[uint32](32),
+	}
+	st.Out.WriteString("pkg:")
+	st.Out.WriteString(rootPkgPath)
+	st.Out.WriteString("|")
+	enqueueDigestPkg(&st, rootIdx)
+	if fnName != "" {
+		let found = findNamedTopDecls(graph.Pkgs[int(rootIdx)], fnName, topDeclFunc)
+		if found.Len() == 0 {
+			st.Out.WriteString("rootfn:")
+			st.Out.WriteString(fnName)
+			st.Out.WriteString("|")
+		} else {
+			for dr in found {
+				visitDigestDecl(&st, rootIdx, dr)
+			}
+		}
+	} else {
+		let pkg = graph.Pkgs[int(rootIdx)]
+		let n = dense.Total(pkg.DeclCount)
+		for i in 0..n {
+			let id = dense.IDAt(pkg.DeclCount, i)
+			let k = dense.Of(pkg.DeclKind, id)
+			if k == topDeclFunc || k == topDeclType {
+				visitDigestDecl(&st, rootIdx, uint32(i))
+			}
+		}
+	}
+	let mut head = 0
+	for head < st.InitQueue.Len() {
+		let pIdx = st.InitQueue[head]
+		head = head + 1
+		let pkg = st.Graph.Pkgs[int(pIdx)]
+		st.Out.WriteString("initpkg:")
+		st.Out.WriteString(pkg.Path)
+		st.Out.WriteString("|")
+		let n = dense.Total(pkg.DeclCount)
+		for i in 0..n {
+			let id = dense.IDAt(pkg.DeclCount, i)
+			if dense.Of(pkg.DeclKind, id) == topDeclVar {
+				visitDigestDecl(&st, pIdx, uint32(i))
+			}
+		}
+	}
+	for qd in st.DeclQueue {
+		let pkg = st.Graph.Pkgs[int(qd.PkgIdx)]
+		let id = dense.IDAt(pkg.DeclCount, int(qd.DeclRow))
+		let fi = int(dense.Of(pkg.DeclFile, id))
+		let ni = int(dense.Of(pkg.DeclNode, id))
+		st.Out.WriteString("decl:")
+		st.Out.WriteString(pkg.Path)
+		st.Out.WriteString("|")
+		let p = pkg.Files[fi].Parsed
+		writeCanonicalAST(&st, p, syntax.NodeAt(p.Tree, ni))
+	}
+	hex.Encode(sha256.Sum(st.Out.String()))
+}
+
+func enqueueDigestPkg(st mut digestWalkState, pkgIdx uint32) {
+	if int(pkgIdx) >= (*st).SeenPkgs.Len() || (*st).SeenPkgs[int(pkgIdx)] {
+		return
+	}
+	(*st).SeenPkgs[int(pkgIdx)] = true
+	(*st).InitQueue = (*st).InitQueue.Append(pkgIdx)
+}
+
+func markDeclVisited(st mut digestWalkState, pkgIdx uint32, declRow uint32) bool {
+	let key = strconv.Itoa(int(pkgIdx)) + ":" + strconv.Itoa(int(declRow))
+	if dense.FindText((*st).VisitedKeys, key) != option.None {
+		return false
+	}
+	let _ = dense.InternText(&st.VisitedKeys, key)
+	true
+}
+
+func findNamedTopDecls(pkg ParsedPackage, name string, wantKind uint8) []uint32 {
+	let mut out = []uint32{}
+	let n = dense.Total(pkg.DeclCount)
+	let nameIDOpt = dense.FindText(pkg.DeclNames, name)
+	for i in 0..n {
+		let id = dense.IDAt(pkg.DeclCount, i)
+		let k = dense.Of(pkg.DeclKind, id)
+		if wantKind != uint8(0) && k != wantKind {
+			continue
+		}
+		if declMatchesName(pkg, id, name, nameIDOpt) {
+			out = out.Append(uint32(i))
+		}
+	}
+	out
+}
+
+func declMatchesName(pkg ParsedPackage, id dense.ID[TopDeclTag], name string, nameIDOpt option.Option[dense.ID[dense.Str]]) bool {
+	match nameIDOpt {
+	case option.Some{Value: sid}:
+		match dense.Unpack(dense.Of(pkg.DeclName, id)) {
+		case option.Some{Value: dsid}:
+			if dsid == sid {
+				return true
+			}
+		case option.None:
+		}
+	case option.None:
+	}
+	let fi = int(dense.Of(pkg.DeclFile, id))
+	let ni = int(dense.Of(pkg.DeclNode, id))
+	let p = pkg.Files[fi].Parsed
+	let dn = syntax.NodeAt(p.Tree, ni)
+	match syntax.ViewOf(p.Tree, dn) {
+	case syntax.VarDecl as vd:
+		match syntax.ViewOf(p.Tree, vd.Spec) {
+		case syntax.VarSpec as vs:
+			for i in 0..syntax.Len(vs.Names) {
+				if nodeFirstTokText(p, syntax.Item(p.Tree, vs.Names, i)) == name {
+					return true
+				}
+			}
+		case _:
+		}
+	case syntax.TypeDecl as td:
+		match dense.Unpack(td.Spec) {
+		case option.Some{Value: specID}:
+			match syntax.ViewOf(p.Tree, specID) {
+			case syntax.InterfaceType as it:
+				for i in 0..syntax.Len(it.Members) {
+					let memID = syntax.Item(p.Tree, it.Members, i)
+					match syntax.ViewOf(p.Tree, memID) {
+					case syntax.VariantSpec as vs:
+						if nodeFirstTokText(p, vs.Name) == name {
+							return true
+						}
+					case _:
+					}
+				}
+			case _:
+			}
+		case option.None:
+		}
+	case _:
+	}
+	false
+}
+
+func findEnclosingTopDecl(pkg ParsedPackage, fileIdx int, nodeIdx int) option.Option[uint32] {
+	let p = pkg.Files[fileIdx].Parsed
+	let targetID = syntax.NodeAt(p.Tree, nodeIdx)
+	let pos = uint32(syntax.NodePos(p, targetID))
+	let end = uint32(syntax.NodeEnd(p, targetID))
+	let n = dense.Total(pkg.DeclCount)
+	for i in 0..n {
+		let id = dense.IDAt(pkg.DeclCount, i)
+		if int(dense.Of(pkg.DeclFile, id)) != fileIdx {
+			continue
+		}
+		if dense.Of(pkg.DeclPos, id) <= pos && end <= dense.Of(pkg.DeclEnd, id) {
+			return option.Some[uint32]{Value: uint32(i)}
+		}
+	}
+	option.None
+}
+
+func resolveFileImportAlias(p syntax.Parsed, alias string) option.Option[string] {
+	if p.Failed {
+		return option.None
+	}
+	match syntax.ViewOf(p.Tree, syntax.Root(p.Tree)) {
+	case syntax.File as root:
+		for i in 0..syntax.Len(root.Decls) {
+			let d = syntax.Item(p.Tree, root.Decls, i)
+			match syntax.ViewOf(p.Tree, d) {
+			case syntax.ImportDecl as id:
+				match syntax.ViewOf(p.Tree, id.Spec) {
+				case syntax.ImportSpec as is:
+					let pathRaw = nodeFirstTokText(p, is.Path)
+					let cleanedPath = trimQuotes(pathRaw)
+					let localName = match dense.Unpack(is.Name) {
+					case option.Some{Value: nm}:
+						nodeFirstTokText(p, nm)
+					case option.None:
+						defaultPkgLocalName(cleanedPath)
+					}
+					if localName == alias {
+						return option.Some[string]{Value: cleanedPath}
+					}
+				case _:
+				}
+			case _:
+			}
+		}
+	case _:
+	}
+	option.None
+}
+
+func trimQuotes(s string) string {
+	if s.Len() >= 2 && s[0] == byte(34) && s[s.Len()-1] == byte(34) {
+		return s[1:(s.Len() - 1)]
+	}
+	s
+}
+
+func defaultPkgLocalName(path string) string {
+	let idx = strings.LastIndex(path, "/")
+	if idx >= 0 {
+		return path[(idx + 1):path.Len()]
+	}
+	path
+}
+
+func visitDigestDecl(st mut digestWalkState, pkgIdx uint32, declRow uint32) {
+	if !markDeclVisited(st, pkgIdx, declRow) {
+		return
+	}
+	enqueueDigestPkg(st, pkgIdx)
+	(*st).DeclQueue = (*st).DeclQueue.Append(queuedDecl{PkgIdx: pkgIdx, DeclRow: declRow})
+	let pkg = (*st).Graph.Pkgs[int(pkgIdx)]
+	let id = dense.IDAt(pkg.DeclCount, int(declRow))
+	let fi = int(dense.Of(pkg.DeclFile, id))
+	let ni = int(dense.Of(pkg.DeclNode, id))
+	let p = pkg.Files[fi].Parsed
+	walkDigestSubtree(st, pkgIdx, fi, p, syntax.NodeAt(p.Tree, ni))
+}
+
+func walkDigestSubtree(st mut digestWalkState, pkgIdx uint32, fi int, p syntax.Parsed, nodeID dense.ID[syntax.Node]) {
+	let pkg = (*st).Graph.Pkgs[int(pkgIdx)]
+	match syntax.ViewOf(p.Tree, nodeID) {
+	case syntax.SelectorExpr as se:
+		if syntax.KindOf(p.Tree, se.X) == syntax.KIdent {
+			let alias = nodeFirstTokText(p, se.X)
+			let selName = nodeFirstTokText(p, se.Sel)
+			match resolveFileImportAlias(p, alias) {
+			case option.Some{Value: targetPkgPath}:
+				match LookupPkgIndex((*st).Graph, targetPkgPath) {
+				case option.Some{Value: tPkgIdx}:
+					let tPkg = (*st).Graph.Pkgs[int(tPkgIdx)]
+					let targets = findNamedTopDecls(tPkg, selName, uint8(0))
+					if targets.Len() == 0 {
+						enqueueDigestPkg(st, tPkgIdx)
+						(*st).Out.WriteString("ext:")
+						(*st).Out.WriteString(targetPkgPath)
+						(*st).Out.WriteString(".")
+						(*st).Out.WriteString(selName)
+						(*st).Out.WriteString("|")
+					} else {
+						for tr in targets {
+							visitDigestDecl(st, tPkgIdx, tr)
+						}
+					}
+				case option.None:
+				}
+			case option.None:
+			}
+		}
+	case syntax.Name:
+		let pnode = bind.PNodeOf(pkg.Parents, fi, nodeID)
+		match bind.ResolutionOf(pkg.Uses, pkg.Parents, pnode) {
+		case bind.Declared as res:
+			let (df, dn) = bind.RowOf(pkg.Parents, res.At)
+			match findEnclosingTopDecl(pkg, df, dn) {
+			case option.Some{Value: targetDecl}:
+				let tId = dense.IDAt(pkg.DeclCount, int(targetDecl))
+				if dense.Of(pkg.DeclKind, tId) != topDeclImport {
+					visitDigestDecl(st, pkgIdx, targetDecl)
+				}
+			case option.None:
+			}
+		case _:
+		}
+	case _:
+	}
+	let kids = syntax.Children(p.Tree, nodeID, (*st).ChildrenBuf[:0])
+	let copyKids = slices.Clone(kids)
+	(*st).ChildrenBuf = kids
+	for cw in copyKids {
+		walkDigestSubtree(st, pkgIdx, fi, p, syntax.NodeAt(p.Tree, int(cw)))
+	}
+}
+
+func writeCanonicalAST(st mut digestWalkState, p syntax.Parsed, nodeID dense.ID[syntax.Node]) {
+	let k = syntax.KindOf(p.Tree, nodeID)
+	(*st).Out.WriteString("(")
+	(*st).Out.WriteString(strconv.Itoa(int(k)))
+	match syntax.ViewOf(p.Tree, nodeID) {
+	case syntax.Name as v:
+		if v.Tok >= 0 {
+			(*st).Out.WriteString(":")
+			(*st).Out.WriteString(syntax.TokText(p, v.Tok))
+		}
+	case syntax.BasicLit as v:
+		if v.Tok >= 0 {
+			(*st).Out.WriteString(":")
+			(*st).Out.WriteString(strconv.Itoa(int(syntax.TokKind(p, v.Tok))))
+			(*st).Out.WriteString(":")
+			(*st).Out.WriteString(syntax.TokText(p, v.Tok))
+		}
+	case syntax.BinaryExpr as v:
+		if v.Op >= 0 {
+			(*st).Out.WriteString(":")
+			(*st).Out.WriteString(strconv.Itoa(int(syntax.TokKind(p, v.Op))))
+		}
+	case syntax.UnaryExpr as v:
+		if v.Op >= 0 {
+			(*st).Out.WriteString(":")
+			(*st).Out.WriteString(strconv.Itoa(int(syntax.TokKind(p, v.Op))))
+		}
+	case syntax.AssignStmt as v:
+		if v.Tok >= 0 {
+			(*st).Out.WriteString(":")
+			(*st).Out.WriteString(strconv.Itoa(int(syntax.TokKind(p, v.Tok))))
+		}
+	case syntax.BranchStmt as v:
+		if v.Tok >= 0 {
+			(*st).Out.WriteString(":")
+			(*st).Out.WriteString(strconv.Itoa(int(syntax.TokKind(p, v.Tok))))
+		}
+	case syntax.ImportSpec as v:
+		let nm = match dense.Unpack(v.Name) {
+		case option.Some{Value: nid}:
+			nodeFirstTokText(p, nid)
+		case option.None:
+			""
+		}
+		let pathText = nodeFirstTokText(p, v.Path)
+		(*st).Out.WriteString(":")
+		(*st).Out.WriteString(nm)
+		(*st).Out.WriteString(":")
+		(*st).Out.WriteString(pathText)
+	case syntax.TypeDecl as v:
+		if dense.Unpack(v.Where) != option.None {
+			(*st).Out.WriteString(":where")
+		}
+		if dense.Unpack(v.Derive) != option.None {
+			(*st).Out.WriteString(":derive")
+		}
+	case syntax.FuncDecl as v:
+		if dense.Unpack(v.Extern) != option.None {
+			(*st).Out.WriteString(":extern")
+		}
+	case syntax.FuncType as v:
+		(*st).Out.WriteString(":entry=")
+		(*st).Out.WriteString(if v.Entry >= 0 { "1" } else { "0" })
+		(*st).Out.WriteString(":defects=")
+		(*st).Out.WriteString(if v.Defects >= 0 { "1" } else { "0" })
+	case syntax.Field as v:
+		(*st).Out.WriteString(":own=")
+		(*st).Out.WriteString(if v.Own >= 0 { "1" } else { "0" })
+		(*st).Out.WriteString(":mut=")
+		(*st).Out.WriteString(if v.Mut >= 0 { "1" } else { "0" })
+	case syntax.CompositeLit as v:
+		if dense.Unpack(v.Base) != option.None {
+			(*st).Out.WriteString(":dotdot")
+		}
+	case syntax.CallExpr as v:
+		if dense.Unpack(v.Trailing) != option.None {
+			(*st).Out.WriteString(":trail")
+		}
+		if v.TrailingFunc {
+			(*st).Out.WriteString(":tf")
+		}
+	case syntax.StarExpr as v:
+		if v.Star >= 0 {
+			(*st).Out.WriteString(":")
+			(*st).Out.WriteString(syntax.TokText(p, v.Star))
+		}
+	case _:
+	}
+	let kids = syntax.Children(p.Tree, nodeID, (*st).ChildrenBuf[:0])
+	let copyKids = slices.Clone(kids)
+	(*st).ChildrenBuf = kids
+	for cw in copyKids {
+		writeCanonicalAST(st, p, syntax.NodeAt(p.Tree, int(cw)))
+	}
+	(*st).Out.WriteString(")")
+}
+
+// DigestIgnoresCommentsAndUnreachable checks that formatting whitespace, comments,
+// and unreachable helper edits preserve MapperSemanticDigest for the reachable mapper function.
+law DigestIgnoresCommentsAndUnreachable(unusedVal string) {
+	let mut cleanBytes = []byte{}
+	for i in 0..unusedVal.Len() {
+		let c = unusedVal[i]
+		if c >= byte(32) && c != byte(34) && c != byte(92) && c != byte(127) {
+			cleanBytes = cleanBytes.Append(c)
+		}
+	}
+	let clean = strings.FromBytes(cleanBytes)
+	let base = BuildParsedPackage("app/lawm", []SourceFile{
+		SourceFile{Name: "m.ergo", Src: "func keep() string { \"fixed\" }\nfunc dead() string { \"x\" }\n"},
+	})
+	let edited = BuildParsedPackage("app/lawm", []SourceFile{
+		SourceFile{Name: "m.ergo", Src: "\n// leading comment\nfunc dead() string { \"" + clean + "\" }\n\nfunc keep() string {\n\t// comment inside body\n\t\"fixed\"\n}\n"},
+	})
+	let d1 = MapperSemanticDigest(BuildPackageGraph([]ParsedPackage{base}), "app/lawm", "keep")
+	let d2 = MapperSemanticDigest(BuildPackageGraph([]ParsedPackage{edited}), "app/lawm", "keep")
+	d1 == d2
+}

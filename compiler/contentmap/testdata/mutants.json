@@ -1,0 +1,122 @@
+{
+  "about": "Self-hosted Data-Oriented contentmap span safety, sandbox confinement, key stability, caching, purity, error isolation, and cycle mutants.",
+  "mutants": [
+    {
+      "name": "selfhost-contentmap-spans-overlap-admitted",
+      "origin": "selfhost-contentmap",
+      "file": "compiler/contentmap/spans.ergo",
+      "decl": "VerifySpans",
+      "from": "\t\tif i > 0 && e.Generated.Start < prevEnd {\n",
+      "to": "\t\tif false && i > 0 && e.Generated.Start < prevEnd {\n",
+      "rule": "VerifySpans requires generated intervals to be monotonically ordered and disjoint.",
+      "killers": ["compiler/contentmap:VerifyLookupSpansAndUTF16AndEscapes"],
+      "anchor": {
+        "tests": ["compiler/contentmap:VerifyLookupSpansAndUTF16AndEscapes"]
+      }
+    },
+    {
+      "name": "selfhost-contentmap-spans-companion-unchecked",
+      "origin": "selfhost-contentmap",
+      "file": "compiler/contentmap/spans.ergo",
+      "decl": "VerifySpans",
+      "from": "\t\t\tif int(ci) >= compLens.Len() {\n",
+      "to": "\t\t\tif false && int(ci) >= compLens.Len() {\n",
+      "rule": "VerifySpans rejects out-of-range Companion indices.",
+      "killers": ["compiler/contentmap:VerifyLookupSpansAndUTF16AndEscapes"],
+      "anchor": {
+        "tests": ["compiler/contentmap:VerifyLookupSpansAndUTF16AndEscapes"]
+      }
+    },
+    {
+      "name": "selfhost-contentmap-asset-escape-allowed",
+      "origin": "selfhost-contentmap",
+      "file": "compiler/contentmap/asset.ergo",
+      "decl": "DiscoverAsset",
+      "from": "\tif rel == \".\" || strings.HasPrefix(rel, \"..\") || filepath.IsAbs(rel) {\n",
+      "to": "\tif rel == \".\" || filepath.IsAbs(rel) {\n",
+      "rule": "Asset discovery rejects paths escaping the module root via parent traversal.",
+      "killers": ["compiler/contentmap:DiscoverAssetSandboxAndCompanions"],
+      "anchor": {
+        "tests": ["compiler/contentmap:DiscoverAssetSandboxAndCompanions"]
+      }
+    },
+    {
+      "name": "selfhost-contentmap-cache-key-includes-inline-line",
+      "origin": "selfhost-contentmap",
+      "file": "compiler/contentmap/codec.ergo",
+      "decl": "BuildCacheKey",
+      "from": "\tcase content.InlineDerive as ind:\n\t\t(\"inline\", ind.Package, \"\")\n",
+      "to": "\tcase content.InlineDerive as ind:\n\t\t(\"inline\", ind.Package, strconv.Itoa(int(ind.Line)))\n",
+      "rule": "Inline Line and Col are excluded from contentmap cache keys so line shifts preserve cache hits.",
+      "killers": ["compiler/contentmap:law:BuildCacheKeyInlinesIgnoreLineShiftAndFile"],
+      "anchor": {
+        "tests": ["compiler/contentmap:law:BuildCacheKeyInlinesIgnoreLineShiftAndFile"]
+      }
+    },
+    {
+      "name": "selfhost-contentmap-cache-hit-skipped",
+      "origin": "selfhost-contentmap",
+      "file": "compiler/contentmap/file_asset.ergo",
+      "decl": "ExecuteMapperCached",
+      "from": "\t\t\tif spanOk && budgetOk {\n",
+      "to": "\t\t\tif false && spanOk && budgetOk {\n",
+      "rule": "Valid cached MappedErgo entries must be reused without re-invoking the mapper runner.",
+      "killers": ["compiler/contentmap:RunFileAssetCachePurityAndErrorIsolation"],
+      "anchor": {
+        "tests": ["compiler/contentmap:RunFileAssetCachePurityAndErrorIsolation"]
+      }
+    },
+    {
+      "name": "selfhost-contentmap-error-diag-still-parses",
+      "origin": "selfhost-contentmap",
+      "file": "compiler/contentmap/file_asset.ergo",
+      "decl": "RunFileAsset",
+      "from": "\tif hasErrors {\n\t\treturn FileAssetResult{\n",
+      "to": "\tif false && hasErrors {\n\t\treturn FileAssetResult{\n",
+      "rule": "Any Error MapperDiag stops before parsing MappedErgo.Source (one mistake, one diagnostic).",
+      "killers": ["compiler/contentmap:RunFileAssetCachePurityAndErrorIsolation"],
+      "anchor": {
+        "tests": ["compiler/contentmap:RunFileAssetCachePurityAndErrorIsolation"]
+      }
+    },
+    {
+      "name": "selfhost-contentmap-purity-allows-ffi",
+      "origin": "selfhost-contentmap",
+      "file": "compiler/contentmap/purity.ergo",
+      "decl": "walkPuritySubtree",
+      "from": "\t\t\t\t\tif imp.IsGo && !isStdPackagePath(pkg.Path) {\n\t\t\t\t\t\treturn makeNodeEvalErr(FFIForbidden, \"content mapper \"+(*w).Label+\" cannot call import go package \"+imp.Path+\" at check time\", site.FileIdx, p, nodeID)\n\t\t\t\t\t}\n",
+      "to": "\t\t\t\t\tif false && imp.IsGo && !isStdPackagePath(pkg.Path) {\n\t\t\t\t\t\treturn makeNodeEvalErr(FFIForbidden, \"content mapper \"+(*w).Label+\" cannot call import go package \"+imp.Path+\" at check time\", site.FileIdx, p, nodeID)\n\t\t\t\t\t}\n",
+      "rule": "Content mappers cannot call foreign import go packages at check time.",
+      "killers": ["compiler/contentmap:MapperSignatureAndPurityChecks"],
+      "anchor": {
+        "tests": ["compiler/contentmap:MapperSignatureAndPurityChecks"]
+      }
+    },
+    {
+      "name": "selfhost-contentmap-budget-output-unchecked",
+      "origin": "selfhost-contentmap",
+      "file": "compiler/contentmap/purity.ergo",
+      "decl": "CheckOutputBudget",
+      "from": "\tif sourceLen > nb.MaxOutput {\n",
+      "to": "\tif false && sourceLen > nb.MaxOutput {\n",
+      "rule": "CheckOutputBudget enforces MaxOutput on generated content mapper output.",
+      "killers": ["compiler/contentmap:MapperSignatureAndPurityChecks"],
+      "anchor": {
+        "tests": ["compiler/contentmap:MapperSignatureAndPurityChecks"]
+      }
+    },
+    {
+      "name": "selfhost-contentmap-cycle-not-reported",
+      "origin": "selfhost-contentmap",
+      "file": "compiler/contentmap/phase1.ergo",
+      "decl": "detectAndReportDeriveCycles",
+      "from": "\t\t\t\t*diags = (*diags).Append(diagAtSpan(site, int(dense.Of((*pt).ExprPos, opid)), int(dense.Of((*pt).ExprEnd, opid)), msg))\n",
+      "to": "\t\t\t\tlet _ = diagAtSpan(site, int(dense.Of((*pt).ExprPos, opid)), int(dense.Of((*pt).ExprEnd, opid)), msg)\n",
+      "rule": "Mutual inline derive recursion must emit a content mapper cycle diagnostic.",
+      "killers": ["compiler/contentmap:law:ExpandDetectsCycleLength"],
+      "anchor": {
+        "tests": ["compiler/contentmap:law:ExpandDetectsCycleLength"]
+      }
+    }
+  ]
+}

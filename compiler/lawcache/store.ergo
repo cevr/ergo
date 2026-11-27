@@ -1,0 +1,829 @@
+import dense
+import filepath
+import fs
+import fstest
+import hex
+import option
+import sha256
+import slices
+import strings
+import sync
+import task
+
+// EntryTag identifies a row in the lawcache Structure-of-Arrays entry table.
+type EntryTag {}
+
+// Scratch holds reusable buffers for key hashing and LRU trim sorting.
+type Scratch {
+	Buf   []byte,
+	Order dense.Stack[uint32],
+}
+
+// NewScratch allocates an empty Scratch with pre-sized capacity.
+func NewScratch() Scratch {
+	Scratch{
+		Buf:   slices.WithCapacity[byte](256),
+		Order: dense.StackWithCap[uint32](64),
+	}
+}
+
+// ResetScratch clears scratch cursors while retaining backing storage capacity.
+func ResetScratch(s mut Scratch) {
+	s.Buf = s.Buf[0:0]
+	dense.Cut(&s.Order, 0)
+}
+
+type storeState {
+	fresh       bool,
+	wrote       uint32,
+	seq         uint32,
+	names       dense.Strings,
+	slotOf      dense.Col[dense.Str, dense.Opt[EntryTag]],
+	labels      dense.Strings,
+	labelActive dense.Col[dense.Str, dense.Opt[EntryTag]],
+	entryCount  dense.Count[EntryTag],
+	entryName   dense.Col[EntryTag, dense.ID[dense.Str]],
+	entryText   dense.Col[EntryTag, string],
+	entryHasVal dense.Col[EntryTag, bool],
+	entryRuns   dense.Col[EntryTag, uint32],
+	entrySeq    dense.Col[EntryTag, uint32],
+	entryLabel  dense.Col[EntryTag, dense.Opt[dense.Str]],
+	entryDigest dense.Col[EntryTag, dense.Opt[dense.Str]],
+	entryEvict  dense.Col[EntryTag, bool],
+	scratch     Scratch,
+}
+
+func emptyStoreState() storeState {
+	storeState{
+		fresh:       false,
+		wrote:       uint32(0),
+		seq:         uint32(0),
+		names:       dense.NewStrings(),
+		slotOf:      dense.NewCol[dense.Str, dense.Opt[EntryTag]](),
+		labels:      dense.NewStrings(),
+		labelActive: dense.NewCol[dense.Str, dense.Opt[EntryTag]](),
+		entryCount:  dense.NewCount[EntryTag](),
+		entryName:   dense.NewCol[EntryTag, dense.ID[dense.Str]](),
+		entryText:   dense.NewCol[EntryTag, string](),
+		entryHasVal: dense.NewCol[EntryTag, bool](),
+		entryRuns:   dense.NewCol[EntryTag, uint32](),
+		entrySeq:    dense.NewCol[EntryTag, uint32](),
+		entryLabel:  dense.NewCol[EntryTag, dense.Opt[dense.Str]](),
+		entryDigest: dense.NewCol[EntryTag, dense.Opt[dense.Str]](),
+		entryEvict:  dense.NewCol[EntryTag, bool](),
+		scratch:     NewScratch(),
+	}
+}
+
+// Store holds law and action verdicts in flat SoA tables and optional atomic disk storage.
+type Store {
+	compiler string,
+	dir      string,
+	hasDisk  bool,
+	files    fs.Files,
+	writes   fs.Writes,
+	writerID uint32,
+	state    sync.Ref[storeState],
+	midWrite option.Option[func(string)],
+}
+
+type registryState {
+	keys         dense.Strings,
+	stores       dense.Col[dense.Str, Store],
+	nextWriterID uint32,
+}
+
+// Registry interns shared Store instances per (root, compiler) pair.
+type Registry {
+	state sync.Ref[registryState],
+}
+
+// NewRegistry creates an empty Store registry.
+func NewRegistry() Registry {
+	Registry{
+		state: sync.NewRef(registryState{
+			keys:         dense.NewStrings(),
+			stores:       dense.NewCol[dense.Str, Store](),
+			nextWriterID: uint32(1),
+		}),
+	}
+}
+
+func newStore(files fs.Files, writes fs.Writes, root string, compiler string, writerID uint32) Store {
+	let disk = root != "" && !strings.HasPrefix(compiler, "process:")
+	let dir = if disk { filepath.Join([]string{root, "laws", "v1"}) } else { "" }
+	Store{
+		compiler: compiler,
+		dir:      dir,
+		hasDisk:  disk,
+		files:    files,
+		writes:   writes,
+		writerID: writerID,
+		state:    sync.NewRef(emptyStoreState()),
+		midWrite: option.None,
+	}
+}
+
+// OpenIn returns the shared Store for (root, compiler) in reg, or None when compiler is empty.
+func OpenIn(reg Registry, files fs.Files, writes fs.Writes, root string, compiler string) option.Option[Store] {
+	if compiler == "" {
+		return option.None
+	}
+	let regKey = root + "\x00" + compiler
+	let s = sync.Modify(reg.state, func(st registryState) (Store, registryState) {
+		let mut u = st
+		match dense.FindText(u.keys, regKey) {
+		case option.Some{Value: id}:
+			return (dense.Of(u.stores, id), u)
+		case option.None:
+		}
+		let wid = u.nextWriterID
+		u.nextWriterID = wid + uint32(1)
+		let created = newStore(files, writes, root, compiler, wid)
+		let id = dense.InternText(&u.keys, regKey)
+		for !dense.In(u.stores, id) {
+			dense.Push(&u.stores, created)
+		}
+		dense.SetOf(&u.stores, id, created)
+		(created, u)
+	})
+	option.Some[Store]{Value: s}
+}
+
+// Open creates a standalone Store over files and writes, or None when compiler is empty.
+func Open(files fs.Files, writes fs.Writes, root string, compiler string) option.Option[Store] {
+	if compiler == "" {
+		return option.None
+	}
+	option.Some[Store]{Value: newStore(files, writes, root, compiler, uint32(1))}
+}
+
+// Memory creates an in-memory Store for compiler with no disk backing.
+func Memory(compiler string) Store {
+	let mem = fstest.NewMemory()
+	newStore(mem, mem, "", compiler, uint32(1))
+}
+
+// WithDisk returns s configured to store verdicts atomically under root/laws/v1.
+func WithDisk(s Store, files fs.Files, writes fs.Writes, root string) Store {
+	Store{
+		compiler: s.compiler,
+		dir:      filepath.Join([]string{root, "laws", "v1"}),
+		hasDisk:  root != "",
+		files:    files,
+		writes:   writes,
+		writerID: s.writerID,
+		state:    s.state,
+		midWrite: s.midWrite,
+	}
+}
+
+// WithMidWrite attaches a staging hook invoked between writing the two halves of an entry.
+func WithMidWrite(s Store, hook own func(string)) Store {
+	Store{
+		compiler: s.compiler,
+		dir:      s.dir,
+		hasDisk:  s.hasDisk,
+		files:    s.files,
+		writes:   s.writes,
+		writerID: s.writerID,
+		state:    s.state,
+		midWrite: option.Some[func(string)]{Value: hook},
+	}
+}
+
+// Fresh switches s to fresh mode so prior entries are ignored while new passes are kept.
+func Fresh(s Store) {
+	s.state.Update(func(st storeState) storeState {
+		let mut u = st
+		if u.fresh {
+			return u
+		}
+		u.fresh = true
+		let n = dense.Total(u.entryCount)
+		for i in 0..n {
+			let eid = dense.IDAt(u.entryCount, i)
+			dense.SetOf(&u.entryHasVal, eid, false)
+			dense.SetOf(&u.entryText, eid, "")
+		}
+		u
+	})
+}
+
+// EntryName returns the compiler-scoped hashed entry filename for key.
+func EntryName(s Store, key string) string {
+	Key([]string{s.compiler, key})
+}
+
+// EntryPath returns the sharded disk path for key, or "" when disk storage is disabled.
+func EntryPath(s Store, key string) string {
+	if !s.hasDisk {
+		return ""
+	}
+	let name = EntryName(s, key)
+	filepath.Join([]string{s.dir, name[0:2], name})
+}
+
+func internNameLocked(u mut storeState, name string) dense.ID[dense.Str] {
+	let nid = dense.InternText(&u.names, name)
+	for !dense.In(u.slotOf, nid) {
+		dense.Push(&u.slotOf, dense.NoID[EntryTag]())
+	}
+	nid
+}
+
+func internLabelLocked(u mut storeState, text string) dense.ID[dense.Str] {
+	let lid = dense.InternText(&u.labels, text)
+	for !dense.In(u.labelActive, lid) {
+		dense.Push(&u.labelActive, dense.NoID[EntryTag]())
+	}
+	lid
+}
+
+func ensureEntryLocked(u mut storeState, name string) dense.ID[EntryTag] {
+	let nid = internNameLocked(u, name)
+	match dense.Unpack(dense.Of(u.slotOf, nid)) {
+	case option.Some{Value: eid}:
+		return eid
+	case option.None:
+	}
+	let eid = dense.Next(&u.entryCount)
+	dense.Push(&u.entryName, nid)
+	dense.Push(&u.entryText, "")
+	dense.Push(&u.entryHasVal, false)
+	dense.Push(&u.entryRuns, uint32(0))
+	dense.Push(&u.entrySeq, uint32(0))
+	dense.Push(&u.entryLabel, dense.NoID[dense.Str]())
+	dense.Push(&u.entryDigest, dense.NoID[dense.Str]())
+	dense.Push(&u.entryEvict, false)
+	dense.SetOf(&u.slotOf, nid, dense.OptOf(eid))
+	eid
+}
+
+func entryNameInto(u mut storeState, compiler string, key string) string {
+	KeyInto(&u.scratch.Buf, []string{compiler, key})
+}
+
+// Get retrieves the cached verdict text for key, loading from disk on an in-memory miss.
+func Get(s Store, key string) option.Option[string] {
+	let (name, memHit, fresh) = sync.Modify(s.state, func(st storeState) ((string, option.Option[string], bool), storeState) {
+		let mut u = st
+		let name = entryNameInto(&u, s.compiler, key)
+		let mut hit option.Option[string] = option.None
+		match dense.FindText(u.names, name) {
+		case option.Some{Value: nid}:
+			match dense.Unpack(dense.Of(u.slotOf, nid)) {
+			case option.Some{Value: eid}:
+				if !dense.Of(u.entryEvict, eid) && dense.Of(u.entryHasVal, eid) {
+					u.seq = u.seq + uint32(1)
+					dense.SetOf(&u.entrySeq, eid, u.seq)
+					hit = option.Some[string]{Value: dense.Of(u.entryText, eid)}
+				}
+			case option.None:
+			}
+		case option.None:
+		}
+		((name, hit, u.fresh), u)
+	})
+	match memHit {
+	case option.Some:
+		return memHit
+	case option.None:
+	}
+	if !s.hasDisk || fresh {
+		return option.None
+	}
+	let path = filepath.Join([]string{s.dir, name[0:2], name})
+	let data = s.files.ReadFile(path) catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		return option.None
+	}
+	if data == "" || IsFailureText(data) {
+		return option.None
+	}
+	s.state.Update(func(st storeState) storeState {
+		let mut u = st
+		let eid = ensureEntryLocked(&u, name)
+		u.seq = u.seq + uint32(1)
+		dense.SetOf(&u.entryText, eid, data)
+		dense.SetOf(&u.entryHasVal, eid, true)
+		dense.SetOf(&u.entryEvict, eid, false)
+		dense.SetOf(&u.entrySeq, eid, u.seq)
+		u
+	})
+	option.Some[string]{Value: data}
+}
+
+// Put records one law run for key and stores text if it passed.
+func Put(s Store, key string, text string) {
+	s.state.Update(func(st storeState) storeState {
+		let mut u = st
+		let name = entryNameInto(&u, s.compiler, key)
+		let eid = ensureEntryLocked(&u, name)
+		dense.SetOf(&u.entryRuns, eid, dense.Of(u.entryRuns, eid)+uint32(1))
+		u
+	})
+	Keep(s, key, text)
+}
+
+// Keep stores text under key without incrementing run count, rejecting empty or failure text.
+func Keep(s Store, key string, text string) {
+	if text == "" || IsFailureText(text) {
+		return
+	}
+	let (name, seq) = sync.Modify(s.state, func(st storeState) ((string, uint32), storeState) {
+		let mut u = st
+		let name = entryNameInto(&u, s.compiler, key)
+		let eid = ensureEntryLocked(&u, name)
+		u.seq = u.seq + uint32(1)
+		let curSeq = u.seq
+		dense.SetOf(&u.entryText, eid, text)
+		dense.SetOf(&u.entryHasVal, eid, true)
+		dense.SetOf(&u.entryEvict, eid, false)
+		dense.SetOf(&u.entrySeq, eid, curSeq)
+		((name, curSeq), u)
+	})
+	if !s.hasDisk {
+		return
+	}
+	let path = filepath.Join([]string{s.dir, name[0:2], name})
+	if writeAtomic(s, path, text, seq) {
+		s.state.Update(func(st storeState) storeState {
+			let mut u = st
+			u.wrote = u.wrote + uint32(1)
+			u
+		})
+	}
+}
+
+// PutLabeled stores verdict v under (label, digest, key), evicting stale digests and preserving stronger verdicts.
+func PutLabeled(s Store, label string, digest string, key string, v Verdict) {
+	if label != "" {
+		let _ = EvictStale(s, label, digest)
+	}
+	let existing = match Get(s, key) {
+	case option.Some{Value: raw}:
+		DecodeVerdict(raw)
+	case option.None:
+		option.None
+	}
+	let shouldWrite = match existing {
+	case option.Some{Value: prev}:
+		Supersedes(v, prev)
+	case option.None:
+		true
+	}
+	let encoded = EncodeVerdict(v)
+	let (name, seq, doWrite) = sync.Modify(s.state, func(st storeState) ((string, uint32, bool), storeState) {
+		let mut u = st
+		let name = entryNameInto(&u, s.compiler, key)
+		let eid = ensureEntryLocked(&u, name)
+		dense.SetOf(&u.entryRuns, eid, dense.Of(u.entryRuns, eid)+uint32(1))
+		u.seq = u.seq + uint32(1)
+		let curSeq = u.seq
+		dense.SetOf(&u.entrySeq, eid, curSeq)
+		if label != "" {
+			let lid = internLabelLocked(&u, label)
+			let did = internLabelLocked(&u, digest)
+			dense.SetOf(&u.entryLabel, eid, dense.OptOf(lid))
+			dense.SetOf(&u.entryDigest, eid, dense.OptOf(did))
+			dense.SetOf(&u.labelActive, lid, dense.OptOf(eid))
+		}
+		if shouldWrite {
+			dense.SetOf(&u.entryText, eid, encoded)
+			dense.SetOf(&u.entryHasVal, eid, true)
+			dense.SetOf(&u.entryEvict, eid, false)
+		}
+		((name, curSeq, shouldWrite), u)
+	})
+	if !doWrite || !s.hasDisk {
+		return
+	}
+	let path = filepath.Join([]string{s.dir, name[0:2], name})
+	if writeAtomic(s, path, encoded, seq) {
+		s.state.Update(func(st storeState) storeState {
+			let mut u = st
+			u.wrote = u.wrote + uint32(1)
+			u
+		})
+	}
+}
+
+// EvictStale evicts cached entries for label whose digest differs from keepDigest, returning the eviction count.
+func EvictStale(s Store, label string, keepDigest string) uint32 {
+	if label == "" {
+		return uint32(0)
+	}
+	let (evictNames, count) = sync.Modify(s.state, func(st storeState) (([]string, uint32), storeState) {
+		let mut u = st
+		let lid = match dense.FindText(u.labels, label) {
+		case option.Some{Value: x}:
+			x
+		case option.None:
+			return (([]string{}, uint32(0)), u)
+		}
+		let keepID = dense.FindText(u.labels, keepDigest)
+		let mut names = []string{}
+		let mut cnt = uint32(0)
+		let n = dense.Total(u.entryCount)
+		for i in 0..n {
+			let eid = dense.IDAt(u.entryCount, i)
+			if dense.Of(u.entryEvict, eid) {
+				continue
+			}
+			let matchesLabel = match dense.Unpack(dense.Of(u.entryLabel, eid)) {
+			case option.Some{Value: l}:
+				l == lid
+			case option.None:
+				false
+			}
+			if !matchesLabel {
+				continue
+			}
+			let sameDigest = match (dense.Unpack(dense.Of(u.entryDigest, eid)), keepID) {
+			case (option.Some{Value: d}, option.Some{Value: kd}):
+				d == kd
+			case _:
+				false
+			}
+			if sameDigest {
+				continue
+			}
+			dense.SetOf(&u.entryEvict, eid, true)
+			dense.SetOf(&u.entryHasVal, eid, false)
+			dense.SetOf(&u.entryText, eid, "")
+			names = names.Append(dense.Text(u.names, dense.Of(u.entryName, eid)))
+			cnt = cnt + uint32(1)
+		}
+		((names, cnt), u)
+	})
+	if s.hasDisk {
+		for name in evictNames {
+			let path = filepath.Join([]string{s.dir, name[0:2], name})
+			s.writes.Remove(path) catch {
+			case fs.NotFound, fs.Denied, fs.Failed:
+			}
+		}
+	}
+	count
+}
+
+// Trim removes orphaned .part staging files and evicts oldest LRU entries beyond maxEntries.
+func Trim(s Store, maxEntries uint32) uint32 {
+	let mut removed = uint32(0)
+	if s.hasDisk {
+		let shards = s.files.ReadDir(s.dir) catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+			[]string{}
+		}
+		for sh in shards {
+			let shDir = filepath.Join([]string{s.dir, sh})
+			let entries = s.files.ReadDir(shDir) catch {
+			case fs.NotFound, fs.Denied, fs.Failed:
+				continue
+			}
+			for en in entries {
+				if strings.HasSuffix(en, ".part") {
+					s.writes.Remove(filepath.Join([]string{shDir, en})) catch {
+					case fs.NotFound, fs.Denied, fs.Failed:
+						continue
+					}
+					removed = removed + uint32(1)
+				}
+			}
+		}
+	}
+	let evictNames = sync.Modify(s.state, func(st storeState) ([]string, storeState) {
+		let mut u = st
+		dense.Cut(&u.scratch.Order, 0)
+		let n = dense.Total(u.entryCount)
+		for i in 0..n {
+			let eid = dense.IDAt(u.entryCount, i)
+			if !dense.Of(u.entryEvict, eid) && dense.Of(u.entryHasVal, eid) {
+				dense.StackPush(&u.scratch.Order, uint32(i))
+			}
+		}
+		let active = dense.Since(u.scratch.Order, 0)
+		if uint32(active.Len()) <= maxEntries {
+			return ([]string{}, u)
+		}
+		let order = slices.SortFunc(slices.Clone(active), func(a uint32, b uint32) int {
+			let sa = dense.Of(u.entrySeq, dense.IDAt(u.entryCount, int(a)))
+			let sb = dense.Of(u.entrySeq, dense.IDAt(u.entryCount, int(b)))
+			if sa < sb {
+				return -1
+			}
+			if sa > sb {
+				return 1
+			}
+			if a < b { -1 } else if a > b { 1 } else { 0 }
+		})
+		let excess = active.Len() - int(maxEntries)
+		let mut out = slices.WithCapacity[string](excess)
+		for k in 0..excess {
+			let eid = dense.IDAt(u.entryCount, int(order[k]))
+			dense.SetOf(&u.entryEvict, eid, true)
+			dense.SetOf(&u.entryHasVal, eid, false)
+			dense.SetOf(&u.entryText, eid, "")
+			out = out.Append(dense.Text(u.names, dense.Of(u.entryName, eid)))
+		}
+		(out, u)
+	})
+	if s.hasDisk {
+		for name in evictNames {
+			let path = filepath.Join([]string{s.dir, name[0:2], name})
+			s.writes.Remove(path) catch {
+			case fs.NotFound, fs.Denied, fs.Failed:
+				continue
+			}
+			removed = removed + uint32(1)
+		}
+	} else {
+		removed = removed + uint32(evictNames.Len())
+	}
+	removed
+}
+
+func writeAtomic(s Store, path string, text string, seq uint32) bool {
+	let dir = filepath.Dir(path)
+	s.writes.MkdirAll(dir) catch {
+	case fs.Denied, fs.Failed:
+		return false
+	}
+	let tag = hex.Encode(sha256.Sum(text))[0:8]
+	let partPath = path + ".\(s.writerID).\(seq)." + tag + ".part"
+	let half = text.Len() / 2
+	let firstHalf = text[0:half]
+	let secondHalf = text[half:text.Len()]
+	s.writes.WriteFileMode(partPath, firstHalf, fs.Shared()) catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		s.writes.Remove(partPath) catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+		}
+		return false
+	}
+	match s.midWrite {
+	case option.Some{Value: hook}:
+		hook(path)
+	case option.None:
+	}
+	s.writes.AppendFile(partPath, secondHalf) catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		s.writes.Remove(partPath) catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+		}
+		return false
+	}
+	s.writes.Rename(partPath, path) catch {
+	case fs.NotFound, fs.Denied, fs.Failed, fs.CrossDevice:
+		s.writes.Remove(partPath) catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+		}
+		return false
+	}
+	true
+}
+
+// Wrote returns the number of disk entries written through s.
+func Wrote(s Store) uint32 {
+	s.state.Get().wrote
+}
+
+// Puts returns the total number of Put calls recorded on s.
+func Puts(s Store) uint32 {
+	let st = s.state.Get()
+	let mut total = uint32(0)
+	let n = dense.Total(st.entryCount)
+	for i in 0..n {
+		total = total + dense.Of(st.entryRuns, dense.IDAt(st.entryCount, i))
+	}
+	total
+}
+
+// Runs returns the number of Put calls recorded on s for key.
+func Runs(s Store, key string) uint32 {
+	let st = s.state.Get()
+	let name = EntryName(s, key)
+	match dense.FindText(st.names, name) {
+	case option.Some{Value: nid}:
+		match dense.Unpack(dense.Of(st.slotOf, nid)) {
+		case option.Some{Value: eid}:
+			dense.Of(st.entryRuns, eid)
+		case option.None:
+			uint32(0)
+		}
+	case option.None:
+		uint32(0)
+	}
+}
+
+// EntryCount returns the count of active non-evicted entries held in memory by s.
+func EntryCount(s Store) uint32 {
+	let st = s.state.Get()
+	let mut count = uint32(0)
+	let n = dense.Total(st.entryCount)
+	for i in 0..n {
+		let eid = dense.IDAt(st.entryCount, i)
+		if !dense.Of(st.entryEvict, eid) && dense.Of(st.entryHasVal, eid) {
+			count = count + uint32(1)
+		}
+	}
+	count
+}
+
+// StaleEntryAndFreshSoundness verifies entries are served only for exact key parts and fresh mode skips prior runs.
+law StaleEntryAndFreshSoundness(a string, b string, c string) {
+	let mem = fstest.NewMemory()
+	let root = "/cache"
+	let compiler = "sha256:soundness-1"
+	let kept = match Open(mem, mem, root, compiler) {
+	case option.Some{Value: st}:
+		st
+	case option.None:
+		return false
+	}
+	let parts = []string{a + ":", b + "\x00", c}
+	let k = Key(parts)
+	Put(kept, k, "ok kept\n")
+	Put(kept, Key([]string{"fail-key"}), "FAIL refuted\n")
+	let keptRejectsFail = Get(kept, Key([]string{"fail-key"})) == option.None && Wrote(kept) == uint32(1)
+	let reader = WithDisk(Memory(compiler), mem, mem, root)
+	let hit = Get(reader, k) == (option.Some[string]{Value: "ok kept\n"})
+	let failRejected = Get(reader, Key([]string{"fail-key"})) == option.None
+	let changed = Get(reader, Key([]string{a + ":x", b + "\x00", c})) == option.None
+	let joined = Get(reader, Key([]string{a + ":" + b + "\x00", c})) == option.None
+	let added = Get(reader, Key([]string{a + ":", b + "\x00", c, ""})) == option.None
+	let dropped = Get(reader, Key([]string{a + ":", b + "\x00"})) == option.None
+	let fresh = WithDisk(Memory(compiler), mem, mem, root)
+	Fresh(fresh)
+	let freshMiss = Get(fresh, k) == option.None
+	Put(fresh, k, "ok again\n")
+	let freshOwn = Get(fresh, k) == (option.Some[string]{Value: "ok again\n"})
+	keptRejectsFail && hit && failRejected && changed && joined && added && dropped && freshMiss && freshOwn
+}
+
+// VerdictSupersedeAndStaleDigestEviction verifies stronger verdicts hold and stale digests evict.
+law VerdictSupersedeAndStaleDigestEviction(cases uint32) {
+	let mem = fstest.NewMemory()
+	let s = match Open(mem, mem, "/cache", "sha256:evict-1") {
+	case option.Some{Value: st}:
+		st
+	case option.None:
+		return false
+	}
+	let k1 = Key([]string{"law", "L", "d1"})
+	let k2 = Key([]string{"law", "L", "d2"})
+	PutLabeled(s, "law L", "d1", k1, Evaluated("proved", uint32(10)))
+	PutLabeled(s, "law L", "d1", k1, Evaluated("tested", cases+uint32(500)))
+	let keptProved = match Get(s, k1) {
+	case option.Some{Value: raw}:
+		match DecodeVerdict(raw) {
+		case option.Some{Value: v}:
+			v.Evidence == "proved" && v.Cases == uint32(10)
+		case option.None:
+			false
+		}
+	case option.None:
+		false
+	}
+	PutLabeled(s, "law L", "d2", k2, Evaluated("tested", uint32(100)))
+	let evictedOld = Get(s, k1) == option.None
+	let reader = WithDisk(Memory("sha256:evict-1"), mem, mem, "/cache")
+	let diskEvicted = Get(reader, k1) == option.None && Get(reader, k2) != option.None
+	keptProved && evictedOld && diskEvicted
+}
+
+type diskAtomicProbe {
+	VerifyAtomic(key string, first string) bool,
+}
+
+type hostAtomicProbe { host fs.Host } implements diskAtomicProbe
+
+func VerifyAtomic(p hostAtomicProbe, key string, first string) bool {
+	let diskReads = sync.NewRef(0)
+	let midEmpty = sync.NewRef(true)
+	let h = p.host
+	let dw = WithMidWrite(WithDisk(Memory("c3"), h, h, "store"), func(_ string) {
+		diskReads.Update(func(n int) int { n + 1 })
+		if Get(WithDisk(Memory("c3"), h, h, "store"), key) != option.None {
+			midEmpty.Set(false)
+		}
+	})
+	Put(dw, key, first)
+	diskReads.Get() == 1 && midEmpty.Get() && Get(WithDisk(Memory("c3"), h, h, "store"), key) == (option.Some[string]{Value: first})
+}
+
+let onDiskAtomicProbe = context needs fstest.TestAmbient {
+	diskAtomicProbe: hostAtomicProbe{host: fs.NewTestHost()},
+}
+
+test AtomicPublishWholeAndConcurrentWriters {
+	let mem = fstest.NewMemory()
+	let root = "/atomic"
+	let key = Key([]string{"law", "Torn"})
+	let first = strings.Repeat("ok law Torn (100 cases) first\n", 16)
+	let second = strings.Repeat("ok law Torn (100 cases) other\n", 16)
+	let reads = sync.NewRef(0)
+	let midEmptyMem = sync.NewRef(true)
+	let w1 = WithMidWrite(WithDisk(Memory("c1"), mem, mem, root), func(_ string) {
+		reads.Update(func(n int) int { n + 1 })
+		if Get(WithDisk(Memory("c1"), mem, mem, root), key) != option.None {
+			midEmptyMem.Set(false)
+		}
+	})
+	Put(w1, key, first)
+	assert reads.Get() == 1 && midEmptyMem.Get()
+	assert Get(WithDisk(Memory("c1"), mem, mem, root), key) == (option.Some[string]{Value: first})
+
+	let concurrentStore = WithDisk(Memory("c_task"), fstest.NewMemory(), fstest.NewMemory(), "/conc")
+	let t1 = task.Go() {
+		Put(concurrentStore, key, first)
+		1
+	}
+	let t2 = task.Go() {
+		Put(concurrentStore, key, second)
+		1
+	}
+	let e1 = task.ExitOf(t1)
+	let e2 = task.ExitOf(t2)
+	match e1 {
+	case task.Done[int]:
+	case _:
+		assert false
+	}
+	match e2 {
+	case task.Done[int]:
+	case _:
+		assert false
+	}
+	let concGot = Get(concurrentStore, key)
+	assert concGot == (option.Some[string]{Value: first}) || concGot == (option.Some[string]{Value: second})
+
+	let w2 = WithMidWrite(WithDisk(Memory("c2"), mem, mem, root), func(_ string) {
+		Put(WithDisk(Memory("c2"), mem, mem, root), key, second)
+	})
+	Put(w2, key, first)
+	let got = Get(WithDisk(Memory("c2"), mem, mem, root), key)
+	assert got == (option.Some[string]{Value: first}) || got == (option.Some[string]{Value: second})
+
+	with onDiskAtomicProbe {
+		assert diskAtomicProbe.VerifyAtomic(key, first)
+	}
+}
+
+test RegistrySharesMemoryAndTrimEvictsLRU {
+	let mem = fstest.NewMemory()
+	let reg = NewRegistry()
+	match OpenIn(reg, mem, mem, "/r", "") {
+	case option.Some:
+		assert false
+	case option.None:
+	}
+	let s1 = match OpenIn(reg, mem, mem, "/r", "sha256:c") {
+	case option.Some{Value: st}:
+		st
+	case option.None:
+		assert false
+		return
+	}
+	let s2 = match OpenIn(reg, mem, mem, "/r", "sha256:c") {
+	case option.Some{Value: st}:
+		st
+	case option.None:
+		assert false
+		return
+	}
+	let proc = match OpenIn(reg, mem, mem, "/r", "process:run") {
+	case option.Some{Value: st}:
+		st
+	case option.None:
+		assert false
+		return
+	}
+	assert EntryPath(proc, "k") == ""
+
+	let k0 = Key([]string{"k0"})
+	let k1 = Key([]string{"k1"})
+	let k2 = Key([]string{"k2"})
+	Put(s1, k0, "ok 0\n")
+	Put(s1, k1, "ok 1\n")
+	Put(s1, k2, "ok 2\n")
+	assert Get(s2, k0) == (option.Some[string]{Value: "ok 0\n"})
+	assert Puts(s2) == uint32(3)
+	assert Runs(s2, k0) == uint32(1)
+	assert Wrote(s1) == uint32(3)
+
+	let orphanDir = filepath.Dir(EntryPath(s1, k0))
+	mem.WriteFile(filepath.Join([]string{orphanDir, "crashed.part"}), "half") catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		assert false
+		return
+	}
+	let removed = Trim(s1, uint32(2))
+	assert removed >= uint32(2)
+	assert EntryCount(s1) == uint32(2)
+	let reader = WithDisk(Memory("sha256:c"), mem, mem, "/r")
+	assert Get(reader, k0) == (option.Some[string]{Value: "ok 0\n"})
+	assert Get(reader, k1) == option.None
+	assert Get(reader, k2) == (option.Some[string]{Value: "ok 2\n"})
+}

@@ -1,0 +1,690 @@
+import compiler/lawcache
+import compiler/syntax
+import content
+import dense
+import option
+import slices
+import strconv
+import strings
+import sync
+
+// MapperOriginKind identifies whether a MapperRecord came from a file asset import or inline derive.
+type MapperOriginKind = FileMapper{} | InlineMapper{}
+
+// MapperOriginKindName returns the lowercase string label for k.
+func MapperOriginKindName(k MapperOriginKind) string {
+	match k {
+	case FileMapper:
+		"file"
+	case InlineMapper:
+		"inline"
+	}
+}
+
+// SpanEntryRecord captures one verified span mapping for inspection output.
+type SpanEntryRecord {
+	GenStart      uint32,
+	GenEnd        uint32,
+	Companion     option.Option[uint32],
+	CompanionPath string,
+	SrcStart      uint32,
+	SrcEnd        uint32,
+	Label         string,
+}
+
+// MapperDiagRecord captures one mapped asset or companion diagnostic for inspection output.
+type MapperDiagRecord {
+	Warning       bool,
+	Companion     option.Option[uint32],
+	CompanionPath string,
+	SrcStart      uint32,
+	SrcEnd        uint32,
+	MappedFile    string,
+	MappedLine    uint32,
+	MappedCol     uint32,
+	Code          string,
+	Message       string,
+	Hint          string,
+}
+
+// MapperRecord captures metadata, cache key, metrics, generated text, and spans for one mapper run.
+type MapperRecord {
+	Target     string,
+	Kind       MapperOriginKind,
+	AssetPath  string,
+	FileName   string,
+	Line       uint32,
+	Col        uint32,
+	MapperPkg  string,
+	MapperFunc string,
+	MediaKind  string,
+	CacheKey   string,
+	CacheHit   bool,
+	Steps      uint32,
+	BytesUsed  uint32,
+	Generated  string,
+	Spans      []SpanEntryRecord,
+	Diags      []MapperDiagRecord,
+	Decls      []string,
+}
+
+// ContentDiagnostic represents a span-mapped frontend or mapper diagnostic with byte and line/col coordinates.
+type ContentDiagnostic {
+	FileIndex uint32,
+	File      string,
+	Offset    uint32,
+	Length    uint32,
+	Line      uint32,
+	Column    uint32,
+	Code      string,
+	Message   string,
+	Warning   bool,
+}
+
+// MapperInvokeOutcome holds the pure execution result or failure from running a content mapper.
+type MapperInvokeOutcome =
+	| InvokeOutput{Out content.MappedErgo, Steps uint32, BytesUsed uint32}
+	| InvokeFailed{Err EvalError}
+
+// MapperRunner executes a pure compiled content mapper on validated ContentInput under Budget.
+type MapperRunner {
+	// Call invokes the compiled mapper callback with budget and closed content input.
+	Call func(MapperBudget, content.ContentInput) MapperInvokeOutcome,
+}
+
+// CachedRunRequest supplies package graph, cache handle, budget, and input for one cached mapper call.
+type CachedRunRequest {
+	Cache     lawcache.Store,
+	UseCache  bool,
+	BuildID   string,
+	Graph     PackageGraph,
+	MapperPkg string,
+	MapperFn  string,
+	Budget    MapperBudget,
+	Input     content.ContentInput,
+}
+
+// CachedRunResult holds verified MappedErgo output, cache key, cache-hit indicator, and cost metrics.
+type CachedRunResult {
+	Out       content.MappedErgo,
+	CacheKey  string,
+	CacheHit  bool,
+	Steps     uint32,
+	BytesUsed uint32,
+}
+
+func companionLengths(comps []content.CompanionAsset) []uint32 {
+	let mut out = slices.WithCapacity[uint32](comps.Len())
+	for c in comps {
+		out = out.Append(uint32(c.Bytes.Len()))
+	}
+	out
+}
+
+// ExecuteMapperCached executes runner on req.Input using lawcache reuse and strict span/budget checks.
+// Budget, purity, FFI, defect, and invalid-span outcomes are never written to the cache.
+func ExecuteMapperCached(req CachedRunRequest, runner MapperRunner) CachedRunResult fails EvalError {
+	let budget = NormalizeBudget(req.Budget)
+	try CheckInputBudget(budget, uint32(req.Input.Bytes.Len()))
+	let digest = MapperSemanticDigest(req.Graph, req.MapperPkg, req.MapperFn)
+	let cacheKey = BuildCacheKey(req.BuildID, digest, req.Input)
+	let compLens = companionLengths(req.Input.Companions)
+	let assetLen = uint32(req.Input.Bytes.Len())
+	if req.UseCache {
+		match GetCached(req.Cache, cacheKey) {
+		case option.Some{Value: cached}:
+			let mut spanOk = true
+			VerifySpans(uint32(cached.Source.Len()), assetLen, compLens, cached.Spans.Entries) catch {
+			case SpanViolation:
+				spanOk = false
+			}
+			let mut budgetOk = true
+			CheckOutputBudget(budget, uint32(cached.Source.Len()), uint32(cached.Spans.Entries.Len()), uint32(cached.Diags.Len())) catch {
+			case EvalError:
+				budgetOk = false
+			}
+			if spanOk && budgetOk {
+				return CachedRunResult{
+					Out:       cached,
+					CacheKey:  cacheKey,
+					CacheHit:  true,
+					Steps:     uint32(0),
+					BytesUsed: uint32(0),
+				}
+			}
+		case option.None:
+		}
+	}
+	let outcome = runner.Call(budget, req.Input)
+	let resOut, steps, bytesUsed = match outcome {
+	case InvokeOutput as io:
+		(io.Out, io.Steps, io.BytesUsed)
+	case InvokeFailed as fail:
+		return fail.Err
+	}
+	try CheckOutputBudget(budget, uint32(resOut.Source.Len()), uint32(resOut.Spans.Entries.Len()), uint32(resOut.Diags.Len()))
+	VerifySpans(uint32(resOut.Source.Len()), assetLen, compLens, resOut.Spans.Entries) catch {
+	case SpanViolation as sv:
+		return makeEvalErr(ContractViolation, "content mapper returned invalid SourceSpanMap: "+FormatViolation(sv))
+	}
+	if req.UseCache {
+		PutCached(req.Cache, cacheKey, resOut)
+	}
+	CachedRunResult{
+		Out:       resOut,
+		CacheKey:  cacheKey,
+		CacheHit:  false,
+		Steps:     steps,
+		BytesUsed: bytesUsed,
+	}
+}
+
+// FileAssetRequest describes a file-level content import executed through ContentInput -> MappedErgo.
+type FileAssetRequest {
+	Target          string,
+	AssetPath       string,
+	PackagePath     string,
+	MediaKind       string,
+	Bytes           []byte,
+	Companions      []content.CompanionAsset,
+	MapperPkg       string,
+	MapperFunc      string,
+	Graph           PackageGraph,
+	Cache           lawcache.Store,
+	UseCache        bool,
+	BuildID         string,
+	Budget          MapperBudget,
+	ImportFile      string,
+	ImportFileIndex uint32,
+	ImportOffset    uint32,
+	ImportLength    uint32,
+	ImportLine      uint32,
+	ImportCol       uint32,
+}
+
+// FileAssetResult holds parsed generated syntax, spans, inspection record, and mapped diagnostics.
+type FileAssetResult {
+	Source string,
+	Parsed syntax.Parsed,
+	Spans  []content.SpanMapping,
+	Record MapperRecord,
+	Diags  []ContentDiagnostic,
+	Broken bool,
+}
+
+func makeImportFallbackDiag(req FileAssetRequest, code string, msg string) ContentDiagnostic {
+	let ln = if req.ImportLength > uint32(0) { req.ImportLength } else { uint32(1) }
+	ContentDiagnostic{
+		FileIndex: req.ImportFileIndex,
+		File:      req.ImportFile,
+		Offset:    req.ImportOffset,
+		Length:    ln,
+		Line:      req.ImportLine,
+		Column:    req.ImportCol,
+		Code:      code,
+		Message:   msg,
+		Warning:   false,
+	}
+}
+
+func formatEvalErrWithFrame(err EvalError) string {
+	if err.Frame != "" && !strings.Contains(err.Message, err.Frame) {
+		return err.Message + " (in " + err.Frame + ")"
+	}
+	err.Message
+}
+
+func formatMapperDiagMessage(md content.MapperDiag) string {
+	let mut msg = md.Message
+	if md.Code != "" {
+		msg = md.Code + ": " + msg
+	}
+	if md.Hint != "" {
+		msg = msg + " (" + md.Hint + ")"
+	}
+	msg
+}
+
+func convertToSpanEntryRecords(spans []content.SpanMapping, comps []content.CompanionAsset) []SpanEntryRecord {
+	let mut out = slices.WithCapacity[SpanEntryRecord](spans.Len())
+	for sp in spans {
+		let compPath = match sp.Companion {
+		case option.Some{Value: ci}:
+			if int(ci) < comps.Len() { comps[int(ci)].Path } else { "" }
+		case option.None:
+			""
+		}
+		out = out.Append(SpanEntryRecord{
+			GenStart:      sp.Generated.Start,
+			GenEnd:        sp.Generated.End,
+			Companion:     sp.Companion,
+			CompanionPath: compPath,
+			SrcStart:      sp.Source.Start,
+			SrcEnd:        sp.Source.End,
+			Label:         sp.Label,
+		})
+	}
+	out
+}
+
+func resolveFileOrCompanionDiag(req FileAssetRequest, comp option.Option[uint32], sp content.SourceSpan, code string, msg string) (ContentDiagnostic, MapperDiagRecord) {
+	let importCtxSuffix = if req.ImportFile != "" && req.ImportLine > uint32(0) {
+		" (imported from " + req.ImportFile + ":" + strconv.Itoa(int(req.ImportLine)) + ":" + strconv.Itoa(int(req.ImportCol)) + ")"
+	} else {
+		""
+	}
+	let mut targetFile = req.AssetPath
+	let mut targetBytes = req.Bytes
+	let mut compPath = ""
+	match comp {
+	case option.Some{Value: ci}:
+		if int(ci) < req.Companions.Len() {
+			targetFile = req.Companions[int(ci)].Path
+			targetBytes = req.Companions[int(ci)].Bytes
+			compPath = targetFile
+		}
+	case option.None:
+	}
+	let lc = OffsetLineColByte(targetBytes, sp.Start)
+	let rawLen = if sp.End > sp.Start { sp.End - sp.Start } else { uint32(1) }
+	let diag = ContentDiagnostic{
+		FileIndex: req.ImportFileIndex,
+		File:      targetFile,
+		Offset:    sp.Start,
+		Length:    rawLen,
+		Line:      lc.Line,
+		Column:    lc.Col,
+		Code:      code,
+		Message:   msg + importCtxSuffix,
+		Warning:   false,
+	}
+	let drec = MapperDiagRecord{
+		Warning:       false,
+		Companion:     comp,
+		CompanionPath: compPath,
+		SrcStart:      sp.Start,
+		SrcEnd:        sp.End,
+		MappedFile:    targetFile,
+		MappedLine:    lc.Line,
+		MappedCol:     lc.Col,
+		Code:          code,
+		Message:       msg,
+		Hint:          "",
+	}
+	(diag, drec)
+}
+
+// RemapFileAssetDiagnostic maps a generated-code diagnostic d onto its source or companion position.
+func RemapFileAssetDiagnostic(req FileAssetRequest, spans []content.SpanMapping, d ContentDiagnostic) ContentDiagnostic {
+	match LookupGeneratedSpan(spans, d.Offset, d.Length) {
+	case option.Some{Value: entry}:
+		let mapped, _ = resolveFileOrCompanionDiag(req, entry.Companion, entry.Source, d.Code, d.Message)
+		return mapped
+	case option.None:
+	}
+	let importCtxSuffix = if req.ImportFile != "" && req.ImportLine > uint32(0) {
+		" (imported from " + req.ImportFile + ":" + strconv.Itoa(int(req.ImportLine)) + ":" + strconv.Itoa(int(req.ImportCol)) + ")"
+	} else {
+		""
+	}
+	let bodyLen = if req.Bytes.Len() > 0 { uint32(req.Bytes.Len()) } else { uint32(1) }
+	ContentDiagnostic{
+		FileIndex: req.ImportFileIndex,
+		File:      req.AssetPath,
+		Offset:    uint32(0),
+		Length:    bodyLen,
+		Line:      uint32(1),
+		Column:    uint32(1),
+		Code:      d.Code,
+		Message:   d.Message + " (generated from " + req.AssetPath + ")" + importCtxSuffix,
+		Warning:   d.Warning,
+	}
+}
+
+func collectTopDeclaredNames(p syntax.Parsed) ([]string, bool, string) {
+	if p.Failed {
+		return ([]string{}, false, "")
+	}
+	let mut names = []string{}
+	let mut firstType = ""
+	match syntax.ViewOf(p.Tree, syntax.Root(p.Tree)) {
+	case syntax.File as fileView:
+		for i in 0..syntax.Len(fileView.Decls) {
+			let d = syntax.Item(p.Tree, fileView.Decls, i)
+			for nm in declNodeDeclaredNames(p, d) {
+				names = names.Append(nm)
+			}
+			match syntax.ViewOf(p.Tree, d) {
+			case syntax.TypeDecl as td:
+				let tn = nodeFirstTokText(p, td.Name)
+				if firstType == "" {
+					firstType = tn
+				}
+			case _:
+			}
+		}
+	case _:
+	}
+	(names, firstType != "", firstType)
+}
+
+func declNodeDeclaredNames(p syntax.Parsed, d dense.ID[syntax.Node]) []string {
+	match syntax.ViewOf(p.Tree, d) {
+	case syntax.TypeDecl as td:
+		let mut out = []string{}
+		let tName = nodeFirstTokText(p, td.Name)
+		if tName != "" {
+			out = out.Append(tName)
+		}
+		match dense.Unpack(td.Spec) {
+		case option.Some{Value: specID}:
+			match syntax.ViewOf(p.Tree, specID) {
+			case syntax.InterfaceType as it:
+				for i in 0..syntax.Len(it.Members) {
+					let m = syntax.Item(p.Tree, it.Members, i)
+					match syntax.ViewOf(p.Tree, m) {
+					case syntax.VariantSpec as vs:
+						let vn = nodeFirstTokText(p, vs.Name)
+						if vn != "" {
+							out = out.Append(vn)
+						}
+					case _:
+					}
+				}
+			case _:
+			}
+		case option.None:
+		}
+		out
+	case syntax.FuncDecl as fd:
+		if dense.Unpack(fd.Recv) == option.None {
+			let fn = nodeFirstTokText(p, fd.Name)
+			if fn != "" {
+				return []string{fn}
+			}
+		}
+		[]string{}
+	case syntax.VarDecl as vd:
+		let mut out = []string{}
+		match syntax.ViewOf(p.Tree, vd.Spec) {
+		case syntax.VarSpec as vs:
+			for i in 0..syntax.Len(vs.Names) {
+				let nm = nodeFirstTokText(p, syntax.Item(p.Tree, vs.Names, i))
+				if nm != "" {
+					out = out.Append(nm)
+				}
+			}
+		case _:
+		}
+		out
+	case syntax.LawDecl as ld:
+		let ln = nodeFirstTokText(p, ld.Name)
+		if ln != "" { []string{ln} } else { []string{} }
+	case _:
+		[]string{}
+	}
+}
+
+// RunFileAsset validates signature and purity, runs or reuses cached mapper output,
+// inspects MapperDiags before parsing, and parses generated Ergo source.
+func RunFileAsset(req FileAssetRequest, runner MapperRunner) FileAssetResult {
+	let emptyParse = syntax.Parse("")
+	let mut rec = MapperRecord{
+		Target:     req.Target,
+		Kind:       FileMapper,
+		AssetPath:  req.AssetPath,
+		FileName:   req.ImportFile,
+		Line:       req.ImportLine,
+		Col:        req.ImportCol,
+		MapperPkg:  req.MapperPkg,
+		MapperFunc: req.MapperFunc,
+		MediaKind:  req.MediaKind,
+		CacheKey:   "",
+		CacheHit:   false,
+		Steps:      uint32(0),
+		BytesUsed:  uint32(0),
+		Generated:  "",
+		Spans:      []SpanEntryRecord{},
+		Diags:      []MapperDiagRecord{},
+		Decls:      []string{},
+	}
+	if req.MapperFunc == "" {
+		return FileAssetResult{
+			Source: "",
+			Parsed: emptyParse,
+			Spans:  []content.SpanMapping{},
+			Record: rec,
+			Diags:  []ContentDiagnostic{makeImportFallbackDiag(req, "E2001", "missing mapper function for asset "+req.AssetPath)},
+			Broken: true,
+		}
+	}
+	let mapperPkg = match LookupPkgIndex(req.Graph, req.MapperPkg) {
+	case option.Some{Value: idx}:
+		req.Graph.Pkgs[int(idx)]
+	case option.None:
+		return FileAssetResult{
+			Source: "",
+			Parsed: emptyParse,
+			Spans:  []content.SpanMapping{},
+			Record: rec,
+			Diags:  []ContentDiagnostic{makeImportFallbackDiag(req, "E2001", "missing mapper package "+req.MapperPkg+" for asset "+req.AssetPath)},
+			Broken: true,
+		}
+	}
+	CheckMapperSignature(mapperPkg, req.MapperFunc) catch {
+	case EvalError as e:
+		return FileAssetResult{
+			Source: "",
+			Parsed: emptyParse,
+			Spans:  []content.SpanMapping{},
+			Record: rec,
+			Diags:  []ContentDiagnostic{makeImportFallbackDiag(req, "E2001", e.Message)},
+			Broken: true,
+		}
+	}
+	ValidateMapperPurity(req.Graph, req.MapperPkg, req.MapperFunc) catch {
+	case EvalError as e:
+		return FileAssetResult{
+			Source: "",
+			Parsed: emptyParse,
+			Spans:  []content.SpanMapping{},
+			Record: rec,
+			Diags:  []ContentDiagnostic{makeImportFallbackDiag(req, "E2001", e.Message)},
+			Broken: true,
+		}
+	}
+	let input = content.ContentInput{
+		Target:     req.Target,
+		Origin:     content.FileAsset{Path: req.AssetPath, Package: req.PackagePath},
+		MediaKind:  req.MediaKind,
+		Bytes:      req.Bytes,
+		Companions: req.Companions,
+	}
+	let runReq = CachedRunRequest{
+		Cache:     req.Cache,
+		UseCache:  req.UseCache,
+		BuildID:   req.BuildID,
+		Graph:     req.Graph,
+		MapperPkg: req.MapperPkg,
+		MapperFn:  req.MapperFunc,
+		Budget:    req.Budget,
+		Input:     input,
+	}
+	let runRes = ExecuteMapperCached(runReq, runner) catch {
+	case EvalError as e:
+		return FileAssetResult{
+			Source: "",
+			Parsed: emptyParse,
+			Spans:  []content.SpanMapping{},
+			Record: rec,
+			Diags:  []ContentDiagnostic{makeImportFallbackDiag(req, "E2001", formatEvalErrWithFrame(e))},
+			Broken: true,
+		}
+	}
+	rec.CacheKey = runRes.CacheKey
+	rec.CacheHit = runRes.CacheHit
+	rec.Steps = runRes.Steps
+	rec.BytesUsed = runRes.BytesUsed
+	rec.Generated = runRes.Out.Source
+	rec.Spans = convertToSpanEntryRecords(runRes.Out.Spans.Entries, req.Companions)
+
+	let mut diags = []ContentDiagnostic{}
+	let mut hasErrors = false
+	for md in runRes.Out.Diags {
+		let isWarn = match md.Severity {
+		case content.Warning:
+			true
+		case content.Error:
+			false
+		}
+		let msg = formatMapperDiagMessage(md)
+		let d0, drecBase = resolveFileOrCompanionDiag(req, md.Companion, md.Span, "E2001", msg)
+		let mut d = d0
+		d.Warning = isWarn
+		let drec = MapperDiagRecord{
+			Warning:       isWarn,
+			Companion:     drecBase.Companion,
+			CompanionPath: drecBase.CompanionPath,
+			SrcStart:      drecBase.SrcStart,
+			SrcEnd:        drecBase.SrcEnd,
+			MappedFile:    drecBase.MappedFile,
+			MappedLine:    drecBase.MappedLine,
+			MappedCol:     drecBase.MappedCol,
+			Code:          md.Code,
+			Message:       md.Message,
+			Hint:          md.Hint,
+		}
+		rec.Diags = rec.Diags.Append(drec)
+		if !isWarn {
+			hasErrors = true
+			diags = diags.Append(d)
+		}
+	}
+	if hasErrors {
+		return FileAssetResult{
+			Source: runRes.Out.Source,
+			Parsed: emptyParse,
+			Spans:  runRes.Out.Spans.Entries,
+			Record: rec,
+			Diags:  diags,
+			Broken: true,
+		}
+	}
+	let parsed = syntax.Parse(runRes.Out.Source)
+	if parsed.Failed {
+		let synDiag = ContentDiagnostic{
+			FileIndex: req.ImportFileIndex,
+			File:      req.AssetPath,
+			Offset:    uint32(parsed.Offset),
+			Length:    uint32(if parsed.Length > 0 { parsed.Length } else { 1 }),
+			Line:      uint32(parsed.Line),
+			Column:    uint32(parsed.Column),
+			Code:      parsed.Code,
+			Message:   "generated Ergo failed to parse: " + parsed.Message,
+			Warning:   false,
+		}
+		diags = diags.Append(RemapFileAssetDiagnostic(req, runRes.Out.Spans.Entries, synDiag))
+		return FileAssetResult{
+			Source: runRes.Out.Source,
+			Parsed: parsed,
+			Spans:  runRes.Out.Spans.Entries,
+			Record: rec,
+			Diags:  diags,
+			Broken: true,
+		}
+	}
+	let declNames, _, _ = collectTopDeclaredNames(parsed)
+	rec.Decls = declNames
+	FileAssetResult{
+		Source: runRes.Out.Source,
+		Parsed: parsed,
+		Spans:  runRes.Out.Spans.Entries,
+		Record: rec,
+		Diags:  diags,
+		Broken: false,
+	}
+}
+
+test RunFileAssetCachePurityAndErrorIsolation {
+	let mapperMod = BuildParsedPackage("app/csvmap", []SourceFile{
+		SourceFile{Name: "map.ergo", Src: "import content\nfunc Build(input content.ContentInput) content.MappedErgo {\n\tcontent.MappedErgo{Source: \"type Row { Name string }\\n\", Spans: content.SourceSpanMap{Entries: []content.SpanMapping{}}, Diags: []content.MapperDiag{}, Digest: []byte{}}\n}\n"},
+	})
+	let graph = BuildPackageGraph([]ParsedPackage{mapperMod})
+	let st = lawcache.Memory("fa")
+	let assetBody = "name,age\n"
+	let req = FileAssetRequest{
+		Target:          "users",
+		AssetPath:       "data/users.csv",
+		PackagePath:     "app/data/users",
+		MediaKind:       "text/csv",
+		Bytes:           assetBody.Bytes(),
+		Companions:      []content.CompanionAsset{content.CompanionAsset{Path: "schema.txt", Bytes: "age:int\n".Bytes()}},
+		MapperPkg:       "app/csvmap",
+		MapperFunc:      "Build",
+		Graph:           graph,
+		Cache:           st,
+		UseCache:        true,
+		BuildID:         "v1",
+		Budget:          DefaultBudget(),
+		ImportFile:      "main.ergo",
+		ImportFileIndex: uint32(0),
+		ImportOffset:    uint32(7),
+		ImportLength:    uint32(16),
+		ImportLine:      uint32(2),
+		ImportCol:       uint32(1),
+	}
+	let calls = sync.NewRef(0)
+	let goodRunner = MapperRunner{
+		Call: func(_ MapperBudget, _ content.ContentInput) MapperInvokeOutcome {
+			calls.Update(func(n int) int { n + 1 })
+			let src = "type Users { Age int }\n"
+			let sp = content.SpanMapping{
+				Generated: content.SourceSpan{Start: uint32(13), End: uint32(20)},
+				Companion: option.Some[uint32]{Value: uint32(0)},
+				Source:    content.SourceSpan{Start: uint32(0), End: uint32(7)},
+				Label:     "field",
+			}
+			InvokeOutput{
+				Out:       content.MappedErgo{Source: src, Spans: content.SourceSpanMap{Entries: []content.SpanMapping{sp}}, Diags: []content.MapperDiag{}, Digest: []byte{}},
+				Steps:     uint32(42),
+				BytesUsed: uint32(128),
+			}
+		},
+	}
+	let r1 = RunFileAsset(req, goodRunner)
+	assert !r1.Broken && calls.Get() == 1 && !r1.Record.CacheHit && r1.Record.Decls == ([]string{"Users"})
+	let r2 = RunFileAsset(req, goodRunner)
+	assert !r2.Broken && calls.Get() == 1 && r2.Record.CacheHit
+	assert MapperOriginKindName(r2.Record.Kind) == "file"
+
+	let remapped = RemapFileAssetDiagnostic(req, r2.Spans, ContentDiagnostic{
+		FileIndex: uint32(0), File: "users.csv.ergo", Offset: uint32(15), Length: uint32(3),
+		Line:      uint32(1), Column: uint32(16), Code: "E100", Message: "bad type", Warning: false,
+	})
+	assert remapped.File == "schema.txt" && remapped.Line == uint32(1) && remapped.Column == uint32(1)
+
+	let badSpanCalls = sync.NewRef(0)
+	let badSpanRunner = MapperRunner{
+		Call: func(_ MapperBudget, _ content.ContentInput) MapperInvokeOutcome {
+			badSpanCalls.Update(func(n int) int { n + 1 })
+			let bad = content.SpanMapping{Generated: content.SourceSpan{Start: uint32(0), End: uint32(999)}, Companion: option.None, Source: content.SourceSpan{Start: uint32(0), End: uint32(1)}, Label: "bad"}
+			InvokeOutput{Out: content.MappedErgo{Source: "type X {}\n", Spans: content.SourceSpanMap{Entries: []content.SpanMapping{bad}}, Diags: []content.MapperDiag{}, Digest: []byte{}}, Steps: uint32(1), BytesUsed: uint32(1)}
+		},
+	}
+	let badReq = FileAssetRequest{..req, BuildID: "v-badspan"}
+	let b1 = RunFileAsset(badReq, badSpanRunner)
+	let b2 = RunFileAsset(badReq, badSpanRunner)
+	assert b1.Broken && b2.Broken && badSpanCalls.Get() == 2
+
+	let errDiagCalls = sync.NewRef(0)
+	let errDiagRunner = MapperRunner{
+		Call: func(_ MapperBudget, _ content.ContentInput) MapperInvokeOutcome {
+			errDiagCalls.Update(func(n int) int { n + 1 })
+			let d = content.MapperDiag{Severity: content.Error, Companion: option.None, Span: content.SourceSpan{Start: uint32(5), End: uint32(8)}, Code: "CSV01", Message: "bad header", Hint: "use age"}
+			InvokeOutput{Out: content.MappedErgo{Source: "<<< not valid ergo >>>", Spans: content.SourceSpanMap{Entries: []content.SpanMapping{}}, Diags: []content.MapperDiag{d}, Digest: []byte{}}, Steps: uint32(1), BytesUsed: uint32(1)}
+		},
+	}
+	let errReq = FileAssetRequest{..req, BuildID: "v-errdiag"}
+	let e1 = RunFileAsset(errReq, errDiagRunner)
+	assert e1.Broken && errDiagCalls.Get() == 1 && e1.Diags.Len() == 1 && strings.Contains(e1.Diags[0].Message, "CSV01: bad header") && e1.Diags[0].Column == uint32(6)
+}

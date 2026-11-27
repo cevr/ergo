@@ -1,0 +1,585 @@
+import compiler/syntax
+import content
+import dense
+import option
+import slices
+import strconv
+import strings
+import utf8
+
+// SpanTag identifies a row inside SpanTable's Structure-of-Arrays columns.
+type SpanTag {}
+
+// SpanViolation describes why a SourceSpanMap violates contract bounds or ordering.
+type SpanViolation =
+	| GenBounds{Index uint32, Start uint32, End uint32, Limit uint32}
+	| SpanOrder{Index uint32, Start uint32, PrevEnd uint32}
+	| MissingCompanion{Index uint32, Companion uint32, Count uint32}
+	| SourceBounds{Index uint32, Start uint32, End uint32, Limit uint32}
+
+// FormatViolation renders a human-readable diagnostic explaining v.
+func FormatViolation(v SpanViolation) string {
+	match v {
+	case GenBounds as g:
+		"span entry " + strconv.Itoa(int(g.Index)) + " generated range [" + strconv.Itoa(int(g.Start)) + "," + strconv.Itoa(int(g.End)) + ") out of bounds [0," + strconv.Itoa(int(g.Limit)) + ")"
+	case SpanOrder as o:
+		"span entry " + strconv.Itoa(int(o.Index)) + " [" + strconv.Itoa(int(o.Start)) + ",...) overlaps or precedes previous end " + strconv.Itoa(int(o.PrevEnd))
+	case MissingCompanion as c:
+		"span entry " + strconv.Itoa(int(c.Index)) + " references missing companion index " + strconv.Itoa(int(c.Companion)) + " (have " + strconv.Itoa(int(c.Count)) + ")"
+	case SourceBounds as s:
+		"span entry " + strconv.Itoa(int(s.Index)) + " source range [" + strconv.Itoa(int(s.Start)) + "," + strconv.Itoa(int(s.End)) + ") out of bounds [0," + strconv.Itoa(int(s.Limit)) + ")"
+	}
+}
+
+// VerifySpans enforces bounds, strict monotonic ordering, and disjointness of
+// entries against generated text length, primary payload length, and companions.
+func VerifySpans(genLen uint32, assetLen uint32, compLens []uint32, entries []content.SpanMapping) fails SpanViolation {
+	let mut prevEnd = uint32(0)
+	for i in 0..entries.Len() {
+		let e = entries[i]
+		let idx = uint32(i)
+		if e.Generated.Start > e.Generated.End || e.Generated.End > genLen {
+			return GenBounds{Index: idx, Start: e.Generated.Start, End: e.Generated.End, Limit: genLen}
+		}
+		if i > 0 && e.Generated.Start < prevEnd {
+			return SpanOrder{Index: idx, Start: e.Generated.Start, PrevEnd: prevEnd}
+		}
+		prevEnd = e.Generated.End
+		let srcLimit = match e.Companion {
+		case option.Some{Value: ci}:
+			if int(ci) >= compLens.Len() {
+				return MissingCompanion{Index: idx, Companion: ci, Count: uint32(compLens.Len())}
+			}
+			compLens[int(ci)]
+		case option.None:
+			assetLen
+		}
+		if e.Source.Start > e.Source.End || e.Source.End > srcLimit {
+			return SourceBounds{Index: idx, Start: e.Source.Start, End: e.Source.End, Limit: srcLimit}
+		}
+	}
+}
+
+// SpanTable stores validated SpanMapping entries in flat Structure-of-Arrays columns.
+type SpanTable {
+	Count     dense.Count[SpanTag],
+	GenStart  dense.Col[SpanTag, uint32],
+	GenEnd    dense.Col[SpanTag, uint32],
+	HasComp   dense.Col[SpanTag, uint8],
+	Companion dense.Col[SpanTag, uint32],
+	SrcStart  dense.Col[SpanTag, uint32],
+	SrcEnd    dense.Col[SpanTag, uint32],
+	LabelID   dense.Col[SpanTag, dense.Opt[dense.Str]],
+	Labels    dense.Strings,
+}
+
+// NewSpanTable returns an empty SpanTable.
+func NewSpanTable() SpanTable {
+	SpanTable{
+		Count:     dense.NewCount[SpanTag](),
+		GenStart:  dense.NewCol[SpanTag, uint32](),
+		GenEnd:    dense.NewCol[SpanTag, uint32](),
+		HasComp:   dense.NewCol[SpanTag, uint8](),
+		Companion: dense.NewCol[SpanTag, uint32](),
+		SrcStart:  dense.NewCol[SpanTag, uint32](),
+		SrcEnd:    dense.NewCol[SpanTag, uint32](),
+		LabelID:   dense.NewCol[SpanTag, dense.Opt[dense.Str]](),
+		Labels:    dense.NewStrings(),
+	}
+}
+
+// AppendSpan inserts one SpanMapping row into st.
+func AppendSpan(st mut SpanTable, m content.SpanMapping) {
+	let _ = dense.Next(&st.Count)
+	dense.Push(&st.GenStart, m.Generated.Start)
+	dense.Push(&st.GenEnd, m.Generated.End)
+	match m.Companion {
+	case option.Some{Value: ci}:
+		dense.Push(&st.HasComp, uint8(1))
+		dense.Push(&st.Companion, ci)
+	case option.None:
+		dense.Push(&st.HasComp, uint8(0))
+		dense.Push(&st.Companion, uint32(0))
+	}
+	dense.Push(&st.SrcStart, m.Source.Start)
+	dense.Push(&st.SrcEnd, m.Source.End)
+	if m.Label == "" {
+		dense.Push(&st.LabelID, dense.NoID[dense.Str]())
+	} else {
+		let sid = dense.InternText(&st.Labels, m.Label)
+		dense.Push(&st.LabelID, dense.OptOf(sid))
+	}
+}
+
+// BuildSpanTable validates entries and packs them into a dense SoA SpanTable.
+func BuildSpanTable(genLen uint32, assetLen uint32, compLens []uint32, entries []content.SpanMapping) SpanTable fails SpanViolation {
+	try VerifySpans(genLen, assetLen, compLens, entries)
+	let mut st = NewSpanTable()
+	for m in entries {
+		AppendSpan(&st, m)
+	}
+	st
+}
+
+// SpanCount returns the number of entries stored in st.
+func SpanCount(st SpanTable) uint32 { uint32(dense.Total(st.Count)) }
+
+// SpanAt materializes the idx-th SpanMapping stored in st.
+func SpanAt(st SpanTable, idx uint32) content.SpanMapping {
+	let id = dense.IDAt(st.Count, int(idx))
+	let comp = if dense.Of(st.HasComp, id) != uint8(0) {
+		option.Some[uint32]{Value: dense.Of(st.Companion, id)}
+	} else {
+		option.None
+	}
+	let lbl = match dense.Unpack(dense.Of(st.LabelID, id)) {
+	case option.Some{Value: sid}:
+		dense.Text(st.Labels, sid)
+	case option.None:
+		""
+	}
+	content.SpanMapping{
+		Generated: content.SourceSpan{Start: dense.Of(st.GenStart, id), End: dense.Of(st.GenEnd, id)},
+		Companion: comp,
+		Source:    content.SourceSpan{Start: dense.Of(st.SrcStart, id), End: dense.Of(st.SrcEnd, id)},
+		Label:     lbl,
+	}
+}
+
+// LookupSpanTable returns the SpanMapping whose Generated interval covers or
+// overlaps [off, off+length). Entries in st must be sorted and disjoint.
+func LookupSpanTable(st SpanTable, off uint32, length uint32) option.Option[content.SpanMapping] {
+	let n = dense.Total(st.Count)
+	if n == 0 {
+		return option.None
+	}
+	let end = if off+length < off { off } else { off + length }
+	let mut lo = 0
+	let mut hi = n
+	for lo < hi {
+		let mid = (lo + hi) / 2
+		let id = dense.IDAt(st.Count, mid)
+		if dense.Of(st.GenEnd, id) > off {
+			hi = mid
+		} else {
+			lo = mid + 1
+		}
+	}
+	if lo < n {
+		let id = dense.IDAt(st.Count, lo)
+		let gs = dense.Of(st.GenStart, id)
+		let ge = dense.Of(st.GenEnd, id)
+		if gs <= off && (off < ge || gs == ge) {
+			return option.Some[content.SpanMapping]{Value: SpanAt(st, uint32(lo))}
+		}
+		if end > off && gs < end && off < ge {
+			return option.Some[content.SpanMapping]{Value: SpanAt(st, uint32(lo))}
+		}
+	}
+	if lo > 0 {
+		let prevId = dense.IDAt(st.Count, lo-1)
+		let ps = dense.Of(st.GenStart, prevId)
+		let pe = dense.Of(st.GenEnd, prevId)
+		if ps <= off && off <= pe {
+			return option.Some[content.SpanMapping]{Value: SpanAt(st, uint32(lo-1))}
+		}
+	}
+	option.None
+}
+
+// LookupGeneratedSpan searches validated entries for the SpanMapping covering or overlapping [off, off+length).
+func LookupGeneratedSpan(entries []content.SpanMapping, off uint32, length uint32) option.Option[content.SpanMapping] {
+	let n = entries.Len()
+	if n == 0 {
+		return option.None
+	}
+	let end = if off+length < off { off } else { off + length }
+	let mut lo = 0
+	let mut hi = n
+	for lo < hi {
+		let mid = (lo + hi) / 2
+		if entries[mid].Generated.End > off {
+			hi = mid
+		} else {
+			lo = mid + 1
+		}
+	}
+	if lo < n {
+		let e = entries[lo]
+		if e.Generated.Start <= off && (off < e.Generated.End || e.Generated.Start == e.Generated.End) {
+			return option.Some[content.SpanMapping]{Value: e}
+		}
+		if end > off && e.Generated.Start < end && off < e.Generated.End {
+			return option.Some[content.SpanMapping]{Value: e}
+		}
+	}
+	if lo > 0 {
+		let prev = entries[lo-1]
+		if prev.Generated.Start <= off && off <= prev.Generated.End {
+			return option.Some[content.SpanMapping]{Value: prev}
+		}
+	}
+	option.None
+}
+
+// LineCol holds a 1-based line number and 1-based column.
+type LineCol {
+	Line uint32,
+	Col  uint32,
+}
+
+// OffsetLineColByte computes 1-based line and 1-based UTF-8 byte column for off.
+func OffsetLineColByte(text []byte, off uint32) LineCol {
+	if text.Len() == 0 {
+		return LineCol{Line: uint32(1), Col: uint32(1)}
+	}
+	let mut n = int(off)
+	if n < 0 {
+		n = 0
+	}
+	if n > text.Len() {
+		n = text.Len()
+	}
+	let mut line = uint32(1)
+	let mut lineStart = 0
+	for i in 0..n {
+		if text[i] == byte(10) {
+			line = line + uint32(1)
+			lineStart = i + 1
+		}
+	}
+	LineCol{Line: line, Col: uint32((n - lineStart) + 1)}
+}
+
+// OffsetLineColUTF16 computes 1-based line and 1-based UTF-16 code unit column for off.
+func OffsetLineColUTF16(text []byte, off uint32) LineCol {
+	let mut n = int(off)
+	if n < 0 {
+		n = 0
+	}
+	if n > text.Len() {
+		n = text.Len()
+	}
+	let mut line = uint32(1)
+	let mut lineStart = 0
+	for i in 0..n {
+		if text[i] == byte(10) {
+			line = line + uint32(1)
+			lineStart = i + 1
+		}
+	}
+	let sliceText = text[lineStart:n].Text()
+	if !utf8.ValidString(sliceText) {
+		return LineCol{Line: line, Col: uint32((n - lineStart) + 1)}
+	}
+	let mut units = uint32(0)
+	let mut pos = 0
+	for pos < sliceText.Len() {
+		let dec = utf8.DecodeRuneInString(sliceText[pos:sliceText.Len()])
+		let w = if dec.Size > 0 { dec.Size } else { 1 }
+		if int(dec.Rune) > 0xFFFF || (int(dec.Rune) >= 0xD800 && int(dec.Rune) <= 0xDFFF) {
+			units = units + uint32(2)
+		} else {
+			units = units + uint32(1)
+		}
+		pos = pos + w
+	}
+	LineCol{Line: line, Col: units + uint32(1)}
+}
+
+// ByteOrigin identifies the originating package file and source byte range for one inline payload byte.
+type ByteOrigin {
+	FileIndex uint32,
+	Start     uint32,
+	End       uint32,
+	Valid     bool,
+}
+
+// DecodeLiteralError reports a malformed string literal escape or delimiter.
+type DecodeLiteralError {
+	Offset uint32,
+	Reason string,
+}
+
+// DecodedLiteral holds decoded string literal bytes alongside per-byte source spans.
+type DecodedLiteral {
+	Bytes   []byte,
+	Origins []content.SourceSpan,
+}
+
+// DecodeStringWithOrigins decodes an Ergo string BasicLit token into UTF-8 bytes
+// and a parallel per-byte source SourceSpan slice relative to base.
+func DecodeStringWithOrigins(base uint32, kind uint8, raw string) DecodedLiteral fails DecodeLiteralError {
+	if kind != syntax.String && kind != syntax.StringHead && kind != syntax.StringMid && kind != syntax.StringTail {
+		return DecodeLiteralError{Offset: base, Reason: "token is not a string literal"}
+	}
+	if kind == syntax.String && raw.Len() >= 2 && raw[0] == byte(96) && raw[raw.Len()-1] == byte(96) {
+		let mut out = slices.WithCapacity[byte](raw.Len() - 2)
+		let mut orig = slices.WithCapacity[content.SourceSpan](raw.Len() - 2)
+		for i in 1..(raw.Len() - 1) {
+			if raw[i] == byte(13) {
+				continue
+			}
+			out = out.Append(raw[i])
+			orig = orig.Append(content.SourceSpan{Start: base + uint32(i), End: base + uint32(i+1)})
+		}
+		return DecodedLiteral{Bytes: out, Origins: orig}
+	}
+	let mut contentStart = 0
+	let mut contentEnd = raw.Len()
+	if kind == syntax.String {
+		if raw.Len() < 2 || raw[0] != byte(34) || raw[raw.Len()-1] != byte(34) {
+			return DecodeLiteralError{Offset: base, Reason: "malformed quoted string literal"}
+		}
+		contentStart = 1
+		contentEnd = raw.Len() - 1
+	} else if kind == syntax.StringHead {
+		if raw.Len() < 3 || raw[0] != byte(34) || !strings.HasSuffix(raw, "\\(") {
+			return DecodeLiteralError{Offset: base, Reason: "malformed interpolated string head"}
+		}
+		contentStart = 1
+		contentEnd = raw.Len() - 2
+	} else if kind == syntax.StringMid {
+		if raw.Len() < 3 || raw[0] != byte(41) || !strings.HasSuffix(raw, "\\(") {
+			return DecodeLiteralError{Offset: base, Reason: "malformed interpolated string middle"}
+		}
+		contentStart = 1
+		contentEnd = raw.Len() - 2
+	} else {
+		if raw.Len() < 2 || raw[0] != byte(41) || raw[raw.Len()-1] != byte(34) {
+			return DecodeLiteralError{Offset: base, Reason: "malformed interpolated string tail"}
+		}
+		contentStart = 1
+		contentEnd = raw.Len() - 1
+	}
+	let mut out = slices.WithCapacity[byte](contentEnd - contentStart)
+	let mut orig = slices.WithCapacity[content.SourceSpan](contentEnd - contentStart)
+	let mut i = contentStart
+	for i < contentEnd {
+		if raw[i] != byte(92) {
+			let dec = utf8.DecodeRuneInString(raw[i:contentEnd])
+			let w = if dec.Size > 0 { dec.Size } else { 1 }
+			for j in 0..w {
+				out = out.Append(raw[i+j])
+				orig = orig.Append(content.SourceSpan{Start: base + uint32(i+j), End: base + uint32(i+j+1)})
+			}
+			i = i + w
+			continue
+		}
+		let escStart = i
+		let decEsc = try decodeOneEscape(raw, escStart, contentEnd, base)
+		let sp = content.SourceSpan{Start: base + uint32(escStart), End: base + uint32(decEsc.Next)}
+		for b in decEsc.Bytes {
+			out = out.Append(b)
+			orig = orig.Append(sp)
+		}
+		i = decEsc.Next
+	}
+	DecodedLiteral{Bytes: out, Origins: orig}
+}
+
+type decodedEscape {
+	Bytes []byte,
+	Next  int,
+}
+
+func decodeOneEscape(raw string, start int, limit int, base uint32) decodedEscape fails DecodeLiteralError {
+	if start+1 >= limit {
+		return DecodeLiteralError{Offset: base + uint32(start), Reason: "unterminated escape sequence"}
+	}
+	let ch = raw[start+1]
+	if ch == byte(97) {
+		return decodedEscape{Bytes: []byte{byte(7)}, Next: start + 2}
+	}
+	if ch == byte(98) {
+		return decodedEscape{Bytes: []byte{byte(8)}, Next: start + 2}
+	}
+	if ch == byte(102) {
+		return decodedEscape{Bytes: []byte{byte(12)}, Next: start + 2}
+	}
+	if ch == byte(110) {
+		return decodedEscape{Bytes: []byte{byte(10)}, Next: start + 2}
+	}
+	if ch == byte(114) {
+		return decodedEscape{Bytes: []byte{byte(13)}, Next: start + 2}
+	}
+	if ch == byte(116) {
+		return decodedEscape{Bytes: []byte{byte(9)}, Next: start + 2}
+	}
+	if ch == byte(118) {
+		return decodedEscape{Bytes: []byte{byte(11)}, Next: start + 2}
+	}
+	if ch == byte(92) || ch == byte(34) || ch == byte(39) {
+		return decodedEscape{Bytes: []byte{ch}, Next: start + 2}
+	}
+	if ch == byte(120) {
+		let val = try parseHexEscape(raw, start+2, 2, base+uint32(start))
+		return decodedEscape{Bytes: []byte{byte(val)}, Next: start + 4}
+	}
+	if ch == byte(117) {
+		let val = try parseHexEscape(raw, start+2, 4, base+uint32(start))
+		if val >= 0xD800 && val <= 0xDFFF {
+			return DecodeLiteralError{Offset: base + uint32(start), Reason: "surrogate code point in escape"}
+		}
+		return decodedEscape{Bytes: utf8.AppendRune([]byte{}, rune(val)), Next: start + 6}
+	}
+	if ch == byte(85) {
+		let val = try parseHexEscape(raw, start+2, 8, base+uint32(start))
+		if val > 0x10FFFF || (val >= 0xD800 && val <= 0xDFFF) {
+			return DecodeLiteralError{Offset: base + uint32(start), Reason: "invalid unicode code point"}
+		}
+		return decodedEscape{Bytes: utf8.AppendRune([]byte{}, rune(val)), Next: start + 10}
+	}
+	if ch >= byte(48) && ch <= byte(55) {
+		if start+4 > limit {
+			return DecodeLiteralError{Offset: base + uint32(start), Reason: "short octal escape"}
+		}
+		let mut val = 0
+		for k in 0..3 {
+			let d = raw[start+1+k]
+			if d < byte(48) || d > byte(55) {
+				return DecodeLiteralError{Offset: base + uint32(start), Reason: "invalid octal digit"}
+			}
+			val = (val * 8) + int(d-byte(48))
+		}
+		if val > 255 {
+			return DecodeLiteralError{Offset: base + uint32(start), Reason: "octal escape out of byte range"}
+		}
+		return decodedEscape{Bytes: []byte{byte(val)}, Next: start + 4}
+	}
+	DecodeLiteralError{Offset: base + uint32(start), Reason: "unknown escape sequence"}
+}
+
+func parseHexEscape(raw string, pos int, width int, baseOff uint32) int fails DecodeLiteralError {
+	if pos+width > raw.Len() {
+		return DecodeLiteralError{Offset: baseOff, Reason: "short hex escape"}
+	}
+	let mut v = 0
+	for i in 0..width {
+		let c = raw[pos+i]
+		let d = if c >= byte(48) && c <= byte(57) {
+			int(c - byte(48))
+		} else if c >= byte(97) && c <= byte(102) {
+			10 + int(c-byte(97))
+		} else if c >= byte(65) && c <= byte(70) {
+			10 + int(c-byte(65))
+		} else {
+			return DecodeLiteralError{Offset: baseOff, Reason: "invalid hex escape digit"}
+		}
+		v = (v * 16) + d
+	}
+	v
+}
+
+// VerifySpansAcceptsSortedDisjoint checks that ordered disjoint spans pass VerifySpans and LookupGeneratedSpan finds each.
+law VerifySpansAcceptsSortedDisjoint(a uint8, b uint8, c uint8) {
+	let len1 = uint32(1) + uint32(a)%uint32(16)
+	let gap = uint32(b) % uint32(8)
+	let len2 = uint32(1) + uint32(c)%uint32(16)
+	let s1End = len1
+	let s2Start = s1End + gap
+	let s2End = s2Start + len2
+	let entries = []content.SpanMapping{
+		content.SpanMapping{Generated: content.SourceSpan{Start: uint32(0), End: s1End}, Companion: option.None, Source: content.SourceSpan{Start: uint32(0), End: len1}, Label: "a"},
+		content.SpanMapping{Generated: content.SourceSpan{Start: s2Start, End: s2End}, Companion: option.Some[uint32]{Value: uint32(0)}, Source: content.SourceSpan{Start: uint32(0), End: len2}, Label: "b"},
+	}
+	let st = BuildSpanTable(s2End, len1, []uint32{len2}, entries) catch {
+	case SpanViolation:
+		return false
+	}
+	let hit1 = LookupSpanTable(st, uint32(0), uint32(1))
+	let hit2 = LookupSpanTable(st, s2Start, uint32(1))
+	hit1 != option.None && hit2 != option.None && SpanCount(st) == uint32(2)
+}
+
+// LookupGeneratedSpanFindsCovering checks that LookupGeneratedSpan resolves the covering mapping across sorted spans.
+law LookupGeneratedSpanFindsCovering(off uint8, spanLen uint8) {
+	let w = uint32(1) + uint32(spanLen)%uint32(10)
+	let entries = []content.SpanMapping{
+		content.SpanMapping{Generated: content.SourceSpan{Start: uint32(2), End: uint32(2) + w}, Companion: option.None, Source: content.SourceSpan{Start: uint32(10), End: uint32(10) + w}, Label: "x"},
+		content.SpanMapping{Generated: content.SourceSpan{Start: uint32(20), End: uint32(20) + w}, Companion: option.None, Source: content.SourceSpan{Start: uint32(30), End: uint32(30) + w}, Label: "y"},
+	}
+	let q1 = uint32(2) + uint32(off)%w
+	let q2 = uint32(20) + uint32(off)%w
+	let r1 = LookupGeneratedSpan(entries, q1, uint32(1))
+	let r2 = LookupGeneratedSpan(entries, q2, uint32(1))
+	let miss = LookupGeneratedSpan(entries, uint32(0), uint32(1))
+	r1 != option.None && r2 != option.None && miss == option.None
+}
+
+// LineColMonotonic checks that OffsetLineColByte and OffsetLineColUTF16 increment lines on newline boundaries and start at column 1.
+law LineColMonotonic(head string, tail string) {
+	let cleanHead = if strings.Contains(head, "\n") { "abc" } else { head }
+	let text = (cleanHead + "\n" + tail).Bytes()
+	let after = uint32(cleanHead.Len() + 1)
+	let lcBefore = OffsetLineColByte(text, uint32(cleanHead.Len()))
+	let lcAfter = OffsetLineColByte(text, after)
+	let u16After = OffsetLineColUTF16(text, after)
+	lcBefore.Line == uint32(1) && lcAfter.Line == uint32(2) && lcAfter.Col == uint32(1) && u16After.Line == uint32(2) && u16After.Col == uint32(1)
+}
+
+test VerifyLookupSpansAndUTF16AndEscapes {
+	let entries = []content.SpanMapping{
+		content.SpanMapping{Generated: content.SourceSpan{Start: uint32(0), End: uint32(5)}, Companion: option.None, Source: content.SourceSpan{Start: uint32(1), End: uint32(6)}, Label: "first"},
+		content.SpanMapping{Generated: content.SourceSpan{Start: uint32(8), End: uint32(12)}, Companion: option.Some[uint32]{Value: uint32(0)}, Source: content.SourceSpan{Start: uint32(2), End: uint32(6)}, Label: "comp"},
+	}
+	let st = BuildSpanTable(uint32(16), uint32(10), []uint32{uint32(8)}, entries) catch {
+	case SpanViolation:
+		assert false
+		return
+	}
+	assert SpanCount(st) == uint32(2)
+	match LookupSpanTable(st, uint32(6), uint32(4)) {
+	case option.Some{Value: found}:
+		assert found.Label == "comp"
+	case option.None:
+		assert false
+	}
+
+	let overlap = []content.SpanMapping{
+		content.SpanMapping{Generated: content.SourceSpan{Start: uint32(0), End: uint32(6)}, Companion: option.None, Source: content.SourceSpan{Start: uint32(0), End: uint32(6)}, Label: ""},
+		content.SpanMapping{Generated: content.SourceSpan{Start: uint32(4), End: uint32(8)}, Companion: option.None, Source: content.SourceSpan{Start: uint32(0), End: uint32(4)}, Label: ""},
+	}
+	let mut sawOverlap = false
+	VerifySpans(uint32(10), uint32(10), []uint32{}, overlap) catch {
+	case SpanOrder:
+		sawOverlap = true
+	case _:
+	}
+	assert sawOverlap
+
+	let mut sawCompErr = false
+	VerifySpans(uint32(16), uint32(10), []uint32{}, entries) catch {
+	case MissingCompanion as mc:
+		sawCompErr = true
+		assert strings.Contains(FormatViolation(mc), "missing companion")
+	case _:
+	}
+	assert sawCompErr
+
+	let emoji = "a\xf0\x9f\x98\x80b"
+	let u16 = OffsetLineColUTF16(emoji.Bytes(), uint32(5))
+	assert u16.Line == uint32(1) && u16.Col == uint32(4)
+	let bcol = OffsetLineColByte(emoji.Bytes(), uint32(5))
+	assert bcol.Line == uint32(1) && bcol.Col == uint32(6)
+
+	let dec = DecodeStringWithOrigins(uint32(10), syntax.String, "\"a\\n\\x41\\u00e9\"") catch {
+	case DecodeLiteralError:
+		assert false
+		return
+	}
+	assert dec.Bytes.Text() == "a\nA\xc3\xa9"
+	assert dec.Origins.Len() == 5
+	assert dec.Origins[0].Start == uint32(11) && dec.Origins[0].End == uint32(12)
+	assert dec.Origins[1].Start == uint32(12) && dec.Origins[1].End == uint32(14)
+	assert dec.Origins[3].Start == uint32(18) && dec.Origins[3].End == uint32(24)
+	assert dec.Origins[4].Start == uint32(18) && dec.Origins[4].End == uint32(24)
+
+	let rawDec = DecodeStringWithOrigins(uint32(0), syntax.String, "`a\r\nb`") catch {
+	case DecodeLiteralError:
+		assert false
+		return
+	}
+	assert rawDec.Bytes.Text() == "a\nb"
+	assert rawDec.Origins.Len() == 3 && rawDec.Origins[1].Start == uint32(3)
+}
