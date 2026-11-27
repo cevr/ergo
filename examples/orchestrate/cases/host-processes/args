@@ -1,0 +1,8 @@
+--store
+:memory:
+host-processes
+-comm
+ergo
+-limit
+1
+--json

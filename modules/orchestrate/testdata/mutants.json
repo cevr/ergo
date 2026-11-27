@@ -449,6 +449,118 @@
           "examples:modules/orchestrate"
         ]
       }
+    },
+    {
+      "name": "orch-host-gib-divisor-si",
+      "origin": "orchestrate/host-tools",
+      "file": "modules/orchestrate/orchestrate/service_host.ergo",
+      "from": "\tfloat64(bytes) / bytesPerGiB\n",
+      "to": "\tfloat64(bytes) / 1000000000.0\n",
+      "rule": "bytesToGiB converts bytes using binary GiB (1073741824.0), not decimal GB (1000000000.0).",
+      "killers": [
+        "modules/orchestrate/orchestrate:law:HostStatusReportPreservesMeasurements"
+      ],
+      "anchor": {
+        "tests": [
+          "examples:modules/orchestrate"
+        ]
+      }
+    },
+    {
+      "name": "orch-host-status-blank-volume-unchecked",
+      "origin": "orchestrate/host-tools",
+      "file": "modules/orchestrate/orchestrate/service_host.ergo",
+      "from": "\tfor v in req.Volumes {\n\t\ttry requireText(\"volumes\", v)\n\t}\n",
+      "to": "\tfor v in req.Volumes {\n\t\tlet _ = v\n\t}\n",
+      "rule": "QueryHostStatus rejects blank volume paths with InvalidInput.",
+      "killers": [
+        "modules/orchestrate/memory:law:orchestrate.Api.ApiHostStatusAgreesWithSystem"
+      ],
+      "anchor": {
+        "tests": [
+          "examples:modules/orchestrate"
+        ]
+      }
+    },
+    {
+      "name": "orch-host-processes-comm-ignored",
+      "origin": "orchestrate/host-tools",
+      "file": "modules/orchestrate/orchestrate/service_host.ergo",
+      "from": "\t\tlet commOK = matchOptEq(comm, p.Comm)\n",
+      "to": "\t\tlet commOK = true\n",
+      "rule": "FilterHostProcesses enforces the optional comm filter when provided.",
+      "killers": [
+        "modules/orchestrate/orchestrate:law:HostProcessesFilterInvariants"
+      ],
+      "anchor": {
+        "tests": [
+          "examples:modules/orchestrate"
+        ]
+      }
+    },
+    {
+      "name": "orch-host-processes-pid-ignored",
+      "origin": "orchestrate/host-tools",
+      "file": "modules/orchestrate/orchestrate/service_host.ergo",
+      "from": "\t\tcase option.Some[int] as want:\n\t\t\tp.PID == want.Value\n",
+      "to": "\t\tcase option.Some[int]:\n\t\t\ttrue\n",
+      "rule": "FilterHostProcesses enforces the optional pid filter when provided.",
+      "killers": [
+        "modules/orchestrate/orchestrate:law:HostProcessesFilterInvariants"
+      ],
+      "anchor": {
+        "tests": [
+          "examples:modules/orchestrate"
+        ]
+      }
+    },
+    {
+      "name": "orch-host-processes-limit-ignored",
+      "origin": "orchestrate/host-tools",
+      "file": "modules/orchestrate/orchestrate/service_host.ergo",
+      "from": "\t\t\tif items.Len() < limit {\n",
+      "to": "\t\t\tif items.Len() >= 0 {\n",
+      "rule": "FilterHostProcesses bounds returned items to limit and reports Truncated when total exceeds limit.",
+      "killers": [
+        "modules/orchestrate/orchestrate:law:HostProcessesFilterInvariants"
+      ],
+      "anchor": {
+        "tests": [
+          "examples:modules/orchestrate"
+        ]
+      }
+    },
+    {
+      "name": "orch-host-processes-ticks-drops-sys",
+      "origin": "orchestrate/host-tools",
+      "file": "modules/orchestrate/orchestrate/service_host.ergo",
+      "from": "\t\t\t\t\tTicks:      host.CPUTicks(p),\n",
+      "to": "\t\t\t\t\tTicks:      p.UserTicks,\n",
+      "rule": "FilterHostProcesses computes Ticks as UserTicks + SysTicks via host.CPUTicks.",
+      "killers": [
+        "modules/orchestrate/orchestrate:law:HostProcessesFilterInvariants"
+      ],
+      "anchor": {
+        "tests": [
+          "examples:modules/orchestrate"
+        ]
+      }
+    },
+    {
+      "name": "orch-host-processes-rejects-nonpos-pid",
+      "origin": "orchestrate/host-tools",
+      "file": "modules/orchestrate/orchestrate/service_host.ergo",
+      "from": "\t\tif n.Value <= 0 {\n\t\t\treturn InvalidInput{Field: field, Why: \"must be > 0\"}\n\t\t}\n",
+      "to": "\t\tif false && n.Value <= 0 {\n\t\t\treturn InvalidInput{Field: field, Why: \"must be > 0\"}\n\t\t}\n",
+      "rule": "QueryHostProcesses rejects non-positive PID filters with InvalidInput.",
+      "killers": [
+        "modules/orchestrate/memory:law:orchestrate.Api.ApiHostProcessesAgreesWithSystem"
+      ],
+      "anchor": {
+        "tests": [
+          "examples:modules/orchestrate"
+        ]
+      }
     }
   ]
 }

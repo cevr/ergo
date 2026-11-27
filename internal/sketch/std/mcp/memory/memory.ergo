@@ -1,13 +1,16 @@
-// Package memory is an mcp.Transport in the process's memory (AP2): the
-// client's messages are given at the start, and what the server sends is
-// kept for the test to read.
+// Package memory is an mcp.Transport in the process's memory: Transport
+// records a scripted client input sequence and keeps what the server sent,
+// while LiveTransport provides a concurrent bidirectional queue-backed session
+// supporting asynchronous outbound server notifications.
 
 import core
 import json
 import mcp
 import option
+import queue
 import strings
 import sync
+import task
 
 // Transport is a session whose client sends Input. Its values are copies
 // of one session.
@@ -36,7 +39,89 @@ func Send(t Transport, message string) { t.sent.Update(func(xs []string) []strin
 // Sent is what the server sent, in order.
 func Sent(t Transport) []string { t.sent.Get() }
 
-// The session's law, on this transport.
+// LiveTransport is a concurrent bidirectional in-memory mcp.Transport backed
+// by bounded queues for client-to-server requests and server-to-client
+// responses and notifications.
+type LiveTransport {
+	inbound  queue.Queue[string],
+	outbound queue.Queue[string],
+} implements mcp.Transport
+
+// NewLive creates a bidirectional LiveTransport whose queues hold up to capacity
+// buffered messages in each direction.
+func NewLive(capacity int) LiveTransport {
+	let cap = if capacity < 1 { 16 } else { capacity }
+	LiveTransport{
+		inbound:  queue.New[string](cap),
+		outbound: queue.New[string](cap),
+	}
+}
+
+func seedLive() LiveTransport {
+	let t = NewLive(4)
+	let _ = SendClient(t, "first")
+	let _ = SendClient(t, "second")
+	CloseClient(t)
+	t
+}
+
+let withLiveMessages = context { mcp.Transport: seedLive() }
+
+// Messages yields client messages pushed via SendClient until CloseClient ends it.
+func Messages(t LiveTransport) core.Seq[string] { t.inbound.Values() }
+
+// Send writes a server response or notification to the outbound client queue.
+func Send(t LiveTransport, message string) {
+	t.outbound.Push(message) catch {
+	case queue.Closed:
+	}
+}
+
+// SendClient pushes one JSON-RPC message from client to server.
+func SendClient(t LiveTransport, message string) bool {
+	t.inbound.Push(message) catch {
+	case queue.Closed:
+		return false
+	}
+	true
+}
+
+// CloseClient closes the client-to-server stream, ending Messages.
+func CloseClient(t LiveTransport) { t.inbound.End() }
+
+// CloseServer closes the server-to-client stream after pending writes drain.
+func CloseServer(t LiveTransport) { t.outbound.End() }
+
+// Close ends both directions of t.
+func Close(t LiveTransport) {
+	t.inbound.End()
+	t.outbound.End()
+}
+
+// NextServer waits for and returns the next message sent by the server, or
+// None once CloseServer has drained.
+func NextServer(t LiveTransport) option.Option[string] {
+	let msg = t.outbound.Pop() catch {
+	case queue.Closed:
+		return option.None
+	}
+	option.Some[string]{Value: msg}
+}
+
+// PollServer returns the next buffered server message without waiting, or None.
+func PollServer(t LiveTransport) option.Option[string] { t.outbound.Poll() }
+
+// ServerMessages yields all server responses and notifications until CloseServer.
+func ServerMessages(t LiveTransport) core.Seq[string] { t.outbound.Values() }
+
+// ServeLive runs mcp.ServeFull on t and closes t's outbound stream when done.
+func ServeLive(f mcp.FullServer, n mcp.Notifier, t LiveTransport) int {
+	let count = mcp.ServeFull(f, n, t)
+	CloseServer(t)
+	count
+}
+
+// The session's laws, on these transports.
 
 // add is a tool that adds the integers a and b of its arguments, and
 // fails ToolError when one is missing.
@@ -105,4 +190,162 @@ law CallAnswersOnce(kinds []int) {
 		}
 	}
 	true
+}
+
+func jsonText(s string) string { json.Encode(json.Codec[string]{MaxBytes: 0, MaxDepth: 0}, s) }
+
+func extractID(line string) option.Option[string] {
+	let v = json.Decode(json.Codec[json.Value]{MaxBytes: 0, MaxDepth: 0}, line) catch {
+	case _:
+		return option.None
+	}
+	match mcp.Field(v, "id") {
+	case option.Some[json.Value] as iv:
+		match iv.Value {
+		case json.Str as s:
+			option.Some[string]{Value: s.Value}
+		case json.Null, json.Boolean, json.Num, json.Array, json.Object:
+			option.None
+		}
+	case option.None:
+		option.None
+	}
+}
+
+func waitAnswerID(t LiveTransport, wantID string) option.Option[[]mcp.Notification] {
+	let mut out = []mcp.Notification{}
+	for {
+		match NextServer(t) {
+		case option.None:
+			return option.None
+		case option.Some[string] as msg:
+			match mcp.ParseNotification(msg.Value) {
+			case option.Some[mcp.Notification] as n:
+				out = out.Append(n.Value)
+			case option.None:
+				if extractID(msg.Value) == (option.Some[string]{Value: wantID}) {
+					return option.Some[[]mcp.Notification]{Value: out}
+				}
+				return option.None
+			}
+		}
+	}
+	option.None
+}
+
+// LiveSessionOrdersAndFilters: over a concurrent LiveTransport session,
+// request/response answers preserve request order, subscriptions filter
+// notifications/resources/updated by URI, unsubscribe stops subsequent
+// deliveries for that URI, and no matching notification is lost or reordered.
+law LiveSessionOrdersAndFilters(kinds []int, subKey string, otherKey string) {
+	let target = "mem://live/" + subKey
+	let other = "mem://other/" + otherKey
+	let rs = mcp.StaticResources([]mcp.Resource{
+		mcp.Resource{URI: target, Name: "target", Description: "", MIMEType: "text/plain"},
+	}, func(uri string) []mcp.ResourceContents fails mcp.ResourceNotFound | mcp.ResourceError {
+		if uri == target {
+			return []mcp.ResourceContents{mcp.TextContents(uri, "text/plain", "live")}
+		}
+		mcp.ResourceNotFound{URI: uri}
+	})
+	let full = mcp.WithResources(calc, rs)
+	let n = mcp.NewNotifier(256)
+	let t = NewLive(256)
+	let srv = task.Go() { ServeLive(full, n, t) }
+
+	let mut notifs = []mcp.Notification{}
+	let mut wantNotifs = []mcp.Notification{}
+	let mut ok = true
+
+	if !SendClient(t, "{\"jsonrpc\":\"2.0\",\"id\":\"sub\",\"method\":\"resources/subscribe\",\"params\":{\"uri\":"+jsonText(target)+"}}") {
+		ok = false
+	}
+	if ok {
+		match waitAnswerID(t, "sub") {
+		case option.Some[[]mcp.Notification] as beforeSub:
+			notifs = notifs.Concat(beforeSub.Value)
+		case option.None:
+			ok = false
+		}
+	}
+
+	let mut reqIDs = []string{}
+	for i, k in kinds {
+		let mode = ((k % 4) + 4) % 4
+		let id = "k\(i)"
+		if mode == 0 {
+			let _ = mcp.NotifyResourceUpdated(n, target)
+			wantNotifs = wantNotifs.Append(mcp.ResourceUpdated(target))
+		} else if mode == 1 {
+			let _ = mcp.NotifyResourceUpdated(n, other)
+		} else if mode == 2 {
+			let msg = mcp.LogMessage("info", "mem", json.IntNumber(int64(i)))
+			let _ = mcp.Notify(n, msg)
+			wantNotifs = wantNotifs.Append(msg)
+		} else {
+			reqIDs = reqIDs.Append(id)
+			let req = "{\"jsonrpc\":\"2.0\",\"id\":" + jsonText(id) + ",\"method\":\"resources/read\",\"params\":{\"uri\":" + jsonText(target) + "}}"
+			if !SendClient(t, req) {
+				ok = false
+			}
+		}
+	}
+	let done = "{\"jsonrpc\":\"2.0\",\"id\":\"unsub\",\"method\":\"resources/unsubscribe\",\"params\":{\"uri\":" + jsonText(target) + "}}"
+	if !SendClient(t, done) {
+		ok = false
+	}
+
+	let mut gotReqIDs = []string{}
+	for {
+		match NextServer(t) {
+		case option.None:
+			ok = false
+			break
+		case option.Some[string] as msg:
+			match mcp.ParseNotification(msg.Value) {
+			case option.Some[mcp.Notification] as notif:
+				notifs = notifs.Append(notif.Value)
+			case option.None:
+				match extractID(msg.Value) {
+				case option.Some[string] as id:
+					if id.Value == "unsub" {
+						break
+					}
+					gotReqIDs = gotReqIDs.Append(id.Value)
+				case option.None:
+					ok = false
+				}
+			}
+		}
+	}
+
+	let _ = mcp.NotifyResourceUpdated(n, target)
+	let after = mcp.ToolsListChanged()
+	let _ = mcp.Notify(n, after)
+	wantNotifs = wantNotifs.Append(after)
+
+	if !SendClient(t, "{\"jsonrpc\":\"2.0\",\"id\":\"tail\",\"method\":\"ping\"}") {
+		ok = false
+	}
+	CloseClient(t)
+	let mut sawTail = false
+	for msg in ServerMessages(t) {
+		match mcp.ParseNotification(msg) {
+		case option.Some[mcp.Notification] as notif:
+			notifs = notifs.Append(notif.Value)
+		case option.None:
+			if extractID(msg) == (option.Some[string]{Value: "tail"}) {
+				sawTail = true
+			} else {
+				ok = false
+			}
+		}
+	}
+	let _ = srv.Wait()
+
+	let finalOK = ok && sawTail && gotReqIDs == reqIDs && notifs == wantNotifs
+	always finalOK
+	sometimes reqIDs.Len() > 0 && wantNotifs.Len() > 1 && finalOK
+	sometimes target != other && finalOK
+	finalOK
 }

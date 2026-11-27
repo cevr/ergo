@@ -1,0 +1,459 @@
+import json
+import option
+import os/host
+import slices
+
+// HostStatusInput requests point-in-time host CPU, load, memory, and volume capacity metrics.
+type HostStatusInput {
+	Volumes []string,
+}
+
+// HostMemory holds physical host memory measurements in bytes and GiB.
+type HostMemory {
+	TotalBytes     int64,
+	AvailableBytes int64,
+	FreeBytes      int64,
+	UsedBytes      int64,
+	TotalGiB       float64,
+	AvailableGiB   float64,
+	FreeGiB        float64,
+	UsedGiB        float64,
+}
+
+// HostVolume holds capacity measurements in bytes and GiB for one filesystem volume path.
+type HostVolume {
+	Path           string,
+	TotalBytes     int64,
+	FreeBytes      int64,
+	AvailableBytes int64,
+	UsedBytes      int64,
+	TotalGiB       float64,
+	FreeGiB        float64,
+	AvailableGiB   float64,
+	UsedGiB        float64,
+}
+
+// HostStatusReport holds point-in-time host CPU core count, load averages, physical memory, and requested volume capacities.
+type HostStatusReport {
+	Cores   int,
+	Load    host.LoadAvg,
+	Memory  HostMemory,
+	Volumes []HostVolume,
+}
+
+// HostProcessesInput filters and bounds active operating-system process snapshots.
+type HostProcessesInput {
+	Comm  json.Optional[string],
+	PID   json.Optional[int],
+	Limit json.Optional[int],
+}
+
+// HostProcess describes one operating-system process snapshot.
+type HostProcess {
+	PID        int,
+	PPID       int,
+	State      string,
+	Comm       string,
+	Cmdline    []string,
+	Ticks      int64,
+	UserTicks  int64,
+	SysTicks   int64,
+	StartTicks int64,
+	RSSBytes   int64,
+	VSizeBytes int64,
+	Threads    int,
+}
+
+// HostProcessList holds matching process snapshots up to Limit along with the total match count.
+type HostProcessList {
+	Items     []HostProcess,
+	Total     int,
+	Limit     int,
+	Truncated bool,
+}
+
+let bytesPerGiB = 1073741824.0
+
+let defaultProcessLimit = 50
+
+let maxProcessLimit = 4096
+
+type unconfiguredHost {} implements host.System
+
+func Status(_ unconfiguredHost, _ []string) host.Status fails host.Unavailable | host.Malformed {
+	host.Unavailable{Target: "host", Reason: "host telemetry provider not configured"}
+}
+
+func Processes(_ unconfiguredHost) []host.Process fails host.Unavailable | host.Malformed {
+	host.Unavailable{Target: "host", Reason: "host telemetry provider not configured"}
+}
+
+type failingHost {
+	failMalformed bool,
+	target        string,
+	reason        string,
+} implements host.System
+
+func Status(f failingHost, _ []string) host.Status fails host.Unavailable | host.Malformed {
+	if f.failMalformed {
+		return host.Malformed{Source: f.target, Reason: f.reason}
+	}
+	host.Unavailable{Target: f.target, Reason: f.reason}
+}
+
+func Processes(f failingHost) []host.Process fails host.Unavailable | host.Malformed {
+	if f.failMalformed {
+		return host.Malformed{Source: f.target, Reason: f.reason}
+	}
+	host.Unavailable{Target: f.target, Reason: f.reason}
+}
+
+func bytesToGiB(bytes int64) float64 {
+	float64(bytes) / bytesPerGiB
+}
+
+func parseOptionalPositiveInt(field string, opt json.Optional[int]) option.Option[int] fails InvalidInput {
+	let parsed = optionalToOption[int](opt)
+	match parsed {
+	case option.Some[int] as n:
+		if n.Value <= 0 {
+			return InvalidInput{Field: field, Why: "must be > 0"}
+		}
+		option.Some[int]{Value: n.Value}
+	case option.None:
+		option.None
+	}
+}
+
+func parseProcessLimit(opt json.Optional[int]) int fails InvalidInput {
+	match optionalToOption[int](opt) {
+	case option.Some[int] as n:
+		if n.Value < 1 || n.Value > maxProcessLimit {
+			return InvalidInput{Field: "limit", Why: "must be between 1 and \(maxProcessLimit)"}
+		}
+		n.Value
+	case option.None:
+		defaultProcessLimit
+	}
+}
+
+// BuildHostStatusReport converts an os/host.Status snapshot into a HostStatusReport with byte and GiB fields.
+func BuildHostStatusReport(st host.Status) HostStatusReport {
+	let mut vols = slices.WithCapacity[HostVolume](st.Volumes.Len())
+	for v in st.Volumes {
+		vols = vols.Append(HostVolume{
+			Path:           v.Path,
+			TotalBytes:     v.TotalBytes,
+			FreeBytes:      v.FreeBytes,
+			AvailableBytes: v.AvailableBytes,
+			UsedBytes:      v.UsedBytes,
+			TotalGiB:       bytesToGiB(v.TotalBytes),
+			FreeGiB:        bytesToGiB(v.FreeBytes),
+			AvailableGiB:   bytesToGiB(v.AvailableBytes),
+			UsedGiB:        bytesToGiB(v.UsedBytes),
+		})
+	}
+	HostStatusReport{
+		Cores:  st.Cores,
+		Load:   st.Load,
+		Memory: HostMemory{
+			TotalBytes:     st.Memory.TotalBytes,
+			AvailableBytes: st.Memory.AvailableBytes,
+			FreeBytes:      st.Memory.FreeBytes,
+			UsedBytes:      st.Memory.UsedBytes,
+			TotalGiB:       bytesToGiB(st.Memory.TotalBytes),
+			AvailableGiB:   bytesToGiB(st.Memory.AvailableBytes),
+			FreeGiB:        bytesToGiB(st.Memory.FreeBytes),
+			UsedGiB:        bytesToGiB(st.Memory.UsedBytes),
+		},
+		Volumes: vols,
+	}
+}
+
+// FilterHostProcesses filters os/host.Process snapshots by optional comm and pid and bounds results by limit.
+func FilterHostProcesses(ps []host.Process, comm option.Option[string], pid option.Option[int], limit int) HostProcessList {
+	let mut items = []HostProcess{}
+	let mut total = 0
+	for p in ps {
+		let commOK = matchOptEq(comm, p.Comm)
+		let pidOK = match pid {
+		case option.Some[int] as want:
+			p.PID == want.Value
+		case option.None:
+			true
+		}
+		if commOK && pidOK {
+			total = total + 1
+			if items.Len() < limit {
+				items = items.Append(HostProcess{
+					PID:        p.PID,
+					PPID:       p.PPID,
+					State:      p.State,
+					Comm:       p.Comm,
+					Cmdline:    slices.Clone(p.Cmdline),
+					Ticks:      host.CPUTicks(p),
+					UserTicks:  p.UserTicks,
+					SysTicks:   p.SysTicks,
+					StartTicks: p.StartTicks,
+					RSSBytes:   p.RSSBytes,
+					VSizeBytes: p.VSizeBytes,
+					Threads:    p.Threads,
+				})
+			}
+		}
+	}
+	HostProcessList{
+		Items:     items,
+		Total:     total,
+		Limit:     limit,
+		Truncated: total > items.Len(),
+	}
+}
+
+// QueryHostStatus validates req and reads host status telemetry from sys.
+func QueryHostStatus(sys host.System, req HostStatusInput) HostStatusReport fails InvalidInput | host.Unavailable | host.Malformed {
+	for v in req.Volumes {
+		try requireText("volumes", v)
+	}
+	let st = try sys.Status(req.Volumes)
+	BuildHostStatusReport(st)
+}
+
+// QueryHostProcesses validates req and filters active processes read from sys.
+func QueryHostProcesses(sys host.System, req HostProcessesInput) HostProcessList fails InvalidInput | host.Unavailable | host.Malformed {
+	let comm = try optTextFilter("comm", req.Comm)
+	let pid = try parseOptionalPositiveInt("pid", req.PID)
+	let limit = try parseProcessLimit(req.Limit)
+	let ps = try sys.Processes()
+	FilterHostProcesses(ps, comm, pid, limit)
+}
+
+// HostStatus collects host CPU, load, memory, and requested volume capacities via s.host.
+func HostStatus(s Service, req HostStatusInput) HostStatusReport fails InvalidInput | host.Unavailable | host.Malformed {
+	try QueryHostStatus(s.host, req)
+}
+
+// HostProcesses collects active host processes filtered by comm, pid, and limit via s.host.
+func HostProcesses(s Service, req HostProcessesInput) HostProcessList fails InvalidInput | host.Unavailable | host.Malformed {
+	try QueryHostProcesses(s.host, req)
+}
+
+func clampHostInt(x int, lo int, hi int) int {
+	let mag = if x < 0 { -(x + 1) } else { x }
+	lo + (mag % (hi - lo + 1))
+}
+
+// HostStatusReportPreservesMeasurements verifies that BuildHostStatusReport preserves core, load, byte, volume, and GiB conversions accurately.
+law HostStatusReportPreservesMeasurements(coresRaw int, totalGiBRaw int, availGiBRaw int, freeGiBRaw int, volGiBRaw int) {
+	let cores = clampHostInt(coresRaw, 1, 128)
+	let totalGiB = clampHostInt(totalGiBRaw, 2, 256)
+	let availGiB = clampHostInt(availGiBRaw, 1, totalGiB)
+	let freeGiB = clampHostInt(freeGiBRaw, 0, availGiB)
+	let usedGiB = totalGiB - availGiB
+	let giB = int64(1073741824)
+	let volTotal = int64(clampHostInt(volGiBRaw, 4, 512)) * giB
+	let volFree = volTotal / int64(2)
+	let volAvail = volTotal / int64(4)
+	let volUsed = volTotal - volFree
+	let st = host.Status{
+		Cores:  cores,
+		Load:   host.LoadAvg{One: 1.5, Five: 1.25, Fifteen: 0.75, Running: 2, Entities: 64},
+		Memory: host.Memory{
+			TotalBytes:     int64(totalGiB) * giB,
+			AvailableBytes: int64(availGiB) * giB,
+			FreeBytes:      int64(freeGiB) * giB,
+			UsedBytes:      int64(usedGiB) * giB,
+		},
+		Volumes: []host.Volume{
+			host.Volume{
+				Path:           "/workspaces",
+				TotalBytes:     volTotal,
+				FreeBytes:      volFree,
+				AvailableBytes: volAvail,
+				UsedBytes:      volUsed,
+			},
+		},
+	}
+	let rep = BuildHostStatusReport(st)
+		rep.Cores == cores &&
+		rep.Load == st.Load &&
+		rep.Memory.TotalBytes == st.Memory.TotalBytes &&
+		rep.Memory.AvailableBytes == st.Memory.AvailableBytes &&
+		rep.Memory.FreeBytes == st.Memory.FreeBytes &&
+		rep.Memory.UsedBytes == st.Memory.UsedBytes &&
+		rep.Memory.TotalGiB == float64(totalGiB) &&
+		rep.Memory.AvailableGiB == float64(availGiB) &&
+		rep.Memory.FreeGiB == float64(freeGiB) &&
+		rep.Memory.UsedGiB == float64(usedGiB) &&
+		rep.Volumes.Len() == 1 &&
+		rep.Volumes[0].Path == "/workspaces" &&
+		rep.Volumes[0].TotalBytes == volTotal &&
+		rep.Volumes[0].FreeBytes == volFree &&
+		rep.Volumes[0].AvailableBytes == volAvail &&
+		rep.Volumes[0].UsedBytes == volUsed &&
+		rep.Volumes[0].TotalGiB == float64(volTotal)/bytesPerGiB &&
+		rep.Volumes[0].FreeGiB == float64(volFree)/bytesPerGiB &&
+		rep.Volumes[0].AvailableGiB == float64(volAvail)/bytesPerGiB &&
+		rep.Volumes[0].UsedGiB == float64(volUsed)/bytesPerGiB
+}
+
+// HostProcessesFilterInvariants verifies that FilterHostProcesses enforces comm/pid filters, ascending PID order, tick sums, and limit truncation metadata.
+law HostProcessesFilterInvariants(limitRaw int, filterComm bool, filterPID bool) {
+	let ps = []host.Process{
+		host.Process{PID: 1, PPID: 0, State: "S", Comm: "init", Cmdline: []string{"/sbin/init"}, UserTicks: int64(10), SysTicks: int64(5), StartTicks: int64(1), RSSBytes: int64(4096), VSizeBytes: int64(8192), Threads: 1},
+		host.Process{PID: 10, PPID: 1, State: "R", Comm: "ergo", Cmdline: []string{"ergo", "test"}, UserTicks: int64(100), SysTicks: int64(25), StartTicks: int64(20), RSSBytes: int64(65536), VSizeBytes: int64(131072), Threads: 4},
+		host.Process{PID: 20, PPID: 1, State: "S", Comm: "ergo", Cmdline: []string{"ergo", "build"}, UserTicks: int64(40), SysTicks: int64(10), StartTicks: int64(30), RSSBytes: int64(32768), VSizeBytes: int64(98304), Threads: 2},
+		host.Process{PID: 30, PPID: 10, State: "S", Comm: "worker", Cmdline: []string{"worker"}, UserTicks: int64(7), SysTicks: int64(3), StartTicks: int64(40), RSSBytes: int64(16384), VSizeBytes: int64(32768), Threads: 1},
+	}
+	let limit = clampHostInt(limitRaw, 1, 6)
+	let comm option.Option[string] = if filterComm { option.Some[string]{Value: "ergo"} } else { option.None }
+	let pid option.Option[int] = if filterPID { option.Some[int]{Value: 20} } else { option.None }
+	let got = FilterHostProcesses(ps, comm, pid, limit)
+	let wantTotal = if filterPID {
+		1
+	} else if filterComm {
+		2
+	} else {
+		4
+	}
+	let wantLen = if wantTotal < limit { wantTotal } else { limit }
+	if got.Total != wantTotal || got.Limit != limit || got.Items.Len() != wantLen || got.Truncated != (wantTotal > wantLen) {
+		return false
+	}
+	let mut prevPID = 0
+	for item in got.Items {
+		if item.PID <= prevPID || item.Ticks != item.UserTicks+item.SysTicks {
+			return false
+		}
+		if filterComm && item.Comm != "ergo" {
+			return false
+		}
+		if filterPID && item.PID != 20 {
+			return false
+		}
+		prevPID = item.PID
+	}
+	true
+}
+
+test HostTelemetryQueriesAndErrors {
+	let st = host.Status{
+		Cores:  8,
+		Load:   host.LoadAvg{One: 2.25, Five: 1.5, Fifteen: 0.75, Running: 3, Entities: 200},
+		Memory: host.Memory{
+			TotalBytes:     int64(17179869184),
+			AvailableBytes: int64(10737418240),
+			FreeBytes:      int64(4294967296),
+			UsedBytes:      int64(6442450944),
+		},
+		Volumes: []host.Volume{
+			host.Volume{
+				Path:           "/",
+				TotalBytes:     int64(107374182400),
+				FreeBytes:      int64(53687091200),
+				AvailableBytes: int64(42949672960),
+				UsedBytes:      int64(53687091200),
+			},
+			host.Volume{
+				Path:           "/workspaces",
+				TotalBytes:     int64(214748364800),
+				FreeBytes:      int64(107374182400),
+				AvailableBytes: int64(85899345920),
+				UsedBytes:      int64(107374182400),
+			},
+		},
+	}
+	let procs = []host.Process{
+		host.Process{PID: 42, PPID: 1, State: "S", Comm: "worker (io) pool", Cmdline: []string{"worker", "--id", "42"}, UserTicks: int64(200), SysTicks: int64(50), StartTicks: int64(99), RSSBytes: int64(16777216), VSizeBytes: int64(67108864), Threads: 4},
+		host.Process{PID: 7, PPID: 1, State: "R", Comm: "ergo", Cmdline: []string{"ergo", "test"}, UserTicks: int64(120), SysTicks: int64(30), StartTicks: int64(50), RSSBytes: int64(8388608), VSizeBytes: int64(33554432), Threads: 2},
+	}
+	let staticSys = host.NewStatic(st, procs) catch {
+	case host.Malformed:
+		assert false
+		return
+	}
+
+	let gotStatus = QueryHostStatus(staticSys, HostStatusInput{Volumes: []string{"/", "/workspaces"}}) catch {
+	case _:
+		assert false
+		return
+	}
+	assert gotStatus.Cores == 8
+	assert gotStatus.Load.One == 2.25 && gotStatus.Load.Running == 3 && gotStatus.Load.Entities == 200
+	assert gotStatus.Memory.TotalGiB == 16.0 && gotStatus.Memory.AvailableGiB == 10.0 && gotStatus.Memory.FreeGiB == 4.0 && gotStatus.Memory.UsedGiB == 6.0
+	assert gotStatus.Volumes.Len() == 2
+	assert gotStatus.Volumes[0].Path == "/" && gotStatus.Volumes[0].TotalGiB == 100.0
+	assert gotStatus.Volumes[1].Path == "/workspaces" && gotStatus.Volumes[1].AvailableGiB == 80.0
+
+	let gotProcs = QueryHostProcesses(staticSys, HostProcessesInput{Comm: json.Absent, PID: json.Absent, Limit: json.Absent}) catch {
+	case _:
+		assert false
+		return
+	}
+	assert gotProcs.Total == 2 && !gotProcs.Truncated && gotProcs.Limit == 50
+	assert gotProcs.Items[0].PID == 7 && gotProcs.Items[0].Ticks == int64(150)
+	assert gotProcs.Items[1].PID == 42 && gotProcs.Items[1].Comm == "worker (io) pool" && gotProcs.Items[1].Ticks == int64(250)
+
+	let mismatch = QueryHostProcesses(staticSys, HostProcessesInput{Comm: json.Present[string]{Value: "ergo"}, PID: json.Present[int]{Value: 42}, Limit: json.Absent}) catch {
+	case _:
+		assert false
+		return
+	}
+	assert mismatch.Total == 0 && mismatch.Items.Len() == 0 && !mismatch.Truncated
+
+	let mut unavail = false
+	let _ = QueryHostStatus(unconfiguredHost, HostStatusInput{Volumes: []string{}}) catch {
+	case host.Unavailable as u:
+		unavail = u.Target == "host"
+		gotStatus
+	case _:
+		assert false
+		return
+	}
+	assert unavail
+
+	let malHost = failingHost{failMalformed: true, target: "meminfo", reason: "corrupt header"}
+	let mut malStatus = false
+	let _ = QueryHostStatus(malHost, HostStatusInput{Volumes: []string{}}) catch {
+	case host.Malformed as m:
+		malStatus = m.Source == "meminfo" && m.Reason == "corrupt header"
+		gotStatus
+	case _:
+		assert false
+		return
+	}
+	assert malStatus
+
+	let mut malProcs = false
+	let _ = QueryHostProcesses(malHost, HostProcessesInput{Comm: json.Absent, PID: json.Absent, Limit: json.Absent}) catch {
+	case host.Malformed as m:
+		malProcs = m.Source == "meminfo"
+		gotProcs
+	case _:
+		assert false
+		return
+	}
+	assert malProcs
+
+	let mut badVol = false
+	let _ = QueryHostStatus(staticSys, HostStatusInput{Volumes: []string{"  "}}) catch {
+	case InvalidInput as inv:
+		badVol = inv.Field == "volumes"
+		gotStatus
+	case _:
+		assert false
+		return
+	}
+	assert badVol
+
+	let mut badLimit = false
+	let _ = QueryHostProcesses(staticSys, HostProcessesInput{Comm: json.Absent, PID: json.Absent, Limit: json.Present[int]{Value: 5000}}) catch {
+	case InvalidInput as inv:
+		badLimit = inv.Field == "limit"
+		gotProcs
+	case _:
+		assert false
+		return
+	}
+	assert badLimit
+}

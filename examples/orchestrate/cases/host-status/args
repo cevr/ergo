@@ -1,0 +1,8 @@
+--store
+:memory:
+host-status
+-volumes
+/
+-volumes
+/workspaces
+--json
