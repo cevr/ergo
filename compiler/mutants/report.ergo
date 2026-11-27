@@ -1,0 +1,779 @@
+import dense
+import json
+import option
+import slices
+import strings
+
+// StatusKilled indicates at least one non-timeout failure killed the mutant.
+let StatusKilled = uint8(1)
+
+// StatusSurvived indicates all executed obligations passed on the mutant.
+let StatusSurvived = uint8(2)
+
+// StatusInvalid indicates the mutant failed formatting or introduced a compile diagnostic.
+let StatusInvalid = uint8(3)
+
+// StatusUnjudged indicates the mutant timed out or ran zero decisive obligations.
+let StatusUnjudged = uint8(4)
+
+// StatusGap indicates the mutant carries an open documented coverage gap.
+let StatusGap = uint8(5)
+
+// StatusSkipped indicates the mutant was explicitly skipped before judging.
+let StatusSkipped = uint8(6)
+
+// StatusName returns the lowercase string label for a verdict status code.
+func StatusName(s uint8) string {
+	if s == StatusKilled {
+		return "killed"
+	}
+	if s == StatusSurvived {
+		return "survived"
+	}
+	if s == StatusInvalid {
+		return "invalid"
+	}
+	if s == StatusUnjudged {
+		return "unjudged"
+	}
+	if s == StatusGap {
+		return "gap"
+	}
+	if s == StatusSkipped {
+		return "skipped"
+	}
+	"unknown"
+}
+
+// AttemptOutcome records the execution outcome of one obligation on one mutant.
+type AttemptOutcome {
+	Killer     string,
+	Failed     bool,
+	TimedOut   bool,
+	Skipped    bool,
+	DurationMs int64,
+}
+
+// MutantEvaluation holds all inputs needed to judge one hand or derived mutant.
+type MutantEvaluation {
+	Name          string,
+	Origin        string,
+	File          string,
+	Decl          string,
+	Op            string,
+	Rule          string,
+	Gap           string,
+	NamedKillers  []string,
+	Cached        bool,
+	InvalidReason string,
+	SkippedReason string,
+	Attempts      []AttemptOutcome,
+}
+
+// UniqueKillerCount counts how many killed mutants were caught exclusively by Killer.
+type UniqueKillerCount {
+	Killer string,
+	Count  int,
+}
+
+// GapClosedEntry records a gap row that is now killed by one or more obligations.
+type GapClosedEntry {
+	Name    string,
+	Killers []string,
+}
+
+// KillerMovedEntry records a killed row whose declared named killers missed it.
+type KillerMovedEntry {
+	Name     string,
+	Declared []string,
+	Actual   []string,
+}
+
+// ReportRow is one judged row in the mutant report.
+type ReportRow {
+	Name         string,
+	Origin       string,
+	File         string,
+	Decl         string,
+	Status       uint8,
+	StatusLabel  string,
+	Killers      []string,
+	Rule         string,
+	Op           string,
+	Note         string,
+	Cached       bool,
+	TimedOut     bool,
+	UniqueKiller string,
+}
+
+// ReportSummary aggregates hand and derived verdicts, unique-killer accounting,
+// gap tracking, and pass/fail status.
+type ReportSummary {
+	Generated          int,
+	Killed             int,
+	Cached             int,
+	Survived           int,
+	Invalid            int,
+	Unjudged           int,
+	Gap                int,
+	Skipped            int,
+	TimedOut           int,
+	DerivedGenerated   int,
+	DerivedKilled      int,
+	DerivedCached      int,
+	DerivedSurvived    int,
+	DerivedLawSurvived int,
+	DerivedInvalid     int,
+	DerivedUnjudged    int,
+	Strict             bool,
+	OK                 bool,
+	UniqueKillers      []UniqueKillerCount,
+	GapsClosed         []GapClosedEntry,
+	KillerMoved        []KillerMovedEntry,
+	Rows               []ReportRow,
+}
+
+// JudgeEvaluation aggregates attempt outcomes for one mutant, enforcing that
+// timeouts never count as kills and invalid edits supersede test results.
+func JudgeEvaluation(ev MutantEvaluation) ReportRow {
+	if ev.InvalidReason != "" {
+		return ReportRow{
+			Name:         ev.Name,
+			Origin:       ev.Origin,
+			File:         ev.File,
+			Decl:         ev.Decl,
+			Status:       StatusInvalid,
+			StatusLabel:  StatusName(StatusInvalid),
+			Killers:      []string{},
+			Rule:         ev.Rule,
+			Op:           ev.Op,
+			Note:         ev.InvalidReason,
+			Cached:       ev.Cached,
+			TimedOut:     false,
+			UniqueKiller: "",
+		}
+	}
+	if ev.SkippedReason != "" && ev.Attempts.Len() == 0 && ev.Gap == "" {
+		return ReportRow{
+			Name:         ev.Name,
+			Origin:       ev.Origin,
+			File:         ev.File,
+			Decl:         ev.Decl,
+			Status:       StatusSkipped,
+			StatusLabel:  StatusName(StatusSkipped),
+			Killers:      []string{},
+			Rule:         ev.Rule,
+			Op:           ev.Op,
+			Note:         ev.SkippedReason,
+			Cached:       ev.Cached,
+			TimedOut:     false,
+			UniqueKiller: "",
+		}
+	}
+	let mut actual = []string{}
+	let mut seenKillers = dense.NewStrings()
+	let mut anyTimeout = false
+	for a in ev.Attempts {
+		if a.TimedOut {
+			anyTimeout = true
+			continue
+		}
+		if a.Failed && !a.Skipped && a.Killer != "" {
+			match dense.FindText(seenKillers, a.Killer) {
+			case option.Some[dense.ID[dense.Str]]:
+			case option.None:
+				let _ = dense.InternText(&seenKillers, a.Killer)
+				actual = actual.Append(a.Killer)
+			}
+		}
+	}
+	if actual.Len() > 0 {
+		let uniq = if actual.Len() == 1 { actual[0] } else { "" }
+		return ReportRow{
+			Name:         ev.Name,
+			Origin:       ev.Origin,
+			File:         ev.File,
+			Decl:         ev.Decl,
+			Status:       StatusKilled,
+			StatusLabel:  StatusName(StatusKilled),
+			Killers:      actual,
+			Rule:         ev.Rule,
+			Op:           ev.Op,
+			Note:         "",
+			Cached:       ev.Cached,
+			TimedOut:     anyTimeout,
+			UniqueKiller: uniq,
+		}
+	}
+	if anyTimeout {
+		return ReportRow{
+			Name:         ev.Name,
+			Origin:       ev.Origin,
+			File:         ev.File,
+			Decl:         ev.Decl,
+			Status:       StatusUnjudged,
+			StatusLabel:  StatusName(StatusUnjudged),
+			Killers:      []string{},
+			Rule:         ev.Rule,
+			Op:           ev.Op,
+			Note:         "timeout",
+			Cached:       ev.Cached,
+			TimedOut:     true,
+			UniqueKiller: "",
+		}
+	}
+	if ev.Gap != "" {
+		return ReportRow{
+			Name:         ev.Name,
+			Origin:       ev.Origin,
+			File:         ev.File,
+			Decl:         ev.Decl,
+			Status:       StatusGap,
+			StatusLabel:  StatusName(StatusGap),
+			Killers:      []string{},
+			Rule:         ev.Rule,
+			Op:           ev.Op,
+			Note:         ev.Gap,
+			Cached:       ev.Cached,
+			TimedOut:     false,
+			UniqueKiller: "",
+		}
+	}
+	if ev.Attempts.Len() == 0 {
+		return ReportRow{
+			Name:         ev.Name,
+			Origin:       ev.Origin,
+			File:         ev.File,
+			Decl:         ev.Decl,
+			Status:       StatusUnjudged,
+			StatusLabel:  StatusName(StatusUnjudged),
+			Killers:      []string{},
+			Rule:         ev.Rule,
+			Op:           ev.Op,
+			Note:         "no obligation executed",
+			Cached:       ev.Cached,
+			TimedOut:     false,
+			UniqueKiller: "",
+		}
+	}
+	ReportRow{
+		Name:         ev.Name,
+		Origin:       ev.Origin,
+		File:         ev.File,
+		Decl:         ev.Decl,
+		Status:       StatusSurvived,
+		StatusLabel:  StatusName(StatusSurvived),
+		Killers:      []string{},
+		Rule:         ev.Rule,
+		Op:           ev.Op,
+		Note:         "",
+		Cached:       ev.Cached,
+		TimedOut:     false,
+		UniqueKiller: "",
+	}
+}
+
+// AggregateReport judges all evaluations, computes unique-killer counts using
+// interned dense string tables, tracks closed gaps and moved killers, and checks OK.
+func AggregateReport(evals []MutantEvaluation, strict bool) ReportSummary {
+	let mut rows = slices.WithCapacity[ReportRow](evals.Len())
+	let mut uniquePool = dense.NewStrings()
+	let mut uniqueIDs = []dense.ID[dense.Str]{}
+	let mut uniqueCounts = dense.NewSide[dense.Str, int](0)
+	let mut gapsClosed = []GapClosedEntry{}
+	let mut killerMoved = []KillerMovedEntry{}
+	let mut killed = 0
+	let mut cached = 0
+	let mut survived = 0
+	let mut invalid = 0
+	let mut unjudged = 0
+	let mut gap = 0
+	let mut skipped = 0
+	let mut timedOut = 0
+	let mut dGen = 0
+	let mut dKilled = 0
+	let mut dCached = 0
+	let mut dSurvived = 0
+	let mut dLawSurvived = 0
+	let mut dInvalid = 0
+	let mut dUnjudged = 0
+	for ev in evals {
+		let r = JudgeEvaluation(ev)
+		rows = rows.Append(r)
+		let isDerived = ev.Origin == "derived"
+		if isDerived {
+			dGen = dGen + 1
+			if r.Cached {
+				dCached = dCached + 1
+			}
+		}
+		if r.Cached {
+			cached = cached + 1
+		}
+		if r.TimedOut {
+			timedOut = timedOut + 1
+		}
+		if r.Status == StatusKilled {
+			killed = killed + 1
+			if isDerived {
+				dKilled = dKilled + 1
+			}
+			if r.UniqueKiller != "" {
+				let kid = dense.InternText(&uniquePool, r.UniqueKiller)
+				let prev = dense.SideOf(uniqueCounts, kid)
+				if prev == 0 {
+					uniqueIDs = uniqueIDs.Append(kid)
+				}
+				dense.SideSet(&uniqueCounts, kid, prev+1)
+			}
+			if ev.Gap != "" {
+				gapsClosed = gapsClosed.Append(GapClosedEntry{Name: ev.Name, Killers: r.Killers})
+			}
+			if ev.NamedKillers.Len() > 0 && !anyOverlap(ev.NamedKillers, r.Killers) {
+				killerMoved = killerMoved.Append(KillerMovedEntry{Name: ev.Name, Declared: ev.NamedKillers, Actual: r.Killers})
+			}
+		} else if r.Status == StatusSurvived {
+			survived = survived + 1
+			if isDerived {
+				dSurvived = dSurvived + 1
+				if strings.HasPrefix(ev.Decl, "law:") {
+					dLawSurvived = dLawSurvived + 1
+				}
+			}
+		} else if r.Status == StatusInvalid {
+			invalid = invalid + 1
+			if isDerived {
+				dInvalid = dInvalid + 1
+			}
+		} else if r.Status == StatusUnjudged {
+			unjudged = unjudged + 1
+			if isDerived {
+				dUnjudged = dUnjudged + 1
+			}
+		} else if r.Status == StatusGap {
+			gap = gap + 1
+		} else if r.Status == StatusSkipped {
+			skipped = skipped + 1
+		}
+	}
+	let mut uniqList = slices.WithCapacity[UniqueKillerCount](uniqueIDs.Len())
+	for kid in uniqueIDs {
+		let cnt = dense.SideOf(uniqueCounts, kid)
+		if cnt > 0 {
+			uniqList = uniqList.Append(UniqueKillerCount{Killer: dense.Text(uniquePool, kid), Count: cnt})
+		}
+	}
+	let sortedUniq = slices.SortFunc(uniqList, func(a UniqueKillerCount, b UniqueKillerCount) int {
+		if a.Count != b.Count {
+			return b.Count - a.Count
+		}
+		if a.Killer < b.Killer {
+			return -1
+		}
+		if a.Killer > b.Killer {
+			return 1
+		}
+		0
+	})
+	let handSurvived = survived - dSurvived
+	let handInvalid = invalid - dInvalid
+	let handUnjudged = unjudged - dUnjudged
+	let ok = if strict {
+		handSurvived == 0 && handInvalid == 0 && handUnjudged == 0 && dSurvived == 0 && dLawSurvived == 0 && dInvalid == 0 && dUnjudged == 0
+	} else {
+		handSurvived == 0 && handInvalid == 0 && handUnjudged == 0 && dLawSurvived == 0
+	}
+	ReportSummary{
+		Generated:          evals.Len(),
+		Killed:             killed,
+		Cached:             cached,
+		Survived:           survived,
+		Invalid:            invalid,
+		Unjudged:           unjudged,
+		Gap:                gap,
+		Skipped:            skipped,
+		TimedOut:           timedOut,
+		DerivedGenerated:   dGen,
+		DerivedKilled:      dKilled,
+		DerivedCached:      dCached,
+		DerivedSurvived:    dSurvived,
+		DerivedLawSurvived: dLawSurvived,
+		DerivedInvalid:     dInvalid,
+		DerivedUnjudged:    dUnjudged,
+		Strict:             strict,
+		OK:                 ok,
+		UniqueKillers:      sortedUniq,
+		GapsClosed:         gapsClosed,
+		KillerMoved:        killerMoved,
+		Rows:               rows,
+	}
+}
+
+func anyOverlap(a []string, b []string) bool {
+	for x in a {
+		for y in b {
+			if x == y {
+				return true
+			}
+		}
+	}
+	false
+}
+
+// FormatReportJSON serializes ReportSummary using the mutant report JSON contract.
+func FormatReportJSON(r ReportSummary) string {
+	let t = json.NewText()
+	t.BeginObject(21)
+	t.Key("generated")
+	t.Int(int64(r.Generated))
+	t.Key("killed")
+	t.Int(int64(r.Killed))
+	t.Key("cached")
+	t.Int(int64(r.Cached))
+	t.Key("survived")
+	t.Int(int64(r.Survived))
+	t.Key("invalid")
+	t.Int(int64(r.Invalid))
+	t.Key("unjudged")
+	t.Int(int64(r.Unjudged))
+	t.Key("gap")
+	t.Int(int64(r.Gap))
+	t.Key("skipped")
+	t.Int(int64(r.Skipped))
+	t.Key("timedOut")
+	t.Int(int64(r.TimedOut))
+	t.Key("derivedGenerated")
+	t.Int(int64(r.DerivedGenerated))
+	t.Key("derivedKilled")
+	t.Int(int64(r.DerivedKilled))
+	t.Key("derivedCached")
+	t.Int(int64(r.DerivedCached))
+	t.Key("derivedSurvived")
+	t.Int(int64(r.DerivedSurvived))
+	t.Key("derivedLawSurvived")
+	t.Int(int64(r.DerivedLawSurvived))
+	t.Key("derivedInvalid")
+	t.Int(int64(r.DerivedInvalid))
+	t.Key("derivedUnjudged")
+	t.Int(int64(r.DerivedUnjudged))
+	t.Key("strict")
+	t.Bool(r.Strict)
+	t.Key("ok")
+	t.Bool(r.OK)
+	t.Key("uniqueKillers")
+	t.BeginList(r.UniqueKillers.Len())
+	for u in r.UniqueKillers {
+		t.BeginObject(2)
+		t.Key("killer")
+		t.String(u.Killer)
+		t.Key("count")
+		t.Int(int64(u.Count))
+		t.EndObject()
+	}
+	t.EndList()
+	t.Key("gapsClosed")
+	t.BeginList(r.GapsClosed.Len())
+	for g in r.GapsClosed {
+		t.BeginObject(2)
+		t.Key("name")
+		t.String(g.Name)
+		t.Key("killers")
+		t.BeginList(g.Killers.Len())
+		for k in g.Killers {
+			t.String(k)
+		}
+		t.EndList()
+		t.EndObject()
+	}
+	t.EndList()
+	t.Key("rows")
+	t.BeginList(r.Rows.Len())
+	for row in r.Rows {
+		let mut fnCount = 10
+		if row.Note != "" {
+			fnCount = fnCount + 1
+		}
+		if row.UniqueKiller != "" {
+			fnCount = fnCount + 1
+		}
+		t.BeginObject(fnCount)
+		t.Key("name")
+		t.String(row.Name)
+		t.Key("origin")
+		t.String(row.Origin)
+		t.Key("file")
+		t.String(row.File)
+		t.Key("decl")
+		t.String(row.Decl)
+		t.Key("status")
+		t.String(row.StatusLabel)
+		t.Key("killers")
+		t.BeginList(row.Killers.Len())
+		for k in row.Killers {
+			t.String(k)
+		}
+		t.EndList()
+		t.Key("rule")
+		t.String(row.Rule)
+		t.Key("op")
+		t.String(row.Op)
+		t.Key("cached")
+		t.Bool(row.Cached)
+		t.Key("timedOut")
+		t.Bool(row.TimedOut)
+		if row.Note != "" {
+			t.Key("note")
+			t.String(row.Note)
+		}
+		if row.UniqueKiller != "" {
+			t.Key("uniqueKiller")
+			t.String(row.UniqueKiller)
+		}
+		t.EndObject()
+	}
+	t.EndList()
+	t.EndObject()
+	t.Written()
+}
+
+// FormatReportText renders a human-readable summary matching the runner contract.
+func FormatReportText(r ReportSummary) string {
+	let mut b = strings.NewBuilder()
+	for row in r.Rows {
+		if row.Origin == "derived" && row.Status == StatusSurvived && strings.HasPrefix(row.Decl, "law:") {
+			b.WriteString("FINDING: derived mutant on law \(row.Decl) survived: \(row.Name)\n")
+		}
+	}
+	if r.Survived > 0 {
+		b.WriteString("NEW SURVIVORS:\n")
+		for row in r.Rows {
+			if row.Status == StatusSurvived {
+				b.WriteString("  SURVIVED \(row.Name) (\(row.File) \(row.Decl))\n")
+			}
+		}
+	}
+	if r.Invalid > 0 {
+		b.WriteString("INVALID:\n")
+		for row in r.Rows {
+			if row.Status == StatusInvalid {
+				b.WriteString("  INVALID \(row.Name): \(row.Note)\n")
+			}
+		}
+	}
+	if r.Unjudged > 0 {
+		b.WriteString("NOT JUDGED:\n")
+		for row in r.Rows {
+			if row.Status == StatusUnjudged {
+				let tag = if row.TimedOut { "TIMEOUT" } else { "UNJUDGED" }
+				b.WriteString("  \(tag) \(row.Name): \(row.Note)\n")
+			}
+		}
+	}
+	if r.GapsClosed.Len() > 0 {
+		b.WriteString("gaps closed:\n")
+		for gc in r.GapsClosed {
+			b.WriteString("  \(gc.Name): " + strings.Join(gc.Killers, ", ") + "\n")
+		}
+	}
+	if r.KillerMoved.Len() > 0 {
+		b.WriteString("killer moved:\n")
+		for km in r.KillerMoved {
+			b.WriteString("  \(km.Name): declared [" + strings.Join(km.Declared, ", ") + "] actual [" + strings.Join(km.Actual, ", ") + "]\n")
+		}
+	}
+	if r.Gap > 0 {
+		b.WriteString("known gaps: \(r.Gap)\n")
+	}
+	if r.UniqueKillers.Len() > 0 {
+		b.WriteString("killed only by:\n")
+		for uk in r.UniqueKillers {
+			b.WriteString("  \(uk.Killer): \(uk.Count)\n")
+		}
+	}
+	if r.DerivedGenerated > 0 {
+		b.WriteString("derived: \(r.DerivedGenerated) generated, \(r.DerivedKilled) killed, \(r.DerivedCached) cached, \(r.DerivedSurvived) survived, \(r.DerivedInvalid) invalid, \(r.DerivedUnjudged) unjudged\n")
+	}
+	b.WriteString("summary: \(r.Killed) killed, \(r.Survived) survived, \(r.Invalid) invalid, \(r.Unjudged) unjudged, \(r.Gap) gap, \(r.Skipped) skipped\n")
+	b.String()
+}
+
+// TimeoutNeverCountsAsKill verifies that a timed-out test attempt is always
+// classified as StatusUnjudged with TimedOut set, never StatusKilled.
+law TimeoutNeverCountsAsKill(name string, killer string) {
+	let ev = MutantEvaluation{
+		Name:          name,
+		Origin:        "hand",
+		File:          "a.ergo",
+		Decl:          "Fn",
+		Op:            "hand",
+		Rule:          "rule",
+		Gap:           "",
+		NamedKillers:  []string{},
+		Cached:        false,
+		InvalidReason: "",
+		SkippedReason: "",
+		Attempts:      []AttemptOutcome{AttemptOutcome{Killer: killer, Failed: true, TimedOut: true, Skipped: false, DurationMs: 5000}},
+	}
+	let row = JudgeEvaluation(ev)
+	row.Status == StatusUnjudged && row.TimedOut && row.Killers.Len() == 0
+}
+
+// UniqueKillerCountsSingletonsOnly checks that singleton killers increment
+// UniqueKillers while shared multi-killer entries receive zero exclusive credit.
+law UniqueKillerCountsSingletonsOnly(k1 string, k2 string) {
+	if k1 == "" || k2 == "" || k1 == k2 {
+		return true
+	}
+	let ev1 = MutantEvaluation{
+		Name:          "single",
+		Origin:        "hand",
+		File:          "a.ergo",
+		Decl:          "F",
+		Op:            "hand",
+		Rule:          "",
+		Gap:           "",
+		NamedKillers:  []string{},
+		Cached:        false,
+		InvalidReason: "",
+		SkippedReason: "",
+		Attempts:      []AttemptOutcome{AttemptOutcome{Killer: k1, Failed: true, TimedOut: false, Skipped: false, DurationMs: 10}},
+	}
+	let ev2 = MutantEvaluation{
+		Name:          "shared",
+		Origin:        "hand",
+		File:          "a.ergo",
+		Decl:          "G",
+		Op:            "hand",
+		Rule:          "",
+		Gap:           "",
+		NamedKillers:  []string{},
+		Cached:        false,
+		InvalidReason: "",
+		SkippedReason: "",
+		Attempts:      []AttemptOutcome{
+			AttemptOutcome{Killer: k1, Failed: true, TimedOut: false, Skipped: false, DurationMs: 10},
+			AttemptOutcome{Killer: k2, Failed: true, TimedOut: false, Skipped: false, DurationMs: 10},
+		},
+	}
+	let sum = AggregateReport([]MutantEvaluation{ev1, ev2}, false)
+	sum.Killed == 2 && sum.UniqueKillers.Len() == 1 && sum.UniqueKillers[0].Killer == k1 && sum.UniqueKillers[0].Count == 1
+}
+
+// StrictRejectsAnyDerivedSurvivor checks that non-law derived survivors fail
+// OK under strict=true while passing OK when strict=false.
+law StrictRejectsAnyDerivedSurvivor(name string) {
+	let ev = MutantEvaluation{
+		Name:          name,
+		Origin:        "derived",
+		File:          "a.ergo",
+		Decl:          "Helper",
+		Op:            OpCmpSwap,
+		Rule:          "swap",
+		Gap:           "",
+		NamedKillers:  []string{},
+		Cached:        false,
+		InvalidReason: "",
+		SkippedReason: "",
+		Attempts:      []AttemptOutcome{AttemptOutcome{Killer: "p:TestH", Failed: false, TimedOut: false, Skipped: false, DurationMs: 2}},
+	}
+	let norm = AggregateReport([]MutantEvaluation{ev}, false)
+	let strict = AggregateReport([]MutantEvaluation{ev}, true)
+	norm.OK == true && strict.OK == false && strict.DerivedSurvived == 1 && strict.DerivedLawSurvived == 0
+}
+
+test TestVerdictAggregationAndReports {
+	let evKilled = MutantEvaluation{
+		Name:          "r-killed",
+		Origin:        "hand",
+		File:          "a.ergo",
+		Decl:          "F",
+		Op:            "hand",
+		Rule:          "r",
+		Gap:           "",
+		NamedKillers:  []string{"p:TestDeclared"},
+		Cached:        false,
+		InvalidReason: "",
+		SkippedReason: "",
+		Attempts:      []AttemptOutcome{AttemptOutcome{Killer: "p:TestActual", Failed: true, TimedOut: false, Skipped: false, DurationMs: 4}},
+	}
+	let evGapClosed = MutantEvaluation{
+		Name:          "r-gap-closed",
+		Origin:        "hand",
+		File:          "a.ergo",
+		Decl:          "G",
+		Op:            "hand",
+		Rule:          "r",
+		Gap:           "old gap",
+		NamedKillers:  []string{},
+		Cached:        false,
+		InvalidReason: "",
+		SkippedReason: "",
+		Attempts:      []AttemptOutcome{AttemptOutcome{Killer: "p:TestActual", Failed: true, TimedOut: false, Skipped: false, DurationMs: 4}},
+	}
+	let evTimeout = MutantEvaluation{
+		Name:          "r-timeout",
+		Origin:        "hand",
+		File:          "a.ergo",
+		Decl:          "H",
+		Op:            "hand",
+		Rule:          "r",
+		Gap:           "",
+		NamedKillers:  []string{},
+		Cached:        false,
+		InvalidReason: "",
+		SkippedReason: "",
+		Attempts:      []AttemptOutcome{AttemptOutcome{Killer: "p:TestHang", Failed: true, TimedOut: true, Skipped: false, DurationMs: 1000}},
+	}
+	let evDerivedLaw = MutantEvaluation{
+		Name:          "derived:a.ergo:law:Prop:weaken-law-premise:L10:1",
+		Origin:        "derived",
+		File:          "a.ergo",
+		Decl:          "law:Prop",
+		Op:            OpWeakenLawPremise,
+		Rule:          "weaken",
+		Gap:           "",
+		NamedKillers:  []string{},
+		Cached:        false,
+		InvalidReason: "",
+		SkippedReason: "",
+		Attempts:      []AttemptOutcome{AttemptOutcome{Killer: "p:law:Prop", Failed: false, TimedOut: false, Skipped: false, DurationMs: 3}},
+	}
+	let evOpenGap = MutantEvaluation{
+		Name:          "r-open-gap",
+		Origin:        "hand",
+		File:          "a.ergo",
+		Decl:          "J",
+		Op:            "hand",
+		Rule:          "r",
+		Gap:           "needs integration harness",
+		NamedKillers:  []string{},
+		Cached:        false,
+		InvalidReason: "",
+		SkippedReason: "",
+		Attempts:      []AttemptOutcome{AttemptOutcome{Killer: "p:TestOther", Failed: false, TimedOut: false, Skipped: false, DurationMs: 2}},
+	}
+	let summary = AggregateReport([]MutantEvaluation{evKilled, evGapClosed, evTimeout, evDerivedLaw, evOpenGap}, false)
+	assert summary.Killed == 2
+	assert summary.Unjudged == 1
+	assert summary.TimedOut == 1
+	assert summary.Gap == 1
+	assert summary.Survived == 1
+	assert summary.DerivedLawSurvived == 1
+	assert !summary.OK
+	assert summary.GapsClosed.Len() == 1 && summary.GapsClosed[0].Name == "r-gap-closed"
+	assert summary.KillerMoved.Len() == 1 && summary.KillerMoved[0].Name == "r-killed"
+	assert summary.UniqueKillers.Len() == 1 && summary.UniqueKillers[0].Count == 2
+	let jsonStr = FormatReportJSON(summary)
+	let _ = json.Open(jsonStr, 0, 0) catch {
+	case json.Malformed:
+		assert false
+		return
+	}
+	let txt = FormatReportText(summary)
+	assert strings.Contains(txt, "FINDING: derived mutant on law law:Prop survived")
+	assert strings.Contains(txt, "NOT JUDGED:")
+	assert strings.Contains(txt, "TIMEOUT r-timeout")
+	assert strings.Contains(txt, "gaps closed:")
+	assert strings.Contains(txt, "killer moved:")
+	assert strings.Contains(txt, "killed only by:")
+}

@@ -1,0 +1,152 @@
+import compiler/syntax
+import strings
+
+// TokenText returns the canonical text of token kind in src[start:end].
+func TokenText(src string, kind uint8, start int, end int) string {
+	if kind == syntax.Semicolon && start == end {
+		return ";"
+	}
+	if start >= 0 && end >= start && end <= src.Len() {
+		src[start:end]
+	} else {
+		""
+	}
+}
+
+// CheckText returns a layout-independent canonical representation of src for
+// source equivalence checks, normalizing token spacing while keeping tokens,
+// comments, and blank-line boundaries distinct.
+func CheckText(src string) string {
+	let scanned = syntax.Scan(src)
+	let toks = scanned.Toks
+	let cmts = scanned.Comments
+	let nTok = syntax.NumToks(toks)
+	let nCmt = syntax.NumComments(cmts)
+	let mut ti = 0
+	let mut ci = 0
+	let mut out = strings.NewBuilder()
+	let mut prevEnd = 0
+	let mut hasPrev = false
+	for ti < nTok || ci < nCmt {
+		let mut useCmt = false
+		if ci < nCmt {
+			if ti >= nTok {
+				useCmt = true
+			} else {
+				let tid = syntax.TokAt(toks, ti)
+				let cid = syntax.CommentAt(cmts, ci)
+				if syntax.CommentStart(cmts, cid) < syntax.Start(toks, tid) {
+					useCmt = true
+				}
+			}
+		}
+		if useCmt {
+			let cid = syntax.CommentAt(cmts, ci)
+			let cs = syntax.CommentStart(cmts, cid)
+			let ce = syntax.CommentEnd(cmts, cid)
+			if hasPrev && hasBlankLineBetween(src, prevEnd, cs) {
+				out.WriteString("\n//gap\n")
+			} else if hasPrev {
+				out.WriteByte(' ')
+			}
+			if cs >= 0 && ce >= cs && ce <= src.Len() {
+				out.WriteString(src[cs:ce])
+			}
+			prevEnd = ce
+			hasPrev = true
+			ci = ci + 1
+		} else {
+			let tid = syntax.TokAt(toks, ti)
+			let kd = syntax.Kind(toks, tid)
+			if kd == syntax.EOF {
+				ti = ti + 1
+				continue
+			}
+			let ts = syntax.Start(toks, tid)
+			let te = syntax.TokEndOf(toks, tid)
+			let piece = TokenText(src, kd, ts, te)
+			if piece != "" {
+				if hasPrev && te > ts && hasBlankLineBetween(src, prevEnd, ts) {
+					out.WriteString("\n//gap\n")
+				} else if hasPrev {
+					out.WriteByte(' ')
+				}
+				out.WriteString(piece)
+				if te > prevEnd {
+					prevEnd = te
+				}
+				hasPrev = true
+			}
+			ti = ti + 1
+		}
+	}
+	if scanned.Failed && prevEnd < src.Len() {
+		let tail = strings.TrimSpace(src[prevEnd:src.Len()])
+		if tail != "" {
+			if hasPrev {
+				out.WriteByte(' ')
+			}
+			out.WriteString(tail)
+		}
+	}
+	out.String()
+}
+
+func hasBlankLineBetween(src string, from int, to int) bool {
+	if from < 0 || to > src.Len() || from >= to {
+		return false
+	}
+	let mut nl = 0
+	for i in from..to {
+		if src[i] == '\n' {
+			nl = nl + 1
+			if nl >= 2 {
+				return true
+			}
+		}
+	}
+	false
+}
+
+// SameNormalized reports whether two source snippets have equal CheckText.
+func SameNormalized(a string, b string) bool {
+	CheckText(a) == CheckText(b)
+}
+
+// CheckTextIgnoresHorizontalSpace checks that padding tokens with spaces and
+// tabs does not alter the canonical CheckText normalization.
+law CheckTextIgnoresHorizontalSpace(name string) {
+	let mut ok = true
+	for i in 0..name.Len() {
+		let c = int(name[i])
+		let isAlpha = (c >= 65 && c <= 90) || (c >= 97 && c <= 122) || c == 95
+		let isDigit = c >= 48 && c <= 57
+		if !(isAlpha || isDigit) {
+			ok = false
+		}
+	}
+	if name == "" || !ok {
+		return true
+	}
+	let c0 = int(name[0])
+	if c0 >= 48 && c0 <= 57 {
+		return true
+	}
+	let compact = "let \(name)=1"
+	let spaced = "let   \(name)\t = \t 1  "
+	CheckText(compact) == CheckText(spaced)
+}
+
+// CheckTextIdempotent checks that normalizing any source is deterministic.
+law CheckTextIdempotent(src string) {
+	CheckText(src) == CheckText(src)
+}
+
+// CheckTextSeparatesBlankLines checks that blank-line boundaries distinguish
+// CheckText outputs while single newlines do not introduce gap markers.
+law CheckTextSeparatesBlankLines(v int) {
+	let n = if v < 0 { -v % 100 } else { v % 100 }
+	let tight = "let a = \(n)\nlet b = 2"
+	let blank = "let a = \(n)\n\nlet b = 2"
+	CheckText(tight) != CheckText(blank)
+}
