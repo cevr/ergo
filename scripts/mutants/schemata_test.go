@@ -14,12 +14,14 @@ import (
 
 // schemataRows are the rows of the schemata law's module: three that fold
 // and die (one whose first named test never reaches its site), one that
-// folds and survives, and one that changes a type (isolated) and survives.
+// folds and survives, one that changes a type (isolated) and survives, and
+// one that does not compile, which the fold leaves out and the rest keeps.
 const schemataRows = `{"about":"schemata law","mutants":[
 {"name":"add-minus","file":"one/one.go","from":"return a + b","to":"return a - b","killers":["one:TestAdd"]},
 {"name":"neg-dropped","file":"one/one.go","from":"return -n","to":"return n","killers":["one:TestAdd","one:TestNeg"]},
 {"name":"twice-thrice","file":"one/one.go","from":"b.N * 2","to":"b.N * 3","killers":["one:TestTwice"]},
 {"name":"loose-survives","file":"one/one.go","from":"return 9","to":"return 8","killers":["one:TestLoose"]},
+{"name":"add-broken","file":"one/one.go","from":"return a + b","to":"return a + c","killers":["one:TestAdd"]},
 {"name":"box-grows","file":"one/one.go","from":"type Box struct{ N int }","to":"type Box struct{ N, M int }","killers":["one:TestTwice"]}
 ]}`
 
@@ -71,7 +73,8 @@ func TestLoose(t *testing.T) {
 // once for every folded row it kills, where the isolated run builds it once
 // per row. It builds Go because the law is about the builds of the runner
 // and the processes they run. Mutants: schemata-mutant-env-dropped,
-// schemata-survivor-not-confirmed (testdata/mutants.json).
+// schemata-survivor-not-confirmed, schemata-blame-ignored
+// (testdata/mutants.json).
 func TestSchemataVerdictMatchesIsolated(t *testing.T) {
 	if testing.Short() {
 		t.Skip("full tier: builds Go")
@@ -93,7 +96,7 @@ func TestSchemataVerdictMatchesIsolated(t *testing.T) {
 	git(t, root, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "fake")
 	isolated, isoBuilds := schemataRun(t, root, false)
 	folded, treeBuilds := schemataRun(t, root, true)
-	want := map[string]string{"add-minus": Killed, "neg-dropped": Killed, "twice-thrice": Killed, "loose-survives": Survived, "box-grows": Survived}
+	want := map[string]string{"add-minus": Killed, "neg-dropped": Killed, "twice-thrice": Killed, "loose-survives": Survived, "box-grows": Survived, "add-broken": Invalid}
 	for name, status := range want {
 		iso, fold := isolated[name], folded[name]
 		if iso.Status != status {

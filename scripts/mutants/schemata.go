@@ -124,19 +124,6 @@ func (e *engine) prepareSchemata(ctx context.Context, items []item, pending []in
 	for p, data := range originals {
 		base = append(base, schemata.File{Path: p, Data: data})
 	}
-	folded := schemata.Fold(base, variants)
-	for id, why := range folded.Isolated {
-		tree.isolated[names[id]] = why
-	}
-	if len(folded.Folded) == 0 {
-		return nil
-	}
-	isolateAll := func(why string) {
-		for id := range folded.Folded {
-			tree.isolated[names[id]] = why
-		}
-		tree.ids = map[string]int{}
-	}
 	dir := filepath.Join(e.cfg.Work, "schemata")
 	w := &worker{e: e, root: filepath.Join(dir, "src"), bin: filepath.Join(dir, "bin"), touched: map[string]bool{}}
 	if err := e.copyTree(w.root); err != nil {
@@ -145,17 +132,11 @@ func (e *engine) prepareSchemata(ctx context.Context, items []item, pending []in
 	if err := os.MkdirAll(w.bin, 0o755); err != nil {
 		return err
 	}
-	for _, f := range folded.Files {
-		p := filepath.Join(w.root, filepath.FromSlash(f.Path))
-		info, err := os.Stat(p)
-		if err != nil {
-			return err
-		}
-		if err := os.WriteFile(p, f.Data, info.Mode().Perm()); err != nil {
-			return err
-		}
-	}
 	tree.w = w
+	folded, err := e.foldCompiled(ctx, w, base, variants, names, tree)
+	if err != nil || len(folded.Folded) == 0 {
+		return err
+	}
 	var suites []string
 	var tests []string
 	for id := range folded.Folded {
@@ -176,7 +157,10 @@ func (e *engine) prepareSchemata(ctx context.Context, items []item, pending []in
 	built := map[string]bool{}
 	for _, suite := range suites {
 		if detail := w.buildWith(ctx, "schemata", e.suite(suite), built, e.cfg.CoverDeadline); detail != "" {
-			isolateAll("the schemata tree does not build " + suite + ": " + firstCompileError(detail))
+			for id := range folded.Folded {
+				tree.isolated[names[id]] = "the schemata tree does not build " + suite + ": " + firstCompileError(detail)
+			}
+			tree.ids = map[string]int{}
 			e.logf("schemata: the tree does not build %s: every folded row takes the isolated path\n%s", suite, lastLines(detail, 12))
 			return ctx.Err()
 		}
