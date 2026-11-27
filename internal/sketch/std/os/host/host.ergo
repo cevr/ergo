@@ -133,15 +133,16 @@ type System {
 	},
 }
 
-// Static is an in-memory System provider constructed from validated snapshots
-// for deterministic tests and check-time laws.
+// Static is an in-memory System and Volumes provider constructed from validated
+// snapshots for deterministic tests and check-time laws.
 type Static {
 	cores     int,
 	load      LoadAvg,
 	memory    Memory,
 	volumes   Map[string, Volume],
 	processes []Process,
-} implements System
+	mounts    []Mount,
+} implements System, Volumes
 
 // NewStatic constructs a Static System provider after validating every field of
 // status and processes against package invariants.
@@ -165,6 +166,7 @@ func NewStatic(status Status, processes []Process) Static fails Malformed {
 		memory:    status.Memory,
 		volumes:   vols,
 		processes: procs,
+		mounts:    defaultMountsFromVolumes(status.Volumes),
 	}
 }
 

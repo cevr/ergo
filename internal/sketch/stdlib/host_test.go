@@ -89,10 +89,42 @@ func TestStdHostLawsRun(t *testing.T) {
 
 const hostOracleSrc = `import hex
 import io
+import option
 import os
 import os/host
 import strconv
 import strings
+
+type customVolProv { mount host.Mount } implements host.Volumes
+
+func Mounts(c customVolProv) []host.Mount fails host.Unavailable | host.Malformed {
+	[]host.Mount{c.mount}
+}
+
+func MountForPath(c customVolProv, path string) host.Mount fails host.Unavailable | host.NotFound | host.Malformed {
+	host.ResolveMount([]host.Mount{c.mount}, path)
+}
+
+func formatMountKind(k host.MountKind) string {
+	match k {
+	case host.PrimaryMount:
+		"primary"
+	case host.BindMount:
+		"bind"
+	case host.SubvolumeMount:
+		"subvol"
+	}
+}
+
+func formatMount(m host.Mount) string {
+	let volPart = match m.Volume {
+	case option.None:
+		"NONE"
+	case option.Some[host.Volume] as v:
+		"\(v.Value.TotalBytes):\(v.Value.FreeBytes):\(v.Value.AvailableBytes):\(v.Value.UsedBytes)"
+	}
+	"\(m.Info.MountID)|\(m.Info.ParentID)|\(hex.Encode(m.Info.DeviceID))|\(hex.Encode(m.Info.Root))|\(hex.Encode(m.Info.MountPoint))|\(hex.Encode(m.Info.FSType))|\(hex.Encode(m.Info.Source))|\(formatMountKind(m.Info.Kind))|\(volPart)"
+}
 
 func formatLoad(l host.LoadAvg) string {
 	"\(strconv.FormatFloat(l.One, 'f', 4))|\(strconv.FormatFloat(l.Five, 'f', 4))|\(strconv.FormatFloat(l.Fifteen, 'f', 4))|\(l.Running)|\(l.Entities)"
@@ -186,10 +218,80 @@ func verifyPureNative() string {
 			return "ERR cputicks"
 		}
 	}
+	let rawSpecial = "/mnt/dir name\tline\nnext\\slash"
+	let escSpecial = host.EscapeMountField(rawSpecial)
+	if !strings.Contains(escSpecial, "\\040") || !strings.Contains(escSpecial, "\\011") || !strings.Contains(escSpecial, "\\012") || !strings.Contains(escSpecial, "\\134") {
+		return "ERR escape mountinfo: " + escSpecial
+	}
+	let decSpecial = host.UnescapeMountField(escSpecial) catch {
+	case host.Malformed as err:
+		return "ERR unescape mountinfo: " + err.Reason
+	}
+	if decSpecial != rawSpecial {
+		return "ERR unescape roundtrip"
+	}
+	let miDoc = "10 1 8:1 / / rw - ext4 /dev/sda1 rw\n" +
+		"11 10 8:1 / /mnt/rootbind rw - ext4 /dev/sda1 rw\n" +
+		"12 10 0:33 /@ws /mnt/ws\\040dir rw,relatime shared:2 - btrfs /dev/loop0 rw,subvol=/@ws\n" +
+		"13 10 0:33 /@tmp /mnt/ws\\040dir2 rw,relatime shared:3 - btrfs /dev/loop0 rw,subvol=/@tmp\n"
+	let staticMountsProv = host.NewStaticMountinfo(
+		miDoc,
+		[]host.Volume{
+			host.Volume{Path: "/", TotalBytes: int64(2000), FreeBytes: int64(500), AvailableBytes: int64(400), UsedBytes: int64(1500)},
+			host.Volume{Path: "/mnt/ws dir", TotalBytes: int64(9000), FreeBytes: int64(3000), AvailableBytes: int64(2500), UsedBytes: int64(6000)},
+		},
+	) catch {
+	case host.Malformed as err:
+		return "ERR static mountinfo: " + err.Reason
+	}
+	with context { host.Volumes: staticMountsProv } {
+		let ms = host.Volumes.Mounts() catch {
+		case host.Unavailable, host.Malformed:
+			return "ERR static mounts"
+		}
+		if ms.Len() != 4 || formatMountKind(ms[0].Info.Kind) != "primary" || formatMountKind(ms[1].Info.Kind) != "bind" || formatMountKind(ms[2].Info.Kind) != "subvol" || formatMountKind(ms[3].Info.Kind) != "subvol" {
+			return "ERR static mount kinds"
+		}
+		let hit2 = host.Volumes.MountForPath("/mnt/ws dir2/sub") catch {
+		case host.Unavailable, host.NotFound, host.Malformed:
+			return "ERR mount for ws dir2"
+		}
+		if hit2.Info.MountPoint != "/mnt/ws dir2" {
+			return "ERR mount boundary: " + hit2.Info.MountPoint
+		}
+		let groups = host.GroupByFilesystem(ms)
+		if groups.Len() != 2 || !host.SameFilesystem(ms[2], ms[3]) || host.SameFilesystem(ms[0], ms[2]) {
+			return "ERR group by filesystem"
+		}
+	}
+	let customVol = host.Mount{
+		Info: host.MountInfo{
+			MountID:      1,
+			ParentID:     0,
+			DeviceID:     "9:9",
+			Root:         "/",
+			MountPoint:   "/custom",
+			FSType:       "tmpfs",
+			Source:       "tmpfs",
+			Options:      []string{"rw"},
+			SuperOptions: []string{"rw"},
+			Kind:         host.PrimaryMount,
+		},
+		Volume: option.None,
+	}
+	with context { host.Volumes: customVolProv{mount: customVol} } {
+		let gotCustom = host.Volumes.MountForPath("/custom/file") catch {
+		case host.Unavailable, host.NotFound, host.Malformed:
+			return "ERR custom Volumes provider"
+		}
+		if gotCustom.Info.DeviceID != "9:9" {
+			return "ERR custom Volumes device"
+		}
+	}
 	"OK"
 }
 
-func handle(line string) string needs host.System | io.Stdout {
+func handle(line string) string needs host.System | host.Volumes | io.Stdout {
 	let parts = strings.Fields(line)
 	if parts.Len() == 0 {
 		return ""
@@ -267,11 +369,115 @@ func handle(line string) string needs host.System | io.Stdout {
 		}
 		return "OK \(ps.Len())"
 	}
+	if cmd == "mounts" {
+		let ms = host.Volumes.Mounts() catch {
+		case host.Unavailable as err:
+			return "ERR Unavailable \(err.Target): \(err.Reason)"
+		case host.Malformed as err:
+			return "ERR Malformed \(err.Source): \(err.Reason)"
+		}
+		let mut rows = []string{}
+		for m in ms {
+			if !host.ValidMount(m) {
+				return "ERR invalid mount \(m.Info.MountPoint)"
+			}
+			rows = rows.Append(formatMount(m))
+		}
+		return "OK \(ms.Len())|\(strings.Join(rows, ";"))"
+	}
+	if cmd == "mount_for" {
+		let argHex = if parts.Len() > 1 { parts[1] } else { "" }
+		let target = hex.Decode(argHex) catch {
+		case hex.Malformed:
+			return "ERR bad hex target"
+		}
+		let m = host.Volumes.MountForPath(target) catch {
+		case host.Unavailable as err:
+			return "ERR Unavailable \(err.Target): \(err.Reason)"
+		case host.NotFound as err:
+			return "ERR NotFound \(err.Target)"
+		case host.Malformed as err:
+			return "ERR Malformed \(err.Source): \(err.Reason)"
+		}
+		return "OK \(formatMount(m))"
+	}
+	if cmd == "mount_groups" {
+		let ms = host.Volumes.Mounts() catch {
+		case host.Unavailable as err:
+			return "ERR Unavailable \(err.Target): \(err.Reason)"
+		case host.Malformed as err:
+			return "ERR Malformed \(err.Source): \(err.Reason)"
+		}
+		let gs = host.GroupByFilesystem(ms)
+		let mut rows = []string{}
+		for g in gs {
+			rows = rows.Append("\(hex.Encode(g.DeviceID))|\(hex.Encode(g.Primary.Info.MountPoint))|\(g.Mounts.Len())")
+		}
+		return "OK \(gs.Len())|\(strings.Join(rows, ";"))"
+	}
+	if cmd == "static_agrees" {
+		let target = hex.Decode(parts[1]) catch {
+		case hex.Malformed:
+			return "ERR bad hex target"
+		}
+		let miRaw = hex.Decode(parts[2]) catch {
+		case hex.Malformed:
+			return "ERR bad hex mountinfo"
+		}
+		let live = host.Volumes.Mounts() catch {
+		case host.Unavailable as err:
+			return "ERR Unavailable \(err.Target): \(err.Reason)"
+		case host.Malformed as err:
+			return "ERR Malformed \(err.Source): \(err.Reason)"
+		}
+		let mut vols = []host.Volume{}
+		for m in live {
+			match m.Volume {
+			case option.Some[host.Volume] as v:
+				vols = vols.Append(v.Value)
+			case option.None:
+			}
+		}
+		let st = host.NewStaticMountinfo(miRaw, vols) catch {
+		case host.Malformed as err:
+			return "ERR Malformed static: \(err.Reason)"
+		}
+		let sim = st.Mounts() catch {
+		case host.Unavailable, host.Malformed:
+			return "ERR static mounts"
+		}
+		if live.Len() != sim.Len() {
+			return "ERR mount count mismatch live=\(live.Len()) static=\(sim.Len())"
+		}
+		for i in 0..live.Len() {
+			let a = live[i].Info
+			let b = sim[i].Info
+			if a.MountID != b.MountID || a.ParentID != b.ParentID || a.DeviceID != b.DeviceID || a.Root != b.Root || a.MountPoint != b.MountPoint || a.FSType != b.FSType || a.Source != b.Source || formatMountKind(a.Kind) != formatMountKind(b.Kind) {
+				return "ERR mount row \(i) differs"
+			}
+		}
+		let hitLive = host.Volumes.MountForPath(target) catch {
+		case host.Unavailable, host.NotFound, host.Malformed:
+			return "ERR live MountForPath"
+		}
+		let hitStatic = st.MountForPath(target) catch {
+		case host.Unavailable, host.NotFound, host.Malformed:
+			return "ERR static MountForPath"
+		}
+		if hitLive.Info.MountPoint != hitStatic.Info.MountPoint || hitLive.Info.DeviceID != hitStatic.Info.DeviceID || hitLive.Info.FSType != hitStatic.Info.FSType {
+			return "ERR MountForPath disagrees"
+		}
+		if host.GroupByFilesystem(live).Len() != host.GroupByFilesystem(sim).Len() {
+			return "ERR GroupByFilesystem count disagrees"
+		}
+		return "OK"
+	}
 	"ERR unknown"
 }
 
 func main() needs os.Ambient {
-	with context { host.System: host.NewHost(), io.Stdout: io.NewHost(), os.Self: os.NewHost() } {
+	let hostProv = host.NewHost()
+	with context { host.System: hostProv, host.Volumes: hostProv, io.Stdout: io.NewHost(), os.Self: os.NewHost() } {
 		io.Stdout.Println("READY \(os.Self.Pid())")
 		for line in io.NewStdin().Lines() {
 			let out = handle(line)
@@ -830,6 +1036,383 @@ func TestStdHostAgreesWithProc(t *testing.T) {
 	}
 	stop.Store(true)
 	wg.Wait()
+
+	if resp := send("quit"); resp != "BYE" {
+		t.Errorf("quit response = %q, want BYE", resp)
+	}
+}
+
+type rawMountEntry struct {
+	mountID    int
+	parentID   int
+	deviceID   string
+	root       string
+	mountPoint string
+	fsType     string
+	source     string
+	kind       string
+}
+
+func unescapeGoMountField(s string) (string, error) {
+	if !strings.ContainsRune(s, '\\') {
+		return s, nil
+	}
+	var b strings.Builder
+	for i := 0; i < len(s); {
+		if s[i] != '\\' {
+			b.WriteByte(s[i])
+			i++
+			continue
+		}
+		if i+3 >= len(s) {
+			return "", fmt.Errorf("truncated octal escape in %q", s)
+		}
+		var val int
+		for j := 1; j <= 3; j++ {
+			c := s[i+j]
+			if c < '0' || c > '7' {
+				return "", fmt.Errorf("invalid octal digit in %q", s)
+			}
+			val = val*8 + int(c-'0')
+		}
+		if val == 0 || val > 255 {
+			return "", fmt.Errorf("out-of-range octal escape in %q", s)
+		}
+		b.WriteByte(byte(val))
+		i += 4
+	}
+	return b.String(), nil
+}
+
+func parseGoMountinfo(t *testing.T, text string) []rawMountEntry {
+	t.Helper()
+	var out []rawMountEntry
+	seen := map[string]bool{}
+	for _, rawLine := range strings.Split(text, "\n") {
+		line := strings.TrimRight(rawLine, "\r")
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		fields := strings.FieldsFunc(line, func(r rune) bool { return r == ' ' || r == '\t' })
+		if len(fields) < 10 {
+			t.Fatalf("short mountinfo line: %q", line)
+		}
+		id, err := strconv.Atoi(fields[0])
+		if err != nil {
+			t.Fatalf("bad mount id %q: %v", fields[0], err)
+		}
+		pid, err := strconv.Atoi(fields[1])
+		if err != nil {
+			t.Fatalf("bad parent id %q: %v", fields[1], err)
+		}
+		root, err := unescapeGoMountField(fields[3])
+		if err != nil {
+			t.Fatal(err)
+		}
+		mp, err := unescapeGoMountField(fields[4])
+		if err != nil {
+			t.Fatal(err)
+		}
+		dash := -1
+		for i := 6; i < len(fields); i++ {
+			if fields[i] == "-" {
+				dash = i
+				break
+			}
+		}
+		if dash < 0 || len(fields) != dash+4 {
+			t.Fatalf("missing or misaligned '-' in %q", line)
+		}
+		fsType, err := unescapeGoMountField(fields[dash+1])
+		if err != nil {
+			t.Fatal(err)
+		}
+		src, err := unescapeGoMountField(fields[dash+2])
+		if err != nil {
+			t.Fatal(err)
+		}
+		superOpts := strings.Split(fields[dash+3], ",")
+		var subvol string
+		for _, opt := range superOpts {
+			optDec, err := unescapeGoMountField(opt)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if strings.HasPrefix(optDec, "subvol=") {
+				subvol = strings.TrimPrefix(optDec, "subvol=")
+				if !strings.HasPrefix(subvol, "/") {
+					subvol = "/" + subvol
+				}
+				subvol = filepath.Clean(subvol)
+				break
+			}
+		}
+		cleanRoot := root
+		if !strings.HasPrefix(cleanRoot, "/") {
+			cleanRoot = "/" + cleanRoot
+		}
+		cleanRoot = filepath.Clean(cleanRoot)
+		key := fields[2] + "\x00" + cleanRoot
+		kind := "primary"
+		if seen[key] {
+			kind = "bind"
+		} else if fsType == "btrfs" && subvol != "" {
+			if cleanRoot == subvol && cleanRoot != "/" {
+				kind = "subvol"
+			} else if cleanRoot != subvol {
+				kind = "bind"
+			}
+		} else if cleanRoot != "/" {
+			kind = "bind"
+		}
+		seen[key] = true
+		out = append(out, rawMountEntry{
+			mountID:    id,
+			parentID:   pid,
+			deviceID:   fields[2],
+			root:       root,
+			mountPoint: filepath.Clean(mp),
+			fsType:     fsType,
+			source:     src,
+			kind:       kind,
+		})
+	}
+	return out
+}
+
+// TestStdHostMountsAgrees compiles an Ergo binary using os/host.Volumes with
+// ERGO_FALLBACK=off and checks mount enumeration, /proc/self/mountinfo
+// agreement, Statfs volume capacity agreement, longest-prefix resolution,
+// DeviceID grouping, and Static vs Host agreement on Linux.
+func TestStdHostMountsAgrees(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("Linux /proc/self/mountinfo agreement test runs on linux only")
+	}
+	exe := buildHostOracle(t)
+	workDir := t.TempDir()
+
+	cmd := exec.Command(exe, "--mounts")
+	cmd.Dir = workDir
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		_ = stdin.Close()
+		_ = cmd.Wait()
+	}()
+
+	sc := bufio.NewScanner(stdout)
+	sc.Buffer(make([]byte, 0, 64*1024), 8*1024*1024)
+	send := func(line string) string {
+		t.Helper()
+		if _, err := io.WriteString(stdin, line+"\n"); err != nil {
+			t.Fatalf("write oracle %q: %v", line, err)
+		}
+		if !sc.Scan() {
+			t.Fatalf("oracle closed stdout early (err=%v stderr=%q)", sc.Err(), stderr.String())
+		}
+		return sc.Text()
+	}
+
+	ready := func() string {
+		if !sc.Scan() {
+			t.Fatalf("oracle exited before READY (err=%v stderr=%q)", sc.Err(), stderr.String())
+		}
+		return sc.Text()
+	}()
+	if !strings.HasPrefix(ready, "READY ") {
+		t.Fatalf("unexpected greeting: %q", ready)
+	}
+	oraclePID, err := strconv.Atoi(strings.TrimPrefix(ready, "READY "))
+	if err != nil {
+		t.Fatalf("bad pid in greeting %q: %v", ready, err)
+	}
+
+	if resp := send("laws"); resp != "OK" {
+		t.Fatalf("native pure mount laws = %q, want OK", resp)
+	}
+
+	rawMIBefore, err := os.ReadFile(fmt.Sprintf("/proc/%d/mountinfo", oraclePID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp := send("mounts")
+	rawMIAfter, err := os.ReadFile(fmt.Sprintf("/proc/%d/mountinfo", oraclePID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(resp, "OK ") {
+		t.Fatalf("mounts failed: %q", resp)
+	}
+	payload := strings.TrimPrefix(resp, "OK ")
+	countStr, rowsRaw, ok := strings.Cut(payload, "|")
+	if !ok {
+		t.Fatalf("malformed mounts payload: %q", resp)
+	}
+	gotCount, err := strconv.Atoi(countStr)
+	if err != nil {
+		t.Fatalf("bad mount count %q: %v", countStr, err)
+	}
+	gotRows := strings.Split(rowsRaw, ";")
+	if len(gotRows) != gotCount || gotCount == 0 {
+		t.Fatalf("mount row count %d != reported %d", len(gotRows), gotCount)
+	}
+
+	// Only enforce exact row-by-row equality when the host mount table did not
+	// mutate mid-call; invariants still hold unconditionally.
+	tableStable := bytes.Equal(rawMIBefore, rawMIAfter)
+	wantEntries := parseGoMountinfo(t, string(rawMIAfter))
+	if tableStable && len(wantEntries) != gotCount {
+		t.Fatalf("host.Mounts() count = %d, raw /proc/%d/mountinfo count = %d", gotCount, oraclePID, len(wantEntries))
+	}
+
+	decodeHexStr := func(h string) string {
+		b, err := hex.DecodeString(h)
+		if err != nil {
+			t.Fatalf("bad hex %q: %v", h, err)
+		}
+		return string(b)
+	}
+	const blockTol = int64(256 << 20)
+	delta64 := func(a, b int64) int64 {
+		if a > b {
+			return a - b
+		}
+		return b - a
+	}
+	sawProcNone := false
+	devCounts := map[string]int{}
+	for i, row := range gotRows {
+		parts := strings.Split(row, "|")
+		if len(parts) != 9 {
+			t.Fatalf("bad mount row %d: %q", i, row)
+		}
+		mid, _ := strconv.Atoi(parts[0])
+		pid, _ := strconv.Atoi(parts[1])
+		devID := decodeHexStr(parts[2])
+		root := decodeHexStr(parts[3])
+		mp := decodeHexStr(parts[4])
+		fsType := decodeHexStr(parts[5])
+		src := decodeHexStr(parts[6])
+		kind := parts[7]
+		volSpec := parts[8]
+		devCounts[devID]++
+
+		if tableStable {
+			w := wantEntries[i]
+			if mid != w.mountID || pid != w.parentID || devID != w.deviceID || root != w.root || mp != w.mountPoint || fsType != w.fsType || src != w.source || kind != w.kind {
+				t.Fatalf("mount row %d got (%d,%d,%s,%s,%s,%s,%s,%s), want %+v",
+					i, mid, pid, devID, root, mp, fsType, src, kind, w)
+			}
+		}
+		if mp == "/proc" && fsType == "proc" && volSpec == "NONE" {
+			sawProcNone = true
+		}
+		if mp == "/" || mp == "/tmp" || mp == "/workspaces" {
+			if volSpec == "NONE" {
+				t.Fatalf("expected non-empty Volume for %s", mp)
+			}
+			vp := strings.Split(volSpec, ":")
+			if len(vp) != 4 {
+				t.Fatalf("bad volume spec for %s: %q", mp, volSpec)
+			}
+			tot, _ := strconv.ParseInt(vp[0], 10, 64)
+			free, _ := strconv.ParseInt(vp[1], 10, 64)
+			avail, _ := strconv.ParseInt(vp[2], 10, 64)
+			used, _ := strconv.ParseInt(vp[3], 10, 64)
+			wt, wf, wa, err := rawStatfs(mp)
+			if err != nil {
+				t.Fatalf("rawStatfs(%s): %v", mp, err)
+			}
+			if tot != wt || used != tot-free || delta64(free, wf) > blockTol || delta64(avail, wa) > blockTol {
+				t.Fatalf("mount %s Volume (%d,%d,%d,%d) disagrees with syscall.Statfs (%d,%d,%d)",
+					mp, tot, free, avail, used, wt, wf, wa)
+			}
+		}
+	}
+	if !sawProcNone {
+		t.Log("note: /proc did not report Volume=NONE (unusual host /proc)")
+	}
+
+	// Verify MountForPath agreement on "/", workDir, relative ".", and empty "".
+	for _, query := range []string{"/", workDir, "."} {
+		r := send("mount_for " + hex.EncodeToString([]byte(query)))
+		if !strings.HasPrefix(r, "OK ") {
+			t.Fatalf("mount_for %q failed: %q", query, r)
+		}
+		resolvedTarget := query
+		if query == "." {
+			resolvedTarget = workDir
+		}
+		row := strings.Split(strings.TrimPrefix(r, "OK "), "|")
+		if len(row) != 9 {
+			t.Fatalf("bad mount_for row for %q: %q", query, r)
+		}
+		gotMP := decodeHexStr(row[4])
+		var bestMP, bestDev string
+		for _, w := range wantEntries {
+			matches := w.mountPoint == "/" || resolvedTarget == w.mountPoint || strings.HasPrefix(resolvedTarget, w.mountPoint+"/")
+			if matches && len(w.mountPoint) >= len(bestMP) {
+				bestMP = w.mountPoint
+				bestDev = w.deviceID
+			}
+		}
+		if tableStable && (gotMP != bestMP || decodeHexStr(row[2]) != bestDev) {
+			t.Fatalf("mount_for %q got (%s, %s), want (%s, %s)", query, gotMP, decodeHexStr(row[2]), bestMP, bestDev)
+		}
+	}
+	if r := send("mount_for "); !strings.HasPrefix(r, "ERR Malformed") {
+		t.Fatalf("mount_for empty = %q, want ERR Malformed", r)
+	}
+
+	// Verify GroupByFilesystem matches Go DeviceID grouping count and member total.
+	gr := send("mount_groups")
+	if !strings.HasPrefix(gr, "OK ") {
+		t.Fatalf("mount_groups failed: %q", gr)
+	}
+	gCountStr, gRowsRaw, ok := strings.Cut(strings.TrimPrefix(gr, "OK "), "|")
+	if !ok {
+		t.Fatalf("malformed mount_groups payload: %q", gr)
+	}
+	gCount, err := strconv.Atoi(gCountStr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gRows := strings.Split(gRowsRaw, ";")
+	if len(gRows) != gCount {
+		t.Fatalf("group rows %d != count %d", len(gRows), gCount)
+	}
+	if tableStable && gCount != len(devCounts) {
+		t.Fatalf("GroupByFilesystem count = %d, distinct DeviceIDs = %d", gCount, len(devCounts))
+	}
+	sumMembers := 0
+	for _, grow := range gRows {
+		gp := strings.Split(grow, "|")
+		if len(gp) != 3 {
+			t.Fatalf("bad group row: %q", grow)
+		}
+		n, _ := strconv.Atoi(gp[2])
+		sumMembers += n
+	}
+	if sumMembers != gotCount && tableStable {
+		t.Fatalf("grouped mounts sum %d != total mounts %d", sumMembers, gotCount)
+	}
+
+	// Verify Static (NewStaticMountinfo) agrees with live Host on same /proc/self/mountinfo.
+	staticResp := send("static_agrees " + hex.EncodeToString([]byte(workDir)) + " " + hex.EncodeToString(rawMIAfter))
+	if staticResp != "OK" {
+		t.Fatalf("static_agrees = %q, want OK", staticResp)
+	}
 
 	if resp := send("quit"); resp != "BYE" {
 		t.Errorf("quit response = %q, want BYE", resp)

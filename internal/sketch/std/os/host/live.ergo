@@ -1,5 +1,7 @@
+import filepath
 import fs
 import option
+import hostos os
 import go os
 import go runtime
 import go ergo.local/prototype/runtime/v1/hostfs
@@ -8,15 +10,15 @@ import strings
 
 type hostOnly {}
 
-// Host is the live operating-system provider of System backed by /proc,
-// runtime.NumCPU, and filesystem Statfs calls.
+// Host is the live operating-system provider of System and Volumes backed by
+// /proc, runtime.NumCPU, Darwin getfsstat, and filesystem Statfs calls.
 type Host {
 	live     hostOnly,
 	cores    int,
 	pageSize int64,
 	readFile func(path string) string fails fs.NotFound | fs.Denied | fs.Failed,
 	readDir  func(path string) []string fails fs.NotFound | fs.Denied | fs.Failed,
-} implements System
+} implements System, Volumes
 
 // NewHost constructs a Host provider authorized to inspect operating-system
 // telemetry under Ambient.
@@ -177,4 +179,134 @@ func isAllDigits(s string) bool {
 		}
 	}
 	true
+}
+
+func noVolume() option.Option[Volume] {
+	option.None
+}
+
+func probeMountVolume(mountPoint string) option.Option[Volume] fails Malformed needs Ambient {
+	let info = hostfs.Statfs(mountPoint) catch {
+	case go.Error:
+		return noVolume()
+	}
+	if info.Total < int64(0) || info.Free < int64(0) || info.Available < int64(0) || info.Free > info.Total || info.Available > info.Total {
+		return Malformed{Source: "statfs:" + mountPoint, Reason: "filesystem free or available bytes exceed total"}
+	}
+	if info.Total == int64(0) {
+		return noVolume()
+	}
+	option.Some[Volume]{Value: Volume{
+		Path:           mountPoint,
+		TotalBytes:     info.Total,
+		FreeBytes:      info.Free,
+		AvailableBytes: info.Available,
+		UsedBytes:      info.Total - info.Free,
+	}}
+}
+
+func readMountinfos(h Host) []MountInfo fails Unavailable | Malformed needs Ambient {
+	let raw = try readHostFile(h, "/proc/self/mountinfo")
+	try ParseMountinfo(raw)
+}
+
+func readDarwinMounts() []Mount fails Unavailable | Malformed needs Ambient {
+	let raw = hostfs.Getfsstat() catch {
+	case go.Error as err:
+		return Unavailable{Target: "getfsstat", Reason: err.Text}
+	}
+	let mut out = slices.WithCapacity[Mount](raw.Len())
+	for entry in raw {
+		if entry.MountPoint == "" {
+			continue
+		}
+		let mp = filepath.Clean(entry.MountPoint)
+		if !filepath.IsAbs(mp) {
+			continue
+		}
+		if entry.Total < int64(0) || entry.Free < int64(0) || entry.Available < int64(0) || entry.Free > entry.Total || entry.Available > entry.Total {
+			return Malformed{Source: "getfsstat:" + mp, Reason: "filesystem free or available bytes exceed total"}
+		}
+		let vol = if entry.Total > int64(0) {
+			option.Some[Volume]{Value: Volume{
+				Path:           mp,
+				TotalBytes:     entry.Total,
+				FreeBytes:      entry.Free,
+				AvailableBytes: entry.Available,
+				UsedBytes:      entry.Total - entry.Free,
+			}}
+		} else {
+			noVolume()
+		}
+		let fsType = if entry.FSType != "" { entry.FSType } else { "unknown" }
+		let devID = if entry.DeviceID != "" { entry.DeviceID } else { "darwin:0" }
+		let src = if entry.Source != "" { entry.Source } else { "none" }
+		out = out.Append(Mount{
+			Info: MountInfo{
+				MountID:      0,
+				ParentID:     0,
+				DeviceID:     devID,
+				Root:         "/",
+				MountPoint:   mp,
+				FSType:       fsType,
+				Source:       src,
+				Options:      slices.Clone(entry.Options),
+				SuperOptions: []string{},
+				Kind:         PrimaryMount,
+			},
+			Volume: vol,
+		})
+	}
+	out
+}
+
+// Mounts returns every mounted filesystem reported by /proc/self/mountinfo
+// on Linux or getfsstat(2) on Darwin, paired with byte-capacity telemetry when
+// readable and non-zero.
+func Mounts(h Host) []Mount fails Unavailable | Malformed needs Ambient {
+	if hostos.Current().OS == "darwin" {
+		return try readDarwinMounts()
+	}
+	let infos = try readMountinfos(h)
+	let mut out = slices.WithCapacity[Mount](infos.Len())
+	for info in infos {
+		let vol = try probeMountVolume(info.MountPoint)
+		out = out.Append(Mount{
+			Info:   info,
+			Volume: vol,
+		})
+	}
+	out
+}
+
+// MountForPath resolves path against the live host mount table by
+// longest-prefix matching, resolving relative paths against os.Getwd first.
+func MountForPath(h Host, path string) Mount fails Unavailable | NotFound | Malformed needs Ambient {
+	if path == "" {
+		return Malformed{Source: "mount path", Reason: "empty path"}
+	}
+	let target = if filepath.IsAbs(path) {
+		filepath.Clean(path)
+	} else {
+		let wd = os.Getwd() catch {
+		case go.Error as err:
+			return Unavailable{Target: path, Reason: err.Text}
+		}
+		filepath.Join([]string{wd, path})
+	}
+	if hostos.Current().OS == "darwin" {
+		let mounts = try readDarwinMounts()
+		return try ResolveMount(mounts, target)
+	}
+	let infos = try readMountinfos(h)
+	let mut stubs = slices.WithCapacity[Mount](infos.Len())
+	for info in infos {
+		stubs = stubs.Append(Mount{Info: info, Volume: noVolume()})
+	}
+	let hit = try ResolveMount(stubs, target)
+	let vol = try probeMountVolume(hit.Info.MountPoint)
+	Mount{
+		Info:   hit.Info,
+		Volume: vol,
+	}
 }

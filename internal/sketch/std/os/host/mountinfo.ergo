@@ -1,0 +1,469 @@
+import filepath
+import option
+import strconv
+import strings
+
+func isAsciiMountSpace(b byte) bool {
+	b == byte(' ') || b == byte('\t')
+}
+
+func splitMountFields(line string) []string {
+	let bs = line.Bytes()
+	let n = bs.Len()
+	let mut out = []string{}
+	let mut i = 0
+	for i < n {
+		for i < n && isAsciiMountSpace(bs[i]) {
+			i = i + 1
+		}
+		if i >= n {
+			break
+		}
+		let start = i
+		for i < n && !isAsciiMountSpace(bs[i]) {
+			i = i + 1
+		}
+		out = out.Append(strings.Slice(line, start, i))
+	}
+	out
+}
+
+func isOctalDigit(b byte) bool {
+	b >= byte('0') && b <= byte('7')
+}
+
+// EscapeMountField escapes spaces, tabs, newlines, carriage returns,
+// backslashes, and ASCII control bytes as three-digit Linux mountinfo octal
+// sequences such as \040, \011, \012, \015, and \134.
+func EscapeMountField(s string) string {
+	let bs = s.Bytes()
+	let mut b = strings.NewBuilder()
+	b.Grow(bs.Len())
+	for c in bs {
+		if c < byte(' ') || c == byte(' ') || c == byte('\\') || c == byte(127) {
+			let v = int(c)
+			let d2 = v / 64
+			let d1 = (v / 8) % 8
+			let d0 = v % 8
+			b.WriteByte(byte('\\'))
+			b.WriteByte(byte(48 + d2))
+			b.WriteByte(byte(48 + d1))
+			b.WriteByte(byte(48 + d0))
+		} else {
+			b.WriteByte(c)
+		}
+	}
+	b.String()
+}
+
+// UnescapeMountField decodes Linux /proc/self/mountinfo three-digit octal
+// escapes (\ooo) into raw bytes and fails with Malformed on truncated,
+// non-octal, NUL, or out-of-range escapes.
+func UnescapeMountField(s string) string fails Malformed {
+	if strings.IndexByte(s, byte('\\')) < 0 {
+		return s
+	}
+	let bs = s.Bytes()
+	let n = bs.Len()
+	let mut b = strings.NewBuilder()
+	b.Grow(n)
+	let mut i = 0
+	for i < n {
+		let c = bs[i]
+		if c != byte('\\') {
+			b.WriteByte(c)
+			i = i + 1
+			continue
+		}
+		if i+3 >= n {
+			return Malformed{Source: "mountinfo", Reason: "truncated octal escape in \(s)"}
+		}
+		let b1 = bs[i+1]
+		let b2 = bs[i+2]
+		let b3 = bs[i+3]
+		if !isOctalDigit(b1) || !isOctalDigit(b2) || !isOctalDigit(b3) {
+			return Malformed{Source: "mountinfo", Reason: "invalid octal escape in \(s)"}
+		}
+		let val = int(b1-byte('0'))*64 + int(b2-byte('0'))*8 + int(b3-byte('0'))
+		if val == 0 || val > 255 {
+			return Malformed{Source: "mountinfo", Reason: "octal escape out of byte range in \(s)"}
+		}
+		b.WriteByte(byte(val))
+		i = i + 4
+	}
+	b.String()
+}
+
+func isMountAllDigits(s string) bool {
+	if s == "" {
+		return false
+	}
+	for b in s.Bytes() {
+		if b < byte('0') || b > byte('9') {
+			return false
+		}
+	}
+	true
+}
+
+func parseMountDeviceID(raw string) string fails Malformed {
+	match strings.Cut(raw, ":") {
+	case option.None:
+		return Malformed{Source: "mountinfo", Reason: "missing major:minor separator in \(raw)"}
+	case option.Some[strings.Halves] as h:
+		if !isMountAllDigits(h.Value.Before) || !isMountAllDigits(h.Value.After) {
+			return Malformed{Source: "mountinfo", Reason: "invalid major:minor \(raw)"}
+		}
+		let major = try parseNonNegInt(h.Value.Before, "mountinfo")
+		let minor = try parseNonNegInt(h.Value.After, "mountinfo")
+		"\(strconv.Itoa(major)):\(strconv.Itoa(minor))"
+	}
+}
+
+func splitMountOptions(raw string) []string fails Malformed {
+	if raw == "" {
+		return []string{}
+	}
+	let parts = strings.Split(raw, ",")
+	let mut out = []string{}
+	for p in parts {
+		if p != "" {
+			out = out.Append(try UnescapeMountField(p))
+		}
+	}
+	out
+}
+
+func findSubvolOption(superOpts []string) option.Option[string] {
+	for opt in superOpts {
+		if strings.HasPrefix(opt, "subvol=") {
+			return option.Some[string]{Value: strings.TrimPrefix(opt, "subvol=")}
+		}
+	}
+	option.None
+}
+
+func cleanMountSubpath(p string) string {
+	if p == "" {
+		return ""
+	}
+	let rooted = if strings.HasPrefix(p, "/") { p } else { "/" + p }
+	filepath.Clean(rooted)
+}
+
+func classifyMountKind(devID string, root string, fsType string, superOpts []string, alreadySeen bool) MountKind {
+	if alreadySeen {
+		return BindMount
+	}
+	let cleanRoot = cleanMountSubpath(root)
+	if fsType == "btrfs" {
+		match findSubvolOption(superOpts) {
+		case option.Some[string] as sv:
+			let cleanSV = cleanMountSubpath(sv.Value)
+			if cleanRoot == cleanSV && cleanRoot != "/" {
+				return SubvolumeMount
+			}
+			if cleanRoot != cleanSV {
+				return BindMount
+			}
+			return PrimaryMount
+		case option.None:
+			if cleanRoot != "/" {
+				return BindMount
+			}
+			return PrimaryMount
+		}
+	}
+	if cleanRoot != "/" {
+		return BindMount
+	}
+	PrimaryMount
+}
+
+func joinCommaMountOptions(opts []string) string {
+	let mut escaped = []string{}
+	for opt in opts {
+		if opt != "" {
+			escaped = escaped.Append(EscapeMountField(opt))
+		}
+	}
+	if escaped.Len() == 0 {
+		return "none"
+	}
+	strings.Join(escaped, ",")
+}
+
+// ParseMountinfoLine parses a single Linux /proc/self/mountinfo line,
+// validating IDs, major:minor format, the '-' separator, octal escapes, and
+// mount kind classification.
+func ParseMountinfoLine(line string) MountInfo fails Malformed {
+	let trimmed = strings.TrimRight(line, "\r\n")
+	let fields = splitMountFields(trimmed)
+	if fields.Len() == 0 {
+		return Malformed{Source: "mountinfo", Reason: "empty mountinfo line"}
+	}
+	if fields.Len() < 10 {
+		return Malformed{Source: "mountinfo", Reason: "expected at least 10 fields in \(trimmed)"}
+	}
+	if !isMountAllDigits(fields[0]) || !isMountAllDigits(fields[1]) {
+		return Malformed{Source: "mountinfo", Reason: "invalid mount or parent ID in \(trimmed)"}
+	}
+	let mountID = try parseNonNegInt(fields[0], "mountinfo")
+	let parentID = try parseNonNegInt(fields[1], "mountinfo")
+	let devID = try parseMountDeviceID(fields[2])
+	let root = try UnescapeMountField(fields[3])
+	let rawMP = try UnescapeMountField(fields[4])
+	if root == "" {
+		return Malformed{Source: "mountinfo", Reason: "empty root field"}
+	}
+	if rawMP == "" || !strings.HasPrefix(rawMP, "/") {
+		return Malformed{Source: "mountinfo", Reason: "invalid non-rooted mount point \(rawMP)"}
+	}
+	let mountPoint = filepath.Clean(rawMP)
+	let opts = try splitMountOptions(fields[5])
+	let mut dashIdx = -1
+	for i in 6..fields.Len() {
+		if fields[i] == "-" {
+			dashIdx = i
+			break
+		}
+	}
+	if dashIdx < 0 {
+		return Malformed{Source: "mountinfo", Reason: "missing '-' separator in \(trimmed)"}
+	}
+	if fields.Len() != dashIdx+4 {
+		return Malformed{Source: "mountinfo", Reason: "expected 3 fields after '-' in \(trimmed)"}
+	}
+	let fsType = try UnescapeMountField(fields[dashIdx+1])
+	let source = try UnescapeMountField(fields[dashIdx+2])
+	let superOpts = try splitMountOptions(fields[dashIdx+3])
+	if fsType == "" {
+		return Malformed{Source: "mountinfo", Reason: "empty filesystem type"}
+	}
+	if source == "" {
+		return Malformed{Source: "mountinfo", Reason: "empty mount source"}
+	}
+	let kind = classifyMountKind(devID, root, fsType, superOpts, false)
+	MountInfo{
+		MountID:      mountID,
+		ParentID:     parentID,
+		DeviceID:     devID,
+		Root:         root,
+		MountPoint:   mountPoint,
+		FSType:       fsType,
+		Source:       source,
+		Options:      opts,
+		SuperOptions: superOpts,
+		Kind:         kind,
+	}
+}
+
+// ParseMountinfo parses multi-line Linux /proc/self/mountinfo content in mount
+// table order, marking duplicate (DeviceID, Root) entries as BindMount.
+func ParseMountinfo(text string) []MountInfo fails Malformed {
+	let mut out = []MountInfo{}
+	let mut seenRoots = Map[string, bool]{}
+	for rawLine in strings.Lines(text) {
+		let trimmed = strings.TrimRight(rawLine, "\r\n")
+		let fields = splitMountFields(trimmed)
+		if fields.Len() == 0 {
+			continue
+		}
+		let mut info = try ParseMountinfoLine(trimmed)
+		let key = info.DeviceID + "\x00" + cleanMountSubpath(info.Root)
+		let seen = match seenRoots.Get(key) {
+		case option.Some[bool] as hit:
+			hit.Value
+		case option.None:
+			false
+		}
+		seenRoots = seenRoots.Put(key, true)
+		let kind = classifyMountKind(info.DeviceID, info.Root, info.FSType, info.SuperOptions, seen)
+		info = MountInfo{
+			MountID:      info.MountID,
+			ParentID:     info.ParentID,
+			DeviceID:     info.DeviceID,
+			Root:         info.Root,
+			MountPoint:   info.MountPoint,
+			FSType:       info.FSType,
+			Source:       info.Source,
+			Options:      info.Options,
+			SuperOptions: info.SuperOptions,
+			Kind:         kind,
+		}
+		out = out.Append(info)
+	}
+	out
+}
+
+// FormatMountinfoLine formats a MountInfo record as a single
+// /proc/self/mountinfo line with Linux octal path escaping.
+func FormatMountinfoLine(info MountInfo) string {
+	let src = if info.Source == "" { "none" } else { EscapeMountField(info.Source) }
+	"\(strconv.Itoa(info.MountID)) \(strconv.Itoa(info.ParentID)) \(info.DeviceID) \(EscapeMountField(info.Root)) \(EscapeMountField(info.MountPoint)) \(joinCommaMountOptions(info.Options)) - \(EscapeMountField(info.FSType)) \(src) \(joinCommaMountOptions(info.SuperOptions))"
+}
+
+// FormatMountinfo formats a slice of MountInfo entries into newline-delimited
+// /proc/self/mountinfo text.
+func FormatMountinfo(infos []MountInfo) string {
+	if infos.Len() == 0 {
+		return ""
+	}
+	let mut lines = []string{}
+	for info in infos {
+		lines = lines.Append(FormatMountinfoLine(info))
+	}
+	strings.Join(lines, "\n") + "\n"
+}
+
+// MountsFromMountinfo pairs parsed MountInfo entries with optional capacity
+// Volume records keyed by mount point.
+func MountsFromMountinfo(infos []MountInfo, volumes []Volume) []Mount fails Malformed {
+	let mut byPath = Map[string, Volume]{}
+	for v in volumes {
+		if !validVolume(v) {
+			return Malformed{Source: "volume:" + v.Path, Reason: "volume failed invariant check"}
+		}
+		byPath = byPath.Put(filepath.Clean(v.Path), v)
+	}
+	let mut out = []Mount{}
+	for info in infos {
+		let vol = match byPath.Get(filepath.Clean(info.MountPoint)) {
+		case option.Some[Volume] as v:
+			option.Some[Volume]{Value: Volume{
+				Path:           info.MountPoint,
+				TotalBytes:     v.Value.TotalBytes,
+				FreeBytes:      v.Value.FreeBytes,
+				AvailableBytes: v.Value.AvailableBytes,
+				UsedBytes:      v.Value.UsedBytes,
+			}}
+		case option.None:
+			option.None
+		}
+		let m = Mount{Info: info, Volume: vol}
+		if !ValidMount(m) {
+			return Malformed{Source: "mountinfo:" + info.MountPoint, Reason: "mount failed invariant check"}
+		}
+		out = out.Append(m)
+	}
+	out
+}
+
+func sameMountKind(a MountKind, b MountKind) bool {
+	match a {
+	case PrimaryMount:
+		match b {
+		case PrimaryMount:
+			true
+		case BindMount, SubvolumeMount:
+			false
+		}
+	case BindMount:
+		match b {
+		case BindMount:
+			true
+		case PrimaryMount, SubvolumeMount:
+			false
+		}
+	case SubvolumeMount:
+		match b {
+		case SubvolumeMount:
+			true
+		case PrimaryMount, BindMount:
+			false
+		}
+	}
+}
+
+// MountinfoRoundTrips: octal escape/unescape and mountinfo format/parse
+// roundtrip spaces, tabs, newlines, carriage returns, and backslashes cleanly.
+law MountinfoRoundTrips(name string) {
+	let sample = "/mnt/p_" + name + " \t\n\r\\"
+	let escaped = EscapeMountField(sample)
+	let decoded = UnescapeMountField(escaped) catch {
+	case Malformed:
+		return false
+	}
+	if decoded != sample {
+		return false
+	}
+	let src = "//fileserver/Share " + name + "\\team"
+	let line = FormatMountinfoLine(MountInfo{
+		MountID:      42,
+		ParentID:     1,
+		DeviceID:     "8:1",
+		Root:         "/",
+		MountPoint:   sample,
+		FSType:       "cifs",
+		Source:       src,
+		Options:      []string{"rw", "relatime"},
+		SuperOptions: []string{"rw", "vers=3.0"},
+		Kind:         PrimaryMount,
+	})
+	let parsed = ParseMountinfoLine(line) catch {
+	case Malformed:
+		return false
+	}
+	parsed.MountID == 42 && parsed.ParentID == 1 && parsed.DeviceID == "8:1" && parsed.Root == "/" && parsed.MountPoint == filepath.Clean(sample) && parsed.FSType == "cifs" && parsed.Source == src && sameMountKind(parsed.Kind, PrimaryMount)
+}
+
+func mountinfoLineIsMalformed(raw string) bool {
+	let _ = ParseMountinfoLine(raw) catch {
+	case Malformed:
+		return true
+	}
+	false
+}
+
+// MountinfoRefusesMalformed: invalid lines (missing separator, bad major:minor,
+// negative ID, truncated/non-octal/out-of-range escapes, trailing junk) fail
+// cleanly with Malformed.
+law MountinfoRefusesMalformed() {
+	let badLines = []string{
+		"",
+		"not enough fields",
+		"-1 1 8:1 / / rw - ext4 /dev/sda1 rw",
+		"1 1 baddev / / rw - ext4 /dev/sda1 rw",
+		"1 1 8: / / rw - ext4 /dev/sda1 rw",
+		"1 1 8:1 / / rw shared:1 ext4 /dev/sda1 rw",
+		"1 1 8:1 / / rw - ext4 /dev/sda1",
+		"1 1 8:1 / / rw - ext4 /dev/sda1 rw extra",
+		"1 1 8:1 / relative/mp rw - ext4 /dev/sda1 rw",
+		"1 1 8:1 / /mnt/bad\\04 rw - ext4 /dev/sda1 rw",
+		"1 1 8:1 / /mnt/bad\\999 rw - ext4 /dev/sda1 rw",
+		"1 1 8:1 / /mnt/bad\\400 rw - ext4 /dev/sda1 rw",
+		"1 1 8:1 / /mnt/bad\\000 rw - ext4 /dev/sda1 rw",
+	}
+	for raw in badLines {
+		if !mountinfoLineIsMalformed(raw) {
+			return false
+		}
+	}
+	true
+}
+
+// MountinfoBindAndSubvolumeKind: ParseMountinfo distinguishes primary mounts,
+// btrfs subvolume mounts, duplicate root bind mounts, and subdir bind mounts.
+law MountinfoBindAndSubvolumeKind() {
+	let table = "1 0 8:1 / / rw - ext4 /dev/sda1 rw\n" +
+		"2 1 8:1 / /mnt/bind-root rw - ext4 /dev/sda1 rw\n" +
+		"3 1 8:1 /var/data /mnt/bind-sub rw - ext4 /dev/sda1 rw\n" +
+		"4 1 0:33 /@workspaces /workspaces rw,relatime shared:2 - btrfs /dev/loop0 rw,subvolid=257,subvol=/@workspaces\n" +
+		"5 1 0:33 /@home /home rw,relatime shared:3 - btrfs /dev/loop0 rw,subvolid=258,subvol=/@home\n" +
+		"6 1 0:33 /@workspaces /mnt/bind-ws rw,relatime shared:4 - btrfs /dev/loop0 rw,subvolid=257,subvol=/@workspaces\n" +
+		"7 1 0:33 /@workspaces/sub /mnt/bind-wssub rw,relatime shared:5 - btrfs /dev/loop0 rw,subvolid=257,subvol=/@workspaces\n"
+	let infos = ParseMountinfo(table) catch {
+	case Malformed:
+		return false
+	}
+	if infos.Len() != 7 {
+		return false
+	}
+		sameMountKind(infos[0].Kind, PrimaryMount) &&
+		sameMountKind(infos[1].Kind, BindMount) &&
+		sameMountKind(infos[2].Kind, BindMount) &&
+		sameMountKind(infos[3].Kind, SubvolumeMount) &&
+		sameMountKind(infos[4].Kind, SubvolumeMount) &&
+		sameMountKind(infos[5].Kind, BindMount) &&
+		sameMountKind(infos[6].Kind, BindMount)
+}

@@ -1,0 +1,441 @@
+import filepath
+import option
+import slices
+import strconv
+import strings
+
+// PrimaryMount marks a filesystem mounted directly at its backing root without
+// bind aliasing or non-root btrfs subvolume indirection.
+type PrimaryMount {}
+
+// BindMount marks a bind mount or duplicate mount of an already-seen
+// (DeviceID, Root) backing tree.
+type BindMount {}
+
+// SubvolumeMount marks a btrfs subvolume mount on a shared btrfs backing
+// filesystem device.
+type SubvolumeMount {}
+
+// MountKind classifies how a mount table entry relates to its backing
+// filesystem.
+type MountKind = PrimaryMount | BindMount | SubvolumeMount
+
+// MountInfo describes one mounted filesystem table entry independent of whether
+// byte-capacity telemetry is available for its mount point.
+type MountInfo {
+	MountID      int,
+	ParentID     int,
+	DeviceID     string,
+	Root         string,
+	MountPoint   string,
+	FSType       string,
+	Source       string,
+	Options      []string,
+	SuperOptions []string,
+	Kind         MountKind,
+}
+
+// Mount pairs one mounted filesystem entry with optional capacity telemetry.
+type Mount {
+	Info   MountInfo,
+	Volume option.Option[Volume],
+}
+
+// FilesystemGroup aggregates every mount sharing the same backing DeviceID so
+// callers count bind mounts and btrfs subvolumes once.
+type FilesystemGroup {
+	DeviceID string,
+	Primary  Mount,
+	Mounts   []Mount,
+}
+
+func joinMountProbe(mountPoint string, child string) string {
+	let clean = filepath.Clean(mountPoint)
+	if clean == "/" {
+		"/" + child
+	} else {
+		clean + "/" + child
+	}
+}
+
+// Volumes is the open capability for enumerating mounted filesystems and
+// resolving paths to their covering mount point.
+type Volumes {
+	// Mounts returns every mounted filesystem known to the provider in mount
+	// table order.
+	Mounts() []Mount fails Unavailable | Malformed,
+
+	// MountForPath resolves path against the active mount table using
+	// longest-prefix matching and returns the covering mount entry.
+	MountForPath(path string) Mount fails Unavailable | NotFound | Malformed,
+
+	// MountsValid: every entry returned by Mounts satisfies ValidMount.
+	law MountsValid() {
+		let mounts = Mounts() catch {
+		case Unavailable, Malformed:
+			return true
+		}
+		for m in mounts {
+			if !ValidMount(m) {
+				return false
+			}
+		}
+		true
+	},
+
+	// MountForPathMatchesPrefix: resolving each mount point or a descendant path
+	// returns a valid mount whose MountPoint matches the path at a component
+	// boundary and is at least as deep as the queried mount point.
+	law MountForPathMatchesPrefix() {
+		let mounts = Mounts() catch {
+		case Unavailable, Malformed:
+			return true
+		}
+		for m in mounts {
+			let direct = MountForPath(m.Info.MountPoint) catch {
+			case Unavailable, NotFound, Malformed:
+				return false
+			}
+			if !ValidMount(direct) || direct.Info.MountPoint != m.Info.MountPoint {
+				return false
+			}
+			let probe = joinMountProbe(m.Info.MountPoint, "__ergo_mount_probe__")
+			let sub = MountForPath(probe) catch {
+			case Unavailable, NotFound, Malformed:
+				return false
+			}
+			if !ValidMount(sub) || !MatchesMountPrefix(probe, sub.Info.MountPoint) {
+				return false
+			}
+			if sub.Info.MountPoint.Len() < m.Info.MountPoint.Len() {
+				return false
+			}
+		}
+		true
+	},
+}
+
+// ValidMount reports whether m satisfies the package mount and optional Volume
+// invariants.
+func ValidMount(m Mount) bool {
+	if m.Info.MountID < 0 || m.Info.ParentID < 0 {
+		return false
+	}
+	if m.Info.DeviceID == "" || m.Info.Root == "" || m.Info.MountPoint == "" || m.Info.FSType == "" {
+		return false
+	}
+	if !filepath.IsAbs(m.Info.MountPoint) || m.Info.MountPoint != filepath.Clean(m.Info.MountPoint) {
+		return false
+	}
+	match m.Volume {
+	case option.None:
+		true
+	case option.Some[Volume] as v:
+		v.Value.Path == m.Info.MountPoint && validVolume(v.Value)
+	}
+}
+
+// MatchesMountPrefix reports whether target lies on or underneath mountPoint at
+// a path component boundary.
+func MatchesMountPrefix(target string, mountPoint string) bool {
+	if target == "" || mountPoint == "" {
+		return false
+	}
+	let cleanTarget = filepath.Clean(target)
+	let cleanMount = filepath.Clean(mountPoint)
+	if !filepath.IsAbs(cleanTarget) || !filepath.IsAbs(cleanMount) {
+		return false
+	}
+	if cleanMount == "/" {
+		return true
+	}
+	if cleanTarget == cleanMount {
+		return true
+	}
+	strings.HasPrefix(cleanTarget, cleanMount+"/")
+}
+
+func noMount() option.Option[Mount] {
+	option.None
+}
+
+// ResolveMount resolves an absolute path against mounts by longest matching
+// clean MountPoint boundary prefix, preferring later entries on equal-length
+// overmounts.
+func ResolveMount(mounts []Mount, path string) Mount fails NotFound | Malformed {
+	if path == "" {
+		return Malformed{Source: "mount path", Reason: "empty path"}
+	}
+	if !filepath.IsAbs(path) {
+		return Malformed{Source: "mount path", Reason: "path must be absolute: \(path)"}
+	}
+	let cleanTarget = filepath.Clean(path)
+	let mut matched = noMount()
+	let mut bestLen = 0
+	for m in mounts {
+		let cleanMount = filepath.Clean(m.Info.MountPoint)
+		if MatchesMountPrefix(cleanTarget, cleanMount) && cleanMount.Len() >= bestLen {
+			bestLen = cleanMount.Len()
+			matched = option.Some[Mount]{Value: m}
+		}
+	}
+	match matched {
+	case option.Some[Mount] as hit:
+		hit.Value
+	case option.None:
+		return NotFound{Target: cleanTarget}
+	}
+}
+
+// SameFilesystem reports whether a and b share a non-empty backing DeviceID.
+func SameFilesystem(a Mount, b Mount) bool {
+	a.Info.DeviceID != "" && a.Info.DeviceID == b.Info.DeviceID
+}
+
+func mountSelectRank(m Mount) int {
+	let volScore = match m.Volume {
+	case option.Some[Volume]:
+		0
+	case option.None:
+		100
+	}
+	let kindScore = match m.Info.Kind {
+	case PrimaryMount:
+		0
+	case SubvolumeMount:
+		10
+	case BindMount:
+		20
+	}
+	volScore + kindScore
+}
+
+func selectPrimaryMount(members []Mount) Mount {
+	let mut best = members[0]
+	let mut bestRank = mountSelectRank(best)
+	for i in 1..members.Len() {
+		let cand = members[i]
+		let rank = mountSelectRank(cand)
+		if rank < bestRank || (rank == bestRank && cand.Info.MountPoint.Len() < best.Info.MountPoint.Len()) {
+			best = cand
+			bestRank = rank
+		}
+	}
+	best
+}
+
+// GroupByFilesystem groups mounts by DeviceID in first-seen order so callers
+// such as storage analyzers count bind mounts and btrfs subvolumes once.
+func GroupByFilesystem(mounts []Mount) []FilesystemGroup {
+	let mut order = []string{}
+	let mut grouped = Map[string, []Mount]{}
+	for m in mounts {
+		let id = m.Info.DeviceID
+		match grouped.Get(id) {
+		case option.Some[[]Mount] as existing:
+			grouped = grouped.Put(id, existing.Value.Append(m))
+		case option.None:
+			order = order.Append(id)
+			grouped = grouped.Put(id, []Mount{m})
+		}
+	}
+	let mut out = []FilesystemGroup{}
+	for id in order {
+		match grouped.Get(id) {
+		case option.Some[[]Mount] as members:
+			let list = members.Value
+			out = out.Append(FilesystemGroup{
+				DeviceID: id,
+				Primary:  selectPrimaryMount(list),
+				Mounts:   list,
+			})
+		case option.None:
+		}
+	}
+	out
+}
+
+func validateAndMergeMounts(mounts []Mount, baseVols Map[string, Volume]) ([]Mount, Map[string, Volume]) fails Malformed {
+	let mut volMap = baseVols
+	for m in mounts {
+		if !ValidMount(m) {
+			return Malformed{Source: "static mount", Reason: "invalid mount \(m.Info.MountPoint)"}
+		}
+		match m.Volume {
+		case option.Some[Volume] as v:
+			volMap = volMap.Put(v.Value.Path, v.Value)
+		case option.None:
+		}
+	}
+	(slices.Clone(mounts), volMap)
+}
+
+// WithMounts returns a copy of s configured with validated mount entries,
+// updating its volume map from any mount carrying capacity telemetry.
+func WithMounts(s Static, mounts []Mount) Static fails Malformed {
+	let checked, volMap = try validateAndMergeMounts(mounts, s.volumes)
+	Static{
+		cores:     s.cores,
+		load:      s.load,
+		memory:    s.memory,
+		volumes:   volMap,
+		processes: s.processes,
+		mounts:    checked,
+	}
+}
+
+// NewStaticMounts constructs a Static System and Volumes provider with default
+// host status telemetry and the supplied validated mounts.
+func NewStaticMounts(mounts []Mount) Static fails Malformed {
+	let base = try NewStatic(
+		Status{
+			Cores:   4,
+			Load:    LoadAvg{One: 0.5, Five: 0.25, Fifteen: 0.1, Running: 1, Entities: 32},
+			Memory:  Memory{TotalBytes: int64(8589934592), AvailableBytes: int64(4294967296), FreeBytes: int64(2147483648), UsedBytes: int64(4294967296)},
+			Volumes: []Volume{},
+		},
+		[]Process{},
+	)
+	try WithMounts(base, mounts)
+}
+
+// NewStaticMountinfo parses Linux /proc/self/mountinfo text and optional
+// per-mount-point Volume measurements into a Static System and Volumes provider.
+func NewStaticMountinfo(text string, volumes []Volume) Static fails Malformed {
+	let infos = try ParseMountinfo(text)
+	let mounts = try MountsFromMountinfo(infos, volumes)
+	try NewStaticMounts(mounts)
+}
+
+// Mounts returns a copy of the configured static mount table.
+func Mounts(s Static) []Mount fails Unavailable | Malformed {
+	slices.Clone(s.mounts)
+}
+
+// MountForPath resolves path against s's static mount table using
+// longest-prefix matching.
+func MountForPath(s Static, path string) Mount fails Unavailable | NotFound | Malformed {
+	try ResolveMount(s.mounts, path)
+}
+
+func defaultMountsFromVolumes(volumes []Volume) []Mount {
+	let mut out = []Mount{}
+	let mut idx = 0
+	for v in volumes {
+		if strings.HasPrefix(v.Path, "/") {
+			idx = idx + 1
+			let clean = filepath.Clean(v.Path)
+			out = out.Append(Mount{
+				Info: MountInfo{
+					MountID:      idx,
+					ParentID:     0,
+					DeviceID:     "static:" + strconv.Itoa(idx),
+					Root:         "/",
+					MountPoint:   clean,
+					FSType:       "static",
+					Source:       "static",
+					Options:      []string{"rw"},
+					SuperOptions: []string{"rw"},
+					Kind:         PrimaryMount,
+				},
+				Volume: option.Some[Volume]{Value: Volume{
+					Path:           clean,
+					TotalBytes:     v.TotalBytes,
+					FreeBytes:      v.FreeBytes,
+					AvailableBytes: v.AvailableBytes,
+					UsedBytes:      v.UsedBytes,
+				}},
+			})
+		}
+	}
+	out
+}
+
+let staticVolumesSample = context fails Malformed {
+	Volumes: try NewStaticMountinfo(
+			"1 0 8:1 / / rw - ext4 /dev/sda1 rw\n"+
+			"2 1 8:1 /var/log /mnt/log rw - ext4 /dev/sda1 rw\n"+
+			"3 1 0:33 /@workspaces /workspaces rw - btrfs /dev/loop0 rw,subvol=/@workspaces\n"+
+			"4 1 0:33 /@tmp /tmp rw - btrfs /dev/loop0 rw,subvol=/@tmp\n"+
+			"5 1 0:40 / /dir rw - tmpfs tmpfs rw\n"+
+			"6 1 0:41 / /dir2 rw - tmpfs tmpfs rw\n"+
+			"7 1 0:42 / /dir/over rw - autofs systemd-1 rw\n"+
+			"8 1 0:43 / /dir/over rw - binfmt_misc binfmt_misc rw\n",
+		[]Volume{
+			Volume{Path: "/", TotalBytes: int64(1000000), FreeBytes: int64(400000), AvailableBytes: int64(350000), UsedBytes: int64(600000)},
+			Volume{Path: "/workspaces", TotalBytes: int64(2000000), FreeBytes: int64(500000), AvailableBytes: int64(450000), UsedBytes: int64(1500000)},
+			Volume{Path: "/tmp", TotalBytes: int64(2000000), FreeBytes: int64(500000), AvailableBytes: int64(450000), UsedBytes: int64(1500000)},
+		},
+	),
+}
+
+func mountPathRejectedAsMalformed(provider Volumes, path string) bool {
+	let _ = provider.MountForPath(path) catch {
+	case Malformed:
+		return true
+	case NotFound, Unavailable:
+		return false
+	}
+	false
+}
+
+// MountResolutionAndGrouping: longest-prefix boundary matching avoids /dir vs
+// /dir2 collisions, picks later overmounts, and GroupByFilesystem merges bind
+// mounts and btrfs subvolumes under a single backing DeviceID.
+law MountResolutionAndGrouping() {
+	let table = "1 0 8:1 / / rw - ext4 /dev/sda1 rw\n" +
+		"2 1 8:1 /data /mnt/bind rw - ext4 /dev/sda1 rw\n" +
+		"3 1 0:33 /@workspaces /workspaces rw - btrfs /dev/loop0 rw,subvol=/@workspaces\n" +
+		"4 1 0:33 /@tmp /tmp rw - btrfs /dev/loop0 rw,subvol=/@tmp\n" +
+		"5 1 0:50 / /dir rw - tmpfs tmpfs rw\n" +
+		"6 1 0:51 / /dir2 rw - tmpfs tmpfs rw\n" +
+		"7 1 0:52 / /ov rw - autofs systemd-1 rw\n" +
+		"8 1 0:53 / /ov rw - proc proc rw\n"
+	let provider = NewStaticMountinfo(
+		table,
+		[]Volume{
+			Volume{Path: "/", TotalBytes: int64(1000), FreeBytes: int64(400), AvailableBytes: int64(300), UsedBytes: int64(600)},
+			Volume{Path: "/workspaces", TotalBytes: int64(5000), FreeBytes: int64(1000), AvailableBytes: int64(900), UsedBytes: int64(4000)},
+		},
+	) catch {
+	case Malformed:
+		return false
+	}
+	let d2 = provider.MountForPath("/dir2/sub/file") catch {
+	case Unavailable, NotFound, Malformed:
+		return false
+	}
+	let d1 = provider.MountForPath("/dir/sub") catch {
+	case Unavailable, NotFound, Malformed:
+		return false
+	}
+	let ov = provider.MountForPath("/ov/item") catch {
+	case Unavailable, NotFound, Malformed:
+		return false
+	}
+	let ws = provider.MountForPath("/workspaces/repo/main.ergo") catch {
+	case Unavailable, NotFound, Malformed:
+		return false
+	}
+	let relRejected = mountPathRejectedAsMalformed(provider, "relative/path")
+	if !relRejected || MatchesMountPrefix("/dir2", "/dir") || !MatchesMountPrefix("/dir/a", "/dir") || d2.Info.MountPoint != "/dir2" || d1.Info.MountPoint != "/dir" || ov.Info.DeviceID != "0:53" || ws.Info.MountPoint != "/workspaces" {
+		return false
+	}
+	let mounts = provider.Mounts() catch {
+	case Unavailable, Malformed:
+		return false
+	}
+	let groups = GroupByFilesystem(mounts)
+	if groups.Len() != 6 {
+		return false
+	}
+		SameFilesystem(mounts[0], mounts[1]) &&
+		SameFilesystem(mounts[2], mounts[3]) &&
+		!SameFilesystem(mounts[0], mounts[2]) &&
+		groups[0].DeviceID == "8:1" &&
+		groups[0].Primary.Info.MountPoint == "/" &&
+		groups[0].Mounts.Len() == 2 &&
+		groups[1].DeviceID == "0:33" &&
+		groups[1].Primary.Info.MountPoint == "/workspaces" &&
+		groups[1].Mounts.Len() == 2
+}

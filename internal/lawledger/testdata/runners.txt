@@ -728,10 +728,16 @@ os/host CmdlineParsing	TestStdHostLawsRun
 os/host FindProcessFindsOrFails	TestStdHostLawsRun
 os/host LoadAvgInvariants	TestStdHostLawsRun
 os/host MeminfoInvariants	TestStdHostLawsRun
+os/host MountResolutionAndGrouping	TestStdHostLawsRun
+os/host MountinfoBindAndSubvolumeKind	TestStdHostLawsRun
+os/host MountinfoRefusesMalformed	TestStdHostLawsRun
+os/host MountinfoRoundTrips	TestStdHostLawsRun
 os/host ProcStatWithParensAndSpaces	TestStdHostLawsRun
 os/host ProcStatmInvariants	TestStdHostLawsRun
 os/host System.ProcessesValid	TestStdHostLawsRun
 os/host System.StatusInvariants	TestStdHostLawsRun
+os/host Volumes.MountForPathMatchesPrefix	TestStdHostLawsRun
+os/host Volumes.MountsValid	TestStdHostLawsRun
 pace CountingCountsEachEdge	TestStdLawsRun
 pace DefaultReachesNothing	TestStdLawsRun
 pace EveryNests	TestStdLawsRun
