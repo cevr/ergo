@@ -1,0 +1,394 @@
+import compiler/driver
+import fs
+import fstest
+import io
+import option
+import strconv
+import strings
+
+// FlagError reports an invalid command-line flag or argument.
+type FlagError {
+	Code    int,
+	Message string,
+}
+
+// FlagVal holds a parsed flag name and its string argument.
+type FlagVal {
+	Name  string,
+	Value string,
+}
+
+// UnifiedOptions stores common flags accepted across test, build, run, lint, fix, verify, and inspect.
+type UnifiedOptions {
+	Paths    []string,
+	Filter   string,
+	Skip     string,
+	Fresh    bool,
+	Jobs     int,
+	Seed     int,
+	States   int,
+	Strict   bool,
+	Json     bool,
+	Check    bool,
+	Output   string,
+	Locked   bool,
+	Debug    bool,
+	Release  bool,
+	Platform string,
+	Help     bool,
+	HelpAll  bool,
+}
+
+func jsonQuote(s string) string {
+	strconv.Quote(s)
+}
+
+func consumeFlagValue(args []string, idx mut int, arg string, names []string) option.Option[FlagVal] fails FlagError {
+	match strings.Cut(arg, "=") {
+	case option.Some[strings.Halves] as h:
+		for n in names {
+			if h.Value.Before == n {
+				*idx = *idx + 1
+				return option.Some[FlagVal]{Value: FlagVal{Name: n, Value: h.Value.After}}
+			}
+		}
+		return option.None
+	case option.None:
+		for n in names {
+			if arg == n {
+				if *idx+1 >= args.Len() {
+					return FlagError{Code: 2, Message: "flag " + arg + " requires a value"}
+				}
+				let val = args[*idx+1]
+				*idx = *idx + 2
+				return option.Some[FlagVal]{Value: FlagVal{Name: n, Value: val}}
+			}
+		}
+		option.None
+	}
+}
+
+func parsePositiveFlagInt(cmd string, flagName string, raw string) int fails FlagError {
+	let v = strconv.Atoi(raw) catch {
+	case strconv.Malformed, strconv.OutOfRange:
+		return FlagError{Code: 2, Message: "ergo " + cmd + ": invalid integer for " + flagName + ": " + raw}
+	}
+	if v < 1 {
+		return FlagError{Code: 2, Message: "ergo " + cmd + ": " + flagName + " must be >= 1"}
+	}
+	v
+}
+
+func parseNonNegativeFlagInt(cmd string, flagName string, raw string) int fails FlagError {
+	let v = strconv.Atoi(raw) catch {
+	case strconv.Malformed, strconv.OutOfRange:
+		return FlagError{Code: 2, Message: "ergo " + cmd + ": invalid integer for " + flagName + ": " + raw}
+	}
+	if v < 0 {
+		return FlagError{Code: 2, Message: "ergo " + cmd + ": " + flagName + " must be >= 0"}
+	}
+	v
+}
+
+// ParseUnifiedOptions parses unified CLI flags (-k/--filter, --skip, --fresh, -j, --json, etc.).
+func ParseUnifiedOptions(cmd string, args []string) UnifiedOptions fails FlagError {
+	let mut opts = UnifiedOptions{
+		Paths:    []string{},
+		Filter:   "",
+		Skip:     "",
+		Fresh:    false,
+		Jobs:     1,
+		Seed:     1,
+		States:   0,
+		Strict:   false,
+		Json:     false,
+		Check:    false,
+		Output:   "",
+		Locked:   false,
+		Debug:    false,
+		Release:  false,
+		Platform: "",
+		Help:     false,
+		HelpAll:  false,
+	}
+	let mut endFlags = false
+	let mut i = 0
+	for i < args.Len() {
+		let arg = args[i]
+		if !endFlags && arg == "--" {
+			endFlags = true
+			i = i + 1
+			continue
+		}
+		if !endFlags && strings.HasPrefix(arg, "-") && arg != "-" {
+			if arg == "--help" || arg == "-h" {
+				opts.Help = true
+				i = i + 1
+				continue
+			}
+			if arg == "--help-all" {
+				opts.HelpAll = true
+				i = i + 1
+				continue
+			}
+			if arg == "--fresh" {
+				opts.Fresh = true
+				i = i + 1
+				continue
+			}
+			if arg == "--strict" {
+				opts.Strict = true
+				i = i + 1
+				continue
+			}
+			if arg == "--json" {
+				opts.Json = true
+				i = i + 1
+				continue
+			}
+			if arg == "--check" {
+				opts.Check = true
+				i = i + 1
+				continue
+			}
+			if arg == "--locked" {
+				opts.Locked = true
+				i = i + 1
+				continue
+			}
+			if arg == "--debug" {
+				opts.Debug = true
+				i = i + 1
+				continue
+			}
+			if arg == "--release" {
+				opts.Release = true
+				i = i + 1
+				continue
+			}
+			if arg == "--derived" || arg == "--list" || arg == "--why" || arg == "--prune-cases" || arg == "--parallel" || arg == "--lib" {
+				i = i + 1
+				continue
+			}
+			let valNames = []string{"-k", "--filter", "--skip", "-j", "--jobs", "--seed", "--states", "-o", "--platform", "--lint-config", "--rules", "--preset", "--gate"}
+			let valOpt = try consumeFlagValue(args, &i, arg, valNames)
+			match valOpt {
+			case option.Some[FlagVal] as fv:
+				let name = fv.Value.Name
+				let val = fv.Value.Value
+				if name == "-k" || name == "--filter" {
+					opts.Filter = val
+				} else if name == "--skip" {
+					opts.Skip = val
+				} else if name == "-j" || name == "--jobs" {
+					opts.Jobs = try parsePositiveFlagInt(cmd, name, val)
+				} else if name == "--seed" {
+					opts.Seed = try parseNonNegativeFlagInt(cmd, name, val)
+				} else if name == "--states" {
+					opts.States = try parseNonNegativeFlagInt(cmd, name, val)
+				} else if name == "-o" {
+					opts.Output = val
+				} else if name == "--platform" {
+					opts.Platform = val
+				}
+				continue
+			case option.None:
+			}
+			return FlagError{Code: 2, Message: "ergo " + cmd + ": unknown option " + arg}
+		}
+		opts.Paths = opts.Paths.Append(arg)
+		i = i + 1
+	}
+	opts
+}
+
+// Dispatch routes a complete CLI argument vector (excluding argv[0]) to the matching command handler.
+func Dispatch(args []string, workDir string, environ []string) int needs fs.Files | fs.Writes | io.Stdout | io.Stderr | io.Stdin {
+	if args.Len() == 0 {
+		io.Stderr.Eprint(GeneralHelp())
+		return 2
+	}
+	let first = args[0]
+	if first == "--help" || first == "-h" || first == "help" {
+		io.Stdout.Print(GeneralHelp())
+		return 0
+	}
+	if first == "--help-all" {
+		io.Stdout.Print(GeneralHelpAll())
+		return 0
+	}
+	if first == "fmt" {
+		return RunFmt(args[1:args.Len()], workDir)
+	}
+	if first == "check" {
+		return RunCheck(args[1:args.Len()], workDir, environ)
+	}
+	if first == "version" {
+		return runVersion(args[1:args.Len()])
+	}
+	match LookupCommand(args) {
+	case option.Some[CommandDesc] as found:
+		let cmd = found.Value
+		match cmd.Fate {
+		case FateRemoved:
+			io.Stderr.Eprintln("ergo " + cmd.Name + ": removed in v1; " + cmd.Reason)
+			return 2
+		case FateDark:
+			io.Stderr.Eprintln("ergo " + cmd.Name + ": unavailable until ported to the new front end")
+			return 2
+		case FateAvailable:
+			let rest = if strings.Contains(cmd.Name, " ") && args.Len() >= 2 {
+				args[2:args.Len()]
+			} else {
+				args[1:args.Len()]
+			}
+			return runStubHook(cmd, rest, workDir)
+		}
+	case option.None:
+		io.Stderr.Eprintln("ergo: unknown command " + first)
+		io.Stderr.Eprintln("Run 'ergo --help' for usage.")
+		2
+	}
+}
+
+func runVersion(args []string) int needs io.Stdout | io.Stderr {
+	let opts = ParseUnifiedOptions("version", args) catch {
+	case FlagError as fe:
+		io.Stderr.Eprintln(fe.Message)
+		return fe.Code
+	}
+	if opts.Help || opts.HelpAll {
+		io.Stdout.Print(WorkspaceSubHelp("version", "version [--json]", "Print ergo driver and toolchain version."))
+		return 0
+	}
+	if opts.Json {
+		io.Stdout.Println("{\"version\":\"selfhost\",\"driver\":\"s6\"}")
+	} else {
+		io.Stdout.Println("ergo selfhost (driver s6)")
+	}
+	0
+}
+
+func runStubHook(cmd CommandDesc, rest []string, workDir string) int needs fs.Files | io.Stdout | io.Stderr {
+	let opts = ParseUnifiedOptions(cmd.Name, rest) catch {
+	case FlagError as fe:
+		io.Stderr.Eprintln(fe.Message)
+		return fe.Code
+	}
+	if opts.Help {
+		io.Stdout.Print(if cmd.Help != "" { cmd.Help } else { GeneralHelp() })
+		return 0
+	}
+	if opts.HelpAll {
+		let txt = if cmd.AllHelp != "" {
+			cmd.AllHelp
+		} else if cmd.Help != "" {
+			cmd.Help
+		} else {
+			GeneralHelpAll()
+		}
+		io.Stdout.Print(txt)
+		return 0
+	}
+	let effTargets = if opts.Paths.Len() == 0 {
+		[]string{driver.ResolveTargetDefault(workDir)}
+	} else {
+		opts.Paths
+	}
+	let summary = strings.Join(effTargets, " ")
+	let msg = "ergo " + cmd.Name + ": pending backend cutover (target=" + summary + ")"
+	if opts.Json {
+		io.Stdout.Println("{\"status\":\"pending\",\"command\":" + jsonQuote(cmd.Name) + ",\"target\":" + jsonQuote(summary) + "}")
+	} else {
+		io.Stderr.Eprintln(msg)
+	}
+	2
+}
+
+// RetiredLeakageFlagsRejected: legacy --native, --compiled, and --target flags fail with exit code 2.
+law RetiredLeakageFlagsRejected(idx uint32) {
+	let retired = []string{"--native", "--compiled", "--target=go", "-go-text", "--go-trace"}
+	let flag = retired[int(idx%uint32(retired.Len()))]
+	let rec = io.NewRecorder()
+	let mem = fstest.NewMemory()
+	let code = with context {
+		fs.Files:  mem,
+		fs.Writes: mem,
+		io.Stdout: rec,
+		io.Stderr: rec,
+		io.Stdin:  io.NewInput(""),
+	} {
+		Dispatch([]string{"check", flag}, "/ws", []string{})
+	}
+	code == 2 && strings.Contains(rec.Text(), "unknown option")
+}
+
+test DispatchRoutesFmtCheckHelpAndStubs {
+	let mem = fstest.NewMemory()
+	mem.MkdirAll("/single") catch {
+	case fs.Denied, fs.Failed:
+		assert false
+	}
+	mem.WriteFile("/single/main.ergo", "func Double(n int) int {\n\tn * 2\n}\n") catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		assert false
+	}
+	mem.MkdirAll("/mod/sub") catch {
+	case fs.Denied, fs.Failed:
+		assert false
+	}
+	mem.WriteFile("/mod/ergo.mod", "module sample\n") catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		assert false
+	}
+	mem.WriteFile("/mod/sub/s.ergo", "func Sub() int {\n\t1\n}\n") catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		assert false
+	}
+
+	assert with context { fs.Files: mem } {
+		driver.ResolveTargetDefault("/single") == "."
+	}
+	assert with context { fs.Files: mem } {
+		driver.ResolveTargetDefault("/mod") == "./..."
+	}
+
+	let recHelp = io.NewRecorder()
+	let codeHelp = with context {
+		fs.Files:  mem,
+		fs.Writes: mem,
+		io.Stdout: recHelp,
+		io.Stderr: recHelp,
+		io.Stdin:  io.NewInput(""),
+	} {
+		Dispatch([]string{"--help"}, "/single", []string{})
+	}
+	assert codeHelp == 0
+	assert strings.Contains(recHelp.Text(), "Packages & Workspace:")
+
+	let recVer = io.NewRecorder()
+	let codeVer = with context {
+		fs.Files:  mem,
+		fs.Writes: mem,
+		io.Stdout: recVer,
+		io.Stderr: recVer,
+		io.Stdin:  io.NewInput(""),
+	} {
+		Dispatch([]string{"version", "--json"}, "/single", []string{})
+	}
+	assert codeVer == 0
+	assert strings.Contains(recVer.Text(), "\"driver\":\"s6\"")
+
+	let recTest = io.NewRecorder()
+	let codeTest = with context {
+		fs.Files:  mem,
+		fs.Writes: mem,
+		io.Stdout: recTest,
+		io.Stderr: recTest,
+		io.Stdin:  io.NewInput(""),
+	} {
+		Dispatch([]string{"test", "-k", "Parse", "--skip", "Slow", "--fresh"}, "/mod", []string{})
+	}
+	assert codeTest == 2
+	assert strings.Contains(recTest.Text(), "target=./...")
+}

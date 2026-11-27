@@ -1,0 +1,404 @@
+import compiler/driver
+import compiler/format
+import filepath
+import fs
+import fstest
+import io
+import option
+import slices
+import strconv
+import strings
+
+// FmtOptions captures parsed flags and targets for ergo fmt.
+type FmtOptions {
+	Paths   []string,
+	Check   bool,
+	Stdin   bool,
+	Json    bool,
+	Help    bool,
+	HelpAll bool,
+}
+
+// ParseFmtOptions parses arguments following `ergo fmt`.
+func ParseFmtOptions(args []string) FmtOptions fails FlagError {
+	let mut opts = FmtOptions{
+		Paths:   []string{},
+		Check:   false,
+		Stdin:   false,
+		Json:    false,
+		Help:    false,
+		HelpAll: false,
+	}
+	let mut endFlags = false
+	for arg in args {
+		if !endFlags && arg == "--" {
+			endFlags = true
+			continue
+		}
+		if !endFlags && strings.HasPrefix(arg, "-") && arg != "-" {
+			if arg == "--help" || arg == "-h" {
+				opts.Help = true
+			} else if arg == "--help-all" {
+				opts.HelpAll = true
+			} else if arg == "--check" {
+				opts.Check = true
+			} else if arg == "--stdin" {
+				opts.Stdin = true
+			} else if arg == "--json" {
+				opts.Json = true
+			} else {
+				return FlagError{Code: 2, Message: "ergo fmt: unknown option " + arg}
+			}
+			continue
+		}
+		opts.Paths = opts.Paths.Append(arg)
+	}
+	opts
+}
+
+// RunFmt executes `ergo fmt` using fs.Files, fs.Writes, and standard streams.
+func RunFmt(args []string, workDir string) int needs fs.Files | fs.Writes | io.Stdout | io.Stderr | io.Stdin {
+	let opts = ParseFmtOptions(args) catch {
+	case FlagError as fe:
+		io.Stderr.Eprintln(fe.Message)
+		return fe.Code
+	}
+	if opts.Help || opts.HelpAll {
+		io.Stdout.Print(FmtHelp())
+		return 0
+	}
+	if opts.Stdin {
+		if opts.Paths.Len() > 0 {
+			io.Stderr.Eprintln("ergo fmt: --stdin cannot be combined with file paths")
+			return 2
+		}
+		return runFmtStdin(opts)
+	}
+	let rawTargets = if opts.Paths.Len() == 0 {
+		[]string{driver.ResolveTargetDefault(workDir)}
+	} else {
+		opts.Paths
+	}
+	let files = collectFmtTargets(workDir, rawTargets) catch {
+	case driver.DiscoverError as de:
+		emitFmtError(opts.Json, de.Path+": "+de.Reason)
+		return 2
+	case driver.ParseError as pe:
+		emitFmtError(opts.Json, driver.FormatParseError(pe))
+		return 2
+	case fs.NotFound as nf:
+		emitFmtError(opts.Json, nf.Path+": not found")
+		return 2
+	case fs.Denied as dn:
+		emitFmtError(opts.Json, dn.Path+": permission denied")
+		return 2
+	case fs.Failed as ff:
+		emitFmtError(opts.Json, ff.Path+": "+ff.Reason)
+		return 2
+	}
+	runFmtFiles(files, workDir, opts)
+}
+
+func runFmtStdin(opts FmtOptions) int needs io.Stdout | io.Stderr | io.Stdin {
+	let src = io.Stdin.ReadAll() catch {
+	case io.ReadFailed:
+		emitFmtError(opts.Json, "stdin: read failed")
+		return 2
+	}
+	let formatted = format.Source(src, 0) catch {
+	case format.SyntaxFailure as sf:
+		emitFmtError(opts.Json, "stdin:"+strconv.Itoa(sf.Line)+":"+strconv.Itoa(sf.Column)+": "+sf.Message)
+		return 2
+	case format.OutputLimit as ol:
+		emitFmtError(opts.Json, "stdin: output limit exceeded ("+strconv.Itoa(ol.Limit)+")")
+		return 2
+	}
+	let changed = formatted != src
+	if opts.Check {
+		if opts.Json {
+			let list = if changed { []string{"<stdin>"} } else { []string{} }
+			io.Stdout.Println(formatFmtJSON(!changed, true, 1, list, ""))
+		} else if changed {
+			io.Stdout.Println("<stdin>")
+		}
+		if changed {
+			return 1
+		}
+		return 0
+	}
+	if opts.Json {
+		let list = if changed { []string{"<stdin>"} } else { []string{} }
+		io.Stdout.Println(formatFmtJSON(true, false, 1, list, ""))
+		return 0
+	}
+	io.Stdout.Print(formatted)
+	0
+}
+
+func runFmtFiles(files []string, workDir string, opts FmtOptions) int needs fs.Files | fs.Writes | io.Stdout | io.Stderr {
+	let mut changed = []string{}
+	for fullPath in files {
+		let disp = displayFmtPath(workDir, fullPath)
+		let src = fs.Files.ReadFile(fullPath) catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+			emitFmtError(opts.Json, disp+": unreadable")
+			return 2
+		}
+		let formatted = format.Source(src, 0) catch {
+		case format.SyntaxFailure as sf:
+			emitFmtError(opts.Json, disp+":"+strconv.Itoa(sf.Line)+":"+strconv.Itoa(sf.Column)+": "+sf.Message)
+			return 2
+		case format.OutputLimit as ol:
+			emitFmtError(opts.Json, disp+": output limit exceeded ("+strconv.Itoa(ol.Limit)+")")
+			return 2
+		}
+		let dirty = formatted != src
+		if dirty {
+			changed = changed.Append(disp)
+			if !opts.Check {
+				fs.Writes.WriteFile(fullPath, formatted) catch {
+				case fs.NotFound, fs.Denied, fs.Failed:
+					emitFmtError(opts.Json, disp+": write failed")
+					return 2
+				}
+				if !opts.Json {
+					io.Stdout.Println("formatted " + disp)
+				}
+			} else if !opts.Json {
+				io.Stdout.Println(disp)
+			}
+		} else if !opts.Check && !opts.Json {
+			io.Stdout.Println("already formatted " + disp)
+		}
+	}
+	if opts.Json {
+		let ok = if opts.Check { changed.Len() == 0 } else { true }
+		io.Stdout.Println(formatFmtJSON(ok, opts.Check, files.Len(), changed, ""))
+	}
+	if opts.Check && changed.Len() > 0 {
+		return 1
+	}
+	0
+}
+
+func displayFmtPath(workDir string, fullPath string) string {
+	let rel = filepath.Rel(workDir, fullPath) catch {
+	case filepath.NotRelative:
+		return fullPath
+	}
+	if rel == "." || strings.HasPrefix(rel, "..") {
+		return fullPath
+	}
+	"./" + rel
+}
+
+func collectFmtTargets(workDir string, targets []string) []string fails driver.DiscoverError | driver.ParseError | fs.NotFound | fs.Denied | fs.Failed needs fs.Files {
+	let cleanWD = filepath.Clean(workDir)
+	let workRoot = match driver.FindWorkRoot(cleanWD) {
+	case option.Some[string] as wr:
+		wr.Value
+	case option.None:
+		cleanWD
+	}
+	let mut hasWork = false
+	let mut wf = driver.WorkFile{Version: 2, Skips: []string{}, Gens: []driver.GenDecl{}, Tasks: []driver.TaskDecl{}}
+	let wfPath = filepath.Join([]string{workRoot, "ergo.work"})
+	if fmtExistsFile(wfPath) {
+		let txt = try fs.Files.ReadFile(wfPath)
+		wf = try driver.ParseWorkFile(txt, wfPath)
+		hasWork = true
+	}
+	let mut seen Map[string, bool] = Map[string, bool]{}
+	let mut out = []string{}
+	for raw in targets {
+		if raw == "..." || raw == "./..." || strings.HasSuffix(raw, "/...") {
+			let baseRel = if raw == "..." || raw == "./..." { "." } else { strings.TrimSuffix(raw, "/...") }
+			let start = filepath.Clean(filepath.AbsFrom(cleanWD, baseRel))
+			let st = fs.Files.Stat(start) catch {
+			case fs.NotFound, fs.Denied, fs.Failed:
+				return driver.DiscoverError{Path: raw, Reason: "target directory does not exist"}
+			}
+			if !st.Dir {
+				return driver.DiscoverError{Path: raw, Reason: "target is not a directory"}
+			}
+			try walkFmtTree(start, workRoot, wf, hasWork, &seen, &out)
+		} else {
+			let abs = filepath.Clean(filepath.AbsFrom(cleanWD, raw))
+			let st = fs.Files.Stat(abs) catch {
+			case fs.NotFound, fs.Denied, fs.Failed:
+				return driver.DiscoverError{Path: raw, Reason: "target does not exist"}
+			}
+			if st.Dir {
+				let entries = try fs.Files.ReadDir(abs)
+				for name in entries {
+					if !driver.AdmitSourceFile(name) {
+						continue
+					}
+					let child = filepath.Join([]string{abs, name})
+					let cst = fs.Files.Stat(child) catch {
+					case fs.NotFound, fs.Denied, fs.Failed:
+						continue
+					}
+					if !cst.Dir && seen.Get(child) == option.None {
+						seen = seen.Put(child, true)
+						out = out.Append(child)
+					}
+				}
+			} else if strings.HasSuffix(abs, ".ergo") {
+				if seen.Get(abs) == option.None {
+					seen = seen.Put(abs, true)
+					out = out.Append(abs)
+				}
+			} else {
+				return driver.DiscoverError{Path: raw, Reason: "expected .ergo file or directory"}
+			}
+		}
+	}
+	slices.Sort(out)
+}
+
+func walkFmtTree(dir string, workRoot string, wf driver.WorkFile, hasWork bool, seen mut Map[string, bool], out mut []string) fails fs.NotFound | fs.Denied | fs.Failed needs fs.Files {
+	if hasWork {
+		let rel = filepath.Rel(workRoot, dir) catch {
+		case filepath.NotRelative:
+			""
+		}
+		if rel != "" && rel != "." && !strings.HasPrefix(rel, "..") && driver.WorkSkipsPath(wf, rel) {
+			return
+		}
+	}
+	let entries = try fs.Files.ReadDir(dir)
+	for name in entries {
+		let child = filepath.Join([]string{dir, name})
+		let st = fs.Files.Stat(child) catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+			continue
+		}
+		if st.Dir {
+			if driver.AdmitFolder(name) {
+				try walkFmtTree(child, workRoot, wf, hasWork, seen, out)
+			}
+		} else if driver.AdmitSourceFile(name) && (*seen).Get(child) == option.None {
+			*seen = (*seen).Put(child, true)
+			*out = (*out).Append(child)
+		}
+	}
+}
+
+func fmtExistsFile(path string) bool needs fs.Files {
+	let st = fs.Files.Stat(path) catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		return false
+	}
+	!st.Dir
+}
+
+func emitFmtError(asJSON bool, msg string) needs io.Stdout | io.Stderr {
+	if asJSON {
+		io.Stdout.Println(formatFmtJSON(false, false, 0, []string{}, msg))
+	} else {
+		io.Stderr.Eprintln("ergo fmt: " + msg)
+	}
+}
+
+func formatFmtJSON(ok bool, checked bool, fileCount int, changed []string, errMsg string) string {
+	let okStr = if ok { "true" } else { "false" }
+	let chkStr = if checked { "true" } else { "false" }
+	let mut items = []string{}
+	for p in changed {
+		items = items.Append(jsonQuote(p))
+	}
+	let errPart = if errMsg == "" { "" } else { ",\"error\":" + jsonQuote(errMsg) }
+	"{\"ok\":" + okStr + ",\"checked\":" + chkStr + ",\"files\":" + strconv.Itoa(fileCount) + ",\"changed\":[" + strings.Join(items, ",") + "]" + errPart + "}"
+}
+
+// FmtCmdMatchesFormatSource: formatting via `ergo fmt --stdin` equals compiler/format.Source on any input.
+law FmtCmdMatchesFormatSource(src string) {
+	let want = format.Source(src, 0) catch {
+	case format.SyntaxFailure, format.OutputLimit:
+		let rec = io.NewRecorder()
+		let code = with context {
+			fs.Files:  fstest.NewMemory(),
+			fs.Writes: fstest.NewMemory(),
+			io.Stdout: rec,
+			io.Stderr: rec,
+			io.Stdin:  io.NewInput(src),
+		} {
+			RunFmt([]string{"--stdin"}, "/ws")
+		}
+		return code == 2
+	}
+	let rec = io.NewRecorder()
+	let code = with context {
+		fs.Files:  fstest.NewMemory(),
+		fs.Writes: fstest.NewMemory(),
+		io.Stdout: rec,
+		io.Stderr: rec,
+		io.Stdin:  io.NewInput(src),
+	} {
+		RunFmt([]string{"--stdin"}, "/ws")
+	}
+	code == 0 && rec.Text() == want
+}
+
+test FmtCmdCheckStdinAndWrite {
+	let mem = fstest.NewMemory()
+	mem.MkdirAll("/ws/pkg") catch {
+	case fs.Denied, fs.Failed:
+		assert false
+	}
+	let dirty = "func   Add(a int,b int)   int {\na+b\n}\n"
+	let clean = format.Source(dirty, 0) catch {
+	case format.SyntaxFailure, format.OutputLimit:
+		assert false
+		return
+	}
+	mem.WriteFile("/ws/pkg/a.ergo", dirty) catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		assert false
+	}
+	let recCheck = io.NewRecorder()
+	let codeCheck = with context {
+		fs.Files:  mem,
+		fs.Writes: mem,
+		io.Stdout: recCheck,
+		io.Stderr: recCheck,
+		io.Stdin:  io.NewInput(""),
+	} {
+		RunFmt([]string{"--check"}, "/ws/pkg")
+	}
+	assert codeCheck == 1
+	assert strings.Contains(recCheck.Text(), "a.ergo")
+
+	let recWrite = io.NewRecorder()
+	let codeWrite = with context {
+		fs.Files:  mem,
+		fs.Writes: mem,
+		io.Stdout: recWrite,
+		io.Stderr: recWrite,
+		io.Stdin:  io.NewInput(""),
+	} {
+		RunFmt([]string{}, "/ws/pkg")
+	}
+	assert codeWrite == 0
+	assert strings.Contains(recWrite.Text(), "formatted")
+	let after = mem.ReadFile("/ws/pkg/a.ergo") catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		assert false
+		return
+	}
+	assert after == clean
+
+	let recClean = io.NewRecorder()
+	let codeClean = with context {
+		fs.Files:  mem,
+		fs.Writes: mem,
+		io.Stdout: recClean,
+		io.Stderr: recClean,
+		io.Stdin:  io.NewInput(""),
+	} {
+		RunFmt([]string{"--check", "--json"}, "/ws/pkg")
+	}
+	assert codeClean == 0
+	assert strings.Contains(recClean.Text(), "\"ok\":true")
+}

@@ -1,0 +1,660 @@
+import filepath
+import fs
+import fstest
+import option
+import slices
+import strings
+
+// NoIndex returns the unsigned uint32 sentinel for absent dense table entries.
+func NoIndex() uint32 {
+	uint32(4294967295)
+}
+
+// DiscoverError describes an error encountered while discovering packages or targets.
+type DiscoverError {
+	Path   string,
+	Reason string,
+}
+
+// PkgStore holds discovered modules, replacements, packages, and source files in flat SoA columns indexed by uint32 IDs.
+type PkgStore {
+	Root             string,
+	WorkDir          string,
+	Work             WorkFile,
+	HasWork          bool,
+	ModCount         uint32,
+	ModDirs          []string,
+	ModNames         []string,
+	ModHasGo         []bool,
+	ModTrustStart    []uint32,
+	ModTrustLen      []uint32,
+	TrustItems       []string,
+	Replaces         []LocalReplace,
+	ModRepStart      []uint32,
+	ModRepLen        []uint32,
+	ModIndex         Map[string, uint32],
+	PkgCount         uint32,
+	PkgPaths         []string,
+	PkgDirs          []string,
+	PkgModID         []uint32,
+	PkgFileStart     []uint32,
+	PkgFileLen       []uint32,
+	PkgExplicitFiles []bool,
+	PkgIndex         Map[string, uint32],
+	PkgDirIndex      Map[string, uint32],
+	FileCount        uint32,
+	FileNames        []string,
+	FileRel          []string,
+	FilePkgID        []uint32,
+}
+
+// NewPkgStore allocates an empty PkgStore rooted at root and workDir.
+func NewPkgStore(root string, workDir string) PkgStore {
+	PkgStore{
+		Root:             filepath.Clean(root),
+		WorkDir:          filepath.Clean(workDir),
+		Work:             WorkFile{Version: 2, Skips: []string{}, Gens: []GenDecl{}, Tasks: []TaskDecl{}},
+		HasWork:          false,
+		ModCount:         uint32(0),
+		ModDirs:          []string{},
+		ModNames:         []string{},
+		ModHasGo:         []bool{},
+		ModTrustStart:    []uint32{},
+		ModTrustLen:      []uint32{},
+		TrustItems:       []string{},
+		Replaces:         []LocalReplace{},
+		ModRepStart:      []uint32{},
+		ModRepLen:        []uint32{},
+		ModIndex:         Map[string, uint32]{},
+		PkgCount:         uint32(0),
+		PkgPaths:         []string{},
+		PkgDirs:          []string{},
+		PkgModID:         []uint32{},
+		PkgFileStart:     []uint32{},
+		PkgFileLen:       []uint32{},
+		PkgExplicitFiles: []bool{},
+		PkgIndex:         Map[string, uint32]{},
+		PkgDirIndex:      Map[string, uint32]{},
+		FileCount:        uint32(0),
+		FileNames:        []string{},
+		FileRel:          []string{},
+		FilePkgID:        []uint32{},
+	}
+}
+
+// AdmitFolder reports whether a directory basename should be entered during recursive discovery.
+func AdmitFolder(name string) bool {
+	if name == "" || strings.HasPrefix(name, ".") || strings.HasPrefix(name, "_") {
+		return false
+	}
+	if name == "testdata" || name == "node_modules" || name == "vendor" || name == "ergo.bind" {
+		return false
+	}
+	true
+}
+
+// AdmitSourceFile reports whether a filename is an admitted .ergo source file.
+func AdmitSourceFile(name string) bool {
+	if !strings.HasSuffix(name, ".ergo") || strings.HasPrefix(name, ".") || strings.HasPrefix(name, "_") {
+		return false
+	}
+	true
+}
+
+// HasErgoFiles reports whether dir directly contains at least one admitted .ergo file.
+func HasErgoFiles(dir string) bool needs fs.Files {
+	let entries = fs.Files.ReadDir(dir) catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		return false
+	}
+	for name in entries {
+		if !AdmitSourceFile(name) {
+			continue
+		}
+		let st = fs.Files.Stat(filepath.Join([]string{dir, name})) catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+			continue
+		}
+		if !st.Dir {
+			return true
+		}
+	}
+	false
+}
+
+// ResolveTargetDefault selects "." when workDir directly holds .ergo sources and "./..." otherwise.
+func ResolveTargetDefault(workDir string) string needs fs.Files {
+	if HasErgoFiles(workDir) {
+		return "."
+	}
+	"./..."
+}
+
+// FindWorkRoot walks ancestors from startDir to find an ergo.work directory.
+func FindWorkRoot(startDir string) option.Option[string] needs fs.Files {
+	let mut cur = filepath.Clean(startDir)
+	for true {
+		let candidate = filepath.Join([]string{cur, "ergo.work"})
+		let ok = existsRegularFile(candidate)
+		if ok {
+			return option.Some[string]{Value: cur}
+		}
+		let parent = filepath.Dir(cur)
+		if parent == cur {
+			break
+		}
+		cur = parent
+	}
+	option.None
+}
+
+// FindModuleDir walks ancestors from startDir to find the nearest enclosing ergo.mod or go.mod directory.
+func FindModuleDir(startDir string) option.Option[string] needs fs.Files {
+	let mut cur = filepath.Clean(startDir)
+	for true {
+		if existsRegularFile(filepath.Join([]string{cur, "ergo.mod"})) || existsRegularFile(filepath.Join([]string{cur, "go.mod"})) {
+			return option.Some[string]{Value: cur}
+		}
+		let parent = filepath.Dir(cur)
+		if parent == cur {
+			break
+		}
+		cur = parent
+	}
+	option.None
+}
+
+func existsRegularFile(path string) bool needs fs.Files {
+	let st = fs.Files.Stat(path) catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		return false
+	}
+	!st.Dir
+}
+
+func existsDir(path string) bool needs fs.Files {
+	let st = fs.Files.Stat(path) catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		return false
+	}
+	st.Dir
+}
+
+// PackageCount returns the number of discovered packages in s.
+func PackageCount(s PkgStore) uint32 {
+	s.PkgCount
+}
+
+// PackagePath returns the canonical import path for package id.
+func PackagePath(s PkgStore, id uint32) string {
+	s.PkgPaths[int(id)]
+}
+
+// PackageDir returns the filesystem directory for package id.
+func PackageDir(s PkgStore, id uint32) string {
+	s.PkgDirs[int(id)]
+}
+
+// PackageFiles returns the full file paths belonging to package id.
+func PackageFiles(s PkgStore, id uint32) []string {
+	let start = int(s.PkgFileStart[int(id)])
+	let count = int(s.PkgFileLen[int(id)])
+	if count == 0 {
+		return []string{}
+	}
+	s.FileNames[start : start+count]
+}
+
+// FindPackageByPath looks up a uint32 package ID by canonical import path.
+func FindPackageByPath(s PkgStore, pkgPath string) option.Option[uint32] {
+	s.PkgIndex.Get(pkgPath)
+}
+
+// Discover resolves targets relative to workDir into a flat uint32-indexed PkgStore.
+func Discover(workDir string, targets []string) PkgStore fails DiscoverError | ParseError | fs.NotFound | fs.Denied | fs.Failed needs fs.Files {
+	let cleanWD = filepath.Clean(workDir)
+	let workRoot = match FindWorkRoot(cleanWD) {
+	case option.Some[string] as wr:
+		wr.Value
+	case option.None:
+		cleanWD
+	}
+	let mut store = NewPkgStore(workRoot, cleanWD)
+	let workFilePath = filepath.Join([]string{workRoot, "ergo.work"})
+	if existsRegularFile(workFilePath) {
+		let text = try fs.Files.ReadFile(workFilePath)
+		store.Work = try ParseWorkFile(text, workFilePath)
+		store.HasWork = true
+	}
+
+	let effTargets = if targets.Len() == 0 {
+		[]string{ResolveTargetDefault(cleanWD)}
+	} else {
+		targets
+	}
+
+	let mut fileBuckets = []string{}
+	for raw in effTargets {
+		if raw == "..." || raw == "./..." || strings.HasSuffix(raw, "/...") {
+			let baseRel = if raw == "..." || raw == "./..." {
+				"."
+			} else {
+				strings.TrimSuffix(raw, "/...")
+			}
+			let startDir = filepath.Clean(filepath.AbsFrom(cleanWD, baseRel))
+			if !existsDir(startDir) {
+				return DiscoverError{Path: raw, Reason: "target directory does not exist"}
+			}
+			let modID = try ensureEnclosingModule(&store, startDir)
+			try walkRecursive(&store, startDir, modID)
+		} else {
+			let abs = filepath.Clean(filepath.AbsFrom(cleanWD, raw))
+			let st = fs.Files.Stat(abs) catch {
+			case fs.NotFound, fs.Denied, fs.Failed:
+				return DiscoverError{Path: raw, Reason: "target does not exist"}
+			}
+			if st.Dir {
+				let modID = try ensureEnclosingModule(&store, abs)
+				try addDirPackage(&store, abs, modID)
+			} else if strings.HasSuffix(abs, ".ergo") {
+				fileBuckets = fileBuckets.Append(abs)
+			} else {
+				return DiscoverError{Path: raw, Reason: "target is neither a directory nor an .ergo file"}
+			}
+		}
+	}
+	if fileBuckets.Len() > 0 {
+		try addExplicitFileGroups(&store, fileBuckets)
+	}
+	store
+}
+
+// DiscoverWorkspaceMembers walks root discovering every non-skipped module and its packages.
+func DiscoverWorkspaceMembers(root string) PkgStore fails DiscoverError | ParseError | fs.NotFound | fs.Denied | fs.Failed needs fs.Files {
+	let cleanRoot = filepath.Clean(root)
+	let mut store = NewPkgStore(cleanRoot, cleanRoot)
+	let workFilePath = filepath.Join([]string{cleanRoot, "ergo.work"})
+	if existsRegularFile(workFilePath) {
+		let text = try fs.Files.ReadFile(workFilePath)
+		store.Work = try ParseWorkFile(text, workFilePath)
+		store.HasWork = true
+	}
+	try walkWorkspaceDir(&store, cleanRoot, NoIndex())
+	store
+}
+
+func ensureEnclosingModule(store mut PkgStore, dir string) uint32 fails ParseError | fs.NotFound | fs.Denied | fs.Failed needs fs.Files {
+	match FindModuleDir(dir) {
+	case option.Some[string] as md:
+		loadModuleAt(store, md.Value)
+	case option.None:
+		NoIndex()
+	}
+}
+
+func loadModuleAt(store mut PkgStore, modDir string) uint32 fails ParseError | fs.NotFound | fs.Denied | fs.Failed needs fs.Files {
+	let cleanMod = filepath.Clean(modDir)
+	match (*store).ModIndex.Get(cleanMod) {
+	case option.Some[uint32] as found:
+		return found.Value
+	case option.None:
+	}
+	let mut name = ""
+	let mut trust = []string{}
+	let ergoModPath = filepath.Join([]string{cleanMod, "ergo.mod"})
+	if existsRegularFile(ergoModPath) {
+		let txt = try fs.Files.ReadFile(ergoModPath)
+		let parsed = try ParseModFile(txt, ergoModPath)
+		name = parsed.Name
+		trust = parsed.Trust
+	}
+	let mut hasGo = false
+	let mut reps = []LocalReplace{}
+	let goModPath = filepath.Join([]string{cleanMod, "go.mod"})
+	if existsRegularFile(goModPath) {
+		hasGo = true
+		let gtxt = try fs.Files.ReadFile(goModPath)
+		let gm = try ParseGoMod(gtxt, goModPath)
+		if name == "" {
+			name = gm.Module
+		}
+		reps = LocalReplaces(cleanMod, gm)
+	}
+	let id = (*store).ModCount
+	(*store).ModCount = id + uint32(1)
+	(*store).ModDirs = (*store).ModDirs.Append(cleanMod)
+	(*store).ModNames = (*store).ModNames.Append(name)
+	(*store).ModHasGo = (*store).ModHasGo.Append(hasGo)
+	let tStart = uint32((*store).TrustItems.Len())
+	for t in trust {
+		(*store).TrustItems = (*store).TrustItems.Append(t)
+	}
+	(*store).ModTrustStart = (*store).ModTrustStart.Append(tStart)
+	(*store).ModTrustLen = (*store).ModTrustLen.Append(uint32(trust.Len()))
+	let rStart = uint32((*store).Replaces.Len())
+	for r in reps {
+		(*store).Replaces = (*store).Replaces.Append(r)
+	}
+	(*store).ModRepStart = (*store).ModRepStart.Append(rStart)
+	(*store).ModRepLen = (*store).ModRepLen.Append(uint32(reps.Len()))
+	(*store).ModIndex = (*store).ModIndex.Put(cleanMod, id)
+	id
+}
+
+func isSkippedDir(store PkgStore, dir string) bool {
+	if !store.HasWork {
+		return false
+	}
+	let rel = filepath.Rel(store.Root, dir) catch {
+	case filepath.NotRelative:
+		return false
+	}
+	if rel == "." || strings.HasPrefix(rel, "..") {
+		return false
+	}
+	WorkSkipsPath(store.Work, rel)
+}
+
+func walkRecursive(store mut PkgStore, dir string, modID uint32) fails DiscoverError | ParseError | fs.NotFound | fs.Denied | fs.Failed needs fs.Files {
+	if isSkippedDir(*store, dir) {
+		return
+	}
+	let entries = try fs.Files.ReadDir(dir)
+	let mut subdirs = []string{}
+	let mut files = []string{}
+	for name in entries {
+		let child = filepath.Join([]string{dir, name})
+		let st = fs.Files.Stat(child) catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+			continue
+		}
+		if st.Dir {
+			if AdmitFolder(name) {
+				subdirs = subdirs.Append(child)
+			}
+		} else if AdmitSourceFile(name) {
+			files = files.Append(name)
+		}
+	}
+	if files.Len() > 0 {
+		addPackageFiles(store, dir, modID, files, false)
+	}
+	for sub in subdirs {
+		if existsRegularFile(filepath.Join([]string{sub, "ergo.mod"})) || existsRegularFile(filepath.Join([]string{sub, "go.mod"})) {
+			continue
+		}
+		try walkRecursive(store, sub, modID)
+	}
+}
+
+func walkWorkspaceDir(store mut PkgStore, dir string, currentMod uint32) fails DiscoverError | ParseError | fs.NotFound | fs.Denied | fs.Failed needs fs.Files {
+	if isSkippedDir(*store, dir) {
+		return
+	}
+	let mut modID = currentMod
+	if existsRegularFile(filepath.Join([]string{dir, "ergo.mod"})) || existsRegularFile(filepath.Join([]string{dir, "go.mod"})) {
+		modID = try loadModuleAt(store, dir)
+	}
+	let entries = try fs.Files.ReadDir(dir)
+	let mut subdirs = []string{}
+	let mut files = []string{}
+	for name in entries {
+		let child = filepath.Join([]string{dir, name})
+		let st = fs.Files.Stat(child) catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+			continue
+		}
+		if st.Dir {
+			if AdmitFolder(name) {
+				subdirs = subdirs.Append(child)
+			}
+		} else if AdmitSourceFile(name) {
+			files = files.Append(name)
+		}
+	}
+	if files.Len() > 0 && modID != NoIndex() {
+		addPackageFiles(store, dir, modID, files, false)
+	}
+	for sub in subdirs {
+		try walkWorkspaceDir(store, sub, modID)
+	}
+}
+
+func addDirPackage(store mut PkgStore, dir string, modID uint32) fails DiscoverError | fs.NotFound | fs.Denied | fs.Failed needs fs.Files {
+	let entries = try fs.Files.ReadDir(dir)
+	let mut files = []string{}
+	for name in entries {
+		if !AdmitSourceFile(name) {
+			continue
+		}
+		let st = fs.Files.Stat(filepath.Join([]string{dir, name})) catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+			continue
+		}
+		if !st.Dir {
+			files = files.Append(name)
+		}
+	}
+	if files.Len() == 0 {
+		return DiscoverError{Path: dir, Reason: "no .ergo files in directory"}
+	}
+	addPackageFiles(store, dir, modID, files, false)
+}
+
+func addExplicitFileGroups(store mut PkgStore, paths []string) fails ParseError | fs.NotFound | fs.Denied | fs.Failed needs fs.Files {
+	let sorted = slices.Sort(paths)
+	let mut curDir = ""
+	let mut batch = []string{}
+	for p in sorted {
+		let d = filepath.Dir(p)
+		if curDir != "" && d != curDir {
+			let modID = try ensureEnclosingModule(store, curDir)
+			addPackageFiles(store, curDir, modID, batch, true)
+			batch = []string{}
+		}
+		curDir = d
+		batch = batch.Append(filepath.Base(p))
+	}
+	if curDir != "" && batch.Len() > 0 {
+		let modID = try ensureEnclosingModule(store, curDir)
+		addPackageFiles(store, curDir, modID, batch, true)
+	}
+}
+
+func canonicalPkgPath(store PkgStore, dir string, modID uint32) string {
+	let cleanDir = filepath.Clean(dir)
+	if modID != NoIndex() {
+		let modDir = store.ModDirs[int(modID)]
+		let modName = store.ModNames[int(modID)]
+		if modName != "" {
+			let rel = filepath.Rel(modDir, cleanDir) catch {
+			case filepath.NotRelative:
+				return cleanDir
+			}
+			if rel == "." {
+				return modName
+			}
+			return modName + "/" + rel
+		}
+	}
+	let wdRel = filepath.Rel(store.WorkDir, cleanDir) catch {
+	case filepath.NotRelative:
+		return cleanDir
+	}
+	wdRel
+}
+
+func addPackageFiles(store mut PkgStore, dir string, modID uint32, rawFiles []string, explicit bool) {
+	let cleanDir = filepath.Clean(dir)
+	if (*store).PkgDirIndex.Get(cleanDir) != option.None {
+		return
+	}
+	let pkgPath = canonicalPkgPath(*store, cleanDir, modID)
+	let files = slices.Sort(rawFiles)
+	let id = (*store).PkgCount
+	(*store).PkgCount = id + uint32(1)
+	let fStart = (*store).FileCount
+	for rel in files {
+		(*store).FileNames = (*store).FileNames.Append(filepath.Join([]string{cleanDir, rel}))
+		(*store).FileRel = (*store).FileRel.Append(rel)
+		(*store).FilePkgID = (*store).FilePkgID.Append(id)
+		(*store).FileCount = (*store).FileCount + uint32(1)
+	}
+	(*store).PkgPaths = (*store).PkgPaths.Append(pkgPath)
+	(*store).PkgDirs = (*store).PkgDirs.Append(cleanDir)
+	(*store).PkgModID = (*store).PkgModID.Append(modID)
+	(*store).PkgFileStart = (*store).PkgFileStart.Append(fStart)
+	(*store).PkgFileLen = (*store).PkgFileLen.Append(uint32(files.Len()))
+	(*store).PkgExplicitFiles = (*store).PkgExplicitFiles.Append(explicit)
+	(*store).PkgIndex = (*store).PkgIndex.Put(pkgPath, id)
+	(*store).PkgDirIndex = (*store).PkgDirIndex.Put(cleanDir, id)
+}
+
+// AdmitFolderExcludesReserved: hidden, underscore, and reserved decoy directories are never admitted.
+law AdmitFolderExcludesReserved(name string) {
+	let ok = AdmitFolder(name)
+	if name == "testdata" || name == "node_modules" || name == "vendor" || name == "ergo.bind" {
+		return !ok
+	}
+	if strings.HasPrefix(name, ".") || strings.HasPrefix(name, "_") {
+		return !ok
+	}
+	true
+}
+
+test DiscoverRecursiveAndSkips {
+	let mem = fstest.NewMemory()
+	mem.MkdirAll("/ws/app") catch {
+	case fs.Denied, fs.Failed:
+		assert false
+	}
+	mem.MkdirAll("/ws/lib") catch {
+	case fs.Denied, fs.Failed:
+		assert false
+	}
+	mem.MkdirAll("/ws/testdata/decoy") catch {
+	case fs.Denied, fs.Failed:
+		assert false
+	}
+	mem.MkdirAll("/ws/.hidden") catch {
+	case fs.Denied, fs.Failed:
+		assert false
+	}
+	mem.MkdirAll("/ws/_draft") catch {
+	case fs.Denied, fs.Failed:
+		assert false
+	}
+	mem.MkdirAll("/ws/skipped/sub") catch {
+	case fs.Denied, fs.Failed:
+		assert false
+	}
+	mem.MkdirAll("/ws/nested/pkg") catch {
+	case fs.Denied, fs.Failed:
+		assert false
+	}
+	let writes = []string{
+		"/ws/ergo.work",
+		"/ws/ergo.mod",
+		"/ws/app/main.ergo",
+		"/ws/app/helper.ergo",
+		"/ws/lib/lib.ergo",
+		"/ws/testdata/decoy/d.ergo",
+		"/ws/.hidden/h.ergo",
+		"/ws/_draft/x.ergo",
+		"/ws/skipped/sub/s.ergo",
+		"/ws/nested/ergo.mod",
+		"/ws/nested/pkg/n.ergo",
+	}
+	let bodies = []string{
+		"version 2\nskip skipped\n",
+		"module example.com/ws\n",
+		"func Main() int { 1 }\n",
+		"func Help() int { 2 }\n",
+		"func Lib() int { 3 }\n",
+		"func D() int { 0 }\n",
+		"func H() int { 0 }\n",
+		"func X() int { 0 }\n",
+		"func S() int { 0 }\n",
+		"module nested\n",
+		"func N() int { 0 }\n",
+	}
+	for i in 0..writes.Len() {
+		mem.WriteFile(writes[i], bodies[i]) catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+			assert false
+		}
+	}
+	let store = with context { fs.Files: mem } {
+		Discover("/ws", []string{}) catch {
+		case DiscoverError, ParseError, fs.NotFound, fs.Denied, fs.Failed:
+			NewPkgStore("/ws", "/ws")
+		}
+	}
+	assert PackageCount(store) == uint32(2)
+	let appID = match FindPackageByPath(store, "example.com/ws/app") {
+	case option.Some[uint32] as s:
+		s.Value
+	case option.None:
+		NoIndex()
+	}
+	assert appID != NoIndex()
+	let appFiles = PackageFiles(store, appID)
+	assert appFiles.Len() == 2 && appFiles[0] == "/ws/app/helper.ergo" && appFiles[1] == "/ws/app/main.ergo"
+	assert FindPackageByPath(store, "example.com/ws/lib") != option.None
+	assert FindPackageByPath(store, "example.com/ws/testdata/decoy") == option.None
+	assert FindPackageByPath(store, "example.com/ws/skipped/sub") == option.None
+}
+
+test DiscoverWorkspaceMembersAndReplace {
+	let mem = fstest.NewMemory()
+	mem.MkdirAll("/repo/app/cmd") catch {
+	case fs.Denied, fs.Failed:
+		assert false
+	}
+	mem.MkdirAll("/repo/lib/core") catch {
+	case fs.Denied, fs.Failed:
+		assert false
+	}
+	mem.MkdirAll("/repo/skipped/m") catch {
+	case fs.Denied, fs.Failed:
+		assert false
+	}
+	let paths = []string{
+		"/repo/ergo.work",
+		"/repo/app/ergo.mod",
+		"/repo/app/go.mod",
+		"/repo/app/cmd/main.ergo",
+		"/repo/lib/ergo.mod",
+		"/repo/lib/core/c.ergo",
+		"/repo/skipped/m/ergo.mod",
+		"/repo/skipped/m/s.ergo",
+	}
+	let texts = []string{
+		"version 2\nskip skipped\n",
+		"module app\n",
+		"module example.com/app\ngo 1.27\nreplace example.com/lib => ../lib\n",
+		"func Run() int { 1 }\n",
+		"module example.com/lib\n",
+		"func Core() int { 2 }\n",
+		"module skipme\n",
+		"func Skip() int { 3 }\n",
+	}
+	for i in 0..paths.Len() {
+		mem.WriteFile(paths[i], texts[i]) catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+			assert false
+		}
+	}
+	let store = with context { fs.Files: mem } {
+		DiscoverWorkspaceMembers("/repo") catch {
+		case DiscoverError, ParseError, fs.NotFound, fs.Denied, fs.Failed:
+			NewPkgStore("/repo", "/repo")
+		}
+	}
+	assert store.ModCount == uint32(2)
+	assert store.Replaces.Len() == 1
+	assert store.Replaces[0].Dir == "/repo/lib"
+	assert PackageCount(store) == uint32(2)
+	assert FindPackageByPath(store, "app/cmd") != option.None
+	assert FindPackageByPath(store, "example.com/lib/core") != option.None
+}
