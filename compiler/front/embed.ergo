@@ -1,0 +1,403 @@
+import filepath
+import fs
+import fstest
+import slices
+import strings
+import utf8
+
+// EmbedMatch stores a single resolved embedded file entry.
+type EmbedMatch {
+	// Rel is the package-relative clean slash path.
+	Rel string,
+	// Path is the full filesystem path read from fs.Files.
+	Path string,
+	// Data holds the file's byte contents.
+	Data string,
+}
+
+// ValidEmbedPath validates an embed path or pattern (relative forward-slash path without ., .., \, or :).
+func ValidEmbedPath(pattern string) bool {
+	if pattern == "" || pattern == "." || strings.HasPrefix(pattern, "/") || strings.HasSuffix(pattern, "/") {
+		return false
+	}
+	if strings.Contains(pattern, "\\") || strings.Contains(pattern, ":") || strings.Contains(pattern, "\n") || strings.Contains(pattern, "\r") {
+		return false
+	}
+	for elem in strings.Split(pattern, "/") {
+		if elem == "" || elem == "." || elem == ".." {
+			return false
+		}
+	}
+	true
+}
+
+// HasDotOrUnderscoreSegment reports whether any path segment in rel begins with '.' or '_'.
+func HasDotOrUnderscoreSegment(rel string) bool {
+	for seg in strings.Split(rel, "/") {
+		if strings.HasPrefix(seg, ".") || strings.HasPrefix(seg, "_") {
+			return true
+		}
+	}
+	false
+}
+
+func isWindowsReservedBase(upper string) bool {
+	if upper == "CON" || upper == "PRN" || upper == "AUX" || upper == "NUL" {
+		return true
+	}
+	if upper.Len() == 4 {
+		let p = strings.Slice(upper, 0, 3)
+		let d = upper[3]
+		if (p == "COM" || p == "LPT") && d >= '1' && d <= '9' {
+			return true
+		}
+	}
+	false
+}
+
+// EmbedNameAllowed reports whether a file or directory base name is valid for embedding.
+func EmbedNameAllowed(name string) bool {
+	if name == "" || name == "." || name == ".." || strings.HasSuffix(name, ".") {
+		return false
+	}
+	if name == ".git" || name == ".hg" || name == ".svn" || name == ".bzr" || name == "go.mod" {
+		return false
+	}
+	let stem = match strings.IndexByte(name, '.') {
+	case -1:
+		name
+	case idx:
+		strings.Slice(name, 0, idx)
+	}
+	if isWindowsReservedBase(strings.ToUpper(stem)) {
+		return false
+	}
+	for _, r in name {
+		if r == '[' || r == ']' || r == '/' || r == '\\' || r == ':' {
+			return false
+		}
+		if int(r) < 32 || int(r) == 127 {
+			return false
+		}
+		if int(r) > 126 && !utf8.IsLetter(r) && !utf8.IsDigit(r) {
+			return false
+		}
+	}
+	true
+}
+
+func matchEmbedPattern(patSegs []string, relSegs []string) bool {
+	if patSegs.Len() != relSegs.Len() {
+		return false
+	}
+	for i in 0..patSegs.Len() {
+		let ok = filepath.Match(patSegs[i], relSegs[i]) catch {
+		case filepath.BadPattern:
+			false
+		}
+		if !ok {
+			return false
+		}
+	}
+	true
+}
+
+func pathIsSymlinkGeneric(path string) bool needs fs.Files {
+	let linfo = fs.Files.Lstat(path) catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		return false
+	}
+	let sinfo = fs.Files.Stat(path) catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		return false
+	}
+	linfo.Dir != sinfo.Dir
+}
+
+func checkAncestorsNoSymlink(pkgDir string, modRoot string) string needs fs.Files {
+	let cleanPkg = filepath.Clean(pkgDir)
+	let cleanRoot = if modRoot == "" { cleanPkg } else { filepath.Clean(modRoot) }
+	let mut cur = cleanPkg
+	for {
+		if pathIsSymlinkGeneric(cur) {
+			return "embed path traverses symbolic link at '\(cur)'"
+		}
+		if cur == cleanRoot {
+			break
+		}
+		let parent = filepath.Dir(cur)
+		if parent == cur {
+			break
+		}
+		cur = parent
+	}
+	""
+}
+
+func checkHostAncestorsNoLink(h fs.Host, pkgDir string, modRoot string) string {
+	let cleanPkg = filepath.Clean(pkgDir)
+	let cleanRoot = if modRoot == "" { cleanPkg } else { filepath.Clean(modRoot) }
+	let mut cur = cleanPkg
+	for {
+		let isLink = fs.IsLink(h, cur) catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+			false
+		}
+		if isLink {
+			return "embed path traverses symbolic link at '\(cur)'"
+		}
+		if cur == cleanRoot {
+			break
+		}
+		let parent = filepath.Dir(cur)
+		if parent == cur {
+			break
+		}
+		cur = parent
+	}
+	""
+}
+
+type embedPending {
+	dir string,
+	rel string,
+}
+
+func walkEmbedDirFiles(rootDir string, rootRel string, includeHidden bool) ([]EmbedMatch, string) fails fs.Denied | fs.Failed needs fs.Files {
+	let mut out = []EmbedMatch{}
+	let mut pending = []embedPending{embedPending{dir: rootDir, rel: rootRel}}
+	for pending.Len() > 0 {
+		let last = pending.Len() - 1
+		let cur = pending[last]
+		pending = slices.Slice(pending, 0, last)
+		let names = slices.Sort(fs.Files.ReadDir(cur.dir) catch {
+		case fs.NotFound:
+			[]string{}
+		case fs.Denied as e:
+			return e
+		case fs.Failed as e:
+			return e
+		})
+		let mut subDirs = []embedPending{}
+		for name in names {
+			if !includeHidden && (strings.HasPrefix(name, ".") || strings.HasPrefix(name, "_")) {
+				continue
+			}
+			let full = filepath.Join([]string{cur.dir, name})
+			if pathIsSymlinkGeneric(full) {
+				return (out, "embed encountered symbolic link '\(full)'")
+			}
+			let linfo = fs.Files.Lstat(full) catch {
+			case fs.NotFound:
+				continue
+			case fs.Denied as e:
+				return e
+			case fs.Failed as e:
+				return e
+			}
+			if !EmbedNameAllowed(name) {
+				continue
+			}
+			let subRel = if cur.rel == "" { name } else { cur.rel + "/" + name }
+			if linfo.Dir {
+				subDirs = subDirs.Append(embedPending{dir: full, rel: subRel})
+			} else {
+				let data = fs.Files.ReadFile(full) catch {
+				case fs.NotFound:
+					continue
+				case fs.Denied as e:
+					return e
+				case fs.Failed as e:
+					return e
+				}
+				out = out.Append(EmbedMatch{Rel: subRel, Path: full, Data: data})
+			}
+		}
+		let mut i = subDirs.Len() - 1
+		for i >= 0 {
+			pending = pending.Append(subDirs[i])
+			i = i - 1
+		}
+	}
+	(out, "")
+}
+
+// ResolveEmbed resolves an embed pattern or literal relative to pkgDir inside modRoot via fs.Files.
+func ResolveEmbed(pkgDir string, modRoot string, rawPattern string, isTree bool) ([]EmbedMatch, []FrontDiag) fails fs.Denied | fs.Failed needs fs.Files {
+	let cleanPkg = filepath.Clean(pkgDir)
+	let mut diags = []FrontDiag{}
+	let ancProb = checkAncestorsNoSymlink(cleanPkg, modRoot)
+	if ancProb != "" {
+		diags = diags.Append(FrontDiag{Code: "embed-symlink", Message: ancProb, File: rawPattern, Offset: uint32(0), Length: uint32(0), Line: uint32(1), Column: uint32(1), Hint: "", HasSpan: false})
+		return ([]EmbedMatch{}, diags)
+	}
+	let mut includeHidden = false
+	let mut pat = rawPattern
+	if strings.HasPrefix(pat, "all:") {
+		includeHidden = true
+		pat = strings.TrimPrefix(pat, "all:")
+	}
+	if !ValidEmbedPath(pat) {
+		diags = diags.Append(FrontDiag{Code: "embed-invalid-pattern", Message: "invalid embed pattern '\(rawPattern)'", File: rawPattern, Offset: uint32(0), Length: uint32(0), Line: uint32(1), Column: uint32(1), Hint: "", HasSpan: false})
+		return ([]EmbedMatch{}, diags)
+	}
+	let patSegs = strings.Split(pat, "/")
+	for ps in patSegs {
+		let _ = filepath.Match(ps, "a") catch {
+		case filepath.BadPattern:
+			diags = diags.Append(FrontDiag{Code: "embed-bad-glob", Message: "malformed embed glob '\(rawPattern)'", File: rawPattern, Offset: uint32(0), Length: uint32(0), Line: uint32(1), Column: uint32(1), Hint: "", HasSpan: false})
+			return ([]EmbedMatch{}, diags)
+		}
+	}
+	let mut matched = []EmbedMatch{}
+	let mut pending = []embedPending{embedPending{dir: cleanPkg, rel: ""}}
+	for pending.Len() > 0 {
+		let last = pending.Len() - 1
+		let cur = pending[last]
+		pending = slices.Slice(pending, 0, last)
+		let names = slices.Sort(fs.Files.ReadDir(cur.dir) catch {
+		case fs.NotFound:
+			[]string{}
+		case fs.Denied as e:
+			return e
+		case fs.Failed as e:
+			return e
+		})
+		let mut subDirs = []embedPending{}
+		for name in names {
+			if !includeHidden && (strings.HasPrefix(name, ".") || strings.HasPrefix(name, "_")) {
+				continue
+			}
+			if !EmbedNameAllowed(name) {
+				continue
+			}
+			let subRel = if cur.rel == "" { name } else { cur.rel + "/" + name }
+			let full = filepath.Join([]string{cur.dir, name})
+			if pathIsSymlinkGeneric(full) {
+				continue
+			}
+			let linfo = fs.Files.Lstat(full) catch {
+			case fs.NotFound:
+				continue
+			case fs.Denied as e:
+				return e
+			case fs.Failed as e:
+				return e
+			}
+			let relSegs = strings.Split(subRel, "/")
+			if linfo.Dir {
+				if matchEmbedPattern(patSegs, relSegs) {
+					let (subFiles, subErr) = try walkEmbedDirFiles(full, subRel, includeHidden)
+					if subErr != "" {
+						diags = diags.Append(FrontDiag{Code: "embed-symlink", Message: subErr, File: rawPattern, Offset: uint32(0), Length: uint32(0), Line: uint32(1), Column: uint32(1), Hint: "", HasSpan: false})
+						return ([]EmbedMatch{}, diags)
+					}
+					for sf in subFiles {
+						matched = matched.Append(sf)
+					}
+				} else if relSegs.Len() < patSegs.Len() {
+					let prefixSegs = slices.Slice(patSegs, 0, relSegs.Len())
+					if matchEmbedPattern(prefixSegs, relSegs) {
+						subDirs = subDirs.Append(embedPending{dir: full, rel: subRel})
+					}
+				}
+			} else if matchEmbedPattern(patSegs, relSegs) {
+				let data = fs.Files.ReadFile(full) catch {
+				case fs.NotFound:
+					continue
+				case fs.Denied as e:
+					return e
+				case fs.Failed as e:
+					return e
+				}
+				matched = matched.Append(EmbedMatch{Rel: subRel, Path: full, Data: data})
+			}
+		}
+		let mut i = subDirs.Len() - 1
+		for i >= 0 {
+			pending = pending.Append(subDirs[i])
+			i = i - 1
+		}
+	}
+	let sorted = slices.SortFunc(matched, func(a EmbedMatch, b EmbedMatch) int {
+		if a.Rel < b.Rel {
+			-1
+		} else if a.Rel > b.Rel {
+			1
+		} else {
+			0
+		}
+	})
+	if sorted.Len() == 0 {
+		diags = diags.Append(FrontDiag{Code: "embed-no-match", Message: "embed pattern '\(rawPattern)' matched no files", File: rawPattern, Offset: uint32(0), Length: uint32(0), Line: uint32(1), Column: uint32(1), Hint: "", HasSpan: false})
+		return ([]EmbedMatch{}, diags)
+	}
+	if !isTree && sorted.Len() != 1 {
+		diags = diags.Append(FrontDiag{Code: "embed-multiple-single", Message: "embed pattern '\(rawPattern)' matched \(sorted.Len()) files for single-file embed", File: rawPattern, Offset: uint32(0), Length: uint32(0), Line: uint32(1), Column: uint32(1), Hint: "", HasSpan: false})
+		return (sorted, diags)
+	}
+	(sorted, diags)
+}
+
+// ResolveEmbedHost resolves an embed pattern using fs.Host and enforces real OS symlink checks on every path segment.
+func ResolveEmbedHost(host fs.Host, pkgDir string, modRoot string, rawPattern string, isTree bool) ([]EmbedMatch, []FrontDiag) fails fs.Denied | fs.Failed {
+	let ancProb = checkHostAncestorsNoLink(host, pkgDir, modRoot)
+	if ancProb != "" {
+		return ([]EmbedMatch{}, []FrontDiag{FrontDiag{Code: "embed-symlink", Message: ancProb, File: rawPattern, Offset: uint32(0), Length: uint32(0), Line: uint32(1), Column: uint32(1), Hint: "", HasSpan: false}})
+	}
+	let (matches, diags) = with context { fs.Files: host } {
+		try ResolveEmbed(pkgDir, modRoot, rawPattern, isTree)
+	}
+	for m in matches {
+		let isLink = fs.IsLink(host, m.Path) catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+			false
+		}
+		if isLink {
+			let d = FrontDiag{Code: "embed-symlink", Message: "embed target '\(m.Rel)' is a symbolic link", File: rawPattern, Offset: uint32(0), Length: uint32(0), Line: uint32(1), Column: uint32(1), Hint: "", HasSpan: false}
+			return ([]EmbedMatch{}, []FrontDiag{d})
+		}
+	}
+	(matches, diags)
+}
+
+law ValidEmbedPathRejectsEscapes(seg string) {
+	!ValidEmbedPath("") && !ValidEmbedPath(".") && !ValidEmbedPath("..") && !ValidEmbedPath("../"+seg) && !ValidEmbedPath("/"+seg) && !ValidEmbedPath("a\\b")
+}
+
+test EmbedResolutionAndHostSymlinkCheck {
+	assert EmbedNameAllowed("hello.txt")
+	assert !EmbedNameAllowed(".git")
+	assert !EmbedNameAllowed("CON.txt")
+	assert !EmbedNameAllowed("a[0].txt")
+	assert !EmbedNameAllowed("go.mod")
+	assert !EmbedNameAllowed("bad.")
+
+	let m = fstest.NewMemory()
+	with context { fs.Writes: m, fs.Files: m } {
+		try fs.Writes.MkdirAll("/app/assets/.hidden")
+		try fs.Writes.WriteFile("/app/ergo.mod", "module app\n")
+		try fs.Writes.WriteFile("/app/assets/a.txt", "alpha")
+		try fs.Writes.WriteFile("/app/assets/b.txt", "beta")
+		try fs.Writes.WriteFile("/app/assets/.hidden/secret.txt", "hidden")
+
+		let (single, d1) = try ResolveEmbed("/app", "/app", "assets/a.txt", false)
+		assert d1.Len() == 0 && single.Len() == 1 && single[0].Data == "alpha"
+
+		let (treeDefault, d2) = try ResolveEmbed("/app", "/app", "assets", true)
+		assert d2.Len() == 0 && treeDefault.Len() == 2
+
+		let (treeAll, d3) = try ResolveEmbed("/app", "/app", "all:assets", true)
+		assert d3.Len() == 0 && treeAll.Len() == 3
+
+		let (_, dBadSingle) = try ResolveEmbed("/app", "/app", "assets/*.txt", false)
+		assert dBadSingle.Len() == 1
+	}
+
+	with onTestDisk {
+		try fs.Writes.MkdirAll("emb/sub")
+		try fs.Writes.WriteFile("emb/sub/hello.txt", "disk-world")
+		let (diskRes, diskDiags) = try ResolveEmbed("emb", ".", "sub/hello.txt", false)
+		assert diskDiags.Len() == 0 && diskRes.Len() == 1 && diskRes[0].Data == "disk-world"
+	}
+}

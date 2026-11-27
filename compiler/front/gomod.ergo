@@ -1,0 +1,777 @@
+import base64
+import filepath
+import fs
+import fstest
+import hex
+import option
+import semver
+import sha256
+import slices
+import strconv
+import strings
+
+// GoReqTable stores go.mod require entries in Structure-of-Arrays columns.
+type GoReqTable {
+	// Path holds required Go/Ergo module paths.
+	Path []string,
+	// Version holds required module semver or pseudo-version strings.
+	Version []string,
+	// Indirect marks entries annotated with // indirect.
+	Indirect []bool,
+}
+
+// NewGoReqTable returns an empty GoReqTable.
+func NewGoReqTable() GoReqTable {
+	GoReqTable{Path: []string{}, Version: []string{}, Indirect: []bool{}}
+}
+
+// AddGoReq appends a require row and returns its dense index.
+func AddGoReq(t mut GoReqTable, path string, version string, indirect bool) uint32 {
+	let id = uint32(t.Path.Len())
+	t.Path = t.Path.Append(path)
+	t.Version = t.Version.Append(version)
+	t.Indirect = t.Indirect.Append(indirect)
+	id
+}
+
+// GoRepTable stores go.mod replace entries in Structure-of-Arrays columns.
+type GoRepTable {
+	// OldPath holds the original module path being replaced.
+	OldPath []string,
+	// OldVersion holds the optional specific version replaced, or empty for wildcard.
+	OldVersion []string,
+	// NewPath holds the replacement module path or local directory path.
+	NewPath []string,
+	// NewVersion holds the replacement module version, or empty for a local directory replace.
+	NewVersion []string,
+}
+
+// NewGoRepTable returns an empty GoRepTable.
+func NewGoRepTable() GoRepTable {
+	GoRepTable{OldPath: []string{}, OldVersion: []string{}, NewPath: []string{}, NewVersion: []string{}}
+}
+
+// AddGoRep appends a replace row and returns its dense index.
+func AddGoRep(t mut GoRepTable, oldPath string, oldVersion string, newPath string, newVersion string) uint32 {
+	let id = uint32(t.OldPath.Len())
+	t.OldPath = t.OldPath.Append(oldPath)
+	t.OldVersion = t.OldVersion.Append(oldVersion)
+	t.NewPath = t.NewPath.Append(newPath)
+	t.NewVersion = t.NewVersion.Append(newVersion)
+	id
+}
+
+// GoMod holds the parsed directives and diagnostics of a go.mod file.
+type GoMod {
+	// Module holds the module path declared by the module directive.
+	Module string,
+	// GoVersion holds the optional Go toolchain version declared by go.
+	GoVersion string,
+	// Requires stores require rows in flat SoA columns.
+	Requires GoReqTable,
+	// Replaces stores replace rows in flat SoA columns.
+	Replaces GoRepTable,
+	// ExcludePaths stores excluded module paths.
+	ExcludePaths []string,
+	// ExcludeVersions stores excluded versions matching ExcludePaths.
+	ExcludeVersions []string,
+	// Diags collects parse diagnostics.
+	Diags []FrontDiag,
+}
+
+// LocalReplaceEntry pairs an original module path with its resolved local directory path.
+type LocalReplaceEntry {
+	// OldPath is the replaced module path.
+	OldPath string,
+	// Dir is the clean filesystem directory path targeted by the replace directive.
+	Dir string,
+}
+
+// ResolvedModTable stores MVS-resolved dependency modules in flat SoA columns.
+type ResolvedModTable {
+	// Paths holds canonical dependency module paths.
+	Paths []string,
+	// Versions holds MVS-selected versions or empty for direct local replaces.
+	Versions []string,
+	// Dirs holds clean resolved filesystem directories when located.
+	Dirs []string,
+	// FromReplace marks entries satisfied via a go.mod replace directive.
+	FromReplace []bool,
+	// SumVerified marks entries whose h1 directory hash matched go.sum.
+	SumVerified []bool,
+	// ByPath maps module path to dense row index.
+	ByPath Map[string, uint32],
+	// Diags holds MVS or verification diagnostics.
+	Diags []FrontDiag,
+}
+
+// NewResolvedModTable returns an empty ResolvedModTable.
+func NewResolvedModTable() ResolvedModTable {
+	ResolvedModTable{
+		Paths:       []string{},
+		Versions:    []string{},
+		Dirs:        []string{},
+		FromReplace: []bool{},
+		SumVerified: []bool{},
+		ByPath:      Map[string, uint32]{},
+		Diags:       []FrontDiag{},
+	}
+}
+
+func isGoSpace(c byte) bool {
+	c == ' ' || c == '\t' || c == '\r'
+}
+
+func unquoteGoWord(tok string) (string, bool) {
+	if tok.Len() >= 2 && (tok[0] == '"' || tok[0] == '`') {
+		let u = strconv.Unquote(tok) catch {
+		case strconv.Malformed:
+			return (tok, false)
+		}
+		return (u, true)
+	}
+	(tok, true)
+}
+
+func scanGoModWords(rawLine string) ([]string, bool, bool) {
+	let line = strings.TrimSuffix(rawLine, "\r")
+	let n = line.Len()
+	let mut words = []string{}
+	let mut indirect = false
+	let mut i = 0
+	for i < n {
+		let c = line[i]
+		if isGoSpace(c) {
+			i = i + 1
+			continue
+		}
+		if c == '/' && i+1 < n && line[i+1] == '/' {
+			let comment = strings.TrimSpace(strings.Slice(line, i+2, n))
+			if comment == "indirect" || strings.HasPrefix(comment, "indirect ") {
+				indirect = true
+			}
+			break
+		}
+		if c == '(' || c == ')' {
+			words = words.Append(strings.Slice(line, i, i+1))
+			i = i + 1
+			continue
+		}
+		if c == '=' && i+1 < n && line[i+1] == '>' {
+			words = words.Append("=>")
+			i = i + 2
+			continue
+		}
+		if c == '"' {
+			let start = i
+			i = i + 1
+			let mut closed = false
+			for i < n {
+				if line[i] == '\\' && i+1 < n {
+					i = i + 2
+					continue
+				}
+				if line[i] == '"' {
+					i = i + 1
+					closed = true
+					break
+				}
+				i = i + 1
+			}
+			if !closed {
+				return (words, indirect, false)
+			}
+			let raw = strings.Slice(line, start, i)
+			let (val, ok) = unquoteGoWord(raw)
+			if !ok {
+				return (words, indirect, false)
+			}
+			words = words.Append(val)
+			continue
+		}
+		if c == '`' {
+			let start = i
+			i = i + 1
+			let mut closed = false
+			for i < n {
+				if line[i] == '`' {
+					i = i + 1
+					closed = true
+					break
+				}
+				i = i + 1
+			}
+			if !closed {
+				return (words, indirect, false)
+			}
+			let raw = strings.Slice(line, start, i)
+			let (val, ok) = unquoteGoWord(raw)
+			if !ok {
+				return (words, indirect, false)
+			}
+			words = words.Append(val)
+			continue
+		}
+		let start = i
+		for i < n && !isGoSpace(line[i]) && line[i] != '(' && line[i] != ')' {
+			if line[i] == '/' && i+1 < n && line[i+1] == '/' {
+				break
+			}
+			if line[i] == '=' && i+1 < n && line[i+1] == '>' && i > start {
+				break
+			}
+			i = i + 1
+		}
+		words = words.Append(strings.Slice(line, start, i))
+	}
+	(words, indirect, true)
+}
+
+func makeGoModDiag(file string, msg string, off uint32, lineLen uint32, lineNum uint32) FrontDiag {
+	FrontDiag{
+		Code:    "gomod-syntax",
+		Message: msg,
+		File:    file,
+		Offset:  off,
+		Length:  lineLen,
+		Line:    lineNum,
+		Column:  uint32(1),
+		Hint:    "",
+		HasSpan: true,
+	}
+}
+
+func appendReplaceWords(reps mut GoRepTable, args []string) bool {
+	let mut arrow = -1
+	for i, w in args {
+		if w == "=>" {
+			arrow = i
+			break
+		}
+	}
+	if arrow <= 0 || arrow >= args.Len()-1 {
+		return false
+	}
+	let lhs = slices.Slice(args, 0, arrow)
+	let rhs = slices.Slice(args, arrow+1, args.Len())
+	if (lhs.Len() != 1 && lhs.Len() != 2) || (rhs.Len() != 1 && rhs.Len() != 2) {
+		return false
+	}
+	let oldPath = lhs[0]
+	let oldVer = if lhs.Len() == 2 { lhs[1] } else { "" }
+	let newPath = rhs[0]
+	let newVer = if rhs.Len() == 2 { rhs[1] } else { "" }
+	let _ = AddGoRep(reps, oldPath, oldVer, newPath, newVer)
+	true
+}
+
+// ParseGoMod parses go.mod text into structured directives and SoA dependency tables.
+func ParseGoMod(src string, file string) GoMod {
+	let mut out = GoMod{
+		Module:          "",
+		GoVersion:       "",
+		Requires:        NewGoReqTable(),
+		Replaces:        NewGoRepTable(),
+		ExcludePaths:    []string{},
+		ExcludeVersions: []string{},
+		Diags:           []FrontDiag{},
+	}
+	let mut blockKind = ""
+	let mut pos = 0
+	let mut lineNum = uint32(1)
+	let lines = strings.Split(src, "\n")
+	for li, rawLine in lines {
+		let lineLen = uint32(rawLine.Len())
+		let lineOff = uint32(pos)
+		pos = pos + rawLine.Len()
+		if li+1 < lines.Len() {
+			pos = pos + 1
+		}
+		let (words, indirect, scanOK) = scanGoModWords(rawLine)
+		if !scanOK {
+			out.Diags = out.Diags.Append(makeGoModDiag(file, "unterminated string literal in go.mod", lineOff, lineLen, lineNum))
+			lineNum = lineNum + uint32(1)
+			continue
+		}
+		if words.Len() == 0 {
+			lineNum = lineNum + uint32(1)
+			continue
+		}
+		if blockKind != "" {
+			if words.Len() == 1 && words[0] == ")" {
+				blockKind = ""
+				lineNum = lineNum + uint32(1)
+				continue
+			}
+			let mut endParen = false
+			let mut args = words
+			if args[args.Len()-1] == ")" {
+				endParen = true
+				args = slices.Slice(args, 0, args.Len()-1)
+			}
+			if args.Len() > 0 {
+				if blockKind == "require" {
+					if args.Len() >= 2 {
+						let _ = AddGoReq(&out.Requires, args[0], args[1], indirect)
+					} else {
+						out.Diags = out.Diags.Append(makeGoModDiag(file, "require entry requires module and version", lineOff, lineLen, lineNum))
+					}
+				} else if blockKind == "replace" {
+					if !appendReplaceWords(&out.Replaces, args) {
+						out.Diags = out.Diags.Append(makeGoModDiag(file, "invalid replace entry in go.mod", lineOff, lineLen, lineNum))
+					}
+				} else if blockKind == "exclude" {
+					if args.Len() >= 2 {
+						out.ExcludePaths = out.ExcludePaths.Append(args[0])
+						out.ExcludeVersions = out.ExcludeVersions.Append(args[1])
+					}
+				}
+			}
+			if endParen {
+				blockKind = ""
+			}
+			lineNum = lineNum + uint32(1)
+			continue
+		}
+		let kw = words[0]
+		if kw == "module" {
+			if words.Len() >= 2 {
+				out.Module = words[1]
+			} else {
+				out.Diags = out.Diags.Append(makeGoModDiag(file, "module directive missing path", lineOff, lineLen, lineNum))
+			}
+		} else if kw == "go" || kw == "toolchain" {
+			if kw == "go" && words.Len() >= 2 {
+				out.GoVersion = words[1]
+			}
+		} else if kw == "require" || kw == "replace" || kw == "exclude" || kw == "retract" {
+			if words.Len() >= 2 && words[1] == "(" {
+				if words.Len() == 2 {
+					blockKind = kw
+				} else if words[words.Len()-1] == ")" {
+					let inner = slices.Slice(words, 2, words.Len()-1)
+					if inner.Len() > 0 {
+						if kw == "require" && inner.Len() >= 2 {
+							let _ = AddGoReq(&out.Requires, inner[0], inner[1], indirect)
+						} else if kw == "replace" {
+							let _ = appendReplaceWords(&out.Replaces, inner)
+						} else if kw == "exclude" && inner.Len() >= 2 {
+							out.ExcludePaths = out.ExcludePaths.Append(inner[0])
+							out.ExcludeVersions = out.ExcludeVersions.Append(inner[1])
+						}
+					}
+				} else {
+					blockKind = kw
+				}
+			} else {
+				let rest = slices.Slice(words, 1, words.Len())
+				if kw == "require" {
+					if rest.Len() >= 2 {
+						let _ = AddGoReq(&out.Requires, rest[0], rest[1], indirect)
+					} else {
+						out.Diags = out.Diags.Append(makeGoModDiag(file, "require expects module and version", lineOff, lineLen, lineNum))
+					}
+				} else if kw == "replace" {
+					if !appendReplaceWords(&out.Replaces, rest) {
+						out.Diags = out.Diags.Append(makeGoModDiag(file, "invalid replace directive", lineOff, lineLen, lineNum))
+					}
+				} else if kw == "exclude" && rest.Len() >= 2 {
+					out.ExcludePaths = out.ExcludePaths.Append(rest[0])
+					out.ExcludeVersions = out.ExcludeVersions.Append(rest[1])
+				}
+			}
+		}
+		lineNum = lineNum + uint32(1)
+	}
+	out
+}
+
+// FindGoReplace returns (newPath, newVersion, true) when gm replaces modPath@version, preferring exact version matches.
+func FindGoReplace(gm GoMod, modPath string, version string) (string, string, bool) {
+	let mut wildIdx = NoID
+	for i in 0..gm.Replaces.OldPath.Len() {
+		if gm.Replaces.OldPath[i] != modPath {
+			continue
+		}
+		let oldVer = gm.Replaces.OldVersion[i]
+		if oldVer == version && version != "" {
+			return (gm.Replaces.NewPath[i], gm.Replaces.NewVersion[i], true)
+		}
+		if oldVer == "" && wildIdx == NoID {
+			wildIdx = uint32(i)
+		}
+	}
+	if wildIdx != NoID {
+		let k = int(wildIdx)
+		return (gm.Replaces.NewPath[k], gm.Replaces.NewVersion[k], true)
+	}
+	("", "", false)
+}
+
+// LocalReplaces returns all directory replace entries in gm resolved against modDir.
+func LocalReplaces(gm GoMod, modDir string) []LocalReplaceEntry {
+	let mut byOld = Map[string, uint32]{}
+	let mut entries = []LocalReplaceEntry{}
+	for i in 0..gm.Replaces.OldPath.Len() {
+		if gm.Replaces.NewVersion[i] != "" {
+			continue
+		}
+		let target = gm.Replaces.NewPath[i]
+		if target == "" {
+			continue
+		}
+		let resolved = if filepath.IsAbs(target) { filepath.Clean(target) } else { filepath.Join([]string{modDir, target}) }
+		let old = gm.Replaces.OldPath[i]
+		match byOld.Get(old) {
+		case option.Some[uint32] as idx:
+			if gm.Replaces.OldVersion[i] != "" {
+				entries[int(idx.Value)] = LocalReplaceEntry{OldPath: old, Dir: resolved}
+			}
+		case option.None:
+			byOld[old] = uint32(entries.Len())
+			entries = entries.Append(LocalReplaceEntry{OldPath: old, Dir: resolved})
+		}
+	}
+	entries
+}
+
+// EscapeModulePath encodes uppercase ASCII letters with a leading '!' per Go module cache convention.
+func EscapeModulePath(path string) string {
+	let mut b = strings.NewBuilder()
+	for i in 0..path.Len() {
+		let c = path[i]
+		if c >= 'A' && c <= 'Z' {
+			b.WriteByte('!')
+			b.WriteByte(c + byte(32))
+		} else {
+			b.WriteByte(c)
+		}
+	}
+	b.String()
+}
+
+// GoSumTable stores parsed go.sum verification hashes in flat SoA columns.
+type GoSumTable {
+	// Paths holds module paths listed in go.sum.
+	Paths []string,
+	// Versions holds canonical module versions without /go.mod suffix.
+	Versions []string,
+	// Hashes holds h1: base64 digest strings.
+	Hashes []string,
+	// IsModHash marks /go.mod sum rows versus directory tree zip rows.
+	IsModHash []bool,
+	// ByKey maps path\x00version\x00kind to dense index.
+	ByKey Map[string, uint32],
+}
+
+// NewGoSumTable returns an empty GoSumTable.
+func NewGoSumTable() GoSumTable {
+	GoSumTable{
+		Paths:     []string{},
+		Versions:  []string{},
+		Hashes:    []string{},
+		IsModHash: []bool{},
+		ByKey:     Map[string, uint32]{},
+	}
+}
+
+func goSumLookupKey(path string, version string, isMod bool) string {
+	let kind = if isMod { "mod" } else { "zip" }
+	path + "\x00" + version + "\x00" + kind
+}
+
+// ParseGoSum parses go.sum text into a GoSumTable.
+func ParseGoSum(src string) GoSumTable {
+	let mut out = NewGoSumTable()
+	for line in strings.Split(src, "\n") {
+		let fields = strings.Fields(strings.TrimSuffix(line, "\r"))
+		if fields.Len() != 3 {
+			continue
+		}
+		let path = fields[0]
+		let mut ver = fields[1]
+		let mut isMod = false
+		if strings.HasSuffix(ver, "/go.mod") {
+			ver = strings.TrimSuffix(ver, "/go.mod")
+			isMod = true
+		}
+		let hash = fields[2]
+		let k = goSumLookupKey(path, ver, isMod)
+		if out.ByKey.Get(k) == option.None {
+			let id = uint32(out.Paths.Len())
+			out.Paths = out.Paths.Append(path)
+			out.Versions = out.Versions.Append(ver)
+			out.Hashes = out.Hashes.Append(hash)
+			out.IsModHash = out.IsModHash.Append(isMod)
+			out.ByKey[k] = id
+		}
+	}
+	out
+}
+
+// LookupGoSum finds the expected hash in s for path@version (either zip or go.mod).
+func LookupGoSum(s GoSumTable, path string, version string, isMod bool) string {
+	match s.ByKey.Get(goSumLookupKey(path, version, isMod)) {
+	case option.Some[uint32] as id:
+		s.Hashes[int(id.Value)]
+	case option.None:
+		""
+	}
+}
+
+// Hash1 computes the Go dirhash v1 digest ("h1:<base64>") over entries sorted by Rel.
+func Hash1(entries []ProgramTextEntry) string {
+	let sorted = slices.SortFunc(entries, func(a ProgramTextEntry, b ProgramTextEntry) int {
+		if a.Rel < b.Rel {
+			-1
+		} else if a.Rel > b.Rel {
+			1
+		} else {
+			0
+		}
+	})
+	let mut listing = strings.NewBuilder()
+	for entry in sorted {
+		let h = hex.Encode(sha256.Sum(entry.Source))
+		listing.WriteString(h)
+		listing.WriteString("  ")
+		listing.WriteString(entry.Rel)
+		listing.WriteByte('\n')
+	}
+	"h1:" + base64.Encode(base64.StdEncoding, sha256.Sum(listing.String()))
+}
+
+// HashDirTree hashes every regular file under dir with forward-slash relative paths using Hash1.
+func HashDirTree(dir string) string fails fs.NotFound | fs.Denied | fs.Failed needs fs.Files {
+	let walked = try fs.Walk(dir)
+	let mut entries = []ProgramTextEntry{}
+	for p in walked {
+		let info = try fs.Files.Lstat(p)
+		if info.Dir {
+			continue
+		}
+		let rel = filepath.Rel(dir, p) catch {
+		case filepath.NotRelative:
+			p
+		}
+		let content = try fs.Files.ReadFile(p)
+		entries = entries.Append(ProgramTextEntry{Rel: rel, Source: content})
+	}
+	Hash1(entries)
+}
+
+func compareModVersions(a string, b string) int {
+	if a == b {
+		return 0
+	}
+	if a == "" {
+		return -1
+	}
+	if b == "" {
+		return 1
+	}
+	let sa = semver.Parse(a) catch {
+	case semver.Malformed:
+		return if a < b { -1 } else { 1 }
+	}
+	let sb = semver.Parse(b) catch {
+	case semver.Malformed:
+		return if a < b { -1 } else { 1 }
+	}
+	semver.Compare(sa, sb)
+}
+
+// ResolveModuleGraph computes MVS versions and cache/replace directories from root modDir/go.mod/go.sum.
+func ResolveModuleGraph(modDir string, gm GoMod, gsum GoSumTable, modCacheDir string) ResolvedModTable needs fs.Files {
+	let mut out = NewResolvedModTable()
+	let mut queue = []string{}
+	for i in 0..gm.Requires.Path.Len() {
+		let mp = gm.Requires.Path[i]
+		let mv = gm.Requires.Version[i]
+		match out.ByPath.Get(mp) {
+		case option.Some[uint32] as id:
+			let k = int(id.Value)
+			if compareModVersions(mv, out.Versions[k]) > 0 {
+				out.Versions[k] = mv
+				queue = queue.Append(mp)
+			}
+		case option.None:
+			let id = uint32(out.Paths.Len())
+			out.Paths = out.Paths.Append(mp)
+			out.Versions = out.Versions.Append(mv)
+			out.Dirs = out.Dirs.Append("")
+			out.FromReplace = out.FromReplace.Append(false)
+			out.SumVerified = out.SumVerified.Append(false)
+			out.ByPath[mp] = id
+			queue = queue.Append(mp)
+		}
+	}
+	let mut qHead = 0
+	for qHead < queue.Len() {
+		let mp = queue[qHead]
+		qHead = qHead + 1
+		let id = match out.ByPath.Get(mp) {
+		case option.Some[uint32] as v:
+			int(v.Value)
+		case option.None:
+			continue
+		}
+		let selectedVer = out.Versions[id]
+		let (repPath, repVer, hasRep) = FindGoReplace(gm, mp, selectedVer)
+		let mut modPath = mp
+		let mut modVer = selectedVer
+		let mut resolvedDir = ""
+		if hasRep {
+			out.FromReplace[id] = true
+			if repVer == "" {
+				resolvedDir = if filepath.IsAbs(repPath) { filepath.Clean(repPath) } else { filepath.Join([]string{modDir, repPath}) }
+			} else {
+				modPath = repPath
+				modVer = repVer
+				if modCacheDir != "" {
+					resolvedDir = filepath.Join([]string{modCacheDir, EscapeModulePath(modPath) + "@" + modVer})
+				}
+			}
+		} else if modCacheDir != "" && modVer != "" {
+			resolvedDir = filepath.Join([]string{modCacheDir, EscapeModulePath(modPath) + "@" + modVer})
+		}
+		out.Dirs[id] = resolvedDir
+		if resolvedDir != "" {
+			let expectedZip = LookupGoSum(gsum, modPath, modVer, false)
+			if expectedZip != "" && !hasRep {
+				let gotHash = HashDirTree(resolvedDir) catch {
+				case fs.NotFound, fs.Denied, fs.Failed:
+					""
+				}
+				if gotHash == expectedZip {
+					out.SumVerified[id] = true
+				} else if gotHash != "" {
+					out.Diags = out.Diags.Append(FrontDiag{
+						Code:    "gosum-mismatch",
+						Message: "checksum mismatch for \(modPath)@\(modVer)",
+						File:    "go.sum",
+						Offset:  uint32(0),
+						Length:  uint32(0),
+						Line:    uint32(1),
+						Column:  uint32(1),
+						Hint:    "",
+						HasSpan: false,
+					})
+				}
+			}
+			let subGoModPath = filepath.Join([]string{resolvedDir, "go.mod"})
+			let subText = fs.Files.ReadFile(subGoModPath) catch {
+			case fs.NotFound, fs.Denied, fs.Failed:
+				""
+			}
+			if subText != "" {
+				let subMod = ParseGoMod(subText, subGoModPath)
+				for ri in 0..subMod.Requires.Path.Len() {
+					let depPath = subMod.Requires.Path[ri]
+					let depVer = subMod.Requires.Version[ri]
+					match out.ByPath.Get(depPath) {
+					case option.Some[uint32] as did:
+						let dk = int(did.Value)
+						if compareModVersions(depVer, out.Versions[dk]) > 0 {
+							out.Versions[dk] = depVer
+							queue = queue.Append(depPath)
+						}
+					case option.None:
+						let did = uint32(out.Paths.Len())
+						out.Paths = out.Paths.Append(depPath)
+						out.Versions = out.Versions.Append(depVer)
+						out.Dirs = out.Dirs.Append("")
+						out.FromReplace = out.FromReplace.Append(false)
+						out.SumVerified = out.SumVerified.Append(false)
+						out.ByPath[depPath] = did
+						queue = queue.Append(depPath)
+					}
+				}
+			}
+		}
+	}
+	out
+}
+
+// BindingPlatform returns the Ergo Go-binding platform suffix for GOOS and GOARCH.
+func BindingPlatform(goos string, goarch string) string {
+	goos + "_" + goarch
+}
+
+// BindingDir returns the package directory path storing Go bindings under pkgDir.
+func BindingDir(pkgDir string) string {
+	filepath.Join([]string{pkgDir, "ergo.bind"})
+}
+
+// BindingFile returns the expected generated Go binding filename prefix for a platform.
+func BindingFile(goos string, goarch string) string {
+	"bind_" + BindingPlatform(goos, goarch) + ".go"
+}
+
+// ModuleKey returns a canonical digest over module path, ergo.mod text, and go.mod text.
+func ModuleKey(modName string, ergoModText string, goModText string) string {
+	let mut b = strings.NewBuilder()
+	b.WriteString(strconv.Itoa(modName.Len()))
+	b.WriteByte(':')
+	b.WriteString(modName)
+	b.WriteString(strconv.Itoa(ergoModText.Len()))
+	b.WriteByte(':')
+	b.WriteString(ergoModText)
+	b.WriteString(strconv.Itoa(goModText.Len()))
+	b.WriteByte(':')
+	b.WriteString(goModText)
+	hex.Encode(sha256.Sum(b.String()))
+}
+
+law EscapeModulePathUppercaseInvariant(path string) {
+	let escaped = EscapeModulePath(path)
+	let mut hasUpper = false
+	for i in 0..escaped.Len() {
+		if escaped[i] >= 'A' && escaped[i] <= 'Z' {
+			hasUpper = true
+		}
+	}
+	!hasUpper
+}
+
+law Hash1IsOrderInvariant(aRel string, aSrc string, bRel string, bSrc string) {
+	let e1 = ProgramTextEntry{Rel: "a/" + aRel, Source: aSrc}
+	let e2 = ProgramTextEntry{Rel: "b/" + bRel, Source: bSrc}
+	Hash1([]ProgramTextEntry{e1, e2}) == Hash1([]ProgramTextEntry{e2, e1})
+}
+
+test GoModParseMVSReplaceAndGoSum {
+	let rootGoMod = "module example.com/app\ngo 1.27\nrequire (\n\texample.com/depA v1.0.0\n\texample.com/depB v1.1.0 // indirect\n)\nreplace example.com/depA => ./local/depA\n"
+	let gm = ParseGoMod(rootGoMod, "go.mod")
+	assert gm.Diags.Len() == 0
+	assert gm.Module == "example.com/app"
+	assert gm.Requires.Path == []string{"example.com/depA", "example.com/depB"}
+	assert gm.Requires.Indirect == []bool{false, true}
+	let reps = LocalReplaces(gm, "/ws/app")
+	assert reps.Len() == 1 && reps[0].OldPath == "example.com/depA" && reps[0].Dir == "/ws/app/local/depA"
+
+	let repTie = ParseGoMod("module example.com/app\nreplace example.com/x => ./wild\nreplace example.com/x v1.0.0 => ./exact\n", "go.mod")
+	let (exPath, _, exOK) = FindGoReplace(repTie, "example.com/x", "v1.0.0")
+	assert exOK && exPath == "./exact"
+
+	let m = fstest.NewMemory()
+	with context { fs.Writes: m, fs.Files: m } {
+		try fs.Writes.MkdirAll("/ws/app/local/depA")
+		try fs.Writes.MkdirAll("/cache/example.com/dep!b@v1.2.0")
+		try fs.Writes.WriteFile("/ws/app/local/depA/go.mod", "module example.com/depA\nrequire example.com/depB v1.2.0\n")
+		try fs.Writes.WriteFile("/cache/example.com/dep!b@v1.2.0/lib.ergo", "func B() {}\n")
+
+		let sumHash = try HashDirTree("/cache/example.com/dep!b@v1.2.0")
+		let sumSrc = "example.com/depB v1.2.0 " + sumHash + "\n"
+		let gsum = ParseGoSum(sumSrc)
+		let resolved = ResolveModuleGraph("/ws/app", gm, gsum, "/cache")
+		assert resolved.Diags.Len() == 0
+		match resolved.ByPath.Get("example.com/depB") {
+		case option.Some[uint32] as id:
+			assert resolved.Versions[int(id.Value)] == "v1.2.0"
+			assert resolved.SumVerified[int(id.Value)]
+		case option.None:
+			assert false
+		}
+	}
+}

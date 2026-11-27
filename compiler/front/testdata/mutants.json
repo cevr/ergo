@@ -1,0 +1,185 @@
+{
+  "about": "compiler/front: Data-Oriented SoA frontend package/workspace loading, module manifest & go.mod MVS resolution, std index, asset/embed/gittree admission, and warm/check cache coordination (SELFHOST-FRONTEND-LOADER).",
+  "mutants": [
+    {
+      "name": "selfhost-front-tables-programtext-unsorted",
+      "origin": "SELFHOST-FRONTEND-LOADER",
+      "file": "compiler/front/tables.ergo",
+      "decl": "FormatProgramText",
+      "from": "\tlet sorted = slices.SortFunc(entries, func(a ProgramTextEntry, b ProgramTextEntry) int {\n\t\tif a.Rel < b.Rel {\n\t\t\t-1\n\t\t} else if a.Rel > b.Rel {\n\t\t\t1\n\t\t} else {\n\t\t\t0\n\t\t}\n\t})\n\tlet mut b = strings.NewBuilder()\n\tfor f in sorted {\n",
+      "to": "\tlet sorted = entries\n\tlet mut b = strings.NewBuilder()\n\tfor f in sorted {\n",
+      "rule": "FormatProgramText encodes entries sorted by Rel so program text is order invariant.",
+      "killers": ["compiler/front:law:FormatProgramTextIsOrderInvariant", "compiler/front:TablesAndProgramTextBasic"]
+    },
+    {
+      "name": "selfhost-front-stdindex-admits-prelude",
+      "origin": "SELFHOST-FRONTEND-LOADER",
+      "file": "compiler/front/stdindex.ergo",
+      "decl": "DiscoverStdIndex",
+      "from": "\t\tif cur.rel != \"\" && cur.rel != \".\" && cur.rel != \"prelude\" && pkgFiles.Len() > 0 {\n",
+      "to": "\t\tif cur.rel != \"\" && cur.rel != \".\" && pkgFiles.Len() > 0 {\n",
+      "rule": "DiscoverStdIndex must not index the implicit prelude directory as an importable std package.",
+      "killers": ["compiler/front:DiscoverStdIndexOnMemoryAndTestHost"]
+    },
+    {
+      "name": "selfhost-front-modfile-missing-module-unreported",
+      "origin": "SELFHOST-FRONTEND-LOADER",
+      "file": "compiler/front/modfile.ergo",
+      "decl": "ParseErgoMod",
+      "from": "\tif !sawModule {\n\t\tout.Diags = out.Diags.Append(makeLineDiag(file, \"modfile-missing-module\", \"ergo.mod missing module directive\", uint32(0), uint32(0), uint32(1)))\n\t}\n",
+      "to": "\tif false && !sawModule {\n\t\tout.Diags = out.Diags.Append(makeLineDiag(file, \"modfile-missing-module\", \"ergo.mod missing module directive\", uint32(0), uint32(0), uint32(1)))\n\t}\n",
+      "rule": "ParseErgoMod must emit a diagnostic when no module directive is present.",
+      "killers": ["compiler/front:ParseErgoModAcceptsValidAndRejectsInvalid"]
+    },
+    {
+      "name": "selfhost-front-modfile-allows-std-prefix",
+      "origin": "SELFHOST-FRONTEND-LOADER",
+      "file": "compiler/front/modfile.ergo",
+      "decl": "ModulePathProblem",
+      "from": "\tif elems[0] == \"std\" || elems[0] == \"prelude\" {\n\t\treturn \"module path cannot start with reserved name '\\(elems[0])'\"\n\t}\n",
+      "to": "\tif false && elems[0] == \"std\" {\n\t\treturn \"module path cannot start with reserved name '\\(elems[0])'\"\n\t}\n",
+      "rule": "Ergo module paths cannot start with reserved top-level names std or prelude.",
+      "killers": ["compiler/front:ParseErgoModAcceptsValidAndRejectsInvalid"]
+    },
+    {
+      "name": "selfhost-front-modfile-allows-reserved-map",
+      "origin": "SELFHOST-FRONTEND-LOADER",
+      "file": "compiler/front/modfile.ergo",
+      "decl": "MapPatternProblem",
+      "from": "\tif base == \"ergo.mod\" || base == \"ergo.laws\" || base == \"go.mod\" || strings.HasSuffix(base, \".ergo\") || strings.HasSuffix(pattern, \"*.ergo\") {\n\t\treturn \"map pattern cannot match reserved Ergo files\"\n\t}\n",
+      "to": "\tif false && base == \"ergo.mod\" {\n\t\treturn \"map pattern cannot match reserved Ergo files\"\n\t}\n",
+      "rule": "Map directives must reject patterns that match reserved files such as *.ergo or ergo.mod.",
+      "killers": ["compiler/front:ParseErgoModAcceptsValidAndRejectsInvalid"]
+    },
+    {
+      "name": "selfhost-front-gomod-wildcard-beats-exact",
+      "origin": "SELFHOST-FRONTEND-LOADER",
+      "file": "compiler/front/gomod.ergo",
+      "decl": "FindGoReplace",
+      "from": "\t\tif oldVer == version && version != \"\" {\n\t\t\treturn (gm.Replaces.NewPath[i], gm.Replaces.NewVersion[i], true)\n\t\t}\n\t\tif oldVer == \"\" && wildIdx == NoID {\n\t\t\twildIdx = uint32(i)\n\t\t}\n",
+      "to": "\t\tif oldVer == \"\" {\n\t\t\treturn (gm.Replaces.NewPath[i], gm.Replaces.NewVersion[i], true)\n\t\t}\n\t\tif oldVer == version && wildIdx == NoID {\n\t\t\twildIdx = uint32(i)\n\t\t}\n",
+      "rule": "Exact-version go.mod replace directives must take priority over wildcard replaces.",
+      "killers": ["compiler/front:GoModParseMVSReplaceAndGoSum"]
+    },
+    {
+      "name": "selfhost-front-gomod-hash1-unsorted",
+      "origin": "SELFHOST-FRONTEND-LOADER",
+      "file": "compiler/front/gomod.ergo",
+      "decl": "Hash1",
+      "from": "\tlet sorted = slices.SortFunc(entries, func(a ProgramTextEntry, b ProgramTextEntry) int {\n\t\tif a.Rel < b.Rel {\n\t\t\t-1\n\t\t} else if a.Rel > b.Rel {\n\t\t\t1\n\t\t} else {\n\t\t\t0\n\t\t}\n\t})\n\tlet mut listing = strings.NewBuilder()\n\tfor entry in sorted {\n",
+      "to": "\tlet sorted = entries\n\tlet mut listing = strings.NewBuilder()\n\tfor entry in sorted {\n",
+      "rule": "Hash1 must sort directory entries by Rel before computing the dirhash listing.",
+      "killers": ["compiler/front:law:Hash1IsOrderInvariant"]
+    },
+    {
+      "name": "selfhost-front-gomod-mvs-skips-upgrade",
+      "origin": "SELFHOST-FRONTEND-LOADER",
+      "file": "compiler/front/gomod.ergo",
+      "decl": "ResolveModuleGraph",
+      "from": "\t\t\t\t\t\tif compareModVersions(depVer, out.Versions[dk]) > 0 {\n\t\t\t\t\t\t\tout.Versions[dk] = depVer\n\t\t\t\t\t\t\tqueue = queue.Append(depPath)\n\t\t\t\t\t\t}\n",
+      "to": "\t\t\t\t\t\tif false && compareModVersions(depVer, out.Versions[dk]) > 0 {\n\t\t\t\t\t\t\tout.Versions[dk] = depVer\n\t\t\t\t\t\t\tqueue = queue.Append(depPath)\n\t\t\t\t\t\t}\n",
+      "rule": "MVS must upgrade module versions whenever a transitive requirement specifies a higher semver.",
+      "killers": ["compiler/front:GoModParseMVSReplaceAndGoSum"]
+    },
+    {
+      "name": "selfhost-front-workspace-admit-testdata",
+      "origin": "SELFHOST-FRONTEND-LOADER",
+      "file": "compiler/front/workspace.ergo",
+      "decl": "AdmitFolder",
+      "from": "\tname != \"testdata\" && name != \"node_modules\" && name != \"vendor\" && name != \"ergo.bind\"\n",
+      "to": "\tname != \"node_modules\" && name != \"vendor\" && name != \"ergo.bind\"\n",
+      "rule": "AdmitFolder must exclude testdata directories from workspace and package discovery.",
+      "killers": ["compiler/front:WorkspaceDiscoveryEdgesSkipAndTasks"]
+    },
+    {
+      "name": "selfhost-front-workspace-skip-overbroad",
+      "origin": "SELFHOST-FRONTEND-LOADER",
+      "file": "compiler/front/workspace.ergo",
+      "decl": "shouldSkipWorkspaceRel",
+      "from": "\t\tif rel == pat || strings.HasPrefix(rel, pat+\"/\") {\n",
+      "to": "\t\tif rel == pat || strings.HasPrefix(rel, pat) {\n",
+      "rule": "Workspace skip prefixes must match on slash boundaries rather than bare string prefixes.",
+      "killers": ["compiler/front:WorkspaceDiscoveryEdgesSkipAndTasks"]
+    },
+    {
+      "name": "selfhost-front-workspace-cycle-unrejected",
+      "origin": "SELFHOST-FRONTEND-LOADER",
+      "file": "compiler/front/workspace.ergo",
+      "decl": "ParseWorkFile",
+      "from": "\tif detectTaskCycle(out.Tasks) {\n\t\tout.Diags = out.Diags.Append(makeWorkDiag(file, \"workfile-task-cycle\", \"task dependency cycle in ergo.work\", uint32(0), uint32(0), uint32(1)))\n\t}\n",
+      "to": "\tif false && detectTaskCycle(out.Tasks) {\n\t\tout.Diags = out.Diags.Append(makeWorkDiag(file, \"workfile-task-cycle\", \"task dependency cycle in ergo.work\", uint32(0), uint32(0), uint32(1)))\n\t}\n",
+      "rule": "ParseWorkFile must diagnose task dependency cycles in ergo.work.",
+      "killers": ["compiler/front:WorkspaceDiscoveryEdgesSkipAndTasks"]
+    },
+    {
+      "name": "selfhost-front-assets-stem-wrong-prefix",
+      "origin": "SELFHOST-FRONTEND-LOADER",
+      "file": "compiler/front/assets.ergo",
+      "decl": "AssetStem",
+      "from": "\t\tif strings.HasPrefix(target, prefix) && strings.HasSuffix(target, suffix) && target.Len() >= prefix.Len()+suffix.Len() {\n\t\t\treturn (strings.Slice(target, prefix.Len(), target.Len()-suffix.Len()), true)\n\t\t}\n",
+      "to": "\t\tif strings.HasPrefix(target, prefix) && strings.HasSuffix(target, suffix) && target.Len() >= prefix.Len()+suffix.Len() {\n\t\t\treturn (target, true)\n\t\t}\n",
+      "rule": "AssetStem must extract only the wildcard stem between prefix and suffix so companion expansion preserves extension.",
+      "killers": ["compiler/front:AssetMatchingAndCompanionCollection", "compiler/front:law:AssetRuleMatchesPrimaryExtension"]
+    },
+    {
+      "name": "selfhost-front-embed-ignores-all-prefix",
+      "origin": "SELFHOST-FRONTEND-LOADER",
+      "file": "compiler/front/embed.ergo",
+      "decl": "ResolveEmbed",
+      "from": "\tif strings.HasPrefix(pat, \"all:\") {\n\t\tincludeHidden = true\n\t\tpat = strings.TrimPrefix(pat, \"all:\")\n\t}\n",
+      "to": "\tif strings.HasPrefix(pat, \"all:\") {\n\t\tincludeHidden = false\n\t\tpat = strings.TrimPrefix(pat, \"all:\")\n\t}\n",
+      "rule": "The all: embed prefix must enable admission of dot and underscore entries.",
+      "killers": ["compiler/front:EmbedResolutionAndHostSymlinkCheck"]
+    },
+    {
+      "name": "selfhost-front-embed-allows-multi-single",
+      "origin": "SELFHOST-FRONTEND-LOADER",
+      "file": "compiler/front/embed.ergo",
+      "decl": "ResolveEmbed",
+      "from": "\tif !isTree && sorted.Len() != 1 {\n\t\tdiags = diags.Append(FrontDiag{Code: \"embed-multiple-single\", Message: \"embed pattern '\\(rawPattern)' matched \\(sorted.Len()) files for single-file embed\", File: rawPattern, Offset: uint32(0), Length: uint32(0), Line: uint32(1), Column: uint32(1), Hint: \"\", HasSpan: false})\n\t\treturn (sorted, diags)\n\t}\n",
+      "to": "\tif false && !isTree && sorted.Len() != 1 {\n\t\treturn (sorted, diags)\n\t}\n",
+      "rule": "Single-file embeds must diagnose patterns matching more than one file.",
+      "killers": ["compiler/front:EmbedResolutionAndHostSymlinkCheck"]
+    },
+    {
+      "name": "selfhost-front-gittree-ignores-symlinks",
+      "origin": "SELFHOST-FRONTEND-LOADER",
+      "file": "compiler/front/gittree.ergo",
+      "decl": "resolveGitPath",
+      "from": "\t\t\t\tif g.Entries.IsLink[idx] && (!isLast || followLast) {\n",
+      "to": "\t\t\t\tif false && g.Entries.IsLink[idx] && (!isLast || followLast) {\n",
+      "rule": "GitTreeFS Stat and ReadFile must follow mode 120000 symlink blobs.",
+      "killers": ["compiler/front:GitTreeFSReadsFollowsLinksAndUsesScript"]
+    },
+    {
+      "name": "selfhost-front-loader-cycle-unrejected",
+      "origin": "SELFHOST-FRONTEND-LOADER",
+      "file": "compiler/front/loader.ergo",
+      "decl": "visitPackage",
+      "from": "\t\tif targetState == VisitActive {\n\t\t\tlet msg = formatImportCycle(st.scratch.StackNames, res.importPath)\n",
+      "to": "\t\tif false && targetState == VisitActive {\n\t\t\tlet msg = formatImportCycle(st.scratch.StackNames, res.importPath)\n",
+      "rule": "LoadProgram must diagnose package import cycles with an import cycle chain.",
+      "killers": ["compiler/front:LoadProgramCycleNestedLongestPrefixAndDiscover"]
+    },
+    {
+      "name": "selfhost-front-loader-nested-module-walked",
+      "origin": "SELFHOST-FRONTEND-LOADER",
+      "file": "compiler/front/loader.ergo",
+      "decl": "discoverSingleModule",
+      "from": "\t\t\tif isFilePath(filepath.Join([]string{subDir, \"ergo.mod\"})) {\n\t\t\t\tcontinue\n\t\t\t}\n",
+      "to": "\t\t\tif false && isFilePath(filepath.Join([]string{subDir, \"ergo.mod\"})) {\n\t\t\t\tcontinue\n\t\t\t}\n",
+      "rule": "Discovering packages within a module stops at subdirectories holding a nested ergo.mod.",
+      "killers": ["compiler/front:LoadProgramCycleNestedLongestPrefixAndDiscover"]
+    },
+    {
+      "name": "selfhost-front-cache-ignores-listing-change",
+      "origin": "SELFHOST-FRONTEND-LOADER",
+      "file": "compiler/front/cache.ergo",
+      "decl": "InputsFresh",
+      "from": "\tfor i in 0..w.ListingDir.Len() {\n\t\tlet dig = ComputeDirListingDigest(w.ListingDir[i]) catch {\n\t\tcase fs.NotFound, fs.Denied, fs.Failed:\n\t\t\treturn false\n\t\t}\n\t\tif dig != w.ListingDigest[i] {\n\t\t\treturn false\n\t\t}\n\t}\n",
+      "to": "\tfor i in 0..w.ListingDir.Len() {\n\t\tlet _ = i\n\t}\n",
+      "rule": "InputsFresh must verify directory listing digests so adding files invalidates warm cache hits.",
+      "killers": ["compiler/front:WarmInputsCheckCacheAndSnapshotKeys"]
+    }
+  ]
+}

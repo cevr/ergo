@@ -1,0 +1,495 @@
+import exec
+import filepath
+import fs
+import option
+import slices
+import strconv
+import strings
+
+// GitEntryTable stores git ls-tree entries in flat Structure-of-Arrays columns.
+type GitEntryTable {
+	// Mode holds the octal file mode string (such as "100644" or "120000").
+	Mode []string,
+	// Kind holds the git object kind ("blob", "tree", or "commit").
+	Kind []string,
+	// Hash holds the git object hex hash.
+	Hash []string,
+	// Path holds the clean repository-relative forward-slash path.
+	Path []string,
+	// Size holds optional byte sizes (zero when omitted by ls-tree).
+	Size []uint64,
+	// IsDir marks synthetic or explicit tree directory entries.
+	IsDir []bool,
+	// IsLink marks symbolic link ("120000") entries.
+	IsLink []bool,
+	// ByPath maps clean relative slash path to dense row ID.
+	ByPath Map[string, uint32],
+	// DirPaths stores unique directory paths including ".".
+	DirPaths []string,
+	// DirStart stores the first index in ChildNames per directory row.
+	DirStart []uint32,
+	// DirCount stores the sorted child entry count per directory row.
+	DirCount []uint32,
+	// ChildNames flattens sorted direct child names across all directories.
+	ChildNames []string,
+	// DirByPath maps clean directory slash path to dense directory row ID.
+	DirByPath Map[string, uint32],
+}
+
+// NewGitEntryTable returns an empty GitEntryTable.
+func NewGitEntryTable() GitEntryTable {
+	GitEntryTable{
+		Mode:       []string{},
+		Kind:       []string{},
+		Hash:       []string{},
+		Path:       []string{},
+		Size:       []uint64{},
+		IsDir:      []bool{},
+		IsLink:     []bool{},
+		ByPath:     Map[string, uint32]{},
+		DirPaths:   []string{},
+		DirStart:   []uint32{},
+		DirCount:   []uint32{},
+		ChildNames: []string{},
+		DirByPath:  Map[string, uint32]{},
+	}
+}
+
+func cleanGitRel(raw string) string {
+	let c = filepath.Clean(strings.TrimPrefix(raw, "./"))
+	strings.TrimPrefix(c, "/")
+}
+
+// ParseLsTreeZ parses NUL-separated `git ls-tree -r -z` output into a GitEntryTable.
+func ParseLsTreeZ(raw string) (GitEntryTable, []FrontDiag) {
+	let mut t = NewGitEntryTable()
+	let mut diags = []FrontDiag{}
+	let mut dirChildren = Map[string, []string]{}
+	dirChildren["."] = []string{}
+	for rec in strings.Split(raw, "\x00") {
+		if rec == "" {
+			continue
+		}
+		let parts = strings.Cut(rec, "\t")
+		let halves = match parts {
+		case option.Some[strings.Halves] as h:
+			h.Value
+		case option.None:
+			diags = diags.Append(FrontDiag{Code: "gittree-parse", Message: "missing tab separator in ls-tree record", File: "", Offset: uint32(0), Length: uint32(0), Line: uint32(1), Column: uint32(1), Hint: "", HasSpan: false})
+			continue
+		}
+		let meta = strings.Fields(halves.Before)
+		if meta.Len() < 3 {
+			diags = diags.Append(FrontDiag{Code: "gittree-parse", Message: "malformed ls-tree metadata", File: halves.After, Offset: uint32(0), Length: uint32(0), Line: uint32(1), Column: uint32(1), Hint: "", HasSpan: false})
+			continue
+		}
+		let mode = meta[0]
+		let kind = meta[1]
+		let hash = meta[2]
+		let mut sz = uint64(0)
+		if meta.Len() >= 4 && meta[3] != "-" {
+			let n = strconv.ParseInt(meta[3], 10, 64) catch {
+			case strconv.Malformed, strconv.OutOfRange:
+				int64(0)
+			}
+			if n > int64(0) {
+				sz = uint64(n)
+			}
+		}
+		let p = cleanGitRel(halves.After)
+		if p == "" || p == "." {
+			continue
+		}
+		let isDir = kind == "tree"
+		let isLink = mode == "120000"
+		let id = uint32(t.Path.Len())
+		t.Mode = t.Mode.Append(mode)
+		t.Kind = t.Kind.Append(kind)
+		t.Hash = t.Hash.Append(hash)
+		t.Path = t.Path.Append(p)
+		t.Size = t.Size.Append(sz)
+		t.IsDir = t.IsDir.Append(isDir)
+		t.IsLink = t.IsLink.Append(isLink)
+		t.ByPath[p] = id
+
+		let segs = strings.Split(p, "/")
+		let mut parent = "."
+		for i, seg in segs {
+			let cur = if parent == "." { seg } else { parent + "/" + seg }
+			let existing = match dirChildren.Get(parent) {
+			case option.Some[[]string] as xs:
+				xs.Value
+			case option.None:
+				[]string{}
+			}
+			if !slices.Contains(existing, seg) {
+				dirChildren[parent] = existing.Append(seg)
+			}
+			if i+1 < segs.Len() && dirChildren.Get(cur) == option.None {
+				dirChildren[cur] = []string{}
+			}
+			parent = cur
+		}
+	}
+	let mut dirList = []string{}
+	for d, _ in dirChildren {
+		dirList = dirList.Append(d)
+	}
+	for d in slices.Sort(dirList) {
+		let did = uint32(t.DirPaths.Len())
+		let start = uint32(t.ChildNames.Len())
+		let kids = slices.Sort(match dirChildren.Get(d) {
+		case option.Some[[]string] as xs:
+			xs.Value
+		case option.None:
+			[]string{}
+		})
+		for k in kids {
+			t.ChildNames = t.ChildNames.Append(k)
+		}
+		t.DirPaths = t.DirPaths.Append(d)
+		t.DirStart = t.DirStart.Append(start)
+		t.DirCount = t.DirCount.Append(uint32(kids.Len()))
+		t.DirByPath[d] = did
+		if d != "." && t.ByPath.Get(d) == option.None {
+			let sid = uint32(t.Path.Len())
+			t.Mode = t.Mode.Append("040000")
+			t.Kind = t.Kind.Append("tree")
+			t.Hash = t.Hash.Append("")
+			t.Path = t.Path.Append(d)
+			t.Size = t.Size.Append(uint64(0))
+			t.IsDir = t.IsDir.Append(true)
+			t.IsLink = t.IsLink.Append(false)
+			t.ByPath[d] = sid
+		}
+	}
+	(t, diags)
+}
+
+// GitTreeFS implements fs.Files over a parsed git tree snapshot with optional lazy runner or in-memory blobs.
+type GitTreeFS {
+	// Root holds the repository directory path.
+	Root string,
+	// Rev holds the resolved git tree revision string.
+	Rev string,
+	// Entries stores parsed git tree entries in SoA columns.
+	Entries GitEntryTable,
+	// Blobs stores preloaded file/symlink contents keyed by clean path or object hash.
+	Blobs  Map[string, string],
+	runner option.Option[exec.Runner],
+} implements fs.Files
+
+// NewGitTreeFromMemory constructs an in-memory GitTreeFS from ls-tree output and a path-or-hash blob map.
+func NewGitTreeFromMemory(root string, rev string, lsTreeZ string, blobs Map[string, string]) (GitTreeFS, []FrontDiag) {
+	let (entries, diags) = ParseLsTreeZ(lsTreeZ)
+	(GitTreeFS{Root: root, Rev: rev, Entries: entries, Blobs: blobs, runner: option.None}, diags)
+}
+
+// OpenGitTree runs `git ls-tree -r -z` on repoRoot at rev and returns a GitTreeFS.
+func OpenGitTree(repoRoot string, rev string) GitTreeFS fails fs.NotFound | fs.Failed needs exec.Runner {
+	let cleanRev = if rev == "" { "HEAD" } else { rev }
+	let cmd = exec.New("git", []string{"-C", repoRoot, "ls-tree", "-r", "-z", cleanRev})
+	let res = exec.Runner.Run(cmd) catch {
+	case exec.NotFound as e:
+		return fs.NotFound{Path: e.Name}
+	case exec.Denied as e:
+		return fs.Failed{Path: repoRoot, Reason: "git denied: " + e.Name}
+	case exec.Failed as e:
+		return fs.Failed{Path: repoRoot, Reason: e.Reason}
+	}
+	if res.Status != 0 {
+		return fs.Failed{Path: repoRoot, Reason: "git ls-tree failed: " + strings.TrimSpace(res.Stderr)}
+	}
+	let (entries, _) = ParseLsTreeZ(res.Stdout)
+	GitTreeFS{
+		Root:    filepath.Clean(repoRoot),
+		Rev:     cleanRev,
+		Entries: entries,
+		Blobs:   Map[string, string]{},
+		runner:  option.None,
+	}
+}
+
+// OpenGitTreePreloaded runs `git ls-tree -r -z` and loads every blob content for runner-free fs.Files reads.
+func OpenGitTreePreloaded(repoRoot string, rev string) GitTreeFS fails fs.NotFound | fs.Failed needs exec.Runner {
+	let mut gt = try OpenGitTree(repoRoot, rev)
+	for i in 0..gt.Entries.Path.Len() {
+		if gt.Entries.IsDir[i] || gt.Entries.Kind[i] == "commit" {
+			continue
+		}
+		let hash = gt.Entries.Hash[i]
+		let p = gt.Entries.Path[i]
+		let bCmd = exec.New("git", []string{"-C", repoRoot, "cat-file", "blob", hash})
+		let bRes = exec.Runner.Run(bCmd) catch {
+		case exec.NotFound as e:
+			return fs.NotFound{Path: e.Name}
+		case exec.Denied as e:
+			return fs.Failed{Path: p, Reason: "git denied: " + e.Name}
+		case exec.Failed as e:
+			return fs.Failed{Path: p, Reason: e.Reason}
+		}
+		if bRes.Status != 0 {
+			return fs.Failed{Path: p, Reason: "git cat-file failed: " + strings.TrimSpace(bRes.Stderr)}
+		}
+		gt.Blobs[p] = bRes.Stdout
+		gt.Blobs[hash] = bRes.Stdout
+	}
+	gt
+}
+
+// WithGitBlobs returns a copy of g with additional path or hash blob payloads populated.
+func WithGitBlobs(g GitTreeFS, blobs Map[string, string]) GitTreeFS {
+	let mut merged = g.Blobs.Clone()
+	for k, v in blobs {
+		merged[k] = v
+	}
+	GitTreeFS{Root: g.Root, Rev: g.Rev, Entries: g.Entries, Blobs: merged, runner: g.runner}
+}
+
+func readGitBlob(g GitTreeFS, idx uint32) string fails fs.NotFound | fs.Denied | fs.Failed {
+	let p = g.Entries.Path[int(idx)]
+	let h = g.Entries.Hash[int(idx)]
+	match g.Blobs.Get(p) {
+	case option.Some[string] as v:
+		return v.Value
+	case option.None:
+	}
+	match g.Blobs.Get(h) {
+	case option.Some[string] as v:
+		return v.Value
+	case option.None:
+	}
+	match g.runner {
+	case option.Some[exec.Runner] as r:
+		let cmd = exec.New("git", []string{"-C", g.Root, "cat-file", "blob", h})
+		let res = r.Value.Run(cmd) catch {
+		case exec.NotFound:
+			return fs.NotFound{Path: p}
+		case exec.Denied:
+			return fs.Denied{Path: p}
+		case exec.Failed as e:
+			return fs.Failed{Path: p, Reason: e.Reason}
+		}
+		if res.Status != 0 {
+			return fs.Failed{Path: p, Reason: strings.TrimSpace(res.Stderr)}
+		}
+		res.Stdout
+	case option.None:
+		return fs.NotFound{Path: p}
+	}
+}
+
+func joinCleanSegments(baseDir string, target string) (string, bool) {
+	let combined = if strings.HasPrefix(target, "/") {
+		return ("", false)
+	} else if baseDir == "" || baseDir == "." {
+		target
+	} else {
+		baseDir + "/" + target
+	}
+	let mut stack = []string{}
+	for seg in strings.Split(combined, "/") {
+		if seg == "" || seg == "." {
+			continue
+		}
+		if seg == ".." {
+			if stack.Len() == 0 {
+				return ("", false)
+			}
+			stack = slices.Slice(stack, 0, stack.Len()-1)
+			continue
+		}
+		stack = stack.Append(seg)
+	}
+	if stack.Len() == 0 {
+		return (".", true)
+	}
+	(strings.Join(stack, "/"), true)
+}
+
+func resolveGitPath(g GitTreeFS, rawPath string, followLast bool) (string, uint32) fails fs.NotFound | fs.Denied | fs.Failed {
+	let mut rel = rawPath
+	if g.Root != "" && strings.HasPrefix(rel, g.Root+"/") {
+		rel = strings.TrimPrefix(rel, g.Root+"/")
+	} else if g.Root != "" && rel == g.Root {
+		rel = "."
+	}
+	rel = cleanGitRel(rel)
+	if rel == "" || rel == "." {
+		return (".", NoID)
+	}
+	let mut hops = 0
+	for {
+		let segs = strings.Split(rel, "/")
+		let mut prefix = ""
+		let mut restarted = false
+		for i, seg in segs {
+			if seg == "" || seg == "." {
+				continue
+			}
+			let cur = if prefix == "" { seg } else { prefix + "/" + seg }
+			let isLast = i == segs.Len()-1
+			match g.Entries.ByPath.Get(cur) {
+			case option.Some[uint32] as eid:
+				let idx = int(eid.Value)
+				if g.Entries.IsLink[idx] && (!isLast || followLast) {
+					hops = hops + 1
+					if hops > 40 {
+						return fs.Failed{Path: rawPath, Reason: "too many levels of symbolic links"}
+					}
+					let target = try readGitBlob(g, eid.Value)
+					let parentDir = if prefix == "" { "." } else { prefix }
+					let (nextTarget, inside) = joinCleanSegments(parentDir, target)
+					if !inside {
+						return fs.NotFound{Path: rawPath}
+					}
+					let tail = if i+1 < segs.Len() { strings.Join(segs[i+1:], "/") } else { "" }
+					if tail == "" {
+						rel = nextTarget
+					} else if nextTarget == "." {
+						rel = tail
+					} else {
+						rel = nextTarget + "/" + tail
+					}
+					restarted = true
+					break
+				}
+				if isLast {
+					return (cur, eid.Value)
+				}
+			case option.None:
+				if isLast {
+					return fs.NotFound{Path: rawPath}
+				}
+			}
+			prefix = cur
+		}
+		if !restarted {
+			if rel == "." {
+				return (".", NoID)
+			}
+			return fs.NotFound{Path: rawPath}
+		}
+	}
+}
+
+// ReadFile reads the regular file or followed symlink target at path from g.
+func ReadFile(g GitTreeFS, path string) string fails fs.NotFound | fs.Denied | fs.Failed {
+	let (resolved, idx) = try resolveGitPath(g, path, true)
+	if idx == NoID || g.Entries.IsDir[int(idx)] {
+		return fs.Failed{Path: resolved, Reason: "is a directory"}
+	}
+	try readGitBlob(g, idx)
+}
+
+// ReadDir lists sorted child names at directory path from g.
+func ReadDir(g GitTreeFS, path string) []string fails fs.NotFound | fs.Denied | fs.Failed {
+	let (resolved, idx) = try resolveGitPath(g, path, true)
+	if resolved != "." && (idx == NoID || !g.Entries.IsDir[int(idx)]) {
+		return fs.Failed{Path: resolved, Reason: "not a directory"}
+	}
+	match g.Entries.DirByPath.Get(resolved) {
+	case option.Some[uint32] as did:
+		let start = int(g.Entries.DirStart[int(did.Value)])
+		let count = int(g.Entries.DirCount[int(did.Value)])
+		slices.Slice(g.Entries.ChildNames, start, start+count)
+	case option.None:
+		fs.NotFound{Path: path}
+	}
+}
+
+func gitInfo(g GitTreeFS, resolved string, idx uint32) fs.Info {
+	if resolved == "." {
+		return fs.Info{Name: ".", Size: 0, Dir: true, Perm: 0o755}
+	}
+	let i = int(idx)
+	let name = filepath.Base(resolved)
+	let isDir = g.Entries.IsDir[i]
+	let perm = if isDir { 0o755 } else if g.Entries.Mode[i] == "100755" { 0o755 } else { 0o644 }
+	let sz = if isDir {
+		0
+	} else {
+		match g.Blobs.Get(g.Entries.Path[i]) {
+		case option.Some[string] as s:
+			s.Value.Len()
+		case option.None:
+			int(g.Entries.Size[i])
+		}
+	}
+	fs.Info{Name: name, Size: sz, Dir: isDir, Perm: perm}
+}
+
+// Stat returns metadata for path in g, following symbolic links up to 40 hops.
+func Stat(g GitTreeFS, path string) fs.Info fails fs.NotFound | fs.Denied | fs.Failed {
+	let (resolved, idx) = try resolveGitPath(g, path, true)
+	gitInfo(g, resolved, idx)
+}
+
+// Lstat returns metadata for path in g without following a final symbolic link.
+func Lstat(g GitTreeFS, path string) fs.Info fails fs.NotFound | fs.Denied | fs.Failed {
+	let (resolved, idx) = try resolveGitPath(g, path, false)
+	gitInfo(g, resolved, idx)
+}
+
+// DefaultBase resolves the base branch/revision name in repoRoot using git.
+func DefaultBase(repoRoot string) string needs exec.Runner {
+	let sym = exec.Runner.Run(exec.New("git", []string{"-C", repoRoot, "symbolic-ref", "--short", "refs/remotes/origin/HEAD"})) catch {
+	case exec.NotFound, exec.Denied, exec.Failed:
+		exec.Result{Status: 1, Stdout: "", Stderr: ""}
+	}
+	if sym.Status == 0 {
+		let ref = strings.TrimSpace(sym.Stdout)
+		if ref != "" {
+			return strings.TrimPrefix(ref, "origin/")
+		}
+	}
+	for cand in []string{"main", "master"} {
+		let chk = exec.Runner.Run(exec.New("git", []string{"-C", repoRoot, "rev-parse", "--verify", cand})) catch {
+		case exec.NotFound, exec.Denied, exec.Failed:
+			exec.Result{Status: 1, Stdout: "", Stderr: ""}
+		}
+		if chk.Status == 0 {
+			return cand
+		}
+	}
+	"HEAD"
+}
+
+law ParseLsTreeZTracksDirectories(name string) {
+	if name == "" || name == "." || name == ".." || strings.Contains(name, "/") || strings.Contains(name, "\x00") || strings.Contains(name, "\t") || strings.Contains(name, " ") {
+		return true
+	}
+	let raw = "100644 blob abcdef0123456789abcdef0123456789abcdef01\tsrc/" + name + ".ergo\x00"
+	let (tbl, diags) = ParseLsTreeZ(raw)
+	diags.Len() == 0 && tbl.ByPath.Get("src/"+name+".ergo") != option.None && tbl.DirByPath.Get("src") != option.None
+}
+
+test GitTreeFSReadsFollowsLinksAndUsesScript {
+	let raw = "100644 blob h1\tapp/main.ergo\x00120000 blob hlink\tapp/link.ergo\x00"
+	let blobs = Map[string, string]{"app/main.ergo": "func main() {}\n", "app/link.ergo": "main.ergo"}
+	let (gt, diags) = NewGitTreeFromMemory("/repo", "HEAD", raw, blobs)
+	assert diags.Len() == 0
+
+	with context { fs.Files: gt } {
+		let rootKids = try fs.Files.ReadDir(".")
+		assert rootKids == []string{"app"}
+		let appKids = try fs.Files.ReadDir("app")
+		assert appKids == []string{"link.ergo", "main.ergo"}
+		assert try fs.Files.ReadFile("app/link.ergo") == "func main() {}\n"
+		let info = try fs.Files.Stat("/repo/app/main.ergo")
+		assert !info.Dir && info.Size == 15
+	}
+
+	let script = exec.Script{Results: Map[string, exec.Result]{
+		exec.Key(exec.New("git", []string{"-C", "/repo", "ls-tree", "-r", "-z", "v1"})):                           exec.Result{Status: 0, Stdout: "100644 blob h1\tergo.mod\x00", Stderr: ""},
+		exec.Key(exec.New("git", []string{"-C", "/repo", "cat-file", "blob", "h1"})):                              exec.Result{Status: 0, Stdout: "module demo\n", Stderr: ""},
+		exec.Key(exec.New("git", []string{"-C", "/repo", "symbolic-ref", "--short", "refs/remotes/origin/HEAD"})): exec.Result{Status: 0, Stdout: "origin/main\n", Stderr: ""},
+	}}
+	with context { exec.Runner: script } {
+		let loaded = try OpenGitTreePreloaded("/repo", "v1")
+		with context { fs.Files: loaded } {
+			assert try fs.Files.ReadFile("ergo.mod") == "module demo\n"
+		}
+		assert DefaultBase("/repo") == "main"
+	}
+}
