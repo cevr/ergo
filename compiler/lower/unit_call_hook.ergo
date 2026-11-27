@@ -70,7 +70,7 @@ func planUnitCall(st fnb, x dense.ID[syntax.Node], ce syntax.CallExpr) option.Op
 		return option.None
 	}
 	try noImportedRewrite(st, name)
-	let _ = try scanScalarBody(st, i, body, st.importCalls)
+	let _ = try scanScalarBody(st, emptyLocalBinds(), i, body, st.importCalls)
 	let mut args = []dense.ID[syntax.Node]{}
 	for j in 0..n {
 		let arg = syntax.Item(p.Tree, ce.Args, j)

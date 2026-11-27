@@ -6,7 +6,7 @@ import dense
 import option
 
 func admittedLawParam(st fnb, t dense.ID[store.TKey]) bool {
-	shapeGo(st, t) != ""
+	store.KindOfType(st.s, t) != store.KTuple && shapeGo(st, t) != ""
 }
 
 func lawFrame(n int) framePlan {
@@ -37,7 +37,7 @@ func lawHasAdmission(p syntax.Parsed, params dense.Opt[syntax.Node]) bool {
 	false
 }
 
-func lawFunction(st mut fnb, b mut ir.Builder, f expr.Fn, ld syntax.LawDecl, planned GeneratedBody, path string) bool fails Unported | ir.Malformed {
+func lawFunction(st0 fnb, b mut ir.Builder, f expr.Fn, ld syntax.LawDecl, planned GeneratedBody, path string) bool fails Unported | ir.Malformed {
 	if planned.Symbol == "" {
 		return stop("law name taken (name_N)")
 	}
@@ -53,18 +53,18 @@ func lawFunction(st mut fnb, b mut ir.Builder, f expr.Fn, ld syntax.LawDecl, pla
 	if f.SelfArity != 0 || dense.Unpack(f.SelfRole) != option.None {
 		return stop("law: member or provider law")
 	}
-	if lawHasAdmission(st.p, ld.Params) {
+	if lawHasAdmission(st0.p, ld.Params) {
 		return stop("law: admission clause")
 	}
-	let ops = store.OperandsOf(st.s, f.Sig)
-	if store.KindOfType(st.s, f.Sig) != store.KSig || ops.Len() < 3 {
+	let ops = store.OperandsOf(st0.s, f.Sig)
+	if store.KindOfType(st0.s, f.Sig) != store.KSig || ops.Len() < 3 {
 		return stop("signature")
 	}
 	let n = ops.Len() - 3
-	if basicGo(*st, ops[n]) != "bool" {
+	if basicGo(st0, ops[n]) != "bool" {
 		return stop("law: non-bool result")
 	}
-	if !emptyRow(*st, ops[n+1]) || !emptyRow(*st, ops[n+2]) {
+	if !emptyRow(st0, ops[n+1]) || !emptyRow(st0, ops[n+2]) {
 		return stop("law: effect or failure row")
 	}
 	if f.Names.Len() != n {
@@ -74,8 +74,8 @@ func lawFunction(st mut fnb, b mut ir.Builder, f expr.Fn, ld syntax.LawDecl, pla
 		if i < f.Takes.Len() && f.Takes[i] {
 			return stop("law: owned parameter")
 		}
-		if !admittedLawParam(*st, ops[i]) {
-			return stop("law: parameter " + typeCause(*st, ops[i]))
+		if !admittedLawParam(st0, ops[i]) {
+			return stop("law: parameter " + typeCause(st0, ops[i]))
 		}
 	}
 	let body = match dense.Unpack(ld.Body) {
@@ -84,22 +84,23 @@ func lawFunction(st mut fnb, b mut ir.Builder, f expr.Fn, ld syntax.LawDecl, pla
 	case option.None:
 		return stop("no body")
 	}
-	let p = st.p
+	let p = st0.p
 	let (list, rbrace) = match syntax.ViewOf(p.Tree, body) {
 	case syntax.BlockStmt as bl:
 		(bl.List, bl.Rbrace)
 	case _:
 		return stop("body that is no block")
 	}
-	st.frame = lawFrame(n)
-	parameterSlots(st, f)
-	let declSite = assertSiteText(*st, syntax.TokPos(p, ld.Law))
-	let prepared = try statementsLaw(st, body, list, f.Names, st.frame.slots, ops[n], declSite)
-	st.fileIx = ir.FileOf(b, path)
-	let fp = pos(*st, syntax.TokPos(p, ld.Law))
-	let end = pos(*st, syntax.TokPos(p, rbrace))
+	let frame = lawFrame(n)
+	let st = fnb{..st0, frame: frame}
+	let binds = parameterSlots(st, f)
+	let declSite = assertSiteText(st, syntax.TokPos(p, ld.Law))
+	let prepared = try statementsLaw(st, binds, body, list, f.Names, frame.slots, ops[n], declSite)
+	let st2 = fnb{..st, fileIx: ir.FileOf(b, path)}
+	let fp = pos(st2, syntax.TokPos(p, ld.Law))
+	let end = pos(st2, syntax.TokPos(p, rbrace))
 	try ir.Begin(b, planned.Symbol, fp, end)
-	let roots = try controlEmit(*st, b, prepared, end)
+	let roots = try controlEmit(st2, b, prepared, end)
 	let rows = if roots.Len() == 0 { uint32(0) } else { ir.List(b, roots) }
 	try ir.End(b, rows)
 	true

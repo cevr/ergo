@@ -1,0 +1,130 @@
+import compiler/ir
+import compiler/syntax
+import dense
+import strconv
+import strings
+
+func interpCheck(st fnb, binds localBinds, x dense.ID[syntax.Node], is syntax.InterpolatedString) fails Unported {
+	if basicGo(st, try typeOf(st, x, "InterpolatedString")) != "string" {
+		return stop("interpolated string type")
+	}
+	let n = syntax.Len(is.Parts)
+	if n < 3 || n%2 == 0 {
+		return stop("interpolated string form")
+	}
+	for i in 0..n {
+		let part = syntax.Item(st.p.Tree, is.Parts, i)
+		if i%2 == 0 {
+			let _ = try interpSegment(st.p, part, i == 0, i == n-1)
+		} else {
+			let pt = try typeOf(st, part, "interpolated value")
+			if scalarBasicGo(st, pt) == "" {
+				return stop("interpolated value type")
+			}
+			try check(st, binds, part)
+		}
+	}
+}
+
+func interpSegment(p syntax.Parsed, node dense.ID[syntax.Node], head bool, tail bool) string fails Unported {
+	match syntax.ViewOf(p.Tree, node) {
+	case syntax.BasicLit as bl:
+		let mut raw = syntax.TokText(p, bl.Tok)
+		if raw.Len() < 2 || head && raw[0] != '"' {
+			return stop("interpolated string segment")
+		}
+		raw = raw[1:raw.Len()]
+		if tail {
+			if !strings.HasSuffix(raw, "\"") {
+				return stop("interpolated string segment")
+			}
+			raw = raw[:raw.Len()-1]
+		} else if strings.HasSuffix(raw, "\\(") {
+			raw = raw[:raw.Len()-2]
+		} else {
+			return stop("interpolated string segment")
+		}
+		strconv.Unquote("\"" + raw + "\"") catch {
+		case _:
+			return stop("interpolated string segment")
+		}
+	case _:
+		stop("interpolated string segment")
+	}
+}
+
+func interpTextOf(st fnb, b mut ir.Builder, e dense.ID[syntax.Node], v uint32) uint32 fails Unported | ir.Malformed {
+	let pt = try typeOf(st, e, "interpolated value")
+	let bt = scalarBasicGo(st, pt)
+	let defined = basicGo(st, pt) == ""
+	let vp = ir.RowPos(*b, v)
+	if bt == "string" {
+		if defined {
+			return try ir.Row(b, ir.KindCode(ir.TExpr, "conv"), vp, []uint32{ir.Text(b, "string"), v})
+		}
+		return v
+	}
+	if bt == "bool" {
+		let arg = if defined { try ir.Row(b, ir.KindCode(ir.TExpr, "conv"), vp, []uint32{ir.Text(b, "bool"), v}) } else { v }
+		return try ir.Row(b, ir.KindCode(ir.TExpr, "pcall"), vp, []uint32{ir.Text(b, "strconv"), 0, 0, ir.Text(b, "FormatBool"), ir.List(b, []uint32{arg})})
+	}
+	if bt == "float32" || bt == "float64" {
+		let bits = if bt == "float32" { "32" } else { "64" }
+		let conv = if bt == "float64" && !defined { v } else { try ir.Row(b, ir.KindCode(ir.TExpr, "conv"), vp, []uint32{ir.Text(b, "float64"), v}) }
+		let g = try constRow(b, vp, "uint8", "103")
+		let prec = try constRow(b, vp, "int", "-1")
+		let width = try constRow(b, vp, "int", bits)
+		return try ir.Row(b, ir.KindCode(ir.TExpr, "pcall"), vp, []uint32{ir.Text(b, "strconv"), 0, 0, ir.Text(b, "FormatFloat"), ir.List(b, []uint32{conv, g, prec, width})})
+	}
+	if bt == "uint" || bt == "uint8" || bt == "uint16" || bt == "uint32" || bt == "uint64" || bt == "uintptr" {
+		let conv = if bt == "uint64" && !defined { v } else { try ir.Row(b, ir.KindCode(ir.TExpr, "conv"), vp, []uint32{ir.Text(b, "uint64"), v}) }
+		let ten = try constRow(b, vp, "int", "10")
+		return try ir.Row(b, ir.KindCode(ir.TExpr, "pcall"), vp, []uint32{ir.Text(b, "strconv"), 0, 0, ir.Text(b, "FormatUint"), ir.List(b, []uint32{conv, ten})})
+	}
+	if bt == "int" || bt == "int8" || bt == "int16" || bt == "int32" || bt == "int64" {
+		let conv = if bt == "int64" && !defined { v } else { try ir.Row(b, ir.KindCode(ir.TExpr, "conv"), vp, []uint32{ir.Text(b, "int64"), v}) }
+		let ten = try constRow(b, vp, "int", "10")
+		return try ir.Row(b, ir.KindCode(ir.TExpr, "pcall"), vp, []uint32{ir.Text(b, "strconv"), 0, 0, ir.Text(b, "FormatInt"), ir.List(b, []uint32{conv, ten})})
+	}
+	stop("interpolated value type")
+}
+
+func interpEmit(st fnb, binds localBinds, b mut ir.Builder, x dense.ID[syntax.Node], is syntax.InterpolatedString, at ir.Pos) uint32 fails Unported | ir.Malformed {
+	let n = syntax.Len(is.Parts)
+	let mut parts = []uint32{}
+	for i in 0..n {
+		let part = syntax.Item(st.p.Tree, is.Parts, i)
+		if i%2 == 0 {
+			let s = try interpSegment(st.p, part, i == 0, i == n-1)
+			if s != "" {
+				let segPos = pos(st, syntax.NodePos(st.p, part))
+				parts = parts.Append(try constRow(b, segPos, "string", s))
+			}
+		} else {
+			let v = try value(st, binds, b, part)
+			parts = parts.Append(try interpTextOf(st, b, part, v))
+		}
+	}
+	if parts.Len() == 0 {
+		return try constRow(b, at, "string", "")
+	}
+	let mut out = parts[0]
+	for k in 1..parts.Len() {
+		out = try ir.Row(b, ir.KindCode(ir.TExpr, "bin"), at, []uint32{ir.Text(b, "+"), out, parts[k]})
+	}
+	out
+}
+
+func directExpr(st fnb, x dense.ID[syntax.Node]) bool {
+	match syntax.ViewOf(st.p.Tree, x) {
+	case syntax.IfStmt, syntax.SwitchStmt, syntax.TypeSwitchStmt, syntax.TryExpr, syntax.CatchExpr, syntax.FuncLit, syntax.TupleExpr, syntax.ContextLit:
+		return false
+	case _:
+	}
+	for c in syntax.Children(st.p.Tree, x, []uint32{}) {
+		if !directExpr(st, syntax.NodeAt(st.p.Tree, int(c))) {
+			return false
+		}
+	}
+	true
+}

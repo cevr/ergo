@@ -1,0 +1,361 @@
+import compiler/check/bind
+import compiler/check/expr
+import compiler/check/infer
+import compiler/check/store
+import compiler/syntax
+import dense
+import option
+
+type pkgFlatIndex {
+	valid        bool,
+	declCounts   Map[string, int],
+	pkgDecls     Map[string, bool],
+	ordinaryRecs Map[string, int],
+	unionRecs    Map[string, int],
+	namedKeys    Map[uint32, dense.ID[store.TKey]],
+	unionVars    Map[uint32, []dense.ID[store.TKey]],
+}
+
+type unionLayoutCache {
+	ready   bool,
+	hasExt  bool,
+	errKey  Map[string, bool],
+	machKey Map[string, bool],
+}
+
+type pkgMemo {
+	active   bool,
+	rootPath string,
+	depIdx   Map[string, pkgFlatIndex],
+	unionEnv unionLayoutCache,
+}
+
+func emptyPkgFlatIndex() pkgFlatIndex {
+	pkgFlatIndex{
+		valid:        false,
+		declCounts:   Map[string, int]{},
+		pkgDecls:     Map[string, bool]{},
+		ordinaryRecs: Map[string, int]{},
+		unionRecs:    Map[string, int]{},
+		namedKeys:    Map[uint32, dense.ID[store.TKey]]{},
+		unionVars:    Map[uint32, []dense.ID[store.TKey]]{},
+	}
+}
+
+func emptyUnionLayoutCache() unionLayoutCache {
+	unionLayoutCache{
+		ready:   false,
+		hasExt:  false,
+		errKey:  Map[string, bool]{},
+		machKey: Map[string, bool]{},
+	}
+}
+
+func emptyPkgMemo() pkgMemo {
+	pkgMemo{
+		active:   false,
+		rootPath: "",
+		depIdx:   Map[string, pkgFlatIndex]{},
+		unionEnv: emptyUnionLayoutCache(),
+	}
+}
+
+func structDeclIn(k expr.Pkg, s store.Store, name string) bool {
+	let d = match store.Lookup(s, name) {
+	case option.Some{Value: id}:
+		store.DeclOf(s, id)
+	case option.None:
+		return false
+	}
+	let f = int(d.File)
+	let p = k.Parsed[f]
+	let n = syntax.NodeAt(p.Tree, int(d.Node))
+	let pn = bind.PNodeOf(k.Ps, f, n)
+	let parent = match dense.Unpack(bind.ParentOf(k.Ps, pn)) {
+	case option.Some{Value: id}:
+		id
+	case option.None:
+		return false
+	}
+	let i = dense.Index(parent) - dense.Index(pn) + int(d.Node)
+	match syntax.ViewOf(p.Tree, syntax.NodeAt(p.Tree, i)) {
+	case syntax.TypeDecl as td:
+		if td.Name != n || dense.Unpack(td.Extern) != option.None || dense.Unpack(td.TypeParams) != option.None || dense.Unpack(td.Where) != option.None || dense.Unpack(td.Derive) != option.None {
+			return false
+		}
+		match dense.Unpack(td.Spec) {
+		case option.Some{Value: sp}:
+			syntax.KindOf(p.Tree, sp) == syntax.KStructType
+		case option.None:
+			false
+		}
+	case _:
+		false
+	}
+}
+
+func buildPkgFlatIndex(k expr.Pkg, s store.Store) pkgFlatIndex {
+	let mut counts = Map[string, int]{}
+	let mut decls = Map[string, bool]{}
+	for p in k.Parsed {
+		let list = match syntax.ViewOf(p.Tree, syntax.Root(p.Tree)) {
+		case syntax.File as pf:
+			pf.Decls
+		case _:
+			continue
+		}
+		for i in 0..syntax.Len(list) {
+			let d = syntax.Item(p.Tree, list, i)
+			match syntax.ViewOf(p.Tree, d) {
+			case syntax.FuncDecl as fd:
+				let name = nameText(p, fd.Name)
+				let prev = match counts.Get(name) {
+				case option.Some{Value: n}:
+					n
+				case option.None:
+					0
+				}
+				counts = counts.Put(name, prev+1)
+				decls = decls.Put(name, true)
+			case syntax.TypeDecl as td:
+				let name = nameText(p, td.Name)
+				let prev = match counts.Get(name) {
+				case option.Some{Value: n}:
+					n
+				case option.None:
+					0
+				}
+				counts = counts.Put(name, prev+1)
+				decls = decls.Put(name, true)
+			case syntax.VarDecl as vd:
+				match syntax.ViewOf(p.Tree, vd.Spec) {
+				case syntax.VarSpec as sp:
+					for j in 0..syntax.Len(sp.Names) {
+						decls = decls.Put(nameText(p, syntax.Item(p.Tree, sp.Names, j)), true)
+					}
+				case _:
+				}
+			case _:
+			}
+		}
+	}
+	let mut unionRecs = Map[string, int]{}
+	let mut ordinaryRecs = Map[string, int]{}
+	for r, rec in k.Recs {
+		if !rec.Op && rec.Params.Len() == 0 {
+			if unionRecs.Get(rec.Name) == option.None {
+				unionRecs = unionRecs.Put(rec.Name, r)
+			}
+			if ordinaryRecs.Get(rec.Name) == option.None {
+				ordinaryRecs = ordinaryRecs.Put(rec.Name, if structDeclIn(k, s, rec.Name) { r } else { -1 })
+			}
+		}
+	}
+	let mut ms = s
+	let mut namedKeys = Map[uint32, dense.ID[store.TKey]]{}
+	let mut unionVars = Map[uint32, []dense.ID[store.TKey]]{}
+	for i in 0..store.NumDecls(s) {
+		let id = store.DeclAt(s, i)
+		if store.KindName(int(store.DeclOf(s, id).Kind)) == "type" {
+			let nt = store.TNamed(&ms, id)
+			namedKeys = namedKeys.Put(uint32(i), nt)
+			let vs = infer.VariantsOf(&ms, k.Unions, nt)
+			if vs.Len() > 0 {
+				unionVars = unionVars.Put(uint32(dense.Index(nt)), vs)
+			}
+		}
+	}
+	pkgFlatIndex{
+		valid:        true,
+		declCounts:   counts,
+		pkgDecls:     decls,
+		ordinaryRecs: ordinaryRecs,
+		unionRecs:    unionRecs,
+		namedKeys:    namedKeys,
+		unionVars:    unionVars,
+	}
+}
+
+func buildDepIndexes(k expr.Pkg, s store.Store, shapeImports Map[string, expr.Dep]) Map[string, pkgFlatIndex] {
+	let mut out = Map[string, pkgFlatIndex]{}
+	let mut deps = []expr.Dep{}
+	for d in k.Deps {
+		deps = deps.Append(d)
+	}
+	for p in store.ImportPaths(s) {
+		match shapeImports.Get(p) {
+		case option.Some{Value: d}:
+			deps = deps.Append(d)
+		case option.None:
+		}
+	}
+	match shapeImports.Get("prelude") {
+	case option.Some{Value: d}:
+		deps = deps.Append(d)
+	case option.None:
+	}
+	for _, d in shapeImports {
+		deps = deps.Append(d)
+	}
+	for dep in deps {
+		if out.Get(dep.Path) == option.None {
+			out = out.Put(dep.Path, buildPkgFlatIndex(dep.K, dep.S))
+		}
+	}
+	out
+}
+
+func recordMachineName(p syntax.Parsed, node dense.ID[syntax.Node], machKey mut Map[string, bool]) {
+	match syntax.ViewOf(p.Tree, node) {
+	case syntax.Name:
+		*machKey = (*machKey).Put(nameText(p, node), true)
+	case syntax.SelectorExpr as se:
+		*machKey = (*machKey).Put(nameText(p, se.Sel), true)
+	case _:
+	}
+}
+
+func buildUnionLayoutCache(k expr.Pkg, s store.Store, alias string, imports option.Option[[]expr.Dep]) unionLayoutCache {
+	let deps = match imports {
+	case option.Some[[]expr.Dep] as ds:
+		if alias != "" {
+			return emptyUnionLayoutCache()
+		}
+		ds.Value
+	case option.None:
+		return emptyUnionLayoutCache()
+	}
+	for p in k.Parsed {
+		for i in 0..syntax.NumNodes(p.Tree) {
+			let n = syntax.NodeAt(p.Tree, i)
+			let kind = syntax.KindOf(p.Tree, n)
+			if kind == syntax.KExternSpec || kind == syntax.KIdent && nameText(p, n) == "WireForm" {
+				return unionLayoutCache{ready: true, hasExt: true, errKey: Map[string, bool]{}, machKey: Map[string, bool]{}}
+			}
+		}
+	}
+	let mut errKey = Map[string, bool]{}
+	let mut machKey = Map[string, bool]{}
+	let scan = func(pk expr.Pkg, ps store.Store, pa string) {
+		for f in pk.Fns {
+			let ops = store.OperandsOf(ps, f.Sig)
+			if store.KindOfType(ps, f.Sig) == store.KSig && ops.Len() >= 3 {
+				let row = ops[ops.Len()-2]
+				if store.KindOfType(ps, row) == store.KRow {
+					for m in store.OperandsOf(ps, row) {
+						if store.KindOfType(ps, m) == store.KNamed {
+							errKey = errKey.Put(pa+"\x00"+store.TypeNameText(ps, store.ArgOf(ps, m)), true)
+						} else {
+							let (mp, mn, ma) = expr.ImportedRec(ps, pk, m)
+							if mp != "" && ma.Len() == 0 {
+								errKey = errKey.Put(pkgAlias(mp)+"\x00"+mn, true)
+							}
+						}
+					}
+				}
+			}
+		}
+		for fi, p in pk.Parsed {
+			for i in 0..syntax.NumNodes(p.Tree) {
+				let n = syntax.NodeAt(p.Tree, i)
+				match syntax.ViewOf(p.Tree, n) {
+				case syntax.ErrorRow as r:
+					for j in 0..syntax.Len(r.Types) {
+						let item = syntax.Item(p.Tree, r.Types, j)
+						match syntax.ViewOf(p.Tree, item) {
+						case syntax.Name:
+							errKey = errKey.Put(pa+"\x00"+nameText(p, item), true)
+						case syntax.SelectorExpr as se:
+							match bind.ResolutionOf(pk.U, pk.Ps, bind.PNodeOf(pk.Ps, fi, se.Sel)) {
+							case bind.Imported as im:
+								let ix = int(im.Ref.Import) - 1
+								let paths = store.ImportPaths(ps)
+								if ix >= 0 && ix < paths.Len() {
+									errKey = errKey.Put(pkgAlias(paths[ix])+"\x00"+nameText(p, se.Sel), true)
+								}
+							case _:
+							}
+						case _:
+						}
+					}
+				case syntax.MachineType as mt:
+					recordMachineName(p, mt.State, &machKey)
+					recordMachineName(p, mt.Signal, &machKey)
+				case _:
+				}
+			}
+		}
+	}
+	scan(k, s, alias)
+	for dep in deps {
+		scan(dep.K, dep.S, pkgAlias(dep.Path))
+	}
+	unionLayoutCache{ready: true, hasExt: false, errKey: errKey, machKey: machKey}
+}
+
+func depIdxOf(cache pkgMemo, path string) pkgFlatIndex {
+	match cache.depIdx.Get(path) {
+	case option.Some{Value: idx}:
+		idx
+	case option.None:
+		emptyPkgFlatIndex()
+	}
+}
+
+func namedKeyIn(idx pkgFlatIndex, d dense.ID[store.Decl]) option.Option[dense.ID[store.TKey]] {
+	idx.namedKeys.Get(uint32(dense.Index(d)))
+}
+
+func unionVarsIn(idx pkgFlatIndex, t dense.ID[store.TKey]) []dense.ID[store.TKey] {
+	match idx.unionVars.Get(uint32(dense.Index(t))) {
+	case option.Some{Value: vs}:
+		vs
+	case option.None:
+		[]dense.ID[store.TKey]{}
+	}
+}
+
+func variantsStore(s0 store.Store, u infer.Unions, t dense.ID[store.TKey]) []dense.ID[store.TKey] {
+	let mut s = s0
+	infer.VariantsOf(&s, u, t)
+}
+
+func declCountInPkg(k expr.Pkg, idx pkgFlatIndex, name string) int {
+	if idx.valid {
+		return match idx.declCounts.Get(name) {
+		case option.Some{Value: n}:
+			n
+		case option.None:
+			0
+		}
+	}
+	let mut n = 0
+	for p in k.Parsed {
+		let list = match syntax.ViewOf(p.Tree, syntax.Root(p.Tree)) {
+		case syntax.File as pf:
+			pf.Decls
+		case _:
+			continue
+		}
+		for i in 0..syntax.Len(list) {
+			let d = syntax.Item(p.Tree, list, i)
+			if names(p, d, name) {
+				n += 1
+			}
+		}
+	}
+	n
+}
+
+func buildPkgMemo(st fnb, path string) (pkgFlatIndex, pkgMemo) {
+	let rootIdx = buildPkgFlatIndex(st.k, st.s)
+	let depIdx = buildDepIndexes(st.k, st.s, st.shapeImports)
+	let unionEnv = buildUnionLayoutCache(st.k, st.s, st.alias, st.rootImports)
+	let out = pkgMemo{
+		active:   true,
+		rootPath: path,
+		depIdx:   depIdx,
+		unionEnv: unionEnv,
+	}
+	(rootIdx, out)
+}

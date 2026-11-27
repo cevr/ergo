@@ -16,7 +16,7 @@ type aggregate {
 // aggregateLiteral resolves the literal's operands in source order. A
 // new slice has no seeded capacity in an immutable binding or tail; an
 // ordinary record with every field set has no default or slot adapter.
-func aggregateLiteral(st fnb, x dense.ID[syntax.Node], cl syntax.CompositeLit) aggregate fails Unported {
+func aggregateLiteral(st fnb, binds localBinds, x dense.ID[syntax.Node], cl syntax.CompositeLit) aggregate fails Unported {
 	let t = try typeOf(st, x, "CompositeLit")
 	let gt = shapeGo(st, t)
 	let checked = dense.Unpack(cl.Type) != option.None
@@ -39,22 +39,47 @@ func aggregateLiteral(st fnb, x dense.ID[syntax.Node], cl syntax.CompositeLit) a
 	if gt == "" || !checked {
 		return stop("literal of no plain record")
 	}
+	let (okOpt, optElem) = optionKind(st, t)
 	let fields = if r >= 0 {
 		st.k.Recs[r].Fields
+	} else if okOpt == "Some" {
+		[]expr.Field{expr.Field{Name: "Value", T: optElem}}
 	} else {
 		match importedFields(st, t) {
 		case option.Some{Value: fields}:
 			fields
 		case option.None:
-			return stop("literal of no plain record")
+			if store.KindOfType(st.s, t) == store.KNamed {
+				let vname = store.TypeNameText(st.s, store.ArgOf(st.s, t))
+				match unionDeclParent(st, vname) {
+				case option.Some{Value: parent}:
+					let (vp, v, _) = parent
+					match syntax.ViewOf(vp.Tree, v) {
+					case syntax.VariantSpec as variant:
+						if dense.Unpack(variant.TypeArgs) != option.None {
+							return stop("literal of no plain record")
+						}
+						match unionRecordFields(st, vname) {
+						case option.Some{Value: vfs}:
+							vfs
+						case option.None:
+							return stop("literal of no plain record")
+						}
+					case _:
+						return stop("literal of no plain record")
+					}
+				case option.None:
+					return stop("literal of no plain record")
+				}
+			} else {
+				return stop("literal of no plain record")
+			}
 		}
 	}
 	let n = syntax.Len(cl.Elts)
 	match dense.Unpack(cl.Base) {
 	case option.Some{Value: base}:
-		// Keep the original basic-record update. For a reference-bearing
-		// base the Go value rules decide which paths to copy or transfer.
-		if plainRecord(st, t) < 0 {
+		if r < 0 || holdsValue(st, t) {
 			return stop("record update of a non-basic shape")
 		}
 		if syntax.KindOf(st.p.Tree, base) != syntax.KIdent {
@@ -63,7 +88,7 @@ func aggregateLiteral(st fnb, x dense.ID[syntax.Node], cl syntax.CompositeLit) a
 		if (try typeOf(st, base, "update base")) != t {
 			return stop("record update of another type")
 		}
-		let _ = try paramLocal(st, base)
+		let _ = try paramLocal(st, binds, base)
 	case option.None:
 		if n != fields.Len() {
 			return stop("record literal without every field")
@@ -101,17 +126,17 @@ func fieldIndex(fields []expr.Field, name string) int {
 	-1
 }
 
-func emitAggregate(st fnb, b mut ir.Builder, x dense.ID[syntax.Node], cl syntax.CompositeLit, at ir.Pos) uint32 fails Unported | ir.Malformed {
-	let a = try aggregateLiteral(st, x, cl)
+func emitAggregate(st fnb, binds localBinds, b mut ir.Builder, x dense.ID[syntax.Node], cl syntax.CompositeLit, at ir.Pos) uint32 fails Unported | ir.Malformed {
+	let a = try aggregateLiteral(st, binds, x, cl)
 	let base = match dense.Unpack(cl.Base) {
 	case option.Some{Value: bx}:
-		try value(st, b, bx)
+		try value(st, binds, b, bx)
 	case option.None:
 		uint32(0)
 	}
 	let mut elems = []uint32{}
 	for e in a.values {
-		elems = elems.Append(try value(st, b, e))
+		elems = elems.Append(try value(st, binds, b, e))
 	}
 	let mut names = a.keys
 	if base != 0 {
@@ -130,9 +155,17 @@ func emitAggregate(st fnb, b mut ir.Builder, x dense.ID[syntax.Node], cl syntax.
 }
 
 // field selects a checked field, not a method value or a package member.
-func field(st fnb, x dense.ID[syntax.Node], se syntax.SelectorExpr) string fails Unported {
+func field(st fnb, binds localBinds, x dense.ID[syntax.Node], se syntax.SelectorExpr) string fails Unported {
 	let t = try typeOf(st, se.X, "selector operand")
 	if ordinaryRecord(st, t) < 0 {
+		let (okOpt, optElem) = optionKind(st, t)
+		if okOpt == "Some" {
+			let name = nameText(st.p, se.Sel)
+			if name == "Value" && (try typeOf(st, x, "SelectorExpr")) == optElem {
+				return name
+			}
+			return stop("selector that is no imported field")
+		}
 		match importedFields(st, t) {
 		case option.Some{Value: fields}:
 			// The selector's type is checked in the consumer's pool.
@@ -143,6 +176,25 @@ func field(st fnb, x dense.ID[syntax.Node], se syntax.SelectorExpr) string fails
 			}
 			return name
 		case option.None:
+		}
+		if store.KindOfType(st.s, t) == store.KNamed && shapeGo(st, t) != "" {
+			let vname = store.TypeNameText(st.s, store.ArgOf(st.s, t))
+			match unionDeclParent(st, vname) {
+			case option.Some{Value: parent}:
+				let (vp, v, _) = parent
+				if syntax.KindOf(vp.Tree, v) == syntax.KVariantSpec {
+					match unionRecordFields(st, vname) {
+					case option.Some{Value: fs}:
+						let name = nameText(st.p, se.Sel)
+						let i = fieldIndex(fs, name)
+						if i >= 0 && fs[i].T == (try typeOf(st, x, "SelectorExpr")) && ordinaryFieldName(name) {
+							return name
+						}
+					case option.None:
+					}
+				}
+			case option.None:
+			}
 		}
 		return try unionField(st, x, se)
 	}
@@ -169,15 +221,15 @@ func fieldOn(st fnb, x dense.ID[syntax.Node], se syntax.SelectorExpr, recordType
 
 // readPlace admits immutable local roots and nested record fields, never
 // a borrow, computed receiver or a place passed to an operation that writes.
-func readPlace(st fnb, x dense.ID[syntax.Node]) fails Unported {
+func readPlace(st fnb, binds localBinds, x dense.ID[syntax.Node]) fails Unported {
 	match syntax.ViewOf(st.p.Tree, x) {
 	case syntax.Name:
-		let _ = try paramLocal(st, x)
+		let _ = try paramLocal(st, binds, x)
 	case syntax.SelectorExpr as se:
-		let _ = try field(st, x, se)
-		try readPlace(st, se.X)
+		let _ = try field(st, binds, x, se)
+		try readPlace(st, binds, se.X)
 	case syntax.ParenExpr as pe:
-		try readPlace(st, pe.X)
+		try readPlace(st, binds, pe.X)
 	case _:
 		return stop("read of a computed place")
 	}
@@ -196,6 +248,36 @@ func sliceIndex(st fnb, x dense.ID[syntax.Node], ie syntax.IndexExpr) dense.ID[s
 	syntax.Item(st.p.Tree, ie.Indices, 0)
 }
 
+func sliceCut(st fnb, x dense.ID[syntax.Node], sx syntax.SliceExpr) ([]dense.Opt[syntax.Node], dense.ID[store.TKey]) fails Unported {
+	let t = try typeOf(st, sx.X, "slice operand")
+	if store.KindOfType(st.s, t) != store.KSlice || shapeGo(st, t) == "" {
+		return stop("slice cut of non-slice")
+	}
+	if (try typeOf(st, x, "SliceExpr")) != t {
+		return stop("slice cut type mismatch")
+	}
+	if !directExpr(st, sx.X) {
+		return stop("slice cut operand with statements")
+	}
+	let mut idx = []dense.Opt[syntax.Node]{sx.Low, sx.High}
+	if sx.Slice3 {
+		idx = idx.Append(sx.Max)
+	}
+	for opt in idx {
+		match dense.Unpack(opt) {
+		case option.Some{Value: e}:
+			if basicGo(st, try typeOf(st, e, "slice bound")) != "int" {
+				return stop("slice bound of non-int")
+			}
+			if !directExpr(st, e) {
+				return stop("slice bound with statements")
+			}
+		case option.None:
+		}
+	}
+	(idx, t)
+}
+
 func bareEmptyRecord(st fnb, x dense.ID[syntax.Node]) string {
 	let t = typeOf(st, x, "bare record") catch {
 	case Unported:
@@ -207,11 +289,41 @@ func bareEmptyRecord(st fnb, x dense.ID[syntax.Node]) string {
 	}
 	match syntax.ViewOf(st.p.Tree, x) {
 	case syntax.Name:
+		let (okOpt, _) = optionKind(st, t)
+		if okOpt == "None" {
+			return gt
+		}
 		let r = ordinaryRecord(st, t)
-		if r < 0 || st.k.Recs[r].Fields.Len() != 0 {
+		let vname = if r >= 0 {
+			if st.k.Recs[r].Fields.Len() != 0 {
+				return ""
+			}
+			st.k.Recs[r].Name
+		} else if store.KindOfType(st.s, t) == store.KNamed {
+			let vn = store.TypeNameText(st.s, store.ArgOf(st.s, t))
+			let isSpec = match unionDeclParent(st, vn) {
+			case option.Some{Value: parent}:
+				let (vp, v, _) = parent
+				syntax.KindOf(vp.Tree, v) == syntax.KVariantSpec
+			case option.None:
+				false
+			}
+			if !isSpec {
+				return ""
+			}
+			match unionRecordFields(st, vn) {
+			case option.Some{Value: fs}:
+				if fs.Len() != 0 {
+					return ""
+				}
+			case option.None:
+				return ""
+			}
+			vn
+		} else {
 			return ""
 		}
-		let d = match store.Lookup(st.s, st.k.Recs[r].Name) {
+		let d = match store.Lookup(st.s, vname) {
 		case option.Some{Value: id}:
 			store.DeclOf(st.s, id)
 		case option.None:
@@ -225,6 +337,10 @@ func bareEmptyRecord(st fnb, x dense.ID[syntax.Node]) string {
 			""
 		}
 	case syntax.SelectorExpr as se:
+		let (okOpt, _) = optionKind(st, t)
+		if okOpt == "None" {
+			return gt
+		}
 		match bind.ResolutionOf(st.k.U, st.k.Ps, bind.PNodeOf(st.k.Ps, st.file, se.Sel)) {
 		case bind.Imported:
 		case _:

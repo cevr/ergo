@@ -57,31 +57,34 @@ func needsFrame(st fnb, f expr.Fn, body dense.ID[syntax.Node], name string, ops 
 
 // parameterSlots binds names once, leaving unnamed formal slots in place.
 // The environment precedes ordinary parameters, but follows a receiver.
-func parameterSlots(st mut fnb, f expr.Fn) {
+func parameterSlots(st fnb, f expr.Fn) localBinds {
+	let mut params = []dense.ID[store.PNode]{}
+	let mut locals = []int{}
 	for i, pn in f.Names {
 		match dense.Unpack(pn) {
 		case option.Some[dense.ID[syntax.Node]] as x:
-			st.params = st.params.Append(bind.PNodeOf(st.k.Ps, st.file, x.Value))
-			st.locals = st.locals.Append(if st.frame.env >= 0 && i >= st.frame.env { i + 1 } else { i })
+			params = params.Append(bind.PNodeOf(st.k.Ps, st.file, x.Value))
+			locals = locals.Append(if st.frame.env >= 0 && i >= st.frame.env { i + 1 } else { i })
 		case option.None:
 		}
 	}
+	localBinds{params: params, locals: locals}
 }
 
 // frameBody writes the effect profile's single tail after its frame and
 // expression have been checked. Other bodies belong to the statement
 // walker. A direct operation is scheduled before the expression only
 // when it has been proved to supply the leftmost operand.
-func frameBody(st fnb, b mut ir.Builder, fp ir.Pos, op directOp) fails Unported | ir.Malformed {
+func frameBody(st fnb, binds localBinds, b mut ir.Builder, fp ir.Pos, op directOp) fails Unported | ir.Malformed {
 	let mut out = []uint32{}
 	if st.frame.pollEntry {
 		out = out.Append(try framePoll(st, b, fp))
 	}
-	let rows = try operationRows(st, b, op)
+	let rows = try operationRows(st, binds, b, op)
 	for x in rows {
 		out = out.Append(x)
 	}
-	let x = try value(st, b, op.tail)
+	let x = try value(st, binds, b, op.tail)
 	let at = pos(st, syntax.NodePos(st.p, op.tail))
 	out = out.Append(try ir.Row(b, ir.KindCode(ir.TStmt, "ret"), at, []uint32{x}))
 	try ir.End(b, ir.List(b, out))
