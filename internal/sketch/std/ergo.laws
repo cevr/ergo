@@ -24,6 +24,7 @@ fact go encoding/hex pure members validated by guard with go1.27.4 h1:mB4b6WuiVA
 fact go ergo.local/prototype/runtime/v1/hostfs.FileReadDir effect ambient validated by guard with go1.27.4 h1:wuQJb4Ki/jy+tPPzHgHZgLQrb2U+zim/0Jn5/UHJf8k=
 fact go ergo.local/prototype/runtime/v1/hostfs.FileReaddir effect ambient validated by guard with go1.27.4 h1:CrhneS+h1fk/knhZreb4FVhqvGqNVCIbCMMbsS9Z6/w=
 fact go ergo.local/prototype/runtime/v1/hostfs.FileStat effect ambient validated by guard with go1.27.4 h1:3iVoohmN/VxHZnEZvDLQ35T2Z9TYrPFSE6H28uAeh/w=
+fact go ergo.local/prototype/runtime/v1/hostfs.Getfsstat effect ambient validated by guard with go1.27.4 h1:kD2a5H1hYbfo9YkXdgnRrFh5grWTsZ7Yfa1IlBEcD74=
 fact go ergo.local/prototype/runtime/v1/hostfs.Lstat effect ambient validated by guard with go1.27.4 h1:ySqhFpLTezsColLQ+cz8s6REG7UjpA+yKDg4qXHNpnA=
 fact go ergo.local/prototype/runtime/v1/hostfs.ReadDir effect ambient validated by guard with go1.27.4 h1:d+oUwLLL8D0coEwPEeJdVlVsC0tqpyUM1wlJJKB/578=
 fact go ergo.local/prototype/runtime/v1/hostfs.Stat effect ambient validated by guard with go1.27.4 h1:nFnSkH1a/C75WshEZGFkVNwBm5TWmNuFdglevEi+GGA=

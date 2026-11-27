@@ -50,6 +50,19 @@ type StatfsInfo struct {
 	Available int64
 }
 
+// MountStat is one mounted filesystem entry returned by Getfsstat together
+// with its byte capacity counters.
+type MountStat struct {
+	MountPoint string
+	Source     string
+	FSType     string
+	DeviceID   string
+	Options    []string
+	Total      int64
+	Free       int64
+	Available  int64
+}
+
 // Stat is os.Stat's metadata of name, following a symbolic link.
 func Stat(name string) (Info, error) {
 	fi, err := os.Stat(name)

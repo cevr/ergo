@@ -21,6 +21,10 @@ extern go ergo.local/prototype/runtime/v1/hostfs.Entry type Entry {
 // ergo:go func FileStat(f *os.File) (Info, error)
 // ergo:refused FileStat: it names the refused type os.File
 
+// ergo:go func Getfsstat() ([]MountStat, error)
+// ergo:effect ambient (vouched: it calls Darwin syscall.Getfsstat(MNT_NOWAIT) to enumerate mounted filesystems and their byte capacities (returning ENOSYS elsewhere))
+extern go ergo.local/prototype/runtime/v1/hostfs.Getfsstat func Getfsstat() []MountStat fails go.Error needs Ambient
+
 // ergo:go type Info struct
 extern go ergo.local/prototype/runtime/v1/hostfs.Info type Info {
 	Name    string,
@@ -33,6 +37,18 @@ extern go ergo.local/prototype/runtime/v1/hostfs.Info type Info {
 // ergo:go func Lstat(name string) (Info, error)
 // ergo:effect ambient (vouched: it calls os.Lstat on one path, not following a symbolic link, and copies the five values of its result into a new struct)
 extern go ergo.local/prototype/runtime/v1/hostfs.Lstat func Lstat(name string) Info fails go.Error needs Ambient
+
+// ergo:go type MountStat struct
+extern go ergo.local/prototype/runtime/v1/hostfs.MountStat type MountStat {
+	MountPoint string,
+	Source     string,
+	FSType     string,
+	DeviceID   string,
+	Options    []string,
+	Total      int64,
+	Free       int64,
+	Available  int64,
+}
 
 // ergo:go const Path untyped string
 extern go ergo.local/prototype/runtime/v1/hostfs.Path let Path string
