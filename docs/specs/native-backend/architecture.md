@@ -370,6 +370,18 @@ Assumed until now, measured from `NB-4E` on. The workloads are named: **W1**, `c
 
 The receipt is [docs/receipts/rc-cost.md](../../receipts/rc-cost.md) (written by `NB-4E`); the static counts come from `compiler/perceus`'s `TransformStats`, the dynamic ones from counters in a stats build of `runtime/native`.
 
+### The Go route as the compliance oracle
+
+Owner, 2026-11-27: "use the Go backend as a sort of compliance test so that we can write our own backend code against the Go compiler since we know the Go compiler works pretty much everywhere".
+
+Decided: until `NB-7`, the Stage-0 Go route is the differential oracle of the native route. The same checked program is built both ways and run on the same cases, and the observable results must be equal.
+
+- **Compared:** standard output and standard error bytes; the exit code; each typed failure (its variant and payload) and each defect (its kind and `.ergo` position); every law's verdict and counterexample; and, under `ergo test --explore --schedule TOKEN`, the sequence of observable events for the same token. The last one binds `NB-5`: choice points are numbered by [the runtime spec](../../spec/runtime.md), not by a runtime, so one token means one schedule on both.
+- **Never compared:** memory, allocation counts, addresses, timing, reduction counts, the bytes of the two executables, or any order the spec leaves open.
+- **Three oracles while Go lives.** Where `compiler/eval` can run the program (pure code, laws), eval, the Go route and the native route must all agree, and two against one names the faulty one. Where eval cannot (I/O, tasks, actors, `extern c`, the std suites, the examples), the Go route is the oracle alone.
+- **A known Stage-0 fault** is a listed divergence with its reason, in a sites file written by the tool (as `check_agree.sites`); nothing is skipped silently and the list may only shrink.
+- **What replaces it.** `NB-7` deletes Go only at a head where this differential is green over the whole corpus. From then the oracles are `compiler/eval` for pure code; the cross-tier agreement suites (eval, Dev tier, Release tier, `wasm32`: independent lowerings of one IR); agreement of the same suites across `linux/amd64`, `linux/arm64` and `darwin/arm64` (the portability the Go compiler gave); and, for effectful and concurrent behaviour, the std law suites, the explored models and schedule replay.
+
 ---
 
 ## Stage-0 -> Stage-1 -> Stage-2 Bootstrap & Go Deletion Criteria
