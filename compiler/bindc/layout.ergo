@@ -1,0 +1,108 @@
+import dense
+
+// MaxObject is the maximum struct size in bytes permitted by the C subset.
+let MaxObject uint64 = (uint64(1) << 31) - 1
+
+// SizeAlign holds byte size and alignment of a C type.
+type SizeAlign {
+	Size  uint64,
+	Align uint64,
+}
+
+func roundUpAlign(n uint64, a uint64) uint64 {
+	((n + a - 1) / a) * a
+}
+
+func typeSizeCore(tt TypeTable, st StrTable, dt DeclTable, declByName []uint32, typeIdx uint32) SizeAlign {
+	let id = TypeAt(tt, typeIdx)
+	let kind = dense.Of(tt.Kind, id)
+	if kind == TypeScalar {
+		let sz = ScalarSize(dense.Of(tt.Scalar, id))
+		return SizeAlign{Size: sz, Align: sz}
+	}
+	if kind == TypePointer {
+		return SizeAlign{Size: PointerSize, Align: PointerSize}
+	}
+	if kind == TypeArray {
+		let elemSA = typeSizeCore(tt, st, dt, declByName, dense.Of(tt.Elem, id))
+		return SizeAlign{Size: elemSA.Size * dense.Of(tt.Len, id), Align: elemSA.Align}
+	}
+	if kind == TypeNamed {
+		let sid = dense.Of(tt.Name, id)
+		let declIdx = if int(sid) < declByName.Len() { declByName[int(sid)] } else { NoID }
+		if declIdx != NoID {
+			let did = dense.IDAt(dt.Ids, int(declIdx))
+			let dk = dense.Of(dt.Kind, did)
+			if dk == DeclScalar {
+				let sz = ScalarSize(dense.Of(dt.Scalar, did))
+				return SizeAlign{Size: sz, Align: sz}
+			}
+			if dk == DeclCallback {
+				return SizeAlign{Size: PointerSize, Align: PointerSize}
+			}
+			if dk == DeclStruct {
+				return SizeAlign{Size: dense.Of(dt.Size, did), Align: dense.Of(dt.Align, did)}
+			}
+		}
+	}
+	SizeAlign{Size: 0, Align: 1}
+}
+
+// TypeSize computes the byte size and alignment of C type typeIdx on tier-1 LP64 targets.
+func TypeSize(m Model, typeIdx uint32) SizeAlign {
+	typeSizeCore(m.Types, m.Strings, m.Decls, m.DeclByName, typeIdx)
+}
+
+// LayoutOut holds whether struct layout succeeded and its total byte size and alignment.
+type LayoutOut {
+	Ok    bool,
+	Size  uint64,
+	Align uint64,
+}
+
+// LayoutStruct fills field offsets, sizes, and alignments for [fieldsStart, fieldsStart+fieldsLen).
+func LayoutStruct(m mut Model, fieldsStart uint32, fieldsLen uint32) LayoutOut {
+	let mut off uint64 = 0
+	let mut align uint64 = 1
+	let mut k uint32 = 0
+	for k < fieldsLen {
+		let fid = dense.IDAt(m.Fields.Ids, int(fieldsStart+k))
+		let ftype = dense.Of(m.Fields.Type, fid)
+		let sa = typeSizeCore(m.Types, m.Strings, m.Decls, m.DeclByName, ftype)
+		off = roundUpAlign(off, sa.Align)
+		dense.SetOf(&m.Fields.Offset, fid, off)
+		dense.SetOf(&m.Fields.Size, fid, sa.Size)
+		dense.SetOf(&m.Fields.Align, fid, sa.Align)
+		off = off + sa.Size
+		if off > MaxObject {
+			return LayoutOut{Ok: false, Size: 0, Align: 0}
+		}
+		if sa.Align > align {
+			align = sa.Align
+		}
+		k = k + 1
+	}
+	let total = roundUpAlign(off, align)
+	LayoutOut{Ok: total <= MaxObject, Size: total, Align: align}
+}
+
+// StructLayoutAlignsAndPadsFields verifies alignment, padding, and total struct size computation.
+law StructLayoutAlignsAndPadsFields(n uint8) {
+	let mut m = NewModel("l.h")
+	let u8 = PushType(&m.Types, TypeScalar, ScalarUint8, 0, false, NoID, 0, 0)
+	let u64 = PushType(&m.Types, TypeScalar, ScalarUint64, 0, false, NoID, 0, 0)
+	let u16 = PushType(&m.Types, TypeScalar, ScalarUint16, 0, false, NoID, 0, 0)
+	let f0 = InternModelStr(&m, "a")
+	let f1 = InternModelStr(&m, "b")
+	let f2 = InternModelStr(&m, "c")
+	let start = uint32(dense.Total(m.Fields.Ids))
+	let _ = PushField(&m, f0, u8, 0, 0, 0)
+	let _ = PushField(&m, f1, u64, 0, 0, 0)
+	let _ = PushField(&m, f2, u16, 0, 0, 0)
+	let out = LayoutStruct(&m, start, 3)
+	let ok = out.Ok && out.Size == 24 && out.Align == 8
+	let id0 = dense.IDAt(m.Fields.Ids, int(start))
+	let id1 = dense.IDAt(m.Fields.Ids, int(start+1))
+	let id2 = dense.IDAt(m.Fields.Ids, int(start+2))
+	ok && dense.Of(m.Fields.Offset, id0) == 0 && dense.Of(m.Fields.Offset, id1) == 8 && dense.Of(m.Fields.Offset, id2) == 16 && (int(n) >= 0)
+}

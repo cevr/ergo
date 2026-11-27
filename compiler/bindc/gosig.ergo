@@ -1,0 +1,311 @@
+import dense
+import strconv
+import strings
+
+// GoParam represents one parameter of a typed Go function or callback type.
+type GoParam {
+	Name  string,
+	Type  string,
+	C     uint32,
+	Class uint8,
+}
+
+// GoResult represents one result of a typed Go function or callback (excluding trailing error).
+type GoResult {
+	Type  string,
+	C     uint32,
+	IsRet bool,
+}
+
+// GoSig represents the Go signature of a typed bound function.
+type GoSig {
+	Params  []GoParam,
+	Results []GoResult,
+	Status  bool,
+}
+
+// GoCallbackSig represents the Go func type of a bound callback typedef.
+type GoCallbackSig {
+	Params  []GoParam,
+	Results []GoResult,
+}
+
+let goScalarNames = []string{
+	"",
+	"int8",
+	"int16",
+	"int32",
+	"int64",
+	"uint8",
+	"uint16",
+	"uint32",
+	"uint64",
+	"bool",
+	"float32",
+	"float64",
+}
+
+// GoScalarName maps a C scalar code to its Go type spelling.
+func GoScalarName(s uint8) string {
+	let idx = int(s)
+	if idx < 0 || idx >= goScalarNames.Len() {
+		return ""
+	}
+	goScalarNames[idx]
+}
+
+// GoTypeSpelling returns the Go value type spelling for C type typeID.
+func GoTypeSpelling(k Classifier, goTypes []string, typeID uint32) string {
+	let tid = TypeAt(k.M.Types, typeID)
+	let kind = dense.Of(k.M.Types.Kind, tid)
+	if kind == TypeScalar {
+		return GoScalarName(dense.Of(k.M.Types.Scalar, tid))
+	}
+	if kind == TypeNamed {
+		let name = StrText(k.M.Strings, dense.Of(k.M.Types.Name, tid))
+		let dIdx = kDeclIdx(k, name)
+		if dIdx != NoID {
+			return goTypes[int(dIdx)]
+		}
+		return "?"
+	}
+	if kind == TypeArray {
+		return "[" + FormatUint64(dense.Of(k.M.Types.Len, tid)) + "]" + GoTypeSpelling(k, goTypes, dense.Of(k.M.Types.Elem, tid))
+	}
+	if kind == TypePointer {
+		let elem = dense.Of(k.M.Types.Elem, tid)
+		let eID = TypeAt(k.M.Types, elem)
+		if dense.Of(k.M.Types.Kind, eID) == TypeNamed {
+			let eName = StrText(k.M.Strings, dense.Of(k.M.Types.Name, eID))
+			if kHandleIdxForType(k, eName) != NoID {
+				let dIdx = kDeclIdx(k, eName)
+				return "*" + goTypes[int(dIdx)]
+			}
+		}
+		return "uintptr"
+	}
+	"?"
+}
+
+func sliceElemGoType(k Classifier, goTypes []string, typeID uint32) string {
+	let et = GoTypeSpelling(k, goTypes, typeID)
+	if et != "uint8" {
+		return et
+	}
+	"byte"
+}
+
+// ParamWant computes the base lowerCamel parameter name for parameter i of pr.
+func ParamWant(k Classifier, pr paramRange, i uint32) string {
+	let cName = prParamName(k, pr, i)
+	let mut n = LowerCamel(cName)
+	if n == "" {
+		let mut t = prParamType(k, pr, i)
+		for dense.Of(k.M.Types.Kind, TypeAt(k.M.Types, t)) == TypePointer {
+			t = dense.Of(k.M.Types.Elem, TypeAt(k.M.Types, t))
+		}
+		let tid = TypeAt(k.M.Types, t)
+		if dense.Of(k.M.Types.Kind, tid) == TypeNamed {
+			let tName = StrText(k.M.Strings, dense.Of(k.M.Types.Name, tid))
+			let pref = StrText(k.C.Strings, k.C.PrefixType)
+			n = LowerCamel(strings.TrimPrefix(tName, pref))
+		}
+		if n == "" {
+			n = "arg" + strconv.Itoa(int(i))
+		}
+	}
+	n
+}
+
+func paramSourceDesc(k Classifier, pr paramRange, i uint32) string {
+	"parameter " + PositionNameRange(k.M, pr.pStart, i, false) + " of " + pr.fnName
+}
+
+// GoSigString formats a typed Go function signature.
+func GoSigString(s GoSig, name string) string {
+	let mut b = strings.NewBuilder()
+	strings.WriteString(&b, "func "+name+"(")
+	let mut i = 0
+	for i < s.Params.Len() {
+		if i > 0 {
+			strings.WriteString(&b, ", ")
+		}
+		strings.WriteString(&b, s.Params[i].Name+" "+s.Params[i].Type)
+		i = i + 1
+	}
+	strings.WriteByte(&b, ')')
+	let mut res = []string{}
+	for r in s.Results {
+		res = res.Append(r.Type)
+	}
+	res = res.Append("error")
+	if res.Len() == 1 {
+		strings.WriteString(&b, " "+res[0])
+	} else {
+		strings.WriteString(&b, " ("+strings.Join(res, ", ")+")")
+	}
+	strings.String(b)
+}
+
+// GoCallbackSigString formats a bound callback Go func type.
+func GoCallbackSigString(s GoCallbackSig) string {
+	let mut b = strings.NewBuilder()
+	strings.WriteString(&b, "func(")
+	let mut i = 0
+	for i < s.Params.Len() {
+		if i > 0 {
+			strings.WriteString(&b, ", ")
+		}
+		strings.WriteString(&b, s.Params[i].Name+" "+s.Params[i].Type)
+		i = i + 1
+	}
+	strings.WriteByte(&b, ')')
+	if s.Results.Len() == 1 {
+		strings.WriteString(&b, " "+s.Results[0].Type)
+	} else if s.Results.Len() > 1 {
+		let mut res = []string{}
+		for r in s.Results {
+			res = res.Append(r.Type)
+		}
+		strings.WriteString(&b, " ("+strings.Join(res, ", ")+")")
+	}
+	strings.String(b)
+}
+
+func buildGoSig(
+	k Classifier,
+	goTypes []string,
+	hasRecordUnion []bool,
+	pr paramRange,
+	positions []Position,
+	sa mut ScopeArena,
+	pkgScope uint32,
+) GoSig {
+	let mut posIdx = []uint32{}
+	let mut consumed = []bool{}
+	let mut k0 uint32 = 0
+	for k0 < pr.pLen {
+		posIdx = posIdx.Append(NoID)
+		consumed = consumed.Append(false)
+		k0 = k0 + 1
+	}
+	let mut pi = 0
+	for pi < positions.Len() {
+		let q = positions[pi]
+		if !q.IsRes {
+			posIdx[int(q.Param)] = uint32(pi)
+			if q.Class == ClassInBuffer || q.Class == ClassOutBuffer {
+				consumed[int(q.Length)] = true
+			}
+		}
+		pi = pi + 1
+	}
+	let mut results = []GoResult{}
+	let mut isStatus = false
+	let resID = TypeAt(k.M.Types, pr.res)
+	let stTypeName = StrText(k.C.Strings, k.C.StatusType)
+	if dense.Of(k.M.Types.Kind, resID) != TypeVoid {
+		if dense.Of(k.M.Types.Kind, resID) == TypeNamed && StrText(k.M.Strings, dense.Of(k.M.Types.Name, resID)) == stTypeName {
+			isStatus = true
+		} else {
+			results = results.Append(GoResult{Type: GoTypeSpelling(k, goTypes, pr.res), C: NoID, IsRet: true})
+		}
+	}
+	let usedScope = NewGoFuncScope(&sa, pkgScope)
+	let mut params = []GoParam{}
+	let mut i uint32 = 0
+	for i < pr.pLen {
+		if consumed[int(i)] {
+			i = i + 1
+			continue
+		}
+		let pt = prParamType(k, pr, i)
+		let pID = TypeAt(k.M.Types, pt)
+		let pIdx = posIdx[int(i)]
+		if pIdx == NoID {
+			let pn = ScopeAlloc(&sa, usedScope, ParamWant(k, pr, i), paramSourceDesc(k, pr, i))
+			params = params.Append(GoParam{Name: pn, Type: GoTypeSpelling(k, goTypes, pt), C: i, Class: ClassNone})
+			i = i + 1
+			continue
+		}
+		let q = positions[int(pIdx)]
+		if q.Class == ClassHandle {
+			let eID = TypeAt(k.M.Types, dense.Of(k.M.Types.Elem, pID))
+			let eDecl = kDeclIdx(k, StrText(k.M.Strings, dense.Of(k.M.Types.Name, eID)))
+			let pn = ScopeAlloc(&sa, usedScope, ParamWant(k, pr, i), paramSourceDesc(k, pr, i))
+			params = params.Append(GoParam{Name: pn, Type: "*" + goTypes[int(eDecl)], C: i, Class: q.Class})
+		} else if q.Class == ClassValue {
+			let elem = dense.Of(k.M.Types.Elem, pID)
+			let eID = TypeAt(k.M.Types, elem)
+			let mut tStr = GoTypeSpelling(k, goTypes, elem)
+			if dense.Of(k.M.Types.LenExpr, pID) != 0 {
+				tStr = "[" + FormatUint64(dense.Of(k.M.Types.Len, pID)) + "]" + tStr
+			} else if dense.Of(k.M.Types.Kind, eID) == TypeNamed {
+				let eDecl = kDeclIdx(k, StrText(k.M.Strings, dense.Of(k.M.Types.Name, eID)))
+				if eDecl != NoID && hasRecordUnion[int(eDecl)] {
+					tStr = goTypes[int(eDecl)] + "Record"
+				}
+			}
+			let pn = ScopeAlloc(&sa, usedScope, ParamWant(k, pr, i), paramSourceDesc(k, pr, i))
+			params = params.Append(GoParam{Name: pn, Type: tStr, C: i, Class: q.Class})
+		} else if q.Class == ClassOptional {
+			let elem = dense.Of(k.M.Types.Elem, pID)
+			let pn = ScopeAlloc(&sa, usedScope, ParamWant(k, pr, i), paramSourceDesc(k, pr, i))
+			params = params.Append(GoParam{Name: pn, Type: "*" + GoTypeSpelling(k, goTypes, elem), C: i, Class: q.Class})
+		} else if q.Class == ClassInBuffer || q.Class == ClassOutBuffer {
+			let elem = dense.Of(k.M.Types.Elem, pID)
+			let pn = ScopeAlloc(&sa, usedScope, ParamWant(k, pr, i), paramSourceDesc(k, pr, i))
+			params = params.Append(GoParam{Name: pn, Type: "[]" + sliceElemGoType(k, goTypes, elem), C: i, Class: q.Class})
+		} else if q.Class == ClassCallback {
+			let cDecl = kDeclIdx(k, StrText(k.M.Strings, dense.Of(k.M.Types.Name, pID)))
+			let pn = ScopeAlloc(&sa, usedScope, ParamWant(k, pr, i), paramSourceDesc(k, pr, i))
+			params = params.Append(GoParam{Name: pn, Type: goTypes[int(cDecl)], C: i, Class: q.Class})
+		} else if q.Class == ClassOut || q.Class == ClassOutCount {
+			let elem = dense.Of(k.M.Types.Elem, pID)
+			results = results.Append(GoResult{Type: GoTypeSpelling(k, goTypes, elem), C: i, IsRet: false})
+		}
+		i = i + 1
+	}
+	GoSig{Params: params, Results: results, Status: isStatus}
+}
+
+func buildGoCallbackSig(
+	k Classifier,
+	goTypes []string,
+	declIdx uint32,
+	positions []Position,
+	sa mut ScopeArena,
+	pkgScope uint32,
+) GoCallbackSig {
+	let pr = cbFuncRange(k, declIdx)
+	let mut results = []GoResult{}
+	let resID = TypeAt(k.M.Types, pr.res)
+	let rKind = dense.Of(k.M.Types.Kind, resID)
+	if rKind == TypePointer {
+		results = results.Append(GoResult{Type: "uintptr", C: NoID, IsRet: true})
+	} else if rKind != TypeVoid {
+		results = results.Append(GoResult{Type: GoTypeSpelling(k, goTypes, pr.res), C: NoID, IsRet: true})
+	}
+	let usedScope = NewGoFuncScope(&sa, pkgScope)
+	let mut params = []GoParam{}
+	for q in positions {
+		let pt = prParamType(k, pr, q.Param)
+		let pID = TypeAt(k.M.Types, pt)
+		if q.Class == ClassScalar {
+			let pn = ScopeAlloc(&sa, usedScope, ParamWant(k, pr, q.Param), paramSourceDesc(k, pr, q.Param))
+			params = params.Append(GoParam{Name: pn, Type: GoTypeSpelling(k, goTypes, pt), C: q.Param, Class: q.Class})
+		} else if q.Class == ClassValue {
+			let pn = ScopeAlloc(&sa, usedScope, ParamWant(k, pr, q.Param), paramSourceDesc(k, pr, q.Param))
+			params = params.Append(GoParam{Name: pn, Type: GoTypeSpelling(k, goTypes, dense.Of(k.M.Types.Elem, pID)), C: q.Param, Class: q.Class})
+		} else if q.Class == ClassInBuffer {
+			let pn = ScopeAlloc(&sa, usedScope, ParamWant(k, pr, q.Param), paramSourceDesc(k, pr, q.Param))
+			params = params.Append(GoParam{Name: pn, Type: "[]" + sliceElemGoType(k, goTypes, dense.Of(k.M.Types.Elem, pID)), C: q.Param, Class: q.Class})
+		} else if q.Class == ClassOut {
+			results = results.Append(GoResult{Type: GoTypeSpelling(k, goTypes, dense.Of(k.M.Types.Elem, pID)), C: q.Param, IsRet: false})
+		} else if q.Class == ClassOutArray {
+			let rType = "[" + strconv.Itoa(int(q.Array)) + "]" + GoTypeSpelling(k, goTypes, dense.Of(k.M.Types.Elem, pID))
+			results = results.Append(GoResult{Type: rType, C: q.Param, IsRet: false})
+		}
+	}
+	GoCallbackSig{Params: params, Results: results}
+}

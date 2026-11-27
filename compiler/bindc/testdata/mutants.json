@@ -1,0 +1,213 @@
+{
+  "about": "Pure-Ergo C FFI compiler pipeline (compiler/bindc).",
+  "mutants": [
+    {
+      "name": "selfhost-bindc-diag-tie-col",
+      "origin": "selfhost-bindc-core",
+      "file": "compiler/bindc/diag.ergo",
+      "decl": "cmpDiag",
+      "from": "\tif a.Col < b.Col {\n\t\treturn -1\n\t}\n",
+      "to": "\tif false {\n\t\treturn -1\n\t}\n",
+      "rule": "Diagnostic sorting must order earlier columns first before preserving ties",
+      "killers": ["compiler/bindc:law:DiagSortedPreservesTies"],
+      "anchor": {
+        "tests": ["compiler/bindc:law:DiagSortedPreservesTies"]
+      }
+    },
+    {
+      "name": "selfhost-bindc-lex-trigraph-refuse",
+      "origin": "selfhost-bindc-core",
+      "file": "compiler/bindc/lex.ergo",
+      "decl": "Lex",
+      "from": "\t\tif src[k] == '?' && k+2 < n && src[k+1] == '?' && isTrigraphThird(src[k+2]) {\n",
+      "to": "\t\tif false {\n",
+      "rule": "Lex must diagnose trigraph sequences outside the C subset",
+      "killers": ["compiler/bindc:law:LexRefusesTrigraphsDigraphsAndContinuations"],
+      "anchor": {
+        "tests": ["compiler/bindc:law:LexRefusesTrigraphsDigraphsAndContinuations"]
+      }
+    },
+    {
+      "name": "selfhost-bindc-lex-splice-require-space",
+      "origin": "selfhost-bindc-core",
+      "file": "compiler/bindc/lex.ergo",
+      "decl": "spliceableMask",
+      "from": "\t\t\tif directive && !comment && k > 0 && (src[k-1] == ' ' || src[k-1] == '\\t') {\n",
+      "to": "\t\t\tif directive && !comment && k > 0 {\n",
+      "rule": "Directive line continuations are only valid when preceded by whitespace",
+      "killers": ["compiler/bindc:law:LexDropsCommentsAndSetsBol"],
+      "anchor": {
+        "tests": ["compiler/bindc:law:LexDropsCommentsAndSetsBol"]
+      }
+    },
+    {
+      "name": "selfhost-bindc-directive-fast-macro-len",
+      "origin": "selfhost-bindc-core",
+      "file": "compiler/bindc/directive.ergo",
+      "decl": "matchesReservedMacroRegex",
+      "from": "\t\t\tif hasPrefixAt(s, midStart, \"_FAST\") && allDigits(s, midStart+5, midEnd) {\n",
+      "to": "\t\t\tif hasPrefixAt(s, midStart, \"_FAST\") && allDigits(s, midStart+6, midEnd) {\n",
+      "rule": "Reserved stdint _FAST macro matching must check digits starting immediately after the 5-byte _FAST prefix",
+      "killers": ["compiler/bindc:law:ReservedMacroNamesRefusesStandardAndReserved"],
+      "anchor": {
+        "tests": ["compiler/bindc:law:ReservedMacroNamesRefusesStandardAndReserved"]
+      }
+    },
+    {
+      "name": "selfhost-bindc-constexpr-shift-ub",
+      "origin": "selfhost-bindc-core",
+      "file": "compiler/bindc/constexpr.ergo",
+      "decl": "evalShift",
+      "from": "\tif y.V.Neg || y.V.Limbs.Len() > 2 || bigLow64(y.V) >= uint64(w) {\n",
+      "to": "\tif y.V.Neg || y.V.Limbs.Len() > 2 || bigLow64(y.V) > uint64(w) {\n",
+      "rule": "Shifting by the operand bit width or greater is undefined behavior and must fail",
+      "killers": ["compiler/bindc:law:ConstExprLP64PromotionAndUB"],
+      "anchor": {
+        "tests": ["compiler/bindc:law:ConstExprLP64PromotionAndUB"]
+      }
+    },
+    {
+      "name": "selfhost-bindc-constexpr-signed-overflow",
+      "origin": "selfhost-bindc-core",
+      "file": "compiler/bindc/constexpr.ergo",
+      "decl": "evalFit",
+      "from": "\tif !bigInRange(v, scalar) {\n",
+      "to": "\tif false {\n",
+      "rule": "Signed integer constant expression overflow must fail with CodeConstantRange",
+      "killers": ["compiler/bindc:law:ConstExprLP64PromotionAndUB"],
+      "anchor": {
+        "tests": ["compiler/bindc:law:ConstExprLP64PromotionAndUB"]
+      }
+    },
+    {
+      "name": "selfhost-bindc-layout-field-align",
+      "origin": "selfhost-bindc-core",
+      "file": "compiler/bindc/layout.ergo",
+      "decl": "LayoutStruct",
+      "from": "\t\toff = roundUpAlign(off, sa.Align)\n",
+      "to": "\t\toff = off\n",
+      "rule": "Struct field layout must align each field offset up to its ABI alignment",
+      "killers": ["compiler/bindc:law:StructLayoutAlignsAndPadsFields"],
+      "anchor": {
+        "tests": ["compiler/bindc:law:StructLayoutAlignsAndPadsFields"]
+      }
+    },
+    {
+      "name": "selfhost-bindc-parse-knr-empty",
+      "origin": "selfhost-bindc-core",
+      "file": "compiler/bindc/parse.ergo",
+      "decl": "pParams",
+      "from": "\tif tvIs(pPeek(&p), \")\") {\n\t\treturn pFailKAndR(&p, open, []uint32{}, owner, owner.text+\" has an empty parameter list; write (void)\")\n\t}\n",
+      "to": "\tif false {\n\t\treturn pFailKAndR(&p, open, []uint32{}, owner, owner.text+\" has an empty parameter list; write (void)\")\n\t}\n",
+      "rule": "Empty parameter lists () must be diagnosed as K&R style with CodeKAndR",
+      "killers": ["compiler/bindc:law:ParseRefusesOutOfSubsetConstructs"],
+      "anchor": {
+        "tests": ["compiler/bindc:law:ParseRefusesOutOfSubsetConstructs"]
+      }
+    },
+    {
+      "name": "selfhost-bindc-parse-stdint-guard",
+      "origin": "selfhost-bindc-core",
+      "file": "compiler/bindc/parse.ergo",
+      "decl": "pTypeSpec",
+      "from": "\t\tif h != \"\" && !IncludedBefore(p.pr, h, tv.line, tv.col) {\n",
+      "to": "\t\tif false {\n",
+      "rule": "Fixed-width and boolean scalar types must require their standard header before use",
+      "killers": ["compiler/bindc:law:ParseRefusesOutOfSubsetConstructs"],
+      "anchor": {
+        "tests": ["compiler/bindc:law:ParseRefusesOutOfSubsetConstructs"]
+      }
+    },
+    {
+      "name": "selfhost-bindc-print-constant-html-escape",
+      "origin": "selfhost-bindc-core",
+      "file": "compiler/bindc/print.ergo",
+      "decl": "writeJSONStr",
+      "from": "\t\t} else if escapeHTML && c == '<' {\n",
+      "to": "\t\t} else if false && c == '<' {\n",
+      "rule": "ModelJSON Constant strings must HTML-escape '<' to match encoding/json Constant.MarshalJSON",
+      "killers": ["compiler/bindc:law:PrintIsParseFixedPoint"],
+      "anchor": {
+        "tests": ["compiler/bindc:law:PrintIsParseFixedPoint"]
+      }
+    },
+    {
+      "name": "selfhost-bindc-contract-template-stem",
+      "origin": "selfhost-bindc-core",
+      "file": "compiler/bindc/contract.ergo",
+      "decl": "ExpandTemplate",
+      "from": "\tlet stem = if name.Len() > 1 && strings.HasSuffix(name, \"s\") {\n\t\tstrings.Slice(name, 0, name.Len()-1)\n",
+      "to": "\tlet stem = if false {\n\t\tstrings.Slice(name, 0, name.Len()-1)\n",
+      "rule": "ExpandTemplate must strip trailing plural 's' for {stem} placeholders",
+      "killers": ["compiler/bindc:law:TemplateExpandMatchesStem"],
+      "anchor": {
+        "tests": ["compiler/bindc:law:TemplateExpandMatchesStem"]
+      }
+    },
+    {
+      "name": "selfhost-bindc-contract-overlap-buffers",
+      "origin": "selfhost-bindc-core",
+      "file": "compiler/bindc/contract.ergo",
+      "decl": "DecodeContract",
+      "from": "\tfor bn in byteLenNames {\n\t\tif slices.Contains(lenNames, bn) {\n",
+      "to": "\tfor bn in byteLenNames {\n\t\tif false {\n",
+      "rule": "DecodeContract must reject names appearing in both length_names and byte_length_names",
+      "killers": ["compiler/bindc:law:ContractRejectsOverlapAndBadUnit"],
+      "anchor": {
+        "tests": ["compiler/bindc:law:ContractRejectsOverlapAndBadUnit"]
+      }
+    },
+    {
+      "name": "selfhost-bindc-abi-struct-size-limit",
+      "origin": "selfhost-bindc-core",
+      "file": "compiler/bindc/abi.ergo",
+      "decl": "kStructRegs",
+      "from": "\t\tif fm.Size > 16 {\n\t\t\tlet verb = if isResult { \"returns\" } else { \"passes\" }\n",
+      "to": "\t\tif fm.Size > 32 {\n\t\t\tlet verb = if isResult { \"returns\" } else { \"passes\" }\n",
+      "rule": "amd64 SysV passes/returns structs larger than 16 bytes in memory and purego cannot pass them",
+      "killers": ["compiler/bindc:law:ABICallPlanChecksStructBounds"],
+      "anchor": {
+        "tests": ["compiler/bindc:law:ABICallPlanChecksStructBounds"]
+      }
+    },
+    {
+      "name": "selfhost-bindc-classify-inbuffer-const",
+      "origin": "selfhost-bindc-core",
+      "file": "compiler/bindc/classify.ergo",
+      "decl": "kFuncRules",
+      "from": "\tif ptr && elemConst && kElement(k, elem) && i+1 < pr.pLen {\n",
+      "to": "\tif ptr && !elemConst && kElement(k, elem) && i+1 < pr.pLen {\n",
+      "rule": "in_buffer parameters must require const-qualified elements and reject mutable buffers without capacity",
+      "killers": ["compiler/bindc:law:ClassifyInBufferRequiresConstElement"],
+      "anchor": {
+        "tests": ["compiler/bindc:law:ClassifyInBufferRequiresConstElement"]
+      }
+    },
+    {
+      "name": "selfhost-bindc-names-ergo-escape-arg",
+      "origin": "selfhost-bindc-core",
+      "file": "compiler/bindc/names.ergo",
+      "decl": "ScopeAlloc",
+      "from": "\t\tif escArg {\n\t\t\tn = n + \"Arg\"\n\t\t} else {\n",
+      "to": "\t\tif escArg {\n\t\t\tn = n + \"_\"\n\t\t} else {\n",
+      "rule": "Ergo parameter scopes must append Arg to escape reserved names before numeric deduplication",
+      "killers": ["compiler/bindc:law:CamelCaseAndScopeAllocAvoidReserved"],
+      "anchor": {
+        "tests": ["compiler/bindc:law:CamelCaseAndScopeAllocAvoidReserved"]
+      }
+    },
+    {
+      "name": "selfhost-bindc-emitergo-reads-pragma",
+      "origin": "selfhost-bindc-core",
+      "file": "compiler/bindc/emitergo.ergo",
+      "decl": "emitErgoRaw",
+      "from": "\t\tif reads.Len() > 0 {\n\t\t\tstrings.WriteString(&w, \"// ergo:reads \"+strings.Join(reads, \" \")+\"\\n\")\n\t\t}\n",
+      "to": "\t\tif false {\n\t\t\tstrings.WriteString(&w, \"// ergo:reads \"+strings.Join(reads, \" \")+\"\\n\")\n\t\t}\n",
+      "rule": "emitErgoRaw must emit // ergo:reads pragmas for input pointer/slice parameters",
+      "killers": ["compiler/bindc:law:BindAndEmitRoundTrips"],
+      "anchor": {
+        "tests": ["compiler/bindc:law:BindAndEmitRoundTrips"]
+      }
+    }
+  ]
+}

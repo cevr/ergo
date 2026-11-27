@@ -1,0 +1,399 @@
+import strconv
+import strings
+
+// IsGoIdent reports whether s is a non-empty ASCII Go identifier.
+func IsGoIdent(s string) bool {
+	if s == "" || !isIdentStart(s[0]) {
+		return false
+	}
+	let mut i = 1
+	for i < s.Len() {
+		if !isIdentPart(s[i]) {
+			return false
+		}
+		i = i + 1
+	}
+	true
+}
+
+// IsGoKeyword reports whether n is one of Go's 25 keywords.
+func IsGoKeyword(n string) bool {
+	match n {
+	case "break", "case", "chan", "const", "continue",
+		"default", "defer", "else", "fallthrough", "for",
+		"func", "go", "goto", "if", "import",
+		"interface", "map", "package", "range", "return",
+		"select", "struct", "switch", "type", "var":
+		true
+	case _:
+		false
+	}
+}
+
+// IsGoPredeclared reports whether n is one of Go's predeclared universe identifiers.
+func IsGoPredeclared(n string) bool {
+	match n {
+	case "bool", "byte", "complex64", "complex128", "error", "float32", "float64",
+		"int", "int8", "int16", "int32", "int64",
+		"rune", "string", "uint", "uint8", "uint16", "uint32", "uint64", "uintptr",
+		"any", "comparable", "true", "false", "iota", "nil",
+		"append", "cap", "clear", "close", "complex", "copy", "delete",
+		"imag", "len", "make", "max", "min", "new", "panic", "print", "println", "real", "recover":
+		true
+	case _:
+		false
+	}
+}
+
+// IsGoWord reports whether n is a Go keyword, predeclared identifier, or "_".
+func IsGoWord(n string) bool {
+	IsGoKeyword(n) || IsGoPredeclared(n) || n == "_"
+}
+
+func hasDecimalSuffix(n string, prefix string) bool {
+	if !strings.HasPrefix(n, prefix) {
+		return false
+	}
+	let rest = strings.Slice(n, prefix.Len(), n.Len())
+	allDigits(rest, 0, rest.Len())
+}
+
+// IsGoPackageHelper reports whether n is an unexported helper/import name in emitted Go bindings.
+func IsGoPackageHelper(n string) bool {
+	match n {
+	case "ready", "statusError", "sliceData", "toABI", "fromABI",
+		"loadMu", "loaded", "symbols",
+		"wordBuf", "wordPool", "symAddrs", "forceRegisterFunc",
+		"cCall0", "cCall", "boolWord",
+		"cGuardIn", "cGuardOut",
+		"cbMu", "cbNext", "cbPtr", "cbFuncs", "cbEntry", "cbMake", "cbNew",
+		"cbToken", "cbPut", "cbUndo", "cbDrop", "cbDropOwner", "cbOther", "cbDropOf",
+		"cbPendMu", "cbPendN", "cbPendOn", "cbContain", "cbPending", "cbPendingHere",
+		"cbTake", "cbTakeHere", "cbThread", "ownerJob", "ownerServe", "ownerRun", "ownerHere",
+		"strconv", "atomic", "sync", "errors", "fmt", "runtime", "unsafe", "purego",
+		"os", "debug", "syscall":
+		return true
+	case _:
+	}
+		hasDecimalSuffix(n, "abiW") || hasDecimalSuffix(n, "abiF32x") || hasDecimalSuffix(n, "abiF64x") ||
+		hasDecimalSuffix(n, "cbMap") || hasDecimalSuffix(n, "cbTramp") || hasDecimalSuffix(n, "cbKey")
+}
+
+// IsGoLocal reports whether n is a reserved local variable in generated Go bodies or trampolines.
+func IsGoLocal(n string) bool {
+	match n {
+	case "err", "_r", "_e", "_p", "_ok", "_t", "_pin", "_buf":
+		return true
+	case _:
+	}
+	let prefixes = []string{"_o", "_i", "_c", "_k", "_s", "_h", "_a", "_v", "_u", "_out", "_g"}
+	for p in prefixes {
+		if hasDecimalSuffix(n, p) {
+			return true
+		}
+	}
+	false
+}
+
+// IsGoMethod reports whether n is a generated Go struct method name.
+func IsGoMethod(n string) bool {
+	n == "fill" || n == "record"
+}
+
+// IsErgoKeyword reports whether n is an Ergo language keyword or reserved word.
+func IsErgoKeyword(n string) bool {
+	if IsGoKeyword(n) {
+		return true
+	}
+	match n {
+	case "let", "mut", "in", "match", "try", "catch", "needs", "provides",
+		"context", "machine", "escaping", "fails", "test", "law", "assert",
+		"extern", "with", "takes", "as":
+		true
+	case _:
+		false
+	}
+}
+
+// IsErgoPredeclared reports whether n is predeclared by the Ergo checker above every program package.
+func IsErgoPredeclared(n string) bool {
+	match n {
+	case "Map",
+		"bool", "string", "int", "int8", "int16", "int32", "int64",
+		"uint", "uint8", "uint16", "uint32", "uint64", "float32", "float64",
+		"duration", "byte", "rune",
+		"comparable", "true", "false",
+		"len", "hash", "encode", "decode", "embedded",
+		"Option", "Some", "None", "Seq",
+		"ordered", "number",
+		"Console", "Ambient", "TestAmbient", "TestDirectory", "TestFolderHandle", "TestFolder",
+		"TestLoopback", "Scheduler", "AlarmClock", "LiveScheduler", "NewLiveScheduler",
+		"Random", "Unsatisfied", "NoMatch", "Writer", "Reader",
+		"WireWrongKind", "WireNull", "WireBool", "WireNumber", "WireString",
+		"WireList", "WireObject", "WireEnd", "WireKind", "WireMissingField",
+		"WireUnknownTag", "WireOmittable", "WireNullable", "WireBare",
+		"WireNumberText", "WireMembers",
+		"Hashing", "Structural", "Range", "CallSite", "Context",
+		"InForce", "Unreachable", "AsWritten",
+		"Enter", "Stay", "Emit", "Ignore", "Reject", "Done", "Tell", "Decision",
+		"Never", "Timeout", "Machine", "InputMachine", "Closer", "Keeping", "Task",
+		"MakeSlice", "MakeMap":
+		true
+	case _:
+		false
+	}
+}
+
+// IsErgoReserved reports whether n is an Ergo keyword, reserved word, predeclared name, or "_".
+func IsErgoReserved(n string) bool {
+	IsErgoKeyword(n) || IsErgoPredeclared(n) || n == "_"
+}
+
+// IsExportedIdent reports whether n begins with an uppercase ASCII letter.
+func IsExportedIdent(n string) bool {
+	n != "" && n[0] >= 'A' && n[0] <= 'Z'
+}
+
+// RawName returns the raw Go helper name of C function cName.
+func RawName(cName string) string {
+	"c_" + cName
+}
+
+// ImportName returns the default Ergo package name of importPath (last slash segment).
+func ImportName(importPath string) string {
+	let lastSlash = strings.LastIndex(importPath, "/")
+	if lastSlash < 0 {
+		return importPath
+	}
+	strings.Slice(importPath, lastSlash+1, importPath.Len())
+}
+
+// GoCamel converts snake_case to CamelCase ("scene_set_text" -> "SceneSetText").
+func GoCamel(s string) string {
+	let parts = strings.Split(s, "_")
+	let mut b = strings.NewBuilder()
+	for part in parts {
+		if part == "" {
+			continue
+		}
+		strings.WriteString(&b, strings.ToUpper(strings.Slice(part, 0, 1)))
+		strings.WriteString(&b, strings.ToLower(strings.Slice(part, 1, part.Len())))
+	}
+	strings.String(b)
+}
+
+// LowerCamel converts snake_case to lowerCamelCase ("byte_count" -> "byteCount").
+func LowerCamel(s string) string {
+	let c = GoCamel(s)
+	if c == "" {
+		return ""
+	}
+	strings.ToLower(strings.Slice(c, 0, 1)) + strings.Slice(c, 1, c.Len())
+}
+
+// ScopeKind codes identifying reserved-name predicates without closures.
+let ScopeGoPkg uint8 = 1
+let ScopeGoFunc uint8 = 2
+let ScopeGoStruct uint8 = 3
+let ScopeErgoPkg uint8 = 4
+let ScopeErgoFunc uint8 = 5
+
+// NameScope stores claimed names for one lexical scope using interned uint32 string IDs.
+type NameScope {
+	Parent     uint32,
+	Kind       uint8,
+	ReservedAs string,
+	EscapeArg  bool,
+	Label      string,
+	Owners     []uint32,
+}
+
+// ScopeArena stores flat scopes and one shared StrTable for O(1) name collision checking.
+type ScopeArena {
+	Strings StrTable,
+	Scopes  []NameScope,
+}
+
+// NewScopeArena constructs an empty ScopeArena.
+func NewScopeArena() ScopeArena {
+	ScopeArena{Strings: NewStrTable(), Scopes: []NameScope{}}
+}
+
+func scopeNew(sa mut ScopeArena, parent uint32, kind uint8, label string, reservedAs string, escapeArg bool) uint32 {
+	let idx = uint32(sa.Scopes.Len())
+	sa.Scopes = sa.Scopes.Append(NameScope{
+		Parent:     parent,
+		Kind:       kind,
+		ReservedAs: reservedAs,
+		EscapeArg:  escapeArg,
+		Label:      label,
+		Owners:     []uint32{},
+	})
+	idx
+}
+
+func scopeReservedName(kind uint8, n string) bool {
+	if kind == ScopeGoPkg {
+		return IsGoWord(n) || IsGoPackageHelper(n)
+	}
+	if kind == ScopeGoFunc {
+		return IsGoWord(n) || IsGoLocal(n)
+	}
+	if kind == ScopeGoStruct {
+		return IsGoWord(n) || IsGoMethod(n)
+	}
+	if kind == ScopeErgoPkg || kind == ScopeErgoFunc {
+		return IsErgoReserved(n)
+	}
+	false
+}
+
+func scopeIsReserved(sa mut ScopeArena, sid uint32, n string) bool {
+	let mut cur = sid
+	for cur != NoID {
+		let sc = sa.Scopes[int(cur)]
+		if scopeReservedName(sc.Kind, n) {
+			return true
+		}
+		cur = sc.Parent
+	}
+	false
+}
+
+// ScopeTaken reports whether n is taken or reserved in sid or any parent scope, returning its owner label.
+func ScopeTaken(sa mut ScopeArena, sid uint32, n string) (bool, string) {
+	let nid = InternStr(&sa.Strings, n)
+	let mut cur = sid
+	for cur != NoID {
+		let sc = sa.Scopes[int(cur)]
+		if int(nid) < sc.Owners.Len() && sc.Owners[int(nid)] != NoID {
+			return (true, StrText(sa.Strings, sc.Owners[int(nid)]))
+		}
+		if scopeReservedName(sc.Kind, n) {
+			if sc.ReservedAs != "" {
+				return (true, sc.ReservedAs)
+			}
+			return (true, "a generated name")
+		}
+		cur = sc.Parent
+	}
+	(false, "")
+}
+
+// ScopeClaim claims fixed name n for source in sid, returning "" on success or a collision message.
+func ScopeClaim(sa mut ScopeArena, sid uint32, n string, source string) string {
+	let (taken, owner) = ScopeTaken(&sa, sid, n)
+	if taken {
+		return owner + " and " + source + " have the " + sa.Scopes[int(sid)].Label + " " + n
+	}
+	let nid = InternStr(&sa.Strings, n)
+	let srcID = InternStr(&sa.Strings, source)
+	sa.Scopes[int(sid)].Owners = GrowIndexSlots(sa.Scopes[int(sid)].Owners, nid)
+	sa.Scopes[int(sid)].Owners[int(nid)] = srcID
+	""
+}
+
+// ScopeAlloc allocates a non-colliding identifier derived from want for source in sid.
+func ScopeAlloc(sa mut ScopeArena, sid uint32, want string, source string) string {
+	let escArg = sa.Scopes[int(sid)].EscapeArg
+	let mut n = want
+	for scopeIsReserved(&sa, sid, n) {
+		if escArg {
+			n = n + "Arg"
+		} else {
+			n = n + "_"
+		}
+	}
+	let base = n
+	let mut k = 2
+	for {
+		let (taken, _) = ScopeTaken(&sa, sid, n)
+		if !taken {
+			break
+		}
+		n = base + strconv.Itoa(k)
+		if scopeIsReserved(&sa, sid, n) {
+			n = base + "_" + strconv.Itoa(k)
+		}
+		k = k + 1
+	}
+	let _ = ScopeClaim(&sa, sid, n, source)
+	n
+}
+
+let goExportedPackageNames = []string{
+	"Status", "Load", "ABIMismatchError", "ErrNotLoaded", "ErrDestroyed", "ErrTooLong",
+	"LiveCallbacks", "CallbackSlotsError", "CallbackPanic", "Owner", "NewOwner",
+	"ErrOwnerClosed", "ErrOwnerThread", "ErrWrongThread", "ErrKeyInUse", "SetCGuardHooks",
+}
+
+// NewGoPackageScope initializes the root Go package scope with all generated exported names claimed.
+func NewGoPackageScope(sa mut ScopeArena) uint32 {
+	let sid = scopeNew(&sa, NoID, ScopeGoPkg, "Go name", "", false)
+	for n in goExportedPackageNames {
+		let _ = ScopeClaim(&sa, sid, n, "the generated package")
+	}
+	sid
+}
+
+// NewGoFuncScope initializes a function-local Go name scope nested under goPkgScopeID.
+func NewGoFuncScope(sa mut ScopeArena, pkgScope uint32) uint32 {
+	scopeNew(&sa, pkgScope, ScopeGoFunc, "Go name", "", false)
+}
+
+// NewGoStructScope initializes a Go struct field/method scope.
+func NewGoStructScope(sa mut ScopeArena) uint32 {
+	scopeNew(&sa, NoID, ScopeGoStruct, "Go name", "", false)
+}
+
+// NewErgoPackageScope initializes the Ergo package scope and returns (scopeID, claimErrors).
+func NewErgoPackageScope(sa mut ScopeArena, importPath string) (uint32, []string) {
+	let sid = scopeNew(&sa, NoID, ScopeErgoPkg, "Ergo name", "an Ergo keyword or predeclared name", false)
+	let mut errs = []string{}
+	let imp = ImportName(importPath)
+	let src = "the import of " + importPath
+	if !IsGoIdent(imp) {
+		errs = errs.Append(src + ": Ergo name " + strconv.Quote(imp) + " is not an identifier; choose another go.import_path")
+	} else {
+		let msg = ScopeClaim(&sa, sid, imp, src)
+		if msg != "" {
+			errs = errs.Append(msg + "; choose another go.import_path")
+		}
+	}
+	let genNames = []string{"Status", "CallError", "NotLoaded", "Destroyed", "TooLong"}
+	let genSources = []string{
+		"the Status union",
+		"the CallError union",
+		"a variant of the CallError union",
+		"a variant of the CallError union",
+		"a variant of the CallError union",
+	}
+	let mut i = 0
+	for i < genNames.Len() {
+		let msg = ScopeClaim(&sa, sid, genNames[i], genSources[i])
+		if msg != "" {
+			errs = errs.Append(msg)
+		}
+		i = i + 1
+	}
+	(sid, errs)
+}
+
+// NewErgoFuncScope initializes a parameter scope for an Ergo extern nested under ergoPkgScope (or NoID).
+func NewErgoFuncScope(sa mut ScopeArena, ergoPkgScope uint32) uint32 {
+	scopeNew(&sa, ergoPkgScope, ScopeErgoFunc, "Ergo name", "", true)
+}
+
+// CamelCaseAndScopeAllocAvoidReserved checks GoCamel/LowerCamel conversion and collision avoidance in scopes.
+law CamelCaseAndScopeAllocAvoidReserved(s string) {
+	let ok1 = GoCamel("scene_set_text") == "SceneSetText" && LowerCamel("byte_count") == "byteCount"
+	let mut sa = NewScopeArena()
+	let pkg = NewGoPackageScope(&sa)
+	let fs = NewGoFuncScope(&sa, pkg)
+	let a1 = ScopeAlloc(&sa, fs, "type", "p1")
+	let a2 = ScopeAlloc(&sa, fs, "type", "p2")
+	let efs = NewErgoFuncScope(&sa, NoID)
+	let e1 = ScopeAlloc(&sa, efs, "match", "ep1")
+	let ok2 = a1 == "type_" && a2 == "type_2" && e1 == "matchArg" && (s.Len() >= 0)
+	ok1 && ok2
+}

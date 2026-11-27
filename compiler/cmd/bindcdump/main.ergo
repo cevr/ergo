@@ -1,0 +1,216 @@
+import compiler/bindc
+import dense
+import fs
+import io
+import json
+import os
+import strconv
+import strings
+
+func writeStrField(b mut strings.Builder, key string, val string, comma bool) {
+	let jcodec = json.Codec[string]{MaxBytes: 0, MaxDepth: 0}
+	strings.WriteString(&b, json.Encode(jcodec, key)+": "+json.Encode(jcodec, val))
+	if comma {
+		strings.WriteByte(&b, ',')
+	}
+}
+
+func diagsJSON(ds []bindc.Diagnostic) string {
+	let mut b = strings.NewBuilder()
+	strings.WriteByte(&b, '[')
+	let mut i = 0
+	for i < ds.Len() {
+		if i > 0 {
+			strings.WriteByte(&b, ',')
+		}
+		let d = ds[i]
+		strings.WriteByte(&b, '{')
+		writeStrField(&b, "file", d.File, true)
+		writeStrField(&b, "code", bindc.CodeName(d.Code), true)
+		strings.WriteString(&b, "\"line\":"+strconv.Itoa(int(d.Line))+",\"col\":"+strconv.Itoa(int(d.Col))+",")
+		writeStrField(&b, "msg", d.Msg, true)
+		writeStrField(&b, "string", bindc.DiagnosticString(d), false)
+		strings.WriteByte(&b, '}')
+		i = i + 1
+	}
+	strings.WriteByte(&b, ']')
+	strings.String(b)
+}
+
+func readInputFile(path string) string fails os.Exit needs fs.Files {
+	fs.Files.ReadFile(path) catch {
+	case fs.NotFound:
+		return os.Exit{Code: 1, Message: "bindcdump: no file " + path}
+	case fs.Denied:
+		return os.Exit{Code: 1, Message: "bindcdump: cannot read " + path + ": permission denied"}
+	case fs.Failed as e:
+		return os.Exit{Code: 1, Message: "bindcdump: cannot read " + path + ": " + e.Reason}
+	}
+}
+
+func dumpParse(hdrPath string, displayName string) string fails os.Exit needs fs.Files {
+	let src = try readInputFile(hdrPath)
+	let name = if displayName != "" { displayName } else { hdrPath }
+	let mut ok = true
+	let mut diags = []bindc.Diagnostic{}
+	let m = bindc.Parse(name, src) catch {
+	case bindc.ParseFailure as pf:
+		ok = false
+		diags = pf.Diags
+		bindc.NewModel(name)
+	}
+	if !ok {
+		let mut b = strings.NewBuilder()
+		strings.WriteString(&b, "{\"ok\":false,\"diagnostics\":"+diagsJSON(diags)+",")
+		writeStrField(&b, "error", bindc.DiagnosticsString(diags), false)
+		strings.WriteString(&b, "}\n")
+		return strings.String(b)
+	}
+	let mut b = strings.NewBuilder()
+	strings.WriteString(&b, "{\"ok\":true,")
+	writeStrField(&b, "model", bindc.ModelJSON(m), true)
+	writeStrField(&b, "printed", bindc.Print(m), false)
+	strings.WriteString(&b, "}\n")
+	strings.String(b)
+}
+
+func dumpBind(hdrPath string, contractPath string, displayName string) string fails os.Exit needs fs.Files {
+	let hdrSrc = try readInputFile(hdrPath)
+	let contractSrc = try readInputFile(contractPath)
+	let name = if displayName != "" { displayName } else { hdrPath }
+	let mut parseOk = true
+	let mut parseDiags = []bindc.Diagnostic{}
+	let m = bindc.Parse(name, hdrSrc) catch {
+	case bindc.ParseFailure as pf:
+		parseOk = false
+		parseDiags = pf.Diags
+		bindc.NewModel(name)
+	}
+	if !parseOk {
+		let mut b = strings.NewBuilder()
+		strings.WriteString(&b, "{\"ok\":false,\"phase\":\"parse\",\"diagnostics\":"+diagsJSON(parseDiags)+",")
+		writeStrField(&b, "error", bindc.DiagnosticsString(parseDiags), false)
+		strings.WriteString(&b, "}\n")
+		return strings.String(b)
+	}
+	let mut errPhase = ""
+	let mut errMsg = ""
+	let binding = bindc.Bind(m, hdrSrc, contractSrc) catch {
+	case bindc.ContractFailure as cf:
+		errPhase = "contract"
+		errMsg = cf.Msg
+		return "{\"ok\":false,\"phase\":\"contract\",\"error\":" + json.Encode(json.Codec[string]{MaxBytes: 0, MaxDepth: 0}, errMsg) + "}\n"
+	case bindc.BindingFailure as bf:
+		errPhase = "bind"
+		errMsg = bf.Msg
+		return "{\"ok\":false,\"phase\":\"bind\",\"error\":" + json.Encode(json.Codec[string]{MaxBytes: 0, MaxDepth: 0}, errMsg) + "}\n"
+	}
+	let _ = errPhase
+	let ergoOut = bindc.ErgoText(binding) catch {
+	case bindc.BindingFailure as bf:
+		return "{\"ok\":false,\"phase\":\"emit\",\"error\":" + json.Encode(json.Codec[string]{MaxBytes: 0, MaxDepth: 0}, bf.Msg) + "}\n"
+	}
+	let repOut = bindc.Report(binding)
+	let mut b = strings.NewBuilder()
+	strings.WriteString(&b, "{\"ok\":true,")
+	writeStrField(&b, "report", repOut, true)
+	writeStrField(&b, "ergo", ergoOut, true)
+	writeStrField(&b, "model", bindc.ModelJSON(m), true)
+	writeStrField(&b, "printed", bindc.Print(m), false)
+	strings.WriteString(&b, "}\n")
+	strings.String(b)
+}
+
+func dumpContract(contractPath string) string fails os.Exit needs fs.Files {
+	let src = try readInputFile(contractPath)
+	let _ = bindc.DecodeContract(src) catch {
+	case bindc.ContractFailure as cf:
+		return "{\"ok\":false," + "\"error\":" + json.Encode(json.Codec[string]{MaxBytes: 0, MaxDepth: 0}, cf.Msg) + "}\n"
+	}
+	"{\"ok\":true}\n"
+}
+
+func dumpCheckNames(wordsPath string) string fails os.Exit needs fs.Files {
+	let src = try readInputFile(wordsPath)
+	let lines = strings.Split(src, "\n")
+	let jcodec = json.Codec[string]{MaxBytes: 0, MaxDepth: 0}
+	let mut b = strings.NewBuilder()
+	strings.WriteByte(&b, '[')
+	let mut first = true
+	for raw in lines {
+		let w = strings.TrimSpace(raw)
+		if w == "" {
+			continue
+		}
+		if !first {
+			strings.WriteByte(&b, ',')
+		}
+		first = false
+		strings.WriteByte(&b, '{')
+		strings.WriteString(&b, "\"name\":"+json.Encode(jcodec, w))
+		strings.WriteString(&b, ",\"ergo_keyword\":"+strconv.FormatBool(bindc.IsErgoKeyword(w)))
+		strings.WriteString(&b, ",\"ergo_predeclared\":"+strconv.FormatBool(bindc.IsErgoPredeclared(w)))
+		strings.WriteString(&b, ",\"ergo_reserved\":"+strconv.FormatBool(bindc.IsErgoReserved(w)))
+		strings.WriteString(&b, ",\"macro_reserved\":"+strconv.FormatBool(bindc.IsReservedMacroName(w)))
+		strings.WriteByte(&b, '}')
+	}
+	strings.WriteString(&b, "]\n")
+	strings.String(b)
+}
+
+func dumpModelCount(hdrPath string) string fails os.Exit needs fs.Files {
+	let src = try readInputFile(hdrPath)
+	let m = bindc.Parse(hdrPath, src) catch {
+	case bindc.ParseFailure as pf:
+		return "error " + strconv.Itoa(pf.Diags.Len()) + "\n"
+	}
+	"ok consts=" + strconv.Itoa(dense.Total(m.Consts.Ids)) + " decls=" + strconv.Itoa(dense.Total(m.Decls.Ids)) + " funcs=" + strconv.Itoa(dense.Total(m.Funcs.Ids)) + "\n"
+}
+
+func run(args []string) fails os.Exit needs fs.Files | io.Stdout {
+	if args.Len() < 2 {
+		return os.Exit{Code: 2, Message: "usage: bindcdump (parse|bind|contract|checknames) ..."}
+	}
+	let cmd = args[0]
+	if cmd == "parse" {
+		let disp = if args.Len() >= 3 { args[2] } else { "" }
+		io.Stdout.Print(try dumpParse(args[1], disp))
+		return
+	}
+	if cmd == "bind" {
+		if args.Len() < 3 {
+			return os.Exit{Code: 2, Message: "usage: bindcdump bind HEADER CONTRACT [DISPLAY]"}
+		}
+		let disp = if args.Len() >= 4 { args[3] } else { "" }
+		io.Stdout.Print(try dumpBind(args[1], args[2], disp))
+		return
+	}
+	if cmd == "contract" {
+		io.Stdout.Print(try dumpContract(args[1]))
+		return
+	}
+	if cmd == "checknames" {
+		io.Stdout.Print(try dumpCheckNames(args[1]))
+		return
+	}
+	if cmd == "count" {
+		io.Stdout.Print(try dumpModelCount(args[1]))
+		return
+	}
+	os.Exit{Code: 2, Message: "bindcdump: unknown command " + cmd}
+}
+
+func main() fails os.Exit needs os.Ambient {
+	with context { os.Process: os.NewHost(), fs.Files: fs.NewHost(), io.Stdout: io.NewHost() } {
+		try run(os.Process.Args())
+	}
+}
+
+// DumpParseAndBindOutputFormat verifies bindcdump JSON formatting and name checking helpers.
+law DumpParseAndBindOutputFormat(flag uint8) {
+	let ds = []bindc.Diagnostic{bindc.Diagnostic{File: "a.h", Line: 1, Col: 1, Code: bindc.CodeEnum, Msg: "enum"}}
+	let dj = diagsJSON(ds)
+	let ok1 = strings.Contains(dj, "\"code\": \"BC011\"") && strings.Contains(dj, "\"line\":1")
+	let ok2 = bindc.IsErgoReserved("Option") && bindc.IsErgoReserved("type") && !bindc.IsErgoReserved("ot_demo_"+strconv.Itoa(int(flag)))
+	ok1 && ok2
+}

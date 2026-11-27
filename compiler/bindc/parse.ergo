@@ -1,0 +1,1084 @@
+import dense
+import strings
+
+// ParseFailure holds positioned diagnostics from a failed C header parse.
+type ParseFailure {
+	Diags []Diagnostic,
+}
+
+type parseBail {}
+
+type pendingField {
+	nameID uint32,
+	typeID uint32,
+}
+
+type pendingParam {
+	nameID uint32,
+	typeID uint32,
+}
+
+type parser {
+	file     string,
+	m        Model,
+	dt       DiagTable,
+	pr       PreResult,
+	tt       TokTable,
+	ctoks    []uint32,
+	i        int,
+	nameLine []uint32,
+	nameCol  []uint32,
+	tagLine  []uint32,
+	tagCol   []uint32,
+	sc       Scratch,
+	seenLine []uint32,
+	seenCol  []uint32,
+	knrHas   bool,
+	knrOpen  int,
+	knrNames []uint32,
+}
+
+func basePathName(path string) string {
+	if path == "" {
+		return "."
+	}
+	let mut end = path.Len()
+	for end > 0 && path[end-1] == '/' {
+		end = end - 1
+	}
+	if end == 0 {
+		return "/"
+	}
+	let mut i = end - 1
+	for i >= 0 && path[i] != '/' {
+		i = i - 1
+	}
+	strings.Slice(path, i+1, end)
+}
+
+func pTokAtIdx(p mut parser, idx int) tokView {
+	let cidx = if idx < p.ctoks.Len() { p.ctoks[idx] } else { p.ctoks[p.ctoks.Len()-1] }
+	let id = TokAt(p.tt, cidx)
+	tokView{
+		kind: dense.Of(p.tt.Kind, id),
+		text: StrText(p.m.Strings, dense.Of(p.tt.Text, id)),
+		line: dense.Of(p.tt.Line, id),
+		col:  dense.Of(p.tt.Col, id),
+		tid:  cidx,
+	}
+}
+
+func pPeek(p mut parser) tokView {
+	pTokAtIdx(&p, p.i)
+}
+
+func pPeekN(p mut parser, n int) tokView {
+	pTokAtIdx(&p, p.i+n)
+}
+
+func pNext(p mut parser) tokView {
+	let tv = pPeek(&p)
+	if tv.kind != TokEOF {
+		p.i = p.i + 1
+	}
+	tv
+}
+
+func pFail(p mut parser, tv tokView, code uint8, msg string) parseBail {
+	AddDiag(&p.dt, &p.m.Strings, p.file, tv.line, tv.col, code, msg)
+	parseBail
+}
+
+func pUnexpected(p mut parser, tv tokView, want string) parseBail {
+	if tv.kind == TokIdent {
+		let kc = KeywordCode(tv.text)
+		if kc != 0 && kc != CodeSyntax {
+			return pFail(&p, tv, kc, backquote(tv.text)+": "+CodeDesc(kc))
+		}
+	}
+	if tv.kind == TokEOF {
+		return pFail(&p, tv, CodeSyntax, "unexpected end of file, want "+want)
+	}
+	pFail(&p, tv, CodeSyntax, "unexpected "+backquote(tv.text)+", want "+want)
+}
+
+func pExpect(p mut parser, text string) tokView fails parseBail {
+	let tv = pPeek(&p)
+	if !tvIs(tv, text) {
+		return pUnexpected(&p, tv, backquote(text))
+	}
+	pNext(&p)
+}
+
+func pFailKAndR(p mut parser, open int, names []uint32, at tokView, msg string) parseBail {
+	p.knrHas = true
+	p.knrOpen = open
+	p.knrNames = names
+	pFail(&p, at, CodeKAndR, msg)
+}
+
+func pMatching(p mut parser, i int) int {
+	let mut depth = 0
+	let mut k = i
+	for {
+		let tv = pTokAtIdx(&p, k)
+		if tv.kind == TokEOF {
+			return k
+		}
+		if tvIs(tv, "(") || tvIs(tv, "[") || tvIs(tv, "{") {
+			depth = depth + 1
+		} else if tvIs(tv, ")") || tvIs(tv, "]") || tvIs(tv, "}") {
+			depth = depth - 1
+			if depth == 0 {
+				return k
+			}
+		}
+		k = k + 1
+	}
+}
+
+func pTypeBrace(p mut parser, i int) (int, bool) {
+	let mut tag = false
+	let mut k = i + 1
+	for {
+		let tv = pTokAtIdx(&p, k)
+		if tvIs(tv, "{") {
+			return (k, true)
+		} else if tvIs(tv, "[") && tvIs(pTokAtIdx(&p, k+1), "[") {
+			k = pMatching(&p, k)
+		} else if tv.kind == TokIdent && tvIs(pTokAtIdx(&p, k+1), "(") {
+			k = pMatching(&p, k+1)
+		} else if tv.kind == TokIdent && !tag {
+			tag = true
+		} else {
+			return (0, false)
+		}
+		if pTokAtIdx(&p, k).kind == TokEOF {
+			return (0, false)
+		}
+		k = k + 1
+	}
+}
+
+func containsUint32(xs []uint32, v uint32) bool {
+	for x in xs {
+		if x == v {
+			return true
+		}
+	}
+	false
+}
+
+func pDeclarationEnd(p mut parser, start int, names []uint32) (int, bool) {
+	let mut depth = 0
+	let mut named = false
+	let mut i = start
+	for {
+		let tv = pTokAtIdx(&p, i)
+		if tv.kind == TokEOF {
+			return (i, named)
+		}
+		if depth == 0 && (tvIs(tv, "struct") || tvIs(tv, "union") || tvIs(tv, "enum")) {
+			let (open, ok) = pTypeBrace(&p, i)
+			if ok {
+				i = pMatching(&p, open)
+				if pTokAtIdx(&p, i).kind == TokEOF {
+					return (i, named)
+				}
+			}
+		} else if tvIs(tv, "(") || tvIs(tv, "[") {
+			depth = depth + 1
+		} else if tvIs(tv, ")") || tvIs(tv, "]") {
+			if depth == 0 {
+				return (i, named)
+			}
+			depth = depth - 1
+		} else if depth == 0 && (tvIs(tv, ";") || tvIs(tv, "{") || tvIs(tv, "}")) {
+			return (i, named)
+		} else if tv.kind == TokIdent && containsUint32(names, dense.Of(p.tt.Text, TokAt(p.tt, tv.tid))) {
+			named = true
+		}
+		i = i + 1
+	}
+}
+
+func pSkipKAndR(p mut parser, open int, names []uint32) {
+	let mut i = pMatching(&p, open)
+	if pTokAtIdx(&p, i).kind == TokEOF {
+		p.i = i
+		return
+	}
+	i = i + 1
+	if tvIs(pTokAtIdx(&p, i), ";") {
+		p.i = i + 1
+		return
+	}
+	let mut first = true
+	for {
+		if tvIs(pTokAtIdx(&p, i), "{") {
+			i = pMatching(&p, i)
+			if pTokAtIdx(&p, i).kind != TokEOF {
+				i = i + 1
+			}
+			p.i = i
+			return
+		}
+		let (end, named) = pDeclarationEnd(&p, i, names)
+		let endTok = pTokAtIdx(&p, end)
+		if tvIs(endTok, "{") {
+			i = end
+		} else if !tvIs(endTok, ";") {
+			p.i = end
+			return
+		} else if first || named {
+			i = end + 1
+		} else {
+			p.i = i
+			return
+		}
+		first = false
+	}
+}
+
+func pSkipTo(p mut parser, start int, mode uint8) {
+	let failAt = p.i
+	let mut depth = 0
+	let mut hasOpener = []bool{}
+	let mut openerIdx = []int{}
+	let mut k = start
+	for {
+		let tv = pTokAtIdx(&p, k)
+		if tv.kind == TokEOF {
+			p.i = k
+			return
+		}
+		let mut poppedHas = false
+		let mut poppedIdx = 0
+		if tvIs(tv, "(") || tvIs(tv, "[") || tvIs(tv, "{") {
+			if k > 0 {
+				hasOpener = hasOpener.Append(true)
+				openerIdx = openerIdx.Append(k - 1)
+			} else {
+				hasOpener = hasOpener.Append(false)
+				openerIdx = openerIdx.Append(0)
+			}
+			depth = depth + 1
+		} else if (tvIs(tv, ")") || tvIs(tv, "]") || tvIs(tv, "}")) && depth > 0 {
+			depth = depth - 1
+			let top = hasOpener.Len() - 1
+			poppedHas = hasOpener[top]
+			poppedIdx = openerIdx[top]
+			hasOpener = hasOpener.Slice(0, top)
+			openerIdx = openerIdx.Slice(0, top)
+		}
+		if k >= failAt {
+			let mut stop = false
+			let mut consume = false
+			if mode == 1 {
+				if depth == 0 {
+					if tvIs(tv, ";") {
+						stop = true
+						consume = true
+					} else if tvIs(tv, "}") && poppedHas && tvIs(pTokAtIdx(&p, poppedIdx), ")") {
+						stop = true
+						consume = true
+					}
+				}
+			} else if mode == 2 {
+				if tvIs(tv, ";") && depth == 0 {
+					stop = true
+					consume = true
+				} else if tvIs(tv, "}") && !poppedHas {
+					stop = true
+					consume = false
+				}
+			} else {
+				let unmatched = tvIs(tv, ")") && !poppedHas
+				if depth == 0 && (tvIs(tv, ",") || tvIs(tv, ";") || unmatched) {
+					stop = true
+					consume = false
+				}
+			}
+			if stop {
+				p.i = if consume { k + 1 } else { k }
+				return
+			}
+		}
+		k = k + 1
+	}
+}
+
+func pSkipTop(p mut parser, start int) {
+	if p.knrHas {
+		pSkipKAndR(&p, p.knrOpen, p.knrNames)
+		return
+	}
+	pSkipTo(&p, start, 1)
+}
+
+func pClearKnr(p mut parser) {
+	p.knrHas = false
+	p.knrOpen = 0
+	p.knrNames = []uint32{}
+}
+
+func pCheckMacroUses(p mut parser) {
+	let n = p.ctoks.Len()
+	let mut k = 0
+	for k < n {
+		let tv = pTokAtIdx(&p, k)
+		if tv.kind != TokIdent {
+			k = k + 1
+			continue
+		}
+		let strID = dense.Of(p.tt.Text, TokAt(p.tt, tv.tid))
+		if int(strID) >= p.pr.MacroByName.Len() || p.pr.MacroByName[int(strID)] == NoID {
+			k = k + 1
+			continue
+		}
+		let mid = dense.IDAt(p.pr.Macros.Ids, int(p.pr.MacroByName[int(strID)]))
+		let isConst = dense.Of(p.pr.Macros.IsConst, mid)
+		if isConst && k > 0 && tvIs(pTokAtIdx(&p, k-1), "[") && tvIs(pTokAtIdx(&p, k+1), "]") {
+			let ml = dense.Of(p.pr.Macros.Line, mid)
+			let mc = dense.Of(p.pr.Macros.Col, mid)
+			if !(ml < tv.line || (ml == tv.line && mc < tv.col)) {
+				AddDiag(&p.dt, &p.m.Strings, p.file, tv.line, tv.col, CodeMacroIdentifier, "macro "+tv.text+" is used before its definition")
+			}
+			k = k + 1
+			continue
+		}
+		AddDiag(&p.dt, &p.m.Strings, p.file, tv.line, tv.col, CodeMacroIdentifier, "macro "+tv.text+" is used as an identifier; a C compiler would expand it")
+		k = k + 1
+	}
+}
+
+func pCheckName(p mut parser, tv tokView) fails parseBail {
+	if matchesReservedMacroRegex(tv.text) {
+		return pFail(&p, tv, CodeMacroIdentifier, tv.text+" is a reserved name or a standard macro")
+	}
+}
+
+func pIdent(p mut parser, want string) tokView fails parseBail {
+	let tv = pPeek(&p)
+	if tv.kind != TokIdent || IsSubsetKeyword(tv.text) {
+		return pUnexpected(&p, tv, want)
+	}
+	try pCheckName(&p, tv)
+	pNext(&p)
+}
+
+func pEnsureNameSlots(p mut parser, sid uint32) {
+	let need = int(sid) + 1
+	for p.nameLine.Len() < need {
+		p.nameLine = p.nameLine.Append(0)
+		p.nameCol = p.nameCol.Append(0)
+		p.tagLine = p.tagLine.Append(0)
+		p.tagCol = p.tagCol.Append(0)
+	}
+}
+
+func pDeclare(p mut parser, tv tokView) fails parseBail {
+	if IsSubsetKeyword(tv.text) || ScalarByName(tv.text) != ScalarNone {
+		return pFail(&p, tv, CodeDuplicate, tv.text+" names a keyword or a standard type")
+	}
+	let sid = InternModelStr(&p.m, tv.text)
+	pEnsureNameSlots(&p, sid)
+	let prevLine = p.nameLine[int(sid)]
+	if prevLine != 0 {
+		let prev = PosString(Pos{File: p.file, Line: prevLine, Col: p.nameCol[int(sid)]})
+		return pFail(&p, tv, CodeDuplicate, tv.text+" is already declared at "+prev)
+	}
+	p.nameLine[int(sid)] = tv.line
+	p.nameCol[int(sid)] = tv.col
+}
+
+func pDeclareTag(p mut parser, tag tokView) fails parseBail {
+	if tag.text == "" {
+		return
+	}
+	let sid = InternModelStr(&p.m, tag.text)
+	pEnsureNameSlots(&p, sid)
+	let prevLine = p.tagLine[int(sid)]
+	if prevLine != 0 {
+		let prev = PosString(Pos{File: p.file, Line: prevLine, Col: p.tagCol[int(sid)]})
+		return pFail(&p, tag, CodeDuplicate, "struct tag "+tag.text+" is already declared at "+prev)
+	}
+	p.tagLine[int(sid)] = tag.line
+	p.tagCol[int(sid)] = tag.col
+}
+
+func pEndDecl(p mut parser, name tokView) fails parseBail {
+	let tv = pPeek(&p)
+	if tvIs(tv, ",") {
+		return pFail(&p, tv, CodeDeclarator, "one declarator per declaration")
+	}
+	if tvIs(tv, "[") && tvIs(pPeekN(&p, 1), "[") {
+		return pFail(&p, tv, CodeAttribute, "attribute `[[...]]`")
+	}
+	if !tvIs(tv, ";") {
+		return pUnexpected(&p, tv, "`;`")
+	}
+	try pDeclare(&p, name)
+	let _ = pNext(&p)
+}
+
+func pTypeSize(p mut parser, typeIdx uint32) SizeAlign {
+	let id = TypeAt(p.m.Types, typeIdx)
+	let kind = dense.Of(p.m.Types.Kind, id)
+	if kind == TypeScalar {
+		let sz = ScalarSize(dense.Of(p.m.Types.Scalar, id))
+		return SizeAlign{Size: sz, Align: sz}
+	}
+	if kind == TypePointer {
+		return SizeAlign{Size: PointerSize, Align: PointerSize}
+	}
+	if kind == TypeArray {
+		let elemSA = pTypeSize(&p, dense.Of(p.m.Types.Elem, id))
+		return SizeAlign{Size: elemSA.Size * dense.Of(p.m.Types.Len, id), Align: elemSA.Align}
+	}
+	if kind == TypeNamed {
+		let sid = dense.Of(p.m.Types.Name, id)
+		let declIdx = if int(sid) < p.m.DeclByName.Len() { p.m.DeclByName[int(sid)] } else { NoID }
+		if declIdx != NoID {
+			let did = dense.IDAt(p.m.Decls.Ids, int(declIdx))
+			let dk = dense.Of(p.m.Decls.Kind, did)
+			if dk == DeclScalar {
+				let sz = ScalarSize(dense.Of(p.m.Decls.Scalar, did))
+				return SizeAlign{Size: sz, Align: sz}
+			}
+			if dk == DeclCallback {
+				return SizeAlign{Size: PointerSize, Align: PointerSize}
+			}
+			if dk == DeclStruct {
+				return SizeAlign{Size: dense.Of(p.m.Decls.Size, did), Align: dense.Of(p.m.Decls.Align, did)}
+			}
+		}
+	}
+	SizeAlign{Size: 0, Align: 1}
+}
+
+func pLayoutFields(p mut parser, fieldsStart uint32, fieldsLen uint32) LayoutOut {
+	let mut off uint64 = 0
+	let mut align uint64 = 1
+	let mut k uint32 = 0
+	for k < fieldsLen {
+		let ftype = dense.Of(p.m.Fields.Type, dense.IDAt(p.m.Fields.Ids, int(fieldsStart+k)))
+		let sa = pTypeSize(&p, ftype)
+		off = roundUpAlign(off, sa.Align)
+		let fid = dense.IDAt(p.m.Fields.Ids, int(fieldsStart+k))
+		dense.SetOf(&p.m.Fields.Offset, fid, off)
+		dense.SetOf(&p.m.Fields.Size, fid, sa.Size)
+		dense.SetOf(&p.m.Fields.Align, fid, sa.Align)
+		off = off + sa.Size
+		if off > MaxObject {
+			return LayoutOut{Ok: false, Size: 0, Align: 0}
+		}
+		if sa.Align > align {
+			align = sa.Align
+		}
+		k = k + 1
+	}
+	let total = roundUpAlign(off, align)
+	LayoutOut{Ok: total <= MaxObject, Size: total, Align: align}
+}
+
+func pValueType(p mut parser, typeIdx uint32, at tokView, what string) fails parseBail {
+	let mut cur = typeIdx
+	for dense.Of(p.m.Types.Kind, TypeAt(p.m.Types, cur)) == TypeArray {
+		cur = dense.Of(p.m.Types.Elem, TypeAt(p.m.Types, cur))
+	}
+	let id = TypeAt(p.m.Types, cur)
+	let kind = dense.Of(p.m.Types.Kind, id)
+	if kind == TypeVoid {
+		return pFail(&p, at, CodeDeclarator, what+" "+at.text+" has type void")
+	}
+	if kind == TypeNamed {
+		let sid = dense.Of(p.m.Types.Name, id)
+		let declIdx = if int(sid) < p.m.DeclByName.Len() { p.m.DeclByName[int(sid)] } else { NoID }
+		if declIdx != NoID && dense.Of(p.m.Decls.Kind, dense.IDAt(p.m.Decls.Ids, int(declIdx))) == DeclOpaque {
+			return pFail(&p, at, CodeDeclarator, what+" "+at.text+" holds opaque "+StrText(p.m.Strings, sid)+" by value")
+		}
+	}
+}
+
+func pResultType(p mut parser, typeIdx uint32, at tokView) fails parseBail {
+	let id = TypeAt(p.m.Types, typeIdx)
+	if dense.Of(p.m.Types.Kind, id) == TypeNamed {
+		let sid = dense.Of(p.m.Types.Name, id)
+		let declIdx = if int(sid) < p.m.DeclByName.Len() { p.m.DeclByName[int(sid)] } else { NoID }
+		if declIdx != NoID && dense.Of(p.m.Decls.Kind, dense.IDAt(p.m.Decls.Ids, int(declIdx))) == DeclOpaque {
+			return pFail(&p, at, CodeDeclarator, at.text+" returns opaque "+StrText(p.m.Strings, sid)+" by value")
+		}
+	}
+}
+
+type typeSpecOut {
+	typeID   uint32,
+	hasConst bool,
+	constTok tokView,
+}
+
+func pTypeSpec(p mut parser) typeSpecOut fails parseBail {
+	let mut hasConst = false
+	let mut constTok = tokView{kind: TokEOF, text: "", line: 0, col: 0, tid: NoID}
+	if tvIs(pPeek(&p), "const") {
+		hasConst = true
+		constTok = pNext(&p)
+	}
+	let tv = pNext(&p)
+	let mut typ uint32 = 0
+	if tv.kind != TokIdent {
+		if tv.kind != TokEOF {
+			p.i = p.i - 1
+		}
+		return pUnexpected(&p, tv, "a type")
+	} else if tvIs(tv, "const") {
+		return pFail(&p, tv, CodeQualifier, "const twice")
+	} else if tvIs(tv, "struct") {
+		if tvIs(pPeek(&p), "{") || (pPeek(&p).kind == TokIdent && tvIs(pPeekN(&p, 1), "{")) {
+			return pFail(&p, tv, CodeNestedStruct, "struct definition in a type")
+		}
+		return pFail(&p, tv, CodeStructTag, "struct named by its tag; use its typedef name")
+	} else if tvIs(tv, "void") {
+		typ = PushType(&p.m.Types, TypeVoid, ScalarNone, 0, hasConst, NoID, 0, 0)
+	} else if tvIs(tv, "float") {
+		typ = PushType(&p.m.Types, TypeScalar, ScalarFloat32, 0, hasConst, NoID, 0, 0)
+	} else if tvIs(tv, "double") {
+		typ = PushType(&p.m.Types, TypeScalar, ScalarFloat64, 0, hasConst, NoID, 0, 0)
+	} else if ScalarByName(tv.text) != ScalarNone {
+		let s = ScalarByName(tv.text)
+		let h = ScalarHeader(s)
+		if h != "" && !IncludedBefore(p.pr, h, tv.line, tv.col) {
+			return pFail(&p, tv, CodeMissingInclude, tv.text+" needs #include <"+h+"> before it")
+		}
+		typ = PushType(&p.m.Types, TypeScalar, s, 0, hasConst, NoID, 0, 0)
+	} else if KeywordCode(tv.text) != 0 {
+		p.i = p.i - 1
+		return pUnexpected(&p, tv, "a type")
+	} else {
+		let sid = InternModelStr(&p.m, tv.text)
+		if int(sid) >= p.m.DeclByName.Len() || p.m.DeclByName[int(sid)] == NoID {
+			return pFail(&p, tv, CodeUnknownType, "unknown type name "+tv.text)
+		}
+		typ = PushType(&p.m.Types, TypeNamed, ScalarNone, sid, hasConst, NoID, 0, 0)
+	}
+	let q = pPeek(&p)
+	if tvIs(q, "const") || KeywordCode(q.text) == CodeQualifier {
+		return pFail(&p, q, CodeQualifier, "qualifier "+q.text+" after the type; only `const T *`")
+	}
+	typeSpecOut{typeID: typ, hasConst: hasConst, constTok: constTok}
+}
+
+func pPointers(p mut parser, base uint32) (uint32, int) fails parseBail {
+	let mut t = base
+	let mut n = 0
+	for tvIs(pPeek(&p), "*") {
+		let _ = pNext(&p)
+		let q = pPeek(&p)
+		if tvIs(q, "const") || KeywordCode(q.text) == CodeQualifier {
+			return pFail(&p, q, CodeQualifier, "qualifier "+q.text+" on a pointer; only `const T *`")
+		}
+		t = PushType(&p.m.Types, TypePointer, ScalarNone, 0, false, t, 0, 0)
+		n = n + 1
+	}
+	(t, n)
+}
+
+func pArray(p mut parser, elem uint32) uint32 fails parseBail {
+	let open = try pExpect(&p, "[")
+	let tv = pNext(&p)
+	if tvIs(tv, "]") {
+		return pFail(&p, open, CodeFlexibleArray, "flexible array member")
+	}
+	let mut n = bigZero()
+	if tv.kind == TokNumber {
+		let li = ParseLiteral(tv.text)
+		if li.ErrMsg != "" {
+			return pFail(&p, tv, CodeDeclarator, "array length: "+li.ErrMsg)
+		}
+		n = li.V
+	} else if tv.kind == TokIdent {
+		let sid = dense.Of(p.tt.Text, TokAt(p.tt, tv.tid))
+		let mid = if int(sid) < p.pr.MacroByName.Len() { p.pr.MacroByName[int(sid)] } else { NoID }
+		if mid == NoID || !dense.Of(p.pr.Macros.IsConst, dense.IDAt(p.pr.Macros.Ids, int(mid))) {
+			return pFail(&p, tv, CodeDeclarator, "array length "+tv.text+" is not a literal or an earlier constant")
+		}
+		let cidx = dense.Of(p.pr.Macros.ConstIdx, dense.IDAt(p.pr.Macros.Ids, int(mid)))
+		let cid = dense.IDAt(p.m.Consts.Ids, int(cidx))
+		n = bigFromBits(dense.Of(p.m.Consts.Bits, cid), dense.Of(p.m.Consts.Scalar, cid))
+	} else {
+		return pFail(&p, tv, CodeDeclarator, "array length is a literal or the name of an earlier constant")
+	}
+	let closeTok = pPeek(&p)
+	if !tvIs(closeTok, "]") {
+		return pFail(&p, closeTok, CodeDeclarator, "array length is a literal or the name of an earlier constant")
+	}
+	let _ = pNext(&p)
+	if n.Neg || n.Limbs.Len() != 1 || n.Limbs[0] == 0 || (n.Limbs[0]&0x80000000) != 0 {
+		return pFail(&p, tv, CodeConstantRange, "array length "+BigDecimalString(n)+" is out of range (1 to 2^31-1)")
+	}
+	if tvIs(pPeek(&p), "[") {
+		return pFail(&p, pPeek(&p), CodeDeclarator, "array of arrays")
+	}
+	let lenExprID = InternModelStr(&p.m, tv.text)
+	PushType(&p.m.Types, TypeArray, ScalarNone, 0, false, elem, uint64(n.Limbs[0]), lenExprID)
+}
+
+func pMarkSeenPos(p mut parser, sid uint32, tv tokView) fails parseBail {
+	let need = int(sid) + 1
+	for p.seenLine.Len() < need {
+		p.seenLine = p.seenLine.Append(0)
+		p.seenCol = p.seenCol.Append(0)
+	}
+	if !MarkSeen(&p.sc, sid) {
+		let prev = PosString(Pos{File: p.file, Line: p.seenLine[int(sid)], Col: p.seenCol[int(sid)]})
+		return pFail(&p, tv, CodeDuplicate, tv.text+" is already declared at "+prev)
+	}
+	p.seenLine[int(sid)] = tv.line
+	p.seenCol[int(sid)] = tv.col
+}
+
+func pMarkFieldSeen(p mut parser, sid uint32, tv tokView) fails parseBail {
+	let need = int(sid) + 1
+	for p.seenLine.Len() < need {
+		p.seenLine = p.seenLine.Append(0)
+		p.seenCol = p.seenCol.Append(0)
+	}
+	if !MarkSeen(&p.sc, sid) {
+		let prev = PosString(Pos{File: p.file, Line: p.seenLine[int(sid)], Col: p.seenCol[int(sid)]})
+		return pFail(&p, tv, CodeDuplicate, "field "+tv.text+" is already declared at "+prev)
+	}
+	p.seenLine[int(sid)] = tv.line
+	p.seenCol[int(sid)] = tv.col
+}
+
+func pMarkParamSeen(p mut parser, sid uint32, tv tokView) fails parseBail {
+	let need = int(sid) + 1
+	for p.seenLine.Len() < need {
+		p.seenLine = p.seenLine.Append(0)
+		p.seenCol = p.seenCol.Append(0)
+	}
+	if !MarkSeen(&p.sc, sid) {
+		let prev = PosString(Pos{File: p.file, Line: p.seenLine[int(sid)], Col: p.seenCol[int(sid)]})
+		return pFail(&p, tv, CodeDuplicate, "parameter "+tv.text+" is already declared at "+prev)
+	}
+	p.seenLine[int(sid)] = tv.line
+	p.seenCol[int(sid)] = tv.col
+}
+
+func pField(p mut parser) []pendingField fails parseBail {
+	let tv = pPeek(&p)
+	if tvIs(tv, "struct") {
+		if tvIs(pPeekN(&p, 1), "{") || (pPeekN(&p, 1).kind == TokIdent && tvIs(pPeekN(&p, 2), "{")) {
+			return pFail(&p, tv, CodeNestedStruct, "struct definition inside a struct")
+		}
+		return pFail(&p, tv, CodeStructTag, "struct named by its tag; use its typedef name")
+	}
+	if tvIs(tv, "[") && tvIs(pPeekN(&p, 1), "[") {
+		return pFail(&p, tv, CodeAttribute, "attribute `[[...]]`")
+	}
+	let ts = try pTypeSpec(&p)
+	let mut pending = []pendingField{}
+	for {
+		let (typ0, nptr) = try pPointers(&p, ts.typeID)
+		let mut typ = typ0
+		if ts.hasConst && nptr == 0 {
+			return pFail(&p, ts.constTok, CodeQualifier, "const outside `const T *`")
+		}
+		if tvIs(pPeek(&p), "(") {
+			return pFail(&p, pPeek(&p), CodeDeclarator, "function pointer declarator; declare a callback typedef")
+		}
+		let name = try pIdent(&p, "a field name")
+		if tvIs(pPeek(&p), "[") {
+			typ = try pArray(&p, typ)
+		}
+		let next = pPeek(&p)
+		if tvIs(next, ":") {
+			return pFail(&p, next, CodeBitField, "bit field "+name.text)
+		}
+		if tvIs(next, "(") {
+			return pFail(&p, next, CodeDeclarator, "function declarator in a struct")
+		}
+		if tvIs(next, "[") && tvIs(pPeekN(&p, 1), "[") {
+			return pFail(&p, next, CodeAttribute, "attribute `[[...]]`")
+		}
+		try pValueType(&p, typ, name, "field")
+		let nameID = InternModelStr(&p.m, name.text)
+		try pMarkFieldSeen(&p, nameID, name)
+		pending = pending.Append(pendingField{nameID: nameID, typeID: typ})
+		if !tvIs(pPeek(&p), ",") {
+			break
+		}
+		let _ = pNext(&p)
+	}
+	let _ = try pExpect(&p, ";")
+	pending
+}
+
+func pStructDecl(p mut parser, tag tokView) fails parseBail {
+	let open = try pExpect(&p, "{")
+	NextSeenGen(&p.sc, p.m.Strings.Texts.Len()+16)
+	let fStart = uint32(dense.Total(p.m.Fields.Ids))
+	let mut fLen uint32 = 0
+	let before = DiagCount(p.dt)
+	for !tvIs(pPeek(&p), "}") {
+		if pPeek(&p).kind == TokEOF {
+			return pUnexpected(&p, pPeek(&p), "`}`")
+		}
+		let fstart = p.i
+		let batch = pField(&p) catch {
+		case parseBail:
+			pSkipTo(&p, fstart, 2)
+			pClearKnr(&p)
+			[]pendingField{}
+		}
+		for pf in batch {
+			let _ = PushField(&p.m, pf.nameID, pf.typeID, 0, 0, 0)
+			fLen = fLen + 1
+		}
+	}
+	let _ = pNext(&p)
+	if fLen == 0 && DiagCount(p.dt) == before {
+		return pFail(&p, open, CodeDeclarator, "struct without fields")
+	}
+	let name = try pIdent(&p, "a typedef name")
+	let lout = pLayoutFields(&p, fStart, fLen)
+	if !lout.Ok {
+		return pFail(&p, name, CodeConstantRange, "struct "+name.text+" is larger than "+FormatUint64(MaxObject)+" bytes")
+	}
+	if tvIs(pPeek(&p), ";") {
+		try pDeclareTag(&p, tag)
+	}
+	try pEndDecl(&p, name)
+	let nameID = InternModelStr(&p.m, name.text)
+	let tagID = if tag.text != "" { InternModelStr(&p.m, tag.text) } else { uint32(0) }
+	let _ = PushDecl(&p.m, DeclStruct, nameID, tagID, ScalarNone, fStart, fLen, lout.Size, lout.Align, NoID, 0, 0)
+}
+
+func pOneParam(p mut parser) pendingParam fails parseBail {
+	let tv = pPeek(&p)
+	if tvIs(tv, "...") {
+		return pFail(&p, tv, CodeVarargs, "variadic parameter list")
+	}
+	let ts = try pTypeSpec(&p)
+	let (typ0, nptr0) = try pPointers(&p, ts.typeID)
+	let mut typ = typ0
+	let mut nptr = nptr0
+	if tvIs(pPeek(&p), "(") {
+		return pFail(&p, pPeek(&p), CodeDeclarator, "function pointer parameter; declare a callback typedef")
+	}
+	let mut name = tokView{kind: TokEOF, text: "", line: 0, col: 0, tid: NoID}
+	let nt = pPeek(&p)
+	if nt.kind == TokIdent {
+		if KeywordCode(nt.text) == CodeAttribute {
+			return pFail(&p, nt, CodeAttribute, backquote(nt.text)+": "+CodeDesc(CodeAttribute))
+		}
+		name = try pIdent(&p, "a parameter name")
+	}
+	let at = if name.text == "" { pPeek(&p) } else { name }
+	if tvIs(pPeek(&p), "[") {
+		let n1 = pPeekN(&p, 1)
+		if tvIs(n1, "]") || tvIs(n1, "static") || tvIs(n1, "*") || KeywordCode(n1.text) == CodeQualifier || tvIs(n1, "const") {
+			return pFail(&p, pPeek(&p), CodeDeclarator, "array parameter without a constant length")
+		}
+		let arrID = try pArray(&p, typ)
+		try pValueType(&p, arrID, at, "parameter")
+		let aid = TypeAt(p.m.Types, arrID)
+		typ = PushType(&p.m.Types, TypePointer, ScalarNone, 0, false, dense.Of(p.m.Types.Elem, aid), dense.Of(p.m.Types.Len, aid), dense.Of(p.m.Types.LenExpr, aid))
+		nptr = nptr + 1
+	}
+	if ts.hasConst && nptr == 0 {
+		return pFail(&p, ts.constTok, CodeQualifier, "const outside `const T *`")
+	}
+	let sep = pPeek(&p)
+	if !tvIs(sep, ",") && !tvIs(sep, ")") {
+		return pUnexpected(&p, sep, "`,` or `)`")
+	}
+	try pValueType(&p, typ, at, "parameter")
+	let mut nameID uint32 = 0
+	if name.text != "" {
+		nameID = InternModelStr(&p.m, name.text)
+		try pMarkParamSeen(&p, nameID, name)
+	}
+	pendingParam{nameID: nameID, typeID: typ}
+}
+
+func pParams(p mut parser, owner tokView) (uint32, uint32) fails parseBail {
+	let open = p.i
+	let _ = try pExpect(&p, "(")
+	if tvIs(pPeek(&p), ")") {
+		return pFailKAndR(&p, open, []uint32{}, owner, owner.text+" has an empty parameter list; write (void)")
+	}
+	if tvIs(pPeek(&p), "void") && tvIs(pPeekN(&p, 1), ")") {
+		let _ = pNext(&p)
+		let _ = pNext(&p)
+		return (0, 0)
+	}
+	let t0 = pPeek(&p)
+	if t0.kind == TokIdent && !IsSubsetKeyword(t0.text) && ScalarByName(t0.text) == ScalarNone && (tvIs(pPeekN(&p, 1), ",") || tvIs(pPeekN(&p, 1), ")")) {
+		let sid0 = FindStr(p.m.Strings, t0.text)
+		let isType = sid0 != NoID && int(sid0) < p.m.DeclByName.Len() && p.m.DeclByName[int(sid0)] != NoID
+		if !isType {
+			let mut names = []uint32{}
+			let mut k = p.i
+			for pTokAtIdx(&p, k).kind == TokIdent {
+				let kt = pTokAtIdx(&p, k)
+				names = names.Append(dense.Of(p.tt.Text, TokAt(p.tt, kt.tid)))
+				if !tvIs(pTokAtIdx(&p, k+1), ",") {
+					break
+				}
+				k = k + 2
+			}
+			return pFailKAndR(&p, open, names, owner, owner.text+" has an identifier list; write a prototype")
+		}
+	}
+	NextSeenGen(&p.sc, p.m.Strings.Texts.Len()+16)
+	let mut pending = []pendingParam{}
+	for {
+		let pstart = p.i
+		let mut failed = false
+		let pp = pOneParam(&p) catch {
+		case parseBail:
+			pSkipTo(&p, pstart, 3)
+			pClearKnr(&p)
+			failed = true
+			pendingParam{nameID: 0, typeID: 0}
+		}
+		if !failed {
+			pending = pending.Append(pp)
+		}
+		if tvIs(pPeek(&p), ",") {
+			let _ = pNext(&p)
+			continue
+		}
+		break
+	}
+	let _ = try pExpect(&p, ")")
+	let pStart = uint32(dense.Total(p.m.Params.Ids))
+	let mut pLen uint32 = 0
+	for pp in pending {
+		let _ = PushParam(&p.m, pp.nameID, pp.typeID)
+		pLen = pLen + 1
+	}
+	(pStart, pLen)
+}
+
+func pCallbackDecl(p mut parser, result uint32, hasConst bool, constTok tokView, nptr int) fails parseBail {
+	if hasConst && nptr == 0 {
+		return pFail(&p, constTok, CodeQualifier, "const outside `const T *`")
+	}
+	let _ = try pExpect(&p, "(")
+	if !tvIs(pPeek(&p), "*") {
+		return pFail(&p, pPeek(&p), CodeDeclarator, "function typedef; write `typedef R (*name)(params);`")
+	}
+	let _ = pNext(&p)
+	if tvIs(pPeek(&p), "*") || tvIs(pPeek(&p), "(") {
+		return pFail(&p, pPeek(&p), CodeDeclarator, "callback typedef is `typedef R (*name)(params);`")
+	}
+	let name = try pIdent(&p, "a callback name")
+	if !tvIs(pPeek(&p), ")") {
+		return pFail(&p, pPeek(&p), CodeDeclarator, "callback typedef is `typedef R (*name)(params);`")
+	}
+	let _ = pNext(&p)
+	try pResultType(&p, result, name)
+	let (pStart, pLen) = try pParams(&p, name)
+	try pEndDecl(&p, name)
+	let nameID = InternModelStr(&p.m, name.text)
+	let _ = PushDecl(&p.m, DeclCallback, nameID, 0, ScalarNone, 0, 0, 0, 0, result, pStart, pLen)
+}
+
+func pTypedefDecl(p mut parser) fails parseBail {
+	if tvIs(pPeek(&p), "struct") {
+		let _ = pNext(&p)
+		let mut tag = tokView{kind: TokEOF, text: "", line: 0, col: 0, tid: NoID}
+		if pPeek(&p).kind == TokIdent && !IsSubsetKeyword(pPeek(&p).text) {
+			try pCheckName(&p, pPeek(&p))
+			tag = pNext(&p)
+		}
+		if tvIs(pPeek(&p), "{") {
+			try pStructDecl(&p, tag)
+			return
+		}
+		if tag.text == "" {
+			return pUnexpected(&p, pPeek(&p), "a struct tag or `{`")
+		}
+		let name = try pIdent(&p, "a typedef name")
+		if !tvIs(pPeek(&p), ";") {
+			return pUnexpected(&p, pPeek(&p), "`;`")
+		}
+		try pDeclareTag(&p, tag)
+		try pDeclare(&p, name)
+		let _ = pNext(&p)
+		let nameID = InternModelStr(&p.m, name.text)
+		let tagID = InternModelStr(&p.m, tag.text)
+		let _ = PushDecl(&p.m, DeclOpaque, nameID, tagID, ScalarNone, 0, 0, 0, 0, NoID, 0, 0)
+		return
+	}
+	let ts = try pTypeSpec(&p)
+	let (typ, nptr) = try pPointers(&p, ts.typeID)
+	if tvIs(pPeek(&p), "(") {
+		try pCallbackDecl(&p, typ, ts.hasConst, ts.constTok, nptr)
+		return
+	}
+	if ts.hasConst {
+		return pFail(&p, ts.constTok, CodeQualifier, "const outside `const T *`")
+	}
+	let name = try pIdent(&p, "a typedef name")
+	let baseID = TypeAt(p.m.Types, ts.typeID)
+	let baseKind = dense.Of(p.m.Types.Kind, baseID)
+	if nptr > 0 || baseKind != TypeScalar {
+		return pFail(&p, name, CodeDeclarator, "typedef of "+TypeSpell(p.m.Types, p.m.Strings, typ)+" is outside the subset (fixed-width integers, bool, float and double only)")
+	}
+	if tvIs(pPeek(&p), "[") {
+		return pFail(&p, pPeek(&p), CodeDeclarator, "typedef of an array")
+	}
+	try pEndDecl(&p, name)
+	let nameID = InternModelStr(&p.m, name.text)
+	let scalar = dense.Of(p.m.Types.Scalar, baseID)
+	let _ = PushDecl(&p.m, DeclScalar, nameID, 0, scalar, 0, 0, 0, 0, NoID, 0, 0)
+}
+
+func pPrototype(p mut parser) fails parseBail {
+	let t0 = pPeek(&p)
+	if t0.kind == TokIdent {
+		let kc = KeywordCode(t0.text)
+		if kc == CodeStorageClass || kc == CodeAttribute {
+			return pFail(&p, t0, kc, backquote(t0.text)+": "+CodeDesc(kc))
+		}
+	}
+	let ts = try pTypeSpec(&p)
+	let (typ, nptr) = try pPointers(&p, ts.typeID)
+	if ts.hasConst && nptr == 0 {
+		return pFail(&p, ts.constTok, CodeQualifier, "const outside `const T *`")
+	}
+	if tvIs(pPeek(&p), "(") {
+		return pFail(&p, pPeek(&p), CodeDeclarator, "function pointer declarator; declare a callback typedef")
+	}
+	let name = try pIdent(&p, "a function name")
+	if !tvIs(pPeek(&p), "(") {
+		let q = pPeek(&p)
+		if tvIs(q, ";") || tvIs(q, "=") || tvIs(q, "[") || tvIs(q, ",") {
+			return pFail(&p, name, CodeVariable, "variable "+name.text)
+		}
+		return pUnexpected(&p, q, "`(`")
+	}
+	try pResultType(&p, typ, name)
+	let open = p.i
+	let (pStart, pLen) = try pParams(&p, name)
+	let q = pPeek(&p)
+	if tvIs(q, "{") {
+		return pFail(&p, q, CodeStorageClass, "function definition "+name.text)
+	}
+	if q.kind == TokIdent && KeywordCode(q.text) == CodeAttribute {
+		return pFail(&p, q, CodeAttribute, backquote(q.text)+": "+CodeDesc(CodeAttribute))
+	}
+	if q.kind == TokIdent && !IsSubsetKeyword(q.text) {
+		return pFailKAndR(&p, open, []uint32{}, name, "K&R definition "+name.text)
+	}
+	try pEndDecl(&p, name)
+	let nameID = InternModelStr(&p.m, name.text)
+	let _ = PushFunc(&p.m, nameID, typ, pStart, pLen)
+}
+
+func pTopDecl(p mut parser) fails parseBail {
+	let tv = pPeek(&p)
+	if tvIs(tv, "typedef") {
+		let _ = pNext(&p)
+		try pTypedefDecl(&p)
+		return
+	}
+	if tvIs(tv, "struct") {
+		return pFail(&p, tv, CodeStructTag, "struct declared outside `typedef struct`")
+	}
+	if tvIs(tv, ";") {
+		return pFail(&p, tv, CodeSyntax, "empty declaration")
+	}
+	if tvIs(tv, "[") && tvIs(pPeekN(&p, 1), "[") {
+		return pFail(&p, tv, CodeAttribute, "attribute `[[...]]`")
+	}
+	try pPrototype(&p)
+}
+
+// Parse lexes, preprocesses, and parses a C header of the subset into Model.
+func Parse(file string, src string) Model fails ParseFailure {
+	let mut m = NewModel(basePathName(file))
+	let mut dt = NewDiagTable()
+	let tt = Lex(file, src, &m.Strings, &dt)
+	if DiagCount(dt) > 0 {
+		return ParseFailure{Diags: CollectDiags(dt, m.Strings)}
+	}
+	let pr = RunDirectives(file, tt, &m, &dt)
+	let mut p = parser{
+		file:     file,
+		m:        m,
+		dt:       dt,
+		pr:       pr,
+		tt:       tt,
+		ctoks:    pr.CTokIdx,
+		i:        0,
+		nameLine: []uint32{},
+		nameCol:  []uint32{},
+		tagLine:  []uint32{},
+		tagCol:   []uint32{},
+		sc:       NewScratch(),
+		seenLine: []uint32{},
+		seenCol:  []uint32{},
+		knrHas:   false,
+		knrOpen:  0,
+		knrNames: []uint32{},
+	}
+	pCheckMacroUses(&p)
+	for pPeek(&p).kind != TokEOF {
+		let start = p.i
+		pTopDecl(&p) catch {
+		case parseBail:
+			pSkipTop(&p, start)
+			pClearKnr(&p)
+		}
+	}
+	if DiagCount(p.dt) > 0 {
+		return ParseFailure{Diags: CollectDiags(p.dt, p.m.Strings)}
+	}
+	p.m
+}
+
+// ParseRefusesOutOfSubsetConstructs checks that enum, union, volatile, and empty param lists fail with expected codes.
+law ParseRefusesOutOfSubsetConstructs(tag uint8) {
+	let suffix = "x_" + FormatUint64(uint64(tag))
+	let h1 = "#include <stdint.h>\nenum " + suffix + " { A = 1 };\n"
+	let mut ok1 = false
+	let _ = Parse("a.h", h1) catch {
+	case ParseFailure as pf:
+		ok1 = pf.Diags.Len() > 0 && pf.Diags[0].Code == CodeEnum
+		NewModel("a.h")
+	}
+	let h2 = "#include <stdint.h>\nunion " + suffix + " { uint32_t a; };\n"
+	let mut ok2 = false
+	let _ = Parse("b.h", h2) catch {
+	case ParseFailure as pf:
+		ok2 = pf.Diags.Len() > 0 && pf.Diags[0].Code == CodeUnion
+		NewModel("b.h")
+	}
+	let h3 = "#include <stdint.h>\nvoid " + suffix + "(volatile uint32_t *p);\n"
+	let mut ok3 = false
+	let _ = Parse("c.h", h3) catch {
+	case ParseFailure as pf:
+		ok3 = pf.Diags.Len() > 0 && pf.Diags[0].Code == CodeQualifier
+		NewModel("c.h")
+	}
+	let h4 = "void " + suffix + "();\n"
+	let mut ok4 = false
+	let _ = Parse("d.h", h4) catch {
+	case ParseFailure as pf:
+		ok4 = pf.Diags.Len() > 0 && pf.Diags[0].Code == CodeKAndR
+		NewModel("d.h")
+	}
+	let h5 = "uint32_t " + suffix + "(void);\n"
+	let mut ok5 = false
+	let _ = Parse("e.h", h5) catch {
+	case ParseFailure as pf:
+		ok5 = pf.Diags.Len() > 0 && pf.Diags[0].Code == CodeMissingInclude
+		NewModel("e.h")
+	}
+	ok1 && ok2 && ok3 && ok4 && ok5
+}

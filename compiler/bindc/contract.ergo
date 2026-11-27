@@ -1,0 +1,1009 @@
+import dense
+import json
+import slices
+import strconv
+import strings
+
+// ContractFailure reports a JSON syntax, schema, or semantic contract error.
+type ContractFailure {
+	Msg string,
+}
+
+// Binding position class codes.
+let ClassNone uint8 = 0
+let ClassHandle uint8 = 1
+let ClassValue uint8 = 2
+let ClassOptional uint8 = 3
+let ClassOut uint8 = 4
+let ClassInBuffer uint8 = 5
+let ClassOutBuffer uint8 = 6
+let ClassOutCount uint8 = 7
+let ClassRaw uint8 = 8
+let ClassCallback uint8 = 9
+let ClassKey uint8 = 10
+let ClassScalar uint8 = 11
+let ClassLength uint8 = 12
+let ClassOutArray uint8 = 13
+
+let classNames = []string{
+	"",
+	"handle",
+	"value",
+	"optional",
+	"out",
+	"in_buffer",
+	"out_buffer",
+	"out_count",
+	"raw",
+	"callback",
+	"key",
+	"scalar",
+	"length",
+	"out_array",
+}
+
+// ClassName returns the canonical string name of position class c.
+func ClassName(c uint8) string {
+	let idx = int(c)
+	if idx < 0 || idx >= classNames.Len() {
+		return ""
+	}
+	classNames[idx]
+}
+
+// ClassByName maps a canonical class string to its class code, or ClassNone.
+func ClassByName(name string) uint8 {
+	match name {
+	case "handle":
+		ClassHandle
+	case "value":
+		ClassValue
+	case "optional":
+		ClassOptional
+	case "out":
+		ClassOut
+	case "in_buffer":
+		ClassInBuffer
+	case "out_buffer":
+		ClassOutBuffer
+	case "out_count":
+		ClassOutCount
+	case "raw":
+		ClassRaw
+	case "callback":
+		ClassCallback
+	case "key":
+		ClassKey
+	case "scalar":
+		ClassScalar
+	case "length":
+		ClassLength
+	case "out_array":
+		ClassOutArray
+	case _:
+		ClassNone
+	}
+}
+
+// MaxArrayLength is the upper bound of an out_array element count exception.
+let MaxArrayLength uint32 = 1 << 16
+
+// HandleTag identifies one opaque handle rule row in HandleTable.
+type HandleTag {}
+
+// HandleTable stores opaque handle rules in flat Structure-of-Arrays columns.
+type HandleTable {
+	Ids     dense.Count[HandleTag],
+	Type    dense.Col[HandleTag, uint32],
+	Create  dense.Col[HandleTag, uint32],
+	Out     dense.Col[HandleTag, uint32],
+	Destroy dense.Col[HandleTag, uint32],
+	Thread  dense.Col[HandleTag, uint32],
+}
+
+// NewHandleTable creates an empty HandleTable.
+func NewHandleTable() HandleTable {
+	HandleTable{
+		Ids:     dense.NewCount[HandleTag](),
+		Type:    dense.NewCol[HandleTag, uint32](),
+		Create:  dense.NewCol[HandleTag, uint32](),
+		Out:     dense.NewCol[HandleTag, uint32](),
+		Destroy: dense.NewCol[HandleTag, uint32](),
+		Thread:  dense.NewCol[HandleTag, uint32](),
+	}
+}
+
+// AutofillTag identifies one struct field autofill rule in AutofillTable.
+type AutofillTag {}
+
+// AutofillTable stores autofill field rules in flat Structure-of-Arrays columns.
+type AutofillTable {
+	Ids   dense.Count[AutofillTag],
+	Field dense.Col[AutofillTag, uint32],
+	Value dense.Col[AutofillTag, uint32],
+}
+
+// NewAutofillTable creates an empty AutofillTable.
+func NewAutofillTable() AutofillTable {
+	AutofillTable{
+		Ids:   dense.NewCount[AutofillTag](),
+		Field: dense.NewCol[AutofillTag, uint32](),
+		Value: dense.NewCol[AutofillTag, uint32](),
+	}
+}
+
+// CbRuleTag identifies one callback contract rule row in CallbackRuleTable.
+type CbRuleTag {}
+
+// CallbackRuleTable stores callback contract entries in flat Structure-of-Arrays columns.
+type CallbackRuleTable {
+	Ids            dense.Count[CbRuleTag],
+	Typedef        dense.Col[CbRuleTag, uint32],
+	Scope          dense.Col[CbRuleTag, uint32],
+	KeyParamsStart dense.Col[CbRuleTag, uint32],
+	KeyParamsLen   dense.Col[CbRuleTag, uint32],
+	KeySource      dense.Col[CbRuleTag, uint32],
+	Default        dense.Col[CbRuleTag, uint32],
+	Owner          dense.Col[CbRuleTag, uint32],
+	EndsStart      dense.Col[CbRuleTag, uint32],
+	EndsLen        dense.Col[CbRuleTag, uint32],
+	Why            dense.Col[CbRuleTag, uint32],
+}
+
+// NewCallbackRuleTable creates an empty CallbackRuleTable.
+func NewCallbackRuleTable() CallbackRuleTable {
+	CallbackRuleTable{
+		Ids:            dense.NewCount[CbRuleTag](),
+		Typedef:        dense.NewCol[CbRuleTag, uint32](),
+		Scope:          dense.NewCol[CbRuleTag, uint32](),
+		KeyParamsStart: dense.NewCol[CbRuleTag, uint32](),
+		KeyParamsLen:   dense.NewCol[CbRuleTag, uint32](),
+		KeySource:      dense.NewCol[CbRuleTag, uint32](),
+		Default:        dense.NewCol[CbRuleTag, uint32](),
+		Owner:          dense.NewCol[CbRuleTag, uint32](),
+		EndsStart:      dense.NewCol[CbRuleTag, uint32](),
+		EndsLen:        dense.NewCol[CbRuleTag, uint32](),
+		Why:            dense.NewCol[CbRuleTag, uint32](),
+	}
+}
+
+// ExcTag identifies one exception entry row in ExceptionTable.
+type ExcTag {}
+
+// ExceptionTable stores contract position exceptions in flat Structure-of-Arrays columns.
+type ExceptionTable {
+	Ids         dense.Count[ExcTag],
+	Function    dense.Col[ExcTag, uint32],
+	Callback    dense.Col[ExcTag, uint32],
+	Position    dense.Col[ExcTag, uint32],
+	Class       dense.Col[ExcTag, uint8],
+	Length      dense.Col[ExcTag, uint32],
+	Unit        dense.Col[ExcTag, uint32],
+	Count       dense.Col[ExcTag, uint32],
+	ArrayLength dense.Col[ExcTag, uint32],
+	Why         dense.Col[ExcTag, uint32],
+}
+
+// NewExceptionTable creates an empty ExceptionTable.
+func NewExceptionTable() ExceptionTable {
+	ExceptionTable{
+		Ids:         dense.NewCount[ExcTag](),
+		Function:    dense.NewCol[ExcTag, uint32](),
+		Callback:    dense.NewCol[ExcTag, uint32](),
+		Position:    dense.NewCol[ExcTag, uint32](),
+		Class:       dense.NewCol[ExcTag, uint8](),
+		Length:      dense.NewCol[ExcTag, uint32](),
+		Unit:        dense.NewCol[ExcTag, uint32](),
+		Count:       dense.NewCol[ExcTag, uint32](),
+		ArrayLength: dense.NewCol[ExcTag, uint32](),
+		Why:         dense.NewCol[ExcTag, uint32](),
+	}
+}
+
+// SkipTag identifies one skip or status-exclude row in SkipTable.
+type SkipTag {}
+
+// SkipTable stores contract skips and status excludes in flat Structure-of-Arrays columns.
+type SkipTable {
+	Ids       dense.Count[SkipTag],
+	Name      dense.Col[SkipTag, uint32],
+	Why       dense.Col[SkipTag, uint32],
+	IsExclude dense.Col[SkipTag, bool],
+}
+
+// NewSkipTable creates an empty SkipTable.
+func NewSkipTable() SkipTable {
+	SkipTable{
+		Ids:       dense.NewCount[SkipTag](),
+		Name:      dense.NewCol[SkipTag, uint32](),
+		Why:       dense.NewCol[SkipTag, uint32](),
+		IsExclude: dense.NewCol[SkipTag, bool](),
+	}
+}
+
+// ContractTable holds a validated binding contract in flat Structure-of-Arrays tables.
+type ContractTable {
+	Strings           StrTable,
+	Header            uint32,
+	HeaderSHA256      uint32,
+	GoPkg             uint32,
+	GoImportPath      uint32,
+	PrefixFunc        uint32,
+	PrefixMacro       uint32,
+	PrefixType        uint32,
+	StatusType        uint32,
+	StatusMacroPrefix uint32,
+	StatusSuccess     uint32,
+	ABIFunction       uint32,
+	ABIMacro          uint32,
+	OutPrefix         uint32,
+	LengthNames       []uint32,
+	ByteLengthNames   []uint32,
+	CapacityNames     []uint32,
+	CountNames        []uint32,
+	KeyParamPool      []uint32,
+	EndPool           []uint32,
+	Handles           HandleTable,
+	Autofills         AutofillTable,
+	Callbacks         CallbackRuleTable,
+	Exceptions        ExceptionTable,
+	Skips             SkipTable,
+}
+
+func newEmptyContractTable() ContractTable {
+	ContractTable{
+		Strings:           NewStrTable(),
+		Header:            0,
+		HeaderSHA256:      0,
+		GoPkg:             0,
+		GoImportPath:      0,
+		PrefixFunc:        0,
+		PrefixMacro:       0,
+		PrefixType:        0,
+		StatusType:        0,
+		StatusMacroPrefix: 0,
+		StatusSuccess:     0,
+		ABIFunction:       0,
+		ABIMacro:          0,
+		OutPrefix:         0,
+		LengthNames:       []uint32{},
+		ByteLengthNames:   []uint32{},
+		CapacityNames:     []uint32{},
+		CountNames:        []uint32{},
+		KeyParamPool:      []uint32{},
+		EndPool:           []uint32{},
+		Handles:           NewHandleTable(),
+		Autofills:         NewAutofillTable(),
+		Callbacks:         NewCallbackRuleTable(),
+		Exceptions:        NewExceptionTable(),
+		Skips:             NewSkipTable(),
+	}
+}
+
+// IsCIdent reports whether s is a valid C identifier.
+func IsCIdent(s string) bool {
+	if s == "" || !isIdentStart(s[0]) {
+		return false
+	}
+	let mut i = 1
+	for i < s.Len() {
+		if !isIdentPart(s[i]) {
+			return false
+		}
+		i = i + 1
+	}
+	true
+}
+
+// ValidTemplate reports whether s is a valid C identifier, or with {name}/{stem} placeholders when templ is true.
+func ValidTemplate(s string, templ bool) bool {
+	let sub = if templ {
+		strings.ReplaceAll(strings.ReplaceAll(s, "{name}", "x"), "{stem}", "x")
+	} else {
+		s
+	}
+	IsCIdent(sub)
+}
+
+// ExpandTemplate instantiates a length template for a buffer named name.
+func ExpandTemplate(templ string, name string) (string, bool) {
+	if !strings.Contains(templ, "{") {
+		return (templ, true)
+	}
+	if name == "" {
+		return ("", false)
+	}
+	let stem = if name.Len() > 1 && strings.HasSuffix(name, "s") {
+		strings.Slice(name, 0, name.Len()-1)
+	} else {
+		name
+	}
+	(strings.ReplaceAll(strings.ReplaceAll(templ, "{name}", name), "{stem}", stem), true)
+}
+
+// TemplateMatches reports whether name matches templ with placeholders replaced by non-empty C identifiers.
+func TemplateMatches(templ string, name string) bool {
+	let i = strings.IndexByte(templ, '{')
+	if i < 0 {
+		return templ == name
+	}
+	let tailIdx = strings.IndexByte(strings.Slice(templ, i, templ.Len()), '}') + i
+	let head = strings.Slice(templ, 0, i)
+	let tail = strings.Slice(templ, tailIdx+1, templ.Len())
+	if !strings.HasPrefix(name, head) {
+		return false
+	}
+	let rest = strings.Slice(name, head.Len(), name.Len())
+	let mut n = 1
+	for n <= rest.Len() {
+		if IsCIdent("x"+strings.Slice(rest, 0, n)) && TemplateMatches(tail, strings.Slice(rest, n, rest.Len())) {
+			return true
+		}
+		n = n + 1
+	}
+	false
+}
+
+func validDefaultText(raw string) bool {
+	if raw == "true" || raw == "false" {
+		return true
+	}
+	let s = strings.TrimPrefix(raw, "-")
+	if s == "" || (s[0] == '0' && s.Len() > 1) {
+		return false
+	}
+	let mut i = 0
+	for i < s.Len() {
+		if s[i] < '0' || s[i] > '9' {
+			return false
+		}
+		i = i + 1
+	}
+	true
+}
+
+func contractErrorMsg(errs []string) string {
+	"contract:\n  " + strings.Join(errs, "\n  ")
+}
+
+func orRootPath(path string) string {
+	if path == "" {
+		return "the contract"
+	}
+	path
+}
+
+func joinJSONPath(path string, key string) string {
+	if path == "" {
+		return key
+	}
+	path + "." + key
+}
+
+type keySpec {
+	name string,
+	req  bool,
+}
+
+func schemaKeysForPath(path string) (bool, []keySpec) {
+	match path {
+	case "":
+		(true, []keySpec{
+			keySpec{name: "abi", req: true},
+			keySpec{name: "autofill", req: true},
+			keySpec{name: "buffers", req: true},
+			keySpec{name: "callbacks", req: true},
+			keySpec{name: "exceptions", req: true},
+			keySpec{name: "go", req: true},
+			keySpec{name: "handles", req: true},
+			keySpec{name: "header", req: true},
+			keySpec{name: "header_sha256", req: true},
+			keySpec{name: "prefixes", req: true},
+			keySpec{name: "skips", req: true},
+			keySpec{name: "status", req: true},
+		})
+	case "callbacks":
+		(true, []keySpec{
+			keySpec{name: "default", req: false},
+			keySpec{name: "ends", req: false},
+			keySpec{name: "key", req: true},
+			keySpec{name: "owner", req: false},
+			keySpec{name: "scope", req: true},
+			keySpec{name: "typedef", req: true},
+			keySpec{name: "why", req: true},
+		})
+	case "callbacks.key":
+		(true, []keySpec{
+			keySpec{name: "params", req: true},
+			keySpec{name: "source", req: true},
+		})
+	case "go":
+		(true, []keySpec{
+			keySpec{name: "import_path", req: true},
+			keySpec{name: "package", req: true},
+		})
+	case "prefixes":
+		(true, []keySpec{
+			keySpec{name: "function", req: true},
+			keySpec{name: "macro", req: true},
+			keySpec{name: "type", req: true},
+		})
+	case "status":
+		(true, []keySpec{
+			keySpec{name: "exclude", req: true},
+			keySpec{name: "macro_prefix", req: true},
+			keySpec{name: "success", req: true},
+			keySpec{name: "type", req: true},
+		})
+	case "status.exclude":
+		(true, []keySpec{
+			keySpec{name: "name", req: true},
+			keySpec{name: "why", req: true},
+		})
+	case "abi":
+		(true, []keySpec{
+			keySpec{name: "function", req: true},
+			keySpec{name: "macro", req: true},
+		})
+	case "handles":
+		(true, []keySpec{
+			keySpec{name: "create", req: true},
+			keySpec{name: "destroy", req: true},
+			keySpec{name: "out", req: true},
+			keySpec{name: "thread", req: true},
+			keySpec{name: "type", req: true},
+		})
+	case "autofill":
+		(true, []keySpec{
+			keySpec{name: "field", req: true},
+			keySpec{name: "value", req: true},
+		})
+	case "buffers":
+		(true, []keySpec{
+			keySpec{name: "byte_length_names", req: true},
+			keySpec{name: "capacity_names", req: true},
+			keySpec{name: "count_names", req: true},
+			keySpec{name: "length_names", req: true},
+			keySpec{name: "out_prefix", req: true},
+		})
+	case "exceptions":
+		(true, []keySpec{
+			keySpec{name: "array_length", req: false},
+			keySpec{name: "callback", req: false},
+			keySpec{name: "count", req: false},
+			keySpec{name: "class", req: true},
+			keySpec{name: "function", req: false},
+			keySpec{name: "length", req: false},
+			keySpec{name: "position", req: true},
+			keySpec{name: "unit", req: false},
+			keySpec{name: "why", req: true},
+		})
+	case "skips":
+		(true, []keySpec{
+			keySpec{name: "name", req: true},
+			keySpec{name: "why", req: true},
+		})
+	case _:
+		(false, []keySpec{})
+	}
+}
+
+func walkContractShape(v json.Value, path string, errs []string) []string {
+	let mut out = errs
+	match v {
+	case json.Null:
+		out = out.Append(orRootPath(path) + " is null")
+	case json.Array as a:
+		for item in a.Items {
+			out = walkContractShape(item, path, out)
+		}
+	case json.Object as obj:
+		let (known, specs) = schemaKeysForPath(path)
+		let mut seen = []string{}
+		for m in obj.Members {
+			if slices.Contains(seen, m.Key) {
+				out = out.Append(orRootPath(path) + ": key " + strconv.Quote(m.Key) + " appears twice")
+			}
+			seen = seen.Append(m.Key)
+			if known {
+				let mut inKeys = false
+				for sp in specs {
+					if sp.name == m.Key {
+						inKeys = true
+						break
+					}
+				}
+				if !inKeys {
+					out = out.Append(orRootPath(path) + ": unknown key " + strconv.Quote(m.Key))
+				}
+			}
+			out = walkContractShape(m.Value, joinJSONPath(path, m.Key), out)
+		}
+		if known {
+			let mut missing = []string{}
+			for sp in specs {
+				if sp.req && !slices.Contains(seen, sp.name) {
+					missing = missing.Append(sp.name)
+				}
+			}
+			for k in slices.Sort(missing) {
+				out = out.Append(orRootPath(path) + ": missing key " + strconv.Quote(k))
+			}
+		}
+	case json.Boolean, json.Num, json.Str:
+	}
+	out
+}
+
+func objMember(obj json.Object, key string) (bool, json.Value) {
+	for m in obj.Members {
+		if m.Key == key {
+			return (true, m.Value)
+		}
+	}
+	(false, json.Null)
+}
+
+func expectObj(v json.Value, field string) json.Object fails ContractFailure {
+	match v {
+	case json.Object as o:
+		o
+	case _:
+		return ContractFailure{Msg: "contract: wrong type for " + field}
+	}
+}
+
+func expectStr(v json.Value, field string) string fails ContractFailure {
+	match v {
+	case json.Str as s:
+		s.Value
+	case _:
+		return ContractFailure{Msg: "contract: wrong type for " + field}
+	}
+}
+
+func expectArr(v json.Value, field string) []json.Value fails ContractFailure {
+	match v {
+	case json.Array as a:
+		a.Items
+	case _:
+		return ContractFailure{Msg: "contract: wrong type for " + field}
+	}
+}
+
+func fieldObj(obj json.Object, key string, path string) json.Object fails ContractFailure {
+	let (_, v) = objMember(obj, key)
+	try expectObj(v, path)
+}
+
+func fieldStr(obj json.Object, key string, path string) string fails ContractFailure {
+	let (_, v) = objMember(obj, key)
+	try expectStr(v, path)
+}
+
+func fieldOptStr(obj json.Object, key string, path string) string fails ContractFailure {
+	let (ok, v) = objMember(obj, key)
+	if !ok {
+		return ""
+	}
+	try expectStr(v, path)
+}
+
+func fieldStrSlice(obj json.Object, key string, path string) []string fails ContractFailure {
+	let (_, v) = objMember(obj, key)
+	let items = try expectArr(v, path)
+	let mut out = []string{}
+	for item in items {
+		out = out.Append(try expectStr(item, path))
+	}
+	out
+}
+
+func fieldOptStrSlice(obj json.Object, key string, path string) []string fails ContractFailure {
+	let (ok, v) = objMember(obj, key)
+	if !ok {
+		return []string{}
+	}
+	let items = try expectArr(v, path)
+	let mut out = []string{}
+	for item in items {
+		out = out.Append(try expectStr(item, path))
+	}
+	out
+}
+
+func fieldArr(obj json.Object, key string, path string) []json.Value fails ContractFailure {
+	let (_, v) = objMember(obj, key)
+	try expectArr(v, path)
+}
+
+func fieldOptInt(obj json.Object, key string, path string) int64 fails ContractFailure {
+	let (ok, v) = objMember(obj, key)
+	if !ok {
+		return 0
+	}
+	match v {
+	case json.Num:
+		let raw = json.Encode(json.Codec[json.Value]{MaxBytes: 0, MaxDepth: 0}, v)
+		let n = strconv.ParseInt(raw, 10, 64) catch {
+		case _:
+			return ContractFailure{Msg: "contract: invalid integer for " + path}
+		}
+		n
+	case _:
+		return ContractFailure{Msg: "contract: wrong type for " + path}
+	}
+}
+
+func checkLowerHex64(s string) bool {
+	if s.Len() != 64 {
+		return false
+	}
+	let mut i = 0
+	for i < 64 {
+		let c = s[i]
+		let ok = (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')
+		if !ok {
+			return false
+		}
+		i = i + 1
+	}
+	true
+}
+
+// DecodeContract strictly parses and validates a binding contract JSON string into ContractTable.
+func DecodeContract(data string) ContractTable fails ContractFailure {
+	let valCodec = json.Codec[json.Value]{MaxBytes: 0, MaxDepth: 0}
+	let rootVal = json.Decode(valCodec, data) catch {
+	case json.Malformed as m:
+		return ContractFailure{Msg: "contract: " + m.Reason}
+	case _:
+		return ContractFailure{Msg: "contract: malformed json"}
+	}
+	let shapeErrs = walkContractShape(rootVal, "", []string{})
+	if shapeErrs.Len() > 0 {
+		return ContractFailure{Msg: contractErrorMsg(shapeErrs)}
+	}
+	let root = try expectObj(rootVal, "contract")
+	let mut ct = newEmptyContractTable()
+	let header = try fieldStr(root, "header", "header")
+	let headerSHA = try fieldStr(root, "header_sha256", "header_sha256")
+	let goObj = try fieldObj(root, "go", "go")
+	let goPkg = try fieldStr(goObj, "package", "go.package")
+	let goImport = try fieldStr(goObj, "import_path", "go.import_path")
+	let prefObj = try fieldObj(root, "prefixes", "prefixes")
+	let prefFunc = try fieldStr(prefObj, "function", "prefixes.function")
+	let prefMacro = try fieldStr(prefObj, "macro", "prefixes.macro")
+	let prefType = try fieldStr(prefObj, "type", "prefixes.type")
+	let statObj = try fieldObj(root, "status", "status")
+	let statType = try fieldStr(statObj, "type", "status.type")
+	let statPrefix = try fieldStr(statObj, "macro_prefix", "status.macro_prefix")
+	let statSuccess = try fieldStr(statObj, "success", "status.success")
+	let statExclude = try fieldArr(statObj, "exclude", "status.exclude")
+	let abiObj = try fieldObj(root, "abi", "abi")
+	let abiFunc = try fieldStr(abiObj, "function", "abi.function")
+	let abiMacro = try fieldStr(abiObj, "macro", "abi.macro")
+	let bufObj = try fieldObj(root, "buffers", "buffers")
+	let lenNames = try fieldStrSlice(bufObj, "length_names", "buffers.length_names")
+	let byteLenNames = try fieldStrSlice(bufObj, "byte_length_names", "buffers.byte_length_names")
+	let capNames = try fieldStrSlice(bufObj, "capacity_names", "buffers.capacity_names")
+	let cntNames = try fieldStrSlice(bufObj, "count_names", "buffers.count_names")
+	let outPrefix = try fieldStr(bufObj, "out_prefix", "buffers.out_prefix")
+
+	ct.Header = InternStr(&ct.Strings, header)
+	ct.HeaderSHA256 = InternStr(&ct.Strings, headerSHA)
+	ct.GoPkg = InternStr(&ct.Strings, goPkg)
+	ct.GoImportPath = InternStr(&ct.Strings, goImport)
+	ct.PrefixFunc = InternStr(&ct.Strings, prefFunc)
+	ct.PrefixMacro = InternStr(&ct.Strings, prefMacro)
+	ct.PrefixType = InternStr(&ct.Strings, prefType)
+	ct.StatusType = InternStr(&ct.Strings, statType)
+	ct.StatusMacroPrefix = InternStr(&ct.Strings, statPrefix)
+	ct.StatusSuccess = InternStr(&ct.Strings, statSuccess)
+	ct.ABIFunction = InternStr(&ct.Strings, abiFunc)
+	ct.ABIMacro = InternStr(&ct.Strings, abiMacro)
+	ct.OutPrefix = InternStr(&ct.Strings, outPrefix)
+	for s in lenNames {
+		ct.LengthNames = ct.LengthNames.Append(InternStr(&ct.Strings, s))
+	}
+	for s in byteLenNames {
+		ct.ByteLengthNames = ct.ByteLengthNames.Append(InternStr(&ct.Strings, s))
+	}
+	for s in capNames {
+		ct.CapacityNames = ct.CapacityNames.Append(InternStr(&ct.Strings, s))
+	}
+	for s in cntNames {
+		ct.CountNames = ct.CountNames.Append(InternStr(&ct.Strings, s))
+	}
+
+	let mut errs = []string{}
+	let reqPairs = [][]string{
+		[]string{"header", header},
+		[]string{"header_sha256", headerSHA},
+		[]string{"go.package", goPkg},
+		[]string{"go.import_path", goImport},
+		[]string{"status.type", statType},
+		[]string{"status.macro_prefix", statPrefix},
+		[]string{"status.success", statSuccess},
+		[]string{"abi.function", abiFunc},
+		[]string{"abi.macro", abiMacro},
+		[]string{"buffers.out_prefix", outPrefix},
+	}
+	for rp in reqPairs {
+		if rp[1] == "" {
+			errs = errs.Append(rp[0] + " is empty")
+		}
+	}
+	if !checkLowerHex64(headerSHA) {
+		errs = errs.Append("header_sha256 " + strconv.Quote(headerSHA) + " is not 64 lower-case hex digits")
+	}
+	if !IsGoIdent(goPkg) || IsGoKeyword(goPkg) || goPkg == "_" {
+		errs = errs.Append("go.package " + strconv.Quote(goPkg) + " is not a Go package name")
+	}
+
+	let handleItems = try fieldArr(root, "handles", "handles")
+	let mut hi = 0
+	for hi < handleItems.Len() {
+		let hObj = try expectObj(handleItems[hi], "handles")
+		let hType = try fieldStr(hObj, "type", "handles.type")
+		let hCreate = try fieldStr(hObj, "create", "handles.create")
+		let hOut = try fieldStr(hObj, "out", "handles.out")
+		let hDestroy = try fieldStr(hObj, "destroy", "handles.destroy")
+		let hThread = try fieldStr(hObj, "thread", "handles.thread")
+		let _ = dense.Next(&ct.Handles.Ids)
+		dense.Push(&ct.Handles.Type, InternStr(&ct.Strings, hType))
+		dense.Push(&ct.Handles.Create, InternStr(&ct.Strings, hCreate))
+		dense.Push(&ct.Handles.Out, InternStr(&ct.Strings, hOut))
+		dense.Push(&ct.Handles.Destroy, InternStr(&ct.Strings, hDestroy))
+		dense.Push(&ct.Handles.Thread, InternStr(&ct.Strings, hThread))
+		let hPairs = [][]string{
+			[]string{"type", hType},
+			[]string{"create", hCreate},
+			[]string{"out", hOut},
+			[]string{"destroy", hDestroy},
+		}
+		for hp in hPairs {
+			if hp[1] == "" {
+				errs = errs.Append("handles[" + strconv.Itoa(hi) + "]." + hp[0] + " is empty")
+			}
+		}
+		if hThread != "owner" && hThread != "any" {
+			errs = errs.Append("handles[" + strconv.Itoa(hi) + "].thread is " + strconv.Quote(hThread) + ", want \"owner\" or \"any\"")
+		}
+		hi = hi + 1
+	}
+
+	let autofillItems = try fieldArr(root, "autofill", "autofill")
+	let mut ai = 0
+	for ai < autofillItems.Len() {
+		let aObj = try expectObj(autofillItems[ai], "autofill")
+		let aField = try fieldStr(aObj, "field", "autofill.field")
+		let aVal = try fieldStr(aObj, "value", "autofill.value")
+		let _ = dense.Next(&ct.Autofills.Ids)
+		dense.Push(&ct.Autofills.Field, InternStr(&ct.Strings, aField))
+		dense.Push(&ct.Autofills.Value, InternStr(&ct.Strings, aVal))
+		if aField == "" {
+			errs = errs.Append("autofill[" + strconv.Itoa(ai) + "].field is empty")
+		}
+		if aVal != "size" && aVal != "abi" {
+			errs = errs.Append("autofill[" + strconv.Itoa(ai) + "].value is " + strconv.Quote(aVal) + ", want \"size\" or \"abi\"")
+		}
+		ai = ai + 1
+	}
+
+	let bufLists = [][]string{lenNames, byteLenNames, capNames, cntNames}
+	let bufKeys = []string{"length_names", "byte_length_names", "capacity_names", "count_names"}
+	let mut bi = 0
+	for bi < 4 {
+		let bkey = bufKeys[bi]
+		let templ = bi < 2
+		let mut seenNames = []string{}
+		for n in bufLists[bi] {
+			if slices.Contains(seenNames, n) {
+				errs = errs.Append("buffers." + bkey + " repeats " + strconv.Quote(n))
+			}
+			seenNames = seenNames.Append(n)
+			if !ValidTemplate(n, templ) {
+				let suffix = if templ { " or a template of {name} and {stem}" } else { "" }
+				errs = errs.Append("buffers." + bkey + ": " + strconv.Quote(n) + " is not a C name" + suffix)
+			}
+		}
+		bi = bi + 1
+	}
+	for bn in byteLenNames {
+		if slices.Contains(lenNames, bn) {
+			errs = errs.Append("buffers: " + strconv.Quote(bn) + " is in both length_names and byte_length_names")
+		}
+	}
+
+	let cbItems = try fieldArr(root, "callbacks", "callbacks")
+	let mut cbi = 0
+	for cbi < cbItems.Len() {
+		let cbObj = try expectObj(cbItems[cbi], "callbacks")
+		let cbTypedef = try fieldStr(cbObj, "typedef", "callbacks.typedef")
+		let cbScope = try fieldStr(cbObj, "scope", "callbacks.scope")
+		let keyObj = try fieldObj(cbObj, "key", "callbacks.key")
+		let keyParams = try fieldStrSlice(keyObj, "params", "callbacks.key.params")
+		let keySource = try fieldStr(keyObj, "source", "callbacks.key.source")
+		let cbOwner = try fieldOptStr(cbObj, "owner", "callbacks.owner")
+		let cbEnds = try fieldOptStrSlice(cbObj, "ends", "callbacks.ends")
+		let cbWhy = try fieldStr(cbObj, "why", "callbacks.why")
+		let (hasDef, defVal) = objMember(cbObj, "default")
+		let mut defRaw = ""
+		if hasDef {
+			defRaw = json.Encode(valCodec, defVal)
+		}
+		let kpStart = uint32(ct.KeyParamPool.Len())
+		for kp in keyParams {
+			ct.KeyParamPool = ct.KeyParamPool.Append(InternStr(&ct.Strings, kp))
+		}
+		let endsStart = uint32(ct.EndPool.Len())
+		for ef in cbEnds {
+			ct.EndPool = ct.EndPool.Append(InternStr(&ct.Strings, ef))
+		}
+		let _ = dense.Next(&ct.Callbacks.Ids)
+		dense.Push(&ct.Callbacks.Typedef, InternStr(&ct.Strings, cbTypedef))
+		dense.Push(&ct.Callbacks.Scope, InternStr(&ct.Strings, cbScope))
+		dense.Push(&ct.Callbacks.KeyParamsStart, kpStart)
+		dense.Push(&ct.Callbacks.KeyParamsLen, uint32(keyParams.Len()))
+		dense.Push(&ct.Callbacks.KeySource, InternStr(&ct.Strings, keySource))
+		dense.Push(&ct.Callbacks.Default, InternStr(&ct.Strings, defRaw))
+		dense.Push(&ct.Callbacks.Owner, InternStr(&ct.Strings, cbOwner))
+		dense.Push(&ct.Callbacks.EndsStart, endsStart)
+		dense.Push(&ct.Callbacks.EndsLen, uint32(cbEnds.Len()))
+		dense.Push(&ct.Callbacks.Why, InternStr(&ct.Strings, cbWhy))
+		let idxStr = strconv.Itoa(cbi)
+		if cbTypedef == "" || cbWhy == "" {
+			errs = errs.Append("callbacks[" + idxStr + "]: typedef and why must not be empty")
+		}
+		if cbScope != "call" && cbScope != "registered" {
+			errs = errs.Append("callbacks[" + idxStr + "] " + cbTypedef + ": scope is " + strconv.Quote(cbScope) + ", want \"call\" or \"registered\"")
+		}
+		if keyParams.Len() == 0 || keySource == "" {
+			errs = errs.Append("callbacks[" + idxStr + "] " + cbTypedef + ": key.params and key.source must not be empty")
+		}
+		let mut seenKP = []string{}
+		for kp in keyParams {
+			if !IsCIdent(kp) || slices.Contains(seenKP, kp) {
+				errs = errs.Append("callbacks[" + idxStr + "] " + cbTypedef + ": key parameter " + strconv.Quote(kp) + " is not a C name, or appears twice")
+			}
+			seenKP = seenKP.Append(kp)
+		}
+		if defRaw != "" && !validDefaultText(defRaw) {
+			errs = errs.Append("callbacks[" + idxStr + "] " + cbTypedef + ": default " + defRaw + " is not an integer, true or false")
+		}
+		for ef in cbEnds {
+			if ef == "" {
+				errs = errs.Append("callbacks[" + idxStr + "] " + cbTypedef + ": an end function is empty")
+			}
+		}
+		cbi = cbi + 1
+	}
+
+	let excItems = try fieldArr(root, "exceptions", "exceptions")
+	let mut ei = 0
+	for ei < excItems.Len() {
+		let eObj = try expectObj(excItems[ei], "exceptions")
+		let eFunc = try fieldOptStr(eObj, "function", "exceptions.function")
+		let eCb = try fieldOptStr(eObj, "callback", "exceptions.callback")
+		let ePos = try fieldStr(eObj, "position", "exceptions.position")
+		let eClassStr = try fieldStr(eObj, "class", "exceptions.class")
+		let eLen = try fieldOptStr(eObj, "length", "exceptions.length")
+		let eUnit = try fieldOptStr(eObj, "unit", "exceptions.unit")
+		let eCnt = try fieldOptStr(eObj, "count", "exceptions.count")
+		let eArrLen = try fieldOptInt(eObj, "array_length", "exceptions.array_length")
+		let eWhy = try fieldStr(eObj, "why", "exceptions.why")
+		let eClass = ClassByName(eClassStr)
+		let arrU32 = if eArrLen >= 0 && eArrLen <= int64(MaxArrayLength) { uint32(eArrLen) } else { uint32(0) }
+		let _ = dense.Next(&ct.Exceptions.Ids)
+		dense.Push(&ct.Exceptions.Function, InternStr(&ct.Strings, eFunc))
+		dense.Push(&ct.Exceptions.Callback, InternStr(&ct.Strings, eCb))
+		dense.Push(&ct.Exceptions.Position, InternStr(&ct.Strings, ePos))
+		dense.Push(&ct.Exceptions.Class, eClass)
+		dense.Push(&ct.Exceptions.Length, InternStr(&ct.Strings, eLen))
+		dense.Push(&ct.Exceptions.Unit, InternStr(&ct.Strings, eUnit))
+		dense.Push(&ct.Exceptions.Count, InternStr(&ct.Strings, eCnt))
+		dense.Push(&ct.Exceptions.ArrayLength, arrU32)
+		dense.Push(&ct.Exceptions.Why, InternStr(&ct.Strings, eWhy))
+		let idxStr = strconv.Itoa(ei)
+		if (eFunc == "") == (eCb == "") || ePos == "" || eWhy == "" {
+			errs = errs.Append("exceptions[" + idxStr + "]: exactly one of function and callback, and position and why, must not be empty")
+		}
+		if eClass == ClassInBuffer {
+			if eLen == "" || (eUnit != "elements" && eUnit != "bytes") || eCnt != "" || eArrLen != 0 {
+				errs = errs.Append("exceptions[" + idxStr + "]: an in_buffer needs length and unit (\"elements\" or \"bytes\"), and no count")
+			}
+		} else if eClass == ClassOutBuffer {
+			if eLen == "" || eCnt == "" || eUnit != "" || eArrLen != 0 {
+				errs = errs.Append("exceptions[" + idxStr + "]: an out_buffer needs length (its capacity) and count, and no unit")
+			}
+			if eCb != "" && eFunc == "" {
+				errs = errs.Append("exceptions[" + idxStr + "]: out_buffer is not a class of callback positions")
+			}
+		} else if eClass == ClassOutArray {
+			if eArrLen < 1 || eArrLen > int64(MaxArrayLength) || eLen != "" || eUnit != "" || eCnt != "" {
+				errs = errs.Append("exceptions[" + idxStr + "]: an out_array needs array_length from 1 to " + strconv.Itoa(int(MaxArrayLength)) + ", and no length, unit or count")
+			}
+			if eFunc != "" && eCb == "" {
+				errs = errs.Append("exceptions[" + idxStr + "]: out_array is a class of callback positions only")
+			}
+		} else if eClass == ClassValue || eClass == ClassOut || eClass == ClassRaw || eClass == ClassOptional {
+			if eLen != "" || eUnit != "" || eCnt != "" || eArrLen != 0 {
+				errs = errs.Append("exceptions[" + idxStr + "]: class " + eClassStr + " takes no length, unit, count or array_length")
+			}
+			if eClass == ClassOptional && eCb != "" && eFunc == "" {
+				errs = errs.Append("exceptions[" + idxStr + "]: optional is not a class of callback positions")
+			}
+		} else {
+			errs = errs.Append("exceptions[" + idxStr + "]: class " + strconv.Quote(eClassStr) + " is not value, optional, out, in_buffer, out_buffer, out_array or raw")
+		}
+		ei = ei + 1
+	}
+
+	let skipItems = try fieldArr(root, "skips", "skips")
+	let mut si = 0
+	for si < skipItems.Len() {
+		let sObj = try expectObj(skipItems[si], "skips")
+		let sName = try fieldStr(sObj, "name", "skips.name")
+		let sWhy = try fieldStr(sObj, "why", "skips.why")
+		let _ = dense.Next(&ct.Skips.Ids)
+		dense.Push(&ct.Skips.Name, InternStr(&ct.Strings, sName))
+		dense.Push(&ct.Skips.Why, InternStr(&ct.Strings, sWhy))
+		dense.Push(&ct.Skips.IsExclude, false)
+		if sName == "" || sWhy == "" {
+			errs = errs.Append("skips[" + strconv.Itoa(si) + "]: name and why must not be empty")
+		}
+		si = si + 1
+	}
+
+	let mut xi = 0
+	for xi < statExclude.Len() {
+		let sObj = try expectObj(statExclude[xi], "status.exclude")
+		let sName = try fieldStr(sObj, "name", "status.exclude.name")
+		let sWhy = try fieldStr(sObj, "why", "status.exclude.why")
+		let _ = dense.Next(&ct.Skips.Ids)
+		dense.Push(&ct.Skips.Name, InternStr(&ct.Strings, sName))
+		dense.Push(&ct.Skips.Why, InternStr(&ct.Strings, sWhy))
+		dense.Push(&ct.Skips.IsExclude, true)
+		if sName == "" || sWhy == "" {
+			errs = errs.Append("status.exclude[" + strconv.Itoa(xi) + "]: name and why must not be empty")
+		}
+		xi = xi + 1
+	}
+
+	if errs.Len() > 0 {
+		return ContractFailure{Msg: contractErrorMsg(errs)}
+	}
+	ct
+}
+
+// TemplateExpandMatchesStem checks template expansion and inverse wildcard matching.
+law TemplateExpandMatchesStem(name string) {
+	let ok0 = IsCIdent(name)
+	let (e1, ok1) = ExpandTemplate("{stem}_count", "items")
+	let (e2, ok2) = ExpandTemplate("{name}_len", "")
+	let m1 = TemplateMatches("{stem}_count", "item_count")
+	let m2 = !TemplateMatches("exact_len", "other_len")
+	(!ok0 || name != "") && ok1 && e1 == "item_count" && !ok2 && e2 == "" && m1 && m2
+}
+
+// ContractRejectsOverlapAndBadUnit checks DecodeContract refusal of overlapping length templates and invalid exception units.
+law ContractRejectsOverlapAndBadUnit(x uint8) {
+	let sha = "0000000000000000000000000000000000000000000000000000000000000000"
+	let baseHead = "{\"header\":\"t.h\",\"header_sha256\":\"" + sha + "\",\"go\":{\"package\":\"tlib\",\"import_path\":\"example.com/tlib\"},\"prefixes\":{\"function\":\"t_\",\"macro\":\"T_\",\"type\":\"t_\"},\"status\":{\"type\":\"t_status\",\"macro_prefix\":\"ERR_\",\"success\":\"ERR_OK\",\"exclude\":[]},\"abi\":{\"function\":\"t_abi\",\"macro\":\"ABI_V\"},\"handles\":[],\"autofill\":[],"
+	let cOverlap = baseHead + "\"buffers\":{\"length_names\":[\"{name}_len\"],\"byte_length_names\":[\"{name}_len\"],\"capacity_names\":[],\"count_names\":[],\"out_prefix\":\"out_\"},\"callbacks\":[],\"exceptions\":[],\"skips\":[]}"
+	let mut ok1 = false
+	let _ = DecodeContract(cOverlap) catch {
+	case ContractFailure:
+		ok1 = true
+		newEmptyContractTable()
+	}
+	let cBadUnit = baseHead + "\"buffers\":{\"length_names\":[],\"byte_length_names\":[],\"capacity_names\":[],\"count_names\":[],\"out_prefix\":\"out_\"},\"callbacks\":[],\"exceptions\":[{\"function\":\"t_f\",\"position\":\"p\",\"class\":\"in_buffer\",\"length\":\"n\",\"unit\":\"words\",\"why\":\"test\"}],\"skips\":[]}"
+	let mut ok2 = false
+	let _ = DecodeContract(cBadUnit) catch {
+	case ContractFailure:
+		ok2 = true
+		newEmptyContractTable()
+	}
+	ok1 && ok2 && x >= 0
+}

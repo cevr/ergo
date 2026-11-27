@@ -1,0 +1,690 @@
+import dense
+import strconv
+import strings
+
+// NoID is the sentinel uint32 index for missing lookups in flat tables.
+let NoID uint32 = 0xffffffff
+
+// PointerSize is the byte size and alignment of a C pointer on tier-1 LP64 targets.
+let PointerSize uint64 = 8
+
+// ScalarNone and following constants identify C subset scalar types.
+let ScalarNone uint8 = 0
+let ScalarInt8 uint8 = 1
+let ScalarInt16 uint8 = 2
+let ScalarInt32 uint8 = 3
+let ScalarInt64 uint8 = 4
+let ScalarUint8 uint8 = 5
+let ScalarUint16 uint8 = 6
+let ScalarUint32 uint8 = 7
+let ScalarUint64 uint8 = 8
+let ScalarBool uint8 = 9
+let ScalarFloat32 uint8 = 10
+let ScalarFloat64 uint8 = 11
+
+let scalarNames = []string{
+	"",
+	"int8_t",
+	"int16_t",
+	"int32_t",
+	"int64_t",
+	"uint8_t",
+	"uint16_t",
+	"uint32_t",
+	"uint64_t",
+	"bool",
+	"float",
+	"double",
+}
+
+let scalarSizes = []uint64{0, 1, 2, 4, 8, 1, 2, 4, 8, 1, 4, 8}
+
+let scalarHeaders = []string{
+	"",
+	"stdint.h",
+	"stdint.h",
+	"stdint.h",
+	"stdint.h",
+	"stdint.h",
+	"stdint.h",
+	"stdint.h",
+	"stdint.h",
+	"stdbool.h",
+	"",
+	"",
+}
+
+// ScalarName returns the C spelling of a scalar code.
+func ScalarName(s uint8) string {
+	let idx = int(s)
+	if idx < 0 || idx >= scalarNames.Len() {
+		return ""
+	}
+	scalarNames[idx]
+}
+
+// ScalarByName maps a C scalar spelling to its scalar code, or ScalarNone.
+func ScalarByName(name string) uint8 {
+	match name {
+	case "int8_t":
+		ScalarInt8
+	case "int16_t":
+		ScalarInt16
+	case "int32_t":
+		ScalarInt32
+	case "int64_t":
+		ScalarInt64
+	case "uint8_t":
+		ScalarUint8
+	case "uint16_t":
+		ScalarUint16
+	case "uint32_t":
+		ScalarUint32
+	case "uint64_t":
+		ScalarUint64
+	case "bool":
+		ScalarBool
+	case "float":
+		ScalarFloat32
+	case "double":
+		ScalarFloat64
+	case _:
+		ScalarNone
+	}
+}
+
+// ScalarSize returns the byte size (equal to alignment) of a scalar on tier-1 targets.
+func ScalarSize(s uint8) uint64 {
+	let idx = int(s)
+	if idx < 0 || idx >= scalarSizes.Len() {
+		return 0
+	}
+	scalarSizes[idx]
+}
+
+// ScalarHeader returns the standard header declaring s, or "".
+func ScalarHeader(s uint8) string {
+	let idx = int(s)
+	if idx < 0 || idx >= scalarHeaders.Len() {
+		return ""
+	}
+	scalarHeaders[idx]
+}
+
+// ScalarIsSigned reports whether s is a signed integer scalar.
+func ScalarIsSigned(s uint8) bool {
+	s == ScalarInt8 || s == ScalarInt16 || s == ScalarInt32 || s == ScalarInt64
+}
+
+// ScalarIsFloat reports whether s is a floating-point scalar.
+func ScalarIsFloat(s uint8) bool {
+	s == ScalarFloat32 || s == ScalarFloat64
+}
+
+// ConstantSigned reports whether scalar is signed for constant evaluation.
+func ConstantSigned(scalar uint8) bool {
+	scalar == ScalarInt32 || scalar == ScalarInt64
+}
+
+// ConstantInt64 returns the signed 64-bit value of a constant.
+func ConstantInt64(scalar uint8, bits uint64) int64 {
+	if scalar == ScalarInt32 {
+		let lo = bits & 0xffffffff
+		if (lo & 0x80000000) != 0 {
+			let mag = ((lo ^ 0xffffffff) + 1) & 0xffffffff
+			return -(int64(mag))
+		}
+		return int64(lo)
+	}
+	int64(bits)
+}
+
+// FormatUint64 formats an unsigned 64-bit integer in base 10.
+func FormatUint64(v uint64) string {
+	if v <= 0x7fffffffffffffff {
+		return strconv.FormatInt(int64(v), 10)
+	}
+	let q = v / 10
+	let r = v % 10
+	strconv.FormatInt(int64(q), 10) + strconv.FormatInt(int64(r), 10)
+}
+
+// ConstantValue returns the canonical decimal string representation of a constant.
+func ConstantValue(scalar uint8, bits uint64) string {
+	if ConstantSigned(scalar) {
+		if scalar == ScalarInt32 {
+			return strconv.FormatInt(ConstantInt64(scalar, bits), 10)
+		}
+		if (bits & 0x8000000000000000) != 0 {
+			let mag = (bits ^ 0xffffffffffffffff) + 1
+			return "-" + FormatUint64(mag)
+		}
+		return FormatUint64(bits)
+	}
+	FormatUint64(bits)
+}
+
+// TypeVoid and following constants identify C type-use kinds.
+let TypeVoid uint8 = 1
+let TypeScalar uint8 = 2
+let TypeNamed uint8 = 3
+let TypePointer uint8 = 4
+let TypeArray uint8 = 5
+
+// TypeTag identifies a C type node in TypeTable.
+type TypeTag {}
+
+// TypeTable stores C type nodes in flat Structure-of-Arrays columns.
+type TypeTable {
+	Ids     dense.Count[TypeTag],
+	Kind    dense.Col[TypeTag, uint8],
+	Scalar  dense.Col[TypeTag, uint8],
+	Name    dense.Col[TypeTag, uint32],
+	Const   dense.Col[TypeTag, bool],
+	Elem    dense.Col[TypeTag, uint32],
+	Len     dense.Col[TypeTag, uint64],
+	LenExpr dense.Col[TypeTag, uint32],
+}
+
+// NewTypeTable creates an empty TypeTable.
+func NewTypeTable() TypeTable {
+	TypeTable{
+		Ids:     dense.NewCount[TypeTag](),
+		Kind:    dense.NewCol[TypeTag, uint8](),
+		Scalar:  dense.NewCol[TypeTag, uint8](),
+		Name:    dense.NewCol[TypeTag, uint32](),
+		Const:   dense.NewCol[TypeTag, bool](),
+		Elem:    dense.NewCol[TypeTag, uint32](),
+		Len:     dense.NewCol[TypeTag, uint64](),
+		LenExpr: dense.NewCol[TypeTag, uint32](),
+	}
+}
+
+// PushType appends one C type node to tt and returns its uint32 index.
+func PushType(tt mut TypeTable, kind uint8, scalar uint8, name uint32, isConst bool, elem uint32, length uint64, lenExpr uint32) uint32 {
+	let id = dense.Next(&tt.Ids)
+	dense.Push(&tt.Kind, kind)
+	dense.Push(&tt.Scalar, scalar)
+	dense.Push(&tt.Name, name)
+	dense.Push(&tt.Const, isConst)
+	dense.Push(&tt.Elem, elem)
+	dense.Push(&tt.Len, length)
+	dense.Push(&tt.LenExpr, lenExpr)
+	uint32(dense.Index(id))
+}
+
+// TypeAt converts a uint32 index into a dense.ID[TypeTag].
+func TypeAt(tt TypeTable, idx uint32) dense.ID[TypeTag] {
+	dense.IDAt(tt.Ids, int(idx))
+}
+
+// TypeIsPointer reports whether type idx is a pointer.
+func TypeIsPointer(tt TypeTable, idx uint32) bool {
+	dense.Of(tt.Kind, TypeAt(tt, idx)) == TypePointer
+}
+
+// TypeSpell formats C type idx as an abstract declarator.
+func TypeSpell(tt TypeTable, st StrTable, idx uint32) string {
+	TypeDeclare(tt, st, idx, "")
+}
+
+// TypeDeclare formats name with C type idx.
+func TypeDeclare(tt TypeTable, st StrTable, idx uint32, name string) string {
+	let id = TypeAt(tt, idx)
+	let kind = dense.Of(tt.Kind, id)
+	let lenExpr = dense.Of(tt.LenExpr, id)
+	if kind == TypePointer && lenExpr != 0 {
+		let elem = dense.Of(tt.Elem, id)
+		return TypeDeclare(tt, st, elem, name) + "[" + StrText(st, lenExpr) + "]"
+	}
+	let mut baseIdx = idx
+	let mut suffix = ""
+	if kind == TypeArray {
+		baseIdx = dense.Of(tt.Elem, id)
+		suffix = "[" + StrText(st, lenExpr) + "]"
+	}
+	let mut ptrs = ""
+	let mut innerIdx = baseIdx
+	for dense.Of(tt.Kind, TypeAt(tt, innerIdx)) == TypePointer {
+		ptrs = ptrs + "*"
+		innerIdx = dense.Of(tt.Elem, TypeAt(tt, innerIdx))
+	}
+	let innerID = TypeAt(tt, innerIdx)
+	let mut b = strings.NewBuilder()
+	if dense.Of(tt.Const, innerID) {
+		strings.WriteString(&b, "const ")
+	}
+	let innerKind = dense.Of(tt.Kind, innerID)
+	if innerKind == TypeVoid {
+		strings.WriteString(&b, "void")
+	} else if innerKind == TypeScalar {
+		strings.WriteString(&b, ScalarName(dense.Of(tt.Scalar, innerID)))
+	} else if innerKind == TypeNamed {
+		strings.WriteString(&b, StrText(st, dense.Of(tt.Name, innerID)))
+	} else {
+		strings.WriteString(&b, "?")
+	}
+	if ptrs != "" {
+		strings.WriteByte(&b, ' ')
+		strings.WriteString(&b, ptrs)
+		strings.WriteString(&b, name)
+	} else if name != "" {
+		strings.WriteByte(&b, ' ')
+		strings.WriteString(&b, name)
+	}
+	strings.WriteString(&b, suffix)
+	strings.String(b)
+}
+
+// TypeEqual reports whether type a in tta and type b in ttb are structurally equal.
+func TypeEqual(tta TypeTable, sta StrTable, a uint32, ttb TypeTable, stb StrTable, b uint32) bool {
+	let mut ia = a
+	let mut ib = b
+	for {
+		let ida = TypeAt(tta, ia)
+		let idb = TypeAt(ttb, ib)
+		let ka = dense.Of(tta.Kind, ida)
+		let kb = dense.Of(ttb.Kind, idb)
+		if ka != kb {
+			return false
+		}
+		if dense.Of(tta.Scalar, ida) != dense.Of(ttb.Scalar, idb) {
+			return false
+		}
+		if dense.Of(tta.Const, ida) != dense.Of(ttb.Const, idb) {
+			return false
+		}
+		if dense.Of(tta.Len, ida) != dense.Of(ttb.Len, idb) {
+			return false
+		}
+		if StrText(sta, dense.Of(tta.Name, ida)) != StrText(stb, dense.Of(ttb.Name, idb)) {
+			return false
+		}
+		if StrText(sta, dense.Of(tta.LenExpr, ida)) != StrText(stb, dense.Of(ttb.LenExpr, idb)) {
+			return false
+		}
+		let ea = dense.Of(tta.Elem, ida)
+		let eb = dense.Of(ttb.Elem, idb)
+		if (ea == NoID) != (eb == NoID) {
+			return false
+		}
+		if ea == NoID {
+			return true
+		}
+		ia = ea
+		ib = eb
+	}
+}
+
+// DeclScalar and following constants identify typedef declaration kinds.
+let DeclScalar uint8 = 1
+let DeclOpaque uint8 = 2
+let DeclStruct uint8 = 3
+let DeclCallback uint8 = 4
+
+let declKindNames = []string{"", "scalar", "opaque", "struct", "callback"}
+
+// DeclKindName returns the JSON kind string for a declaration kind.
+func DeclKindName(kind uint8) string {
+	let idx = int(kind)
+	if idx < 0 || idx >= declKindNames.Len() {
+		return ""
+	}
+	declKindNames[idx]
+}
+
+// DeclTag identifies a typedef declaration row in DeclTable.
+type DeclTag {}
+
+// DeclTable stores typedef declarations in flat Structure-of-Arrays columns.
+type DeclTable {
+	Ids         dense.Count[DeclTag],
+	Kind        dense.Col[DeclTag, uint8],
+	Name        dense.Col[DeclTag, uint32],
+	Tag         dense.Col[DeclTag, uint32],
+	Scalar      dense.Col[DeclTag, uint8],
+	FieldsStart dense.Col[DeclTag, uint32],
+	FieldsLen   dense.Col[DeclTag, uint32],
+	Size        dense.Col[DeclTag, uint64],
+	Align       dense.Col[DeclTag, uint64],
+	Result      dense.Col[DeclTag, uint32],
+	ParamsStart dense.Col[DeclTag, uint32],
+	ParamsLen   dense.Col[DeclTag, uint32],
+}
+
+// NewDeclTable creates an empty DeclTable.
+func NewDeclTable() DeclTable {
+	DeclTable{
+		Ids:         dense.NewCount[DeclTag](),
+		Kind:        dense.NewCol[DeclTag, uint8](),
+		Name:        dense.NewCol[DeclTag, uint32](),
+		Tag:         dense.NewCol[DeclTag, uint32](),
+		Scalar:      dense.NewCol[DeclTag, uint8](),
+		FieldsStart: dense.NewCol[DeclTag, uint32](),
+		FieldsLen:   dense.NewCol[DeclTag, uint32](),
+		Size:        dense.NewCol[DeclTag, uint64](),
+		Align:       dense.NewCol[DeclTag, uint64](),
+		Result:      dense.NewCol[DeclTag, uint32](),
+		ParamsStart: dense.NewCol[DeclTag, uint32](),
+		ParamsLen:   dense.NewCol[DeclTag, uint32](),
+	}
+}
+
+// FieldTag identifies a struct field row in FieldTable.
+type FieldTag {}
+
+// FieldTable stores struct fields in flat Structure-of-Arrays columns.
+type FieldTable {
+	Ids    dense.Count[FieldTag],
+	Name   dense.Col[FieldTag, uint32],
+	Type   dense.Col[FieldTag, uint32],
+	Offset dense.Col[FieldTag, uint64],
+	Size   dense.Col[FieldTag, uint64],
+	Align  dense.Col[FieldTag, uint64],
+}
+
+// NewFieldTable creates an empty FieldTable.
+func NewFieldTable() FieldTable {
+	FieldTable{
+		Ids:    dense.NewCount[FieldTag](),
+		Name:   dense.NewCol[FieldTag, uint32](),
+		Type:   dense.NewCol[FieldTag, uint32](),
+		Offset: dense.NewCol[FieldTag, uint64](),
+		Size:   dense.NewCol[FieldTag, uint64](),
+		Align:  dense.NewCol[FieldTag, uint64](),
+	}
+}
+
+// ParamTag identifies a parameter row in ParamTable.
+type ParamTag {}
+
+// ParamTable stores callback and function parameters in flat Structure-of-Arrays columns.
+type ParamTable {
+	Ids  dense.Count[ParamTag],
+	Name dense.Col[ParamTag, uint32],
+	Type dense.Col[ParamTag, uint32],
+}
+
+// NewParamTable creates an empty ParamTable.
+func NewParamTable() ParamTable {
+	ParamTable{
+		Ids:  dense.NewCount[ParamTag](),
+		Name: dense.NewCol[ParamTag, uint32](),
+		Type: dense.NewCol[ParamTag, uint32](),
+	}
+}
+
+// FuncTag identifies a function prototype row in FuncTable.
+type FuncTag {}
+
+// FuncTable stores function prototypes in flat Structure-of-Arrays columns.
+type FuncTable {
+	Ids         dense.Count[FuncTag],
+	Name        dense.Col[FuncTag, uint32],
+	Result      dense.Col[FuncTag, uint32],
+	ParamsStart dense.Col[FuncTag, uint32],
+	ParamsLen   dense.Col[FuncTag, uint32],
+}
+
+// NewFuncTable creates an empty FuncTable.
+func NewFuncTable() FuncTable {
+	FuncTable{
+		Ids:         dense.NewCount[FuncTag](),
+		Name:        dense.NewCol[FuncTag, uint32](),
+		Result:      dense.NewCol[FuncTag, uint32](),
+		ParamsStart: dense.NewCol[FuncTag, uint32](),
+		ParamsLen:   dense.NewCol[FuncTag, uint32](),
+	}
+}
+
+// ConstTag identifies a macro constant row in ConstTable.
+type ConstTag {}
+
+// ConstTable stores macro constants in flat Structure-of-Arrays columns.
+type ConstTable {
+	Ids    dense.Count[ConstTag],
+	Name   dense.Col[ConstTag, uint32],
+	Scalar dense.Col[ConstTag, uint8],
+	Bits   dense.Col[ConstTag, uint64],
+	Expr   dense.Col[ConstTag, uint32],
+}
+
+// NewConstTable creates an empty ConstTable.
+func NewConstTable() ConstTable {
+	ConstTable{
+		Ids:    dense.NewCount[ConstTag](),
+		Name:   dense.NewCol[ConstTag, uint32](),
+		Scalar: dense.NewCol[ConstTag, uint8](),
+		Bits:   dense.NewCol[ConstTag, uint64](),
+		Expr:   dense.NewCol[ConstTag, uint32](),
+	}
+}
+
+// Model is the binding model of one C header stored in flat Structure-of-Arrays tables.
+type Model {
+	Header      string,
+	Guard       string,
+	CPlusPlus   bool,
+	Includes    []uint32,
+	Strings     StrTable,
+	Types       TypeTable,
+	Decls       DeclTable,
+	Fields      FieldTable,
+	Params      ParamTable,
+	Funcs       FuncTable,
+	Consts      ConstTable,
+	ConstByName []uint32,
+	DeclByName  []uint32,
+	TagByName   []uint32,
+}
+
+// NewModel creates an empty Model for header.
+func NewModel(header string) Model {
+	Model{
+		Header:      header,
+		Guard:       "",
+		CPlusPlus:   false,
+		Includes:    []uint32{},
+		Strings:     NewStrTable(),
+		Types:       NewTypeTable(),
+		Decls:       NewDeclTable(),
+		Fields:      NewFieldTable(),
+		Params:      NewParamTable(),
+		Funcs:       NewFuncTable(),
+		Consts:      NewConstTable(),
+		ConstByName: []uint32{NoID},
+		DeclByName:  []uint32{NoID},
+		TagByName:   []uint32{NoID},
+	}
+}
+
+// GrowIndexSlots grows slots to cover strID, initializing new entries to NoID.
+func GrowIndexSlots(slots []uint32, strID uint32) []uint32 {
+	let need = int(strID) + 1
+	let mut out = slots
+	for out.Len() < need {
+		out = out.Append(NoID)
+	}
+	out
+}
+
+// InternModelStr interns s in m.Strings and ensures side lookup tables cover the new ID.
+func InternModelStr(m mut Model, s string) uint32 {
+	let id = InternStr(&m.Strings, s)
+	m.ConstByName = GrowIndexSlots(m.ConstByName, id)
+	m.DeclByName = GrowIndexSlots(m.DeclByName, id)
+	m.TagByName = GrowIndexSlots(m.TagByName, id)
+	id
+}
+
+// PushField appends a struct field row to m.Fields and returns its index.
+func PushField(m mut Model, nameID uint32, typeID uint32, offset uint64, size uint64, align uint64) uint32 {
+	let id = dense.Next(&m.Fields.Ids)
+	dense.Push(&m.Fields.Name, nameID)
+	dense.Push(&m.Fields.Type, typeID)
+	dense.Push(&m.Fields.Offset, offset)
+	dense.Push(&m.Fields.Size, size)
+	dense.Push(&m.Fields.Align, align)
+	uint32(dense.Index(id))
+}
+
+// PushParam appends a parameter row to m.Params and returns its index.
+func PushParam(m mut Model, nameID uint32, typeID uint32) uint32 {
+	let id = dense.Next(&m.Params.Ids)
+	dense.Push(&m.Params.Name, nameID)
+	dense.Push(&m.Params.Type, typeID)
+	uint32(dense.Index(id))
+}
+
+// PushFunc appends a function prototype row to m.Funcs and returns its index.
+func PushFunc(m mut Model, nameID uint32, resultType uint32, paramsStart uint32, paramsLen uint32) uint32 {
+	let id = dense.Next(&m.Funcs.Ids)
+	dense.Push(&m.Funcs.Name, nameID)
+	dense.Push(&m.Funcs.Result, resultType)
+	dense.Push(&m.Funcs.ParamsStart, paramsStart)
+	dense.Push(&m.Funcs.ParamsLen, paramsLen)
+	uint32(dense.Index(id))
+}
+
+// PushConst appends a constant row to m.Consts and updates m.ConstByName.
+func PushConst(m mut Model, nameID uint32, scalar uint8, bits uint64, exprID uint32) uint32 {
+	let id = dense.Next(&m.Consts.Ids)
+	let idx = uint32(dense.Index(id))
+	dense.Push(&m.Consts.Name, nameID)
+	dense.Push(&m.Consts.Scalar, scalar)
+	dense.Push(&m.Consts.Bits, bits)
+	dense.Push(&m.Consts.Expr, exprID)
+	m.ConstByName = GrowIndexSlots(m.ConstByName, nameID)
+	m.ConstByName[int(nameID)] = idx
+	idx
+}
+
+// PushDecl appends a typedef declaration row to m.Decls and updates name/tag indices.
+func PushDecl(m mut Model, kind uint8, nameID uint32, tagID uint32, scalar uint8, fStart uint32, fLen uint32, size uint64, align uint64, res uint32, pStart uint32, pLen uint32) uint32 {
+	let id = dense.Next(&m.Decls.Ids)
+	let idx = uint32(dense.Index(id))
+	dense.Push(&m.Decls.Kind, kind)
+	dense.Push(&m.Decls.Name, nameID)
+	dense.Push(&m.Decls.Tag, tagID)
+	dense.Push(&m.Decls.Scalar, scalar)
+	dense.Push(&m.Decls.FieldsStart, fStart)
+	dense.Push(&m.Decls.FieldsLen, fLen)
+	dense.Push(&m.Decls.Size, size)
+	dense.Push(&m.Decls.Align, align)
+	dense.Push(&m.Decls.Result, res)
+	dense.Push(&m.Decls.ParamsStart, pStart)
+	dense.Push(&m.Decls.ParamsLen, pLen)
+	m.DeclByName = GrowIndexSlots(m.DeclByName, nameID)
+	m.DeclByName[int(nameID)] = idx
+	if tagID != 0 {
+		m.TagByName = GrowIndexSlots(m.TagByName, tagID)
+		m.TagByName[int(tagID)] = idx
+	}
+	idx
+}
+
+// LookupDecl looks up a typedef declaration index by C name, or NoID.
+func LookupDecl(m Model, name string) uint32 {
+	let sid = FindStr(m.Strings, name)
+	if sid == NoID || int(sid) >= m.DeclByName.Len() {
+		return NoID
+	}
+	m.DeclByName[int(sid)]
+}
+
+// LookupConst looks up a constant index by C macro name, or NoID.
+func LookupConst(m Model, name string) uint32 {
+	let sid = FindStr(m.Strings, name)
+	if sid == NoID || int(sid) >= m.ConstByName.Len() {
+		return NoID
+	}
+	m.ConstByName[int(sid)]
+}
+
+// LookupTag looks up a struct declaration index by C tag name, or NoID.
+func LookupTag(m Model, tag string) uint32 {
+	let sid = FindStr(m.Strings, tag)
+	if sid == NoID || int(sid) >= m.TagByName.Len() {
+		return NoID
+	}
+	m.TagByName[int(sid)]
+}
+
+// Scratch holds reusable generation marks and stack buffers across parse/bind passes.
+type Scratch {
+	SeenGen   []uint32,
+	CurGen    uint32,
+	TokStack  dense.Stack[uint32],
+	UintStack dense.Stack[uint32],
+}
+
+// NewScratch creates reusable scratch buffers.
+func NewScratch() Scratch {
+	Scratch{
+		SeenGen:   []uint32{},
+		CurGen:    1,
+		TokStack:  dense.StackWithCap[uint32](64),
+		UintStack: dense.StackWithCap[uint32](64),
+	}
+}
+
+// NextSeenGen clears SeenGen logically by incrementing CurGen (rewinding on wrap).
+func NextSeenGen(sc mut Scratch, need int) {
+	for sc.SeenGen.Len() < need {
+		sc.SeenGen = sc.SeenGen.Append(0)
+	}
+	if sc.CurGen == 0xffffffff {
+		let mut i = 0
+		for i < sc.SeenGen.Len() {
+			sc.SeenGen[i] = 0
+			i = i + 1
+		}
+		sc.CurGen = 1
+		return
+	}
+	sc.CurGen = sc.CurGen + 1
+}
+
+// MarkSeen checks whether idx was already marked in CurGen, marking it and returning true if new.
+func MarkSeen(sc mut Scratch, idx uint32) bool {
+	let n = int(idx) + 1
+	for sc.SeenGen.Len() < n {
+		sc.SeenGen = sc.SeenGen.Append(0)
+	}
+	if sc.SeenGen[int(idx)] == sc.CurGen {
+		return false
+	}
+	sc.SeenGen[int(idx)] = sc.CurGen
+	true
+}
+
+// TypeSpellFormatsPointersAndArrays checks C abstract declarator and parameter declaration formatting.
+law TypeSpellFormatsPointersAndArrays(name string) {
+	let mut st = NewStrTable()
+	let mut tt = NewTypeTable()
+	let baseName = InternStr(&st, "ot_handle")
+	let len4 = InternStr(&st, "4")
+	let cHandle = PushType(&tt, TypeNamed, ScalarNone, baseName, true, NoID, 0, 0)
+	let ptrConstHandle = PushType(&tt, TypePointer, ScalarNone, 0, false, cHandle, 0, 0)
+	let u16 = PushType(&tt, TypeScalar, ScalarUint16, 0, false, NoID, 0, 0)
+	let arrU16 = PushType(&tt, TypeArray, ScalarNone, 0, false, u16, 4, len4)
+	let decayU16 = PushType(&tt, TypePointer, ScalarNone, 0, false, u16, 4, len4)
+	let mut ok = TypeSpell(tt, st, ptrConstHandle) == "const ot_handle *"
+	ok = ok && TypeDeclare(tt, st, ptrConstHandle, "node") == "const ot_handle *node"
+	ok = ok && TypeSpell(tt, st, arrU16) == "uint16_t[4]"
+	ok = ok && TypeDeclare(tt, st, decayU16, "color") == "uint16_t color[4]"
+	if name != "" {
+		ok = ok && strings.Contains(TypeDeclare(tt, st, decayU16, name), name)
+	}
+	ok
+}
+
+// ConstantValueFormatsExtremes verifies signed 32-bit, signed 64-bit, and unsigned 64-bit decimal formatting.
+law ConstantValueFormatsExtremes(x uint64) {
+	let a = ConstantValue(ScalarInt32, 0xffffffff) == "-1"
+	let b = ConstantValue(ScalarInt32, 0x80000000) == "-2147483648"
+	let c = ConstantValue(ScalarInt64, 0x8000000000000000) == "-9223372036854775808"
+	let d = ConstantValue(ScalarUint64, 0xffffffffffffffff) == "18446744073709551615"
+	let e = FormatUint64(x) != ""
+	a && b && c && d && e
+}

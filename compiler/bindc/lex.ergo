@@ -1,0 +1,458 @@
+import dense
+import strconv
+import strings
+
+// Token kinds produced by Lex.
+let TokEOF uint8 = 0
+let TokIdent uint8 = 1
+let TokNumber uint8 = 2
+let TokString uint8 = 3
+let TokChar uint8 = 4
+let TokPunct uint8 = 5
+
+let puncts = []string{
+	"...",
+	"<<=",
+	">>=",
+	"->",
+	"++",
+	"--",
+	"<<",
+	">>",
+	"<=",
+	">=",
+	"==",
+	"!=",
+	"&&",
+	"||",
+	"*=",
+	"/=",
+	"%=",
+	"+=",
+	"-=",
+	"&=",
+	"^=",
+	"|=",
+	"##",
+	"[",
+	"]",
+	"(",
+	")",
+	"{",
+	"}",
+	".",
+	"&",
+	"*",
+	"+",
+	"-",
+	"~",
+	"!",
+	"/",
+	"%",
+	"<",
+	">",
+	"^",
+	"|",
+	"?",
+	":",
+	";",
+	"=",
+	",",
+	"#",
+}
+
+let digraphs = []string{"%:", "<:", ":>", "<%", "%>"}
+
+// TokTag identifies one token row in TokTable.
+type TokTag {}
+
+// TokTable stores lexed tokens in flat Structure-of-Arrays columns.
+type TokTable {
+	Ids   dense.Count[TokTag],
+	Kind  dense.Col[TokTag, uint8],
+	Text  dense.Col[TokTag, uint32],
+	Line  dense.Col[TokTag, uint32],
+	Col   dense.Col[TokTag, uint32],
+	Start dense.Col[TokTag, uint32],
+	End   dense.Col[TokTag, uint32],
+	Bol   dense.Col[TokTag, bool],
+}
+
+// NewTokTable creates an empty TokTable.
+func NewTokTable() TokTable {
+	TokTable{
+		Ids:   dense.NewCount[TokTag](),
+		Kind:  dense.NewCol[TokTag, uint8](),
+		Text:  dense.NewCol[TokTag, uint32](),
+		Line:  dense.NewCol[TokTag, uint32](),
+		Col:   dense.NewCol[TokTag, uint32](),
+		Start: dense.NewCol[TokTag, uint32](),
+		End:   dense.NewCol[TokTag, uint32](),
+		Bol:   dense.NewCol[TokTag, bool](),
+	}
+}
+
+// PushTok appends a token to tt and returns its uint32 index.
+func PushTok(tt mut TokTable, kind uint8, textID uint32, line uint32, col uint32, start uint32, end uint32, bol bool) uint32 {
+	let id = dense.Next(&tt.Ids)
+	dense.Push(&tt.Kind, kind)
+	dense.Push(&tt.Text, textID)
+	dense.Push(&tt.Line, line)
+	dense.Push(&tt.Col, col)
+	dense.Push(&tt.Start, start)
+	dense.Push(&tt.End, end)
+	dense.Push(&tt.Bol, bol)
+	uint32(dense.Index(id))
+}
+
+// TokAt converts a uint32 token index to dense.ID[TokTag].
+func TokAt(tt TokTable, idx uint32) dense.ID[TokTag] {
+	dense.IDAt(tt.Ids, int(idx))
+}
+
+// TokCount returns the number of tokens in tt.
+func TokCount(tt TokTable) int {
+	dense.Total(tt.Ids)
+}
+
+// TokKind returns the kind of token idx.
+func TokKind(tt TokTable, idx uint32) uint8 {
+	dense.Of(tt.Kind, TokAt(tt, idx))
+}
+
+// TokTextID returns the interned string ID of token idx.
+func TokTextID(tt TokTable, idx uint32) uint32 {
+	dense.Of(tt.Text, TokAt(tt, idx))
+}
+
+// TokText returns the string text of token idx.
+func TokText(tt TokTable, st StrTable, idx uint32) string {
+	StrText(st, TokTextID(tt, idx))
+}
+
+// TokPos returns the 1-based Pos of token idx.
+func TokPos(tt TokTable, file string, idx uint32) Pos {
+	let id = TokAt(tt, idx)
+	Pos{
+		File: file,
+		Line: dense.Of(tt.Line, id),
+		Col:  dense.Of(tt.Col, id),
+	}
+}
+
+// TokBol reports whether token idx appeared at the beginning of a logical line.
+func TokBol(tt TokTable, idx uint32) bool {
+	dense.Of(tt.Bol, TokAt(tt, idx))
+}
+
+// TokIs reports whether token idx is neither EOF nor string/char literal and has exact text.
+func TokIs(tt TokTable, st StrTable, idx uint32, text string) bool {
+	let id = TokAt(tt, idx)
+	let k = dense.Of(tt.Kind, id)
+	k != TokEOF && k != TokString && k != TokChar && StrText(st, dense.Of(tt.Text, id)) == text
+}
+
+func hasPrefixAt(s string, pos int, pre string) bool {
+	let plen = pre.Len()
+	pos+plen <= s.Len() && strings.Slice(s, pos, pos+plen) == pre
+}
+
+func isIdentStart(c byte) bool {
+	c == '_' || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
+}
+
+func isDigit(c byte) bool {
+	c >= '0' && c <= '9'
+}
+
+func isIdentPart(c byte) bool {
+	isIdentStart(c) || isDigit(c)
+}
+
+func continuationLen(src string, k int) int {
+	if hasPrefixAt(src, k, "\\\n") {
+		return 2
+	}
+	if hasPrefixAt(src, k, "\\\r\n") {
+		return 3
+	}
+	0
+}
+
+func spliceableMask(src string) []bool {
+	let n = src.Len()
+	let mut out = []bool{}
+	let mut init = 0
+	for init < n {
+		out = out.Append(false)
+		init = init + 1
+	}
+	let mut directive = false
+	let mut comment = false
+	let mut start = true
+	let mut k = 0
+	for k < n {
+		let ch = src[k]
+		if start && ch != ' ' && ch != '\t' {
+			directive = ch == '#'
+			comment = false
+			start = false
+		}
+		let cont = continuationLen(src, k)
+		if cont > 0 {
+			if directive && !comment && k > 0 && (src[k-1] == ' ' || src[k-1] == '\t') {
+				out[k] = true
+				k = k + cont
+				continue
+			}
+		}
+		if ch == '\n' {
+			directive = false
+			comment = false
+			start = true
+		} else if hasPrefixAt(src, k, "//") {
+			comment = true
+		}
+		k = k + 1
+	}
+	out
+}
+
+func hexByte2(b byte) string {
+	let digits = "0123456789abcdef"
+	let hi = int((b >> 4) & 0x0f)
+	let lo = int(b & 0x0f)
+	strings.Slice(digits, hi, hi+1) + strings.Slice(digits, lo, lo+1)
+}
+
+func isTrigraphThird(c byte) bool {
+	strings.IndexByte("=()/'<!>-", c) >= 0
+}
+
+func isExpSignPrev(c byte) bool {
+	c == 'e' || c == 'E' || c == 'p' || c == 'P'
+}
+
+// Lex tokenizes src into tt, interning texts in st and recording subset lexical errors in dt.
+func Lex(file string, src string, st mut StrTable, dt mut DiagTable) TokTable {
+	let mut tt = NewTokTable()
+	let n = src.Len()
+	let splice = spliceableMask(src)
+	let mut preLine uint32 = 1
+	let mut preCol uint32 = 1
+	let mut k = 0
+	for k < n {
+		if src[k] == '?' && k+2 < n && src[k+1] == '?' && isTrigraphThird(src[k+2]) {
+			AddDiag(&dt, &st, file, preLine, preCol, CodeLexical, "trigraph "+strconv.Quote(strings.Slice(src, k, k+3)))
+		} else if continuationLen(src, k) > 0 && !splice[k] {
+			AddDiag(&dt, &st, file, preLine, preCol, CodeLexical, "line continuation")
+		}
+		if src[k] == '\n' {
+			preLine = preLine + 1
+			preCol = 1
+		} else {
+			preCol = preCol + 1
+		}
+		k = k + 1
+	}
+	let mut line uint32 = 1
+	let mut col uint32 = 1
+	let mut i = 0
+	let mut bol = true
+	for i < n {
+		let ch = src[i]
+		if ch == '\n' {
+			bol = true
+			line = line + 1
+			col = 1
+			i = i + 1
+			continue
+		}
+		if ch == ' ' || ch == '\t' || ch == '\r' || ch == '\f' || ch == '\v' {
+			col = col + 1
+			i = i + 1
+			continue
+		}
+		let cont = continuationLen(src, i)
+		if cont > 0 {
+			if splice[i] {
+				let mut step = 0
+				for step < cont && i < n {
+					if src[i] == '\n' {
+						line = line + 1
+						col = 1
+					} else {
+						col = col + 1
+					}
+					i = i + 1
+					step = step + 1
+				}
+				continue
+			}
+			col = col + 1
+			i = i + 1
+			continue
+		}
+		if hasPrefixAt(src, i, "//") {
+			for i < n && src[i] != '\n' {
+				col = col + 1
+				i = i + 1
+			}
+			continue
+		}
+		if hasPrefixAt(src, i, "/*") {
+			let cLine = line
+			let cCol = col
+			let end = strings.Index(strings.Slice(src, i+2, n), "*/")
+			if end < 0 {
+				AddDiag(&dt, &st, file, cLine, cCol, CodeLexical, "unterminated comment")
+				for i < n {
+					if src[i] == '\n' {
+						line = line + 1
+						col = 1
+					} else {
+						col = col + 1
+					}
+					i = i + 1
+				}
+				continue
+			}
+			let total = end + 4
+			let mut step = 0
+			for step < total && i < n {
+				if src[i] == '\n' {
+					line = line + 1
+					col = 1
+				} else {
+					col = col + 1
+				}
+				i = i + 1
+				step = step + 1
+			}
+			continue
+		}
+		let tokLine = line
+		let tokCol = col
+		let start = i
+		let mut kind uint8 = 0
+		if isIdentStart(ch) {
+			for i < n && isIdentPart(src[i]) {
+				col = col + 1
+				i = i + 1
+			}
+			kind = TokIdent
+		} else if isDigit(ch) || (ch == '.' && i+1 < n && isDigit(src[i+1])) {
+			col = col + 1
+			i = i + 1
+			for i < n {
+				let c = src[i]
+				if (c == '+' || c == '-') && isExpSignPrev(src[i-1]) {
+					col = col + 1
+					i = i + 1
+					continue
+				}
+				if !isIdentPart(c) && c != '.' {
+					break
+				}
+				col = col + 1
+				i = i + 1
+			}
+			kind = TokNumber
+		} else if ch == '"' || ch == '\'' {
+			col = col + 1
+			i = i + 1
+			let mut closed = false
+			for i < n && src[i] != '\n' {
+				if src[i] == '\\' && i+1 < n && src[i+1] != '\n' {
+					col = col + 2
+					i = i + 2
+					continue
+				}
+				if src[i] == ch {
+					col = col + 1
+					i = i + 1
+					closed = true
+					break
+				}
+				col = col + 1
+				i = i + 1
+			}
+			if !closed {
+				AddDiag(&dt, &st, file, tokLine, tokCol, CodeLexical, "unterminated literal")
+				continue
+			}
+			if ch == '\'' {
+				kind = TokChar
+			} else {
+				kind = TokString
+			}
+		} else {
+			let mut matchedDg = ""
+			for dg in digraphs {
+				if hasPrefixAt(src, i, dg) {
+					AddDiag(&dt, &st, file, tokLine, tokCol, CodeLexical, "digraph "+strconv.Quote(dg))
+					matchedDg = dg
+					break
+				}
+			}
+			if matchedDg != "" {
+				let mlen = matchedDg.Len()
+				col = col + uint32(mlen)
+				i = i + mlen
+				continue
+			}
+			let mut matchedPu = ""
+			for pu in puncts {
+				if hasPrefixAt(src, i, pu) {
+					matchedPu = pu
+					break
+				}
+			}
+			if matchedPu == "" {
+				if ch >= 0x80 {
+					AddDiag(&dt, &st, file, tokLine, tokCol, CodeLexical, "byte 0x"+hexByte2(ch)+" outside ASCII")
+				} else {
+					AddDiag(&dt, &st, file, tokLine, tokCol, CodeLexical, "character "+strconv.Quote(strings.Slice(src, i, i+1)))
+				}
+				col = col + 1
+				i = i + 1
+				continue
+			}
+			let plen = matchedPu.Len()
+			col = col + uint32(plen)
+			i = i + plen
+			kind = TokPunct
+		}
+		let tid = InternStr(&st, strings.Slice(src, start, i))
+		let _ = PushTok(&tt, kind, tid, tokLine, tokCol, uint32(start), uint32(i), bol)
+		bol = false
+	}
+	let _ = PushTok(&tt, TokEOF, 0, line, col, uint32(n), uint32(n), true)
+	tt
+}
+
+// LexDropsCommentsAndSetsBol verifies comment stripping, spliceable continuations, and beginning-of-line tracking.
+law LexDropsCommentsAndSetsBol(ident uint8) {
+	let name = "foo_" + strconv.Itoa(int(ident))
+	let src = "#define A \\\n  1\n/* comment */ " + name + ";\n"
+	let mut st = NewStrTable()
+	let mut dt = NewDiagTable()
+	let tt = Lex("a.h", src, &st, &dt)
+	let ok0 = DiagCount(dt) == 0 && TokCount(tt) == 7
+	let mut st2 = NewStrTable()
+	let mut dt2 = NewDiagTable()
+	let _ = Lex("a.h", "#define B\\\n  1\n", &st2, &dt2)
+	let ds2 = CollectDiags(dt2, st2)
+	let ok1 = ds2.Len() == 1 && ds2[0].Code == CodeLexical
+	ok0 && ok1 && TokBol(tt, 0) && TokText(tt, st, 0) == "#" && TokText(tt, st, 3) == "1" && !TokBol(tt, 3) && TokBol(tt, 4) && TokKind(tt, 6) == TokEOF
+}
+
+// LexRefusesTrigraphsDigraphsAndContinuations checks lexical diagnostics for trigraphs, digraphs, and non-spliceable continuations.
+law LexRefusesTrigraphsDigraphsAndContinuations(x uint8) {
+	let mut st = NewStrTable()
+	let mut dt = NewDiagTable()
+	let src = "int a = 1; \\\n<% ??= // " + strconv.Itoa(int(x)) + "\n"
+	let _ = Lex("b.h", src, &st, &dt)
+	let ds = CollectDiags(dt, st)
+	ds.Len() == 3 && ds[0].Code == CodeLexical && ds[1].Code == CodeLexical && ds[2].Code == CodeLexical
+}

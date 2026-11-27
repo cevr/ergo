@@ -1,0 +1,1014 @@
+import dense
+import strings
+
+// ExprFailure represents a positioned constant expression error.
+type ExprFailure {
+	Line uint32,
+	Col  uint32,
+	Code uint8,
+	Msg  string,
+}
+
+// BigInt represents an arbitrary-precision signed integer in base 2^32 limbs (little-endian).
+type BigInt {
+	Limbs []uint32,
+	Neg   bool,
+}
+
+func bigZero() BigInt {
+	BigInt{Limbs: []uint32{}, Neg: false}
+}
+
+func bigNorm(limbs []uint32, neg bool) BigInt {
+	let mut n = limbs.Len()
+	for n > 0 && limbs[n-1] == 0 {
+		n = n - 1
+	}
+	if n == 0 {
+		return bigZero()
+	}
+	BigInt{Limbs: limbs.Slice(0, n), Neg: neg}
+}
+
+func bigFromUint64(v uint64) BigInt {
+	if v == 0 {
+		return bigZero()
+	}
+	let lo = uint32(v & 0xffffffff)
+	let hi = uint32(v >> 32)
+	if hi == 0 {
+		return BigInt{Limbs: []uint32{lo}, Neg: false}
+	}
+	BigInt{Limbs: []uint32{lo, hi}, Neg: false}
+}
+
+func bigNeg(a BigInt) BigInt {
+	if a.Limbs.Len() == 0 {
+		return a
+	}
+	BigInt{Limbs: a.Limbs, Neg: !a.Neg}
+}
+
+func bigCmpMag(a []uint32, b []uint32) int {
+	if a.Len() < b.Len() {
+		return -1
+	}
+	if a.Len() > b.Len() {
+		return 1
+	}
+	let mut i = a.Len() - 1
+	for i >= 0 {
+		if a[i] < b[i] {
+			return -1
+		}
+		if a[i] > b[i] {
+			return 1
+		}
+		i = i - 1
+	}
+	0
+}
+
+func bigAddMag(a []uint32, b []uint32) []uint32 {
+	let maxLen = if a.Len() > b.Len() { a.Len() } else { b.Len() }
+	let mut out = []uint32{}
+	let mut carry uint64 = 0
+	let mut i = 0
+	for i < maxLen {
+		let av = if i < a.Len() { uint64(a[i]) } else { 0 }
+		let bv = if i < b.Len() { uint64(b[i]) } else { 0 }
+		let sum = av + bv + carry
+		out = out.Append(uint32(sum & 0xffffffff))
+		carry = sum >> 32
+		i = i + 1
+	}
+	if carry != 0 {
+		out = out.Append(uint32(carry))
+	}
+	out
+}
+
+func bigSubMag(a []uint32, b []uint32) []uint32 {
+	let mut out = []uint32{}
+	let mut borrow uint64 = 0
+	let mut i = 0
+	for i < a.Len() {
+		let av = uint64(a[i])
+		let bv = if i < b.Len() { uint64(b[i]) } else { 0 }
+		let need = bv + borrow
+		if av >= need {
+			out = out.Append(uint32(av - need))
+			borrow = 0
+		} else {
+			out = out.Append(uint32((uint64(1) << 32) + av - need))
+			borrow = 1
+		}
+		i = i + 1
+	}
+	out
+}
+
+func bigAdd(a BigInt, b BigInt) BigInt {
+	if a.Neg == b.Neg {
+		return bigNorm(bigAddMag(a.Limbs, b.Limbs), a.Neg)
+	}
+	let c = bigCmpMag(a.Limbs, b.Limbs)
+	if c == 0 {
+		return bigZero()
+	}
+	if c > 0 {
+		return bigNorm(bigSubMag(a.Limbs, b.Limbs), a.Neg)
+	}
+	bigNorm(bigSubMag(b.Limbs, a.Limbs), b.Neg)
+}
+
+func bigSub(a BigInt, b BigInt) BigInt {
+	bigAdd(a, bigNeg(b))
+}
+
+func bigMul(a BigInt, b BigInt) BigInt {
+	if a.Limbs.Len() == 0 || b.Limbs.Len() == 0 {
+		return bigZero()
+	}
+	let alen = a.Limbs.Len()
+	let blen = b.Limbs.Len()
+	let mut out = []uint32{}
+	let mut k = 0
+	for k < alen+blen {
+		out = out.Append(0)
+		k = k + 1
+	}
+	let mut i = 0
+	for i < alen {
+		let mut carry uint64 = 0
+		let ai = uint64(a.Limbs[i])
+		let mut j = 0
+		for j < blen {
+			let cur = uint64(out[i+j]) + ai*uint64(b.Limbs[j]) + carry
+			out[i+j] = uint32(cur & 0xffffffff)
+			carry = cur >> 32
+			j = j + 1
+		}
+		out[i+blen] = uint32(uint64(out[i+blen]) + carry)
+		i = i + 1
+	}
+	bigNorm(out, a.Neg != b.Neg)
+}
+
+func bigMulAddSmall(a BigInt, mul uint64, add uint64) BigInt {
+	let mut out = []uint32{}
+	let mut carry = add
+	let mut i = 0
+	for i < a.Limbs.Len() {
+		let cur = uint64(a.Limbs[i])*mul + carry
+		out = out.Append(uint32(cur & 0xffffffff))
+		carry = cur >> 32
+		i = i + 1
+	}
+	if carry != 0 {
+		out = out.Append(uint32(carry))
+	}
+	bigNorm(out, a.Neg)
+}
+
+func bigLsh(a BigInt, shift uint32) BigInt {
+	if a.Limbs.Len() == 0 || shift == 0 {
+		return a
+	}
+	let wordShift = int(shift / 32)
+	let bitShift = shift % 32
+	let mut out = []uint32{}
+	let mut w = 0
+	for w < wordShift {
+		out = out.Append(0)
+		w = w + 1
+	}
+	let mut carry uint32 = 0
+	let mut i = 0
+	for i < a.Limbs.Len() {
+		let cur = a.Limbs[i]
+		let lo = (cur << bitShift) | carry
+		out = out.Append(lo)
+		if bitShift == 0 {
+			carry = 0
+		} else {
+			carry = cur >> (32 - bitShift)
+		}
+		i = i + 1
+	}
+	if carry != 0 {
+		out = out.Append(carry)
+	}
+	bigNorm(out, a.Neg)
+}
+
+func bigLow64(a BigInt) uint64 {
+	let lo = if a.Limbs.Len() >= 1 { uint64(a.Limbs[0]) } else { 0 }
+	let hi = if a.Limbs.Len() >= 2 { uint64(a.Limbs[1]) } else { 0 }
+	lo | (hi << 32)
+}
+
+func bigToBits(a BigInt, w uint32) uint64 {
+	let all64 uint64 = 0xffffffffffffffff
+	let all32 uint64 = 0xffffffff
+	let mask = if w == 32 { all32 } else { all64 }
+	let low = bigLow64(a) & mask
+	if !a.Neg || low == 0 {
+		return low
+	}
+	((low ^ mask) + 1) & mask
+}
+
+func bigFromBits(bits uint64, scalar uint8) BigInt {
+	if !ConstantSigned(scalar) {
+		return bigFromUint64(bits)
+	}
+	if scalar == ScalarInt32 {
+		let lo = bits & 0xffffffff
+		if (lo & 0x80000000) == 0 {
+			return bigFromUint64(lo)
+		}
+		let mag = ((lo ^ 0xffffffff) + 1) & 0xffffffff
+		return bigNeg(bigFromUint64(mag))
+	}
+	if (bits & 0x8000000000000000) == 0 {
+		return bigFromUint64(bits)
+	}
+	let mag = (bits ^ 0xffffffffffffffff) + 1
+	bigNeg(bigFromUint64(mag))
+}
+
+func scalarWidth(scalar uint8) uint32 {
+	if scalar == ScalarInt32 || scalar == ScalarUint32 {
+		return 32
+	}
+	64
+}
+
+func bigInRange(v BigInt, scalar uint8) bool {
+	if v.Limbs.Len() == 0 {
+		return true
+	}
+	if v.Limbs.Len() > 2 {
+		return false
+	}
+	let mag = bigLow64(v)
+	if !ConstantSigned(scalar) {
+		if v.Neg {
+			return false
+		}
+		if scalar == ScalarUint32 {
+			return mag <= 0xffffffff
+		}
+		return true
+	}
+	if scalar == ScalarInt32 {
+		if v.Neg {
+			return mag <= 0x80000000
+		}
+		return mag <= 0x7fffffff
+	}
+	if v.Neg {
+		return mag <= 0x8000000000000000
+	}
+	mag <= 0x7fffffffffffffff
+}
+
+func parseDigitValue(c byte, hex bool) int {
+	if c >= '0' && c <= '9' {
+		return int(c - '0')
+	}
+	if hex && c >= 'a' && c <= 'f' {
+		return int(c-'a') + 10
+	}
+	if hex && c >= 'A' && c <= 'F' {
+		return int(c-'A') + 10
+	}
+	-1
+}
+
+func backquote(s string) string {
+	"`" + s + "`"
+}
+
+func literalBigInt(s string) (BigInt, string) {
+	let hex = (s.Len() >= 2 && strings.Slice(s, 0, 2) == "0x") || (s.Len() >= 2 && strings.Slice(s, 0, 2) == "0X")
+	let digits = if hex { strings.Slice(s, 2, s.Len()) } else { s }
+	let base = if hex { uint64(16) } else { uint64(10) }
+	let bad = "literal " + backquote(s) + " is outside the subset (decimal or hex integer literals without a suffix)"
+	if digits == "" || (!hex && digits.Len() > 1 && digits[0] == '0') {
+		return (bigZero(), bad)
+	}
+	let mut acc = bigZero()
+	let mut i = 0
+	for i < digits.Len() {
+		let d = parseDigitValue(digits[i], hex)
+		if d < 0 {
+			return (bigZero(), bad)
+		}
+		acc = bigMulAddSmall(acc, base, uint64(d))
+		i = i + 1
+	}
+	(acc, "")
+}
+
+// LitInfo holds the parsed value, C type, or refusal error of a C integer literal.
+type LitInfo {
+	V       BigInt,
+	Scalar  uint8,
+	ErrKind string,
+	ErrMsg  string,
+}
+
+// ParseLiteral parses a decimal or hex C integer literal according to C11 LP64 rules.
+func ParseLiteral(s string) LitInfo {
+	let (v, msg) = literalBigInt(s)
+	if msg != "" {
+		return LitInfo{V: bigZero(), Scalar: ScalarNone, ErrKind: "", ErrMsg: msg}
+	}
+	let hex = (s.Len() >= 2 && strings.Slice(s, 0, 2) == "0x") || (s.Len() >= 2 && strings.Slice(s, 0, 2) == "0X")
+	if !hex {
+		if bigInRange(v, ScalarInt32) {
+			return LitInfo{V: v, Scalar: ScalarInt32, ErrKind: "", ErrMsg: ""}
+		}
+		if bigInRange(v, ScalarInt64) {
+			return LitInfo{V: v, Scalar: ScalarInt64, ErrKind: "", ErrMsg: ""}
+		}
+	} else {
+		if bigInRange(v, ScalarInt32) {
+			return LitInfo{V: v, Scalar: ScalarInt32, ErrKind: "", ErrMsg: ""}
+		}
+		if bigInRange(v, ScalarUint32) {
+			return LitInfo{V: v, Scalar: ScalarUint32, ErrKind: "", ErrMsg: ""}
+		}
+		if bigInRange(v, ScalarInt64) {
+			return LitInfo{V: v, Scalar: ScalarInt64, ErrKind: "", ErrMsg: ""}
+		}
+		if bigInRange(v, ScalarUint64) {
+			return LitInfo{V: v, Scalar: ScalarUint64, ErrKind: "", ErrMsg: ""}
+		}
+	}
+	LitInfo{V: bigZero(), Scalar: ScalarNone, ErrKind: "range", ErrMsg: "literal " + backquote(s) + " has no integer type"}
+}
+
+type intCSpec {
+	ok     bool,
+	maxU   uint64,
+	scalar uint8,
+}
+
+func intCMacroInfo(name string) intCSpec {
+	match name {
+	case "INT8_C":
+		intCSpec{ok: true, maxU: 0x7f, scalar: ScalarInt32}
+	case "INT16_C":
+		intCSpec{ok: true, maxU: 0x7fff, scalar: ScalarInt32}
+	case "INT32_C":
+		intCSpec{ok: true, maxU: 0x7fffffff, scalar: ScalarInt32}
+	case "INT64_C":
+		intCSpec{ok: true, maxU: 0x7fffffffffffffff, scalar: ScalarInt64}
+	case "UINT8_C":
+		intCSpec{ok: true, maxU: 0xff, scalar: ScalarInt32}
+	case "UINT16_C":
+		intCSpec{ok: true, maxU: 0xffff, scalar: ScalarInt32}
+	case "UINT32_C":
+		intCSpec{ok: true, maxU: 0xffffffff, scalar: ScalarUint32}
+	case "UINT64_C":
+		intCSpec{ok: true, maxU: 0xffffffffffffffff, scalar: ScalarUint64}
+	case _:
+		intCSpec{ok: false, maxU: 0, scalar: ScalarNone}
+	}
+}
+
+// ExprLit and following constants identify nodes in ExprTable.
+let ExprLit uint8 = 1
+let ExprName uint8 = 2
+let ExprCall uint8 = 3
+let ExprNeg uint8 = 4
+let ExprParen uint8 = 5
+let ExprBin uint8 = 6
+
+// ExprTag identifies one expression node row in ExprTable.
+type ExprTag {}
+
+// ExprTable stores parsed constant expressions in flat Structure-of-Arrays columns.
+type ExprTable {
+	Ids   dense.Count[ExprTag],
+	Kind  dense.Col[ExprTag, uint8],
+	Tok   dense.Col[ExprTag, uint32],
+	Arg   dense.Col[ExprTag, uint32],
+	Neg   dense.Col[ExprTag, bool],
+	Left  dense.Col[ExprTag, uint32],
+	Right dense.Col[ExprTag, uint32],
+}
+
+// NewExprTable creates an empty ExprTable.
+func NewExprTable() ExprTable {
+	ExprTable{
+		Ids:   dense.NewCount[ExprTag](),
+		Kind:  dense.NewCol[ExprTag, uint8](),
+		Tok:   dense.NewCol[ExprTag, uint32](),
+		Arg:   dense.NewCol[ExprTag, uint32](),
+		Neg:   dense.NewCol[ExprTag, bool](),
+		Left:  dense.NewCol[ExprTag, uint32](),
+		Right: dense.NewCol[ExprTag, uint32](),
+	}
+}
+
+func pushExpr(et mut ExprTable, kind uint8, tok uint32, arg uint32, neg bool, left uint32, right uint32) uint32 {
+	let id = dense.Next(&et.Ids)
+	dense.Push(&et.Kind, kind)
+	dense.Push(&et.Tok, tok)
+	dense.Push(&et.Arg, arg)
+	dense.Push(&et.Neg, neg)
+	dense.Push(&et.Left, left)
+	dense.Push(&et.Right, right)
+	uint32(dense.Index(id))
+}
+
+func exprAt(et ExprTable, idx uint32) dense.ID[ExprTag] {
+	dense.IDAt(et.Ids, int(idx))
+}
+
+// RenderExpr returns the canonical C constant expression spelling for node idx.
+func RenderExpr(et ExprTable, tt TokTable, st StrTable, idx uint32) string {
+	let id = exprAt(et, idx)
+	let kind = dense.Of(et.Kind, id)
+	if kind == ExprLit || kind == ExprName {
+		return TokText(tt, st, dense.Of(et.Tok, id))
+	}
+	if kind == ExprCall {
+		let fn = TokText(tt, st, dense.Of(et.Tok, id))
+		let arg = TokText(tt, st, dense.Of(et.Arg, id))
+		if dense.Of(et.Neg, id) {
+			return fn + "(-" + arg + ")"
+		}
+		return fn + "(" + arg + ")"
+	}
+	if kind == ExprParen {
+		return "(" + RenderExpr(et, tt, st, dense.Of(et.Left, id)) + ")"
+	}
+	if kind == ExprBin {
+		let op = TokText(tt, st, dense.Of(et.Tok, id))
+		let l = RenderExpr(et, tt, st, dense.Of(et.Left, id))
+		let r = RenderExpr(et, tt, st, dense.Of(et.Right, id))
+		return l + " " + op + " " + r
+	}
+	let sub = RenderExpr(et, tt, st, dense.Of(et.Left, id))
+	if strings.HasPrefix(sub, "-") {
+		return "- " + sub
+	}
+	"-" + sub
+}
+
+// CVal represents an evaluated constant value and its C11 LP64 scalar type.
+type CVal {
+	Typ uint8,
+	V   BigInt,
+}
+
+type tokView {
+	kind uint8,
+	text string,
+	line uint32,
+	col  uint32,
+	tid  uint32,
+}
+
+type exprParser {
+	tt          TokTable,
+	st          StrTable,
+	tokIdx      []uint32,
+	pos         int,
+	endLine     uint32,
+	endCol      uint32,
+	macros      MacroTable,
+	macroByName []uint32,
+	allowMacros bool,
+	hasStdint   bool,
+	stdintLine  uint32,
+	stdintCol   uint32,
+	et          ExprTable,
+}
+
+func epPeek(p mut exprParser) tokView {
+	if p.pos < p.tokIdx.Len() {
+		let tid = p.tokIdx[p.pos]
+		let id = TokAt(p.tt, tid)
+		return tokView{
+			kind: dense.Of(p.tt.Kind, id),
+			text: StrText(p.st, dense.Of(p.tt.Text, id)),
+			line: dense.Of(p.tt.Line, id),
+			col:  dense.Of(p.tt.Col, id),
+			tid:  tid,
+		}
+	}
+	tokView{kind: TokEOF, text: "", line: p.endLine, col: p.endCol, tid: NoID}
+}
+
+func epIs(p mut exprParser, s string) bool {
+	let tv = epPeek(&p)
+	tv.kind != TokEOF && tv.kind != TokString && tv.kind != TokChar && tv.text == s
+}
+
+func tvIs(tv tokView, s string) bool {
+	tv.kind != TokEOF && tv.kind != TokString && tv.kind != TokChar && tv.text == s
+}
+
+func epNext(p mut exprParser) tokView {
+	let tv = epPeek(&p)
+	if p.pos < p.tokIdx.Len() {
+		p.pos = p.pos + 1
+	}
+	tv
+}
+
+func epRefuse(tv tokView) ExprFailure {
+	if tv.kind == TokPunct {
+		return ExprFailure{Line: tv.line, Col: tv.col, Code: CodeMacroBody, Msg: "operator " + backquote(tv.text) + " is outside the constant subset"}
+	}
+	if tv.kind == TokEOF {
+		return ExprFailure{Line: tv.line, Col: tv.col, Code: CodeMacroBody, Msg: "missing operand"}
+	}
+	ExprFailure{Line: tv.line, Col: tv.col, Code: CodeMacroBody, Msg: backquote(tv.text) + " is outside the constant subset"}
+}
+
+func epKnownMacro(p mut exprParser, nameID uint32) bool {
+	if !p.allowMacros || int(nameID) >= p.macroByName.Len() {
+		return false
+	}
+	let mid = p.macroByName[int(nameID)]
+	if mid == NoID {
+		return false
+	}
+	dense.Of(p.macros.IsConst, dense.IDAt(p.macros.Ids, int(mid)))
+}
+
+func epStdintBefore(p mut exprParser, line uint32, col uint32) bool {
+	p.hasStdint && (p.stdintLine < line || (p.stdintLine == line && p.stdintCol < col))
+}
+
+func epOr(p mut exprParser) uint32 fails ExprFailure {
+	let mut left = try epShl(&p)
+	for epIs(&p, "|") {
+		let opTok = epNext(&p).tid
+		let right = try epShl(&p)
+		left = pushExpr(&p.et, ExprBin, opTok, NoID, false, left, right)
+	}
+	left
+}
+
+func epShl(p mut exprParser) uint32 fails ExprFailure {
+	let mut left = try epAdd(&p)
+	for epIs(&p, "<<") {
+		let opTok = epNext(&p).tid
+		let right = try epAdd(&p)
+		left = pushExpr(&p.et, ExprBin, opTok, NoID, false, left, right)
+	}
+	left
+}
+
+func epAdd(p mut exprParser) uint32 fails ExprFailure {
+	let mut left = try epMul(&p)
+	for epIs(&p, "+") || epIs(&p, "-") {
+		let opTok = epNext(&p).tid
+		let right = try epMul(&p)
+		left = pushExpr(&p.et, ExprBin, opTok, NoID, false, left, right)
+	}
+	left
+}
+
+func epMul(p mut exprParser) uint32 fails ExprFailure {
+	let mut left = try epUnary(&p)
+	for epIs(&p, "*") {
+		let opTok = epNext(&p).tid
+		let right = try epUnary(&p)
+		left = pushExpr(&p.et, ExprBin, opTok, NoID, false, left, right)
+	}
+	left
+}
+
+func epUnary(p mut exprParser) uint32 fails ExprFailure {
+	if epIs(&p, "-") {
+		let opTok = epNext(&p).tid
+		let inner = try epUnary(&p)
+		return pushExpr(&p.et, ExprNeg, opTok, NoID, false, inner, NoID)
+	}
+	try epPrimary(&p)
+}
+
+func epPrimary(p mut exprParser) uint32 fails ExprFailure {
+	let tv = epNext(&p)
+	if tv.kind == TokNumber {
+		let li = ParseLiteral(tv.text)
+		if li.ErrMsg != "" {
+			let code = if li.ErrKind == "range" { CodeConstantRange } else { CodeMacroBody }
+			return ExprFailure{Line: tv.line, Col: tv.col, Code: code, Msg: li.ErrMsg}
+		}
+		return pushExpr(&p.et, ExprLit, tv.tid, NoID, false, NoID, NoID)
+	}
+	if tvIs(tv, "(") {
+		let x = try epOr(&p)
+		let cv = epNext(&p)
+		if !tvIs(cv, ")") {
+			return epRefuse(cv)
+		}
+		return pushExpr(&p.et, ExprParen, NoID, NoID, false, x, NoID)
+	}
+	if tv.kind == TokIdent {
+		let spec = intCMacroInfo(tv.text)
+		if spec.ok {
+			if !epStdintBefore(&p, tv.line, tv.col) {
+				return ExprFailure{Line: tv.line, Col: tv.col, Code: CodeMissingInclude, Msg: tv.text + " needs #include <stdint.h> before it"}
+			}
+			let ov = epNext(&p)
+			if !tvIs(ov, "(") {
+				return ExprFailure{Line: ov.line, Col: ov.col, Code: CodeMacroBody, Msg: tv.text + " needs one literal argument"}
+			}
+			let mut neg = false
+			let mut av = epNext(&p)
+			if tvIs(av, "-") && strings.HasPrefix(tv.text, "INT") {
+				neg = true
+				av = epNext(&p)
+			}
+			if av.kind != TokNumber {
+				return ExprFailure{Line: av.line, Col: av.col, Code: CodeMacroBody, Msg: tv.text + " takes one integer literal without a sign"}
+			}
+			let (abig, amsg) = literalBigInt(av.text)
+			if amsg != "" {
+				return ExprFailure{Line: av.line, Col: av.col, Code: CodeMacroBody, Msg: amsg}
+			}
+			if abig.Limbs.Len() > 2 || bigLow64(abig) > spec.maxU {
+				return ExprFailure{Line: av.line, Col: av.col, Code: CodeConstantRange, Msg: av.text + " is out of range for " + tv.text}
+			}
+			let cv = epNext(&p)
+			if !tvIs(cv, ")") {
+				return ExprFailure{Line: cv.line, Col: cv.col, Code: CodeMacroBody, Msg: tv.text + " takes one argument"}
+			}
+			return pushExpr(&p.et, ExprCall, tv.tid, av.tid, neg, NoID, NoID)
+		}
+		let nameID = TokTextID(p.tt, tv.tid)
+		if !epKnownMacro(&p, nameID) {
+			return ExprFailure{Line: tv.line, Col: tv.col, Code: CodeMacroBody, Msg: backquote(tv.text) + " is not the name of an earlier constant"}
+		}
+		return pushExpr(&p.et, ExprName, tv.tid, NoID, false, NoID, NoID)
+	}
+	return epRefuse(tv)
+}
+
+func evalFit(tt TokTable, st StrTable, opTok uint32, scalar uint8, v BigInt) CVal fails ExprFailure {
+	let w = scalarWidth(scalar)
+	if !ConstantSigned(scalar) {
+		let bits = bigToBits(v, w)
+		return CVal{Typ: scalar, V: bigFromUint64(bits)}
+	}
+	if !bigInRange(v, scalar) {
+		let opID = TokAt(tt, opTok)
+		let opText = StrText(st, dense.Of(tt.Text, opID))
+		return ExprFailure{Line: dense.Of(tt.Line, opID), Col: dense.Of(tt.Col, opID), Code: CodeConstantRange, Msg: "signed overflow in " + backquote(opText) + " (undefined behavior in C)"}
+	}
+	CVal{Typ: scalar, V: v}
+}
+
+func evalCommon(a uint8, b uint8) uint8 {
+	let sa = ConstantSigned(a)
+	let sb = ConstantSigned(b)
+	let wa = scalarWidth(a)
+	let wb = scalarWidth(b)
+	if sa == sb {
+		if wa >= wb {
+			return a
+		}
+		return b
+	}
+	let u = if !sa { a } else { b }
+	let s = if sa { a } else { b }
+	if scalarWidth(u) >= scalarWidth(s) {
+		return u
+	}
+	s
+}
+
+func evalConvert(v CVal, scalar uint8) BigInt {
+	if !ConstantSigned(scalar) {
+		return bigFromUint64(bigToBits(v.V, scalarWidth(scalar)))
+	}
+	v.V
+}
+
+func evalShift(tt TokTable, st StrTable, opTok uint32, x CVal, y CVal) CVal fails ExprFailure {
+	let w = scalarWidth(x.Typ)
+	let opID = TokAt(tt, opTok)
+	let opLine = dense.Of(tt.Line, opID)
+	let opCol = dense.Of(tt.Col, opID)
+	if y.V.Neg || y.V.Limbs.Len() > 2 || bigLow64(y.V) >= uint64(w) {
+		return ExprFailure{Line: opLine, Col: opCol, Code: CodeConstantRange, Msg: "shift count out of range (undefined behavior in C)"}
+	}
+	if ConstantSigned(x.Typ) && x.V.Neg {
+		return ExprFailure{Line: opLine, Col: opCol, Code: CodeConstantRange, Msg: "left shift of a negative value (undefined behavior in C)"}
+	}
+	let r = bigLsh(x.V, uint32(bigLow64(y.V)))
+	try evalFit(tt, st, opTok, x.Typ, r)
+}
+
+func evalArith(tt TokTable, st StrTable, opTok uint32, x CVal, y CVal) CVal fails ExprFailure {
+	let t = evalCommon(x.Typ, y.Typ)
+	let a = evalConvert(x, t)
+	let b = evalConvert(y, t)
+	let opText = TokText(tt, st, opTok)
+	if opText == "|" {
+		let w = scalarWidth(t)
+		let bits = bigToBits(a, w) | bigToBits(b, w)
+		return CVal{Typ: t, V: bigFromBits(bits, t)}
+	}
+	let r = if opText == "*" {
+		bigMul(a, b)
+	} else if opText == "+" {
+		bigAdd(a, b)
+	} else {
+		bigSub(a, b)
+	}
+	try evalFit(tt, st, opTok, t, r)
+}
+
+func evalExprNode(et ExprTable, tt TokTable, st StrTable, idx uint32) CVal fails ExprFailure {
+	let id = exprAt(et, idx)
+	let kind = dense.Of(et.Kind, id)
+	if kind == ExprLit {
+		let tok = dense.Of(et.Tok, id)
+		let li = ParseLiteral(TokText(tt, st, tok))
+		return CVal{Typ: li.Scalar, V: li.V}
+	}
+	if kind == ExprCall {
+		let fnTok = dense.Of(et.Tok, id)
+		let argTok = dense.Of(et.Arg, id)
+		let spec = intCMacroInfo(TokText(tt, st, fnTok))
+		let (av, _) = literalBigInt(TokText(tt, st, argTok))
+		let val = if dense.Of(et.Neg, id) { bigNeg(av) } else { av }
+		return CVal{Typ: spec.scalar, V: val}
+	}
+	if kind == ExprParen {
+		return try evalExprNode(et, tt, st, dense.Of(et.Left, id))
+	}
+	if kind == ExprNeg {
+		let opTok = dense.Of(et.Tok, id)
+		let x = try evalExprNode(et, tt, st, dense.Of(et.Left, id))
+		return try evalFit(tt, st, opTok, x.Typ, bigNeg(x.V))
+	}
+	if kind == ExprBin {
+		let opTok = dense.Of(et.Tok, id)
+		let x = try evalExprNode(et, tt, st, dense.Of(et.Left, id))
+		let y = try evalExprNode(et, tt, st, dense.Of(et.Right, id))
+		if TokText(tt, st, opTok) == "<<" {
+			return try evalShift(tt, st, opTok, x, y)
+		}
+		return try evalArith(tt, st, opTok, x, y)
+	}
+	let tok = dense.Of(et.Tok, id)
+	let tid = TokAt(tt, tok)
+	return ExprFailure{Line: dense.Of(tt.Line, tid), Col: dense.Of(tt.Col, tid), Code: CodeMacroBody, Msg: backquote(StrText(st, dense.Of(tt.Text, tid))) + " is not expanded"}
+}
+
+func bigDivModSmall(limbs []uint32, div uint64) ([]uint32, uint64) {
+	let n = limbs.Len()
+	let mut q = []uint32{}
+	let mut k = 0
+	for k < n {
+		q = q.Append(0)
+		k = k + 1
+	}
+	let mut rem uint64 = 0
+	let mut i = n - 1
+	for i >= 0 {
+		let cur = (rem << 32) | uint64(limbs[i])
+		q[i] = uint32(cur / div)
+		rem = cur % div
+		i = i - 1
+	}
+	(bigNorm(q, false).Limbs, rem)
+}
+
+func bigPad9(v uint64) string {
+	let mut out = []byte{'0', '0', '0', '0', '0', '0', '0', '0', '0'}
+	let mut x = v
+	let mut i = 8
+	for i >= 0 {
+		out[i] = byte('0' + byte(x%10))
+		x = x / 10
+		i = i - 1
+	}
+	out.Text()
+}
+
+// BigDecimalString formats a BigInt in base 10 without size limits.
+func BigDecimalString(a BigInt) string {
+	if a.Limbs.Len() == 0 {
+		return "0"
+	}
+	if a.Limbs.Len() <= 2 {
+		let mag = bigLow64(a)
+		let s = FormatUint64(mag)
+		if a.Neg {
+			return "-" + s
+		}
+		return s
+	}
+	let mut cur = a.Limbs
+	let mut chunks = []uint64{}
+	for cur.Len() > 0 {
+		let (q, rem) = bigDivModSmall(cur, 1000000000)
+		chunks = chunks.Append(rem)
+		cur = q
+	}
+	let mut b = strings.NewBuilder()
+	if a.Neg {
+		strings.WriteByte(&b, '-')
+	}
+	let top = chunks.Len() - 1
+	strings.WriteString(&b, FormatUint64(chunks[top]))
+	let mut i = top - 1
+	for i >= 0 {
+		strings.WriteString(&b, bigPad9(chunks[i]))
+		i = i - 1
+	}
+	strings.String(b)
+}
+
+// ConstEval holds the rendered expression, LP64 type/bits, updated expansion tokens, and range.
+type ConstEval {
+	Expr     string,
+	Scalar   uint8,
+	Bits     uint64,
+	ExpStart uint32,
+	ExpLen   uint32,
+	ExpToks  TokTable,
+}
+
+type expBuilt {
+	expStart uint32,
+	expList  []uint32,
+	expToks  TokTable,
+}
+
+func buildExpTokens(
+	tt TokTable,
+	expIn TokTable,
+	bodyIdx []uint32,
+	macros MacroTable,
+	macroByName []uint32,
+) expBuilt {
+	let expStart = uint32(TokCount(expIn))
+	let mut expOut = expIn
+	let mut expList = []uint32{}
+	for tid in bodyIdx {
+		let id = TokAt(tt, tid)
+		let k = dense.Of(tt.Kind, id)
+		let textID = dense.Of(tt.Text, id)
+		let known = k == TokIdent && int(textID) < macroByName.Len() && macroByName[int(textID)] != NoID && dense.Of(macros.IsConst, dense.IDAt(macros.Ids, int(macroByName[int(textID)])))
+		if !known {
+			let ntid = PushTok(&expOut, k, textID, dense.Of(tt.Line, id), dense.Of(tt.Col, id), dense.Of(tt.Start, id), dense.Of(tt.End, id), dense.Of(tt.Bol, id))
+			expList = expList.Append(ntid)
+			continue
+		}
+		let mid = dense.IDAt(macros.Ids, int(macroByName[int(textID)]))
+		let mstart = dense.Of(macros.ExpStart, mid)
+		let mlen = dense.Of(macros.ExpLen, mid)
+		let tLine = dense.Of(tt.Line, id)
+		let tCol = dense.Of(tt.Col, id)
+		let tStart = dense.Of(tt.Start, id)
+		let tEnd = dense.Of(tt.End, id)
+		let mut r uint32 = 0
+		for r < mlen {
+			let rid = TokAt(expIn, mstart+r)
+			let rk = dense.Of(expIn.Kind, rid)
+			let rtext = dense.Of(expIn.Text, rid)
+			let ntid = PushTok(&expOut, rk, rtext, tLine, tCol, tStart, tEnd, false)
+			expList = expList.Append(ntid)
+			r = r + 1
+		}
+	}
+	expBuilt{expStart: expStart, expList: expList, expToks: expOut}
+}
+
+func evalExpandedList(
+	expToks TokTable,
+	st StrTable,
+	expList []uint32,
+	endLine uint32,
+	endCol uint32,
+	macros MacroTable,
+	macroByName []uint32,
+	hasStdint bool,
+	stdintLine uint32,
+	stdintCol uint32,
+) (uint8, uint64) fails ExprFailure {
+	let mut xp = exprParser{
+		tt:          expToks,
+		st:          st,
+		tokIdx:      expList,
+		pos:         0,
+		endLine:     endLine,
+		endCol:      endCol,
+		macros:      macros,
+		macroByName: macroByName,
+		allowMacros: false,
+		hasStdint:   hasStdint,
+		stdintLine:  stdintLine,
+		stdintCol:   stdintCol,
+		et:          NewExprTable(),
+	}
+	let expRoot = try epOr(&xp)
+	let xv = epPeek(&xp)
+	if xv.kind != TokEOF {
+		return epRefuse(xv)
+	}
+	let cv = try evalExprNode(xp.et, expToks, st, expRoot)
+	(cv.Typ, bigToBits(cv.V, scalarWidth(cv.Typ)))
+}
+
+// ParseConstExpr parses, macro-expands, and evaluates a #define integer constant expression.
+func ParseConstExpr(
+	tt TokTable,
+	expIn TokTable,
+	st StrTable,
+	bodyIdx []uint32,
+	endLine uint32,
+	endCol uint32,
+	macros MacroTable,
+	macroByName []uint32,
+	hasStdint bool,
+	stdintLine uint32,
+	stdintCol uint32,
+) ConstEval fails ExprFailure {
+	let mut bp = exprParser{
+		tt:          tt,
+		st:          st,
+		tokIdx:      bodyIdx,
+		pos:         0,
+		endLine:     endLine,
+		endCol:      endCol,
+		macros:      macros,
+		macroByName: macroByName,
+		allowMacros: true,
+		hasStdint:   hasStdint,
+		stdintLine:  stdintLine,
+		stdintCol:   stdintCol,
+		et:          NewExprTable(),
+	}
+	let bodyRoot = try epOr(&bp)
+	let bv = epPeek(&bp)
+	if bv.kind != TokEOF {
+		return epRefuse(bv)
+	}
+	let rendered = RenderExpr(bp.et, tt, st, bodyRoot)
+	let built = buildExpTokens(tt, expIn, bodyIdx, macros, macroByName)
+	let expLen = uint32(built.expList.Len())
+	let (scalar, bits) = try evalExpandedList(built.expToks, st, built.expList, endLine, endCol, macros, macroByName, hasStdint, stdintLine, stdintCol)
+	ConstEval{Expr: rendered, Scalar: scalar, Bits: bits, ExpStart: built.expStart, ExpLen: expLen, ExpToks: built.expToks}
+}
+
+// BigIntMulAddAndShiftPreservesWidth checks base-2^32 BigInt arithmetic and two's-complement bit conversions.
+law BigIntMulAddAndShiftPreservesWidth(a uint32, b uint32, shift uint8) {
+	let s = uint32(shift % 32)
+	let ba = bigFromUint64(uint64(a))
+	let bb = bigFromUint64(uint64(b))
+	let prod = bigMul(ba, bb)
+	let expectProd = uint64(a) * uint64(b)
+	let sum = bigAdd(ba, bb)
+	let diff = bigSub(ba, bb)
+	let sh = bigLsh(ba, s)
+	let expectSh = uint64(a) << uint64(s)
+	let ok1 = bigToBits(prod, 64) == expectProd
+	let ok2 = bigToBits(sum, 64) == uint64(a)+uint64(b)
+	let ok3 = bigToBits(bigAdd(diff, bb), 64) == uint64(a)
+	let ok4 = bigToBits(sh, 64) == expectSh
+	ok1 && ok2 && ok3 && ok4
+}
+
+// ConstExprLP64PromotionAndUB checks INT*_C macros, signed overflow detection, and undefined shift count refusal.
+law ConstExprLP64PromotionAndUB(x uint8) {
+	let srcGood = "#include <stdint.h>\n#define NEG INT32_C(-" + FormatUint64(uint64(x%10+1)) + ")\n"
+	let mut m1 = NewModel("t.h")
+	let mut dt1 = NewDiagTable()
+	let tt1 = Lex("t.h", srcGood, &m1.Strings, &dt1)
+	let _ = RunDirectives("t.h", tt1, &m1, &dt1)
+	let okGood = DiagCount(dt1) == 0 && dense.Total(m1.Consts.Ids) == 1 && dense.Of(m1.Consts.Scalar, dense.IDAt(m1.Consts.Ids, 0)) == ScalarInt32
+
+	let srcOvf = "#define OVF (2147483647 + 1)\n"
+	let mut m2 = NewModel("t.h")
+	let mut dt2 = NewDiagTable()
+	let tt2 = Lex("t.h", srcOvf, &m2.Strings, &dt2)
+	let _ = RunDirectives("t.h", tt2, &m2, &dt2)
+	let ds2 = CollectDiags(dt2, m2.Strings)
+	let okOvf = ds2.Len() > 0 && ds2[0].Code == CodeConstantRange
+
+	let srcSh = "#define SH (0 << 32)\n"
+	let mut m3 = NewModel("t.h")
+	let mut dt3 = NewDiagTable()
+	let tt3 = Lex("t.h", srcSh, &m3.Strings, &dt3)
+	let _ = RunDirectives("t.h", tt3, &m3, &dt3)
+	let ds3 = CollectDiags(dt3, m3.Strings)
+	let okSh = ds3.Len() > 0 && ds3[0].Code == CodeConstantRange
+
+	okGood && okOvf && okSh
+}

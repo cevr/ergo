@@ -1,0 +1,165 @@
+import dense
+import strconv
+import strings
+
+func callbackReportLine(b Binding, cb BoundCallback) string {
+	if !cb.Bound {
+		return "raw: " + cb.RawOnly
+	}
+	let rid = dense.IDAt(b.C.Callbacks.Ids, int(cb.RuleIdx))
+	let scope = StrText(b.C.Strings, dense.Of(b.C.Callbacks.Scope, rid))
+	let owner = StrText(b.C.Strings, dense.Of(b.C.Callbacks.Owner, rid))
+	let ends = ruleEnds(b.C, cb.RuleIdx)
+	let kps = ruleKeyParams(b.C, cb.RuleIdx)
+	let ksrc = StrText(b.C.Strings, dense.Of(b.C.Callbacks.KeySource, rid))
+	let defStr = StrText(b.C.Strings, dense.Of(b.C.Callbacks.Default, rid))
+	let mut w = strings.NewBuilder()
+	strings.WriteString(&w, "bound as "+cb.GoName+" "+GoCallbackSigString(cb.Sig)+", scope "+scope)
+	if owner != "" {
+		strings.WriteString(&w, ", owner "+owner)
+	}
+	if ends.Len() > 0 {
+		strings.WriteString(&w, ", ends "+strings.Join(ends, " "))
+	}
+	strings.WriteString(&w, ", key ("+strings.Join(kps, ", ")+") from "+ksrc)
+	if defStr != "" {
+		strings.WriteString(&w, ", default "+defStr)
+	}
+	let cbPr = cbFuncRange(b.K, cb.DeclIdx)
+	let mut ps = []string{}
+	for q in cb.Positions {
+		let mut s = PositionNameRange(b.M, cbPr.pStart, q.Param, q.IsRes) + " " + ClassName(q.Class)
+		if q.Class == ClassInBuffer {
+			let unit = if q.Bytes { "bytes" } else { "elements" }
+			let lenName = prParamName(b.K, cbPr, q.Length)
+			s = s + " (length " + lenName + " in " + unit + ")"
+		} else if q.Class == ClassOutArray {
+			s = s + " of " + strconv.Itoa(int(q.Array))
+		}
+		ps = ps.Append(s)
+	}
+	strings.WriteString(&w, "; "+strings.Join(ps, ", "))
+	strings.String(w)
+}
+
+// Report produces the human-readable binding classification report (report.txt golden).
+func Report(b Binding) string {
+	let mut w = strings.NewBuilder()
+	strings.WriteString(&w, "binding report: "+StrText(b.C.Strings, b.C.Header)+"\n")
+	strings.WriteString(&w, "header sha256 "+b.HeaderSHA256+"\n")
+	strings.WriteString(&w, "go package "+StrText(b.C.Strings, b.C.GoPkg)+" ("+StrText(b.C.Strings, b.C.GoImportPath)+")\n")
+	strings.WriteString(&w, "status "+StrText(b.C.Strings, b.C.StatusType)+": success "+StrText(b.C.Strings, b.C.StatusSuccess)+", "+strconv.Itoa(b.Codes.Len())+" codes\n")
+	strings.WriteString(&w, "abi "+StrText(b.C.Strings, b.C.ABIFunction)+"() == "+StrText(b.C.Strings, b.C.ABIMacro)+" ("+FormatUint64(b.ABIWant)+")\n")
+	let nHandles = dense.Total(b.C.Handles.Ids)
+	let mut hi = 0
+	for hi < nHandles {
+		let hid = dense.IDAt(b.C.Handles.Ids, hi)
+		let hType = StrText(b.C.Strings, dense.Of(b.C.Handles.Type, hid))
+		let dIdx = kDeclIdx(b.K, hType)
+		let goType = if dIdx != NoID { b.GoTypes[int(dIdx)] } else { "" }
+		strings.WriteString(&w, "handle "+hType+" ("+goType+"): create "+StrText(b.C.Strings, dense.Of(b.C.Handles.Create, hid))+"."+StrText(b.C.Strings, dense.Of(b.C.Handles.Out, hid))+", destroy "+StrText(b.C.Strings, dense.Of(b.C.Handles.Destroy, hid))+", thread "+StrText(b.C.Strings, dense.Of(b.C.Handles.Thread, hid))+"\n")
+		hi = hi + 1
+	}
+	let nAuto = dense.Total(b.C.Autofills.Ids)
+	let mut ai = 0
+	for ai < nAuto {
+		let aid = dense.IDAt(b.C.Autofills.Ids, ai)
+		strings.WriteString(&w, "autofill "+StrText(b.C.Strings, dense.Of(b.C.Autofills.Field, aid))+" = "+StrText(b.C.Strings, dense.Of(b.C.Autofills.Value, aid))+"\n")
+		ai = ai + 1
+	}
+	let mut counts = []int{}
+	let mut k0 = 0
+	for k0 <= int(ClassOutArray) {
+		counts = counts.Append(0)
+		k0 = k0 + 1
+	}
+	let mut typed = []BoundFunc{}
+	let mut raw = []BoundFunc{}
+	let mut funcPositions = 0
+	for bf in b.Funcs {
+		if bf.RawOnly == "" {
+			typed = typed.Append(bf)
+		} else {
+			raw = raw.Append(bf)
+		}
+		for q in bf.Positions {
+			counts[int(q.Class)] = counts[int(q.Class)] + 1
+			funcPositions = funcPositions + 1
+		}
+	}
+	for q in b.Fields {
+		counts[int(q.Class)] = counts[int(q.Class)] + 1
+	}
+	strings.WriteString(&w, "\ntyped functions ("+strconv.Itoa(typed.Len())+"):\n")
+	for bf in typed {
+		strings.WriteString(&w, "  "+bf.Name+": "+GoSigString(bf.Sig, bf.GoName)+"\n")
+	}
+	strings.WriteString(&w, "\nraw-only functions ("+strconv.Itoa(raw.Len())+"):\n")
+	for bf in raw {
+		strings.WriteString(&w, "  "+bf.Name+": "+bf.RawOnly+"\n")
+	}
+	strings.WriteString(&w, "\ncallbacks ("+strconv.Itoa(b.Callbacks.Len())+"):\n")
+	for cb in b.Callbacks {
+		strings.WriteString(&w, "  "+cb.Name+": "+callbackReportLine(b, cb)+"\n")
+	}
+	strings.WriteString(&w, "\npointer fields ("+strconv.Itoa(b.Fields.Len())+"):\n")
+	for q in b.Fields {
+		strings.WriteString(&w, "  "+q.Struct+"."+q.Name+": "+ClassName(q.Class)+": "+q.Reason+"\n")
+	}
+	let nModelFuncs = dense.Total(b.M.Funcs.Ids)
+	strings.WriteString(&w, "\ncounts:\n")
+	strings.WriteString(&w, "  functions "+strconv.Itoa(nModelFuncs)+": typed "+strconv.Itoa(typed.Len())+", raw-only "+strconv.Itoa(raw.Len())+", skipped "+strconv.Itoa(nModelFuncs-b.Funcs.Len())+"\n")
+	strings.WriteString(&w, "  pointer positions "+strconv.Itoa(funcPositions+b.Fields.Len())+" (parameters and results "+strconv.Itoa(funcPositions)+", fields "+strconv.Itoa(b.Fields.Len())+"):")
+	let order = []uint8{ClassHandle, ClassValue, ClassOptional, ClassOut, ClassInBuffer, ClassOutBuffer, ClassOutCount, ClassCallback, ClassKey, ClassRaw}
+	let mut oi = 0
+	for oi < order.Len() {
+		if oi > 0 {
+			strings.WriteByte(&w, ',')
+		}
+		let cl = order[oi]
+		strings.WriteString(&w, " "+ClassName(cl)+" "+strconv.Itoa(counts[int(cl)]))
+		oi = oi + 1
+	}
+	strings.WriteByte(&w, '\n')
+	strings.WriteString(&w, "  constants "+strconv.Itoa(b.Constants.Len())+", status codes "+strconv.Itoa(b.Codes.Len())+"\n")
+
+	let nExc = dense.Total(b.C.Exceptions.Ids)
+	strings.WriteString(&w, "\nexceptions ("+strconv.Itoa(nExc)+"):\n")
+	let mut ei = 0
+	for ei < nExc {
+		let eid = dense.IDAt(b.C.Exceptions.Ids, ei)
+		let cbName = StrText(b.C.Strings, dense.Of(b.C.Exceptions.Callback, eid))
+		let target = if cbName != "" { cbName } else { StrText(b.C.Strings, dense.Of(b.C.Exceptions.Function, eid)) }
+		let cls = dense.Of(b.C.Exceptions.Class, eid)
+		let mut extra = ""
+		if cls == ClassInBuffer {
+			extra = ", length " + StrText(b.C.Strings, dense.Of(b.C.Exceptions.Length, eid)) + " in " + StrText(b.C.Strings, dense.Of(b.C.Exceptions.Unit, eid))
+		} else if cls == ClassOutBuffer {
+			extra = ", capacity " + StrText(b.C.Strings, dense.Of(b.C.Exceptions.Length, eid)) + ", count " + StrText(b.C.Strings, dense.Of(b.C.Exceptions.Count, eid))
+		} else if cls == ClassOutArray {
+			extra = " of " + FormatUint64(uint64(dense.Of(b.C.Exceptions.ArrayLength, eid)))
+		}
+		strings.WriteString(&w, "  "+target+" "+StrText(b.C.Strings, dense.Of(b.C.Exceptions.Position, eid))+": "+ClassName(cls)+extra+": "+StrText(b.C.Strings, dense.Of(b.C.Exceptions.Why, eid))+"\n")
+		ei = ei + 1
+	}
+
+	let nSkips = dense.Total(b.C.Skips.Ids)
+	strings.WriteString(&w, "\nskips ("+strconv.Itoa(nSkips)+"):\n")
+	let mut ski = 0
+	for ski < nSkips {
+		let sid = dense.IDAt(b.C.Skips.Ids, ski)
+		if !dense.Of(b.C.Skips.IsExclude, sid) {
+			strings.WriteString(&w, "  "+StrText(b.C.Strings, dense.Of(b.C.Skips.Name, sid))+": "+StrText(b.C.Strings, dense.Of(b.C.Skips.Why, sid))+"\n")
+		}
+		ski = ski + 1
+	}
+	ski = 0
+	for ski < nSkips {
+		let sid = dense.IDAt(b.C.Skips.Ids, ski)
+		if dense.Of(b.C.Skips.IsExclude, sid) {
+			strings.WriteString(&w, "  "+StrText(b.C.Strings, dense.Of(b.C.Skips.Name, sid))+" (not a status code): "+StrText(b.C.Strings, dense.Of(b.C.Skips.Why, sid))+"\n")
+		}
+		ski = ski + 1
+	}
+	strings.String(w)
+}

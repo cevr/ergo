@@ -1,0 +1,885 @@
+import dense
+import slices
+import strconv
+import strings
+
+// CallbackIntRegs is the minimum general-purpose register count across amd64 and arm64.
+let CallbackIntRegs = 6
+
+// CallbackFloatRegs is the minimum floating-point register count across amd64 and arm64.
+let CallbackFloatRegs = 8
+
+// MaxBoundCallbacks limits purego trampolines per package binding.
+let MaxBoundCallbacks = 64
+
+func isVoidPtrType(m Model, typeID uint32) bool {
+	let tid = TypeAt(m.Types, typeID)
+	if dense.Of(m.Types.Kind, tid) != TypePointer || dense.Of(m.Types.LenExpr, tid) != 0 {
+		return false
+	}
+	let eID = TypeAt(m.Types, dense.Of(m.Types.Elem, tid))
+	dense.Of(m.Types.Kind, eID) == TypeVoid && !dense.Of(m.Types.Const, eID)
+}
+
+func namedParamIdx(m Model, pStart uint32, pLen uint32, name string) (uint32, bool) {
+	let mut i uint32 = 0
+	for i < pLen {
+		let pid = dense.IDAt(m.Params.Ids, int(pStart+i))
+		let pn = StrText(m.Strings, dense.Of(m.Params.Name, pid))
+		if pn != "" && pn == name {
+			return (i, true)
+		}
+		i = i + 1
+	}
+	(0, false)
+}
+
+func ruleKeyParams(ct ContractTable, ruleIdx uint32) []string {
+	let rid = dense.IDAt(ct.Callbacks.Ids, int(ruleIdx))
+	let ks = dense.Of(ct.Callbacks.KeyParamsStart, rid)
+	let kl = dense.Of(ct.Callbacks.KeyParamsLen, rid)
+	let mut out = []string{}
+	let mut i uint32 = 0
+	for i < kl {
+		out = out.Append(StrText(ct.Strings, ct.KeyParamPool[int(ks+i)]))
+		i = i + 1
+	}
+	out
+}
+
+func ruleEnds(ct ContractTable, ruleIdx uint32) []string {
+	let rid = dense.IDAt(ct.Callbacks.Ids, int(ruleIdx))
+	let es = dense.Of(ct.Callbacks.EndsStart, rid)
+	let el = dense.Of(ct.Callbacks.EndsLen, rid)
+	let mut out = []string{}
+	let mut i uint32 = 0
+	for i < el {
+		out = out.Append(StrText(ct.Strings, ct.EndPool[int(es+i)]))
+		i = i + 1
+	}
+	out
+}
+
+func kCallbackShape(k Classifier, declIdx uint32) string {
+	let pr = cbFuncRange(k, declIdx)
+	let mut why = []string{}
+	let mut ints = 0
+	let mut floats = 0
+	let mut i uint32 = 0
+	for i < pr.pLen {
+		let t = prParamType(k, pr, i)
+		let tid = TypeAt(k.M.Types, t)
+		let kind = dense.Of(k.M.Types.Kind, tid)
+		if kind == TypePointer {
+			ints = ints + 1
+		} else if kind == TypeNamed {
+			let tName = StrText(k.M.Strings, dense.Of(k.M.Types.Name, tid))
+			let tdIdx = kDeclIdx(k, tName)
+			let dk = if tdIdx != NoID { dense.Of(k.M.Decls.Kind, dense.IDAt(k.M.Decls.Ids, int(tdIdx))) } else { uint8(0) }
+			if dk == DeclCallback {
+				why = why.Append(PositionNameRange(k.M, pr.pStart, i, false) + ": a callback parameter (a function pointer)")
+			} else if dk == DeclStruct {
+				why = why.Append(PositionNameRange(k.M, pr.pStart, i, false) + ": a struct by value")
+			} else {
+				let (s, ok) = kScalarOf(k, t)
+				if !ok {
+					why = why.Append(PositionNameRange(k.M, pr.pStart, i, false) + ": not a scalar or a pointer")
+				} else if s == ScalarFloat32 || s == ScalarFloat64 {
+					floats = floats + 1
+				} else {
+					ints = ints + 1
+				}
+			}
+		} else {
+			let (s, ok) = kScalarOf(k, t)
+			if !ok {
+				why = why.Append(PositionNameRange(k.M, pr.pStart, i, false) + ": not a scalar or a pointer")
+			} else if s == ScalarFloat32 || s == ScalarFloat64 {
+				floats = floats + 1
+			} else {
+				ints = ints + 1
+			}
+		}
+		i = i + 1
+	}
+	if ints > CallbackIntRegs {
+		why = why.Append(strconv.Itoa(ints) + " integer-class parameters (at most " + strconv.Itoa(CallbackIntRegs) + " travel in registers on amd64)")
+	}
+	if floats > CallbackFloatRegs {
+		why = why.Append(strconv.Itoa(floats) + " float-class parameters (at most " + strconv.Itoa(CallbackFloatRegs) + " travel in registers)")
+	}
+	let r = pr.res
+	let rID = TypeAt(k.M.Types, r)
+	let rKind = dense.Of(k.M.Types.Kind, rID)
+	if rKind != TypeVoid && rKind != TypePointer {
+		let mut handled = false
+		if rKind == TypeNamed {
+			let rName = StrText(k.M.Strings, dense.Of(k.M.Types.Name, rID))
+			let rdIdx = kDeclIdx(k, rName)
+			let dk = if rdIdx != NoID { dense.Of(k.M.Decls.Kind, dense.IDAt(k.M.Decls.Ids, int(rdIdx))) } else { uint8(0) }
+			if dk == DeclCallback {
+				why = why.Append("a callback result (a function pointer)")
+				handled = true
+			} else if dk == DeclStruct {
+				why = why.Append("a struct result by value")
+				handled = true
+			}
+		}
+		if !handled {
+			let (s, ok) = kScalarOf(k, r)
+			if !ok {
+				why = why.Append("a result that is not a scalar or a pointer")
+			} else if s == ScalarFloat32 || s == ScalarFloat64 {
+				why = why.Append("a " + ScalarName(s) + " result (purego v0.11.3 callbacks cannot return float or double)")
+			}
+		}
+	}
+	strings.Join(why, "; ")
+}
+
+func kLengthOfPrev(k Classifier, pr paramRange, i uint32) bool {
+	if i == 0 {
+		return false
+	}
+	let b = prParamType(k, pr, i-1)
+	let bID = TypeAt(k.M.Types, b)
+	if dense.Of(k.M.Types.Kind, bID) != TypePointer || dense.Of(k.M.Types.LenExpr, bID) != 0 {
+		return false
+	}
+	let elem = dense.Of(k.M.Types.Elem, bID)
+	if !dense.Of(k.M.Types.Const, TypeAt(k.M.Types, elem)) || !kElement(k, elem) {
+		return false
+	}
+	let (el, by) = kLengthUnits(k, pr, i-1, i)
+	el || by
+}
+
+func kCbRules(k Classifier, pr paramRange, ruleIdx uint32, i uint32) []string {
+	let pName = prParamName(k, pr, i)
+	let mut out = []string{}
+	let kps = ruleKeyParams(k.C, ruleIdx)
+	let keyed = pName != "" && slices.Contains(kps, pName)
+	if keyed {
+		out = out.Append(RuleCbKey)
+	}
+	let isLen = kLengthOfPrev(k, pr, i)
+	let (_, isScal) = kScalarOf(k, prParamType(k, pr, i))
+	if isScal && !keyed && !isLen {
+		out = out.Append(RuleCbScalar)
+	}
+	if isLen {
+		out = out.Append(RuleCbLength)
+	}
+	for rr in kFuncRules(k, pr, []BoundCallback{}, true, i) {
+		if rr == RuleOut || rr == RuleValue || rr == RuleInBuffer || rr == RuleInBufferBytes {
+			out = out.Append(rr)
+		}
+	}
+	out
+}
+
+func kClassifyCallback(k Classifier, declIdx uint32, ruleIdx uint32) ([]Position, string) {
+	let pr = cbFuncRange(k, declIdx)
+	let mut pos = []Position{}
+	let mut i uint32 = 0
+	for i < pr.pLen {
+		let erow = kCbExc(k, declIdx, i)
+		if erow != NoID {
+			let mut q = kFromException(k, pr, i, erow)
+			q.Array = dense.Of(k.C.Exceptions.ArrayLength, dense.IDAt(k.C.Exceptions.Ids, int(erow)))
+			pos = pos.Append(q)
+			i = i + 1
+			continue
+		}
+		let mut q = ruledPosition(k.M, pr, i, kCbRules(k, pr, ruleIdx, i))
+		if q.Class == ClassRaw && q.Reason == "" {
+			q.Reason = "no callback rule covers it"
+			let pt = prParamType(k, pr, i)
+			let ptID = TypeAt(k.M.Types, pt)
+			if dense.Of(k.M.Types.Kind, ptID) == TypePointer {
+				let s = kHoldsPointer(k, dense.Of(k.M.Types.Elem, ptID))
+				if s != "" {
+					q.Reason = s + " holds a pointer (Go memory that holds Go pointers must not reach C)"
+				}
+			}
+		}
+		pos = pos.Append(q)
+		i = i + 1
+	}
+	let snapshot = slices.Clone(pos)
+	for q in snapshot {
+		if q.Class == ClassInBuffer && q.By == RuleException {
+			pos[int(q.Length)] = Position{
+				Param:  q.Length,
+				IsRes:  false,
+				Class:  ClassLength,
+				By:     RuleException,
+				Length: q.Param,
+				Count:  NoID,
+				Bytes:  false,
+				Array:  0,
+				Reason: "",
+			}
+		}
+	}
+	let mut raw = []string{}
+	for q in pos {
+		if q.Class == ClassRaw {
+			raw = raw.Append(PositionNameRange(k.M, pr.pStart, q.Param, q.IsRes) + ": " + q.Reason)
+		}
+	}
+	if raw.Len() > 0 {
+		return (pos, strings.Join(raw, "; "))
+	}
+	for q in pos {
+		if q.Class == ClassInBuffer {
+			let l = pos[int(q.Length)]
+			if l.Class != ClassLength || l.Length != q.Param {
+				return (pos, PositionNameRange(k.M, pr.pStart, q.Param, false) + ": its length " + PositionNameRange(k.M, pr.pStart, q.Length, false) + " is not its length position")
+			}
+		} else if q.Class == ClassLength {
+			let b = pos[int(q.Length)]
+			if b.Class != ClassInBuffer || b.Length != q.Param {
+				return (pos, PositionNameRange(k.M, pr.pStart, q.Param, false) + ": a length without its in_buffer")
+			}
+		}
+	}
+	(pos, "")
+}
+
+func kTokenKey(k Classifier, declIdx uint32, ruleIdx uint32) bool {
+	let kps = ruleKeyParams(k.C, ruleIdx)
+	if kps.Len() != 1 {
+		return false
+	}
+	let pr = cbFuncRange(k, declIdx)
+	let (j, ok) = namedParamIdx(k.M, pr.pStart, pr.pLen, kps[0])
+	ok && isVoidPtrType(k.M, prParamType(k, pr, j))
+}
+
+func kKeyStruct(k Classifier, declIdx uint32, ruleIdx uint32, sName string) bool {
+	let sdIdx = kDeclIdx(k, sName)
+	if sdIdx == NoID {
+		return false
+	}
+	let sd = dense.IDAt(k.M.Decls.Ids, int(sdIdx))
+	let kps = ruleKeyParams(k.C, ruleIdx)
+	if dense.Of(k.M.Decls.Kind, sd) != DeclStruct || int(dense.Of(k.M.Decls.FieldsLen, sd)) != kps.Len() {
+		return false
+	}
+	let fStart = dense.Of(k.M.Decls.FieldsStart, sd)
+	let cbPr = cbFuncRange(k, declIdx)
+	let mut i = 0
+	for i < kps.Len() {
+		let fid = dense.IDAt(k.M.Fields.Ids, int(fStart)+i)
+		let fName = StrText(k.M.Strings, dense.Of(k.M.Fields.Name, fid))
+		let fType = dense.Of(k.M.Fields.Type, fid)
+		let (j, ok) = namedParamIdx(k.M, cbPr.pStart, cbPr.pLen, kps[i])
+		if fName != kps[i] || !ok || !kSameScalar(k, fType, prParamType(k, cbPr, j)) {
+			return false
+		}
+		i = i + 1
+	}
+	true
+}
+
+func kKeySource(k Classifier, declIdx uint32, ruleIdx uint32, fnPr paramRange) (uint32, string) {
+	let cbPr = cbFuncRange(k, declIdx)
+	let rid = dense.IDAt(k.C.Callbacks.Ids, int(ruleIdx))
+	let source = StrText(k.C.Strings, dense.Of(k.C.Callbacks.KeySource, rid))
+	let kps = ruleKeyParams(k.C, ruleIdx)
+	let (j, ok) = namedParamIdx(k.M, fnPr.pStart, fnPr.pLen, source)
+	if !ok {
+		return (NoID, "the key (" + strings.Join(kps, ", ") + ") of " + cbPr.fnName + " has no source: no parameter " + source)
+	}
+	let t = prParamType(k, fnPr, j)
+	if kTokenKey(k, declIdx, ruleIdx) {
+		if !isVoidPtrType(k.M, t) {
+			return (NoID, "the key source " + source + " of " + cbPr.fnName + " is not a `void *`")
+		}
+		return (j, "")
+	}
+	let tid = TypeAt(k.M.Types, t)
+	if dense.Of(k.M.Types.Kind, tid) == TypePointer && dense.Of(k.M.Types.LenExpr, tid) == 0 {
+		let eID = TypeAt(k.M.Types, dense.Of(k.M.Types.Elem, tid))
+		if dense.Of(k.M.Types.Const, eID) && dense.Of(k.M.Types.Kind, eID) == TypeNamed {
+			let sName = StrText(k.M.Strings, dense.Of(k.M.Types.Name, eID))
+			if kKeyStruct(k, declIdx, ruleIdx, sName) {
+				return (j, "")
+			}
+		}
+	}
+	(NoID, "the key source " + source + " of " + cbPr.fnName + " is not a `const S *` whose struct S has exactly the fields " + strings.Join(kps, ", "))
+}
+
+func kTakesType(k Classifier, pr paramRange, name string) bool {
+	let mut i uint32 = 0
+	for i < pr.pLen {
+		let tID = TypeAt(k.M.Types, prParamType(k, pr, i))
+		if dense.Of(k.M.Types.Kind, tID) == TypeNamed && StrText(k.M.Strings, dense.Of(k.M.Types.Name, tID)) == name {
+			return true
+		}
+		i = i + 1
+	}
+	false
+}
+
+func kTakesHandle(k Classifier, pr paramRange, hName string) bool {
+	let mut i uint32 = 0
+	for i < pr.pLen {
+		let tID = TypeAt(k.M.Types, prParamType(k, pr, i))
+		if dense.Of(k.M.Types.Kind, tID) == TypePointer && dense.Of(k.M.Types.LenExpr, tID) == 0 {
+			let eID = TypeAt(k.M.Types, dense.Of(k.M.Types.Elem, tID))
+			if dense.Of(k.M.Types.Kind, eID) == TypeNamed && StrText(k.M.Strings, dense.Of(k.M.Types.Name, eID)) == hName {
+				return true
+			}
+		}
+		i = i + 1
+	}
+	false
+}
+
+func kTakesOwnerThreadHandle(k Classifier, pr paramRange) bool {
+	let mut i uint32 = 0
+	for i < pr.pLen {
+		let tID = TypeAt(k.M.Types, prParamType(k, pr, i))
+		if dense.Of(k.M.Types.Kind, tID) == TypePointer && dense.Of(k.M.Types.LenExpr, tID) == 0 {
+			let eID = TypeAt(k.M.Types, dense.Of(k.M.Types.Elem, tID))
+			if dense.Of(k.M.Types.Kind, eID) == TypeNamed {
+				let hIdx = kHandleIdxForType(k, StrText(k.M.Strings, dense.Of(k.M.Types.Name, eID)))
+				if hIdx != NoID {
+					let hid = dense.IDAt(k.C.Handles.Ids, int(hIdx))
+					if StrText(k.C.Strings, dense.Of(k.C.Handles.Thread, hid)) == "owner" {
+						return true
+					}
+				}
+			}
+		}
+		i = i + 1
+	}
+	false
+}
+
+func kRegistrars(k Classifier, declIdx uint32, ruleIdx uint32) []string {
+	let dName = StrText(k.M.Strings, dense.Of(k.M.Decls.Name, dense.IDAt(k.M.Decls.Ids, int(declIdx))))
+	let rid = dense.IDAt(k.C.Callbacks.Ids, int(ruleIdx))
+	let scope = StrText(k.C.Strings, dense.Of(k.C.Callbacks.Scope, rid))
+	let owner = StrText(k.C.Strings, dense.Of(k.C.Callbacks.Owner, rid))
+	let mut out = []string{}
+	let nFuncs = dense.Total(k.M.Funcs.Ids)
+	let mut fi = 0
+	for fi < nFuncs {
+		let pr = funcRange(k, uint32(fi))
+		if kIsSkipped(k, pr.fnName) || !kTakesType(k, pr, dName) {
+			fi = fi + 1
+			continue
+		}
+		let (_, why) = kKeySource(k, declIdx, ruleIdx, pr)
+		if why != "" {
+			fi = fi + 1
+			continue
+		}
+		if scope == "registered" && !kTakesHandle(k, pr, owner) {
+			fi = fi + 1
+			continue
+		}
+		out = out.Append(pr.fnName)
+		fi = fi + 1
+	}
+	out
+}
+
+func kTokenOf(k Classifier, cbs []BoundCallback, pr paramRange, i uint32) uint32 {
+	let pName = prParamName(k, pr, i)
+	if pName == "" || !isVoidPtrType(k.M, prParamType(k, pr, i)) {
+		return NoID
+	}
+	let mut j uint32 = 0
+	for j < pr.pLen {
+		let qt = TypeAt(k.M.Types, prParamType(k, pr, j))
+		if dense.Of(k.M.Types.Kind, qt) == TypeNamed {
+			let cName = StrText(k.M.Strings, dense.Of(k.M.Types.Name, qt))
+			let sid = FindStr(k.M.Strings, cName)
+			if sid != NoID && int(sid) < k.CbByType.Len() && k.CbByType[int(sid)] != NoID {
+				let bc = cbs[int(k.CbByType[int(sid)])]
+				if bc.HasRule && bc.Token {
+					let rid = dense.IDAt(k.C.Callbacks.Ids, int(bc.RuleIdx))
+					if StrText(k.C.Strings, dense.Of(k.C.Callbacks.KeySource, rid)) == pName {
+						return j
+					}
+				}
+			}
+		}
+		j = j + 1
+	}
+	NoID
+}
+
+func kTokenSource(k Classifier, cbs []BoundCallback, pr paramRange, j uint32) uint32 {
+	let pt = TypeAt(k.M.Types, prParamType(k, pr, j))
+	let cName = StrText(k.M.Strings, dense.Of(k.M.Types.Name, pt))
+	let sid = FindStr(k.M.Strings, cName)
+	if sid == NoID || int(sid) >= k.CbByType.Len() || k.CbByType[int(sid)] == NoID {
+		return NoID
+	}
+	let bc = cbs[int(k.CbByType[int(sid)])]
+	if !bc.HasRule || !bc.Token {
+		return NoID
+	}
+	let (s, why) = kKeySource(k, bc.DeclIdx, bc.RuleIdx, pr)
+	if why != "" {
+		return NoID
+	}
+	s
+}
+
+func kCallbackParam(k Classifier, cbs []BoundCallback, pr paramRange, i uint32) string {
+	let pt = TypeAt(k.M.Types, prParamType(k, pr, i))
+	let cName = StrText(k.M.Strings, dense.Of(k.M.Types.Name, pt))
+	let sid = FindStr(k.M.Strings, cName)
+	if sid == NoID || int(sid) >= k.CbByType.Len() || k.CbByType[int(sid)] == NoID {
+		return "not a callback typedef"
+	}
+	let bc = cbs[int(k.CbByType[int(sid)])]
+	if bc.RawOnly != "" {
+		return bc.RawOnly
+	}
+	let (_, why) = kKeySource(k, bc.DeclIdx, bc.RuleIdx, pr)
+	if why != "" {
+		return why
+	}
+	let rid = dense.IDAt(k.C.Callbacks.Ids, int(bc.RuleIdx))
+	let scope = StrText(k.C.Strings, dense.Of(k.C.Callbacks.Scope, rid))
+	let owner = StrText(k.C.Strings, dense.Of(k.C.Callbacks.Owner, rid))
+	if scope == "registered" && !kTakesHandle(k, pr, owner) {
+		return "registered " + bc.Name + " needs its owner, a `" + owner + " *`, as a parameter"
+	}
+	if scope == "call" && !bc.Token && !kTakesOwnerThreadHandle(k, pr) {
+		return "call-scoped " + bc.Name + " has a handle key, so it needs a parameter `H *` of a handle with thread owner: calls with one key on two threads would share one registry entry (a `void *` token key has no such limit)"
+	}
+	""
+}
+
+func kCheckKey(k Classifier, declIdx uint32, ruleIdx uint32) string {
+	let pr = cbFuncRange(k, declIdx)
+	let kps = ruleKeyParams(k.C, ruleIdx)
+	for n in kps {
+		let (j, ok) = namedParamIdx(k.M, pr.pStart, pr.pLen, n)
+		if !ok {
+			return "key parameter " + n + " is not a parameter of " + pr.fnName
+		}
+		let t = prParamType(k, pr, j)
+		if isVoidPtrType(k.M, t) {
+			if kps.Len() != 1 {
+				return "key parameter " + n + " is a `void *`: a token key has one parameter"
+			}
+			continue
+		}
+		let (s, isScal) = kScalarOf(k, t)
+		if !isScal || s == ScalarBool || s == ScalarFloat32 || s == ScalarFloat64 {
+			return "key parameter " + n + " is a " + TypeSpell(k.M.Types, k.M.Strings, t) + ": a key is one `void *` or the integer fields of a handle struct"
+		}
+	}
+	""
+}
+
+func parseUintFits(v string, bits uint64) bool {
+	if v == "" || v[0] == '-' {
+		return false
+	}
+	let (abig, msg) = literalBigInt(v)
+	if msg != "" || abig.Neg || abig.Limbs.Len() > 2 {
+		return false
+	}
+	if v.Len() > 1 && v[0] == '0' {
+		return false
+	}
+	let val = bigLow64(abig)
+	if bits == 64 {
+		return true
+	}
+	val < (uint64(1) << bits)
+}
+
+func parseIntFits(v string, bits uint64) bool {
+	if v == "" {
+		return false
+	}
+	let neg = v[0] == '-'
+	let digits = if neg { strings.Slice(v, 1, v.Len()) } else { v }
+	if digits == "" || (digits.Len() > 1 && digits[0] == '0') {
+		return false
+	}
+	let mut i = 0
+	for i < digits.Len() {
+		if !isDigit(digits[i]) {
+			return false
+		}
+		i = i + 1
+	}
+	let (abig, _) = literalBigInt(digits)
+	if abig.Limbs.Len() > 2 {
+		return false
+	}
+	let mag = bigLow64(abig)
+	if bits == 64 {
+		let maxNeg uint64 = 0x8000000000000000
+		let maxPos uint64 = 0x7fffffffffffffff
+		if neg {
+			return mag <= maxNeg
+		}
+		return mag <= maxPos
+	}
+	let maxNeg = uint64(1) << (bits - 1)
+	if neg {
+		return mag <= maxNeg
+	}
+	mag <= maxNeg-1
+}
+
+func kCheckDefault(k Classifier, declIdx uint32, ruleIdx uint32) string {
+	let pr = cbFuncRange(k, declIdx)
+	let res = pr.res
+	let resID = TypeAt(k.M.Types, res)
+	let resKind = dense.Of(k.M.Types.Kind, resID)
+	let rid = dense.IDAt(k.C.Callbacks.Ids, int(ruleIdx))
+	let v = StrText(k.C.Strings, dense.Of(k.C.Callbacks.Default, rid))
+	if resKind == TypeVoid {
+		if v != "" {
+			return "a default for a void result"
+		}
+		return ""
+	}
+	if v == "" {
+		return "the " + TypeSpell(k.M.Types, k.M.Strings, res) + " result needs a default (the value C gets when no Go code runs)"
+	}
+	if resKind == TypePointer {
+		if v != "0" {
+			return "default " + v + " does not fit " + TypeSpell(k.M.Types, k.M.Strings, res) + " (0, NULL, is the only pointer default)"
+		}
+		return ""
+	}
+	let (s, _) = kScalarOf(k, res)
+	let ok = if s == ScalarBool {
+		v == "true" || v == "false"
+	} else if isUnsignedScalar(s) {
+		parseUintFits(v, 8*ScalarSize(s))
+	} else {
+		parseIntFits(v, 8*ScalarSize(s))
+	}
+	if !ok {
+		return "default " + v + " does not fit " + TypeSpell(k.M.Types, k.M.Strings, res)
+	}
+	""
+}
+
+func kCheckCallbacks(k Classifier, errs []string) (Classifier, []string) {
+	let mut out = errs
+	let mut cbRules = slices.Clone(k.CbRuleByType)
+	let nCb = dense.Total(k.C.Callbacks.Ids)
+	let mut ci = 0
+	for ci < nCb {
+		let rid = dense.IDAt(k.C.Callbacks.Ids, ci)
+		let cbName = StrText(k.C.Strings, dense.Of(k.C.Callbacks.Typedef, rid))
+		let at = "callbacks: " + cbName + ": "
+		let declIdx = kDeclIdx(k, cbName)
+		if declIdx == NoID || dense.Of(k.M.Decls.Kind, dense.IDAt(k.M.Decls.Ids, int(declIdx))) != DeclCallback {
+			out = out.Append(at + "is not a callback typedef of the header")
+			ci = ci + 1
+			continue
+		}
+		let sid = FindStr(k.M.Strings, cbName)
+		cbRules = GrowIndexSlots(cbRules, sid)
+		if cbRules[int(sid)] != NoID {
+			out = out.Append(at + "appears twice")
+			ci = ci + 1
+			continue
+		}
+		cbRules[int(sid)] = uint32(ci)
+		let shape = kCallbackShape(k, declIdx)
+		if shape != "" {
+			out = out.Append(at + "is not an admitted callback shape (" + shape + "); its functions stay raw-only, so remove the entry")
+			ci = ci + 1
+			continue
+		}
+		let keyMsg = kCheckKey(k, declIdx, uint32(ci))
+		if keyMsg != "" {
+			out = out.Append(at + keyMsg)
+			ci = ci + 1
+			continue
+		}
+		let mut sources = 0
+		let nFuncs = dense.Total(k.M.Funcs.Ids)
+		let mut fi = 0
+		for fi < nFuncs {
+			let pr = funcRange(k, uint32(fi))
+			if !kIsSkipped(k, pr.fnName) && kTakesType(k, pr, cbName) {
+				let (_, why) = kKeySource(k, declIdx, uint32(ci), pr)
+				if why == "" {
+					sources = sources + 1
+				}
+			}
+			fi = fi + 1
+		}
+		let keySrc = StrText(k.C.Strings, dense.Of(k.C.Callbacks.KeySource, rid))
+		if sources == 0 {
+			out = out.Append(at + "the key has no source (a parameter " + keySrc + ") in any function that takes it")
+		}
+		let defMsg = kCheckDefault(k, declIdx, uint32(ci))
+		if defMsg != "" {
+			out = out.Append(at + defMsg)
+		}
+		let scope = StrText(k.C.Strings, dense.Of(k.C.Callbacks.Scope, rid))
+		let owner = StrText(k.C.Strings, dense.Of(k.C.Callbacks.Owner, rid))
+		let ends = ruleEnds(k.C, uint32(ci))
+		if scope == "call" {
+			if owner != "" || ends.Len() > 0 {
+				out = out.Append(at + "a call-scoped callback has no owner and no end functions")
+				ci = ci + 1
+				continue
+			}
+		} else if scope == "registered" {
+			if owner == "" {
+				out = out.Append(at + "a registered callback needs an owner")
+			} else if kHandleIdxForType(k, owner) == NoID {
+				out = out.Append(at + "the owner " + owner + " is not a handle of the contract")
+			}
+		}
+		let mut seenEnds = []string{}
+		for e in ends {
+			let fnIdx = kFuncIdx(k, e)
+			if slices.Contains(seenEnds, e) {
+				out = out.Append(at + "end function " + e + " appears twice")
+			} else if fnIdx == NoID || kIsSkipped(k, e) {
+				out = out.Append(at + "end function " + e + " is not a function of the header, or is skipped")
+			} else {
+				let (_, why) = kKeySource(k, declIdx, uint32(ci), funcRange(k, fnIdx))
+				if why != "" {
+					out = out.Append(at + "end function " + e + " does not take the key: " + why)
+				}
+			}
+			seenEnds = seenEnds.Append(e)
+		}
+		ci = ci + 1
+	}
+	let mut nextK = k
+	nextK.CbRuleByType = cbRules
+	(nextK, out)
+}
+
+func cbExcLookupList(head []uint32, next []uint32, param []uint32, row []uint32, declIdx uint32, p uint32) uint32 {
+	if int(declIdx) >= head.Len() {
+		return NoID
+	}
+	let mut cur = head[int(declIdx)]
+	for cur != NoID {
+		if param[int(cur)] == p {
+			return row[int(cur)]
+		}
+		cur = next[int(cur)]
+	}
+	NoID
+}
+
+func kCheckCallbackExceptions(k Classifier, errs []string) (Classifier, []string) {
+	let mut out = errs
+	let nDecls = dense.Total(k.M.Decls.Ids)
+	let mut cbHead = slices.Clone(k.CbExcHead)
+	let mut cbNext = slices.Clone(k.CbExcNext)
+	let mut cbParam = slices.Clone(k.CbExcParam)
+	let mut cbRow = slices.Clone(k.CbExcRow)
+	for cbHead.Len() < nDecls {
+		cbHead = cbHead.Append(NoID)
+	}
+	let mut mine = []uint32{}
+	let nExc = dense.Total(k.C.Exceptions.Ids)
+	let mut ei = 0
+	for ei < nExc {
+		let eid = dense.IDAt(k.C.Exceptions.Ids, ei)
+		let cbName = StrText(k.C.Strings, dense.Of(k.C.Exceptions.Callback, eid))
+		if cbName == "" {
+			ei = ei + 1
+			continue
+		}
+		let declIdx = kDeclIdx(k, cbName)
+		if declIdx == NoID || dense.Of(k.M.Decls.Kind, dense.IDAt(k.M.Decls.Ids, int(declIdx))) != DeclCallback || kCbRuleForType(k, cbName) == NoID {
+			out = out.Append("exceptions: callback " + cbName + " is not a callback typedef with a callbacks entry")
+			ei = ei + 1
+			continue
+		}
+		let pr = cbFuncRange(k, declIdx)
+		let posRef = StrText(k.C.Strings, dense.Of(k.C.Exceptions.Position, eid))
+		let (j, ok) = ParamRef(k.M, pr.pStart, pr.pLen, posRef)
+		if !ok {
+			out = out.Append("exceptions: " + cbName + " has no parameter " + posRef)
+			ei = ei + 1
+			continue
+		}
+		let pName = prParamName(k, pr, j)
+		if pName != "" && strings.HasPrefix(posRef, "#") {
+			out = out.Append("exceptions: " + cbName + " " + posRef + " has the name " + pName + "; use it")
+			ei = ei + 1
+			continue
+		}
+		if cbExcLookupList(cbHead, cbNext, cbParam, cbRow, declIdx, j) != NoID {
+			out = out.Append("exceptions: " + cbName + " " + posRef + " has two exceptions")
+			ei = ei + 1
+			continue
+		}
+		let nodeIdx = uint32(cbNext.Len())
+		cbNext = cbNext.Append(cbHead[int(declIdx)])
+		cbParam = cbParam.Append(j)
+		cbRow = cbRow.Append(uint32(ei))
+		cbHead[int(declIdx)] = nodeIdx
+		mine = mine.Append(uint32(ei))
+		ei = ei + 1
+	}
+	let mut nextK = k
+	nextK.CbExcHead = cbHead
+	nextK.CbExcNext = cbNext
+	nextK.CbExcParam = cbParam
+	nextK.CbExcRow = cbRow
+	for erow in mine {
+		let eid = dense.IDAt(nextK.C.Exceptions.Ids, int(erow))
+		let cbName = StrText(nextK.C.Strings, dense.Of(nextK.C.Exceptions.Callback, eid))
+		let posRef = StrText(nextK.C.Strings, dense.Of(nextK.C.Exceptions.Position, eid))
+		let declIdx = kDeclIdx(nextK, cbName)
+		let pr = cbFuncRange(nextK, declIdx)
+		let (j, _) = ParamRef(nextK.M, pr.pStart, pr.pLen, posRef)
+		let ruleIdx = kCbRuleForType(nextK, cbName)
+		let msg = kCheckCbException(nextK, declIdx, ruleIdx, j, erow)
+		if msg != "" {
+			out = out.Append("exceptions: " + cbName + " " + posRef + ": " + msg)
+			continue
+		}
+		let r = ruledPosition(nextK.M, pr, j, kCbRules(nextK, pr, ruleIdx, j))
+		let x = kFromException(nextK, pr, j, erow)
+		let cls = dense.Of(nextK.C.Exceptions.Class, eid)
+		if r.Class == cls && r.Class != ClassRaw && r.Length == x.Length && r.Bytes == x.Bytes {
+			out = out.Append("exceptions: " + cbName + " " + posRef + " repeats the rule " + r.By + "; remove it")
+		}
+	}
+	(nextK, out)
+}
+
+func kCheckCbException(k Classifier, declIdx uint32, ruleIdx uint32, i uint32, erow uint32) string {
+	let pr = cbFuncRange(k, declIdx)
+	let kps = ruleKeyParams(k.C, ruleIdx)
+	let pName = prParamName(k, pr, i)
+	if pName != "" && slices.Contains(kps, pName) {
+		return "a key parameter takes no exception"
+	}
+	let eid = dense.IDAt(k.C.Exceptions.Ids, int(erow))
+	let cls = dense.Of(k.C.Exceptions.Class, eid)
+	if cls == ClassRaw {
+		return ""
+	}
+	if cls == ClassOutArray {
+		let t = prParamType(k, pr, i)
+		let tid = TypeAt(k.M.Types, t)
+		if dense.Of(k.M.Types.Kind, tid) == TypePointer && dense.Of(k.M.Types.LenExpr, tid) == 0 {
+			let elem = dense.Of(k.M.Types.Elem, tid)
+			if !dense.Of(k.M.Types.Const, TypeAt(k.M.Types, elem)) && kElement(k, elem) {
+				return ""
+			}
+		}
+		return "an out_array is a `T *` to a scalar or a struct without pointers"
+	}
+	if cls == ClassInBuffer {
+		let msg = kCheckException(k, 0, true, declIdx, pr, i, erow)
+		if msg != "" {
+			return msg
+		}
+		let lenRef = StrText(k.C.Strings, dense.Of(k.C.Exceptions.Length, eid))
+		let (j, _) = ParamRef(k.M, pr.pStart, pr.pLen, lenRef)
+		let jName = prParamName(k, pr, j)
+		if jName != "" && slices.Contains(kps, jName) {
+			return "length " + strconv.Quote(lenRef) + " is a key parameter"
+		}
+		if kCbExc(k, declIdx, j) != NoID {
+			return "length " + strconv.Quote(lenRef) + " has its own exception"
+		}
+		return ""
+	}
+	kCheckException(k, 0, true, declIdx, pr, i, erow)
+}
+
+func buildBoundCallbacks(k Classifier, goTypes []string) (Classifier, []BoundCallback) {
+	let mut cbs = []BoundCallback{}
+	let mut cbByType = slices.Clone(k.CbByType)
+	let nDecls = dense.Total(k.M.Decls.Ids)
+	let mut boundCount uint32 = 0
+	let mut di = 0
+	for di < nDecls {
+		let did = dense.IDAt(k.M.Decls.Ids, di)
+		if dense.Of(k.M.Decls.Kind, did) != DeclCallback {
+			di = di + 1
+			continue
+		}
+		let name = StrText(k.M.Strings, dense.Of(k.M.Decls.Name, did))
+		let ruleIdx = kCbRuleForType(k, name)
+		let hasRule = ruleIdx != NoID
+		let shape = kCallbackShape(k, uint32(di))
+		let mut rawOnly = ""
+		let mut token = false
+		let mut positions = []Position{}
+		if shape != "" {
+			rawOnly = name + " is not an admitted callback shape: " + shape
+		} else if !hasRule {
+			rawOnly = name + " has no callbacks entry in the contract"
+		} else {
+			token = kTokenKey(k, uint32(di), ruleIdx)
+			let (pos, why) = kClassifyCallback(k, uint32(di), ruleIdx)
+			positions = pos
+			if why != "" {
+				rawOnly = name + " has a raw position: " + why
+			} else {
+				let rid = dense.IDAt(k.C.Callbacks.Ids, int(ruleIdx))
+				let scope = StrText(k.C.Strings, dense.Of(k.C.Callbacks.Scope, rid))
+				let owner = StrText(k.C.Strings, dense.Of(k.C.Callbacks.Owner, rid))
+				let rs = kRegistrars(k, uint32(di), ruleIdx)
+				if !token && scope == "registered" && rs.Len() > 1 {
+					rawOnly = name + " has a handle key and " + strconv.Itoa(rs.Len()) + " functions that register it (" + strings.Join(rs, ", ") + "): C's invocation gives only the key, so one registry entry would serve two registrations"
+				} else if !token && scope == "registered" {
+					let hIdx = kHandleIdxForType(k, owner)
+					if hIdx != NoID {
+						let hid = dense.IDAt(k.C.Handles.Ids, int(hIdx))
+						let th = StrText(k.C.Strings, dense.Of(k.C.Handles.Thread, hid))
+						if th != "owner" {
+							rawOnly = name + " has a handle key, and its owner " + owner + " has thread " + th + ": the registry key holds the owner's OS thread, so the owner needs thread owner (a `void *` token key has no such limit)"
+						}
+					}
+				}
+			}
+		}
+		let isBound = rawOnly == ""
+		let idx = if isBound { boundCount } else { NoID }
+		if isBound {
+			boundCount = boundCount + 1
+		}
+		let bcIdx = uint32(cbs.Len())
+		let bc = BoundCallback{
+			DeclIdx:   uint32(di),
+			Name:      name,
+			GoName:    goTypes[di],
+			RuleIdx:   ruleIdx,
+			HasRule:   hasRule,
+			Shape:     shape,
+			Token:     token,
+			Positions: positions,
+			RawOnly:   rawOnly,
+			Index:     idx,
+			Bound:     isBound,
+			Sig:       GoCallbackSig{Params: []GoParam{}, Results: []GoResult{}},
+			HasSig:    false,
+		}
+		cbs = cbs.Append(bc)
+		let sid = FindStr(k.M.Strings, name)
+		cbByType = GrowIndexSlots(cbByType, sid)
+		cbByType[int(sid)] = bcIdx
+		di = di + 1
+	}
+	let mut nextK = k
+	nextK.CbByType = cbByType
+	(nextK, cbs)
+}
