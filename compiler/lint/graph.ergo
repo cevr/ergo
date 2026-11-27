@@ -565,7 +565,7 @@ func typeNodeLastIdent(p syntax.Parsed, t syntax.Tree, node dense.ID[syntax.Node
 	""
 }
 
-func recordTopDecls(b mut graphBuilder, pnodeNodes mut []uint32, env declEnv, declNodeByRow mut []uint32) {
+func recordTopDecls(b mut graphBuilder, pnodeNodes mut []uint32, env declEnv, funcNameCounts Map[string, int], declNodeByRow mut []uint32) {
 	let t = env.p.Tree
 	for dr in env.fi.Decls {
 		let id = syntax.NodeAt(t, int(dr.Node))
@@ -590,18 +590,9 @@ func recordTopDecls(b mut graphBuilder, pnodeNodes mut []uint32, env declEnv, de
 		(*b).nodeTopRank[int(gn)] = (*b).unitTopNext
 		(*b).unitTopNext += uint32(1)
 		registerPNode(env, pnodeNodes, nid, gn)
-		let key = env.modName + "\x00" + env.pkgPath + "\x00" + local
-		match (*b).handleMap.Get(key) {
-		case option.Some{Value: existing}:
-			if sub != "func" || (*b).nodes[int(existing)].Sub != "func" {
-				registerPNode(env, pnodeNodes, nid, existing)
-			}
-		case option.None:
-			(*b).handleMap[key] = gn
-		}
-		if dr.Kind == syntax.KFuncDecl {
+		let recv0 = if dr.Kind == syntax.KFuncDecl {
 			let fd = syntax.FuncDeclOf(t, id)
-			let recv0 = match dense.Unpack(fd.Recv) {
+			match dense.Unpack(fd.Recv) {
 			case option.Some{Value: rfl}:
 				if syntax.KindOf(t, rfl) == syntax.KFieldList {
 					let fl = syntax.FieldListOf(t, rfl)
@@ -626,6 +617,29 @@ func recordTopDecls(b mut graphBuilder, pnodeNodes mut []uint32, env declEnv, de
 					""
 				}
 			}
+		} else {
+			""
+		}
+		let fCount = match funcNameCounts.Get(local) {
+		case option.Some{Value: n}:
+			n
+		case option.None:
+			0
+		}
+		let overloadedWithRecv = dr.Kind == syntax.KFuncDecl && fCount > 1 && recv0 != ""
+		let key = env.modName + "\x00" + env.pkgPath + "\x00" + local
+		match (*b).handleMap.Get(key) {
+		case option.Some{Value: existing}:
+			if !overloadedWithRecv && (sub != "func" || (*b).nodes[int(existing)].Sub != "func") {
+				registerPNode(env, pnodeNodes, nid, existing)
+				if dr.Kind != syntax.KTypeDecl {
+					(*declNodeByRow)[int(dr.Node)] = existing
+				}
+			}
+		case option.None:
+			(*b).handleMap[key] = gn
+		}
+		if dr.Kind == syntax.KFuncDecl {
 			if recv0 != "" {
 				let mkey = env.modName + "\x00" + env.pkgPath + "\x00" + recv0 + "." + local
 				match (*b).handleMap.Get(mkey) {
@@ -2399,6 +2413,27 @@ func BuildProgramGraphWithIndexes(inp Input, fileIndexes [][]FileIndex) ProgramG
 		pnodeCaps = pnodeCaps.Append(kcs)
 
 		unitFileFirst = unitFileFirst.Append(fileNodes.Len())
+		let mut funcNameCounts = Map[string, int]{}
+		for fIdx, f in u.Files {
+			if f.Parsed.Failed {
+				continue
+			}
+			let fi = fileIndexes[uIdx][fIdx]
+			let t = f.Parsed.Tree
+			for dr in fi.Decls {
+				if dr.Kind == syntax.KFuncDecl {
+					let fd = syntax.FuncDeclOf(t, syntax.NodeAt(t, int(dr.Node)))
+					let fname = NodeText(f.Parsed, fd.Name)
+					let prev = match funcNameCounts.Get(fname) {
+					case option.Some{Value: n}:
+						n
+					case option.None:
+						0
+					}
+					funcNameCounts[fname] = prev + 1
+				}
+			}
+		}
 		let mut uDeclRows = slices.WithCapacity[[]uint32](u.Files.Len())
 		for fIdx, f in u.Files {
 			let fi = fileIndexes[uIdx][fIdx]
@@ -2428,7 +2463,7 @@ func BuildProgramGraphWithIndexes(inp Input, fileIndexes [][]FileIndex) ProgramG
 				hasTyped: hasTyped,
 				ps:       ps,
 			}
-			recordTopDecls(&b, &pnodeNodes[uIdx], env, &declRows)
+			recordTopDecls(&b, &pnodeNodes[uIdx], env, funcNameCounts, &declRows)
 			uDeclRows = uDeclRows.Append(declRows)
 		}
 		unitTopCounts = unitTopCounts.Append(int(b.unitTopNext))

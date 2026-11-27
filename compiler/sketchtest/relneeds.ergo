@@ -172,65 +172,43 @@ func capsAppend(xs []string, v string) []string {
 // RelPrelude returns the shared capabilities, resource types, helpers, and closer wrappers.
 func RelPrelude() string {
 	let mut b = strings.NewBuilder()
-	b.WriteString(`import codec
-import queue
-
-type A { Use() }
-type B { Use() }
-type Pa {} implements A
-func Use(_ Pa) {}
-type Pb {} implements B
-func Use(_ Pb) {}
-type R0 { id int } implements Closer
-func Close(r R0) {}
-type RA { id int } implements Closer
-func Close(r RA) needs A { A.Use() }
-type RB { id int } implements Closer
-func Close(r RB) needs B { B.Use() }
-type RAB { id int } implements Closer
-func Close(r RAB) needs A | B {
-	A.Use()
-	B.Use()
-}
-type Box { r RB, n int }
-func optB(id int) Option[RB] { Some{RB{id: id}} }
-func qA(id int) queue.Queue[RA] needs A {
-	let q = queue.New[RA](2)
-	q.Push(RA{id: id}) catch {
-	case queue.Closed:
-		return q
-	}
-	q
-}
-type Bad { Text string }
-type Lv { name string }
-func ParseLv(s string) Lv fails Bad needs A {
-	A.Use()
-	Lv{name: s}
-}
-func Wire(l Lv) string needs B {
-	B.Use()
-	l.name
-}
-type lw { name string }
-func Wire(l lw) string needs B {
-	B.Use()
-	l.name
-}
-func lendC(c Closer) {}
-type C { Use() }
-type PcA { id int } implements C, Closer
-func Use(_ PcA) {}
-func Close(_ PcA) needs A { A.Use() }
-type PcB { id int } implements C, Closer
-func Use(_ PcB) {}
-func Close(_ PcB) needs B { B.Use() }
-type PcBox { r RB, id int } implements C
-func Use(_ PcBox) {}
-type PcCon { id int } implements C, Closer
-func Use(_ PcCon) {}
-func Close(_ PcCon) needs Console { Console.Println("closed") }
-`)
+	b.WriteString("import codec\nimport queue\n\n" +
+		"type A { Use() }\n" +
+		"type B { Use() }\n" +
+		"type Pa {} implements A\n" +
+		"func Use(_ Pa) {}\n" +
+		"type Pb {} implements B\n" +
+		"func Use(_ Pb) {}\n" +
+		"type R0 { id int } implements Closer\n" +
+		"func Close(r R0) {}\n" +
+		"type RA { id int } implements Closer\n" +
+		"func Close(r RA) needs A { A.Use() }\n" +
+		"type RB { id int } implements Closer\n" +
+		"func Close(r RB) needs B { B.Use() }\n" +
+		"type RAB { id int } implements Closer\n" +
+		"func Close(r RAB) needs A | B {\n\tA.Use()\n\tB.Use()\n}\n" +
+		"type Box { r RB, n int }\n" +
+		"func optB(id int) Option[RB] { Some{RB{id: id}} }\n" +
+		"func qA(id int) queue.Queue[RA] needs A {\n\tlet q = queue.New[RA](2)\n\tq.Push(RA{id: id}) catch {\n\tcase queue.Closed:\n\t\treturn q\n\t}\n\tq\n}\n" +
+		"type Bad { Text string }\n" +
+		"type Lv { name string }\n" +
+		"func ParseLv(s string) Lv fails Bad needs A {\n\tA.Use()\n\tLv{name: s}\n}\n" +
+		"func Wire(l Lv) string needs B {\n\tB.Use()\n\tl.name\n}\n" +
+		"type lw { name string }\n" +
+		"func Wire(l lw) string needs B {\n\tB.Use()\n\tl.name\n}\n" +
+		"func lendC(c Closer) {}\n" +
+		"type C { Use() }\n" +
+		"type PcA { id int } implements C, Closer\n" +
+		"func Use(_ PcA) {}\n" +
+		"func Close(_ PcA) needs A { A.Use() }\n" +
+		"type PcB { id int } implements C, Closer\n" +
+		"func Use(_ PcB) {}\n" +
+		"func Close(_ PcB) needs B { B.Use() }\n" +
+		"type PcBox { r RB, id int } implements C\n" +
+		"func Use(_ PcBox) {}\n" +
+		"type PcCon { id int } implements C, Closer\n" +
+		"func Use(_ PcCon) {}\n" +
+		"func Close(_ PcCon) needs Console { Console.Println(\"closed\") }\n")
 	let kinds = allRelKinds()
 	for k in 0..len(kinds) {
 		let kd = kinds[k]

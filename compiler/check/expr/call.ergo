@@ -608,7 +608,16 @@ func generic(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node], c s
 		if isLitArg {
 			t.deferLitDiag = true
 		}
-		let atRes = expr(s, k, t, a, want)
+		let pUnm = infer.Unmarked(*s, renamed[i+m])
+		let atRes = if ok && isFree(want) && syntax.KindOf(tr, a) == syntax.KFuncLit && !hasOmittedFuncParams(tr, a) && store.KindOfType(*s, pUnm) == store.KSig {
+			let deferHere = t.deferBranchHint
+			t.deferBranchHint = false
+			let litRes = typed(s, k, t, a, Exactly{T: pUnm})
+			t.deferBranchHint = deferHere
+			litRes
+		} else {
+			expr(s, k, t, a, want)
+		}
 		t.deferLitDiag = prevDefer
 		t.what = prevWhat
 		match atRes {

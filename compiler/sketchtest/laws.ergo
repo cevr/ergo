@@ -45,155 +45,65 @@ func LawKindBoolish(k uint8) bool {
 
 // LawTopDecls returns the shared fixture declarations used by top-level law rule cases.
 func LawTopDecls() string {
-	`type Money { cents int }
-
-func add(a Money, b Money) Money {
-	Money{cents: a.cents + b.cents}
-}
-
-type Bad {}
-
-func valid(n int) bool fails Bad {
-	if n < 0 {
-		return Bad
-	}
-	true
-}
-
-type Store {
-	Get() string,
-}
-
-type Mem {} implements Store
-
-func Get(_ Mem) string {
-	"ok"
-}
-
-func read() string needs Store {
-	Store.Get()
-}
-
-`
+		"type Money { cents int }\n\n" +
+		"func add(a Money, b Money) Money {\n\tMoney{cents: a.cents + b.cents}\n}\n\n" +
+		"type Bad {}\n\n" +
+		"func valid(n int) bool fails Bad {\n\tif n < 0 {\n\t\treturn Bad\n\t}\n\ttrue\n}\n\n" +
+		"type Store {\n\tGet() string,\n}\n\n" +
+		"type Mem {} implements Store\n\n" +
+		"func Get(_ Mem) string {\n\t\"ok\"\n}\n\n" +
+		"func read() string needs Store {\n\tStore.Get()\n}\n\n"
 }
 
 func lawTopSiteDecls() string {
-	`type A { Use() int }
-
-type Conn { V int } implements A, Closer
-
-func Use(c Conn) int { c.V }
-
-func Close(c Conn) {}
-
-func get() Conn { Conn{V: 1} }
-
-let Owned = context { A: get() }
-
-type R { ..Closer }
-
-type First {} implements R, Closer
-
-func Close(_ First) {}
-
-let Releasing = context { R: First }
-
-`
+		"type A { Use() int }\n\n" +
+		"type Conn { V int } implements A, Closer\n\n" +
+		"func Use(c Conn) int { c.V }\n\n" +
+		"func Close(c Conn) {}\n\n" +
+		"func get() Conn { Conn{V: 1} }\n\n" +
+		"let Owned = context { A: get() }\n\n" +
+		"type R { ..Closer }\n\n" +
+		"type First {} implements R, Closer\n\n" +
+		"func Close(_ First) {}\n\n" +
+		"let Releasing = context { R: First }\n\n"
 }
 
 // LawTopProbe returns the canonical top-level law probe beside a test and main.
 func LawTopProbe() string {
-	`// law-top probe: a top-level law beside test (plan.md 11:45Z).
-type Money { cents int }
-
-func add(a Money, b Money) Money {
-	Money{cents: a.cents + b.cents}
-}
-
-law AddCommutes(a Money, b Money) {
-	add(a, b) == add(b, a)
-}
-
-test Adds {
-	assert add(Money{cents: 1}, Money{cents: 2}) == Money{cents: 3}
-}
-
-func main() {}
-`
+		"// law-top probe: a top-level law beside test (plan.md 11:45Z).\n" +
+		"type Money { cents int }\n\n" +
+		"func add(a Money, b Money) Money {\n\tMoney{cents: a.cents + b.cents}\n}\n\n" +
+		"law AddCommutes(a Money, b Money) {\n\tadd(a, b) == add(b, a)\n}\n\n" +
+		"test Adds {\n\tassert add(Money{cents: 1}, Money{cents: 2}) == Money{cents: 3}\n}\n\n" +
+		"func main() {}\n"
 }
 
 // LawWrapperProbe returns the laws-only wrapper record fixture expecting S108.
 func LawWrapperProbe() string {
-	`// law-top probe: a type with laws and no operations (types.md Laws rule 1
-// admits it today; law-top makes it S108 "write it as a top-level law").
-type Money { cents int }
-
-func add(a Money, b Money) Money {
-	Money{cents: a.cents + b.cents}
-}
-
-type MoneyLaws { // want S108
-	law AddCommutes(a Money, b Money) { add(a, b) == add(b, a) },
-}
-
-func main() {}
-`
+		"// law-top probe: a type with laws and no operations (types.md Laws rule 1\n" +
+		"// admits it today; law-top makes it S108 \"write it as a top-level law\").\n" +
+		"type Money { cents int }\n\n" +
+		"func add(a Money, b Money) Money {\n\tMoney{cents: a.cents + b.cents}\n}\n\n" +
+		"type MoneyLaws { // want S108\n\tlaw AddCommutes(a Money, b Money) { add(a, b) == add(b, a) },\n}\n\n" +
+		"func main() {}\n"
 }
 
 // LawDomainHelpers returns the package prelude declarations for generated laws.
 func LawDomainHelpers() string {
-	`import task
-
-type Money { cents int }
-
-type Flag bool
-
-type Bad {}
-
-type Store {
-	Get() string,
-}
-
-type Mem {} implements Store
-
-func Get(_ Mem) string {
-	"ok"
-}
-
-func read() string needs Store {
-	Store.Get()
-}
-
-func valid(n int) bool fails Bad {
-	if n < 0 {
-		return Bad
-	}
-	true
-}
-
-func count(n int) int fails Bad {
-	if n < 0 {
-		return Bad
-	}
-	n
-}
-
-func keep(f own func(int) int) bool {
-	true
-}
-
-func apply(f func(int) int) bool {
-	f(1) == f(1)
-}
-
-func noop() {}
-
-func spawn() int {
-	let t = task.Go() { 1 }
-	t.Wait()
-}
-
-`
+		"import task\n\n" +
+		"type Money { cents int }\n\n" +
+		"type Flag bool\n\n" +
+		"type Bad {}\n\n" +
+		"type Store {\n\tGet() string,\n}\n\n" +
+		"type Mem {} implements Store\n\n" +
+		"func Get(_ Mem) string {\n\t\"ok\"\n}\n\n" +
+		"func read() string needs Store {\n\tStore.Get()\n}\n\n" +
+		"func valid(n int) bool fails Bad {\n\tif n < 0 {\n\t\treturn Bad\n\t}\n\ttrue\n}\n\n" +
+		"func count(n int) int fails Bad {\n\tif n < 0 {\n\t\treturn Bad\n\t}\n\tn\n}\n\n" +
+		"func keep(f own func(int) int) bool {\n\ttrue\n}\n\n" +
+		"func apply(f func(int) int) bool {\n\tf(1) == f(1)\n}\n\n" +
+		"func noop() {}\n\n" +
+		"func spawn() int {\n\tlet t = task.Go() { 1 }\n\tt.Wait()\n}\n\n"
 }
 
 func lawTopNameCases(decls string) []Input {

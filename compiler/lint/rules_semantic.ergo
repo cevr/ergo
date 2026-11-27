@@ -1875,7 +1875,7 @@ func resolveLocalCalledFnIdx(typed load.Typed, cIdx int) int {
 		return -1
 	}
 	let f = typed.K.Fns[fi]
-	if f.File == callee.File && f.Decl == callee.Decl && f.Name == callee.Name && f.Sig == callee.Sig {
+	if f.File == callee.File && f.Decl == callee.Decl && f.Name == callee.Name {
 		fi
 	} else {
 		-1
@@ -1981,6 +1981,51 @@ func CheckTestReadsUnexported(inp Input, g ProgramGraph, sev uint8, out mut []Fi
 	}
 }
 
+func funcReturnTypeLastIdent(p syntax.Parsed, t syntax.Tree, ft syntax.FuncType) string {
+	let res = match dense.Unpack(ft.Results) {
+	case option.Some{Value: r}:
+		r
+	case option.None:
+		return ""
+	}
+	if syntax.KindOf(t, res) != syntax.KFieldList {
+		return ""
+	}
+	let fl = syntax.FieldListOf(t, res)
+	for i in 0..syntax.Len(fl.List) {
+		let item = syntax.Item(t, fl.List, i)
+		if syntax.KindOf(t, item) != syntax.KField {
+			continue
+		}
+		match dense.Unpack(syntax.FieldOf(t, item).Type) {
+		case option.Some{Value: ty}:
+			if syntax.KindOf(t, ty) == syntax.KErrorRow {
+				continue
+			}
+			return typeNodeLastIdent(p, t, ty)
+		case option.None:
+		}
+	}
+	""
+}
+
+func funcParamCount(t syntax.Tree, ft syntax.FuncType) int {
+	if syntax.KindOf(t, ft.Params) != syntax.KFieldList {
+		return 0
+	}
+	let fl = syntax.FieldListOf(t, ft.Params)
+	let mut n = 0
+	for i in 0..syntax.Len(fl.List) {
+		let item = syntax.Item(t, fl.List, i)
+		if syntax.KindOf(t, item) != syntax.KField {
+			continue
+		}
+		let namesLen = syntax.Len(syntax.FieldOf(t, item).Names)
+		n += if namesLen > 0 { namesLen } else { 1 }
+	}
+	n
+}
+
 // CheckUnusedDeclaration emits unused-declaration (L114) findings for unreferenced unexported declarations.
 func CheckUnusedDeclaration(inp Input, g ProgramGraph, sev uint8, out mut []Finding) {
 	if sev == SeverityOff {
@@ -2001,6 +2046,35 @@ func CheckUnusedDeclaration(inp Input, g ProgramGraph, sev uint8, out mut []Find
 		let implMethods = buildUnitImplMethods(inp, uIdx)
 		let mut usedElsewhere = slices.Repeat([]bool{false}, pTotal)
 		let mut ownGen = slices.Repeat([]int{0}, pTotal)
+		let mut fnRetByPNode = slices.Repeat([]string{""}, pTotal)
+		let mut ufcsByKey = Map[string, int]{}
+		for fIdx, f in u.Files {
+			if f.Parsed.Failed {
+				continue
+			}
+			let t = f.Parsed.Tree
+			let fi = g.FileIndexes[uIdx][fIdx]
+			for dr in fi.Decls {
+				if dr.Kind != syntax.KFuncDecl {
+					continue
+				}
+				let fd = syntax.FuncDeclOf(t, syntax.NodeAt(t, int(dr.Node)))
+				let ft = syntax.FuncTypeOf(t, fd.Type)
+				let pi = dense.Index(bind.PNodeOf(typed.K.Ps, fIdx, fd.Name))
+				if pi >= 0 && pi < pTotal {
+					fnRetByPNode[pi] = funcReturnTypeLastIdent(f.Parsed, t, ft)
+					if dense.Unpack(fd.Recv) == option.None && dense.Unpack(fd.Extern) == option.None && dense.Unpack(fd.Body) != option.None {
+						let fname = NodeText(f.Parsed, fd.Name)
+						if !isExportedIdent(fname) && fname != "main" {
+							let recv0 = firstParamTypeLastIdent(f.Parsed, t, ft)
+							if recv0 != "" {
+								ufcsByKey[recv0+"\x00"+fname+"\x00"+strconv.Itoa(funcParamCount(t, ft))] = pi
+							}
+						}
+					}
+				}
+			}
+		}
 		let mut curGen = 0
 		for fIdx, f in u.Files {
 			if f.Parsed.Failed {
@@ -2075,6 +2149,43 @@ func CheckUnusedDeclaration(inp Input, g ProgramGraph, sev uint8, out mut []Find
 							let tpi = dense.Index(bind.PNodeOf(typed.K.Ps, tf.File, tf.Name))
 							if tpi >= 0 && tpi < pTotal && ownGen[tpi] != curGen {
 								usedElsewhere[tpi] = true
+							}
+						}
+					} else if syntax.KindOf(t, cNode) == syntax.KCallExpr {
+						let ce = syntax.CallExprOf(t, cNode)
+						if syntax.KindOf(t, ce.Fun) == syntax.KSelectorExpr {
+							let se = syntax.SelectorExprOf(t, ce.Fun)
+							let mut recvType = ""
+							let xk = syntax.KindOf(t, se.X)
+							if xk == syntax.KCallExpr {
+								let rc = syntax.CallExprOf(t, se.X)
+								if syntax.KindOf(t, rc.Fun) == syntax.KIdent {
+									match bind.ResolutionOf(typed.K.U, typed.K.Ps, bind.PNodeOf(typed.K.Ps, fIdx, rc.Fun)) {
+									case bind.Declared as dec:
+										let rpi = dense.Index(dec.At)
+										if rpi >= 0 && rpi < pTotal {
+											recvType = fnRetByPNode[rpi]
+										}
+									case _:
+									}
+								}
+							} else if xk == syntax.KCompositeLit {
+								match dense.Unpack(syntax.CompositeLitOf(t, se.X).Type) {
+								case option.Some{Value: ty}:
+									recvType = typeNodeLastIdent(f.Parsed, t, ty)
+								case option.None:
+								}
+							}
+							if recvType != "" {
+								let mname = NodeText(f.Parsed, se.Sel)
+								let ukey = recvType + "\x00" + mname + "\x00" + strconv.Itoa(syntax.Len(ce.Args)+1)
+								match ufcsByKey.Get(ukey) {
+								case option.Some{Value: tpi}:
+									if tpi >= 0 && tpi < pTotal && ownGen[tpi] != curGen {
+										usedElsewhere[tpi] = true
+									}
+								case option.None:
+								}
 							}
 						}
 					}

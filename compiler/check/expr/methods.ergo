@@ -98,9 +98,17 @@ func sameHead(s store.Store, p dense.ID[store.TKey], base dense.ID[store.TKey]) 
 			return false
 		}
 		for a in store.OperandsOf(s, p) {
-			if store.KindOfType(s, a) != store.KParam {
-				return false
+			let ak = store.KindOfType(s, a)
+			if ak == store.KParam {
+				continue
 			}
+			if ak == store.KRow {
+				let ro = store.OperandsOf(s, a)
+				if ro.Len() == 1 && store.KindOfType(s, ro[0]) == store.KParam {
+					continue
+				}
+			}
+			return false
 		}
 		return true
 	}
