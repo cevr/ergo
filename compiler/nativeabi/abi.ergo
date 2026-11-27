@@ -1,0 +1,287 @@
+import option
+
+// PtrSize is the byte width of a native pointer on 64-bit tier-1 targets.
+let PtrSize = uint32(8)
+
+// PtrAlign is the byte alignment of a native pointer on 64-bit tier-1 targets.
+let PtrAlign = uint32(8)
+
+// BoolSize is the byte width of C11 _Bool on tier-1 targets.
+let BoolSize = uint32(1)
+
+// BoolAlign is the byte alignment of C11 _Bool on tier-1 targets.
+let BoolAlign = uint32(1)
+
+// U32Size is the byte width of C11 uint32_t.
+let U32Size = uint32(4)
+
+// U32Align is the byte alignment of C11 uint32_t.
+let U32Align = uint32(4)
+
+// I64Size is the byte width of C11 int64_t.
+let I64Size = uint32(8)
+
+// I64Align is the byte alignment of C11 int64_t.
+let I64Align = uint32(8)
+
+// U64Size is the byte width of C11 uint64_t and size_t.
+let U64Size = uint32(8)
+
+// U64Align is the byte alignment of C11 uint64_t and size_t.
+let U64Align = uint32(8)
+
+// MaxAlign is _Alignof(max_align_t) on 64-bit x86_64 and arm64 targets.
+let MaxAlign = uint32(16)
+
+// RCHeaderSize is the byte width of ErgoRCHeader preceding every heap RC payload.
+let RCHeaderSize = uint32(16)
+
+// RCHeaderAlign is the struct alignment of ErgoRCHeader.
+let RCHeaderAlign = uint32(4)
+
+// RCPayloadAlign is the guaranteed payload alignment after ErgoRCHeader.
+let RCPayloadAlign = uint32(16)
+
+// RCHeaderRcOff is the byte offset of ErgoRCHeader.rc.
+let RCHeaderRcOff = uint32(0)
+
+// RCHeaderFlagsOff is the byte offset of ErgoRCHeader.flags.
+let RCHeaderFlagsOff = uint32(4)
+
+// RCHeaderPayloadSizeOff is the byte offset of ErgoRCHeader.payload_size.
+let RCHeaderPayloadSizeOff = uint32(8)
+
+// RCHeaderTypeTagOff is the byte offset of ErgoRCHeader.type_tag.
+let RCHeaderTypeTagOff = uint32(12)
+
+// RCFlagShared selects atomic reference counting in ErgoRCHeader.flags.
+let RCFlagShared = uint32(1)
+
+// RCFlagStatic marks immortal static data in ErgoRCHeader.flags.
+let RCFlagStatic = uint32(2)
+
+// RCFlagCapShifted indicates the upper capacity field stores 4 KiB page units.
+let RCFlagCapShifted = uint32(4)
+
+// RCFlagsMask covers the low 6 flag bits reserved in ErgoRCHeader.flags.
+let RCFlagsMask = uint32(63)
+
+// RCUserFlagsMask covers caller-settable flags (shared and static).
+let RCUserFlagsMask = uint32(3)
+
+// RCCapShift is the bit offset of the preserved capacity inside ErgoRCHeader.flags.
+let RCCapShift = uint32(6)
+
+// RCCapMaxExact is the largest payload capacity stored byte-accurately in 26 bits.
+let RCCapMaxExact = uint32(67108863)
+
+// RCCapPageShift is the page shift used when capacity exceeds RCCapMaxExact.
+let RCCapPageShift = uint32(12)
+
+// StatusOK reports normal completion of a runtime operation.
+let StatusOK = uint32(0)
+
+// StatusOverBytes reports refusal before exceeding an actor heap byte limit.
+let StatusOverBytes = uint32(1)
+
+// StatusOverSteps reports exhaustion of an actor reduction step budget.
+let StatusOverSteps = uint32(2)
+
+// StatusInvalidArg reports an invalid argument such as non-power-of-two alignment.
+let StatusInvalidArg = uint32(3)
+
+// StatusOOM reports host allocator failure.
+let StatusOOM = uint32(4)
+
+// DiePanic is the crash code for an explicit actor panic.
+let DiePanic = uint32(1)
+
+// DieOverBytes is the crash code when an actor exceeds Limits.Bytes.
+let DieOverBytes = uint32(2)
+
+// DieOverSteps is the crash code when an actor exceeds Limits.Steps.
+let DieOverSteps = uint32(3)
+
+// StrSize is sizeof(ErgoStr).
+let StrSize = uint32(16)
+
+// StrAlign is _Alignof(ErgoStr).
+let StrAlign = uint32(8)
+
+// StrPtrOff is offsetof(ErgoStr, ptr).
+let StrPtrOff = uint32(0)
+
+// StrLenOff is offsetof(ErgoStr, len).
+let StrLenOff = uint32(8)
+
+// BytesSize is sizeof(ErgoBytes).
+let BytesSize = uint32(24)
+
+// BytesAlign is _Alignof(ErgoBytes).
+let BytesAlign = uint32(8)
+
+// BytesPtrOff is offsetof(ErgoBytes, ptr).
+let BytesPtrOff = uint32(0)
+
+// BytesLenOff is offsetof(ErgoBytes, len).
+let BytesLenOff = uint32(8)
+
+// BytesCapOff is offsetof(ErgoBytes, cap).
+let BytesCapOff = uint32(16)
+
+// SliceSize is sizeof(ErgoSlice).
+let SliceSize = uint32(24)
+
+// SliceAlign is _Alignof(ErgoSlice).
+let SliceAlign = uint32(8)
+
+// SlicePtrOff is offsetof(ErgoSlice, ptr).
+let SlicePtrOff = uint32(0)
+
+// SliceLenOff is offsetof(ErgoSlice, len).
+let SliceLenOff = uint32(8)
+
+// SliceCapOff is offsetof(ErgoSlice, cap).
+let SliceCapOff = uint32(16)
+
+// ErrorSize is sizeof(ErgoError).
+let ErrorSize = uint32(24)
+
+// ErrorAlign is _Alignof(ErgoError).
+let ErrorAlign = uint32(8)
+
+// ErrorTagOff is offsetof(ErgoError, tag).
+let ErrorTagOff = uint32(0)
+
+// ErrorPadOff is offsetof(ErgoError, _pad).
+let ErrorPadOff = uint32(4)
+
+// ErrorMsgOff is offsetof(ErgoError, msg).
+let ErrorMsgOff = uint32(8)
+
+// ArenaMarkSize is sizeof(ErgoArenaMark).
+let ArenaMarkSize = uint32(24)
+
+// ArenaMarkAlign is _Alignof(ErgoArenaMark).
+let ArenaMarkAlign = uint32(8)
+
+// ArenaMarkChunkOff is offsetof(ErgoArenaMark, chunk).
+let ArenaMarkChunkOff = uint32(0)
+
+// ArenaMarkOffsetOff is offsetof(ErgoArenaMark, offset).
+let ArenaMarkOffsetOff = uint32(8)
+
+// ArenaMarkTotalUsedOff is offsetof(ErgoArenaMark, total_used).
+let ArenaMarkTotalUsedOff = uint32(16)
+
+// ActorLimitsSize is sizeof(ErgoActorLimits).
+let ActorLimitsSize = uint32(16)
+
+// ActorLimitsAlign is _Alignof(ErgoActorLimits).
+let ActorLimitsAlign = uint32(8)
+
+// ActorLimitsBytesOff is offsetof(ErgoActorLimits, limit_bytes).
+let ActorLimitsBytesOff = uint32(0)
+
+// ActorLimitsStepsOff is offsetof(ErgoActorLimits, limit_steps).
+let ActorLimitsStepsOff = uint32(8)
+
+// ActorHeapSize is sizeof(ErgoActorHeap).
+let ActorHeapSize = uint32(40)
+
+// ActorHeapAlign is _Alignof(ErgoActorHeap).
+let ActorHeapAlign = uint32(8)
+
+// ActorHeapSlabsOff is offsetof(ErgoActorHeap, slabs).
+let ActorHeapSlabsOff = uint32(0)
+
+// ActorHeapCurrentOff is offsetof(ErgoActorHeap, current).
+let ActorHeapCurrentOff = uint32(8)
+
+// ActorHeapLimitOff is offsetof(ErgoActorHeap, limit_bytes).
+let ActorHeapLimitOff = uint32(16)
+
+// ActorHeapUsedOff is offsetof(ErgoActorHeap, used_bytes).
+let ActorHeapUsedOff = uint32(24)
+
+// ActorHeapPeakOff is offsetof(ErgoActorHeap, peak_bytes).
+let ActorHeapPeakOff = uint32(32)
+
+// CrashReportSize is sizeof(ErgoCrashReport).
+let CrashReportSize = uint32(24)
+
+// CrashReportAlign is _Alignof(ErgoCrashReport).
+let CrashReportAlign = uint32(8)
+
+// CrashReportPanickedOff is offsetof(ErgoCrashReport, panicked).
+let CrashReportPanickedOff = uint32(0)
+
+// CrashReportCodeOff is offsetof(ErgoCrashReport, code).
+let CrashReportCodeOff = uint32(4)
+
+// CrashReportMsgOff is offsetof(ErgoCrashReport, msg).
+let CrashReportMsgOff = uint32(8)
+
+// CrashReportHeapPeakOff is offsetof(ErgoCrashReport, heap_peak_bytes).
+let CrashReportHeapPeakOff = uint32(16)
+
+// EncodeRCFlags packs user RC flags and allocated byte capacity into the 32-bit header flags word.
+func EncodeRCFlags(userFlags uint32, cap uint32) uint32 {
+	let masked = userFlags & RCUserFlagsMask
+	if cap <= RCCapMaxExact {
+		return masked | (cap << RCCapShift)
+	}
+	masked | RCFlagCapShifted | ((cap >> RCCapPageShift) << RCCapShift)
+}
+
+// DecodeRCCapacity extracts the safe reusable byte capacity from an RC header flags word.
+func DecodeRCCapacity(flags uint32, payloadSize uint32) uint32 {
+	if (flags&RCFlagStatic) != uint32(0) && (flags>>RCCapShift) == uint32(0) {
+		return payloadSize
+	}
+	let raw = flags >> RCCapShift
+	if (flags & RCFlagCapShifted) != uint32(0) {
+		return raw << RCCapPageShift
+	}
+	raw
+}
+
+// DecodeRCUserFlags extracts the caller-visible RC flags from the header flags word.
+func DecodeRCUserFlags(flags uint32) uint32 {
+	flags & RCUserFlagsMask
+}
+
+// PayloadOffsetFromHeader checks whether an RC header preserves MaxAlign alignment for its payload.
+func PayloadOffsetFromHeader() option.Option[uint32] {
+	if (RCHeaderSize % MaxAlign) == uint32(0) {
+		return option.Some[uint32]{Value: RCHeaderSize}
+	}
+	option.None
+}
+
+// RCCapacityRoundTrips verifies that EncodeRCFlags and DecodeRCCapacity preserve user flags and safe capacity bounds.
+law RCCapacityRoundTrips(flagsRaw uint8, sizeLow uint32, large bool) {
+	let rawFlags = uint32(flagsRaw) | uint32(128)
+	let user = rawFlags & RCUserFlagsMask
+	let cap = if large {
+		RCCapMaxExact + uint32(1) + (sizeLow & uint32(65535))
+	} else {
+		sizeLow & RCCapMaxExact
+	}
+	let enc = EncodeRCFlags(rawFlags, cap)
+	let dec = DecodeRCCapacity(enc, uint32(0))
+	let decUser = DecodeRCUserFlags(enc)
+	let exactOk = if cap <= RCCapMaxExact { dec == cap } else { dec <= cap && cap-dec < (uint32(1)<<RCCapPageShift) }
+	let staticOk = if (user & RCFlagStatic) != uint32(0) {
+		DecodeRCCapacity(RCFlagStatic, cap) == cap
+	} else {
+		true
+	}
+	let headerOk = match PayloadOffsetFromHeader() {
+	case option.Some{Value: off}:
+		off == RCHeaderSize && (off%MaxAlign) == uint32(0)
+	case option.None:
+		false
+	}
+	headerOk && decUser == user && exactOk && staticOk && (enc&RCFlagsMask) <= RCFlagsMask
+}

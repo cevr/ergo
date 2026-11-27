@@ -1,0 +1,210 @@
+{
+  "about": "compiler/nativeabi: pure-Ergo DoD ABI contract mirror covering Perceus RC capacity encoding, C11 struct alignment and padding, builtin runtime ABI layouts, and runtime symbol table contracts.",
+  "mutants": [
+    {
+      "name": "nativeabi-rc-encode-mask-dropped",
+      "origin": "nativeabi",
+      "file": "compiler/nativeabi/abi.ergo",
+      "decl": "EncodeRCFlags",
+      "from": "\tlet masked = userFlags & RCUserFlagsMask\n",
+      "to": "\tlet masked = userFlags\n",
+      "rule": "EncodeRCFlags must mask userFlags to RCUserFlagsMask so stray flag bits cannot corrupt capacity bits.",
+      "killers": ["compiler/nativeabi:law:RCCapacityRoundTrips"]
+    },
+    {
+      "name": "nativeabi-rc-encode-large-page-shift",
+      "origin": "nativeabi",
+      "file": "compiler/nativeabi/abi.ergo",
+      "decl": "EncodeRCFlags",
+      "from": "\tmasked | RCFlagCapShifted | ((cap >> RCCapPageShift) << RCCapShift)\n",
+      "to": "\tmasked | (cap << RCCapShift)\n",
+      "rule": "EncodeRCFlags must page-shift capacities exceeding RCCapMaxExact and mark RCFlagCapShifted.",
+      "killers": ["compiler/nativeabi:law:RCCapacityRoundTrips"]
+    },
+    {
+      "name": "nativeabi-rc-decode-cap-unshifted",
+      "origin": "nativeabi",
+      "file": "compiler/nativeabi/abi.ergo",
+      "decl": "DecodeRCCapacity",
+      "from": "\tif (flags & RCFlagCapShifted) != uint32(0) {\n\t\treturn raw << RCCapPageShift\n\t}\n",
+      "to": "\tif false && (flags&RCFlagCapShifted) != uint32(0) {\n\t\treturn raw << RCCapPageShift\n\t}\n",
+      "rule": "DecodeRCCapacity must scale page-shifted capacities back by RCCapPageShift.",
+      "killers": ["compiler/nativeabi:law:RCCapacityRoundTrips"]
+    },
+    {
+      "name": "nativeabi-rc-static-zero-cap",
+      "origin": "nativeabi",
+      "file": "compiler/nativeabi/abi.ergo",
+      "decl": "DecodeRCCapacity",
+      "from": "\tif (flags&RCFlagStatic) != uint32(0) && (flags>>RCCapShift) == uint32(0) {\n\t\treturn payloadSize\n\t}\n",
+      "to": "\tif false && (flags&RCFlagStatic) != uint32(0) && (flags>>RCCapShift) == uint32(0) {\n\t\treturn payloadSize\n\t}\n",
+      "rule": "DecodeRCCapacity must recover payloadSize for static headers initialized without encoded upper capacity bits.",
+      "killers": ["compiler/nativeabi:law:RCCapacityRoundTrips"]
+    },
+    {
+      "name": "nativeabi-rc-header-size-misaligned",
+      "origin": "nativeabi",
+      "file": "compiler/nativeabi/abi.ergo",
+      "decl": "PayloadOffsetFromHeader",
+      "from": "\tif (RCHeaderSize % MaxAlign) == uint32(0) {\n\t\treturn option.Some[uint32]{Value: RCHeaderSize}\n\t}\n",
+      "to": "\tif false {\n\t\treturn option.Some[uint32]{Value: RCHeaderSize}\n\t}\n",
+      "rule": "PayloadOffsetFromHeader must attest that RCHeaderSize preserves MaxAlign payload alignment.",
+      "killers": ["compiler/nativeabi:law:RCCapacityRoundTrips"]
+    },
+    {
+      "name": "nativeabi-alignup-no-pow2-check",
+      "origin": "nativeabi",
+      "file": "compiler/nativeabi/layout.ergo",
+      "decl": "AlignUp",
+      "from": "\tif !IsPowerOfTwo(align) {\n\t\treturn InvalidLayout{Why: \"alignment must be a non-zero power of two\"}\n\t}\n",
+      "to": "",
+      "rule": "AlignUp must reject non-power-of-two alignments with InvalidLayout.",
+      "killers": ["compiler/nativeabi:law:InvalidLayoutRejected"]
+    },
+    {
+      "name": "nativeabi-alignup-no-round",
+      "origin": "nativeabi",
+      "file": "compiler/nativeabi/layout.ergo",
+      "decl": "AlignUp",
+      "from": "\t(n + mask) & ^mask\n",
+      "to": "\tn\n",
+      "rule": "AlignUp must round n up to the next multiple of align.",
+      "killers": [
+        "compiler/nativeabi:law:AlignUpIsIdempotentAndAligned",
+        "compiler/nativeabi:law:StructLayoutPreservesAlignmentAndNonOverlap"
+      ]
+    },
+    {
+      "name": "nativeabi-layout-allow-empty",
+      "origin": "nativeabi",
+      "file": "compiler/nativeabi/layout.ergo",
+      "decl": "ComputeStructLayout",
+      "from": "\tif fields.Len() == 0 {\n\t\treturn InvalidLayout{Why: \"C11 struct must contain at least one field\"}\n\t}\n",
+      "to": "",
+      "rule": "ComputeStructLayout must reject empty C11 struct field lists.",
+      "killers": ["compiler/nativeabi:law:InvalidLayoutRejected"]
+    },
+    {
+      "name": "nativeabi-layout-skip-field-align",
+      "origin": "nativeabi",
+      "file": "compiler/nativeabi/layout.ergo",
+      "decl": "ComputeStructLayout",
+      "from": "\t\tlet off = try AlignUp(cursor, f.Align)\n",
+      "to": "\t\tlet off = cursor\n",
+      "rule": "ComputeStructLayout must align each field offset to its declared alignment.",
+      "killers": [
+        "compiler/nativeabi:law:StructLayoutPreservesAlignmentAndNonOverlap",
+        "compiler/nativeabi:BuiltinLayoutsMatchRuntimeCABI"
+      ]
+    },
+    {
+      "name": "nativeabi-layout-overlap-cursor",
+      "origin": "nativeabi",
+      "file": "compiler/nativeabi/layout.ergo",
+      "decl": "ComputeStructLayout",
+      "from": "\t\tcursor = off + f.Size\n",
+      "to": "\t\tcursor = cursor + f.Size\n",
+      "rule": "ComputeStructLayout must advance cursor past off + f.Size so subsequent fields never overlap padding.",
+      "killers": [
+        "compiler/nativeabi:law:StructLayoutPreservesAlignmentAndNonOverlap",
+        "compiler/nativeabi:BuiltinLayoutsMatchRuntimeCABI"
+      ]
+    },
+    {
+      "name": "nativeabi-layout-wrong-max-align",
+      "origin": "nativeabi",
+      "file": "compiler/nativeabi/layout.ergo",
+      "decl": "ComputeStructLayout",
+      "from": "\t\tif f.Align > maxAlign {\n\t\t\tmaxAlign = f.Align\n\t\t}\n",
+      "to": "\t\tif f.Align > maxAlign {\n\t\t\tmaxAlign = uint32(1)\n\t\t}\n",
+      "rule": "ComputeStructLayout must track the maximum field alignment for tail padding and struct alignment.",
+      "killers": [
+        "compiler/nativeabi:law:StructLayoutPreservesAlignmentAndNonOverlap",
+        "compiler/nativeabi:BuiltinLayoutsMatchRuntimeCABI"
+      ]
+    },
+    {
+      "name": "nativeabi-layout-skip-tail-pad",
+      "origin": "nativeabi",
+      "file": "compiler/nativeabi/layout.ergo",
+      "decl": "ComputeStructLayout",
+      "from": "\tlet total = try AlignUp(cursor, maxAlign)\n",
+      "to": "\tlet total = cursor\n",
+      "rule": "ComputeStructLayout must pad total struct size to a multiple of maxAlign.",
+      "killers": ["compiler/nativeabi:law:StructLayoutPreservesAlignmentAndNonOverlap"]
+    },
+    {
+      "name": "nativeabi-layout-dup-struct-accepted",
+      "origin": "nativeabi",
+      "file": "compiler/nativeabi/layout.ergo",
+      "decl": "AddStruct",
+      "from": "\tif FindStruct(*t, name) != NoLayout {\n\t\treturn InvalidLayout{Why: \"duplicate struct \\(name)\"}\n\t}\n",
+      "to": "",
+      "rule": "AddStruct must refuse duplicate struct registrations.",
+      "killers": ["compiler/nativeabi:law:InvalidLayoutRejected"]
+    },
+    {
+      "name": "nativeabi-layout-error-no-pad",
+      "origin": "nativeabi",
+      "file": "compiler/nativeabi/layout.ergo",
+      "decl": "BuiltinLayoutTable",
+      "from": "\tlet _ = try AddStruct(&t, \"ErgoError\", []FieldSpec{\n\t\tFieldSpec{Name: \"tag\", Size: U32Size, Align: U32Align},\n\t\tFieldSpec{Name: \"_pad\", Size: U32Size, Align: U32Align},\n\t\tFieldSpec{Name: \"msg\", Size: StrSize, Align: StrAlign},\n\t})\n",
+      "to": "\tlet _ = try AddStruct(&t, \"ErgoError\", []FieldSpec{\n\t\tFieldSpec{Name: \"tag\", Size: U32Size, Align: U32Align},\n\t\tFieldSpec{Name: \"msg\", Size: StrSize, Align: StrAlign},\n\t})\n",
+      "rule": "BuiltinLayoutTable must preserve the explicit _pad field of ErgoError matching runtime/native/ergo_rt.h.",
+      "killers": ["compiler/nativeabi:BuiltinLayoutsMatchRuntimeCABI"]
+    },
+    {
+      "name": "nativeabi-symbols-die-wrong-ret",
+      "origin": "nativeabi",
+      "file": "compiler/nativeabi/symbols.ergo",
+      "decl": "BuiltinRuntimeSymbols",
+      "from": "\tpushSymbol(&t, symbolSpec{name: \"ergo_die\", group: SymGroupDie, ret: ABITypeVoid, mayTrap: true, params: []uint8{ABITypeU32, ABITypeStr}})\n",
+      "to": "\tpushSymbol(&t, symbolSpec{name: \"ergo_die\", group: SymGroupDie, ret: ABITypeU32, mayTrap: true, params: []uint8{ABITypeU32, ABITypeStr}})\n",
+      "rule": "BuiltinRuntimeSymbols must record ABITypeVoid as the return type of _Noreturn ergo_die.",
+      "killers": ["compiler/nativeabi:BuiltinRuntimeSymbolsCoverEveryRuntimeEntry"]
+    },
+    {
+      "name": "nativeabi-symbols-reuse-wrong-arity",
+      "origin": "nativeabi",
+      "file": "compiler/nativeabi/symbols.ergo",
+      "decl": "BuiltinRuntimeSymbols",
+      "from": "\tpushSymbol(&t, symbolSpec{name: \"ergo_rc_reuse_or_alloc\", group: SymGroupRC, ret: ABITypePtr, mayTrap: false, params: []uint8{ABITypePtr, ABITypeU32, ABITypeU32, ABITypePtr}})\n",
+      "to": "\tpushSymbol(&t, symbolSpec{name: \"ergo_rc_reuse_or_alloc\", group: SymGroupRC, ret: ABITypePtr, mayTrap: false, params: []uint8{ABITypePtr, ABITypeU32, ABITypeU32}})\n",
+      "rule": "BuiltinRuntimeSymbols must record all 4 parameters of ergo_rc_reuse_or_alloc.",
+      "killers": ["compiler/nativeabi:BuiltinRuntimeSymbolsCoverEveryRuntimeEntry"]
+    },
+    {
+      "name": "nativeabi-symbols-maytrap-wrong",
+      "origin": "nativeabi",
+      "file": "compiler/nativeabi/symbols.ergo",
+      "decl": "BuiltinRuntimeSymbols",
+      "from": "\tpushSymbol(&t, symbolSpec{name: \"ergo_actor_step\", group: SymGroupActor, ret: ABITypeVoid, mayTrap: true, params: []uint8{ABITypeU32}})\n",
+      "to": "\tpushSymbol(&t, symbolSpec{name: \"ergo_actor_step\", group: SymGroupActor, ret: ABITypeVoid, mayTrap: false, params: []uint8{ABITypeU32}})\n",
+      "rule": "BuiltinRuntimeSymbols must mark trapping runtime entrypoints with mayTrap=true.",
+      "killers": ["compiler/nativeabi:law:RuntimeSymbolsMatchContract"]
+    },
+    {
+      "name": "nativeabi-symbols-slice-bounds",
+      "origin": "nativeabi",
+      "file": "compiler/nativeabi/symbols.ergo",
+      "decl": "SymbolParams",
+      "from": "\ttbl.ParamTypes[start : start+cnt]\n",
+      "to": "\ttbl.ParamTypes[start : start+cnt%1]\n",
+      "rule": "SymbolParams must return the full parameter slice for the requested symbol.",
+      "killers": [
+        "compiler/nativeabi:law:RuntimeSymbolsMatchContract",
+        "compiler/nativeabi:BuiltinRuntimeSymbolsCoverEveryRuntimeEntry"
+      ]
+    },
+    {
+      "name": "nativeabi-symbols-type-size-zero",
+      "origin": "nativeabi",
+      "file": "compiler/nativeabi/symbols.ergo",
+      "decl": "ABITypeSizeBytes",
+      "from": "\tif kind == ABITypeStr || kind == ABITypeActorLimits {\n\t\treturn StrSize\n\t}\n",
+      "to": "\tif kind == ABITypeStr || kind == ABITypeActorLimits {\n\t\treturn uint32(0)\n\t}\n",
+      "rule": "ABITypeSizeBytes must report non-zero byte width for by-value ABI structs.",
+      "killers": ["compiler/nativeabi:law:RuntimeSymbolsMatchContract"]
+    }
+  ]
+}
