@@ -1,0 +1,520 @@
+import strings
+
+// NoIndex returns the unsigned sentinel for absent dense table entries.
+func NoIndex() uint32 {
+	uint32(4294967295)
+}
+
+// TypeInvalid, TypeBasic, TypeSlice, TypeArray, TypeMap, TypeTuple,
+// TypeStruct, TypeUnion, TypeDefined, TypeRefined, and TypeByName classify
+// canonical resolved types in TypePool.
+let TypeInvalid uint8 = uint8(0)
+let TypeBasic uint8 = uint8(1)
+let TypeSlice uint8 = uint8(2)
+let TypeArray uint8 = uint8(3)
+let TypeMap uint8 = uint8(4)
+let TypeTuple uint8 = uint8(5)
+let TypeStruct uint8 = uint8(6)
+let TypeUnion uint8 = uint8(7)
+let TypeDefined uint8 = uint8(8)
+let TypeRefined uint8 = uint8(9)
+let TypeByName uint8 = uint8(10)
+
+// WireDefault, WireOmittable, WireNullable, WireBare, WireNumberText, and
+// WireMembers encode the wire representation of a named type.
+let WireDefault uint8 = uint8(0)
+let WireOmittable uint8 = uint8(1)
+let WireNullable uint8 = uint8(2)
+let WireBare uint8 = uint8(3)
+let WireNumberText uint8 = uint8(4)
+let WireMembers uint8 = uint8(5)
+
+// FieldParam, FieldRecord, FieldTupleElem, and FieldVariant classify
+// entries in FieldTable.
+let FieldParam uint8 = uint8(1)
+let FieldRecord uint8 = uint8(2)
+let FieldTupleElem uint8 = uint8(3)
+let FieldVariant uint8 = uint8(4)
+
+// TypePool stores canonical resolved types in flat unsigned SoA columns.
+type TypePool {
+	Count           uint32,
+	Kind            []uint8,
+	BasicOrd        []uint8,
+	WireForm        []uint8,
+	IsRefined       []bool,
+	IsAlias         []bool,
+	IsByName        []bool,
+	UnexportedField []bool,
+	IsWide          []bool,
+	WideComputed    []bool,
+	PkgPath         []string,
+	PkgName         []string,
+	TypeName        []string,
+	ExprPkgPath     []string,
+	ExprPkgName     []string,
+	ExprText        []string,
+	PrintText       []string,
+	UnderlyingText  []string,
+	ElemType        []uint32,
+	KeyType         []uint32,
+	ArrayLen        []uint32,
+	AliasTarget     []uint32,
+	BaseType        []uint32,
+	ByNamePkgPath   []string,
+	ByNamePkgName   []string,
+	ByNameFunc      []string,
+	ByNameBase      []uint32,
+	FieldStart      []uint32,
+	FieldLen        []uint32,
+	VariantStart    []uint32,
+	VariantLen      []uint32,
+	ArgStart        []uint32,
+	ArgLen          []uint32,
+	VariantItems    []uint32,
+	ArgItems        []uint32,
+	ByPrint         Map[string, uint32],
+}
+
+// NewTypePool allocates an empty TypePool.
+func NewTypePool() TypePool {
+	TypePool{
+		Count:           uint32(0),
+		Kind:            []uint8{},
+		BasicOrd:        []uint8{},
+		WireForm:        []uint8{},
+		IsRefined:       []bool{},
+		IsAlias:         []bool{},
+		IsByName:        []bool{},
+		UnexportedField: []bool{},
+		IsWide:          []bool{},
+		WideComputed:    []bool{},
+		PkgPath:         []string{},
+		PkgName:         []string{},
+		TypeName:        []string{},
+		ExprPkgPath:     []string{},
+		ExprPkgName:     []string{},
+		ExprText:        []string{},
+		PrintText:       []string{},
+		UnderlyingText:  []string{},
+		ElemType:        []uint32{},
+		KeyType:         []uint32{},
+		ArrayLen:        []uint32{},
+		AliasTarget:     []uint32{},
+		BaseType:        []uint32{},
+		ByNamePkgPath:   []string{},
+		ByNamePkgName:   []string{},
+		ByNameFunc:      []string{},
+		ByNameBase:      []uint32{},
+		FieldStart:      []uint32{},
+		FieldLen:        []uint32{},
+		VariantStart:    []uint32{},
+		VariantLen:      []uint32{},
+		ArgStart:        []uint32{},
+		ArgLen:          []uint32{},
+		VariantItems:    []uint32{},
+		ArgItems:        []uint32{},
+		ByPrint:         Map[string, uint32]{},
+	}
+}
+
+// AllocType appends a blank type entry to p and returns its dense ID.
+func AllocType(p mut TypePool, kind uint8) uint32 {
+	let id = p.Count
+	p.Count = p.Count + uint32(1)
+	p.Kind = p.Kind.Append(kind)
+	p.BasicOrd = p.BasicOrd.Append(uint8(0))
+	p.WireForm = p.WireForm.Append(WireDefault)
+	p.IsRefined = p.IsRefined.Append(false)
+	p.IsAlias = p.IsAlias.Append(false)
+	p.IsByName = p.IsByName.Append(false)
+	p.UnexportedField = p.UnexportedField.Append(false)
+	p.IsWide = p.IsWide.Append(false)
+	p.WideComputed = p.WideComputed.Append(false)
+	p.PkgPath = p.PkgPath.Append("")
+	p.PkgName = p.PkgName.Append("")
+	p.TypeName = p.TypeName.Append("")
+	p.ExprPkgPath = p.ExprPkgPath.Append("")
+	p.ExprPkgName = p.ExprPkgName.Append("")
+	p.ExprText = p.ExprText.Append("")
+	p.PrintText = p.PrintText.Append("")
+	p.UnderlyingText = p.UnderlyingText.Append("")
+	p.ElemType = p.ElemType.Append(NoIndex())
+	p.KeyType = p.KeyType.Append(NoIndex())
+	p.ArrayLen = p.ArrayLen.Append(uint32(0))
+	p.AliasTarget = p.AliasTarget.Append(NoIndex())
+	p.BaseType = p.BaseType.Append(NoIndex())
+	p.ByNamePkgPath = p.ByNamePkgPath.Append("")
+	p.ByNamePkgName = p.ByNamePkgName.Append("")
+	p.ByNameFunc = p.ByNameFunc.Append("")
+	p.ByNameBase = p.ByNameBase.Append(NoIndex())
+	p.FieldStart = p.FieldStart.Append(uint32(0))
+	p.FieldLen = p.FieldLen.Append(uint32(0))
+	p.VariantStart = p.VariantStart.Append(uint32(0))
+	p.VariantLen = p.VariantLen.Append(uint32(0))
+	p.ArgStart = p.ArgStart.Append(uint32(0))
+	p.ArgLen = p.ArgLen.Append(uint32(0))
+	id
+}
+
+// FieldTable stores parameters, record fields, tuple items, and failure
+// variants in flat unsigned SoA columns.
+type FieldTable {
+	Count     uint32,
+	OwnerKind []uint8,
+	OwnerID   []uint32,
+	Name      []string,
+	FieldName []string,
+	WireKey   []string,
+	HasKeyTag []bool,
+	TypeID    []uint32,
+	Exported  []bool,
+	Omittable []bool,
+	IsUnion   []bool,
+	Tag       []string,
+}
+
+// NewFieldTable allocates an empty FieldTable.
+func NewFieldTable() FieldTable {
+	FieldTable{
+		Count:     uint32(0),
+		OwnerKind: []uint8{},
+		OwnerID:   []uint32{},
+		Name:      []string{},
+		FieldName: []string{},
+		WireKey:   []string{},
+		HasKeyTag: []bool{},
+		TypeID:    []uint32{},
+		Exported:  []bool{},
+		Omittable: []bool{},
+		IsUnion:   []bool{},
+		Tag:       []string{},
+	}
+}
+
+// AddField appends a field entry to ft and returns its dense ID.
+func AddField(ft mut FieldTable, ownerKind uint8, ownerID uint32, name string, fieldName string, wireKey string, hasKeyTag bool, typeID uint32, exported bool, omittable bool, isUnion bool, tag string) uint32 {
+	let id = ft.Count
+	ft.Count = ft.Count + uint32(1)
+	ft.OwnerKind = ft.OwnerKind.Append(ownerKind)
+	ft.OwnerID = ft.OwnerID.Append(ownerID)
+	ft.Name = ft.Name.Append(name)
+	ft.FieldName = ft.FieldName.Append(fieldName)
+	ft.WireKey = ft.WireKey.Append(wireKey)
+	ft.HasKeyTag = ft.HasKeyTag.Append(hasKeyTag)
+	ft.TypeID = ft.TypeID.Append(typeID)
+	ft.Exported = ft.Exported.Append(exported)
+	ft.Omittable = ft.Omittable.Append(omittable)
+	ft.IsUnion = ft.IsUnion.Append(isUnion)
+	ft.Tag = ft.Tag.Append(tag)
+	id
+}
+
+// OpTable stores operations of contracts in flat unsigned SoA columns.
+type OpTable {
+	Count       uint32,
+	SpecID      []uint32,
+	Name        []string,
+	Kebab       []string,
+	Doc         []string,
+	Sig         []string,
+	FlatKey     []string,
+	FlatType    []string,
+	ParamStart  []uint32,
+	ParamLen    []uint32,
+	FailStart   []uint32,
+	FailLen     []uint32,
+	FailTypeIDs []uint32,
+	ResultType  []uint32,
+	ReqWalker   []string,
+	ResWalker   []string,
+	HasWide     []bool,
+	SchemaJSON  []string,
+	SchemaExpr  []string,
+}
+
+// NewOpTable allocates an empty OpTable.
+func NewOpTable() OpTable {
+	OpTable{
+		Count:       uint32(0),
+		SpecID:      []uint32{},
+		Name:        []string{},
+		Kebab:       []string{},
+		Doc:         []string{},
+		Sig:         []string{},
+		FlatKey:     []string{},
+		FlatType:    []string{},
+		ParamStart:  []uint32{},
+		ParamLen:    []uint32{},
+		FailStart:   []uint32{},
+		FailLen:     []uint32{},
+		FailTypeIDs: []uint32{},
+		ResultType:  []uint32{},
+		ReqWalker:   []string{},
+		ResWalker:   []string{},
+		HasWide:     []bool{},
+		SchemaJSON:  []string{},
+		SchemaExpr:  []string{},
+	}
+}
+
+// AddOp appends an operation row to ot and returns its dense ID.
+func AddOp(ot mut OpTable, specID uint32, name string, kebab string, doc string) uint32 {
+	let id = ot.Count
+	ot.Count = ot.Count + uint32(1)
+	ot.SpecID = ot.SpecID.Append(specID)
+	ot.Name = ot.Name.Append(name)
+	ot.Kebab = ot.Kebab.Append(kebab)
+	ot.Doc = ot.Doc.Append(doc)
+	ot.Sig = ot.Sig.Append("")
+	ot.FlatKey = ot.FlatKey.Append("")
+	ot.FlatType = ot.FlatType.Append("")
+	ot.ParamStart = ot.ParamStart.Append(uint32(0))
+	ot.ParamLen = ot.ParamLen.Append(uint32(0))
+	ot.FailStart = ot.FailStart.Append(uint32(0))
+	ot.FailLen = ot.FailLen.Append(uint32(0))
+	ot.ResultType = ot.ResultType.Append(NoIndex())
+	ot.ReqWalker = ot.ReqWalker.Append("")
+	ot.ResWalker = ot.ResWalker.Append("")
+	ot.HasWide = ot.HasWide.Append(false)
+	ot.SchemaJSON = ot.SchemaJSON.Append("")
+	ot.SchemaExpr = ot.SchemaExpr.Append("")
+	id
+}
+
+// SpecTable stores contract specifications and failure/import spans in flat
+// unsigned SoA columns.
+type SpecTable {
+	Count          uint32,
+	PkgPath        []string,
+	PkgName        []string,
+	OpName         []string,
+	Subject        []string,
+	ContractDigest []string,
+	OpStart        []uint32,
+	OpLen          []uint32,
+	FailStart      []uint32,
+	FailLen        []uint32,
+	FailTypeIDs    []uint32,
+	FailVariants   []string,
+	FailTags       []string,
+	FailIsUnion    []bool,
+	ImportStart    []uint32,
+	ImportLen      []uint32,
+	ImportPaths    []string,
+	ImportNames    []string,
+	DescribeStart  []uint32,
+	DescribeLen    []uint32,
+	DescribeKeys   []string,
+	DescribeTexts  []string,
+}
+
+// NewSpecTable allocates an empty SpecTable.
+func NewSpecTable() SpecTable {
+	SpecTable{
+		Count:          uint32(0),
+		PkgPath:        []string{},
+		PkgName:        []string{},
+		OpName:         []string{},
+		Subject:        []string{},
+		ContractDigest: []string{},
+		OpStart:        []uint32{},
+		OpLen:          []uint32{},
+		FailStart:      []uint32{},
+		FailLen:        []uint32{},
+		FailTypeIDs:    []uint32{},
+		FailVariants:   []string{},
+		FailTags:       []string{},
+		FailIsUnion:    []bool{},
+		ImportStart:    []uint32{},
+		ImportLen:      []uint32{},
+		ImportPaths:    []string{},
+		ImportNames:    []string{},
+		DescribeStart:  []uint32{},
+		DescribeLen:    []uint32{},
+		DescribeKeys:   []string{},
+		DescribeTexts:  []string{},
+	}
+}
+
+// AddSpec appends a contract spec entry to st and returns its dense ID.
+func AddSpec(st mut SpecTable, pkgPath string, pkgName string, opName string) uint32 {
+	let id = st.Count
+	st.Count = st.Count + uint32(1)
+	st.PkgPath = st.PkgPath.Append(pkgPath)
+	st.PkgName = st.PkgName.Append(pkgName)
+	st.OpName = st.OpName.Append(opName)
+	st.Subject = st.Subject.Append(pkgPath + "." + opName)
+	st.ContractDigest = st.ContractDigest.Append("")
+	st.OpStart = st.OpStart.Append(uint32(0))
+	st.OpLen = st.OpLen.Append(uint32(0))
+	st.FailStart = st.FailStart.Append(uint32(0))
+	st.FailLen = st.FailLen.Append(uint32(0))
+	st.ImportStart = st.ImportStart.Append(uint32(0))
+	st.ImportLen = st.ImportLen.Append(uint32(0))
+	st.DescribeStart = st.DescribeStart.Append(uint32(0))
+	st.DescribeLen = st.DescribeLen.Append(uint32(0))
+	id
+}
+
+// MarkerTable stores generated folder markers and generated file rows in flat
+// unsigned SoA columns.
+type MarkerTable {
+	Count        uint32,
+	Dir          []string,
+	Kind         []string,
+	Generator    []string,
+	Contract     []string,
+	Digest       []string,
+	SubjectStart []uint32,
+	SubjectLen   []uint32,
+	Subjects     []string,
+	FileStart    []uint32,
+	FileLen      []uint32,
+	FileNames    []string,
+	FileTexts    []string,
+}
+
+// NewMarkerTable allocates an empty MarkerTable.
+func NewMarkerTable() MarkerTable {
+	MarkerTable{
+		Count:        uint32(0),
+		Dir:          []string{},
+		Kind:         []string{},
+		Generator:    []string{},
+		Contract:     []string{},
+		Digest:       []string{},
+		SubjectStart: []uint32{},
+		SubjectLen:   []uint32{},
+		Subjects:     []string{},
+		FileStart:    []uint32{},
+		FileLen:      []uint32{},
+		FileNames:    []string{},
+		FileTexts:    []string{},
+	}
+}
+
+// AddMarkerEntry appends a marker folder entry to mt and returns its dense ID.
+func AddMarkerEntry(mt mut MarkerTable, dir string, kind string, generator string, contract string, digest string, subjects []string, fileNames []string, fileTexts []string) uint32 {
+	let id = mt.Count
+	mt.Count = mt.Count + uint32(1)
+	mt.Dir = mt.Dir.Append(dir)
+	mt.Kind = mt.Kind.Append(kind)
+	mt.Generator = mt.Generator.Append(generator)
+	mt.Contract = mt.Contract.Append(contract)
+	mt.Digest = mt.Digest.Append(digest)
+	let sStart = uint32(mt.Subjects.Len())
+	for s in subjects {
+		mt.Subjects = mt.Subjects.Append(s)
+	}
+	mt.SubjectStart = mt.SubjectStart.Append(sStart)
+	mt.SubjectLen = mt.SubjectLen.Append(uint32(subjects.Len()))
+	let fStart = uint32(mt.FileNames.Len())
+	for i in 0..fileNames.Len() {
+		mt.FileNames = mt.FileNames.Append(fileNames[i])
+		mt.FileTexts = mt.FileTexts.Append(fileTexts[i])
+	}
+	mt.FileStart = mt.FileStart.Append(fStart)
+	mt.FileLen = mt.FileLen.Append(uint32(fileNames.Len()))
+	id
+}
+
+// GenScratch holds reusable scratch buffers used across generator passes to
+// avoid per-operation and per-file slice reallocations.
+type GenScratch {
+	Buf         strings.Builder,
+	Lines       []string,
+	Parts       []string,
+	Flags       []string,
+	Decls       []string,
+	Build       []string,
+	Print       []string,
+	Args        []string,
+	Order       []uint32,
+	Marks       []uint8,
+	SeenNames   []string,
+	ImportPaths []string,
+	ImportNames []string,
+	Keys        []string,
+	Values      []string,
+}
+
+// NewScratch allocates an empty reusable GenScratch.
+func NewScratch() GenScratch {
+	GenScratch{
+		Buf:         strings.NewBuilder(),
+		Lines:       []string{},
+		Parts:       []string{},
+		Flags:       []string{},
+		Decls:       []string{},
+		Build:       []string{},
+		Print:       []string{},
+		Args:        []string{},
+		Order:       []uint32{},
+		Marks:       []uint8{},
+		SeenNames:   []string{},
+		ImportPaths: []string{},
+		ImportNames: []string{},
+		Keys:        []string{},
+		Values:      []string{},
+	}
+}
+
+// ResetScratch clears all scratch slices and builder cursors while keeping
+// backing capacity.
+func ResetScratch(sc mut GenScratch) {
+	sc.Buf = strings.NewBuilder()
+	sc.Lines = sc.Lines[0:0]
+	sc.Parts = sc.Parts[0:0]
+	sc.Flags = sc.Flags[0:0]
+	sc.Decls = sc.Decls[0:0]
+	sc.Build = sc.Build[0:0]
+	sc.Print = sc.Print[0:0]
+	sc.Args = sc.Args[0:0]
+	sc.Order = sc.Order[0:0]
+	sc.Marks = sc.Marks[0:0]
+	sc.SeenNames = sc.SeenNames[0:0]
+	sc.ImportPaths = sc.ImportPaths[0:0]
+	sc.ImportNames = sc.ImportNames[0:0]
+	sc.Keys = sc.Keys[0:0]
+	sc.Values = sc.Values[0:0]
+}
+
+// TableSpansInRange reports whether start and length stay bounded by total.
+func TableSpansInRange(start uint32, length uint32, total uint32) bool {
+	if length == uint32(0) {
+		return start <= total
+	}
+	start <= total && length <= total-start
+}
+
+// SpecTablesKeepDenseIndices: every allocated type, field, operation, spec,
+// and marker entry receives sequential uint32 IDs starting at zero with valid
+// spans.
+law SpecTablesKeepDenseIndices(count uint8) {
+	let n = int(count) % 8
+	let mut tp = NewTypePool()
+	let mut ft = NewFieldTable()
+	let mut ot = NewOpTable()
+	let mut st = NewSpecTable()
+	let mut mt = NewMarkerTable()
+	let sid = AddSpec(&st, "example/app", "app", "Api")
+	let mut ok = sid == uint32(0) && st.Count == uint32(1)
+	for i in 0..n {
+		let tid = AllocType(&tp, TypeBasic)
+		let oid = AddOp(&ot, sid, "Op\(i)", "op-\(i)", "doc")
+		let fid = AddField(&ft, FieldParam, oid, "p\(i)", "P\(i)", "p\(i)", false, tid, true, false, false, "")
+		let mid = AddMarkerEntry(&mt, "appapi", "api", "ergo gen api", "sha256:00", "sha256:11", []string{"example/app.Api"}, []string{"api.ergo"}, []string{"// ok\n"})
+		ok = ok && tid == uint32(i) && oid == uint32(i) && fid == uint32(i) && mid == uint32(i)
+	}
+	ok = ok && TableSpansInRange(st.OpStart[0], st.OpLen[0], ot.Count) && !TableSpansInRange(uint32(1), uint32(1), uint32(1))
+	let mut sc = NewScratch()
+	sc.Lines = sc.Lines.Append("a")
+	sc.Order = sc.Order.Append(uint32(1))
+	ResetScratch(&sc)
+	ok && sc.Lines.Len() == 0 && sc.Order.Len() == 0 && NoIndex() == uint32(4294967295)
+}
+
+// GenError describes a generation or validation refusal with a single
+// formatted Reason matching the CLI contract.
+type GenError { Reason string }

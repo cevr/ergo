@@ -1,0 +1,726 @@
+import fs
+import option
+import slices
+import strconv
+import strings
+
+// SchemaDir returns the schema package folder name for pkgName.
+func SchemaDir(pkgName string) string {
+	pkgName + "schema"
+}
+
+// PayloadOf returns the payload type ID of a two-variant WireOmittable or
+// WireNullable union, or NoIndex() if tid does not have that shape.
+func PayloadOf(tp TypePool, ft FieldTable, tid uint32) uint32 {
+	if tp.Kind[tid] != TypeUnion {
+		return NoIndex()
+	}
+	let vSt = int(tp.VariantStart[tid])
+	let vEn = vSt + int(tp.VariantLen[tid])
+	for vi in vSt..vEn {
+		let vid = tp.VariantItems[vi]
+		if tp.Kind[vid] == TypeStruct && tp.FieldLen[vid] == uint32(1) {
+			return ft.TypeID[int(tp.FieldStart[vid])]
+		}
+	}
+	NoIndex()
+}
+
+// FlatParamKey returns the JSON key of op's sole parameter when it is a plain
+// record whose fields become top-level tool arguments, or "".
+func FlatParamKey(tp TypePool, ot OpTable, ft FieldTable, oid uint32) string {
+	if ot.ParamLen[oid] != uint32(1) {
+		return ""
+	}
+	let pi = int(ot.ParamStart[oid])
+	let tid = ft.TypeID[pi]
+	if tp.TypeName[tid] == "" || tp.Kind[tid] != TypeStruct || tp.IsByName[tid] || tp.IsRefined[tid] || tp.WireForm[tid] != WireDefault {
+		return ""
+	}
+	ft.WireKey[pi]
+}
+
+func schemaObject(props []string, required []string) string {
+	let mut s = "{\"type\":\"object\",\"properties\":{" + strings.Join(props, ",") + "}"
+	if required.Len() > 0 {
+		s = s + ",\"required\":[" + strings.Join(required, ",") + "]"
+	}
+	s + "}"
+}
+
+func schemaOfType(tp TypePool, ft FieldTable, tid uint32, seen []string, scopeName string, where string) string fails GenError {
+	if tp.TypeName[tid] != "" {
+		return try schemaOfNamed(tp, ft, tid, seen, scopeName, where)
+	}
+	let k = tp.Kind[tid]
+	if k == TypeBasic {
+		let bn = typesBasicSchema(tp.BasicOrd[tid])
+		if bn != "" {
+			return bn
+		}
+	} else if k == TypeSlice {
+		let elem = try schemaOfType(tp, ft, tp.ElemType[tid], seen, scopeName, where)
+		return "{\"type\":\"array\",\"items\":" + elem + "}"
+	} else if k == TypeArray {
+		let elem = try schemaOfType(tp, ft, tp.ElemType[tid], seen, scopeName, where)
+		let n = strconv.Itoa(int(tp.ArrayLen[tid]))
+		return "{\"type\":\"array\",\"items\":" + elem + ",\"minItems\":" + n + ",\"maxItems\":" + n + "}"
+	} else if k == TypeTuple {
+		let st = int(tp.FieldStart[tid])
+		let ln = int(tp.FieldLen[tid])
+		let mut items = []string{}
+		for i in st..(st + ln) {
+			items = items.Append(try schemaOfType(tp, ft, ft.TypeID[i], seen, scopeName, where))
+		}
+		return "{\"type\":\"array\",\"prefixItems\":[" + strings.Join(items, ",") + "]}"
+	} else if k == TypeMap {
+		let elem = try schemaOfType(tp, ft, tp.ElemType[tid], seen, scopeName, where)
+		return "{\"type\":\"object\",\"additionalProperties\":" + elem + "}"
+	}
+	GenError{Reason: scopeName + "." + where + ": " + where + " has the type " + tp.PrintText[tid] + ", which has no JSON schema here"}
+}
+
+func typesBasicSchema(ord uint8) string {
+	let n = int(ord)
+	if n == 1 {
+		return "{\"type\":\"boolean\"}"
+	}
+	if n == 2 {
+		return "{\"type\":\"string\"}"
+	}
+	if (n >= 3 && n <= 12) {
+		return "{\"type\":\"integer\"}"
+	}
+	if n == 14 || n == 15 {
+		return "{\"type\":\"number\"}"
+	}
+	""
+}
+
+func schemaOfForm(tp TypePool, ft FieldTable, tid uint32, seen []string, scopeName string, where string) (string, bool) fails GenError {
+	let wf = tp.WireForm[tid]
+	if wf == WireBare {
+		return ("{}", true)
+	}
+	if wf == WireNumberText {
+		return ("{\"type\":\"number\"}", true)
+	}
+	if wf == WireNullable {
+		let pay = PayloadOf(tp, ft, tid)
+		if pay != NoIndex() {
+			let ps = try schemaOfType(tp, ft, pay, seen, scopeName, where)
+			return ("{\"anyOf\":[" + ps + ",{\"type\":\"null\"}]}", true)
+		}
+	}
+	if wf == WireMembers {
+		if tp.Kind[tid] == TypeStruct && tp.FieldLen[tid] == uint32(1) {
+			let listID = ft.TypeID[int(tp.FieldStart[tid])]
+			if tp.Kind[listID] == TypeSlice {
+				let entryID = tp.ElemType[listID]
+				if tp.Kind[entryID] == TypeStruct && tp.FieldLen[entryID] == uint32(2) {
+					let valType = ft.TypeID[int(tp.FieldStart[entryID])+1]
+					let vs = try schemaOfType(tp, ft, valType, seen, scopeName, where)
+					return ("{\"type\":\"object\",\"additionalProperties\":" + vs + "}", true)
+				}
+			}
+		}
+		return ("{\"type\":\"object\"}", true)
+	}
+	("", false)
+}
+
+func schemaOfNamed(tp TypePool, ft FieldTable, tid uint32, seen []string, scopeName string, where string) string fails GenError {
+	let (formStr, formOK) = try schemaOfForm(tp, ft, tid, seen, scopeName, where)
+	if formOK {
+		return formStr
+	}
+	if tp.IsByName[tid] && tp.ByNameBase[tid] != NoIndex() {
+		return try schemaOfType(tp, ft, tp.ByNameBase[tid], seen, scopeName, where)
+	}
+	if tp.IsRefined[tid] && tp.BaseType[tid] != NoIndex() {
+		let bt = tp.BaseType[tid]
+		if tp.TypeName[bt] != "" {
+			return try schemaOfNamed(tp, ft, bt, seen, scopeName, where)
+		}
+		if tp.Kind[bt] == TypeBasic {
+			let bs = typesBasicSchema(tp.BasicOrd[bt])
+			if bs != "" {
+				return bs
+			}
+		}
+		return try schemaOfType(tp, ft, bt, seen, scopeName, where)
+	}
+	let name = tp.PrintText[tid]
+	for s in seen {
+		if s == name {
+			return GenError{Reason: scopeName + "." + where + ": " + where + " reaches " + name + " again (a recursive type), which has no JSON schema here"}
+		}
+	}
+	let nextSeen = slices.Clone(seen).Append(name)
+	let k = tp.Kind[tid]
+	if k == TypeStruct {
+		return try schemaOfRecord(tp, ft, tid, "", nextSeen, scopeName, where)
+	}
+	if k == TypeUnion {
+		let vSt = int(tp.VariantStart[tid])
+		let vEn = vSt + int(tp.VariantLen[tid])
+		let mut vs = []string{}
+		for vi in vSt..vEn {
+			let vid = tp.VariantItems[vi]
+			if tp.TypeName[vid] == "" {
+				return GenError{Reason: scopeName + "." + where + ": a variant of " + name + " is not a record"}
+			}
+			if tp.Kind[vid] != TypeStruct {
+				return GenError{Reason: scopeName + "." + where + ": the variant " + tp.PrintText[vid] + " of " + name + " is not a record"}
+			}
+			vs = vs.Append(try schemaOfRecord(tp, ft, vid, tp.TypeName[vid], nextSeen, scopeName, where))
+		}
+		return "{\"anyOf\":[" + strings.Join(vs, ",") + "]}"
+	}
+	if k == TypeBasic {
+		let bn = typesBasicSchema(tp.BasicOrd[tid])
+		if bn != "" {
+			return bn
+		}
+	}
+	if k == TypeSlice || k == TypeArray || k == TypeMap || k == TypeTuple {
+		let bt = tp.BaseType[tid]
+		if bt != NoIndex() {
+			return try schemaOfType(tp, ft, bt, nextSeen, scopeName, where)
+		}
+	}
+	GenError{Reason: scopeName + "." + where + ": " + where + " has the type " + name + ", which has no JSON schema here"}
+}
+
+func schemaOfRecord(tp TypePool, ft FieldTable, tid uint32, tag string, seen []string, scopeName string, where string) string fails GenError {
+	let mut props = []string{}
+	let mut req = []string{}
+	if tag != "" {
+		props = props.Append("\"_tag\":{\"const\":" + JsonQuote(tag) + "}")
+		req = req.Append("\"_tag\"")
+	}
+	let st = int(tp.FieldStart[tid])
+	let ln = int(tp.FieldLen[tid])
+	for i in st..(st + ln) {
+		let key = ft.WireKey[i]
+		let fTid = ft.TypeID[i]
+		if tp.WireForm[fTid] == WireOmittable {
+			let pay = PayloadOf(tp, ft, fTid)
+			if pay != NoIndex() {
+				let ps = try schemaOfType(tp, ft, pay, seen, scopeName, where)
+				props = props.Append(JsonQuote(key) + ":" + ps)
+				continue
+			}
+		}
+		let fs = try schemaOfType(tp, ft, fTid, seen, scopeName, where)
+		props = props.Append(JsonQuote(key) + ":" + fs)
+		req = req.Append(JsonQuote(key))
+	}
+	schemaObject(props, req)
+}
+
+// TypeSchema computes the JSON Schema text for the standalone named type tid.
+func TypeSchema(tp TypePool, ft FieldTable, tid uint32, typeName string) string fails GenError {
+	try schemaOfNamed(tp, ft, tid, []string{}, typeName, "value")
+}
+
+// ArgumentSchema computes the JSON Schema text for operation oid's arguments.
+func ArgumentSchema(tp TypePool, ot OpTable, ft FieldTable, st SpecTable, sid uint32, oid uint32) string fails GenError {
+	let scopeName = st.OpName[sid]
+	let opName = ot.Name[oid]
+	if FlatParamKey(tp, ot, ft, oid) != "" {
+		let pi = int(ot.ParamStart[oid])
+		return try schemaOfType(tp, ft, ft.TypeID[pi], []string{}, scopeName, opName+" "+ft.Name[pi])
+	}
+	let pSt = int(ot.ParamStart[oid])
+	let pEn = pSt + int(ot.ParamLen[oid])
+	let mut props = []string{}
+	let mut req = []string{}
+	for pi in pSt..pEn {
+		let key = ft.WireKey[pi]
+		let fs = try schemaOfType(tp, ft, ft.TypeID[pi], []string{}, scopeName, opName+" "+ft.Name[pi])
+		props = props.Append(JsonQuote(key) + ":" + fs)
+		req = req.Append(JsonQuote(key))
+	}
+	schemaObject(props, req)
+}
+
+let jNull uint8 = uint8(1)
+let jBool uint8 = uint8(2)
+let jNum uint8 = uint8(3)
+let jStr uint8 = uint8(4)
+let jArr uint8 = uint8(5)
+let jObj uint8 = uint8(6)
+
+type jsonPool {
+	Kind       []uint8,
+	Text       []string,
+	ItemStart  []uint32,
+	ItemLen    []uint32,
+	ArrItems   []uint32,
+	MemberKeys []string,
+	MemberVals []uint32,
+}
+
+func newJsonPool() jsonPool {
+	jsonPool{
+		Kind:       []uint8{},
+		Text:       []string{},
+		ItemStart:  []uint32{},
+		ItemLen:    []uint32{},
+		ArrItems:   []uint32{},
+		MemberKeys: []string{},
+		MemberVals: []uint32{},
+	}
+}
+
+func addJsonNode(p mut jsonPool, k uint8, text string) uint32 {
+	let id = uint32(p.Kind.Len())
+	p.Kind = p.Kind.Append(k)
+	p.Text = p.Text.Append(text)
+	p.ItemStart = p.ItemStart.Append(uint32(0))
+	p.ItemLen = p.ItemLen.Append(uint32(0))
+	id
+}
+
+func skipWS(src string, pos0 int) int {
+	let mut pos = pos0
+	for pos < src.Len() {
+		let c = src[pos]
+		if c == ' ' || c == '\t' || c == '\n' || c == '\r' {
+			pos = pos + 1
+		} else {
+			break
+		}
+	}
+	pos
+}
+
+func parseJsonStr(src string, pos0 int) (string, int) fails GenError {
+	if pos0 >= src.Len() || src[pos0] != '"' {
+		return GenError{Reason: "schema json: expected string"}
+	}
+	let mut i = pos0 + 1
+	for i < src.Len() {
+		let c = src[i]
+		if c == '\\' {
+			if i+1 >= src.Len() {
+				return GenError{Reason: "schema json: unterminated escape"}
+			}
+			i = i + 2
+			continue
+		}
+		if c == '"' {
+			let raw = src[pos0 : i+1]
+			let val = strconv.Unquote(raw) catch {
+			case strconv.Malformed:
+				return GenError{Reason: "schema json: invalid string literal"}
+			}
+			return (val, i + 1)
+		}
+		i = i + 1
+	}
+	GenError{Reason: "schema json: unterminated string"}
+}
+
+func parseJsonValue(src string, pos0 int, p mut jsonPool) (uint32, int) fails GenError {
+	let pos = skipWS(src, pos0)
+	if pos >= src.Len() {
+		return GenError{Reason: "schema json: unexpected EOF"}
+	}
+	let c = src[pos]
+	if c == '{' {
+		let mut at = skipWS(src, pos+1)
+		let mut keys = []string{}
+		let mut vals = []uint32{}
+		if at < src.Len() && src[at] == '}' {
+			let id = addJsonNode(p, jObj, "")
+			return (id, at + 1)
+		}
+		for true {
+			at = skipWS(src, at)
+			let (k, afterK) = try parseJsonStr(src, at)
+			at = skipWS(src, afterK)
+			if at >= src.Len() || src[at] != ':' {
+				return GenError{Reason: "schema json: expected ':'"}
+			}
+			let (vID, afterV) = try parseJsonValue(src, at+1, p)
+			keys = keys.Append(k)
+			vals = vals.Append(vID)
+			at = skipWS(src, afterV)
+			if at < src.Len() && src[at] == ',' {
+				at = at + 1
+				continue
+			}
+			if at < src.Len() && src[at] == '}' {
+				at = at + 1
+				break
+			}
+			return GenError{Reason: "schema json: expected ',' or '}'"}
+		}
+		let id = addJsonNode(p, jObj, "")
+		let mSt = uint32(p.MemberKeys.Len())
+		for i in 0..keys.Len() {
+			p.MemberKeys = p.MemberKeys.Append(keys[i])
+			p.MemberVals = p.MemberVals.Append(vals[i])
+		}
+		p.ItemStart[id] = mSt
+		p.ItemLen[id] = uint32(keys.Len())
+		return (id, at)
+	}
+	if c == '[' {
+		let mut at = skipWS(src, pos+1)
+		let mut items = []uint32{}
+		if at < src.Len() && src[at] == ']' {
+			let id = addJsonNode(p, jArr, "")
+			return (id, at + 1)
+		}
+		for true {
+			let (vID, afterV) = try parseJsonValue(src, at, p)
+			items = items.Append(vID)
+			at = skipWS(src, afterV)
+			if at < src.Len() && src[at] == ',' {
+				at = at + 1
+				continue
+			}
+			if at < src.Len() && src[at] == ']' {
+				at = at + 1
+				break
+			}
+			return GenError{Reason: "schema json: expected ',' or ']'"}
+		}
+		let id = addJsonNode(p, jArr, "")
+		let aSt = uint32(p.ArrItems.Len())
+		for item in items {
+			p.ArrItems = p.ArrItems.Append(item)
+		}
+		p.ItemStart[id] = aSt
+		p.ItemLen[id] = uint32(items.Len())
+		return (id, at)
+	}
+	if c == '"' {
+		let (s, afterS) = try parseJsonStr(src, pos)
+		let id = addJsonNode(p, jStr, s)
+		return (id, afterS)
+	}
+	if strings.HasPrefix(src[pos:src.Len()], "true") {
+		let id = addJsonNode(p, jBool, "true")
+		return (id, pos + 4)
+	}
+	if strings.HasPrefix(src[pos:src.Len()], "false") {
+		let id = addJsonNode(p, jBool, "false")
+		return (id, pos + 5)
+	}
+	if strings.HasPrefix(src[pos:src.Len()], "null") {
+		let id = addJsonNode(p, jNull, "null")
+		return (id, pos + 4)
+	}
+	if (c >= '0' && c <= '9') || c == '-' {
+		let mut at = pos + 1
+		for at < src.Len() {
+			let ch = src[at]
+			if (ch >= '0' && ch <= '9') || ch == '.' || ch == 'e' || ch == 'E' || ch == '+' || ch == '-' {
+				at = at + 1
+			} else {
+				break
+			}
+		}
+		let id = addJsonNode(p, jNum, src[pos:at])
+		return (id, at)
+	}
+	GenError{Reason: "schema json: unexpected token"}
+}
+
+func objGet(p jsonPool, oid uint32, key string) option.Option[uint32] {
+	let st = int(p.ItemStart[oid])
+	let ln = int(p.ItemLen[oid])
+	for i in st..(st + ln) {
+		if p.MemberKeys[i] == key {
+			return option.Some[uint32]{Value: p.MemberVals[i]}
+		}
+	}
+	option.None
+}
+
+func nodeToSchemaExpr(p jsonPool, nid uint32) string fails GenError {
+	if p.Kind[nid] != jObj {
+		return GenError{Reason: "schema must be a JSON object"}
+	}
+	let nKeys = int(p.ItemLen[nid])
+	if nKeys == 0 {
+		return "jsonschema.Any()"
+	}
+	if nKeys == 1 {
+		match objGet(p, nid, "const") {
+		case option.Some{Value: cid}:
+			if p.Kind[cid] != jStr {
+				return GenError{Reason: "const must be a string"}
+			}
+			return "jsonschema.ConstString(" + Lit(p.Text[cid]) + ")"
+		case option.None:
+		}
+		match objGet(p, nid, "anyOf") {
+		case option.Some{Value: aid}:
+			if p.Kind[aid] != jArr || p.ItemLen[aid] == uint32(0) {
+				return GenError{Reason: "anyOf must be a non-empty array"}
+			}
+			let st = int(p.ItemStart[aid])
+			let ln = int(p.ItemLen[aid])
+			let first = try nodeToSchemaExpr(p, p.ArrItems[st])
+			let mut rest = []string{}
+			for i in (st + 1)..(st + ln) {
+				rest = rest.Append(try nodeToSchemaExpr(p, p.ArrItems[i]))
+			}
+			return "jsonschema.AnyOf(" + first + ", []jsonschema.Schema{" + strings.Join(rest, ", ") + "})"
+		case option.None:
+		}
+	}
+	let typID = match objGet(p, nid, "type") {
+	case option.Some{Value: tid}:
+		tid
+	case option.None:
+		return GenError{Reason: "unsupported schema object keys"}
+	}
+	if p.Kind[typID] != jStr {
+		return GenError{Reason: "schema type must be a string"}
+	}
+	let typ = p.Text[typID]
+	if typ == "null" && nKeys == 1 {
+		return "jsonschema.Null()"
+	}
+	if typ == "boolean" && nKeys == 1 {
+		return "jsonschema.Bool()"
+	}
+	if typ == "string" && nKeys == 1 {
+		return "jsonschema.String()"
+	}
+	if typ == "integer" && nKeys == 1 {
+		return "jsonschema.Integer()"
+	}
+	if typ == "number" && nKeys == 1 {
+		return "jsonschema.Number()"
+	}
+	if typ == "array" {
+		match objGet(p, nid, "items") {
+		case option.Some{Value: itemsID}:
+			let elem = try nodeToSchemaExpr(p, itemsID)
+			if nKeys == 2 {
+				return "jsonschema.Array(" + elem + ")"
+			}
+			if nKeys == 4 {
+				match objGet(p, nid, "minItems") {
+				case option.Some{Value: minID}:
+					match objGet(p, nid, "maxItems") {
+					case option.Some{Value: maxID}:
+						if p.Kind[minID] == jNum && p.Kind[maxID] == jNum {
+							let minN = strconv.Atoi(p.Text[minID]) catch {
+							case strconv.Malformed, strconv.OutOfRange:
+								-1
+							}
+							let maxN = strconv.Atoi(p.Text[maxID]) catch {
+							case strconv.Malformed, strconv.OutOfRange:
+								-2
+							}
+							if minN >= 0 && minN == maxN {
+								return "jsonschema.FixedArray(" + elem + ", " + strconv.Itoa(minN) + ")"
+							}
+						}
+					case option.None:
+					}
+				case option.None:
+				}
+			}
+		case option.None:
+		}
+		match objGet(p, nid, "prefixItems") {
+		case option.Some{Value: prefID}:
+			if nKeys == 2 {
+				if p.Kind[prefID] != jArr {
+					return GenError{Reason: "prefixItems must be an array"}
+				}
+				let st = int(p.ItemStart[prefID])
+				let ln = int(p.ItemLen[prefID])
+				let mut elems = []string{}
+				for i in st..(st + ln) {
+					elems = elems.Append(try nodeToSchemaExpr(p, p.ArrItems[i]))
+				}
+				return "jsonschema.Tuple([]jsonschema.Schema{" + strings.Join(elems, ", ") + "})"
+			}
+		case option.None:
+		}
+	}
+	if typ == "object" {
+		if nKeys == 1 {
+			return "jsonschema.ObjectAny()"
+		}
+		match objGet(p, nid, "additionalProperties") {
+		case option.Some{Value: addID}:
+			if nKeys == 2 {
+				let add = try nodeToSchemaExpr(p, addID)
+				return "jsonschema.Record(" + add + ")"
+			}
+		case option.None:
+		}
+		match objGet(p, nid, "properties") {
+		case option.Some{Value: propsID}:
+			if p.Kind[propsID] != jObj {
+				return GenError{Reason: "properties must be an object"}
+			}
+			let pSt = int(p.ItemStart[propsID])
+			let pLn = int(p.ItemLen[propsID])
+			let mut props = []string{}
+			for i in pSt..(pSt + pLn) {
+				let e = try nodeToSchemaExpr(p, p.MemberVals[i])
+				props = props.Append("jsonschema.Prop{Key: " + Lit(p.MemberKeys[i]) + ", Schema: " + e + "}")
+			}
+			let mut req = []string{}
+			match objGet(p, nid, "required") {
+			case option.Some{Value: reqID}:
+				if nKeys != 3 {
+					return GenError{Reason: "unexpected extra keys in object schema"}
+				}
+				if p.Kind[reqID] != jArr {
+					return GenError{Reason: "required must be an array"}
+				}
+				let rSt = int(p.ItemStart[reqID])
+				let rLn = int(p.ItemLen[reqID])
+				for i in rSt..(rSt + rLn) {
+					let rid = p.ArrItems[i]
+					if p.Kind[rid] != jStr {
+						return GenError{Reason: "required entry must be a string"}
+					}
+					req = req.Append(Lit(p.Text[rid]))
+				}
+			case option.None:
+				if nKeys != 2 {
+					return GenError{Reason: "unexpected extra keys in object schema"}
+				}
+			}
+			return "jsonschema.Object([]jsonschema.Prop{" + strings.Join(props, ", ") + "}, []string{" + strings.Join(req, ", ") + "})"
+		case option.None:
+		}
+	}
+	GenError{Reason: "unsupported schema shape for type " + strconv.Quote(typ)}
+}
+
+// SchemaExpr converts a JSON Schema string into a typed jsonschema.Schema
+// expression preserving object member order.
+func SchemaExpr(text string) string fails GenError {
+	let mut p = newJsonPool()
+	let (root, after) = try parseJsonValue(text, 0, &p)
+	let rest = skipWS(text, after)
+	if rest < text.Len() {
+		return GenError{Reason: "schema json: trailing tokens"}
+	}
+	try nodeToSchemaExpr(p, root)
+}
+
+// GeneratedPkg holds the relative directory, file contents, and marker of one
+// generated package.
+type GeneratedPkg {
+	Dir       string,
+	FileNames []string,
+	FileTexts []string,
+	Marker    GenMarker,
+}
+
+// GenerateSchema builds <pkg>schema/<type>.ergo for standalone type typeName.
+func GenerateSchema(lp mut LoadedProgram, tp mut TypePool, ft mut FieldTable, typeName string) GeneratedPkg fails GenError {
+	let tid = try BuildNamedType(lp, tp, ft, typeName)
+	let schemaText = try TypeSchema(*tp, *ft, tid, typeName)
+	let expr = try SchemaExpr(schemaText)
+	let pkgName = LastElem(lp.PkgPath)
+	let q = pkgName + "." + typeName
+	let lower = strings.ToLower(typeName[0:1]) + typeName[1:typeName.Len()]
+	let mut b = strings.NewBuilder()
+	b.WriteString("import json\nimport jsonschema\nimport " + lp.PkgPath + "\n\n")
+	b.WriteString("func " + typeName + "() jsonschema.Schema { " + lower + "Schema }\n\n")
+	b.WriteString("let " + lower + "Schema = " + expr + "\n\n")
+	b.WriteString("law " + typeName + "ValuesFitTheSchema(v " + q + ") {\n\tlet written = json.Decode(json.Codec[json.Value]{MaxBytes: 0, MaxDepth: 0}, json.Encode(json.Codec[" + q + "]{MaxBytes: 0, MaxDepth: 0}, v)) catch {\n\tcase _:\n\t\treturn false\n\t}\n\tjsonschema.Conforms(" + typeName + "(), written)\n}\n")
+	let out = try Source(b.String())
+	GeneratedPkg{
+		Dir:       SchemaDir(pkgName),
+		FileNames: []string{strings.ToLower(typeName) + ".ergo"},
+		FileTexts: []string{out},
+		Marker:    GenMarker{
+			Kind:      "schema",
+			Generator: "ergo gen schema",
+			Subjects:  []string{lp.PkgPath + "." + typeName},
+			Contract:  "",
+			Digest:    "",
+		},
+	}
+}
+
+// GenerateSchemas builds the full schema package for typeName together with any
+// existing subjects already registered in <dir>/<pkg>schema/ergo.gen.
+func GenerateSchemas(lp mut LoadedProgram, tp mut TypePool, ft mut FieldTable, dir string, typeName string) GeneratedPkg fails GenError needs fs.Files {
+	let mut out = try GenerateSchema(lp, tp, ft, typeName)
+	let markerDir = dir + "/" + out.Dir
+	let (marker, ok) = ReadMarker(markerDir) catch {
+	case MarkerIOError as e:
+		return GenError{Reason: e.Reason}
+	case BadMarker as e:
+		return GenError{Reason: e.Reason}
+	}
+	if ok && marker.Kind == "schema" {
+		for subject in marker.Subjects {
+			let (from, other, splitOK) = SplitSubject(subject)
+			if !splitOK || from != lp.PkgPath {
+				return GenError{Reason: out.Dir + ": schema subject " + strconv.Quote(subject) + " is not from " + lp.PkgPath}
+			}
+			if slices.Contains(out.Marker.Subjects, subject) {
+				continue
+			}
+			let next = try GenerateSchema(lp, tp, ft, other)
+			for i in 0..next.FileNames.Len() {
+				let fn = next.FileNames[i]
+				if slices.Contains(out.FileNames, fn) {
+					return GenError{Reason: out.Dir + ": " + typeName + " and " + other + " generate the same file " + fn}
+				}
+				out.FileNames = out.FileNames.Append(fn)
+				out.FileTexts = out.FileTexts.Append(next.FileTexts[i])
+			}
+			out.Marker.Subjects = out.Marker.Subjects.Append(subject)
+		}
+	}
+	out.Marker.Subjects = slices.Sort(out.Marker.Subjects)
+	out
+}
+
+// SchemaExprCoversAllShapes: SchemaExpr lowers every canonical JSON Schema
+// construct into typed jsonschema calls and preserves object property order.
+law SchemaExprCoversAllShapes(k1 string, k2 string) {
+	let obj = "{\"type\":\"object\",\"properties\":{" + JsonQuote("a_"+k1) + ":{\"type\":\"integer\"}," + JsonQuote("b_"+k2) + ":{\"anyOf\":[{\"type\":\"string\"},{\"type\":\"null\"}]}},\"required\":[" + JsonQuote("a_"+k1) + "]}"
+	let e = SchemaExpr(obj) catch {
+	case GenError:
+		""
+	}
+	let empty = SchemaExpr("{}") catch {
+	case GenError:
+		""
+	}
+	let c = SchemaExpr("{\"const\":\"Card\"}") catch {
+	case GenError:
+		""
+	}
+	let arr = SchemaExpr("{\"type\":\"array\",\"items\":{\"type\":\"boolean\"},\"minItems\":3,\"maxItems\":3}") catch {
+	case GenError:
+		""
+	}
+	let tup = SchemaExpr("{\"type\":\"array\",\"prefixItems\":[{\"type\":\"number\"},{\"type\":\"string\"}]}") catch {
+	case GenError:
+		""
+	}
+	let rec = SchemaExpr("{\"type\":\"object\",\"additionalProperties\":{\"type\":\"integer\"}}") catch {
+	case GenError:
+		""
+	}
+		strings.Contains(e, "jsonschema.Object") &&
+		strings.Contains(e, "jsonschema.AnyOf(jsonschema.String(), []jsonschema.Schema{jsonschema.Null()})") &&
+		empty == "jsonschema.Any()" &&
+		c == "jsonschema.ConstString(\"Card\")" &&
+		arr == "jsonschema.FixedArray(jsonschema.Bool(), 3)" &&
+		tup == "jsonschema.Tuple([]jsonschema.Schema{jsonschema.Number(), jsonschema.String()})" &&
+		rec == "jsonschema.Record(jsonschema.Integer())"
+}

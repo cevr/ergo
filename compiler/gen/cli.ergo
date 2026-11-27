@@ -1,0 +1,700 @@
+import compiler/check/types
+import slices
+import strconv
+import strings
+
+let cliJsonMaxBytes = 1048576
+let cliJsonMaxDepth = 64
+
+type cliOmittable {
+	ok      bool,
+	absent  uint32,
+	present uint32,
+	field   string,
+	elem    uint32,
+}
+
+type cliCommand {
+	opName    string,
+	name      string,
+	decls     []string,
+	build     []string,
+	print     []string,
+	flags     []string,
+	n         int,
+	args      []string,
+	variant   string,
+	resultTID uint32,
+	failStart int,
+	failLen   int,
+}
+
+func isCLIReservedName(name string) bool {
+	let fixed = []string{
+		"done", "rejected", "reply", "failure", "args", "asJSON", "rest", "i",
+		"a", "r", "h", "err", "x", "v", "e", "s", "out", "back", "encoded",
+		"plain", "tagged", "o", "text", "t", "c", "w", "g", "answer", "carry",
+		"runOver", "p", "q", "d", "k", "f", "same", "yes", "globals", "usage",
+		"line", "front", "frontOf", "asked", "ended", "needsYes", "declined",
+		"shell",
+	}
+	if slices.Contains(fixed, name) {
+		return true
+	}
+	if name.Len() >= 2 {
+		let ch = name[0]
+		if ch == 'f' || ch == 'a' || ch == 't' || ch == 'n' || ch == 'u' || ch == 'j' {
+			let mut allDigits = true
+			for i in 1..name.Len() {
+				if name[i] < '0' || name[i] > '9' {
+					allDigits = false
+					break
+				}
+			}
+			if allDigits {
+				return true
+			}
+		}
+	}
+	false
+}
+
+func cliCheckNames(opName string, impPaths []string, impNames []string) fails GenError {
+	let mut seenNames = []string{}
+	let mut seenPaths = []string{}
+	for i in 0..impPaths.Len() {
+		let nm = impNames[i]
+		let pt = impPaths[i]
+		if isCLIReservedName(nm) {
+			return GenError{Reason: opName + ": the package " + nm + " is one the generated code names as a local; rename it"}
+		}
+		for j in 0..seenNames.Len() {
+			if seenNames[j] == nm {
+				return GenError{Reason: opName + ": the packages " + seenPaths[j] + " and " + pt + " have one name, " + nm + ", in the generated code; rename one"}
+			}
+		}
+		seenNames = seenNames.Append(nm)
+		seenPaths = seenPaths.Append(pt)
+	}
+}
+
+func cliScalar(tp TypePool, ft FieldTable, pkgPath string, tid uint32, impPaths mut []string, impNames mut []string) (string, string, bool) {
+	if tp.Kind[tid] != TypeBasic {
+		return ("", "", false)
+	}
+	if tp.ArgLen[tid] > uint32(0) || tp.IsRefined[tid] {
+		return ("", "", false)
+	}
+	let conv = if tp.TypeName[tid] != "" {
+		TupleExpr(tp, ft, pkgPath, tid, impPaths, impNames)
+	} else {
+		""
+	}
+	let bName = types.BasicName(int(tp.BasicOrd[tid]))
+	if bName == "string" || bName == "int" || bName == "int64" || bName == "bool" {
+		return (bName, conv, true)
+	}
+	("", "", false)
+}
+
+func cliConvert(kind string, conv string, e string) string {
+	let mut out = e
+	if kind == "int64" {
+		out = "int64(" + out + ")"
+	}
+	if conv != "" {
+		out = conv + "(" + out + ")"
+	}
+	out
+}
+
+func cliBasicElem(tp TypePool, tid uint32) string {
+	if tp.TypeName[tid] != "" || tp.Kind[tid] != TypeBasic {
+		return ""
+	}
+	let bName = types.BasicName(int(tp.BasicOrd[tid]))
+	if bName == "string" || bName == "int" || bName == "bool" {
+		return bName
+	}
+	""
+}
+
+func cliOptionOf(tp TypePool, tid uint32) (uint32, bool) {
+	if tp.TypeName[tid] != "Option" || tp.ArgLen[tid] != uint32(1) {
+		return (NoIndex(), false)
+	}
+	if tp.PkgPath[tid] != "option" && tp.PkgPath[tid] != "prelude" {
+		return (NoIndex(), false)
+	}
+	(tp.ArgItems[int(tp.ArgStart[tid])], true)
+}
+
+func cliOmittableOf(tp TypePool, ft FieldTable, tid uint32) cliOmittable {
+	if tp.WireForm[tid] != WireOmittable || tp.Kind[tid] != TypeUnion || tp.VariantLen[tid] != uint32(2) {
+		return cliOmittable{ok: false, absent: NoIndex(), present: NoIndex(), field: "", elem: NoIndex()}
+	}
+	let vSt = int(tp.VariantStart[tid])
+	let vEn = vSt + 2
+	let mut absent = NoIndex()
+	let mut present = NoIndex()
+	let mut field = ""
+	let mut elem = NoIndex()
+	for vi in vSt..vEn {
+		let vid = tp.VariantItems[vi]
+		if tp.Kind[vid] != TypeStruct {
+			continue
+		}
+		if tp.FieldLen[vid] == uint32(0) {
+			absent = vid
+		} else if tp.FieldLen[vid] == uint32(1) {
+			present = vid
+			let fi = int(tp.FieldStart[vid])
+			field = ft.Name[fi]
+			elem = ft.TypeID[fi]
+		}
+	}
+	cliOmittable{ok: absent != NoIndex() && present != NoIndex(), absent: absent, present: present, field: field, elem: elem}
+}
+
+func cliRecordOf(tp TypePool, tid uint32) bool {
+	if tp.TypeName[tid] == "" || tp.ArgLen[tid] > uint32(0) || tp.IsRefined[tid] {
+		return false
+	}
+	tp.Kind[tid] == TypeStruct && !tp.UnexportedField[tid]
+}
+
+func cliChoice(tp TypePool, tid uint32) ([]uint32, bool) {
+	if tp.TypeName[tid] == "" || tp.ArgLen[tid] > uint32(0) || tp.Kind[tid] != TypeUnion || tp.VariantLen[tid] == uint32(0) {
+		return ([]uint32{}, false)
+	}
+	let vSt = int(tp.VariantStart[tid])
+	let vEn = vSt + int(tp.VariantLen[tid])
+	let mut out = []uint32{}
+	for vi in vSt..vEn {
+		let vid = tp.VariantItems[vi]
+		if tp.TypeName[vid] == "" || tp.Kind[vid] != TypeStruct || tp.FieldLen[vid] > uint32(0) {
+			return ([]uint32{}, false)
+		}
+		out = out.Append(vid)
+	}
+	(out, true)
+}
+
+func cliIsFlat(tp TypePool, ft FieldTable, tid uint32, seen []string) bool {
+	let mut dummyP = []string{}
+	let mut dummyN = []string{}
+	let (_, _, sOK) = cliScalar(tp, ft, "", tid, &dummyP, &dummyN)
+	if sOK {
+		return true
+	}
+	let (_, cOK) = cliChoice(tp, tid)
+	if cOK {
+		return true
+	}
+	if tp.Kind[tid] == TypeSlice && tp.TypeName[tid] == "" {
+		return cliBasicElem(tp, tp.ElemType[tid]) != ""
+	}
+	let (optElem, optOK) = cliOptionOf(tp, tid)
+	if optOK {
+		let k = cliBasicElem(tp, optElem)
+		return k == "string" || k == "int"
+	}
+	let om = cliOmittableOf(tp, ft, tid)
+	if om.ok {
+		let (k, _, ok) = cliScalar(tp, ft, "", om.elem, &dummyP, &dummyN)
+		return ok && (k == "string" || k == "int")
+	}
+	if cliRecordOf(tp, tid) {
+		let name = tp.PrintText[tid]
+		if slices.Contains(seen, name) {
+			return false
+		}
+		let nextSeen = slices.Clone(seen).Append(name)
+		let fSt = int(tp.FieldStart[tid])
+		let fEn = fSt + int(tp.FieldLen[tid])
+		for fi in fSt..fEn {
+			if !cliIsFlat(tp, ft, ft.TypeID[fi], nextSeen) {
+				return false
+			}
+		}
+		return true
+	}
+	false
+}
+
+func cliLocal(c mut cliCommand, prefix string) string {
+	let res = prefix + strconv.Itoa(c.n)
+	c.n = c.n + 1
+	res
+}
+
+func cliNoForm(opTypeName string, opName string, where string, tPrint string) GenError {
+	GenError{Reason: opTypeName + "." + opName + ": " + where + " has the type " + tPrint + ", which has no command-line form: a flag is a string, an int, an int64 or a bool (or a type defined over one), a slice of a plain string, int or bool, an Option of a plain string or int, a WireOmittable (such as json.Optional) of a string or int (or a type defined over one), or a record of them; a positional argument is a string, an int, an int64 or a bool"}
+}
+
+func cliOptFlagCtor(kind string) string {
+	if kind == "int" { "OptionalInt" } else { "OptionalString" }
+}
+
+func cliLeaf(tp TypePool, ft FieldTable, pkgPath string, opTypeName string, c mut cliCommand, tid uint32, name string, path string, acc string, seen []string, impPaths mut []string, impNames mut []string) string fails GenError {
+	if cliRecordOf(tp, tid) {
+		return try cliRecord(tp, ft, pkgPath, opTypeName, c, tid, name+".", path, acc, seen, impPaths, impNames)
+	}
+	if slices.Contains(c.flags, name) {
+		return GenError{Reason: opTypeName + "." + c.opName + ": two fields have the flag -" + name}
+	}
+	c.flags = c.flags.Append(name)
+	let ex = TupleExpr(tp, ft, pkgPath, tid, impPaths, impNames)
+	let usage = path + " (" + ex + ")"
+	let f = cliLocal(c, "f")
+	let (vs, isChoice) = cliChoice(tp, tid)
+	if isChoice {
+		let mut words = []string{}
+		let mut arms = []string{}
+		let mut prints = []string{}
+		let mut seenWord = []string{}
+		for vid in vs {
+			let w = Kebab(tp.TypeName[vid])
+			if slices.Contains(seenWord, w) {
+				return GenError{Reason: opTypeName + "." + c.opName + ": two variants of " + path + " have the word " + w}
+			}
+			seenWord = seenWord.Append(w)
+			let vEx = TupleExpr(tp, ft, pkgPath, vid, impPaths, impNames)
+			words = words.Append(Quote(w))
+			arms = arms.Append("case " + Quote(w) + ":\n" + vEx)
+			prints = prints.Append("case " + vEx + ":\nout = out.Append(\"-" + name + "=" + w + "\")")
+		}
+		c.decls = c.decls.Append("let " + f + " = flag.Choice(" + Quote(name) + ", \"\", []string{" + strings.Join(words, ", ") + "}, " + Quote(usage) + ")")
+		let k = cliLocal(c, "u")
+		c.build = c.build.Append("let " + k + " = match " + f + ".Get(v) {\n" + strings.Join(arms, "\n") + "\ncase _:\nreturn flag.Missing{Name: " + Quote(name) + "}\n}")
+		c.print = c.print.Append("match " + acc + " {\n" + strings.Join(prints, "\n") + "\n}")
+		return k
+	}
+	let (sKind, sConv, sOK) = cliScalar(tp, ft, pkgPath, tid, impPaths, impNames)
+	if sOK {
+		if sKind == "string" {
+			c.decls = c.decls.Append("let " + f + " = flag.RequiredString(" + Quote(name) + ", " + Quote(usage) + ")")
+		} else if sKind == "int" || sKind == "int64" {
+			c.decls = c.decls.Append("let " + f + " = flag.RequiredInt(" + Quote(name) + ", " + Quote(usage) + ")")
+		} else if sKind == "bool" {
+			c.decls = c.decls.Append("let " + f + " = flag.Bool(" + Quote(name) + ", false, " + Quote(usage) + ")")
+		}
+		c.print = c.print.Append("out = out.Append(\"-" + name + "=\\(" + acc + ")\")")
+		return cliConvert(sKind, sConv, f+".Get(v)")
+	}
+	if tp.Kind[tid] == TypeSlice && tp.TypeName[tid] == "" {
+		let bk = cliBasicElem(tp, tp.ElemType[tid])
+		if bk != "" {
+			let defVal = if bk == "string" { "\"\"" } else if bk == "int" { "0" } else { "false" }
+			let ctor = if bk == "string" { "String" } else if bk == "int" { "Int" } else { "Bool" }
+			c.decls = c.decls.Append("let " + f + " = flag." + ctor + "(" + Quote(name) + ", " + defVal + ", " + Quote(usage) + ").Repeated()")
+			c.print = c.print.Append("for e in " + acc + " {\nout = out.Append(\"-" + name + "=\\(e)\")\n}")
+			return f + ".Get(v)"
+		}
+	}
+	let (optElem, optOK) = cliOptionOf(tp, tid)
+	if optOK {
+		let bk = cliBasicElem(tp, optElem)
+		if bk == "string" || bk == "int" {
+			c.decls = c.decls.Append("let " + f + " = flag." + cliOptFlagCtor(bk) + "(" + Quote(name) + ", " + Quote(usage) + ")")
+			c.print = c.print.Append("match " + acc + " {\ncase option.Some[" + bk + "] as s:\nout = out.Append(\"-" + name + "=\\(s.Value)\")\ncase option.None:\n}")
+			return f + ".Get(v)"
+		}
+	}
+	let om = cliOmittableOf(tp, ft, tid)
+	if om.ok {
+		let (k, conv, ok) = cliScalar(tp, ft, pkgPath, om.elem, impPaths, impNames)
+		if ok && (k == "string" || k == "int") {
+			c.decls = c.decls.Append("let " + f + " = flag." + cliOptFlagCtor(k) + "(" + Quote(name) + ", " + Quote(usage) + ")")
+			let presentExpr = TupleExpr(tp, ft, pkgPath, om.present, impPaths, impNames)
+			let absentExpr = TupleExpr(tp, ft, pkgPath, om.absent, impPaths, impNames)
+			let val = cliConvert(k, conv, "s.Value")
+			let u = cliLocal(c, "u")
+			c.build = c.build.Append("let " + u + " = match " + f + ".Get(v) {\ncase option.Some[" + k + "] as s:\n" + presentExpr + "{" + om.field + ": " + val + "}\ncase option.None:\n" + absentExpr + "\n}")
+			c.print = c.print.Append("match " + acc + " {\ncase " + presentExpr + " as s:\nout = out.Append(\"-" + name + "=\\(s." + om.field + ")\")\ncase " + absentExpr + ":\n}")
+			return u
+		}
+	}
+	cliNoForm(opTypeName, c.opName, "the field "+path, tp.PrintText[tid])
+}
+
+func cliRecord(tp TypePool, ft FieldTable, pkgPath string, opTypeName string, c mut cliCommand, tid uint32, prefix string, path string, acc string, seen []string, impPaths mut []string, impNames mut []string) string fails GenError {
+	let pText = tp.PrintText[tid]
+	if slices.Contains(seen, pText) {
+		return GenError{Reason: opTypeName + "." + c.opName + ": " + path + " is recursive (" + pText + "), so it has no command-line form"}
+	}
+	let nextSeen = slices.Clone(seen).Append(pText)
+	let fSt = int(tp.FieldStart[tid])
+	let fEn = fSt + int(tp.FieldLen[tid])
+	let mut parts = []string{}
+	for fi in fSt..fEn {
+		let fName = prefix + Kebab(ft.WireKey[fi])
+		let fPath = path + "." + ft.Name[fi]
+		let fAcc = acc + "." + ft.Name[fi]
+		let e = try cliLeaf(tp, ft, pkgPath, opTypeName, c, ft.TypeID[fi], fName, fPath, fAcc, nextSeen, impPaths, impNames)
+		parts = parts.Append(ft.Name[fi] + ": " + e)
+	}
+	let rEx = TupleExpr(tp, ft, pkgPath, tid, impPaths, impNames)
+	if parts.Len() == 0 {
+		return rEx
+	}
+	rEx + "{" + strings.Join(parts, ", ") + "}"
+}
+
+func cliJsonFlag(tp TypePool, ft FieldTable, pkgPath string, opTypeName string, c mut cliCommand, tid uint32, name string, path string, acc string, impPaths mut []string, impNames mut []string) string fails GenError {
+	if slices.Contains(c.flags, name) {
+		return GenError{Reason: opTypeName + "." + c.opName + ": two parameters have the flag -" + name}
+	}
+	c.flags = c.flags.Append(name)
+	let f = cliLocal(c, "f")
+	let ex = TupleExpr(tp, ft, pkgPath, tid, impPaths, impNames)
+	let usage = path + " (" + ex + ", as JSON)"
+	c.decls = c.decls.Append("let " + f + " = flag.RequiredString(" + Quote(name) + ", " + Quote(usage) + ")")
+	let j = cliLocal(c, "j")
+	let escapedType = strings.ReplaceAll(ex, "\"", "'")
+	c.build = c.build.Append("let " + j + " = json.Decode(json.Codec[" + ex + "]{MaxBytes: " + strconv.Itoa(cliJsonMaxBytes) + ", MaxDepth: " + strconv.Itoa(cliJsonMaxDepth) + "}, " + f + ".Get(v)) catch {\ncase _:\nreturn flag.Invalid{Name: " + Quote(name) + ", Text: " + f + ".Get(v), Reason: \"not the JSON of a " + escapedType + "\"}\n}")
+	c.print = c.print.Append("out = out.Append(\"-" + name + "=\" + json.Encode(json.Codec[" + ex + "]{MaxBytes: 0, MaxDepth: 0}, " + acc + "))")
+	j
+}
+
+func planCLICommand(tp TypePool, ot OpTable, ft FieldTable, pkgPath string, opTypeName string, reqQual string, oi int, impPaths mut []string, impNames mut []string) cliCommand fails GenError {
+	let on = ot.Name[oi]
+	let mut c = cliCommand{
+		opName:    on,
+		name:      ot.Kebab[oi],
+		decls:     []string{},
+		build:     []string{},
+		print:     []string{},
+		flags:     []string{},
+		n:         0,
+		args:      []string{},
+		variant:   "",
+		resultTID: ot.ResultType[oi],
+		failStart: int(ot.FailStart[oi]),
+		failLen:   int(ot.FailLen[oi]),
+	}
+	let pSt = int(ot.ParamStart[oi])
+	let pEn = pSt + int(ot.ParamLen[oi])
+	let mut records = 0
+	for pi in pSt..pEn {
+		if cliRecordOf(tp, ft.TypeID[pi]) && cliIsFlat(tp, ft, ft.TypeID[pi], []string{}) {
+			records = records + 1
+		}
+	}
+	let mut fields = []string{}
+	let mut positional = []string{}
+	for pi in pSt..pEn {
+		let pName = ft.Name[pi]
+		let field = ft.FieldName[pi]
+		let acc = "x." + field
+		let tid = ft.TypeID[pi]
+		if cliRecordOf(tp, tid) && cliIsFlat(tp, ft, tid, []string{}) {
+			let prefix = if records > 1 { Kebab(pName) + "." } else { "" }
+			let e = try cliRecord(tp, ft, pkgPath, opTypeName, &c, tid, prefix, pName, acc, []string{}, impPaths, impNames)
+			fields = fields.Append(field + ": " + e)
+			continue
+		}
+		let (kind, conv, sOK) = cliScalar(tp, ft, pkgPath, tid, impPaths, impNames)
+		if !sOK {
+			let (_, chOK) = cliChoice(tp, tid)
+			if chOK {
+				fields = fields.Append(field + ": " + (try cliLeaf(tp, ft, pkgPath, opTypeName, &c, tid, Kebab(pName), pName, acc, []string{}, impPaths, impNames)))
+			} else {
+				fields = fields.Append(field + ": " + (try cliJsonFlag(tp, ft, pkgPath, opTypeName, &c, tid, Kebab(pName)+"-json", pName, acc, impPaths, impNames)))
+			}
+			continue
+		}
+		let a = cliLocal(&c, "a")
+		let ex = TupleExpr(tp, ft, pkgPath, tid, impPaths, impNames)
+		let usage = pName + " (" + ex + ")"
+		c.decls = c.decls.Append("let " + a + " = flag.Arg(" + Quote(Kebab(pName)) + ", " + Quote(usage) + ")")
+		let t = cliLocal(&c, "t")
+		c.build = c.build.Append("let " + t + " = argText(" + a + ", v)")
+		let mut value = t
+		if kind == "int" || kind == "int64" {
+			let n = cliLocal(&c, "n")
+			c.build = c.build.Append("let " + n + " = strconv.Atoi(" + t + ") catch {\ncase strconv.Malformed, strconv.OutOfRange:\nreturn flag.Invalid{Name: " + Quote(Kebab(pName)) + ", Text: " + t + ", Reason: \"not an int\"}\n}")
+			value = n
+		} else if kind == "bool" {
+			let n = cliLocal(&c, "n")
+			c.build = c.build.Append("let " + n + " = strconv.ParseBool(" + t + ") catch {\ncase strconv.Malformed:\nreturn flag.Invalid{Name: " + Quote(Kebab(pName)) + ", Text: " + t + ", Reason: \"not a bool\"}\n}")
+			value = n
+		}
+		fields = fields.Append(field + ": " + cliConvert(kind, conv, value))
+		positional = positional.Append("out = out.Append(\"\\(" + acc + ")\")")
+		c.args = c.args.Append(a)
+	}
+	if positional.Len() > 0 {
+		c.print = c.print.Append("out = out.Append(\"--\")")
+		for posLine in positional {
+			c.print = c.print.Append(posLine)
+		}
+	}
+	let mut v = reqQual + on + "Request"
+	if fields.Len() > 0 {
+		v = v + "{" + strings.Join(fields, ", ") + "}"
+	}
+	c.variant = v
+	c
+}
+
+// GenerateCLI emits <pkg>cli/cli.ergo over the hub at apiPath.
+func GenerateCLI(st SpecTable, ot OpTable, ft FieldTable, tp TypePool, sid uint32, apiPath string, sc mut GenScratch) GeneratedPkg fails GenError {
+	if apiPath == "" {
+		return GenError{Reason: "the cli package is written over the hub; run ergo gen api first"}
+	}
+	ResetScratch(sc)
+	let opName = st.OpName[sid]
+	let pkgPath = st.PkgPath[sid]
+	let pkgName = st.PkgName[sid]
+	let mut impPaths = []string{"flag", "io", "json", "prompt", "rpc", "slices", "strconv", "strings", "term", "option"}
+	let mut impNames = []string{"flag", "io", "json", "prompt", "rpc", "slices", "strconv", "strings", "term", "option"}
+	recordImport(&impPaths, &impNames, pkgPath, pkgName)
+	let stdAPI = StdAPIName(impPaths, impNames)
+	recordImport(&impPaths, &impNames, "api", stdAPI)
+	let api = LastElem(apiPath)
+	let reqQual = api + "."
+	recordImport(&impPaths, &impNames, apiPath, api)
+
+	let opSt = int(st.OpStart[sid])
+	let opEn = opSt + int(st.OpLen[sid])
+	let mut cmds = []cliCommand{}
+	let mut seenCmdNames = []string{}
+	let mut seenOpNames = []string{}
+	for oi in opSt..opEn {
+		let c = try planCLICommand(tp, ot, ft, pkgPath, opName, reqQual, oi, &impPaths, &impNames)
+		for j in 0..seenCmdNames.Len() {
+			if seenCmdNames[j] == c.name {
+				return GenError{Reason: opName + "." + seenOpNames[j] + " and " + opName + "." + c.opName + " have one command name, " + c.name}
+			}
+		}
+		seenCmdNames = seenCmdNames.Append(c.name)
+		seenOpNames = seenOpNames.Append(c.opName)
+		cmds = cmds.Append(c)
+	}
+	try cliCheckNames(opName, impPaths, impNames)
+
+	let capName = pkgName + "." + opName
+	let b = &sc.Buf
+	(*b).WriteString("// Request is one call of " + capName + ": the hub's Request.\n")
+	(*b).WriteString("type Request = " + reqQual + "Request\n\n")
+	(*b).WriteString("// Output is what Run prints: std api's Output (Out to standard output,\n// Err to standard error, and the exit status).\ntype Output = " + stdAPI + ".Output\n\n")
+
+	let mut cmdCalls = []string{}
+	for c in cmds {
+		cmdCalls = cmdCalls.Append("command" + c.opName + "()")
+	}
+	(*b).WriteString("// Commands are the commands of " + capName + ", one per operation, in its order.\n")
+	(*b).WriteString("func Commands() []flag.Command[Request] {\n[]flag.Command[Request]{" + strings.Join(cmdCalls, ", ") + "}\n}\n")
+
+	for c in cmds {
+		let mut flags = []string{}
+		for d in c.decls {
+			let l = strings.Fields(d)[1]
+			if l[0] == 'f' {
+				flags = flags.Append(l)
+			}
+		}
+		(*b).WriteString("\n// command" + c.opName + " is the command of " + c.opName + "; its help is the operation's doc\n// comment (the hub's Doc).\n")
+		(*b).WriteString("func command" + c.opName + "() flag.Command[Request] {\n")
+		for d in c.decls {
+			(*b).WriteString(d + "\n")
+		}
+		(*b).WriteString("let usage = " + api + ".Doc(" + api + "." + c.opName + "Op)\n")
+		(*b).WriteString("flag.Command[Request]{Name: " + Quote(c.name) + ", Usage: usage, Set: flag.Set{Name: " + Quote(c.name) + ", Usage: usage, Flags: []flag.Flag{" + strings.Join(flags, ", ") + "}, Args: []flag.ArgSpec{" + strings.Join(c.args, ", ") + "}}, Build: func(v flag.Values) Request fails flag.Failure {\n")
+		for l in c.build {
+			(*b).WriteString(l + "\n")
+		}
+		(*b).WriteString(c.variant + "\n}, Commands: []flag.Command[Request]{}}\n}\n")
+	}
+
+	(*b).WriteString("\n// argText is the text of a positional argument that Parse has checked.\nfunc argText(a flag.ArgSpec, v flag.Values) string {\nmatch a.Get(v) {\ncase option.Some[string] as s:\ns.Value\ncase option.None:\n\"\"\n}\n}\n")
+
+	let root = cmds.Len() == 1
+	if root {
+		(*b).WriteString("\n// Parse reads args as a command line of " + capName + ", whose one operation\n// is the program itself: its flags and arguments, with no command name.\n")
+		(*b).WriteString("func Parse(args []string) Request fails flag.Failure {\nlet c = command" + cmds[0].opName + "()\nlet v = try flag.Parse(c.Set, args)\ntry c.Build(v)\n}\n")
+	} else {
+		(*b).WriteString("\n// Parse reads args as a command line of " + capName + ": a command and its\n// flags and arguments. It builds only the command args[0] names; the\n// list of every command is built only for help or an unknown command.\n")
+		(*b).WriteString("func Parse(args []string) Request fails flag.Failure {\nlet first = if args.Len() > 0 { args[0] } else { \"\" }\nmatch first {\n")
+		for c in cmds {
+			(*b).WriteString("case " + Quote(c.name) + ":\nlet c = command" + c.opName + "()\nlet v = try flag.Parse(flag.Set{..c.Set, Name: " + Quote(pkgName+" "+c.name) + "}, slices.Slice(args, 1, args.Len()))\ntry c.Build(v)\n")
+		}
+		(*b).WriteString("case _:\ntry flag.ParseCommand(" + Quote(pkgName) + ", " + Quote(capName+" on a command line") + ", Commands(), args)\n}\n}\n")
+	}
+
+	(*b).WriteString("\n// Print is a command line that Parse reads as r again: the command,\n// each flag as -name=value, then \"--\" and the positional arguments.\n")
+	(*b).WriteString("func Print(r Request) []string {\nmatch r {\n")
+	for c in cmds {
+		let v = reqQual + c.opName + "Request"
+		let first = if root { "" } else { Quote(c.name) }
+		if c.print.Len() == 0 {
+			(*b).WriteString("case " + v + ":\n[]string{" + first + "}\n")
+			continue
+		}
+		(*b).WriteString("case " + v + " as x:\nlet mut out = []string{" + first + "}\n")
+		for l in c.print {
+			(*b).WriteString(l + "\n")
+		}
+		(*b).WriteString("out\n")
+	}
+	(*b).WriteString("}\n}\n")
+
+	(*b).WriteString("\n// RoundTrips reports whether Parse reads what Print writes of r as r.\n")
+	(*b).WriteString("func RoundTrips(r Request) bool {\nlet back = Parse(Print(r)) catch {\ncase flag.Failure:\nreturn false\n}\nback == r\n}\n")
+	(*b).WriteString("\n// ArgsRoundTrip: Parse reads what Print writes as the same Request.\n")
+	(*b).WriteString("law ArgsRoundTrip(r Request) { RoundTrips(r) }\n")
+
+	(*b).WriteString("\n// Policy is what a binary decides of its command line: Code, the exit\n// status of a typed failure (default 1); Text, the text of a value\n// without --json (default None: a basic value as its text, else its\n// JSON; --json never calls it); Confirm, the question a call asks before\n// it runs (default None: none; --yes answers it).\ntype Policy { Code func(f " + api + ".Failure) int, Text func(r " + api + ".Reply) option.Option[string], Confirm func(r Request) option.Option[string] }\n")
+	(*b).WriteString("\n// Defaults is the Policy of a binary that decides nothing.\nfunc Defaults() Policy {\nPolicy{Code: func(f " + api + ".Failure) int { 1 }, Text: func(r " + api + ".Reply) option.Option[string] { option.None }, Confirm: func(r Request) option.Option[string] { option.None }}\n}\n")
+
+	(*b).WriteString("\n// answer is the Output of a value: its text, or its JSON with --json.\nfunc answer(asJSON bool, plain string, encoded string) Output {\nif asJSON {\nOutput{Out: encoded + \"\\n\", Err: \"\", Code: 0}\n} else {\nOutput{Out: line(plain), Err: \"\", Code: 0}\n}\n}\n")
+	(*b).WriteString("\n// line is s as a line of output: nothing for an empty s.\nfunc line(s string) string {\nif s == \"\" {\nreturn \"\"\n}\ns + \"\\n\"\n}\n")
+	(*b).WriteString("\n// failed is the Output of a typed failure, from its tagged JSON: on\n// standard output with --json, else its tag and JSON on standard error;\n// the status the policy gives it.\nfunc failed(asJSON bool, tagged string, status int) Output {\nif asJSON {\nOutput{Out: tagged + \"\\n\", Err: \"\", Code: status}\n} else {\nOutput{Out: \"\", Err: rpc.TagOf(tagged) + \": \" + tagged + \"\\n\", Code: status}\n}\n}\n")
+
+	(*b).WriteString("\n// Show is what Run prints of the outcome o under the policy p: the value\n// (p's Text when it has one and there is no --json; else its text when it\n// is a basic value, else its JSON; its JSON with --json), or a typed\n// failure (failed) with p's Code.\n")
+	(*b).WriteString("func Show(o " + api + ".Outcome, asJSON bool, p Policy) Output {\n")
+	(*b).WriteString("match o {\ncase " + api + ".Done as done:\nif !asJSON {\nmatch p.Text(done.Reply) {\ncase option.Some[string] as s:\nreturn Output{Out: line(s.Value), Err: \"\", Code: 0}\ncase option.None:\n}\n}\nmatch done.Reply {\n")
+	for c in cmds {
+		let reply = reqQual + c.opName + "Reply"
+		if c.resultTID == NoIndex() {
+			(*b).WriteString("case " + reply + ":\nanswer(asJSON, \"\", \"null\")\n")
+			continue
+		}
+		(*b).WriteString("case " + reply + " as reply:\nlet v = reply.Value\n")
+		let (_, _, isSc) = cliScalar(tp, ft, pkgPath, c.resultTID, &impPaths, &impNames)
+		if isSc {
+			(*b).WriteString("answer(asJSON, \"\\(v)\", rpc.Encode(v))\n")
+		} else {
+			(*b).WriteString("let encoded = rpc.Encode(v)\nanswer(asJSON, encoded, encoded)\n")
+		}
+	}
+	(*b).WriteString("}\ncase " + api + ".Rejected as rejected:\nlet status = p.Code(rejected.Failure)\nmatch rejected.Failure {\n")
+	let sfSt = int(st.FailStart[sid])
+	let sfEn = sfSt + int(st.FailLen[sid])
+	for si in sfSt..sfEn {
+		(*b).WriteString("case " + reqQual + st.FailVariants[si] + " as failure:\n")
+		if st.FailTags[si] != "" {
+			(*b).WriteString("failed(asJSON, rpc.Tagged(" + Quote(st.FailTags[si]) + ", rpc.Encode(failure.E)), status)\n")
+		} else {
+			(*b).WriteString("failed(asJSON, rpc.Encode(failure.E), status)\n")
+		}
+	}
+	if sfEn == sfSt {
+		(*b).WriteString("case " + reqQual + "NoFailure:\nOutput{Out: \"\", Err: \"the hub answered NoFailure, which no operation fails\\n\", Code: status}\n")
+	}
+	(*b).WriteString("}\n}\n}\n")
+
+	(*b).WriteString("\n// Read is the outcome of r that the Output of Run with --json and its\n// default status policy says: its value's JSON on standard output with\n// status 0, or an admitted failure's tagged JSON with status 1. Invalid\n// or missing replies fail Transport, outside the operation's own row.\n")
+	(*b).WriteString("func Read(r Request, out Output) " + api + ".Outcome fails rpc.Transport {\n")
+	(*b).WriteString("let text = strings.TrimSuffix(out.Out, \"\\n\")\nif out.Code == 0 {\nmatch r {\n")
+	for c in cmds {
+		let req = reqQual + c.opName + "Request"
+		let reply = reqQual + c.opName + "Reply"
+		if c.resultTID == NoIndex() {
+			(*b).WriteString("case " + req + ":\nif text != \"null\" {\nreturn rpc.Transport{Reason: \"the command line answered " + c.opName + " with \" + text + \", not null\"}\n}\n" + api + ".Done{Reply: " + reply + "}\n")
+			continue
+		}
+		let rEx = TupleExpr(tp, ft, pkgPath, c.resultTID, &impPaths, &impNames)
+		(*b).WriteString("case " + req + ":\nlet v = try rpc.Decode[" + rEx + "](\"value\", text)\n" + api + ".Done{Reply: " + reply + "{Value: v}}\n")
+	}
+	(*b).WriteString("}\n} else if out.Code == 1 {\nmatch r {\n")
+	for c in cmds {
+		(*b).WriteString("case " + reqQual + c.opName + "Request:\n")
+		if c.failLen != 0 {
+			(*b).WriteString("match rpc.TagOf(text) {\n")
+			for fi in c.failStart..(c.failStart + c.failLen) {
+				let ftid = ot.FailTypeIDs[fi]
+				let mut quoted = []string{}
+				for tg in FailTags(tp, ftid) {
+					quoted = quoted.Append(Quote(tg))
+				}
+				let fEx = TupleExpr(tp, ft, pkgPath, ftid, &impPaths, &impNames)
+				(*b).WriteString("case " + strings.Join(quoted, ", ") + ":\nlet e = try rpc.Decode[" + fEx + "](\"failure\", text)\n" + api + ".Rejected{Failure: " + reqQual + specFailureVariant(st, tp, sid, ftid) + "{E: e}}\n")
+			}
+			(*b).WriteString("case _:\n")
+		}
+		(*b).WriteString("return rpc.Transport{Reason: \"the command line answered " + c.opName + " with an undeclared failure: \" + text}\n")
+		if c.failLen != 0 {
+			(*b).WriteString("}\n")
+		}
+	}
+	(*b).WriteString("}\n} else {\nreturn rpc.Transport{Reason: \"the command line answered status \\(out.Code): \" + out.Err}\n}\n}\n")
+
+	(*b).WriteString("\n// front is a command line read up to its call: the call and the global\n// flags before it (--json, --yes), or the Output that ends the run first\n// (the help, status 0; a usage error, status 2, which no policy changes).\ntype front = asked{R Request, JSON bool, Yes bool} | ended{O Output}\n")
+	(*b).WriteString("\nfunc frontOf(args []string) front {\nlet mut asJSON = false\nlet mut yes = false\nlet mut globals = true\nlet mut rest = []string{}\nfor a in args {\nif globals && (a == \"--json\" || a == \"-json\") {\nasJSON = true\n} else if globals && (a == \"--yes\" || a == \"-yes\") {\nyes = true\n} else {\nglobals = false\nrest = rest.Append(a)\n}\n}\n")
+	(*b).WriteString("let r = Parse(rest) catch {\ncase flag.Help as h:\nreturn ended{O: Output{Out: h.Text, Err: \"\", Code: 0}}\ncase err:\nreturn ended{O: Output{Out: \"\", Err: flag.Describe(err) + \"\\n\", Code: 2}}\n}\nasked{R: r, JSON: asJSON, Yes: yes}\n}\n")
+	(*b).WriteString("\n// needsYes is the end of a call whose question no one can answer here.\nfunc needsYes(question string) Output {\nOutput{Out: \"\", Err: question + \" (no terminal to ask on: pass --yes to answer yes)\\n\", Code: 2}\n}\n")
+	(*b).WriteString("\n// declined is the end of a call whose question was answered no.\nfunc declined(question string) Output {\nOutput{Out: \"\", Err: question + \": not confirmed\\n\", Code: 1}\n}\n")
+
+	(*b).WriteString("\n// runOver reads args as [--json] [--yes] COMMAND ARGS..., answers the\n// Request with answer and is what to print (Show) under p; a call p asks a\n// question of, with no --yes, ends with status 2 (needsYes): runOver has\n// no terminal (RunOnTerminal has).\n")
+	(*b).WriteString("func runOver[R](args []string, p Policy, answer func(r Request) " + api + ".Outcome needs R) Output needs R {\n")
+	(*b).WriteString("match frontOf(args) {\ncase ended as e:\ne.O\ncase asked as a:\nif !a.Yes {\nmatch p.Confirm(a.R) {\ncase option.Some[string] as q:\nreturn needsYes(q.Value)\ncase option.None:\n}\n}\nShow(answer(a.R), a.JSON, p)\n}\n}\n")
+
+	(*b).WriteString("\n// Run reads args as [--json] [--yes] COMMAND ARGS..., answers the call\n// through the hub's Call on the " + capName + " the caller binds, and is what to\n// print under the policy p: the value, a typed failure with p's Code, the\n// help (status 0) or a usage error (status 2). It asks nothing: a call p\n// asks a question of needs --yes (status 2 without it).\n")
+	(*b).WriteString("func Run(args []string, p Policy) Output needs " + capName + " {\nrunOver(args, p, " + api + ".Call)\n}\n")
+
+	(*b).WriteString("\n// RunOnTerminal is Run that asks p's question on the terminal (std\n// prompt) when there is no --yes: a yes runs the call, a no or a cancel\n// ends with status 1, and standard input that is not a terminal ends with\n// status 2, as Run does.\n")
+	(*b).WriteString("func RunOnTerminal(args []string, p Policy) Output needs " + capName + " | term.Terminal | io.Stderr {\n")
+	(*b).WriteString("match frontOf(args) {\ncase ended as e:\ne.O\ncase asked as a:\nif !a.Yes {\nmatch p.Confirm(a.R) {\ncase option.Some[string] as q:\nlet yes = prompt.Confirm(q.Value, false) catch {\ncase prompt.NotInteractive:\nreturn needsYes(q.Value)\ncase prompt.Cancelled:\nreturn declined(q.Value)\ncase io.ReadFailed:\nreturn Output{Out: \"\", Err: q.Value + \": the answer could not be read\\n\", Code: 2}\n}\nif !yes {\nreturn declined(q.Value)\n}\ncase option.None:\n}\n}\n")
+	(*b).WriteString("Show(" + api + ".Call(a.R), a.JSON, p)\n}\n}\n")
+
+	let mut entries = []string{}
+	for c in cmds {
+		entries = entries.Append(stdAPI + ".Entry{Name: " + api + ".Name(" + api + "." + c.opName + "Op), Doc: " + api + ".Doc(" + api + "." + c.opName + "Op)}")
+	}
+	(*b).WriteString("\n// Completion is the script that completes " + pkgName + "'s commands in shell.\nfunc Completion(shell " + stdAPI + ".Shell) string {\n" + stdAPI + ".Completion(" + Quote(pkgName) + ", shell, []" + stdAPI + ".Entry{" + strings.Join(entries, ", ") + "})\n}\n")
+
+	(*b).WriteString("\n// Wire is the command line as a transport of the hub's calls.\ntype Wire {} implements " + stdAPI + ".Transport[Request, " + api + ".Outcome, rpc.Transport]\n")
+	(*b).WriteString("\n// Carry prints c with --json, runs it against answer using the default\n// status policy, and reads back the reply. Delivery can fail separately\n// from answer's outcome.\nfunc Carry(w Wire, c Request, answer own func(c Request) " + api + ".Outcome) " + api + ".Outcome fails rpc.Transport {\n")
+	(*b).WriteString("let mut args = []string{\"--json\"}\nfor a in Print(c) {\nargs = args.Append(a)\n}\ntry Read(c, runOver(args, Defaults(), answer))\n}\n")
+	(*b).WriteString("\n// Agrees: the command line carries every call and every outcome the\n// call can have unchanged.\nlaw Agrees(r Request, g " + api + ".Given) { " + stdAPI + ".Agrees[Request, " + api + ".Outcome, rpc.Transport](Wire, r, " + api + ".OutcomeOf(r, g)) }\n")
+	(*b).WriteString("\n// CodeIsThePolicy: a call's status is 0 for a value and the policy's\n// Code for a typed failure.\nlaw CodeIsThePolicy(r Request, g " + api + ".Given, k int) {\nlet status = 1 + ((k%125)+125)%125\nlet d = Defaults()\nlet p = Policy{..d, Code: func(f " + api + ".Failure) int { status }}\nlet o = " + api + ".OutcomeOf(r, g)\nlet out = runOver(Print(r), p, func(c Request) " + api + ".Outcome { o })\nmatch o {\ncase " + api + ".Done:\nout.Code == 0\ncase " + api + ".Rejected:\nout.Code == status\n}\n}\n")
+	(*b).WriteString("\n// TextIsThePolicy: without --json a value prints as the policy's Text;\n// with --json every outcome prints as the wire's JSON, whatever Text says.\nlaw TextIsThePolicy(r Request, g " + api + ".Given, t string) {\nlet d = Defaults()\nlet p = Policy{..d, Text: func(reply " + api + ".Reply) option.Option[string] { option.Some[string]{Value: t} }}\nlet o = " + api + ".OutcomeOf(r, g)\nlet same = Show(o, true, p) == Show(o, true, d)\nmatch o {\ncase " + api + ".Done:\nsame && Show(o, false, p).Out == line(t)\ncase " + api + ".Rejected:\nsame && Show(o, false, p) == Show(o, false, d)\n}\n}\n")
+
+	let body = (*b).String()
+	let src = ImportBlock(impPaths, impNames, body, true, true) + "\n" + body
+	let out = try Source(src)
+	GeneratedPkg{
+		Dir:       pkgName + "cli",
+		FileNames: []string{"cli.ergo"},
+		FileTexts: []string{out},
+		Marker:    GenMarker{
+			Kind:      "cli",
+			Generator: "ergo gen cli",
+			Subjects:  []string{st.Subject[sid]},
+			Contract:  st.ContractDigest[sid],
+			Digest:    "",
+		},
+	}
+}
+
+test CliGeneratesSingleAndMultiOp {
+	let mut st = NewSpecTable()
+	let mut ot = NewOpTable()
+	let mut ft = NewFieldTable()
+	let mut tp = NewTypePool()
+	let sid = AddSpec(&st, "example/svc", "svc", "Svc")
+	let tidStr = AllocType(&tp, TypeBasic)
+	tp.BasicOrd[tidStr] = uint8(2)
+	tp.ExprText[tidStr] = "string"
+	tp.PrintText[tidStr] = "string"
+	tp.UnderlyingText[tidStr] = "string"
+	let oid = AddOp(&ot, sid, "Ping", "ping", "")
+	let pSt = ft.Count
+	let _ = AddField(&ft, FieldParam, oid, "msg", "Msg", "msg", false, tidStr, true, false, false, "")
+	ot.ParamStart[oid] = pSt
+	ot.ParamLen[oid] = uint32(1)
+	ot.ResultType[oid] = tidStr
+	st.OpStart[sid] = uint32(0)
+	st.OpLen[sid] = uint32(1)
+	st.ContractDigest[sid] = "sha256:0000"
+	let mut sc = NewScratch()
+	let g = GenerateCLI(st, ot, ft, tp, sid, "example/svc/svcapi", &sc) catch {
+	case GenError:
+		assert false
+		GeneratedPkg{Dir: "", FileNames: []string{}, FileTexts: []string{}, Marker: GenMarker{Kind: "", Generator: "", Subjects: []string{}, Contract: "", Digest: ""}}
+	}
+	assert g.Dir == "svccli" && strings.Contains(g.FileTexts[0], "let c = commandPing()")
+	assert strings.Contains(g.FileTexts[0], "out = out.Append(\"--\")")
+}

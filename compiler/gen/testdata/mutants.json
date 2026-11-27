@@ -1,0 +1,203 @@
+{
+  "about": "Mutants of compiler/gen: dense unsigned SoA tables, marker parsing/digests, naming/comment stripping, schema encoding, contract analysis, and api/rpc/cli/mcp/llm/driver generation.",
+  "mutants": [
+    {
+      "name": "selfhost-gen-tables-dense-id-offset",
+      "origin": "wf10 SELFHOST-PROJECTIONS",
+      "file": "compiler/gen/tables.ergo",
+      "from": "\tlet id = mt.Count\n\tmt.Count = mt.Count + uint32(1)\n",
+      "to": "\tlet id = mt.Count + uint32(1)\n\tmt.Count = mt.Count + uint32(1)\n",
+      "rule": "Allocated MarkerTable entries receive zero-based dense indices matching slice length minus one.",
+      "killers": [
+        "compiler/gen:law:SpecTablesKeepDenseIndices"
+      ]
+    },
+    {
+      "name": "selfhost-gen-tables-reset-scratch",
+      "origin": "wf10 SELFHOST-PROJECTIONS",
+      "file": "compiler/gen/tables.ergo",
+      "from": "\tsc.Lines = sc.Lines[0:0]\n",
+      "to": "\tsc.Lines = sc.Lines\n",
+      "rule": "ResetScratch clears accumulated line slices while keeping backing capacity.",
+      "killers": [
+        "compiler/gen:law:SpecTablesKeepDenseIndices"
+      ]
+    },
+    {
+      "name": "selfhost-gen-tables-span-bounds",
+      "origin": "wf10 SELFHOST-PROJECTIONS",
+      "file": "compiler/gen/tables.ergo",
+      "from": "\tstart <= total && length <= total-start\n",
+      "to": "\tstart <= total\n",
+      "rule": "TableSpansInRange bounds non-empty spans using overflow-safe total - start subtraction.",
+      "killers": [
+        "compiler/gen:law:SpecTablesKeepDenseIndices"
+      ]
+    },
+    {
+      "name": "selfhost-gen-text-kebab-initialism",
+      "origin": "wf10 SELFHOST-PROJECTIONS",
+      "file": "compiler/gen/text.ergo",
+      "from": "\t\t\tif prevLower || (prevUpper && nextLower) {\n",
+      "to": "\t\t\tif prevLower || (false && prevUpper && nextLower) {\n",
+      "rule": "Kebab splits HTTPStatus after an uppercase run followed by a lowercase letter.",
+      "killers": [
+        "compiler/gen:law:KebabRulesHold"
+      ]
+    },
+    {
+      "name": "selfhost-gen-text-wirekey-initialism",
+      "origin": "wf10 SELFHOST-PROJECTIONS",
+      "file": "compiler/gen/text.ergo",
+      "from": "\tif n > 1 && n < name.Len() && name[n] >= 'a' && name[n] <= 'z' {\n",
+      "to": "\tif false {\n",
+      "rule": "ImplicitWireKey keeps the final capital of an initialism before a lowercase tail.",
+      "killers": [
+        "compiler/gen:law:KebabRulesHold"
+      ]
+    },
+    {
+      "name": "selfhost-gen-text-strips-private-comments",
+      "origin": "wf10 SELFHOST-PROJECTIONS",
+      "file": "compiler/gen/text.ergo",
+      "from": "\tif initial.Len() == 0 {\n",
+      "to": "\tif true || initial.Len() == 0 {\n",
+      "rule": "StripBannedComments removes non-public-doc comments while preserving public declaration docs.",
+      "killers": [
+        "compiler/gen:SourceStripsPrivateCommentsAndKeepsPublicDocs"
+      ]
+    },
+    {
+      "name": "selfhost-gen-marker-excludes-marker-file",
+      "origin": "wf10 SELFHOST-PROJECTIONS",
+      "file": "compiler/gen/marker.ergo",
+      "from": "\t\tif norm == MarkerFileName || norm == \"\" {\n",
+      "to": "\t\tif norm == \"\" {\n",
+      "rule": "MarkerDigest excludes ergo.gen so stamping a directory is idempotent.",
+      "killers": [
+        "compiler/gen:law:MarkerRoundTrips"
+      ]
+    },
+    {
+      "name": "selfhost-gen-marker-check-digest",
+      "origin": "wf10 SELFHOST-PROJECTIONS",
+      "file": "compiler/gen/marker.ergo",
+      "from": "\tMarkerDigest(diskNames, diskTexts) == have.Digest\n",
+      "to": "\tMarkerDigest(diskNames, diskTexts) == have.Digest || true\n",
+      "rule": "CheckMarkerDir rejects a folder whose directory files differ from ergo.gen's recorded digest.",
+      "killers": [
+        "internal/selfhostcheck:TestCompilerGenFast"
+      ]
+    },
+    {
+      "name": "selfhost-gen-contract-digest-param-type",
+      "origin": "wf10 SELFHOST-PROJECTIONS",
+      "file": "compiler/gen/contract.ergo",
+      "from": "\t\t\tb.WriteString(ft.Name[pi] + \" \" + tp.PrintText[ft.TypeID[pi]])\n",
+      "to": "\t\t\tb.WriteString(ft.Name[pi])\n",
+      "rule": "Contract digest incorporates each parameter's canonical type PrintText.",
+      "killers": [
+        "compiler/gen:ContractHelpersSmokeCheck"
+      ]
+    },
+    {
+      "name": "selfhost-gen-contract-wirekey-dup",
+      "origin": "wf10 SELFHOST-PROJECTIONS",
+      "file": "compiler/gen/contract.ergo",
+      "from": "\t\t\t\tif seenKeys[j] == fk {\n",
+      "to": "\t\t\t\tif false && seenKeys[j] == fk {\n",
+      "rule": "wireKeyCheck rejects records with two fields sharing one JSON wire key.",
+      "killers": [
+        "compiler/gen:ContractHelpersSmokeCheck"
+      ]
+    },
+    {
+      "name": "selfhost-gen-contract-reaches-wide-struct",
+      "origin": "wf10 SELFHOST-PROJECTIONS",
+      "file": "compiler/gen/contract.ergo",
+      "from": "\tif k == TypeStruct {\n\t\tlet st = int(tp.FieldStart[tid])\n\t\tlet ln = int(tp.FieldLen[tid])\n\t\tfor i in st..(st + ln) {\n\t\t\tif ReachesWide(tp, ft, ft.TypeID[i], seen) {\n",
+      "to": "\tif k == TypeStruct {\n\t\tlet st = int(tp.FieldStart[tid])\n\t\tlet ln = int(tp.FieldLen[tid])\n\t\tfor i in st..(st + ln) {\n\t\t\tif false && ReachesWide(tp, ft, ft.TypeID[i], seen) {\n",
+      "rule": "ReachesWide walks struct fields so records containing 64-bit integers trigger range walkers.",
+      "killers": [
+        "compiler/gen:ContractHelpersSmokeCheck"
+      ]
+    },
+    {
+      "name": "selfhost-gen-schema-fixed-array-bounds",
+      "origin": "wf10 SELFHOST-PROJECTIONS",
+      "file": "compiler/gen/schema.ergo",
+      "from": "\t\t\t\t\t\t\tif minN >= 0 && minN == maxN {\n\t\t\t\t\t\t\t\treturn \"jsonschema.FixedArray(\" + elem + \", \" + strconv.Itoa(minN) + \")\"\n\t\t\t\t\t\t\t}\n",
+      "to": "\t\t\t\t\t\t\tif minN >= 0 && minN == maxN {\n\t\t\t\t\t\t\t\treturn \"jsonschema.Array(\" + elem + \")\"\n\t\t\t\t\t\t\t}\n",
+      "rule": "SchemaExpr lowers matching minItems/maxItems array schemas into jsonschema.FixedArray.",
+      "killers": [
+        "compiler/gen:law:SchemaExprCoversAllShapes"
+      ]
+    },
+    {
+      "name": "selfhost-gen-api-hub-request-fields",
+      "origin": "wf10 SELFHOST-PROJECTIONS",
+      "file": "compiler/gen/api.ergo",
+      "from": "\t\trequests = requests.Append(RequestName(on) + \"{\" + strings.Join(fields, \", \") + \"}\")\n",
+      "to": "\t\trequests = requests.Append(RequestName(on) + \"{}\")\n",
+      "rule": "GenerateAPI preserves operation parameter fields on generated Request variants.",
+      "killers": [
+        "internal/selfhostcheck:TestCompilerGenFast"
+      ]
+    },
+    {
+      "name": "selfhost-gen-rpc-drops-exact-walker",
+      "origin": "wf10 SELFHOST-PROJECTIONS",
+      "file": "compiler/gen/rpc.ergo",
+      "from": "\t\tif lText != \"\" {\n\t\t\tlet wName = \"exact\" + RequestName(on)\n",
+      "to": "\t\tif false && lText != \"\" {\n\t\t\tlet wName = \"exact\" + RequestName(on)\n",
+      "rule": "GenerateRPC emits per-request range walkers when operation parameters reach wide integers.",
+      "killers": [
+        "internal/selfhostcheck:TestCompilerGenFast"
+      ]
+    },
+    {
+      "name": "selfhost-gen-cli-drops-end-of-flags",
+      "origin": "wf10 SELFHOST-PROJECTIONS",
+      "file": "compiler/gen/cli.ergo",
+      "from": "\t\tc.print = c.print.Append(\"out = out.Append(\\\"--\\\")\")\n",
+      "to": "\t\tlet _ = \"--\"\n",
+      "rule": "Print emits -- before positional arguments so Parse round-trips dash-prefixed values.",
+      "killers": [
+        "internal/selfhostcheck:TestCompilerGenFast"
+      ]
+    },
+    {
+      "name": "selfhost-gen-mcp-flat-param",
+      "origin": "wf10 SELFHOST-PROJECTIONS",
+      "file": "compiler/gen/mcp.ergo",
+      "from": "\t\t} else if tFlats[ti] != \"\" {\n\t\t\tlet p0 = int(ot.ParamStart[oi])\n\t\t\t(*b).WriteString(\"case \" + v + \" as x:\\n(\" + Lit(tNames[ti]) + \", untagged(valueOf(rpc.Encode(x.\" + ft.FieldName[p0] + \"))))\\n\")\n",
+      "to": "\t\t} else if false && tFlats[ti] != \"\" {\n\t\t\tlet p0 = int(ot.ParamStart[oi])\n\t\t\t(*b).WriteString(\"case \" + v + \" as x:\\n(\" + Lit(tNames[ti]) + \", untagged(valueOf(rpc.Encode(x.\" + ft.FieldName[p0] + \"))))\\n\")\n",
+      "rule": "GenerateMCP unwraps single-record parameter payloads cleanly in Arguments.",
+      "killers": [
+        "internal/selfhostcheck:TestCompilerGenFast"
+      ]
+    },
+    {
+      "name": "selfhost-gen-llm-flat-parse",
+      "origin": "wf10 SELFHOST-PROJECTIONS",
+      "file": "compiler/gen/llm.ergo",
+      "from": "\t\tif tFlats[ti] != \"\" {\n\t\t\tlet p0 = int(ot.ParamStart[oi])\n\t\t\t(*b).WriteString(\"case \" + Lit(tNames[ti]) + \":\\nlet v = rpc.Decode[\" + tFlatTypes[ti] + \"](\" + what + \", argumentsOf(c)) catch {\\n\" + refused + rq + RequestName(ot.Name[oi]) + \"{\" + ft.FieldName[p0] + \": v}\\n\")\n\t\t\tcontinue\n\t\t}\n",
+      "to": "\t\tif false && tFlats[ti] != \"\" {\n\t\t\tlet p0 = int(ot.ParamStart[oi])\n\t\t\t(*b).WriteString(\"case \" + Lit(tNames[ti]) + \":\\nlet v = rpc.Decode[\" + tFlatTypes[ti] + \"](\" + what + \", argumentsOf(c)) catch {\\n\" + refused + rq + RequestName(ot.Name[oi]) + \"{\" + ft.FieldName[p0] + \": v}\\n\")\n\t\t\tcontinue\n\t\t}\n",
+      "rule": "GenerateLLM parses flattened single-record tool arguments directly into the wrapped Request field.",
+      "killers": [
+        "internal/selfhostcheck:TestCompilerGenFast"
+      ]
+    },
+    {
+      "name": "selfhost-gen-driver-allows-unknown",
+      "origin": "wf10 SELFHOST-PROJECTIONS",
+      "file": "compiler/gen/driver.ergo",
+      "from": "\tif kind != \"api\" && kind != \"rpc\" && kind != \"cli\" && kind != \"mcp\" && kind != \"llm\" && kind != \"schema\" {\n\t\treturn GenError{Reason: \"unknown generator kind \" + kind}\n\t}\n",
+      "to": "\tif false && kind != \"api\" {\n\t\treturn GenError{Reason: \"unknown generator kind \" + kind}\n\t}\n",
+      "rule": "GenDir validates the generator kind before resolving and loading packages.",
+      "killers": [
+        "internal/selfhostcheck:TestCompilerGenFast"
+      ]
+    }
+  ]
+}

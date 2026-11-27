@@ -1,0 +1,668 @@
+import slices
+import strconv
+import strings
+
+// APIDir returns the hub package folder name for pkgName.
+func APIDir(pkgName string) string {
+	pkgName + "api"
+}
+
+// RequestName returns the Request variant name for operation op.
+func RequestName(op string) string {
+	op + "Request"
+}
+
+// ReplyName returns the Reply variant name for operation op.
+func ReplyName(op string) string {
+	op + "Reply"
+}
+
+// OpName returns the Op variant name for operation op.
+func OpName(op string) string {
+	op + "Op"
+}
+
+let noFailure = "NoFailure"
+
+let hubFixedNames = []string{
+	"Request", "Op", "Reply", "Failure", "Outcome", "Done", "Rejected", "Values",
+	"Given", "OutcomeOf", "Client", "NewClient", "ClientInForce", "CheckedClient",
+	"NewCheckedClient", "OpOf", "Name", "Doc", "Schema", "Call",
+	"CallIsTheOperation", "ClientIsCall", "inRow", "scripted", "callChecked",
+	"valueOf", noFailure,
+}
+
+func isHubLocal(name string) bool {
+	name == "client" || name == "done" || name == "rejected" || name == "reply" || name == "failure"
+}
+
+func hubImportNames(st SpecTable, sid uint32) ([]string, []string) {
+	let mut paths = []string{"json", "rpc", "scope", "sync"}
+	let mut names = []string{"json", "rpc", "scope", "sync"}
+	let impSt = int(st.ImportStart[sid])
+	let impEn = impSt + int(st.ImportLen[sid])
+	for ii in impSt..impEn {
+		let p = st.ImportPaths[ii]
+		let n = st.ImportNames[ii]
+		if !slices.Contains(paths, p) {
+			paths = paths.Append(p)
+			names = names.Append(n)
+		}
+	}
+	(paths, names)
+}
+
+func specFailureVariant(st SpecTable, tp TypePool, sid uint32, ftid uint32) string {
+	let sfSt = int(st.FailStart[sid])
+	let sfEn = sfSt + int(st.FailLen[sid])
+	let target = tp.PrintText[ftid]
+	for si in sfSt..sfEn {
+		if tp.PrintText[st.FailTypeIDs[si]] == target {
+			return st.FailVariants[si]
+		}
+	}
+	tp.TypeName[ftid]
+}
+
+func hubCheckFailures(st SpecTable, tp TypePool, sid uint32, opName string) fails GenError {
+	let sfSt = int(st.FailStart[sid])
+	let sfEn = sfSt + int(st.FailLen[sid])
+	let mut seenNames = []string{}
+	let mut seenPrints = []string{}
+	for si in sfSt..sfEn {
+		let ftid = st.FailTypeIDs[si]
+		let nm = tp.TypeName[ftid]
+		let pr = tp.PrintText[ftid]
+		for j in 0..seenNames.Len() {
+			if seenNames[j] == nm {
+				return GenError{Reason: opName + ": the failures " + seenPrints[j] + " and " + pr + " have one name, " + nm + ", which is a failure's variant in the hub and its JSON tag; rename one"}
+			}
+		}
+		seenNames = seenNames.Append(nm)
+		seenPrints = seenPrints.Append(pr)
+	}
+}
+
+func claimHubName(opName string, ownerNames mut []string, ownerWhats mut []string, name string, what string) fails GenError {
+	for j in 0..(*ownerNames).Len() {
+		if (*ownerNames)[j] == name {
+			return GenError{Reason: opName + ": " + (*ownerWhats)[j] + " and " + what + " are both named " + name + " in the hub; rename one"}
+		}
+	}
+	*ownerNames = (*ownerNames).Append(name)
+	*ownerWhats = (*ownerWhats).Append(what)
+}
+
+func hubCheckNames(st SpecTable, ot OpTable, ft FieldTable, tp TypePool, sid uint32, impNames []string) fails GenError {
+	let opName = st.OpName[sid]
+	let mut ownerNames = []string{}
+	let mut ownerWhats = []string{}
+	for n in hubFixedNames {
+		try claimHubName(opName, &ownerNames, &ownerWhats, n, "the hub's own "+n)
+	}
+	let opSt = int(st.OpStart[sid])
+	let opEn = opSt + int(st.OpLen[sid])
+	for oi in opSt..opEn {
+		let on = ot.Name[oi]
+		try claimHubName(opName, &ownerNames, &ownerWhats, on, "the operation "+on)
+		try claimHubName(opName, &ownerNames, &ownerWhats, on+"Checked", "the checked operation "+on)
+		try claimHubName(opName, &ownerNames, &ownerWhats, RequestName(on), "the Request of "+on)
+		try claimHubName(opName, &ownerNames, &ownerWhats, ReplyName(on), "the Reply of "+on)
+		try claimHubName(opName, &ownerNames, &ownerWhats, OpName(on), "the Op of "+on)
+		let pSt = int(ot.ParamStart[oi])
+		let pEn = pSt + int(ot.ParamLen[oi])
+		for pi in pSt..pEn {
+			let pn = ft.Name[pi]
+			if isHubLocal(pn) {
+				return GenError{Reason: opName + "." + on + ": the parameter name " + pn + " is one the hub uses for a local; rename it"}
+			}
+			for impN in impNames {
+				if pn == impN {
+					return GenError{Reason: opName + "." + on + ": the parameter name " + pn + " is the package " + impN + " the hub imports; rename it"}
+				}
+			}
+		}
+	}
+	let sfSt = int(st.FailStart[sid])
+	let sfEn = sfSt + int(st.FailLen[sid])
+	for si in sfSt..sfEn {
+		try claimHubName(opName, &ownerNames, &ownerWhats, st.FailVariants[si], "the failure "+tp.PrintText[st.FailTypeIDs[si]])
+	}
+}
+
+func opCoversAllFailures(st SpecTable, ot OpTable, tp TypePool, sid uint32, oi int) bool {
+	let sfLen = int(st.FailLen[sid])
+	if sfLen == 0 {
+		return false
+	}
+	let sfSt = int(st.FailStart[sid])
+	let fSt = int(ot.FailStart[oi])
+	let fEn = fSt + int(ot.FailLen[oi])
+	let mut own = []string{}
+	for fi in fSt..fEn {
+		own = own.Append(specFailureVariant(st, tp, sid, ot.FailTypeIDs[fi]))
+	}
+	for si in sfSt..(sfSt + sfLen) {
+		if !slices.Contains(own, st.FailVariants[si]) {
+			return false
+		}
+	}
+	true
+}
+
+func hubExpr(tp TypePool, ft FieldTable, pkgPath string, tid uint32, impPaths mut []string, impNames mut []string) string fails GenError {
+	let k = tp.Kind[tid]
+	if k == TypeInvalid {
+		return GenError{Reason: "the type " + tp.PrintText[tid] + " has no form the hub can write"}
+	}
+	TupleExpr(tp, ft, pkgPath, tid, impPaths, impNames)
+}
+
+func hubOpSignature(ot OpTable, ft FieldTable, tp TypePool, pkgPath string, oi int, named bool, impPaths mut []string, impNames mut []string) string fails GenError {
+	let pSt = int(ot.ParamStart[oi])
+	let pEn = pSt + int(ot.ParamLen[oi])
+	let mut params = []string{}
+	for pi in pSt..pEn {
+		let ex = try hubExpr(tp, ft, pkgPath, ft.TypeID[pi], impPaths, impNames)
+		if named {
+			params = params.Append(ft.Name[pi] + " " + ex)
+		} else {
+			params = params.Append(ex)
+		}
+	}
+	let mut sig = "(" + strings.Join(params, ", ") + ")"
+	if ot.ResultType[oi] != NoIndex() {
+		sig = sig + " " + (try hubExpr(tp, ft, pkgPath, ot.ResultType[oi], impPaths, impNames))
+	}
+	let fSt = int(ot.FailStart[oi])
+	let fEn = fSt + int(ot.FailLen[oi])
+	if fEn > fSt {
+		let mut fs = []string{}
+		for fi in fSt..fEn {
+			fs = fs.Append(try hubExpr(tp, ft, pkgPath, ot.FailTypeIDs[fi], impPaths, impNames))
+		}
+		sig = sig + " fails " + strings.Join(fs, " | ")
+	}
+	sig
+}
+
+func hubFreshName(base string, impNames []string, ot OpTable, ft FieldTable, opSt int, opEn int) string {
+	let mut used = slices.Clone(impNames)
+	for oi in opSt..opEn {
+		let pSt = int(ot.ParamStart[oi])
+		let pEn = pSt + int(ot.ParamLen[oi])
+		for pi in pSt..pEn {
+			used = used.Append(ft.Name[pi])
+		}
+	}
+	if !slices.Contains(used, base) {
+		return base
+	}
+	let mut i = 0
+	for true {
+		let cand = base + strconv.Itoa(i)
+		if !slices.Contains(used, cand) {
+			return cand
+		}
+		i = i + 1
+	}
+	base
+}
+
+func opHasTransport(ot OpTable, ft FieldTable, tp TypePool, pkgPath string, oi int, impPaths mut []string, impNames mut []string) bool fails GenError {
+	let fSt = int(ot.FailStart[oi])
+	let fEn = fSt + int(ot.FailLen[oi])
+	for fi in fSt..fEn {
+		if (try hubExpr(tp, ft, pkgPath, ot.FailTypeIDs[fi], impPaths, impNames)) == "rpc.Transport" {
+			return true
+		}
+	}
+	false
+}
+
+// GenerateAPI emits <pkg>api/api.ergo for the contract at SpecID sid.
+func GenerateAPI(st SpecTable, ot OpTable, ft FieldTable, tp TypePool, sid uint32, sc mut GenScratch) GeneratedPkg fails GenError {
+	ResetScratch(sc)
+	let opName = st.OpName[sid]
+	let pkgPath = st.PkgPath[sid]
+	let pkgName = st.PkgName[sid]
+	let capName = pkgName + "." + opName
+	let (impPaths0, impNames0) = hubImportNames(st, sid)
+	let mut impPaths = impPaths0
+	let mut impNames = impNames0
+	try hubCheckFailures(st, tp, sid, opName)
+	try hubCheckNames(st, ot, ft, tp, sid, impNames)
+
+	let opSt = int(st.OpStart[sid])
+	let opEn = opSt + int(st.OpLen[sid])
+	let sfSt = int(st.FailStart[sid])
+	let sfEn = sfSt + int(st.FailLen[sid])
+
+	let mut requests = []string{}
+	let mut opVariants = []string{}
+	let mut replies = []string{}
+	let mut failures = []string{}
+	for oi in opSt..opEn {
+		let on = ot.Name[oi]
+		let pSt = int(ot.ParamStart[oi])
+		let pEn = pSt + int(ot.ParamLen[oi])
+		let mut fields = []string{}
+		for pi in pSt..pEn {
+			fields = fields.Append(ft.FieldName[pi] + " " + (try hubExpr(tp, ft, pkgPath, ft.TypeID[pi], &impPaths, &impNames)))
+		}
+		requests = requests.Append(RequestName(on) + "{" + strings.Join(fields, ", ") + "}")
+		opVariants = opVariants.Append(OpName(on) + "{}")
+		if ot.ResultType[oi] != NoIndex() {
+			replies = replies.Append(ReplyName(on) + "{Value " + (try hubExpr(tp, ft, pkgPath, ot.ResultType[oi], &impPaths, &impNames)) + "}")
+		} else {
+			replies = replies.Append(ReplyName(on) + "{}")
+		}
+	}
+	for si in sfSt..sfEn {
+		let ftid = st.FailTypeIDs[si]
+		failures = failures.Append(st.FailVariants[si] + "{E " + (try hubExpr(tp, ft, pkgPath, ftid, &impPaths, &impNames)) + "}")
+	}
+	if failures.Len() == 0 {
+		failures = []string{noFailure + "{}"}
+	}
+
+	let b = &sc.Buf
+	(*b).WriteString("// Request is one call of " + capName + ": a variant per operation, whose fields\n// are the operation's parameters. It is the request every transport carries.\n")
+	(*b).WriteString("type Request = " + strings.Join(requests, " | ") + "\n\n")
+	(*b).WriteString("// Op is an operation of " + capName + ": what a policy matches on.\n")
+	(*b).WriteString("type Op = " + strings.Join(opVariants, " | ") + "\n\n")
+	(*b).WriteString("// Reply is the value of an operation: a variant per operation.\n")
+	(*b).WriteString("type Reply = " + strings.Join(replies, " | ") + "\n\n")
+	if sfEn == sfSt {
+		(*b).WriteString("// Failure is a failure of an operation. No operation fails, so its one\n// variant is NoFailure, which no Call answers.\n")
+	} else {
+		(*b).WriteString("// Failure is a failure of an operation: a variant per failure type of\n// any row, named like the type (its JSON tag).\n")
+	}
+	(*b).WriteString("type Failure = " + strings.Join(failures, " | ") + "\n\n")
+	(*b).WriteString("// Outcome is what one call ends in: its operation's value or one of\n// its failures.\ntype Outcome = Done{Reply Reply} | Rejected{Failure Failure}\n\n")
+
+	(*b).WriteString("// OpOf is the operation r calls.\nfunc OpOf(r Request) Op {\nmatch r {\n")
+	for oi in opSt..opEn {
+		let on = ot.Name[oi]
+		(*b).WriteString("case " + RequestName(on) + ":\n" + OpName(on) + "\n")
+	}
+	(*b).WriteString("}\n}\n\n")
+
+	(*b).WriteString("// Name is op's name on every transport: the operation's, in kebab case.\nfunc Name(op Op) string {\nmatch op {\n")
+	for oi in opSt..opEn {
+		(*b).WriteString("case " + OpName(ot.Name[oi]) + ":\n" + Lit(ot.Kebab[oi]) + "\n")
+	}
+	(*b).WriteString("}\n}\n\n")
+
+	(*b).WriteString("// Doc is what op does: its doc comment, or its signature.\nfunc Doc(op Op) string {\nmatch op {\n")
+	for oi in opSt..opEn {
+		let on = ot.Name[oi]
+		let d = if ot.Doc[oi] != "" {
+			ot.Doc[oi]
+		} else {
+			on + (try hubOpSignature(ot, ft, tp, pkgPath, oi, true, &impPaths, &impNames))
+		}
+		(*b).WriteString("case " + OpName(on) + ":\n" + Lit(d) + "\n")
+	}
+	(*b).WriteString("}\n}\n\n")
+
+	(*b).WriteString("// valueOf is the JSON value text spells.\nfunc valueOf(text string) json.Value {\njson.Decode(json.Codec[json.Value]{MaxBytes: 0, MaxDepth: 0}, text) catch {\ncase _:\njson.Null\n}\n}\n\n")
+	(*b).WriteString("// Schema is the JSON schema of op's arguments: an object whose keys are\n// its parameters' JSON keys, or the fields of its one record parameter.\nfunc Schema(op Op) json.Value {\nmatch op {\n")
+	for oi in opSt..opEn {
+		let argSch = try ArgumentSchema(tp, ot, ft, st, sid, uint32(oi))
+		(*b).WriteString("case " + OpName(ot.Name[oi]) + ":\nvalueOf(" + Lit(argSch) + ")\n")
+	}
+	(*b).WriteString("}\n}\n\n")
+
+	(*b).WriteString("// Call answers r on the bound " + capName + ": the operation's value as its\n// Reply, or its typed failure as its Failure. It fails nothing.\n")
+	(*b).WriteString("func Call(r Request) Outcome needs " + capName + " {\nmatch r {\n")
+	for oi in opSt..opEn {
+		let on = ot.Name[oi]
+		let pSt = int(ot.ParamStart[oi])
+		let pEn = pSt + int(ot.ParamLen[oi])
+		if pEn == pSt {
+			(*b).WriteString("case " + RequestName(on) + ":\n")
+		} else {
+			(*b).WriteString("case " + RequestName(on) + " as x:\n")
+		}
+		let mut args = []string{}
+		for pi in pSt..pEn {
+			args = args.Append("x." + ft.FieldName[pi])
+		}
+		let mut call = capName + "." + on + "(" + strings.Join(args, ", ") + ")"
+		if ot.ResultType[oi] != NoIndex() {
+			call = "let v = " + call
+		}
+		(*b).WriteString(call)
+		let fSt = int(ot.FailStart[oi])
+		let fEn = fSt + int(ot.FailLen[oi])
+		if fEn > fSt {
+			(*b).WriteString(" catch {\n")
+			for fi in fSt..fEn {
+				let ftid = ot.FailTypeIDs[fi]
+				(*b).WriteString("case " + (try hubExpr(tp, ft, pkgPath, ftid, &impPaths, &impNames)) + " as e:\nreturn Rejected{Failure: " + specFailureVariant(st, tp, sid, ftid) + "{E: e}}\n")
+			}
+			(*b).WriteString("}")
+		}
+		(*b).WriteString("\n")
+		if ot.ResultType[oi] != NoIndex() {
+			(*b).WriteString("Done{Reply: " + ReplyName(on) + "{Value: v}}\n")
+		} else {
+			(*b).WriteString("Done{Reply: " + ReplyName(on) + "}\n")
+		}
+	}
+	(*b).WriteString("}\n}\n\n")
+
+	let apiDirName = APIDir(pkgName)
+	let mut cFields = []string{}
+	for oi in opSt..opEn {
+		let fSig = try hubOpSignature(ot, ft, tp, pkgPath, oi, false, &impPaths, &impNames)
+		cFields = cFields.Append("op" + ot.Name[oi] + " func" + fSig)
+	}
+	(*b).WriteString("// Client provides " + capName + " by invoking typed per-operation handlers directly:\n// a direct call returns its exact value or declared failure row with no Outcome boxing.\n")
+	(*b).WriteString("type Client { " + strings.Join(cFields, ", ") + " } implements " + capName + "\n\n")
+
+	let innerVar = hubFreshName("inner", impNames, ot, ft, opSt, opEn)
+	(*b).WriteString("// NewClient is the " + capName + " that invokes " + innerVar + " directly per operation.\nfunc NewClient(" + innerVar + " " + capName + ") Client {\nClient{\n")
+	for oi in opSt..opEn {
+		let on = ot.Name[oi]
+		let pSt = int(ot.ParamStart[oi])
+		let pEn = pSt + int(ot.ParamLen[oi])
+		let mut args = []string{}
+		for pi in pSt..pEn {
+			args = args.Append(ft.Name[pi])
+		}
+		let prefix = if ot.FailLen[oi] > uint32(0) { "try " } else { "" }
+		let fSig = try hubOpSignature(ot, ft, tp, pkgPath, oi, true, &impPaths, &impNames)
+		(*b).WriteString("op" + on + ": func" + fSig + " { " + prefix + innerVar + "." + on + "(" + strings.Join(args, ", ") + ") },\n")
+	}
+	(*b).WriteString("}\n}\n\n")
+
+	let heldVar = hubFreshName("held", impNames, ot, ft, opSt, opEn)
+	(*b).WriteString("// ClientInForce is the " + capName + " that invokes the provider currently in force.\nfunc ClientInForce() Client needs " + capName + " {\nlet " + heldVar + " = scope.InForce[" + capName + "]()\nClient{\n")
+	for oi in opSt..opEn {
+		let on = ot.Name[oi]
+		let pSt = int(ot.ParamStart[oi])
+		let pEn = pSt + int(ot.ParamLen[oi])
+		let mut args = []string{}
+		for pi in pSt..pEn {
+			args = args.Append(ft.Name[pi])
+		}
+		let prefix = if ot.FailLen[oi] > uint32(0) { "try " } else { "" }
+		let fSig = try hubOpSignature(ot, ft, tp, pkgPath, oi, true, &impPaths, &impNames)
+		(*b).WriteString("op" + on + ": func" + fSig + " { with " + heldVar + " { " + prefix + capName + "." + on + "(" + strings.Join(args, ", ") + ") } },\n")
+	}
+	(*b).WriteString("}\n}\n")
+
+	for oi in opSt..opEn {
+		let on = ot.Name[oi]
+		let pSt = int(ot.ParamStart[oi])
+		let pEn = pSt + int(ot.ParamLen[oi])
+		let mut params = []string{"client Client"}
+		let mut args = []string{}
+		for pi in pSt..pEn {
+			params = params.Append(ft.Name[pi] + " " + (try hubExpr(tp, ft, pkgPath, ft.TypeID[pi], &impPaths, &impNames)))
+			args = args.Append(ft.Name[pi])
+		}
+		let mut sig = "func " + on + "(" + strings.Join(params, ", ") + ")"
+		if ot.ResultType[oi] != NoIndex() {
+			sig = sig + " " + (try hubExpr(tp, ft, pkgPath, ot.ResultType[oi], &impPaths, &impNames))
+		}
+		let fSt = int(ot.FailStart[oi])
+		let fEn = fSt + int(ot.FailLen[oi])
+		if fEn > fSt {
+			let mut fs = []string{}
+			for fi in fSt..fEn {
+				fs = fs.Append(try hubExpr(tp, ft, pkgPath, ot.FailTypeIDs[fi], &impPaths, &impNames))
+			}
+			sig = sig + " fails " + strings.Join(fs, " | ")
+		}
+		let prefix = if fEn > fSt { "try " } else { "" }
+		(*b).WriteString("\n// " + on + " invokes " + capName + "'s " + on + " directly.\n" + sig + " {\n" + prefix + "client.op" + on + "(" + strings.Join(args, ", ") + ")\n}\n")
+	}
+
+	(*b).WriteString("\n// CheckedClient carries erased " + capName + " requests over send and validates each\n// Outcome against the requested operation, failing rpc.Transport on a\n// sibling reply or a failure outside the operation's row.\n")
+	(*b).WriteString("type CheckedClient { send func(r Request) Outcome fails rpc.Transport }\n\n")
+	(*b).WriteString("// NewCheckedClient is the CheckedClient that send answers.\nfunc NewCheckedClient(send own func(r Request) Outcome fails rpc.Transport) CheckedClient { CheckedClient{send: send} }\n")
+
+	for oi in opSt..opEn {
+		let on = ot.Name[oi]
+		let pSt = int(ot.ParamStart[oi])
+		let pEn = pSt + int(ot.ParamLen[oi])
+		let mut params = []string{"client CheckedClient"}
+		let mut fields = []string{}
+		for pi in pSt..pEn {
+			params = params.Append(ft.Name[pi] + " " + (try hubExpr(tp, ft, pkgPath, ft.TypeID[pi], &impPaths, &impNames)))
+			fields = fields.Append(ft.FieldName[pi] + ": " + ft.Name[pi])
+		}
+		let mut sig = "func " + on + "Checked(" + strings.Join(params, ", ") + ")"
+		if ot.ResultType[oi] != NoIndex() {
+			sig = sig + " " + (try hubExpr(tp, ft, pkgPath, ot.ResultType[oi], &impPaths, &impNames))
+		}
+		let fSt = int(ot.FailStart[oi])
+		let fEn = fSt + int(ot.FailLen[oi])
+		let mut fs = []string{}
+		for fi in fSt..fEn {
+			fs = fs.Append(try hubExpr(tp, ft, pkgPath, ot.FailTypeIDs[fi], &impPaths, &impNames))
+		}
+		if !(try opHasTransport(ot, ft, tp, pkgPath, oi, &impPaths, &impNames)) {
+			fs = fs.Append("rpc.Transport")
+		}
+		sig = sig + " fails " + strings.Join(fs, " | ")
+		let mut req = RequestName(on)
+		if fields.Len() > 0 {
+			req = req + "{" + strings.Join(fields, ", ") + "}"
+		}
+		(*b).WriteString("\n// " + on + "Checked sends " + capName + "'s " + on + " over send and validates its Outcome.\n" + sig + " {\n")
+		(*b).WriteString("match try client.send(" + req + ") {\ncase Done as done:\nmatch done.Reply {\n")
+		if ot.ResultType[oi] != NoIndex() {
+			(*b).WriteString("case " + ReplyName(on) + " as reply:\nreply.Value\n")
+		} else {
+			(*b).WriteString("case " + ReplyName(on) + ":\n")
+		}
+		if opEn-opSt > 1 {
+			(*b).WriteString("case _:\nreturn rpc.Transport{Reason: " + Lit(apiDirName+": "+on+" was answered with the value of another operation") + "}\n")
+		}
+		(*b).WriteString("}\n")
+		let outside = Lit(apiDirName + ": " + on + " was answered with a failure outside its row")
+		if fEn == fSt {
+			(*b).WriteString("case Rejected:\nreturn rpc.Transport{Reason: " + outside + "}\n}\n}\n")
+			continue
+		}
+		(*b).WriteString("case Rejected as rejected:\nmatch rejected.Failure {\n")
+		for fi in fSt..fEn {
+			(*b).WriteString("case " + specFailureVariant(st, tp, sid, ot.FailTypeIDs[fi]) + " as failure:\nreturn failure.E\n")
+		}
+		if !opCoversAllFailures(st, ot, tp, sid, oi) {
+			(*b).WriteString("case _:\nreturn rpc.Transport{Reason: " + outside + "}\n")
+		}
+		(*b).WriteString("}\n}\n}\n")
+	}
+	(*b).WriteString("\n")
+
+	let mut values = []string{}
+	for oi in opSt..opEn {
+		if ot.ResultType[oi] != NoIndex() {
+			values = values.Append(ot.Name[oi] + " " + (try hubExpr(tp, ft, pkgPath, ot.ResultType[oi], &impPaths, &impNames)))
+		}
+	}
+	(*b).WriteString("// Values holds a value of each operation's value type, so a law can\n// answer any operation.\n")
+	if values.Len() == 0 {
+		(*b).WriteString("type Values {}\n\n")
+	} else {
+		(*b).WriteString("type Values { " + strings.Join(values, ", ") + " }\n\n")
+	}
+
+	(*b).WriteString("// inRow reports whether f is a failure of op's row.\nfunc inRow(op Op, f Failure) bool {\nmatch op {\n")
+	let mut noneOps = []string{}
+	for oi in opSt..opEn {
+		let fSt = int(ot.FailStart[oi])
+		let fEn = fSt + int(ot.FailLen[oi])
+		if fEn == fSt {
+			noneOps = noneOps.Append(OpName(ot.Name[oi]))
+			continue
+		}
+		let mut fVars = []string{}
+		for fi in fSt..fEn {
+			fVars = fVars.Append(specFailureVariant(st, tp, sid, ot.FailTypeIDs[fi]))
+		}
+		(*b).WriteString("case " + OpName(ot.Name[oi]) + ":\nmatch f {\ncase " + strings.Join(fVars, ", ") + ":\ntrue\n")
+		if !opCoversAllFailures(st, ot, tp, sid, oi) {
+			(*b).WriteString("case _:\nfalse\n")
+		}
+		(*b).WriteString("}\n")
+	}
+	if noneOps.Len() > 0 {
+		(*b).WriteString("case " + strings.Join(noneOps, ", ") + ":\nfalse\n")
+	}
+	(*b).WriteString("}\n}\n\n")
+
+	(*b).WriteString("// Given is what a law gives a call: a value of each operation's value\n// type, a failure, and whether the call fails with it.\ntype Given { Values Values, Failure Failure, Failing bool }\n\n")
+	(*b).WriteString("// OutcomeOf is the Outcome g gives r: its failure when g fails and the\n// failure is in the row of r's operation, else the operation's value\n// from g. It is always an Outcome r's operation can have.\nfunc OutcomeOf(r Request, g Given) Outcome {\nif g.Failing && inRow(OpOf(r), g.Failure) {\nreturn Rejected{Failure: g.Failure}\n}\nmatch r {\n")
+	for oi in opSt..opEn {
+		let on = ot.Name[oi]
+		(*b).WriteString("case " + RequestName(on) + ":\n")
+		if ot.ResultType[oi] != NoIndex() {
+			(*b).WriteString("Done{Reply: " + ReplyName(on) + "{Value: g.Values." + on + "}}\n")
+		} else {
+			(*b).WriteString("Done{Reply: " + ReplyName(on) + "}\n")
+		}
+	}
+	(*b).WriteString("}\n}\n\n")
+
+	let gVar = hubFreshName("g", impNames, ot, ft, opSt, opEn)
+	let sentVar = hubFreshName("sent", impNames, ot, ft, opSt, opEn)
+	(*b).WriteString("// scripted is a Client that keeps each Request it is sent and answers " + gVar + ".\nfunc scripted(" + gVar + " Given, " + sentVar + " sync.Ref[[]Request]) Client {\nClient{\n")
+	for oi in opSt..opEn {
+		let on = ot.Name[oi]
+		let pSt = int(ot.ParamStart[oi])
+		let pEn = pSt + int(ot.ParamLen[oi])
+		let mut fields = []string{}
+		for pi in pSt..pEn {
+			fields = fields.Append(ft.FieldName[pi] + ": " + ft.Name[pi])
+		}
+		let mut req = RequestName(on)
+		if fields.Len() > 0 {
+			req = req + "{" + strings.Join(fields, ", ") + "}"
+		}
+		let mut singleNames = []string{}
+		for pi in pSt..pEn {
+			singleNames = singleNames.Append(ft.Name[pi])
+		}
+		let rsVar = hubFreshName("rs", impNames, ot, ft, oi, oi+1)
+		let errVar = hubFreshName("err", impNames, ot, ft, oi, oi+1)
+		let _ = singleNames
+		let fSig = try hubOpSignature(ot, ft, tp, pkgPath, oi, true, &impPaths, &impNames)
+		(*b).WriteString("op" + on + ": func" + fSig + " {\n" + sentVar + ".Update(func(" + rsVar + " []Request) []Request { " + rsVar + ".Append(" + req + ") })\n")
+		let fSt = int(ot.FailStart[oi])
+		let fEn = fSt + int(ot.FailLen[oi])
+		if fEn > fSt {
+			(*b).WriteString("if " + gVar + ".Failing {\nmatch " + gVar + ".Failure {\n")
+			for fi in fSt..fEn {
+				(*b).WriteString("case " + specFailureVariant(st, tp, sid, ot.FailTypeIDs[fi]) + " as " + errVar + ":\nreturn " + errVar + ".E\n")
+			}
+			if !opCoversAllFailures(st, ot, tp, sid, oi) {
+				(*b).WriteString("case _:\n")
+			}
+			(*b).WriteString("}\n}\n")
+		}
+		if ot.ResultType[oi] != NoIndex() {
+			(*b).WriteString(gVar + ".Values." + on + "\n")
+		}
+		(*b).WriteString("},\n")
+	}
+	(*b).WriteString("}\n}\n\n")
+
+	(*b).WriteString("// callChecked dispatches r through client and encodes its typed outcome.\nfunc callChecked(client CheckedClient, r Request) Outcome fails rpc.Transport {\nmatch r {\n")
+	for oi in opSt..opEn {
+		let on = ot.Name[oi]
+		let pSt = int(ot.ParamStart[oi])
+		let pEn = pSt + int(ot.ParamLen[oi])
+		if pEn == pSt {
+			(*b).WriteString("case " + RequestName(on) + ":\n")
+		} else {
+			(*b).WriteString("case " + RequestName(on) + " as x:\n")
+		}
+		let mut args = []string{"client"}
+		for pi in pSt..pEn {
+			args = args.Append("x." + ft.FieldName[pi])
+		}
+		let mut call = on + "Checked(" + strings.Join(args, ", ") + ")"
+		if ot.ResultType[oi] != NoIndex() {
+			call = "let v = " + call
+		}
+		(*b).WriteString(call + " catch {\n")
+		let fSt = int(ot.FailStart[oi])
+		let fEn = fSt + int(ot.FailLen[oi])
+		for fi in fSt..fEn {
+			let ftid = ot.FailTypeIDs[fi]
+			(*b).WriteString("case " + (try hubExpr(tp, ft, pkgPath, ftid, &impPaths, &impNames)) + " as e:\nreturn Rejected{Failure: " + specFailureVariant(st, tp, sid, ftid) + "{E: e}}\n")
+		}
+		let mut dummyPaths = slices.Clone(impPaths)
+		let mut dummyNames = slices.Clone(impNames)
+		if !(try opHasTransport(ot, ft, tp, pkgPath, oi, &dummyPaths, &dummyNames)) {
+			(*b).WriteString("case rpc.Transport as t:\nreturn t\n")
+		}
+		(*b).WriteString("}\n")
+		if ot.ResultType[oi] != NoIndex() {
+			(*b).WriteString("Done{Reply: " + ReplyName(on) + "{Value: v}}\n")
+		} else {
+			(*b).WriteString("Done{Reply: " + ReplyName(on) + "}\n")
+		}
+	}
+	(*b).WriteString("}\n}\n\n")
+
+	(*b).WriteString("// CallIsTheOperation: Call(r) calls r's operation once, with r's\n// arguments, and answers its value or failure as r's own Outcome.\nlaw CallIsTheOperation(r Request, g Given) {\nlet want = OutcomeOf(r, g)\nlet sent = sync.NewRef[[]Request]([]Request{})\nlet got = with context { " + capName + ": scripted(g, sent) } { Call(r) }\ngot == want && sent.Get() == []Request{r}\n}\n\n")
+	(*b).WriteString("// ClientIsCall: a direct Client and a CheckedClient over Call both\n// answer each call as the provider Call is bound to does.\nlaw ClientIsCall(r Request, g Given) {\nlet want = OutcomeOf(r, g)\nlet sent = sync.NewRef[[]Request]([]Request{})\nlet inner = scripted(g, sent)\nlet outer = NewClient(inner)\nlet got = with context { " + capName + ": outer } { Call(r) }\nlet sentChecked = sync.NewRef[[]Request]([]Request{})\nlet innerChecked = scripted(g, sentChecked)\nlet checked = NewCheckedClient(func(q Request) Outcome fails rpc.Transport {\nwith context { " + capName + ": innerChecked } { Call(q) }\n})\nlet gotChecked = callChecked(checked, r) catch {\ncase rpc.Transport:\nreturn false\n}\ngot == want && sent.Get() == []Request{r} && gotChecked == want && sentChecked.Get() == []Request{r}\n}\n")
+
+	let body = (*b).String()
+	let src = ImportBlock(impPaths, impNames, body, false, true) + "\n" + body
+	let out = try Source(src)
+	GeneratedPkg{
+		Dir:       apiDirName,
+		FileNames: []string{"api.ergo"},
+		FileTexts: []string{out},
+		Marker:    GenMarker{
+			Kind:      "api",
+			Generator: "ergo gen api",
+			Subjects:  []string{st.Subject[sid]},
+			Contract:  st.ContractDigest[sid],
+			Digest:    "",
+		},
+	}
+}
+
+test HubGeneratesValidApiSource {
+	let mut st = NewSpecTable()
+	let mut ot = NewOpTable()
+	let mut ft = NewFieldTable()
+	let mut tp = NewTypePool()
+	let sid = AddSpec(&st, "example/svc", "svc", "Svc")
+	let tidStr = AllocType(&tp, TypeBasic)
+	tp.BasicOrd[tidStr] = uint8(2)
+	tp.ExprText[tidStr] = "string"
+	tp.PrintText[tidStr] = "string"
+	tp.UnderlyingText[tidStr] = "string"
+	let oid = AddOp(&ot, sid, "Ping", "ping", "Ping replies.")
+	let pSt = ft.Count
+	let _ = AddField(&ft, FieldParam, oid, "msg", "Msg", "msg", false, tidStr, true, false, false, "")
+	ot.ParamStart[oid] = pSt
+	ot.ParamLen[oid] = uint32(1)
+	ot.ResultType[oid] = tidStr
+	st.OpStart[sid] = uint32(0)
+	st.OpLen[sid] = uint32(1)
+	st.ImportStart[sid] = uint32(0)
+	st.ImportLen[sid] = uint32(1)
+	st.ImportPaths = st.ImportPaths.Append("example/svc")
+	st.ImportNames = st.ImportNames.Append("svc")
+	st.ContractDigest[sid] = "sha256:0000"
+	let mut sc = NewScratch()
+	let g = GenerateAPI(st, ot, ft, tp, sid, &sc) catch {
+	case GenError:
+		assert false
+		GeneratedPkg{Dir: "", FileNames: []string{}, FileTexts: []string{}, Marker: GenMarker{Kind: "", Generator: "", Subjects: []string{}, Contract: "", Digest: ""}}
+	}
+	assert g.Dir == "svcapi" && g.FileNames == []string{"api.ergo"}
+	assert strings.Contains(g.FileTexts[0], "type Request = PingRequest{Msg string}")
+	assert strings.Contains(g.FileTexts[0], "law CallIsTheOperation")
+}

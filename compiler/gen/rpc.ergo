@@ -1,0 +1,543 @@
+import compiler/check/types
+import slices
+import strconv
+import strings
+
+type walkerPlan {
+	Keys    []string,
+	Names   []string,
+	TypeIDs []uint32,
+	Bodies  []string,
+	Order   []int,
+}
+
+func newWalkerPlan() walkerPlan {
+	walkerPlan{
+		Keys:    []string{},
+		Names:   []string{},
+		TypeIDs: []uint32{},
+		Bodies:  []string{},
+		Order:   []int{},
+	}
+}
+
+func rpcExpr(tp TypePool, ft FieldTable, pkgPath string, tid uint32, impPaths mut []string, impNames mut []string) string fails GenError {
+	let k = tp.Kind[tid]
+	if k == TypeInvalid {
+		return GenError{Reason: "the type " + tp.PrintText[tid] + " has no wire form an RPC contract can carry"}
+	}
+	TupleExpr(tp, ft, pkgPath, tid, impPaths, impNames)
+}
+
+func ensureWalker(tp TypePool, ft FieldTable, pkgPath string, tid uint32, wp mut walkerPlan, impPaths mut []string, impNames mut []string) string fails GenError {
+	let mut seen = []bool{}
+	for _ in uint32(0)..tp.Count {
+		seen = seen.Append(false)
+	}
+	if !ReachesWide(tp, ft, tid, &seen) {
+		return ""
+	}
+	let key = tp.PrintText[tid]
+	for i, k in wp.Keys {
+		if k == key {
+			return wp.Names[i]
+		}
+	}
+	let idx = wp.Keys.Len()
+	let exprStr = try rpcExpr(tp, ft, pkgPath, tid, impPaths, impNames)
+	let wName = "exact" + Mangle(exprStr)
+	wp.Keys = wp.Keys.Append(key)
+	wp.Names = wp.Names.Append(wName)
+	wp.TypeIDs = wp.TypeIDs.Append(tid)
+	wp.Bodies = wp.Bodies.Append("")
+	wp.Order = wp.Order.Append(idx)
+
+	let mut b = strings.NewBuilder()
+	if tp.IsByName[tid] && tp.ByNameBase[tid] != NoIndex() {
+		let c = try ensureWalker(tp, ft, pkgPath, tp.ByNameBase[tid], wp, impPaths, impNames)
+		let fnPkg = if tp.ByNamePkgPath[tid] == pkgPath {
+			let nm = LastElem(pkgPath)
+			recordImport(impPaths, impNames, pkgPath, nm)
+			nm
+		} else {
+			let nm = LastElem(tp.ByNamePkgPath[tid])
+			recordImport(impPaths, impNames, tp.ByNamePkgPath[tid], nm)
+			nm
+		}
+		b.WriteString("try " + c + "(" + fnPkg + "." + tp.ByNameFunc[tid] + "(v))\n")
+	} else if tp.Kind[tid] == TypeBasic {
+		let wk = wideBasicKind(tp.BasicOrd[tid])
+		let conv = if wk == "ExactUint" { "uint64" } else { "int64" }
+		let x = if tp.TypeName[tid] != "" {
+			types.BasicName(int(tp.BasicOrd[tid])) + "(v)"
+		} else {
+			"v"
+		}
+		b.WriteString("try rpc." + wk + "(\"\", " + conv + "(" + x + "))\n")
+	} else if tp.Kind[tid] == TypeStruct {
+		let fSt = int(tp.FieldStart[tid])
+		let fEn = fSt + int(tp.FieldLen[tid])
+		for fi in fSt..fEn {
+			let c = try ensureWalker(tp, ft, pkgPath, ft.TypeID[fi], wp, impPaths, impNames)
+			if c != "" {
+				b.WriteString(c + "(v." + ft.Name[fi] + ") catch {\ncase rpc.Unrepresentable as u:\nreturn rpc.Under(" + Quote(ft.WireKey[fi]) + ", u)\n}\n")
+			}
+		}
+	} else if tp.Kind[tid] == TypeUnion {
+		b.WriteString("match v {\n")
+		let vSt = int(tp.VariantStart[tid])
+		let vEn = vSt + int(tp.VariantLen[tid])
+		for vi in vSt..vEn {
+			let vid = tp.VariantItems[vi]
+			let vExpr = try rpcExpr(tp, ft, pkgPath, vid, impPaths, impNames)
+			let mut inner = strings.NewBuilder()
+			if tp.Kind[vid] == TypeStruct {
+				let fSt = int(tp.FieldStart[vid])
+				let fEn = fSt + int(tp.FieldLen[vid])
+				for fi in fSt..fEn {
+					let c = try ensureWalker(tp, ft, pkgPath, ft.TypeID[fi], wp, impPaths, impNames)
+					if c != "" {
+						inner.WriteString(c + "(x." + ft.Name[fi] + ") catch {\ncase rpc.Unrepresentable as u:\nreturn rpc.Under(" + Quote(ft.WireKey[fi]) + ", u)\n}\n")
+					}
+				}
+			}
+			let innerText = inner.String()
+			if innerText != "" {
+				b.WriteString("case " + vExpr + " as x:\n" + innerText)
+			} else {
+				b.WriteString("case " + vExpr + ":\n")
+			}
+		}
+		b.WriteString("}\n")
+	} else if tp.Kind[tid] == TypeSlice {
+		let c = try ensureWalker(tp, ft, pkgPath, tp.ElemType[tid], wp, impPaths, impNames)
+		b.WriteString("for i, x in v {\n" + c + "(x) catch {\ncase rpc.Unrepresentable as u:\nreturn rpc.Under(\"\\(i)\", u)\n}\n}\n")
+	} else if tp.Kind[tid] == TypeMap {
+		let c = try ensureWalker(tp, ft, pkgPath, tp.ElemType[tid], wp, impPaths, impNames)
+		b.WriteString("for k, x in v {\n" + c + "(x) catch {\ncase rpc.Unrepresentable as u:\nreturn rpc.Under(\"\\(k)\", u)\n}\n}\n")
+	} else if tp.Kind[tid] == TypeTuple {
+		let fSt = int(tp.FieldStart[tid])
+		let fEn = fSt + int(tp.FieldLen[tid])
+		let mut names = []string{}
+		let mut inner = strings.NewBuilder()
+		for fi in fSt..fEn {
+			let nm = "x" + strconv.Itoa(fi-fSt)
+			names = names.Append(nm)
+			let c = try ensureWalker(tp, ft, pkgPath, ft.TypeID[fi], wp, impPaths, impNames)
+			if c != "" {
+				inner.WriteString(c + "(" + nm + ") catch {\ncase rpc.Unrepresentable as u:\nreturn rpc.Under(" + Quote(strconv.Itoa(fi-fSt)) + ", u)\n}\n")
+			}
+		}
+		b.WriteString("let (" + strings.Join(names, ", ") + ") = v\n" + inner.String())
+	}
+	wp.Bodies[idx] = b.String()
+	wName
+}
+
+func writeRangeCheck(b mut strings.Builder, name string, x string, res string) {
+	if name == "" {
+		return
+	}
+	if res == "" {
+		(*b).WriteString(name + "(" + x + ") catch {\ncase rpc.Unrepresentable as u:\nrpc.Refuse[string](u)\n}\n")
+		return
+	}
+	(*b).WriteString(name + "(" + x + ") catch {\ncase rpc.Unrepresentable as u:\nreturn rpc.Refuse[" + res + "](u)\n}\n")
+}
+
+func rpcCheckNames(st SpecTable, ot OpTable, ft FieldTable, tp TypePool, sid uint32, impNames []string) fails GenError {
+	let opName = st.OpName[sid]
+	let opSt = int(st.OpStart[sid])
+	let opEn = opSt + int(st.OpLen[sid])
+	for oi in opSt..opEn {
+		let on = ot.Name[oi]
+		let pSt = int(ot.ParamStart[oi])
+		let pEn = pSt + int(ot.ParamLen[oi])
+		for pi in pSt..pEn {
+			let pn = ft.Name[pi]
+			if isRPCReservedParam(pn) {
+				return GenError{Reason: opName + "." + on + ": the parameter name " + pn + " is one the generated code uses; rename it"}
+			}
+			for impN in impNames {
+				if pn == impN {
+					return GenError{Reason: opName + "." + on + ": the parameter name " + pn + " is the package " + impN + " the generated code imports; rename it"}
+				}
+			}
+		}
+		let fSt = int(ot.FailStart[oi])
+		let fEn = fSt + int(ot.FailLen[oi])
+		let mut tags = []string{}
+		for fi in fSt..fEn {
+			for tg in FailTags(tp, ot.FailTypeIDs[fi]) {
+				if slices.Contains(tags, tg) {
+					return GenError{Reason: opName + "." + on + ": two failures have the tag " + tg + " on the wire"}
+				}
+				tags = tags.Append(tg)
+			}
+		}
+	}
+}
+
+func rpcFailureVariant(st SpecTable, tp TypePool, sid uint32, ftid uint32) string {
+	let sfSt = int(st.FailStart[sid])
+	let sfEn = sfSt + int(st.FailLen[sid])
+	let target = tp.PrintText[ftid]
+	for si in sfSt..sfEn {
+		if tp.PrintText[st.FailTypeIDs[si]] == target {
+			return st.FailVariants[si]
+		}
+	}
+	tp.TypeName[ftid]
+}
+
+// GenerateRPC emits <pkg>rpc/{wire,server,client}.ergo over the hub at apiPath.
+func GenerateRPC(st SpecTable, ot OpTable, ft FieldTable, tp TypePool, sid uint32, apiPath string, sc mut GenScratch) GeneratedPkg fails GenError {
+	if apiPath == "" {
+		return GenError{Reason: "the rpc package is written over the hub; run ergo gen api first"}
+	}
+	ResetScratch(sc)
+	let opName = st.OpName[sid]
+	let pkgPath = st.PkgPath[sid]
+	let pkgName = st.PkgName[sid]
+	let mut impPaths = []string{}
+	let mut impNames = []string{}
+	let impSt = int(st.ImportStart[sid])
+	let impEn = impSt + int(st.ImportLen[sid])
+	for ii in impSt..impEn {
+		recordImport(&impPaths, &impNames, st.ImportPaths[ii], st.ImportNames[ii])
+	}
+	let api = LastElem(apiPath)
+	recordImport(&impPaths, &impNames, apiPath, api)
+	let stdAPI = StdAPIName(impPaths, impNames)
+	recordImport(&impPaths, &impNames, "api", stdAPI)
+	try rpcCheckNames(st, ot, ft, tp, sid, impNames)
+
+	let mut wp = newWalkerPlan()
+	let opSt = int(st.OpStart[sid])
+	let opEn = opSt + int(st.OpLen[sid])
+	let mut reqWalkers = []string{}
+	for _ in opSt..opEn {
+		reqWalkers = reqWalkers.Append("")
+	}
+
+	let mut wireB = strings.NewBuilder()
+	wireB.WriteString("// Request is one call of " + pkgName + "." + opName + ": the hub's Request, a variant per\n// operation whose fields are the operation's parameters, so its payload is\n// the variant's JSON. Each variant is named here too.\n")
+	wireB.WriteString("type Request = " + api + ".Request\n")
+	for oi in opSt..opEn {
+		wireB.WriteString("\ntype " + RequestName(ot.Name[oi]) + " = " + api + "." + RequestName(ot.Name[oi]) + "\n")
+	}
+	for oi in opSt..opEn {
+		let on = ot.Name[oi]
+		let pSt = int(ot.ParamStart[oi])
+		let pEn = pSt + int(ot.ParamLen[oi])
+		let mut lines = strings.NewBuilder()
+		for pi in pSt..pEn {
+			let c = try ensureWalker(tp, ft, pkgPath, ft.TypeID[pi], &wp, &impPaths, &impNames)
+			if c != "" {
+				lines.WriteString(c + "(v." + ft.FieldName[pi] + ") catch {\ncase rpc.Unrepresentable as u:\nreturn rpc.Under(" + Quote(ft.Name[pi]) + ", u)\n}\n")
+			}
+		}
+		let lText = lines.String()
+		if lText != "" {
+			let wName = "exact" + RequestName(on)
+			reqWalkers[oi-opSt] = wName
+			wireB.WriteString("\nfunc " + wName + "(v " + RequestName(on) + ") fails rpc.Unrepresentable {\n" + lText + "}\n")
+		}
+	}
+	for oi in opSt..opEn {
+		if ot.ResultType[oi] != NoIndex() {
+			let _ = try ensureWalker(tp, ft, pkgPath, ot.ResultType[oi], &wp, &impPaths, &impNames)
+		}
+		let fSt = int(ot.FailStart[oi])
+		let fEn = fSt + int(ot.FailLen[oi])
+		for fi in fSt..fEn {
+			let _ = try ensureWalker(tp, ft, pkgPath, ot.FailTypeIDs[fi], &wp, &impPaths, &impNames)
+		}
+	}
+	for wi in wp.Order {
+		let ex = try rpcExpr(tp, ft, pkgPath, wp.TypeIDs[wi], &impPaths, &impNames)
+		wireB.WriteString("\nfunc " + wp.Names[wi] + "(v " + ex + ") fails rpc.Unrepresentable {\n" + wp.Bodies[wi] + "}\n")
+	}
+	let wireBody = wireB.String()
+
+	let capName = pkgName + "." + opName
+	let sfSt = int(st.FailStart[sid])
+	let sfEn = sfSt + int(st.FailLen[sid])
+	let mut srvB = strings.NewBuilder()
+	srvB.WriteString("// Handle runs one call of " + capName + " on the provider the caller binds,\n// through the hub's Call: tag names the operation and payload is its\n// Request's JSON. Its value is the result's JSON; a typed failure is\n// Failed with the failure's tagged JSON. A request the contract does not\n// hold and an int the wire cannot carry are defects, which the server\n// answers as Die.\n")
+	srvB.WriteString("func Handle(tag string, payload string) string fails rpc.Failed needs " + capName + " {\ntry handle(tag, payload, " + api + ".Call)\n}\n\n")
+	srvB.WriteString("// handle is Handle with the Request answered by answer.\n")
+	srvB.WriteString("func handle[R](tag string, payload string, answer func(r Request) " + api + ".Outcome needs R) string fails rpc.Failed needs R {\n")
+	srvB.WriteString("let req = rpc.Decode[Request](\"request\", rpc.Tagged(tag + \"Request\", payload)) catch {\ncase rpc.Transport as t:\nreturn rpc.Die[string](\"RpcError\", t.Reason)\n}\n")
+	let mut checkedCount = 0
+	for rw in reqWalkers {
+		if rw != "" {
+			checkedCount = checkedCount + 1
+		}
+	}
+	if checkedCount > 0 {
+		srvB.WriteString("match req {\n")
+		for oi in opSt..opEn {
+			let rw = reqWalkers[oi-opSt]
+			if rw != "" {
+				srvB.WriteString("case " + RequestName(ot.Name[oi]) + " as r:\n")
+				writeRangeCheck(&srvB, rw, "r", "string")
+			}
+		}
+		if checkedCount < (opEn - opSt) {
+			srvB.WriteString("case _:\n")
+		}
+		srvB.WriteString("}\n")
+	}
+	srvB.WriteString("match answer(req) {\ncase " + api + ".Done as done:\nmatch done.Reply {\n")
+	for oi in opSt..opEn {
+		let on = ot.Name[oi]
+		let reply = api + "." + ReplyName(on)
+		if ot.ResultType[oi] == NoIndex() {
+			srvB.WriteString("case " + reply + ":\n\"null\"\n")
+			continue
+		}
+		srvB.WriteString("case " + reply + " as reply:\nlet v = reply.Value\n")
+		let rw = try ensureWalker(tp, ft, pkgPath, ot.ResultType[oi], &wp, &impPaths, &impNames)
+		writeRangeCheck(&srvB, rw, "v", "string")
+		srvB.WriteString("rpc.Encode(v)\n")
+	}
+	srvB.WriteString("}\ncase " + api + ".Rejected as rejected:\nmatch rejected.Failure {\n")
+	for si in sfSt..sfEn {
+		let ftid = st.FailTypeIDs[si]
+		srvB.WriteString("case " + api + "." + st.FailVariants[si] + " as failure:\nlet e = failure.E\n")
+		let fw = try ensureWalker(tp, ft, pkgPath, ftid, &wp, &impPaths, &impNames)
+		writeRangeCheck(&srvB, fw, "e", "string")
+		if st.FailIsUnion[si] {
+			srvB.WriteString("return rpc.Failed{Text: rpc.Encode(e)}\n")
+		} else {
+			srvB.WriteString("return rpc.Failed{Text: rpc.Tagged(" + Quote(st.FailTags[si]) + ", rpc.Encode(e))}\n")
+		}
+	}
+	if sfEn == sfSt {
+		srvB.WriteString("case " + api + ".NoFailure:\nrpc.Die[string](\"RpcError\", \"the hub answered NoFailure, which no operation fails\")\n")
+	}
+	srvB.WriteString("}\n}\n}\n")
+	srvB.WriteString("\n// carry is c over Effect RPC's wire: the hub's Call on the Client of a\n// server in this process (rpc.Loopback) whose handle answers with\n// answer, so the call crosses the Client's encoding, the server's\n// envelopes and Handle's reading, and its outcome comes back the same way.\nfunc carry(c Request, answer own func(c Request) " + api + ".Outcome) " + api + ".Outcome {\n")
+	srvB.WriteString("let client = NewClient(rpc.Loopback(func(tag string, payload string) string fails rpc.Failed {\ntry handle(tag, payload, answer)\n}))\nwith context { " + capName + ": client } { " + api + ".Call(c) }\n}\n")
+	srvB.WriteString("\n// Wire is Effect RPC as a transport of the hub's calls.\ntype Wire {} implements " + stdAPI + ".Transport[Request, " + api + ".Outcome]\n")
+	srvB.WriteString("\n// Carry is carry.\nfunc Carry(w Wire, c Request, answer own func(c Request) " + api + ".Outcome) " + api + ".Outcome { carry(c, answer) }\n")
+	srvB.WriteString("\n// Fits reports whether r and o hold only ints the wire carries exactly\n// (an int beyond 2^53-1 is Unrepresentable, a defect on either side).\nfunc Fits(r Request, o " + api + ".Outcome) bool {\n")
+	if checkedCount > 0 {
+		srvB.WriteString("match r {\n")
+		for oi in opSt..opEn {
+			let rw = reqWalkers[oi-opSt]
+			if rw != "" {
+				srvB.WriteString("case " + api + "." + RequestName(ot.Name[oi]) + " as x:\n" + rw + "(x) catch {\ncase rpc.Unrepresentable:\nreturn false\n}\n")
+			}
+		}
+		if checkedCount < (opEn - opSt) {
+			srvB.WriteString("case _:\n")
+		}
+		srvB.WriteString("}\n")
+	}
+	srvB.WriteString("match o {\ncase " + api + ".Done as done:\nmatch done.Reply {\n")
+	for oi in opSt..opEn {
+		let reply = api + "." + ReplyName(ot.Name[oi])
+		let rw = if ot.ResultType[oi] != NoIndex() { try ensureWalker(tp, ft, pkgPath, ot.ResultType[oi], &wp, &impPaths, &impNames) } else { "" }
+		if rw != "" {
+			srvB.WriteString("case " + reply + " as reply:\n" + rw + "(reply.Value) catch {\ncase rpc.Unrepresentable:\nreturn false\n}\n")
+		} else {
+			srvB.WriteString("case " + reply + ":\n")
+		}
+	}
+	srvB.WriteString("}\ncase " + api + ".Rejected as rejected:\nmatch rejected.Failure {\n")
+	for si in sfSt..sfEn {
+		let variant = api + "." + st.FailVariants[si]
+		let fw = try ensureWalker(tp, ft, pkgPath, st.FailTypeIDs[si], &wp, &impPaths, &impNames)
+		if fw != "" {
+			srvB.WriteString("case " + variant + " as failure:\n" + fw + "(failure.E) catch {\ncase rpc.Unrepresentable:\nreturn false\n}\n")
+		} else {
+			srvB.WriteString("case " + variant + ":\n")
+		}
+	}
+	if sfEn == sfSt {
+		srvB.WriteString("case " + api + ".NoFailure:\n")
+	}
+	srvB.WriteString("}\n}\ntrue\n}\n")
+	srvB.WriteString("\n// Agrees: the wire carries every call and every outcome the call can\n// have unchanged, when they hold only ints it carries exactly (Fits).\nlaw Agrees(r Request, g " + api + ".Given) {\nlet o = " + api + ".OutcomeOf(r, g)\n!Fits(r, o) || " + stdAPI + ".Agrees(Wire, r, o)\n}\n")
+	let serverBody = srvB.String()
+
+	let mut cliB = strings.NewBuilder()
+	cliB.WriteString("// Client is " + capName + " over the wire: each operation is one call to the\n// server its Conn names. <Op>Checked fails the wire's failures as typed\n// failures: rpc.Unrepresentable for an int the wire cannot carry (an\n// operation that carries one), rpc.Transport for a lost server, a refused\n// call or an answer that is not the contract's. <Op> provides the\n// operation type, whose row cannot name them, so there they are defects.\n")
+	cliB.WriteString("type Client { conn rpc.Conn } implements " + capName + "\n\n")
+	cliB.WriteString("// NewClient is the " + capName + " that conn serves.\nfunc NewClient(conn rpc.Conn) Client { Client{conn: conn} }\n")
+	for oi in opSt..opEn {
+		let on = ot.Name[oi]
+		let res = if ot.ResultType[oi] != NoIndex() {
+			try rpcExpr(tp, ft, pkgPath, ot.ResultType[oi], &impPaths, &impNames)
+		} else {
+			"string"
+		}
+		let rw = reqWalkers[oi-opSt]
+		let resW = if ot.ResultType[oi] != NoIndex() { try ensureWalker(tp, ft, pkgPath, ot.ResultType[oi], &wp, &impPaths, &impNames) } else { "" }
+		let mut wide = rw != "" || resW != ""
+		let fSt = int(ot.FailStart[oi])
+		let fEn = fSt + int(ot.FailLen[oi])
+		for fi in fSt..fEn {
+			if (try ensureWalker(tp, ft, pkgPath, ot.FailTypeIDs[fi], &wp, &impPaths, &impNames)) != "" {
+				wide = true
+			}
+		}
+		let pSt = int(ot.ParamStart[oi])
+		let pEn = pSt + int(ot.ParamLen[oi])
+		let mut params = []string{}
+		let mut fields = []string{}
+		let mut args = []string{}
+		for pi in pSt..pEn {
+			let ex = try rpcExpr(tp, ft, pkgPath, ft.TypeID[pi], &impPaths, &impNames)
+			params = params.Append(ft.Name[pi] + " " + ex)
+			fields = fields.Append(ft.FieldName[pi] + ": " + ft.Name[pi])
+			args = args.Append(ft.Name[pi])
+		}
+		let mut fs = []string{}
+		for fi in fSt..fEn {
+			fs = fs.Append(try rpcExpr(tp, ft, pkgPath, ot.FailTypeIDs[fi], &impPaths, &impNames))
+		}
+		let buildHead = func(fnName string, failList []string) string {
+			let mut hs = "func " + fnName + "(client Client"
+			if params.Len() > 0 {
+				hs = hs + ", " + strings.Join(params, ", ")
+			}
+			hs = hs + ")"
+			if ot.ResultType[oi] != NoIndex() {
+				hs = hs + " " + res
+			}
+			if failList.Len() > 0 {
+				hs = hs + " fails " + strings.Join(failList, " | ")
+			}
+			hs
+		}
+		let checked = on + "Checked"
+		let mut wireFails = slices.Clone(fs)
+		if wide {
+			wireFails = wireFails.Append("rpc.Unrepresentable")
+		}
+		wireFails = wireFails.Append("rpc.Transport")
+		cliB.WriteString("\n// " + checked + " calls " + capName + "'s " + on + " on the server; the wire's failures are\n// typed failures.\n" + buildHead(checked, wireFails) + " {\n")
+		let rn = RequestName(on)
+		if pEn == pSt {
+			cliB.WriteString("let p = " + api + "." + rn + "\n")
+		} else {
+			cliB.WriteString("let p = " + api + "." + rn + "{" + strings.Join(fields, ", ") + "}\n")
+			if rw != "" {
+				cliB.WriteString("try " + rw + "(p)\n")
+			}
+		}
+		let lead = if ot.ResultType[oi] == NoIndex() { "let _ = " } else { "let text = " }
+		let unnamed = "return rpc.Transport{Reason: \"" + on + " failed with a failure the contract does not name: \\(f.Text)\"}\n"
+		cliB.WriteString(lead + "try rpc.Call(client.conn, " + Quote(on) + ", rpc.Encode(p)) catch {\ncase rpc.Failed as f:\n")
+		if fEn == fSt {
+			cliB.WriteString(unnamed)
+		} else {
+			cliB.WriteString("match rpc.TagOf(f.Text) {\n")
+			for fi in fSt..fEn {
+				let ftid = ot.FailTypeIDs[fi]
+				let mut cases = []string{}
+				for tg in FailTags(tp, ftid) {
+					cases = cases.Append(Quote(tg))
+				}
+				cliB.WriteString("case " + strings.Join(cases, ", ") + ":\n")
+				cliB.WriteString("let e = try rpc.Decode[" + (try rpcExpr(tp, ft, pkgPath, ftid, &impPaths, &impNames)) + "](\"failure\", f.Text)\n")
+				let fw = try ensureWalker(tp, ft, pkgPath, ftid, &wp, &impPaths, &impNames)
+				if fw != "" {
+					cliB.WriteString("try " + fw + "(e)\n")
+				}
+				cliB.WriteString("return e\n")
+			}
+			cliB.WriteString("case _:\n" + unnamed + "}\n")
+		}
+		if !wide {
+			cliB.WriteString("case rpc.Unrepresentable as u:\nreturn rpc.Transport{Reason: \"" + on + ": the server refused the int \\(u.Value) at \\(u.Path), which the contract does not carry\"}\n")
+		}
+		cliB.WriteString("}\n")
+		if ot.ResultType[oi] != NoIndex() {
+			cliB.WriteString("let v = try rpc.Decode[" + res + "](\"value\", text)\n")
+			if resW != "" {
+				cliB.WriteString("try " + resW + "(v)\n")
+			}
+			cliB.WriteString("v\n")
+		}
+		cliB.WriteString("}\n")
+
+		cliB.WriteString("\n// " + on + " calls " + capName + "'s " + on + " on the server, as " + checked + " does; an int the\n// wire cannot carry and a failure of the wire are defects.\n" + buildHead(on, fs) + " {\n")
+		let ret = if ot.ResultType[oi] == NoIndex() { "" } else { "return " }
+		if fEn > fSt {
+			cliB.WriteString("try ")
+		}
+		let mut callArgs = []string{"client"}
+		for a in args {
+			callArgs = callArgs.Append(a)
+		}
+		cliB.WriteString(checked + "(" + strings.Join(callArgs, ", ") + ") catch {\n")
+		if wide {
+			cliB.WriteString("case rpc.Unrepresentable as u:\n" + ret + "rpc.Refuse[" + res + "](u)\n")
+		}
+		cliB.WriteString("case rpc.Transport as t:\n" + ret + "rpc.Lost[" + res + "](t)\n}\n}\n")
+	}
+	let clientBody = cliB.String()
+
+	let fileNames = []string{"client.ergo", "server.ergo", "wire.ergo"}
+	let rawBodies = []string{clientBody, serverBody, wireBody}
+	let mut fileTexts = []string{}
+	for body in rawBodies {
+		let src = ImportBlock(impPaths, impNames, body, true, false) + "\n" + body
+		let formatted = try Source(src)
+		fileTexts = fileTexts.Append(formatted)
+	}
+	GeneratedPkg{
+		Dir:       pkgName + "rpc",
+		FileNames: fileNames,
+		FileTexts: fileTexts,
+		Marker:    GenMarker{
+			Kind:      "rpc",
+			Generator: "ergo gen rpc",
+			Subjects:  []string{st.Subject[sid]},
+			Contract:  st.ContractDigest[sid],
+			Digest:    "",
+		},
+	}
+}
+
+test RpcGeneratesWireServerAndClient {
+	let mut st = NewSpecTable()
+	let mut ot = NewOpTable()
+	let mut ft = NewFieldTable()
+	let mut tp = NewTypePool()
+	let sid = AddSpec(&st, "example/svc", "svc", "Svc")
+	let tidInt = AllocType(&tp, TypeBasic)
+	tp.BasicOrd[tidInt] = uint8(3)
+	tp.ExprText[tidInt] = "int"
+	tp.PrintText[tidInt] = "int"
+	tp.UnderlyingText[tidInt] = "int"
+	tp.IsWide[tidInt] = true
+	tp.WideComputed[tidInt] = true
+	let oid = AddOp(&ot, sid, "Add", "add", "")
+	let pSt = ft.Count
+	let _ = AddField(&ft, FieldParam, oid, "n", "N", "n", false, tidInt, true, false, false, "")
+	ot.ParamStart[oid] = pSt
+	ot.ParamLen[oid] = uint32(1)
+	ot.ResultType[oid] = tidInt
+	st.OpStart[sid] = uint32(0)
+	st.OpLen[sid] = uint32(1)
+	st.ImportStart[sid] = uint32(0)
+	st.ImportLen[sid] = uint32(2)
+	st.ImportPaths = []string{"rpc", "example/svc"}
+	st.ImportNames = []string{"rpc", "svc"}
+	st.ContractDigest[sid] = "sha256:0000"
+	let mut sc = NewScratch()
+	let g = GenerateRPC(st, ot, ft, tp, sid, "example/svc/svcapi", &sc) catch {
+	case GenError:
+		assert false
+		GeneratedPkg{Dir: "", FileNames: []string{}, FileTexts: []string{}, Marker: GenMarker{Kind: "", Generator: "", Subjects: []string{}, Contract: "", Digest: ""}}
+	}
+	assert g.Dir == "svcrpc" && g.FileNames.Len() == 3
+	assert strings.Contains(g.FileTexts[2], "exactAddRequest")
+	assert strings.Contains(g.FileTexts[1], "func Handle(")
+	assert strings.Contains(g.FileTexts[0], "func AddChecked(")
+}

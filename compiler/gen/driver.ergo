@@ -1,0 +1,94 @@
+import filepath
+import fs
+import fstest
+import strings
+
+// GenDir runs generation for kind ("api", "rpc", "cli", "mcp", "llm", "schema")
+// on package directory dir and typeOrOpName using stdDir for standard library
+// resolution, returning all GeneratedPkgs (hub plus transport where applicable).
+func GenDir(kind string, dir string, typeOrOpName string, stdDir string) ([]GeneratedPkg, MarkerTable) fails GenError needs fs.Files {
+	if kind != "api" && kind != "rpc" && kind != "cli" && kind != "mcp" && kind != "llm" && kind != "schema" {
+		return GenError{Reason: "unknown generator kind " + kind}
+	}
+	let absDir = filepath.Clean(dir)
+	let mut lp = try LoadDirProgram(absDir, stdDir)
+	let mut st = NewSpecTable()
+	let mut ot = NewOpTable()
+	let mut ft = NewFieldTable()
+	let mut tp = NewTypePool()
+	let mut sc = NewScratch()
+	let mut mt = NewMarkerTable()
+
+	if kind == "schema" {
+		let pkg = try GenerateSchemas(&lp, &tp, &ft, absDir, typeOrOpName)
+		let (wNames, wTexts) = WithMarker(pkg.FileNames, pkg.FileTexts, pkg.Marker)
+		let stamped = Stamp(pkg.Marker, pkg.FileNames, pkg.FileTexts)
+		let _ = AddMarkerEntry(&mt, pkg.Dir, stamped.Kind, stamped.Generator, stamped.Contract, stamped.Digest, stamped.Subjects, wNames, wTexts)
+		return ([]GeneratedPkg{pkg}, mt)
+	}
+
+	let sid = try BuildContractSpec(&lp, &st, &ot, &ft, &tp, typeOrOpName)
+	let hub = try GenerateAPI(st, ot, ft, tp, sid, &sc)
+	let (hNames, hTexts) = WithMarker(hub.FileNames, hub.FileTexts, hub.Marker)
+	let hStamped = Stamp(hub.Marker, hub.FileNames, hub.FileTexts)
+	let _ = AddMarkerEntry(&mt, hub.Dir, hStamped.Kind, hStamped.Generator, hStamped.Contract, hStamped.Digest, hStamped.Subjects, hNames, hTexts)
+
+	if kind == "api" {
+		return ([]GeneratedPkg{hub}, mt)
+	}
+
+	let apiPath = lp.PkgPath + "/" + hub.Dir
+	let out = if kind == "rpc" {
+		try GenerateRPC(st, ot, ft, tp, sid, apiPath, &sc)
+	} else if kind == "cli" {
+		try GenerateCLI(st, ot, ft, tp, sid, apiPath, &sc)
+	} else if kind == "mcp" {
+		try GenerateMCP(st, ot, ft, tp, sid, apiPath, &sc)
+	} else {
+		try GenerateLLM(st, ot, ft, tp, sid, apiPath, &sc)
+	}
+	let (oNames, oTexts) = WithMarker(out.FileNames, out.FileTexts, out.Marker)
+	let oStamped = Stamp(out.Marker, out.FileNames, out.FileTexts)
+	let _ = AddMarkerEntry(&mt, out.Dir, oStamped.Kind, oStamped.Generator, oStamped.Contract, oStamped.Digest, oStamped.Subjects, oNames, oTexts)
+	([]GeneratedPkg{hub, out}, mt)
+}
+
+// StalePackageFiles checks all generated packages against dir and returns any
+// missing or differing file paths.
+func StalePackageFiles(dir string, pkgs []GeneratedPkg) []string needs fs.Files {
+	let absDir = filepath.Clean(dir)
+	let mut stale = []string{}
+	for pkg in pkgs {
+		let target = filepath.Join([]string{absDir, pkg.Dir})
+		for p in StaleFiles(target, pkg.FileNames, pkg.FileTexts, pkg.Marker) {
+			stale = stale.Append(p)
+		}
+	}
+	stale
+}
+
+// WriteGeneratedPackages writes every GeneratedPkg into dir, publishing each
+// folder's marker after its source files.
+func WriteGeneratedPackages(dir string, pkgs []GeneratedPkg) fails MarkerIOError needs fs.Writes {
+	let absDir = filepath.Clean(dir)
+	for pkg in pkgs {
+		let target = filepath.Join([]string{absDir, pkg.Dir})
+		try WriteGeneratedDir(target, pkg.FileNames, pkg.FileTexts, pkg.Marker)
+	}
+}
+
+func genDirErrMsg(kind string, dir string, op string, std string) string needs fs.Files {
+	let (_, _) = GenDir(kind, dir, op, std) catch {
+	case GenError as e:
+		return e.Reason
+	}
+	""
+}
+
+test DriverRejectsUnknownKind {
+	let mem = fstest.NewMemory()
+	let got = with context { fs.Files: mem } {
+		genDirErrMsg("bogus", ".", "Api", "")
+	}
+	assert strings.Contains(got, "unknown generator kind")
+}
