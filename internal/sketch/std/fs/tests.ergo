@@ -1,4 +1,5 @@
 let onTestDisk = context needs TestAmbient {
-	Files:  NewTestHost(),
-	Writes: NewTestHost(),
+	Files:   NewTestHost(),
+	Writes:  NewTestHost(),
+	Entries: NewTestHost(),
 }
