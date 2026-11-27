@@ -1,0 +1,1099 @@
+import config
+import exec
+import fs
+import fstest
+import github.com/cevr/ergo/modules/atlas/adapter
+import github.com/cevr/ergo/modules/atlas/direct
+import github.com/cevr/ergo/modules/atlas/handle
+import github.com/cevr/ergo/modules/atlas/kernel
+import github.com/cevr/ergo/modules/atlas/pool
+import github.com/cevr/ergo/modules/atlas/queue
+import github.com/cevr/ergo/modules/atlas/session
+import github.com/cevr/ergo/modules/atlas/subagent
+import github.com/cevr/ergo/modules/atlas/tools
+import http
+import json
+import llm
+import option
+import os
+import strings
+import sync
+
+// DirectProvider defines the direct-path identity, official endpoint policy, and pinned-account contract.
+type DirectProvider {
+	DriverKind() adapter.DriverKind,
+	Policy() EndpointPolicy,
+	PinnedAccount() session.AccountID,
+	LastRateLimit() option.Option[RateLimitInfo],
+	VerifyAccount(requested session.AccountID) bool fails AccountRotationRefusedError,
+
+	law PinnedPolicyStaysOfficial() {
+		let pol = Policy()
+		let pinned = PinnedAccount()
+		let sameOk = VerifyAccount(pinned) catch {
+		case AccountRotationRefusedError:
+			return false
+		}
+		pol.Origin != "" && pol.Path != "" && sameOk && DriverKind() == pol.Driver
+	},
+}
+
+// DirectClientSpec configures a verified non-proxy, non-rotating direct provider client.
+type DirectClientSpec {
+	Driver           adapter.DriverKind,
+	Model            adapter.ModelID,
+	AccountID        session.AccountID,
+	Auth             ProviderAuth,
+	Gate             OfficialSupportGate,
+	OriginOverride   option.Option[string],
+	PathOverride     option.Option[string],
+	ExtraHeaders     []http.Field,
+	EnvVars          []EnvEntry,
+	ChatGPTAccountID option.Option[string],
+	NowMs            int64,
+}
+
+// DirectClient implements llm.Model, adapter.Adapter, and DirectProvider over a bound http.Net transport.
+type DirectClient {
+	net         http.Net,
+	policy      EndpointPolicy,
+	model       adapter.ModelID,
+	account     session.AccountID,
+	auth        ProviderAuth,
+	gate        OfficialSupportGate,
+	adapterInst DirectAdapter,
+	nowMs       int64,
+	lastRate    sync.Ref[option.Option[RateLimitInfo]],
+	lastFailure sync.Ref[option.Option[llm.Failure]],
+	activeTurn  sync.Ref[bool],
+} implements DirectProvider, llm.Model, adapter.Adapter
+
+func validateDirectClientSetup(spec DirectClientSpec) (EndpointPolicy, DirectAdapter) fails DirectProviderError {
+	if strings.TrimSpace(string(spec.AccountID)) == "" {
+		return InvalidProviderConfigError{Field: "AccountID", Reason: "pinned account id cannot be empty"}
+	}
+	if strings.TrimSpace(string(spec.Model)) == "" {
+		return InvalidProviderConfigError{Field: "Model", Reason: "model id cannot be empty"}
+	}
+	let pol = try ValidateEndpointPolicy(EndpointSpec{
+		Driver:           spec.Driver,
+		OriginOverride:   spec.OriginOverride,
+		PathOverride:     spec.PathOverride,
+		ExtraHeaders:     spec.ExtraHeaders,
+		EnvVars:          spec.EnvVars,
+		ChatGPTAccountID: spec.ChatGPTAccountID,
+		Gate:             spec.Gate,
+	})
+	let _ = try BuildCredentials(pol, spec.AccountID, spec.Auth)
+	let adp = NewDirectAdapter(spec.Driver, spec.Gate) catch {
+	case NotDirectDriverError as nd:
+		return nd
+	}
+	(pol, adp)
+}
+
+// NewDirectClientWithNet constructs a validated DirectClient bound to transport net.
+func NewDirectClientWithNet(spec DirectClientSpec, net http.Net) DirectClient fails DirectProviderError {
+	let (pol, adp) = try validateDirectClientSetup(spec)
+	let ts = if spec.NowMs > 0 { spec.NowMs } else { int64(1700000000000) }
+	DirectClient{
+		net:         net,
+		policy:      pol,
+		model:       spec.Model,
+		account:     spec.AccountID,
+		auth:        spec.Auth,
+		gate:        spec.Gate,
+		adapterInst: adp,
+		nowMs:       ts,
+		lastRate:    sync.NewRef[option.Option[RateLimitInfo]](option.None),
+		lastFailure: sync.NewRef[option.Option[llm.Failure]](option.None),
+		activeTurn:  sync.NewRef[bool](false),
+	}
+}
+
+// NewLiveDirectClient constructs a live origin-pinned DirectClient using std/http Client under os.Ambient.
+func NewLiveDirectClient(spec DirectClientSpec, limits http.Limits) DirectClient fails DirectProviderError | http.InvalidClient | http.InvalidLimits needs os.Ambient {
+	let (pol, _) = try validateDirectClientSetup(spec)
+	let httpClient = try NewLiveHTTPClient(pol, spec.AccountID, spec.Auth, limits)
+	try NewDirectClientWithNet(spec, httpClient)
+}
+
+// NewInMemoryDirectClient constructs an in-memory DirectClient backed by an origin-pinned http.Handler.
+func NewInMemoryDirectClient(spec DirectClientSpec, handler own func(http.Request) http.Response needs http.Streaming) DirectClient fails DirectProviderError | http.InvalidClient {
+	let (pol, _) = try validateDirectClientSetup(spec)
+	let memNet = try NewInMemoryProviderNet(pol, spec.AccountID, spec.Auth, handler)
+	try NewDirectClientWithNet(spec, memNet)
+}
+
+// DriverKind returns c's validated direct driver identifier.
+func DriverKind(c DirectClient) adapter.DriverKind { c.policy.Driver }
+
+// Policy returns c's validated non-proxy official endpoint policy.
+func Policy(c DirectClient) EndpointPolicy { c.policy }
+
+// PinnedAccount returns the single account c is pinned to for the session.
+func PinnedAccount(c DirectClient) session.AccountID { c.account }
+
+// LastRateLimit returns the most recent header-derived rate-limit telemetry observed by c.
+func LastRateLimit(c DirectClient) option.Option[RateLimitInfo] { c.lastRate.Get() }
+
+// LastFailure returns the most recent typed llm.Failure recorded by c.
+func LastFailure(c DirectClient) option.Option[llm.Failure] { c.lastFailure.Get() }
+
+// VerifyAccount rejects any attempt to invoke c under a different account id.
+func VerifyAccount(c DirectClient, requested session.AccountID) bool fails AccountRotationRefusedError {
+	try VerifyPinnedAccount(c.account, requested)
+}
+
+// Driver implements adapter.Adapter.Driver without modifying capability metadata.
+func Driver(c DirectClient) adapter.DriverKind { c.adapterInst.Driver() }
+
+// Capabilities implements adapter.Adapter.Capabilities without emulating unsupported capabilities.
+func Capabilities(c DirectClient) adapter.Capabilities { c.adapterInst.Capabilities() }
+
+// ResolveMode implements adapter.Adapter.ResolveMode.
+func ResolveMode(c DirectClient, requested adapter.PermissionMode) adapter.PermissionMode {
+	c.adapterInst.ResolveMode(requested)
+}
+
+// CheckSteer implements adapter.Adapter.CheckSteer.
+func CheckSteer(c DirectClient, turnActive bool, pendingPerm bool) bool fails adapter.AdapterRefusal {
+	try c.adapterInst.CheckSteer(turnActive, pendingPerm)
+}
+
+// CanStart implements adapter.Adapter.CanStart.
+func CanStart(c DirectClient) bool fails adapter.AdapterRefusal {
+	try c.adapterInst.CanStart()
+}
+
+type wireStreamState = wsCodex{P CodexStreamParser} | wsAnthropic{P AnthropicStreamParser} | wsOpenAI{P OpenAIChatStreamParser}
+
+func newWireStreamState(driver adapter.DriverKind) wireStreamState {
+	match driver {
+	case adapter.CodexDirect:
+		wsCodex{P: NewCodexStreamParser()}
+	case adapter.AnthropicDirect:
+		wsAnthropic{P: NewAnthropicStreamParser()}
+	case adapter.OpenCodeConsoleDirect, adapter.OpenCodeGoDirect, adapter.AntigravityDirect, adapter.ClaudeMeta, adapter.CodexMeta, adapter.AntigravityMeta, adapter.GenericAcpMeta, adapter.PaneFallbackMeta:
+		wsOpenAI{P: NewOpenAIChatStreamParser()}
+	}
+}
+
+func feedWireStreamEvent[E](st wireStreamState, ev http.ServerEvent, put func(d llm.Delta) fails E) wireStreamState fails llm.InvalidResponse | E {
+	match st {
+	case wsCodex as cs:
+		wsCodex{P: try FeedCodexSSEEvent(cs.P, ev, put)}
+	case wsAnthropic as ans:
+		wsAnthropic{P: try FeedAnthropicSSEEvent(ans.P, ev, put)}
+	case wsOpenAI as os:
+		wsOpenAI{P: try FeedOpenAIChatSSEEvent(os.P, ev, put)}
+	}
+}
+
+func finishWireStreamState(st wireStreamState) llm.Turn fails llm.RateLimited | llm.Overloaded | llm.Unauthorized | llm.Refused | llm.Truncated | llm.Transport | llm.InvalidRequest | llm.InvalidResponse | llm.UnsupportedSchema {
+	match st {
+	case wsCodex as cs:
+		try FinishCodexStream(cs.P)
+	case wsAnthropic as ans:
+		try FinishAnthropicStream(ans.P)
+	case wsOpenAI as os:
+		try FinishOpenAIChatStream(os.P)
+	}
+}
+
+func acceptedProviderHTTPStatuses() []int {
+	[]int{200, 201, 202, 204, 400, 401, 403, 404, 408, 413, 422, 429, 500, 502, 503, 504, 529}
+}
+
+func encodeProviderRequestBody(c DirectClient, r llm.Request, mode WireMode) string fails llm.UnsupportedSchema | llm.InvalidRequest | llm.Refused {
+	requireOfficialGate(c.policy.Driver, c.gate) catch {
+	case AntigravityDirectGatedError as ge:
+		return llm.Refused{Reason: ge.Reason}
+	case NotDirectDriverError, ProxyOrSpoofRefusedError, AccountRotationRefusedError, MissingCredentialError, CapabilityUnsupportedError, TurnHeldByPoolError, AbortedAfterFirstDeltaError, ConcurrentTurnRefusedError, InvalidProviderConfigError, ProviderWireError, DirectLoopIntegrationError:
+		return llm.Refused{Reason: "direct driver disabled"}
+	}
+	match c.policy.Driver {
+	case adapter.CodexDirect:
+		try BuildCodexRequest(c.policy, c.model, r)
+	case adapter.AnthropicDirect:
+		try BuildAnthropicRequest(c.policy, c.model, r, mode)
+	case adapter.OpenCodeConsoleDirect, adapter.OpenCodeGoDirect:
+		try BuildOpenAIChatRequest(c.policy, c.model, r, mode)
+	case adapter.AntigravityDirect, adapter.ClaudeMeta, adapter.CodexMeta, adapter.AntigravityMeta, adapter.GenericAcpMeta, adapter.PaneFallbackMeta:
+		return llm.Refused{Reason: "antigravity or meta driver gated off"}
+	}
+}
+
+func providerHeadersForMode(c DirectClient, mode WireMode) []http.Field {
+	match c.policy.Driver {
+	case adapter.CodexDirect:
+		CodexHTTPHeaders(c.policy)
+	case adapter.AnthropicDirect:
+		AnthropicHTTPHeaders(c.policy, c.auth, mode)
+	case adapter.OpenCodeConsoleDirect, adapter.OpenCodeGoDirect:
+		OpenCodeHTTPHeaders(c.policy, mode)
+	case adapter.AntigravityDirect, adapter.ClaudeMeta, adapter.CodexMeta, adapter.AntigravityMeta, adapter.GenericAcpMeta, adapter.PaneFallbackMeta:
+		[]http.Field{}
+	}
+}
+
+func formatHTTPCauseReason(cause http.Cause) string {
+	match cause {
+	case http.Refused as r:
+		"refused: " + r.Reason
+	case http.Transport as t:
+		"transport: " + t.Reason
+	case http.TooLarge as tl:
+		"too large: \(tl.Limit)"
+	case http.Malformed as m:
+		"malformed: " + m.Reason
+	}
+}
+
+func appendErrorBuffer(prev string, part string) string {
+	if prev.Len() >= 8192 {
+		return prev
+	}
+	let combined = prev + part
+	if combined.Len() > 8192 {
+		return strings.Slice(combined, 0, 8192)
+	}
+	combined
+}
+
+func recordAndFailHTTPStatus(c DirectClient, status int, headers []http.Field, body string) llm.Turn fails llm.RateLimited | llm.Overloaded | llm.Unauthorized | llm.Refused | llm.Truncated | llm.Transport | llm.InvalidRequest | llm.InvalidResponse | llm.UnsupportedSchema {
+	let mapped = ClassifyHTTPFailure(status, headers, body, c.nowMs)
+	c.lastRate.Set(option.Some[RateLimitInfo]{Value: mapped.RateLimit})
+	c.lastFailure.Set(option.Some[llm.Failure]{Value: mapped.LLM})
+	try failWithLLMFailure(mapped.LLM)
+}
+
+func recordAndFailLLM(c DirectClient, f llm.Failure) llm.Turn fails llm.RateLimited | llm.Overloaded | llm.Unauthorized | llm.Refused | llm.Truncated | llm.Transport | llm.InvalidRequest | llm.InvalidResponse | llm.UnsupportedSchema {
+	c.lastFailure.Set(option.Some[llm.Failure]{Value: f})
+	try failWithLLMFailure(f)
+}
+
+func sendBufferedTurn(c DirectClient, r llm.Request) llm.Turn fails llm.RateLimited | llm.Overloaded | llm.Unauthorized | llm.Refused | llm.Truncated | llm.Transport | llm.InvalidRequest | llm.InvalidResponse | llm.UnsupportedSchema {
+	c.lastFailure.Set(option.None)
+	let bodyText = try encodeProviderRequestBody(c, r, WireBuffered)
+	let req = http.Request{
+		Method:  "POST",
+		Path:    c.policy.Path,
+		RawPath: c.policy.Path,
+		Query:   []http.Field{},
+		Header:  providerHeadersForMode(c, WireBuffered),
+		Body:    http.Buffered{Text: bodyText},
+	}
+	let resp = c.net.Send(req) catch {
+	case http.RequestFailed as rf:
+		return try recordAndFailLLM(c, llm.Transport{Reason: formatHTTPCauseReason(rf.Cause)})
+	}
+	c.lastRate.Set(option.Some[RateLimitInfo]{Value: ParseRateLimitHeaders(resp.Header, c.nowMs)})
+	if resp.Status < 200 || resp.Status >= 300 {
+		return try recordAndFailHTTPStatus(c, resp.Status, resp.Header, resp.Body)
+	}
+	match c.policy.Driver {
+	case adapter.AnthropicDirect:
+		try DecodeAnthropicResponseJSON(resp.Body)
+	case adapter.OpenCodeConsoleDirect, adapter.OpenCodeGoDirect:
+		try DecodeOpenAIChatResponseJSON(resp.Body)
+	case adapter.CodexDirect, adapter.AntigravityDirect, adapter.ClaudeMeta, adapter.CodexMeta, adapter.AntigravityMeta, adapter.GenericAcpMeta, adapter.PaneFallbackMeta:
+		return llm.InvalidRequest{Reason: "driver does not use buffered non-stream json endpoint"}
+	}
+}
+
+// Generate implements llm.Model.Generate via buffered JSON (Anthropic/OpenCode) or SSE fold (Codex).
+func Generate(c DirectClient, r llm.Request) llm.Turn fails llm.RateLimited | llm.Overloaded | llm.Unauthorized | llm.Refused | llm.Truncated | llm.Transport | llm.InvalidRequest | llm.InvalidResponse | llm.UnsupportedSchema {
+	match c.policy.Driver {
+	case adapter.CodexDirect:
+		try c.StreamEach(r, func(_ llm.Delta) {})
+	case adapter.AnthropicDirect, adapter.OpenCodeConsoleDirect, adapter.OpenCodeGoDirect:
+		try sendBufferedTurn(c, r)
+	case adapter.AntigravityDirect, adapter.ClaudeMeta, adapter.CodexMeta, adapter.AntigravityMeta, adapter.GenericAcpMeta, adapter.PaneFallbackMeta:
+		return llm.Refused{Reason: "antigravity or meta driver gated off"}
+	}
+}
+
+func finishOrRecordStream(c DirectClient, st wireStreamState) llm.Turn fails llm.RateLimited | llm.Overloaded | llm.Unauthorized | llm.Refused | llm.Truncated | llm.Transport | llm.InvalidRequest | llm.InvalidResponse | llm.UnsupportedSchema {
+	finishWireStreamState(st) catch {
+	case llm.RateLimited as f:
+		return try recordAndFailLLM(c, f)
+	case llm.Overloaded as f:
+		return try recordAndFailLLM(c, f)
+	case llm.Unauthorized as f:
+		return try recordAndFailLLM(c, f)
+	case llm.Refused as f:
+		return try recordAndFailLLM(c, f)
+	case llm.Truncated as f:
+		return try recordAndFailLLM(c, f)
+	case llm.Transport as f:
+		return try recordAndFailLLM(c, f)
+	case llm.InvalidRequest as f:
+		return try recordAndFailLLM(c, f)
+	case llm.InvalidResponse as f:
+		return try recordAndFailLLM(c, f)
+	case llm.UnsupportedSchema as f:
+		return try recordAndFailLLM(c, f)
+	}
+}
+
+type streamFinalInput {
+	Resp   http.Response,
+	RawErr string,
+	Reader http.EventReader,
+	Deltas []llm.Delta,
+	Parser wireStreamState,
+}
+
+func finalizeStreamResponse(c DirectClient, arg streamFinalInput) llm.Turn fails llm.RateLimited | llm.Overloaded | llm.Unauthorized | llm.Refused | llm.Truncated | llm.Transport | llm.InvalidRequest | llm.InvalidResponse | llm.UnsupportedSchema {
+	c.lastRate.Set(option.Some[RateLimitInfo]{Value: ParseRateLimitHeaders(arg.Resp.Header, c.nowMs)})
+	if arg.Resp.Status < 200 || arg.Resp.Status >= 300 {
+		return try recordAndFailHTTPStatus(c, arg.Resp.Status, arg.Resp.Header, arg.RawErr)
+	}
+	match arg.Reader.End() {
+	case option.Some[http.Truncated]:
+		return try recordAndFailLLM(c, llm.Truncated{Text: llm.Fold(arg.Deltas).Text})
+	case option.None:
+	}
+	try finishOrRecordStream(c, arg.Parser)
+}
+
+// Stream implements llm.Model.Stream, enforcing canonical delta folding and header telemetry capture.
+func Stream(c DirectClient, r llm.Request, put func(d llm.Delta) fails llm.SinkFailed) llm.Turn fails llm.RateLimited | llm.Overloaded | llm.Unauthorized | llm.Refused | llm.Truncated | llm.Transport | llm.InvalidRequest | llm.InvalidResponse | llm.UnsupportedSchema | llm.SinkFailed {
+	c.lastFailure.Set(option.None)
+	let bodyText = try encodeProviderRequestBody(c, r, WireStream)
+	let req = http.Request{
+		Method:  "POST",
+		Path:    c.policy.Path,
+		RawPath: c.policy.Path,
+		Query:   []http.Field{},
+		Header:  providerHeadersForMode(c, WireStream),
+		Body:    http.Buffered{Text: bodyText},
+	}
+	let readerRef = sync.NewRef(http.NewEventReader())
+	let parserRef = sync.NewRef(newWireStreamState(c.policy.Driver))
+	let deltasRef = sync.NewRef([]llm.Delta{})
+	let rawErrRef = sync.NewRef("")
+	let sawEventRef = sync.NewRef(false)
+	let wireErrRef = sync.NewRef[option.Option[llm.Failure]](option.None)
+	let sinkErrRef = sync.NewRef(false)
+
+	let resp = c.net.SendInto(req, http.Statuses{Values: acceptedProviderHTTPStatuses()}, func(part string) fails http.SinkFailed {
+		if !sawEventRef.Get() {
+			rawErrRef.Update(func(prev string) string { appendErrorBuffer(prev, part) })
+		}
+		let events = sync.Modify(readerRef, func(cur http.EventReader) ([]http.ServerEvent, http.EventReader) {
+			let (nr, evs) = cur.Feed(part)
+			(evs, nr)
+		})
+		for ev in events {
+			sawEventRef.Set(true)
+			let nextParser = feedWireStreamEvent(parserRef.Get(), ev, func(d llm.Delta) fails llm.SinkFailed {
+				try put(d)
+				deltasRef.Update(func(ds []llm.Delta) []llm.Delta { ds.Append(d) })
+			}) catch {
+			case llm.InvalidResponse as ir:
+				wireErrRef.Set(option.Some[llm.Failure]{Value: ir})
+				return http.SinkFailed{Reason: ir.Reason}
+			case llm.SinkFailed:
+				sinkErrRef.Set(true)
+				return http.SinkFailed{Reason: "caller delta sink failed"}
+			}
+			parserRef.Set(nextParser)
+		}
+	}) catch {
+	case http.StatusRefused as sr:
+		return try recordAndFailHTTPStatus(c, sr.Status, []http.Field{}, sr.Prefix)
+	case http.RequestFailed as rf:
+		return try recordAndFailLLM(c, llm.Transport{Reason: formatHTTPCauseReason(rf.Cause)})
+	case http.SinkFailed as sf:
+		match wireErrRef.Get() {
+		case option.Some[llm.Failure] as wf:
+			return try recordAndFailLLM(c, wf.Value)
+		case option.None:
+		}
+		if sinkErrRef.Get() {
+			return llm.SinkFailed
+		}
+		return try recordAndFailLLM(c, llm.Transport{Reason: sf.Reason})
+	}
+	try finalizeStreamResponse(c, streamFinalInput{
+		Resp:   resp,
+		RawErr: rawErrRef.Get(),
+		Reader: readerRef.Get(),
+		Deltas: deltasRef.Get(),
+		Parser: parserRef.Get(),
+	})
+}
+
+// StreamEach implements llm.Model.StreamEach without caller sink failure.
+func StreamEach(c DirectClient, r llm.Request, put func(d llm.Delta)) llm.Turn fails llm.RateLimited | llm.Overloaded | llm.Unauthorized | llm.Refused | llm.Truncated | llm.Transport | llm.InvalidRequest | llm.InvalidResponse | llm.UnsupportedSchema {
+	try c.Stream(r, func(d llm.Delta) fails llm.SinkFailed {
+		put(d)
+	}) catch {
+	case llm.SinkFailed:
+		return llm.Transport{Reason: "sink failed in StreamEach"}
+	}
+}
+
+func isRetryablePreDeltaFailure(f llm.Failure) bool {
+	match f {
+	case llm.RateLimited, llm.Overloaded, llm.Transport:
+		true
+	case llm.Unauthorized, llm.Refused, llm.Truncated, llm.InvalidRequest, llm.InvalidResponse, llm.UnsupportedSchema:
+		false
+	}
+}
+
+func tryAcquireClientTurn(c DirectClient) fails ConcurrentTurnRefusedError {
+	let acquired = sync.Modify(c.activeTurn, func(active bool) (bool, bool) {
+		if active { (false, true) } else { (true, true) }
+	})
+	if !acquired {
+		return ConcurrentTurnRefusedError{Driver: c.policy.Driver, Account: c.account}
+	}
+}
+
+func releaseClientTurn(c DirectClient) {
+	c.activeTurn.Set(false)
+}
+
+type streamAttemptOutcome = attemptTurn{Turn llm.Turn} | attemptFailure{Failure llm.Failure} | attemptSinkFailed{}
+
+func runSingleStreamAttempt(c DirectClient, req llm.Request, put func(d llm.Delta) fails llm.SinkFailed) (streamAttemptOutcome, []llm.Delta) {
+	let deltasRef = sync.NewRef([]llm.Delta{})
+	let turnRes = c.Stream(req, func(d llm.Delta) fails llm.SinkFailed {
+		deltasRef.Update(func(ds []llm.Delta) []llm.Delta { ds.Append(d) })
+		try put(d)
+	}) catch {
+	case llm.SinkFailed:
+		return (attemptSinkFailed, deltasRef.Get())
+	case llm.RateLimited as f:
+		return (attemptFailure{Failure: f}, deltasRef.Get())
+	case llm.Overloaded as f:
+		return (attemptFailure{Failure: f}, deltasRef.Get())
+	case llm.Unauthorized as f:
+		return (attemptFailure{Failure: f}, deltasRef.Get())
+	case llm.Refused as f:
+		return (attemptFailure{Failure: f}, deltasRef.Get())
+	case llm.Truncated as f:
+		return (attemptFailure{Failure: f}, deltasRef.Get())
+	case llm.Transport as f:
+		return (attemptFailure{Failure: f}, deltasRef.Get())
+	case llm.InvalidRequest as f:
+		return (attemptFailure{Failure: f}, deltasRef.Get())
+	case llm.InvalidResponse as f:
+		return (attemptFailure{Failure: f}, deltasRef.Get())
+	case llm.UnsupportedSchema as f:
+		return (attemptFailure{Failure: f}, deltasRef.Get())
+	}
+	(attemptTurn{Turn: turnRes}, deltasRef.Get())
+}
+
+// StreamGuarded runs c.Stream with pre-delta transient retries while enforcing NoRetryAfterFirstDelta and pinned non-concurrency.
+func StreamGuarded(c DirectClient, req llm.Request, maxPreDeltaRetries int, put func(d llm.Delta) fails llm.SinkFailed) llm.Turn fails DirectProviderError | llm.SinkFailed {
+	try VerifyPinnedAccount(c.account, c.account)
+	try tryAcquireClientTurn(c)
+	let maxRetries = if maxPreDeltaRetries < 0 { 0 } else { maxPreDeltaRetries }
+	let mut attempt = 0
+	for {
+		let (outcome, seenDeltas) = runSingleStreamAttempt(c, req, put)
+		match outcome {
+		case attemptTurn as ok:
+			releaseClientTurn(c)
+			return ok.Turn
+		case attemptSinkFailed:
+			releaseClientTurn(c)
+			return llm.SinkFailed
+		case attemptFailure as failOut:
+			if seenDeltas.Len() > 0 {
+				releaseClientTurn(c)
+				return AbortedAfterFirstDeltaError{
+					DeltasReceived: seenDeltas.Len(),
+					PartialText:    llm.Fold(seenDeltas).Text,
+					Failure:        failOut.Failure,
+				}
+			}
+			if attempt < maxRetries && isRetryablePreDeltaFailure(failOut.Failure) {
+				attempt = attempt + 1
+			} else {
+				releaseClientTurn(c)
+				return ProviderWireError{
+					Failure:     failOut.Failure,
+					TurnFailure: MapFailureToTurnClass(failOut.Failure, c.lastRate.Get(), c.nowMs),
+					RateLimit:   c.lastRate.Get(),
+				}
+			}
+		}
+	}
+}
+
+// DirectLoopRunSpec specifies parameters to execute modules/atlas/direct over a verified DirectClient.
+type DirectLoopRunSpec {
+	ThreadID           handle.ThreadID,
+	SessionID          handle.SessionID,
+	WorkspaceRoot      string,
+	SystemPrompt       string,
+	Prompt             string,
+	PermissionMode     adapter.PermissionMode,
+	MaxTurns           int,
+	MaxPreDeltaRetries int,
+	ToolContext        tools.ToolContext,
+}
+
+// BuildDirectConfig constructs a direct.DirectConfig preserving c.Capabilities() without capability emulation.
+func BuildDirectConfig(c DirectClient, spec DirectLoopRunSpec) direct.DirectConfig {
+	let base = direct.DefaultDirectConfig(spec.WorkspaceRoot, c.policy.Driver, IsAntigravityDirectSupported(c.gate), spec.PermissionMode)
+	direct.DirectConfig{
+		..base,
+		ThreadID:           spec.ThreadID,
+		SessionID:          spec.SessionID,
+		RootThreadID:       spec.ThreadID,
+		Driver:             c.policy.Driver,
+		AgyDirectSupported: IsAntigravityDirectSupported(c.gate),
+		Capabilities:       c.Capabilities(),
+		PermissionMode:     c.ResolveMode(spec.PermissionMode),
+		ModelID:            c.model,
+		ModelOrigin:        adapter.ProviderDefaultOrigin,
+		WorkspaceRoot:      spec.WorkspaceRoot,
+		SystemPrompt:       spec.SystemPrompt,
+		MaxTurns:           spec.MaxTurns,
+		MaxPreDeltaRetries: spec.MaxPreDeltaRetries,
+		ToolContext:        spec.ToolContext,
+	}
+}
+
+// RunDirectAgentTurn runs the Atlas native direct agent loop backed by DirectClient.
+func RunDirectAgentTurn(c DirectClient, spec DirectLoopRunSpec, initTools tools.ToolState, steers queue.ThreadQueue) direct.DirectLoopResult fails DirectProviderError needs fs.Files | fs.Writes | exec.Runner | tools.Approver | tools.KernelPort {
+	try requireDirectPathDriver(c.policy.Driver)
+	try requireOfficialGate(c.policy.Driver, c.gate)
+	try tryAcquireClientTurn(c)
+	let cfg = BuildDirectConfig(c, spec)
+	let res = with context { llm.Model: c } {
+		direct.RunDirectLoop(cfg, spec.Prompt, initTools, steers) catch {
+		case direct.DirectError as de:
+			releaseClientTurn(c)
+			match de {
+			case direct.AbortedAfterFirstDeltaError as ae:
+				let causeFail = match c.lastFailure.Get() {
+				case option.Some[llm.Failure] as lf:
+					lf.Value
+				case option.None:
+					llm.Transport{Reason: ae.Reason}
+				}
+				return AbortedAfterFirstDeltaError{
+					DeltasReceived: ae.DeltasReceived,
+					PartialText:    ae.PartialText,
+					Failure:        causeFail,
+				}
+			case direct.UnsupportedDriverError, direct.SteerCapabilityError, direct.ModelFailureBeforeDeltaError, direct.LoopThreadError, direct.LoopSubagentError, direct.LoopHandleError, direct.MaxTurnsExceededError, direct.InvalidDirectConfigError:
+				return DirectLoopIntegrationError{Cause: de}
+			}
+		}
+	}
+	releaseClientTurn(c)
+	res
+}
+
+// AdmittedLoopOutcome bundles the completed direct loop result alongside the settled pool snapshot.
+type AdmittedLoopOutcome {
+	LoopResult direct.DirectLoopResult,
+	PoolState  PoolStateSnapshot,
+}
+
+func extractUnderlyingLLMFailure(c DirectClient, err DirectProviderError) option.Option[llm.Failure] {
+	match err {
+	case AbortedAfterFirstDeltaError as ae:
+		option.Some[llm.Failure]{Value: ae.Failure}
+	case ProviderWireError as pw:
+		option.Some[llm.Failure]{Value: pw.Failure}
+	case DirectLoopIntegrationError as dl:
+		match c.lastFailure.Get() {
+		case option.Some[llm.Failure] as lf:
+			option.Some[llm.Failure]{Value: lf.Value}
+		case option.None:
+			match dl.Cause {
+			case direct.AbortedAfterFirstDeltaError as da:
+				option.Some[llm.Failure]{Value: llm.Transport{Reason: da.Reason}}
+			case direct.ModelFailureBeforeDeltaError as mf:
+				option.Some[llm.Failure]{Value: llm.Refused{Reason: mf.Reason}}
+			case direct.UnsupportedDriverError, direct.SteerCapabilityError, direct.LoopThreadError, direct.LoopSubagentError, direct.LoopHandleError, direct.MaxTurnsExceededError, direct.InvalidDirectConfigError:
+				option.None
+			}
+		}
+	case AntigravityDirectGatedError, NotDirectDriverError, ProxyOrSpoofRefusedError, AccountRotationRefusedError, MissingCredentialError, CapabilityUnsupportedError, TurnHeldByPoolError, ConcurrentTurnRefusedError, InvalidProviderConfigError:
+		option.None
+	}
+}
+
+// RunAdmittedDirectAgentTurn performs pinned pool admission, runs RunDirectAgentTurn, and settles pool spend or holds.
+func RunAdmittedDirectAgentTurn(c DirectClient, spec DirectLoopRunSpec, poolState PoolStateSnapshot, initTools tools.ToolState, steers queue.ThreadQueue) AdmittedLoopOutcome fails DirectProviderError needs fs.Files | fs.Writes | exec.Runner | tools.Approver | tools.KernelPort {
+	let adm = try AdmitPinnedSessionTurn(PinnedAdmissionSpec{
+		ThreadID:         spec.ThreadID,
+		StartID:          string(spec.ThreadID) + "-" + string(spec.SessionID),
+		PinnedAccount:    c.account,
+		StandbyAccounts:  []session.AccountSlot{},
+		Driver:           c.policy.Driver,
+		Model:            c.model,
+		EstimatedCostPpm: pool.DefaultCostPpm(),
+		NowMs:            c.nowMs,
+		Registry:         poolState.Registry,
+		Ledger:           poolState.Ledger,
+		Pushes:           []pool.OwnerPushSpec{},
+		Gate:             c.gate,
+	})
+	let inFlightPool = PoolStateSnapshot{Registry: poolState.Registry, Ledger: adm.Ledger}
+	let loopRes = RunDirectAgentTurn(c, spec, initTools, steers) catch {
+	case DirectProviderError as err:
+		let _ = match extractUnderlyingLLMFailure(c, err) {
+		case option.Some[llm.Failure] as lf:
+			SettlePoolOnFailure(inFlightPool, PoolFailureSettle{
+				AccountID: adm.AccountID,
+				StartID:   adm.Start.StartID,
+				Model:     c.model,
+				Failure:   lf.Value,
+				RateLimit: c.lastRate.Get(),
+				NowMs:     c.nowMs,
+			})
+		case option.None:
+			PoolStateSnapshot{
+				Registry: inFlightPool.Registry,
+				Ledger:   pool.SettleInflightStart(inFlightPool.Ledger, adm.Start.StartID),
+			}
+		}
+		match err {
+		case AntigravityDirectGatedError as e:
+			return e
+		case NotDirectDriverError as e:
+			return e
+		case ProxyOrSpoofRefusedError as e:
+			return e
+		case AccountRotationRefusedError as e:
+			return e
+		case MissingCredentialError as e:
+			return e
+		case CapabilityUnsupportedError as e:
+			return e
+		case TurnHeldByPoolError as e:
+			return e
+		case AbortedAfterFirstDeltaError as e:
+			return e
+		case ConcurrentTurnRefusedError as e:
+			return e
+		case InvalidProviderConfigError as e:
+			return e
+		case ProviderWireError as e:
+			return e
+		case DirectLoopIntegrationError as e:
+			return e
+		}
+	}
+	let settledPool = SettlePoolOnSuccess(inFlightPool, PoolSuccessSettle{
+		AccountID: adm.AccountID,
+		StartID:   adm.Start.StartID,
+		Model:     c.model,
+		RateLimit: c.lastRate.Get(),
+		NowMs:     c.nowMs,
+	})
+	AdmittedLoopOutcome{LoopResult: loopRes, PoolState: settledPool}
+}
+
+func makeInMemLawClient(driver adapter.DriverKind, model string, acc string, auth ProviderAuth, handler own func(http.Request) http.Response needs http.Streaming) DirectClient fails DirectProviderError | http.InvalidClient {
+	try NewInMemoryDirectClient(DirectClientSpec{
+		Driver:           driver,
+		Model:            adapter.ModelID(model),
+		AccountID:        session.AccountID(acc),
+		Auth:             auth,
+		Gate:             DefaultOfficialSupportGate(),
+		OriginOverride:   option.None,
+		PathOverride:     option.None,
+		ExtraHeaders:     []http.Field{},
+		EnvVars:          []EnvEntry{},
+		ChatGPTAccountID: option.Some[string]{Value: "org_law"},
+		NowMs:            int64(1700000000000),
+	}, handler)
+}
+
+func lawMockResponseForCodex(req http.Request) http.Response needs http.Streaming {
+	let _ = req
+	let events = []http.ServerEvent{
+		http.ServerEvent{Event: "response.output_text.delta", Data: `{"type":"response.output_text.delta","delta":"ok-codex"}`, ID: ""},
+		http.ServerEvent{Event: "response.completed", Data: `{"type":"response.completed","response":{"status":"completed","usage":{"input_tokens":8,"output_tokens":3}}}`, ID: ""},
+	}
+	let sseText = http.WriteEvents(events) catch {
+	case http.Unwritable:
+		return http.Response{Status: 500, Header: []http.Field{}, Body: "unwritable"}
+	}
+	http.Response{
+		Status: 200,
+		Header: []http.Field{
+			http.Field{Name: "Content-Type", Value: "text/event-stream"},
+			http.Field{Name: "x-codex-primary-used-percent", Value: "12"},
+		},
+		Body: sseText,
+	}
+}
+
+func readStreamFlagFromBody(req http.Request) bool {
+	let bodyText = match req.Body {
+	case http.Buffered as b:
+		b.Text
+	case http.BodyTooLarge, http.BodyReadFailed:
+		"{}"
+	}
+	let parsed = DecodeJSONObject(bodyText) catch {
+	case llm.InvalidResponse:
+		return false
+	}
+	match JSONBoolField(parsed, "stream") {
+	case option.Some[bool] as s:
+		s.Value
+	case option.None:
+		false
+	}
+}
+
+func lawMockResponseForAnthropic(req http.Request) http.Response needs http.Streaming {
+	if !readStreamFlagFromBody(req) {
+		return http.Response{
+			Status: 200,
+			Header: []http.Field{http.Field{Name: "anthropic-ratelimit-unified-5h-utilization", Value: "0.10"}},
+			Body:   `{"id":"msg_law","type":"message","role":"assistant","content":[{"type":"text","text":"ok-anth"}],"stop_reason":"end_turn","usage":{"input_tokens":8,"output_tokens":3}}`,
+		}
+	}
+	let events = []http.ServerEvent{
+		http.ServerEvent{Event: "message_start", Data: `{"type":"message_start","message":{"usage":{"input_tokens":8}}}`, ID: ""},
+		http.ServerEvent{Event: "content_block_start", Data: `{"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}`, ID: ""},
+		http.ServerEvent{Event: "content_block_delta", Data: `{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"ok-anth"}}`, ID: ""},
+		http.ServerEvent{Event: "content_block_stop", Data: `{"type":"content_block_stop","index":0}`, ID: ""},
+		http.ServerEvent{Event: "message_delta", Data: `{"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":3}}`, ID: ""},
+		http.ServerEvent{Event: "message_stop", Data: `{"type":"message_stop"}`, ID: ""},
+	}
+	let sseText = http.WriteEvents(events) catch {
+	case http.Unwritable:
+		return http.Response{Status: 500, Header: []http.Field{}, Body: "unwritable"}
+	}
+	http.Response{Status: 200, Header: []http.Field{http.Field{Name: "anthropic-ratelimit-unified-5h-utilization", Value: "0.10"}}, Body: sseText}
+}
+
+func lawMockResponseForOpenAI(req http.Request) http.Response needs http.Streaming {
+	if !readStreamFlagFromBody(req) {
+		return http.Response{
+			Status: 200,
+			Header: []http.Field{},
+			Body:   `{"id":"cmpl_law","choices":[{"index":0,"message":{"role":"assistant","content":"ok-oc"},"finish_reason":"stop"}],"usage":{"prompt_tokens":8,"completion_tokens":3}}`,
+		}
+	}
+	let events = []http.ServerEvent{
+		http.ServerEvent{Event: "message", Data: `{"choices":[{"index":0,"delta":{"content":"ok-oc"},"finish_reason":"stop"}],"usage":{"prompt_tokens":8,"completion_tokens":3}}`, ID: ""},
+		http.ServerEvent{Event: "message", Data: "[DONE]", ID: ""},
+	}
+	let sseText = http.WriteEvents(events) catch {
+	case http.Unwritable:
+		return http.Response{Status: 500, Header: []http.Field{}, Body: "unwritable"}
+	}
+	http.Response{Status: 200, Header: []http.Field{}, Body: sseText}
+}
+
+let codexDirectLawContext = context fails DirectProviderError | http.InvalidClient {
+	DirectProvider:  try makeInMemLawClient(adapter.CodexDirect, "gpt-5.4", "acc-codex", BearerAuth{Token: config.NewRedacted("sk-codex-law")}, lawMockResponseForCodex),
+	llm.Model:       try makeInMemLawClient(adapter.CodexDirect, "gpt-5.4", "acc-codex", BearerAuth{Token: config.NewRedacted("sk-codex-law")}, lawMockResponseForCodex),
+	adapter.Adapter: try makeInMemLawClient(adapter.CodexDirect, "gpt-5.4", "acc-codex", BearerAuth{Token: config.NewRedacted("sk-codex-law")}, lawMockResponseForCodex),
+}
+
+let anthropicDirectLawContext = context fails DirectProviderError | http.InvalidClient {
+	DirectProvider:  try makeInMemLawClient(adapter.AnthropicDirect, "claude-sonnet-4-5", "acc-anth", BearerAuth{Token: config.NewRedacted("sk-ant-oat-law")}, lawMockResponseForAnthropic),
+	llm.Model:       try makeInMemLawClient(adapter.AnthropicDirect, "claude-sonnet-4-5", "acc-anth", BearerAuth{Token: config.NewRedacted("sk-ant-oat-law")}, lawMockResponseForAnthropic),
+	adapter.Adapter: try makeInMemLawClient(adapter.AnthropicDirect, "claude-sonnet-4-5", "acc-anth", BearerAuth{Token: config.NewRedacted("sk-ant-oat-law")}, lawMockResponseForAnthropic),
+}
+
+let consoleDirectLawContext = context fails DirectProviderError | http.InvalidClient {
+	DirectProvider:  try makeInMemLawClient(adapter.OpenCodeConsoleDirect, "opencode/zen-pro", "acc-console", BearerAuth{Token: config.NewRedacted("sk-oc-console")}, lawMockResponseForOpenAI),
+	llm.Model:       try makeInMemLawClient(adapter.OpenCodeConsoleDirect, "opencode/zen-pro", "acc-console", BearerAuth{Token: config.NewRedacted("sk-oc-console")}, lawMockResponseForOpenAI),
+	adapter.Adapter: try makeInMemLawClient(adapter.OpenCodeConsoleDirect, "opencode/zen-pro", "acc-console", BearerAuth{Token: config.NewRedacted("sk-oc-console")}, lawMockResponseForOpenAI),
+}
+
+let goDirectLawContext = context fails DirectProviderError | http.InvalidClient {
+	DirectProvider:  try makeInMemLawClient(adapter.OpenCodeGoDirect, "opencode/go-fast", "acc-go", BearerAuth{Token: config.NewRedacted("sk-oc-go")}, lawMockResponseForOpenAI),
+	llm.Model:       try makeInMemLawClient(adapter.OpenCodeGoDirect, "opencode/go-fast", "acc-go", BearerAuth{Token: config.NewRedacted("sk-oc-go")}, lawMockResponseForOpenAI),
+	adapter.Adapter: try makeInMemLawClient(adapter.OpenCodeGoDirect, "opencode/go-fast", "acc-go", BearerAuth{Token: config.NewRedacted("sk-oc-go")}, lawMockResponseForOpenAI),
+}
+
+func makePostDeltaAbortWire(driver adapter.DriverKind, partialText string) string {
+	match driver {
+	case adapter.CodexDirect:
+		"event: response.output_text.delta\ndata: " + EncodeJSONValue(JSONObject([]json.Member{json.Member{Key: "type", Value: JSONString("response.output_text.delta")}, json.Member{Key: "delta", Value: JSONString(partialText)}})) + "\n\nevent: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"delta\":\"unterminated"
+	case adapter.AnthropicDirect:
+		"event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":5}}}\n\nevent: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\nevent: content_block_delta\ndata: " + EncodeJSONValue(JSONObject([]json.Member{json.Member{Key: "type", Value: JSONString("content_block_delta")}, json.Member{Key: "index", Value: json.IntNumber(int64(0))}, json.Member{Key: "delta", Value: JSONObject([]json.Member{json.Member{Key: "type", Value: JSONString("text_delta")}, json.Member{Key: "text", Value: JSONString(partialText)}})}})) + "\n\nevent: content_block_delta\ndata: {\"type\":\"content_block_delta\""
+	case adapter.OpenCodeConsoleDirect, adapter.OpenCodeGoDirect, adapter.AntigravityDirect, adapter.ClaudeMeta, adapter.CodexMeta, adapter.AntigravityMeta, adapter.GenericAcpMeta, adapter.PaneFallbackMeta:
+		"data: " + EncodeJSONValue(JSONObject([]json.Member{json.Member{Key: "choices", Value: JSONArray([]json.Value{JSONObject([]json.Member{json.Member{Key: "delta", Value: JSONObject([]json.Member{json.Member{Key: "content", Value: JSONString(partialText)}})}, json.Member{Key: "finish_reason", Value: json.Null}})})}})) + "\n\ndata: {\"choices\":[{\"delta\":{\"content\":\"cut\"}}"
+	}
+}
+
+func makePreDeltaSuccessWire(driver adapter.DriverKind, answerText string) string {
+	match driver {
+	case adapter.CodexDirect:
+		"event: response.output_text.delta\ndata: " + EncodeJSONValue(JSONObject([]json.Member{json.Member{Key: "type", Value: JSONString("response.output_text.delta")}, json.Member{Key: "delta", Value: JSONString(answerText)}})) + "\n\nevent: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\",\"usage\":{\"input_tokens\":10,\"output_tokens\":4}}}\n\n"
+	case adapter.AnthropicDirect:
+		"event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":10}}}\n\nevent: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\nevent: content_block_delta\ndata: " + EncodeJSONValue(JSONObject([]json.Member{json.Member{Key: "type", Value: JSONString("content_block_delta")}, json.Member{Key: "index", Value: json.IntNumber(int64(0))}, json.Member{Key: "delta", Value: JSONObject([]json.Member{json.Member{Key: "type", Value: JSONString("text_delta")}, json.Member{Key: "text", Value: JSONString(answerText)}})}})) + "\n\nevent: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":0}\n\nevent: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":4}}\n\nevent: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"
+	case adapter.OpenCodeConsoleDirect, adapter.OpenCodeGoDirect, adapter.AntigravityDirect, adapter.ClaudeMeta, adapter.CodexMeta, adapter.AntigravityMeta, adapter.GenericAcpMeta, adapter.PaneFallbackMeta:
+		"data: " + EncodeJSONValue(JSONObject([]json.Member{json.Member{Key: "choices", Value: JSONArray([]json.Value{JSONObject([]json.Member{json.Member{Key: "delta", Value: JSONObject([]json.Member{json.Member{Key: "content", Value: JSONString(answerText)}})}, json.Member{Key: "finish_reason", Value: JSONString("stop")}})})}, json.Member{Key: "usage", Value: JSONObject([]json.Member{json.Member{Key: "prompt_tokens", Value: json.IntNumber(int64(10))}, json.Member{Key: "completion_tokens", Value: json.IntNumber(int64(4))}})}})) + "\n\ndata: [DONE]\n\n"
+	}
+}
+
+law NoRetryAfterFirstDeltaAcrossAllProviders(providerIdx int) {
+	let drivers = []adapter.DriverKind{
+		adapter.CodexDirect,
+		adapter.AnthropicDirect,
+		adapter.OpenCodeConsoleDirect,
+		adapter.OpenCodeGoDirect,
+	}
+	let d = drivers[(if providerIdx < 0 { -providerIdx } else { providerIdx })%drivers.Len()]
+	let req = llm.Request{
+		System:    "sys",
+		Messages:  []llm.Message{llm.User{Text: "hi"}},
+		Tools:     []llm.ToolSpec{},
+		Choice:    llm.Auto,
+		Format:    llm.Prose,
+		MaxTokens: 0,
+	}
+
+	let preAttempts = sync.NewRef(0)
+	let preClient = makeInMemLawClient(d, "model-test", "acc-pinned", BearerAuth{Token: config.NewRedacted("sk-secret")}, func(_ http.Request) http.Response needs http.Streaming {
+		let n = sync.Modify(preAttempts, func(v int) (int, int) { (v + 1, v + 1) })
+		if n == 1 {
+			return http.Response{
+				Status: 429,
+				Header: []http.Field{http.Field{Name: "Retry-After", Value: "1"}},
+				Body:   `{"error":{"message":"slow down"}}`,
+			}
+		}
+		http.Response{
+			Status: 200,
+			Header: []http.Field{},
+			Body:   makePreDeltaSuccessWire(d, "pre-delta-recovered"),
+		}
+	}) catch {
+	case DirectProviderError, http.InvalidClient:
+		return false
+	}
+	let preTurn = StreamGuarded(preClient, req, 2, func(_ llm.Delta) {}) catch {
+	case DirectProviderError, llm.SinkFailed:
+		return false
+	}
+	if preTurn.Text != "pre-delta-recovered" || preAttempts.Get() != 2 {
+		return false
+	}
+
+	let postAttempts = sync.NewRef(0)
+	let postClient = makeInMemLawClient(d, "model-test", "acc-pinned", BearerAuth{Token: config.NewRedacted("sk-secret")}, func(_ http.Request) http.Response needs http.Streaming {
+		let _ = sync.Modify(postAttempts, func(v int) (int, int) { (v + 1, v + 1) })
+		http.Response{
+			Status: 200,
+			Header: []http.Field{},
+			Body:   makePostDeltaAbortWire(d, "partial-delta"),
+		}
+	}) catch {
+	case DirectProviderError, http.InvalidClient:
+		return false
+	}
+	let mut postAborted = false
+	let _ = StreamGuarded(postClient, req, 3, func(_ llm.Delta) {}) catch {
+	case DirectProviderError as de:
+		match de {
+		case AbortedAfterFirstDeltaError as ae:
+			postAborted = ae.DeltasReceived == 1 && ae.PartialText == "partial-delta"
+			llm.Turn{Text: "", Calls: []llm.Call{}, Stop: llm.Ended, Usage: llm.Usage{Input: 0, Output: 0, CacheRead: 0, CacheWrite: 0}}
+		case AntigravityDirectGatedError, NotDirectDriverError, ProxyOrSpoofRefusedError, AccountRotationRefusedError, MissingCredentialError, CapabilityUnsupportedError, TurnHeldByPoolError, ConcurrentTurnRefusedError, InvalidProviderConfigError, ProviderWireError, DirectLoopIntegrationError:
+			return false
+		}
+	case llm.SinkFailed:
+		return false
+	}
+	postAborted && postAttempts.Get() == 1
+}
+
+law DirectClientWiresIntoDirectLoopWithoutEmulation() {
+	let codexClient = makeInMemLawClient(adapter.CodexDirect, "gpt-5.4", "acc-1", BearerAuth{Token: config.NewRedacted("sk-codex")}, lawMockResponseForCodex) catch {
+	case DirectProviderError, http.InvalidClient:
+		return false
+	}
+	let anthClient = makeInMemLawClient(adapter.AnthropicDirect, "claude-sonnet-4-5", "acc-2", AnthropicKeyAuth{Key: config.NewRedacted("sk-ant")}, lawMockResponseForAnthropic) catch {
+	case DirectProviderError, http.InvalidClient:
+		return false
+	}
+	let codexCaps = codexClient.Capabilities()
+	let anthCaps = anthClient.Capabilities()
+	let codexCfg = BuildDirectConfig(codexClient, DirectLoopRunSpec{
+		ThreadID:           handle.ThreadID("th-c"),
+		SessionID:          handle.SessionID("sess-c"),
+		WorkspaceRoot:      "/repo",
+		SystemPrompt:       "sys",
+		Prompt:             "hello",
+		PermissionMode:     adapter.ModeAutoEdit,
+		MaxTurns:           4,
+		MaxPreDeltaRetries: 1,
+		ToolContext:        tools.DefaultToolContext("/repo", adapter.ModeAutoEdit, codexCaps),
+	})
+	let anthCfg = BuildDirectConfig(anthClient, DirectLoopRunSpec{
+		ThreadID:           handle.ThreadID("th-a"),
+		SessionID:          handle.SessionID("sess-a"),
+		WorkspaceRoot:      "/repo",
+		SystemPrompt:       "sys",
+		Prompt:             "hello",
+		PermissionMode:     adapter.ModeAutoEdit,
+		MaxTurns:           4,
+		MaxPreDeltaRetries: 1,
+		ToolContext:        tools.DefaultToolContext("/repo", adapter.ModeAutoEdit, anthCaps),
+	})
+	let mut agyRefused = false
+	let _ = makeInMemLawClient(adapter.AntigravityDirect, "gemini-2.5-pro", "acc-agy", BearerAuth{Token: config.NewRedacted("sk-agy")}, lawMockResponseForOpenAI) catch {
+	case AntigravityDirectGatedError:
+		agyRefused = true
+		codexClient
+	case NotDirectDriverError, ProxyOrSpoofRefusedError, AccountRotationRefusedError, MissingCredentialError, CapabilityUnsupportedError, TurnHeldByPoolError, AbortedAfterFirstDeltaError, ConcurrentTurnRefusedError, InvalidProviderConfigError, ProviderWireError, DirectLoopIntegrationError, http.InvalidClient:
+		return false
+	}
+	let mut metaRejected = false
+	let agyDisabledCaps = adapter.CapabilitiesFor(adapter.AntigravityDirect, false)
+	let mut agyStartBlocked = false
+	let _ = adapter.CanStartDriver(adapter.AntigravityDirect, agyDisabledCaps) catch {
+	case adapter.DirectDriverDisabled:
+		agyStartBlocked = true
+		false
+	case adapter.CapabilityUnsupported, adapter.WriteApprovalRequired:
+		false
+	}
+	let _ = NewDirectAdapter(adapter.CodexMeta, DefaultOfficialSupportGate()) catch {
+	case NotDirectDriverError:
+		metaRejected = true
+		codexClient.adapterInst
+	}
+		codexCfg.Capabilities.Steer &&
+		!codexCfg.Capabilities.DynamicToolCallbacks &&
+		codexCfg.Capabilities == adapter.CapabilitiesFor(adapter.CodexDirect, false) &&
+		anthCfg.Capabilities.Steer &&
+		!anthCfg.Capabilities.DynamicToolCallbacks &&
+		anthCfg.Capabilities == adapter.CapabilitiesFor(adapter.AnthropicDirect, false) &&
+		!agyDisabledCaps.Steer &&
+		agyStartBlocked &&
+		metaRejected &&
+		agyRefused
+}
+
+func setupDirectIntegrationHarness() (fstest.Memory, exec.Script, tools.ScriptedKernelPort) fails fstest.BadFixture {
+	let fix = try fstest.NewFixture(
+		[]string{"/repo", "/repo/src"},
+		Map[string, string]{"/repo/src/hello.txt": "atlas direct wire\n"},
+	)
+	let mem = fstest.MemoryOf(fix)
+	let script = exec.Script{Results: Map[string, exec.Result]{}}
+	let eng = kernel.NewScriptedEngine(Map[string, kernel.ScriptedOutcome]{})
+	(mem, script, tools.ScriptedKernelPort{Engine: eng})
+}
+
+func runToolThenFinishCycle(driver adapter.DriverKind, model string, acc string, auth ProviderAuth) bool {
+	let (mem, script, kport) = setupDirectIntegrationHarness() catch {
+	case fstest.BadFixture:
+		return false
+	}
+	let callStep = sync.NewRef(0)
+	let wantPath = OfficialPath(driver, DefaultOfficialSupportGate()) catch {
+	case DirectProviderError:
+		return false
+	}
+	let client = makeInMemLawClient(driver, model, acc, auth, func(req http.Request) http.Response needs http.Streaming {
+		if req.Path != wantPath {
+			return http.Response{Status: 404, Header: []http.Field{}, Body: `{"error":{"message":"wrong path"}}`}
+		}
+		let turnNo = sync.Modify(callStep, func(v int) (int, int) { (v + 1, v + 1) })
+		if turnNo == 1 {
+			let body = match driver {
+			case adapter.CodexDirect:
+				"event: response.output_item.added\ndata: {\"type\":\"response.output_item.added\",\"item\":{\"id\":\"fc_1\",\"type\":\"function_call\",\"call_id\":\"c_read\",\"name\":\"read\"}}\n\nevent: response.function_call_arguments.delta\ndata: {\"type\":\"response.function_call_arguments.delta\",\"item_id\":\"fc_1\",\"delta\":\"{\\\"path\\\":\\\"/repo/src/hello.txt\\\"}\"}\n\nevent: response.output_item.done\ndata: {\"type\":\"response.output_item.done\",\"item\":{\"id\":\"fc_1\",\"type\":\"function_call\",\"call_id\":\"c_read\",\"name\":\"read\",\"arguments\":\"{\\\"path\\\":\\\"/repo/src/hello.txt\\\"}\"}}\n\nevent: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\",\"usage\":{\"input_tokens\":20,\"output_tokens\":8}}}\n\n"
+			case adapter.AnthropicDirect:
+				"event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":20}}}\n\nevent: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"tool_use\",\"id\":\"c_read\",\"name\":\"read\",\"input\":{}}}\n\nevent: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"{\\\"path\\\":\\\"/repo/src/hello.txt\\\"}\"}}\n\nevent: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":0}\n\nevent: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"tool_use\"},\"usage\":{\"output_tokens\":8}}\n\nevent: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"
+			case adapter.OpenCodeConsoleDirect, adapter.OpenCodeGoDirect, adapter.AntigravityDirect, adapter.ClaudeMeta, adapter.CodexMeta, adapter.AntigravityMeta, adapter.GenericAcpMeta, adapter.PaneFallbackMeta:
+				"data: {\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"c_read\",\"type\":\"function\",\"function\":{\"name\":\"read\",\"arguments\":\"{\\\"path\\\":\\\"/repo/src/hello.txt\\\"}\"}}]},\"finish_reason\":\"tool_calls\"}],\"usage\":{\"prompt_tokens\":20,\"completion_tokens\":8}}\n\ndata: [DONE]\n\n"
+			}
+			return http.Response{
+				Status: 200,
+				Header: []http.Field{http.Field{Name: "x-codex-primary-used-percent", Value: "25"}},
+				Body:   body,
+			}
+		}
+		http.Response{
+			Status: 200,
+			Header: []http.Field{http.Field{Name: "x-codex-primary-used-percent", Value: "27"}},
+			Body:   makePreDeltaSuccessWire(driver, "read atlas direct wire"),
+		}
+	}) catch {
+	case DirectProviderError, http.InvalidClient:
+		return false
+	}
+
+	let now0 = int64(1700000000000)
+	let mut modelWins = []pool.ModelQuota{}
+	for sc in pool.RequiredScopes(DriverPoolProviderName(driver), model) {
+		modelWins = modelWins.Append(pool.ModelQuota{
+			Scope:  sc,
+			Status: pool.WinReported{UsedPpm: int64(50000), ResetAtMs: now0 + int64(86400000)},
+		})
+	}
+	let reg = pool.UpsertAccount(pool.NewRegistry(), pool.AccountEntry{
+		Config: pool.AccountConfig{
+			ID:              session.AccountID(acc),
+			Provider:        DriverPoolProviderName(driver),
+			Model:           model,
+			Label:           "primary",
+			Priority:        1,
+			Healthy:         true,
+			PaceWithheld:    false,
+			SupportedScopes: []string{},
+		},
+		Limits: option.Some[pool.LimitsModel]{Value: pool.LimitsModel{
+			Primary5h:    pool.WinReported{UsedPpm: int64(100000), ResetAtMs: now0 + int64(3600000)},
+			Weekly7d:     pool.WinReported{UsedPpm: int64(50000), ResetAtMs: now0 + int64(86400000)},
+			ModelWindows: modelWins,
+			ReadAtMs:     now0,
+			RateLimited:  false,
+		}},
+		Pace:        option.None,
+		HoldUntilMs: int64(0),
+	})
+	let initTools = tools.NewToolState("th-root", subagent.TreeBounds{MaxDepth: 2, MaxFanOut: 2, MaxBudget: 4}, 1000)
+	let runSpec = DirectLoopRunSpec{
+		ThreadID:           handle.ThreadID("th-root"),
+		SessionID:          handle.SessionID("sess-1"),
+		WorkspaceRoot:      "/repo",
+		SystemPrompt:       "be accurate",
+		Prompt:             "inspect /repo/src/hello.txt",
+		PermissionMode:     adapter.ModeAutoEdit,
+		MaxTurns:           6,
+		MaxPreDeltaRetries: 1,
+		ToolContext:        tools.DefaultToolContext("/repo", adapter.ModeAutoEdit, client.Capabilities()),
+	}
+	let outcome = with context {
+		fs.Files:         mem,
+		fs.Writes:        mem,
+		exec.Runner:      script,
+		tools.Approver:   tools.AlwaysApprove,
+		tools.KernelPort: kport,
+	} {
+		RunAdmittedDirectAgentTurn(client, runSpec, PoolStateSnapshot{Registry: reg, Ledger: pool.NewInflightLedger()}, initTools, queue.NewQueue("th-root")) catch {
+		case DirectProviderError:
+			return false
+		}
+	}
+		outcome.LoopResult.FinalText == "read atlas direct wire" &&
+		outcome.LoopResult.TurnsCompleted == 2 &&
+		outcome.LoopResult.ToolCallsExecuted == 1 &&
+		outcome.PoolState.Ledger.Order.Len() == 0
+}
+
+test EndToEndDirectLoopWithCodexAnthropicConsoleGoAndPool {
+	assert runToolThenFinishCycle(adapter.CodexDirect, "gpt-5.4", "acc-codex", BearerAuth{Token: config.NewRedacted("sk-codex")})
+	assert runToolThenFinishCycle(adapter.AnthropicDirect, "claude-sonnet-4-5", "acc-anth", BearerAuth{Token: config.NewRedacted("sk-ant-oat-1")})
+	assert runToolThenFinishCycle(adapter.OpenCodeConsoleDirect, "opencode/zen-pro", "acc-console", BearerAuth{Token: config.NewRedacted("sk-console")})
+	assert runToolThenFinishCycle(adapter.OpenCodeGoDirect, "opencode/go-fast", "acc-go", BearerAuth{Token: config.NewRedacted("sk-go")})
+}

@@ -1,0 +1,620 @@
+import github.com/cevr/ergo/modules/atlas/adapter
+import github.com/cevr/ergo/modules/atlas/handle
+import github.com/cevr/ergo/modules/atlas/pool
+import github.com/cevr/ergo/modules/atlas/session
+import github.com/cevr/ergo/modules/atlas/turn
+import llm
+import option
+import strings
+
+// DriverPoolProviderName returns the normalized pool registry provider identifier for a driver.
+func DriverPoolProviderName(driver adapter.DriverKind) string {
+	match driver {
+	case adapter.CodexDirect:
+		"codex"
+	case adapter.OpenCodeConsoleDirect:
+		"opencode-console"
+	case adapter.OpenCodeGoDirect:
+		"opencode-go"
+	case adapter.AnthropicDirect:
+		"anthropic"
+	case adapter.AntigravityDirect:
+		"antigravity"
+	case adapter.ClaudeMeta:
+		"claude-meta"
+	case adapter.CodexMeta:
+		"codex-meta"
+	case adapter.AntigravityMeta:
+		"agy-meta"
+	case adapter.GenericAcpMeta:
+		"generic-acp"
+	case adapter.PaneFallbackMeta:
+		"pane-fallback"
+	}
+}
+
+func resolveFailureResetAt(after option.Option[int], rate option.Option[RateLimitInfo], nowMs int64) int64 {
+	match after {
+	case option.Some[int] as a:
+		if a.Value > 0 {
+			return nowMs + int64(a.Value)
+		}
+	case option.None:
+	}
+	match rate {
+	case option.Some[RateLimitInfo] as info:
+		match info.Value.RetryAfterMs {
+		case option.Some[int64] as ms:
+			if ms.Value > 0 {
+				return nowMs + ms.Value
+			}
+		case option.None:
+		}
+		match info.Value.PrimaryResetAtMs {
+		case option.Some[int64] as resetAt:
+			if resetAt.Value > nowMs {
+				return resetAt.Value
+			}
+		case option.None:
+		}
+	case option.None:
+	}
+	nowMs + pool.UnreadRetryMs()
+}
+
+// MapFailureToTurnClass maps an llm.Failure and optional rate-limit metadata to turn.FailureClass per D8.
+func MapFailureToTurnClass(f llm.Failure, rate option.Option[RateLimitInfo], nowMs int64) turn.FailureClass {
+	match f {
+	case llm.RateLimited as rl:
+		turn.FailureUsageLimit{ResetAtMs: resolveFailureResetAt(rl.After, rate, nowMs)}
+	case llm.Overloaded, llm.Unauthorized, llm.Refused:
+		turn.FailureProvider
+	case llm.Transport, llm.Truncated:
+		turn.FailureTransport
+	case llm.InvalidRequest, llm.InvalidResponse, llm.UnsupportedSchema:
+		turn.FailureValidation
+	}
+}
+
+func windowFromPctAndReset(pctOpt option.Option[int], resetOpt option.Option[int64], fallbackResetMs int64) pool.WindowStatus {
+	match pctOpt {
+	case option.Some[int] as pct:
+		let resetAt = match resetOpt {
+		case option.Some[int64] as r:
+			r.Value
+		case option.None:
+			fallbackResetMs
+		}
+		pool.WinReported{UsedPpm: pool.PctToPpm(pct.Value), ResetAtMs: resetAt}
+	case option.None:
+		pool.WinUnknown
+	}
+}
+
+// RateInfoToPoolLimits converts header-derived RateLimitInfo into normalized pool.LimitsModel.
+func RateInfoToPoolLimits(info RateLimitInfo, model string, nowMs int64, rateLimited bool) pool.LimitsModel {
+	let primaryWin = windowFromPctAndReset(info.PrimaryUsedPct, info.PrimaryResetAtMs, nowMs+pool.FiveHourWindowMs())
+	let weeklyWin = windowFromPctAndReset(info.SecondaryUsedPct, info.SecondaryResetAtMs, nowMs+pool.WeekWindowMs())
+	let mut modelWins = []pool.ModelQuota{}
+	if strings.TrimSpace(model) != "" {
+		match primaryWin {
+		case pool.WinReported:
+			modelWins = modelWins.Append(pool.ModelQuota{
+				Scope:  pool.NormalizeScope(model),
+				Status: primaryWin,
+			})
+		case pool.WinUnknown, pool.WinAbsent:
+		}
+	}
+	pool.LimitsModel{
+		Primary5h:    primaryWin,
+		Weekly7d:     weeklyWin,
+		ModelWindows: modelWins,
+		ReadAtMs:     nowMs,
+		RateLimited:  rateLimited,
+	}
+}
+
+// UsageToEstimatedPpm converts llm.Usage tokens into a conservative pool reservation ppm estimate.
+func UsageToEstimatedPpm(u llm.Usage, contextWindow int) int64 {
+	let denom = if contextWindow <= 0 { int64(200000) } else { int64(contextWindow) }
+	let totalTokens = int64(u.Input + u.Output + u.CacheRead + u.CacheWrite)
+	if totalTokens <= 0 {
+		return int64(5000)
+	}
+	let raw = (totalTokens * pool.PpmScale()) / denom
+	let clamped = pool.ClampPpm(raw)
+	if clamped < int64(1000) { int64(1000) } else { clamped }
+}
+
+// PinnedAdmissionSpec configures pinned fixed-account admission through the quota pool.
+type PinnedAdmissionSpec {
+	ThreadID         handle.ThreadID,
+	StartID          string,
+	PinnedAccount    session.AccountID,
+	StandbyAccounts  []session.AccountSlot,
+	Driver           adapter.DriverKind,
+	Model            adapter.ModelID,
+	EstimatedCostPpm int64,
+	NowMs            int64,
+	Registry         pool.Registry,
+	Ledger           pool.InflightLedger,
+	Pushes           []pool.OwnerPushSpec,
+	Gate             OfficialSupportGate,
+}
+
+// PinnedAdmissionResult holds the approved pinned account, unsettled start, and updated pool ledger.
+type PinnedAdmissionResult {
+	AccountID session.AccountID,
+	Start     pool.UnsettledStart,
+	Ledger    pool.InflightLedger,
+	Rotation  session.RotationState,
+}
+
+// PoolStateSnapshot holds the mutable pool registry and inflight spend ledger across direct turns.
+type PoolStateSnapshot {
+	Registry pool.Registry,
+	Ledger   pool.InflightLedger,
+}
+
+// PoolSuccessSettle inputs settlement parameters after a direct turn completes successfully.
+type PoolSuccessSettle {
+	AccountID session.AccountID,
+	StartID   string,
+	Model     adapter.ModelID,
+	RateLimit option.Option[RateLimitInfo],
+	NowMs     int64,
+}
+
+// PoolFailureSettle inputs settlement and hold parameters after a direct turn fails.
+type PoolFailureSettle {
+	AccountID session.AccountID,
+	StartID   string,
+	Model     adapter.ModelID,
+	Failure   llm.Failure,
+	RateLimit option.Option[RateLimitInfo],
+	NowMs     int64,
+}
+
+func mapRotationRefusalToProviderErr(driver adapter.DriverKind, spec PinnedAdmissionSpec, rr session.RotationRefusal) DirectProviderError {
+	match rr {
+	case session.FixedAccountPolicyRefusal as fr:
+		AccountRotationRefusedError{
+			PinnedAccount:    fr.Pinned,
+			AttemptedAccount: spec.PinnedAccount,
+		}
+	case session.NoEligibleHealthyAccount:
+		TurnHeldByPoolError{
+			Account:   spec.PinnedAccount,
+			RetryAtMs: spec.NowMs + pool.UnreadRetryMs(),
+			Reason:    pool.HoldNoEligibleAccount,
+		}
+	case session.RotationBlockedMidTurn:
+		ConcurrentTurnRefusedError{Driver: driver, Account: spec.PinnedAccount}
+	case session.TurnRequiresOpenSession, session.DuplicateThreadSessionRefusal:
+		InvalidProviderConfigError{Field: "ThreadID", Reason: "rotation session precondition rejected"}
+	}
+}
+
+func stepPinnedRotationAction(spec PinnedAdmissionSpec, rot session.RotationState, act session.RotationAction) session.RotationState fails DirectProviderError {
+	session.StepRotation(rot, act) catch {
+	case session.RotationRefusal as rr:
+		let mapped = mapRotationRefusalToProviderErr(spec.Driver, spec, rr)
+		match mapped {
+		case AccountRotationRefusedError as e:
+			return e
+		case TurnHeldByPoolError as e:
+			return e
+		case ConcurrentTurnRefusedError as e:
+			return e
+		case InvalidProviderConfigError as e:
+			return e
+		case AntigravityDirectGatedError, NotDirectDriverError, ProxyOrSpoofRefusedError, MissingCredentialError, CapabilityUnsupportedError, AbortedAfterFirstDeltaError, ProviderWireError, DirectLoopIntegrationError:
+			return InvalidProviderConfigError{Field: "Rotation", Reason: "unexpected rotation refusal"}
+		}
+	}
+}
+
+// AdmitPinnedSessionTurn reserves inflight quota strictly for PinnedAccount without ever rotating accounts.
+func AdmitPinnedSessionTurn(spec PinnedAdmissionSpec) PinnedAdmissionResult fails DirectProviderError {
+	try requireDirectPathDriver(spec.Driver)
+	try requireOfficialGate(spec.Driver, spec.Gate)
+	if strings.TrimSpace(string(spec.PinnedAccount)) == "" {
+		return InvalidProviderConfigError{Field: "PinnedAccount", Reason: "pinned account id cannot be empty"}
+	}
+	let rotBase = try NewPinnedRotationState(spec.ThreadID, spec.PinnedAccount, spec.StandbyAccounts)
+	let rotOpened = try stepPinnedRotationAction(spec, rotBase, session.ActPoolOpenSession{Account: spec.PinnedAccount})
+	let rotInTurn = try stepPinnedRotationAction(spec, rotOpened, session.ActPoolStartTurn)
+	let entry = match pool.GetAccount(spec.Registry, spec.PinnedAccount) {
+	case option.Some[pool.AccountEntry] as found:
+		found.Value
+	case option.None:
+		return TurnHeldByPoolError{
+			Account:   spec.PinnedAccount,
+			RetryAtMs: spec.NowMs + pool.UnreadRetryMs(),
+			Reason:    pool.HoldNoEligibleAccount,
+		}
+	}
+	let pinnedReg = pool.UpsertAccount(pool.NewRegistry(), entry)
+	let costPpm = if spec.EstimatedCostPpm > 0 { spec.EstimatedCostPpm } else { pool.DefaultCostPpm() }
+	let req = pool.PlacementRequest{
+		Provider:         DriverPoolProviderName(spec.Driver),
+		Model:            string(spec.Model),
+		NowMs:            spec.NowMs,
+		EstimatedCostPpm: costPpm,
+		PreferredAccount: option.Some[session.AccountID]{Value: spec.PinnedAccount},
+		IsPriority:       false,
+		IsAuxiliary:      false,
+		StaleAfterMs:     pool.StaleAfterMs(),
+		UnreadRetryMs:    pool.UnreadRetryMs(),
+		SkewMs:           pool.DefaultSkewMs(),
+		LeewayPpm:        int64(0),
+		StartID:          spec.StartID,
+		SettleHorizonMs:  pool.DefaultSettleMs(),
+	}
+	match pool.Admit(pinnedReg, spec.Ledger, spec.Pushes, req) {
+	case pool.AdmitAllowed as allow:
+		let _ = try VerifyPinnedAccount(spec.PinnedAccount, allow.AccountID)
+		let updatedLedger = pool.RecordInflightStart(spec.Ledger, allow.Start)
+		PinnedAdmissionResult{
+			AccountID: allow.AccountID,
+			Start:     allow.Start,
+			Ledger:    updatedLedger,
+			Rotation:  rotInTurn,
+		}
+	case pool.AdmitHeld as held:
+		let retryMs = if held.RetryAtMs > spec.NowMs { held.RetryAtMs } else { spec.NowMs + pool.UnreadRetryMs() }
+		return TurnHeldByPoolError{
+			Account:   spec.PinnedAccount,
+			RetryAtMs: retryMs,
+			Reason:    held.Reason,
+		}
+	}
+}
+
+// SettlePoolOnSuccess settles inflight spend reservation and records updated rate-limit readings.
+func SettlePoolOnSuccess(state PoolStateSnapshot, info PoolSuccessSettle) PoolStateSnapshot {
+	let settledLedger = pool.SettleInflightStart(state.Ledger, info.StartID)
+	let nextReg = match info.RateLimit {
+	case option.Some[RateLimitInfo] as rl:
+		let limits = RateInfoToPoolLimits(rl.Value, string(info.Model), info.NowMs, false)
+		pool.RecordLimits(state.Registry, info.AccountID, limits, info.NowMs)
+	case option.None:
+		state.Registry
+	}
+	PoolStateSnapshot{Registry: nextReg, Ledger: settledLedger}
+}
+
+// SettlePoolOnFailure settles inflight spend and arms account holds or health degradation on provider errors.
+func SettlePoolOnFailure(state PoolStateSnapshot, info PoolFailureSettle) PoolStateSnapshot {
+	let settledLedger = pool.SettleInflightStart(state.Ledger, info.StartID)
+	let turnClass = MapFailureToTurnClass(info.Failure, info.RateLimit, info.NowMs)
+	let mut nextReg = state.Registry
+	let mut isUsageLimited = false
+	match turnClass {
+	case turn.FailureUsageLimit as ul:
+		isUsageLimited = true
+		let untilMs = if ul.ResetAtMs > info.NowMs { ul.ResetAtMs } else { info.NowMs + pool.UnreadRetryMs() }
+		nextReg = pool.SetAccountHold(nextReg, info.AccountID, untilMs)
+	case turn.FailureProvider, turn.FailureTransport, turn.FailurePermission, turn.FailureValidation, turn.FailureUnknown:
+	}
+	match info.RateLimit {
+	case option.Some[RateLimitInfo] as rl:
+		let limits = RateInfoToPoolLimits(rl.Value, string(info.Model), info.NowMs, isUsageLimited)
+		nextReg = pool.RecordLimits(nextReg, info.AccountID, limits, info.NowMs)
+	case option.None:
+	}
+	match info.Failure {
+	case llm.Unauthorized:
+		nextReg = pool.SetAccountHealthy(nextReg, info.AccountID, false)
+	case llm.RateLimited, llm.Overloaded, llm.Refused, llm.Truncated, llm.Transport, llm.InvalidRequest, llm.InvalidResponse, llm.UnsupportedSchema:
+	}
+	PoolStateSnapshot{Registry: nextReg, Ledger: settledLedger}
+}
+
+law PoolRateLimitMappingPreservesFutureHoldAndD8Reset(now int64, delaySec int) {
+	let offsetMs = if now == int64(-9223372036854775808) {
+		int64(0)
+	} else if now < 0 {
+		(-now) % int64(1000000000)
+	} else {
+		now % int64(1000000000)
+	}
+	let baseMs = int64(1700000000000) + offsetMs
+	let absDelay = if delaySec < 0 { -(delaySec % 600) } else { delaySec % 600 }
+	let clampedSec = absDelay + 1
+	let delayMs = int64(clampedSec) * int64(1000)
+	let info = RateLimitInfo{
+		RetryAfterMs:       option.Some[int64]{Value: delayMs},
+		PrimaryUsedPct:     option.Some[int]{Value: 96},
+		PrimaryResetAtMs:   option.Some[int64]{Value: baseMs + delayMs},
+		SecondaryUsedPct:   option.None,
+		SecondaryResetAtMs: option.None,
+		UnifiedStatus:      option.None,
+	}
+	let fc = MapFailureToTurnClass(llm.RateLimited{After: option.Some[int]{Value: clampedSec * 1000}}, option.Some[RateLimitInfo]{Value: info}, baseMs)
+	let resetMatches = turn.FailureResetAtMs(fc) == option.Some[int64]{Value: baseMs + delayMs}
+
+	let acc = session.AccountID("acc-primary")
+	let cfg = pool.AccountConfig{
+		ID:              acc,
+		Provider:        "codex",
+		Model:           "gpt-5.4",
+		Label:           "primary",
+		Priority:        1,
+		Healthy:         true,
+		PaceWithheld:    false,
+		SupportedScopes: []string{"5h"},
+	}
+	let reg = pool.UpsertAccount(pool.NewRegistry(), pool.AccountEntry{
+		Config:      cfg,
+		Limits:      option.Some[pool.LimitsModel]{Value: RateInfoToPoolLimits(info, "gpt-5.4", baseMs, false)},
+		Pace:        option.None,
+		HoldUntilMs: int64(0),
+	})
+	let ledger = pool.RecordInflightStart(pool.NewInflightLedger(), pool.UnsettledStart{
+		StartID:          "start-1",
+		AccountID:        acc,
+		EstimatedCostPpm: int64(20000),
+		StartedAtMs:      baseMs,
+		SettlesAtMs:      baseMs + int64(300000),
+	})
+	let settled = SettlePoolOnFailure(PoolStateSnapshot{Registry: reg, Ledger: ledger}, PoolFailureSettle{
+		AccountID: acc,
+		StartID:   "start-1",
+		Model:     adapter.ModelID("gpt-5.4"),
+		Failure:   llm.RateLimited{After: option.Some[int]{Value: clampedSec * 1000}},
+		RateLimit: option.Some[RateLimitInfo]{Value: info},
+		NowMs:     baseMs,
+	})
+	let entryOpt = pool.GetAccount(settled.Registry, acc)
+	let holdSet = match entryOpt {
+	case option.Some[pool.AccountEntry] as e:
+		e.Value.HoldUntilMs >= baseMs+delayMs
+	case option.None:
+		false
+	}
+	resetMatches && holdSet && settled.Ledger.Order.Len() == 0
+}
+
+law NonUsageFailuresClearResetAtPerD8() {
+	let nowMs = int64(1700000000000)
+	let nonUsage = []llm.Failure{
+		llm.Overloaded,
+		llm.Unauthorized,
+		llm.Refused{Reason: "policy"},
+		llm.Transport{Reason: "reset"},
+		llm.Truncated{Text: "part"},
+		llm.InvalidRequest{Reason: "bad"},
+		llm.InvalidResponse{Reason: "json"},
+		llm.UnsupportedSchema{Reason: "schema"},
+	}
+	for f in nonUsage {
+		let fc = MapFailureToTurnClass(f, option.None, nowMs)
+		match turn.FailureResetAtMs(fc) {
+		case option.None:
+		case option.Some[int64]:
+			return false
+		}
+	}
+	let acc = session.AccountID("acc-auth")
+	let reg = pool.UpsertAccount(pool.NewRegistry(), pool.AccountEntry{
+		Config: pool.AccountConfig{
+			ID:              acc,
+			Provider:        "anthropic",
+			Model:           "claude-sonnet-4-5",
+			Label:           "main",
+			Priority:        1,
+			Healthy:         true,
+			PaceWithheld:    false,
+			SupportedScopes: []string{},
+		},
+		Limits:      option.None,
+		Pace:        option.None,
+		HoldUntilMs: int64(0),
+	})
+	let settled = SettlePoolOnFailure(PoolStateSnapshot{Registry: reg, Ledger: pool.NewInflightLedger()}, PoolFailureSettle{
+		AccountID: acc,
+		StartID:   "none",
+		Model:     adapter.ModelID("claude-sonnet-4-5"),
+		Failure:   llm.Unauthorized,
+		RateLimit: option.None,
+		NowMs:     nowMs,
+	})
+	match pool.GetAccount(settled.Registry, acc) {
+	case option.Some[pool.AccountEntry] as e:
+		!e.Value.Config.Healthy
+	case option.None:
+		false
+	}
+}
+
+law PinnedDirectAdmissionNeverRotatesToStandbyAccount(now int64) {
+	let offsetMs = if now == int64(-9223372036854775808) {
+		int64(0)
+	} else if now < 0 {
+		(-now) % int64(1000000)
+	} else {
+		now % int64(1000000)
+	}
+	let baseMs = int64(1700000000000) + offsetMs
+	let pinned = session.AccountID("acc-pinned")
+	let standby = session.AccountID("acc-standby")
+	let futureHold = baseMs + int64(120000)
+	let lim = pool.LimitsModel{
+		Primary5h:    pool.WinReported{UsedPpm: int64(990000), ResetAtMs: futureHold},
+		Weekly7d:     pool.WinReported{UsedPpm: int64(100000), ResetAtMs: baseMs + pool.WeekWindowMs()},
+		ModelWindows: []pool.ModelQuota{},
+		ReadAtMs:     baseMs,
+		RateLimited:  true,
+	}
+	let okLim = pool.LimitsModel{
+		Primary5h:    pool.WinReported{UsedPpm: int64(10000), ResetAtMs: baseMs + int64(3600000)},
+		Weekly7d:     pool.WinReported{UsedPpm: int64(10000), ResetAtMs: baseMs + int64(86400000)},
+		ModelWindows: []pool.ModelQuota{},
+		ReadAtMs:     baseMs,
+		RateLimited:  false,
+	}
+	let mut reg = pool.NewRegistry()
+	reg = pool.UpsertAccount(reg, pool.AccountEntry{
+		Config: pool.AccountConfig{
+			ID:              pinned,
+			Provider:        "codex",
+			Model:           "gpt-5.4",
+			Label:           "pinned",
+			Priority:        1,
+			Healthy:         true,
+			PaceWithheld:    false,
+			SupportedScopes: []string{},
+		},
+		Limits:      option.Some[pool.LimitsModel]{Value: lim},
+		Pace:        option.None,
+		HoldUntilMs: futureHold,
+	})
+	reg = pool.UpsertAccount(reg, pool.AccountEntry{
+		Config: pool.AccountConfig{
+			ID:              standby,
+			Provider:        "codex",
+			Model:           "gpt-5.4",
+			Label:           "standby",
+			Priority:        100,
+			Healthy:         true,
+			PaceWithheld:    false,
+			SupportedScopes: []string{},
+		},
+		Limits:      option.Some[pool.LimitsModel]{Value: okLim},
+		Pace:        option.None,
+		HoldUntilMs: int64(0),
+	})
+	let mut heldOnPinned = false
+	let _ = AdmitPinnedSessionTurn(PinnedAdmissionSpec{
+		ThreadID:        handle.ThreadID("th-direct"),
+		StartID:         "start-held",
+		PinnedAccount:   pinned,
+		StandbyAccounts: []session.AccountSlot{
+			session.AccountSlot{ID: standby, Priority: 100, Status: session.AccountHealthy},
+		},
+		Driver:           adapter.CodexDirect,
+		Model:            adapter.ModelID("gpt-5.4"),
+		EstimatedCostPpm: int64(50000),
+		NowMs:            baseMs,
+		Registry:         reg,
+		Ledger:           pool.NewInflightLedger(),
+		Pushes:           []pool.OwnerPushSpec{},
+		Gate:             DefaultOfficialSupportGate(),
+	}) catch {
+	case TurnHeldByPoolError as held:
+		heldOnPinned = held.Account == pinned && held.RetryAtMs > baseMs
+		return heldOnPinned
+	case AntigravityDirectGatedError, NotDirectDriverError, ProxyOrSpoofRefusedError, AccountRotationRefusedError, MissingCredentialError, CapabilityUnsupportedError, AbortedAfterFirstDeltaError, ConcurrentTurnRefusedError, InvalidProviderConfigError, ProviderWireError, DirectLoopIntegrationError:
+		return false
+	}
+	false
+}
+
+test PoolSpendSettleAndHoldRecoveryLifecycle {
+	let now0 = int64(1700000000000)
+	let acc = session.AccountID("acc-codex-1")
+	let lim = pool.LimitsModel{
+		Primary5h:    pool.WinReported{UsedPpm: int64(100000), ResetAtMs: now0 + int64(3600000)},
+		Weekly7d:     pool.WinReported{UsedPpm: int64(50000), ResetAtMs: now0 + int64(86400000)},
+		ModelWindows: []pool.ModelQuota{},
+		ReadAtMs:     now0,
+		RateLimited:  false,
+	}
+	let reg0 = pool.UpsertAccount(pool.NewRegistry(), pool.AccountEntry{
+		Config: pool.AccountConfig{
+			ID:              acc,
+			Provider:        "codex",
+			Model:           "gpt-5.4",
+			Label:           "main",
+			Priority:        1,
+			Healthy:         true,
+			PaceWithheld:    false,
+			SupportedScopes: []string{},
+		},
+		Limits:      option.Some[pool.LimitsModel]{Value: lim},
+		Pace:        option.None,
+		HoldUntilMs: int64(0),
+	})
+	let adm1 = try AdmitPinnedSessionTurn(PinnedAdmissionSpec{
+		ThreadID:         handle.ThreadID("th-1"),
+		StartID:          "s-1",
+		PinnedAccount:    acc,
+		StandbyAccounts:  []session.AccountSlot{},
+		Driver:           adapter.CodexDirect,
+		Model:            adapter.ModelID("gpt-5.4"),
+		EstimatedCostPpm: UsageToEstimatedPpm(llm.Usage{Input: 1000, Output: 200, CacheRead: 0, CacheWrite: 0}, 200000),
+		NowMs:            now0,
+		Registry:         reg0,
+		Ledger:           pool.NewInflightLedger(),
+		Pushes:           []pool.OwnerPushSpec{},
+		Gate:             DefaultOfficialSupportGate(),
+	})
+	assert adm1.AccountID == acc
+	assert adm1.Ledger.Order.Len() == 1
+
+	let settledOk = SettlePoolOnSuccess(PoolStateSnapshot{Registry: reg0, Ledger: adm1.Ledger}, PoolSuccessSettle{
+		AccountID: acc,
+		StartID:   "s-1",
+		Model:     adapter.ModelID("gpt-5.4"),
+		RateLimit: option.Some[RateLimitInfo]{Value: RateLimitInfo{
+			RetryAfterMs:       option.None,
+			PrimaryUsedPct:     option.Some[int]{Value: 18},
+			PrimaryResetAtMs:   option.Some[int64]{Value: now0 + int64(3600000)},
+			SecondaryUsedPct:   option.None,
+			SecondaryResetAtMs: option.None,
+			UnifiedStatus:      option.None,
+		}},
+		NowMs: now0 + int64(1000),
+	})
+	assert settledOk.Ledger.Order.Len() == 0
+
+	let adm2 = try AdmitPinnedSessionTurn(PinnedAdmissionSpec{
+		ThreadID:         handle.ThreadID("th-1"),
+		StartID:          "s-2",
+		PinnedAccount:    acc,
+		StandbyAccounts:  []session.AccountSlot{},
+		Driver:           adapter.CodexDirect,
+		Model:            adapter.ModelID("gpt-5.4"),
+		EstimatedCostPpm: int64(10000),
+		NowMs:            now0 + int64(2000),
+		Registry:         settledOk.Registry,
+		Ledger:           settledOk.Ledger,
+		Pushes:           []pool.OwnerPushSpec{},
+		Gate:             DefaultOfficialSupportGate(),
+	})
+	let failedSnap = SettlePoolOnFailure(PoolStateSnapshot{Registry: settledOk.Registry, Ledger: adm2.Ledger}, PoolFailureSettle{
+		AccountID: acc,
+		StartID:   "s-2",
+		Model:     adapter.ModelID("gpt-5.4"),
+		Failure:   llm.RateLimited{After: option.Some[int]{Value: 30000}},
+		RateLimit: option.None,
+		NowMs:     now0 + int64(2000),
+	})
+	assert failedSnap.Ledger.Order.Len() == 0
+
+	let mut heldWhileActive = false
+	let _ = AdmitPinnedSessionTurn(PinnedAdmissionSpec{
+		ThreadID:         handle.ThreadID("th-1"),
+		StartID:          "s-3",
+		PinnedAccount:    acc,
+		StandbyAccounts:  []session.AccountSlot{},
+		Driver:           adapter.CodexDirect,
+		Model:            adapter.ModelID("gpt-5.4"),
+		EstimatedCostPpm: int64(10000),
+		NowMs:            now0 + int64(5000),
+		Registry:         failedSnap.Registry,
+		Ledger:           failedSnap.Ledger,
+		Pushes:           []pool.OwnerPushSpec{},
+		Gate:             DefaultOfficialSupportGate(),
+	}) catch {
+	case TurnHeldByPoolError as held:
+		heldWhileActive = held.RetryAtMs >= now0+int64(32000)
+		adm2
+	case AntigravityDirectGatedError, NotDirectDriverError, ProxyOrSpoofRefusedError, AccountRotationRefusedError, MissingCredentialError, CapabilityUnsupportedError, AbortedAfterFirstDeltaError, ConcurrentTurnRefusedError, InvalidProviderConfigError, ProviderWireError, DirectLoopIntegrationError:
+		heldWhileActive = false
+		adm2
+	}
+	assert heldWhileActive
+}

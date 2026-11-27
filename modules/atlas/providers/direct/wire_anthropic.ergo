@@ -1,0 +1,878 @@
+import config
+import github.com/cevr/ergo/modules/atlas/adapter
+import http
+import json
+import llm
+import option
+import strings
+
+func decodeArgsObjectOrEmpty(rawArgs string) json.Value {
+	let trimmed = strings.TrimSpace(rawArgs)
+	if trimmed == "" {
+		return JSONObject([]json.Member{})
+	}
+	DecodeJSONObject(trimmed) catch {
+	case llm.InvalidResponse:
+		JSONObject([]json.Member{})
+	}
+}
+
+func appendAnthropicMessageBlocks(blocks []json.Value, m llm.Message) (string, []json.Value) {
+	match m {
+	case llm.User as u:
+		(
+			"user",
+			blocks.Append(JSONObject([]json.Member{
+				json.Member{Key: "type", Value: JSONString("text")},
+				json.Member{Key: "text", Value: JSONString(u.Text)},
+			})),
+		)
+	case llm.Result as res:
+		(
+			"user",
+			blocks.Append(JSONObject([]json.Member{
+				json.Member{Key: "type", Value: JSONString("tool_result")},
+				json.Member{Key: "tool_use_id", Value: JSONString(res.CallId)},
+				json.Member{Key: "content", Value: JSONString(res.Text)},
+				json.Member{Key: "is_error", Value: JSONBool(res.Failed)},
+			})),
+		)
+	case llm.Assistant as a:
+		let mut out = []json.Value{}
+		if a.Text != "" {
+			out = out.Append(JSONObject([]json.Member{
+				json.Member{Key: "type", Value: JSONString("text")},
+				json.Member{Key: "text", Value: JSONString(a.Text)},
+			}))
+		}
+		for c in a.Calls {
+			out = out.Append(JSONObject([]json.Member{
+				json.Member{Key: "type", Value: JSONString("tool_use")},
+				json.Member{Key: "id", Value: JSONString(c.Id)},
+				json.Member{Key: "name", Value: JSONString(c.Name)},
+				json.Member{Key: "input", Value: decodeArgsObjectOrEmpty(c.Arguments)},
+			}))
+		}
+		("assistant", out)
+	}
+}
+
+func anthropicMessagesJSON(msgs []llm.Message) []json.Value {
+	let mut out = []json.Value{}
+	let mut pendingUser = []json.Value{}
+	for m in msgs {
+		let (role, blocks) = appendAnthropicMessageBlocks([]json.Value{}, m)
+		if role == "user" {
+			for b in blocks {
+				pendingUser = pendingUser.Append(b)
+			}
+		} else {
+			if pendingUser.Len() > 0 {
+				out = out.Append(JSONObject([]json.Member{
+					json.Member{Key: "role", Value: JSONString("user")},
+					json.Member{Key: "content", Value: JSONArray(pendingUser)},
+				}))
+				pendingUser = []json.Value{}
+			}
+			out = out.Append(JSONObject([]json.Member{
+				json.Member{Key: "role", Value: JSONString("assistant")},
+				json.Member{Key: "content", Value: JSONArray(blocks)},
+			}))
+		}
+	}
+	if pendingUser.Len() > 0 {
+		out = out.Append(JSONObject([]json.Member{
+			json.Member{Key: "role", Value: JSONString("user")},
+			json.Member{Key: "content", Value: JSONArray(pendingUser)},
+		}))
+	}
+	out
+}
+
+func anthropicToolSpecsJSON(tools []llm.ToolSpec) []json.Value {
+	let mut out = []json.Value{}
+	for t in tools {
+		out = out.Append(JSONObject([]json.Member{
+			json.Member{Key: "name", Value: JSONString(t.Name)},
+			json.Member{Key: "description", Value: JSONString(t.Description)},
+			json.Member{Key: "input_schema", Value: EncodeToolSchemaValue(t)},
+		}))
+	}
+	out
+}
+
+func anthropicToolChoiceJSON(choice llm.Choice) json.Value {
+	match choice {
+	case llm.Auto:
+		JSONObject([]json.Member{json.Member{Key: "type", Value: JSONString("auto")}})
+	case llm.AnyTool:
+		JSONObject([]json.Member{json.Member{Key: "type", Value: JSONString("any")}})
+	case llm.NoTools:
+		JSONObject([]json.Member{json.Member{Key: "type", Value: JSONString("none")}})
+	case llm.Named as n:
+		JSONObject([]json.Member{
+			json.Member{Key: "type", Value: JSONString("tool")},
+			json.Member{Key: "name", Value: JSONString(n.Name)},
+		})
+	}
+}
+
+func isWireStream(mode WireMode) bool {
+	match mode {
+	case WireStream:
+		true
+	case WireBuffered:
+		false
+	}
+}
+
+func hasNoStringOption(opt option.Option[string]) bool {
+	match opt {
+	case option.None:
+		true
+	case option.Some[string]:
+		false
+	}
+}
+
+// BuildAnthropicRequest encodes r into the Anthropic Messages API JSON payload for wireMode.
+func BuildAnthropicRequest(policy EndpointPolicy, model adapter.ModelID, r llm.Request, wireMode WireMode) string fails llm.UnsupportedSchema | llm.InvalidRequest {
+	match policy.Driver {
+	case adapter.AnthropicDirect:
+	case _:
+		return llm.InvalidRequest{Reason: "anthropic wire builder requires AnthropicDirect driver"}
+	}
+	let modelText = strings.TrimSpace(string(model))
+	if modelText == "" {
+		return llm.InvalidRequest{Reason: "model id cannot be empty"}
+	}
+	let maxTok = if r.MaxTokens > 0 { r.MaxTokens } else { 8192 }
+	let mut members = []json.Member{
+		json.Member{Key: "model", Value: JSONString(modelText)},
+		json.Member{Key: "max_tokens", Value: json.IntNumber(int64(maxTok))},
+		json.Member{Key: "messages", Value: JSONArray(anthropicMessagesJSON(r.Messages))},
+		json.Member{Key: "stream", Value: JSONBool(isWireStream(wireMode))},
+	}
+	if r.System != "" {
+		members = members.Append(json.Member{Key: "system", Value: JSONString(r.System)})
+	}
+	if r.Tools.Len() > 0 {
+		members = members.Append(json.Member{Key: "tools", Value: JSONArray(anthropicToolSpecsJSON(r.Tools))})
+		members = members.Append(json.Member{Key: "tool_choice", Value: anthropicToolChoiceJSON(r.Choice)})
+	}
+	match r.Format {
+	case llm.Prose:
+	case llm.JSON as j:
+		let schemaVal = try ParseSchemaValue(j.Schema)
+		members = members.Append(json.Member{
+			Key:   "output_config",
+			Value: JSONObject([]json.Member{
+				json.Member{
+					Key:   "format",
+					Value: JSONObject([]json.Member{
+						json.Member{Key: "type", Value: JSONString("json_schema")},
+						json.Member{Key: "schema", Value: schemaVal},
+					}),
+				},
+			}),
+		})
+	}
+	EncodeJSONValue(JSONObject(members))
+}
+
+// AnthropicHTTPHeaders builds non-secret Anthropic Messages request headers from policy, auth method, and wireMode.
+func AnthropicHTTPHeaders(policy EndpointPolicy, auth ProviderAuth, wireMode WireMode) []http.Field {
+	let acceptVal = match wireMode {
+	case WireStream:
+		"text/event-stream"
+	case WireBuffered:
+		"application/json"
+	}
+	let mut headers = []http.Field{
+		http.Field{Name: "Content-Type", Value: "application/json"},
+		http.Field{Name: "Accept", Value: acceptVal},
+		http.Field{Name: "anthropic-version", Value: "2023-06-01"},
+	}
+	match auth {
+	case BearerAuth:
+		if hasNoStringOption(HeaderFolded(policy.ExtraHeaders, "anthropic-beta")) {
+			headers = headers.Append(http.Field{Name: "anthropic-beta", Value: "oauth-2025-04-20,interleaved-thinking-2025-05-14"})
+		}
+	case AnthropicKeyAuth:
+	}
+	for f in policy.ExtraHeaders {
+		headers = headers.Append(f)
+	}
+	headers
+}
+
+func parseAnthropicUsage(usageVal json.Value, prev llm.Usage) llm.Usage {
+	let inTok = match JSONIntField(usageVal, "input_tokens") {
+	case option.Some[int64] as v:
+		int(v.Value)
+	case option.None:
+		prev.Input
+	}
+	let outTok = match JSONIntField(usageVal, "output_tokens") {
+	case option.Some[int64] as v:
+		int(v.Value)
+	case option.None:
+		prev.Output
+	}
+	let cacheRead = match JSONIntField(usageVal, "cache_read_input_tokens") {
+	case option.Some[int64] as v:
+		int(v.Value)
+	case option.None:
+		prev.CacheRead
+	}
+	let cacheWrite = match JSONIntField(usageVal, "cache_creation_input_tokens") {
+	case option.Some[int64] as v:
+		int(v.Value)
+	case option.None:
+		prev.CacheWrite
+	}
+	llm.Usage{Input: inTok, Output: outTok, CacheRead: cacheRead, CacheWrite: cacheWrite}
+}
+
+func mapAnthropicErrorFailure(payload json.Value) llm.Failure {
+	let encoded = EncodeJSONValue(payload)
+	let details = ExtractErrorDetails(encoded)
+	let codeText = match details.Code {
+	case option.Some[string] as c:
+		c.Value
+	case option.None:
+		""
+	}
+	let combined = codeText + " " + details.Message
+	if containsAnyKeyword(combined, []string{"rate_limit_error", "rate_limit", "too_many_requests"}) {
+		return llm.RateLimited{After: option.None}
+	}
+	if containsAnyKeyword(combined, []string{"overloaded_error", "overloaded", "api_error"}) {
+		return llm.Overloaded
+	}
+	if containsAnyKeyword(combined, []string{"authentication_error", "permission_error", "unauthorized"}) {
+		return llm.Unauthorized
+	}
+	if containsAnyKeyword(combined, []string{"schema", "output_config", "output_format"}) {
+		return llm.UnsupportedSchema{Reason: details.Message}
+	}
+	if containsAnyKeyword(combined, []string{"invalid_request_error", "invalid_request"}) {
+		return llm.InvalidRequest{Reason: details.Message}
+	}
+	llm.Refused{Reason: details.Message}
+}
+
+func failWithLLMFailure(f llm.Failure) llm.Turn fails llm.RateLimited | llm.Overloaded | llm.Unauthorized | llm.Refused | llm.Truncated | llm.Transport | llm.InvalidRequest | llm.InvalidResponse | llm.UnsupportedSchema {
+	match f {
+	case llm.RateLimited as x:
+		return x
+	case llm.Overloaded as x:
+		return x
+	case llm.Unauthorized as x:
+		return x
+	case llm.Refused as x:
+		return x
+	case llm.Truncated as x:
+		return x
+	case llm.Transport as x:
+		return x
+	case llm.InvalidRequest as x:
+		return x
+	case llm.InvalidResponse as x:
+		return x
+	case llm.UnsupportedSchema as x:
+		return x
+	}
+}
+
+func decodeAnthToolUseBlock(blk json.Value) llm.Call {
+	let callID = match JSONStringField(blk, "id") {
+	case option.Some[string] as idv:
+		idv.Value
+	case option.None:
+		""
+	}
+	let callName = match JSONStringField(blk, "name") {
+	case option.Some[string] as nv:
+		nv.Value
+	case option.None:
+		""
+	}
+	let callArgs = match JSONField(blk, "input") {
+	case option.Some[json.Value] as iv:
+		EncodeJSONValue(iv.Value)
+	case option.None:
+		"{}"
+	}
+	llm.Call{Id: callID, Name: callName, Arguments: callArgs}
+}
+
+func decodeAnthContentBlocks(blocks []json.Value) (string, []llm.Call) {
+	let mut textOut = ""
+	let mut calls = []llm.Call{}
+	for blk in blocks {
+		let blkType = match JSONStringField(blk, "type") {
+		case option.Some[string] as bt:
+			bt.Value
+		case option.None:
+			""
+		}
+		if blkType == "text" {
+			match JSONStringField(blk, "text") {
+			case option.Some[string] as txt:
+				textOut = textOut + txt.Value
+			case option.None:
+			}
+		} else if blkType == "tool_use" {
+			calls = calls.Append(decodeAnthToolUseBlock(blk))
+		}
+	}
+	(textOut, calls)
+}
+
+// DecodeAnthropicResponseJSON parses a non-streaming Anthropic Messages JSON response into an llm.Turn.
+func DecodeAnthropicResponseJSON(body string) llm.Turn fails llm.RateLimited | llm.Overloaded | llm.Unauthorized | llm.Refused | llm.Truncated | llm.Transport | llm.InvalidRequest | llm.InvalidResponse | llm.UnsupportedSchema {
+	let root = try DecodeJSONObject(body)
+	match JSONStringField(root, "type") {
+	case option.Some[string] as t:
+		if t.Value == "error" {
+			return try failWithLLMFailure(mapAnthropicErrorFailure(root))
+		}
+	case option.None:
+	}
+	let (textOut, calls) = decodeAnthContentBlocks(JSONArrayField(root, "content"))
+	let usage = match JSONField(root, "usage") {
+	case option.Some[json.Value] as uv:
+		parseAnthropicUsage(uv.Value, llm.Usage{Input: 0, Output: 0, CacheRead: 0, CacheWrite: 0})
+	case option.None:
+		llm.Usage{Input: 0, Output: 0, CacheRead: 0, CacheWrite: 0}
+	}
+	let stopRaw = match JSONStringField(root, "stop_reason") {
+	case option.Some[string] as sr:
+		sr.Value
+	case option.None:
+		"end_turn"
+	}
+	let stop = NormalizeFinishReason(stopRaw, calls.Len() > 0)
+	try ValidateCompletedTurn(llm.Turn{Text: textOut, Calls: calls, Stop: stop, Usage: usage})
+}
+
+type anthBlockKind = anthBlockText{} | anthBlockThinking{} | anthBlockTool{}
+
+type anthTrackedBlock {
+	AnthropicIndex int,
+	Kind           anthBlockKind,
+	CallIndex      int,
+	ArgsEmitted    bool,
+	InitialInput   string,
+	Closed         bool,
+}
+
+// AnthropicStreamParser accumulates incremental Anthropic Messages SSE events into llm.Delta emissions.
+type AnthropicStreamParser {
+	Emitted     []llm.Delta,
+	Blocks      []anthTrackedBlock,
+	NextCallIdx int,
+	Completed   bool,
+	StopReason  string,
+	Usage       llm.Usage,
+	Failure     option.Option[llm.Failure],
+}
+
+// NewAnthropicStreamParser creates a fresh Anthropic Messages SSE stream accumulator.
+func NewAnthropicStreamParser() AnthropicStreamParser {
+	AnthropicStreamParser{
+		Emitted:     []llm.Delta{},
+		Blocks:      []anthTrackedBlock{},
+		NextCallIdx: 0,
+		Completed:   false,
+		StopReason:  "end_turn",
+		Usage:       llm.Usage{Input: 0, Output: 0, CacheRead: 0, CacheWrite: 0},
+		Failure:     option.None,
+	}
+}
+
+type anthSSEKind = anthEvMsgStart{} | anthEvBlkStart{} | anthEvBlkDelta{} | anthEvBlkStop{} | anthEvMsgDelta{} | anthEvMsgStop{} | anthEvPing{} | anthEvErr{} | anthEvIgnored{}
+
+type anthSSEKindRow {
+	Tag  string,
+	Kind anthSSEKind,
+}
+
+func anthSSEKindTable() []anthSSEKindRow {
+	[]anthSSEKindRow{
+		anthSSEKindRow{Tag: "message_start", Kind: anthEvMsgStart},
+		anthSSEKindRow{Tag: "content_block_start", Kind: anthEvBlkStart},
+		anthSSEKindRow{Tag: "content_block_delta", Kind: anthEvBlkDelta},
+		anthSSEKindRow{Tag: "content_block_stop", Kind: anthEvBlkStop},
+		anthSSEKindRow{Tag: "message_delta", Kind: anthEvMsgDelta},
+		anthSSEKindRow{Tag: "message_stop", Kind: anthEvMsgStop},
+		anthSSEKindRow{Tag: "ping", Kind: anthEvPing},
+		anthSSEKindRow{Tag: "error", Kind: anthEvErr},
+	}
+}
+
+func resolveAnthSSEKind(evType string, sseEvent string) anthSSEKind {
+	let key = if evType != "" { evType } else { sseEvent }
+	for row in anthSSEKindTable() {
+		if row.Tag == key {
+			return row.Kind
+		}
+	}
+	anthEvIgnored
+}
+
+func emitAnthDelta[E](st AnthropicStreamParser, d llm.Delta, put func(d llm.Delta) fails E) AnthropicStreamParser fails E {
+	try put(d)
+	AnthropicStreamParser{..st, Emitted: st.Emitted.Append(d)}
+}
+
+func findAnthBlockSlot(blocks []anthTrackedBlock, anthIndex int) option.Option[int] {
+	for i, b in blocks {
+		if b.AnthropicIndex == anthIndex {
+			return option.Some[int]{Value: i}
+		}
+	}
+	option.None
+}
+
+func onAnthMsgStart(st AnthropicStreamParser, payload json.Value) AnthropicStreamParser {
+	match JSONField(payload, "message") {
+	case option.Some[json.Value] as msgVal:
+		match JSONField(msgVal.Value, "usage") {
+		case option.Some[json.Value] as uVal:
+			AnthropicStreamParser{..st, Usage: parseAnthropicUsage(uVal.Value, st.Usage)}
+		case option.None:
+			st
+		}
+	case option.None:
+		st
+	}
+}
+
+func onAnthTextBlockStart[E](st AnthropicStreamParser, blkIdx int, blk json.Value, put func(d llm.Delta) fails E) AnthropicStreamParser fails E {
+	let recorded = AnthropicStreamParser{
+		..st,
+		Blocks: st.Blocks.Append(anthTrackedBlock{
+			AnthropicIndex: blkIdx,
+			Kind:           anthBlockText,
+			CallIndex:      -1,
+			ArgsEmitted:    false,
+			InitialInput:   "",
+			Closed:         false,
+		}),
+	}
+	match JSONStringField(blk, "text") {
+	case option.Some[string] as txt:
+		if txt.Value != "" {
+			try emitAnthDelta(recorded, llm.Text{Text: txt.Value}, put)
+		} else {
+			recorded
+		}
+	case option.None:
+		recorded
+	}
+}
+
+func onAnthThinkingBlockStart[E](st AnthropicStreamParser, blkIdx int, blk json.Value, put func(d llm.Delta) fails E) AnthropicStreamParser fails E {
+	let recorded = AnthropicStreamParser{
+		..st,
+		Blocks: st.Blocks.Append(anthTrackedBlock{
+			AnthropicIndex: blkIdx,
+			Kind:           anthBlockThinking,
+			CallIndex:      -1,
+			ArgsEmitted:    false,
+			InitialInput:   "",
+			Closed:         false,
+		}),
+	}
+	match JSONStringField(blk, "thinking") {
+	case option.Some[string] as th:
+		if th.Value != "" {
+			try emitAnthDelta(recorded, llm.Reasoning{Text: th.Value}, put)
+		} else {
+			recorded
+		}
+	case option.None:
+		recorded
+	}
+}
+
+func onAnthToolBlockStart[E](st AnthropicStreamParser, blkIdx int, blk json.Value, put func(d llm.Delta) fails E) AnthropicStreamParser fails E {
+	let callIdx = st.NextCallIdx
+	let callID = match JSONStringField(blk, "id") {
+	case option.Some[string] as idv:
+		idv.Value
+	case option.None:
+		""
+	}
+	let callName = match JSONStringField(blk, "name") {
+	case option.Some[string] as nv:
+		nv.Value
+	case option.None:
+		""
+	}
+	let initInput = match JSONField(blk, "input") {
+	case option.Some[json.Value] as iv:
+		let encoded = EncodeJSONValue(iv.Value)
+		if encoded == "{}" { "" } else { encoded }
+	case option.None:
+		""
+	}
+	let recorded = AnthropicStreamParser{
+		..st,
+		NextCallIdx: callIdx + 1,
+		Blocks:      st.Blocks.Append(anthTrackedBlock{
+			AnthropicIndex: blkIdx,
+			Kind:           anthBlockTool,
+			CallIndex:      callIdx,
+			ArgsEmitted:    false,
+			InitialInput:   initInput,
+			Closed:         false,
+		}),
+	}
+	try emitAnthDelta(recorded, llm.CallStart{Index: callIdx, Id: callID, Name: callName}, put)
+}
+
+func onAnthContentBlockStart[E](st AnthropicStreamParser, payload json.Value, put func(d llm.Delta) fails E) AnthropicStreamParser fails E {
+	let blkIdx = match JSONIntField(payload, "index") {
+	case option.Some[int64] as iv:
+		int(iv.Value)
+	case option.None:
+		0
+	}
+	let blk = match JSONField(payload, "content_block") {
+	case option.Some[json.Value] as bv:
+		bv.Value
+	case option.None:
+		return st
+	}
+	let bType = match JSONStringField(blk, "type") {
+	case option.Some[string] as bt:
+		bt.Value
+	case option.None:
+		""
+	}
+	if bType == "text" {
+		return try onAnthTextBlockStart(st, blkIdx, blk, put)
+	}
+	if bType == "thinking" {
+		return try onAnthThinkingBlockStart(st, blkIdx, blk, put)
+	}
+	if bType == "tool_use" {
+		return try onAnthToolBlockStart(st, blkIdx, blk, put)
+	}
+	st
+}
+
+func onAnthContentBlockDelta[E](st AnthropicStreamParser, payload json.Value, put func(d llm.Delta) fails E) AnthropicStreamParser fails E {
+	let blkIdx = match JSONIntField(payload, "index") {
+	case option.Some[int64] as iv:
+		int(iv.Value)
+	case option.None:
+		0
+	}
+	let delta = match JSONField(payload, "delta") {
+	case option.Some[json.Value] as dv:
+		dv.Value
+	case option.None:
+		return st
+	}
+	let dType = match JSONStringField(delta, "type") {
+	case option.Some[string] as dt:
+		dt.Value
+	case option.None:
+		""
+	}
+	if dType == "text_delta" {
+		return match JSONStringField(delta, "text") {
+		case option.Some[string] as txt:
+			try emitAnthDelta(st, llm.Text{Text: txt.Value}, put)
+		case option.None:
+			st
+		}
+	}
+	if dType == "thinking_delta" {
+		return match JSONStringField(delta, "thinking") {
+		case option.Some[string] as th:
+			try emitAnthDelta(st, llm.Reasoning{Text: th.Value}, put)
+		case option.None:
+			st
+		}
+	}
+	if dType == "input_json_delta" {
+		return match JSONStringField(delta, "partial_json") {
+		case option.Some[string] as pj:
+			match findAnthBlockSlot(st.Blocks, blkIdx) {
+			case option.Some[int] as slotIdx:
+				let prev = st.Blocks[slotIdx.Value]
+				let mut updated = st.Blocks
+				updated[slotIdx.Value] = anthTrackedBlock{
+					AnthropicIndex: prev.AnthropicIndex,
+					Kind:           prev.Kind,
+					CallIndex:      prev.CallIndex,
+					ArgsEmitted:    prev.ArgsEmitted || pj.Value != "",
+					InitialInput:   prev.InitialInput,
+					Closed:         prev.Closed,
+				}
+				let next = AnthropicStreamParser{..st, Blocks: updated}
+				try emitAnthDelta(next, llm.CallArgs{Index: prev.CallIndex, Text: pj.Value}, put)
+			case option.None:
+				st
+			}
+		case option.None:
+			st
+		}
+	}
+	st
+}
+
+func onAnthContentBlockStop[E](st AnthropicStreamParser, payload json.Value, put func(d llm.Delta) fails E) AnthropicStreamParser fails E {
+	let blkIdx = match JSONIntField(payload, "index") {
+	case option.Some[int64] as iv:
+		int(iv.Value)
+	case option.None:
+		return st
+	}
+	match findAnthBlockSlot(st.Blocks, blkIdx) {
+	case option.Some[int] as slotIdx:
+		let prev = st.Blocks[slotIdx.Value]
+		match prev.Kind {
+		case anthBlockTool:
+			let mut cur = st
+			if !prev.ArgsEmitted {
+				let fallbackArgs = if prev.InitialInput != "" { prev.InitialInput } else { "{}" }
+				cur = try emitAnthDelta(cur, llm.CallArgs{Index: prev.CallIndex, Text: fallbackArgs}, put)
+			}
+			if !prev.Closed {
+				cur = try emitAnthDelta(cur, llm.CallEnd{Index: prev.CallIndex}, put)
+			}
+			let mut updated = cur.Blocks
+			updated[slotIdx.Value] = anthTrackedBlock{
+				AnthropicIndex: prev.AnthropicIndex,
+				Kind:           prev.Kind,
+				CallIndex:      prev.CallIndex,
+				ArgsEmitted:    true,
+				InitialInput:   prev.InitialInput,
+				Closed:         true,
+			}
+			AnthropicStreamParser{..cur, Blocks: updated}
+		case anthBlockText, anthBlockThinking:
+			st
+		}
+	case option.None:
+		st
+	}
+}
+
+func onAnthMsgDelta(st AnthropicStreamParser, payload json.Value) AnthropicStreamParser {
+	let nextStop = match JSONField(payload, "delta") {
+	case option.Some[json.Value] as dv:
+		match JSONStringField(dv.Value, "stop_reason") {
+		case option.Some[string] as sr:
+			sr.Value
+		case option.None:
+			st.StopReason
+		}
+	case option.None:
+		st.StopReason
+	}
+	let nextUsage = match JSONField(payload, "usage") {
+	case option.Some[json.Value] as uv:
+		parseAnthropicUsage(uv.Value, st.Usage)
+	case option.None:
+		st.Usage
+	}
+	AnthropicStreamParser{..st, StopReason: nextStop, Usage: nextUsage}
+}
+
+// FeedAnthropicSSEEvent applies one parsed SSE event from Anthropic Messages and emits llm.Delta updates.
+func FeedAnthropicSSEEvent[E](st AnthropicStreamParser, ev http.ServerEvent, put func(d llm.Delta) fails E) AnthropicStreamParser fails llm.InvalidResponse | E {
+	let trimmed = strings.TrimSpace(ev.Data)
+	if trimmed == "" || trimmed == "[DONE]" {
+		return st
+	}
+	let payload = try DecodeJSONObject(trimmed)
+	let evType = match JSONStringField(payload, "type") {
+	case option.Some[string] as t:
+		t.Value
+	case option.None:
+		""
+	}
+	match resolveAnthSSEKind(evType, ev.Event) {
+	case anthEvPing, anthEvIgnored:
+		st
+	case anthEvMsgStart:
+		onAnthMsgStart(st, payload)
+	case anthEvBlkStart:
+		try onAnthContentBlockStart(st, payload, put)
+	case anthEvBlkDelta:
+		try onAnthContentBlockDelta(st, payload, put)
+	case anthEvBlkStop:
+		try onAnthContentBlockStop(st, payload, put)
+	case anthEvMsgDelta:
+		onAnthMsgDelta(st, payload)
+	case anthEvMsgStop:
+		AnthropicStreamParser{..st, Completed: true}
+	case anthEvErr:
+		AnthropicStreamParser{..st, Failure: option.Some[llm.Failure]{Value: mapAnthropicErrorFailure(payload)}}
+	}
+}
+
+// FinishAnthropicStream finalizes an Anthropic SSE stream, failing Truncated when incomplete or open calls remain.
+func FinishAnthropicStream(st AnthropicStreamParser) llm.Turn fails llm.RateLimited | llm.Overloaded | llm.Unauthorized | llm.Refused | llm.Truncated | llm.Transport | llm.InvalidRequest | llm.InvalidResponse | llm.UnsupportedSchema {
+	let draft = llm.Fold(st.Emitted)
+	match st.Failure {
+	case option.Some[llm.Failure] as f:
+		return try failWithLLMFailure(f.Value)
+	case option.None:
+	}
+	if !st.Completed || draft.Open.Len() > 0 {
+		return llm.Truncated{Text: draft.Text}
+	}
+	let stop = NormalizeFinishReason(st.StopReason, draft.Calls.Len() > 0)
+	try ValidateCompletedTurn(llm.Turn{
+		Text:  draft.Text,
+		Calls: draft.Calls,
+		Stop:  stop,
+		Usage: st.Usage,
+	})
+}
+
+func splitAnthSSEAndReplay(sseBody string, chunkSize int) (AnthropicStreamParser, []llm.Delta) fails llm.InvalidResponse {
+	let mut reader = http.NewEventReader()
+	let mut parser = NewAnthropicStreamParser()
+	let mut deltas = []llm.Delta{}
+	let step = if chunkSize <= 0 { 1 } else { chunkSize }
+	let mut pos = 0
+	for pos < sseBody.Len() {
+		let nextPos = if pos+step > sseBody.Len() { sseBody.Len() } else { pos + step }
+		let part = strings.Slice(sseBody, pos, nextPos)
+		let (nextReader, events) = reader.Feed(part)
+		reader = nextReader
+		for ev in events {
+			parser = try FeedAnthropicSSEEvent(parser, ev, func(d llm.Delta) {
+				deltas = deltas.Append(d)
+			})
+		}
+		pos = nextPos
+	}
+	match reader.End() {
+	case option.Some[http.Truncated]:
+		return (parser, deltas)
+	case option.None:
+		(parser, deltas)
+	}
+}
+
+law AnthropicSSEChunkingInvariantAndFoldAgreement(partA string, partB string, chunkA int, chunkB int) {
+	let events = []http.ServerEvent{
+		http.ServerEvent{Event: "message_start", Data: `{"type":"message_start","message":{"usage":{"input_tokens":15,"cache_read_input_tokens":4,"cache_creation_input_tokens":2}}}`, ID: ""},
+		http.ServerEvent{Event: "content_block_start", Data: `{"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}`, ID: ""},
+		http.ServerEvent{Event: "content_block_delta", Data: EncodeJSONValue(JSONObject([]json.Member{json.Member{Key: "type", Value: JSONString("content_block_delta")}, json.Member{Key: "index", Value: json.IntNumber(int64(0))}, json.Member{Key: "delta", Value: JSONObject([]json.Member{json.Member{Key: "type", Value: JSONString("text_delta")}, json.Member{Key: "text", Value: JSONString(partA)}})}})), ID: ""},
+		http.ServerEvent{Event: "content_block_delta", Data: EncodeJSONValue(JSONObject([]json.Member{json.Member{Key: "type", Value: JSONString("content_block_delta")}, json.Member{Key: "index", Value: json.IntNumber(int64(0))}, json.Member{Key: "delta", Value: JSONObject([]json.Member{json.Member{Key: "type", Value: JSONString("text_delta")}, json.Member{Key: "text", Value: JSONString(partB)}})}})), ID: ""},
+		http.ServerEvent{Event: "content_block_stop", Data: `{"type":"content_block_stop","index":0}`, ID: ""},
+		http.ServerEvent{Event: "content_block_start", Data: `{"type":"content_block_start","index":1,"content_block":{"type":"tool_use","id":"toolu_1","name":"bash","input":{}}}`, ID: ""},
+		http.ServerEvent{Event: "content_block_delta", Data: `{"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"{\"cmd\":\"ls\"}"}}`, ID: ""},
+		http.ServerEvent{Event: "content_block_stop", Data: `{"type":"content_block_stop","index":1}`, ID: ""},
+		http.ServerEvent{Event: "message_delta", Data: `{"type":"message_delta","delta":{"stop_reason":"tool_use"},"usage":{"output_tokens":9}}`, ID: ""},
+		http.ServerEvent{Event: "message_stop", Data: `{"type":"message_stop"}`, ID: ""},
+	}
+	let sseText = http.WriteEvents(events) catch {
+	case http.Unwritable:
+		return false
+	}
+	let cA = (if chunkA < 0 { -chunkA } else { chunkA })%13 + 1
+	let cB = (if chunkB < 0 { -chunkB } else { chunkB })%23 + 1
+	let (p1, d1) = splitAnthSSEAndReplay(sseText, cA) catch {
+	case llm.InvalidResponse:
+		return false
+	}
+	let (p2, d2) = splitAnthSSEAndReplay(sseText, cB) catch {
+	case llm.InvalidResponse:
+		return false
+	}
+	let t1 = FinishAnthropicStream(p1) catch {
+	case llm.RateLimited, llm.Overloaded, llm.Unauthorized, llm.Refused, llm.Truncated, llm.Transport, llm.InvalidRequest, llm.InvalidResponse, llm.UnsupportedSchema:
+		return false
+	}
+	let t2 = FinishAnthropicStream(p2) catch {
+	case llm.RateLimited, llm.Overloaded, llm.Unauthorized, llm.Refused, llm.Truncated, llm.Transport, llm.InvalidRequest, llm.InvalidResponse, llm.UnsupportedSchema:
+		return false
+	}
+	let folded = llm.Fold(d1)
+		t1 == t2 &&
+		d1 == d2 &&
+		t1.Text == partA+partB &&
+		t1.Text == folded.Text &&
+		t1.Calls == folded.Calls &&
+		t1.Usage.CacheRead == 4 &&
+		t1.Usage.CacheWrite == 2 &&
+		t1.Usage.Output == 9
+}
+
+law AnthropicTruncatedStreamPreservesPartialText(prefix string) {
+	let events = []http.ServerEvent{
+		http.ServerEvent{Event: "message_start", Data: `{"type":"message_start","message":{"usage":{"input_tokens":5}}}`, ID: ""},
+		http.ServerEvent{Event: "content_block_start", Data: `{"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}`, ID: ""},
+		http.ServerEvent{Event: "content_block_delta", Data: EncodeJSONValue(JSONObject([]json.Member{json.Member{Key: "type", Value: JSONString("content_block_delta")}, json.Member{Key: "index", Value: json.IntNumber(int64(0))}, json.Member{Key: "delta", Value: JSONObject([]json.Member{json.Member{Key: "type", Value: JSONString("text_delta")}, json.Member{Key: "text", Value: JSONString(prefix)}})}})), ID: ""},
+	}
+	let sseText = http.WriteEvents(events) catch {
+	case http.Unwritable:
+		return false
+	}
+	let (parser, deltas) = splitAnthSSEAndReplay(sseText, 9) catch {
+	case llm.InvalidResponse:
+		return false
+	}
+	let mut sawTruncated = false
+	let mut preserved = ""
+	let _ = FinishAnthropicStream(parser) catch {
+	case llm.Truncated as tr:
+		sawTruncated = true
+		preserved = tr.Text
+		llm.Turn{Text: "", Calls: []llm.Call{}, Stop: llm.Ended, Usage: llm.Usage{Input: 0, Output: 0, CacheRead: 0, CacheWrite: 0}}
+	case llm.RateLimited, llm.Overloaded, llm.Unauthorized, llm.Refused, llm.Transport, llm.InvalidRequest, llm.InvalidResponse, llm.UnsupportedSchema:
+		return false
+	}
+	sawTruncated && preserved == prefix && llm.Fold(deltas).Text == prefix
+}
+
+test AnthropicFramingToolResultsAndCacheUsage {
+	let pol = try ValidateEndpointPolicy(EndpointSpec{
+		Driver:           adapter.AnthropicDirect,
+		OriginOverride:   option.None,
+		PathOverride:     option.None,
+		ExtraHeaders:     []http.Field{},
+		EnvVars:          []EnvEntry{},
+		ChatGPTAccountID: option.None,
+		Gate:             DefaultOfficialSupportGate(),
+	})
+	let oauthHdrs = AnthropicHTTPHeaders(pol, BearerAuth{Token: config.NewRedacted("sk-ant-oat-secret")}, WireStream)
+	assert HeaderFolded(oauthHdrs, "anthropic-version") == option.Some[string]{Value: "2023-06-01"}
+	assert HeaderFolded(oauthHdrs, "anthropic-beta") == option.Some[string]{Value: "oauth-2025-04-20,interleaved-thinking-2025-05-14"}
+
+	let keyHdrs = AnthropicHTTPHeaders(pol, AnthropicKeyAuth{Key: config.NewRedacted("sk-ant-api-secret")}, WireBuffered)
+	assert hasNoStringOption(HeaderFolded(keyHdrs, "anthropic-beta"))
+
+	let reqBody = try BuildAnthropicRequest(pol, adapter.ModelID("claude-sonnet-4-5"), llm.Request{
+		System:   "system guide",
+		Messages: []llm.Message{
+			llm.User{Text: "check"},
+			llm.Assistant{Text: "", Calls: []llm.Call{llm.Call{Id: "t1", Name: "read", Arguments: `{"path":"README.md"}`}}},
+			llm.Result{CallId: "t1", Text: "ok", Failed: false},
+			llm.Result{CallId: "t1", Text: "more", Failed: false},
+		},
+		Tools:     []llm.ToolSpec{},
+		Choice:    llm.Auto,
+		Format:    llm.Prose,
+		MaxTokens: 1024,
+	}, WireBuffered)
+	let obj = try DecodeJSONObject(reqBody)
+	assert JSONArrayField(obj, "messages").Len() == 3
+
+	let decoded = try DecodeAnthropicResponseJSON(`{"id":"msg_1","type":"message","role":"assistant","content":[{"type":"text","text":"Done."}],"stop_reason":"end_turn","usage":{"input_tokens":100,"output_tokens":12,"cache_read_input_tokens":30,"cache_creation_input_tokens":5}}`)
+	assert decoded.Text == "Done."
+	assert decoded.Usage.CacheRead == 30
+	assert decoded.Usage.CacheWrite == 5
+}

@@ -1,0 +1,766 @@
+import github.com/cevr/ergo/modules/atlas/adapter
+import http
+import json
+import llm
+import option
+import strings
+
+func isOpenCodeDriver(d adapter.DriverKind) bool {
+	match d {
+	case adapter.OpenCodeConsoleDirect, adapter.OpenCodeGoDirect:
+		true
+	case _:
+		false
+	}
+}
+
+func openAIMessagesJSON(systemPrompt string, msgs []llm.Message) []json.Value {
+	let mut out = []json.Value{}
+	if systemPrompt != "" {
+		out = out.Append(JSONObject([]json.Member{
+			json.Member{Key: "role", Value: JSONString("system")},
+			json.Member{Key: "content", Value: JSONString(systemPrompt)},
+		}))
+	}
+	for m in msgs {
+		match m {
+		case llm.User as u:
+			out = out.Append(JSONObject([]json.Member{
+				json.Member{Key: "role", Value: JSONString("user")},
+				json.Member{Key: "content", Value: JSONString(u.Text)},
+			}))
+		case llm.Assistant as a:
+			let mut members = []json.Member{
+				json.Member{Key: "role", Value: JSONString("assistant")},
+				json.Member{Key: "content", Value: JSONString(a.Text)},
+			}
+			if a.Calls.Len() > 0 {
+				let mut tc = []json.Value{}
+				for c in a.Calls {
+					let args = if strings.TrimSpace(c.Arguments) == "" { "{}" } else { c.Arguments }
+					tc = tc.Append(JSONObject([]json.Member{
+						json.Member{Key: "id", Value: JSONString(c.Id)},
+						json.Member{Key: "type", Value: JSONString("function")},
+						json.Member{
+							Key:   "function",
+							Value: JSONObject([]json.Member{
+								json.Member{Key: "name", Value: JSONString(c.Name)},
+								json.Member{Key: "arguments", Value: JSONString(args)},
+							}),
+						},
+					}))
+				}
+				members = members.Append(json.Member{Key: "tool_calls", Value: JSONArray(tc)})
+			}
+			out = out.Append(JSONObject(members))
+		case llm.Result as res:
+			out = out.Append(JSONObject([]json.Member{
+				json.Member{Key: "role", Value: JSONString("tool")},
+				json.Member{Key: "tool_call_id", Value: JSONString(res.CallId)},
+				json.Member{Key: "content", Value: JSONString(res.Text)},
+			}))
+		}
+	}
+	out
+}
+
+func openAIToolsJSON(tools []llm.ToolSpec) []json.Value {
+	let mut out = []json.Value{}
+	for t in tools {
+		out = out.Append(JSONObject([]json.Member{
+			json.Member{Key: "type", Value: JSONString("function")},
+			json.Member{
+				Key:   "function",
+				Value: JSONObject([]json.Member{
+					json.Member{Key: "name", Value: JSONString(t.Name)},
+					json.Member{Key: "description", Value: JSONString(t.Description)},
+					json.Member{Key: "parameters", Value: EncodeToolSchemaValue(t)},
+				}),
+			},
+		}))
+	}
+	out
+}
+
+func openAIToolChoiceJSON(choice llm.Choice) json.Value {
+	match choice {
+	case llm.Auto:
+		JSONString("auto")
+	case llm.NoTools:
+		JSONString("none")
+	case llm.AnyTool:
+		JSONString("required")
+	case llm.Named as n:
+		JSONObject([]json.Member{
+			json.Member{Key: "type", Value: JSONString("function")},
+			json.Member{
+				Key:   "function",
+				Value: JSONObject([]json.Member{
+					json.Member{Key: "name", Value: JSONString(n.Name)},
+				}),
+			},
+		})
+	}
+}
+
+// BuildOpenAIChatRequest encodes r into an OpenAI Chat Completions payload for OpenCode Console or OpenCode Go.
+func BuildOpenAIChatRequest(policy EndpointPolicy, model adapter.ModelID, r llm.Request, wireMode WireMode) string fails llm.UnsupportedSchema | llm.InvalidRequest {
+	if !isOpenCodeDriver(policy.Driver) {
+		return llm.InvalidRequest{Reason: "openai chat wire builder requires OpenCodeConsoleDirect or OpenCodeGoDirect"}
+	}
+	let modelText = strings.TrimSpace(string(model))
+	if modelText == "" {
+		return llm.InvalidRequest{Reason: "model id cannot be empty"}
+	}
+	let streaming = match wireMode {
+	case WireStream:
+		true
+	case WireBuffered:
+		false
+	}
+	let mut members = []json.Member{
+		json.Member{Key: "model", Value: JSONString(modelText)},
+		json.Member{Key: "messages", Value: JSONArray(openAIMessagesJSON(r.System, r.Messages))},
+		json.Member{Key: "stream", Value: JSONBool(streaming)},
+	}
+	if streaming {
+		members = members.Append(json.Member{
+			Key:   "stream_options",
+			Value: JSONObject([]json.Member{json.Member{Key: "include_usage", Value: JSONBool(true)}}),
+		})
+	}
+	if r.MaxTokens > 0 {
+		members = members.Append(json.Member{Key: "max_tokens", Value: json.IntNumber(int64(r.MaxTokens))})
+	}
+	if r.Tools.Len() > 0 {
+		members = members.Append(json.Member{Key: "tools", Value: JSONArray(openAIToolsJSON(r.Tools))})
+		members = members.Append(json.Member{Key: "tool_choice", Value: openAIToolChoiceJSON(r.Choice)})
+	}
+	match r.Format {
+	case llm.Prose:
+	case llm.JSON as j:
+		let schemaVal = try ParseSchemaValue(j.Schema)
+		members = members.Append(json.Member{
+			Key:   "response_format",
+			Value: JSONObject([]json.Member{
+				json.Member{Key: "type", Value: JSONString("json_schema")},
+				json.Member{
+					Key:   "json_schema",
+					Value: JSONObject([]json.Member{
+						json.Member{Key: "name", Value: JSONString("response")},
+						json.Member{Key: "schema", Value: schemaVal},
+						json.Member{Key: "strict", Value: JSONBool(true)},
+					}),
+				},
+			}),
+		})
+	}
+	EncodeJSONValue(JSONObject(members))
+}
+
+// OpenCodeHTTPHeaders returns non-secret headers distinguishing OpenCode Console and OpenCode Go endpoints.
+func OpenCodeHTTPHeaders(policy EndpointPolicy, wireMode WireMode) []http.Field {
+	let acceptVal = match wireMode {
+	case WireStream:
+		"text/event-stream"
+	case WireBuffered:
+		"application/json"
+	}
+	let planName = match policy.Driver {
+	case adapter.OpenCodeConsoleDirect:
+		"console"
+	case adapter.OpenCodeGoDirect:
+		"go"
+	case _:
+		"unknown"
+	}
+	let mut headers = []http.Field{
+		http.Field{Name: "Content-Type", Value: "application/json"},
+		http.Field{Name: "Accept", Value: acceptVal},
+		http.Field{Name: "X-OpenCode-Plan", Value: planName},
+	}
+	for f in policy.ExtraHeaders {
+		headers = headers.Append(f)
+	}
+	headers
+}
+
+func parseOpenAIChatUsage(usageVal json.Value, prev llm.Usage) llm.Usage {
+	let inTok = match JSONIntField(usageVal, "prompt_tokens") {
+	case option.Some[int64] as v:
+		int(v.Value)
+	case option.None:
+		prev.Input
+	}
+	let outTok = match JSONIntField(usageVal, "completion_tokens") {
+	case option.Some[int64] as v:
+		int(v.Value)
+	case option.None:
+		prev.Output
+	}
+	let cachedTok = match JSONField(usageVal, "prompt_tokens_details") {
+	case option.Some[json.Value] as det:
+		match JSONIntField(det.Value, "cached_tokens") {
+		case option.Some[int64] as cv:
+			int(cv.Value)
+		case option.None:
+			prev.CacheRead
+		}
+	case option.None:
+		prev.CacheRead
+	}
+	llm.Usage{Input: inTok, Output: outTok, CacheRead: cachedTok, CacheWrite: prev.CacheWrite}
+}
+
+func mapOpenAIChatErrorFailure(payload json.Value) llm.Failure {
+	let encoded = EncodeJSONValue(payload)
+	let details = ExtractErrorDetails(encoded)
+	let codeText = match details.Code {
+	case option.Some[string] as c:
+		c.Value
+	case option.None:
+		""
+	}
+	let combined = codeText + " " + details.Message
+	if containsAnyKeyword(combined, []string{"rate_limit", "too_many_requests"}) {
+		return llm.RateLimited{After: option.None}
+	}
+	if containsAnyKeyword(combined, []string{"overloaded", "server_error", "engine_overloaded"}) {
+		return llm.Overloaded
+	}
+	if containsAnyKeyword(combined, []string{"unauthorized", "invalid_api_key"}) {
+		return llm.Unauthorized
+	}
+	if containsAnyKeyword(combined, []string{"schema", "response_format"}) {
+		return llm.UnsupportedSchema{Reason: details.Message}
+	}
+	if containsAnyKeyword(combined, []string{"invalid_request"}) {
+		return llm.InvalidRequest{Reason: details.Message}
+	}
+	llm.Refused{Reason: details.Message}
+}
+
+func failWithOpenAILLMFailure(f llm.Failure) llm.Turn fails llm.RateLimited | llm.Overloaded | llm.Unauthorized | llm.Refused | llm.Truncated | llm.Transport | llm.InvalidRequest | llm.InvalidResponse | llm.UnsupportedSchema {
+	match f {
+	case llm.RateLimited as x:
+		return x
+	case llm.Overloaded as x:
+		return x
+	case llm.Unauthorized as x:
+		return x
+	case llm.Refused as x:
+		return x
+	case llm.Truncated as x:
+		return x
+	case llm.Transport as x:
+		return x
+	case llm.InvalidRequest as x:
+		return x
+	case llm.InvalidResponse as x:
+		return x
+	case llm.UnsupportedSchema as x:
+		return x
+	}
+}
+
+func decodeOpenAIToolCalls(msgVal json.Value) []llm.Call {
+	let mut calls = []llm.Call{}
+	for tc in JSONArrayField(msgVal, "tool_calls") {
+		let callID = match JSONStringField(tc, "id") {
+		case option.Some[string] as idv:
+			idv.Value
+		case option.None:
+			""
+		}
+		let fnVal = match JSONField(tc, "function") {
+		case option.Some[json.Value] as fv:
+			fv.Value
+		case option.None:
+			JSONObject([]json.Member{})
+		}
+		let name = match JSONStringField(fnVal, "name") {
+		case option.Some[string] as nv:
+			nv.Value
+		case option.None:
+			""
+		}
+		let args = match JSONStringField(fnVal, "arguments") {
+		case option.Some[string] as av:
+			if strings.TrimSpace(av.Value) == "" { "{}" } else { av.Value }
+		case option.None:
+			"{}"
+		}
+		calls = calls.Append(llm.Call{Id: callID, Name: name, Arguments: args})
+	}
+	calls
+}
+
+// DecodeOpenAIChatResponseJSON parses a non-streaming OpenAI Chat Completions JSON reply into an llm.Turn.
+func DecodeOpenAIChatResponseJSON(body string) llm.Turn fails llm.RateLimited | llm.Overloaded | llm.Unauthorized | llm.Refused | llm.Truncated | llm.Transport | llm.InvalidRequest | llm.InvalidResponse | llm.UnsupportedSchema {
+	let root = try DecodeJSONObject(body)
+	match JSONField(root, "error") {
+	case option.Some[json.Value]:
+		return try failWithOpenAILLMFailure(mapOpenAIChatErrorFailure(root))
+	case option.None:
+	}
+	let choices = JSONArrayField(root, "choices")
+	if choices.Len() == 0 {
+		return llm.InvalidResponse{Reason: "openai chat response missing choices"}
+	}
+	let first = choices[0]
+	let msgVal = match JSONField(first, "message") {
+	case option.Some[json.Value] as mv:
+		mv.Value
+	case option.None:
+		return llm.InvalidResponse{Reason: "openai chat choice missing message"}
+	}
+	let textOut = match JSONStringField(msgVal, "content") {
+	case option.Some[string] as s:
+		s.Value
+	case option.None:
+		""
+	}
+	let calls = decodeOpenAIToolCalls(msgVal)
+	let finishRaw = match JSONStringField(first, "finish_reason") {
+	case option.Some[string] as fr:
+		fr.Value
+	case option.None:
+		"stop"
+	}
+	let usage = match JSONField(root, "usage") {
+	case option.Some[json.Value] as uv:
+		parseOpenAIChatUsage(uv.Value, llm.Usage{Input: 0, Output: 0, CacheRead: 0, CacheWrite: 0})
+	case option.None:
+		llm.Usage{Input: 0, Output: 0, CacheRead: 0, CacheWrite: 0}
+	}
+	let stop = NormalizeFinishReason(finishRaw, calls.Len() > 0)
+	try ValidateCompletedTurn(llm.Turn{Text: textOut, Calls: calls, Stop: stop, Usage: usage})
+}
+
+type openAITrackedCall {
+	WireIndex int,
+	CallIndex int,
+	Closed    bool,
+}
+
+// OpenAIChatStreamParser accumulates incremental Chat Completions SSE chunks into llm.Delta emissions.
+type OpenAIChatStreamParser {
+	Emitted          []llm.Delta,
+	TrackedCalls     []openAITrackedCall,
+	NextCallIdx      int,
+	FinishReasonSeen bool,
+	SawDone          bool,
+	StopHint         string,
+	Usage            llm.Usage,
+	Failure          option.Option[llm.Failure],
+}
+
+// NewOpenAIChatStreamParser creates a fresh OpenAI Chat Completions SSE stream accumulator.
+func NewOpenAIChatStreamParser() OpenAIChatStreamParser {
+	OpenAIChatStreamParser{
+		Emitted:          []llm.Delta{},
+		TrackedCalls:     []openAITrackedCall{},
+		NextCallIdx:      0,
+		FinishReasonSeen: false,
+		SawDone:          false,
+		StopHint:         "stop",
+		Usage:            llm.Usage{Input: 0, Output: 0, CacheRead: 0, CacheWrite: 0},
+		Failure:          option.None,
+	}
+}
+
+func emitOpenAIDelta[E](st OpenAIChatStreamParser, d llm.Delta, put func(d llm.Delta) fails E) OpenAIChatStreamParser fails E {
+	try put(d)
+	OpenAIChatStreamParser{..st, Emitted: st.Emitted.Append(d)}
+}
+
+func findOpenAICallSlot(calls []openAITrackedCall, wireIndex int) option.Option[int] {
+	for i, c in calls {
+		if c.WireIndex == wireIndex {
+			return option.Some[int]{Value: i}
+		}
+	}
+	option.None
+}
+
+func closeAllOpenAICalls[E](st OpenAIChatStreamParser, put func(d llm.Delta) fails E) OpenAIChatStreamParser fails E {
+	let mut cur = st
+	let mut nextTracked = st.TrackedCalls
+	for i, c in st.TrackedCalls {
+		if !c.Closed {
+			cur = try emitOpenAIDelta(cur, llm.CallEnd{Index: c.CallIndex}, put)
+			nextTracked[i] = openAITrackedCall{
+				WireIndex: c.WireIndex,
+				CallIndex: c.CallIndex,
+				Closed:    true,
+			}
+		}
+	}
+	OpenAIChatStreamParser{..cur, TrackedCalls: nextTracked}
+}
+
+func onOpenAIToolCallDelta[E](st OpenAIChatStreamParser, tc json.Value, put func(d llm.Delta) fails E) OpenAIChatStreamParser fails E {
+	let wireIdx = match JSONIntField(tc, "index") {
+	case option.Some[int64] as iv:
+		int(iv.Value)
+	case option.None:
+		st.TrackedCalls.Len()
+	}
+	let callID = match JSONStringField(tc, "id") {
+	case option.Some[string] as idv:
+		idv.Value
+	case option.None:
+		""
+	}
+	let fnVal = match JSONField(tc, "function") {
+	case option.Some[json.Value] as fv:
+		fv.Value
+	case option.None:
+		JSONObject([]json.Member{})
+	}
+	let callName = match JSONStringField(fnVal, "name") {
+	case option.Some[string] as nv:
+		nv.Value
+	case option.None:
+		""
+	}
+	let argsPart = match JSONStringField(fnVal, "arguments") {
+	case option.Some[string] as av:
+		av.Value
+	case option.None:
+		""
+	}
+	let (curAfterStart, callIdx) = match findOpenAICallSlot(st.TrackedCalls, wireIdx) {
+	case option.Some[int] as slot:
+		(st, st.TrackedCalls[slot.Value].CallIndex)
+	case option.None:
+		let assigned = st.NextCallIdx
+		let added = OpenAIChatStreamParser{
+			..st,
+			NextCallIdx:  assigned + 1,
+			TrackedCalls: st.TrackedCalls.Append(openAITrackedCall{
+				WireIndex: wireIdx,
+				CallIndex: assigned,
+				Closed:    false,
+			}),
+		}
+		let emitted = try emitOpenAIDelta(added, llm.CallStart{Index: assigned, Id: callID, Name: callName}, put)
+		(emitted, assigned)
+	}
+	if argsPart != "" {
+		return try emitOpenAIDelta(curAfterStart, llm.CallArgs{Index: callIdx, Text: argsPart}, put)
+	}
+	curAfterStart
+}
+
+func onOpenAIChoiceDelta[E](st OpenAIChatStreamParser, choice json.Value, put func(d llm.Delta) fails E) OpenAIChatStreamParser fails E {
+	let mut cur = st
+	match JSONField(choice, "delta") {
+	case option.Some[json.Value] as dVal:
+		match JSONStringField(dVal.Value, "reasoning_content") {
+		case option.Some[string] as rc:
+			if rc.Value != "" {
+				cur = try emitOpenAIDelta(cur, llm.Reasoning{Text: rc.Value}, put)
+			}
+		case option.None:
+			match JSONStringField(dVal.Value, "reasoning") {
+			case option.Some[string] as rs:
+				if rs.Value != "" {
+					cur = try emitOpenAIDelta(cur, llm.Reasoning{Text: rs.Value}, put)
+				}
+			case option.None:
+			}
+		}
+		match JSONStringField(dVal.Value, "content") {
+		case option.Some[string] as txt:
+			if txt.Value != "" {
+				cur = try emitOpenAIDelta(cur, llm.Text{Text: txt.Value}, put)
+			}
+		case option.None:
+		}
+		for tc in JSONArrayField(dVal.Value, "tool_calls") {
+			cur = try onOpenAIToolCallDelta(cur, tc, put)
+		}
+	case option.None:
+	}
+	match JSONStringField(choice, "finish_reason") {
+	case option.Some[string] as fr:
+		if strings.TrimSpace(fr.Value) != "" {
+			cur = OpenAIChatStreamParser{..cur, StopHint: fr.Value, FinishReasonSeen: true}
+			cur = try closeAllOpenAICalls(cur, put)
+		}
+	case option.None:
+	}
+	cur
+}
+
+// FeedOpenAIChatSSEEvent applies one parsed SSE event from OpenCode Console or Go and emits llm.Delta updates.
+func FeedOpenAIChatSSEEvent[E](st OpenAIChatStreamParser, ev http.ServerEvent, put func(d llm.Delta) fails E) OpenAIChatStreamParser fails llm.InvalidResponse | E {
+	let trimmed = strings.TrimSpace(ev.Data)
+	if trimmed == "" {
+		return st
+	}
+	if trimmed == "[DONE]" {
+		return OpenAIChatStreamParser{..st, SawDone: true}
+	}
+	let payload = try DecodeJSONObject(trimmed)
+	match JSONField(payload, "error") {
+	case option.Some[json.Value]:
+		return OpenAIChatStreamParser{..st, Failure: option.Some[llm.Failure]{Value: mapOpenAIChatErrorFailure(payload)}}
+	case option.None:
+	}
+	let mut cur = match JSONField(payload, "usage") {
+	case option.Some[json.Value] as uv:
+		OpenAIChatStreamParser{..st, Usage: parseOpenAIChatUsage(uv.Value, st.Usage)}
+	case option.None:
+		st
+	}
+	let choices = JSONArrayField(payload, "choices")
+	if choices.Len() > 0 {
+		cur = try onOpenAIChoiceDelta(cur, choices[0], put)
+	}
+	cur
+}
+
+// FinishOpenAIChatStream finalizes an OpenAI Chat Completions SSE stream, failing Truncated when [DONE] or finish_reason is missing.
+func FinishOpenAIChatStream(st OpenAIChatStreamParser) llm.Turn fails llm.RateLimited | llm.Overloaded | llm.Unauthorized | llm.Refused | llm.Truncated | llm.Transport | llm.InvalidRequest | llm.InvalidResponse | llm.UnsupportedSchema {
+	let draft = llm.Fold(st.Emitted)
+	match st.Failure {
+	case option.Some[llm.Failure] as f:
+		return try failWithOpenAILLMFailure(f.Value)
+	case option.None:
+	}
+	if !st.SawDone || !st.FinishReasonSeen || draft.Open.Len() > 0 {
+		return llm.Truncated{Text: draft.Text}
+	}
+	let stop = NormalizeFinishReason(st.StopHint, draft.Calls.Len() > 0)
+	try ValidateCompletedTurn(llm.Turn{
+		Text:  draft.Text,
+		Calls: draft.Calls,
+		Stop:  stop,
+		Usage: st.Usage,
+	})
+}
+
+func splitOpenAISSEAndReplay(sseBody string, chunkSize int) (OpenAIChatStreamParser, []llm.Delta) fails llm.InvalidResponse {
+	let mut reader = http.NewEventReader()
+	let mut parser = NewOpenAIChatStreamParser()
+	let mut deltas = []llm.Delta{}
+	let step = if chunkSize <= 0 { 1 } else { chunkSize }
+	let mut pos = 0
+	for pos < sseBody.Len() {
+		let nextPos = if pos+step > sseBody.Len() { sseBody.Len() } else { pos + step }
+		let part = strings.Slice(sseBody, pos, nextPos)
+		let (nextReader, events) = reader.Feed(part)
+		reader = nextReader
+		for ev in events {
+			parser = try FeedOpenAIChatSSEEvent(parser, ev, func(d llm.Delta) {
+				deltas = deltas.Append(d)
+			})
+		}
+		pos = nextPos
+	}
+	match reader.End() {
+	case option.Some[http.Truncated]:
+		return (parser, deltas)
+	case option.None:
+		(parser, deltas)
+	}
+}
+
+law OpenCodeChatSSEChunkingAndDoneInvariant(partA string, partB string, chunkA int, chunkB int) {
+	let chunk1 = EncodeJSONValue(JSONObject([]json.Member{
+		json.Member{
+			Key:   "choices",
+			Value: JSONArray([]json.Value{
+				JSONObject([]json.Member{
+					json.Member{Key: "index", Value: json.IntNumber(int64(0))},
+					json.Member{Key: "delta", Value: JSONObject([]json.Member{json.Member{Key: "content", Value: JSONString(partA)}})},
+					json.Member{Key: "finish_reason", Value: json.Null},
+				}),
+			}),
+		},
+	}))
+	let chunk2 = EncodeJSONValue(JSONObject([]json.Member{
+		json.Member{
+			Key:   "choices",
+			Value: JSONArray([]json.Value{
+				JSONObject([]json.Member{
+					json.Member{Key: "index", Value: json.IntNumber(int64(0))},
+					json.Member{
+						Key:   "delta",
+						Value: JSONObject([]json.Member{
+							json.Member{Key: "content", Value: JSONString(partB)},
+							json.Member{
+								Key:   "tool_calls",
+								Value: JSONArray([]json.Value{
+									JSONObject([]json.Member{
+										json.Member{Key: "index", Value: json.IntNumber(int64(0))},
+										json.Member{Key: "id", Value: JSONString("call_oc_1")},
+										json.Member{Key: "type", Value: JSONString("function")},
+										json.Member{Key: "function", Value: JSONObject([]json.Member{json.Member{Key: "name", Value: JSONString("grep")}, json.Member{Key: "arguments", Value: JSONString("")}})},
+									}),
+								}),
+							},
+						}),
+					},
+				}),
+			}),
+		},
+	}))
+	let chunk3 = `{"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\"q\":\"main\"}"}}]},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":20,"completion_tokens":8}}`
+	let events = []http.ServerEvent{
+		http.ServerEvent{Event: "message", Data: chunk1, ID: ""},
+		http.ServerEvent{Event: "message", Data: chunk2, ID: ""},
+		http.ServerEvent{Event: "message", Data: chunk3, ID: ""},
+		http.ServerEvent{Event: "message", Data: "[DONE]", ID: ""},
+	}
+	let sseText = http.WriteEvents(events) catch {
+	case http.Unwritable:
+		return false
+	}
+	let cA = (if chunkA < 0 { -chunkA } else { chunkA })%15 + 1
+	let cB = (if chunkB < 0 { -chunkB } else { chunkB })%21 + 1
+	let (p1, d1) = splitOpenAISSEAndReplay(sseText, cA) catch {
+	case llm.InvalidResponse:
+		return false
+	}
+	let (p2, d2) = splitOpenAISSEAndReplay(sseText, cB) catch {
+	case llm.InvalidResponse:
+		return false
+	}
+	let t1 = FinishOpenAIChatStream(p1) catch {
+	case llm.RateLimited, llm.Overloaded, llm.Unauthorized, llm.Refused, llm.Truncated, llm.Transport, llm.InvalidRequest, llm.InvalidResponse, llm.UnsupportedSchema:
+		return false
+	}
+	let t2 = FinishOpenAIChatStream(p2) catch {
+	case llm.RateLimited, llm.Overloaded, llm.Unauthorized, llm.Refused, llm.Truncated, llm.Transport, llm.InvalidRequest, llm.InvalidResponse, llm.UnsupportedSchema:
+		return false
+	}
+	let noDoneWire = http.WriteEvents([]http.ServerEvent{
+		http.ServerEvent{Event: "message", Data: chunk1, ID: ""},
+		http.ServerEvent{Event: "message", Data: chunk3, ID: ""},
+	}) catch {
+	case http.Unwritable:
+		return false
+	}
+	let (noDoneParser, _) = splitOpenAISSEAndReplay(noDoneWire, 7) catch {
+	case llm.InvalidResponse:
+		return false
+	}
+	let mut missingDoneTruncated = false
+	let _ = FinishOpenAIChatStream(noDoneParser) catch {
+	case llm.Truncated as tr:
+		missingDoneTruncated = tr.Text == partA
+		t1
+	case llm.RateLimited, llm.Overloaded, llm.Unauthorized, llm.Refused, llm.Transport, llm.InvalidRequest, llm.InvalidResponse, llm.UnsupportedSchema:
+		return false
+	}
+	let folded = llm.Fold(d1)
+		t1 == t2 &&
+		d1 == d2 &&
+		t1.Text == partA+partB &&
+		t1.Text == folded.Text &&
+		t1.Calls == folded.Calls &&
+		t1.Usage.Input == 20 &&
+		t1.Usage.Output == 8 &&
+		missingDoneTruncated
+}
+
+law OpenCodeConsoleAndGoStayEndpointIsolated() {
+	let gate = DefaultOfficialSupportGate()
+	let consolePol = ValidateEndpointPolicy(EndpointSpec{
+		Driver:           adapter.OpenCodeConsoleDirect,
+		OriginOverride:   option.None,
+		PathOverride:     option.None,
+		ExtraHeaders:     []http.Field{},
+		EnvVars:          []EnvEntry{},
+		ChatGPTAccountID: option.None,
+		Gate:             gate,
+	}) catch {
+	case AntigravityDirectGatedError, NotDirectDriverError, ProxyOrSpoofRefusedError, AccountRotationRefusedError, MissingCredentialError, CapabilityUnsupportedError, TurnHeldByPoolError, AbortedAfterFirstDeltaError, ConcurrentTurnRefusedError, InvalidProviderConfigError, ProviderWireError, DirectLoopIntegrationError:
+		return false
+	}
+	let goPol = ValidateEndpointPolicy(EndpointSpec{
+		Driver:           adapter.OpenCodeGoDirect,
+		OriginOverride:   option.None,
+		PathOverride:     option.None,
+		ExtraHeaders:     []http.Field{},
+		EnvVars:          []EnvEntry{},
+		ChatGPTAccountID: option.None,
+		Gate:             gate,
+	}) catch {
+	case AntigravityDirectGatedError, NotDirectDriverError, ProxyOrSpoofRefusedError, AccountRotationRefusedError, MissingCredentialError, CapabilityUnsupportedError, TurnHeldByPoolError, AbortedAfterFirstDeltaError, ConcurrentTurnRefusedError, InvalidProviderConfigError, ProviderWireError, DirectLoopIntegrationError:
+		return false
+	}
+	let ch = OpenCodeHTTPHeaders(consolePol, WireBuffered)
+	let gh = OpenCodeHTTPHeaders(goPol, WireBuffered)
+		consolePol.Origin == "https://opencode.ai" &&
+		goPol.Origin == "https://opencode.ai" &&
+		consolePol.Path == "/zen/v1/chat/completions" &&
+		goPol.Path == "/zen/go/v1/chat/completions" &&
+		consolePol.Path != goPol.Path &&
+		HeaderFolded(ch, "X-OpenCode-Plan") == option.Some[string]{Value: "console"} &&
+		HeaderFolded(gh, "X-OpenCode-Plan") == option.Some[string]{Value: "go"}
+}
+
+test OpenCodeConsoleAndGoToolCallsAndErrors {
+	let gate = DefaultOfficialSupportGate()
+	let consolePol = try ValidateEndpointPolicy(EndpointSpec{
+		Driver:           adapter.OpenCodeConsoleDirect,
+		OriginOverride:   option.None,
+		PathOverride:     option.None,
+		ExtraHeaders:     []http.Field{},
+		EnvVars:          []EnvEntry{},
+		ChatGPTAccountID: option.None,
+		Gate:             gate,
+	})
+	let goPol = try ValidateEndpointPolicy(EndpointSpec{
+		Driver:           adapter.OpenCodeGoDirect,
+		OriginOverride:   option.None,
+		PathOverride:     option.None,
+		ExtraHeaders:     []http.Field{},
+		EnvVars:          []EnvEntry{},
+		ChatGPTAccountID: option.None,
+		Gate:             gate,
+	})
+	let req = llm.Request{
+		System:    "be helpful",
+		Messages:  []llm.Message{llm.User{Text: "list files"}},
+		Tools:     []llm.ToolSpec{},
+		Choice:    llm.Auto,
+		Format:    llm.Prose,
+		MaxTokens: 512,
+	}
+	let consoleBody = try BuildOpenAIChatRequest(consolePol, adapter.ModelID("opencode/zen-pro"), req, WireBuffered)
+	let goBody = try BuildOpenAIChatRequest(goPol, adapter.ModelID("opencode/go-fast"), req, WireStream)
+	let cObj = try DecodeJSONObject(consoleBody)
+	let gObj = try DecodeJSONObject(goBody)
+	assert JSONBoolField(cObj, "stream") == option.Some[bool]{Value: false}
+	assert JSONBoolField(gObj, "stream") == option.Some[bool]{Value: true}
+
+	let decoded = try DecodeOpenAIChatResponseJSON(`{"id":"chatcmpl_1","choices":[{"index":0,"message":{"role":"assistant","content":"","tool_calls":[{"id":"call_go_1","type":"function","function":{"name":"read","arguments":"{\"path\":\"go.mod\"}"}}]},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":14,"completion_tokens":6,"prompt_tokens_details":{"cached_tokens":3}}}`)
+	assert decoded.Calls.Len() == 1
+	assert decoded.Calls[0].Id == "call_go_1"
+	assert decoded.Stop == llm.ToolUse
+	assert decoded.Usage.CacheRead == 3
+
+	let mut codexRejected = false
+	let codexPol = try ValidateEndpointPolicy(EndpointSpec{
+		Driver:           adapter.CodexDirect,
+		OriginOverride:   option.None,
+		PathOverride:     option.None,
+		ExtraHeaders:     []http.Field{},
+		EnvVars:          []EnvEntry{},
+		ChatGPTAccountID: option.None,
+		Gate:             gate,
+	})
+	let _ = BuildOpenAIChatRequest(codexPol, adapter.ModelID("gpt-5.4"), req, WireBuffered) catch {
+	case llm.InvalidRequest:
+		codexRejected = true
+		""
+	case llm.UnsupportedSchema:
+		""
+	}
+	assert codexRejected
+}
