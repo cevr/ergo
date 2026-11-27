@@ -411,9 +411,9 @@
       "witnesses": []
     },
     {
-      "construct": "Context header `provides A needs B`",
+      "construct": "Context header `fails E needs B`",
       "status": "partly implemented",
-      "cell": "Parsed and formatted; a named context's needs is checked (Gap 6); provides is S109 naming context header checking (Gap 33)",
+      "cell": "A named context's fails and needs are checked (Gaps 6, 33); an inline or local header is S109; `provides` is gone (S001, RSI-SURFACE-DIET)",
       "section": "[rows](rows.md#context)",
       "witnesses": [
         "internal/sketch/lower:TestRefusedFamiliesHaveWitnesses"

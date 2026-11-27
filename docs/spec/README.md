@@ -37,7 +37,7 @@ This directory is the normative specification of the Go-shaped Ergo language: Ef
 8. [interop.md](interop.md): Go imports, generated bindings and Level 2 adapters.
 9. [rpc.md](rpc.md): std `rpc`, Effect RPC's HTTP wire, `ergo gen rpc` and `ergo gen cli`.
 10. [facts.md](facts.md): value-tied facts (`given`, `gives`, `keeps`), record invariants, evidence labels and their lowering.
-11. [patterns.md](patterns.md): derived types (`type T derive E`), type plans, plan functions and typed byte patterns.
+11. [patterns.md](patterns.md): derived types (`type T derive E`) over content-mapper plans, plan functions, provider plans and typed byte patterns.
 12. [inserted.md](inserted.md): every operation the compiler inserts, the written form it stands for, and the rules it must carry (G9).
 13. [code.md](code.md): the fact tables, std `code`'s `Reader` and `ergo code` (SEMTOOLS).
 14. [content-mappers.md](content-mappers.md): userland content mappers, unified file imports and inline `derive`, source maps and `lawcache`.
@@ -79,7 +79,7 @@ The [support table](support.md) lists the exact support of the build, one family
 | Inline `context { … }` | Checked; runs | [rows](rows.md#context) |
 | Context embedding, `replace`, one provider for several capabilities | Checked (Gap 34); runs. A `with` or an embedding of an imported context: checked and lowered (196b U4; `TestRunImportedContext`) | [rows](rows.md#context) |
 | Context constructors | Designed, not yet implemented; S109 naming context construction | [rows](rows.md#context) |
-| Context header `fails E needs B` | A named context's fails and needs are checked (Gaps 6, 33); `provides` is gone (S001, RSI-SURFACE-DIET) | [rows](rows.md#context) |
+| Context header `fails E needs B` | A named context's fails and needs are checked (Gaps 6, 33); an inline or local header is S109; `provides` is gone (S001, RSI-SURFACE-DIET) | [rows](rows.md#context) |
 | `with W { block }` | Checked; runs | [rows](rows.md#with) |
 | `with` context values (G1) | Checked; runs for string values; typed payloads are designed | [runtime](runtime.md#g1-context-through-with) |
 | `timeout.After(d) { block }` | Checked as an ordinary library function of the package `timeout` (Gap 31); `ergo build` lowers its call to its `runtime/v1` body, `v1.After` | [runtime](runtime.md#timeouts) |

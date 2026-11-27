@@ -286,13 +286,11 @@ An entry defines a term and carries no status; a construct's status is in [docs/
 
 **Provider law**: A law with a `needs` clause. It is checked against every provider bound to that capability.
 
-**Derived type**: A type declared `type T derive E`. The checker evaluates the type plan `E` at check time, and the plan's value gives `T`, the types `T` needs, and the parse function, failure and laws that `T` owns, as ordinary declarations of `T`'s package. See [patterns](docs/spec/patterns.md).
+**Derived type**: A type declared `type T derive E`. The checker evaluates the plan `E`, a `content.Plan`, at check time, and the mapper it names gives `T`, the types `T` needs, and the parse function, failure and laws that `T` owns, as ordinary declarations of `T`'s package. See [patterns](docs/spec/patterns.md).
 
-**Type plan**: A value of the predeclared, closed type `TypePlan`, built only by the predeclared constructors (`Of`, `Refine`, `Record`, `Union`, `Optional`, `List`, `Pattern`, with `Field`) and by plan functions, and read only by a derive. Each node fixes the shape it derives and the input it parses. See [patterns](docs/spec/patterns.md#type-plans).
+**Plan function**: An ordinary rowless function whose result is a `content.Plan`. A derive evaluates it at check time, within a budget, with no Go call or I/O, and a user package may export one for other packages to derive from. The predeclared `TypePlan` algebra it once built is retired (RSI-SURFACE-DIET, 2026-11-27). See [patterns](docs/spec/patterns.md#plan-functions).
 
-**Plan function**: An ordinary rowless function whose result is a `TypePlan` or `FieldPlan`. It runs only at check time, within a budget, with no Go call or I/O, and a user package may export one for other packages to derive from. See [patterns](docs/spec/patterns.md#plan-functions).
-
-**Pattern**: The type plan `Pattern(text)`: a byte regular expression with named captures, matched against a whole `string` by the derived `ParseT`, or leftmost by `FindT`. See [patterns](docs/spec/patterns.md#pattern-grammar).
+**Pattern**: The plan `regex.Pattern(text)` of `std/regex`: a byte regular expression with named captures, matched against a whole `string` by the derived `ParseT`, or leftmost by `FindT`. See [patterns](docs/spec/patterns.md#pattern-grammar).
 
 **Capture shape**: The type a named capture gives its field, from how often it takes part in a match of its scope: once gives the value, at most once gives `Option`, more than once gives a slice of every occurrence. A capture with captures inside it gives a record, and an alternation of named captures gives a union. See [patterns](docs/spec/patterns.md#capture-shapes).
 
