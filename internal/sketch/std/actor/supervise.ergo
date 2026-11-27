@@ -1,0 +1,639 @@
+import machines
+import option
+import sync
+import tasks
+import time
+
+// RestartMode determines when a supervised child is restarted upon exit.
+type RestartMode =
+	| Permanent{}
+	| Transient{}
+	| Temporary{}
+
+// ChildID uniquely identifies a child slot within a DynamicSupervisor or SuperviseSet.
+type ChildID {
+	name string,
+	seq  int64,
+}
+
+// ChildName returns the display name declared on id's ChildSpec.
+func ChildName(id ChildID) string { id.name }
+
+// ChildSpec defines a supervised child's name, restart policy, and start factory.
+type ChildSpec {
+	Name    string,
+	Restart RestartMode,
+	Start   func() Target needs time.Scheduler,
+}
+
+// ScopedChildSpec defines a supervised child whose start factory requires extra capability row R.
+type ScopedChildSpec[R] {
+	Name    string,
+	Restart RestartMode,
+	Start   func() Target needs R | time.Scheduler,
+}
+
+// PermanentChild constructs a ChildSpec whose child is always restarted on exit unless the supervisor shuts down.
+func PermanentChild(name string, start own func() Target needs time.Scheduler) ChildSpec {
+	ChildSpec{Name: name, Restart: Permanent, Start: start}
+}
+
+// TransientChild constructs a ChildSpec whose child is restarted only after an abnormal termination.
+func TransientChild(name string, start own func() Target needs time.Scheduler) ChildSpec {
+	ChildSpec{Name: name, Restart: Transient, Start: start}
+}
+
+// TemporaryChild constructs a ChildSpec whose child is never automatically restarted and is dropped upon exit.
+func TemporaryChild(name string, start own func() Target needs time.Scheduler) ChildSpec {
+	ChildSpec{Name: name, Restart: Temporary, Start: start}
+}
+
+// ScopedPermanentChild constructs a capability-bearing ScopedChildSpec with Permanent restart policy.
+func ScopedPermanentChild[R](name string, start own func() Target needs R | time.Scheduler) ScopedChildSpec[R] {
+	ScopedChildSpec[R]{Name: name, Restart: Permanent, Start: start}
+}
+
+// ScopedTransientChild constructs a capability-bearing ScopedChildSpec with Transient restart policy.
+func ScopedTransientChild[R](name string, start own func() Target needs R | time.Scheduler) ScopedChildSpec[R] {
+	ScopedChildSpec[R]{Name: name, Restart: Transient, Start: start}
+}
+
+// ScopedTemporaryChild constructs a capability-bearing ScopedChildSpec with Temporary restart policy.
+func ScopedTemporaryChild[R](name string, start own func() Target needs R | time.Scheduler) ScopedChildSpec[R] {
+	ScopedChildSpec[R]{Name: name, Restart: Temporary, Start: start}
+}
+
+type supEntry[R] {
+	id         ChildID,
+	spec       ScopedChildSpec[R],
+	gen        int64,
+	target     option.Option[Target],
+	running    bool,
+	restarts   int,
+	awaiting   bool,
+	dueElapsed duration,
+}
+
+type supState[R] {
+	policy    tasks.Supervision,
+	origin    time.Time,
+	past      sync.Ref[[]duration],
+	nextSeq   int64,
+	nextGen   int64,
+	entries   []supEntry[R],
+	nextDelay duration,
+	hasTimer  bool,
+	selfSend  sync.Ref[option.Option[func(m supMsg[R])]],
+	selfFeed  sync.Ref[option.Option[func(fn own func())]],
+}
+
+type supMsg[R] =
+	| supAddChild[R]{Spec ScopedChildSpec[R], Reply Reply[ChildID, tasks.GaveUp]}
+	| supStopChild{ID ChildID, Ack sync.Deferred[bool]}
+	| supChildExited{Seq int64, Gen int64, Abnormal bool}
+	| supRestartTick{}
+	| supChildren{Reply sync.Deferred[[]ChildID]}
+	| supRestartsOf{ID ChildID, Reply sync.Deferred[int]}
+	| supShutdown{Ack sync.Deferred[bool]}
+
+// ScopedSupervisor supervises an ordered dynamic tree of capability-bearing sibling children.
+type ScopedSupervisor[R] {
+	p   peer,
+	raw Actor[supState[R], supMsg[R], machines.Decision[supState[R], bool], tasks.GaveUp],
+} implements Target
+
+func asPeer[R](sup ScopedSupervisor[R]) peer { sup.p }
+
+// DynamicSupervisor supervises a dynamic, ordered tree of sibling actors under OneForOne, RestForOne, or AllForOne restart strategies.
+type DynamicSupervisor {
+	p        peer,
+	add      func(spec ChildSpec) ChildID fails Stopped | tasks.GaveUp needs time.Scheduler,
+	stopOne  func(id ChildID) fails Stopped,
+	children func() []ChildID,
+	restarts func(id ChildID) int,
+	shutdown func() fails tasks.GaveUp,
+} implements Target
+
+func asPeer(sup DynamicSupervisor) peer { sup.p }
+
+// StartDynamicSupervisor launches an empty DynamicSupervisor governed by policy.
+func StartDynamicSupervisor(policy tasks.Supervision) DynamicSupervisor needs time.Scheduler | time.Clock {
+	let inner = startScoped(policy, func() {})
+	DynamicSupervisor{
+		p:   inner.p,
+		add: func(spec ChildSpec) ChildID fails Stopped | tasks.GaveUp needs time.Scheduler {
+			let st = spec.Start
+			try AddScopedChild(inner, ScopedPermanentChild(spec.Name, func() Target needs time.Scheduler { st() }).withMode(spec.Restart))
+		},
+		stopOne: func(id ChildID) fails Stopped {
+			try StopScopedChild(inner, id)
+		},
+		children: func() []ChildID { ScopedChildren(inner) },
+		restarts: func(id ChildID) int { ScopedRestartsOf(inner, id) },
+		shutdown: func() fails tasks.GaveUp { try ShutdownScoped(inner) },
+	}
+}
+
+func withMode[R](s ScopedChildSpec[R], mode RestartMode) ScopedChildSpec[R] {
+	ScopedChildSpec[R]{..s, Restart: mode}
+}
+
+func startScoped[R](policy tasks.Supervision, _ func() needs R) ScopedSupervisor[R] needs R | time.Scheduler | time.Clock {
+	let initial = supState[R]{
+		policy:    policy,
+		origin:    time.Clock.Now(),
+		past:      sync.NewRef[[]duration]([]duration{}),
+		nextSeq:   0,
+		nextGen:   0,
+		entries:   []supEntry[R]{},
+		nextDelay: 0s,
+		hasTimer:  false,
+		selfSend:  sync.NewRef[option.Option[func(m supMsg[R])]](option.None),
+		selfFeed:  sync.NewRef[option.Option[func(fn own func())]](option.None),
+	}
+	let spec = LiveMachine[supState[R], supMsg[R], bool, tasks.GaveUp, R | time.Scheduler | time.Clock]{
+		Initial: initial,
+		Step:    func(s supState[R], msg supMsg[R]) machines.Decision[supState[R], bool] fails tasks.GaveUp needs R | time.Scheduler | time.Clock defects {
+			supStep(s, msg)
+		},
+		After: func(s supState[R]) option.Option[Timeout[supMsg[R]]] {
+			if s.hasTimer {
+				option.Some[Timeout[supMsg[R]]]{Value: Timeout[supMsg[R]]{In: s.nextDelay, Signal: supRestartTick}}
+			} else {
+				option.None
+			}
+		},
+		Work: func(s supState[R]) option.Option[func(send entry func(e supMsg[R])) defects] {
+			let _ = s
+			option.None
+		},
+		Exit: func(s supState[R]) option.Option[func()] {
+			let _ = s
+			option.None
+		},
+	}
+	let raw = StartLive(spec, 1024, func(o bool) { let _ = o })
+	initial.selfSend.Set(option.Some[func(m supMsg[R])]{Value: func(m supMsg[R]) {
+		raw.Send(m) catch {
+		case Stopped:
+			let _ = 0
+		}
+	}})
+	initial.selfFeed.Set(option.Some[func(fn own func())]{Value: func(fn own func()) {
+		feed(raw, func(send func(m supMsg[R])) {
+			let _ = send
+			fn()
+		}) catch {
+		case Stopped:
+			let _ = 0
+		}
+	}})
+	ScopedSupervisor[R]{
+		p:   makeActorPeer(raw),
+		raw: raw,
+	}
+}
+
+// StartScopedSupervisor launches a ScopedSupervisor and populates initial specs in order.
+func StartScopedSupervisor[R](specs []ScopedChildSpec[R], policy tasks.Supervision) ScopedSupervisor[R] fails Stopped | tasks.GaveUp needs R | time.Scheduler | time.Clock {
+	let sup = startScoped(policy, func() needs R {})
+	for spec in specs {
+		let _ = AddScopedChild(sup, spec) catch {
+		case err:
+			shutdownScopedQuiet(sup)
+			return err
+		}
+	}
+	sup
+}
+
+// SuperviseSet starts an ordered set of sibling children described by specs under policy; startup order matches specs and shutdown order reverses it.
+func SuperviseSet(specs []ChildSpec, policy tasks.Supervision) DynamicSupervisor fails Stopped | tasks.GaveUp needs time.Scheduler | time.Clock {
+	let sup = StartDynamicSupervisor(policy)
+	for spec in specs {
+		let _ = AddChild(sup, spec) catch {
+		case err:
+			shutdownQuiet(sup)
+			return err
+		}
+	}
+	sup
+}
+
+func shutdownQuiet(sup DynamicSupervisor) {
+	Shutdown(sup) catch {
+	case tasks.GaveUp:
+		let _ = 0
+	}
+}
+
+func shutdownScopedQuiet[R](sup ScopedSupervisor[R]) {
+	ShutdownScoped(sup) catch {
+	case tasks.GaveUp:
+		let _ = 0
+	}
+}
+
+// AddChild starts spec on sup in its dynamic child order and returns its assigned ChildID.
+func AddChild(sup DynamicSupervisor, spec ChildSpec) ChildID fails Stopped | tasks.GaveUp needs time.Scheduler {
+	let fn = sup.add
+	try fn(spec)
+}
+
+// StopChild terminates and removes child id from sup without triggering a restart.
+func StopChild(sup DynamicSupervisor, id ChildID) fails Stopped {
+	let fn = sup.stopOne
+	try fn(id)
+}
+
+// Children returns the active child IDs managed by sup in startup order.
+func Children(sup DynamicSupervisor) []ChildID {
+	let fn = sup.children
+	fn()
+}
+
+// Count returns the number of children currently registered on sup.
+func Count(sup DynamicSupervisor) int {
+	Children(sup).Len()
+}
+
+// RestartsOf returns how many times child id has been restarted by sup.
+func RestartsOf(sup DynamicSupervisor, id ChildID) int {
+	let fn = sup.restarts
+	fn(id)
+}
+
+// Shutdown cleanly stops all children of sup in reverse startup order and terminates sup.
+func Shutdown(sup DynamicSupervisor) fails tasks.GaveUp {
+	let fn = sup.shutdown
+	try fn()
+}
+
+// AddScopedChild starts a ScopedChildSpec on sup and returns its assigned ChildID.
+func AddScopedChild[R](sup ScopedSupervisor[R], spec ScopedChildSpec[R]) ChildID fails Stopped | tasks.GaveUp needs time.Scheduler {
+	let r = Reply[ChildID, tasks.GaveUp]{
+		slot:     sync.NewDeferred[replyOutcome[ChildID, tasks.GaveUp]](),
+		deferred: sync.NewRef(false),
+	}
+	let _ = sup.raw.Ask(supAddChild[R]{Spec: spec, Reply: r}) catch {
+	case Stopped:
+		return Stopped
+	case tasks.GaveUp as g:
+		return g
+	}
+	match sync.Peek(r.slot) {
+	case option.Some[replyOutcome[ChildID, tasks.GaveUp]] as got:
+		match got.Value {
+		case replyOk[ChildID] as ok:
+			ok.Val
+		case replyFail[tasks.GaveUp] as fl:
+			fl.Err
+		case replyClosed:
+			Stopped
+		}
+	case option.None:
+		Stopped
+	}
+}
+
+// StopScopedChild terminates and removes child id from sup without triggering a restart.
+func StopScopedChild[R](sup ScopedSupervisor[R], id ChildID) fails Stopped {
+	let ack = sync.NewDeferred[bool]()
+	let _ = sup.raw.Ask(supStopChild{ID: id, Ack: ack}) catch {
+	case Stopped:
+		return Stopped
+	case tasks.GaveUp:
+		return Stopped
+	}
+	let _ = sync.Wait(ack)
+}
+
+// ScopedChildren returns the active child IDs managed by sup in startup order.
+func ScopedChildren[R](sup ScopedSupervisor[R]) []ChildID {
+	let reply = sync.NewDeferred[[]ChildID]()
+	let _ = sup.raw.Ask(supChildren{Reply: reply}) catch {
+	case Stopped:
+		return []ChildID{}
+	case tasks.GaveUp:
+		return []ChildID{}
+	}
+	sync.Wait(reply)
+}
+
+// ScopedRestartsOf returns how many times child id has been restarted by sup.
+func ScopedRestartsOf[R](sup ScopedSupervisor[R], id ChildID) int {
+	let reply = sync.NewDeferred[int]()
+	let _ = sup.raw.Ask(supRestartsOf{ID: id, Reply: reply}) catch {
+	case Stopped:
+		return 0
+	case tasks.GaveUp:
+		return 0
+	}
+	sync.Wait(reply)
+}
+
+// ShutdownScoped cleanly stops all children of sup in reverse startup order and terminates sup.
+func ShutdownScoped[R](sup ScopedSupervisor[R]) fails tasks.GaveUp {
+	if !sup.p.ended() {
+		let ack = sync.NewDeferred[bool]()
+		let sent = sendShutdownAsk(sup, ack)
+		if sent {
+			let _ = sync.Wait(ack)
+		}
+	}
+	try sup.raw.Stop()
+}
+
+func sendShutdownAsk[R](sup ScopedSupervisor[R], ack sync.Deferred[bool]) bool {
+	let _ = sup.raw.Ask(supShutdown{Ack: ack}) catch {
+	case Stopped:
+		return false
+	case tasks.GaveUp:
+		return false
+	}
+	true
+}
+
+func supStep[R](s supState[R], msg supMsg[R]) machines.Decision[supState[R], bool] fails tasks.GaveUp needs R | time.Scheduler | time.Clock {
+	match msg {
+	case supAddChild[R] as add:
+		let seq = s.nextSeq + 1
+		let gen = s.nextGen + 1
+		let id = ChildID{name: add.Spec.Name, seq: seq}
+		let startFn = add.Spec.Start
+		let t = startFn()
+		attachChildMonitor(s.selfFeed, s.selfSend, t, seq, gen)
+		let entry = supEntry[R]{
+			id:         id,
+			spec:       add.Spec,
+			gen:        gen,
+			target:     option.Some[Target]{Value: t},
+			running:    true,
+			restarts:   0,
+			awaiting:   false,
+			dueElapsed: 0s,
+		}
+		Respond(add.Reply, id)
+		let entries = s.entries.Append(entry)
+		rearmState(supState[R]{..s, nextSeq: seq, nextGen: gen, entries: entries})
+	case supStopChild as stopMsg:
+		let mut entries = s.entries
+		let mut nextGen = s.nextGen
+		match findEntryIdx(entries, stopMsg.ID.seq) {
+		case option.Some[int] as idxVal:
+			let idx = idxVal.Value
+			let e = entries[idx]
+			if e.running {
+				nextGen = nextGen + 1
+				match e.target {
+				case option.Some[Target] as tgt:
+					StopPeer(tgt.Value)
+				case option.None:
+				}
+			}
+			entries = removeEntryAt(entries, idx)
+		case option.None:
+		}
+		let _ = sync.Complete(stopMsg.Ack, true)
+		rearmState(supState[R]{..s, nextGen: nextGen, entries: entries})
+	case supChildExited as exited:
+		supHandleExit(s, exited)
+	case supRestartTick:
+		supRunDueRestarts(s)
+	case supChildren as req:
+		let mut out = []ChildID{}
+		for e in s.entries {
+			out = out.Append(e.id)
+		}
+		let _ = sync.Complete(req.Reply, out)
+		machines.Stay[supState[R]]{Next: s}
+	case supRestartsOf as req:
+		let mut count = 0
+		match findEntryIdx(s.entries, req.ID.seq) {
+		case option.Some[int] as idxVal:
+			count = s.entries[idxVal.Value].restarts
+		case option.None:
+		}
+		let _ = sync.Complete(req.Reply, count)
+		machines.Stay[supState[R]]{Next: s}
+	case supShutdown as req:
+		stopAllReverse(s.entries)
+		let _ = sync.Complete(req.Ack, true)
+		machines.Done[bool]{Output: true}
+	}
+}
+
+func supHandleExit[R](s supState[R], exited supChildExited) machines.Decision[supState[R], bool] fails tasks.GaveUp needs R | time.Scheduler | time.Clock {
+	match findEntryIdx(s.entries, exited.Seq) {
+	case option.None:
+		machines.Stay[supState[R]]{Next: s}
+	case option.Some[int] as idxVal:
+		let idx = idxVal.Value
+		let e = s.entries[idx]
+		if !e.running || e.gen != exited.Gen {
+			return machines.Stay[supState[R]]{Next: s}
+		}
+		let shouldRestart = match e.spec.Restart {
+		case Permanent:
+			true
+		case Transient:
+			exited.Abnormal
+		case Temporary:
+			false
+		}
+		if !shouldRestart {
+			let entries = removeEntryAt(s.entries, idx)
+			return rearmState(supState[R]{..s, entries: entries})
+		}
+		let elapsed = time.Clock.Now().Sub(s.origin)
+		match tasks.NextRestart(s.policy, s.past, elapsed) {
+		case tasks.GiveUp:
+			let entries = markExited(s.entries, idx, s.nextGen+1)
+			stopOthersReverse(entries, idx)
+			return tasks.GaveUp{Member: idx + 1, Reason: "restart intensity exceeded"}
+		case tasks.RestartAfter as verdict:
+			let due = elapsed + verdict.Wait
+			let (entries, nextGen) = prepareStrategyRestart(s, idx, due)
+			if verdict.Wait <= 0s {
+				return executeRestarts(supState[R]{..s, entries: entries, nextGen: nextGen}, elapsed)
+			}
+			rearmState(supState[R]{..s, entries: entries, nextGen: nextGen})
+		}
+	}
+}
+
+func supRunDueRestarts[R](s supState[R]) machines.Decision[supState[R], bool] needs R | time.Scheduler | time.Clock {
+	let elapsed = time.Clock.Now().Sub(s.origin)
+	executeRestarts(s, elapsed)
+}
+
+func executeRestarts[R](s supState[R], elapsed duration) machines.Decision[supState[R], bool] needs R | time.Scheduler | time.Clock {
+	let mut entries = []supEntry[R]{}
+	let mut nextGen = s.nextGen
+	for e in s.entries {
+		if e.awaiting && e.dueElapsed <= elapsed {
+			nextGen = nextGen + 1
+			let gen = nextGen
+			let startFn = e.spec.Start
+			let t = startFn()
+			attachChildMonitor(s.selfFeed, s.selfSend, t, e.id.seq, gen)
+			entries = entries.Append(supEntry[R]{
+				id:         e.id,
+				spec:       e.spec,
+				gen:        gen,
+				target:     option.Some[Target]{Value: t},
+				running:    true,
+				restarts:   e.restarts + 1,
+				awaiting:   false,
+				dueElapsed: 0s,
+			})
+		} else {
+			entries = entries.Append(e)
+		}
+	}
+	rearmState(supState[R]{..s, entries: entries, nextGen: nextGen})
+}
+
+func prepareStrategyRestart[R](s supState[R], idx int, due duration) ([]supEntry[R], int64) {
+	let (startIdx, endIdx) = match s.policy.Strategy {
+	case tasks.OneForOne:
+		(idx, idx + 1)
+	case tasks.RestForOne:
+		(idx, s.entries.Len())
+	case tasks.AllForOne:
+		(0, s.entries.Len())
+	}
+	let mut entries = s.entries
+	let mut nextGen = s.nextGen
+	nextGen = nextGen + 1
+	entries[idx] = supEntry[R]{..entries[idx], gen: nextGen, running: false, target: option.None, awaiting: true, dueElapsed: due}
+	let mut k = endIdx - 1
+	for k >= startIdx {
+		if k != idx {
+			let cur = entries[k]
+			nextGen = nextGen + 1
+			let bumped = nextGen
+			let wasRunning = cur.running
+			let tgtOpt = cur.target
+			entries[k] = supEntry[R]{..cur, gen: bumped, running: false, target: option.None, awaiting: !isTemporaryMode(cur.spec.Restart), dueElapsed: due}
+			if wasRunning {
+				match tgtOpt {
+				case option.Some[Target] as tgt:
+					StopPeer(tgt.Value)
+				case option.None:
+				}
+			}
+		}
+		k = k - 1
+	}
+	let mut filtered = []supEntry[R]{}
+	let mut i = 0
+	for i < entries.Len() {
+		let cur = entries[i]
+		let inRange = i >= startIdx && i < endIdx && i != idx
+		if inRange && isTemporaryMode(cur.spec.Restart) {
+		} else {
+			filtered = filtered.Append(cur)
+		}
+		i = i + 1
+	}
+	(filtered, nextGen)
+}
+
+func isTemporaryMode(m RestartMode) bool {
+	match m {
+	case Temporary:
+		true
+	case Permanent, Transient:
+		false
+	}
+}
+
+func rearmState[R](s supState[R]) machines.Decision[supState[R], bool] needs time.Clock {
+	let mut found = false
+	let mut minDue = 0s
+	for e in s.entries {
+		if e.awaiting {
+			if !found || e.dueElapsed < minDue {
+				found = true
+				minDue = e.dueElapsed
+			}
+		}
+	}
+	if !found {
+		return machines.Enter[supState[R]]{Next: supState[R]{..s, nextDelay: 0s, hasTimer: false}}
+	}
+	let elapsed = time.Clock.Now().Sub(s.origin)
+	let mut rem = minDue - elapsed
+	if rem <= 0s {
+		rem = duration(int64(noTimer()) + 1)
+	}
+	machines.Enter[supState[R]]{Next: supState[R]{..s, nextDelay: rem, hasTimer: true}}
+}
+
+func attachChildMonitor[R](selfFeed sync.Ref[option.Option[func(fn own func())]], selfSend sync.Ref[option.Option[func(m supMsg[R])]], t Target, seq int64, gen int64) {
+	match selfFeed.Get() {
+	case option.Some[func(fn own func())] as spawnFn:
+		spawnFn.Value(func() {
+			let abnormal = match PeerExit(t) {
+			case AbnormalExit:
+				true
+			case NormalExit:
+				false
+			}
+			match selfSend.Get() {
+			case option.Some[func(m supMsg[R])] as sendFn:
+				sendFn.Value(supChildExited{Seq: seq, Gen: gen, Abnormal: abnormal})
+			case option.None:
+			}
+		})
+	case option.None:
+	}
+}
+
+func findEntryIdx[R](entries []supEntry[R], seq int64) option.Option[int] {
+	let mut i = 0
+	for i < entries.Len() {
+		if entries[i].id.seq == seq {
+			return option.Some[int]{Value: i}
+		}
+		i = i + 1
+	}
+	option.None
+}
+
+func removeEntryAt[R](entries []supEntry[R], idx int) []supEntry[R] {
+	let mut out = []supEntry[R]{}
+	let mut i = 0
+	for i < entries.Len() {
+		if i != idx {
+			out = out.Append(entries[i])
+		}
+		i = i + 1
+	}
+	out
+}
+
+func markExited[R](entries []supEntry[R], idx int, gen int64) []supEntry[R] {
+	let mut out = entries
+	out[idx] = supEntry[R]{..out[idx], gen: gen, running: false, target: option.None, awaiting: false}
+	out
+}
+
+func stopOthersReverse[R](entries []supEntry[R], skipIdx int) {
+	let mut i = entries.Len() - 1
+	for i >= 0 {
+		if i != skipIdx && entries[i].running {
+			match entries[i].target {
+			case option.Some[Target] as tgt:
+				StopPeer(tgt.Value)
+			case option.None:
+			}
+		}
+		i = i - 1
+	}
+}
+
+func stopAllReverse[R](entries []supEntry[R]) {
+	stopOthersReverse(entries, -1)
+}

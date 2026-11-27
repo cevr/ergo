@@ -1,0 +1,399 @@
+import actor
+import go os
+import machines
+import option
+import schedule
+import scope
+import sql
+import strconv
+import sync
+import tasks
+import time
+import github.com/cevr/ergo/modules/sqlite/sqlite
+
+type decodeErr {}
+
+func intCodec() Codec[int, int, decodeErr] {
+	Codec[int, int, decodeErr]{
+		EncodeState: func(n int) []byte { strconv.Itoa(n).Bytes() },
+		DecodeState: func(data []byte) int fails decodeErr {
+			strconv.Atoi(data.Text()) catch {
+			case strconv.Malformed:
+				return decodeErr
+			case strconv.OutOfRange:
+				return decodeErr
+			}
+		},
+		EncodeOut: func(n int) []byte { strconv.Itoa(n).Bytes() },
+	}
+}
+
+func cleanupTempFiles(dir string) needs go.Foreign {
+	let root = os.OpenRoot(dir) catch {
+	case go.Error:
+		return
+	}
+	root.Remove("actor.db") catch {
+	case go.Error:
+	}
+	root.Remove("actor.db-wal") catch {
+	case go.Error:
+	}
+	root.Remove("actor.db-shm") catch {
+	case go.Error:
+	}
+	root.Close() catch {
+	case go.Error:
+	}
+}
+
+func closeDBQuiet(db sqlite.DB) needs go.Foreign {
+	db.Close() catch {
+	case _:
+	}
+}
+
+func runCrashableCounter(db sqlite.DB, actorID string, initial int, policy tasks.Supervision, sink own func(o int) needs go.Foreign | time.Clock) actor.Actor[int, int, machines.Decision[int, int]] fails decodeErr | actor.StaleLease | sql.Unique | sql.Serialization | sql.Deadlock | sql.Timeout | sql.Closed | sql.Other needs go.Foreign | time.Scheduler | time.Clock {
+	let spec = actor.LiveMachine[int, int, int]{
+		Initial: initial,
+		Step:    func(s int, sig int) machines.Decision[int, int] defects {
+			if sig < 0 {
+				die actor.LinkedExit
+			}
+			if sig == 99 {
+				return machines.Enter[int]{Next: 100}
+			}
+			if sig >= 10 {
+				return machines.Emit[int, int]{Next: s + sig, Output: sig}
+			}
+			machines.Enter[int]{Next: s + sig}
+		},
+		After: func(s int) option.Option[Timeout[int]] {
+			if s > 0 && s < 100 {
+				option.Some[Timeout[int]]{Value: Timeout[int]{In: 10s, Signal: 99}}
+			} else {
+				option.None
+			}
+		},
+		Work: func(s int) option.Option[func(send entry func(e int)) defects] {
+			let _ = s
+			option.None
+		},
+		Exit: func(s int) option.Option[func()] {
+			let _ = s
+			option.None
+		},
+	}
+	try SuperviseSQLiteActorWith(db, actorID, spec, intCodec(), 16, policy, sink)
+}
+
+func runAtomicCommitAndRollback() bool needs go.Foreign {
+	let db = sqlite.OpenMemory() catch {
+	case _:
+		return false
+	}
+	scope.OnExit() { closeDBQuiet(db) }
+	InitSchema(db) catch {
+	case _:
+		return false
+	}
+	let lease = AcquireLease(db, "a1") catch {
+	case _:
+		return false
+	}
+	SaveTransition(db, lease, "s1".Bytes(), actor.NoAnchor(), [][]byte{"w1".Bytes(), "w2".Bytes()}) catch {
+	case _:
+		return false
+	}
+	let mut faultRolledBack = false
+	SaveTransitionWith(db, lease, "s2-bad".Bytes(), actor.NoAnchor(), [][]byte{"bad-wake".Bytes()}, func() fails sql.Other {
+		return sql.Other{Code: "E", Message: "injected mid-tx failure"}
+	}) catch {
+	case sql.Other:
+		faultRolledBack = true
+	case _:
+		return false
+	}
+	if !faultRolledBack {
+		return false
+	}
+	let snap = RecoverState(db, "a1") catch {
+	case _:
+		return false
+	}
+	let wakes = PendingOutbox(db, "a1") catch {
+	case _:
+		return false
+	}
+	let ep = CurrentLeaseEpoch(db, "a1") catch {
+	case _:
+		return false
+	}
+	if wakes.Len() != 2 || ep != (option.Some[int64]{Value: 1}) {
+		return false
+	}
+	AckOutbox(db, wakes[0].Seq) catch {
+	case _:
+		return false
+	}
+	let wakesAfterAck = PendingOutbox(db, "a1") catch {
+	case _:
+		return false
+	}
+	match snap {
+	case option.Some[StoredSnapshot] as st:
+		st.Value.Version == 1 && st.Value.Epoch == 1 && st.Value.Data.Text() == "s1" && wakes[0].Payload.Text() == "w1" && wakes[1].Payload.Text() == "w2" && wakesAfterAck.Len() == 1 && wakesAfterAck[0].Payload.Text() == "w2"
+	case option.None:
+		false
+	}
+}
+
+func runFencedLeaseRejectsStaleWriter() bool needs go.Foreign {
+	let clk = time.NewManual(0)
+	with context { time.Scheduler: clk, time.Clock: clk } {
+		let db = sqlite.OpenMemory() catch {
+		case _:
+			return false
+		}
+		scope.OnExit() { closeDBQuiet(db) }
+		InitSchema(db) catch {
+		case _:
+			return false
+		}
+		let l1 = AcquireLease(db, "fence-1") catch {
+		case _:
+			return false
+		}
+		let l2 = AcquireLease(db, "fence-1") catch {
+		case _:
+			return false
+		}
+		if l1.Epoch != 1 || l2.Epoch != 2 {
+			return false
+		}
+		let mut staleRejected = false
+		SaveTransition(db, l1, "stale".Bytes(), actor.NoAnchor(), [][]byte{"stale-wake".Bytes()}) catch {
+		case actor.StaleLease as sl:
+			staleRejected = sl.Expected == 1 && sl.Observed == 2
+		case _:
+			return false
+		}
+		if !staleRejected {
+			return false
+		}
+		let emptySnap = RecoverState(db, "fence-1") catch {
+		case _:
+			return false
+		}
+		let emptyOutbox = PendingOutbox(db, "fence-1") catch {
+		case _:
+			return false
+		}
+		if emptySnap != option.None || emptyOutbox.Len() != 0 {
+			return false
+		}
+		let sinkSeen = sync.NewRef[[]int]([]int{})
+		let spec = actor.LiveMachine[int, int, int]{
+			Initial: 0,
+			Step:    func(s int, sig int) machines.Decision[int, int] {
+				machines.Emit[int, int]{Next: s + sig, Output: sig}
+			},
+			After: func(s int) option.Option[Timeout[int]] {
+				let _ = s
+				option.None
+			},
+			Work: func(s int) option.Option[func(send entry func(e int)) defects] {
+				let _ = s
+				option.None
+			},
+			Exit: func(s int) option.Option[func()] {
+				let _ = s
+				option.None
+			},
+		}
+		let a = StartSQLiteActor(db, "zombie", spec, intCodec(), 16, func(o int) {
+			sinkSeen.Update(func(xs []int) []int { xs.Append(o) })
+		}) catch {
+		case _:
+			return false
+		}
+		let _ = a.Ask(10) catch {
+		case actor.Stopped:
+			return false
+		}
+		let newer = AcquireLease(db, "zombie") catch {
+		case _:
+			return false
+		}
+		if newer.Epoch != 2 {
+			return false
+		}
+		let _ = a.Ask(20) catch {
+		case actor.Stopped:
+			machines.Ignore
+		}
+		let ex = actor.PeerExit(actor.FromActor(a))
+		let wakes = PendingOutbox(db, "zombie") catch {
+		case _:
+			return false
+		}
+		let isAb = match ex {
+		case actor.AbnormalExit:
+			true
+		case actor.NormalExit:
+			false
+		}
+		isAb && sinkSeen.Get().Len() == 1 && sinkSeen.Get()[0] == 10 && wakes.Len() == 1 && wakes[0].Payload.Text() == "10"
+	}
+}
+
+func runCrashPreservesMonotonicDeadline() bool needs go.Foreign {
+	let clk = time.NewManual(1000000000000000)
+	with context { time.Scheduler: clk, time.Clock: clk } {
+		let db = sqlite.OpenMemory() catch {
+		case _:
+			return false
+		}
+		scope.OnExit() { closeDBQuiet(db) }
+		let policy = tasks.Supervision{
+			Strategy:  tasks.OneForOne,
+			Intensity: tasks.Intensity{Max: 3, Period: 60s},
+			Backoff:   schedule.Spaced(2s),
+		}
+		let a = runCrashableCounter(db, "timer-crash", 0, policy, func(o int) { let _ = o }) catch {
+		case _:
+			return false
+		}
+		scope.OnExit() { a.Stop() }
+		let _ = a.Ask(1) catch {
+		case actor.Stopped:
+			return false
+		}
+		clk.Advance(4s)
+		let _ = a.Ask(-1) catch {
+		case actor.Stopped:
+			machines.Ignore
+		}
+		clk.Advance(2s)
+		if a.State() != 1 || actor.Restarts(a) != 1 {
+			return false
+		}
+		clk.Advance(3s)
+		if a.State() != 1 {
+			return false
+		}
+		clk.Advance(1s)
+		a.State() == 100
+	}
+}
+
+func runServerUpgradeReopenPreservesDeadlineAndDueNow() bool needs go.Foreign {
+	let dir = os.MkdirTemp("", "ergo-actorstore-upgrade-*") catch {
+	case go.Error:
+		return false
+	}
+	scope.OnExit() { cleanupTempFiles(dir) }
+	let path = dir + "/actor.db"
+	let clk = time.NewManual(1000000000000000)
+	with context { time.Scheduler: clk, time.Clock: clk } {
+		let policy = tasks.Supervision{
+			Strategy:  tasks.OneForOne,
+			Intensity: tasks.Intensity{Max: 2, Period: 60s},
+			Backoff:   schedule.Spaced(0s),
+		}
+		let db1 = sqlite.Open(path) catch {
+		case _:
+			return false
+		}
+		let a1 = runCrashableCounter(db1, "upgrade-live", 0, policy, func(o int) { let _ = o }) catch {
+		case _:
+			closeDBQuiet(db1)
+			return false
+		}
+		let _ = a1.Ask(1) catch {
+		case actor.Stopped:
+			closeDBQuiet(db1)
+			return false
+		}
+		let aExp1 = runCrashableCounter(db1, "upgrade-due", 0, policy, func(o int) { let _ = o }) catch {
+		case _:
+			closeDBQuiet(db1)
+			return false
+		}
+		let _ = aExp1.Ask(1) catch {
+		case actor.Stopped:
+			closeDBQuiet(db1)
+			return false
+		}
+		a1.Stop()
+		aExp1.Stop()
+		closeDBQuiet(db1)
+
+		clk.Advance(6s)
+		let db2 = sqlite.Open(path) catch {
+		case _:
+			return false
+		}
+		scope.OnExit() { closeDBQuiet(db2) }
+		let a2 = runCrashableCounter(db2, "upgrade-live", 0, policy, func(o int) { let _ = o }) catch {
+		case _:
+			return false
+		}
+		scope.OnExit() { a2.Stop() }
+		clk.Advance(3s)
+		if a2.State() != 1 {
+			return false
+		}
+		clk.Advance(1s)
+		if a2.State() != 100 {
+			return false
+		}
+		clk.Advance(15s)
+		let aExp2 = runCrashableCounter(db2, "upgrade-due", 0, policy, func(o int) { let _ = o }) catch {
+		case _:
+			return false
+		}
+		scope.OnExit() { aExp2.Stop() }
+		clk.Advance(0s)
+		aExp2.State() == 100 && !actor.Ended(aExp2)
+	}
+}
+
+// ActorStoreLaws verifies SQLite outbox atomicity, fenced lease conflict rejection, and durable deadline preservation across crash and reopen.
+type ActorStoreLaws {
+	CheckAtomicRollback() bool,
+	CheckFencedLease() bool,
+	CheckCrashDeadline() bool,
+	CheckUpgradeDeadline() bool,
+
+	// AtomicCommitAndRollback: SaveTransitionWith rolls back both actor_state and actor_outbox atomically on fault.
+	law AtomicCommitAndRollback() { CheckAtomicRollback() },
+
+	// FencedLeaseRejectsStaleWriter: AcquireLease fences stale epochs across direct writes and live StartSQLiteActor runs.
+	law FencedLeaseRejectsStaleWriter() { CheckFencedLease() },
+
+	// CrashPreservesMonotonicDeadline: SuperviseSQLiteActorWith resumes from remaining deadline after crash and backoff.
+	law CrashPreservesMonotonicDeadline() { CheckCrashDeadline() },
+
+	// ServerUpgradeReopenPreservesDeadlineAndDueNow: closing and reopening SQLite preserves remaining wall deadline and fires overdue timers immediately without MachineTimerNotPositive.
+	law ServerUpgradeReopenPreservesDeadlineAndDueNow() { CheckUpgradeDeadline() },
+}
+
+// ActorStoreHost implements ActorStoreLaws over SQLite and Go foreign runtime operations.
+type ActorStoreHost {} implements ActorStoreLaws
+
+func CheckAtomicRollback(_ ActorStoreHost) bool needs go.Foreign {
+	runAtomicCommitAndRollback()
+}
+
+func CheckFencedLease(_ ActorStoreHost) bool needs go.Foreign {
+	runFencedLeaseRejectsStaleWriter()
+}
+
+func CheckCrashDeadline(_ ActorStoreHost) bool needs go.Foreign {
+	runCrashPreservesMonotonicDeadline()
+}
+
+func CheckUpgradeDeadline(_ ActorStoreHost) bool needs go.Foreign {
+	runServerUpgradeReopenPreservesDeadlineAndDueNow()
+}

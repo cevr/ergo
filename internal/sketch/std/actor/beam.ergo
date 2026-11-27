@@ -1,0 +1,464 @@
+import machines
+import option
+import sync
+import time
+
+// NoReply is the failure of Ask or Call when a target returns from its step without answering, exits before resolving a deferred reply, or fails or defects mid-step.
+type NoReply {}
+
+// LinkedExit is the defect payload raised on a linked actor or process when its peer exits abnormally.
+type LinkedExit {}
+
+// ExitReason classifies how an actor, process, agent, or supervisor terminated.
+type ExitReason =
+	| NormalExit{}
+	| AbnormalExit{}
+
+// Continue updates an OTP-style actor's state in Start.
+type Continue[S] { State S }
+
+// Halt cleanly stops an OTP-style actor's execution in Start.
+type Halt {}
+
+// Next is the step result returned by a handler in Start.
+type Next[S] = Continue[S] | Halt
+
+type replyOk[T] { Val T }
+
+type replyFail[E] { Err E }
+
+type replyClosed {}
+
+type replyOutcome[T, E] = replyOk[T] | replyFail[E] | replyClosed
+
+// Reply is a one-shot capability carried inside an Ask message so an actor can reply synchronously, reject with a typed failure, or defer completion.
+type Reply[T, E] {
+	slot     sync.Deferred[replyOutcome[T, E]],
+	deferred sync.Ref[bool],
+}
+
+// Respond completes r with v; repeated completions keep the first answer.
+func Respond[T, E](r Reply[T, E], v T) {
+	let _ = sync.Complete(r.slot, replyOk[T]{Val: v})
+}
+
+// Fail completes r with the typed error err; repeated completions keep the first answer.
+func Fail[T, E](r Reply[T, E], err E) {
+	let _ = sync.Complete(r.slot, replyFail[E]{Err: err})
+}
+
+// Defer marks r to be resolved after the current step returns; if the target exits before Respond or Fail is called, Ask fails NoReply.
+func Defer[T, E](r Reply[T, E]) {
+	r.deferred.Set(true)
+}
+
+let linkProbeMu = sync.NewRef(false)
+
+type peer {
+	tag      sync.Ref[bool],
+	ended    func() bool,
+	abnormal func() bool,
+	waitExit func() ExitReason,
+	onEnd    func(fn own func()) fails Stopped,
+	onFeed   func(fn own func()) fails Stopped,
+	stop     func(),
+}
+
+// Target is any running actor, process, agent, address, or supervisor that can be observed, linked, or stopped.
+// law-exempt: lifecycle contracts of Target implementations are exercised directly by actor supervision and link laws and tests.
+type Target {
+	asPeer() peer,
+}
+
+func makeActorPeer[S, E, O, F](a Actor[S, E, machines.Decision[S, O], F]) peer {
+	peer{
+		tag:      sync.NewRef(false),
+		ended:    func() bool { Ended(a) },
+		abnormal: func() bool { isActorAbnormal(a) },
+		waitExit: func() ExitReason {
+			match ExitOf(a) {
+			case Finished[S, O]:
+				NormalExit
+			case Halted[S]:
+				NormalExit
+			case Failed[F]:
+				AbnormalExit
+			case Defected:
+				AbnormalExit
+			}
+		},
+		onEnd:  func(fn own func()) fails Stopped { try OnEnd(a, fn) },
+		onFeed: func(fn own func()) fails Stopped {
+			try feed(a, func(send func(e E)) {
+				let _ = send
+				fn()
+			})
+		},
+		stop: func() {
+			a.Stop() catch {
+			case _:
+				let _ = 0
+			}
+		},
+	}
+}
+
+func isActorAbnormal[S, E, O, F](a Actor[S, E, machines.Decision[S, O], F]) bool {
+	if !Ended(a) {
+		return false
+	}
+	match ExitOf(a) {
+	case Finished[S, O]:
+		false
+	case Halted[S]:
+		false
+	case Failed[F]:
+		true
+	case Defected:
+		true
+	}
+}
+
+// ActorHandle adapts a raw Actor into a Target so it can participate in Link, Unlink, DynamicSupervisor, and SuperviseSet.
+type ActorHandle { p peer } implements Target
+
+// FromActor wraps an existing Actor as a Target.
+func FromActor[S, E, O, F](a Actor[S, E, machines.Decision[S, O], F]) ActorHandle {
+	ActorHandle{p: makeActorPeer(a)}
+}
+
+func asPeer(h ActorHandle) peer { h.p }
+
+// Address is a typed, copyable handle to an actor's mailbox supporting fire-and-forget Send and synchronous/deferred Ask.
+type Address[M] {
+	p    peer,
+	send func(msg M) fails Stopped,
+	step func(msg M) fails Stopped,
+} implements Target
+
+func asPeer[M](a Address[M]) peer { a.p }
+
+// Send enqueues msg onto the mailbox of a without waiting for its step to run, failing Stopped if a has already stopped.
+func Send[M](a Address[M], msg M) fails Stopped {
+	try a.send(msg)
+}
+
+// Ask delivers the message built by makeRequest to a and awaits its reply, distinguishing Stopped, forgotten or crashed replies (NoReply), and typed errors E.
+func Ask[M, T, E](a Address[M], makeRequest own func(r Reply[T, E]) M) T fails Stopped | NoReply | E needs time.Scheduler {
+	if a.p.ended() {
+		return Stopped
+	}
+	let r = Reply[T, E]{
+		slot:     sync.NewDeferred[replyOutcome[T, E]](),
+		deferred: sync.NewRef(false),
+	}
+	let stepOk = stepAsk(a.step, makeRequest(r))
+	if !stepOk {
+		match sync.Peek(r.slot) {
+		case option.Some[replyOutcome[T, E]] as got:
+			return try unwrapReply[T, E](got.Value)
+		case option.None:
+			if a.p.ended() {
+				if a.p.abnormal() {
+					return NoReply
+				}
+				return Stopped
+			}
+			return NoReply
+		}
+	}
+	match sync.Peek(r.slot) {
+	case option.Some[replyOutcome[T, E]] as got:
+		try unwrapReply[T, E](got.Value)
+	case option.None:
+		if !r.deferred.Get() {
+			return NoReply
+		}
+		a.p.onEnd(func() {
+			let _ = sync.Complete(r.slot, replyClosed)
+		}) catch {
+		case Stopped:
+			let _ = sync.Complete(r.slot, replyClosed)
+		}
+		try unwrapReply[T, E](sync.Wait(r.slot))
+	}
+}
+
+func stepAsk[M](fn func(msg M) fails Stopped, msg M) bool {
+	fn(msg) catch {
+	case Stopped:
+		return false
+	}
+	true
+}
+
+func unwrapReply[T, E](o replyOutcome[T, E]) T fails NoReply | E {
+	match o {
+	case replyOk[T] as ok:
+		ok.Val
+	case replyFail[E] as fl:
+		fl.Err
+	case replyClosed:
+		NoReply
+	}
+}
+
+// Process is a running typed OTP actor created by Start, exposing both its mailbox Address and lifecycle control.
+type Process[M, E] {
+	p     peer,
+	addr  Address[M],
+	stop  func() fails E,
+	drain func() fails E,
+} implements Target
+
+func asPeer[M, E](pr Process[M, E]) peer { pr.p }
+
+// Start spawns an actor from initial state, mailbox capacity, and an OTP-style step handler over M returning Next[S].
+func Start[S, M, E, R](initial S, capacity int, handle own func(s S, msg M) Next[S] fails E needs R) Process[M, E] needs R | time.Scheduler {
+	let spec = LiveMachine[S, M, bool, E, R]{
+		Initial: initial,
+		Step:    func(s S, msg M) machines.Decision[S, bool] fails E needs R defects {
+			let n = try handle(s, msg)
+			match n {
+			case Continue[S] as c:
+				machines.Enter[S]{Next: c.State}
+			case Halt:
+				machines.Done[bool]{Output: true}
+			}
+		},
+		After: func(s S) option.Option[Timeout[M]] {
+			let _ = s
+			option.None
+		},
+		Work: func(s S) option.Option[func(send entry func(e M)) defects] {
+			let _ = s
+			option.None
+		},
+		Exit: func(s S) option.Option[func()] {
+			let _ = s
+			option.None
+		},
+	}
+	let raw = StartLive(spec, capacity, func(o bool) { let _ = o })
+	let p = makeActorPeer(raw)
+	let addr = Address[M]{
+		p:    p,
+		send: func(msg M) fails Stopped {
+			try raw.Send(msg)
+		},
+		step: func(msg M) fails Stopped {
+			let _ = raw.Ask(msg) catch {
+			case Stopped:
+				return Stopped
+			case _:
+				return Stopped
+			}
+		},
+	}
+	Process[M, E]{
+		p:    p,
+		addr: addr,
+		stop: func() fails E {
+			try raw.Stop()
+		},
+		drain: func() fails E {
+			try raw.Drain()
+		},
+	}
+}
+
+// Addr returns the copyable mailbox Address of pr.
+func Addr[M, E](pr Process[M, E]) Address[M] { pr.addr }
+
+// Stop stops admission, waits for pr to end, and surfaces any terminal step failure E.
+func Stop[M, E](pr Process[M, E]) fails E {
+	try pr.stop()
+}
+
+// Drain drains queued signals in order before stopping pr cleanly.
+func Drain[M, E](pr Process[M, E]) fails E {
+	try pr.drain()
+}
+
+type agentMsg[S] {
+	apply func(s S) (S, bool),
+}
+
+// Agent is a mutable-state actor handle supporting synchronous borrow-checked Call updates, asynchronous Cast updates, and consistent Snapshot reads.
+type Agent[S] {
+	p     peer,
+	raw   Actor[S, agentMsg[S], machines.Decision[S, Never]],
+	state func() S,
+} implements Target
+
+func asPeer[S](ag Agent[S]) peer { ag.p }
+
+// StartAgent spawns an Agent initialized to initial with a default buffered mailbox.
+func StartAgent[S](initial S) Agent[S] needs time.Scheduler {
+	StartAgentBuffered(initial, 64)
+}
+
+// StartAgentBuffered spawns an Agent initialized to initial with an explicit mailbox capacity.
+func StartAgentBuffered[S](initial S, capacity int) Agent[S] needs time.Scheduler {
+	let spec = LiveMachine[S, agentMsg[S], Never]{
+		Initial: initial,
+		Step:    func(s S, msg agentMsg[S]) machines.Decision[S, Never] defects {
+			let apply = msg.apply
+			let (next, changed) = apply(s)
+			if changed {
+				machines.Enter[S]{Next: next}
+			} else {
+				machines.Stay[S]{Next: next}
+			}
+		},
+		After: func(s S) option.Option[Timeout[agentMsg[S]]] {
+			let _ = s
+			option.None
+		},
+		Work: func(s S) option.Option[func(send entry func(e agentMsg[S])) defects] {
+			let _ = s
+			option.None
+		},
+		Exit: func(s S) option.Option[func()] {
+			let _ = s
+			option.None
+		},
+	}
+	let raw = StartLive(spec, capacity, func(o Never) {})
+	Agent[S]{
+		p:     makeActorPeer(raw),
+		raw:   raw,
+		state: func() S { raw.State() },
+	}
+}
+
+// Call runs fn inside the agent's serialized loop with a mutable borrow of S; typed failures E preserve prior state and defects fail with NoReply.
+func Call[S, T, E](ag Agent[S], fn own func(s mut S) T fails E) T fails Stopped | NoReply | E {
+	if ag.p.ended() {
+		return Stopped
+	}
+	let slot = sync.NewDeferred[replyOutcome[T, E]]()
+	let ran = sync.NewRef(false)
+	let msg = agentMsg[S]{
+		apply: func(s S) (S, bool) {
+			ran.Set(true)
+			let mut cur = s
+			let out = fn(&cur) catch {
+			case err:
+				let _ = sync.Complete(slot, replyFail[E]{Err: err})
+				return (s, false)
+			}
+			let _ = sync.Complete(slot, replyOk[T]{Val: out})
+			(cur, true)
+		},
+	}
+	let _ = ag.raw.Ask(msg) catch {
+	case Stopped:
+		match sync.Peek(slot) {
+		case option.Some[replyOutcome[T, E]] as got:
+			return try unwrapReply[T, E](got.Value)
+		case option.None:
+			if ran.Get() {
+				return NoReply
+			}
+			return Stopped
+		}
+	}
+	match sync.Peek(slot) {
+	case option.Some[replyOutcome[T, E]] as got:
+		try unwrapReply[T, E](got.Value)
+	case option.None:
+		NoReply
+	}
+}
+
+// Cast enqueues a non-blocking state update fn onto ag without waiting for its execution.
+func Cast[S](ag Agent[S], fn own func(s mut S)) fails Stopped {
+	let msg = agentMsg[S]{
+		apply: func(s S) (S, bool) {
+			let mut cur = s
+			fn(&cur)
+			(cur, true)
+		},
+	}
+	try ag.raw.Send(msg)
+}
+
+// Snapshot returns the most recently committed state held by ag.
+func Snapshot[S](ag Agent[S]) S { ag.state() }
+
+// HaltAgent cleanly stops ag and waits for it to terminate.
+func HaltAgent[S](ag Agent[S]) {
+	ag.raw.Stop()
+}
+
+// PeerEnded reports whether target has terminated.
+func PeerEnded(t Target) bool {
+	t.asPeer().ended()
+}
+
+// PeerExit waits until target ends and reports whether it ended normally or abnormally.
+func PeerExit(t Target) ExitReason {
+	t.asPeer().waitExit()
+}
+
+// StopPeer requests termination of target and waits until it has stopped.
+func StopPeer(t Target) {
+	t.asPeer().stop()
+}
+
+// OnPeerEnd registers a callback to run once target has ended.
+func OnPeerEnd(t Target, fn own func()) fails Stopped {
+	try t.asPeer().onEnd(fn)
+}
+
+// LinkHandle identifies an established bidirectional link and allows detaching it with Unlink.
+type LinkHandle {
+	unlinked sync.Ref[bool],
+}
+
+// Link establishes a lightweight bidirectional abnormal-exit link between a and b: if either exits with Failed or Defected (including an already-failed peer), the live peer is terminated abnormally.
+func Link(a Target, b Target) LinkHandle {
+	let pa = a.asPeer()
+	let pb = b.asPeer()
+	let unlinked = sync.NewRef(false)
+	if samePeer(pa, pb) {
+		return LinkHandle{unlinked: unlinked}
+	}
+	wireLink(pa, pb, unlinked)
+	wireLink(pb, pa, unlinked)
+	LinkHandle{unlinked: unlinked}
+}
+
+func samePeer(a peer, b peer) bool {
+	sync.Modify(linkProbeMu, func(v bool) (bool, bool) {
+		a.tag.Set(true)
+		let same = b.tag.Get()
+		a.tag.Set(false)
+		(same, v)
+	})
+}
+
+func wireLink(src peer, dst peer, unlinked sync.Ref[bool]) {
+	dst.onFeed(func() {
+		if unlinked.Get() {
+			return
+		}
+		match src.waitExit() {
+		case AbnormalExit:
+			if !unlinked.Get() {
+				Unreachable("actor: linked exit")
+			}
+		case NormalExit:
+			let _ = 0
+		}
+	}) catch {
+	case Stopped:
+		let _ = 0
+	}
+}
+
+// Unlink breaks a bidirectional link so subsequent abnormal termination of either peer does not terminate the other.
+func Unlink(h LinkHandle) {
+	h.unlinked.Set(true)
+}
