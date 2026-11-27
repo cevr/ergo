@@ -9,8 +9,9 @@ import time
 // onTestHost is the test host as NewTestHost makes it: its Env() is only
 // TestHostKeys, so EnvIsExact sees those and the Command's own entries,
 // and LookupUsesChildPath finds no sh by name. A test's Spawner refuses
-// detached programs, which would outlive the case.
-let onTestHost = context needs fstest.TestAmbient { Runner: NewTestHost(), Spawner: NewTestHost() }
+// detached programs, which would outlive the case, and a test's Sessions
+// refuses host PTY/FD operations with Denied.
+let onTestHost = context needs fstest.TestAmbient { Runner: NewTestHost(), Spawner: NewTestHost(), Sessions: NewTestHost() }
 
 // onTestHostWithPath is the test host given a PATH, as a test that runs
 // programs by name chooses it: EnvIsExact sees the inherited entry, and the

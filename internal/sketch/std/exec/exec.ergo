@@ -803,7 +803,7 @@ law ScriptReplaysRecorded(name string, arg string, status int, out string) {
 // (NewHost), and the case's folder for a test's (NewTestHost,
 // confined.ergo). base is the environment each Command it runs gets under
 // its own entries (InheritEnv): empty for NewHost and NewTestHost.
-type Host { root string, base Map[string, string] } implements Runner, Spawner, Sessions
+type Host { root string, base Map[string, string] } implements Runner, Spawner, Sessions, confinedSessions
 
 // NewHost is the host's Runner. It needs Ambient: only code whose row
 // holds the authority to choose the host makes one. A program it runs

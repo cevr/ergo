@@ -47,7 +47,37 @@ type memPTYState struct {
 	refs    int
 	eof     bool
 	notify  chan struct{}
+	waiters []*rt.Task
 	slaveOf *memProcEntry
+}
+
+func wakeTasksAndClose(waiters *[]*rt.Task, target any, notify *chan struct{}) {
+	ws := *waiters
+	*waiters = nil
+	ch := *notify
+	*notify = make(chan struct{})
+	var wakers []rt.Waker
+	for _, w := range ws {
+		if w != nil && w.InDomain() {
+			wakers = append(wakers, rt.Waking(w, target))
+		}
+	}
+	close(ch)
+	for _, k := range wakers {
+		k.Done()
+	}
+}
+
+func removeMemWaiter(waiters *[]*rt.Task, t *rt.Task) {
+	ws := *waiters
+	for i, w := range ws {
+		if w == t {
+			ws[i] = ws[len(ws)-1]
+			ws[len(ws)-1] = nil
+			*waiters = ws[:len(ws)-1]
+			return
+		}
+	}
 }
 
 func newMemPTYState() *memPTYState {
@@ -59,9 +89,7 @@ func newMemPTYState() *memPTYState {
 }
 
 func (s *memPTYState) wakeLocked() {
-	close(s.notify)
-	s.notify = make(chan struct{})
-	rt.Wake(s)
+	wakeTasksAndClose(&s.waiters, s, &s.notify)
 }
 
 type memPipeState struct {
@@ -70,6 +98,7 @@ type memPipeState struct {
 	readRefs  int
 	writeRefs int
 	notify    chan struct{}
+	waiters   []*rt.Task
 	onWrite   func(string)
 	onEOF     func()
 }
@@ -83,9 +112,7 @@ func newMemPipeState(readRefs, writeRefs int) *memPipeState {
 }
 
 func (s *memPipeState) wakeLocked() {
-	close(s.notify)
-	s.notify = make(chan struct{})
-	rt.Wake(s)
+	wakeTasksAndClose(&s.waiters, s, &s.notify)
 }
 
 type memProcEntry struct {
@@ -100,6 +127,7 @@ type memProcEntry struct {
 	signal   int
 	done     chan struct{}
 	notify   chan struct{}
+	waiters  []*rt.Task
 	pty      *memPTYState
 	inPipe   *memPipeState
 	outPipe  *memPipeState
@@ -108,9 +136,7 @@ type memProcEntry struct {
 }
 
 func (p *memProcEntry) wakeLocked() {
-	close(p.notify)
-	p.notify = make(chan struct{})
-	rt.Wake(p)
+	wakeTasksAndClose(&p.waiters, p, &p.notify)
 }
 
 type memRunning struct {
@@ -132,24 +158,30 @@ type memRunning struct {
 
 func (mr *memRunning) finishStreams() {
 	mr.endOnce.Do(func() {
-		if mr.r.chunks != nil {
-			if !mr.r.detached.Load() {
-				if mr.captureOut {
-					select {
-					case mr.r.chunks <- ExecChunk{Stderr: false}:
-					case <-mr.r.drop:
-					}
+		if mr.r.chunks == nil {
+			return
+		}
+		if mr.r.detached.Load() {
+			close(mr.r.chunks)
+			close(mr.r.ended)
+			return
+		}
+		go func() {
+			if mr.captureOut {
+				select {
+				case mr.r.chunks <- ExecChunk{Stderr: false}:
+				case <-mr.r.drop:
 				}
-				if mr.captureErr {
-					select {
-					case mr.r.chunks <- ExecChunk{Stderr: true}:
-					case <-mr.r.drop:
-					}
+			}
+			if mr.captureErr {
+				select {
+				case mr.r.chunks <- ExecChunk{Stderr: true}:
+				case <-mr.r.drop:
 				}
 			}
 			close(mr.r.chunks)
-		}
-		close(mr.r.ended)
+			close(mr.r.ended)
+		}()
 	})
 }
 
@@ -441,6 +473,7 @@ func (m *MemSessions) ptyRead(t *rt.Task, fd int, closeCh <-chan struct{}) (stri
 		notify := st.notify
 		var p rt.Parked
 		if t.InDomain() {
+			st.waiters = append(st.waiters, t)
 			p = rt.Park(t, st, t.Done(), func() bool {
 				return len(st.buf) > 0 || st.eof
 			})
@@ -450,12 +483,21 @@ func (m *MemSessions) ptyRead(t *rt.Task, fd int, closeCh <-chan struct{}) (stri
 		case <-notify:
 		case <-closeCh:
 			p.Unpark()
+			st.mu.Lock()
+			removeMemWaiter(&st.waiters, t)
+			st.mu.Unlock()
 			return "", ExecFailed{Name: "pty", Reason: "PTY is closed"}
 		case <-t.Done():
 			p.Unpark()
+			st.mu.Lock()
+			removeMemWaiter(&st.waiters, t)
+			st.mu.Unlock()
 			t.Check()
 		}
 		p.Unpark()
+		st.mu.Lock()
+		removeMemWaiter(&st.waiters, t)
+		st.mu.Unlock()
 	}
 }
 
@@ -513,6 +555,7 @@ func (m *MemSessions) pipeRead(t *rt.Task, fd int, closeCh <-chan struct{}) (str
 		notify := st.notify
 		var p rt.Parked
 		if t.InDomain() {
+			st.waiters = append(st.waiters, t)
 			p = rt.Park(t, st, t.Done(), func() bool {
 				return len(st.buf) > 0 || st.writeRefs <= 0
 			})
@@ -522,12 +565,27 @@ func (m *MemSessions) pipeRead(t *rt.Task, fd int, closeCh <-chan struct{}) (str
 		case <-notify:
 		case <-closeCh:
 			p.Unpark()
+			if t.InDomain() {
+				st.mu.Lock()
+				removeMemWaiter(&st.waiters, t)
+				st.mu.Unlock()
+			}
 			return "", ExecFailed{Name: "pipe", Reason: "pipe is closed"}
 		case <-t.Done():
 			p.Unpark()
+			if t.InDomain() {
+				st.mu.Lock()
+				removeMemWaiter(&st.waiters, t)
+				st.mu.Unlock()
+			}
 			t.Check()
 		}
 		p.Unpark()
+		if t.InDomain() {
+			st.mu.Lock()
+			removeMemWaiter(&st.waiters, t)
+			st.mu.Unlock()
+		}
 	}
 }
 
@@ -939,6 +997,7 @@ func (mr *memRunning) detachRunning(r *Running) (*DetachedRun, error) {
 	r.finished = true
 	close(r.drop)
 	mr.finishStreams()
+	<-r.ended
 
 	var preOut string
 	r.mu.Lock()
@@ -998,7 +1057,13 @@ type memProcBridge struct {
 
 func (p *memProcBridge) exited() <-chan struct{} { return p.entry.done }
 
-func (p *memProcBridge) signal(s syscall.Signal) {}
+func (p *memProcBridge) signal(s syscall.Signal) {
+	sig := int(s)
+	if sig <= 0 {
+		sig = 9
+	}
+	p.host.completeEntry(p.entry, 128+sig, sig)
+}
 
 func (p *memProcBridge) reap() int {
 	p.entry.mu.Lock()
@@ -1072,6 +1137,7 @@ func (m *MemSessions) WaitDetached(t *rt.Task, pid int, start int64) (int, int, 
 		notify := e.notify
 		var p rt.Parked
 		if t.InDomain() {
+			e.waiters = append(e.waiters, t)
 			p = rt.Park(t, e, t.Done(), func() bool { return e.exited })
 		}
 		e.mu.Unlock()
@@ -1079,10 +1145,52 @@ func (m *MemSessions) WaitDetached(t *rt.Task, pid int, start int64) (int, int, 
 		case <-notify:
 		case <-t.Done():
 			p.Unpark()
+			if t.InDomain() {
+				e.mu.Lock()
+				removeMemWaiter(&e.waiters, t)
+				e.mu.Unlock()
+			}
 			t.Check()
 		}
 		p.Unpark()
+		if t.InDomain() {
+			e.mu.Lock()
+			removeMemWaiter(&e.waiters, t)
+			e.mu.Unlock()
+		}
 	}
+}
+
+// ExecMemOpenPipe allocates a virtual pipe pair in m (bound by Ergo
+// MemorySessions.OpenPipe without multi-result method lowering).
+//
+//ergo:wait none
+func ExecMemOpenPipe(m *MemSessions) (*Pipe, *Pipe, error) {
+	if m == nil {
+		return nil, nil, ExecFailed{Name: "pipe", Reason: "memory sessions unavailable"}
+	}
+	return m.OpenPipe()
+}
+
+// ExecMemPollDetached inspects detached process state in m without blocking.
+//
+//ergo:wait none
+func ExecMemPollDetached(m *MemSessions, pid int, start int64) (int, int, int, bool, string) {
+	if m == nil {
+		return execOutcomeUnavailable, 0, 0, true, "memory sessions unavailable"
+	}
+	return m.PollDetached(pid, start)
+}
+
+// ExecMemWaitDetached waits parked on t until simulated process exits.
+//
+//ergo:wait caller
+func ExecMemWaitDetached(t *rt.Task, m *MemSessions, pid int, start int64) (int, int, int, bool, string) {
+	t.Check()
+	if m == nil {
+		return execOutcomeUnavailable, 0, 0, true, "memory sessions unavailable"
+	}
+	return m.WaitDetached(t, pid, start)
 }
 
 func itoaSmall(n int) string {

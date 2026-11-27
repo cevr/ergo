@@ -2,8 +2,8 @@ package exec
 
 import (
 	"testing"
-	"time"
 
+	"ergo.local/prototype/internal/testwait"
 	"ergo.local/prototype/runtime/rt"
 )
 
@@ -64,15 +64,27 @@ func TestMemSessionsPTYDetachReattachAndWait(t *testing.T) {
 		t.Fatalf("Spawn: %v", err)
 	}
 	wt := rt.Root("mem-wait-stop")
+	waiting := make(chan struct{})
 	done := make(chan any, 1)
 	go func() {
 		defer func() { done <- recover() }()
-		_, _, _, _, _ = m.WaitDetached(wt, d2.Pid, d2.Start)
+		cancel := rt.WhenWaiting(wt, func() { close(waiting) })
+		defer cancel()
+		_, _, _, _, _ = ExecMemWaitDetached(wt, m, d2.Pid, d2.Start)
 		done <- nil
 	}()
-	time.Sleep(10 * time.Millisecond)
+	select {
+	case <-waiting:
+	case <-testwait.After(t):
+		t.Fatal("MemSessions.WaitDetached did not reach wait")
+	}
 	wt.Interrupt()
-	if res := <-done; res != rt.Interrupted {
-		t.Fatalf("MemSessions.WaitDetached after Interrupt = %v, want rt.Interrupted", res)
+	select {
+	case res := <-done:
+		if res != rt.Interrupted {
+			t.Fatalf("MemSessions.WaitDetached after Interrupt = %v, want rt.Interrupted", res)
+		}
+	case <-testwait.After(t):
+		t.Fatal("MemSessions.WaitDetached did not unblock on task stop")
 	}
 }

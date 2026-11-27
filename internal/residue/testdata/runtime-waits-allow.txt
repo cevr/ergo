@@ -24,9 +24,10 @@ runtime/v1/rpc/rpc.go	RPCCall	no wait: got has room for the post's one result
 # a goroutine of no task: no clock's domain holds it (batch 16d: the host
 # waits of CU4, E4, CU6 and the RPC chain, which MK1's inventory predates)
 runtime/v1/exec/exec_spawn.go	ExecSpawn	no task: the reaper goroutine of a detached program waits for its exit
-runtime/v1/exec/exec_start.go	Running.Detach	handshake: waits for ended after setting past ReadDeadlines on local pipe readers so no bytes or goroutines leak into transferred pipes
-runtime/v1/exec/exec_start.go	execStartCore	no task: waits for OS exit watcher without reaping and releases watch state if detached
-runtime/v1/exec/exec_pty_unix.go	execStartWithPTYOS	no task: waits for OS exit watcher on PTY-attached child without reaping and releases watch state if detached
+runtime/v1/exec/exec_pty.go	Running.Detach	handshake: waits for ended after setting past ReadDeadlines on local pipe readers so no bytes or goroutines leak into transferred pipes
+runtime/v1/exec/exec_start.go	Running.initReaders	no task: waits for pipe readers to finish, closes chunks, and closes ended
+runtime/v1/exec/exec_pty_mem.go	memRunning.finishStreams	no task: sends simulated stream EOF chunks or drops once detach/finish begins
+runtime/v1/exec/exec_pty_mem.go	memRunning.detachRunning	handshake: waits for ended after closing drop before collecting remaining buffered chunks
 runtime/v1/exec/exec_pty_unix.go	execSpawnWithPTYOS	no task: reaper goroutine of a PTY-spawned detached program waits for exit status collection
 runtime/v1/exec/exec_pty_unix.go	execOnStop	no task: stop and close watcher goroutine interrupts pollable FD read with past deadline
 runtime/v1/exec/exec_pty_unix.go	execWaitDetachedOS	host: waits for tracked detached child exit or task stop
@@ -35,11 +36,10 @@ runtime/v1/exec/exec_pty_linux.go	awaitPidfdLinux	no task: stop watcher goroutin
 runtime/v1/exec/exec_pty_linux.go	awaitDetachedPollFallback	host: bounded adaptive poll fallback when pidfd_open is unavailable
 runtime/v1/exec/exec_pty_kqueue.go	awaitFDReadableOS	no task: stop and close watcher goroutine writes one byte to self-pipe to wake Kevent
 runtime/v1/exec/exec_pty_kqueue.go	awaitDetachedNonChildOS	no task: stop watcher goroutine writes one byte to self-pipe to wake EVFILT_PROC Kevent
-runtime/v1/exec/exec_start.go	newRunning	no task: the goroutine that closes chunks once the pipe readers end
+runtime/v1/exec/exec.go	execChild.reapState	no task: hostProc.reap/reapState reaper goroutine, and execRun's reap once the program has ended
 runtime/v1/exec/exec_start.go	Running.send	no task: a pipe reader goroutine hands a chunk to the reading task, or drops it once finish begins
 runtime/v1/exec/exec_start.go	ExecReplay	no task: the replay goroutine feeds the recorded chunks
 runtime/v1/http/http_client.go	httpStreamRead	no task: the response reader goroutine hands an event to the reading task
-runtime/v1/exec/exec.go	execChild.reap	no task: hostProc.reap's reaper goroutine, and execRun's reap once the program has ended
 runtime/v1/gocall.go	Call	no task: the Go caller waits, after the root task's run, for the context watcher that interrupted it to end (batch 16b's IG11 fix meets MK1)
 runtime/v1/http/http_local.go	httpLocalServe	no task: net/http's connection goroutine of the local server hands its request to the exchange's caller and waits for the answer
 runtime/v1/http/http_local.go	httpPipeListener.Accept	no task: the local server's accept goroutine waits for the next pipe

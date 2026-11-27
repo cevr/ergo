@@ -392,7 +392,7 @@ func (r *Running) Pid() int {
 	}
 	r.detachMu.Lock()
 	defer r.detachMu.Unlock()
-	if r.detached {
+	if r.detached.Load() {
 		return 0
 	}
 	return r.pid
@@ -400,6 +400,7 @@ func (r *Running) Pid() int {
 
 // WriteStdin writes data to the interactive stdin pipe of r.
 //
+//ergo:host
 //ergo:wait none
 func (r *Running) WriteStdin(data string) error {
 	if r == nil {

@@ -120,6 +120,7 @@ func (p *PTY) CloseSlave() {
 
 // Fd returns p's master file descriptor number, or -1 if closed.
 //
+//ergo:host
 //ergo:wait none
 func (p *PTY) Fd() int {
 	if p == nil {
@@ -179,6 +180,7 @@ func (p *PTY) SlavePath() string {
 
 // Size reads the current window size of p (TIOCGWINSZ).
 //
+//ergo:host
 //ergo:wait none
 func (p *PTY) Size() (ExecWinsize, error) {
 	if p == nil {
@@ -201,6 +203,7 @@ func (p *PTY) Size() (ExecWinsize, error) {
 
 // Resize sets the terminal window size of p (TIOCSWINSZ).
 //
+//ergo:host
 //ergo:wait none
 func (p *PTY) Resize(ws ExecWinsize) error {
 	if !ExecValidWinsize(ws) {
@@ -227,6 +230,7 @@ func (p *PTY) Resize(ws ExecWinsize) error {
 // Read reads available bytes from p's master descriptor, returning "" on
 // EOF when the slave closes. A stop of t interrupts the wait.
 //
+//ergo:host
 //ergo:wait caller
 func (p *PTY) Read(t *rt.Task) (string, error) {
 	t.Check()
@@ -254,6 +258,7 @@ func (p *PTY) Read(t *rt.Task) (string, error) {
 
 // Write writes data completely to p's master descriptor.
 //
+//ergo:host
 //ergo:wait none
 func (p *PTY) Write(data string) error {
 	if p == nil {
@@ -327,6 +332,7 @@ func (p *Pipe) Close() {
 
 // Fd returns p's underlying descriptor number, or -1 if closed.
 //
+//ergo:host
 //ergo:wait none
 func (p *Pipe) Fd() int {
 	if p == nil {
@@ -372,6 +378,7 @@ func (p *Pipe) DupFD() (int, error) {
 // Read reads available bytes from p, returning "" on EOF. A stop of t
 // interrupts the wait.
 //
+//ergo:host
 //ergo:wait caller
 func (p *Pipe) Read(t *rt.Task) (string, error) {
 	t.Check()
@@ -399,6 +406,7 @@ func (p *Pipe) Read(t *rt.Task) (string, error) {
 
 // Write writes data completely to p.
 //
+//ergo:host
 //ergo:wait none
 func (p *Pipe) Write(data string) error {
 	if p == nil {
@@ -569,6 +577,7 @@ func (d *DetachedRun) IntoDetached() ExecDetached {
 // preserving live stdio pipe descriptors and buffered bytes without
 // signaling or terminating the process.
 //
+//ergo:host
 //ergo:wait none
 func (r *Running) Detach() (*DetachedRun, error) {
 	if r == nil {

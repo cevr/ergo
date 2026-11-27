@@ -3,6 +3,7 @@
 package exec
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"net"
@@ -15,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"ergo.local/prototype/internal/testwait"
 	"ergo.local/prototype/runtime/rt"
 )
 
@@ -72,33 +74,31 @@ func TestPTYOpenResizeEchoAndClose(t *testing.T) {
 		t.Fatalf("expected positive child pid, got %d", r.Pid())
 	}
 
+	stopWatch := testwait.AfterFunc(t, func() { pty.Close() })
 	var out strings.Builder
-	deadline := time.Now().Add(5 * time.Second)
 	for !strings.Contains(out.String(), "40 120") {
-		if time.Now().After(deadline) {
-			t.Fatalf("timed out waiting for stty size, got %q", out.String())
-		}
 		chunk, err := pty.Read(root)
 		if err != nil {
-			t.Fatalf("pty.Read: %v", err)
+			stopWatch()
+			t.Fatalf("pty.Read waiting for stty size (got %q): %v", out.String(), err)
 		}
 		out.WriteString(chunk)
 	}
 
 	if err := pty.Write("hello-pty\n"); err != nil {
+		stopWatch()
 		t.Fatalf("pty.Write: %v", err)
 	}
 	out.Reset()
 	for !strings.Contains(out.String(), "hello-pty") {
-		if time.Now().After(deadline) {
-			t.Fatalf("timed out waiting for echo, got %q", out.String())
-		}
 		chunk, err := pty.Read(root)
 		if err != nil {
-			t.Fatalf("pty.Read echo: %v", err)
+			stopWatch()
+			t.Fatalf("pty.Read waiting for echo (got %q): %v", out.String(), err)
 		}
 		out.WriteString(chunk)
 	}
+	stopWatch()
 
 	status := r.Stop(root)
 	if status == 0 {
@@ -301,22 +301,29 @@ func TestPTYAndPipeStopAndMaskLaws(t *testing.T) {
 	defer r.Close(root)
 
 	stopTask := rt.Root("pty-reader")
+	ptyWaiting := make(chan struct{})
 	readDone := make(chan any, 1)
 	go func() {
 		defer func() {
 			readDone <- recover()
 		}()
+		cancel := rt.WhenWaiting(stopTask, func() { close(ptyWaiting) })
+		defer cancel()
 		_, err := pty.Read(stopTask)
 		readDone <- err
 	}()
-	time.Sleep(25 * time.Millisecond)
+	select {
+	case <-ptyWaiting:
+	case <-testwait.After(t):
+		t.Fatal("PTY.Read did not reach wait")
+	}
 	stopTask.Interrupt()
 	select {
 	case res := <-readDone:
 		if res != rt.Interrupted {
 			t.Fatalf("PTY.Read after Interrupt = %v, want rt.Interrupted", res)
 		}
-	case <-time.After(3 * time.Second):
+	case <-testwait.After(t):
 		t.Fatal("PTY.Read did not unblock on task stop")
 	}
 
@@ -328,22 +335,29 @@ func TestPTYAndPipeStopAndMaskLaws(t *testing.T) {
 	defer pr.Close()
 	defer pw.Close()
 	pipeTask := rt.Root("pipe-reader")
+	pipeWaiting := make(chan struct{})
 	pipeDone := make(chan any, 1)
 	go func() {
 		defer func() {
 			pipeDone <- recover()
 		}()
+		cancel := rt.WhenWaiting(pipeTask, func() { close(pipeWaiting) })
+		defer cancel()
 		_, err := pr.Read(pipeTask)
 		pipeDone <- err
 	}()
-	time.Sleep(25 * time.Millisecond)
+	select {
+	case <-pipeWaiting:
+	case <-testwait.After(t):
+		t.Fatal("Pipe.Read did not reach wait")
+	}
 	pipeTask.Interrupt()
 	select {
 	case res := <-pipeDone:
 		if res != rt.Interrupted {
 			t.Fatalf("Pipe.Read after Interrupt = %v, want rt.Interrupted", res)
 		}
-	case <-time.After(3 * time.Second):
+	case <-testwait.After(t):
 		t.Fatal("Pipe.Read did not unblock on task stop")
 	}
 
@@ -355,22 +369,29 @@ func TestPTYAndPipeStopAndMaskLaws(t *testing.T) {
 	defer ExecKill(rt.Root("cleanup"), d.Pid, d.Start, 0)
 
 	waitTask := rt.Root("wait-detached-stop")
+	waitWaiting := make(chan struct{})
 	waitDone := make(chan any, 1)
 	go func() {
 		defer func() {
 			waitDone <- recover()
 		}()
+		cancel := rt.WhenWaiting(waitTask, func() { close(waitWaiting) })
+		defer cancel()
 		_, _, _, _, _, err := ExecWaitDetached(waitTask, d.Pid, d.Start)
 		waitDone <- err
 	}()
-	time.Sleep(25 * time.Millisecond)
+	select {
+	case <-waitWaiting:
+	case <-testwait.After(t):
+		t.Fatal("ExecWaitDetached did not reach wait")
+	}
 	waitTask.Interrupt()
 	select {
 	case res := <-waitDone:
 		if res != rt.Interrupted {
 			t.Fatalf("ExecWaitDetached after Interrupt = %v, want rt.Interrupted", res)
 		}
-	case <-time.After(3 * time.Second):
+	case <-testwait.After(t):
 		t.Fatal("ExecWaitDetached did not unblock on task stop")
 	}
 
@@ -545,15 +566,11 @@ func TestCutoverHelperServer2(t *testing.T) {
 	}
 	defer outPipe.Close()
 
-	// Wait until Server 1 process has completely exited (polling alive check).
+	// Wait until Server 1 process has completely exited (polling marker file).
 	waitFile := os.Getenv("ERGO_CUTOVER_WAIT_FILE")
 	if waitFile != "" {
-		deadline := time.Now().Add(5 * time.Second)
-		for time.Now().Before(deadline) {
-			if _, serr := os.Stat(waitFile); serr == nil {
-				break
-			}
-			time.Sleep(10 * time.Millisecond)
+		if !testwait.Until(t, func() bool { _, serr := os.Stat(waitFile); return serr == nil }) {
+			t.Fatalf("timed out waiting for server1 marker %s", waitFile)
 		}
 	}
 
@@ -570,18 +587,17 @@ func TestCutoverHelperServer2(t *testing.T) {
 	if err := pty.Write("from-server2-pty\n"); err != nil {
 		t.Fatal(err)
 	}
+	stopPTYRead := testwait.AfterFunc(t, func() { pty.Close() })
 	var ptyOut strings.Builder
-	deadline := time.Now().Add(5 * time.Second)
 	for !strings.Contains(ptyOut.String(), "from-server2-pty") {
-		if time.Now().After(deadline) {
-			t.Fatalf("timed out waiting for reattached PTY echo, got %q", ptyOut.String())
-		}
 		chunk, err := pty.Read(root)
 		if err != nil {
-			t.Fatal(err)
+			stopPTYRead()
+			t.Fatalf("pty.Read waiting for reattached PTY echo (got %q): %v", ptyOut.String(), err)
 		}
 		ptyOut.WriteString(chunk)
 	}
+	stopPTYRead()
 
 	// Verify reattached stdin/stdout pipes talk to live reparented process and collect exit!
 	if err := inPipe.Write("from-server2-pipe\n"); err != nil {
@@ -648,12 +664,8 @@ func TestServerCutoverPTYAndPipeReattachCrossProcess(t *testing.T) {
 	}()
 
 	// Wait for Server 2 socket listener.
-	deadline := time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) {
-		if _, err := os.Stat(sock); err == nil {
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
+	if !testwait.Until(t, func() bool { _, err := os.Stat(sock); return err == nil }) {
+		t.Fatalf("timed out waiting for server2 socket %s", sock)
 	}
 
 	server1 := exec.Command(os.Args[0], "-test.run=^TestCutoverHelperServer1$", "-test.count=1")
@@ -703,7 +715,7 @@ func TestSubreaperCollectsExactExitStatusAfterParentExits(t *testing.T) {
 			t.Fatalf("spawner: %v", err)
 		}
 		var d ExecDetached
-		if err := json.Unmarshal(out, &d); err != nil {
+		if err := json.NewDecoder(bytes.NewReader(out)).Decode(&d); err != nil {
 			t.Fatalf("unmarshal: %v (%s)", err, out)
 		}
 		// Original parent (spawner) already exited; orphaned child reparented to THIS subreaper!
@@ -723,7 +735,7 @@ func TestSubreaperCollectsExactExitStatusAfterParentExits(t *testing.T) {
 			t.Fatalf("spawner2: %v", err)
 		}
 		var d2 ExecDetached
-		if err := json.Unmarshal(out2, &d2); err != nil {
+		if err := json.NewDecoder(bytes.NewReader(out2)).Decode(&d2); err != nil {
 			t.Fatalf("unmarshal d2: %v (%s)", err, out2)
 		}
 		ExecKill(rt.Root("subreaper-kill"), d2.Pid, d2.Start, 0)
