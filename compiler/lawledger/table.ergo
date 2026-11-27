@@ -1,0 +1,843 @@
+import base64
+import dense
+import fs
+import fstest
+import option
+import sha256
+import slices
+import strconv
+import strings
+
+// LawRunVersion identifies the law ledger digest domain matching Go lower.LawRunVersion.
+let LawRunVersion = "ergo-laws/2"
+
+// GuardKindOther classifies unrecognized non-law guard lines in a ledger.
+let GuardKindOther = uint8(0)
+
+// GuardKindSync classifies synchronous fact guard lines in a ledger.
+let GuardKindSync = uint8(1)
+
+// GuardKindPure classifies pure fact guard lines in a ledger.
+let GuardKindPure = uint8(2)
+
+// GuardKindAdmit classifies explicit package-admit directives in a ledger.
+let GuardKindAdmit = uint8(3)
+
+// GuardKindFact classifies package fact summary lines in a ledger.
+let GuardKindFact = uint8(4)
+
+// AdmitNone indicates no admission applies to the target package.
+let AdmitNone = uint8(0)
+
+// AdmitDirect indicates direct admission for the requested view.
+let AdmitDirect = uint8(1)
+
+// AdmitTransitive indicates admission granted across all views.
+let AdmitTransitive = uint8(2)
+
+// FreshnessFresh indicates a recorded ledger entry matches expected digests.
+let FreshnessFresh = uint8(0)
+
+// FreshnessMissing indicates an expected law is absent from the ledger.
+let FreshnessMissing = uint8(1)
+
+// FreshnessStale indicates a recorded ledger entry has a mismatched digest.
+let FreshnessStale = uint8(2)
+
+// RunnerFormatError reports a malformed line in runners.txt.
+type RunnerFormatError {
+	Line    uint32,
+	Text    string,
+	Message string,
+}
+
+// LedgerFormatError reports a malformed line in an ergo.laws ledger.
+type LedgerFormatError {
+	Line    uint32,
+	Text    string,
+	Message string,
+}
+
+// RunnerEntry holds the unpacked fields of one row in RunnerTable.
+type RunnerEntry {
+	Pkg    string,
+	Law    string,
+	Runner string,
+	Line   uint32,
+}
+
+// RunnerTable stores pkg/law to runner mappings in flat uint32 SoA columns.
+type RunnerTable {
+	Strings  dense.Strings,
+	StrPool  []string,
+	Count    uint32,
+	Pkg      []uint32,
+	Law      []uint32,
+	Runner   []uint32,
+	Line     []uint32,
+	KeyIndex []uint32,
+}
+
+// LedgerEntry holds the unpacked fields of one law row in LedgerTable.
+type LedgerEntry {
+	Name     string,
+	Subject  string,
+	Instance string,
+	Kind     string,
+	Tool     string,
+	Producer string,
+	Digest   string,
+	RawLine  string,
+	Line     uint32,
+}
+
+// GuardEntry holds the unpacked fields of one guard or admit row in LedgerTable.
+type GuardEntry {
+	Kind   uint8,
+	Text   string,
+	Digest string,
+	Line   uint32,
+}
+
+// LedgerTable stores parsed ergo.laws entries and guard directives in flat uint32 SoA columns.
+type LedgerTable {
+	Strings     dense.Strings,
+	StrPool     []string,
+	Count       uint32,
+	Name        []uint32,
+	Subject     []uint32,
+	Instance    []uint32,
+	Kind        []uint32,
+	Tool        []uint32,
+	Producer    []uint32,
+	Digest      []uint32,
+	RawLine     []uint32,
+	Line        []uint32,
+	KeyIndex    []uint32,
+	GuardCount  uint32,
+	GuardKind   []uint8,
+	GuardText   []uint32,
+	GuardDigest []uint32,
+	GuardLine   []uint32,
+}
+
+// LawDigestCheck identifies an expected law name and current digest to verify against a LedgerTable.
+type LawDigestCheck {
+	Name     string,
+	Subject  string,
+	Instance string,
+	Digest   string,
+}
+
+// FreshnessReport summarizes ledger freshness verification against expected law digests.
+type FreshnessReport {
+	Total     uint32,
+	Fresh     uint32,
+	Missing   uint32,
+	Stale     uint32,
+	RowStatus []uint8,
+	IsFresh   bool,
+}
+
+// CompareResult holds the outcome of comparing a package law body against a runner statement.
+type CompareResult {
+	FoundPkg    bool,
+	FoundRunner bool,
+	Matches     bool,
+	PkgStmt     string,
+	RunnerStmt  string,
+}
+
+// NewRunnerTable allocates an empty RunnerTable.
+func NewRunnerTable() RunnerTable {
+	RunnerTable{
+		Strings:  dense.NewStrings(),
+		StrPool:  []string{},
+		Count:    uint32(0),
+		Pkg:      []uint32{},
+		Law:      []uint32{},
+		Runner:   []uint32{},
+		Line:     []uint32{},
+		KeyIndex: []uint32{},
+	}
+}
+
+func runnerKey(pkg string, lawName string) string {
+	pkg + "\x00" + lawName
+}
+
+// RunnerCount returns the number of entries recorded in t.
+func RunnerCount(t RunnerTable) uint32 {
+	t.Count
+}
+
+// RunnerEntryAt returns the unpacked entry at dense row id.
+func RunnerEntryAt(t RunnerTable, id uint32) RunnerEntry {
+	let idx = int(id)
+	if idx < 0 || uint32(idx) >= t.Count {
+		return RunnerEntry{Pkg: "", Law: "", Runner: "", Line: uint32(0)}
+	}
+	RunnerEntry{
+		Pkg:    poolStrAt(t.StrPool, t.Pkg[idx]),
+		Law:    poolStrAt(t.StrPool, t.Law[idx]),
+		Runner: poolStrAt(t.StrPool, t.Runner[idx]),
+		Line:   t.Line[idx],
+	}
+}
+
+// AddRunner inserts or updates a pkg/law runner mapping in t.
+func AddRunner(t mut RunnerTable, pkg string, lawName string, runner string, line uint32) {
+	let key = runnerKey(pkg, lawName)
+	let keyID = internPoolStr(&((*t).Strings), &((*t).StrPool), key)
+	let pkgID = internPoolStr(&((*t).Strings), &((*t).StrPool), pkg)
+	let lawID = internPoolStr(&((*t).Strings), &((*t).StrPool), lawName)
+	let runID = internPoolStr(&((*t).Strings), &((*t).StrPool), runner)
+	let ki = int(keyID)
+	for (*t).KeyIndex.Len() <= ki {
+		*t = RunnerTable{
+			Strings:  (*t).Strings,
+			StrPool:  (*t).StrPool,
+			Count:    (*t).Count,
+			Pkg:      (*t).Pkg,
+			Law:      (*t).Law,
+			Runner:   (*t).Runner,
+			Line:     (*t).Line,
+			KeyIndex: (*t).KeyIndex.Append(uint32(0)),
+		}
+	}
+	let existing = (*t).KeyIndex[ki]
+	if existing > uint32(0) {
+		let row = int(existing - uint32(1))
+		(*t).Runner[row] = runID
+		(*t).Line[row] = line
+		return
+	}
+	let row = (*t).Count
+	(*t).Count = row + uint32(1)
+	(*t).Pkg = (*t).Pkg.Append(pkgID)
+	(*t).Law = (*t).Law.Append(lawID)
+	(*t).Runner = (*t).Runner.Append(runID)
+	(*t).Line = (*t).Line.Append(line)
+	(*t).KeyIndex[ki] = row + uint32(1)
+}
+
+// LookupRunner returns the registered runner package for pkg and lawName if present.
+func LookupRunner(t RunnerTable, pkg string, lawName string) option.Option[string] {
+	let key = runnerKey(pkg, lawName)
+	match findPoolStr(t.Strings, key) {
+	case option.Some[uint32] as kid:
+		let ki = int(kid.Value)
+		if ki < t.KeyIndex.Len() && t.KeyIndex[ki] > uint32(0) {
+			let row = int(t.KeyIndex[ki] - uint32(1))
+			return option.Some[string]{Value: poolStrAt(t.StrPool, t.Runner[row])}
+		}
+		option.None
+	case option.None:
+		option.None
+	}
+}
+
+// ParseRunners parses runners.txt mapping content into a flat RunnerTable.
+func ParseRunners(text string, sc mut Scratch) RunnerTable fails RunnerFormatError {
+	let mut t = NewRunnerTable()
+	ResetScratch(sc)
+	let lines = strings.Split(text, "\n")
+	let mut i = 0
+	for i < lines.Len() {
+		let line = lines[i]
+		let lineNo = uint32(i + 1)
+		i = i + 1
+		if line == "" || strings.HasPrefix(line, "# ") {
+			continue
+		}
+		let tabSplit = cutFirst(line, "\t")
+		if !tabSplit.ok {
+			return RunnerFormatError{
+				Line:    lineNo,
+				Text:    line,
+				Message: "runners.txt:\(FormatUint32(lineNo)): a line is `pkg Law<TAB>Runner`, not \(strconv.Quote(line))",
+			}
+		}
+		let left = tabSplit.before
+		let runner = tabSplit.after
+		if runner == "" || strings.Contains(runner, "\t") {
+			return RunnerFormatError{
+				Line:    lineNo,
+				Text:    line,
+				Message: "runners.txt:\(FormatUint32(lineNo)): a line is `pkg Law<TAB>Runner`, not \(strconv.Quote(line))",
+			}
+		}
+		let spSplit = cutFirst(left, " ")
+		if !spSplit.ok {
+			return RunnerFormatError{
+				Line:    lineNo,
+				Text:    line,
+				Message: "runners.txt:\(FormatUint32(lineNo)): a line is `pkg Law<TAB>Runner`, not \(strconv.Quote(line))",
+			}
+		}
+		let pkg = spSplit.before
+		let lawName = spSplit.after
+		if pkg == "" || lawName == "" || strings.Contains(lawName, " ") {
+			return RunnerFormatError{
+				Line:    lineNo,
+				Text:    line,
+				Message: "runners.txt:\(FormatUint32(lineNo)): a line is `pkg Law<TAB>Runner`, not \(strconv.Quote(line))",
+			}
+		}
+		AddRunner(&t, pkg, lawName, runner, lineNo)
+	}
+	t
+}
+
+// FormatRunners serializes a RunnerTable back to canonical sorted runners.txt text.
+func FormatRunners(t RunnerTable, sc mut Scratch) string {
+	ResetScratch(sc)
+	let n = int(t.Count)
+	if n == 0 {
+		return ""
+	}
+	let mut lines = slices.WithCapacity[string](n)
+	let mut i = 0
+	for i < n {
+		let pkg = poolStrAt(t.StrPool, t.Pkg[i])
+		let lawName = poolStrAt(t.StrPool, t.Law[i])
+		let runner = poolStrAt(t.StrPool, t.Runner[i])
+		lines = lines.Append("\(pkg) \(lawName)\t\(runner)")
+		i = i + 1
+	}
+	let sorted = slices.Sort(lines)
+	strings.Join(sorted, "\n") + "\n"
+}
+
+// ReadRunnersFile reads and parses a runners.txt file through the fs.Files capability.
+func ReadRunnersFile(path string, sc mut Scratch) RunnerTable fails RunnerFormatError | fs.NotFound | fs.Denied | fs.Failed needs fs.Files {
+	let text = try fs.Files.ReadFile(path)
+	ParseRunners(text, sc)
+}
+
+// CompareLawWithRunner extracts lawName from pkgSource and runnerSource and compares their tokens.
+func CompareLawWithRunner(pkgSource string, runnerSource string, lawName string, sc mut Scratch) CompareResult {
+	let pkgOpt = Statement(pkgSource, lawName, sc)
+	let runOpt = Statement(runnerSource, lawName, sc)
+	match pkgOpt {
+	case option.Some[string] as pStmt:
+		match runOpt {
+		case option.Some[string] as rStmt:
+			let same = Same(pStmt.Value, rStmt.Value, sc)
+			CompareResult{FoundPkg: true, FoundRunner: true, Matches: same, PkgStmt: pStmt.Value, RunnerStmt: rStmt.Value}
+		case option.None:
+			CompareResult{FoundPkg: true, FoundRunner: false, Matches: false, PkgStmt: pStmt.Value, RunnerStmt: ""}
+		}
+	case option.None:
+		let runStr = match runOpt {
+		case option.Some[string] as rStmt:
+			rStmt.Value
+		case option.None:
+			""
+		}
+		CompareResult{FoundPkg: false, FoundRunner: runStr != "", Matches: false, PkgStmt: "", RunnerStmt: runStr}
+	}
+}
+
+// NewLedgerTable allocates an empty LedgerTable.
+func NewLedgerTable() LedgerTable {
+	LedgerTable{
+		Strings:     dense.NewStrings(),
+		StrPool:     []string{},
+		Count:       uint32(0),
+		Name:        []uint32{},
+		Subject:     []uint32{},
+		Instance:    []uint32{},
+		Kind:        []uint32{},
+		Tool:        []uint32{},
+		Producer:    []uint32{},
+		Digest:      []uint32{},
+		RawLine:     []uint32{},
+		Line:        []uint32{},
+		KeyIndex:    []uint32{},
+		GuardCount:  uint32(0),
+		GuardKind:   []uint8{},
+		GuardText:   []uint32{},
+		GuardDigest: []uint32{},
+		GuardLine:   []uint32{},
+	}
+}
+
+func ledgerKey(name string, subject string, instance string) string {
+	"\(name)\x00\(subject)\x00\(instance)"
+}
+
+func matchBalancedParenAt(s string, openIdx int) option.Option[int] {
+	let n = s.Len()
+	if openIdx < 0 || openIdx >= n || s[openIdx] != '(' {
+		return option.None
+	}
+	let mut i = openIdx + 1
+	let mut depth = 1
+	let mut inQuote = false
+	for i < n && depth > 0 {
+		let c = s[i]
+		if inQuote {
+			if c == '\\' {
+				i = i + 2
+				continue
+			}
+			if c == '"' {
+				inQuote = false
+			}
+			i = i + 1
+			continue
+		}
+		if c == '"' {
+			inQuote = true
+			i = i + 1
+			continue
+		}
+		if c == '(' {
+			depth = depth + 1
+		} else if c == ')' {
+			depth = depth - 1
+			if depth == 0 {
+				return option.Some[int]{Value: i}
+			}
+		}
+		i = i + 1
+	}
+	option.None
+}
+
+// SplitInstanceResult holds the parts extracted by SplitInstance from a parametric law line suffix.
+type SplitInstanceResult {
+	Found    bool,
+	Instance string,
+	Rest     string,
+}
+
+// SplitInstance splits an initial parenthesized instance "(...) rest" while honoring quoted escapes.
+func SplitInstance(s string) SplitInstanceResult {
+	let trimmed = strings.TrimSpace(s)
+	if trimmed.Len() == 0 || trimmed[0] != '(' {
+		return SplitInstanceResult{Found: false, Instance: "", Rest: trimmed}
+	}
+	match matchBalancedParenAt(trimmed, 0) {
+	case option.Some[int] as closePos:
+		let inst = trimmed[1:closePos.Value]
+		let rest = strings.TrimSpace(trimmed[closePos.Value+1:])
+		SplitInstanceResult{Found: true, Instance: inst, Rest: rest}
+	case option.None:
+		SplitInstanceResult{Found: false, Instance: "", Rest: trimmed}
+	}
+}
+
+func addLedgerRow(t mut LedgerTable, name string, subject string, instance string, kind string, tool string, producer string, digest string, raw string, line uint32) {
+	let keyID = internPoolStr(&((*t).Strings), &((*t).StrPool), ledgerKey(name, subject, instance))
+	let nameID = internPoolStr(&((*t).Strings), &((*t).StrPool), name)
+	let subID = internPoolStr(&((*t).Strings), &((*t).StrPool), subject)
+	let instID = internPoolStr(&((*t).Strings), &((*t).StrPool), instance)
+	let kindID = internPoolStr(&((*t).Strings), &((*t).StrPool), kind)
+	let toolID = internPoolStr(&((*t).Strings), &((*t).StrPool), tool)
+	let prodID = internPoolStr(&((*t).Strings), &((*t).StrPool), producer)
+	let digID = internPoolStr(&((*t).Strings), &((*t).StrPool), digest)
+	let rawID = internPoolStr(&((*t).Strings), &((*t).StrPool), raw)
+	let ki = int(keyID)
+	for (*t).KeyIndex.Len() <= ki {
+		(*t).KeyIndex = (*t).KeyIndex.Append(uint32(0))
+	}
+	let existing = (*t).KeyIndex[ki]
+	if existing > uint32(0) {
+		let r = int(existing - uint32(1))
+		(*t).Kind[r] = kindID
+		(*t).Tool[r] = toolID
+		(*t).Producer[r] = prodID
+		(*t).Digest[r] = digID
+		(*t).RawLine[r] = rawID
+		(*t).Line[r] = line
+		return
+	}
+	let r = (*t).Count
+	(*t).Count = r + uint32(1)
+	(*t).Name = (*t).Name.Append(nameID)
+	(*t).Subject = (*t).Subject.Append(subID)
+	(*t).Instance = (*t).Instance.Append(instID)
+	(*t).Kind = (*t).Kind.Append(kindID)
+	(*t).Tool = (*t).Tool.Append(toolID)
+	(*t).Producer = (*t).Producer.Append(prodID)
+	(*t).Digest = (*t).Digest.Append(digID)
+	(*t).RawLine = (*t).RawLine.Append(rawID)
+	(*t).Line = (*t).Line.Append(line)
+	(*t).KeyIndex[ki] = r + uint32(1)
+}
+
+func addGuardRow(t mut LedgerTable, kind uint8, text string, digest string, line uint32) {
+	let textID = internPoolStr(&((*t).Strings), &((*t).StrPool), text)
+	let digID = internPoolStr(&((*t).Strings), &((*t).StrPool), digest)
+	(*t).GuardCount = (*t).GuardCount + uint32(1)
+	(*t).GuardKind = (*t).GuardKind.Append(kind)
+	(*t).GuardText = (*t).GuardText.Append(textID)
+	(*t).GuardDigest = (*t).GuardDigest.Append(digID)
+	(*t).GuardLine = (*t).GuardLine.Append(line)
+}
+
+func parseLawLedgerLine(line string, lineNo uint32) LedgerEntry fails LedgerFormatError {
+	let body = strings.TrimPrefix(line, "law ")
+	let sp1 = cutFirst(body, " ")
+	if !sp1.ok {
+		return LedgerFormatError{Line: lineNo, Text: line, Message: "ergo.laws:\(FormatUint32(lineNo)): malformed law line"}
+	}
+	let name = sp1.before
+	let mut rest = strings.TrimSpace(sp1.after)
+	if name == "" || rest == "" {
+		return LedgerFormatError{Line: lineNo, Text: line, Message: "ergo.laws:\(FormatUint32(lineNo)): malformed law line"}
+	}
+	let mut subject = ""
+	if strings.HasPrefix(rest, "for ") {
+		let afterFor = rest[4:]
+		let spSub = cutFirst(afterFor, " ")
+		if !spSub.ok {
+			return LedgerFormatError{Line: lineNo, Text: line, Message: "ergo.laws:\(FormatUint32(lineNo)): malformed subject clause"}
+		}
+		subject = spSub.before
+		rest = strings.TrimSpace(spSub.after)
+	}
+	let mut instance = ""
+	if strings.HasPrefix(rest, "at ") {
+		let afterAt = strings.TrimSpace(rest[3:])
+		let instSplit = SplitInstance(afterAt)
+		if !instSplit.Found {
+			return LedgerFormatError{Line: lineNo, Text: line, Message: "ergo.laws:\(FormatUint32(lineNo)): malformed instance tuple"}
+		}
+		instance = instSplit.Instance
+		rest = instSplit.Rest
+	}
+	let mut digest = ""
+	let mut tail = rest
+	let fields = strings.Fields(tail)
+	if fields.Len() >= 4 && strings.HasPrefix(fields[fields.Len()-1], "h1:") {
+		digest = fields[fields.Len()-1]
+		let suf = " " + digest
+		tail = strings.TrimSpace(strings.TrimSuffix(tail, suf))
+	}
+	let mut producer = ""
+	let withSplit = cutFirst(tail, " with ")
+	if withSplit.ok {
+		tail = strings.TrimSpace(withSplit.before)
+		producer = strings.TrimSpace(withSplit.after)
+	}
+	let headFields = strings.Fields(tail)
+	if headFields.Len() != 3 || headFields[1] != "by" {
+		return LedgerFormatError{Line: lineNo, Text: line, Message: "ergo.laws:\(FormatUint32(lineNo)): expected '<kind> by <tool>'"}
+	}
+	LedgerEntry{
+		Name:     name,
+		Subject:  subject,
+		Instance: instance,
+		Kind:     headFields[0],
+		Tool:     headFields[2],
+		Producer: producer,
+		Digest:   digest,
+		RawLine:  line,
+		Line:     lineNo,
+	}
+}
+
+// ParseGuardLine parses non-law guard, sync, pure, admit, or fact summary ledger lines.
+func ParseGuardLine(line string, lineNo uint32) option.Option[GuardEntry] {
+	let trimmed = strings.TrimSpace(line)
+	if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+		return option.None
+	}
+	let fields = strings.Fields(trimmed)
+	let mut kind = GuardKindOther
+	let mut digest = ""
+	if fields[0] == "sync" {
+		kind = GuardKindSync
+	} else if fields[0] == "pure" {
+		kind = GuardKindPure
+	} else if fields[0] == "admit" {
+		kind = GuardKindAdmit
+	} else if fields[0] == "facts" || fields[0] == "guard" {
+		kind = GuardKindFact
+	}
+	if fields.Len() >= 2 && strings.HasPrefix(fields[fields.Len()-1], "h1:") {
+		digest = fields[fields.Len()-1]
+	}
+	option.Some[GuardEntry]{Value: GuardEntry{Kind: kind, Text: trimmed, Digest: digest, Line: lineNo}}
+}
+
+// FormatLedgerEntry formats a LedgerEntry in canonical ergo.laws line form.
+func FormatLedgerEntry(e LedgerEntry) string {
+	let mut parts = []string{"law", e.Name}
+	if e.Subject != "" {
+		parts = parts.Append("for")
+		parts = parts.Append(e.Subject)
+	}
+	if e.Instance != "" {
+		parts = parts.Append("at")
+		parts = parts.Append("(\(e.Instance))")
+	}
+	parts = parts.Append(e.Kind)
+	parts = parts.Append("by")
+	parts = parts.Append(e.Tool)
+	if e.Producer != "" {
+		parts = parts.Append("with")
+		parts = parts.Append(e.Producer)
+	}
+	if e.Digest != "" {
+		parts = parts.Append(e.Digest)
+	}
+	strings.Join(parts, " ")
+}
+
+// ParseLedger parses an ergo.laws text ledger into a flat SoA LedgerTable.
+func ParseLedger(text string, sc mut Scratch) LedgerTable fails LedgerFormatError {
+	let mut t = NewLedgerTable()
+	ResetScratch(sc)
+	let lines = strings.Split(text, "\n")
+	let mut i = 0
+	for i < lines.Len() {
+		let line = strings.TrimSpace(lines[i])
+		let lineNo = uint32(i + 1)
+		i = i + 1
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		if strings.HasPrefix(line, "law ") {
+			let e = try parseLawLedgerLine(line, lineNo)
+			addLedgerRow(&t, e.Name, e.Subject, e.Instance, e.Kind, e.Tool, e.Producer, e.Digest, FormatLedgerEntry(e), lineNo)
+		} else {
+			match ParseGuardLine(line, lineNo) {
+			case option.Some[GuardEntry] as g:
+				addGuardRow(&t, g.Value.Kind, g.Value.Text, g.Value.Digest, lineNo)
+			case option.None:
+			}
+		}
+	}
+	t
+}
+
+// FormatLedger serializes all law and guard entries of t in canonical sorted order.
+func FormatLedger(t LedgerTable, sc mut Scratch) string {
+	ResetScratch(sc)
+	let total = int(t.Count) + int(t.GuardCount)
+	if total == 0 {
+		return ""
+	}
+	let mut lines = slices.WithCapacity[string](total)
+	let mut i = 0
+	for i < int(t.Count) {
+		lines = lines.Append(poolStrAt(t.StrPool, t.RawLine[i]))
+		i = i + 1
+	}
+	let mut j = 0
+	for j < int(t.GuardCount) {
+		lines = lines.Append(poolStrAt(t.StrPool, t.GuardText[j]))
+		j = j + 1
+	}
+	let sorted = slices.Sort(lines)
+	strings.Join(sorted, "\n") + "\n"
+}
+
+// LedgerCount returns the number of law entries in t.
+func LedgerCount(t LedgerTable) uint32 {
+	t.Count
+}
+
+// LedgerEntryAt returns the unpacked law entry at dense row id.
+func LedgerEntryAt(t LedgerTable, id uint32) LedgerEntry {
+	let idx = int(id)
+	if idx < 0 || uint32(idx) >= t.Count {
+		return LedgerEntry{Name: "", Subject: "", Instance: "", Kind: "", Tool: "", Producer: "", Digest: "", RawLine: "", Line: uint32(0)}
+	}
+	LedgerEntry{
+		Name:     poolStrAt(t.StrPool, t.Name[idx]),
+		Subject:  poolStrAt(t.StrPool, t.Subject[idx]),
+		Instance: poolStrAt(t.StrPool, t.Instance[idx]),
+		Kind:     poolStrAt(t.StrPool, t.Kind[idx]),
+		Tool:     poolStrAt(t.StrPool, t.Tool[idx]),
+		Producer: poolStrAt(t.StrPool, t.Producer[idx]),
+		Digest:   poolStrAt(t.StrPool, t.Digest[idx]),
+		RawLine:  poolStrAt(t.StrPool, t.RawLine[idx]),
+		Line:     t.Line[idx],
+	}
+}
+
+// LookupLedgerEntry returns the dense row index for (name, subject, instance) if present.
+func LookupLedgerEntry(t LedgerTable, name string, subject string, instance string) option.Option[uint32] {
+	let key = ledgerKey(name, subject, instance)
+	match findPoolStr(t.Strings, key) {
+	case option.Some[uint32] as kid:
+		let ki = int(kid.Value)
+		if ki < t.KeyIndex.Len() && t.KeyIndex[ki] > uint32(0) {
+			return option.Some[uint32]{Value: t.KeyIndex[ki] - uint32(1)}
+		}
+		option.None
+	case option.None:
+		option.None
+	}
+}
+
+func appendTaggedStrs(out mut []string, tag string, items []string) {
+	let sorted = slices.Sort(items)
+	for s in sorted {
+		let nStr = strconv.Itoa(s.Len())
+		*out = (*out).Append("\(tag)\(nStr):\(s)")
+	}
+}
+
+// LawDigest computes the canonical h1: SHA-256 law digest matching ergo-laws/2.
+func LawDigest(decls []string, checks []string, imports []string, facts []string, sc mut Scratch) string {
+	ResetScratch(sc)
+	let mut parts = []string{"\(strconv.Itoa(LawRunVersion.Len())):\(LawRunVersion)"}
+	appendTaggedStrs(&parts, "", decls)
+	appendTaggedStrs(&parts, "c", checks)
+	appendTaggedStrs(&parts, "i", imports)
+	appendTaggedStrs(&parts, "f", facts)
+	let sum = sha256.Sum(strings.Join(parts, ""))
+	"h1:" + base64.Encode(base64.StdEncoding, sum)
+}
+
+// SyncDigest computes the canonical h1: digest over a sorted slice of synchronous facts.
+func SyncDigest(facts []string, sc mut Scratch) string {
+	ResetScratch(sc)
+	let mut parts = []string{}
+	appendTaggedStrs(&parts, "", facts)
+	"h1:" + base64.Encode(base64.StdEncoding, sha256.Sum(strings.Join(parts, "")))
+}
+
+// PureDigest computes the canonical h1: digest over a sorted slice of pure facts.
+func PureDigest(facts []string, sc mut Scratch) string {
+	ResetScratch(sc)
+	let mut parts = []string{}
+	appendTaggedStrs(&parts, "", facts)
+	"h1:" + base64.Encode(base64.StdEncoding, sha256.Sum(strings.Join(parts, "")))
+}
+
+// AdmitLevel returns the admission level granted for targetPkg relative to pkg under view.
+func AdmitLevel(hasAdmit bool, view string, pkg string, targetPkg string) uint8 {
+	if !hasAdmit {
+		return AdmitNone
+	}
+	if pkg == targetPkg || view == "*" || view == "all" {
+		return AdmitTransitive
+	}
+	if view == "direct" {
+		return AdmitDirect
+	}
+	AdmitNone
+}
+
+// CheckLedgerFreshness checks each expected LawDigestCheck against t.
+func CheckLedgerFreshness(t LedgerTable, checks []LawDigestCheck) FreshnessReport {
+	let mut fresh = uint32(0)
+	let mut missing = uint32(0)
+	let mut stale = uint32(0)
+	let mut statuses = slices.WithCapacity[uint8](checks.Len())
+	for c in checks {
+		match LookupLedgerEntry(t, c.Name, c.Subject, c.Instance) {
+		case option.None:
+			missing = missing + uint32(1)
+			statuses = statuses.Append(FreshnessMissing)
+		case option.Some[uint32] as idx:
+			let e = LedgerEntryAt(t, idx.Value)
+			if c.Digest == "" || e.Digest == c.Digest {
+				fresh = fresh + uint32(1)
+				statuses = statuses.Append(FreshnessFresh)
+			} else {
+				stale = stale + uint32(1)
+				statuses = statuses.Append(FreshnessStale)
+			}
+		}
+	}
+	FreshnessReport{
+		Total:     uint32(checks.Len()),
+		Fresh:     fresh,
+		Missing:   missing,
+		Stale:     stale,
+		RowStatus: statuses,
+		IsFresh:   missing == uint32(0) && stale == uint32(0),
+	}
+}
+
+// ReadLedgerFile reads and parses an ergo.laws file using fs.Files.
+func ReadLedgerFile(path string, sc mut Scratch) LedgerTable fails LedgerFormatError | fs.NotFound | fs.Denied | fs.Failed needs fs.Files {
+	let text = try fs.Files.ReadFile(path)
+	ParseLedger(text, sc)
+}
+
+func isSingleToken(s string) bool {
+	if s == "" {
+		return false
+	}
+	let fs = strings.Fields(s)
+	fs.Len() == 1 && fs[0] == s
+}
+
+// LedgerParseRoundTrips ensures parsing FormatLedger yields an identical formatted ledger.
+law LedgerParseRoundTrips(name string, kind string, tool string, dig string) {
+	if !isSingleToken(name) || !isSingleToken(kind) || !isSingleToken(tool) || (dig != "" && !isSingleToken(dig)) {
+		return true
+	}
+	if name == "for" || name == "at" || name == "by" || name == "with" || kind == "for" || kind == "at" || kind == "by" || kind == "with" {
+		return true
+	}
+	let digestStr = if dig == "" { "" } else { " h1:" + dig }
+	let line = "law \(name) \(kind) by \(tool)\(digestStr)\n"
+	let mut sc = NewScratch()
+	let t1 = ParseLedger(line, &sc) catch {
+	case LedgerFormatError:
+		return false
+	}
+	let formatted = FormatLedger(t1, &sc)
+	let t2 = ParseLedger(formatted, &sc) catch {
+	case LedgerFormatError:
+		return false
+	}
+	FormatLedger(t2, &sc) == formatted
+}
+
+test TestRunnerAndLedgerTables {
+	let mut sc = NewScratch()
+	let mem = fstest.NewMemory()
+	mem.WriteFile("/runners.txt", "# header comment\npkg/a LawOne\tpkg/a/run\n\npkg/b LawTwo\tpkg/b/run\n") catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		assert false
+	}
+	mem.WriteFile("/ergo.laws", "law json.Text.SepAfterSet for json.text at (true) proved by native with go1.27.4,runtime/v1@07b3eb h1:kHHa=\nlaw slices.FilterFuses validated by eval with runtime/v1@cacdc6 h1:ukcy=\nsync h1:abc\n") catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		assert false
+	}
+	with context { fs.Files: mem } {
+		let rt = ReadRunnersFile("/runners.txt", &sc) catch {
+		case RunnerFormatError, fs.NotFound, fs.Denied, fs.Failed:
+			assert false
+			return
+		}
+		assert RunnerCount(rt) == uint32(2)
+		assert LookupRunner(rt, "pkg/a", "LawOne") == option.Some[string]{Value: "pkg/a/run"}
+		assert LookupRunner(rt, "pkg/a", "Missing") == option.None
+		let lt = ReadLedgerFile("/ergo.laws", &sc) catch {
+		case LedgerFormatError, fs.NotFound, fs.Denied, fs.Failed:
+			assert false
+			return
+		}
+		assert LedgerCount(lt) == uint32(2)
+		assert lt.GuardCount == uint32(1)
+		match LookupLedgerEntry(lt, "json.Text.SepAfterSet", "json.text", "true") {
+		case option.Some[uint32] as id:
+			let e = LedgerEntryAt(lt, id.Value)
+			assert e.Digest == "h1:kHHa="
+			assert e.Producer == "go1.27.4,runtime/v1@07b3eb"
+		case option.None:
+			assert false
+		}
+		let rep = CheckLedgerFreshness(lt, []LawDigestCheck{
+			LawDigestCheck{Name: "json.Text.SepAfterSet", Subject: "json.text", Instance: "true", Digest: "h1:kHHa="},
+			LawDigestCheck{Name: "slices.FilterFuses", Subject: "", Instance: "", Digest: "h1:stale"},
+			LawDigestCheck{Name: "MissingLaw", Subject: "", Instance: "", Digest: "h1:x"},
+		})
+		assert !rep.IsFresh
+		assert rep.Fresh == uint32(1)
+		assert rep.Stale == uint32(1)
+		assert rep.Missing == uint32(1)
+	}
+}

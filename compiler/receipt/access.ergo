@@ -1,0 +1,578 @@
+import base64
+import dense
+import filepath
+import option
+import sha256
+import slices
+import strconv
+import strings
+
+// AccessOpen records reading a file's contents or digest.
+let AccessOpen = uint8(1)
+
+// AccessStat records inspecting file existence or metadata.
+let AccessStat = uint8(2)
+
+// AccessExec records executing an external tool or binary.
+let AccessExec = uint8(3)
+
+// AccessWrote records producing or modifying an output path.
+let AccessWrote = uint8(4)
+
+// AccessEnv records observing an environment variable.
+let AccessEnv = uint8(5)
+
+// AccessCheckPeer records consulting a sibling package artifact.
+let AccessCheckPeer = uint8(6)
+
+// AccessDepend records an explicit dependency edge in testinputs.
+let AccessDepend = uint8(7)
+
+// LogEventRun marks a test start line in captured test logs.
+let LogEventRun = uint8(1)
+
+// LogEventPass marks a passing test line in captured test logs.
+let LogEventPass = uint8(2)
+
+// LogEventFail marks a failing test line in captured test logs.
+let LogEventFail = uint8(3)
+
+// LogEventSkip marks a skipped test line in captured test logs.
+let LogEventSkip = uint8(4)
+
+// LogEventOutput marks an unstructured test output line.
+let LogEventOutput = uint8(5)
+
+// AccessError reports an invalid environment or path inside an access manifest.
+type AccessError {
+	Field   string,
+	Reason  string,
+	Message string,
+}
+
+// AccessEntry holds one unpacked observation row from AccessTable.
+type AccessEntry {
+	Kind    uint8,
+	Path    string,
+	Digest  string,
+	Detail  string,
+	Existed bool,
+	IsDir   bool,
+	Present bool,
+	Size    uint64,
+	Seq     uint32,
+}
+
+// AccessTable stores observed file, exec, env, write, and peer accesses in flat uint32 SoA columns.
+type AccessTable {
+	Strings    dense.Strings,
+	StrPool    []string,
+	Count      uint32,
+	Kind       []uint8,
+	Path       []uint32,
+	Digest     []uint32,
+	Detail     []uint32,
+	Existed    []bool,
+	IsDir      []bool,
+	Present    []bool,
+	Size       []uint64,
+	Seq        []uint32,
+	OpenCount  uint32,
+	StatCount  uint32,
+	ExecCount  uint32,
+	EnvCount   uint32,
+	WriteCount uint32,
+	KeyIndex   []uint32,
+}
+
+// ManifestResult holds filtered canonical access manifest lines and its content digest.
+type ManifestResult {
+	Entries []AccessEntry,
+	Lines   []string,
+	Digest  string,
+}
+
+// TestLogEvent holds one parsed event from Go or Ergo test runner log lines.
+type TestLogEvent {
+	Kind uint8,
+	Name string,
+	Text string,
+}
+
+// NewAccessTable allocates an empty AccessTable.
+func NewAccessTable() AccessTable {
+	AccessTable{
+		Strings:    dense.NewStrings(),
+		StrPool:    []string{},
+		Count:      uint32(0),
+		Kind:       []uint8{},
+		Path:       []uint32{},
+		Digest:     []uint32{},
+		Detail:     []uint32{},
+		Existed:    []bool{},
+		IsDir:      []bool{},
+		Present:    []bool{},
+		Size:       []uint64{},
+		Seq:        []uint32{},
+		OpenCount:  uint32(0),
+		StatCount:  uint32(0),
+		ExecCount:  uint32(0),
+		EnvCount:   uint32(0),
+		WriteCount: uint32(0),
+		KeyIndex:   []uint32{},
+	}
+}
+
+// AccessCount returns the total number of distinct observation rows in t.
+func AccessCount(t AccessTable) uint32 {
+	t.Count
+}
+
+// AccessEntryAt returns the unpacked AccessEntry at dense index id.
+func AccessEntryAt(t AccessTable, id uint32) AccessEntry {
+	let idx = int(id)
+	if idx < 0 || uint32(idx) >= t.Count {
+		return AccessEntry{Kind: uint8(0), Path: "", Digest: "", Detail: "", Existed: false, IsDir: false, Present: false, Size: uint64(0), Seq: uint32(0)}
+	}
+	AccessEntry{
+		Kind:    t.Kind[idx],
+		Path:    recStrAt(t.StrPool, t.Path[idx]),
+		Digest:  recStrAt(t.StrPool, t.Digest[idx]),
+		Detail:  recStrAt(t.StrPool, t.Detail[idx]),
+		Existed: t.Existed[idx],
+		IsDir:   t.IsDir[idx],
+		Present: t.Present[idx],
+		Size:    t.Size[idx],
+		Seq:     t.Seq[idx],
+	}
+}
+
+func recordAccessRow(t mut AccessTable, kind uint8, path string, digest string, detail string, existed bool, isDir bool, present bool, size uint64) uint32 {
+	let key = "\(strconv.Itoa(int(kind))):\(path)"
+	let kid = internRecStr(&((*t).Strings), &((*t).StrPool), key)
+	let pid = internRecStr(&((*t).Strings), &((*t).StrPool), path)
+	let did = internRecStr(&((*t).Strings), &((*t).StrPool), digest)
+	let detid = internRecStr(&((*t).Strings), &((*t).StrPool), detail)
+	let ki = int(kid)
+	for (*t).KeyIndex.Len() <= ki {
+		(*t).KeyIndex = (*t).KeyIndex.Append(uint32(0))
+	}
+	let existing = (*t).KeyIndex[ki]
+	if existing > uint32(0) {
+		let r = int(existing - uint32(1))
+		if digest != "" {
+			(*t).Digest[r] = did
+		}
+		if detail != "" {
+			(*t).Detail[r] = detid
+		}
+		(*t).Existed[r] = (*t).Existed[r] || existed
+		(*t).IsDir[r] = (*t).IsDir[r] || isDir
+		(*t).Present[r] = (*t).Present[r] || present
+		if size > (*t).Size[r] {
+			(*t).Size[r] = size
+		}
+		return uint32(r)
+	}
+	let r = (*t).Count
+	(*t).Count = r + uint32(1)
+	(*t).Kind = (*t).Kind.Append(kind)
+	(*t).Path = (*t).Path.Append(pid)
+	(*t).Digest = (*t).Digest.Append(did)
+	(*t).Detail = (*t).Detail.Append(detid)
+	(*t).Existed = (*t).Existed.Append(existed)
+	(*t).IsDir = (*t).IsDir.Append(isDir)
+	(*t).Present = (*t).Present.Append(present)
+	(*t).Size = (*t).Size.Append(size)
+	(*t).Seq = (*t).Seq.Append(r)
+	(*t).KeyIndex[ki] = r + uint32(1)
+	if kind == AccessOpen {
+		(*t).OpenCount = (*t).OpenCount + uint32(1)
+	} else if kind == AccessStat {
+		(*t).StatCount = (*t).StatCount + uint32(1)
+	} else if kind == AccessExec {
+		(*t).ExecCount = (*t).ExecCount + uint32(1)
+	} else if kind == AccessEnv {
+		(*t).EnvCount = (*t).EnvCount + uint32(1)
+	} else if kind == AccessWrote {
+		(*t).WriteCount = (*t).WriteCount + uint32(1)
+	}
+	r
+}
+
+// RecordOpen inserts or updates a file read observation in t.
+func RecordOpen(t mut AccessTable, path string, digest string, existed bool, size uint64) uint32 {
+	recordAccessRow(t, AccessOpen, path, digest, "", existed, false, existed, size)
+}
+
+// RecordStat inserts or updates a file metadata observation in t.
+func RecordStat(t mut AccessTable, path string, existed bool, isDir bool, size uint64) uint32 {
+	recordAccessRow(t, AccessStat, path, "", "", existed, isDir, existed, size)
+}
+
+// RecordExec inserts or updates a tool execution observation in t.
+func RecordExec(t mut AccessTable, path string, digest string) uint32 {
+	recordAccessRow(t, AccessExec, path, digest, "", true, false, true, uint64(0))
+}
+
+// RecordEnv inserts or updates an environment lookup observation in t.
+func RecordEnv(t mut AccessTable, name string, digest string, present bool) uint32 {
+	recordAccessRow(t, AccessEnv, name, digest, "", present, false, present, uint64(0))
+}
+
+// RecordWrote inserts or updates an output write observation in t.
+func RecordWrote(t mut AccessTable, path string) uint32 {
+	recordAccessRow(t, AccessWrote, path, "", "", true, false, true, uint64(0))
+}
+
+// RecordDepend inserts an explicit dependency path into t.
+func RecordDepend(t mut AccessTable, path string, digest string) uint32 {
+	recordAccessRow(t, AccessDepend, path, digest, "", digest != "", false, true, uint64(0))
+}
+
+// RecordCheckPeer inserts a peer package check dependency into t.
+func RecordCheckPeer(t mut AccessTable, peerPkg string, digest string) uint32 {
+	recordAccessRow(t, AccessCheckPeer, peerPkg, digest, "", true, false, true, uint64(0))
+}
+
+// ToolDigest computes a canonical h1: digest for a tool versions string.
+func ToolDigest(versionsText string) string {
+	let payload = "ergo-tool-versions/1\n" + strings.TrimSpace(versionsText)
+	"h1:" + base64.Encode(base64.StdEncoding, sha256.Sum(payload))
+}
+
+// IsAllowedEnvName reports whether env var name belongs to the allowed deterministic test env list.
+func IsAllowedEnvName(name string) bool {
+	name == "ERGO_TOOL_VERSIONS" || name == "PATH" || name == "HOME" || name == "TMPDIR" || name == "TEMP" || name == "TMP" || name == "GOPATH" || name == "GOMODCACHE" || name == "GOCACHE" || name == "GOTOOLCHAIN" || name == "GOOS" || name == "GOARCH" || name == "CGO_ENABLED" || name == "LANG" || name == "LC_ALL" || name == "LC_CTYPE" || name == "TERM" || name == "TZ"
+}
+
+// FilterEnvironment returns sorted allowed KEY=VAL entries, failing closed on newlines in names.
+func FilterEnvironment(env []string) []string fails AccessError {
+	let mut kept = []string{}
+	for entry in env {
+		let sp = cutRecFirst(entry, "=")
+		let name = if sp.ok { sp.before } else { entry }
+		if strings.Contains(name, "\n") || strings.Contains(name, "\r") {
+			return AccessError{Field: name, Reason: "newline", Message: "environment variable name contains newline"}
+		}
+		if IsAllowedEnvName(name) && sp.ok {
+			kept = kept.Append(entry)
+		}
+	}
+	slices.Sort(kept)
+}
+
+// TestLogFlag reports whether CLI args request verbose or JSON test log streaming before "--".
+func TestLogFlag(args []string) bool {
+	for a in args {
+		if a == "--" {
+			return false
+		}
+		if a == "-v" || a == "-test.v" || a == "-test.v=true" || a == "-json" || a == "--json" || a == "-test.json" {
+			return true
+		}
+	}
+	false
+}
+
+// CleanKeepDotDot normalizes repeated slashes and single dots without collapsing parent ".." elements.
+func CleanKeepDotDot(p string) string {
+	if p == "" {
+		return "."
+	}
+	let leadingSlash = strings.HasPrefix(p, "/")
+	let parts = strings.Split(p, "/")
+	let mut out = []string{}
+	for seg in parts {
+		if seg == "" || seg == "." {
+			continue
+		}
+		out = out.Append(seg)
+	}
+	if out.Len() == 0 {
+		return if leadingSlash { "/" } else { "." }
+	}
+	let joined = strings.Join(out, "/")
+	if leadingSlash { "/" + joined } else { joined }
+}
+
+// UnderRoot reports whether p is equal to or contained beneath directory root.
+func UnderRoot(root string, p string) bool {
+	let cr = filepath.Clean(root)
+	let cp = filepath.Clean(p)
+	if cr == cp {
+		return true
+	}
+	if cr == "/" {
+		return strings.HasPrefix(cp, "/")
+	}
+	strings.HasPrefix(cp, cr+"/")
+}
+
+// VirtualPath reports whether p targets virtual OS procfs, sysfs, or devfs pseudo-paths.
+func VirtualPath(p string) bool {
+	let cp = filepath.Clean(p)
+	cp == "/proc" || strings.HasPrefix(cp, "/proc/") || cp == "/sys" || strings.HasPrefix(cp, "/sys/") || cp == "/dev" || strings.HasPrefix(cp, "/dev/")
+}
+
+// WalkToRoot collects ancestor directories from target up to root inclusive within a 40-hop limit.
+func WalkToRoot(root string, target string) []string fails AccessError {
+	let cr = filepath.Clean(root)
+	let mut cur = filepath.Clean(target)
+	if !UnderRoot(cr, cur) {
+		return []string{}
+	}
+	let mut out = []string{}
+	let mut steps = 0
+	for {
+		steps = steps + 1
+		if steps > 4096 {
+			return AccessError{Field: target, Reason: "eloop", Message: "path hierarchy depth limit exceeded"}
+		}
+		out = out.Append(cur)
+		if cur == cr {
+			return out
+		}
+		let parent = filepath.Dir(cur)
+		if parent == cur {
+			return out
+		}
+		cur = parent
+	}
+	out
+}
+
+// StatLinksAlongPaths expands symlink ancestors from links encountered along normalized paths.
+func StatLinksAlongPaths(paths []string, links []LinkSpec) []string {
+	let mut seen = dense.NewStrings()
+	let mut out = []string{}
+	for raw in paths {
+		let norm = CleanKeepDotDot(raw)
+		let mut acc = if strings.HasPrefix(norm, "/") { "" } else { "." }
+		let parts = strings.Split(strings.TrimPrefix(norm, "/"), "/")
+		for part in parts {
+			if part == "" || part == "." {
+				continue
+			}
+			acc = if acc == "" { "/" + part } else if acc == "." { part } else { acc + "/" + part }
+			for lk in links {
+				if filepath.Clean(lk.Path) == acc {
+					match dense.FindText(seen, acc) {
+					case option.None:
+						let _ = dense.InternText(&seen, acc)
+						out = out.Append(acc)
+					case option.Some[dense.ID[dense.Str]]:
+					}
+				}
+			}
+		}
+	}
+	slices.Sort(out)
+}
+
+func matchesIgnorePattern(pattern string, path string) bool {
+	if pattern == "" {
+		return false
+	}
+	if strings.HasPrefix(pattern, "*") {
+		return strings.HasSuffix(path, pattern[1:])
+	}
+	if strings.HasSuffix(pattern, "*") {
+		return strings.HasPrefix(path, pattern[:pattern.Len()-1])
+	}
+	let cleanPat = filepath.Clean(pattern)
+	let cleanPath = filepath.Clean(path)
+	cleanPath == cleanPat || strings.HasPrefix(cleanPath, cleanPat+"/")
+}
+
+func kindName(kind uint8) string {
+	if kind == AccessOpen {
+		return "open"
+	}
+	if kind == AccessStat {
+		return "stat"
+	}
+	if kind == AccessExec {
+		return "exec"
+	}
+	if kind == AccessWrote {
+		return "wrote"
+	}
+	if kind == AccessEnv {
+		return "getenv"
+	}
+	if kind == AccessCheckPeer {
+		return "peer"
+	}
+	if kind == AccessDepend {
+		return "depend"
+	}
+	"unknown"
+}
+
+func formatManifestLine(e AccessEntry) string {
+	let kn = kindName(e.Kind)
+	if e.Kind == AccessOpen || e.Kind == AccessExec || e.Kind == AccessDepend || e.Kind == AccessCheckPeer {
+		let dig = if e.Digest == "" { "-" } else { e.Digest }
+		return "\(kn) \(e.Path) \(dig)"
+	}
+	if e.Kind == AccessStat {
+		let flag = if !e.Existed { "missing" } else if e.IsDir { "dir" } else { "file" }
+		return "\(kn) \(e.Path) \(flag)"
+	}
+	if e.Kind == AccessEnv {
+		let state = if !e.Present { "unset" } else if e.Digest == "" { "empty" } else { e.Digest }
+		return "\(kn) \(e.Path) \(state)"
+	}
+	"\(kn) \(e.Path)"
+}
+
+// FilterAndSortManifest validates, filters, normalizes, and hashes the manifest of t.
+func FilterAndSortManifest(t mut AccessTable, ignores []string, toolVersionsEnv string) ManifestResult fails AccessError {
+	if (*t).ExecCount > uint32(0) {
+		let dig = if toolVersionsEnv == "" { "" } else { ToolDigest(toolVersionsEnv) }
+		let _ = RecordEnv(t, "ERGO_TOOL_VERSIONS", dig, toolVersionsEnv != "")
+	}
+	let n = int((*t).Count)
+	let mut kept = []AccessEntry{}
+	let mut i = 0
+	for i < n {
+		let e = AccessEntryAt(*t, uint32(i))
+		i = i + 1
+		if strings.Contains(e.Path, "\n") || strings.Contains(e.Path, "\r") {
+			return AccessError{Field: e.Path, Reason: "newline", Message: "manifest entry contains newline"}
+		}
+		if e.Kind != AccessEnv && e.Kind != AccessCheckPeer {
+			if VirtualPath(e.Path) {
+				continue
+			}
+			let mut ignored = false
+			for pat in ignores {
+				if matchesIgnorePattern(pat, e.Path) {
+					ignored = true
+					break
+				}
+			}
+			if ignored {
+				continue
+			}
+		}
+		kept = kept.Append(e)
+	}
+	let sorted = slices.SortFunc(kept, func(a AccessEntry, b AccessEntry) int {
+		if a.Kind != b.Kind {
+			return if a.Kind < b.Kind { -1 } else { 1 }
+		}
+		if a.Path < b.Path {
+			return -1
+		}
+		if a.Path > b.Path {
+			return 1
+		}
+		0
+	})
+	let mut lines = slices.WithCapacity[string](sorted.Len())
+	let mut digestParts = []string{"ergo-access-manifest/1\n"}
+	for e in sorted {
+		let line = formatManifestLine(e)
+		lines = lines.Append(line)
+		digestParts = digestParts.Append("\(strconv.Itoa(line.Len())):\(line)\n")
+	}
+	let sum = sha256.Sum(strings.Join(digestParts, ""))
+	ManifestResult{
+		Entries: sorted,
+		Lines:   lines,
+		Digest:  "h1:" + base64.Encode(base64.StdEncoding, sum),
+	}
+}
+
+// ParseTestLogLines parses test output lines into structured TestLogEvent records.
+func ParseTestLogLines(text string) []TestLogEvent {
+	let mut events = []TestLogEvent{}
+	for raw in strings.Split(text, "\n") {
+		let line = strings.TrimSpace(raw)
+		if line == "" {
+			continue
+		}
+		if strings.HasPrefix(line, "=== RUN ") {
+			let name = strings.TrimSpace(line[8:])
+			events = events.Append(TestLogEvent{Kind: LogEventRun, Name: name, Text: raw})
+		} else if strings.HasPrefix(line, "--- PASS: ") {
+			let rest = strings.TrimSpace(line[10:])
+			let sp = cutRecFirst(rest, " ")
+			let name = if sp.ok { sp.before } else { rest }
+			events = events.Append(TestLogEvent{Kind: LogEventPass, Name: name, Text: raw})
+		} else if strings.HasPrefix(line, "--- FAIL: ") {
+			let rest = strings.TrimSpace(line[10:])
+			let sp = cutRecFirst(rest, " ")
+			let name = if sp.ok { sp.before } else { rest }
+			events = events.Append(TestLogEvent{Kind: LogEventFail, Name: name, Text: raw})
+		} else if strings.HasPrefix(line, "--- SKIP: ") {
+			let rest = strings.TrimSpace(line[10:])
+			let sp = cutRecFirst(rest, " ")
+			let name = if sp.ok { sp.before } else { rest }
+			events = events.Append(TestLogEvent{Kind: LogEventSkip, Name: name, Text: raw})
+		} else {
+			events = events.Append(TestLogEvent{Kind: LogEventOutput, Name: "", Text: raw})
+		}
+	}
+	events
+}
+
+// AccessManifestOrderIndependent ensures insertion order into AccessTable yields identical ManifestDigest.
+law AccessManifestOrderIndependent(a string, b string) {
+	if a == "" || b == "" || a == b || strings.Contains(a, "\n") || strings.Contains(b, "\n") || strings.Contains(a, "\r") || strings.Contains(b, "\r") {
+		return true
+	}
+	let mut t1 = NewAccessTable()
+	let _ = RecordOpen(&t1, a, "h1:a", true, uint64(1))
+	let _ = RecordOpen(&t1, b, "h1:b", true, uint64(2))
+	let mut t2 = NewAccessTable()
+	let _ = RecordOpen(&t2, b, "h1:b", true, uint64(2))
+	let _ = RecordOpen(&t2, a, "h1:a", true, uint64(1))
+	let m1 = FilterAndSortManifest(&t1, []string{}, "") catch {
+	case AccessError:
+		return false
+	}
+	let m2 = FilterAndSortManifest(&t2, []string{}, "") catch {
+	case AccessError:
+		return false
+	}
+	m1.Digest == m2.Digest
+}
+
+test TestAccessTableClosureAndFiltering {
+	let mut tbl = NewAccessTable()
+	let _ = RecordOpen(&tbl, "/proc/self/stat", "h1:proc", true, uint64(10))
+	let _ = RecordOpen(&tbl, "/ws/data/a.txt", "h1:data", true, uint64(12))
+	let _ = RecordStat(&tbl, "/ws/data", true, true, uint64(0))
+	let _ = RecordExec(&tbl, "/usr/bin/env", "h1:bin")
+	assert VirtualPath("/proc/self/stat")
+	assert VirtualPath("/dev/null")
+	assert !VirtualPath("/ws/data/a.txt")
+	assert UnderRoot("/ws", "/ws/data/a.txt")
+	assert !UnderRoot("/ws", "/ws2/data")
+	assert CleanKeepDotDot("/ws/a/../b") == "/ws/a/../b"
+	assert TestLogFlag([]string{"-v", "--", "arg"})
+	assert !TestLogFlag([]string{"--", "-v"})
+	let man = FilterAndSortManifest(&tbl, []string{}, "ergo=1") catch {
+	case AccessError:
+		assert false
+		return
+	}
+	assert man.Lines.Len() == 4
+	assert AccessEntryAt(tbl, uint32(0)).Kind == AccessOpen
+	let mut bad = NewAccessTable()
+	let _ = RecordOpen(&bad, "/bad\npath", "h1:x", true, uint64(1))
+	let mut newlineHit = false
+	let _ = FilterAndSortManifest(&bad, []string{}, "") catch {
+	case AccessError:
+		newlineHit = true
+		ManifestResult{Entries: []AccessEntry{}, Lines: []string{}, Digest: ""}
+	}
+	assert newlineHit
+	let links = StatLinksAlongPaths([]string{"/ws/sym/sub/f.txt"}, []LinkSpec{LinkSpec{Path: "/ws/sym", Target: "/real", Dangling: false}})
+	assert links.Len() == 1 && links[0] == "/ws/sym"
+	let logs = ParseTestLogLines("=== RUN TestOne\n--- PASS: TestOne (0.00s)\n")
+	assert logs.Len() == 2 && logs[0].Kind == LogEventRun && logs[1].Kind == LogEventPass
+}

@@ -1,0 +1,321 @@
+import compiler/syntax
+import dense
+import option
+import slices
+import strings
+
+// ParsedLawRow holds one unpacked law extracted or derived from Ergo syntax.
+type ParsedLawRow {
+	Name      string,
+	Receiver  string,
+	Statement string,
+	Derived   bool,
+}
+
+// ParsedLawTable stores extracted and derived package laws in flat unsigned SoA columns.
+type ParsedLawTable {
+	Strings   dense.Strings,
+	StrPool   []string,
+	Count     uint32,
+	Name      []uint32,
+	Receiver  []uint32,
+	Statement []uint32,
+	Derived   []bool,
+	KeyIndex  []uint32,
+}
+
+// NewParsedLawTable allocates an empty ParsedLawTable.
+func NewParsedLawTable() ParsedLawTable {
+	ParsedLawTable{
+		Strings:   dense.NewStrings(),
+		StrPool:   []string{},
+		Count:     uint32(0),
+		Name:      []uint32{},
+		Receiver:  []uint32{},
+		Statement: []uint32{},
+		Derived:   []bool{},
+		KeyIndex:  []uint32{},
+	}
+}
+
+// ParsedLawCount returns the number of law rows in t.
+func ParsedLawCount(t ParsedLawTable) uint32 {
+	t.Count
+}
+
+// ParsedLawAt returns the unpacked ParsedLawRow at dense row id.
+func ParsedLawAt(t ParsedLawTable, id uint32) ParsedLawRow {
+	let idx = int(id)
+	if idx < 0 || uint32(idx) >= t.Count {
+		return ParsedLawRow{Name: "", Receiver: "", Statement: "", Derived: false}
+	}
+	ParsedLawRow{
+		Name:      poolStrAt(t.StrPool, t.Name[idx]),
+		Receiver:  poolStrAt(t.StrPool, t.Receiver[idx]),
+		Statement: poolStrAt(t.StrPool, t.Statement[idx]),
+		Derived:   t.Derived[idx],
+	}
+}
+
+// WhereLawName returns the derived refinement law name for typeName.
+func WhereLawName(typeName string) string {
+	typeName + "Where"
+}
+
+// RoundTripLawName returns the derived round-trip law name for a Wire/Parse pair of baseName.
+func RoundTripLawName(baseName string) string {
+	baseName + "RoundTrips"
+}
+
+// ParseName extracts the base type name from a ParseX function name, if matching.
+func ParseName(funcName string) option.Option[string] {
+	if !strings.HasPrefix(funcName, "Parse") || funcName.Len() <= 5 {
+		return option.None
+	}
+	option.Some[string]{Value: funcName[5:]}
+}
+
+func nodeText(p syntax.Parsed, src string, id dense.ID[syntax.Node]) string {
+	let s = syntax.NodePos(p, id)
+	let e = syntax.NodeEnd(p, id)
+	if s < 0 || e > src.Len() || s >= e {
+		return ""
+	}
+	src[s:e]
+}
+
+// WhereText normalizes a where-predicate substring by scanning its tokens cleanly.
+func WhereText(sub string, sc mut Scratch) string {
+	let scanned = syntax.Scan(sub)
+	let n = syntax.NumToks(scanned.Toks)
+	if n == 0 {
+		return NormalizeWhitespace(sub, sc)
+	}
+	(*sc).Strs = (*sc).Strs[:0]
+	let mut i = 0
+	for i < n {
+		let tid = syntax.TokAt(scanned.Toks, i)
+		let k = syntax.Kind(scanned.Toks, tid)
+		if k == syntax.EOF {
+			break
+		}
+		let start = syntax.Start(scanned.Toks, tid)
+		let end = syntax.End(sub, k, start)
+		if start >= 0 && end <= sub.Len() && start < end {
+			(*sc).Strs = (*sc).Strs.Append(sub[start:end])
+		}
+		i = i + 1
+	}
+	if (*sc).Strs.Len() == 0 {
+		return NormalizeWhitespace(sub, sc)
+	}
+	strings.Join((*sc).Strs, " ")
+}
+
+func addParsedLaw(t mut ParsedLawTable, name string, rec string, stmt string, derived bool) {
+	let key = if rec == "" { name } else { "\(rec).\(name)" }
+	let kid = internPoolStr(&((*t).Strings), &((*t).StrPool), key)
+	let nid = internPoolStr(&((*t).Strings), &((*t).StrPool), name)
+	let rid = internPoolStr(&((*t).Strings), &((*t).StrPool), rec)
+	let sid = internPoolStr(&((*t).Strings), &((*t).StrPool), stmt)
+	let ki = int(kid)
+	for (*t).KeyIndex.Len() <= ki {
+		(*t).KeyIndex = (*t).KeyIndex.Append(uint32(0))
+	}
+	if (*t).KeyIndex[ki] > uint32(0) {
+		return
+	}
+	let r = (*t).Count
+	(*t).Count = r + uint32(1)
+	(*t).Name = (*t).Name.Append(nid)
+	(*t).Receiver = (*t).Receiver.Append(rid)
+	(*t).Statement = (*t).Statement.Append(sid)
+	(*t).Derived = (*t).Derived.Append(derived)
+	(*t).KeyIndex[ki] = r + uint32(1)
+}
+
+func extractReceiverTypeName(p syntax.Parsed, src string, recID dense.ID[syntax.Node]) string {
+	let tree = p.Tree
+	if syntax.KindOf(tree, recID) != syntax.KFieldList {
+		return ""
+	}
+	let fl = syntax.FieldListOf(tree, recID)
+	if syntax.Len(fl.List) == 0 {
+		return ""
+	}
+	let fid = syntax.Item(tree, fl.List, 0)
+	let f = syntax.FieldOf(tree, fid)
+	match dense.Unpack(f.Type) {
+	case option.Some[dense.ID[syntax.Node]] as tid:
+		nodeText(p, src, tid.Value)
+	case option.None:
+		""
+	}
+}
+
+func inspectInterfaceMembers(p syntax.Parsed, src string, tname string, specID dense.ID[syntax.Node], t mut ParsedLawTable, wireTypes mut []string, sc mut Scratch) {
+	let tree = p.Tree
+	if syntax.KindOf(tree, specID) != syntax.KInterfaceType {
+		return
+	}
+	let iface = syntax.InterfaceTypeOf(tree, specID)
+	let nm = syntax.Len(iface.Members)
+	let mut addedWire = false
+	for j in 0..nm {
+		let fid = syntax.Item(tree, iface.Members, j)
+		let mk = syntax.KindOf(tree, fid)
+		if mk == syntax.KField && !addedWire {
+			let f = syntax.FieldOf(tree, fid)
+			let nn = syntax.Len(f.Names)
+			for k in 0..nn {
+				let nid = syntax.Item(tree, f.Names, k)
+				if nodeText(p, src, nid) == "Wire" {
+					*wireTypes = (*wireTypes).Append(tname)
+					addedWire = true
+					break
+				}
+			}
+		} else if mk == syntax.KLawDecl {
+			let ld = syntax.LawDeclOf(tree, fid)
+			let lname = nodeText(p, src, ld.Name)
+			let rawStmt = nodeText(p, src, fid)
+			let normStmt = NormalizeWhitespace(stripCommentsForNormalize(rawStmt), sc)
+			addParsedLaw(t, lname, tname, normStmt, false)
+		}
+	}
+}
+
+func extractFirstParamTypeName(p syntax.Parsed, src string, ftID dense.ID[syntax.Node]) string {
+	let tree = p.Tree
+	if syntax.KindOf(tree, ftID) != syntax.KFuncType {
+		return ""
+	}
+	let ft = syntax.FuncTypeOf(tree, ftID)
+	extractReceiverTypeName(p, src, ft.Params)
+}
+
+func collectSourceLaws(src string, t mut ParsedLawTable, sc mut Scratch) {
+	let p = syntax.Parse(src)
+	if p.Failed {
+		return
+	}
+	let tree = p.Tree
+	let root = syntax.Root(tree)
+	if syntax.KindOf(tree, root) != syntax.KFile {
+		return
+	}
+	let mut wireTypes = []string{}
+	let mut parseFuncs = []string{}
+	let file = syntax.FileOf(tree, root)
+	let nDecls = syntax.Len(file.Decls)
+	for i in 0..nDecls {
+		let decl = syntax.Item(tree, file.Decls, i)
+		let k = syntax.KindOf(tree, decl)
+		if k == syntax.KLawDecl {
+			let ld = syntax.LawDeclOf(tree, decl)
+			let name = nodeText(p, src, ld.Name)
+			let rawStmt = nodeText(p, src, decl)
+			let normStmt = NormalizeWhitespace(stripCommentsForNormalize(rawStmt), sc)
+			addParsedLaw(t, name, "", normStmt, false)
+		} else if k == syntax.KTypeDecl {
+			let td = syntax.TypeDeclOf(tree, decl)
+			let tname = nodeText(p, src, td.Name)
+			match dense.Unpack(td.Spec) {
+			case option.Some[dense.ID[syntax.Node]] as sid:
+				inspectInterfaceMembers(p, src, tname, sid.Value, t, &wireTypes, sc)
+			case option.None:
+			}
+			match dense.Unpack(td.Where) {
+			case option.Some[dense.ID[syntax.Node]] as wid:
+				let wsub = WhereText(nodeText(p, src, wid.Value), sc)
+				let wname = WhereLawName(tname)
+				addParsedLaw(t, wname, "", "law \(wname)(x \(tname)) { \(wsub) }", true)
+			case option.None:
+			}
+		} else if k == syntax.KFuncDecl {
+			let fd = syntax.FuncDeclOf(tree, decl)
+			let fname = nodeText(p, src, fd.Name)
+			if fname == "Wire" {
+				let mut matched = false
+				match dense.Unpack(fd.Recv) {
+				case option.Some[dense.ID[syntax.Node]] as rid:
+					let rname = extractReceiverTypeName(p, src, rid.Value)
+					if rname != "" {
+						wireTypes = wireTypes.Append(rname)
+						matched = true
+					}
+				case option.None:
+				}
+				if !matched {
+					let pname = extractFirstParamTypeName(p, src, fd.Type)
+					if pname != "" {
+						wireTypes = wireTypes.Append(pname)
+					}
+				}
+			} else {
+				match ParseName(fname) {
+				case option.Some[string] as base:
+					parseFuncs = parseFuncs.Append(base.Value)
+				case option.None:
+				}
+			}
+		}
+	}
+	let sortedWires = slices.Sort(wireTypes)
+	for wt in sortedWires {
+		for pf in parseFuncs {
+			if wt == pf {
+				let rname = RoundTripLawName(wt)
+				addParsedLaw(t, rname, "", "law \(rname)(v \(wt)) { Parse\(wt)(v.Wire()) == v }", true)
+				break
+			}
+		}
+	}
+}
+
+// PackageLaws extracts explicit and derived refinement and round-trip laws from Ergo sources.
+func PackageLaws(sources []string, sc mut Scratch) ParsedLawTable {
+	let mut t = NewParsedLawTable()
+	ResetScratch(sc)
+	for src in sources {
+		collectSourceLaws(src, &t, sc)
+	}
+	t
+}
+
+// LookupParsedLaw finds the dense row id for a parsed law by name and optional receiver.
+func LookupParsedLaw(t ParsedLawTable, rec string, name string) option.Option[uint32] {
+	let key = if rec == "" { name } else { "\(rec).\(name)" }
+	match findPoolStr(t.Strings, key) {
+	case option.Some[uint32] as kid:
+		let ki = int(kid.Value)
+		if ki < t.KeyIndex.Len() && t.KeyIndex[ki] > uint32(0) {
+			return option.Some[uint32]{Value: t.KeyIndex[ki] - uint32(1)}
+		}
+		option.None
+	case option.None:
+		option.None
+	}
+}
+
+// PackageLawsIncludesWhere ensures any valid type declaration with a where clause emits a derived law.
+law PackageLawsIncludesWhere(x bool) {
+	let src = if x {
+		"type Port int where true\n"
+	} else {
+		"type Age int where false\n"
+	}
+	let mut sc = NewScratch()
+	let tbl = PackageLaws([]string{src}, &sc)
+	ParsedLawCount(tbl) == uint32(1)
+}
+
+test TestParsedLawsAndDerived {
+	let src = "type Age int where self > 0\ntype Port { Wire() string }\nfunc ParsePort(s string, p Port) Port { p }\nlaw ExplicitLaw(n int) { n == n }\n"
+	let mut sc = NewScratch()
+	let tbl = PackageLaws([]string{src}, &sc)
+	assert ParsedLawCount(tbl) == uint32(3)
+	assert LookupParsedLaw(tbl, "", "ExplicitLaw") != option.None
+	assert LookupParsedLaw(tbl, "", WhereLawName("Age")) != option.None
+	assert LookupParsedLaw(tbl, "", RoundTripLawName("Port")) != option.None
+}

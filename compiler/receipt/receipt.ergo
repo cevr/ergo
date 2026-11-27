@@ -1,0 +1,758 @@
+import base64
+import dense
+import filepath
+import fs
+import fstest
+import json
+import option
+import sha256
+import slices
+import strconv
+import strings
+
+// ReceiptKindLocation marks a path-location row inside ReceiptTable.
+let ReceiptKindLocation = uint8(1)
+
+// ReceiptKindBuild marks a Go build provenance receipt row inside ReceiptTable.
+let ReceiptKindBuild = uint8(2)
+
+// ReceiptKindTest marks a test execution provenance receipt row inside ReceiptTable.
+let ReceiptKindTest = uint8(3)
+
+// ReceiptSchema identifies the canonical JSON schema version for BuildReceipt values.
+let ReceiptSchema = "ergo-receipt/1"
+
+// ResolveError reports a failure while resolving a physical or virtual path.
+type ResolveError {
+	Path    string,
+	Reason  string,
+	Message string,
+}
+
+// LinkSpec describes a symbolic link edge used during pure filesystem path resolution.
+type LinkSpec {
+	Path     string,
+	Target   string,
+	Dangling bool,
+}
+
+// Location holds the spelled and resolved path attributes of a test or source location.
+type Location {
+	Spelled  string,
+	Resolved string,
+	Via      string,
+	Virtual  string,
+	Exists   bool,
+	Dir      bool,
+	Unfiled  bool,
+}
+
+// ResolvedPath holds the result of physical path normalization across symbolic links.
+type ResolvedPath {
+	Path   string,
+	Via    string,
+	Exists bool,
+	Dir    bool,
+}
+
+// BuildReceipt encodes verifiable build or test execution provenance metadata.
+type BuildReceipt {
+	Schema         string,
+	Kind           string,
+	Target         string,
+	ArtifactDigest string,
+	InputsDigest   string,
+	ToolDigest     string,
+	RunnerDigest   string,
+	GoFlags        []string,
+	Provenance     []string,
+	MacDigest      string,
+	TimestampNS    uint64,
+}
+
+// ReceiptScratch holds reusable working slices for receipt path and digest operations.
+type ReceiptScratch {
+	Strs    []string,
+	Indices []uint32,
+	Stack   []uint32,
+}
+
+// ReceiptRow holds one unpacked entry from ReceiptTable.
+type ReceiptRow {
+	Kind           uint8,
+	Target         string,
+	Spelled        string,
+	Resolved       string,
+	Via            string,
+	ArtifactDigest string,
+	InputsDigest   string,
+	ToolDigest     string,
+	RunnerDigest   string,
+	MacDigest      string,
+	Exists         bool,
+	IsDir          bool,
+	Verified       bool,
+	Size           uint64,
+	TimestampNS    uint64,
+}
+
+// ReceiptTable stores path locations and build/test receipts in flat unsigned SoA columns.
+type ReceiptTable {
+	Strings        dense.Strings,
+	StrPool        []string,
+	Count          uint32,
+	Kind           []uint8,
+	Target         []uint32,
+	Spelled        []uint32,
+	Resolved       []uint32,
+	Via            []uint32,
+	ArtifactDigest []uint32,
+	InputsDigest   []uint32,
+	ToolDigest     []uint32,
+	RunnerDigest   []uint32,
+	MacDigest      []uint32,
+	Exists         []bool,
+	IsDir          []bool,
+	Verified       []bool,
+	Size           []uint64,
+	TimestampNS    []uint64,
+	KeyIndex       []uint32,
+}
+
+// NewReceiptScratch allocates a reusable ReceiptScratch.
+func NewReceiptScratch() ReceiptScratch {
+	ReceiptScratch{
+		Strs:    slices.WithCapacity[string](32),
+		Indices: slices.WithCapacity[uint32](32),
+		Stack:   slices.WithCapacity[uint32](16),
+	}
+}
+
+func internRecStr(st mut dense.Strings, pool mut []string, s string) uint32 {
+	let id = dense.InternText(st, s)
+	let idx = dense.Index(id)
+	for (*pool).Len() <= idx {
+		*pool = (*pool).Append("")
+	}
+	(*pool)[idx] = s
+	uint32(idx)
+}
+
+func findRecStr(st dense.Strings, s string) option.Option[uint32] {
+	match dense.FindText(st, s) {
+	case option.Some[dense.ID[dense.Str]] as found:
+		option.Some[uint32]{Value: uint32(dense.Index(found.Value))}
+	case option.None:
+		option.None
+	}
+}
+
+func recStrAt(pool []string, id uint32) string {
+	let idx = int(id)
+	if idx < 0 || idx >= pool.Len() {
+		return ""
+	}
+	pool[idx]
+}
+
+type cutRecPair {
+	ok     bool,
+	before string,
+	after  string,
+}
+
+func cutRecFirst(s string, sep string) cutRecPair {
+	let idx = strings.Index(s, sep)
+	if idx < 0 {
+		return cutRecPair{ok: false, before: s, after: ""}
+	}
+	cutRecPair{ok: true, before: s[:idx], after: s[idx+sep.Len():]}
+}
+
+// NewReceiptTable allocates an empty ReceiptTable.
+func NewReceiptTable() ReceiptTable {
+	ReceiptTable{
+		Strings:        dense.NewStrings(),
+		StrPool:        []string{},
+		Count:          uint32(0),
+		Kind:           []uint8{},
+		Target:         []uint32{},
+		Spelled:        []uint32{},
+		Resolved:       []uint32{},
+		Via:            []uint32{},
+		ArtifactDigest: []uint32{},
+		InputsDigest:   []uint32{},
+		ToolDigest:     []uint32{},
+		RunnerDigest:   []uint32{},
+		MacDigest:      []uint32{},
+		Exists:         []bool{},
+		IsDir:          []bool{},
+		Verified:       []bool{},
+		Size:           []uint64{},
+		TimestampNS:    []uint64{},
+		KeyIndex:       []uint32{},
+	}
+}
+
+// ReceiptCount returns the number of entries in t.
+func ReceiptCount(t ReceiptTable) uint32 {
+	t.Count
+}
+
+// ReceiptRowAt returns the unpacked ReceiptRow at dense index id.
+func ReceiptRowAt(t ReceiptTable, id uint32) ReceiptRow {
+	let idx = int(id)
+	if idx < 0 || uint32(idx) >= t.Count {
+		return ReceiptRow{
+			Kind:           uint8(0), Target: "", Spelled: "", Resolved: "", Via: "",
+			ArtifactDigest: "", InputsDigest: "", ToolDigest: "", RunnerDigest: "", MacDigest: "",
+			Exists:         false, IsDir: false, Verified: false, Size: uint64(0), TimestampNS: uint64(0),
+		}
+	}
+	ReceiptRow{
+		Kind:           t.Kind[idx],
+		Target:         recStrAt(t.StrPool, t.Target[idx]),
+		Spelled:        recStrAt(t.StrPool, t.Spelled[idx]),
+		Resolved:       recStrAt(t.StrPool, t.Resolved[idx]),
+		Via:            recStrAt(t.StrPool, t.Via[idx]),
+		ArtifactDigest: recStrAt(t.StrPool, t.ArtifactDigest[idx]),
+		InputsDigest:   recStrAt(t.StrPool, t.InputsDigest[idx]),
+		ToolDigest:     recStrAt(t.StrPool, t.ToolDigest[idx]),
+		RunnerDigest:   recStrAt(t.StrPool, t.RunnerDigest[idx]),
+		MacDigest:      recStrAt(t.StrPool, t.MacDigest[idx]),
+		Exists:         t.Exists[idx],
+		IsDir:          t.IsDir[idx],
+		Verified:       t.Verified[idx],
+		Size:           t.Size[idx],
+		TimestampNS:    t.TimestampNS[idx],
+	}
+}
+
+// AddReceiptRow records a location or receipt row into t and returns its dense row id.
+func AddReceiptRow(t mut ReceiptTable, row ReceiptRow) uint32 {
+	let key = "\(strconv.Itoa(int(row.Kind))):\(row.Target):\(row.Spelled)"
+	let kid = internRecStr(&((*t).Strings), &((*t).StrPool), key)
+	let tid = internRecStr(&((*t).Strings), &((*t).StrPool), row.Target)
+	let sid = internRecStr(&((*t).Strings), &((*t).StrPool), row.Spelled)
+	let rid = internRecStr(&((*t).Strings), &((*t).StrPool), row.Resolved)
+	let vid = internRecStr(&((*t).Strings), &((*t).StrPool), row.Via)
+	let aid = internRecStr(&((*t).Strings), &((*t).StrPool), row.ArtifactDigest)
+	let iid = internRecStr(&((*t).Strings), &((*t).StrPool), row.InputsDigest)
+	let toid = internRecStr(&((*t).Strings), &((*t).StrPool), row.ToolDigest)
+	let rnid = internRecStr(&((*t).Strings), &((*t).StrPool), row.RunnerDigest)
+	let mid = internRecStr(&((*t).Strings), &((*t).StrPool), row.MacDigest)
+	let ki = int(kid)
+	for (*t).KeyIndex.Len() <= ki {
+		(*t).KeyIndex = (*t).KeyIndex.Append(uint32(0))
+	}
+	let r = (*t).Count
+	(*t).Count = r + uint32(1)
+	(*t).Kind = (*t).Kind.Append(row.Kind)
+	(*t).Target = (*t).Target.Append(tid)
+	(*t).Spelled = (*t).Spelled.Append(sid)
+	(*t).Resolved = (*t).Resolved.Append(rid)
+	(*t).Via = (*t).Via.Append(vid)
+	(*t).ArtifactDigest = (*t).ArtifactDigest.Append(aid)
+	(*t).InputsDigest = (*t).InputsDigest.Append(iid)
+	(*t).ToolDigest = (*t).ToolDigest.Append(toid)
+	(*t).RunnerDigest = (*t).RunnerDigest.Append(rnid)
+	(*t).MacDigest = (*t).MacDigest.Append(mid)
+	(*t).Exists = (*t).Exists.Append(row.Exists)
+	(*t).IsDir = (*t).IsDir.Append(row.IsDir)
+	(*t).Verified = (*t).Verified.Append(row.Verified)
+	(*t).Size = (*t).Size.Append(row.Size)
+	(*t).TimestampNS = (*t).TimestampNS.Append(row.TimestampNS)
+	(*t).KeyIndex[ki] = r + uint32(1)
+	r
+}
+
+// LookupReceipt looks up the dense row id matching (kind, target, spelled).
+func LookupReceipt(t ReceiptTable, kind uint8, target string, spelled string) option.Option[uint32] {
+	let key = "\(strconv.Itoa(int(kind))):\(target):\(spelled)"
+	match findRecStr(t.Strings, key) {
+	case option.Some[uint32] as kid:
+		let ki = int(kid.Value)
+		if ki < t.KeyIndex.Len() && t.KeyIndex[ki] > uint32(0) {
+			return option.Some[uint32]{Value: t.KeyIndex[ki] - uint32(1)}
+		}
+		option.None
+	case option.None:
+		option.None
+	}
+}
+
+// GoBuildFlags returns the deterministic Go build flags used for receipted builds.
+func GoBuildFlags() []string {
+	[]string{"-trimpath", "-mod=readonly", "-buildvcs=false"}
+}
+
+// GoBuildFlagsWithOptions returns GoBuildFlags augmented with optional race and cover flags.
+func GoBuildFlagsWithOptions(race bool, cover bool) []string {
+	let mut flags = GoBuildFlags()
+	if race {
+		flags = flags.Append("-race")
+	}
+	if cover {
+		flags = flags.Append("-cover")
+		flags = flags.Append("-covermode=atomic")
+	}
+	flags
+}
+
+// GoBuildCommand constructs a deterministic Go command invocation for verb and target pkg.
+func GoBuildCommand(goBin string, verb string, pkg string, race bool, cover bool, extra []string) []string {
+	let bin = if goBin == "" { "go" } else { goBin }
+	let mut out = []string{bin, verb}
+	for f in GoBuildFlagsWithOptions(race, cover) {
+		out = out.Append(f)
+	}
+	for x in extra {
+		out = out.Append(x)
+	}
+	if pkg != "" {
+		out = out.Append(pkg)
+	}
+	out
+}
+
+// WithEnv merges KEY=VALUE overrides into base environment entries deterministically.
+func WithEnv(base []string, overrides []string) []string {
+	let mut keys = []string{}
+	let mut vals = []string{}
+	for item in base {
+		let eq = cutRecFirst(item, "=")
+		let k = if eq.ok { eq.before } else { item }
+		let mut found = false
+		let mut i = 0
+		for i < keys.Len() {
+			if keys[i] == k {
+				vals[i] = item
+				found = true
+				break
+			}
+			i = i + 1
+		}
+		if !found {
+			keys = keys.Append(k)
+			vals = vals.Append(item)
+		}
+	}
+	for ov in overrides {
+		let eq = cutRecFirst(ov, "=")
+		let k = if eq.ok { eq.before } else { ov }
+		let mut found = false
+		let mut i = 0
+		for i < keys.Len() {
+			if keys[i] == k {
+				vals[i] = ov
+				found = true
+				break
+			}
+			i = i + 1
+		}
+		if !found {
+			keys = keys.Append(k)
+			vals = vals.Append(ov)
+		}
+	}
+	vals
+}
+
+func findLinkSpec(links []LinkSpec, cleanPath string) option.Option[LinkSpec] {
+	let target = filepath.Clean(cleanPath)
+	for lk in links {
+		if filepath.Clean(lk.Path) == target {
+			return option.Some[LinkSpec]{Value: lk}
+		}
+	}
+	option.None
+}
+
+func splitRelSegments(p string) []string {
+	let cleaned = strings.TrimPrefix(p, "/")
+	if cleaned == "" {
+		return []string{}
+	}
+	let raw = strings.Split(cleaned, "/")
+	let mut segs = []string{}
+	for r in raw {
+		if r == "" || r == "." {
+			continue
+		}
+		segs = segs.Append(r)
+	}
+	segs
+}
+
+func stepResolveLinks(absPath string, links []LinkSpec) ResolvedPath fails ResolveError needs fs.Files {
+	let clean = filepath.Clean(absPath)
+	let segs = splitRelSegments(clean)
+	let mut cur = if strings.HasPrefix(clean, "/") { "/" } else { "." }
+	let mut hops = 0
+	let mut tailStart = -1
+	let mut i = 0
+	let mut active = segs
+	let mut lastVia = ""
+	for i < active.Len() {
+		let seg = active[i]
+		let next = if cur == "/" { "/" + seg } else if cur == "." { seg } else { cur + "/" + seg }
+		match findLinkSpec(links, next) {
+		case option.Some[LinkSpec] as lk:
+			if lk.Value.Dangling {
+				return ResolveError{
+					Path:    absPath,
+					Reason:  "dangling",
+					Message: "\(absPath): cannot be resolved (a dangling link or a non-directory)",
+				}
+			}
+			hops = hops + 1
+			if hops > 40 {
+				return ResolveError{
+					Path:    absPath,
+					Reason:  "eloop",
+					Message: "\(absPath): cannot be resolved (too many levels of symbolic links)",
+				}
+			}
+			lastVia = next
+			let tgt = lk.Value.Target
+			let resolvedTarget = if strings.HasPrefix(tgt, "/") {
+				filepath.Clean(tgt)
+			} else {
+				filepath.Clean(filepath.Join([]string{cur, tgt}))
+			}
+			let mut rem = splitRelSegments(resolvedTarget)
+			let mut k = i + 1
+			for k < active.Len() {
+				rem = rem.Append(active[k])
+				k = k + 1
+			}
+			cur = if strings.HasPrefix(resolvedTarget, "/") { "/" } else { "." }
+			active = rem
+			i = 0
+			continue
+		case option.None:
+		}
+		let st = fs.Files.Stat(next) catch {
+		case fs.NotFound:
+			let mut remIdx = i + 1
+			for remIdx < active.Len() {
+				let remPath = active[i]
+				if remIdx < active.Len() {
+					return ResolveError{
+						Path:    absPath,
+						Reason:  "below_missing",
+						Message: "\(absPath): steps through \(strconv.Quote(remPath)) below a missing directory",
+					}
+				}
+				remIdx = remIdx + 1
+			}
+			tailStart = i
+			break
+		case fs.Denied, fs.Failed:
+			return ResolveError{
+				Path:    absPath,
+				Reason:  "stat_failed",
+				Message: "\(absPath): cannot be resolved (a dangling link or a non-directory)",
+			}
+		}
+		if i+1 < active.Len() && !st.Dir {
+			return ResolveError{
+				Path:    absPath,
+				Reason:  "not_dir",
+				Message: "\(absPath): cannot be resolved (a dangling link or a non-directory)",
+			}
+		}
+		cur = next
+		i = i + 1
+	}
+	if tailStart >= 0 {
+		let mut built = cur
+		let mut k = tailStart
+		for k < active.Len() {
+			let seg = active[k]
+			built = if built == "/" { "/" + seg } else if built == "." { seg } else { built + "/" + seg }
+			k = k + 1
+		}
+		return ResolvedPath{Path: filepath.Clean(built), Via: lastVia, Exists: false, Dir: false}
+	}
+	let stFinal = fs.Files.Stat(cur) catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		return ResolvedPath{Path: filepath.Clean(cur), Via: lastVia, Exists: false, Dir: false}
+	}
+	ResolvedPath{Path: filepath.Clean(cur), Via: lastVia, Exists: true, Dir: stFinal.Dir}
+}
+
+// Physical resolves symlinks on path using up to 8 restarts while keeping trailing missing segments.
+func Physical(path string, links []LinkSpec) ResolvedPath fails ResolveError needs fs.Files {
+	let mut attempt = 0
+	for attempt < 8 {
+		let r1 = try stepResolveLinks(path, links)
+		let r2 = try stepResolveLinks(path, links)
+		if r1.Path == r2.Path && r1.Exists == r2.Exists && r1.Dir == r2.Dir {
+			return r1
+		}
+		attempt = attempt + 1
+	}
+	stepResolveLinks(path, links)
+}
+
+func resolveRawPreserveDotDot(wd string, spelled string, links []LinkSpec) ResolvedPath fails ResolveError needs fs.Files {
+	let raw = if strings.HasPrefix(spelled, "/") { spelled } else { wd + "/" + spelled }
+	let rawParts = strings.Split(strings.TrimPrefix(raw, "/"), "/")
+	let mut cur = if strings.HasPrefix(raw, "/") { "/" } else { "." }
+	let mut hops = 0
+	let mut i = 0
+	let mut active = []string{}
+	for p in rawParts {
+		if p != "" && p != "." {
+			active = active.Append(p)
+		}
+	}
+	let mut lastVia = ""
+	for i < active.Len() {
+		let seg = active[i]
+		if seg == ".." {
+			cur = filepath.Dir(cur)
+			i = i + 1
+			continue
+		}
+		let next = if cur == "/" { "/" + seg } else if cur == "." { seg } else { cur + "/" + seg }
+		match findLinkSpec(links, next) {
+		case option.Some[LinkSpec] as lk:
+			if lk.Value.Dangling {
+				return ResolveError{
+					Path:    spelled,
+					Reason:  "dangling",
+					Message: "\(spelled): cannot be resolved (a dangling link or a non-directory)",
+				}
+			}
+			hops = hops + 1
+			if hops > 40 {
+				return ResolveError{
+					Path:    spelled,
+					Reason:  "eloop",
+					Message: "\(spelled): cannot be resolved (too many levels of symbolic links)",
+				}
+			}
+			lastVia = next
+			let tgt = lk.Value.Target
+			let tgtAbs = if strings.HasPrefix(tgt, "/") { tgt } else { cur + "/" + tgt }
+			let mut nextActive = []string{}
+			for part in strings.Split(strings.TrimPrefix(tgtAbs, "/"), "/") {
+				if part != "" && part != "." {
+					nextActive = nextActive.Append(part)
+				}
+			}
+			let mut k = i + 1
+			for k < active.Len() {
+				nextActive = nextActive.Append(active[k])
+				k = k + 1
+			}
+			cur = if strings.HasPrefix(tgtAbs, "/") { "/" } else { "." }
+			active = nextActive
+			i = 0
+			continue
+		case option.None:
+		}
+		cur = next
+		i = i + 1
+	}
+	let res = try Physical(cur, links)
+	let via = if lastVia != "" { lastVia } else { res.Via }
+	ResolvedPath{Path: res.Path, Via: via, Exists: res.Exists, Dir: res.Dir}
+}
+
+// Locate resolves spelled relative to wd following symbolic links before resolving parent references.
+func Locate(wd string, spelled string, links []LinkSpec) Location fails ResolveError needs fs.Files {
+	let res = try resolveRawPreserveDotDot(wd, spelled, links)
+	Location{
+		Spelled:  spelled,
+		Resolved: res.Path,
+		Via:      res.Via,
+		Virtual:  "",
+		Exists:   res.Exists,
+		Dir:      res.Dir,
+		Unfiled:  false,
+	}
+}
+
+// LocateSource cleans spelled lexically relative to wd before resolving physical symbolic links.
+func LocateSource(wd string, spelled string, links []LinkSpec) Location fails ResolveError needs fs.Files {
+	let abs = filepath.Clean(filepath.AbsFrom(wd, spelled))
+	let res = try Physical(abs, links)
+	Location{
+		Spelled:  spelled,
+		Resolved: res.Path,
+		Via:      res.Via,
+		Virtual:  "",
+		Exists:   res.Exists,
+		Dir:      res.Dir,
+		Unfiled:  false,
+	}
+}
+
+// Unfiled constructs a Location representing a virtual or non-filesystem path.
+func Unfiled(wd string, spelled string) Location {
+	let abs = filepath.Clean(filepath.AbsFrom(wd, spelled))
+	Location{
+		Spelled:  spelled,
+		Resolved: abs,
+		Via:      "",
+		Virtual:  abs,
+		Exists:   false,
+		Dir:      false,
+		Unfiled:  true,
+	}
+}
+
+func appendDigestField(parts mut []string, tag string, v string) {
+	*parts = (*parts).Append("\(tag)\(strconv.Itoa(v.Len())):\(v)")
+}
+
+// ComputeReceiptMac computes the domain-separated h1: SHA-256 authentication tag of r.
+func ComputeReceiptMac(r BuildReceipt) string {
+	let mut parts = []string{}
+	appendDigestField(&parts, "s", r.Schema)
+	appendDigestField(&parts, "k", r.Kind)
+	appendDigestField(&parts, "t", r.Target)
+	appendDigestField(&parts, "a", r.ArtifactDigest)
+	appendDigestField(&parts, "i", r.InputsDigest)
+	appendDigestField(&parts, "o", r.ToolDigest)
+	appendDigestField(&parts, "r", r.RunnerDigest)
+	for f in slices.Sort(r.GoFlags) {
+		appendDigestField(&parts, "g", f)
+	}
+	for p in slices.Sort(r.Provenance) {
+		appendDigestField(&parts, "p", p)
+	}
+	appendDigestField(&parts, "n", strconv.Itoa(int(r.TimestampNS)))
+	"h1:" + base64.Encode(base64.StdEncoding, sha256.Sum(strings.Join(parts, "")))
+}
+
+// SignBuildReceipt returns a copy of r populated with canonical Schema and MacDigest.
+func SignBuildReceipt(r BuildReceipt) BuildReceipt {
+	let mut out = r
+	if out.Schema == "" {
+		out.Schema = ReceiptSchema
+	}
+	out.MacDigest = ComputeReceiptMac(out)
+	out
+}
+
+// VerifyBuildReceipt verifies schema, expected digests (when non-empty), and MacDigest integrity.
+func VerifyBuildReceipt(r BuildReceipt, expectedInputsDigest string, expectedToolDigest string) bool {
+	if r.Schema != ReceiptSchema {
+		return false
+	}
+	if expectedInputsDigest != "" && r.InputsDigest != expectedInputsDigest {
+		return false
+	}
+	if expectedToolDigest != "" && r.ToolDigest != expectedToolDigest {
+		return false
+	}
+	r.MacDigest != "" && r.MacDigest == ComputeReceiptMac(r)
+}
+
+// EncodeBuildReceiptJSON encodes r as compact deterministic JSON.
+func EncodeBuildReceiptJSON(r BuildReceipt) string {
+	let codec = json.Codec[BuildReceipt]{MaxBytes: 0, MaxDepth: 0}
+	json.Encode(codec, r)
+}
+
+// DecodeBuildReceiptJSON decodes a BuildReceipt from JSON text.
+func DecodeBuildReceiptJSON(text string) BuildReceipt fails json.Malformed | WireMissingField | WireWrongKind {
+	let codec = json.Codec[BuildReceipt]{MaxBytes: 0, MaxDepth: 0}
+	try json.Decode(codec, text)
+}
+
+// SignAndVerifyReceiptAlwaysHolds ensures every signed BuildReceipt passes VerifyBuildReceipt.
+law SignAndVerifyReceiptAlwaysHolds(target string, inputs string, tool string) {
+	let r = SignBuildReceipt(BuildReceipt{
+		Schema:         ReceiptSchema,
+		Kind:           "build",
+		Target:         target,
+		ArtifactDigest: "h1:art",
+		InputsDigest:   inputs,
+		ToolDigest:     tool,
+		RunnerDigest:   "h1:run",
+		GoFlags:        GoBuildFlags(),
+		Provenance:     []string{},
+		MacDigest:      "",
+		TimestampNS:    uint64(1),
+	})
+	VerifyBuildReceipt(r, inputs, tool)
+}
+
+test TestReceiptResolveAndSigningOverMemFS {
+	let mem = fstest.NewMemory()
+	mem.MkdirAll("/ws/real/dir") catch {
+	case fs.Denied, fs.Failed:
+		assert false
+	}
+	mem.MkdirAll("/ws/src") catch {
+	case fs.Denied, fs.Failed:
+		assert false
+	}
+	mem.WriteFile("/ws/real/target.txt", "ok") catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		assert false
+	}
+	let links = []LinkSpec{
+		LinkSpec{Path: "/ws/src/linkdir", Target: "/ws/real/dir", Dangling: false},
+		LinkSpec{Path: "/ws/src/bad", Target: "/ws/nowhere", Dangling: true},
+	}
+	with context { fs.Files: mem } {
+		let loc = Locate("/ws/src", "linkdir/../target.txt", links) catch {
+		case ResolveError:
+			assert false
+			return
+		}
+		assert loc.Resolved == "/ws/real/target.txt"
+		assert loc.Exists
+		let srcLoc = LocateSource("/ws/src", "linkdir/../missing.txt", links) catch {
+		case ResolveError:
+			assert false
+			return
+		}
+		assert srcLoc.Resolved == "/ws/src/missing.txt"
+		assert !srcLoc.Exists
+		let mut danglingHit = false
+		let _ = Locate("/ws/src", "bad/file", links) catch {
+		case ResolveError as re:
+			danglingHit = strings.Contains(re.Message, "dangling link")
+			Unfiled("/ws/src", "bad/file")
+		}
+		assert danglingHit
+	}
+	let signed = SignBuildReceipt(BuildReceipt{
+		Schema:         "",
+		Kind:           "test",
+		Target:         "pkg/a",
+		ArtifactDigest: "h1:a",
+		InputsDigest:   "h1:i",
+		ToolDigest:     "h1:t",
+		RunnerDigest:   "h1:r",
+		GoFlags:        GoBuildFlagsWithOptions(true, true),
+		Provenance:     []string{"ergo@1"},
+		MacDigest:      "",
+		TimestampNS:    uint64(42),
+	})
+	assert VerifyBuildReceipt(signed, "h1:i", "h1:t")
+	assert !VerifyBuildReceipt(signed, "h1:wrong", "h1:t")
+	let enc = EncodeBuildReceiptJSON(signed)
+	let dec = DecodeBuildReceiptJSON(enc) catch {
+	case json.Malformed, WireMissingField, WireWrongKind:
+		assert false
+		return
+	}
+	assert VerifyBuildReceipt(dec, "h1:i", "h1:t")
+	let mut tbl = NewReceiptTable()
+	let _ = AddReceiptRow(&tbl, ReceiptRow{
+		Kind:       ReceiptKindBuild, Target: signed.Target, Spelled: "pkg/a", Resolved: "/ws/pkg/a",
+		Via:        "", ArtifactDigest: signed.ArtifactDigest, InputsDigest: signed.InputsDigest,
+		ToolDigest: signed.ToolDigest, RunnerDigest: signed.RunnerDigest, MacDigest: signed.MacDigest,
+		Exists:     true, IsDir: true, Verified: true, Size: uint64(0), TimestampNS: signed.TimestampNS,
+	})
+	assert ReceiptCount(tbl) == uint32(1)
+	assert LookupReceipt(tbl, ReceiptKindBuild, "pkg/a", "pkg/a") == option.Some[uint32]{Value: uint32(0)}
+}

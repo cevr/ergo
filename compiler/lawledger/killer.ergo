@@ -1,0 +1,492 @@
+import compiler/syntax
+import dense
+import filepath
+import fs
+import fstest
+import option
+import slices
+import strings
+
+// KillerUnresolved indicates a killer has not been checked yet.
+let KillerUnresolved = uint8(0)
+
+// KillerResolved indicates a killer law is verified as declared in its runner or package.
+let KillerResolved = uint8(1)
+
+// KillerMissingRunner indicates no runner package mapping exists for the target law.
+let KillerMissingRunner = uint8(2)
+
+// KillerDeclaredMissing indicates the runner directory exists but does not declare the law.
+let KillerDeclaredMissing = uint8(3)
+
+// ModRoot holds the resolved module directory and module path enclosing a package.
+type ModRoot {
+	Dir        string,
+	ModulePath string,
+	HasGoMod   bool,
+	HasErgoMod bool,
+}
+
+// KillerQuery requests resolution of one package law target.
+type KillerQuery {
+	Pkg string,
+	Law string,
+}
+
+// KillerRow holds the unpacked resolution outcome for one entry in KillerTable.
+type KillerRow {
+	Pkg          string,
+	Law          string,
+	Runner       string,
+	RunnerDir    string,
+	Status       uint8,
+	DeclaredFile string,
+	ImportedDirs []string,
+}
+
+// KillerTable stores law-killer resolution rows in flat unsigned SoA columns.
+type KillerTable {
+	Strings      dense.Strings,
+	StrPool      []string,
+	Count        uint32,
+	Pkg          []uint32,
+	Law          []uint32,
+	Runner       []uint32,
+	RunnerDir    []uint32,
+	Status       []uint8,
+	DeclaredFile []uint32,
+	ImportStart  []uint32,
+	ImportLen    []uint32,
+	ImportDirIDs []uint32,
+}
+
+// NewKillerTable allocates an empty KillerTable.
+func NewKillerTable() KillerTable {
+	KillerTable{
+		Strings:      dense.NewStrings(),
+		StrPool:      []string{},
+		Count:        uint32(0),
+		Pkg:          []uint32{},
+		Law:          []uint32{},
+		Runner:       []uint32{},
+		RunnerDir:    []uint32{},
+		Status:       []uint8{},
+		DeclaredFile: []uint32{},
+		ImportStart:  []uint32{},
+		ImportLen:    []uint32{},
+		ImportDirIDs: []uint32{},
+	}
+}
+
+// KillerCount returns the number of killer resolution entries in t.
+func KillerCount(t KillerTable) uint32 {
+	t.Count
+}
+
+// KillerRowAt returns the unpacked KillerRow at dense row id.
+func KillerRowAt(t KillerTable, id uint32) KillerRow {
+	let idx = int(id)
+	if idx < 0 || uint32(idx) >= t.Count {
+		return KillerRow{Pkg: "", Law: "", Runner: "", RunnerDir: "", Status: KillerUnresolved, DeclaredFile: "", ImportedDirs: []string{}}
+	}
+	let start = int(t.ImportStart[idx])
+	let n = int(t.ImportLen[idx])
+	let mut dirs = slices.WithCapacity[string](n)
+	let mut j = 0
+	for j < n {
+		dirs = dirs.Append(poolStrAt(t.StrPool, t.ImportDirIDs[start+j]))
+		j = j + 1
+	}
+	KillerRow{
+		Pkg:          poolStrAt(t.StrPool, t.Pkg[idx]),
+		Law:          poolStrAt(t.StrPool, t.Law[idx]),
+		Runner:       poolStrAt(t.StrPool, t.Runner[idx]),
+		RunnerDir:    poolStrAt(t.StrPool, t.RunnerDir[idx]),
+		Status:       t.Status[idx],
+		DeclaredFile: poolStrAt(t.StrPool, t.DeclaredFile[idx]),
+		ImportedDirs: dirs,
+	}
+}
+
+func extractQuotedPath(line string) option.Option[string] {
+	let firstQ = strings.IndexByte(line, '"')
+	if firstQ >= 0 {
+		let rest = line[firstQ+1:]
+		let secondQ = strings.IndexByte(rest, '"')
+		if secondQ >= 0 {
+			return option.Some[string]{Value: rest[:secondQ]}
+		}
+	}
+	let firstBT = strings.IndexByte(line, '`')
+	if firstBT >= 0 {
+		let rest = line[firstBT+1:]
+		let secondBT = strings.IndexByte(rest, '`')
+		if secondBT >= 0 {
+			return option.Some[string]{Value: rest[:secondBT]}
+		}
+	}
+	option.None
+}
+
+// GoImports extracts all imported package paths from a Go source file.
+func GoImports(src string) []string {
+	let mut specs = []string{}
+	let lines = strings.Split(src, "\n")
+	let mut inBlock = false
+	for raw in lines {
+		let line = strings.TrimSpace(raw)
+		if line == "" || strings.HasPrefix(line, "//") {
+			continue
+		}
+		if inBlock {
+			if strings.HasPrefix(line, ")") {
+				inBlock = false
+				continue
+			}
+			match extractQuotedPath(line) {
+			case option.Some[string] as p:
+				specs = specs.Append(p.Value)
+			case option.None:
+			}
+			continue
+		}
+		if strings.HasPrefix(line, "import ") {
+			let after = strings.TrimSpace(line[7:])
+			if strings.HasPrefix(after, "(") {
+				if !strings.Contains(after, ")") {
+					inBlock = true
+				} else {
+					match extractQuotedPath(after) {
+					case option.Some[string] as p:
+						specs = specs.Append(p.Value)
+					case option.None:
+					}
+				}
+			} else {
+				match extractQuotedPath(after) {
+				case option.Some[string] as p:
+					specs = specs.Append(p.Value)
+				case option.None:
+				}
+			}
+		} else if !strings.HasPrefix(line, "package ") && !strings.HasPrefix(line, "/*") && !strings.HasPrefix(line, "*") && !strings.HasPrefix(line, "//") {
+			break
+		}
+	}
+	specs
+}
+
+// ImportedDirs maps Go imports under modPath to subdirectories under modDir.
+func ImportedDirs(modDir string, modPath string, goSources []string) []string {
+	let mut seen = dense.NewStrings()
+	let mut dirs = []string{}
+	let prefix = if modPath == "" { "" } else { modPath + "/" }
+	for src in goSources {
+		let specs = GoImports(src)
+		for imp in specs {
+			let mut rel = ""
+			if imp == modPath && modPath != "" {
+				rel = "."
+			} else if prefix != "" && strings.HasPrefix(imp, prefix) {
+				rel = strings.TrimPrefix(imp, prefix)
+			} else {
+				continue
+			}
+			let dir = if rel == "." { filepath.Clean(modDir) } else { filepath.Join([]string{modDir, rel}) }
+			match dense.FindText(seen, dir) {
+			case option.Some[dense.ID[dense.Str]]:
+			case option.None:
+				let _ = dense.InternText(&seen, dir)
+				dirs = dirs.Append(dir)
+			}
+		}
+	}
+	slices.Sort(dirs)
+}
+
+func parseGoModModuleName(text string) string {
+	let lines = strings.Split(text, "\n")
+	for raw in lines {
+		let trimmed = strings.TrimSpace(raw)
+		if strings.HasPrefix(trimmed, "module ") {
+			let fields = strings.Fields(trimmed)
+			if fields.Len() >= 2 {
+				return strings.TrimSuffix(strings.TrimPrefix(fields[1], "\""), "\"")
+			}
+		}
+	}
+	""
+}
+
+func existsFile(path string) bool needs fs.Files {
+	let st = fs.Files.Stat(path) catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		return false
+	}
+	!st.Dir
+}
+
+// ModuleOf walks parent directories of dir looking for go.mod or ergo.mod.
+func ModuleOf(dir string) option.Option[ModRoot] needs fs.Files {
+	let mut cur = filepath.Clean(dir)
+	for {
+		let gmPath = filepath.Join([]string{cur, "go.mod"})
+		let emPath = filepath.Join([]string{cur, "ergo.mod"})
+		let hasGo = existsFile(gmPath)
+		let hasErgo = existsFile(emPath)
+		if hasGo || hasErgo {
+			let mut modName = ""
+			if hasGo {
+				let gtxt = fs.Files.ReadFile(gmPath) catch {
+				case fs.NotFound, fs.Denied, fs.Failed:
+					""
+				}
+				modName = parseGoModModuleName(gtxt)
+			}
+			if modName == "" && hasErgo {
+				let etxt = fs.Files.ReadFile(emPath) catch {
+				case fs.NotFound, fs.Denied, fs.Failed:
+					""
+				}
+				modName = parseGoModModuleName(etxt)
+			}
+			return option.Some[ModRoot]{Value: ModRoot{Dir: cur, ModulePath: modName, HasGoMod: hasGo, HasErgoMod: hasErgo}}
+		}
+		let parent = filepath.Dir(cur)
+		if parent == cur {
+			return option.None
+		}
+		cur = parent
+	}
+	option.None
+}
+
+// LawDeclaredInGo checks whether any Go runner source registers or references lawName as a law key literal.
+func LawDeclaredInGo(sources []string, lawName string) bool {
+	if lawName == "" {
+		return false
+	}
+	let quoted = "\"\(lawName)\""
+	let backtick = "`\(lawName)`"
+	for src in sources {
+		if strings.Contains(src, quoted) || strings.Contains(src, backtick) {
+			return true
+		}
+	}
+	false
+}
+
+// LawDeclaredInErgo checks via syntax.Parse whether any Ergo source declares lawName (top-level or type member).
+func LawDeclaredInErgo(sources []string, lawName string) bool {
+	if lawName == "" {
+		return false
+	}
+	let dotParts = cutFirst(lawName, ".")
+	for src in sources {
+		let p = syntax.Parse(src)
+		if p.Failed {
+			continue
+		}
+		let tree = p.Tree
+		let root = syntax.Root(tree)
+		if syntax.KindOf(tree, root) != syntax.KFile {
+			continue
+		}
+		let fileNode = syntax.FileOf(tree, root)
+		let nDecls = syntax.Len(fileNode.Decls)
+		for i in 0..nDecls {
+			let decl = syntax.Item(tree, fileNode.Decls, i)
+			let kd = syntax.KindOf(tree, decl)
+			if kd == syntax.KLawDecl {
+				let ld = syntax.LawDeclOf(tree, decl)
+				let s = syntax.NodePos(p, ld.Name)
+				let e = syntax.NodeEnd(p, ld.Name)
+				if s >= 0 && e <= src.Len() && s < e && src[s:e] == lawName {
+					return true
+				}
+			} else if dotParts.ok && kd == syntax.KTypeDecl {
+				let td = syntax.TypeDeclOf(tree, decl)
+				let ts = syntax.NodePos(p, td.Name)
+				let te = syntax.NodeEnd(p, td.Name)
+				if ts >= 0 && te <= src.Len() && ts < te && src[ts:te] == dotParts.before {
+					match dense.Unpack(td.Spec) {
+					case option.Some[dense.ID[syntax.Node]] as specID:
+						if syntax.KindOf(tree, specID.Value) == syntax.KInterfaceType {
+							let iface = syntax.InterfaceTypeOf(tree, specID.Value)
+							let nm = syntax.Len(iface.Members)
+							for mIdx in 0..nm {
+								let mem = syntax.Item(tree, iface.Members, mIdx)
+								if syntax.KindOf(tree, mem) == syntax.KLawDecl {
+									let mld = syntax.LawDeclOf(tree, mem)
+									let ms = syntax.NodePos(p, mld.Name)
+									let me = syntax.NodeEnd(p, mld.Name)
+									if ms >= 0 && me <= src.Len() && ms < me && src[ms:me] == dotParts.after {
+										return true
+									}
+								}
+							}
+						}
+					case option.None:
+					}
+				}
+			}
+		}
+	}
+	false
+}
+
+// LawDeclared checks both Go function declarations and Ergo law declarations across sources.
+func LawDeclared(sources []string, lawName string) bool {
+	if LawDeclaredInGo(sources, lawName) {
+		return true
+	}
+	if LawDeclaredInErgo(sources, lawName) {
+		return true
+	}
+	for src in sources {
+		let mut sc = NewScratch()
+		match Statement(src, lawName, &sc) {
+		case option.Some[string]:
+			return true
+		case option.None:
+		}
+	}
+	false
+}
+
+// ResolveKillers resolves each query in targets against runners and filesystem modules.
+func ResolveKillers(workDir string, runners RunnerTable, targets []KillerQuery) KillerTable fails fs.NotFound | fs.Denied | fs.Failed needs fs.Files {
+	let mut kt = NewKillerTable()
+	let modInfo = match ModuleOf(workDir) {
+	case option.Some[ModRoot] as m:
+		m.Value
+	case option.None:
+		ModRoot{Dir: filepath.Clean(workDir), ModulePath: "", HasGoMod: false, HasErgoMod: false}
+	}
+	for q in targets {
+		let runnerOpt = LookupRunner(runners, q.Pkg, q.Law)
+		let runnerPkg = match runnerOpt {
+		case option.Some[string] as r:
+			r.Value
+		case option.None:
+			""
+		}
+		let mut runnerDir = ""
+		let mut status = KillerMissingRunner
+		let mut declFile = ""
+		let mut impDirs = []string{}
+		if runnerPkg != "" {
+			if strings.Contains(runnerPkg, "/") {
+				if modInfo.ModulePath != "" && strings.HasPrefix(runnerPkg, modInfo.ModulePath+"/") {
+					runnerDir = filepath.Join([]string{modInfo.Dir, strings.TrimPrefix(runnerPkg, modInfo.ModulePath+"/")})
+				} else if runnerPkg == modInfo.ModulePath && modInfo.ModulePath != "" {
+					runnerDir = modInfo.Dir
+				} else {
+					runnerDir = filepath.Join([]string{modInfo.Dir, runnerPkg})
+				}
+			} else {
+				runnerDir = filepath.Clean(workDir)
+			}
+			let entries = fs.Files.ReadDir(runnerDir) catch {
+			case fs.NotFound, fs.Denied, fs.Failed:
+				[]string{}
+			}
+			let sorted = slices.Sort(entries)
+			let mut goBodies = []string{}
+			status = KillerDeclaredMissing
+			for fname in sorted {
+				if !strings.HasSuffix(fname, ".go") && !strings.HasSuffix(fname, ".ergo") {
+					continue
+				}
+				let full = filepath.Join([]string{runnerDir, fname})
+				let body = fs.Files.ReadFile(full) catch {
+				case fs.NotFound, fs.Denied, fs.Failed:
+					continue
+				}
+				if strings.HasSuffix(fname, ".go") {
+					goBodies = goBodies.Append(body)
+				}
+				if declFile == "" && LawDeclared([]string{body}, q.Law) {
+					declFile = full
+					status = KillerResolved
+				}
+			}
+			impDirs = ImportedDirs(modInfo.Dir, modInfo.ModulePath, goBodies)
+		}
+		let rowIdx = kt.Count
+		kt.Count = rowIdx + uint32(1)
+		kt.Pkg = kt.Pkg.Append(internPoolStr(&(kt.Strings), &(kt.StrPool), q.Pkg))
+		kt.Law = kt.Law.Append(internPoolStr(&(kt.Strings), &(kt.StrPool), q.Law))
+		kt.Runner = kt.Runner.Append(internPoolStr(&(kt.Strings), &(kt.StrPool), runnerPkg))
+		kt.RunnerDir = kt.RunnerDir.Append(internPoolStr(&(kt.Strings), &(kt.StrPool), runnerDir))
+		kt.Status = kt.Status.Append(status)
+		kt.DeclaredFile = kt.DeclaredFile.Append(internPoolStr(&(kt.Strings), &(kt.StrPool), declFile))
+		let impStart = uint32(kt.ImportDirIDs.Len())
+		for d in impDirs {
+			kt.ImportDirIDs = kt.ImportDirIDs.Append(internPoolStr(&(kt.Strings), &(kt.StrPool), d))
+		}
+		kt.ImportStart = kt.ImportStart.Append(impStart)
+		kt.ImportLen = kt.ImportLen.Append(uint32(impDirs.Len()))
+	}
+	kt
+}
+
+// ResolveKillersCountPreserved ensures ResolveKillers emits one row per query in order.
+law ResolveKillersCountPreserved(pkg string, lawName string) {
+	let mem = fstest.NewMemory()
+	let rt = NewRunnerTable()
+	with context { fs.Files: mem } {
+		let kt = ResolveKillers("/repo", rt, []KillerQuery{KillerQuery{Pkg: pkg, Law: lawName}}) catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+			return false
+		}
+		KillerCount(kt) == uint32(1)
+	}
+}
+
+test TestKillerResolutionOverMemFS {
+	let mem = fstest.NewMemory()
+	mem.MkdirAll("/repo/pkg/a") catch {
+	case fs.Denied, fs.Failed:
+		assert false
+	}
+	mem.MkdirAll("/repo/pkg/run") catch {
+	case fs.Denied, fs.Failed:
+		assert false
+	}
+	mem.WriteFile("/repo/go.mod", "module example.com/m\n\ngo 1.27\n") catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		assert false
+	}
+	mem.WriteFile("/repo/pkg/run/run.go", "package run\n\nimport \"example.com/m/pkg/a\"\n\nvar Laws = map[string]bool{\"CheckLaw\": true}\n") catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		assert false
+	}
+	let mut rt = NewRunnerTable()
+	AddRunner(&rt, "example.com/m/pkg/a", "CheckLaw", "example.com/m/pkg/run", uint32(1))
+	with context { fs.Files: mem } {
+		let modRes = ModuleOf("/repo/pkg/a")
+		match modRes {
+		case option.Some[ModRoot] as mr:
+			assert mr.Value.ModulePath == "example.com/m"
+			assert mr.Value.Dir == "/repo"
+		case option.None:
+			assert false
+		}
+		let kt = ResolveKillers("/repo/pkg/a", rt, []KillerQuery{
+			KillerQuery{Pkg: "example.com/m/pkg/a", Law: "CheckLaw"},
+			KillerQuery{Pkg: "example.com/m/pkg/a", Law: "Missing"},
+		}) catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+			assert false
+			return
+		}
+		assert KillerCount(kt) == uint32(2)
+		let r0 = KillerRowAt(kt, uint32(0))
+		assert r0.Status == KillerResolved
+		assert r0.DeclaredFile == "/repo/pkg/run/run.go"
+		assert r0.ImportedDirs.Len() == 1 && r0.ImportedDirs[0] == "/repo/pkg/a"
+		let r1 = KillerRowAt(kt, uint32(1))
+		assert r1.Status == KillerMissingRunner
+	}
+}

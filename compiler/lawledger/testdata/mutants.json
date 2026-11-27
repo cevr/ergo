@@ -1,0 +1,65 @@
+{
+  "about": "compiler/lawledger: runners, normalized statement extraction and comparison, ergo.laws ledger & freshness, ergo.cases tapes, killer resolution, and parsed derived laws (SELFHOST-LEDGER-RECEIPT).",
+  "mutants": [
+    {
+      "name": "selfhost-ledger-parse-u64-overflow",
+      "origin": "wf10 SELFHOST-LEDGER-RECEIPT",
+      "file": "compiler/lawledger/scratch.ergo",
+      "decl": "ParseUint64",
+      "from": "\tlet maxMod10 = uint64(5)\n",
+      "to": "\tlet maxMod10 = uint64(9)\n",
+      "rule": "ParseUint64 must reject decimal strings whose final digit overflows uint64 max (...15).",
+      "killers": ["compiler/lawledger:TestScratchHelpers"]
+    },
+    {
+      "name": "selfhost-ledger-same-three-char-op",
+      "origin": "wf10 SELFHOST-LEDGER-RECEIPT",
+      "file": "compiler/lawledger/statement.ergo",
+      "decl": "tokenizeSlice",
+      "from": "\t\tif matchThreeCharOp(s, i) {\n\t\t\tout = out.Append(s[i : i+3])\n\t\t\ti = i + 3\n\t\t\tcontinue\n\t\t}\n",
+      "to": "\t\tif false && matchThreeCharOp(s, i) {\n\t\t\tout = out.Append(s[i : i+3])\n\t\t\ti = i + 3\n\t\t\tcontinue\n\t\t}\n",
+      "rule": "Statement tokenization must emit 3-character operators as atomic tokens rather than splitting them.",
+      "killers": ["compiler/lawledger:TestStatementExtractionAndSame"]
+    },
+    {
+      "name": "selfhost-ledger-freshness-digest-mismatch",
+      "origin": "wf10 SELFHOST-LEDGER-RECEIPT",
+      "file": "compiler/lawledger/table.ergo",
+      "decl": "CheckLedgerFreshness",
+      "from": "\t\t\tif c.Digest == \"\" || e.Digest == c.Digest {\n\t\t\t\tfresh = fresh + uint32(1)\n\t\t\t\tstatuses = statuses.Append(FreshnessFresh)\n\t\t\t} else {\n",
+      "to": "\t\t\tif true || c.Digest == \"\" || e.Digest == c.Digest {\n\t\t\t\tfresh = fresh + uint32(1)\n\t\t\t\tstatuses = statuses.Append(FreshnessFresh)\n\t\t\t} else {\n",
+      "rule": "CheckLedgerFreshness must classify entries with mismatched digests as stale.",
+      "killers": ["compiler/lawledger:TestRunnerAndLedgerTables"]
+    },
+    {
+      "name": "selfhost-ledger-cases-prune-orphans",
+      "origin": "wf10 SELFHOST-LEDGER-RECEIPT",
+      "file": "compiler/lawledger/cases.ergo",
+      "decl": "PruneOrphans",
+      "from": "\t\t\tcase option.None:\n\t\t\t\t(*t).PropDeleted[i] = true\n\t\t\t\tremoved = removed + uint32(1)\n",
+      "to": "\t\t\tcase option.None:\n\t\t\t\tremoved = removed + uint32(1)\n",
+      "rule": "PruneOrphans must mark unreferenced property rows as deleted so ForProperty no longer yields them.",
+      "killers": ["compiler/lawledger:TestCaseTableRoundTripAndPrune"]
+    },
+    {
+      "name": "selfhost-ledger-killer-quoted-match",
+      "origin": "wf10 SELFHOST-LEDGER-RECEIPT",
+      "file": "compiler/lawledger/killer.ergo",
+      "decl": "LawDeclaredInGo",
+      "from": "\tfor src in sources {\n\t\tif strings.Contains(src, quoted) || strings.Contains(src, backtick) {\n\t\t\treturn true\n\t\t}\n\t}\n",
+      "to": "\tfor src in sources {\n\t\tif strings.Contains(src, quoted) && strings.Contains(src, backtick) {\n\t\t\treturn true\n\t\t}\n\t}\n",
+      "rule": "LawDeclaredInGo must match double-quoted Go law names without also requiring a backtick literal.",
+      "killers": ["compiler/lawledger:TestKillerResolutionOverMemFS"]
+    },
+    {
+      "name": "selfhost-ledger-parsed-where-derived",
+      "origin": "wf10 SELFHOST-LEDGER-RECEIPT",
+      "file": "compiler/lawledger/parsed.ergo",
+      "decl": "collectSourceLaws",
+      "from": "\t\t\tmatch dense.Unpack(td.Where) {\n\t\t\tcase option.Some[dense.ID[syntax.Node]] as wid:\n\t\t\t\tlet wsub = WhereText(nodeText(p, src, wid.Value), sc)\n\t\t\t\tlet wname = WhereLawName(tname)\n\t\t\t\taddParsedLaw(t, wname, \"\", \"law \\(wname)(x \\(tname)) { \\(wsub) }\", true)\n\t\t\tcase option.None:\n\t\t\t}\n",
+      "to": "\t\t\tmatch dense.Unpack(td.Where) {\n\t\t\tcase option.Some[dense.ID[syntax.Node]]:\n\t\t\tcase option.None:\n\t\t\t}\n",
+      "rule": "collectSourceLaws must derive a refinement law for every type declaration with a where clause.",
+      "killers": ["compiler/lawledger:law:PackageLawsIncludesWhere", "compiler/lawledger:TestParsedLawsAndDerived"]
+    }
+  ]
+}

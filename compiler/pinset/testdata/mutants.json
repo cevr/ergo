@@ -1,0 +1,65 @@
+{
+  "about": "compiler/pinset: pinned toolchain lock parsing, Key.Name hashing, USTAR tar.gz bundling, digest verification, and fs.Writes installation (SELFHOST-LEDGER-RECEIPT).",
+  "mutants": [
+    {
+      "name": "selfhost-ledger-pin-digest-length",
+      "origin": "wf10 SELFHOST-LEDGER-RECEIPT",
+      "file": "compiler/pinset/pinset.ergo",
+      "decl": "IsDigest",
+      "from": "\tif s.Len() != 64 {\n\t\treturn false\n\t}\n",
+      "to": "\tif false && s.Len() != 64 {\n\t\treturn false\n\t}\n",
+      "rule": "IsDigest must reject strings whose length is not 64 hex characters.",
+      "killers": ["compiler/pinset:TestPinLockAndKeys"]
+    },
+    {
+      "name": "selfhost-ledger-pin-key-level",
+      "origin": "wf10 SELFHOST-LEDGER-RECEIPT",
+      "file": "compiler/pinset/pinset.ergo",
+      "decl": "KeyName",
+      "from": "\tif k.Level != \"\" {\n\t\tsegs = segs.Append(k.Level)\n\t}\n",
+      "to": "\tif false && k.Level != \"\" {\n\t\tsegs = segs.Append(k.Level)\n\t}\n",
+      "rule": "KeyName must include non-empty architecture level components in the bundle stem.",
+      "killers": ["compiler/pinset:TestPinLockAndKeys"]
+    },
+    {
+      "name": "selfhost-ledger-pin-lock-set-line",
+      "origin": "wf10 SELFHOST-LEDGER-RECEIPT",
+      "file": "compiler/pinset/pinset.ergo",
+      "decl": "ParseLock",
+      "from": "\t\tif fields.Len() == 3 && fields[0] == \"set\" {\n\t\t\tlet _ = try AddLockedSet(&t, fields[1], fields[2])\n\t\t\tcontinue\n\t\t}\n",
+      "to": "\t\tif fields.Len() == 3 && fields[0] == \"set\" {\n\t\t\tcontinue\n\t\t}\n",
+      "rule": "ParseLock must record set <name> <digest> lines into the PinTable.",
+      "killers": ["compiler/pinset:TestPinLockAndKeys"]
+    },
+    {
+      "name": "selfhost-ledger-pin-tar-digest-check",
+      "origin": "wf10 SELFHOST-LEDGER-RECEIPT",
+      "file": "compiler/pinset/archive.ergo",
+      "decl": "VerifyAndUnpackBundle",
+      "from": "\tif expectedTarDigest != \"\" && actualDigest != expectedTarDigest {\n\t\treturn PinError{Field: expectedTarDigest, Reason: \"tar_digest\", Message: \"pinset tar digest mismatch: got \\(actualDigest), want \\(expectedTarDigest)\"}\n\t}\n",
+      "to": "\tif false && expectedTarDigest != \"\" && actualDigest != expectedTarDigest {\n\t\treturn PinError{Field: expectedTarDigest, Reason: \"tar_digest\", Message: \"pinset tar digest mismatch: got \\(actualDigest), want \\(expectedTarDigest)\"}\n\t}\n",
+      "rule": "VerifyAndUnpackBundle must fail when the uncompressed tar SHA-256 differs from expectedTarDigest.",
+      "killers": ["compiler/pinset:TestPinBundleArchiveVerifyAndInstall"]
+    },
+    {
+      "name": "selfhost-ledger-pin-index-digest-check",
+      "origin": "wf10 SELFHOST-LEDGER-RECEIPT",
+      "file": "compiler/pinset/archive.ergo",
+      "decl": "ParseIndex",
+      "from": "\t\tif !IsDigest(fields[1]) {\n\t\t\treturn PinError{Field: fields[1], Reason: \"digest\", Message: \"invalid index digest for \\(fields[0])\"}\n\t\t}\n",
+      "to": "\t\tif false && !IsDigest(fields[1]) {\n\t\t\treturn PinError{Field: fields[1], Reason: \"digest\", Message: \"invalid index digest for \\(fields[0])\"}\n\t\t}\n",
+      "rule": "ParseIndex must validate every entry digest with IsDigest.",
+      "killers": ["compiler/pinset:TestPinBundleArchiveVerifyAndInstall"]
+    },
+    {
+      "name": "selfhost-ledger-pin-install-verified-flag",
+      "origin": "wf10 SELFHOST-LEDGER-RECEIPT",
+      "file": "compiler/pinset/archive.ergo",
+      "decl": "InstallLockedBundle",
+      "from": "\t(*t).SetInstalled[sid] = true\n\t(*t).SetVerified[sid] = true\n",
+      "to": "\t(*t).SetInstalled[sid] = true\n\t(*t).SetVerified[sid] = false\n",
+      "rule": "InstallLockedBundle must mark a verified and installed bundle row with SetVerified = true.",
+      "killers": ["compiler/pinset:TestPinBundleArchiveVerifyAndInstall"]
+    }
+  ]
+}
