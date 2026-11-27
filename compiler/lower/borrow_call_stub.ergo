@@ -9,7 +9,7 @@ import strings
 // The unit caller has just this statement. A checked fixed receiver
 // address is its only operand; target and transform decisions are made
 // before CONTROL opens the IR body.
-func planBorrowInvoke(st fnb, x dense.ID[syntax.Node], ce syntax.CallExpr, formals int) option.Option[borrowInvoke] fails Unported {
+func planBorrowInvoke(st fnb, binds localBinds, x dense.ID[syntax.Node], ce syntax.CallExpr, formals int) option.Option[borrowInvoke] fails Unported {
 	if dense.Unpack(ce.Trailing) != option.None || syntax.Len(ce.Args) != 0 {
 		return option.None
 	}
@@ -29,7 +29,7 @@ func planBorrowInvoke(st fnb, x dense.ID[syntax.Node], ce syntax.CallExpr, forma
 	if i < 0 {
 		return stop("borrow call: no local checked target")
 	}
-	let recv = try planBorrowField(st, sel.X, formals)
+	let recv = try planBorrowField(st, binds, sel.X, formals)
 	let name = try borrowedUnitName(st, st.k.Fns[i], recv.t)
 	option.Some[borrowInvoke]{Value: borrowInvoke{recv: recv, recvAt: syntax.NodePos(p, sel.X), callAt: syntax.NodePos(p, x), name: name}}
 }
@@ -104,13 +104,10 @@ func borrowedUnitBody(st fnb, target expr.Fn, p syntax.Parsed) fails Unported {
 	case option.None:
 		return stop("borrow call: unnamed receiver")
 	}
-	let mut at = st
-	at.p = p
-	at.file = target.File
-	at.params = []dense.ID[store.PNode]{formal}
-	at.locals = []int{0}
-	let _ = try planBorrowWrite(at, node, write, 1)
-	try check(at, write.Rhs)
+	let at = fnb{..st, p: p, file: target.File}
+	let stubBinds = localBinds{params: []dense.ID[store.PNode]{formal}, locals: []int{0}}
+	let _ = try planBorrowWrite(at, stubBinds, node, write, 1)
+	try check(at, stubBinds, write.Rhs)
 }
 
 func borrowedCallRewrite(st fnb, name string) fails Unported {
@@ -120,9 +117,7 @@ func borrowedCallRewrite(st fnb, name string) fails Unported {
 	match st.rootImports {
 	case option.Some[[]expr.Dep] as deps:
 		for dep in deps.Value {
-			let mut other = st
-			other.k = dep.K
-			if lawOver(other, name) {
+			if lawOverPkg(dep.K, name) {
 				return stop("borrow call: imported rewrite law")
 			}
 		}

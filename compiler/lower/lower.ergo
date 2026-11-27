@@ -82,9 +82,6 @@ type fnb {
 	p           syntax.Parsed,
 	lines       syntax.Lines,
 	fileIx      uint32,
-	// params are the parameters' name rows and their locals.
-	params []dense.ID[store.PNode],
-	locals []int,
 	// alias spells the package's declarations (declName): "" for the
 	// build's root and the prelude, else its import path's (pkgAlias).
 	alias string,
@@ -102,6 +99,18 @@ type fnb {
 	plan      GeneratedBodyPlan,
 	generic   GenericBodyPlan,
 	filePath  string,
+	pkgPath   string,
+	idx       pkgFlatIndex,
+	cache     pkgMemo,
+}
+
+type localBinds {
+	params []dense.ID[store.PNode],
+	locals []int,
+}
+
+func emptyLocalBinds() localBinds {
+	localBinds{params: []dense.ID[store.PNode]{}, locals: []int{}}
 }
 
 // Package builds the IR of every function of the checked package k; paths
@@ -157,25 +166,28 @@ func PackageWithPlan(s store.Store, k expr.Pkg, t expr.Typer, paths []string, pa
 	let mut sites = []Site{}
 	let mut stops = []Stop{}
 	let mut facts = EmptyCallFacts()
-	for i, f in k.Fns {
-		let p = k.Parsed[f.File]
-		let at = syntax.NodePos(p, f.Decl)
-		let mut st = fnb{rootImports: imports, shapeImports: shapeImports, importCalls: direct, k: k, s: s, types: types, file: f.File, p: p, lines: lines[f.File], fileIx: uint32(0), params: []dense.ID[store.PNode]{}, locals: []int{}, alias: alias, prelude: prelude, calls: t.Calls, callAt: callAt, capAt: capAt, frameRoot: root && path != "prelude", frame: rowlessFrame(0), plan: plan, generic: EmptyGenericPlan(), filePath: paths[f.File]}
-		// Read the package-wide columns once, before building any body.
-		// A body that stops during lowering can still have a call proof.
-		if i == 0 {
-			facts = summarizeCalls(st, direct)
-		}
-		let built = function(&st, &b, f, paths[f.File]) catch {
-		case Unported as u:
-			stops = stops.Append(Stop{File: f.File, At: at, Cause: u.Cause})
-			false
-		case ir.Malformed as m:
-			stops = stops.Append(Stop{File: f.File, At: at, Cause: "malformed IR: " + m.Why})
-			false
-		}
-		if built {
-			sites = sites.Append(Site{File: f.File, At: at})
+	if k.Fns.Len() > 0 {
+		let zeroP = k.Parsed[k.Fns[0].File]
+		let baseSt = fnb{rootImports: imports, shapeImports: shapeImports, importCalls: direct, k: k, s: s, types: types, file: k.Fns[0].File, p: zeroP, lines: lines[k.Fns[0].File], fileIx: uint32(0), alias: alias, prelude: prelude, calls: t.Calls, callAt: callAt, capAt: capAt, frameRoot: root && path != "prelude", frame: rowlessFrame(0), plan: plan, generic: EmptyGenericPlan(), filePath: paths[k.Fns[0].File], pkgPath: path, idx: emptyPkgFlatIndex(), cache: emptyPkgMemo()}
+		let (rootIdx, memo) = buildPkgMemo(baseSt, path)
+		for i, f in k.Fns {
+			let p = k.Parsed[f.File]
+			let at = syntax.NodePos(p, f.Decl)
+			let st = fnb{..baseSt, file: f.File, p: p, lines: lines[f.File], filePath: paths[f.File], idx: rootIdx, cache: memo}
+			if i == 0 {
+				facts = summarizeCalls(st, direct)
+			}
+			let built = function(st, &b, f, paths[f.File]) catch {
+			case Unported as u:
+				stops = stops.Append(Stop{File: f.File, At: at, Cause: u.Cause})
+				false
+			case ir.Malformed as m:
+				stops = stops.Append(Stop{File: f.File, At: at, Cause: "malformed IR: " + m.Why})
+				false
+			}
+			if built {
+				sites = sites.Append(Site{File: f.File, At: at})
+			}
 		}
 	}
 	let file = ir.Finish(b) catch {
@@ -237,49 +249,52 @@ func plainRecord(st fnb, t dense.ID[store.TKey]) int {
 // where or derive clause. An implements claim does not change the
 // record's value shape or the package that owns its Go methods.
 func structDecl(st fnb, name string) bool {
-	let d = match store.Lookup(st.s, name) {
-	case option.Some{Value: id}:
-		store.DeclOf(st.s, id)
-	case option.None:
-		return false
-	}
-	let f = int(d.File)
-	let p = st.k.Parsed[f]
-	let n = syntax.NodeAt(p.Tree, int(d.Node))
-	let pn = bind.PNodeOf(st.k.Ps, f, n)
-	let parent = match dense.Unpack(bind.ParentOf(st.k.Ps, pn)) {
-	case option.Some{Value: id}:
-		id
-	case option.None:
-		return false
-	}
-	// The declaration name and its parent are in the same file. Convert
-	// the parent to its file-local row using the name's known base.
-	let i = dense.Index(parent) - dense.Index(pn) + int(d.Node)
-	match syntax.ViewOf(p.Tree, syntax.NodeAt(p.Tree, i)) {
-	case syntax.TypeDecl as td:
-		if td.Name != n || dense.Unpack(td.Extern) != option.None || dense.Unpack(td.TypeParams) != option.None || dense.Unpack(td.Where) != option.None || dense.Unpack(td.Derive) != option.None {
-			return false
-		}
-		match dense.Unpack(td.Spec) {
-		case option.Some{Value: sp}:
-			syntax.KindOf(p.Tree, sp) == syntax.KStructType
-		case option.None:
-			false
-		}
-	case _:
-		false
-	}
+	structDeclIn(st.k, st.s, name)
 }
 
 // The method names Go's types may answer to (lower's hostProtocols): a
 // function of one of these names on a record takes another name.
 let hostProtocols = []string{"Error", "String", "GoString", "As", "Format", "GobDecode", "GobEncode", "Is", "MarshalJSON", "MarshalXML", "ReadByte", "ReadFrom", "ReadRune", "Scan", "Seek", "UnmarshalJSON", "UnmarshalXML", "UnreadByte", "UnreadRune", "Unwrap"}
 
+func recordMethodInfo(st fnb, t dense.ID[store.TKey]) option.Option[(string, []expr.Field)] {
+	let r = ordinaryRecord(st, t)
+	if r >= 0 {
+		return option.Some{Value: (st.k.Recs[r].Name, st.k.Recs[r].Fields)}
+	}
+	if store.KindOfType(st.s, t) != store.KNamed {
+		return option.None
+	}
+	let vname = store.TypeNameText(st.s, store.ArgOf(st.s, t))
+	let (vp, v, _) = match unionDeclParent(st, vname) {
+	case option.Some{Value: d}:
+		d
+	case option.None:
+		return option.None
+	}
+	match syntax.ViewOf(vp.Tree, v) {
+	case syntax.VariantSpec as variant:
+		if dense.Unpack(variant.TypeArgs) != option.None {
+			return option.None
+		}
+	case _:
+		return option.None
+	}
+	match unionRecordFields(st, vname) {
+	case option.Some{Value: fs}:
+		option.Some{Value: (vname, fs)}
+	case option.None:
+		option.None
+	}
+}
+
+func isRecordReceiver(st fnb, t dense.ID[store.TKey]) bool {
+	recordMethodInfo(st, t) != option.None
+}
+
 // goName is the IR name of the function name whose first parameter's
 // type is first (lower's funcDecl, methodReceiver): T.name, a Go method,
-// when first is an ordinary record T and no field of T is spelled name; else
-// name. It stops at a name Go's protocols or keywords hold.
+// when first is an ordinary or union-variant record T and no field of T
+// is spelled name; else name. It stops at a name Go's protocols or keywords hold.
 func goName(st fnb, name string, first option.Option[dense.ID[store.TKey]]) string fails Unported {
 	if hasGenericBinders(st.generic) {
 		return try declName(st, name)
@@ -290,11 +305,13 @@ func goName(st fnb, name string, first option.Option[dense.ID[store.TKey]]) stri
 	case option.None:
 		return try declName(st, name)
 	}
-	let r = ordinaryRecord(st, t)
-	if r < 0 {
+	let (recName, fields) = match recordMethodInfo(st, t) {
+	case option.Some{Value: info}:
+		info
+	case option.None:
 		return try declName(st, name)
 	}
-	for f in st.k.Recs[r].Fields {
+	for f in fields {
 		if f.Name == name {
 			return try declName(st, name)
 		}
@@ -307,7 +324,7 @@ func goName(st fnb, name string, first option.Option[dense.ID[store.TKey]]) stri
 	if goKeyword(name) {
 		return stop("method of a keyword's name")
 	}
-	(try declName(st, st.k.Recs[r].Name)) + "." + name
+	(try declName(st, recName)) + "." + name
 }
 
 // declName is the Go name of the package's declaration base (lower's
@@ -481,25 +498,25 @@ func emptyRow(st fnb, t dense.ID[store.TKey]) bool {
 	store.KindOfType(st.s, t) == store.KRow && store.OperandsOf(st.s, t).Len() == 0
 }
 
-func function(st mut fnb, b mut ir.Builder, f expr.Fn, path string) bool fails Unported | ir.Malformed {
-	let p = st.p
+func function(st0 fnb, b mut ir.Builder, f expr.Fn, path string) bool fails Unported | ir.Malformed {
+	let p = st0.p
 	let d = match syntax.ViewOf(p.Tree, f.Decl) {
 	case syntax.FuncDecl as d:
 		d
 	case syntax.LawDecl as ld:
-		match plannedGeneratedBody(st.plan, st.file, syntax.NodePos(p, f.Decl), f.Decl) {
+		match plannedGeneratedBody(st0.plan, st0.file, syntax.NodePos(p, f.Decl), f.Decl) {
 		case option.Some[GeneratedBody] as planned:
-			return try lawFunction(st, b, f, ld, planned.Value, path)
+			return try lawFunction(st0, b, f, ld, planned.Value, path)
 		case option.None:
-			if isTestMode(st.plan.Mode) && st.plan.Root && (f.SelfArity != 0 || dense.Unpack(f.SelfRole) != option.None) {
+			if isTestMode(st0.plan.Mode) && st0.plan.Root && (f.SelfArity != 0 || dense.Unpack(f.SelfRole) != option.None) {
 				return stop("law: member or provider law")
 			}
 			return false
 		}
 	case syntax.TestDecl as td:
-		match plannedGeneratedBody(st.plan, st.file, syntax.NodePos(p, f.Decl), f.Decl) {
+		match plannedGeneratedBody(st0.plan, st0.file, syntax.NodePos(p, f.Decl), f.Decl) {
 		case option.Some[GeneratedBody] as planned:
-			return try testFunction(st, b, f, td, planned.Value, path)
+			return try testFunction(st0, b, f, td, planned.Value, path)
 		case option.None:
 			return false
 		}
@@ -512,11 +529,13 @@ func function(st mut fnb, b mut ir.Builder, f expr.Fn, path string) bool fails U
 	if dense.Unpack(d.Recv) != option.None {
 		return stop("method")
 	}
-	match dense.Unpack(d.TypeParams) {
+	let generic = match dense.Unpack(d.TypeParams) {
 	case option.Some[dense.ID[syntax.Node]] as tp:
-		st.generic = try planGenericBody(*st, f, tp.Value)
+		try planGenericBody(st0, f, tp.Value)
 	case option.None:
+		st0.generic
 	}
+	let stG = fnb{..st0, generic: generic}
 	let name = nameText(p, d.Name)
 	if name == "main" || name == "Close" {
 		return stop("main or Close")
@@ -529,57 +548,58 @@ func function(st mut fnb, b mut ir.Builder, f expr.Fn, path string) bool fails U
 	}
 	// The signature: the parameters, the result, the error row and the
 	// capability row.
-	let ops = store.OperandsOf(st.s, f.Sig)
-	if store.KindOfType(st.s, f.Sig) != store.KSig || ops.Len() < 3 {
+	let ops = store.OperandsOf(stG.s, f.Sig)
+	if store.KindOfType(stG.s, f.Sig) != store.KSig || ops.Len() < 3 {
 		return stop("signature")
 	}
 	let n = ops.Len() - 3
-	let errs = !emptyRow(*st, ops[n+1])
-	let uses = !emptyRow(*st, ops[n+2])
-	if hasGenericBinders(st.generic) && (errs || uses) {
+	let errs = !emptyRow(stG, ops[n+1])
+	let uses = !emptyRow(stG, ops[n+2])
+	if hasGenericBinders(stG.generic) && (errs || uses) {
 		return stop("generic: fails or needs row")
 	}
 	if errs && uses {
 		return stop("signature: fails and needs rows")
 	}
-	st.frame = if errs {
-		envFreeFallibleFrame(*st, f, body, name, ops, n) catch {
+	let frame = if errs {
+		envFreeFallibleFrame(stG, f, body, name, ops, n) catch {
 		case Unported as u:
 			return stop("signature: fails row / frame: " + u.Cause)
 		}
 	} else if uses {
-		needsFrame(*st, f, body, name, ops, n) catch {
+		needsFrame(stG, f, body, name, ops, n) catch {
 		case Unported as u:
 			return stop("signature: needs row / frame: " + u.Cause)
 		}
 	} else {
 		rowlessFrame(n)
 	}
+	let stF = fnb{..stG, frame: frame}
 	// A signature type the slice does not lower stops the function after
 	// its body is checked too, so the stop says what the body would meet
 	// (" / body: <cause>", or " / body passes"): the next slice's reach.
 	let mut sig = ""
-	if shapeGo(*st, ops[n]) == "" {
-		sig = "result: " + typeCause(*st, ops[n])
+	if shapeGo(stF, ops[n]) == "" {
+		sig = "result: " + typeCause(stF, ops[n])
 	}
-	let unit = !uses && isUnit(*st, ops[n])
-	if hasGenericBinders(st.generic) && unit {
+	let unit = !uses && isUnit(stF, ops[n])
+	if hasGenericBinders(stF.generic) && unit {
 		return stop("generic: unit result")
 	}
-	let borrowUnit = unit && controlUnitAdmitted(*st, f, body)
+	let borrowUnit = unit && controlUnitAdmitted(stF, f, body)
 	if unit {
 		sig = ""
 	}
 	for i in 0..n {
-		if hasGenericBinders(st.generic) && i < f.Takes.Len() && f.Takes[i] {
+		if hasGenericBinders(stF.generic) && i < f.Takes.Len() && f.Takes[i] {
 			return stop("generic: owned parameter")
 		}
 		if sig == "" && unit && i < f.Takes.Len() && f.Takes[i] {
 			sig = "parameter: owned unit frame"
 		}
-		if sig == "" && shapeGo(*st, ops[i]) == "" {
-			sig = "parameter: " + typeCause(*st, ops[i])
-			if !hasGenericBinders(st.generic) && (!unit || borrowUnit) && admittedBorrowParam(*st, f, i, ops[i], !errs && !uses) {
+		if sig == "" && shapeGo(stF, ops[i]) == "" {
+			sig = "parameter: " + typeCause(stF, ops[i])
+			if !hasGenericBinders(stF.generic) && (!unit || borrowUnit) && admittedBorrowParam(stF, f, i, ops[i], !errs && !uses) {
 				sig = ""
 			}
 		}
@@ -587,7 +607,7 @@ func function(st mut fnb, b mut ir.Builder, f expr.Fn, path string) bool fails U
 	if f.Names.Len() != n {
 		return stop("parameter names")
 	}
-	parameterSlots(st, f)
+	let binds = parameterSlots(stF, f)
 	let (list, rbrace) = match syntax.ViewOf(p.Tree, body) {
 	case syntax.BlockStmt as bl:
 		(bl.List, bl.Rbrace)
@@ -596,18 +616,18 @@ func function(st mut fnb, b mut ir.Builder, f expr.Fn, path string) bool fails U
 	}
 	// The direct operation already has a proved one-tail evaluation
 	// order; the ordinary statement planner cannot observe that callee.
-	match st.frame.op {
+	match stF.frame.op {
 	case option.Some[directOp] as op:
-		try check(*st, op.Value.tail)
-		let gname = try frameName(*st, f, name, ops[0:n], false)
-		st.fileIx = ir.FileOf(b, path)
-		let fp = pos(*st, syntax.TokPos(p, d.Func))
-		try ir.Begin(b, gname, fp, pos(*st, syntax.TokPos(p, rbrace)))
-		try frameBody(*st, b, fp, op.Value)
+		try check(stF, binds, op.Value.tail)
+		let gname = try frameName(stF, f, name, ops[0:n], false)
+		let stOp = fnb{..stF, fileIx: ir.FileOf(b, path)}
+		let fp = pos(stOp, syntax.TokPos(p, d.Func))
+		try ir.Begin(b, gname, fp, pos(stOp, syntax.TokPos(p, rbrace)))
+		try frameBody(stOp, binds, b, fp, op.Value)
 		return true
 	case option.None:
 	}
-	let prepared = statements(st, body, list, f.Names, n, ops[n], unit, borrowUnit) catch {
+	let prepared = statements(stF, binds, body, list, f.Names, n, ops[n], unit, borrowUnit) catch {
 	case Unported as u:
 		if sig != "" {
 			return stop(sig + " / body: " + u.Cause)
@@ -617,12 +637,12 @@ func function(st mut fnb, b mut ir.Builder, f expr.Fn, path string) bool fails U
 	if sig != "" {
 		return stop(sig + " / body passes")
 	}
-	let gname = try frameName(*st, f, name, ops[0:n], !errs && !uses)
-	st.fileIx = ir.FileOf(b, path)
-	let fp = pos(*st, syntax.TokPos(p, d.Func))
-	let end = pos(*st, syntax.TokPos(p, rbrace))
+	let gname = try frameName(stF, f, name, ops[0:n], !errs && !uses)
+	let st2 = fnb{..stF, fileIx: ir.FileOf(b, path)}
+	let fp = pos(st2, syntax.TokPos(p, d.Func))
+	let end = pos(st2, syntax.TokPos(p, rbrace))
 	try ir.Begin(b, gname, fp, end)
-	let roots = try controlEmit(*st, b, prepared, end)
+	let roots = try controlEmit(st2, b, prepared, end)
 	let rows = if roots.Len() == 0 { uint32(0) } else { ir.List(b, roots) }
 	try ir.End(b, rows)
 	true
@@ -632,11 +652,14 @@ func function(st mut fnb, b mut ir.Builder, f expr.Fn, path string) bool fails U
 type aLet { tok int, at dense.ID[syntax.Node], name string, typ string, value dense.ID[syntax.Node], local int, nonScalar bool }
 
 func admittedLetType(st fnb, vt dense.ID[store.TKey], mutable bool, hasWrittenType bool) string {
-	let basic = basicGo(st, vt)
+	let basic = scalarBasicGo(st, vt)
 	if basic != "" {
-		return basic
+		return shapeGo(st, vt)
 	}
-	if mutable || hasWrittenType {
+	if store.KindOfType(st.s, vt) == store.KTuple {
+		return ""
+	}
+	if mutable && holdsValue(st, vt) || hasWrittenType {
 		return ""
 	}
 	shapeGo(st, vt)
@@ -644,7 +667,7 @@ func admittedLetType(st fnb, vt dense.ID[store.TKey], mutable bool, hasWrittenTy
 
 // letOf checks one initialized let, and records whether it can be
 // reassigned. The control plan allocates its slot and Go name.
-func letOf(st fnb, s dense.ID[syntax.Node], local int) (aLet, bool) fails Unported {
+func letOf(st fnb, binds localBinds, s dense.ID[syntax.Node], local int) (aLet, bool) fails Unported {
 	let p = st.p
 	let vd = match syntax.ViewOf(p.Tree, s) {
 	case syntax.DeclStmt as ds:
@@ -690,8 +713,10 @@ func letOf(st fnb, s dense.ID[syntax.Node], local int) (aLet, bool) fails Unport
 		}
 		return stop("let of " + typeCause(st, vt))
 	}
-	try check(st, value)
-	(aLet{tok: vd.Var, at: at, name: name, typ: gt, value: value, local: local, nonScalar: basicGo(st, vt) == ""}, mutable)
+	if syntax.KindOf(p.Tree, unparen(st, value)) != syntax.KIfStmt {
+		try check(st, binds, value)
+	}
+	(aLet{tok: vd.Var, at: at, name: name, typ: gt, value: value, local: local, nonScalar: mutable && scalarBasicGo(st, vt) == ""}, mutable)
 }
 
 // aCall is a call the slice builds: the callee's Go name, whether it is
@@ -709,7 +734,7 @@ type aCall { name string, method bool, args []dense.ID[syntax.Node] }
 // (lower's template), with no rewrite law over it (rewritePass). The
 // callee is a Go method when its first parameter is a record of its
 // package (goName, lower's methodReceiver).
-func callee(st fnb, x dense.ID[syntax.Node], ce syntax.CallExpr) aCall fails Unported {
+func callee(st fnb, binds localBinds, x dense.ID[syntax.Node], ce syntax.CallExpr) aCall fails Unported {
 	let p = st.p
 	if dense.Unpack(ce.Trailing) != option.None {
 		return stop("call with a trailing block")
@@ -729,22 +754,23 @@ func callee(st fnb, x dense.ID[syntax.Node], ce syntax.CallExpr) aCall fails Unp
 		}
 	}
 	let to = st.calls[ci-1]
-	let mut cst = st
 	let mut i = -1
 	let mut dependency = ""
 	let mut args = []dense.ID[syntax.Node]{}
-	if to.Recv {
+	let cst = if to.Recv {
 		let se = match syntax.ViewOf(p.Tree, ce.Fun) {
 		case syntax.SelectorExpr as se:
 			se
 		case _:
 			return stop("method call spelling")
 		}
-		if plainRecord(st, try typeOf(st, se.X, "receiver")) < 0 {
+		let rt = try typeOf(st, se.X, "receiver")
+		if !isRecordReceiver(st, rt) || !callAdmitsType(st, rt) {
 			return stop("method call on no plain record")
 		}
 		i = expr.FnAt(st.k, bind.PNodeOf(st.k.Ps, to.Callee.File, to.Callee.Name))
 		args = args.Append(se.X)
+		st
 	} else {
 		match syntax.ViewOf(p.Tree, ce.Fun) {
 		case syntax.Name:
@@ -755,12 +781,14 @@ func callee(st fnb, x dense.ID[syntax.Node], ce syntax.CallExpr) aCall fails Unp
 				}
 			case _:
 			}
+			st
 		case syntax.SelectorExpr as se:
-			let (other, path) = try depOf(st, se.Sel)
-			cst = other
-			i = expr.FnAt(cst.k, bind.PNodeOf(cst.k.Ps, to.Callee.File, to.Callee.Name))
+			let (d, path) = try depOf(st, se.Sel)
+			i = expr.FnAt(d.K, bind.PNodeOf(d.K.Ps, to.Callee.File, to.Callee.Name))
 			dependency = path
+			fnb{..st, k: d.K, s: d.S, alias: pkgAlias(d.Path), pkgPath: d.Path, idx: depIdxOf(st.cache, d.Path)}
 		case _:
+			st
 		}
 	}
 	if i < 0 {
@@ -784,7 +812,7 @@ func callee(st fnb, x dense.ID[syntax.Node], ce syntax.CallExpr) aCall fails Unp
 	}
 	let mut closed = true
 	let mut dynamic = false
-	for j, a in args {
+	for a in args {
 		match syntax.ViewOf(p.Tree, unparen(st, a)) {
 		case syntax.CallExpr:
 			return stop("call with a call operand (template)")
@@ -794,17 +822,17 @@ func callee(st fnb, x dense.ID[syntax.Node], ce syntax.CallExpr) aCall fails Unp
 		}
 		closed = closed && isConst(st, a)
 		if nonleaf {
-			dynamic = dynamic || callReadsLocal(st, a)
+			dynamic = dynamic || callReadsLocal(st, binds, a)
 		}
 		let at = try typeOf(st, a, "call operand")
-		if basicGo(st, at) == "" && (j > 0 || !first || plainRecord(st, at) < 0) {
+		if !callAdmitsType(st, at) {
 			return stop("call operand of a non-basic type")
 		}
 	}
 	if closed || nonleaf && !dynamic {
 		return stop("call on constants (fold)")
 	}
-	if basicGo(st, try typeOf(st, x, "CallExpr")) == "" {
+	if !callAdmitsType(st, try typeOf(st, x, "CallExpr")) {
 		return stop("call of a non-basic result")
 	}
 	if lawOver(st, name) || lawOver(cst, name) {
@@ -826,7 +854,7 @@ func callee(st fnb, x dense.ID[syntax.Node], ce syntax.CallExpr) aCall fails Unp
 // selector's name sel names a function of (pkg.f): its checked package,
 // pool and alias. The prelude's functions are its intrinsics and Go
 // helpers (lower's intrinsic), which the slice does not call.
-func depOf(st fnb, sel dense.ID[syntax.Node]) (fnb, string) fails Unported {
+func depOf(st fnb, sel dense.ID[syntax.Node]) (expr.Dep, string) fails Unported {
 	match bind.ResolutionOf(st.k.U, st.k.Ps, bind.PNodeOf(st.k.Ps, st.file, sel)) {
 	case bind.Imported as im:
 		let ix = int(im.Ref.Import) - 1
@@ -839,11 +867,7 @@ func depOf(st fnb, sel dense.ID[syntax.Node]) (fnb, string) fails Unported {
 		}
 		for d in st.k.Deps {
 			if d.Path == paths[ix] {
-				let mut out = st
-				out.k = d.K
-				out.s = d.S
-				out.alias = pkgAlias(d.Path)
-				return (out, d.Path)
+				return (d, d.Path)
 			}
 		}
 		return stop("call of a package not read")
@@ -896,9 +920,11 @@ func builtinOf(st fnb, x dense.ID[syntax.Node], ce syntax.CallExpr) option.Optio
 		return stop("builtin call on a constant (fold)")
 	}
 	let at = try typeOf(st, a, "builtin operand")
-	let from = basicGo(st, at)
-	let to = basicGo(st, try typeOf(st, x, "conversion"))
-	if from == "" || to == "" {
+	let dst = try typeOf(st, x, "conversion")
+	let from = scalarBasicGo(st, at)
+	let to = scalarBasicGo(st, dst)
+	let dstGo = shapeGo(st, dst)
+	if from == "" || to == "" || dstGo == "" {
 		return stop("conversion of a non-scalar")
 	}
 	let fromInt = from != "bool" && from != "string" && from != "float32" && from != "float64"
@@ -909,7 +935,7 @@ func builtinOf(st fnb, x dense.ID[syntax.Node], ce syntax.CallExpr) option.Optio
 	if (from == "float32" || from == "float64") && toInt {
 		return stop("conversion of a float to an integer (helper)")
 	}
-	option.Some[aBuiltin]{Value: aBuiltin{conv: true, t: to, arg: a}}
+	option.Some[aBuiltin]{Value: aBuiltin{conv: true, t: dstGo, arg: a}}
 }
 
 func lenOperand(st fnb, a dense.ID[syntax.Node]) aBuiltin fails Unported {
@@ -917,7 +943,7 @@ func lenOperand(st fnb, a dense.ID[syntax.Node]) aBuiltin fails Unported {
 		return stop("builtin call on a constant (fold)")
 	}
 	let at = try typeOf(st, a, "builtin operand")
-	if basicGo(st, at) != "string" && !(store.KindOfType(st.s, at) == store.KSlice && shapeGo(st, at) != "") {
+	if scalarBasicGo(st, at) != "string" && !(store.KindOfType(st.s, at) == store.KSlice && shapeGo(st, at) != "") {
 		return stop("len of a non-string")
 	}
 	aBuiltin{conv: false, t: "", arg: a}
@@ -1030,9 +1056,9 @@ func callHeader(st fnb, i int, name string, unique bool) ordinaryCallee fails Un
 	if !emptyRow(st, ops[n+1]) || !emptyRow(st, ops[n+2]) {
 		return stop("callee: a row")
 	}
-	let first = n > 0 && plainRecord(st, ops[0]) >= 0
+	let first = n > 0 && isRecordReceiver(st, ops[0]) && callAdmitsType(st, ops[0])
 	for j in 0..n+1 {
-		if basicGo(st, ops[j]) == "" && (j > 0 || !first) {
+		if !callAdmitsType(st, ops[j]) {
 			return stop("callee: a type not basic")
 		}
 	}
@@ -1042,6 +1068,84 @@ func callHeader(st fnb, i int, name string, unique bool) ordinaryCallee fails Un
 		}
 	}
 	ordinaryCallee{body: body, receiver: first}
+}
+
+func callAdmitsType(st fnb, t dense.ID[store.TKey]) bool {
+	if scalarBasicGo(st, t) != "" {
+		return true
+	}
+	let kind = store.KindOfType(st.s, t)
+	if kind == store.KTuple || kind == store.KSig {
+		return false
+	}
+	if shapeGo(st, t) == "" {
+		return false
+	}
+	!isUnionType(st, t) || isAdmittedFlatUnion(st, t)
+}
+
+func isUnionType(st fnb, t dense.ID[store.TKey]) bool {
+	let kind = store.KindOfType(st.s, t)
+	if kind == store.KForeign {
+		let arg = store.ArgOf(st.s, t)
+		return arg < st.k.Foreign.Len() && st.k.Foreign[arg].Variants.Len() > 0
+	}
+	if kind == store.KInstance {
+		let o = store.OriginOfType(st.s, t)
+		if int(o.Import) == store.ForeignBit {
+			return int(o.Decl) < st.k.Foreign.Len() && st.k.Foreign[int(o.Decl)].Variants.Len() > 0
+		}
+		if int(o.Import) == 0 {
+			let name = store.DeclText(st.s, int(o.Decl))
+			match store.Lookup(st.s, name) {
+			case option.Some{Value: d}:
+				match namedKeyIn(st.idx, d) {
+				case option.Some{Value: nt}:
+					return unionVarsIn(st.idx, nt).Len() > 0
+				case option.None:
+					return false
+				}
+			case option.None:
+				return false
+			}
+		}
+		if int(o.Import) <= st.k.Ifaces.Len() {
+			let imp = st.k.Ifaces[int(o.Import)-1]
+			return int(o.Decl) < imp.Decls.Len() && imp.Decls[int(o.Decl)].Variants.Len() > 0
+		}
+		return false
+	}
+	if kind == store.KNamed {
+		return unionVarsIn(st.idx, t).Len() > 0
+	}
+	false
+}
+
+func isAdmittedFlatUnion(st fnb, t dense.ID[store.TKey]) bool {
+	let kind = store.KindOfType(st.s, t)
+	if kind == store.KInstance {
+		let o = store.OriginOfType(st.s, t)
+		if int(o.Import) == store.ForeignBit {
+			return unionInstanceGo(st, t) != ""
+		}
+		if int(o.Import) == 0 {
+			return st.alias == "option" && store.DeclText(st.s, int(o.Decl)) == "Option" && unionInstanceGo(st, t) != ""
+		}
+		if int(o.Import) <= st.k.Ifaces.Len() {
+			let imp = st.k.Ifaces[int(o.Import)-1]
+			return imp.Path == "option" && int(o.Decl) < imp.Decls.Len() && imp.Decls[int(o.Decl)].Name == "Option" && unionInstanceGo(st, t) != ""
+		}
+		return false
+	}
+	if st.cache.active && (!st.cache.unionEnv.ready || st.cache.unionEnv.hasExt) {
+		return false
+	}
+	match unionNamed(st, t) {
+	case option.Some{Value: shape}:
+		unionFlat(st, shape)
+	case option.None:
+		false
+	}
 }
 
 // callsIn reports a call or a function literal in x.
@@ -1086,7 +1190,11 @@ func calleeNames(st fnb, x dense.ID[syntax.Node], out []string) []string {
 // lawOver reports a law of the package that names name: a rewrite law
 // over it rewrites its calls (rewritePass), which the slice does not port.
 func lawOver(st fnb, name string) bool {
-	for p in st.k.Parsed {
+	lawOverPkg(st.k, name)
+}
+
+func lawOverPkg(k expr.Pkg, name string) bool {
+	for p in k.Parsed {
 		let decls = match syntax.ViewOf(p.Tree, syntax.Root(p.Tree)) {
 		case syntax.File as pf:
 			pf.Decls
@@ -1128,6 +1236,14 @@ func names(p syntax.Parsed, x dense.ID[syntax.Node], name string) bool {
 // (a type and the function T.name of the same spelling) share one
 // package-scope spelling, the second name_N in the naming order.
 func declCount(st fnb, name string) int {
+	if st.idx.valid {
+		return match st.idx.declCounts.Get(name) {
+		case option.Some{Value: n}:
+			n
+		case option.None:
+			0
+		}
+	}
 	let mut n = 0
 	for p in st.k.Parsed {
 		let decls = match syntax.ViewOf(p.Tree, syntax.Root(p.Tree)) {
@@ -1156,6 +1272,9 @@ func declCount(st fnb, name string) int {
 // pkgDecl reports a declaration of the package named name: a function, a
 // type or a package let.
 func pkgDecl(st fnb, name string) bool {
+	if st.idx.valid {
+		return st.idx.pkgDecls.Get(name) != option.None
+	}
 	for p in st.k.Parsed {
 		let decls = match syntax.ViewOf(p.Tree, syntax.Root(p.Tree)) {
 		case syntax.File as pf:
@@ -1243,14 +1362,14 @@ func outside(st fnb, x dense.ID[syntax.Node]) bool {
 
 // check stops at the first form of x the slice does not lower, before a
 // row is written.
-func check(st fnb, x dense.ID[syntax.Node]) fails Unported {
+func check(st fnb, binds localBinds, x dense.ID[syntax.Node]) fails Unported {
 	let p = st.p
 	if isConst(st, x) {
 		let t = try typeOf(st, x, "constant")
 		let _ = try constText(st, t, try fold(st, x))
 		return
 	}
-	match borrowScalarRead(st, x) {
+	match borrowScalarRead(st, binds, x) {
 	case option.Some[fixedBorrowField]:
 		return
 	case option.None:
@@ -1264,31 +1383,46 @@ func check(st fnb, x dense.ID[syntax.Node]) fails Unported {
 		if shapeGo(st, t) == "" {
 			return stop("name of " + typeCause(st, t))
 		}
-		let _ = try paramLocal(st, x)
+		let _ = try paramLocal(st, binds, x)
 	case syntax.CompositeLit as cl:
-		let a = try aggregateLiteral(st, x, cl)
+		let a = try aggregateLiteral(st, binds, x, cl)
 		for e in a.values {
-			try check(st, e)
+			try check(st, binds, e)
 		}
 	case syntax.SelectorExpr as se:
 		if bareEmptyRecord(st, x) != "" {
 			return
 		}
-		let _ = try field(st, x, se)
-		try readPlace(st, se.X)
+		let _ = try field(st, binds, x, se)
+		try readPlace(st, binds, se.X)
 	case syntax.IndexExpr as ie:
 		let i = try sliceIndex(st, x, ie)
-		try readPlace(st, ie.X)
-		try check(st, i)
+		try readPlace(st, binds, ie.X)
+		try check(st, binds, i)
+	case syntax.SliceExpr as sx:
+		let (idx, _) = try sliceCut(st, x, sx)
+		try check(st, binds, sx.X)
+		for opt in idx {
+			match dense.Unpack(opt) {
+			case option.Some{Value: e}:
+				try check(st, binds, e)
+			case option.None:
+			}
+		}
+	case syntax.InterpolatedString as is:
+		try interpCheck(st, binds, x, is)
 	case syntax.ParenExpr as pe:
-		try check(st, pe.X)
+		try check(st, binds, pe.X)
 	case syntax.UnaryExpr as u:
-		let _ = try typeOf(st, x, "UnaryExpr")
+		let ut = try typeOf(st, x, "UnaryExpr")
 		let op = syntax.TokText(p, u.Op)
 		if op != "!" && op != "-" && op != "+" && op != "^" {
 			return stop("unary " + op)
 		}
-		try check(st, u.X)
+		if scalarBasicGo(st, ut) == "" {
+			return stop("unary on a non-basic type")
+		}
+		try check(st, binds, u.X)
 	case syntax.BinaryExpr as be:
 		let _ = try typeOf(st, x, "BinaryExpr")
 		let op = syntax.TokText(p, be.Op)
@@ -1296,29 +1430,29 @@ func check(st fnb, x dense.ID[syntax.Node]) fails Unported {
 			return stop("operator " + op)
 		}
 		let lt = try typeOf(st, be.X, "operand")
-		if basicGo(st, lt) == "" {
+		if scalarBasicGo(st, lt) == "" {
 			return stop("operator on a non-basic type")
 		}
-		try check(st, be.X)
-		try check(st, be.Y)
+		try check(st, binds, be.X)
+		try check(st, binds, be.Y)
 	case syntax.CallExpr as ce:
 		match scheduledOp(st, x) {
 		case option.Some[directOp] as op:
 			for i in 0..syntax.Len(op.Value.args) {
-				try check(st, syntax.Item(p.Tree, op.Value.args, i))
+				try check(st, binds, syntax.Item(p.Tree, op.Value.args, i))
 			}
 			return
 		case option.None:
 		}
 		match try builtinOf(st, x, ce) {
 		case option.Some[aBuiltin] as bi:
-			try check(st, bi.Value.arg)
+			try check(st, binds, bi.Value.arg)
 			return
 		case option.None:
 		}
-		let c = try callee(st, x, ce)
+		let c = try callee(st, binds, x, ce)
 		for a in c.args {
-			try check(st, a)
+			try check(st, binds, a)
 		}
 	case _:
 		return stop("expression form")
@@ -1326,12 +1460,12 @@ func check(st fnb, x dense.ID[syntax.Node]) fails Unported {
 }
 
 // paramLocal is the local of the parameter the name x names.
-func paramLocal(st fnb, x dense.ID[syntax.Node]) int fails Unported {
+func paramLocal(st fnb, binds localBinds, x dense.ID[syntax.Node]) int fails Unported {
 	match bind.ResolutionOf(st.k.U, st.k.Ps, bind.PNodeOf(st.k.Ps, st.file, x)) {
 	case bind.Declared as d:
-		for i, at in st.params {
+		for i, at in binds.params {
 			if at == d.At {
-				return st.locals[i]
+				return binds.locals[i]
 			}
 		}
 		return stop("name that is no parameter")
@@ -1341,7 +1475,7 @@ func paramLocal(st fnb, x dense.ID[syntax.Node]) int fails Unported {
 }
 
 // value writes the rows of x, checked by check, and is its row.
-func value(st fnb, b mut ir.Builder, x dense.ID[syntax.Node]) uint32 fails Unported | ir.Malformed {
+func value(st fnb, binds localBinds, b mut ir.Builder, x dense.ID[syntax.Node]) uint32 fails Unported | ir.Malformed {
 	let p = st.p
 	let at = pos(st, syntax.NodePos(p, x))
 	if isConst(st, x) {
@@ -1349,9 +1483,13 @@ func value(st fnb, b mut ir.Builder, x dense.ID[syntax.Node]) uint32 fails Unpor
 		// builder writes that value (lower's constant).
 		let t = try typeOf(st, x, "constant")
 		let v = try constText(st, t, try fold(st, x))
-		return try constRow(b, at, basicGo(st, t), v)
+		let gt = shapeGo(st, t)
+		if gt == "" {
+			return stop("constant of a non-basic type")
+		}
+		return try constRow(b, at, gt, v)
 	}
-	match borrowScalarRead(st, x) {
+	match borrowScalarRead(st, binds, x) {
 	case option.Some{Value: place}:
 		return try emitBorrowField(st, b, place)
 	case option.None:
@@ -1362,40 +1500,59 @@ func value(st fnb, b mut ir.Builder, x dense.ID[syntax.Node]) uint32 fails Unpor
 		if zero != "" {
 			return try ir.Row(b, ir.KindCode(ir.TExpr, "zero"), at, []uint32{ir.Text(b, zero)})
 		}
-		let i = try paramLocal(st, x)
+		let i = try paramLocal(st, binds, x)
 		try ir.Row(b, ir.KindCode(ir.TExpr, "local"), at, []uint32{uint32(i)})
 	case syntax.CompositeLit as cl:
-		try emitAggregate(st, b, x, cl, at)
+		try emitAggregate(st, binds, b, x, cl, at)
 	case syntax.SelectorExpr as se:
 		let zero = bareEmptyRecord(st, x)
 		if zero != "" {
 			return try ir.Row(b, ir.KindCode(ir.TExpr, "zero"), at, []uint32{ir.Text(b, zero)})
 		}
-		let name = try field(st, x, se)
-		let y = try value(st, b, se.X)
+		let name = try field(st, binds, x, se)
+		let y = try value(st, binds, b, se.X)
 		try ir.Row(b, ir.KindCode(ir.TExpr, "field"), pos(st, syntax.NodePos(p, se.Sel)), []uint32{y, ir.Text(b, name)})
 	case syntax.IndexExpr as ie:
 		let i = try sliceIndex(st, x, ie)
-		let y = try value(st, b, ie.X)
-		let j = try value(st, b, i)
+		let y = try value(st, binds, b, ie.X)
+		let j = try value(st, binds, b, i)
 		try ir.Row(b, ir.KindCode(ir.TExpr, "index"), at, []uint32{y, j})
+	case syntax.SliceExpr as sx:
+		let (idx, _) = try sliceCut(st, x, sx)
+		let y = try value(st, binds, b, sx.X)
+		let mut args = []uint32{}
+		for opt in idx {
+			match dense.Unpack(opt) {
+			case option.Some{Value: e}:
+				args = args.Append(try value(st, binds, b, e))
+			case option.None:
+				args = args.Append(0)
+			}
+		}
+		try ir.Row(b, ir.KindCode(ir.TExpr, "slice"), at, []uint32{y, ir.List(b, args)})
+	case syntax.InterpolatedString as is:
+		try interpEmit(st, binds, b, x, is, at)
 	case syntax.ParenExpr as pe:
-		try value(st, b, pe.X)
+		try value(st, binds, b, pe.X)
 	case syntax.UnaryExpr as u:
 		let op = syntax.TokText(p, u.Op)
-		let y = try value(st, b, u.X)
+		let y = try value(st, binds, b, u.X)
 		try ir.Row(b, ir.KindCode(ir.TExpr, "un"), at, []uint32{ir.Text(b, op), y})
 	case syntax.BinaryExpr as be:
 		let op = syntax.TokText(p, be.Op)
-		let l = try value(st, b, be.X)
-		let r = try value(st, b, be.Y)
+		let l = try value(st, binds, b, be.X)
+		let r = try value(st, binds, b, be.Y)
 		let opAt = pos(st, syntax.TokPos(p, be.Op))
 		let e = try ir.Row(b, ir.KindCode(ir.TExpr, "bin"), opAt, []uint32{ir.Text(b, op), l, r})
 		// A float product that is no constant rounds under T(a * b), so Go
 		// cannot fuse it into a multiply-add (lower's rounded, FLOAT-STRICT).
-		let t = basicGo(st, try typeOf(st, x, "BinaryExpr"))
+		let bt = try typeOf(st, x, "BinaryExpr")
+		let t = scalarBasicGo(st, bt)
 		if op == "*" && (t == "float64" || t == "float32") {
-			return try ir.Row(b, ir.KindCode(ir.TExpr, "conv"), opAt, []uint32{ir.Text(b, t), e})
+			let dt = shapeGo(st, bt)
+			if dt != "" {
+				return try ir.Row(b, ir.KindCode(ir.TExpr, "conv"), opAt, []uint32{ir.Text(b, dt), e})
+			}
 		}
 		e
 	case syntax.CallExpr as ce:
@@ -1409,17 +1566,17 @@ func value(st fnb, b mut ir.Builder, x dense.ID[syntax.Node]) uint32 fails Unpor
 		// a method's mcall on its receiver.
 		match try builtinOf(st, x, ce) {
 		case option.Some[aBuiltin] as bi:
-			let y = try value(st, b, bi.Value.arg)
+			let y = try value(st, binds, b, bi.Value.arg)
 			if bi.Value.conv {
 				return try ir.Row(b, ir.KindCode(ir.TExpr, "conv"), at, []uint32{ir.Text(b, bi.Value.t), y})
 			}
 			return try ir.Row(b, ir.KindCode(ir.TExpr, "len"), at, []uint32{y})
 		case option.None:
 		}
-		let c = try callee(st, x, ce)
+		let c = try callee(st, binds, x, ce)
 		let mut ids = []uint32{}
 		for a in c.args {
-			ids = ids.Append(try value(st, b, a))
+			ids = ids.Append(try value(st, binds, b, a))
 		}
 		if c.method {
 			return try ir.Row(b, ir.KindCode(ir.TExpr, "mcall"), at, []uint32{ids[0], ir.Text(b, c.name), ir.List(b, ids[1:ids.Len()])})
@@ -1450,7 +1607,7 @@ type Cv = CInt{I int64} | CBool{B bool} | CStr{S string} | CFloat{S string}
 // type t (lower's constant): an integer's exact digits, a bool's word, a
 // string's text, a float's shortest form.
 func constText(st fnb, t dense.ID[store.TKey], v Cv) string fails Unported {
-	let gt = basicGo(st, t)
+	let gt = scalarBasicGo(st, t)
 	if gt == "" {
 		return stop("constant of a non-basic type")
 	}
@@ -1534,7 +1691,7 @@ func unary(st fnb, op string, t dense.ID[store.TKey], v Cv) Cv fails Unported {
 		if op != "^" {
 			return stop("constant operator " + op)
 		}
-		let w = width(basicGo(st, t))
+		let w = width(scalarBasicGo(st, t))
 		if w == 0 {
 			return CInt{I: -c.I - 1}
 		}
@@ -1710,7 +1867,7 @@ func arith(op string, a int64, c int64) int64 fails Unported {
 // neg. It stops at an integer past int64, at a float of a float32, and at
 // a float literal strconv does not read as Go does (an underscore).
 func literal(st fnb, tok int, t dense.ID[store.TKey], neg bool) Cv fails Unported {
-	let gt = basicGo(st, t)
+	let gt = scalarBasicGo(st, t)
 	if gt == "" {
 		return stop("constant of a non-basic type")
 	}

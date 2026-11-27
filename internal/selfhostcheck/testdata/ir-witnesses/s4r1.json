@@ -1,0 +1,9 @@
+[
+  {"fixture": "a.ergo", "declaration": "func Area(c Circle)", "symbol": "Circle.Area"},
+  {"fixture": "a.ergo", "declaration": "func Area(q Square)", "symbol": "Square.Area"},
+  {"fixture": "elide.ergo", "declaration": "func wrap(", "symbol": "wrap"},
+  {"fixture": "elide.ergo", "declaration": "func wrap8(", "symbol": "wrap8"},
+  {"fixture": "wired.ergo", "declaration": "func Wire(", "symbol": "Mode.Wire"},
+  {"fixture": "port_shapes_import/reader/port_shape3_array.ergo", "declaration": "func PortArrayKeep(", "symbol": "PortArrayKeep"},
+  {"fixture": "port_shapes_import/reader/port_shape3_map.ergo", "declaration": "func PortMapKeep(", "symbol": "PortMapKeep"}
+]

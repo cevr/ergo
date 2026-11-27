@@ -1,6 +1,5 @@
 import compiler/check/bind
 import compiler/check/expr
-import compiler/check/infer
 import compiler/check/store
 import compiler/syntax
 import dense
@@ -22,7 +21,7 @@ func envFreeFallibleFrame(st fnb, f expr.Fn, body dense.ID[syntax.Node], name st
 			return stop("SHAPES: unspelled success result")
 		}
 	}
-	let leading = if n != 0 { ordinaryRecord(st, ops[0]) >= 0 } else { false }
+	let leading = if n != 0 { isRecordReceiver(st, ops[0]) } else { false }
 	let first = if n != 0 { option.Some[dense.ID[store.TKey]]{Value: ops[0]} } else { option.None }
 	if members.Len() == 1 && (!leading || !strings.Contains(try goName(st, name, first), ".")) {
 		return stop("non-flat method required")
@@ -116,8 +115,7 @@ func failureVariant(st fnb, t dense.ID[store.TKey]) option.Option[dense.ID[store
 	let td = syntax.TypeDeclOf(p.Tree, syntax.NodeAt(p.Tree, r))
 	match store.Lookup(st.s, nameText(p, td.Name)) {
 	case option.Some{Value: union}:
-		let mut s = st.s
-		option.Some[dense.ID[store.TKey]]{Value: store.TNamed(&s, union)}
+		namedKeyIn(st.idx, union)
 	case option.None:
 		option.None
 	}
@@ -248,8 +246,12 @@ func recordFailure(st fnb, x dense.ID[syntax.Node], success dense.ID[store.TKey]
 	if !failureMember(members, t) {
 		return stop("return does not build a declared failure")
 	}
-	let mut s = st.s
-	if t == success || failureMember(infer.VariantsOf(&s, st.k.Unions, success), t) {
+	let svars = if store.KindOfType(st.s, success) == store.KNamed {
+		unionVarsIn(st.idx, success)
+	} else {
+		variantsStore(st.s, st.k.Unions, success)
+	}
+	if t == success || failureMember(svars, t) {
 		return stop("checker: failure also inhabits the success result")
 	}
 	if store.KindOfType(st.s, t) == store.KNamed && failureVariant(st, t) != option.None {
@@ -261,7 +263,7 @@ func recordFailure(st fnb, x dense.ID[syntax.Node], success dense.ID[store.TKey]
 	match syntax.ViewOf(st.p.Tree, y) {
 	case syntax.CompositeLit as lit:
 		if dense.Unpack(lit.Base) == option.None {
-			let a = try aggregateLiteral(st, y, lit)
+			let a = try aggregateLiteral(st, emptyLocalBinds(), y, lit)
 			for operand in a.values {
 				try failureField(st, operand)
 			}
@@ -294,7 +296,7 @@ func failureField(st fnb, x dense.ID[syntax.Node]) fails Unported {
 	match syntax.ViewOf(st.p.Tree, y) {
 	case syntax.CompositeLit as lit:
 		if dense.Unpack(lit.Base) == option.None {
-			let a = try aggregateLiteral(st, y, lit)
+			let a = try aggregateLiteral(st, emptyLocalBinds(), y, lit)
 			for operand in a.values {
 				try failureField(st, operand)
 			}
@@ -348,7 +350,7 @@ func fieldPath(st fnb, x dense.ID[syntax.Node]) bool {
 	case syntax.ParenExpr as pe:
 		fieldPath(st, pe.X)
 	case syntax.SelectorExpr as se:
-		let _ = field(st, x, se) catch {
+		let _ = field(st, emptyLocalBinds(), x, se) catch {
 		case Unported:
 			return false
 		}

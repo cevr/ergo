@@ -214,7 +214,7 @@ func framePoll(st fnb, b mut ir.Builder, at ir.Pos) uint32 fails ir.Malformed {
 	try ir.Row(b, ir.KindCode(ir.TStmt, "expr"), at, []uint32{check})
 }
 
-func operationRows(st fnb, b mut ir.Builder, op directOp) []uint32 fails Unported | ir.Malformed {
+func operationRows(st fnb, binds localBinds, b mut ir.Builder, op directOp) []uint32 fails Unported | ir.Malformed {
 	let at = pos(st, syntax.NodePos(st.p, op.call))
 	let poll = try framePoll(st, b, at)
 	let env = try envLocal(st, b, at)
@@ -222,7 +222,7 @@ func operationRows(st fnb, b mut ir.Builder, op directOp) []uint32 fails Unporte
 	let mut args = []uint32{try envField(b, at, env, "task")}
 	for i in 0..syntax.Len(op.args) {
 		let a = syntax.Item(st.p.Tree, op.args, i)
-		args = args.Append(try value(st, b, a))
+		args = args.Append(try value(st, binds, b, a))
 	}
 	let call = try ir.Row(b, ir.KindCode(ir.TExpr, "mcall"), at, []uint32{cap, ir.Text(b, op.member), ir.List(b, args)})
 	try ir.AddLocal(b, "v", op.result, at)

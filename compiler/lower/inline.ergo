@@ -1,5 +1,7 @@
 import compiler/check/expr
 import compiler/check/store
+import dense
+import option
 
 // The original scalar S4c10 leaf has no calls and a nonboxed result.
 // A proved scalar body calling only builtins is the same Go leaf.
@@ -31,17 +33,44 @@ func tabDomain(st fnb, f expr.Fn) bool {
 	let n = ops.Len() - 3
 	let mut size = 1
 	for i in 0..n {
-		let basic = basicGo(st, ops[i])
-		if basic == "bool" {
-			size = size * 2
-		} else if basic == "uint8" {
-			size = size * 256
-		} else {
+		let card = tabParamSize(st, ops[i])
+		if card == 0 {
 			return false
 		}
+		size = size * card
 		if size > 4096 {
 			return false
 		}
 	}
 	n > 0
+}
+
+func tabParamSize(st fnb, t dense.ID[store.TKey]) int {
+	let basic = basicGo(st, t)
+	if basic == "bool" {
+		return 2
+	}
+	if basic == "uint8" {
+		return 256
+	}
+	if store.KindOfType(st.s, t) == store.KNamed {
+		let vs = unionVarsIn(st.idx, t)
+		if vs.Len() >= 2 && vs.Len() <= 256 {
+			for v in vs {
+				if store.KindOfType(st.s, v) != store.KNamed {
+					return 0
+				}
+				match unionRecordFields(st, store.TypeNameText(st.s, store.ArgOf(st.s, v))) {
+				case option.Some{Value: fs}:
+					if fs.Len() != 0 {
+						return 0
+					}
+				case option.None:
+					return 0
+				}
+			}
+			return vs.Len()
+		}
+	}
+	0
 }

@@ -1657,10 +1657,10 @@ var ergoDecls = [...]ergoDecl{
 	{Name: "Builder.Begin", File: "ir/build.ergo", Line: 82, End: 93},
 	{Name: "Builder.AddLocal", File: "ir/build.ergo", Line: 96, End: 102},
 	{Name: "Builder.PosAt", File: "ir/build.ergo", Line: 105, End: 109},
-	{Name: "Builder.List", File: "ir/build.ergo", Line: 113, End: 120},
-	{Name: "Builder.Row", File: "ir/build.ergo", Line: 125, End: 158},
-	{Name: "Builder.End", File: "ir/build.ergo", Line: 162, End: 170},
-	{Name: "Builder.Finish", File: "ir/build.ergo", Line: 173, End: 178},
+	{Name: "Builder.List", File: "ir/build.ergo", Line: 118, End: 125},
+	{Name: "Builder.Row", File: "ir/build.ergo", Line: 130, End: 163},
+	{Name: "Builder.End", File: "ir/build.ergo", Line: 167, End: 175},
+	{Name: "Builder.Finish", File: "ir/build.ergo", Line: 178, End: 183},
 	{Name: "TStmt", File: "ir/ir.ergo", Line: 75, End: 75},
 	{Name: "TExpr", File: "ir/ir.ergo", Line: 76, End: 76},
 	{Name: "TCase", File: "ir/ir.ergo", Line: 77, End: 77},
@@ -8641,29 +8641,29 @@ var ergoCalls = [...]ergoCall{
 	{Func: 388, Callee: 63, File: 380, Line: 107, Column: 20},
 	{Func: 388, Callee: 63, File: 380, Line: 107, Column: 20},
 	{Func: 388, Callee: 63, File: 380, Line: 107, Column: 20},
-	{Func: 389, Callee: 55, File: 380, Line: 114, Column: 17},
-	{Func: 389, Callee: 63, File: 380, Line: 115, Column: 20},
-	{Func: 389, Callee: 55, File: 380, Line: 115, Column: 50},
-	{Func: 389, Callee: 55, File: 380, Line: 116, Column: 14},
-	{Func: 389, Callee: 63, File: 380, Line: 117, Column: 21},
-	{Func: 390, Callee: 69, File: 380, Line: 126, Column: 11},
-	{Func: 390, Callee: 391, File: 380, Line: 131, Column: 43},
-	{Func: 390, Callee: 69, File: 380, Line: 133, Column: 10},
-	{Func: 390, Callee: 70, File: 380, Line: 133, Column: 10},
-	{Func: 390, Callee: 55, File: 380, Line: 134, Column: 5},
-	{Func: 390, Callee: 70, File: 380, Line: 135, Column: 43},
-	{Func: 390, Callee: 391, File: 380, Line: 135, Column: 72},
-	{Func: 390, Callee: 55, File: 380, Line: 146, Column: 14},
-	{Func: 390, Callee: 63, File: 380, Line: 148, Column: 22},
-	{Func: 390, Callee: 392, File: 380, Line: 151, Column: 19},
-	{Func: 390, Callee: 63, File: 380, Line: 152, Column: 16},
-	{Func: 390, Callee: 63, File: 380, Line: 153, Column: 16},
-	{Func: 390, Callee: 63, File: 380, Line: 154, Column: 19},
-	{Func: 390, Callee: 63, File: 380, Line: 155, Column: 19},
-	{Func: 390, Callee: 63, File: 380, Line: 156, Column: 18},
-	{Func: 393, Callee: 385, File: 380, Line: 164, Column: 24},
-	{Func: 393, Callee: 394, File: 380, Line: 167, Column: 17},
-	{Func: 395, Callee: 385, File: 380, Line: 175, Column: 24},
+	{Func: 389, Callee: 55, File: 380, Line: 119, Column: 17},
+	{Func: 389, Callee: 63, File: 380, Line: 120, Column: 20},
+	{Func: 389, Callee: 55, File: 380, Line: 120, Column: 50},
+	{Func: 389, Callee: 55, File: 380, Line: 121, Column: 14},
+	{Func: 389, Callee: 63, File: 380, Line: 122, Column: 21},
+	{Func: 390, Callee: 69, File: 380, Line: 131, Column: 11},
+	{Func: 390, Callee: 391, File: 380, Line: 136, Column: 43},
+	{Func: 390, Callee: 69, File: 380, Line: 138, Column: 10},
+	{Func: 390, Callee: 70, File: 380, Line: 138, Column: 10},
+	{Func: 390, Callee: 55, File: 380, Line: 139, Column: 5},
+	{Func: 390, Callee: 70, File: 380, Line: 140, Column: 43},
+	{Func: 390, Callee: 391, File: 380, Line: 140, Column: 72},
+	{Func: 390, Callee: 55, File: 380, Line: 151, Column: 14},
+	{Func: 390, Callee: 63, File: 380, Line: 153, Column: 22},
+	{Func: 390, Callee: 392, File: 380, Line: 156, Column: 19},
+	{Func: 390, Callee: 63, File: 380, Line: 157, Column: 16},
+	{Func: 390, Callee: 63, File: 380, Line: 158, Column: 16},
+	{Func: 390, Callee: 63, File: 380, Line: 159, Column: 19},
+	{Func: 390, Callee: 63, File: 380, Line: 160, Column: 19},
+	{Func: 390, Callee: 63, File: 380, Line: 161, Column: 18},
+	{Func: 393, Callee: 385, File: 380, Line: 169, Column: 24},
+	{Func: 393, Callee: 394, File: 380, Line: 172, Column: 17},
+	{Func: 395, Callee: 385, File: 380, Line: 180, Column: 24},
 	{Func: 396, Callee: 397, File: 398, Line: 106, Column: 2},
 	{Func: 396, Callee: 397, File: 398, Line: 107, Column: 2},
 	{Func: 396, Callee: 397, File: 398, Line: 108, Column: 2},
@@ -15044,18 +15044,18 @@ func (b *compiler_sir__Builder) PosAt(p compiler_sir__Pos) uint32 {
 
 //line ir/build.ergo:106
 
-//line ir/build.ergo:113:1
+//line ir/build.ergo:118:1
 func (b *compiler_sir__Builder) List(words []uint32) uint32 {
-	/*line ir/build.ergo:114:1*/ q := uint32(len(b.fn.Body.Extra))
-	/*line ir/build.ergo:115:1*/ b.fn.Body.Extra = append(b.fn.Body.Extra, uint32(len(words)))
-	/*line ir/build.ergo:116:1*/ r := ergo__Range[int]{Start: 0, End: len(words)}
-	/*line ir/build.ergo:116:1*/ for i := r.Start; i < r.End; i++ {
-		/*line ir/build.ergo:117:2*/ b.fn.Body.Extra = append(b.fn.Body.Extra, words[i])
+	/*line ir/build.ergo:119:1*/ q := uint32(len(b.fn.Body.Extra))
+	/*line ir/build.ergo:120:1*/ b.fn.Body.Extra = append(b.fn.Body.Extra, uint32(len(words)))
+	/*line ir/build.ergo:121:1*/ r := ergo__Range[int]{Start: 0, End: len(words)}
+	/*line ir/build.ergo:121:1*/ for i := r.Start; i < r.End; i++ {
+		/*line ir/build.ergo:122:2*/ b.fn.Body.Extra = append(b.fn.Body.Extra, words[i])
 	}
-	/*line ir/build.ergo:119:1*/ return q
+	/*line ir/build.ergo:124:1*/ return q
 }
 
-//line ir/build.ergo:114
+//line ir/build.ergo:119
 
 //line ir/kinds.ergo:14:1
 type compiler_sir__Kind struct {
@@ -15073,44 +15073,44 @@ func compiler_sir__KindOf(c uint8) compiler_sir__Kind {
 
 //line ir/kinds.ergo:86
 
-//line ir/build.ergo:125:1
+//line ir/build.ergo:130:1
 func (b *compiler_sir__Builder) Row(c uint8, at compiler_sir__Pos, slots []uint32) (uint32, error) {
-	/*line ir/build.ergo:126:1*/ id := len(b.fn.Body.Kind) + 1
-	/*line ir/build.ergo:127:1*/ if !b.open {
-		/*line ir/build.ergo:128:2*/ return 0, compiler_sir__Malformed{At: id, Why: "a row outside a function"}
+	/*line ir/build.ergo:131:1*/ id := len(b.fn.Body.Kind) + 1
+	/*line ir/build.ergo:132:1*/ if !b.open {
+		/*line ir/build.ergo:133:2*/ return 0, compiler_sir__Malformed{At: id, Why: "a row outside a function"}
 	}
-	/*line ir/build.ergo:130:1*/ if c == uint8(0) || int(c) >= 52 {
-		/*line ir/build.ergo:131:2*/ return 0, compiler_sir__Malformed{At: id, Why: "kind " + strconv__Itoa(int(c))}
+	/*line ir/build.ergo:135:1*/ if c == uint8(0) || int(c) >= 52 {
+		/*line ir/build.ergo:136:2*/ return 0, compiler_sir__Malformed{At: id, Why: "kind " + strconv__Itoa(int(c))}
 	}
-	/*line ir/build.ergo:133:1*/ n := len(compiler_sir__KindOf(c).Slots)
-	/*line ir/build.ergo:134:1*/ if len(slots) != n {
-		/*line ir/build.ergo:135:2*/ return 0, compiler_sir__Malformed{At: id, Why: "kind " + compiler_sir__KindOf(c).Name + " takes " + strconv__Itoa(n) + " slots"}
+	/*line ir/build.ergo:138:1*/ n := len(compiler_sir__KindOf(c).Slots)
+	/*line ir/build.ergo:139:1*/ if len(slots) != n {
+		/*line ir/build.ergo:140:2*/ return 0, compiler_sir__Malformed{At: id, Why: "kind " + compiler_sir__KindOf(c).Name + " takes " + strconv__Itoa(n) + " slots"}
 	}
-	/*line ir/build.ergo:137:1*/ a := uint32(0)
-	/*line ir/build.ergo:138:1*/ w := uint32(0)
-	/*line ir/build.ergo:139:1*/ if n > 0 {
-		/*line ir/build.ergo:140:2*/ a = slots[0]
+	/*line ir/build.ergo:142:1*/ a := uint32(0)
+	/*line ir/build.ergo:143:1*/ w := uint32(0)
+	/*line ir/build.ergo:144:1*/ if n > 0 {
+		/*line ir/build.ergo:145:2*/ a = slots[0]
 	}
-	/*line ir/build.ergo:142:1*/ if n == 2 {
-		/*line ir/build.ergo:143:2*/ w = slots[1]
+	/*line ir/build.ergo:147:1*/ if n == 2 {
+		/*line ir/build.ergo:148:2*/ w = slots[1]
 	}
-	/*line ir/build.ergo:145:1*/ if n > 2 {
-		/*line ir/build.ergo:146:2*/ w = uint32(len(b.fn.Body.Extra))
-		/*line ir/build.ergo:147:2*/ r := ergo__Range[int]{Start: 1, End: n}
-		/*line ir/build.ergo:147:2*/ for j := r.Start; j < r.End; j++ {
-			/*line ir/build.ergo:148:3*/ b.fn.Body.Extra = append(b.fn.Body.Extra, slots[j])
+	/*line ir/build.ergo:150:1*/ if n > 2 {
+		/*line ir/build.ergo:151:2*/ w = uint32(len(b.fn.Body.Extra))
+		/*line ir/build.ergo:152:2*/ r := ergo__Range[int]{Start: 1, End: n}
+		/*line ir/build.ergo:152:2*/ for j := r.Start; j < r.End; j++ {
+			/*line ir/build.ergo:153:3*/ b.fn.Body.Extra = append(b.fn.Body.Extra, slots[j])
 		}
 	}
-	/*line ir/build.ergo:151:1*/ b.fn.Body.Kind = append(b.fn.Body.Kind, c)
-	/*line ir/build.ergo:152:1*/ b.fn.Body.A = append(b.fn.Body.A, a)
-	/*line ir/build.ergo:153:1*/ b.fn.Body.B = append(b.fn.Body.B, w)
-	/*line ir/build.ergo:154:1*/ b.fn.Body.File = append(b.fn.Body.File, at.File)
-	/*line ir/build.ergo:155:1*/ b.fn.Body.Line = append(b.fn.Body.Line, at.Line)
-	/*line ir/build.ergo:156:1*/ b.fn.Body.Col = append(b.fn.Body.Col, at.Col)
-	/*line ir/build.ergo:157:1*/ return uint32(id), nil
+	/*line ir/build.ergo:156:1*/ b.fn.Body.Kind = append(b.fn.Body.Kind, c)
+	/*line ir/build.ergo:157:1*/ b.fn.Body.A = append(b.fn.Body.A, a)
+	/*line ir/build.ergo:158:1*/ b.fn.Body.B = append(b.fn.Body.B, w)
+	/*line ir/build.ergo:159:1*/ b.fn.Body.File = append(b.fn.Body.File, at.File)
+	/*line ir/build.ergo:160:1*/ b.fn.Body.Line = append(b.fn.Body.Line, at.Line)
+	/*line ir/build.ergo:161:1*/ b.fn.Body.Col = append(b.fn.Body.Col, at.Col)
+	/*line ir/build.ergo:162:1*/ return uint32(id), nil
 }
 
-//line ir/build.ergo:126
+//line ir/build.ergo:131
 
 //line ir/build.ergo:82:1
 func (b *compiler_sir__Builder) Begin(name string, pos_1 compiler_sir__Pos, end compiler_sir__Pos) error {
@@ -15141,19 +15141,19 @@ func (b *compiler_sir__Builder) AddLocal(name string, typ string, pos_1 compiler
 
 //line ir/build.ergo:97
 
-//line ir/build.ergo:162:1
+//line ir/build.ergo:167:1
 func (b *compiler_sir__Builder) End(roots uint32) error {
-	/*line ir/build.ergo:163:1*/ if !b.open {
-		/*line ir/build.ergo:164:2*/ return compiler_sir__Malformed{At: len(b.file.Funcs), Why: "an end outside a function"}
+	/*line ir/build.ergo:168:1*/ if !b.open {
+		/*line ir/build.ergo:169:2*/ return compiler_sir__Malformed{At: len(b.file.Funcs), Why: "an end outside a function"}
 	}
-	/*line ir/build.ergo:166:1*/ b.fn.Body.Roots = roots
-	/*line ir/build.ergo:167:1*/ b.file.Funcs = append(b.file.Funcs, ergo__CloneFunc(b.fn))
-	/*line ir/build.ergo:168:1*/ b.fn = compiler_sir__Func{Name: uint32(0), Pos: compiler_sir__Pos{File: uint32(0), Line: uint32(0), Col: uint32(0)}, End: compiler_sir__Pos{File: uint32(0), Line: uint32(0), Col: uint32(0)}, Locals: []compiler_sir__Local{}, Body: compiler_sir__Body{Kind: []uint8{}, A: []uint32{}, B: []uint32{}, File: []uint32{}, Line: []uint32{}, Col: []uint32{}, Extra: []uint32{uint32(0)}, Roots: uint32(0)}}
-	/*line ir/build.ergo:169:1*/ b.open = false
-	/*line ir/build.ergo:170:1*/ return nil
+	/*line ir/build.ergo:171:1*/ b.fn.Body.Roots = roots
+	/*line ir/build.ergo:172:1*/ b.file.Funcs = append(b.file.Funcs, ergo__CloneFunc(b.fn))
+	/*line ir/build.ergo:173:1*/ b.fn = compiler_sir__Func{Name: uint32(0), Pos: compiler_sir__Pos{File: uint32(0), Line: uint32(0), Col: uint32(0)}, End: compiler_sir__Pos{File: uint32(0), Line: uint32(0), Col: uint32(0)}, Locals: []compiler_sir__Local{}, Body: compiler_sir__Body{Kind: []uint8{}, A: []uint32{}, B: []uint32{}, File: []uint32{}, Line: []uint32{}, Col: []uint32{}, Extra: []uint32{uint32(0)}, Roots: uint32(0)}}
+	/*line ir/build.ergo:174:1*/ b.open = false
+	/*line ir/build.ergo:175:1*/ return nil
 }
 
-//line ir/build.ergo:163
+//line ir/build.ergo:168
 
 //line ir/build.ergo:57:1
 func (b *compiler_sir__Builder) FileOf(path string) uint32 {
@@ -15212,15 +15212,15 @@ func (b *compiler_sir__Builder) NoFuncs() {
 
 //line ir/build.ergo:77
 
-//line ir/build.ergo:173:1
+//line ir/build.ergo:178:1
 func (b compiler_sir__Builder) Finish() (compiler_sir__File, error) {
-	/*line ir/build.ergo:174:1*/ if b.open {
-		/*line ir/build.ergo:175:2*/ return compiler_sir__File{}, compiler_sir__Malformed{At: len(b.file.Funcs), Why: "a function not ended"}
+	/*line ir/build.ergo:179:1*/ if b.open {
+		/*line ir/build.ergo:180:2*/ return compiler_sir__File{}, compiler_sir__Malformed{At: len(b.file.Funcs), Why: "a function not ended"}
 	}
-	/*line ir/build.ergo:177:1*/ return b.file, nil
+	/*line ir/build.ergo:182:1*/ return b.file, nil
 }
 
-//line ir/build.ergo:174
+//line ir/build.ergo:179
 
 //line report/report.ergo:38:1
 type compiler_sreport__Diagnostic struct {
