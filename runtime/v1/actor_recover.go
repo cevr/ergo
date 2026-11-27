@@ -58,8 +58,9 @@ type handoffKey struct{}
 
 // handoff holds the hosts for the first actor the start opens.
 type handoff struct {
-	mu    sync.Mutex
-	hosts []hostCell
+	mu      sync.Mutex
+	hosts   []hostCell
+	durable bool
 }
 
 // take gives the hosts once: to the first actor started on the task.
@@ -69,6 +70,18 @@ func (h *handoff) take() []hostCell {
 	hs := h.hosts
 	h.hosts = nil
 	return hs
+}
+
+// takeWithDurable gives the hosts and whether ActorRecovering started the
+// actor (durable start/supervision), once.
+func (h *handoff) takeWithDurable() ([]hostCell, bool) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	hs := h.hosts
+	d := h.durable
+	h.hosts = nil
+	h.durable = false
+	return hs, d
 }
 
 // ActorRecovering is the body of std actor's recovering, the frame of
@@ -90,7 +103,7 @@ func ActorRecovering[S, A any](t *rt.Task, fold func(*rt.Task) (S, error), start
 		var zero A
 		return zero, err
 	}
-	h := &handoff{hosts: hosts}
+	h := &handoff{hosts: hosts, durable: true}
 	c := t.WithValue(handoffKey{}, h)
 	defer c.End()
 	a := start(t, s)
@@ -118,10 +131,17 @@ func closeHosts(hs []hostCell) {
 // handedHosts takes the hosts ActorRecovering hands to the actor that t
 // starts now, or nil.
 func handedHosts(t *rt.Task) []hostCell {
+	hs, _ := handedRecovery(t)
+	return hs
+}
+
+// handedRecovery takes the hosts and durable mark ActorRecovering hands to
+// the actor that t starts now.
+func handedRecovery(t *rt.Task) ([]hostCell, bool) {
 	if h, ok := t.Value(handoffKey{}).(*handoff); ok {
-		return h.take()
+		return h.takeWithDurable()
 	}
-	return nil
+	return nil, false
 }
 
 // bindRecovered binds, to the entry that opens in s, each recovered host

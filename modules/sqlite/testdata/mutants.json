@@ -64,6 +64,74 @@
       "killers": [
         "examples:modules/sqlite"
       ]
+    },
+    {
+      "name": "sqlite-actorstore-lease-fence-bypassed",
+      "origin": "P3-STD-ACTOR-DURABLE-SUPERVISION",
+      "file": "modules/sqlite/actorstore/actorstore.ergo",
+      "decl": "SaveTransitionWith",
+      "from": "\t\t\tif observed != lease.Epoch {\n\t\t\t\treturn actor.StaleLease{Expected: lease.Epoch, Observed: observed}\n\t\t\t}",
+      "to": "\t\t\tif false && observed != lease.Epoch {\n\t\t\t\treturn actor.StaleLease{Expected: lease.Epoch, Observed: observed}\n\t\t\t}",
+      "rule": "SaveTransitionWith rejects writes from stale leased incarnations with actor.StaleLease inside BEGIN IMMEDIATE.",
+      "anchor": {
+        "tests": [
+          "examples:modules/sqlite"
+        ]
+      },
+      "killers": [
+        "examples:modules/sqlite"
+      ]
+    },
+    {
+      "name": "sqlite-actorstore-acquire-reuses-epoch",
+      "origin": "P3-STD-ACTOR-DURABLE-SUPERVISION",
+      "file": "modules/sqlite/actorstore/actorstore.ergo",
+      "decl": "AcquireLease",
+      "from": "\t\t\tlet next = extractInt64(rows[0].Values[0]) + 1",
+      "to": "\t\t\tlet next = extractInt64(rows[0].Values[0])",
+      "rule": "AcquireLease monotonically advances the lease epoch so prior writers are fenced.",
+      "anchor": {
+        "tests": [
+          "examples:modules/sqlite"
+        ]
+      },
+      "killers": [
+        "examples:modules/sqlite"
+      ]
+    },
+    {
+      "name": "sqlite-actorstore-timer-resets-on-recovery",
+      "origin": "P3-STD-ACTOR-DURABLE-SUPERVISION",
+      "file": "modules/sqlite/actorstore/actorstore.ergo",
+      "decl": "prepareSQLiteHooks",
+      "from": "\t\t\tif activeAnchor.Active {\n\t\t\t\tpendingDelayRef.Set(option.Some[duration]{Value: actor.RemainingDelay(activeAnchor)})\n\t\t\t}",
+      "to": "\t\t\tif false && activeAnchor.Active {\n\t\t\t\tpendingDelayRef.Set(option.Some[duration]{Value: actor.RemainingDelay(activeAnchor)})\n\t\t\t}",
+      "rule": "prepareSQLiteHooks restores RemainingDelay from the persisted TimerAnchor across crashes and server upgrades.",
+      "anchor": {
+        "tests": [
+          "examples:modules/sqlite"
+        ]
+      },
+      "killers": [
+        "examples:modules/sqlite"
+      ]
+    },
+    {
+      "name": "sqlite-actorstore-pending-returns-acked",
+      "origin": "P3-STD-ACTOR-DURABLE-SUPERVISION",
+      "file": "modules/sqlite/actorstore/actorstore.ergo",
+      "decl": "PendingOutbox",
+      "from": "\tlet rows = try db.Query(\"SELECT seq, actor_id, epoch, payload FROM actor_outbox WHERE actor_id = ? AND acked = 0 ORDER BY seq ASC\", []sql.Value{sql.Text{S: actorID}})",
+      "to": "\tlet rows = try db.Query(\"SELECT seq, actor_id, epoch, payload FROM actor_outbox WHERE actor_id = ? ORDER BY seq ASC\", []sql.Value{sql.Text{S: actorID}})",
+      "rule": "PendingOutbox returns only unacknowledged outbox rows.",
+      "anchor": {
+        "tests": [
+          "examples:modules/sqlite"
+        ]
+      },
+      "killers": [
+        "examples:modules/sqlite"
+      ]
     }
   ]
 }

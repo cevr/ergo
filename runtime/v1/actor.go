@@ -286,7 +286,12 @@ type Actor[S, E, D any] struct {
 	timerEnv        envelope[S, E, D]
 	timerAt         *rt.Task
 	timerDone       atomic.Bool
-	timerLast       *rt.Handle[struct{}] // the last timer child, for RestartOn
+	timerLast         *rt.Handle[struct{}] // the last timer child, for RestartOn
+	durable           bool
+	timerAlarm        *AlarmClock
+	timerDeadlineSet  bool
+	timerDeadlineMono time.Duration
+	timerBaseDelay    time.Duration
 	working         *rt.Handle[struct{}] // the entry's work, nil when it has none
 	feeds           []*feed              // the started sources that may still run (rule 14)
 	// newHosts are the hosts the running step made (rule 15); hostSlot
@@ -511,6 +516,11 @@ func machineStart[S, E, D, W any](span Site, t *rt.Task, sl Sleeper, graph Graph
 	if capacity < 0 {
 		panic("actor.StartMachine: negative capacity " + strconv.Itoa(capacity))
 	}
+	recovered, durable := handedRecovery(t)
+	var timerAlarm *AlarmClock
+	if al, ok := sl.(Alarmer); ok {
+		timerAlarm = al.Alarms(t)
+	}
 	a := &Actor[S, E, D]{
 		sleeper: sl, span: string(span), graph: graph,
 		step: step, fire: fire, delay: delay, kind: kind, next: next, out: out,
@@ -519,7 +529,9 @@ func machineStart[S, E, D, W any](span Site, t *rt.Task, sl Sleeper, graph Graph
 		report: report, fresh: fresh, decide: decide,
 		// A durable start's recovered hosts (DH1): this actor's first
 		// entry binds or closes them.
-		recovered: handedHosts(t),
+		recovered:  recovered,
+		durable:    durable,
+		timerAlarm: timerAlarm,
 	}
 	a.work = func(s S) (func(*rt.Task, func(E)), bool) {
 		w := workOf(s)
@@ -870,6 +882,7 @@ func (a *Actor[S, E, D]) handle(at *rt.Task, s S, env *envelope[S, E, D]) (S, bo
 		s = a.next(s, d)
 		a.owed = true
 		a.epoch++
+		a.timerDeadlineSet = false
 		a.open(at, s)
 	}
 	a.cur = nil
@@ -1229,10 +1242,31 @@ func (a *Actor[S, E, D]) leaveEntry(at *rt.Task, s S) error {
 func (a *Actor[S, E, D]) arm(at *rt.Task, s S) {
 	d := a.delay(s)
 	if d == noTimer {
+		a.timerDeadlineSet = false
 		return
 	}
-	if d <= 0 {
-		panic(MachineTimerNotPositive("", s, d))
+	if d == expiredTimer {
+		a.timerDeadlineSet = false
+		d = 0
+	} else {
+		if d <= 0 {
+			panic(MachineTimerNotPositive("", s, d))
+		}
+		if a.durable && a.timerAlarm != nil {
+			now := a.timerAlarm.Now()
+			if a.timerDeadlineSet && d == a.timerBaseDelay {
+				rem := a.timerDeadlineMono - now
+				if rem <= 0 {
+					d = 0
+				} else {
+					d = rem
+				}
+			} else {
+				a.timerBaseDelay = d
+				a.timerDeadlineMono = now + d
+				a.timerDeadlineSet = true
+			}
+		}
 	}
 	// The child's body, its span and its hook are the actor's, made at
 	// its first timer; an arm writes the entry's delay and envelope, which
@@ -1291,6 +1325,11 @@ func (at *actorTimer[S, E, D]) sleep(ct *rt.Task) (struct{}, error) {
 
 // noTimer is the delay of a state with no timer: no timer waits it.
 const noTimer = time.Duration(math.MinInt64)
+
+// expiredTimer is the delay sentinel std actor returns when an externally
+// anchored timer deadline has already passed on recovery: arm treats it as 0
+// so the due timer fires at once without raising MachineTimerNotPositive.
+const expiredTimer = noTimer + 1
 
 // ActorNoTimer is the delay std actor gives a state whose After is None.
 //

@@ -1,0 +1,149 @@
+import machines
+import option
+import sync
+import tasks
+import time
+
+// StaleLease is the failure returned by a fenced durable actor store when a caller's lease epoch has been superseded by a newer incarnation.
+type StaleLease {
+	Expected int64,
+	Observed int64,
+}
+
+// TimerAnchor records a durable timer's target deadline using both monotonic (when Active and created in the current runtime clock) and wall-clock timestamps.
+type TimerAnchor {
+	Active       bool,
+	TargetMono   time.Time,
+	TargetWallNS int64,
+}
+
+// NoAnchor returns an inactive TimerAnchor representing no pending durable timer.
+func NoAnchor() TimerAnchor {
+	TimerAnchor{
+		Active:       false,
+		TargetMono:   time.Unix(0, 0),
+		TargetWallNS: 0,
+	}
+}
+
+// AnchorAt constructs an active TimerAnchor for target, preserving any monotonic clock reading held by target alongside its Unix nanosecond wall timestamp.
+func AnchorAt(target time.Time) TimerAnchor {
+	let wallNS = time.UnixSeconds(target)*1000000000 + time.Nanosecond(target)
+	TimerAnchor{
+		Active:       true,
+		TargetMono:   target,
+		TargetWallNS: wallNS,
+	}
+}
+
+// AnchorTimer anchors a relative delay against the current time.Clock reading, returning NoAnchor when delay is not positive.
+func AnchorTimer(delay duration) TimerAnchor needs time.Clock {
+	if delay <= 0s {
+		return NoAnchor()
+	}
+	AnchorAt(time.Add(time.Clock.Now(), delay))
+}
+
+// AnchorFromWallNS reconstructs a cross-process TimerAnchor from persisted Unix nanoseconds for server-upgrade recovery.
+func AnchorFromWallNS(wallNS int64) TimerAnchor {
+	TimerAnchor{
+		Active:       true,
+		TargetMono:   time.Unix(0, wallNS),
+		TargetWallNS: wallNS,
+	}
+}
+
+// DueNow returns the expired-timer sentinel delay recognized by runtime/v1 to fire immediately on recovery without MachineTimerNotPositive.
+func DueNow() duration {
+	duration(int64(noTimer()) + 1)
+}
+
+// RemainingDelay computes the remaining duration until anchor using monotonic readings when available (same-epoch recovery) or wall time across restarts, returning DueNow if expired or noTimer if inactive.
+func RemainingDelay(anchor TimerAnchor) duration needs time.Clock {
+	if !anchor.Active {
+		return noTimer()
+	}
+	let now = time.Clock.Now()
+	let rem = time.Sub(anchor.TargetMono, now)
+	if rem <= 0s {
+		return DueNow()
+	}
+	rem
+}
+
+// StartDurableOutbox starts a pure durable actor whose transition save hook receives (prev, next, sig, outbox) atomically before committing live state or delivering outputs.
+func StartDurableOutbox[S, E, O, F, R, W, G, H](m pure machines.Machine[S, E, O, F, R, W], capacity int, sink own func(o O) needs R, recover func() option.Option[S] fails G needs R, save own func(prev S, next S, sig E, outbox []O) fails H needs R) Actor[S, E, machines.Decision[S, O], F] fails G needs R | W | time.Scheduler {
+	StartDurableOutboxLive(liveOf(m), capacity, sink, recover, save)
+}
+
+// StartDurableOutboxLive is StartDurableOutbox for a LiveMachine whose step or work may raise deliberate defects.
+func StartDurableOutboxLive[S, E, O, F, R, W, G, H](m LiveMachine[S, E, O, F, R, W], capacity int, sink own func(o O) needs R, recover func() option.Option[S] fails G needs R, save own func(prev S, next S, sig E, outbox []O) fails H needs R) Actor[S, E, machines.Decision[S, O], F] fails G needs R | W | time.Scheduler {
+	let first = m.Initial
+	try recovering(func() S fails G needs R { try recovered(recover, first) }, func(initial S) Actor[S, E, machines.Decision[S, O], F] needs R | W | time.Scheduler {
+		StartLive(durableOutboxLive(m, initial, save), capacity, sink)
+	})
+}
+
+// SuperviseDurableOutbox runs m with restart recovery and atomic state-plus-outbox save hooks under policy.
+func SuperviseDurableOutbox[S, E, O, F, R, W, G](m pure machines.Machine[S, E, O, F, R, W], capacity int, sink own func(o O) needs R, policy tasks.Restart, recover own func() option.Option[S] fails G needs R, save own func(prev S, next S, sig E, outbox []O) fails G needs R) Actor[S, E, machines.Decision[S, O], F] fails G needs R | W | time.Scheduler {
+	SuperviseDurableOutboxLive(liveOf(m), capacity, sink, policy, recover, save)
+}
+
+// SuperviseDurableOutboxLive is SuperviseDurableOutbox for a LiveMachine.
+func SuperviseDurableOutboxLive[S, E, O, F, R, W, G](m LiveMachine[S, E, O, F, R, W], capacity int, sink own func(o O) needs R, policy tasks.Restart, recover own func() option.Option[S] fails G needs R, save own func(prev S, next S, sig E, outbox []O) fails G needs R) Actor[S, E, machines.Decision[S, O], F] fails G needs R | W | time.Scheduler {
+	let first = m.Initial
+	let sup = tasks.LimitPolicy(policy.Limit)
+	let past = sync.NewRef[[]duration]([]duration{})
+	try recovering(func() S fails G needs R { try recovered(recover, first) }, func(initial S) Actor[S, E, machines.Decision[S, O], F] needs R | W | time.Scheduler {
+		launchLive(durableOutboxLive(m, initial, save), capacity, sink, func() S fails G needs R { try recovered(recover, first) }, policy.Limit, func() duration {
+			waitFromVerdict(tasks.NextRestart(sup, past, 0s))
+		})
+	})
+}
+
+// SuperviseDurableOutboxWith runs m with sliding-window supervision, backoff, recovery, and atomic (prev, next, sig, outbox) transition persistence.
+func SuperviseDurableOutboxWith[S, E, O, F, R, W, G](m pure machines.Machine[S, E, O, F, R, W], capacity int, sink own func(o O) needs R, policy tasks.Supervision, recover own func() option.Option[S] fails G needs R, save own func(prev S, next S, sig E, outbox []O) fails G needs R) Actor[S, E, machines.Decision[S, O], F] fails G needs R | W | time.Scheduler | time.Clock {
+	SuperviseDurableOutboxLiveWith(liveOf(m), capacity, sink, policy, recover, save)
+}
+
+// SuperviseDurableOutboxLiveWith is SuperviseDurableOutboxWith for a LiveMachine.
+func SuperviseDurableOutboxLiveWith[S, E, O, F, R, W, G](m LiveMachine[S, E, O, F, R, W], capacity int, sink own func(o O) needs R, policy tasks.Supervision, recover own func() option.Option[S] fails G needs R, save own func(prev S, next S, sig E, outbox []O) fails G needs R) Actor[S, E, machines.Decision[S, O], F] fails G needs R | W | time.Scheduler | time.Clock {
+	let first = m.Initial
+	let active = if policy.Intensity.Max > 0 { 1 } else { 0 }
+	try recovering(func() S fails G needs R { try recovered(recover, first) }, func(initial S) Actor[S, E, machines.Decision[S, O], F] needs R | W | time.Scheduler | time.Clock {
+		let origin = time.Clock.Now()
+		let past = sync.NewRef[[]duration]([]duration{})
+		launchLive(durableOutboxLive(m, initial, save), capacity, sink, func() S fails G needs R { try recovered(recover, first) }, active, func() duration needs time.Clock {
+			let now = time.Clock.Now().Sub(origin)
+			waitFromVerdict(tasks.NextRestart(policy, past, now))
+		})
+	})
+}
+
+func durableOutboxLive[S, E, O, F, R, W, G](m LiveMachine[S, E, O, F, R, W], initial own S, save own func(prev S, next S, sig E, outbox []O) fails G needs R) LiveMachine[S, E, O, F, R, W] {
+	let step = m.Step
+	LiveMachine[S, E, O, F, R, W]{
+		Initial: initial,
+		Step:    func(s S, e E) machines.Decision[S, O] fails F needs R defects {
+			let d = try step(s, e)
+			match d {
+			case machines.Enter[S] as en:
+				keep(func(p S, n S, x E) fails G needs R { try save(p, n, x, []O{}) }, s, en.Next, e)
+			case machines.Stay[S] as st:
+				keep(func(p S, n S, x E) fails G needs R { try save(p, n, x, []O{}) }, s, st.Next, e)
+			case machines.Emit[S, O] as em:
+				keep(func(p S, n S, x E) fails G needs R { try save(p, n, x, []O{em.Output}) }, s, em.Next, e)
+			case machines.Tell[S, O] as tl:
+				keep(func(p S, n S, x E) fails G needs R { try save(p, n, x, []O{tl.Output}) }, s, tl.Next, e)
+			case machines.Done[O] as dn:
+				keep(func(p S, n S, x E) fails G needs R { try save(p, n, x, []O{dn.Output}) }, s, s, e)
+			case machines.Ignore:
+			case machines.Reject:
+			}
+			d
+		},
+		After: m.After,
+		Work:  m.Work,
+		Exit:  m.Exit,
+	}
+}

@@ -1,0 +1,303 @@
+import actor
+import machines
+import option
+import sql
+import sync
+import tasks
+import time
+import github.com/cevr/ergo/modules/sqlite/sqlite
+
+// Lease identifies an exclusive writer epoch acquired from SQLite for one durable actor.
+type Lease {
+	ActorID string,
+	Epoch   int64,
+}
+
+// StoredSnapshot is a persisted durable actor checkpoint loaded from actor_state.
+type StoredSnapshot {
+	Version int64,
+	Epoch   int64,
+	Data    []byte,
+	Anchor  actor.TimerAnchor,
+}
+
+// OutboxRow is one transactional wake message recorded atomically in actor_outbox.
+type OutboxRow {
+	Seq     int64,
+	ActorID string,
+	Epoch   int64,
+	Payload []byte,
+}
+
+// Codec serializes actor state and emitted outbox messages to and from SQLite BLOBs.
+type Codec[S, O, F] {
+	EncodeState func(s S) []byte,
+	DecodeState func(data []byte) S fails F,
+	EncodeOut   func(o O) []byte,
+}
+
+// InitSchema creates actor_lease, actor_state, and actor_outbox if they do not exist.
+func InitSchema(db sqlite.DB) fails sql.Unique | sql.Serialization | sql.Deadlock | sql.Timeout | sql.Closed | sql.Other needs go.Foreign {
+	let conn sqlite.DB = db
+	with context { sql.DB: conn } {
+		let _ = try sqlite.WriteTransaction(func() bool fails sql.Unique | sql.Serialization | sql.Deadlock | sql.Timeout | sql.Closed | sql.Other needs sql.Tx | sql.DB {
+			let _ = try sql.Tx.Exec("CREATE TABLE IF NOT EXISTS actor_lease (actor_id TEXT PRIMARY KEY, epoch INTEGER NOT NULL)", []sql.Value{})
+			let _ = try sql.Tx.Exec("CREATE TABLE IF NOT EXISTS actor_state (actor_id TEXT PRIMARY KEY, version INTEGER NOT NULL, epoch INTEGER NOT NULL, state_data BLOB NOT NULL, timer_active INTEGER NOT NULL, timer_wall_ns INTEGER NOT NULL)", []sql.Value{})
+			let _ = try sql.Tx.Exec("CREATE TABLE IF NOT EXISTS actor_outbox (seq INTEGER PRIMARY KEY AUTOINCREMENT, actor_id TEXT NOT NULL, epoch INTEGER NOT NULL, payload BLOB NOT NULL, acked INTEGER NOT NULL DEFAULT 0)", []sql.Value{})
+			true
+		})
+	}
+}
+
+// AcquireLease fences older incarnations of actorID by atomically advancing actor_lease.epoch under BEGIN IMMEDIATE.
+func AcquireLease(db sqlite.DB, actorID string) Lease fails sql.Unique | sql.Serialization | sql.Deadlock | sql.Timeout | sql.Closed | sql.Other needs go.Foreign {
+	let conn sqlite.DB = db
+	with context { sql.DB: conn } {
+		try sqlite.WriteTransaction(func() Lease fails sql.Unique | sql.Serialization | sql.Deadlock | sql.Timeout | sql.Closed | sql.Other needs sql.Tx | sql.DB {
+			let rows = try sql.Tx.Query("SELECT epoch FROM actor_lease WHERE actor_id = ?", []sql.Value{sql.Text{S: actorID}})
+			if rows.Len() == 0 {
+				let _ = try sql.Tx.Exec("INSERT INTO actor_lease (actor_id, epoch) VALUES (?, ?)", []sql.Value{sql.Text{S: actorID}, sql.Int{N: 1}})
+				return Lease{ActorID: actorID, Epoch: 1}
+			}
+			let next = extractInt64(rows[0].Values[0]) + 1
+			let _ = try sql.Tx.Exec("UPDATE actor_lease SET epoch = ? WHERE actor_id = ?", []sql.Value{sql.Int{N: next}, sql.Text{S: actorID}})
+			Lease{ActorID: actorID, Epoch: next}
+		})
+	}
+}
+
+// CurrentLeaseEpoch returns the active lease epoch recorded for actorID, or None if no lease exists.
+func CurrentLeaseEpoch(db sqlite.DB, actorID string) option.Option[int64] fails sql.Unique | sql.Serialization | sql.Deadlock | sql.Timeout | sql.Closed | sql.Other needs go.Foreign {
+	let rows = try db.Query("SELECT epoch FROM actor_lease WHERE actor_id = ?", []sql.Value{sql.Text{S: actorID}})
+	if rows.Len() == 0 {
+		return option.None
+	}
+	option.Some[int64]{Value: extractInt64(rows[0].Values[0])}
+}
+
+// SaveTransition atomically verifies lease, persists stateData and timer anchor in actor_state, and enqueues wakes in actor_outbox inside one BEGIN IMMEDIATE transaction.
+func SaveTransition(db sqlite.DB, lease Lease, stateData []byte, anchor actor.TimerAnchor, wakes [][]byte) fails actor.StaleLease | sql.Unique | sql.Serialization | sql.Deadlock | sql.Timeout | sql.Closed | sql.Other needs go.Foreign {
+	try SaveTransitionWith(db, lease, stateData, anchor, wakes, func() fails sql.Other {})
+}
+
+// SaveTransitionWith executes SaveTransition and runs beforeCommit inside the same BEGIN IMMEDIATE transaction so any failure rolls back both state and outbox writes.
+func SaveTransitionWith[F, R](db sqlite.DB, lease Lease, stateData []byte, anchor actor.TimerAnchor, wakes [][]byte, beforeCommit own func() fails F needs R) fails F | actor.StaleLease | sql.Unique | sql.Serialization | sql.Deadlock | sql.Timeout | sql.Closed | sql.Other needs R | go.Foreign {
+	let conn sqlite.DB = db
+	let activeFlag = if anchor.Active { int64(1) } else { int64(0) }
+	with context { sql.DB: conn } {
+		let _ = try sqlite.WriteTransaction(func() bool fails F | actor.StaleLease | sql.Unique | sql.Serialization | sql.Deadlock | sql.Timeout | sql.Closed | sql.Other needs R | sql.Tx | sql.DB {
+			let rows = try sql.Tx.Query("SELECT epoch FROM actor_lease WHERE actor_id = ?", []sql.Value{sql.Text{S: lease.ActorID}})
+			if rows.Len() == 0 {
+				return actor.StaleLease{Expected: lease.Epoch, Observed: 0}
+			}
+			let observed = extractInt64(rows[0].Values[0])
+			if observed != lease.Epoch {
+				return actor.StaleLease{Expected: lease.Epoch, Observed: observed}
+			}
+			let _ = try sql.Tx.Exec(
+				"INSERT INTO actor_state (actor_id, version, epoch, state_data, timer_active, timer_wall_ns) VALUES (?, 1, ?, ?, ?, ?) ON CONFLICT(actor_id) DO UPDATE SET version = actor_state.version + 1, epoch = excluded.epoch, state_data = excluded.state_data, timer_active = excluded.timer_active, timer_wall_ns = excluded.timer_wall_ns",
+				[]sql.Value{sql.Text{S: lease.ActorID}, sql.Int{N: lease.Epoch}, sql.Bytes{B: stateData}, sql.Int{N: activeFlag}, sql.Int{N: anchor.TargetWallNS}},
+			)
+			for payload in wakes {
+				let _ = try sql.Tx.Exec(
+					"INSERT INTO actor_outbox (actor_id, epoch, payload, acked) VALUES (?, ?, ?, 0)",
+					[]sql.Value{sql.Text{S: lease.ActorID}, sql.Int{N: lease.Epoch}, sql.Bytes{B: payload}},
+				)
+			}
+			try beforeCommit()
+			true
+		})
+	}
+}
+
+// RecoverState reads the latest persisted snapshot and timer anchor for actorID, if present.
+func RecoverState(db sqlite.DB, actorID string) option.Option[StoredSnapshot] fails sql.Unique | sql.Serialization | sql.Deadlock | sql.Timeout | sql.Closed | sql.Other needs go.Foreign {
+	let rows = try db.Query("SELECT version, epoch, state_data, timer_active, timer_wall_ns FROM actor_state WHERE actor_id = ?", []sql.Value{sql.Text{S: actorID}})
+	if rows.Len() == 0 {
+		return option.None
+	}
+	let row = rows[0]
+	let active = extractInt64(row.Values[3]) != 0
+	let wallNS = extractInt64(row.Values[4])
+	let anchor = if active { actor.AnchorFromWallNS(wallNS) } else { actor.NoAnchor() }
+	option.Some[StoredSnapshot]{Value: StoredSnapshot{
+		Version: extractInt64(row.Values[0]),
+		Epoch:   extractInt64(row.Values[1]),
+		Data:    extractBytes(row.Values[2]),
+		Anchor:  anchor,
+	}}
+}
+
+// PendingOutbox returns all unacknowledged outbox rows for actorID in causal commit order.
+func PendingOutbox(db sqlite.DB, actorID string) []OutboxRow fails sql.Unique | sql.Serialization | sql.Deadlock | sql.Timeout | sql.Closed | sql.Other needs go.Foreign {
+	let rows = try db.Query("SELECT seq, actor_id, epoch, payload FROM actor_outbox WHERE actor_id = ? AND acked = 0 ORDER BY seq ASC", []sql.Value{sql.Text{S: actorID}})
+	let mut out = []OutboxRow{}
+	for row in rows {
+		out = out.Append(OutboxRow{
+			Seq:     extractInt64(row.Values[0]),
+			ActorID: extractText(row.Values[1]),
+			Epoch:   extractInt64(row.Values[2]),
+			Payload: extractBytes(row.Values[3]),
+		})
+	}
+	out
+}
+
+// AckOutbox marks outbox row seq as delivered inside a BEGIN IMMEDIATE transaction.
+func AckOutbox(db sqlite.DB, seq int64) fails sql.Unique | sql.Serialization | sql.Deadlock | sql.Timeout | sql.Closed | sql.Other needs go.Foreign {
+	let conn sqlite.DB = db
+	with context { sql.DB: conn } {
+		let _ = try sqlite.WriteTransaction(func() bool fails sql.Unique | sql.Serialization | sql.Deadlock | sql.Timeout | sql.Closed | sql.Other needs sql.Tx | sql.DB {
+			let _ = try sql.Tx.Exec("UPDATE actor_outbox SET acked = 1 WHERE seq = ?", []sql.Value{sql.Int{N: seq}})
+			true
+		})
+	}
+}
+
+type sqliteHooks[S, E, O, F, CF, R, W] {
+	live    actor.LiveMachine[S, E, O, F, R | go.Foreign | time.Clock, W],
+	recover func() option.Option[S] fails CF | actor.StaleLease | sql.Unique | sql.Serialization | sql.Deadlock | sql.Timeout | sql.Closed | sql.Other needs go.Foreign | time.Clock,
+	save    func(prev S, next S, sig E, outbox []O) fails CF | actor.StaleLease | sql.Unique | sql.Serialization | sql.Deadlock | sql.Timeout | sql.Closed | sql.Other needs go.Foreign | time.Clock,
+}
+
+func prepareSQLiteHooks[S, E, O, F, CF, R, W](db sqlite.DB, actorID string, m actor.LiveMachine[S, E, O, F, R, W], codec Codec[S, O, CF]) sqliteHooks[S, E, O, F, CF, R, W] {
+	let leaseRef = sync.NewRef[option.Option[Lease]](option.None)
+	let anchorRef = sync.NewRef(actor.NoAnchor())
+	let pendingDelayRef = sync.NewRef[option.Option[duration]](option.None)
+	let baseStep = m.Step
+	let baseAfter = m.After
+	let wrapped = actor.LiveMachine[S, E, O, F, R | go.Foreign | time.Clock, W]{
+		Initial: m.Initial,
+		Step:    func(s S, e E) machines.Decision[S, O] fails F needs R | go.Foreign | time.Clock defects {
+			try baseStep(s, e)
+		},
+		After: func(s S) option.Option[Timeout[E]] {
+			let raw = baseAfter(s)
+			match pendingDelayRef.Get() {
+			case option.None:
+				raw
+			case option.Some[duration] as rem:
+				match raw {
+				case option.Some[Timeout[E]] as to:
+					option.Some[Timeout[E]]{Value: Timeout[E]{In: rem.Value, Signal: to.Value.Signal}}
+				case option.None:
+					option.None
+				}
+			}
+		},
+		Work: m.Work,
+		Exit: m.Exit,
+	}
+	let recFn = func() option.Option[S] fails CF | actor.StaleLease | sql.Unique | sql.Serialization | sql.Deadlock | sql.Timeout | sql.Closed | sql.Other needs go.Foreign | time.Clock {
+		let lease = try AcquireLease(db, actorID)
+		leaseRef.Set(option.Some[Lease]{Value: lease})
+		match try RecoverState(db, actorID) {
+		case option.Some[StoredSnapshot] as snap:
+			let st = try codec.DecodeState(snap.Value.Data)
+			let curAnchor = anchorRef.Get()
+			if !curAnchor.Active && snap.Value.Anchor.Active {
+				anchorRef.Set(snap.Value.Anchor)
+			}
+			let activeAnchor = anchorRef.Get()
+			if activeAnchor.Active {
+				pendingDelayRef.Set(option.Some[duration]{Value: actor.RemainingDelay(activeAnchor)})
+			} else {
+				pendingDelayRef.Set(option.None)
+			}
+			option.Some[S]{Value: st}
+		case option.None:
+			pendingDelayRef.Set(option.None)
+			match baseAfter(m.Initial) {
+			case option.Some[Timeout[E]] as to:
+				anchorRef.Set(actor.AnchorTimer(to.Value.In))
+			case option.None:
+				anchorRef.Set(actor.NoAnchor())
+			}
+			option.None
+		}
+	}
+	let saveFn = func(prev S, next S, sig E, outbox []O) fails CF | actor.StaleLease | sql.Unique | sql.Serialization | sql.Deadlock | sql.Timeout | sql.Closed | sql.Other needs go.Foreign | time.Clock {
+		let _ = (prev, sig)
+		let lease = match leaseRef.Get() {
+		case option.Some[Lease] as l:
+			l.Value
+		case option.None:
+			return actor.StaleLease{Expected: 0, Observed: 0}
+		}
+		pendingDelayRef.Set(option.None)
+		let nextAnchor = match baseAfter(next) {
+		case option.Some[Timeout[E]] as to:
+			let existing = anchorRef.Get()
+			if existing.Active && time.Sub(existing.TargetMono, time.Clock.Now()) > 0s {
+				existing
+			} else {
+				actor.AnchorTimer(to.Value.In)
+			}
+		case option.None:
+			actor.NoAnchor()
+		}
+		anchorRef.Set(nextAnchor)
+		let mut wakes = [][]byte{}
+		let encodeOut = codec.EncodeOut
+		for o in outbox {
+			wakes = wakes.Append(encodeOut(o))
+		}
+		let encodeState = codec.EncodeState
+		try SaveTransition(db, lease, encodeState(next), nextAnchor, wakes)
+	}
+	sqliteHooks[S, E, O, F, CF, R, W]{live: wrapped, recover: recFn, save: saveFn}
+}
+
+// StartSQLiteActor starts a durable actor backed by SQLite atomic transactions, lease fencing, and persistent timer deadline preservation.
+func StartSQLiteActor[S, E, O, F, CF, R, W](db sqlite.DB, actorID string, m actor.LiveMachine[S, E, O, F, R, W], codec Codec[S, O, CF], capacity int, sink own func(o O) needs R | go.Foreign | time.Clock) actor.Actor[S, E, machines.Decision[S, O], F] fails CF | actor.StaleLease | sql.Unique | sql.Serialization | sql.Deadlock | sql.Timeout | sql.Closed | sql.Other needs R | W | time.Scheduler | time.Clock | go.Foreign {
+	try InitSchema(db)
+	let hooks = prepareSQLiteHooks(db, actorID, m, codec)
+	try actor.StartDurableOutboxLive[S, E, O, F, R | go.Foreign | time.Clock, W, CF | actor.StaleLease | sql.Unique | sql.Serialization | sql.Deadlock | sql.Timeout | sql.Closed | sql.Other, CF | actor.StaleLease | sql.Unique | sql.Serialization | sql.Deadlock | sql.Timeout | sql.Closed | sql.Other](
+		hooks.live,
+		capacity,
+		sink,
+		hooks.recover,
+		hooks.save,
+	)
+}
+
+// SuperviseSQLiteActorWith runs a supervised durable actor backed by SQLite atomic state-plus-outbox commits, lease fencing, and persistent deadline preservation across crashes and DB reopens.
+func SuperviseSQLiteActorWith[S, E, O, F, CF, R, W](db sqlite.DB, actorID string, m actor.LiveMachine[S, E, O, F, R, W], codec Codec[S, O, CF], capacity int, policy tasks.Supervision, sink own func(o O) needs R | go.Foreign | time.Clock) actor.Actor[S, E, machines.Decision[S, O], F] fails CF | actor.StaleLease | sql.Unique | sql.Serialization | sql.Deadlock | sql.Timeout | sql.Closed | sql.Other needs R | W | time.Scheduler | time.Clock | go.Foreign {
+	try InitSchema(db)
+	let hooks = prepareSQLiteHooks(db, actorID, m, codec)
+	try actor.SuperviseDurableOutboxLiveWith[S, E, O, F, R | go.Foreign | time.Clock, W, CF | actor.StaleLease | sql.Unique | sql.Serialization | sql.Deadlock | sql.Timeout | sql.Closed | sql.Other](
+		hooks.live,
+		capacity,
+		sink,
+		policy,
+		hooks.recover,
+		hooks.save,
+	)
+}
+
+func extractInt64(v sql.Value) int64 {
+	match v {
+	case sql.Int as n:
+		n.N
+	case _:
+		0
+	}
+}
+
+func extractText(v sql.Value) string {
+	match v {
+	case sql.Text as s:
+		s.S
+	case _:
+		""
+	}
+}
+
+func extractBytes(v sql.Value) []byte {
+	match v {
+	case sql.Bytes as b:
+		b.B
+	case _:
+		[]byte{}
+	}
+}
