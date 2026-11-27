@@ -1,0 +1,667 @@
+import filepath
+import fs
+import fstest
+import option
+import slices
+import strconv
+import strings
+
+// AdmitFolder reports whether a directory name should be traversed during package or workspace discovery.
+func AdmitFolder(name string) bool {
+	if name == "" {
+		return false
+	}
+	if strings.HasPrefix(name, ".") || strings.HasPrefix(name, "_") {
+		return false
+	}
+	name != "testdata" && name != "node_modules" && name != "vendor" && name != "ergo.bind"
+}
+
+// AdmitSourceFile reports whether a filename is an admitted Ergo source file.
+func AdmitSourceFile(name string) bool {
+	strings.HasSuffix(name, ".ergo") && !strings.HasPrefix(name, ".") && !strings.HasPrefix(name, "_")
+}
+
+// WorkTaskTable stores ergo.work task definitions in Structure-of-Arrays columns.
+type WorkTaskTable {
+	// Name holds task identifiers.
+	Name []string,
+	// Cmd holds task command lines or shell bodies.
+	Cmd []string,
+	// AfterStart gives the first slice index in AfterNames per task.
+	AfterStart []uint32,
+	// AfterCount gives the number of task dependencies in AfterNames per task.
+	AfterCount []uint32,
+	// AfterNames flattens task after-dependencies across all tasks.
+	AfterNames []string,
+	// EnvStart gives the first slice index in EnvNames per task.
+	EnvStart []uint32,
+	// EnvCount gives the number of declared environment keys per task.
+	EnvCount []uint32,
+	// EnvNames flattens declared env keys across all tasks.
+	EnvNames []string,
+	// ByName maps task name to dense task index.
+	ByName Map[string, uint32],
+}
+
+// NewWorkTaskTable returns an empty WorkTaskTable.
+func NewWorkTaskTable() WorkTaskTable {
+	WorkTaskTable{
+		Name:       []string{},
+		Cmd:        []string{},
+		AfterStart: []uint32{},
+		AfterCount: []uint32{},
+		AfterNames: []string{},
+		EnvStart:   []uint32{},
+		EnvCount:   []uint32{},
+		EnvNames:   []string{},
+		ByName:     Map[string, uint32]{},
+	}
+}
+
+// AddWorkTask appends a workspace task row and returns its dense index.
+func AddWorkTask(t mut WorkTaskTable, name string, cmd string, after []string, env []string) uint32 {
+	let id = uint32(t.Name.Len())
+	let afterStart = uint32(t.AfterNames.Len())
+	for a in after {
+		t.AfterNames = t.AfterNames.Append(a)
+	}
+	let envStart = uint32(t.EnvNames.Len())
+	for e in env {
+		t.EnvNames = t.EnvNames.Append(e)
+	}
+	t.Name = t.Name.Append(name)
+	t.Cmd = t.Cmd.Append(cmd)
+	t.AfterStart = t.AfterStart.Append(afterStart)
+	t.AfterCount = t.AfterCount.Append(uint32(after.Len()))
+	t.EnvStart = t.EnvStart.Append(envStart)
+	t.EnvCount = t.EnvCount.Append(uint32(env.Len()))
+	t.ByName[name] = id
+	id
+}
+
+// WorkTaskAfter returns the after-dependency names of taskID.
+func WorkTaskAfter(t WorkTaskTable, taskID uint32) []string {
+	if taskID == NoID || int(taskID) >= t.Name.Len() {
+		return []string{}
+	}
+	let start = int(t.AfterStart[int(taskID)])
+	let count = int(t.AfterCount[int(taskID)])
+	slices.Slice(t.AfterNames, start, start+count)
+}
+
+// WorkTaskEnv returns the declared env keys of taskID.
+func WorkTaskEnv(t WorkTaskTable, taskID uint32) []string {
+	if taskID == NoID || int(taskID) >= t.Name.Len() {
+		return []string{}
+	}
+	let start = int(t.EnvStart[int(taskID)])
+	let count = int(t.EnvCount[int(taskID)])
+	slices.Slice(t.EnvNames, start, start+count)
+}
+
+// WorkFile holds parsed ergo.work configuration and validation diagnostics.
+type WorkFile {
+	// Version holds the parsed format version (0 if unspecified, else 1..3).
+	Version uint32,
+	// Skip holds relative paths or prefixes skipped during workspace discovery.
+	Skip []string,
+	// Gen holds declared generated paths.
+	Gen []string,
+	// Reads holds declared generator input paths.
+	Reads []string,
+	// Tasks stores parsed workspace tasks in flat SoA columns.
+	Tasks WorkTaskTable,
+	// Diags holds parse and validation diagnostics.
+	Diags []FrontDiag,
+}
+
+func makeWorkDiag(file string, code string, msg string, off uint32, lineLen uint32, lineNum uint32) FrontDiag {
+	FrontDiag{
+		Code:    code,
+		Message: msg,
+		File:    file,
+		Offset:  off,
+		Length:  lineLen,
+		Line:    lineNum,
+		Column:  uint32(1),
+		Hint:    "",
+		HasSpan: true,
+	}
+}
+
+type taskCycleState {
+	marks []uint8,
+}
+
+func hasTaskCycleDFS(t WorkTaskTable, node int, st mut taskCycleState) bool {
+	st.marks[node] = VisitActive
+	let after = WorkTaskAfter(t, uint32(node))
+	for depName in after {
+		match t.ByName.Get(depName) {
+		case option.Some[uint32] as depID:
+			let d = int(depID.Value)
+			if st.marks[d] == VisitActive {
+				return true
+			}
+			if st.marks[d] == VisitUnseen {
+				if hasTaskCycleDFS(t, d, st) {
+					return true
+				}
+			}
+		case option.None:
+		}
+	}
+	st.marks[node] = VisitDone
+	false
+}
+
+func detectTaskCycle(t WorkTaskTable) bool {
+	let n = t.Name.Len()
+	if n == 0 {
+		return false
+	}
+	let mut st = taskCycleState{marks: []uint8{}}
+	for _ in 0..n {
+		st.marks = st.marks.Append(VisitUnseen)
+	}
+	for i in 0..n {
+		if st.marks[i] == VisitUnseen {
+			if hasTaskCycleDFS(t, i, &st) {
+				return true
+			}
+		}
+	}
+	false
+}
+
+// ParseWorkFile parses ergo.work directives (version, skip, gen, reads, task, after, env).
+func ParseWorkFile(src string, file string) WorkFile {
+	let mut out = WorkFile{
+		Version: uint32(0),
+		Skip:    []string{},
+		Gen:     []string{},
+		Reads:   []string{},
+		Tasks:   NewWorkTaskTable(),
+		Diags:   []FrontDiag{},
+	}
+	let mut sawVersion = false
+	let mut inTask = false
+	let mut curTaskName = ""
+	let mut curTaskCmd = ""
+	let mut curTaskAfter = []string{}
+	let mut curTaskEnv = []string{}
+	let mut pos = 0
+	let mut lineNum = uint32(1)
+	let rawLines = strings.Split(src, "\n")
+	for li, rawLine in rawLines {
+		let lineLen = uint32(rawLine.Len())
+		let lineOff = uint32(pos)
+		pos = pos + rawLine.Len()
+		if li+1 < rawLines.Len() {
+			pos = pos + 1
+		}
+		let cleanLine = strings.TrimSuffix(rawLine, "\r")
+		let trimmed = strings.TrimSpace(cleanLine)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") || strings.HasPrefix(trimmed, "//") {
+			lineNum = lineNum + uint32(1)
+			continue
+		}
+		let words = strings.Fields(trimmed)
+		if words.Len() == 0 {
+			lineNum = lineNum + uint32(1)
+			continue
+		}
+		let kw = words[0]
+		let indented = cleanLine.Len() > 0 && (cleanLine[0] == ' ' || cleanLine[0] == '\t')
+		if !indented && kw != "after" && kw != "env" && inTask {
+			let _ = AddWorkTask(&out.Tasks, curTaskName, curTaskCmd, curTaskAfter, curTaskEnv)
+			inTask = false
+			curTaskName = ""
+			curTaskCmd = ""
+			curTaskAfter = []string{}
+			curTaskEnv = []string{}
+		}
+		if kw == "version" {
+			if sawVersion {
+				out.Diags = out.Diags.Append(makeWorkDiag(file, "workfile-duplicate-version", "duplicate version directive", lineOff, lineLen, lineNum))
+			} else if words.Len() != 2 {
+				out.Diags = out.Diags.Append(makeWorkDiag(file, "workfile-syntax", "version expects one integer", lineOff, lineLen, lineNum))
+			} else {
+				let v = strconv.Atoi(words[1]) catch {
+				case strconv.Malformed, strconv.OutOfRange:
+					-1
+				}
+				if v < 1 || v > 3 {
+					out.Diags = out.Diags.Append(makeWorkDiag(file, "workfile-version", "unsupported ergo.work version '\(words[1])'", lineOff, lineLen, lineNum))
+				} else {
+					out.Version = uint32(v)
+					sawVersion = true
+				}
+			}
+		} else if kw == "skip" {
+			for p in words[1:] {
+				let clean = strings.TrimPrefix(filepath.Clean(p), "./")
+				if clean != "" {
+					out.Skip = out.Skip.Append(clean)
+				}
+			}
+		} else if kw == "gen" {
+			for p in words[1:] {
+				out.Gen = out.Gen.Append(filepath.Clean(p))
+			}
+		} else if kw == "reads" {
+			for p in words[1:] {
+				out.Reads = out.Reads.Append(filepath.Clean(p))
+			}
+		} else if kw == "task" {
+			if words.Len() < 2 {
+				out.Diags = out.Diags.Append(makeWorkDiag(file, "workfile-syntax", "task expects a name", lineOff, lineLen, lineNum))
+			} else {
+				let tName = strings.TrimSuffix(words[1], ":")
+				if out.Tasks.ByName.Get(tName) != option.None {
+					out.Diags = out.Diags.Append(makeWorkDiag(file, "workfile-duplicate-task", "duplicate task '\(tName)'", lineOff, lineLen, lineNum))
+				} else {
+					inTask = true
+					curTaskName = tName
+					curTaskCmd = strings.Join(words[2:], " ")
+					curTaskAfter = []string{}
+					curTaskEnv = []string{}
+				}
+			}
+		} else if kw == "after" {
+			if !inTask {
+				out.Diags = out.Diags.Append(makeWorkDiag(file, "workfile-syntax", "after must appear under a task", lineOff, lineLen, lineNum))
+			} else {
+				for dep in words[1:] {
+					curTaskAfter = curTaskAfter.Append(dep)
+				}
+			}
+		} else if kw == "env" {
+			if !inTask {
+				out.Diags = out.Diags.Append(makeWorkDiag(file, "workfile-syntax", "env must appear under a task", lineOff, lineLen, lineNum))
+			} else {
+				for key in words[1:] {
+					curTaskEnv = curTaskEnv.Append(key)
+				}
+			}
+		} else {
+			out.Diags = out.Diags.Append(makeWorkDiag(file, "workfile-unknown", "unknown ergo.work directive '\(kw)'", lineOff, lineLen, lineNum))
+		}
+		lineNum = lineNum + uint32(1)
+	}
+	if inTask {
+		let _ = AddWorkTask(&out.Tasks, curTaskName, curTaskCmd, curTaskAfter, curTaskEnv)
+	}
+	if detectTaskCycle(out.Tasks) {
+		out.Diags = out.Diags.Append(makeWorkDiag(file, "workfile-task-cycle", "task dependency cycle in ergo.work", uint32(0), uint32(0), uint32(1)))
+	}
+	out
+}
+
+// WorkspaceMemberTable stores discovered workspace modules in SoA columns sorted by Rel.
+type WorkspaceMemberTable {
+	// Rel stores workspace-relative slash paths ("." or subdir/rel).
+	Rel []string,
+	// Dir stores clean filesystem paths per member module root.
+	Dir []string,
+	// Name stores declared Ergo module names from ergo.mod.
+	Name []string,
+	// GoModPath stores go.mod module names when go.mod exists.
+	GoModPath []string,
+	// ErgoVersion stores ergo pin versions from ergo.mod.
+	ErgoVersion []string,
+	// ByRel maps relative member path to dense member index.
+	ByRel Map[string, uint32],
+	// ByDir maps clean directory path to dense member index.
+	ByDir Map[string, uint32],
+	// ByGoMod maps declared go.mod module path to dense member index.
+	ByGoMod Map[string, uint32],
+}
+
+// NewWorkspaceMemberTable returns an empty WorkspaceMemberTable.
+func NewWorkspaceMemberTable() WorkspaceMemberTable {
+	WorkspaceMemberTable{
+		Rel:         []string{},
+		Dir:         []string{},
+		Name:        []string{},
+		GoModPath:   []string{},
+		ErgoVersion: []string{},
+		ByRel:       Map[string, uint32]{},
+		ByDir:       Map[string, uint32]{},
+		ByGoMod:     Map[string, uint32]{},
+	}
+}
+
+// WorkspaceEdgeTable stores dependency edges between workspace members from local go.mod replaces.
+type WorkspaceEdgeTable {
+	// From holds the dependent member ID.
+	From []uint32,
+	// To holds the target replaced member ID.
+	To []uint32,
+	// GoModPath holds the replaced Go module path.
+	GoModPath []string,
+}
+
+// WorkspaceDivergenceTable records unreplaced cross-member go.mod requirements.
+type WorkspaceDivergenceTable {
+	// From holds the requiring workspace member ID.
+	From []uint32,
+	// Target holds the workspace member ID whose go.mod module matches the requirement.
+	Target []uint32,
+	// RequiredMod holds the required Go module path.
+	RequiredMod []string,
+	// RequiredVersion holds the required version string.
+	RequiredVersion []string,
+}
+
+// Workspace represents a discovered multi-module workspace root, members, edges, and configuration.
+type Workspace {
+	// Root holds the clean workspace root directory path.
+	Root string,
+	// Config holds parsed ergo.work settings.
+	Config WorkFile,
+	// Members stores discovered module members in flat SoA columns.
+	Members WorkspaceMemberTable,
+	// Edges stores local go.mod replace edges between workspace members.
+	Edges WorkspaceEdgeTable,
+	// Divergences records cross-member requirements lacking local replaces.
+	Divergences WorkspaceDivergenceTable,
+	// Diags collects parse and discovery diagnostics.
+	Diags []FrontDiag,
+}
+
+func fileExistsRegular(path string) bool needs fs.Files {
+	let info = fs.Files.Stat(path) catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		return false
+	}
+	!info.Dir
+}
+
+// IsWorkspaceRoot reports whether dir is a workspace root (has ergo.work or no enclosing ergo.mod).
+func IsWorkspaceRoot(dir string) bool needs fs.Files {
+	let cleanDir = if dir == "" { "." } else { filepath.Clean(dir) }
+	if fileExistsRegular(filepath.Join([]string{cleanDir, "ergo.work"})) {
+		return true
+	}
+	let mut cur = cleanDir
+	for {
+		if fileExistsRegular(filepath.Join([]string{cur, "ergo.mod"})) {
+			return false
+		}
+		let parent = filepath.Dir(cur)
+		if parent == cur {
+			break
+		}
+		cur = parent
+	}
+	true
+}
+
+func shouldSkipWorkspaceRel(skips []string, rel string) bool {
+	if rel == "" || rel == "." {
+		return false
+	}
+	for s in skips {
+		let pat = strings.TrimSuffix(s, "/")
+		if rel == pat || strings.HasPrefix(rel, pat+"/") {
+			return true
+		}
+	}
+	false
+}
+
+type wsCandidate {
+	rel     string,
+	dir     string,
+	ergoMod ErgoMod,
+	goMod   GoMod,
+}
+
+type wsPending {
+	dir string,
+	rel string,
+}
+
+// DiscoverWorkspace discovers all modules under root according to ergo.work and folder admission rules.
+func DiscoverWorkspace(root string) Workspace fails fs.NotFound | fs.Denied | fs.Failed needs fs.Files {
+	let cleanRoot = if root == "" { "." } else { filepath.Clean(root) }
+	let workPath = filepath.Join([]string{cleanRoot, "ergo.work"})
+	let workText = fs.Files.ReadFile(workPath) catch {
+	case fs.NotFound:
+		""
+	case fs.Denied as e:
+		return e
+	case fs.Failed as e:
+		return e
+	}
+	let cfg = if workText != "" { ParseWorkFile(workText, workPath) } else { ParseWorkFile("", workPath) }
+	let mut diags = slices.Clone(cfg.Diags)
+	let mut pending = []wsPending{wsPending{dir: cleanRoot, rel: "."}}
+	let mut found = []wsCandidate{}
+	for pending.Len() > 0 {
+		let last = pending.Len() - 1
+		let cur = pending[last]
+		pending = slices.Slice(pending, 0, last)
+		let ergoPath = filepath.Join([]string{cur.dir, "ergo.mod"})
+		if fileExistsRegular(ergoPath) {
+			let emText = try fs.Files.ReadFile(ergoPath)
+			let em = ParseErgoMod(emText, ergoPath)
+			for d in em.Diags {
+				diags = diags.Append(d)
+			}
+			let gmPath = filepath.Join([]string{cur.dir, "go.mod"})
+			let gmText = fs.Files.ReadFile(gmPath) catch {
+			case fs.NotFound, fs.Denied, fs.Failed:
+				""
+			}
+			let gm = if gmText != "" { ParseGoMod(gmText, gmPath) } else { ParseGoMod("", gmPath) }
+			found = found.Append(wsCandidate{rel: cur.rel, dir: cur.dir, ergoMod: em, goMod: gm})
+		}
+		let names = slices.Sort(try fs.Files.ReadDir(cur.dir))
+		let mut subDirs = []wsPending{}
+		for name in names {
+			if !AdmitFolder(name) {
+				continue
+			}
+			let subRel = if cur.rel == "." { name } else { cur.rel + "/" + name }
+			if shouldSkipWorkspaceRel(cfg.Skip, subRel) {
+				continue
+			}
+			let subDir = filepath.Join([]string{cur.dir, name})
+			let info = fs.Files.Stat(subDir) catch {
+			case fs.NotFound:
+				continue
+			case fs.Denied as e:
+				return e
+			case fs.Failed as e:
+				return e
+			}
+			if info.Dir {
+				subDirs = subDirs.Append(wsPending{dir: subDir, rel: subRel})
+			}
+		}
+		let mut i = subDirs.Len() - 1
+		for i >= 0 {
+			pending = pending.Append(subDirs[i])
+			i = i - 1
+		}
+	}
+	let sorted = slices.SortFunc(found, func(a wsCandidate, b wsCandidate) int {
+		if a.rel < b.rel {
+			-1
+		} else if a.rel > b.rel {
+			1
+		} else {
+			0
+		}
+	})
+	let mut members = NewWorkspaceMemberTable()
+	for c in sorted {
+		let id = uint32(members.Rel.Len())
+		members.Rel = members.Rel.Append(c.rel)
+		members.Dir = members.Dir.Append(c.dir)
+		members.Name = members.Name.Append(c.ergoMod.Name)
+		members.GoModPath = members.GoModPath.Append(c.goMod.Module)
+		members.ErgoVersion = members.ErgoVersion.Append(c.ergoMod.ErgoVersion)
+		members.ByRel[c.rel] = id
+		members.ByDir[c.dir] = id
+		if c.goMod.Module != "" {
+			members.ByGoMod[c.goMod.Module] = id
+		}
+	}
+	let mut edges = WorkspaceEdgeTable{From: []uint32{}, To: []uint32{}, GoModPath: []string{}}
+	let mut divs = WorkspaceDivergenceTable{From: []uint32{}, Target: []uint32{}, RequiredMod: []string{}, RequiredVersion: []string{}}
+	for mi, c in sorted {
+		let fromID = uint32(mi)
+		let mut replacedOld = Map[string, bool]{}
+		for rep in LocalReplaces(c.goMod, c.dir) {
+			replacedOld[rep.OldPath] = true
+			match members.ByDir.Get(rep.Dir) {
+			case option.Some[uint32] as toID:
+				if toID.Value != fromID {
+					edges.From = edges.From.Append(fromID)
+					edges.To = edges.To.Append(toID.Value)
+					edges.GoModPath = edges.GoModPath.Append(rep.OldPath)
+				}
+			case option.None:
+			}
+		}
+		for ri in 0..c.goMod.Requires.Path.Len() {
+			let reqPath = c.goMod.Requires.Path[ri]
+			if replacedOld.Get(reqPath) != option.None {
+				continue
+			}
+			match members.ByGoMod.Get(reqPath) {
+			case option.Some[uint32] as targetID:
+				if targetID.Value != fromID {
+					divs.From = divs.From.Append(fromID)
+					divs.Target = divs.Target.Append(targetID.Value)
+					divs.RequiredMod = divs.RequiredMod.Append(reqPath)
+					divs.RequiredVersion = divs.RequiredVersion.Append(c.goMod.Requires.Version[ri])
+				}
+			case option.None:
+			}
+		}
+	}
+	Workspace{
+		Root:        cleanRoot,
+		Config:      cfg,
+		Members:     members,
+		Edges:       edges,
+		Divergences: divs,
+		Diags:       diags,
+	}
+}
+
+type wsOrderState {
+	marks []uint8,
+	order []uint32,
+}
+
+func visitWorkspaceDFS(ws Workspace, id uint32, st mut wsOrderState) {
+	st.marks[int(id)] = VisitActive
+	for i in 0..ws.Edges.From.Len() {
+		if ws.Edges.From[i] == id {
+			let to = ws.Edges.To[i]
+			if st.marks[int(to)] == VisitUnseen {
+				visitWorkspaceDFS(ws, to, st)
+			}
+		}
+	}
+	st.marks[int(id)] = VisitDone
+	st.order = st.order.Append(id)
+}
+
+// WorkspaceOrder returns workspace member IDs in dependency-first DFS post-order.
+func WorkspaceOrder(ws Workspace) []uint32 {
+	let n = ws.Members.Rel.Len()
+	let mut st = wsOrderState{marks: []uint8{}, order: []uint32{}}
+	for _ in 0..n {
+		st.marks = st.marks.Append(VisitUnseen)
+	}
+	for i in 0..n {
+		if st.marks[i] == VisitUnseen {
+			visitWorkspaceDFS(ws, uint32(i), &st)
+		}
+	}
+	st.order
+}
+
+law WorkspaceOrderCoversAllMembers(hasCycle bool) {
+	let mut members = NewWorkspaceMemberTable()
+	for i, r in []string{"a", "b", "c"} {
+		let uid = uint32(i)
+		members.Rel = members.Rel.Append(r)
+		members.Dir = members.Dir.Append("/ws/" + r)
+		members.Name = members.Name.Append(r)
+		members.GoModPath = members.GoModPath.Append(r)
+		members.ErgoVersion = members.ErgoVersion.Append("")
+		members.ByRel[r] = uid
+		members.ByDir["/ws/"+r] = uid
+		members.ByGoMod[r] = uid
+	}
+	let mut edges = WorkspaceEdgeTable{From: []uint32{uint32(0)}, To: []uint32{uint32(1)}, GoModPath: []string{"b"}}
+	if hasCycle {
+		edges.From = edges.From.Append(uint32(1))
+		edges.To = edges.To.Append(uint32(0))
+		edges.GoModPath = edges.GoModPath.Append("a")
+	} else {
+		edges.From = edges.From.Append(uint32(1))
+		edges.To = edges.To.Append(uint32(2))
+		edges.GoModPath = edges.GoModPath.Append("c")
+	}
+	let ws = Workspace{
+		Root:        "/ws",
+		Config:      ParseWorkFile("", "ergo.work"),
+		Members:     members,
+		Edges:       edges,
+		Divergences: WorkspaceDivergenceTable{From: []uint32{}, Target: []uint32{}, RequiredMod: []string{}, RequiredVersion: []string{}},
+		Diags:       []FrontDiag{},
+	}
+	let ord = WorkspaceOrder(ws)
+	if hasCycle {
+		ord.Len() == 3
+	} else {
+		ord == []uint32{uint32(2), uint32(1), uint32(0)}
+	}
+}
+
+test WorkspaceDiscoveryEdgesSkipAndTasks {
+	let wf = ParseWorkFile("version 2\nskip archived _ignored\ntask gen make\n\tafter boot\n\tenv FOO\ntask boot echo ok\n", "ergo.work")
+	assert wf.Diags.Len() == 0 && wf.Version == uint32(2)
+	assert wf.Skip == []string{"archived", "_ignored"}
+	assert WorkTaskAfter(wf.Tasks, uint32(0)) == []string{"boot"}
+
+	let cyc = ParseWorkFile("task a echo a\n\tafter b\ntask b echo b\n\tafter a\n", "ergo.work")
+	assert cyc.Diags.Len() == 1
+
+	let m = fstest.NewMemory()
+	with context { fs.Writes: m, fs.Files: m } {
+		try fs.Writes.MkdirAll("/ws/app")
+		try fs.Writes.MkdirAll("/ws/lib")
+		try fs.Writes.MkdirAll("/ws/archived/old")
+		try fs.Writes.MkdirAll("/ws/archived-extra")
+		try fs.Writes.MkdirAll("/ws/.hidden")
+		try fs.Writes.MkdirAll("/ws/testdata")
+		try fs.Writes.WriteFile("/ws/ergo.work", "version 2\nskip archived\n")
+		try fs.Writes.WriteFile("/ws/lib/ergo.mod", "module lib\n")
+		try fs.Writes.WriteFile("/ws/lib/go.mod", "module example.com/lib\n")
+		try fs.Writes.WriteFile("/ws/app/ergo.mod", "module app\n")
+		try fs.Writes.WriteFile("/ws/app/go.mod", "module example.com/app\nrequire example.com/lib v0.1.0\nreplace example.com/lib => ../lib\n")
+		try fs.Writes.WriteFile("/ws/archived/old/ergo.mod", "module old\n")
+		try fs.Writes.WriteFile("/ws/archived-extra/ergo.mod", "module extra\n")
+		try fs.Writes.WriteFile("/ws/.hidden/ergo.mod", "module hidden\n")
+		try fs.Writes.WriteFile("/ws/testdata/ergo.mod", "module td\n")
+
+		assert IsWorkspaceRoot("/ws")
+		assert !IsWorkspaceRoot("/ws/app")
+
+		let ws = try DiscoverWorkspace("/ws")
+		assert ws.Members.Rel == []string{"app", "archived-extra", "lib"}
+		let order = WorkspaceOrder(ws)
+		assert order == []uint32{uint32(2), uint32(0), uint32(1)}
+		assert ws.Divergences.From.Len() == 0
+	}
+}

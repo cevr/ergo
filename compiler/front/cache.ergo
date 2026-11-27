@@ -1,0 +1,603 @@
+import compiler/cachekey
+import filepath
+import fs
+import fstest
+import hex
+import option
+import sha256
+import slices
+import strconv
+import strings
+
+// StatKindFile marks a regular file recorded in WarmInputs.
+let StatKindFile = uint8(0)
+
+// StatKindDir marks a directory recorded in WarmInputs.
+let StatKindDir = uint8(1)
+
+// StatKindMissing marks a missing path recorded in WarmInputs.
+let StatKindMissing = uint8(2)
+
+// StatSettleNs is the 1-second nanosecond settle window before size+mtime hits bypass content hashing.
+let StatSettleNs = uint64(1000000000)
+
+// WarmInputs records filesystem, listing, and environment observations in flat SoA columns.
+type WarmInputs {
+	// StatKind holds StatKindFile, StatKindDir, or StatKindMissing per observed path.
+	StatKind []uint8,
+	// StatPath holds observed file or directory paths.
+	StatPath []string,
+	// StatSize holds recorded byte sizes for regular files.
+	StatSize []uint64,
+	// ListingDir holds observed directory paths for directory listing checks.
+	ListingDir []string,
+	// ListingDigest holds canonical cachekey.ListingDigest outputs parallel to ListingDir.
+	ListingDigest []string,
+	// EnvName holds observed environment variable names.
+	EnvName []string,
+	// EnvValue holds observed environment variable values parallel to EnvName.
+	EnvValue []string,
+	// Unclassified holds opaque dependency reasons that inhibit warm cache hits.
+	Unclassified []string,
+}
+
+// NewWarmInputs returns an empty WarmInputs table.
+func NewWarmInputs() WarmInputs {
+	WarmInputs{
+		StatKind:      []uint8{},
+		StatPath:      []string{},
+		StatSize:      []uint64{},
+		ListingDir:    []string{},
+		ListingDigest: []string{},
+		EnvName:       []string{},
+		EnvValue:      []string{},
+		Unclassified:  []string{},
+	}
+}
+
+// RecordStat observes path via fs.Files.Stat and records its kind and size into w.
+func RecordStat(w mut WarmInputs, path string) fails fs.Denied | fs.Failed needs fs.Files {
+	let clean = filepath.Clean(path)
+	let info = fs.Files.Stat(clean) catch {
+	case fs.NotFound:
+		w.StatKind = w.StatKind.Append(StatKindMissing)
+		w.StatPath = w.StatPath.Append(clean)
+		w.StatSize = w.StatSize.Append(uint64(0))
+		return
+	case fs.Denied as e:
+		return e
+	case fs.Failed as e:
+		return e
+	}
+	if info.Dir {
+		w.StatKind = w.StatKind.Append(StatKindDir)
+		w.StatPath = w.StatPath.Append(clean)
+		w.StatSize = w.StatSize.Append(uint64(0))
+		return
+	}
+	w.StatKind = w.StatKind.Append(StatKindFile)
+	w.StatPath = w.StatPath.Append(clean)
+	w.StatSize = w.StatSize.Append(uint64(info.Size))
+}
+
+// ComputeDirListingDigest computes cachekey.ListingDigest for dir using fs.Files.
+func ComputeDirListingDigest(dir string) string fails fs.NotFound | fs.Denied | fs.Failed needs fs.Files {
+	let clean = filepath.Clean(dir)
+	let names = slices.Sort(try fs.Files.ReadDir(clean))
+	let mut entries = []cachekey.Entry{}
+	for name in names {
+		let info = fs.Files.Stat(filepath.Join([]string{clean, name})) catch {
+		case fs.NotFound:
+			continue
+		case fs.Denied as e:
+			return e
+		case fs.Failed as e:
+			return e
+		}
+		let kind = if info.Dir { 1 } else { 0 }
+		entries = entries.Append(cachekey.Entry{Name: name, Type: kind})
+	}
+	cachekey.ListingDigest(entries)
+}
+
+// RecordListing observes dir's sorted entry digest into w.
+func RecordListing(w mut WarmInputs, dir string) fails fs.NotFound | fs.Denied | fs.Failed needs fs.Files {
+	let clean = filepath.Clean(dir)
+	let dig = try ComputeDirListingDigest(clean)
+	w.ListingDir = w.ListingDir.Append(clean)
+	w.ListingDigest = w.ListingDigest.Append(dig)
+}
+
+// RecordEnv records an environment key/value observation into w.
+func RecordEnv(w mut WarmInputs, name string, value string) {
+	w.EnvName = w.EnvName.Append(name)
+	w.EnvValue = w.EnvValue.Append(value)
+}
+
+// MarkUnclassified marks w as containing an uncacheable input reason.
+func MarkUnclassified(w mut WarmInputs, reason string) {
+	w.Unclassified = w.Unclassified.Append(reason)
+}
+
+func unrootPath(root string, path string) string {
+	if root == "" {
+		return path
+	}
+	let cleanRoot = filepath.Clean(root)
+	let cleanPath = filepath.Clean(path)
+	if cleanPath == cleanRoot {
+		return "@"
+	}
+	let rel = filepath.Rel(cleanRoot, cleanPath) catch {
+	case filepath.NotRelative:
+		return path
+	}
+	if rel == "." {
+		return "@"
+	}
+	if rel == ".." || strings.HasPrefix(rel, "../") {
+		return path
+	}
+	"@/" + rel
+}
+
+func rerootPath(root string, path string) string {
+	if root == "" {
+		return path
+	}
+	if path == "@" {
+		return filepath.Clean(root)
+	}
+	if strings.HasPrefix(path, "@/") {
+		return filepath.Join([]string{filepath.Clean(root), strings.TrimPrefix(path, "@/")})
+	}
+	path
+}
+
+// UnrootInputs converts paths within root to canonical "@..." form for relocatable cache manifests.
+func UnrootInputs(w WarmInputs, root string) WarmInputs {
+	let mut statPaths = []string{}
+	for p in w.StatPath {
+		statPaths = statPaths.Append(unrootPath(root, p))
+	}
+	let mut listDirs = []string{}
+	for d in w.ListingDir {
+		listDirs = listDirs.Append(unrootPath(root, d))
+	}
+	WarmInputs{
+		StatKind:      slices.Clone(w.StatKind),
+		StatPath:      statPaths,
+		StatSize:      slices.Clone(w.StatSize),
+		ListingDir:    listDirs,
+		ListingDigest: slices.Clone(w.ListingDigest),
+		EnvName:       slices.Clone(w.EnvName),
+		EnvValue:      slices.Clone(w.EnvValue),
+		Unclassified:  slices.Clone(w.Unclassified),
+	}
+}
+
+// RerootInputs restores "@..." paths in w back to filesystem paths anchored at root.
+func RerootInputs(w WarmInputs, root string) WarmInputs {
+	let mut statPaths = []string{}
+	for p in w.StatPath {
+		statPaths = statPaths.Append(rerootPath(root, p))
+	}
+	let mut listDirs = []string{}
+	for d in w.ListingDir {
+		listDirs = listDirs.Append(rerootPath(root, d))
+	}
+	WarmInputs{
+		StatKind:      slices.Clone(w.StatKind),
+		StatPath:      statPaths,
+		StatSize:      slices.Clone(w.StatSize),
+		ListingDir:    listDirs,
+		ListingDigest: slices.Clone(w.ListingDigest),
+		EnvName:       slices.Clone(w.EnvName),
+		EnvValue:      slices.Clone(w.EnvValue),
+		Unclassified:  slices.Clone(w.Unclassified),
+	}
+}
+
+func pathWithinRoot(root string, path string) bool {
+	if path == "@" || strings.HasPrefix(path, "@/") {
+		return true
+	}
+	if root == "" {
+		return false
+	}
+	let cleanRoot = filepath.Clean(root)
+	let cleanPath = filepath.Clean(path)
+	if cleanPath == cleanRoot {
+		return true
+	}
+	let rel = filepath.Rel(cleanRoot, cleanPath) catch {
+	case filepath.NotRelative:
+		return false
+	}
+	rel != ".." && !strings.HasPrefix(rel, "../")
+}
+
+// InputsWithin reports whether every stat and listing path recorded in w falls within root (or is unrooted "@...").
+func InputsWithin(w WarmInputs, root string) bool {
+	if w.Unclassified.Len() > 0 {
+		return false
+	}
+	for p in w.StatPath {
+		if !pathWithinRoot(root, p) {
+			return false
+		}
+	}
+	for d in w.ListingDir {
+		if !pathWithinRoot(root, d) {
+			return false
+		}
+	}
+	true
+}
+
+// InputsFresh reports whether all recorded filesystem stats, directory digests, and env bindings still match.
+func InputsFresh(w WarmInputs, env Map[string, string]) bool needs fs.Files {
+	if w.Unclassified.Len() > 0 {
+		return false
+	}
+	for i in 0..w.EnvName.Len() {
+		let curVal = match env.Get(w.EnvName[i]) {
+		case option.Some[string] as v:
+			v.Value
+		case option.None:
+			""
+		}
+		if curVal != w.EnvValue[i] {
+			return false
+		}
+	}
+	for i in 0..w.StatPath.Len() {
+		let kind = w.StatKind[i]
+		let p = w.StatPath[i]
+		let info = fs.Files.Stat(p) catch {
+		case fs.NotFound:
+			if kind != StatKindMissing {
+				return false
+			}
+			continue
+		case fs.Denied, fs.Failed:
+			return false
+		}
+		if kind == StatKindMissing {
+			return false
+		}
+		if kind == StatKindDir && !info.Dir {
+			return false
+		}
+		if kind == StatKindFile && (info.Dir || uint64(info.Size) != w.StatSize[i]) {
+			return false
+		}
+	}
+	for i in 0..w.ListingDir.Len() {
+		let dig = ComputeDirListingDigest(w.ListingDir[i]) catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+			return false
+		}
+		if dig != w.ListingDigest[i] {
+			return false
+		}
+	}
+	true
+}
+
+// EncodeWarmManifest serializes w into a canonical, unambiguous line-delimited manifest.
+func EncodeWarmManifest(w WarmInputs) string {
+	let mut b = strings.NewBuilder()
+	b.WriteString(cachekey.WarmSchema)
+	b.WriteByte('\n')
+	for i in 0..w.StatPath.Len() {
+		b.WriteString("S\t")
+		b.WriteString(strconv.Itoa(int(w.StatKind[i])))
+		b.WriteByte('\t')
+		b.WriteString(strconv.FormatInt(int64(w.StatSize[i]), 10))
+		b.WriteByte('\t')
+		b.WriteString(strconv.Quote(w.StatPath[i]))
+		b.WriteByte('\n')
+	}
+	for i in 0..w.ListingDir.Len() {
+		b.WriteString("L\t")
+		b.WriteString(strconv.Quote(w.ListingDir[i]))
+		b.WriteByte('\t')
+		b.WriteString(strconv.Quote(w.ListingDigest[i]))
+		b.WriteByte('\n')
+	}
+	for i in 0..w.EnvName.Len() {
+		b.WriteString("E\t")
+		b.WriteString(strconv.Quote(w.EnvName[i]))
+		b.WriteByte('\t')
+		b.WriteString(strconv.Quote(w.EnvValue[i]))
+		b.WriteByte('\n')
+	}
+	for u in w.Unclassified {
+		b.WriteString("U\t")
+		b.WriteString(strconv.Quote(u))
+		b.WriteByte('\n')
+	}
+	b.String()
+}
+
+// DecodeWarmManifest parses a manifest emitted by EncodeWarmManifest, returning (inputs, true) on success.
+func DecodeWarmManifest(text string) (WarmInputs, bool) {
+	let mut out = NewWarmInputs()
+	let lines = strings.Split(text, "\n")
+	if lines.Len() == 0 || lines[0] != cachekey.WarmSchema {
+		return (out, false)
+	}
+	for line in lines[1:] {
+		if line == "" {
+			continue
+		}
+		let fields = strings.Split(line, "\t")
+		if fields.Len() < 2 {
+			return (out, false)
+		}
+		let tag = fields[0]
+		if tag == "S" && fields.Len() == 4 {
+			let k = strconv.Atoi(fields[1]) catch {
+			case strconv.Malformed, strconv.OutOfRange:
+				return (out, false)
+			}
+			let sz = strconv.ParseInt(fields[2], 10, 64) catch {
+			case strconv.Malformed, strconv.OutOfRange:
+				return (out, false)
+			}
+			let p = strconv.Unquote(fields[3]) catch {
+			case strconv.Malformed:
+				return (out, false)
+			}
+			out.StatKind = out.StatKind.Append(uint8(k))
+			out.StatPath = out.StatPath.Append(p)
+			out.StatSize = out.StatSize.Append(uint64(sz))
+		} else if tag == "L" && fields.Len() == 3 {
+			let d = strconv.Unquote(fields[1]) catch {
+			case strconv.Malformed:
+				return (out, false)
+			}
+			let dig = strconv.Unquote(fields[2]) catch {
+			case strconv.Malformed:
+				return (out, false)
+			}
+			out.ListingDir = out.ListingDir.Append(d)
+			out.ListingDigest = out.ListingDigest.Append(dig)
+		} else if tag == "E" && fields.Len() == 3 {
+			let nm = strconv.Unquote(fields[1]) catch {
+			case strconv.Malformed:
+				return (out, false)
+			}
+			let val = strconv.Unquote(fields[2]) catch {
+			case strconv.Malformed:
+				return (out, false)
+			}
+			out.EnvName = out.EnvName.Append(nm)
+			out.EnvValue = out.EnvValue.Append(val)
+		} else if tag == "U" && fields.Len() == 2 {
+			let u = strconv.Unquote(fields[1]) catch {
+			case strconv.Malformed:
+				return (out, false)
+			}
+			out.Unclassified = out.Unclassified.Append(u)
+		} else {
+			return (out, false)
+		}
+	}
+	(out, true)
+}
+
+// ComputeWarmKey delegates to compiler/cachekey.WarmKey with canonical length-framed parts and filtered environ.
+func ComputeWarmKey(compiler string, parts []string, environ []string, experiments []string) string {
+	cachekey.WarmKey(compiler, parts, environ, experiments)
+}
+
+// BuildGraphWarmKey computes a deterministic WarmKey over loaded ProgramGraph files, edges, and targets.
+func BuildGraphWarmKey(compiler string, g ProgramGraph, targets []string, environ []string, experiments []string) string {
+	let mut entries = []ProgramTextEntry{}
+	for i in 0..g.Files.Path.Len() {
+		entries = entries.Append(ProgramTextEntry{Rel: g.Files.Rel[i], Source: g.Files.Content[i]})
+	}
+	let mut parts = []string{
+		cachekey.Framed(targets),
+		cachekey.Framed(g.ModuleSegs),
+		ProgramFingerprint(entries),
+	}
+	for mid in 0..g.Modules.Dir.Len() {
+		parts = parts.Append(g.Modules.Name[mid] + "@" + g.Modules.ErgoVersion[mid])
+	}
+	cachekey.WarmKey(compiler, parts, environ, experiments)
+}
+
+// StdSnapshotKey builds the versioned snapshot cache key for the standard library.
+func StdSnapshotKey(compilerVersion string) string {
+	let mut b = strings.NewBuilder()
+	b.WriteString("ergo-std-snapshot-2\x00")
+	b.WriteString(strconv.Itoa(compilerVersion.Len()))
+	b.WriteByte(':')
+	b.WriteString(compilerVersion)
+	b.String()
+}
+
+// ModuleSegmentKey returns the canonical cache segment key "pkgPath\x00modKey".
+func ModuleSegmentKey(pkgPath string, modKey string) string {
+	pkgPath + "\x00" + modKey
+}
+
+// ModuleSnapshotKey builds the versioned snapshot cache key over compilerVersion and sorted module segments.
+func ModuleSnapshotKey(compilerVersion string, segments []string) string {
+	let mut b = strings.NewBuilder()
+	b.WriteString("ergo-module-snapshot-1\x00")
+	b.WriteString(strconv.Itoa(compilerVersion.Len()))
+	b.WriteByte(':')
+	b.WriteString(compilerVersion)
+	for seg in slices.Sort(segments) {
+		b.WriteByte('\x00')
+		b.WriteString(strconv.Itoa(seg.Len()))
+		b.WriteByte(':')
+		b.WriteString(seg)
+	}
+	b.String()
+}
+
+// ImportIfaceEntry pairs a dependency package import path with its frozen interface fingerprint.
+type ImportIfaceEntry {
+	// ImportPath is the dependency package's canonical import path.
+	ImportPath string,
+	// IfaceFingerprint is the dependency's checked interface fingerprint.
+	IfaceFingerprint string,
+}
+
+// CheckCacheKey computes the SHA-256 check cache key from package identity, env, files, and sorted imports.
+func CheckCacheKey(pkgPath string, checkVersion string, env []string, files []ProgramTextEntry, imports []ImportIfaceEntry) string {
+	let sortedEnv = slices.Sort(env)
+	let sortedFiles = slices.SortFunc(files, func(a ProgramTextEntry, b ProgramTextEntry) int {
+		if a.Rel < b.Rel {
+			-1
+		} else if a.Rel > b.Rel {
+			1
+		} else {
+			0
+		}
+	})
+	let sortedImps = slices.SortFunc(imports, func(a ImportIfaceEntry, b ImportIfaceEntry) int {
+		if a.ImportPath < b.ImportPath {
+			-1
+		} else if a.ImportPath > b.ImportPath {
+			1
+		} else {
+			0
+		}
+	})
+	let mut parts = []string{
+		"ergo-checkcache-1",
+		pkgPath,
+		checkVersion,
+		strconv.Itoa(sortedEnv.Len()),
+	}
+	for e in sortedEnv {
+		parts = parts.Append(e)
+	}
+	parts = parts.Append(strconv.Itoa(sortedFiles.Len()))
+	for f in sortedFiles {
+		parts = parts.Append(f.Rel)
+		parts = parts.Append(hex.Encode(sha256.Sum(f.Source)))
+	}
+	parts = parts.Append(strconv.Itoa(sortedImps.Len()))
+	for imp in sortedImps {
+		parts = parts.Append(imp.ImportPath)
+		parts = parts.Append(imp.IfaceFingerprint)
+	}
+	hex.Encode(sha256.Sum(cachekey.Framed(parts)))
+}
+
+// StatSumsTable stores uint64 file stat metadata and content digests for incremental settle-window caching.
+type StatSumsTable {
+	// Path stores file paths.
+	Path []string,
+	// Size stores unsigned byte sizes.
+	Size []uint64,
+	// MtimeNs stores unsigned nanosecond modification timestamps.
+	MtimeNs []uint64,
+	// Digest stores lowercase SHA-256 content hashes.
+	Digest []string,
+	// ByPath maps clean file path to dense index.
+	ByPath Map[string, uint32],
+}
+
+// NewStatSumsTable returns an empty StatSumsTable.
+func NewStatSumsTable() StatSumsTable {
+	StatSumsTable{
+		Path:    []string{},
+		Size:    []uint64{},
+		MtimeNs: []uint64{},
+		Digest:  []string{},
+		ByPath:  Map[string, uint32]{},
+	}
+}
+
+// StatNeedsContentHash reports whether a file modified at mtimeNs falls inside the settle window at nowNs.
+func StatNeedsContentHash(nowNs uint64, mtimeNs uint64) bool {
+	if mtimeNs == uint64(0) || nowNs < mtimeNs {
+		return true
+	}
+	(nowNs - mtimeNs) < StatSettleNs
+}
+
+// RecordStatSum upserts file stat metadata and SHA-256 digest in tbl and returns its row index.
+func RecordStatSum(tbl mut StatSumsTable, path string, size uint64, mtimeNs uint64, digest string) uint32 {
+	let clean = filepath.Clean(path)
+	match tbl.ByPath.Get(clean) {
+	case option.Some[uint32] as id:
+		let k = int(id.Value)
+		tbl.Size[k] = size
+		tbl.MtimeNs[k] = mtimeNs
+		tbl.Digest[k] = digest
+		id.Value
+	case option.None:
+		let id = uint32(tbl.Path.Len())
+		tbl.Path = tbl.Path.Append(clean)
+		tbl.Size = tbl.Size.Append(size)
+		tbl.MtimeNs = tbl.MtimeNs.Append(mtimeNs)
+		tbl.Digest = tbl.Digest.Append(digest)
+		tbl.ByPath[clean] = id
+		id
+	}
+}
+
+law WarmManifestRoundTrips(statPath string, envKey string, envVal string) {
+	let mut w = NewWarmInputs()
+	w.StatKind = w.StatKind.Append(StatKindFile)
+	w.StatPath = w.StatPath.Append("@/" + strings.TrimPrefix(statPath, "/"))
+	w.StatSize = w.StatSize.Append(uint64(42))
+	RecordEnv(&w, envKey, envVal)
+	let enc = EncodeWarmManifest(w)
+	let (dec, ok) = DecodeWarmManifest(enc)
+	ok && dec.StatKind == w.StatKind && dec.StatPath == w.StatPath && dec.StatSize == w.StatSize && dec.EnvName == w.EnvName && dec.EnvValue == w.EnvValue
+}
+
+law CheckCacheKeyIsOrderInvariant(aRel string, aSrc string, bRel string, bSrc string) {
+	let f1 = ProgramTextEntry{Rel: "a/" + aRel, Source: aSrc}
+	let f2 = ProgramTextEntry{Rel: "b/" + bRel, Source: bSrc}
+	let i1 = ImportIfaceEntry{ImportPath: "pkg/a", IfaceFingerprint: "fp1"}
+	let i2 = ImportIfaceEntry{ImportPath: "pkg/b", IfaceFingerprint: "fp2"}
+	let k1 = CheckCacheKey("app", "chk1", []string{"A=1", "B=2"}, []ProgramTextEntry{f1, f2}, []ImportIfaceEntry{i1, i2})
+	let k2 = CheckCacheKey("app", "chk1", []string{"B=2", "A=1"}, []ProgramTextEntry{f2, f1}, []ImportIfaceEntry{i2, i1})
+	k1 == k2
+}
+
+test WarmInputsCheckCacheAndSnapshotKeys {
+	let m = fstest.NewMemory()
+	with context { fs.Writes: m, fs.Files: m } {
+		try fs.Writes.MkdirAll("/ws/app")
+		try fs.Writes.WriteFile("/ws/app/a.ergo", "func F() {}\n")
+
+		let mut w = NewWarmInputs()
+		try RecordStat(&w, "/ws/app/a.ergo")
+		try RecordStat(&w, "/ws/app/missing.ergo")
+		try RecordListing(&w, "/ws/app")
+		RecordEnv(&w, "ERGO_EXP", "on")
+
+		assert InputsWithin(w, "/ws")
+		assert !InputsWithin(w, "/other")
+
+		let unrooted = UnrootInputs(w, "/ws")
+		assert unrooted.StatPath == []string{"@/app/a.ergo", "@/app/missing.ergo"}
+		let rerooted = RerootInputs(unrooted, "/ws2")
+		assert rerooted.StatPath == []string{"/ws2/app/a.ergo", "/ws2/app/missing.ergo"}
+
+		let envMap = Map[string, string]{"ERGO_EXP": "on"}
+		assert InputsFresh(w, envMap)
+
+		try fs.Writes.WriteFile("/ws/app/new.ergo", "func G() {}\n")
+		assert !InputsFresh(w, envMap)
+	}
+
+	assert StdSnapshotKey("0.1.0") == "ergo-std-snapshot-2\x005:0.1.0"
+	let mk = ModuleSnapshotKey("0.1.0", []string{"b\x00k2", "a\x00k1"})
+	assert mk == "ergo-module-snapshot-1\x005:0.1.0\x004:a\x00k1\x004:b\x00k2"
+
+	assert StatNeedsContentHash(uint64(2000000000), uint64(1500000000))
+	assert !StatNeedsContentHash(uint64(3000000000), uint64(1500000000))
+}
