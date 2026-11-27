@@ -225,10 +225,6 @@ func isBootstrapStd(path string) bool {
 	path == "collections" || path == "option" || path == "core"
 }
 
-func appendDep(deps []expr.Dep, e expr.Dep) []expr.Dep {
-	deps.Append(e)
-}
-
 // TypeAt types the program's i-th loaded package with its imports'
 // loaded packages as its deps (and the prelude's, every package's: its
 // Append, Get, Put and Delete are functions on slices and Maps; types.md,
@@ -240,7 +236,7 @@ func TypeAt(p Program, i int) Typed {
 	for e in p.Loaded {
 		if e.Path == "prelude" && d.Path != "prelude" {
 			if !isBootstrapStd(d.Path) {
-				deps = appendDep(deps, e)
+				deps = deps.Append(e)
 			}
 			break
 		}
@@ -252,7 +248,7 @@ func TypeAt(p Program, i int) Typed {
 			}
 			for e in p.Loaded {
 				if e.Path == base && !hasDep(deps, base) {
-					deps = appendDep(deps, e)
+					deps = deps.Append(e)
 					break
 				}
 			}

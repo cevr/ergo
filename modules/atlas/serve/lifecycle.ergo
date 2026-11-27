@@ -1,0 +1,733 @@
+import github.com/cevr/ergo/modules/atlas/handle
+import machines
+import tasks
+
+// TreeNode is the lifecycle of one node of the recursive Root -> Child -> Grandchild agent tree the daemon hosts.
+type TreeNode = TreeIdle{} | TreeRunning{} | TreeParked{} | TreeDone{}
+
+// DaemonPhase is whether the daemon process serves, or is down with a BootReconcile owed before it admits work again.
+type DaemonPhase = DaemonUp{} | DaemonDown{}
+
+// BootFate is what BootReconcile does with one open handle a crashed or stopped daemon left behind.
+type BootFate = FateResume{} | FateSettleLost{} | FateKeepForeign{} | FateNone{}
+
+// BootFateOf decides the fate of a handle of kind with disposition at boot: a handle whose owner still lives is kept, an open survivable handle resumes, an open volatile handle is settled lost once.
+func BootFateOf(kind handle.HandleKind, disposition handle.Disposition, ownerLive bool) BootFate {
+	if disposition != handle.DispOpen {
+		return FateNone
+	}
+	if ownerLive {
+		return FateKeepForeign
+	}
+	if handle.IsSurvivableAcrossRestart(kind) {
+		return FateResume
+	}
+	FateSettleLost
+}
+
+// ShouldDeliverWake reports whether a recorded wake is delivered at boot or on its turn: only a wake never delivered is.
+func ShouldDeliverWake(alreadyDelivered bool) bool {
+	!alreadyDelivered
+}
+
+// DaemonAct is one transition of the daemon: the M13 restart model's ten, the four supervised subsystems' crashes, and clean shutdown.
+type DaemonAct = SpawnChild{} | SpawnGrandchild{} | StartDurableJob{} | StartVolatileCall{} | FinishLeaf{} | HandBackChildToRoot{} | RestartServer{} | ReconcileBoot{} | DeliverChildWake{} | DeliverRootWake{} | CrashStoreOwner{} | CrashHoldScheduler{} | CrashHandleSup{} | CrashTurnSup{} | ShutdownDaemon{}
+
+// DaemonFault is a fault injected into the daemon step, mirroring the M13 model's mutants and the supervision tree's own.
+type DaemonFault = NoFault{} | FaultBlockingWait{} | FaultPrematureHandBack{} | FaultDropWorkOnRestart{} | FaultDoubleWakeOnRestart{} | FaultSilentVolatileLoss{} | FaultReplayVolatile{} | FaultOneForOneCore{} | FaultAdmitWhileDown{} | FaultShutdownLeavesChildren{}
+
+// DaemonWorld is the daemon's supervision tree and the agent tree it hosts, with a flag for each broken guarantee.
+type DaemonWorld {
+	Phase                  DaemonPhase,
+	Restarts               int,
+	LiveSubsystems         int,
+	CrashesThisBoot        int,
+	StoreOwnerCrashes      int,
+	Generations            []int,
+	Root                   TreeNode,
+	Child                  TreeNode,
+	Grand                  TreeNode,
+	DurableJobOpen         bool,
+	VolatileCallOpen       bool,
+	VolatileLostReported   int,
+	ChildWakeOwed          bool,
+	ChildWakeDelivered     int,
+	RootWakeOwed           bool,
+	RootWakeDelivered      int,
+	BlockingSpin           bool,
+	PrematureHandBack      bool,
+	SilentDrop             bool,
+	DuplicateWake          bool,
+	UnreportedVolatileLoss bool,
+	ReplayedVolatile       bool,
+	AdmittedWhileDown      bool,
+}
+
+// SubsystemCount is the number of core subsystems StartDaemonSupervisor starts, in start order: store-owner, pool-hold-scheduler, handle-kernel-sup, turn-subagent-sup.
+let SubsystemCount = 4
+
+// MaxDaemonRestarts bounds the process restarts (kill -9, escalation, shutdown) the lifecycle explores.
+let MaxDaemonRestarts = 2
+
+// CoreCrashBound is the explored stand-in for DefaultCorePolicy's intensity: a crash past it escalates to a process restart.
+let CoreCrashBound = 2
+
+func freshGenerations() []int {
+	[]int{0, 0, 0, 0}
+}
+
+// FirstDaemonWorld is a serving daemon with an idle tree under a running root.
+func FirstDaemonWorld() DaemonWorld {
+	DaemonWorld{
+		Phase:                  DaemonUp,
+		Restarts:               0,
+		LiveSubsystems:         SubsystemCount,
+		CrashesThisBoot:        0,
+		StoreOwnerCrashes:      0,
+		Generations:            freshGenerations(),
+		Root:                   TreeRunning,
+		Child:                  TreeIdle,
+		Grand:                  TreeIdle,
+		DurableJobOpen:         false,
+		VolatileCallOpen:       false,
+		VolatileLostReported:   0,
+		ChildWakeOwed:          false,
+		ChildWakeDelivered:     0,
+		RootWakeOwed:           false,
+		RootWakeDelivered:      0,
+		BlockingSpin:           false,
+		PrematureHandBack:      false,
+		SilentDrop:             false,
+		DuplicateWake:          false,
+		UnreportedVolatileLoss: false,
+		ReplayedVolatile:       false,
+		AdmittedWhileDown:      false,
+	}
+}
+
+func hasOpenDescendant(w DaemonWorld) bool {
+	w.Grand == TreeRunning || w.Grand == TreeParked || w.DurableJobOpen || w.VolatileCallOpen || w.ChildWakeOwed
+}
+
+func coreStrategy(fault DaemonFault) tasks.Strategy {
+	if fault == FaultOneForOneCore {
+		return tasks.OneForOne
+	}
+	DefaultCorePolicy().Strategy
+}
+
+func subsystemIndex(a DaemonAct) int {
+	match a {
+	case CrashStoreOwner:
+		0
+	case CrashHoldScheduler:
+		1
+	case CrashHandleSup:
+		2
+	case CrashTurnSup:
+		3
+	case SpawnChild, SpawnGrandchild, StartDurableJob, StartVolatileCall, FinishLeaf, HandBackChildToRoot, RestartServer, ReconcileBoot, DeliverChildWake, DeliverRootWake, ShutdownDaemon:
+		-1
+	}
+}
+
+func goDown(w DaemonWorld, fault DaemonFault, clean bool) DaemonWorld {
+	let live = if clean && fault == FaultShutdownLeavesChildren { w.LiveSubsystems } else { 0 }
+	DaemonWorld{..w, Phase: DaemonDown, Restarts: w.Restarts + 1, LiveSubsystems: live}
+}
+
+func crashSubsystem(w DaemonWorld, failed int, fault DaemonFault) machines.Decision[DaemonWorld, string] {
+	if w.Phase != DaemonUp {
+		return machines.Ignore
+	}
+	if w.CrashesThisBoot >= CoreCrashBound {
+		if w.Restarts >= MaxDaemonRestarts {
+			return machines.Ignore
+		}
+		return machines.Enter[DaemonWorld]{Next: goDown(w, fault, false)}
+	}
+	let strategy = coreStrategy(fault)
+	let mut gens = []int{}
+	for j, g in w.Generations {
+		if tasks.Restarted(strategy, failed, j) {
+			gens = gens.Append(g + 1)
+		} else {
+			gens = gens.Append(g)
+		}
+	}
+	let ownerCrashes = if failed == 0 { w.StoreOwnerCrashes + 1 } else { w.StoreOwnerCrashes }
+	machines.Enter[DaemonWorld]{Next: DaemonWorld{..w, CrashesThisBoot: w.CrashesThisBoot + 1, StoreOwnerCrashes: ownerCrashes, Generations: gens}}
+}
+
+func admits(w DaemonWorld, fault DaemonFault) bool {
+	w.Phase == DaemonUp || fault == FaultAdmitWhileDown
+}
+
+func markAdmission(w DaemonWorld) DaemonWorld {
+	if w.Phase == DaemonUp {
+		return w
+	}
+	DaemonWorld{..w, AdmittedWhileDown: true}
+}
+
+func reconcileWork(s DaemonWorld, fault DaemonFault) DaemonWorld {
+	reconcileWakes(reconcileVolatile(reconcileDurable(s, fault), fault), fault)
+}
+
+func reconcileDurable(s DaemonWorld, fault DaemonFault) DaemonWorld {
+	let mut w = s
+	if w.DurableJobOpen {
+		let fate = if fault == FaultDropWorkOnRestart { FateNone } else { BootFateOf(handle.KindJob, handle.DispOpen, false) }
+		match fate {
+		case FateResume, FateKeepForeign:
+		case FateSettleLost, FateNone:
+			w.DurableJobOpen = false
+			w.SilentDrop = true
+		}
+	}
+	if w.Child == TreeRunning && w.Grand == TreeParked && !w.DurableJobOpen && !w.VolatileCallOpen && fault == FaultDropWorkOnRestart {
+		w.Grand = TreeIdle
+		w.SilentDrop = true
+	}
+	w
+}
+
+func volatileFate(fault DaemonFault) BootFate {
+	match fault {
+	case FaultReplayVolatile:
+		FateResume
+	case FaultSilentVolatileLoss:
+		FateNone
+	case NoFault, FaultBlockingWait, FaultPrematureHandBack, FaultDropWorkOnRestart, FaultDoubleWakeOnRestart, FaultOneForOneCore, FaultAdmitWhileDown, FaultShutdownLeavesChildren:
+		BootFateOf(handle.KindCall, handle.DispOpen, false)
+	}
+}
+
+func reconcileVolatile(s DaemonWorld, fault DaemonFault) DaemonWorld {
+	let mut w = s
+	if !w.VolatileCallOpen {
+		return w
+	}
+	w.VolatileCallOpen = false
+	match volatileFate(fault) {
+	case FateSettleLost:
+		if w.VolatileLostReported == 0 {
+			w.VolatileLostReported = 1
+		}
+		if w.Grand == TreeParked {
+			w.Grand = TreeRunning
+		}
+	case FateResume:
+		w.ReplayedVolatile = true
+		if w.Grand == TreeParked {
+			w.Grand = TreeRunning
+		}
+	case FateNone, FateKeepForeign:
+		w.UnreportedVolatileLoss = true
+	}
+	w
+}
+
+func reconcileWakes(s DaemonWorld, fault DaemonFault) DaemonWorld {
+	let mut w = s
+	let redeliver = fault == FaultDoubleWakeOnRestart
+	if w.ChildWakeDelivered == 1 && (redeliver || ShouldDeliverWake(true)) {
+		w.ChildWakeOwed = true
+	}
+	if w.RootWakeDelivered == 1 && (redeliver || ShouldDeliverWake(true)) {
+		w.RootWakeOwed = true
+	}
+	w
+}
+
+func deliverWake(owed bool, delivered int, fault DaemonFault) (bool, int, bool) {
+	if !owed {
+		return (owed, delivered, false)
+	}
+	if fault == FaultDoubleWakeOnRestart || ShouldDeliverWake(delivered > 0) {
+		return (false, delivered + 1, delivered > 0)
+	}
+	(false, delivered, false)
+}
+
+// StepDaemon is the daemon's transition under fault: NoFault is the design the serve code implements.
+func StepDaemon(s DaemonWorld, act DaemonAct, fault DaemonFault) machines.Decision[DaemonWorld, string] {
+	let mut w = s
+	match act {
+	case SpawnChild:
+		if !admits(w, fault) || w.Root != TreeRunning || w.Child != TreeIdle {
+			return machines.Ignore
+		}
+		w = markAdmission(w)
+		w.Child = TreeRunning
+		if fault == FaultBlockingWait {
+			w.BlockingSpin = true
+			return machines.Enter[DaemonWorld]{Next: w}
+		}
+		w.Root = TreeParked
+		machines.Enter[DaemonWorld]{Next: w}
+	case SpawnGrandchild:
+		if !admits(w, fault) || w.Child != TreeRunning || w.Grand != TreeIdle {
+			return machines.Ignore
+		}
+		w = markAdmission(w)
+		w.Grand = TreeRunning
+		if fault == FaultBlockingWait {
+			w.BlockingSpin = true
+			return machines.Enter[DaemonWorld]{Next: w}
+		}
+		w.Child = TreeParked
+		machines.Enter[DaemonWorld]{Next: w}
+	case StartDurableJob:
+		if !admits(w, fault) || w.Grand != TreeRunning || w.DurableJobOpen {
+			return machines.Ignore
+		}
+		w = markAdmission(w)
+		w.DurableJobOpen = true
+		w.Grand = TreeParked
+		machines.Enter[DaemonWorld]{Next: w}
+	case StartVolatileCall:
+		if !admits(w, fault) || w.Grand != TreeRunning || w.VolatileCallOpen {
+			return machines.Ignore
+		}
+		w = markAdmission(w)
+		w.VolatileCallOpen = true
+		w.Grand = TreeParked
+		machines.Enter[DaemonWorld]{Next: w}
+	case FinishLeaf:
+		if !admits(w, fault) {
+			return machines.Ignore
+		}
+		if w.DurableJobOpen {
+			w = markAdmission(w)
+			w.DurableJobOpen = false
+			if w.Grand == TreeParked {
+				w.Grand = TreeRunning
+			}
+			return machines.Enter[DaemonWorld]{Next: w}
+		}
+		if w.VolatileCallOpen {
+			w = markAdmission(w)
+			w.VolatileCallOpen = false
+			if w.Grand == TreeParked {
+				w.Grand = TreeRunning
+			}
+			return machines.Enter[DaemonWorld]{Next: w}
+		}
+		if w.Grand == TreeRunning {
+			w = markAdmission(w)
+			w.Grand = TreeDone
+			w.ChildWakeOwed = true
+			return machines.Enter[DaemonWorld]{Next: w}
+		}
+		machines.Ignore
+	case HandBackChildToRoot:
+		let premature = fault == FaultPrematureHandBack
+		if !admits(w, fault) || (w.Child != TreeRunning && !(premature && w.Child == TreeParked)) {
+			return machines.Ignore
+		}
+		if hasOpenDescendant(w) {
+			if premature && !w.PrematureHandBack {
+				w.PrematureHandBack = true
+				w.Child = TreeDone
+				w.RootWakeOwed = true
+				return machines.Enter[DaemonWorld]{Next: w}
+			}
+			return machines.Ignore
+		}
+		if w.Child != TreeRunning {
+			return machines.Ignore
+		}
+		w = markAdmission(w)
+		w.Child = TreeDone
+		w.RootWakeOwed = true
+		machines.Enter[DaemonWorld]{Next: w}
+	case RestartServer:
+		if w.Phase != DaemonUp || w.Restarts >= MaxDaemonRestarts {
+			return machines.Ignore
+		}
+		machines.Enter[DaemonWorld]{Next: goDown(w, fault, false)}
+	case ShutdownDaemon:
+		if w.Phase != DaemonUp || w.Restarts >= MaxDaemonRestarts {
+			return machines.Ignore
+		}
+		machines.Enter[DaemonWorld]{Next: goDown(w, fault, true)}
+	case ReconcileBoot:
+		if w.Phase != DaemonDown {
+			return machines.Ignore
+		}
+		let next = reconcileWork(w, fault)
+		machines.Enter[DaemonWorld]{Next: DaemonWorld{..next, Phase: DaemonUp, LiveSubsystems: SubsystemCount, CrashesThisBoot: 0, StoreOwnerCrashes: 0, Generations: freshGenerations()}}
+	case DeliverChildWake:
+		if !admits(w, fault) || !w.ChildWakeOwed {
+			return machines.Ignore
+		}
+		w = markAdmission(w)
+		let (owed, delivered, dup) = deliverWake(w.ChildWakeOwed, w.ChildWakeDelivered, fault)
+		let first = w.ChildWakeDelivered == 0
+		w.ChildWakeOwed = owed
+		w.ChildWakeDelivered = delivered
+		w.DuplicateWake = w.DuplicateWake || dup
+		if first && w.Child == TreeParked {
+			w.Child = TreeRunning
+		}
+		machines.Enter[DaemonWorld]{Next: w}
+	case DeliverRootWake:
+		if !admits(w, fault) || !w.RootWakeOwed {
+			return machines.Ignore
+		}
+		w = markAdmission(w)
+		let (owed, delivered, dup) = deliverWake(w.RootWakeOwed, w.RootWakeDelivered, fault)
+		let first = w.RootWakeDelivered == 0
+		w.RootWakeOwed = owed
+		w.RootWakeDelivered = delivered
+		w.DuplicateWake = w.DuplicateWake || dup
+		if first && w.Root == TreeParked {
+			w.Root = TreeDone
+		}
+		machines.Enter[DaemonWorld]{Next: w}
+	case CrashStoreOwner, CrashHoldScheduler, CrashHandleSup, CrashTurnSup:
+		crashSubsystem(w, subsystemIndex(act), fault)
+	}
+}
+
+func generationsNested(w DaemonWorld) bool {
+	let mut ok = w.Generations.Len() == SubsystemCount
+	let mut prev = 0
+	for _, g in w.Generations {
+		if g < prev {
+			ok = false
+		}
+		prev = g
+	}
+	ok
+}
+
+func daemonZeroSpin(w DaemonWorld) bool             { !w.BlockingSpin }
+func daemonChildWaits(w DaemonWorld) bool           { !w.PrematureHandBack }
+func daemonNoSilentDrop(w DaemonWorld) bool         { !w.SilentDrop }
+func daemonNoDuplicateWake(w DaemonWorld) bool      { w.ChildWakeDelivered <= 1 && w.RootWakeDelivered <= 1 && !w.DuplicateWake }
+func daemonVolatileLostOnce(w DaemonWorld) bool     { w.VolatileLostReported <= 1 && !w.UnreportedVolatileLoss && !w.ReplayedVolatile }
+func daemonRestForOneNested(w DaemonWorld) bool     { generationsNested(w) }
+func daemonStoreOwnerKept(w DaemonWorld) bool       { w.Generations.Len() == SubsystemCount && w.Generations[0] == w.StoreOwnerCrashes }
+func daemonNoAdmissionWhileDown(w DaemonWorld) bool { !w.AdmittedWhileDown }
+func daemonDownHoldsNoSubsystem(w DaemonWorld) bool { w.Phase == DaemonUp || w.LiveSubsystems == 0 }
+func daemonUpRunsEverySubsystem(w DaemonWorld) bool { w.Phase == DaemonDown || w.LiveSubsystems == SubsystemCount }
+
+func daemonNestedTreeSurvivedRestart(w DaemonWorld) bool {
+	w.Restarts >= 1 && w.Phase == DaemonUp && w.ChildWakeDelivered == 1 && w.RootWakeDelivered == 1 && w.Root == TreeDone
+}
+func daemonVolatileLostReportedAfterRestart(w DaemonWorld) bool {
+	w.Restarts >= 1 && w.Phase == DaemonUp && w.VolatileLostReported == 1 && w.Root == TreeDone
+}
+func daemonDurableJobCompletedAcrossRestart(w DaemonWorld) bool {
+	w.Restarts >= 1 && w.Phase == DaemonUp && !w.DurableJobOpen && w.Root == TreeDone
+}
+func daemonDownstreamRestartKeptStoreOwner(w DaemonWorld) bool {
+	w.Phase == DaemonUp && w.Generations.Len() == SubsystemCount && w.Generations[0] == 0 && w.Generations[3] >= 1
+}
+func daemonEscalatedAndResumed(w DaemonWorld) bool {
+	w.Restarts >= 1 && w.Phase == DaemonUp && w.Child == TreeParked && w.DurableJobOpen
+}
+
+func daemonDesign(s DaemonWorld, a DaemonAct) machines.Decision[DaemonWorld, string] {
+	StepDaemon(s, a, NoFault)
+}
+
+// DaemonLifecycle is the serve daemon: its RestForOne supervision tree, kill -9 and clean shutdown, and the BootReconcile that resumes the agent tree it hosts, mirroring models/restart.
+type DaemonLifecycle machine[DaemonWorld, DaemonAct] {
+	initial: FirstDaemonWorld(),
+	step:    daemonDesign,
+
+	law ZeroSpinParkedTree always daemonZeroSpin,
+	law ChildWaitsForDescendants always daemonChildWaits,
+	law NoSilentDropAcrossRestart always daemonNoSilentDrop,
+	law NoDuplicateWakeAcrossRestart always daemonNoDuplicateWake,
+	law VolatileSettledOnceAsLost always daemonVolatileLostOnce,
+	law RestForOneRestartsEveryLaterSubsystem always daemonRestForOneNested,
+	law StoreOwnerRestartsOnlyOnItsOwnCrash always daemonStoreOwnerKept,
+	law NoAdmissionBeforeBootReconcile always daemonNoAdmissionWhileDown,
+	law DownDaemonHoldsNoSubsystem always daemonDownHoldsNoSubsystem,
+	law ServingDaemonRunsEverySubsystem always daemonUpRunsEverySubsystem,
+
+	law NestedTreeSurvivedRestart sometimes daemonNestedTreeSurvivedRestart,
+	law VolatileLossReportedOnceAfterRestart sometimes daemonVolatileLostReportedAfterRestart,
+	law DurableJobCompletedAcrossRestart sometimes daemonDurableJobCompletedAcrossRestart,
+	law DownstreamRestartKeptStoreOwner sometimes daemonDownstreamRestartKeptStoreOwner,
+	law EscalatedCrashResumedDurableWork sometimes daemonEscalatedAndResumed,
+}
+
+func brokeSpin(w DaemonWorld) bool       { !daemonZeroSpin(w) }
+func brokeHandBack(w DaemonWorld) bool   { !daemonChildWaits(w) }
+func brokeDrop(w DaemonWorld) bool       { !daemonNoSilentDrop(w) }
+func brokeWake(w DaemonWorld) bool       { !daemonNoDuplicateWake(w) }
+func brokeVolatile(w DaemonWorld) bool   { !daemonVolatileLostOnce(w) }
+func brokeRestForOne(w DaemonWorld) bool { !daemonRestForOneNested(w) }
+func brokeAdmission(w DaemonWorld) bool  { !daemonNoAdmissionWhileDown(w) }
+func brokeShutdown(w DaemonWorld) bool   { !daemonDownHoldsNoSubsystem(w) }
+
+func faultBlocking(s DaemonWorld, a DaemonAct) machines.Decision[DaemonWorld, string]  { StepDaemon(s, a, FaultBlockingWait) }
+func faultPremature(s DaemonWorld, a DaemonAct) machines.Decision[DaemonWorld, string] { StepDaemon(s, a, FaultPrematureHandBack) }
+func faultDrop(s DaemonWorld, a DaemonAct) machines.Decision[DaemonWorld, string]      { StepDaemon(s, a, FaultDropWorkOnRestart) }
+func faultDouble(s DaemonWorld, a DaemonAct) machines.Decision[DaemonWorld, string]    { StepDaemon(s, a, FaultDoubleWakeOnRestart) }
+func faultSilent(s DaemonWorld, a DaemonAct) machines.Decision[DaemonWorld, string]    { StepDaemon(s, a, FaultSilentVolatileLoss) }
+func faultReplay(s DaemonWorld, a DaemonAct) machines.Decision[DaemonWorld, string]    { StepDaemon(s, a, FaultReplayVolatile) }
+func faultOneForOne(s DaemonWorld, a DaemonAct) machines.Decision[DaemonWorld, string] { StepDaemon(s, a, FaultOneForOneCore) }
+func faultAdmit(s DaemonWorld, a DaemonAct) machines.Decision[DaemonWorld, string]     { StepDaemon(s, a, FaultAdmitWhileDown) }
+func faultShutdown(s DaemonWorld, a DaemonAct) machines.Decision[DaemonWorld, string]  { StepDaemon(s, a, FaultShutdownLeavesChildren) }
+
+// DaemonBlockingWaitInChild shows ZeroSpinParkedTree catches a parent that spins instead of parking.
+type DaemonBlockingWaitInChild machine[DaemonWorld, DaemonAct] {
+	initial: FirstDaemonWorld(),
+	step:    faultBlocking,
+	law Breaks sometimes brokeSpin,
+}
+
+// DaemonPrematureHandBack shows ChildWaitsForDescendants catches a child handing back over open descendants.
+type DaemonPrematureHandBack machine[DaemonWorld, DaemonAct] {
+	initial: FirstDaemonWorld(),
+	step:    faultPremature,
+	law Breaks sometimes brokeHandBack,
+}
+
+// DaemonDropWorkOnRestart shows NoSilentDropAcrossRestart catches a boot that forgets durable work.
+type DaemonDropWorkOnRestart machine[DaemonWorld, DaemonAct] {
+	initial: FirstDaemonWorld(),
+	step:    faultDrop,
+	law Breaks sometimes brokeDrop,
+}
+
+// DaemonDoubleWakeOnRestart shows NoDuplicateWakeAcrossRestart catches a boot that redelivers a delivered wake.
+type DaemonDoubleWakeOnRestart machine[DaemonWorld, DaemonAct] {
+	initial: FirstDaemonWorld(),
+	step:    faultDouble,
+	law Breaks sometimes brokeWake,
+}
+
+// DaemonSilentVolatileLoss shows VolatileSettledOnceAsLost catches a lost call no one is told about.
+type DaemonSilentVolatileLoss machine[DaemonWorld, DaemonAct] {
+	initial: FirstDaemonWorld(),
+	step:    faultSilent,
+	law Breaks sometimes brokeVolatile,
+}
+
+// DaemonReplayVolatile shows VolatileSettledOnceAsLost catches a boot that replays a volatile call.
+type DaemonReplayVolatile machine[DaemonWorld, DaemonAct] {
+	initial: FirstDaemonWorld(),
+	step:    faultReplay,
+	law Breaks sometimes brokeVolatile,
+}
+
+// DaemonOneForOneCore shows RestForOneRestartsEveryLaterSubsystem catches a core tree that leaves dependents of a crashed subsystem running.
+type DaemonOneForOneCore machine[DaemonWorld, DaemonAct] {
+	initial: FirstDaemonWorld(),
+	step:    faultOneForOne,
+	law Breaks sometimes brokeRestForOne,
+}
+
+// DaemonAdmitWhileDown shows NoAdmissionBeforeBootReconcile catches work admitted before BootReconcile.
+type DaemonAdmitWhileDown machine[DaemonWorld, DaemonAct] {
+	initial: FirstDaemonWorld(),
+	step:    faultAdmit,
+	law Breaks sometimes brokeAdmission,
+}
+
+// DaemonShutdownLeavesChildren shows DownDaemonHoldsNoSubsystem catches a shutdown that leaves subsystems running.
+type DaemonShutdownLeavesChildren machine[DaemonWorld, DaemonAct] {
+	initial: FirstDaemonWorld(),
+	step:    faultShutdown,
+	law Breaks sometimes brokeShutdown,
+}
+
+func allDaemonActs() []DaemonAct {
+	[]DaemonAct{SpawnChild, SpawnGrandchild, StartDurableJob, StartVolatileCall, FinishLeaf, HandBackChildToRoot, RestartServer, ReconcileBoot, DeliverChildWake, DeliverRootWake, CrashStoreOwner, CrashHoldScheduler, CrashHandleSup, CrashTurnSup, ShutdownDaemon}
+}
+
+func nextDaemon(w DaemonWorld, a DaemonAct) DaemonWorld {
+	match StepDaemon(w, a, NoFault) {
+	case machines.Enter[DaemonWorld] as e:
+		e.Next
+	case machines.Stay[DaemonWorld], machines.Emit[DaemonWorld, string], machines.Tell[DaemonWorld, string], machines.Done[string], machines.Ignore, machines.Reject:
+		w
+	}
+}
+
+func seededDaemonWorld(seed int) DaemonWorld {
+	let acts = allDaemonActs()
+	let mut x = ((seed % 1000003) + 1000003) % 1000003
+	let steps = x % 24
+	let mut w = FirstDaemonWorld()
+	let mut i = 0
+	for i < steps {
+		x = (x*1103515245 + 12345) % 2147483648
+		w = nextDaemon(w, acts[x%acts.Len()])
+		i = i + 1
+	}
+	w
+}
+
+func sameTree(a DaemonWorld, b DaemonWorld) bool {
+	a.Root == b.Root && a.Child == b.Child && a.Grand == b.Grand && a.DurableJobOpen == b.DurableJobOpen && a.VolatileCallOpen == b.VolatileCallOpen && a.ChildWakeOwed == b.ChildWakeOwed && a.RootWakeOwed == b.RootWakeOwed && a.ChildWakeDelivered == b.ChildWakeDelivered && a.RootWakeDelivered == b.RootWakeDelivered
+}
+
+// SpawnChildParksRoot: a serving daemon spawns a child under a running root and parks the root; otherwise nothing moves.
+law SpawnChildParksRoot(seed int) {
+	let w = seededDaemonWorld(seed)
+	let n = nextDaemon(w, SpawnChild)
+	if w.Phase == DaemonUp && w.Root == TreeRunning && w.Child == TreeIdle {
+		return n.Child == TreeRunning && n.Root == TreeParked
+	}
+	n == w
+}
+
+// SpawnGrandchildParksChild: a running child spawns a grandchild and parks; otherwise nothing moves.
+law SpawnGrandchildParksChild(seed int) {
+	let w = seededDaemonWorld(seed)
+	let n = nextDaemon(w, SpawnGrandchild)
+	if w.Phase == DaemonUp && w.Child == TreeRunning && w.Grand == TreeIdle {
+		return n.Grand == TreeRunning && n.Child == TreeParked
+	}
+	n == w
+}
+
+// StartDurableJobParksLeaf: a running grandchild opens one durable job and parks on it.
+law StartDurableJobParksLeaf(seed int) {
+	let w = seededDaemonWorld(seed)
+	let n = nextDaemon(w, StartDurableJob)
+	if w.Phase == DaemonUp && w.Grand == TreeRunning && !w.DurableJobOpen {
+		return n.DurableJobOpen && n.Grand == TreeParked
+	}
+	n == w
+}
+
+// StartVolatileCallParksLeaf: a running grandchild opens one volatile call and parks on it.
+law StartVolatileCallParksLeaf(seed int) {
+	let w = seededDaemonWorld(seed)
+	let n = nextDaemon(w, StartVolatileCall)
+	if w.Phase == DaemonUp && w.Grand == TreeRunning && !w.VolatileCallOpen {
+		return n.VolatileCallOpen && n.Grand == TreeParked
+	}
+	n == w
+}
+
+// FinishLeafSettlesOneThing: a finish closes the durable job first, then the volatile call, then ends the grandchild and owes its parent one wake.
+law FinishLeafSettlesOneThing(seed int) {
+	let w = seededDaemonWorld(seed)
+	let n = nextDaemon(w, FinishLeaf)
+	if w.Phase != DaemonUp {
+		return n == w
+	}
+	if w.DurableJobOpen {
+		return !n.DurableJobOpen && n.VolatileCallOpen == w.VolatileCallOpen
+	}
+	if w.VolatileCallOpen {
+		return !n.VolatileCallOpen
+	}
+	if w.Grand == TreeRunning {
+		return n.Grand == TreeDone && n.ChildWakeOwed
+	}
+	n == w
+}
+
+// HandBackWaitsForDescendants: a child hands back to the root only when nothing under it is open.
+law HandBackWaitsForDescendants(seed int) {
+	let w = seededDaemonWorld(seed)
+	let n = nextDaemon(w, HandBackChildToRoot)
+	if w.Phase == DaemonUp && w.Child == TreeRunning && !hasOpenDescendant(w) {
+		return n.Child == TreeDone && n.RootWakeOwed
+	}
+	n == w
+}
+
+// RestartServerKeepsDurableState: kill -9 takes every subsystem down and owes a BootReconcile, and leaves the stored tree as it was.
+law RestartServerKeepsDurableState(seed int) {
+	let w = seededDaemonWorld(seed)
+	let n = nextDaemon(w, RestartServer)
+	if w.Phase == DaemonUp && w.Restarts < MaxDaemonRestarts {
+		return n.Phase == DaemonDown && n.LiveSubsystems == 0 && n.Restarts == w.Restarts+1 && sameTree(n, w)
+	}
+	n == w
+}
+
+// ShutdownStopsEverySubsystem: a clean shutdown stops every subsystem and keeps the stored tree for the next boot.
+law ShutdownStopsEverySubsystem(seed int) {
+	let w = seededDaemonWorld(seed)
+	let n = nextDaemon(w, ShutdownDaemon)
+	if w.Phase == DaemonUp && w.Restarts < MaxDaemonRestarts {
+		return n.Phase == DaemonDown && n.LiveSubsystems == 0 && sameTree(n, w)
+	}
+	n == w
+}
+
+// ReconcileBootResumesDurableAndSettlesVolatile: boot keeps durable work open, settles a volatile call lost once, owes no delivered wake again, and restarts every subsystem fresh.
+law ReconcileBootResumesDurableAndSettlesVolatile(seed int) {
+	let w = seededDaemonWorld(seed)
+	let n = nextDaemon(w, ReconcileBoot)
+	if w.Phase != DaemonDown {
+		return n == w
+	}
+	let volatileOk = if w.VolatileCallOpen { !n.VolatileCallOpen && n.VolatileLostReported == 1 } else { n.VolatileLostReported == w.VolatileLostReported }
+	n.Phase == DaemonUp && n.LiveSubsystems == SubsystemCount && n.Generations == freshGenerations() && n.DurableJobOpen == w.DurableJobOpen && volatileOk && n.ChildWakeOwed == w.ChildWakeOwed && n.RootWakeOwed == w.RootWakeOwed
+}
+
+// DeliverChildWakeOnce: an owed child wake is delivered once and resumes a parked child.
+law DeliverChildWakeOnce(seed int) {
+	let w = seededDaemonWorld(seed)
+	let n = nextDaemon(w, DeliverChildWake)
+	if w.Phase == DaemonUp && w.ChildWakeOwed {
+		let resumed = w.Child != TreeParked || n.Child == TreeRunning
+		return !n.ChildWakeOwed && n.ChildWakeDelivered == 1 && resumed
+	}
+	n == w
+}
+
+// DeliverRootWakeOnce: an owed root wake is delivered once and finishes a parked root.
+law DeliverRootWakeOnce(seed int) {
+	let w = seededDaemonWorld(seed)
+	let n = nextDaemon(w, DeliverRootWake)
+	if w.Phase == DaemonUp && w.RootWakeOwed {
+		let finished = w.Root != TreeParked || n.Root == TreeDone
+		return !n.RootWakeOwed && n.RootWakeDelivered == 1 && finished
+	}
+	n == w
+}
+
+// SubsystemCrashRestartsItAndLater: under DefaultCorePolicy a crashed subsystem and every one started after it restart, earlier ones keep running, and a crash past the bound takes the daemon down for BootReconcile.
+law SubsystemCrashRestartsItAndLater(seed int, which int) {
+	let crashes = []DaemonAct{CrashStoreOwner, CrashHoldScheduler, CrashHandleSup, CrashTurnSup}
+	let k = ((which % SubsystemCount) + SubsystemCount) % SubsystemCount
+	let w = seededDaemonWorld(seed)
+	let n = nextDaemon(w, crashes[k])
+	if w.Phase != DaemonUp {
+		return n == w
+	}
+	if w.CrashesThisBoot >= CoreCrashBound {
+		if w.Restarts >= MaxDaemonRestarts {
+			return n == w
+		}
+		return n.Phase == DaemonDown && n.LiveSubsystems == 0 && sameTree(n, w)
+	}
+	let mut ok = n.CrashesThisBoot == w.CrashesThisBoot+1 && sameTree(n, w)
+	for j, g in w.Generations {
+		let want = if j >= k { g + 1 } else { g }
+		if n.Generations[j] != want {
+			ok = false
+		}
+	}
+	ok
+}
+
+// BootFateResumesOnlyOwnedSurvivableWork: at boot an open handle of a live foreign owner is kept, an open survivable one resumes, an open call is settled lost, and a settled one is left alone.
+law BootFateResumesOnlyOwnedSurvivableWork(kind handle.HandleKind, disposition handle.Disposition, ownerLive bool) {
+	let fate = BootFateOf(kind, disposition, ownerLive)
+	if disposition != handle.DispOpen {
+		return fate == FateNone
+	}
+	if ownerLive {
+		return fate == FateKeepForeign
+	}
+	if kind == handle.KindCall {
+		return fate == FateSettleLost
+	}
+	fate == FateResume
+}

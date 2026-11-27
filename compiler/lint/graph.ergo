@@ -1202,6 +1202,57 @@ func resolveOutsideSliceCall(
 	exprTypeRes{typed: typed, uMod: uMod, uPath: uPath, t: dense.NoID[store.TKey]()}
 }
 
+type calleeHere {}
+
+type calleeUnit {}
+
+type calleeDep { at int }
+
+type calleeFrom = calleeHere | calleeUnit | calleeDep
+
+type calleeSrc {
+	from calleeFrom,
+	sig  dense.Opt[store.TKey],
+}
+
+func calleeSource(ctx edgeCtx, typed load.Typed, fnUnit int, fnName string, declAt dense.Opt[store.PNode], fnPathFound string, callSig dense.Opt[store.TKey]) calleeSrc {
+	if fnUnit >= 0 && fnUnit < ctx.units.Len() && fnName != "" {
+		match ctx.units[fnUnit].Typed {
+		case option.Some{Value: td}:
+			match dense.Unpack(declAt) {
+			case option.Some{Value: da}:
+				let fi = expr.FnAt(td.K, da)
+				if fi >= 0 && fi < td.K.Fns.Len() {
+					return calleeSrc{from: calleeUnit, sig: dense.OptOf(td.K.Fns[fi].Sig)}
+				}
+			case option.None:
+			}
+			for tfn in td.K.Fns {
+				if tfn.File >= 0 && tfn.File < td.K.Parsed.Len() && !td.K.Parsed[tfn.File].Failed && validTreeNode(td.K.Parsed[tfn.File], tfn.Name) && NodeText(td.K.Parsed[tfn.File], tfn.Name) == fnName {
+					return calleeSrc{from: calleeUnit, sig: dense.OptOf(tfn.Sig)}
+				}
+			}
+		case option.None:
+		}
+	}
+	if fnPathFound != "" {
+		for di, dep in typed.K.Deps {
+			if dep.Path == fnPathFound {
+				for tfn in dep.K.Fns {
+					if tfn.File >= 0 && tfn.File < dep.K.Parsed.Len() && !dep.K.Parsed[tfn.File].Failed && validTreeNode(dep.K.Parsed[tfn.File], tfn.Name) && NodeText(dep.K.Parsed[tfn.File], tfn.Name) == fnName {
+						return calleeSrc{from: calleeDep{at: di}, sig: dense.OptOf(tfn.Sig)}
+					}
+				}
+				if dense.Unpack(callSig) != option.None {
+					return calleeSrc{from: calleeDep{at: di}, sig: callSig}
+				}
+				break
+			}
+		}
+	}
+	calleeSrc{from: calleeHere, sig: callSig}
+}
+
 func resolveGenericCallSliceElem(ctx edgeCtx, typed load.Typed, uIdx int, fIdx int, uMod string, uPath string, callNode dense.ID[syntax.Node], depth int) exprTypeRes {
 	if depth >= 12 || fIdx < 0 || fIdx >= typed.K.Parsed.Len() || !validTreeNode(typed.K.Parsed[fIdx], callNode) {
 		return exprTypeRes{typed: typed, uMod: uMod, uPath: uPath, t: dense.NoID[store.TKey]()}
@@ -1273,66 +1324,43 @@ func resolveGenericCallSliceElem(ctx edgeCtx, typed load.Typed, uIdx int, fIdx i
 		case _:
 		}
 	}
-	let mut fnTyped = typed
-	let mut fnMod = uMod
-	let mut fnPath = uPath
-	let mut sigOpt = dense.NoID[store.TKey]()
-	if fnUnit >= 0 && fnUnit < ctx.units.Len() && fnName != "" {
-		let fnU = ctx.units[fnUnit]
-		match fnU.Typed {
+	let src = calleeSource(ctx, typed, fnUnit, fnName, declAt, fnPathFound, callSig)
+	let fnTyped = match src.from {
+	case calleeUnit:
+		match ctx.units[fnUnit].Typed {
 		case option.Some{Value: td}:
-			fnTyped = td
-			fnMod = fnU.Module
-			fnPath = unitPkgPath(fnU)
-			match dense.Unpack(declAt) {
-			case option.Some{Value: da}:
-				let fi = expr.FnAt(fnTyped.K, da)
-				if fi >= 0 && fi < fnTyped.K.Fns.Len() {
-					sigOpt = dense.OptOf(fnTyped.K.Fns[fi].Sig)
-				}
-			case option.None:
-			}
-			if dense.Unpack(sigOpt) == option.None {
-				for tfn in fnTyped.K.Fns {
-					if tfn.File >= 0 && tfn.File < fnTyped.K.Parsed.Len() && !fnTyped.K.Parsed[tfn.File].Failed && validTreeNode(fnTyped.K.Parsed[tfn.File], tfn.Name) && NodeText(fnTyped.K.Parsed[tfn.File], tfn.Name) == fnName {
-						sigOpt = dense.OptOf(tfn.Sig)
-						break
-					}
-				}
-			}
+			td
 		case option.None:
+			typed
 		}
+	case calleeDep as d:
+		let dep = typed.K.Deps[d.at]
+		load.Typed{S: dep.S, K: dep.K, T: typed.T}
+	case calleeHere:
+		typed
 	}
-	if dense.Unpack(sigOpt) == option.None && fnPathFound != "" {
-		for dep in typed.K.Deps {
-			if dep.Path == fnPathFound {
-				fnTyped = load.Typed{S: dep.S, K: dep.K, T: typed.T}
-				fnMod = match ctx.modByPkg.Get(dep.Path) {
-				case option.Some{Value: m}:
-					m
-				case option.None:
-					""
-				}
-				fnPath = dep.Path
-				for tfn in dep.K.Fns {
-					if tfn.File >= 0 && tfn.File < dep.K.Parsed.Len() && !dep.K.Parsed[tfn.File].Failed && validTreeNode(dep.K.Parsed[tfn.File], tfn.Name) && NodeText(dep.K.Parsed[tfn.File], tfn.Name) == fnName {
-						sigOpt = dense.OptOf(tfn.Sig)
-						break
-					}
-				}
-				if dense.Unpack(sigOpt) == option.None {
-					sigOpt = callSig
-				}
-				break
-			}
+	let fnMod = match src.from {
+	case calleeUnit:
+		ctx.units[fnUnit].Module
+	case calleeDep as d:
+		match ctx.modByPkg.Get(typed.K.Deps[d.at].Path) {
+		case option.Some{Value: m}:
+			m
+		case option.None:
+			""
 		}
+	case calleeHere:
+		uMod
 	}
-	if dense.Unpack(sigOpt) == option.None {
-		fnTyped = typed
-		fnMod = uMod
-		fnPath = uPath
-		sigOpt = callSig
+	let fnPath = match src.from {
+	case calleeUnit:
+		unitPkgPath(ctx.units[fnUnit])
+	case calleeDep as d:
+		typed.K.Deps[d.at].Path
+	case calleeHere:
+		uPath
 	}
+	let sigOpt = src.sig
 	let sig = match dense.Unpack(sigOpt) {
 	case option.Some{Value: s}:
 		s

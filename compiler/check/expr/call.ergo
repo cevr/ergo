@@ -188,7 +188,7 @@ func call(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node], c synt
 			return option.Some{Value: vr}
 		case option.None:
 			if !c.TrailingFunc && !indexed {
-				match conversionTarget(s, k, *t, unparen(tr, c.Fun)) {
+				match conversionTarget(s, k, t, unparen(tr, c.Fun)) {
 				case option.Some{Value: targetT}:
 					if n == 1 {
 						let arg = syntax.Item(tr, c.Args, 0)
@@ -211,7 +211,7 @@ func call(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node], c synt
 		}
 	}
 	if c.Trailing == dense.NoID[syntax.Node]() && !c.TrailingFunc && !isSome(callee) {
-		match conversionTarget(s, k, *t, unparen(tr, c.Fun)) {
+		match conversionTarget(s, k, t, unparen(tr, c.Fun)) {
 		case option.Some{Value: targetT}:
 			if n == 1 {
 				let arg = syntax.Item(tr, c.Args, 0)
