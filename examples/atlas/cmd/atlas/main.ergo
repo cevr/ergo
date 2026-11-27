@@ -1,10 +1,14 @@
+import atlas/drill
 import atlas/settings
 import core
+import daemon github.com/cevr/ergo/modules/atlas/serve
+import exec
 import ergoapi api
 import fs
 import github.com/cevr/ergo/modules/atlas/api
 import github.com/cevr/ergo/modules/atlas/api/apimcp
 import github.com/cevr/ergo/modules/atlas/api/serve
+import github.com/cevr/ergo/modules/atlas/handle
 import github.com/cevr/ergo/modules/atlas/memory
 import github.com/cevr/ergo/modules/atlas/sqlite
 import http
@@ -173,6 +177,60 @@ func runServeHTTP(srv serve.AtlasServer, addr string) fails os.Exit needs os.Amb
 	}
 }
 
+func jobOf(rest []string, usage string) string fails os.Exit {
+	if rest.Len() != 1 || rest[0] == "" {
+		return failExit(2, usage)
+	}
+	rest[0]
+}
+
+func finishRequested(stdin io.Stdin) bool {
+	for line in stdin.Lines() {
+		return line == "finish"
+	}
+	false
+}
+
+func runWork(store sqlite.Store, rest []string, nowFn own func() int64) fails os.Exit needs os.Ambient | io.Console | go.Foreign {
+	let job = try jobOf(rest, "usage: atlas [--store PATH] work JOB")
+	let out = io.NewHost()
+	let stdin = io.NewStdin()
+	let epoch = daemon.NextBootEpoch(store, daemon.DefaultDaemonConfig("atlas-local", 1).LeaseID) catch {
+	case daemon.ServeError as e:
+		return failExit(1, "atlas work: \(daemon.DescribeServeError(e))")
+	}
+	let _ = with context { time.Scheduler: time.NewLiveScheduler(), time.Clock: time.NewHost() } {
+		daemon.RunDurableWork(daemon.WorkRun{
+			Store:   store,
+			Config:  daemon.DefaultDaemonConfig("atlas-local", epoch),
+			Work:    daemon.DurableWork{JobID: handle.HandleID(job), Summary: "durable job \(job)"},
+			NowMs:   nowFn,
+			Proceed: func() bool { finishRequested(stdin) },
+			Report:  out.Println,
+		})
+	} catch {
+	case daemon.ServeError as e:
+		return failExit(1, "atlas work: \(daemon.DescribeServeError(e))")
+	}
+}
+
+func runRestartDrill(process os.Host, store sqlite.Store, parsed settings.ParsedArgs) fails os.Exit needs os.Ambient | io.Console | go.Foreign {
+	let job = try jobOf(parsed.Rest, "usage: atlas --store PATH restart-drill JOB")
+	if !parsed.HasStoreFlag || parsed.StorePath == ":memory:" {
+		return failExit(2, "atlas restart-drill: needs --store PATH, a store its daemon runs share")
+	}
+	let exe = process.Executable() catch {
+	case os.NoDir:
+		return failExit(1, "atlas restart-drill: cannot find its own executable")
+	}
+	let out = io.NewHost()
+	let host = exec.NewHost()
+	drill.RestartDrill(host, host, drill.Daemon{Exe: exe, StorePath: parsed.StorePath, Job: job}, store, out.Println) catch {
+	case drill.DrillFailed as e:
+		return failExit(1, "atlas restart-drill: \(e.Stage): \(e.Reason)")
+	}
+}
+
 func main() fails os.Exit needs os.Ambient | io.Console | go.Foreign {
 	let process = os.NewHost()
 	let parsed = settings.ParseTopArgs(process.Args()) catch {
@@ -209,6 +267,10 @@ func main() fails os.Exit needs os.Ambient | io.Console | go.Foreign {
 		}
 	case settings.CmdServe:
 		try runServeHTTP(srv, parsed.HTTPAddr)
+	case settings.CmdWork:
+		try runWork(store, parsed.Rest, nowFn)
+	case settings.CmdRestartDrill:
+		try runRestartDrill(process, store, parsed)
 	case settings.CmdCLI:
 		let out = serve.RunCLI(srv, parsed.Rest)
 		try ergoapi.Exit(out)
