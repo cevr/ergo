@@ -154,6 +154,7 @@ var nodeTable = map[string]nodeEntry{
 	"TypeSwitchStmt": {"type match", ""}, "TypeGuard": {"type match", ""}, "AsPattern": {"as pattern", ""}, "OrPattern": {"or pattern", ""},
 	"CatchExpr": {"catch arm", ""}, "CatchArm": {"catch arm", ""}, "TryExpr": {"fails and needs", ""},
 	"ErrorRow": {"fails and needs", ""}, "NeedsClause": {"fails and needs", ""}, "TakesClause": {"fails and needs", ""},
+	"FactClause": {"value-tied facts", "VF-1-FACTS-CHECK r2"},
 	"TypeDecl": {"record type", ""}, "StructType": {"record type", ""}, "InterfaceType": {"operation type", ""}, "TypeTerm": {"operation type", ""},
 	"Harness": {"operation type", ""},
 	"MapType": {"Map type", ""}, "FuncLit": {"function literal", ""}, "ExternSpec": {"extern", ""},

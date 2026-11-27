@@ -4,6 +4,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync/atomic"
 
 	"ergo.local/prototype/internal/sketch/syntax"
 )
@@ -57,9 +58,10 @@ type Named struct {
 	TArgs   []Type
 	TParams []*TypeParam
 
-	under   Type
-	def     Type             // origin only: the type a defined type `type N T` is defined over
-	methods map[string]*Func // origin only, keyed: method sets are linear
+	under      Type
+	underReady atomic.Bool
+	def        Type             // origin only: the type a defined type `type N T` is defined over
+	methods    map[string]*Func // origin only, keyed: method sets are linear
 	// opFuncs, on an operation type's origin only, are the package
 	// functions whose first parameter is the operation type: x.f(…)
 	// reaches them after its operations (types.md, Methods 1; G-ex-e-2).
@@ -393,7 +395,9 @@ func (v *RowVar) root() *RowVar {
 // a use's substitution applied.
 func (v *RowVar) Solution() *Row {
 	if v.of != nil && v.ctx != nil {
+		v.ctx.lazyMu.Lock()
 		r, _ := v.ctx.types.varRow(v)
+		v.ctx.lazyMu.Unlock()
 		return r
 	}
 	return v.root().sol
@@ -471,7 +475,7 @@ func (t *Basic) String() string { return t.Name }
 // transitional prelude scope (such as option.Option/Some/None or collections.Seq
 // until NO-PRELUDE removes prelude re-exports).
 func IsTransitionalPreludeType(o *TypeName) bool {
-	return o != nil && preludeOnce.r.scope != nil && preludeOnce.r.scope.names[o.Name] == o
+	return o != nil && preludeOnce.done.Load() && preludeOnce.r.scope != nil && preludeOnce.r.scope.names[o.Name] == o
 }
 
 func (t *Named) String() string {
@@ -913,24 +917,76 @@ func under(t Type) Type {
 	return t
 }
 
+func (c *checker) under(t Type) Type {
+	if n, ok := t.(*Named); ok {
+		return n.underlyingFor(c)
+	}
+	return t
+}
+
+func (c *checker) asInterface(t Type) *Interface {
+	i, _ := c.under(t).(*Interface)
+	return i
+}
+
+func (c *checker) asStruct(t Type) *Struct {
+	s, _ := c.under(t).(*Struct)
+	return s
+}
+
 func (n *Named) underlying() Type {
-	if n.under == nil {
-		if n.Orig == nil && n.Obj != nil && n.Obj.Pkg.Host() && n.state == 0 {
-			// A host type resolves when it is first read (lazy per
-			// declaration; gobinding.go).
-			n.Obj.Pkg.host.c.resolveNamed(n)
+	return n.underlyingFor(nil)
+}
+
+func (n *Named) underlyingFor(active *checker) Type {
+	if n.underReady.Load() {
+		return n.under
+	}
+	if n.Orig == nil && (n.Obj == nil || !n.Obj.Pkg.Host()) {
+		if n.under == nil {
+			return invalid
+		}
+		return n.under
+	}
+	if n.Orig == nil && n.Obj != nil && n.Obj.Pkg.Host() {
+		h := n.Obj.Pkg.host
+		if h != nil && h.loadingTypes.Load() {
+			if n.state == 0 {
+				h.c.resolveNamedLocked(n)
+			}
 			if n.under != nil {
 				return n.under
 			}
 			return invalid
 		}
-		if n.Orig != nil {
-			n.under = n.Orig.instanceUnder(n)
-		} else {
+		// Host types are resolved at load time before any external reader sees the package.
+		if n.under != nil {
+			n.underReady.Store(true)
+			return n.under
+		}
+		return invalid
+	}
+	if n.Orig != nil {
+		ctx := n.ctx
+		if ctx == nil {
 			return invalid
 		}
+		if active != ctx {
+			ctx.lazyMu.Lock()
+			defer ctx.lazyMu.Unlock()
+		}
+		if n.underReady.Load() {
+			return n.under
+		}
+		if n.under == nil {
+			n.under = n.Orig.instanceUnder(n)
+		}
+		if n.under != nil {
+			n.underReady.Store(true)
+		}
+		return n.under
 	}
-	return n.under
+	return invalid
 }
 
 func (n *Named) origin() *Named {
@@ -1070,7 +1126,11 @@ func asInterface(t Type) *Interface {
 // isCapability reports whether t is a capability: a named interface with
 // method signatures (types.md, Capabilities 1), or the predeclared
 // go.Foreign.
-func isCapability(t Type) bool {
+func isCapability(t Type) bool { return isCapabilityFor(nil, t) }
+
+func (c *checker) isCapability(t Type) bool { return isCapabilityFor(c, t) }
+
+func isCapabilityFor(c *checker, t Type) bool {
 	n, ok := t.(*Named)
 	if !ok {
 		return false
@@ -1097,7 +1157,7 @@ func isCapability(t Type) bool {
 			}
 		}
 	}
-	i, ok := n.underlying().(*Interface)
+	i, ok := n.underlyingFor(c).(*Interface)
 	return ok && !i.ConstraintOnly && len(i.Methods) > 0
 }
 

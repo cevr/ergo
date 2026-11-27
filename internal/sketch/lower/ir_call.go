@@ -143,7 +143,7 @@ func (b *irBuilder) callPartsRaw(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irE
 	}
 	// Pure moves-only operations transfer already running values.
 	// They do not start a task even when their result bears one.
-	if body := check.BodyOf(c.Func); c.StartsTask && !(body.MovesOnly && (body.Pure || body.AppendsSlice)) && !b.startsOnFrame(c) && !ergoBodyCall(c) { // ir_own.go
+	if body := check.BodyOf(c.Func); c.Kind == check.CallFunc && c.StartsTask && !(body.MovesOnly && (body.Pure || body.AppendsSlice)) && !b.startsOnFrame(c) && !ergoBodyCall(c) { // ir_own.go
 		irNo("task call")
 	}
 	if len(c.TypeArgs) > 0 && c.Kind != check.CallFunc && !(c.Kind == check.CallOp && c.Op != nil && len(c.Op.Sig.TParams) > 0) {

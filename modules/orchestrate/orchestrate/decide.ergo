@@ -20,14 +20,11 @@ func Decide(state State, env Envelope) []Event fails Refusal {
 	try requireText("commandId", string(env.ID))
 	try requireText("actor", env.Actor)
 	try requireText("at", env.At)
-	let domainEvent = try decideCommand(state, env)
-	[]Event{
-		CommandAccepted{ID: env.ID, Actor: env.Actor, At: env.At, Command: env.Command},
-		domainEvent,
-	}
+	let domainEvents = try decideCommands(state, env)
+	slices.Concat([]Event{CommandAccepted{ID: env.ID, Actor: env.Actor, At: env.At, Command: env.Command}}, domainEvents)
 }
 
-func decideCommand(state State, env Envelope) Event fails Refusal {
+func decideCommands(state State, env Envelope) []Event fails Refusal {
 	match env.Command {
 	case OpenUnit as c:
 		try requireKey(c.Key)
@@ -38,7 +35,7 @@ func decideCommand(state State, env Envelope) Event fails Refusal {
 		if state.Units.Get(c.Key) != option.None {
 			return AlreadyExists{Kind: "unit", ID: UnitKeyText(c.Key)}
 		}
-		UnitOpened{Key: c.Key, Title: c.Title, Requires: slices.Clone(c.Requires), Lane: c.Lane, Branch: c.Branch, At: env.At}
+		[]Event{UnitOpened{Key: c.Key, Title: c.Title, Requires: slices.Clone(c.Requires), Lane: c.Lane, Branch: c.Branch, At: env.At}}
 	case RecordReceipt as c:
 		try requireKey(c.Unit)
 		try requireText("kind", c.Kind)
@@ -48,7 +45,7 @@ func decideCommand(state State, env Envelope) Event fails Refusal {
 			return InvalidInput{Field: "exitLines", Why: "exceeds 4096 bytes; keep the exit lines, not the log"}
 		}
 		let _ = try existingUnit(state, c.Unit)
-		ReceiptRecorded{
+		[]Event{ReceiptRecorded{
 			Receipt: Receipt{
 				ID:         string(env.ID),
 				Unit:       c.Unit,
@@ -60,14 +57,14 @@ func decideCommand(state State, env Envelope) Event fails Refusal {
 				RecordedAt: env.At,
 				RecordedBy: env.Actor,
 			},
-		}
+		}}
 	case AcceptUnit as c:
 		try requireKey(c.Unit)
 		try requireText("head", c.Head)
 		let u = try existingUnit(state, c.Unit)
 		try requireUnitAction(u, ActAccept)
 		try requireGreen(state, u, c.Head)
-		UnitWasAccepted{Unit: c.Unit, Head: c.Head, At: env.At}
+		[]Event{UnitWasAccepted{Unit: c.Unit, Head: c.Head, At: env.At}}
 	case LandUnit as c:
 		try requireKey(c.Unit)
 		try requireText("head", c.Head)
@@ -83,12 +80,12 @@ func decideCommand(state State, env Envelope) Event fails Refusal {
 			return NotAcceptedHead{Unit: c.Unit, Accepted: accepted, Head: c.Head}
 		}
 		try requireGreen(state, u, c.Head)
-		UnitWasLanded{Unit: c.Unit, Head: c.Head, At: env.At}
+		[]Event{UnitWasLanded{Unit: c.Unit, Head: c.Head, At: env.At}}
 	case CloseUnit as c:
 		try requireKey(c.Unit)
 		let u = try existingUnit(state, c.Unit)
 		try requireUnitAction(u, ActClose)
-		UnitWasClosed{Unit: c.Unit, At: env.At}
+		[]Event{UnitWasClosed{Unit: c.Unit, At: env.At}}
 	case AddCommitment as c:
 		try requireText("id", c.ID)
 		try requireText("title", c.Title)
@@ -96,20 +93,20 @@ func decideCommand(state State, env Envelope) Event fails Refusal {
 		if state.Commitments.Get(c.ID) != option.None {
 			return AlreadyExists{Kind: "commitment", ID: c.ID}
 		}
-		CommitmentAdded{ID: c.ID, Title: c.Title, Kind: c.Kind, At: env.At}
+		[]Event{CommitmentAdded{ID: c.ID, Title: c.Title, Kind: c.Kind, At: env.At}}
 	case AssignCommitment as c:
 		try requireText("id", c.ID)
 		try requireText("owner", c.Owner)
 		try requireText("lane", c.Lane)
 		let cur = try existingCommitment(state, c.ID)
 		try requireCommitmentMutable(cur, "assign")
-		CommitmentWasAssigned{ID: c.ID, Owner: c.Owner, Lane: c.Lane, At: env.At}
+		[]Event{CommitmentWasAssigned{ID: c.ID, Owner: c.Owner, Lane: c.Lane, At: env.At}}
 	case LandCommitment as c:
 		try requireText("id", c.ID)
 		try requireText("landedSha", c.LandedSHA)
 		let cur = try existingCommitment(state, c.ID)
 		try requireCommitmentMutable(cur, "land")
-		CommitmentWasLanded{ID: c.ID, LandedSHA: c.LandedSHA, At: env.At}
+		[]Event{CommitmentWasLanded{ID: c.ID, LandedSHA: c.LandedSHA, At: env.At}}
 	case DecideCommitment as c:
 		try requireText("id", c.ID)
 		try requireText("note", c.Note)
@@ -117,9 +114,9 @@ func decideCommand(state State, env Envelope) Event fails Refusal {
 		let action = if c.Withdraw { "withdraw" } else { "decide" }
 		try requireCommitmentMutable(cur, action)
 		if c.Withdraw {
-			return CommitmentWasWithdrawn{ID: c.ID, Note: c.Note, At: env.At}
+			return []Event{CommitmentWasWithdrawn{ID: c.ID, Note: c.Note, At: env.At}}
 		}
-		CommitmentWasDecided{ID: c.ID, Note: c.Note, At: env.At}
+		[]Event{CommitmentWasDecided{ID: c.ID, Note: c.Note, At: env.At}}
 	case UpsertQueueItem as c:
 		try requireText("key", c.Key)
 		try requireText("title", c.Title)
@@ -127,7 +124,7 @@ func decideCommand(state State, env Envelope) Event fails Refusal {
 		for tag in c.Tags {
 			try requireText("tags", tag)
 		}
-		QueueUpserted{
+		[]Event{QueueUpserted{
 			Item: QueueItem{
 				Key:       c.Key,
 				Priority:  c.Priority,
@@ -137,13 +134,13 @@ func decideCommand(state State, env Envelope) Event fails Refusal {
 				Tags:      slices.Clone(c.Tags),
 				UpdatedAt: env.At,
 			},
-		}
+		}}
 	case RemoveQueueItem as c:
 		try requireText("key", c.Key)
 		if state.Queue.Get(c.Key) == option.None {
 			return NotFound{Kind: "queue", ID: c.Key}
 		}
-		QueueRemoved{Key: c.Key}
+		[]Event{QueueRemoved{Key: c.Key}}
 	case AskQuestion as c:
 		try requireText("prompt", c.Prompt)
 		try requireText("assumption", c.Assumption)
@@ -157,7 +154,7 @@ func decideCommand(state State, env Envelope) Event fails Refusal {
 		case option.None:
 			state.NextQuestionID
 		}
-		QuestionAsked{
+		[]Event{QuestionAsked{
 			CommandID: env.ID,
 			Question:  Question{
 				ID:             id,
@@ -171,7 +168,7 @@ func decideCommand(state State, env Envelope) Event fails Refusal {
 				AnsweredBy:     option.None,
 				AnsweredAt:     option.None,
 			},
-		}
+		}}
 	case AnswerQuestion as c:
 		if c.ID < 1 {
 			return InvalidInput{Field: "id", Why: "must be >= 1"}
@@ -186,10 +183,152 @@ func decideCommand(state State, env Envelope) Event fails Refusal {
 		}
 		if c.Withdraw {
 			let note = if strings.TrimSpace(c.Answer) == "" { option.None } else { option.Some[string]{Value: c.Answer} }
-			return QuestionWasWithdrawn{ID: c.ID, Answer: note, AnsweredBy: env.Actor, AnsweredAt: env.At}
+			return []Event{QuestionWasWithdrawn{ID: c.ID, Answer: note, AnsweredBy: env.Actor, AnsweredAt: env.At}}
 		}
 		try requireText("answer", c.Answer)
-		QuestionWasAnswered{ID: c.ID, Answer: c.Answer, AnsweredBy: env.Actor, AnsweredAt: env.At}
+		[]Event{QuestionWasAnswered{ID: c.ID, Answer: c.Answer, AnsweredBy: env.Actor, AnsweredAt: env.At}}
+	case SetRunHead as c:
+		try requireText("repo", c.Repo)
+		try requireText("run", c.Run)
+		try requireText("head", c.Head)
+		[]Event{RunHeadUpdated{Repo: c.Repo, Run: c.Run, Head: c.Head, UpdatedAt: env.At}}
+	case RecordDecision as c:
+		try requireText("repo", c.Repo)
+		try requireText("run", c.Run)
+		try requireText("id", c.ID)
+		try requireText("category", c.Category)
+		try requireText("scope", c.Scope)
+		try requireOptionalText("unitId", c.UnitID)
+		try requireText("title", c.Title)
+		try requireText("body", c.Body)
+		try requireOptionalText("supersedes", c.Supersedes)
+		try requireOptionalText("createdAt", c.CreatedAt)
+		if c.Supersedes == (option.Some[string]{Value: c.ID}) {
+			return InvalidInput{Field: "supersedes", Why: "cannot supersede self"}
+		}
+		let createdAt = match c.CreatedAt {
+		case option.Some[string] as ts:
+			ts.Value
+		case option.None:
+			env.At
+		}
+		[]Event{DecisionRecorded{
+			Decision: Decision{
+				ID:         c.ID,
+				Repo:       c.Repo,
+				Run:        c.Run,
+				Category:   c.Category,
+				Scope:      c.Scope,
+				UnitID:     c.UnitID,
+				Title:      c.Title,
+				Body:       c.Body,
+				Status:     c.Status,
+				Supersedes: c.Supersedes,
+				Actor:      env.Actor,
+				CreatedAt:  createdAt,
+			},
+		}}
+	case RecordLanding as c:
+		try requireText("repo", c.Repo)
+		try requireText("run", c.Run)
+		if c.LandingNumber < 1 {
+			return InvalidInput{Field: "landingNumber", Why: "must be >= 1"}
+		}
+		try requireText("groupId", c.GroupID)
+		try requireText("head", c.Head)
+		for tip in c.Tips {
+			try requireText("tips", tip)
+		}
+		try requireText("summary", c.Summary)
+		try requireOptionalText("logPath", c.LogPath)
+		try requireOptionalText("landedAt", c.LandedAt)
+		let landedAt = match c.LandedAt {
+		case option.Some[string] as ts:
+			ts.Value
+		case option.None:
+			env.At
+		}
+		[]Event{LandingRecorded{
+			Landing: Landing{
+				Repo:          c.Repo,
+				Run:           c.Run,
+				LandingNumber: c.LandingNumber,
+				GroupID:       c.GroupID,
+				Head:          c.Head,
+				Tips:          slices.Clone(c.Tips),
+				Summary:       c.Summary,
+				LogPath:       c.LogPath,
+				LandedAt:      landedAt,
+			},
+		}}
+	case RecordLedgerEvent as c:
+		try requireText("repo", c.Repo)
+		try requireText("run", c.Run)
+		try requireText("kind", c.Kind)
+		try requireOptionalText("unitId", c.UnitID)
+		try requireText("summary", c.Summary)
+		try requireOptionalText("sourceKey", c.SourceKey)
+		try requireOptionalText("createdAt", c.CreatedAt)
+		match c.SourceKey {
+		case option.Some[string] as sk:
+			if state.EventLogSourceKeys.Get(EventSourceKey{Repo: c.Repo, Run: c.Run, SourceKey: sk.Value}) != option.None {
+				return AlreadyExists{Kind: "event", ID: sk.Value}
+			}
+		case option.None:
+		}
+		let createdAt = match c.CreatedAt {
+		case option.Some[string] as ts:
+			ts.Value
+		case option.None:
+			env.At
+		}
+		[]Event{LedgerEventAppended{
+			Event: LedgerEvent{
+				ID:        state.NextEventID,
+				Repo:      c.Repo,
+				Run:       c.Run,
+				Kind:      c.Kind,
+				UnitID:    c.UnitID,
+				Summary:   c.Summary,
+				Actor:     env.Actor,
+				CreatedAt: createdAt,
+				SourceKey: c.SourceKey,
+			},
+		}}
+	case IngestPlan as c:
+		try requireText("repo", c.Repo)
+		try requireText("run", c.Run)
+		try requireText("text", c.Text)
+		let parsed = ParsePlanLines(c.Repo, c.Run, env.Actor, env.At, c.Text)
+		let mut out = []Event{}
+		match parsed.MainHead {
+		case option.Some[string] as h:
+			out = out.Append(RunHeadUpdated{Repo: c.Repo, Run: c.Run, Head: h.Value, UpdatedAt: env.At})
+		case option.None:
+		}
+		for d in parsed.Decisions {
+			out = out.Append(DecisionRecorded{Decision: d})
+		}
+		for l in parsed.Landings {
+			out = out.Append(LandingRecorded{Landing: l})
+		}
+		let mut nextID = state.NextEventID
+		let mut seenKeys = Map[string, bool]{}
+		for ev in parsed.Events {
+			match ev.SourceKey {
+			case option.Some[string] as sk:
+				let alreadyInState = state.EventLogSourceKeys.Get(EventSourceKey{Repo: c.Repo, Run: c.Run, SourceKey: sk.Value}) != option.None
+				if !alreadyInState && seenKeys.Get(sk.Value) == option.None {
+					seenKeys = seenKeys.Put(sk.Value, true)
+					out = out.Append(LedgerEventAppended{Event: LedgerEvent{..ev, ID: nextID}})
+					nextID = nextID + 1
+				}
+			case option.None:
+				out = out.Append(LedgerEventAppended{Event: LedgerEvent{..ev, ID: nextID}})
+				nextID = nextID + 1
+			}
+		}
+		out
 	}
 }
 
@@ -275,9 +414,9 @@ func existingQuestion(state State, id int) Question fails Refusal {
 	}
 }
 
-// Scope is the part of state Decide reads for env: the command's own record, the unit, commitment, queue item or question it names, a verdict's receipts at its head, and the next question id. A store loads only this before Decide.
+// Scope is the part of state Decide reads for env: the command's own record, the unit, commitment, queue item or question it names, a verdict's receipts at its head, event source keys, and the monotonic counters. A store loads only this before Decide.
 func Scope(state State, env Envelope) State {
-	let mut out = State{..EmptyState(), NextQuestionID: state.NextQuestionID}
+	let mut out = State{..EmptyState(), NextQuestionID: state.NextQuestionID, NextEventID: state.NextEventID}
 	match state.Commands.Get(env.ID) {
 	case option.Some[Command] as prev:
 		out = State{..out, Commands: out.Commands.Put(env.ID, prev.Value)}
@@ -320,6 +459,40 @@ func Scope(state State, env Envelope) State {
 		case option.None:
 			out
 		}
+	case SetRunHead, RecordDecision, RecordLanding:
+		out
+	case RecordLedgerEvent as c:
+		match c.SourceKey {
+		case option.Some[string] as sk:
+			let key = EventSourceKey{Repo: c.Repo, Run: c.Run, SourceKey: sk.Value}
+			match state.EventLogSourceKeys.Get(key) {
+			case option.Some[int] as eid:
+				State{..out, EventLogSourceKeys: out.EventLogSourceKeys.Put(key, eid.Value)}
+			case option.None:
+				out
+			}
+		case option.None:
+			out
+		}
+	case IngestPlan as c:
+		if strings.TrimSpace(c.Repo) == "" || strings.TrimSpace(c.Run) == "" || strings.TrimSpace(c.Text) == "" {
+			return out
+		}
+		let parsed = ParsePlanLines(c.Repo, c.Run, env.Actor, env.At, c.Text)
+		let mut keys = out.EventLogSourceKeys
+		for ev in parsed.Events {
+			match ev.SourceKey {
+			case option.Some[string] as sk:
+				let key = EventSourceKey{Repo: c.Repo, Run: c.Run, SourceKey: sk.Value}
+				match state.EventLogSourceKeys.Get(key) {
+				case option.Some[int] as eid:
+					keys = keys.Put(key, eid.Value)
+				case option.None:
+				}
+			case option.None:
+			}
+		}
+		State{..out, EventLogSourceKeys: keys}
 	}
 }
 
@@ -668,4 +841,73 @@ law QuestionAnsweredOnce(tag int, withdraw bool) {
 		false
 	}
 	s.NextQuestionID == 3 && ListQuestions(s, true).Len() == 1 && q1Ok && q2Ok && second == decidedRefused{Refusal: InvalidTransition{Kind: "question", ID: "1", From: from, Action: "answer"}}
+}
+
+// DecisionSupersedesMarksTargetSuperseded verifies that recording a decision with Supersedes transitions the referenced earlier decision to DecisionSuperseded.
+law DecisionSupersedesMarksTargetSuperseded(tag int) {
+	let mut s = lawStep(EmptyState(), "d1-\(tag)", RecordDecision{
+		Repo:       "repo",
+		Run:        "run",
+		ID:         "d-old",
+		Category:   "ruling",
+		Scope:      "run",
+		UnitID:     option.None,
+		Title:      "Old rule",
+		Body:       "Original rule",
+		Status:     DecisionOpen,
+		Supersedes: option.None,
+		CreatedAt:  option.None,
+	}) catch {
+	case _:
+		return false
+	}
+	s = lawStep(s, "d2-\(tag)", RecordDecision{
+		Repo:       "repo",
+		Run:        "run",
+		ID:         "d-new",
+		Category:   "ruling",
+		Scope:      "run",
+		UnitID:     option.None,
+		Title:      "New rule",
+		Body:       "Updated rule",
+		Status:     DecisionOpen,
+		Supersedes: option.Some[string]{Value: "d-old"},
+		CreatedAt:  option.None,
+	}) catch {
+	case _:
+		return false
+	}
+	let oldOk = match DecisionByKey(s, DecisionKey{Repo: "repo", Run: "run", ID: "d-old"}) {
+	case option.Some[Decision] as d:
+		d.Value.Status == DecisionSuperseded
+	case option.None:
+		false
+	}
+	let newOk = match DecisionByKey(s, DecisionKey{Repo: "repo", Run: "run", ID: "d-new"}) {
+	case option.Some[Decision] as d:
+		d.Value.Status == DecisionOpen
+	case option.None:
+		false
+	}
+	let summary = QueryRunSummary(s, "repo", "run", 5)
+	oldOk && newOk && summary.OpenDecisions == 1
+}
+
+// IngestPlanDeduplicatesEvents verifies that re-ingesting the same plan text under a new CommandID adds zero duplicate operational events.
+law IngestPlanDeduplicatesEvents(tag int) {
+	let plan = "- 2026-11-26T18:00:00Z RULED (Rule A): keep schema clean.\nMAIN MOVED 2026-11-26T18:10:00Z: main = aabbccdd (Landing 10, group g10). Tips: U-1 + U-2\n- 2026-11-26T18:11:00Z DISPATCHED (Worker) U-3: start\n"
+	let s1 = lawStep(EmptyState(), "imp-1-\(tag)", IngestPlan{Repo: "repo", Run: "run", Text: plan}) catch {
+	case _:
+		return false
+	}
+	let s2 = lawStep(s1, "imp-2-\(tag)", IngestPlan{Repo: "repo", Run: "run", Text: plan}) catch {
+	case _:
+		return false
+	}
+		s1.EventLog.Len() == 3 &&
+		s2.EventLog == s1.EventLog &&
+		s2.NextEventID == s1.NextEventID &&
+		s2.Decisions.Len() == 1 &&
+		s2.Landings.Len() == 1 &&
+		RunMetaOf(s2, "repo", "run") != option.None
 }

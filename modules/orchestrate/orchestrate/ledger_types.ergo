@@ -1,0 +1,233 @@
+import option
+
+// RunKey identifies one orchestrated run within a repository.
+type RunKey { Repo string, Run string }
+
+// RunMeta records run-level metadata such as the latest recorded main branch head.
+type RunMeta {
+	Repo      string,
+	Run       string,
+	MainHead  option.Option[string],
+	UpdatedAt string,
+}
+
+// UnitSummary is a compact unit summary without full receipt payloads.
+type UnitSummary {
+	Key          UnitKey,
+	Title        string,
+	Status       UnitStatus,
+	Head         option.Option[string],
+	Lane         option.Option[string],
+	Branch       option.Option[string],
+	ReceiptCount int,
+	UpdatedAt    string,
+}
+
+// UnitPage is a paginated slice of compact unit summaries.
+type UnitPage {
+	Items   []UnitSummary,
+	Total   int,
+	Limit   int,
+	Offset  int,
+	HasMore bool,
+}
+
+// UnitFilter filters and paginates UnitList queries.
+type UnitFilter {
+	Repo   option.Option[string],
+	Run    option.Option[string],
+	Status option.Option[UnitStatus],
+	Limit  int,
+	Offset int,
+}
+
+// DecisionOpen is an active ruling, architectural decision, or owner directive.
+type DecisionOpen {}
+
+// DecisionSuperseded is a decision replaced by a newer decision.
+type DecisionSuperseded {}
+
+// DecisionClosed is a decision explicitly closed or retired.
+type DecisionClosed {}
+
+// DecisionStatus is the lifecycle state of a Decision.
+type DecisionStatus = DecisionOpen | DecisionSuperseded | DecisionClosed
+
+// DecisionStatusName is the canonical external name of a DecisionStatus.
+func DecisionStatusName(s DecisionStatus) string {
+	match s {
+	case DecisionOpen:
+		"open"
+	case DecisionSuperseded:
+		"superseded"
+	case DecisionClosed:
+		"closed"
+	}
+}
+
+// ParseDecisionStatus parses a canonical external decision status name.
+func ParseDecisionStatus(text string) option.Option[DecisionStatus] {
+	match text {
+	case "open":
+		option.Some[DecisionStatus]{Value: DecisionOpen}
+	case "superseded":
+		option.Some[DecisionStatus]{Value: DecisionSuperseded}
+	case "closed":
+		option.Some[DecisionStatus]{Value: DecisionClosed}
+	case _:
+		option.None
+	}
+}
+
+// DecisionStatusNameRoundTrips verifies that every DecisionStatus survives formatting and parsing.
+law DecisionStatusNameRoundTrips(s DecisionStatus) {
+	ParseDecisionStatus(DecisionStatusName(s)) == option.Some[DecisionStatus]{Value: s}
+}
+
+// DecisionKey uniquely identifies a Decision within a repository and run.
+type DecisionKey { Repo string, Run string, ID string }
+
+// Decision is a structured ruling, architectural decision, or owner directive.
+type Decision {
+	ID         string,
+	Repo       string,
+	Run        string,
+	Category   string,
+	Scope      string,
+	UnitID     option.Option[string],
+	Title      string,
+	Body       string,
+	Status     DecisionStatus,
+	Supersedes option.Option[string],
+	Actor      string,
+	CreatedAt  string,
+}
+
+// DecisionPage is a paginated slice of Decision records.
+type DecisionPage {
+	Items   []Decision,
+	Total   int,
+	Limit   int,
+	Offset  int,
+	HasMore bool,
+}
+
+// DecisionFilter filters and paginates DecisionList queries.
+type DecisionFilter {
+	Repo     option.Option[string],
+	Run      option.Option[string],
+	Category option.Option[string],
+	Scope    option.Option[string],
+	UnitID   option.Option[string],
+	Status   option.Option[DecisionStatus],
+	Limit    int,
+	Offset   int,
+}
+
+// LandingKey uniquely identifies a Landing within a repository and run.
+type LandingKey { Repo string, Run string, LandingNumber int }
+
+// Landing is a structured integration landing record on the main branch.
+type Landing {
+	Repo          string,
+	Run           string,
+	LandingNumber int,
+	GroupID       string,
+	Head          string,
+	Tips          []string,
+	Summary       string,
+	LogPath       option.Option[string],
+	LandedAt      string,
+}
+
+// LandingSummary is the compact summary of one landing included in RunOverview.
+type LandingSummary {
+	LandingNumber int,
+	GroupID       string,
+	Head          string,
+	TipCount      int,
+	Summary       string,
+	LandedAt      string,
+}
+
+// LandingPage is a paginated slice of Landing records.
+type LandingPage {
+	Items   []Landing,
+	Total   int,
+	Limit   int,
+	Offset  int,
+	HasMore bool,
+}
+
+// LandingFilter filters and paginates LandingList queries.
+type LandingFilter {
+	Repo   option.Option[string],
+	Run    option.Option[string],
+	Limit  int,
+	Offset int,
+}
+
+// EventSourceKey uniquely identifies an idempotently imported operational event within a run.
+type EventSourceKey { Repo string, Run string, SourceKey string }
+
+// LedgerEvent is one entry in the append-only operational event log.
+type LedgerEvent {
+	ID        int,
+	Repo      string,
+	Run       string,
+	Kind      string,
+	UnitID    option.Option[string],
+	Summary   string,
+	Actor     string,
+	CreatedAt string,
+	SourceKey option.Option[string],
+}
+
+// EventPage is a paginated slice of operational LedgerEvent entries.
+type EventPage {
+	Items   []LedgerEvent,
+	Total   int,
+	Limit   int,
+	Offset  int,
+	HasMore bool,
+}
+
+// EventLogFilter filters, orders, and paginates EventLog queries.
+type EventLogFilter {
+	Repo      option.Option[string],
+	Run       option.Option[string],
+	Kind      option.Option[string],
+	UnitID    option.Option[string],
+	Actor     option.Option[string],
+	Ascending bool,
+	Limit     int,
+	Offset    int,
+}
+
+// RunOverview is the compact progressive-disclosure overview of one orchestration run.
+type RunOverview {
+	Repo            string,
+	Run             string,
+	MainHead        option.Option[string],
+	OpenUnits       int,
+	AcceptedUnits   int,
+	LandedUnits     int,
+	ClosedUnits     int,
+	TotalUnits      int,
+	OpenDecisions   int,
+	OpenQuestions   int,
+	OpenCommitments int,
+	RecentLandings  []LandingSummary,
+}
+
+// ImportReport summarizes the counts applied and skipped by an ImportPlan command.
+type ImportReport {
+	Repo              string,
+	Run               string,
+	LinesScanned      int,
+	DecisionsUpserted int,
+	LandingsUpserted  int,
+	EventsAdded       int,
+	EventsSkipped     int,
+	MainHead          option.Option[string],
+}

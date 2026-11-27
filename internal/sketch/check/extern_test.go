@@ -1230,6 +1230,7 @@ func main() {
 type Mine {} implements Closer
 
 func Accept(_ Mine) net.Conn fails net.Failed { net.Failed{Reason: ""} }
+func DupFD(_ Mine) net.FD fails net.Failed | net.Unsupported { net.Failed{Reason: ""} }
 func Addr(_ Mine) string { "" }
 func Close(_ Mine) {}
 
@@ -1245,11 +1246,65 @@ type Mine {} implements Closer
 
 func Read(_ Mine) string fails net.Failed { "" }
 func Write(_ Mine, data string) fails net.Failed {}
+func DupFD(_ Mine) net.FD fails net.Failed | net.Unsupported { net.Failed{Reason: ""} }
 func LocalAddr(_ Mine) string { "" }
 func RemoteAddr(_ Mine) string { "" }
 func Close(_ Mine) {}
 
 func use(c net.Conn) { _ = c.LocalAddr() }
+
+func main() {
+	use(Mine)
+}
+`,
+	"net.FD": `import net
+
+type Mine {} implements Closer
+
+func Fd(_ Mine) int { -1 }
+func Dup(_ Mine) net.FD fails net.Failed | net.Unsupported { net.Failed{Reason: ""} }
+func IntoListener(_ own Mine) net.Listener fails net.Failed | net.Unsupported { net.Failed{Reason: ""} }
+func IntoUnixListener(_ own Mine) net.UnixListener fails net.Failed | net.Unsupported { net.Failed{Reason: ""} }
+func IntoConn(_ own Mine) net.Conn fails net.Failed | net.Unsupported { net.Failed{Reason: ""} }
+func IntoUnixConn(_ own Mine) net.UnixConn fails net.Failed | net.Unsupported { net.Failed{Reason: ""} }
+func Close(_ Mine) {}
+
+func use(f net.FD) { _ = f.Fd() }
+
+func main() {
+	use(Mine)
+}
+`,
+	"net.UnixConn": `import net
+
+type Mine {} implements Closer
+
+func Read(_ Mine) string fails net.Failed | net.Unsupported { "" }
+func Write(_ Mine, data string) fails net.Failed | net.Unsupported {}
+func SendFDs(_ Mine, data string, fds []net.FD) fails net.Failed | net.Unsupported {}
+func RecvFDs(_ Mine, maxFDs int) net.ReceivedFDs fails net.Failed | net.Unsupported { net.Failed{Reason: ""} }
+func DupFD(_ Mine) net.FD fails net.Failed | net.Unsupported { net.Failed{Reason: ""} }
+func LocalAddr(_ Mine) string { "" }
+func RemoteAddr(_ Mine) string { "" }
+func Close(_ Mine) {}
+
+func use(c net.UnixConn) { _ = c.LocalAddr() }
+
+func main() {
+	use(Mine)
+}
+`,
+	"net.UnixListener": `import net
+
+type Mine {} implements Closer
+
+func Accept(_ Mine) net.UnixConn fails net.Failed | net.Unsupported { net.Failed{Reason: ""} }
+func DupFD(_ Mine) net.FD fails net.Failed | net.Unsupported { net.Failed{Reason: ""} }
+func SetUnlinkOnClose(_ Mine, unlink bool) {}
+func Addr(_ Mine) string { "" }
+func Close(_ Mine) {}
+
+func use(l net.UnixListener) { _ = l.Addr() }
 
 func main() {
 	use(Mine)
@@ -1262,6 +1317,8 @@ type Mine {}
 
 func Listen(_ Mine, addr string) net.Listener fails net.ListenFailed { net.ListenFailed{Addr: addr, Reason: ""} }
 func Dial(_ Mine, addr string) net.Conn fails net.DialFailed { net.DialFailed{Addr: addr, Reason: ""} }
+func ListenUnix(_ Mine, path string) net.UnixListener fails net.ListenFailed { net.ListenFailed{Addr: path, Reason: ""} }
+func DialUnix(_ Mine, path string) net.UnixConn fails net.DialFailed { net.DialFailed{Addr: path, Reason: ""} }
 
 func use(p nettest.PipeNet) { _ = p }
 
@@ -1278,6 +1335,20 @@ func Listen(_ Mine, addr string) net.Listener fails net.ListenFailed { try nette
 func Dial(_ Mine, addr string) net.Conn fails net.DialFailed { try nettest.NewPipe().Dial(addr) }
 
 func use(n net.Network) { _ = n }
+
+func main() {
+	use(Mine)
+}
+`,
+	"net.UnixNetwork": `import net
+import nettest
+
+type Mine {} implements net.UnixNetwork
+
+func ListenUnix(_ Mine, path string) net.UnixListener fails net.ListenFailed | net.Denied | net.Unsupported { try nettest.NewPipe().ListenUnix(path) }
+func DialUnix(_ Mine, path string) net.UnixConn fails net.DialFailed | net.Denied | net.Unsupported { try nettest.NewPipe().DialUnix(path) }
+
+func use(n net.UnixNetwork) { _ = n }
 
 func main() {
 	use(Mine)
@@ -1595,6 +1666,21 @@ func main() {
 	use(Mine)
 }
 `,
+	"os/host.System": `import os/host
+
+type Mine {} implements host.System
+
+func Status(_ Mine, volumes []string) host.Status fails host.Unavailable | host.Malformed {
+	host.Status{Cores: 1, Load: host.LoadAvg{One: 0.0, Five: 0.0, Fifteen: 0.0, Running: 0, Entities: 0}, Memory: host.Memory{TotalBytes: 0, AvailableBytes: 0, FreeBytes: 0, UsedBytes: 0}, Volumes: []host.Volume{}}
+}
+func Processes(_ Mine) []host.Process fails host.Unavailable | host.Malformed { []host.Process{} }
+
+func use(s host.System) { _ = s.Processes() catch { case host.Unavailable, host.Malformed: return } }
+
+func main() {
+	use(Mine)
+}
+`,
 	// std pace (PACE1): open; a program provides it (pace.Default,
 	// pace.Percent).
 	// The store contracts of ST3 (stdlib.md, Stores): a program or a
@@ -1856,12 +1942,14 @@ var openStd = map[string]bool{
 	"prelude.Reader":    true,
 	"os.Process":        true,
 	"os.Self":           true,
+	"os/host.System":    true,
 	"fs/mapped.Maps":    true, // open: a program may provide its own store of mapped files (CAP-FILE), as fs.Files and fs.Writes are open
 	"signal.Stops":      true,
 	"fs.Files":          true,
 	"fs.Writes":         true,
 	"fs.Root":           true,
 	"net.Network":       true,
+	"net.UnixNetwork":   true,
 	"fstest.Confined":   true,
 	"io.Stdout":         true,
 	"io.Stderr":         true,

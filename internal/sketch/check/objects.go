@@ -2,6 +2,7 @@ package check
 
 import (
 	"sort"
+	"sync/atomic"
 
 	"ergo.local/prototype/internal/sketch/syntax"
 )
@@ -76,14 +77,15 @@ func (o *TypeName) BindsGoType() bool { return o != nil && o.goType }
 
 // Func is a package function, extern included.
 type Func struct {
-	Name  string
-	Pkg   *Package
-	Pos   syntax.Pos
-	Decl  *syntax.FuncDecl
-	Ptr   bool // a 196m function whose first parameter is *owner
-	Sig   *Signature
-	file  *fileInfo
-	state int // signature: 0 none, 1 resolving, 2 done
+	Name     string
+	Pkg      *Package
+	Pos      syntax.Pos
+	Decl     *syntax.FuncDecl
+	Ptr      bool // a 196m function whose first parameter is *owner
+	Sig      *Signature
+	file     *fileInfo
+	state    int // signature: 0 none, 1 resolving, 2 done
+	sigReady atomic.Bool
 
 	// Inferred rows: true when the row is computed from the body
 	// (rows.md, Capability rows 6; rows-and-constraints §7 amendment 1).

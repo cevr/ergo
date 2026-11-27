@@ -52,6 +52,7 @@ type Fn {
 	SelfBounds []types.SelfBound,
 	SelfArity  int,
 	SelfRole   dense.Opt[store.TKey],
+	fromDep    int,
 }
 
 // Field is a record field: its name and type (the record's bracket
@@ -97,6 +98,7 @@ type Pkg {
 	named    dense.Side[dense.Str, int],
 	sameName []int,
 	recBy    dense.Side[store.Decl, int],
+	facts    typeFacts,
 }
 
 // paramNames is the name node of each parameter of the function type ft,
@@ -186,7 +188,7 @@ func declared(s mut store.Store, env types.Env, p syntax.Parsed, file int, decl 
 	case option.None:
 	}
 	let none = store.TRow(s, []dense.ID[store.TKey]{})
-	Fn{File: file, Decl: decl, Name: name, Params: []string{}, Rows: []bool{}, Own: []bool{}, Names: names, Sig: store.TSig(s, ts, result, none, none), Body: b, Takes: []bool{}, Pnames: []string{}, Close: false, SelfBounds: []types.SelfBound{}, SelfArity: 0, SelfRole: dense.NoID[store.TKey]()}
+	Fn{File: file, Decl: decl, Name: name, Params: []string{}, Rows: []bool{}, Own: []bool{}, Names: names, Sig: store.TSig(s, ts, result, none, none), Body: b, Takes: []bool{}, Pnames: []string{}, Close: false, SelfBounds: []types.SelfBound{}, SelfArity: 0, SelfRole: dense.NoID[store.TKey](), fromDep: -1}
 }
 
 // sigFacts is what a function's declaration says of its parameters: the
@@ -456,7 +458,7 @@ func Load(s mut store.Store, files []bind.File, u bind.Uses, ps bind.Parents, ex
 				[]bool{}
 			}
 			let facts = factsOf(*s, p, types.NameText(p, fd.Name), fd.Type, sig, closers)
-			fns = fns.Append(Fn{File: f.File, Decl: f.Decl, Name: fd.Name, Params: f.Params, Rows: rows, Own: own, Names: paramNames(p, fd.Type), Sig: sig, Body: fd.Body, Takes: facts.taken, Pnames: facts.names, Close: facts.close, SelfBounds: bounds, SelfArity: 0, SelfRole: dense.NoID[store.TKey]()})
+			fns = fns.Append(Fn{File: f.File, Decl: f.Decl, Name: fd.Name, Params: f.Params, Rows: rows, Own: own, Names: paramNames(p, fd.Type), Sig: sig, Body: fd.Body, Takes: facts.taken, Pnames: facts.names, Close: facts.close, SelfBounds: bounds, SelfArity: 0, SelfRole: dense.NoID[store.TKey](), fromDep: -1})
 		case _:
 		}
 	}
@@ -603,7 +605,8 @@ func Load(s mut store.Store, files []bind.File, u bind.Uses, ps bind.Parents, ex
 	// The unions a call meets, read once: inference looks one up per
 	// union argument, not per declaration.
 	let unions = if parsed.Len() > 0 { types.UnionsOf(s, types.NewEnv(*s, parsed, parsed[0], []string{}, kinds, ext, foreign, deps)) } else { infer.NoUnions() }
-	Pkg{Files: files, Parsed: parsed, U: u, Ps: ps, Kinds: kinds, Ext: ext, Foreign: foreign, Ifaces: deps, Fns: fns, Recs: recs, Parses: parses, Claims: claims, FunctionClaimIssues: functionClaims, Roles: roles, Deps: []Dep{}, Unions: unions, fnBy: fnBy, named: named, sameName: sameName, recBy: recBy}
+	let facts = buildTypeFacts(s, parsed, kinds, ext, foreign, deps, roles, fns)
+	Pkg{Files: files, Parsed: parsed, U: u, Ps: ps, Kinds: kinds, Ext: ext, Foreign: foreign, Ifaces: deps, Fns: fns, Recs: recs, Parses: parses, Claims: claims, FunctionClaimIssues: functionClaims, Roles: roles, Deps: []Dep{}, Unions: unions, fnBy: fnBy, named: named, sameName: sameName, recBy: recBy, facts: facts}
 }
 
 // Exported is k with only the tables an importer reads: file names
@@ -624,7 +627,7 @@ func Exported(k Pkg) Pkg {
 func parseFn(k Pkg, at dense.ID[store.PNode]) option.Option[Fn] {
 	for o in k.Parses {
 		if bind.PNodeOf(k.Ps, o.File, o.Name) == at {
-			return option.Some[Fn]{Value: Fn{File: o.File, Decl: o.Name, Name: o.Name, Params: []string{}, Rows: []bool{}, Own: []bool{}, Names: []dense.Opt[syntax.Node]{dense.NoID[syntax.Node]()}, Sig: o.T, Body: dense.NoID[syntax.Node](), Takes: []bool{false}, Pnames: []string{""}, Close: false, SelfBounds: []types.SelfBound{}, SelfArity: 0, SelfRole: dense.NoID[store.TKey]()}}
+			return option.Some[Fn]{Value: Fn{File: o.File, Decl: o.Name, Name: o.Name, Params: []string{}, Rows: []bool{}, Own: []bool{}, Names: []dense.Opt[syntax.Node]{dense.NoID[syntax.Node]()}, Sig: o.T, Body: dense.NoID[syntax.Node](), Takes: []bool{false}, Pnames: []string{""}, Close: false, SelfBounds: []types.SelfBound{}, SelfArity: 0, SelfRole: dense.NoID[store.TKey](), fromDep: -1}}
 		}
 	}
 	option.None

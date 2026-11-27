@@ -38,7 +38,7 @@ import (
 //go:embed v1/path.go v1/numbers.go v1/goerror.go v1/goreads.go v1/goarg.go v1/gocall.go v1/gocallback.go
 //go:embed v1/view.go v1/guard.go v1/guard_unix.go v1/guard_other.go v1/cguard.go v1/cguard_unix.go v1/cguard_other.go
 //go:embed v1/digest/digest.go v1/digest/keyed.go v1/csv/csv.go v1/rand/rand.go v1/gofmt/gofmt.go v1/hostwalk/hostwalk.go
-//go:embed v1/hostfs/hostfs.go
+//go:embed v1/hostfs/hostfs.go v1/hostfs/statfs_linux.go v1/hostfs/statfs_darwin.go
 //go:embed v1/exec/exec.go v1/exec/exec_confine.go v1/exec/exec_exit_kqueue.go v1/exec/exec_exit_linux.go v1/exec/exec_start.go v1/exec/exec_sandbox_linux.go v1/exec/exec_sandbox_other.go
 //go:embed explore/explore.go
 //go:embed testgen/classes.go testgen/near.go testgen/stream.go
@@ -47,7 +47,7 @@ import (
 //go:embed explore/sched/dfs.go explore/sched/minimize.go explore/sched/pct.go explore/sched/sched.go explore/sched/token.go explore/sched/worker.go
 //go:embed rt/mapfault.go rt/pace.go rt/gcknobs.go rt/readsmall.go rt/readsmall_other.go rt/park.go rt/park_stock.go rt/park_word.go rt/waiter.go
 //go:embed v1/lineage.go v1/mapfile_unix.go v1/mapped.go v1/stdout.go v1/ui_args.go
-//go:embed v1/exec/exec_unix.go v1/net/net.go v1/net/loopback.go
+//go:embed v1/exec/exec_unix.go v1/net/net.go v1/net/loopback.go v1/net/unix.go v1/net/unix_other.go v1/net/unix_unix.go
 //go:embed rt/group.go v1/buffer.go v1/heap.go v1/term_bsd.go v1/unsupported_os.go v1/exec/exec_spawn.go v1/exec/exec_spawn_darwin.go v1/exec/exec_spawn_linux.go v1/exec/exec_spawn_other.go v1/http/http_local.go v1/http/http_query.go
 //go:embed v1/exchange_darwin.go v1/exchange_linux.go v1/exchange_linux_amd64.go v1/exchange_linux_arm64.go v1/exchange_other.go
 //go:embed tzdata/tzdata.go tzdata/zones.bin
@@ -136,14 +136,14 @@ var packages = sync.OnceValue(func() map[string]pkg {
 		// Go's net: std net's sockets and memory pipe, and the Listener std
 		// http serves.
 		"runtime/v1/net": {
-			files:   []string{"loopback.go", "net.go"},
-			imports: []string{"runtime/rt"},
+			files:   []string{"loopback.go", "net.go", "unix.go", "unix_other.go", "unix_unix.go"},
+			imports: []string{"runtime/rt", "runtime/v1"},
 		},
 		// A file's metadata as values: os's Stat, Lstat and ReadDir are bound
 		// to it (HOST-ROW-3). Plain Go, bound as any Go package is, not a leaf
 		// of bodies (v1.Owns).
 		"runtime/v1/hostfs": {
-			files: []string{"hostfs.go"},
+			files: []string{"hostfs.go", "statfs_darwin.go", "statfs_linux.go"},
 		},
 		// net/http links fmt, reflect, crypto/tls and encoding/* (binsize BS8).
 		"runtime/v1/http": {

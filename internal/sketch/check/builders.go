@@ -75,6 +75,10 @@ func (b *Builder) Instance(n *Named) (targs, params []Type) {
 		return nil, params
 	}
 	m := paramMap(sig.TParams, n.TArgs)
+	if n.ctx != nil {
+		n.ctx.lazyMu.Lock()
+		defer n.ctx.lazyMu.Unlock()
+	}
 	for _, v := range sig.Params {
 		params = append(params, n.ctx.subst(v.Type, m))
 	}

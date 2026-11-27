@@ -112,6 +112,8 @@ var contextPlaceRows = map[string]externPlaceRow{
 	// there is its one S108, as a name in a type position is.
 	"TypeDecl.Where": {guardType, "type T int where @w > 0\n"},
 	"Field.Where":    {guardType, "law L(x int where @w > 0) { true }\n"},
+	"FactClause.Cond": {guardType, "func f() given @w {}\n"},
+	"FactClause.When": {guardType, "func f() keeps x when @w {}\n"},
 	// A derive's plan is built from constants (patterns.md, Derivation 2):
 	// a context's name there is its one S108.
 	"TypeDecl.Derive": {guardType, "type T derive @w\n"},

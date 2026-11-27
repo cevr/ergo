@@ -1008,7 +1008,10 @@ func carried(pn *PkgName) bool {
 		return false
 	}
 	h.load()
-	return h.err == "" && len(pn.Pkg.Scope.names) == 0 && len(h.refused) == 0
+	h.mu.Lock()
+	ok := h.err == "" && len(pn.Pkg.Scope.names) == 0 && len(h.refused) == 0
+	h.mu.Unlock()
+	return ok
 }
 
 // carry records a carried import in the package of main, which makes the
@@ -1032,13 +1035,29 @@ func (c *checker) carry(pn *PkgName, entry bool) {
 // resolveNamed resolves a declared type's body once, with Go types2's object
 // colouring: a declaration reached again while it resolves is a cycle.
 func (c *checker) resolveNamed(n *Named) {
-	if n.state != 0 || n.Obj.Decl == nil {
+	if n.underReady.Load() || n.Obj.Decl == nil {
 		return
 	}
 	if h := hostOf(n.Obj.Pkg); h != nil && h.c != c {
 		// A host type resolves in its binding (gobinding.go).
-		h.c.resolveNamed(n)
+		h.mu.Lock()
+		h.c.resolveNamedLocked(n)
+		h.mu.Unlock()
 		return
+	}
+	c.resolveNamedLocked(n)
+}
+
+func (c *checker) resolveNamedLocked(n *Named) {
+	if n.state != 0 || n.Obj.Decl == nil {
+		return
+	}
+	if n.Obj.Pkg.Host() {
+		defer func() {
+			if n.state == 2 && n.under != nil {
+				n.underReady.Store(true)
+			}
+		}()
 	}
 	n.state = 1
 	saved, shallow := c.cur, c.shallow
@@ -2686,21 +2705,41 @@ func (c *checker) signature(ft *syntax.FuncType, ctx *typeCtx) *Signature {
 		c.takesClause(ft.Takes, sig, ctx.method, ctx.hostRecv)
 	}
 	sig.Defects = ft.Defects
+	for _, fc := range ft.Facts {
+		c.errorf(fc, CodeOutside, "value-tied fact clause waits for VF-1-FACTS-CHECK r2 (facts.md)")
+	}
 	return sig
 }
 
 // funcSig resolves a function's or method's signature, its type parameters
 // (every one declared in brackets, 196g) and its receiver.
 func (c *checker) funcSig(f *Func) *Signature {
+	if f.sigReady.Load() {
+		return f.Sig
+	}
+	if h := hostOf(f.Pkg); h != nil && h.c != c {
+		// A host function or method resolves in its binding (gobinding.go).
+		h.mu.Lock()
+		sig := h.c.funcSigLocked(f)
+		h.mu.Unlock()
+		return sig
+	}
+	return c.funcSigLocked(f)
+}
+
+func (c *checker) funcSigLocked(f *Func) *Signature {
 	if f.state == 2 || f.state == 1 {
 		if f.Sig == nil {
 			f.Sig = &Signature{Errors: newRow(), Uses: newRow()}
 		}
 		return f.Sig
 	}
-	if h := hostOf(f.Pkg); h != nil && h.c != c {
-		// A host function or method resolves in its binding (gobinding.go).
-		return h.c.funcSig(f)
+	if c.pkg.Host() {
+		defer func() {
+			if f.state == 2 && f.Sig != nil {
+				f.sigReady.Store(true)
+			}
+		}()
 	}
 	f.state = 1
 	saved := c.cur

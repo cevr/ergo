@@ -27,6 +27,7 @@ fact go ergo.local/prototype/runtime/v1/hostfs.FileStat effect ambient validated
 fact go ergo.local/prototype/runtime/v1/hostfs.Lstat effect ambient validated by guard with go1.27.4 h1:ySqhFpLTezsColLQ+cz8s6REG7UjpA+yKDg4qXHNpnA=
 fact go ergo.local/prototype/runtime/v1/hostfs.ReadDir effect ambient validated by guard with go1.27.4 h1:d+oUwLLL8D0coEwPEeJdVlVsC0tqpyUM1wlJJKB/578=
 fact go ergo.local/prototype/runtime/v1/hostfs.Stat effect ambient validated by guard with go1.27.4 h1:nFnSkH1a/C75WshEZGFkVNwBm5TWmNuFdglevEi+GGA=
+fact go ergo.local/prototype/runtime/v1/hostfs.Statfs effect ambient validated by guard with go1.27.4 h1:4nvUKZmnfLgky0rDNsitAybk6hEYx4p6mTSpbPlk1Yw=
 fact go expvar.Do sync callbacks validated by guard with go1.27.4 h1:3EQ0+zCfgc9r17mu/CucahIalZw097SMGUzx5yl5vPs=
 fact go flag.FlagSet.Visit sync callbacks validated by guard with go1.27.4 h1:zMMlnOPaIglzVULTlb2NdPLItox4RwyzStbZZ9JP7oQ=
 fact go flag.FlagSet.VisitAll sync callbacks validated by guard with go1.27.4 h1:yIiRicEWxnxFxnFABwnva9OHAnH3lPi1IWTbtJqfNhE=
@@ -83,6 +84,7 @@ fact go os.File.WriteAt effect ambient validated by guard with go1.27.4 h1:cGwXT
 fact go os.File.WriteAt reads b validated by guard with go1.27.4 h1:EemhizCnS9IDqP4Y7Mee06hxJtDzYcSHe3uI8RxlX5k=
 fact go os.File.WriteString effect ambient validated by guard with go1.27.4 h1:VLuXdNbu1LMlkEgvjdSsbKo6wwjVNiVI6NlKD8QbjAw=
 fact go os.Getenv effect ambient validated by guard with go1.27.4 h1:/ccwIxKhU8XbcPtMEBqi6bEm461e3wIE2gooNXO2lWk=
+fact go os.Getpagesize effect ambient validated by guard with go1.27.4 h1:c2bolTM+fkOq9RRJTydCM54JvwaVFAgkd1q1emp+3vg=
 fact go os.Getwd effect ambient validated by guard with go1.27.4 h1:r/2LsBrLrIAI2l8oVIFDIBKk4luxppaTqbEYPZ2AQFM=
 fact go os.Lchown effect ambient validated by guard with go1.27.4 h1:PEG7K6nBLwPPKlE2Onfb9kTEKX9wYabAnARRxQpcAAE=
 fact go os.LookupEnv effect ambient validated by guard with go1.27.4 h1:E1rIctoNmJL03lzx+E63GWMGoy1E75KKREYek3q2O1k=
@@ -106,6 +108,7 @@ fact go regexp.Regexp.FindStringSubmatch fresh result validated by guard with go
 fact go regexp.Regexp.ReplaceAllFunc sync callbacks validated by guard with go1.27.4 h1:+1SnFQ5K9/RCKQ6vFX39bXV0c1m7uBYRV1uTx55T+Tw=
 fact go regexp.Regexp.ReplaceAllStringFunc sync callbacks validated by guard with go1.27.4 h1:/F5F7/7RbfxcBSd3csidiDPYMCWy2mPNV6m7RHJIJ/0=
 fact go regexp.Regexp.Split fresh result validated by guard with go1.27.4 h1:9CFg3jtV9jmBQh0qhu9NCSVm8xbmWSe1ATSZq9kuAiQ=
+fact go runtime.NumCPU effect ambient validated by guard with go1.27.4 h1:Z9kFpzkNHuKBqSKmWycpZ+X+TU9wS9kUA2kGk5JutBc=
 fact go simd/archsimd pure members validated by guard with go1.27.4 h1:M5L7Mc1bxujCnkeWpNnY9q0hpfAFuuqrVtwNEMZmfO8=
 fact go slices pure members validated by guard with go1.27.4 h1:Fd/dtnQ99et7SDYk7lMpP4F3TkVf8oYZCu3TE1BxwZE=
 fact go slices.BinarySearchFunc sync callbacks validated by guard with go1.27.4 h1:f+qU9K7dOHJHApJMphx0YRbHYITcjg+Gzjrg59Cp4Nw=

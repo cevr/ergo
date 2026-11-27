@@ -392,6 +392,71 @@ func RecordError(kind string, code string, message string, retriable bool) {
 	})
 }
 
+// RecordOp records one finished sub-operation on the innermost active
+// wide-event span in a single update: counter calls gains 1, timing gains
+// elapsed, and counter errors gains 1 when failed or 0 otherwise. Outside an
+// active span it is a no-op.
+func RecordOp(calls string, timing string, errors string, elapsed duration, failed bool) {
+	let h, ok = wideGet[activeHandle]("wide_span")
+	if !ok {
+		return
+	}
+	h.acc.Update(func(s spanAcc) spanAcc {
+		spanAcc{
+			..s,
+			counters: addCounter(addCounter(s.counters, calls, 1), errors, if failed { 1 } else { 0 }),
+			timings:  addTiming(s.timings, timing, elapsed),
+		}
+	})
+}
+
+// RecordOpIsCountAndTiming: RecordOp has the same effect on a span as Count of
+// calls, AddTiming of elapsed and Count of errors by 1 or 0, so a provider that
+// records through it reports exactly what separate calls would.
+law RecordOpIsCountAndTiming(okRaw int, failRaw int, msRaw int) {
+	let oks = ((okRaw % 5) + 5) % 5
+	let bad = ((failRaw % 5) + 5) % 5
+	let ms = ((msRaw % 50) + 50) % 50
+	let d = duration(int64(ms) * int64(1000000))
+	sometimes bad == 0
+	sometimes bad > 0 && oks > 0
+	let (_, viaOp) = Capture(func() bool needs Sink | time.Clock {
+		WithSpan("op", func() bool needs Sink | time.Clock {
+			for _ in 0..oks {
+				RecordOp("x.calls", "x.ms", "x.errors", d, false)
+			}
+			for _ in 0..bad {
+				RecordOp("x.calls", "x.ms", "x.errors", d, true)
+			}
+			true
+		})
+	})
+	let (_, viaParts) = Capture(func() bool needs Sink | time.Clock {
+		WithSpan("op", func() bool needs Sink | time.Clock {
+			for _ in 0..oks {
+				Count("x.calls", 1)
+				AddTiming("x.ms", d)
+				Count("x.errors", 0)
+			}
+			for _ in 0..bad {
+				Count("x.calls", 1)
+				AddTiming("x.ms", d)
+				Count("x.errors", 1)
+			}
+			true
+		})
+	})
+	always viaOp.Len() == 1 && viaParts.Len() == 1
+	always CounterValue(viaOp[0], "x.calls") == oks+bad
+	always CounterValue(viaOp[0], "x.errors") == bad
+	always TimingDuration(viaOp[0], "x.ms") == duration(int64((oks+bad)*ms)*int64(1000000))
+	always viaOp[0].Counters == viaParts[0].Counters
+	always viaOp[0].Timings == viaParts[0].Timings
+	RecordOp("x.calls", "x.ms", "x.errors", d, true)
+	always !Active()
+	true
+}
+
 func initialFieldsFromLog() []Field {
 	let attrs = log.Annotations()
 	let mut out = []Field{}
@@ -533,6 +598,32 @@ func WithMetaSpan[T, E, R](name string, service ServiceMeta, gen IDGenerator, sa
 // TraceContext parent, setting TraceID and ParentSpanID from parent.
 func WithIncomingSpan[T, E, R](name string, service ServiceMeta, parent TraceContext, gen IDGenerator, fn func() T fails E needs R) T fails E needs Sink | time.Clock | R {
 	try runSpan(name, service, option.Some[TraceContext]{Value: parent}, option.Some[IDGenerator]{Value: gen}, parent.Sampled, fn)
+}
+
+// WithServiceSpan runs fn inside a named wide-event span for service,
+// continuing from incoming when present or starting a fresh root trace
+// otherwise, emitting exactly one canonical WideEvent to Sink on exit.
+func WithServiceSpan[T, E, R](name string, service ServiceMeta, incoming option.Option[TraceContext], fn func() T fails E needs R) T fails E needs Sink | time.Clock | R {
+	let sampled = match incoming {
+	case option.Some[TraceContext] as p:
+		p.Value.Sampled
+	case option.None:
+		true
+	}
+	try runSpan(name, service, incoming, option.None, sampled, fn)
+}
+
+// WithServiceSpanGen runs fn inside a named wide-event span for service using
+// explicit IDGenerator gen, continuing from incoming when present or starting
+// a fresh root trace otherwise.
+func WithServiceSpanGen[T, E, R](name string, service ServiceMeta, incoming option.Option[TraceContext], gen IDGenerator, fn func() T fails E needs R) T fails E needs Sink | time.Clock | R {
+	let sampled = match incoming {
+	case option.Some[TraceContext] as p:
+		p.Value.Sampled
+	case option.None:
+		true
+	}
+	try runSpan(name, service, incoming, option.Some[IDGenerator]{Value: gen}, sampled, fn)
 }
 
 // Capture runs fn with a fresh in-memory Recorder and deterministic manual

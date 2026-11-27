@@ -184,3 +184,68 @@ func main() needs Ambient {
 		t.Fatalf("emptyMatch did not lower on IR: %v", rep.IR)
 	}
 }
+
+// TestFallbackOffAcceptsPatternOwnersAndArmValues verifies that Unit.NoFallback
+// accepts record pattern ownership in decision trees (treeMatch) and
+// list-frame ArmValues across value forms without text fallbacks.
+func TestFallbackOffAcceptsPatternOwnersAndArmValues(t *testing.T) {
+	const src = `import net
+import nettest
+import slices
+
+func transferListener() bool fails net.ListenFailed | net.DialFailed | net.Failed | net.Unsupported {
+	let p = nettest.NewPipe()
+	let tcpLn = try p.Listen("127.0.0.1:0")
+	let ctl = try p.ListenUnix("ctl.sock")
+	let tx = try p.DialUnix("ctl.sock")
+	let rx = try ctl.Accept()
+	let lfd = try tcpLn.DupFD()
+	try tx.SendFDs("tcp-listener", []net.FD{lfd})
+	tcpLn.Close()
+	let r = try rx.RecvFDs(4)
+	let newLn = match r {
+	case net.ReceivedFDs{Data: tag, FDs: fds}:
+		if tag != "tcp-listener" || len(fds) != 1 {
+			return false
+		}
+		let (fd, rest) = slices.Take(fds, 0)
+		if len(rest) != 0 {
+			return false
+		}
+		try net.ListenFromFD(fd)
+	}
+	let ok = if len(newLn.Addr()) > 0 {
+		let extra = try newLn.DupFD()
+		let _ = extra.Fd()
+		true
+	} else {
+		false
+	}
+	ok
+}
+
+func main() {
+	let _ = transferListener() catch {
+	case _:
+		false
+	}
+}
+`
+	o := mustLower(t, "nofallback_pat_arm", src)
+	u := Unit{
+		Package:    o.pkg,
+		Files:      []*syntax.File{o.file},
+		Sources:    []Source{{Path: testSourcePath, Text: src}},
+		NoFallback: true,
+	}
+	_, rep, err := LowerIR(u)
+	if err != nil {
+		t.Fatalf("LowerIR(NoFallback=true) refused pattern owners / ArmValues program: %v", err)
+	}
+	if len(rep.Fallback) != 0 || len(rep.CodecText) != 0 {
+		t.Fatalf("expected 0 fallbacks and 0 CodecText, got Fallback=%v CodecText=%v", rep.Fallback, rep.CodecText)
+	}
+	if !slices.ContainsFunc(rep.IR, func(name string) bool { return strings.Contains(name, "transferListener") }) {
+		t.Fatalf("transferListener did not lower on IR: %v", rep.IR)
+	}
+}

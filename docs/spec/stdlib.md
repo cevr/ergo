@@ -21,13 +21,13 @@ The standard library is the "Effect for Go" track, the standard library. Its mod
 | Sync and STM | std sync and STM | Ref, SynchronizedRef, Deferred, Semaphore, Latch, TxRef, TxQueue, TxSemaphore | `sync.Ref`, `sync.Atomically() { }`, `sync.Tx` | kernel + library |
 | Batching, caching and pools | std batch, cache and pool | Request, RequestResolver, Cache, ScopedCache, Pool, KeyedPool, RcRef, RcMap, ScopedRef | `batch.Resolve` in `context`; [`cache`](#cache): `Get`, `Put`, `NewReleasing` | library |
 | Config | std config | Config, ConfigProvider, Redacted | [`config`](#config): `Load`, `Redacted[T]` | library |
-| Observability | std trace, log and metric | Tracer, Logger, Metric, LogLevel, References | `with trace.Span(…)`, `log`, `metric` | library on kernel G1/G2 |
+| Observability | std trace, log and metric | Tracer, Logger, Metric, LogLevel, References | `with trace.Span(…)`, [`log`](#log), [`metric`](#metric) | library on kernel G1/G2 |
 | Clock, random and testing | the prelude services | Clock, Random, Console, TestClock, TestServices, TestContext, `it.effect` | prelude capabilities, `testing.VirtualClock` in `context` | kernel seams + library |
 | HTTP | std http and rpc | HttpClient, HttpServer, HttpRouter, HttpApi | `func(http.Request) http.Response`, total `catch` | library + host |
 | RPC | std rpc | Rpc, RpcGroup, RpcClient, RpcServer | `rpc.Answer` (an http handler, so one listener serves RPC beside other routes), `rpc.Serve`, `rpc.Call`, `rpc.Loopback` (a server in process, so a contract's laws run through the wire), and the server and client `ergo gen rpc` writes from an operation type ([rpc.md](rpc.md)) | library + host |
 | HTML | std html | (none; Lustre and Elm prior art) | `html` functions | library |
 | Actors | the actor library | cluster Entity (OTP, Gleam and Akka Typed prior art) | `actor.Start`, `actor.Ask` with an `actor.Reply[T, E]` in the message, `actor.Address[M]`, `actor.StartMachine(m, n)`, `actor.StartAgent` and `actor.Call` with a function on a lent `*S` ([actor library note](../research/actor-library.md)) | library: no compiler rule names it |
-| Host packages | std host packages | platform FileSystem, Path, Command, Socket; sql | `os`, `fs`, `net` ([net](#net)), `sql` with cancel hooks | host |
+| Host packages | std host packages | platform FileSystem, Path, Command, Socket; sql | `os`, `os/host`, `fs`, `net` ([net](#net)), `sql` with cancel hooks | host |
 | Core data | std core data | Option, Array, Record, HashMap, HashSet, Chunk, Order, Equivalence, Equal, Hash, Data | `core`, `option`, `collections`, `slices`, `maps`, `cmp` | library + built-in constraints |
 
 Out of scope for now: durable workflows.
@@ -1847,6 +1847,7 @@ The table has one row per std package, the prelude included. The Effect module i
 | `nettest` | `@effect/platform` `Socket.ts` (`makeChannel` over an in-memory pair, outside `packages/effect/src` at the pin) | W4, W5, W14 | a provider of `net.Network`, bound by `context` as `net.Host` is, with the same laws; `TestNetHostAgrees` holds it equal to the host ([net](#net) 5) | `runtime/v1/net.BenchmarkNetRoundTrip/ergo-pipe`: 2,090 (2,060 to 2,112) instructions per op, no system call |
 | `decimal` | `BigDecimal.ts` | W3, W5, W8, W10 | a value `Decimal` with a 128-bit coefficient and the scale the user wrote; `Overflow` and `DivideByZero` are typed failures, never a throw or an `Option`; `RoundingMode` is a union matched exhaustively ([decimal](#decimal)) | `internal/sketch/lower.BenchmarkStdDecimal` against the same 128-bit algorithm in hand Go on `math/bits`, as first written and with inlinable fast paths (the best hand Go), and against Go `int64` cents and `math/big.Rat` |
 | `os` | `ConfigProvider.ts`, `Config.ts` | W4, W5, W13 | the operation type `Process` with the law `GetenvIsStable`; `os.Exit` is a failure in the row ([os](#os)) | none: `Getenv` is two `runtime/v1` calls (`OSHasEnv`, `OSGetenv`); S4d makes it one lookup |
+| `os/host` | none: Effect relies on Node `os` / `@effect/platform` with throws and untyped process parsing | W4, W5, W6 | `System` capability with closed failure union `Unavailable \| NotFound \| Malformed`, construction-authorized `Host` provider (`NewHost() needs Ambient`), `Static` in-memory test provider, wire-compatible snapshots (`Status`, `LoadAvg`, `Memory`, `Volume`, `Process`), and pure `/proc` parsers with check-time invariant laws ([os/host](#oshost); [Host packages](#host-packages)) | none: reads `/proc` files and calls `runtime.NumCPU`, `os.Getpagesize`, and `hostfs.Statfs` once per query; no speed claim yet |
 | `pace` | none: the pin has no collector policy (a JavaScript host owns its collector); the intent is Go's GOGC, GOMEMLIMIT and runtime.GC set per program | W4, W14, W18 | the operation type `Pacing` with the laws `EdgeKeepsValues` and `HoldKeepsValues`, and the block `Held`; its providers `Default`, `Percent`, `AtEdges` and `Counting` are bound by `context` in `cmd` main or a test ([Pacing](#pacing)) | none: `Default`'s edge is an empty call; `AtEdges`'s edge is an atomic step between reads of the heap; dash-gui's per-frame receipt is in [Pacing](#pacing) |
 | `queue` | `Queue.ts` | W5, W10, W14 | `Push` and `Pop` fail `Closed` in the row; `Poll` gives `Option`; `Offer` fails `Full` in the row, and the dropping and sliding strategies are the producer's choice per send (`Offer`, `Slide`), not queue kinds ([runtime.md, Queues](runtime.md#queues); [PubSub and send strategies](#pubsub-and-send-strategies)) | `runtime/v1.BenchmarkQueuePoll` and `runtime/v1.BenchmarkQueuePushPop` against a buffered channel; pending in `wf10/batch-10/s3/bench-pending.md` |
 | `pubsub` | `PubSub.ts` | W2, W3, W14 | a hub of shared handles with plain calls; a `Subscription` is a resource released by its scope in place of a scoped `subscribe` effect; the strategy is the producer's per send ([PubSub and send strategies](#pubsub-and-send-strategies)) | none: one `Push` per subscriber on the queue body, whose control is a buffered channel per subscriber; no speed claim |
@@ -2053,6 +2054,27 @@ Std `log` (std-spike C3) writes log entries through the `Sink` in the context, w
 6. **Laws and runners.** The laws are beside their declarations in `sink.ergo`. Lower `TestStdLogLawsRun` restates them as Ergo tests, `Sink.EnabledIsMonotone` over both providers at each least level.
 
 *Prior art:* Effect's `Logger`, `LogLevel` and `Effect.annotateLogs`; Go's `log/slog` (`Level`, `Handler.Enabled`, `JSONHandler`). Elixir's `Logger` keeps metadata per process (`Logger.metadata`) and filters by a level before it formats, as `Log` does; Gleam has no logger in its standard library (`gleam_erlang` binds Erlang's `logger`), and ReScript binds `console`. Each compiles a call below the level to a check and nothing else, as `Enabled` is here.
+
+## metric
+
+Std `metric` records structured counters, gauges, histograms, exact key frequencies, and bounded sliding-window summaries through a `Sink` capability in context, enforcing a series-cardinality budget on every writer.
+
+| Name | Signature |
+| --- | --- |
+| labels and redaction | `Label { Key string, Value string }`; `LabelOf`, `RedactedText`, `RedactedLabel`, `RedactedFrom[T](key string, v config.Redacted[T]) Label`, `NormalizeLabels`, `SeriesKey` |
+| budgets | `OverflowPolicy = DropOverflow \| FailOverflow`; `NewSeriesBudget(maxSeries int, policy OverflowPolicy) SeriesBudget fails InvalidBudget`, `DefaultBudget`, `DropBudget`, `StrictBudget`, `BudgetStats` |
+| descriptors | `Counter` (`Inc`, `IncWith`, `AddInt`, `AddFloat`, `TryAddInt`, `TryAddFloat`), `Gauge` (`Set`, `SetInt`, `Add`, `Sub`, `TrySet`, `TrySetInt`, `TryAdd`, `TrySub`), `Histogram` (`DefaultLatencyBoundaries`, `LinearBoundaries`, `ExponentialBoundaries`, `Observe`, `ObserveDuration`, `TryObserve`, `TryObserveDuration`), `Frequency` (`NewFrequencyBounded`, `Record`, `RecordCount`, `TryRecord`, `TryRecordCount`), `Summary` (`DefaultSummaryQuantiles`, `Sample`, `SampleAt`, `SampleNow`, `SampleDuration`, `TrySample`, `TrySampleAt`) |
+| capability | `Sink { Enabled() bool, Apply(u Update) fails InvalidDelta \| BudgetExceeded }`, `NewNoopSink`, `NewTeeSink` |
+| providers and capture | `NewRecorder(budget SeriesBudget) Recorder`, `DefaultRecorder`, `Collect`, `CollectAt`, `Stats`, `Clear`, `CounterTotal`, `GaugeValue`, `HistogramValue`, `FrequencyValue`, `SummaryValue`, `Capture`, `CaptureDefault` |
+| export and trace | `EncodeJSON`, `DecodeJSON`, `FormatOpenMetrics`, `FormatOpenMetricsWithBudget`, `ToWideEvent`, `EmitSnapshotToTrace`, `FlushToActiveSpan`, `NewTraceBridgeSink` |
+
+1. **Labels and opt-in redaction.** `NormalizeLabels` trims label keys, drops empty keys, keeps the last value when a key repeats, and sorts labels by ascending key so `SeriesKey` identifies each series injectively regardless of input label order. `RedactedLabel` and `RedactedFrom` record the literal `"[REDACTED]"` without reading `.Reveal()` on a `config.Redacted[T]`.
+2. **Series-cardinality budget.** Every `Recorder` binds a `SeriesBudget` (`MaxSeries`, `OverflowPolicy`). Once active series reach `MaxSeries`, updates to existing series still succeed, while any new series increments `OverflowCount` and either drops the write (`DropOverflow`, default `4096`) or returns `BudgetExceeded` on `Try*` calls (`FailOverflow`). `NewFrequencyBounded` bounds per-series distinct keys by the same policy.
+3. **Validated descriptors and distributions.** Metric names are trimmed and reject empty or control-byte strings (`InvalidMetric`). Counters and frequencies reject negative or non-finite deltas (`InvalidDelta`); gauges reject non-finite values; histograms require non-empty, finite, strictly ascending boundaries (`InvalidBoundaries`) and record cumulative bucket counts alongside `Count`, `Sum`, `Min`, and `Max`; summaries validate sorted quantiles in `[0.0, 1.0]` and maintain bounded count/age sliding windows (`InvalidSummary`).
+4. **Providers and deterministic snapshots.** `Recorder` wraps shared state in `sync.Ref`, `Collect` returns series sorted by metric name then series key, `EncodeJSON` / `DecodeJSON` round-trip `Snapshot` values faithfully, `FormatOpenMetrics` renders canonical OpenMetrics 1.0 text ending in `# EOF\n`, and `ToWideEvent` / `EmitSnapshotToTrace` / `FlushToActiveSpan` / `NewTraceBridgeSink` bridge metrics into `trace.WideEvent` spans while preserving `"[REDACTED]"` markers.
+5. **Laws.** Co-located `law` declarations verify canonical label normalization, redaction safety, monotonic counter accumulation, gauge deltas, ordered histogram bucket totals, exact and key-bounded frequency counts, sliding-window quantile ordering, budget enforcement, `Snapshot` JSON round-trips, OpenMetrics determinism/escaping, trace bridging, and `Sink` laws (`EnabledIsConsistent`, `NegativeCounterDeltaRejected`).
+
+*Prior art:* Effect's `Metric` (`counter`, `gauge`, `histogram`, `frequency`, `summary` descriptors backed by a fiber context `MetricRegistry`), Prometheus / OpenMetrics 1.0 exposition format, and bounded-cardinality telemetry pipelines (always accounting overflows rather than allowing unbounded label growth).
 
 ## stream
 
@@ -2693,6 +2715,34 @@ func main() fails os.Exit needs Console | Ambient {
 6. `Getwd` is the working directory, an absolute path, Go's `os.Getwd` (gap-os). It fails `NoWorkdir` with Go's text when the host cannot name it: the directory was removed, or a directory above it cannot be read. It fails with `NoWorkdir` when the working directory has been removed, on every host: Go's `os.Getwd` fails there on Linux but gives the old path on darwin, so `v1.OSGetwd` also checks that the path names the same file as `.` (`os.SameFile`). Go returns `(string, error)`; Ergo puts the one failure in the row. A program's own provider returns a fixed directory and keeps the operation's row, since a provider's function has the operation's fallibility (S106 "differs in fallibility"): `func Getwd(_ FakeEnv) string fails os.NoWorkdir { "/work" }`. The law `GetwdIsStable` states that two reads agree, in value and in failure: `Process` has no operation that changes the directory. The law `GetwdIsAbsolute` states that a directory it gives is absolute (`filepath.IsAbs`), so a message that names a file under it names one place. *Prior art:* Node's `process.cwd()` throws when the directory is gone; Elixir's `File.cwd/0` returns `{:error, reason}` and `File.cwd!/0` raises; Gleam's `simplifile.current_directory` returns a `Result`; Go's `os.Getwd` returns `(string, error)`.
 
 *Prior art:* Roc's basic-cli platform gives `Arg` and `Env` as platform effects, and its `main` can fail with `Exit code message`, which the platform writes and exits with; `os.Exit` takes that shape and adds the 1..125 check. Effect Platform reads the environment through a `ConfigProvider` layer and leaves argv to `@effect/cli`. Gleam's `argv` and `envoy` packages, Elixir's `System.argv/0` and `System.get_env/1`, and ReScript's Node bindings read the process directly, with no capability; Elixir's `System.get_env/1` returns `nil` for an unset key, and Gleam's `envoy.get` returns `Result(String, Nil)`. Elixir's `System.halt/1` ends the VM at once with any status; Ergo's `os.Exit` is a failure, so cleanup runs first and the status is checked.
+
+### os/host
+
+Std `os/host` (imported as `host`) provides host resource telemetry: CPU logical cores, run-queue load averages, physical memory, volume capacities, and operating-system process snapshots.
+
+```go
+import os/host
+
+func report() fails host.Unavailable | host.Malformed needs Console | host.System {
+	let st = try host.System.Status([]string{"/"})
+	let ps = try host.System.Processes()
+	Console.Println("cores=\(st.Cores) procs=\(ps.Len())")
+}
+
+func main() fails host.Unavailable | host.Malformed needs Console | Ambient {
+	with context { host.System: host.NewHost() } { try report() }
+}
+```
+
+| Declaration | Meaning |
+| --- | --- |
+| `type System { Status(volumes []string) Status fails Unavailable \| Malformed, Processes() []Process fails Unavailable \| Malformed, law StatusInvariants(volumes []string), law ProcessesValid() }` | The capability. |
+| `type Host { live hostOnly, … }`; `func NewHost() Host needs Ambient`; `Status`, `Processes` | The live host provider over `/proc`, `runtime.NumCPU`, `os.Getpagesize`, and `hostfs.Statfs` ([Host packages](#host-packages)). |
+| `type Static { … }`; `func NewStatic(status Status, processes []Process) Static fails Malformed`; `Status`, `Processes` | The pure in-memory provider for tests and check-time laws. |
+| `type LoadAvg { One, Five, Fifteen float64, Running, Entities int }`; `type Memory { TotalBytes, AvailableBytes, FreeBytes, UsedBytes int64 }`; `type Volume { Path string, TotalBytes, FreeBytes, AvailableBytes, UsedBytes int64 }`; `type Status { Cores int, Load LoadAvg, Memory Memory, Volumes []Volume }` | Host status snapshot records (`UsedBytes == TotalBytes - AvailableBytes` for memory, `TotalBytes - FreeBytes` for volumes). |
+| `type Process { PID, PPID int, State, Comm string, Cmdline []string, UserTicks, SysTicks, StartTicks, RSSBytes, VSizeBytes int64, Threads int }` | One process snapshot, sorted by `PID`; vanishing PIDs (`ENOENT` / `ESRCH` / `EACCES`) are skipped during `/proc/<pid>` scans. |
+| `type ProcStat`; `type ProcStatm`; `ParseLoadAvg`, `ParseMeminfo`, `ParseProcStat`, `ParseProcStatm`, `ParseCmdline`, `CPUTicks`, `CPUPercent`, `FindProcess` | Pure parsers and telemetry helpers with check-time invariant laws. |
+| `type Unavailable { Target, Reason string }`; `type NotFound { Target string }`; `type Malformed { Source, Reason string }`; `type Error = Unavailable \| NotFound \| Malformed` | The typed failures. |
 
 ### fs
 

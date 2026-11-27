@@ -13,7 +13,7 @@ import "embed"
 // Only stdlib reads them.
 //
 //go:embed prelude.ergo builtin.ergo collections/*.ergo option/*.ergo core/*.ergo timeout/*.ergo task/*.ergo scope/*.ergo slices/*.ergo queue/*.ergo log/*.ergo trace/*.ergo strings/*.ergo strconv/*.ergo
-//go:embed os/*.ergo signal/*.ergo
+//go:embed os/*.ergo os/host/*.ergo signal/*.ergo
 //go:embed fs/*.ergo fs/mapped/*.ergo fstest/*.ergo
 //go:embed io/*.ergo term/*.ergo prompt/*.ergo
 //go:embed utf8/*.ergo url/*.ergo
@@ -64,6 +64,7 @@ import "embed"
 //go:embed markdown/*.ergo
 //go:embed zlib/*.ergo
 //go:embed archive/*.ergo
+//go:embed metric/*.ergo
 var Sources embed.FS
 
 // LedgerText is the std law ledger (runtime.md, Tests 10), as

@@ -17,7 +17,6 @@ import (
 )
 
 const (
-	maxFormatFiles       = 100
 	maxFormatInputBytes  = 2 * 1024 * 1024
 	maxFormatTotalInput  = 8 * 1024 * 1024
 	maxFormatOutputBytes = 4 * 1024 * 1024
@@ -42,7 +41,7 @@ const fmtHelp = "usage: ergo fmt FILE... [--check] [--json]\n" +
 	"  0  formatting succeeded (or --check found no changes)\n" +
 	"  1  --check found differences\n" +
 	"  2  invalid invocation, syntax, I/O, stale-source, or limit failure\n\n" +
-	"Limits: at most 100 files; 2 MiB per-file and 8 MiB aggregate input;\n" +
+	"Limits: 2 MiB per-file and 8 MiB aggregate input;\n" +
 	"4 MiB per-file and 16 MiB aggregate formatted output.\n" +
 	"File errors use EFMT_* codes in stderr, or in the JSON failures array.\n\n" +
 	"Formatting is syntax-only: it does not typecheck, load packages, run lint, or\n" +
@@ -162,9 +161,6 @@ func parseFmtOptions(args []string) (fmtOptions, error) {
 	if len(opts.files) == 0 {
 		return opts, fmt.Errorf("source file required; use --stdin for stdin")
 	}
-	if len(opts.files) > maxFormatFiles {
-		return opts, fmt.Errorf("format request exceeds %d-file limit", maxFormatFiles)
-	}
 	return opts, nil
 }
 
@@ -245,8 +241,7 @@ func formatCommand(args []string) error {
 // sketchfront.AdmitFolder refuses (hidden, "_", testdata, node_modules,
 // vendor, ergo.bind) and a folder with a current generation marker are
 // skipped. A symbolic link is not followed. A plain folder with no .ergo
-// file and no marked output is an invocation error, and so is an expansion
-// past the file limit.
+// file and no marked output is an invocation error.
 func expandFormatFolders(opts *fmtOptions) error {
 	var files []string
 	for _, operand := range opts.files {
@@ -327,9 +322,6 @@ func expandFormatFolders(opts *fmtOptions) error {
 		if found == 0 && !skipped {
 			return fmt.Errorf("folder %s holds no %s file", operand, sourceExtension)
 		}
-	}
-	if len(files) > maxFormatFiles {
-		return fmt.Errorf("format request exceeds %d-file limit", maxFormatFiles)
 	}
 	opts.files = files
 	return nil

@@ -25,6 +25,12 @@ type PersistenceChecks {
 	// CheckConcurrentMultiWriter runs two concurrent WAL writer tasks on separate sqlite.Store connections and verifies zero SQLITE_BUSY failures, zero lost writes, and Fold(events) == Snapshot after reopen.
 	CheckConcurrentMultiWriter(tag int) bool,
 
+	// CheckMigrationV2ToV3 creates a v2 SQLite DB populated with existing units, receipts, commitments, queue, questions, commands, and events, opens it under v3, and verifies zero data loss and working v3 queries/writes.
+	CheckMigrationV2ToV3() bool,
+
+	// CheckMigrationV1ToV3 creates a v1 SQLite DB populated with existing v1 units, receipts, commitments, queue, and questions, opens it under v3, and verifies non-destructive upgrade to v3.
+	CheckMigrationV1ToV3() bool,
+
 	// SqliteAgreesWithMemory verifies byte-identical state, events, queries, and refusals between memory.Store and WAL sqlite.Store including across reopen.
 	law SqliteAgreesWithMemory(steps []int) {
 		CheckAgreesWithMemory(steps)
@@ -43,6 +49,16 @@ type PersistenceChecks {
 	// ConcurrentMultiWriterWAL verifies concurrent writers on a shared WAL file lose zero writes and keep Fold(events) == Snapshot.
 	law ConcurrentMultiWriterWAL() {
 		CheckConcurrentMultiWriter(0) && CheckConcurrentMultiWriter(1) && CheckConcurrentMultiWriter(2)
+	},
+
+	// MigrationV2ToV3PreservesExistingData verifies that opening a populated v2 SQLite database under v3 upgrades cleanly and keeps every existing row intact.
+	law MigrationV2ToV3PreservesExistingData() {
+		CheckMigrationV2ToV3()
+	},
+
+	// MigrationV1ToV3PreservesExistingData verifies that opening a populated v1 SQLite database under v3 upgrades cleanly and keeps existing rows intact.
+	law MigrationV1ToV3PreservesExistingData() {
+		CheckMigrationV1ToV3()
 	},
 }
 
@@ -159,22 +175,80 @@ func storesAgree(mem orchestrate.Store, sq orchestrate.Store) bool {
 	case orchestrate.StoreFailed:
 		return false
 	}
+	let memRM = mem.RunMeta("repo", "agree") catch {
+	case orchestrate.StoreFailed:
+		return false
+	}
+	let sqRM = sq.RunMeta("repo", "agree") catch {
+	case orchestrate.StoreFailed:
+		return false
+	}
+	let memSum = mem.RunSummary("repo", "agree", 5) catch {
+	case orchestrate.StoreFailed:
+		return false
+	}
+	let sqSum = sq.RunSummary("repo", "agree", 5) catch {
+	case orchestrate.StoreFailed:
+		return false
+	}
+	let uf = orchestrate.UnitFilter{Repo: option.Some[string]{Value: "repo"}, Run: option.Some[string]{Value: "agree"}, Status: option.None, Limit: 2, Offset: 0}
+	let memUnits = mem.ListUnits(uf) catch {
+	case orchestrate.StoreFailed:
+		return false
+	}
+	let sqUnits = sq.ListUnits(uf) catch {
+	case orchestrate.StoreFailed:
+		return false
+	}
+	let df = orchestrate.DecisionFilter{Repo: option.Some[string]{Value: "repo"}, Run: option.Some[string]{Value: "agree"}, Category: option.None, Scope: option.None, UnitID: option.None, Status: option.None, Limit: 10, Offset: 0}
+	let memDecs = mem.ListDecisions(df) catch {
+	case orchestrate.StoreFailed:
+		return false
+	}
+	let sqDecs = sq.ListDecisions(df) catch {
+	case orchestrate.StoreFailed:
+		return false
+	}
+	let lf = orchestrate.LandingFilter{Repo: option.Some[string]{Value: "repo"}, Run: option.Some[string]{Value: "agree"}, Limit: 10, Offset: 0}
+	let memLands = mem.ListLandings(lf) catch {
+	case orchestrate.StoreFailed:
+		return false
+	}
+	let sqLands = sq.ListLandings(lf) catch {
+	case orchestrate.StoreFailed:
+		return false
+	}
+	let ef = orchestrate.EventLogFilter{Repo: option.Some[string]{Value: "repo"}, Run: option.Some[string]{Value: "agree"}, Kind: option.None, UnitID: option.None, Actor: option.None, Ascending: false, Limit: 10, Offset: 0}
+	let memEvLog = mem.ListEventLog(ef) catch {
+	case orchestrate.StoreFailed:
+		return false
+	}
+	let sqEvLog = sq.ListEventLog(ef) catch {
+	case orchestrate.StoreFailed:
+		return false
+	}
 		memUnit == sqUnit &&
 		memRecs == sqRecs &&
 		memCommits == sqCommits &&
 		memQueue == sqQueue &&
 		memQs == sqQs &&
-		memOpenQs == sqOpenQs
+		memOpenQs == sqOpenQs &&
+		memRM == sqRM &&
+		memSum == sqSum &&
+		memUnits == sqUnits &&
+		memDecs == sqDecs &&
+		memLands == sqLands &&
+		memEvLog == sqEvLog
 }
 
 func makeStepEnvelope(index int, code int, prevAccepted option.Option[orchestrate.Envelope]) orchestrate.Envelope {
-	let mode = ((code % 20) + 20) % 20
+	let mode = ((code % 24) + 24) % 24
 	match prevAccepted {
 	case option.Some[orchestrate.Envelope] as prev:
-		if mode == 18 {
+		if mode == 22 {
 			return prev.Value
 		}
-		if mode == 19 {
+		if mode == 23 {
 			return orchestrate.Envelope{
 				ID:      prev.Value.ID,
 				Actor:   "conflict-actor",
@@ -184,12 +258,12 @@ func makeStepEnvelope(index int, code int, prevAccepted option.Option[orchestrat
 		}
 	case option.None:
 	}
-	let kind = ((code % 16) + 16) % 16
-	let slot = (((code / 16) % 3) + 3) % 3
+	let kind = ((code % 21) + 21) % 21
+	let slot = (((code / 21) % 3) + 3) % 3
 	let id = orchestrate.CommandID("agree-\(index)")
 	let at = "2026-11-24T01:00:\(index)Z"
 	let key = orchestrate.UnitKey{Repo: "repo", Run: "agree", ID: "u-\(slot)"}
-	let head = "h-\(((code/48)%2 + 2) % 2)"
+	let head = "h-\(((code/63)%2 + 2) % 2)"
 	let commitID = "c-\(slot)"
 	let queueKey = "q-\(slot)"
 	let cmd orchestrate.Command = match kind {
@@ -223,6 +297,18 @@ func makeStepEnvelope(index int, code int, prevAccepted option.Option[orchestrat
 		orchestrate.AskQuestion{ID: option.None, Prompt: "Question \(index)?", Assumption: "default", ConcreteAction: "reply yes"}
 	case 14:
 		orchestrate.AnswerQuestion{ID: slot + 1, Answer: "yes", Withdraw: slot == 2}
+	case 15:
+		orchestrate.SetRunHead{Repo: "repo", Run: "agree", Head: "main-\(slot)"}
+	case 16:
+		let sup = if slot == 2 { option.Some[string]{Value: "dec-0"} } else { option.None }
+		orchestrate.RecordDecision{Repo: "repo", Run: "agree", ID: "dec-\(slot)", Category: "ruling", Scope: "run", UnitID: option.Some[string]{Value: "u-\(slot)"}, Title: "Decision \(slot)", Body: "Body \(slot)", Status: orchestrate.DecisionOpen, Supersedes: sup, CreatedAt: option.None}
+	case 17:
+		orchestrate.RecordLanding{Repo: "repo", Run: "agree", LandingNumber: slot + 1, GroupID: "grp-\(slot)", Head: "deadbeef\(slot)", Tips: []string{"tip-\(slot)"}, Summary: "Landing \(slot + 1)", LogPath: option.Some[string]{Value: "/logs/g\(slot).log"}, LandedAt: option.None}
+	case 18:
+		orchestrate.RecordLedgerEvent{Repo: "repo", Run: "agree", Kind: "hand-back", UnitID: option.Some[string]{Value: "u-\(slot)"}, Summary: "Hand back \(index)", SourceKey: option.Some[string]{Value: "sk-\(slot)"}, CreatedAt: option.None}
+	case 19:
+		let planText = "- 2026-11-26T10:00:0\(slot)Z RULED (Rule \(slot)): keep clean.\nMAIN MOVED 2026-11-26T10:01:0\(slot)Z: main = 1234ab\(slot)0 (Landing \(slot + 10), group g\(slot)). Tips: U-\(slot)\n- 2026-11-26T10:02:0\(slot)Z DISPATCHED (Worker) U-\(slot): run\n"
+		orchestrate.IngestPlan{Repo: "repo", Run: "agree", Text: planText}
 	case _:
 		orchestrate.RecordReceipt{Unit: key, Kind: "gate", Command: "go vet", Head: head, ExitCode: 0, ExitLines: "ok"}
 	}

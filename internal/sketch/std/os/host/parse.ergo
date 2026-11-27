@@ -1,0 +1,377 @@
+import option
+import strconv
+import strings
+
+// ParseLoadAvg parses the contents of /proc/loadavg into a LoadAvg record,
+// validating finite non-negative load averages and task counts.
+func ParseLoadAvg(text string) LoadAvg fails Malformed {
+	let fields = strings.Fields(text)
+	if fields.Len() < 3 {
+		return Malformed{Source: "loadavg", Reason: "expected at least 3 fields"}
+	}
+	let one = try parseNonNegFloat(fields[0], "loadavg")
+	let five = try parseNonNegFloat(fields[1], "loadavg")
+	let fifteen = try parseNonNegFloat(fields[2], "loadavg")
+	let mut running = 0
+	let mut entities = 0
+	if fields.Len() >= 4 {
+		match strings.Cut(fields[3], "/") {
+		case option.Some[strings.Halves] as h:
+			running = try parseNonNegInt(h.Value.Before, "loadavg")
+			entities = try parseNonNegInt(h.Value.After, "loadavg")
+		case option.None:
+			return Malformed{Source: "loadavg", Reason: "expected running/entities in fourth field"}
+		}
+	}
+	LoadAvg{
+		One:      one,
+		Five:     five,
+		Fifteen:  fifteen,
+		Running:  running,
+		Entities: entities,
+	}
+}
+
+// ParseMeminfo parses the contents of /proc/meminfo into byte counts and
+// enforces TotalBytes >= AvailableBytes, TotalBytes >= FreeBytes, and
+// UsedBytes + AvailableBytes == TotalBytes.
+func ParseMeminfo(text string) Memory fails Malformed {
+	let mut hasTotal = false
+	let mut hasFree = false
+	let mut hasAvail = false
+	let mut totalBytes = int64(0)
+	let mut freeBytes = int64(0)
+	let mut availBytes = int64(0)
+	let mut buffersBytes = int64(0)
+	let mut cachedBytes = int64(0)
+	for raw in strings.Lines(text) {
+		let line = strings.TrimSpace(raw)
+		if line == "" {
+			continue
+		}
+		let halves = match strings.Cut(line, ":") {
+		case option.Some[strings.Halves] as h:
+			h.Value
+		case option.None:
+			return Malformed{Source: "meminfo", Reason: "line missing ':' separator"}
+		}
+		let key = strings.TrimSpace(halves.Before)
+		let vals = strings.Fields(halves.After)
+		if vals.Len() == 0 || vals.Len() > 2 {
+			return Malformed{Source: "meminfo", Reason: "invalid value fields for \(key)"}
+		}
+		let n = try parseNonNegInt64(vals[0], "meminfo")
+		let mut bytes = n
+		if vals.Len() == 2 {
+			if vals[1] == "kB" || vals[1] == "KB" {
+				if n > int64(9007199254740991) {
+					return Malformed{Source: "meminfo", Reason: "byte count overflow for \(key)"}
+				}
+				bytes = n * int64(1024)
+			} else if vals[1] != "B" {
+				return Malformed{Source: "meminfo", Reason: "unsupported unit \(vals[1]) for \(key)"}
+			}
+		} else if key == "MemTotal" || key == "MemFree" || key == "MemAvailable" || key == "Buffers" || key == "Cached" {
+			return Malformed{Source: "meminfo", Reason: "missing unit for \(key)"}
+		}
+		if key == "MemTotal" {
+			hasTotal = true
+			totalBytes = bytes
+		} else if key == "MemFree" {
+			hasFree = true
+			freeBytes = bytes
+		} else if key == "MemAvailable" {
+			hasAvail = true
+			availBytes = bytes
+		} else if key == "Buffers" {
+			buffersBytes = bytes
+		} else if key == "Cached" {
+			cachedBytes = bytes
+		}
+	}
+	if !hasTotal || !hasFree {
+		return Malformed{Source: "meminfo", Reason: "missing MemTotal or MemFree"}
+	}
+	if !hasAvail {
+		let est = saturatingAdd(freeBytes, buffersBytes, cachedBytes)
+		availBytes = if est > totalBytes { totalBytes } else { est }
+	}
+	if freeBytes > totalBytes || availBytes > totalBytes {
+		return Malformed{Source: "meminfo", Reason: "free or available exceeds MemTotal"}
+	}
+	Memory{
+		TotalBytes:     totalBytes,
+		AvailableBytes: availBytes,
+		FreeBytes:      freeBytes,
+		UsedBytes:      totalBytes - availBytes,
+	}
+}
+
+// ParseProcStat parses a /proc/<pid>/stat line, preserving process names that
+// contain spaces or parentheses.
+func ParseProcStat(text string) ProcStat fails Malformed {
+	let open = strings.IndexByte(text, '(')
+	let close = strings.LastIndex(text, ")")
+	if open <= 0 || close <= open {
+		return Malformed{Source: "proc/stat", Reason: "missing (comm) field"}
+	}
+	let pidStr = strings.TrimSpace(strings.Slice(text, 0, open))
+	let pid = try parsePositiveInt(pidStr, "proc/stat")
+	let comm = strings.Slice(text, open+1, close)
+	let rest = strings.Fields(strings.Slice(text, close+1, text.Len()))
+	if rest.Len() < 22 {
+		return Malformed{Source: "proc/stat", Reason: "expected at least 22 fields after comm"}
+	}
+	let state = rest[0]
+	if state.Len() != 1 {
+		return Malformed{Source: "proc/stat", Reason: "invalid process state \(state)"}
+	}
+	let ppid = try parseNonNegInt(rest[1], "proc/stat")
+	let utime = try parseNonNegInt64(rest[11], "proc/stat")
+	let stime = try parseNonNegInt64(rest[12], "proc/stat")
+	let threads = try parseNonNegInt(rest[17], "proc/stat")
+	let starttime = try parseNonNegInt64(rest[19], "proc/stat")
+	let vsize = try parseNonNegInt64(rest[20], "proc/stat")
+	let rssPages = try parseNonNegInt64(rest[21], "proc/stat")
+	ProcStat{
+		PID:        pid,
+		Comm:       comm,
+		State:      state,
+		PPID:       ppid,
+		UserTicks:  utime,
+		SysTicks:   stime,
+		Threads:    threads,
+		StartTicks: starttime,
+		VSizeBytes: vsize,
+		RSSPages:   rssPages,
+	}
+}
+
+// ParseProcStatm parses /proc/<pid>/statm using pageSize bytes per page.
+func ParseProcStatm(text string, pageSize int64) ProcStatm fails Malformed {
+	if pageSize <= int64(0) {
+		return Malformed{Source: "proc/statm", Reason: "page size must be positive"}
+	}
+	let fields = strings.Fields(text)
+	if fields.Len() < 2 {
+		return Malformed{Source: "proc/statm", Reason: "expected at least 2 fields"}
+	}
+	let sizePages = try parseNonNegInt64(fields[0], "proc/statm")
+	let resPages = try parseNonNegInt64(fields[1], "proc/statm")
+	let sharedPages = if fields.Len() >= 3 {
+		try parseNonNegInt64(fields[2], "proc/statm")
+	} else {
+		int64(0)
+	}
+	let sizeBytes = try scalePages(sizePages, pageSize)
+	let resBytes = try scalePages(resPages, pageSize)
+	let sharedBytes = try scalePages(sharedPages, pageSize)
+	ProcStatm{
+		SizeBytes:     sizeBytes,
+		ResidentBytes: resBytes,
+		SharedBytes:   sharedBytes,
+	}
+}
+
+// ParseCmdline splits a NUL-delimited /proc/<pid>/cmdline buffer into
+// argument strings, trimming trailing NUL bytes.
+func ParseCmdline(raw string) []string {
+	let trimmed = strings.TrimRight(raw, "\x00")
+	if trimmed == "" {
+		return []string{}
+	}
+	strings.Split(trimmed, "\x00")
+}
+
+// LoadAvgInvariants: formatted /proc/loadavg inputs parse accurately, hold
+// non-negative finite loads and counts, and reject negative or truncated inputs.
+law LoadAvgInvariants(running int, entities int) {
+	let r = clampRange(running, 0, 1000)
+	let e = r + clampRange(entities, 0, 5000)
+	let line = "1.25 0.75 0.50 \(r)/\(e) 4242\n"
+	let parsed = ParseLoadAvg(line) catch {
+	case Malformed:
+		return false
+	}
+	if parsed.One != 1.25 || parsed.Five != 0.75 || parsed.Fifteen != 0.50 || parsed.Running != r || parsed.Entities != e {
+		return false
+	}
+	let _ = ParseLoadAvg("1.0 2.0") catch {
+	case Malformed:
+		let _ = ParseLoadAvg("-0.5 1.0 1.0 1/2 3") catch {
+		case Malformed:
+			return validLoad(parsed)
+		}
+		return false
+	}
+	false
+}
+
+// MeminfoInvariants: ParseMeminfo scales kB into bytes, preserves
+// Total >= Available, Total >= Free, and Used + Available == Total, and rejects
+// inputs missing MemTotal or where MemAvailable exceeds MemTotal.
+law MeminfoInvariants(totalKB int64, freeKB int64, availKB int64) {
+	let t = clampRange64(totalKB, 1, 1000000000)
+	let f = clampRange64(freeKB, 0, t)
+	let a = clampRange64(availKB, 0, t)
+	let doc = "MemTotal: \(t) kB\nMemFree: \(f) kB\nMemAvailable: \(a) kB\nBuffers: 8 kB\nCached: 16 kB\n"
+	let mem = ParseMeminfo(doc) catch {
+	case Malformed:
+		return false
+	}
+	if !validMemory(mem) || mem.TotalBytes != t*int64(1024) || mem.FreeBytes != f*int64(1024) || mem.AvailableBytes != a*int64(1024) {
+		return false
+	}
+	let overDoc = "MemTotal: \(t) kB\nMemFree: \(f) kB\nMemAvailable: \(t + 1) kB\n"
+	let _ = ParseMeminfo(overDoc) catch {
+	case Malformed:
+		return true
+	}
+	false
+}
+
+// ProcStatWithParensAndSpaces: ParseProcStat handles process names containing
+// spaces and nested parentheses and parses every field index cleanly.
+law ProcStatWithParensAndSpaces(pidRaw int, ppidRaw int, utimeRaw int64, stimeRaw int64) {
+	let pid = clampRange(pidRaw, 1, 999999)
+	let ppid = clampRange(ppidRaw, 0, 999999)
+	let utime = clampRange64(utimeRaw, 0, 100000000)
+	let stime = clampRange64(stimeRaw, 0, 100000000)
+	let comm = "worker (io) pool"
+	let line = "\(pid) (\(comm)) S \(ppid) 1 1 0 -1 4194304 100 0 1 0 \(utime) \(stime) 0 0 20 0 4 0 555 204800 50 18446744073709551615 0 0 0 0 0 0 0 0 0 0 0 0 17 1 0 0 0 0 0\n"
+	let st = ParseProcStat(line) catch {
+	case Malformed:
+		return false
+	}
+		st.PID == pid &&
+		st.Comm == comm &&
+		st.State == "S" &&
+		st.PPID == ppid &&
+		st.UserTicks == utime &&
+		st.SysTicks == stime &&
+		st.Threads == 4 &&
+		st.StartTicks == int64(555) &&
+		st.VSizeBytes == int64(204800) &&
+		st.RSSPages == int64(50)
+}
+
+// ProcStatmInvariants: ParseProcStatm multiplies page counts by pageSize and
+// rejects non-positive pageSize values.
+law ProcStatmInvariants(sizePages int64, resPages int64, sharedPages int64) {
+	let sp = clampRange64(sizePages, 0, 100000000)
+	let rp = clampRange64(resPages, 0, 100000000)
+	let hp = clampRange64(sharedPages, 0, 100000000)
+	let ps = int64(4096)
+	let parsed = ParseProcStatm("\(sp) \(rp) \(hp) 0 0 0 0\n", ps) catch {
+	case Malformed:
+		return false
+	}
+	if parsed.SizeBytes != sp*ps || parsed.ResidentBytes != rp*ps || parsed.SharedBytes != hp*ps {
+		return false
+	}
+	let _ = ParseProcStatm("1 1 0", int64(0)) catch {
+	case Malformed:
+		return true
+	}
+	false
+}
+
+// CmdlineParsing: ParseCmdline strips trailing NULs, preserves internal empty
+// arguments, and returns an empty slice for empty buffers.
+law CmdlineParsing(a string, b string) {
+	if ParseCmdline("").Len() != 0 || ParseCmdline("\x00\x00").Len() != 0 {
+		return false
+	}
+	let ca = strings.ReplaceAll(a, "\x00", "")
+	let cb = strings.ReplaceAll(b, "\x00", "")
+	if ca == "" {
+		return ParseCmdline("app\x00--flag\x00\x00").Len() == 2
+	}
+	let raw = ca + "\x00" + cb + "\x00"
+	let parts = ParseCmdline(raw)
+	let internalEmpty = ParseCmdline("a\x00\x00b\x00")
+	if internalEmpty.Len() != 3 || internalEmpty[0] != "a" || internalEmpty[1] != "" || internalEmpty[2] != "b" {
+		return false
+	}
+	if cb == "" {
+		parts.Len() == 1 && parts[0] == ca
+	} else {
+		parts.Len() == 2 && parts[0] == ca && parts[1] == cb
+	}
+}
+
+func parseNonNegFloat(s string, source string) float64 fails Malformed {
+	let v = strconv.ParseFloat(s) catch {
+	case strconv.Malformed:
+		return Malformed{Source: source, Reason: "invalid float \(s)"}
+	case strconv.OutOfRange:
+		return Malformed{Source: source, Reason: "float out of range \(s)"}
+	}
+	if v-v != 0.0 || !(v >= 0.0) {
+		return Malformed{Source: source, Reason: "negative or non-finite value \(s)"}
+	}
+	v
+}
+
+func parseNonNegInt(s string, source string) int fails Malformed {
+	let v = strconv.Atoi(s) catch {
+	case strconv.Malformed:
+		return Malformed{Source: source, Reason: "invalid int \(s)"}
+	case strconv.OutOfRange:
+		return Malformed{Source: source, Reason: "int out of range \(s)"}
+	}
+	if v < 0 {
+		return Malformed{Source: source, Reason: "negative value \(s)"}
+	}
+	v
+}
+
+func parsePositiveInt(s string, source string) int fails Malformed {
+	let v = try parseNonNegInt(s, source)
+	if v <= 0 {
+		return Malformed{Source: source, Reason: "non-positive value \(s)"}
+	}
+	v
+}
+
+func parseNonNegInt64(s string, source string) int64 fails Malformed {
+	let v = strconv.ParseInt(s, 10, 64) catch {
+	case strconv.Malformed:
+		return Malformed{Source: source, Reason: "invalid int64 \(s)"}
+	case strconv.OutOfRange:
+		return Malformed{Source: source, Reason: "int64 out of range \(s)"}
+	}
+	if v < int64(0) {
+		return Malformed{Source: source, Reason: "negative value \(s)"}
+	}
+	v
+}
+
+func scalePages(pages int64, pageSize int64) int64 fails Malformed {
+	let limit = int64(9223372036854775807) / pageSize
+	if pages > limit {
+		return Malformed{Source: "proc/statm", Reason: "byte count overflow"}
+	}
+	pages * pageSize
+}
+
+func saturatingAdd(a int64, b int64, c int64) int64 {
+	let max = int64(9223372036854775807)
+	let ab = if b > max-a { max } else { a + b }
+	if c > max-ab { max } else { ab + c }
+}
+
+func clampRange(x int, lo int, hi int) int {
+	let mag = if x < 0 { -(x + 1) } else { x }
+	lo + (mag % (hi - lo + 1))
+}
+
+func clampRange64(x int64, lo int64, hi int64) int64 {
+	let span = hi - lo + int64(1)
+	let mag = if x < int64(0) {
+		if x == -int64(9223372036854775807)-int64(1) { int64(0) } else { -x }
+	} else {
+		x
+	}
+	lo + (mag % span)
+}

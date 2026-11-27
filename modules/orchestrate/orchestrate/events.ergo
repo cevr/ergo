@@ -64,8 +64,53 @@ type AskQuestion {
 // AnswerQuestion answers or withdraws an open async question.
 type AnswerQuestion { ID int, Answer string, Withdraw bool }
 
+// SetRunHead records the latest main branch head for a repository run.
+type SetRunHead { Repo string, Run string, Head string }
+
+// RecordDecision creates or updates a structured ruling, architectural decision, or owner directive.
+type RecordDecision {
+	Repo       string,
+	Run        string,
+	ID         string,
+	Category   string,
+	Scope      string,
+	UnitID     option.Option[string],
+	Title      string,
+	Body       string,
+	Status     DecisionStatus,
+	Supersedes option.Option[string],
+	CreatedAt  option.Option[string],
+}
+
+// RecordLanding creates or updates a structured integration landing record.
+type RecordLanding {
+	Repo          string,
+	Run           string,
+	LandingNumber int,
+	GroupID       string,
+	Head          string,
+	Tips          []string,
+	Summary       string,
+	LogPath       option.Option[string],
+	LandedAt      option.Option[string],
+}
+
+// RecordLedgerEvent appends an operational event to the structured event log.
+type RecordLedgerEvent {
+	Repo      string,
+	Run       string,
+	Kind      string,
+	UnitID    option.Option[string],
+	Summary   string,
+	SourceKey option.Option[string],
+	CreatedAt option.Option[string],
+}
+
+// IngestPlan parses run log or fallout markdown text and idempotently upserts decisions, landings, run head, and events.
+type IngestPlan { Repo string, Run string, Text string }
+
 // Command is the closed union of all pure orchestrate state-changing commands.
-type Command = OpenUnit | RecordReceipt | AcceptUnit | LandUnit | CloseUnit | AddCommitment | AssignCommitment | LandCommitment | DecideCommitment | UpsertQueueItem | RemoveQueueItem | AskQuestion | AnswerQuestion
+type Command = OpenUnit | RecordReceipt | AcceptUnit | LandUnit | CloseUnit | AddCommitment | AssignCommitment | LandCommitment | DecideCommitment | UpsertQueueItem | RemoveQueueItem | AskQuestion | AnswerQuestion | SetRunHead | RecordDecision | RecordLanding | RecordLedgerEvent | IngestPlan
 
 // Envelope carries a Command together with all explicit caller context required for zero-I/O decisions.
 type Envelope { ID CommandID, Actor string, At string, Command Command }
@@ -125,8 +170,20 @@ type QuestionWasAnswered { ID int, Answer string, AnsweredBy string, AnsweredAt 
 // QuestionWasWithdrawn records withdrawal of an open question.
 type QuestionWasWithdrawn { ID int, Answer option.Option[string], AnsweredBy string, AnsweredAt string }
 
+// RunHeadUpdated records an update to a run's main branch head.
+type RunHeadUpdated { Repo string, Run string, Head string, UpdatedAt string }
+
+// DecisionRecorded records a created or updated structured decision.
+type DecisionRecorded { Decision Decision }
+
+// LandingRecorded records a created or updated integration landing record.
+type LandingRecorded { Landing Landing }
+
+// LedgerEventAppended records an appended entry in the operational event log.
+type LedgerEventAppended { Event LedgerEvent }
+
 // Event is the closed union of all immutable domain events persisted by orchestrate.
-type Event = CommandAccepted | UnitOpened | ReceiptRecorded | UnitWasAccepted | UnitWasLanded | UnitWasClosed | CommitmentAdded | CommitmentWasAssigned | CommitmentWasLanded | CommitmentWasDecided | CommitmentWasWithdrawn | QueueUpserted | QueueRemoved | QuestionAsked | QuestionWasAnswered | QuestionWasWithdrawn
+type Event = CommandAccepted | UnitOpened | ReceiptRecorded | UnitWasAccepted | UnitWasLanded | UnitWasClosed | CommitmentAdded | CommitmentWasAssigned | CommitmentWasLanded | CommitmentWasDecided | CommitmentWasWithdrawn | QueueUpserted | QueueRemoved | QuestionAsked | QuestionWasAnswered | QuestionWasWithdrawn | RunHeadUpdated | DecisionRecorded | LandingRecorded | LedgerEventAppended
 
 // Apply evolves State purely by one Event.
 func Apply(state State, ev Event) State {
@@ -274,7 +331,56 @@ func Apply(state State, ev Event) State {
 		case option.None:
 			state
 		}
+	case RunHeadUpdated as e:
+		let rk = RunKey{Repo: e.Repo, Run: e.Run}
+		let rm = RunMeta{Repo: e.Repo, Run: e.Run, MainHead: option.Some[string]{Value: e.Head}, UpdatedAt: e.UpdatedAt}
+		State{..state, RunMetas: state.RunMetas.Put(rk, rm)}
+	case DecisionRecorded as e:
+		applyDecision(state, e.Decision)
+	case LandingRecorded as e:
+		let lk = LandingKey{Repo: e.Landing.Repo, Run: e.Landing.Run, LandingNumber: e.Landing.LandingNumber}
+		State{..state, Landings: state.Landings.Put(lk, e.Landing)}
+	case LedgerEventAppended as e:
+		let entry = e.Event
+		let nextID = if entry.ID >= state.NextEventID { entry.ID + 1 } else { state.NextEventID }
+		let nextKeys = match entry.SourceKey {
+		case option.Some[string] as sk:
+			state.EventLogSourceKeys.Put(EventSourceKey{Repo: entry.Repo, Run: entry.Run, SourceKey: sk.Value}, entry.ID)
+		case option.None:
+			state.EventLogSourceKeys
+		}
+		State{..state, EventLog: state.EventLog.Append(entry), EventLogSourceKeys: nextKeys, NextEventID: nextID}
 	}
+}
+
+func applyDecision(state State, d Decision) State {
+	let key = DecisionKey{Repo: d.Repo, Run: d.Run, ID: d.ID}
+	let (createdAt, prevSuperseded) = match state.Decisions.Get(key) {
+	case option.Some[Decision] as cur:
+		(cur.Value.CreatedAt, cur.Value.Status == DecisionSuperseded)
+	case option.None:
+		(d.CreatedAt, false)
+	}
+	let mut childSuperseded = false
+	for _, existing in state.Decisions {
+		if existing.Repo == d.Repo && existing.Run == d.Run && existing.Supersedes == (option.Some[string]{Value: d.ID}) {
+			childSuperseded = true
+			break
+		}
+	}
+	let status = if prevSuperseded || childSuperseded { DecisionSuperseded } else { d.Status }
+	let mut nextDecisions = state.Decisions.Put(key, Decision{..d, CreatedAt: createdAt, Status: status})
+	match d.Supersedes {
+	case option.Some[string] as target:
+		let tkey = DecisionKey{Repo: d.Repo, Run: d.Run, ID: target.Value}
+		match nextDecisions.Get(tkey) {
+		case option.Some[Decision] as old:
+			nextDecisions = nextDecisions.Put(tkey, Decision{..old.Value, Status: DecisionSuperseded})
+		case option.None:
+		}
+	case option.None:
+	}
+	State{..state, Decisions: nextDecisions}
 }
 
 func moveUnit(state State, key UnitKey, status UnitStatus, head option.Option[string], at string) State {
@@ -319,12 +425,13 @@ law ReplayMatchesIncremental(steps []int) {
 }
 
 func generatedEnvelope(index int, code int) Envelope {
-	let kind = ((code % 15) + 15) % 15
-	let slot = (((code / 15) % 3) + 3) % 3
+	let kind = ((code % 20) + 20) % 20
+	let slot = (((code / 20) % 3) + 3) % 3
 	let id = CommandID("gen-\(index)")
 	let at = "2026-11-24T00:00:\(index)Z"
-	let key = UnitKey{Repo: "repo", Run: "run-\(slot % 2)", ID: "u-\(slot)"}
-	let head = "head-\(((code/45)%2 + 2) % 2)"
+	let runName = "run-\(slot % 2)"
+	let key = UnitKey{Repo: "repo", Run: runName, ID: "u-\(slot)"}
+	let head = "head-\(((code/60)%2 + 2) % 2)"
 	let commitID = "c-\(slot)"
 	let queueKey = "q-\(slot)"
 	let cmd Command = match kind {
@@ -356,6 +463,18 @@ func generatedEnvelope(index int, code int) Envelope {
 		AskQuestion{ID: option.None, Prompt: "Question \(index)?", Assumption: "default", ConcreteAction: "reply yes"}
 	case 13:
 		AnswerQuestion{ID: slot + 1, Answer: "yes", Withdraw: slot == 2}
+	case 14:
+		SetRunHead{Repo: "repo", Run: runName, Head: head}
+	case 15:
+		let sup = if slot == 2 { option.Some[string]{Value: "dec-0"} } else { option.None }
+		RecordDecision{Repo: "repo", Run: runName, ID: "dec-\(slot)", Category: "ruling", Scope: "run", UnitID: option.Some[string]{Value: "u-\(slot)"}, Title: "Decision \(slot)", Body: "Body \(slot)", Status: DecisionOpen, Supersedes: sup, CreatedAt: option.None}
+	case 16:
+		RecordLanding{Repo: "repo", Run: runName, LandingNumber: slot + 1, GroupID: "grp-\(slot)", Head: head, Tips: []string{"tip-\(slot)"}, Summary: "Landing \(slot + 1)", LogPath: option.Some[string]{Value: "/logs/g\(slot).log"}, LandedAt: option.None}
+	case 17:
+		RecordLedgerEvent{Repo: "repo", Run: runName, Kind: "dispatched", UnitID: option.Some[string]{Value: "u-\(slot)"}, Summary: "Dispatched \(slot)", SourceKey: option.None, CreatedAt: option.None}
+	case 18:
+		let text = "- 2026-11-26T10:00:0\(slot)Z RULED (Rule \(slot)): keep invariant.\nMAIN MOVED 2026-11-26T10:01:0\(slot)Z: main = abcdef\(slot)0 (Landing \(slot + 1), group grp-\(slot)). Tips: U-\(slot)\n- 2026-11-26T10:02:0\(slot)Z DISPATCHED (Worker) U-\(slot): start\n"
+		IngestPlan{Repo: "repo", Run: runName, Text: text}
 	case _:
 		OpenUnit{Key: key, Title: "Unit \(slot)", Requires: []string{"acceptance", "gate"}, Lane: option.None, Branch: option.Some[string]{Value: "b-\(slot)"}}
 	}

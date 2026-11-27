@@ -4,6 +4,7 @@
 // Test's ambient).
 
 import fstest
+import time
 
 // onTestHost is the test host as NewTestHost makes it: its Env() is only
 // TestHostKeys, so EnvIsExact sees those and the Command's own entries,
@@ -15,6 +16,8 @@ let onTestHost = context needs fstest.TestAmbient { Runner: NewTestHost(), Spawn
 // programs by name chooses it: EnvIsExact sees the inherited entry, and the
 // Runner laws find their programs by name on it.
 let onTestHostWithPath = context needs fstest.TestAmbient { Runner: NewTestHost().InheritEnv(systemPath()) }
+
+let onObservedTestHost = context needs fstest.TestAmbient { Runner: Observed(NewTestHost().InheritEnv(systemPath()), time.NewManual(0)) }
 
 // systemPath is a PATH of the system's program directories alone.
 func systemPath() Map[string, string] {

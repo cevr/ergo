@@ -463,6 +463,10 @@ func (c *checker) checkRefinements() {
 			continue
 		}
 		c.cur = tn.file
+		if _, isStruct := d.Spec.(*syntax.StructType); isStruct {
+			c.errorf(d.Where, CodeOutside, "value-tied fact clause waits for VF-1-FACTS-CHECK r2 (facts.md)")
+			continue
+		}
 		n, _ := tn.Type.(*Named)
 		switch {
 		case d.TypeParams != nil:

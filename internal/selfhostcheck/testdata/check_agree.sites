@@ -95,13 +95,10 @@ case examples/deps/memory
 case examples/deps/resolve
 case examples/domain-search/cmd/domain-search
 case examples/domain-search/domains
-case examples/domain-search/domains
 case examples/domain-search/domains/domainsapi
 case examples/domain-search/domains/domainsrpc
 case examples/domain-search/loopback
 case examples/domain-search/sample
-case examples/domain-search/search
-case examples/domain-search/search
 case examples/domain-search/search
 case examples/domain-search/search/cache
 case examples/domain-search/search/plan
@@ -204,7 +201,6 @@ case examples/jobs-web/jobs/jobsapi
 case examples/jobs-web/jobs/jobsrpc
 case examples/jobs-web/loopback
 case examples/jobs-web/memory
-case examples/jobs/api
 case examples/jobs/api
 case examples/jobs/api/endpoint
 case examples/jobs/cmd/jobs
@@ -321,7 +317,6 @@ case examples/pipeline/cmd/pipeline-server
 case examples/pipeline/deploy
 case examples/pipeline/memory
 case examples/pipeline/notify
-case examples/pipeline/pipeline
 case examples/pipeline/pipeline
 case examples/pipeline/pipeline/pipelineapi
 case examples/pipeline/pipeline/pipelinecli
@@ -1022,7 +1017,6 @@ case internal/sketch/check/testdata/v1/G9-extern-allowlist.neg.ergo
 case internal/sketch/check/testdata/v1/L8-C1-lends.neg.ergo
 case internal/sketch/check/testdata/v1/L8-captures.neg.ergo
 case internal/sketch/std
-case internal/sketch/std
 case internal/sketch/std/actor
 case internal/sketch/std/api
 case internal/sketch/std/archive
@@ -1053,7 +1047,6 @@ case internal/sketch/std/explore
 case internal/sketch/std/filepath
 case internal/sketch/std/flag
 case internal/sketch/std/fs
-case internal/sketch/std/fs
 case internal/sketch/std/fs/mapped
 case internal/sketch/std/fstest
 case internal/sketch/std/gen
@@ -1077,8 +1070,6 @@ case internal/sketch/std/kv/file
 case internal/sketch/std/kv/memory
 case internal/sketch/std/lint
 case internal/sketch/std/llm
-case internal/sketch/std/llm
-case internal/sketch/std/llm
 case internal/sketch/std/llm/memory
 case internal/sketch/std/llm/recorded
 case internal/sketch/std/log
@@ -1090,10 +1081,12 @@ case internal/sketch/std/mcp
 case internal/sketch/std/mcp/httpmcp
 case internal/sketch/std/mcp/memory
 case internal/sketch/std/mcp/stdio
+case internal/sketch/std/metric
 case internal/sketch/std/net
 case internal/sketch/std/nettest
 case internal/sketch/std/option
 case internal/sketch/std/os
+case internal/sketch/std/os/host
 case internal/sketch/std/pace
 case internal/sketch/std/process
 case internal/sketch/std/prompt
@@ -1137,10 +1130,8 @@ case internal/sketch/std/toml
 case internal/sketch/std/totp
 case internal/sketch/std/trace
 case internal/sketch/std/tz
-case internal/sketch/std/tz
 case internal/sketch/std/tz/host
 case internal/sketch/std/tz/iana
-case internal/sketch/std/ui
 case internal/sketch/std/ui
 case internal/sketch/std/ui/layout
 case internal/sketch/std/url
@@ -1180,7 +1171,6 @@ case unused examples/dash-gui/panel/ring.ergo
 case unused examples/deploys/deploys/lifecycle.ergo
 case unused examples/deps/graph/graph.ergo
 case unused examples/deps/resolve/index.ergo
-case unused examples/domain-search/domains/catalog.ergo
 case unused examples/domain-search/domains/catalog.ergo
 case unused examples/domain-search/search/cache/cache.ergo
 case unused examples/domain-search/search/window/window.ergo
@@ -1356,8 +1346,6 @@ case unused internal/sketch/std/kv/file/file.ergo
 case unused internal/sketch/std/kv/kv.ergo
 case unused internal/sketch/std/kv/memory/memory.ergo
 case unused internal/sketch/std/llm/llm.ergo
-case unused internal/sketch/std/llm/llm.ergo
-case unused internal/sketch/std/llm/llm.ergo
 case unused internal/sketch/std/llm/memory/scripted.ergo
 case unused internal/sketch/std/llm/recorded/recorded.ergo
 case unused internal/sketch/std/log/level.ergo
@@ -1368,6 +1356,7 @@ case unused internal/sketch/std/mcp/mcp.ergo
 case unused internal/sketch/std/mcp/memory/memory.ergo
 case unused internal/sketch/std/mcp/stdio/stdio.ergo
 case unused internal/sketch/std/option/option.ergo
+case unused internal/sketch/std/os/host/host.ergo
 case unused internal/sketch/std/pace/pace.ergo
 case unused internal/sketch/std/process/process.ergo
 case unused internal/sketch/std/prompt/machines.ergo
@@ -1450,16 +1439,17 @@ site S106 extra in examples/gointerop/cmd/uptime: main.ergo 11:30: S106 hostCloc
 site S107 missing in internal/sketch/check/testdata/fixtures/negative/missing-return.ergo: missing-return.ergo 1:50: S107 function pick can reach the end of its body without returning a value (rows.md, Totality 3)
 site S107 missing in internal/sketch/check/testdata/v1/C1-tail-result.neg.ergo: C1-tail-result.neg.ergo 13:1: S107 function pick can reach the end of its body without returning a value (rows.md, Totality 3)
 site S107 missing in internal/sketch/check/testdata/v1/C1-tail-result.neg.ergo: C1-tail-result.neg.ergo 7:1: S107 function add can reach the end of its body without returning a value (rows.md, Totality 3)
-site S108 missing in internal/sketch/check/testdata/fixtures/negative/argument-mismatch.ergo: argument-mismatch.ergo 4:27: S108 a string literal takes only a string type, not int64
+site S108 extra in examples/fluid-gallery/gallery: badge.ergo 56:21: S108 cannot use part.Text as part.Node[int] in argument
+site S108 extra in examples/fluid-gallery/gallery: button.ergo 124:19: S108 cannot use part.Text as part.Node[int] in argument
+site S108 extra in examples/fluid-gallery/gallery: glyph.ergo 42:53: S108 cannot use part.Glyph as part.Node[int] in the body's tail value
+site S108 extra in internal/sketch/check/testdata/fixtures/negative/block-tail-invalid.ergo: block-tail-invalid.ergo 17:15: S108 cannot infer T; write the type arguments, e.g. apply[int](…) (D6)
 site S108 missing in internal/sketch/check/testdata/fixtures/negative/ascending-is-the-only-way-in.ergo: ascending-is-the-only-way-in.ergo 25:18: S108 a property parameter is generated, and slices.Ascending[int] cannot be: slices.Ascending has an unexported field, so only package slices builds it; use slices.Ascend
 site S108 missing in internal/sketch/check/testdata/fixtures/negative/ascending-is-the-only-way-in.ergo: ascending-is-the-only-way-in.ergo 9:22: S108 the argument has type []int, which does not match slices.Ascending[T] (D6; type inference)
 site S108 missing in internal/sketch/check/testdata/fixtures/negative/borrow-in-field.ergo: borrow-in-field.ergo 1:12: S108 a borrow mut T is only a parameter or receiver type (types.md, Borrows 1)
 site S108 missing in internal/sketch/check/testdata/fixtures/negative/break-in-with-block.ergo: break-in-with-block.ergo 6:5: S108 break cannot leave a with block or a block argument (grammar.md, Statements 5)
 site S108 missing in internal/sketch/check/testdata/fixtures/negative/case-not-variant.ergo: case-not-variant.ergo 8:7: S108 C is not a variant of Choice (rows.md, Totality 1)
 site S108 missing in internal/sketch/check/testdata/fixtures/negative/catch-alternatives-placeholder.ergo: catch-alternatives-placeholder.ergo 15:7: S108 case a: handles the rest of the row and stands alone in its arm (rows.md, Catch 2)
-site S108 missing in internal/sketch/check/testdata/fixtures/negative/catch-alternatives-placeholder.ergo: catch-alternatives-placeholder.ergo 16:7: S108 a string literal takes only a string type, not int
 site S108 missing in internal/sketch/check/testdata/fixtures/negative/catch-alternatives-placeholder.ergo: catch-alternatives-placeholder.ergo 8:16: S108 case a: handles the rest of the row and stands alone in its arm (rows.md, Catch 2)
-site S108 missing in internal/sketch/check/testdata/fixtures/negative/catch-alternatives-placeholder.ergo: catch-alternatives-placeholder.ergo 9:7: S108 a string literal takes only a string type, not int
 site S108 missing in internal/sketch/check/testdata/fixtures/negative/catch-arm-not-in-row.ergo: catch-arm-not-in-row.ergo 10:7: S108 B is not in the caught row {A} (rows.md, Catch 2)
 site S108 missing in internal/sketch/check/testdata/fixtures/negative/catch-rest-as-placeholder.ergo: catch-rest-as-placeholder.ergo 9:7: S108 case a: handles the rest of the row and stands alone in its arm (rows.md, Catch 2)
 site S108 missing in internal/sketch/check/testdata/fixtures/negative/codec-rows.ergo: codec-rows.ergo 48:9: S108 encode takes a wire type: Hook does not satisfy wire: its part Hook.Run, of type func(), is a function (types.md, Codecs 1)
@@ -1468,39 +1458,25 @@ site S108 missing in internal/sketch/check/testdata/fixtures/negative/codec-rows
 site S108 missing in internal/sketch/check/testdata/fixtures/negative/codec-rows.ergo: codec-rows.ergo 51:6: S108 decode takes the type it builds: decode[T](r) (types.md, Codecs)
 site S108 missing in internal/sketch/check/testdata/fixtures/negative/codec-rows.ergo: codec-rows.ergo 73:41: S108 wired takes a wire type: Hook does not satisfy wire: its part Hook.Run, of type func(), is a function (types.md, Codecs 1)
 site S108 missing in internal/sketch/check/testdata/fixtures/negative/codec-rows.ergo: codec-rows.ergo 78:6: S108 wired[T] is a row, not a function: write it in a fails or needs row (types.md, Codecs 2, 8)
-site S108 missing in internal/sketch/check/testdata/fixtures/negative/constant-overflow.ergo: constant-overflow.ergo 2:15: S108 the constant 300 overflows int8 (types.md, Basic types 2)
-site S108 missing in internal/sketch/check/testdata/fixtures/negative/constraint-unsatisfied.ergo: constraint-unsatisfied.ergo 5:21: S108 []int64 does not satisfy the constraint comparable of same's T: []int64 is not comparable (types.md, Generics 2)
 site S108 missing in internal/sketch/check/testdata/fixtures/negative/context-cycle.ergo: context-cycle.ergo 6:5: S108 context W can reach itself while it is built (a with or an embedding of W through its providers); a context's build may not enter itself (rows.md, Context 5)
 site S108 missing in internal/sketch/check/testdata/fixtures/negative/context-literal-outside-with.ergo: context-literal-outside-with.ergo 7:21: S108 a context literal stands only after let x =, as a with operand, or where a Context[R] is expected
 site S108 missing in internal/sketch/check/testdata/fixtures/negative/duplicate-function.ergo: duplicate-function.ergo 2:6: S108 helper is already declared in this package; functions share a name only when each one's first parameter is a distinct named type declared in this package, and one other may be a plain function (types.md, Methods 3)
-site S108 missing in internal/sketch/check/testdata/fixtures/negative/equality-mismatch.ergo: equality-mismatch.ergo 2:21: S108 mismatched types string and int; both literals take their defaults
 site S108 missing in internal/sketch/check/testdata/fixtures/negative/error-method-on-error-type.ergo: error-method-on-error-type.ergo 3:6: S108 Fault is an error type, so it declares no Error method: its text comes from its fields (types.md, Methods 6)
-site S108 missing in internal/sketch/check/testdata/fixtures/negative/fallible-function-value.ergo: fallible-function-value.ergo 7:6: S108 cannot use func() fails Fault as func() in argument: its error row {Fault} is wider than {}
-site S108 missing in internal/sketch/check/testdata/fixtures/negative/integer-literal-as-duration.ergo: integer-literal-as-duration.ergo 2:18: S108 an integer literal is not a duration: write a duration literal such as 2s
 site S108 missing in internal/sketch/check/testdata/fixtures/negative/interface-method-needs.ergo: interface-method-needs.ergo 2:27: S108 an interface method writes no capability row: a provider's requirements are captured when it is built (types.md, Capabilities 4; README Gap 17)
-site S108 missing in internal/sketch/check/testdata/fixtures/negative/interface-missing-method.ergo: interface-missing-method.ergo 5:9: S108 cannot use Mem as Store in return: Mem does not declare that it implements Store: write implements Store after Mem's body (types.md, Interface assignability 1)
-site S108 missing in internal/sketch/check/testdata/fixtures/negative/interface-wider-row.ergo: interface-wider-row.ergo 8:9: S108 cannot use Mem as Store in return: Mem does not declare that it implements Store: write implements Store after Mem's body (types.md, Interface assignability 1)
 site S108 missing in internal/sketch/check/testdata/fixtures/negative/keyed-literal-nondefaultable.ergo: keyed-literal-nondefaultable.ergo 10:10: S108 Box{…} does not set C: a record literal names every field; write C: …, or copy it from a value with Box{..v, …} (types.md, Zero values 2)
 site S108 missing in internal/sketch/check/testdata/fixtures/negative/machine-expr-computed-wrong-type.ergo: machine-expr-computed-wrong-type.ergo 13:11: S108 the step of machine M must have the type func(S, E) Decision[S, O], with any error and capability rows; it has the type func(T, E) Decision[T, T] (runtime.md, Machines and actors 1)
-site S108 missing in internal/sketch/check/testdata/fixtures/negative/narrow-param-other.ergo: narrow-param-other.ergo 20:28: S108 cannot use func(Other) Fate as func(Boom) Fate in field Of: the parameters or results differ
-site S108 missing in internal/sketch/check/testdata/fixtures/negative/narrow-param-other.ergo: narrow-param-other.ergo 21:28: S108 cannot use func(Boom) Other as func(Boom) Fate in field Of: the parameters or results differ
 site S108 missing in internal/sketch/check/testdata/fixtures/negative/parameter-kind-conflict.ergo: parameter-kind-conflict.ergo 2:25: S108 E is used as a type and as a capability row; a parameter has one kind (types.md, Generics 1)
-site S108 missing in internal/sketch/check/testdata/fixtures/negative/plus-on-bool.ergo: plus-on-bool.ergo 2:21: S108 operator + is not defined on bool
 site S108 missing in internal/sketch/check/testdata/fixtures/negative/positional-literal-short.ergo: positional-literal-short.ergo 4:10: S108 a positional literal of P lists all 2 fields, not 1 (types.md, Structs 2)
 site S108 missing in internal/sketch/check/testdata/fixtures/negative/recursive-struct.ergo: recursive-struct.ergo 1:6: S108 Node contains itself by value, through its fields or tuple elements; its size would be infinite (types.md, Structs 4)
 site S108 missing in internal/sketch/check/testdata/fixtures/negative/refinement-ways-in.ergo: refinement-ways-in.ergo 13:2: S108 a conversion into Port is checked only for a constant; write ParsePort(n), which checks its where 1 <= it && it <= 65535 (types.md, Refinements 6)
-site S108 missing in internal/sketch/check/testdata/fixtures/negative/refinement-ways-in.ergo: refinement-ways-in.ergo 17:17: S108 cannot use []string as Names in let ns: Names is refined; write ParseNames(…), which checks its where
 site S108 missing in internal/sketch/check/testdata/fixtures/negative/refinement-ways-in.ergo: refinement-ways-in.ergo 22:2: S108 a literal of Names is not checked against its where; write ParseNames([]string{…})
 site S108 missing in internal/sketch/check/testdata/fixtures/negative/refinement-ways-in.ergo: refinement-ways-in.ergo 26:2: S108 operator + on Port could leave its where; convert first: int(…) + … (types.md, Refinements 7)
 site S108 missing in internal/sketch/check/testdata/fixtures/negative/refinement-ways-in.ergo: refinement-ways-in.ergo 30:2: S108 a slice of Names could leave its where; convert first: []string(…)[…] (types.md, Refinements 7)
 site S108 missing in internal/sketch/check/testdata/fixtures/negative/refinement-ways-in.ergo: refinement-ways-in.ergo 34:6: S108 let p of type Port needs a value: Port has no zero value (types.md, Zero values 3)
 site S108 missing in internal/sketch/check/testdata/fixtures/negative/refinement-ways-in.ergo: refinement-ways-in.ergo 9:2: S108 70000 is not a Port: its where is 1 <= it && it <= 65535 (types.md, Refinements 6)
-site S108 missing in internal/sketch/check/testdata/fixtures/negative/return-mismatch.ergo: return-mismatch.ergo 2:9: S108 cannot use bool as string in return
 site S108 missing in internal/sketch/check/testdata/fixtures/negative/try-infallible.ergo: try-infallible.ergo 4:21: S108 try on an expression that cannot fail (rows.md, Error rows 6)
-site S108 missing in internal/sketch/check/testdata/fixtures/negative/type-argument-not-inferred.ergo: type-argument-not-inferred.ergo 5:10: S108 cannot infer A; write the type arguments, e.g. zero[int](…) (D6)
 site S108 missing in internal/sketch/check/testdata/fixtures/negative/type-switch-non-union.ergo: type-switch-non-union.ergo 7:7: S108 Other does not match a value of Order: a type in a pattern names a variant of the subject's union or the subject's own type (rows.md, Totality 1)
 site S108 missing in internal/sketch/check/testdata/fixtures/negative/union-variant-interface.ergo: union-variant-interface.ergo 3:19: S108 a union variant is a record declared in this package; Store is an operation type (types.md, Unions 1)
-site S108 missing in internal/sketch/check/testdata/fixtures/negative/var-mismatch.ergo: var-mismatch.ergo 2:16: S108 a string literal takes only a string type, not int64
 site S108 missing in internal/sketch/check/testdata/fixtures/negative/var-nondefaultable.ergo: var-nondefaultable.ergo 6:6: S108 let c of type Choice needs a value: Choice has no zero value (types.md, Zero values 3)
 site S108 missing in internal/sketch/check/testdata/fixtures/negative/wire-constraint.ergo: wire-constraint.ergo 20:2: S108 Hook does not satisfy the constraint wire of keep's T: Hook does not satisfy wire: its part Hook.Run, of type func(), is a function (types.md, Codecs 1) (types.md, Generics 2)
 site S108 missing in internal/sketch/check/testdata/fixtures/negative/wire-constraint.ergo: wire-constraint.ergo 21:2: S108 Sealed does not satisfy the constraint wire of keep's T: Sealed does not satisfy wire: it is built only by its package (its field id is unexported), which declares no ParseSealed and Wire pair (types.md, Codecs 1) (types.md, Generics 2)
@@ -1509,29 +1485,13 @@ site S108 missing in internal/sketch/check/testdata/fixtures/negative/wire-const
 site S108 missing in internal/sketch/check/testdata/fixtures/negative/wire-constraint.ergo: wire-constraint.ergo 24:2: S108 Sink does not satisfy the constraint wire of keep's T: Sink does not satisfy wire: it is an operation type (types.md, Codecs 1) (types.md, Generics 2)
 site S108 missing in internal/sketch/check/testdata/fixtures/negative/wire-constraint.ergo: wire-constraint.ergo 25:2: S108 duration does not satisfy the constraint wire of keep's T: duration does not satisfy wire: it has no wire form (types.md, Codecs 1) (types.md, Generics 2)
 site S108 missing in internal/sketch/check/testdata/fixtures/negative/wire-constraint.ergo: wire-constraint.ergo 29:2: S108 T does not satisfy the constraint wire of keep's T: T does not satisfy wire: it is a type parameter without the wire constraint (types.md, Codecs 1) (types.md, Generics 2)
-site S108 missing in internal/sketch/check/testdata/v1/A1-literal-context.neg.ergo: A1-literal-context.neg.ergo 4:14: S108 a float literal takes only a float type, not int; write 2
-site S108 missing in internal/sketch/check/testdata/v1/A1-literal-context.neg.ergo: A1-literal-context.neg.ergo 9:19: S108 an integer literal is not a duration: write a duration literal such as 5s
-site S108 missing in internal/sketch/check/testdata/v1/A2-default-and-operands.neg.ergo: A2-default-and-operands.neg.ergo 4:10: S108 mismatched types int and float64; write 1.0 + 2.5
-site S108 missing in internal/sketch/check/testdata/v1/A2-default-and-operands.neg.ergo: A2-default-and-operands.neg.ergo 9:9: S108 mismatched types int32 and int64; write int64(a)
-site S108 missing in internal/sketch/check/testdata/v1/A3-typed-constants.neg.ergo: A3-typed-constants.neg.ergo 6:15: S108 Limit is int; write int8(Limit) or declare Limit int8
-site S108 missing in internal/sketch/check/testdata/v1/A4-literal-inference.neg.ergo: A4-literal-inference.neg.ergo 8:9: S108 cannot infer T; write the type arguments, e.g. Two[int](…): its literal arguments take int and int32 (D6)
-site S108 missing in internal/sketch/check/testdata/v1/A5-overflow.neg.ergo: A5-overflow.neg.ergo 2:17: S108 the constant 300 overflows int8 (types.md, Basic types 2)
-site S108 missing in internal/sketch/check/testdata/v1/A5-overflow.neg.ergo: A5-overflow.neg.ergo 5:15: S108 the constant 200 overflows int8 (types.md, Basic types 2)
-site S108 missing in internal/sketch/check/testdata/v1/A6-shift.neg.ergo: A6-shift.neg.ergo 4:18: S108 the left operand of a shift is an integer, and float64 is expected here; write int(1) << n, then convert the result
 site S108 missing in internal/sketch/check/testdata/v1/B1-type-shapes.neg.ergo: B1-type-shapes.neg.ergo 11:14: S108 a union variant is a record declared in this package; Store is an operation type (types.md, Unions 1)
 site S108 missing in internal/sketch/check/testdata/v1/B1-type-shapes.neg.ergo: B1-type-shapes.neg.ergo 9:12: S108 a union variant is a record declared in this package, not int (types.md, Unions 1)
-site S108 missing in internal/sketch/check/testdata/v1/B10-conversions.neg.ergo: B10-conversions.neg.ergo 11:9: S108 cannot convert Order to Card: a conversion is between numeric types, between duration and int64, or between a defined type and the type it is defined over (types.md, Conversions)
-site S108 missing in internal/sketch/check/testdata/v1/B10-conversions.neg.ergo: B10-conversions.neg.ergo 7:9: S108 an integer does not convert to string; write "\(n)" for its decimal text (types.md, Conversions)
 site S108 missing in internal/sketch/check/testdata/v1/B2-empty-record-bare.neg.ergo: B2-empty-record-bare.neg.ergo 13:9: S108 Paid has fields; write Paid{…} (types.md, Structs 2)
 site S108 missing in internal/sketch/check/testdata/v1/B2-empty-record-bare.neg.ergo: B2-empty-record-bare.neg.ergo 9:9: S108 a record with no fields is written bare: Pending (types.md, Structs 2)
 site S108 missing in internal/sketch/check/testdata/v1/B5-constant-patterns.neg.ergo: B5-constant-patterns.neg.ergo 14:7: S108 the constant "card" is string; the subject is int (rows.md, Totality 1)
 site S108 missing in internal/sketch/check/testdata/v1/B6-case-domain.neg.ergo: B6-case-domain.neg.ergo 29:7: S108 this case is already covered by the earlier case `_` (unreachable)
 site S108 missing in internal/sketch/check/testdata/v1/B6-case-domain.neg.ergo: B6-case-domain.neg.ergo 9:7: S108 Card is not a variant of Payment (rows.md, Totality 1)
-site S108 missing in internal/sketch/check/testdata/v1/B9-tuples.neg.ergo: B9-tuples.neg.ergo 13:13: S108 cannot use int as string in tuple element
-site S108 missing in internal/sketch/check/testdata/v1/B9-tuples.neg.ergo: B9-tuples.neg.ergo 8:16: S108 3 names for 2 values
-site S108 missing in internal/sketch/check/testdata/v1/C2-if-expression.neg.ergo: C2-if-expression.neg.ergo 4:17: S108 a value if needs an else: without one it has no value (D-C2)
-site S108 missing in internal/sketch/check/testdata/v1/C2-if-expression.neg.ergo: C2-if-expression.neg.ergo 9:28: S108 a string literal takes only a string type, not int
-site S108 missing in internal/sketch/check/testdata/v1/C3-match-expression.neg.ergo: C3-match-expression.neg.ergo 17:3: S108 cannot use int as string in the body's tail value
 site S108 missing in internal/sketch/check/testdata/v1/C5-one-catch.neg.ergo: C5-one-catch.neg.ergo 26:7: S108 Frozen is not in the caught row {Declined | NotFound} (rows.md, Catch 2)
 site S108 missing in internal/sketch/check/testdata/v1/C5-one-catch.neg.ergo: C5-one-catch.neg.ergo 42:7: S108 this arm is unreachable: the case err: or case _ before it handles every failure (rows.md, Catch 2)
 site S108 missing in internal/sketch/check/testdata/v1/C6-break-in-match.neg.ergo: C6-break-in-match.neg.ergo 6:3: S108 break is not inside a for
@@ -1544,29 +1504,16 @@ site S108 missing in internal/sketch/check/testdata/v1/D2-no-shadowing.neg.ergo:
 site S108 missing in internal/sketch/check/testdata/v1/D2-no-shadowing.neg.ergo: D2-no-shadowing.neg.ergo 17:17: S108 total is already a local of an enclosing scope in this function; choose another name (no shadowing)
 site S108 missing in internal/sketch/check/testdata/v1/D2-no-shadowing.neg.ergo: D2-no-shadowing.neg.ergo 6:7: S108 x is already a parameter of an enclosing scope in this function; choose another name (no shadowing)
 site S108 missing in internal/sketch/check/testdata/v1/D4-one-for.neg.ergo: D4-one-for.neg.ergo 15:6: S108 a for over Range[int] binds one name, the element: for x in …
-site S108 missing in internal/sketch/check/testdata/v1/D4-one-for.neg.ergo: D4-one-for.neg.ergo 18:11: S108 int is not iterable: count with for i in 0..n
-site S108 missing in internal/sketch/check/testdata/v1/D4-one-for.neg.ergo: D4-one-for.neg.ergo 26:11: S108 mismatched types int and int64; write int64(a)
 site S108 missing in internal/sketch/check/testdata/v1/D4-one-for.neg.ergo: D4-one-for.neg.ergo 38:3: S108 the binding y cannot be reassigned; copy it into a local: let mut y2 = y
-site S108 missing in internal/sketch/check/testdata/v1/D4-one-for.neg.ergo: D4-one-for.neg.ergo 8:9: S108 mismatched types string and int64
-site S108 missing in internal/sketch/check/testdata/v1/D7-satisfaction.neg.ergo: D7-satisfaction.neg.ergo 29:7: S108 cannot use Tape as Orders in argument: Tape does not declare that it implements Orders: write implements Orders after Tape's body (types.md, Interface assignability 1)
 site S108 missing in internal/sketch/check/testdata/v1/D7-satisfaction.neg.ergo: D7-satisfaction.neg.ergo 33:2: S108 several functions are named Get; call it as x.Get(…)
 site S108 missing in internal/sketch/check/testdata/v1/D9-assign-root.neg.ergo: D9-assign-root.neg.ergo 6:2: S108 the parameter o is immutable, and so are its fields and elements; copy it into a local: let mut o2 = o
 site S108 missing in internal/sketch/check/testdata/v1/D9-assign-root.neg.ergo: D9-assign-root.neg.ergo 8:2: S108 ys is immutable, and so are its fields and elements; declare ys with let mut
-site S108 missing in internal/sketch/check/testdata/v1/E1-generics.neg.ergo: E1-generics.neg.ergo 16:2: S108 Card does not satisfy the constraint ordered of Max's T: Card is not in ordered's type set, ~int | ~int8 | ~int16 | ~int32 | ~int64 | ~uint | ~uint8 | ~uint16, … (types.md, Generics 2)
-site S108 missing in internal/sketch/check/testdata/v1/E1-generics.neg.ergo: E1-generics.neg.ergo 20:2: S108 operator > is not defined on T
 site S108 missing in internal/sketch/check/testdata/v1/E1-generics.neg.ergo: E1-generics.neg.ergo 23:38: S108 E is used as a type and as a capability row; a parameter has one kind (types.md, Generics 1)
-site S108 missing in internal/sketch/check/testdata/v1/E10-literal-params.neg.ergo: E10-literal-params.neg.ergo 4:20: S108 cannot infer the type of x; write func(x T)
-site S108 missing in internal/sketch/check/testdata/v1/E2-closed-world.neg.ergo: E2-closed-world.neg.ergo 19:2: S108 Store values cannot be compared with ==
 site S108 missing in internal/sketch/check/testdata/v1/E4-tests.neg.ergo: E4-tests.neg.ergo 13:2: S108 assert stands only in a test or law body
 site S108 missing in internal/sketch/check/testdata/v1/E4-tests.neg.ergo: E4-tests.neg.ergo 24:6: S108 test Typed is declared twice
-site S108 missing in internal/sketch/check/testdata/v1/E4-tests.neg.ergo: E4-tests.neg.ergo 9:9: S108 assert takes a bool, not int
-site S108 missing in internal/sketch/check/testdata/v1/E5-laws.neg.ergo: E5-laws.neg.ergo 6:20: S108 a law's body ends in a bool, not string
 site S108 missing in internal/sketch/check/testdata/v1/E6-extern-contexts.neg.ergo: E6-extern-contexts.neg.ergo 24:6: S108 a context is used only by with, embedded in a context, or where a Context[R] is expected: with w { … }, context { w, … } or let v Context[R] = w
 site S108 missing in internal/sketch/check/testdata/v1/E9-escaping.neg.ergo: E9-escaping.neg.ergo 11:2: S108 f is a non-escaping function value: it may be called or passed to a non-escaping parameter, never stored, returned or passed where it may be kept; write own before its parameter's type to keep it (types.md, Function values 2)
 site S108 missing in internal/sketch/check/testdata/v1/E9-escaping.neg.ergo: E9-escaping.neg.ergo 7:14: S108 f is a non-escaping function value: it may be called or passed to a non-escaping parameter, never stored, returned or passed where it may be kept; write own before its parameter's type to keep it (types.md, Function values 2)
-site S108 missing in internal/sketch/check/testdata/v1/Esub1-instances.neg.ergo: Esub1-instances.neg.ergo 11:3: S108 Card does not satisfy the constraint ordered of Max's T: Card is not in ordered's type set, ~int | ~int8 | ~int16 | ~int32 | ~int64 | ~uint | ~uint8 | ~uint16, … (types.md, Generics 2)
-site S108 missing in internal/sketch/check/testdata/v1/Esub1-instances.neg.ergo: Esub1-instances.neg.ergo 14:19: S108 Card does not satisfy ordered: Card is not in ordered's type set, ~int | ~int8 | ~int16 | ~int32 | ~int64 | ~uint | ~uint8 | ~uint16, …
-site S108 missing in internal/sketch/check/testdata/v1/Esub1-instances.neg.ergo: Esub1-instances.neg.ergo 18:18: S108 map key type func() int is not comparable
 site S108 missing in internal/sketch/check/testdata/v1/Esub4-extern-call-only.neg.ergo: Esub4-extern-call-only.neg.ergo 13:11: S108 an extern function is called directly; wrap it in a literal: func() { f() }
 site S108 missing in internal/sketch/check/testdata/v1/Esub4-extern-call-only.neg.ergo: Esub4-extern-call-only.neg.ergo 9:2: S108 an extern function is called directly; wrap it in a literal: func() { f() }
 site S108 missing in internal/sketch/check/testdata/v1/G9-extern-allowlist.neg.ergo: G9-extern-allowlist.neg.ergo 10:1: S108 extern go html.EscapeString runs Go that is not on the reviewed pure list; declare needs go.Foreign (only main provides it) (docs/spec/interop.md)

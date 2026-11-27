@@ -44,3 +44,14 @@ extern go ergo.local/prototype/runtime/v1/hostfs.ReadDir func ReadDir(name strin
 // ergo:go func Stat(name string) (Info, error)
 // ergo:effect ambient (vouched: it calls os.Stat on one path, following a symbolic link, and copies the five values of its result into a new struct)
 extern go ergo.local/prototype/runtime/v1/hostfs.Stat func Stat(name string) Info fails go.Error needs Ambient
+
+// ergo:go func Statfs(name string) (StatfsInfo, error)
+// ergo:effect ambient (vouched: it calls syscall.Statfs on one path and copies the volume total, free and available byte counts into a new struct)
+extern go ergo.local/prototype/runtime/v1/hostfs.Statfs func Statfs(name string) StatfsInfo fails go.Error needs Ambient
+
+// ergo:go type StatfsInfo struct
+extern go ergo.local/prototype/runtime/v1/hostfs.StatfsInfo type StatfsInfo {
+	Total     int64,
+	Free      int64,
+	Available int64,
+}

@@ -7,7 +7,7 @@ import sql
 import strconv
 
 // CurrentSchemaVersion is the SQLite schema version written and accepted by this package.
-let CurrentSchemaVersion = 2
+let CurrentSchemaVersion = 3
 
 func initSchema() fails orchestrate.StoreFailed needs sql.Tx {
 	let uvRows = try queryTx("PRAGMA user_version", []sql.Value{})
@@ -20,26 +20,84 @@ func initSchema() fails orchestrate.StoreFailed needs sql.Tx {
 	}
 	if uv != CurrentSchemaVersion {
 		let _ = try execTx(
-			"CREATE TABLE IF NOT EXISTS schema_meta (id INTEGER PRIMARY KEY CHECK (id = 1), schema_version INTEGER NOT NULL, next_question_id INTEGER NOT NULL DEFAULT 1)",
+			"CREATE TABLE IF NOT EXISTS schema_meta (id INTEGER PRIMARY KEY CHECK (id = 1), schema_version INTEGER NOT NULL, next_question_id INTEGER NOT NULL DEFAULT 1, next_event_id INTEGER NOT NULL DEFAULT 1)",
 			[]sql.Value{},
 		)
 	}
 	let metaRows = try queryTx("SELECT schema_version FROM schema_meta WHERE id = 1", []sql.Value{})
 	if metaRows.Len() > 0 {
 		let ver = try intAt(metaRows[0], 0, "schema_version")
-		if ver != CurrentSchemaVersion {
+		if ver > CurrentSchemaVersion || ver < 1 {
 			return orchestrate.StoreFailed{Reason: "incompatible schema_version \(ver) != \(CurrentSchemaVersion)"}
 		}
-		if uv == CurrentSchemaVersion {
+		if ver == CurrentSchemaVersion && uv == CurrentSchemaVersion {
+			return
+		}
+		if ver < CurrentSchemaVersion {
+			try migrateSchemaTx(ver)
 			return
 		}
 	} else {
 		let _ = try execTx(
-			"INSERT INTO schema_meta (id, schema_version, next_question_id) VALUES (1, ?, 1)",
+			"INSERT INTO schema_meta (id, schema_version, next_question_id, next_event_id) VALUES (1, ?, 1, 1)",
 			[]sql.Value{sql.Int{N: int64(CurrentSchemaVersion)}},
 		)
 	}
 	try createTablesTx()
+}
+
+func migrateSchemaTx(fromVer int) fails orchestrate.StoreFailed needs sql.Tx {
+	if !(try hasColumnTx("schema_meta", "next_event_id")) {
+		let _ = try execTx("ALTER TABLE schema_meta ADD COLUMN next_event_id INTEGER NOT NULL DEFAULT 1", []sql.Value{})
+	}
+	if fromVer == 1 && (try hasTableTx("units")) && !(try hasColumnTx("units", "repo")) {
+		let _ = try execTx("ALTER TABLE units RENAME TO units_v1", []sql.Value{})
+		let hasReceipts = try hasTableTx("receipts")
+		if hasReceipts {
+			let _ = try execTx("ALTER TABLE receipts RENAME TO receipts_v1", []sql.Value{})
+		}
+		try createTablesTx()
+		let _ = try execTx(
+				"INSERT INTO units (repo, run, id, title, requires_json, lane, branch, status, head, created_at, updated_at) "+
+				"SELECT 'default', 'default', id, title, '[\"acceptance\"]', lane, NULL, "+
+				"CASE status WHEN 'accepted' THEN 'accepted' WHEN 'landed' THEN 'landed' WHEN 'closed' THEN 'closed' ELSE 'open' END, "+
+				"head_sha, created_at, updated_at FROM units_v1",
+			[]sql.Value{},
+		)
+		if hasReceipts {
+			let _ = try execTx(
+					"INSERT INTO receipts (id, seq_order, repo, run, unit_id, kind, command, head, exit_code, exit_lines, recorded_at, recorded_by) "+
+					"SELECT id, seq_order, 'default', 'default', unit_id, kind, command, commit_sha, exit_code, substr(summary_metrics, 1, 4096), recorded_at, recorded_by FROM receipts_v1",
+				[]sql.Value{},
+			)
+			let _ = try execTx("DROP TABLE receipts_v1", []sql.Value{})
+		}
+		let _ = try execTx("DROP TABLE units_v1", []sql.Value{})
+	} else {
+		try createTablesTx()
+	}
+	let _ = try execTx(
+		"UPDATE schema_meta SET schema_version = ? WHERE id = 1",
+		[]sql.Value{sql.Int{N: int64(CurrentSchemaVersion)}},
+	)
+}
+
+func hasTableTx(table string) bool fails orchestrate.StoreFailed needs sql.Tx {
+	let rows = try queryTx(
+		"SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ? LIMIT 1",
+		[]sql.Value{sql.Text{S: table}},
+	)
+	rows.Len() > 0
+}
+
+func hasColumnTx(table string, col string) bool fails orchestrate.StoreFailed needs sql.Tx {
+	let rows = try queryTx("PRAGMA table_info("+table+")", []sql.Value{})
+	for row in rows {
+		if (try textAt(row, 1, "name")) == col {
+			return true
+		}
+	}
+	false
 }
 
 func createTablesTx() fails orchestrate.StoreFailed needs sql.Tx {
@@ -47,6 +105,7 @@ func createTablesTx() fails orchestrate.StoreFailed needs sql.Tx {
 		"CREATE TABLE IF NOT EXISTS events (seq INTEGER PRIMARY KEY, command_id TEXT NOT NULL, payload_digest TEXT NOT NULL, event_json TEXT NOT NULL);" +
 		"CREATE INDEX IF NOT EXISTS idx_events_command_id ON events (command_id);" +
 		"CREATE TABLE IF NOT EXISTS units (repo TEXT NOT NULL, run TEXT NOT NULL, id TEXT NOT NULL, title TEXT NOT NULL, requires_json TEXT NOT NULL, lane TEXT, branch TEXT, status TEXT NOT NULL, head TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY (repo, run, id));" +
+		"CREATE INDEX IF NOT EXISTS idx_units_repo_run_status ON units (repo, run, status, id);" +
 		"CREATE TABLE IF NOT EXISTS receipts (id TEXT PRIMARY KEY, seq_order INTEGER NOT NULL, repo TEXT NOT NULL, run TEXT NOT NULL, unit_id TEXT NOT NULL, kind TEXT NOT NULL, command TEXT NOT NULL, head TEXT NOT NULL, exit_code INTEGER NOT NULL, exit_lines TEXT NOT NULL, recorded_at TEXT NOT NULL, recorded_by TEXT NOT NULL, FOREIGN KEY (repo, run, unit_id) REFERENCES units (repo, run, id));" +
 		"CREATE INDEX IF NOT EXISTS idx_receipts_unit_head ON receipts (repo, run, unit_id, head, seq_order);" +
 		"CREATE TABLE IF NOT EXISTS commitments (id TEXT PRIMARY KEY, title TEXT NOT NULL, kind TEXT NOT NULL, status TEXT NOT NULL, owner TEXT, lane TEXT, landed_sha TEXT, decision_note TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);" +
@@ -55,6 +114,14 @@ func createTablesTx() fails orchestrate.StoreFailed needs sql.Tx {
 		"CREATE INDEX IF NOT EXISTS idx_queue_order ON queue (status, priority, key);" +
 		"CREATE TABLE IF NOT EXISTS questions (id INTEGER PRIMARY KEY, command_id TEXT NOT NULL UNIQUE, prompt TEXT NOT NULL, assumption TEXT NOT NULL, concrete_action TEXT NOT NULL, status TEXT NOT NULL, answer TEXT, asked_by TEXT NOT NULL, asked_at TEXT NOT NULL, answered_by TEXT, answered_at TEXT);" +
 		"CREATE INDEX IF NOT EXISTS idx_questions_status ON questions (status, id);" +
+		"CREATE TABLE IF NOT EXISTS run_meta (repo TEXT NOT NULL, run TEXT NOT NULL, main_head TEXT, updated_at TEXT NOT NULL, PRIMARY KEY (repo, run));" +
+		"CREATE TABLE IF NOT EXISTS decisions (repo TEXT NOT NULL, run TEXT NOT NULL, id TEXT NOT NULL, category TEXT NOT NULL, scope TEXT NOT NULL, unit_id TEXT, title TEXT NOT NULL, body TEXT NOT NULL, status TEXT NOT NULL, supersedes TEXT, actor TEXT NOT NULL, created_at TEXT NOT NULL, PRIMARY KEY (repo, run, id));" +
+		"CREATE INDEX IF NOT EXISTS idx_decisions_filter ON decisions (repo, run, status, category, created_at DESC, id);" +
+		"CREATE TABLE IF NOT EXISTS landings (repo TEXT NOT NULL, run TEXT NOT NULL, landing_number INTEGER NOT NULL, group_id TEXT NOT NULL, head TEXT NOT NULL, tips_json TEXT NOT NULL, summary TEXT NOT NULL, log_path TEXT, landed_at TEXT NOT NULL, PRIMARY KEY (repo, run, landing_number));" +
+		"CREATE INDEX IF NOT EXISTS idx_landings_recent ON landings (repo, run, landing_number DESC);" +
+		"CREATE TABLE IF NOT EXISTS event_log (id INTEGER PRIMARY KEY, repo TEXT NOT NULL, run TEXT NOT NULL, kind TEXT NOT NULL, unit_id TEXT, summary TEXT NOT NULL, actor TEXT NOT NULL, created_at TEXT NOT NULL, source_key TEXT);" +
+		"CREATE INDEX IF NOT EXISTS idx_event_log_filter ON event_log (repo, run, kind, unit_id, id DESC);" +
+		"CREATE UNIQUE INDEX IF NOT EXISTS idx_event_log_source_key ON event_log (repo, run, source_key) WHERE source_key IS NOT NULL;" +
 		"PRAGMA user_version = " + strconv.Itoa(CurrentSchemaVersion)
 	let _ = try execTx(ddl, []sql.Value{})
 }

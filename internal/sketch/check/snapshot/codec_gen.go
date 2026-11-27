@@ -138,8 +138,6 @@ func (e *encoder) encFieldsNamed(v *check.Named) {
 	e.encT28(*f.F_implExprs)
 }
 
-func (e *encoder) encNamed(v check.Named) { e.encFieldsNamed(&v) }
-
 func (e *encoder) encPtrNamed(v *check.Named) {
 	if e.ref(v, v == nil) {
 		return
@@ -418,8 +416,6 @@ func (e *encoder) encFieldshostPkg(v *check.Codec_hostPkg) {
 	e.encT83(*f.F_cbTypes)
 	e.encT84(*f.F_cbTypeResolved)
 }
-
-func (e *encoder) enchostPkg(v check.Codec_hostPkg) { e.encFieldshostPkg(&v) }
 
 func (e *encoder) encPtrhostPkg(v *check.Codec_hostPkg) {
 	if e.ref(v, v == nil) {
@@ -841,8 +837,6 @@ func (e *encoder) encFieldsFunc(v *check.Func) {
 	e.encCallPrimitive(*f.F_primitive)
 	e.encT15(*f.F_asWritten)
 }
-
-func (e *encoder) encFunc(v check.Func) { e.encFieldsFunc(&v) }
 
 func (e *encoder) encPtrFunc(v *check.Func) {
 	if e.ref(v, v == nil) {
@@ -1949,8 +1943,6 @@ func (e *encoder) encFieldsGoBindings(v *check.GoBindings) {
 	e.encT166(v.Stale)
 	e.encT167(v.VerifyCStamp)
 }
-
-func (e *encoder) encGoBindings(v check.GoBindings) { e.encFieldsGoBindings(&v) }
 
 func (e *encoder) encPtrGoBindings(v *check.GoBindings) {
 	if e.ref(v, v == nil) {
@@ -12060,11 +12052,6 @@ func (d *decoder) decFieldsNamed(v *check.Named) {
 	*f.F_implExprs = d.decT28()
 }
 
-func (d *decoder) decNamed() (v check.Named) {
-	d.decFieldsNamed(&v)
-	return v
-}
-
 func (d *decoder) decPtrNamed() *check.Named {
 	x, fresh := d.ref()
 	if !fresh {
@@ -12346,11 +12333,6 @@ func (d *decoder) decFieldshostPkg(v *check.Codec_hostPkg) {
 	*f.F_scopedResolved = d.decT82()
 	*f.F_cbTypes = d.decT83()
 	*f.F_cbTypeResolved = d.decT84()
-}
-
-func (d *decoder) dechostPkg() (v check.Codec_hostPkg) {
-	d.decFieldshostPkg(&v)
-	return v
 }
 
 func (d *decoder) decPtrhostPkg() *check.Codec_hostPkg {
@@ -12755,11 +12737,6 @@ func (d *decoder) decFieldsFunc(v *check.Func) {
 	*f.F_goCall = d.decT15()
 	*f.F_primitive = d.decCallPrimitive()
 	*f.F_asWritten = d.decT15()
-}
-
-func (d *decoder) decFunc() (v check.Func) {
-	d.decFieldsFunc(&v)
-	return v
 }
 
 func (d *decoder) decPtrFunc() *check.Func {
@@ -13704,11 +13681,6 @@ func (d *decoder) decFieldsGoBindings(v *check.GoBindings) {
 	*f.F_program = d.decImporter()
 	v.Stale = d.decT166()
 	v.VerifyCStamp = d.decT167()
-}
-
-func (d *decoder) decGoBindings() (v check.GoBindings) {
-	d.decFieldsGoBindings(&v)
-	return v
 }
 
 func (d *decoder) decPtrGoBindings() *check.GoBindings {

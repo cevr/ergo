@@ -1,6 +1,13 @@
 {
   "paragraphs": [
     {
+      "file": "content-mappers.md",
+      "heading": "Content mappers",
+      "status": "designed",
+      "text": ": no compiler support yet for file-level asset imports or the userland content-mapper contract; the parser and checker handle only inline `type T derive E` type-plan and `Provider` derives.",
+      "witnesses": []
+    },
+    {
       "file": "diagnostics.md",
       "heading": "Diagnostics",
       "status": "implemented",
@@ -638,6 +645,13 @@
         "internal/sketch/check:TestDeriveModel",
         "internal/sketch/lower:TestPatternLoweringAgrees"
       ]
+    },
+    {
+      "construct": "Content mappers: file-level asset imports and pure userland `derive` handlers with `SourceSpanMap`",
+      "status": "designed",
+      "cell": "Designed, not yet implemented: pure capability-free `ContentInput -> MappedErgo` contract unifying asset imports and inline derives with `lawcache` keying and source-mapped diagnostics",
+      "section": "[content-mappers](content-mappers.md)",
+      "witnesses": []
     }
   ]
 }

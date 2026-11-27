@@ -1,0 +1,333 @@
+import option
+import strconv
+import sync
+import time
+import trace
+
+func requestBodyBytes(body Body) int {
+	match body {
+	case Buffered as b:
+		b.Text.Len()
+	case BodyTooLarge, BodyReadFailed:
+		0
+	}
+}
+
+func incomingTraceContext(header []Field) option.Option[trace.TraceContext] {
+	match Header(header, "traceparent") {
+	case option.Some[string] as raw:
+		let tc = trace.ParseTraceparent(raw.Value) catch {
+		case trace.InvalidTraceparent:
+			return option.None
+		}
+		option.Some[trace.TraceContext]{Value: tc}
+	case option.None:
+		option.None
+	}
+}
+
+func serviceSeed(serviceName string, now time.Time) uint64 {
+	let mut h uint64 = 14695981039346656037
+	let bs = serviceName.Bytes()
+	for i in 0..bs.Len() {
+		h = (h ^ uint64(bs[i])) * uint64(1099511628211)
+	}
+	h ^ uint64(now.UnixSeconds()) ^ (uint64(now.Nanosecond()) << uint64(17))
+}
+
+func echoTraceparent(resp Response, tp option.Option[string]) Response {
+	if Header(resp.Header, "traceparent") != option.None {
+		return resp
+	}
+	match tp {
+	case option.Some[string] as v:
+		Response{..resp, Header: resp.Header.Append(Field{Name: "traceparent", Value: v.Value})}
+	case option.None:
+		resp
+	}
+}
+
+func observeRequestWithGen[E, R](serviceName string, req Request, gen option.Option[trace.IDGenerator], handle func(Request) Response fails E needs R) Response fails E needs R | trace.Sink | time.Clock {
+	let spanName = req.Method + " " + req.Path
+	let svc = trace.ServiceMeta{Service: serviceName, Version: "", DeploymentID: "", Region: ""}
+	let incoming = incomingTraceContext(req.Header)
+	let run = func() Response fails E needs R {
+		trace.SetStr("http.method", req.Method)
+		trace.SetStr("http.path", req.Path)
+		trace.SetInt("http.bytes_in", requestBodyBytes(req.Body))
+		let resp = try handle(req)
+		trace.SetInt("http.status", resp.Status)
+		trace.SetInt("http.bytes_out", resp.Body.Len())
+		if resp.Status >= 500 {
+			let code = strconv.Itoa(resp.Status)
+			trace.RecordError("http_5xx", code, "http status "+code, true)
+		}
+		echoTraceparent(resp, trace.Traceparent())
+	}
+	match gen {
+	case option.Some[trace.IDGenerator] as g:
+		try trace.WithServiceSpanGen(spanName, svc, incoming, g.Value, run)
+	case option.None:
+		try trace.WithServiceSpan(spanName, svc, incoming, run)
+	}
+}
+
+// ObserveRequest runs handle for req inside a canonical wide-event span for
+// serviceName using the bound trace.Sink and time.Clock. It extracts any valid
+// W3C traceparent header (case-insensitively) to continue a distributed trace,
+// records http.method, http.path, http.status, http.bytes_in, and
+// http.bytes_out, marks status >= 500 with trace.RecordError, and echoes
+// traceparent on the response when not already present.
+func ObserveRequest[E, R](serviceName string, req Request, handle func(Request) Response fails E needs R) Response fails E needs R | trace.Sink | time.Clock {
+	try observeRequestWithGen(serviceName, req, option.None, handle)
+}
+
+// ObservedHandler wraps an inbound HTTP handler with explicit trace.Sink and
+// time.Clock capabilities so every request emits one canonical wide event,
+// continues incoming W3C traceparent headers, records HTTP metadata and 5xx
+// errors, and plugs directly into Serve or InMemory.
+func ObservedHandler[R](serviceName string, sink trace.Sink, clock time.Clock, inner own func(Request) Response needs R | trace.Sink | time.Clock) func(Request) Response needs R {
+	let gen = trace.NewIDGenerator(serviceSeed(serviceName, clock.Now()))
+	func(req Request) Response needs R {
+		with context { trace.Sink: sink, time.Clock: clock } {
+			observeRequestWithGen(serviceName, req, option.Some[trace.IDGenerator]{Value: gen}, inner)
+		}
+	}
+}
+
+func injectTraceparent(header []Field) []Field {
+	if Header(header, "traceparent") != option.None {
+		return header
+	}
+	match trace.Traceparent() {
+	case option.Some[string] as tp:
+		header.Append(Field{Name: "traceparent", Value: tp.Value})
+	case option.None:
+		header
+	}
+}
+
+func recordOutbound(clock time.Clock, start time.Time, failed bool) {
+	trace.RecordOp("http.outbound.calls", "http.outbound.ms", "http.outbound.errors", clock.Elapsed(start), failed)
+}
+
+// ObservedNet wraps a Net provider to automatically inject W3C traceparent on
+// outbound requests when inside an active wide-event span (without overwriting
+// an explicit caller header) and accumulate http.outbound.calls,
+// http.outbound.ms, and http.outbound.errors onto the enclosing span. Outside
+// an active span it delegates directly with no instrumentation overhead.
+type ObservedNet {
+	Inner Net,
+	Clock time.Clock,
+} implements Net
+
+// ObservedClient wraps inner with automatic outbound trace propagation and
+// wide-event counter/timing accumulation using explicit clock.
+func ObservedClient(inner Net, clock time.Clock) ObservedNet {
+	ObservedNet{Inner: inner, Clock: clock}
+}
+
+// Send forwards r to c.Inner.Send, injecting traceparent and recording
+// outbound call metrics onto the active wide event when inside a span.
+func Send(c ObservedNet, r Request) Response fails RequestFailed {
+	if !trace.Active() {
+		return try c.Inner.Send(r)
+	}
+	let start = c.Clock.Now()
+	let resp = c.Inner.Send(Request{..r, Header: injectTraceparent(r.Header)}) catch {
+	case f:
+		recordOutbound(c.Clock, start, true)
+		return f
+	}
+	recordOutbound(c.Clock, start, resp.Status >= 500)
+	resp
+}
+
+// SendInto forwards r to c.Inner.SendInto, injecting traceparent and recording
+// outbound call metrics onto the active wide event when inside a span.
+func SendInto(c ObservedNet, r Request, accept Accept, put func(part string) fails SinkFailed) Response fails RequestFailed | StatusRefused | SinkFailed {
+	if !trace.Active() {
+		return try c.Inner.SendInto(r, accept, put)
+	}
+	let start = c.Clock.Now()
+	let resp = c.Inner.SendInto(Request{..r, Header: injectTraceparent(r.Header)}, accept, put) catch {
+	case f:
+		recordOutbound(c.Clock, start, true)
+		return f
+	}
+	recordOutbound(c.Clock, start, resp.Status >= 500)
+	resp
+}
+
+// ObservedNetwork wraps a multi-origin Network provider to automatically inject
+// W3C traceparent on outbound requests when inside an active wide-event span
+// and accumulate http.outbound.calls, http.outbound.ms, and
+// http.outbound.errors onto the enclosing span.
+type ObservedNetwork {
+	Inner Network,
+	Clock time.Clock,
+} implements Network
+
+// NewObservedNetwork wraps inner with automatic outbound trace propagation and
+// wide-event counter/timing accumulation using explicit clock.
+func NewObservedNetwork(inner Network, clock time.Clock) ObservedNetwork {
+	ObservedNetwork{Inner: inner, Clock: clock}
+}
+
+// SendURL forwards r to n.Inner.SendURL, injecting traceparent and recording
+// outbound call metrics onto the active wide event when inside a span.
+func SendURL(n ObservedNetwork, r URLRequest) Response fails RequestFailed | OriginRefused | Denied | RedirectLimit {
+	if !trace.Active() {
+		return try n.Inner.SendURL(r)
+	}
+	let start = n.Clock.Now()
+	let resp = n.Inner.SendURL(URLRequest{..r, Header: injectTraceparent(r.Header)}) catch {
+	case f:
+		recordOutbound(n.Clock, start, true)
+		return f
+	}
+	recordOutbound(n.Clock, start, resp.Status >= 500)
+	resp
+}
+
+// SendURLInto forwards r to n.Inner.SendURLInto, injecting traceparent and
+// recording outbound call metrics onto the active wide event when inside a
+// span.
+func SendURLInto(n ObservedNetwork, r URLRequest, accept Accept, put func(part string) fails SinkFailed) Response fails RequestFailed | OriginRefused | Denied | RedirectLimit | StatusRefused | SinkFailed {
+	if !trace.Active() {
+		return try n.Inner.SendURLInto(r, accept, put)
+	}
+	let start = n.Clock.Now()
+	let resp = n.Inner.SendURLInto(URLRequest{..r, Header: injectTraceparent(r.Header)}, accept, put) catch {
+	case f:
+		recordOutbound(n.Clock, start, true)
+		return f
+	}
+	recordOutbound(n.Clock, start, resp.Status >= 500)
+	resp
+}
+
+// ObservedHandlerRecordsCanonicalWideEvent: ObservedHandler emits exactly one
+// canonical wide event per request carrying http.method, http.path,
+// http.status, http.bytes_in, and http.bytes_out, preserves incoming
+// traceparent TraceID and ParentSpanID, and marks status >= 500 as an error.
+law ObservedHandlerRecordsCanonicalWideEvent(seed uint64, seg string, is5xx bool, hasIncoming bool) {
+	let path = if seg == "" { "/items" } else { "/" + seg }
+	let rec = trace.NewRecorder()
+	let clk = time.NewManual(1000)
+	let g = trace.NewIDGenerator(seed)
+	let incoming = trace.TraceContext{TraceID: g.NextTraceID(), SpanID: g.NextSpanID(), Sampled: true}
+	let status = if is5xx { 503 } else { 200 }
+	let reqBody = "hello"
+	let respBody = if is5xx { "down" } else { "ok-body" }
+	let hdrs = if hasIncoming {
+		[]Field{Field{Name: "Traceparent", Value: trace.FormatTraceparent(incoming)}}
+	} else {
+		[]Field{}
+	}
+	let h = ObservedHandler("orders", rec, clk, func(r Request) Response {
+		clk.Advance(4ms)
+		Response{Status: status, Header: []Field{}, Body: respBody}
+	})
+	let resp = h(Request{Method: "POST", Path: path, RawPath: path, Query: []Field{}, Header: hdrs, Body: Buffered{Text: reqBody}})
+	let events = rec.Events()
+	sometimes is5xx
+	sometimes !is5xx
+	sometimes hasIncoming
+	sometimes !hasIncoming
+	always events.Len() == 1
+	let ev = events[0]
+	always ev.Name == "POST "+path
+	always ev.Service.Service == "orders"
+	always trace.FieldText(ev, "http.method") == option.Some[string]{Value: "POST"}
+	always trace.FieldText(ev, "http.path") == option.Some[string]{Value: path}
+	always trace.FieldText(ev, "http.status") == option.Some[string]{Value: strconv.Itoa(status)}
+	always trace.FieldText(ev, "http.bytes_in") == option.Some[string]{Value: strconv.Itoa(reqBody.Len())}
+	always trace.FieldText(ev, "http.bytes_out") == option.Some[string]{Value: strconv.Itoa(respBody.Len())}
+	always trace.IsError(ev) == is5xx
+	always ev.Duration == 4ms
+	if hasIncoming {
+		always ev.TraceID == incoming.TraceID
+		always ev.ParentSpanID == option.Some[string]{Value: incoming.SpanID}
+	} else {
+		always trace.IsValidTraceID(ev.TraceID)
+		always ev.ParentSpanID == option.None
+	}
+	let echoed = Header(resp.Header, "traceparent")
+	always echoed == option.Some[string]{Value: trace.FormatTraceparent(trace.TraceContext{TraceID: ev.TraceID, SpanID: ev.SpanID, Sampled: true})}
+	true
+}
+
+// ObservedClientPropagatesTraceAcrossTwoHops: a request sent through
+// ObservedClient from inside an ObservedHandler carries service A's span on
+// the wire as its W3C traceparent; ObservedHandler at service B, run on that
+// header alone with no state shared with A, continues it, so both canonical
+// wide events share TraceID and B's ParentSpanID is A's SpanID. Outbound
+// counters and timings accumulate on A, and a send outside a span carries no
+// traceparent.
+law ObservedClientPropagatesTraceAcrossTwoHops(pathSeg string, downstream5xx bool) {
+	let path = if pathSeg == "" { "/charge" } else { "/" + pathSeg }
+	let rec = trace.NewRecorder()
+	let clk = time.NewManual(2000)
+	let bStatus = if downstream5xx { 502 } else { 200 }
+	let noHop option.Option[string] = option.None
+	let onWire = sync.NewRef[option.Option[string]](noHop)
+	let clientB = ObservedClient(InMemory(func(r Request) Response needs Streaming {
+		onWire.Set(Header(r.Header, "traceparent"))
+		clk.Advance(7ms)
+		Response{Status: bStatus, Header: []Field{}, Body: "b-reply"}
+	}), clk)
+	let handlerA = ObservedHandler("service-a", rec, clk, func(r Request) Response needs Streaming {
+		clk.Advance(2ms)
+		let sub = clientB.Send(Request{Method: "GET", Path: path, RawPath: path, Query: []Field{}, Header: []Field{}, Body: Buffered{Text: ""}}) catch {
+		case RequestFailed:
+			return Response{Status: 500, Header: []Field{}, Body: "err"}
+		}
+		Response{Status: sub.Status, Header: []Field{}, Body: sub.Body}
+	})
+	let res = with context { Streaming: NewRecorder() } {
+		handlerA(Request{Method: "POST", Path: "/checkout", RawPath: "/checkout", Query: []Field{}, Header: []Field{}, Body: Buffered{Text: "{}"}})
+	}
+	let carried = onWire.Get()
+	let hop = match carried {
+	case option.Some[string] as v:
+		v.Value
+	case option.None:
+		return false
+	}
+	let handlerB = ObservedHandler("service-b", rec, clk, func(r Request) Response needs Streaming {
+		clk.Advance(3ms)
+		Response{Status: bStatus, Header: []Field{}, Body: "b-reply"}
+	})
+	let _ = with context { Streaming: NewRecorder() } {
+		handlerB(Request{Method: "GET", Path: path, RawPath: path, Query: []Field{}, Header: []Field{Field{Name: "traceparent", Value: hop}}, Body: Buffered{Text: ""}})
+	}
+	let events = rec.Events()
+	sometimes downstream5xx
+	sometimes !downstream5xx
+	always res.Status == bStatus
+	always events.Len() == 2
+	let evA = events[0]
+	let evB = events[1]
+	always evA.Service.Service == "service-a"
+	always evB.Service.Service == "service-b"
+	always hop == trace.FormatTraceparent(trace.TraceContext{TraceID: evA.TraceID, SpanID: evA.SpanID, Sampled: true})
+	always evB.TraceID == evA.TraceID
+	always evB.SpanID != evA.SpanID
+	always evB.ParentSpanID == option.Some[string]{Value: evA.SpanID}
+	always evA.ParentSpanID == option.None
+	always trace.IsError(evB) == downstream5xx
+	always trace.CounterValue(evA, "http.outbound.calls") == 1
+	always trace.TimingDuration(evA, "http.outbound.ms") == 7ms
+	always trace.CounterValue(evA, "http.outbound.errors") == (if downstream5xx { 1 } else { 0 })
+	let outside = ObservedClient(InMemory(func(r Request) Response needs Streaming {
+		let hasTP = Header(r.Header, "traceparent") != option.None
+		Response{Status: if hasTP { 400 } else { 204 }, Header: []Field{}, Body: ""}
+	}), clk)
+	let outsideResp = outside.Send(Request{Method: "GET", Path: "/ping", RawPath: "/ping", Query: []Field{}, Header: []Field{}, Body: Buffered{Text: ""}}) catch {
+	case RequestFailed:
+		return false
+	}
+	always outsideResp.Status == 204
+	true
+}

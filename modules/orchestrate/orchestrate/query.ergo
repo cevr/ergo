@@ -162,3 +162,304 @@ func ListQuestions(state State, openOnly bool) []Question {
 	}
 	slices.SortFunc(out, func(a Question, b Question) int { cmp.Compare(a.ID, b.ID) })
 }
+
+// RunMetaOf looks up run-level metadata for (repo, run).
+func RunMetaOf(state State, repo string, run string) option.Option[RunMeta] {
+	state.RunMetas.Get(RunKey{Repo: repo, Run: run})
+}
+
+// QueryRunSummary computes the compact progressive-disclosure overview for (repo, run).
+func QueryRunSummary(state State, repo string, run string, landingsLimit int) RunOverview {
+	let mainHead = match RunMetaOf(state, repo, run) {
+	case option.Some[RunMeta] as m:
+		m.Value.MainHead
+	case option.None:
+		option.None
+	}
+	let mut openUnits = 0
+	let mut acceptedUnits = 0
+	let mut landedUnits = 0
+	let mut closedUnits = 0
+	let mut totalUnits = 0
+	for _, u in state.Units {
+		if u.Key.Repo == repo && u.Key.Run == run {
+			totalUnits = totalUnits + 1
+			match u.Status {
+			case UnitOpen:
+				openUnits = openUnits + 1
+			case UnitAccepted:
+				acceptedUnits = acceptedUnits + 1
+			case UnitLanded:
+				landedUnits = landedUnits + 1
+			case UnitClosed:
+				closedUnits = closedUnits + 1
+			}
+		}
+	}
+	let mut openDecisions = 0
+	for _, d in state.Decisions {
+		if d.Repo == repo && d.Run == run && d.Status == DecisionOpen {
+			openDecisions = openDecisions + 1
+		}
+	}
+	let mut openQuestions = 0
+	for _, q in state.Questions {
+		if q.Status == QuestionOpen {
+			openQuestions = openQuestions + 1
+		}
+	}
+	let mut openCommitments = 0
+	for _, c in state.Commitments {
+		match c.Status {
+		case CommitOpen, CommitAssigned:
+			openCommitments = openCommitments + 1
+		case CommitLanded, CommitDecided, CommitWithdrawn:
+		}
+	}
+	let recent = if landingsLimit <= 0 {
+		[]LandingSummary{}
+	} else {
+		let page = QueryLandingList(state, LandingFilter{
+			Repo:   option.Some[string]{Value: repo},
+			Run:    option.Some[string]{Value: run},
+			Limit:  landingsLimit,
+			Offset: 0,
+		})
+		let mut summaries = []LandingSummary{}
+		for l in page.Items {
+			summaries = summaries.Append(LandingSummary{
+				LandingNumber: l.LandingNumber,
+				GroupID:       l.GroupID,
+				Head:          l.Head,
+				TipCount:      l.Tips.Len(),
+				Summary:       l.Summary,
+				LandedAt:      l.LandedAt,
+			})
+		}
+		summaries
+	}
+	RunOverview{
+		Repo:            repo,
+		Run:             run,
+		MainHead:        mainHead,
+		OpenUnits:       openUnits,
+		AcceptedUnits:   acceptedUnits,
+		LandedUnits:     landedUnits,
+		ClosedUnits:     closedUnits,
+		TotalUnits:      totalUnits,
+		OpenDecisions:   openDecisions,
+		OpenQuestions:   openQuestions,
+		OpenCommitments: openCommitments,
+		RecentLandings:  recent,
+	}
+}
+
+// QueryUnitList returns filtered and paginated compact unit summaries without receipt payloads.
+func QueryUnitList(state State, filter UnitFilter) UnitPage {
+	let mut counts = Map[UnitKey, int]{}
+	for _, r in state.Receipts {
+		let cur = match counts.Get(r.Unit) {
+		case option.Some[int] as n:
+			n.Value
+		case option.None:
+			0
+		}
+		counts = counts.Put(r.Unit, cur+1)
+	}
+	let mut matched = []UnitSummary{}
+	for _, u in state.Units {
+		let repoOK = matchOptEq(filter.Repo, u.Key.Repo)
+		let runOK = matchOptEq(filter.Run, u.Key.Run)
+		let statusOK = match filter.Status {
+		case option.Some[UnitStatus] as st:
+			u.Status == st.Value
+		case option.None:
+			true
+		}
+		if repoOK && runOK && statusOK {
+			let rc = match counts.Get(u.Key) {
+			case option.Some[int] as n:
+				n.Value
+			case option.None:
+				0
+			}
+			matched = matched.Append(UnitSummary{
+				Key:          u.Key,
+				Title:        u.Title,
+				Status:       u.Status,
+				Head:         u.Head,
+				Lane:         u.Lane,
+				Branch:       u.Branch,
+				ReceiptCount: rc,
+				UpdatedAt:    u.UpdatedAt,
+			})
+		}
+	}
+	let sorted = slices.SortFunc(matched, func(a UnitSummary, b UnitSummary) int {
+		if a.Key.Repo != b.Key.Repo {
+			return cmp.Compare(a.Key.Repo, b.Key.Repo)
+		}
+		if a.Key.Run != b.Key.Run {
+			return cmp.Compare(a.Key.Run, b.Key.Run)
+		}
+		cmp.Compare(a.Key.ID, b.Key.ID)
+	})
+	let (items, total, hasMore) = paginateSlice(sorted, filter.Limit, filter.Offset)
+	UnitPage{Items: items, Total: total, Limit: filter.Limit, Offset: filter.Offset, HasMore: hasMore}
+}
+
+// DecisionByKey looks up one Decision in State by (repo, run, id).
+func DecisionByKey(state State, key DecisionKey) option.Option[Decision] {
+	state.Decisions.Get(key)
+}
+
+// QueryDecisionList returns filtered and paginated decisions ordered newest-first by CreatedAt then key.
+func QueryDecisionList(state State, filter DecisionFilter) DecisionPage {
+	let mut matched = []Decision{}
+	for _, d in state.Decisions {
+		let repoOK = matchOptEq(filter.Repo, d.Repo)
+		let runOK = matchOptEq(filter.Run, d.Run)
+		let catOK = matchOptEq(filter.Category, d.Category)
+		let scopeOK = matchOptEq(filter.Scope, d.Scope)
+		let unitOK = match filter.UnitID {
+		case option.Some[string] as want:
+			d.UnitID == (option.Some[string]{Value: want.Value})
+		case option.None:
+			true
+		}
+		let statusOK = match filter.Status {
+		case option.Some[DecisionStatus] as st:
+			d.Status == st.Value
+		case option.None:
+			true
+		}
+		if repoOK && runOK && catOK && scopeOK && unitOK && statusOK {
+			matched = matched.Append(d)
+		}
+	}
+	let sorted = slices.SortFunc(matched, func(a Decision, b Decision) int {
+		if a.CreatedAt != b.CreatedAt {
+			return cmp.Compare(b.CreatedAt, a.CreatedAt)
+		}
+		if a.Repo != b.Repo {
+			return cmp.Compare(a.Repo, b.Repo)
+		}
+		if a.Run != b.Run {
+			return cmp.Compare(a.Run, b.Run)
+		}
+		cmp.Compare(a.ID, b.ID)
+	})
+	let (items, total, hasMore) = paginateSlice(sorted, filter.Limit, filter.Offset)
+	DecisionPage{Items: items, Total: total, Limit: filter.Limit, Offset: filter.Offset, HasMore: hasMore}
+}
+
+// LandingByKey looks up one Landing in State by (repo, run, landingNumber).
+func LandingByKey(state State, key LandingKey) option.Option[Landing] {
+	state.Landings.Get(key)
+}
+
+// QueryLandingList returns filtered and paginated landings ordered newest-first by LandingNumber.
+func QueryLandingList(state State, filter LandingFilter) LandingPage {
+	let mut matched = []Landing{}
+	for _, l in state.Landings {
+		if matchOptEq(filter.Repo, l.Repo) && matchOptEq(filter.Run, l.Run) {
+			matched = matched.Append(l)
+		}
+	}
+	let sorted = slices.SortFunc(matched, func(a Landing, b Landing) int {
+		if a.LandingNumber != b.LandingNumber {
+			return cmp.Compare(b.LandingNumber, a.LandingNumber)
+		}
+		if a.Repo != b.Repo {
+			return cmp.Compare(a.Repo, b.Repo)
+		}
+		cmp.Compare(a.Run, b.Run)
+	})
+	let (items, total, hasMore) = paginateSlice(sorted, filter.Limit, filter.Offset)
+	LandingPage{Items: items, Total: total, Limit: filter.Limit, Offset: filter.Offset, HasMore: hasMore}
+}
+
+// QueryEventLog returns filtered, ordered, and paginated operational ledger events.
+func QueryEventLog(state State, filter EventLogFilter) EventPage {
+	let mut matched = []LedgerEvent{}
+	if filter.Ascending {
+		for ev in state.EventLog {
+			if eventMatchesFilter(ev, filter) {
+				matched = matched.Append(ev)
+			}
+		}
+	} else {
+		let n = state.EventLog.Len()
+		for i in 0..n {
+			let ev = state.EventLog[n-1-i]
+			if eventMatchesFilter(ev, filter) {
+				matched = matched.Append(ev)
+			}
+		}
+	}
+	let (items, total, hasMore) = paginateSlice(matched, filter.Limit, filter.Offset)
+	EventPage{Items: items, Total: total, Limit: filter.Limit, Offset: filter.Offset, HasMore: hasMore}
+}
+
+func eventMatchesFilter(ev LedgerEvent, filter EventLogFilter) bool {
+	let repoOK = matchOptEq(filter.Repo, ev.Repo)
+	let runOK = matchOptEq(filter.Run, ev.Run)
+	let kindOK = matchOptEq(filter.Kind, ev.Kind)
+	let actorOK = matchOptEq(filter.Actor, ev.Actor)
+	let unitOK = match filter.UnitID {
+	case option.Some[string] as want:
+		ev.UnitID == (option.Some[string]{Value: want.Value})
+	case option.None:
+		true
+	}
+	repoOK && runOK && kindOK && actorOK && unitOK
+}
+
+func matchOptEq(want option.Option[string], actual string) bool {
+	match want {
+	case option.Some[string] as s:
+		actual == s.Value
+	case option.None:
+		true
+	}
+}
+
+func paginateSlice[T](items []T, limit int, offset int) ([]T, int, bool) {
+	let total = items.Len()
+	if limit <= 0 || offset < 0 || offset >= total {
+		return ([]T{}, total, false)
+	}
+	let end = if offset+limit < total { offset + limit } else { total }
+	(slices.Slice(items, offset, end), total, end < total)
+}
+
+// UnitListPaginationAndFilterLaw verifies that QueryUnitList filters by status, reports accurate receipt counts, and paginates deterministically without full receipts.
+law UnitListPaginationAndFilterLaw(tag int) {
+	let mut s = EmptyState()
+	let ids = []string{"u1", "u2", "u3"}
+	for i, uid in ids {
+		let k = UnitKey{Repo: "repo", Run: "r-\(tag)", ID: uid}
+		s = lawStep(s, "o-\(i)", OpenUnit{Key: k, Title: "Unit \(i)", Requires: []string{"test"}, Lane: option.None, Branch: option.None}) catch {
+		case _:
+			return false
+		}
+		if i > 0 {
+			s = lawStep(s, "rec-\(i)", RecordReceipt{Unit: k, Kind: "test", Command: "ergo test", Head: "h", ExitCode: 0, ExitLines: "ok"}) catch {
+			case _:
+				return false
+			}
+			s = lawStep(s, "acc-\(i)", AcceptUnit{Unit: k, Head: "h"}) catch {
+			case _:
+				return false
+			}
+		}
+	}
+	let p1 = QueryUnitList(s, UnitFilter{Repo: option.Some[string]{Value: "repo"}, Run: option.Some[string]{Value: "r-\(tag)"}, Status: option.None, Limit: 2, Offset: 0})
+	let p2 = QueryUnitList(s, UnitFilter{Repo: option.Some[string]{Value: "repo"}, Run: option.Some[string]{Value: "r-\(tag)"}, Status: option.None, Limit: 2, Offset: 2})
+	let acc = QueryUnitList(s, UnitFilter{Repo: option.Some[string]{Value: "repo"}, Run: option.Some[string]{Value: "r-\(tag)"}, Status: option.Some[UnitStatus]{Value: UnitAccepted}, Limit: 10, Offset: 0})
+	let sum = QueryRunSummary(s, "repo", "r-\(tag)", 5)
+		p1.Total == 3 && p1.Items.Len() == 2 && p1.HasMore && p1.Items[0].ReceiptCount == 0 && p1.Items[1].ReceiptCount == 1 &&
+		p2.Total == 3 && p2.Items.Len() == 1 && !p2.HasMore && p2.Items[0].Key.ID == "u3" &&
+		acc.Total == 2 && acc.Items.Len() == 2 &&
+		sum.TotalUnits == 3 && sum.OpenUnits == 1 && sum.AcceptedUnits == 2 && sum.LandedUnits == 0
+}

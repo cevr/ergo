@@ -244,7 +244,7 @@ func (c *checker) declaredOpsOf(t Type) []*Named {
 				add(cl)
 			}
 		}
-		if it := asInterface(n); it != nil {
+		if it := c.asInterface(n); it != nil {
 			for _, inc := range it.includes {
 				add(inc)
 			}
@@ -866,7 +866,7 @@ func (c *checker) recordLegacyReleases() {
 		if !ok || tn.Decl == nil || c.implementsCloser(n) {
 			continue
 		}
-		if it := asInterface(n); it != nil {
+		if it := c.asInterface(n); it != nil {
 			if it.Set != SetAll {
 				continue
 			}

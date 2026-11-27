@@ -538,6 +538,36 @@ type ProvidesClause struct {
 func (u *ProvidesClause) Pos() Pos { return u.Provides }
 func (u *ProvidesClause) End() Pos { return u.Names[len(u.Names)-1].End() }
 
+// FactKind distinguishes signature fact clauses.
+type FactKind int
+
+const (
+	FactGiven FactKind = iota + 1 // given <expr>
+	FactGives                     // gives <expr>
+	FactKeeps                     // keeps <expr> [when <expr>]
+)
+
+// FactClause is a contextual signature fact clause (`given cond`,
+// `gives cond`, or `keeps cond [when guard]`).
+type FactClause struct {
+	Kind    FactKind
+	WordPos Pos  // position of `given`, `gives`, or `keeps`
+	Cond    Expr // clause predicate expression
+	WhenPos Pos  // position of `when`, or NoPos
+	When    Expr // optional guard on `keeps`, or nil
+}
+
+func (x *FactClause) Pos() Pos { return x.WordPos }
+func (x *FactClause) End() Pos {
+	if x.When != nil {
+		return x.When.End()
+	}
+	if x.Cond != nil {
+		return x.Cond.End()
+	}
+	return x.WordPos + 5
+}
+
 // ---------------------------------------------------------------- expressions and types
 
 type (
@@ -739,6 +769,9 @@ type (
 		// without Defects, so a zero-value FuncType has no clause.
 		Defects    bool
 		DefectsPos Pos
+		// Facts holds contextual signature clauses (`given`, `gives`, `keeps ... [when ...]`)
+		// after `fails`/`needs`/`takes`/`defects`.
+		Facts []*FactClause
 	}
 
 	// StructType is the record of `type T { fields }`: Fields holds the
@@ -927,6 +960,8 @@ func (x *FuncType) Pos() Pos {
 }
 func (x *FuncType) End() Pos {
 	switch {
+	case len(x.Facts) > 0:
+		return x.Facts[len(x.Facts)-1].End()
 	case x.Defects:
 		return x.DefectsPos + Pos(len("defects"))
 	case x.Takes != nil:

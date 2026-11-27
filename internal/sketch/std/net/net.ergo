@@ -24,13 +24,17 @@ extern go ergo.local/prototype/runtime/v1/net.NetListenFailed type ListenFailed 
 // address with no listener. Reason is the host's text for it.
 extern go ergo.local/prototype/runtime/v1/net.NetDialFailed type DialFailed { Addr string, Reason string }
 
-// Denied is an address outside the provider's loopback grant.
-type Denied { Addr string }
+// Denied is an address outside the provider's grant.
+extern go ergo.local/prototype/runtime/v1/net.NetDenied type Denied { Addr string }
 
 // Failed is the failure of a read, a write or an accept of an open
 // connection or listener, such as a write to a peer that closed or a read
 // from one that reset. Reason is the host's text for it.
 extern go ergo.local/prototype/runtime/v1/net.NetFailed type Failed { Reason string }
+
+// Unsupported is the failure of an operation that the host OS does not
+// provide, such as Unix domain sockets on a non-Unix platform.
+extern go ergo.local/prototype/runtime/v1/net.NetUnsupported type Unsupported { Reason string }
 
 // Conn is one end of a stream connection. Bytes a side writes reach the
 // other side's reads in their order, cut anywhere.
@@ -49,6 +53,9 @@ extern go ergo.local/prototype/runtime/v1/net.Conn type Conn {
 	// Write writes every byte of data, waiting while the peer has not read
 	// enough. A stop may end it after a part was written.
 	Write(data string) fails Failed,
+	// DupFD returns an independent duplicate file descriptor referring to
+	// this connection's underlying socket.
+	DupFD() FD fails Failed | Unsupported,
 	// LocalAddr is the address of this end.
 	LocalAddr() string,
 	// RemoteAddr is the address of the peer's end.
@@ -68,6 +75,9 @@ extern go ergo.local/prototype/runtime/v1/net.Listener type Listener {
 	// Accept gives the next connection dialed to the address, waiting until
 	// there is one.
 	Accept() Conn fails Failed,
+	// DupFD returns an independent duplicate file descriptor referring to
+	// this listener's underlying socket.
+	DupFD() FD fails Failed | Unsupported,
 	// Addr is the address bound, with the port chosen for a port 0.
 	Addr() string,
 }
@@ -218,8 +228,8 @@ func ReadAll(c Conn) string fails Failed {
 	out
 }
 
-// Host is the host's Network. The private field seals its authority.
-type Host { loopback bool } implements Network, loopbackNetwork
+// Host is the host's Network and UnixNetwork. Private fields seal its authority.
+type Host { tcp bool, loopback bool, unix bool, root string } implements Network, loopbackNetwork, UnixNetwork, unixConfinedNetwork
 
 type loopbackNetwork {
 	..Network,
@@ -258,19 +268,21 @@ func loopbackLawOnly(_ Host) {}
 
 let onTestHost = context needs fstest.TestLoopback { Network, loopbackNetwork: NewTestHost() }
 
-// NewHost is the host's Network. It needs Ambient: only the entry, or a
-// function main gives Ambient to, reaches the host's sockets.
-func NewHost() Host needs os.Ambient { Host{loopback: false} }
+// NewHost is the host's Network and UnixNetwork. It needs Ambient: only the
+// entry, or a function main gives Ambient to, reaches the host's sockets.
+func NewHost() Host needs os.Ambient { Host{tcp: true, loopback: false, unix: true, root: ""} }
 
 // NewTestHost supplies TCP on the two literal loopback addresses.
-func NewTestHost() Host needs fstest.TestLoopback { Host{loopback: true} }
+func NewTestHost() Host needs fstest.TestLoopback { Host{tcp: true, loopback: true, unix: false, root: ""} }
 
 func Listen(h Host, addr string) Listener fails ListenFailed | Denied {
+	if !h.tcp { return Denied{Addr: addr} }
 	if h.loopback && !loopbackAddress(addr) { return Denied{Addr: addr} }
 	try hostListen(addr)
 }
 
 func Dial(h Host, addr string) Conn fails DialFailed | Denied {
+	if !h.tcp { return Denied{Addr: addr} }
 	if h.loopback && !loopbackAddress(addr) { return Denied{Addr: addr} }
 	try hostDial(addr)
 }

@@ -165,6 +165,87 @@ func applyEventSQL(ev orchestrate.Event, seq int) fails orchestrate.StoreFailed 
 				sql.Int{N: int64(e.ID)},
 			},
 		)
+	case orchestrate.RunHeadUpdated as e:
+		let _ = try execTx(
+			"INSERT INTO run_meta (repo, run, main_head, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT(repo, run) DO UPDATE SET main_head = excluded.main_head, updated_at = excluded.updated_at",
+			[]sql.Value{
+				sql.Text{S: e.Repo},
+				sql.Text{S: e.Run},
+				sql.Text{S: e.Head},
+				sql.Text{S: e.UpdatedAt},
+			},
+		)
+	case orchestrate.DecisionRecorded as e:
+		let d = e.Decision
+		let childRows = try queryTx(
+			"SELECT 1 FROM decisions WHERE repo = ? AND run = ? AND supersedes = ? LIMIT 1",
+			[]sql.Value{sql.Text{S: d.Repo}, sql.Text{S: d.Run}, sql.Text{S: d.ID}},
+		)
+		let effectiveStatus = if childRows.Len() > 0 { "superseded" } else { orchestrate.DecisionStatusName(d.Status) }
+		let _ = try execTx(
+			"INSERT INTO decisions (repo, run, id, category, scope, unit_id, title, body, status, supersedes, actor, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(repo, run, id) DO UPDATE SET category = excluded.category, scope = excluded.scope, unit_id = excluded.unit_id, title = excluded.title, body = excluded.body, status = CASE WHEN decisions.status = 'superseded' THEN 'superseded' ELSE excluded.status END, supersedes = excluded.supersedes, actor = excluded.actor",
+			[]sql.Value{
+				sql.Text{S: d.Repo},
+				sql.Text{S: d.Run},
+				sql.Text{S: d.ID},
+				sql.Text{S: d.Category},
+				sql.Text{S: d.Scope},
+				optTextVal(d.UnitID),
+				sql.Text{S: d.Title},
+				sql.Text{S: d.Body},
+				sql.Text{S: effectiveStatus},
+				optTextVal(d.Supersedes),
+				sql.Text{S: d.Actor},
+				sql.Text{S: d.CreatedAt},
+			},
+		)
+		match d.Supersedes {
+		case option.Some[string] as target:
+			let _ = try execTx(
+				"UPDATE decisions SET status = 'superseded' WHERE repo = ? AND run = ? AND id = ?",
+				[]sql.Value{sql.Text{S: d.Repo}, sql.Text{S: d.Run}, sql.Text{S: target.Value}},
+			)
+		case option.None:
+		}
+	case orchestrate.LandingRecorded as e:
+		let l = e.Landing
+		let _ = try execTx(
+			"INSERT INTO landings (repo, run, landing_number, group_id, head, tips_json, summary, log_path, landed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(repo, run, landing_number) DO UPDATE SET group_id = excluded.group_id, head = excluded.head, tips_json = excluded.tips_json, summary = excluded.summary, log_path = excluded.log_path, landed_at = excluded.landed_at",
+			[]sql.Value{
+				sql.Text{S: l.Repo},
+				sql.Text{S: l.Run},
+				sql.Int{N: int64(l.LandingNumber)},
+				sql.Text{S: l.GroupID},
+				sql.Text{S: l.Head},
+				sql.Text{S: encodeTags(l.Tips)},
+				sql.Text{S: l.Summary},
+				optTextVal(l.LogPath),
+				sql.Text{S: l.LandedAt},
+			},
+		)
+	case orchestrate.LedgerEventAppended as e:
+		let entry = e.Event
+		let _ = try execTx(
+			"INSERT INTO event_log (id, repo, run, kind, unit_id, summary, actor, created_at, source_key) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+			[]sql.Value{
+				sql.Int{N: int64(entry.ID)},
+				sql.Text{S: entry.Repo},
+				sql.Text{S: entry.Run},
+				sql.Text{S: entry.Kind},
+				optTextVal(entry.UnitID),
+				sql.Text{S: entry.Summary},
+				sql.Text{S: entry.Actor},
+				sql.Text{S: entry.CreatedAt},
+				optTextVal(entry.SourceKey),
+			},
+		)
+		let _ = try execTx(
+			"UPDATE schema_meta SET next_event_id = CASE WHEN next_event_id <= ? THEN ? ELSE next_event_id END WHERE id = 1",
+			[]sql.Value{
+				sql.Int{N: int64(entry.ID)},
+				sql.Int{N: int64(entry.ID + 1)},
+			},
+		)
 	}
 }
 
@@ -212,6 +293,32 @@ func loadStateTx() orchestrate.State fails orchestrate.StoreFailed needs sql.Tx 
 		questions = questions.Put(q.ID, q)
 		questionByCommand = questionByCommand.Put(cmdID, q.ID)
 	}
+	let mut runMetas = Map[orchestrate.RunKey, orchestrate.RunMeta]{}
+	for row in try queryTx("SELECT repo, run, main_head, updated_at FROM run_meta", []sql.Value{}) {
+		let m = try scanRunMeta(row)
+		runMetas = runMetas.Put(orchestrate.RunKey{Repo: m.Repo, Run: m.Run}, m)
+	}
+	let mut decisions = Map[orchestrate.DecisionKey, orchestrate.Decision]{}
+	for row in try queryTx("SELECT id, repo, run, category, scope, unit_id, title, body, status, supersedes, actor, created_at FROM decisions", []sql.Value{}) {
+		let d = try scanDecision(row)
+		decisions = decisions.Put(orchestrate.DecisionKey{Repo: d.Repo, Run: d.Run, ID: d.ID}, d)
+	}
+	let mut landings = Map[orchestrate.LandingKey, orchestrate.Landing]{}
+	for row in try queryTx("SELECT repo, run, landing_number, group_id, head, tips_json, summary, log_path, landed_at FROM landings", []sql.Value{}) {
+		let l = try scanLanding(row)
+		landings = landings.Put(orchestrate.LandingKey{Repo: l.Repo, Run: l.Run, LandingNumber: l.LandingNumber}, l)
+	}
+	let mut eventLog = []orchestrate.LedgerEvent{}
+	let mut eventSourceKeys = Map[orchestrate.EventSourceKey, int]{}
+	for row in try queryTx("SELECT id, repo, run, kind, unit_id, summary, actor, created_at, source_key FROM event_log ORDER BY id ASC", []sql.Value{}) {
+		let ev = try scanLedgerEvent(row)
+		eventLog = eventLog.Append(ev)
+		match ev.SourceKey {
+		case option.Some[string] as sk:
+			eventSourceKeys = eventSourceKeys.Put(orchestrate.EventSourceKey{Repo: ev.Repo, Run: ev.Run, SourceKey: sk.Value}, ev.ID)
+		case option.None:
+		}
+	}
 	let mut commands = Map[orchestrate.CommandID, orchestrate.Command]{}
 	let cmdRows = try queryTx("SELECT command_id, payload_json FROM commands", []sql.Value{})
 	for row in cmdRows {
@@ -220,15 +327,21 @@ func loadStateTx() orchestrate.State fails orchestrate.StoreFailed needs sql.Tx 
 		commands = commands.Put(id, try decodeCommand(payload))
 	}
 	orchestrate.State{
-		Units:             units,
-		Receipts:          receipts,
-		ReceiptOrder:      receiptOrder,
-		Commitments:       commitments,
-		Queue:             queue,
-		Questions:         questions,
-		QuestionByCommand: questionByCommand,
-		NextQuestionID:    try nextQuestionIDTx(),
-		Commands:          commands,
+		Units:              units,
+		Receipts:           receipts,
+		ReceiptOrder:       receiptOrder,
+		Commitments:        commitments,
+		Queue:              queue,
+		Questions:          questions,
+		QuestionByCommand:  questionByCommand,
+		NextQuestionID:     try nextQuestionIDTx(),
+		RunMetas:           runMetas,
+		Decisions:          decisions,
+		Landings:           landings,
+		EventLog:           eventLog,
+		EventLogSourceKeys: eventSourceKeys,
+		NextEventID:        try nextEventIDTx(),
+		Commands:           commands,
 	}
 }
 
@@ -240,8 +353,16 @@ func nextQuestionIDTx() int fails orchestrate.StoreFailed needs sql.Tx {
 	try intAt(metaRows[0], 0, "next_question_id")
 }
 
+func nextEventIDTx() int fails orchestrate.StoreFailed needs sql.Tx {
+	let metaRows = try queryTx("SELECT next_event_id FROM schema_meta WHERE id = 1", []sql.Value{})
+	if metaRows.Len() == 0 {
+		return 1
+	}
+	try intAt(metaRows[0], 0, "next_event_id")
+}
+
 func loadScopeTx(env orchestrate.Envelope) orchestrate.State fails orchestrate.StoreFailed needs sql.Tx {
-	let out = orchestrate.State{..orchestrate.EmptyState(), NextQuestionID: try nextQuestionIDTx()}
+	let out = orchestrate.State{..orchestrate.EmptyState(), NextQuestionID: try nextQuestionIDTx(), NextEventID: try nextEventIDTx()}
 	match env.Command {
 	case orchestrate.OpenUnit as c:
 		try scopeUnitTx(out, c.Key, option.None)
@@ -278,6 +399,35 @@ func loadScopeTx(env orchestrate.Envelope) orchestrate.State fails orchestrate.S
 		case option.None:
 			out
 		}
+	case orchestrate.SetRunHead, orchestrate.RecordDecision, orchestrate.RecordLanding:
+		out
+	case orchestrate.RecordLedgerEvent as c:
+		match c.SourceKey {
+		case option.Some[string] as sk:
+			let rows = try queryTx(
+				"SELECT id FROM event_log WHERE repo = ? AND run = ? AND source_key = ?",
+				[]sql.Value{sql.Text{S: c.Repo}, sql.Text{S: c.Run}, sql.Text{S: sk.Value}},
+			)
+			if rows.Len() == 0 {
+				return out
+			}
+			let eid = try intAt(rows[0], 0, "id")
+			orchestrate.State{..out, EventLogSourceKeys: out.EventLogSourceKeys.Put(orchestrate.EventSourceKey{Repo: c.Repo, Run: c.Run, SourceKey: sk.Value}, eid)}
+		case option.None:
+			out
+		}
+	case orchestrate.IngestPlan as c:
+		let rows = try queryTx(
+			"SELECT source_key, id FROM event_log WHERE repo = ? AND run = ? AND source_key IS NOT NULL",
+			[]sql.Value{sql.Text{S: c.Repo}, sql.Text{S: c.Run}},
+		)
+		let mut keys = out.EventLogSourceKeys
+		for row in rows {
+			let sk = try textAt(row, 0, "source_key")
+			let eid = try intAt(row, 1, "id")
+			keys = keys.Put(orchestrate.EventSourceKey{Repo: c.Repo, Run: c.Run, SourceKey: sk}, eid)
+		}
+		orchestrate.State{..out, EventLogSourceKeys: keys}
 	}
 }
 

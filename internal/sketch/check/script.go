@@ -142,18 +142,26 @@ func ScriptOf(t Type) *Named {
 // wrapWhy is why the type argument s makes no wrapping derived provider, or ""
 // when it makes one. Wrapping providers forward arguments directly to inner
 // without storing them, so borrows, functions and resources are admitted.
-func wrapWhy(s Type) string {
+func wrapWhy(s Type) string { return wrapWhyFor(nil, s) }
+
+func wrapWhyFor(c *checker, s Type) string {
 	if _, ok := s.(*TypeParam); ok {
 		return fmt.Sprintf("%s is a type parameter; a derived provider is derived from the operations of a written capability", s)
 	}
 	n, ok := s.(*Named)
-	if !ok || n.foreign || !isCapability(s) {
+	if !ok || n.foreign || !isCapabilityFor(c, s) {
 		return fmt.Sprintf("%s is not a capability; a derived provider is derived from the operations of an operation type with written type arguments", s)
 	}
 	if Sealed(n) {
 		return fmt.Sprintf("%s has an unexported operation, so a derived provider cannot implement it outside its package", s)
 	}
-	for _, m := range asInterface(s).Methods {
+	var iface *Interface
+	if c != nil {
+		iface = c.asInterface(s)
+	} else {
+		iface = asInterface(s)
+	}
+	for _, m := range iface.Methods {
 		if returnsRunning(m.Sig) {
 			return fmt.Sprintf("its operation %s returns a Task, which a derived provider cannot wrap", m.Name)
 		}
@@ -177,18 +185,26 @@ func returnsRunning(sig *Signature) bool {
 
 // scriptWhy is why the type argument s makes no Script, or "" when it
 // makes one (rule 1).
-func scriptWhy(s Type) string {
+func scriptWhy(s Type) string { return scriptWhyFor(nil, s) }
+
+func scriptWhyFor(c *checker, s Type) string {
 	if _, ok := s.(*TypeParam); ok {
 		return fmt.Sprintf("%s is a type parameter; a Script is derived from the operations of a written capability", s)
 	}
 	n, ok := s.(*Named)
-	if !ok || n.foreign || !isCapability(s) {
+	if !ok || n.foreign || !isCapabilityFor(c, s) {
 		return fmt.Sprintf("%s is not a capability; a Script is derived from the operations of an operation type with written type arguments", s)
 	}
 	if Sealed(n) {
 		return fmt.Sprintf("%s has an unexported operation, so a Script cannot implement it outside its package", s)
 	}
-	for _, m := range asInterface(s).Methods {
+	var iface *Interface
+	if c != nil {
+		iface = c.asInterface(s)
+	} else {
+		iface = asInterface(s)
+	}
+	for _, m := range iface.Methods {
 		if returnsRunning(m.Sig) {
 			return fmt.Sprintf("its operation %s returns a Task, which a Script cannot answer", m.Name)
 		}
@@ -252,16 +268,16 @@ func (c *checker) scriptWritten(inst *Named, at syntax.Node) bool {
 func (c *checker) scriptUnder(inst *Named) Type {
 	s, _ := scriptArg(inst)
 	if inst.Obj.Provider.Wrapping {
-		if wrapWhy(s) != "" {
+		if wrapWhyFor(c, s) != "" {
 			return &Struct{obj: inst.Obj}
 		}
-	} else if scriptWhy(s) != "" {
+	} else if scriptWhyFor(c, s) != "" {
 		return &Struct{obj: inst.Obj}
 	}
 	op, none := inst.Obj.Provider.Field, inst.Obj.Provider.None
 	n := s.(*Named)
 	var fields []*Field
-	for _, m := range asInterface(s).Methods {
+	for _, m := range c.asInterface(s).Methods {
 		var args Type
 		switch len(m.Sig.Params) {
 		case 0:
