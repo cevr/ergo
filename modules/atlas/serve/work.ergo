@@ -1,0 +1,215 @@
+import actor
+import github.com/cevr/ergo/modules/atlas/handle
+import github.com/cevr/ergo/modules/atlas/memory
+import option
+import scope
+import slices
+import sync
+import testing
+import time
+
+// DurableWork names one durable job a daemon runs: it outlives a kill -9 of the daemon and resumes at the next boot.
+type DurableWork {
+	JobID   handle.HandleID,
+	Summary string,
+}
+
+// WorkStep is what a booted daemon does with a durable job, read from the job's handle after BootReconcile.
+type WorkStep = WorkStartFresh{} | WorkResume{} | WorkAlreadyDone{} | WorkReportedLost{} | WorkHeldElsewhere{}
+
+// WorkStepName is the stable name of step, as a daemon reports it.
+func WorkStepName(step WorkStep) string {
+	match step {
+	case WorkStartFresh:
+		"started"
+	case WorkResume:
+		"resumed"
+	case WorkAlreadyDone:
+		"done"
+	case WorkReportedLost:
+		"lost"
+	case WorkHeldElsewhere:
+		"held elsewhere"
+	}
+}
+
+// DecideWorkStep decides from the registry whether job starts, resumes, is done, was lost, or belongs to a live foreign owner.
+func DecideWorkStep(reg handle.RegistryState, job handle.HandleID, liveForeign []handle.OwnerID) WorkStep {
+	match reg.Handles.Get(job) {
+	case option.None:
+		WorkStartFresh
+	case option.Some[handle.WakeHandle] as h:
+		match BootFateOf(h.Value.Kind, h.Value.Disposition, slices.Contains(liveForeign, h.Value.Owner)) {
+		case FateResume:
+			WorkResume
+		case FateSettleLost:
+			WorkReportedLost
+		case FateKeepForeign:
+			WorkHeldElsewhere
+		case FateNone:
+			if h.Value.Disposition == handle.DispLost { WorkReportedLost } else { WorkAlreadyDone }
+		}
+	}
+}
+
+// WorkOutcome is how one daemon run left a durable job.
+type WorkOutcome {
+	Step       WorkStep,
+	Finished   bool,
+	Epoch      int,
+	Reattached int,
+}
+
+// WorkRun is one daemon incarnation running a durable job: its store, its config, its clock, a wait for the go-ahead to finish, and where it reports progress.
+type WorkRun {
+	Store   memory.Store,
+	Config  DaemonConfig,
+	Work    DurableWork,
+	NowMs   func() int64,
+	Proceed func() bool,
+	Report  func(line string),
+}
+
+// NextBootEpoch is the epoch a daemon booting on store takes: one past the lease's last holder, or 1 on a fresh store.
+func NextBootEpoch(store memory.Store, leaseID string) int fails ServeError {
+	let snap = try SnapshotStore(store, "boot_epoch")
+	match snap.Leases.Get(leaseID) {
+	case option.None:
+		1
+	case option.Some[memory.LeaseRecord] as rec:
+		rec.Value.Epoch + 1
+	}
+}
+
+func workOpenCommand(work DurableWork, owner handle.OwnerID) memory.Command {
+	memory.CmdOpenHandle{
+		Spec:         handle.OpenHandleSpec{ID: work.JobID, Kind: handle.KindJob, Owner: owner, Session: handle.SessionID("serve-work"), Summary: work.Summary},
+		SubagentRoot: option.None,
+		NodeID:       option.None,
+	}
+}
+
+func workSettleCommand(work DurableWork) memory.Command {
+	memory.CmdSettleHandle{
+		ID:           work.JobID,
+		Disposition:  handle.DispSucceeded,
+		Summary:      work.Summary,
+		SubagentRoot: option.None,
+		NodeID:       option.None,
+	}
+}
+
+func executeWork(sup DaemonSupervisor, id string, atMs int64, cmd memory.Command) fails ServeError {
+	let owner = try ActiveStoreOwner(sup)
+	let _ = try ExecuteThroughStoreOwner(owner, FencedWriteReq{CommandID: memory.CommandID(id), Actor: "serve-work", AtMs: atMs, Command: cmd}) catch {
+	case actor.Stopped, actor.NoReply:
+		return SupervisionFailed{Reason: "store-owner stopped during \(id)"}
+	}
+}
+
+// WorkSettlements counts the commands that settled job in store: a job that resumed exactly once has one.
+func WorkSettlements(store memory.Store, job handle.HandleID) int fails ServeError {
+	let snap = try SnapshotStore(store, "work_settlements")
+	let mut n = 0
+	for _, rec in snap.Commands {
+		match rec.Command {
+		case memory.CmdSettleHandle as s:
+			if s.ID == job {
+				n = n + 1
+			}
+		case _:
+		}
+	}
+	n
+}
+
+func runWorkUnder(run WorkRun, sup DaemonSupervisor, step WorkStep) bool fails ServeError {
+	let work = run.Work
+	let job = string(work.JobID)
+	match step {
+	case WorkStartFresh:
+		try executeWork(sup, "work:\(job):open", run.NowMs(), workOpenCommand(work, OwnerOfConfig(run.Config)))
+	case WorkResume:
+	case WorkAlreadyDone, WorkReportedLost, WorkHeldElsewhere:
+		return false
+	}
+	run.Report("working \(job)")
+	if !run.Proceed() {
+		return false
+	}
+	try executeWork(sup, "work:\(job):settle", run.NowMs(), workSettleCommand(work))
+	run.Report("finished \(job)")
+	true
+}
+
+// RunDurableWork boots one daemon incarnation (BootReconcile, then the supervision tree), starts or resumes the durable job, finishes it once Proceed allows, and shuts the tree down cleanly.
+func RunDurableWork(run WorkRun) WorkOutcome fails ServeError needs time.Scheduler | time.Clock {
+	let boot = try BootReconcileDaemon(run.Store, run.Config, run.NowMs(), "boot:\(run.Config.Epoch)")
+	run.Report("boot epoch=\(run.Config.Epoch) reattached=\(boot.ReattachedDurableIDs.Len()) lost=\(boot.LostCallIDs.Len())")
+	let sup = try StartDaemonSupervisor(run.Store, run.Config, boot, func(_ HoldSweepEmitted) {})
+	let stopped = sync.NewRef(false)
+	scope.OnExit() {
+		if !stopped.Get() {
+			ShutdownDaemonSupervisor(sup) catch {
+			case ServeError:
+			}
+		}
+	}
+	let snap = try SnapshotStore(run.Store, "work_step")
+	let step = DecideWorkStep(snap.Registry, run.Work.JobID, run.Config.LiveForeignOwners)
+	run.Report("\(WorkStepName(step)) \(string(run.Work.JobID))")
+	let finished = try runWorkUnder(run, sup, step)
+	stopped.Set(true)
+	try ShutdownDaemonSupervisor(sup)
+	WorkOutcome{Step: step, Finished: finished, Epoch: run.Config.Epoch, Reattached: boot.ReattachedDurableIDs.Len()}
+}
+
+func bootAndRun(store memory.Store, work DurableWork, proceed bool, atMs int64) WorkOutcome fails ServeError needs time.Scheduler | time.Clock {
+	let epoch = try NextBootEpoch(store, DefaultDaemonConfig("srv-work", 1).LeaseID)
+	try RunDurableWork(WorkRun{
+		Store:   store,
+		Config:  DefaultDaemonConfig("srv-work", epoch),
+		Work:    work,
+		NowMs:   func() int64 { atMs },
+		Proceed: func() bool { proceed },
+		Report:  func(_ string) {},
+	})
+}
+
+// WorkResumesOnceAcrossCrashes: a job a daemon dies in the middle of, any number of times, resumes at each boot, finishes once, and is never started or settled again.
+law WorkResumesOnceAcrossCrashes(crashes int) {
+	let n = ((crashes % 4) + 4) % 4
+	let store = memory.New()
+	let work = DurableWork{JobID: handle.HandleID("job-law"), Summary: "law job"}
+	let clk = testing.NewVirtualClock(1700000000)
+	let baseMs = int64(1700000000000)
+	with context { time.Scheduler: clk, time.Clock: clk } {
+		let mut steps = []WorkStep{}
+		let mut finished = 0
+		let mut i = 0
+		for i <= n+1 {
+			let out = bootAndRun(store, work, i == n, baseMs+int64(i*1000)) catch {
+			case ServeError:
+				return false
+			}
+			steps = steps.Append(out.Step)
+			if out.Finished {
+				finished = finished + 1
+			}
+			i = i + 1
+		}
+		let settled = WorkSettlements(store, work.JobID) catch {
+		case ServeError:
+			return false
+		}
+		let mut ok = steps[0] == WorkStartFresh && steps[n+1] == WorkAlreadyDone && finished == 1 && settled == 1
+		let mut j = 1
+		for j <= n {
+			if steps[j] != WorkResume {
+				ok = false
+			}
+			j = j + 1
+		}
+		ok
+	}
+}
