@@ -379,17 +379,17 @@ func assertGenParityMode(t *testing.T, ctx context.Context, bin, kind, dir, opNa
 				wantCanon := canonicalizeErrorRows(fname, wantContent)
 				gotCanon := canonicalizeErrorRows(fname, gotContent)
 				if wantCanon != gotCanon {
-					t.Errorf("%s (%s) pkg %s/%s canonical content differs:\n%s", dir, kind, gp.Dir, fname, genFirstLineDiff(wantCanon, gotCanon))
+					t.Errorf("%s (%s) pkg %s/%s canonical content differs:\n%s", dir, kind, gp.Dir, fname, firstLineDiff(wantCanon, gotCanon))
 				}
 			} else if wantContent != gotContent {
-				t.Errorf("%s (%s) pkg %s/%s content differs:\n%s", dir, kind, gp.Dir, fname, genFirstLineDiff(wantContent, gotContent))
+				t.Errorf("%s (%s) pkg %s/%s content differs:\n%s", dir, kind, gp.Dir, fname, firstLineDiff(wantContent, gotContent))
 			}
 		}
 	}
 	return goPkgs, rep
 }
 
-func genFirstLineDiff(want, got string) string {
+func firstLineDiff(want, got string) string {
 	wl := strings.Split(want, "\n")
 	gl := strings.Split(got, "\n")
 	n := min(len(wl), len(gl))
