@@ -21,23 +21,36 @@ type FlagVal {
 
 // UnifiedOptions stores common flags accepted across test, build, run, lint, fix, verify, and inspect.
 type UnifiedOptions {
-	Paths    []string,
-	Filter   string,
-	Skip     string,
-	Fresh    bool,
-	Jobs     int,
-	Seed     int,
-	States   int,
-	Strict   bool,
-	Json     bool,
-	Check    bool,
-	Output   string,
-	Locked   bool,
-	Debug    bool,
-	Release  bool,
-	Platform string,
-	Help     bool,
-	HelpAll  bool,
+	Paths         []string,
+	Filter        string,
+	Skip          string,
+	Fresh         bool,
+	Jobs          int,
+	Seed          int,
+	States        int,
+	Strict        bool,
+	Json          bool,
+	Check         bool,
+	DryRun        bool,
+	Output        string,
+	Locked        bool,
+	Debug         bool,
+	Release       bool,
+	Platform      string,
+	LintConfig    string,
+	LintConfigSet bool,
+	Rules         []string,
+	Presets       []string,
+	Gate          string,
+	GateSet       bool,
+	List          bool,
+	Derived       bool,
+	Why           bool,
+	PruneCases    bool,
+	Parallel      bool,
+	Lib           bool,
+	Help          bool,
+	HelpAll       bool,
 }
 
 func jsonQuote(s string) string {
@@ -94,23 +107,36 @@ func parseNonNegativeFlagInt(cmd string, flagName string, raw string) int fails 
 // ParseUnifiedOptions parses unified CLI flags (-k/--filter, --skip, --fresh, -j, --json, etc.).
 func ParseUnifiedOptions(cmd string, args []string) UnifiedOptions fails FlagError {
 	let mut opts = UnifiedOptions{
-		Paths:    []string{},
-		Filter:   "",
-		Skip:     "",
-		Fresh:    false,
-		Jobs:     1,
-		Seed:     1,
-		States:   0,
-		Strict:   false,
-		Json:     false,
-		Check:    false,
-		Output:   "",
-		Locked:   false,
-		Debug:    false,
-		Release:  false,
-		Platform: "",
-		Help:     false,
-		HelpAll:  false,
+		Paths:         []string{},
+		Filter:        "",
+		Skip:          "",
+		Fresh:         false,
+		Jobs:          1,
+		Seed:          1,
+		States:        0,
+		Strict:        false,
+		Json:          false,
+		Check:         false,
+		DryRun:        false,
+		Output:        "",
+		Locked:        false,
+		Debug:         false,
+		Release:       false,
+		Platform:      "",
+		LintConfig:    "",
+		LintConfigSet: false,
+		Rules:         []string{},
+		Presets:       []string{},
+		Gate:          "",
+		GateSet:       false,
+		List:          false,
+		Derived:       false,
+		Why:           false,
+		PruneCases:    false,
+		Parallel:      false,
+		Lib:           false,
+		Help:          false,
+		HelpAll:       false,
 	}
 	let mut endFlags = false
 	let mut i = 0
@@ -152,6 +178,11 @@ func ParseUnifiedOptions(cmd string, args []string) UnifiedOptions fails FlagErr
 				i = i + 1
 				continue
 			}
+			if arg == "--dry-run" {
+				opts.DryRun = true
+				i = i + 1
+				continue
+			}
 			if arg == "--locked" {
 				opts.Locked = true
 				i = i + 1
@@ -167,7 +198,33 @@ func ParseUnifiedOptions(cmd string, args []string) UnifiedOptions fails FlagErr
 				i = i + 1
 				continue
 			}
-			if arg == "--derived" || arg == "--list" || arg == "--why" || arg == "--prune-cases" || arg == "--parallel" || arg == "--lib" {
+			if arg == "--derived" {
+				opts.Derived = true
+				i = i + 1
+				continue
+			}
+			if arg == "--list" {
+				opts.List = true
+				i = i + 1
+				continue
+			}
+			if arg == "--why" {
+				opts.Why = true
+				i = i + 1
+				continue
+			}
+			if arg == "--prune-cases" {
+				opts.PruneCases = true
+				i = i + 1
+				continue
+			}
+			if arg == "--parallel" {
+				opts.Parallel = true
+				i = i + 1
+				continue
+			}
+			if arg == "--lib" {
+				opts.Lib = true
 				i = i + 1
 				continue
 			}
@@ -191,6 +248,28 @@ func ParseUnifiedOptions(cmd string, args []string) UnifiedOptions fails FlagErr
 					opts.Output = val
 				} else if name == "--platform" {
 					opts.Platform = val
+				} else if name == "--lint-config" {
+					if opts.LintConfigSet {
+						return FlagError{Code: 2, Message: "ergo " + cmd + ": --lint-config is given twice"}
+					}
+					if val == "" {
+						return FlagError{Code: 2, Message: "ergo " + cmd + ": --lint-config needs a file"}
+					}
+					opts.LintConfig = val
+					opts.LintConfigSet = true
+				} else if name == "--rules" {
+					if val == "" {
+						return FlagError{Code: 2, Message: "ergo " + cmd + ": --rules needs a manifest path"}
+					}
+					opts.Rules = opts.Rules.Append(val)
+				} else if name == "--preset" {
+					opts.Presets = opts.Presets.Append(val)
+				} else if name == "--gate" {
+					if opts.GateSet {
+						return FlagError{Code: 2, Message: "ergo " + cmd + ": --gate is given twice"}
+					}
+					opts.Gate = val
+					opts.GateSet = true
 				}
 				continue
 			case option.None:
@@ -242,6 +321,18 @@ func DispatchExec(args []string, workDir string, environ []string) int needs exe
 	}
 	if first == "lib" {
 		return RunLibExec(args[1:args.Len()], workDir, environ)
+	}
+	if first == "lint" && !(args.Len() >= 2 && args[1] == "receipt") {
+		return RunLint(args[1:args.Len()], workDir, environ)
+	}
+	if first == "fix" {
+		return RunFix(args[1:args.Len()], workDir, environ)
+	}
+	if first == "mutants" {
+		return RunMutantsExec(args[1:args.Len()], workDir, environ)
+	}
+	if first == "verify" {
+		return RunVerifyExec(args[1:args.Len()], workDir, environ)
 	}
 	if first == "version" {
 		return runVersion(args[1:args.Len()])
@@ -409,10 +500,95 @@ test DispatchRoutesFmtCheckHelpAndStubs {
 		io.Stderr: recLint,
 		io.Stdin:  io.NewInput(""),
 	} {
-		Dispatch([]string{"lint", "--strict"}, "/mod", []string{})
+		Dispatch([]string{"lint", "--strict", "--json"}, "/mod", []string{})
 	}
-	assert codeLint == 2
-	assert strings.Contains(recLint.Text(), "target=./...")
+	assert codeLint == 0
+	assert strings.Contains(recLint.Text(), "\"checked\":true")
+
+	let recFix = io.NewRecorder()
+	let codeFix = with context {
+		fs.Files:  mem,
+		fs.Writes: mem,
+		io.Stdout: recFix,
+		io.Stderr: recFix,
+		io.Stdin:  io.NewInput(""),
+	} {
+		Dispatch([]string{"fix", "--check", "--json"}, "/mod", []string{})
+	}
+	assert codeFix == 0
+	assert strings.Contains(recFix.Text(), "\"written\":false")
+
+	let recMutants = io.NewRecorder()
+	let codeMutants = with context {
+		fs.Files:  mem,
+		fs.Writes: mem,
+		io.Stdout: recMutants,
+		io.Stderr: recMutants,
+		io.Stdin:  io.NewInput(""),
+	} {
+		Dispatch([]string{"mutants", "--list", "--json"}, "/mod", []string{})
+	}
+	assert codeMutants == 0
+	assert strings.Contains(recMutants.Text(), "\"totalMutants\":0")
+
+	let recVerify = io.NewRecorder()
+	let codeVerify = with context {
+		fs.Files:  mem,
+		fs.Writes: mem,
+		io.Stdout: recVerify,
+		io.Stderr: recVerify,
+		io.Stdin:  io.NewInput(""),
+	} {
+		Dispatch([]string{"verify", "--json"}, "/mod", []string{})
+	}
+	assert codeVerify == 0
+	assert strings.Contains(recVerify.Text(), "\"ok\":true")
+
+	let recInspect = io.NewRecorder()
+	let codeInspect = with context {
+		fs.Files:  mem,
+		fs.Writes: mem,
+		io.Stdout: recInspect,
+		io.Stderr: recInspect,
+		io.Stdin:  io.NewInput(""),
+	} {
+		Dispatch([]string{"inspect"}, "/mod", []string{})
+	}
+	assert codeInspect == 2
+	assert strings.Contains(recInspect.Text(), "target=./...")
+
+	let parsedU = ParseUnifiedOptions("lint", []string{"--lint-config", "a.json", "--preset", "strict", "--rules", "pack.json", "--gate", "0.8", "--list", "--derived", "./pkg"}) catch {
+	case FlagError:
+		assert false
+		return
+	}
+	assert parsedU.LintConfig == "a.json"
+	assert parsedU.LintConfigSet
+	assert parsedU.Presets.Len() == 1 && parsedU.Presets[0] == "strict"
+	assert parsedU.Rules.Len() == 1 && parsedU.Rules[0] == "pack.json"
+	assert parsedU.Gate == "0.8" && parsedU.GateSet
+	assert parsedU.List && parsedU.Derived
+
+	let mut dupCfg = false
+	let _ = ParseUnifiedOptions("lint", []string{"--lint-config", "a.json", "--lint-config", "b.json"}) catch {
+	case FlagError as fe:
+		dupCfg = fe.Code == 2
+		parsedU
+	}
+	assert dupCfg
+
+	let recRemovedLint = io.NewRecorder()
+	let codeRemovedLint = with context {
+		fs.Files:  mem,
+		fs.Writes: mem,
+		io.Stdout: recRemovedLint,
+		io.Stderr: recRemovedLint,
+		io.Stdin:  io.NewInput(""),
+	} {
+		Dispatch([]string{"lint", "receipt"}, "/mod", []string{})
+	}
+	assert codeRemovedLint == 2
+	assert strings.Contains(recRemovedLint.Text(), "removed in v1")
 
 	let recTest = io.NewRecorder()
 	let codeTest = with context {

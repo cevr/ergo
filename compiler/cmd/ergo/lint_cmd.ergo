@@ -1,0 +1,814 @@
+import compiler/check/bind
+import compiler/check/diag
+import compiler/check/load
+import compiler/driver
+import compiler/lint
+import compiler/syntax
+import filepath
+import fs
+import fstest
+import io
+import json
+import option
+import slices
+import strconv
+import strings
+
+// LintOptions captures parsed command-line flags and targets for ergo lint.
+type LintOptions {
+	Paths         []string,
+	Presets       []string,
+	LintConfig    string,
+	LintConfigSet bool,
+	Rules         []string,
+	Gate          float64,
+	GateSet       bool,
+	Strict        bool,
+	Json          bool,
+	Fresh         bool,
+	Jobs          int,
+	Help          bool,
+	HelpAll       bool,
+}
+
+type lintLoadOutcome {
+	Input       lint.Input,
+	CheckDiags  []CheckFinding,
+	AnyParseErr bool,
+}
+
+type lintConfigFail {
+	Code    int,
+	Message string,
+}
+
+func parseLintGateValue(raw string) float64 fails FlagError {
+	let lower = strings.ToLower(strings.TrimSpace(raw))
+	if lower == "nan" || lower == "inf" || lower == "+inf" || lower == "-inf" {
+		return FlagError{Code: 2, Message: "ergo lint: --gate needs a precision from 0 to 1, not " + raw}
+	}
+	let p = strconv.ParseFloat(raw) catch {
+	case strconv.Malformed, strconv.OutOfRange:
+		return FlagError{Code: 2, Message: "ergo lint: --gate needs a precision from 0 to 1, not " + raw}
+	}
+	if p != p || p < 0.0 || p > 1.0 {
+		return FlagError{Code: 2, Message: "ergo lint: --gate needs a precision from 0 to 1, not " + raw}
+	}
+	p
+}
+
+// ParseLintOptions parses flags and targets for ergo lint.
+func ParseLintOptions(args []string) LintOptions fails FlagError {
+	let u = try ParseUnifiedOptions("lint", args)
+	let mut gateVal = 0.0
+	if u.GateSet {
+		gateVal = try parseLintGateValue(u.Gate)
+	}
+	LintOptions{
+		Paths:         u.Paths,
+		Presets:       u.Presets,
+		LintConfig:    u.LintConfig,
+		LintConfigSet: u.LintConfigSet,
+		Rules:         u.Rules,
+		Gate:          gateVal,
+		GateSet:       u.GateSet,
+		Strict:        u.Strict,
+		Json:          u.Json,
+		Fresh:         u.Fresh,
+		Jobs:          u.Jobs,
+		Help:          u.Help,
+		HelpAll:       u.HelpAll,
+	}
+}
+
+// LintGatePasses reports whether every finding with published precision sits below threshold.
+func LintGatePasses(findings []lint.Finding, threshold float64) bool {
+	for f in findings {
+		if f.HasPrecision {
+			let prec = float64(f.Precision) / 100.0
+			if prec >= threshold {
+				return false
+			}
+		}
+	}
+	true
+}
+
+// RunLint executes `ergo lint` across workspace packages using compiler/lint.
+func RunLint(args []string, workDir string, environ []string) int needs fs.Files | io.Stdout | io.Stderr {
+	if args.Len() > 0 && args[0] == "rules" {
+		return runLintRules(args[1:args.Len()], workDir)
+	}
+	let opts = ParseLintOptions(args) catch {
+	case FlagError as fe:
+		io.Stderr.Eprintln(fe.Message)
+		return fe.Code
+	}
+	if opts.Help || opts.HelpAll {
+		io.Stdout.Print(LintHelp())
+		return 0
+	}
+	for manifestPath in opts.Rules {
+		let absManifest = filepath.Clean(filepath.AbsFrom(workDir, manifestPath))
+		let _ = fs.Files.ReadFile(absManifest) catch {
+		case fs.NotFound:
+			io.Stderr.Eprintln("ergo lint: " + manifestPath + ": not found")
+			return 2
+		case fs.Denied:
+			io.Stderr.Eprintln("ergo lint: " + manifestPath + ": permission denied")
+			return 2
+		case fs.Failed as ff:
+			io.Stderr.Eprintln("ergo lint: " + manifestPath + ": " + ff.Reason)
+			return 2
+		}
+		io.Stderr.Eprintln("ergo lint: external rule packs from --rules (" + manifestPath + ") require the host pack runner")
+		return 2
+	}
+	let (conf, glossaries) = resolveLintConfiguration(workDir, opts.Paths, opts.LintConfig, opts.LintConfigSet, opts.Presets) catch {
+	case lintConfigFail as cf:
+		emitLintInvocationError(opts.Json, cf.Message)
+		return cf.Code
+	}
+	let loaded = loadLintWorkspace(opts, workDir, environ, glossaries) catch {
+	case driver.DiscoverError as de:
+		emitLintInvocationError(opts.Json, de.Path+": "+de.Reason)
+		return 2
+	case driver.ParseError as pe:
+		emitLintInvocationError(opts.Json, driver.FormatParseError(pe))
+		return 1
+	case driver.CycleError as ce:
+		emitLintInvocationError(opts.Json, driver.FormatCycle(ce))
+		return 1
+	case fs.NotFound as nf:
+		emitLintInvocationError(opts.Json, nf.Path+": not found")
+		return 2
+	case fs.Denied as dn:
+		emitLintInvocationError(opts.Json, dn.Path+": permission denied")
+		return 2
+	case fs.Failed as ff:
+		emitLintInvocationError(opts.Json, ff.Path+": "+ff.Reason)
+		return 2
+	}
+	let res = lint.Run(conf, loaded.Input)
+	let policyOk = lint.PolicyPassed(res, opts.Strict) && loaded.CheckDiags.Len() == 0 && !loaded.AnyParseErr
+	let gateOk = if opts.GateSet { LintGatePasses(res.Findings, opts.Gate) } else { true }
+	let passed = policyOk && gateOk
+	if opts.Json {
+		io.Stdout.Println(formatLintCommandJSON(res, opts.GateSet, opts.Gate, gateOk))
+	} else {
+		emitLintText(loaded.CheckDiags, res, opts.Strict, opts.GateSet, opts.Gate, gateOk)
+	}
+	if passed {
+		return 0
+	}
+	1
+}
+
+func runLintRules(args []string, workDir string) int needs fs.Files | io.Stdout | io.Stderr {
+	let opts = ParseLintOptions(args) catch {
+	case FlagError as fe:
+		io.Stderr.Eprintln(fe.Message)
+		return fe.Code
+	}
+	if opts.Help || opts.HelpAll {
+		io.Stdout.Print(LintHelp())
+		return 0
+	}
+	if opts.Paths.Len() > 0 {
+		io.Stderr.Eprintln("ergo lint rules: unexpected argument " + opts.Paths[0])
+		return 2
+	}
+	if opts.Rules.Len() > 0 {
+		io.Stderr.Eprintln("ergo lint rules: external rule packs from --rules require the host pack runner")
+		return 2
+	}
+	let (conf, _) = resolveLintConfiguration(workDir, []string{}, opts.LintConfig, opts.LintConfigSet, opts.Presets) catch {
+	case lintConfigFail as cf:
+		io.Stderr.Eprintln("ergo lint rules: " + cf.Message)
+		return cf.Code
+	}
+	let statuses = lint.ConfigStatuses(conf)
+	let t = json.NewText()
+	t.BeginList(statuses.Len())
+	for st in statuses {
+		t.BeginObject(5)
+		t.Key("rule")
+		t.String(st.Rule)
+		t.Key("code")
+		t.String(st.Code)
+		t.Key("severity")
+		t.String(st.Severity)
+		t.Key("status")
+		t.String(st.Status)
+		t.Key("reason")
+		t.String(st.Reason)
+		t.EndObject()
+	}
+	t.EndList()
+	io.Stdout.Println(t.Written())
+	0
+}
+
+func resolveLintConfiguration(
+	workDir string,
+	paths []string,
+	configFlag string,
+	configSet bool,
+	presets []string,
+) (lint.Configuration, Map[string, string]) fails lintConfigFail needs fs.Files {
+	let mut doc = lint.DefaultConfig()
+	if configSet {
+		let absPath = filepath.Clean(filepath.AbsFrom(workDir, configFlag))
+		let data = fs.Files.ReadFile(absPath) catch {
+		case fs.NotFound:
+			return lintConfigFail{Code: 2, Message: configFlag + ": not found"}
+		case fs.Denied:
+			return lintConfigFail{Code: 2, Message: configFlag + ": permission denied"}
+		case fs.Failed as ff:
+			return lintConfigFail{Code: 2, Message: configFlag + ": " + ff.Reason}
+		}
+		let parsed = lint.ParseConfig(data) catch {
+		case lint.BadConfig as bc:
+			return lintConfigFail{Code: 2, Message: configFlag + ": " + bc.Message}
+		}
+		doc = lint.Config{
+			Version: parsed.Version,
+			Packs:   parsed.Packs,
+			Extends: parsed.Extends,
+			Rules:   parsed.Rules,
+			Dir:     filepath.Dir(absPath),
+		}
+	} else {
+		let startDir = resolveConfigSearchDir(workDir, paths)
+		let cfgDirOpt = findConfigDir(startDir)
+		match cfgDirOpt {
+		case option.Some{Value: cfgDir}:
+			let cfgPath = filepath.Join([]string{cfgDir, lint.ConfigFile})
+			if lintRegularFileExists(cfgPath) {
+				let data = fs.Files.ReadFile(cfgPath) catch {
+				case fs.NotFound:
+					""
+				case fs.Denied:
+					return lintConfigFail{Code: 2, Message: cfgPath + ": permission denied"}
+				case fs.Failed as ff:
+					return lintConfigFail{Code: 2, Message: cfgPath + ": " + ff.Reason}
+				}
+				if data != "" {
+					let parsed = lint.ParseConfig(data) catch {
+					case lint.BadConfig as bc:
+						return lintConfigFail{Code: 2, Message: cfgPath + ": " + bc.Message}
+					}
+					if parsed.Packs.Len() > 0 {
+						return lintConfigFail{Code: 2, Message: cfgPath + " selects rule packs, which require --lint-config"}
+					}
+					doc = lint.Config{
+						Version: parsed.Version,
+						Packs:   parsed.Packs,
+						Extends: parsed.Extends,
+						Rules:   parsed.Rules,
+						Dir:     cfgDir,
+					}
+				}
+			}
+		case option.None:
+		}
+	}
+	let glossaries = loadConfiguredGlossaries(doc) catch {
+	case lintConfigFail as cf:
+		return cf
+	}
+	let conf = lint.Configure(doc, presets, glossaries) catch {
+	case lint.BadConfig as bc:
+		return lintConfigFail{Code: 2, Message: lint.ConfigFile + ": " + bc.Message}
+	}
+	(conf, glossaries)
+}
+
+func resolveConfigSearchDir(workDir string, paths []string) string needs fs.Files {
+	let mut base = filepath.Clean(workDir)
+	if paths.Len() > 0 {
+		let first = paths[0]
+		if first != "" && first != "..." && first != "./..." && !strings.HasSuffix(first, "/...") {
+			let cand = filepath.Clean(filepath.AbsFrom(workDir, first))
+			let info = fs.Files.Stat(cand) catch {
+			case fs.NotFound, fs.Denied, fs.Failed:
+				fs.Info{Name: "", Size: 0, Dir: false, Perm: 0}
+			}
+			if info.Dir {
+				base = cand
+			} else if info.Name != "" {
+				base = filepath.Dir(cand)
+			}
+		} else if strings.HasSuffix(first, "/...") {
+			base = filepath.Clean(filepath.AbsFrom(workDir, strings.TrimSuffix(first, "/...")))
+		}
+	}
+	base
+}
+
+func findConfigDir(startDir string) option.Option[string] needs fs.Files {
+	match driver.FindModuleDir(startDir) {
+	case option.Some{Value: modDir}:
+		return option.Some[string]{Value: modDir}
+	case option.None:
+	}
+	match driver.FindWorkRoot(startDir) {
+	case option.Some{Value: workRoot}:
+		return option.Some[string]{Value: workRoot}
+	case option.None:
+	}
+	if lintRegularFileExists(filepath.Join([]string{startDir, lint.ConfigFile})) {
+		return option.Some[string]{Value: startDir}
+	}
+	option.None
+}
+
+func lintRegularFileExists(path string) bool needs fs.Files {
+	let info = fs.Files.Stat(path) catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		return false
+	}
+	!info.Dir && info.Name != ""
+}
+
+func loadConfiguredGlossaries(doc lint.Config) Map[string, string] fails lintConfigFail needs fs.Files {
+	let mut glossaries = Map[string, string]{}
+	match doc.Rules.Get("banned-words") {
+	case option.Some{Value: s}:
+		if s.HasOptions {
+			match s.Options {
+			case lint.JObj as obj:
+				for m in obj.Members {
+					if m.Key == "glossary" {
+						match m.Value {
+						case lint.JStr as gv:
+							if gv.V != "" {
+								let gPath = if strings.HasPrefix(gv.V, "/") || doc.Dir == "" {
+									gv.V
+								} else {
+									lint.CleanSlashPath(doc.Dir + "/" + gv.V)
+								}
+								let gTxt = fs.Files.ReadFile(gPath) catch {
+								case fs.NotFound:
+									return lintConfigFail{Code: 2, Message: "glossary " + gPath + ": not found"}
+								case fs.Denied:
+									return lintConfigFail{Code: 2, Message: "glossary " + gPath + ": permission denied"}
+								case fs.Failed as ff:
+									return lintConfigFail{Code: 2, Message: "glossary " + gPath + ": " + ff.Reason}
+								}
+								glossaries = glossaries.Put(gPath, gTxt)
+							}
+						case _:
+						}
+					}
+				}
+			case _:
+			}
+		}
+	case option.None:
+	}
+	glossaries
+}
+
+func loadLintWorkspace(
+	opts LintOptions,
+	workDir string,
+	environ []string,
+	glossaries Map[string, string],
+) lintLoadOutcome fails driver.DiscoverError | driver.ParseError | driver.CycleError | fs.NotFound | fs.Denied | fs.Failed needs fs.Files {
+	let store = try driver.Discover(workDir, opts.Paths)
+	let graph = try driver.CollectImportGraph(store)
+	let sched = try driver.ScheduleWaves(graph)
+	let stdDir = resolveStdDir("", store.Root, workDir)
+
+	let mut modDirs = Map[string, string]{}
+	for mi in 0..int(store.ModCount) {
+		let mName = store.ModNames[mi]
+		if mName != "" {
+			modDirs = modDirs.Put(mName, store.ModDirs[mi])
+		}
+	}
+
+	let mut units = []load.Unit{}
+	let mut allSrcs = [][]string{}
+	let mut userSet = Map[string, bool]{}
+	for uid in sched.Order {
+		userSet = userSet.Put(driver.PackagePath(store, uid), true)
+	}
+	if stdDir != "" {
+		for bPath in []string{"collections", "option", "core", "prelude"} {
+			if userSet.Get(bPath) != option.None {
+				continue
+			}
+			match buildBootstrapUnit(stdDir, bPath) {
+			case option.Some[BootUnit] as bu:
+				units = units.Append(bu.Value.Unit)
+				allSrcs = allSrcs.Append(bu.Value.Srcs)
+			case option.None:
+			}
+		}
+	}
+	let bootstrapCount = units.Len()
+
+	let mut pkgFiles = [][]lint.FileInput{}
+	let mut pkgBinds = [][]bind.File{}
+	let mut pkgModules = []string{}
+	let mut pkgPaths = []string{}
+	let mut pkgDirs = []string{}
+	let mut pkgNames = []string{}
+	let mut pkgHasEntry = []bool{}
+	let mut anyParseErr = false
+	let mut checkDiags = []CheckFinding{}
+
+	for uid in sched.Order {
+		let pkgPath = driver.PackagePath(store, uid)
+		let pkgDir = driver.PackageDir(store, uid)
+		let modID = store.PkgModID[int(uid)]
+		let modName = if modID != driver.NoIndex() { store.ModNames[int(modID)] } else { "" }
+		let modDir = if modID != driver.NoIndex() { store.ModDirs[int(modID)] } else { "" }
+		let filePaths = driver.PackageFiles(store, uid)
+		let mut bFiles = []bind.File{}
+		let mut lFiles = []lint.FileInput{}
+		let mut srcs = []string{}
+		let mut hasEntry = false
+		for fp in filePaths {
+			let src = try fs.Files.ReadFile(fp)
+			let rel = lintFileRelPath(workDir, modDir, fp)
+			if lint.IsEntryFile(rel) || filePaths.Len() == 1 && modName == "" {
+				hasEntry = true
+			}
+			let parsed = syntax.Parse(src)
+			if parsed.Failed {
+				anyParseErr = true
+				checkDiags = checkDiags.Append(CheckFinding{
+					Code:    parsed.Code,
+					File:    displayCheckPath(workDir, fp),
+					Line:    parsed.Line,
+					Column:  parsed.Column,
+					Message: parsed.Message,
+				})
+			}
+			let disp = displayCheckPath(workDir, fp)
+			bFiles = bFiles.Append(bind.File{Name: disp, Parsed: parsed})
+			lFiles = lFiles.Append(lint.FileInput{Rel: rel, Src: src, Parsed: parsed})
+			srcs = srcs.Append(src)
+		}
+		units = units.Append(load.Unit{
+			Tab:   load.TablesOf("", "@pkg "+pkgBaseName(pkgPath)+" "+pkgPath+" 1\n"),
+			Files: bFiles,
+			Paths: filePaths,
+			Path:  pkgPath,
+			Dir:   pkgDir,
+		})
+		allSrcs = allSrcs.Append(srcs)
+		pkgFiles = pkgFiles.Append(lFiles)
+		pkgBinds = pkgBinds.Append(bFiles)
+		pkgModules = pkgModules.Append(modName)
+		pkgPaths = pkgPaths.Append(pkgPath)
+		pkgDirs = pkgDirs.Append(pkgDir)
+		pkgNames = pkgNames.Append(pkgBaseName(pkgPath))
+		pkgHasEntry = pkgHasEntry.Append(hasEntry)
+	}
+
+	let nUser = sched.Order.Len()
+	let mut unitInputs = slices.WithCapacity[lint.UnitInput](nUser)
+	if !anyParseErr && nUser > 0 {
+		let outside = load.Outside(units, stdDir)
+		let mut known = Map[string, bool]{}
+		for u in units {
+			known = known.Put(u.Path, true)
+		}
+		for iface in outside {
+			known = known.Put(iface.Path, true)
+		}
+		let threads = if opts.Jobs > 0 { opts.Jobs } else { 1 }
+		let prog = load.LoadAll(units, outside, threads)
+		let mut deps = Map[string, Map[string, bool]]{}
+		for e in prog.Loaded {
+			let r = diag.Resources(e.S, e.K, deps)
+			deps = deps.Put(e.Path, r)
+		}
+		let mut typedByUnit = slices.Repeat([]int{-1}, units.Len())
+		for li, uIdx in prog.Units {
+			typedByUnit[uIdx] = li
+			if uIdx < bootstrapCount {
+				continue
+			}
+			let typed = load.TypeAt(prog, li)
+			let mut miss = []string{}
+			for imp in bind.Imports(typed.K.Files) {
+				if known.Get(imp) == option.None {
+					miss = miss.Append(imp)
+				}
+			}
+			let ds = collectUnitDiags(typed, allSrcs[uIdx], miss, deps)
+			let mut lines = []syntax.Lines{}
+			for s in allSrcs[uIdx] {
+				lines = lines.Append(syntax.LinesOf(s))
+			}
+			for g in ds {
+				let fIdx = g.File
+				let disp = if fIdx < typed.K.Files.Len() { typed.K.Files[fIdx].Name } else { units[uIdx].Path }
+				let pos = if fIdx < lines.Len() { syntax.PositionOf(lines[fIdx], g.Offset) } else { syntax.Position{Line: 1, Column: 1} }
+				checkDiags = checkDiags.Append(CheckFinding{
+					Code:    g.Code,
+					File:    disp,
+					Line:    pos.Line,
+					Column:  pos.Column,
+					Message: g.Message,
+				})
+			}
+		}
+		for pi in 0..nUser {
+			let ui = bootstrapCount + pi
+			let typedOpt = if typedByUnit[ui] >= 0 {
+				option.Some[load.Typed]{Value: load.TypeAt(prog, typedByUnit[ui])}
+			} else {
+				option.None
+			}
+			unitInputs = unitInputs.Append(lint.UnitInput{
+				Module:     pkgModules[pi],
+				Path:       pkgPaths[pi],
+				Dir:        pkgDirs[pi],
+				Name:       pkgNames[pi],
+				Dependency: false,
+				HasEntry:   pkgHasEntry[pi],
+				Files:      pkgFiles[pi],
+				BindFiles:  pkgBinds[pi],
+				Typed:      typedOpt,
+			})
+		}
+	} else {
+		for pi in 0..nUser {
+			unitInputs = unitInputs.Append(lint.UnitInput{
+				Module:     pkgModules[pi],
+				Path:       pkgPaths[pi],
+				Dir:        pkgDirs[pi],
+				Name:       pkgNames[pi],
+				Dependency: false,
+				HasEntry:   pkgHasEntry[pi],
+				Files:      pkgFiles[pi],
+				BindFiles:  pkgBinds[pi],
+				Typed:      option.None,
+			})
+		}
+	}
+
+	let _ = environ
+	lintLoadOutcome{
+		Input: lint.Input{
+			Checked:    !anyParseErr && checkDiags.Len() == 0,
+			Closed:     true,
+			ModuleDirs: modDirs,
+			Glossaries: glossaries,
+			Units:      unitInputs,
+		},
+		CheckDiags:  checkDiags,
+		AnyParseErr: anyParseErr,
+	}
+}
+
+func lintFileRelPath(workDir string, modDir string, fp string) string {
+	let cleanFP = filepath.Clean(fp)
+	if modDir != "" {
+		let cleanMod = filepath.Clean(modDir)
+		let prefix = if strings.HasSuffix(cleanMod, "/") { cleanMod } else { cleanMod + "/" }
+		if strings.HasPrefix(cleanFP, prefix) {
+			return lint.CleanSlashPath(cleanFP[prefix.Len():cleanFP.Len()])
+		}
+	}
+	lint.CleanSlashPath(displayCheckPath(workDir, cleanFP))
+}
+
+func formatLintCommandJSON(res lint.Result, gateSet bool, gateVal float64, gatePassed bool) string {
+	let base = lint.FormatResultJSON(res)
+	if !gateSet {
+		return base
+	}
+	if !strings.HasSuffix(base, "}") {
+		return base
+	}
+	let prefix = base[0 : base.Len()-1]
+	prefix + ",\"gate\":{\"precision\":" + strconv.FormatFloat(gateVal, byte('g'), -1) + ",\"passed\":" + strconv.FormatBool(gatePassed) + "}}"
+}
+
+func emitLintInvocationError(asJSON bool, msg string) needs io.Stdout | io.Stderr {
+	if asJSON {
+		let t = json.NewText()
+		t.BeginObject(3)
+		t.Key("checked")
+		t.Bool(false)
+		t.Key("complete")
+		t.Bool(false)
+		t.Key("error")
+		t.String(msg)
+		t.EndObject()
+		io.Stdout.Println(t.Written())
+	} else {
+		io.Stderr.Eprintln("ergo lint: " + msg)
+	}
+}
+
+func emitLintText(
+	checkDiags []CheckFinding,
+	res lint.Result,
+	strict bool,
+	gateSet bool,
+	gateVal float64,
+	gateOk bool,
+) needs io.Stdout | io.Stderr {
+	for d in checkDiags {
+		let line = d.File + ":" + strconv.Itoa(d.Line) + ":" + strconv.Itoa(d.Column) + ": error " + d.Code + ": " + d.Message
+		io.Stdout.Println(line)
+	}
+	for f in res.Findings {
+		let sev = lint.SeverityName(f.Severity)
+		let precTag = if f.HasPrecision { " (p" + formatPrecisionRatio(f.Precision) + ")" } else { "" }
+		let loc = if f.File != "" {
+			f.File + ":" + strconv.Itoa(f.Line) + ":" + strconv.Itoa(f.Column) + ": "
+		} else {
+			""
+		}
+		let base = loc + sev + " " + f.Code + " [" + f.Rule + "]" + precTag + ": " + f.Message
+		io.Stdout.Println(base)
+		if f.Instead != "" {
+			io.Stdout.Println("  instead: " + f.Instead)
+		}
+	}
+	if checkDiags.Len() > 0 {
+		io.Stderr.Eprintln("ergo lint: unchecked source")
+		return
+	}
+	if gateSet && !gateOk {
+		io.Stderr.Eprintln("ergo lint: failed precision gate >= " + strconv.FormatFloat(gateVal, byte('g'), -1))
+		return
+	}
+	if !lint.PolicyPassed(res, strict) {
+		io.Stderr.Eprintln("ergo lint: policy failed")
+	}
+}
+
+func formatPrecisionRatio(hundredths int) string {
+	let whole = hundredths / 100
+	let rem = hundredths % 100
+	let remStr = if rem < 10 { "0" + strconv.Itoa(rem) } else { strconv.Itoa(rem) }
+	strconv.Itoa(whole) + "." + remStr
+}
+
+// LintGatePreservesNonPrecision: findings without published precision never trip LintGatePasses at threshold 0.0.
+law LintGatePreservesNonPrecision(thresholdIdx uint32) {
+	let thresholds = []float64{0.0, 0.5, 0.8, 0.95, 1.0}
+	let thr = thresholds[int(thresholdIdx%uint32(thresholds.Len()))]
+	let f = lint.Finding{
+		Code:         "L163",
+		Rule:         "no-comments",
+		Severity:     lint.SeverityError,
+		Message:      "comment",
+		Instead:      "say it in code",
+		File:         "a.ergo",
+		Offset:       0,
+		Length:       2,
+		Line:         1,
+		Column:       1,
+		Precision:    0,
+		HasPrecision: false,
+		HasFix:       false,
+		Fix:          lint.EmptyFix(),
+		Related:      []lint.Related{},
+	}
+	LintGatePasses([]lint.Finding{f}, thr)
+}
+
+test LintCmdStrictAndGateAndRulesAndInvalidConfig {
+	let mem = fstest.NewMemory()
+	mem.MkdirAll("/ws/pkg") catch {
+	case fs.Denied, fs.Failed:
+		assert false
+	}
+	mem.WriteFile("/ws/ergo.mod", "module sample\n") catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		assert false
+	}
+	mem.WriteFile("/ws/ergo.lint.json", `{"version":1,"extends":["strict"],"rules":{"no-comments":{"severity":"error"}}}`) catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		assert false
+	}
+	mem.WriteFile("/ws/pkg/clean.ergo", "func Add(a int, b int) int {\n\ta + b\n}\n") catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		assert false
+	}
+	let recOK = io.NewRecorder()
+	let codeOK = with context {
+		fs.Files:  mem,
+		io.Stdout: recOK,
+		io.Stderr: recOK,
+	} {
+		RunLint([]string{"--strict", "--json"}, "/ws", []string{})
+	}
+	assert codeOK == 0
+	assert strings.Contains(recOK.Text(), `"checked":true`)
+
+	mem.WriteFile("/ws/pkg/bad.ergo", "func Bad(n uint8) int {\n\t// bad comment\n\tint(n)\n}\n") catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		assert false
+	}
+	let recFail = io.NewRecorder()
+	let codeFail = with context {
+		fs.Files:  mem,
+		io.Stdout: recFail,
+		io.Stderr: recFail,
+	} {
+		RunLint([]string{"--strict", "--json"}, "/ws", []string{})
+	}
+	assert codeFail == 1
+	assert strings.Contains(recFail.Text(), `"rule":"no-comments"`)
+
+	let recGate = io.NewRecorder()
+	let codeGate = with context {
+		fs.Files:  mem,
+		io.Stdout: recGate,
+		io.Stderr: recGate,
+	} {
+		RunLint([]string{"--gate", "0.90", "--json"}, "/ws", []string{})
+	}
+	assert codeGate == 1
+	assert strings.Contains(recGate.Text(), `"gate":{"precision":0.9,"passed":`)
+
+	let recBadGate = io.NewRecorder()
+	let codeBadGate = with context {
+		fs.Files:  mem,
+		io.Stdout: recBadGate,
+		io.Stderr: recBadGate,
+	} {
+		RunLint([]string{"--gate", "1.5"}, "/ws", []string{})
+	}
+	assert codeBadGate == 2
+
+	let recMissingCfg = io.NewRecorder()
+	let codeMissingCfg = with context {
+		fs.Files:  mem,
+		io.Stdout: recMissingCfg,
+		io.Stderr: recMissingCfg,
+	} {
+		RunLint([]string{"--lint-config", "/ws/missing.json"}, "/ws", []string{})
+	}
+	assert codeMissingCfg == 2
+
+	let recRules = io.NewRecorder()
+	let codeRules = with context {
+		fs.Files:  mem,
+		io.Stdout: recRules,
+		io.Stderr: recRules,
+	} {
+		RunLint([]string{"rules"}, "/ws", []string{})
+	}
+	assert codeRules == 0
+	assert strings.Contains(recRules.Text(), `"rule":"no-comments"`)
+
+	mem.WriteFile("/ws/pkg/bad.ergo", "func ShapeValue() int {\n\t1\n}\n") catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		assert false
+	}
+	let recWarnNoStrict = io.NewRecorder()
+	let codeWarnNoStrict = with context {
+		fs.Files:  mem,
+		io.Stdout: recWarnNoStrict,
+		io.Stderr: recWarnNoStrict,
+	} {
+		RunLint([]string{"--json"}, "/ws", []string{})
+	}
+	assert codeWarnNoStrict == 0
+	assert strings.Contains(recWarnNoStrict.Text(), `"findings":[{"code":"L111","rule":"banned-words"`)
+
+	let recWarnStrict = io.NewRecorder()
+	let codeWarnStrict = with context {
+		fs.Files:  mem,
+		io.Stdout: recWarnStrict,
+		io.Stderr: recWarnStrict,
+	} {
+		RunLint([]string{"--strict", "--json"}, "/ws", []string{})
+	}
+	assert codeWarnStrict == 1
+
+	let recGateEq = io.NewRecorder()
+	let codeGateEq = with context {
+		fs.Files:  mem,
+		io.Stdout: recGateEq,
+		io.Stderr: recGateEq,
+	} {
+		RunLint([]string{"--gate", "0.33", "--json"}, "/ws", []string{})
+	}
+	assert codeGateEq == 1
+	assert strings.Contains(recGateEq.Text(), `"gate":{"precision":0.33,"passed":false}`)
+
+	let recGateAbove = io.NewRecorder()
+	let codeGateAbove = with context {
+		fs.Files:  mem,
+		io.Stdout: recGateAbove,
+		io.Stderr: recGateAbove,
+	} {
+		RunLint([]string{"--gate", "0.34", "--json"}, "/ws", []string{})
+	}
+	assert codeGateAbove == 0
+	assert strings.Contains(recGateAbove.Text(), `"gate":{"precision":0.34,"passed":true}`)
+}

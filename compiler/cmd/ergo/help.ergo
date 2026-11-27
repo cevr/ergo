@@ -68,7 +68,7 @@ func FmtHelp() string {
 
 // LintHelp returns primary help text for ergo lint.
 func LintHelp() string {
-	"usage: ergo lint [PATH...] [--strict] [--json] [--fresh]\n\nRun architecture and style rules across Ergo packages.\nOmitting PATH lints the current package or module.\n\nOptions:\n  --strict             fail on lint warnings as well as errors\n  --json               emit structured lint findings as JSON\n  --fresh              ignore cached answers\n  --lint-config FILE   lint configuration file override\n  --rules MANIFEST     rule pack manifest\n  --preset P           named rule preset\n\nExit codes: 0 clean; 1 findings reported; 2 invalid invocation.\n"
+	"usage: ergo lint [PATH...] [--strict] [--json] [--fresh]\n\nRun architecture and style rules across Ergo packages.\nOmitting PATH lints the current package or module.\n\nOptions:\n  --strict             fail on lint warnings as well as errors\n  --json               emit structured lint findings as JSON\n  --fresh              ignore cached answers\n  --lint-config FILE   lint configuration file override\n  --rules MANIFEST     rule pack manifest\n  --preset P           named rule preset\n  --gate P             fail on rules with precision >= P (0 to 1)\n\nExit codes: 0 clean; 1 findings reported; 2 invalid invocation.\n"
 }
 
 // FixHelp returns primary help text for ergo fix.
@@ -83,7 +83,7 @@ func FixAllHelp() string {
 
 // VerifyHelp returns primary help text for ergo verify.
 func VerifyHelp() string {
-	"usage: ergo verify SUBCOMMAND [OPTIONS]\n\nRun heavy verification workflows: mutation testing, schedule exploration,\ntrace conformance checking, and CLI golden cases.\n\nExamples:\n  ergo verify mutants                    Verify mutant ledgers under .\n  ergo verify explore dfs ./pkg          Explore concurrent schedules with DFS\n  ergo verify conform --machine M --trace t.jsonl\n  ergo verify cases ./cmd/app --cases ./cases\n\nSubcommands:\n  mutants    verify hand and derived mutants against tests and laws\n  explore    search or replay concurrent task interleavings\n  conform    verify an execution trace conforms to a machine specification\n  cases      run black-box golden input/output cases against a built program\n\nExit codes: 0 passed; 1 verification failure; 2 usage error.\n"
+	"usage: ergo verify [PATH...] [--json] | ergo verify SUBCOMMAND [OPTIONS]\n\nRun the verification pipeline (fmt --check, check, lint --strict, test)\nor specialized workflows: mutation testing, schedule exploration, trace\nconformance checking, and CLI golden cases.\n\nExamples:\n  ergo verify                            Run fmt, check, lint, and test\n  ergo verify mutants                    Verify mutant ledgers under .\n  ergo verify explore dfs ./pkg          Explore concurrent schedules with DFS\n  ergo verify conform --machine M --trace t.jsonl\n  ergo verify cases ./cmd/app --cases ./cases\n\nSubcommands:\n  mutants    verify hand and derived mutants against tests and laws\n  explore    search or replay concurrent task interleavings\n  conform    verify an execution trace conforms to a machine specification\n  cases      run black-box golden input/output cases against a built program\n\nExit codes: 0 passed; 1 verification failure; 2 usage error.\n"
 }
 
 // InspectHelp returns primary help text for ergo inspect.
@@ -118,6 +118,7 @@ func AllCommands() []CommandDesc {
 		CommandDesc{Name: "version", Fate: FateAvailable, Group: "workspace", Hidden: false, Usage: "version [--json]", Help: WorkspaceSubHelp("version", "version [--json]", "Print ergo driver and toolchain version."), AllHelp: "", Reason: ""},
 		CommandDesc{Name: "diagnostics", Fate: FateAvailable, Group: "plumbing", Hidden: true, Usage: "diagnostics [PATH] [--strict] [--json]", Help: CheckHelp(), AllHelp: CheckAllHelp(), Reason: ""},
 		CommandDesc{Name: "lib", Fate: FateAvailable, Group: "plumbing", Hidden: true, Usage: "lib [PATH] -o DIR", Help: BuildHelp(), AllHelp: BuildAllHelp(), Reason: ""},
+		CommandDesc{Name: "mutants", Fate: FateAvailable, Group: "plumbing", Hidden: true, Usage: "mutants [PATH...] [--list] [--derived] [--strict] [--json] [-k PATTERN] [--skip PATTERN] [-j N]", Help: WorkspaceSubHelp("mutants", "mutants [PATH...] [--list] [--derived] [--strict] [--json]", "Verify mutant ledgers and derived mutations against tests and laws."), AllHelp: "", Reason: ""},
 		CommandDesc{Name: "graph", Fate: FateAvailable, Group: "plumbing", Hidden: true, Usage: "graph [--in DIR|DIR/...] export|cycles|waves [--json]", Help: InspectHelp(), AllHelp: InspectHelp(), Reason: ""},
 		CommandDesc{Name: "conform", Fate: FateAvailable, Group: "plumbing", Hidden: true, Usage: "conform [DIR] --machine M --trace FILE", Help: VerifyHelp(), AllHelp: VerifyHelp(), Reason: ""},
 		CommandDesc{Name: "budget", Fate: FateAvailable, Group: "plumbing", Hidden: true, Usage: "budget -- COMMAND [ARGS...]", Help: VerifyHelp(), AllHelp: VerifyHelp(), Reason: ""},

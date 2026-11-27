@@ -120,6 +120,106 @@
       "to": "\t0\n",
       "rule": "ergo run propagates the executed child program's exit status.",
       "killers": ["compiler/cmd/ergo:BuildLibAndRunCmd"]
+    },
+    {
+      "name": "selfhost-cli-wire-dispatch-routes-lint-to-stub",
+      "origin": "wf10 SELFHOST-CLI-WIRE",
+      "file": "compiler/cmd/ergo/dispatch.ergo",
+      "decl": "DispatchExec",
+      "from": "\tif first == \"lint\" && !(args.Len() >= 2 && args[1] == \"receipt\") {\n\t\treturn RunLint(args[1:args.Len()], workDir, environ)\n\t}\n",
+      "to": "",
+      "rule": "DispatchExec routes ergo lint directly to RunLint instead of falling through to the stub hook.",
+      "killers": ["compiler/cmd/ergo:DispatchRoutesFmtCheckHelpAndStubs"]
+    },
+    {
+      "name": "selfhost-cli-wire-dispatch-drops-lint-config-guard",
+      "origin": "wf10 SELFHOST-CLI-WIRE",
+      "file": "compiler/cmd/ergo/dispatch.ergo",
+      "decl": "ParseUnifiedOptions",
+      "from": "\t\t\t\t} else if name == \"--lint-config\" {\n\t\t\t\t\tif opts.LintConfigSet {\n\t\t\t\t\t\treturn FlagError{Code: 2, Message: \"ergo \" + cmd + \": --lint-config is given twice\"}\n\t\t\t\t\t}\n\t\t\t\t\tif val == \"\" {\n\t\t\t\t\t\treturn FlagError{Code: 2, Message: \"ergo \" + cmd + \": --lint-config needs a file\"}\n\t\t\t\t\t}\n\t\t\t\t\topts.LintConfig = val\n\t\t\t\t\topts.LintConfigSet = true\n",
+      "to": "\t\t\t\t} else if name == \"--lint-config\" {\n\t\t\t\t\topts.LintConfig = val\n",
+      "rule": "ParseUnifiedOptions sets LintConfigSet and rejects duplicate --lint-config flags.",
+      "killers": ["compiler/cmd/ergo:DispatchRoutesFmtCheckHelpAndStubs"]
+    },
+    {
+      "name": "selfhost-cli-wire-lint-strict-ignored",
+      "origin": "wf10 SELFHOST-CLI-WIRE",
+      "file": "compiler/cmd/ergo/lint_cmd.ergo",
+      "decl": "RunLint",
+      "from": "\tlet policyOk = lint.PolicyPassed(res, opts.Strict) && loaded.CheckDiags.Len() == 0 && !loaded.AnyParseErr\n",
+      "to": "\tlet policyOk = lint.PolicyPassed(res, false) && loaded.CheckDiags.Len() == 0 && !loaded.AnyParseErr\n",
+      "rule": "ergo lint --strict treats warning findings as policy failures.",
+      "killers": ["compiler/cmd/ergo:LintCmdStrictAndGateAndRulesAndInvalidConfig"]
+    },
+    {
+      "name": "selfhost-cli-wire-lint-gate-comparison-flipped",
+      "origin": "wf10 SELFHOST-CLI-WIRE",
+      "file": "compiler/cmd/ergo/lint_cmd.ergo",
+      "decl": "LintGatePasses",
+      "from": "\t\t\tif prec >= threshold {\n\t\t\t\treturn false\n\t\t\t}\n",
+      "to": "\t\t\tif prec > threshold {\n\t\t\t\treturn false\n\t\t\t}\n",
+      "rule": "ergo lint --gate P fails whenever a finding precision equals or exceeds P.",
+      "killers": ["compiler/cmd/ergo:LintCmdStrictAndGateAndRulesAndInvalidConfig"]
+    },
+    {
+      "name": "selfhost-cli-wire-fix-check-exits-zero",
+      "origin": "wf10 SELFHOST-CLI-WIRE",
+      "file": "compiler/cmd/ergo/fix_cmd.ergo",
+      "decl": "RunFix",
+      "from": "\tif opts.Check && (summary.Changed.Len() > 0 || summary.Linted.Len() > 0) {\n\t\treturn 1\n\t}\n",
+      "to": "\tif opts.Check && (summary.Changed.Len() > 0 || summary.Linted.Len() > 0) {\n\t\treturn 0\n\t}\n",
+      "rule": "ergo fix --check exits 1 when formatting or lint fixes are pending.",
+      "killers": ["compiler/cmd/ergo:FixCmdCheckAndWriteAndComments"]
+    },
+    {
+      "name": "selfhost-cli-wire-fix-check-writes-files",
+      "origin": "wf10 SELFHOST-CLI-WIRE",
+      "file": "compiler/cmd/ergo/fix_cmd.ergo",
+      "decl": "executeFix",
+      "from": "\tlet write = !opts.Check && !opts.DryRun\n",
+      "to": "\tlet write = !opts.DryRun\n",
+      "rule": "ergo fix --check never writes modified source files to disk.",
+      "killers": ["compiler/cmd/ergo:FixCmdCheckAndWriteAndComments"]
+    },
+    {
+      "name": "selfhost-cli-wire-mutants-list-skips-early-return",
+      "origin": "wf10 SELFHOST-CLI-WIRE",
+      "file": "compiler/cmd/ergo/mutants_cmd.ergo",
+      "decl": "RunMutantsExec",
+      "from": "\tif opts.List {\n\t\temitMutantsPlan(plan, opts.Json)\n\t\treturn 0\n\t}\n",
+      "to": "\tlet _ = opts.List\n",
+      "rule": "ergo mutants --list outputs the execution plan and returns 0 without running baseline/mutant commands.",
+      "killers": ["compiler/cmd/ergo:MutantsCmdListAndScriptedKillAndSurvive"]
+    },
+    {
+      "name": "selfhost-cli-wire-mutants-survival-exits-zero",
+      "origin": "wf10 SELFHOST-CLI-WIRE",
+      "file": "compiler/cmd/ergo/mutants_cmd.ergo",
+      "decl": "RunMutantsExec",
+      "from": "\tif summary.OK {\n\t\treturn 0\n\t}\n\t1\n",
+      "to": "\tlet _ = summary.OK\n\t0\n",
+      "rule": "ergo mutants exits 1 whenever any hand mutant survives.",
+      "killers": ["compiler/cmd/ergo:MutantsCmdListAndScriptedKillAndSurvive"]
+    },
+    {
+      "name": "selfhost-cli-wire-verify-drops-lint-strict",
+      "origin": "wf10 SELFHOST-CLI-WIRE",
+      "file": "compiler/cmd/ergo/verify_cmd.ergo",
+      "decl": "buildVerifyLintArgs",
+      "from": "\tlet mut args = []string{\"--strict\"}\n",
+      "to": "\tlet mut args = []string{}\n",
+      "rule": "ergo verify passes --strict to its lint pipeline stage.",
+      "killers": ["compiler/cmd/ergo:VerifyCmdPipelineJsonAndShortCircuitAndMutantsSubcommand"]
+    },
+    {
+      "name": "selfhost-cli-wire-verify-continues-past-failed-stage",
+      "origin": "wf10 SELFHOST-CLI-WIRE",
+      "file": "compiler/cmd/ergo/verify_cmd.ergo",
+      "decl": "runVerifyPipeline",
+      "from": "\t\tif code != 0 {\n\t\t\tfinalCode = code\n\t\t\tbreak\n\t\t}\n",
+      "to": "\t\tif code != 0 {\n\t\t\tfinalCode = code\n\t\t}\n",
+      "rule": "ergo verify short-circuits remaining stages after a failed stage.",
+      "killers": ["compiler/cmd/ergo:VerifyCmdPipelineJsonAndShortCircuitAndMutantsSubcommand"]
     }
   ]
 }

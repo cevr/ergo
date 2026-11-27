@@ -1,0 +1,860 @@
+import compiler/driver
+import compiler/mutants
+import compiler/report
+import compiler/syntax
+import compiler/testexec
+import exec
+import filepath
+import fs
+import fstest
+import io
+import json
+import option
+import strconv
+import strings
+
+// MutantsOptions captures parsed flags and targets for ergo mutants.
+type MutantsOptions {
+	Paths   []string,
+	Filter  string,
+	Skip    string,
+	List    bool,
+	Derived bool,
+	Strict  bool,
+	Fresh   bool,
+	Json    bool,
+	Jobs    int,
+	Seed    int,
+	States  int,
+	Help    bool,
+	HelpAll bool,
+}
+
+type mutantsFail {
+	Code    int,
+	Message string,
+}
+
+type loadedMutantPackage {
+	PkgRel         string,
+	PkgDir         string,
+	HasLedger      bool,
+	Ledger         mutants.LedgerData,
+	Derived        []mutants.DerivedMutant,
+	FilePaths      []string,
+	FileRels       []string,
+	FileSrcs       []string,
+	SourceTreeHash string,
+}
+
+// ParseMutantsOptions parses flags and validates filter regexes for ergo mutants.
+func ParseMutantsOptions(args []string) MutantsOptions fails FlagError {
+	let u = try ParseUnifiedOptions("mutants", args)
+	if u.Filter != "" {
+		let _ = testexec.CompileRegex("-k", u.Filter) catch {
+		case testexec.PatternError as pe:
+			return FlagError{Code: 2, Message: "ergo mutants: invalid -k pattern: " + pe.Reason}
+		}
+	}
+	if u.Skip != "" {
+		let _ = testexec.CompileRegex("--skip", u.Skip) catch {
+		case testexec.PatternError as pe:
+			return FlagError{Code: 2, Message: "ergo mutants: invalid --skip pattern: " + pe.Reason}
+		}
+	}
+	MutantsOptions{
+		Paths:   u.Paths,
+		Filter:  u.Filter,
+		Skip:    u.Skip,
+		List:    u.List,
+		Derived: u.Derived,
+		Strict:  u.Strict,
+		Fresh:   u.Fresh,
+		Json:    u.Json,
+		Jobs:    u.Jobs,
+		Seed:    u.Seed,
+		States:  u.States,
+		Help:    u.Help,
+		HelpAll: u.HelpAll,
+	}
+}
+
+// MutantScratchDir returns the deterministic isolated scratch directory for mutant idx under workDir.
+func MutantScratchDir(workDir string, idx int) string {
+	filepath.Join([]string{workDir, ".ergo-mutant-run", "m" + strconv.Itoa(idx)})
+}
+
+// MutantExecCommand builds the runner exec.Command used to judge one mutant against killer.
+func MutantExecCommand(scratchDir string, killer string) exec.Command {
+	let filterPat = extractKillerFilter(killer)
+	exec.New("ergo", []string{"test", "--fresh", "-k", filterPat, "."}).WithDir(scratchDir)
+}
+
+func extractKillerFilter(killer string) string {
+	if killer == "" {
+		return ".*"
+	}
+	let idx = strings.LastIndex(killer, ":")
+	if idx >= 0 && idx+1 < killer.Len() {
+		return "^" + killer[idx+1:killer.Len()] + "$"
+	}
+	killer
+}
+
+// RunMutants executes `ergo mutants` with an empty scripted runner context.
+func RunMutants(args []string, workDir string, environ []string) int needs fs.Files | fs.Writes | io.Stdout | io.Stderr {
+	with context { exec.Runner: exec.Script{Results: Map[string, exec.Result]{}} } {
+		RunMutantsExec(args, workDir, environ)
+	}
+}
+
+// RunMutantsExec executes `ergo mutants` via compiler/mutants using the active exec.Runner.
+func RunMutantsExec(args []string, workDir string, environ []string) int needs exec.Runner | fs.Files | fs.Writes | io.Stdout | io.Stderr {
+	let opts = ParseMutantsOptions(args) catch {
+	case FlagError as fe:
+		io.Stderr.Eprintln(fe.Message)
+		return fe.Code
+	}
+	if opts.Help || opts.HelpAll {
+		io.Stdout.Print(WorkspaceSubHelp("mutants", "mutants [PATH...] [--list] [--derived] [--strict] [--json] [-k PATTERN] [--skip PATTERN]", "Verify mutant ledgers and derived mutations against tests and laws."))
+		return 0
+	}
+	let effTargets = if opts.Paths.Len() == 0 {
+		[]string{driver.ResolveTargetDefault(workDir)}
+	} else {
+		opts.Paths
+	}
+	let store = driver.Discover(workDir, effTargets) catch {
+	case driver.DiscoverError as de:
+		emitMutantsError(opts.Json, de.Path+": "+de.Reason)
+		return 2
+	case driver.ParseError as pe:
+		emitMutantsError(opts.Json, driver.FormatParseError(pe))
+		return 1
+	case fs.NotFound as nf:
+		emitMutantsError(opts.Json, nf.Path+": not found")
+		return 2
+	case fs.Denied as dn:
+		emitMutantsError(opts.Json, dn.Path+": permission denied")
+		return 2
+	case fs.Failed as ff:
+		emitMutantsError(opts.Json, ff.Path+": "+ff.Reason)
+		return 2
+	}
+	let obStore = testexec.DiscoverFromDisk(store) catch {
+	case testexec.ParseFailure as pf:
+		emitMutantsError(opts.Json, pf.File+":"+strconv.Itoa(pf.Line)+":"+strconv.Itoa(pf.Column)+": "+pf.Code+": "+pf.Message)
+		return 1
+	case fs.NotFound as nf:
+		emitMutantsError(opts.Json, nf.Path+": not found")
+		return 2
+	case fs.Denied as dn:
+		emitMutantsError(opts.Json, dn.Path+": permission denied")
+		return 2
+	case fs.Failed as ff:
+		emitMutantsError(opts.Json, ff.Path+": "+ff.Reason)
+		return 2
+	}
+
+	let (pkgInputs, loadedPkgs, oblSpecs) = prepareMutantInputs(store, obStore, workDir, opts.Derived) catch {
+	case mutantsFail as mf:
+		emitMutantsError(opts.Json, mf.Message)
+		return mf.Code
+	}
+	let rawPlan = mutants.BuildExecutionPlan(pkgInputs, oblSpecs, false)
+	let plan = filterExecutionPlan(rawPlan, opts.Filter, opts.Skip) catch {
+	case testexec.PatternError as pe:
+		emitMutantsError(opts.Json, "invalid regex for "+pe.Flag+": "+pe.Reason)
+		return 2
+	}
+	if opts.List {
+		emitMutantsPlan(plan, opts.Json)
+		return 0
+	}
+
+	let checkRep = executeCheck(
+		CheckOptions{
+			Paths:     effTargets,
+			Strict:    false,
+			Json:      opts.Json,
+			Fresh:     opts.Fresh,
+			Jobs:      opts.Jobs,
+			Seed:      opts.Seed,
+			StdDir:    "",
+			EvalSteps: 0,
+			EvalBytes: 0,
+			Help:      false,
+			HelpAll:   false,
+		},
+		workDir,
+		environ,
+	) catch {
+	case driver.DiscoverError as de:
+		emitMutantsError(opts.Json, de.Path+": "+de.Reason)
+		return 2
+	case driver.ParseError as pe:
+		emitMutantsError(opts.Json, driver.FormatParseError(pe))
+		return 1
+	case driver.CycleError as ce:
+		emitMutantsError(opts.Json, driver.FormatCycle(ce))
+		return 1
+	case fs.NotFound as nf:
+		emitMutantsError(opts.Json, nf.Path+": not found")
+		return 2
+	case fs.Denied as dn:
+		emitMutantsError(opts.Json, dn.Path+": permission denied")
+		return 2
+	case fs.Failed as ff:
+		emitMutantsError(opts.Json, ff.Path+": "+ff.Reason)
+		return 2
+	}
+	if !checkRep.Checked {
+		if opts.Json {
+			emitCheckReport(checkRep, true)
+		} else {
+			for d in checkRep.Diagnostics {
+				io.Stderr.Eprintln(d.File + ":" + strconv.Itoa(d.Line) + ":" + strconv.Itoa(d.Column) + ": " + d.Code + ": " + d.Message)
+			}
+		}
+		return 1
+	}
+
+	let evals = executeMutantPlan(plan, loadedPkgs, workDir, environ) catch {
+	case mutantsFail as mf:
+		emitMutantsError(opts.Json, mf.Message)
+		return mf.Code
+	}
+	let summary = mutants.AggregateReport(evals, opts.Strict)
+	if opts.Json {
+		io.Stdout.Println(mutants.FormatReportJSON(summary))
+	} else {
+		io.Stdout.Print(mutants.FormatReportText(summary))
+	}
+	if summary.OK {
+		return 0
+	}
+	1
+}
+
+func prepareMutantInputs(
+	store driver.PkgStore,
+	obStore testexec.ObligationStore,
+	workDir string,
+	includeDerived bool,
+) ([]mutants.PackageInput, []loadedMutantPackage, []mutants.ObligationSpec) fails mutantsFail needs fs.Files {
+	let mut pkgInputs = []mutants.PackageInput{}
+	let mut loadedPkgs = []loadedMutantPackage{}
+	let mut oblSpecs = []mutants.ObligationSpec{}
+	let emptyLedger = mutants.LedgerData{About: "", Env: []string{}, Commands: []mutants.NamedCommand{}, Rows: []mutants.MutantRow{}}
+
+	for pidx in 0..int(store.PkgCount) {
+		let uid = uint32(pidx)
+		let pkgDir = driver.PackageDir(store, uid)
+		let pkgRel = mutantsPkgRel(store.Root, workDir, pkgDir)
+		let filePaths = driver.PackageFiles(store, uid)
+		let mut fileRels = []string{}
+		let mut fileSrcs = []string{}
+		let mut srcFiles = []mutants.SourceFile{}
+		let mut revParts = []string{}
+
+		for fp in filePaths {
+			let src = fs.Files.ReadFile(fp) catch {
+			case fs.NotFound:
+				return mutantsFail{Code: 2, Message: fp + ": not found"}
+			case fs.Denied:
+				return mutantsFail{Code: 2, Message: fp + ": permission denied"}
+			case fs.Failed as ff:
+				return mutantsFail{Code: 2, Message: fp + ": " + ff.Reason}
+			}
+			let rel = mutantsFileRel(store.Root, workDir, fp)
+			fileRels = fileRels.Append(rel)
+			fileSrcs = fileSrcs.Append(src)
+			srcFiles = srcFiles.Append(mutants.SourceFile{Path: rel, Src: src})
+			revParts = revParts.Append(rel + ":" + report.Revision(src))
+		}
+
+		for oid in testexec.PackageObligationIDs(obStore, uid) {
+			let kind = if testexec.IsLawAt(obStore, oid) { mutants.OblKindLaw } else { mutants.OblKindTest }
+			let title = testexec.TitleAt(obStore, oid)
+			oblSpecs = oblSpecs.Append(mutants.ObligationSpec{
+				Pkg:     pkgRel,
+				Name:    title,
+				Kind:    kind,
+				Covered: []mutants.CoveredLineRange{},
+			})
+		}
+
+		let ledgerPath = filepath.Join([]string{pkgDir, "testdata", "mutants.json"})
+		let mut hasLedger = false
+		let mut ledger = emptyLedger
+		if mutantRegularFile(ledgerPath) {
+			let lTxt = fs.Files.ReadFile(ledgerPath) catch {
+			case fs.NotFound:
+				""
+			case fs.Denied:
+				return mutantsFail{Code: 2, Message: ledgerPath + ": permission denied"}
+			case fs.Failed as ff:
+				return mutantsFail{Code: 2, Message: ledgerPath + ": " + ff.Reason}
+			}
+			if lTxt != "" {
+				ledger = mutants.ParseLedger(lTxt) catch {
+				case mutants.MalformedJSON as mj:
+					return mutantsFail{Code: 2, Message: ledgerPath + ": " + mj.Reason}
+				case mutants.UnknownField as uf:
+					return mutantsFail{Code: 2, Message: ledgerPath + ": unknown field " + uf.Field}
+				case mutants.WrongFieldType as wt:
+					return mutantsFail{Code: 2, Message: ledgerPath + ": wrong type for " + wt.Path + ": want " + wt.Want}
+				case mutants.DuplicateRow as dr:
+					return mutantsFail{Code: 2, Message: ledgerPath + ": duplicate row " + dr.Name}
+				case mutants.InvalidField as iv:
+					return mutantsFail{Code: 2, Message: ledgerPath + ": " + iv.Field + ": " + iv.Reason}
+				}
+				hasLedger = true
+			}
+		}
+
+		let derived = if includeDerived && srcFiles.Len() > 0 {
+			mutants.DeriveFiles(srcFiles, mutants.EmptyCheckInputs())
+		} else {
+			[]mutants.DerivedMutant{}
+		}
+		let treeHash = report.Revision(strings.Join(revParts, "\n"))
+		pkgInputs = pkgInputs.Append(mutants.PackageInput{
+			Pkg:            pkgRel,
+			SourceTreeHash: treeHash,
+			RunnerDigest:   "ergo-selfhost",
+			HasLedger:      hasLedger,
+			Ledger:         ledger,
+			Derived:        derived,
+		})
+		loadedPkgs = loadedPkgs.Append(loadedMutantPackage{
+			PkgRel:         pkgRel,
+			PkgDir:         pkgDir,
+			HasLedger:      hasLedger,
+			Ledger:         ledger,
+			Derived:        derived,
+			FilePaths:      filePaths,
+			FileRels:       fileRels,
+			FileSrcs:       fileSrcs,
+			SourceTreeHash: treeHash,
+		})
+	}
+	(pkgInputs, loadedPkgs, oblSpecs)
+}
+
+func filterExecutionPlan(plan mutants.ExecutionPlan, filter string, skip string) mutants.ExecutionPlan fails testexec.PatternError {
+	if filter == "" && skip == "" {
+		return plan
+	}
+	let useFilter = filter != ""
+	let useSkip = skip != ""
+	let filterProg = if useFilter { try testexec.CompileRegex("-k", filter) } else { try testexec.CompileRegex("-k", "") }
+	let skipProg = if useSkip { try testexec.CompileRegex("--skip", skip) } else { try testexec.CompileRegex("--skip", "") }
+
+	let mut groups = []mutants.PkgWorkGroup{}
+	let mut total = 0
+	for g in plan.Groups {
+		let mut items = []mutants.WorkItem{}
+		for it in g.Items {
+			let hay = it.Pkg + ":" + it.ID + " " + it.File + " " + it.Decl + " " + it.Rule
+			if useFilter && !testexec.MatchRegex(filterProg, hay) {
+				continue
+			}
+			if useSkip && testexec.MatchRegex(skipProg, hay) {
+				continue
+			}
+			items = items.Append(it)
+			total = total + 1
+		}
+		if items.Len() > 0 {
+			groups = groups.Append(mutants.PkgWorkGroup{Pkg: g.Pkg, Items: items})
+		}
+	}
+	mutants.ExecutionPlan{
+		TotalMutants: total,
+		SkippedGap:   plan.SkippedGap,
+		Groups:       groups,
+	}
+}
+
+func executeMutantPlan(
+	plan mutants.ExecutionPlan,
+	loadedPkgs []loadedMutantPackage,
+	workDir string,
+	environ []string,
+) []mutants.MutantEvaluation fails mutantsFail needs exec.Runner | fs.Files | fs.Writes {
+	let _ = environ
+	let mut pkgByRel = Map[string, int]{}
+	for i, lp in loadedPkgs {
+		pkgByRel = pkgByRel.Put(lp.PkgRel, i)
+	}
+	let mut evals = []mutants.MutantEvaluation{}
+	let mut seqIdx = 0
+
+	for grp in plan.Groups {
+		let lpOpt = pkgByRel.Get(grp.Pkg)
+		let lpIdx = match lpOpt {
+		case option.Some{Value: idx}:
+			idx
+		case option.None:
+			continue
+		}
+		let lp = loadedPkgs[lpIdx]
+		let mut handRows = Map[string, mutants.MutantRow]{}
+		if lp.HasLedger {
+			for r in lp.Ledger.Rows {
+				handRows = handRows.Put(r.Name, r)
+			}
+		}
+		let mut derivedRows = Map[string, mutants.DerivedMutant]{}
+		for d in lp.Derived {
+			derivedRows = derivedRows.Put(d.ID, d)
+		}
+
+		for item in grp.Items {
+			let mut evalOpt option.Option[mutants.MutantEvaluation] = option.None
+			if item.Origin == mutants.OriginHand {
+				match handRows.Get(item.ID) {
+				case option.Some{Value: row}:
+					let ev = try evaluateOneMutation(
+						seqIdx,
+						item,
+						"hand",
+						row.File,
+						row.Decl,
+						row.From,
+						row.To,
+						row.Gap,
+						row.Refused,
+						lp,
+						workDir,
+					)
+					evalOpt = option.Some[mutants.MutantEvaluation]{Value: ev}
+				case option.None:
+				}
+			} else {
+				match derivedRows.Get(item.ID) {
+				case option.Some{Value: dm}:
+					let ev = try evaluateOneMutation(
+						seqIdx,
+						item,
+						"derived",
+						dm.File,
+						dm.Decl,
+						dm.From,
+						dm.To,
+						"",
+						false,
+						lp,
+						workDir,
+					)
+					evalOpt = option.Some[mutants.MutantEvaluation]{Value: ev}
+				case option.None:
+				}
+			}
+			match evalOpt {
+			case option.Some{Value: ev}:
+				evals = evals.Append(ev)
+			case option.None:
+			}
+			seqIdx = seqIdx + 1
+		}
+	}
+	evals
+}
+
+func evaluateOneMutation(
+	seqIdx int,
+	item mutants.WorkItem,
+	origin string,
+	relFile string,
+	decl string,
+	from string,
+	to string,
+	gap string,
+	refused bool,
+	lp loadedMutantPackage,
+	workDir string,
+) mutants.MutantEvaluation fails mutantsFail needs exec.Runner | fs.Files | fs.Writes {
+	let fileIdxOpt = findMutantFileIndex(lp.FileRels, relFile)
+	let fileIdx = match fileIdxOpt {
+	case option.Some{Value: idx}:
+		idx
+	case option.None:
+		return mutants.MutantEvaluation{
+			Name:          item.ID,
+			Origin:        origin,
+			File:          relFile,
+			Decl:          decl,
+			Op:            item.Op,
+			Rule:          item.Rule,
+			Gap:           gap,
+			NamedKillers:  item.Killers,
+			Cached:        false,
+			InvalidReason: "target file not in package: " + relFile,
+			SkippedReason: "",
+			Attempts:      []mutants.AttemptOutcome{},
+		}
+	}
+	let origSrc = lp.FileSrcs[fileIdx]
+	let mutatedSrc = mutants.Apply(relFile, origSrc, decl, from, to) catch {
+	case mutants.NotFound as nf:
+		return invalidMutantEval(item, origin, relFile, decl, gap, "anchor not found: "+nf.Target)
+	case mutants.Ambiguous as ab:
+		return invalidMutantEval(item, origin, relFile, decl, gap, "ambiguous anchor ("+strconv.Itoa(ab.Count)+")")
+	case mutants.MissingDecl as md:
+		return invalidMutantEval(item, origin, relFile, decl, gap, "missing declaration: "+md.Decl)
+	case mutants.MultipleDecls as mc:
+		return invalidMutantEval(item, origin, relFile, decl, gap, "multiple declarations: "+mc.Decl)
+	case mutants.OutsideDecl as od:
+		return invalidMutantEval(item, origin, relFile, decl, gap, "match outside declaration: "+od.Decl)
+	case mutants.MalformedEdit as me:
+		return invalidMutantEval(item, origin, relFile, decl, gap, "malformed edit: "+me.Reason)
+	}
+	let parsed = syntax.Parse(mutatedSrc)
+	if parsed.Failed {
+		if refused {
+			return mutants.MutantEvaluation{
+				Name:          item.ID,
+				Origin:        origin,
+				File:          relFile,
+				Decl:          decl,
+				Op:            item.Op,
+				Rule:          item.Rule,
+				Gap:           gap,
+				NamedKillers:  item.Killers,
+				Cached:        false,
+				InvalidReason: "",
+				SkippedReason: "refused",
+				Attempts:      []mutants.AttemptOutcome{},
+			}
+		}
+		return invalidMutantEval(item, origin, relFile, decl, gap, "syntax error after mutation: "+parsed.Message)
+	}
+	if refused {
+		return mutants.MutantEvaluation{
+			Name:          item.ID,
+			Origin:        origin,
+			File:          relFile,
+			Decl:          decl,
+			Op:            item.Op,
+			Rule:          item.Rule,
+			Gap:           gap,
+			NamedKillers:  item.Killers,
+			Cached:        false,
+			InvalidReason: "",
+			SkippedReason: "refused",
+			Attempts:      []mutants.AttemptOutcome{},
+		}
+	}
+
+	let scratchDir = MutantScratchDir(workDir, seqIdx)
+	try stageMutantScratch(scratchDir, lp, fileIdx, mutatedSrc)
+
+	let killersToRun = if item.Killers.Len() > 0 {
+		item.Killers
+	} else {
+		[]string{lp.PkgRel + ":*"}
+	}
+	let mut attempts = []mutants.AttemptOutcome{}
+	for killer in killersToRun {
+		let cmd = MutantExecCommand(scratchDir, killer)
+		let runRes = exec.Runner.Run(cmd) catch {
+		case exec.NotFound:
+			cleanupMutantScratch(scratchDir)
+			return mutantsFail{Code: 2, Message: "ergo runner not found on PATH"}
+		case exec.Denied as dn:
+			cleanupMutantScratch(scratchDir)
+			return mutantsFail{Code: 2, Message: dn.Name + ": execution denied"}
+		case exec.Failed as ff:
+			cleanupMutantScratch(scratchDir)
+			return mutantsFail{Code: 2, Message: ff.Name + ": " + ff.Reason}
+		}
+		let killed = runRes.Status != 0
+		attempts = attempts.Append(mutants.AttemptOutcome{
+			Killer:     killer,
+			Failed:     killed,
+			TimedOut:   false,
+			Skipped:    false,
+			DurationMs: int64(0),
+		})
+	}
+	cleanupMutantScratch(scratchDir)
+
+	mutants.MutantEvaluation{
+		Name:          item.ID,
+		Origin:        origin,
+		File:          relFile,
+		Decl:          decl,
+		Op:            item.Op,
+		Rule:          item.Rule,
+		Gap:           gap,
+		NamedKillers:  item.Killers,
+		Cached:        false,
+		InvalidReason: "",
+		SkippedReason: "",
+		Attempts:      attempts,
+	}
+}
+
+func invalidMutantEval(item mutants.WorkItem, origin string, relFile string, decl string, gap string, reason string) mutants.MutantEvaluation {
+	mutants.MutantEvaluation{
+		Name:          item.ID,
+		Origin:        origin,
+		File:          relFile,
+		Decl:          decl,
+		Op:            item.Op,
+		Rule:          item.Rule,
+		Gap:           gap,
+		NamedKillers:  item.Killers,
+		Cached:        false,
+		InvalidReason: reason,
+		SkippedReason: "",
+		Attempts:      []mutants.AttemptOutcome{},
+	}
+}
+
+func stageMutantScratch(scratchDir string, lp loadedMutantPackage, mutatedIdx int, mutatedSrc string) fails mutantsFail needs fs.Writes {
+	fs.Writes.MkdirAll(scratchDir) catch {
+	case fs.Denied, fs.Failed:
+		return mutantsFail{Code: 2, Message: scratchDir + ": cannot create scratch directory"}
+	}
+	for i, fp in lp.FilePaths {
+		let dst = filepath.Join([]string{scratchDir, filepath.Base(fp)})
+		let txt = if i == mutatedIdx { mutatedSrc } else { lp.FileSrcs[i] }
+		fs.Writes.WriteFile(dst, txt) catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+			return mutantsFail{Code: 2, Message: dst + ": cannot write mutant source"}
+		}
+	}
+}
+
+func cleanupMutantScratch(scratchDir string) needs fs.Files | fs.Writes {
+	fs.RemoveAll(scratchDir) catch {
+	case fs.Denied, fs.Failed:
+	}
+}
+
+func toSlashPath(p string) string {
+	strings.ReplaceAll(p, "\\", "/")
+}
+
+func findMutantFileIndex(fileRels []string, target string) option.Option[int] {
+	let cleanTarget = toSlashPath(target)
+	for i, r in fileRels {
+		let slashR = toSlashPath(r)
+		if slashR == cleanTarget || strings.HasSuffix("/"+slashR, "/"+cleanTarget) || strings.HasSuffix("/"+cleanTarget, "/"+slashR) {
+			return option.Some[int]{Value: i}
+		}
+	}
+	option.None
+}
+
+func mutantsPkgRel(root string, workDir string, pkgDir string) string {
+	let base = if root != "" { root } else { workDir }
+	let cleanBase = filepath.Clean(base)
+	let cleanPkg = filepath.Clean(pkgDir)
+	if cleanBase == cleanPkg {
+		return "."
+	}
+	let prefix = if strings.HasSuffix(cleanBase, "/") { cleanBase } else { cleanBase + "/" }
+	if strings.HasPrefix(cleanPkg, prefix) {
+		return toSlashPath(cleanPkg[prefix.Len():cleanPkg.Len()])
+	}
+	toSlashPath(displayCheckPath(workDir, cleanPkg))
+}
+
+func mutantsFileRel(root string, workDir string, fp string) string {
+	let base = if root != "" { root } else { workDir }
+	let cleanBase = filepath.Clean(base)
+	let cleanFP = filepath.Clean(fp)
+	let prefix = if strings.HasSuffix(cleanBase, "/") { cleanBase } else { cleanBase + "/" }
+	if strings.HasPrefix(cleanFP, prefix) {
+		return toSlashPath(cleanFP[prefix.Len():cleanFP.Len()])
+	}
+	toSlashPath(displayCheckPath(workDir, cleanFP))
+}
+
+func mutantRegularFile(path string) bool needs fs.Files {
+	let info = fs.Files.Stat(path) catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		return false
+	}
+	!info.Dir && info.Name != ""
+}
+
+func emitMutantsError(asJSON bool, msg string) needs io.Stdout | io.Stderr {
+	if asJSON {
+		let t = json.NewText()
+		t.BeginObject(2)
+		t.Key("ok")
+		t.Bool(false)
+		t.Key("error")
+		t.String(msg)
+		t.EndObject()
+		io.Stdout.Println(t.Written())
+	} else {
+		io.Stderr.Eprintln("ergo mutants: " + msg)
+	}
+}
+
+func emitMutantsPlan(plan mutants.ExecutionPlan, asJSON bool) needs io.Stdout {
+	if asJSON {
+		let t = json.NewText()
+		t.BeginObject(3)
+		t.Key("totalMutants")
+		t.Int(int64(plan.TotalMutants))
+		t.Key("skippedGap")
+		t.Int(int64(plan.SkippedGap))
+		t.Key("groups")
+		t.BeginList(plan.Groups.Len())
+		for g in plan.Groups {
+			t.BeginObject(2)
+			t.Key("pkg")
+			t.String(g.Pkg)
+			t.Key("items")
+			t.BeginList(g.Items.Len())
+			for it in g.Items {
+				t.BeginObject(7)
+				t.Key("id")
+				t.String(it.ID)
+				t.Key("origin")
+				t.String(if it.Origin == mutants.OriginDerived { "derived" } else { "hand" })
+				t.Key("file")
+				t.String(it.File)
+				t.Key("decl")
+				t.String(it.Decl)
+				t.Key("rule")
+				t.String(it.Rule)
+				t.Key("op")
+				t.String(it.Op)
+				t.Key("killers")
+				t.BeginList(it.Killers.Len())
+				for k in it.Killers {
+					t.String(k)
+				}
+				t.EndList()
+				t.EndObject()
+			}
+			t.EndList()
+			t.EndObject()
+		}
+		t.EndList()
+		t.EndObject()
+		io.Stdout.Println(t.Written())
+		return
+	}
+	if plan.TotalMutants == 0 {
+		io.Stdout.Println("mutants: 0 scheduled")
+		return
+	}
+	for g in plan.Groups {
+		for it in g.Items {
+			let kind = if it.Origin == mutants.OriginDerived { "derived" } else { "hand" }
+			let ks = if it.Killers.Len() > 0 { strings.Join(it.Killers, ",") } else { "(none)" }
+			io.Stdout.Println(g.Pkg + ": " + it.ID + " [" + kind + "] " + it.File + " (" + it.Decl + ") -> " + ks)
+		}
+	}
+}
+
+// MutantScratchDirIsIsolated: scratch paths for distinct mutant indices never collide.
+law MutantScratchDirIsIsolated(idxA uint32, idxB uint32) {
+	let a = idxA % uint32(64)
+	let b = idxB % uint32(64)
+	if a == b {
+		MutantScratchDir("/ws", int(a)) == MutantScratchDir("/ws", int(b))
+	} else {
+		MutantScratchDir("/ws", int(a)) != MutantScratchDir("/ws", int(b))
+	}
+}
+
+test MutantsCmdListAndScriptedKillAndSurvive {
+	let mem = fstest.NewMemory()
+	mem.MkdirAll("/ws/pkg/testdata") catch {
+	case fs.Denied, fs.Failed:
+		assert false
+	}
+	mem.WriteFile("/ws/ergo.mod", "module sample\n") catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		assert false
+	}
+	mem.WriteFile("/ws/pkg/calc.ergo", "func Positive(n int) bool {\n\tn > 0\n}\n\ntest CheckPositive {\n\tassert Positive(1)\n\tassert !Positive(0)\n}\n") catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		assert false
+	}
+	let ledgerJSON = `{"about":"calc","mutants":[{"name":"flip-gt","file":"pkg/calc.ergo","decl":"Positive","from":"n > 0","to":"n >= 0","rule":"must stay strict","killers":["pkg:CheckPositive"]}]}`
+	mem.WriteFile("/ws/pkg/testdata/mutants.json", ledgerJSON) catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		assert false
+	}
+
+	let recList = io.NewRecorder()
+	let codeList = with context {
+		fs.Files:  mem,
+		fs.Writes: mem,
+		io.Stdout: recList,
+		io.Stderr: recList,
+	} {
+		RunMutants([]string{"--list", "--json", "./pkg"}, "/ws", []string{})
+	}
+	assert codeList == 0
+	assert strings.Contains(recList.Text(), `"totalMutants":1`)
+	assert strings.Contains(recList.Text(), `"id":"flip-gt"`)
+
+	let scratch = MutantScratchDir("/ws", 0)
+	let cmd = MutantExecCommand(scratch, "pkg:CheckPositive")
+	let mut killMap = Map[string, exec.Result]{}
+	killMap = killMap.Put(exec.Key(cmd), exec.Result{Status: 1, Stdout: "FAIL CheckPositive\n", Stderr: ""})
+	let recKill = io.NewRecorder()
+	let codeKill = with context {
+		exec.Runner: exec.Script{Results: killMap},
+		fs.Files:    mem,
+		fs.Writes:   mem,
+		io.Stdout:   recKill,
+		io.Stderr:   recKill,
+	} {
+		RunMutantsExec([]string{"--json", "./pkg"}, "/ws", []string{})
+	}
+	assert codeKill == 0
+	assert strings.Contains(recKill.Text(), `"killed":1`)
+	assert strings.Contains(recKill.Text(), `"ok":true`)
+
+	let mut survMap = Map[string, exec.Result]{}
+	survMap = survMap.Put(exec.Key(cmd), exec.Result{Status: 0, Stdout: "PASS CheckPositive\n", Stderr: ""})
+	let recSurv = io.NewRecorder()
+	let codeSurv = with context {
+		exec.Runner: exec.Script{Results: survMap},
+		fs.Files:    mem,
+		fs.Writes:   mem,
+		io.Stdout:   recSurv,
+		io.Stderr:   recSurv,
+	} {
+		RunMutantsExec([]string{"--json", "./pkg"}, "/ws", []string{})
+	}
+	assert codeSurv == 1
+	assert strings.Contains(recSurv.Text(), `"survived":1`)
+	assert strings.Contains(recSurv.Text(), `"ok":false`)
+
+	let recBadReg = io.NewRecorder()
+	let codeBadReg = with context {
+		fs.Files:  mem,
+		fs.Writes: mem,
+		io.Stdout: recBadReg,
+		io.Stderr: recBadReg,
+	} {
+		RunMutants([]string{"-k", "[unclosed", "./pkg"}, "/ws", []string{})
+	}
+	assert codeBadReg == 2
+
+	let recDerived = io.NewRecorder()
+	let codeDerived = with context {
+		fs.Files:  mem,
+		fs.Writes: mem,
+		io.Stdout: recDerived,
+		io.Stderr: recDerived,
+	} {
+		RunMutants([]string{"--derived", "--list", "--json", "./pkg"}, "/ws", []string{})
+	}
+	assert codeDerived == 0
+	assert strings.Contains(recDerived.Text(), `"origin":"derived"`)
+}
