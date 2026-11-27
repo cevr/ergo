@@ -2753,6 +2753,70 @@
       "killers": ["internal/selfhostcheck:TestIRS4R2Cutover"]
     },
     {
+      "name": "lower-s4r3-library-union-pass",
+      "origin": "wf10/selfhost/S4-LOWER-CUTOVER-R3",
+      "file": "compiler/lower/cache.ergo",
+      "decl": "buildUnionLayoutCache",
+      "from": "\t\tif st.alias != \"\" && st.programRoot == \"\" {",
+      "to": "\t\tif st.alias != \"\" {",
+      "rule": "A library lowered with its program (PackageInProgram) runs the program's union pass, so its unions take the flat form (producer.Area, producer.MakeSquare, semver.isX).",
+      "regenerate": {"dir": ".", "argv": ["go", "run", "./scripts/linked"]},
+      "killers": ["internal/selfhostcheck:TestIRS4R3Cutover"]
+    },
+    {
+      "name": "lower-s4r3-std-program",
+      "origin": "wf10/selfhost/S4-LOWER-CUTOVER-R3",
+      "file": "compiler/cmd/irdump/imports.ergo",
+      "decl": "programOf",
+      "from": "\t\treturn Program{Imports: option.Some[[]expr.Dep]{Value: deps}, Root: StdProgram}",
+      "to": "\t\treturn Program{Imports: option.None, Root: \"\"}",
+      "rule": "irdump lowers a std package with the rest of std, the Go builder's std program (semver.isX, semver.num, decimal.bumps).",
+      "killers": ["internal/selfhostcheck:TestIRS4R3Cutover"]
+    },
+    {
+      "name": "lower-s4r3-library-root",
+      "origin": "wf10/selfhost/S4-LOWER-CUTOVER-R3",
+      "file": "compiler/cmd/irdump/imports.ergo",
+      "decl": "programOf",
+      "from": "\t\t\tif slices.Contains(ats.Value, at) && (best < 0 || c.key < closures[best].key) {",
+      "to": "\t\t\tif false && slices.Contains(ats.Value, at) && (best < 0 || c.key < closures[best].key) {",
+      "rule": "irdump lowers a library with the first root whose closure holds it (producer under reader: Area, MakeSquare, Scale).",
+      "killers": ["internal/selfhostcheck:TestIRS4R3Cutover"]
+    },
+    {
+      "name": "lower-s4r3-counted-range",
+      "origin": "wf10/selfhost/S4-LOWER-CUTOVER-R3",
+      "file": "compiler/lower/loops.ergo",
+      "decl": "countedRange",
+      "from": "\toption.Some[syntax.BinaryExpr]{Value: b}\n}",
+      "to": "\toption.None\n}",
+      "rule": "A 0..end range of int with a computed end lowers to Go's counted form: a Range temp and a count loop (PortS4r3Tri, PortS4r3Steps).",
+      "regenerate": {"dir": ".", "argv": ["go", "run", "./scripts/linked"]},
+      "killers": ["internal/selfhostcheck:TestIRS4R3Cutover"]
+    },
+    {
+      "name": "lower-s4r3-counted-nonzero-start",
+      "origin": "wf10/selfhost/S4-LOWER-CUTOVER-R3",
+      "file": "compiler/lower/loops.ergo",
+      "decl": "zeroStart",
+      "from": "\tif !isConst(st, start) {\n\t\treturn false\n\t}",
+      "to": "\tif !isConst(st, start) {\n\t\treturn true\n\t}",
+      "rule": "A range whose start is not a constant zero takes Go's counted form even when its end is a name (PortS4r3Span).",
+      "regenerate": {"dir": ".", "argv": ["go", "run", "./scripts/linked"]},
+      "killers": ["internal/selfhostcheck:TestIRS4R3Cutover"]
+    },
+    {
+      "name": "lower-s4r3-counted-range-fields",
+      "origin": "wf10/selfhost/S4-LOWER-CUTOVER-R3",
+      "file": "compiler/lower/control.ergo",
+      "decl": "controlEmitSpan",
+      "from": "ir.List(b, []uint32{ir.Text(b, \"Start\"), ir.Text(b, \"End\")})",
+      "to": "uint32(0)",
+      "rule": "The counted form's Range literal is keyed Start and End, as Go's countLoop writes it (PortS4r3Tri).",
+      "regenerate": {"dir": ".", "argv": ["go", "run", "./scripts/linked"]},
+      "killers": ["internal/selfhostcheck:TestIRS4R3Cutover"]
+    },
+    {
       "name": "lower-s4r2-generic-unit-result",
       "origin": "wf10/selfhost/S4-LOWER-CUTOVER-R2",
       "file": "compiler/lower/lower.ergo",

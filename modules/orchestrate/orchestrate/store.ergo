@@ -19,7 +19,7 @@ func EventList(stored []StoredEvent) []Event {
 // Execute must run Decide over the command's Scope, append events, and update all projections atomically in one transaction.
 type Store {
 	// Execute validates and persists one Envelope atomically with all projections.
-	Execute(env Envelope) ExecuteResult fails NotFound | AlreadyExists | InvalidTransition | CommandReused | InvalidInput | Unverified | NotAcceptedHead | StoreFailed,
+	Execute(env Envelope) ExecuteResult fails NotFound | AlreadyExists | InvalidTransition | CommandReused | InvalidInput | Unverified | NotAcceptedHead | LaneHeld | NotOwner | LandingBusy | StaleHead | NoLease | StoreFailed,
 
 	// Snapshot returns the complete projected State read from projection storage.
 	Snapshot() State fails StoreFailed,
@@ -200,13 +200,13 @@ type Store {
 		let qkey = "sq-q-\(tag)"
 		let cmds = []Envelope{
 			Envelope{ID: CommandID("sq1-\(tag)"), Actor: "root", At: "2026-11-24T09:00:00Z", Command: OpenUnit{Key: key, Title: "Unit", Requires: []string{"test"}, Lane: option.Some[string]{Value: "/l"}, Branch: option.Some[string]{Value: "b"}}},
-			Envelope{ID: CommandID("sq2-\(tag)"), Actor: "w1", At: "2026-11-24T09:01:00Z", Command: RecordReceipt{Unit: key, Kind: "test", Command: "ergo test", Head: "abc", ExitCode: 0, ExitLines: "ok"}},
-			Envelope{ID: CommandID("sq3-\(tag)"), Actor: "w1", At: "2026-11-24T09:02:00Z", Command: AcceptUnit{Unit: key, Head: "abc"}},
+			Envelope{ID: CommandID("sq2-\(tag)"), Actor: "root", At: "2026-11-24T09:01:00Z", Command: RecordReceipt{Unit: key, Kind: "test", Command: "ergo test", Head: "abc", ExitCode: 0, ExitLines: "ok"}},
+			Envelope{ID: CommandID("sq3-\(tag)"), Actor: "root", At: "2026-11-24T09:02:00Z", Command: AcceptUnit{Unit: key, Head: "abc"}},
 			Envelope{ID: CommandID("sq4-\(tag)"), Actor: "root", At: "2026-11-24T09:03:00Z", Command: AddCommitment{ID: cid, Title: "Commit", Kind: "plan-part"}},
 			Envelope{ID: CommandID("sq5-\(tag)"), Actor: "root", At: "2026-11-24T09:04:00Z", Command: AssignCommitment{ID: cid, Owner: "w1", Lane: "l1"}},
 			Envelope{ID: CommandID("sq6-\(tag)"), Actor: "root", At: "2026-11-24T09:05:00Z", Command: UpsertQueueItem{Key: qkey, Priority: 2, Title: "Q", Body: "B", Status: "open", Tags: []string{"t"}}},
 			Envelope{ID: CommandID("sq7-\(tag)"), Actor: "w1", At: "2026-11-24T09:06:00Z", Command: AskQuestion{ID: option.None, Prompt: "P?", Assumption: "A", ConcreteAction: "Do X"}},
-			Envelope{ID: CommandID("sq8-\(tag)"), Actor: "root", At: "2026-11-24T09:07:00Z", Command: SetRunHead{Repo: "repo", Run: "store", Head: "head-99"}},
+			Envelope{ID: CommandID("sq8-\(tag)"), Actor: "root", At: "2026-11-24T09:07:00Z", Command: BeginLanding{Repo: "repo", Run: "store", ExpectedHead: "head-99", LifetimeSeconds: 600}},
 			Envelope{ID: CommandID("sq9-\(tag)"), Actor: "owner", At: "2026-11-24T09:08:00Z", Command: RecordDecision{Repo: "repo", Run: "store", ID: "sq-d-\(tag)", Category: "ruling", Scope: "run", UnitID: option.Some[string]{Value: key.ID}, Title: "Rule", Body: "Body", Status: DecisionOpen, Supersedes: option.None, CreatedAt: option.None}},
 			Envelope{ID: CommandID("sq10-\(tag)"), Actor: "root", At: "2026-11-24T09:09:00Z", Command: RecordLanding{Repo: "repo", Run: "store", LandingNumber: 1, GroupID: "grp-1", Head: "head-99", Tips: []string{key.ID}, Summary: "Landed", LogPath: option.None, LandedAt: option.None}},
 			Envelope{ID: CommandID("sq11-\(tag)"), Actor: "w1", At: "2026-11-24T09:10:00Z", Command: RecordLedgerEvent{Repo: "repo", Run: "store", Kind: "hand-back", UnitID: option.Some[string]{Value: key.ID}, Summary: "Done", SourceKey: option.Some[string]{Value: "sk-\(tag)"}, CreatedAt: option.None}},

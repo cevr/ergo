@@ -44,6 +44,54 @@ func compactBound(st fnb, r syntax.RangeStmt) dense.ID[syntax.Node] fails Unport
 	end
 }
 
+func countedRange(st fnb, r syntax.RangeStmt) option.Option[syntax.BinaryExpr] fails Unported {
+	let p = st.p
+	if dense.Unpack(r.Key) != option.None || syntax.KindOf(p.Tree, r.Value) != syntax.KIdent || nameText(p, r.Value) == "_" {
+		return option.None
+	}
+	let b = match syntax.ViewOf(p.Tree, unparen(st, r.X)) {
+	case syntax.BinaryExpr as bx:
+		bx
+	case _:
+		return option.None
+	}
+	if syntax.TokKind(p, b.Op) != syntax.DotDot || basicGo(st, try typeOf(st, b.X, "range start")) != "int" || basicGo(st, try typeOf(st, b.Y, "range end")) != "int" {
+		return option.None
+	}
+	let start = unparen(st, b.X)
+	let end = unparen(st, b.Y)
+	if !directExpr(st, start) || !directExpr(st, end) {
+		return option.None
+	}
+	if try zeroStart(st, start) && (isConst(st, end) || syntax.KindOf(p.Tree, end) == syntax.KIdent) {
+		return option.None
+	}
+	option.Some[syntax.BinaryExpr]{Value: b}
+}
+
+func zeroStart(st fnb, start dense.ID[syntax.Node]) bool fails Unported {
+	if !isConst(st, start) {
+		return false
+	}
+	match try fold(st, start) {
+	case CInt as integer:
+		integer.I == 0
+	case _:
+		false
+	}
+}
+
+func controlSpanWrites(p controlPlan, span controlSpan) bool {
+	for i in span.lo..span.hi {
+		match p.stmts[i].op {
+		case CPlaceWrite, CAppendSet, CSeedSliceDef:
+			return true
+		case _:
+		}
+	}
+	false
+}
+
 type collectionRange {
 	x       dense.ID[syntax.Node],
 	keyName string,

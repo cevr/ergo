@@ -1867,7 +1867,7 @@ func conversionHopOrRefusal(s mut store.Store, k Pkg, t Typer, g dense.ID[store.
 	"cannot"
 }
 
-func conversionTarget(s mut store.Store, k Pkg, t Typer, fun dense.ID[syntax.Node]) option.Option[dense.ID[store.TKey]] {
+func conversionTarget(s mut store.Store, k Pkg, t mut Typer, fun dense.ID[syntax.Node]) option.Option[dense.ID[store.TKey]] {
 	let tr = tree(k, t.file)
 	let p = k.Parsed[t.file]
 	let u = unparenExpr(tr, fun)
@@ -1887,7 +1887,7 @@ func conversionTarget(s mut store.Store, k Pkg, t Typer, fun dense.ID[syntax.Nod
 					match store.Lookup(*s, nm) {
 					case option.Some{Value: dec}:
 						let kd = store.KindName(int(store.DeclOf(*s, dec).Kind))
-						if kd == "type" && !isSome(DefType(t, d.At)) {
+						if kd == "type" && !isSome(DefType(*t, d.At)) {
 							res = true
 						}
 					case option.None:
@@ -1916,7 +1916,7 @@ func conversionTarget(s mut store.Store, k Pkg, t Typer, fun dense.ID[syntax.Nod
 	if !isTypExpr {
 		return option.None
 	}
-	let ty = types.Resolve(s, envOf(*s, k, t), u)
+	let ty = types.Resolve(s, envOf(*s, k, *t), u)
 	if isInvalidT(*s, ty) {
 		return option.None
 	}

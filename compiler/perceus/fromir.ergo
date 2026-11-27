@@ -1,0 +1,520 @@
+import compiler/ir
+import slices
+
+// NotLowered is a compiler/ir row FromIR does not lower into a Program: the
+// row's id (0 for the function itself), its kind's name, and why. FromIR
+// never skips a row it cannot lower.
+type NotLowered {
+	// Row is the IR row id, or 0 when the function itself is refused.
+	Row uint32,
+	// Kind is the IR kind name of the row.
+	Kind string,
+	// Why says what is missing.
+	Why string,
+}
+
+type irLower {
+	strs      []string,
+	body      ir.Body,
+	kinds     []uint8,
+	tags      []uint32,
+	b         Builder,
+	cur       uint32,
+	vals      []uint32,
+	loopHead  []uint32,
+	loopExit  []uint32,
+	loopLabel []string,
+}
+
+let scalarTypes = []string{
+	"bool", "int", "int8", "int16", "int32", "int64", "uint", "uint8", "uint16", "uint32", "uint64",
+	"uintptr", "float32", "float64", "complex64", "complex128", "byte", "rune",
+}
+
+// KindOfGoType is the storage class of a value of Go type t: ValScalar for a
+// basic numeric or boolean type, ValRC for every other type.
+func KindOfGoType(t string) uint8 {
+	for s in scalarTypes {
+		if s == t {
+			return ValScalar
+		}
+	}
+	ValRC
+}
+
+func specOfLocal(lw irLower, local int) ValueSpec {
+	let k = lw.kinds[local]
+	let size = if k == ValScalar { uint32(0) } else { uint32(16) }
+	ValueSpec{Kind: k, TypeTag: lw.tags[local], Size: size}
+}
+
+func rowKind(lw irLower, id uint32) string fails NotLowered {
+	if id == 0 || int(id) > lw.body.Kind.Len() {
+		return NotLowered{Row: id, Kind: "", Why: "row past the body"}
+	}
+	ir.KindOf(lw.body.Kind[int(id)-1]).Name
+}
+
+func word(lw irLower, id uint32, j int) uint32 fails NotLowered {
+	let at = int(id) - 1
+	let n = ir.KindOf(lw.body.Kind[at]).Slots.Len()
+	if j >= n {
+		return NotLowered{Row: id, Kind: ir.KindOf(lw.body.Kind[at]).Name, Why: "slot past the kind's slots"}
+	}
+	if j == 0 {
+		return lw.body.A[at]
+	}
+	if n <= 2 {
+		return lw.body.B[at]
+	}
+	let q = int(lw.body.B[at]) + j - 1
+	if q <= 0 || q >= lw.body.Extra.Len() {
+		return NotLowered{Row: id, Kind: ir.KindOf(lw.body.Kind[at]).Name, Why: "slot past the extra pool"}
+	}
+	lw.body.Extra[q]
+}
+
+func nodes(lw irLower, id uint32, q uint32) []uint32 fails NotLowered {
+	if q == 0 {
+		return []uint32{}
+	}
+	let n = if int(q) < lw.body.Extra.Len() { int(lw.body.Extra[int(q)]) } else { -1 }
+	if n < 0 || int(q)+n >= lw.body.Extra.Len() {
+		return NotLowered{Row: id, Kind: "", Why: "list past the extra pool"}
+	}
+	lw.body.Extra[int(q)+1 : int(q)+1+n]
+}
+
+func textOf(lw irLower, id uint32, s uint32) string fails NotLowered {
+	if int(s) >= lw.strs.Len() {
+		return NotLowered{Row: id, Kind: "", Why: "text past the file's texts"}
+	}
+	lw.strs[int(s)]
+}
+
+func localOf(lw irLower, id uint32, w uint32) int fails NotLowered {
+	if int(w) >= lw.kinds.Len() {
+		return NotLowered{Row: id, Kind: try rowKind(lw, id), Why: "local \(w) past the function's locals"}
+	}
+	int(w)
+}
+
+func zeroOf(lw mut irLower, local int) uint32 {
+	let spec = specOfLocal(*lw, local)
+	if spec.Kind == ValScalar {
+		return EmitConstScalar(&lw.b, lw.cur, uint32(0))
+	}
+	EmitAlloc(&lw.b, lw.cur, spec)
+}
+
+func newJoin(lw mut irLower) (uint32, []uint32) {
+	let blk = NewBlock(&lw.b, BlockNormal)
+	let mut params = slices.WithCapacity[uint32](lw.kinds.Len())
+	for l in 0..lw.kinds.Len() {
+		params = params.Append(AddBlockParam(&lw.b, blk, specOfLocal(*lw, l)))
+	}
+	(blk, params)
+}
+
+func jumpTo(lw mut irLower, target uint32) {
+	EmitBr(&lw.b, lw.cur, BranchTarget{Block: target, Args: slices.Clone(lw.vals)})
+}
+
+func deadAfter(lw mut irLower) {
+	lw.cur = NewBlock(&lw.b, BlockNormal)
+}
+
+func lowerExpr(lw mut irLower, id uint32) uint32 fails NotLowered {
+	let k = try rowKind(*lw, id)
+	match k {
+	case "local":
+		lw.vals[try localOf(*lw, id, try word(*lw, id, 0))]
+	case "const":
+		let t = try textOf(*lw, id, try word(*lw, id, 0))
+		if KindOfGoType(t) == ValScalar {
+			EmitConstScalar(&lw.b, lw.cur, try word(*lw, id, 1))
+		} else {
+			EmitImmortal(&lw.b, lw.cur, try word(*lw, id, 0))
+		}
+	case "zero":
+		let tw = try word(*lw, id, 0)
+		let t = try textOf(*lw, id, tw)
+		if KindOfGoType(t) == ValScalar {
+			EmitConstScalar(&lw.b, lw.cur, uint32(0))
+		} else {
+			EmitAlloc(&lw.b, lw.cur, ValueSpec{Kind: ValRC, TypeTag: tw, Size: uint32(16)})
+		}
+	case "bin":
+		let x = try lowerExpr(lw, try word(*lw, id, 1))
+		let y = try lowerExpr(lw, try word(*lw, id, 2))
+		pureCall(lw, []uint32{x, y})
+	case "un":
+		let x = try lowerExpr(lw, try word(*lw, id, 1))
+		pureCall(lw, []uint32{x})
+	case "call":
+		let tw = try word(*lw, id, 0)
+		let t = try textOf(*lw, id, tw)
+		let args = try lowerArgs(lw, id, try word(*lw, id, 2))
+		let kd = KindOfGoType(t)
+		let size = if kd == ValScalar { uint32(0) } else { uint32(16) }
+		EmitCall(&lw.b, lw.cur, CallSpec{Args: args, DstSpec: ValueSpec{Kind: kd, TypeTag: tw, Size: size}, Escapes: false, MayFail: false, HasDst: t != ""})
+	case "lit":
+		let tw = try word(*lw, id, 0)
+		let elems = try lowerArgs(lw, id, try word(*lw, id, 1))
+		let obj = EmitAlloc(&lw.b, lw.cur, ValueSpec{Kind: ValRC, TypeTag: tw, Size: uint32(16 + 8*elems.Len())})
+		for j in 0..elems.Len() {
+			EmitStore(&lw.b, lw.cur, StoreSpec{Base: obj, Field: uint32(j), Val: elems[j]})
+		}
+		obj
+	case _:
+		NotLowered{Row: id, Kind: k, Why: "expression kind left to NB-4"}
+	}
+}
+
+func pureCall(lw mut irLower, args []uint32) uint32 {
+	EmitCall(&lw.b, lw.cur, CallSpec{Args: args, DstSpec: ValueSpec{Kind: ValScalar, TypeTag: uint32(0), Size: uint32(0)}, Escapes: false, MayFail: false, HasDst: true})
+}
+
+func lowerArgs(lw mut irLower, id uint32, q uint32) []uint32 fails NotLowered {
+	let ids = try nodes(*lw, id, q)
+	let mut out = slices.WithCapacity[uint32](ids.Len())
+	for a in ids {
+		out = out.Append(try lowerExpr(lw, a))
+	}
+	out
+}
+
+func lowerStmts(lw mut irLower, id uint32, q uint32) fails NotLowered {
+	for s in try nodes(*lw, id, q) {
+		try lowerStmt(lw, s)
+	}
+}
+
+func loopFor(lw irLower, id uint32, label string) int fails NotLowered {
+	let mut i = lw.loopHead.Len() - 1
+	for i >= 0 {
+		if label == "" || lw.loopLabel[i] == label {
+			return i
+		}
+		i = i - 1
+	}
+	NotLowered{Row: id, Kind: try rowKind(lw, id), Why: "no enclosing loop for the jump"}
+}
+
+func lowerIf(lw mut irLower, id uint32) fails NotLowered {
+	let cond = try lowerExpr(lw, try word(*lw, id, 0))
+	let thenB = NewBlock(&lw.b, BlockNormal)
+	let elseB = NewBlock(&lw.b, BlockNormal)
+	let (join, params) = newJoin(lw)
+	EmitCondBr(&lw.b, lw.cur, cond, BranchTarget{Block: thenB, Args: []uint32{}}, BranchTarget{Block: elseB, Args: []uint32{}})
+	let before = slices.Clone(lw.vals)
+	lw.cur = thenB
+	try lowerStmts(lw, id, try word(*lw, id, 1))
+	jumpTo(lw, join)
+	lw.vals = before
+	lw.cur = elseB
+	try lowerStmts(lw, id, try word(*lw, id, 2))
+	jumpTo(lw, join)
+	lw.cur = join
+	lw.vals = params
+}
+
+func lowerWhile(lw mut irLower, id uint32) fails NotLowered {
+	let (head, headParams) = newJoin(lw)
+	let (exit, exitParams) = newJoin(lw)
+	let label = try textOf(*lw, id, try word(*lw, id, 3))
+	jumpTo(lw, head)
+	lw.cur = head
+	lw.vals = headParams
+	let condRow = try word(*lw, id, 0)
+	let bodyB = NewBlock(&lw.b, BlockNormal)
+	if condRow == 0 {
+		EmitBr(&lw.b, lw.cur, BranchTarget{Block: bodyB, Args: []uint32{}})
+	} else {
+		let cond = try lowerExpr(lw, condRow)
+		EmitCondBr(&lw.b, lw.cur, cond, BranchTarget{Block: bodyB, Args: []uint32{}}, BranchTarget{Block: exit, Args: slices.Clone(lw.vals)})
+	}
+	lw.cur = bodyB
+	lw.loopHead = lw.loopHead.Append(head)
+	lw.loopExit = lw.loopExit.Append(exit)
+	lw.loopLabel = lw.loopLabel.Append(label)
+	try lowerStmts(lw, id, try word(*lw, id, 1))
+	let top = lw.loopHead.Len() - 1
+	lw.loopHead = lw.loopHead[0:top]
+	lw.loopExit = lw.loopExit[0:top]
+	lw.loopLabel = lw.loopLabel[0:top]
+	jumpTo(lw, head)
+	lw.cur = exit
+	lw.vals = exitParams
+}
+
+func lowerStmt(lw mut irLower, id uint32) fails NotLowered {
+	let k = try rowKind(*lw, id)
+	match k {
+	case "def", "set":
+		let l = try localOf(*lw, id, try word(*lw, id, 0))
+		let mut v = try lowerExpr(lw, try word(*lw, id, 1))
+		let op = if k == "set" { try textOf(*lw, id, try word(*lw, id, 2)) } else { "" }
+		if op != "" {
+			v = pureCall(lw, []uint32{lw.vals[l], v})
+		}
+		lw.vals[l] = v
+	case "var":
+		let l = try localOf(*lw, id, try word(*lw, id, 0))
+		lw.vals[l] = zeroOf(lw, l)
+	case "expr", "discard":
+		let _ = try lowerExpr(lw, try word(*lw, id, 0))
+	case "ret":
+		let x = try word(*lw, id, 0)
+		let mut rets = []uint32{}
+		if x != 0 {
+			rets = rets.Append(try lowerExpr(lw, x))
+		}
+		EmitReturn(&lw.b, lw.cur, rets)
+		deadAfter(lw)
+	case "if":
+		try lowerIf(lw, id)
+	case "while":
+		try lowerWhile(lw, id)
+	case "block":
+		if try word(*lw, id, 2) != 0 {
+			return NotLowered{Row: id, Kind: k, Why: "a labelled block is left to NB-4"}
+		}
+		try lowerStmts(lw, id, try word(*lw, id, 0))
+	case "break":
+		let i = try loopFor(*lw, id, try textOf(*lw, id, try word(*lw, id, 0)))
+		jumpTo(lw, lw.loopExit[i])
+		deadAfter(lw)
+	case "continue":
+		let i = try loopFor(*lw, id, "")
+		jumpTo(lw, lw.loopHead[i])
+		deadAfter(lw)
+	case _:
+		return NotLowered{Row: id, Kind: k, Why: "statement kind left to NB-4"}
+	}
+}
+
+// FromIR lowers function fn of file into a Program: its first params locals
+// are the function's parameters, every other local starts as its type's zero
+// value, a local of a basic numeric or boolean Go type is a scalar and any
+// other local is reference counted. Every join (if, loop head, loop exit)
+// takes one block parameter per local. A row of a kind outside the subset
+// (local, const, zero, bin, un, call, lit; def, set, var, expr, discard,
+// ret, if, while, block, break, continue) is NotLowered, never skipped.
+func FromIR(file ir.File, fn int, params int) Program fails NotLowered {
+	if fn < 0 || fn >= file.Funcs.Len() {
+		return NotLowered{Row: uint32(0), Kind: "", Why: "function \(fn) past the file's functions"}
+	}
+	let f = file.Funcs[fn]
+	if params < 0 || params > f.Locals.Len() {
+		return NotLowered{Row: uint32(0), Kind: "", Why: "\(params) parameters of \(f.Locals.Len()) locals"}
+	}
+	let mut kinds = slices.WithCapacity[uint8](f.Locals.Len())
+	let mut tags = slices.WithCapacity[uint32](f.Locals.Len())
+	for l in f.Locals {
+		let t = if int(l.Type) < file.Strs.Len() { file.Strs[int(l.Type)] } else { "" }
+		kinds = kinds.Append(KindOfGoType(t))
+		tags = tags.Append(l.Type)
+	}
+	let mut lw = irLower{
+		strs:      file.Strs,
+		body:      f.Body,
+		kinds:     kinds,
+		tags:      tags,
+		b:         NewBuilder(),
+		cur:       uint32(0),
+		vals:      []uint32{},
+		loopHead:  []uint32{},
+		loopExit:  []uint32{},
+		loopLabel: []string{},
+	}
+	for l in 0..params {
+		lw.vals = lw.vals.Append(AddParam(&lw.b, specOfLocal(lw, l)))
+	}
+	lw.cur = NewBlock(&lw.b, BlockEntry)
+	for l in params..kinds.Len() {
+		lw.vals = lw.vals.Append(zeroOf(&lw, l))
+	}
+	try lowerStmts(&lw, uint32(0), f.Body.Roots)
+	EmitReturn(&lw.b, lw.cur, []uint32{})
+	BuildProgram(lw.b)
+}
+
+let irSubset = []string{
+	"local", "const", "zero", "bin", "un", "call", "lit",
+	"def", "set", "var", "expr", "discard", "ret", "if", "while", "block", "break", "continue",
+}
+
+type irGen { b ir.Builder, s uint64, loops int, at ir.Pos }
+
+func genPick(g mut irGen, n int) int {
+	g.s = g.s ^ (g.s << uint64(13))
+	g.s = g.s ^ (g.s >> uint64(7))
+	g.s = g.s ^ (g.s << uint64(17))
+	int((g.s >> uint64(11)) % uint64(n))
+}
+
+func genRow(g mut irGen, class uint8, kind string, slots []uint32) uint32 fails ir.Malformed {
+	try ir.Row(&g.b, ir.KindCode(class, kind), g.at, slots)
+}
+
+func genLocal(g mut irGen, l int) uint32 fails ir.Malformed {
+	try genRow(g, ir.TExpr, "local", []uint32{uint32(l)})
+}
+
+func genRCLocal(g mut irGen) int {
+	let rc = []int{0, 2, 3, 4}
+	rc[genPick(g, 4)]
+}
+
+func genStringLocal(g mut irGen) int {
+	if genPick(g, 2) == 0 {
+		return 2
+	}
+	4
+}
+
+func genCond(g mut irGen) uint32 fails ir.Malformed {
+	let one = try genRow(g, ir.TExpr, "const", []uint32{ir.Text(&g.b, "int"), ir.Text(&g.b, "1"), uint32(0)})
+	try genRow(g, ir.TExpr, "bin", []uint32{ir.Text(&g.b, "<"), try genLocal(g, 1), one})
+}
+
+func genStmts(g mut irGen, depth int, inLoop bool) uint32 fails ir.Malformed {
+	let n = 1 + genPick(g, 3)
+	let mut rows = []uint32{}
+	for _ in 0..n {
+		rows = rows.Append(try genStmt(g, depth, inLoop))
+	}
+	ir.List(&g.b, rows)
+}
+
+func genStmt(g mut irGen, depth int, inLoop bool) uint32 fails ir.Malformed {
+	let c = genPick(g, 10)
+	if c == 0 {
+		let elem = try genLocal(g, genRCLocal(g))
+		let lit = try genRow(g, ir.TExpr, "lit", []uint32{ir.Text(&g.b, "T"), ir.List(&g.b, []uint32{elem}), uint32(0)})
+		return try genRow(g, ir.TStmt, "def", []uint32{uint32(3), lit})
+	}
+	if c == 1 {
+		let one = try genRow(g, ir.TExpr, "const", []uint32{ir.Text(&g.b, "int"), ir.Text(&g.b, "1"), uint32(0)})
+		return try genRow(g, ir.TStmt, "set", []uint32{uint32(1), one, ir.Text(&g.b, "+")})
+	}
+	if c == 2 {
+		let arg = try genLocal(g, genRCLocal(g))
+		let call = try genRow(g, ir.TExpr, "call", []uint32{uint32(0), ir.Text(&g.b, "f"), ir.List(&g.b, []uint32{arg})})
+		return try genRow(g, ir.TStmt, "expr", []uint32{call})
+	}
+	if c == 3 {
+		let a = try genLocal(g, 1)
+		let r = try genLocal(g, genRCLocal(g))
+		let call = try genRow(g, ir.TExpr, "call", []uint32{ir.Text(&g.b, "string"), ir.Text(&g.b, "g"), ir.List(&g.b, []uint32{a, r})})
+		return try genRow(g, ir.TStmt, "def", []uint32{uint32(genStringLocal(g)), call})
+	}
+	if c == 4 {
+		let from = try genLocal(g, genStringLocal(g))
+		return try genRow(g, ir.TStmt, "set", []uint32{uint32(genStringLocal(g)), from, uint32(0)})
+	}
+	if c == 5 && depth < 2 {
+		let cond = try genCond(g)
+		let thenL = try genStmts(g, depth+1, inLoop)
+		let elseL = try genStmts(g, depth+1, inLoop)
+		return try genRow(g, ir.TStmt, "if", []uint32{cond, thenL, elseL, uint32(0), uint32(0), uint32(0)})
+	}
+	if c == 6 && depth < 2 && g.loops < 1 {
+		g.loops = g.loops + 1
+		let cond = try genCond(g)
+		let body = try genStmts(g, depth+1, true)
+		return try genRow(g, ir.TStmt, "while", []uint32{cond, body, uint32(0), uint32(0)})
+	}
+	if c == 7 && inLoop {
+		return try genRow(g, ir.TStmt, "break", []uint32{uint32(0)})
+	}
+	if c == 8 && inLoop {
+		return try genRow(g, ir.TStmt, "continue", []uint32{})
+	}
+	if c == 9 {
+		return try genRow(g, ir.TStmt, "ret", []uint32{try genLocal(g, genRCLocal(g))})
+	}
+	let fresh = try genRow(g, ir.TExpr, "zero", []uint32{ir.Text(&g.b, "string")})
+	try genRow(g, ir.TStmt, "def", []uint32{uint32(genStringLocal(g)), fresh})
+}
+
+func genRefused(g mut irGen, c uint8) uint32 fails ir.Malformed {
+	let mut zeros = []uint32{}
+	for _ in 0..ir.KindOf(c).Slots.Len() {
+		zeros = zeros.Append(uint32(0))
+	}
+	let row = try ir.Row(&g.b, c, g.at, zeros)
+	let mut st = row
+	if ir.KindOf(c).Class == ir.TExpr {
+		st = try genRow(g, ir.TStmt, "expr", []uint32{row})
+	}
+	ir.List(&g.b, []uint32{st})
+}
+
+func genFunc(seed uint32, refuse uint8) ir.File fails ir.Malformed {
+	let zero = ir.Pos{File: uint32(0), Line: uint32(0), Col: uint32(0)}
+	let mut g = irGen{b: ir.NewBuilder(1), s: (uint64(seed) << uint64(1)) | uint64(1), loops: 0, at: zero}
+	try ir.Begin(&g.b, "f", zero, zero)
+	try ir.AddLocal(&g.b, "xs", "[]byte", zero)
+	try ir.AddLocal(&g.b, "n", "int", zero)
+	try ir.AddLocal(&g.b, "s", "string", zero)
+	try ir.AddLocal(&g.b, "r", "T", zero)
+	try ir.AddLocal(&g.b, "u", "string", zero)
+	let mut roots = uint32(0)
+	if refuse == 0 {
+		roots = try genStmts(&g, 0, false)
+	} else {
+		roots = try genRefused(&g, refuse)
+	}
+	try ir.End(&g.b, roots)
+	try ir.Finish(g.b)
+}
+
+// FromIRLowersBalancedPrograms: every seeded function of the subset lowers
+// to a Program that validates, keeps its reference parameter counted, and,
+// once LowerProgram inserts dups, drops and reuses, executes on every
+// explored path with no leak, double drop, use after drop or aliasing reuse.
+law FromIRLowersBalancedPrograms(seed uint32) {
+	let file = genFunc(seed, uint8(0)) catch {
+	case ir.Malformed:
+		return false
+	}
+	let p = FromIR(file, 0, 1) catch {
+	case NotLowered:
+		return false
+	}
+	ValidateProgram(p) catch {
+	case InvalidCFG:
+		return false
+	}
+	p.ValKind[int(p.Params[0])] == ValRC && verifyLoweredOk(p)
+}
+
+func inSubset(name string) bool {
+	for s in irSubset {
+		if s == name {
+			return true
+		}
+	}
+	false
+}
+
+// FromIRRefusesKindsOutsideTheSubset: a statement or expression row of a
+// kind outside the subset is NotLowered naming that kind, never skipped.
+law FromIRRefusesKindsOutsideTheSubset(pick uint8) {
+	let c = uint8(1 + int(pick)%(ir.NumKinds()-1))
+	let kind = ir.KindOf(c)
+	if kind.Class == ir.TCase || inSubset(kind.Name) {
+		return true
+	}
+	let file = genFunc(uint32(pick), c) catch {
+	case ir.Malformed:
+		return false
+	}
+	let _ = FromIR(file, 0, 1) catch {
+	case NotLowered as e:
+		return e.Kind == kind.Name
+	}
+	false
+}

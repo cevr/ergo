@@ -1,0 +1,13 @@
+run 1: boot epoch=1 reattached=0 lost=0
+run 1: started job-1
+run 1: working job-1
+run 1: kill -9
+run 2: boot epoch=2 reattached=1 lost=0
+run 2: resumed job-1
+run 2: working job-1
+run 2: finished job-1
+run 2: exit 0
+run 3: boot epoch=3 reattached=0 lost=0
+run 3: done job-1
+run 3: exit 0
+settlements job-1=1

@@ -1,0 +1,419 @@
+import exec
+import option
+import strconv
+import strings
+import sync
+
+// RexPaneOpen indicates an active Rex terminal pane ready for I/O.
+type RexPaneOpen {}
+
+// RexPaneClosed indicates a closed Rex terminal pane that refuses further operations.
+type RexPaneClosed {}
+
+// RexPaneStatus tracks whether a supervised Rex pane is open or closed.
+type RexPaneStatus = RexPaneOpen | RexPaneClosed
+
+// RexPaneSpec configures spawning a new Rex terminal pane for fallback agent sessions.
+type RexPaneSpec {
+	SessionName string,
+	PaneTitle   string,
+	Command     string,
+	Args        []string,
+	WorkDir     string,
+}
+
+// RexPaneInfo summarizes an open or closed Rex terminal pane handle.
+type RexPaneInfo {
+	PaneID      string,
+	SessionName string,
+	PaneTitle   string,
+	Status      RexPaneStatus,
+	Transcript  string,
+}
+
+// RexNotFound refuses referencing an unknown Rex pane identifier.
+type RexNotFound {
+	PaneID string,
+}
+
+// RexAlreadyClosed refuses sending or capturing on an already closed Rex pane.
+type RexAlreadyClosed {
+	PaneID string,
+}
+
+// RexCommandFailed reports a non-zero exit code from the external rex CLI binary.
+type RexCommandFailed {
+	Operation string,
+	Status    int,
+	Detail    string,
+}
+
+// RexUnavailable reports that the rex CLI binary or host session is missing or inaccessible.
+type RexUnavailable {
+	Reason string,
+}
+
+// RexError enumerates typed failures returned by RexPaneHost operations.
+type RexError = RexNotFound | RexAlreadyClosed | RexCommandFailed | RexUnavailable
+
+// RexPaneHost abstracts spawning, attaching, driving, capturing, and closing Rex terminal panes.
+type RexPaneHost {
+	SpawnPane(spec RexPaneSpec) RexPaneInfo fails RexError,
+	AttachPane(paneID string) RexPaneInfo fails RexError,
+	SendKeys(paneID string, text string) fails RexError,
+	CapturePane(paneID string, lines int) string fails RexError,
+	ClosePane(paneID string) fails RexError,
+
+	// SpawnAttachAndCaptureRoundTrips verifies spawned panes attach cleanly and capture sent payloads in order.
+	law SpawnAttachAndCaptureRoundTrips(title string, payload string) {
+		let cleanTitle = if title == "" { "rex-pane" } else { title }
+		let spawned = SpawnPane(RexPaneSpec{
+			SessionName: "atlas-session",
+			PaneTitle:   cleanTitle,
+			Command:     "cat",
+			Args:        []string{},
+			WorkDir:     "",
+		}) catch {
+		case RexUnavailable:
+			return true
+		case _:
+			return false
+		}
+		let attached = AttachPane(spawned.PaneID) catch {
+		case _:
+			return false
+		}
+		SendKeys(spawned.PaneID, payload) catch {
+		case _:
+			return false
+		}
+		let captured = CapturePane(spawned.PaneID, 20) catch {
+		case _:
+			return false
+		}
+		ClosePane(spawned.PaneID) catch {
+		case _:
+			return false
+		}
+			attached.PaneID == spawned.PaneID &&
+			attached.PaneTitle == cleanTitle &&
+			attached.Status == RexPaneOpen &&
+			strings.Contains(captured, payload)
+	},
+
+	// SendAndCaptureAfterCloseRefuses verifies closed panes refuse subsequent SendKeys and CapturePane calls.
+	law SendAndCaptureAfterCloseRefuses(title string, payload string) {
+		let spawned = SpawnPane(RexPaneSpec{
+			SessionName: "atlas-close",
+			PaneTitle:   title,
+			Command:     "cat",
+			Args:        []string{},
+			WorkDir:     "",
+		}) catch {
+		case RexUnavailable:
+			return true
+		case _:
+			return false
+		}
+		ClosePane(spawned.PaneID) catch {
+		case _:
+			return false
+		}
+		let mut sendRefused = false
+		SendKeys(spawned.PaneID, payload) catch {
+		case RexAlreadyClosed:
+			sendRefused = true
+		case _:
+			return false
+		}
+		let mut capRefused = false
+		let _ = CapturePane(spawned.PaneID, 10) catch {
+		case RexAlreadyClosed:
+			capRefused = true
+			""
+		case _:
+			return false
+		}
+		sendRefused && capRefused
+	},
+}
+
+type memRexBook {
+	nextSeq int,
+	panes   Map[string, RexPaneInfo],
+}
+
+// MemoryRexPaneHost is a deterministic in-memory RexPaneHost provider for tests and law verification.
+type MemoryRexPaneHost {
+	book sync.Ref[memRexBook],
+} implements RexPaneHost
+
+// NewMemoryRexPaneHost constructs an empty deterministic MemoryRexPaneHost.
+func NewMemoryRexPaneHost() MemoryRexPaneHost {
+	MemoryRexPaneHost{
+		book: sync.NewRef(memRexBook{
+			nextSeq: 0,
+			panes:   Map[string, RexPaneInfo]{},
+		}),
+	}
+}
+
+type memRexOK[T] { Val T }
+
+type memRexErr { Err RexError }
+
+type memRexOutcome[T] = memRexOK[T] | memRexErr
+
+func raiseRexError[T](err RexError) T fails RexError {
+	match err {
+	case RexNotFound as e:
+		return e
+	case RexAlreadyClosed as e:
+		return e
+	case RexCommandFailed as e:
+		return e
+	case RexUnavailable as e:
+		return e
+	}
+}
+
+func unwrapMemRex[T](out memRexOutcome[T]) T fails RexError {
+	match out {
+	case memRexOK[T] as ok:
+		ok.Val
+	case memRexErr as fl:
+		try raiseRexError[T](fl.Err)
+	}
+}
+
+func tailLines(text string, lines int) string {
+	if lines <= 0 || text == "" {
+		return ""
+	}
+	let parts = strings.Split(text, "\n")
+	if parts.Len() <= lines {
+		return text
+	}
+	let start = parts.Len() - lines
+	let mut out = ""
+	let mut i = start
+	for i < parts.Len() {
+		if i > start {
+			out = out + "\n"
+		}
+		out = out + parts[i]
+		i = i + 1
+	}
+	out
+}
+
+// SpawnPane creates and records an open Rex pane in MemoryRexPaneHost.
+func SpawnPane(h MemoryRexPaneHost, spec RexPaneSpec) RexPaneInfo fails RexError {
+	let sess = if strings.TrimSpace(spec.SessionName) == "" { "atlas" } else { spec.SessionName }
+	sync.Modify(h.book, func(b memRexBook) (RexPaneInfo, memRexBook) {
+		let seq = b.nextSeq + 1
+		let pid = "rex-pane-\(seq)"
+		let info = RexPaneInfo{
+			PaneID:      pid,
+			SessionName: sess,
+			PaneTitle:   spec.PaneTitle,
+			Status:      RexPaneOpen,
+			Transcript:  "",
+		}
+		(info, memRexBook{nextSeq: seq, panes: b.panes.Put(pid, info)})
+	})
+}
+
+// AttachPane attaches to an existing open Rex pane in MemoryRexPaneHost.
+func AttachPane(h MemoryRexPaneHost, paneID string) RexPaneInfo fails RexError {
+	let b = h.book.Get()
+	match b.panes.Get(paneID) {
+	case option.None:
+		RexNotFound{PaneID: paneID}
+	case option.Some[RexPaneInfo] as found:
+		let p = found.Value
+		if p.Status == RexPaneClosed {
+			return RexAlreadyClosed{PaneID: paneID}
+		}
+		p
+	}
+}
+
+// SendKeys appends text to an open pane's transcript in MemoryRexPaneHost.
+func SendKeys(h MemoryRexPaneHost, paneID string, text string) fails RexError {
+	let out = sync.Modify(h.book, func(b memRexBook) (memRexOutcome[bool], memRexBook) {
+		match b.panes.Get(paneID) {
+		case option.None:
+			(memRexErr{Err: RexNotFound{PaneID: paneID}}, b)
+		case option.Some[RexPaneInfo] as found:
+			let p = found.Value
+			if p.Status == RexPaneClosed {
+				return (memRexErr{Err: RexAlreadyClosed{PaneID: paneID}}, b)
+			}
+			let updated = RexPaneInfo{..p, Transcript: p.Transcript + text}
+			(memRexOK[bool]{Val: true}, memRexBook{..b, panes: b.panes.Put(paneID, updated)})
+		}
+	})
+	let _ = try unwrapMemRex(out)
+}
+
+// CapturePane returns the last lines of an open pane's transcript in MemoryRexPaneHost.
+func CapturePane(h MemoryRexPaneHost, paneID string, lines int) string fails RexError {
+	let p = try h.AttachPane(paneID)
+	tailLines(p.Transcript, lines)
+}
+
+// ClosePane marks paneID closed in MemoryRexPaneHost.
+func ClosePane(h MemoryRexPaneHost, paneID string) fails RexError {
+	let out = sync.Modify(h.book, func(b memRexBook) (memRexOutcome[bool], memRexBook) {
+		match b.panes.Get(paneID) {
+		case option.None:
+			(memRexErr{Err: RexNotFound{PaneID: paneID}}, b)
+		case option.Some[RexPaneInfo] as found:
+			let p = found.Value
+			if p.Status == RexPaneClosed {
+				return (memRexErr{Err: RexAlreadyClosed{PaneID: paneID}}, b)
+			}
+			let updated = RexPaneInfo{..p, Status: RexPaneClosed}
+			(memRexOK[bool]{Val: true}, memRexBook{..b, panes: b.panes.Put(paneID, updated)})
+		}
+	})
+	let _ = try unwrapMemRex(out)
+}
+
+// ExecRexPaneHost runs Rex CLI commands via an exec.Runner capability seam.
+type ExecRexPaneHost {
+	Runner exec.Runner,
+	RexBin string,
+} implements RexPaneHost
+
+// NewExecRexPaneHost constructs an ExecRexPaneHost using runner and rexBin (defaulting to "rex" when empty).
+func NewExecRexPaneHost(runner exec.Runner, rexBin string) ExecRexPaneHost {
+	let bin = if strings.TrimSpace(rexBin) == "" { "rex" } else { rexBin }
+	ExecRexPaneHost{Runner: runner, RexBin: bin}
+}
+
+func runRexCmd(h ExecRexPaneHost, op string, args []string) exec.Result fails RexError {
+	let mut cmd = exec.New(h.RexBin, args)
+	cmd = exec.WithGrace(cmd, 10s)
+	let res = h.Runner.Run(cmd) catch {
+	case exec.NotFound as e:
+		return RexUnavailable{Reason: "rex binary not found: \(e.Name)"}
+	case exec.Denied as e:
+		return RexUnavailable{Reason: "rex denied: \(e.Name)"}
+	case exec.Failed as e:
+		return RexUnavailable{Reason: "rex exec failed: \(e.Reason)"}
+	}
+	if res.Status != 0 {
+		return RexCommandFailed{Operation: op, Status: res.Status, Detail: strings.TrimSpace(res.Stderr)}
+	}
+	res
+}
+
+// SpawnPane invokes the configured rex CLI to spawn a pane and returns its RexPaneInfo.
+func SpawnPane(h ExecRexPaneHost, spec RexPaneSpec) RexPaneInfo fails RexError {
+	let sess = if strings.TrimSpace(spec.SessionName) == "" { "atlas" } else { spec.SessionName }
+	let mut cmd = exec.New(h.RexBin, []string{"pane", "new", "--session", sess, "--title", spec.PaneTitle, "--", spec.Command}.Concat(spec.Args))
+	if spec.WorkDir != "" {
+		cmd = exec.WithDir(cmd, spec.WorkDir)
+	}
+	cmd = exec.WithGrace(cmd, 10s)
+	let res = h.Runner.Run(cmd) catch {
+	case exec.NotFound as e:
+		return RexUnavailable{Reason: "rex binary not found: \(e.Name)"}
+	case exec.Denied as e:
+		return RexUnavailable{Reason: "rex denied: \(e.Name)"}
+	case exec.Failed as e:
+		return RexUnavailable{Reason: "rex exec failed: \(e.Reason)"}
+	}
+	if res.Status != 0 {
+		return RexCommandFailed{Operation: "spawn_pane", Status: res.Status, Detail: strings.TrimSpace(res.Stderr)}
+	}
+	let pid = strings.TrimSpace(res.Stdout)
+	if pid == "" {
+		return RexCommandFailed{Operation: "spawn_pane", Status: 0, Detail: "empty pane id returned"}
+	}
+	RexPaneInfo{
+		PaneID:      pid,
+		SessionName: sess,
+		PaneTitle:   spec.PaneTitle,
+		Status:      RexPaneOpen,
+		Transcript:  "",
+	}
+}
+
+// AttachPane queries pane metadata from the configured rex CLI.
+func AttachPane(h ExecRexPaneHost, paneID string) RexPaneInfo fails RexError {
+	let res = try runRexCmd(h, "attach_pane", []string{"pane", "info", paneID})
+	let title = strings.TrimSpace(res.Stdout)
+	RexPaneInfo{
+		PaneID:      paneID,
+		SessionName: "",
+		PaneTitle:   title,
+		Status:      RexPaneOpen,
+		Transcript:  "",
+	}
+}
+
+// SendKeys writes keys to paneID via the configured rex CLI.
+func SendKeys(h ExecRexPaneHost, paneID string, text string) fails RexError {
+	let _ = try runRexCmd(h, "send_keys", []string{"pane", "send", paneID, text})
+}
+
+// CapturePane captures up to lines trailing lines from paneID via the configured rex CLI.
+func CapturePane(h ExecRexPaneHost, paneID string, lines int) string fails RexError {
+	let res = try runRexCmd(h, "capture_pane", []string{"pane", "capture", "--lines", strconv.Itoa(lines), paneID})
+	res.Stdout
+}
+
+// ClosePane closes paneID via the configured rex CLI.
+func ClosePane(h ExecRexPaneHost, paneID string) fails RexError {
+	let _ = try runRexCmd(h, "close_pane", []string{"pane", "close", paneID})
+}
+
+test ExecRexPaneHostMapsMissingBinaryAndRunsScriptedPane {
+	let missing = NewExecRexPaneHost(exec.Script{Results: Map[string, exec.Result]{}}, "rex-missing")
+	let mut unavailable = false
+	let _ = missing.SpawnPane(RexPaneSpec{
+		SessionName: "s1",
+		PaneTitle:   "p1",
+		Command:     "sh",
+		Args:        []string{},
+		WorkDir:     "",
+	}) catch {
+	case RexUnavailable:
+		unavailable = true
+		RexPaneInfo{PaneID: "", SessionName: "", PaneTitle: "", Status: RexPaneClosed, Transcript: ""}
+	case RexNotFound, RexAlreadyClosed, RexCommandFailed:
+		RexPaneInfo{PaneID: "", SessionName: "", PaneTitle: "", Status: RexPaneClosed, Transcript: ""}
+	}
+	assert unavailable
+
+	let spawnCmd = exec.New("rex", []string{"pane", "new", "--session", "s1", "--title", "worker", "--", "sh"})
+	let infoCmd = exec.New("rex", []string{"pane", "info", "pane-42"})
+	let sendCmd = exec.New("rex", []string{"pane", "send", "pane-42", "status\n"})
+	let capCmd = exec.New("rex", []string{"pane", "capture", "--lines", "15", "pane-42"})
+	let closeCmd = exec.New("rex", []string{"pane", "close", "pane-42"})
+	let mut results = Map[string, exec.Result]{}
+	results[exec.Key(spawnCmd)] = exec.Result{Status: 0, Stdout: "pane-42\n", Stderr: ""}
+	results[exec.Key(infoCmd)] = exec.Result{Status: 0, Stdout: "worker\n", Stderr: ""}
+	results[exec.Key(sendCmd)] = exec.Result{Status: 0, Stdout: "", Stderr: ""}
+	results[exec.Key(capCmd)] = exec.Result{Status: 0, Stdout: "ready\n", Stderr: ""}
+	results[exec.Key(closeCmd)] = exec.Result{Status: 0, Stdout: "", Stderr: ""}
+
+	let scripted = NewExecRexPaneHost(exec.Script{Results: results}, "")
+	let spawned = try scripted.SpawnPane(RexPaneSpec{
+		SessionName: "s1",
+		PaneTitle:   "worker",
+		Command:     "sh",
+		Args:        []string{},
+		WorkDir:     "",
+	})
+	assert spawned.PaneID == "pane-42"
+	let attached = try scripted.AttachPane("pane-42")
+	assert attached.PaneTitle == "worker"
+	try scripted.SendKeys("pane-42", "status\n")
+	let out = try scripted.CapturePane("pane-42", 15)
+	assert out == "ready\n"
+	try scripted.ClosePane("pane-42")
+}

@@ -21,7 +21,7 @@ type unionVariant {
 type unionLayout =
 	| UnionFlat{}
 	| UnionSealed{}
-	| UnionUnproved{}
+	| UnionUnproved{Why string}
 
 // The variants are indexed by the checked declaration order. The small
 // flat profile holds one byte tag and SSA-fitting shared slots; sealed
@@ -326,7 +326,7 @@ func unionNamedWithin(st fnb, t dense.ID[store.TKey], trail shapeTrail) option.O
 	let visit = shapeVisit{owner: st.alias, t: t}
 	for id in trail.seen {
 		if id.owner == visit.owner && id.t == visit.t {
-			return option.Some{Value: unionShape{name: name, typ: gt, layout: UnionUnproved, flat: false, variants: []unionVariant{}}}
+			return option.Some{Value: unionShape{name: name, typ: gt, layout: UnionUnproved{Why: "unclassified"}, flat: false, variants: []unionVariant{}}}
 		}
 	}
 	let path = shapeTrail{..trail, seen: trail.seen.Append(visit)}
@@ -375,7 +375,7 @@ func unionNamedWithin(st fnb, t dense.ID[store.TKey], trail shapeTrail) option.O
 		}
 		variants = variants.Append(unionVariant{t: dense.OptOf(v), decl: dense.OptOf(id), impPath: "", name: vn, typ: vt, fields: fields, holds: holdsValue(st, v)})
 	}
-	option.Some{Value: unionShape{name: name, typ: gt, layout: UnionUnproved, flat: false, variants: variants}}
+	option.Some{Value: unionShape{name: name, typ: gt, layout: UnionUnproved{Why: "unclassified"}, flat: false, variants: variants}}
 }
 
 func unionRecordFields(st fnb, name string) option.Option[[]expr.Field] {
@@ -953,7 +953,7 @@ func classifyUnionLayoutSeen(st fnb, shape unionShape, t dense.ID[store.TKey], s
 	}
 	if st.cache.active {
 		if !st.cache.unionEnv.ready || st.cache.unionEnv.hasWireForm {
-			return UnionUnproved
+			return UnionUnproved{Why: "union pass not ready or WireForm"}
 		}
 		if st.cache.unionEnv.extKey.Get(st.alias+"\x00"+shape.name) != option.None {
 			return UnionSealed
@@ -965,7 +965,7 @@ func classifyUnionLayoutSeen(st fnb, shape unionShape, t dense.ID[store.TKey], s
 			return UnionFlat
 		}
 		if !lay.known {
-			return UnionUnproved
+			return UnionUnproved{Why: "layout unknown"}
 		}
 		if lay.size > 128 {
 			return UnionSealed
@@ -976,16 +976,16 @@ func classifyUnionLayoutSeen(st fnb, shape unionShape, t dense.ID[store.TKey], s
 		return UnionFlat
 	}
 	if st.rootImports == option.None || st.alias != "" {
-		return UnionUnproved
+		return UnionUnproved{Why: "no program context"}
 	}
 	if hasRootExternOrWire(st) {
-		return UnionUnproved
+		return UnionUnproved{Why: "root extern or WireForm"}
 	}
 	if lay.ssa {
 		return UnionFlat
 	}
 	if !lay.known {
-		return UnionUnproved
+		return UnionUnproved{Why: "layout unknown"}
 	}
 	if isMachineUnion(st, shape) {
 		return UnionFlat
@@ -993,7 +993,7 @@ func classifyUnionLayoutSeen(st fnb, shape unionShape, t dense.ID[store.TKey], s
 	if lay.size > 128 {
 		return UnionSealed
 	}
-	UnionUnproved
+	UnionUnproved{Why: "flat by use unproved"}
 }
 
 func classifyUnionLayout(st fnb, shape unionShape, t dense.ID[store.TKey]) unionLayout {
@@ -1595,8 +1595,8 @@ func unionReturn(st fnb, binds localBinds, p mut controlPlan, x dense.ID[syntax.
 		true
 	case UnionSealed:
 		false
-	case UnionUnproved:
-		return stop("union: unproved injection layout")
+	case UnionUnproved as u:
+		return stop("union: unproved injection layout: " + u.Why)
 	}
 	let variant = shape.variants[tag]
 	let at = syntax.NodePos(st.p, v)

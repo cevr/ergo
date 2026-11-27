@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"ergo.local/prototype/internal/proclimit"
+	"ergo.local/prototype/scripts/mutants/schemata"
 	"ergo.local/prototype/scripts/mutants/suitename"
 )
 
@@ -75,6 +76,12 @@ type Config struct {
 	// Progress, when set, gets the results so far after each verdict
 	// (blank where a row is not judged yet).
 	Progress func([]Result)
+	// Schemata folds the Go rows that can fold into one tree whose suites
+	// build once (schemata.go); the others, and every row it cannot judge
+	// beyond doubt, take the isolated path. Off: every row is isolated.
+	Schemata bool
+	// Builds, when set, counts the run's suite builds.
+	Builds *Builds
 }
 
 // SourceCheck validates the mutants of one kind of source file. A mutated
@@ -239,7 +246,11 @@ func Run(ctx context.Context, cfg Config, jobs []Job) ([]Result, *coverage, erro
 	if err := e.load(ledgers); err != nil {
 		return nil, nil, err
 	}
+	if e.cfg.Builds == nil {
+		e.cfg.Builds = &Builds{}
+	}
 	results, err := e.judgeAll(ctx, jobs)
+	e.logf("builds: %d of mutated copies, %d of the schemata tree", e.cfg.Builds.Rows.Load(), e.cfg.Builds.Tree.Load())
 	return results, e.known(), err
 }
 
@@ -291,6 +302,7 @@ type engine struct {
 	buildMu sync.Mutex
 	builds  map[string]float64
 	workers []*worker
+	schema  *schemaTree
 }
 
 type plainBuild struct {
@@ -586,7 +598,7 @@ func (e *engine) env(extra ...string) []string {
 	for _, kv := range os.Environ() {
 		name, value, _ := strings.Cut(kv, "=")
 		switch name {
-		case "GOCOVERDIR", "GOMAXPROCS", "GOFLAGS", "GOWORK", MutantVariable, coverGoVariable, embedObserveVariable:
+		case "GOCOVERDIR", "GOMAXPROCS", "GOFLAGS", "GOWORK", MutantVariable, schemata.TraceEnv, coverGoVariable, embedObserveVariable:
 			continue
 		case "PATH":
 			if e.goRoot != "" {

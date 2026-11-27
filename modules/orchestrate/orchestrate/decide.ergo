@@ -3,6 +3,7 @@ import option
 import slices
 import strconv
 import strings
+import time
 
 // MaxExitLinesBytes bounds Receipt.ExitLines so a receipt carries exit lines, never a log.
 let MaxExitLinesBytes = 4096
@@ -35,7 +36,19 @@ func decideCommands(state State, env Envelope) []Event fails Refusal {
 		if state.Units.Get(c.Key) != option.None {
 			return AlreadyExists{Kind: "unit", ID: UnitKeyText(c.Key)}
 		}
-		[]Event{UnitOpened{Key: c.Key, Title: c.Title, Requires: slices.Clone(c.Requires), Lane: c.Lane, Branch: c.Branch, At: env.At}}
+		match c.Lane {
+		case option.Some[string] as lane:
+			match LaneHolder(state, c.Key.Repo, lane.Value) {
+			case option.Some[Unit] as holder:
+				return LaneHeld{Lane: lane.Value, Unit: holder.Value.Key, Actor: holder.Value.Owner}
+			case option.None:
+			}
+		case option.None:
+		}
+		[]Event{
+			UnitOpened{Key: c.Key, Title: c.Title, Requires: slices.Clone(c.Requires), Lane: c.Lane, Branch: c.Branch, At: env.At},
+			UnitOwnerChanged{Unit: c.Key, From: UnknownOwner, To: env.Actor, At: env.At},
+		}
 	case RecordReceipt as c:
 		try requireKey(c.Unit)
 		try requireText("kind", c.Kind)
@@ -44,7 +57,7 @@ func decideCommands(state State, env Envelope) []Event fails Refusal {
 		if c.ExitLines.Len() > MaxExitLinesBytes {
 			return InvalidInput{Field: "exitLines", Why: "exceeds 4096 bytes; keep the exit lines, not the log"}
 		}
-		let _ = try existingUnit(state, c.Unit)
+		try requireOwner(try existingUnit(state, c.Unit), env.Actor)
 		[]Event{ReceiptRecorded{
 			Receipt: Receipt{
 				ID:         string(env.ID),
@@ -62,6 +75,7 @@ func decideCommands(state State, env Envelope) []Event fails Refusal {
 		try requireKey(c.Unit)
 		try requireText("head", c.Head)
 		let u = try existingUnit(state, c.Unit)
+		try requireOwner(u, env.Actor)
 		try requireUnitAction(u, ActAccept)
 		try requireGreen(state, u, c.Head)
 		[]Event{UnitWasAccepted{Unit: c.Unit, Head: c.Head, At: env.At}}
@@ -69,7 +83,9 @@ func decideCommands(state State, env Envelope) []Event fails Refusal {
 		try requireKey(c.Unit)
 		try requireText("head", c.Head)
 		let u = try existingUnit(state, c.Unit)
+		try requireOwner(u, env.Actor)
 		try requireUnitAction(u, ActLand)
+		let _ = try heldLease(state, c.Unit.Repo, c.Unit.Run, env.Actor, try unixAt(env.At))
 		let accepted = match u.Head {
 		case option.Some[string] as h:
 			h.Value
@@ -84,8 +100,70 @@ func decideCommands(state State, env Envelope) []Event fails Refusal {
 	case CloseUnit as c:
 		try requireKey(c.Unit)
 		let u = try existingUnit(state, c.Unit)
+		try requireOwner(u, env.Actor)
 		try requireUnitAction(u, ActClose)
 		[]Event{UnitWasClosed{Unit: c.Unit, At: env.At}}
+	case TransferUnit as c:
+		try requireKey(c.Unit)
+		try requireText("to", c.To)
+		if c.To == UnknownOwner {
+			return InvalidInput{Field: "to", Why: "must name an actor"}
+		}
+		let u = try existingUnit(state, c.Unit)
+		if u.Owner == UnknownOwner {
+			if c.To != env.Actor {
+				return InvalidInput{Field: "to", Why: "a unit of unknown owner is claimed by the caller for itself"}
+			}
+		} else {
+			try requireOwner(u, env.Actor)
+		}
+		if UnitFinal(u.Status) {
+			return InvalidTransition{Kind: "unit", ID: UnitKeyText(u.Key), From: UnitStatusName(u.Status), Action: "transfer"}
+		}
+		[]Event{UnitOwnerChanged{Unit: c.Unit, From: u.Owner, To: c.To, At: env.At}}
+	case BeginLanding as c:
+		try requireText("repo", c.Repo)
+		try requireText("run", c.Run)
+		try requireText("expectedHead", c.ExpectedHead)
+		if c.LifetimeSeconds < 1 || c.LifetimeSeconds > MaxLeaseSeconds {
+			return InvalidInput{Field: "lifetimeSeconds", Why: "must be 1 to \(MaxLeaseSeconds)"}
+		}
+		let now = try unixAt(env.At)
+		let rk = RunKey{Repo: c.Repo, Run: c.Run}
+		let mut out = []Event{}
+		match state.Leases.Get(rk) {
+		case option.Some[LandingLease] as held:
+			if held.Value.Actor != env.Actor {
+				if LeaseLive(held.Value, now) {
+					return LandingBusy{Actor: held.Value.Actor, Since: held.Value.Since}
+				}
+				out = out.Append(LandingLeaseTakenOver{Repo: c.Repo, Run: c.Run, From: held.Value.Actor, FromSince: held.Value.Since, To: env.Actor, At: env.At})
+			}
+		case option.None:
+		}
+		match RunHead(state, c.Repo, c.Run) {
+		case option.Some[string] as h:
+			if h.Value != c.ExpectedHead {
+				return StaleHead{Have: c.ExpectedHead, Want: h.Value}
+			}
+		case option.None:
+			out = out.Append(RunHeadUpdated{Repo: c.Repo, Run: c.Run, Head: c.ExpectedHead, UpdatedAt: env.At})
+		}
+		let until = time.Unix(now+int64(c.LifetimeSeconds), 0).Format(time.RFC3339)
+		out.Append(LandingLeaseTaken{Lease: LandingLease{Repo: c.Repo, Run: c.Run, Actor: env.Actor, BaseHead: c.ExpectedHead, Since: env.At, Until: until}})
+	case EndLanding as c:
+		try requireText("repo", c.Repo)
+		try requireText("run", c.Run)
+		try requireText("newHead", c.NewHead)
+		let lease = try heldLease(state, c.Repo, c.Run, env.Actor, try unixAt(env.At))
+		match RunHead(state, c.Repo, c.Run) {
+		case option.Some[string] as h:
+			if h.Value != lease.BaseHead {
+				return StaleHead{Have: lease.BaseHead, Want: h.Value}
+			}
+		case option.None:
+		}
+		[]Event{RunHeadUpdated{Repo: c.Repo, Run: c.Run, Head: c.NewHead, UpdatedAt: env.At}, LandingLeaseEnded{Repo: c.Repo, Run: c.Run, Actor: env.Actor, At: env.At}}
 	case AddCommitment as c:
 		try requireText("id", c.ID)
 		try requireText("title", c.Title)
@@ -187,11 +265,6 @@ func decideCommands(state State, env Envelope) []Event fails Refusal {
 		}
 		try requireText("answer", c.Answer)
 		[]Event{QuestionWasAnswered{ID: c.ID, Answer: c.Answer, AnsweredBy: env.Actor, AnsweredAt: env.At}}
-	case SetRunHead as c:
-		try requireText("repo", c.Repo)
-		try requireText("run", c.Run)
-		try requireText("head", c.Head)
-		[]Event{RunHeadUpdated{Repo: c.Repo, Run: c.Run, Head: c.Head, UpdatedAt: env.At}}
 	case RecordDecision as c:
 		try requireText("repo", c.Repo)
 		try requireText("run", c.Run)
@@ -303,7 +376,9 @@ func decideCommands(state State, env Envelope) []Event fails Refusal {
 		let mut out = []Event{}
 		match parsed.MainHead {
 		case option.Some[string] as h:
-			out = out.Append(RunHeadUpdated{Repo: c.Repo, Run: c.Run, Head: h.Value, UpdatedAt: env.At})
+			if RunHead(state, c.Repo, c.Run) == option.None {
+				out = out.Append(RunHeadUpdated{Repo: c.Repo, Run: c.Run, Head: h.Value, UpdatedAt: env.At})
+			}
 		case option.None:
 		}
 		for d in parsed.Decisions {
@@ -424,15 +499,33 @@ func Scope(state State, env Envelope) State {
 	}
 	match env.Command {
 	case OpenUnit as c:
-		scopeUnit(state, out, c.Key, option.None)
+		let withUnit = scopeUnit(state, out, c.Key, option.None)
+		match c.Lane {
+		case option.Some[string] as lane:
+			let mut units = withUnit.Units
+			for k, u in state.Units {
+				if holdsLane(u, c.Key.Repo, lane.Value) {
+					units = units.Put(k, u)
+				}
+			}
+			State{..withUnit, Units: units}
+		case option.None:
+			withUnit
+		}
 	case RecordReceipt as c:
 		scopeUnit(state, out, c.Unit, option.None)
 	case AcceptUnit as c:
 		scopeUnit(state, out, c.Unit, option.Some[string]{Value: c.Head})
 	case LandUnit as c:
-		scopeUnit(state, out, c.Unit, option.Some[string]{Value: c.Head})
+		scopeRun(state, scopeUnit(state, out, c.Unit, option.Some[string]{Value: c.Head}), c.Unit.Repo, c.Unit.Run)
 	case CloseUnit as c:
 		scopeUnit(state, out, c.Unit, option.None)
+	case TransferUnit as c:
+		scopeUnit(state, out, c.Unit, option.None)
+	case BeginLanding as c:
+		scopeRun(state, out, c.Repo, c.Run)
+	case EndLanding as c:
+		scopeRun(state, out, c.Repo, c.Run)
 	case AddCommitment as c:
 		scopeCommitment(state, out, c.ID)
 	case AssignCommitment as c:
@@ -459,7 +552,7 @@ func Scope(state State, env Envelope) State {
 		case option.None:
 			out
 		}
-	case SetRunHead, RecordDecision, RecordLanding:
+	case RecordDecision, RecordLanding:
 		out
 	case RecordLedgerEvent as c:
 		match c.SourceKey {
@@ -492,7 +585,95 @@ func Scope(state State, env Envelope) State {
 			case option.None:
 			}
 		}
-		State{..out, EventLogSourceKeys: keys}
+		scopeRun(state, State{..out, EventLogSourceKeys: keys}, c.Repo, c.Run)
+	}
+}
+
+func scopeRun(state State, out State, repo string, run string) State {
+	let rk = RunKey{Repo: repo, Run: run}
+	let mut metas = out.RunMetas
+	let mut leases = out.Leases
+	match state.RunMetas.Get(rk) {
+	case option.Some[RunMeta] as m:
+		metas = metas.Put(rk, m.Value)
+	case option.None:
+	}
+	match state.Leases.Get(rk) {
+	case option.Some[LandingLease] as l:
+		leases = leases.Put(rk, l.Value)
+	case option.None:
+	}
+	State{..out, RunMetas: metas, Leases: leases}
+}
+
+func holdsLane(u Unit, repo string, lane string) bool {
+	u.Key.Repo == repo && u.Lane == option.Some[string]{Value: lane} && !UnitFinal(u.Status)
+}
+
+// LaneHolder is the live unit of repo (neither landed nor closed) that holds lane, the least by key text when legacy data holds more than one.
+func LaneHolder(state State, repo string, lane string) option.Option[Unit] {
+	let mut best option.Option[Unit] = option.None
+	for _, u in state.Units {
+		if holdsLane(u, repo, lane) {
+			match best {
+			case option.Some[Unit] as b:
+				if UnitKeyText(u.Key) < UnitKeyText(b.Value.Key) {
+					best = option.Some[Unit]{Value: u}
+				}
+			case option.None:
+				best = option.Some[Unit]{Value: u}
+			}
+		}
+	}
+	best
+}
+
+// RunHead is the run's head, set by its first landing-begin (or plan import into an empty run) and moved only by landing-end.
+func RunHead(state State, repo string, run string) option.Option[string] {
+	match state.RunMetas.Get(RunKey{Repo: repo, Run: run}) {
+	case option.Some[RunMeta] as m:
+		m.Value.MainHead
+	case option.None:
+		option.None
+	}
+}
+
+func requireOwner(u Unit, actor string) fails Refusal {
+	if u.Owner != actor {
+		return NotOwner{Unit: u.Key, Owner: u.Owner, Actor: actor}
+	}
+}
+
+func unixAt(at string) int64 fails InvalidInput {
+	let t = time.Parse(time.RFC3339, at) catch {
+	case _:
+		return InvalidInput{Field: "at", Why: "must be an RFC 3339 time"}
+	}
+	time.UnixSeconds(t)
+}
+
+// LeaseLive reports whether the lease is still live at the unix second now.
+func LeaseLive(l LandingLease, now int64) bool {
+	let until = time.Parse(time.RFC3339, l.Until) catch {
+	case _:
+		return false
+	}
+	now < time.UnixSeconds(until)
+}
+
+func heldLease(state State, repo string, run string, actor string, now int64) LandingLease fails Refusal {
+	match state.Leases.Get(RunKey{Repo: repo, Run: run}) {
+	case option.Some[LandingLease] as l:
+		let live = LeaseLive(l.Value, now)
+		if l.Value.Actor != actor && live {
+			return LandingBusy{Actor: l.Value.Actor, Since: l.Value.Since}
+		}
+		if l.Value.Actor != actor || !live {
+			return NoLease{Repo: repo, Run: run, Actor: actor}
+		}
+		l.Value
+	case option.None:
+		NoLease{Repo: repo, Run: run, Actor: actor}
 	}
 }
 
@@ -545,6 +726,16 @@ func decideOutcome(state State, env Envelope) decided {
 	case Unverified as e:
 		return decidedRefused{Refusal: e}
 	case NotAcceptedHead as e:
+		return decidedRefused{Refusal: e}
+	case LaneHeld as e:
+		return decidedRefused{Refusal: e}
+	case NotOwner as e:
+		return decidedRefused{Refusal: e}
+	case LandingBusy as e:
+		return decidedRefused{Refusal: e}
+	case StaleHead as e:
+		return decidedRefused{Refusal: e}
+	case NoLease as e:
 		return decidedRefused{Refusal: e}
 	}
 	decidedEvents{Events: evs}
@@ -665,6 +856,10 @@ law LandNeedsTheAcceptedHead(tag int, landSame bool, laterRed bool) {
 		return false
 	}
 	s = lawStep(s, "accept", AcceptUnit{Unit: key, Head: "h1"}) catch {
+	case _:
+		return false
+	}
+	s = lawStep(s, "lease", BeginLanding{Repo: "repo", Run: "law", ExpectedHead: "main", LifetimeSeconds: 600}) catch {
 	case _:
 		return false
 	}
@@ -910,4 +1105,307 @@ law IngestPlanDeduplicatesEvents(tag int) {
 		s2.Decisions.Len() == 1 &&
 		s2.Landings.Len() == 1 &&
 		RunMetaOf(s2, "repo", "run") != option.None
+}
+
+func lawAt(offset int) string {
+	time.Unix(int64(1795737600+offset), 0).Format(time.RFC3339)
+}
+
+func lawEnv(id string, actor string, offset int, cmd Command) Envelope {
+	Envelope{ID: CommandID(id), Actor: actor, At: lawAt(offset), Command: cmd}
+}
+
+func lawApply(state State, env Envelope) State {
+	match decideOutcome(state, env) {
+	case decidedEvents as d:
+		ApplyAll(state, d.Events)
+	case decidedRefused:
+		state
+	}
+}
+
+func liveLaneHolders(state State) bool {
+	for k, u in state.Units {
+		for k2, u2 in state.Units {
+			if k != k2 && u.Lane != option.None && holdsLane(u2, u.Key.Repo, lane(u)) && !UnitFinal(u.Status) {
+				return false
+			}
+		}
+	}
+	true
+}
+
+func lane(u Unit) string {
+	match u.Lane {
+	case option.Some[string] as l:
+		l.Value
+	case option.None:
+		""
+	}
+}
+
+// LaneHeldAtMostOneLive verifies that over any sequence of opens, closes and landings by two actors at most one live unit holds a lane of a repository, and that an open on a held lane is refused LaneHeld naming the holder and its owner.
+law LaneHeldAtMostOneLive(steps []int) {
+	let mut s = EmptyState()
+	for i, code in steps {
+		let c = if code < 0 { -code } else { code }
+		let actor = if c%2 == 0 { "a" } else { "b" }
+		let laneName = "/lanes/\((c / 8) % 2)"
+		let target = UnitKey{Repo: "repo", Run: "run", ID: "u-\((c / 16) % (i + 1))"}
+		let owner = match s.Units.Get(target) {
+		case option.Some[Unit] as u:
+			u.Value.Owner
+		case option.None:
+			actor
+		}
+		match (c / 2) % 4 {
+		case 0:
+			let key = UnitKey{Repo: "repo", Run: "run", ID: "u-\(i)"}
+			let env = lawEnv("open-\(i)", actor, i, OpenUnit{Key: key, Title: "U", Requires: []string{"acceptance"}, Lane: option.Some[string]{Value: laneName}, Branch: option.None})
+			let got = decideOutcome(s, env)
+			match LaneHolder(s, "repo", laneName) {
+			case option.Some[Unit] as h:
+				if got != (decidedRefused{Refusal: LaneHeld{Lane: laneName, Unit: h.Value.Key, Actor: h.Value.Owner}}) {
+					return false
+				}
+			case option.None:
+				match got {
+				case decidedEvents:
+				case decidedRefused:
+					return false
+				}
+			}
+			s = lawApply(s, env)
+		case 1:
+			s = lawApply(s, lawEnv("close-\(i)", owner, i, CloseUnit{Unit: target}))
+		case 2:
+			s = lawApply(s, lawEnv("rec-\(i)", owner, i, RecordReceipt{Unit: target, Kind: "acceptance", Command: "t", Head: "h", ExitCode: 0, ExitLines: "ok"}))
+			s = lawApply(s, lawEnv("acc-\(i)", owner, i, AcceptUnit{Unit: target, Head: "h"}))
+			let head = match RunHead(s, "repo", "run") {
+			case option.Some[string] as h:
+				h.Value
+			case option.None:
+				"h0"
+			}
+			s = lawApply(s, lawEnv("lb-\(i)", owner, i, BeginLanding{Repo: "repo", Run: "run", ExpectedHead: head, LifetimeSeconds: 60}))
+			s = lawApply(s, lawEnv("land-\(i)", owner, i, LandUnit{Unit: target, Head: "h"}))
+			s = lawApply(s, lawEnv("le-\(i)", owner, i, EndLanding{Repo: "repo", Run: "run", NewHead: head}))
+		case _:
+			s = lawApply(s, lawEnv("tr-\(i)", owner, i, TransferUnit{Unit: target, To: if actor == "a" { "b" } else { "a" }}))
+		}
+		if !liveLaneHolders(s) {
+			return false
+		}
+	}
+	true
+}
+
+func unitTarget(cmd Command) option.Option[UnitKey] {
+	match cmd {
+	case RecordReceipt as c:
+		option.Some[UnitKey]{Value: c.Unit}
+	case AcceptUnit as c:
+		option.Some[UnitKey]{Value: c.Unit}
+	case LandUnit as c:
+		option.Some[UnitKey]{Value: c.Unit}
+	case CloseUnit as c:
+		option.Some[UnitKey]{Value: c.Unit}
+	case TransferUnit as c:
+		option.Some[UnitKey]{Value: c.Unit}
+	case _:
+		option.None
+	}
+}
+
+// NoMutationByNonOwner verifies over generated command sequences by three actors that a receipt, accept, land, close or transfer by an actor that does not own the unit is refused NotOwner and changes no unit, while reads see every unit.
+law NoMutationByNonOwner(steps []int) {
+	let mut s = EmptyState()
+	for i, code in steps {
+		let c = if code < 0 { -code } else { code }
+		let gen = generatedEnvelope(i, c)
+		let env = Envelope{..gen, Actor: "actor-\((c / 66) % 3)"}
+		let got = decideOutcome(s, env)
+		match unitTarget(env.Command) {
+		case option.Some[UnitKey] as k:
+			match s.Units.Get(k.Value) {
+			case option.Some[Unit] as u:
+				if u.Value.Owner != env.Actor {
+					if got != (decidedRefused{Refusal: NotOwner{Unit: k.Value, Owner: u.Value.Owner, Actor: env.Actor}}) {
+						return false
+					}
+					if UnitByKey(s, k.Value) != (option.Some[Unit]{Value: u.Value}) {
+						return false
+					}
+				}
+			case option.None:
+			}
+		case option.None:
+		}
+		match got {
+		case decidedEvents as d:
+			s = ApplyAll(s, d.Events)
+		case decidedRefused:
+		}
+	}
+	true
+}
+
+func leaseStep(s State, actor string, view string, act int, step int, clock int, uA UnitKey, uB UnitKey) Envelope {
+	let unit = if actor == "a" { uA } else { uB }
+	match act {
+	case 0:
+		lawEnv("lb-\(step)", actor, clock, BeginLanding{Repo: "repo", Run: "run", ExpectedHead: view, LifetimeSeconds: 600})
+	case 1:
+		lawEnv("le-\(step)", actor, clock, EndLanding{Repo: "repo", Run: "run", NewHead: "h-\(step)-\(actor)"})
+	case _:
+		lawEnv("land-\(step)", actor, clock, LandUnit{Unit: unit, Head: "x"})
+	}
+}
+
+func liveLeaseOf(s State, now int) option.Option[LandingLease] {
+	match LeaseOf(s, "repo", "run") {
+	case option.Some[LandingLease] as l:
+		if LeaseLive(l.Value, int64(1795737600+now)) {
+			return option.Some[LandingLease]{Value: l.Value}
+		}
+		option.None
+	case option.None:
+		option.None
+	}
+}
+
+func hasTakeover(evs []Event) bool {
+	for ev in evs {
+		match ev {
+		case LandingLeaseTakenOver:
+			return true
+		case _:
+		}
+	}
+	false
+}
+
+func leasePrelude() State {
+	let mut s = EmptyState()
+	for actor in []string{"a", "b"} {
+		let key = UnitKey{Repo: "repo", Run: "run", ID: "u-\(actor)"}
+		s = lawApply(s, lawEnv("open-\(actor)", actor, 0, OpenUnit{Key: key, Title: "U", Requires: []string{"acceptance"}, Lane: option.None, Branch: option.None}))
+		s = lawApply(s, lawEnv("rec-\(actor)", actor, 0, RecordReceipt{Unit: key, Kind: "acceptance", Command: "t", Head: "x", ExitCode: 0, ExitLines: "ok"}))
+		s = lawApply(s, lawEnv("acc-\(actor)", actor, 0, AcceptUnit{Unit: key, Head: "x"}))
+	}
+	s
+}
+
+func leaseSequenceHolds(seq []int) bool {
+	let uA = UnitKey{Repo: "repo", Run: "run", ID: "u-a"}
+	let uB = UnitKey{Repo: "repo", Run: "run", ID: "u-b"}
+	let mut s = leasePrelude()
+	let mut viewA = "h0"
+	let mut viewB = "h0"
+	let mut clock = 1
+	for step, sym in seq {
+		if sym == 8 {
+			clock = clock + 700
+			continue
+		}
+		let actor = if sym%2 == 0 { "a" } else { "b" }
+		let act = sym / 2
+		if act == 3 {
+			let seen = match RunHead(s, "repo", "run") {
+			case option.Some[string] as h:
+				h.Value
+			case option.None:
+				"h0"
+			}
+			if actor == "a" {
+				viewA = seen
+			} else {
+				viewB = seen
+			}
+			continue
+		}
+		let view = if actor == "a" { viewA } else { viewB }
+		let env = leaseStep(s, actor, view, act, step, clock, uA, uB)
+		let before = RunHead(s, "repo", "run")
+		let held = liveLeaseOf(s, clock)
+		let recorded = LeaseOf(s, "repo", "run")
+		let got = decideOutcome(s, env)
+		let unitLive = match s.Units.Get(if actor == "a" { uA } else { uB }) {
+		case option.Some[Unit] as u:
+			u.Value.Status == UnitAccepted
+		case option.None:
+			false
+		}
+		match held {
+		case option.Some[LandingLease] as h:
+			if h.Value.Actor != actor && (act != 2 || unitLive) && got != (decidedRefused{Refusal: LandingBusy{Actor: h.Value.Actor, Since: h.Value.Since}}) {
+				return false
+			}
+		case option.None:
+		}
+		let evs = match got {
+		case decidedEvents as d:
+			d.Events
+		case decidedRefused:
+			[]Event{}
+		}
+		let after = ApplyAll(s, evs)
+		let moved = RunHead(after, "repo", "run")
+		if moved != before {
+			let firstHead = act == 0 && before == option.None && moved == option.Some[string]{Value: view}
+			let byHolder = match held {
+			case option.Some[LandingLease] as h:
+				act == 1 && h.Value.Actor == actor && before == option.Some[string]{Value: h.Value.BaseHead}
+			case option.None:
+				false
+			}
+			if !firstHead && !byHolder {
+				return false
+			}
+		}
+		if act == 2 && evs.Len() > 0 {
+			match held {
+			case option.Some[LandingLease] as h:
+				if h.Value.Actor != actor {
+					return false
+				}
+			case option.None:
+				return false
+			}
+		}
+		if act == 0 && evs.Len() > 0 {
+			match recorded {
+			case option.Some[LandingLease] as r:
+				if r.Value.Actor != actor && !hasTakeover(evs) {
+					return false
+				}
+			case option.None:
+			}
+		}
+		s = after
+	}
+	true
+}
+
+// LandingHeadMovesOnlyByLeaseHolder verifies, exhaustively over every interleaving of up to four steps of two actors (observe the head, begin a landing from the head last observed, end it, land an accepted unit, and a clock jump past the lease's lifetime), that the run head moves only by landing-end of the live lease's holder and only from the head the lease began at, that the one other move is the first landing-begin setting an empty run's head, that a landing step during another actor's live lease is LandingBusy, that a unit lands only inside its actor's live lease, and that taking over an expired lease is a recorded LandingLeaseTakenOver.
+law LandingHeadMovesOnlyByLeaseHolder() {
+	let alphabet = 9
+	let mut total = 1
+	for _ in 0..4 {
+		total = total * alphabet
+	}
+	let mut count = 0
+	for code in 0..total {
+		let mut seq = []int{}
+		let mut rest = code
+		for _ in 0..4 {
+			seq = seq.Append(rest % alphabet)
+			rest = rest / alphabet
+		}
+		if !leaseSequenceHolds(seq) {
+			return false
+		}
+		count = count + 1
+	}
+	count == total
 }

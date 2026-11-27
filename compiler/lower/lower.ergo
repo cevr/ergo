@@ -93,15 +93,16 @@ type fnb {
 	calls  []expr.CallTo,
 	callAt dense.Side[store.PNode, int],
 	// capAt is the typer's resolved capability by call node.
-	capAt     dense.Side[store.PNode, dense.Opt[store.TKey]],
-	frameRoot bool,
-	frame     framePlan,
-	plan      GeneratedBodyPlan,
-	generic   GenericBodyPlan,
-	filePath  string,
-	pkgPath   string,
-	idx       pkgFlatIndex,
-	cache     pkgMemo,
+	capAt       dense.Side[store.PNode, dense.Opt[store.TKey]],
+	frameRoot   bool,
+	frame       framePlan,
+	plan        GeneratedBodyPlan,
+	generic     GenericBodyPlan,
+	filePath    string,
+	pkgPath     string,
+	programRoot string,
+	idx         pkgFlatIndex,
+	cache       pkgMemo,
 }
 
 type localBinds {
@@ -123,6 +124,17 @@ func Package(s store.Store, k expr.Pkg, t expr.Typer, paths []string, path strin
 }
 
 func PackageWithPlan(s store.Store, k expr.Pkg, t expr.Typer, paths []string, path string, root bool, imports option.Option[[]expr.Dep], direct []ImportCallFacts, shapeImports Map[string, expr.Dep], plan GeneratedBodyPlan) Out {
+	PackageInProgram(s, k, t, paths, path, root, imports, "", direct, shapeImports, plan)
+}
+
+// PackageInProgram builds a package of a program whose root is another
+// package: imports is then every other package of that program (the
+// root's import path is programRoot, the root itself among imports
+// unless it is a program of no package of its own, as std's is), as
+// the Go builder lowers a library with the program that reaches it. Its
+// unions take the program's forms, its calls the program's rewrite laws.
+// For the root itself programRoot is "" and imports its import closure.
+func PackageInProgram(s store.Store, k expr.Pkg, t expr.Typer, paths []string, path string, root bool, imports option.Option[[]expr.Dep], programRoot string, direct []ImportCallFacts, shapeImports Map[string, expr.Dep], plan GeneratedBodyPlan) Out {
 	let alias = if root || path == "prelude" { "" } else { pkgAlias(path) }
 	let mut prelude = []string{}
 	if path != "prelude" {
@@ -169,7 +181,7 @@ func PackageWithPlan(s store.Store, k expr.Pkg, t expr.Typer, paths []string, pa
 	let mut facts = EmptyCallFacts()
 	if k.Fns.Len() > 0 {
 		let zeroP = k.Parsed[k.Fns[0].File]
-		let baseSt = fnb{rootImports: imports, shapeImports: shapeImports, importCalls: direct, k: k, s: s, types: types, file: k.Fns[0].File, p: zeroP, lines: lines[k.Fns[0].File], fileIx: uint32(0), alias: alias, prelude: prelude, calls: t.Calls, callAt: callAt, capAt: capAt, frameRoot: root && path != "prelude", frame: rowlessFrame(0), plan: plan, generic: EmptyGenericPlan(), filePath: paths[k.Fns[0].File], pkgPath: path, idx: emptyPkgFlatIndex(), cache: emptyPkgMemo()}
+		let baseSt = fnb{rootImports: imports, shapeImports: shapeImports, importCalls: direct, k: k, s: s, types: types, file: k.Fns[0].File, p: zeroP, lines: lines[k.Fns[0].File], fileIx: uint32(0), alias: alias, prelude: prelude, calls: t.Calls, callAt: callAt, capAt: capAt, frameRoot: root && path != "prelude", frame: rowlessFrame(0), plan: plan, generic: EmptyGenericPlan(), filePath: paths[k.Fns[0].File], pkgPath: path, programRoot: programRoot, idx: emptyPkgFlatIndex(), cache: emptyPkgMemo()}
 		let (rootIdx, memo) = buildPkgMemo(baseSt, path)
 		for i, f in k.Fns {
 			let p = k.Parsed[f.File]

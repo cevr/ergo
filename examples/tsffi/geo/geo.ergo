@@ -1,0 +1,132 @@
+import option
+
+// Meters is a length in meters.
+type Meters float64
+
+// Point is a position in the plane.
+type Point {
+	X Meters,
+	Y Meters,
+}
+
+// Circle is the disc of Radius around Center.
+type Circle {
+	Center Point,
+	Radius Meters,
+}
+
+// Polygon is the closed path through Points, with an optional Label.
+type Polygon {
+	Points []Point,
+	Label  option.Option[string],
+}
+
+// Shape is a closed union of the shapes geo measures.
+type Shape = Circle | Polygon
+
+// Degenerate is a polygon of fewer than three points.
+type Degenerate {
+	Points int64,
+}
+
+// NegativeRadius is a circle whose radius is below zero.
+type NegativeRadius {
+	Radius Meters,
+}
+
+let pi = 3.141592653589793
+
+// Area is the area of s.
+func Area(s Shape) Meters fails Degenerate | NegativeRadius {
+	match s {
+	case Circle as c:
+		if c.Radius < 0 {
+			return NegativeRadius{Radius: c.Radius}
+		}
+		Meters(pi * float64(c.Radius) * float64(c.Radius))
+	case Polygon as p:
+		let n = p.Points.Len()
+		if n < 3 {
+			return Degenerate{Points: int64(n)}
+		}
+		let mut twice = 0.0
+		for i in 0..n {
+			let a = p.Points[i]
+			let b = p.Points[(i+1)%n]
+			twice = twice + float64(a.X)*float64(b.Y) - float64(b.X)*float64(a.Y)
+		}
+		if twice < 0 {
+			twice = -twice
+		}
+		Meters(twice / 2)
+	}
+}
+
+// Centroid is the mean of points, or none when there are none.
+func Centroid(points []Point) option.Option[Point] {
+	if points.Len() == 0 {
+		return option.None
+	}
+	let mut x = 0.0
+	let mut y = 0.0
+	for p in points {
+		x = x + float64(p.X)
+		y = y + float64(p.Y)
+	}
+	let n = float64(points.Len())
+	option.Some[Point]{Value: Point{X: Meters(x / n), Y: Meters(y / n)}}
+}
+
+// Scale multiplies every point's coordinates by by, in place.
+func Scale(points mut []Point, by float64) {
+	for i in 0..(*points).Len() {
+		let p = (*points)[i]
+		(*points)[i] = Point{X: Meters(float64(p.X) * by), Y: Meters(float64(p.Y) * by)}
+	}
+}
+
+// Checksum is the 64-bit FNV-1a hash of data.
+func Checksum(data []byte) uint64 {
+	let mut h uint64 = 0xcbf29ce484222325
+	for b in data {
+		h = (h ^ uint64(b)) * 0x100000001b3
+	}
+	h
+}
+
+func unitSquare(side float64) Polygon {
+	let s = Meters(side)
+	Polygon{Points: []Point{Point{X: 0, Y: 0}, Point{X: s, Y: 0}, Point{X: s, Y: s}, Point{X: 0, Y: s}}, Label: option.None}
+}
+
+// AreaOfSquareIsSideSquared: a square of side s has area s*s, whichever way it is listed.
+law AreaOfSquareIsSideSquared(side uint8) {
+	let s = float64(side)
+	let a = Area(unitSquare(s)) catch {
+	case Degenerate, NegativeRadius:
+		return false
+	}
+	float64(a) == s*s
+}
+
+// ScaleScalesTheCentroid: scaling the points by k scales their centroid by k.
+law ScaleScalesTheCentroid(xs []uint8, k uint8) {
+	let mut pts = []Point{}
+	for x in xs {
+		pts = pts.Append(Point{X: Meters(float64(x)), Y: Meters(float64(x) * 2)})
+	}
+	let before = Centroid(pts)
+	Scale(&pts, float64(k))
+	match before {
+	case option.None:
+		Centroid(pts) == option.None
+	case option.Some[Point] as c:
+		match Centroid(pts) {
+		case option.None:
+			false
+		case option.Some[Point] as d:
+			let dx = float64(d.Value.X) - float64(c.Value.X)*float64(k)
+			dx*dx < 0.000001
+		}
+	}
+}

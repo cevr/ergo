@@ -168,6 +168,11 @@ func RunMetaOf(state State, repo string, run string) option.Option[RunMeta] {
 	state.RunMetas.Get(RunKey{Repo: repo, Run: run})
 }
 
+// LeaseOf looks up the landing lease recorded for (repo, run), live or expired.
+func LeaseOf(state State, repo string, run string) option.Option[LandingLease] {
+	state.Leases.Get(RunKey{Repo: repo, Run: run})
+}
+
 // QueryRunSummary computes the compact progressive-disclosure overview for (repo, run).
 func QueryRunSummary(state State, repo string, run string, landingsLimit int) RunOverview {
 	let mainHead = match RunMetaOf(state, repo, run) {

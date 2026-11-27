@@ -1,0 +1,277 @@
+import github.com/cevr/ergo/modules/atlas/api/serve
+import github.com/cevr/ergo/modules/atlas/cutover
+import github.com/cevr/ergo/modules/atlas/handle
+import github.com/cevr/ergo/modules/atlas/memory
+import strings
+
+// InvalidServeConfig reports an invalid or missing daemon configuration field.
+type InvalidServeConfig {
+	Field  string,
+	Reason string,
+}
+
+// BindAddressRefused reports an HTTP bind address rejected by loopback/tailnet bind policy.
+type BindAddressRefused {
+	Cause serve.BindRefused,
+}
+
+// StoreOperationFailed reports a store command refusal or backend I/O failure.
+type StoreOperationFailed {
+	Operation string,
+	Detail    string,
+}
+
+// CutoverProtocolFailed reports an invalid or rejected M14 live cutover transition.
+type CutoverProtocolFailed {
+	Phase  string,
+	Reason string,
+}
+
+// HandoverIOFailed reports a Unix socket SCM_RIGHTS or PTY/pipe reattachment error.
+type HandoverIOFailed {
+	Operation string,
+	Reason    string,
+}
+
+// SupervisionFailed reports a BEAM/OTP supervisor or child actor lifecycle error.
+type SupervisionFailed {
+	Reason string,
+}
+
+// ReconcileFailed reports a startup boot reconciliation failure.
+type ReconcileFailed {
+	Reason string,
+}
+
+// ServeError is the closed union of typed failures emitted by the Atlas daemon runtime.
+type ServeError = InvalidServeConfig | BindAddressRefused | StoreOperationFailed | CutoverProtocolFailed | HandoverIOFailed | SupervisionFailed | ReconcileFailed
+
+// DaemonConfig configures daemon ownership identity, listeners, and scheduling intervals.
+type DaemonConfig {
+	ServerID                   string,
+	Location                   string,
+	Epoch                      int,
+	LeaseID                    string,
+	ListenAddr                 string,
+	ControlSocketPath          string,
+	SweepIntervalMs            int64,
+	WellnessIntervalMs         int64,
+	DrainTimeoutMs             int64,
+	LiveForeignOwners          []handle.OwnerID,
+	PendingRequestsSurviveBoot bool,
+}
+
+// LeaseState tracks the active fenced ownership lease held by the running daemon incarnation.
+type LeaseState {
+	LeaseID      string,
+	Owner        handle.OwnerID,
+	Epoch        int,
+	FencingToken int64,
+	Phase        cutover.CutoverPhase,
+}
+
+// DefaultDaemonConfig returns a validated loopback daemon configuration for serverID and epoch.
+func DefaultDaemonConfig(serverID string, epoch int) DaemonConfig {
+	DaemonConfig{
+		ServerID:                   serverID,
+		Location:                   "local",
+		Epoch:                      epoch,
+		LeaseID:                    "atlas-daemon-lease",
+		ListenAddr:                 "127.0.0.1:8787",
+		ControlSocketPath:          "",
+		SweepIntervalMs:            5000,
+		WellnessIntervalMs:         15000,
+		DrainTimeoutMs:             5000,
+		LiveForeignOwners:          []handle.OwnerID{},
+		PendingRequestsSurviveBoot: true,
+	}
+}
+
+// OwnerOfConfig returns the canonical handle.OwnerID identified by cfg.
+func OwnerOfConfig(cfg DaemonConfig) handle.OwnerID {
+	handle.OwnerID{
+		ServerID: cfg.ServerID,
+		Location: cfg.Location,
+		Epoch:    cfg.Epoch,
+	}
+}
+
+// ValidateDaemonConfig checks ownership fields, positive intervals, and loopback/tailnet bind policy.
+func ValidateDaemonConfig(cfg DaemonConfig) fails ServeError {
+	if strings.TrimSpace(cfg.ServerID) == "" {
+		return InvalidServeConfig{Field: "server_id", Reason: "must not be empty"}
+	}
+	if strings.TrimSpace(cfg.Location) == "" {
+		return InvalidServeConfig{Field: "location", Reason: "must not be empty"}
+	}
+	if cfg.Epoch <= 0 {
+		return InvalidServeConfig{Field: "epoch", Reason: "must be positive"}
+	}
+	if strings.TrimSpace(cfg.LeaseID) == "" {
+		return InvalidServeConfig{Field: "lease_id", Reason: "must not be empty"}
+	}
+	if cfg.SweepIntervalMs <= int64(0) {
+		return InvalidServeConfig{Field: "sweep_interval_ms", Reason: "must be positive"}
+	}
+	if cfg.WellnessIntervalMs <= int64(0) {
+		return InvalidServeConfig{Field: "wellness_interval_ms", Reason: "must be positive"}
+	}
+	if cfg.DrainTimeoutMs <= int64(0) {
+		return InvalidServeConfig{Field: "drain_timeout_ms", Reason: "must be positive"}
+	}
+	serve.ValidateBindAddr(cfg.ListenAddr) catch {
+	case serve.BindRefused as b:
+		return BindAddressRefused{Cause: b}
+	}
+}
+
+// LeaseStateFromRecord projects a persisted memory.LeaseRecord into a compact LeaseState.
+func LeaseStateFromRecord(rec memory.LeaseRecord) LeaseState {
+	LeaseState{
+		LeaseID:      rec.LeaseID,
+		Owner:        rec.Owner,
+		Epoch:        rec.Epoch,
+		FencingToken: rec.FencingToken,
+		Phase:        rec.Phase,
+	}
+}
+
+// MakeLeaseFence constructs a memory.LeaseFenceCheck asserting lease ownership and token monotonicity.
+func MakeLeaseFence(lease LeaseState) memory.LeaseFenceCheck {
+	memory.LeaseFenceCheck{
+		LeaseID:         lease.LeaseID,
+		ExpectedOwner:   lease.Owner,
+		ExpectedEpoch:   lease.Epoch,
+		MinFencingToken: lease.FencingToken,
+	}
+}
+
+// ExecuteFencedStore runs one fenced store Envelope and maps domain/backend failures to StoreOperationFailed.
+func ExecuteFencedStore(store memory.Store, op string, env memory.Envelope) memory.ExecuteResult fails ServeError {
+	store.Execute(env) catch {
+	case memory.NotFound as e:
+		return StoreOperationFailed{Operation: op, Detail: "not_found:\(e.Entity):\(e.Target)"}
+	case memory.AlreadyExists as e:
+		return StoreOperationFailed{Operation: op, Detail: "already_exists:\(e.Scope):\(e.Key)"}
+	case memory.InvalidTransition as e:
+		return StoreOperationFailed{Operation: op, Detail: "invalid_transition:\(e.From):\(e.Action)"}
+	case memory.CommandReused as e:
+		return StoreOperationFailed{Operation: op, Detail: "command_reused:\(string(e.ID))"}
+	case memory.InvalidInput as e:
+		return StoreOperationFailed{Operation: op, Detail: "invalid_input:\(e.Field):\(e.Reason)"}
+	case memory.LeaseFenced as e:
+		return StoreOperationFailed{Operation: op, Detail: "lease_fenced:\(e.LeaseID):epoch=\(e.ActiveEpoch):token=\(e.ActiveToken)"}
+	case memory.ThreadDomainErr as e:
+		let _ = e.ThreadErr
+		return StoreOperationFailed{Operation: op, Detail: "thread_err"}
+	case memory.SubagentDomainErr as e:
+		let _ = e.SubagentErr
+		return StoreOperationFailed{Operation: op, Detail: "subagent_err"}
+	case memory.HandleDomainErr as e:
+		let _ = e.HandleErr
+		return StoreOperationFailed{Operation: op, Detail: "handle_err"}
+	case memory.LimitDomainErr as e:
+		let _ = e.LimitErr
+		return StoreOperationFailed{Operation: op, Detail: "limit_err"}
+	case memory.RequestDomainErr as e:
+		let _ = e.RequestErr
+		return StoreOperationFailed{Operation: op, Detail: "request_err"}
+	case memory.CutoverDomainErr as e:
+		let _ = e.CutoverErr
+		return StoreOperationFailed{Operation: op, Detail: "cutover_err"}
+	case memory.StoreFailed as e:
+		return StoreOperationFailed{Operation: op, Detail: "store_failed:\(e.Reason)"}
+	}
+}
+
+// SnapshotStore reads the projected memory.State and maps StoreFailed into StoreOperationFailed.
+func SnapshotStore(store memory.Store, op string) memory.State fails ServeError {
+	store.Snapshot() catch {
+	case memory.StoreFailed as e:
+		return StoreOperationFailed{Operation: op, Detail: e.Reason}
+	}
+}
+
+// CutoverPhaseLabel returns a stable diagnostic name for phase.
+func CutoverPhaseLabel(phase cutover.CutoverPhase) string {
+	match phase {
+	case cutover.CutoverOld:
+		"old"
+	case cutover.CutoverQuiesce:
+		"quiesce"
+	case cutover.CutoverTransfer:
+		"transfer"
+	case cutover.CutoverCommitted:
+		"committed"
+	case cutover.CutoverDone:
+		"done"
+	}
+}
+
+// DescribeServeError formats any ServeError variant cleanly for diagnostics and logs.
+func DescribeServeError(err ServeError) string {
+	match err {
+	case InvalidServeConfig as e:
+		"invalid config \(e.Field): \(e.Reason)"
+	case BindAddressRefused as e:
+		"bind refused \(e.Cause.Addr): \(e.Cause.Reason)"
+	case StoreOperationFailed as e:
+		"store \(e.Operation) failed: \(e.Detail)"
+	case CutoverProtocolFailed as e:
+		"cutover \(e.Phase) failed: \(e.Reason)"
+	case HandoverIOFailed as e:
+		"handover \(e.Operation) failed: \(e.Reason)"
+	case SupervisionFailed as e:
+		"supervision failed: \(e.Reason)"
+	case ReconcileFailed as e:
+		"reconcile failed: \(e.Reason)"
+	}
+}
+
+func configValidates(cfg DaemonConfig) bool {
+	ValidateDaemonConfig(cfg) catch {
+	case _:
+		return false
+	}
+	true
+}
+
+// DefaultConfigValidatesAndRejectsBadAddrs verifies config validation accepts valid configs and refuses non-loopback binds and invalid epochs.
+law DefaultConfigValidatesAndRejectsBadAddrs(epoch int) {
+	let posEpoch = if epoch > 0 { epoch } else { 1 }
+	let good = DefaultDaemonConfig("srv-1", posEpoch)
+	let badBind = DaemonConfig{..good, ListenAddr: "0.0.0.0:8787"}
+	let badEpoch = DaemonConfig{..good, Epoch: 0}
+	let badServer = DaemonConfig{..good, ServerID: ""}
+	configValidates(good) && !configValidates(badBind) && !configValidates(badEpoch) && !configValidates(badServer)
+}
+
+// LeaseFenceMatchesActiveOwnerAndEpoch verifies MakeLeaseFence preserves owner, epoch, and minimum fencing token.
+law LeaseFenceMatchesActiveOwnerAndEpoch(epoch int, token int64) {
+	let e = if epoch > 0 { epoch } else { 1 }
+	let t = if token > int64(0) { token } else { int64(1) }
+	let owner = handle.OwnerID{ServerID: "srv-fence", Location: "local", Epoch: e}
+	let rec = memory.LeaseRecord{
+		LeaseID:             "l-fence",
+		Owner:               owner,
+		Epoch:               e,
+		FencingToken:        t,
+		Phase:               cutover.CutoverOld,
+		ActiveOwner:         cutover.OwnerOld,
+		CommitPersisted:     false,
+		NewLeaseToken:       0,
+		OldDrainFinished:    false,
+		AbortedBeforeCommit: false,
+		CrashRecovered:      false,
+		OldActedAfterCommit: false,
+		DroppedCount:        0,
+		WakesDelivered:      0,
+		HandleOrder:         []handle.HandleID{},
+		Handles:             []cutover.CutoverHandle{},
+		AcquiredAtMs:        int64(100),
+		UpdatedAtMs:         int64(100),
+	}
+	let ls = LeaseStateFromRecord(rec)
+	let fence = MakeLeaseFence(ls)
+	fence.LeaseID == "l-fence" && fence.ExpectedOwner == owner && fence.ExpectedEpoch == e && fence.MinFencingToken == t
+}

@@ -127,6 +127,7 @@ func run(argv0 []string) fails os.Exit needs fs.Files | io.Stdout {
 	let exact = exactLoadedUnits(p)
 	let shapeUnits = shapeLoadedUnits(p, units, inputs)
 	let order = orderCalls(p, exact)
+	let closures = rootClosures(p, units, roots, tests, available)
 	let mut summaries = []option.Option[lower.CallFacts]{}
 	let mut blocks = []string{}
 	let mut typed = []int{}
@@ -145,7 +146,7 @@ func run(argv0 []string) fails os.Exit needs fs.Files | io.Stdout {
 		for tp in tests {
 			testMode = testMode || tp == units[ui].Path
 		}
-		let imports = if root { rootImports(p, i, available) } else { option.None }
+		let program = if root { Program{Imports: rootImports(p, i, available), Root: ""} } else { programOf(p, units, i, std, closures, available) }
 		let d = load.TypeAt(p, i)
 		if counts {
 			typed[i] = typed[i] + 1
@@ -154,7 +155,7 @@ func run(argv0 []string) fails os.Exit needs fs.Files | io.Stdout {
 		let depFacts = if j < order.Ready { directCallFacts(d.K.Deps, exact, summaries) } else { []lower.ImportCallFacts{} }
 		let mode = if testMode { lower.Test } else { lower.Production }
 		let plan = lower.PlanGeneratedBodies(d.K, mode, root)
-		let out = lower.PackageWithPlan(d.S, d.K, d.T, units[ui].Paths, units[ui].Path, root, imports, depFacts, shapeImports(p, i, shapeUnits), plan)
+		let out = lower.PackageInProgram(d.S, d.K, d.T, units[ui].Paths, units[ui].Path, root, program.Imports, program.Root, depFacts, shapeImports(p, i, shapeUnits), plan)
 		if j < order.Ready && exactLoadedUnit(exact, p.Loaded[i].Path) == i && hasSources(p.Loaded[i]) && lower.HasCallFacts(out.CallFacts) {
 			summaries[i] = option.Some[lower.CallFacts]{Value: out.CallFacts}
 		}

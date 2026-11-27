@@ -20,13 +20,13 @@ missing or red at the head) or `NotAcceptedHead`.
     orchestrate events [--repo R --run N] [--since CURSOR] [--follow] [--json]
     orchestrate [--store PATH] [--json] COMMAND ...
 
-Commands cover units (`unit-open`, `receipt-record`, `unit-state`, `unit-list`, `unit-accept`, `unit-land`, `unit-close`), run summaries and heads (`run-summary`, `run-head-set`), structured decisions (`decision-record`, `decision-list`), integration landings (`landing-record`, `landing-list`), operational events and incremental streams (`event-record`, `event-log`, `events-since`), log import (`import-plan`), commitments (`commitment-add`, `commitment-assign`, `commitment-land`, `commitment-decide`, `commitment-list`), queue items (`queue-upsert`, `queue-remove`, `queue-list`), async questions (`question-ask`, `question-answer`, `question-list`), and host telemetry & readiness (`host-status`, `host-processes`, `host-readiness`).
+Commands cover units (`unit-open`, `receipt-record`, `unit-state`, `unit-list`, `unit-accept`, `unit-land`, `unit-close`, `unit-transfer`), run summaries (`run-summary`), landing leases (`landing-begin`, `landing-end`: the only way a run head moves), structured decisions (`decision-record`, `decision-list`), integration landings (`landing-record`, `landing-list`), operational events and incremental streams (`event-record`, `event-log`, `events-since`), log import (`import-plan`), commitments (`commitment-add`, `commitment-assign`, `commitment-land`, `commitment-decide`, `commitment-list`), queue items (`queue-upsert`, `queue-remove`, `queue-list`), async questions (`question-ask`, `question-answer`, `question-list`), and host telemetry & readiness (`host-status`, `host-processes`, `host-readiness`).
 MCP resources (`resources/list`, `resources/read`, `resources/subscribe`, `resources/unsubscribe`) expose `orchestrate://run/<repo>/<run>/summary`, `orchestrate://run/<repo>/<run>/events`, `orchestrate://host/readiness`, and `orchestrate://host/status`, pushing `notifications/resources/updated` and `notifications/message` on ledger state changes and readiness edges.
 
 The store is one SQLite file per host, written only by this binary:
 `--store PATH`, else `$XDG_STATE_HOME/orchestrate/ledger.db` (by default
-`~/.local/state/orchestrate/ledger.db`). Opening a v1 or v2 database migrates
-non-destructively to schema v3; future schema versions are refused. `:memory:` keeps a private store
+`~/.local/state/orchestrate/ledger.db`). Opening a v1, v2 or v3 database migrates
+non-destructively to schema v4 (each unit gets the actor of its opening command as owner, else `unknown`); future schema versions are refused. `:memory:` keeps a private store
 for the life of the process. `ORCHESTRATE_NOW` (a Unix second) fixes the
 clock and `ORCHESTRATE_HOST_STATIC` (a JSON host snapshot) fixes `os/host.Static`
 for deterministic case runs; by default `os/host.NewHost()` reads live host telemetry.
@@ -41,4 +41,7 @@ The case `mcp-progressive` exercises progressive-disclosure queries (`import-pla
 and `mcp-host` exercise `host-status` and `host-processes` over CLI and MCP stdio
 against a deterministic `os/host.Static` snapshot. The cases `wait-ready`, `wait-timeout`,
 `events-since`, and `mcp-subscribe` exercise edge-triggered readiness waits, cursor event
-queries, and live MCP resource subscriptions/notifications.
+queries, and live MCP resource subscriptions/notifications. The case `mcp-tandem` drives two
+orchestrators over one ledger: B is refused `LaneHeld` on A's lane, `NotOwner` on A's unit and
+`LandingBusy` during A's lease; A's `landing-end` moves the head, and B's `landing-begin` from
+the old head is refused `StaleHead`.

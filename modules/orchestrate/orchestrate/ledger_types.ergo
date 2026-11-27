@@ -11,6 +11,19 @@ type RunMeta {
 	UpdatedAt string,
 }
 
+// LandingLease is Actor's exclusive right to land on the run (Repo, Run), taken at Since from BaseHead and live until Until (RFC 3339).
+type LandingLease {
+	Repo     string,
+	Run      string,
+	Actor    string,
+	BaseHead string,
+	Since    string,
+	Until    string,
+}
+
+// MaxLeaseSeconds bounds a landing lease's stated lifetime.
+let MaxLeaseSeconds = 86400
+
 // UnitSummary is a compact unit summary without full receipt payloads.
 type UnitSummary {
 	Key          UnitKey,
