@@ -1,0 +1,303 @@
+import compiler/ir
+import compiler/objfmt/wasm
+import exec
+import fs
+import os
+
+// WasmRun runs a lowered module on a host JavaScript engine.
+type WasmRun {
+	RunWith(engine string, wasmBytes []byte, script string) exec.Result fails fs.NotFound | fs.Denied | fs.Failed | exec.NotFound | exec.Denied | exec.Failed,
+
+	// LoweredProgramsAgreeWithErgoOnBunAndNode runs the lowered sample file
+	// (fib over count, gcd and collatz over while, sum35 over count with
+	// break, continue and ||, main printing through WASI fd_write and
+	// exiting through proc_exit with fib(10)) on Bun and Node and compares
+	// every result with the same functions written in Ergo. In process the
+	// repository has no WebAssembly interpreter, so the in-process laws
+	// stop at the encoder's validation and the validating decoder; only an
+	// engine executes the module, and this law is that one check.
+	law LoweredProgramsAgreeWithErgoOnBunAndNode() {
+		let file = samples() catch {
+		case ir.Malformed:
+			return false
+		}
+		let bin = Emit(file, sampleSigs) catch {
+		case NotLowered:
+			return false
+		}
+		let rBun = RunWith("bun", bin, sampleScript) catch {
+		case fs.NotFound, fs.Denied, fs.Failed, exec.NotFound, exec.Denied, exec.Failed:
+			return false
+		}
+		let rNode = RunWith("node", bin, sampleScript) catch {
+		case fs.NotFound, fs.Denied, fs.Failed, exec.NotFound, exec.Denied, exec.Failed:
+			return false
+		}
+		let want = sampleWant()
+		rBun.Status == 0 && rBun.Stdout == want && rNode.Status == 0 && rNode.Stdout == want
+	},
+}
+
+type hostRun {
+	writes fs.Writes,
+	runner exec.Runner,
+} implements WasmRun
+
+func RunWith(h hostRun, engine string, wasmBytes []byte, script string) exec.Result fails fs.NotFound | fs.Denied | fs.Failed | exec.NotFound | exec.Denied | exec.Failed {
+	try h.writes.WriteFile("mod.wasm", wasmBytes.Text())
+	try h.writes.WriteFile("run.cjs", script)
+	try h.runner.Run(exec.New(engine, []string{"run.cjs"}))
+}
+
+let onLiveEngines = context needs TestAmbient {
+	WasmRun: hostRun{writes: fs.NewTestHost(), runner: exec.NewTestHost().InheritEnv(exec.PathOf(os.NewTestHost().Environ()))},
+}
+
+let fibInputs = []int{0, 1, 2, 10, 30, 50, 90}
+let gcdInputs = []int32{48, 18, 1071, 462, -12, 18, 17, 5, 0, 9}
+let collatzInputs = []uint64{1, 6, 7, 27, 97}
+let sum35Inputs = []int{0, 10, 50, 200}
+
+let sampleScript = "const fs = require('fs');\n" +
+	"const bytes = fs.readFileSync('mod.wasm');\n" +
+	"(async () => {\n" +
+	"  let mem; let code = -1; let out = '';\n" +
+	"  const wasi = {\n" +
+	"    fd_write: (fd, iov, n, nw) => { const dv = new DataView(mem.buffer); let t = 0; for (let i = 0; i < n; i++) { const p = dv.getUint32(iov + 8 * i, true), l = dv.getUint32(iov + 8 * i + 4, true); out += new TextDecoder().decode(new Uint8Array(mem.buffer, p, l)); t += l; } dv.setUint32(nw, t, true); return 0; },\n" +
+	"    proc_exit: (c) => { code = c; throw 'exit'; },\n" +
+	"  };\n" +
+	"  const { instance } = await WebAssembly.instantiate(bytes, { wasi_snapshot_preview1: wasi });\n" +
+	"  const e = instance.exports; mem = e.memory;\n" +
+	"  try { e._start(); } catch (x) { if (x !== 'exit') throw x; }\n" +
+	"  const fib = [0, 1, 2, 10, 30, 50, 90].map((n) => e.fib(BigInt(n)));\n" +
+	"  const g = [48, 18, 1071, 462, -12, 18, 17, 5, 0, 9]; const gcd = []; for (let i = 0; i < g.length; i += 2) gcd.push(e.gcd(g[i], g[i + 1]));\n" +
+	"  const col = [1, 6, 7, 27, 97].map((n) => e.collatz(BigInt(n)));\n" +
+	"  const s = [0, 10, 50, 200].map((n) => e.sum35(BigInt(n)));\n" +
+	"  process.stdout.write(out + '|' + code + '|' + [fib, gcd, col, s].map((xs) => xs.join(',')).join('|'));\n" +
+	"})().catch((err) => { console.error(err); process.exit(1); });\n"
+
+func fibE(n int) int {
+	let mut a = 0
+	let mut b = 1
+	for _ in 0..n {
+		let t = a + b
+		a = b
+		b = t
+	}
+	a
+}
+
+func gcdE(x int32, y int32) int32 {
+	let mut a = x
+	let mut b = y
+	for b != 0 {
+		let t = a % b
+		a = b
+		b = t
+	}
+	a
+}
+
+func collatzE(x uint64) int32 {
+	let mut n = x
+	let mut steps = int32(0)
+	for n != 1 {
+		if n%2 == 0 {
+			n = n / 2
+		} else {
+			n = 3*n + 1
+		}
+		steps = steps + 1
+	}
+	steps
+}
+
+func sum35E(x int) int {
+	let mut s = 0
+	for i in 0..x {
+		if i > 100 {
+			break
+		}
+		if !(i%3 == 0 || i%5 == 0) {
+			continue
+		}
+		s = s + i
+	}
+	s
+}
+
+func joined(xs []string) string {
+	let mut out = ""
+	for i in 0..xs.Len() {
+		out = if i == 0 { xs[i] } else { out + "," + xs[i] }
+	}
+	out
+}
+
+func sampleWant() string {
+	let mut fib = []string{}
+	for n in fibInputs {
+		fib = fib.Append("\(fibE(n))")
+	}
+	let mut gcd = []string{}
+	let mut i = 0
+	for i < gcdInputs.Len() {
+		gcd = gcd.Append("\(gcdE(gcdInputs[i], gcdInputs[i+1]))")
+		i = i + 2
+	}
+	let mut col = []string{}
+	for n in collatzInputs {
+		col = col.Append("\(collatzE(n))")
+	}
+	let mut s = []string{}
+	for n in sum35Inputs {
+		s = s.Append("\(sum35E(n))")
+	}
+	"hello, wasm\n|\(fibE(10))|" + joined(fib) + "|" + joined(gcd) + "|" + joined(col) + "|" + joined(s)
+}
+
+let sampleSigs = []Sig{
+	Sig{Params: uint32(1), Result: "int"},
+	Sig{Params: uint32(2), Result: "int32"},
+	Sig{Params: uint32(1), Result: "int32"},
+	Sig{Params: uint32(1), Result: "int"},
+	Sig{Params: uint32(0), Result: "int32"},
+}
+
+func setTo(r mut rows, l int, x uint32) uint32 fails ir.Malformed {
+	try st(r, "def", []uint32{uint32(l), x})
+}
+
+func ret(r mut rows, x uint32) uint32 fails ir.Malformed { try st(r, "ret", []uint32{x}) }
+
+func samples() ir.File fails ir.Malformed {
+	let mut r = newRows(uint64(1))
+	try begin(&r, "fib", []string{"int", "int", "int", "int", "int"})
+	let fibBody = list(&r, []uint32{
+		try setTo(&r, 3, try bin(&r, "+", try loc(&r, 1), try loc(&r, 2))),
+		try setTo(&r, 1, try loc(&r, 2)),
+		try setTo(&r, 2, try loc(&r, 3)),
+	})
+	try ir.End(&r.b, list(&r, []uint32{
+		try setTo(&r, 1, try num(&r, "int", "0")),
+		try setTo(&r, 2, try num(&r, "int", "1")),
+		try st(&r, "count", []uint32{uint32(4), try num(&r, "int", "0"), fibBody, uint32(0), try loc(&r, 0)}),
+		try ret(&r, try loc(&r, 1)),
+	}))
+
+	try begin(&r, "gcd", []string{"int32", "int32", "int32"})
+	let gcdBody = list(&r, []uint32{
+		try setTo(&r, 2, try bin(&r, "%", try loc(&r, 0), try loc(&r, 1))),
+		try setTo(&r, 0, try loc(&r, 1)),
+		try setTo(&r, 1, try loc(&r, 2)),
+	})
+	try ir.End(&r.b, list(&r, []uint32{
+		try st(&r, "while", []uint32{try bin(&r, "!=", try loc(&r, 1), try num(&r, "int32", "0")), gcdBody, uint32(0), uint32(0)}),
+		try ret(&r, try loc(&r, 0)),
+	}))
+
+	try begin(&r, "collatz", []string{"uint64", "int32"})
+	let even = try bin(&r, "==", try bin(&r, "%", try loc(&r, 0), try num(&r, "uint64", "2")), try num(&r, "uint64", "0"))
+	let half = list(&r, []uint32{try setTo(&r, 0, try bin(&r, "/", try loc(&r, 0), try num(&r, "uint64", "2")))})
+	let triple = list(&r, []uint32{try setTo(&r, 0, try bin(&r, "+", try bin(&r, "*", try num(&r, "uint64", "3"), try loc(&r, 0)), try num(&r, "uint64", "1")))})
+	let colBody = list(&r, []uint32{
+		try st(&r, "if", []uint32{even, half, triple, uint32(0), uint32(0), uint32(0)}),
+		try st(&r, "set", []uint32{uint32(1), try num(&r, "int32", "1"), txt(&r, "+")}),
+	})
+	try ir.End(&r.b, list(&r, []uint32{
+		try st(&r, "var", []uint32{uint32(1)}),
+		try st(&r, "while", []uint32{try bin(&r, "!=", try loc(&r, 0), try num(&r, "uint64", "1")), colBody, uint32(0), uint32(0)}),
+		try ret(&r, try loc(&r, 1)),
+	}))
+
+	try begin(&r, "sum35", []string{"int", "int", "int"})
+	let over = try bin(&r, ">", try loc(&r, 2), try num(&r, "int", "100"))
+	let by3 = try bin(&r, "==", try bin(&r, "%", try loc(&r, 2), try num(&r, "int", "3")), try num(&r, "int", "0"))
+	let by5 = try bin(&r, "==", try bin(&r, "%", try loc(&r, 2), try num(&r, "int", "5")), try num(&r, "int", "0"))
+	let skip = try ex(&r, "un", []uint32{txt(&r, "!"), try bin(&r, "||", by3, by5)})
+	let none = list(&r, []uint32{})
+	let sumBody = list(&r, []uint32{
+		try st(&r, "if", []uint32{over, list(&r, []uint32{try st(&r, "break", []uint32{uint32(0)})}), none, uint32(0), uint32(0), uint32(0)}),
+		try st(&r, "if", []uint32{skip, list(&r, []uint32{try st(&r, "continue", []uint32{})}), none, uint32(0), uint32(0), uint32(0)}),
+		try st(&r, "set", []uint32{uint32(1), try loc(&r, 2), txt(&r, "+")}),
+	})
+	try ir.End(&r.b, list(&r, []uint32{
+		try setTo(&r, 1, try ex(&r, "zero", []uint32{txt(&r, "int")})),
+		try st(&r, "count", []uint32{uint32(2), try num(&r, "int", "0"), sumBody, uint32(0), try loc(&r, 0)}),
+		try ret(&r, try loc(&r, 1)),
+	}))
+
+	try begin(&r, "main", []string{})
+	let hello = try num(&r, "string", "hello, wasm\n")
+	let print = try ex(&r, "pcall", []uint32{txt(&r, "io"), uint32(0), uint32(0), txt(&r, "Print"), list(&r, []uint32{hello})})
+	let fib10 = try ex(&r, "call", []uint32{uint32(0), txt(&r, "fib"), list(&r, []uint32{try num(&r, "int", "10")})})
+	try ir.End(&r.b, list(&r, []uint32{
+		try st(&r, "expr", []uint32{print}),
+		try ret(&r, try ex(&r, "conv", []uint32{txt(&r, "int32"), fib10})),
+	}))
+	try ir.Finish(r.b)
+}
+
+func answer() ir.File fails ir.Malformed {
+	let mut r = newRows(uint64(1))
+	try begin(&r, "main", []string{})
+	try ir.End(&r.b, list(&r, []uint32{try ret(&r, try num(&r, "int32", "42"))}))
+	try ir.Finish(r.b)
+}
+
+test MainReturningI32IsTheSpecBytes {
+	let file = answer() catch {
+	case ir.Malformed:
+		ir.File{V: 1, Files: []string{}, FilesNil: true, Funcs: []ir.Func{}, FuncsNil: true, Shared: []string{}, Strs: []string{""}}
+	}
+	let bin = Emit(file, []Sig{Sig{Params: uint32(0), Result: "int32"}}) catch {
+	case NotLowered:
+		[]byte{}
+	}
+	let want = []byte{
+		byte(0x00), byte(0x61), byte(0x73), byte(0x6d), byte(0x01), byte(0x00), byte(0x00), byte(0x00),
+		byte(0x01), byte(0x05), byte(0x01), byte(0x60), byte(0x00), byte(0x01), byte(0x7f),
+		byte(0x03), byte(0x02), byte(0x01), byte(0x00),
+		byte(0x07), byte(0x08), byte(0x01), byte(0x04), byte(0x6d), byte(0x61), byte(0x69), byte(0x6e), byte(0x00), byte(0x00),
+		byte(0x0a), byte(0x08), byte(0x01), byte(0x06), byte(0x00), byte(0x41), byte(0x2a), byte(0x0f), byte(0x00), byte(0x0b),
+	}
+	assert bin == want
+	assert decodes(bin)
+}
+
+test HelloImportsWASIAndValidates {
+	let file = samples() catch {
+	case ir.Malformed:
+		ir.File{V: 1, Files: []string{}, FilesNil: true, Funcs: []ir.Func{}, FuncsNil: true, Shared: []string{}, Strs: []string{""}}
+	}
+	let bin = Emit(file, sampleSigs) catch {
+	case NotLowered:
+		[]byte{}
+	}
+	let mut ok = true
+	let d = wasm.Decode(bin) catch {
+	case wasm.WasmError:
+		ok = false
+		wasm.Decode(answerBytes()) catch {
+		case wasm.WasmError:
+			return
+		}
+	}
+	assert ok
+	assert d.Imports.Len() == 2
+	assert d.Imports[0].Module == WASIModule && d.Imports[0].Name == "fd_write"
+	assert d.Imports[1].Module == WASIModule && d.Imports[1].Name == "proc_exit"
+	assert d.Exports.Len() == 7
+	assert d.DecodedDataBytes(uint32(0)).Text() == "hello, wasm\n"
+}
+
+func answerBytes() []byte {
+	let file = answer() catch {
+	case ir.Malformed:
+		return []byte{}
+	}
+	Emit(file, []Sig{Sig{Params: uint32(0), Result: "int32"}}) catch {
+	case NotLowered:
+		[]byte{}
+	}
+}

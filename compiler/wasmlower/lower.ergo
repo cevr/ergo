@@ -1,0 +1,922 @@
+// Package wasmlower lowers compiler/ir functions to a WebAssembly 1.0
+// module through compiler/objfmt/wasm (native backend unit NB-6, round 1:
+// the first step of the WASM seed as Stage 0).
+//
+// Round 1 lowers integer and boolean scalars (int, int64, uint, uint64,
+// uintptr as i64; int32, rune, uint32, bool as i32), calls between the
+// file's functions, the IR's structured control and two WASI host calls.
+// The IR is already structured (if, while, count, block, break, continue;
+// no goto is lowered), so each construct maps onto WASM's own blocks with
+// no relooping: an if is if/else/end; a while is block(exit) loop(head),
+// its condition negated into br_if exit, its body, br head; a count loop
+// adds an inner block(next) around the body so continue reaches the
+// increment; break and continue are br to the label depth of their loop's
+// exit or next target. A function with a result ends in unreachable, since
+// the IR's bodies end in a ret on every path, as Go's do.
+//
+// A kind, a type or an operator outside the subset is NotLowered naming
+// it, never skipped.
+import compiler/ir
+import compiler/objfmt/wasm
+import slices
+import strconv
+
+// NotLowered is an IR row Lower does not lower: the function's name, the
+// row's id (0 for the function itself), its kind's name, and why.
+type NotLowered {
+	// Func is the IR function's name.
+	Func string,
+	// Row is the IR row id, or 0 when the function itself is refused.
+	Row uint32,
+	// Kind is the IR kind name of the row, or "type" for a refused type.
+	Kind string,
+	// Why says what is missing.
+	Why string,
+}
+
+// Sig is what an IR function does not record itself: how many of its
+// first locals are its parameters, and the Go type of its result ("" for
+// none).
+type Sig { Params uint32, Result string }
+
+// WASIModule is the module name of the WASI host functions Lower imports.
+let WASIModule = "wasi_snapshot_preview1"
+
+let tNone = uint8(0)
+let tI32 = uint8(1)
+let tU32 = uint8(2)
+let tBool = uint8(3)
+let tI64 = uint8(4)
+let tU64 = uint8(5)
+
+let typeNames = []string{"int32", "rune", "uint32", "bool", "int", "int64", "uint", "uint64", "uintptr"}
+let typeCodes = []uint8{1, 1, 2, 3, 4, 4, 5, 5, 5}
+
+let iovecAt = int32(0)
+let writtenAt = int32(8)
+let dataBase = 16
+
+func typeCode(t string) uint8 {
+	for i in 0..typeNames.Len() {
+		if typeNames[i] == t {
+			return typeCodes[i]
+		}
+	}
+	tNone
+}
+
+func wide(t uint8) bool { t == tI64 || t == tU64 }
+
+func signed(t uint8) bool { t == tI32 || t == tI64 }
+
+func valType(t uint8) byte { if wide(t) { wasm.ValI64 } else { wasm.ValI32 } }
+
+type binOp { Op string, Cmp bool, I32S byte, I32U byte, I64S byte, I64U byte }
+
+func bop(op string, cmp bool, i32s byte, i32u byte, i64s byte, i64u byte) binOp {
+	binOp{Op: op, Cmp: cmp, I32S: i32s, I32U: i32u, I64S: i64s, I64U: i64u}
+}
+
+let binOps = []binOp{
+	bop("+", false, wasm.OpI32Add, wasm.OpI32Add, wasm.OpI64Add, wasm.OpI64Add),
+	bop("-", false, wasm.OpI32Sub, wasm.OpI32Sub, wasm.OpI64Sub, wasm.OpI64Sub),
+	bop("*", false, wasm.OpI32Mul, wasm.OpI32Mul, wasm.OpI64Mul, wasm.OpI64Mul),
+	bop("/", false, wasm.OpI32DivS, wasm.OpI32DivU, wasm.OpI64DivS, wasm.OpI64DivU),
+	bop("%", false, wasm.OpI32RemS, wasm.OpI32RemU, wasm.OpI64RemS, wasm.OpI64RemU),
+	bop("&", false, wasm.OpI32And, wasm.OpI32And, wasm.OpI64And, wasm.OpI64And),
+	bop("|", false, wasm.OpI32Or, wasm.OpI32Or, wasm.OpI64Or, wasm.OpI64Or),
+	bop("^", false, wasm.OpI32Xor, wasm.OpI32Xor, wasm.OpI64Xor, wasm.OpI64Xor),
+	bop("==", true, wasm.OpI32Eq, wasm.OpI32Eq, wasm.OpI64Eq, wasm.OpI64Eq),
+	bop("!=", true, wasm.OpI32Ne, wasm.OpI32Ne, wasm.OpI64Ne, wasm.OpI64Ne),
+	bop("<", true, wasm.OpI32LtS, wasm.OpI32LtU, wasm.OpI64LtS, wasm.OpI64LtU),
+	bop("<=", true, wasm.OpI32LeS, wasm.OpI32LeU, wasm.OpI64LeS, wasm.OpI64LeU),
+	bop(">", true, wasm.OpI32GtS, wasm.OpI32GtU, wasm.OpI64GtS, wasm.OpI64GtU),
+	bop(">=", true, wasm.OpI32GeS, wasm.OpI32GeU, wasm.OpI64GeS, wasm.OpI64GeU),
+}
+
+func binIndex(op string) int {
+	for i in 0..binOps.Len() {
+		if binOps[i].Op == op {
+			return i
+		}
+	}
+	-1
+}
+
+type hostCall { Pkg string, Name string }
+
+let hostPrint = hostCall{Pkg: "io", Name: "Print"}
+let hostExit = hostCall{Pkg: "os", Name: "Exit"}
+
+type fnLower {
+	name    string,
+	strs    []string,
+	body    ir.Body,
+	ltypes  []uint8,
+	result  uint8,
+	names   []string,
+	results []uint8,
+	params  []uint32,
+	imports uint32,
+	write   uint32,
+	exit    uint32,
+	code    wasm.CodeBuf,
+	depth   uint32,
+	exits   []uint32,
+	nexts   []uint32,
+	labels  []string,
+	data    []byte,
+}
+
+func refuse(lw fnLower, id uint32, kind string, why string) NotLowered {
+	NotLowered{Func: lw.name, Row: id, Kind: kind, Why: why}
+}
+
+func rowKind(lw fnLower, id uint32) string fails NotLowered {
+	if id == 0 || int(id) > lw.body.Kind.Len() {
+		return refuse(lw, id, "", "row past the body")
+	}
+	ir.KindOf(lw.body.Kind[int(id)-1]).Name
+}
+
+func word(lw fnLower, id uint32, j int) uint32 fails NotLowered {
+	let at = int(id) - 1
+	let kind = ir.KindOf(lw.body.Kind[at])
+	let n = kind.Slots.Len()
+	if j >= n {
+		return refuse(lw, id, kind.Name, "slot past the kind's slots")
+	}
+	if j == 0 {
+		return lw.body.A[at]
+	}
+	if n <= 2 {
+		return lw.body.B[at]
+	}
+	let q = int(lw.body.B[at]) + j - 1
+	if q <= 0 || q >= lw.body.Extra.Len() {
+		return refuse(lw, id, kind.Name, "slot past the extra pool")
+	}
+	lw.body.Extra[q]
+}
+
+func nodes(lw fnLower, id uint32, q uint32) []uint32 fails NotLowered {
+	if q == 0 {
+		return []uint32{}
+	}
+	let n = if int(q) < lw.body.Extra.Len() { int(lw.body.Extra[int(q)]) } else { -1 }
+	if n < 0 || int(q)+n >= lw.body.Extra.Len() {
+		return refuse(lw, id, "", "list past the extra pool")
+	}
+	lw.body.Extra[int(q)+1 : int(q)+1+n]
+}
+
+func textOf(lw fnLower, id uint32, s uint32) string fails NotLowered {
+	if int(s) >= lw.strs.Len() {
+		return refuse(lw, id, "", "text past the file's texts")
+	}
+	lw.strs[int(s)]
+}
+
+func localOf(lw fnLower, id uint32, w uint32) uint32 fails NotLowered {
+	if int(w) >= lw.ltypes.Len() {
+		return refuse(lw, id, try rowKind(lw, id), "local \(w) past the function's locals")
+	}
+	w
+}
+
+func calleeOf(lw fnLower, id uint32, name string) int fails NotLowered {
+	for i in 0..lw.names.Len() {
+		if lw.names[i] == name {
+			return i
+		}
+	}
+	refuse(lw, id, "call", "callee \(name) is not a function of the file")
+}
+
+func op(lw mut fnLower, b byte) { wasm.U8(&lw.code.Buf, b) }
+
+func constOf(lw mut fnLower, t uint8, v int64) {
+	if wide(t) {
+		wasm.I64Const(&lw.code, v)
+	} else {
+		wasm.I32Const(&lw.code, int32(v))
+	}
+}
+
+func open(lw mut fnLower) { lw.depth = lw.depth + uint32(1) }
+
+func close(lw mut fnLower) {
+	wasm.End(&lw.code)
+	lw.depth = lw.depth - uint32(1)
+}
+
+func exprType(lw fnLower, id uint32) uint8 fails NotLowered {
+	let k = try rowKind(lw, id)
+	match k {
+	case "local":
+		lw.ltypes[int(try localOf(lw, id, try word(lw, id, 0)))]
+	case "const", "zero", "conv":
+		typeCode(try textOf(lw, id, try word(lw, id, 0)))
+	case "bin":
+		let o = try textOf(lw, id, try word(lw, id, 0))
+		let i = binIndex(o)
+		if o == "&&" || o == "||" || (i >= 0 && binOps[i].Cmp) {
+			return tBool
+		}
+		try exprType(lw, try word(lw, id, 1))
+	case "un":
+		if try textOf(lw, id, try word(lw, id, 0)) == "!" {
+			return tBool
+		}
+		try exprType(lw, try word(lw, id, 1))
+	case "call":
+		lw.results[try calleeOf(lw, id, try textOf(lw, id, try word(lw, id, 1)))]
+	case _:
+		tNone
+	}
+}
+
+func scalarOf(lw fnLower, id uint32, kind string, t string) uint8 fails NotLowered {
+	let c = typeCode(t)
+	if c == tNone {
+		return refuse(lw, id, kind, "type \(t) is not lowered in round 1")
+	}
+	c
+}
+
+func emitBin(lw mut fnLower, id uint32, o string, t uint8) fails NotLowered {
+	let i = binIndex(o)
+	if i < 0 {
+		return refuse(*lw, id, "bin", "operator \(o) is not lowered in round 1")
+	}
+	let b = binOps[i]
+	if wide(t) {
+		op(lw, if signed(t) { b.I64S } else { b.I64U })
+	} else {
+		op(lw, if signed(t) { b.I32S } else { b.I32U })
+	}
+}
+
+func lowerConst(lw mut fnLower, id uint32) fails NotLowered {
+	let tn = try textOf(*lw, id, try word(*lw, id, 0))
+	if tn == "string" {
+		return refuse(*lw, id, "const", "a string outside a host call is not lowered in round 1")
+	}
+	let t = try scalarOf(*lw, id, "const", tn)
+	let v = try textOf(*lw, id, try word(*lw, id, 1))
+	if t == tBool {
+		constOf(lw, t, if v == "true" { int64(1) } else { int64(0) })
+		return
+	}
+	let n = strconv.ParseInt(v, 0, 64) catch {
+	case strconv.Malformed, strconv.OutOfRange:
+		return refuse(*lw, id, "const", "constant \(v) is not an int64")
+	}
+	constOf(lw, t, n)
+}
+
+func lowerBin(lw mut fnLower, id uint32) fails NotLowered {
+	let o = try textOf(*lw, id, try word(*lw, id, 0))
+	let x = try word(*lw, id, 1)
+	let y = try word(*lw, id, 2)
+	if o == "&&" || o == "||" {
+		try lowerExpr(lw, x)
+		wasm.If(&lw.code, wasm.ValI32)
+		open(lw)
+		if o == "&&" {
+			try lowerExpr(lw, y)
+			wasm.Else(&lw.code)
+			wasm.I32Const(&lw.code, int32(0))
+		} else {
+			wasm.I32Const(&lw.code, int32(1))
+			wasm.Else(&lw.code)
+			try lowerExpr(lw, y)
+		}
+		close(lw)
+		return
+	}
+	let t = try exprType(*lw, x)
+	if t == tNone {
+		return refuse(*lw, id, "bin", "operand of a type not lowered in round 1")
+	}
+	try lowerExpr(lw, x)
+	try lowerExpr(lw, y)
+	try emitBin(lw, id, o, t)
+}
+
+func lowerUn(lw mut fnLower, id uint32) fails NotLowered {
+	let o = try textOf(*lw, id, try word(*lw, id, 0))
+	let x = try word(*lw, id, 1)
+	let t = try exprType(*lw, x)
+	match o {
+	case "-":
+		constOf(lw, t, int64(0))
+		try lowerExpr(lw, x)
+		op(lw, if wide(t) { wasm.OpI64Sub } else { wasm.OpI32Sub })
+	case "!":
+		try lowerExpr(lw, x)
+		op(lw, wasm.OpI32Eqz)
+	case "^":
+		try lowerExpr(lw, x)
+		constOf(lw, t, int64(-1))
+		op(lw, if wide(t) { wasm.OpI64Xor } else { wasm.OpI32Xor })
+	case "+":
+		try lowerExpr(lw, x)
+	case _:
+		return refuse(*lw, id, "un", "operator \(o) is not lowered in round 1")
+	}
+}
+
+func lowerCall(lw mut fnLower, id uint32) fails NotLowered {
+	let f = try calleeOf(*lw, id, try textOf(*lw, id, try word(*lw, id, 1)))
+	let args = try nodes(*lw, id, try word(*lw, id, 2))
+	if uint32(args.Len()) != lw.params[f] {
+		return refuse(*lw, id, "call", "\(args.Len()) arguments to \(lw.names[f]) of \(lw.params[f]) parameters")
+	}
+	for a in args {
+		try lowerExpr(lw, a)
+	}
+	wasm.Call(&lw.code, lw.imports+uint32(f))
+}
+
+func lowerConv(lw mut fnLower, id uint32) fails NotLowered {
+	let to = try scalarOf(*lw, id, "conv", try textOf(*lw, id, try word(*lw, id, 0)))
+	let x = try word(*lw, id, 1)
+	let from = try exprType(*lw, x)
+	if from == tNone || (from == tBool) != (to == tBool) {
+		return refuse(*lw, id, "conv", "a conversion outside the integers is not lowered in round 1")
+	}
+	try lowerExpr(lw, x)
+	if wide(to) && !wide(from) {
+		op(lw, if signed(from) { wasm.OpI64ExtendI32S } else { wasm.OpI64ExtendI32U })
+	}
+	if !wide(to) && wide(from) {
+		op(lw, wasm.OpI32WrapI64)
+	}
+}
+
+func lowerHost(lw mut fnLower, id uint32) fails NotLowered {
+	let pkg = try textOf(*lw, id, try word(*lw, id, 0))
+	let name = try textOf(*lw, id, try word(*lw, id, 3))
+	let args = try nodes(*lw, id, try word(*lw, id, 4))
+	if pkg == hostPrint.Pkg && name == hostPrint.Name && args.Len() == 1 && try rowKind(*lw, args[0]) == "const" {
+		let s = try textOf(*lw, args[0], try word(*lw, args[0], 1))
+		let at = int32(dataBase + lw.data.Len())
+		lw.data = lw.data.AppendBytes(s.Bytes())
+		wasm.I32Const(&lw.code, iovecAt)
+		wasm.I32Const(&lw.code, at)
+		wasm.I32Store(&lw.code, uint32(2), uint32(0))
+		wasm.I32Const(&lw.code, iovecAt)
+		wasm.I32Const(&lw.code, int32(s.Len()))
+		wasm.I32Store(&lw.code, uint32(2), uint32(4))
+		wasm.I32Const(&lw.code, int32(1))
+		wasm.I32Const(&lw.code, iovecAt)
+		wasm.I32Const(&lw.code, int32(1))
+		wasm.I32Const(&lw.code, writtenAt)
+		wasm.Call(&lw.code, lw.write)
+		op(lw, wasm.OpDrop)
+		return
+	}
+	if pkg == hostExit.Pkg && name == hostExit.Name && args.Len() == 1 {
+		let t = try exprType(*lw, args[0])
+		if t == tNone || t == tBool {
+			return refuse(*lw, id, "pcall", "os.Exit of a code that is not an integer")
+		}
+		try lowerExpr(lw, args[0])
+		if wide(t) {
+			op(lw, wasm.OpI32WrapI64)
+		}
+		wasm.Call(&lw.code, lw.exit)
+		return
+	}
+	refuse(*lw, id, "pcall", "package call \(pkg).\(name) is not a WASI host call of round 1")
+}
+
+func lowerExpr(lw mut fnLower, id uint32) fails NotLowered {
+	let k = try rowKind(*lw, id)
+	match k {
+	case "local":
+		wasm.LocalGet(&lw.code, try localOf(*lw, id, try word(*lw, id, 0)))
+	case "const":
+		try lowerConst(lw, id)
+	case "zero":
+		constOf(lw, try scalarOf(*lw, id, k, try textOf(*lw, id, try word(*lw, id, 0))), int64(0))
+	case "bin":
+		try lowerBin(lw, id)
+	case "un":
+		try lowerUn(lw, id)
+	case "call":
+		try lowerCall(lw, id)
+	case "conv":
+		try lowerConv(lw, id)
+	case "pcall":
+		try lowerHost(lw, id)
+	case _:
+		return refuse(*lw, id, k, "expression kind not lowered in round 1")
+	}
+}
+
+func lowerStmts(lw mut fnLower, id uint32, q uint32) fails NotLowered {
+	for s in try nodes(*lw, id, q) {
+		try lowerStmt(lw, s)
+	}
+}
+
+func loopFor(lw fnLower, id uint32, label string) int fails NotLowered {
+	let mut i = lw.exits.Len() - 1
+	for i >= 0 {
+		if label == "" || lw.labels[i] == label {
+			return i
+		}
+		i = i - 1
+	}
+	refuse(lw, id, try rowKind(lw, id), "no enclosing loop for the jump")
+}
+
+func pushLoop(lw mut fnLower, exit uint32, next uint32, label string) {
+	lw.exits = lw.exits.Append(exit)
+	lw.nexts = lw.nexts.Append(next)
+	lw.labels = lw.labels.Append(label)
+}
+
+func popLoop(lw mut fnLower) {
+	let top = lw.exits.Len() - 1
+	lw.exits = lw.exits[0:top]
+	lw.nexts = lw.nexts[0:top]
+	lw.labels = lw.labels[0:top]
+}
+
+func lowerIf(lw mut fnLower, id uint32) fails NotLowered {
+	try lowerExpr(lw, try word(*lw, id, 0))
+	wasm.If(&lw.code, wasm.BlockEmpty)
+	open(lw)
+	try lowerStmts(lw, id, try word(*lw, id, 1))
+	let elseQ = try word(*lw, id, 2)
+	if (try nodes(*lw, id, elseQ)).Len() > 0 {
+		wasm.Else(&lw.code)
+		try lowerStmts(lw, id, elseQ)
+	}
+	close(lw)
+}
+
+func lowerWhile(lw mut fnLower, id uint32) fails NotLowered {
+	let label = try textOf(*lw, id, try word(*lw, id, 3))
+	wasm.Block(&lw.code, wasm.BlockEmpty)
+	open(lw)
+	let exit = lw.depth
+	wasm.Loop(&lw.code, wasm.BlockEmpty)
+	open(lw)
+	let head = lw.depth
+	let cond = try word(*lw, id, 0)
+	if cond != 0 {
+		try lowerExpr(lw, cond)
+		op(lw, wasm.OpI32Eqz)
+		wasm.BrIf(&lw.code, lw.depth-exit)
+	}
+	pushLoop(lw, exit, head, label)
+	try lowerStmts(lw, id, try word(*lw, id, 1))
+	popLoop(lw)
+	wasm.Br(&lw.code, lw.depth-head)
+	close(lw)
+	close(lw)
+}
+
+func lowerCount(lw mut fnLower, id uint32) fails NotLowered {
+	let l = try localOf(*lw, id, try word(*lw, id, 0))
+	let t = lw.ltypes[int(l)]
+	let label = try textOf(*lw, id, try word(*lw, id, 3))
+	try lowerExpr(lw, try word(*lw, id, 1))
+	wasm.LocalSet(&lw.code, l)
+	wasm.Block(&lw.code, wasm.BlockEmpty)
+	open(lw)
+	let exit = lw.depth
+	wasm.Loop(&lw.code, wasm.BlockEmpty)
+	open(lw)
+	let head = lw.depth
+	wasm.LocalGet(&lw.code, l)
+	try lowerExpr(lw, try word(*lw, id, 4))
+	try emitBin(lw, id, ">=", t)
+	wasm.BrIf(&lw.code, lw.depth-exit)
+	wasm.Block(&lw.code, wasm.BlockEmpty)
+	open(lw)
+	pushLoop(lw, exit, lw.depth, label)
+	try lowerStmts(lw, id, try word(*lw, id, 2))
+	popLoop(lw)
+	close(lw)
+	wasm.LocalGet(&lw.code, l)
+	constOf(lw, t, int64(1))
+	try emitBin(lw, id, "+", t)
+	wasm.LocalSet(&lw.code, l)
+	wasm.Br(&lw.code, lw.depth-head)
+	close(lw)
+	close(lw)
+}
+
+func lowerStmt(lw mut fnLower, id uint32) fails NotLowered {
+	let k = try rowKind(*lw, id)
+	match k {
+	case "def", "set":
+		let l = try localOf(*lw, id, try word(*lw, id, 0))
+		let o = if k == "set" { try textOf(*lw, id, try word(*lw, id, 2)) } else { "" }
+		if o != "" {
+			wasm.LocalGet(&lw.code, l)
+		}
+		try lowerExpr(lw, try word(*lw, id, 1))
+		if o != "" {
+			try emitBin(lw, id, o, lw.ltypes[int(l)])
+		}
+		wasm.LocalSet(&lw.code, l)
+	case "var":
+		let l = try localOf(*lw, id, try word(*lw, id, 0))
+		constOf(lw, lw.ltypes[int(l)], int64(0))
+		wasm.LocalSet(&lw.code, l)
+	case "expr", "discard":
+		let x = try word(*lw, id, 0)
+		let t = try exprType(*lw, x)
+		try lowerExpr(lw, x)
+		if t != tNone {
+			op(lw, wasm.OpDrop)
+		}
+	case "ret":
+		let x = try word(*lw, id, 0)
+		if x != 0 {
+			try lowerExpr(lw, x)
+		}
+		wasm.Return(&lw.code)
+	case "if":
+		try lowerIf(lw, id)
+	case "while":
+		try lowerWhile(lw, id)
+	case "count":
+		try lowerCount(lw, id)
+	case "block":
+		if try word(*lw, id, 2) != 0 {
+			return refuse(*lw, id, k, "a labelled block is not lowered in round 1")
+		}
+		try lowerStmts(lw, id, try word(*lw, id, 0))
+	case "break":
+		let i = try loopFor(*lw, id, try textOf(*lw, id, try word(*lw, id, 0)))
+		wasm.Br(&lw.code, lw.depth-lw.exits[i])
+	case "continue":
+		let i = try loopFor(*lw, id, "")
+		wasm.Br(&lw.code, lw.depth-lw.nexts[i])
+	case _:
+		return refuse(*lw, id, k, "statement kind not lowered in round 1")
+	}
+}
+
+func usesHost(file ir.File) bool {
+	let pcall = ir.KindCode(ir.TExpr, "pcall")
+	for f in file.Funcs {
+		for k in f.Body.Kind {
+			if k == pcall {
+				return true
+			}
+		}
+	}
+	false
+}
+
+func encoderRefused(name string, e wasm.WasmError) NotLowered {
+	NotLowered{Func: name, Row: uint32(0), Kind: "", Why: "the encoder refused the function: \(e.Kind) \(e.Detail)"}
+}
+
+func vals(ts []uint8) []byte {
+	let mut out = slices.WithCapacity[byte](ts.Len())
+	for t in ts {
+		out = out.Append(valType(t))
+	}
+	out
+}
+
+// Lower lowers every function of file into one WASM32 module, sigs[i]
+// being function i's parameters and result, and exports each function
+// under its IR name. A file that calls a WASI host (io.Print of a string
+// constant, os.Exit) imports wasi_snapshot_preview1 fd_write and
+// proc_exit, exports its memory, and gets a _start that runs main and
+// passes main's result, if it has one, to proc_exit. A row, type or
+// operator outside the subset is NotLowered naming it.
+func Lower(file ir.File, sigs []Sig) wasm.Module fails NotLowered {
+	if sigs.Len() != file.Funcs.Len() {
+		return NotLowered{Func: "", Row: uint32(0), Kind: "", Why: "\(sigs.Len()) signatures for \(file.Funcs.Len()) functions"}
+	}
+	let mut names = slices.WithCapacity[string](file.Funcs.Len())
+	let mut results = slices.WithCapacity[uint8](file.Funcs.Len())
+	let mut params = slices.WithCapacity[uint32](file.Funcs.Len())
+	for i in 0..file.Funcs.Len() {
+		let name = if int(file.Funcs[i].Name) < file.Strs.Len() { file.Strs[int(file.Funcs[i].Name)] } else { "" }
+		names = names.Append(name)
+		params = params.Append(sigs[i].Params)
+		let r = typeCode(sigs[i].Result)
+		if r == tNone && sigs[i].Result != "" {
+			return NotLowered{Func: name, Row: uint32(0), Kind: "type", Why: "result type \(sigs[i].Result) is not lowered in round 1"}
+		}
+		results = results.Append(r)
+	}
+	let mut m = wasm.NewModule()
+	let host = usesHost(file)
+	let mut write = uint32(0)
+	let mut exit = uint32(0)
+	if host {
+		let tw = m.InternType([]byte{wasm.ValI32, wasm.ValI32, wasm.ValI32, wasm.ValI32}, []byte{wasm.ValI32})
+		let te = m.InternType([]byte{wasm.ValI32}, []byte{})
+		write = m.AddImportFunc(WASIModule, "fd_write", tw) catch {
+		case wasm.WasmError as e:
+			return encoderRefused("", e)
+		}
+		exit = m.AddImportFunc(WASIModule, "proc_exit", te) catch {
+		case wasm.WasmError as e:
+			return encoderRefused("", e)
+		}
+		let mem = m.AddMemory(uint32(1))
+		m.AddExportMem("memory", mem)
+	}
+	let imports = wasm.ImportedFuncCount(m)
+	let mut data = []byte{}
+	let mut main = -1
+	for i in 0..file.Funcs.Len() {
+		let f = file.Funcs[i]
+		let mut ltypes = slices.WithCapacity[uint8](f.Locals.Len())
+		for l in f.Locals {
+			let tn = if int(l.Type) < file.Strs.Len() { file.Strs[int(l.Type)] } else { "" }
+			let c = typeCode(tn)
+			if c == tNone {
+				return NotLowered{Func: names[i], Row: uint32(0), Kind: "type", Why: "local of type \(tn) is not lowered in round 1"}
+			}
+			ltypes = ltypes.Append(c)
+		}
+		if int(params[i]) > ltypes.Len() {
+			return NotLowered{Func: names[i], Row: uint32(0), Kind: "", Why: "\(params[i]) parameters of \(ltypes.Len()) locals"}
+		}
+		let mut lw = fnLower{
+			name:    names[i],
+			strs:    file.Strs,
+			body:    f.Body,
+			ltypes:  ltypes,
+			result:  results[i],
+			names:   names,
+			results: results,
+			params:  params,
+			imports: imports,
+			write:   write,
+			exit:    exit,
+			code:    wasm.NewCodeBuf(),
+			depth:   uint32(0),
+			exits:   []uint32{},
+			nexts:   []uint32{},
+			labels:  []string{},
+			data:    data,
+		}
+		try lowerStmts(&lw, uint32(0), f.Body.Roots)
+		if results[i] != tNone {
+			op(&lw, wasm.OpUnreachable)
+		}
+		data = lw.data
+		let np = int(params[i])
+		let rs = if results[i] == tNone { []byte{} } else { []byte{valType(results[i])} }
+		let sig = m.InternType(vals(ltypes[0:np]), rs)
+		let idx = m.AddFunc(sig, vals(ltypes[np:ltypes.Len()]), lw.code) catch {
+		case wasm.WasmError as e:
+			return encoderRefused(names[i], e)
+		}
+		m.AddExportFunc(names[i], idx)
+		if names[i] == "main" {
+			main = i
+		}
+	}
+	if host && main >= 0 {
+		let mut cb = wasm.NewCodeBuf()
+		wasm.Call(&cb, imports+uint32(main))
+		if results[main] != tNone {
+			if wide(results[main]) {
+				wasm.U8(&cb.Buf, wasm.OpI32WrapI64)
+			}
+			wasm.Call(&cb, exit)
+		}
+		let start = m.AddFunc(m.InternType([]byte{}, []byte{}), []byte{}, cb) catch {
+		case wasm.WasmError as e:
+			return encoderRefused("_start", e)
+		}
+		m.AddExportFunc("_start", start)
+	}
+	if data.Len() > 0 {
+		let _ = m.AddActiveData(int32(dataBase), data)
+	}
+	m
+}
+
+// Emit lowers file as Lower does and encodes the module, the encoder's
+// own validation included.
+func Emit(file ir.File, sigs []Sig) []byte fails NotLowered {
+	let m = try Lower(file, sigs)
+	wasm.Emit(m) catch {
+	case wasm.WasmError as e:
+		return encoderRefused("", e)
+	}
+}
+
+type rows { b ir.Builder, at ir.Pos, s uint64, loops int }
+
+func newRows(seed uint64) rows {
+	let zero = ir.Pos{File: uint32(0), Line: uint32(0), Col: uint32(0)}
+	rows{b: ir.NewBuilder(1), at: zero, s: (seed << uint64(1)) | uint64(1), loops: 0}
+}
+
+func pick(r mut rows, n int) int {
+	r.s = r.s ^ (r.s << uint64(13))
+	r.s = r.s ^ (r.s >> uint64(7))
+	r.s = r.s ^ (r.s << uint64(17))
+	int((r.s >> uint64(11)) % uint64(n))
+}
+
+func ex(r mut rows, kind string, slots []uint32) uint32 fails ir.Malformed {
+	try ir.Row(&r.b, ir.KindCode(ir.TExpr, kind), r.at, slots)
+}
+
+func st(r mut rows, kind string, slots []uint32) uint32 fails ir.Malformed {
+	try ir.Row(&r.b, ir.KindCode(ir.TStmt, kind), r.at, slots)
+}
+
+func txt(r mut rows, s string) uint32 { ir.Text(&r.b, s) }
+
+func list(r mut rows, ids []uint32) uint32 { ir.List(&r.b, ids) }
+
+func loc(r mut rows, l int) uint32 fails ir.Malformed { try ex(r, "local", []uint32{uint32(l)}) }
+
+func num(r mut rows, t string, v string) uint32 fails ir.Malformed {
+	try ex(r, "const", []uint32{txt(r, t), txt(r, v), uint32(0)})
+}
+
+func bin(r mut rows, o string, x uint32, y uint32) uint32 fails ir.Malformed {
+	try ex(r, "bin", []uint32{txt(r, o), x, y})
+}
+
+func begin(r mut rows, name string, locals []string) fails ir.Malformed {
+	try ir.Begin(&r.b, name, r.at, r.at)
+	for i in 0..locals.Len() {
+		try ir.AddLocal(&r.b, "l\(i)", locals[i], r.at)
+	}
+}
+
+let seededOps = []string{"+", "-", "*", "/", "%", "&", "|", "^"}
+let seededCmps = []string{"==", "!=", "<", "<=", ">", ">="}
+
+func genValue(r mut rows) uint32 fails ir.Malformed {
+	let c = pick(r, 6)
+	if c == 0 {
+		return try num(r, "int", "\(pick(r, 100) - 50)")
+	}
+	if c == 1 {
+		return try ex(r, "call", []uint32{uint32(0), txt(r, "g"), list(r, []uint32{try loc(r, 1)})})
+	}
+	if c == 2 {
+		return try ex(r, "conv", []uint32{txt(r, "int"), try loc(r, 3)})
+	}
+	if c == 3 {
+		return try ex(r, "un", []uint32{txt(r, "-"), try loc(r, pick(r, 3))})
+	}
+	try bin(r, seededOps[pick(r, seededOps.Len())], try loc(r, pick(r, 3)), try loc(r, pick(r, 3)))
+}
+
+func genCond(r mut rows) uint32 fails ir.Malformed {
+	let cmp = try bin(r, seededCmps[pick(r, seededCmps.Len())], try loc(r, pick(r, 3)), try genValue(r))
+	match pick(r, 3) {
+	case 0:
+		try bin(r, "&&", cmp, try loc(r, 4))
+	case 1:
+		try ex(r, "un", []uint32{txt(r, "!"), cmp})
+	case _:
+		cmp
+	}
+}
+
+func genStmts(r mut rows, depth int, inLoop bool) uint32 fails ir.Malformed {
+	let n = 1 + pick(r, 3)
+	let mut out = []uint32{}
+	for _ in 0..n {
+		out = out.Append(try genStmt(r, depth, inLoop))
+	}
+	list(r, out)
+}
+
+func genStmt(r mut rows, depth int, inLoop bool) uint32 fails ir.Malformed {
+	let c = pick(r, 10)
+	if c == 0 && depth < 2 {
+		return try st(r, "if", []uint32{try genCond(r), try genStmts(r, depth+1, inLoop), try genStmts(r, depth+1, inLoop), uint32(0), uint32(0), uint32(0)})
+	}
+	if c == 1 && depth < 2 && r.loops < 2 {
+		r.loops = r.loops + 1
+		return try st(r, "while", []uint32{try genCond(r), try genStmts(r, depth+1, true), uint32(0), uint32(0)})
+	}
+	if c == 2 && depth < 2 && r.loops < 2 {
+		r.loops = r.loops + 1
+		let from = try num(r, "int", "0")
+		return try st(r, "count", []uint32{uint32(5), from, try genStmts(r, depth+1, true), uint32(0), try loc(r, 0)})
+	}
+	if c == 3 && inLoop {
+		return try st(r, "break", []uint32{uint32(0)})
+	}
+	if c == 4 && inLoop {
+		return try st(r, "continue", []uint32{})
+	}
+	if c == 5 {
+		return try st(r, "set", []uint32{uint32(2), try genValue(r), txt(r, seededOps[pick(r, seededOps.Len())])})
+	}
+	if c == 6 {
+		let n32 = try ex(r, "conv", []uint32{txt(r, "int32"), try genValue(r)})
+		return try st(r, "def", []uint32{uint32(3), n32})
+	}
+	if c == 7 {
+		return try st(r, "def", []uint32{uint32(4), try genCond(r)})
+	}
+	if c == 8 {
+		return try st(r, "expr", []uint32{try ex(r, "call", []uint32{uint32(0), txt(r, "g"), list(r, []uint32{try genValue(r)})})})
+	}
+	try st(r, "def", []uint32{uint32(2), try genValue(r)})
+}
+
+let seededLocals = []string{"int", "int", "int", "int32", "bool", "int"}
+
+func genFile(seed uint32, refuse uint8) ir.File fails ir.Malformed {
+	let mut r = newRows(uint64(seed))
+	try begin(&r, "g", []string{"int"})
+	let gx = try bin(&r, "*", try loc(&r, 0), try num(&r, "int", "3"))
+	try ir.End(&r.b, list(&r, []uint32{try st(&r, "ret", []uint32{gx})}))
+	try begin(&r, "f", seededLocals)
+	let mut body = []uint32{}
+	if refuse == 0 {
+		body = body.Append(try genStmt(&r, 0, false))
+		body = body.Append(try genStmt(&r, 0, false))
+		body = body.Append(try genStmt(&r, 0, false))
+	} else {
+		let mut zeros = []uint32{}
+		for _ in 0..ir.KindOf(refuse).Slots.Len() {
+			zeros = zeros.Append(uint32(0))
+		}
+		let row = try ir.Row(&r.b, refuse, r.at, zeros)
+		body = body.Append(if ir.KindOf(refuse).Class == ir.TExpr { try st(&r, "expr", []uint32{row}) } else { row })
+	}
+	body = body.Append(try st(&r, "ret", []uint32{try loc(&r, 2)}))
+	try ir.End(&r.b, list(&r, body))
+	try ir.Finish(r.b)
+}
+
+let seededSigs = []Sig{Sig{Params: uint32(1), Result: "int"}, Sig{Params: uint32(2), Result: "int"}}
+
+func decodes(bin []byte) bool {
+	let _ = wasm.Decode(bin) catch {
+	case wasm.WasmError:
+		return false
+	}
+	true
+}
+
+// LowersSeededIntegerPrograms: every seeded function of the round 1 subset
+// (int, int32 and bool locals; constants, arithmetic, comparisons, && and
+// !, negation, conversions, calls; def, set with an operator, expr, if,
+// while, count, break, continue, ret) lowers to a module that the
+// encoder's validation accepts and the validating decoder reads back.
+law LowersSeededIntegerPrograms(seed uint32) {
+	let file = genFile(seed, uint8(0)) catch {
+	case ir.Malformed:
+		return false
+	}
+	let bin = Emit(file, seededSigs) catch {
+	case NotLowered:
+		return false
+	}
+	decodes(bin)
+}
+
+let subset = []string{
+	"local", "const", "zero", "bin", "un", "call", "conv", "pcall",
+	"def", "set", "var", "expr", "discard", "ret", "if", "while", "count", "block", "break", "continue",
+}
+
+func inSubset(name string) bool {
+	for s in subset {
+		if s == name {
+			return true
+		}
+	}
+	false
+}
+
+// RefusesKindsOutsideTheSubset: a statement or expression row of a kind
+// outside the subset is NotLowered naming that kind, never skipped.
+law RefusesKindsOutsideTheSubset(choice uint8) {
+	let c = uint8(1 + int(choice)%(ir.NumKinds()-1))
+	let kind = ir.KindOf(c)
+	if kind.Class == ir.TCase || inSubset(kind.Name) {
+		return true
+	}
+	let file = genFile(uint32(choice), c) catch {
+	case ir.Malformed:
+		return false
+	}
+	let _ = Lower(file, seededSigs) catch {
+	case NotLowered as e:
+		return e.Kind == kind.Name && e.Func == "f"
+	}
+	false
+}
