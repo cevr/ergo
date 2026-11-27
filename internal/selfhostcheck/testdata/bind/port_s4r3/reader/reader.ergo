@@ -1,0 +1,8 @@
+import ports4r3demo/producer
+
+func PortS4r3Area(n int) int {
+	let s = producer.MakeSquare(n)
+	producer.Area(s)
+}
+
+func PortS4r3Scale(x int) int { producer.Scale(x, 3) }

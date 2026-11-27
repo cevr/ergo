@@ -1129,13 +1129,13 @@ func scanPass1Pkg(st fnb, rootIdx pkgFlatIndex, deps []expr.Dep, ctx scanCtx, pi
 			let dn = syntax.Item(p.Tree, list, i)
 			match syntax.ViewOf(p.Tree, dn) {
 			case syntax.FuncDecl as fd:
-				if pi == scanPkgRoot && nameText(p, fd.Name) == "WireForm" {
+				if (pi == scanPkgRoot || scanPath(st, deps, pi) == st.programRoot) && nameText(p, fd.Name) == "WireForm" {
 					hasWireForm = true
 				}
 			case syntax.ErrorRow as r:
 				recordErrorRowNode(k, s, fi, pa, r, errKey)
 			case syntax.TypeDecl as td:
-				if pi == scanPkgRoot && nameText(p, td.Name) == "WireForm" {
+				if (pi == scanPkgRoot || scanPath(st, deps, pi) == st.programRoot) && nameText(p, td.Name) == "WireForm" {
 					hasWireForm = true
 				}
 				if dense.Unpack(td.Extern) != option.None {
@@ -1543,7 +1543,7 @@ func scanPass2Pkg(st fnb, rootIdx pkgFlatIndex, deps []expr.Dep, ctx scanCtx, pi
 func buildUnionLayoutCache(st fnb, rootIdx pkgFlatIndex, depIdx Map[string, pkgFlatIndex]) (Map[string, pkgFlatIndex], unionLayoutCache) {
 	let deps = match st.rootImports {
 	case option.Some[[]expr.Dep] as ds:
-		if st.alias != "" {
+		if st.alias != "" && st.programRoot == "" {
 			return (depIdx, emptyUnionLayoutCache())
 		}
 		ds.Value
@@ -1579,7 +1579,8 @@ func buildUnionLayoutCache(st fnb, rootIdx pkgFlatIndex, depIdx Map[string, pkgF
 	}
 	for i, dep in deps {
 		if dep.Path != st.pkgPath {
-			let (db, dv, _) = scanPass1Pkg(st, rootIdx, deps, ctx, i, &extSeen, &extKey, &errKey, &machKey)
+			let (db, dv, dwf) = scanPass1Pkg(st, rootIdx, deps, ctx, i, &extSeen, &extKey, &errKey, &machKey)
+			hasWireForm = hasWireForm || dwf
 			if db || dv {
 				scanPkg2 = scanPkg2.Append(i)
 			}

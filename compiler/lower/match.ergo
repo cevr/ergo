@@ -38,8 +38,8 @@ func matchPrepare(st fnb, binds mut localBinds, p mut controlPlan, m syntax.Type
 		true
 	case UnionSealed:
 		false
-	case UnionUnproved:
-		return stop("match: unproved union layout")
+	case UnionUnproved as u:
+		return stop("match: unproved union layout: " + u.Why)
 	}
 	match syntax.ViewOf(st.p.Tree, unparen(st, subj)) {
 	case syntax.Name:

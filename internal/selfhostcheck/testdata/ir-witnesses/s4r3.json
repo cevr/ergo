@@ -1,0 +1,6 @@
+[
+  {"fixture": "port_s4r3/producer/producer.ergo", "declaration": "func Area(", "symbol": "ports4r3demo_sproducer__Area"},
+  {"fixture": "port_s4r3/producer/producer.ergo", "declaration": "func MakeSquare(", "symbol": "ports4r3demo_sproducer__MakeSquare"},
+  {"fixture": "port_s4r3/producer/producer.ergo", "declaration": "func Scale(", "symbol": "ports4r3demo_sproducer__Scale"},
+  {"fixture": "port_s4r3/reader/reader.ergo", "declaration": "func PortS4r3Area(", "symbol": "PortS4r3Area"}
+]
