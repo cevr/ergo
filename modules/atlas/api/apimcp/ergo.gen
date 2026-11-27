@@ -1,0 +1,5 @@
+kind mcp
+generator ergo gen mcp
+subject github.com/cevr/ergo/modules/atlas/api.Api
+contract sha256:9d9d19d61838432c5e1e01c5602eb95e9c4ca0cc40bb609776a9e287486da15f
+digest sha256:0650956679b34e640930d1246086ff53a8b76a059da8d64ea9f7c1a7d8d61c3e

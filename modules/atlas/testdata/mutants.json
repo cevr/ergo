@@ -641,6 +641,198 @@
       "killers": [
         "modules/atlas/sqlite:law:PersistenceChecks.CrashReopenPreservesLeasesWakesHoldsAndJournals"
       ]
+    },
+    {
+      "name": "atlas-api-hmac-equal-skipped",
+      "origin": "ATLAS-API",
+      "file": "modules/atlas/api/mcp_auth.ergo",
+      "from": "\t\t\tif rec.Value.Digest.Len() == 32 && hmac.Equal(candidateDigest, rec.Value.Digest) {\n",
+      "to": "\t\t\tif rec.Value.Digest.Len() == 32 || hmac.Equal(candidateDigest, rec.Value.Digest) {\n",
+      "rule": "Bearer authentication must verify SHA-256 token digests with constant-time hmac.Equal rather than accepting any 32-byte digest record.",
+      "anchor": {
+        "tests": [
+          "modules/atlas/api:law:McpAuthDigestScopingIdleExpiryRevokeAndRotation",
+          "modules/atlas/api:law:McpHttpEndpointEnforcesBearerAndAudiences"
+        ]
+      },
+      "killers": [
+        "modules/atlas/api:law:McpAuthDigestScopingIdleExpiryRevokeAndRotation",
+        "modules/atlas/api:law:McpHttpEndpointEnforcesBearerAndAudiences"
+      ]
+    },
+    {
+      "name": "atlas-api-revoked-token-accepted",
+      "origin": "ATLAS-API",
+      "file": "modules/atlas/api/mcp_auth.ergo",
+      "from": "\tif rec.Revoked {\n\t\treturn McpHttpRejection{Status: 401, Code: \"token_revoked\", Reason: \"bearer token has been revoked\"}\n\t}\n",
+      "to": "\tif false && rec.Revoked {\n\t\treturn McpHttpRejection{Status: 401, Code: \"token_revoked\", Reason: \"bearer token has been revoked\"}\n\t}\n",
+      "rule": "Revoked /mcp bearer tokens must be rejected with HTTP 401 token_revoked after rotation or close.",
+      "anchor": {
+        "tests": [
+          "modules/atlas/api:law:McpAuthDigestScopingIdleExpiryRevokeAndRotation",
+          "modules/atlas/api/serve:law:MemorySurfacesAndHttpMcpWork"
+        ]
+      },
+      "killers": [
+        "modules/atlas/api:law:McpAuthDigestScopingIdleExpiryRevokeAndRotation",
+        "modules/atlas/api/serve:law:MemorySurfacesAndHttpMcpWork"
+      ]
+    },
+    {
+      "name": "atlas-api-wrong-thread-bypass",
+      "origin": "ATLAS-API",
+      "file": "modules/atlas/api/mcp_auth.ergo",
+      "from": "\t\tif rec.ThreadID != target.Value {\n\t\t\treturn McpHttpRejection{Status: 403, Code: \"wrong_thread\", Reason: \"bearer token is not scoped to requested thread\"}\n\t\t}\n",
+      "to": "\t\tif false && rec.ThreadID != target.Value {\n\t\t\treturn McpHttpRejection{Status: 403, Code: \"wrong_thread\", Reason: \"bearer token is not scoped to requested thread\"}\n\t\t}\n",
+      "rule": "Per-thread /mcp routes must reject bearer tokens issued for any other thread with HTTP 403 wrong_thread.",
+      "anchor": {
+        "tests": [
+          "modules/atlas/api:law:McpAuthDigestScopingIdleExpiryRevokeAndRotation",
+          "modules/atlas/api:law:McpHttpEndpointEnforcesBearerAndAudiences"
+        ]
+      },
+      "killers": [
+        "modules/atlas/api:law:McpAuthDigestScopingIdleExpiryRevokeAndRotation",
+        "modules/atlas/api:law:McpHttpEndpointEnforcesBearerAndAudiences"
+      ]
+    },
+    {
+      "name": "atlas-api-idle-24h-not-enforced",
+      "origin": "ATLAS-API",
+      "file": "modules/atlas/api/mcp_auth.ergo",
+      "from": "\tif nowMs-rec.LastTouchedMs >= session.McpTokenIdleExpiryMs() {\n\t\treturn McpHttpRejection{Status: 401, Code: \"token_idle_expired\", Reason: \"bearer token expired after 24h without a turn\"}\n\t}\n",
+      "to": "\tif false && nowMs-rec.LastTouchedMs >= session.McpTokenIdleExpiryMs() {\n\t\treturn McpHttpRejection{Status: 401, Code: \"token_idle_expired\", Reason: \"bearer token expired after 24h without a turn\"}\n\t}\n",
+      "rule": "D11: /mcp bearer credentials must expire after 24h without turn execution and must not be extended by /mcp requests alone.",
+      "anchor": {
+        "tests": [
+          "modules/atlas/api:law:McpAuthDigestScopingIdleExpiryRevokeAndRotation",
+          "modules/atlas/api/serve:law:MemorySurfacesAndHttpMcpWork"
+        ]
+      },
+      "killers": [
+        "modules/atlas/api:law:McpAuthDigestScopingIdleExpiryRevokeAndRotation",
+        "modules/atlas/api/serve:law:MemorySurfacesAndHttpMcpWork"
+      ]
+    },
+    {
+      "name": "atlas-api-outside-audience-thread-tool-allowed",
+      "origin": "ATLAS-API",
+      "file": "modules/atlas/api/mcp_auth.ergo",
+      "from": "\tcase AudienceOutside as out:\n\t\tif IsThreadOnlyTool(toolName) {\n\t\t\treturn option.Some[string]{Value: \"thread-only tool '\\(toolName)' refused for outside caller '\\(out.ClientID)'\"}\n\t\t}\n",
+      "to": "\tcase AudienceOutside as out:\n\t\tif false && IsThreadOnlyTool(toolName) {\n\t\t\treturn option.Some[string]{Value: \"thread-only tool '\\(toolName)' refused for outside caller '\\(out.ClientID)'\"}\n\t\t}\n",
+      "rule": "D13: thread-only tools called by an outside-agent audience must be explicitly refused in the MCP tool handler.",
+      "anchor": {
+        "tests": [
+          "modules/atlas/api:law:McpHttpEndpointEnforcesBearerAndAudiences",
+          "modules/atlas/api/serve:law:MemorySurfacesAndHttpMcpWork"
+        ]
+      },
+      "killers": [
+        "modules/atlas/api:law:McpHttpEndpointEnforcesBearerAndAudiences",
+        "modules/atlas/api/serve:law:MemorySurfacesAndHttpMcpWork"
+      ]
+    },
+    {
+      "name": "atlas-api-cross-thread-tool-arg-bypass",
+      "origin": "ATLAS-API",
+      "file": "modules/atlas/api/mcp_auth.ergo",
+      "from": "\t\tif !isWithinCallerScope(dataStore, caller.ThreadID, target) {\n\t\t\treturn option.Some[string]{Value: \"wrong thread scope: caller '\\(string(caller.ThreadID))' cannot address '\\(string(target))'\"}\n\t\t}\n",
+      "to": "\t\tif false && !isWithinCallerScope(dataStore, caller.ThreadID, target) {\n\t\t\treturn option.Some[string]{Value: \"wrong thread scope: caller '\\(string(caller.ThreadID))' cannot address '\\(string(target))'\"}\n\t\t}\n",
+      "rule": "Scoped thread /mcp callers must be refused when targeting unrelated threadIDs inside MCP tool arguments.",
+      "anchor": {
+        "tests": [
+          "modules/atlas/api:law:McpHttpEndpointEnforcesBearerAndAudiences",
+          "modules/atlas/api/serve:law:MemorySurfacesAndHttpMcpWork"
+        ]
+      },
+      "killers": [
+        "modules/atlas/api:law:McpHttpEndpointEnforcesBearerAndAudiences",
+        "modules/atlas/api/serve:law:MemorySurfacesAndHttpMcpWork"
+      ]
+    },
+    {
+      "name": "atlas-api-archive-skips-token-revoke",
+      "origin": "ATLAS-API",
+      "file": "modules/atlas/api/backend.ergo",
+      "from": "\tlet _ = try execStore(s, meta, memory.CmdArchiveThread{ID: tid})\n\tlet _ = RevokeThreadTokens(s.auth, tid)\n",
+      "to": "\tlet _ = try execStore(s, meta, memory.CmdArchiveThread{ID: tid})\n",
+      "rule": "Archiving/closing a thread must revoke active per-thread /mcp bearer credentials.",
+      "anchor": {
+        "tests": [
+          "modules/atlas/api:law:Api.ApiThreadTurnQueueAndTokenLifecycle",
+          "modules/atlas/api/serve:law:MemorySurfacesAndHttpMcpWork"
+        ]
+      },
+      "killers": [
+        "modules/atlas/api:law:Api.ApiThreadTurnQueueAndTokenLifecycle",
+        "modules/atlas/api/serve:law:MemorySurfacesAndHttpMcpWork"
+      ]
+    },
+    {
+      "name": "atlas-api-wellness-skips-dead-owner-calls",
+      "origin": "ATLAS-API",
+      "file": "modules/atlas/api/wellness.ergo",
+      "from": "\t\t\t\tif policy.LiveOwnersConfigured && !containsString(policy.LiveOwners, handle.OwnerText(hv.Owner)) {\n\t\t\t\t\tdeadCalls = deadCalls + 1\n\t\t\t\t}\n",
+      "to": "\t\t\t\tif false && policy.LiveOwnersConfigured && !containsString(policy.LiveOwners, handle.OwnerText(hv.Owner)) {\n\t\t\t\t\tdeadCalls = deadCalls + 1\n\t\t\t\t}\n",
+      "rule": "WellnessReport must flag open volatile KindCall handles belonging to non-live owners.",
+      "anchor": {
+        "tests": [
+          "modules/atlas/api:law:WellnessDetectsHealthyDegradedAndFailures"
+        ]
+      },
+      "killers": [
+        "modules/atlas/api:law:WellnessDetectsHealthyDegradedAndFailures"
+      ]
+    },
+    {
+      "name": "atlas-api-wellness-skips-host-load-check",
+      "origin": "ATLAS-API",
+      "file": "modules/atlas/api/wellness.ergo",
+      "from": "\tlet lpc = LoadPerCore(rep)\n\tlet loadOK = lpc <= policy.MaxLoadPerCore\n",
+      "to": "\tlet lpc = LoadPerCore(rep)\n\tlet loadOK = true || lpc <= policy.MaxLoadPerCore\n",
+      "rule": "WellnessReport and WellnessMonitor must detect excessive host 1m load-per-core headroom.",
+      "anchor": {
+        "tests": [
+          "modules/atlas/api:law:WellnessDetectsHealthyDegradedAndFailures",
+          "modules/atlas/api:law:WellnessMonitorHysteresisAndPeriodicSchedule"
+        ]
+      },
+      "killers": [
+        "modules/atlas/api:law:WellnessDetectsHealthyDegradedAndFailures",
+        "modules/atlas/api:law:WellnessMonitorHysteresisAndPeriodicSchedule"
+      ]
+    },
+    {
+      "name": "atlas-api-host-capacity-allows-invalid-bounds",
+      "origin": "ATLAS-API",
+      "file": "modules/atlas/api/host_capacity.ergo",
+      "from": "\tif r.MemTotalBytes < int64(0) || r.MemAvailableBytes < int64(0) || r.MemAvailableBytes > r.MemTotalBytes || r.MemAvailGiB < 0.0 {\n\t\treturn false\n\t}\n",
+      "to": "\tif r.MemTotalBytes < int64(0) || r.MemAvailableBytes < int64(0) || r.MemAvailGiB < 0.0 {\n\t\treturn false\n\t}\n",
+      "rule": "HostCapacity must validate that available memory does not exceed total host memory.",
+      "anchor": {
+        "tests": [
+          "modules/atlas/api:law:HostCapacityRejectsInvalidStaticStatus"
+        ]
+      },
+      "killers": [
+        "modules/atlas/api:law:HostCapacityRejectsInvalidStaticStatus"
+      ]
+    },
+    {
+      "name": "atlas-api-bind-allows-wildcard",
+      "origin": "ATLAS-API",
+      "file": "modules/atlas/api/serve/server.ergo",
+      "from": "\tif strings.EqualFold(host, \"localhost\") || host == \"::1\" || strings.HasPrefix(host, \"127.\") {\n\t\treturn true\n\t}\n",
+      "to": "\tif strings.EqualFold(host, \"localhost\") || host == \"::1\" || host == \"0.0.0.0\" || strings.HasPrefix(host, \"127.\") {\n\t\treturn true\n\t}\n",
+      "rule": "HTTP server bind policy must refuse wildcard 0.0.0.0 addresses and permit only loopback or Tailscale CGNAT.",
+      "anchor": {
+        "tests": [
+          "modules/atlas/api/serve:law:BindPolicyEnforcesLoopbackAndTailnet"
+        ]
+      },
+      "killers": [
+        "modules/atlas/api/serve:law:BindPolicyEnforcesLoopbackAndTailnet"
+      ]
     }
   ]
 }
