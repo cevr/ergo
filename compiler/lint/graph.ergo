@@ -1070,6 +1070,30 @@ func unwrapPtrOwnType(s store.Store, t dense.ID[store.TKey]) dense.ID[store.TKey
 	cur
 }
 
+func lookupRecFieldType(recTyped load.Typed, recMod string, recPath string, xRes exprTypeRes, xt dense.ID[store.TKey], ownerType string, fieldName string) exprTypeRes {
+	for rec in recTyped.K.Recs {
+		if rec.Name == ownerType {
+			for fld in rec.Fields {
+				if fld.Name == fieldName {
+					if store.KindOfType(recTyped.S, fld.T) == store.KParam {
+						let base = unwrapPtrOwnType(xRes.typed.S, xt)
+						if store.KindOfType(xRes.typed.S, base) == store.KInstance {
+							let args = store.OperandsOf(xRes.typed.S, base)
+							let pIdx = store.ArgOf(recTyped.S, fld.T)
+							if pIdx >= 0 && pIdx < args.Len() {
+								return exprTypeRes{typed: xRes.typed, uMod: xRes.uMod, uPath: xRes.uPath, t: dense.OptOf(args[pIdx])}
+							}
+						}
+					}
+					return exprTypeRes{typed: recTyped, uMod: recMod, uPath: recPath, t: dense.OptOf(fld.T)}
+				}
+			}
+			break
+		}
+	}
+	exprTypeRes{typed: xRes.typed, uMod: xRes.uMod, uPath: xRes.uPath, t: dense.NoID[store.TKey]()}
+}
+
 func lookupStructFieldType(ctx edgeCtx, xRes exprTypeRes, xt dense.ID[store.TKey], fieldName string) exprTypeRes {
 	let (ownerMod, ownerPath, ownerType, okNom) = resolveNominalOwner(ctx, xRes.typed, xRes.uMod, xRes.uPath, xt)
 	if okNom && ownerPath != "" && ownerType != "" {
@@ -1077,29 +1101,39 @@ func lookupStructFieldType(ctx edgeCtx, xRes exprTypeRes, xt dense.ID[store.TKey
 		case option.Some{Value: ouIdx}:
 			match ctx.units[ouIdx].Typed {
 			case option.Some{Value: otd}:
-				for rec in otd.K.Recs {
-					if rec.Name == ownerType {
-						for fld in rec.Fields {
-							if fld.Name == fieldName {
-								if store.KindOfType(otd.S, fld.T) == store.KParam {
-									let base = unwrapPtrOwnType(xRes.typed.S, xt)
-									if store.KindOfType(xRes.typed.S, base) == store.KInstance {
-										let args = store.OperandsOf(xRes.typed.S, base)
-										let pIdx = store.ArgOf(otd.S, fld.T)
-										if pIdx >= 0 && pIdx < args.Len() {
-											return exprTypeRes{typed: xRes.typed, uMod: xRes.uMod, uPath: xRes.uPath, t: dense.OptOf(args[pIdx])}
-										}
-									}
-								}
-								return exprTypeRes{typed: otd, uMod: ownerMod, uPath: ownerPath, t: dense.OptOf(fld.T)}
-							}
-						}
-						break
-					}
+				let res = lookupRecFieldType(otd, ownerMod, ownerPath, xRes, xt, ownerType, fieldName)
+				if dense.Unpack(res.t) != option.None {
+					return res
 				}
 			case option.None:
 			}
 		case option.None:
+			for dep in xRes.typed.K.Deps {
+				if dep.Path == ownerPath {
+					let depMod = match ctx.modByPkg.Get(dep.Path) {
+					case option.Some{Value: m}:
+						m
+					case option.None:
+						""
+					}
+					let depTyped = load.Typed{S: dep.S, K: dep.K, T: xRes.typed.T}
+					let res = lookupRecFieldType(depTyped, depMod, dep.Path, xRes, xt, ownerType, fieldName)
+					if dense.Unpack(res.t) != option.None {
+						return res
+					}
+					break
+				}
+			}
+		}
+		let shortPkg = stdShortPath(ownerPath)
+		if ownerType == "Some" && fieldName == "Value" && (ownerPath == "option" || shortPkg == "option") {
+			let base = unwrapPtrOwnType(xRes.typed.S, xt)
+			if store.KindOfType(xRes.typed.S, base) == store.KInstance {
+				let args = store.OperandsOf(xRes.typed.S, base)
+				if args.Len() > 0 {
+					return exprTypeRes{typed: xRes.typed, uMod: xRes.uMod, uPath: xRes.uPath, t: dense.OptOf(args[0])}
+				}
+			}
 		}
 	}
 	exprTypeRes{typed: xRes.typed, uMod: xRes.uMod, uPath: xRes.uPath, t: dense.NoID[store.TKey]()}

@@ -83,6 +83,7 @@ type LedgerEntry {
 	Name     string,
 	Subject  string,
 	Instance string,
+	Build    string,
 	Kind     string,
 	Tool     string,
 	Producer string,
@@ -107,6 +108,7 @@ type LedgerTable {
 	Name        []uint32,
 	Subject     []uint32,
 	Instance    []uint32,
+	Build       []uint32,
 	Kind        []uint32,
 	Tool        []uint32,
 	Producer    []uint32,
@@ -348,6 +350,7 @@ func NewLedgerTable() LedgerTable {
 		Name:        []uint32{},
 		Subject:     []uint32{},
 		Instance:    []uint32{},
+		Build:       []uint32{},
 		Kind:        []uint32{},
 		Tool:        []uint32{},
 		Producer:    []uint32{},
@@ -363,8 +366,8 @@ func NewLedgerTable() LedgerTable {
 	}
 }
 
-func ledgerKey(name string, subject string, instance string) string {
-	"\(name)\x00\(subject)\x00\(instance)"
+func ledgerKey(name string, subject string, instance string, build string) string {
+	"\(name)\x00\(subject)\x00\(instance)\x00\(build)"
 }
 
 func matchBalancedParenAt(s string, openIdx int) option.Option[int] {
@@ -429,11 +432,12 @@ func SplitInstance(s string) SplitInstanceResult {
 	}
 }
 
-func addLedgerRow(t mut LedgerTable, name string, subject string, instance string, kind string, tool string, producer string, digest string, raw string, line uint32) {
-	let keyID = internPoolStr(&((*t).Strings), &((*t).StrPool), ledgerKey(name, subject, instance))
+func addLedgerRow(t mut LedgerTable, name string, subject string, instance string, build string, kind string, tool string, producer string, digest string, raw string, line uint32) {
+	let keyID = internPoolStr(&((*t).Strings), &((*t).StrPool), ledgerKey(name, subject, instance, build))
 	let nameID = internPoolStr(&((*t).Strings), &((*t).StrPool), name)
 	let subID = internPoolStr(&((*t).Strings), &((*t).StrPool), subject)
 	let instID = internPoolStr(&((*t).Strings), &((*t).StrPool), instance)
+	let buildID = internPoolStr(&((*t).Strings), &((*t).StrPool), build)
 	let kindID = internPoolStr(&((*t).Strings), &((*t).StrPool), kind)
 	let toolID = internPoolStr(&((*t).Strings), &((*t).StrPool), tool)
 	let prodID = internPoolStr(&((*t).Strings), &((*t).StrPool), producer)
@@ -459,6 +463,7 @@ func addLedgerRow(t mut LedgerTable, name string, subject string, instance strin
 	(*t).Name = (*t).Name.Append(nameID)
 	(*t).Subject = (*t).Subject.Append(subID)
 	(*t).Instance = (*t).Instance.Append(instID)
+	(*t).Build = (*t).Build.Append(buildID)
 	(*t).Kind = (*t).Kind.Append(kindID)
 	(*t).Tool = (*t).Tool.Append(toolID)
 	(*t).Producer = (*t).Producer.Append(prodID)
@@ -509,6 +514,16 @@ func parseLawLedgerLine(line string, lineNo uint32) LedgerEntry fails LedgerForm
 		instance = instSplit.Instance
 		rest = instSplit.Rest
 	}
+	let mut build = ""
+	if strings.HasPrefix(rest, "under ") {
+		let afterUnder = strings.TrimSpace(rest[6:])
+		let spBuild = cutFirst(afterUnder, " ")
+		if !spBuild.ok {
+			return LedgerFormatError{Line: lineNo, Text: line, Message: "ergo.laws:\(FormatUint32(lineNo)): malformed under clause"}
+		}
+		build = spBuild.before
+		rest = strings.TrimSpace(spBuild.after)
+	}
 	let mut digest = ""
 	let mut tail = rest
 	let fields = strings.Fields(tail)
@@ -531,6 +546,7 @@ func parseLawLedgerLine(line string, lineNo uint32) LedgerEntry fails LedgerForm
 		Name:     name,
 		Subject:  subject,
 		Instance: instance,
+		Build:    build,
 		Kind:     headFields[0],
 		Tool:     headFields[2],
 		Producer: producer,
@@ -575,6 +591,10 @@ func FormatLedgerEntry(e LedgerEntry) string {
 		parts = parts.Append("at")
 		parts = parts.Append("(\(e.Instance))")
 	}
+	if e.Build != "" {
+		parts = parts.Append("under")
+		parts = parts.Append(e.Build)
+	}
 	parts = parts.Append(e.Kind)
 	parts = parts.Append("by")
 	parts = parts.Append(e.Tool)
@@ -603,7 +623,7 @@ func ParseLedger(text string, sc mut Scratch) LedgerTable fails LedgerFormatErro
 		}
 		if strings.HasPrefix(line, "law ") {
 			let e = try parseLawLedgerLine(line, lineNo)
-			addLedgerRow(&t, e.Name, e.Subject, e.Instance, e.Kind, e.Tool, e.Producer, e.Digest, FormatLedgerEntry(e), lineNo)
+			addLedgerRow(&t, e.Name, e.Subject, e.Instance, e.Build, e.Kind, e.Tool, e.Producer, e.Digest, FormatLedgerEntry(e), lineNo)
 		} else {
 			match ParseGuardLine(line, lineNo) {
 			case option.Some[GuardEntry] as g:
@@ -646,12 +666,13 @@ func LedgerCount(t LedgerTable) uint32 {
 func LedgerEntryAt(t LedgerTable, id uint32) LedgerEntry {
 	let idx = int(id)
 	if idx < 0 || uint32(idx) >= t.Count {
-		return LedgerEntry{Name: "", Subject: "", Instance: "", Kind: "", Tool: "", Producer: "", Digest: "", RawLine: "", Line: uint32(0)}
+		return LedgerEntry{Name: "", Subject: "", Instance: "", Build: "", Kind: "", Tool: "", Producer: "", Digest: "", RawLine: "", Line: uint32(0)}
 	}
 	LedgerEntry{
 		Name:     poolStrAt(t.StrPool, t.Name[idx]),
 		Subject:  poolStrAt(t.StrPool, t.Subject[idx]),
 		Instance: poolStrAt(t.StrPool, t.Instance[idx]),
+		Build:    poolStrAt(t.StrPool, t.Build[idx]),
 		Kind:     poolStrAt(t.StrPool, t.Kind[idx]),
 		Tool:     poolStrAt(t.StrPool, t.Tool[idx]),
 		Producer: poolStrAt(t.StrPool, t.Producer[idx]),
@@ -663,7 +684,7 @@ func LedgerEntryAt(t LedgerTable, id uint32) LedgerEntry {
 
 // LookupLedgerEntry returns the dense row index for (name, subject, instance) if present.
 func LookupLedgerEntry(t LedgerTable, name string, subject string, instance string) option.Option[uint32] {
-	let key = ledgerKey(name, subject, instance)
+	let key = ledgerKey(name, subject, instance, "")
 	match findPoolStr(t.Strings, key) {
 	case option.Some[uint32] as kid:
 		let ki = int(kid.Value)
