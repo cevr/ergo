@@ -1,0 +1,91 @@
+import io
+import option
+import os
+import strconv
+import strings
+import tsffi/geo
+
+func number(s string) float64 fails os.Exit {
+	strconv.ParseFloat(s) catch {
+	case strconv.Malformed, strconv.OutOfRange:
+		return os.Exit{Code: 2, Message: "tsffi: \(s) is not a number"}
+	}
+}
+
+func point(a string) geo.Point fails os.Exit {
+	let xy = strings.Split(a, ",")
+	if xy.Len() != 2 {
+		return os.Exit{Code: 2, Message: "tsffi: point \(a) is not x,y"}
+	}
+	let x = try number(xy[0])
+	let y = try number(xy[1])
+	geo.Point{X: geo.Meters(x), Y: geo.Meters(y)}
+}
+
+func shapeOf(args []string) geo.Shape fails os.Exit {
+	if args.Len() == 2 && args[0] == "circle" {
+		let r = try number(args[1])
+		return geo.Circle{Center: geo.Point{X: 0, Y: 0}, Radius: geo.Meters(r)}
+	}
+	if args.Len() >= 1 && args[0] == "polygon" {
+		let mut pts = []geo.Point{}
+		for a in args[1:args.Len()] {
+			pts = pts.Append(try point(a))
+		}
+		return geo.Polygon{Points: pts, Label: option.None}
+	}
+	os.Exit{Code: 2, Message: "usage: tsffi area circle R | tsffi area polygon X,Y... | tsffi centroid X,Y... | tsffi checksum TEXT"}
+}
+
+func area(args []string) string fails os.Exit {
+	let s = try shapeOf(args)
+	let a = geo.Area(s) catch {
+	case geo.Degenerate as d:
+		return os.Exit{Code: 1, Message: "tsffi: Degenerate: a polygon of \(d.Points) points has no area"}
+	case geo.NegativeRadius as n:
+		return os.Exit{Code: 1, Message: "tsffi: NegativeRadius: radius \(float64(n.Radius)) is below zero"}
+	}
+	"area \(float64(a))"
+}
+
+func centroid(args []string) string fails os.Exit {
+	let mut pts = []geo.Point{}
+	for a in args {
+		pts = pts.Append(try point(a))
+	}
+	let mut scaled = pts
+	geo.Scale(&scaled, 2)
+	match geo.Centroid(pts) {
+	case option.None:
+		"centroid none"
+	case option.Some[geo.Point] as c:
+		let d = match geo.Centroid(scaled) {
+		case option.Some[geo.Point] as e:
+			e.Value
+		case option.None:
+			c.Value
+		}
+		"centroid \(float64(c.Value.X)),\(float64(c.Value.Y)) scaled \(float64(d.X)),\(float64(d.Y))"
+	}
+}
+
+func run(args []string) string fails os.Exit {
+	if args.Len() >= 1 && args[0] == "area" {
+		return try area(args[1:args.Len()])
+	}
+	if args.Len() >= 1 && args[0] == "centroid" {
+		return try centroid(args[1:args.Len()])
+	}
+	if args.Len() == 2 && args[0] == "checksum" {
+		return "checksum \(geo.Checksum(strings.Bytes(args[1])))"
+	}
+	try shapeOf([]string{})
+	""
+}
+
+func main() fails os.Exit needs os.Ambient {
+	with context { io.Stdout: io.NewHost(), os.Process: os.NewHost() } {
+		let out = try run(os.Process.Args())
+		io.Stdout.Println(out)
+	}
+}

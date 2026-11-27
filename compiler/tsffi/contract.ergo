@@ -1,0 +1,594 @@
+import dense
+import option
+
+// KindVoid is the kind of the empty result; it is never a field, element, member or parameter.
+let KindVoid uint8 = 0
+
+// KindBool is the kind of bool.
+let KindBool uint8 = 1
+
+// KindInt32 is the kind of int32.
+let KindInt32 uint8 = 2
+
+// KindUint32 is the kind of uint32.
+let KindUint32 uint8 = 3
+
+// KindInt64 is the kind of int64.
+let KindInt64 uint8 = 4
+
+// KindUint64 is the kind of uint64.
+let KindUint64 uint8 = 5
+
+// KindFloat64 is the kind of float64.
+let KindFloat64 uint8 = 6
+
+// KindString is the kind of a UTF-8 string.
+let KindString uint8 = 7
+
+// KindBytes is the kind of []byte.
+let KindBytes uint8 = 8
+
+// KindSlice is the kind of []Elem.
+let KindSlice uint8 = 9
+
+// KindOption is the kind of option.Option[Elem].
+let KindOption uint8 = 10
+
+// KindNominal is the kind of a named type over the scalar, string or bytes type Elem.
+let KindNominal uint8 = 11
+
+// KindRecord is the kind of a record; its fields are the span Start, Len of the field table.
+let KindRecord uint8 = 12
+
+// KindUnion is the kind of a closed union; its members are the span Start, Len of the member table, each a record.
+let KindUnion uint8 = 13
+
+// VoidID is the dense type ID of void.
+let VoidID uint32 = 0
+
+// BoolID is the dense type ID of bool.
+let BoolID uint32 = 1
+
+// Int32ID is the dense type ID of int32.
+let Int32ID uint32 = 2
+
+// Uint32ID is the dense type ID of uint32.
+let Uint32ID uint32 = 3
+
+// Int64ID is the dense type ID of int64.
+let Int64ID uint32 = 4
+
+// Uint64ID is the dense type ID of uint64.
+let Uint64ID uint32 = 5
+
+// Float64ID is the dense type ID of float64.
+let Float64ID uint32 = 6
+
+// StringID is the dense type ID of string.
+let StringID uint32 = 7
+
+// BytesID is the dense type ID of []byte.
+let BytesID uint32 = 8
+
+// PrimitiveCount is the number of primitive types every contract holds at IDs 0 to 8, the ID equal to the kind.
+let PrimitiveCount uint32 = 9
+
+// SpecFailure names the first defect Validate or an emitter finds in a contract: Code is a stable key, Message names the declaration.
+type SpecFailure {
+	Code    string,
+	Message string,
+}
+
+// TypeTable holds the contract's types as columns indexed by dense type ID.
+type TypeTable {
+	Kind  []uint8,
+	Name  []uint32,
+	Elem  []uint32,
+	Start []uint32,
+	Len   []uint32,
+	Doc   []uint32,
+}
+
+// FieldTable holds every record's fields as columns; a record owns one contiguous span.
+type FieldTable {
+	Name []uint32,
+	Type []uint32,
+}
+
+// ParamTable holds every function's parameters as columns; a function owns one contiguous span.
+type ParamTable {
+	Name []uint32,
+	Type []uint32,
+	Mut  []bool,
+}
+
+// FuncTable holds the exported functions as columns indexed by dense function ID.
+type FuncTable {
+	Name       []uint32,
+	Result     []uint32,
+	ParamStart []uint32,
+	ParamLen   []uint32,
+	FailStart  []uint32,
+	FailLen    []uint32,
+	Doc        []uint32,
+}
+
+// Contract is the flat, data-oriented description of one library's exported surface: interned strings, types, fields, union and failure members, parameters and functions, each a table of columns joined by dense uint32 IDs.
+type Contract {
+	Module  string,
+	Strings dense.Strings,
+	Texts   []string,
+	Types   TypeTable,
+	Fields  FieldTable,
+	Members []uint32,
+	Params  ParamTable,
+	Funcs   FuncTable,
+}
+
+// FieldSpec is one field of a record to add.
+type FieldSpec {
+	Name string,
+	Type uint32,
+}
+
+// ParamSpec is one parameter of a function to add; Mut marks a parameter the callee may write through.
+type ParamSpec {
+	Name string,
+	Type uint32,
+	Mut  bool,
+}
+
+// FuncSpec is one exported function to add; Fails lists the record types of its failure row, in order.
+type FuncSpec {
+	Name   string,
+	Params []ParamSpec,
+	Result uint32,
+	Fails  []uint32,
+	Doc    string,
+}
+
+// NewContract is the contract of module with only the primitive types, at their fixed IDs.
+func NewContract(module string) Contract {
+	let mut c = Contract{
+		Module:  module,
+		Strings: dense.NewStrings(),
+		Texts:   []string{},
+		Types:   TypeTable{Kind: []uint8{}, Name: []uint32{}, Elem: []uint32{}, Start: []uint32{}, Len: []uint32{}, Doc: []uint32{}},
+		Fields:  FieldTable{Name: []uint32{}, Type: []uint32{}},
+		Members: []uint32{},
+		Params:  ParamTable{Name: []uint32{}, Type: []uint32{}, Mut: []bool{}},
+		Funcs:   FuncTable{Name: []uint32{}, Result: []uint32{}, ParamStart: []uint32{}, ParamLen: []uint32{}, FailStart: []uint32{}, FailLen: []uint32{}, Doc: []uint32{}},
+	}
+	let _ = Intern(&c, "")
+	for name in []string{"void", "bool", "int32", "uint32", "int64", "uint64", "float64", "string", "bytes"} {
+		let _ = pushType(&c, uint8(c.Types.Kind.Len()), name, 0, 0, 0, "")
+	}
+	c
+}
+
+// Intern is the dense ID of s in c's string table, adding s when it is new; "" is always ID 0.
+func Intern(c mut Contract, s string) uint32 {
+	let id = dense.InternText(&c.Strings, s)
+	let idx = dense.Index(id)
+	if idx == c.Texts.Len() {
+		c.Texts = c.Texts.Append(s)
+	}
+	uint32(idx)
+}
+
+// Lookup is the dense ID of s in c's string table, or None when s was never interned.
+func Lookup(c Contract, s string) option.Option[uint32] {
+	match dense.FindText(c.Strings, s) {
+	case option.Some[dense.ID[dense.Str]] as id:
+		option.Some[uint32]{Value: uint32(dense.Index(id.Value))}
+	case option.None:
+		option.None
+	}
+}
+
+// Text is the string of dense ID id, or "" for an ID outside the table.
+func Text(c Contract, id uint32) string {
+	if int(id) >= c.Texts.Len() {
+		return ""
+	}
+	c.Texts[int(id)]
+}
+
+// TypeCount is the number of types in c, so the next type's ID.
+func TypeCount(c Contract) uint32 {
+	uint32(c.Types.Kind.Len())
+}
+
+// FuncCount is the number of functions in c, so the next function's ID.
+func FuncCount(c Contract) uint32 {
+	uint32(c.Funcs.Name.Len())
+}
+
+func pushType(c mut Contract, kind uint8, name string, elem uint32, start uint32, length uint32, doc string) uint32 {
+	let id = TypeCount(*c)
+	let nameID = Intern(c, name)
+	let docID = Intern(c, doc)
+	c.Types.Kind = c.Types.Kind.Append(kind)
+	c.Types.Name = c.Types.Name.Append(nameID)
+	c.Types.Elem = c.Types.Elem.Append(elem)
+	c.Types.Start = c.Types.Start.Append(start)
+	c.Types.Len = c.Types.Len.Append(length)
+	c.Types.Doc = c.Types.Doc.Append(docID)
+	id
+}
+
+// AddSlice adds the type []elem and is its ID.
+func AddSlice(c mut Contract, elem uint32) uint32 {
+	pushType(c, KindSlice, "", elem, 0, 0, "")
+}
+
+// AddOption adds the type option.Option[elem] and is its ID.
+func AddOption(c mut Contract, elem uint32) uint32 {
+	pushType(c, KindOption, "", elem, 0, 0, "")
+}
+
+// AddNominal adds the named type name over base and is its ID.
+func AddNominal(c mut Contract, name string, base uint32, doc string) uint32 {
+	pushType(c, KindNominal, name, base, 0, 0, doc)
+}
+
+// AddRecord adds the record name with fields, in order, and is its ID.
+func AddRecord(c mut Contract, name string, fields []FieldSpec, doc string) uint32 {
+	let start = uint32(c.Fields.Name.Len())
+	for f in fields {
+		let nameID = Intern(c, f.Name)
+		c.Fields.Name = c.Fields.Name.Append(nameID)
+		c.Fields.Type = c.Fields.Type.Append(f.Type)
+	}
+	pushType(c, KindRecord, name, 0, start, uint32(fields.Len()), doc)
+}
+
+func pushMembers(c mut Contract, members []uint32) uint32 {
+	let start = uint32(c.Members.Len())
+	for m in members {
+		c.Members = c.Members.Append(m)
+	}
+	start
+}
+
+// AddUnion adds the closed union name of the record types members, in order, and is its ID.
+func AddUnion(c mut Contract, name string, members []uint32, doc string) uint32 {
+	let start = pushMembers(c, members)
+	pushType(c, KindUnion, name, 0, start, uint32(members.Len()), doc)
+}
+
+// AddFunc adds the exported function spec and is its function ID.
+func AddFunc(c mut Contract, spec FuncSpec) uint32 {
+	let id = FuncCount(*c)
+	let pStart = uint32(c.Params.Name.Len())
+	for p in spec.Params {
+		let nameID = Intern(c, p.Name)
+		c.Params.Name = c.Params.Name.Append(nameID)
+		c.Params.Type = c.Params.Type.Append(p.Type)
+		c.Params.Mut = c.Params.Mut.Append(p.Mut)
+	}
+	let fStart = pushMembers(c, spec.Fails)
+	let nameID = Intern(c, spec.Name)
+	let docID = Intern(c, spec.Doc)
+	c.Funcs.Name = c.Funcs.Name.Append(nameID)
+	c.Funcs.Result = c.Funcs.Result.Append(spec.Result)
+	c.Funcs.ParamStart = c.Funcs.ParamStart.Append(pStart)
+	c.Funcs.ParamLen = c.Funcs.ParamLen.Append(uint32(spec.Params.Len()))
+	c.Funcs.FailStart = c.Funcs.FailStart.Append(fStart)
+	c.Funcs.FailLen = c.Funcs.FailLen.Append(uint32(spec.Fails.Len()))
+	c.Funcs.Doc = c.Funcs.Doc.Append(docID)
+	id
+}
+
+// SpanWithin reports whether the span start, length lies inside a table of total rows, without overflow.
+func SpanWithin(start uint32, length uint32, total uint32) bool {
+	start <= total && length <= total-start
+}
+
+// IsIdent reports whether s is an ASCII identifier: a letter or _, then letters, digits or _.
+func IsIdent(s string) bool {
+	if s == "" {
+		return false
+	}
+	for i in 0..s.Len() {
+		let b = s[i]
+		let letter = (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z') || b == '_'
+		if !letter && (i == 0 || b < '0' || b > '9') {
+			return false
+		}
+	}
+	true
+}
+
+// Checked is a contract Validate accepted; emitters take only a Checked contract.
+type Checked {
+	contract Contract,
+}
+
+// ContractOf is the contract that Validate accepted.
+func ContractOf(k Checked) Contract {
+	k.contract
+}
+
+func defect(code string, message string) SpecFailure {
+	SpecFailure{Code: code, Message: message}
+}
+
+func tableShapeHolds(c Contract) bool {
+	let nt = c.Types.Kind.Len()
+	let nf = c.Fields.Name.Len()
+	let np = c.Params.Name.Len()
+	let nfn = c.Funcs.Name.Len()
+		c.Types.Name.Len() == nt && c.Types.Elem.Len() == nt && c.Types.Start.Len() == nt && c.Types.Len.Len() == nt && c.Types.Doc.Len() == nt &&
+		c.Fields.Type.Len() == nf &&
+		c.Params.Type.Len() == np && c.Params.Mut.Len() == np &&
+		c.Funcs.Result.Len() == nfn && c.Funcs.ParamStart.Len() == nfn && c.Funcs.ParamLen.Len() == nfn &&
+		c.Funcs.FailStart.Len() == nfn && c.Funcs.FailLen.Len() == nfn && c.Funcs.Doc.Len() == nfn
+}
+
+func checkStringIDs(c Contract, ids []uint32, what string) fails SpecFailure {
+	for id in ids {
+		if int(id) >= c.Texts.Len() {
+			return defect("bad-ref", what+" names string \(id) outside the string table")
+		}
+	}
+}
+
+func checkName(c Contract, id uint32, what string) fails SpecFailure {
+	let s = Text(c, id)
+	if !IsIdent(s) {
+		return defect("bad-name", what+" name \""+s+"\" is not an ASCII identifier")
+	}
+}
+
+func checkDistinct(c Contract, names []uint32, what string) fails SpecFailure {
+	for i in 0..names.Len() {
+		for j in (i + 1)..names.Len() {
+			if names[i] == names[j] {
+				return defect("duplicate", what+" declares "+Text(c, names[i])+" twice")
+			}
+		}
+	}
+}
+
+func checkValueRef(c Contract, ref uint32, bound uint32, what string) fails SpecFailure {
+	if ref >= bound {
+		return defect("bad-ref", what+" refers to type \(ref), not declared before it")
+	}
+	if c.Types.Kind[int(ref)] == KindVoid {
+		return defect("void", what+" has type void")
+	}
+}
+
+func checkMembers(c Contract, start uint32, length uint32, bound uint32, what string) fails SpecFailure {
+	if !SpanWithin(start, length, uint32(c.Members.Len())) {
+		return defect("bad-span", what+" member span is outside the member table")
+	}
+	let mut names = []uint32{}
+	for i in 0..int(length) {
+		let m = c.Members[int(start)+i]
+		try checkValueRef(c, m, bound, what)
+		if c.Types.Kind[int(m)] != KindRecord {
+			return defect("union-member", what+" member "+Text(c, c.Types.Name[int(m)])+" is not a record")
+		}
+		names = names.Append(c.Types.Name[int(m)])
+	}
+	try checkDistinct(c, names, what)
+}
+
+func checkType(c Contract, id uint32) fails SpecFailure {
+	let i = int(id)
+	let kind = c.Types.Kind[i]
+	let name = Text(c, c.Types.Name[i])
+	if id < PrimitiveCount {
+		if uint32(kind) != id {
+			return defect("primitives", "type \(id) is not the primitive of kind \(id)")
+		}
+		return
+	}
+	if kind == KindSlice || kind == KindOption {
+		try checkValueRef(c, c.Types.Elem[i], id, "type \(id) element")
+		let elemKind = c.Types.Kind[int(c.Types.Elem[i])]
+		if kind == KindOption && elemKind == KindOption {
+			return defect("nested-option", "type \(id) is an option of an option")
+		}
+		return
+	}
+	try checkName(c, c.Types.Name[i], "type \(id)")
+	if kind == KindNominal {
+		let base = c.Types.Elem[i]
+		try checkValueRef(c, base, id, name)
+		if c.Types.Kind[int(base)] > KindBytes {
+			return defect("nominal-base", name+" is not over a scalar, string or bytes")
+		}
+	} else if kind == KindRecord {
+		if !SpanWithin(c.Types.Start[i], c.Types.Len[i], uint32(c.Fields.Name.Len())) {
+			return defect("bad-span", name+" field span is outside the field table")
+		}
+		let mut names = []uint32{}
+		for f in 0..int(c.Types.Len[i]) {
+			let fi = int(c.Types.Start[i]) + f
+			try checkName(c, c.Fields.Name[fi], name+" field")
+			try checkValueRef(c, c.Fields.Type[fi], id, name+"."+Text(c, c.Fields.Name[fi]))
+			names = names.Append(c.Fields.Name[fi])
+		}
+		try checkDistinct(c, names, name)
+	} else if kind == KindUnion {
+		if c.Types.Len[i] == 0 {
+			return defect("empty-union", name+" has no members")
+		}
+		try checkMembers(c, c.Types.Start[i], c.Types.Len[i], id, name)
+	} else {
+		return defect("bad-kind", "type \(id) has kind \(kind)")
+	}
+}
+
+func checkFunc(c Contract, id int) fails SpecFailure {
+	let nameID = c.Funcs.Name[id]
+	try checkName(c, nameID, "function \(id)")
+	let name = Text(c, nameID)
+	let bound = TypeCount(c)
+	if c.Funcs.Result[id] >= bound {
+		return defect("bad-ref", name+" result refers to type \(c.Funcs.Result[id]), which does not exist")
+	}
+	let pStart = c.Funcs.ParamStart[id]
+	let pLen = c.Funcs.ParamLen[id]
+	if !SpanWithin(pStart, pLen, uint32(c.Params.Name.Len())) {
+		return defect("bad-span", name+" parameter span is outside the parameter table")
+	}
+	let mut names = []uint32{}
+	for p in 0..int(pLen) {
+		let pi = int(pStart) + p
+		try checkName(c, c.Params.Name[pi], name+" parameter")
+		try checkValueRef(c, c.Params.Type[pi], bound, name+"("+Text(c, c.Params.Name[pi])+")")
+		let kind = c.Types.Kind[int(c.Params.Type[pi])]
+		if c.Params.Mut[pi] && kind != KindBytes && kind != KindSlice {
+			return defect("bad-mut", name+"("+Text(c, c.Params.Name[pi])+") is mut but not bytes or a slice")
+		}
+		names = names.Append(c.Params.Name[pi])
+	}
+	try checkDistinct(c, names, name+" parameters")
+	try checkMembers(c, c.Funcs.FailStart[id], c.Funcs.FailLen[id], bound, name+" fails")
+}
+
+// Validate accepts c when every table is the same height, every name is an identifier and unique in its scope, every type refers only to types declared before it (so ID order is a definition order and no value type contains itself), every span lies inside its table, void is only a result, union and failure members are records, and mut is only on bytes and slices; else it fails with the first defect.
+func Validate(c Contract) Checked fails SpecFailure {
+	if !tableShapeHolds(c) {
+		return defect("bad-shape", "the contract's columns differ in height")
+	}
+	if !IsIdent(c.Module) {
+		return defect("bad-name", "module name \""+c.Module+"\" is not an ASCII identifier")
+	}
+	if c.Texts.Len() == 0 || c.Texts[0] != "" || TypeCount(c) < PrimitiveCount {
+		return defect("primitives", "the contract was not made by NewContract")
+	}
+	try checkStringIDs(c, c.Types.Name, "a type")
+	try checkStringIDs(c, c.Types.Doc, "a type doc")
+	try checkStringIDs(c, c.Fields.Name, "a field")
+	try checkStringIDs(c, c.Params.Name, "a parameter")
+	try checkStringIDs(c, c.Funcs.Name, "a function")
+	try checkStringIDs(c, c.Funcs.Doc, "a function doc")
+	let mut typeNames = []uint32{}
+	for id in 0..int(TypeCount(c)) {
+		try checkType(c, uint32(id))
+		let kind = c.Types.Kind[id]
+		if kind >= KindNominal {
+			typeNames = typeNames.Append(c.Types.Name[id])
+		}
+	}
+	try checkDistinct(c, typeNames, "the contract's types")
+	for id in 0..int(FuncCount(c)) {
+		try checkFunc(c, id)
+	}
+	try checkDistinct(c, c.Funcs.Name, "the contract's functions")
+	Checked{contract: c}
+}
+
+func lawBase() Contract {
+	let mut c = NewContract("geo")
+	let meters = AddNominal(&c, "Meters", Float64ID, "")
+	let point = AddRecord(&c, "Point", []FieldSpec{FieldSpec{Name: "X", Type: meters}, FieldSpec{Name: "Y", Type: meters}}, "")
+	let empty = AddRecord(&c, "Empty", []FieldSpec{}, "")
+	let shape = AddUnion(&c, "Shape", []uint32{point, empty}, "")
+	let pts = AddSlice(&c, point)
+	let _ = AddFunc(&c, FuncSpec{Name: "Area", Params: []ParamSpec{ParamSpec{Name: "s", Type: shape, Mut: false}, ParamSpec{Name: "out", Type: pts, Mut: true}}, Result: meters, Fails: []uint32{empty}, Doc: ""})
+	c
+}
+
+func codeOf(c Contract) string {
+	let _ = Validate(c) catch {
+	case SpecFailure as f:
+		return f.Code
+	}
+	"ok"
+}
+
+// ValidateNamesEachDefect: the base contract validates, and each single defect planted in it is refused with its own code.
+law ValidateNamesEachDefect(pick uint8, salt uint8) {
+	let base = lawBase()
+	let mut c = base
+	let s = uint32(salt)
+	let mut want = "ok"
+	match pick % 15 {
+	case 0:
+		want = "ok"
+	case 1:
+		c.Types.Elem[9] = 9 + s%3
+		want = "bad-ref"
+	case 2:
+		c.Fields.Type[int(s%2)] = VoidID
+		want = "void"
+	case 3:
+		c.Members[int(s%2)] = 9
+		want = "union-member"
+	case 4:
+		c.Types.Len[12] = 0
+		want = "empty-union"
+	case 5:
+		let o = AddOption(&c, StringID)
+		let _ = AddOption(&c, o)
+		want = "nested-option"
+	case 6:
+		let _ = AddNominal(&c, "Id", 10, "")
+		want = "nominal-base"
+	case 7:
+		c.Fields.Name[1] = c.Fields.Name[0]
+		want = "duplicate"
+	case 8:
+		c.Params.Mut[0] = true
+		want = "bad-mut"
+	case 9:
+		c.Types.Len[10] = uint32(c.Fields.Name.Len()) + 1 + s
+		want = "bad-span"
+	case 10:
+		let _ = AddRecord(&c, "Point", []FieldSpec{}, "")
+		want = "duplicate"
+	case 11:
+		c.Funcs.Name[0] = Intern(&c, "2nd")
+		want = "bad-name"
+	case 12:
+		c.Funcs.Result[0] = TypeCount(c)
+		want = "bad-ref"
+	case 13:
+		c.Types.Kind[int(s%9)] = uint8((s%9 + 1) % 9)
+		want = "primitives"
+	case _:
+		c.Types.Doc = c.Types.Doc.Append(0)
+		want = "bad-shape"
+	}
+	codeOf(c) == want
+}
+
+// IDsAreDenseAndSpansContiguous: every added type, function and string takes the next dense ID, and each record, union and function owns the contiguous span that follows the previous one.
+law IDsAreDenseAndSpansContiguous(count uint8) {
+	let n = int(count % 8)
+	let mut c = NewContract("dense")
+	let mut ok = TypeCount(c) == PrimitiveCount && Text(c, 0) == ""
+	for i in 0..PrimitiveCount {
+		ok = ok && uint32(c.Types.Kind[int(i)]) == i
+	}
+	for i in 0..n {
+		let fieldsBefore = uint32(c.Fields.Name.Len())
+		let membersBefore = uint32(c.Members.Len())
+		let paramsBefore = uint32(c.Params.Name.Len())
+		let rec = AddRecord(&c, "R\(i)", []FieldSpec{FieldSpec{Name: "A", Type: Int64ID}, FieldSpec{Name: "B", Type: StringID}}, "")
+		let u = AddUnion(&c, "U\(i)", []uint32{rec}, "")
+		let f = AddFunc(&c, FuncSpec{Name: "F\(i)", Params: []ParamSpec{ParamSpec{Name: "u", Type: u, Mut: false}}, Result: rec, Fails: []uint32{rec}, Doc: ""})
+		ok = ok && rec == PrimitiveCount+uint32(2*i) && u == rec+1 && f == uint32(i)
+		ok = ok && c.Types.Start[int(rec)] == fieldsBefore && c.Types.Len[int(rec)] == 2
+		ok = ok && c.Types.Start[int(u)] == membersBefore && c.Funcs.FailStart[int(f)] == membersBefore+1
+		ok = ok && c.Funcs.ParamStart[int(f)] == paramsBefore && c.Funcs.ParamLen[int(f)] == 1
+		ok = ok && lookupIs(c, "R\(i)", c.Types.Name[int(rec)])
+	}
+	ok = ok && Lookup(c, "absent") == option.None && Intern(&c, "") == 0
+	ok && codeOf(c) == "ok"
+}
+
+func lookupIs(c Contract, s string, want uint32) bool {
+	match Lookup(c, s) {
+	case option.Some[uint32] as id:
+		id.Value == want
+	case option.None:
+		false
+	}
+}
