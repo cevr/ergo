@@ -214,24 +214,13 @@ func isReserved(k uint8) bool { k >= Chan && k <= Var }
 func isKeyword(k uint8) bool { k >= Break && k <= As }
 
 // precedence is the binary precedence of k, or 0 (Go's five levels).
-func precedence(k uint8) int {
-	if k == Lor {
-		return 1
-	}
-	if k == Land {
-		return 2
-	}
-	if k == Eql || k == Neq || k == Lss || k == Leq || k == Gtr || k == Geq {
-		return 3
-	}
-	if k == Add || k == Sub || k == Or || k == Xor {
-		return 4
-	}
-	if k == Mul || k == Quo || k == Rem || k == Shl || k == Shr || k == And || k == AndNot {
-		return 5
-	}
-	0
+let precTable = "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x04\x04\x05\x05\x05\x05\x04\x04\x05\x05\x05\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x02\x01\x00\x00\x00\x00\x03\x03\x03\x00\x00\x03\x03\x03"
+
+func precAt(k int) int {
+	if k >= 0 && k <= 48 { int(precTable[k]) } else { 0 }
 }
+
+func precedence(k uint8) int { precAt(int(k)) }
 
 // isAssignOp reports `=` and the assignment operators.
 func isAssignOp(k uint8) bool { k == Assign || (k >= AddAssign && k <= AndNotAssign) }

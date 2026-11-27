@@ -9,8 +9,6 @@ import dense
 // tree has no token there.
 let NoPos = -1
 
-func last(xs []int) int { xs[xs.Len()-1] }
-
 // ---------------------------------------------------------------- tokens
 
 // tokens are the spellings of the token kinds of compiler/syntax, in their
@@ -36,55 +34,45 @@ let tokens = []string{
 	"~",
 }
 
+func tokenTextAt(i int) string {
+	if i >= 0 && i < tokens.Len() && tokens[i] != "" { tokens[i] } else { "token(?)" }
+}
+
 // tokenText is the spelling of token kind n.
-func tokenText(n uint8) string {
-	let i = int(n)
-	if i < tokens.Len() && tokens[i] != "" {
-		return tokens[i]
-	}
-	"token(?)"
+func tokenText(n uint8) string { tokenTextAt(int(n)) }
+
+let precTable = "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x04\x04\x05\x05\x05\x05\x04\x04\x05\x05\x05\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x02\x01\x00\x00\x00\x00\x03\x03\x03\x00\x00\x03\x03\x03"
+
+func precAt(n int) int {
+	if n >= 0 && n <= 48 { int(precTable[n]) } else { 0 }
 }
 
 // precedence is a binary operator's precedence (Go's), 0 for another kind.
-func precedence(n uint8) int {
-	if n == syntax.Lor {
-		return 1
-	}
-	if n == syntax.Land {
-		return 2
-	}
-	if n == syntax.Eql || n == syntax.Neq || n == syntax.Lss || n == syntax.Leq || n == syntax.Gtr || n == syntax.Geq {
-		return 3
-	}
-	if n == syntax.Add || n == syntax.Sub || n == syntax.Or || n == syntax.Xor {
-		return 4
-	}
-	if n == syntax.Mul || n == syntax.Quo || n == syntax.Rem || n == syntax.Shl || n == syntax.Shr || n == syntax.And || n == syntax.AndNot {
-		return 5
-	}
-	0
-}
+func precedence(n uint8) int { precAt(int(n)) }
 
 // ---------------------------------------------------------------- line breaks
 
-// forcesBreak reports whether node id prints on several lines even when
-// its source is on one line: it holds a clause list (match, catch) or a
-// statement block with more than one statement.
-func forcesBreak(t syntax.Tree, id dense.ID[syntax.Node]) bool {
-	let k = syntax.KindOf(t, id)
+func forcesBreak(p mut Printer, id dense.ID[syntax.Node]) bool {
+	let k = p.kind(id)
 	if k == syntax.KSwitchStmt || k == syntax.KTypeSwitchStmt || k == syntax.KCatchExpr {
 		return true
 	}
-	if k == syntax.KBlockStmt && syntax.Len(syntax.BlockStmtOf(t, id).List) > 1 {
+	if k == syntax.KBlockStmt && syntax.Len(syntax.BlockStmtOf(p.P.Tree, id).List) > 1 {
 		return true
 	}
 	if k == syntax.KIdent || k == syntax.KBasicLit || k == syntax.KTakesClause {
 		return false
 	}
-	for c in syntax.Children(t, id, []uint32{}) {
-		if forcesBreak(t, syntax.NodeAt(t, int(c))) {
+	let start = p.ForceStack.Len()
+	p.ForceStack = syntax.Children(p.P.Tree, id, p.ForceStack)
+	let end = p.ForceStack.Len()
+	for ci in start..end {
+		let c = p.ForceStack[ci]
+		if forcesBreak(p, syntax.NodeAt(p.P.Tree, int(c))) {
+			p.ForceStack = p.ForceStack[:start]
 			return true
 		}
 	}
+	p.ForceStack = p.ForceStack[:start]
 	false
 }

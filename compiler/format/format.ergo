@@ -33,11 +33,12 @@ type Printed { Text string, Walks int }
 
 // Print is Source with the printer's work counter.
 func Print(src string, limit int) Printed fails SyntaxFailure | OutputLimit {
-	// The printer owns the parse it makes. The value rule still copies it
-	// here: it does not prove Parse's result fresh (a follow-up of the
-	// lowering, capstone S1d).
+	let parsed = syntax.Parse(src)
+	if parsed.Failed {
+		return SyntaxFailure{Code: parsed.Code, Message: parsed.Message, Offset: parsed.Offset, Length: parsed.Length, Line: parsed.Line, Column: parsed.Column}
+	}
 	let mut p = Printer{
-		P:            syntax.Parse(src),
+		P:            parsed,
 		Src:          src,
 		EOF:          0,
 		Lines:        syntax.LinesOf(src),
@@ -47,22 +48,18 @@ func Print(src string, limit int) Printed fails SyntaxFailure | OutputLimit {
 		BLine:        0,
 		BLo:          0,
 		BHi:          0,
-		CSlash:       []int{},
-		CEnd:         []int{},
-		CText:        []string{},
 		Ci:           0,
+		Nc:           0,
+		NextComment:  0,
 		L:            NewLayoutFor(src.Len()),
 		LastEnd:      NoPos,
 		LastTok:      NoPos,
 		LastEndLine:  0,
 		LastTokLine:  0,
-		Walked:       []Walk{},
-		WalkedSet:    []bool{},
+		Walked:       []uint8{},
+		ForceStack:   []uint32{},
 		Walks:        0,
 		ListIndented: false,
-	}
-	if p.P.Failed {
-		return SyntaxFailure{Code: p.P.Code, Message: p.P.Message, Offset: p.P.Offset, Length: p.P.Length, Line: p.P.Line, Column: p.P.Column}
 	}
 	p.load()
 	p.printFile()

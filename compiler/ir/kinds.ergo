@@ -49,7 +49,7 @@ let kinds = []Kind{
 	k("global", TExpr, []uint8{8}),
 	k("mapAt", TExpr, []uint8{6, 7}),
 	k("deref", TExpr, []uint8{6}),
-	k("builtin", TExpr, []uint8{8, 9}),
+	k("builtin", TExpr, []uint8{3, 8, 9}),
 	k("slice", TExpr, []uint8{6, 9}),
 	k("result", TExpr, []uint8{2}),
 	k("recover", TExpr, []uint8{}),
@@ -89,6 +89,10 @@ func KindOf(c uint8) Kind { kinds[int(c)] }
 // offset in b for the others, of a kind of n slots. b outside Extra is
 // Malformed.
 func Slot(body mut Body, id int, j int, n int) uint32 fails Malformed {
+	slotAt(*body, id, j, n)
+}
+
+func slotAt(body Body, id int, j int, n int) uint32 fails Malformed {
 	if j == 0 {
 		return body.A[id-1]
 	}

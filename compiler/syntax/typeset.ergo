@@ -9,7 +9,7 @@
 func rowsOf(p Parsed, k uint8) int {
 	let mut n = 0
 	for i in 0..p.Tree.n {
-		if uint8(p.Tree.kind[i]) == k {
+		if p.Tree.kind[i] == k {
 			n = n + 1
 		}
 	}

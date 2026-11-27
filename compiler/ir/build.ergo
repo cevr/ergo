@@ -16,7 +16,7 @@ import strconv
 // position, a row id for a Node, List for Nodes, Strs and Ints, and 0 for
 // a nil one. The Builder checks what it can check without the tree (the
 // kind and the slot count); Write checks the rest.
-type Builder { file File, ids Map[string, uint32], files Map[string, uint32], fn Func, open bool }
+type Builder { file File, ids Map[string, uint32], files Map[string, uint32], open bool }
 
 // NewBuilder is a builder of an IR file of version v, with no file, no
 // function and no text yet (Go's nil lists, written null).
@@ -25,19 +25,12 @@ func NewBuilder(v int64) Builder {
 		file:  File{V: v, Files: []string{}, FilesNil: true, Funcs: []Func{}, FuncsNil: true, Shared: []string{}, Strs: []string{""}},
 		ids:   Map[string, uint32]{"": uint32(0)},
 		files: Map[string, uint32]{},
-		fn:    emptyFunc(),
 		open:  false,
 	}
 }
 
-func emptyFunc() Func {
-	Func{
-		Name:   0,
-		Pos:    Pos{File: 0, Line: 0, Col: 0},
-		End:    Pos{File: 0, Line: 0, Col: 0},
-		Locals: []Local{},
-		Body:   Body{Kind: []uint8{}, A: []uint32{}, B: []uint32{}, File: []uint32{}, Line: []uint32{}, Col: []uint32{}, Extra: []uint32{0}, Roots: 0},
-	}
+func newBody() Body {
+	Body{Kind: []uint8{}, A: []uint32{}, B: []uint32{}, File: []uint32{}, Line: []uint32{}, Col: []uint32{}, Extra: []uint32{0}, Roots: 0}
 }
 
 // Text is the id of s in the file's texts, interned: 0 for "".
@@ -83,11 +76,14 @@ func Begin(b mut Builder, name string, pos Pos, end Pos) fails Malformed {
 	if b.open {
 		return Malformed{At: b.file.Funcs.Len(), Why: "a function begun inside another"}
 	}
-	let mut fn = emptyFunc()
-	fn.Name = Text(b, name)
-	fn.Pos = pos
-	fn.End = end
-	b.fn = fn
+	let nameID = Text(b, name)
+	b.file.Funcs = b.file.Funcs.Append(Func{
+		Name:   nameID,
+		Pos:    pos,
+		End:    end,
+		Locals: []Local{},
+		Body:   newBody(),
+	})
 	b.open = true
 	b.file.FuncsNil = false
 }
@@ -98,23 +94,26 @@ func AddLocal(b mut Builder, name string, typ string, pos Pos) fails Malformed {
 		return Malformed{At: b.file.Funcs.Len(), Why: "a local outside a function"}
 	}
 	let l = Local{Name: Text(b, name), Type: Text(b, typ), Pos: pos}
-	b.fn.Locals = b.fn.Locals.Append(l)
+	let fi = b.file.Funcs.Len() - 1
+	b.file.Funcs[fi].Locals = b.file.Funcs[fi].Locals.Append(l)
 }
 
 // PosAt is the slot word of a position: its offset in the extra pool.
 func PosAt(b mut Builder, p Pos) uint32 {
-	let q = uint32(b.fn.Body.Extra.Len())
-	b.fn.Body.Extra = b.fn.Body.Extra.Append(p.File).Append(p.Line).Append(p.Col)
+	let fi = b.file.Funcs.Len() - 1
+	let q = uint32(b.file.Funcs[fi].Body.Extra.Len())
+	b.file.Funcs[fi].Body.Extra = b.file.Funcs[fi].Body.Extra.Append(p.File).Append(p.Line).Append(p.Col)
 	q
 }
 
 // List is the slot word of a list: the offset in the extra pool of its
 // length and its words (row ids, 0 for a nil element; text ids; int32s).
 func List(b mut Builder, words []uint32) uint32 {
-	let q = uint32(b.fn.Body.Extra.Len())
-	b.fn.Body.Extra = b.fn.Body.Extra.Append(uint32(words.Len()))
+	let fi = b.file.Funcs.Len() - 1
+	let q = uint32(b.file.Funcs[fi].Body.Extra.Len())
+	b.file.Funcs[fi].Body.Extra = b.file.Funcs[fi].Body.Extra.Append(uint32(words.Len()))
 	for i in 0..words.Len() {
-		b.fn.Body.Extra = b.fn.Body.Extra.Append(words[i])
+		b.file.Funcs[fi].Body.Extra = b.file.Funcs[fi].Body.Extra.Append(words[i])
 	}
 	q
 }
@@ -123,10 +122,11 @@ func List(b mut Builder, words []uint32) uint32 {
 // kind's order, and is its id. A code outside the table, or another count
 // of words than the kind's slots, is Malformed.
 func Row(b mut Builder, c uint8, at Pos, slots []uint32) uint32 fails Malformed {
-	let id = b.fn.Body.Kind.Len() + 1
 	if !b.open {
-		return Malformed{At: id, Why: "a row outside a function"}
+		return Malformed{At: 1, Why: "a row outside a function"}
 	}
+	let fi = b.file.Funcs.Len() - 1
+	let id = b.file.Funcs[fi].Body.Kind.Len() + 1
 	if c == 0 || int(c) >= NumKinds() {
 		return Malformed{At: id, Why: "kind " + strconv.Itoa(int(c))}
 	}
@@ -143,17 +143,17 @@ func Row(b mut Builder, c uint8, at Pos, slots []uint32) uint32 fails Malformed 
 		w = slots[1]
 	}
 	if n > 2 {
-		w = uint32(b.fn.Body.Extra.Len())
+		w = uint32(b.file.Funcs[fi].Body.Extra.Len())
 		for j in 1..n {
-			b.fn.Body.Extra = b.fn.Body.Extra.Append(slots[j])
+			b.file.Funcs[fi].Body.Extra = b.file.Funcs[fi].Body.Extra.Append(slots[j])
 		}
 	}
-	b.fn.Body.Kind = b.fn.Body.Kind.Append(c)
-	b.fn.Body.A = b.fn.Body.A.Append(a)
-	b.fn.Body.B = b.fn.Body.B.Append(w)
-	b.fn.Body.File = b.fn.Body.File.Append(at.File)
-	b.fn.Body.Line = b.fn.Body.Line.Append(at.Line)
-	b.fn.Body.Col = b.fn.Body.Col.Append(at.Col)
+	b.file.Funcs[fi].Body.Kind = b.file.Funcs[fi].Body.Kind.Append(c)
+	b.file.Funcs[fi].Body.A = b.file.Funcs[fi].Body.A.Append(a)
+	b.file.Funcs[fi].Body.B = b.file.Funcs[fi].Body.B.Append(w)
+	b.file.Funcs[fi].Body.File = b.file.Funcs[fi].Body.File.Append(at.File)
+	b.file.Funcs[fi].Body.Line = b.file.Funcs[fi].Body.Line.Append(at.Line)
+	b.file.Funcs[fi].Body.Col = b.file.Funcs[fi].Body.Col.Append(at.Col)
 	uint32(id)
 }
 
@@ -163,9 +163,8 @@ func End(b mut Builder, roots uint32) fails Malformed {
 	if !b.open {
 		return Malformed{At: b.file.Funcs.Len(), Why: "an end outside a function"}
 	}
-	b.fn.Body.Roots = roots
-	b.file.Funcs = b.file.Funcs.Append(b.fn)
-	b.fn = emptyFunc()
+	let fi = b.file.Funcs.Len() - 1
+	b.file.Funcs[fi].Body.Roots = roots
 	b.open = false
 }
 

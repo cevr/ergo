@@ -483,11 +483,12 @@
       "name": "scan-failed-illegal-end-unset",
       "origin": "wf10 selfhost S2f",
       "file": "compiler/syntax/scan.ergo",
-      "from": "\ts.toks.end[n] = uint32(end)\n",
-      "to": "",
+      "decl": "failTail",
+      "from": "\ts.toks.end = s.toks.end.Append(uint32(end))\n\ts.toks.kind = s.toks.kind.Append(EOF)",
+      "to": "\ts.toks.end = s.toks.end.Append(uint32(0))\n\ts.toks.kind = s.toks.kind.Append(EOF)",
       "rule": "A failed scan's ILLEGAL carries its end in the ends column, which Columns copies whole.",
       "killers": [
-        "internal/sketch/syntax:TestDecodeAgreesWithView"
+        "internal/sketch/syntax:TestCompilerSyntaxTestsPass"
       ]
     },
     {
@@ -525,7 +526,7 @@
       "name": "diag-string-open-offset",
       "origin": "wf10 TPROBE (diagnostics), TP-DIAG",
       "file": "compiler/syntax/scan.ergo",
-      "from": "fail(s, s.quotes[s.open-1], 1, \"string literal not terminated\")",
+      "from": "fail(s, int(s.quotes[s.open-1]), 1, \"string literal not terminated\")",
       "to": "fail(s, n, 1, \"string literal not terminated\")",
       "killers": ["internal/sketch/syntax:TestCompilerSyntaxTestsPass"],
       "rule": "A string left open at the end of the source, its interpolation too, is reported at its opening quote, not at the end."
@@ -534,8 +535,8 @@
       "name": "diag-newline-is-unterminated",
       "origin": "wf10 TPROBE (diagnostics), TP-DIAG",
       "file": "compiler/syntax/scan.ergo",
-      "from": "fail(s, s.quotes[s.open-1], 1, \"newline in string\")",
-      "to": "fail(s, s.quotes[s.open-1], 1, \"string literal not terminated\")",
+      "from": "fail(s, int(s.quotes[s.open-1]), 1, \"newline in string\")",
+      "to": "fail(s, int(s.quotes[s.open-1]), 1, \"string literal not terminated\")",
       "killers": ["internal/sketch/syntax:TestCompilerSyntaxTestsPass"],
       "rule": "A newline inside an open interpolation's string is \"newline in string\", not an unterminated string."
     },
