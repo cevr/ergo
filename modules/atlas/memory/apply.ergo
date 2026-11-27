@@ -1,0 +1,560 @@
+import github.com/cevr/ergo/modules/atlas/handle
+import github.com/cevr/ergo/modules/atlas/reconcile
+import github.com/cevr/ergo/modules/atlas/session
+import github.com/cevr/ergo/modules/atlas/thread
+import github.com/cevr/ergo/modules/atlas/turn
+import option
+
+// EvCommandAccepted records durable acceptance of one idempotent command ID.
+type EvCommandAccepted {
+	ID      CommandID,
+	Actor   string,
+	AtMs    int64,
+	Command Command,
+}
+
+// EvThreadUpserted records creation or transition of a durable Thread and optional BranchEdge.
+type EvThreadUpserted {
+	Thread  thread.Thread,
+	NewEdge option.Option[BranchEdge],
+}
+
+// EvBranchEdgeAdded records an explicit branch edge between existing threads.
+type EvBranchEdgeAdded {
+	Edge BranchEdge,
+}
+
+// EvSubagentTreeSaved records an initialized or mutated subagent tree snapshot.
+type EvSubagentTreeSaved {
+	Snapshot SubagentTreeSnapshot,
+}
+
+// EvHandleOpened records opening a DELIVERS handle in the durable handle registry.
+type EvHandleOpened {
+	Handle handle.WakeHandle,
+}
+
+// EvHandleHanded records handing off an open KindCall handle to a spawned durable handle.
+type EvHandleHanded {
+	CallID    handle.HandleID,
+	SpawnedID handle.HandleID,
+}
+
+// EvHandleSettled records terminal settlement of a DELIVERS handle.
+type EvHandleSettled {
+	ID          handle.HandleID,
+	Disposition handle.Disposition,
+	EmitWake    bool,
+}
+
+// EvHandlesRetired records mass loss retirement of all open KindCall handles owned by DeadOwner.
+type EvHandlesRetired {
+	DeadOwner  handle.OwnerID,
+	RetiredIDs []handle.HandleID,
+}
+
+// EvSessionHandlesCancelled records silent cancellation of all open handles belonging to Session.
+type EvSessionHandlesCancelled {
+	Session handle.SessionID,
+}
+
+// EvWakeUpserted records creation or update of a durable WakeRecord keyed by DeliveryID.
+type EvWakeUpserted {
+	Record reconcile.WakeRecord,
+}
+
+// EvWakeDelivered records one-time delivery completion of DeliveryID.
+type EvWakeDelivered {
+	DeliveryID string,
+}
+
+// EvHoldUpserted records creation, wake transition, or cancellation of a quota PoolHold.
+type EvHoldUpserted {
+	Hold PoolHold,
+}
+
+// EvQuestionSaved records creation, answer, or withdrawal of an ask_user_async question and its RequestState.
+type EvQuestionSaved {
+	Question AsyncQuestion,
+	Request  turn.RequestState,
+}
+
+// EvPoolAccountSaved records quota window or unsettled-start updates on a PoolAccount.
+type EvPoolAccountSaved {
+	Account PoolAccount,
+}
+
+// EvResetClaimed records a single-winner reset claim for an exhausted quota window period.
+type EvResetClaimed {
+	Claim ResetClaim,
+}
+
+// EvOwnerPushSaved records creation or update of a time-boxed OwnerPush.
+type EvOwnerPushSaved {
+	Push OwnerPush,
+}
+
+// EvLimitSaved records an updated LimitState keyed by FormatLimitRecoveryKey.
+type EvLimitSaved {
+	LimitKey string,
+	Limit    turn.LimitState,
+}
+
+// EvKernelSnapshotSaved records an updated bounded kernel cell snapshot for one session.
+type EvKernelSnapshotSaved {
+	Snapshot KernelSnapshot,
+}
+
+// EvKernelCutRecorded records one kernel cut journal and its updated hourly root usage.
+type EvKernelCutRecorded {
+	Journal   KernelCutJournal,
+	RootUsage KernelRootUsage,
+}
+
+// EvLeaseSaved records an updated fenced server ownership lease and M14 cutover snapshot.
+type EvLeaseSaved {
+	Lease LeaseRecord,
+}
+
+// EvBootReconciled records durable boot reconciliation outputs atomically across restarts.
+type EvBootReconciled {
+	NextWakes          []reconcile.WakeRecord,
+	ReconciledTurns    []turn.TurnState,
+	ReconciledRequests []turn.RequestState,
+	LostCallIDs        []handle.HandleID,
+	LostNotice         string,
+	SubagentTree       option.Option[SubagentTreeSnapshot],
+}
+
+// Event is the closed union of committed domain events persisted in Atlas stores.
+type Event = EvCommandAccepted | EvThreadUpserted | EvBranchEdgeAdded | EvSubagentTreeSaved | EvHandleOpened | EvHandleHanded | EvHandleSettled | EvHandlesRetired | EvSessionHandlesCancelled | EvWakeUpserted | EvWakeDelivered | EvHoldUpserted | EvQuestionSaved | EvPoolAccountSaved | EvResetClaimed | EvOwnerPushSaved | EvLimitSaved | EvKernelSnapshotSaved | EvKernelCutRecorded | EvLeaseSaved | EvBootReconciled
+
+// StoredEvent pairs a committed monotonic sequence number and CommandID with its Event.
+type StoredEvent {
+	Seq       int,
+	CommandID CommandID,
+	Event     Event,
+}
+
+// ExecuteResult summarizes one Execute transaction outcome.
+type ExecuteResult {
+	Seq       int,
+	Events    []Event,
+	Duplicate bool,
+}
+
+func appendUniqueThreadID(order []handle.ThreadID, id handle.ThreadID) []handle.ThreadID {
+	for _, cur in order {
+		if cur == id {
+			return order
+		}
+	}
+	order.Append(id)
+}
+
+func appendUniqueHandleID(order []handle.HandleID, id handle.HandleID) []handle.HandleID {
+	for _, cur in order {
+		if cur == id {
+			return order
+		}
+	}
+	order.Append(id)
+}
+
+func appendUniqueString(order []string, id string) []string {
+	for _, cur in order {
+		if cur == id {
+			return order
+		}
+	}
+	order.Append(id)
+}
+
+func appendUniqueRequestID(order []turn.RequestID, id turn.RequestID) []turn.RequestID {
+	for _, cur in order {
+		if cur == id {
+			return order
+		}
+	}
+	order.Append(id)
+}
+
+func appendUniqueAccountID(order []session.AccountID, id session.AccountID) []session.AccountID {
+	for _, cur in order {
+		if cur == id {
+			return order
+		}
+	}
+	order.Append(id)
+}
+
+func appendUniqueSessionID(order []handle.SessionID, id handle.SessionID) []handle.SessionID {
+	for _, cur in order {
+		if cur == id {
+			return order
+		}
+	}
+	order.Append(id)
+}
+
+func upsertEdge(edges []BranchEdge, edge BranchEdge) []BranchEdge {
+	let mut out = []BranchEdge{}
+	let mut replaced = false
+	for _, cur in edges {
+		if cur.ParentThreadID == edge.ParentThreadID && cur.ChildThreadID == edge.ChildThreadID {
+			out = out.Append(edge)
+			replaced = true
+		} else {
+			out = out.Append(cur)
+		}
+	}
+	if replaced {
+		return out
+	}
+	out.Append(edge)
+}
+
+func applyRegistryPut(reg handle.RegistryState, h handle.WakeHandle) handle.RegistryState {
+	let order = appendUniqueHandleID(reg.Order, h.ID)
+	handle.RegistryState{
+		Handles:     reg.Handles.Put(h.ID, h),
+		Order:       order,
+		WakeLetters: reg.WakeLetters,
+	}
+}
+
+func applyRegistrySettle(reg handle.RegistryState, id handle.HandleID, disp handle.Disposition, emitWake bool) handle.RegistryState {
+	match reg.Handles.Get(id) {
+	case option.None:
+		reg
+	case option.Some[handle.WakeHandle] as found:
+		let h = found.Value
+		if !handle.IsOpen(h.Disposition) {
+			return reg
+		}
+		let count = match reg.WakeLetters.Get(id) {
+		case option.Some[int] as n:
+			n.Value
+		case option.None:
+			0
+		}
+		let shouldEmit = emitWake && count == 0 && handle.EmitsRegistryWake(disp) && h.Deliverer == handle.DelivererRegistry
+		let nextLetters = if shouldEmit { reg.WakeLetters.Put(id, 1) } else { reg.WakeLetters }
+		let nextHandle = handle.WakeHandle{
+			..h,
+			Disposition: disp,
+			WakeEmitted: h.WakeEmitted || shouldEmit,
+		}
+		handle.RegistryState{
+			..reg,
+			Handles:     reg.Handles.Put(id, nextHandle),
+			WakeLetters: nextLetters,
+		}
+	}
+}
+
+func applyWakePut(s State, rec reconcile.WakeRecord) State {
+	let order = appendUniqueString(s.WakeOrder, rec.DeliveryID)
+	State{
+		..s,
+		Wakes:     s.Wakes.Put(rec.DeliveryID, rec),
+		WakeOrder: order,
+	}
+}
+
+func reconcileOneThreadTurn(cur thread.Thread, byID Map[turn.TurnID, turn.TurnState]) option.Option[thread.Thread] {
+	let curTurn = match cur.ActiveTurn {
+	case option.Some[turn.TurnState] as at:
+		at.Value
+	case option.None:
+		return option.None
+	}
+	let nextTurn = match byID.Get(curTurn.ID) {
+	case option.Some[turn.TurnState] as rt:
+		rt.Value
+	case option.None:
+		return option.None
+	}
+	if curTurn == nextTurn {
+		return option.None
+	}
+	let wasOpen = turn.IsTurnOpen(curTurn)
+	let nowOpen = turn.IsTurnOpen(nextTurn)
+	let inc = if wasOpen && !nowOpen { 1 } else { 0 }
+	let nextSess = if wasOpen && !nowOpen {
+		match cur.ActiveSession {
+		case option.Some[session.SessionRecord] as sr:
+			if sr.Value.Phase == session.SessionInTurn {
+				let ended = session.StepSession(sr.Value, session.ActEndTurn) catch {
+				case _:
+					sr.Value
+				}
+				option.Some[session.SessionRecord]{Value: ended}
+			} else {
+				cur.ActiveSession
+			}
+		case option.None:
+			cur.ActiveSession
+		}
+	} else {
+		cur.ActiveSession
+	}
+	let nextOutcome = match nextTurn.Outcome {
+	case option.Some[turn.TurnOutcome]:
+		nextTurn.Outcome
+	case option.None:
+		cur.LastTurnOutcome
+	}
+	option.Some[thread.Thread]{Value: thread.Thread{
+		..cur,
+		ActiveTurn:      option.Some[turn.TurnState]{Value: nextTurn},
+		ActiveSession:   nextSess,
+		LastTurnOutcome: nextOutcome,
+		TurnsCompleted:  cur.TurnsCompleted + inc,
+	}}
+}
+
+func applyBootTurnReconcile(s State, reconciledTurns []turn.TurnState) State {
+	let mut byID = Map[turn.TurnID, turn.TurnState]{}
+	for _, rt in reconciledTurns {
+		byID = byID.Put(rt.ID, rt)
+	}
+	let mut threads = s.Threads
+	for _, tid in s.ThreadOrder {
+		match threads.Get(tid) {
+		case option.Some[thread.Thread] as cur:
+			match reconcileOneThreadTurn(cur.Value, byID) {
+			case option.Some[thread.Thread] as updated:
+				threads = threads.Put(tid, updated.Value)
+			case option.None:
+			}
+		case option.None:
+		}
+	}
+	State{..s, Threads: threads}
+}
+
+func applyBootRequestReconcile(s State, reqs []turn.RequestState) State {
+	let mut nextReqs = s.Requests
+	let mut reqOrd = s.RequestOrder
+	for _, r in reqs {
+		reqOrd = appendUniqueRequestID(reqOrd, r.ID)
+		nextReqs = nextReqs.Put(r.ID, r)
+	}
+	State{..s, Requests: nextReqs, RequestOrder: reqOrd}
+}
+
+func applyBootLostNotices(s State, lostIDs []handle.HandleID, notice string) State {
+	if notice == "" {
+		return s
+	}
+	let mut lostSessions = Map[handle.SessionID, bool]{}
+	for _, hid in lostIDs {
+		match s.Registry.Handles.Get(hid) {
+		case option.Some[handle.WakeHandle] as h:
+			lostSessions = lostSessions.Put(h.Value.Session, true)
+		case option.None:
+		}
+	}
+	let mut snaps = s.Snapshots
+	for _, sid in s.SnapshotOrder {
+		match lostSessions.Get(sid) {
+		case option.Some[bool]:
+			match snaps.Get(sid) {
+			case option.Some[KernelSnapshot] as sn:
+				snaps = snaps.Put(sid, KernelSnapshot{..sn.Value, LostNotice: notice})
+			case option.None:
+			}
+		case option.None:
+		}
+	}
+	State{..s, Snapshots: snaps}
+}
+
+func applyBootEvent(s State, ev EvBootReconciled) State {
+	let mut reg = s.Registry
+	for _, hid in ev.LostCallIDs {
+		reg = applyRegistrySettle(reg, hid, handle.DispLost, true)
+	}
+	let mut next = State{..s, Registry: reg}
+	for _, w in ev.NextWakes {
+		next = applyWakePut(next, w)
+	}
+	next = applyBootTurnReconcile(next, ev.ReconciledTurns)
+	next = applyBootRequestReconcile(next, ev.ReconciledRequests)
+	next = applyBootLostNotices(next, ev.LostCallIDs, ev.LostNotice)
+	match ev.SubagentTree {
+	case option.Some[SubagentTreeSnapshot] as snap:
+		let tree = ToSubagentTree(snap.Value)
+		let order = appendUniqueThreadID(next.TreeOrder, snap.Value.RootID)
+		State{..next, Trees: next.Trees.Put(snap.Value.RootID, tree), TreeOrder: order}
+	case option.None:
+		next
+	}
+}
+
+func applySingleEvent(s State, ev Event) State {
+	match ev {
+	case EvCommandAccepted as e:
+		let rec = CommandReceipt{ID: e.ID, Actor: e.Actor, AtMs: e.AtMs, Command: e.Command}
+		State{..s, Commands: s.Commands.Put(e.ID, rec)}
+
+	case EvThreadUpserted as e:
+		let order = appendUniqueThreadID(s.ThreadOrder, e.Thread.ID)
+		let edges = match e.NewEdge {
+		case option.Some[BranchEdge] as ed:
+			upsertEdge(s.BranchEdges, ed.Value)
+		case option.None:
+			s.BranchEdges
+		}
+		State{..s, Threads: s.Threads.Put(e.Thread.ID, e.Thread), ThreadOrder: order, BranchEdges: edges}
+
+	case EvBranchEdgeAdded as e:
+		State{..s, BranchEdges: upsertEdge(s.BranchEdges, e.Edge)}
+
+	case EvSubagentTreeSaved as e:
+		let order = appendUniqueThreadID(s.TreeOrder, e.Snapshot.RootID)
+		State{..s, Trees: s.Trees.Put(e.Snapshot.RootID, ToSubagentTree(e.Snapshot)), TreeOrder: order}
+
+	case EvHandleOpened as e:
+		State{..s, Registry: applyRegistryPut(s.Registry, e.Handle)}
+
+	case EvHandleHanded as e:
+		match s.Registry.Handles.Get(e.CallID) {
+		case option.Some[handle.WakeHandle] as h:
+			let handed = handle.WakeHandle{
+				..h.Value,
+				Disposition: handle.DispHanded,
+				StartedID:   option.Some[handle.HandleID]{Value: e.SpawnedID},
+				WakeEmitted: false,
+			}
+			State{..s, Registry: handle.RegistryState{..s.Registry, Handles: s.Registry.Handles.Put(e.CallID, handed)}}
+		case option.None:
+			s
+		}
+
+	case EvHandleSettled as e:
+		State{..s, Registry: applyRegistrySettle(s.Registry, e.ID, e.Disposition, e.EmitWake)}
+
+	case EvHandlesRetired as e:
+		let mut reg = s.Registry
+		for _, hid in e.RetiredIDs {
+			reg = applyRegistrySettle(reg, hid, handle.DispLost, true)
+		}
+		State{..s, Registry: reg}
+
+	case EvSessionHandlesCancelled as e:
+		State{..s, Registry: handle.CancelSessionHandles(s.Registry, e.Session)}
+
+	case EvWakeUpserted as e:
+		applyWakePut(s, e.Record)
+
+	case EvWakeDelivered as e:
+		match s.Wakes.Get(e.DeliveryID) {
+		case option.Some[reconcile.WakeRecord] as w:
+			State{..s, Wakes: s.Wakes.Put(e.DeliveryID, reconcile.WakeRecord{..w.Value, Delivered: true})}
+		case option.None:
+			s
+		}
+
+	case EvHoldUpserted as e:
+		let order = appendUniqueString(s.HoldOrder, e.Hold.HoldKey)
+		State{..s, Holds: s.Holds.Put(e.Hold.HoldKey, e.Hold), HoldOrder: order}
+
+	case EvQuestionSaved as e:
+		let qOrder = appendUniqueRequestID(s.QuestionOrder, e.Question.ID)
+		let rOrder = appendUniqueRequestID(s.RequestOrder, e.Request.ID)
+		State{
+			..s,
+			Questions:     s.Questions.Put(e.Question.ID, e.Question),
+			QuestionOrder: qOrder,
+			Requests:      s.Requests.Put(e.Request.ID, e.Request),
+			RequestOrder:  rOrder,
+		}
+
+	case EvPoolAccountSaved as e:
+		let order = appendUniqueAccountID(s.AccountOrder, e.Account.ID)
+		State{..s, Accounts: s.Accounts.Put(e.Account.ID, e.Account), AccountOrder: order}
+
+	case EvResetClaimed as e:
+		let order = appendUniqueString(s.ClaimOrder, e.Claim.ClaimKey)
+		State{..s, ResetClaims: s.ResetClaims.Put(e.Claim.ClaimKey, e.Claim), ClaimOrder: order}
+
+	case EvOwnerPushSaved as e:
+		let order = appendUniqueString(s.PushOrder, e.Push.PushID)
+		State{..s, Pushes: s.Pushes.Put(e.Push.PushID, e.Push), PushOrder: order}
+
+	case EvLimitSaved as e:
+		let order = appendUniqueString(s.LimitOrder, e.LimitKey)
+		State{..s, Limits: s.Limits.Put(e.LimitKey, e.Limit), LimitOrder: order}
+
+	case EvKernelSnapshotSaved as e:
+		let order = appendUniqueSessionID(s.SnapshotOrder, e.Snapshot.SessionID)
+		State{..s, Snapshots: s.Snapshots.Put(e.Snapshot.SessionID, e.Snapshot), SnapshotOrder: order}
+
+	case EvKernelCutRecorded as e:
+		let jOrder = appendUniqueString(s.JournalOrder, e.Journal.CutID)
+		let uOrder = appendUniqueThreadID(s.RootUsageOrd, e.RootUsage.RootThreadID)
+		State{
+			..s,
+			Journals:     s.Journals.Put(e.Journal.CutID, e.Journal),
+			JournalOrder: jOrder,
+			RootUsages:   s.RootUsages.Put(e.RootUsage.RootThreadID, e.RootUsage),
+			RootUsageOrd: uOrder,
+		}
+
+	case EvLeaseSaved as e:
+		let order = appendUniqueString(s.LeaseOrder, e.Lease.LeaseID)
+		State{..s, Leases: s.Leases.Put(e.Lease.LeaseID, e.Lease), LeaseOrder: order}
+
+	case EvBootReconciled as e:
+		applyBootEvent(s, e)
+	}
+}
+
+// Apply advances State by one persisted StoredEvent.
+func Apply(s State, se StoredEvent) State {
+	let next = applySingleEvent(s, se.Event)
+	let nextSeq = if se.Seq > next.Seq { se.Seq } else { next.Seq }
+	State{..next, Seq: nextSeq}
+}
+
+// ApplyAll applies an ordered slice of StoredEvents sequentially starting from State.
+func ApplyAll(s State, events []StoredEvent) State {
+	let mut cur = s
+	for _, se in events {
+		let next = applySingleEvent(cur, se.Event)
+		let nextSeq = if se.Seq > next.Seq { se.Seq } else { next.Seq }
+		cur = State{..next, Seq: nextSeq}
+	}
+	cur
+}
+
+// Fold reconstructs complete State from Seq 0 by applying StoredEvents in order.
+func Fold(events []StoredEvent) State {
+	ApplyAll(InitialState(), events)
+}
+
+// ApplyNewEvents applies raw newly emitted Events starting immediately after s.Seq.
+func ApplyNewEvents(s State, cmdID CommandID, events []Event) State {
+	let mut cur = s
+	for _, ev in events {
+		let nextSeq = cur.Seq + 1
+		let next = applySingleEvent(cur, ev)
+		let _ = cmdID
+		cur = State{..next, Seq: nextSeq}
+	}
+	cur
+}
+
+// ReplayMatchesIncremental verifies that folding an entire event stream equals applying chunks incrementally.
+law ReplayMatchesIncremental(a []StoredEvent, b []StoredEvent) {
+	let mut combined = []StoredEvent{}
+	for _, e in a {
+		combined = combined.Append(e)
+	}
+	for _, e in b {
+		combined = combined.Append(e)
+	}
+	Fold(combined) == ApplyAll(Fold(a), b)
+}

@@ -1,0 +1,258 @@
+import github.com/cevr/ergo/modules/atlas/adapter
+import github.com/cevr/ergo/modules/atlas/handle
+import github.com/cevr/ergo/modules/atlas/session
+import github.com/cevr/ergo/modules/atlas/thread
+import option
+import testing
+
+type concAct =
+	| concClaimReset{CmdID string, Account string}
+	| concIncInflight{CmdID string, Account string}
+	| concCreateThread{CmdID string, Thread string}
+	| concAcquireLease{CmdID string, Lease string, Epoch int}
+
+type concReply =
+	| concOK{}
+	| concDuplicate{}
+	| concRefused{Kind string}
+
+type concModel {
+	accounts Map[string, int],
+	claims   Map[string, bool],
+	threads  Map[string, bool],
+	leases   Map[string, int],
+	commands Map[string, int],
+}
+
+func concInitialModel() concModel {
+	concModel{
+		accounts: Map[string, int]{"acc-shared": 0},
+		claims:   Map[string, bool]{},
+		threads:  Map[string, bool]{},
+		leases:   Map[string, int]{},
+		commands: Map[string, int]{},
+	}
+}
+
+func actTag(a concAct) int {
+	match a {
+	case concClaimReset as c:
+		10 + c.Account.Len()
+	case concIncInflight as c:
+		20 + c.Account.Len()
+	case concCreateThread as c:
+		30 + c.Thread.Len()
+	case concAcquireLease as c:
+		40 + c.Epoch
+	}
+}
+
+func concStep(m concModel, a concAct) (concModel, concReply) {
+	let cid = match a {
+	case concClaimReset as c:
+		c.CmdID
+	case concIncInflight as c:
+		c.CmdID
+	case concCreateThread as c:
+		c.CmdID
+	case concAcquireLease as c:
+		c.CmdID
+	}
+	let tag = actTag(a)
+	match m.commands.Get(cid) {
+	case option.Some[int] as prev:
+		if prev.Value == tag {
+			return (m, concDuplicate)
+		}
+		return (m, concRefused{Kind: "CommandReused"})
+	case option.None:
+	}
+	match a {
+	case concClaimReset as c:
+		match m.claims.Get(c.Account) {
+		case option.Some[bool]:
+			(m, concRefused{Kind: "AlreadyExists"})
+		case option.None:
+			let next = concModel{
+				..m,
+				claims:   m.claims.Put(c.Account, true),
+				commands: m.commands.Put(cid, tag),
+			}
+			(next, concOK)
+		}
+	case concIncInflight as c:
+		match m.accounts.Get(c.Account) {
+		case option.None:
+			(m, concRefused{Kind: "NotFound"})
+		case option.Some[int] as n:
+			let next = concModel{
+				..m,
+				accounts: m.accounts.Put(c.Account, n.Value+1),
+				commands: m.commands.Put(cid, tag),
+			}
+			(next, concOK)
+		}
+	case concCreateThread as c:
+		match m.threads.Get(c.Thread) {
+		case option.Some[bool]:
+			(m, concRefused{Kind: "AlreadyExists"})
+		case option.None:
+			let next = concModel{
+				..m,
+				threads:  m.threads.Put(c.Thread, true),
+				commands: m.commands.Put(cid, tag),
+			}
+			(next, concOK)
+		}
+	case concAcquireLease as c:
+		let curEpoch = match m.leases.Get(c.Lease) {
+		case option.Some[int] as ep:
+			ep.Value
+		case option.None:
+			0
+		}
+		if curEpoch == 0 && c.Epoch == 1 {
+			let next = concModel{
+				..m,
+				leases:   m.leases.Put(c.Lease, 1),
+				commands: m.commands.Put(cid, tag),
+			}
+			return (next, concOK)
+		}
+		if curEpoch > 0 && c.Epoch == curEpoch+1 {
+			let next = concModel{
+				..m,
+				leases:   m.leases.Put(c.Lease, c.Epoch),
+				commands: m.commands.Put(cid, tag),
+			}
+			return (next, concOK)
+		}
+		(m, concRefused{Kind: "LeaseFenced"})
+	}
+}
+
+func actToEnvelope(a concAct) Envelope {
+	match a {
+	case concClaimReset as c:
+		Envelope{
+			ID:         CommandID(c.CmdID),
+			Actor:      "conc",
+			AtMs:       int64(1000),
+			LeaseFence: option.None,
+			Command:    CmdClaimResetDispatch{
+				AccountID:  session.AccountID(c.Account),
+				WindowKind: LimitWindow5h,
+				PeriodKey:  "win-1",
+				ClaimedBy:  c.CmdID,
+			},
+		}
+	case concIncInflight as c:
+		Envelope{
+			ID:         CommandID(c.CmdID),
+			Actor:      "conc",
+			AtMs:       int64(1000),
+			LeaseFence: option.None,
+			Command:    CmdAdjustPoolInflight{AccountID: session.AccountID(c.Account), Delta: 1},
+		}
+	case concCreateThread as c:
+		Envelope{
+			ID:         CommandID(c.CmdID),
+			Actor:      "conc",
+			AtMs:       int64(1000),
+			LeaseFence: option.None,
+			Command:    CmdCreateThread{
+				Spec: thread.ThreadSpec{
+					ID:                 handle.ThreadID(c.Thread),
+					ParentThreadID:     option.None,
+					Driver:             adapter.ClaudeMeta,
+					AgyDirectSupported: false,
+					RequestedMode:      adapter.ModeAutoEdit,
+					Instance:           adapter.InstanceID("inst"),
+					ConfigDir:          "/cfg",
+					SharedHome:         option.None,
+					Model:              adapter.ModelID("gpt-5"),
+					LinkOrigin:         thread.OriginLocal,
+				},
+				EdgeLabel: "",
+			},
+		}
+	case concAcquireLease as c:
+		Envelope{
+			ID:         CommandID(c.CmdID),
+			Actor:      "conc",
+			AtMs:       int64(1000),
+			LeaseFence: option.None,
+			Command:    CmdAcquireLease{
+				LeaseID:       c.Lease,
+				Owner:         handle.OwnerID{ServerID: "srv", Location: "dc1", Epoch: c.Epoch},
+				ExpectedEpoch: c.Epoch - 1,
+			},
+		}
+	}
+}
+
+func runConcAct(s MemStore, a concAct) concReply {
+	let res = Execute(s, actToEnvelope(a)) catch {
+	case CommandReused:
+		return concRefused{Kind: "CommandReused"}
+	case AlreadyExists:
+		return concRefused{Kind: "AlreadyExists"}
+	case NotFound:
+		return concRefused{Kind: "NotFound"}
+	case LeaseFenced:
+		return concRefused{Kind: "LeaseFenced"}
+	case _:
+		return concRefused{Kind: "Other"}
+	}
+	if res.Duplicate { concDuplicate } else { concOK }
+}
+
+// MemStoreLinearizesConcurrentOps verifies multi-task linearizability across reset claims, inflight starts, threads, and leases.
+test MemStoreLinearizesConcurrentOps {
+	let s = New()
+	let seed = Envelope{
+		ID:         CommandID("seed-acc"),
+		Actor:      "init",
+		AtMs:       int64(500),
+		LeaseFence: option.None,
+		Command:    CmdUpsertPoolAccount{
+			Pool: PoolAccount{
+				ID:              session.AccountID("acc-shared"),
+				Provider:        "codex",
+				Priority:        1,
+				Healthy:         true,
+				Window5hUsedPct: 100,
+				Window5hResetMs: int64(2000),
+				Window7dUsedPct: 10,
+				Window7dResetMs: int64(9000),
+				ModelWindows:    []ModelWindowUsage{},
+				InflightStarts:  0,
+				LimitedUntilMs:  int64(0),
+				UpdatedAtMs:     int64(500),
+			},
+		},
+	}
+	let _ = try Execute(s, seed)
+	let plans = [][]concAct{
+		[]concAct{
+			concClaimReset{CmdID: "c1-a", Account: "acc-shared"},
+			concIncInflight{CmdID: "c1-b", Account: "acc-shared"},
+			concCreateThread{CmdID: "c1-c", Thread: "th-shared"},
+			concAcquireLease{CmdID: "c1-d", Lease: "lease-shared", Epoch: 1},
+		},
+		[]concAct{
+			concClaimReset{CmdID: "c2-a", Account: "acc-shared"},
+			concIncInflight{CmdID: "c2-b", Account: "acc-shared"},
+			concCreateThread{CmdID: "c2-c", Thread: "th-shared"},
+			concAcquireLease{CmdID: "c2-d", Lease: "lease-shared", Epoch: 1},
+		},
+		[]concAct{
+			concClaimReset{CmdID: "c1-a", Account: "acc-shared"},
+			concIncInflight{CmdID: "c3-b", Account: "acc-shared"},
+			concAcquireLease{CmdID: "c3-d", Lease: "lease-shared", Epoch: 2},
+		},
+	}
+	try testing.AgreesConcurrent(concInitialModel(), concStep, plans, func(a concAct) concReply {
+		runConcAct(s, a)
+	})
+}
