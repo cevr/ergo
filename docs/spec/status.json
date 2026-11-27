@@ -3,9 +3,14 @@
     {
       "file": "content-mappers.md",
       "heading": "Content mappers",
-      "status": "designed",
-      "text": ": no compiler support yet for file-level asset imports or the userland content-mapper contract; the parser and checker handle only inline `type T derive E` type-plan and `Provider` derives.",
-      "witnesses": []
+      "status": "implemented",
+      "text": ": `std/content` defines the pure capability-free `ContentInput -> MappedErgo` contract (`SourceSpanMap`, `MapperDiag`, `Plan`), unifying `ergo.mod` `map` file-asset imports and inline `type T derive E` expansions via `internal/sketch/contentmap` and `internal/sketchfront`; `lawcache` keys inputs + canonical mapper semantic digests without origin line shifts, `SourceSpanMap` remaps asset/companion/inline diagnostics cleanly, `std/regex` dogfoods the contract with zero compiler privilege, and `ergo inspect mappers` prints generated declarations and spans.",
+      "witnesses": [
+        "internal/sketch/contentmap:TestCacheHitRebaseAndInvalidation",
+        "internal/sketch/contentmap:TestStdRegexMatchesUserlandCopyEquivalence",
+        "internal/sketchfront:TestFileAssetMapperAndBuildEndToEnd",
+        "cmd/ergo:TestInspectMappers"
+      ]
     },
     {
       "file": "diagnostics.md",
@@ -70,11 +75,9 @@
     {
       "file": "patterns.md",
       "heading": "Derived types and patterns",
-      "status": "partly implemented",
-      "text": ": the parser reads `type T derive E`, the checker evaluates the plan at check time within its budgets and derives the bundle, and the build emits each pattern's matcher from its compiled plan; `ergo inspect` shows each derive with its engine and counts. The derived laws `TMatches` and `TAccepts`, the witness generator and the related information of [Diagnostics](#diagnostics) 2 are designed.",
+      "status": "implemented",
+      "text": ": `std/regex` implements typed byte regular expressions (`regex.Pattern`) as a zero-privilege pure Ergo content mapper emitting `ParseT` and linear one-pass `FindT` over the unified `content.ContentInput -> content.MappedErgo` contract; compiler-hardcoded `TypePlan` constructors (`Record`, `Union`, `Optional`, `List`, `Refine`), `internal/sketch/regexpplan`, `internal/sketch/derive`, and `lower/pattern.go` are retired.",
       "witnesses": [
-        "internal/sketch/derive:TestPatternGrammar",
-        "internal/sketch/derive:TestPatternShapes",
         "internal/sketch/check:TestDeriveModel",
         "internal/sketch/check:TestPatternDiagnostics",
         "internal/sketch/lower:TestPatternLoweringAgrees"
@@ -637,10 +640,10 @@
       "witnesses": []
     },
     {
-      "construct": "Derived types `type T derive E`: type plans, plan functions and typed byte patterns",
-      "status": "partly implemented",
-      "cell": "Parsed, checked and lowered: `Pattern` and `Refine` plans, plan functions of any package, typed captures and their matchers; the derived laws are designed",
-      "section": "[patterns](patterns.md)",
+      "construct": "Derived types `type T derive E`: `Provider` scripts and userland content mappers (`std/regex`)",
+      "status": "implemented",
+      "cell": "Checked and lowered: `Provider` capability scripts and `std/regex` (`regex.Pattern`) running on the zero-privilege pure userland `ContentInput -> MappedErgo` contract",
+      "section": "[patterns](patterns.md), [content-mappers](content-mappers.md)",
       "witnesses": [
         "internal/sketch/check:TestDeriveModel",
         "internal/sketch/lower:TestPatternLoweringAgrees"
@@ -648,10 +651,15 @@
     },
     {
       "construct": "Content mappers: file-level asset imports and pure userland `derive` handlers with `SourceSpanMap`",
-      "status": "designed",
-      "cell": "Designed, not yet implemented: pure capability-free `ContentInput -> MappedErgo` contract unifying asset imports and inline derives with `lawcache` keying and source-mapped diagnostics",
+      "status": "implemented",
+      "cell": "Implemented end-to-end: `ergo.mod` `map` rules, inline `derive`, pure check-time budget/cycle/FFI checks, `lawcache`, `SourceSpanMap` diagnostics, zero `std` privilege, `ergo inspect mappers`",
       "section": "[content-mappers](content-mappers.md)",
-      "witnesses": []
+      "witnesses": [
+        "internal/sketch/contentmap:TestCacheHitRebaseAndInvalidation",
+        "internal/sketch/contentmap:TestStdRegexMatchesUserlandCopyEquivalence",
+        "internal/sketchfront:TestFileAssetMapperAndBuildEndToEnd",
+        "cmd/ergo:TestInspectMappers"
+      ]
     }
   ]
 }

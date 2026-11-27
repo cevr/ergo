@@ -151,6 +151,9 @@ func (in *interp) exprFacts(fr *frame, x syntax.Expr, f *facts) (Value, *abrupt)
 		if fr.forms() {
 			f.cval = v // a constant's value, made once per instance (O38)
 		}
+		if in.track != nil {
+			in.track.onConst(fr, x, v)
+		}
 		return v, nil
 	case opBare:
 		return in.bareValue(fr, x, f), nil
@@ -267,6 +270,9 @@ func (in *interp) identUse(fr *frame, id *syntax.Ident, use check.Object) (Value
 		if s := in.slotOf(fr, o); s != nil {
 			s.lend()
 			in.handoff(fr, id)
+			if in.track != nil {
+				in.track.onSlot(s)
+			}
 			return s.v, nil
 		}
 		if in.fold {
@@ -505,6 +511,10 @@ func (in *interp) sliceExpr(fr *frame, x *syntax.SliceExpr) (Value, *abrupt) {
 	if ab != nil {
 		return nil, ab
 	}
+	var baseOrig []SourceByteOrigin
+	if in.track != nil {
+		baseOrig = in.track.take()
+	}
 	if root != nil {
 		root.lend()
 	}
@@ -551,6 +561,13 @@ func (in *interp) sliceExpr(fr *frame, x *syntax.SliceExpr) (Value, *abrupt) {
 	case string:
 		if ab := in.charge(fr, x, int64(hi-lo)); ab != nil {
 			return nil, ab
+		}
+		if in.track != nil {
+			if lo <= hi && hi <= len(baseOrig) {
+				in.track.last = append([]SourceByteOrigin(nil), baseOrig[lo:hi]...)
+			} else {
+				in.track.last = nil
+			}
 		}
 		return b[lo:hi], nil
 	case sliceV:
@@ -662,9 +679,17 @@ func (in *interp) binary(fr *frame, x *syntax.BinaryExpr, f *facts) (Value, *abr
 	if ab != nil {
 		return nil, ab
 	}
+	var origA []SourceByteOrigin
+	if in.track != nil && x.Op == syntax.ADD {
+		origA = in.track.take()
+	}
 	b, ab := in.exprK(fr, x.Y, in.kid(fr, f, 1, x.Y))
 	if ab != nil {
 		return nil, ab
+	}
+	var origB []SourceByteOrigin
+	if in.track != nil && x.Op == syntax.ADD {
+		origB = in.track.take()
 	}
 	if x.Op == syntax.DOTDOT {
 		// a..b is the prelude's Range[T]{Start: a, End: b} (Loops and len 2).
@@ -679,7 +704,13 @@ func (in *interp) binary(fr *frame, x *syntax.BinaryExpr, f *facts) (Value, *abr
 		r.fields[fieldIndex(n, "End")] = b
 		return r, nil
 	}
-	return in.binop(fr, x, x.Op, a, b)
+	r, ab := in.binop(fr, x, x.Op, a, b)
+	if ab == nil && in.track != nil && x.Op == syntax.ADD {
+		if _, ok := r.(string); ok {
+			in.track.onConcat(origA, origB)
+		}
+	}
+	return r, ab
 }
 
 func (in *interp) unary(fr *frame, x *syntax.UnaryExpr, xf *facts) (Value, *abrupt) {
@@ -1213,19 +1244,24 @@ func (in *interp) callOf(fr *frame, x *syntax.CallExpr, xf *facts) (Value, *abru
 // args evaluates a call's receiver and arguments, left to right.
 func (in *interp) args(fr *frame, x *syntax.CallExpr, c *check.Call, xf *facts) ([]Value, *abrupt) {
 	args := make([]Value, 0, len(x.Args)+1)
+	origMark := in.track.argMark()
 	if c.Recv != nil {
 		v, ab := in.receiver(fr, c.Recv, c.Func)
 		if ab != nil {
+			in.track.truncateArgs(origMark)
 			return nil, ab
 		}
 		args = append(args, v)
+		in.track.pushArg()
 	}
 	for i, a := range x.Args {
 		v, ab := in.exprK(fr, a, in.kid(fr, xf, i, a))
 		if ab != nil {
+			in.track.truncateArgs(origMark)
 			return nil, ab
 		}
 		args = append(args, v)
+		in.track.pushArg()
 	}
 	in.handParts(fr, c.Recv)
 	in.handParts(fr, x.Args...)
@@ -1237,21 +1273,26 @@ func (in *interp) args(fr *frame, x *syntax.CallExpr, c *check.Call, xf *facts) 
 // per call. The caller pops the stack to mark once the call returns.
 func (in *interp) stackArgs(fr *frame, x *syntax.CallExpr, c *check.Call, xf *facts) (args []Value, mark int, ab *abrupt) {
 	mark = len(in.argStack)
+	origMark := in.track.argMark()
 	if c.Recv != nil {
 		v, ab := in.receiver(fr, c.Recv, c.Func)
 		if ab != nil {
 			in.argStack = in.argStack[:mark]
+			in.track.truncateArgs(origMark)
 			return nil, mark, ab
 		}
 		in.argStack = append(in.argStack, v)
+		in.track.pushArg()
 	}
 	for i, a := range x.Args {
 		v, ab := in.exprK(fr, a, in.kid(fr, xf, i, a))
 		if ab != nil {
 			in.argStack = in.argStack[:mark]
+			in.track.truncateArgs(origMark)
 			return nil, mark, ab
 		}
 		in.argStack = append(in.argStack, v)
+		in.track.pushArg()
 	}
 	in.handParts(fr, c.Recv)
 	in.handParts(fr, x.Args...)
@@ -1270,6 +1311,10 @@ func (in *interp) callLiteral(fr *frame, at *syntax.CallExpr, lit *syntax.FuncLi
 // callClosure runs c's body as a frame of its own that reads and writes
 // the slots of the frame that made it, with c's parameters bound to args.
 func (in *interp) callClosure(fr *frame, at *syntax.CallExpr, c *closure, args []Value) (Value, *abrupt) {
+	var argOrigs [][]SourceByteOrigin
+	if in.track != nil {
+		argOrigs = in.track.popArgs(len(args))
+	}
 	outer := c.home
 	if c.outer != nil {
 		outer = c.outer
@@ -1292,6 +1337,9 @@ func (in *interp) callClosure(fr *frame, at *syntax.CallExpr, c *closure, args [
 	}
 	for i, p := range params {
 		callee.bind(p, args[i])
+		if in.track != nil && i < len(argOrigs) {
+			in.track.bindParam(callee, p, argOrigs[i])
+		}
 	}
 	for _, p := range params {
 		in.ownVar(callee, p, c.key) // a taken parameter (R8)
@@ -1496,6 +1544,7 @@ func (in *interp) interpolated(fr *frame, x *syntax.InterpolatedString) (Value, 
 		ice("an interpolated string with %d segments for %d values", len(x.Texts), len(x.Exprs))
 	}
 	var b strings.Builder
+	var origs []SourceByteOrigin
 	for i, seg := range x.Texts {
 		raw := seg.Value
 		if len(raw) < 2 {
@@ -1512,6 +1561,9 @@ func (in *interp) interpolated(fr *frame, x *syntax.InterpolatedString) (Value, 
 			ice("an interpolated segment %q: %v", seg.Value, err)
 		}
 		b.WriteString(s)
+		if in.track != nil {
+			origs = append(origs, in.track.litOrigins(fr, seg)...)
+		}
 		if i == len(x.Exprs) {
 			break
 		}
@@ -1519,14 +1571,24 @@ func (in *interp) interpolated(fr *frame, x *syntax.InterpolatedString) (Value, 
 		if ab != nil {
 			return nil, ab
 		}
+		var exprOrig []SourceByteOrigin
+		if in.track != nil {
+			exprOrig = in.track.take()
+		}
 		text, ok := textOf(v, fr.rtypeOf(x.Exprs[i]).basic())
 		if !ok {
 			return nil, fr.unsupported(x.Exprs[i], "the text of %s yet", fr.typeOf(x.Exprs[i]))
 		}
 		b.WriteString(text)
+		if in.track != nil {
+			origs = appendStringOrigin(origs, text, exprOrig)
+		}
 	}
 	if ab := in.build(fr, x, byteWork(int64(b.Len())), 0, int64(b.Len())); ab != nil {
 		return nil, ab
+	}
+	if in.track != nil {
+		in.track.last = origs
 	}
 	return b.String(), nil
 }

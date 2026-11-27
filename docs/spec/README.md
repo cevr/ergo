@@ -103,8 +103,8 @@ The [support table](support.md) lists the exact support of the build, one family
 | Packages and visibility by capitalisation | Implemented: module packages and their imports (`ergo.mod`), and visibility on fields, operations and construction (196b Q6 and Q7) | [grammar](grammar.md#visibility) |
 | Standard library | The prelude and the std packages under `internal/sketch/std` (among them `actor`, `fs`, `machines`, `maps`, `queue`, `schedule`, `slices`, `strings`, `sync`, `task`, `time`, `timeout`) are Ergo source, checked and lowered; [stdlib.md](stdlib.md) states each family's status | [stdlib](stdlib.md) |
 | Value-tied facts: `given`, `gives`, `keeps`; record invariants `type T { … } where P(it)` | Designed, not yet implemented: the parser refuses the clauses and a `where` after a record type with S001 | [facts](facts.md) |
-| Derived types `type T derive E`: type plans, plan functions and typed byte patterns | Parsed, checked and lowered: `Pattern` and `Refine` plans, plan functions of any package, typed captures and their matchers; the derived laws are designed | [patterns](patterns.md) |
-| Content mappers: file-level asset imports and pure userland `derive` handlers with `SourceSpanMap` | Designed, not yet implemented: pure capability-free `ContentInput -> MappedErgo` contract unifying asset imports and inline derives with `lawcache` keying and source-mapped diagnostics | [content-mappers](content-mappers.md) |
+| Derived types `type T derive E`: `Provider` scripts and userland content mappers (`std/regex`) | Checked and lowered: `Provider` capability scripts and `std/regex` (`regex.Pattern`) running on the zero-privilege pure userland `ContentInput -> MappedErgo` contract | [patterns](patterns.md), [content-mappers](content-mappers.md) |
+| Content mappers: file-level asset imports and pure userland `derive` handlers with `SourceSpanMap` | Implemented end-to-end: `ergo.mod` `map` rules, inline `derive`, pure check-time budget/cycle/FFI checks, `lawcache`, `SourceSpanMap` diagnostics, zero `std` privilege, `ergo inspect mappers` | [content-mappers](content-mappers.md) |
 
 ## Surface
 

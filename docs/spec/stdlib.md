@@ -822,6 +822,35 @@ Std `lint` (wf10 LINT4) writes a rule pack in Ergo: the program `ergo lint` star
 
 *Prior art:* Go's `golang.org/x/tools/go/analysis` runs analyzers in process over typed facts, and its `unitchecker` speaks a JSON protocol to `go vet`; ESLint and oxlint plugins are JavaScript over syntax trees; Effect-TS/tsgo writes its rules in Go over the TypeScript checker. Gleam and ReScript have no user lint. Ergo's pack is a separate program over a versioned fact schema, as `unitchecker` is, and an Ergo pack and a Go pack are interchangeable behind it.
 
+## content
+
+Package `content` defines the pure, capability-free check-time contract implemented by every content mapper ([content-mappers.md](content-mappers.md)). Neither file-level asset imports (`import ./asset.ext`) nor inline `type T derive <mapper>(...)` declarations grant any compiler privilege to `std` or user packages: both pass `ContentInput` and receive `MappedErgo` checked under finite evaluation, memory, span, and diagnostic budgets.
+
+| Declaration | Meaning |
+| --- | --- |
+| `AssetOrigin = FileAsset{Path, Package} \| InlineDerive{Package, File, Target, Line, Col}` | Whether the mapper ran for an imported file asset or an inline `derive` declaration. |
+| `CompanionAsset { Path, Bytes []byte }` | One canonically ordered companion file passed alongside the primary payload. |
+| `ContentInput { Target, Origin, MediaKind, Bytes, Companions }` | Closed input delivered to a check-time content mapper (`[]byte` slices immutable under mapper evaluation). |
+| `SourceSpan { Start, End uint32 }`, `SpanMapping { Generated, Companion Option[uint32], Source, Label }`, `SourceSpanMap { Entries []SpanMapping }` | Sorted, disjoint byte-offset mapping from generated Ergo source spans back to primary asset or companion byte spans. |
+| `DiagSeverity = Error \| Warning`, `MapperDiag { Severity, Companion, Span, Code, Message, Hint }` | Structured pre-parse asset diagnostic; any `Error` stops parsing of `Source` and reports at the remapped asset or literal byte span. |
+| `MappedErgo { Source string, Spans SourceSpanMap, Diags []MapperDiag, Digest []byte }` | Total check-time output returned by a mapper (`ContentInput -> MappedErgo`). |
+| `type Mapper func(ContentInput) MappedErgo`, `type Plan { Mapper, MediaKind, Bytes, Companions }` | Pure function type and inline derive plan wrapper returned by user or stdlib mapper helpers. |
+| `NewSpan(start, end)`, `ErrorDiag(start, end, code, message, hint)`, `VerifySpans(genLen, assetLen, compLens, entries)` | Helpers for building spans, error diagnostics, and validating sorted disjoint span bounds. |
+
+1. **Laws.** `VerifySpansAcceptsSortedDisjoint` and `VerifySpansRejectsOverlap` hold the interval ordering, disjointness, and companion-bound invariant enforced by the compiler ([Std laws](#std-laws)).
+
+## regex
+
+Package `regex` implements typed byte regular expressions (`regex.Pattern`, `regex.MapPattern`) as a pure userland content mapper built on `content.Plan` ([patterns.md](patterns.md), [content-mappers.md](content-mappers.md)), with zero compiler `std` privilege.
+
+| Declaration | Meaning |
+| --- | --- |
+| `func Pattern(text string) content.Plan` | Builds an inline derive `content.Plan` using `MapPattern` with media kind `"regex"`. |
+| `func MapPattern(input content.ContentInput) content.MappedErgo` | Parses the byte regex AST, checks capture shapes and diagnostics, compiles a Thompson/Pike NFA bytecode table, and emits self-contained Ergo declarations (`T`, `ParseT`, `FindT`). |
+
+1. **Contract.** `MapPattern` runs identically whether called from `std/regex` or copied into a user package: it maps spans strictly through `SourceSpanMap`, refuses unsupported regex constructs (`^`, `$`, lazy quantifiers, backreferences, lookarounds, `(?:`, `(?P<`, bad ranges, duplicate captures) via `MapperDiag`, and emits linear one-pass NFA matching functions with `Option` and slice captures.
+2. **Laws.** `SyntaxRejectsAnchorsAndUnsupportedGroups`, `EmittedSpansAreSortedAndDisjoint`, `NFAParseAndFindAgreeWithPriority`, and `NFAEmptyAndQuantifierClasses` pin the parser diagnostics, span validity, priority, and byte-class semantics ([Std laws](#std-laws)).
+
 ## Pure bodies
 
 A std extern whose `runtime/v1` Go body is marked pure is transparent in footprints (wave std-1, unit G5b; [rows.md, Footprints](rows.md#footprints)). A call of it adds no capability, no task start and no opacity, so a function that calls `strings.TrimSpace` has the footprint of one that calls nothing: empty, with no entry poll. Every other extern call stays opaque.
@@ -1897,6 +1926,8 @@ The table has one row per std package, the prelude included. The Effect module i
 | `uuid` | none: Effect has no uuid | W4, W14 | a `Generator`'s V7 ids are ordered within a millisecond too (law `V7IsOrderedInProcess`); `V4` and `V7` draw from `rand.Secure` and read `time.Clock` in the caller's row, so a test binds `rand.NewSeededSecure` and `time.NewManual` and gets the same ids every run; a V7 sorts by its millisecond (law `V7IsOrderedByTime`); `Parse` fails with a typed `Malformed` ([keyed digests](#keyed-digests)) | `runtime/v1/digest.BenchmarkDigest`: `RandSecureBytes` against `crypto/rand.Read` |
 | `semver` | none: Effect has no version module; `Bun.semver` and Go's `golang.org/x/mod/semver` are the controls | W3, W6, W14 | `Version` and `Range` records, the comparator `Op` as a union matched exhaustively, `Malformed` in the row of `Parse` and `ParseRange`, laws for the order ([semver](#semver); [types.md, Unions](types.md#unions); [rows.md, Catch](rows.md#catch)) | pending: per-call instructions of `Parse` and `Compare` against x/mod/semver and the Go floor are in SQ4's receipt (`std-priv/SQ4/receipt-1.tsv`); std-count has no semver row yet |
 | `zlib` | none: Effect has no compression module; Go's `compress/zlib` and C Git loose objects are the controls | W5, W6, W14 | pure-Ergo RFC 1950/1951 codec with zero Go externs; closed failure union `Error` in the `fails` row (`BadHeader \| UnsupportedDict \| BadBlock \| BadDistance \| BadHuffman \| BadChecksum \| Truncated \| TrailingData \| LimitExceeded`), exact member-boundary `InflatePrefix` returning `Inflated{Data, Consumed}`, and strict `maxBytes` enforcement ([zlib](#zlib); [types.md, Unions](types.md#unions); [rows.md, Catch](rows.md#catch)) | `internal/sketch/lower.BenchmarkStdZlib` against Go's `compress/zlib` on a 4 KiB payload |
+| `content` | none: Effect has no check-time content mapper contract | W5, W7, W8, W14 | pure check-time mapping contract (`ContentInput -> MappedErgo`) with `SourceSpanMap`, `MapperDiag`, closed error union `Error`, and capability-free evaluation ([content-mappers.md](content-mappers.md); [content](#content)) | none: executes once at check time with content-addressed caching; generated Ergo declarations lower directly with zero wrapper |
+| `regex` | none: Effect delegates pattern matching to runtime JS `RegExp` without capture typing | W5, W6, W7, W8 | pure-Ergo Pike NFA pattern compiler targeting `content.Plan` with named capture records/unions, exhaustive match, and typed `NoMatch` failure ([regex](#regex); [content-mappers.md](content-mappers.md)) | pending: generated matchers emit flat byte-set Pike NFAs per derived type directly in Go |
 
 *Prior art:* ReScript makes pipe-first `->` a plain call and uncurries by default (W2, W3); Elixir's `|>` is a macro and `with` chains the happy path (W1, W2), and `@derive` generates protocol code (W7, W8); Gleam's `use` replaces callbacks with plain lines and its `Result` replaces exceptions (W1, W5), with no type classes (W16); Roc and MoonBit derive equality, hashing and codecs (W7, W8), and Roc gives each host effect as a platform capability (W4, W18); Elm has no derivation and writes decoders by hand, the shape W7 and W17 avoid; Koka's evidence passing makes a tail-resumptive handler a direct call, as Ergo's environment of capabilities does (W14).
 
@@ -1941,7 +1972,6 @@ The standard library is an ordinary set of packages ([NORTH_STAR.md](../../NORTH
 | `internal/sketch/check/ownership.go:checker.checkOwnership` | `Close` |
 | `internal/sketch/check/releaseneeds.go:checker.releaseWider` | `Close` |
 | `internal/sketch/check/stmt.go:checker.isErrorValue` | `go.Error` |
-| `internal/sketch/derive/eval.go:evaluator.callee` | `Of`, the derive plan's constructor |
 | `internal/sketch/eval/machine.go:interp.machineStep` | `Enter`, `Stay`, `Emit`, `Tell`, `Done`, `Next` |
 | `internal/sketch/lower/calls.go:funcCtx.callee` | a prelude function, written unqualified |
 | `internal/sketch/lower/decls.go:isPreludeType` | `Option`, `Some`, `None` |
@@ -2111,7 +2141,7 @@ Std `stream` (std-spike C4) holds the `Seq` operators that read time: Effect `St
   - `testing`: `T`, `VirtualClock`, `Discard`, `Idle`, `Point`, `At`.
 - **New:** `hmac`, `sha512`, `sha1`, `uuid` and `rand.Secure` (keyed digests, secure random bytes and RFC 9562 ids, std-spike D3), `decimal` (exact decimals, a 128-bit coefficient, std-spike D2), `set` (a value set over a Map, std-spike D1), `cache` (a capacity, a life and an idle time, one lookup per key), `tasks`, `schedule` (the schedule algebra, with laws), `retry`, `timeout`, `trace`, `log`, `metric`, `batch`, `actor` (the live machine runner: `StartMachine`, `Send`, `Ask`, `State`, `Stop`, `Changes`, `Dropped`, `Feed`, `Can`), `machines` (the runs of a machine value: the pure `Run` and `From`, `RunTimed` with state timers on the context's `time.Clock` and `Scheduler`, `Every` for a timer whose signal carries the clock's reading when it fires, `Start` for a machine with an input, `Next`, `Initial`, `Can`), `html`, `lint` (a rule pack in Ergo: the fact snapshot, `Serve`, `Manifest`; [lint](#lint)), `pubsub` (a hub that fans values out to subscriptions: [PubSub and send strategies](#pubsub-and-send-strategies)), `text` (pointer-free spans of a text: [Text spans](#text-spans)), `llm` (the contract of a language model and its providers: [llm](#llm)).
 - **New:** `civil` (zone-less dates, times of day, periods and spans; Go's `cloud.google.com/go/civil` name), `tz` with `tz/iana` and `tz/host` (zones, std's own IANA copy, the host's zone files; Go's `Location` renamed zone), `tasks`, `schedule` (the schedule algebra, with laws), `retry`, `timeout`, `trace`, `log`, `metric`, `batch`, `actor` (the live machine runner: `StartMachine`, `Send`, `Ask`, `State`, `Stop`, `Changes`, `Dropped`, `Feed`, `Can`), `machines` (the runs of a machine value: the pure `Run` and `From`, `RunTimed` with state timers on the context's `time.Clock` and `Scheduler`, `Start` for a machine with an input, `Next`, `Initial`, `Can`), `html`.
-- **New:** `color` (pure CSS Color 4 parsing, spaces and contrast), `term` (terminal modes, keys, styles, SGR escapes, capability detection and colour depth).
+- **New:** `color` (pure CSS Color 4 parsing, spaces and contrast), `term` (terminal modes, keys, styles, SGR escapes, capability detection and colour depth), `content` (pure userland check-time content mapper contract `ContentInput -> MappedErgo`, `SourceSpanMap`, `MapperDiag`, `Plan`), `regex` (pure Ergo linear byte regular expression content mapper over `content.Plan`).
 
 ## llm
 

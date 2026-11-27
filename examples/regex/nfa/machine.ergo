@@ -3,10 +3,10 @@
 // its end.
 
 import machines
-import regex/engine
-import regex/syntax
+import regexengine/engine
+import regexengine/syntax
 import slices
-import regex/backtrack
+import regexengine/backtrack
 
 // Signal is what the machine reads: a byte of the text, or its end.
 type Signal = Read{C byte} | End{}

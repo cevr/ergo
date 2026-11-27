@@ -115,7 +115,7 @@ func (l *lowerer) monoCandidate(f *check.Func) bool {
 	// copy would erase: Bad[F] would be Bad[error] in the copy and
 	// Bad[E0] at its caller. The function stays stenciled, as the
 	// inlining and the known-record copies leave it.
-	if !generic || isClose(f) || nativeOf(f) != nil || len(l.ownedParams(f)) > 0 || l.hasGoRow(f.Sig) {
+	if !generic || isClose(f) || len(l.ownedParams(f)) > 0 || l.hasGoRow(f.Sig) {
 		return false
 	}
 	return true

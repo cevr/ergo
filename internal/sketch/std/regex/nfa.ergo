@@ -1,0 +1,324 @@
+import content
+
+let opAccept = 0
+let opByte = 1
+let opSplit = 2
+let opTag = 3
+
+let maxNFAInsts = 65536
+
+type compiledNFA {
+	code  []int,
+	sets  []uint64,
+	start int,
+	diags []content.MapperDiag,
+}
+
+type nfaBuilder {
+	code     []int,
+	sets     []uint64,
+	overflow bool,
+}
+
+func emitInst(b nfaBuilder, op int, x int, y int) (nfaBuilder, int) {
+	let count = b.code.Len() / 3
+	if count >= maxNFAInsts {
+		return (nfaBuilder{code: b.code, sets: b.sets, overflow: true}, 0)
+	}
+	let mut c = b.code.Append(op)
+	c = c.Append(x)
+	c = c.Append(y)
+	(nfaBuilder{code: c, sets: b.sets, overflow: b.overflow}, count)
+}
+
+func addByteSet(b nfaBuilder, s byteSet) (nfaBuilder, int) {
+	let n = b.sets.Len() / 4
+	for i in 0..n {
+		let base = i * 4
+		if b.sets[base] == s.w0 && b.sets[base+1] == s.w1 && b.sets[base+2] == s.w2 && b.sets[base+3] == s.w3 {
+			return (b, i)
+		}
+	}
+	let mut words = b.sets.Append(s.w0)
+	words = words.Append(s.w1)
+	words = words.Append(s.w2)
+	words = words.Append(s.w3)
+	(nfaBuilder{code: b.code, sets: words, overflow: b.overflow}, n)
+}
+
+func compileASTToNFA(ast regexAST, tags []int) compiledNFA {
+	let mut b = nfaBuilder{code: []int{}, sets: []uint64{}, overflow: false}
+	let (b1, acceptPC) = emitInst(b, opAccept, 0, 0)
+	b = b1
+	let (b2, startPC) = compileNode(ast, tags, b, ast.root, acceptPC)
+	b = b2
+	if b.overflow {
+		return compiledNFA{
+			code:  []int{},
+			sets:  []uint64{},
+			start: 0,
+			diags: []content.MapperDiag{content.ErrorDiag(uint32(0), uint32(0), "R005", "compiled NFA exceeds instruction limit", "simplify repeated quantifiers or pattern size")},
+		}
+	}
+	compiledNFA{code: b.code, sets: b.sets, start: startPC, diags: []content.MapperDiag{}}
+}
+
+func compileNode(ast regexAST, tags []int, b nfaBuilder, id int, next int) (nfaBuilder, int) {
+	if b.overflow {
+		return (b, 0)
+	}
+	let n = ast.nodes[id]
+	if n.kind == kindEmpty {
+		return (b, next)
+	}
+	if n.kind == kindBytes {
+		let (b1, si) = addByteSet(b, n.set)
+		return emitInst(b1, opByte, next, si)
+	}
+	if n.kind == kindConcat {
+		let mut cur = next
+		let mut mutB = b
+		let mut idx = n.kids.Len() - 1
+		for idx >= 0 {
+			let (b1, pc) = compileNode(ast, tags, mutB, n.kids[idx], cur)
+			mutB = b1
+			cur = pc
+			if mutB.overflow {
+				return (mutB, 0)
+			}
+			idx = idx - 1
+		}
+		return (mutB, cur)
+	}
+	if n.kind == kindAlt {
+		let mut idx = n.kids.Len() - 1
+		let (b0, lastPC) = compileNode(ast, tags, b, n.kids[idx], next)
+		let mut mutB = b0
+		let mut cur = lastPC
+		idx = idx - 1
+		for idx >= 0 {
+			let (b1, leftPC) = compileNode(ast, tags, mutB, n.kids[idx], next)
+			let (b2, splitPC) = emitInst(b1, opSplit, leftPC, cur)
+			mutB = b2
+			cur = splitPC
+			if mutB.overflow {
+				return (mutB, 0)
+			}
+			idx = idx - 1
+		}
+		return (mutB, cur)
+	}
+	if n.kind == kindCapture {
+		let tag = tags[id]
+		if tag == 0 {
+			return compileNode(ast, tags, b, n.kids[0], next)
+		}
+		let (b1, closePC) = emitInst(b, opTag, next, -tag)
+		let (b2, innerPC) = compileNode(ast, tags, b1, n.kids[0], closePC)
+		return emitInst(b2, opTag, innerPC, tag)
+	}
+	if n.kind == kindRepeat {
+		let mut cur = next
+		let mut mutB = b
+		if n.max == -1 {
+			let (b1, splitPC) = emitInst(mutB, opSplit, 0, next)
+			let (b2, bodyPC) = compileNode(ast, tags, b1, n.kids[0], splitPC)
+			if b2.overflow {
+				return (b2, 0)
+			}
+			let mut patched = b2.code
+			patched[splitPC*3+1] = bodyPC
+			mutB = nfaBuilder{code: patched, sets: b2.sets, overflow: false}
+			cur = splitPC
+		} else {
+			let mut k = n.min
+			for k < n.max {
+				let (b1, bodyPC) = compileNode(ast, tags, mutB, n.kids[0], cur)
+				let (b2, splitPC) = emitInst(b1, opSplit, bodyPC, next)
+				mutB = b2
+				cur = splitPC
+				if mutB.overflow {
+					return (mutB, 0)
+				}
+				k = k + 1
+			}
+		}
+		let mut m = 0
+		for m < n.min {
+			let (b1, pc) = compileNode(ast, tags, mutB, n.kids[0], cur)
+			mutB = b1
+			cur = pc
+			if mutB.overflow {
+				return (mutB, 0)
+			}
+			m = m + 1
+		}
+		return (mutB, cur)
+	}
+	(b, next)
+}
+
+func runNFA(code []int, sets []uint64, startPC int, s string, anchored bool, from int) (bool, int, int, []int, []int, int) {
+	let n = s.Len()
+	let instCount = code.Len() / 3
+	if !anchored && (from < 0 || from > n) {
+		return (false, 0, 0, []int{}, []int{}, 0)
+	}
+	let startFrom = if anchored { 0 } else { from }
+	let mut seenStamp = []int{}
+	for _ in 0..instCount {
+		seenStamp = seenStamp.Append(0)
+	}
+	let mut histTag = []int{}
+	let mut histPos = []int{}
+	let mut histPrev = []int{}
+	let mut curPC = []int{}
+	let mut curStart = []int{}
+	let mut curHist = []int{}
+	if anchored {
+		curPC = curPC.Append(startPC)
+		curStart = curStart.Append(0)
+		curHist = curHist.Append(-1)
+	}
+	let mut bestOK = false
+	let mut bestStart = 0
+	let mut bestEnd = 0
+	let mut bestHist = -1
+	let mut stamp = 0
+	let mut failAt = 0
+	for pos in startFrom..(n + 1) {
+		if !anchored && !bestOK {
+			curPC = curPC.Append(startPC)
+			curStart = curStart.Append(pos)
+			curHist = curHist.Append(-1)
+		}
+		stamp = stamp + 1
+		let mut readyPC = []int{}
+		let mut readyStart = []int{}
+		let mut readyHist = []int{}
+		for ci in 0..curPC.Len() {
+			let mut stkPC = []int{curPC[ci]}
+			let mut stkStart = []int{curStart[ci]}
+			let mut stkHist = []int{curHist[ci]}
+			for stkPC.Len() > 0 {
+				let top = stkPC.Len() - 1
+				let pc = stkPC[top]
+				let ts = stkStart[top]
+				let th = stkHist[top]
+				stkPC = stkPC[0:top]
+				stkStart = stkStart[0:top]
+				stkHist = stkHist[0:top]
+				if seenStamp[pc] == stamp {
+					continue
+				}
+				seenStamp[pc] = stamp
+				let base = pc * 3
+				let op = code[base]
+				if op == opSplit {
+					let left = code[base+1]
+					let right = code[base+2]
+					stkPC = stkPC.Append(right)
+					stkStart = stkStart.Append(ts)
+					stkHist = stkHist.Append(th)
+					stkPC = stkPC.Append(left)
+					stkStart = stkStart.Append(ts)
+					stkHist = stkHist.Append(th)
+					continue
+				}
+				if op == opTag {
+					let nxt = code[base+1]
+					let tv = code[base+2]
+					let nh = histTag.Len()
+					histTag = histTag.Append(tv)
+					histPos = histPos.Append(pos)
+					histPrev = histPrev.Append(th)
+					stkPC = stkPC.Append(nxt)
+					stkStart = stkStart.Append(ts)
+					stkHist = stkHist.Append(nh)
+					continue
+				}
+				readyPC = readyPC.Append(pc)
+				readyStart = readyStart.Append(ts)
+				readyHist = readyHist.Append(th)
+			}
+		}
+		if anchored && pos == n {
+			let mut matched = false
+			for ri in 0..readyPC.Len() {
+				if code[readyPC[ri]*3] == opAccept {
+					bestOK = true
+					bestStart = readyStart[ri]
+					bestEnd = n
+					bestHist = readyHist[ri]
+					matched = true
+					break
+				}
+			}
+			if !matched {
+				failAt = pos
+			}
+			break
+		}
+		let mut nextPC = []int{}
+		let mut nextStart = []int{}
+		let mut nextHist = []int{}
+		for ri in 0..readyPC.Len() {
+			let pc = readyPC[ri]
+			let base = pc * 3
+			let op = code[base]
+			if !anchored && op == opAccept {
+				if !bestOK || readyStart[ri] <= bestStart {
+					bestOK = true
+					bestStart = readyStart[ri]
+					bestEnd = pos
+					bestHist = readyHist[ri]
+				}
+				break
+			}
+			if op == opByte && pos < n {
+				let b = s[pos]
+				let si = code[base+2]
+				let w = sets[si*4+int(b)/64]
+				if (w & (uint64(1) << uint64(int(b)&63))) != uint64(0) {
+					nextPC = nextPC.Append(code[base+1])
+					nextStart = nextStart.Append(readyStart[ri])
+					nextHist = nextHist.Append(readyHist[ri])
+				}
+			}
+		}
+		if anchored {
+			if nextPC.Len() == 0 {
+				failAt = pos
+				break
+			}
+		} else {
+			if pos == n || (nextPC.Len() == 0 && bestOK) {
+				break
+			}
+		}
+		curPC = nextPC
+		curStart = nextStart
+		curHist = nextHist
+	}
+	if !bestOK {
+		return (false, 0, 0, []int{}, []int{}, failAt)
+	}
+	let mut revTag = []int{}
+	let mut revPos = []int{}
+	let mut idx = bestHist
+	for idx >= 0 {
+		revTag = revTag.Append(histTag[idx])
+		revPos = revPos.Append(histPos[idx])
+		idx = histPrev[idx]
+	}
+	let count = revTag.Len()
+	let mut evTag = []int{}
+	let mut evPos = []int{}
+	let mut k = count - 1
+	for k >= 0 {
+		evTag = evTag.Append(revTag[k])
+		evPos = evPos.Append(revPos[k])
+		k = k - 1
+	}
+	(true, bestStart, bestEnd, evTag, evPos, bestEnd)
+}

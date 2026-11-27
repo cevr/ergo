@@ -104,6 +104,9 @@ func (in *interp) dispatch(fr *frame, at *syntax.CallExpr, recv Value, name stri
 // providerCall runs a capability's operation on the provider the nearest
 // with binds (CallProviderOp).
 func (in *interp) providerCall(fr *frame, x *syntax.CallExpr, c *check.Call) (Value, *abrupt) {
+	if in.strictMapper {
+		return nil, fr.unsupported(x, "a capability call (%s) inside a content mapper", c.Op.Name)
+	}
 	sel, ok := unparen(x.Fun).(*syntax.SelectorExpr)
 	if !ok {
 		ice("a capability call with no selector")
@@ -138,6 +141,9 @@ func (in *interp) providerCall(fr *frame, x *syntax.CallExpr, c *check.Call) (Va
 // after it and the block. The block yields the with's value by the tail
 // rule; its failure is the with's.
 func (in *interp) withExpr(fr *frame, x *syntax.CallExpr) (Value, *abrupt) {
+	if in.strictMapper {
+		return nil, fr.unsupported(x, "a with capability block inside a content mapper")
+	}
 	w := fr.info.Withs[x]
 	if w == nil {
 		ice("a with with no Withs entry")
@@ -346,6 +352,9 @@ func (in *interp) callValue(fr *frame, at syntax.Node, f Value, args []Value) (V
 	case *closure:
 		return in.callClosure(fr, call, f, args)
 	case *funcRef:
+		if in.strictMapper && f.fn != nil && ((f.fn.Pkg != nil && f.fn.Pkg.Host()) || goNativeOf(f.fn) != nil) && stdPureGoNativeOf(f.fn) == nil {
+			return nil, fr.unsupported(at, "foreign Go function (%s) during check-time mapper execution", f.fn.Name)
+		}
 		if call == nil && (f.fn.Decl == nil || f.fn.Decl.Body == nil || f.fn.Decl.Extern != nil || f.fn.Pkg.Host()) && nativeOf(f.fn) == nil && goNativeOf(f.fn) == nil {
 			return nil, fr.unsupported(at, "a Go function (%s), even a pure one", f.fn.Name)
 		}

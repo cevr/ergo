@@ -84,7 +84,13 @@ type importSpec { path string, name string, isGo bool }
 
 func importOf(p syntax.Parsed, is syntax.ImportSpec) importSpec {
 	let path = strings.TrimRight(strings.TrimLeft(nodeText(p, is.Path), "\""), "\"")
-	let last = path[strings.LastIndex(path, "/")+1 : path.Len()]
+	let mut last = path[strings.LastIndex(path, "/")+1 : path.Len()]
+	if strings.HasPrefix(path, "./") || strings.HasPrefix(path, "../") {
+		let dot = strings.LastIndex(last, ".")
+		if dot > 0 {
+			last = last[0:dot]
+		}
+	}
 	match dense.Unpack(is.Name) {
 	case option.Some{Value: n}:
 		let alias = text(p, n)

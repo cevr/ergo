@@ -63,24 +63,26 @@ func TestInspectAPIRoute(t *testing.T) {
 	if !strings.Contains(capture("api", "--diff", old, next), "breaks callers that pass a resource") {
 		t.Fatal("diff lost warning")
 	}
-	// A derived type shows its type, parse engine, reason and counts
-	// (patterns.md, Derivation 7; mutant rc4b-inspect-engine-missing).
+	// A derived type shows its type, mapper identity, media kind, steps, and
+	// declarations (content-mappers.md; mutant rc4b-inspect-mapper-missing).
 	date := filepath.Join(dir, "date.ergo")
-	if err := os.WriteFile(date, []byte("type Date derive Pattern(`(?<Year>[0-9]{4})-(?<Month>[0-9]{2})`)\n\nfunc Year(s string) string fails NoMatch { try ParseDate(s).Year }\n"), 0o644); err != nil {
+	if err := os.WriteFile(date, []byte("import regex\n\ntype Date derive regex.Pattern(`(?<Year>[0-9]{4})-(?<Month>[0-9]{2})`)\n\nfunc Year(s string) string fails NoMatch { try ParseDate(s).Year }\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	var report struct {
 		Derived []struct {
-			Type, Engine string
-			Reason       string
-			States       int
-			Allocates    bool
+			Type      string
+			Plan      string
+			Kind      string
+			MediaKind string
+			Steps     int
+			Decls     []string
 		}
 	}
 	if err := json.Unmarshal([]byte(capture(date)), &report); err != nil || len(report.Derived) != 1 {
 		t.Fatalf("inspect: %v, %+v", err, report)
 	}
-	if d := report.Derived[0]; d.Type != "Date" || d.Engine != "direct" || d.Reason == "" || d.States == 0 || d.Allocates {
+	if d := report.Derived[0]; d.Type != "Date" || d.Plan != "regex.MapPattern" || d.Kind != "inline" || d.MediaKind != "regex" || d.Steps == 0 || len(d.Decls) == 0 {
 		t.Fatalf("derived: %+v", d)
 	}
 	// A derived foreign fact shows at each Go call operand it names, a

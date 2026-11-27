@@ -125,7 +125,7 @@ var stdScanDirs = []string{
 	"internal/sketch/api",
 	"internal/sketch/build",
 	"internal/sketch/check",
-	"internal/sketch/derive",
+	"internal/sketch/contentmap",
 	"internal/sketch/eval",
 	"internal/sketch/exportgen",
 	"internal/sketch/facts",

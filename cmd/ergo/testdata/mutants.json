@@ -264,12 +264,12 @@
     },
     {"name":"tl1-strip-keeps-symtab","origin":"wf10 TL1","file":"internal/sketch/build/action.go","from":"const stripFlags = `'-ldflags=-s -w'`","to":"const stripFlags = `'-ldflags=-w'`","rule":"A stripped link has no symbol table (-s) and no DWARF (-w), and keeps the pclntab.","killers":["internal/sketch/build:TestCacheInputs"]},
     {
-      "name": "rc4b-inspect-engine-missing",
-      "origin": "wf10 RC4b",
+      "name": "rc4b-inspect-mapper-missing",
+      "origin": "wf10 CONTENT-MAPPER-CORE",
       "file": "internal/sketchfront/inspect.go",
-      "from": "g.Engine, g.Reason = string(in.Engine), in.Reason",
-      "to": "g.Reason = in.Reason",
-      "rule": "ergo inspect shows each derived type with its parse engine, the reason and the counts (patterns.md, Derivation 7).",
+      "from": "\t\t\tg := GoDerived{\n\t\t\t\tPackage:   p.Path,\n\t\t\t\tType:      rec.Target,\n\t\t\t\tPlan:      planName,\n",
+      "to": "\t\t\t_ = planName\n\t\t\tg := GoDerived{\n\t\t\t\tPackage:   p.Path,\n\t\t\t\tType:      rec.Target,\n\t\t\t\tPlan:      \"\",\n",
+      "rule": "ergo inspect shows each derived type with its content mapper identity, media kind, steps and generated declarations (content-mappers.md).",
       "killers": ["cmd/ergo:TestInspectAPIRoute"]
     },
     {

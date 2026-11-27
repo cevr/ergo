@@ -230,7 +230,6 @@ debt	internal/sketch/check/typeops.go:checker.assignability	mark	"Host()"	checke
 debt	internal/sketch/check/types.go:Named.underlying	mark	"Host()"	Named.underlying: a mark key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/check/types.go:isCapability	mark	"Host()"	isCapability: a mark key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/check/unify.go:inferer.nify	flag	"isPreludeMachineValue"	inferer.nify: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
-language	internal/sketch/derive/eval.go:evaluator.callee	name	"Of"	Of, the derive plan's constructor	-
 language	internal/sketch/eval/cases.go:qualifiedLaw	mark	"stdlib.PreludePath"	a prelude law is named unqualified, as prelude names are written	-
 debt	internal/sketch/eval/compile.go:interp.compileCall	flag	"ergo"	interp.compileCall: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/eval/compile.go:interp.compileCall	flag	"takes"	interp.compileCall: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP

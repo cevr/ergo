@@ -425,8 +425,15 @@ func (in *interp) letBind(fr *frame, spec *syntax.VarSpec) *abrupt {
 	if ab != nil {
 		return ab
 	}
+	var valOrig []SourceByteOrigin
+	if in.track != nil {
+		valOrig = in.track.take()
+	}
 	fr.bind(v, val)
 	in.ownVar(fr, v, id)
+	if in.track != nil {
+		in.track.bindParam(fr, v, valOrig)
+	}
 	return nil
 }
 
@@ -526,6 +533,10 @@ func (in *interp) assignAt(fr *frame, s *syntax.AssignStmt, lhs syntax.Expr, roo
 	if ab != nil {
 		return ab
 	}
+	var rhsOrig []SourceByteOrigin
+	if in.track != nil {
+		rhsOrig = in.track.take()
+	}
 	if s.Tok != syntax.ASSIGN {
 		op, ok := assignOp(s.Tok)
 		if !ok {
@@ -534,6 +545,11 @@ func (in *interp) assignAt(fr *frame, s *syntax.AssignStmt, lhs syntax.Expr, roo
 		val, ab = in.binop(fr, s, op, old, val)
 		if ab != nil {
 			return ab
+		}
+		if in.track != nil && s.Tok == syntax.ADD_ASSIGN && len(steps) == 0 {
+			if _, ok := val.(string); ok {
+				in.track.slots[root] = append(append([]SourceByteOrigin(nil), in.track.slots[root]...), rhsOrig...)
+			}
 		}
 	} else if id, ok := lhs.(*syntax.Ident); ok && len(steps) == 0 {
 		if _, ab := in.reassignOwned(fr, id, val); ab != nil {
@@ -545,6 +561,9 @@ func (in *interp) assignAt(fr *frame, s *syntax.AssignStmt, lhs syntax.Expr, roo
 		return ab
 	}
 	root.v = nv
+	if in.track != nil && s.Tok == syntax.ASSIGN && len(steps) == 0 {
+		in.track.slots[root] = rhsOrig
+	}
 	return nil
 }
 

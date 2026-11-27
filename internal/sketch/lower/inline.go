@@ -328,7 +328,7 @@ func (l *lowerer) inlineRule(f *check.Func, budget int, slot bool) bool {
 		budget = -budget
 	}
 	d := f.Decl
-	if d == nil || d.Body == nil || d.Extern != nil || f.Pkg == nil || f.Pkg.Info == nil || f.Name == "main" || isClose(f) || nativeOf(f) != nil || l.hasHeldRow(f.Sig) {
+	if d == nil || d.Body == nil || d.Extern != nil || f.Pkg == nil || f.Pkg.Info == nil || f.Name == "main" || isClose(f) || l.hasHeldRow(f.Sig) {
 		return false
 	}
 	// A Slot row: only the IR's inliner binds it at the call (rowslot.go,

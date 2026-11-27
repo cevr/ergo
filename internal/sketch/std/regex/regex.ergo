@@ -1,0 +1,52 @@
+import content
+
+// Pattern constructs a pure content mapper Plan for the byte regular expression text.
+func Pattern(text string) content.Plan {
+	content.Plan{
+		Mapper:     MapPattern,
+		MediaKind:  "regex",
+		Bytes:      text.Bytes(),
+		Companions: []content.CompanionAsset{},
+	}
+}
+
+// MapPattern compiles a regular expression pattern from input.Bytes into typed Ergo
+// declarations and linear NFA matchers without compiler std privilege.
+func MapPattern(input content.ContentInput) content.MappedErgo {
+	if !isValidIdent(input.Target) {
+		return content.MappedErgo{
+			Source: "",
+			Spans:  content.SourceSpanMap{Entries: []content.SpanMapping{}},
+			Diags:  []content.MapperDiag{content.ErrorDiag(uint32(0), uint32(input.Bytes.Len()), "R004", "invalid derived type name '"+input.Target+"'", "")},
+			Digest: []byte{},
+		}
+	}
+	let ast = parseRegexAST(input.Bytes)
+	if ast.diags.Len() > 0 {
+		return content.MappedErgo{
+			Source: "",
+			Spans:  content.SourceSpanMap{Entries: []content.SpanMapping{}},
+			Diags:  ast.diags,
+			Digest: []byte{},
+		}
+	}
+	let (shape, tags) = analyzeShape(ast)
+	if shape.diags.Len() > 0 {
+		return content.MappedErgo{
+			Source: "",
+			Spans:  content.SourceSpanMap{Entries: []content.SpanMapping{}},
+			Diags:  shape.diags,
+			Digest: []byte{},
+		}
+	}
+	let nfa = compileASTToNFA(ast, tags)
+	if nfa.diags.Len() > 0 {
+		return content.MappedErgo{
+			Source: "",
+			Spans:  content.SourceSpanMap{Entries: []content.SpanMapping{}},
+			Diags:  nfa.diags,
+			Digest: []byte{},
+		}
+	}
+	emitMappedErgo(input.Target, input.Bytes, shape, nfa)
+}

@@ -8,7 +8,6 @@ import (
 	"sort"
 	"strings"
 
-	"ergo.local/prototype/internal/sketch/derive"
 	"ergo.local/prototype/internal/sketch/syntax"
 	v1 "ergo.local/prototype/runtime/v1"
 )
@@ -79,9 +78,10 @@ type Package struct {
 	Path  string
 	Name  string
 	Scope *Scope
-	// Derive is the package's derive record (derive.go): its plan
-	// functions, for importers, and the matchers its bundles lower.
-	Derive *derive.Package
+	// Derive is the package's content-mapper derive record (derive.go): its
+	// inspected mapper invocations and refused derive symbols.
+	Derive         *DeriveRecord
+	generatedFiles map[*syntax.File]bool
 	// cellConvs is, by cell type of this package, a cell conversion into
 	// it that the package makes (CellProvider).
 	cellConvs map[*Named]Conversion
@@ -212,6 +212,19 @@ func (p *Package) Files() []*syntax.File {
 	out := make([]*syntax.File, len(p.files))
 	for i, f := range p.files {
 		out[i] = f.syntax
+	}
+	return out
+}
+
+// SourceFiles returns only the package's caller-written source files (excluding
+// in-memory files synthesized by inline content mappers), in canonical order.
+func (p *Package) SourceFiles() []*syntax.File {
+	out := make([]*syntax.File, 0, len(p.files))
+	for _, f := range p.files {
+		if p.generatedFiles[f.syntax] || (f.syntax != nil && strings.HasPrefix(f.syntax.Name, "__ergo_derive_")) {
+			continue
+		}
+		out = append(out, f.syntax)
 	}
 	return out
 }

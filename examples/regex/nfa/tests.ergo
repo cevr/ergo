@@ -3,8 +3,8 @@
 
 import core
 import option
-import regex/syntax
-import regex/engine
+import regexengine/syntax
+import regexengine/engine
 import machines
 import strings
 import sync

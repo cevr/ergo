@@ -1,0 +1,640 @@
+import content
+import sha256
+import strconv
+import strings
+
+type emitState {
+	b     strings.Builder,
+	spans []content.SpanMapping,
+	diags []content.MapperDiag,
+	used  Map[string, bool],
+}
+
+func firstUpper(s string) bool {
+	let bs = s.Bytes()
+	bs.Len() > 0 && bs[0] >= byte('A') && bs[0] <= byte('Z')
+}
+
+func emitHelperNames(target string) (string, string) {
+	if firstUpper(target) {
+		return ("Parse" + target, "Find" + target)
+	}
+	("parse" + target, "find" + target)
+}
+
+func fieldTypeString(parentType string, cap captureNode) (string, string) {
+	let mut elemType = "string"
+	if cap.children.Len() > 0 {
+		elemType = parentType + cap.name
+	}
+	if cap.quant == quantOpt {
+		return ("Option[" + elemType + "]", elemType)
+	}
+	if cap.quant == quantMany {
+		return ("[]" + elemType, elemType)
+	}
+	(elemType, elemType)
+}
+
+func zeroFieldExpr(parentType string, cap captureNode) string {
+	let (ftype, elemType) = fieldTypeString(parentType, cap)
+	if cap.quant == quantOpt {
+		return "None"
+	}
+	if cap.quant == quantMany {
+		return "[]" + elemType + "{}"
+	}
+	if cap.children.Len() > 0 {
+		return zeroRecordExpr(elemType, cap.children)
+	}
+	_ = ftype
+	"\"\""
+}
+
+func zeroRecordExpr(recType string, fields []captureNode) string {
+	let mut out = recType + "{"
+	for i, f in fields {
+		if i > 0 {
+			out = out + ", "
+		}
+		out = out + f.name + ": " + zeroFieldExpr(recType, f)
+	}
+	out + "}"
+}
+
+func reserveTypeName(st emitState, name string, span content.SourceSpan) emitState {
+	if st.used.Get(name) != None {
+		let d = content.ErrorDiag(span.Start, span.End, "R003", "generated type name '"+name+"' collides within pattern", "rename the colliding capture group")
+		return emitState{b: st.b, spans: st.spans, diags: st.diags.Append(d), used: st.used}
+	}
+	let mut u = st.used.Clone()
+	u[name] = true
+	emitState{b: st.b, spans: st.spans, diags: st.diags, used: u}
+}
+
+func emitRecordTypes(st emitState, recName string, fields []captureNode, doc string, wholeSpan content.SourceSpan) emitState {
+	let mut cur = reserveTypeName(st, recName, wholeSpan)
+	for f in fields {
+		if f.children.Len() > 0 {
+			let childName = recName + f.name
+			cur = emitRecordTypes(cur, childName, f.children, "// "+childName+" holds captures inside "+f.name+".", f.span)
+		}
+	}
+	let mut b = cur.b
+	let mut spans = cur.spans
+	if doc != "" {
+		b.WriteString(doc + "\n")
+	}
+	b.WriteString("type " + recName + " {\n")
+	for f in fields {
+		let (ft, _) = fieldTypeString(recName, f)
+		b.WriteString("\t")
+		let gs = uint32(b.Len())
+		b.WriteString(f.name + " " + ft)
+		let ge = uint32(b.Len())
+		spans = spans.Append(content.SpanMapping{
+			Generated: content.NewSpan(gs, ge),
+			Companion: None,
+			Source:    f.span,
+			Label:     recName + "." + f.name,
+		})
+		b.WriteString(",\n")
+	}
+	b.WriteString("}\n\n")
+	emitState{b: b, spans: spans, diags: cur.diags, used: cur.used}
+}
+
+func emitBuilderFuncs(st emitState, target string, recName string, fields []captureNode) emitState {
+	let mut cur = st
+	for f in fields {
+		if f.children.Len() > 0 {
+			cur = emitBuilderFuncs(cur, target, recName+f.name, f.children)
+		}
+	}
+	let mut b = cur.b
+	b.WriteString("func _rxBuild_" + target + "_" + recName + "(s string, evTag []int, evPos []int, lo int, hi int) " + recName + " {\n")
+	for i, f in fields {
+		let idxStr = strconv.Itoa(i)
+		let childType = recName + f.name
+		if f.quant == quantOne {
+			if f.children.Len() == 0 {
+				b.WriteString("\tlet mut s" + idxStr + " = 0\n")
+				b.WriteString("\tlet mut e" + idxStr + " = 0\n")
+			} else {
+				b.WriteString("\tlet mut lo" + idxStr + " = 0\n")
+				b.WriteString("\tlet mut hi" + idxStr + " = 0\n")
+			}
+		} else if f.quant == quantOpt {
+			b.WriteString("\tlet mut ok" + idxStr + " = false\n")
+			if f.children.Len() == 0 {
+				b.WriteString("\tlet mut s" + idxStr + " = 0\n")
+				b.WriteString("\tlet mut e" + idxStr + " = 0\n")
+			} else {
+				b.WriteString("\tlet mut lo" + idxStr + " = 0\n")
+				b.WriteString("\tlet mut hi" + idxStr + " = 0\n")
+			}
+		} else {
+			if f.children.Len() == 0 {
+				b.WriteString("\tlet mut xs" + idxStr + " = []string{}\n")
+				b.WriteString("\tlet mut curS" + idxStr + " = 0\n")
+			} else {
+				b.WriteString("\tlet mut xs" + idxStr + " = []" + childType + "{}\n")
+				b.WriteString("\tlet mut curLo" + idxStr + " = 0\n")
+			}
+		}
+	}
+	b.WriteString("\tlet mut depth = 0\n")
+	b.WriteString("\tfor i in lo..hi {\n")
+	b.WriteString("\t\tlet t = evTag[i]\n")
+	b.WriteString("\t\tif t > 0 {\n")
+	b.WriteString("\t\t\tif depth == 0 {\n")
+	for i, f in fields {
+		let idxStr = strconv.Itoa(i)
+		let tagStr = strconv.Itoa(f.tag)
+		b.WriteString("\t\t\t\tif t == " + tagStr + " {\n")
+		if f.quant == quantMany {
+			if f.children.Len() == 0 {
+				b.WriteString("\t\t\t\t\tcurS" + idxStr + " = evPos[i]\n")
+			} else {
+				b.WriteString("\t\t\t\t\tcurLo" + idxStr + " = i + 1\n")
+			}
+		} else {
+			if f.children.Len() == 0 {
+				b.WriteString("\t\t\t\t\ts" + idxStr + " = evPos[i]\n")
+			} else {
+				b.WriteString("\t\t\t\t\tlo" + idxStr + " = i + 1\n")
+			}
+		}
+		b.WriteString("\t\t\t\t}\n")
+	}
+	b.WriteString("\t\t\t}\n")
+	b.WriteString("\t\t\tdepth = depth + 1\n")
+	b.WriteString("\t\t} else {\n")
+	b.WriteString("\t\t\tdepth = depth - 1\n")
+	b.WriteString("\t\t\tif depth == 0 {\n")
+	for i, f in fields {
+		let idxStr = strconv.Itoa(i)
+		let childType = recName + f.name
+		let negTagStr = strconv.Itoa(-f.tag)
+		b.WriteString("\t\t\t\tif t == " + negTagStr + " {\n")
+		if f.quant == quantOne {
+			if f.children.Len() == 0 {
+				b.WriteString("\t\t\t\t\te" + idxStr + " = evPos[i]\n")
+			} else {
+				b.WriteString("\t\t\t\t\thi" + idxStr + " = i\n")
+			}
+		} else if f.quant == quantOpt {
+			b.WriteString("\t\t\t\t\tok" + idxStr + " = true\n")
+			if f.children.Len() == 0 {
+				b.WriteString("\t\t\t\t\te" + idxStr + " = evPos[i]\n")
+			} else {
+				b.WriteString("\t\t\t\t\thi" + idxStr + " = i\n")
+			}
+		} else {
+			if f.children.Len() == 0 {
+				b.WriteString("\t\t\t\t\txs" + idxStr + " = xs" + idxStr + ".Append(s[curS" + idxStr + ":evPos[i]])\n")
+			} else {
+				b.WriteString("\t\t\t\t\txs" + idxStr + " = xs" + idxStr + ".Append(_rxBuild_" + target + "_" + childType + "(s, evTag, evPos, curLo" + idxStr + ", i))\n")
+			}
+		}
+		b.WriteString("\t\t\t\t}\n")
+	}
+	b.WriteString("\t\t\t}\n")
+	b.WriteString("\t\t}\n")
+	b.WriteString("\t}\n")
+	for i, f in fields {
+		let idxStr = strconv.Itoa(i)
+		let childType = recName + f.name
+		if f.quant == quantOpt {
+			if f.children.Len() == 0 {
+				b.WriteString("\tlet res" + idxStr + " Option[string] = if ok" + idxStr + " { Some[string]{Value: s[s" + idxStr + ":e" + idxStr + "]} } else { None }\n")
+			} else {
+				b.WriteString("\tlet res" + idxStr + " Option[" + childType + "] = if ok" + idxStr + " { Some[" + childType + "]{Value: _rxBuild_" + target + "_" + childType + "(s, evTag, evPos, lo" + idxStr + ", hi" + idxStr + ")} } else { None }\n")
+			}
+		}
+	}
+	b.WriteString("\t" + recName + "{\n")
+	for i, f in fields {
+		let idxStr = strconv.Itoa(i)
+		let childType = recName + f.name
+		b.WriteString("\t\t" + f.name + ": ")
+		if f.quant == quantOne {
+			if f.children.Len() == 0 {
+				b.WriteString("s[s" + idxStr + ":e" + idxStr + "]")
+			} else {
+				b.WriteString("_rxBuild_" + target + "_" + childType + "(s, evTag, evPos, lo" + idxStr + ", hi" + idxStr + ")")
+			}
+		} else if f.quant == quantOpt {
+			b.WriteString("res" + idxStr)
+		} else {
+			b.WriteString("xs" + idxStr)
+		}
+		b.WriteString(",\n")
+	}
+	b.WriteString("\t}\n")
+	b.WriteString("}\n\n")
+	emitState{b: b, spans: cur.spans, diags: cur.diags, used: cur.used}
+}
+
+func emitExecFunc(st emitState, target string, nfa compiledNFA) emitState {
+	let mut b = st.b
+	b.WriteString("func _rxExec_" + target + "(s string, anchored bool, from int) (bool, int, int, []int, []int, int) {\n")
+	b.WriteString("\tlet code = []int{")
+	for i, v in nfa.code {
+		if i > 0 {
+			b.WriteString(", ")
+		}
+		b.WriteString(strconv.Itoa(v))
+	}
+	b.WriteString("}\n")
+	b.WriteString("\tlet sets = []uint64{")
+	for i, w in nfa.sets {
+		if i > 0 {
+			b.WriteString(", ")
+		}
+		b.WriteString("uint64(" + formatUint64(w) + ")")
+	}
+	b.WriteString("}\n")
+	b.WriteString("\tlet startPC = " + strconv.Itoa(nfa.start) + "\n")
+	b.WriteString("\tlet n = s.Len()\n")
+	b.WriteString("\tlet instCount = code.Len() / 3\n")
+	b.WriteString("\tif !anchored && (from < 0 || from > n) {\n")
+	b.WriteString("\t\treturn (false, 0, 0, []int{}, []int{}, 0)\n")
+	b.WriteString("\t}\n")
+	b.WriteString("\tlet startFrom = if anchored { 0 } else { from }\n")
+	b.WriteString("\tlet mut seenStamp = []int{}\n")
+	b.WriteString("\tfor _ in 0..instCount {\n")
+	b.WriteString("\t\tseenStamp = seenStamp.Append(0)\n")
+	b.WriteString("\t}\n")
+	b.WriteString("\tlet mut histTag = []int{}\n")
+	b.WriteString("\tlet mut histPos = []int{}\n")
+	b.WriteString("\tlet mut histPrev = []int{}\n")
+	b.WriteString("\tlet mut curPC = []int{}\n")
+	b.WriteString("\tlet mut curStart = []int{}\n")
+	b.WriteString("\tlet mut curHist = []int{}\n")
+	b.WriteString("\tif anchored {\n")
+	b.WriteString("\t\tcurPC = curPC.Append(startPC)\n")
+	b.WriteString("\t\tcurStart = curStart.Append(0)\n")
+	b.WriteString("\t\tcurHist = curHist.Append(-1)\n")
+	b.WriteString("\t}\n")
+	b.WriteString("\tlet mut bestOK = false\n")
+	b.WriteString("\tlet mut bestStart = 0\n")
+	b.WriteString("\tlet mut bestEnd = 0\n")
+	b.WriteString("\tlet mut bestHist = -1\n")
+	b.WriteString("\tlet mut stamp = 0\n")
+	b.WriteString("\tlet mut failAt = 0\n")
+	b.WriteString("\tfor pos in startFrom..(n + 1) {\n")
+	b.WriteString("\t\tif !anchored && !bestOK {\n")
+	b.WriteString("\t\t\tcurPC = curPC.Append(startPC)\n")
+	b.WriteString("\t\t\tcurStart = curStart.Append(pos)\n")
+	b.WriteString("\t\t\tcurHist = curHist.Append(-1)\n")
+	b.WriteString("\t\t}\n")
+	b.WriteString("\t\tstamp = stamp + 1\n")
+	b.WriteString("\t\tlet mut readyPC = []int{}\n")
+	b.WriteString("\t\tlet mut readyStart = []int{}\n")
+	b.WriteString("\t\tlet mut readyHist = []int{}\n")
+	b.WriteString("\t\tfor ci in 0..curPC.Len() {\n")
+	b.WriteString("\t\t\tlet mut stkPC = []int{curPC[ci]}\n")
+	b.WriteString("\t\t\tlet mut stkStart = []int{curStart[ci]}\n")
+	b.WriteString("\t\t\tlet mut stkHist = []int{curHist[ci]}\n")
+	b.WriteString("\t\t\tfor stkPC.Len() > 0 {\n")
+	b.WriteString("\t\t\t\tlet top = stkPC.Len() - 1\n")
+	b.WriteString("\t\t\t\tlet pc = stkPC[top]\n")
+	b.WriteString("\t\t\t\tlet ts = stkStart[top]\n")
+	b.WriteString("\t\t\t\tlet th = stkHist[top]\n")
+	b.WriteString("\t\t\t\tstkPC = stkPC[0:top]\n")
+	b.WriteString("\t\t\t\tstkStart = stkStart[0:top]\n")
+	b.WriteString("\t\t\t\tstkHist = stkHist[0:top]\n")
+	b.WriteString("\t\t\t\tif seenStamp[pc] == stamp {\n")
+	b.WriteString("\t\t\t\t\tcontinue\n")
+	b.WriteString("\t\t\t\t}\n")
+	b.WriteString("\t\t\t\tseenStamp[pc] = stamp\n")
+	b.WriteString("\t\t\t\tlet base = pc * 3\n")
+	b.WriteString("\t\t\t\tlet op = code[base]\n")
+	b.WriteString("\t\t\t\tif op == 2 {\n")
+	b.WriteString("\t\t\t\t\tlet left = code[base+1]\n")
+	b.WriteString("\t\t\t\t\tlet right = code[base+2]\n")
+	b.WriteString("\t\t\t\t\tstkPC = stkPC.Append(right)\n")
+	b.WriteString("\t\t\t\t\tstkStart = stkStart.Append(ts)\n")
+	b.WriteString("\t\t\t\t\tstkHist = stkHist.Append(th)\n")
+	b.WriteString("\t\t\t\t\tstkPC = stkPC.Append(left)\n")
+	b.WriteString("\t\t\t\t\tstkStart = stkStart.Append(ts)\n")
+	b.WriteString("\t\t\t\t\tstkHist = stkHist.Append(th)\n")
+	b.WriteString("\t\t\t\t\tcontinue\n")
+	b.WriteString("\t\t\t\t}\n")
+	b.WriteString("\t\t\t\tif op == 3 {\n")
+	b.WriteString("\t\t\t\t\tlet nxt = code[base+1]\n")
+	b.WriteString("\t\t\t\t\tlet tv = code[base+2]\n")
+	b.WriteString("\t\t\t\t\tlet nh = histTag.Len()\n")
+	b.WriteString("\t\t\t\t\thistTag = histTag.Append(tv)\n")
+	b.WriteString("\t\t\t\t\thistPos = histPos.Append(pos)\n")
+	b.WriteString("\t\t\t\t\thistPrev = histPrev.Append(th)\n")
+	b.WriteString("\t\t\t\t\tstkPC = stkPC.Append(nxt)\n")
+	b.WriteString("\t\t\t\t\tstkStart = stkStart.Append(ts)\n")
+	b.WriteString("\t\t\t\t\tstkHist = stkHist.Append(nh)\n")
+	b.WriteString("\t\t\t\t\tcontinue\n")
+	b.WriteString("\t\t\t\t}\n")
+	b.WriteString("\t\t\t\treadyPC = readyPC.Append(pc)\n")
+	b.WriteString("\t\t\t\treadyStart = readyStart.Append(ts)\n")
+	b.WriteString("\t\t\t\treadyHist = readyHist.Append(th)\n")
+	b.WriteString("\t\t\t}\n")
+	b.WriteString("\t\t}\n")
+	b.WriteString("\t\tif anchored && pos == n {\n")
+	b.WriteString("\t\t\tlet mut matched = false\n")
+	b.WriteString("\t\t\tfor ri in 0..readyPC.Len() {\n")
+	b.WriteString("\t\t\t\tif code[readyPC[ri]*3] == 0 {\n")
+	b.WriteString("\t\t\t\t\tbestOK = true\n")
+	b.WriteString("\t\t\t\t\tbestStart = readyStart[ri]\n")
+	b.WriteString("\t\t\t\t\tbestEnd = n\n")
+	b.WriteString("\t\t\t\t\tbestHist = readyHist[ri]\n")
+	b.WriteString("\t\t\t\t\tmatched = true\n")
+	b.WriteString("\t\t\t\t\tbreak\n")
+	b.WriteString("\t\t\t\t}\n")
+	b.WriteString("\t\t\t}\n")
+	b.WriteString("\t\t\tif !matched {\n")
+	b.WriteString("\t\t\t\tfailAt = pos\n")
+	b.WriteString("\t\t\t}\n")
+	b.WriteString("\t\t\tbreak\n")
+	b.WriteString("\t\t}\n")
+	b.WriteString("\t\tlet mut nextPC = []int{}\n")
+	b.WriteString("\t\tlet mut nextStart = []int{}\n")
+	b.WriteString("\t\tlet mut nextHist = []int{}\n")
+	b.WriteString("\t\tfor ri in 0..readyPC.Len() {\n")
+	b.WriteString("\t\t\tlet pc = readyPC[ri]\n")
+	b.WriteString("\t\t\tlet base = pc * 3\n")
+	b.WriteString("\t\t\tlet op = code[base]\n")
+	b.WriteString("\t\t\tif !anchored && op == 0 {\n")
+	b.WriteString("\t\t\t\tif !bestOK || readyStart[ri] <= bestStart {\n")
+	b.WriteString("\t\t\t\t\tbestOK = true\n")
+	b.WriteString("\t\t\t\t\tbestStart = readyStart[ri]\n")
+	b.WriteString("\t\t\t\t\tbestEnd = pos\n")
+	b.WriteString("\t\t\t\t\tbestHist = readyHist[ri]\n")
+	b.WriteString("\t\t\t\t}\n")
+	b.WriteString("\t\t\t\tbreak\n")
+	b.WriteString("\t\t\t}\n")
+	b.WriteString("\t\t\tif op == 1 && pos < n {\n")
+	b.WriteString("\t\t\t\tlet b = s[pos]\n")
+	b.WriteString("\t\t\t\tlet si = code[base+2]\n")
+	b.WriteString("\t\t\t\tlet w = sets[si*4+int(b)/64]\n")
+	b.WriteString("\t\t\t\tif (w & (uint64(1) << uint64(int(b)&63))) != uint64(0) {\n")
+	b.WriteString("\t\t\t\t\tnextPC = nextPC.Append(code[base+1])\n")
+	b.WriteString("\t\t\t\t\tnextStart = nextStart.Append(readyStart[ri])\n")
+	b.WriteString("\t\t\t\t\tnextHist = nextHist.Append(readyHist[ri])\n")
+	b.WriteString("\t\t\t\t}\n")
+	b.WriteString("\t\t\t}\n")
+	b.WriteString("\t\t}\n")
+	b.WriteString("\t\tif anchored {\n")
+	b.WriteString("\t\t\tif nextPC.Len() == 0 {\n")
+	b.WriteString("\t\t\t\tfailAt = pos\n")
+	b.WriteString("\t\t\t\tbreak\n")
+	b.WriteString("\t\t\t}\n")
+	b.WriteString("\t\t} else {\n")
+	b.WriteString("\t\t\tif pos == n || (nextPC.Len() == 0 && bestOK) {\n")
+	b.WriteString("\t\t\t\tbreak\n")
+	b.WriteString("\t\t\t}\n")
+	b.WriteString("\t\t}\n")
+	b.WriteString("\t\tcurPC = nextPC\n")
+	b.WriteString("\t\tcurStart = nextStart\n")
+	b.WriteString("\t\tcurHist = nextHist\n")
+	b.WriteString("\t}\n")
+	b.WriteString("\tif !bestOK {\n")
+	b.WriteString("\t\treturn (false, 0, 0, []int{}, []int{}, failAt)\n")
+	b.WriteString("\t}\n")
+	b.WriteString("\tlet mut revTag = []int{}\n")
+	b.WriteString("\tlet mut revPos = []int{}\n")
+	b.WriteString("\tlet mut idx = bestHist\n")
+	b.WriteString("\tfor idx >= 0 {\n")
+	b.WriteString("\t\trevTag = revTag.Append(histTag[idx])\n")
+	b.WriteString("\t\trevPos = revPos.Append(histPos[idx])\n")
+	b.WriteString("\t\tidx = histPrev[idx]\n")
+	b.WriteString("\t}\n")
+	b.WriteString("\tlet count = revTag.Len()\n")
+	b.WriteString("\tlet mut evTag = []int{}\n")
+	b.WriteString("\tlet mut evPos = []int{}\n")
+	b.WriteString("\tlet mut k = count - 1\n")
+	b.WriteString("\tfor k >= 0 {\n")
+	b.WriteString("\t\tevTag = evTag.Append(revTag[k])\n")
+	b.WriteString("\t\tevPos = evPos.Append(revPos[k])\n")
+	b.WriteString("\t\tk = k - 1\n")
+	b.WriteString("\t}\n")
+	b.WriteString("\t(true, bestStart, bestEnd, evTag, evPos, bestEnd)\n")
+	b.WriteString("}\n\n")
+	emitState{b: b, spans: st.spans, diags: st.diags, used: st.used}
+}
+
+func emitMappedErgo(target string, src []byte, shape patternShape, nfa compiledNFA) content.MappedErgo {
+	let wholeSpan = content.NewSpan(uint32(0), uint32(src.Len()))
+	let mut st = emitState{
+		b:     strings.NewBuilder(),
+		spans: []content.SpanMapping{},
+		diags: []content.MapperDiag{},
+		used:  Map[string, bool]{},
+	}
+	let (parseName, findName) = emitHelperNames(target)
+	let exported = firstUpper(target)
+	let mut typeDoc = ""
+	let mut parseDoc = ""
+	let mut findDoc = ""
+	if exported {
+		typeDoc = "// " + target + " is derived from regex pattern."
+		parseDoc = "// " + parseName + " parses the whole string as " + target + " or fails NoMatch."
+		findDoc = "// " + findName + " finds the leftmost match of " + target + " starting at or after from."
+	}
+
+	if shape.isUnion {
+		st = reserveTypeName(st, target, wholeSpan)
+		for v in shape.variants {
+			st = reserveTypeName(st, v.name, v.span)
+			for f in v.children {
+				if f.children.Len() > 0 {
+					let cname = target + v.name + f.name
+					st = emitRecordTypes(st, cname, f.children, "// "+cname+" holds captures inside "+f.name+".", f.span)
+				}
+			}
+		}
+		let mut b = st.b
+		let mut spans = st.spans
+		if typeDoc != "" {
+			b.WriteString(typeDoc + "\n")
+		}
+		b.WriteString("type " + target + " =\n")
+		for i, v in shape.variants {
+			b.WriteString("\t")
+			if i > 0 {
+				b.WriteString("| ")
+			}
+			let gs = uint32(b.Len())
+			if v.children.Len() == 0 {
+				b.WriteString(v.name + "{Value string}")
+			} else {
+				b.WriteString(v.name + "{")
+				for j, f in v.children {
+					if j > 0 {
+						b.WriteString(", ")
+					}
+					let (ft, _) = fieldTypeString(target+v.name, f)
+					b.WriteString(f.name + " " + ft)
+				}
+				b.WriteString("}")
+			}
+			let ge = uint32(b.Len())
+			spans = spans.Append(content.SpanMapping{
+				Generated: content.NewSpan(gs, ge),
+				Companion: None,
+				Source:    v.span,
+				Label:     target + "." + v.name,
+			})
+			b.WriteString("\n")
+		}
+		b.WriteString("\n")
+		st = emitState{b: b, spans: spans, diags: st.diags, used: st.used}
+		for v in shape.variants {
+			if v.children.Len() > 0 {
+				st = emitBuilderFuncs(st, target, v.name, v.children)
+			}
+		}
+		st = emitExecFunc(st, target, nfa)
+		let mut b2 = st.b
+		b2.WriteString("func _rxProject_" + target + "(s string, evTag []int, evPos []int) " + target + " {\n")
+		b2.WriteString("\tlet t = evTag[0]\n")
+		for i, v in shape.variants {
+			let tagStr = strconv.Itoa(v.tag)
+			let branch = if i == 0 { "\tif t == " + tagStr + " {\n" } else { "\t} else if t == " + tagStr + " {\n" }
+			b2.WriteString(branch)
+			if v.children.Len() == 0 {
+				b2.WriteString("\t\treturn " + v.name + "{Value: s[evPos[0]:evPos[evPos.Len()-1]]}\n")
+			} else {
+				b2.WriteString("\t\treturn _rxBuild_" + target + "_" + v.name + "(s, evTag, evPos, 1, evTag.Len()-1)\n")
+			}
+		}
+		let firstVar = shape.variants[0]
+		b2.WriteString("\t}\n")
+		if firstVar.children.Len() == 0 {
+			b2.WriteString("\t" + firstVar.name + "{Value: \"\"}\n")
+		} else {
+			b2.WriteString("\t" + zeroRecordExpr(firstVar.name, firstVar.children) + "\n")
+		}
+		b2.WriteString("}\n\n")
+		st = emitState{b: b2, spans: st.spans, diags: st.diags, used: st.used}
+	} else if shape.fields.Len() == 0 {
+		st = reserveTypeName(st, target, wholeSpan)
+		let mut b = st.b
+		let mut spans = st.spans
+		if typeDoc != "" {
+			b.WriteString(typeDoc + "\n")
+		}
+		let gs = uint32(b.Len())
+		b.WriteString("type " + target + " {}")
+		let ge = uint32(b.Len())
+		spans = spans.Append(content.SpanMapping{
+			Generated: content.NewSpan(gs, ge),
+			Companion: None,
+			Source:    wholeSpan,
+			Label:     target,
+		})
+		b.WriteString("\n\n")
+		st = emitExecFunc(emitState{b: b, spans: spans, diags: st.diags, used: st.used}, target, nfa)
+		let mut b2 = st.b
+		b2.WriteString("func _rxProject_" + target + "(s string, evTag []int, evPos []int) " + target + " {\n")
+		b2.WriteString("\t_ = s\n")
+		b2.WriteString("\t_ = evTag\n")
+		b2.WriteString("\t_ = evPos\n")
+		b2.WriteString("\t" + target + "\n")
+		b2.WriteString("}\n\n")
+		st = emitState{b: b2, spans: st.spans, diags: st.diags, used: st.used}
+	} else {
+		st = emitRecordTypes(st, target, shape.fields, typeDoc, wholeSpan)
+		st = emitBuilderFuncs(st, target, target, shape.fields)
+		st = emitExecFunc(st, target, nfa)
+		let mut b2 = st.b
+		b2.WriteString("func _rxProject_" + target + "(s string, evTag []int, evPos []int) " + target + " {\n")
+		b2.WriteString("\t_rxBuild_" + target + "_" + target + "(s, evTag, evPos, 0, evTag.Len())\n")
+		b2.WriteString("}\n\n")
+		st = emitState{b: b2, spans: st.spans, diags: st.diags, used: st.used}
+	}
+
+	if st.diags.Len() > 0 {
+		return content.MappedErgo{
+			Source: "",
+			Spans:  content.SourceSpanMap{Entries: []content.SpanMapping{}},
+			Diags:  st.diags,
+			Digest: []byte{},
+		}
+	}
+
+	let mut b = st.b
+	let mut spans = st.spans
+	if parseDoc != "" {
+		b.WriteString(parseDoc + "\n")
+	}
+	let pgs = uint32(b.Len())
+	b.WriteString("func " + parseName + "(s string) " + target + " fails NoMatch {\n")
+	b.WriteString("\tlet (ok, _, _, evTag, evPos, failAt) = _rxExec_" + target + "(s, true, 0)\n")
+	b.WriteString("\tif !ok {\n")
+	b.WriteString("\t\treturn NoMatch{Type: \"" + target + "\", At: failAt}\n")
+	b.WriteString("\t}\n")
+	b.WriteString("\t_rxProject_" + target + "(s, evTag, evPos)\n")
+	b.WriteString("}")
+	let pge = uint32(b.Len())
+	spans = spans.Append(content.SpanMapping{
+		Generated: content.NewSpan(pgs, pge),
+		Companion: None,
+		Source:    wholeSpan,
+		Label:     parseName,
+	})
+	b.WriteString("\n\n")
+
+	if findDoc != "" {
+		b.WriteString(findDoc + "\n")
+	}
+	let fgs = uint32(b.Len())
+	b.WriteString("func " + findName + "(s string, from int) Option[(" + target + ", int, int)] {\n")
+	b.WriteString("\tlet (ok, startPos, endPos, evTag, evPos, _) = _rxExec_" + target + "(s, false, from)\n")
+	b.WriteString("\tif !ok {\n")
+	b.WriteString("\t\treturn None\n")
+	b.WriteString("\t}\n")
+	if shape.fields.Len() == 0 && !shape.isUnion {
+		b.WriteString("\tSome[(" + target + ", int, int)]{Value: (" + target + ", startPos, endPos)}\n")
+	} else {
+		b.WriteString("\tSome[(" + target + ", int, int)]{Value: (_rxProject_" + target + "(s, evTag, evPos), startPos, endPos)}\n")
+	}
+	b.WriteString("}")
+	let fge = uint32(b.Len())
+	spans = spans.Append(content.SpanMapping{
+		Generated: content.NewSpan(fgs, fge),
+		Companion: None,
+		Source:    wholeSpan,
+		Label:     findName,
+	})
+	b.WriteString("\n")
+
+	let outSrc = b.String()
+	let digest = sha256.Sum(outSrc).Bytes()
+	content.MappedErgo{
+		Source: outSrc,
+		Spans:  content.SourceSpanMap{Entries: spans},
+		Diags:  []content.MapperDiag{},
+		Digest: digest,
+	}
+}
+
+func formatUint64(v uint64) string {
+	if v == uint64(0) {
+		return "0"
+	}
+	let digits = "0123456789"
+	let mut rev = []byte{}
+	let mut cur = v
+	for cur > uint64(0) {
+		let d = int(cur % uint64(10))
+		rev = rev.Append(digits[d])
+		cur = cur / uint64(10)
+	}
+	let mut out = []byte{}
+	let mut i = rev.Len() - 1
+	for i >= 0 {
+		out = out.Append(rev[i])
+		i = i - 1
+	}
+	out.Text()
+}

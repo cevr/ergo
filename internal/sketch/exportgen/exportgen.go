@@ -109,9 +109,14 @@ var skipFields = map[string]string{
 	// a std package it checks (check.go); a module segment's stays false.
 	// So no reader of the snapshot's fields decides by std membership
 	// (TestCompilerReadsNoStdMembership).
-	"check.Package.std":     "marked by the std importer that decodes the package",
-	"check.checker.derive":  "the checked package's derive record (check.Package.Derive)",
-	"syntax.File.Expansion": "the file's package's derive record (check.Package.Derive)",
+	"check.Package.std":            "marked by the std importer that decodes the package",
+	"check.checker.derive":         "the checked package's derive record (check.Package.Derive)",
+	"check.checker.deriveRes":      "the active inline content-mapper expansion state during a check pass",
+	"check.Package.generatedFiles": "in-memory files synthesized by inline content mappers, empty in std packages",
+	"check.Options.MapperCache":    "host-side lawcache store handle, not carried in std snapshots",
+	"check.Options.MapperBuildID":  "host-side build fingerprint for mapper cache keys, not carried in std snapshots",
+	"check.Options.expanded":       "inline content-mapper expansion memo across rewrite passes",
+	"syntax.File.Expansion":        "the file's package's derive record (check.Package.Derive)",
 	// A module's own Go bodies (check/extern.go moduleDoor): std binds no
 	// module Go package, and only a std package is exported.
 	"check.Package.goBodies":  "std binds no module Go package (snapshot.ExportStd)",

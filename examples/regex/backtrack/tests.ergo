@@ -1,7 +1,7 @@
 // The reference engine's tests: examples. ergo test runs the
 // engine.Engine and engine.Matcher laws here, against Engine and Tree.
 
-import regex/syntax
+import regexengine/syntax
 
 // matches reports whether backtrack matches the tree n on text.
 func matches(n syntax.Node, text string) bool { Compile(Engine, n).Matches(text) }

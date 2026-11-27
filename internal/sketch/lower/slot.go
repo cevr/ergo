@@ -124,7 +124,7 @@ func (l *lowerer) slotCallee(f *check.Func, fd *funcDecl) bool {
 		return fd.slotOK == 1
 	}
 	ok := slotLowering != "off" && l.slotShaped(f) && fd.extern == "" && fd.method == nil &&
-		!isClose(f) && nativeOf(f) == nil && f.Pkg.Info != nil &&
+		!isClose(f) && f.Pkg.Info != nil &&
 		len(witnessParams(f.Sig)) == 0 && len(l.ownedParams(f)) == 0 &&
 		!l.ownsParams(paramVars(f)) && !l.bodyNeedsFrame(f.Decl.Body.List) &&
 		l.flatUnionOf(f.Sig.Results[0]) == nil

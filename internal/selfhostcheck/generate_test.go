@@ -490,7 +490,7 @@ func (g *gen) decl() {
 		if g.r.IntN(2) == 0 {
 			g.w("type Port int where 1 <= it && it <= ", strconv.Itoa(g.r.IntN(70000)))
 		} else {
-			g.w("type ", g.name(), " derive ", g.pick("Plan(1)", "Fixed(\"TK\", 6)", "Refine(Of[int](), 1, 65535)"))
+			g.w("type ", g.name(), " derive ", g.pick("Plan(1)", "Fixed(\"TK\", 6)", "regex.Pattern(\"[0-9]+\")"))
 		}
 	case 11:
 		// Variants on one line, one of whose fields span lines: the union
