@@ -1,0 +1,479 @@
+import compiler/cachekey
+import compiler/driver
+import compiler/fingerprint
+import slices
+import strconv
+import strings
+
+// ManifestSchema tags serialized build artifact manifests.
+let ManifestSchema = "ergo-emit/1"
+
+// ManifestName is the canonical filename inside a module cache entry holding Input metadata.
+let ManifestName = "manifest.txt"
+
+// NoInput is the dense uint32 sentinel representing an absent InputTable row.
+let NoInput = uint32(4294967295)
+
+// FileDigest captures canonical metadata and content digest for one build input file.
+type FileDigest {
+	Path   string,
+	Digest string,
+	Size   uint64,
+	Perm   uint32,
+}
+
+// Summary holds the complete deterministic build inputs for one package compilation unit.
+type Summary {
+	PkgPath     string,
+	Target      string,
+	Compiler    string,
+	SrcPrint    string,
+	IfacePrint  string,
+	Files       []FileDigest,
+	DepKeys     []string,
+	Flags       []string,
+	Environ     []string,
+	Experiments []string,
+}
+
+// Input binds a Summary to its canonical ActionKey and BuildID.
+type Input {
+	Summary  Summary,
+	Key      string,
+	ActionID string,
+}
+
+// MalformedManifest reports invalid or corrupted manifest text during parsing.
+type MalformedManifest {
+	Reason string,
+}
+
+// InputTable stores multiple build inputs across flat SoA columns with dense uint32 IDs.
+type InputTable {
+	Paths       []string,
+	Keys        []string,
+	ActionIDs   []string,
+	SrcPrints   []string,
+	IfacePrints []string,
+	FileStart   []uint32,
+	FileLen     []uint32,
+	FilePaths   []string,
+	FileDigests []string,
+	DepStart    []uint32,
+	DepLen      []uint32,
+	DepKeys     []string,
+	Buckets     []uint32,
+}
+
+// NewInputTable creates an empty flat SoA InputTable.
+func NewInputTable() InputTable {
+	InputTable{
+		Paths:       []string{},
+		Keys:        []string{},
+		ActionIDs:   []string{},
+		SrcPrints:   []string{},
+		IfacePrints: []string{},
+		FileStart:   []uint32{},
+		FileLen:     []uint32{},
+		FilePaths:   []string{},
+		FileDigests: []string{},
+		DepStart:    []uint32{},
+		DepLen:      []uint32{},
+		DepKeys:     []string{},
+		Buckets:     emptyBuckets(64),
+	}
+}
+
+// CanonicalFiles returns a path-sorted and deduplicated copy of files.
+func CanonicalFiles(files []FileDigest) []FileDigest {
+	let mut out = slices.WithCapacity[FileDigest](files.Len())
+	for i in 0..files.Len() {
+		let f = files[i]
+		let mut replaced = false
+		for j in 0..out.Len() {
+			if out[j].Path == f.Path {
+				out[j] = f
+				replaced = true
+				break
+			}
+		}
+		if !replaced {
+			out = out.Append(f)
+		}
+	}
+	slices.SortFunc(out, func(a FileDigest, b FileDigest) int { strings.Compare(a.Path, b.Path) })
+}
+
+// ActionKey derives a canonical hex key for s combining driver.PackageActionKey,
+// source/interface prints, file sizes/permissions, and build flags.
+func ActionKey(s Summary) string {
+	let files = CanonicalFiles(s.Files)
+	let mut driverFiles = slices.WithCapacity[driver.FileDigest](files.Len())
+	let mut metaParts = slices.WithCapacity[string](4 + 2*files.Len())
+	metaParts = metaParts.Append(s.SrcPrint)
+	metaParts = metaParts.Append(s.IfacePrint)
+	for i in 0..files.Len() {
+		let f = files[i]
+		driverFiles = driverFiles.Append(driver.FileDigest{Path: f.Path, ContentDigest: f.Digest})
+		metaParts = metaParts.Append(f.Path + ":" + strconv.FormatInt(int64(f.Size), 10) + ":" + strconv.Itoa(int(f.Perm)))
+	}
+	let baseKey = driver.PackageActionKey(driver.ActionInput{
+		Compiler:    s.Compiler,
+		Target:      s.Target,
+		PkgPath:     s.PkgPath,
+		Files:       driverFiles,
+		DepKeys:     slices.Sort(slices.Clone(s.DepKeys)),
+		Flags:       slices.Sort(slices.Clone(s.Flags)),
+		Environ:     slices.Clone(s.Environ),
+		Experiments: slices.Sort(slices.Clone(s.Experiments)),
+	})
+	let mut all = slices.WithCapacity[string](metaParts.Len() + 1)
+	all = all.Append(baseKey)
+	for i in 0..metaParts.Len() {
+		all = all.Append(metaParts[i])
+	}
+	fingerprint.Of(all)
+}
+
+// BuildInput computes ActionKey and ActionID for s and returns a normalized Input.
+func BuildInput(s Summary) Input {
+	let norm = Summary{
+		PkgPath:     s.PkgPath,
+		Target:      s.Target,
+		Compiler:    s.Compiler,
+		SrcPrint:    s.SrcPrint,
+		IfacePrint:  s.IfacePrint,
+		Files:       CanonicalFiles(s.Files),
+		DepKeys:     slices.Sort(slices.Clone(s.DepKeys)),
+		Flags:       slices.Sort(slices.Clone(s.Flags)),
+		Environ:     slices.Sort(slices.Clone(s.Environ)),
+		Experiments: slices.Sort(slices.Clone(s.Experiments)),
+	}
+	let key = ActionKey(norm)
+	Input{
+		Summary:  norm,
+		Key:      key,
+		ActionID: cachekey.BuildID(key, 4),
+	}
+}
+
+// EncodeManifest serializes inp into deterministic line-framed text under ManifestSchema.
+func EncodeManifest(inp Input) string {
+	let s = inp.Summary
+	let mut b = strings.NewBuilder()
+	b.WriteString("schema\t" + ManifestSchema + "\n")
+	b.WriteString("pkg\t" + s.PkgPath + "\n")
+	b.WriteString("target\t" + s.Target + "\n")
+	b.WriteString("compiler\t" + s.Compiler + "\n")
+	b.WriteString("src\t" + s.SrcPrint + "\n")
+	b.WriteString("iface\t" + s.IfacePrint + "\n")
+	b.WriteString("key\t" + inp.Key + "\n")
+	b.WriteString("action\t" + inp.ActionID + "\n")
+	for i in 0..s.Files.Len() {
+		let f = s.Files[i]
+		b.WriteString("file\t" + f.Path + "\t" + f.Digest + "\t" + strconv.FormatInt(int64(f.Size), 10) + "\t" + strconv.Itoa(int(f.Perm)) + "\n")
+	}
+	for i in 0..s.DepKeys.Len() {
+		b.WriteString("dep\t" + s.DepKeys[i] + "\n")
+	}
+	for i in 0..s.Flags.Len() {
+		b.WriteString("flag\t" + s.Flags[i] + "\n")
+	}
+	for i in 0..s.Environ.Len() {
+		b.WriteString("env\t" + s.Environ[i] + "\n")
+	}
+	for i in 0..s.Experiments.Len() {
+		b.WriteString("exp\t" + s.Experiments[i] + "\n")
+	}
+	b.String()
+}
+
+// ParseManifest decodes and validates a manifest produced by EncodeManifest.
+func ParseManifest(text string) Input fails MalformedManifest {
+	let lines = strings.Split(text, "\n")
+	let mut schema = ""
+	let mut pkg = ""
+	let mut target = ""
+	let mut compiler = ""
+	let mut src = ""
+	let mut iface = ""
+	let mut key = ""
+	let mut actionID = ""
+	let mut files = []FileDigest{}
+	let mut deps = []string{}
+	let mut flags = []string{}
+	let mut env = []string{}
+	let mut exps = []string{}
+
+	for i in 0..lines.Len() {
+		let line = lines[i]
+		if line == "" {
+			continue
+		}
+		let cols = strings.Split(line, "\t")
+		if cols.Len() < 2 {
+			return MalformedManifest{Reason: "malformed manifest row at line " + strconv.Itoa(i+1)}
+		}
+		let tag = cols[0]
+		if tag == "schema" {
+			schema = cols[1]
+		} else if tag == "pkg" {
+			pkg = cols[1]
+		} else if tag == "target" {
+			target = cols[1]
+		} else if tag == "compiler" {
+			compiler = cols[1]
+		} else if tag == "src" {
+			src = cols[1]
+		} else if tag == "iface" {
+			iface = cols[1]
+		} else if tag == "key" {
+			key = cols[1]
+		} else if tag == "action" {
+			actionID = cols[1]
+		} else if tag == "file" {
+			if cols.Len() != 5 {
+				return MalformedManifest{Reason: "invalid file record"}
+			}
+			let sz = strconv.ParseInt(cols[3], 10, 64) catch {
+			case strconv.Malformed, strconv.OutOfRange:
+				return MalformedManifest{Reason: "invalid file size"}
+			}
+			let perm = strconv.Atoi(cols[4]) catch {
+			case strconv.Malformed, strconv.OutOfRange:
+				return MalformedManifest{Reason: "invalid file perm"}
+			}
+			if sz < int64(0) || perm < 0 {
+				return MalformedManifest{Reason: "negative file size or perm"}
+			}
+			files = files.Append(FileDigest{Path: cols[1], Digest: cols[2], Size: uint64(sz), Perm: uint32(perm)})
+		} else if tag == "dep" {
+			deps = deps.Append(cols[1])
+		} else if tag == "flag" {
+			flags = flags.Append(cols[1])
+		} else if tag == "env" {
+			env = env.Append(cols[1])
+		} else if tag == "exp" {
+			exps = exps.Append(cols[1])
+		} else {
+			return MalformedManifest{Reason: "unknown manifest tag " + tag}
+		}
+	}
+	if schema != ManifestSchema {
+		return MalformedManifest{Reason: "unsupported manifest schema: " + schema}
+	}
+	if pkg == "" || key == "" {
+		return MalformedManifest{Reason: "missing pkg or key in manifest"}
+	}
+	let sum = Summary{
+		PkgPath:     pkg,
+		Target:      target,
+		Compiler:    compiler,
+		SrcPrint:    src,
+		IfacePrint:  iface,
+		Files:       CanonicalFiles(files),
+		DepKeys:     slices.Sort(deps),
+		Flags:       slices.Sort(flags),
+		Environ:     slices.Sort(env),
+		Experiments: slices.Sort(exps),
+	}
+	let expected = BuildInput(sum)
+	if expected.Key != key || expected.ActionID != actionID {
+		return MalformedManifest{Reason: "manifest digest mismatch"}
+	}
+	expected
+}
+
+// ManifestValid reports whether a persisted Input matches the current Summary.
+func ManifestValid(prev Input, cur Summary) bool {
+	let built = BuildInput(cur)
+	prev.Key == built.Key && prev.ActionID == built.ActionID && prev.Summary.PkgPath == built.Summary.PkgPath && prev.Summary.IfacePrint == built.Summary.IfacePrint
+}
+
+// AddInput appends inp into tbl and returns its dense uint32 index.
+func AddInput(tbl mut InputTable, inp Input) uint32 {
+	let existing = FindInput(*tbl, inp.Summary.PkgPath)
+	if existing != NoInput {
+		let idx = int(existing)
+		tbl.Keys[idx] = inp.Key
+		tbl.ActionIDs[idx] = inp.ActionID
+		tbl.SrcPrints[idx] = inp.Summary.SrcPrint
+		tbl.IfacePrints[idx] = inp.Summary.IfacePrint
+		return existing
+	}
+	let id = uint32(tbl.Paths.Len())
+	tbl.Paths = tbl.Paths.Append(inp.Summary.PkgPath)
+	tbl.Keys = tbl.Keys.Append(inp.Key)
+	tbl.ActionIDs = tbl.ActionIDs.Append(inp.ActionID)
+	tbl.SrcPrints = tbl.SrcPrints.Append(inp.Summary.SrcPrint)
+	tbl.IfacePrints = tbl.IfacePrints.Append(inp.Summary.IfacePrint)
+	let fStart = uint32(tbl.FilePaths.Len())
+	tbl.FileStart = tbl.FileStart.Append(fStart)
+	tbl.FileLen = tbl.FileLen.Append(uint32(inp.Summary.Files.Len()))
+	for i in 0..inp.Summary.Files.Len() {
+		tbl.FilePaths = tbl.FilePaths.Append(inp.Summary.Files[i].Path)
+		tbl.FileDigests = tbl.FileDigests.Append(inp.Summary.Files[i].Digest)
+	}
+	let dStart = uint32(tbl.DepKeys.Len())
+	tbl.DepStart = tbl.DepStart.Append(dStart)
+	tbl.DepLen = tbl.DepLen.Append(uint32(inp.Summary.DepKeys.Len()))
+	for i in 0..inp.Summary.DepKeys.Len() {
+		tbl.DepKeys = tbl.DepKeys.Append(inp.Summary.DepKeys[i])
+	}
+	if tbl.Paths.Len()*2 >= tbl.Buckets.Len() {
+		rehashInputs(tbl)
+	} else {
+		placeInputBucket(tbl, inp.Summary.PkgPath, id)
+	}
+	id
+}
+
+// FindInput returns the dense uint32 index for pkgPath in tbl or NoInput.
+func FindInput(tbl InputTable, pkgPath string) uint32 {
+	if pkgPath == "" || tbl.Buckets.Len() == 0 {
+		return NoInput
+	}
+	let mask = uint32(tbl.Buckets.Len() - 1)
+	let mut slot = fnvHash(pkgPath) & mask
+	for _ in 0..tbl.Buckets.Len() {
+		let v = tbl.Buckets[int(slot)]
+		if v == uint32(0) {
+			return NoInput
+		}
+		let idx = v - uint32(1)
+		if tbl.Paths[int(idx)] == pkgPath {
+			return idx
+		}
+		slot = (slot + uint32(1)) & mask
+	}
+	NoInput
+}
+
+func emptyBuckets(n int) []uint32 {
+	let mut out = slices.WithCapacity[uint32](n)
+	for _ in 0..n {
+		out = out.Append(uint32(0))
+	}
+	out
+}
+
+func fnvHash(s string) uint32 {
+	let mut h = uint32(2166136261)
+	for i in 0..s.Len() {
+		h = (h ^ uint32(s[i])) * uint32(16777619)
+	}
+	h
+}
+
+func rehashInputs(tbl mut InputTable) {
+	let newCap = if tbl.Buckets.Len() < 64 { 64 } else { tbl.Buckets.Len() * 2 }
+	tbl.Buckets = emptyBuckets(newCap)
+	for i in 0..tbl.Paths.Len() {
+		placeInputBucket(tbl, tbl.Paths[i], uint32(i))
+	}
+}
+
+func placeInputBucket(tbl mut InputTable, path string, id uint32) {
+	let mask = uint32(tbl.Buckets.Len() - 1)
+	let mut slot = fnvHash(path) & mask
+	for _ in 0..tbl.Buckets.Len() {
+		if tbl.Buckets[int(slot)] == uint32(0) {
+			tbl.Buckets[int(slot)] = id + uint32(1)
+			return
+		}
+		slot = (slot + uint32(1)) & mask
+	}
+}
+
+// ActionKeyIgnoresFileOrder checks that permutation of input files or dependencies
+// yields identical action keys.
+law ActionKeyIgnoresFileOrder(d1 string, d2 string) {
+	let f1 = FileDigest{Path: "a.ergo", Digest: d1, Size: uint64(10), Perm: uint32(420)}
+	let f2 = FileDigest{Path: "b.ergo", Digest: d2, Size: uint64(20), Perm: uint32(420)}
+	let s1 = Summary{
+		PkgPath:     "app",
+		Target:      "linux/amd64",
+		Compiler:    "ergo 1",
+		SrcPrint:    "sp",
+		IfacePrint:  "ip",
+		Files:       []FileDigest{f1, f2},
+		DepKeys:     []string{"k2", "k1"},
+		Flags:       []string{"-O"},
+		Environ:     []string{},
+		Experiments: []string{},
+	}
+	let s2 = Summary{
+		PkgPath:     "app",
+		Target:      "linux/amd64",
+		Compiler:    "ergo 1",
+		SrcPrint:    "sp",
+		IfacePrint:  "ip",
+		Files:       []FileDigest{f2, f1},
+		DepKeys:     []string{"k1", "k2"},
+		Flags:       []string{"-O"},
+		Environ:     []string{},
+		Experiments: []string{},
+	}
+	ActionKey(s1) == ActionKey(s2)
+}
+
+// ManifestRoundtripPreservesFields checks that encoding and parsing a valid Input
+// restores exact keys, digests, and metadata.
+law ManifestRoundtripPreservesFields(pkg string, dig string) {
+	let p = if pkg == "" { "example.com/app" } else { pkg }
+	let cleanPkg = strings.ReplaceAll(strings.ReplaceAll(p, "\n", "_"), "\t", "_")
+	let cleanDig = strings.ReplaceAll(strings.ReplaceAll(dig, "\n", "_"), "\t", "_")
+	let sum = Summary{
+		PkgPath:     cleanPkg,
+		Target:      "linux/amd64",
+		Compiler:    "ergo-1",
+		SrcPrint:    "src-" + cleanDig,
+		IfacePrint:  "iface-" + cleanDig,
+		Files:       []FileDigest{FileDigest{Path: "main.ergo", Digest: cleanDig, Size: uint64(128), Perm: uint32(420)}},
+		DepKeys:     []string{"dep-1"},
+		Flags:       []string{"-race"},
+		Environ:     []string{"GOOS=linux"},
+		Experiments: []string{},
+	}
+	let inp = BuildInput(sum)
+	let text = EncodeManifest(inp)
+	let parsed = ParseManifest(text) catch {
+	case MalformedManifest:
+		return false
+	}
+	parsed.Key == inp.Key && parsed.ActionID == inp.ActionID && ManifestValid(parsed, sum)
+}
+
+test InputTableLookupAndValidity {
+	let s1 = Summary{
+		PkgPath:     "pkg/a",
+		Target:      "linux/amd64",
+		Compiler:    "c1",
+		SrcPrint:    "s1",
+		IfacePrint:  "i1",
+		Files:       []FileDigest{FileDigest{Path: "a.ergo", Digest: "h1", Size: uint64(5), Perm: uint32(420)}},
+		DepKeys:     []string{},
+		Flags:       []string{},
+		Environ:     []string{},
+		Experiments: []string{},
+	}
+	let i1 = BuildInput(s1)
+	let mut tbl = NewInputTable()
+	let id = AddInput(&tbl, i1)
+	assert FindInput(tbl, "pkg/a") == id
+	assert FindInput(tbl, "missing") == NoInput
+	assert ManifestValid(i1, s1)
+	let s2 = Summary{
+		PkgPath:     "pkg/a",
+		Target:      "linux/amd64",
+		Compiler:    "c1",
+		SrcPrint:    "s2",
+		IfacePrint:  "i1",
+		Files:       []FileDigest{FileDigest{Path: "a.ergo", Digest: "h2", Size: uint64(5), Perm: uint32(420)}},
+		DepKeys:     []string{},
+		Flags:       []string{},
+		Environ:     []string{},
+		Experiments: []string{},
+	}
+	assert !ManifestValid(i1, s2)
+}

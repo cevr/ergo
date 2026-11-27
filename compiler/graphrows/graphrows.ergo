@@ -1,0 +1,770 @@
+import slices
+import strconv
+import strings
+
+// Version is the graphrows schema version matching std/codegraph.
+let Version = 2
+
+// NoNode is the dense uint32 sentinel representing an absent node reference.
+let NoNode = uint32(4294967295)
+
+// NoStr is the dense uint32 sentinel representing an absent string reference.
+let NoStr = uint32(4294967295)
+
+// KindModule tags a module root node.
+let KindModule = uint8(1)
+
+// KindPackage tags a package node.
+let KindPackage = uint8(2)
+
+// KindFile tags a source file node.
+let KindFile = uint8(3)
+
+// KindDecl tags a declaration node.
+let KindDecl = uint8(4)
+
+// KindVar tags a local or package variable node.
+let KindVar = uint8(5)
+
+// KindSpec tags a type or field specification node.
+let KindSpec = uint8(6)
+
+// KindTask tags a verification or build task node.
+let KindTask = uint8(7)
+
+// SubNone tags nodes without a specialization sub-kind.
+let SubNone = uint8(0)
+
+// SubFunc tags a function declaration.
+let SubFunc = uint8(1)
+
+// SubType tags a type declaration.
+let SubType = uint8(2)
+
+// SubConst tags an immutable constant/let declaration.
+let SubConst = uint8(3)
+
+// SubVar tags a mutable variable declaration.
+let SubVar = uint8(4)
+
+// SubContext tags a context declaration.
+let SubContext = uint8(5)
+
+// SubTest tags a test declaration.
+let SubTest = uint8(6)
+
+// SubLaw tags a law declaration.
+let SubLaw = uint8(7)
+
+// SubField tags a record or interface field declaration.
+let SubField = uint8(8)
+
+// SubTaskTestRun tags a test execution task node.
+let SubTaskTestRun = uint8(9)
+
+// SubTaskTestCover tags a test coverage task node.
+let SubTaskTestCover = uint8(10)
+
+// SubTaskTestExec tags a test binary execution task node.
+let SubTaskTestExec = uint8(11)
+
+// SubTaskLawRun tags a property law execution task node.
+let SubTaskLawRun = uint8(12)
+
+// SubTaskLawRunMachine tags a stateful machine law task node.
+let SubTaskLawRunMachine = uint8(13)
+
+// EdgeContains tags structural ownership edges (module->package->file->decl).
+let EdgeContains = uint8(1)
+
+// EdgeUses tags cross-declaration or cross-package usage edges.
+let EdgeUses = uint8(2)
+
+// EdgeImports tags file or package import dependency edges.
+let EdgeImports = uint8(3)
+
+// EdgeCalls tags direct function or method invocation edges.
+let EdgeCalls = uint8(4)
+
+// EdgeMutates tags mutation edges.
+let EdgeMutates = uint8(5)
+
+// EdgeReads tags read access edges.
+let EdgeReads = uint8(6)
+
+// EdgeOwns tags ownership transfer edges.
+let EdgeOwns = uint8(7)
+
+// EdgeRefers tags type or symbol reference edges.
+let EdgeRefers = uint8(8)
+
+// EdgeRequires tags task-to-subject verification edges.
+let EdgeRequires = uint8(9)
+
+// Pos locates a graph row within a file node and source coordinates.
+type Pos {
+	File   uint32,
+	Offset int,
+	Line   int,
+	Column int,
+}
+
+// Node is one materialized row of a graphrows Table.
+type Node {
+	ID      uint32,
+	Kind    uint8,
+	Sub     uint8,
+	Parent  uint32,
+	Name    uint32,
+	Digest  uint32,
+	Subject uint32,
+	Lines   int,
+	Pos     Pos,
+}
+
+// Edge is one materialized dependency edge of a graphrows Table.
+type Edge {
+	Kind uint8,
+	How  uint32,
+	From uint32,
+	To   uint32,
+	Pos  Pos,
+}
+
+// Table stores build-graph nodes, edges, and deduplicated strings across flat
+// SoA columns indexed by dense uint32 IDs.
+type Table {
+	Version     int,
+	Strings     []string,
+	StrBuckets  []uint32,
+	NodeKind    []uint8,
+	NodeSub     []uint8,
+	NodeParent  []uint32,
+	NodeName    []uint32,
+	NodeDigest  []uint32,
+	NodeSubject []uint32,
+	NodeLines   []int,
+	NodeFile    []uint32,
+	NodeOffset  []int,
+	NodeLine    []int,
+	NodeColumn  []int,
+	EdgeKind    []uint8,
+	EdgeHow     []uint32,
+	EdgeFrom    []uint32,
+	EdgeTo      []uint32,
+	EdgeFile    []uint32,
+	EdgeOffset  []int,
+	EdgeLine    []int,
+	EdgeColumn  []int,
+}
+
+// NoPos returns an empty source position with NoNode as File.
+func NoPos() Pos {
+	Pos{File: NoNode, Offset: 0, Line: 0, Column: 0}
+}
+
+// NewTable allocates an empty version-2 SoA graph table.
+func NewTable() Table {
+	Table{
+		Version:     Version,
+		Strings:     []string{""},
+		StrBuckets:  seedEmptyBucket(64),
+		NodeKind:    []uint8{},
+		NodeSub:     []uint8{},
+		NodeParent:  []uint32{},
+		NodeName:    []uint32{},
+		NodeDigest:  []uint32{},
+		NodeSubject: []uint32{},
+		NodeLines:   []int{},
+		NodeFile:    []uint32{},
+		NodeOffset:  []int{},
+		NodeLine:    []int{},
+		NodeColumn:  []int{},
+		EdgeKind:    []uint8{},
+		EdgeHow:     []uint32{},
+		EdgeFrom:    []uint32{},
+		EdgeTo:      []uint32{},
+		EdgeFile:    []uint32{},
+		EdgeOffset:  []int{},
+		EdgeLine:    []int{},
+		EdgeColumn:  []int{},
+	}
+}
+
+// Intern adds s to t's string pool if not already present and returns its dense ID.
+func Intern(t mut Table, s string) uint32 {
+	if s == "" {
+		return uint32(0)
+	}
+	if t.StrBuckets.Len() == 0 {
+		t.StrBuckets = seedEmptyBucket(64)
+	}
+	let mask = uint32(t.StrBuckets.Len() - 1)
+	let mut slot = hashStr(s) & mask
+	for _ in 0..t.StrBuckets.Len() {
+		let v = t.StrBuckets[int(slot)]
+		if v == uint32(0) {
+			break
+		}
+		let id = v - uint32(1)
+		if t.Strings[int(id)] == s {
+			return id
+		}
+		slot = (slot + uint32(1)) & mask
+	}
+	let newID = uint32(t.Strings.Len())
+	t.Strings = t.Strings.Append(s)
+	if t.Strings.Len()*2 >= t.StrBuckets.Len() {
+		rehashStrings(t)
+	} else {
+		placeStrBucket(t, s, newID)
+	}
+	newID
+}
+
+// Str returns the interned string for id or "" for NoStr/out-of-range IDs.
+func Str(t Table, id uint32) string {
+	if id == NoStr || int(id) >= t.Strings.Len() {
+		return ""
+	}
+	t.Strings[int(id)]
+}
+
+// AddNode appends one node to t and returns its dense uint32 ID.
+func AddNode(t mut Table, n Node) uint32 {
+	let id = uint32(t.NodeKind.Len())
+	t.NodeKind = t.NodeKind.Append(n.Kind)
+	t.NodeSub = t.NodeSub.Append(n.Sub)
+	t.NodeParent = t.NodeParent.Append(n.Parent)
+	t.NodeName = t.NodeName.Append(n.Name)
+	t.NodeDigest = t.NodeDigest.Append(n.Digest)
+	t.NodeSubject = t.NodeSubject.Append(n.Subject)
+	t.NodeLines = t.NodeLines.Append(n.Lines)
+	t.NodeFile = t.NodeFile.Append(n.Pos.File)
+	t.NodeOffset = t.NodeOffset.Append(n.Pos.Offset)
+	t.NodeLine = t.NodeLine.Append(n.Pos.Line)
+	t.NodeColumn = t.NodeColumn.Append(n.Pos.Column)
+	id
+}
+
+// NodeCount returns the number of node rows in t.
+func NodeCount(t Table) int {
+	t.NodeKind.Len()
+}
+
+// NodeAt materializes the Node row at dense index id.
+func NodeAt(t Table, id uint32) Node {
+	let i = int(id)
+	Node{
+		ID:      id,
+		Kind:    t.NodeKind[i],
+		Sub:     t.NodeSub[i],
+		Parent:  t.NodeParent[i],
+		Name:    t.NodeName[i],
+		Digest:  t.NodeDigest[i],
+		Subject: t.NodeSubject[i],
+		Lines:   t.NodeLines[i],
+		Pos:     Pos{
+			File:   t.NodeFile[i],
+			Offset: t.NodeOffset[i],
+			Line:   t.NodeLine[i],
+			Column: t.NodeColumn[i],
+		},
+	}
+}
+
+// AddEdge appends one edge to t.
+func AddEdge(t mut Table, e Edge) {
+	t.EdgeKind = t.EdgeKind.Append(e.Kind)
+	t.EdgeHow = t.EdgeHow.Append(e.How)
+	t.EdgeFrom = t.EdgeFrom.Append(e.From)
+	t.EdgeTo = t.EdgeTo.Append(e.To)
+	t.EdgeFile = t.EdgeFile.Append(e.Pos.File)
+	t.EdgeOffset = t.EdgeOffset.Append(e.Pos.Offset)
+	t.EdgeLine = t.EdgeLine.Append(e.Pos.Line)
+	t.EdgeColumn = t.EdgeColumn.Append(e.Pos.Column)
+}
+
+// EdgeCount returns the number of edge rows in t.
+func EdgeCount(t Table) int {
+	t.EdgeKind.Len()
+}
+
+// EdgeAt materializes the Edge row at index i.
+func EdgeAt(t Table, i int) Edge {
+	Edge{
+		Kind: t.EdgeKind[i],
+		How:  t.EdgeHow[i],
+		From: t.EdgeFrom[i],
+		To:   t.EdgeTo[i],
+		Pos:  Pos{
+			File:   t.EdgeFile[i],
+			Offset: t.EdgeOffset[i],
+			Line:   t.EdgeLine[i],
+			Column: t.EdgeColumn[i],
+		},
+	}
+}
+
+// NodeKindName returns the wire string name of node kind k.
+func NodeKindName(k uint8) string {
+	if k == KindModule {
+		return "module"
+	}
+	if k == KindPackage {
+		return "package"
+	}
+	if k == KindFile {
+		return "file"
+	}
+	if k == KindDecl {
+		return "decl"
+	}
+	if k == KindVar {
+		return "var"
+	}
+	if k == KindSpec {
+		return "spec"
+	}
+	if k == KindTask {
+		return "task"
+	}
+	"unknown"
+}
+
+// ParseNodeKind parses a wire node kind name to its uint8 discriminant.
+func ParseNodeKind(s string) (uint8, bool) {
+	if s == "module" {
+		return (KindModule, true)
+	}
+	if s == "package" {
+		return (KindPackage, true)
+	}
+	if s == "file" {
+		return (KindFile, true)
+	}
+	if s == "decl" {
+		return (KindDecl, true)
+	}
+	if s == "var" {
+		return (KindVar, true)
+	}
+	if s == "spec" {
+		return (KindSpec, true)
+	}
+	if s == "task" {
+		return (KindTask, true)
+	}
+	(uint8(0), false)
+}
+
+// SubKindName returns the wire string name of specialization sub-kind s.
+func SubKindName(s uint8) string {
+	if s == SubNone {
+		return ""
+	}
+	if s == SubFunc {
+		return "func"
+	}
+	if s == SubType {
+		return "type"
+	}
+	if s == SubConst {
+		return "const"
+	}
+	if s == SubVar {
+		return "var"
+	}
+	if s == SubContext {
+		return "context"
+	}
+	if s == SubTest {
+		return "test"
+	}
+	if s == SubLaw {
+		return "law"
+	}
+	if s == SubField {
+		return "field"
+	}
+	if s == SubTaskTestRun {
+		return "test_run"
+	}
+	if s == SubTaskTestCover {
+		return "test_cover"
+	}
+	if s == SubTaskTestExec {
+		return "test_exec"
+	}
+	if s == SubTaskLawRun {
+		return "law_run"
+	}
+	if s == SubTaskLawRunMachine {
+		return "law_run_machine"
+	}
+	""
+}
+
+// ParseSubKind parses a wire specialization name to its uint8 discriminant.
+func ParseSubKind(s string) (uint8, bool) {
+	if s == "" {
+		return (SubNone, true)
+	}
+	if s == "func" {
+		return (SubFunc, true)
+	}
+	if s == "type" {
+		return (SubType, true)
+	}
+	if s == "const" {
+		return (SubConst, true)
+	}
+	if s == "var" {
+		return (SubVar, true)
+	}
+	if s == "context" {
+		return (SubContext, true)
+	}
+	if s == "test" {
+		return (SubTest, true)
+	}
+	if s == "law" {
+		return (SubLaw, true)
+	}
+	if s == "field" {
+		return (SubField, true)
+	}
+	if s == "test_run" {
+		return (SubTaskTestRun, true)
+	}
+	if s == "test_cover" {
+		return (SubTaskTestCover, true)
+	}
+	if s == "test_exec" {
+		return (SubTaskTestExec, true)
+	}
+	if s == "law_run" {
+		return (SubTaskLawRun, true)
+	}
+	if s == "law_run_machine" {
+		return (SubTaskLawRunMachine, true)
+	}
+	(uint8(0), false)
+}
+
+// EdgeKindName returns the wire string name of edge kind k.
+func EdgeKindName(k uint8) string {
+	if k == EdgeContains {
+		return "contains"
+	}
+	if k == EdgeUses {
+		return "uses"
+	}
+	if k == EdgeImports {
+		return "imports"
+	}
+	if k == EdgeCalls {
+		return "calls"
+	}
+	if k == EdgeMutates {
+		return "mutates"
+	}
+	if k == EdgeReads {
+		return "reads"
+	}
+	if k == EdgeOwns {
+		return "owns"
+	}
+	if k == EdgeRefers {
+		return "refers"
+	}
+	if k == EdgeRequires {
+		return "requires"
+	}
+	"unknown"
+}
+
+// ParseEdgeKind parses a wire edge kind name to its uint8 discriminant.
+func ParseEdgeKind(s string) (uint8, bool) {
+	if s == "contains" {
+		return (EdgeContains, true)
+	}
+	if s == "uses" {
+		return (EdgeUses, true)
+	}
+	if s == "imports" {
+		return (EdgeImports, true)
+	}
+	if s == "calls" {
+		return (EdgeCalls, true)
+	}
+	if s == "mutates" {
+		return (EdgeMutates, true)
+	}
+	if s == "reads" {
+		return (EdgeReads, true)
+	}
+	if s == "owns" {
+		return (EdgeOwns, true)
+	}
+	if s == "refers" {
+		return (EdgeRefers, true)
+	}
+	if s == "requires" {
+		return (EdgeRequires, true)
+	}
+	(uint8(0), false)
+}
+
+// Sorted returns a canonical copy of t with nodes ordered deterministically,
+// all node references remapped, and edges sorted and deduplicated.
+func Sorted(t Table) Table {
+	let nn = NodeCount(t)
+	let mut order = slices.WithCapacity[uint32](nn)
+	for i in 0..nn {
+		order = order.Append(uint32(i))
+	}
+	let keys = slices.WithCapacity[string](nn)
+	let mut keyCols = keys
+	for i in 0..nn {
+		let id = uint32(i)
+		let pathKey = parentChainKey(t, id)
+		keyCols = keyCols.Append(pathKey + "\x00" + NodeKindName(t.NodeKind[i]) + "\x00" + SubKindName(t.NodeSub[i]) + "\x00" + Str(t, t.NodeName[i]) + "\x00" + padInt(t.NodeLine[i]) + "\x00" + padInt(t.NodeColumn[i]) + "\x00" + padInt(t.NodeOffset[i]) + "\x00" + Str(t, t.NodeDigest[i]))
+	}
+	order = slices.SortFunc(order, func(a uint32, b uint32) int {
+		let ka = keyCols[int(a)]
+		let kb = keyCols[int(b)]
+		let c = strings.Compare(ka, kb)
+		if c != 0 {
+			return c
+		}
+		if a < b {
+			return -1
+		}
+		if a > b {
+			return 1
+		}
+		0
+	})
+	let mut remap = slices.WithCapacity[uint32](nn)
+	for _ in 0..nn {
+		remap = remap.Append(NoNode)
+	}
+	for newIdx in 0..nn {
+		remap[int(order[newIdx])] = uint32(newIdx)
+	}
+	let mut out = NewTable()
+	for newIdx in 0..nn {
+		let oldID = order[newIdx]
+		let n = NodeAt(t, oldID)
+		let _ = AddNode(&out, Node{
+			ID:      uint32(newIdx),
+			Kind:    n.Kind,
+			Sub:     n.Sub,
+			Parent:  remapID(remap, n.Parent),
+			Name:    Intern(&out, Str(t, n.Name)),
+			Digest:  Intern(&out, Str(t, n.Digest)),
+			Subject: remapID(remap, n.Subject),
+			Lines:   n.Lines,
+			Pos:     Pos{
+				File:   remapID(remap, n.Pos.File),
+				Offset: n.Pos.Offset,
+				Line:   n.Pos.Line,
+				Column: n.Pos.Column,
+			},
+		})
+	}
+	let ne = EdgeCount(t)
+	let mut edges = slices.WithCapacity[Edge](ne)
+	for i in 0..ne {
+		let e = EdgeAt(t, i)
+		edges = edges.Append(Edge{
+			Kind: e.Kind,
+			How:  Intern(&out, Str(t, e.How)),
+			From: remapID(remap, e.From),
+			To:   remapID(remap, e.To),
+			Pos:  Pos{
+				File:   remapID(remap, e.Pos.File),
+				Offset: e.Pos.Offset,
+				Line:   e.Pos.Line,
+				Column: e.Pos.Column,
+			},
+		})
+	}
+	edges = slices.SortFunc(edges, func(a Edge, b Edge) int {
+		compareEdges(out, a, b)
+	})
+	for i in 0..edges.Len() {
+		if i > 0 && compareEdges(out, edges[i-1], edges[i]) == 0 {
+			continue
+		}
+		AddEdge(&out, edges[i])
+	}
+	out
+}
+
+// AppendColumns appends one formatted line per node and edge in t to out.
+func AppendColumns(t Table, out []string) []string {
+	let mut res = out
+	for i in 0..NodeCount(t) {
+		let n = NodeAt(t, uint32(i))
+		res = res.Append("node\t" + strconv.Itoa(int(n.ID)) + "\t" + NodeKindName(n.Kind) + "\t" + SubKindName(n.Sub) + "\t" + nodeIDText(n.Parent) + "\t" + Str(t, n.Name) + "\t" + Str(t, n.Digest) + "\t" + nodeIDText(n.Subject) + "\t" + strconv.Itoa(n.Lines) + "\t" + nodeIDText(n.Pos.File) + "\t" + strconv.Itoa(n.Pos.Offset) + "\t" + strconv.Itoa(n.Pos.Line) + "\t" + strconv.Itoa(n.Pos.Column))
+	}
+	for i in 0..EdgeCount(t) {
+		let e = EdgeAt(t, i)
+		res = res.Append("edge\t" + EdgeKindName(e.Kind) + "\t" + Str(t, e.How) + "\t" + nodeIDText(e.From) + "\t" + nodeIDText(e.To) + "\t" + nodeIDText(e.Pos.File) + "\t" + strconv.Itoa(e.Pos.Offset) + "\t" + strconv.Itoa(e.Pos.Line) + "\t" + strconv.Itoa(e.Pos.Column))
+	}
+	res
+}
+
+// FormatText returns the canonical newline-terminated columnar representation of t.
+func FormatText(t Table) string {
+	let lines = AppendColumns(t, []string{})
+	let mut b = strings.NewBuilder()
+	for i in 0..lines.Len() {
+		b.WriteString(lines[i])
+		b.WriteByte('\n')
+	}
+	b.String()
+}
+
+func nodeIDText(id uint32) string {
+	if id == NoNode {
+		return "-1"
+	}
+	strconv.Itoa(int(id))
+}
+
+func remapID(remap []uint32, id uint32) uint32 {
+	if id == NoNode || int(id) >= remap.Len() {
+		return NoNode
+	}
+	remap[int(id)]
+}
+
+func parentChainKey(t Table, id uint32) string {
+	let mut chain = []string{}
+	let mut cur = id
+	for _ in 0..NodeCount(t) {
+		if cur == NoNode || int(cur) >= NodeCount(t) {
+			break
+		}
+		chain = chain.Append(NodeKindName(t.NodeKind[int(cur)]) + ":" + Str(t, t.NodeName[int(cur)]))
+		cur = t.NodeParent[int(cur)]
+	}
+	let mut b = strings.NewBuilder()
+	for i in 0..chain.Len() {
+		if i > 0 {
+			b.WriteByte('/')
+		}
+		b.WriteString(chain[chain.Len()-1-i])
+	}
+	b.String()
+}
+
+func padInt(v int) string {
+	let s = strconv.Itoa(v)
+	let mut out = ""
+	for _ in s.Len()..10 {
+		out = out + "0"
+	}
+	out + s
+}
+
+func compareEdges(t Table, a Edge, b Edge) int {
+	if a.Kind != b.Kind {
+		return if a.Kind < b.Kind { -1 } else { 1 }
+	}
+	if a.From != b.From {
+		return if a.From < b.From { -1 } else { 1 }
+	}
+	if a.To != b.To {
+		return if a.To < b.To { -1 } else { 1 }
+	}
+	let hc = strings.Compare(Str(t, a.How), Str(t, b.How))
+	if hc != 0 {
+		return hc
+	}
+	if a.Pos.File != b.Pos.File {
+		return if a.Pos.File < b.Pos.File { -1 } else { 1 }
+	}
+	if a.Pos.Offset != b.Pos.Offset {
+		return if a.Pos.Offset < b.Pos.Offset { -1 } else { 1 }
+	}
+	if a.Pos.Line != b.Pos.Line {
+		return if a.Pos.Line < b.Pos.Line { -1 } else { 1 }
+	}
+	if a.Pos.Column != b.Pos.Column {
+		return if a.Pos.Column < b.Pos.Column { -1 } else { 1 }
+	}
+	0
+}
+
+func seedEmptyBucket(n int) []uint32 {
+	let mut out = slices.WithCapacity[uint32](n)
+	for _ in 0..n {
+		out = out.Append(uint32(0))
+	}
+	out
+}
+
+func hashStr(s string) uint32 {
+	let mut h = uint32(2166136261)
+	for i in 0..s.Len() {
+		h = (h ^ uint32(s[i])) * uint32(16777619)
+	}
+	h
+}
+
+func rehashStrings(t mut Table) {
+	let newCap = if t.StrBuckets.Len() < 64 { 64 } else { t.StrBuckets.Len() * 2 }
+	t.StrBuckets = seedEmptyBucket(newCap)
+	for i in 0..t.Strings.Len() {
+		if t.Strings[i] != "" {
+			placeStrBucket(t, t.Strings[i], uint32(i))
+		}
+	}
+}
+
+func placeStrBucket(t mut Table, s string, id uint32) {
+	let mask = uint32(t.StrBuckets.Len() - 1)
+	let mut slot = hashStr(s) & mask
+	for _ in 0..t.StrBuckets.Len() {
+		if t.StrBuckets[int(slot)] == uint32(0) {
+			t.StrBuckets[int(slot)] = id + uint32(1)
+			return
+		}
+		slot = (slot + uint32(1)) & mask
+	}
+}
+
+// SortedOrderInvariance checks that inserting nodes and edges in reversed
+// order yields identical canonical Sorted tables and columnar text.
+law SortedOrderInvariance(modName string, pkgName string, fnA string, fnB string) {
+	let nMod = if modName == "" { "mod" } else { modName }
+	let nPkg = if pkgName == "" { "app" } else { pkgName }
+	let aName = if fnA == "" { "Alpha" } else { fnA }
+	let bName = if fnB == "" || fnB == aName { aName + "Next" } else { fnB }
+
+	let mut t1 = NewTable()
+	let m1 = AddNode(&t1, Node{ID: uint32(0), Kind: KindModule, Sub: SubNone, Parent: NoNode, Name: Intern(&t1, nMod), Digest: uint32(0), Subject: NoNode, Lines: 0, Pos: NoPos()})
+	let p1 = AddNode(&t1, Node{ID: uint32(0), Kind: KindPackage, Sub: SubNone, Parent: m1, Name: Intern(&t1, nPkg), Digest: uint32(0), Subject: NoNode, Lines: 0, Pos: NoPos()})
+	let fa1 = AddNode(&t1, Node{ID: uint32(0), Kind: KindDecl, Sub: SubFunc, Parent: p1, Name: Intern(&t1, aName), Digest: uint32(0), Subject: NoNode, Lines: 4, Pos: Pos{File: NoNode, Offset: 0, Line: 1, Column: 1}})
+	let fb1 = AddNode(&t1, Node{ID: uint32(0), Kind: KindDecl, Sub: SubFunc, Parent: p1, Name: Intern(&t1, bName), Digest: uint32(0), Subject: NoNode, Lines: 4, Pos: Pos{File: NoNode, Offset: 30, Line: 6, Column: 1}})
+	AddEdge(&t1, Edge{Kind: EdgeContains, How: uint32(0), From: m1, To: p1, Pos: NoPos()})
+	AddEdge(&t1, Edge{Kind: EdgeContains, How: uint32(0), From: p1, To: fa1, Pos: NoPos()})
+	AddEdge(&t1, Edge{Kind: EdgeContains, How: uint32(0), From: p1, To: fb1, Pos: NoPos()})
+	AddEdge(&t1, Edge{Kind: EdgeCalls, How: Intern(&t1, "direct"), From: fa1, To: fb1, Pos: Pos{File: NoNode, Offset: 12, Line: 2, Column: 2}})
+
+	let mut t2 = NewTable()
+	let fb2 = AddNode(&t2, Node{ID: uint32(0), Kind: KindDecl, Sub: SubFunc, Parent: uint32(2), Name: Intern(&t2, bName), Digest: uint32(0), Subject: NoNode, Lines: 4, Pos: Pos{File: NoNode, Offset: 30, Line: 6, Column: 1}})
+	let fa2 = AddNode(&t2, Node{ID: uint32(0), Kind: KindDecl, Sub: SubFunc, Parent: uint32(2), Name: Intern(&t2, aName), Digest: uint32(0), Subject: NoNode, Lines: 4, Pos: Pos{File: NoNode, Offset: 0, Line: 1, Column: 1}})
+	let p2 = AddNode(&t2, Node{ID: uint32(0), Kind: KindPackage, Sub: SubNone, Parent: uint32(3), Name: Intern(&t2, nPkg), Digest: uint32(0), Subject: NoNode, Lines: 0, Pos: NoPos()})
+	let m2 = AddNode(&t2, Node{ID: uint32(0), Kind: KindModule, Sub: SubNone, Parent: NoNode, Name: Intern(&t2, nMod), Digest: uint32(0), Subject: NoNode, Lines: 0, Pos: NoPos()})
+	AddEdge(&t2, Edge{Kind: EdgeCalls, How: Intern(&t2, "direct"), From: fa2, To: fb2, Pos: Pos{File: NoNode, Offset: 12, Line: 2, Column: 2}})
+	AddEdge(&t2, Edge{Kind: EdgeContains, How: uint32(0), From: p2, To: fb2, Pos: NoPos()})
+	AddEdge(&t2, Edge{Kind: EdgeContains, How: uint32(0), From: p2, To: fa2, Pos: NoPos()})
+	AddEdge(&t2, Edge{Kind: EdgeContains, How: uint32(0), From: m2, To: p2, Pos: NoPos()})
+
+	FormatText(Sorted(t1)) == FormatText(Sorted(t2))
+}

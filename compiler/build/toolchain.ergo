@@ -1,0 +1,188 @@
+import compiler/cachekey
+import compiler/fingerprint
+import option
+import slices
+import strconv
+import strings
+
+// LevelVariable selects the optimization/verification build level.
+let LevelVariable = "ERGO_BUILD_LEVEL"
+
+// RootVariable overrides the build module cache directory.
+let RootVariable = "ERGO_CACHE"
+
+// Cgo disables cgo for deterministic hermetic builds.
+let Cgo = "CGO_ENABLED=0"
+
+// CompilerPathVariable names the override environment variable for the compiler binary.
+let CompilerPathVariable = "ERGO_COMPILER"
+
+// ProfileRelease configures maximum verification and optimization level.
+type ProfileRelease {}
+
+// ProfileDev configures fast iterative build level.
+type ProfileDev {}
+
+// Profile configures the target build profile.
+type Profile = ProfileRelease | ProfileDev
+
+// ReleaseProfile selects maximum verification and optimization level.
+let ReleaseProfile = ProfileRelease
+
+// DevProfile selects fast iterative diagnostics.
+let DevProfile = ProfileDev
+
+// Toolchain describes the active Go and Ergo toolchain tuple for an action.
+type Toolchain {
+	GoRoot    string,
+	Go        string,
+	GoOS      string,
+	GoArch    string,
+	ErgoVer   string,
+	GoVer     string,
+	BuildTags string,
+	Cgo       bool,
+}
+
+// CompilerIdentity captures the full digest tuple identifying a compiler build.
+type CompilerIdentity {
+	BuildID       string,
+	ExeDigest     string,
+	SourceDigest  string,
+	StdDigest     string,
+	RuntimeDigest string,
+}
+
+// BuildError is the typed error returned by build planning, validation, and cache operations.
+type BuildError {
+	Op     string,
+	Target string,
+	Reason string,
+}
+
+// TargetLevel returns the canonical build level integer for profile p.
+func TargetLevel(p Profile) int {
+	match p {
+	case ProfileRelease:
+		2
+	case ProfileDev:
+		1
+	}
+}
+
+// ParseLevel parses an ERGO_BUILD_LEVEL string into a validated integer level (0..2).
+func ParseLevel(s string) option.Option[int] {
+	let trimmed = strings.TrimSpace(s)
+	if trimmed == "" {
+		return option.None
+	}
+	let v = strconv.Atoi(trimmed) catch {
+	case strconv.Malformed, strconv.OutOfRange:
+		return option.None
+	}
+	if v < 0 || v > 2 {
+		return option.None
+	}
+	option.Some{Value: v}
+}
+
+// ValidateToolchain verifies that tc has non-empty target platform and version fields.
+func ValidateToolchain(tc Toolchain) fails BuildError {
+	if tc.GoOS == "" {
+		return BuildError{Op: "toolchain", Target: "GOOS", Reason: "missing target GOOS"}
+	}
+	if tc.GoArch == "" {
+		return BuildError{Op: "toolchain", Target: "GOARCH", Reason: "missing target GOARCH"}
+	}
+	if tc.GoVer == "" {
+		return BuildError{Op: "toolchain", Target: "GoVer", Reason: "missing Go toolchain version"}
+	}
+	if tc.ErgoVer == "" {
+		return BuildError{Op: "toolchain", Target: "ErgoVer", Reason: "missing Ergo compiler version"}
+	}
+}
+
+// CompilerIdentityKey computes a canonical SHA-256 key combining compiler digests and toolchain fields.
+func CompilerIdentityKey(id CompilerIdentity, tc Toolchain) string {
+	let cgoStr = if tc.Cgo { "1" } else { "0" }
+	let framed = cachekey.Fields([]cachekey.Field{
+		cachekey.Field{Name: "build_id", Value: id.BuildID},
+		cachekey.Field{Name: "exe", Value: id.ExeDigest},
+		cachekey.Field{Name: "source", Value: id.SourceDigest},
+		cachekey.Field{Name: "std", Value: id.StdDigest},
+		cachekey.Field{Name: "runtime", Value: id.RuntimeDigest},
+		cachekey.Field{Name: "goos", Value: tc.GoOS},
+		cachekey.Field{Name: "goarch", Value: tc.GoArch},
+		cachekey.Field{Name: "ergo", Value: tc.ErgoVer},
+		cachekey.Field{Name: "go", Value: tc.GoVer},
+		cachekey.Field{Name: "tags", Value: tc.BuildTags},
+		cachekey.Field{Name: "cgo", Value: cgoStr},
+	})
+	fingerprint.Of([]string{"compiler-id", framed})
+}
+
+// CleanEnv produces a deterministic sorted environment filtered through cachekey.Environ
+// and augmented with explicit toolchain coordinates.
+func CleanEnv(environ []string, tc Toolchain) []string {
+	let filtered = cachekey.Environ(environ, "")
+	let mut out = slices.WithCapacity[string](filtered.Len() + 4)
+	for i in 0..filtered.Len() {
+		let entry = filtered[i]
+		if strings.HasPrefix(entry, "GOOS=") || strings.HasPrefix(entry, "GOARCH=") || strings.HasPrefix(entry, "CGO_ENABLED=") || strings.HasPrefix(entry, "GOROOT=") {
+			continue
+		}
+		out = out.Append(entry)
+	}
+	if tc.GoOS != "" {
+		out = out.Append("GOOS=" + tc.GoOS)
+	}
+	if tc.GoArch != "" {
+		out = out.Append("GOARCH=" + tc.GoArch)
+	}
+	if tc.GoRoot != "" {
+		out = out.Append("GOROOT=" + tc.GoRoot)
+	}
+	out = out.Append(if tc.Cgo { "CGO_ENABLED=1" } else { Cgo })
+	slices.Sort(out)
+}
+
+// CompilerIdentityKeySensitive verifies that altering any identity or toolchain coordinate
+// changes the resulting CompilerIdentityKey.
+law CompilerIdentityKeySensitive(a string, b string) {
+	if a == b {
+		return true
+	}
+	let tc = Toolchain{GoRoot: "/go", Go: "go", GoOS: "linux", GoArch: "amd64", ErgoVer: "1", GoVer: "go1.27.4", BuildTags: "", Cgo: false}
+	let id1 = CompilerIdentity{BuildID: "bid", ExeDigest: a, SourceDigest: "s", StdDigest: "std", RuntimeDigest: "rt"}
+	let id2 = CompilerIdentity{BuildID: "bid", ExeDigest: b, SourceDigest: "s", StdDigest: "std", RuntimeDigest: "rt"}
+	CompilerIdentityKey(id1, tc) != CompilerIdentityKey(id2, tc)
+}
+
+// CleanEnvDeterministic checks that CleanEnv produces sorted output invariant to input order.
+law CleanEnvDeterministic(v1 string, v2 string) {
+	let tc = Toolchain{GoRoot: "/go", Go: "go", GoOS: "linux", GoArch: "amd64", ErgoVer: "1", GoVer: "go1.27.4", BuildTags: "", Cgo: false}
+	let e1 = CleanEnv([]string{"GOFLAGS=" + v1, "ERGO_FLAG=" + v2}, tc)
+	let e2 = CleanEnv([]string{"ERGO_FLAG=" + v2, "GOFLAGS=" + v1}, tc)
+	e1 == e2
+}
+
+test ToolchainProfileAndValidation {
+	assert TargetLevel(ReleaseProfile) == 2
+	assert TargetLevel(DevProfile) == 1
+	assert ParseLevel("2") == option.Some{Value: 2}
+	assert ParseLevel("9") == option.None
+	let good = Toolchain{GoRoot: "/go", Go: "go", GoOS: "linux", GoArch: "amd64", ErgoVer: "1", GoVer: "go1.27.4", BuildTags: "", Cgo: false}
+	let mut ok = true
+	ValidateToolchain(good) catch {
+	case BuildError:
+		ok = false
+	}
+	assert ok
+	let bad = Toolchain{GoRoot: "/go", Go: "go", GoOS: "", GoArch: "amd64", ErgoVer: "1", GoVer: "go1.27.4", BuildTags: "", Cgo: false}
+	let mut failed = false
+	ValidateToolchain(bad) catch {
+	case BuildError:
+		failed = true
+	}
+	assert failed
+}

@@ -1,0 +1,515 @@
+import compiler/cachekey
+import compiler/fingerprint
+import filepath
+import hex
+import option
+import sha256
+import slices
+import strconv
+import strings
+import time
+
+// ModulesDirName names the subdirectory holding compiled module artifacts.
+let ModulesDirName = "modules"
+
+// LeasesDirName names the subdirectory holding active cache-pin leases.
+let LeasesDirName = "leases"
+
+// ResultsDirName names the subdirectory holding cached test and law results.
+let ResultsDirName = "results"
+
+// WarmDirName names the subdirectory holding workspace warm manifests.
+let WarmDirName = "warm"
+
+// DefaultLeaseTTL sets the default lifetime of a cache entry lease.
+let DefaultLeaseTTL = 5m
+
+// ModuleEntry identifies a cached compiled package archive and manifest on disk.
+type ModuleEntry {
+	Key         string,
+	Dir         string,
+	ArchivePath string,
+	ExportPath  string,
+	Manifest    Input,
+	Digest      string,
+}
+
+// Lease prevents cache trimming from removing a target cache key until expiry or release.
+type Lease {
+	ID          string,
+	TargetKey   string,
+	Owner       string,
+	Path        string,
+	ExpiresUnix int64,
+	Lock        LockHandle,
+}
+
+// ResultRecord holds a cached execution verdict and output summary.
+type ResultRecord {
+	Key      string,
+	ExitCode int,
+	Stdout   string,
+	Stderr   string,
+	Digest   string,
+}
+
+// WarmRecord holds cached warm package keys for a workspace warm key.
+type WarmRecord {
+	Key         string,
+	PackageKeys []string,
+	CreatedUnix int64,
+}
+
+// ModuleDir returns the cache directory path for action key under root.
+func ModuleDir(root string, key string) string {
+	filepath.Clean(root + "/" + ModulesDirName + "/" + key)
+}
+
+// PublishModule atomically writes archiveBytes, exportBytes, and manifest metadata under root.
+func PublishModule(root string, sum Summary, archiveBytes []byte, exportBytes []byte) ModuleEntry fails BuildError needs Store | Locks | Clock {
+	let inp = BuildInput(sum)
+	let dir = ModuleDir(root, inp.Key)
+	let lockPath = dir + ".lock"
+	let lk = Locks.Acquire(lockPath, true, true) catch {
+	case LockBusy:
+		return BuildError{Op: "publish-lock", Target: lockPath, Reason: "lock busy"}
+	case LockFailed as e:
+		return BuildError{Op: "publish-lock", Target: lockPath, Reason: e.Reason}
+	}
+	Store.MkdirAll(dir) catch {
+	case StoreError as e:
+		Locks.Release(lk)
+		return BuildError{Op: "publish-mkdir", Target: dir, Reason: storeMsg(e)}
+	}
+	let arcPath = dir + "/pkg.a"
+	let expPath = dir + "/export.x"
+	let manPath = dir + "/" + ManifestName
+	let manText = EncodeManifest(inp)
+	Store.WriteAtomic(arcPath, archiveBytes, 420) catch {
+	case StoreError as e:
+		Locks.Release(lk)
+		return BuildError{Op: "publish-archive", Target: arcPath, Reason: storeMsg(e)}
+	}
+	Store.WriteAtomic(expPath, exportBytes, 420) catch {
+	case StoreError as e:
+		Locks.Release(lk)
+		return BuildError{Op: "publish-export", Target: expPath, Reason: storeMsg(e)}
+	}
+	Store.WriteAtomic(manPath, manText.Bytes(), 420) catch {
+	case StoreError as e:
+		Locks.Release(lk)
+		return BuildError{Op: "publish-manifest", Target: manPath, Reason: storeMsg(e)}
+	}
+	let dig = hex.Encode(sha256.Sum(archiveBytes.Text()))
+	let digPath = dir + "/digest.txt"
+	Store.WriteAtomic(digPath, dig.Bytes(), 420) catch {
+	case StoreError as e:
+		Locks.Release(lk)
+		return BuildError{Op: "publish-digest", Target: digPath, Reason: storeMsg(e)}
+	}
+	let now = Clock.Now()
+	Store.Touch(dir, now) catch {
+	case StoreError:
+	}
+	Locks.Release(lk)
+	ModuleEntry{
+		Key:         inp.Key,
+		Dir:         dir,
+		ArchivePath: arcPath,
+		ExportPath:  expPath,
+		Manifest:    inp,
+		Digest:      dig,
+	}
+}
+
+// VerifyModule verifies that entry's manifest parses and its archive digest matches digest.txt.
+func VerifyModule(entry ModuleEntry) bool needs Store {
+	let manBytes = Store.ReadBytes(entry.Dir + "/" + ManifestName) catch {
+	case StoreError:
+		return false
+	}
+	let parsed = ParseManifest(manBytes.Text()) catch {
+	case MalformedManifest:
+		return false
+	}
+	if parsed.Key != entry.Key {
+		return false
+	}
+	let arcBytes = Store.ReadBytes(entry.ArchivePath) catch {
+	case StoreError:
+		return false
+	}
+	let digBytes = Store.ReadBytes(entry.Dir + "/digest.txt") catch {
+	case StoreError:
+		return false
+	}
+	hex.Encode(sha256.Sum(arcBytes.Text())) == strings.TrimSpace(digBytes.Text())
+}
+
+// LookupModule checks whether root holds a verified cached module matching sum.
+func LookupModule(root string, sum Summary) option.Option[ModuleEntry] fails BuildError needs Store | Locks | Clock {
+	let inp = BuildInput(sum)
+	let dir = ModuleDir(root, inp.Key)
+	let manBytes = Store.ReadBytes(dir + "/" + ManifestName) catch {
+	case StoreNotFound:
+		return option.None
+	case StoreDenied, StoreExists, StoreIO:
+		return option.None
+	}
+	let parsed = ParseManifest(manBytes.Text()) catch {
+	case MalformedManifest:
+		return option.None
+	}
+	if !ManifestValid(parsed, sum) {
+		return option.None
+	}
+	let digBytes = Store.ReadBytes(dir + "/digest.txt") catch {
+	case StoreError:
+		return option.None
+	}
+	let entry = ModuleEntry{
+		Key:         inp.Key,
+		Dir:         dir,
+		ArchivePath: dir + "/pkg.a",
+		ExportPath:  dir + "/export.x",
+		Manifest:    parsed,
+		Digest:      strings.TrimSpace(digBytes.Text()),
+	}
+	if !VerifyModule(entry) {
+		return option.None
+	}
+	Store.Touch(dir, Clock.Now()) catch {
+	case StoreError:
+	}
+	option.Some{Value: entry}
+}
+
+// AcquireLease writes an expiring lease file protecting targetKey from cache trimming.
+func AcquireLease(root string, targetKey string, owner string, ttl duration) Lease fails BuildError needs Store | Locks | Clock {
+	let leaseDir = filepath.Clean(root + "/" + LeasesDirName)
+	Store.MkdirAll(leaseDir) catch {
+	case StoreError as e:
+		return BuildError{Op: "lease-mkdir", Target: leaseDir, Reason: storeMsg(e)}
+	}
+	let now = time.UnixSeconds(Clock.Now())
+	let dur = if ttl <= 0ns { DefaultLeaseTTL } else { ttl }
+	let exp = now + int64(time.Count(dur, 1s))
+	let leaseID = fingerprint.Of([]string{"lease", targetKey, owner, strconv.FormatInt(now, 10)})[0:16]
+	let leasePath = leaseDir + "/" + leaseID + ".lease"
+	let lk = Locks.Acquire(leasePath+".lock", true, true) catch {
+	case LockBusy:
+		return BuildError{Op: "lease-lock", Target: leasePath, Reason: "lease lock busy"}
+	case LockFailed as e:
+		return BuildError{Op: "lease-lock", Target: leasePath, Reason: e.Reason}
+	}
+	let body = targetKey + "\t" + owner + "\t" + strconv.FormatInt(exp, 10) + "\n"
+	Store.WriteAtomic(leasePath, body.Bytes(), 420) catch {
+	case StoreError as e:
+		Locks.Release(lk)
+		return BuildError{Op: "lease-write", Target: leasePath, Reason: storeMsg(e)}
+	}
+	Lease{ID: leaseID, TargetKey: targetKey, Owner: owner, Path: leasePath, ExpiresUnix: exp, Lock: lk}
+}
+
+// ReleaseLease removes the lease marker file and releases its lock.
+func ReleaseLease(l Lease) needs Store | Locks {
+	Store.Remove(l.Path) catch {
+	case StoreError:
+	}
+	Locks.Release(l.Lock)
+}
+
+// ActiveLeasedKeys scans root's leases directory and returns all unexpired leased target keys.
+func ActiveLeasedKeys(root string) []string needs Store | Clock {
+	let leaseDir = filepath.Clean(root + "/" + LeasesDirName)
+	let items = Store.ReadDir(leaseDir) catch {
+	case StoreError:
+		return []string{}
+	}
+	let now = time.UnixSeconds(Clock.Now())
+	let mut out = []string{}
+	for i in 0..items.Len() {
+		let it = items[i]
+		if it.Dir || !strings.HasSuffix(it.Name, ".lease") {
+			continue
+		}
+		let raw = Store.ReadBytes(leaseDir + "/" + it.Name) catch {
+		case StoreError:
+			continue
+		}
+		let cols = strings.Split(strings.TrimSpace(raw.Text()), "\t")
+		if cols.Len() != 3 {
+			continue
+		}
+		let exp = strconv.ParseInt(cols[2], 10, 64) catch {
+		case strconv.Malformed, strconv.OutOfRange:
+			continue
+		}
+		if exp >= now && cols[0] != "" {
+			out = out.Append(cols[0])
+		}
+	}
+	slices.Sort(out)
+}
+
+// PutResult caches an execution ResultRecord under root keyed by r.Key.
+func PutResult(root string, r ResultRecord) fails BuildError needs Store {
+	let dir = filepath.Clean(root + "/" + ResultsDirName)
+	Store.MkdirAll(dir) catch {
+	case StoreError as e:
+		return BuildError{Op: "result-mkdir", Target: dir, Reason: storeMsg(e)}
+	}
+	let dig = hex.Encode(sha256.Sum(strconv.Itoa(r.ExitCode) + "\x00" + r.Stdout + "\x00" + r.Stderr))
+	let payload = strconv.Itoa(r.ExitCode) + "\t" + dig + "\n" + strconv.Itoa(r.Stdout.Len()) + "\n" + r.Stdout + r.Stderr
+	let p = dir + "/" + r.Key + ".res"
+	Store.WriteAtomic(p, payload.Bytes(), 420) catch {
+	case StoreError as e:
+		return BuildError{Op: "result-write", Target: p, Reason: storeMsg(e)}
+	}
+}
+
+// GetResult loads and verifies a cached ResultRecord by key from root.
+func GetResult(root string, key string) option.Option[ResultRecord] needs Store {
+	let p = filepath.Clean(root + "/" + ResultsDirName + "/" + key + ".res")
+	let raw = Store.ReadBytes(p) catch {
+	case StoreError:
+		return option.None
+	}
+	let text = raw.Text()
+	let nl1 = strings.IndexByte(text, '\n')
+	if nl1 < 0 {
+		return option.None
+	}
+	let hdr = strings.Split(text[0:nl1], "\t")
+	if hdr.Len() != 2 {
+		return option.None
+	}
+	let code = strconv.Atoi(hdr[0]) catch {
+	case strconv.Malformed, strconv.OutOfRange:
+		return option.None
+	}
+	let rest = text[nl1+1 : text.Len()]
+	let nl2 = strings.IndexByte(rest, '\n')
+	if nl2 < 0 {
+		return option.None
+	}
+	let outLen = strconv.Atoi(rest[0:nl2]) catch {
+	case strconv.Malformed, strconv.OutOfRange:
+		return option.None
+	}
+	let body = rest[nl2+1 : rest.Len()]
+	if outLen < 0 || outLen > body.Len() {
+		return option.None
+	}
+	let stdout = body[0:outLen]
+	let stderr = body[outLen:body.Len()]
+	let expected = hex.Encode(sha256.Sum(strconv.Itoa(code) + "\x00" + stdout + "\x00" + stderr))
+	if expected != hdr[1] {
+		return option.None
+	}
+	option.Some{Value: ResultRecord{Key: key, ExitCode: code, Stdout: stdout, Stderr: stderr, Digest: expected}}
+}
+
+// PutWarm caches a workspace WarmRecord under root using cachekey.WarmKey inputs.
+func PutWarm(root string, w WarmRecord) fails BuildError needs Store {
+	let dir = filepath.Clean(root + "/" + WarmDirName)
+	Store.MkdirAll(dir) catch {
+	case StoreError as e:
+		return BuildError{Op: "warm-mkdir", Target: dir, Reason: storeMsg(e)}
+	}
+	let mut b = strings.NewBuilder()
+	b.WriteString(strconv.FormatInt(w.CreatedUnix, 10) + "\n")
+	let sorted = slices.Sort(slices.Clone(w.PackageKeys))
+	for i in 0..sorted.Len() {
+		b.WriteString(sorted[i] + "\n")
+	}
+	let p = dir + "/" + w.Key + ".warm"
+	Store.WriteAtomic(p, b.String().Bytes(), 420) catch {
+	case StoreError as e:
+		return BuildError{Op: "warm-write", Target: p, Reason: storeMsg(e)}
+	}
+}
+
+// GetWarm loads a WarmRecord by warm key from root.
+func GetWarm(root string, key string) option.Option[WarmRecord] needs Store {
+	let p = filepath.Clean(root + "/" + WarmDirName + "/" + key + ".warm")
+	let raw = Store.ReadBytes(p) catch {
+	case StoreError:
+		return option.None
+	}
+	let lines = strings.Split(raw.Text(), "\n")
+	if lines.Len() < 1 || lines[0] == "" {
+		return option.None
+	}
+	let ts = strconv.ParseInt(lines[0], 10, 64) catch {
+	case strconv.Malformed, strconv.OutOfRange:
+		return option.None
+	}
+	let mut keys = []string{}
+	for i in 1..lines.Len() {
+		if lines[i] != "" {
+			keys = keys.Append(lines[i])
+		}
+	}
+	option.Some{Value: WarmRecord{Key: key, PackageKeys: keys, CreatedUnix: ts}}
+}
+
+// PlaceExecutable installs a linked binary from src to dst, preferring hard-linking
+// and falling back to atomic write copy when linking fails.
+func PlaceExecutable(src string, dst string, mode int) fails BuildError needs Store {
+	let cleanSrc = filepath.Clean(src)
+	let cleanDst = filepath.Clean(dst)
+	if Store.SameFile(cleanSrc, cleanDst) {
+		return
+	}
+	Store.Remove(cleanDst) catch {
+	case StoreError as e:
+		match e {
+		case StoreNotFound:
+		case StoreDenied, StoreExists, StoreIO:
+			return BuildError{Op: "place-remove", Target: cleanDst, Reason: storeMsg(e)}
+		}
+	}
+	Store.Link(cleanSrc, cleanDst) catch {
+	case StoreError:
+		let data = Store.ReadBytes(cleanSrc) catch {
+		case StoreError as re:
+			return BuildError{Op: "place-read", Target: cleanSrc, Reason: storeMsg(re)}
+		}
+		Store.WriteAtomic(cleanDst, data, mode) catch {
+		case StoreError as we:
+			return BuildError{Op: "place-copy", Target: cleanDst, Reason: storeMsg(we)}
+		}
+		return
+	}
+}
+
+// IsExecutableHeld reports whether dst currently exists in Store.
+func IsExecutableHeld(dst string) bool needs Store {
+	let _ = Store.Stat(filepath.Clean(dst)) catch {
+	case StoreError:
+		return false
+	}
+	true
+}
+
+func storeMsg(e StoreError) string {
+	match e {
+	case StoreNotFound as nf:
+		"not found: " + nf.Path
+	case StoreDenied as d:
+		"denied: " + d.Path
+	case StoreExists as ex:
+		"exists: " + ex.Path
+	case StoreIO as io:
+		io.Reason
+	}
+}
+
+// ModulePublishLookupVerifyLaw checks that publishing an artifact populates verified lookup hits
+// and tampering with archive bytes invalidates verification.
+law ModulePublishLookupVerifyLaw(pkg string, body string) {
+	let cleanPkg = if pkg == "" { "app/mod" } else { strings.ReplaceAll(strings.ReplaceAll(pkg, "\n", "_"), "\t", "_") }
+	let m = NewMemoryEnv(5000)
+	let st = StoreProvider(m)
+	let lk = LocksProvider(m)
+	let ck = ClockProvider(m)
+	let sum = Summary{
+		PkgPath:     cleanPkg,
+		Target:      "linux/amd64",
+		Compiler:    "ergo 1",
+		SrcPrint:    "sp",
+		IfacePrint:  "ip",
+		Files:       []FileDigest{FileDigest{Path: "a.ergo", Digest: hex.Encode(sha256.Sum(body)), Size: uint64(body.Len()), Perm: uint32(420)}},
+		DepKeys:     []string{},
+		Flags:       []string{},
+		Environ:     []string{},
+		Experiments: []string{},
+	}
+	with context { Store: st, Locks: lk, Clock: ck } {
+		let entry = PublishModule("/cache", sum, ("ARCHIVE:" + body).Bytes(), "EXPORT".Bytes()) catch {
+		case BuildError:
+			return false
+		}
+		let hit = LookupModule("/cache", sum) catch {
+		case BuildError:
+			return false
+		}
+		match hit {
+		case option.Some{Value: got}:
+			if got.Key != entry.Key || !VerifyModule(got) {
+				return false
+			}
+		case option.None:
+			return false
+		}
+		Store.WriteAtomic(entry.ArchivePath, "TAMPERED".Bytes(), 420) catch {
+		case StoreError:
+			return false
+		}
+		let afterTamper = LookupModule("/cache", sum) catch {
+		case BuildError:
+			return false
+		}
+		afterTamper == option.None
+	}
+}
+
+test LeaseResultWarmAndPlaceExecutable {
+	let m = NewMemoryEnv(10000)
+	let st = StoreProvider(m)
+	let lk = LocksProvider(m)
+	let ck = ClockProvider(m)
+	with context { Store: st, Locks: lk, Clock: ck } {
+		let lease = AcquireLease("/cache", "k-active", "worker-1", 60s) catch {
+		case BuildError:
+			assert false
+			return
+		}
+		let active = ActiveLeasedKeys("/cache")
+		assert active == []string{"k-active"}
+		AdvanceClock(m, 120)
+		assert ActiveLeasedKeys("/cache").Len() == 0
+		ReleaseLease(lease)
+
+		let rk = cachekey.TestResult("id1", "ledger", uint64(10), []string{}, []string{}, "")
+		let rec = ResultRecord{Key: rk, ExitCode: 0, Stdout: "PASS\n", Stderr: "", Digest: ""}
+		PutResult("/cache", rec) catch {
+		case BuildError:
+			assert false
+			return
+		}
+		match GetResult("/cache", rk) {
+		case option.Some{Value: got}:
+			assert got.ExitCode == 0 && got.Stdout == "PASS\n"
+		case option.None:
+			assert false
+		}
+
+		let wk = cachekey.WarmKey("ergo 1", []string{"p1"}, []string{}, []string{})
+		PutWarm("/cache", WarmRecord{Key: wk, PackageKeys: []string{"k2", "k1"}, CreatedUnix: int64(10120)}) catch {
+		case BuildError:
+			assert false
+			return
+		}
+		match GetWarm("/cache", wk) {
+		case option.Some{Value: got}:
+			assert got.PackageKeys == []string{"k1", "k2"}
+		case option.None:
+			assert false
+		}
+
+		Store.WriteAtomic("/tmp/out.bin", "ELF".Bytes(), 493) catch {
+		case StoreError:
+			assert false
+			return
+		}
+		PlaceExecutable("/tmp/out.bin", "/usr/bin/app", 493) catch {
+		case BuildError:
+			assert false
+			return
+		}
+		assert IsExecutableHeld("/usr/bin/app")
+		assert Store.SameFile("/tmp/out.bin", "/usr/bin/app")
+	}
+}

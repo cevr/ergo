@@ -1,0 +1,303 @@
+import compiler/fingerprint
+import option
+import slices
+import strconv
+import strings
+
+// PinSchema tags canonical lockfiles mapping pinned packages to content digests.
+let PinSchema = "ergo-pin-1"
+
+// NoProduced is the dense uint32 sentinel representing an absent produced artifact row.
+let NoProduced = uint32(4294967295)
+
+// InvalidPinLock reports malformed pinset lockfile text.
+type InvalidPinLock {
+	Reason string,
+}
+
+// PinEntry records one pinned package/module archive digest.
+type PinEntry {
+	Path    string,
+	GoMod   string,
+	Version string,
+	Digest  string,
+}
+
+// PinLock holds pinned std/runtime/dependency digests for a toolchain tuple.
+type PinLock {
+	Schema    string,
+	Toolchain string,
+	GoOS      string,
+	GoArch    string,
+	Entries   []PinEntry,
+}
+
+// ProducedSet tracks built package artifacts across flat SoA columns indexed by dense uint32 IDs.
+type ProducedSet {
+	PkgPaths []string,
+	Kinds    []string,
+	Targets  []string,
+	Outputs  []string,
+	Digests  []string,
+	Buckets  []uint32,
+}
+
+// NewProducedSet creates an empty Data-Oriented ProducedSet registry.
+func NewProducedSet() ProducedSet {
+	ProducedSet{
+		PkgPaths: []string{},
+		Kinds:    []string{},
+		Targets:  []string{},
+		Outputs:  []string{},
+		Digests:  []string{},
+		Buckets:  emptyPinBuckets(64),
+	}
+}
+
+// PinKey computes a deterministic digest of lock across its toolchain tuple and sorted entries.
+func PinKey(lock PinLock) string {
+	let sorted = sortPinEntries(lock.Entries)
+	let mut parts = slices.WithCapacity[string](4 + 4*sorted.Len())
+	parts = parts.Append(lock.Schema)
+	parts = parts.Append(lock.Toolchain)
+	parts = parts.Append(lock.GoOS)
+	parts = parts.Append(lock.GoArch)
+	for i in 0..sorted.Len() {
+		parts = parts.Append(sorted[i].Path)
+		parts = parts.Append(sorted[i].GoMod)
+		parts = parts.Append(sorted[i].Version)
+		parts = parts.Append(sorted[i].Digest)
+	}
+	fingerprint.Of(parts)
+}
+
+// FormatPinLock formats lock into canonical deterministic lockfile text.
+func FormatPinLock(lock PinLock) string {
+	let schema = if lock.Schema == "" { PinSchema } else { lock.Schema }
+	let sorted = sortPinEntries(lock.Entries)
+	let mut b = strings.NewBuilder()
+	b.WriteString("schema\t" + schema + "\n")
+	b.WriteString("toolchain\t" + lock.Toolchain + "\n")
+	b.WriteString("goos\t" + lock.GoOS + "\n")
+	b.WriteString("goarch\t" + lock.GoArch + "\n")
+	for i in 0..sorted.Len() {
+		let e = sorted[i]
+		b.WriteString("pin\t" + e.Path + "\t" + e.GoMod + "\t" + e.Version + "\t" + e.Digest + "\n")
+	}
+	b.String()
+}
+
+// ParsePinLock parses and validates lockfile text produced by FormatPinLock.
+func ParsePinLock(text string) PinLock fails InvalidPinLock {
+	let lines = strings.Split(text, "\n")
+	let mut schema = ""
+	let mut tc = ""
+	let mut goos = ""
+	let mut goarch = ""
+	let mut entries = []PinEntry{}
+	for i in 0..lines.Len() {
+		let line = lines[i]
+		if line == "" {
+			continue
+		}
+		let cols = strings.Split(line, "\t")
+		if cols.Len() < 2 {
+			return InvalidPinLock{Reason: "malformed pin line " + strconv.Itoa(i+1)}
+		}
+		if cols[0] == "schema" {
+			schema = cols[1]
+		} else if cols[0] == "toolchain" {
+			tc = cols[1]
+		} else if cols[0] == "goos" {
+			goos = cols[1]
+		} else if cols[0] == "goarch" {
+			goarch = cols[1]
+		} else if cols[0] == "pin" {
+			if cols.Len() != 5 || cols[1] == "" {
+				return InvalidPinLock{Reason: "invalid pin entry at line " + strconv.Itoa(i+1)}
+			}
+			entries = entries.Append(PinEntry{Path: cols[1], GoMod: cols[2], Version: cols[3], Digest: cols[4]})
+		} else {
+			return InvalidPinLock{Reason: "unknown pin directive " + cols[0]}
+		}
+	}
+	if schema != PinSchema {
+		return InvalidPinLock{Reason: "unsupported pin schema " + schema}
+	}
+	PinLock{
+		Schema:    schema,
+		Toolchain: tc,
+		GoOS:      goos,
+		GoArch:    goarch,
+		Entries:   sortPinEntries(entries),
+	}
+}
+
+// LookupPin returns the PinEntry for importPath in lock if present.
+func LookupPin(lock PinLock, importPath string) option.Option[PinEntry] {
+	for i in 0..lock.Entries.Len() {
+		if lock.Entries[i].Path == importPath {
+			return option.Some{Value: lock.Entries[i]}
+		}
+	}
+	option.None
+}
+
+// RecordProduced records or updates a built artifact in ps and returns its dense uint32 ID.
+func RecordProduced(ps mut ProducedSet, pkgPath string, kind string, target string, output string, digest string) uint32 {
+	let existing = FindProduced(*ps, pkgPath, kind, target)
+	if existing != NoProduced {
+		ps.Outputs[int(existing)] = output
+		ps.Digests[int(existing)] = digest
+		return existing
+	}
+	let id = uint32(ps.PkgPaths.Len())
+	ps.PkgPaths = ps.PkgPaths.Append(pkgPath)
+	ps.Kinds = ps.Kinds.Append(kind)
+	ps.Targets = ps.Targets.Append(target)
+	ps.Outputs = ps.Outputs.Append(output)
+	ps.Digests = ps.Digests.Append(digest)
+	if ps.PkgPaths.Len()*2 >= ps.Buckets.Len() {
+		rehashProduced(ps)
+	} else {
+		placeProducedBucket(ps, pkgPath, kind, target, id)
+	}
+	id
+}
+
+// FindProduced locates an artifact in ps matching (pkgPath, kind, target).
+func FindProduced(ps ProducedSet, pkgPath string, kind string, target string) uint32 {
+	if pkgPath == "" || ps.Buckets.Len() == 0 {
+		return NoProduced
+	}
+	let mask = uint32(ps.Buckets.Len() - 1)
+	let mut slot = hashTriple(pkgPath, kind, target) & mask
+	for _ in 0..ps.Buckets.Len() {
+		let v = ps.Buckets[int(slot)]
+		if v == uint32(0) {
+			return NoProduced
+		}
+		let idx = int(v - uint32(1))
+		if ps.PkgPaths[idx] == pkgPath && ps.Kinds[idx] == kind && ps.Targets[idx] == target {
+			return uint32(idx)
+		}
+		slot = (slot + uint32(1)) & mask
+	}
+	NoProduced
+}
+
+func sortPinEntries(xs []PinEntry) []PinEntry {
+	let mut out = slices.WithCapacity[PinEntry](xs.Len())
+	for i in 0..xs.Len() {
+		let e = xs[i]
+		let mut updated = false
+		for j in 0..out.Len() {
+			if out[j].Path == e.Path {
+				out[j] = e
+				updated = true
+				break
+			}
+		}
+		if !updated {
+			out = out.Append(e)
+		}
+	}
+	slices.SortFunc(out, func(a PinEntry, b PinEntry) int { strings.Compare(a.Path, b.Path) })
+}
+
+func emptyPinBuckets(n int) []uint32 {
+	let mut out = slices.WithCapacity[uint32](n)
+	for _ in 0..n {
+		out = out.Append(uint32(0))
+	}
+	out
+}
+
+func hashTriple(a string, b string, c string) uint32 {
+	let mut h = uint32(2166136261)
+	for i in 0..a.Len() {
+		h = (h ^ uint32(a[i])) * uint32(16777619)
+	}
+	h = (h ^ uint32(0)) * uint32(16777619)
+	for i in 0..b.Len() {
+		h = (h ^ uint32(b[i])) * uint32(16777619)
+	}
+	h = (h ^ uint32(0)) * uint32(16777619)
+	for i in 0..c.Len() {
+		h = (h ^ uint32(c[i])) * uint32(16777619)
+	}
+	h
+}
+
+func rehashProduced(ps mut ProducedSet) {
+	let newCap = if ps.Buckets.Len() < 64 { 64 } else { ps.Buckets.Len() * 2 }
+	ps.Buckets = emptyPinBuckets(newCap)
+	for i in 0..ps.PkgPaths.Len() {
+		placeProducedBucket(ps, ps.PkgPaths[i], ps.Kinds[i], ps.Targets[i], uint32(i))
+	}
+}
+
+func placeProducedBucket(ps mut ProducedSet, pkg string, kind string, target string, id uint32) {
+	let mask = uint32(ps.Buckets.Len() - 1)
+	let mut slot = hashTriple(pkg, kind, target) & mask
+	for _ in 0..ps.Buckets.Len() {
+		if ps.Buckets[int(slot)] == uint32(0) {
+			ps.Buckets[int(slot)] = id + uint32(1)
+			return
+		}
+		slot = (slot + uint32(1)) & mask
+	}
+}
+
+// PinLockRoundtripPreservesEntries verifies that formatting and parsing PinLock
+// preserves PinKey and entries regardless of input entry order.
+law PinLockRoundtripPreservesEntries(pathA string, digA string, pathB string, digB string) {
+	let cA = cleanPinToken(pathA)
+	let p1 = if cA == "" { "std/a" } else { cA }
+	let cB = cleanPinToken(pathB)
+	let p2 = if cB == "" || cB == p1 { p1 + "/b" } else { cB }
+	let d1 = cleanPinToken(digA)
+	let d2 = cleanPinToken(digB)
+	let l1 = PinLock{
+		Schema:    PinSchema,
+		Toolchain: "go1.27.4",
+		GoOS:      "linux",
+		GoArch:    "amd64",
+		Entries:   []PinEntry{
+			PinEntry{Path: p1, GoMod: "std", Version: "v0.0.0", Digest: d1},
+			PinEntry{Path: p2, GoMod: "std", Version: "v0.0.0", Digest: d2},
+		},
+	}
+	let l2 = PinLock{
+		Schema:    PinSchema,
+		Toolchain: "go1.27.4",
+		GoOS:      "linux",
+		GoArch:    "amd64",
+		Entries:   []PinEntry{
+			PinEntry{Path: p2, GoMod: "std", Version: "v0.0.0", Digest: d2},
+			PinEntry{Path: p1, GoMod: "std", Version: "v0.0.0", Digest: d1},
+		},
+	}
+	let parsed = ParsePinLock(FormatPinLock(l1)) catch {
+	case InvalidPinLock:
+		return false
+	}
+	PinKey(l1) == PinKey(l2) && PinKey(parsed) == PinKey(l1) && LookupPin(parsed, p1) != option.None
+}
+
+func cleanPinToken(s string) string {
+	strings.ReplaceAll(strings.ReplaceAll(s, "\n", "_"), "\t", "_")
+}
+
+test ProducedSetDedupAndLookup {
+	let mut ps = NewProducedSet()
+	let id1 = RecordProduced(&ps, "app/a", "archive", "linux/amd64", "/out/a.a", "d1")
+	let id2 = RecordProduced(&ps, "app/b", "archive", "linux/amd64", "/out/b.a", "d2")
+	assert id1 != id2
+	assert FindProduced(ps, "app/a", "archive", "linux/amd64") == id1
+	assert FindProduced(ps, "app/b", "archive", "linux/amd64") == id2
+	assert FindProduced(ps, "app/missing", "archive", "linux/amd64") == NoProduced
+	let id1Up = RecordProduced(&ps, "app/a", "archive", "linux/amd64", "/out/a2.a", "d1-new")
+	assert id1Up == id1
+	assert ps.Digests[int(id1)] == "d1-new"
+}

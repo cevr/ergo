@@ -1,0 +1,364 @@
+import filepath
+import option
+import slices
+import strconv
+import strings
+import time
+
+// SweepChunk bounds entries examined per directory chunk during cache sweeps.
+let SweepChunk = 256
+
+// SweepEntries bounds total module cache entries scanned per trim pass.
+let SweepEntries = 1024
+
+// SweepRemovals bounds total entries removed during a single trim pass.
+let SweepRemovals = 64
+
+// DefaultEntryCap sets the default retained unleased module entry count cap.
+let DefaultEntryCap = 4096
+
+// DefaultLawCap sets the default retained law cache entry count cap.
+let DefaultLawCap = 2048
+
+// StampFile stores the last trim execution timestamp and cursor under the cache root.
+let StampFile = "trim.txt"
+
+// LawPrefix identifies law result/cache keys trimmed under LawCap.
+let LawPrefix = "law-"
+
+// TrimPolicy configures bounded expiration, entry count caps, and sweep budgets.
+type TrimPolicy {
+	MaxAge      duration,
+	MaxEntries  int,
+	MaxLaws     int,
+	SweepBudget int,
+	RemovalCap  int,
+	MinInterval duration,
+}
+
+// TrimStats reports bounded work and eviction counts from a cache trim pass.
+type TrimStats {
+	Scanned         int,
+	Removed         int,
+	KeptLeased      int,
+	KeptRecent      int,
+	Capped          bool,
+	BudgetHit       bool,
+	SkippedCooldown bool,
+}
+
+// TrimStamp captures the persisted timestamp and rotation cursor in trim.txt.
+type TrimStamp {
+	LastRunUnix int64,
+	Cursor      string,
+}
+
+// DefaultTrimPolicy returns the standard bounded production cache trim policy.
+func DefaultTrimPolicy() TrimPolicy {
+	TrimPolicy{
+		MaxAge:      168h,
+		MaxEntries:  DefaultEntryCap,
+		MaxLaws:     DefaultLawCap,
+		SweepBudget: SweepEntries,
+		RemovalCap:  SweepRemovals,
+		MinInterval: 15m,
+	}
+}
+
+// FormatTrimStamp serializes s into deterministic trim.txt line format.
+func FormatTrimStamp(s TrimStamp) string {
+	strconv.FormatInt(s.LastRunUnix, 10) + "\t" + s.Cursor + "\n"
+}
+
+// ParseTrimStamp parses trim.txt text into a TrimStamp record.
+func ParseTrimStamp(text string) option.Option[TrimStamp] {
+	let trimmed = strings.TrimSpace(text)
+	if trimmed == "" {
+		return option.None
+	}
+	let cols = strings.Split(trimmed, "\t")
+	let ts = strconv.ParseInt(cols[0], 10, 64) catch {
+	case strconv.Malformed, strconv.OutOfRange:
+		return option.None
+	}
+	let cursor = if cols.Len() > 1 { cols[1] } else { "" }
+	option.Some{Value: TrimStamp{LastRunUnix: ts, Cursor: cursor}}
+}
+
+// TrimPass performs one bounded trim sweep over root/modules respecting active leases,
+// MaxAge recency, MaxEntries cap, SweepBudget, and MinInterval stamp throttling.
+func TrimPass(root string, policy TrimPolicy) TrimStats fails BuildError needs Store | Locks | Clock {
+	let cleanRoot = filepath.Clean(root)
+	let stampPath = cleanRoot + "/" + StampFile
+	let now = Clock.Now()
+	let nowUnix = time.UnixSeconds(now)
+
+	if policy.MinInterval > 0ns {
+		let rawStamp = Store.ReadBytes(stampPath) catch {
+		case StoreError:
+			[]byte{}
+		}
+		match ParseTrimStamp(rawStamp.Text()) {
+		case option.Some{Value: st}:
+			let minSec = int64(time.Count(policy.MinInterval, 1s))
+			if nowUnix-st.LastRunUnix < minSec && nowUnix >= st.LastRunUnix {
+				return TrimStats{Scanned: 0, Removed: 0, KeptLeased: 0, KeptRecent: 0, Capped: false, BudgetHit: false, SkippedCooldown: true}
+			}
+		case option.None:
+		}
+	}
+
+	let modDir = cleanRoot + "/" + ModulesDirName
+	let entries = Store.ReadDir(modDir) catch {
+	case StoreError as e:
+		match e {
+		case StoreNotFound:
+			return TrimStats{Scanned: 0, Removed: 0, KeptLeased: 0, KeptRecent: 0, Capped: false, BudgetHit: false, SkippedCooldown: false}
+		case StoreDenied, StoreExists, StoreIO:
+			return BuildError{Op: "trim-readdir", Target: modDir, Reason: trimStoreErr(e)}
+		}
+	}
+
+	let leased = ActiveLeasedKeys(cleanRoot)
+	let budget = if policy.SweepBudget <= 0 { SweepEntries } else { policy.SweepBudget }
+	let remCap = if policy.RemovalCap <= 0 { SweepRemovals } else { policy.RemovalCap }
+
+	let mut candidates = []DirItem{}
+	let mut scanned = 0
+	let mut keptLeased = 0
+	let mut keptRecent = 0
+	let mut removed = 0
+	let mut budgetHit = false
+	let mut nextCursor = ""
+
+	let sorted = slices.SortFunc(slices.Clone(entries), func(a DirItem, b DirItem) int {
+		let tc = time.Compare(a.ModTime, b.ModTime)
+		if tc != 0 {
+			return tc
+		}
+		strings.Compare(a.Name, b.Name)
+	})
+
+	for i in 0..sorted.Len() {
+		if scanned >= budget {
+			budgetHit = true
+			break
+		}
+		let it = sorted[i]
+		if !it.Dir {
+			continue
+		}
+		scanned = scanned + 1
+		nextCursor = it.Name
+		if slices.Contains(leased, it.Name) {
+			keptLeased = keptLeased + 1
+			continue
+		}
+		let age = time.Sub(now, it.ModTime)
+		if policy.MaxAge > 0ns && age >= policy.MaxAge {
+			if removed < remCap {
+				let target = modDir + "/" + it.Name
+				Store.Remove(target) catch {
+				case StoreError:
+				}
+				removed = removed + 1
+				continue
+			}
+			budgetHit = true
+			continue
+		}
+		candidates = candidates.Append(it)
+		keptRecent = keptRecent + 1
+	}
+
+	let mut capped = false
+	if policy.MaxEntries >= 0 && candidates.Len() > policy.MaxEntries {
+		let excess = candidates.Len() - policy.MaxEntries
+		for i in 0..excess {
+			if removed >= remCap {
+				budgetHit = true
+				break
+			}
+			let target = modDir + "/" + candidates[i].Name
+			Store.Remove(target) catch {
+			case StoreError:
+			}
+			removed = removed + 1
+			keptRecent = keptRecent - 1
+			capped = true
+		}
+	}
+
+	Store.MkdirAll(cleanRoot) catch {
+	case StoreError:
+	}
+	let stampText = FormatTrimStamp(TrimStamp{LastRunUnix: nowUnix, Cursor: nextCursor})
+	Store.WriteAtomic(stampPath, stampText.Bytes(), 420) catch {
+	case StoreError:
+	}
+
+	TrimStats{
+		Scanned:         scanned,
+		Removed:         removed,
+		KeptLeased:      keptLeased,
+		KeptRecent:      keptRecent,
+		Capped:          capped,
+		BudgetHit:       budgetHit,
+		SkippedCooldown: false,
+	}
+}
+
+// TrimLaws bounds stored law result entries under root/results to at most maxLaws
+// non-leased entries, evicting oldest entries first.
+func TrimLaws(root string, maxLaws int) TrimStats fails BuildError needs Store | Locks | Clock {
+	let cleanRoot = filepath.Clean(root)
+	let resDir = cleanRoot + "/" + ResultsDirName
+	let entries = Store.ReadDir(resDir) catch {
+	case StoreError as e:
+		match e {
+		case StoreNotFound:
+			return TrimStats{Scanned: 0, Removed: 0, KeptLeased: 0, KeptRecent: 0, Capped: false, BudgetHit: false, SkippedCooldown: false}
+		case StoreDenied, StoreExists, StoreIO:
+			return BuildError{Op: "trim-laws", Target: resDir, Reason: trimStoreErr(e)}
+		}
+	}
+	let leased = ActiveLeasedKeys(cleanRoot)
+	let mut lawItems = []DirItem{}
+	let mut keptLeased = 0
+	for i in 0..entries.Len() {
+		let it = entries[i]
+		if it.Dir || !strings.HasPrefix(it.Name, LawPrefix) {
+			continue
+		}
+		if slices.Contains(leased, it.Name) {
+			keptLeased = keptLeased + 1
+			continue
+		}
+		lawItems = lawItems.Append(it)
+	}
+	let sorted = slices.SortFunc(lawItems, func(a DirItem, b DirItem) int {
+		let tc = time.Compare(a.ModTime, b.ModTime)
+		if tc != 0 {
+			return tc
+		}
+		strings.Compare(a.Name, b.Name)
+	})
+	let cap = if maxLaws < 0 { 0 } else { maxLaws }
+	let mut removed = 0
+	if sorted.Len() > cap {
+		let excess = sorted.Len() - cap
+		for i in 0..excess {
+			Store.Remove(resDir + "/" + sorted[i].Name) catch {
+			case StoreError:
+			}
+			removed = removed + 1
+		}
+	}
+	TrimStats{
+		Scanned:         sorted.Len() + keptLeased,
+		Removed:         removed,
+		KeptLeased:      keptLeased,
+		KeptRecent:      sorted.Len() - removed,
+		Capped:          removed > 0,
+		BudgetHit:       false,
+		SkippedCooldown: false,
+	}
+}
+
+func trimStoreErr(e StoreError) string {
+	match e {
+	case StoreNotFound as nf:
+		"not found: " + nf.Path
+	case StoreDenied as d:
+		"denied: " + d.Path
+	case StoreExists as ex:
+		"exists: " + ex.Path
+	case StoreIO as io:
+		io.Reason
+	}
+}
+
+// TrimStampRoundtrip checks that formatting and parsing a TrimStamp preserves both timestamp and cursor.
+law TrimStampRoundtrip(ts int64, cur string) {
+	let cleanCur = strings.TrimSpace(strings.ReplaceAll(strings.ReplaceAll(cur, "\n", "_"), "\t", "_"))
+	let s = TrimStamp{LastRunUnix: ts, Cursor: cleanCur}
+	match ParseTrimStamp(FormatTrimStamp(s)) {
+	case option.Some{Value: got}:
+		got.LastRunUnix == s.LastRunUnix && got.Cursor == s.Cursor
+	case option.None:
+		false
+	}
+}
+
+test TrimRespectsLeasesAgeBudgetAndCap {
+	let m = NewMemoryEnv(10000)
+	let st = StoreProvider(m)
+	let lk = LocksProvider(m)
+	let ck = ClockProvider(m)
+	with context { Store: st, Locks: lk, Clock: ck } {
+		Store.MkdirAll("/cache/modules/old-leased") catch {
+		case StoreError:
+			assert false
+			return
+		}
+		Store.MkdirAll("/cache/modules/old-expired") catch {
+		case StoreError:
+			assert false
+			return
+		}
+		Store.WriteAtomic("/cache/modules/old-leased/pkg.a", "L".Bytes(), 420) catch {
+		case StoreError:
+			assert false
+			return
+		}
+		Store.WriteAtomic("/cache/modules/old-expired/pkg.a", "E".Bytes(), 420) catch {
+		case StoreError:
+			assert false
+			return
+		}
+		let lease = AcquireLease("/cache", "old-leased", "w0", 5000s) catch {
+		case BuildError:
+			assert false
+			return
+		}
+		AdvanceClock(m, 3600)
+		Store.MkdirAll("/cache/modules/fresh-1") catch {
+		case StoreError:
+			assert false
+			return
+		}
+		Store.MkdirAll("/cache/modules/fresh-2") catch {
+		case StoreError:
+			assert false
+			return
+		}
+		let policy = TrimPolicy{
+			MaxAge:      1800s,
+			MaxEntries:  1,
+			MaxLaws:     10,
+			SweepBudget: 100,
+			RemovalCap:  10,
+			MinInterval: 60s,
+		}
+		let stats = TrimPass("/cache", policy) catch {
+		case BuildError:
+			assert false
+			return
+		}
+		assert stats.KeptLeased == 1
+		assert stats.Removed == 2
+		assert stats.Capped
+		let leasedExists = Store.Stat("/cache/modules/old-leased") catch {
+		case StoreError:
+			StoreStat{Name: "", Size: int64(0), Dir: false, ModTime: time.Unix(0, 0), Inode: uint64(0)}
+		}
+		assert leasedExists.Dir
+		let statsCooldown = TrimPass("/cache", policy) catch {
+		case BuildError:
+			assert false
+			return
+		}
+		assert statsCooldown.SkippedCooldown
+		ReleaseLease(lease)
+	}
+}

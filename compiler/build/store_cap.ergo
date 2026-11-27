@@ -1,0 +1,626 @@
+import filepath
+import fs
+import option
+import slices
+import strings
+import sync
+import time
+
+// StoreNotFound is returned when a requested artifact path does not exist.
+type StoreNotFound {
+	Path string,
+}
+
+// StoreDenied is returned when artifact storage denies access to a path.
+type StoreDenied {
+	Path string,
+}
+
+// StoreExists is returned when an exclusive create collides with an existing file.
+type StoreExists {
+	Path string,
+}
+
+// StoreIO reports an unexpected storage failure.
+type StoreIO {
+	Path   string,
+	Reason string,
+}
+
+// StoreError is the closed failure union for Store operations.
+type StoreError = StoreNotFound | StoreDenied | StoreExists | StoreIO
+
+// LockBusy is returned by non-blocking lock acquisition when another holder holds the lock.
+type LockBusy {
+	Path string,
+}
+
+// LockFailed reports an underlying lock error.
+type LockFailed {
+	Path   string,
+	Reason string,
+}
+
+// LockError is the closed failure union for Locks operations.
+type LockError = LockBusy | LockFailed
+
+// LockHandle identifies one acquired advisory lock held until Release.
+type LockHandle {
+	Path      string,
+	Token     uint64,
+	Exclusive bool,
+}
+
+// DirItem describes one directory child entry and its modification timestamp.
+type DirItem {
+	Name    string,
+	Dir     bool,
+	Size    int64,
+	ModTime time.Time,
+}
+
+// StoreStat describes metadata for a stored file or directory.
+type StoreStat {
+	Name    string,
+	Size    int64,
+	Dir     bool,
+	ModTime time.Time,
+	Inode   uint64,
+}
+
+// Clock provides current instants for cache timestamps, leases, and trim windows.
+type Clock {
+	Now() time.Time,
+}
+
+// Locks provides advisory file/slot locking across build workers.
+type Locks {
+	Acquire(path string, exclusive bool, wait bool) LockHandle fails LockError,
+	Release(h LockHandle),
+}
+
+// Store provides atomic content-addressed filesystem operations for build artifacts.
+type Store {
+	ReadBytes(path string) []byte fails StoreError,
+	WriteAtomic(path string, data []byte, mode int) fails StoreError,
+	WriteAtomicIfMissing(path string, data []byte, mode int) bool fails StoreError,
+	Link(from string, to string) fails StoreError,
+	SameFile(a string, b string) bool,
+	MkdirAll(path string) fails StoreError,
+	Remove(path string) fails StoreError,
+	Stat(path string) StoreStat fails StoreError,
+	ReadDir(path string) []DirItem fails StoreError,
+	Touch(path string, at time.Time) fails StoreError,
+}
+
+type memState {
+	NowSec    int64,
+	NextInode uint64,
+	NextToken uint64,
+	Paths     []string,
+	Data      [][]byte,
+	IsDir     []bool,
+	ModTime   []time.Time,
+	Inodes    []uint64,
+	LockPaths []string,
+	LockExcl  []bool,
+	LockToks  []uint64,
+}
+
+// MemoryEnv holds deterministic in-memory state backing Store, Locks, and Clock providers.
+type MemoryEnv {
+	state sync.Ref[memState],
+}
+
+// MemClock implements Clock backed by a deterministic virtual MemoryEnv.
+type MemClock {
+	env MemoryEnv,
+} implements Clock
+
+// MemLocks implements Locks backed by an in-memory MemoryEnv.
+type MemLocks {
+	env MemoryEnv,
+} implements Locks
+
+// MemStore implements Store backed by an in-memory MemoryEnv.
+type MemStore {
+	env MemoryEnv,
+} implements Store
+
+// HostClockAdapter adapts time.Host into the build Clock capability.
+type HostClockAdapter {
+	host time.Host,
+} implements Clock
+
+// HostLocksAdapter adapts fs.Host advisory locking into the build Locks capability.
+type HostLocksAdapter {
+	host fs.Host,
+	held sync.Ref[[]fs.FileLock],
+	seq  sync.Ref[uint64],
+} implements Locks
+
+// NewMemoryEnv creates a deterministic MemoryEnv initialized at startSec Unix seconds.
+func NewMemoryEnv(startSec int64) MemoryEnv {
+	MemoryEnv{
+		state: sync.NewRef[memState](memState{
+			NowSec:    startSec,
+			NextInode: uint64(1),
+			NextToken: uint64(1),
+			Paths:     []string{"/"},
+			Data:      [][]byte{[]byte{}},
+			IsDir:     []bool{true},
+			ModTime:   []time.Time{time.Unix(startSec, 0)},
+			Inodes:    []uint64{uint64(1)},
+			LockPaths: []string{},
+			LockExcl:  []bool{},
+			LockToks:  []uint64{},
+		}),
+	}
+}
+
+// AdvanceClock advances m's virtual clock by secs seconds.
+func AdvanceClock(m MemoryEnv, secs int64) {
+	let mut st = m.state.Get()
+	st.NowSec = st.NowSec + secs
+	m.state.Set(st)
+}
+
+// ClockProvider returns a MemClock capability backed by m.
+func ClockProvider(m MemoryEnv) MemClock {
+	MemClock{env: m}
+}
+
+// LocksProvider returns a MemLocks capability backed by m.
+func LocksProvider(m MemoryEnv) MemLocks {
+	MemLocks{env: m}
+}
+
+// StoreProvider returns a MemStore capability backed by m.
+func StoreProvider(m MemoryEnv) MemStore {
+	MemStore{env: m}
+}
+
+// HostClock adapts time.Host into a HostClockAdapter.
+func HostClock(h time.Host) HostClockAdapter {
+	HostClockAdapter{host: h}
+}
+
+// HostLocks adapts fs.Host into a HostLocksAdapter.
+func HostLocks(h fs.Host) HostLocksAdapter {
+	HostLocksAdapter{
+		host: h,
+		held: sync.NewRef[[]fs.FileLock]([]fs.FileLock{}),
+		seq:  sync.NewRef[uint64](uint64(1)),
+	}
+}
+
+// Now returns the virtual time of MemClock c.
+func Now(c MemClock) time.Time {
+	time.Unix(c.env.state.Get().NowSec, 0)
+}
+
+// Acquire claims an advisory lock at path on MemLocks l.
+func Acquire(l MemLocks, path string, exclusive bool, wait bool) LockHandle fails LockError {
+	let _ = wait
+	try memAcquire(l, path, exclusive)
+}
+
+func memAcquire(l MemLocks, path string, exclusive bool) LockHandle fails LockError {
+	let clean = filepath.Clean(path)
+	let mut st = l.env.state.Get()
+	for i in 0..st.LockPaths.Len() {
+		if st.LockPaths[i] == clean && (exclusive || st.LockExcl[i]) {
+			return LockBusy{Path: clean}
+		}
+	}
+	let tok = st.NextToken + uint64(1)
+	st.NextToken = tok
+	st.LockPaths = st.LockPaths.Append(clean)
+	st.LockExcl = st.LockExcl.Append(exclusive)
+	st.LockToks = st.LockToks.Append(tok)
+	l.env.state.Set(st)
+	LockHandle{Path: clean, Token: tok, Exclusive: exclusive}
+}
+
+// Release frees an advisory lock handle h on MemLocks l.
+func Release(l MemLocks, h LockHandle) {
+	let mut st = l.env.state.Get()
+	let mut nextP = []string{}
+	let mut nextE = []bool{}
+	let mut nextT = []uint64{}
+	for i in 0..st.LockPaths.Len() {
+		if st.LockToks[i] == h.Token {
+			continue
+		}
+		nextP = nextP.Append(st.LockPaths[i])
+		nextE = nextE.Append(st.LockExcl[i])
+		nextT = nextT.Append(st.LockToks[i])
+	}
+	st.LockPaths = nextP
+	st.LockExcl = nextE
+	st.LockToks = nextT
+	l.env.state.Set(st)
+}
+
+// ReadBytes reads all bytes stored at path on MemStore s.
+func ReadBytes(s MemStore, path string) []byte fails StoreError {
+	let clean = filepath.Clean(path)
+	let st = s.env.state.Get()
+	let idx = findMemIdx(st, clean)
+	if idx < 0 {
+		return StoreNotFound{Path: clean}
+	}
+	if st.IsDir[idx] {
+		return StoreIO{Path: clean, Reason: "is a directory"}
+	}
+	slices.Clone(st.Data[idx])
+}
+
+// WriteAtomic atomically writes data at path on MemStore s.
+func WriteAtomic(s MemStore, path string, data []byte, mode int) fails StoreError {
+	let _ = mode
+	let clean = filepath.Clean(path)
+	let mut st = s.env.state.Get()
+	ensureParentDirs(&st, clean)
+	let now = time.Unix(st.NowSec, 0)
+	let idx = findMemIdx(st, clean)
+	if idx >= 0 {
+		if st.IsDir[idx] {
+			return StoreIO{Path: clean, Reason: "cannot overwrite directory"}
+		}
+		st.NextInode = st.NextInode + uint64(1)
+		st.Data[idx] = slices.Clone(data)
+		st.ModTime[idx] = now
+		st.Inodes[idx] = st.NextInode
+		s.env.state.Set(st)
+		return
+	}
+	st.NextInode = st.NextInode + uint64(1)
+	st.Paths = st.Paths.Append(clean)
+	st.Data = st.Data.Append(slices.Clone(data))
+	st.IsDir = st.IsDir.Append(false)
+	st.ModTime = st.ModTime.Append(now)
+	st.Inodes = st.Inodes.Append(st.NextInode)
+	s.env.state.Set(st)
+}
+
+// WriteAtomicIfMissing writes data only if path is absent, returning true when written.
+func WriteAtomicIfMissing(s MemStore, path string, data []byte, mode int) bool fails StoreError {
+	let _ = mode
+	let clean = filepath.Clean(path)
+	let mut st = s.env.state.Get()
+	if findMemIdx(st, clean) >= 0 {
+		return false
+	}
+	ensureParentDirs(&st, clean)
+	let now = time.Unix(st.NowSec, 0)
+	st.NextInode = st.NextInode + uint64(1)
+	st.Paths = st.Paths.Append(clean)
+	st.Data = st.Data.Append(slices.Clone(data))
+	st.IsDir = st.IsDir.Append(false)
+	st.ModTime = st.ModTime.Append(now)
+	st.Inodes = st.Inodes.Append(st.NextInode)
+	s.env.state.Set(st)
+	true
+}
+
+// Link creates a hard link sharing inode metadata from from to to on MemStore s.
+func Link(s MemStore, from string, to string) fails StoreError {
+	let src = filepath.Clean(from)
+	let dst = filepath.Clean(to)
+	let mut st = s.env.state.Get()
+	let srcIdx = findMemIdx(st, src)
+	if srcIdx < 0 {
+		return StoreNotFound{Path: src}
+	}
+	if st.IsDir[srcIdx] {
+		return StoreDenied{Path: src}
+	}
+	if findMemIdx(st, dst) >= 0 {
+		return StoreExists{Path: dst}
+	}
+	ensureParentDirs(&st, dst)
+	st.Paths = st.Paths.Append(dst)
+	st.Data = st.Data.Append(slices.Clone(st.Data[srcIdx]))
+	st.IsDir = st.IsDir.Append(false)
+	st.ModTime = st.ModTime.Append(st.ModTime[srcIdx])
+	st.Inodes = st.Inodes.Append(st.Inodes[srcIdx])
+	s.env.state.Set(st)
+}
+
+// SameFile reports whether a and b resolve to the same inode on MemStore s.
+func SameFile(s MemStore, a string, b string) bool {
+	let st = s.env.state.Get()
+	let ia = findMemIdx(st, filepath.Clean(a))
+	let ib = findMemIdx(st, filepath.Clean(b))
+	ia >= 0 && ib >= 0 && st.Inodes[ia] == st.Inodes[ib]
+}
+
+// MkdirAll ensures path and all ancestor directories exist on MemStore s.
+func MkdirAll(s MemStore, path string) fails StoreError {
+	let clean = filepath.Clean(path)
+	let mut st = s.env.state.Get()
+	let idx = findMemIdx(st, clean)
+	if idx >= 0 && !st.IsDir[idx] {
+		return StoreIO{Path: clean, Reason: "path exists as file"}
+	}
+	ensureDir(&st, clean)
+	s.env.state.Set(st)
+}
+
+// Remove deletes path and any descendants on MemStore s.
+func Remove(s MemStore, path string) fails StoreError {
+	let clean = filepath.Clean(path)
+	let mut st = s.env.state.Get()
+	let idx = findMemIdx(st, clean)
+	if idx < 0 {
+		return StoreNotFound{Path: clean}
+	}
+	let mut np = []string{}
+	let mut nd = [][]byte{}
+	let mut ni = []bool{}
+	let mut nm = []time.Time{}
+	let mut nino = []uint64{}
+	let prefix = if clean == "/" { "/" } else { clean + "/" }
+	for i in 0..st.Paths.Len() {
+		if st.Paths[i] == clean || strings.HasPrefix(st.Paths[i], prefix) {
+			continue
+		}
+		np = np.Append(st.Paths[i])
+		nd = nd.Append(st.Data[i])
+		ni = ni.Append(st.IsDir[i])
+		nm = nm.Append(st.ModTime[i])
+		nino = nino.Append(st.Inodes[i])
+	}
+	st.Paths = np
+	st.Data = nd
+	st.IsDir = ni
+	st.ModTime = nm
+	st.Inodes = nino
+	s.env.state.Set(st)
+}
+
+// Stat returns metadata for path on MemStore s.
+func Stat(s MemStore, path string) StoreStat fails StoreError {
+	let clean = filepath.Clean(path)
+	let st = s.env.state.Get()
+	let idx = findMemIdx(st, clean)
+	if idx < 0 {
+		return StoreNotFound{Path: clean}
+	}
+	StoreStat{
+		Name:    filepath.Base(clean),
+		Size:    int64(st.Data[idx].Len()),
+		Dir:     st.IsDir[idx],
+		ModTime: st.ModTime[idx],
+		Inode:   st.Inodes[idx],
+	}
+}
+
+// ReadDir returns direct children of path sorted lexicographically on MemStore s.
+func ReadDir(s MemStore, path string) []DirItem fails StoreError {
+	let clean = filepath.Clean(path)
+	let st = s.env.state.Get()
+	let idx = findMemIdx(st, clean)
+	if idx < 0 {
+		return StoreNotFound{Path: clean}
+	}
+	if !st.IsDir[idx] {
+		return StoreIO{Path: clean, Reason: "not a directory"}
+	}
+	let prefix = if clean == "/" { "/" } else { clean + "/" }
+	let mut items = []DirItem{}
+	for i in 0..st.Paths.Len() {
+		let p = st.Paths[i]
+		if !strings.HasPrefix(p, prefix) || p == clean {
+			continue
+		}
+		let rest = p[prefix.Len():p.Len()]
+		if rest == "" || strings.Contains(rest, "/") {
+			continue
+		}
+		items = items.Append(DirItem{
+			Name:    rest,
+			Dir:     st.IsDir[i],
+			Size:    int64(st.Data[i].Len()),
+			ModTime: st.ModTime[i],
+		})
+	}
+	slices.SortFunc(items, func(a DirItem, b DirItem) int { strings.Compare(a.Name, b.Name) })
+}
+
+// Touch updates path's modification timestamp to at on MemStore s.
+func Touch(s MemStore, path string, at time.Time) fails StoreError {
+	let clean = filepath.Clean(path)
+	let mut st = s.env.state.Get()
+	let idx = findMemIdx(st, clean)
+	if idx < 0 {
+		return StoreNotFound{Path: clean}
+	}
+	st.ModTime[idx] = at
+	s.env.state.Set(st)
+}
+
+// Now returns the host time of HostClockAdapter c.
+func Now(c HostClockAdapter) time.Time {
+	c.host.Now()
+}
+
+// Acquire claims a host advisory file lock on HostLocksAdapter l.
+func Acquire(l HostLocksAdapter, path string, exclusive bool, wait bool) LockHandle fails LockError {
+	let timeout = if wait { 30s } else { 1ns }
+	let locked = l.host.LockFile(path, timeout) catch {
+	case fs.NotFound:
+		return LockFailed{Path: path, Reason: "lock path not found"}
+	case fs.Denied:
+		return LockFailed{Path: path, Reason: "lock path denied"}
+	case fs.Failed as e:
+		return LockFailed{Path: path, Reason: e.Reason}
+	}
+	match locked {
+	case option.Some{Value: fl}:
+		let tok = l.seq.Get() + uint64(1)
+		l.seq.Set(tok)
+		l.held.Set(l.held.Get().Append(fl))
+		LockHandle{Path: path, Token: tok, Exclusive: exclusive}
+	case option.None:
+		LockBusy{Path: path}
+	}
+}
+
+// Release frees the host advisory file lock held by HostLocksAdapter l.
+func Release(l HostLocksAdapter, lh LockHandle) {
+	let _ = lh
+	let xs = l.held.Get()
+	if xs.Len() > 0 {
+		let last = xs[xs.Len()-1]
+		l.host.UnlockFile(last)
+		l.held.Set(xs[:xs.Len()-1])
+	}
+}
+
+func findMemIdx(st memState, clean string) int {
+	for i in 0..st.Paths.Len() {
+		if st.Paths[i] == clean {
+			return i
+		}
+	}
+	-1
+}
+
+func ensureParentDirs(st mut memState, clean string) {
+	let parent = filepath.Dir(clean)
+	if parent != "" && parent != "." && parent != clean {
+		ensureDir(st, parent)
+	}
+}
+
+func ensureDir(st mut memState, dir string) {
+	if findMemIdx(*st, dir) >= 0 {
+		return
+	}
+	let parent = filepath.Dir(dir)
+	if parent != "" && parent != "." && parent != dir {
+		ensureDir(st, parent)
+	}
+	st.NextInode = st.NextInode + uint64(1)
+	st.Paths = st.Paths.Append(dir)
+	st.Data = st.Data.Append([]byte{})
+	st.IsDir = st.IsDir.Append(true)
+	st.ModTime = st.ModTime.Append(time.Unix(st.NowSec, 0))
+	st.Inodes = st.Inodes.Append(st.NextInode)
+}
+
+let lawMem = NewMemoryEnv(1700000000)
+
+// LawContext binds deterministic in-memory Store, Locks, and Clock providers for law verification.
+let LawContext = context {
+	Store: StoreProvider(lawMem),
+	Locks: LocksProvider(lawMem),
+	Clock: ClockProvider(lawMem),
+}
+
+// ClockNeverRegresses checks that consecutive Clock.Now readings never step backward.
+law ClockNeverRegresses() {
+	with LawContext {
+		let t1 = Clock.Now()
+		let t2 = Clock.Now()
+		!time.Before(t2, t1)
+	}
+}
+
+// StoreWriteAtomicRoundTrips checks that WriteAtomic followed by ReadBytes returns identical content.
+law StoreWriteAtomicRoundTrips(path string, payload string) {
+	let safe = strings.ReplaceAll(strings.ReplaceAll(path, "..", "_"), "/", "_")
+	let clean = if safe == "" { "/mem/default.txt" } else { filepath.Clean("/mem/" + safe) }
+	with LawContext {
+		Store.MkdirAll("/mem") catch {
+		case StoreError:
+			return false
+		}
+		Store.WriteAtomic(clean, payload.Bytes(), 420) catch {
+		case StoreError:
+			return false
+		}
+		let got = Store.ReadBytes(clean) catch {
+		case StoreError:
+			return false
+		}
+		got.Text() == payload
+	}
+}
+
+// LocksAcquireReleaseRoundTrips checks that an exclusive lock blocks a second acquirer until released.
+law LocksAcquireReleaseRoundTrips(name string) {
+	let safe = strings.ReplaceAll(strings.ReplaceAll(name, "..", "_"), "/", "_")
+	let p = if safe == "" { "/locks/default" } else { filepath.Clean("/locks/" + safe) }
+	with LawContext {
+		let h = Locks.Acquire(p, true, false) catch {
+		case LockError:
+			return false
+		}
+		let mut busy = false
+		let _ = Locks.Acquire(p, true, false) catch {
+		case LockBusy:
+			busy = true
+			LockHandle{Path: "", Token: uint64(0), Exclusive: false}
+		case LockFailed:
+			LockHandle{Path: "", Token: uint64(0), Exclusive: false}
+		}
+		Locks.Release(h)
+		let h2 = Locks.Acquire(p, true, false) catch {
+		case LockError:
+			return false
+		}
+		Locks.Release(h2)
+		busy
+	}
+}
+
+test MemoryStoreLocksAndClock {
+	let m = NewMemoryEnv(1000)
+	let st = StoreProvider(m)
+	let lk = LocksProvider(m)
+	let ck = ClockProvider(m)
+	let mut ok = true
+	with context { Store: st, Locks: lk, Clock: ck } {
+		let t0 = Clock.Now()
+		AdvanceClock(m, 5)
+		let t1 = Clock.Now()
+		ok = ok && !time.Before(t1, t0) && time.Before(t0, t1)
+		Store.MkdirAll("/cache/mod") catch {
+		case StoreError:
+			ok = false
+		}
+		Store.WriteAtomic("/cache/mod/a.txt", "hello".Bytes(), 420) catch {
+		case StoreError:
+			ok = false
+		}
+		let firstMissing = Store.WriteAtomicIfMissing("/cache/mod/a.txt", "second".Bytes(), 420) catch {
+		case StoreError:
+			false
+		}
+		ok = ok && !firstMissing
+		Store.Link("/cache/mod/a.txt", "/cache/mod/b.txt") catch {
+		case StoreError:
+			ok = false
+		}
+		ok = ok && Store.SameFile("/cache/mod/a.txt", "/cache/mod/b.txt")
+		let h = Locks.Acquire("/cache/mod/lock", true, false) catch {
+		case LockError:
+			ok = false
+			LockHandle{Path: "", Token: uint64(0), Exclusive: false}
+		}
+		let mut busy = false
+		let _ = Locks.Acquire("/cache/mod/lock", true, false) catch {
+		case LockBusy:
+			busy = true
+			LockHandle{Path: "", Token: uint64(0), Exclusive: false}
+		case LockFailed:
+			LockHandle{Path: "", Token: uint64(0), Exclusive: false}
+		}
+		ok = ok && busy
+		Locks.Release(h)
+	}
+	assert ok
+}

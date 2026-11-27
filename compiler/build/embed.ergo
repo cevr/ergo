@@ -1,0 +1,271 @@
+import compiler/fingerprint
+import filepath
+import fs
+import fstest
+import json
+import slices
+import strings
+
+// EmptyEmbed reports an empty embed pattern.
+type EmptyEmbed {}
+
+// InvalidEmbedName reports a forbidden or malformed path element in an embed pattern.
+type InvalidEmbedName {
+	Pattern string,
+	Reason  string,
+}
+
+// EscapingEmbed reports an embed pattern that tries to escape the package root.
+type EscapingEmbed {
+	Pattern string,
+}
+
+// UnmatchedEmbed reports an embed pattern matching zero admissible files.
+type UnmatchedEmbed {
+	Pattern string,
+}
+
+// EmbedIO wraps an underlying filesystem read failure during embed resolution.
+type EmbedIO {
+	Path   string,
+	Reason string,
+}
+
+// EmbedError is the closed union of embed pattern and resolution failures.
+type EmbedError = EmptyEmbed | InvalidEmbedName | EscapingEmbed | UnmatchedEmbed | EmbedIO
+
+// EmbedRule records one resolved embed directive and its canonically sorted matched relative paths.
+type EmbedRule {
+	RawPattern   string,
+	CleanPattern string,
+	Files        []string,
+}
+
+type embedWire {
+	Patterns []embedWireRule,
+}
+
+type embedWireRule {
+	Pattern string,
+	Files   []string,
+}
+
+// ValidEmbedName checks Go and Ergo embed naming constraints on one relative path or pattern.
+func ValidEmbedName(name string) bool {
+	if name == "" {
+		return false
+	}
+	if strings.HasPrefix(name, "/") || strings.HasSuffix(name, "/") {
+		return false
+	}
+	for i in 0..name.Len() {
+		let c = name[i]
+		if c < byte(32) || c == byte(127) || c == '\\' {
+			return false
+		}
+	}
+	let segs = strings.Split(name, "/")
+	for i in 0..segs.Len() {
+		let seg = segs[i]
+		if seg == "" || seg == "." || seg == ".." || isReservedWinName(seg) {
+			return false
+		}
+	}
+	true
+}
+
+// ResolveEmbed resolves embed patterns within pkgDir using fs.Files, enforcing
+// hidden-file rules unless prefixed with "all:" or directly named.
+func ResolveEmbed(pkgDir string, patterns []string) []EmbedRule fails EmbedError needs fs.Files {
+	let cleanRoot = filepath.Clean(pkgDir)
+	let allRel = listFilesRel(cleanRoot, "") catch {
+	case fs.NotFound:
+		return EmbedIO{Path: cleanRoot, Reason: "package directory not found"}
+	case fs.Denied:
+		return EmbedIO{Path: cleanRoot, Reason: "package directory denied"}
+	case fs.Failed as e:
+		return EmbedIO{Path: cleanRoot, Reason: e.Reason}
+	}
+	let mut out = slices.WithCapacity[EmbedRule](patterns.Len())
+	for i in 0..patterns.Len() {
+		let raw = patterns[i]
+		if raw == "" {
+			return EmptyEmbed
+		}
+		let includeHidden = strings.HasPrefix(raw, "all:")
+		let pat = if includeHidden { raw[4:raw.Len()] } else { raw }
+		if strings.HasPrefix(pat, "/") || strings.HasPrefix(pat, "../") || pat == ".." {
+			return EscapingEmbed{Pattern: raw}
+		}
+		if !ValidEmbedName(pat) {
+			return InvalidEmbedName{Pattern: raw, Reason: "invalid embed pattern segment"}
+		}
+		let matched = try matchEmbedPattern(cleanRoot, pat, includeHidden, allRel)
+		if matched.Len() == 0 {
+			return UnmatchedEmbed{Pattern: raw}
+		}
+		out = out.Append(EmbedRule{
+			RawPattern:   raw,
+			CleanPattern: pat,
+			Files:        slices.Sort(matched),
+		})
+	}
+	out
+}
+
+// EmbedKey computes a content-addressed fingerprint over resolved embed rules and file digests.
+func EmbedKey(rules []EmbedRule, digests []FileDigest) string {
+	let mut parts = []string{"embed"}
+	for i in 0..rules.Len() {
+		let r = rules[i]
+		parts = parts.Append(r.RawPattern)
+		for j in 0..r.Files.Len() {
+			let f = r.Files[j]
+			parts = parts.Append(f)
+			let mut dig = ""
+			for k in 0..digests.Len() {
+				if digests[k].Path == f {
+					dig = digests[k].Digest
+					break
+				}
+			}
+			parts = parts.Append(dig)
+		}
+	}
+	fingerprint.Of(parts)
+}
+
+// EmbedConfigJSON encodes resolved embed rules into canonical RFC 8259 JSON.
+func EmbedConfigJSON(rules []EmbedRule) string {
+	let mut wr = slices.WithCapacity[embedWireRule](rules.Len())
+	for i in 0..rules.Len() {
+		let r = rules[i]
+		wr = wr.Append(embedWireRule{Pattern: r.RawPattern, Files: r.Files})
+	}
+	json.Encode(json.Codec[embedWire]{MaxBytes: 0, MaxDepth: 0}, embedWire{Patterns: wr})
+}
+
+func listFilesRel(absDir string, relPrefix string) []string fails fs.NotFound | fs.Denied | fs.Failed needs fs.Files {
+	let entries = try fs.Files.ReadDir(absDir)
+	let sorted = slices.Sort(slices.Clone(entries))
+	let mut out = []string{}
+	for i in 0..sorted.Len() {
+		let name = sorted[i]
+		let child = absDir + "/" + name
+		let rel = if relPrefix == "" { name } else { relPrefix + "/" + name }
+		let info = try fs.Files.Stat(child)
+		if info.Dir {
+			let nested = try listFilesRel(child, rel)
+			for j in 0..nested.Len() {
+				out = out.Append(nested[j])
+			}
+		} else {
+			out = out.Append(rel)
+		}
+	}
+	out
+}
+
+func matchEmbedPattern(root string, pat string, includeHidden bool, allRel []string) []string fails EmbedError {
+	let _ = root
+	let mut out = []string{}
+	for i in 0..allRel.Len() {
+		let rel = allRel[i]
+		if !includeHidden && hasHiddenSegment(rel) && !explicitlyMatchesHidden(pat, rel) {
+			continue
+		}
+		let ok = filepath.Match(pat, rel) catch {
+		case filepath.BadPattern:
+			return InvalidEmbedName{Pattern: pat, Reason: "malformed glob pattern"}
+		}
+		if ok || rel == pat || strings.HasPrefix(rel, pat+"/") {
+			out = out.Append(rel)
+		}
+	}
+	out
+}
+
+func hasHiddenSegment(rel string) bool {
+	let segs = strings.Split(rel, "/")
+	for i in 0..segs.Len() {
+		let s = segs[i]
+		if s != "" && (s[0] == '.' || s[0] == '_') {
+			return true
+		}
+	}
+	false
+}
+
+func explicitlyMatchesHidden(pat string, rel string) bool {
+	let pSegs = strings.Split(pat, "/")
+	let rSegs = strings.Split(rel, "/")
+	if pSegs.Len() != rSegs.Len() {
+		return false
+	}
+	for i in 0..rSegs.Len() {
+		let rs = rSegs[i]
+		let ps = pSegs[i]
+		if rs != "" && (rs[0] == '.' || rs[0] == '_') {
+			if ps == "" || ps[0] != rs[0] {
+				return false
+			}
+		}
+	}
+	true
+}
+
+func isReservedWinName(seg string) bool {
+	let dot = strings.IndexByte(seg, '.')
+	let stem = strings.ToUpper(if dot < 0 { seg } else { seg[0:dot] })
+	if stem == "CON" || stem == "PRN" || stem == "AUX" || stem == "NUL" {
+		return true
+	}
+	if stem.Len() == 4 && (strings.HasPrefix(stem, "COM") || strings.HasPrefix(stem, "LPT")) {
+		let d = stem[3]
+		return d >= '1' && d <= '9'
+	}
+	false
+}
+
+// ValidEmbedNameRejectsControlAndEscape checks that traversal segments, slashes,
+// backslashes, and Windows reserved device names are refused.
+law ValidEmbedNameRejectsControlAndEscape(name string) {
+	!ValidEmbedName("") && !ValidEmbedName("../"+name) && !ValidEmbedName("a\\b") && !ValidEmbedName("/"+name) && !ValidEmbedName("con.txt")
+}
+
+test EmbedResolvesAllAndSkipsHidden {
+	let mem = fstest.NewMemory()
+	mem.MkdirAll("/pkg/testdata") catch {
+	case fs.Denied, fs.Failed:
+		assert false
+		return
+	}
+	mem.WriteFile("/pkg/testdata/visible.txt", "ok") catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		assert false
+		return
+	}
+	mem.WriteFile("/pkg/testdata/.hidden.txt", "secret") catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		assert false
+		return
+	}
+	let normal = with context { fs.Files: mem } {
+		ResolveEmbed("/pkg", []string{"testdata/*"}) catch {
+		case EmptyEmbed, InvalidEmbedName, EscapingEmbed, UnmatchedEmbed, EmbedIO:
+			[]EmbedRule{}
+		}
+	}
+	assert normal.Len() == 1
+	assert normal[0].Files == []string{"testdata/visible.txt"}
+
+	let all = with context { fs.Files: mem } {
+		ResolveEmbed("/pkg", []string{"all:testdata/*"}) catch {
+		case EmptyEmbed, InvalidEmbedName, EscapingEmbed, UnmatchedEmbed, EmbedIO:
+			[]EmbedRule{}
+		}
+	}
+	assert all.Len() == 1
+	assert all[0].Files == []string{"testdata/.hidden.txt", "testdata/visible.txt"}
+	assert strings.Contains(EmbedConfigJSON(all), ".hidden.txt")
+}

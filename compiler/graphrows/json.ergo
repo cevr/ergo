@@ -1,0 +1,227 @@
+import codegraph
+import json
+import slices
+import strconv
+
+// MalformedJSON is returned when graphrows JSON fails structural validation.
+type MalformedJSON {
+	Reason string,
+}
+
+type wireNode {
+	Id      int,
+	Kind    string,
+	Sub     string,
+	Parent  int,
+	Name    string,
+	Digest  string,
+	Subject int,
+	Lines   int,
+	File    int,
+	Offset  int,
+	Line    int,
+	Column  int,
+}
+
+type wireEdge {
+	Kind   string,
+	How    string,
+	From   int,
+	To     int,
+	File   int,
+	Offset int,
+	Line   int,
+	Column int,
+}
+
+type wireTable {
+	Version int,
+	Nodes   []wireNode,
+	Edges   []wireEdge,
+}
+
+// EncodeJSON serializes t into RFC 8259 JSON matching codegraph.Rows schema v2.
+func EncodeJSON(t Table) string {
+	let nn = NodeCount(t)
+	let mut nodes = slices.WithCapacity[wireNode](nn)
+	for i in 0..nn {
+		let n = NodeAt(t, uint32(i))
+		nodes = nodes.Append(wireNode{
+			Id:      int(n.ID),
+			Kind:    NodeKindName(n.Kind),
+			Sub:     SubKindName(n.Sub),
+			Parent:  encodeOptID(n.Parent),
+			Name:    Str(t, n.Name),
+			Digest:  Str(t, n.Digest),
+			Subject: encodeOptID(n.Subject),
+			Lines:   n.Lines,
+			File:    encodeOptID(n.Pos.File),
+			Offset:  n.Pos.Offset,
+			Line:    n.Pos.Line,
+			Column:  n.Pos.Column,
+		})
+	}
+	let ne = EdgeCount(t)
+	let mut edges = slices.WithCapacity[wireEdge](ne)
+	for i in 0..ne {
+		let e = EdgeAt(t, i)
+		edges = edges.Append(wireEdge{
+			Kind:   EdgeKindName(e.Kind),
+			How:    Str(t, e.How),
+			From:   encodeOptID(e.From),
+			To:     encodeOptID(e.To),
+			File:   encodeOptID(e.Pos.File),
+			Offset: e.Pos.Offset,
+			Line:   e.Pos.Line,
+			Column: e.Pos.Column,
+		})
+	}
+	let payload = wireTable{
+		Version: Version,
+		Nodes:   nodes,
+		Edges:   edges,
+	}
+	json.Encode(json.Codec[wireTable]{MaxBytes: 0, MaxDepth: 0}, payload)
+}
+
+// DecodeJSON parses an RFC 8259 JSON v2 graphrows document into a Table.
+func DecodeJSON(text string) Table fails MalformedJSON {
+	let c = json.Codec[wireTable]{MaxBytes: 0, MaxDepth: 0}
+	let w = json.Decode(c, text) catch {
+	case json.Malformed as m:
+		return MalformedJSON{Reason: "invalid JSON at \(m.Offset): \(m.Reason)"}
+	case _:
+		return MalformedJSON{Reason: "invalid graphrows wire schema"}
+	}
+	if w.Version != Version {
+		return MalformedJSON{Reason: "unsupported graphrows version " + strconv.Itoa(w.Version)}
+	}
+	let nCount = w.Nodes.Len()
+	let mut t = NewTable()
+	for i in 0..nCount {
+		let wn = w.Nodes[i]
+		if wn.Id != i {
+			return MalformedJSON{Reason: "node index mismatch at " + strconv.Itoa(i)}
+		}
+		let (k, okK) = ParseNodeKind(wn.Kind)
+		if !okK {
+			return MalformedJSON{Reason: "unknown node kind " + wn.Kind}
+		}
+		let (sk, okS) = ParseSubKind(wn.Sub)
+		if !okS {
+			return MalformedJSON{Reason: "unknown sub kind " + wn.Sub}
+		}
+		let parent = try decodeOptID(wn.Parent, nCount, "parent")
+		let subject = try decodeOptID(wn.Subject, nCount, "subject")
+		let fileID = try decodeOptID(wn.File, nCount, "file")
+		let _ = AddNode(&t, Node{
+			ID:      uint32(i),
+			Kind:    k,
+			Sub:     sk,
+			Parent:  parent,
+			Name:    Intern(&t, wn.Name),
+			Digest:  Intern(&t, wn.Digest),
+			Subject: subject,
+			Lines:   wn.Lines,
+			Pos:     Pos{
+				File:   fileID,
+				Offset: wn.Offset,
+				Line:   wn.Line,
+				Column: wn.Column,
+			},
+		})
+	}
+	for i in 0..w.Edges.Len() {
+		let we = w.Edges[i]
+		let (ek, okE) = ParseEdgeKind(we.Kind)
+		if !okE {
+			return MalformedJSON{Reason: "unknown edge kind " + we.Kind}
+		}
+		let fromID = try decodeOptID(we.From, nCount, "from")
+		let toID = try decodeOptID(we.To, nCount, "to")
+		let fileID = try decodeOptID(we.File, nCount, "edge.file")
+		AddEdge(&t, Edge{
+			Kind: ek,
+			How:  Intern(&t, we.How),
+			From: fromID,
+			To:   toID,
+			Pos:  Pos{
+				File:   fileID,
+				Offset: we.Offset,
+				Line:   we.Line,
+				Column: we.Column,
+			},
+		})
+	}
+	t
+}
+
+func encodeOptID(id uint32) int {
+	if id == NoNode {
+		return -1
+	}
+	int(id)
+}
+
+func decodeOptID(v int, limit int, field string) uint32 fails MalformedJSON {
+	if v == -1 {
+		return NoNode
+	}
+	if v < 0 || v >= limit {
+		return MalformedJSON{Reason: field + " node ID out of range: " + strconv.Itoa(v)}
+	}
+	uint32(v)
+}
+
+// JSONRoundtripPreservesTable verifies that EncodeJSON followed by DecodeJSON
+// preserves all nodes, edges, positions, digests, and NoNode (-1) sentinels.
+law JSONRoundtripPreservesTable(modName string, pkgName string, fnName string) {
+	let mut t = NewTable()
+	let m = AddNode(&t, Node{ID: uint32(0), Kind: KindModule, Sub: SubNone, Parent: NoNode, Name: Intern(&t, modName), Digest: Intern(&t, "d-mod"), Subject: NoNode, Lines: 0, Pos: NoPos()})
+	let p = AddNode(&t, Node{ID: uint32(0), Kind: KindPackage, Sub: SubNone, Parent: m, Name: Intern(&t, pkgName), Digest: Intern(&t, "d-pkg"), Subject: NoNode, Lines: 0, Pos: NoPos()})
+	let f = AddNode(&t, Node{ID: uint32(0), Kind: KindFile, Sub: SubNone, Parent: p, Name: Intern(&t, "main.ergo"), Digest: Intern(&t, "d-file"), Subject: NoNode, Lines: 10, Pos: NoPos()})
+	let d = AddNode(&t, Node{ID: uint32(0), Kind: KindDecl, Sub: SubFunc, Parent: p, Name: Intern(&t, fnName), Digest: Intern(&t, "d-fn"), Subject: NoNode, Lines: 3, Pos: Pos{File: f, Offset: 10, Line: 2, Column: 1}})
+	let tk = AddNode(&t, Node{ID: uint32(0), Kind: KindTask, Sub: SubTaskLawRun, Parent: p, Name: Intern(&t, "law:"+fnName), Digest: uint32(0), Subject: d, Lines: 0, Pos: Pos{File: f, Offset: 50, Line: 5, Column: 1}})
+	AddEdge(&t, Edge{Kind: EdgeContains, How: uint32(0), From: m, To: p, Pos: NoPos()})
+	AddEdge(&t, Edge{Kind: EdgeContains, How: uint32(0), From: p, To: f, Pos: NoPos()})
+	AddEdge(&t, Edge{Kind: EdgeContains, How: uint32(0), From: p, To: d, Pos: NoPos()})
+	AddEdge(&t, Edge{Kind: EdgeRequires, How: Intern(&t, "direct"), From: tk, To: d, Pos: Pos{File: f, Offset: 50, Line: 5, Column: 1}})
+
+	let canon = Sorted(t)
+	let encoded = EncodeJSON(canon)
+	let decoded = DecodeJSON(encoded) catch {
+	case MalformedJSON:
+		return false
+	}
+	let _ = codegraph.Decode(encoded) catch {
+	case codegraph.BadRows:
+		return false
+	}
+	FormatText(decoded) == FormatText(canon) && EncodeJSON(decoded) == encoded
+}
+
+test DecodeJSONRejectsBadInputs {
+	let mut hitBadVer = false
+	let _ = DecodeJSON("{\"version\":1,\"nodes\":[],\"edges\":[]}") catch {
+	case MalformedJSON:
+		hitBadVer = true
+		NewTable()
+	}
+	assert hitBadVer
+
+	let mut hitBadKind = false
+	let _ = DecodeJSON("{\"version\":2,\"nodes\":[{\"id\":0,\"kind\":\"bogus\",\"sub\":\"\",\"parent\":-1,\"name\":\"x\",\"digest\":\"\",\"subject\":-1,\"lines\":0,\"file\":-1,\"offset\":0,\"line\":0,\"column\":0}],\"edges\":[]}") catch {
+	case MalformedJSON:
+		hitBadKind = true
+		NewTable()
+	}
+	assert hitBadKind
+
+	let mut hitOOB = false
+	let _ = DecodeJSON("{\"version\":2,\"nodes\":[{\"id\":0,\"kind\":\"package\",\"sub\":\"\",\"parent\":9,\"name\":\"x\",\"digest\":\"\",\"subject\":-1,\"lines\":0,\"file\":-1,\"offset\":0,\"line\":0,\"column\":0}],\"edges\":[]}") catch {
+	case MalformedJSON:
+		hitOOB = true
+		NewTable()
+	}
+	assert hitOOB
+}

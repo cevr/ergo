@@ -1,0 +1,65 @@
+{
+  "about": "compiler/fingerprint mutants covering canonical framing, dependency cleanup, early cutoff, and interface projection",
+  "mutants": [
+    {
+      "name": "selfhost-build-fp-no-length-prefix",
+      "origin": "wf10 SELFHOST-BUILD",
+      "file": "compiler/fingerprint/fingerprint.ergo",
+      "decl": "OfInto",
+      "from": "\t\tbuf.WriteString(strconv.Itoa(p.Len()))\n\t\tbuf.WriteByte(':')\n",
+      "to": "\t\tbuf.WriteString(strconv.Itoa(0) + \":\")\n",
+      "rule": "OfInto must length-prefix every framed input so [ab, c] never collides with [a, bc].",
+      "killers": ["compiler/fingerprint:law:OfFramingPreventsBoundaryCollisions"]
+    },
+    {
+      "name": "selfhost-build-fp-unsorted-deps",
+      "origin": "wf10 SELFHOST-BUILD",
+      "file": "compiler/fingerprint/fingerprint.ergo",
+      "decl": "CleanDeps",
+      "from": "\tout = slices.SortFunc(out, func(a DepPrint, b DepPrint) int { strings.Compare(a.Path, b.Path) })\n",
+      "to": "",
+      "rule": "CleanDeps must canonically sort dependency fingerprints so permutation never alters ImplementationPrint or Reusable.",
+      "killers": ["compiler/fingerprint:law:CleanDepsIgnoresInputOrder"]
+    },
+    {
+      "name": "selfhost-build-fp-ignore-dep-interface",
+      "origin": "wf10 SELFHOST-BUILD",
+      "file": "compiler/fingerprint/fingerprint.ergo",
+      "decl": "Reusable",
+      "from": "\t\tif a.Deps[i].Path != b.Deps[i].Path || a.Deps[i].Interface != b.Deps[i].Interface {\n",
+      "to": "\t\tif a.Deps[i].Path != b.Deps[i].Path {\n",
+      "rule": "Reusable must check dependency interface digests, not path presence alone.",
+      "killers": ["compiler/fingerprint:law:ReusableTracksSourceAndDeps"]
+    },
+    {
+      "name": "selfhost-build-fp-cutoff-always-dirty",
+      "origin": "wf10 SELFHOST-BUILD",
+      "file": "compiler/fingerprint/fingerprint.ergo",
+      "decl": "ComputeDirty",
+      "from": "\t\tlet ifaceChanged = oldChangedID == NoPkg || prev.IfacePrints[int(oldChangedID)] != cur.IfacePrints[int(changedID)]\n",
+      "to": "\t\tlet ifaceChanged = oldChangedID == NoPkg || prev.SrcPrints[int(oldChangedID)] != cur.SrcPrints[int(changedID)]\n",
+      "rule": "ComputeDirty must cut off downstream propagation when a changed dependency leaves its exported interface digest unchanged.",
+      "killers": ["compiler/fingerprint:PkgTableCutoffPreservesDownstream"]
+    },
+    {
+      "name": "selfhost-build-fp-interface-leaks-private",
+      "origin": "wf10 SELFHOST-BUILD",
+      "file": "compiler/fingerprint/source.ergo",
+      "decl": "InterfaceText",
+      "from": "\t\t\tlet name = identString(p, fd.Name)\n\t\t\tif !isExported(name) {\n\t\t\t\tcontinue\n\t\t\t}\n",
+      "to": "\t\t\tlet name = identString(p, fd.Name)\n",
+      "rule": "InterfaceText must exclude unexported functions so private helper edits do not invalidate downstream interface fingerprints.",
+      "killers": ["compiler/fingerprint:law:InterfaceTextIgnoresPrivateAndBodies"]
+    },
+    {
+      "name": "selfhost-build-fp-include-func-body-in-iface",
+      "origin": "wf10 SELFHOST-BUILD",
+      "file": "compiler/fingerprint/source.ergo",
+      "decl": "InterfaceText",
+      "from": "\t\t\tlet end = optBodyStart(p, d, fd.Body)\n",
+      "to": "\t\t\tlet end = syntax.NodeEnd(p, d)\n",
+      "rule": "InterfaceText must slice exported functions before their bodies so implementation-only edits preserve the interface digest.",
+      "killers": ["compiler/fingerprint:law:InterfaceTextIgnoresPrivateAndBodies", "compiler/fingerprint:InterfaceAndSourceFingerprints"]
+    }
+  ]
+}

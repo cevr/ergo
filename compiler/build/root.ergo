@@ -1,0 +1,172 @@
+import filepath
+import fs
+import fstest
+import option
+import strconv
+import strings
+
+// DefaultCacheSubdir is the relative directory appended under XDG_CACHE_HOME or HOME/.cache.
+let DefaultCacheSubdir = "ergo/modules"
+
+// ParseProcStatusPPid parses the integer PPid field from Linux /proc/<pid>/status text.
+func ParseProcStatusPPid(statusText string) option.Option[int] {
+	let lines = strings.Split(statusText, "\n")
+	for i in 0..lines.Len() {
+		let line = lines[i]
+		if !strings.HasPrefix(line, "PPid:") {
+			continue
+		}
+		let raw = strings.TrimSpace(line[5:line.Len()])
+		let ppid = strconv.Atoi(raw) catch {
+		case strconv.Malformed, strconv.OutOfRange:
+			return option.None
+		}
+		return option.Some{Value: ppid}
+	}
+	option.None
+}
+
+// IsGoTestCmdline reports whether a NUL-delimited /proc/<pid>/cmdline buffer
+// identifies a `go test` driver or compiled `.test` binary.
+func IsGoTestCmdline(raw string) bool {
+	let parts = strings.Split(raw, "\x00")
+	if parts.Len() == 0 {
+		return false
+	}
+	let cmd = filepath.Base(parts[0])
+	if strings.HasSuffix(cmd, ".test") || strings.Contains(cmd, ".test.") {
+		return true
+	}
+	if cmd == "go" && parts.Len() > 1 && parts[1] == "test" {
+		return true
+	}
+	false
+}
+
+// UnderGoTest inspects /proc/<pid>/cmdline and /proc/<pid>/status ancestors via fs.Files
+// to detect whether the current process descends from a Go test runner.
+func UnderGoTest(startPid int) bool needs fs.Files {
+	let mut pid = startPid
+	for _ in 0..64 {
+		if pid <= 1 {
+			return false
+		}
+		let cmdPath = "/proc/" + strconv.Itoa(pid) + "/cmdline"
+		let cmd = fs.Files.ReadFile(cmdPath) catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+			""
+		}
+		if IsGoTestCmdline(cmd) {
+			return true
+		}
+		let statPath = "/proc/" + strconv.Itoa(pid) + "/status"
+		let st = fs.Files.ReadFile(statPath) catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+			return false
+		}
+		let next = match ParseProcStatusPPid(st) {
+		case option.Some{Value: p}:
+			p
+		case option.None:
+			return false
+		}
+		if next == pid || next <= 0 {
+			return false
+		}
+		pid = next
+	}
+	false
+}
+
+// ResolveRoot determines the build cache root from environ, falling back to cacheHome
+// or home/.cache only when not running under a Go test with RootVariable unset.
+func ResolveRoot(environ []string, home string, cacheHome string, underTest bool) string fails BuildError {
+	let explicit = lookupEnvVar(environ, RootVariable)
+	if explicit != "" {
+		return filepath.Clean(explicit)
+	}
+	if underTest {
+		return BuildError{Op: "root", Target: RootVariable, Reason: "refusing user cache under the Go test without " + RootVariable}
+	}
+	if cacheHome != "" {
+		return filepath.Clean(cacheHome + "/" + DefaultCacheSubdir)
+	}
+	if home != "" {
+		return filepath.Clean(home + "/.cache/" + DefaultCacheSubdir)
+	}
+	BuildError{Op: "root", Target: RootVariable, Reason: "cannot resolve module cache directory: neither " + RootVariable + ", XDG_CACHE_HOME, nor HOME is set"}
+}
+
+func lookupEnvVar(environ []string, name string) string {
+	let prefix = name + "="
+	for i in 0..environ.Len() {
+		if strings.HasPrefix(environ[i], prefix) {
+			return environ[i][prefix.Len():environ[i].Len()]
+		}
+	}
+	""
+}
+
+// ResolveRootRespectsPrivateVarAndTestGuard checks that explicit ERGO_CACHE wins even under test,
+// while unset ERGO_CACHE is refused when underTest is true.
+law ResolveRootRespectsPrivateVarAndTestGuard(dir string, home string) {
+	let safeDir = if dir == "" { "/tmp/private-cache" } else { strings.ReplaceAll(dir, "=", "_") }
+	let safeHome = if home == "" { "/home/user" } else { home }
+	let okPrivate = ResolveRoot([]string{RootVariable + "=" + safeDir}, safeHome, "", true) catch {
+	case BuildError:
+		return false
+	}
+	let mut refused = false
+	let _ = ResolveRoot([]string{}, safeHome, "", true) catch {
+	case BuildError:
+		refused = true
+		""
+	}
+	let okUser = ResolveRoot([]string{}, safeHome, "", false) catch {
+	case BuildError:
+		return false
+	}
+	okPrivate == filepath.Clean(safeDir) && refused && okUser == filepath.Clean(safeHome+"/.cache/"+DefaultCacheSubdir)
+}
+
+test ProcAncestorDetectsGoTest {
+	let mem = fstest.NewMemory()
+	mem.MkdirAll("/proc/100") catch {
+	case fs.Denied, fs.Failed:
+		assert false
+		return
+	}
+	mem.MkdirAll("/proc/50") catch {
+	case fs.Denied, fs.Failed:
+		assert false
+		return
+	}
+	mem.WriteFile("/proc/100/cmdline", "child-ergo\x00test\x00") catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		assert false
+		return
+	}
+	mem.WriteFile("/proc/100/status", "Name:\tchild\nPPid:\t50\n") catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		assert false
+		return
+	}
+	mem.WriteFile("/proc/50/cmdline", "/tmp/pkg.test\x00-test.v\x00") catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		assert false
+		return
+	}
+	mem.WriteFile("/proc/50/status", "Name:\tpkg.test\nPPid:\t1\n") catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		assert false
+		return
+	}
+	let detected = with context { fs.Files: mem } {
+		UnderGoTest(100)
+	}
+	assert detected
+	let clean = with context { fs.Files: mem } {
+		!UnderGoTest(1)
+	}
+	assert clean
+}

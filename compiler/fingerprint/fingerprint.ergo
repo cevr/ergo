@@ -1,0 +1,454 @@
+import hex
+import sha256
+import slices
+import strconv
+import strings
+
+// Schema is the canonical prefix tagging every content-addressed fingerprint.
+let Schema = "ergo-fingerprint-1"
+
+// NoPkg is the dense uint32 sentinel representing an absent package row.
+let NoPkg = uint32(4294967295)
+
+// DepPrint holds one dependency import path and its exported interface digest.
+type DepPrint {
+	Path      string,
+	Interface string,
+}
+
+// Package holds a package's path, canonical source digest, interface digest,
+// and dependency interface digests.
+type Package {
+	Path      string,
+	Source    string,
+	Interface string,
+	Deps      []DepPrint,
+}
+
+// PkgTable stores a collection of packages across flat SoA columns with dense
+// uint32 package IDs and open-addressed hash lookup.
+type PkgTable {
+	Paths       []string,
+	Sources     []string,
+	Interfaces  []string,
+	SrcPrints   []string,
+	IfacePrints []string,
+	ImplPrints  []string,
+	DepStart    []uint32,
+	DepLen      []uint32,
+	DepTarget   []uint32,
+	DepPath     []string,
+	DepIface    []string,
+	Buckets     []uint32,
+}
+
+// Scratch holds reusable buffers for canonical fingerprinting and bottom-up
+// cutoff propagation across incremental checks.
+type Scratch {
+	Parts []string,
+	Dirty []bool,
+	Queue []uint32,
+}
+
+// NewScratch allocates an empty reusable Scratch buffer set.
+func NewScratch() Scratch {
+	Scratch{
+		Parts: []string{},
+		Dirty: []bool{},
+		Queue: []uint32{},
+	}
+}
+
+// NewPkgTable creates an empty flat SoA package fingerprint table.
+func NewPkgTable() PkgTable {
+	PkgTable{
+		Paths:       []string{},
+		Sources:     []string{},
+		Interfaces:  []string{},
+		SrcPrints:   []string{},
+		IfacePrints: []string{},
+		ImplPrints:  []string{},
+		DepStart:    []uint32{},
+		DepLen:      []uint32{},
+		DepTarget:   []uint32{},
+		DepPath:     []string{},
+		DepIface:    []string{},
+		Buckets:     zeroBuckets(32),
+	}
+}
+
+// Of computes the length-framed SHA-256 hex digest of parts under Schema.
+func Of(parts []string) string {
+	let mut buf = strings.NewBuilder()
+	OfInto(parts, &buf)
+}
+
+// OfInto computes the length-framed SHA-256 hex digest of parts reusing buf.
+func OfInto(parts []string, buf mut strings.Builder) string {
+	buf.WriteString(Schema)
+	buf.WriteByte(byte(0))
+	for i in 0..parts.Len() {
+		let p = parts[i]
+		buf.WriteString(strconv.Itoa(p.Len()))
+		buf.WriteByte(':')
+		buf.WriteString(p)
+		buf.WriteByte(byte(0))
+	}
+	hex.Encode(sha256.Sum(buf.String()))
+}
+
+// CleanDeps sorts and deduplicates deps by import path while retaining the
+// latest digest for any repeated path.
+func CleanDeps(deps []DepPrint) []DepPrint {
+	if deps.Len() == 0 {
+		return []DepPrint{}
+	}
+	let mut out = slices.WithCapacity[DepPrint](deps.Len())
+	for i in 0..deps.Len() {
+		let d = deps[i]
+		if d.Path == "" {
+			continue
+		}
+		let mut replaced = false
+		for j in 0..out.Len() {
+			if out[j].Path == d.Path {
+				out[j] = d
+				replaced = true
+				break
+			}
+		}
+		if !replaced {
+			out = out.Append(d)
+		}
+	}
+	out = slices.SortFunc(out, func(a DepPrint, b DepPrint) int { strings.Compare(a.Path, b.Path) })
+	out
+}
+
+// Clean returns p with its dependency list canonically sorted and deduplicated.
+func Clean(p Package) Package {
+	Package{
+		Path:      p.Path,
+		Source:    p.Source,
+		Interface: p.Interface,
+		Deps:      CleanDeps(p.Deps),
+	}
+}
+
+// InterfacePrint returns the canonical digest of p's exported interface.
+func InterfacePrint(p Package) string {
+	Of([]string{"iface", p.Path, p.Interface})
+}
+
+// ImplementationPrint returns the canonical digest of p's source and sorted
+// dependency interface digests.
+func ImplementationPrint(p Package) string {
+	let c = Clean(p)
+	let mut parts = slices.WithCapacity[string](3 + 2*c.Deps.Len())
+	parts = parts.Append("impl")
+	parts = parts.Append(c.Path)
+	parts = parts.Append(c.Source)
+	for i in 0..c.Deps.Len() {
+		parts = parts.Append(c.Deps[i].Path)
+		parts = parts.Append(c.Deps[i].Interface)
+	}
+	Of(parts)
+}
+
+// ArtifactPrint returns a single content-addressed digest covering p's path,
+// source, exported interface, and canonical dependency interfaces.
+func ArtifactPrint(p Package) string {
+	let c = Clean(p)
+	let mut parts = slices.WithCapacity[string](4 + 2*c.Deps.Len())
+	parts = parts.Append("artifact")
+	parts = parts.Append(c.Path)
+	parts = parts.Append(c.Source)
+	parts = parts.Append(c.Interface)
+	for i in 0..c.Deps.Len() {
+		parts = parts.Append(c.Deps[i].Path)
+		parts = parts.Append(c.Deps[i].Interface)
+	}
+	Of(parts)
+}
+
+// Reusable reports whether a previously compiled package artifact prev can be
+// reused for cur without recompiling.
+func Reusable(prev Package, cur Package) bool {
+	let a = Clean(prev)
+	let b = Clean(cur)
+	if a.Path != b.Path || a.Source != b.Source || a.Interface != b.Interface {
+		return false
+	}
+	if a.Deps.Len() != b.Deps.Len() {
+		return false
+	}
+	for i in 0..a.Deps.Len() {
+		if a.Deps[i].Path != b.Deps[i].Path || a.Deps[i].Interface != b.Deps[i].Interface {
+			return false
+		}
+	}
+	true
+}
+
+// AddPackage inserts p into t using flat SoA rows and returns its dense uint32 ID.
+func AddPackage(t mut PkgTable, p Package) uint32 {
+	let c = Clean(p)
+	let existing = FindPackage(*t, c.Path)
+	if existing != NoPkg {
+		let idx = int(existing)
+		t.Sources[idx] = c.Source
+		t.Interfaces[idx] = c.Interface
+		t.SrcPrints[idx] = Of([]string{"src", c.Path, c.Source})
+		t.IfacePrints[idx] = InterfacePrint(c)
+		t.ImplPrints[idx] = ImplementationPrint(c)
+		appendDeps(t, idx, c.Deps)
+		return existing
+	}
+	let id = uint32(t.Paths.Len())
+	t.Paths = t.Paths.Append(c.Path)
+	t.Sources = t.Sources.Append(c.Source)
+	t.Interfaces = t.Interfaces.Append(c.Interface)
+	t.SrcPrints = t.SrcPrints.Append(Of([]string{"src", c.Path, c.Source}))
+	t.IfacePrints = t.IfacePrints.Append(InterfacePrint(c))
+	t.ImplPrints = t.ImplPrints.Append(ImplementationPrint(c))
+	t.DepStart = t.DepStart.Append(uint32(0))
+	t.DepLen = t.DepLen.Append(uint32(0))
+	appendDeps(t, int(id), c.Deps)
+	insertPathBucket(t, c.Path, id)
+	id
+}
+
+// FindPackage looks up path in t and returns its dense uint32 ID or NoPkg.
+func FindPackage(t PkgTable, path string) uint32 {
+	if path == "" || t.Buckets.Len() == 0 {
+		return NoPkg
+	}
+	let mask = uint32(t.Buckets.Len() - 1)
+	let mut slot = hashStr(path) & mask
+	for _ in 0..t.Buckets.Len() {
+		let v = t.Buckets[int(slot)]
+		if v == uint32(0) {
+			return NoPkg
+		}
+		let idx = v - uint32(1)
+		if t.Paths[int(idx)] == path {
+			return idx
+		}
+		slot = (slot + uint32(1)) & mask
+	}
+	NoPkg
+}
+
+// SealTable resolves dependency paths in t to dense target package IDs.
+func SealTable(t mut PkgTable) {
+	for i in 0..t.DepPath.Len() {
+		t.DepTarget[i] = FindPackage(*t, t.DepPath[i])
+	}
+}
+
+// ComputeDirty marks which packages in cur cannot reuse their corresponding
+// entry in prev, propagating bottom-up only across changed interface digests.
+func ComputeDirty(prev PkgTable, cur PkgTable, sc mut Scratch) []bool {
+	let n = cur.Paths.Len()
+	sc.Dirty = resizeBoolSlice(sc.Dirty, n, false)
+	sc.Queue = sc.Queue[:0]
+	for i in 0..n {
+		let curID = uint32(i)
+		let oldID = FindPackage(prev, cur.Paths[i])
+		if oldID == NoPkg {
+			sc.Dirty[i] = true
+			sc.Queue = sc.Queue.Append(curID)
+			continue
+		}
+		let oi = int(oldID)
+		if prev.SrcPrints[oi] != cur.SrcPrints[i] || prev.IfacePrints[oi] != cur.IfacePrints[i] || prev.ImplPrints[oi] != cur.ImplPrints[i] {
+			sc.Dirty[i] = true
+			sc.Queue = sc.Queue.Append(curID)
+		}
+	}
+	let mut head = 0
+	for head < sc.Queue.Len() {
+		let changedID = sc.Queue[head]
+		head = head + 1
+		let oldChangedID = FindPackage(prev, cur.Paths[int(changedID)])
+		let ifaceChanged = oldChangedID == NoPkg || prev.IfacePrints[int(oldChangedID)] != cur.IfacePrints[int(changedID)]
+		if !ifaceChanged {
+			continue
+		}
+		for i in 0..n {
+			if sc.Dirty[i] {
+				continue
+			}
+			let start = int(cur.DepStart[i])
+			let count = int(cur.DepLen[i])
+			for k in 0..count {
+				if cur.DepTarget[start+k] == changedID {
+					sc.Dirty[i] = true
+					sc.Queue = sc.Queue.Append(uint32(i))
+					break
+				}
+			}
+		}
+	}
+	sc.Dirty
+}
+
+func appendDeps(t mut PkgTable, idx int, deps []DepPrint) {
+	let start = uint32(t.DepPath.Len())
+	t.DepStart[idx] = start
+	t.DepLen[idx] = uint32(deps.Len())
+	for i in 0..deps.Len() {
+		t.DepPath = t.DepPath.Append(deps[i].Path)
+		t.DepIface = t.DepIface.Append(deps[i].Interface)
+		t.DepTarget = t.DepTarget.Append(NoPkg)
+	}
+}
+
+func resizeBoolSlice(xs []bool, n int, fill bool) []bool {
+	let mut out = xs[:0]
+	for _ in 0..n {
+		out = out.Append(fill)
+	}
+	out
+}
+
+func zeroBuckets(n int) []uint32 {
+	let mut out = slices.WithCapacity[uint32](n)
+	for _ in 0..n {
+		out = out.Append(uint32(0))
+	}
+	out
+}
+
+func hashStr(s string) uint32 {
+	let mut h = uint32(2166136261)
+	for i in 0..s.Len() {
+		h = (h ^ uint32(s[i])) * uint32(16777619)
+	}
+	h
+}
+
+func insertPathBucket(t mut PkgTable, path string, id uint32) {
+	if t.Paths.Len()*2 >= t.Buckets.Len() {
+		let newCap = if t.Buckets.Len() < 32 { 32 } else { t.Buckets.Len() * 2 }
+		t.Buckets = zeroBuckets(newCap)
+		for i in 0..t.Paths.Len() {
+			placePathBucket(t, t.Paths[i], uint32(i))
+		}
+		return
+	}
+	placePathBucket(t, path, id)
+}
+
+func placePathBucket(t mut PkgTable, path string, id uint32) {
+	let mask = uint32(t.Buckets.Len() - 1)
+	let mut slot = hashStr(path) & mask
+	for _ in 0..t.Buckets.Len() {
+		if t.Buckets[int(slot)] == uint32(0) {
+			t.Buckets[int(slot)] = id + uint32(1)
+			return
+		}
+		slot = (slot + uint32(1)) & mask
+	}
+}
+
+// OfFramingPreventsBoundaryCollisions checks that length-prefixed framing
+// distinguishes boundary splits such as ["ab", "c"] from ["a", "bc"].
+law OfFramingPreventsBoundaryCollisions(a string, b string, c string) {
+	let x = Of([]string{a + b, c})
+	let y = Of([]string{a, b + c})
+	let splitOk = if a+b == a && c == b+c { x == y } else { x != y }
+	let nulFramed = Of([]string{"a\x00" + "0:b", "c"}) != Of([]string{"a", "b\x00" + "0:c"})
+	splitOk && nulFramed
+}
+
+// CleanDepsIgnoresInputOrder checks that package implementation and artifact
+// prints are invariant to the permutation of dependency entries.
+law CleanDepsIgnoresInputOrder(p1 string, i1 string, p2 string, i2 string, src string) {
+	let pathA = if p1 == "" { "a" } else { p1 }
+	let pathB = if p2 == "" || p2 == pathA { pathA + "/sub" } else { p2 }
+	let d1 = DepPrint{Path: pathA, Interface: i1}
+	let d2 = DepPrint{Path: pathB, Interface: i2}
+	let pkg1 = Package{Path: "app", Source: src, Interface: "iface", Deps: []DepPrint{d1, d2}}
+	let pkg2 = Package{Path: "app", Source: src, Interface: "iface", Deps: []DepPrint{d2, d1}}
+	ImplementationPrint(pkg1) == ImplementationPrint(pkg2) && ArtifactPrint(pkg1) == ArtifactPrint(pkg2) && Reusable(pkg1, pkg2)
+}
+
+// ReusableTracksSourceAndDeps checks that Reusable rejects any source edit or
+// dependency interface edit while accepting order permutations.
+law ReusableTracksSourceAndDeps(src1 string, src2 string, depIface1 string, depIface2 string) {
+	let base = Package{
+		Path:      "app",
+		Source:    src1,
+		Interface: "api",
+		Deps:      []DepPrint{DepPrint{Path: "dep", Interface: depIface1}},
+	}
+	let modSrc = Package{
+		Path:      "app",
+		Source:    src2,
+		Interface: "api",
+		Deps:      []DepPrint{DepPrint{Path: "dep", Interface: depIface1}},
+	}
+	let modDep = Package{
+		Path:      "app",
+		Source:    src1,
+		Interface: "api",
+		Deps:      []DepPrint{DepPrint{Path: "dep", Interface: depIface2}},
+	}
+	let okSrc = (src1 == src2) == Reusable(base, modSrc)
+	let okDep = (depIface1 == depIface2) == Reusable(base, modDep)
+	okSrc && okDep
+}
+
+test PkgTableCutoffPreservesDownstream {
+	let leaf1 = Package{Path: "leaf", Source: "s1", Interface: "i1", Deps: []DepPrint{}}
+	let mid1 = Package{Path: "mid", Source: "ms1", Interface: "mi1", Deps: []DepPrint{DepPrint{Path: "leaf", Interface: InterfacePrint(leaf1)}}}
+	let app1 = Package{Path: "app", Source: "as1", Interface: "ai1", Deps: []DepPrint{DepPrint{Path: "mid", Interface: InterfacePrint(mid1)}}}
+
+	let mut prev = NewPkgTable()
+	let _ = AddPackage(&prev, leaf1)
+	let _ = AddPackage(&prev, mid1)
+	let _ = AddPackage(&prev, app1)
+	SealTable(&prev)
+
+	let leaf2 = Package{Path: "leaf", Source: "s2", Interface: "i1", Deps: []DepPrint{}}
+	let mid2 = Package{Path: "mid", Source: "ms1", Interface: "mi1", Deps: []DepPrint{DepPrint{Path: "leaf", Interface: InterfacePrint(leaf2)}}}
+	let app2 = Package{Path: "app", Source: "as1", Interface: "ai1", Deps: []DepPrint{DepPrint{Path: "mid", Interface: InterfacePrint(mid2)}}}
+
+	let mut cur = NewPkgTable()
+	let idLeaf = AddPackage(&cur, leaf2)
+	let idMid = AddPackage(&cur, mid2)
+	let idApp = AddPackage(&cur, app2)
+	SealTable(&cur)
+
+	let mut sc = NewScratch()
+	let dirty = ComputeDirty(prev, cur, &sc)
+	assert dirty[int(idLeaf)]
+	assert !dirty[int(idMid)]
+	assert !dirty[int(idApp)]
+
+	let leaf3 = Package{Path: "leaf", Source: "s2", Interface: "i3", Deps: []DepPrint{}}
+	let mut cur2 = NewPkgTable()
+	let idLeaf2 = AddPackage(&cur2, leaf3)
+	let idMid2 = AddPackage(&cur2, mid2)
+	let idApp2 = AddPackage(&cur2, app2)
+	SealTable(&cur2)
+
+	let dirty2 = ComputeDirty(prev, cur2, &sc)
+	assert dirty2[int(idLeaf2)]
+	assert dirty2[int(idMid2)]
+	assert !dirty2[int(idApp2)]
+
+	let mid3 = Package{Path: "mid", Source: "ms1", Interface: "mi3", Deps: []DepPrint{DepPrint{Path: "leaf", Interface: InterfacePrint(leaf3)}}}
+	let app3 = Package{Path: "app", Source: "as1", Interface: "ai1", Deps: []DepPrint{DepPrint{Path: "mid", Interface: InterfacePrint(mid3)}}}
+	let mut cur3 = NewPkgTable()
+	let idLeaf3 = AddPackage(&cur3, leaf3)
+	let idMid3 = AddPackage(&cur3, mid3)
+	let idApp3 = AddPackage(&cur3, app3)
+	SealTable(&cur3)
+
+	let dirty3 = ComputeDirty(prev, cur3, &sc)
+	assert dirty3[int(idLeaf3)]
+	assert dirty3[int(idMid3)]
+	assert dirty3[int(idApp3)]
+}
