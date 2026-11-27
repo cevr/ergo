@@ -172,10 +172,10 @@ func (r *Report) fix(load func() (checked, bool, error), names map[string]map[st
 		}
 	}
 	for _, d := range c.pkg.LawExportedHelpers {
-		// Only a laws file's exported helpers were written for its laws
-		// (laws.ergo, tree_laws.ergo); elsewhere a function only tests use
-		// is still the package's surface.
-		if !strings.Contains(strings.ToLower(filepath.Base(fileOf[d])), "law") {
+		// Only a laws or tests file's exported helpers were written for
+		// its laws and tests; elsewhere a function only tests use is still
+		// the package's surface.
+		if !check.IsLawOrTestFile(fileOf[d]) {
 			continue
 		}
 		outside := false
@@ -250,9 +250,13 @@ func (r *Report) apply(dir string, pkg *check.Package, files []*syntax.File, wri
 		return fmt.Errorf("%s: %v", dir, err)
 	}
 	for _, m := range res.Moves {
-		line := fmt.Sprintf("moved law %s from %s to %s", m.Law, filepath.Join(dir, m.From), filepath.Join(dir, m.To))
+		kind := m.Kind
+		if kind == "" {
+			kind = "law"
+		}
+		line := fmt.Sprintf("moved %s %s from %s to %s", kind, m.Law, filepath.Join(dir, m.From), filepath.Join(dir, m.To))
 		if m.From == m.To {
-			line = fmt.Sprintf("law %s in %s: moved its helpers beside it", m.Law, filepath.Join(dir, m.From))
+			line = fmt.Sprintf("%s %s in %s: moved its helpers beside it", kind, m.Law, filepath.Join(dir, m.From))
 		}
 		if len(m.Helpers) > 0 {
 			line += " with " + strings.Join(m.Helpers, ", ")
@@ -271,7 +275,7 @@ func (r *Report) apply(dir string, pkg *check.Package, files []*syntax.File, wri
 		renamed[from] = true
 	}
 	for _, u := range res.Unplaced {
-		r.Unplaced = append(r.Unplaced, fmt.Sprintf("law %s in %s names nothing in its package; state it in the package it is about", u, dir))
+		r.Unplaced = append(r.Unplaced, fmt.Sprintf("%s in %s names nothing in its package; state it in the package it is about", u, dir))
 	}
 	if write {
 		if err := writeFiles(dir, res.Files); err != nil {

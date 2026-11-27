@@ -341,6 +341,21 @@ func (p *Package) Exported() []Object {
 	return out
 }
 
+// DeclaresName reports whether name is declared in p's package scope or
+// named contexts.
+func (p *Package) DeclaresName(name string) bool {
+	if p == nil {
+		return false
+	}
+	if p.Scope != nil {
+		if _, ok := p.Scope.names[name]; ok {
+			return true
+		}
+	}
+	_, ok := p.Contexts[name]
+	return ok
+}
+
 // Lookup returns the object bound directly to name in p's package scope
 // (including re-exported aliases), or nil if none.
 func (p *Package) Lookup(name string) Object {
