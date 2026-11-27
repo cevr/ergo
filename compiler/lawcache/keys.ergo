@@ -1,0 +1,256 @@
+import compiler/cachekey
+import filepath
+import fs
+import fstest
+import hex
+import sha256
+import strconv
+import strings
+
+// Version names the law verdict store's key and text encoding.
+let Version = "ergo-lawcache/2"
+
+// Key computes the length-prefixed SHA-256 verdict key for parts.
+func Key(parts []string) string {
+	let h = sha256.New()
+	h.Write(strconv.Itoa(Version.Len()) + ":" + Version)
+	for p in parts {
+		h.Write(strconv.Itoa(p.Len()) + ":" + p)
+	}
+	hex.Encode(h.Digest())
+}
+
+// KeyInto computes the length-prefixed SHA-256 verdict key using buf as scratch storage.
+func KeyInto(buf mut []byte, parts []string) string {
+	*buf = (*buf)[0:0]
+	*buf = strconv.AppendInt(*buf, int64(Version.Len()), 10)
+	*buf = (*buf).Append(':')
+	*buf = (*buf).AppendString(Version)
+	for p in parts {
+		*buf = strconv.AppendInt(*buf, int64(p.Len()), 10)
+		*buf = (*buf).Append(':')
+		*buf = (*buf).AppendString(p)
+	}
+	hex.Encode(sha256.Sum(strings.FromBytes(*buf)))
+}
+
+// Framed computes the SHA-256 hex digest of parts framed with "<len>:<part>\x00".
+func Framed(parts []string) string {
+	let h = sha256.New()
+	for p in parts {
+		h.Write(strconv.Itoa(p.Len()) + ":" + p + "\x00")
+	}
+	hex.Encode(h.Digest())
+}
+
+// FramedInto computes Framed using buf as reusable scratch storage.
+func FramedInto(buf mut []byte, parts []string) string {
+	*buf = (*buf)[0:0]
+	for p in parts {
+		*buf = strconv.AppendInt(*buf, int64(p.Len()), 10)
+		*buf = (*buf).Append(':')
+		*buf = (*buf).AppendString(p)
+		*buf = (*buf).Append(0)
+	}
+	hex.Encode(sha256.Sum(strings.FromBytes(*buf)))
+}
+
+// TestKeySpec describes an ergo test invocation whose cached verdict key is computed.
+type TestKeySpec {
+	Compiler string,
+	Ledger   string,
+	Limit    uint64,
+	Args     []string,
+	Environ  []string,
+	Skip     string,
+}
+
+// TestResultKey computes the cache key for spec when Compiler identity is non-empty.
+func TestResultKey(spec TestKeySpec) string {
+	if spec.Compiler == "" {
+		return ""
+	}
+	cachekey.TestResult(spec.Compiler, spec.Ledger, spec.Limit, spec.Args, spec.Environ, spec.Skip)
+}
+
+// ActionVerdictKey computes a verdict store key anchored to a package action key.
+func ActionVerdictKey(pkgActionKey string, verb string, target string) string {
+	Key([]string{"action-verdict/1", pkgActionKey, verb, target})
+}
+
+// Within rewrites path relative to module root as "@" or "@/rel", leaving outside paths unchanged.
+func Within(root string, path string) string {
+	if root == "" {
+		return path
+	}
+	let rel = filepath.Rel(root, path) catch {
+	case filepath.NotRelative:
+		return path
+	}
+	if rel == ".." || strings.HasPrefix(rel, "../") || filepath.IsAbs(rel) {
+		return path
+	}
+	if rel == "." {
+		return "@"
+	}
+	"@/" + rel
+}
+
+// Unroot restores a path rewritten by Within under root, leaving other paths unchanged.
+func Unroot(root string, part string) string {
+	if root == "" {
+		return part
+	}
+	if part == "@" {
+		return root
+	}
+	if strings.HasPrefix(part, "@/") {
+		return filepath.Join([]string{root, part[2:]})
+	}
+	part
+}
+
+// NamesResolved reports whether text mentions root directly or through its resolved symlink path.
+func NamesResolved(text string, root string, resolved string) bool {
+	if root == "" {
+		return false
+	}
+	if strings.Contains(text, root) {
+		return true
+	}
+	resolved != "" && resolved != root && strings.Contains(text, resolved)
+}
+
+// Names reports whether text mentions root or its symlink-resolved path on host h.
+func Names(h fs.Host, text string, root string) bool {
+	if root == "" {
+		return false
+	}
+	if strings.Contains(text, root) {
+		return true
+	}
+	let resolved = fs.Resolve(h, root) catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		""
+	}
+	NamesResolved(text, root, resolved)
+}
+
+// NamesInFolder reports whether text mentions root or its resolved target anchored under folder.
+func NamesInFolder(h fs.Host, folder string, text string, root string) bool {
+	if root == "" {
+		return false
+	}
+	if strings.Contains(text, root) {
+		return true
+	}
+	let raw = fs.Resolve(h, root) catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		""
+	}
+	let resolved = if raw != "" && folder != "" && !filepath.IsAbs(raw) {
+		filepath.Join([]string{folder, raw})
+	} else {
+		raw
+	}
+	NamesResolved(text, root, resolved)
+}
+
+// KeyMatchesCacheKey verifies that Key, Framed, and TestResultKey agree with compiler/cachekey.
+law KeyMatchesCacheKey(parts []string, environ []string, skip string, limit uint64) {
+	let mut buf = []byte{}
+	let k1 = Key(parts)
+	let k2 = KeyInto(&buf, parts)
+	let f1 = Framed(parts)
+	let f2 = FramedInto(&buf, parts)
+	let t1 = TestResultKey(TestKeySpec{Compiler: "go1.27", Ledger: "ledger", Limit: limit, Args: parts, Environ: environ, Skip: skip})
+	let t2 = cachekey.TestResult("go1.27", "ledger", limit, parts, environ, skip)
+	k1 == cachekey.LawKey(parts) && k1 == k2 && f1 == cachekey.Framed(parts) && f1 == f2 && t1 == t2 && ActionVerdictKey(k1, "check", "pkg") != ActionVerdictKey(k1, "lint", "pkg")
+}
+
+// KeyPartsAreFramed verifies that length-prefixed framing prevents split/join key collisions.
+law KeyPartsAreFramed(a string, b string) {
+	let joined = []string{a + ":" + b}
+	let split = []string{a, ":" + b}
+	let emptyAdded = []string{a, b, ""}
+	let pair = []string{a, b}
+	Key(joined) != Key(split) && Key(pair) != Key(emptyAdded) && Framed(joined) != Framed(split) && Framed(pair) != Framed(emptyAdded)
+}
+
+// WithinUnrootRoundTrips verifies root rewriting round-trips and isolates sibling and parent paths.
+law WithinUnrootRoundTrips(segA string, segB string) {
+	let cleanA = sanitizeSeg(segA)
+	let cleanB = sanitizeSeg(segB)
+	let rel = filepath.Join([]string{cleanA, cleanB})
+	let root1 = "/w/one"
+	let root2 = "/srv/two/three"
+	let below1 = filepath.Join([]string{root1, rel})
+	let below2 = filepath.Join([]string{root2, rel})
+	let beside = root1 + "x/" + rel
+	let parent = filepath.Dir(root1)
+	let w1 = Within(root1, below1)
+	let w2 = Within(root2, below2)
+	let roundBelow = Unroot(root1, w1) == below1
+	let roundRoot = Unroot(root1, Within(root1, root1)) == root1
+	let roundBeside = Unroot(root1, Within(root1, beside)) == beside
+	let roundParent = Unroot(root1, Within(root1, parent)) == parent
+	let portable = w1 == w2 && strings.HasPrefix(w1, "@/")
+	let isolated = Within(root1, beside) == beside && Within(root1, parent) == parent && Within("", below1) == below1 && Unroot("", w1) == w1
+	roundBelow && roundRoot && roundBeside && roundParent && portable && isolated
+}
+
+func sanitizeSeg(s string) string {
+	let mut out = []byte{}
+	for i in 0..s.Len() {
+		let c = s[i]
+		let ok = (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9')
+		if ok {
+			out = out.Append(c)
+		}
+	}
+	if out.Len() == 0 {
+		return "seg"
+	}
+	strings.FromBytes(out)
+}
+
+type symlinkProbe {
+	Passed() bool,
+}
+
+type realSymlinkProbe { ok bool } implements symlinkProbe
+
+func Passed(p realSymlinkProbe) bool { p.ok }
+
+func buildSymlinkProbe() symlinkProbe needs fstest.TestAmbient {
+	let folder = fstest.TestFolder()
+	let h = fs.NewTestHost()
+	fs.MkdirAll(h, "real") catch {
+	case fs.Denied, fs.Failed:
+		return realSymlinkProbe{ok: false}
+	}
+	fs.Symlink(h, "real", "link") catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		return realSymlinkProbe{ok: false}
+	}
+	let realPath = filepath.Join([]string{folder, "real"})
+	let linkPath = filepath.Join([]string{folder, "link"})
+	let ok1 = NamesInFolder(h, folder, "at "+linkPath+"/x.ergo", linkPath)
+	let ok2 = NamesInFolder(h, folder, "at "+realPath+"/x.ergo", linkPath)
+	let ok3 = !NamesInFolder(h, folder, "at @/x.ergo", linkPath)
+	let ok4 = !Names(h, "anything", "")
+	realSymlinkProbe{ok: ok1 && ok2 && ok3 && ok4}
+}
+
+let onSymlinkProbe = context needs fstest.TestAmbient {
+	symlinkProbe: buildSymlinkProbe(),
+}
+
+test WithinAndNamesWithSymlinks {
+	with onSymlinkProbe {
+		assert symlinkProbe.Passed()
+	}
+	assert NamesResolved("at /a/b/x.ergo", "/a/b", "/x/y")
+	assert NamesResolved("at /x/y/x.ergo", "/a/b", "/x/y")
+	assert !NamesResolved("at @/x.ergo", "/a/b", "/x/y")
+}

@@ -1,0 +1,194 @@
+import option
+import strconv
+import strings
+
+// Verdict captures a passing law run's evidence, case count, and display text.
+type Verdict {
+	Evidence string,
+	Cases    uint32,
+	Text     string,
+}
+
+// EncodeVerdict serializes v into its tab-separated store representation.
+func EncodeVerdict(v Verdict) string {
+	v.Evidence + "\t" + strconv.Itoa(int(v.Cases)) + "\t" + strconv.Quote(v.Text)
+}
+
+// DecodeVerdict parses an encoded verdict record from store text.
+func DecodeVerdict(s string) option.Option[Verdict] {
+	let parts = strings.SplitN(s, "\t", 3)
+	if parts.Len() != 3 || (parts[0] != "proved" && parts[0] != "tested") {
+		return option.None
+	}
+	let n = strconv.Atoi(parts[1]) catch {
+	case strconv.Malformed, strconv.OutOfRange:
+		return option.None
+	}
+	if n < 0 {
+		return option.None
+	}
+	let text = strconv.Unquote(parts[2]) catch {
+	case strconv.Malformed:
+		return option.None
+	}
+	option.Some[Verdict]{Value: Verdict{Evidence: parts[0], Cases: uint32(n), Text: text}}
+}
+
+// Evaluated constructs a canonical Verdict for a completed law evaluation.
+func Evaluated(evidence string, cases uint32) Verdict {
+	if evidence == "proved" {
+		return Verdict{Evidence: "proved", Cases: cases, Text: "proved: all \(cases) cases"}
+	}
+	Verdict{Evidence: "tested", Cases: cases, Text: "\(cases) cases"}
+}
+
+// FromLine parses a single fresh runner ok line `ok LABEL (TEXT)` into a Verdict.
+func FromLine(label string, line string) option.Option[Verdict] {
+	let prefix = "ok " + label + " ("
+	if !strings.HasPrefix(line, prefix) || !strings.HasSuffix(line, ")") || strings.HasSuffix(line, ") (cached)") {
+		return option.None
+	}
+	let text = strings.TrimSuffix(strings.TrimPrefix(line, prefix), ")")
+	let evidence = if strings.HasPrefix(text, "proved") { "proved" } else { "tested" }
+	let trimmed = strings.TrimPrefix(strings.TrimPrefix(strings.TrimPrefix(text, "proved: "), "tested: "), "all ")
+	let cases = leadingCount(trimmed)
+	option.Some[Verdict]{Value: Verdict{Evidence: evidence, Cases: cases, Text: text}}
+}
+
+func leadingCount(s string) uint32 {
+	let mut i = 0
+	for i < s.Len() && s[i] >= '0' && s[i] <= '9' {
+		i = i + 1
+	}
+	if i == 0 {
+		return uint32(0)
+	}
+	let n = strconv.Atoi(s[0:i]) catch {
+	case strconv.Malformed, strconv.OutOfRange:
+		return uint32(0)
+	}
+	if n < 0 {
+		return uint32(0)
+	}
+	uint32(n)
+}
+
+// FromLines parses an ok line and any continuing blank or tab-indented witness lines.
+func FromLines(label string, lines []string) (option.Option[Verdict], int) {
+	if lines.Len() == 0 {
+		return (option.None, 0)
+	}
+	let base = match FromLine(label, lines[0]) {
+	case option.Some{Value: v}:
+		v
+	case option.None:
+		return (option.None, 1)
+	}
+	let mut n = 1
+	for n < lines.Len() && (lines[n] == "" || strings.HasPrefix(lines[n], "\t")) {
+		n = n + 1
+	}
+	let mut end = n
+	for end > 1 && lines[end-1] == "" {
+		end = end - 1
+	}
+	let mut out = base
+	if end > 1 {
+		out.Text = out.Text + "\n" + strings.Join(lines[1:end], "\n")
+	}
+	(option.Some[Verdict]{Value: out}, n)
+}
+
+// FormatLine formats a cached Verdict line with optional trailing witness lines.
+func FormatLine(v Verdict, label string) string {
+	match strings.Cut(v.Text, "\n") {
+	case option.Some{Value: h}:
+		let tail = if h.After != "" { "\n" + h.After } else { "" }
+		"ok " + label + " (" + h.Before + ") (cached)" + tail
+	case option.None:
+		"ok " + label + " (" + v.Text + ") (cached)"
+	}
+}
+
+// Supersedes reports whether candidate strictly improves upon existing verdict strength.
+func Supersedes(candidate Verdict, existing Verdict) bool {
+	let cProved = candidate.Evidence == "proved"
+	let eProved = existing.Evidence == "proved"
+	if cProved && !eProved {
+		return true
+	}
+	if !cProved && eProved {
+		return false
+	}
+	if candidate.Cases > existing.Cases {
+		return true
+	}
+	if candidate.Cases < existing.Cases {
+		return false
+	}
+	candidate.Text != "" && existing.Text == ""
+}
+
+// IsFailureText reports whether text contains any failure line starting with "FAIL".
+func IsFailureText(text string) bool {
+	for line in strings.Split(text, "\n") {
+		if strings.HasPrefix(line, "FAIL") {
+			return true
+		}
+	}
+	false
+}
+
+// VerdictEncodeDecodeRoundTrips verifies EncodeVerdict and DecodeVerdict invert each other.
+law VerdictEncodeDecodeRoundTrips(proved bool, rawCases uint32, witness string) {
+	let cases = rawCases % uint32(100000)
+	let ev = if proved { "proved" } else { "tested" }
+	let mut v = Evaluated(ev, cases)
+	if witness != "" {
+		v.Text = v.Text + "\n\t" + strings.ReplaceAll(witness, "\r", "")
+	}
+	let enc = EncodeVerdict(v)
+	let dec = DecodeVerdict(enc)
+	dec == (option.Some[Verdict]{Value: v}) && DecodeVerdict("refuted\t1\t\"x\"") == option.None && DecodeVerdict("tested\t-1\t\"x\"") == option.None
+}
+
+// CachedLineNotParsedAsFreshRun verifies cached lines are ignored by FromLine.
+law CachedLineNotParsedAsFreshRun(label string, cases uint32, proved bool) {
+	let ev = if proved { "proved" } else { "tested" }
+	let v = Evaluated(ev, cases)
+	let cached = FormatLine(v, label)
+	let fresh = "ok " + label + " (" + v.Text + ")"
+	let parsedFresh = FromLine(label, fresh)
+	FromLine(label, cached) == option.None && parsedFresh == (option.Some[Verdict]{Value: v})
+}
+
+// ProvedSupersedesTested verifies proved verdicts outrank tested ones and higher case counts win.
+law ProvedSupersedesTested(a uint32, b uint32) {
+	let p = Evaluated("proved", a)
+	let t = Evaluated("tested", b)
+	let low = Evaluated("tested", uint32(10))
+	let high = Evaluated("tested", uint32(100))
+	Supersedes(p, t) && !Supersedes(t, p) && Supersedes(high, low) && !Supersedes(low, high)
+}
+
+test VerdictLinesAndWitnesses {
+	let lines = []string{
+		"ok law AddZero (tested: all 12 cases)",
+		"\twitness a=0",
+		"",
+		"ok law Other (10 cases)",
+	}
+	let (got, readN) = FromLines("law AddZero", lines)
+	assert readN == 3
+	match got {
+	case option.Some{Value: v}:
+		assert v.Evidence == "tested"
+		assert v.Cases == uint32(12)
+		assert v.Text == "tested: all 12 cases\n\twitness a=0"
+		assert FormatLine(v, "law AddZero") == "ok law AddZero (tested: all 12 cases) (cached)\n\twitness a=0"
+	case option.None:
+		assert false
+	}
+	assert IsFailureText("ok a\nFAIL law Bad\n")
+	assert !IsFailureText("ok a (100 cases)\n")
+}

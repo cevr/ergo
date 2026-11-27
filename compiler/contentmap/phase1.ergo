@@ -1,0 +1,509 @@
+import compiler/syntax
+import content
+import dense
+import option
+import slices
+import strings
+
+// GeneratedFileInfo holds one expanded inline derive output alongside its source-map tables.
+type GeneratedFileInfo {
+	File          SourceFile,
+	Parsed        syntax.Parsed,
+	OrigFileIndex uint32,
+	DeriveTarget  string,
+	DeriveOffset  uint32,
+	DeriveLength  uint32,
+	Spans         []content.SpanMapping,
+	ByteOrigins   []ByteOrigin,
+	Companions    []content.CompanionAsset,
+}
+
+// CollectExprByteOrigins walks an expression in p and builds per-byte ByteOrigin coordinates
+// from decoded string literals and `+` concatenations.
+func CollectExprByteOrigins(fileIdx uint32, p syntax.Parsed, exprID dense.ID[syntax.Node]) []ByteOrigin {
+	match syntax.ViewOf(p.Tree, exprID) {
+	case syntax.ParenExpr as pe:
+		CollectExprByteOrigins(fileIdx, p, pe.X)
+	case syntax.BasicLit as bl:
+		if bl.Tok < 0 {
+			return []ByteOrigin{}
+		}
+		let kind = syntax.TokKind(p, bl.Tok)
+		let base = uint32(syntax.TokPos(p, bl.Tok))
+		let raw = syntax.TokText(p, bl.Tok)
+		let dec = DecodeStringWithOrigins(base, kind, raw) catch {
+		case DecodeLiteralError:
+			return []ByteOrigin{}
+		}
+		let mut out = slices.WithCapacity[ByteOrigin](dec.Origins.Len())
+		for sp in dec.Origins {
+			out = out.Append(ByteOrigin{FileIndex: fileIdx, Start: sp.Start, End: sp.End, Valid: true})
+		}
+		out
+	case syntax.BinaryExpr as be:
+		if be.Op >= 0 && syntax.TokKind(p, be.Op) == syntax.Add {
+			let left = CollectExprByteOrigins(fileIdx, p, be.X)
+			let right = CollectExprByteOrigins(fileIdx, p, be.Y)
+			let mut out = slices.WithCapacity[ByteOrigin](left.Len() + right.Len())
+			for o in left {
+				out = out.Append(o)
+			}
+			for o in right {
+				out = out.Append(o)
+			}
+			return out
+		}
+		[]ByteOrigin{}
+	case syntax.CallExpr as ce:
+		if syntax.Len(ce.Args) == 1 {
+			return CollectExprByteOrigins(fileIdx, p, syntax.Item(p.Tree, ce.Args, 0))
+		}
+		[]ByteOrigin{}
+	case syntax.TypeDecl as td:
+		match dense.Unpack(td.Derive) {
+		case option.Some{Value: eid}:
+			CollectExprByteOrigins(fileIdx, p, eid)
+		case option.None:
+			[]ByteOrigin{}
+		}
+	case _:
+		[]ByteOrigin{}
+	}
+}
+
+type pendingTag {}
+
+type pendingDeriveTable {
+	Count    dense.Count[pendingTag],
+	FileIdx  dense.Col[pendingTag, uint32],
+	DeclNode dense.Col[pendingTag, uint32],
+	ExprNode dense.Col[pendingTag, uint32],
+	ExprPos  dense.Col[pendingTag, uint32],
+	ExprEnd  dense.Col[pendingTag, uint32],
+	Line     dense.Col[pendingTag, uint32],
+	Col      dense.Col[pendingTag, uint32],
+	U16Line  dense.Col[pendingTag, uint32],
+	U16Col   dense.Col[pendingTag, uint32],
+	Target   dense.Col[pendingTag, string],
+	TargetID dense.Col[pendingTag, dense.ID[dense.Str]],
+	Names    dense.Strings,
+	Done     dense.Col[pendingTag, bool],
+	Refused  dense.Col[pendingTag, bool],
+}
+
+func newPendingTable() pendingDeriveTable {
+	pendingDeriveTable{
+		Count:    dense.NewCount[pendingTag](),
+		FileIdx:  dense.NewCol[pendingTag, uint32](),
+		DeclNode: dense.NewCol[pendingTag, uint32](),
+		ExprNode: dense.NewCol[pendingTag, uint32](),
+		ExprPos:  dense.NewCol[pendingTag, uint32](),
+		ExprEnd:  dense.NewCol[pendingTag, uint32](),
+		Line:     dense.NewCol[pendingTag, uint32](),
+		Col:      dense.NewCol[pendingTag, uint32](),
+		U16Line:  dense.NewCol[pendingTag, uint32](),
+		U16Col:   dense.NewCol[pendingTag, uint32](),
+		Target:   dense.NewCol[pendingTag, string](),
+		TargetID: dense.NewCol[pendingTag, dense.ID[dense.Str]](),
+		Names:    dense.NewStrings(),
+		Done:     dense.NewCol[pendingTag, bool](),
+		Refused:  dense.NewCol[pendingTag, bool](),
+	}
+}
+
+func isProviderPlanNode(p syntax.Parsed, exprID dense.ID[syntax.Node]) bool {
+	match syntax.ViewOf(p.Tree, exprID) {
+	case syntax.CallExpr as ce:
+		if syntax.KindOf(p.Tree, ce.Fun) == syntax.KIdent {
+			return nodeFirstTokText(p, ce.Fun) == "Provider"
+		}
+		false
+	case _:
+		false
+	}
+}
+
+type spanDiagSite {
+	FileIdx  uint32,
+	FileName string,
+	Lines    syntax.Lines,
+	Code     string,
+}
+
+func diagAtSpan(site spanDiagSite, pos int, end int, msg string) ContentDiagnostic {
+	let lc = syntax.PositionOf(site.Lines, pos)
+	let ln = if end > pos { uint32(end - pos) } else { uint32(1) }
+	ContentDiagnostic{
+		FileIndex: site.FileIdx,
+		File:      site.FileName,
+		Offset:    uint32(pos),
+		Length:    ln,
+		Line:      uint32(lc.Line),
+		Column:    uint32(lc.Column),
+		Code:      site.Code,
+		Message:   msg,
+		Warning:   false,
+	}
+}
+
+func collectIdentsInSubtree(p syntax.Parsed, nodeID dense.ID[syntax.Node], buf mut []uint32, seen mut dense.Strings, out mut []string) {
+	if syntax.KindOf(p.Tree, nodeID) == syntax.KIdent {
+		let txt = nodeFirstTokText(p, nodeID)
+		if txt != "" && dense.FindText(*seen, txt) == option.None {
+			let _ = dense.InternText(seen, txt)
+			*out = (*out).Append(txt)
+		}
+	}
+	let kids = syntax.Children(p.Tree, nodeID, (*buf)[:0])
+	let copyKids = slices.Clone(kids)
+	*buf = kids
+	for cw in copyKids {
+		collectIdentsInSubtree(p, syntax.NodeAt(p.Tree, int(cw)), buf, seen, out)
+	}
+}
+
+type nonDeriveDeclEntry {
+	FileIdx uint32,
+	DeclPos uint32,
+	DeclEnd uint32,
+	Names   []string,
+	Idents  []string,
+}
+
+type reachResult {
+	DeclReach []bool,
+	IdentSet  dense.Strings,
+	IdentList []string,
+}
+
+func computeReachableClosure(parsedFiles []syntax.Parsed, rootFileIdx uint32, rootNodeID dense.ID[syntax.Node], allDecls []nonDeriveDeclEntry) reachResult {
+	let mut reach = slices.Repeat([]bool{false}, allDecls.Len())
+	let mut idents = dense.NewStrings()
+	let mut queue = []string{}
+	let mut buf = slices.WithCapacity[uint32](32)
+	let mut initNames = []string{}
+	collectIdentsInSubtree(parsedFiles[int(rootFileIdx)], rootNodeID, &buf, &idents, &initNames)
+	for nm in initNames {
+		queue = queue.Append(nm)
+	}
+	let mut qHead = 0
+	for qHead < queue.Len() {
+		let name = queue[qHead]
+		qHead = qHead + 1
+		for di, entry in allDecls {
+			if reach[di] {
+				continue
+			}
+			let mut declaresIt = false
+			for dn in entry.Names {
+				if dn == name {
+					declaresIt = true
+					break
+				}
+			}
+			if !declaresIt {
+				continue
+			}
+			reach[di] = true
+			for sub in entry.Idents {
+				if dense.FindText(idents, sub) == option.None {
+					let _ = dense.InternText(&idents, sub)
+					queue = queue.Append(sub)
+				}
+			}
+		}
+	}
+	reachResult{DeclReach: reach, IdentSet: idents, IdentList: queue}
+}
+
+func findBlockingTarget(idents dense.Strings, pt pendingDeriveTable, activeIDs []uint32) option.Option[uint32] {
+	for ai in activeIDs {
+		let pid = dense.IDAt(pt.Count, int(ai))
+		if dense.Of(pt.Done, pid) || dense.Of(pt.Refused, pid) {
+			continue
+		}
+		let tgt = dense.Of(pt.Target, pid)
+		if dense.FindText(idents, tgt) != option.None {
+			return option.Some[uint32]{Value: ai}
+		}
+	}
+	option.None
+}
+
+type cycleCheckEnv {
+	Files       []SourceFile,
+	ParsedFiles []syntax.Parsed,
+	LineTables  []syntax.Lines,
+	AllDecls    []nonDeriveDeclEntry,
+	StuckIDs    []uint32,
+}
+
+func detectAndReportDeriveCycles(env cycleCheckEnv, pt mut pendingDeriveTable, diags mut []ContentDiagnostic, refusedTargets mut []string) {
+	let n = dense.Total((*pt).Count)
+	let mut edgeTo = slices.Repeat([]int{-1}, n)
+	let mut isStuck = slices.Repeat([]bool{false}, n)
+	for si in env.StuckIDs {
+		isStuck[int(si)] = true
+		let pid = dense.IDAt((*pt).Count, int(si))
+		let fi = dense.Of((*pt).FileIdx, pid)
+		let eid = syntax.NodeAt(env.ParsedFiles[int(fi)].Tree, int(dense.Of((*pt).ExprNode, pid)))
+		let rr = computeReachableClosure(env.ParsedFiles, fi, eid, env.AllDecls)
+		match findBlockingTarget(rr.IdentSet, *pt, env.StuckIDs) {
+		case option.Some{Value: blocker}:
+			edgeTo[int(si)] = int(blocker)
+		case option.None:
+		}
+	}
+	let mut visited = slices.Repeat([]bool{false}, n)
+	for si in env.StuckIDs {
+		if visited[int(si)] {
+			continue
+		}
+		let mut path = []uint32{}
+		let mut posInPath = slices.Repeat([]int{-1}, n)
+		let mut cur = int(si)
+		for cur >= 0 && !visited[cur] && isStuck[cur] {
+			if posInPath[cur] >= 0 {
+				let startIdx = posInPath[cur]
+				let mut names = []string{}
+				for k in startIdx..path.Len() {
+					names = names.Append(dense.Of((*pt).Target, dense.IDAt((*pt).Count, int(path[k]))))
+				}
+				names = names.Append(dense.Of((*pt).Target, dense.IDAt((*pt).Count, cur)))
+				let originIdx = path[startIdx]
+				let opid = dense.IDAt((*pt).Count, int(originIdx))
+				let ofi = dense.Of((*pt).FileIdx, opid)
+				let msg = "content mapper cycle: " + strings.Join(names, " -> ")
+				let site = spanDiagSite{FileIdx: ofi, FileName: env.Files[int(ofi)].Name, Lines: env.LineTables[int(ofi)], Code: "E2001"}
+				*diags = (*diags).Append(diagAtSpan(site, int(dense.Of((*pt).ExprPos, opid)), int(dense.Of((*pt).ExprEnd, opid)), msg))
+				break
+			}
+			posInPath[cur] = path.Len()
+			path = path.Append(uint32(cur))
+			cur = edgeTo[cur]
+		}
+		for node in path {
+			visited[int(node)] = true
+			let pid = dense.IDAt((*pt).Count, int(node))
+			dense.SetOf(&pt.Refused, pid, true)
+			*refusedTargets = (*refusedTargets).Append(dense.Of((*pt).Target, pid))
+		}
+		if !visited[int(si)] {
+			let pid = dense.IDAt((*pt).Count, int(si))
+			dense.SetOf(&pt.Refused, pid, true)
+			let fi = dense.Of((*pt).FileIdx, pid)
+			let tgt = dense.Of((*pt).Target, pid)
+			*refusedTargets = (*refusedTargets).Append(tgt)
+			let site = spanDiagSite{FileIdx: fi, FileName: env.Files[int(fi)].Name, Lines: env.LineTables[int(fi)], Code: "E2001"}
+			*diags = (*diags).Append(diagAtSpan(site, int(dense.Of((*pt).ExprPos, pid)), int(dense.Of((*pt).ExprEnd, pid)), "content mapper cycle involving derive "+tgt))
+		}
+	}
+}
+
+func importNeededForPhase1(p syntax.Parsed, declID dense.ID[syntax.Node], used dense.Strings) bool {
+	match syntax.ViewOf(p.Tree, declID) {
+	case syntax.ImportDecl as id:
+		match syntax.ViewOf(p.Tree, id.Spec) {
+		case syntax.ImportSpec as is:
+			let pathRaw = trimQuotes(nodeFirstTokText(p, is.Path))
+			let localName = match dense.Unpack(is.Name) {
+			case option.Some{Value: nm}:
+				nodeFirstTokText(p, nm)
+			case option.None:
+				if IsRelativeAssetPath(pathRaw) { AssetStem(pathRaw) } else { defaultPkgLocalName(pathRaw) }
+			}
+			if localName == "_" || localName == "." || dense.FindText(used, localName) != option.None {
+				return true
+			}
+			if pathRaw != "" && dense.FindText(used, AssetStem(pathRaw)) != option.None {
+				return true
+			}
+			false
+		case _:
+			false
+		}
+	case _:
+		false
+	}
+}
+
+func unwrapOptNode(o dense.Opt[syntax.Node]) dense.ID[syntax.Node] {
+	match dense.Unpack(o) {
+	case option.Some{Value: id}:
+		id
+	case option.None:
+		syntax.NodeAt(syntax.Parse("").Tree, 0)
+	}
+}
+
+type phase1BuildEnv {
+	Files         []SourceFile,
+	ParsedFiles   []syntax.Parsed,
+	AllDecls      []nonDeriveDeclEntry,
+	Reach         []bool,
+	ReachIdents   []string,
+	DeriveFileIdx uint32,
+	ExprText      string,
+	PrevGen       []GeneratedFileInfo,
+}
+
+func buildPhase1FileTexts(env phase1BuildEnv) []SourceFile {
+	let mut out = slices.WithCapacity[SourceFile](env.Files.Len() + env.PrevGen.Len())
+	let mut declOffset = 0
+	for fi, sf in env.Files {
+		let p = env.ParsedFiles[fi]
+		if p.Failed {
+			out = out.Append(sf)
+			continue
+		}
+		let mut usedInFile = dense.NewStrings()
+		if uint32(fi) == env.DeriveFileIdx {
+			for nm in env.ReachIdents {
+				let _ = dense.InternText(&usedInFile, nm)
+			}
+		}
+		let mut fileDecls = []dense.ID[syntax.Node]{}
+		match syntax.ViewOf(p.Tree, syntax.Root(p.Tree)) {
+		case syntax.File as fv:
+			for i in 0..syntax.Len(fv.Decls) {
+				fileDecls = fileDecls.Append(syntax.Item(p.Tree, fv.Decls, i))
+			}
+		case _:
+		}
+		for d in fileDecls {
+			if syntax.KindOf(p.Tree, d) == syntax.KTypeDecl {
+				match syntax.ViewOf(p.Tree, d) {
+				case syntax.TypeDecl as td:
+					if dense.Unpack(td.Derive) != option.None && dense.Unpack(td.TypeParams) == option.None && !isProviderPlanNode(p, unwrapOptNode(td.Derive)) {
+						continue
+					}
+				case _:
+				}
+			}
+			if syntax.KindOf(p.Tree, d) == syntax.KImportDecl {
+				continue
+			}
+			if declOffset < env.AllDecls.Len() && env.Reach[declOffset] {
+				for sub in env.AllDecls[declOffset].Idents {
+					let _ = dense.InternText(&usedInFile, sub)
+				}
+			}
+			declOffset = declOffset + 1
+		}
+		let mut b = strings.NewBuilder()
+		for d in fileDecls {
+			if syntax.KindOf(p.Tree, d) == syntax.KImportDecl {
+				if importNeededForPhase1(p, d, usedInFile) {
+					b.WriteString(sf.Src[syntax.NodePos(p, d):syntax.NodeEnd(p, d)])
+					b.WriteString("\n")
+				}
+				continue
+			}
+			let pos = uint32(syntax.NodePos(p, d))
+			for di, ed in env.AllDecls {
+				if ed.FileIdx == uint32(fi) && ed.DeclPos == pos && env.Reach[di] {
+					b.WriteString(sf.Src[syntax.NodePos(p, d):syntax.NodeEnd(p, d)])
+					b.WriteString("\n")
+					break
+				}
+			}
+		}
+		if uint32(fi) == env.DeriveFileIdx {
+			b.WriteString("let __ergo_derive_val = ")
+			b.WriteString(env.ExprText)
+			b.WriteString("\n")
+		}
+		out = out.Append(SourceFile{Name: sf.Name, Src: b.String()})
+	}
+	for g in env.PrevGen {
+		out = out.Append(g.File)
+	}
+	out
+}
+
+func resolveInlineByteSpan(origFileIdx uint32, origName string, origLines syntax.Lines, origins []ByteOrigin, sp content.SourceSpan) option.Option[ContentDiagnostic] {
+	if origins.Len() == 0 || int(sp.Start) > origins.Len() || int(sp.End) > origins.Len() {
+		return option.None
+	}
+	if sp.End > sp.Start {
+		let first = origins[int(sp.Start)]
+		let last = origins[int(sp.End-uint32(1))]
+		if first.Valid && last.Valid && first.FileIndex == origFileIdx && last.FileIndex == origFileIdx && last.End >= first.Start {
+			let lc = syntax.PositionOf(origLines, int(first.Start))
+			let len = if last.End > first.Start { last.End - first.Start } else { uint32(1) }
+			return option.Some[ContentDiagnostic]{
+				Value: ContentDiagnostic{
+					FileIndex: origFileIdx,
+					File:      origName,
+					Offset:    first.Start,
+					Length:    len,
+					Line:      uint32(lc.Line),
+					Column:    uint32(lc.Column),
+					Code:      "",
+					Message:   "",
+					Warning:   false,
+				},
+			}
+		}
+		return option.None
+	}
+	let mut pos = uint32(0)
+	let mut ok = false
+	if int(sp.Start) < origins.Len() && origins[int(sp.Start)].Valid && origins[int(sp.Start)].FileIndex == origFileIdx {
+		pos = origins[int(sp.Start)].Start
+		ok = true
+	} else if origins.Len() > 0 && int(sp.Start) == origins.Len() && origins[origins.Len()-1].Valid && origins[origins.Len()-1].FileIndex == origFileIdx {
+		pos = origins[origins.Len()-1].End
+		ok = true
+	}
+	if !ok {
+		return option.None
+	}
+	let lc = syntax.PositionOf(origLines, int(pos))
+	option.Some[ContentDiagnostic]{
+		Value: ContentDiagnostic{
+			FileIndex: origFileIdx,
+			File:      origName,
+			Offset:    pos,
+			Length:    uint32(1),
+			Line:      uint32(lc.Line),
+			Column:    uint32(lc.Column),
+			Code:      "",
+			Message:   "",
+			Warning:   false,
+		},
+	}
+}
+
+// CollectExprByteOriginsDecodesString checks that concatenated string literals track byte offsets sequentially through escapes.
+law CollectExprByteOriginsDecodesString(prefix string) {
+	let safe = strings.ReplaceAll(strings.ReplaceAll(strings.ReplaceAll(prefix, "\"", ""), "\\", ""), "\n", "")
+	let src = "let s = \"" + safe + "\" + \"\\n\"\n"
+	let p = syntax.Parse(src)
+	if p.Failed {
+		return false
+	}
+	match syntax.ViewOf(p.Tree, syntax.Root(p.Tree)) {
+	case syntax.File as fv:
+		let d = syntax.Item(p.Tree, fv.Decls, 0)
+		match syntax.ViewOf(p.Tree, d) {
+		case syntax.VarDecl as vd:
+			match syntax.ViewOf(p.Tree, vd.Spec) {
+			case syntax.VarSpec as vs:
+				match dense.Unpack(vs.Value) {
+				case option.Some{Value: valID}:
+					let origs = CollectExprByteOrigins(uint32(0), p, valID)
+					origs.Len() == safe.Len()+1 && origs[safe.Len()].Start+uint32(2) == origs[safe.Len()].End
+				case option.None:
+					false
+				}
+			case _:
+				false
+			}
+		case _:
+			false
+		}
+	case _:
+		false
+	}
+}

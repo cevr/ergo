@@ -1,0 +1,555 @@
+import compiler/lawcache
+import content
+import hex
+import json
+import option
+import sha256
+import slices
+import strconv
+import strings
+
+// BuildCacheKey builds a sound content-addressed key for one mapper invocation.
+// Companion order is preserved verbatim; inline Line, Col, and File are excluded.
+func BuildCacheKey(buildID string, mapperDigest string, input content.ContentInput) string {
+	let payloadSum = hex.Encode(sha256.Sum(strings.FromBytes(input.Bytes)))
+	let originTag, originPkg, originPath = match input.Origin {
+	case content.FileAsset as fa:
+		("file", fa.Package, fa.Path)
+	case content.InlineDerive as ind:
+		("inline", ind.Package, "")
+	}
+	let mut parts = slices.WithCapacity[string](9 + input.Companions.Len())
+	parts = parts.Append("contentmap-v1")
+	parts = parts.Append(buildID)
+	parts = parts.Append(mapperDigest)
+	parts = parts.Append(originTag)
+	parts = parts.Append(originPkg)
+	parts = parts.Append(originPath)
+	parts = parts.Append(input.Target)
+	parts = parts.Append(input.MediaKind)
+	parts = parts.Append(payloadSum)
+	for i in 0..input.Companions.Len() {
+		let c = input.Companions[i]
+		let cSum = hex.Encode(sha256.Sum(strings.FromBytes(c.Bytes)))
+		parts = parts.Append("comp[" + strconv.Itoa(i) + "]:" + c.Path + "=" + cSum)
+	}
+	lawcache.Key(parts)
+}
+
+let cachePayloadVersion = int64(1)
+
+// EncodeCachedPayload encodes out into the versioned JSON payload stored in lawcache.
+func EncodeCachedPayload(out content.MappedErgo) string {
+	let t = json.NewText()
+	t.BeginObject(5)
+	t.Key("v")
+	t.Int(cachePayloadVersion)
+	t.Key("source")
+	t.String(out.Source)
+	t.Key("spans")
+	t.BeginList(out.Spans.Entries.Len())
+	for sp in out.Spans.Entries {
+		t.BeginObject(7)
+		t.Key("gs")
+		t.Int(int64(sp.Generated.Start))
+		t.Key("ge")
+		t.Int(int64(sp.Generated.End))
+		match sp.Companion {
+		case option.Some{Value: ci}:
+			t.Key("hc")
+			t.Bool(true)
+			t.Key("ci")
+			t.Int(int64(ci))
+		case option.None:
+			t.Key("hc")
+			t.Bool(false)
+			t.Key("ci")
+			t.Int(int64(0))
+		}
+		t.Key("ss")
+		t.Int(int64(sp.Source.Start))
+		t.Key("se")
+		t.Int(int64(sp.Source.End))
+		t.Key("lbl")
+		t.String(sp.Label)
+		t.EndObject()
+	}
+	t.EndList()
+	t.Key("diags")
+	t.BeginList(out.Diags.Len())
+	for d in out.Diags {
+		let isWarn = match d.Severity {
+		case content.Warning:
+			true
+		case content.Error:
+			false
+		}
+		t.BeginObject(8)
+		t.Key("w")
+		t.Bool(isWarn)
+		match d.Companion {
+		case option.Some{Value: ci}:
+			t.Key("hc")
+			t.Bool(true)
+			t.Key("ci")
+			t.Int(int64(ci))
+		case option.None:
+			t.Key("hc")
+			t.Bool(false)
+			t.Key("ci")
+			t.Int(int64(0))
+		}
+		t.Key("ss")
+		t.Int(int64(d.Span.Start))
+		t.Key("se")
+		t.Int(int64(d.Span.End))
+		t.Key("code")
+		t.String(d.Code)
+		t.Key("msg")
+		t.String(d.Message)
+		t.Key("hint")
+		t.String(d.Hint)
+		t.EndObject()
+	}
+	t.EndList()
+	t.Key("digest")
+	t.String(hex.Encode(strings.FromBytes(out.Digest)))
+	t.EndObject()
+	t.Written()
+}
+
+// DecodeCachedPayload decodes and validates a cached JSON MappedErgo payload.
+func DecodeCachedPayload(raw string) option.Option[content.MappedErgo] {
+	if raw == "" {
+		return option.None
+	}
+	let codec = json.Codec[json.Value]{MaxBytes: 0, MaxDepth: 0}
+	let root = json.Decode(codec, raw) catch {
+	case json.Malformed:
+		return option.None
+	case _:
+		return option.None
+	}
+	let obj = match root {
+	case json.Object as o:
+		o
+	case _:
+		return option.None
+	}
+	let mut verOk = false
+	let mut hasSource = false
+	let mut source = ""
+	let mut spans = []content.SpanMapping{}
+	let mut diags = []content.MapperDiag{}
+	let mut digestHex = ""
+	for m in obj.Members {
+		if m.Key == "v" {
+			match decodeJSONUint64(m.Value) {
+			case option.Some{Value: v}:
+				if v == uint64(cachePayloadVersion) {
+					verOk = true
+				}
+			case option.None:
+				return option.None
+			}
+		} else if m.Key == "source" {
+			match m.Value {
+			case json.Str as s:
+				source = s.Value
+				hasSource = true
+			case _:
+				return option.None
+			}
+		} else if m.Key == "spans" {
+			match decodeSpansArray(m.Value) {
+			case option.Some{Value: xs}:
+				spans = xs
+			case option.None:
+				return option.None
+			}
+		} else if m.Key == "diags" {
+			match decodeDiagsArray(m.Value) {
+			case option.Some{Value: ds}:
+				diags = ds
+			case option.None:
+				return option.None
+			}
+		} else if m.Key == "digest" {
+			match m.Value {
+			case json.Str as s:
+				digestHex = s.Value
+			case _:
+				return option.None
+			}
+		}
+	}
+	if !verOk || !hasSource {
+		return option.None
+	}
+	let digestBytes = if digestHex == "" {
+		[]byte{}
+	} else {
+		let dec = hex.Decode(digestHex) catch {
+		case hex.Malformed:
+			return option.None
+		}
+		dec.Bytes()
+	}
+	option.Some[content.MappedErgo]{
+		Value: content.MappedErgo{
+			Source: source,
+			Spans:  content.SourceSpanMap{Entries: spans},
+			Diags:  diags,
+			Digest: digestBytes,
+		},
+	}
+}
+
+func decodeJSONUint64(v json.Value) option.Option[uint64] {
+	match v {
+	case json.Num as n:
+		let numVal json.Value = n
+		let enc = json.Encode(json.Codec[json.Value]{MaxBytes: 0, MaxDepth: 0}, numVal)
+		let parsed = strconv.ParseInt(enc, 10, 64) catch {
+		case strconv.Malformed, strconv.OutOfRange:
+			return option.None
+		}
+		if parsed < int64(0) {
+			return option.None
+		}
+		option.Some[uint64]{Value: uint64(parsed)}
+	case _:
+		option.None
+	}
+}
+
+func decodeJSONUint32(v json.Value) option.Option[uint32] {
+	match decodeJSONUint64(v) {
+	case option.Some{Value: n}:
+		if n > uint64(4294967295) {
+			return option.None
+		}
+		option.Some[uint32]{Value: uint32(n)}
+	case option.None:
+		option.None
+	}
+}
+
+func decodeSpansArray(v json.Value) option.Option[[]content.SpanMapping] {
+	let items = match v {
+	case json.Array as a:
+		a.Items
+	case _:
+		return option.None
+	}
+	let mut out = slices.WithCapacity[content.SpanMapping](items.Len())
+	for item in items {
+		let obj = match item {
+		case json.Object as o:
+			o
+		case _:
+			return option.None
+		}
+		let mut gs = uint32(0)
+		let mut ge = uint32(0)
+		let mut hc = false
+		let mut ci = uint32(0)
+		let mut ss = uint32(0)
+		let mut se = uint32(0)
+		let mut lbl = ""
+		for m in obj.Members {
+			if m.Key == "gs" {
+				match decodeJSONUint32(m.Value) {
+				case option.Some{Value: x}:
+					gs = x
+				case option.None:
+					return option.None
+				}
+			} else if m.Key == "ge" {
+				match decodeJSONUint32(m.Value) {
+				case option.Some{Value: x}:
+					ge = x
+				case option.None:
+					return option.None
+				}
+			} else if m.Key == "hc" {
+				match m.Value {
+				case json.Boolean as b:
+					hc = b.Value
+				case _:
+					return option.None
+				}
+			} else if m.Key == "ci" {
+				match decodeJSONUint32(m.Value) {
+				case option.Some{Value: x}:
+					ci = x
+				case option.None:
+					return option.None
+				}
+			} else if m.Key == "ss" {
+				match decodeJSONUint32(m.Value) {
+				case option.Some{Value: x}:
+					ss = x
+				case option.None:
+					return option.None
+				}
+			} else if m.Key == "se" {
+				match decodeJSONUint32(m.Value) {
+				case option.Some{Value: x}:
+					se = x
+				case option.None:
+					return option.None
+				}
+			} else if m.Key == "lbl" {
+				match m.Value {
+				case json.Str as s:
+					lbl = s.Value
+				case _:
+					return option.None
+				}
+			}
+		}
+		let comp = if hc { option.Some[uint32]{Value: ci} } else { option.None }
+		out = out.Append(content.SpanMapping{
+			Generated: content.SourceSpan{Start: gs, End: ge},
+			Companion: comp,
+			Source:    content.SourceSpan{Start: ss, End: se},
+			Label:     lbl,
+		})
+	}
+	option.Some[[]content.SpanMapping]{Value: out}
+}
+
+func decodeDiagsArray(v json.Value) option.Option[[]content.MapperDiag] {
+	let items = match v {
+	case json.Array as a:
+		a.Items
+	case _:
+		return option.None
+	}
+	let mut out = slices.WithCapacity[content.MapperDiag](items.Len())
+	for item in items {
+		let obj = match item {
+		case json.Object as o:
+			o
+		case _:
+			return option.None
+		}
+		let mut warn = false
+		let mut hc = false
+		let mut ci = uint32(0)
+		let mut ss = uint32(0)
+		let mut se = uint32(0)
+		let mut code = ""
+		let mut msg = ""
+		let mut hint = ""
+		for m in obj.Members {
+			if m.Key == "w" {
+				match m.Value {
+				case json.Boolean as b:
+					warn = b.Value
+				case _:
+					return option.None
+				}
+			} else if m.Key == "hc" {
+				match m.Value {
+				case json.Boolean as b:
+					hc = b.Value
+				case _:
+					return option.None
+				}
+			} else if m.Key == "ci" {
+				match decodeJSONUint32(m.Value) {
+				case option.Some{Value: x}:
+					ci = x
+				case option.None:
+					return option.None
+				}
+			} else if m.Key == "ss" {
+				match decodeJSONUint32(m.Value) {
+				case option.Some{Value: x}:
+					ss = x
+				case option.None:
+					return option.None
+				}
+			} else if m.Key == "se" {
+				match decodeJSONUint32(m.Value) {
+				case option.Some{Value: x}:
+					se = x
+				case option.None:
+					return option.None
+				}
+			} else if m.Key == "code" {
+				match m.Value {
+				case json.Str as s:
+					code = s.Value
+				case _:
+					return option.None
+				}
+			} else if m.Key == "msg" {
+				match m.Value {
+				case json.Str as s:
+					msg = s.Value
+				case _:
+					return option.None
+				}
+			} else if m.Key == "hint" {
+				match m.Value {
+				case json.Str as s:
+					hint = s.Value
+				case _:
+					return option.None
+				}
+			}
+		}
+		let sev = if warn { content.Warning } else { content.Error }
+		let comp = if hc { option.Some[uint32]{Value: ci} } else { option.None }
+		out = out.Append(content.MapperDiag{
+			Severity:  sev,
+			Companion: comp,
+			Span:      content.SourceSpan{Start: ss, End: se},
+			Code:      code,
+			Message:   msg,
+			Hint:      hint,
+		})
+	}
+	option.Some[[]content.MapperDiag]{Value: out}
+}
+
+// GetCached retrieves and decodes a cached MappedErgo output under key.
+func GetCached(st lawcache.Store, key string) option.Option[content.MappedErgo] {
+	if key == "" {
+		return option.None
+	}
+	match lawcache.Get(st, key) {
+	case option.Some{Value: raw}:
+		DecodeCachedPayload(raw)
+	case option.None:
+		option.None
+	}
+}
+
+// PutCached encodes and atomically writes out into st under key.
+func PutCached(st lawcache.Store, key string, out content.MappedErgo) {
+	if key == "" {
+		return
+	}
+	lawcache.Keep(st, key, EncodeCachedPayload(out))
+}
+
+// BuildCacheKeyInlinesIgnoreLineShiftAndFile checks that inline derives ignore File, Line, and Col shifts while tracking payload and companion changes.
+law BuildCacheKeyInlinesIgnoreLineShiftAndFile(pkg string, lineA uint32, lineB uint32, target string, body string) {
+	let comps = []content.CompanionAsset{
+		content.CompanionAsset{Path: "a.sql", Bytes: "CREATE".Bytes()},
+		content.CompanionAsset{Path: "b.sql", Bytes: "ALTER".Bytes()},
+	}
+	let in1 = content.ContentInput{
+		Target:     target,
+		Origin:     content.InlineDerive{Package: pkg, File: "one.ergo", Target: target, Line: lineA, Col: uint32(1)},
+		MediaKind:  "ergo/inline",
+		Bytes:      body.Bytes(),
+		Companions: comps,
+	}
+	let in2 = content.ContentInput{
+		Target:     target,
+		Origin:     content.InlineDerive{Package: pkg, File: "two.ergo", Target: target, Line: lineB, Col: uint32(9)},
+		MediaKind:  "ergo/inline",
+		Bytes:      body.Bytes(),
+		Companions: comps,
+	}
+	let revComps = []content.CompanionAsset{comps[1], comps[0]}
+	let inReordered = content.ContentInput{
+		Target:     target,
+		Origin:     in1.Origin,
+		MediaKind:  "ergo/inline",
+		Bytes:      body.Bytes(),
+		Companions: revComps,
+	}
+	let k1 = BuildCacheKey("build-1", "dig-1", in1)
+	let k2 = BuildCacheKey("build-1", "dig-1", in2)
+	let kRev = BuildCacheKey("build-1", "dig-1", inReordered)
+	k1 == k2 && k1 != kRev
+}
+
+// CachedPayloadRoundTrips checks that EncodeCachedPayload and DecodeCachedPayload preserve Source, Spans, Diags, and Digest.
+law CachedPayloadRoundTrips(src string, code string, msg string) {
+	let out = content.MappedErgo{
+		Source: src,
+		Spans:  content.SourceSpanMap{
+			Entries: []content.SpanMapping{
+				content.SpanMapping{
+					Generated: content.SourceSpan{Start: uint32(0), End: uint32(src.Len())},
+					Companion: option.Some[uint32]{Value: uint32(0)},
+					Source:    content.SourceSpan{Start: uint32(1), End: uint32(5)},
+					Label:     "decl",
+				},
+			},
+		},
+		Diags: []content.MapperDiag{
+			content.MapperDiag{
+				Severity:  content.Warning,
+				Companion: option.None,
+				Span:      content.SourceSpan{Start: uint32(0), End: uint32(1)},
+				Code:      code,
+				Message:   msg,
+				Hint:      "fix it",
+			},
+		},
+		Digest: "abc".Bytes(),
+	}
+	let raw = EncodeCachedPayload(out)
+	match DecodeCachedPayload(raw) {
+	case option.Some{Value: dec}:
+		dec.Source == out.Source && dec.Spans.Entries == out.Spans.Entries && dec.Diags == out.Diags && dec.Digest == out.Digest
+	case option.None:
+		false
+	}
+}
+
+test MapperSemanticDigestAndCacheReuse {
+	let helperA = BuildParsedPackage("app/helper", []SourceFile{
+		SourceFile{Name: "h.ergo", Src: "func tag() string { \"v1\" }\n"},
+	})
+	let mapperA = BuildParsedPackage("app/map", []SourceFile{
+		SourceFile{
+			Name: "m.ergo",
+			Src:  "import app/helper\nlet prefix = \"T_\"\nfunc unusedHelper() int { 1 }\nfunc Map(target string) string {\n\tprefix + helper.tag()\n}\n",
+		},
+	})
+	let g1 = BuildPackageGraph([]ParsedPackage{helperA, mapperA})
+	let d1 = MapperSemanticDigest(g1, "app/map", "Map")
+
+	let mapperReformatted = BuildParsedPackage("app/map", []SourceFile{
+		SourceFile{
+			Name: "m.ergo",
+			Src:  "import app/helper\n\n// comment ignored\nlet prefix = \"T_\"\nfunc unusedHelper() int { 999 }\nfunc unrelatedAdded() string { \"x\" }\n\nfunc Map(target string) string {\n\t// inside body comment\n\tprefix + helper.tag()\n}\n",
+		},
+	})
+	let g2 = BuildPackageGraph([]ParsedPackage{helperA, mapperReformatted})
+	let d2 = MapperSemanticDigest(g2, "app/map", "Map")
+	assert d1 == d2
+
+	let helperEdited = BuildParsedPackage("app/helper", []SourceFile{
+		SourceFile{Name: "h.ergo", Src: "func tag() string { \"v2\" }\n"},
+	})
+	let g3 = BuildPackageGraph([]ParsedPackage{helperEdited, mapperA})
+	let d3 = MapperSemanticDigest(g3, "app/map", "Map")
+	assert d3 != d1
+
+	let st = lawcache.Memory("cm-cache")
+	let out = content.MappedErgo{
+		Source: "type Foo { X int }\n",
+		Spans:  content.SourceSpanMap{Entries: []content.SpanMapping{}},
+		Diags:  []content.MapperDiag{},
+		Digest: "sum".Bytes(),
+	}
+	PutCached(st, "k1", out)
+	match GetCached(st, "k1") {
+	case option.Some{Value: got}:
+		assert got.Source == out.Source
+	case option.None:
+		assert false
+	}
+	assert DecodeCachedPayload("not json") == option.None
+	assert DecodeCachedPayload("{\"v\":99,\"source\":\"\"}") == option.None
+}
