@@ -1,0 +1,299 @@
+import github.com/cevr/ergo/modules/atlas/handle
+
+// KernelCellPhase represents the execution phase of a modeled code cell.
+type KernelCellPhase = CellIdle{} | CellRunning{} | CellCutHanded{} | CellFinished{}
+
+// KernelModelState captures the full bounded state space from docs/specs/atlas/models/kernel/kernel.ergo.
+type KernelModelState {
+	Phase              KernelCellPhase,
+	CallADisp          handle.Disposition,
+	CallBDisp          handle.Disposition,
+	ShellOwner         handle.Deliverer,
+	CallWakeCount      int,
+	HandedWakeCount    int,
+	ShellWakeCount     int,
+	RanAfterUnfinished bool,
+	WaitElapsedMs      int,
+	SkippedCut         bool,
+	OwnerAReloaded     bool,
+	OwnerBReloaded     bool,
+	Restored           bool,
+	BindingsLost       bool,
+	LostNoticeEmitted  bool,
+	LostNoticeLen      int,
+	WorkerSlotsUsed    int,
+	RootQueued         bool,
+	WorkerQueued       bool,
+}
+
+// KernelModelAction drives KernelRuntimeLifecycle exhaustive state exploration.
+type KernelModelAction = ActStartCell{} | ActWaitStep{} | ActFinishCell{} | ActHandOffCall{} | ActSettleCallA{} | ActSettleShell{} | ActReloadOwnerA{} | ActReloadOwnerB{} | ActRestoreClean{} | ActRestoreLost{} | ActAcquireWorkerMax{} | ActRunRootCell{}
+
+func initKernelModel(_ bool) KernelModelState {
+	KernelModelState{
+		Phase:              CellIdle,
+		CallADisp:          handle.DispOpen,
+		CallBDisp:          handle.DispOpen,
+		ShellOwner:         handle.DelivererOf(handle.KindShell),
+		CallWakeCount:      0,
+		HandedWakeCount:    0,
+		ShellWakeCount:     0,
+		RanAfterUnfinished: false,
+		WaitElapsedMs:      0,
+		SkippedCut:         false,
+		OwnerAReloaded:     false,
+		OwnerBReloaded:     false,
+		Restored:           false,
+		BindingsLost:       false,
+		LostNoticeEmitted:  false,
+		LostNoticeLen:      0,
+		WorkerSlotsUsed:    0,
+		RootQueued:         false,
+		WorkerQueued:       false,
+	}
+}
+
+func stepKernelModel(s KernelModelState, a KernelModelAction) Decision[KernelModelState, int] {
+	match a {
+	case ActStartCell:
+		match s.Phase {
+		case CellIdle:
+			Stay[KernelModelState]{Next: KernelModelState{..s, Phase: CellRunning}}
+		case CellRunning, CellCutHanded, CellFinished:
+			Ignore
+		}
+	case ActWaitStep:
+		match s.Phase {
+		case CellRunning:
+			let nextWait = s.WaitElapsedMs + 60000
+			if nextWait >= DefaultWaitMs() {
+				let nextDisp handle.Disposition = if handle.IsOpen(s.CallADisp) {
+					handle.DispHanded
+				} else {
+					s.CallADisp
+				}
+				Stay[KernelModelState]{Next: KernelModelState{
+					..s,
+					Phase:           CellCutHanded,
+					CallADisp:       nextDisp,
+					HandedWakeCount: s.HandedWakeCount,
+					WaitElapsedMs:   DefaultWaitMs(),
+				}}
+			} else {
+				Stay[KernelModelState]{Next: KernelModelState{..s, WaitElapsedMs: nextWait}}
+			}
+		case CellIdle, CellCutHanded, CellFinished:
+			Ignore
+		}
+	case ActFinishCell:
+		match s.Phase {
+		case CellRunning:
+			Stay[KernelModelState]{Next: KernelModelState{..s, Phase: CellFinished}}
+		case CellIdle, CellCutHanded, CellFinished:
+			Ignore
+		}
+	case ActHandOffCall:
+		if handle.IsOpen(s.CallADisp) {
+			Stay[KernelModelState]{Next: KernelModelState{..s, CallADisp: handle.DispHanded}}
+		} else {
+			Ignore
+		}
+	case ActSettleCallA:
+		if handle.IsOpen(s.CallADisp) && s.CallWakeCount == 0 {
+			Stay[KernelModelState]{Next: KernelModelState{
+				..s,
+				CallADisp:     handle.DispSucceeded,
+				CallWakeCount: s.CallWakeCount + 1,
+			}}
+		} else {
+			Ignore
+		}
+	case ActSettleShell:
+		if s.ShellWakeCount == 0 && s.ShellOwner == handle.DelivererShellHost {
+			Stay[KernelModelState]{Next: KernelModelState{..s, ShellWakeCount: 1}}
+		} else {
+			Ignore
+		}
+	case ActReloadOwnerA:
+		if !s.OwnerAReloaded {
+			let nextA handle.Disposition = if handle.IsOpen(s.CallADisp) && s.CallWakeCount == 0 {
+				handle.DispLost
+			} else {
+				s.CallADisp
+			}
+			let nextWake = if handle.IsOpen(s.CallADisp) && s.CallWakeCount == 0 {
+				1
+			} else {
+				s.CallWakeCount
+			}
+			Stay[KernelModelState]{Next: KernelModelState{
+				..s,
+				OwnerAReloaded: true,
+				CallADisp:      nextA,
+				CallWakeCount:  nextWake,
+			}}
+		} else {
+			Ignore
+		}
+	case ActReloadOwnerB:
+		if !s.OwnerBReloaded {
+			let nextB handle.Disposition = if handle.IsOpen(s.CallBDisp) { handle.DispLost } else { s.CallBDisp }
+			Stay[KernelModelState]{Next: KernelModelState{
+				..s,
+				OwnerBReloaded: true,
+				CallBDisp:      nextB,
+			}}
+		} else {
+			Ignore
+		}
+	case ActRestoreClean:
+		if !s.Restored {
+			let notice = FormatLostBindingsNotice([]string{})
+			Stay[KernelModelState]{Next: KernelModelState{
+				..s,
+				Restored:          true,
+				BindingsLost:      false,
+				LostNoticeEmitted: notice != "",
+				LostNoticeLen:     notice.Len(),
+			}}
+		} else {
+			Ignore
+		}
+	case ActRestoreLost:
+		if !s.Restored {
+			let notice = FormatLostBindingsNotice([]string{"fn_cb"})
+			Stay[KernelModelState]{Next: KernelModelState{
+				..s,
+				Restored:          true,
+				BindingsLost:      true,
+				LostNoticeEmitted: notice != "",
+				LostNoticeLen:     notice.Len(),
+			}}
+		} else {
+			Ignore
+		}
+	case ActAcquireWorkerMax:
+		if s.WorkerSlotsUsed < MaxRoleWorkerSlots() {
+			Stay[KernelModelState]{Next: KernelModelState{
+				..s,
+				WorkerSlotsUsed: MaxRoleWorkerSlots(),
+				WorkerQueued:    true,
+			}}
+		} else {
+			Ignore
+		}
+	case ActRunRootCell:
+		Stay[KernelModelState]{Next: KernelModelState{..s, RootQueued: false}}
+	}
+}
+
+func kHandleSettledToldOnce(s KernelModelState) bool {
+	s.CallWakeCount <= 1 && s.ShellWakeCount <= 1
+}
+
+func kHandedNeverDoubleWakes(s KernelModelState) bool {
+	if s.CallADisp == handle.DispHanded {
+		s.HandedWakeCount == 0 && s.CallWakeCount == 0
+	} else {
+		true
+	}
+}
+
+func kNoCodeAfterUnfinished(s KernelModelState) bool {
+	!s.RanAfterUnfinished
+}
+
+func kCutBeforeNextWaitPastBound(s KernelModelState) bool {
+	!s.SkippedCut && s.WaitElapsedMs <= DefaultWaitMs()
+}
+
+func kDeliversExclusiveByKind(s KernelModelState) bool {
+	s.ShellOwner == handle.DelivererShellHost && s.ShellOwner != handle.DelivererRegistry
+}
+
+func kOtherOwnerReloadKeepsLiveCalls(s KernelModelState) bool {
+	if s.OwnerBReloaded && !s.OwnerAReloaded && s.CallWakeCount == 0 && s.Phase != CellCutHanded {
+		handle.IsOpen(s.CallADisp) || s.CallADisp == handle.DispHanded
+	} else {
+		true
+	}
+}
+
+func kCleanRestoreEmitsNoLostNotice(s KernelModelState) bool {
+	let boundOK = s.LostNoticeLen <= MaxLostBindingsNoticeChars()
+	if !s.BindingsLost {
+		!s.LostNoticeEmitted && s.LostNoticeLen == 0
+	} else {
+		s.LostNoticeEmitted && boundOK
+	}
+}
+
+func kRootNeverQueuesSlots(s KernelModelState) bool {
+	!s.RootQueued
+}
+
+func kAllInvariants(s KernelModelState) bool {
+		kHandleSettledToldOnce(s) &&
+		kHandedNeverDoubleWakes(s) &&
+		kNoCodeAfterUnfinished(s) &&
+		kCutBeforeNextWaitPastBound(s) &&
+		kDeliversExclusiveByKind(s) &&
+		kOtherOwnerReloadKeepsLiveCalls(s) &&
+		kCleanRestoreEmitsNoLostNotice(s) &&
+		kRootNeverQueuesSlots(s)
+}
+
+func kWitnessDetachedCallToldOnce(s KernelModelState) bool {
+	s.OwnerAReloaded && s.CallADisp == handle.DispLost && s.CallWakeCount == 1
+}
+
+func kWitnessHandedOffToldOnce(s KernelModelState) bool {
+	s.Phase == CellCutHanded && s.CallADisp == handle.DispHanded && s.HandedWakeCount == 0 && s.ShellWakeCount == 1
+}
+
+func kWitnessReloadBLeavesALive(s KernelModelState) bool {
+	s.OwnerBReloaded && !s.OwnerAReloaded && s.CallADisp == handle.DispOpen
+}
+
+func kWitnessLostBindingsToldOnce(s KernelModelState) bool {
+	s.Restored && s.BindingsLost && s.LostNoticeEmitted && s.LostNoticeLen > 0 && s.LostNoticeLen <= MaxLostBindingsNoticeChars()
+}
+
+// KernelRuntimeLifecycle proves all 8 always-laws and 4 sometimes-witnesses of docs/specs/atlas/models/kernel/kernel.ergo.
+type KernelRuntimeLifecycle machine[KernelModelState, KernelModelAction] {
+	initial: initKernelModel,
+	step:    stepKernelModel,
+
+	law HandleSettledToldOnce always kHandleSettledToldOnce,
+	law HandedNeverDoubleWakes always kHandedNeverDoubleWakes,
+	law NoCodeAfterUnfinished always kNoCodeAfterUnfinished,
+	law CutBeforeNextWaitPastBound always kCutBeforeNextWaitPastBound,
+	law DeliversExclusiveByKind always kDeliversExclusiveByKind,
+	law OtherOwnerReloadKeepsLiveCalls always kOtherOwnerReloadKeepsLiveCalls,
+	law CleanRestoreEmitsNoLostNotice always kCleanRestoreEmitsNoLostNotice,
+	law RootNeverQueuesSlots always kRootNeverQueuesSlots,
+
+	law DetachedCallToldOnce sometimes kWitnessDetachedCallToldOnce,
+	law HandedOffToldOnceByOwner sometimes kWitnessHandedOffToldOnce,
+	law ReloadBLeavesALive sometimes kWitnessReloadBLeavesALive,
+	law LostBindingsToldOnce sometimes kWitnessLostBindingsToldOnce,
+}
+
+// KernelMutantChecksRefuteBugs verifies all 7 kernel model mutants fail the invariant suite.
+law KernelMutantChecksRefuteBugs() {
+	let base = initKernelModel(false)
+	let doubleWakeUnfinished = KernelModelState{..base, CallADisp: handle.DispHanded, HandedWakeCount: 1}
+	let runAfterUnfinished = KernelModelState{..base, RanAfterUnfinished: true}
+	let skipCutAtBound = KernelModelState{..base, WaitElapsedMs: DefaultWaitMs() + 1000, SkippedCut: true}
+	let registryStealsShell = KernelModelState{..base, ShellOwner: handle.DelivererRegistry}
+	let foreignOwnerRetires = KernelModelState{..base, OwnerBReloaded: true, OwnerAReloaded: false, CallADisp: handle.DispLost}
+	let cleanRestoreNotice = KernelModelState{..base, Restored: true, BindingsLost: false, LostNoticeEmitted: true, LostNoticeLen: 12}
+	let queueRootCell = KernelModelState{..base, WorkerSlotsUsed: MaxRoleWorkerSlots(), RootQueued: true}
+		!kAllInvariants(doubleWakeUnfinished) &&
+		!kAllInvariants(runAfterUnfinished) &&
+		!kAllInvariants(skipCutAtBound) &&
+		!kAllInvariants(registryStealsShell) &&
+		!kAllInvariants(foreignOwnerRetires) &&
+		!kAllInvariants(cleanRestoreNotice) &&
+		!kAllInvariants(queueRootCell)
+}

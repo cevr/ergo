@@ -1058,6 +1058,267 @@
       "killers": [
         "modules/atlas/pool:RotationAndLimitBridgeIntegration"
       ]
+    },
+    {
+      "name": "atlas-kernel-wake-120s-wait-bound",
+      "origin": "ATLAS-KERNEL-WAKE",
+      "file": "modules/atlas/kernel/limits.ergo",
+      "decl": "DefaultWaitMs",
+      "from": "func DefaultWaitMs() int { 120000 }",
+      "to": "func DefaultWaitMs() int { 300000 }",
+      "rule": "Kernel wait budget must stay bounded at 120s (120000ms).",
+      "killers": [
+        "modules/atlas/kernel:law:BoundsMatchSpecLaw",
+        "modules/atlas/kernel:law:CutAtBoundClampingAndTriggerLaw"
+      ]
+    },
+    {
+      "name": "atlas-kernel-wake-30s-compute-bound",
+      "origin": "ATLAS-KERNEL-WAKE",
+      "file": "modules/atlas/kernel/limits.ergo",
+      "decl": "DefaultComputeMs",
+      "from": "func DefaultComputeMs() int { 30000 }",
+      "to": "func DefaultComputeMs() int { 120000 }",
+      "rule": "Kernel synchronous compute bound must stay capped at 30s (30000ms).",
+      "killers": [
+        "modules/atlas/kernel:law:BoundsMatchSpecLaw",
+        "modules/atlas/kernel:law:CutAtBoundClampingAndTriggerLaw"
+      ]
+    },
+    {
+      "name": "atlas-kernel-wake-10m-ask-bound",
+      "origin": "ATLAS-KERNEL-WAKE",
+      "file": "modules/atlas/kernel/limits.ergo",
+      "decl": "DefaultAskMs",
+      "from": "func DefaultAskMs() int { 600000 }",
+      "to": "func DefaultAskMs() int { 120000 }",
+      "rule": "Kernel asking wait bound must be 10m (600000ms).",
+      "killers": [
+        "modules/atlas/kernel:law:BoundsMatchSpecLaw",
+        "modules/atlas/kernel:law:CutAtBoundClampingAndTriggerLaw"
+      ]
+    },
+    {
+      "name": "atlas-kernel-wake-cut-skips-wait-trigger",
+      "origin": "ATLAS-KERNEL-WAKE",
+      "file": "modules/atlas/kernel/limits.ergo",
+      "decl": "ShouldCutAtBound",
+      "from": "\tif inp.ElapsedWaitMs >= inp.WaitBoundMs {\n\t\treturn option.Some[CutReason]{Value: CutWaiting}\n\t}",
+      "to": "\tif false && inp.ElapsedWaitMs >= inp.WaitBoundMs {\n\t\treturn option.Some[CutReason]{Value: CutWaiting}\n\t}",
+      "rule": "Non-automation cells reaching wait bound must cut before entering another wait.",
+      "killers": [
+        "modules/atlas/kernel:law:CutAtBoundClampingAndTriggerLaw"
+      ]
+    },
+    {
+      "name": "atlas-kernel-wake-unfinished-runs-instead-of-handed",
+      "origin": "ATLAS-KERNEL-WAKE",
+      "file": "modules/atlas/kernel/limits.ergo",
+      "decl": "ClassifyUnfinishedOrHanded",
+      "from": "\tif inp.Cut {\n\t\treturn (EvalHanded, true)\n\t}",
+      "to": "\tif inp.Cut {\n\t\treturn (EvalUnfinished, false)\n\t}",
+      "rule": "Cutting a cell with active handles must transition Unfinished -> Handed cleanly.",
+      "killers": [
+        "modules/atlas/kernel:law:UnfinishedVsHandedLaw"
+      ]
+    },
+    {
+      "name": "atlas-kernel-wake-clean-restore-emits-notice",
+      "origin": "ATLAS-KERNEL-WAKE",
+      "file": "modules/atlas/kernel/limits.ergo",
+      "decl": "FormatLostBindingsNotice",
+      "from": "\tif lost.Len() == 0 {\n\t\treturn \"\"\n\t}",
+      "to": "\tif lost.Len() == 0 {\n\t\treturn \"[new kernel; restored]\"\n\t}",
+      "rule": "Clean restore with no lost bindings must emit zero lost-bindings notice.",
+      "killers": [
+        "modules/atlas/kernel:law:LostBindingsNoticeBoundedAndGuarded",
+        "modules/atlas/kernel:law:CleanVsLostRestoreNoticeLaw"
+      ]
+    },
+    {
+      "name": "atlas-kernel-wake-lost-bindings-exceeds-160",
+      "origin": "ATLAS-KERNEL-WAKE",
+      "file": "modules/atlas/kernel/limits.ergo",
+      "decl": "MaxLostBindingsNoticeChars",
+      "from": "func MaxLostBindingsNoticeChars() int { handle.MaxLostNoticeChars }",
+      "to": "func MaxLostBindingsNoticeChars() int { 512 }",
+      "rule": "Lost-bindings notices must remain strictly capped at 160 characters.",
+      "killers": [
+        "modules/atlas/kernel:law:BoundsMatchSpecLaw",
+        "modules/atlas/kernel:law:LostBindingsNoticeBoundedAndGuarded"
+      ]
+    },
+    {
+      "name": "atlas-kernel-wake-root-waits-on-subagents",
+      "origin": "ATLAS-KERNEL-WAKE",
+      "file": "modules/atlas/kernel/limits.ergo",
+      "decl": "CanRoleWaitOnSubagents",
+      "from": "\tcase subagent.RoleRoot:\n\t\tfalse",
+      "to": "\tcase subagent.RoleRoot:\n\t\ttrue",
+      "rule": "Root agents must be prevented from blocking on subagents.wait.",
+      "killers": [
+        "modules/atlas/kernel:law:RoleToolPolicyLaw"
+      ]
+    },
+    {
+      "name": "atlas-kernel-wake-worker-pool-exceeds-32",
+      "origin": "ATLAS-KERNEL-WAKE",
+      "file": "modules/atlas/kernel/limits.ergo",
+      "decl": "MaxRoleWorkerSlots",
+      "from": "func MaxRoleWorkerSlots() int { 32 }",
+      "to": "func MaxRoleWorkerSlots() int { 64 }",
+      "rule": "Worker role kernel concurrency pool must stay bounded at 32 slots.",
+      "killers": [
+        "modules/atlas/kernel:law:BoundsMatchSpecLaw",
+        "modules/atlas/kernel:law:SlotPool32WorkerAndRootExemptLaw"
+      ]
+    },
+    {
+      "name": "atlas-kernel-wake-32-slot-queues-root",
+      "origin": "ATLAS-KERNEL-WAKE",
+      "file": "modules/atlas/kernel/slots_usage.ergo",
+      "decl": "isRootOrAuto",
+      "from": "\tcase subagent.RoleRoot:\n\t\ttrue",
+      "to": "\tcase subagent.RoleRoot:\n\t\tfalse",
+      "rule": "Root threads must never wait on the 32-worker slot queue.",
+      "killers": [
+        "modules/atlas/kernel:law:SlotPool32WorkerAndRootExemptLaw"
+      ]
+    },
+    {
+      "name": "atlas-kernel-wake-hourly-15pct-never-flags",
+      "origin": "ATLAS-KERNEL-WAKE",
+      "file": "modules/atlas/kernel/slots_usage.ergo",
+      "decl": "RecordCellDuration",
+      "from": "\tlet over15 = activeTotal*100 > RootUsageFlagPct()*RootUsageWindowMs()",
+      "to": "\tlet over15 = false",
+      "rule": "Per-root hourly kernel usage exceeding 15% must raise a warning flag once per hour.",
+      "killers": [
+        "modules/atlas/kernel:law:RootHourlyShareFlagLaw"
+      ]
+    },
+    {
+      "name": "atlas-kernel-wake-delivers-routes-host-to-registry",
+      "origin": "ATLAS-KERNEL-WAKE",
+      "file": "modules/atlas/handles/registry.ergo",
+      "decl": "OpenCallOrLand",
+      "from": "\tif !handle.CanRegistryOpen(spec.Kind) {\n\t\treturn DelivererMismatch{Kind: spec.Kind, Want: want, Got: handle.DelivererRegistry}\n\t}",
+      "to": "\tif false && !handle.CanRegistryOpen(spec.Kind) {\n\t\treturn DelivererMismatch{Kind: spec.Kind, Want: want, Got: handle.DelivererRegistry}\n\t}",
+      "rule": "DELIVERS registry must refuse opening host-owned handle kinds under DelivererRegistry.",
+      "killers": [
+        "modules/atlas/handles:law:DeliversSingleOwnerLaw"
+      ]
+    },
+    {
+      "name": "atlas-kernel-wake-2s-burst-fires-early",
+      "origin": "ATLAS-KERNEL-WAKE",
+      "file": "modules/atlas/handles/registry.ergo",
+      "decl": "BurstWindowMs",
+      "from": "func BurstWindowMs() int { 2000 }",
+      "to": "func BurstWindowMs() int { 0 }",
+      "rule": "Burst wake coalescing window must remain 2000ms so wakes never fire early.",
+      "killers": [
+        "modules/atlas/handles:law:FirstSettleAndBurstCoalesce",
+        "modules/atlas/handles:law:MemoryStoreHandleParity"
+      ]
+    },
+    {
+      "name": "atlas-kernel-wake-wake-letter-exceeds-2000",
+      "origin": "ATLAS-KERNEL-WAKE",
+      "file": "modules/atlas/handles/registry.ergo",
+      "decl": "MaxWakeLetterChars",
+      "from": "func MaxWakeLetterChars() int { handle.MaxWakeLetterChars }",
+      "to": "func MaxWakeLetterChars() int { 8000 }",
+      "rule": "Coalesced wake letters must never exceed 2000 chars.",
+      "killers": [
+        "modules/atlas/handles:law:BoundedLetterAndFooterLaw"
+      ]
+    },
+    {
+      "name": "atlas-kernel-wake-handed-double-wakes",
+      "origin": "ATLAS-KERNEL-WAKE",
+      "file": "modules/atlas/handles/registry.ergo",
+      "decl": "Settle",
+      "from": "\tlet shouldQueue = emitted && !isDeleted && !alreadyDelivered && handle.EmitsRegistryWake(disp)",
+      "to": "\tlet shouldQueue = (emitted || true) && !isDeleted && !alreadyDelivered && handle.EmitsRegistryWake(disp)",
+      "rule": "Handed and already-settled handles must settle idempotently without re-waking.",
+      "killers": [
+        "modules/atlas/handles:law:HandedNeverEmitsRegistryWake",
+        "modules/atlas/handles:law:FirstSettleAndBurstCoalesce"
+      ]
+    },
+    {
+      "name": "atlas-kernel-wake-deleted-session-wakes",
+      "origin": "ATLAS-KERNEL-WAKE",
+      "file": "modules/atlas/handles/registry.ergo",
+      "decl": "FlushSessionBurst",
+      "from": "\tif isSessionFlagged(reg.DeletedSessions, session) {\n\t\treturn (reg, emptyFlushOutcome())\n\t}",
+      "to": "\tif false && isSessionFlagged(reg.DeletedSessions, session) {\n\t\treturn (reg, emptyFlushOutcome())\n\t}",
+      "rule": "Deleted sessions must suppress all pending wake letters silently.",
+      "killers": [
+        "modules/atlas/handles:law:BusyTurnArchivedAndDeleted"
+      ]
+    },
+    {
+      "name": "atlas-kernel-wake-ask-allows-blocking-question",
+      "origin": "ATLAS-KERNEL-WAKE",
+      "file": "modules/atlas/questions/questions.ergo",
+      "decl": "RequireAsyncOnly",
+      "from": "\tif toolName == RemovedToolID() {",
+      "to": "\tif false && toolName == RemovedToolID() {",
+      "rule": "Blocking question tool must remain refused across every agent role.",
+      "killers": [
+        "modules/atlas/questions:law:BlockingQuestionForbiddenAcrossAllRoles"
+      ]
+    },
+    {
+      "name": "atlas-kernel-wake-ask-drops-assumption-check",
+      "origin": "ATLAS-KERNEL-WAKE",
+      "file": "modules/atlas/questions/questions.ergo",
+      "decl": "ValidateAsk",
+      "from": "\tif strings.TrimSpace(req.Assumption) == \"\" {\n\t\treturn InvalidQuestionInput{Field: \"assumption\", Reason: \"ask_user_async must state its working assumption\"}\n\t}",
+      "to": "\tif false && strings.TrimSpace(req.Assumption) == \"\" {\n\t\treturn InvalidQuestionInput{Field: \"assumption\", Reason: \"ask_user_async must state its working assumption\"}\n\t}",
+      "rule": "ask_user_async must require an explicit non-empty working assumption.",
+      "killers": [
+        "modules/atlas/questions:law:AskAnswerWithdrawNonBlocking"
+      ]
+    },
+    {
+      "name": "atlas-kernel-wake-withdraw-emits-wake",
+      "origin": "ATLAS-KERNEL-WAKE",
+      "file": "modules/atlas/questions/questions.ergo",
+      "decl": "WithdrawAsync",
+      "from": "\tlet nextReg = handles.CancelHandle(book.Registry, rec.HandleID)",
+      "to": "\tlet nextReg = book.Registry",
+      "rule": "Withdrawing an open async question must silently cancel its handle without waking.",
+      "killers": [
+        "modules/atlas/questions:law:AskAnswerWithdrawNonBlocking"
+      ]
+    },
+    {
+      "name": "atlas-kernel-wake-queue-drops-steer-priority",
+      "origin": "ATLAS-KERNEL-WAKE",
+      "file": "modules/atlas/queue/queue.ergo",
+      "decl": "Enqueue",
+      "from": "\tif isSteer(prio) {",
+      "to": "\tif false && isSteer(prio) {",
+      "rule": "Steer prompts must queue strictly ahead of normal FIFO prompts.",
+      "killers": [
+        "modules/atlas/queue:law:QueueFifoSteerAndCancelLaw",
+        "modules/atlas/queue:law:MemoryQueueStoreParity"
+      ]
+    },
+    {
+      "name": "atlas-kernel-wake-queue-allows-cancelled-requeue",
+      "origin": "ATLAS-KERNEL-WAKE",
+      "file": "modules/atlas/queue/queue.ergo",
+      "decl": "Cancel",
+      "from": "\tlet nextCancelled = appendUniqueStr(q.CancelledIDs, promptID)",
+      "to": "\tlet nextCancelled = q.CancelledIDs",
+      "rule": "Cancelling a queued prompt must record its ID as cancelled without disturbing remaining FIFO items.",
+      "killers": [
+        "modules/atlas/queue:law:QueueFifoSteerAndCancelLaw"
+      ]
     }
   ]
 }

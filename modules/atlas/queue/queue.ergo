@@ -1,0 +1,788 @@
+import github.com/cevr/ergo/modules/atlas/adapter
+import github.com/cevr/ergo/modules/atlas/handle
+import github.com/cevr/ergo/modules/atlas/memory
+import github.com/cevr/ergo/modules/atlas/sqlite
+import github.com/cevr/ergo/modules/atlas/thread
+import codec
+import json
+import option
+import slices
+import strings
+
+// PromptPriority classifies whether a prompt enters normal FIFO or jumps ahead as steer.
+type PromptPriority = PriorityNormal{} | PrioritySteer{}
+
+// QueueEmpty indicates a dequeue attempted on an empty queue.
+type QueueEmpty { ThreadID handle.ThreadID }
+
+// DuplicatePrompt indicates a prompt ID is already queued in the thread queue.
+type DuplicatePrompt { ID string }
+
+// InvalidPrompt indicates an empty or malformed prompt ID or body.
+type InvalidPrompt { Reason string }
+
+// PromptNotFound indicates a prompt ID was not found for cancellation.
+type PromptNotFound { ID string }
+
+// ThreadArchivedError indicates queue mutations are refused on archived threads.
+type ThreadArchivedError { ThreadID handle.ThreadID }
+
+// ThreadBusyError indicates normal FIFO prompts cannot dequeue while the turn is busy.
+type ThreadBusyError { ThreadID handle.ThreadID }
+
+// QueueStoreError wraps a persistence or JSON serialization error.
+type QueueStoreError { Message string }
+
+// QueueError enumerates typed failures returned by the persistent prompt queue.
+type QueueError = QueueEmpty | DuplicatePrompt | InvalidPrompt | PromptNotFound | ThreadArchivedError | ThreadBusyError | QueueStoreError
+
+// QueuedItem represents one persisted queued prompt with priority and sequence number.
+type QueuedItem {
+	Prompt       thread.QueuedPrompt,
+	Priority     PromptPriority,
+	EnqueuedAtMs int,
+	Seq          int,
+}
+
+// ThreadQueue holds the durable FIFO + steer queue state for one thread.
+type ThreadQueue {
+	ThreadID     handle.ThreadID,
+	Items        []QueuedItem,
+	CancelledIDs []string,
+	SeenIDs      []string,
+	Archived     bool,
+	NextSeq      int,
+}
+
+// QueueWireItem is the JSON-wire form of one QueuedItem.
+type QueueWireItem {
+	ID           string,
+	Body         string,
+	Mode         string,
+	Priority     string,
+	EnqueuedAtMs int,
+	Seq          int,
+}
+
+// QueueWireSnapshot is the durable JSON-wire form persisted for crash-reopen recovery.
+type QueueWireSnapshot {
+	ThreadID     string,
+	Items        []QueueWireItem,
+	CancelledIDs []string,
+	SeenIDs      []string,
+	Archived     bool,
+	NextSeq      int,
+}
+
+// NewQueue returns an empty persistent ThreadQueue for threadID.
+func NewQueue(threadID handle.ThreadID) ThreadQueue {
+	ThreadQueue{
+		ThreadID:     threadID,
+		Items:        []QueuedItem{},
+		CancelledIDs: []string{},
+		SeenIDs:      []string{},
+		Archived:     false,
+		NextSeq:      1,
+	}
+}
+
+func isSteer(p PromptPriority) bool {
+	match p {
+	case PrioritySteer:
+		true
+	case PriorityNormal:
+		false
+	}
+}
+
+func appendUniqueStr(xs []string, val string) []string {
+	for item in xs {
+		if item == val {
+			return xs
+		}
+	}
+	xs.Append(val)
+}
+
+func hasID(items []QueuedItem, id string) bool {
+	for item in items {
+		if item.Prompt.ID == id {
+			return true
+		}
+	}
+	false
+}
+
+func hasCancelled(ids []string, id string) bool {
+	for item in ids {
+		if item == id {
+			return true
+		}
+	}
+	false
+}
+
+// Enqueue adds prompt in FIFO order within its priority tier (steer ahead of normal).
+func Enqueue(q ThreadQueue, prompt thread.QueuedPrompt, prio PromptPriority, nowMs int) ThreadQueue fails QueueError {
+	if q.Archived {
+		return ThreadArchivedError{ThreadID: q.ThreadID}
+	}
+	if strings.TrimSpace(prompt.ID) == "" {
+		return InvalidPrompt{Reason: "prompt id must be non-empty"}
+	}
+	if strings.TrimSpace(prompt.Body) == "" {
+		return InvalidPrompt{Reason: "prompt body must be non-empty"}
+	}
+	if hasID(q.Items, prompt.ID) || hasCancelled(q.CancelledIDs, prompt.ID) || hasCancelled(q.SeenIDs, prompt.ID) {
+		return DuplicatePrompt{ID: prompt.ID}
+	}
+	let entry = QueuedItem{
+		Prompt:       prompt,
+		Priority:     prio,
+		EnqueuedAtMs: nowMs,
+		Seq:          q.NextSeq,
+	}
+	let mut nextItems = []QueuedItem{}
+	if isSteer(prio) {
+		let mut inserted = false
+		for item in q.Items {
+			if !inserted && !isSteer(item.Priority) {
+				nextItems = nextItems.Append(entry)
+				inserted = true
+			}
+			nextItems = nextItems.Append(item)
+		}
+		if !inserted {
+			nextItems = nextItems.Append(entry)
+		}
+	} else {
+		nextItems = q.Items.Append(entry)
+	}
+	ThreadQueue{
+		..q,
+		Items:   nextItems,
+		SeenIDs: appendUniqueStr(q.SeenIDs, prompt.ID),
+		NextSeq: q.NextSeq + 1,
+	}
+}
+
+// Dequeue pops the next prompt respecting FIFO order, steer priority, idle gating, and archive rules.
+func Dequeue(q ThreadQueue, threadIdle bool, consumeSteerWhileBusy bool) (ThreadQueue, option.Option[QueuedItem]) fails QueueError {
+	if q.Archived {
+		return ThreadArchivedError{ThreadID: q.ThreadID}
+	}
+	if q.Items.Len() == 0 {
+		return (q, option.None)
+	}
+	let head = q.Items[0]
+	if !threadIdle && !(isSteer(head.Priority) && consumeSteerWhileBusy) {
+		return ThreadBusyError{ThreadID: q.ThreadID}
+	}
+	let tail = q.Items.Slice(1, q.Items.Len())
+	(ThreadQueue{..q, Items: tail}, option.Some[QueuedItem]{Value: head})
+}
+
+// Cancel removes promptID from pending items while preserving the relative FIFO order of remaining prompts.
+func Cancel(q ThreadQueue, promptID string) (ThreadQueue, bool) fails QueueError {
+	if q.Archived {
+		return ThreadArchivedError{ThreadID: q.ThreadID}
+	}
+	let mut nextItems = []QueuedItem{}
+	let mut found = false
+	for item in q.Items {
+		if item.Prompt.ID == promptID {
+			found = true
+		} else {
+			nextItems = nextItems.Append(item)
+		}
+	}
+	if !found {
+		return (q, false)
+	}
+	let nextCancelled = appendUniqueStr(q.CancelledIDs, promptID)
+	(ThreadQueue{..q, Items: nextItems, CancelledIDs: nextCancelled}, true)
+}
+
+// Peek returns the head item without removing it.
+func Peek(q ThreadQueue) option.Option[QueuedItem] {
+	if q.Items.Len() == 0 {
+		option.None
+	} else {
+		option.Some[QueuedItem]{Value: q.Items[0]}
+	}
+}
+
+// List returns all queued items in exact dequeue order.
+func List(q ThreadQueue) []QueuedItem { q.Items }
+
+// Len returns the number of queued prompts waiting in q.
+func Len(q ThreadQueue) int { q.Items.Len() }
+
+func modeToString(m adapter.PermissionMode) string {
+	match m {
+	case adapter.ModeAsk:
+		"ask"
+	case adapter.ModeAutoEdit:
+		"auto_edit"
+	case adapter.ModeYolo:
+		"yolo"
+	case adapter.ModeSupervised:
+		"supervised"
+	}
+}
+
+func modeFromString(s string) adapter.PermissionMode {
+	match s {
+	case "ask":
+		adapter.ModeAsk
+	case "yolo":
+		adapter.ModeYolo
+	case "supervised":
+		adapter.ModeSupervised
+	case _:
+		adapter.ModeAutoEdit
+	}
+}
+
+func prioToString(p PromptPriority) string {
+	match p {
+	case PrioritySteer:
+		"steer"
+	case PriorityNormal:
+		"normal"
+	}
+}
+
+func prioFromString(s string) PromptPriority {
+	match s {
+	case "steer":
+		PrioritySteer
+	case _:
+		PriorityNormal
+	}
+}
+
+// EncodeQueueJSON serializes ThreadQueue into compact JSON for durable SQLite snapshot storage.
+func EncodeQueueJSON(q ThreadQueue) string {
+	let mut items = []QueueWireItem{}
+	for it in q.Items {
+		items = items.Append(QueueWireItem{
+			ID:           it.Prompt.ID,
+			Body:         it.Prompt.Body,
+			Mode:         modeToString(it.Prompt.RequestedMode),
+			Priority:     prioToString(it.Priority),
+			EnqueuedAtMs: it.EnqueuedAtMs,
+			Seq:          it.Seq,
+		})
+	}
+	let snap = QueueWireSnapshot{
+		ThreadID:     string(q.ThreadID),
+		Items:        items,
+		CancelledIDs: q.CancelledIDs,
+		SeenIDs:      q.SeenIDs,
+		Archived:     q.Archived,
+		NextSeq:      q.NextSeq,
+	}
+	json.Encode(json.Codec[QueueWireSnapshot]{MaxBytes: 0, MaxDepth: 0}, snap)
+}
+
+// DecodeQueueJSON restores a persisted ThreadQueue from serialized JSON.
+func DecodeQueueJSON(raw string) ThreadQueue fails QueueError {
+	let snap = json.Decode(json.Codec[QueueWireSnapshot]{MaxBytes: memory.MaxKernelSnapshotBytes(), MaxDepth: 16}, raw) catch {
+	case json.Malformed as m:
+		return QueueStoreError{Message: m.Reason}
+	case codec.WireMissingField, codec.WireWrongKind:
+		return QueueStoreError{Message: "wire format mismatch"}
+	}
+	let mut items = []QueuedItem{}
+	for wi in snap.Items {
+		items = items.Append(QueuedItem{
+			Prompt: thread.QueuedPrompt{
+				ID:            wi.ID,
+				Body:          wi.Body,
+				RequestedMode: modeFromString(wi.Mode),
+			},
+			Priority:     prioFromString(wi.Priority),
+			EnqueuedAtMs: wi.EnqueuedAtMs,
+			Seq:          wi.Seq,
+		})
+	}
+	ThreadQueue{
+		ThreadID:     handle.ThreadID(snap.ThreadID),
+		Items:        items,
+		CancelledIDs: snap.CancelledIDs,
+		SeenIDs:      snap.SeenIDs,
+		Archived:     snap.Archived,
+		NextSeq:      snap.NextSeq,
+	}
+}
+
+// QPhase tracks simplified bounded states for formal FIFO queue model checking.
+type QMachineState {
+	Queue              ThreadQueue,
+	DequeuedSeqs       []int,
+	DequeuedSteerFlags []bool,
+	DequeuedIDs        []string,
+	PersistedJSON      string,
+	Crashes            int,
+}
+
+// QMachineAction drives PromptQueueLifecycle exhaustive verification.
+type QMachineAction = QEnqNormal1{} | QEnqNormal2{} | QEnqSteer{} | QDeq{} | QCancel1{} | QCrash{}
+
+func initQMachine(_ bool) QMachineState {
+	let initQ = NewQueue("th-model")
+	QMachineState{
+		Queue:              initQ,
+		DequeuedSeqs:       []int{},
+		DequeuedSteerFlags: []bool{},
+		DequeuedIDs:        []string{},
+		PersistedJSON:      EncodeQueueJSON(initQ),
+		Crashes:            0,
+	}
+}
+
+func stepQEnqueue(s QMachineState, id string, prio PromptPriority) Decision[QMachineState, int] {
+	if s.Queue.NextSeq > 4 {
+		return Ignore
+	}
+	let p = thread.QueuedPrompt{ID: id, Body: "run " + id, RequestedMode: adapter.ModeAutoEdit}
+	let nextQ = Enqueue(s.Queue, p, prio, s.Queue.NextSeq*100) catch {
+	case QueueError:
+		return Ignore
+	}
+	Stay[QMachineState]{Next: QMachineState{..s, Queue: nextQ, PersistedJSON: EncodeQueueJSON(nextQ)}}
+}
+
+func stepQMachine(s QMachineState, a QMachineAction) Decision[QMachineState, int] {
+	match a {
+	case QEnqNormal1:
+		stepQEnqueue(s, "n1", PriorityNormal)
+	case QEnqNormal2:
+		stepQEnqueue(s, "n2", PriorityNormal)
+	case QEnqSteer:
+		stepQEnqueue(s, "st1", PrioritySteer)
+	case QDeq:
+		let (nextQ, popped) = Dequeue(s.Queue, true, true) catch {
+		case QueueError:
+			return Ignore
+		}
+		match popped {
+		case option.Some[QueuedItem] as it:
+			Stay[QMachineState]{Next: QMachineState{
+				..s,
+				Queue:              nextQ,
+				DequeuedSeqs:       s.DequeuedSeqs.Append(it.Value.Seq),
+				DequeuedSteerFlags: s.DequeuedSteerFlags.Append(isSteer(it.Value.Priority)),
+				DequeuedIDs:        s.DequeuedIDs.Append(it.Value.Prompt.ID),
+				PersistedJSON:      EncodeQueueJSON(nextQ),
+			}}
+		case option.None:
+			Ignore
+		}
+	case QCancel1:
+		let (nextQ, removed) = Cancel(s.Queue, "n1") catch {
+		case QueueError:
+			return Ignore
+		}
+		if !removed {
+			return Ignore
+		}
+		Stay[QMachineState]{Next: QMachineState{..s, Queue: nextQ, PersistedJSON: EncodeQueueJSON(nextQ)}}
+	case QCrash:
+		if s.Crashes < 1 {
+			let reopened = DecodeQueueJSON(s.PersistedJSON) catch {
+			case QueueError:
+				return Ignore
+			}
+			Stay[QMachineState]{Next: QMachineState{..s, Queue: reopened, Crashes: s.Crashes + 1}}
+		} else {
+			Ignore
+		}
+	}
+}
+
+func alwaysFifoWithinTier(s QMachineState) bool {
+	let items = s.Queue.Items
+	for i in 1..items.Len() {
+		let prev = items[i-1]
+		let cur = items[i]
+		if !isSteer(prev.Priority) && isSteer(cur.Priority) {
+			return false
+		}
+		if isSteer(prev.Priority) == isSteer(cur.Priority) && prev.Seq >= cur.Seq {
+			return false
+		}
+	}
+	true
+}
+
+func alwaysCancelledNeverDequeued(s QMachineState) bool {
+	for d in s.DequeuedIDs {
+		if hasCancelled(s.Queue.CancelledIDs, d) {
+			return false
+		}
+	}
+	true
+}
+
+func alwaysUniqueActiveIDs(s QMachineState) bool {
+	let items = s.Queue.Items
+	for i in 0..items.Len() {
+		for j in i+1..items.Len() {
+			if items[i].Prompt.ID == items[j].Prompt.ID {
+				return false
+			}
+		}
+	}
+	true
+}
+
+func alwaysPersistedSnapshotValid(s QMachineState) bool {
+	s.PersistedJSON.Len() > 0 && strings.Contains(s.PersistedJSON, "\"threadID\":\"th-model\"")
+}
+
+func witnessSteerPreemptsNormal(s QMachineState) bool {
+	s.DequeuedIDs.Len() >= 2 && s.DequeuedIDs[0] == "st1" && s.DequeuedIDs[1] == "n1"
+}
+
+func witnessCancelPreservesOrder(s QMachineState) bool {
+	hasCancelled(s.Queue.CancelledIDs, "n1") && s.DequeuedIDs.Len() >= 1 && s.DequeuedIDs[s.DequeuedIDs.Len()-1] == "n2"
+}
+
+func witnessCrashReopenDequeues(s QMachineState) bool {
+	s.Crashes > 0 && s.DequeuedIDs.Len() >= 2
+}
+
+// PromptQueueLifecycle exhaustively proves FIFO order, steer priority, cancellation safety, and JSON crash-reopen persistence.
+type PromptQueueLifecycle machine[QMachineState, QMachineAction] {
+	initial: initQMachine,
+	step:    stepQMachine,
+
+	law FifoWithinTierAndSteerFirst always alwaysFifoWithinTier,
+	law CancelledNeverDequeued always alwaysCancelledNeverDequeued,
+	law UniqueActiveIDs always alwaysUniqueActiveIDs,
+	law PersistedSnapshotValid always alwaysPersistedSnapshotValid,
+
+	law SteerPreemptsNormal sometimes witnessSteerPreemptsNormal,
+	law CancelPreservesOrder sometimes witnessCancelPreservesOrder,
+	law CrashReopenDequeues sometimes witnessCrashReopenDequeues,
+}
+
+func wrapQueueExec[R](run func() memory.ExecuteResult fails memory.NotFound | memory.AlreadyExists | memory.InvalidTransition | memory.CommandReused | memory.InvalidInput | memory.LeaseFenced | memory.ThreadDomainErr | memory.SubagentDomainErr | memory.HandleDomainErr | memory.LimitDomainErr | memory.RequestDomainErr | memory.CutoverDomainErr | memory.StoreFailed needs R) memory.ExecuteResult fails QueueError needs R {
+	run() catch {
+	case memory.NotFound, memory.AlreadyExists, memory.InvalidTransition, memory.CommandReused, memory.InvalidInput, memory.LeaseFenced, memory.ThreadDomainErr, memory.SubagentDomainErr, memory.HandleDomainErr, memory.LimitDomainErr, memory.RequestDomainErr, memory.CutoverDomainErr, memory.StoreFailed:
+		return QueueStoreError{Message: "queue store execute failed"}
+	}
+}
+
+func queueEnvelope(seq int, atMs int, cmd memory.Command) memory.Envelope {
+	memory.Envelope{
+		ID:         memory.CommandID("queue-\(seq)"),
+		Actor:      "queue",
+		AtMs:       int64(atMs),
+		LeaseFence: option.None,
+		Command:    cmd,
+	}
+}
+
+// QueueSnapshotSession returns the durable kernel snapshot session key storing ThreadQueue state.
+func QueueSnapshotSession(threadID handle.ThreadID) handle.SessionID {
+	handle.SessionID("queue:\(threadID)")
+}
+
+// StorePersistQueue saves the durable ThreadQueue state into the store's kernel_snapshots table.
+func StorePersistQueue[R](execFn func(env memory.Envelope) memory.ExecuteResult fails QueueError needs R, seq int, nowMs int, rootThreadID handle.ThreadID, q ThreadQueue) fails QueueError needs R {
+	let encoded = EncodeQueueJSON(q)
+	if encoded.Len() > memory.MaxKernelSnapshotBytes() {
+		return QueueStoreError{Message: "serialized queue exceeds snapshot limit"}
+	}
+	let _ = try execFn(queueEnvelope(seq, nowMs, memory.CmdSaveKernelSnapshot{
+		SessionID:     QueueSnapshotSession(q.ThreadID),
+		ThreadID:      q.ThreadID,
+		RootThreadID:  rootThreadID,
+		BindingsJSON:  encoded,
+		SnapshotBytes: encoded.Len(),
+		LostNotice:    "",
+	}))
+}
+
+// StoreLoadQueue restores ThreadQueue cleanly from persisted store KernelView and ThreadView after crash-reopen.
+func StoreLoadQueue[R](kernelViewFn func(sess handle.SessionID) memory.KernelView fails QueueError needs R, threadViewFn func(id handle.ThreadID) option.Option[memory.ThreadView] fails QueueError needs R, threadID handle.ThreadID) ThreadQueue fails QueueError needs R {
+	let kv = try kernelViewFn(QueueSnapshotSession(threadID))
+	match kv.Snapshot {
+	case option.Some[memory.KernelSnapshot] as s:
+		try DecodeQueueJSON(s.Value.BindingsJSON)
+	case option.None:
+		let tv = try threadViewFn(threadID)
+		let mut q = NewQueue(threadID)
+		match tv {
+		case option.Some[memory.ThreadView] as view:
+			for p in view.Value.PromptQueue {
+				q = try Enqueue(q, p, PriorityNormal, 0)
+			}
+			q
+		case option.None:
+			q
+		}
+	}
+}
+
+// QueueStoreChecks verifies MemStore and WALStore FIFO/steer/cancel persistence and crash-reopen parity.
+type QueueStoreChecks {
+	CheckParity(tag int) bool,
+
+	// SqliteQueuePersistsAndMatchesMemory proves WALStore and MemStore agree across crash-reopen.
+	law SqliteQueuePersistsAndMatchesMemory(x Self) { x.CheckParity(1) },
+}
+
+type goQueueStoreChecks {} implements QueueStoreChecks
+
+func CheckParity(_ goQueueStoreChecks, _ int) bool needs go.Foreign {
+	let mem = memory.NewMemStore()
+	let wal = sqlite.NewWALStore()
+	let okMem = verifyQueueStore(
+		func(env memory.Envelope) memory.ExecuteResult fails QueueError {
+			wrapQueueExec(func() memory.ExecuteResult fails memory.NotFound | memory.AlreadyExists | memory.InvalidTransition | memory.CommandReused | memory.InvalidInput | memory.LeaseFenced | memory.ThreadDomainErr | memory.SubagentDomainErr | memory.HandleDomainErr | memory.LimitDomainErr | memory.RequestDomainErr | memory.CutoverDomainErr | memory.StoreFailed {
+				try mem.Execute(env)
+			})
+		},
+		func(sess handle.SessionID) memory.KernelView fails QueueError {
+			mem.GetKernelView(sess) catch {
+			case memory.StoreFailed:
+				return QueueStoreError{Message: "kernel view failed"}
+			}
+		},
+		func(id handle.ThreadID) option.Option[memory.ThreadView] fails QueueError {
+			mem.GetThreadView(id) catch {
+			case memory.StoreFailed:
+				return QueueStoreError{Message: "thread view failed"}
+			}
+		},
+	)
+	let okWal = verifyQueueStore(
+		func(env memory.Envelope) memory.ExecuteResult fails QueueError needs go.Foreign {
+			wrapQueueExec(func() memory.ExecuteResult fails memory.NotFound | memory.AlreadyExists | memory.InvalidTransition | memory.CommandReused | memory.InvalidInput | memory.LeaseFenced | memory.ThreadDomainErr | memory.SubagentDomainErr | memory.HandleDomainErr | memory.LimitDomainErr | memory.RequestDomainErr | memory.CutoverDomainErr | memory.StoreFailed needs go.Foreign {
+				try wal.Execute(env)
+			})
+		},
+		func(sess handle.SessionID) memory.KernelView fails QueueError needs go.Foreign {
+			wal.GetKernelView(sess) catch {
+			case memory.StoreFailed:
+				return QueueStoreError{Message: "kernel view failed"}
+			}
+		},
+		func(id handle.ThreadID) option.Option[memory.ThreadView] fails QueueError needs go.Foreign {
+			wal.GetThreadView(id) catch {
+			case memory.StoreFailed:
+				return QueueStoreError{Message: "thread view failed"}
+			}
+		},
+	)
+	sqlite.CloseWAL(wal) catch {
+	case memory.StoreFailed:
+		return false
+	}
+	okMem && okWal
+}
+
+func verifyQueueStore[R](execFn func(env memory.Envelope) memory.ExecuteResult fails QueueError needs R, kvFn func(sess handle.SessionID) memory.KernelView fails QueueError needs R, tvFn func(id handle.ThreadID) option.Option[memory.ThreadView] fails QueueError needs R) bool needs R {
+	let th = handle.ThreadID("th-queue")
+	let _ = execFn(queueEnvelope(1, 100, memory.CmdCreateThread{
+		Spec: thread.ThreadSpec{
+			ID:                 th,
+			ParentThreadID:     option.None,
+			Driver:             adapter.ClaudeMeta,
+			AgyDirectSupported: false,
+			RequestedMode:      adapter.ModeAutoEdit,
+			Instance:           adapter.InstanceID("inst-1"),
+			ConfigDir:          "/tmp/cfg",
+			SharedHome:         option.None,
+			Model:              adapter.ModelID("opus"),
+			LinkOrigin:         thread.OriginLocal,
+		},
+		EdgeLabel: "",
+	})) catch {
+	case QueueError:
+		return false
+	}
+	let p1 = thread.QueuedPrompt{ID: "p1", Body: "first", RequestedMode: adapter.ModeAutoEdit}
+	let p2 = thread.QueuedPrompt{ID: "p2", Body: "second", RequestedMode: adapter.ModeAutoEdit}
+	let pSteer = thread.QueuedPrompt{ID: "ps", Body: "steer now", RequestedMode: adapter.ModeAutoEdit}
+	let _ = execFn(queueEnvelope(2, 110, memory.CmdEnqueuePrompt{ThreadID: th, Prompt: p1})) catch {
+	case QueueError:
+		return false
+	}
+	let _ = execFn(queueEnvelope(3, 120, memory.CmdEnqueuePrompt{ThreadID: th, Prompt: p2})) catch {
+	case QueueError:
+		return false
+	}
+	let mut q = StoreLoadQueue(kvFn, tvFn, th) catch {
+	case QueueError:
+		return false
+	}
+	if Len(q) != 2 {
+		return false
+	}
+	q = Enqueue(q, pSteer, PrioritySteer, 130) catch {
+	case QueueError:
+		return false
+	}
+	let (q2, removed) = Cancel(q, "p1") catch {
+	case QueueError:
+		return false
+	}
+	if !removed {
+		return false
+	}
+	q = q2
+	StorePersistQueue(execFn, 4, 140, th, q) catch {
+	case QueueError:
+		return false
+	}
+	let reopened = StoreLoadQueue(kvFn, tvFn, th) catch {
+	case QueueError:
+		return false
+	}
+	if Len(reopened) != 2 {
+		return false
+	}
+	let (afterFirst, gotFirst) = Dequeue(reopened, false, true) catch {
+	case QueueError:
+		return false
+	}
+	let firstOK = match gotFirst {
+	case option.Some[QueuedItem] as s:
+		s.Value.Prompt.ID == "ps"
+	case option.None:
+		false
+	}
+	let mut busyNormalBlocked = false
+	let _ = Dequeue(afterFirst, false, true) catch {
+	case QueueError as err:
+		match err {
+		case ThreadBusyError:
+			busyNormalBlocked = true
+		case QueueEmpty, DuplicatePrompt, InvalidPrompt, PromptNotFound, ThreadArchivedError, QueueStoreError:
+			busyNormalBlocked = false
+		}
+		(afterFirst, option.None)
+	}
+	if !firstOK || !busyNormalBlocked {
+		return false
+	}
+	let (afterSecond, gotSecond) = Dequeue(afterFirst, true, true) catch {
+	case QueueError:
+		return false
+	}
+	let secondOK = match gotSecond {
+	case option.Some[QueuedItem] as s:
+		s.Value.Prompt.ID == "p2"
+	case option.None:
+		false
+	}
+	secondOK && Len(afterSecond) == 0
+}
+
+// MemoryQueueStoreParity verifies MemStore FIFO, steer preemption, cancel preservation, and crash-reopen persistence.
+law MemoryQueueStoreParity() {
+	let mem = memory.NewMemStore()
+	verifyQueueStore(
+		func(env memory.Envelope) memory.ExecuteResult fails QueueError {
+			wrapQueueExec(func() memory.ExecuteResult fails memory.NotFound | memory.AlreadyExists | memory.InvalidTransition | memory.CommandReused | memory.InvalidInput | memory.LeaseFenced | memory.ThreadDomainErr | memory.SubagentDomainErr | memory.HandleDomainErr | memory.LimitDomainErr | memory.RequestDomainErr | memory.CutoverDomainErr | memory.StoreFailed {
+				try mem.Execute(env)
+			})
+		},
+		func(sess handle.SessionID) memory.KernelView fails QueueError {
+			mem.GetKernelView(sess) catch {
+			case memory.StoreFailed:
+				return QueueStoreError{Message: "kernel view failed"}
+			}
+		},
+		func(id handle.ThreadID) option.Option[memory.ThreadView] fails QueueError {
+			mem.GetThreadView(id) catch {
+			case memory.StoreFailed:
+				return QueueStoreError{Message: "thread view failed"}
+			}
+		},
+	)
+}
+
+// QueueFifoSteerAndCancelLaw verifies FIFO within tiers, steer preemption ahead of normal, and safe cancellation.
+law QueueFifoSteerAndCancelLaw() {
+	let mut q = NewQueue("th-unit")
+	let n1 = thread.QueuedPrompt{ID: "n1", Body: "normal 1", RequestedMode: adapter.ModeAutoEdit}
+	let n2 = thread.QueuedPrompt{ID: "n2", Body: "normal 2", RequestedMode: adapter.ModeAutoEdit}
+	let n3 = thread.QueuedPrompt{ID: "n3", Body: "normal 3", RequestedMode: adapter.ModeAutoEdit}
+	let s1 = thread.QueuedPrompt{ID: "s1", Body: "steer 1", RequestedMode: adapter.ModeAutoEdit}
+	let s2 = thread.QueuedPrompt{ID: "s2", Body: "steer 2", RequestedMode: adapter.ModeAutoEdit}
+	q = Enqueue(q, n1, PriorityNormal, 100) catch {
+	case QueueError:
+		return false
+	}
+	q = Enqueue(q, n2, PriorityNormal, 110) catch {
+	case QueueError:
+		return false
+	}
+	q = Enqueue(q, s1, PrioritySteer, 120) catch {
+	case QueueError:
+		return false
+	}
+	q = Enqueue(q, n3, PriorityNormal, 130) catch {
+	case QueueError:
+		return false
+	}
+	q = Enqueue(q, s2, PrioritySteer, 140) catch {
+	case QueueError:
+		return false
+	}
+	let (qAfterCancel, removed) = Cancel(q, "n2") catch {
+	case QueueError:
+		return false
+	}
+	if !removed || !hasCancelled(qAfterCancel.CancelledIDs, "n2") {
+		return false
+	}
+	q = qAfterCancel
+	let mut dupCancelledRejected = false
+	let _ = Enqueue(q, n2, PriorityNormal, 150) catch {
+	case QueueError as err:
+		match err {
+		case DuplicatePrompt:
+			dupCancelledRejected = true
+		case QueueEmpty, InvalidPrompt, PromptNotFound, ThreadArchivedError, ThreadBusyError, QueueStoreError:
+			dupCancelledRejected = false
+		}
+		q
+	}
+	if !dupCancelledRejected {
+		return false
+	}
+	let (q1, d1) = Dequeue(q, false, true) catch {
+	case QueueError:
+		return false
+	}
+	let (q2, d2) = Dequeue(q1, true, true) catch {
+	case QueueError:
+		return false
+	}
+	let (q3, d3) = Dequeue(q2, true, true) catch {
+	case QueueError:
+		return false
+	}
+	let (q4, d4) = Dequeue(q3, true, true) catch {
+	case QueueError:
+		return false
+	}
+	let gotOpts = []option.Option[QueuedItem]{d1, d2, d3, d4}
+	let mut gotIDs = []string{}
+	for opt in gotOpts {
+		match opt {
+		case option.Some[QueuedItem] as it:
+			gotIDs = gotIDs.Append(it.Value.Prompt.ID)
+		case option.None:
+			return false
+		}
+	}
+	slices.Equal(gotIDs, []string{"s1", "s2", "n1", "n3"}) && Len(q4) == 0
+}

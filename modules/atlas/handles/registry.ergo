@@ -1,0 +1,1145 @@
+import github.com/cevr/ergo/modules/atlas/handle
+import option
+import strings
+
+// BurstWindowMs returns the 2-second wake coalescing window in milliseconds.
+func BurstWindowMs() int { 2000 }
+
+// MaxWakeLetterChars returns the maximum length of a coalesced wake letter.
+func MaxWakeLetterChars() int { handle.MaxWakeLetterChars }
+
+// MaxWakeLetterItems returns the maximum number of handles shown verbatim in a letter.
+func MaxWakeLetterItems() int { 8 }
+
+// MaxMetadataBytes returns the maximum size of handle metadata kept in SQLite/events.
+func MaxMetadataBytes() int { 4000 }
+
+// MaxCallValueBytes returns the per-call RAM value limit (256 KiB).
+func MaxCallValueBytes() int { 262144 }
+
+// MaxSessionValueBytes returns the per-session RAM value limit (16 MiB).
+func MaxSessionValueBytes() int { 16777216 }
+
+// DelivererMismatch indicates a kind was routed to the wrong deliverer.
+type DelivererMismatch { Kind handle.HandleKind, Want handle.Deliverer, Got handle.Deliverer }
+
+// DuplicateHandle indicates a handle ID already exists in the registry.
+type DuplicateHandle { ID handle.HandleID }
+
+// UnknownHandle indicates a handle ID does not exist.
+type UnknownHandle { ID handle.HandleID }
+
+// AlreadyHanded indicates a call already handed off to a background handle.
+type AlreadyHanded { ID handle.HandleID }
+
+// MetadataTooLarge indicates metadata or summary exceeded MaxMetadataBytes.
+type MetadataTooLarge { Size int, Limit int }
+
+// ValueUnavailable indicates a handle's volatile RAM value was evicted or exceeded cap.
+type ValueUnavailable { ID handle.HandleID, Reason string }
+
+// SessionArchived indicates a wake delivery was parked because its target session is archived.
+type SessionArchived { Session handle.SessionID }
+
+// RegistryRefusal wraps a refusal returned by the underlying handle registry.
+type RegistryRefusal { Cause handle.HandleRefusal }
+
+// HandleServiceError enumerates failures returned by the handles service.
+type HandleServiceError = DelivererMismatch | DuplicateHandle | UnknownHandle | AlreadyHanded | MetadataTooLarge | ValueUnavailable | SessionArchived | RegistryRefusal
+
+// TurnBusyState captures whether a session turn is currently unable to receive a wake turn.
+type TurnBusyState {
+	TurnActive    bool,
+	Compacting    bool,
+	PoolHolding   bool,
+	QueuedPrompts int,
+}
+
+// IsTurnBusy reports whether any turn, compaction, pool hold, or queued prompt is active.
+func IsTurnBusy(b TurnBusyState) bool {
+	b.TurnActive || b.Compacting || b.PoolHolding || b.QueuedPrompts > 0
+}
+
+// UnifiedHandle is the read-only unified handle record exposed across all 7 handle kinds.
+type UnifiedHandle {
+	ID            handle.HandleID,
+	Kind          handle.HandleKind,
+	Owner         handle.OwnerID,
+	Session       handle.SessionID,
+	Thread        handle.ThreadID,
+	Deliverer     handle.Deliverer,
+	Disposition   handle.Disposition,
+	StartedID     option.Option[handle.HandleID],
+	Summary       string,
+	Metadata      string,
+	Survivable    bool,
+	SettledAtMs   option.Option[int],
+	WakeEmitted   bool,
+	WakeDelivered bool,
+}
+
+// FlushOutcome describes the result of flushing coalesced wake letters for a session.
+type FlushOutcome {
+	Delivered          bool,
+	JoinedRunningTurn  bool,
+	ParkedArchived     bool,
+	Letter             string,
+	DeliveryIDs        []string,
+	WaitingRemainingMs int,
+}
+
+// ValueEntry holds a bounded volatile RAM payload for a single handle (never persisted).
+type ValueEntry {
+	ID      handle.HandleID,
+	Session handle.SessionID,
+	Bytes   int,
+	Payload string,
+}
+
+// Registry maintains handle state, pending burst wakes, delivery counts, and RAM values.
+type Registry {
+	Domain           handle.RegistryState,
+	Entries          Map[handle.HandleID, UnifiedHandle],
+	Order            []handle.HandleID,
+	PendingWake      Map[handle.HandleID, int],
+	DeliveredWakes   Map[string, int],
+	ParkedSessions   Map[handle.SessionID, []handle.HandleID],
+	ArchivedSessions Map[handle.SessionID, bool],
+	DeletedSessions  Map[handle.SessionID, bool],
+	RAMValues        Map[handle.HandleID, ValueEntry],
+	RAMOrder         []handle.HandleID,
+}
+
+// NewRegistry returns an empty handles Registry.
+func NewRegistry() Registry {
+	Registry{
+		Domain:           handle.EmptyRegistry(),
+		Entries:          Map[handle.HandleID, UnifiedHandle]{},
+		Order:            []handle.HandleID{},
+		PendingWake:      Map[handle.HandleID, int]{},
+		DeliveredWakes:   Map[string, int]{},
+		ParkedSessions:   Map[handle.SessionID, []handle.HandleID]{},
+		ArchivedSessions: Map[handle.SessionID, bool]{},
+		DeletedSessions:  Map[handle.SessionID, bool]{},
+		RAMValues:        Map[handle.HandleID, ValueEntry]{},
+		RAMOrder:         []handle.HandleID{},
+	}
+}
+
+func validateMetadata(text string) fails MetadataTooLarge {
+	if text.Len() > MaxMetadataBytes() {
+		return MetadataTooLarge{Size: text.Len(), Limit: MaxMetadataBytes()}
+	}
+}
+
+func appendUniqueID(xs []handle.HandleID, id handle.HandleID) []handle.HandleID {
+	for item in xs {
+		if item == id {
+			return xs
+		}
+	}
+	xs.Append(id)
+}
+
+func mapPut[K comparable, V](m Map[K, V], k K, v V) Map[K, V] {
+	let mut out = m
+	out[k] = v
+	out
+}
+
+func openInRegistry(dom handle.RegistryState, spec handle.OpenHandleSpec) handle.RegistryState fails RegistryRefusal {
+	handle.OpenRegistryHandle(dom, spec) catch {
+	case handle.HandleRefusal as r:
+		return RegistryRefusal{Cause: r}
+	}
+}
+
+func openHostInRegistry(dom handle.RegistryState, spec handle.OpenHandleSpec) handle.RegistryState fails RegistryRefusal {
+	handle.OpenHostHandle(dom, spec) catch {
+	case handle.HandleRefusal as r:
+		return RegistryRefusal{Cause: r}
+	}
+}
+
+// OpenCallOrLand opens a KindCall or KindLand handle under DelivererRegistry.
+func OpenCallOrLand(reg Registry, spec handle.OpenHandleSpec, threadID handle.ThreadID, metadata string) Registry fails HandleServiceError {
+	try validateMetadata(metadata)
+	let want = handle.DelivererOf(spec.Kind)
+	if !handle.CanRegistryOpen(spec.Kind) {
+		return DelivererMismatch{Kind: spec.Kind, Want: want, Got: handle.DelivererRegistry}
+	}
+	match reg.Entries.Get(spec.ID) {
+	case option.Some[UnifiedHandle]:
+		return DuplicateHandle{ID: spec.ID}
+	case option.None:
+	}
+	let dom = try openInRegistry(reg.Domain, spec)
+	let entry = UnifiedHandle{
+		ID:            spec.ID,
+		Kind:          spec.Kind,
+		Owner:         spec.Owner,
+		Session:       spec.Session,
+		Thread:        threadID,
+		Deliverer:     want,
+		Disposition:   handle.DispOpen,
+		StartedID:     option.None,
+		Summary:       spec.Summary,
+		Metadata:      metadata,
+		Survivable:    handle.IsSurvivableAcrossRestart(spec.Kind),
+		SettledAtMs:   option.None,
+		WakeEmitted:   false,
+		WakeDelivered: false,
+	}
+	Registry{
+		..reg,
+		Domain:  dom,
+		Entries: mapPut(reg.Entries, spec.ID, entry),
+		Order:   reg.Order.Append(spec.ID),
+	}
+}
+
+// OpenHostHandle registers a non-registry handle under its authoritative host deliverer.
+func OpenHostHandle(reg Registry, spec handle.OpenHandleSpec, threadID handle.ThreadID, metadata string) Registry fails HandleServiceError {
+	try validateMetadata(metadata)
+	let want = handle.DelivererOf(spec.Kind)
+	if handle.CanRegistryOpen(spec.Kind) {
+		return DelivererMismatch{Kind: spec.Kind, Want: want, Got: handle.DelivererSubagentHost}
+	}
+	match reg.Entries.Get(spec.ID) {
+	case option.Some[UnifiedHandle]:
+		return DuplicateHandle{ID: spec.ID}
+	case option.None:
+	}
+	let dom = try openHostInRegistry(reg.Domain, spec)
+	let entry = UnifiedHandle{
+		ID:            spec.ID,
+		Kind:          spec.Kind,
+		Owner:         spec.Owner,
+		Session:       spec.Session,
+		Thread:        threadID,
+		Deliverer:     want,
+		Disposition:   handle.DispOpen,
+		StartedID:     option.None,
+		Summary:       spec.Summary,
+		Metadata:      metadata,
+		Survivable:    handle.IsSurvivableAcrossRestart(spec.Kind),
+		SettledAtMs:   option.None,
+		WakeEmitted:   false,
+		WakeDelivered: false,
+	}
+	Registry{
+		..reg,
+		Domain:  dom,
+		Entries: mapPut(reg.Entries, spec.ID, entry),
+		Order:   reg.Order.Append(spec.ID),
+	}
+}
+
+// MarkHanded transitions an open call handle to DispHanded without emitting a wake.
+func MarkHanded(reg Registry, callID handle.HandleID, spawnedID handle.HandleID) Registry fails HandleServiceError {
+	let entry = match reg.Entries.Get(callID) {
+	case option.Some[UnifiedHandle] as s:
+		s.Value
+	case option.None:
+		return UnknownHandle{ID: callID}
+	}
+	let dom = handle.MarkHanded(reg.Domain, callID, spawnedID) catch {
+	case handle.HandleRefusal as r:
+		return RegistryRefusal{Cause: r}
+	}
+	let updated = UnifiedHandle{
+		..entry,
+		Disposition: handle.DispHanded,
+		StartedID:   option.Some[handle.HandleID]{Value: spawnedID},
+		WakeEmitted: false,
+	}
+	Registry{
+		..reg,
+		Domain:      dom,
+		Entries:     mapPut(reg.Entries, callID, updated),
+		PendingWake: reg.PendingWake.Delete(callID),
+	}
+}
+
+// Settle idempotently settles a handle (first settle wins) and arms 2s wake coalescing if needed.
+func Settle(reg Registry, id handle.HandleID, disp handle.Disposition, summary string, nowMs int) (Registry, bool) fails HandleServiceError {
+	try validateMetadata(summary)
+	let entry = match reg.Entries.Get(id) {
+	case option.Some[UnifiedHandle] as s:
+		s.Value
+	case option.None:
+		return UnknownHandle{ID: id}
+	}
+	let (dom, emitted) = handle.SettleHandle(reg.Domain, id, disp) catch {
+	case handle.HandleRefusal as r:
+		return RegistryRefusal{Cause: r}
+	}
+	let isDeleted = match reg.DeletedSessions.Get(entry.Session) {
+	case option.Some[bool] as d:
+		d.Value
+	case option.None:
+		false
+	}
+	let alreadyDelivered = match reg.DeliveredWakes.Get(handle.WakeDeliveryID(id)) {
+	case option.Some[int] as n:
+		n.Value > 0
+	case option.None:
+		false
+	}
+	let shouldQueue = emitted && !isDeleted && !alreadyDelivered && handle.EmitsRegistryWake(disp)
+	let nextEntries = if handle.IsOpen(entry.Disposition) {
+		let updated = UnifiedHandle{
+			..entry,
+			Disposition: disp,
+			Summary:     summary,
+			SettledAtMs: option.Some[int]{Value: nowMs},
+			WakeEmitted: shouldQueue,
+		}
+		mapPut(reg.Entries, id, updated)
+	} else {
+		reg.Entries
+	}
+	let pending = if shouldQueue {
+		match reg.PendingWake.Get(id) {
+		case option.Some[int]:
+			reg.PendingWake
+		case option.None:
+			mapPut(reg.PendingWake, id, nowMs)
+		}
+	} else {
+		reg.PendingWake
+	}
+	(Registry{
+		..reg,
+		Domain:      dom,
+		Entries:     nextEntries,
+		PendingWake: pending,
+	}, shouldQueue)
+}
+
+func sessionRAMTotal(values Map[handle.HandleID, ValueEntry], session handle.SessionID) int {
+	let mut total = 0
+	for _, entry in values {
+		if entry.Session == session {
+			total = total + entry.Bytes
+		}
+	}
+	total
+}
+
+// PutValue stores an ephemeral payload in RAM if within 256 KiB and evicts oldest entries above 16 MiB per session.
+func PutValue(reg Registry, id handle.HandleID, payload string) Registry fails HandleServiceError {
+	let entry = match reg.Entries.Get(id) {
+	case option.Some[UnifiedHandle] as s:
+		s.Value
+	case option.None:
+		return UnknownHandle{ID: id}
+	}
+	if payload.Len() > MaxCallValueBytes() {
+		return ValueUnavailable{ID: id, Reason: "payload exceeds 256 KiB cap"}
+	}
+	let mut vals = reg.RAMValues.Delete(id)
+	let mut order = []handle.HandleID{}
+	for item in reg.RAMOrder {
+		if item != id {
+			order = order.Append(item)
+		}
+	}
+	let mut nextOrder = []handle.HandleID{}
+	for item in order {
+		match vals.Get(item) {
+		case option.Some[ValueEntry] as ve:
+			if ve.Value.Session == entry.Session && sessionRAMTotal(vals, entry.Session)+payload.Len() > MaxSessionValueBytes() {
+				vals = vals.Delete(item)
+			} else {
+				nextOrder = nextOrder.Append(item)
+			}
+		case option.None:
+		}
+	}
+	let stored = ValueEntry{ID: id, Session: entry.Session, Bytes: payload.Len(), Payload: payload}
+	Registry{
+		..reg,
+		RAMValues: mapPut(vals, id, stored),
+		RAMOrder:  nextOrder.Append(id),
+	}
+}
+
+// GetValue retrieves an ephemeral RAM payload or fails ValueUnavailable when missing or evicted.
+func GetValue(reg Registry, id handle.HandleID) string fails ValueUnavailable {
+	match reg.RAMValues.Get(id) {
+	case option.Some[ValueEntry] as s:
+		s.Value.Payload
+	case option.None:
+		ValueUnavailable{ID: id, Reason: "value evicted or owner restarted"}
+	}
+}
+
+// HostDeliveryReq specifies an authoritative host-delivered handle settlement.
+type HostDeliveryReq {
+	ID        handle.HandleID,
+	Deliverer handle.Deliverer,
+	Disp      handle.Disposition,
+	Summary   string,
+	NowMs     int,
+}
+
+// DeliverFromHost settles a host-owned handle under its sole authoritative DELIVERS deliverer and queues a session wake.
+func DeliverFromHost(reg Registry, req HostDeliveryReq) (Registry, bool) fails HandleServiceError {
+	try validateMetadata(req.Summary)
+	let entry = match reg.Entries.Get(req.ID) {
+	case option.Some[UnifiedHandle] as s:
+		s.Value
+	case option.None:
+		return UnknownHandle{ID: req.ID}
+	}
+	if entry.Deliverer != req.Deliverer || req.Deliverer == handle.DelivererRegistry {
+		return DelivererMismatch{Kind: entry.Kind, Want: entry.Deliverer, Got: req.Deliverer}
+	}
+	if !handle.IsOpen(entry.Disposition) {
+		return (reg, false)
+	}
+	let (dom, _) = handle.SettleHandle(reg.Domain, req.ID, req.Disp) catch {
+	case handle.HandleRefusal as r:
+		return RegistryRefusal{Cause: r}
+	}
+	let isDeleted = match reg.DeletedSessions.Get(entry.Session) {
+	case option.Some[bool] as d:
+		d.Value
+	case option.None:
+		false
+	}
+	let alreadyDelivered = match reg.DeliveredWakes.Get(handle.WakeDeliveryID(req.ID)) {
+	case option.Some[int] as n:
+		n.Value > 0
+	case option.None:
+		false
+	}
+	let shouldQueue = !isDeleted && !alreadyDelivered && handle.EmitsRegistryWake(req.Disp)
+	let updated = UnifiedHandle{
+		..entry,
+		Disposition: req.Disp,
+		Summary:     req.Summary,
+		SettledAtMs: option.Some[int]{Value: req.NowMs},
+		WakeEmitted: shouldQueue,
+	}
+	let pending = if shouldQueue {
+		match reg.PendingWake.Get(req.ID) {
+		case option.Some[int]:
+			reg.PendingWake
+		case option.None:
+			mapPut(reg.PendingWake, req.ID, req.NowMs)
+		}
+	} else {
+		reg.PendingWake
+	}
+	(Registry{
+		..reg,
+		Domain:      dom,
+		Entries:     mapPut(reg.Entries, req.ID, updated),
+		PendingWake: pending,
+	}, shouldQueue)
+}
+
+// RetireOwnerCalls marks only deadOwner's open KindCall handles lost, preserving live foreign owners and lands.
+func RetireOwnerCalls(reg Registry, deadOwner handle.OwnerID, nowMs int) (Registry, []handle.HandleID) {
+	let (dom, lostIDs) = handle.RetireOwnerCalls(reg.Domain, deadOwner)
+	let mut entries = reg.Entries
+	let mut pending = reg.PendingWake
+	for id in lostIDs {
+		match entries.Get(id) {
+		case option.Some[UnifiedHandle] as s:
+			let e = s.Value
+			let isDeleted = match reg.DeletedSessions.Get(e.Session) {
+			case option.Some[bool] as d:
+				d.Value
+			case option.None:
+				false
+			}
+			let shouldWake = !isDeleted && match reg.DeliveredWakes.Get(handle.WakeDeliveryID(id)) {
+			case option.Some[int] as n:
+				n.Value == 0
+			case option.None:
+				true
+			}
+			entries = mapPut(entries, id, UnifiedHandle{
+				..e,
+				Disposition: handle.DispLost,
+				Summary:     "owner exited",
+				SettledAtMs: option.Some[int]{Value: nowMs},
+				WakeEmitted: shouldWake,
+			})
+			if shouldWake {
+				pending = mapPut(pending, id, nowMs)
+			}
+		case option.None:
+		}
+	}
+	(Registry{
+		..reg,
+		Domain:      dom,
+		Entries:     entries,
+		PendingWake: pending,
+	}, lostIDs)
+}
+
+// CancelHandle silently cancels an open handle without ever emitting a wake letter.
+func CancelHandle(reg Registry, id handle.HandleID) Registry {
+	let entry = match reg.Entries.Get(id) {
+	case option.Some[UnifiedHandle] as s:
+		s.Value
+	case option.None:
+		return reg
+	}
+	if !handle.IsOpen(entry.Disposition) {
+		return Registry{..reg, PendingWake: reg.PendingWake.Delete(id)}
+	}
+	let (dom, _) = handle.SettleHandle(reg.Domain, id, handle.DispCancelled) catch {
+	case handle.HandleRefusal:
+		(reg.Domain, false)
+	}
+	let updated = UnifiedHandle{
+		..entry,
+		Disposition: handle.DispCancelled,
+		Summary:     "cancelled",
+		WakeEmitted: false,
+	}
+	Registry{
+		..reg,
+		Domain:      dom,
+		Entries:     mapPut(reg.Entries, id, updated),
+		PendingWake: reg.PendingWake.Delete(id),
+	}
+}
+
+// CancelSession marks a session deleted and silently cancels all its handles and parked wakes.
+func CancelSession(reg Registry, session handle.SessionID) Registry {
+	let dom = handle.CancelSessionHandles(reg.Domain, session)
+	let mut entries = reg.Entries
+	let mut ram = reg.RAMValues
+	for id in reg.Order {
+		match entries.Get(id) {
+		case option.Some[UnifiedHandle] as s:
+			let e = s.Value
+			if e.Session == session {
+				ram = ram.Delete(id)
+				if handle.IsOpen(e.Disposition) {
+					entries = mapPut(entries, id, UnifiedHandle{
+						..e,
+						Disposition: handle.DispCancelled,
+						Summary:     "session deleted",
+						WakeEmitted: false,
+					})
+				}
+			}
+		case option.None:
+		}
+	}
+	Registry{
+		..reg,
+		Domain:          dom,
+		Entries:         entries,
+		ParkedSessions:  reg.ParkedSessions.Delete(session),
+		DeletedSessions: mapPut(reg.DeletedSessions, session, true),
+		RAMValues:       ram,
+	}
+}
+
+// ArchiveSession marks session archived so ready wake letters park instead of resend looping.
+func ArchiveSession(reg Registry, session handle.SessionID) Registry {
+	Registry{..reg, ArchivedSessions: mapPut(reg.ArchivedSessions, session, true)}
+}
+
+// UnarchiveSession clears archived status and re-arms any parked handles for delivery.
+func UnarchiveSession(reg Registry, session handle.SessionID) Registry {
+	let mut pending = reg.PendingWake
+	match reg.ParkedSessions.Get(session) {
+	case option.Some[[]handle.HandleID] as parked:
+		for id in parked.Value {
+			match reg.Entries.Get(id) {
+			case option.Some[UnifiedHandle] as s:
+				if !s.Value.WakeDelivered && handle.EmitsRegistryWake(s.Value.Disposition) {
+					let ts = match s.Value.SettledAtMs {
+					case option.Some[int] as t:
+						t.Value
+					case option.None:
+						0
+					}
+					pending = mapPut(pending, id, ts)
+				}
+			case option.None:
+			}
+		}
+	case option.None:
+	}
+	Registry{
+		..reg,
+		ArchivedSessions: reg.ArchivedSessions.Delete(session),
+		ParkedSessions:   reg.ParkedSessions.Delete(session),
+		PendingWake:      pending,
+	}
+}
+
+// OpenOwners lists distinct owners holding open handles in the registry.
+func OpenOwners(reg Registry) []handle.OwnerID {
+	handle.OpenOwners(reg.Domain)
+}
+
+func kindLabel(k handle.HandleKind) string {
+	match k {
+	case handle.KindCall:
+		"call"
+	case handle.KindLand:
+		"land"
+	case handle.KindTimer:
+		"timer"
+	case handle.KindJob:
+		"job"
+	case handle.KindSubagent:
+		"subagent"
+	case handle.KindShell:
+		"shell"
+	case handle.KindQuestion:
+		"question"
+	}
+}
+
+func dispLabel(d handle.Disposition) string {
+	match d {
+	case handle.DispOpen:
+		"open"
+	case handle.DispSucceeded:
+		"succeeded"
+	case handle.DispFailed:
+		"failed"
+	case handle.DispLost:
+		"lost"
+	case handle.DispDeclined:
+		"declined"
+	case handle.DispCancelled:
+		"cancelled"
+	case handle.DispHanded:
+		"handed"
+	}
+}
+
+func formatOneLine(h handle.WakeHandle) string {
+	let deliveryID = handle.WakeDeliveryID(h.ID)
+	let note = if h.Summary == "" { "" } else { " " + h.Summary }
+	"- [" + deliveryID + "] " + kindLabel(h.Kind) + " " + dispLabel(h.Disposition) + note
+}
+
+func minInt(a int, b int) int {
+	if a < b { a } else { b }
+}
+
+// FormatBoundedWakeLetter formats a coalesced wake letter capped at 2000 chars and 8 verbatim items.
+func FormatBoundedWakeLetter(items []handle.WakeHandle) string {
+	if items.Len() == 0 {
+		return ""
+	}
+	let shownLimit = minInt(items.Len(), MaxWakeLetterItems())
+	let remaining = items.Len() - shownLimit
+	let footer = if remaining > 0 {
+		"\n... and \(remaining) more · tools.handles.list()"
+	} else {
+		""
+	}
+	let mut out = "[wake]\n"
+	for i in 0..shownLimit {
+		let line = formatOneLine(items[i])
+		let candidate = out + line + "\n"
+		if candidate.Len()+footer.Len() <= MaxWakeLetterChars() {
+			out = candidate
+		} else {
+			let rem2 = items.Len() - i
+			let foot2 = "... and \(rem2) more · tools.handles.list()"
+			if out.Len()+foot2.Len() <= MaxWakeLetterChars() {
+				return out + foot2
+			}
+			return out.Slice(0, MaxWakeLetterChars())
+		}
+	}
+	let total = out + footer
+	if total.Len() <= MaxWakeLetterChars() {
+		total
+	} else {
+		total.Slice(0, MaxWakeLetterChars())
+	}
+}
+
+func isSessionFlagged(flags Map[handle.SessionID, bool], session handle.SessionID) bool {
+	match flags.Get(session) {
+	case option.Some[bool] as v:
+		v.Value
+	case option.None:
+		false
+	}
+}
+
+func isWakeAlreadyDelivered(delivered Map[string, int], deliveryID string) bool {
+	match delivered.Get(deliveryID) {
+	case option.Some[int] as n:
+		n.Value > 0
+	case option.None:
+		false
+	}
+}
+
+func toWakeHandle(e UnifiedHandle) handle.WakeHandle {
+	handle.WakeHandle{
+		ID:          e.ID,
+		Kind:        e.Kind,
+		Owner:       e.Owner,
+		Session:     e.Session,
+		Deliverer:   e.Deliverer,
+		Disposition: e.Disposition,
+		StartedID:   e.StartedID,
+		Summary:     e.Summary,
+		WakeEmitted: true,
+	}
+}
+
+func collectReadyBurstItems(reg Registry, session handle.SessionID) ([]handle.HandleID, []handle.WakeHandle, int) {
+	let mut readyIDs = []handle.HandleID{}
+	let mut items = []handle.WakeHandle{}
+	let mut earliestMs = -1
+	for id in reg.Order {
+		let settledAt = match reg.PendingWake.Get(id) {
+		case option.Some[int] as sa:
+			sa.Value
+		case option.None:
+			continue
+		}
+		let e = match reg.Entries.Get(id) {
+		case option.Some[UnifiedHandle] as s:
+			s.Value
+		case option.None:
+			continue
+		}
+		if e.Session != session || e.WakeDelivered || !handle.EmitsRegistryWake(e.Disposition) {
+			continue
+		}
+		if isWakeAlreadyDelivered(reg.DeliveredWakes, handle.WakeDeliveryID(e.ID)) {
+			continue
+		}
+		if earliestMs < 0 || settledAt < earliestMs {
+			earliestMs = settledAt
+		}
+		readyIDs = readyIDs.Append(id)
+		items = items.Append(toWakeHandle(e))
+	}
+	(readyIDs, items, earliestMs)
+}
+
+func parkReadyHandles(reg Registry, session handle.SessionID, readyIDs []handle.HandleID) Registry {
+	let mut pending = reg.PendingWake
+	let mut parked = match reg.ParkedSessions.Get(session) {
+	case option.Some[[]handle.HandleID] as p:
+		p.Value
+	case option.None:
+		[]handle.HandleID{}
+	}
+	for id in readyIDs {
+		pending = pending.Delete(id)
+		parked = appendUniqueID(parked, id)
+	}
+	Registry{..reg, PendingWake: pending, ParkedSessions: mapPut(reg.ParkedSessions, session, parked)}
+}
+
+func deliverBurstHandles(reg Registry, readyIDs []handle.HandleID, items []handle.WakeHandle) (Registry, FlushOutcome) {
+	let letter = FormatBoundedWakeLetter(items)
+	let mut pending = reg.PendingWake
+	let mut delivered = reg.DeliveredWakes
+	let mut entries = reg.Entries
+	let mut deliveryIDs = []string{}
+	for id in readyIDs {
+		let did = handle.WakeDeliveryID(id)
+		deliveryIDs = deliveryIDs.Append(did)
+		pending = pending.Delete(id)
+		let prev = match delivered.Get(did) {
+		case option.Some[int] as n:
+			n.Value
+		case option.None:
+			0
+		}
+		delivered = mapPut(delivered, did, prev+1)
+		match entries.Get(id) {
+		case option.Some[UnifiedHandle] as s:
+			entries = mapPut(entries, id, UnifiedHandle{..s.Value, WakeDelivered: true})
+		case option.None:
+		}
+	}
+	let nextReg = Registry{
+		..reg,
+		Entries:        entries,
+		PendingWake:    pending,
+		DeliveredWakes: delivered,
+	}
+	(nextReg, FlushOutcome{
+		Delivered:          true,
+		JoinedRunningTurn:  false,
+		ParkedArchived:     false,
+		Letter:             letter,
+		DeliveryIDs:        deliveryIDs,
+		WaitingRemainingMs: 0,
+	})
+}
+
+func emptyFlushOutcome() FlushOutcome {
+	FlushOutcome{Delivered: false, JoinedRunningTurn: false, ParkedArchived: false, Letter: "", DeliveryIDs: []string{}, WaitingRemainingMs: 0}
+}
+
+// FlushSessionBurst coalesces settled handles for session past the 2s burst window into one letter.
+func FlushSessionBurst(reg Registry, session handle.SessionID, nowMs int, busy TurnBusyState) (Registry, FlushOutcome) {
+	if isSessionFlagged(reg.DeletedSessions, session) {
+		return (reg, emptyFlushOutcome())
+	}
+	let (readyIDs, items, earliestMs) = collectReadyBurstItems(reg, session)
+	if readyIDs.Len() == 0 {
+		return (reg, emptyFlushOutcome())
+	}
+	let dueMs = earliestMs + BurstWindowMs()
+	if nowMs < dueMs {
+		return (reg, FlushOutcome{..emptyFlushOutcome(), WaitingRemainingMs: dueMs - nowMs})
+	}
+	if isSessionFlagged(reg.ArchivedSessions, session) {
+		return (parkReadyHandles(reg, session, readyIDs), FlushOutcome{..emptyFlushOutcome(), ParkedArchived: true})
+	}
+	if IsTurnBusy(busy) {
+		return (reg, FlushOutcome{..emptyFlushOutcome(), JoinedRunningTurn: true})
+	}
+	deliverBurstHandles(reg, readyIDs, items)
+}
+
+// ListUnified lists read-only unified handle views across all 7 handle kinds for session.
+func ListUnified(reg Registry, session handle.SessionID) []UnifiedHandle {
+	let mut out = []UnifiedHandle{}
+	for id in reg.Order {
+		match reg.Entries.Get(id) {
+		case option.Some[UnifiedHandle] as s:
+			if session == "" || s.Value.Session == session {
+				out = out.Append(s.Value)
+			}
+		case option.None:
+		}
+	}
+	out
+}
+
+// GetUnified retrieves a single unified handle record by ID if present.
+func GetUnified(reg Registry, id handle.HandleID) option.Option[UnifiedHandle] {
+	reg.Entries.Get(id)
+}
+
+func makeSpec(id string, kind handle.HandleKind, owner handle.OwnerID, sess string) handle.OpenHandleSpec {
+	handle.OpenHandleSpec{
+		ID:      handle.HandleID(id),
+		Kind:    kind,
+		Owner:   owner,
+		Session: handle.SessionID(sess),
+		Summary: "",
+	}
+}
+
+func checkFirstSettleAndBurstCoalesce() bool {
+	let owner = handle.OwnerID{ServerID: "srv-1", Location: "cell-a", Epoch: 1}
+	let mut reg = NewRegistry()
+	reg = OpenCallOrLand(reg, makeSpec("h1", handle.KindCall, owner, "sess-1"), "t1", "meta1") catch {
+	case HandleServiceError:
+		return false
+	}
+	reg = OpenCallOrLand(reg, makeSpec("h2", handle.KindCall, owner, "sess-1"), "t1", "meta2") catch {
+	case HandleServiceError:
+		return false
+	}
+	let (r1, e1) = Settle(reg, "h1", handle.DispSucceeded, "done-1", 1000) catch {
+	case HandleServiceError:
+		return false
+	}
+	reg = r1
+	if !e1 {
+		return false
+	}
+	let (r1d, e1d) = Settle(reg, "h1", handle.DispFailed, "dup", 1100) catch {
+	case HandleServiceError:
+		return false
+	}
+	reg = r1d
+	if e1d {
+		return false
+	}
+	let (r2, _) = Settle(reg, "h2", handle.DispFailed, "done-2", 2500) catch {
+	case HandleServiceError:
+		return false
+	}
+	reg = r2
+	let (rEarly, early) = FlushSessionBurst(reg, "sess-1", 2999, TurnBusyState{TurnActive: false, Compacting: false, PoolHolding: false, QueuedPrompts: 0})
+	reg = rEarly
+	if early.Delivered || early.WaitingRemainingMs != 1 {
+		return false
+	}
+	let (rDue, out) = FlushSessionBurst(reg, "sess-1", 3000, TurnBusyState{TurnActive: false, Compacting: false, PoolHolding: false, QueuedPrompts: 0})
+	reg = rDue
+	if !out.Delivered || out.DeliveryIDs.Len() != 2 {
+		return false
+	}
+	if !strings.Contains(out.Letter, "wake:h1") || !strings.Contains(out.Letter, "wake:h2") {
+		return false
+	}
+	let (_, after) = FlushSessionBurst(reg, "sess-1", 5000, TurnBusyState{TurnActive: false, Compacting: false, PoolHolding: false, QueuedPrompts: 0})
+	!after.Delivered
+}
+
+func checkHandedNeverEmitsRegistryWake() bool {
+	let owner = handle.OwnerID{ServerID: "srv-1", Location: "cell-a", Epoch: 1}
+	let mut reg = NewRegistry()
+	reg = OpenCallOrLand(reg, makeSpec("c1", handle.KindCall, owner, "sess-1"), "t1", "") catch {
+	case HandleServiceError:
+		return false
+	}
+	reg = MarkHanded(reg, "c1", "land-1") catch {
+	case HandleServiceError:
+		return false
+	}
+	let (rSettled, sEmitted) = Settle(reg, "c1", handle.DispSucceeded, "late", 4000) catch {
+	case HandleServiceError:
+		return false
+	}
+	reg = rSettled
+	if sEmitted {
+		return false
+	}
+	let (_, flushed) = FlushSessionBurst(reg, "sess-1", 7000, TurnBusyState{TurnActive: false, Compacting: false, PoolHolding: false, QueuedPrompts: 0})
+	!flushed.Delivered && reg.DeliveredWakes.Len() == 0
+}
+
+func containsOwner(owners []handle.OwnerID, target handle.OwnerID) bool {
+	for o in owners {
+		if o == target {
+			return true
+		}
+	}
+	false
+}
+
+func checkOtherOwnerReloadKeepsForeignAndLand() bool {
+	let ownerA = handle.OwnerID{ServerID: "srv", Location: "A", Epoch: 1}
+	let ownerB = handle.OwnerID{ServerID: "srv", Location: "B", Epoch: 2}
+	let mut reg = NewRegistry()
+	reg = OpenCallOrLand(reg, makeSpec("call-A", handle.KindCall, ownerA, "s1"), "t1", "") catch {
+	case HandleServiceError:
+		return false
+	}
+	reg = OpenCallOrLand(reg, makeSpec("land-A", handle.KindLand, ownerA, "s1"), "t1", "") catch {
+	case HandleServiceError:
+		return false
+	}
+	reg = OpenCallOrLand(reg, makeSpec("call-B", handle.KindCall, ownerB, "s1"), "t1", "") catch {
+	case HandleServiceError:
+		return false
+	}
+	let (rRet, lostIDs) = RetireOwnerCalls(reg, ownerA, 1000)
+	reg = rRet
+	let gotA = match GetUnified(reg, "call-A") {
+	case option.Some[UnifiedHandle] as s:
+		s.Value.Disposition == handle.DispLost
+	case option.None:
+		false
+	}
+	let gotLand = match GetUnified(reg, "land-A") {
+	case option.Some[UnifiedHandle] as s:
+		s.Value.Disposition == handle.DispOpen
+	case option.None:
+		false
+	}
+	let gotB = match GetUnified(reg, "call-B") {
+	case option.Some[UnifiedHandle] as s:
+		s.Value.Disposition == handle.DispOpen
+	case option.None:
+		false
+	}
+	let owners = OpenOwners(reg)
+	lostIDs.Len() == 1 && lostIDs[0] == "call-A" && gotA && gotLand && gotB && containsOwner(owners, ownerB)
+}
+
+func checkBusyTurnArchivedAndDeleted() bool {
+	let owner = handle.OwnerID{ServerID: "srv", Location: "A", Epoch: 1}
+	let mut reg = NewRegistry()
+	reg = OpenHostHandle(reg, makeSpec("t1", handle.KindTimer, owner, "s-park"), "th", "") catch {
+	case HandleServiceError:
+		return false
+	}
+	let (rSt, _) = DeliverFromHost(reg, HostDeliveryReq{ID: "t1", Deliverer: handle.DelivererWakes, Disp: handle.DispSucceeded, Summary: "timer", NowMs: 1000}) catch {
+	case HandleServiceError:
+		return false
+	}
+	reg = rSt
+	let (rBusy, busy) = FlushSessionBurst(reg, "s-park", 3500, TurnBusyState{TurnActive: true, Compacting: false, PoolHolding: false, QueuedPrompts: 0})
+	reg = rBusy
+	if busy.Delivered || !busy.JoinedRunningTurn {
+		return false
+	}
+	reg = ArchiveSession(reg, "s-park")
+	let (rParked, parked) = FlushSessionBurst(reg, "s-park", 3500, TurnBusyState{TurnActive: false, Compacting: false, PoolHolding: false, QueuedPrompts: 0})
+	reg = rParked
+	if parked.Delivered || !parked.ParkedArchived {
+		return false
+	}
+	reg = UnarchiveSession(reg, "s-park")
+	let (rUnparked, unparked) = FlushSessionBurst(reg, "s-park", 4000, TurnBusyState{TurnActive: false, Compacting: false, PoolHolding: false, QueuedPrompts: 0})
+	reg = rUnparked
+	if !unparked.Delivered || unparked.DeliveryIDs.Len() != 1 {
+		return false
+	}
+	let mut regDel = NewRegistry()
+	regDel = OpenCallOrLand(regDel, makeSpec("c-del-pre", handle.KindCall, owner, "s-del"), "th", "") catch {
+	case HandleServiceError:
+		return false
+	}
+	let (rPreSettled, _) = Settle(regDel, "c-del-pre", handle.DispSucceeded, "pre", 900) catch {
+	case HandleServiceError:
+		return false
+	}
+	regDel = rPreSettled
+	regDel = OpenCallOrLand(regDel, makeSpec("c-del", handle.KindCall, owner, "s-del"), "th", "") catch {
+	case HandleServiceError:
+		return false
+	}
+	regDel = CancelSession(regDel, "s-del")
+	let (rDelSettled, _) = Settle(regDel, "c-del", handle.DispSucceeded, "late", 1000) catch {
+	case HandleServiceError:
+		return false
+	}
+	regDel = rDelSettled
+	let (_, delFlush) = FlushSessionBurst(regDel, "s-del", 5000, TurnBusyState{TurnActive: false, Compacting: false, PoolHolding: false, QueuedPrompts: 0})
+	!delFlush.Delivered && regDel.DeliveredWakes.Len() == 0
+}
+
+func checkValueCacheCaps() bool {
+	let owner = handle.OwnerID{ServerID: "srv", Location: "A", Epoch: 1}
+	let mut reg = NewRegistry()
+	reg = OpenCallOrLand(reg, makeSpec("v0", handle.KindCall, owner, "s1"), "th", "") catch {
+	case HandleServiceError:
+		return false
+	}
+	let tooBig = strings.Repeat("a", MaxCallValueBytes()+1)
+	let mut rejected = false
+	let _ = PutValue(reg, "v0", tooBig) catch {
+	case HandleServiceError as err:
+		match err {
+		case ValueUnavailable:
+			rejected = true
+		case DelivererMismatch, DuplicateHandle, UnknownHandle, AlreadyHanded, MetadataTooLarge, SessionArchived, RegistryRefusal:
+			return false
+		}
+		reg
+	}
+	if !rejected {
+		return false
+	}
+	checkMissing(reg)
+}
+
+func checkMissing(startReg Registry) bool {
+	let owner = handle.OwnerID{ServerID: "srv", Location: "A", Epoch: 1}
+	let mut reg = startReg
+	let mut missingV0 = false
+	let _ = GetValue(reg, "v0") catch {
+	case ValueUnavailable:
+		missingV0 = true
+		""
+	}
+	if !missingV0 {
+		return false
+	}
+	let chunk = strings.Repeat("b", MaxCallValueBytes())
+	for i in 0..65 {
+		let id = handle.HandleID("v-\(i)")
+		reg = OpenCallOrLand(reg, handle.OpenHandleSpec{ID: id, Kind: handle.KindCall, Owner: owner, Session: "s1", Summary: ""}, "th", "") catch {
+		case HandleServiceError:
+			return false
+		}
+		reg = PutValue(reg, id, chunk) catch {
+		case HandleServiceError:
+			return false
+		}
+	}
+	let mut evictedOldest = false
+	let _ = GetValue(reg, "v-0") catch {
+	case ValueUnavailable:
+		evictedOldest = true
+		""
+	}
+	evictedOldest && checkNewestPresent(reg)
+}
+
+func checkNewestPresent(reg Registry) bool {
+	let got = GetValue(reg, "v-64") catch {
+	case ValueUnavailable:
+		return false
+	}
+	got.Len() == MaxCallValueBytes()
+}
+
+// DeliversSingleOwnerLaw checks that all 7 handle kinds route to their single authoritative deliverer.
+law DeliversSingleOwnerLaw() {
+	let c = handle.DelivererOf(handle.KindCall) == handle.DelivererRegistry
+	let l = handle.DelivererOf(handle.KindLand) == handle.DelivererRegistry
+	let t = handle.DelivererOf(handle.KindTimer) == handle.DelivererWakes
+	let j = handle.DelivererOf(handle.KindJob) == handle.DelivererWakes
+	let s = handle.DelivererOf(handle.KindSubagent) == handle.DelivererSubagentHost
+	let sh = handle.DelivererOf(handle.KindShell) == handle.DelivererShellHost
+	let q = handle.DelivererOf(handle.KindQuestion) == handle.DelivererQuestions
+	let owner = handle.OwnerID{ServerID: "srv-1", Location: "cell-a", Epoch: 1}
+	let mut regBlocked = false
+	let _ = OpenCallOrLand(NewRegistry(), makeSpec("sh-bad", handle.KindShell, owner, "s1"), "th", "") catch {
+	case HandleServiceError as err:
+		match err {
+		case DelivererMismatch:
+			regBlocked = true
+		case DuplicateHandle, UnknownHandle, AlreadyHanded, MetadataTooLarge, ValueUnavailable, SessionArchived, RegistryRefusal:
+			regBlocked = false
+		}
+		NewRegistry()
+	}
+	c && l && t && j && s && sh && q && regBlocked
+}
+
+// FirstSettleAndBurstCoalesce verifies 2s burst coalescing, first-settle-wins, and single delivery.
+law FirstSettleAndBurstCoalesce() { checkFirstSettleAndBurstCoalesce() }
+
+// HandedNeverEmitsRegistryWake verifies DispHanded emits zero registry wake letters even on settle/flush.
+law HandedNeverEmitsRegistryWake() { checkHandedNeverEmitsRegistryWake() }
+
+// BoundedLetterAndFooterLaw checks that coalesced letters never exceed 2000 chars and truncate past 8 items.
+law BoundedLetterAndFooterLaw(n int) {
+	let owner = handle.OwnerID{ServerID: "srv-1", Location: "cell-a", Epoch: 1}
+	let rem = ((n % 6) + 6) % 6
+	let count = 9 + rem
+	let mut items = []handle.WakeHandle{}
+	for i in 0..count {
+		items = items.Append(handle.WakeHandle{
+			ID:          handle.HandleID("h-\(i)"),
+			Kind:        handle.KindCall,
+			Owner:       owner,
+			Session:     "sess-1",
+			Deliverer:   handle.DelivererRegistry,
+			Disposition: handle.DispSucceeded,
+			StartedID:   option.None,
+			Summary:     strings.Repeat("x", 350),
+			WakeEmitted: true,
+		})
+	}
+	let letter = FormatBoundedWakeLetter(items)
+	letter.Len() <= 2000 && letter.Len() <= MaxWakeLetterChars() && strings.Contains(letter, "tools.handles.list()")
+}
+
+// OtherOwnerReloadKeepsForeignAndLand verifies retiring deadOwner keeps foreign live owners and KindLand open.
+law OtherOwnerReloadKeepsForeignAndLand() { checkOtherOwnerReloadKeepsForeignAndLand() }
+
+// BusyTurnArchivedAndDeleted checks H9 join-turn, archived park/unpark, and H5 deleted silence.
+law BusyTurnArchivedAndDeleted() { checkBusyTurnArchivedAndDeleted() }
+
+// ValueCacheCaps verifies 256 KiB single-call cap, 16 MiB per-session LRU eviction, and restart Unavailable.
+law ValueCacheCaps() { checkValueCacheCaps() }

@@ -1,0 +1,249 @@
+import github.com/cevr/ergo/modules/atlas/handle
+
+// MaxWakeModelRuns bounds wake transition runs in state-space exploration.
+func MaxWakeModelRuns() int { 3 }
+
+// MaxWakeModelCrashes bounds crash/restart injections in state-space exploration.
+func MaxWakeModelCrashes() int { 2 }
+
+// WakePhase represents the durable lifecycle phase of a single handle/wake timer.
+type WakePhase = WakeUnarmed{} | WakeArmed{DueMs int} | WakeFired{DueMs int, AtMs int} | WakeCancelled{}
+
+// WakeModelState holds the explored state of the wake delivery machine.
+type WakeModelState {
+	Phase          WakePhase,
+	NowMs          int,
+	Runs           int,
+	Crashes        int,
+	PersistedArmed bool,
+	DeliveredCount int,
+	DeliveredID    string,
+	Answered       bool,
+	Cancelled      bool,
+}
+
+// WakeAction enumerates actions that drive the wake delivery machine.
+type WakeAction = WakeArm{} | WakeTick{} | WakeFire{} | WakeAnswer{} | WakeCancel{} | WakeCrash{}
+
+func initWakeModel(_ bool) WakeModelState {
+	WakeModelState{
+		Phase:          WakeUnarmed,
+		NowMs:          0,
+		Runs:           0,
+		Crashes:        0,
+		PersistedArmed: false,
+		DeliveredCount: 0,
+		DeliveredID:    "",
+		Answered:       false,
+		Cancelled:      false,
+	}
+}
+
+func stepWakeModel(s WakeModelState, a WakeAction) Decision[WakeModelState, int] {
+	match a {
+	case WakeArm:
+		match s.Phase {
+		case WakeUnarmed:
+			Stay[WakeModelState]{Next: WakeModelState{
+				..s,
+				Phase:          WakeArmed{DueMs: s.NowMs + BurstWindowMs()},
+				PersistedArmed: true,
+			}}
+		case WakeArmed, WakeFired, WakeCancelled:
+			Ignore
+		}
+	case WakeTick:
+		if s.NowMs < 6000 {
+			Stay[WakeModelState]{Next: WakeModelState{..s, NowMs: s.NowMs + 1000}}
+		} else {
+			Ignore
+		}
+	case WakeFire:
+		match s.Phase {
+		case WakeArmed as arm:
+			if !s.Cancelled && s.NowMs >= arm.DueMs && s.Runs < MaxWakeModelRuns() && s.DeliveredCount == 0 {
+				Stay[WakeModelState]{Next: WakeModelState{
+					..s,
+					Phase:          WakeFired{DueMs: arm.DueMs, AtMs: s.NowMs},
+					PersistedArmed: false,
+					Runs:           s.Runs + 1,
+					DeliveredCount: s.DeliveredCount + 1,
+					DeliveredID:    handle.WakeDeliveryID("w1"),
+				}}
+			} else {
+				Ignore
+			}
+		case WakeUnarmed, WakeFired, WakeCancelled:
+			Ignore
+		}
+	case WakeAnswer:
+		match s.Phase {
+		case WakeFired:
+			if !s.Answered {
+				Stay[WakeModelState]{Next: WakeModelState{..s, Answered: true}}
+			} else {
+				Ignore
+			}
+		case WakeUnarmed, WakeArmed, WakeCancelled:
+			Ignore
+		}
+	case WakeCancel:
+		if !s.Cancelled {
+			match s.Phase {
+			case WakeUnarmed, WakeArmed:
+				Stay[WakeModelState]{Next: WakeModelState{
+					..s,
+					Phase:          WakeCancelled,
+					PersistedArmed: false,
+					Cancelled:      true,
+				}}
+			case WakeFired, WakeCancelled:
+				Ignore
+			}
+		} else {
+			Ignore
+		}
+	case WakeCrash:
+		if s.Crashes < MaxWakeModelCrashes() {
+			match s.Phase {
+			case WakeArmed:
+				if s.PersistedArmed {
+					Stay[WakeModelState]{Next: WakeModelState{..s, Crashes: s.Crashes + 1}}
+				} else {
+					Stay[WakeModelState]{Next: WakeModelState{..s, Phase: WakeUnarmed, Crashes: s.Crashes + 1}}
+				}
+			case WakeFired:
+				Stay[WakeModelState]{Next: WakeModelState{..s, Crashes: s.Crashes + 1}}
+			case WakeUnarmed, WakeCancelled:
+				Ignore
+			}
+		} else {
+			Ignore
+		}
+	}
+}
+
+func wakeOneMessage(s WakeModelState) bool {
+	s.DeliveredCount <= 1
+}
+
+func wakeNeverEarly(s WakeModelState) bool {
+	match s.Phase {
+	case WakeFired as f:
+		f.AtMs >= f.DueMs
+	case WakeUnarmed, WakeArmed, WakeCancelled:
+		true
+	}
+}
+
+func wakeCancelledNeverFires(s WakeModelState) bool {
+	if s.Cancelled { s.DeliveredCount == 0 } else { true }
+}
+
+func wakeFiredHasMessage(s WakeModelState) bool {
+	if s.DeliveredCount > 0 { s.DeliveredID == handle.WakeDeliveryID("w1") } else { true }
+}
+
+func wakeArmedSurvivesRestart(s WakeModelState) bool {
+	if s.PersistedArmed && !s.Cancelled && s.DeliveredCount == 0 {
+		match s.Phase {
+		case WakeArmed:
+			true
+		case WakeUnarmed, WakeFired, WakeCancelled:
+			false
+		}
+	} else {
+		true
+	}
+}
+
+func wakeAllInvariants(s WakeModelState) bool {
+	wakeOneMessage(s) && wakeNeverEarly(s) && wakeCancelledNeverFires(s) && wakeFiredHasMessage(s) && wakeArmedSurvivesRestart(s)
+}
+
+func wakeWitnessFiredOnce(s WakeModelState) bool {
+	s.DeliveredCount == 1 && s.Answered
+}
+
+func wakeWitnessFiredAfterRestart(s WakeModelState) bool {
+	s.DeliveredCount == 1 && s.Crashes > 0
+}
+
+func wakeWitnessFiredAfterLostAnswer(s WakeModelState) bool {
+	match s.Phase {
+	case WakeFired:
+		s.Crashes > 0 && !s.Answered && s.DeliveredCount == 1
+	case WakeUnarmed, WakeArmed, WakeCancelled:
+		false
+	}
+}
+
+func wakeWitnessCancelled(s WakeModelState) bool {
+	s.Cancelled && s.DeliveredCount == 0
+}
+
+// WakeCoalesceLifecycle formally proves all wake always-invariants and sometimes-reachability witnesses.
+type WakeCoalesceLifecycle machine[WakeModelState, WakeAction] {
+	initial: initWakeModel,
+	step:    stepWakeModel,
+
+	law OneMessage always wakeOneMessage,
+	law NeverEarly always wakeNeverEarly,
+	law CancelledNeverFires always wakeCancelledNeverFires,
+	law FiredHasMessage always wakeFiredHasMessage,
+	law ArmedSurvivesRestart always wakeArmedSurvivesRestart,
+
+	law FiredOnce sometimes wakeWitnessFiredOnce,
+	law FiredAfterRestart sometimes wakeWitnessFiredAfterRestart,
+	law FiredAfterLostAnswer sometimes wakeWitnessFiredAfterLostAnswer,
+	law Cancelled sometimes wakeWitnessCancelled,
+}
+
+func applyActions(init WakeModelState, acts []WakeAction) WakeModelState {
+	let mut cur = init
+	for a in acts {
+		match stepWakeModel(cur, a) {
+		case Stay[WakeModelState] as st:
+			cur = st.Next
+		case Enter[WakeModelState] as en:
+			cur = en.Next
+		case Ignore, Reject, Emit[WakeModelState, int], Done[int], Tell[WakeModelState, int]:
+		}
+	}
+	cur
+}
+
+// WakeMutantChecksRefuteBugs verifies NoDedupe, FireEarly, FireCancelled, and TimerInMemory violate our invariants.
+law WakeMutantChecksRefuteBugs() {
+	let s0 = initWakeModel(false)
+	let sArmed = applyActions(s0, []WakeAction{WakeArm})
+	let wakeID = handle.WakeDeliveryID("w1")
+	let earlyState = WakeModelState{
+		..sArmed,
+		Phase:          WakeFired{DueMs: 2000, AtMs: 1000},
+		DeliveredCount: 1,
+		DeliveredID:    wakeID,
+	}
+	let noDedupeState = WakeModelState{
+		..sArmed,
+		Phase:          WakeFired{DueMs: 2000, AtMs: 2000},
+		DeliveredCount: 2,
+		DeliveredID:    wakeID,
+	}
+	let fireCancelledState = WakeModelState{
+		..s0,
+		Cancelled:      true,
+		DeliveredCount: 1,
+		DeliveredID:    wakeID,
+	}
+	let timerInMemoryState = WakeModelState{
+		..sArmed,
+		Phase:          WakeUnarmed,
+		PersistedArmed: true,
+		Crashes:        1,
+	}
+		!wakeAllInvariants(earlyState) &&
+		!wakeAllInvariants(noDedupeState) &&
+		!wakeAllInvariants(fireCancelledState) &&
+		!wakeAllInvariants(timerInMemoryState)
+}
