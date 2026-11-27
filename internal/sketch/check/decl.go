@@ -120,14 +120,15 @@ func (c *checker) runOnce(files []*syntax.File) *Package {
 		c.checkTests,
 		c.checkLaws,
 		c.planLaws,
-		// After planLaws: a provider the laws run against moves with them.
-		c.checkLawPlacement,
 		c.checkTypeDecls,
 		c.checkImplementsClauses,
 		c.checkFunctionClaims,
 		c.checkContexts,
 		c.checkContextCycles,
 		c.checkErrorMethods,
+		// After planLaws and type/implements/context checks: Info.Uses is
+		// complete and providers a law runs against move with them.
+		c.checkLawPlacement,
 		c.checkUnusedImports,
 		// After every body, test and law: the inferred rows are final.
 		c.checkWireNeeds,

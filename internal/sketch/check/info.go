@@ -106,8 +106,8 @@ type Package struct {
 	// LawExportedHelpers are the exported functions that would be law
 	// helpers (lawplace.go, rule 2) if they were not exported: every user
 	// in the package is a law, a test or a helper, declared in a file of
-	// laws (one with nothing else). ergo fix unexports the ones no other
-	// package names. In source order.
+	// laws or tests. ergo fix unexports the ones no other package names.
+	// In source order.
 	LawExportedHelpers []*syntax.FuncDecl
 	// LawHelpers are the declarations ergo fix moves beside their first
 	// user (lawplace.go), in source order.
@@ -1264,6 +1264,13 @@ type Test struct {
 	// identical type whose drawn value a generated case may repeat
 	// (Law.Ties; runtime.md, Tests).
 	Ties [][]int
+	// Subjects are a top-level test's subjects (lawplace.go, rule 1), the
+	// ones it names first, then the ones its helpers name.
+	Subjects []LawSubject
+	// FixSubjects are its subjects as ergo fix reads them: with the
+	// exported declarations of a laws or tests file that only laws and tests
+	// use read as helpers too (Package.LawHelpers).
+	FixSubjects []LawSubject
 
 	file *fileInfo // the declaring file, selected while the test is checked
 }

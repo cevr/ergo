@@ -256,7 +256,7 @@ func fixCommand(args []string) error {
 		}
 		fmt.Fprint(out, text)
 	}
-	// The law pass (LAWLOC); --check skips it while S115 is off.
+	// The law and test placement pass (LAWLOC); --check skips it while S115 is off.
 	if !check {
 		text, err := fixLaws(lawPaths, stdRoot, write)
 		if err != nil {

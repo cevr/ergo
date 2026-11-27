@@ -554,13 +554,12 @@ func CodecFieldsOf_Named(v *Named) CodecFields_Named {
 }
 
 type CodecFields_Options struct {
-	F_placeLaws     *bool
 	F_mapsRewritten *bool
 	F_shapesWritten *bool
 }
 
 func CodecFieldsOf_Options(v *Options) CodecFields_Options {
-	return CodecFields_Options{F_placeLaws: &v.placeLaws, F_mapsRewritten: &v.mapsRewritten, F_shapesWritten: &v.shapesWritten}
+	return CodecFields_Options{F_mapsRewritten: &v.mapsRewritten, F_shapesWritten: &v.shapesWritten}
 }
 
 type CodecFields_Package struct {

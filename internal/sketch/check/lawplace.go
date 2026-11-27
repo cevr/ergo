@@ -10,51 +10,50 @@ import (
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
-// Law placement (types.md, Laws 15; grammar.md rule 11; owner, 2026-11-15:
-// "laws being in their own file is kind of an anti-pattern. Because
-// they're really tied to implementation"). A top-level law states a rule
+// Law and test placement (types.md, Laws 15; grammar.md rule 11; owner,
+// 2026-11-15, 2026-11-26): a top-level law or test states a rule or check
 // about declarations of its own package, so it sits beside one of them:
 //
-//  1. A law's subjects are the declarations of its own package that its
-//     parameters or its body name: functions, types and their operations,
-//     variants, fields and methods, package lets and contexts. A member or
-//     machine law's subject is its type, which declares it, so the rule
-//     holds for it by construction and only a top-level law is judged. A
-//     law the parser derived (a refinement's or a codec pair's) is stated
-//     at its declaration and is not judged either.
+//  1. A law's or test's subjects are the declarations of its own package that
+//     its parameters or its body name: functions, types and their
+//     operations, variants, fields and methods, package lets and contexts. A
+//     member or machine law's subject is its type, which declares it, so the
+//     rule holds for it by construction and only a top-level law or test is
+//     judged. A law the parser derived (a refinement's or a codec pair's) is
+//     stated at its declaration and is not judged either.
 //  2. A law helper is not a subject: an unexported declaration every one
 //     of whose users is a law, a test or another helper. It is a function
 //     other than main with no receiver, a package let or a context, or a
 //     type with no extern, origin or derive, with the functions dot-called
 //     on it; an exported function dot-called on a package type is surface,
-//     never a helper. The subjects a helper names are the law's subjects,
-//     at any depth, after the ones the law names itself. So a helper never
-//     pins a law to a file of helpers (a laws file).
-//  3. A top-level law sits in a file that declares one of its subjects;
-//     else S115 at its name names each subject's file. A law with no
-//     subject in its package (it names only the prelude, std or imports)
-//     is S115 too: it belongs to the package it is about. A package with
-//     another diagnostic gets no S115 (reportLawPlacements).
+//     never a helper. The subjects a helper names are the law's or test's
+//     subjects, at any depth, after the ones it names itself. So a helper
+//     never pins a law or test to a file of helpers (a laws or tests file).
+//  3. A top-level law or test sits in a file that declares one of its
+//     subjects; else S115 at its name names each subject's file. A law or
+//     test with no subject in its package (it names only the prelude, std or
+//     imports) is S115 too: it belongs to the package it is about. A package
+//     with another diagnostic gets no S115 (reportLawPlacements).
 //
-// Law.Subjects, Law.FixSubjects and Package.LawHelpers carry the verdict
-// to ergo fix (lawfix), which moves a misplaced law beside its main
-// subject (the one its name names, else the first), and each helper beside
-// the first law or test that uses it.
+// Law.Subjects, Law.FixSubjects, Test.Subjects, Test.FixSubjects and
+// Package.LawHelpers carry the verdict to ergo fix (lawfix), which moves a
+// misplaced law or test beside its main subject (the one its name names,
+// else the first), and each helper beside the first law or test that uses
+// it.
 //
 // Prior art: Go keeps a package's examples and tests in _test files of the
 // package, Rust keeps unit tests in a `mod tests` of the file they test,
 // and Zig keeps a `test` block beside the function it tests; none checks
-// the placement. Ergo checks it, since a law is part of its subject's
-// contract (types.md, Laws 12), not a test of it.
+// the placement. Ergo checks it, since a law or test belongs beside the
+// code it specifies and verifies (types.md, Laws 12).
 
 // lawPlacementReported turns S115 on in Check. It is off until the
-// repository's laws stand with their subjects: the integrator merges the
-// rule and ergo fix, runs scripts/lawloc-check migrate, then turns it on
-// (LAWLOC).
+// repository's laws and tests stand with their subjects.
 const lawPlacementReported = false
 
-// LawSubject is one subject of a top-level law (Law.Subjects): the name the
-// law (or one of its helpers) uses, and the declaration and file of it.
+// LawSubject is one subject of a top-level law or test (Law.Subjects,
+// Test.Subjects): the name the declaration (or one of its helpers) uses,
+// and the declaration and file of it.
 type LawSubject struct {
 	Name string
 	Decl syntax.Decl
@@ -69,12 +68,17 @@ func (l *Law) File() *syntax.File {
 	return l.file.syntax
 }
 
-// ImportLocalName is the name an import binds: its alias, else its path's
-// default name (its last element, or a Go package's name).
-func ImportLocalName(spec *syntax.ImportSpec) string {
-	if spec.Name != nil {
-		return spec.Name.Name
+// File is the source file that declares the test.
+func (t *Test) File() *syntax.File {
+	if t.file == nil {
+		return nil
 	}
+	return t.file.syntax
+}
+
+// ImportDefaultName is the name an unaliased import binds: its last path
+// element, or a Go package's name.
+func ImportDefaultName(spec *syntax.ImportSpec) string {
 	path := spec.Path.Value
 	if spec.Path.Kind != syntax.PATH {
 		if p, err := strconv.Unquote(path); err == nil {
@@ -82,6 +86,34 @@ func ImportLocalName(spec *syntax.ImportSpec) string {
 		}
 	}
 	return importDefault(spec, path)
+}
+
+// IsValidImportName reports whether element can be the local name an import binds.
+func IsValidImportName(element string) bool {
+	return importName(element)
+}
+
+// ImportLocalName is the name an import binds: its alias, else its path's
+// default name (its last element, or a Go package's name).
+func ImportLocalName(spec *syntax.ImportSpec) string {
+	if spec.Name != nil {
+		return spec.Name.Name
+	}
+	return ImportDefaultName(spec)
+}
+
+// IsLawOrTestFile reports whether name is a file named for laws or tests
+// (such as laws.ergo, tree_laws.ergo, tests.ergo, tree_test.ergo, or
+// tree_tests.ergo).
+func IsLawOrTestFile(name string) bool {
+	base := strings.ToLower(path.Base(name))
+	if strings.Contains(base, "law") {
+		return true
+	}
+	stem := strings.TrimSuffix(base, ".ergo")
+	return stem == "tests" || stem == "test" ||
+		strings.HasSuffix(stem, "_tests") || strings.HasSuffix(stem, "_test") ||
+		strings.HasPrefix(stem, "tests_") || strings.HasPrefix(stem, "test_")
 }
 
 // lawDecls is the package's declaration graph at the level of top-level
@@ -153,10 +185,23 @@ func (c *checker) lawDeclGraph() *lawDecls {
 	var walk func(d syntax.Decl, root syntax.Node)
 	walk = func(d syntax.Decl, root syntax.Node) {
 		seen := map[syntax.Decl]bool{d: true}
+		addObj := func(o Object) {
+			if o == nil {
+				return
+			}
+			to, ok := g.declOf(o)
+			if !ok || seen[to] {
+				return
+			}
+			seen[to] = true
+			g.refs[d] = append(g.refs[d], lawRef{to, o.name()})
+			g.users[to] = append(g.users[to], d)
+		}
 		syntax.Inspect(root, func(n syntax.Node) bool {
 			// A name resolves through Uses; a method or operation called
 			// through a dot has no Uses entry, so its call names it.
-			var o Object
+			// Package contexts in with / context embeds carry no Uses
+			// entry (Info.Withs and c.pkg.Contexts hold them).
 			switch n := n.(type) {
 			case *syntax.LawDecl:
 				if n != root {
@@ -166,28 +211,42 @@ func (c *checker) lawDeclGraph() *lawDecls {
 					walk(n, n)
 					return false
 				}
+			case *syntax.SelectorExpr:
+				if id, ok := n.X.(*syntax.Ident); ok && strings.HasPrefix(id.Name, hiddenPrefix) {
+					return false
+				}
 			case *syntax.Ident:
-				o = c.pkg.Info.Uses[n]
+				addObj(c.pkg.Info.Uses[n])
+			case *syntax.ContextEntry:
+				if n.Kind == syntax.ContextEmbed {
+					if id, ok := n.Key.(*syntax.Ident); ok && c.pkg.Info.Uses[id] == nil {
+						if w := c.pkg.Contexts[id.Name]; w != nil && !w.Local && w.pkg == c.pkg && w.Decl != nil {
+							addObj(w)
+						}
+					}
+				}
 			case *syntax.CallExpr:
+				if sel, ok := n.Fun.(*syntax.SelectorExpr); ok {
+					if id, ok := sel.X.(*syntax.Ident); ok && strings.HasPrefix(id.Name, hiddenPrefix) {
+						return true
+					}
+				}
 				if call := c.pkg.Info.Calls[n]; call != nil {
 					switch {
 					case call.Func != nil:
-						o = call.Func
+						addObj(call.Func)
 					case call.Op != nil:
-						o = call.Op
+						addObj(call.Op)
+					}
+				}
+				for w := c.pkg.Info.Withs[n]; w != nil; w = w.Next {
+					for _, wc := range w.Contexts {
+						if wc != nil && !wc.Local && wc.pkg == c.pkg && wc.Decl != nil {
+							addObj(wc)
+						}
 					}
 				}
 			}
-			if o == nil {
-				return true
-			}
-			to, ok := g.declOf(o)
-			if !ok || seen[to] {
-				return true
-			}
-			seen[to] = true
-			g.refs[d] = append(g.refs[d], lawRef{to, o.name()})
-			g.users[to] = append(g.users[to], d)
 			return true
 		})
 	}
@@ -215,6 +274,10 @@ func (g *lawDecls) declOf(o Object) (syntax.Decl, bool) {
 			node = o.Decl
 		}
 	case *TypeName:
+		if o.Decl != nil {
+			node = o.Decl
+		}
+	case *Context:
 		if o.Decl != nil {
 			node = o.Decl
 		}
@@ -322,8 +385,8 @@ func helperKind(d syntax.Decl, exported bool) bool {
 	return false
 }
 
-// checkLawPlacement applies rule 3 to each top-level law, and records its
-// subjects and the helpers that move with it.
+// checkLawPlacement applies rule 3 to each top-level law and test, and
+// records their subjects and the helpers that move with them.
 func (c *checker) checkLawPlacement() {
 	var top []*Law
 	for _, law := range c.pkg.Laws {
@@ -331,26 +394,26 @@ func (c *checker) checkLawPlacement() {
 			top = append(top, law)
 		}
 	}
-	if len(top) == 0 && len(c.pkg.LawRuns) == 0 {
+	if len(top) == 0 && len(c.pkg.Tests) == 0 && len(c.pkg.LawRuns) == 0 {
 		return
 	}
 	g := c.lawDeclGraph()
 	helper := g.helpers(false)
-	// ergo fix reads more helpers than the rule: in a file of laws (one
-	// named for them: laws.ergo, tree_laws.ergo), an exported declaration
-	// that only laws and tests use was written for them too. ergo fix
-	// unexports such a function when no other package names it, and moves
-	// each such declaration beside its first user, so no file of laws is
-	// left. Elsewhere such a declaration is the package's surface, even
-	// when only its tests use it.
+	// ergo fix reads more helpers than the rule: in a file of laws or tests
+	// (laws.ergo, tree_laws.ergo, tests.ergo, tree_test.ergo), an exported
+	// declaration that only laws and tests use was written for them too.
+	// ergo fix unexports such a function when no other package names it, and
+	// moves each such declaration beside its first user, so no file of laws
+	// or tests is left. Elsewhere such a declaration is the package's
+	// surface, even when only its tests use it.
 	all := g.helpers(true)
-	lawsFile := map[*fileInfo]bool{}
+	placeFile := map[*fileInfo]bool{}
 	for _, fi := range c.files {
-		lawsFile[fi] = strings.Contains(strings.ToLower(path.Base(fi.syntax.Name)), "law")
+		placeFile[fi] = IsLawOrTestFile(fi.syntax.Name)
 	}
 	fixHelper := map[syntax.Decl]bool{}
 	for _, d := range g.order {
-		if helper[d] || all[d] && lawsFile[g.file[d]] {
+		if helper[d] || all[d] && placeFile[g.file[d]] {
 			fixHelper[d] = true
 		}
 		if f, ok := d.(*syntax.FuncDecl); ok && fixHelper[d] && !helper[d] && g.owner[d] == nil && !g.dotted[d] {
@@ -393,8 +456,8 @@ func (c *checker) checkLawPlacement() {
 		visit(u.decl)
 	}
 	// A provider a member law runs against (LawRun.Bindings) that only the
-	// laws need, declared in a file of laws, is written for them: it goes
-	// beside the operation type that declares the laws, with its
+	// laws need, declared in a file of laws or tests, is written for them:
+	// it goes beside the operation type that declares the laws, with its
 	// functions. Nothing names it, so no law or test reaches it above.
 	for _, run := range c.pkg.LawRuns {
 		owner := run.Law.Owner
@@ -411,7 +474,7 @@ func (c *checker) checkLawPlacement() {
 					continue
 				}
 				d, ok := g.declOf(p.Type.origin().Obj)
-				if !ok || !lawsFile[g.file[d]] || !fixHelper[d] {
+				if !ok || !placeFile[g.file[d]] || !fixHelper[d] {
 					continue
 				}
 				for _, x := range append([]syntax.Decl{d}, g.methods[d]...) {
@@ -432,20 +495,27 @@ func (c *checker) checkLawPlacement() {
 		law.Subjects = g.subjects(law.Decl, helper)
 		law.FixSubjects = g.subjects(law.Decl, fixHelper)
 	}
+	for _, test := range c.pkg.Tests {
+		test.Subjects = g.subjects(test.Decl, helper)
+		test.FixSubjects = g.subjects(test.Decl, fixHelper)
+	}
 }
 
 // reportLawPlacements applies rule 3, after every other pass. A package
 // with another diagnostic gets no S115: an unresolved name is no subject,
-// so where its laws belong is not known yet, and the other diagnostic is
-// the one to fix first.
+// so where its laws or tests belong is not known yet, and the other
+// diagnostic is the one to fix first.
 func (c *checker) reportLawPlacements() {
 	if !c.placeLaws || len(c.diags) > 0 {
 		return
 	}
 	for _, law := range c.pkg.Laws {
 		if law.Owner == nil && law.Machine == nil && law.Decl.Derived == nil && law.Decl.Pair == nil {
-			c.reportLawPlacement(law)
+			c.reportDeclPlacement("law", law.Name, law.Decl.Name, law.file, law.File(), law.Subjects)
 		}
+	}
+	for _, test := range c.pkg.Tests {
+		c.reportDeclPlacement("test", test.Name, test.Decl.Name, test.file, test.File(), test.Subjects)
 	}
 }
 
@@ -488,18 +558,18 @@ func (g *lawDecls) subjects(d syntax.Decl, helper map[syntax.Decl]bool) []LawSub
 	return out
 }
 
-func (c *checker) reportLawPlacement(law *Law) {
+func (c *checker) reportDeclPlacement(kind, name string, at *syntax.Ident, fi *fileInfo, file *syntax.File, subjects []LawSubject) {
 	saved := c.cur
-	c.cur = law.file
+	c.cur = fi
 	defer func() { c.cur = saved }()
-	if len(law.Subjects) == 0 {
-		c.errorf(law.Decl.Name, CodeLawPlace, "law %s names nothing in package %s; state it in the package it is about", law.Name, c.pkg.Name)
+	if len(subjects) == 0 {
+		c.errorf(at, CodeLawPlace, "%s %s names nothing in package %s; state it in the package it is about", kind, name, c.pkg.Name)
 		return
 	}
 	var named []string
 	files := map[*syntax.File]bool{}
-	for _, s := range law.Subjects {
-		if s.File == law.File() {
+	for _, s := range subjects {
+		if s.File == file {
 			return
 		}
 		if !files[s.File] {
@@ -515,7 +585,7 @@ func (c *checker) reportLawPlacement(law *Law) {
 	if i := strings.LastIndex(list, ", "); i >= 0 {
 		list = list[:i] + " and " + list[i+2:]
 	}
-	c.errorf(law.Decl.Name, CodeLawPlace, "law %s is about %s; state it in %s", law.Name, list, where)
+	c.errorf(at, CodeLawPlace, "%s %s is about %s; state it in %s", kind, name, list, where)
 }
 
 func (c *checker) lawFileName(f *syntax.File) string {

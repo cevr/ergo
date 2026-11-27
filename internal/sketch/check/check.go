@@ -109,7 +109,7 @@ func check(path string, files []*syntax.File, imp Importer, under *Package, opts
 	c.derive = derived
 	c.pkg.module, c.pkg.trusted = module, trusted
 	c.pkg.testOf = under
-	c.placeLaws = lawPlacementReported || opts.placeLaws
+	c.placeLaws = lawPlacementReported || opts.PlaceLaws
 	pkg := c.run(met)
 	rewrite := len(c.mapSites) > 0 && !opts.mapsRewritten
 	shapes := !opts.shapesWritten && c.writeShapes() // mapshape.go

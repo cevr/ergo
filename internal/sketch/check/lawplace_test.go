@@ -52,6 +52,46 @@ func TestLawPlacement(t *testing.T) {
 			files: [][2]string{{"a.ergo", ints}, {"b.ergo", "law AddCommutes(a int, b int) { a + b == b + a }\n\nfunc bad() int { \"s\" }\n"}},
 			want:  `b.ergo:3:18+3 S108 a string literal takes only a string type, not int`,
 		},
+		{
+			// A test placed in the file of a dot-called subject (no laws in package).
+			name:  "test placed by a dot call",
+			files: [][2]string{{"a.ergo", ints}, {"b.ergo", sum + "\ntest SumOfOneWorks {\n\tassert New(1).Sum() == 1\n}\n"}},
+		},
+		{
+			// A misplaced test in a package with no top-level laws.
+			name:  "test misplaced",
+			files: [][2]string{{"a.ergo", ints}, {"b.ergo", sum}, {"tests.ergo", "test SumOfOneWorks(xs Ints) {\n\tassert xs.Sum() == xs.Sum()\n}\n"}},
+			want:  `tests.ergo:1:6+13 S115 test SumOfOneWorks is about Ints (a.ergo) and Sum (b.ergo); state it in one of those files`,
+		},
+		{
+			// A helper beside a test is no subject: what it names is.
+			name:  "test helper",
+			files: [][2]string{{"a.ergo", ints + sum}, {"tests.ergo", "test SumOfOneWorks {\n\tassert one(1) == 1\n}\n\nfunc one(n int) int { New(n).Sum() }\n"}},
+			want:  `tests.ergo:1:6+13 S115 test SumOfOneWorks is about Sum (a.ergo); state it in that file`,
+		},
+		{
+			// A test that names nothing in its package.
+			name:  "test nothing",
+			files: [][2]string{{"a.ergo", ints}, {"b.ergo", "test AddWorks(a int, b int) {\n\tassert a + b == b + a\n}\n"}},
+			want:  `b.ergo:1:6+8 S115 test AddWorks names nothing in package main; state it in the package it is about`,
+		},
+		{
+			// Another diagnostic beside a misplaced test suppresses S115.
+			name:  "test over an error",
+			files: [][2]string{{"a.ergo", ints}, {"b.ergo", "test AddWorks(a int, b int) {\n\tassert a + b == b + a\n}\n\nfunc bad() int { \"s\" }\n"}},
+			want:  `b.ergo:5:18+3 S108 a string literal takes only a string type, not int`,
+		},
+		{
+			// A local test harness wrapper does not inject its plumbing types/function as subjects.
+			name: "test local harness",
+			files: [][2]string{
+				{"harness.ergo", "type Run { Name string, Seed uint64, Site string, Source string }\ntype Fail { Message string }\nfunc Harness(r Run, body func() fails Fail needs Draws) fails Fail {\n\tlet _ = r\n\tlet _ = body\n}\n"},
+				{"draws.ergo", "type Draws { Step() int, test Harness }\n"},
+				{"target.ergo", "func Compute(n int) int { n + 1 }\n"},
+				{"tests.ergo", "test ComputeWorks {\n\tassert Compute(Draws.Step()) > 0\n}\n"},
+			},
+			want: `tests.ergo:1:6+12 S115 test ComputeWorks is about Compute (target.ergo) and Step (draws.ergo); state it in one of those files`,
+		},
 	} {
 		var files []*syntax.File
 		for _, nf := range row.files {

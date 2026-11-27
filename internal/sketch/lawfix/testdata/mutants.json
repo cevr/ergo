@@ -14,26 +14,26 @@
       "name": "lawloc-fix-first-subject",
       "origin": "wf10 LAWLOC",
       "file": "internal/sketch/lawfix/lawfix.go",
-      "from": "main := mainSubject(law.Name, subjects)",
+      "from": "main := mainSubject(item.name, subjects)",
       "to": "main := subjects[0]",
-      "rule": "A law named for one of its subjects (SortPermutes for Sort) goes beside that subject, not beside the first one it names.",
+      "rule": "A law or test named for one of its subjects (SortPermutes for Sort) goes beside that subject, not beside the first one it names.",
       "killers": ["internal/sketch/lawfix:TestPlanPlacesEveryLaw"]
     },
     {
       "name": "lawloc-fix-no-import",
       "origin": "wf10 LAWLOC",
       "file": "internal/sketch/lawfix/lawfix.go",
-      "from": "add = append(add, \"import \"+t)",
-      "to": "_ = t",
-      "rule": "A moved law or helper takes the imports it names to its new file.",
+      "from": "\t\t\t\tmissing = append(missing, missingImport{isGo: isGo, path: impPath, line: formatImportLine(isGo, \"\", s)})\n",
+      "to": "\t\t\t\t_ = formatImportLine\n",
+      "rule": "A moved law, test or helper takes the imports it names to its new file.",
       "killers": ["internal/sketch/lawfix:TestPlanPlacesEveryLaw"]
     },
     {
       "name": "lawloc-fix-keeps-dead-import",
       "origin": "wf10 LAWLOC",
       "file": "internal/sketch/lawfix/lawfix.go",
-      "from": "\t\t\te.cuts = append(e.cuts, lineSpan(f.Src, declSpan(f, d)))\n\t\t}\n\t}\n\treturn nil",
-      "to": "\t\t}\n\t}\n\treturn nil",
+      "from": "\t\tif gone[s] {\n\t\t\tsp := lineSpan(f.Src, declSpan(f, d))\n\t\t\te.cuts = append(e.cuts, sp)\n\t\t\tif sp.to > lastCutEnd {\n\t\t\t\tlastCutEnd = sp.to\n\t\t\t}\n\t\t\tcontinue\n\t\t}",
+      "to": "\t\tif false && gone[s] {\n\t\t\tsp := lineSpan(f.Src, declSpan(f, d))\n\t\t\te.cuts = append(e.cuts, sp)\n\t\t\tif sp.to > lastCutEnd {\n\t\t\t\tlastCutEnd = sp.to\n\t\t\t}\n\t\t\tcontinue\n\t\t}",
       "rule": "An import that only moved declarations named leaves the file with them (else S110).",
       "killers": ["internal/sketch/lawfix:TestPlanPlacesEveryLaw"]
     },
@@ -90,6 +90,69 @@
       "to": "\t_ = joinLeftoverTests\n",
       "rule": "A file of laws left holding only tests joins its tests to the package's tests.ergo when there is one, rather than keeping its laws name.",
       "killers": ["internal/sketch/lawfix:TestLeftoverTestsJoinTestsFile"]
+    },
+    {
+      "name": "colocate-fix-skips-tests",
+      "origin": "colocate tests and laws",
+      "file": "internal/sketch/lawfix/lawfix.go",
+      "from": "\tfor _, tc := range pkg.Tests {\n\t\titems = append(items, topItem{\n\t\t\tkind:        \"test\",\n\t\t\tname:        tc.Name,\n\t\t\tdecl:        tc.Decl,\n\t\t\tfile:        tc.File(),\n\t\t\tsubjects:    tc.Subjects,\n\t\t\tfixSubjects: tc.FixSubjects,\n\t\t})\n\t}\n",
+      "to": "",
+      "rule": "ergo fix relocates misplaced top-level test declarations beside their main subject.",
+      "killers": ["internal/sketch/lawfix:TestLawsAndTestsFilesWithAllPlacedAreDeleted"]
+    },
+    {
+      "name": "colocate-fix-unsorted-imports",
+      "origin": "colocate tests and laws",
+      "file": "internal/sketch/lawfix/lawfix.go",
+      "from": "\tslices.SortFunc(missing, func(a, b missingImport) int {\n\t\tif a.isGo != b.isGo {\n\t\t\tif !a.isGo {\n\t\t\t\treturn -1\n\t\t\t}\n\t\t\treturn 1\n\t\t}\n\t\treturn strings.Compare(a.path, b.path)\n\t})\n",
+      "to": "",
+      "rule": "Transferred imports are inserted in sorted order.",
+      "killers": ["internal/sketch/lawfix:TestPlanImportSortClashAndUnalias"]
+    },
+    {
+      "name": "colocate-fix-clash-ignores-local",
+      "origin": "colocate tests and laws",
+      "file": "internal/sketch/lawfix/lawfix.go",
+      "from": "if !nameClashes(cand) && !arrivedLocals[cand] {",
+      "to": "if !nameClashes(cand) {",
+      "rule": "Clash-avoiding import aliases skip local names bound inside arriving declarations.",
+      "killers": ["internal/sketch/lawfix:TestPlanImportSortClashAndUnalias"]
+    },
+    {
+      "name": "colocate-fix-unalias-skipped",
+      "origin": "colocate tests and laws",
+      "file": "internal/sketch/lawfix/lawfix.go",
+      "from": "\t\t\t\tif !nameClashes(def) {\n\t\t\t\t\tnewLocal = def\n\t\t\t\t\tmissing = append(missing, missingImport{isGo: isGo, path: impPath, line: formatImportLine(isGo, \"\", s)})\n\t\t\t\t} else {",
+      "to": "\t\t\t\tif !nameClashes(def) && s.Kind != syntax.ImportNamed {\n\t\t\t\t\tnewLocal = def\n\t\t\t\t\tmissing = append(missing, missingImport{isGo: isGo, path: impPath, line: formatImportLine(isGo, \"\", s)})\n\t\t\t\t} else {",
+      "rule": "An import alias from a clashing source file is unaliased when its default name does not clash in the destination.",
+      "killers": ["internal/sketch/lawfix:TestPlanImportSortClashAndUnalias"]
+    },
+    {
+      "name": "colocate-fix-keeps-empty-file",
+      "origin": "colocate tests and laws",
+      "file": "internal/sketch/lawfix/lawfix.go",
+      "from": "\t\tif left == 0 && len(e.arrived) == 0 {\n\t\t\tdeleted[f] = true\n\t\t\tres.Deleted = append(res.Deleted, f.Name)\n\t\t\tcontinue\n\t\t}",
+      "to": "\t\tif false && left == 0 && len(e.arrived) == 0 {\n\t\t\tdeleted[f] = true\n\t\t\tres.Deleted = append(res.Deleted, f.Name)\n\t\t\tcontinue\n\t\t}",
+      "rule": "A source file left with no declarations after relocating tests and laws is deleted.",
+      "killers": ["internal/sketch/lawfix:TestLawsAndTestsFilesWithAllPlacedAreDeleted"]
+    },
+    {
+      "name": "colocate-fix-test-exported-helper-ignored",
+      "origin": "colocate tests and laws",
+      "file": "internal/sketch/lawfix/run.go",
+      "from": "\t\tif !check.IsLawOrTestFile(fileOf[d]) {\n\t\t\tcontinue\n\t\t}",
+      "to": "\t\tif !strings.Contains(strings.ToLower(filepath.Base(fileOf[d])), \"law\") {\n\t\t\tcontinue\n\t\t}",
+      "rule": "Exported helpers in tests.ergo or *_test.ergo used only by laws and tests are unexported and relocated just like those in laws files.",
+      "killers": ["internal/sketch/lawfix:TestRunRelocatesTestsUnexportsAndDeletes"]
+    },
+    {
+      "name": "colocate-fix-multi-subject-churns",
+      "origin": "colocate tests and laws",
+      "file": "internal/sketch/lawfix/lawfix.go",
+      "from": "\t\tif stays {\n\t\t\tcontinue\n\t\t}\n\t\tmain := mainSubject(item.name, subjects)",
+      "to": "\t\t_ = stays\n\t\tmain := mainSubject(item.name, subjects)",
+      "rule": "A law or test already in a file declaring one of its subjects stays put.",
+      "killers": ["internal/sketch/lawfix:TestPlanMultiSubjectAndAmbiguityGuard"]
     }
   ]
 }

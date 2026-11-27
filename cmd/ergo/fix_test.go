@@ -376,3 +376,55 @@ func TestFixOptionCommand(t *testing.T) {
 		t.Fatalf("fix --option --check after fix: %v", err)
 	}
 }
+
+// TestFixColocatesTestsAndLaws runs ergo fix on a package directory whose
+// tests.ergo and *_test.ergo hold misplaced tests, laws, exclusive helpers,
+// and imports: verifies relocation beside subjects, sorted import transfer,
+// empty-file deletion, zero remaining diagnostics, and idempotency.
+func TestFixColocatesTestsAndLaws(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	t.Setenv("HOME", t.TempDir())
+	dir := t.TempDir()
+	write := func(name, src string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(src), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("ergo.mod", "module example.com/coloc\n")
+	write("double.ergo", "import time\n\nfunc Double(n int) int {\n\tlet _ = time.Unix(0, 0)\n\tn * 2\n}\n")
+	write("tests.ergo", "import strings\n\nfunc helperCount() int { Double(strings.Count(\"aa\", \"a\")) }\n\ntest DoubleWorks {\n\tassert helperCount() == 4\n}\n")
+	write("double_test.ergo", "law DoubleEven(n int) {\n\tDouble(n) % 2 == 0\n}\n")
+
+	if err := command([]string{"fix", dir}); err != nil {
+		t.Fatalf("ergo fix: %v", err)
+	}
+	for _, gone := range []string{"tests.ergo", "double_test.ergo"} {
+		if _, err := os.Stat(filepath.Join(dir, gone)); !os.IsNotExist(err) {
+			t.Errorf("%s was not deleted (err=%v)", gone, err)
+		}
+	}
+	got, err := os.ReadFile(filepath.Join(dir, "double.ergo"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(got)
+	for _, want := range []string{"import strings\nimport time\n", "test DoubleWorks", "func helperCount()", "law DoubleEven"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("double.ergo missing %q:\n%s", want, text)
+		}
+	}
+	if err := command([]string{"check", dir}); err != nil {
+		t.Fatalf("ergo check after fix: %v", err)
+	}
+	if err := command([]string{"fix", dir}); err != nil {
+		t.Fatalf("second ergo fix: %v", err)
+	}
+	got2, err := os.ReadFile(filepath.Join(dir, "double.ergo"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got2) != text {
+		t.Errorf("second ergo fix was not idempotent:\n%s\nwant:\n%s", got2, text)
+	}
+}

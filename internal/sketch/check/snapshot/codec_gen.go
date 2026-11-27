@@ -1039,6 +1039,8 @@ func (e *encoder) encFieldsTest(v *check.Test) {
 	e.encPtrSyntax_TestDecl(v.Decl)
 	e.encT150(v.Params)
 	e.encT151(v.Ties)
+	e.encT152(v.Subjects)
+	e.encT152(v.FixSubjects)
 	e.encPtrfileInfo(*f.F_file)
 }
 
@@ -1063,19 +1065,19 @@ func (e *encoder) encFieldsLaw(v *check.Law) {
 	e.encPtrFuncRewrite(v.FuncsRewrite)
 	e.encT25(v.TParams)
 	e.encT150(v.Params)
-	e.encT152(*f.F_selfUses)
+	e.encT153(*f.F_selfUses)
 	e.encPtrRow(v.Fails)
-	e.encT153(v.Slots)
+	e.encT154(v.Slots)
 	e.encT2(v.Unrun)
-	e.encT154(v.Where)
+	e.encT155(v.Where)
 	e.encT151(v.Ties)
 	e.encT9(v.Admit)
 	e.encT15(v.Sometimes)
 	e.encT125(v.Near)
 	e.encPtrLaw(v.Admits)
 	e.encPtrRewrite(v.Rewrite)
-	e.encT155(v.Subjects)
-	e.encT155(v.FixSubjects)
+	e.encT152(v.Subjects)
+	e.encT152(v.FixSubjects)
 	e.encPtrFuncRewrite(v.FuncRewrite)
 	e.encPtrLawProvider(*f.F_rewriteClaim)
 	e.encPtrInfo(*f.F_rewriteInfo)
@@ -2198,7 +2200,7 @@ func (e *encoder) encT85(v map[string]check.Codec_testAuthority) {
 func (e *encoder) encFieldsOptions(v *check.Options) {
 	f := check.CodecFieldsOf_Options(v)
 	e.encT15(v.Infer)
-	e.encT15(*f.F_placeLaws)
+	e.encT15(v.PlaceLaws)
 	e.encT15(*f.F_mapsRewritten)
 	e.encT15(*f.F_shapesWritten)
 }
@@ -3485,7 +3487,7 @@ func (e *encoder) encFieldsInterface(v *check.Interface) {
 	e.encTypeSet(v.Set)
 	e.encT205(v.Terms)
 	e.encT15(v.ConstraintOnly)
-	e.encT152(*f.F_selfUses)
+	e.encT153(*f.F_selfUses)
 	e.encT204(*f.F_byName)
 	e.encPtrTypeName(*f.F_obj)
 	e.encT27(*f.F_includes)
@@ -3972,6 +3974,17 @@ func (e *encoder) encT151(v [][]int) {
 	}
 }
 
+func (e *encoder) encT152(v []check.LawSubject) {
+	if v == nil {
+		e.uint(0)
+		return
+	}
+	e.uint(uint64(len(v)) + 1)
+	for _, x := range v {
+		e.encLawSubject(x)
+	}
+}
+
 func (e *encoder) encPtrSyntax_LawDecl(v *syntax.LawDecl) {
 	if v == nil {
 		e.uint(0)
@@ -3998,7 +4011,7 @@ func (e *encoder) encPtrFuncRewrite(v *check.FuncRewrite) {
 	e.encFieldsFuncRewrite(v)
 }
 
-func (e *encoder) encT152(v []*check.SelfType) {
+func (e *encoder) encT153(v []*check.SelfType) {
 	if v == nil {
 		e.uint(0)
 		return
@@ -4009,7 +4022,7 @@ func (e *encoder) encT152(v []*check.SelfType) {
 	}
 }
 
-func (e *encoder) encT153(v []check.LawSlot) {
+func (e *encoder) encT154(v []check.LawSlot) {
 	if v == nil {
 		e.uint(0)
 		return
@@ -4020,7 +4033,7 @@ func (e *encoder) encT153(v []check.LawSlot) {
 	}
 }
 
-func (e *encoder) encT154(v []*check.Refinement) {
+func (e *encoder) encT155(v []*check.Refinement) {
 	if v == nil {
 		e.uint(0)
 		return
@@ -4047,17 +4060,6 @@ func (e *encoder) encPtrRewrite(v *check.Rewrite) {
 		return
 	}
 	e.encFieldsRewrite(v)
-}
-
-func (e *encoder) encT155(v []check.LawSubject) {
-	if v == nil {
-		e.uint(0)
-		return
-	}
-	e.uint(uint64(len(v)) + 1)
-	for _, x := range v {
-		e.encLawSubject(x)
-	}
 }
 
 func (e *encoder) encFieldsLawProvider(v *check.LawProvider) {
@@ -6796,6 +6798,14 @@ func (e *encoder) encFieldsOverride(v *check.Override) {
 
 func (e *encoder) encOverride(v check.Override) { e.encFieldsOverride(&v) }
 
+func (e *encoder) encFieldsLawSubject(v *check.LawSubject) {
+	e.encT2(v.Name)
+	e.encSyntax_Decl(v.Decl)
+	e.encPtrSyntax_File(v.File)
+}
+
+func (e *encoder) encLawSubject(v check.LawSubject) { e.encFieldsLawSubject(&v) }
+
 func (e *encoder) encFieldsLawSlot(v *check.LawSlot) {
 	e.encT1(v.Param)
 	e.encPtrNamed(v.Type)
@@ -6824,14 +6834,6 @@ func (e *encoder) encT212(v []bool) {
 		e.encT15(x)
 	}
 }
-
-func (e *encoder) encFieldsLawSubject(v *check.LawSubject) {
-	e.encT2(v.Name)
-	e.encSyntax_Decl(v.Decl)
-	e.encPtrSyntax_File(v.File)
-}
-
-func (e *encoder) encLawSubject(v check.LawSubject) { e.encFieldsLawSubject(&v) }
 
 func (e *encoder) encT213(v []check.Witness) {
 	if v == nil {
@@ -11600,7 +11602,7 @@ func (e *encoder) encT330(v *[]*check.SelfType) {
 	if e.ref(v, v == nil) {
 		return
 	}
-	e.encT152(*v)
+	e.encT153(*v)
 }
 
 func (e *encoder) encT331(v func(string) bool) {
@@ -12993,6 +12995,8 @@ func (d *decoder) decFieldsTest(v *check.Test) {
 	v.Decl = d.decPtrSyntax_TestDecl()
 	v.Params = d.decT150()
 	v.Ties = d.decT151()
+	v.Subjects = d.decT152()
+	v.FixSubjects = d.decT152()
 	*f.F_file = d.decPtrfileInfo()
 }
 
@@ -13027,19 +13031,19 @@ func (d *decoder) decFieldsLaw(v *check.Law) {
 	v.FuncsRewrite = d.decPtrFuncRewrite()
 	v.TParams = d.decT25()
 	v.Params = d.decT150()
-	*f.F_selfUses = d.decT152()
+	*f.F_selfUses = d.decT153()
 	v.Fails = d.decPtrRow()
-	v.Slots = d.decT153()
+	v.Slots = d.decT154()
 	v.Unrun = d.decT2()
-	v.Where = d.decT154()
+	v.Where = d.decT155()
 	v.Ties = d.decT151()
 	v.Admit = d.decT9()
 	v.Sometimes = d.decT15()
 	v.Near = d.decT125()
 	v.Admits = d.decPtrLaw()
 	v.Rewrite = d.decPtrRewrite()
-	v.Subjects = d.decT155()
-	v.FixSubjects = d.decT155()
+	v.Subjects = d.decT152()
+	v.FixSubjects = d.decT152()
 	v.FuncRewrite = d.decPtrFuncRewrite()
 	*f.F_rewriteClaim = d.decPtrLawProvider()
 	*f.F_rewriteInfo = d.decPtrInfo()
@@ -13875,7 +13879,7 @@ func (d *decoder) decT85() map[string]check.Codec_testAuthority {
 func (d *decoder) decFieldsOptions(v *check.Options) {
 	f := check.CodecFieldsOf_Options(v)
 	v.Infer = d.decT15()
-	*f.F_placeLaws = d.decT15()
+	v.PlaceLaws = d.decT15()
 	*f.F_mapsRewritten = d.decT15()
 	*f.F_shapesWritten = d.decT15()
 }
@@ -14998,7 +15002,7 @@ func (d *decoder) decFieldsInterface(v *check.Interface) {
 	v.Set = d.decTypeSet()
 	v.Terms = d.decT205()
 	v.ConstraintOnly = d.decT15()
-	*f.F_selfUses = d.decT152()
+	*f.F_selfUses = d.decT153()
 	*f.F_byName = d.decT204()
 	*f.F_obj = d.decPtrTypeName()
 	*f.F_includes = d.decT27()
@@ -15692,6 +15696,18 @@ func (d *decoder) decT151() [][]int {
 	return v
 }
 
+func (d *decoder) decT152() []check.LawSubject {
+	n := d.uint()
+	if n == 0 {
+		return nil
+	}
+	v := make([]check.LawSubject, n-1)
+	for i := range v {
+		v[i] = d.decLawSubject()
+	}
+	return v
+}
+
 func (d *decoder) decPtrSyntax_LawDecl() *syntax.LawDecl {
 	x := d.node()
 	if x == nil {
@@ -15728,7 +15744,7 @@ func (d *decoder) decPtrFuncRewrite() *check.FuncRewrite {
 	return v
 }
 
-func (d *decoder) decT152() []*check.SelfType {
+func (d *decoder) decT153() []*check.SelfType {
 	n := d.uint()
 	if n == 0 {
 		return nil
@@ -15740,7 +15756,7 @@ func (d *decoder) decT152() []*check.SelfType {
 	return v
 }
 
-func (d *decoder) decT153() []check.LawSlot {
+func (d *decoder) decT154() []check.LawSlot {
 	n := d.uint()
 	if n == 0 {
 		return nil
@@ -15752,7 +15768,7 @@ func (d *decoder) decT153() []check.LawSlot {
 	return v
 }
 
-func (d *decoder) decT154() []*check.Refinement {
+func (d *decoder) decT155() []*check.Refinement {
 	n := d.uint()
 	if n == 0 {
 		return nil
@@ -15789,18 +15805,6 @@ func (d *decoder) decPtrRewrite() *check.Rewrite {
 	v := new(check.Rewrite)
 	d.add(v)
 	d.decFieldsRewrite(v)
-	return v
-}
-
-func (d *decoder) decT155() []check.LawSubject {
-	n := d.uint()
-	if n == 0 {
-		return nil
-	}
-	v := make([]check.LawSubject, n-1)
-	for i := range v {
-		v[i] = d.decLawSubject()
-	}
 	return v
 }
 
@@ -18572,6 +18576,17 @@ func (d *decoder) decOverride() (v check.Override) {
 	return v
 }
 
+func (d *decoder) decFieldsLawSubject(v *check.LawSubject) {
+	v.Name = d.decT2()
+	v.Decl = d.decSyntax_Decl()
+	v.File = d.decPtrSyntax_File()
+}
+
+func (d *decoder) decLawSubject() (v check.LawSubject) {
+	d.decFieldsLawSubject(&v)
+	return v
+}
+
 func (d *decoder) decFieldsLawSlot(v *check.LawSlot) {
 	v.Param = d.decT1()
 	v.Type = d.decPtrNamed()
@@ -18603,17 +18618,6 @@ func (d *decoder) decT212() []bool {
 	for i := range v {
 		v[i] = d.decT15()
 	}
-	return v
-}
-
-func (d *decoder) decFieldsLawSubject(v *check.LawSubject) {
-	v.Name = d.decT2()
-	v.Decl = d.decSyntax_Decl()
-	v.File = d.decPtrSyntax_File()
-}
-
-func (d *decoder) decLawSubject() (v check.LawSubject) {
-	d.decFieldsLawSubject(&v)
 	return v
 }
 
@@ -24987,7 +24991,7 @@ func (d *decoder) decT330() *[]*check.SelfType {
 	}
 	v := new([]*check.SelfType)
 	d.add(v)
-	*v = d.decT152()
+	*v = d.decT153()
 	return v
 }
 
