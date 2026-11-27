@@ -267,6 +267,9 @@ func execReuseAlloc(p Program, st mut execState, b uint32, idx int, ins Inst) fa
 	if st.objTypeTag[oi] != ins.Aux0 || st.objSize[oi] < ins.Aux1 || ins.Aux1 == uint32(0) {
 		return ErrInvalidReuse{Block: b, InstIdx: idx, Val: tok, Why: "incompatible typeTag or size"}
 	}
+	if p.ValKind[int(tok)] == ValOwn && st.objRC[oi] != 1 {
+		return ErrInvalidReuse{Block: b, InstIdx: idx, Val: tok, Why: "own token shared at reuse: in-place reuse would alias a live value"}
+	}
 	st.valRefs[int(tok)] = st.valRefs[int(tok)] - 1
 	if st.objRC[oi] == 1 {
 		releaseObjChildren(st, obj)
@@ -1093,6 +1096,14 @@ test OperationalVerifierCatchesBrokenIR {
 	let vr2 = EmitReuseAlloc(&bBadReuse, br0, vr, ValueSpec{Kind: ValOwn, TypeTag: uint32(1), Size: uint32(32)})
 	EmitReturn(&bBadReuse, br0, []uint32{vr2})
 	assert verifyFailureTag(BuildProgram(bBadReuse)) == "invalid-reuse"
+
+	let mut bShared = NewBuilder()
+	let bs0 = NewBlock(&bShared, BlockEntry)
+	let vs = EmitAlloc(&bShared, bs0, ValueSpec{Kind: ValOwn, TypeTag: uint32(1), Size: uint32(16)})
+	EmitDup(&bShared, bs0, vs)
+	let vs2 = EmitReuseAlloc(&bShared, bs0, vs, ValueSpec{Kind: ValOwn, TypeTag: uint32(1), Size: uint32(16)})
+	EmitReturn(&bShared, bs0, []uint32{vs, vs2})
+	assert verifyFailureTag(BuildProgram(bShared)) == "invalid-reuse"
 }
 
 test DynamicReuseFallbackAndLoopLocalArenaPeak {

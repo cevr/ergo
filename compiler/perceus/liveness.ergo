@@ -203,9 +203,7 @@ func AnalyzeLiveness(p Program) LivenessInfo {
 					applyInstBackward(p, uint32(k), &scratch, 0)
 					k = k - 1
 				}
-				if BitOrInto(&liveIn, off, scratch, 0, nw) {
-					changed = true
-				}
+				let _ = BitOrInto(&liveIn, off, scratch, 0, nw)
 				for bp in BlockParams(p, b) {
 					BitClear(&scratch, 0, bp)
 				}

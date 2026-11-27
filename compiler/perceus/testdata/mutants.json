@@ -180,6 +180,69 @@
       "to": "\tif false && leakedRC > 0 {\n",
       "rule": "Operational verifier must fail with ErrMemoryLeak when live RC exceeds expected returned references.",
       "killers": ["compiler/perceus:OperationalVerifierCatchesBrokenIR"]
+    },
+    {
+      "name": "perceus-verify-own-reuse-aliases-live",
+      "file": "compiler/perceus/verify.ergo",
+      "decl": "execReuseAlloc",
+      "from": "\tif p.ValKind[int(tok)] == ValOwn && st.objRC[oi] != 1 {\n",
+      "to": "\tif false && p.ValKind[int(tok)] == ValOwn && st.objRC[oi] != 1 {\n",
+      "rule": "A static own reuse of a token whose object another live value still holds would alias that value: the verifier refuses it.",
+      "killers": ["compiler/perceus:OperationalVerifierCatchesBrokenIR"]
+    },
+    {
+      "name": "perceus-arena-scope-misses-later-alloc",
+      "file": "compiler/perceus/transform.ergo",
+      "decl": "wrapBlockLocalArena",
+      "from": "\t\tif usedArg0 || usedArg1 || allocated {\n",
+      "to": "\t\tif usedArg0 || usedArg1 || (allocated && false) {\n",
+      "rule": "A block-local arena scope ends after the last arena allocation in it, not only after the last read.",
+      "killers": ["compiler/perceus:UnusedArenaTemporariesStayInsideTheirScope", "compiler/perceus:RandomCFGsPassOperationalRCVerifier"]
+    },
+    {
+      "name": "perceus-fromir-join-drops-args",
+      "file": "compiler/perceus/fromir.ergo",
+      "decl": "jumpTo",
+      "from": "\tEmitBr(&lw.b, lw.cur, BranchTarget{Block: target, Args: slices.Clone(lw.vals)})\n",
+      "to": "\tEmitBr(&lw.b, lw.cur, BranchTarget{Block: target, Args: []uint32{}})\n",
+      "rule": "A jump to a join passes one argument per local, the local's current value.",
+      "killers": ["compiler/perceus:law:FromIRLowersBalancedPrograms"]
+    },
+    {
+      "name": "perceus-fromir-else-sees-then-values",
+      "file": "compiler/perceus/fromir.ergo",
+      "decl": "lowerIf",
+      "from": "\tlw.vals = before\n",
+      "to": "\tlet _ = before\n",
+      "rule": "The else branch starts from the locals' values before the if, not the then branch's.",
+      "killers": ["compiler/perceus:law:FromIRLowersBalancedPrograms"]
+    },
+    {
+      "name": "perceus-fromir-skips-statement",
+      "file": "compiler/perceus/fromir.ergo",
+      "decl": "lowerStmt",
+      "from": "\t\treturn NotLowered{Row: id, Kind: k, Why: \"statement kind left to NB-4\"}\n",
+      "to": "\t\treturn\n",
+      "rule": "A statement kind outside the subset is NotLowered, never skipped.",
+      "killers": ["compiler/perceus:law:FromIRRefusesKindsOutsideTheSubset"]
+    },
+    {
+      "name": "perceus-fromir-skips-expression",
+      "file": "compiler/perceus/fromir.ergo",
+      "decl": "lowerExpr",
+      "from": "\t\tNotLowered{Row: id, Kind: k, Why: \"expression kind left to NB-4\"}\n",
+      "to": "\t\tNoID\n",
+      "rule": "An expression kind outside the subset is NotLowered, never a missing value.",
+      "killers": ["compiler/perceus:law:FromIRRefusesKindsOutsideTheSubset"]
+    },
+    {
+      "name": "perceus-fromir-references-uncounted",
+      "file": "compiler/perceus/fromir.ergo",
+      "decl": "KindOfGoType",
+      "from": "\tValRC\n",
+      "to": "\tValScalar\n",
+      "rule": "A local of a non-basic Go type is reference counted.",
+      "killers": ["compiler/perceus:law:FromIRLowersBalancedPrograms"]
     }
   ]
 }

@@ -411,7 +411,8 @@ func wrapBlockLocalArena(ctx lowerCtx, insts []Inst) []Inst {
 		let ins = insts[i]
 		let usedArg0 = ins.Arg0 != NoID && localVals[int(ins.Arg0)]
 		let usedArg1 = ins.Arg1 != NoID && localVals[int(ins.Arg1)]
-		if usedArg0 || usedArg1 {
+		let allocated = ins.Op == OpArenaAlloc && ins.Dst != NoID && localVals[int(ins.Dst)]
+		if usedArg0 || usedArg1 || allocated {
 			lastUse = i
 			if ins.Op == OpUse && ins.Dst != NoID && usedArg0 && ctx.esc.ArenaPromoted[int(ins.Dst)] {
 				localVals[int(ins.Dst)] = true
@@ -868,6 +869,20 @@ law LiveUseAfterCallInsertsExactDup(tag uint32) {
 		return false
 	}
 	res.Stats.DupsInserted == 1 && res.Stats.DropsInserted == 1
+}
+
+test UnusedArenaTemporariesStayInsideTheirScope {
+	let mut b = NewBuilder()
+	let b0 = NewBlock(&b, BlockEntry)
+	let _ = EmitAlloc(&b, b0, ValueSpec{Kind: ValArenaCand, TypeTag: uint32(3), Size: uint32(16)})
+	let _ = EmitAlloc(&b, b0, ValueSpec{Kind: ValArenaCand, TypeTag: uint32(3), Size: uint32(16)})
+	EmitReturn(&b, b0, []uint32{})
+	let res = LowerProgram(BuildProgram(b)) catch {
+	case InvalidCFG:
+		assert false
+		return
+	}
+	assert verifyFailureTag(res.Program) == "ok"
 }
 
 test TransformInsertsUnwindAndBranchEdgeDrops {
