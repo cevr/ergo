@@ -20,20 +20,70 @@ func compileTestNFA(pattern string) compiledNFA {
 	compileASTToNFA(ast, tags)
 }
 
+func compileTestDFAPair(pattern string) (patternShape, compiledNFA, compiledDFA) {
+	let ast = parseRegexAST(pattern.Bytes())
+	let (shape, tags) = analyzeShape(ast)
+	let nfa = compileASTToNFA(ast, tags)
+	let dfa = compileDFA(nfa)
+	(shape, nfa, dfa)
+}
+
+func containsSubstr(hay string, needle string) bool {
+	if needle.Len() == 0 {
+		return true
+	}
+	if needle.Len() > hay.Len() {
+		return false
+	}
+	let lim = hay.Len() - needle.Len() + 1
+	for i in 0..lim {
+		if hay[i:i+needle.Len()] == needle {
+			return true
+		}
+	}
+	false
+}
+
+func dfaMatchesNFAParse(pattern string, s string) bool {
+	let (_, nfa, dfa) = compileTestDFAPair(pattern)
+	if !dfa.verified {
+		return false
+	}
+	let (nOK, _, _, nTags, nPos, nFail) = runNFA(nfa.code, nfa.sets, nfa.start, s, true, 0)
+	let (dOK, dTags, dPos, dFail) = runDFA(dfa, s)
+	if nOK != dOK || nFail != dFail {
+		return false
+	}
+	if !nOK {
+		return true
+	}
+	intsEqual(nTags, dTags) && intsEqual(nPos, dPos)
+}
+
 // SyntaxRejectsAnchorsAndUnsupportedGroups verifies pattern syntax errors emit span-mapped diagnostics.
 law SyntaxRejectsAnchorsAndUnsupportedGroups() {
-	let d1 = mapText("T", "^abc")
-	let d2 = mapText("T", "abc$")
+	let d1 = mapText("T", "a^bc")
+	let d2 = mapText("T", "ab$c")
 	let d3 = mapText("T", "(?P<Name>a)")
-	let d4 = mapText("T", "(?:a|b)")
-	let d5 = mapText("T", "a+?")
+	let d4 = mapText("T", "(?=a)")
+	let d5 = mapText("T", "a++")
 	let d6 = mapText("T", "[z-a]")
 	let d7 = mapText("T", "(?<X>a)(?<X>b)")
-	d1.Diags.Len() == 1 && d1.Diags[0].Span == content.NewSpan(uint32(0), uint32(1)) &&
-		d2.Diags.Len() == 1 && d2.Diags[0].Span == content.NewSpan(uint32(3), uint32(4)) &&
+	let d8 = mapText("T", "(a?)*")
+	let d9 = mapText("T", "\\1")
+	let d10 = mapText("T", "(?<=a)b")
+	let d11 = mapText("T", "[[:alpha:]]")
+	let d12 = mapText("T", "\\uD800")
+	let d13 = mapText("T", "(?m)a")
+	let d14 = mapText("T", "[a\\uD800]")
+		d1.Diags.Len() == 1 && d1.Diags[0].Span == content.NewSpan(uint32(1), uint32(2)) &&
+		d2.Diags.Len() == 1 && d2.Diags[0].Span == content.NewSpan(uint32(2), uint32(3)) &&
 		d3.Diags.Len() == 1 && d3.Diags[0].Span == content.NewSpan(uint32(0), uint32(4)) &&
 		d4.Diags.Len() == 1 && d4.Diags[0].Span == content.NewSpan(uint32(0), uint32(3)) &&
-		d5.Diags.Len() == 1 && d6.Diags.Len() == 1 && d7.Diags.Len() == 1
+		d5.Diags.Len() == 1 && d6.Diags.Len() == 1 && d7.Diags.Len() == 1 &&
+		d8.Diags.Len() == 1 && d9.Diags.Len() == 1 && d10.Diags.Len() == 1 &&
+		d11.Diags.Len() == 1 && d12.Diags.Len() == 1 && containsSubstr(d12.Diags[0].Message, "surrogate") &&
+		d13.Diags.Len() == 1 && d14.Diags.Len() == 1 && containsSubstr(d14.Diags[0].Message, "surrogate")
 }
 
 // EmittedSpansAreSortedAndDisjoint verifies MapPattern always outputs valid sorted disjoint spans.
@@ -41,12 +91,15 @@ law EmittedSpansAreSortedAndDisjoint() {
 	let p1 = "(?<Year>[0-9]{4})-(?<Month>[0-9]{2})(-(?<Day>[0-9]{2}))?"
 	let p2 = "(?<Num>[0-9]+)|(?<Word>[a-z]+)"
 	let p3 = "[^@\\s]+@[^@\\s]+\\.[^@\\s]+"
+	let p4 = "^(?:(?i:tk))-(?<ID>[0-9]{1,4}?)-(?<Code>[\\u00e9a-z]{30})$"
 	let m1 = mapText("Date", p1)
 	let m2 = mapText("Token", p2)
 	let m3 = mapText("Email", p3)
-	m1.Diags.Len() == 0 && content.VerifySpans(uint32(m1.Source.Len()), uint32(p1.Len()), []uint32{}, m1.Spans.Entries) &&
+	let m4 = mapText("LongID", p4)
+		m1.Diags.Len() == 0 && content.VerifySpans(uint32(m1.Source.Len()), uint32(p1.Len()), []uint32{}, m1.Spans.Entries) &&
 		m2.Diags.Len() == 0 && content.VerifySpans(uint32(m2.Source.Len()), uint32(p2.Len()), []uint32{}, m2.Spans.Entries) &&
-		m3.Diags.Len() == 0 && content.VerifySpans(uint32(m3.Source.Len()), uint32(p3.Len()), []uint32{}, m3.Spans.Entries)
+		m3.Diags.Len() == 0 && content.VerifySpans(uint32(m3.Source.Len()), uint32(p3.Len()), []uint32{}, m3.Spans.Entries) &&
+		m4.Diags.Len() == 0 && content.VerifySpans(uint32(m4.Source.Len()), uint32(p4.Len()), []uint32{}, m4.Spans.Entries)
 }
 
 // NFAParseAndFindAgreeWithPriority verifies anchored Parse, leftmost Find, failure position, and captures.
@@ -57,7 +110,7 @@ law NFAParseAndFindAgreeWithPriority() {
 	let (okFail, _, _, _, _, failAt) = runNFA(nfa1.code, nfa1.sets, nfa1.start, "ac", true, 0)
 	let nfa2 = compileTestNFA("(?<P>a(?<K>b)+)*")
 	let (okCap, _, _, tags, _, _) = runNFA(nfa2.code, nfa2.sets, nfa2.start, "abbab", true, 0)
-	okA && endA == 2 &&
+		okA && endA == 2 &&
 		okF && sF == 2 && eF == 3 &&
 		!okFail && failAt == 1 &&
 		okCap && tags.Len() == 10
@@ -86,4 +139,310 @@ law PatternBuildsMapperPlan() {
 		Companions: p.Companions,
 	})
 	out.Diags.Len() == 0 && out.Source != "" && out.Digest.Len() > 0
+}
+
+// GrammarUnicodeAndEscapesMatchExactUTF8 checks Unicode escapes, rune classes, raw bytes, and punctuation escapes.
+law GrammarUnicodeAndEscapesMatchExactUTF8() {
+	let pUni = compileTestNFA("[\\u00e9-\\u00ea\\u{1F600}\\x{2603}]+")
+	let (u1, _, _, _, _, _) = runNFA(pUni.code, pUni.sets, pUni.start, "éê😀☃", true, 0)
+	let (uBad, _, _, _, _, _) = runNFA(pUni.code, pUni.sets, pUni.start, "\xff", true, 0)
+
+	let pDot = compileTestNFA(".+")
+	let (d1, _, _, _, _, _) = runNFA(pDot.code, pDot.sets, pDot.start, "aé😀", true, 0)
+	let (dNl, _, _, _, _, _) = runNFA(pDot.code, pDot.sets, pDot.start, "a\nb", true, 0)
+	let (dRaw, _, _, _, _, _) = runNFA(pDot.code, pDot.sets, pDot.start, "\xc3", true, 0)
+
+	let pRaw = compileTestNFA("[\\x80-\\xff]+")
+	let (r1, _, _, _, _, _) = runNFA(pRaw.code, pRaw.sets, pRaw.start, "\x80\xff", true, 0)
+
+	let pEsc = compileTestNFA("\\.\\\\\\(\\)\\[\\]\\{\\}\\|\\*\\+\\?\\^\\$\\-\\t\\n\\r\\f\\v")
+	let (e1, _, _, _, _, _) = runNFA(pEsc.code, pEsc.sets, pEsc.start, ".\\()[]{}|*+?^$-\t\n\r\f\x0b", true, 0)
+
+	let pNeg = compileTestNFA("[^a]+")
+	let (n1, _, _, _, _, _) = runNFA(pNeg.code, pNeg.sets, pNeg.start, "é!", true, 0)
+	let (n2, _, _, _, _, _) = runNFA(pNeg.code, pNeg.sets, pNeg.start, "a", true, 0)
+
+		u1 && !uBad && d1 && !dNl && !dRaw && r1 && e1 && n1 && !n2 &&
+		dfaMatchesNFAParse("[\\u00e9-\\u00ea\\u{1F600}]+", "é😀ê") &&
+		dfaMatchesNFAParse("\\.\\\\\\(\\)\\[\\]\\{\\}\\|\\*\\+\\?\\^\\$\\-", ".\\()[]{}|*+?^$-")
+}
+
+// CaseFoldingAndNonCapturingGroupsAgree verifies inline (?i), (?-i), (?i:...), and (?:...) across NFA and DFA.
+law CaseFoldingAndNonCapturingGroupsAgree(s string) {
+	let p1 = "(?:(?i:ab))[C-E](?i)fg(?-i)H"
+	let (_, nfa1, dfa1) = compileTestDFAPair(p1)
+	let (w1, _, _, _, _, _) = runNFA(nfa1.code, nfa1.sets, nfa1.start, "AbDfGH", true, 0)
+	let (w2, _, _, _, _, _) = runNFA(nfa1.code, nfa1.sets, nfa1.start, "aBDFgH", true, 0)
+	let (b1, _, _, _, _, _) = runNFA(nfa1.code, nfa1.sets, nfa1.start, "AbDfh", true, 0)
+
+	let pNeg = "(?i)[^a]+"
+	let (nb1, _, _, _, _, _) = runNFA(compileTestNFA(pNeg).code, compileTestNFA(pNeg).sets, compileTestNFA(pNeg).start, "A", true, 0)
+	let (ng1, _, _, _, _, _) = runNFA(compileTestNFA(pNeg).code, compileTestNFA(pNeg).sets, compileTestNFA(pNeg).start, "bcZ", true, 0)
+
+		dfa1.verified && dfa1.mode == engineDirect &&
+		w1 && w2 && !b1 && !nb1 && ng1 &&
+		dfaMatchesNFAParse(p1, s) &&
+		dfaMatchesNFAParse("(?i)(?:[a-c]|é)+", s)
+}
+
+// AnchorsAndLazyQuantifiersAgreeWithNFA checks ^, $, lazy quantifiers, and greedy priority across Parse and Find.
+law AnchorsAndLazyQuantifiersAgreeWithNFA(s string) {
+	let pAnch = "^(?:foo|bar)$"
+	let nfaA = compileTestNFA(pAnch)
+	let (aOk, aS, aE, _, _, _) = runNFA(nfaA.code, nfaA.sets, nfaA.start, "bar", false, 0)
+	let (aBad, _, _, _, _, _) = runNFA(nfaA.code, nfaA.sets, nfaA.start, "xbar", false, 0)
+	let (aFrom, _, _, _, _, _) = runNFA(nfaA.code, nfaA.sets, nfaA.start, "bar", false, 1)
+
+	let pLazy = "(?<H>a+?)(?<T>a+)"
+	let nfaL = compileTestNFA(pLazy)
+	let (lOk, _, _, lTags, lPos, _) = runNFA(nfaL.code, nfaL.sets, nfaL.start, "aaaa", true, 0)
+
+	let nfaFind = compileTestNFA("a+?")
+	let (lfOk, lfS, lfE, _, _, _) = runNFA(nfaFind.code, nfaFind.sets, nfaFind.start, "baaa", false, 0)
+
+	let nfaBr = compileTestNFA("(?<H>a{1,3}?)(?<T>a+)")
+	let (bOk, _, _, _, bPos, _) = runNFA(nfaBr.code, nfaBr.sets, nfaBr.start, "aaaa", true, 0)
+
+	let nfaDol = compileTestNFA("a+$")
+	let (do1, doS, doE, _, _, _) = runNFA(nfaDol.code, nfaDol.sets, nfaDol.start, "xxaaa", false, 0)
+	let (do2, _, _, _, _, _) = runNFA(nfaDol.code, nfaDol.sets, nfaDol.start, "aaax", false, 0)
+
+		aOk && aS == 0 && aE == 3 && !aBad && !aFrom &&
+		lOk && lTags.Len() == 4 && lPos[0] == 0 && lPos[1] == 1 && lPos[2] == 1 && lPos[3] == 4 &&
+		lfOk && lfS == 1 && lfE == 2 &&
+		bOk && bPos.Len() == 4 && bPos[0] == 0 && bPos[1] == 1 && bPos[2] == 1 && bPos[3] == 4 &&
+		do1 && doS == 2 && doE == 5 && !do2 &&
+		dfaMatchesNFAParse(pAnch, s) &&
+		dfaMatchesNFAParse("^a+?", s) &&
+		dfaMatchesNFAParse("^[0-9]{1,3}?[a-z]$", s)
+}
+
+// DirectAndTableDFAAgreeWithCanonicalNFA proves Direct DFA, Table DFA, and NFA fallback agree on witnesses and fuzz inputs.
+law DirectAndTableDFAAgreeWithCanonicalNFA(idx int, s string) {
+	let pats = []string{
+		"(?<Year>[0-9]{4})-(?<Month>[0-9]{2})(-(?<Day>[0-9]{2}))?",
+		"(?<Int>[0-9]+)|(?<Word>[a-z]+)",
+		"(?<Pair>(?<Key>[a-z]+)=(?<Val>[0-9]+);)*",
+		"^(?:[a-z]{2}|[0-9]{2})$",
+		"[a-z]{28}",
+		"(?<Prefix>[a-z]{26})-(?<Code>[0-9]{4})",
+		"[01]*0[01]{5}",
+	}
+	let n = pats.Len()
+	let mut pIdx = idx % n
+	if pIdx < 0 {
+		pIdx = pIdx + n
+	}
+	let pat = pats[pIdx]
+	let (_, _, dfa) = compileTestDFAPair(pat)
+	let expectTable = pIdx >= 4
+	let modeOK = dfa.verified && (if expectTable { dfa.mode == engineTable } else { dfa.mode == engineDirect })
+
+	let ambPat = "(?<A>[ab]+)b"
+	let (_, _, ambDFA) = compileTestDFAPair(ambPat)
+
+	let wMatch = if pIdx == 0 {
+		"2026-11-27"
+	} else if pIdx == 1 {
+		"hello"
+	} else if pIdx == 2 {
+		"k=1;m=2;"
+	} else if pIdx == 3 {
+		"ab"
+	} else if pIdx == 4 {
+		"abcdefghijklmnopqrstuvwxyzab"
+	} else if pIdx == 5 {
+		"abcdefghijklmnopqrstuvwxyz-1234"
+	} else {
+		"1010101"
+	}
+
+		modeOK && !ambDFA.verified && ambDFA.mode == engineNFA &&
+		dfaMatchesNFAParse(pat, wMatch) &&
+		dfaMatchesNFAParse(pat, s)
+}
+
+// DFAByteClassesAndVerifierCatchCorruption verifies class minimization and checks verifyDFA rejects malformed DFAs.
+law DFAByteClassesAndVerifierCatchCorruption() {
+	let (_, nfa, dfa) = compileTestDFAPair("(?<A>[a-z]+)-(?<B>[0-9]+)")
+	let validOK = dfa.verified && dfa.numClasses == 4 && verifyDFA(nfa, dfa)
+
+	let mut badTrans = cloneInts(dfa.trans)
+	badTrans[0] = 999
+	let corruptTrans = compiledDFA{
+		mode:       dfa.mode,
+		numStates:  dfa.numStates,
+		numClasses: dfa.numClasses,
+		classOf:    dfa.classOf,
+		classRep:   dfa.classRep,
+		trans:      badTrans,
+		accept:     dfa.accept,
+		edgeTags:   dfa.edgeTags,
+		eofTags:    dfa.eofTags,
+		states:     dfa.states,
+		preClassOf: dfa.preClassOf,
+		hasAnyTags: dfa.hasAnyTags,
+		verified:   true,
+		reason:     dfa.reason,
+	}
+
+	let mut badAccept = []bool{}
+	for a in dfa.accept {
+		badAccept = badAccept.Append(!a)
+	}
+	let corruptAccept = compiledDFA{
+		mode:       dfa.mode,
+		numStates:  dfa.numStates,
+		numClasses: dfa.numClasses,
+		classOf:    dfa.classOf,
+		classRep:   dfa.classRep,
+		trans:      dfa.trans,
+		accept:     badAccept,
+		edgeTags:   dfa.edgeTags,
+		eofTags:    dfa.eofTags,
+		states:     dfa.states,
+		preClassOf: dfa.preClassOf,
+		hasAnyTags: dfa.hasAnyTags,
+		verified:   true,
+		reason:     dfa.reason,
+	}
+
+	let mut badCls = cloneInts(dfa.classOf)
+	badCls[int('0')] = badCls[int('a')]
+	let corruptCls = compiledDFA{
+		mode:       dfa.mode,
+		numStates:  dfa.numStates,
+		numClasses: dfa.numClasses,
+		classOf:    badCls,
+		classRep:   dfa.classRep,
+		trans:      dfa.trans,
+		accept:     dfa.accept,
+		edgeTags:   dfa.edgeTags,
+		eofTags:    dfa.eofTags,
+		states:     dfa.states,
+		preClassOf: dfa.preClassOf,
+		hasAnyTags: dfa.hasAnyTags,
+		verified:   true,
+		reason:     dfa.reason,
+	}
+
+	let mut badTags = [][]int{}
+	for ts in dfa.eofTags {
+		badTags = badTags.Append(ts)
+	}
+	for q in 0..dfa.numStates {
+		if dfa.accept[q] {
+			badTags[q] = []int{}
+		}
+	}
+	let corruptTags = compiledDFA{
+		mode:       dfa.mode,
+		numStates:  dfa.numStates,
+		numClasses: dfa.numClasses,
+		classOf:    dfa.classOf,
+		classRep:   dfa.classRep,
+		trans:      dfa.trans,
+		accept:     dfa.accept,
+		edgeTags:   dfa.edgeTags,
+		eofTags:    badTags,
+		states:     dfa.states,
+		preClassOf: dfa.preClassOf,
+		hasAnyTags: dfa.hasAnyTags,
+		verified:   true,
+		reason:     dfa.reason,
+	}
+
+	let mut badEdgeTags = [][]int{}
+	for ts in dfa.edgeTags {
+		badEdgeTags = badEdgeTags.Append(ts)
+	}
+	badEdgeTags[dfa.classOf[int('a')]] = []int{}
+	let corruptEdge = compiledDFA{
+		mode:       dfa.mode,
+		numStates:  dfa.numStates,
+		numClasses: dfa.numClasses,
+		classOf:    dfa.classOf,
+		classRep:   dfa.classRep,
+		trans:      dfa.trans,
+		accept:     dfa.accept,
+		edgeTags:   badEdgeTags,
+		eofTags:    dfa.eofTags,
+		states:     dfa.states,
+		preClassOf: dfa.preClassOf,
+		hasAnyTags: dfa.hasAnyTags,
+		verified:   true,
+		reason:     dfa.reason,
+	}
+
+	let mut badTrans2 = []int{}
+	for x in dfa.trans {
+		badTrans2 = badTrans2.Append(x)
+	}
+	badTrans2[dfa.classOf[int('a')]] = (dfa.trans[dfa.classOf[int('a')]] + 1) % dfa.numStates
+	let corruptWrongTarget = compiledDFA{
+		mode:       dfa.mode,
+		numStates:  dfa.numStates,
+		numClasses: dfa.numClasses,
+		classOf:    dfa.classOf,
+		classRep:   dfa.classRep,
+		trans:      badTrans2,
+		accept:     dfa.accept,
+		edgeTags:   dfa.edgeTags,
+		eofTags:    dfa.eofTags,
+		states:     dfa.states,
+		preClassOf: dfa.preClassOf,
+		hasAnyTags: dfa.hasAnyTags,
+		verified:   true,
+		reason:     dfa.reason,
+	}
+
+	validOK && !verifyDFA(nfa, corruptTrans) && !verifyDFA(nfa, corruptWrongTarget) && !verifyDFA(nfa, corruptAccept) && !verifyDFA(nfa, corruptCls) && !verifyDFA(nfa, corruptTags) && !verifyDFA(nfa, corruptEdge)
+}
+
+func findSubstr(hay string, needle string) int {
+	if needle.Len() == 0 {
+		return 0
+	}
+	if needle.Len() > hay.Len() {
+		return -1
+	}
+	let lim = hay.Len() - needle.Len() + 1
+	for i in 0..lim {
+		if hay[i:i+needle.Len()] == needle {
+			return i
+		}
+	}
+	-1
+}
+
+func extractParseSlice(src string, name string) string {
+	let start = findSubstr(src, "func Parse"+name+"(")
+	if start < 0 {
+		return ""
+	}
+	let end = findSubstr(src, "func Find"+name+"(")
+	if end <= start {
+		return src[start:src.Len()]
+	}
+	src[start:end]
+}
+
+// DFACodegenZeroAllocAndBudgetsHold checks emitted DFA code avoids event slices and enforces NFA instruction limits.
+law DFACodegenZeroAllocAndBudgetsHold() {
+	let directOut = mapText("Date", "(?<Year>[0-9]{4})-(?<Month>[0-9]{2})")
+	let tableOut = mapText("LongRec", "(?<Prefix>[a-z]{26})-(?<Code>[0-9]{4})")
+	let ambOut = mapText("Amb", "(?<A>[ab]+)b")
+	let hugeOut = mapText("Huge", "[a-z]{1000}{100}")
+
+	let directParse = extractParseSlice(directOut.Source, "Date")
+	let tableParse = extractParseSlice(tableOut.Source, "LongRec")
+	let ambParse = extractParseSlice(ambOut.Source, "Amb")
+
+	let directOK = directOut.Diags.Len() == 0 && directParse != "" && !containsSubstr(directParse, "_rxExec_Date") && !containsSubstr(directParse, "evTag")
+	let tableOK = tableOut.Diags.Len() == 0 && tableParse != "" && containsSubstr(tableParse, "let classMap = []uint8{")
+	let tableZeroOK = tableParse != "" && !containsSubstr(tableParse, "_rxExec_LongRec") && !containsSubstr(tableParse, "evTag")
+	let ambOK = ambOut.Diags.Len() == 0 && containsSubstr(ambParse, "_rxExec_Amb(s, true, 0)")
+	let hugeOK = hugeOut.Diags.Len() == 1 && hugeOut.Diags[0].Code == "R005"
+
+	directOK && tableOK && tableZeroOK && ambOK && hugeOK
 }

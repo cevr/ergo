@@ -62,6 +62,33 @@ func zeroRecordExpr(recType string, fields []captureNode) string {
 	out + "}"
 }
 
+func scalarRecordExpr(recType string, fields []captureNode) string {
+	let mut out = recType + "{"
+	for i, f in fields {
+		if i > 0 {
+			out = out + ", "
+		}
+		let ts = strconv.Itoa(f.tag)
+		let mut valExpr = ""
+		if f.quant == quantOne {
+			if f.children.Len() == 0 {
+				valExpr = "s[o" + ts + ":c" + ts + "]"
+			} else {
+				valExpr = scalarRecordExpr(recType+f.name, f.children)
+			}
+		} else {
+			if f.children.Len() == 0 {
+				valExpr = "if o" + ts + " >= 0 { Some[string]{Value: s[o" + ts + ":c" + ts + "]} } else { None }"
+			} else {
+				let ct = recType + f.name
+				valExpr = "if o" + ts + " >= 0 { Some[" + ct + "]{Value: " + scalarRecordExpr(ct, f.children) + "} } else { None }"
+			}
+		}
+		out = out + f.name + ": " + valExpr
+	}
+	out + "}"
+}
+
 func reserveTypeName(st emitState, name string, span content.SourceSpan) emitState {
 	if st.used.Get(name) != None {
 		let d = content.ErrorDiag(span.Start, span.End, "R003", "generated type name '"+name+"' collides within pattern", "rename the colliding capture group")
@@ -238,6 +265,7 @@ func emitBuilderFuncs(st emitState, target string, recName string, fields []capt
 
 func emitExecFunc(st emitState, target string, nfa compiledNFA) emitState {
 	let mut b = st.b
+	let (onlyStartAnchored, canEmpty, firstBytes) = analyzeNFAStart(nfa.code, nfa.sets, nfa.start)
 	b.WriteString("func _rxExec_" + target + "(s string, anchored bool, from int) (bool, int, int, []int, []int, int) {\n")
 	b.WriteString("\tlet code = []int{")
 	for i, v in nfa.code {
@@ -252,13 +280,19 @@ func emitExecFunc(st emitState, target string, nfa compiledNFA) emitState {
 		if i > 0 {
 			b.WriteString(", ")
 		}
-		b.WriteString("uint64(" + formatUint64(w) + ")")
+		b.WriteString(formatUint64(w))
 	}
 	b.WriteString("}\n")
 	b.WriteString("\tlet startPC = " + strconv.Itoa(nfa.start) + "\n")
+	b.WriteString("\tlet onlyStart = " + if onlyStartAnchored { "true" } else { "false" } + "\n")
+	b.WriteString("\tlet canEmpty = " + if canEmpty { "true" } else { "false" } + "\n")
+	b.WriteString("\tlet fb0 uint64 = " + formatUint64(firstBytes.w0) + "\n")
+	b.WriteString("\tlet fb1 uint64 = " + formatUint64(firstBytes.w1) + "\n")
+	b.WriteString("\tlet fb2 uint64 = " + formatUint64(firstBytes.w2) + "\n")
+	b.WriteString("\tlet fb3 uint64 = " + formatUint64(firstBytes.w3) + "\n")
 	b.WriteString("\tlet n = s.Len()\n")
 	b.WriteString("\tlet instCount = code.Len() / 3\n")
-	b.WriteString("\tif !anchored && (from < 0 || from > n) {\n")
+	b.WriteString("\tif !anchored && (from < 0 || from > n || (onlyStart && from > 0)) {\n")
 	b.WriteString("\t\treturn (false, 0, 0, []int{}, []int{}, 0)\n")
 	b.WriteString("\t}\n")
 	b.WriteString("\tlet startFrom = if anchored { 0 } else { from }\n")
@@ -283,20 +317,53 @@ func emitExecFunc(st emitState, target string, nfa compiledNFA) emitState {
 	b.WriteString("\tlet mut bestHist = -1\n")
 	b.WriteString("\tlet mut stamp = 0\n")
 	b.WriteString("\tlet mut failAt = 0\n")
-	b.WriteString("\tfor pos in startFrom..(n + 1) {\n")
-	b.WriteString("\t\tif !anchored && !bestOK {\n")
+	b.WriteString("\tlet mut stkPC = []int{}\n")
+	b.WriteString("\tlet mut stkStart = []int{}\n")
+	b.WriteString("\tlet mut stkHist = []int{}\n")
+	b.WriteString("\tlet mut readyPC = []int{}\n")
+	b.WriteString("\tlet mut readyStart = []int{}\n")
+	b.WriteString("\tlet mut readyHist = []int{}\n")
+	b.WriteString("\tlet mut nextPC = []int{}\n")
+	b.WriteString("\tlet mut nextStart = []int{}\n")
+	b.WriteString("\tlet mut nextHist = []int{}\n")
+	b.WriteString("\tlet mut pos = startFrom\n")
+	b.WriteString("\tfor pos <= n {\n")
+	b.WriteString("\t\tif !anchored && curPC.Len() == 0 && !bestOK && !canEmpty {\n")
+	b.WriteString("\t\t\tif onlyStart && pos > 0 {\n")
+	b.WriteString("\t\t\t\tbreak\n")
+	b.WriteString("\t\t\t}\n")
+	b.WriteString("\t\t\tfor pos < n {\n")
+	b.WriteString("\t\t\t\tlet sb = s[pos]\n")
+	b.WriteString("\t\t\t\tlet swIdx = int(sb) / 64\n")
+	b.WriteString("\t\t\t\tlet sw = if swIdx == 0 { fb0 } else if swIdx == 1 { fb1 } else if swIdx == 2 { fb2 } else { fb3 }\n")
+	b.WriteString("\t\t\t\tif (sw & (uint64(1) << uint64(int(sb)&63))) != uint64(0) {\n")
+	b.WriteString("\t\t\t\t\tbreak\n")
+	b.WriteString("\t\t\t\t}\n")
+	b.WriteString("\t\t\t\tpos = pos + 1\n")
+	b.WriteString("\t\t\t}\n")
+	b.WriteString("\t\t\tif pos == n {\n")
+	b.WriteString("\t\t\t\tbreak\n")
+	b.WriteString("\t\t\t}\n")
+	b.WriteString("\t\t}\n")
+	b.WriteString("\t\tif !anchored && !bestOK && (!onlyStart || pos == 0) {\n")
 	b.WriteString("\t\t\tcurPC = curPC.Append(startPC)\n")
 	b.WriteString("\t\t\tcurStart = curStart.Append(pos)\n")
 	b.WriteString("\t\t\tcurHist = curHist.Append(-1)\n")
 	b.WriteString("\t\t}\n")
+	b.WriteString("\t\tif !anchored && curPC.Len() == 0 && (bestOK || (onlyStart && pos > 0)) {\n")
+	b.WriteString("\t\t\tbreak\n")
+	b.WriteString("\t\t}\n")
 	b.WriteString("\t\tstamp = stamp + 1\n")
-	b.WriteString("\t\tlet mut readyPC = []int{}\n")
-	b.WriteString("\t\tlet mut readyStart = []int{}\n")
-	b.WriteString("\t\tlet mut readyHist = []int{}\n")
+	b.WriteString("\t\treadyPC = readyPC[0:0]\n")
+	b.WriteString("\t\treadyStart = readyStart[0:0]\n")
+	b.WriteString("\t\treadyHist = readyHist[0:0]\n")
 	b.WriteString("\t\tfor ci in 0..curPC.Len() {\n")
-	b.WriteString("\t\t\tlet mut stkPC = []int{curPC[ci]}\n")
-	b.WriteString("\t\t\tlet mut stkStart = []int{curStart[ci]}\n")
-	b.WriteString("\t\t\tlet mut stkHist = []int{curHist[ci]}\n")
+	b.WriteString("\t\t\tstkPC = stkPC[0:0]\n")
+	b.WriteString("\t\t\tstkStart = stkStart[0:0]\n")
+	b.WriteString("\t\t\tstkHist = stkHist[0:0]\n")
+	b.WriteString("\t\t\tstkPC = stkPC.Append(curPC[ci])\n")
+	b.WriteString("\t\t\tstkStart = stkStart.Append(curStart[ci])\n")
+	b.WriteString("\t\t\tstkHist = stkHist.Append(curHist[ci])\n")
 	b.WriteString("\t\t\tfor stkPC.Len() > 0 {\n")
 	b.WriteString("\t\t\t\tlet top = stkPC.Len() - 1\n")
 	b.WriteString("\t\t\t\tlet pc = stkPC[top]\n")
@@ -320,6 +387,22 @@ func emitExecFunc(st emitState, target string, nfa compiledNFA) emitState {
 	b.WriteString("\t\t\t\t\tstkPC = stkPC.Append(left)\n")
 	b.WriteString("\t\t\t\t\tstkStart = stkStart.Append(ts)\n")
 	b.WriteString("\t\t\t\t\tstkHist = stkHist.Append(th)\n")
+	b.WriteString("\t\t\t\t\tcontinue\n")
+	b.WriteString("\t\t\t\t}\n")
+	b.WriteString("\t\t\t\tif op == 4 {\n")
+	b.WriteString("\t\t\t\t\tif pos == 0 {\n")
+	b.WriteString("\t\t\t\t\t\tstkPC = stkPC.Append(code[base+1])\n")
+	b.WriteString("\t\t\t\t\t\tstkStart = stkStart.Append(ts)\n")
+	b.WriteString("\t\t\t\t\t\tstkHist = stkHist.Append(th)\n")
+	b.WriteString("\t\t\t\t\t}\n")
+	b.WriteString("\t\t\t\t\tcontinue\n")
+	b.WriteString("\t\t\t\t}\n")
+	b.WriteString("\t\t\t\tif op == 5 {\n")
+	b.WriteString("\t\t\t\t\tif pos == n {\n")
+	b.WriteString("\t\t\t\t\t\tstkPC = stkPC.Append(code[base+1])\n")
+	b.WriteString("\t\t\t\t\t\tstkStart = stkStart.Append(ts)\n")
+	b.WriteString("\t\t\t\t\t\tstkHist = stkHist.Append(th)\n")
+	b.WriteString("\t\t\t\t\t}\n")
 	b.WriteString("\t\t\t\t\tcontinue\n")
 	b.WriteString("\t\t\t\t}\n")
 	b.WriteString("\t\t\t\tif op == 3 {\n")
@@ -356,9 +439,9 @@ func emitExecFunc(st emitState, target string, nfa compiledNFA) emitState {
 	b.WriteString("\t\t\t}\n")
 	b.WriteString("\t\t\tbreak\n")
 	b.WriteString("\t\t}\n")
-	b.WriteString("\t\tlet mut nextPC = []int{}\n")
-	b.WriteString("\t\tlet mut nextStart = []int{}\n")
-	b.WriteString("\t\tlet mut nextHist = []int{}\n")
+	b.WriteString("\t\tnextPC = nextPC[0:0]\n")
+	b.WriteString("\t\tnextStart = nextStart[0:0]\n")
+	b.WriteString("\t\tnextHist = nextHist[0:0]\n")
 	b.WriteString("\t\tfor ri in 0..readyPC.Len() {\n")
 	b.WriteString("\t\t\tlet pc = readyPC[ri]\n")
 	b.WriteString("\t\t\tlet base = pc * 3\n")
@@ -393,9 +476,16 @@ func emitExecFunc(st emitState, target string, nfa compiledNFA) emitState {
 	b.WriteString("\t\t\t\tbreak\n")
 	b.WriteString("\t\t\t}\n")
 	b.WriteString("\t\t}\n")
+	b.WriteString("\t\tlet tmpPC = curPC\n")
+	b.WriteString("\t\tlet tmpStart = curStart\n")
+	b.WriteString("\t\tlet tmpHist = curHist\n")
 	b.WriteString("\t\tcurPC = nextPC\n")
 	b.WriteString("\t\tcurStart = nextStart\n")
 	b.WriteString("\t\tcurHist = nextHist\n")
+	b.WriteString("\t\tnextPC = tmpPC\n")
+	b.WriteString("\t\tnextStart = tmpStart\n")
+	b.WriteString("\t\tnextHist = tmpHist\n")
+	b.WriteString("\t\tpos = pos + 1\n")
 	b.WriteString("\t}\n")
 	b.WriteString("\tif !bestOK {\n")
 	b.WriteString("\t\treturn (false, 0, 0, []int{}, []int{}, failAt)\n")
@@ -422,7 +512,460 @@ func emitExecFunc(st emitState, target string, nfa compiledNFA) emitState {
 	emitState{b: b, spans: st.spans, diags: st.diags, used: st.used}
 }
 
-func emitMappedErgo(target string, src []byte, shape patternShape, nfa compiledNFA) content.MappedErgo {
+func markNeededFields(fields []captureNode, needOpen []bool, needClose []bool) ([]bool, []bool) {
+	let mut no = needOpen
+	let mut nc = needClose
+	for f in fields {
+		if f.children.Len() == 0 {
+			no[f.tag] = true
+			nc[f.tag] = true
+		} else {
+			if f.quant == quantOpt {
+				no[f.tag] = true
+			}
+			let (no2, nc2) = markNeededFields(f.children, no, nc)
+			no = no2
+			nc = nc2
+		}
+	}
+	(no, nc)
+}
+
+func computeNeededTags(shape patternShape) ([]bool, []bool) {
+	let mut needOpen = []bool{}
+	let mut needClose = []bool{}
+	for _ in 0..shape.nextTag {
+		needOpen = needOpen.Append(false)
+		needClose = needClose.Append(false)
+	}
+	if shape.isUnion {
+		for v in shape.variants {
+			needOpen[v.tag] = true
+			if v.children.Len() == 0 {
+				needClose[v.tag] = true
+			} else {
+				let (no2, nc2) = markNeededFields(v.children, needOpen, needClose)
+				needOpen = no2
+				needClose = nc2
+			}
+		}
+		return (needOpen, needClose)
+	}
+	markNeededFields(shape.fields, needOpen, needClose)
+}
+
+func filterNeededTags(tags []int, needOpen []bool, needClose []bool, hasMany bool) []int {
+	if hasMany {
+		return tags
+	}
+	let mut out = []int{}
+	for tv in tags {
+		if tv > 0 {
+			if needOpen[tv] {
+				out = out.Append(tv)
+			}
+		} else {
+			if needClose[-tv] {
+				out = out.Append(tv)
+			}
+		}
+	}
+	out
+}
+
+func emitScalarTagVarDecls(b strings.Builder, numTags int, needOpen []bool, needClose []bool) strings.Builder {
+	let mut out = b
+	for t in 1..(numTags + 1) {
+		let ts = strconv.Itoa(t)
+		if needOpen[t] {
+			out.WriteString("\tlet mut o" + ts + " = -1\n")
+		}
+		if needClose[t] {
+			out.WriteString("\tlet mut c" + ts + " = -1\n")
+		}
+	}
+	out
+}
+
+func emitInlineTagAssign(b strings.Builder, indent string, tags []int, posExpr string, hasMany bool) strings.Builder {
+	let mut out = b
+	for tv in tags {
+		if hasMany {
+			out.WriteString(indent + "evTag = evTag.Append(" + strconv.Itoa(tv) + ")\n")
+			out.WriteString(indent + "evPos = evPos.Append(" + posExpr + ")\n")
+		} else if tv > 0 {
+			out.WriteString(indent + "o" + strconv.Itoa(tv) + " = " + posExpr + "\n")
+		} else {
+			out.WriteString(indent + "c" + strconv.Itoa(-tv) + " = " + posExpr + "\n")
+		}
+	}
+	out
+}
+
+func emitScalarReturnValue(b strings.Builder, indent string, target string, shape patternShape) strings.Builder {
+	let mut out = b
+	if shape.isUnion {
+		for v in shape.variants {
+			let vts = strconv.Itoa(v.tag)
+			out.WriteString(indent + "if o" + vts + " >= 0 {\n")
+			if v.children.Len() == 0 {
+				out.WriteString(indent + "\treturn " + v.name + "{Value: s[o" + vts + ":c" + vts + "]}\n")
+			} else {
+				out.WriteString(indent + "\treturn " + scalarRecordExpr(v.name, v.children) + "\n")
+			}
+			out.WriteString(indent + "}\n")
+		}
+		let firstVar = shape.variants[0]
+		if firstVar.children.Len() == 0 {
+			out.WriteString(indent + "return " + firstVar.name + "{Value: \"\"}\n")
+		} else {
+			out.WriteString(indent + "return " + zeroRecordExpr(firstVar.name, firstVar.children) + "\n")
+		}
+		return out
+	}
+	if shape.fields.Len() == 0 {
+		out.WriteString(indent + "return " + target + "\n")
+		return out
+	}
+	out.WriteString(indent + "return " + scalarRecordExpr(target, shape.fields) + "\n")
+	out
+}
+
+func formatByteCond(lo int, hi int) string {
+	if lo == 0 && hi == 255 {
+		return "true"
+	}
+	if lo == hi {
+		return "b == byte(" + strconv.Itoa(lo) + ")"
+	}
+	if lo == 0 {
+		return "b <= byte(" + strconv.Itoa(hi) + ")"
+	}
+	if hi == 255 {
+		return "b >= byte(" + strconv.Itoa(lo) + ")"
+	}
+	"(b >= byte(" + strconv.Itoa(lo) + ") && b <= byte(" + strconv.Itoa(hi) + "))"
+}
+
+type edgeBranch {
+	nxt  int,
+	tags []int,
+	cond string,
+}
+
+func collectStateEdgeBranches(dfa compiledDFA, q int, needOpen []bool, needClose []bool, hasMany bool) []edgeBranch {
+	let k = dfa.numClasses
+	let base = q * k
+	let mut seen = []bool{}
+	for _ in 0..k {
+		seen = seen.Append(false)
+	}
+	let mut branchOfCls = []int{}
+	for _ in 0..k {
+		branchOfCls = branchOfCls.Append(-1)
+	}
+	let mut brNext = []int{}
+	let mut brTags = [][]int{}
+	let mut brCond = []string{}
+	for c in 0..k {
+		if seen[c] {
+			continue
+		}
+		let nxt = dfa.trans[base+c]
+		if nxt < 0 {
+			seen[c] = true
+			continue
+		}
+		let bi = brNext.Len()
+		let tags = filterNeededTags(dfa.edgeTags[base+c], needOpen, needClose, hasMany)
+		brNext = brNext.Append(nxt)
+		brTags = brTags.Append(tags)
+		brCond = brCond.Append("")
+		for c2 in c..k {
+			if seen[c2] {
+				continue
+			}
+			let tags2 = filterNeededTags(dfa.edgeTags[base+c2], needOpen, needClose, hasMany)
+			if dfa.trans[base+c2] == nxt && intsEqual(tags2, tags) {
+				seen[c2] = true
+				branchOfCls[c2] = bi
+			}
+		}
+	}
+	let mut curBI = -1
+	let mut runLo = 0
+	for bv in 0..256 {
+		let bi = branchOfCls[dfa.classOf[bv]]
+		if bi != curBI {
+			if curBI >= 0 {
+				let piece = formatByteCond(runLo, bv-1)
+				if brCond[curBI] != "" {
+					brCond[curBI] = brCond[curBI] + " || " + piece
+				} else {
+					brCond[curBI] = piece
+				}
+			}
+			curBI = bi
+			runLo = bv
+		}
+	}
+	if curBI >= 0 {
+		let piece = formatByteCond(runLo, 255)
+		if brCond[curBI] != "" {
+			brCond[curBI] = brCond[curBI] + " || " + piece
+		} else {
+			brCond[curBI] = piece
+		}
+	}
+	let mut branches = []edgeBranch{}
+	for bi in 0..brNext.Len() {
+		branches = branches.Append(edgeBranch{nxt: brNext[bi], tags: brTags[bi], cond: brCond[bi]})
+	}
+	branches
+}
+
+func emitDirectDFAParseBody(b strings.Builder, target string, shape patternShape, dfa compiledDFA, hasMany bool) strings.Builder {
+	let mut out = b
+	let numTags = shape.nextTag - 1
+	let (needOpen, needClose) = computeNeededTags(shape)
+	let mut anyNeededTags = hasMany && dfa.hasAnyTags
+	if !hasMany && dfa.hasAnyTags {
+		for t in 1..(numTags + 1) {
+			if needOpen[t] || needClose[t] {
+				anyNeededTags = true
+				break
+			}
+		}
+	}
+	out.WriteString("\tlet n = s.Len()\n")
+	if anyNeededTags {
+		if hasMany {
+			out.WriteString("\tlet mut evTag = []int{}\n")
+			out.WriteString("\tlet mut evPos = []int{}\n")
+		} else {
+			out = emitScalarTagVarDecls(out, numTags, needOpen, needClose)
+		}
+	}
+	out.WriteString("\tlet mut state = 0\n")
+	out.WriteString("\tfor pos in 0..n {\n")
+	out.WriteString("\t\tlet b = s[pos]\n")
+	out.WriteString("\t\tmatch state {\n")
+	for q in 0..dfa.numStates {
+		out.WriteString("\t\tcase " + strconv.Itoa(q) + ":\n")
+		let branches = collectStateEdgeBranches(dfa, q, needOpen, needClose, hasMany)
+		if branches.Len() == 0 {
+			out.WriteString("\t\t\treturn NoMatch{Type: \"" + target + "\", At: pos}\n")
+		} else if branches.Len() == 1 && branches[0].cond == "true" {
+			out = emitInlineTagAssign(out, "\t\t\t", branches[0].tags, "pos", hasMany)
+			out.WriteString("\t\t\tstate = " + strconv.Itoa(branches[0].nxt) + "\n")
+		} else {
+			for i, br in branches {
+				let kw = if i == 0 { "\t\t\tif " } else { "\t\t\t} else if " }
+				out.WriteString(kw + br.cond + " {\n")
+				out = emitInlineTagAssign(out, "\t\t\t\t", br.tags, "pos", hasMany)
+				out.WriteString("\t\t\t\tstate = " + strconv.Itoa(br.nxt) + "\n")
+			}
+			out.WriteString("\t\t\t} else {\n")
+			out.WriteString("\t\t\t\treturn NoMatch{Type: \"" + target + "\", At: pos}\n")
+			out.WriteString("\t\t\t}\n")
+		}
+	}
+	out.WriteString("\t\tcase _:\n")
+	out.WriteString("\t\t\treturn NoMatch{Type: \"" + target + "\", At: pos}\n")
+	out.WriteString("\t\t}\n")
+	out.WriteString("\t}\n")
+	out.WriteString("\tmatch state {\n")
+	for q in 0..dfa.numStates {
+		if !dfa.accept[q] {
+			continue
+		}
+		out.WriteString("\tcase " + strconv.Itoa(q) + ":\n")
+		let eofNeeded = filterNeededTags(dfa.eofTags[q], needOpen, needClose, hasMany)
+		out = emitInlineTagAssign(out, "\t\t", eofNeeded, "n", hasMany)
+		if hasMany {
+			out.WriteString("\t\treturn _rxProject_" + target + "(s, evTag, evPos)\n")
+		} else {
+			out = emitScalarReturnValue(out, "\t\t", target, shape)
+		}
+	}
+	out.WriteString("\tcase _:\n")
+	out.WriteString("\t\treturn NoMatch{Type: \"" + target + "\", At: n}\n")
+	out.WriteString("\t}\n")
+	out
+}
+
+func emitIntSliceLit(b strings.Builder, vals []int) strings.Builder {
+	let mut out = b
+	out.WriteString("[]int{")
+	for i, v in vals {
+		if i > 0 {
+			out.WriteString(", ")
+		}
+		out.WriteString(strconv.Itoa(v))
+	}
+	out.WriteString("}")
+	out
+}
+
+func emitBoolSliceLit(b strings.Builder, vals []bool) strings.Builder {
+	let mut out = b
+	out.WriteString("[]bool{")
+	for i, v in vals {
+		if i > 0 {
+			out.WriteString(", ")
+		}
+		out.WriteString(if v { "true" } else { "false" })
+	}
+	out.WriteString("}")
+	out
+}
+
+func emitTagDispatchStmt(b strings.Builder, indent string, numTags int, needOpen []bool, needClose []bool, hasMany bool, posExpr string) strings.Builder {
+	let mut out = b
+	if hasMany {
+		out.WriteString(indent + "evTag = evTag.Append(tv)\n")
+		out.WriteString(indent + "evPos = evPos.Append(" + posExpr + ")\n")
+		return out
+	}
+	let mut first = true
+	for t in 1..(numTags + 1) {
+		let ts = strconv.Itoa(t)
+		if needOpen[t] {
+			let kw = if first { indent + "if tv == " } else { indent + "} else if tv == " }
+			out.WriteString(kw + ts + " {\n")
+			out.WriteString(indent + "\to" + ts + " = " + posExpr + "\n")
+			first = false
+		}
+		if needClose[t] {
+			let kw = if first { indent + "if tv == -" } else { indent + "} else if tv == -" }
+			out.WriteString(kw + ts + " {\n")
+			out.WriteString(indent + "\tc" + ts + " = " + posExpr + "\n")
+			first = false
+		}
+	}
+	if !first {
+		out.WriteString(indent + "}\n")
+	}
+	out
+}
+
+func emitTableDFAParseBody(b strings.Builder, target string, shape patternShape, dfa compiledDFA, hasMany bool) strings.Builder {
+	let mut out = b
+	let numTags = shape.nextTag - 1
+	let (needOpen, needClose) = computeNeededTags(shape)
+	out.WriteString("\tlet n = s.Len()\n")
+	out.WriteString("\tlet classMap = []uint8{")
+	for i, c in dfa.classOf {
+		if i > 0 {
+			out.WriteString(", ")
+		}
+		out.WriteString("uint8(" + strconv.Itoa(c) + ")")
+	}
+	out.WriteString("}\n")
+	out.WriteString("\tlet trans = ")
+	out = emitIntSliceLit(out, dfa.trans)
+	out.WriteString("\n")
+	out.WriteString("\tlet accept = ")
+	out = emitBoolSliceLit(out, dfa.accept)
+	out.WriteString("\n")
+	let mut tagData = []int{}
+	let mut edgeOff = []int{}
+	let mut edgeLen = []int{}
+	let mut eofOff = []int{}
+	let mut eofLen = []int{}
+	for rawTS in dfa.edgeTags {
+		let ts = filterNeededTags(rawTS, needOpen, needClose, hasMany)
+		if ts.Len() == 0 {
+			edgeOff = edgeOff.Append(-1)
+			edgeLen = edgeLen.Append(0)
+		} else {
+			edgeOff = edgeOff.Append(tagData.Len())
+			edgeLen = edgeLen.Append(ts.Len())
+			for tv in ts {
+				tagData = tagData.Append(tv)
+			}
+		}
+	}
+	for rawTS in dfa.eofTags {
+		let ts = filterNeededTags(rawTS, needOpen, needClose, hasMany)
+		if ts.Len() == 0 {
+			eofOff = eofOff.Append(-1)
+			eofLen = eofLen.Append(0)
+		} else {
+			eofOff = eofOff.Append(tagData.Len())
+			eofLen = eofLen.Append(ts.Len())
+			for tv in ts {
+				tagData = tagData.Append(tv)
+			}
+		}
+	}
+	let emitTags = tagData.Len() > 0
+	if emitTags {
+		out.WriteString("\tlet tagData = ")
+		out = emitIntSliceLit(out, tagData)
+		out.WriteString("\n")
+		out.WriteString("\tlet edgeOff = ")
+		out = emitIntSliceLit(out, edgeOff)
+		out.WriteString("\n")
+		out.WriteString("\tlet edgeLen = ")
+		out = emitIntSliceLit(out, edgeLen)
+		out.WriteString("\n")
+		out.WriteString("\tlet eofOff = ")
+		out = emitIntSliceLit(out, eofOff)
+		out.WriteString("\n")
+		out.WriteString("\tlet eofLen = ")
+		out = emitIntSliceLit(out, eofLen)
+		out.WriteString("\n")
+		if hasMany {
+			out.WriteString("\tlet mut evTag = []int{}\n")
+			out.WriteString("\tlet mut evPos = []int{}\n")
+		} else {
+			out = emitScalarTagVarDecls(out, numTags, needOpen, needClose)
+		}
+	}
+	out.WriteString("\tlet mut state = 0\n")
+	out.WriteString("\tlet numCls = " + strconv.Itoa(dfa.numClasses) + "\n")
+	out.WriteString("\tfor pos in 0..n {\n")
+	out.WriteString("\t\tlet cls = int(classMap[int(s[pos])])\n")
+	out.WriteString("\t\tlet idx = state*numCls + cls\n")
+	out.WriteString("\t\tlet nxt = trans[idx]\n")
+	out.WriteString("\t\tif nxt < 0 {\n")
+	out.WriteString("\t\t\treturn NoMatch{Type: \"" + target + "\", At: pos}\n")
+	out.WriteString("\t\t}\n")
+	if emitTags {
+		out.WriteString("\t\tlet off = edgeOff[idx]\n")
+		out.WriteString("\t\tif off >= 0 {\n")
+		out.WriteString("\t\t\tlet endOff = off + edgeLen[idx]\n")
+		out.WriteString("\t\t\tfor ti in off..endOff {\n")
+		out.WriteString("\t\t\t\tlet tv = tagData[ti]\n")
+		out = emitTagDispatchStmt(out, "\t\t\t\t", numTags, needOpen, needClose, hasMany, "pos")
+		out.WriteString("\t\t\t}\n")
+		out.WriteString("\t\t}\n")
+	}
+	out.WriteString("\t\tstate = nxt\n")
+	out.WriteString("\t}\n")
+	out.WriteString("\tif !accept[state] {\n")
+	out.WriteString("\t\treturn NoMatch{Type: \"" + target + "\", At: n}\n")
+	out.WriteString("\t}\n")
+	if emitTags {
+		out.WriteString("\tlet eoff = eofOff[state]\n")
+		out.WriteString("\tif eoff >= 0 {\n")
+		out.WriteString("\t\tlet eend = eoff + eofLen[state]\n")
+		out.WriteString("\t\tfor ti in eoff..eend {\n")
+		out.WriteString("\t\t\tlet tv = tagData[ti]\n")
+		out = emitTagDispatchStmt(out, "\t\t\t", numTags, needOpen, needClose, hasMany, "n")
+		out.WriteString("\t\t}\n")
+		out.WriteString("\t}\n")
+	}
+	if hasMany {
+		out.WriteString("\t_rxProject_" + target + "(s, evTag, evPos)\n")
+	} else {
+		out = emitScalarReturnValue(out, "\t", target, shape)
+	}
+	out
+}
+
+func emitMappedErgo(target string, src []byte, shape patternShape, nfa compiledNFA, dfa compiledDFA) content.MappedErgo {
 	let wholeSpan = content.NewSpan(uint32(0), uint32(src.Len()))
 	let mut st = emitState{
 		b:     strings.NewBuilder(),
@@ -562,6 +1105,7 @@ func emitMappedErgo(target string, src []byte, shape patternShape, nfa compiledN
 		}
 	}
 
+	let hasMany = shapeHasMany(shape)
 	let mut b = st.b
 	let mut spans = st.spans
 	if parseDoc != "" {
@@ -569,11 +1113,17 @@ func emitMappedErgo(target string, src []byte, shape patternShape, nfa compiledN
 	}
 	let pgs = uint32(b.Len())
 	b.WriteString("func " + parseName + "(s string) " + target + " fails NoMatch {\n")
-	b.WriteString("\tlet (ok, _, _, evTag, evPos, failAt) = _rxExec_" + target + "(s, true, 0)\n")
-	b.WriteString("\tif !ok {\n")
-	b.WriteString("\t\treturn NoMatch{Type: \"" + target + "\", At: failAt}\n")
-	b.WriteString("\t}\n")
-	b.WriteString("\t_rxProject_" + target + "(s, evTag, evPos)\n")
+	if dfa.mode == engineDirect && dfa.verified {
+		b = emitDirectDFAParseBody(b, target, shape, dfa, hasMany)
+	} else if dfa.mode == engineTable && dfa.verified {
+		b = emitTableDFAParseBody(b, target, shape, dfa, hasMany)
+	} else {
+		b.WriteString("\tlet (ok, _, _, evTag, evPos, failAt) = _rxExec_" + target + "(s, true, 0)\n")
+		b.WriteString("\tif !ok {\n")
+		b.WriteString("\t\treturn NoMatch{Type: \"" + target + "\", At: failAt}\n")
+		b.WriteString("\t}\n")
+		b.WriteString("\t_rxProject_" + target + "(s, evTag, evPos)\n")
+	}
 	b.WriteString("}")
 	let pge = uint32(b.Len())
 	spans = spans.Append(content.SpanMapping{
@@ -589,13 +1139,17 @@ func emitMappedErgo(target string, src []byte, shape patternShape, nfa compiledN
 	}
 	let fgs = uint32(b.Len())
 	b.WriteString("func " + findName + "(s string, from int) Option[(" + target + ", int, int)] {\n")
-	b.WriteString("\tlet (ok, startPos, endPos, evTag, evPos, _) = _rxExec_" + target + "(s, false, from)\n")
-	b.WriteString("\tif !ok {\n")
-	b.WriteString("\t\treturn None\n")
-	b.WriteString("\t}\n")
 	if shape.fields.Len() == 0 && !shape.isUnion {
+		b.WriteString("\tlet (ok, startPos, endPos, _, _, _) = _rxExec_" + target + "(s, false, from)\n")
+		b.WriteString("\tif !ok {\n")
+		b.WriteString("\t\treturn None\n")
+		b.WriteString("\t}\n")
 		b.WriteString("\tSome[(" + target + ", int, int)]{Value: (" + target + ", startPos, endPos)}\n")
 	} else {
+		b.WriteString("\tlet (ok, startPos, endPos, evTag, evPos, _) = _rxExec_" + target + "(s, false, from)\n")
+		b.WriteString("\tif !ok {\n")
+		b.WriteString("\t\treturn None\n")
+		b.WriteString("\t}\n")
 		b.WriteString("\tSome[(" + target + ", int, int)]{Value: (_rxProject_" + target + "(s, evTag, evPos), startPos, endPos)}\n")
 	}
 	b.WriteString("}")

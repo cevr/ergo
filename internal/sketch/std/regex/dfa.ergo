@@ -1,0 +1,777 @@
+import strconv
+import strings
+
+let engineDirect = 0
+let engineTable = 1
+let engineNFA = 2
+
+let maxDirectDFAStates = 24
+let maxDirectDFAConds = 128
+let maxTableDFAStates = 256
+let maxTableDFACells = 4096
+let maxDFADetWork = 40000
+
+type dfaThread {
+	pc   int,
+	op   int,
+	si   int,
+	next int,
+	pend []int,
+}
+
+type dfaStateInfo {
+	atStart bool,
+	ready   []dfaThread,
+}
+
+type compiledDFA {
+	mode       int,
+	numStates  int,
+	numClasses int,
+	classOf    []int,
+	classRep   []int,
+	trans      []int,
+	accept     []bool,
+	edgeTags   [][]int,
+	eofTags    [][]int,
+	states     []dfaStateInfo,
+	preClassOf []int,
+	hasAnyTags bool,
+	verified   bool,
+	reason     string,
+}
+
+func intsEqual(a []int, b []int) bool {
+	if a.Len() != b.Len() {
+		return false
+	}
+	for i in 0..a.Len() {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	true
+}
+
+func cloneInts(xs []int) []int {
+	let mut out = []int{}
+	for x in xs {
+		out = out.Append(x)
+	}
+	out
+}
+
+func appendIntCopy(xs []int, v int) []int {
+	let out = cloneInts(xs)
+	out.Append(v)
+}
+
+func byteInNFASet(sets []uint64, si int, b byte) bool {
+	let w = sets[si*4+int(b)/64]
+	(w & (uint64(1) << uint64(int(b)&63))) != uint64(0)
+}
+
+func nfaHasStartInst(nfa compiledNFA) bool {
+	let instCount = nfa.code.Len() / 3
+	for pc in 0..instCount {
+		if nfa.code[pc*3] == opStart {
+			return true
+		}
+	}
+	false
+}
+
+func buildPreClasses(nfa compiledNFA) ([]int, []int, int) {
+	let setsCount = nfa.sets.Len() / 4
+	let mut cls = []int{}
+	for _ in 0..256 {
+		cls = cls.Append(0)
+	}
+	let mut numCls = 1
+	let mut seen = []int{0}
+	let mut newId = []int{-1}
+	let mut inSet = []bool{}
+	for _ in 0..256 {
+		inSet = inSet.Append(false)
+	}
+	for si in 0..setsCount {
+		let base = si * 4
+		let w0 = nfa.sets[base]
+		let w1 = nfa.sets[base+1]
+		let w2 = nfa.sets[base+2]
+		let w3 = nfa.sets[base+3]
+		let allZero = w0 == uint64(0) && w1 == uint64(0) && w2 == uint64(0) && w3 == uint64(0)
+		let allOnes = ^w0 == uint64(0) && ^w1 == uint64(0) && ^w2 == uint64(0) && ^w3 == uint64(0)
+		if allZero || allOnes {
+			continue
+		}
+		for c in 0..numCls {
+			seen[c] = 0
+			newId[c] = -1
+		}
+		let words = []uint64{w0, w1, w2, w3}
+		let mut b = 0
+		for wIdx in 0..4 {
+			let mut w = words[wIdx]
+			for _ in 0..64 {
+				let hit = (w & uint64(1)) != uint64(0)
+				inSet[b] = hit
+				let c = cls[b]
+				let bit = if hit { 2 } else { 1 }
+				seen[c] = seen[c] | bit
+				w = w >> uint64(1)
+				b = b + 1
+			}
+		}
+		let mut anySplit = false
+		let oldNum = numCls
+		for c in 0..oldNum {
+			if seen[c] == 3 {
+				newId[c] = numCls
+				numCls = numCls + 1
+				seen = seen.Append(0)
+				newId = newId.Append(-1)
+				anySplit = true
+			}
+		}
+		if anySplit {
+			for bv in 0..256 {
+				if inSet[bv] {
+					let nid = newId[cls[bv]]
+					if nid >= 0 {
+						cls[bv] = nid
+					}
+				}
+			}
+		}
+		if numCls == 256 {
+			break
+		}
+	}
+	let mut reps = []int{}
+	for _ in 0..numCls {
+		reps = reps.Append(-1)
+	}
+	for b in 0..256 {
+		let c = cls[b]
+		if reps[c] < 0 {
+			reps[c] = b
+		}
+	}
+	(cls, reps, numCls)
+}
+
+func closeDFASeedsStamp(nfa compiledNFA, seeds []int, isStart bool, seenStamp mut []int, stamp int) ([]dfaThread, int) {
+	let s = stamp + 1
+	let mut ready = []dfaThread{}
+	let mut stkPC = []int{}
+	let mut stkPend = [][]int{}
+	let mut si = seeds.Len() - 1
+	for si >= 0 {
+		stkPC = stkPC.Append(seeds[si])
+		stkPend = stkPend.Append([]int{})
+		si = si - 1
+	}
+	for stkPC.Len() > 0 {
+		let top = stkPC.Len() - 1
+		let pc = stkPC[top]
+		let pend = stkPend[top]
+		stkPC = stkPC[0:top]
+		stkPend = stkPend[0:top]
+		if (*seenStamp)[pc] == s {
+			continue
+		}
+		(*seenStamp)[pc] = s
+		let base = pc * 3
+		let op = nfa.code[base]
+		if op == opSplit {
+			stkPC = stkPC.Append(nfa.code[base+2])
+			stkPend = stkPend.Append(pend)
+			stkPC = stkPC.Append(nfa.code[base+1])
+			stkPend = stkPend.Append(pend)
+			continue
+		}
+		if op == opStart {
+			if isStart {
+				stkPC = stkPC.Append(nfa.code[base+1])
+				stkPend = stkPend.Append(pend)
+			}
+			continue
+		}
+		if op == opTag {
+			stkPC = stkPC.Append(nfa.code[base+1])
+			stkPend = stkPend.Append(appendIntCopy(pend, nfa.code[base+2]))
+			continue
+		}
+		if op == opByte {
+			ready = ready.Append(dfaThread{pc: pc, op: opByte, si: nfa.code[base+2], next: nfa.code[base+1], pend: pend})
+			continue
+		}
+		if op == opEnd {
+			ready = ready.Append(dfaThread{pc: pc, op: opEnd, si: 0, next: nfa.code[base+1], pend: pend})
+			continue
+		}
+		ready = ready.Append(dfaThread{pc: pc, op: opAccept, si: 0, next: 0, pend: pend})
+	}
+	(ready, s)
+}
+
+func eofCloseDFA(nfa compiledNFA, ready []dfaThread, isStart bool, instCount int) (bool, []int) {
+	let mut anyEOF = false
+	for th in ready {
+		if th.op == opAccept || th.op == opEnd {
+			anyEOF = true
+			break
+		}
+	}
+	if !anyEOF {
+		return (false, []int{})
+	}
+	let mut seen = []bool{}
+	for _ in 0..instCount {
+		seen = seen.Append(false)
+	}
+	let mut stkPC = []int{}
+	let mut stkPend = [][]int{}
+	let mut ri = ready.Len() - 1
+	for ri >= 0 {
+		let th = ready[ri]
+		if th.op == opAccept {
+			stkPC = stkPC.Append(th.pc)
+			stkPend = stkPend.Append(th.pend)
+		} else if th.op == opEnd {
+			stkPC = stkPC.Append(th.pc)
+			stkPend = stkPend.Append(th.pend)
+		}
+		ri = ri - 1
+	}
+	for stkPC.Len() > 0 {
+		let top = stkPC.Len() - 1
+		let pc = stkPC[top]
+		let pend = stkPend[top]
+		stkPC = stkPC[0:top]
+		stkPend = stkPend[0:top]
+		if seen[pc] {
+			continue
+		}
+		seen[pc] = true
+		let base = pc * 3
+		let op = nfa.code[base]
+		if op == opAccept {
+			return (true, pend)
+		}
+		if op == opEnd {
+			stkPC = stkPC.Append(nfa.code[base+1])
+			stkPend = stkPend.Append(pend)
+			continue
+		}
+		if op == opSplit {
+			stkPC = stkPC.Append(nfa.code[base+2])
+			stkPend = stkPend.Append(pend)
+			stkPC = stkPC.Append(nfa.code[base+1])
+			stkPend = stkPend.Append(pend)
+			continue
+		}
+		if op == opStart {
+			if isStart {
+				stkPC = stkPC.Append(nfa.code[base+1])
+				stkPend = stkPend.Append(pend)
+			}
+			continue
+		}
+		if op == opTag {
+			stkPC = stkPC.Append(nfa.code[base+1])
+			stkPend = stkPend.Append(appendIntCopy(pend, nfa.code[base+2]))
+			continue
+		}
+	}
+	(false, []int{})
+}
+
+func dfaStateKey(st dfaStateInfo) string {
+	let mut b = strings.NewBuilder()
+	if st.atStart {
+		b.WriteString("S:")
+	} else {
+		b.WriteString("M:")
+	}
+	for th in st.ready {
+		b.WriteString(strconv.Itoa(th.pc))
+		if th.pend.Len() > 0 {
+			b.WriteByte(byte('['))
+			for i, tv in th.pend {
+				if i > 0 {
+					b.WriteByte(byte(','))
+				}
+				b.WriteString(strconv.Itoa(tv))
+			}
+			b.WriteByte(byte(']'))
+		}
+		b.WriteByte(byte(';'))
+	}
+	b.String()
+}
+
+func dfaStatesEqual(a dfaStateInfo, b dfaStateInfo) bool {
+	if a.atStart != b.atStart || a.ready.Len() != b.ready.Len() {
+		return false
+	}
+	for i in 0..a.ready.Len() {
+		let ta = a.ready[i]
+		let tb = b.ready[i]
+		if ta.pc != tb.pc || !intsEqual(ta.pend, tb.pend) {
+			return false
+		}
+	}
+	true
+}
+
+func nfaFallbackDFA(reason string) compiledDFA {
+	compiledDFA{
+		mode:       engineNFA,
+		numStates:  0,
+		numClasses: 0,
+		classOf:    []int{},
+		classRep:   []int{},
+		trans:      []int{},
+		accept:     []bool{},
+		edgeTags:   [][]int{},
+		eofTags:    [][]int{},
+		states:     []dfaStateInfo{},
+		preClassOf: []int{},
+		hasAnyTags: false,
+		verified:   false,
+		reason:     reason,
+	}
+}
+
+func countStateIntervals(numClasses int, classOf []int, trans []int, edgeTags [][]int, q int) int {
+	let base = q * numClasses
+	let mut seen = []bool{}
+	let mut branchOfCls = []int{}
+	for _ in 0..numClasses {
+		seen = seen.Append(false)
+		branchOfCls = branchOfCls.Append(-1)
+	}
+	let mut nextBranch = 0
+	for c in 0..numClasses {
+		if seen[c] {
+			continue
+		}
+		let tgt = trans[base+c]
+		if tgt < 0 {
+			seen[c] = true
+			continue
+		}
+		let bi = nextBranch
+		nextBranch = nextBranch + 1
+		let tags = edgeTags[base+c]
+		for c2 in c..numClasses {
+			if !seen[c2] && trans[base+c2] == tgt && intsEqual(edgeTags[base+c2], tags) {
+				seen[c2] = true
+				branchOfCls[c2] = bi
+			}
+		}
+	}
+	let mut total = 0
+	let mut curBI = -1
+	for b in 0..256 {
+		let bi = branchOfCls[classOf[b]]
+		if bi != curBI {
+			if curBI >= 0 {
+				total = total + 1
+			}
+			curBI = bi
+		}
+	}
+	if curBI >= 0 {
+		total = total + 1
+	}
+	total
+}
+
+func compileDFA(nfa compiledNFA) compiledDFA {
+	let instCount = nfa.code.Len() / 3
+	let hasStart = nfaHasStartInst(nfa)
+	let (preClassOf, preReps, numPre) = buildPreClasses(nfa)
+	let mut seenStamp = []int{}
+	for _ in 0..instCount {
+		seenStamp = seenStamp.Append(0)
+	}
+	let (q0Ready, stamp0) = closeDFASeedsStamp(nfa, []int{nfa.start}, true, &seenStamp, 0)
+	let mut stamp = stamp0
+	let q0 = dfaStateInfo{atStart: hasStart, ready: q0Ready}
+	let (acc0, eof0) = eofCloseDFA(nfa, q0.ready, q0.atStart, instCount)
+	let mut states = []dfaStateInfo{q0}
+	let mut accept = []bool{acc0}
+	let mut eofTags = [][]int{eof0}
+	let mut stateMap = Map[string, int]{}
+	stateMap[dfaStateKey(q0)] = 0
+	let mut preTrans = []int{}
+	let mut preEdgeTags = [][]int{}
+	let mut work = 0
+	let mut head = 0
+	for head < states.Len() {
+		let cur = states[head]
+		for c in 0..numPre {
+			let rep = byte(preReps[c])
+			let mut nextSeeds = []int{}
+			let mut commonPend = []int{}
+			let mut hasCommon = false
+			for th in cur.ready {
+				if th.op == opByte && byteInNFASet(nfa.sets, th.si, rep) {
+					if !hasCommon {
+						commonPend = th.pend
+						hasCommon = true
+					} else if !intsEqual(commonPend, th.pend) {
+						return nfaFallbackDFA("tag-ambiguity")
+					}
+					nextSeeds = nextSeeds.Append(th.next)
+				}
+			}
+			if nextSeeds.Len() == 0 {
+				preTrans = preTrans.Append(-1)
+				preEdgeTags = preEdgeTags.Append([]int{})
+				continue
+			}
+			work = work + 20 + cur.ready.Len() + instCount
+			if work > maxDFADetWork {
+				return nfaFallbackDFA("work-limit")
+			}
+			let (nxtReady, s2) = closeDFASeedsStamp(nfa, nextSeeds, false, &seenStamp, stamp)
+			stamp = s2
+			let nxtState = dfaStateInfo{atStart: false, ready: nxtReady}
+			let key = dfaStateKey(nxtState)
+			let found = stateMap.Get(key)
+			let mut nxtId = -1
+			match found {
+			case Some as idx:
+				nxtId = idx.Value
+			case None:
+				if states.Len() >= maxTableDFAStates {
+					return nfaFallbackDFA("state-limit")
+				}
+				let (accN, eofN) = eofCloseDFA(nfa, nxtState.ready, nxtState.atStart, instCount)
+				nxtId = states.Len()
+				states = states.Append(nxtState)
+				accept = accept.Append(accN)
+				eofTags = eofTags.Append(eofN)
+				stateMap[key] = nxtId
+			}
+			preTrans = preTrans.Append(nxtId)
+			preEdgeTags = preEdgeTags.Append(commonPend)
+		}
+		head = head + 1
+	}
+
+	let numStates = states.Len()
+	let mut colMap = Map[string, int]{}
+	let mut preToMin = []int{}
+	let mut minToPre = []int{}
+	let mut numMin = 0
+	for c in 0..numPre {
+		let mut kb = strings.NewBuilder()
+		for q in 0..numStates {
+			let idx = q*numPre + c
+			kb.WriteString(strconv.Itoa(preTrans[idx]))
+			let ts = preEdgeTags[idx]
+			if ts.Len() > 0 {
+				kb.WriteByte(byte('['))
+				for k, tv in ts {
+					if k > 0 {
+						kb.WriteByte(byte(','))
+					}
+					kb.WriteString(strconv.Itoa(tv))
+				}
+				kb.WriteByte(byte(']'))
+			}
+			kb.WriteByte(byte(';'))
+		}
+		let ck = kb.String()
+		let ex = colMap.Get(ck)
+		match ex {
+		case Some as mc:
+			preToMin = preToMin.Append(mc.Value)
+		case None:
+			let id = numMin
+			numMin = numMin + 1
+			colMap[ck] = id
+			preToMin = preToMin.Append(id)
+			minToPre = minToPre.Append(c)
+		}
+	}
+
+	if numStates*numMin > maxTableDFACells || numStates*numPre > maxTableDFACells*2 {
+		return nfaFallbackDFA("table-limit")
+	}
+
+	let mut classOf = []int{}
+	for b in 0..256 {
+		classOf = classOf.Append(preToMin[preClassOf[b]])
+	}
+	let mut classRep = []int{}
+	for mc in 0..numMin {
+		classRep = classRep.Append(preReps[minToPre[mc]])
+	}
+
+	let mut trans = []int{}
+	let mut edgeTags = [][]int{}
+	let mut hasAnyTags = false
+	for q in 0..numStates {
+		if eofTags[q].Len() > 0 {
+			hasAnyTags = true
+		}
+		for mc in 0..numMin {
+			let pc = minToPre[mc]
+			let pIdx = q*numPre + pc
+			trans = trans.Append(preTrans[pIdx])
+			let et = preEdgeTags[pIdx]
+			if et.Len() > 0 {
+				hasAnyTags = true
+			}
+			edgeTags = edgeTags.Append(et)
+		}
+	}
+
+	let mut mode = engineTable
+	if numStates <= maxDirectDFAStates {
+		let mut conds = 0
+		for q in 0..numStates {
+			conds = conds + countStateIntervals(numMin, classOf, trans, edgeTags, q)
+			if conds > maxDirectDFAConds {
+				break
+			}
+		}
+		if conds <= maxDirectDFAConds {
+			mode = engineDirect
+		}
+	}
+
+	let dfa = compiledDFA{
+		mode:       mode,
+		numStates:  numStates,
+		numClasses: numMin,
+		classOf:    classOf,
+		classRep:   classRep,
+		trans:      trans,
+		accept:     accept,
+		edgeTags:   edgeTags,
+		eofTags:    eofTags,
+		states:     states,
+		preClassOf: preClassOf,
+		hasAnyTags: hasAnyTags,
+		verified:   false,
+		reason:     "ok",
+	}
+	if !verifyDFA(nfa, dfa) {
+		return nfaFallbackDFA("verify-failed")
+	}
+	compiledDFA{
+		mode:       dfa.mode,
+		numStates:  dfa.numStates,
+		numClasses: dfa.numClasses,
+		classOf:    dfa.classOf,
+		classRep:   dfa.classRep,
+		trans:      dfa.trans,
+		accept:     dfa.accept,
+		edgeTags:   dfa.edgeTags,
+		eofTags:    dfa.eofTags,
+		states:     dfa.states,
+		preClassOf: dfa.preClassOf,
+		hasAnyTags: dfa.hasAnyTags,
+		verified:   true,
+		reason:     "ok",
+	}
+}
+
+func verifyDFA(nfa compiledNFA, dfa compiledDFA) bool {
+	if dfa.mode != engineDirect && dfa.mode != engineTable {
+		return false
+	}
+	if dfa.numStates <= 0 || dfa.numClasses <= 0 {
+		return false
+	}
+	if dfa.classOf.Len() != 256 || dfa.preClassOf.Len() != 256 || dfa.classRep.Len() != dfa.numClasses {
+		return false
+	}
+	if dfa.trans.Len() != dfa.numStates*dfa.numClasses || dfa.edgeTags.Len() != dfa.numStates*dfa.numClasses {
+		return false
+	}
+	if dfa.accept.Len() != dfa.numStates || dfa.eofTags.Len() != dfa.numStates || dfa.states.Len() != dfa.numStates {
+		return false
+	}
+	let mut maxPre = 0
+	for b in 0..256 {
+		let c = dfa.classOf[b]
+		if c < 0 || c >= dfa.numClasses {
+			return false
+		}
+		let pc = dfa.preClassOf[b]
+		if pc < 0 || pc >= 256 {
+			return false
+		}
+		if pc > maxPre {
+			maxPre = pc
+		}
+	}
+	let numPre = maxPre + 1
+	let mut preRep = []int{}
+	let mut preFinal = []int{}
+	for _ in 0..numPre {
+		preRep = preRep.Append(-1)
+		preFinal = preFinal.Append(-1)
+	}
+	for b in 0..256 {
+		let pc = dfa.preClassOf[b]
+		let fc = dfa.classOf[b]
+		if preRep[pc] < 0 {
+			preRep[pc] = b
+			preFinal[pc] = fc
+		} else if preFinal[pc] != fc {
+			return false
+		}
+	}
+	for pc in 0..numPre {
+		if preRep[pc] < 0 {
+			return false
+		}
+	}
+	let mut pcMask = []byteSet{}
+	for _ in 0..numPre {
+		pcMask = pcMask.Append(emptySet())
+	}
+	for b in 0..256 {
+		let pc = dfa.preClassOf[b]
+		pcMask[pc] = setBit(pcMask[pc], byte(b))
+	}
+	let setsCount = nfa.sets.Len() / 4
+	for si in 0..setsCount {
+		let sbase = si * 4
+		let sw0 = nfa.sets[sbase]
+		let sw1 = nfa.sets[sbase+1]
+		let sw2 = nfa.sets[sbase+2]
+		let sw3 = nfa.sets[sbase+3]
+		for pc in 0..numPre {
+			let m = pcMask[pc]
+			let aw0 = m.w0 & sw0
+			let aw1 = m.w1 & sw1
+			let aw2 = m.w2 & sw2
+			let aw3 = m.w3 & sw3
+			let allZero = aw0 == uint64(0) && aw1 == uint64(0) && aw2 == uint64(0) && aw3 == uint64(0)
+			let allFull = aw0 == m.w0 && aw1 == m.w1 && aw2 == m.w2 && aw3 == m.w3
+			if !allZero && !allFull {
+				return false
+			}
+		}
+	}
+	for c in 0..dfa.numClasses {
+		let rb = dfa.classRep[c]
+		if rb < 0 || rb >= 256 || dfa.classOf[rb] != c {
+			return false
+		}
+	}
+	let instCount = nfa.code.Len() / 3
+	let mut seenStamp = []int{}
+	for _ in 0..instCount {
+		seenStamp = seenStamp.Append(0)
+	}
+	let (q0ReadyExp, s0) = closeDFASeedsStamp(nfa, []int{nfa.start}, true, &seenStamp, 0)
+	let mut stamp = s0
+	let q0Expected = dfaStateInfo{atStart: nfaHasStartInst(nfa), ready: q0ReadyExp}
+	if !dfaStatesEqual(dfa.states[0], q0Expected) {
+		return false
+	}
+	let mut anyAccept = false
+	for q in 0..dfa.numStates {
+		let st = dfa.states[q]
+		let (expAcc, expEOF) = eofCloseDFA(nfa, st.ready, st.atStart, instCount)
+		if dfa.accept[q] != expAcc {
+			return false
+		}
+		if expAcc {
+			anyAccept = true
+			if !intsEqual(dfa.eofTags[q], expEOF) {
+				return false
+			}
+		} else if dfa.eofTags[q].Len() != 0 {
+			return false
+		}
+		let mut clsVerified = []bool{}
+		for _ in 0..dfa.numClasses {
+			clsVerified = clsVerified.Append(false)
+		}
+		for pc in 0..numPre {
+			let c = preFinal[pc]
+			let idx = q*dfa.numClasses + c
+			let nxt = dfa.trans[idx]
+			if nxt < -1 || nxt >= dfa.numStates {
+				return false
+			}
+			let repByte = byte(preRep[pc])
+			let mut nextSeeds = []int{}
+			let mut commonPend = []int{}
+			let mut hasCommon = false
+			for th in st.ready {
+				if th.op == opByte && byteInNFASet(nfa.sets, th.si, repByte) {
+					if !hasCommon {
+						commonPend = th.pend
+						hasCommon = true
+					} else if !intsEqual(commonPend, th.pend) {
+						return false
+					}
+					nextSeeds = nextSeeds.Append(th.next)
+				}
+			}
+			if nextSeeds.Len() == 0 {
+				if nxt != -1 || dfa.edgeTags[idx].Len() != 0 {
+					return false
+				}
+			} else {
+				if nxt < 0 || !intsEqual(dfa.edgeTags[idx], commonPend) {
+					return false
+				}
+				if !clsVerified[c] {
+					clsVerified[c] = true
+					let (expNxtReady, sNext) = closeDFASeedsStamp(nfa, nextSeeds, false, &seenStamp, stamp)
+					stamp = sNext
+					let expNxt = dfaStateInfo{atStart: false, ready: expNxtReady}
+					if !dfaStatesEqual(dfa.states[nxt], expNxt) {
+						return false
+					}
+				}
+			}
+		}
+	}
+	anyAccept
+}
+
+func runDFA(dfa compiledDFA, s string) (bool, []int, []int, int) {
+	if !dfa.verified || (dfa.mode != engineDirect && dfa.mode != engineTable) {
+		return (false, []int{}, []int{}, 0)
+	}
+	let n = s.Len()
+	let mut state = 0
+	let mut evTag = []int{}
+	let mut evPos = []int{}
+	for pos in 0..n {
+		let c = dfa.classOf[int(s[pos])]
+		let idx = state*dfa.numClasses + c
+		let nxt = dfa.trans[idx]
+		if nxt < 0 {
+			return (false, []int{}, []int{}, pos)
+		}
+		for tv in dfa.edgeTags[idx] {
+			evTag = evTag.Append(tv)
+			evPos = evPos.Append(pos)
+		}
+		state = nxt
+	}
+	if !dfa.accept[state] {
+		return (false, []int{}, []int{}, n)
+	}
+	for tv in dfa.eofTags[state] {
+		evTag = evTag.Append(tv)
+		evPos = evPos.Append(n)
+	}
+	(true, evTag, evPos, n)
+}

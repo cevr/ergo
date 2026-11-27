@@ -1,0 +1,120 @@
+import regex
+
+// Date parses an ISO calendar date using Direct DFA with optional day.
+type Date derive regex.Pattern("^(?<Year>[0-9]{4})-(?<Month>[0-9]{2})(-(?<Day>[0-9]{2}))?$")
+
+// Token parses a numeric or lowercase word union using Direct DFA.
+type Token derive regex.Pattern("(?<Num>[0-9]+)|(?<Word>[a-z]+)")
+
+// LongCode exercises Table DFA (>24 states) with case folding and anchors.
+type LongCode derive regex.Pattern("^(?:(?i:tk))-(?<Prefix>[a-z]{26})-(?<Num>[0-9]{4})$")
+
+// AmbTag triggers canonical tagged NFA fallback for overlapping capture boundary.
+type AmbTag derive regex.Pattern("(?<Head>[ab]+)b")
+
+// LazyPair verifies non-greedy prefix capture before greedy tail.
+type LazyPair derive regex.Pattern("(?<Lead>a+?)(?<Tail>a+)")
+
+// UniEmail verifies Unicode escapes and rune classes across UTF-8 strings.
+type UniEmail derive regex.Pattern("^(?<User>[\\u00e9a-zA-Z0-9._-]+)@(?<Host>[^@\\s]+)$")
+
+// NestedPairs captures repeated nested key-value records.
+type NestedPairs derive regex.Pattern("(?<Item>(?<K>[a-z]+)=(?<V>[0-9]+);)*")
+
+// EscapedLit matches literal punctuation and control escapes.
+type EscapedLit derive regex.Pattern("\\.\\\\\\(\\)\\[\\]\\{\\}\\|\\*\\+\\?\\^\\$\\-\\t")
+
+func parseDateFailAt(s string) int {
+	let _ = ParseDate(s) catch {
+	case NoMatch as m:
+		return m.At
+	}
+	-1
+}
+
+test DirectDFAAndOptionalsWork {
+	let d1 = try ParseDate("2026-11-27")
+	assert d1.Year == "2026" && d1.Month == "11"
+	match d1.Day {
+	case Some as day:
+		assert day.Value == "27"
+	case None:
+		assert false
+	}
+	let d2 = try ParseDate("2026-11")
+	assert d2.Year == "2026" && d2.Month == "11" && d2.Day == None
+	assert parseDateFailAt("2026-1x-27") == 6
+	assert parseDateFailAt("2026-11-") == 8
+
+	match FindDate("date=2026-11-27!", 0) {
+	case Some:
+		assert false
+	case None:
+	}
+	match FindDate("2026-11-27", 0) {
+	case Some as found:
+		let (dv, s, e) = found.Value
+		assert s == 0 && e == 10 && dv.Year == "2026"
+	case None:
+		assert false
+	}
+	assert FindDate("2026-11-27", 1) == None
+
+	match try ParseToken("42") {
+	case Num as x:
+		assert x.Value == "42"
+	case Word:
+		assert false
+	}
+	match FindToken("...abc 123", 0) {
+	case Some as f:
+		let (tok, s, e) = f.Value
+		assert s == 3 && e == 6
+		match tok {
+		case Word as w:
+			assert w.Value == "abc"
+		case Num:
+			assert false
+		}
+	case None:
+		assert false
+	}
+}
+
+test TableDFACaseFoldingUTF8AndAnchors {
+	let lc = try ParseLongCode("Tk-abcdefghijklmnopqrstuvwxyz-0042")
+	assert lc.Prefix == "abcdefghijklmnopqrstuvwxyz" && lc.Num == "0042"
+	let badPrefix = ParseLongCode("tk-abcdefghijklmnopqrstuvwxy-0042") catch {
+	case NoMatch as m:
+		assert m.At == 28
+		LongCode{Prefix: "", Num: ""}
+	}
+	assert badPrefix.Num == ""
+	assert FindLongCode("xxTK-abcdefghijklmnopqrstuvwxyz-9999", 0) == None
+
+	let em = try ParseUniEmail("élan.user@exámple.org")
+	assert em.User == "élan.user" && em.Host == "exámple.org"
+
+	let esc = try ParseEscapedLit(".\\()[]{}|*+?^$-\t")
+	let _ = esc
+}
+
+test CanonicalNFAFallbackAndLazyAndNestedCaptures {
+	let amb = try ParseAmbTag("abab")
+	assert amb.Head == "aba"
+	match FindAmbTag("ccababb", 0) {
+	case Some as f:
+		let (v, s, e) = f.Value
+		assert s == 2 && e == 7 && v.Head == "abab"
+	case None:
+		assert false
+	}
+
+	let lp = try ParseLazyPair("aaaa")
+	assert lp.Lead == "a" && lp.Tail == "aaa"
+
+	let np = try ParseNestedPairs("a=1;bc=23;")
+	assert np.Item.Len() == 2
+	assert np.Item[0].K == "a" && np.Item[0].V == "1"
+	assert np.Item[1].K == "bc" && np.Item[1].V == "23"
+}
