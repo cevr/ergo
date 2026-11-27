@@ -1,0 +1,772 @@
+// Cross-platform declaration merging, ValueResults substitution, transitive
+// closure of refused types, import placeholder rendering, and formatting.
+
+import compiler/format
+import compiler/gofacts
+import option
+import slices
+import strconv
+import strings
+
+// RenderError reports a syntax or formatting failure when rendering a binding.
+type RenderError {
+	Path   string,
+	Reason string,
+}
+
+func valueResultTarget(target string) option.Option[string] {
+	match target {
+	case "os.Stat":
+		option.Some{Value: HostFS + ".Stat"}
+	case "os.Lstat":
+		option.Some{Value: HostFS + ".Lstat"}
+	case "os.ReadDir":
+		option.Some{Value: HostFS + ".ReadDir"}
+	case "os.File.Stat":
+		option.Some{Value: HostFS + ".FileStat"}
+	case "os.File.ReadDir":
+		option.Some{Value: HostFS + ".FileReadDir"}
+	case "os.File.Readdir":
+		option.Some{Value: HostFS + ".FileReaddir"}
+	case _:
+		option.None
+	}
+}
+
+func splitRef(ref string) (string, string) {
+	let i = strings.LastIndex(ref, ".")
+	if i < 0 {
+		return ("", ref)
+	}
+	(ref[0:i], ref[i+1 : ref.Len()])
+}
+
+func lastElem(p string) string {
+	let i = strings.LastIndex(p, "/")
+	if i < 0 { p } else { p[i+1 : p.Len()] }
+}
+
+// AsMethod rewrites an Ergo function declaration `func fn(r T, rest) ...` into
+// the method declaration `func (r T) method(rest) ...` when possible.
+func AsMethod(text string, fn string, method string) option.Option[string] {
+	let head = "func " + fn + "("
+	if !strings.HasPrefix(text, head) {
+		return option.None
+	}
+	let rest = text[head.Len():text.Len()]
+	let mut depth = 0
+	for i in 0..rest.Len() {
+		let b = rest[i]
+		if b == '(' || b == '[' || b == '{' {
+			depth = depth + 1
+		} else if b == ']' || b == '}' {
+			depth = depth - 1
+		} else if b == ')' {
+			if depth == 0 {
+				if i > 0 {
+					return option.Some{Value: "func (" + rest[0:i] + ") " + method + "()" + rest[i+1:rest.Len()]}
+				}
+				return option.None
+			}
+			depth = depth - 1
+		} else if b == ',' && depth == 0 {
+			let after = strings.TrimPrefix(rest[i+1:rest.Len()], " ")
+			return option.Some{Value: "func (" + rest[0:i] + ") " + method + "(" + after}
+		}
+	}
+	option.None
+}
+
+// ValueResults replaces os metadata declarations with hostfs equivalents when loaded.
+func ValueResults(bound string, ctx MapContext, ds []Decl) []Decl {
+	let mut out = slices.Clone(ds)
+	for k in 0..out.Len() {
+		let d = out[k]
+		if d.Kind != BindFunc && d.Kind != BindMethod {
+			continue
+		}
+		let via = match valueResultTarget(bound + "." + d.Name) {
+		case option.Some{Value: v}:
+			v
+		case option.None:
+			continue
+		}
+		let (pkgPath, fnName) = splitRef(via)
+		let declIdx = match LookupGoDecl(ctx.GD, pkgPath, fnName) {
+		case option.Some{Value: idx}:
+			idx
+		case option.None:
+			continue
+		}
+		let mut nd = MapOneDecl(ctx, bound, declIdx, NoIndex, true)
+		nd.Name = d.Name
+		nd.Via = via
+		if d.Kind == BindMethod && nd.Refused == "" {
+			let (_, method) = splitRef(d.Name)
+			match AsMethod(nd.Ergo, fnName, method) {
+			case option.Some{Value: text}:
+				nd.Kind = BindMethod
+				nd.Ergo = text
+			case option.None:
+				continue
+			}
+		}
+		out[k] = nd
+	}
+	out
+}
+
+func membersEqual(a []Member, b []Member) bool {
+	if a.Len() != b.Len() {
+		return false
+	}
+	for i in 0..a.Len() {
+		if a[i].Name != b[i].Name || a[i].Go != b[i].Go || a[i].Refused != b[i].Refused {
+			return false
+		}
+	}
+	true
+}
+
+// SameDecl reports structural equivalence between two platform-mapped Decl values.
+func SameDecl(a Decl, b Decl) bool {
+	a.Kind == b.Kind && a.Go == b.Go && a.Ergo == b.Ergo && a.Variadic == b.Variadic && a.Context == b.Context && a.Writes == b.Writes && a.Refused == b.Refused && membersEqual(a.Members, b.Members)
+}
+
+func findLineByName(di Decl, name string) option.Option[Line] {
+	for l in di.Lines {
+		if l.Name == name {
+			return option.Some{Value: l}
+		}
+	}
+	option.None
+}
+
+func containsMember(ms []Member, m Member) bool {
+	for it in ms {
+		if it.Name == m.Name && it.Go == m.Go && it.Refused == m.Refused {
+			return true
+		}
+	}
+	false
+}
+
+func containsMemberName(ms []Member, name string) bool {
+	for m in ms {
+		if m.Name == name {
+			return true
+		}
+	}
+	false
+}
+
+func emptyDecl(kind uint8, name string, goText string, refused string) Decl {
+	Decl{
+		Kind:       kind,
+		Name:       name,
+		Go:         goText,
+		Ergo:       "",
+		Via:        "",
+		Variadic:   false,
+		Context:    false,
+		Writes:     "",
+		Reads:      []string{},
+		Vouched:    []Vouch{},
+		Effect:     "",
+		EffectFrom: "",
+		Host:       "",
+		Total:      false,
+		Refused:    refused,
+		Members:    []Member{},
+		Refs:       []string{},
+		Lines:      []Line{},
+		RefPkgs:    []string{},
+		Readables:  []Readable{},
+	}
+}
+
+func tryMergeStruct(d mut Decl, platforms []Platform, byName []Map[string, Decl], name string) bool {
+	let mut all = slices.WithCapacity[Decl](byName.Len())
+	for m in byName {
+		match m.Get(name) {
+		case option.None:
+			return false
+		case option.Some{Value: di}:
+			if di.Kind != BindType || di.Refused != "" || !strings.HasSuffix(di.Go, " struct") {
+				return false
+			}
+			all = all.Append(di)
+		}
+	}
+	if all.Len() == 0 {
+		return false
+	}
+	let first = all[0]
+	let head = TypeText(first.Name, first.Lines)
+	if !strings.HasPrefix(first.Ergo, head) {
+		return false
+	}
+	let tail = first.Ergo[head.Len():first.Ergo.Len()]
+	for i in 1..all.Len() {
+		let di = all[i]
+		let diHead = TypeText(di.Name, di.Lines)
+		if !strings.HasPrefix(di.Ergo, diHead) || di.Ergo[diHead.Len():di.Ergo.Len()] != tail || di.Go != first.Go {
+			return false
+		}
+	}
+	let mut kept = []Line{}
+	let mut members = []Member{}
+	let mut seen = Map[string, bool]{}
+	for di in all {
+		for l in di.Lines {
+			if seen.Get(l.Name) != option.None {
+				continue
+			}
+			let mut alike = true
+			for dj in all {
+				match findLineByName(dj, l.Name) {
+				case option.None:
+					alike = false
+				case option.Some{Value: lj}:
+					if lj.Text != l.Text || lj.Go != l.Go {
+						alike = false
+					}
+				}
+			}
+			if alike {
+				seen = seen.Put(l.Name, true)
+				kept = kept.Append(l)
+				continue
+			}
+			seen = seen.Put(l.Name, true)
+			let mut on = []string{}
+			for i, dj in all {
+				let inLines = findLineByName(dj, l.Name) != option.None
+				if inLines || containsMemberName(dj.Members, l.Name) {
+					on = on.Append(PlatformText(platforms[i]))
+				}
+			}
+			let reason = if on.Len() < all.Len() {
+				"platform-specific: Go declares it only on " + strings.Join(on, ", ")
+			} else {
+				"platform-specific: its Go declaration differs by platform"
+			}
+			members = members.Append(Member{Name: l.Name, Go: l.Go, Refused: reason})
+		}
+		for m in di.Members {
+			if seen.Get(m.Name) != option.None {
+				continue
+			}
+			let mut alike = true
+			for dj in all {
+				if !containsMember(dj.Members, m) {
+					alike = false
+				}
+			}
+			if alike {
+				seen = seen.Put(m.Name, true)
+				members = members.Append(m)
+				continue
+			}
+			seen = seen.Put(m.Name, true)
+			let mut on = []string{}
+			for i, dj in all {
+				let inLines = findLineByName(dj, m.Name) != option.None
+				if inLines || containsMemberName(dj.Members, m.Name) {
+					on = on.Append(PlatformText(platforms[i]))
+				}
+			}
+			let reason = if on.Len() < all.Len() {
+				"platform-specific: Go declares it only on " + strings.Join(on, ", ")
+			} else {
+				"platform-specific: its Go declaration differs by platform"
+			}
+			members = members.Append(Member{Name: m.Name, Go: m.Go, Refused: reason})
+		}
+	}
+	let mut merged = first
+	merged.Lines = kept
+	merged.Members = members
+	merged.Ergo = TypeText(first.Name, kept) + tail
+	*d = merged
+	true
+}
+
+// Merge converges per-platform declarations, refusing missing or divergent items
+// while keeping struct fields identical across all platforms.
+func Merge(platforms []Platform, decls [][]Decl) []Decl {
+	let mut byName = slices.WithCapacity[Map[string, Decl]](decls.Len())
+	let mut names = []string{}
+	let mut seen = Map[string, bool]{}
+	for ds in decls {
+		let mut m = Map[string, Decl]{}
+		for d in ds {
+			m = m.Put(d.Name, d)
+			if seen.Get(d.Name) == option.None {
+				seen = seen.Put(d.Name, true)
+				names = names.Append(d.Name)
+			}
+		}
+		byName = byName.Append(m)
+	}
+	let mut out = slices.WithCapacity[Decl](names.Len())
+	for name in names {
+		let mut first = emptyDecl(BindFunc, name, "", "")
+		let mut inFirst = false
+		match byName[0].Get(name) {
+		case option.Some{Value: d}:
+			first = d
+			inFirst = true
+		case option.None:
+		}
+		let mut missing = []string{}
+		let mut differ = []string{}
+		for i in 0..decls.Len() {
+			match byName[i].Get(name) {
+			case option.None:
+				missing = missing.Append(PlatformText(platforms[i]))
+			case option.Some{Value: d}:
+				if !SameDecl(d, first) {
+					differ = differ.Append(PlatformText(platforms[i]))
+				}
+			}
+		}
+		if !inFirst {
+			for i in 0..decls.Len() {
+				match byName[i].Get(name) {
+				case option.Some{Value: d}:
+					first = d
+					break
+				case option.None:
+				}
+			}
+		}
+		if missing.Len() > 0 {
+			first = emptyDecl(first.Kind, name, first.Go, "platform-specific: Go does not declare it on "+strings.Join(missing, ", "))
+		} else if differ.Len() > 0 && tryMergeStruct(&first, platforms, byName, name) {
+		} else if differ.Len() > 0 {
+			first = emptyDecl(first.Kind, name, first.Go, "platform-specific: its Go declaration differs on "+strings.Join(differ, ", "))
+		}
+		out = out.Append(first)
+	}
+	out
+}
+
+// CloseWith propagates type-refusal closure until a fixed point, consulting
+// refusedElsewhere for external type references.
+func CloseWith(path string, decls0 []Decl, refusedElsewhere func(ref string) bool) []Decl {
+	let mut decls = slices.Clone(decls0)
+	let mut local = Map[string, bool]{}
+	let mut refused = Map[string, bool]{}
+	for d in decls {
+		if d.Kind == BindType {
+			local = local.Put(d.Name, true)
+			refused = refused.Put(d.Name, d.Refused != "")
+		}
+	}
+	let mut changed = true
+	for changed {
+		changed = false
+		for i in 0..decls.Len() {
+			let d = decls[i]
+			if d.Refused != "" {
+				continue
+			}
+			let why = badRefs(d.Refs, path, local, refused, refusedElsewhere)
+			if why != "" {
+				decls[i] = emptyDecl(d.Kind, d.Name, d.Go, why)
+				if d.Kind == BindType {
+					refused = refused.Put(d.Name, true)
+				}
+				changed = true
+				continue
+			}
+			let mut kept = []Line{}
+			let mut newMembers = slices.Clone(d.Members)
+			for l in d.Lines {
+				let lWhy = badRefs(l.Refs, path, local, refused, refusedElsewhere)
+				if lWhy != "" {
+					newMembers = newMembers.Append(Member{Name: l.Name, Go: l.Go, Refused: lWhy})
+					continue
+				}
+				kept = kept.Append(l)
+			}
+			if kept.Len() == d.Lines.Len() {
+				continue
+			}
+			changed = true
+			if kept.Len() == 0 && strings.HasSuffix(d.Go, " interface") {
+				decls[i] = emptyDecl(d.Kind, d.Name, d.Go, "no method of the interface maps")
+				refused = refused.Put(d.Name, true)
+				continue
+			}
+			decls[i].Members = newMembers
+			decls[i].Lines = kept
+			decls[i].Ergo = TypeText(d.Name, kept)
+		}
+	}
+	decls
+}
+
+func badRefs(refs []string, path string, local Map[string, bool], refused Map[string, bool], refusedElsewhere func(ref string) bool) string {
+	for ref in refs {
+		let (p, name) = splitRef(ref)
+		if p == "" {
+			match local.Get(name) {
+			case option.Some{Value: has}:
+				if has {
+					return "the package declares its own " + name + ", which hides Ergo's " + name + " in the binding"
+				}
+			case option.None:
+			}
+		} else if p == path {
+			match refused.Get(name) {
+			case option.Some{Value: isRef}:
+				if isRef {
+					return "it names the refused type " + name
+				}
+			case option.None:
+			}
+		} else if refusedElsewhere(ref) {
+			return "it names the refused type " + ref
+		}
+	}
+	""
+}
+
+// Close closes decls using an explicit list of external refused type targets.
+func Close(path string, decls []Decl, refusedRefs []string) []Decl {
+	let mut ext = Map[string, bool]{}
+	for r in refusedRefs {
+		ext = ext.Put(r, true)
+	}
+	CloseWith(path, decls, func(ref string) bool {
+		if ref == "io.Closer" {
+			return false
+		}
+		match ext.Get(ref) {
+		case option.Some{Value: v}:
+			v
+		case option.None:
+			false
+		}
+	})
+}
+
+func scanPlaceholders(text string) []string {
+	let open = "\u27e6"
+	let close = "\u27e7"
+	let mut keys = []string{}
+	let mut pos = 0
+	for pos < text.Len() {
+		let start = strings.Index(text[pos:text.Len()], open)
+		if start < 0 {
+			break
+		}
+		let keyStart = pos + start + open.Len()
+		let endRel = strings.Index(text[keyStart:text.Len()], close)
+		if endRel < 0 {
+			break
+		}
+		let k = text[keyStart : keyStart+endRel]
+		keys = keys.Append(k)
+		pos = keyStart + endRel + close.Len()
+	}
+	keys
+}
+
+func replacePlaceholders(text string, local Map[string, string]) string {
+	let open = "\u27e6"
+	let close = "\u27e7"
+	let mut out = strings.NewBuilder()
+	let mut pos = 0
+	for pos < text.Len() {
+		let start = strings.Index(text[pos:text.Len()], open)
+		if start < 0 {
+			strings.WriteString(&out, text[pos:text.Len()])
+			break
+		}
+		strings.WriteString(&out, text[pos:pos+start])
+		let keyStart = pos + start + open.Len()
+		let endRel = strings.Index(text[keyStart:text.Len()], close)
+		if endRel < 0 {
+			strings.WriteString(&out, text[pos+start:text.Len()])
+			break
+		}
+		let k = text[keyStart : keyStart+endRel]
+		match local.Get(k) {
+		case option.Some{Value: repl}:
+			strings.WriteString(&out, repl)
+		case option.None:
+			strings.WriteString(&out, open+k+close)
+		}
+		pos = keyStart + endRel + close.Len()
+	}
+	strings.String(out)
+}
+
+func trimRightDigits(s string) string {
+	let mut end = s.Len()
+	for end > 0 && s[end-1] >= '0' && s[end-1] <= '9' {
+		end = end - 1
+	}
+	s[0:end]
+}
+
+// Render formats decls into a complete formatted Ergo binding file for path.
+func Render(path string, name string, stamp string, module string, decls []Decl) string fails RenderError {
+	let mut body = strings.NewBuilder()
+	for d in decls {
+		strings.WriteString(&body, "\n// ergo:go "+d.Go+"\n")
+		if d.Refused != "" {
+			strings.WriteString(&body, "// ergo:refused "+d.Name+": "+d.Refused+"\n")
+			continue
+		}
+		if d.Context {
+			strings.WriteString(&body, "// ergo:context\n")
+		}
+		if d.Variadic {
+			strings.WriteString(&body, "// ergo:variadic\n")
+		}
+		if d.Writes != "" {
+			strings.WriteString(&body, "// ergo:writes "+d.Writes+"\n")
+		}
+		if d.Reads.Len() > 0 {
+			strings.WriteString(&body, "// ergo:reads "+strings.Join(d.Reads, " ")+"\n")
+		}
+		for v in d.Vouched {
+			strings.WriteString(&body, "// ergo:reads "+v.Param+" (vouched: "+v.Reason+")\n")
+		}
+		if d.Effect != "" && d.EffectFrom != "" {
+			strings.WriteString(&body, "// ergo:effect none from "+d.EffectFrom+" (vouched: "+d.Effect+")\n")
+		} else if d.Effect != "" {
+			strings.WriteString(&body, "// ergo:effect none (vouched: "+d.Effect+")\n")
+		}
+		if d.Host != "" {
+			strings.WriteString(&body, "// ergo:effect ambient (vouched: "+d.Host+")\n")
+		}
+		if d.Total {
+			strings.WriteString(&body, "// ergo:total\n")
+		}
+		strings.WriteString(&body, "extern go "+DeclTarget(d, path)+" "+d.Ergo+"\n")
+		for m in d.Members {
+			strings.WriteString(&body, "\n// ergo:go "+m.Go+"\n")
+			strings.WriteString(&body, "// ergo:refused "+d.Name+"."+m.Name+": "+m.Refused+"\n")
+		}
+	}
+	let rawBody = strings.String(body)
+	let allKeys = scanPlaceholders(rawBody)
+	let mut ergoKeys = []string{}
+	let mut goKeys = []string{}
+	for k in allKeys {
+		if strings.HasPrefix(k, "ergo:") {
+			if !slices.Contains(ergoKeys, k) {
+				ergoKeys = ergoKeys.Append(k)
+			}
+		} else {
+			if !slices.Contains(goKeys, k) {
+				goKeys = goKeys.Append(k)
+			}
+		}
+	}
+	let sortedErgo = slices.Sort(ergoKeys)
+	let sortedGo = slices.Sort(goKeys)
+	let mut local = Map[string, string]{}
+	let mut taken = Map[string, bool]{}
+	taken = taken.Put(name, true)
+	let mut imports = strings.NewBuilder()
+	for k in sortedErgo {
+		let trimmed = strings.TrimPrefix(k, "ergo:")
+		let (p, n0) = match strings.Cut(trimmed, " ") {
+		case option.Some{Value: h}:
+			(h.Before, h.After)
+		case option.None:
+			(trimmed, "")
+		}
+		let mut n = if IsKeyword(n0) { "std" + n0 } else { n0 }
+		let mut suffix = 2
+		for taken.Get(n) != option.None {
+			n = trimRightDigits(n) + strconv.Itoa(suffix)
+			suffix = suffix + 1
+		}
+		taken = taken.Put(n, true)
+		local = local.Put(k, n)
+		if n == lastElem(p) {
+			strings.WriteString(&imports, "import "+p+"\n")
+		} else {
+			strings.WriteString(&imports, "import "+n+" "+p+"\n")
+		}
+	}
+	for k in sortedGo {
+		let (p, n0) = match strings.Cut(k, " ") {
+		case option.Some{Value: h}:
+			(h.Before, h.After)
+		case option.None:
+			(k, "")
+		}
+		let mut n = if IsKeyword(n0) { "go" + n0 } else { n0 }
+		let mut suffix = 2
+		for taken.Get(n) != option.None {
+			n = trimRightDigits(n) + strconv.Itoa(suffix)
+			suffix = suffix + 1
+		}
+		taken = taken.Put(n, true)
+		local = local.Put(k, n)
+		if n == lastElem(p) {
+			strings.WriteString(&imports, "import go "+p+"\n")
+		} else {
+			strings.WriteString(&imports, "import go "+n+" "+p+"\n")
+		}
+	}
+	let bodyText = replacePlaceholders(rawBody, local)
+	let mut src = Header + "\n// ergo:bind " + path + " " + stamp + "\n"
+	if module != "" {
+		src = src + ModuleLine + module + "\n"
+	}
+	let impStr = strings.String(imports)
+	if impStr != "" {
+		src = src + "\n" + impStr
+	}
+	src = src + bodyText
+	format.Source(src, 0) catch {
+	case format.SyntaxFailure as e:
+		return RenderError{Path: path, Reason: "binding of " + path + " does not parse: " + e.Message}
+	case format.OutputLimit as e:
+		return RenderError{Path: path, Reason: "binding of " + path + " exceeded format output limit " + strconv.Itoa(e.Limit)}
+	}
+}
+
+func applyCloserDecls(path string, platforms []Platform, perPlat []MapContext, facts FactsTable, ft gofacts.FactTable, done mut Map[string, []Decl]) []Decl {
+	match (*done).Get(path) {
+	case option.Some{Value: ds}:
+		return ds
+	case option.None:
+	}
+	*done = (*done).Put(path, []Decl{})
+	let mut all = [][]Decl{}
+	let mut usedPlats = []Platform{}
+	for i in 0..platforms.Len() {
+		if i >= perPlat.Len() {
+			break
+		}
+		let ctx = perPlat[i]
+		if PkgDeclIDs(ctx.GD, path).Len() == 0 {
+			continue
+		}
+		let mapped = ValueResults(path, ctx, Decls(ctx, path))
+		all = all.Append(mapped)
+		usedPlats = usedPlats.Append(platforms[i])
+	}
+	let merged = Merge(usedPlats, all)
+	let closed = CloseWith(path, merged, func(ref string) bool {
+		if ref == "io.Closer" {
+			return false
+		}
+		let (p, name) = splitRef(ref)
+		let depDecls = applyCloserDecls(p, platforms, perPlat, facts, ft, done)
+		for dd in depDecls {
+			if dd.Name == name {
+				return dd.Refused != ""
+			}
+		}
+		true
+	})
+	let mut finalized = slices.Clone(closed)
+	ApplyReadsAndTotal(&finalized, path, facts, ft)
+	*done = (*done).Put(path, finalized)
+	finalized
+}
+
+// BindFile converges per-platform MapContext declarations and renders the binding
+// file for pkgPath.
+func BindFile(platforms []Platform, pkgPath string, pkgName string, goVersion string, moduleStamp string, perPlat []MapContext, facts FactsTable, ft gofacts.FactTable) string fails RenderError {
+	let mut platStrs = slices.WithCapacity[string](platforms.Len())
+	for p in platforms {
+		platStrs = platStrs.Append(PlatformText(p))
+	}
+	let stamp = goVersion + " " + strings.Join(platStrs, " ")
+	let mut done = Map[string, []Decl]{}
+	let decls = applyCloserDecls(pkgPath, platforms, perPlat, facts, ft, &done)
+	try Render(pkgPath, pkgName, stamp, moduleStamp, decls)
+}
+
+// BindManyTarget identifies one target package, Go name, and module stamp for BindFiles.
+type BindManyTarget {
+	Path        string,
+	Name        string,
+	ModuleStamp string,
+}
+
+// BindFiles renders multiple packages sharing a single transitive closer cache,
+// outputting framed "@pkg <path>\n@len <N>\n<text>" blocks.
+func BindFiles(platforms []Platform, goVersion string, targets []BindManyTarget, perPlat []MapContext, facts FactsTable, ft gofacts.FactTable) string fails RenderError {
+	let mut platStrs = slices.WithCapacity[string](platforms.Len())
+	for p in platforms {
+		platStrs = platStrs.Append(PlatformText(p))
+	}
+	let stamp = goVersion + " " + strings.Join(platStrs, " ")
+	let mut done = Map[string, []Decl]{}
+	let mut out = strings.NewBuilder()
+	for tgt in targets {
+		let decls = applyCloserDecls(tgt.Path, platforms, perPlat, facts, ft, &done)
+		let text = try Render(tgt.Path, tgt.Name, stamp, tgt.ModuleStamp, decls)
+		strings.WriteString(&out, "@case "+tgt.Path+"\n@len "+strconv.Itoa(text.Len())+"\n"+text)
+	}
+	strings.String(out)
+}
+
+// AsMethodRewritesReceiver checks converting a function signature to a method signature.
+law AsMethodRewritesReceiver() {
+	let a = AsMethod("func FileStat(f *File) Info fails go.Error", "FileStat", "Stat")
+	let b = AsMethod("func Zero() int", "Zero", "Zero")
+	a == option.Some{Value: "func (f *File) Stat() Info fails go.Error"} && b == option.None
+}
+
+// MergeCloseAndRender exercises struct merging, refusal propagation, and formatted rendering.
+test MergeCloseAndRender {
+	let p1 = Platform{GOOS: "darwin", GOARCH: "amd64"}
+	let p2 = Platform{GOOS: "linux", GOARCH: "amd64"}
+	let d1 = Decl{
+		Kind:    BindType, Name: "S", Go: "type S struct",
+		Ergo:    "type S {\n\tShared int,\n\tMacOnly int,\n}",
+		Via:     "", Variadic: false, Context: false, Writes: "",
+		Reads:   []string{}, Vouched: []Vouch{}, Effect: "", EffectFrom: "", Host: "", Total: false, Refused: "",
+		Members: []Member{}, Refs: []string{},
+		Lines:   []Line{
+			Line{Name: "Shared", Go: "Shared int", Text: "Shared int", Refs: []string{}},
+			Line{Name: "MacOnly", Go: "MacOnly int", Text: "MacOnly int", Refs: []string{}},
+		},
+		RefPkgs: []string{}, Readables: []Readable{},
+	}
+	let d2 = Decl{
+		Kind:    BindType, Name: "S", Go: "type S struct",
+		Ergo:    "type S {\n\tShared int,\n}",
+		Via:     "", Variadic: false, Context: false, Writes: "",
+		Reads:   []string{}, Vouched: []Vouch{}, Effect: "", EffectFrom: "", Host: "", Total: false, Refused: "",
+		Members: []Member{}, Refs: []string{},
+		Lines:   []Line{
+			Line{Name: "Shared", Go: "Shared int", Text: "Shared int", Refs: []string{}},
+		},
+		RefPkgs: []string{}, Readables: []Readable{},
+	}
+	let dBad = emptyDecl(BindType, "Hidden", "type Hidden chan int", "Ergo has no channels (196c)")
+	let dUse = Decl{
+		Kind:    BindFunc, Name: "Make", Go: "func Make() Hidden",
+		Ergo:    "func Make() Hidden needs go.Foreign",
+		Via:     "", Variadic: false, Context: false, Writes: "",
+		Reads:   []string{}, Vouched: []Vouch{}, Effect: "", EffectFrom: "", Host: "", Total: false, Refused: "",
+		Members: []Member{}, Refs: []string{"example.com/p.Hidden"}, Lines: []Line{}, RefPkgs: []string{}, Readables: []Readable{},
+	}
+	let merged = Merge([]Platform{p1, p2}, [][]Decl{[]Decl{d1, dBad, dUse}, []Decl{d2, dBad, dUse}})
+	assert merged[0].Lines.Len() == 1
+	assert merged[0].Members.Len() == 1
+	assert merged[0].Members[0].Name == "MacOnly"
+	let closed = Close("example.com/p", merged, []string{})
+	assert closed[2].Refused == "it names the refused type Hidden"
+	let rendered = Render("example.com/p", "p", "go1.27 darwin/amd64 linux/amd64", "", closed) catch {
+	case _:
+		assert false
+		return
+	}
+	assert strings.HasPrefix(rendered, Header+"\n// ergo:bind example.com/p go1.27 darwin/amd64 linux/amd64\n")
+}

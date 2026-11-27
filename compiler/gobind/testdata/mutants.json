@@ -1,0 +1,95 @@
+{
+  "about": "Pure-Ergo gobind SoA type/decl/binding tables, Go-to-Ergo mapping, refusal closure, nonnil/totality provers, and staleness checks.",
+  "mutants": [
+    {
+      "name": "selfhost-gobind-gobind-facts-meet-ignores-other-platforms",
+      "origin": "selfhost-gobind",
+      "file": "compiler/gobind/table.ergo",
+      "decl": "MeetFacts",
+      "from": "\t\t\tif !HasFact(all[j], target, key) {\n\t\t\t\tholds = false\n\t\t\t\tbreak\n\t\t\t}\n",
+      "to": "\t\t\tif false && !HasFact(all[j], target, key) {\n\t\t\t\tholds = false\n\t\t\t\tbreak\n\t\t\t}\n",
+      "rule": "MeetFacts keeps only facts proven across every target platform.",
+      "killers": ["compiler/gobind:law:FactsMeetIntersection"]
+    },
+    {
+      "name": "selfhost-gobind-gobind-isbinder-admits-predeclared",
+      "origin": "selfhost-gobind",
+      "file": "compiler/gobind/map.ergo",
+      "decl": "IsBinder",
+      "from": "\tif name == \"\" || name == \"_\" || IsKeyword(name) || IsPredeclared(name) {\n",
+      "to": "\tif name == \"\" || name == \"_\" || IsKeyword(name) {\n",
+      "rule": "IsBinder rejects predeclared universe/prelude names so generated parameters never shadow them.",
+      "killers": ["compiler/gobind:law:IsBinderRejectsKeywordsAndPredeclared"]
+    },
+    {
+      "name": "selfhost-gobind-gobind-nonnil-fact-ignored",
+      "origin": "selfhost-gobind",
+      "file": "compiler/gobind/map.ergo",
+      "decl": "mapFuncDecl",
+      "from": "\tlet hasNonNil = useFacts && HasFact(ctx.Facts, declTarget, FactNonNilResult)\n",
+      "to": "\tlet hasNonNil = false && useFacts && HasFact(ctx.Facts, declTarget, FactNonNilResult)\n",
+      "rule": "Functions proven non-nil on (*T, error) must map their result to go.Ref[T] rather than Option.",
+      "killers": ["compiler/gobind:MapGoTypesAndSignatures"]
+    },
+    {
+      "name": "selfhost-gobind-gobind-merge-drops-divergent-field",
+      "origin": "selfhost-gobind",
+      "file": "compiler/gobind/binding.ergo",
+      "decl": "tryMergeStruct",
+      "from": "\t\t\tmembers = members.Append(Member{Name: l.Name, Go: l.Go, Refused: reason})\n\t\t}\n\t\tfor m in di.Members {\n",
+      "to": "\t\t\tlet _ = reason\n\t\t}\n\t\tfor m in di.Members {\n",
+      "rule": "Struct merging across platforms records divergent fields as refused members.",
+      "killers": ["compiler/gobind:MergeCloseAndRender"]
+    },
+    {
+      "name": "selfhost-gobind-gobind-close-ignores-local-refused",
+      "origin": "selfhost-gobind",
+      "file": "compiler/gobind/binding.ergo",
+      "decl": "badRefs",
+      "from": "\t\t} else if p == path {\n\t\t\tmatch refused.Get(name) {\n\t\t\tcase option.Some{Value: isRef}:\n\t\t\t\tif isRef {\n\t\t\t\t\treturn \"it names the refused type \" + name\n\t\t\t\t}\n",
+      "to": "\t\t} else if false && p == path {\n\t\t\tmatch refused.Get(name) {\n\t\t\tcase option.Some{Value: isRef}:\n\t\t\t\tif isRef {\n\t\t\t\t\treturn \"it names the refused type \" + name\n\t\t\t\t}\n",
+      "rule": "CloseWith refuses declarations that reference a locally refused type.",
+      "killers": ["compiler/gobind:MergeCloseAndRender"]
+    },
+    {
+      "name": "selfhost-gobind-gobind-escape-ignores-other-lines",
+      "origin": "selfhost-gobind",
+      "file": "compiler/gobind/derive.ergo",
+      "decl": "EscapeStatus",
+      "from": "\t\t\tif dense.Of(es.IsReads, id) {\n\t\t\t\thasReads = true\n\t\t\t} else {\n\t\t\t\thasOther = true\n\t\t\t}\n",
+      "to": "\t\t\tif dense.Of(es.IsReads, id) {\n\t\t\t\thasReads = true\n\t\t\t} else {\n\t\t\t\thasOther = false\n\t\t\t}\n",
+      "rule": "Other compiler escape diagnostics at the same line/col poison non-escaping reads verdicts.",
+      "killers": ["compiler/gobind:law:FactsMeetMonotonic", "compiler/gobind:ParseEscapeAndParamFacts"]
+    },
+    {
+      "name": "selfhost-gobind-gobind-total-allows-int-div-by-var",
+      "origin": "selfhost-gobind",
+      "file": "compiler/gobind/total.ergo",
+      "decl": "totalBinary",
+      "from": "\t\treturn (yfl&AFFlagTvConst) != uint32(0) && (yfl&AFFlagTvConstNonZero) != uint32(0)\n",
+      "to": "\t\treturn (yfl&AFFlagTvConst) != uint32(0) || true\n",
+      "rule": "Integer division or remainder is total only when the divisor is a non-zero constant.",
+      "killers": ["compiler/gobind:law:TotalDisallowsIntDivByVar"]
+    },
+    {
+      "name": "selfhost-gobind-gobind-nonnil-ret-accepts-nil",
+      "origin": "selfhost-gobind",
+      "file": "compiler/gobind/nonnil_flow.ergo",
+      "decl": "flowRet",
+      "from": "\t\t\tok = pOK || eOK || hasPair(st.pairs, nnPair{a: k0, b: k1})\n\t\t}\n\t}\n\tif !ok {\n\t\tfm.ok = false\n\t}\n",
+      "to": "\t\t\tok = pOK || eOK || hasPair(st.pairs, nnPair{a: k0, b: k1})\n\t\t}\n\t}\n\tlet _ = ok\n",
+      "rule": "A return path whose pointer and error proof both fail must reject non-nil proof.",
+      "killers": ["compiler/gobind:NonNilProvesPointerOrError", "compiler/gobind:NonNilFlowPairAndCheck"]
+    },
+    {
+      "name": "selfhost-gobind-gobind-stale-ignores-content-diff",
+      "origin": "selfhost-gobind",
+      "file": "compiler/gobind/stale.ergo",
+      "decl": "Stale",
+      "from": "\t\t\t\tif cText != wText {\n\t\t\t\t\tout = out.Append(p + \": differs from what ergo bind go writes, \" + FirstDiff(cText, wText))\n\t\t\t\t}\n",
+      "to": "\t\t\t\tif false && cText != wText {\n\t\t\t\t\tout = out.Append(p + \": differs from what ergo bind go writes, \" + FirstDiff(cText, wText))\n\t\t\t\t}\n",
+      "rule": "Stale reports any content mismatch between committed and freshly written bindings.",
+      "killers": ["compiler/gobind:StaleMemoryFixture"]
+    }
+  ]
+}

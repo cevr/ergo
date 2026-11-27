@@ -1,0 +1,627 @@
+// Pure-Ergo least-fixed-point totality prover matching internal/gobind/total.go
+// over GoTypeTable and GoAstTable.
+
+import option
+
+type totalDeclEntry {
+	sym      uint32,
+	fnAst    uint32,
+	recvType uint32,
+	target   string,
+	proven   bool,
+}
+
+func basicOfType(gt GoTypeTable, rawTID uint32) uint32 {
+	if rawTID == NoIndex {
+		return NoIndex
+	}
+	let u = underlying(gt, rawTID)
+	if u == NoIndex || typeKind(gt, u) != TKBasic {
+		return NoIndex
+	}
+	let bk = typeBasicKind(gt, u)
+	if bk == BUnsafePointer || bk == BUntypedNil {
+		return NoIndex
+	}
+	u
+}
+
+func basicIsInteger(gt GoTypeTable, b uint32) bool {
+	if b == NoIndex {
+		return false
+	}
+	let bk = typeBasicKind(gt, b)
+	if (typeFlags(gt, b) & TFFlagBasicInteger) != uint32(0) {
+		return true
+	}
+		bk == BInt || bk == BInt8 || bk == BInt16 || bk == BInt32 || bk == BInt64 ||
+		bk == BUint || bk == BUint8 || bk == BUint16 || bk == BUint32 || bk == BUint64 || bk == BUintptr ||
+		bk == BByte || bk == BRune || bk == BUntypedInt || bk == BUntypedRune
+}
+
+func basicIsUnsigned(gt GoTypeTable, b uint32) bool {
+	if b == NoIndex {
+		return false
+	}
+	let bk = typeBasicKind(gt, b)
+	if (typeFlags(gt, b) & TFFlagBasicUnsigned) != uint32(0) {
+		return true
+	}
+	bk == BUint || bk == BUint8 || bk == BUint16 || bk == BUint32 || bk == BUint64 || bk == BUintptr || bk == BByte
+}
+
+func basicIsNumeric(gt GoTypeTable, b uint32) bool {
+	if b == NoIndex {
+		return false
+	}
+	let bk = typeBasicKind(gt, b)
+	if (typeFlags(gt, b) & TFFlagBasicNumeric) != uint32(0) {
+		return true
+	}
+	basicIsInteger(gt, b) || bk == BFloat32 || bk == BFloat64 || bk == BComplex64 || bk == BComplex128 || bk == BUntypedFloat || bk == BUntypedComplex
+}
+
+func basicIsString(gt GoTypeTable, b uint32) bool {
+	if b == NoIndex {
+		return false
+	}
+	let bk = typeBasicKind(gt, b)
+	if (typeFlags(gt, b) & TFFlagBasicString) != uint32(0) {
+		return true
+	}
+	bk == BString || bk == BUntypedString
+}
+
+func defaultBasicKind(b uint8) uint8 {
+	if b == BUntypedBool {
+		return BBool
+	}
+	if b == BUntypedInt {
+		return BInt
+	}
+	if b == BUntypedRune {
+		return BInt32
+	}
+	if b == BUntypedFloat {
+		return BFloat64
+	}
+	if b == BUntypedComplex {
+		return BComplex128
+	}
+	if b == BUntypedString {
+		return BString
+	}
+	b
+}
+
+func totalConversion(gt GoTypeTable, fromTID uint32, toTID uint32) bool {
+	let f = basicOfType(gt, fromTID)
+	let g = basicOfType(gt, toTID)
+	if f == NoIndex || g == NoIndex {
+		return false
+	}
+	if basicIsNumeric(gt, f) && basicIsNumeric(gt, g) {
+		return true
+	}
+	canonicalBasic(defaultBasicKind(typeBasicKind(gt, f))) == canonicalBasic(typeBasicKind(gt, g))
+}
+
+func totalAssignBinOp(op uint8) uint8 {
+	if op == OpAddAssign {
+		return OpAdd
+	}
+	if op == OpSubAssign {
+		return OpSub
+	}
+	if op == OpMulAssign {
+		return OpMul
+	}
+	if op == OpQuoAssign {
+		return OpQuo
+	}
+	if op == OpRemAssign {
+		return OpRem
+	}
+	if op == OpAndAssign {
+		return OpAnd
+	}
+	if op == OpOrAssign {
+		return OpOr
+	}
+	if op == OpXorAssign {
+		return OpXor
+	}
+	if op == OpShlAssign {
+		return OpShl
+	}
+	if op == OpShrAssign {
+		return OpShr
+	}
+	if op == OpAndNotAssign {
+		return OpAndNot
+	}
+	OpNone
+}
+
+func totalLocal(ga GoAstTable, raw uint32) bool {
+	let id = unparenAst(ga, raw)
+	if astKind(ga, id) != NAIdent {
+		return false
+	}
+	if astName(ga, id) == "_" {
+		return true
+	}
+	let fl = astFlags(ga, id)
+	astObjKind(ga, id) == ObjVar && (fl&AFFlagObjPkgScope) == uint32(0) && (fl&AFFlagObjIsField) == uint32(0)
+}
+
+func totalBasic(gt GoTypeTable, ga GoAstTable, x uint32) bool {
+	basicOfType(gt, astType(ga, x)) != NoIndex
+}
+
+func totalInteger(gt GoTypeTable, ga GoAstTable, x uint32) bool {
+	let b = basicOfType(gt, astType(ga, x))
+	basicIsInteger(gt, b)
+}
+
+func isSymProven(entries []totalDeclEntry, sym uint32) option.Option[int] {
+	if sym == NoIndex {
+		return option.None
+	}
+	for i, e in entries {
+		if e.sym == sym {
+			return option.Some{Value: i}
+		}
+	}
+	option.None
+}
+
+func totalBinary(gt GoTypeTable, ga GoAstTable, op uint8, x uint32, y uint32) bool {
+	if !totalBasic(gt, ga, x) || !totalBasic(gt, ga, y) {
+		return false
+	}
+	if op == OpLand || op == OpLor || op == OpEql || op == OpNeq || op == OpLss || op == OpLeq || op == OpGtr || op == OpGeq ||
+		op == OpAdd || op == OpSub || op == OpMul || op == OpAnd || op == OpOr || op == OpXor || op == OpAndNot {
+		return true
+	}
+	if op == OpShl || op == OpShr {
+		let yfl = astFlags(ga, y)
+		let yb = basicOfType(gt, astType(ga, y))
+		return (yfl&AFFlagTvConst) != uint32(0) || basicIsUnsigned(gt, yb)
+	}
+	if op == OpQuo || op == OpRem {
+		let xb = basicOfType(gt, astType(ga, x))
+		if !basicIsInteger(gt, xb) {
+			return true
+		}
+		let yfl = astFlags(ga, y)
+		return (yfl&AFFlagTvConst) != uint32(0) && (yfl&AFFlagTvConstNonZero) != uint32(0)
+	}
+	false
+}
+
+func totalBuiltin(gt GoTypeTable, ga GoAstTable, name string, args []uint32) bool {
+	if name == "min" || name == "max" {
+		for a in args {
+			if !totalBasic(gt, ga, a) {
+				return false
+			}
+		}
+		return true
+	}
+	if name == "len" || name == "cap" {
+		if args.Len() != 1 {
+			return false
+		}
+		let b = basicOfType(gt, astType(ga, args[0]))
+		if b != NoIndex {
+			return basicIsString(gt, b)
+		}
+		let u = underlying(gt, astType(ga, args[0]))
+		return u != NoIndex && typeKind(gt, u) == TKArray
+	}
+	false
+}
+
+func totalCall(gt GoTypeTable, ga GoAstTable, entries []totalDeclEntry, c uint32) bool {
+	let fun = unparenAst(ga, astX(ga, c))
+	let args = astChildren(ga, c)
+	if (astFlags(ga, fun) & AFFlagTvIsType) != uint32(0) {
+		return args.Len() == 1 && totalExpr(gt, ga, entries, args[0]) && totalConversion(gt, astType(ga, args[0]), astType(ga, fun))
+	}
+	if (astFlags(ga, c) & AFFlagEllipsis) != uint32(0) {
+		return false
+	}
+	for a in args {
+		if !totalExpr(gt, ga, entries, a) {
+			return false
+		}
+	}
+	let fk = astKind(ga, fun)
+	if fk == NAIdent {
+		let okind = astObjKind(ga, fun)
+		if okind == ObjBuiltin {
+			return totalBuiltin(gt, ga, astName(ga, fun), args)
+		}
+		if okind == ObjFunc {
+			match isSymProven(entries, astFuncSym(ga, fun)) {
+			case option.Some{Value: idx}:
+				return entries[idx].proven
+			case option.None:
+				return false
+			}
+		}
+		return false
+	}
+	if fk == NASelector {
+		if astObjKind(ga, fun) != ObjFunc {
+			return false
+		}
+		let idx = match isSymProven(entries, astFuncSym(ga, fun)) {
+		case option.Some{Value: i}:
+			i
+		case option.None:
+			return false
+		}
+		if !entries[idx].proven {
+			return false
+		}
+		let recvT = entries[idx].recvType
+		let rx = astX(ga, fun)
+		return recvT != NoIndex && IdenticalType(gt, astType(ga, rx), recvT) && totalExpr(gt, ga, entries, rx)
+	}
+	false
+}
+
+func totalExpr(gt GoTypeTable, ga GoAstTable, entries []totalDeclEntry, raw uint32) bool {
+	if raw == NoIndex {
+		return false
+	}
+	if (astFlags(ga, raw) & AFFlagTvConst) != uint32(0) {
+		return true
+	}
+	let kd = astKind(ga, raw)
+	if kd == NAParen {
+		return totalExpr(gt, ga, entries, astX(ga, raw))
+	}
+	if kd == NAIdent {
+		let okind = astObjKind(ga, raw)
+		if okind == ObjVar {
+			let fl = astFlags(ga, raw)
+			if (fl & AFFlagObjPkgScope) != uint32(0) {
+				return totalBasic(gt, ga, raw)
+			}
+			return (fl & AFFlagObjIsField) == uint32(0)
+		}
+		if okind == ObjConst {
+			return true
+		}
+		return false
+	}
+	if kd == NASelector {
+		return false
+	}
+	if kd == NAUnary {
+		let op = astOp(ga, raw)
+		if op == OpAdd || op == OpSub || op == OpXor || op == OpNot {
+			let inner = astX(ga, raw)
+			return totalBasic(gt, ga, inner) && totalExpr(gt, ga, entries, inner)
+		}
+		return false
+	}
+	if kd == NABinary {
+		let x = astX(ga, raw)
+		let y = astY(ga, raw)
+		return totalExpr(gt, ga, entries, x) && totalExpr(gt, ga, entries, y) && totalBinary(gt, ga, astOp(ga, raw), x, y)
+	}
+	if kd == NACall {
+		return totalCall(gt, ga, entries, raw)
+	}
+	false
+}
+
+func totalValues(gt GoTypeTable, ga GoAstTable, entries []totalDeclEntry, n int, xs []uint32) bool {
+	if xs.Len() == 1 && n > 1 {
+		let c = unparenAst(ga, xs[0])
+		return astKind(ga, c) == NACall && totalCall(gt, ga, entries, c)
+	}
+	for x in xs {
+		if !totalExpr(gt, ga, entries, x) {
+			return false
+		}
+	}
+	true
+}
+
+func totalAssign(gt GoTypeTable, ga GoAstTable, entries []totalDeclEntry, s uint32) bool {
+	let lhs = astLhs(ga, s)
+	let rhs = astRhs(ga, s)
+	for l in lhs {
+		if !totalLocal(ga, l) {
+			return false
+		}
+	}
+	let tok = astOp(ga, s)
+	if tok == OpAssign || tok == OpDefine {
+		return totalValues(gt, ga, entries, lhs.Len(), rhs)
+	}
+	if lhs.Len() != 1 || rhs.Len() != 1 {
+		return false
+	}
+	let op = totalAssignBinOp(tok)
+	op != OpNone && totalExpr(gt, ga, entries, rhs[0]) && totalBinary(gt, ga, op, lhs[0], rhs[0])
+}
+
+func totalBlock(gt GoTypeTable, ga GoAstTable, entries []totalDeclEntry, xs []uint32) bool {
+	for s in xs {
+		if !totalStmt(gt, ga, entries, s) {
+			return false
+		}
+	}
+	true
+}
+
+func totalStmt(gt GoTypeTable, ga GoAstTable, entries []totalDeclEntry, s uint32) bool {
+	if s == NoIndex {
+		return true
+	}
+	let kd = astKind(ga, s)
+	if kd == NSEmpty {
+		return true
+	}
+	if kd == NSBlock {
+		return totalBlock(gt, ga, entries, astChildren(ga, s))
+	}
+	if kd == NSLabeled {
+		return totalStmt(gt, ga, entries, astX(ga, s))
+	}
+	if kd == NSExpr {
+		let c = unparenAst(ga, astX(ga, s))
+		return astKind(ga, c) == NACall && totalCall(gt, ga, entries, c)
+	}
+	if kd == NSAssign {
+		return totalAssign(gt, ga, entries, s)
+	}
+	if kd == NSIncDec {
+		let x = astX(ga, s)
+		return totalLocal(ga, x) && totalBasic(gt, ga, x)
+	}
+	if kd == NSDecl {
+		if astOp(ga, s) == OpNone {
+			return false
+		}
+		for sp in astChildren(ga, s) {
+			if astKind(ga, sp) == NDValueSpec && astOp(ga, s) == OpVar {
+				if !totalValues(gt, ga, entries, astLhs(ga, sp).Len(), astRhs(ga, sp)) {
+					return false
+				}
+			}
+		}
+		return true
+	}
+	if kd == NSReturn {
+		let res = astRhs(ga, s)
+		return totalValues(gt, ga, entries, res.Len(), res)
+	}
+	if kd == NSIf {
+		let cond = astY(ga, s)
+		let body = astZ(ga, s)
+		return totalStmt(gt, ga, entries, astX(ga, s)) &&
+			totalExpr(gt, ga, entries, cond) && totalBasic(gt, ga, cond) &&
+			totalBlock(gt, ga, entries, astChildren(ga, body)) &&
+			totalStmt(gt, ga, entries, astW(ga, s))
+	}
+	if kd == NSSwitch {
+		if !totalStmt(gt, ga, entries, astX(ga, s)) {
+			return false
+		}
+		let tag = astY(ga, s)
+		if tag != NoIndex && (!totalExpr(gt, ga, entries, tag) || !totalBasic(gt, ga, tag)) {
+			return false
+		}
+		for cc in astChildren(ga, astZ(ga, s)) {
+			for x in astLhs(ga, cc) {
+				if !totalExpr(gt, ga, entries, x) || !totalBasic(gt, ga, x) {
+					return false
+				}
+			}
+			if !totalBlock(gt, ga, entries, astChildren(ga, cc)) {
+				return false
+			}
+		}
+		return true
+	}
+	if kd == NSBranch {
+		let op = astOp(ga, s)
+		return op == OpBreak || op == OpContinue || op == OpFallthrough
+	}
+	if kd == NSFor {
+		let cond = astY(ga, s)
+		let condOK = cond == NoIndex || (totalExpr(gt, ga, entries, cond) && totalBasic(gt, ga, cond))
+		return totalStmt(gt, ga, entries, astX(ga, s)) && condOK &&
+			totalStmt(gt, ga, entries, astZ(ga, s)) &&
+			totalBlock(gt, ga, entries, astChildren(ga, astW(ga, s)))
+	}
+	if kd == NSRange {
+		let k = astX(ga, s)
+		let v = astY(ga, s)
+		if astOp(ga, s) == OpAssign && ((k != NoIndex && !totalLocal(ga, k)) || (v != NoIndex && !totalLocal(ga, v))) {
+			return false
+		}
+		let rx = astZ(ga, s)
+		return totalInteger(gt, ga, rx) && totalExpr(gt, ga, entries, rx) &&
+			totalBlock(gt, ga, entries, astChildren(ga, astW(ga, s)))
+	}
+	false
+}
+
+func totalPkgFuncs(gt GoTypeTable, ga GoAstTable, pkg AstPackage, out mut FactsTable) {
+	let mut entries = []totalDeclEntry{}
+	for fIdx in pkg.Files {
+		for dIdx in astChildren(ga, fIdx) {
+			if astKind(ga, dIdx) != NDFuncDecl {
+				continue
+			}
+			let fl = astFlags(ga, dIdx)
+			let body = astW(ga, dIdx)
+			if body == NoIndex || (fl&AFFlagHasTypeParams) != uint32(0) {
+				continue
+			}
+			let sym = astFuncSym(ga, dIdx)
+			if sym == NoIndex {
+				continue
+			}
+			let fnName = astName(ga, dIdx)
+			let mut target = pkg.Path + "." + fnName
+			let recvT = astRecvType(ga, dIdx)
+			if (fl & AFFlagHasRecv) != uint32(0) {
+				let rt = astTarget(ga, dIdx)
+				if rt == "" || (fl&AFFlagPtrRecv) != uint32(0) {
+					continue
+				}
+				target = pkg.Path + "." + rt + "." + fnName
+			}
+			entries = entries.Append(totalDeclEntry{
+				sym:      sym,
+				fnAst:    dIdx,
+				recvType: recvT,
+				target:   target,
+				proven:   false,
+			})
+		}
+	}
+	let mut changed = true
+	for changed {
+		changed = false
+		for i in 0..entries.Len() {
+			if entries[i].proven {
+				continue
+			}
+			let body = astW(ga, entries[i].fnAst)
+			if totalBlock(gt, ga, entries, astChildren(ga, body)) {
+				entries[i].proven = true
+				changed = true
+			}
+		}
+	}
+	for e in entries {
+		if e.proven {
+			AddFact(out, e.target, FactTotal)
+		}
+	}
+}
+
+// DeriveTotal runs the least-fixed-point totality analysis over pkgs and records
+// FactTotal into out.
+func DeriveTotal(gt GoTypeTable, ga GoAstTable, pkgs []AstPackage, out mut FactsTable) {
+	for p in pkgs {
+		totalPkgFuncs(gt, ga, p, out)
+	}
+}
+
+// TotalDisallowsIntDivByVar: integer division by a non-constant local never proves total.
+law TotalDisallowsIntDivByVar() {
+	let mut gt = NewGoTypeTable()
+	let tInt = AddType(&gt, TypeSpec{Kind: TKBasic, BasicKind: BInt, BasicName: "int", Name: "int", PkgPath: "", PkgName: "", TypeText: "int", ShortText: "int", Elem: NoIndex, Key: NoIndex, ArrLen: uint32(0), Underlying: NoIndex, RecvType: NoIndex, RecvName: "", Flags: TFFlagBasicInteger | TFFlagBasicNumeric})
+	let mut ga = NewGoAstTable()
+	let mut xSpec = EmptyAstSpec(NAIdent)
+	xSpec.ObjKind = ObjVar
+	xSpec.Name = "a"
+	xSpec.TypeID = tInt
+	let xID = AddAst(&ga, xSpec)
+	let mut ySpec = EmptyAstSpec(NAIdent)
+	ySpec.ObjKind = ObjVar
+	ySpec.Name = "b"
+	ySpec.TypeID = tInt
+	let yID = AddAst(&ga, ySpec)
+	let mut divSpec = EmptyAstSpec(NABinary)
+	divSpec.Op = OpQuo
+	divSpec.X = xID
+	divSpec.Y = yID
+	divSpec.TypeID = tInt
+	let divID = AddAst(&ga, divSpec)
+	let retSpec = EmptyAstSpec(NSReturn)
+	let retID = AddAst(&ga, retSpec)
+	SetAstRhs(&ga, retID, []uint32{divID})
+	let blkID = AddAst(&ga, EmptyAstSpec(NSBlock))
+	SetAstChildren(&ga, blkID, []uint32{retID})
+	let mut fnSpec = EmptyAstSpec(NDFuncDecl)
+	fnSpec.Name = "Div"
+	fnSpec.FuncSym = uint32(1)
+	fnSpec.W = blkID
+	let fnID = AddAst(&ga, fnSpec)
+	let fileID = AddAst(&ga, EmptyAstSpec(NDFile))
+	SetAstChildren(&ga, fileID, []uint32{fnID})
+	let mut facts = NewFactsTable()
+	DeriveTotal(gt, ga, []AstPackage{AstPackage{Path: "example.com/p", Files: []uint32{fileID}}}, &facts)
+	!HasFact(facts, "example.com/p.Div", FactTotal)
+}
+
+// TotalProvesChainAndRejectsSlicePanic verifies inter-procedural fixed point and non-total rejection.
+test TotalProvesChainAndRejectsSlicePanic {
+	let mut gt = NewGoTypeTable()
+	let tInt = AddType(&gt, TypeSpec{Kind: TKBasic, BasicKind: BInt, BasicName: "int", Name: "int", PkgPath: "", PkgName: "", TypeText: "int", ShortText: "int", Elem: NoIndex, Key: NoIndex, ArrLen: uint32(0), Underlying: NoIndex, RecvType: NoIndex, RecvName: "", Flags: TFFlagBasicInteger | TFFlagBasicNumeric})
+	let mut ga = NewGoAstTable()
+
+	let mut leafParam = EmptyAstSpec(NAIdent)
+	leafParam.ObjKind = ObjVar
+	leafParam.Name = "n"
+	leafParam.TypeID = tInt
+	let leafP = AddAst(&ga, leafParam)
+
+	let mut twoLit = EmptyAstSpec(NABasicLit)
+	twoLit.Flags = AFFlagTvConst | AFFlagTvConstNonZero | AFFlagBasicLitInt
+	twoLit.TypeID = tInt
+	let twoID = AddAst(&ga, twoLit)
+
+	let mut addBin = EmptyAstSpec(NABinary)
+	addBin.Op = OpAdd
+	addBin.X = leafP
+	addBin.Y = twoID
+	addBin.TypeID = tInt
+	let addID = AddAst(&ga, addBin)
+
+	let retLeaf = AddAst(&ga, EmptyAstSpec(NSReturn))
+	SetAstRhs(&ga, retLeaf, []uint32{addID})
+	let blkLeaf = AddAst(&ga, EmptyAstSpec(NSBlock))
+	SetAstChildren(&ga, blkLeaf, []uint32{retLeaf})
+	let mut fnLeaf = EmptyAstSpec(NDFuncDecl)
+	fnLeaf.Name = "Leaf"
+	fnLeaf.FuncSym = uint32(10)
+	fnLeaf.W = blkLeaf
+	let leafDecl = AddAst(&ga, fnLeaf)
+
+	let mut calleeIdent = EmptyAstSpec(NAIdent)
+	calleeIdent.ObjKind = ObjFunc
+	calleeIdent.Name = "Leaf"
+	calleeIdent.FuncSym = uint32(10)
+	let calleeID = AddAst(&ga, calleeIdent)
+
+	let mut argIdent = EmptyAstSpec(NAIdent)
+	argIdent.ObjKind = ObjVar
+	argIdent.Name = "k"
+	argIdent.TypeID = tInt
+	let argID = AddAst(&ga, argIdent)
+
+	let mut callLeaf = EmptyAstSpec(NACall)
+	callLeaf.X = calleeID
+	let callID = AddAst(&ga, callLeaf)
+	SetAstChildren(&ga, callID, []uint32{argID})
+
+	let retCall = AddAst(&ga, EmptyAstSpec(NSReturn))
+	SetAstRhs(&ga, retCall, []uint32{callID})
+	let blkCaller = AddAst(&ga, EmptyAstSpec(NSBlock))
+	SetAstChildren(&ga, blkCaller, []uint32{retCall})
+	let mut fnCaller = EmptyAstSpec(NDFuncDecl)
+	fnCaller.Name = "Caller"
+	fnCaller.FuncSym = uint32(11)
+	fnCaller.W = blkCaller
+	let callerDecl = AddAst(&ga, fnCaller)
+
+	let fileID = AddAst(&ga, EmptyAstSpec(NDFile))
+	SetAstChildren(&ga, fileID, []uint32{leafDecl, callerDecl})
+	let mut facts = NewFactsTable()
+	DeriveTotal(gt, ga, []AstPackage{AstPackage{Path: "example.com/p", Files: []uint32{fileID}}}, &facts)
+	assert HasFact(facts, "example.com/p.Leaf", FactTotal)
+	assert HasFact(facts, "example.com/p.Caller", FactTotal)
+}

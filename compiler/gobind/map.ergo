@@ -1,0 +1,1795 @@
+// Pure-Ergo Go-to-Ergo declaration, signature, and type mapper matching
+// internal/gobind/map.go and Decls/ownTypeMethods semantics over SoA tables.
+
+import compiler/gofacts
+import dense
+import option
+import slices
+import strconv
+import strings
+
+let rowFails = "CE"
+let rowNeeds = "CR"
+
+let posParam = uint8(0)
+let posResult = uint8(1)
+let posErrResult = uint8(2)
+let posField = uint8(3)
+let posInner = uint8(4)
+
+// MapContext holds immutable read-only SoA tables needed to map Go declarations.
+type MapContext {
+	GT        GoTypeTable,
+	GD        GoDeclTable,
+	Facts     FactsTable,
+	FT        gofacts.FactTable,
+	ET        gofacts.EffectTable,
+	Ledger    gofacts.LedgerTable,
+	Toolchain string,
+}
+
+// DefaultMapContext builds a MapContext with default gofacts tables and empty facts.
+func DefaultMapContext(gt GoTypeTable, gd GoDeclTable) MapContext {
+	MapContext{
+		GT:        gt,
+		GD:        gd,
+		Facts:     NewFactsTable(),
+		FT:        gofacts.DefaultFactTable(),
+		ET:        gofacts.DefaultEffectTable(),
+		Ledger:    gofacts.NewLedgerTable(),
+		Toolchain: gofacts.DefaultToolchain,
+	}
+}
+
+// IsKeyword reports whether name is an Ergo keyword or reserved word.
+func IsKeyword(name string) bool {
+	match name {
+	case "break", "case", "continue", "else", "for", "func", "if", "import", "return", "type", "try", "catch", "needs", "provides", "context", "machine", "let", "mut", "in", "match", "escaping", "fails", "test", "law", "assert", "extern", "with", "takes", "as", "chan", "const", "default", "defer", "fallthrough", "go", "goto", "interface", "map", "package", "range", "select", "struct", "switch", "var":
+		true
+	case _:
+		false
+	}
+}
+
+// IsPredeclared reports whether name is predeclared in the universe or prelude scope.
+func IsPredeclared(name string) bool {
+	if name == "_" || name == "error" || name == "uintptr" || name == "complex64" || name == "complex128" || name == "with" || name == "go" || name == "wire" {
+		return false
+	}
+	match name {
+	case "Map", "bool", "string", "int", "int8", "int16", "int32", "int64", "uint", "uint8", "uint16", "uint32", "uint64", "float32", "float64", "duration", "byte", "rune", "comparable", "true", "false", "len", "hash", "encode", "decode", "embedded", "wired":
+		true
+	case "Option", "Some", "None", "Seq", "Ambient", "AlarmClock", "Alarms", "TestAmbient", "TestDirectory", "TestFolderHandle", "TestFolder", "TestLoopback", "Scheduler", "LiveScheduler", "NewLiveScheduler", "Random", "Unsatisfied", "NoMatch", "Writer", "Reader", "Console":
+		true
+	case "WireWrongKind", "WireNull", "WireBool", "WireNumber", "WireString", "WireList", "WireObject", "WireEnd", "WireKind", "WireMissingField", "WireUnknownTag", "WireOmittable", "WireNullable", "WireBare", "WireNumberText", "WireMembers":
+		true
+	case "Hashing", "Structural", "Hash", "Equal", "NormalForm", "NormalKey", "Get", "Put", "Delete", "Take", "Clone", "Len", "Using", "MakeMap", "Stored", "Range", "CallSite", "Context", "AsWritten":
+		true
+	case "Enter", "Stay", "Emit", "Ignore", "Reject", "Done", "Tell", "Decision", "Never", "Absurd", "Timeout", "Machine", "InputMachine", "Closer", "Keeping":
+		true
+	case "noMatch", "unsatisfied", "wireMissingField", "wireUnknownTag", "wireWrongKind", "liveOnly":
+		true
+	case _:
+		false
+	}
+}
+
+// IsBinder reports whether name is a valid Ergo parameter binder identifier.
+func IsBinder(name string) bool {
+	if name == "" || name == "_" || IsKeyword(name) || IsPredeclared(name) {
+		return false
+	}
+	for i in 0..name.Len() {
+		let c = name[i]
+		let letter = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_'
+		let digit = i > 0 && c >= '0' && c <= '9'
+		if !letter && !digit {
+			return false
+		}
+	}
+	true
+}
+
+// IsInternalPath reports whether path contains an "internal" or "vendor" segment.
+func IsInternalPath(path string) bool {
+	for e in strings.Split(path, "/") {
+		if e == "internal" || e == "vendor" {
+			return true
+		}
+	}
+	false
+}
+
+// Placehold formats an import placeholder token matching internal/gobind rendering.
+func Placehold(path string, name string) string {
+	"\u27e6" + path + " " + name + "\u27e7"
+}
+
+func placeholdStd(pkg string) string {
+	Placehold("ergo:"+pkg, pkg)
+}
+
+func typeKind(gt GoTypeTable, tid uint32) uint8 {
+	if tid == NoIndex {
+		return uint8(0)
+	}
+	dense.Of(gt.Kind, TypeIDAt(gt, tid))
+}
+
+func typeFlags(gt GoTypeTable, tid uint32) uint32 {
+	if tid == NoIndex {
+		return uint32(0)
+	}
+	dense.Of(gt.Flags, TypeIDAt(gt, tid))
+}
+
+func typeName(gt GoTypeTable, tid uint32) string {
+	if tid == NoIndex {
+		return ""
+	}
+	dense.Text(gt.Strings, dense.Of(gt.Name, TypeIDAt(gt, tid)))
+}
+
+func typePkgPath(gt GoTypeTable, tid uint32) string {
+	if tid == NoIndex {
+		return ""
+	}
+	dense.Text(gt.Strings, dense.Of(gt.PkgPath, TypeIDAt(gt, tid)))
+}
+
+func typePkgName(gt GoTypeTable, tid uint32) string {
+	if tid == NoIndex {
+		return ""
+	}
+	dense.Text(gt.Strings, dense.Of(gt.PkgName, TypeIDAt(gt, tid)))
+}
+
+func typeBasicKind(gt GoTypeTable, tid uint32) uint8 {
+	if tid == NoIndex {
+		return BInvalid
+	}
+	dense.Of(gt.BasicKind, TypeIDAt(gt, tid))
+}
+
+func typeBasicName(gt GoTypeTable, tid uint32) string {
+	if tid == NoIndex {
+		return ""
+	}
+	dense.Text(gt.Strings, dense.Of(gt.BasicName, TypeIDAt(gt, tid)))
+}
+
+func typeText(gt GoTypeTable, tid uint32) string {
+	if tid == NoIndex {
+		return ""
+	}
+	dense.Text(gt.Strings, dense.Of(gt.TypeText, TypeIDAt(gt, tid)))
+}
+
+func typeShortText(gt GoTypeTable, tid uint32) string {
+	if tid == NoIndex {
+		return ""
+	}
+	dense.Text(gt.Strings, dense.Of(gt.ShortText, TypeIDAt(gt, tid)))
+}
+
+func typeElem(gt GoTypeTable, tid uint32) uint32 {
+	if tid == NoIndex {
+		return NoIndex
+	}
+	dense.Of(gt.Elem, TypeIDAt(gt, tid))
+}
+
+func typeKey(gt GoTypeTable, tid uint32) uint32 {
+	if tid == NoIndex {
+		return NoIndex
+	}
+	dense.Of(gt.Key, TypeIDAt(gt, tid))
+}
+
+func typeUnder(gt GoTypeTable, tid uint32) uint32 {
+	if tid == NoIndex {
+		return NoIndex
+	}
+	dense.Of(gt.Underlying, TypeIDAt(gt, tid))
+}
+
+func typeArrLen(gt GoTypeTable, tid uint32) uint32 {
+	if tid == NoIndex {
+		return uint32(0)
+	}
+	dense.Of(gt.ArrLen, TypeIDAt(gt, tid))
+}
+
+func typeRecvType(gt GoTypeTable, tid uint32) uint32 {
+	if tid == NoIndex {
+		return NoIndex
+	}
+	dense.Of(gt.RecvType, TypeIDAt(gt, tid))
+}
+
+func typeFields(gt GoTypeTable, tid uint32) []GoFieldRec {
+	if tid == NoIndex {
+		return []GoFieldRec{}
+	}
+	dense.List(gt.FieldsPool, dense.Of(gt.Fields, TypeIDAt(gt, tid)))
+}
+
+func typeParams(gt GoTypeTable, tid uint32) []GoParamRec {
+	if tid == NoIndex {
+		return []GoParamRec{}
+	}
+	dense.List(gt.ParamsPool, dense.Of(gt.Params, TypeIDAt(gt, tid)))
+}
+
+func typeResults(gt GoTypeTable, tid uint32) []GoParamRec {
+	if tid == NoIndex {
+		return []GoParamRec{}
+	}
+	dense.List(gt.ParamsPool, dense.Of(gt.Results, TypeIDAt(gt, tid)))
+}
+
+func typeMethods(gt GoTypeTable, tid uint32) []GoMethodRec {
+	if tid == NoIndex {
+		return []GoMethodRec{}
+	}
+	dense.List(gt.MethodsPool, dense.Of(gt.Methods, TypeIDAt(gt, tid)))
+}
+
+func typeValMethods(gt GoTypeTable, tid uint32) []GoMethodRec {
+	if tid == NoIndex {
+		return []GoMethodRec{}
+	}
+	dense.List(gt.MethodsPool, dense.Of(gt.ValMethods, TypeIDAt(gt, tid)))
+}
+
+func typeTParams(gt GoTypeTable, tid uint32) []uint32 {
+	if tid == NoIndex {
+		return []uint32{}
+	}
+	dense.List(gt.U32Pool, dense.Of(gt.TypeParams, TypeIDAt(gt, tid)))
+}
+
+func typeTArgs(gt GoTypeTable, tid uint32) []uint32 {
+	if tid == NoIndex {
+		return []uint32{}
+	}
+	dense.List(gt.U32Pool, dense.Of(gt.TypeArgs, TypeIDAt(gt, tid)))
+}
+
+func typeTerms(gt GoTypeTable, tid uint32) []GoUnionTermRec {
+	if tid == NoIndex {
+		return []GoUnionTermRec{}
+	}
+	dense.List(gt.TermsPool, dense.Of(gt.Terms, TypeIDAt(gt, tid)))
+}
+
+func unalias(gt GoTypeTable, tid uint32) uint32 {
+	let mut cur = tid
+	let limit = dense.Total(gt.Count) + 1
+	for _ in 0..limit {
+		if cur == NoIndex || typeKind(gt, cur) != TKAlias {
+			return cur
+		}
+		let next = typeElem(gt, cur)
+		if next == NoIndex || next == cur {
+			return cur
+		}
+		cur = next
+	}
+	cur
+}
+
+func underlying(gt GoTypeTable, tid uint32) uint32 {
+	let u0 = unalias(gt, tid)
+	if u0 == NoIndex {
+		return NoIndex
+	}
+	if typeKind(gt, u0) == TKNamed {
+		let under = typeUnder(gt, u0)
+		if under != NoIndex {
+			return under
+		}
+	}
+	u0
+}
+
+func isErrorType(gt GoTypeTable, tid uint32) bool {
+	let u = unalias(gt, tid)
+	if u == NoIndex {
+		return false
+	}
+	(typeFlags(gt, u) & TFFlagIsError) != uint32(0)
+}
+
+func isContextType(gt GoTypeTable, tid uint32) bool {
+	let u = unalias(gt, tid)
+	typeKind(gt, u) == TKNamed && typePkgPath(gt, u) == "context" && typeName(gt, u) == "Context"
+}
+
+func releaseMethod(gt GoTypeTable, methods []GoMethodRec) bool {
+	for m in methods {
+		if GetTypeStr(gt, m.Name) != "Close" {
+			continue
+		}
+		let params = typeParams(gt, m.SigType)
+		let variadic = (typeFlags(gt, m.SigType) & TFFlagVariadic) != uint32(0)
+		if params.Len() != 0 || variadic {
+			continue
+		}
+		let results = typeResults(gt, m.SigType)
+		if results.Len() == 0 || (results.Len() == 1 && isErrorType(gt, results[0].Type)) {
+			return true
+		}
+	}
+	false
+}
+
+func resourceType(gt GoTypeTable, tid uint32) bool {
+	let u = unalias(gt, tid)
+	if u == NoIndex {
+		return false
+	}
+	let kd = typeKind(gt, u)
+	if kd == TKNamed {
+		return releaseMethod(gt, typeValMethods(gt, u))
+	}
+	if kd == TKPointer {
+		let elem = unalias(gt, typeElem(gt, u))
+		if elem != NoIndex && typeKind(gt, elem) == TKNamed {
+			return releaseMethod(gt, typeMethods(gt, elem))
+		}
+		return false
+	}
+	if kd == TKInterface {
+		return releaseMethod(gt, typeMethods(gt, u))
+	}
+	false
+}
+
+func ptrResourceType(gt GoTypeTable, tid uint32) bool {
+	let u = unalias(gt, tid)
+	if u == NoIndex {
+		return false
+	}
+	if typeKind(gt, u) == TKNamed {
+		return releaseMethod(gt, typeMethods(gt, u))
+	}
+	resourceType(gt, u)
+}
+
+func hasSeenU32(seen []uint32, x uint32) bool {
+	for s in seen {
+		if s == x {
+			return true
+		}
+	}
+	false
+}
+
+func plainElem(gt GoTypeTable, tid uint32, seen mut []uint32) bool {
+	let u0 = unalias(gt, tid)
+	if u0 == NoIndex {
+		return false
+	}
+	if hasSeenU32(*seen, u0) {
+		return true
+	}
+	*seen = (*seen).Append(u0)
+	let under = underlying(gt, u0)
+	let kd = typeKind(gt, under)
+	if kd == TKBasic {
+		return typeBasicKind(gt, under) != BUnsafePointer
+	}
+	if kd == TKSlice || kd == TKArray || kd == TKPointer {
+		return plainElem(gt, typeElem(gt, under), seen)
+	}
+	if kd == TKStruct {
+		for f in typeFields(gt, under) {
+			if !plainElem(gt, f.Type, seen) {
+				return false
+			}
+		}
+		return true
+	}
+	false
+}
+
+func readsShape(gt GoTypeTable, tid uint32) bool {
+	let u = underlying(gt, tid)
+	if typeKind(gt, u) != TKSlice {
+		return false
+	}
+	let mut seen = []uint32{}
+	plainElem(gt, typeElem(gt, u), &seen)
+}
+
+func goSlice(gt GoTypeTable, tid uint32) bool {
+	let mut t = unalias(gt, tid)
+	if typeKind(gt, t) == TKTypeParam {
+		let c = underlying(gt, typeElem(gt, t))
+		if typeKind(gt, c) == TKInterface {
+			let tpTerms = typeTerms(gt, c)
+			if typeMethods(gt, c).Len() == 0 && tpTerms.Len() == 1 {
+				t = tpTerms[0].Type
+			}
+		}
+	}
+	typeKind(gt, underlying(gt, t)) == TKSlice
+}
+
+func goHoldsShared(gt GoTypeTable, tid uint32) bool {
+	let mut cur = tid
+	let limit = dense.Total(gt.Count) + 1
+	for _ in 0..limit {
+		let under = underlying(gt, cur)
+		let kd = typeKind(gt, under)
+		if kd == TKSlice || kd == TKMap {
+			return true
+		}
+		if kd == TKArray {
+			cur = typeElem(gt, under)
+			continue
+		}
+		return false
+	}
+	false
+}
+
+func goResourceParam(gt GoTypeTable, tid uint32) bool {
+	let t = unalias(gt, tid)
+	if t == NoIndex || isErrorType(gt, t) {
+		return false
+	}
+	let kd = typeKind(gt, t)
+	if kd == TKPointer || kd == TKTypeParam {
+		return true
+	}
+	let under = underlying(gt, t)
+	if typeKind(gt, under) == TKInterface {
+		return (typeFlags(gt, under) & TFFlagIfaceEmpty) == uint32(0)
+	}
+	if ptrResourceType(gt, t) {
+		return true
+	}
+	if kd == TKSlice || kd == TKArray || kd == TKMap {
+		return goResourceParam(gt, typeElem(gt, t))
+	}
+	false
+}
+
+func lookupMethodName(ms []GoMethodRec, gt GoTypeTable, pkgPath string, name string) bool {
+	for m in ms {
+		if GetTypeStr(gt, m.Name) != name {
+			continue
+		}
+		let mp = GetTypeStr(gt, m.PkgPath)
+		let exported = (m.Flags & MemberExported) != uint8(0)
+		if exported || mp == pkgPath {
+			return true
+		}
+	}
+	false
+}
+
+func mayHold(gt GoTypeTable, tid uint32, recv uint32, seen mut []uint32) bool {
+	let t = unalias(gt, tid)
+	if t == NoIndex || recv == NoIndex || hasSeenU32(*seen, t) {
+		return false
+	}
+	*seen = (*seen).Append(t)
+	if typeKind(gt, t) == TKNamed {
+		if t == recv || (typeName(gt, t) == typeName(gt, recv) && typePkgPath(gt, t) == typePkgPath(gt, recv)) {
+			return true
+		}
+		for ta in typeTArgs(gt, t) {
+			if mayHold(gt, ta, recv, seen) {
+				return true
+			}
+		}
+	}
+	if typeKind(gt, t) == TKTypeParam {
+		return true
+	}
+	let under = underlying(gt, t)
+	let kd = typeKind(gt, under)
+	if kd == TKPointer || kd == TKSlice || kd == TKArray {
+		return mayHold(gt, typeElem(gt, under), recv, seen)
+	}
+	if kd == TKMap {
+		return mayHold(gt, typeKey(gt, under), recv, seen) || mayHold(gt, typeElem(gt, under), recv, seen)
+	}
+	if kd == TKInterface {
+		let recvUnder = underlying(gt, recv)
+		let recvMS = if typeKind(gt, recvUnder) == TKInterface { typeMethods(gt, recvUnder) } else { typeMethods(gt, recv) }
+		for im in typeMethods(gt, under) {
+			if !lookupMethodName(recvMS, gt, GetTypeStr(gt, im.PkgPath), GetTypeStr(gt, im.Name)) {
+				return false
+			}
+		}
+		return true
+	}
+	if kd == TKStruct {
+		for f in typeFields(gt, under) {
+			if (f.Flags&MemberExported) != uint8(0) && mayHold(gt, f.Type, recv, seen) {
+				return true
+			}
+		}
+	}
+	false
+}
+
+func releaseShapeSig(gt GoTypeTable, sigID uint32) bool {
+	let params = typeParams(gt, sigID)
+	let variadic = (typeFlags(gt, sigID) & TFFlagVariadic) != uint32(0)
+	if params.Len() != 0 || variadic {
+		return false
+	}
+	let results = typeResults(gt, sigID)
+	results.Len() == 0 || (results.Len() == 1 && isErrorType(gt, results[0].Type))
+}
+
+func keepsReceiver(gt GoTypeTable, fnName string, sigID uint32, recv uint32) bool {
+	if fnName == "Close" && releaseShapeSig(gt, sigID) {
+		return true
+	}
+	if !ptrResourceType(gt, recv) {
+		return false
+	}
+	for res in typeResults(gt, sigID) {
+		if !isErrorType(gt, res.Type) {
+			let mut seen = []uint32{}
+			if mayHold(gt, res.Type, recv, &seen) {
+				return true
+			}
+		}
+	}
+	false
+}
+
+func inValueSet(gt GoTypeTable, recv uint32, name string) bool {
+	let pkg = typePkgPath(gt, recv)
+	lookupMethodName(typeValMethods(gt, recv), gt, pkg, name)
+}
+
+type mappedParam {
+	name string,
+	typ  string,
+	own  bool,
+}
+
+type mapperState {
+	pkgPath    string,
+	pkgName    string,
+	homePath   string,
+	refs       []string,
+	refPkgs    []string,
+	readable   []Readable,
+	writes     string,
+	effect     string,
+	effectFrom string,
+	host       string,
+	qualRaw    bool,
+}
+
+type substEntry {
+	tpID uint32,
+	tyID uint32,
+}
+
+type sigState {
+	sync       bool,
+	method     bool,
+	outerFails bool,
+	usedFails  bool,
+	usedNeeds  bool,
+	ctxParam   bool,
+	nonNil     bool,
+	subst      []substEntry,
+}
+
+type mapErr { reason string }
+
+func failMap(s string) mapErr { mapErr{reason: s} }
+
+func appendRefUnique(ms mut mapperState, ref string) {
+	ms.refs = ms.refs.Append(ref)
+}
+
+func appendRefPkg(ms mut mapperState, p string) {
+	ms.refPkgs = ms.refPkgs.Append(p)
+}
+
+func spellPkg(qualRaw bool, pkgPath string, pkgName string) string {
+	if qualRaw {
+		return pkgName
+	}
+	Placehold(pkgPath, pkgName)
+}
+
+func basicMap(b uint8, name string) string fails mapErr {
+	if b == BBool || b == BString || b == BInt || b == BInt8 || b == BInt16 || b == BInt32 || b == BInt64 ||
+		b == BUint || b == BUint8 || b == BUint16 || b == BUint32 || b == BUint64 ||
+		b == BFloat32 || b == BFloat64 || b == BComplex64 || b == BComplex128 || b == BByte || b == BRune {
+		return name
+	}
+	if b == BUintptr {
+		return failMap("Ergo has no uintptr")
+	}
+	if b == BUnsafePointer {
+		return failMap("Ergo has no unsafe; unsafe stays at the FFI edge")
+	}
+	failMap("the Go type " + name + " maps to no Ergo type")
+}
+
+func typeRefusal(gt GoTypeTable, tid uint32) string {
+	if tid == NoIndex {
+		return "not a named type"
+	}
+	let fl = typeFlags(gt, tid)
+	if (fl & TFFlagExported) == uint32(0) {
+		return "unexported"
+	}
+	let pkgPath = typePkgPath(gt, tid)
+	if pkgPath != "" && IsInternalPath(pkgPath) {
+		return "it is declared in an internal or vendored package"
+	}
+	if (fl&TFFlagAlias) != uint32(0) || typeKind(gt, tid) == TKAlias {
+		return "a Go alias; the binding names the type it stands for"
+	}
+	if typeKind(gt, tid) != TKNamed {
+		return "not a named type"
+	}
+	if typeTParams(gt, tid).Len() > 0 {
+		return "a generic Go type maps to no Ergo type in v1"
+	}
+	let under = typeUnder(gt, tid)
+	let kd = typeKind(gt, under)
+	if kd == TKBasic {
+		let _ = basicMap(typeBasicKind(gt, under), typeBasicName(gt, under)) catch {
+		case mapErr as e:
+			return e.reason
+		}
+		return ""
+	}
+	if kd == TKStruct {
+		return ""
+	}
+	if kd == TKInterface {
+		let methods = typeMethods(gt, under)
+		let empty = (typeFlags(gt, under) & TFFlagIfaceEmpty) != uint32(0)
+		if empty {
+			return "Ergo has no any; an empty interface hides the host type"
+		}
+		if (typeFlags(gt, under) & TFFlagIfaceMethodSet) == uint32(0) {
+			return "a constraint interface is no type of a value"
+		}
+		let mut hasExp = false
+		for im in methods {
+			if (im.Flags & MemberExported) != uint8(0) {
+				hasExp = true
+				break
+			}
+		}
+		if !hasExp {
+			return "an interface with no exported method"
+		}
+		return ""
+	}
+	if kd == TKSlice || kd == TKMap || kd == TKArray {
+		let mut checkMS = mapperState{
+			pkgPath:    pkgPath,
+			pkgName:    typePkgName(gt, tid),
+			homePath:   pkgPath,
+			refs:       []string{},
+			refPkgs:    []string{},
+			readable:   []Readable{},
+			writes:     "",
+			effect:     "",
+			effectFrom: "",
+			host:       "",
+			qualRaw:    true,
+		}
+		let mut checkSS = sigState{sync: false, method: false, outerFails: false, usedFails: false, usedNeeds: false, ctxParam: false, nonNil: false, subst: []substEntry{}}
+		let _ = mapType(gt, &checkMS, &checkSS, under, posInner, false) catch {
+		case mapErr as e:
+			return e.reason
+		}
+		return ""
+	}
+	if kd == TKSignature {
+		return "a Go function type maps to no Ergo host type in v1"
+	}
+	if kd == TKChan {
+		return "Ergo has no channels (196c)"
+	}
+	if kd == TKPointer {
+		return "a defined pointer type"
+	}
+	"its Go type maps to no Ergo type"
+}
+
+func substLookup(subst []substEntry, tp uint32) option.Option[uint32] {
+	for e in subst {
+		if e.tpID == tp {
+			return option.Some{Value: e.tyID}
+		}
+	}
+	option.None
+}
+
+func mapType(gt GoTypeTable, ms mut mapperState, ss mut sigState, rawTID uint32, at uint8, cb bool) string fails mapErr {
+	let tid = unalias(gt, rawTID)
+	if tid == NoIndex {
+		return failMap("the Go type <invalid> maps to no Ergo type")
+	}
+	if isErrorType(gt, tid) {
+		return "go.Error"
+	}
+	let kd = typeKind(gt, tid)
+	if kd == TKBasic {
+		return try basicMap(typeBasicKind(gt, tid), typeBasicName(gt, tid))
+	}
+	if kd == TKTypeParam {
+		match substLookup(ss.subst, tid) {
+		case option.Some{Value: core}:
+			return try mapType(gt, ms, ss, core, at, cb)
+		case option.None:
+			return typeName(gt, tid)
+		}
+	}
+	if kd == TKNamed {
+		return try mapNamed(gt, ms, ss, tid, at, cb)
+	}
+	if kd == TKPointer {
+		return try mapPointer(gt, ms, ss, tid, at, cb)
+	}
+	if kd == TKSlice {
+		let elem = try mapType(gt, ms, ss, typeElem(gt, tid), posInner, cb)
+		return "[]" + elem
+	}
+	if kd == TKMap {
+		let k = try mapType(gt, ms, ss, typeKey(gt, tid), posInner, cb)
+		if k == "go.Any" {
+			return failMap("Ergo compares no go.Any, so a go.Any keys no Map")
+		}
+		let v = try mapType(gt, ms, ss, typeElem(gt, tid), posInner, cb)
+		appendRefUnique(ms, ".Map")
+		return "Map[" + k + ", " + v + "]"
+	}
+	if kd == TKArray {
+		if goHoldsShared(gt, typeElem(gt, tid)) {
+			return failMap("an array whose elements hold a slice or a Map shares them with Go; v1 binds an array that Go copies whole")
+		}
+		let elem = try mapType(gt, ms, ss, typeElem(gt, tid), posInner, cb)
+		return "[" + strconv.Itoa(int(typeArrLen(gt, tid))) + "]" + elem
+	}
+	if kd == TKChan {
+		return failMap("Ergo has no channels (196c); wrap the Go channel in a Go function of your module, or use std queue")
+	}
+	if kd == TKInterface {
+		if (typeFlags(gt, tid) & TFFlagIfaceEmpty) != uint32(0) {
+			return "go.Any"
+		}
+		return failMap("an unnamed interface type")
+	}
+	if kd == TKStruct {
+		return failMap("an unnamed struct type")
+	}
+	if kd == TKSignature {
+		if cb {
+			return failMap("a function inside a callback")
+		}
+		if at != posParam {
+			return failMap("a Go function as a result, a field or an element")
+		}
+		return try mapCallback(gt, ms, ss, tid)
+	}
+	failMap("the Go type " + typeText(gt, tid) + " maps to no Ergo type")
+}
+
+func spellNamed(gt GoTypeTable, ms mut mapperState, tid uint32) string {
+	let pkgPath = typePkgPath(gt, tid)
+	let pkgName = typePkgName(gt, tid)
+	let name = typeName(gt, tid)
+	appendRefUnique(ms, pkgPath+"."+name)
+	appendRefPkg(ms, pkgPath)
+	if pkgPath == ms.homePath {
+		return name
+	}
+	spellPkg(ms.qualRaw, pkgPath, pkgName) + "." + name
+}
+
+func mapNamed(gt GoTypeTable, ms mut mapperState, ss mut sigState, tid uint32, at uint8, cb bool) string fails mapErr {
+	let path = typePkgPath(gt, tid)
+	let name = typeName(gt, tid)
+	if path == "time" && name == "Duration" {
+		return "duration"
+	}
+	if path == "iter" && name == "Seq" {
+		let targs = typeTArgs(gt, tid)
+		let elem = if targs.Len() > 0 { try mapType(gt, ms, ss, targs[0], posInner, cb) } else { "" }
+		return placeholdStd("core") + ".Seq[" + elem + "]"
+	}
+	if typeTArgs(gt, tid).Len() > 0 {
+		return failMap("the generic Go type " + name + " maps to no Ergo type in v1")
+	}
+	let under = typeUnder(gt, tid)
+	if typeKind(gt, under) == TKSignature && at == posParam && !cb && (typeFlags(gt, tid)&TFFlagExported) != uint32(0) {
+		return try mapCallback(gt, ms, ss, under)
+	}
+	let reason = typeRefusal(gt, tid)
+	if reason != "" {
+		return failMap("type " + name + " is refused: " + reason)
+	}
+	spellNamed(gt, ms, tid)
+}
+
+func mapPointer(gt GoTypeTable, ms mut mapperState, ss mut sigState, tid uint32, at uint8, cb bool) string fails mapErr {
+	let rawElem = typeElem(gt, tid)
+	let elem = unalias(gt, rawElem)
+	if typeKind(gt, elem) != TKNamed {
+		return failMap("a pointer to an unnamed type " + typeText(gt, rawElem))
+	}
+	let under = typeUnder(gt, elem)
+	if typeKind(gt, under) == TKInterface {
+		return failMap("a pointer to an interface")
+	}
+	if at == posInner || (cb && at != posParam) {
+		return failMap("a Go pointer in an element or a callback result may be nil; v1 maps a pointer only as a parameter, a result or a field")
+	}
+	let s = try mapNamed(gt, ms, ss, elem, at, cb)
+	if s == "duration" || strings.HasPrefix(s, placeholdStd("core")+".Seq[") {
+		return failMap("a pointer to " + s)
+	}
+	if at == posParam {
+		return "*" + s
+	}
+	if at == posErrResult && ss.nonNil {
+		return "go.Ref[" + s + "]"
+	}
+	placeholdStd("option") + ".Option[go.Ref[" + s + "]]"
+}
+
+type sigResult {
+	params   []mappedParam,
+	result   string,
+	hasFails bool,
+	variadic bool,
+}
+
+func mapSignature(gt GoTypeTable, ms mut mapperState, ss mut sigState, sigID uint32, cb bool) sigResult fails mapErr {
+	let ps = typeParams(gt, sigID)
+	let variadic = (typeFlags(gt, sigID) & TFFlagVariadic) != uint32(0)
+	let mut params = []mappedParam{}
+	let mut usedNames = []string{}
+	let first = if ss.ctxParam && !cb { 1 } else { 0 }
+	for i in first..ps.Len() {
+		let v = ps[i]
+		let pt = v.Type
+		let mut text = ""
+		if variadic && i == ps.Len()-1 {
+			if cb {
+				return failMap("a variadic callback")
+			}
+			let sliceElem = mapType(gt, ms, ss, typeElem(gt, unalias(gt, pt)), posInner, cb) catch {
+			case mapErr as e:
+				return failMap("parameter " + strconv.Itoa(i+1) + ": " + e.reason)
+			}
+			text = "[]" + sliceElem
+		} else {
+			text = mapType(gt, ms, ss, pt, posParam, cb) catch {
+			case mapErr as e:
+				return failMap("parameter " + strconv.Itoa(i+1) + ": " + e.reason)
+			}
+		}
+		let mut name = GetTypeStr(gt, v.Name)
+		if !IsBinder(name) || slices.Contains(usedNames, name) {
+			name = "p" + strconv.Itoa(i)
+		}
+		usedNames = usedNames.Append(name)
+		params = params.Append(mappedParam{name: name, typ: text, own: false})
+	}
+	let rs = typeResults(gt, sigID)
+	let mut n = rs.Len()
+	let hasFails = n > 0 && isErrorType(gt, rs[n-1].Type)
+	if hasFails {
+		n = n - 1
+	}
+	let mut parts = []string{}
+	for i in 0..n {
+		let at = if hasFails && n == 1 { posErrResult } else { posResult }
+		let text = mapType(gt, ms, ss, rs[i].Type, at, cb) catch {
+		case mapErr as e:
+			return failMap("result " + strconv.Itoa(i+1) + ": " + e.reason)
+		}
+		parts = parts.Append(text)
+	}
+	let result = if parts.Len() == 1 { parts[0] } else if parts.Len() > 1 { "(" + strings.Join(parts, ", ") + ")" } else { "" }
+	sigResult{params: params, result: result, hasFails: hasFails, variadic: variadic}
+}
+
+func mapCallback(gt GoTypeTable, ms mut mapperState, ss mut sigState, sigID uint32) string fails mapErr {
+	if typeTParams(gt, sigID).Len() > 0 {
+		return failMap("a generic callback")
+	}
+	let sr = mapSignature(gt, ms, ss, sigID, true) catch {
+	case mapErr as e:
+		return failMap("callback " + e.reason)
+	}
+	let mut types = slices.WithCapacity[string](sr.params.Len())
+	for p in sr.params {
+		types = types.Append(p.typ)
+	}
+	let mut s = "func(" + strings.Join(types, ", ") + ")"
+	if sr.result != "" {
+		s = s + " " + sr.result
+	}
+	if strings.HasPrefix(sr.result, "(") {
+		return failMap("a callback with more than one result")
+	}
+	if ss.sync && !ss.method {
+		if sr.hasFails && ss.outerFails {
+			s = s + " fails " + rowFails
+			ss.usedFails = true
+		} else if sr.hasFails {
+			s = s + " fails go.Error"
+		}
+		s = s + " needs " + rowNeeds
+		ss.usedNeeds = true
+	} else if ss.sync {
+		if sr.hasFails {
+			s = s + " fails go.Error"
+		}
+	} else {
+		s = "own " + s
+		if sr.hasFails {
+			s = s + " fails go.Error"
+		}
+	}
+	s
+}
+
+func formatParamList(ps []mappedParam) string {
+	let mut parts = slices.WithCapacity[string](ps.Len())
+	for p in ps {
+		if p.own {
+			parts = parts.Append(p.name + " own " + p.typ)
+		} else {
+			parts = parts.Append(p.name + " " + p.typ)
+		}
+	}
+	"(" + strings.Join(parts, ", ") + ")"
+}
+
+type constraintResult {
+	text string,
+	core uint32,
+}
+
+func mapConstraint(gt GoTypeTable, tpID uint32) constraintResult fails mapErr {
+	let c = typeElem(gt, tpID)
+	if c != NoIndex && typeKind(gt, c) == TKNamed {
+		let cPkg = typePkgPath(gt, c)
+		let cName = typeName(gt, c)
+		if cPkg == "" && cName == "comparable" {
+			return constraintResult{text: "comparable", core: NoIndex}
+		}
+		if cPkg == "cmp" && cName == "Ordered" {
+			return constraintResult{text: placeholdStd("cmp") + ".Ordered", core: NoIndex}
+		}
+	}
+	let uc = underlying(gt, c)
+	if uc != NoIndex && typeKind(gt, uc) == TKInterface {
+		let ms = typeMethods(gt, uc)
+		let terms = typeTerms(gt, uc)
+		if (typeFlags(gt, uc) & TFFlagIfaceEmpty) != uint32(0) {
+			return constraintResult{text: "", core: NoIndex}
+		}
+		if ms.Len() == 0 && terms.Len() == 1 && terms[0].Tilde {
+			let tt = terms[0].Type
+			let ttk = typeKind(gt, tt)
+			if ttk == TKSlice || ttk == TKMap {
+				return constraintResult{text: "", core: tt}
+			}
+		}
+	}
+	failMap("type parameter " + typeName(gt, tpID) + " has the constraint " + typeShortText(gt, c) + ", which has no Ergo form (v1 maps any, comparable, cmp.Ordered, ~[]E and ~map[K]V)")
+}
+
+func pureActs(ctx MapContext, pkgPath string, name string) bool {
+	gofacts.PureActs(ctx.ET, ctx.Ledger, pkgPath, ctx.Toolchain).OK && !slices.Contains(gofacts.PureExcept(ctx.ET, pkgPath), name)
+}
+
+func syncActs(ctx MapContext, target string) bool {
+	gofacts.SyncActs(ctx.ET, ctx.Ledger, target, ctx.Toolchain).OK
+}
+
+func hostActs(ctx MapContext, target string) bool {
+	gofacts.HostActs(ctx.ET, ctx.Ledger, target, ctx.Toolchain).OK
+}
+
+func effectActs(ctx MapContext, target string) bool {
+	gofacts.EffectActs(ctx.ET, ctx.Ledger, target, ctx.Toolchain).OK
+}
+
+func declaredTarget(fName string, defaultTarget string, origPkg string, origRecv string) string {
+	if origPkg == "" || origRecv == "" {
+		return defaultTarget
+	}
+	origPkg + "." + origRecv + "." + fName
+}
+
+type mappedFuncResult {
+	ergo     string,
+	variadic bool,
+	ctx      bool,
+}
+
+func mapFuncDecl(ctx MapContext, ms mut mapperState, fnName string, sigID uint32, recv uint32, origPkg string, origRecv string, useFacts bool) mappedFuncResult fails mapErr {
+	let gt = ctx.GT
+	let mut subst = []substEntry{}
+	let mut tparams = []string{}
+	let mut unconstrainedBefore = false
+	for tpID in typeTParams(gt, sigID) {
+		let cr = try mapConstraint(gt, tpID)
+		if cr.core != NoIndex {
+			subst = subst.Append(substEntry{tpID: tpID, tyID: cr.core})
+			continue
+		}
+		let tpName = typeName(gt, tpID)
+		if cr.text == "" {
+			unconstrainedBefore = true
+			tparams = tparams.Append(tpName)
+			continue
+		}
+		if unconstrainedBefore {
+			return failMap("type parameters in an order Ergo cannot write: an unconstrained one before " + tpName + " " + cr.text)
+		}
+		tparams = tparams.Append(tpName + " " + cr.text)
+	}
+	let target = if recv != NoIndex { ms.pkgPath + "." + typeName(gt, recv) + "." + fnName } else { ms.pkgPath + "." + fnName }
+	let origParams = typeParams(gt, sigID)
+	let origResults = typeResults(gt, sigID)
+	let resN = origResults.Len()
+	let declTarget = if origPkg != "" && origRecv != "" { origPkg + "." + origRecv + "." + fnName } else { target }
+	let hasNonNil = useFacts && HasFact(ctx.Facts, declTarget, FactNonNilResult)
+	let mut ss = sigState{
+		sync:       syncActs(ctx, target),
+		method:     recv != NoIndex,
+		outerFails: resN > 0 && isErrorType(gt, origResults[resN-1].Type),
+		usedFails:  false,
+		usedNeeds:  false,
+		ctxParam:   ms.pkgPath != "context" && origParams.Len() > 0 && isContextType(gt, origParams[0].Type),
+		nonNil:     hasNonNil,
+		subst:      subst,
+	}
+	let sr = try mapSignature(gt, ms, &ss, sigID, false)
+	let mut params = sr.params
+	let mut results = sr.result
+	let rowPairs = []string{rowFails, rowNeeds}
+	let rowUsed = []bool{ss.usedFails, ss.usedNeeds}
+	for rIdx in 0..2 {
+		if !rowUsed[rIdx] {
+			continue
+		}
+		let rName = rowPairs[rIdx]
+		for tpID in typeTParams(gt, sigID) {
+			if typeName(gt, tpID) == rName {
+				return failMap("a Go type parameter named " + rName + ", the binding's row parameter")
+			}
+		}
+		tparams = tparams.Append(rName)
+	}
+	let off = if recv != NoIndex { 1 } else { 0 }
+	let first = if ss.ctxParam { 1 } else { 0 }
+	for i in 0..params.Len() {
+		let pt = origParams[i+first].Type
+		params[i].own = goResourceParam(gt, pt) && !gofacts.GoArgLent(ctx.ET, target, i+off)
+	}
+	match gofacts.GoWriteOf(ctx.ET, target) {
+	case option.Some{Value: w}:
+		if w.Reason != "" {
+			let idx = w.Index
+			if idx >= 0 && idx < params.Len() && !(sr.variadic && idx == params.Len()-1) && goSlice(gt, origParams[idx+first].Type) {
+				if results == "" {
+					results = params[idx].typ
+				} else if strings.HasPrefix(results, "(") {
+					results = "(" + params[idx].typ + ", " + results[1:results.Len()]
+				} else {
+					results = "(" + params[idx].typ + ", " + results + ")"
+				}
+				ms.writes = params[idx].name
+			}
+		}
+	case option.None:
+	}
+	let mut out = "func "
+	if recv != NoIndex {
+		let rtBase = typeName(gt, recv)
+		let rt = if inValueSet(gt, recv, fnName) { rtBase } else { "*" + rtBase }
+		let mut used = slices.WithCapacity[string](params.Len())
+		for p in params {
+			used = used.Append(p.name)
+		}
+		let origRecvName = dense.Text(gt.Strings, dense.Of(gt.RecvName, TypeIDAt(gt, sigID)))
+		let mut rName = origRecvName
+		if !IsBinder(rName) || slices.Contains(used, rName) {
+			rName = "r"
+			let mut nIdx = 0
+			for slices.Contains(used, rName) {
+				rName = "r" + strconv.Itoa(nIdx)
+				nIdx = nIdx + 1
+			}
+		}
+		let rType = typeRecvType(gt, sigID)
+		let keeps = goResourceParam(gt, rType) && !gofacts.GoArgLent(ctx.ET, target, 0) && keepsReceiver(gt, fnName, sigID, recv)
+		let mode = if keeps { "own " } else { "" }
+		out = out + "(" + rName + " " + mode + rt + ") "
+		if readsShape(gt, rType) && typeTArgs(gt, recv).Len() == 0 && typeTParams(gt, recv).Len() == 0 {
+			ms.readable = ms.readable.Append(Readable{GoName: origRecvName, ErgoName: rName})
+		}
+	}
+	if typeTParams(gt, sigID).Len() == 0 && (recv == NoIndex || typeTParams(gt, recv).Len() == 0) {
+		for i in 0..params.Len() {
+			let v = origParams[i+first]
+			if readsShape(gt, v.Type) {
+				ms.readable = ms.readable.Append(Readable{GoName: GetTypeStr(gt, v.Name), ErgoName: params[i].name})
+			}
+		}
+	}
+	out = out + fnName
+	if tparams.Len() > 0 {
+		out = out + "[" + strings.Join(tparams, ", ") + "]"
+	}
+	out = out + formatParamList(params)
+	if results != "" {
+		out = out + " " + results
+	}
+	if sr.hasFails && ss.usedFails {
+		out = out + " fails " + rowFails + " | go.Error"
+	} else if sr.hasFails {
+		out = out + " fails go.Error"
+	}
+	let mut needStr = if pureActs(ctx, ms.pkgPath, fnName) { "" } else { " needs go.Foreign" }
+	if ss.ctxParam {
+		needStr = " needs go.Foreign"
+	}
+	ms.effect = ""
+	ms.effectFrom = ""
+	ms.host = ""
+	if needStr == " needs go.Foreign" && !ss.ctxParam && hostActs(ctx, target) {
+		match gofacts.HostOf(ctx.ET, target) {
+		case option.Some{Value: e}:
+			needStr = " needs Ambient"
+			ms.host = e.Reason
+		case option.None:
+		}
+	}
+	let rowTarget = declaredTarget(fnName, target, origPkg, origRecv)
+	if needStr != "" && !ss.ctxParam && effectActs(ctx, rowTarget) {
+		match gofacts.EffectOf(ctx.ET, rowTarget) {
+		case option.Some{Value: e}:
+			needStr = ""
+			ms.effect = e.Reason
+			if rowTarget != target {
+				ms.effectFrom = rowTarget
+			}
+		case option.None:
+		}
+	}
+	if ss.usedNeeds {
+		if needStr == "" {
+			needStr = " needs " + rowNeeds
+		} else {
+			needStr = " needs " + rowNeeds + " |" + strings.TrimPrefix(needStr, " needs")
+		}
+	}
+	out = out + needStr
+	mappedFuncResult{ergo: out, variadic: sr.variadic, ctx: ss.ctxParam}
+}
+
+// TypeText formats a struct or interface body string for name and lines.
+func TypeText(name string, lines []Line) string {
+	if lines.Len() == 0 {
+		return "type " + name + " {}"
+	}
+	let mut texts = slices.WithCapacity[string](lines.Len())
+	for l in lines {
+		texts = texts.Append(l.Text)
+	}
+	"type " + name + " {\n\t" + strings.Join(texts, ",\n\t") + ",\n}"
+}
+
+func releaseClause(gt GoTypeTable, pkgPath string, tid uint32) string {
+	if !ptrResourceType(gt, tid) {
+		return ""
+	}
+	if pkgPath == "io" {
+		return " implements Closer"
+	}
+	" implements " + placeholdStd("core") + ".Closer"
+}
+
+type mappedTypeDeclResult {
+	ergo    string,
+	members []Member,
+	lines   []Line,
+}
+
+func mapTypeDecl(ctx MapContext, ms mut mapperState, tid uint32, objName string) mappedTypeDeclResult fails mapErr {
+	let gt = ctx.GT
+	let pkgPath = typePkgPath(gt, tid)
+	if pkgPath == "time" && objName == "Duration" {
+		return failMap("time.Duration is Ergo's duration")
+	}
+	if pkgPath == "iter" && objName == "Seq" {
+		return failMap("iter.Seq is the prelude Seq")
+	}
+	let reason = typeRefusal(gt, tid)
+	if reason != "" {
+		return failMap(reason)
+	}
+	let mut ss = sigState{sync: false, method: false, outerFails: false, usedFails: false, usedNeeds: false, ctxParam: false, nonNil: false, subst: []substEntry{}}
+	let mut members = []Member{}
+	let mut lines = []Line{}
+	let under = typeUnder(gt, tid)
+	let kd = typeKind(gt, under)
+	if kd == TKStruct {
+		for f in typeFields(gt, under) {
+			if (f.Flags & MemberExported) == uint8(0) {
+				continue
+			}
+			let fName = GetTypeStr(gt, f.Name)
+			let fGo = fName + " " + typeShortText(gt, f.Type)
+			ms.refs = []string{}
+			let t = mapType(gt, ms, &ss, f.Type, posField, false) catch {
+			case mapErr as e:
+				members = members.Append(Member{Name: fName, Go: fGo, Refused: e.reason})
+				continue
+			}
+			lines = lines.Append(Line{Name: fName, Go: fGo, Text: fName + " " + t, Refs: ms.refs})
+		}
+		ms.refs = []string{}
+		return mappedTypeDeclResult{ergo: TypeText(objName, lines) + releaseClause(gt, ms.pkgPath, tid), members: members, lines: lines}
+	}
+	if kd == TKInterface {
+		let isCloser = pkgPath == "io" && objName == "Closer"
+		for im in typeMethods(gt, under) {
+			if (im.Flags & MemberExported) == uint8(0) {
+				continue
+			}
+			let mName = GetTypeStr(gt, im.Name)
+			let mGo = GetTypeStr(gt, im.GoText)
+			ms.refs = []string{}
+			let mut mSS = sigState{sync: false, method: false, outerFails: false, usedFails: false, usedNeeds: false, ctxParam: false, nonNil: false, subst: []substEntry{}}
+			let sr = mapSignature(gt, ms, &mSS, im.SigType, false) catch {
+			case mapErr as e:
+				members = members.Append(Member{Name: mName, Go: mGo, Refused: e.reason})
+				continue
+			}
+			if sr.variadic {
+				members = members.Append(Member{Name: mName, Go: mGo, Refused: "a variadic interface method"})
+				continue
+			}
+			if mName == "Close" && !isCloser && releaseShapeSig(gt, im.SigType) && sr.hasFails {
+				ms.refs = []string{"io.Closer"}
+				let include = if ms.pkgPath == "io" { "..Closer" } else { ".." + Placehold("io", "io") + ".Closer" }
+				lines = lines.Append(Line{Name: mName, Go: mGo, Text: include, Refs: ms.refs})
+				continue
+			}
+			let target = ms.pkgPath + "." + objName + "." + mName
+			let ps = typeParams(gt, im.SigType)
+			let mut params = sr.params
+			for j in 0..params.Len() {
+				params[j].own = goResourceParam(gt, ps[j].Type) && !gofacts.GoArgLent(ctx.ET, target, j)
+			}
+			let mut line = mName + formatParamList(params)
+			let recvResHold = resourceType(gt, tid) && keepsResultHold(gt, im.SigType, tid)
+			if !gofacts.GoArgLent(ctx.ET, target, -1) && ((mName == "Close" && releaseShapeSig(gt, im.SigType)) || recvResHold) {
+				line = "own " + line
+			}
+			if sr.result != "" {
+				line = line + " " + sr.result
+			}
+			if sr.hasFails {
+				line = line + " fails go.Error"
+			}
+			line = line + (if pureActs(ctx, ms.pkgPath, "") { "" } else { " needs go.Foreign" })
+			lines = lines.Append(Line{Name: mName, Go: mGo, Text: line, Refs: ms.refs})
+		}
+		ms.refs = []string{}
+		if lines.Len() == 0 {
+			return failMap("no method of the interface maps")
+		}
+		return mappedTypeDeclResult{ergo: TypeText(objName, lines), members: members, lines: lines}
+	}
+	let t = try mapType(gt, ms, &ss, under, posInner, false)
+	mappedTypeDeclResult{ergo: "type " + objName + " " + t + releaseClause(gt, ms.pkgPath, tid), members: []Member{}, lines: []Line{}}
+}
+
+func keepsResultHold(gt GoTypeTable, sigID uint32, recv uint32) bool {
+	for res in typeResults(gt, sigID) {
+		if !isErrorType(gt, res.Type) {
+			let mut seen = []uint32{}
+			if mayHold(gt, res.Type, recv, &seen) {
+				return true
+			}
+		}
+	}
+	false
+}
+
+func mapConstType(ctx MapContext, ms mut mapperState, declID uint32, tid uint32) string fails mapErr {
+	let gt = ctx.GT
+	let u = unalias(gt, tid)
+	let fl = dense.Of(ctx.GD.Flags, dense.IDAt(ctx.GD.Count, int(declID)))
+	if typeKind(gt, u) != TKBasic || (typeFlags(gt, u)&TFFlagBasicUntyped) == uint32(0) {
+		let mut ss = sigState{sync: false, method: false, outerFails: false, usedFails: false, usedNeeds: false, ctxParam: false, nonNil: false, subst: []substEntry{}}
+		return try mapType(gt, ms, &ss, tid, posField, false)
+	}
+	let bk = typeBasicKind(gt, u)
+	if bk == BUntypedBool {
+		return "bool"
+	}
+	if bk == BUntypedString {
+		return "string"
+	}
+	if bk == BUntypedRune {
+		return "rune"
+	}
+	if bk == BUntypedInt {
+		if (fl & DFFlagConstExactInt) == uint32(0) {
+			return failMap("the untyped constant does not fit Go's default type int; Ergo has no untyped constants (196u)")
+		}
+		return "int"
+	}
+	if bk == BUntypedFloat {
+		if (fl & DFFlagConstFitsFloat) == uint32(0) {
+			return failMap("the untyped constant does not fit Go's default type float64; Ergo has no untyped constants (196u)")
+		}
+		return "float64"
+	}
+	if bk == BUntypedComplex {
+		return "complex128"
+	}
+	failMap("an untyped " + typeBasicName(gt, u) + " constant")
+}
+
+// MapOneDecl maps one exported declaration entry from GoDeclTable into a Decl.
+func MapOneDecl(ctx MapContext, homePkgPath string, declIdx uint32, recv uint32, useFacts bool) Decl {
+	let gd = ctx.GD
+	let did = dense.IDAt(gd.Count, int(declIdx))
+	let kind = dense.Of(gd.Kind, did)
+	let objName = dense.Text(gd.Strings, dense.Of(gd.Name, did))
+	let pkgPath = dense.Text(gd.Strings, dense.Of(gd.PkgPath, did))
+	let pkgName = dense.Text(gd.Strings, dense.Of(gd.PkgName, did))
+	let goText = dense.Text(gd.Strings, dense.Of(gd.GoText, did))
+	let tid = dense.Of(gd.TypeID, did)
+	let mut ms = mapperState{
+		pkgPath:    pkgPath,
+		pkgName:    pkgName,
+		homePath:   homePkgPath,
+		refs:       []string{},
+		refPkgs:    []string{},
+		readable:   []Readable{},
+		writes:     "",
+		effect:     "",
+		effectFrom: "",
+		host:       "",
+		qualRaw:    false,
+	}
+	if recv != NoIndex {
+		let rp = typePkgPath(ctx.GT, recv)
+		ms.pkgPath = rp
+		ms.homePath = rp
+		ms.refs = []string{rp + "." + typeName(ctx.GT, recv)}
+	}
+	let mut d = Decl{
+		Kind:       BindFunc,
+		Name:       objName,
+		Go:         goText,
+		Ergo:       "",
+		Via:        "",
+		Variadic:   false,
+		Context:    false,
+		Writes:     "",
+		Reads:      []string{},
+		Vouched:    []Vouch{},
+		Effect:     "",
+		EffectFrom: "",
+		Host:       "",
+		Total:      false,
+		Refused:    "",
+		Members:    []Member{},
+		Refs:       []string{},
+		Lines:      []Line{},
+		RefPkgs:    []string{},
+		Readables:  []Readable{},
+	}
+	if kind == GKFunc || kind == GKMethod {
+		d.Kind = if recv != NoIndex { BindMethod } else { BindFunc }
+		if recv != NoIndex {
+			d.Name = typeName(ctx.GT, recv) + "." + objName
+		}
+		let r = mapFuncDecl(ctx, &ms, objName, tid, recv, "", "", useFacts) catch {
+		case mapErr as e:
+			d.Refused = e.reason
+			d.RefPkgs = ms.refPkgs
+			return d
+		}
+		d.Ergo = r.ergo
+		d.Variadic = r.variadic
+		d.Context = r.ctx
+		d.Writes = ms.writes
+		d.Effect = ms.effect
+		d.EffectFrom = ms.effectFrom
+		d.Host = ms.host
+		d.Refs = ms.refs
+		d.Readables = ms.readable
+		d.RefPkgs = ms.refPkgs
+		return d
+	}
+	if kind == GKType {
+		d.Kind = BindType
+		let r = mapTypeDecl(ctx, &ms, tid, objName) catch {
+		case mapErr as e:
+			d.Refused = e.reason
+			d.RefPkgs = ms.refPkgs
+			return d
+		}
+		d.Ergo = r.ergo
+		d.Members = r.members
+		d.Lines = r.lines
+		d.Refs = ms.refs
+		d.RefPkgs = ms.refPkgs
+		return d
+	}
+	if kind == GKConst {
+		d.Kind = BindConst
+		let t = mapConstType(ctx, &ms, declIdx, tid) catch {
+		case mapErr as e:
+			d.Refused = e.reason
+			d.RefPkgs = ms.refPkgs
+			return d
+		}
+		d.Ergo = "let " + objName + " " + t
+		d.Refs = ms.refs
+		d.RefPkgs = ms.refPkgs
+		return d
+	}
+	if kind == GKVar {
+		d.Kind = BindVar
+		let isRes = resourceType(ctx.GT, tid)
+		let isErr = isErrorType(ctx.GT, tid)
+		if gofacts.IsReadOnlyVar(ctx.ET, pkgPath+"."+objName) && !isRes && !isErr {
+			let mut ss = sigState{sync: false, method: false, outerFails: false, usedFails: false, usedNeeds: false, ctxParam: false, nonNil: true, subst: []substEntry{}}
+			let t = mapType(ctx.GT, &ms, &ss, tid, posErrResult, false) catch {
+			case mapErr as e:
+				d.Refused = e.reason
+				d.RefPkgs = ms.refPkgs
+				return d
+			}
+			d.Ergo = "let " + objName + " " + t
+			d.Refs = ms.refs
+			d.RefPkgs = ms.refPkgs
+			return d
+		}
+		if !isErr && !isRes {
+			d.Refused = "a Go variable is host state; call a function"
+			d.RefPkgs = ms.refPkgs
+			return d
+		}
+		let mut ss = sigState{sync: false, method: false, outerFails: false, usedFails: false, usedNeeds: false, ctxParam: false, nonNil: false, subst: []substEntry{}}
+		let t = mapType(ctx.GT, &ms, &ss, tid, posField, false) catch {
+		case mapErr as e:
+			d.Refused = e.reason
+			d.RefPkgs = ms.refPkgs
+			return d
+		}
+		d.Ergo = "let " + objName + " " + t
+		d.Refs = ms.refs
+		d.RefPkgs = ms.refPkgs
+		return d
+	}
+	d.Refused = "not a function, type, constant or variable"
+	d
+}
+
+// MapMethod maps one concrete Go method record on recvTypeID into a Method Decl.
+func MapMethod(ctx MapContext, pkgPath string, pkgName string, recvTypeID uint32, m GoMethodRec) Decl {
+	let gt = ctx.GT
+	let mName = GetTypeStr(gt, m.Name)
+	let goText = GetTypeStr(gt, m.GoText)
+	let origPkg = GetTypeStr(gt, m.OrigPkg)
+	let origRecv = GetTypeStr(gt, m.OrigRecv)
+	let rp = typePkgPath(gt, recvTypeID)
+	let rName = typeName(gt, recvTypeID)
+	let mut ms = mapperState{
+		pkgPath:    rp,
+		pkgName:    typePkgName(gt, recvTypeID),
+		homePath:   rp,
+		refs:       []string{rp + "." + rName},
+		refPkgs:    []string{},
+		readable:   []Readable{},
+		writes:     "",
+		effect:     "",
+		effectFrom: "",
+		host:       "",
+		qualRaw:    false,
+	}
+	let mut d = Decl{
+		Kind:       BindMethod,
+		Name:       rName + "." + mName,
+		Go:         goText,
+		Ergo:       "",
+		Via:        "",
+		Variadic:   false,
+		Context:    false,
+		Writes:     "",
+		Reads:      []string{},
+		Vouched:    []Vouch{},
+		Effect:     "",
+		EffectFrom: "",
+		Host:       "",
+		Total:      false,
+		Refused:    "",
+		Members:    []Member{},
+		Refs:       []string{},
+		Lines:      []Line{},
+		RefPkgs:    []string{},
+		Readables:  []Readable{},
+	}
+	let r = mapFuncDecl(ctx, &ms, mName, m.SigType, recvTypeID, origPkg, origRecv, true) catch {
+	case mapErr as e:
+		d.Refused = e.reason
+		d.RefPkgs = ms.refPkgs
+		return d
+	}
+	d.Ergo = r.ergo
+	d.Variadic = r.variadic
+	d.Context = r.ctx
+	d.Writes = ms.writes
+	d.Effect = ms.effect
+	d.EffectFrom = ms.effectFrom
+	d.Host = ms.host
+	d.Refs = ms.refs
+	d.Readables = ms.readable
+	d.RefPkgs = ms.refPkgs
+	d
+}
+
+func mapOwnTypeMethod(ctx MapContext, pkgPath string, pkgName string, namedTypeID uint32, m GoMethodRec) Decl {
+	let mut workCtx = ctx
+	let gt = workCtx.GT
+	let mName = GetTypeStr(gt, m.Name)
+	let tName = typeName(gt, namedTypeID)
+	let synthName = tName + mName
+	let origSig = m.SigType
+	let mut recvName = dense.Text(gt.Strings, dense.Of(gt.RecvName, TypeIDAt(gt, origSig)))
+	if recvName == "" || recvName == "_" {
+		recvName = "r"
+	}
+	let mut ps = []GoParamRec{GoParamRec{Name: InternTypeStr(&workCtx.GT, recvName), Type: namedTypeID}}
+	for p in typeParams(gt, origSig) {
+		ps = ps.Append(p)
+	}
+	let synthSig = AddType(&workCtx.GT, TypeSpec{
+		Kind:       TKSignature,
+		BasicKind:  BInvalid,
+		BasicName:  "",
+		Name:       "",
+		PkgPath:    "",
+		PkgName:    "",
+		TypeText:   "",
+		ShortText:  "",
+		Elem:       NoIndex,
+		Key:        NoIndex,
+		ArrLen:     uint32(0),
+		Underlying: NoIndex,
+		RecvType:   NoIndex,
+		RecvName:   "",
+		Flags:      typeFlags(gt, origSig) & TFFlagVariadic,
+	})
+	SetTypeParams(&workCtx.GT, synthSig, ps)
+	SetTypeResults(&workCtx.GT, synthSig, typeResults(gt, origSig))
+	SetTypeTypeParams(&workCtx.GT, synthSig, typeTParams(gt, origSig))
+	let mut ms = mapperState{
+		pkgPath:    pkgPath,
+		pkgName:    pkgName,
+		homePath:   pkgPath,
+		refs:       []string{},
+		refPkgs:    []string{},
+		readable:   []Readable{},
+		writes:     "",
+		effect:     "",
+		effectFrom: "",
+		host:       "",
+		qualRaw:    false,
+	}
+	let mut d = Decl{
+		Kind:       BindFunc,
+		Name:       tName + "." + mName,
+		Go:         GetTypeStr(gt, m.GoText),
+		Ergo:       "",
+		Via:        "",
+		Variadic:   false,
+		Context:    false,
+		Writes:     "",
+		Reads:      []string{},
+		Vouched:    []Vouch{},
+		Effect:     "",
+		EffectFrom: "",
+		Host:       "",
+		Total:      false,
+		Refused:    "",
+		Members:    []Member{},
+		Refs:       []string{},
+		Lines:      []Line{},
+		RefPkgs:    []string{},
+		Readables:  []Readable{},
+	}
+	let r = mapFuncDecl(workCtx, &ms, synthName, synthSig, NoIndex, "", "", false) catch {
+	case mapErr as e:
+		d.Refused = e.reason
+		d.RefPkgs = ms.refPkgs
+		return d
+	}
+	d.Ergo = r.ergo
+	d.Variadic = r.variadic
+	d.Context = r.ctx
+	d.Writes = ms.writes
+	d.Effect = ms.effect
+	d.EffectFrom = ms.effectFrom
+	d.Host = ms.host
+	d.Refs = ms.refs
+	d.Readables = ms.readable
+	d.RefPkgs = ms.refPkgs
+	d
+}
+
+type declSortItem {
+	idx  uint32,
+	name string,
+}
+
+func sortDeclIndices(gd GoDeclTable, indices []uint32) []uint32 {
+	let mut items = slices.WithCapacity[declSortItem](indices.Len())
+	for idx in indices {
+		let id = dense.IDAt(gd.Count, int(idx))
+		items = items.Append(declSortItem{idx: idx, name: dense.Text(gd.Strings, dense.Of(gd.Name, id))})
+	}
+	let mut out = slices.WithCapacity[uint32](items.Len())
+	let mut names = slices.WithCapacity[string](items.Len())
+	for it in items {
+		names = names.Append(it.name)
+	}
+	let sortedNames = slices.Sort(names)
+	for sn in sortedNames {
+		for it in items {
+			if it.name == sn {
+				out = out.Append(it.idx)
+				break
+			}
+		}
+	}
+	out
+}
+
+func sortMethodsByName(gt GoTypeTable, ms []GoMethodRec) []GoMethodRec {
+	let mut names = slices.WithCapacity[string](ms.Len())
+	for m in ms {
+		names = names.Append(GetTypeStr(gt, m.Name))
+	}
+	let sorted = slices.Sort(names)
+	let mut out = slices.WithCapacity[GoMethodRec](ms.Len())
+	for sn in sorted {
+		for m in ms {
+			if GetTypeStr(gt, m.Name) == sn {
+				out = out.Append(m)
+				break
+			}
+		}
+	}
+	out
+}
+
+func sortDeclsByName(ds []Decl) []Decl {
+	let mut names = slices.WithCapacity[string](ds.Len())
+	for d in ds {
+		names = names.Append(d.Name)
+	}
+	let sorted = slices.Sort(names)
+	let mut out = slices.WithCapacity[Decl](ds.Len())
+	for sn in sorted {
+		for d in ds {
+			if d.Name == sn {
+				out = out.Append(d)
+				break
+			}
+		}
+	}
+	out
+}
+
+// Decls maps every exported declaration and method of pkgPath in sorted order.
+func Decls(ctx MapContext, pkgPath string) []Decl {
+	let rawIDs = PkgDeclIDs(ctx.GD, pkgPath)
+	let ids = sortDeclIndices(ctx.GD, rawIDs)
+	let mut out = []Decl{}
+	for idx in ids {
+		let did = dense.IDAt(ctx.GD.Count, int(idx))
+		let flags = dense.Of(ctx.GD.Flags, did)
+		if (flags & DFFlagExported) == uint32(0) {
+			continue
+		}
+		let kind = dense.Of(ctx.GD.Kind, did)
+		let objName = dense.Text(ctx.GD.Strings, dense.Of(ctx.GD.Name, did))
+		let pkgName = dense.Text(ctx.GD.Strings, dense.Of(ctx.GD.PkgName, did))
+		let tid = dense.Of(ctx.GD.TypeID, did)
+		let d = MapOneDecl(ctx, pkgPath, idx, NoIndex, true)
+		out = out.Append(d)
+		if kind != GKType || typeKind(ctx.GT, tid) != TKNamed {
+			continue
+		}
+		if d.Refused != "" {
+			if pkgPath == "time" && objName == "Duration" && (flags&DFFlagAlias) == uint32(0) {
+				let mut ownOut = []Decl{}
+				for m in typeValMethods(ctx.GT, tid) {
+					if (m.Flags & MemberExported) == uint8(0) {
+						continue
+					}
+					ownOut = ownOut.Append(mapOwnTypeMethod(ctx, pkgPath, pkgName, tid, m))
+				}
+				for od in sortDeclsByName(ownOut) {
+					out = out.Append(od)
+				}
+			}
+			continue
+		}
+		let under = typeUnder(ctx.GT, tid)
+		if typeKind(ctx.GT, under) == TKInterface {
+			continue
+		}
+		let mut ms = []GoMethodRec{}
+		for m in typeMethods(ctx.GT, tid) {
+			if (m.Flags & MemberExported) != uint8(0) {
+				ms = ms.Append(m)
+			}
+		}
+		for m in sortMethodsByName(ctx.GT, ms) {
+			out = out.Append(MapMethod(ctx, pkgPath, pkgName, tid, m))
+		}
+	}
+	out
+}
+
+// IsBinderRejectsKeywordsAndPredeclared: keywords and universe names are rejected while ordinary ASCII identifiers are kept.
+law IsBinderRejectsKeywordsAndPredeclared() {
+		!IsBinder("") && !IsBinder("_") && !IsBinder("type") && !IsBinder("map") && !IsBinder("Map") &&
+		!IsBinder("int") && !IsBinder("string") && !IsBinder("Option") && IsBinder("error") &&
+		IsBinder("wire") && IsBinder("x") && IsBinder("buf2")
+}
+
+// MapGoTypesAndSignatures exercises Go type, error, pointer, var, and ownTypeMethods mapping.
+test MapGoTypesAndSignatures {
+	let mut gt = NewGoTypeTable()
+	let tInt = AddType(&gt, TypeSpec{Kind: TKBasic, BasicKind: BInt, BasicName: "int", Name: "int", PkgPath: "", PkgName: "", TypeText: "int", ShortText: "int", Elem: NoIndex, Key: NoIndex, ArrLen: uint32(0), Underlying: NoIndex, RecvType: NoIndex, RecvName: "", Flags: TFFlagBasicInteger | TFFlagBasicNumeric})
+	let tErr = AddType(&gt, TypeSpec{Kind: TKNamed, BasicKind: BInvalid, BasicName: "", Name: "error", PkgPath: "", PkgName: "", TypeText: "error", ShortText: "error", Elem: NoIndex, Key: NoIndex, ArrLen: uint32(0), Underlying: NoIndex, RecvType: NoIndex, RecvName: "", Flags: TFFlagIsError})
+	let tStruct = AddType(&gt, TypeSpec{Kind: TKStruct, BasicKind: BInvalid, BasicName: "", Name: "", PkgPath: "", PkgName: "", TypeText: "struct{}", ShortText: "struct{}", Elem: NoIndex, Key: NoIndex, ArrLen: uint32(0), Underlying: NoIndex, RecvType: NoIndex, RecvName: "", Flags: uint32(0)})
+	let tFile = AddType(&gt, TypeSpec{Kind: TKNamed, BasicKind: BInvalid, BasicName: "", Name: "File", PkgPath: "example.com/fs", PkgName: "fs", TypeText: "example.com/fs.File", ShortText: "File", Elem: NoIndex, Key: NoIndex, ArrLen: uint32(0), Underlying: tStruct, RecvType: NoIndex, RecvName: "", Flags: TFFlagExported})
+	let tPtrFile = AddType(&gt, TypeSpec{Kind: TKPointer, BasicKind: BInvalid, BasicName: "", Name: "", PkgPath: "", PkgName: "", TypeText: "*example.com/fs.File", ShortText: "*File", Elem: tFile, Key: NoIndex, ArrLen: uint32(0), Underlying: NoIndex, RecvType: NoIndex, RecvName: "", Flags: uint32(0)})
+	let tSig = AddType(&gt, TypeSpec{Kind: TKSignature, BasicKind: BInvalid, BasicName: "", Name: "", PkgPath: "", PkgName: "", TypeText: "func(n int) (*File, error)", ShortText: "", Elem: NoIndex, Key: NoIndex, ArrLen: uint32(0), Underlying: NoIndex, RecvType: NoIndex, RecvName: "", Flags: uint32(0)})
+	SetTypeParams(&gt, tSig, []GoParamRec{GoParamRec{Name: InternTypeStr(&gt, "n"), Type: tInt}})
+	SetTypeResults(&gt, tSig, []GoParamRec{GoParamRec{Name: InternTypeStr(&gt, ""), Type: tPtrFile}, GoParamRec{Name: InternTypeStr(&gt, ""), Type: tErr}})
+
+	let mut gd = NewGoDeclTable()
+	let _ = AddGoDecl(&gd, GKType, "example.com/fs", "fs", "File", tFile, "type File struct", "example.com/fs.File", DFFlagExported)
+	let _ = AddGoDecl(&gd, GKFunc, "example.com/fs", "fs", "Open", tSig, "func Open(n int) (*File, error)", "example.com/fs.Open", DFFlagExported)
+
+	let mut ctx = DefaultMapContext(gt, gd)
+	AddFact(&ctx.Facts, "example.com/fs.Open", FactNonNilResult)
+	let ds = Decls(ctx, "example.com/fs")
+	assert ds.Len() == 2
+	assert ds[0].Ergo == "type File {}"
+	assert ds[1].Ergo == "func Open(n int) go.Ref[File] fails go.Error needs go.Foreign"
+}

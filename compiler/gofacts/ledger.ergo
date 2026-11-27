@@ -1,0 +1,329 @@
+// Guard-line and vouched-fact ledger parser and verdict checker over dense SoA
+// tables.
+
+import dense
+import option
+import slices
+import strings
+
+// LedgerTag identifies a parsed fact line inside LedgerTable.
+type LedgerTag {}
+
+// LedgerID is a dense handle into LedgerTable.
+type LedgerID = dense.ID[LedgerTag]
+
+// LedgerEntry is one parsed ledger fact record.
+type LedgerEntry {
+	Key     string,
+	Verdict string,
+	By      string,
+	With    string,
+	Digest  string,
+}
+
+// Verdict is the outcome of Acts, SyncActs, EffectActs, HostActs, PureActs, or RowActs.
+type Verdict {
+	OK      bool,
+	Refuted bool,
+	Why     string,
+}
+
+// LedgerTable holds parsed fact lines in SoA columns with last-line-wins slots.
+type LedgerTable {
+	Strings dense.Strings,
+	Count   dense.Count[LedgerTag],
+	Key     dense.Col[LedgerTag, Str],
+	Verdict dense.Col[LedgerTag, Str],
+	By      dense.Col[LedgerTag, Str],
+	With    dense.Col[LedgerTag, Str],
+	Digest  dense.Col[LedgerTag, Str],
+	KeySlot []uint32,
+}
+
+// NewLedgerTable allocates an empty LedgerTable.
+func NewLedgerTable() LedgerTable {
+	LedgerTable{
+		Strings: dense.NewStrings(),
+		Count:   dense.NewCount[LedgerTag](),
+		Key:     dense.NewCol[LedgerTag, Str](),
+		Verdict: dense.NewCol[LedgerTag, Str](),
+		By:      dense.NewCol[LedgerTag, Str](),
+		With:    dense.NewCol[LedgerTag, Str](),
+		Digest:  dense.NewCol[LedgerTag, Str](),
+		KeySlot: []uint32{},
+	}
+}
+
+func growSlots(slots mut []uint32, idx int) {
+	for (*slots).Len() <= idx {
+		*slots = (*slots).Append(uint32(0))
+	}
+}
+
+func addLedgerEntry(tbl mut LedgerTable, key string, verdict string, by string, withTC string, digest string) {
+	let id = dense.Next(&tbl.Count)
+	let kid = dense.InternText(&tbl.Strings, key)
+	let vid = dense.InternText(&tbl.Strings, verdict)
+	let bid = dense.InternText(&tbl.Strings, by)
+	let wid = dense.InternText(&tbl.Strings, withTC)
+	let did = dense.InternText(&tbl.Strings, digest)
+	dense.Push(&tbl.Key, kid)
+	dense.Push(&tbl.Verdict, vid)
+	dense.Push(&tbl.By, bid)
+	dense.Push(&tbl.With, wid)
+	dense.Push(&tbl.Digest, did)
+	let ki = dense.Index(kid)
+	growSlots(&tbl.KeySlot, ki)
+	tbl.KeySlot[ki] = uint32(dense.Index(id)) + uint32(1)
+}
+
+func isGuardFactPair(f string, p string) bool {
+	(f == "sync" && p == "callbacks") || (f == "pure" && p == "members") || (f == "effect" && (p == "none" || p == "ambient"))
+}
+
+func parseLedger(ledger string, includeRows bool) LedgerTable {
+	let mut tbl = NewLedgerTable()
+	for line in strings.Split(ledger, "\n") {
+		let words = strings.Fields(line)
+		if words.Len() < 7 || words[0] != "fact" {
+			continue
+		}
+		let isRow = words[3] == "reads" || words[3] == "fresh"
+		if !isGuardFactPair(words[3], words[4]) && !(includeRows && isRow) {
+			continue
+		}
+		let key = strings.Join(words[1:5], " ")
+		let verdict = words[5]
+		let digest = words[words.Len()-1]
+		let mut by = ""
+		let mut withTC = ""
+		let mut i = 6
+		for i+1 < words.Len()-1 {
+			if words[i] == "by" {
+				by = words[i+1]
+			} else if words[i] == "with" {
+				withTC = words[i+1]
+			}
+			i = i + 2
+		}
+		addLedgerEntry(&tbl, key, verdict, by, withTC, digest)
+	}
+	tbl
+}
+
+// ParseGuardLines parses sync, pure, and effect guard lines into a LedgerTable; last line wins per key.
+func ParseGuardLines(ledger string) LedgerTable {
+	parseLedger(ledger, false)
+}
+
+// ParseAllLines parses sync, pure, effect, reads, and fresh lines into a LedgerTable; last line wins per key.
+func ParseAllLines(ledger string) LedgerTable {
+	parseLedger(ledger, true)
+}
+
+// NumEntries returns the total parsed line count in tbl.
+func NumEntries(tbl LedgerTable) int { dense.Total(tbl.Count) }
+
+// Find returns the latest LedgerEntry stored under key, if present.
+func Find(tbl LedgerTable, key string) option.Option[LedgerEntry] {
+	match dense.FindText(tbl.Strings, key) {
+	case option.None:
+		option.None
+	case option.Some{Value: kid}:
+		let ki = dense.Index(kid)
+		if ki >= tbl.KeySlot.Len() || tbl.KeySlot[ki] == uint32(0) {
+			return option.None
+		}
+		let id = dense.IDAt(tbl.Count, int(tbl.KeySlot[ki]-uint32(1)))
+		option.Some{Value: LedgerEntry{
+			Key:     dense.Text(tbl.Strings, dense.Of(tbl.Key, id)),
+			Verdict: dense.Text(tbl.Strings, dense.Of(tbl.Verdict, id)),
+			By:      dense.Text(tbl.Strings, dense.Of(tbl.By, id)),
+			With:    dense.Text(tbl.Strings, dense.Of(tbl.With, id)),
+			Digest:  dense.Text(tbl.Strings, dense.Of(tbl.Digest, id)),
+		}}
+	}
+}
+
+// Acts reports whether key is current and validated in tbl for digest and toolchain.
+func Acts(tbl LedgerTable, key string, digest string, toolchain string) Verdict {
+	match Find(tbl, key) {
+	case option.None:
+		Verdict{OK: false, Refuted: false, Why: "the std ledger has no guard line for " + key + ": run go run ./scripts/stdlaws"}
+	case option.Some{Value: e}:
+		if e.Digest != digest || e.With != toolchain {
+			return Verdict{OK: false, Refuted: false, Why: "the guard line for " + key + " is stale (the row or the toolchain changed): run go run ./scripts/stdlaws"}
+		}
+		if e.Verdict == "refuted" {
+			return Verdict{OK: false, Refuted: true, Why: "its guard refuted it (ergo.laws: fact " + key + " refuted by " + e.By + "): correct or remove the row"}
+		}
+		if e.Verdict != "validated" || e.By == "" {
+			return Verdict{OK: false, Refuted: false, Why: "the guard line for " + key + " is " + e.Verdict + ": only a validated guard line with its run named lets it act"}
+		}
+		Verdict{OK: true, Refuted: false, Why: ""}
+	}
+}
+
+// SyncActs checks whether target's synchronous-callback row acts under l.
+func SyncActs(eff EffectTable, l LedgerTable, target string, toolchain string) Verdict {
+	match SyncReason(eff, target) {
+	case option.None:
+		Verdict{OK: false, Refuted: false, Why: "v1.GoSyncCallbacks() has no reviewed row for it"}
+	case option.Some{Value: reason}:
+		Acts(l, SyncKey(target), SyncDigest(target, reason, toolchain), toolchain)
+	}
+}
+
+// EffectActs checks whether target's memory-only effect row acts under l.
+func EffectActs(eff EffectTable, l LedgerTable, target string, toolchain string) Verdict {
+	match EffectOf(eff, target) {
+	case option.None:
+		Verdict{OK: false, Refuted: false, Why: "the reviewed table gofacts.Effects has no memory-only row for it"}
+	case option.Some{Value: e}:
+		Acts(l, EffectKey(target), EffectDigest(e, toolchain), toolchain)
+	}
+}
+
+// HostActs checks whether target's host-effect row acts under l.
+func HostActs(eff EffectTable, l LedgerTable, target string, toolchain string) Verdict {
+	match HostOf(eff, target) {
+	case option.None:
+		Verdict{OK: false, Refuted: false, Why: "the reviewed table gofacts.Hosts has no host row for it"}
+	case option.Some{Value: e}:
+		Acts(l, HostKey(target), HostDigest(e, toolchain), toolchain)
+	}
+}
+
+// PureActs checks whether pkgPath's pure-members row acts under l.
+func PureActs(eff EffectTable, l LedgerTable, pkgPath string, toolchain string) Verdict {
+	if !IsPurePkg(eff, pkgPath) {
+		return Verdict{OK: false, Refuted: false, Why: "v1.PureImports has no reviewed entry for it"}
+	}
+	Acts(l, PureKey(pkgPath), PureDigest(pkgPath, PureExcept(eff, pkgPath), toolchain), toolchain)
+}
+
+// RowActs checks whether a vouched reads/fresh Row acts under l.
+func RowActs(l LedgerTable, r Row, toolchain string) Verdict {
+	Acts(l, RowKey(r), RowDigest(r, toolchain), toolchain)
+}
+
+// VerifyLedger checks every shipped row, effect, host, sync, and pure digest
+// against l and returns sorted failure messages for any non-acting item.
+func VerifyLedger(ft FactTable, et EffectTable, l LedgerTable, toolchain string) []string {
+	let mut issues = []string{}
+	for r in AllTableRows(ft) {
+		let v = RowActs(l, r, toolchain)
+		if !v.OK {
+			issues = issues.Append(RowKey(r) + ": " + v.Why)
+		}
+	}
+	for e in AllEffectsByKind(et, KindEffectNone) {
+		let v = Acts(l, EffectKey(e.Target), EffectDigest(e, toolchain), toolchain)
+		if !v.OK {
+			issues = issues.Append(EffectKey(e.Target) + ": " + v.Why)
+		}
+	}
+	for h in AllEffectsByKind(et, KindEffectAmbient) {
+		let v = Acts(l, HostKey(h.Target), HostDigest(h, toolchain), toolchain)
+		if !v.OK {
+			issues = issues.Append(HostKey(h.Target) + ": " + v.Why)
+		}
+	}
+	for s in AllSyncTargets(et) {
+		let v = SyncActs(et, l, s, toolchain)
+		if !v.OK {
+			issues = issues.Append(SyncKey(s) + ": " + v.Why)
+		}
+	}
+	for p in AllPurePkgs(et) {
+		let v = PureActs(et, l, p, toolchain)
+		if !v.OK {
+			issues = issues.Append(PureKey(p) + ": " + v.Why)
+		}
+	}
+	slices.Sort(issues)
+}
+
+// ParseGuardLastLineWins: duplicated keys keep the verdict and digest of the later line.
+law ParseGuardLastLineWins(digestA string, digestB string) {
+	let tokA = strings.TrimSpace(digestA)
+	let tokB = strings.TrimSpace(digestB)
+	if tokA == "" || tokB == "" || strings.Fields(tokA).Len() != 1 || strings.Fields(tokB).Len() != 1 {
+		return true
+	}
+	let line1 = "fact go bytes.ContainsFunc sync callbacks validated by guard with go1.27.4 " + tokA
+	let line2 = "fact go bytes.ContainsFunc sync callbacks refuted by guard with go1.27.4 " + tokB
+	let tbl = ParseGuardLines(line1 + "\n" + line2)
+	match Find(tbl, "go bytes.ContainsFunc sync callbacks") {
+	case option.Some{Value: e}:
+		e.Verdict == "refuted" && e.Digest == tokB
+	case option.None:
+		false
+	}
+}
+
+// ActsRequiresValidatedNamedCurrent: missing, stale, refuted, or unnamed lines never act.
+law ActsRequiresValidatedNamedCurrent(digest string, tc string) {
+	let cleanTC = strings.TrimSpace(tc)
+	if cleanTC == "" || strings.Fields(cleanTC).Len() != 1 || cleanTC != tc {
+		return true
+	}
+	let d = LineDigest(digest)
+	let wrongD = LineDigest(digest + "x")
+	let wrongTC = cleanTC + "x"
+	let empty = ParseGuardLines("")
+	let missing = Acts(empty, "go t sync callbacks", d, cleanTC)
+	let lineStale = ParseGuardLines("fact go t sync callbacks validated by guard with " + cleanTC + " " + wrongD)
+	let stale = Acts(lineStale, "go t sync callbacks", d, cleanTC)
+	let lineWrongTC = ParseGuardLines("fact go t sync callbacks validated by guard with " + wrongTC + " " + d)
+	let badTC = Acts(lineWrongTC, "go t sync callbacks", d, cleanTC)
+	let lineRefuted = ParseGuardLines("fact go t sync callbacks refuted by guard with " + cleanTC + " " + d)
+	let ref = Acts(lineRefuted, "go t sync callbacks", d, cleanTC)
+	let lineOther = ParseGuardLines("fact go t sync callbacks unvalidated with " + cleanTC + " " + d)
+	let other = Acts(lineOther, "go t sync callbacks", d, cleanTC)
+	let lineOK = ParseGuardLines("fact go t sync callbacks validated by guard with " + cleanTC + " " + d)
+	let good = Acts(lineOK, "go t sync callbacks", d, cleanTC)
+	!missing.OK && !missing.Refuted && !stale.OK && !badTC.OK && !ref.OK && ref.Refuted && !other.OK && good.OK && !good.Refuted
+}
+
+// LedgerActsVerdicts exercises SyncActs, EffectActs, HostActs, PureActs, and RowActs end-to-end.
+test LedgerActsVerdicts {
+	let ft = DefaultFactTable()
+	let et = DefaultEffectTable()
+	let syncReason = match SyncReason(et, "bytes.ContainsFunc") {
+	case option.Some{Value: r}:
+		r
+	case option.None:
+		""
+	}
+	let eff = match EffectOf(et, "time.Time.Add") {
+	case option.Some{Value: e}:
+		e
+	case option.None:
+		Effect{Target: "", Reason: "", Source: ""}
+	}
+	let host = match HostOf(et, "os.Getenv") {
+	case option.Some{Value: e}:
+		e
+	case option.None:
+		Effect{Target: "", Reason: "", Source: ""}
+	}
+	let row = FindRows(ft, "bytes.Contains")[0]
+	let text = strings.Join([]string{
+		"fact " + SyncKey("bytes.ContainsFunc") + " validated by guard with " + DefaultToolchain + " " + SyncDigest("bytes.ContainsFunc", syncReason, DefaultToolchain),
+		"fact " + EffectKey("time.Time.Add") + " validated by guard with " + DefaultToolchain + " " + EffectDigest(eff, DefaultToolchain),
+		"fact " + HostKey("os.Getenv") + " validated by guard with " + DefaultToolchain + " " + HostDigest(host, DefaultToolchain),
+		"fact " + PureKey("path/filepath") + " validated by guard with " + DefaultToolchain + " " + PureDigest("path/filepath", PureExcept(et, "path/filepath"), DefaultToolchain),
+		"fact " + RowKey(row) + " validated by guard with " + DefaultToolchain + " " + RowDigest(row, DefaultToolchain),
+	}, "\n")
+	let lGuards = ParseGuardLines(text)
+	assert SyncActs(et, lGuards, "bytes.ContainsFunc", DefaultToolchain).OK
+	assert EffectActs(et, lGuards, "time.Time.Add", DefaultToolchain).OK
+	assert HostActs(et, lGuards, "os.Getenv", DefaultToolchain).OK
+	assert PureActs(et, lGuards, "path/filepath", DefaultToolchain).OK
+	assert !RowActs(lGuards, row, DefaultToolchain).OK
+	let lAll = ParseAllLines(text)
+	assert RowActs(lAll, row, DefaultToolchain).OK
+	assert !SyncActs(et, lAll, "unknown.Func", DefaultToolchain).OK
+	assert !PureActs(et, lAll, "os", DefaultToolchain).OK
+}

@@ -1,0 +1,372 @@
+// Default vouched rows, effect/host rows, and reviewed runtime Go boundary
+// clauses loaded into FactTable and EffectTable.
+
+import dense
+import option
+
+func addReadsRows(tbl mut FactTable) {
+	let _ = AddRow(tbl, Row{Target: "bytes.IndexByte", Fact: "reads", Param: "b", Reason: "its body is bytealg.IndexByte, assembly that only loads from b", Source: "9cb4c150b9d9", View: false})
+	let _ = AddRow(tbl, Row{Target: "bytes.Index", Fact: "reads", Param: "s", Reason: "it reaches bytealg.Index, IndexByte and Equal, assembly that only loads, and a Rabin-Karp loop that only reads", Source: "711d86f96509", View: false})
+	let _ = AddRow(tbl, Row{Target: "bytes.Index", Fact: "reads", Param: "sep", Reason: "it reaches bytealg.Index, IndexByte and Equal, assembly that only loads, and a Rabin-Karp loop that only reads", Source: "711d86f96509", View: false})
+	let _ = AddRow(tbl, Row{Target: "bytes.Contains", Fact: "reads", Param: "b", Reason: "it is Index(b, subslice) != -1", Source: "cf60e3ee8bcf", View: false})
+	let _ = AddRow(tbl, Row{Target: "bytes.Contains", Fact: "reads", Param: "subslice", Reason: "it is Index(b, subslice) != -1", Source: "cf60e3ee8bcf", View: false})
+	let _ = AddRow(tbl, Row{Target: "bytes.Count", Fact: "reads", Param: "s", Reason: "it reaches bytealg.Count (assembly that only loads), utf8.RuneCount and Index", Source: "28a1ec4078dd", View: false})
+	let _ = AddRow(tbl, Row{Target: "bytes.Count", Fact: "reads", Param: "sep", Reason: "it reads sep[0] for bytealg.Count, and passes sep to Index", Source: "28a1ec4078dd", View: false})
+	let _ = AddRow(tbl, Row{Target: "crypto/sha256.Sum256", Fact: "reads", Param: "data", Reason: "Write copies data into the digest's buffer and the block function, assembly, only loads from it", Source: "d1bd973fda38", View: true})
+	let _ = AddRow(tbl, Row{Target: "hash/crc32.ChecksumIEEE", Fact: "reads", Param: "data", Reason: "it calls the function variable updateIEEE, assembly or a table loop that only loads", Source: "0a577c2fb9b4", View: true})
+	let _ = AddRow(tbl, Row{Target: "strings.Join", Fact: "reads", Param: "elems", Reason: "Go reports only that an element string flows to the result (leaking param: elems to result level=1): the slice's array is neither written nor kept, and a string is immutable", Source: "8aa66715ab45", View: false})
+	let _ = AddRow(tbl, Row{Target: "path/filepath.Join", Fact: "reads", Param: "elem", Reason: "it is join(elem), which reslices elem and passes it to strings.Join (a reads row); Go's mutation verdict comes from the inlined Clean of the joined string, which is immutable", Source: "6fc7b1fadbe3", View: false})
+	let _ = AddRow(tbl, Row{Target: "hash/crc32.Update", Fact: "reads", Param: "p", Reason: "it calls update, over the function variables updateIEEE and updateCastagnoli or a table loop, that only loads", Source: "fadaf3baa7c7", View: true})
+	let _ = AddRow(tbl, Row{Target: "os.File.Write", Fact: "reads", Param: "b", Reason: "it passes b to poll.FD.Write, which hands each chunk of b to the write system call; the kernel only loads from it and nothing keeps it", Source: "623de74b5313", View: false})
+	let _ = AddRow(tbl, Row{Target: "os.File.WriteAt", Fact: "reads", Param: "b", Reason: "it passes each rest of b to File.pwrite, poll.FD.Pwrite, which hands it to the pwrite system call; the kernel only loads from it and nothing keeps it", Source: "adab3799e15d", View: false})
+}
+
+func addFreshRows(tbl mut FactTable) {
+	let _ = AddRow(tbl, Row{Target: "os.File.Readdirnames", Fact: "fresh", Param: "result", Reason: "File.readdir appends each name, a new string, to a nil slice (or returns a new empty one)", Source: "9564848e855e", View: false})
+	let _ = AddRow(tbl, Row{Target: "strings.Split", Fact: "fresh", Param: "result", Reason: "genSplit makes the result with make and fills it with substrings of s", Source: "65e3a355768c", View: false})
+	let _ = AddRow(tbl, Row{Target: "strings.SplitN", Fact: "fresh", Param: "result", Reason: "genSplit makes the result with make and fills it with substrings of s", Source: "ebc89999b4be", View: false})
+	let _ = AddRow(tbl, Row{Target: "strings.SplitAfter", Fact: "fresh", Param: "result", Reason: "genSplit makes the result with make and fills it with substrings of s", Source: "3568d9599e11", View: false})
+	let _ = AddRow(tbl, Row{Target: "strings.Fields", Fact: "fresh", Param: "result", Reason: "it makes the result with make (or calls FieldsFunc) and fills it with substrings of s", Source: "03cc79a67909", View: false})
+	let _ = AddRow(tbl, Row{Target: "strings.FieldsFunc", Fact: "fresh", Param: "result", Reason: "it makes spans and the result with make and fills the result with substrings of s", Source: "e7015b80f1e8", View: false})
+	let _ = AddRow(tbl, Row{Target: "regexp.Regexp.FindAllString", Fact: "fresh", Param: "result", Reason: "it is slices.Collect over allString, which appends each match's substring to a nil slice", Source: "e0b9bb9db7ad", View: false})
+	let _ = AddRow(tbl, Row{Target: "regexp.Regexp.FindStringSubmatch", Fact: "fresh", Param: "result", Reason: "it makes the result with make from the match's indexes", Source: "d6982e2c79d9", View: false})
+	let _ = AddRow(tbl, Row{Target: "regexp.Regexp.FindAllStringSubmatch", Fact: "fresh", Param: "result", Reason: "it is slices.Collect over allStringSubmatch, which makes each match's slice with make", Source: "670036968b42", View: false})
+	let _ = AddRow(tbl, Row{Target: "regexp.Regexp.Split", Fact: "fresh", Param: "result", Reason: "it makes the result with make and appends substrings of s", Source: "f9bf7fc8970d", View: false})
+}
+
+// DefaultFactTable returns a FactTable seeded with all shipped vouched rows.
+func DefaultFactTable() FactTable {
+	let mut tbl = NewFactTable()
+	addReadsRows(&tbl)
+	addFreshRows(&tbl)
+	tbl
+}
+
+func addEffectNone(tbl mut EffectTable) {
+	let atomicWord = "its body is one atomic instruction on x's own word: it touches no memory but x's and never waits"
+	let pcgState = "it reads and writes only p's two state words: a multiply and an add, or the seeds"
+	let fileModeBits = "it reads only m's bits: a mask, a compare or their text"
+	let timeInstant = "it reads only the instants of t and its argument (wall, ext), never a location's zone or the host's"
+	let _ = AddEffectEntry(tbl, KindEffectNone, "sync/atomic.Bool.CompareAndSwap", "", atomicWord, "a232c5cae2f0", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindEffectNone, "sync/atomic.Bool.Load", "", atomicWord, "43ee7c56ffde", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindEffectNone, "sync/atomic.Bool.Store", "", atomicWord, "6ca84c04cfcd", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindEffectNone, "sync/atomic.Bool.Swap", "", atomicWord, "8394e0edb911", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindEffectNone, "sync/atomic.Int64.Add", "", atomicWord, "f55e2110ad02", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindEffectNone, "sync/atomic.Int64.And", "", atomicWord, "459ef6af2c0e", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindEffectNone, "sync/atomic.Int64.CompareAndSwap", "", atomicWord, "a8e69380f253", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindEffectNone, "sync/atomic.Int64.Load", "", atomicWord, "9960558b852d", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindEffectNone, "sync/atomic.Int64.Or", "", atomicWord, "c9881d6b3c12", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindEffectNone, "sync/atomic.Int64.Store", "", atomicWord, "df817dd4c1bb", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindEffectNone, "sync/atomic.Int64.Swap", "", atomicWord, "1182ea4cd802", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindEffectNone, "math/rand/v2.NewPCG", "", "it returns a new PCG whose two state words are its arguments", "07dc6a6412f8", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindEffectNone, "math/rand/v2.PCG.Seed", "", pcgState, "7a7521723a07", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindEffectNone, "math/rand/v2.PCG.Uint64", "", pcgState, "82ade025cb4d", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindEffectNone, "io/fs.FileMode.IsDir", "", fileModeBits, "09c52a7f6974", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindEffectNone, "io/fs.FileMode.IsRegular", "", fileModeBits, "adeb948447f8", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindEffectNone, "io/fs.FileMode.Perm", "", fileModeBits, "892d9c86cda5", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindEffectNone, "io/fs.FileMode.Type", "", fileModeBits, "002a34f0fec4", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindEffectNone, "io/fs.FileMode.String", "", fileModeBits, "ec31917348c5", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindEffectNone, "time.Time.Add", "", timeInstant, "0363db7ec041", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindEffectNone, "time.Time.After", "", timeInstant, "f66cc9c7d00c", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindEffectNone, "time.Time.Before", "", timeInstant, "6b1fb40f80d2", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindEffectNone, "time.Time.Compare", "", timeInstant, "ec502b96477d", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindEffectNone, "time.Time.Equal", "", timeInstant, "6e90fda3fff1", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindEffectNone, "time.Time.IsZero", "", timeInstant, "48e36ccb8bf8", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindEffectNone, "time.Time.Sub", "", timeInstant, "e1b6a752c5b6", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindEffectNone, "time.Time.UTC", "", timeInstant, "a37ff6506242", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindEffectNone, "time.Time.Unix", "", timeInstant, "f38f0efa4da0", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindEffectNone, "time.Time.UnixMilli", "", timeInstant, "0e69a893e6c6", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindEffectNone, "time.Time.UnixNano", "", timeInstant, "87ce5948816a", 0, uint8(0))
+}
+
+func addEffectAmbient(tbl mut EffectTable) {
+	let _ = AddEffectEntry(tbl, KindEffectAmbient, "os.Getenv", "", "it reads one variable of the process's environment", "9bd559b80670", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindEffectAmbient, "os.LookupEnv", "", "it reads one variable of the process's environment", "5949a9958c29", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindEffectAmbient, "os.Environ", "", "it copies the process's environment into a new slice", "a26f3fa0bdc1", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindEffectAmbient, "os.Getwd", "", "it reads the process's working directory", "e751aa1d3b9f", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindEffectAmbient, "time.Now", "", "it reads the host's clock and the process's local zone", "c9ea77d5e6b9", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindEffectAmbient, "os.ReadFile", "", "it reads one file into a new byte slice and closes it", "bb04a2d6e68b", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindEffectAmbient, "os.WriteFile", "", "it writes its bytes to one file, creating or truncating it, and closes it", "c971c9ff32f1", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindEffectAmbient, "os.Mkdir", "", "it makes one directory", "054e02d4d835", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindEffectAmbient, "os.MkdirAll", "", "it makes a directory and its missing parents", "387cad4262ed", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindEffectAmbient, "os.Remove", "", "it removes one file or empty directory", "c04948848952", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindEffectAmbient, "os.RemoveAll", "", "it removes a path and everything under it", "98f8afe7adc2", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindEffectAmbient, "os.Rename", "", "it renames one path", "2e89ed8a4b75", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindEffectAmbient, "os.Readlink", "", "it reads one symbolic link's target", "6a065e85af7a", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindEffectAmbient, "os.Chmod", "", "it changes one file's mode", "354bb99d651b", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindEffectAmbient, "os.Chdir", "", "it makes one directory the process's working directory", "5efc41e7d8dd", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindEffectAmbient, "os.Chown", "", "it changes one file's owner and group, following a symbolic link, a negative id leaving that one", "1249ef2db82e", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindEffectAmbient, "os.Lchown", "", "it changes one path's owner and group, not following a symbolic link, a negative id leaving that one", "c09cd95ce984", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindEffectAmbient, "ergo.local/prototype/runtime/v1/hostfs.Stat", "", "it calls os.Stat on one path, following a symbolic link, and copies the five values of its result into a new struct", "07a2c004939a", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindEffectAmbient, "ergo.local/prototype/runtime/v1/hostfs.Lstat", "", "it calls os.Lstat on one path, not following a symbolic link, and copies the five values of its result into a new struct", "b90166fec086", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindEffectAmbient, "ergo.local/prototype/runtime/v1/hostfs.ReadDir", "", "it calls os.ReadDir on one directory and copies each entry's name, kind and type into a new, sorted slice", "66ec26573280", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindEffectAmbient, "ergo.local/prototype/runtime/v1/hostfs.FileStat", "", "it calls Stat on its open file's handle and copies the five values of its result into a new struct", "9d2c981cc12d", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindEffectAmbient, "ergo.local/prototype/runtime/v1/hostfs.FileReadDir", "", "it calls ReadDir(n) on its open directory's handle, reading on from the handle's position, and copies each entry's name, kind and type into a new slice", "3fb32a005db0", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindEffectAmbient, "ergo.local/prototype/runtime/v1/hostfs.FileReaddir", "", "it calls Readdir(n) on its open directory's handle, reading on from the handle's position, and copies each entry's five values into a new slice", "334a0ad29d37", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindEffectAmbient, "os.Open", "", "it opens one file for reading and returns its new handle to the caller", "f9e1351c88a4", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindEffectAmbient, "os.Create", "", "it creates or truncates one file, opens it for reading and writing, and returns its new handle to the caller", "2f7de022449f", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindEffectAmbient, "os.OpenFile", "", "it opens one file with the caller's flags and mode and returns its new handle to the caller", "ff9a64cc1436", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindEffectAmbient, "os.File.Read", "", "it reads up to len(b) bytes of its file at the handle's offset into b[:n], keeping no reference to b", "80a3a9532f27", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindEffectAmbient, "os.File.ReadAt", "", "it reads len(b) bytes of its file at off into b, keeping no reference to b, and leaves the handle's offset", "7c804d1ca0d7", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindEffectAmbient, "os.File.Write", "", "it writes b to its file at the handle's offset, keeping no reference to b", "623de74b5313", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindEffectAmbient, "os.File.WriteString", "", "it writes s to its file at the handle's offset", "da1e5bc07acd", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindEffectAmbient, "os.File.Seek", "", "it moves the handle's offset and returns the new one", "6dc50422060a", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindEffectAmbient, "os.File.Close", "", "it closes its handle; a later call on it fails with os.ErrClosed", "61bc2647f666", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindEffectAmbient, "os.File.Name", "", "it returns the name its handle was opened with", "0099ffe09700", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindEffectAmbient, "os.File.Sync", "", "it commits its file's contents to stable storage", "1ef07de7120d", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindEffectAmbient, "os.File.Truncate", "", "it changes its file's size", "316577c38894", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindEffectAmbient, "os.File.WriteAt", "", "it writes b to its file at off, keeping no reference to b, and leaves the handle's offset", "adab3799e15d", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindEffectAmbient, "os.File.Chmod", "", "it changes its file's mode", "9d9b9e00558b", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindEffectAmbient, "os.File.Chown", "", "it changes its file's owner and group, a negative id leaving that one", "63cd3451504c", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindEffectAmbient, "os.File.Chdir", "", "it makes its directory the process's working directory", "2c7cab4822f3", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindEffectAmbient, "os.File.Readdirnames", "", "it reads up to n names of its directory from the handle's position into a new slice", "9564848e855e", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindEffectAmbient, "os.File.SetDeadline", "", "it sets its handle's read and write deadlines, or fails with os.ErrNoDeadline on a file with none", "04da8420ccbd", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindEffectAmbient, "os.File.SetReadDeadline", "", "it sets its handle's read deadline, or fails with os.ErrNoDeadline on a file with none", "9c34436651b5", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindEffectAmbient, "os.File.SetWriteDeadline", "", "it sets its handle's write deadline, or fails with os.ErrNoDeadline on a file with none", "dad17b485b6d", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindEffectAmbient, "runtime.NumCPU", "", "it returns the number of logical CPUs reported by the operating system at process startup", "9ef49458017b", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindEffectAmbient, "os.Getpagesize", "", "it returns the operating system's memory page size", "e147c7c13ec8", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindEffectAmbient, "ergo.local/prototype/runtime/v1/hostfs.Statfs", "", "it calls syscall.Statfs on one path and copies the volume total, free and available byte counts into a new struct", "73314a4cd754", 0, uint8(0))
+}
+
+func addSyncCallbacks(tbl mut EffectTable) {
+	let _ = AddEffectEntry(tbl, KindSyncCallback, "bytes.ContainsFunc", "", "bytes/bytes.go: calls IndexFunc synchronously; no callback is stored", "", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindSyncCallback, "bytes.FieldsFunc", "", "bytes/bytes.go: invokes f in its field-scanning loop; stores only byte spans", "", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindSyncCallback, "bytes.IndexFunc", "", "bytes/bytes.go: invokes f in its rune-scanning loop; no retained callback", "", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindSyncCallback, "bytes.LastIndexFunc", "", "bytes/bytes.go: invokes f in its reverse rune scan; no retained callback", "", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindSyncCallback, "bytes.Map", "", "bytes/bytes.go: invokes mapping per rune and returns bytes, not the callback", "", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindSyncCallback, "bytes.TrimFunc", "", "bytes/bytes.go: calls the two synchronous trim scans", "", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindSyncCallback, "bytes.TrimLeftFunc", "", "bytes/bytes.go: invokes f in a rune scan and keeps no callback", "", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindSyncCallback, "bytes.TrimRightFunc", "", "bytes/bytes.go: invokes f in a reverse rune scan and keeps no callback", "", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindSyncCallback, "strings.ContainsFunc", "", "strings/strings.go: calls IndexFunc synchronously; no callback is stored", "", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindSyncCallback, "strings.FieldsFunc", "", "strings/strings.go: invokes f in the field scan and stores only spans", "", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindSyncCallback, "strings.IndexFunc", "", "strings/strings.go: invokes f in the rune scan and keeps no callback", "", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindSyncCallback, "strings.LastIndexFunc", "", "strings/strings.go: invokes f in the reverse rune scan and keeps no callback", "", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindSyncCallback, "strings.Map", "", "strings/strings.go: invokes mapping per rune and returns a string", "", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindSyncCallback, "strings.TrimFunc", "", "strings/strings.go: calls the two synchronous trim scans", "", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindSyncCallback, "strings.TrimLeftFunc", "", "strings/strings.go: invokes f in a rune scan and keeps no callback", "", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindSyncCallback, "strings.TrimRightFunc", "", "strings/strings.go: invokes f in a reverse rune scan and keeps no callback", "", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindSyncCallback, "slices.BinarySearchFunc", "", "slices/sort.go: cmp runs only in the binary-search loop", "", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindSyncCallback, "slices.CompactFunc", "", "slices/slices.go: eq runs only in the compaction loop", "", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindSyncCallback, "slices.CompareFunc", "", "slices/slices.go: cmp runs only in the comparison loop", "", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindSyncCallback, "slices.ContainsFunc", "", "slices/slices.go: calls the synchronous IndexFunc", "", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindSyncCallback, "slices.DeleteFunc", "", "slices/slices.go: del runs only in the deletion loop", "", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindSyncCallback, "slices.EqualFunc", "", "slices/slices.go: eq runs only in the equality loop", "", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindSyncCallback, "slices.IndexFunc", "", "slices/slices.go: f runs only in the index scan", "", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindSyncCallback, "slices.IsSortedFunc", "", "slices/sort.go: cmp runs only in the sortedness scan", "", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindSyncCallback, "slices.MaxFunc", "", "slices/sort.go: cmp runs only in the extremum scan", "", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindSyncCallback, "slices.MinFunc", "", "slices/sort.go: cmp runs only in the extremum scan", "", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindSyncCallback, "slices.SortFunc", "", "slices/sort.go and zsortanyfunc.go: pdqsort calls cmp synchronously and stores no callback", "", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindSyncCallback, "slices.SortStableFunc", "", "slices/sort.go and zsortanyfunc.go: stable sort calls cmp synchronously and stores no callback", "", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindSyncCallback, "slices.SortedFunc", "", "slices/iter.go: collects the input then calls SortFunc before returning", "", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindSyncCallback, "slices.SortedStableFunc", "", "slices/iter.go: collects the input then calls SortStableFunc before returning", "", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindSyncCallback, "maps.DeleteFunc", "", "maps/maps.go: del runs only in the deletion loop", "", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindSyncCallback, "maps.EqualFunc", "", "maps/maps.go: eq runs only in the equality loop", "", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindSyncCallback, "sort.Find", "", "sort/search.go: cmp runs only in the search loop and final comparison", "", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindSyncCallback, "sort.Search", "", "sort/search.go: f runs only in the search loop", "", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindSyncCallback, "math/rand.Shuffle", "", "math/rand/rand.go: delegates to Rand.Shuffle synchronously", "", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindSyncCallback, "math/rand.Rand.Shuffle", "", "math/rand/rand.go: swap runs only in the Fisher-Yates loop", "", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindSyncCallback, "math/rand/v2.Shuffle", "", "math/rand/v2/rand.go: delegates to Rand.Shuffle synchronously", "", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindSyncCallback, "math/rand/v2.Rand.Shuffle", "", "math/rand/v2/rand.go: swap runs only in the Fisher-Yates loop", "", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindSyncCallback, "os.Expand", "", "os/env.go: mapping runs only in the expansion scan; only the string result is stored", "", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindSyncCallback, "path/filepath.Walk", "", "path/filepath/path.go: recursive walk returns before Walk returns; no callback is stored", "", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindSyncCallback, "path/filepath.WalkDir", "", "path/filepath/path.go: recursive walkDir returns before WalkDir returns; no callback is stored", "", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindSyncCallback, "io/fs.WalkDir", "", "io/fs/walk.go: recursive walkDir returns before WalkDir returns; no callback is stored", "", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindSyncCallback, "regexp.Regexp.ReplaceAllFunc", "", "regexp/regexp.go: replacement callback runs only inside replaceAll", "", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindSyncCallback, "regexp.Regexp.ReplaceAllStringFunc", "", "regexp/regexp.go: replacement callback runs only inside replaceAll", "", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindSyncCallback, "flag.Visit", "", "flag/flag.go: delegates to CommandLine.Visit synchronously", "", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindSyncCallback, "flag.VisitAll", "", "flag/flag.go: delegates to CommandLine.VisitAll synchronously", "", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindSyncCallback, "flag.FlagSet.Visit", "", "flag/flag.go: invokes fn over the sorted actual flags and stores no callback", "", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindSyncCallback, "flag.FlagSet.VisitAll", "", "flag/flag.go: invokes fn over the sorted formal flags and stores no callback", "", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindSyncCallback, "go/ast.Inspect", "", "go/ast/walk.go: Walk calls the visitor synchronously over the syntax tree", "", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindSyncCallback, "expvar.Do", "", "expvar/expvar.go: invokes f over the variables under the call's lock and stores no callback", "", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindSyncCallback, "log/slog.Record.Attrs", "", "log/slog/record.go: invokes f over the record's attributes and stores no callback", "", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindSyncCallback, "sync.Once.Do", "", "sync/once.go: doSlow runs f synchronously under the lock and retains only the done flag", "", 0, uint8(0))
+}
+
+func addPurityEntries(tbl mut EffectTable) {
+	let purePkgs = []string{"strings", "strconv", "unicode", "unicode/utf8", "unicode/utf16", "slices", "sort", "math", "math/bits", "path/filepath", "encoding/hex", "encoding/base64", "crypto/sha256", "hash/crc32", "crypto/sha512", "crypto/sha1", "crypto/hmac", "net/url", "net/netip", "simd/archsimd"}
+	for p in purePkgs {
+		let _ = AddEffectEntry(tbl, KindPurePkg, p, "", "", "", 0, uint8(0))
+	}
+	for m in []string{"Abs", "EvalSymlinks", "Glob", "Walk", "WalkDir"} {
+		let _ = AddEffectEntry(tbl, KindPureExcept, "path/filepath", m, "", "", 0, uint8(0))
+	}
+	let _ = AddEffectEntry(tbl, KindPureHostMember, "encoding/csv", "", "", "", 0, FlagNilMembers)
+	for m in []string{"Now", "Since", "Until", "Sleep", "After", "AfterFunc", "Tick", "NewTicker", "NewTimer", "Local", "LoadLocation", "Parse"} {
+		let _ = AddEffectEntry(tbl, KindPureHostMember, "time", m, "", "", 0, uint8(0))
+	}
+}
+
+func addBoundaryClauses(tbl mut EffectTable) {
+	let _ = AddEffectEntry(tbl, KindGoArgClause, "bufio.NewReader", "", "bufio/bufio.go: NewReaderSize stores rd in Reader.rd, and Reader has no Close", "", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindGoArgClause, "bufio.NewReaderSize", "", "bufio/bufio.go: stores rd in Reader.rd; later reads call it", "", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindGoArgClause, "bufio.NewWriter", "", "bufio/bufio.go: NewWriterSize stores w in Writer.wr; later Flush calls it", "", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindGoArgClause, "bufio.NewWriterSize", "", "bufio/bufio.go: stores w in Writer.wr; later Flush calls it", "", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindGoArgClause, "io.ReadAll", "", "io/io.go: reads in a loop, returns only collected bytes", "", 0, FlagLent)
+	let _ = AddEffectEntry(tbl, KindGoArgClause, "io.ReadAtLeast", "", "io/io.go: reads in a loop and stores no reader", "", 0, FlagLent)
+	let _ = AddEffectEntry(tbl, KindGoArgClause, "io.ReadFull", "", "io/io.go: returns ReadAtLeast's result and keeps no reader", "", 0, FlagLent)
+	let _ = AddEffectEntry(tbl, KindGoArgClause, "io.WriteString", "", "io/io.go: one synchronous WriteString or Write call, no retained writer", "", 0, FlagLent)
+	let _ = AddEffectEntry(tbl, KindGoArgClause, "os.File.Name", "", "os/file.go: reads the file's name, retains no receiver", "", 0, FlagLent)
+	let _ = AddEffectEntry(tbl, KindGoArgClause, "os.StartProcess", "", "os/exec_posix.go: startProcess copies attr's Dir, Env, Sys (ensurePidfd copies it when it changes it) and each file's Fd into a syscall.ProcAttr; it keeps no attr past its return (GBX5)", "", 2, FlagLent)
+	let _ = AddEffectEntry(tbl, KindGoArgClause, "os.File.Read", "", "os/file.go: read and error conversion finish before return", "", 0, FlagLent)
+	let _ = AddEffectEntry(tbl, KindGoArgClause, "os.File.ReadAt", "", "os/file.go: pread loop finishes before return", "", 0, FlagLent)
+	let _ = AddEffectEntry(tbl, KindGoArgClause, "os.File.Write", "", "os/file.go: write and error conversion finish before return", "", 0, FlagLent)
+	let _ = AddEffectEntry(tbl, KindGoArgClause, "os.File.WriteAt", "", "os/file.go: pwrite loop finishes before return", "", 0, FlagLent)
+	let _ = AddEffectEntry(tbl, KindGoArgClause, "os.File.WriteString", "", "os/file.go: calls Write synchronously and keeps no receiver", "", 0, FlagLent)
+	let _ = AddEffectEntry(tbl, KindGoArgClause, "os.File.Seek", "", "os/file.go: seek completes before return and retains no receiver", "", 0, FlagLent)
+	let _ = AddEffectEntry(tbl, KindGoArgClause, "os.File.Sync", "", "os/file_posix.go: fsync completes before return and retains no receiver", "", 0, FlagLent)
+	let _ = AddEffectEntry(tbl, KindGoArgClause, "os.File.Stat", "", "os/stat_*.go: fstat returns metadata, not a reference to the File", "", 0, FlagLent)
+	let _ = AddEffectEntry(tbl, KindGoArgClause, "os.File.Truncate", "", "os/file_posix.go: truncate completes before return and retains no receiver", "", 0, FlagLent)
+	let _ = AddEffectEntry(tbl, KindGoArgClause, "os.File.Readdir", "", "os/dir.go: returns file info values after the directory read", "", 0, FlagLent)
+	let _ = AddEffectEntry(tbl, KindGoArgClause, "os.File.Readdirnames", "", "os/dir.go: returns names after the directory read", "", 0, FlagLent)
+	let _ = AddEffectEntry(tbl, KindGoArgClause, "os.File.ReadDir", "", "os/dir.go: returns entries after the directory read", "", 0, FlagLent)
+	let _ = AddEffectEntry(tbl, KindGoArgClause, "ergo.local/prototype/runtime/v1/hostfs.FileStat", "", "runtime/v1/hostfs: calls f.Stat once and copies its values; keeps no f", "", 0, FlagLent)
+	let _ = AddEffectEntry(tbl, KindGoArgClause, "ergo.local/prototype/runtime/v1/hostfs.FileReadDir", "", "runtime/v1/hostfs: calls f.ReadDir once and copies its entries; keeps no f", "", 0, FlagLent)
+	let _ = AddEffectEntry(tbl, KindGoArgClause, "ergo.local/prototype/runtime/v1/hostfs.FileReaddir", "", "runtime/v1/hostfs: calls f.Readdir once and copies its values; keeps no f", "", 0, FlagLent)
+
+	let _ = AddEffectEntry(tbl, KindGoWrite, "os.File.Read", "", "os/file.go: f.read(b) fills b[:n] through poll.FD.Read, keeps no reference", "", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindGoWrite, "os.File.ReadAt", "", "os/file.go: f.pread(b, off) fills b in a loop through poll.FD.Pread, keeps no reference", "", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindGoWrite, "slices.Sort", "", "slices/sort.go: pdqsortOrdered sorts x's elements in place, keeps no reference", "", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindGoWrite, "slices.SortFunc", "", "slices/sort.go: pdqsortCmpFunc sorts x's elements in place, keeps no reference", "", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindGoWrite, "slices.SortStableFunc", "", "slices/sort.go: stableCmpFunc sorts x's elements in place, keeps no reference", "", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindGoWrite, "slices.Reverse", "", "slices/slices.go: swaps s's elements in place, keeps no reference", "", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindGoWrite, "sort.Ints", "", "sort/sort.go: slices.Sort(x)", "", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindGoWrite, "sort.Float64s", "", "sort/sort.go: slices.Sort(x)", "", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindGoWrite, "sort.Strings", "", "sort/sort.go: slices.Sort(x)", "", 0, uint8(0))
+
+	let _ = AddEffectEntry(tbl, KindGoReadOnlyVar, "encoding/base64.StdEncoding", "", "encoding/base64/base64.go: = NewEncoding(…) at init; the package never assigns it", "", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindGoReadOnlyVar, "encoding/base64.URLEncoding", "", "encoding/base64/base64.go: = NewEncoding(…) at init; the package never assigns it", "", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindGoReadOnlyVar, "encoding/base64.RawStdEncoding", "", "encoding/base64/base64.go: = StdEncoding.WithPadding(NoPadding) at init; never assigned", "", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindGoReadOnlyVar, "encoding/base64.RawURLEncoding", "", "encoding/base64/base64.go: = URLEncoding.WithPadding(NoPadding) at init; never assigned", "", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindGoReadOnlyVar, "hash/crc32.IEEETable", "", "hash/crc32/crc32.go: = simpleMakeTable(IEEE) at init; the package reads it only", "", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindGoReadOnlyVar, "time.UTC", "", "time/zoneinfo.go: = &utcLoc; the package never assigns it", "", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindGoReadOnlyVar, "time.Local", "", "time/zoneinfo.go: = &localLoc; the package never assigns it (it fills localLoc lazily, behind a sync.Once)", "", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindGoReadOnlyVar, "os.Args", "", "os/proc.go: set once by the runtime's init (runtime_args); the package never assigns it", "", 0, uint8(0))
+
+	let _ = AddEffectEntry(tbl, KindGoConcurrent, "sync/atomic.Bool", "", "sync/atomic/type.go: each method is one atomic operation on the value's word", "", 0, uint8(0))
+	let _ = AddEffectEntry(tbl, KindGoConcurrent, "sync/atomic.Int64", "", "sync/atomic/type.go: each method is one atomic operation on the value's word", "", 0, uint8(0))
+}
+
+// DefaultEffectTable returns an EffectTable seeded with all shipped effect,
+// host, sync-callback, purity, write, arg-clause, read-only var, and
+// concurrent-type rows.
+func DefaultEffectTable() EffectTable {
+	let mut tbl = NewEffectTable()
+	addEffectNone(&tbl)
+	addEffectAmbient(&tbl)
+	addSyncCallbacks(&tbl)
+	addPurityEntries(&tbl)
+	addBoundaryClauses(&tbl)
+	tbl
+}
+
+// AllEffectsByKind returns all Effect views in tbl matching KindEffectNone or KindEffectAmbient.
+func AllEffectsByKind(tbl EffectTable, kind uint8) []Effect {
+	let n = NumEffects(tbl)
+	let mut out = []Effect{}
+	for i in 0..n {
+		let id = EffectRowAt(tbl, i)
+		if dense.Of(tbl.Kind, id) == kind {
+			out = out.Append(Effect{
+				Target: dense.Text(tbl.Strings, dense.Of(tbl.Target, id)),
+				Reason: dense.Text(tbl.Strings, dense.Of(tbl.Reason, id)),
+				Source: dense.Text(tbl.Strings, dense.Of(tbl.Source, id)),
+			})
+		}
+	}
+	out
+}
+
+// AllSyncTargets returns all synchronous-callback targets in insertion order.
+func AllSyncTargets(tbl EffectTable) []string {
+	let n = NumEffects(tbl)
+	let mut out = []string{}
+	for i in 0..n {
+		let id = EffectRowAt(tbl, i)
+		if dense.Of(tbl.Kind, id) == KindSyncCallback {
+			out = out.Append(dense.Text(tbl.Strings, dense.Of(tbl.Target, id)))
+		}
+	}
+	out
+}
+
+// AllPurePkgs returns all pure package paths in tbl in insertion order.
+func AllPurePkgs(tbl EffectTable) []string {
+	let n = NumEffects(tbl)
+	let mut out = []string{}
+	for i in 0..n {
+		let id = EffectRowAt(tbl, i)
+		if dense.Of(tbl.Kind, id) == KindPurePkg {
+			out = out.Append(dense.Text(tbl.Strings, dense.Of(tbl.Target, id)))
+		}
+	}
+	out
+}
+
+// AllTargetsOfKind returns all Target strings stored under kind in insertion order.
+func AllTargetsOfKind(tbl EffectTable, kind uint8) []string {
+	let n = NumEffects(tbl)
+	let mut out = []string{}
+	for i in 0..n {
+		let id = EffectRowAt(tbl, i)
+		if dense.Of(tbl.Kind, id) == kind {
+			out = out.Append(dense.Text(tbl.Strings, dense.Of(tbl.Target, id)))
+		}
+	}
+	out
+}
+
+// DefaultTablesCounts verifies exact counts of all shipped tables in DefaultFactTable and DefaultEffectTable.
+test DefaultTablesCounts {
+	let ft = DefaultFactTable()
+	let et = DefaultEffectTable()
+	assert NumRows(ft) == 24
+	assert AllEffectsByKind(et, KindEffectNone).Len() == 30
+	assert AllEffectsByKind(et, KindEffectAmbient).Len() == 46
+	assert AllSyncTargets(et).Len() == 52
+	assert AllPurePkgs(et).Len() == 20
+	assert PureExcept(et, "path/filepath").Len() == 5
+	match PureHostMembers(et, "encoding/csv") {
+	case option.Some{Value: xs}:
+		assert xs.Len() == 0
+	case option.None:
+		assert false
+	}
+	match PureHostMembers(et, "time") {
+	case option.Some{Value: xs}:
+		assert xs.Len() == 12
+	case option.None:
+		assert false
+	}
+	assert AllTargetsOfKind(et, KindGoWrite).Len() == 9
+	assert AllTargetsOfKind(et, KindGoArgClause).Len() == 25
+	assert AllTargetsOfKind(et, KindGoReadOnlyVar).Len() == 8
+	assert AllTargetsOfKind(et, KindGoConcurrent).Len() == 2
+	assert !GoArgLent(et, "bufio.NewReader", 0)
+	assert GoArgLent(et, "os.StartProcess", 2)
+}
+
+// KnownRowDigestsMatchStd checks exact digest parity with shipped ergo.laws rows.
+law KnownRowDigestsMatchStd() {
+	let ft = DefaultFactTable()
+	let et = DefaultEffectTable()
+	let containsRows = FindRows(ft, "bytes.Contains")
+	let shaRows = FindRows(ft, "crypto/sha256.Sum256")
+	let statHost = HostOf(et, "ergo.local/prototype/runtime/v1/hostfs.Stat")
+	let mut ok = containsRows.Len() == 2 && RowDigest(containsRows[0], DefaultToolchain) == "h1:cjBd+Wj68ykmOG/0VfhzAw9Y/6+aNOuA5w1pzzNWNwI="
+	ok = ok && shaRows.Len() == 1 && RowDigest(shaRows[0], DefaultToolchain) == "h1:T7e2yd/DWHz2kDGtsKGHVxe7Lv8WKVODCneEqC755qE="
+	ok = ok && PureDigest("crypto/hmac", []string{}, DefaultToolchain) == "h1:oBN88poGWu66ApKX/tn/5v+pwNFRz4ilsmpprnS7vKk="
+	match SyncReason(et, "bytes.ContainsFunc") {
+	case option.Some{Value: reason}:
+		ok = ok && SyncDigest("bytes.ContainsFunc", reason, DefaultToolchain) == "h1:YyoKNgseXLR57iBUEfwJ2kErj3mb0B0FYGK81ko2V/A="
+	case option.None:
+		ok = false
+	}
+	match statHost {
+	case option.Some{Value: eff}:
+		ok = ok && HostDigest(eff, DefaultToolchain) == "h1:nFnSkH1a/C75WshEZGFkVNwBm5TWmNuFdglevEi+GGA="
+	case option.None:
+		ok = false
+	}
+	ok
+}

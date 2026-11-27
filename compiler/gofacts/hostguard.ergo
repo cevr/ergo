@@ -1,0 +1,406 @@
+// Pure-Ergo hostguard entry generation, purity/determinism/confinement/handle
+// rule evaluators, and fs.Files ledger checks.
+
+import cmp
+import filepath
+import fs
+import fstest
+import option
+import slices
+import strings
+
+// Handle operation codes for StepHandleLifecycle.
+let HandleOpRead = uint8(1)
+let HandleOpReadAt = uint8(2)
+let HandleOpWrite = uint8(3)
+let HandleOpWriteAt = uint8(4)
+let HandleOpSeek = uint8(5)
+let HandleOpStat = uint8(6)
+let HandleOpSetReadDeadline = uint8(7)
+let HandleOpSetWriteDeadline = uint8(8)
+let HandleOpSetDeadline = uint8(9)
+let HandleOpClose = uint8(10)
+
+// GuardEntry is one sorted canonical entry produced for the std law ledger.
+type GuardEntry {
+	Kind   string,
+	Target string,
+	Key    string,
+	Digest string,
+}
+
+// AmbientState represents a deterministic snapshot of simulated host environment.
+type AmbientState {
+	Cwd       string,
+	EnvKey    string,
+	EnvVal    string,
+	ClockNano uint32,
+}
+
+// PurityRef is one package member reference observed in a pure Go body.
+type PurityRef {
+	Pkg    string,
+	Member string,
+}
+
+// PureViolation describes a disallowed import or host-reaching member usage.
+type PureViolation {
+	Pkg    string,
+	Member string,
+	Reason string,
+}
+
+// HandleModel tracks an open host file handle's state without allocating pointers.
+type HandleModel {
+	Open          bool,
+	Cursor        uint32,
+	Size          uint32,
+	DeadlineCap   bool,
+	ReadDeadline  bool,
+	WriteDeadline bool,
+}
+
+// LedgerReport summarizes guard-line verification results read via fs.Files.
+type LedgerReport {
+	Total     uint32,
+	Validated uint32,
+	Missing   uint32,
+	Stale     uint32,
+	Refuted   uint32,
+	Issues    []string,
+}
+
+type guardEntryOrder {} implements cmp.Order[GuardEntry]
+
+func Compare(_ guardEntryOrder, a GuardEntry, b GuardEntry) int {
+	strings.Compare(a.Key, b.Key)
+}
+
+// GuardEntries builds the sorted canonical list of all guard ledger entries for ft and et.
+func GuardEntries(ft FactTable, et EffectTable, toolchain string) []GuardEntry {
+	let mut out = []GuardEntry{}
+	for r in AllTableRows(ft) {
+		out = out.Append(GuardEntry{
+			Kind:   r.Fact,
+			Target: r.Target,
+			Key:    RowKey(r),
+			Digest: RowDigest(r, toolchain),
+		})
+	}
+	for e in AllEffectsByKind(et, KindEffectNone) {
+		out = out.Append(GuardEntry{
+			Kind:   "effect",
+			Target: e.Target,
+			Key:    EffectKey(e.Target),
+			Digest: EffectDigest(e, toolchain),
+		})
+	}
+	for h in AllEffectsByKind(et, KindEffectAmbient) {
+		out = out.Append(GuardEntry{
+			Kind:   "host",
+			Target: h.Target,
+			Key:    HostKey(h.Target),
+			Digest: HostDigest(h, toolchain),
+		})
+	}
+	for s in AllSyncTargets(et) {
+		let reason = match SyncReason(et, s) {
+		case option.Some{Value: r}:
+			r
+		case option.None:
+			""
+		}
+		out = out.Append(GuardEntry{
+			Kind:   "sync",
+			Target: s,
+			Key:    SyncKey(s),
+			Digest: SyncDigest(s, reason, toolchain),
+		})
+	}
+	for p in AllPurePkgs(et) {
+		out = out.Append(GuardEntry{
+			Kind:   "pure",
+			Target: p,
+			Key:    PureKey(p),
+			Digest: PureDigest(p, PureExcept(et, p), toolchain),
+		})
+	}
+	slices.SortBy(out, guardEntryOrder)
+}
+
+// RenderGuardLines renders canonical validated ledger lines for ft and et.
+func RenderGuardLines(ft FactTable, et EffectTable, runName string, toolchain string) []string {
+	let entries = GuardEntries(ft, et, toolchain)
+	let mut lines = slices.WithCapacity[string](entries.Len())
+	for e in entries {
+		lines = lines.Append("fact " + e.Key + " validated by " + runName + " with " + toolchain + " " + e.Digest)
+	}
+	lines
+}
+
+// CheckReadsProbe verifies a reads-row probe: an argument buffer was not modified
+// during the call.
+func CheckReadsProbe(before string, after string) bool {
+	before == after
+}
+
+// CheckFreshProbe verifies a fresh-row probe: mutating the first call's slice
+// must not appear in the second call's result.
+func CheckFreshProbe(firstAfterMutate string, secondResult string, expectedFresh string) bool {
+	secondResult == expectedFresh && firstAfterMutate != expectedFresh
+}
+
+// CheckEffectDeterminism checks memory-only effect invariants: equal observable
+// output under two distinct ambient host states and untouched operand bytes.
+func CheckEffectDeterminism(stateA AmbientState, outA string, stateB AmbientState, outB string, argBefore string, argAfter string) option.Option[string] {
+	if argBefore != argAfter {
+		return option.Some{Value: "effect none row mutated its input operand"}
+	}
+	if stateA.Cwd == stateB.Cwd && stateA.EnvVal == stateB.EnvVal && stateA.ClockNano == stateB.ClockNano {
+		return option.Some{Value: "two ambient states must differ to prove host independence"}
+	}
+	if outA != outB {
+		return option.Some{Value: "effect none output changed across distinct host states"}
+	}
+	option.None
+}
+
+// CheckHostConfinement reports whether targetPath resolves strictly within rootDir
+// using lexical cleaning without escaping above rootDir.
+func CheckHostConfinement(rootDir string, cwd string, targetPath string) bool {
+	let cleanRoot = filepath.Clean(rootDir)
+	let full = if strings.HasPrefix(targetPath, "/") {
+		filepath.Clean(targetPath)
+	} else {
+		filepath.Clean(filepath.Join([]string{cwd, targetPath}))
+	}
+	full == cleanRoot || strings.HasPrefix(full, cleanRoot+"/")
+}
+
+// CheckHostAdmission validates host-effect outputs against two distinct ambient
+// states and verifies relative-path confinement inside confinedRoot.
+func CheckHostAdmission(stateA AmbientState, outA string, stateB AmbientState, outB string, relPath string, confinedRoot string) option.Option[string] {
+	if !CheckHostConfinement(confinedRoot, stateA.Cwd, relPath) {
+		return option.Some{Value: "relative path escapes ambient root in state A"}
+	}
+	if !CheckHostConfinement(confinedRoot, stateB.Cwd, relPath) {
+		return option.Some{Value: "relative path escapes ambient root in state B"}
+	}
+	if stateA.Cwd != stateB.Cwd && outA == outB && strings.HasPrefix(relPath, "rel:") {
+		return option.Some{Value: "host row ignored distinct working directory"}
+	}
+	option.None
+}
+
+// CheckPureImports validates imports and member references in a pure Go file against et.
+func CheckPureImports(et EffectTable, imports []string, refs []PurityRef) []PureViolation {
+	let mut out = []PureViolation{}
+	for pkg in imports {
+		if !IsPurePkg(et, pkg) && !HasPureHostPkg(et, pkg) {
+			out = out.Append(PureViolation{
+				Pkg:    pkg,
+				Member: "",
+				Reason: "package is not in PureImports or PureImportHostMembers",
+			})
+		}
+	}
+	for r in refs {
+		if !IsPurePkg(et, r.Pkg) && !HasPureHostPkg(et, r.Pkg) {
+			out = out.Append(PureViolation{
+				Pkg:    r.Pkg,
+				Member: r.Member,
+				Reason: "unlisted import referenced by pure body",
+			})
+		} else if PureHostMemberDenied(et, r.Pkg, r.Member) {
+			out = out.Append(PureViolation{
+				Pkg:    r.Pkg,
+				Member: r.Member,
+				Reason: "member reads or mutates host state",
+			})
+		}
+	}
+	out
+}
+
+// CheckSyncCallbackTrace checks synchronous callback execution and tunneling invariants.
+func CheckSyncCallbackTrace(inCall uint32, afterReturn uint32, cbFailed bool, surfacedErr bool) option.Option[string] {
+	if afterReturn > uint32(0) {
+		return option.Some{Value: "callback ran after Go function returned"}
+	}
+	if inCall == uint32(0) && cbFailed {
+		return option.Some{Value: "callback failure without invocation"}
+	}
+	if cbFailed && !surfacedErr {
+		return option.Some{Value: "callback failure dropped instead of tunneled"}
+	}
+	option.None
+}
+
+// StepHandleLifecycle advances h by one operation and returns empty string on
+// success or an error code matching os handle semantics.
+func StepHandleLifecycle(h mut HandleModel, op uint8, offset uint32, count uint32) string {
+	if !h.Open {
+		return "os.ErrClosed"
+	}
+	if op == HandleOpClose {
+		h.Open = false
+		return ""
+	}
+	if op == HandleOpRead {
+		let avail = if h.Cursor < h.Size { h.Size - h.Cursor } else { uint32(0) }
+		let step = if count < avail { count } else { avail }
+		h.Cursor = h.Cursor + step
+		return if step == uint32(0) && count > uint32(0) { "io.EOF" } else { "" }
+	}
+	if op == HandleOpReadAt {
+		if offset >= h.Size && count > uint32(0) {
+			return "io.EOF"
+		}
+		return ""
+	}
+	if op == HandleOpWrite {
+		let endPos = h.Cursor + count
+		if endPos > h.Size {
+			h.Size = endPos
+		}
+		h.Cursor = endPos
+		return ""
+	}
+	if op == HandleOpWriteAt {
+		let endPos = offset + count
+		if endPos > h.Size {
+			h.Size = endPos
+		}
+		return ""
+	}
+	if op == HandleOpSeek {
+		h.Cursor = offset
+		return ""
+	}
+	if op == HandleOpStat {
+		return ""
+	}
+	if op == HandleOpSetReadDeadline {
+		if !h.DeadlineCap {
+			return "os.ErrNoDeadline"
+		}
+		h.ReadDeadline = true
+		return ""
+	}
+	if op == HandleOpSetWriteDeadline {
+		if !h.DeadlineCap {
+			return "os.ErrNoDeadline"
+		}
+		h.WriteDeadline = true
+		return ""
+	}
+	if op == HandleOpSetDeadline {
+		if !h.DeadlineCap {
+			return "os.ErrNoDeadline"
+		}
+		h.ReadDeadline = true
+		h.WriteDeadline = true
+		return ""
+	}
+	"invalid-op"
+}
+
+// CheckLedgerFile reads ledgerPath via fs.Files and checks all shipped rows,
+// effects, hosts, sync callbacks, and pure packages.
+func CheckLedgerFile(ledgerPath string, ft FactTable, et EffectTable, toolchain string) LedgerReport fails fs.NotFound | fs.Denied | fs.Failed needs fs.Files {
+	let text = try fs.Files.ReadFile(ledgerPath)
+	let parsed = ParseAllLines(text)
+	let entries = GuardEntries(ft, et, toolchain)
+	let mut report = LedgerReport{
+		Total:     uint32(entries.Len()),
+		Validated: uint32(0),
+		Missing:   uint32(0),
+		Stale:     uint32(0),
+		Refuted:   uint32(0),
+		Issues:    []string{},
+	}
+	for e in entries {
+		let v = Acts(parsed, e.Key, e.Digest, toolchain)
+		if v.OK {
+			report.Validated = report.Validated + uint32(1)
+		} else {
+			match Find(parsed, e.Key) {
+			case option.None:
+				report.Missing = report.Missing + uint32(1)
+			case option.Some{Value: _}:
+				if v.Refuted {
+					report.Refuted = report.Refuted + uint32(1)
+				} else {
+					report.Stale = report.Stale + uint32(1)
+				}
+			}
+			report.Issues = report.Issues.Append(e.Key + ": " + v.Why)
+		}
+	}
+	report
+}
+
+// GuardEntriesSortedUnique: every GuardEntry key in the default tables is strictly increasing.
+law GuardEntriesSortedUnique() {
+	let ft = DefaultFactTable()
+	let et = DefaultEffectTable()
+	let entries = GuardEntries(ft, et, DefaultToolchain)
+	if entries.Len() == 0 {
+		return false
+	}
+	for i in 1..entries.Len() {
+		if strings.Compare(entries[i-1].Key, entries[i].Key) >= 0 {
+			return false
+		}
+	}
+	true
+}
+
+// HandleClosePermanent: closing a HandleModel makes subsequent reads return os.ErrClosed.
+law HandleClosePermanent(size uint8, pos uint8) {
+	let mut h = HandleModel{Open: true, Cursor: uint32(pos), Size: uint32(size), DeadlineCap: true, ReadDeadline: false, WriteDeadline: false}
+	let cErr = StepHandleLifecycle(&h, HandleOpClose, uint32(0), uint32(0))
+	let rErr = StepHandleLifecycle(&h, HandleOpRead, uint32(0), uint32(1))
+	cErr == "" && rErr == "os.ErrClosed"
+}
+
+// HostguardPureAndFS checks purity exceptions, handle WriteAt offset preservation,
+// and CheckLedgerFile via fstest.NewMemory().
+test HostguardPureAndFS {
+	let ft = DefaultFactTable()
+	let et = DefaultEffectTable()
+	let bad = CheckPureImports(
+		et,
+		[]string{"path/filepath", "time", "encoding/csv", "os"},
+		[]PurityRef{
+			PurityRef{Pkg: "path/filepath", Member: "Clean"},
+			PurityRef{Pkg: "path/filepath", Member: "Abs"},
+			PurityRef{Pkg: "time", Member: "UTC"},
+			PurityRef{Pkg: "time", Member: "Now"},
+		},
+	)
+	assert bad.Len() == 3
+
+	let mut h = HandleModel{Open: true, Cursor: uint32(4), Size: uint32(10), DeadlineCap: true, ReadDeadline: false, WriteDeadline: false}
+	assert StepHandleLifecycle(&h, HandleOpWriteAt, uint32(2), uint32(3)) == ""
+	assert h.Cursor == uint32(4)
+	assert StepHandleLifecycle(&h, HandleOpSetReadDeadline, uint32(0), uint32(0)) == ""
+	assert h.ReadDeadline && !h.WriteDeadline
+
+	let mem = fstest.NewMemory()
+	let lines = RenderGuardLines(ft, et, "guard", DefaultToolchain)
+	with context { fs.Files: mem, fs.Writes: mem } {
+		fs.Writes.WriteFile("ergo.laws", strings.Join(lines, "\n")+"\n") catch {
+		case _:
+			assert false
+		}
+		let rep = CheckLedgerFile("ergo.laws", ft, et, DefaultToolchain) catch {
+		case _:
+			assert false
+			return
+		}
+		assert rep.Total == uint32(lines.Len())
+		assert rep.Validated == rep.Total
+		assert rep.Issues.Len() == 0
+	}
+}

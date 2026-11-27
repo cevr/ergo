@@ -1,0 +1,318 @@
+// Standard-library filtering, binding file naming, staleness diffing,
+// genmark verification, and fs.Files binding directory checks.
+
+import fs
+import fstest
+import hex
+import option
+import sha256
+import slices
+import strconv
+import strings
+
+// GenMarkName is the fixed filename of generator provenance markers.
+let GenMarkName = "ergo.gen"
+
+// BindingFile holds an import path paired with its binding source text.
+type BindingFile {
+	Path string,
+	Text string,
+}
+
+// GenMarker is a parsed generator marker record.
+type GenMarker {
+	Kind      string,
+	Generator string,
+	Digest    string,
+}
+
+// StaleReport summarizes genmark verification and per-path staleness diffs.
+type StaleReport {
+	MarkerFound bool,
+	MarkerHeld  bool,
+	Diffs       []string,
+}
+
+// StdSkip returns standard-library import paths excluded from binding generation.
+func StdSkip() []string {
+	[]string{"builtin", "unsafe", "runtime/cgo", "runtime/race", "runtime/msan", "runtime/asan"}
+}
+
+// FilterStdPaths drops internal, vendored, cmd/, and StdSkip paths from rawPaths.
+func FilterStdPaths(rawPaths []string) []string {
+	let skip = StdSkip()
+	let mut out = []string{}
+	for p in rawPaths {
+		if IsInternalPath(p) || slices.Contains(skip, p) || strings.HasPrefix(p, "cmd/") {
+			continue
+		}
+		out = out.Append(p)
+	}
+	out
+}
+
+// ParseGoVersion extracts the leading "go1.N" release token from `go env GOVERSION`.
+func ParseGoVersion(goversion string) option.Option[string] {
+	let s = strings.TrimSpace(goversion)
+	if !strings.HasPrefix(s, "go1.") {
+		return option.None
+	}
+	let mut i = 4
+	for i < s.Len() && s[i] >= '0' && s[i] <= '9' {
+		i = i + 1
+	}
+	if i == 4 {
+		return option.None
+	}
+	option.Some{Value: s[0:i]}
+}
+
+// FileName computes the relative path inside a binding root for import path.
+func FileName(path string) string {
+	let elem = lastElem(path)
+	if path == "" {
+		return ".ergo"
+	}
+	path + "/" + elem + ".ergo"
+}
+
+// RootRefusal returns why pkgPath/pkgName cannot have a standalone root binding.
+func RootRefusal(path string, name string) string {
+	if name == "main" {
+		return "a main package is a program, which Go does not import"
+	}
+	if IsInternalPath(path) {
+		return "Go admits an internal or vendor package only inside the tree that holds it, and the emitted program is outside every tree"
+	}
+	""
+}
+
+// FirstDiff describes the first line where a and b differ.
+func FirstDiff(a string, b string) string {
+	let al = strings.Split(a, "\n")
+	let bl = strings.Split(b, "\n")
+	let n = if al.Len() > bl.Len() { al.Len() } else { bl.Len() }
+	for i in 0..n {
+		let x = if i < al.Len() { al[i] } else { "" }
+		let y = if i < bl.Len() { bl[i] } else { "" }
+		if x != y {
+			return "line " + strconv.Itoa(i+1) + ": committed " + strconv.Quote(x) + ", written " + strconv.Quote(y)
+		}
+	}
+	"no line differs"
+}
+
+// Stale computes sorted diagnostic lines comparing committed vs freshly generated bindings.
+func Stale(committed []BindingFile, written []BindingFile) []string {
+	let mut cMap = Map[string, string]{}
+	let mut wMap = Map[string, string]{}
+	let mut paths = []string{}
+	let mut seen = Map[string, bool]{}
+	for bf in committed {
+		cMap = cMap.Put(bf.Path, bf.Text)
+		if seen.Get(bf.Path) == option.None {
+			seen = seen.Put(bf.Path, true)
+			paths = paths.Append(bf.Path)
+		}
+	}
+	for bf in written {
+		wMap = wMap.Put(bf.Path, bf.Text)
+		if seen.Get(bf.Path) == option.None {
+			seen = seen.Put(bf.Path, true)
+			paths = paths.Append(bf.Path)
+		}
+	}
+	let order = slices.Sort(paths)
+	let mut out = []string{}
+	for p in order {
+		match cMap.Get(p) {
+		case option.None:
+			out = out.Append(p + ": ergo bind go writes it, but it is not committed")
+		case option.Some{Value: cText}:
+			match wMap.Get(p) {
+			case option.None:
+				out = out.Append(p + ": committed, but ergo bind go no longer writes it")
+			case option.Some{Value: wText}:
+				if cText != wText {
+					out = out.Append(p + ": differs from what ergo bind go writes, " + FirstDiff(cText, wText))
+				}
+			}
+		}
+	}
+	out
+}
+
+// GenMarkDigest computes the canonical SHA-256 content digest across files (excluding ergo.gen).
+func GenMarkDigest(files []BindingFile) string {
+	let mut names = []string{}
+	let mut byName = Map[string, string]{}
+	for f in files {
+		if f.Path == GenMarkName {
+			continue
+		}
+		if byName.Get(f.Path) == option.None {
+			names = names.Append(f.Path)
+		}
+		byName = byName.Put(f.Path, f.Text)
+	}
+	let sorted = slices.Sort(names)
+	let mut buf = strings.NewBuilder()
+	for name in sorted {
+		let text = match byName.Get(name) {
+		case option.Some{Value: t}:
+			t
+		case option.None:
+			""
+		}
+		strings.WriteString(&buf, strconv.Itoa(name.Len())+" "+name+" "+strconv.Itoa(text.Len())+"\n"+text)
+	}
+	"sha256:" + hex.Encode(sha256.Sum(strings.String(buf)))
+}
+
+// RenderGenMark renders canonical ergo.gen text for m.
+func RenderGenMark(m GenMarker) string {
+	"kind " + m.Kind + "\ngenerator " + m.Generator + "\ndigest " + m.Digest + "\n"
+}
+
+// ParseGenMark parses a key-value ergo.gen marker document.
+func ParseGenMark(text string) option.Option[GenMarker] {
+	let mut kind = ""
+	let mut gen = ""
+	let mut digest = ""
+	for line in strings.Split(text, "\n") {
+		let trimmed = strings.TrimSpace(line)
+		if trimmed == "" {
+			continue
+		}
+		let cut = strings.Cut(trimmed, " ")
+		let (k, v) = match cut {
+		case option.Some{Value: h}:
+			(h.Before, strings.TrimSpace(h.After))
+		case option.None:
+			return option.None
+		}
+		if k == "kind" {
+			kind = v
+		} else if k == "generator" {
+			gen = v
+		} else if k == "digest" {
+			digest = v
+		}
+	}
+	if kind == "" || gen == "" || digest == "" {
+		return option.None
+	}
+	option.Some{Value: GenMarker{Kind: kind, Generator: gen, Digest: digest}}
+}
+
+func collectDirBindings(root string, relPrefix string, outFiles mut []BindingFile, outRaw mut []BindingFile) fails fs.NotFound | fs.Denied | fs.Failed needs fs.Files {
+	let dir = if relPrefix == "" { root } else { root + "/" + relPrefix }
+	let entries = slices.Sort(try fs.Files.ReadDir(dir))
+	for name in entries {
+		let rel = if relPrefix == "" { name } else { relPrefix + "/" + name }
+		let full = root + "/" + rel
+		let info = try fs.Files.Stat(full)
+		if info.Dir {
+			try collectDirBindings(root, rel, outFiles, outRaw)
+			continue
+		}
+		let text = try fs.Files.ReadFile(full)
+		*outRaw = (*outRaw).Append(BindingFile{Path: rel, Text: text})
+		if rel != GenMarkName && strings.HasSuffix(name, ".ergo") {
+			let base = strings.TrimSuffix(name, ".ergo")
+			let importPath = if relPrefix == "" {
+				base
+			} else if strings.HasSuffix(relPrefix, "/"+base) || relPrefix == base {
+				relPrefix
+			} else {
+				strings.TrimSuffix(rel, ".ergo")
+			}
+			*outFiles = (*outFiles).Append(BindingFile{Path: importPath, Text: text})
+		}
+	}
+}
+
+// CheckDirBindings reads a committed ergo.bind directory via fs.Files, validates
+// its ergo.gen marker digest, and compares all bindings against written.
+func CheckDirBindings(root string, written []BindingFile) StaleReport fails fs.NotFound | fs.Denied | fs.Failed needs fs.Files {
+	let mut committed = []BindingFile{}
+	let mut raw = []BindingFile{}
+	try collectDirBindings(root, "", &committed, &raw)
+	let mut found = false
+	let mut held = false
+	for f in raw {
+		if f.Path == GenMarkName {
+			found = true
+			match ParseGenMark(f.Text) {
+			case option.Some{Value: m}:
+				held = m.Kind == "bind" && m.Generator == "ergo bind go" && m.Digest == GenMarkDigest(raw)
+			case option.None:
+				held = false
+			}
+		}
+	}
+	StaleReport{
+		MarkerFound: found,
+		MarkerHeld:  held,
+		Diffs:       Stale(committed, written),
+	}
+}
+
+// StaleSymmetricMissing: adding or omitting a binding is reported deterministically.
+law StaleSymmetricMissing(path string, text string) {
+	if path == "" {
+		return true
+	}
+	let one = []BindingFile{BindingFile{Path: path, Text: text}}
+	let empty = []BindingFile{}
+	let a = Stale(one, empty)
+	let b = Stale(empty, one)
+	let eq = Stale(one, one)
+	a.Len() == 1 && b.Len() == 1 && eq.Len() == 0
+}
+
+// StaleMemoryFixture exercises GenMarkDigest, CheckDirBindings, and Stale via fstest.NewMemory().
+test StaleMemoryFixture {
+	assert FileName("net/url") == "net/url/url.ergo"
+	match ParseGoVersion("go1.27.4\n") {
+	case option.Some{Value: v}:
+		assert v == "go1.27"
+	case option.None:
+		assert false
+	}
+	let paths = FilterStdPaths([]string{"bytes", "internal/abi", "unsafe", "cmd/go", "net/url"})
+	assert paths.Len() == 2 && paths[0] == "bytes" && paths[1] == "net/url"
+
+	let files = []BindingFile{BindingFile{Path: "bytes", Text: Header + "\n// ergo:bind bytes go1.27 linux/amd64\n"}}
+	let rawRel = []BindingFile{BindingFile{Path: "bytes/bytes.ergo", Text: files[0].Text}}
+	let markerText = RenderGenMark(GenMarker{Kind: "bind", Generator: "ergo bind go", Digest: GenMarkDigest(rawRel)})
+	let mem = fstest.NewMemory()
+	with context { fs.Files: mem, fs.Writes: mem } {
+		fs.Writes.MkdirAll("ergo.bind/bytes") catch {
+		case _:
+			assert false
+		}
+		fs.Writes.WriteFile("ergo.bind/bytes/bytes.ergo", files[0].Text) catch {
+		case _:
+			assert false
+		}
+		fs.Writes.WriteFile("ergo.bind/ergo.gen", markerText) catch {
+		case _:
+			assert false
+		}
+		let rep = CheckDirBindings("ergo.bind", files) catch {
+		case _:
+			assert false
+			return
+		}
+		assert rep.MarkerFound && rep.MarkerHeld && rep.Diffs.Len() == 0
+
+		let changed = []BindingFile{BindingFile{Path: "bytes", Text: Header + "\n// ergo:bind bytes go1.27 darwin/amd64\n"}}
+		let repDiff = CheckDirBindings("ergo.bind", changed) catch {
+		case _:
+			assert false
+			return
+		}
+		assert repDiff.Diffs.Len() == 1
+	}
+}

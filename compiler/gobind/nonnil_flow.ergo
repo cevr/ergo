@@ -1,0 +1,2251 @@
+// Pure-Ergo intraprocedural forward flow analysis matching internal/gobind/nonnil_flow.go
+// over GoAstTable with dense variable/key slots and zero pointer-keyed maps.
+
+import maps
+import option
+import slices
+import strconv
+import strings
+
+type nnPair {
+	a string,
+	b string,
+}
+
+type nnState {
+	dead  bool,
+	nn    Map[string, bool],
+	pairs []nnPair,
+}
+
+func newNNState() nnState {
+	nnState{dead: false, nn: Map[string, bool]{}, pairs: []nnPair{}}
+}
+
+func deadNNState() nnState {
+	nnState{dead: true, nn: Map[string, bool]{}, pairs: []nnPair{}}
+}
+
+func cloneNNState(s nnState) nnState {
+	if s.dead {
+		return s
+	}
+	nnState{dead: false, nn: s.nn.Clone(), pairs: slices.Clone(s.pairs)}
+}
+
+func hasPair(ps []nnPair, k nnPair) bool {
+	for p in ps {
+		if p.a == k.a && p.b == k.b {
+			return true
+		}
+	}
+	false
+}
+
+func stateImplies(s nnState, k nnPair) bool {
+	hasPair(s.pairs, k) || s.nn.Get(k.a) != option.None || s.nn.Get(k.b) != option.None
+}
+
+func addPair(ps mut []nnPair, k nnPair) {
+	if !hasPair(*ps, k) {
+		*ps = (*ps).Append(k)
+	}
+}
+
+func nnJoin(a nnState, b nnState) nnState {
+	if a.dead {
+		return cloneNNState(b)
+	}
+	if b.dead {
+		return cloneNNState(a)
+	}
+	let mut out = newNNState()
+	for k in maps.Keys(a.nn) {
+		if b.nn.Get(k) != option.None {
+			out.nn = out.nn.Put(k, true)
+		}
+	}
+	for s in []nnState{a, b} {
+		for k in s.pairs {
+			if stateImplies(a, k) && stateImplies(b, k) {
+				addPair(&out.pairs, k)
+			}
+		}
+	}
+	out
+}
+
+func nnEqual(a nnState, b nnState) bool {
+	if a.dead || b.dead {
+		return a.dead == b.dead
+	}
+	if a.nn.Len() != b.nn.Len() || a.pairs.Len() != b.pairs.Len() {
+		return false
+	}
+	for k in maps.Keys(a.nn) {
+		if b.nn.Get(k) == option.None {
+			return false
+		}
+	}
+	for p in a.pairs {
+		if !hasPair(b.pairs, p) {
+			return false
+		}
+	}
+	true
+}
+
+func nnForget(s mut nnState, id string) {
+	if s.dead || id == "" {
+		return
+	}
+	s.nn = s.nn.Delete(id)
+	s.nn = s.nn.Delete(id + nnNonEmpty)
+	let mut kept = slices.WithCapacity[nnPair](s.pairs.Len())
+	for p in s.pairs {
+		if p.a != id && p.b != id {
+			kept = kept.Append(p)
+		}
+	}
+	s.pairs = kept
+}
+
+func nnForgetPaths(s mut nnState) {
+	if s.dead {
+		return
+	}
+	let mut delKeys = []string{}
+	for k in maps.Keys(s.nn) {
+		if strings.HasPrefix(k, "@") {
+			delKeys = delKeys.Append(k)
+		}
+	}
+	for k in delKeys {
+		s.nn = s.nn.Delete(k)
+	}
+}
+
+func nnIsNil(s nnState, key string) nnState {
+	if s.dead {
+		return s
+	}
+	if s.nn.Get(key) != option.None {
+		return deadNNState()
+	}
+	let mut out = cloneNNState(s)
+	for p in s.pairs {
+		if p.a == key {
+			out.nn = out.nn.Put(p.b, true)
+		} else if p.b == key {
+			out.nn = out.nn.Put(p.a, true)
+		}
+	}
+	out
+}
+
+func nnNonNil(s nnState, key string) nnState {
+	if s.dead {
+		return s
+	}
+	let mut out = cloneNNState(s)
+	out.nn = out.nn.Put(key, true)
+	out
+}
+
+type nnTarget {
+	label  string,
+	loop   bool,
+	breaks []nnState,
+	cont   []nnState,
+}
+
+type nnIdentSlot {
+	astID uint32,
+	id    string,
+}
+
+type nnResScratch {
+	identID []string,
+	touched []uint32,
+}
+
+func newNNResScratch(n int) nnResScratch {
+	let mut buf = slices.WithCapacity[string](n)
+	for _ in 0..n {
+		buf = buf.Append("")
+	}
+	nnResScratch{identID: buf, touched: []uint32{}}
+}
+
+func sortIdentSlots(slots mut []nnIdentSlot) {
+	let n = (*slots).Len()
+	let mut gap = n / 2
+	for gap > 0 {
+		for i in gap..n {
+			let cur = (*slots)[i]
+			let mut j = i
+			for j >= gap && (*slots)[j-gap].astID > cur.astID {
+				(*slots)[j] = (*slots)[j-gap]
+				j = j - gap
+			}
+			(*slots)[j] = cur
+		}
+		gap = gap / 2
+	}
+}
+
+type nnResolver {
+	owner Map[string, uint32],
+	lits  []uint32,
+	stack []Map[string, string],
+	n     int,
+}
+
+func pushRes(r mut nnResolver) {
+	r.stack = r.stack.Append(Map[string, string]{})
+}
+
+func popRes(r mut nnResolver) {
+	r.stack = r.stack[0 : r.stack.Len()-1]
+}
+
+func setIdentID(sc mut nnResScratch, astID uint32, idStr string) {
+	if idStr == "" || astID == NoIndex {
+		return
+	}
+	let idx = int(astID)
+	for sc.identID.Len() <= idx {
+		sc.identID = sc.identID.Append("")
+	}
+	if sc.identID[idx] == "" {
+		sc.touched = sc.touched.Append(astID)
+	}
+	sc.identID[idx] = idStr
+}
+
+func getIdentID(slots []nnIdentSlot, astID uint32) string {
+	if astID == NoIndex {
+		return ""
+	}
+	let mut lo = 0
+	let mut hi = slots.Len()
+	for lo < hi {
+		let mid = lo + (hi-lo)/2
+		let k = slots[mid].astID
+		if k == astID {
+			return slots[mid].id
+		}
+		if k < astID {
+			lo = mid + 1
+		} else {
+			hi = mid
+		}
+	}
+	""
+}
+
+func declareRes(ga GoAstTable, r mut nnResolver, sc mut nnResScratch, idAst uint32) {
+	if idAst == NoIndex {
+		return
+	}
+	let name = astName(ga, idAst)
+	if name == "" || name == "_" {
+		return
+	}
+	r.n = r.n + 1
+	let s = name + "#" + strconv.Itoa(r.n)
+	let top = r.stack.Len() - 1
+	r.stack[top] = r.stack[top].Put(name, s)
+	setIdentID(sc, idAst, s)
+	if r.lits.Len() > 0 {
+		r.owner = r.owner.Put(s, r.lits[r.lits.Len()-1])
+	}
+}
+
+func useRes(ga GoAstTable, r nnResolver, sc mut nnResScratch, idAst uint32) {
+	let name = astName(ga, idAst)
+	let mut i = r.stack.Len() - 1
+	for i >= 0 {
+		match r.stack[i].Get(name) {
+		case option.Some{Value: s}:
+			setIdentID(sc, idAst, s)
+			return
+		case option.None:
+		}
+		i = i - 1
+	}
+}
+
+func resFields(ga GoAstTable, r mut nnResolver, sc mut nnResScratch, fl []uint32) {
+	for f in fl {
+		resExpr(ga, r, sc, astX(ga, f))
+	}
+	for f in fl {
+		for nid in astLhs(ga, f) {
+			declareRes(ga, r, sc, nid)
+		}
+	}
+}
+
+func resExpr(ga GoAstTable, r mut nnResolver, sc mut nnResScratch, n uint32) {
+	if n == NoIndex {
+		return
+	}
+	let kd = astKind(ga, n)
+	if kd == NAIdent {
+		useRes(ga, *r, sc, n)
+		return
+	}
+	if kd == NASelector {
+		resExpr(ga, r, sc, astX(ga, n))
+		return
+	}
+	if kd == NAFuncLit {
+		r.lits = r.lits.Append(n)
+		pushRes(r)
+		resFields(ga, r, sc, astChildren(ga, n))
+		resFields(ga, r, sc, astRhs(ga, n))
+		let body = astW(ga, n)
+		if body != NoIndex {
+			for st in astChildren(ga, body) {
+				resStmt(ga, r, sc, st)
+			}
+		}
+		popRes(r)
+		r.lits = r.lits[0 : r.lits.Len()-1]
+		return
+	}
+	for ch in directAstChildren(ga, n) {
+		resExpr(ga, r, sc, ch)
+	}
+}
+
+func resStmts(ga GoAstTable, r mut nnResolver, sc mut nnResScratch, list []uint32) {
+	for s in list {
+		resStmt(ga, r, sc, s)
+	}
+}
+
+func resStmt(ga GoAstTable, r mut nnResolver, sc mut nnResScratch, s uint32) {
+	if s == NoIndex {
+		return
+	}
+	let kd = astKind(ga, s)
+	if kd == NSBlock {
+		pushRes(r)
+		resStmts(ga, r, sc, astChildren(ga, s))
+		popRes(r)
+	} else if kd == NSAssign {
+		for x in astRhs(ga, s) {
+			resExpr(ga, r, sc, x)
+		}
+		let tok = astOp(ga, s)
+		let top = r.stack.Len() - 1
+		for l in astLhs(ga, s) {
+			if tok != OpDefine || astKind(ga, l) != NAIdent {
+				resExpr(ga, r, sc, l)
+				continue
+			}
+			let name = astName(ga, l)
+			match r.stack[top].Get(name) {
+			case option.Some{Value: prev}:
+				setIdentID(sc, l, prev)
+			case option.None:
+				declareRes(ga, r, sc, l)
+			}
+		}
+	} else if kd == NSDecl {
+		for sp in astChildren(ga, s) {
+			let sk = astKind(ga, sp)
+			if sk == NDValueSpec {
+				resExpr(ga, r, sc, astX(ga, sp))
+				for v in astRhs(ga, sp) {
+					resExpr(ga, r, sc, v)
+				}
+				for nid in astLhs(ga, sp) {
+					declareRes(ga, r, sc, nid)
+				}
+			} else if sk == NDTypeSpec {
+				resExpr(ga, r, sc, astX(ga, sp))
+			}
+		}
+	} else if kd == NSIf {
+		pushRes(r)
+		resStmt(ga, r, sc, astX(ga, s))
+		resExpr(ga, r, sc, astY(ga, s))
+		resStmt(ga, r, sc, astZ(ga, s))
+		resStmt(ga, r, sc, astW(ga, s))
+		popRes(r)
+	} else if kd == NSFor {
+		pushRes(r)
+		resStmt(ga, r, sc, astX(ga, s))
+		resExpr(ga, r, sc, astY(ga, s))
+		resStmt(ga, r, sc, astZ(ga, s))
+		resStmt(ga, r, sc, astW(ga, s))
+		popRes(r)
+	} else if kd == NSRange {
+		resExpr(ga, r, sc, astZ(ga, s))
+		pushRes(r)
+		let tok = astOp(ga, s)
+		for rx in []uint32{astX(ga, s), astY(ga, s)} {
+			if rx == NoIndex {
+				continue
+			}
+			if astKind(ga, rx) == NAIdent && tok == OpDefine {
+				declareRes(ga, r, sc, rx)
+			} else {
+				resExpr(ga, r, sc, rx)
+			}
+		}
+		resStmt(ga, r, sc, astW(ga, s))
+		popRes(r)
+	} else if kd == NSSwitch {
+		pushRes(r)
+		resStmt(ga, r, sc, astX(ga, s))
+		resExpr(ga, r, sc, astY(ga, s))
+		for cc in astChildren(ga, astZ(ga, s)) {
+			for x in astLhs(ga, cc) {
+				resExpr(ga, r, sc, x)
+			}
+			pushRes(r)
+			resStmts(ga, r, sc, astChildren(ga, cc))
+			popRes(r)
+		}
+		popRes(r)
+	} else if kd == NSTypeSwitch {
+		pushRes(r)
+		resStmt(ga, r, sc, astX(ga, s))
+		let asn = astY(ga, s)
+		if astKind(ga, asn) == NSAssign && astLhs(ga, asn).Len() == 1 {
+			for x in astRhs(ga, asn) {
+				resExpr(ga, r, sc, x)
+			}
+			let l0 = astLhs(ga, asn)[0]
+			if astKind(ga, l0) == NAIdent {
+				declareRes(ga, r, sc, l0)
+			}
+		} else {
+			resStmt(ga, r, sc, asn)
+		}
+		for cc in astChildren(ga, astZ(ga, s)) {
+			for x in astLhs(ga, cc) {
+				resExpr(ga, r, sc, x)
+			}
+			pushRes(r)
+			resStmts(ga, r, sc, astChildren(ga, cc))
+			popRes(r)
+		}
+		popRes(r)
+	} else if kd == NSSelect {
+		for cc in astChildren(ga, astZ(ga, s)) {
+			pushRes(r)
+			resStmt(ga, r, sc, astX(ga, cc))
+			resStmts(ga, r, sc, astChildren(ga, cc))
+			popRes(r)
+		}
+	} else if kd == NSLabeled {
+		resStmt(ga, r, sc, astX(ga, s))
+	} else if kd == NSReturn {
+		for x in astRhs(ga, s) {
+			resExpr(ga, r, sc, x)
+		}
+	} else if kd == NSExpr || kd == NSIncDec || kd == NSGo || kd == NSDefer {
+		resExpr(ga, r, sc, astX(ga, s))
+	} else if kd == NSSend {
+		resExpr(ga, r, sc, astX(ga, s))
+		resExpr(ga, r, sc, astY(ga, s))
+	}
+}
+
+type nnFnCtx {
+	fn          nnFuncInfo,
+	owner       Map[string, uint32],
+	results     []string,
+	addr        Map[string, bool],
+	captured    Map[string, bool],
+	closures    Map[string, bool],
+	gotos       Map[string, bool],
+	collections Map[string, bool],
+}
+
+type nnFlowMut {
+	types   Map[string, string],
+	ok      bool,
+	targets []nnTarget,
+}
+
+func proofID(ga GoAstTable, ids []nnIdentSlot, raw uint32) string {
+	let x = unparenAst(ga, raw)
+	if astKind(ga, x) == NAIdent {
+		return getIdentID(ids, x)
+	}
+	""
+}
+
+func fieldListContains(ga GoAstTable, fl []uint32, name string) bool {
+	for f in fl {
+		for nid in astLhs(ga, f) {
+			if astName(ga, nid) == name {
+				return true
+			}
+		}
+	}
+	false
+}
+
+func paramDeclared(ga GoAstTable, fn nnFuncInfo, name string) bool {
+	let fd = fn.fd
+	fieldListContains(ga, astLhs(ga, fd), name) || fieldListContains(ga, astChildren(ga, fd), name) || fieldListContains(ga, astRhs(ga, fd), name)
+}
+
+func astDeclaresName(ga GoAstTable, n uint32, name string) bool {
+	if n == NoIndex {
+		return false
+	}
+	let kd = astKind(ga, n)
+	if kd == NSAssign && astOp(ga, n) == OpDefine {
+		for l in astLhs(ga, n) {
+			if isIdentNamedAst(ga, l, name) {
+				return true
+			}
+		}
+	} else if kd == NDValueSpec {
+		for id in astLhs(ga, n) {
+			if astName(ga, id) == name {
+				return true
+			}
+		}
+	} else if kd == NDTypeSpec {
+		if astName(ga, n) == name {
+			return true
+		}
+	} else if kd == NSRange {
+		if isIdentNamedAst(ga, astX(ga, n), name) || isIdentNamedAst(ga, astY(ga, n), name) {
+			return true
+		}
+	} else if kd == NAFuncLit {
+		if fieldListContains(ga, astChildren(ga, n), name) {
+			return true
+		}
+	} else if kd == NSTypeSwitch {
+		let asn = astY(ga, n)
+		if astKind(ga, asn) == NSAssign && astLhs(ga, asn).Len() == 1 && isIdentNamedAst(ga, astLhs(ga, asn)[0], name) {
+			return true
+		}
+	}
+	for ch in directAstChildren(ga, n) {
+		if astDeclaresName(ga, ch, name) {
+			return true
+		}
+	}
+	false
+}
+
+func isLocalName(ga GoAstTable, fn nnFuncInfo, name string) bool {
+	paramDeclared(ga, fn, name) || astDeclaresName(ga, astW(ga, fn.fd), name)
+}
+
+func astAssignsName(ga GoAstTable, n uint32, name string) bool {
+	if n == NoIndex {
+		return false
+	}
+	let kd = astKind(ga, n)
+	if kd == NSAssign {
+		for l in astLhs(ga, n) {
+			if isIdentNamedAst(ga, l, name) {
+				return true
+			}
+		}
+	} else if kd == NDValueSpec {
+		for id in astLhs(ga, n) {
+			if astName(ga, id) == name {
+				return true
+			}
+		}
+	} else if kd == NSRange {
+		if isIdentNamedAst(ga, astX(ga, n), name) || isIdentNamedAst(ga, astY(ga, n), name) {
+			return true
+		}
+	} else if kd == NAUnary && astOp(ga, n) == OpAddr {
+		if isIdentNamedAst(ga, unparenAst(ga, astX(ga, n)), name) {
+			return true
+		}
+	} else if kd == NAFuncLit {
+		if fieldListContains(ga, astChildren(ga, n), name) {
+			return true
+		}
+	}
+	for ch in directAstChildren(ga, n) {
+		if astAssignsName(ga, ch, name) {
+			return true
+		}
+	}
+	false
+}
+
+func proofTypeKey(ga GoAstTable, fn nnFuncInfo, raw uint32) string {
+	let mut x = raw
+	if x != NoIndex && astKind(ga, x) == NAStar {
+		x = astX(ga, x)
+	}
+	x = unparenAst(ga, x)
+	let kd = astKind(ga, x)
+	if kd == NAIdent && isLocalName(ga, fn, astName(ga, x)) {
+		return ""
+	}
+	if kd == NASelector {
+		let px = astX(ga, x)
+		if astKind(ga, px) == NAIdent && isLocalName(ga, fn, astName(ga, px)) {
+			return ""
+		}
+	}
+	astTypeKey(ga, raw, fn.pkg, fn.imports)
+}
+
+func proofCallee(ga GoAstTable, w nnWorld, fn nnFuncInfo, fm mut nnFlowMut, raw uint32) string {
+	let c = unparenAst(ga, raw)
+	if astKind(ga, c) != NACall {
+		return ""
+	}
+	let f = unparenAst(ga, astX(ga, c))
+	let fk = astKind(ga, f)
+	if fk == NAIdent {
+		let nm = astName(ga, f)
+		if isLocalName(ga, fn, nm) {
+			return ""
+		}
+		return fn.pkg + "." + nm
+	}
+	if fk == NASelector {
+		let fx = astX(ga, f)
+		if astKind(ga, fx) == NAIdent && !isLocalName(ga, fn, astName(ga, fx)) {
+			match fn.imports.Get(astName(ga, fx)) {
+			case option.Some{Value: impPath}:
+				if impPath != "" {
+					return impPath + "." + astName(ga, f)
+				}
+			case option.None:
+			}
+		}
+		let t = proofExprType(ga, w, fn, fm, fx)
+		if t != "" {
+			return t + "." + astName(ga, f)
+		}
+	}
+	""
+}
+
+func proofExprType(ga GoAstTable, w nnWorld, fn nnFuncInfo, fm mut nnFlowMut, raw uint32) string {
+	let x = unparenAst(ga, raw)
+	let kd = astKind(ga, x)
+	if kd == NAIdent {
+		let nm = astName(ga, x)
+		if fn.recv != "" && nm == fn.recv {
+			if astAssignsName(ga, astW(ga, fn.fd), nm) {
+				return ""
+			}
+			return fn.pkg + "." + fn.recvTyp
+		}
+		if isLocalName(ga, fn, nm) {
+			return proofLocalType(ga, w, fn, fm, nm)
+		}
+		return worldVarType(ga, w, fn.pkg+"."+nm)
+	}
+	if kd == NASelector {
+		let px = astX(ga, x)
+		if astKind(ga, px) == NAIdent && !isLocalName(ga, fn, astName(ga, px)) {
+			match fn.imports.Get(astName(ga, px)) {
+			case option.Some{Value: impPath}:
+				if impPath != "" {
+					return worldVarType(ga, w, impPath+"."+astName(ga, x))
+				}
+			case option.None:
+			}
+		}
+		return ""
+	}
+	if kd == NAUnary && astOp(ga, x) == OpAddr {
+		let lit = unparenAst(ga, astX(ga, x))
+		if astKind(ga, lit) == NACompLit {
+			return proofTypeKey(ga, fn, astX(ga, lit))
+		}
+		return ""
+	}
+	if kd == NACompLit {
+		return proofTypeKey(ga, fn, astX(ga, x))
+	}
+	if kd == NATypeAssert {
+		let tx = astY(ga, x)
+		if tx != NoIndex {
+			return proofTypeKey(ga, fn, tx)
+		}
+		return ""
+	}
+	if kd == NACall {
+		let fnExpr = astX(ga, x)
+		let args = astChildren(ga, x)
+		if isIdentNamedAst(ga, fnExpr, "new") && args.Len() == 1 && !isLocalName(ga, fn, "new") {
+			return proofTypeKey(ga, fn, args[0])
+		}
+		let t = proofCallee(ga, w, fn, fm, x)
+		match w.funcIdx.Get(t) {
+		case option.Some{Value: fi}:
+			return w.funcs[fi].result
+		case option.None:
+		}
+	}
+	""
+}
+
+func collectLocalTypeSpecs(ga GoAstTable, w nnWorld, fn nnFuncInfo, fm mut nnFlowMut, n uint32, name string, found mut []string) {
+	if n == NoIndex {
+		return
+	}
+	let kd = astKind(ga, n)
+	if kd == NSAssign && astOp(ga, n) == OpDefine {
+		let lhs = astLhs(ga, n)
+		let rhs = astRhs(ga, n)
+		for i, l in lhs {
+			if !isIdentNamedAst(ga, l, name) {
+				continue
+			}
+			if lhs.Len() == rhs.Len() {
+				*found = (*found).Append(proofExprType(ga, w, fn, fm, rhs[i]))
+			} else if i == 0 && rhs.Len() == 1 {
+				*found = (*found).Append(proofExprType(ga, w, fn, fm, rhs[0]))
+			} else {
+				*found = (*found).Append("")
+			}
+		}
+	} else if kd == NDValueSpec {
+		let names = astLhs(ga, n)
+		let vals = astRhs(ga, n)
+		let specTyp = astX(ga, n)
+		for i, nid in names {
+			if astName(ga, nid) != name {
+				continue
+			}
+			if specTyp != NoIndex {
+				*found = (*found).Append(proofTypeKey(ga, fn, specTyp))
+			} else if vals.Len() == names.Len() {
+				*found = (*found).Append(proofExprType(ga, w, fn, fm, vals[i]))
+			} else {
+				*found = (*found).Append("")
+			}
+		}
+	} else if kd == NSRange {
+		if isIdentNamedAst(ga, astX(ga, n), name) || isIdentNamedAst(ga, astY(ga, n), name) {
+			*found = (*found).Append("")
+		}
+	} else if kd == NAFuncLit {
+		if fieldListContains(ga, astChildren(ga, n), name) {
+			*found = (*found).Append("")
+		}
+	} else if kd == NSTypeSwitch {
+		let asn = astY(ga, n)
+		if astKind(ga, asn) == NSAssign && astLhs(ga, asn).Len() == 1 && isIdentNamedAst(ga, astLhs(ga, asn)[0], name) {
+			*found = (*found).Append("")
+		}
+	}
+	for ch in directAstChildren(ga, n) {
+		collectLocalTypeSpecs(ga, w, fn, fm, ch, name, found)
+	}
+}
+
+func proofLocalType(ga GoAstTable, w nnWorld, fn nnFuncInfo, fm mut nnFlowMut, name string) string {
+	match fm.types.Get(name) {
+	case option.Some{Value: t}:
+		return t
+	case option.None:
+	}
+	fm.types = fm.types.Put(name, "")
+	let mut found = []string{}
+	let fd = fn.fd
+	for fl in [][]uint32{astChildren(ga, fd), astRhs(ga, fd)} {
+		for f in fl {
+			for nid in astLhs(ga, f) {
+				if astName(ga, nid) == name {
+					found = found.Append(proofTypeKey(ga, fn, astX(ga, f)))
+				}
+			}
+		}
+	}
+	collectLocalTypeSpecs(ga, w, fn, fm, astW(ga, fd), name, &found)
+	let mut t = ""
+	for i, f in found {
+		if f == "" || (i > 0 && f != t) {
+			t = ""
+			break
+		}
+		t = f
+	}
+	fm.types = fm.types.Put(name, t)
+	t
+}
+
+func proofUnsafePointerArg(ga GoAstTable, fn nnFuncInfo, raw uint32) uint32 {
+	let call = unparenAst(ga, raw)
+	if astKind(ga, call) != NACall || astChildren(ga, call).Len() != 1 {
+		return raw
+	}
+	let sel = unparenAst(ga, astX(ga, call))
+	if astKind(ga, sel) != NASelector || astName(ga, sel) != "Pointer" {
+		return raw
+	}
+	let px = astX(ga, sel)
+	if astKind(ga, px) == NAIdent {
+		let nm = astName(ga, px)
+		match fn.imports.Get(nm) {
+		case option.Some{Value: impPath}:
+			if impPath == "unsafe" && !isLocalName(ga, fn, nm) {
+				return astChildren(ga, call)[0]
+			}
+		case option.None:
+		}
+	}
+	raw
+}
+
+func proofFieldPath(ga GoAstTable, ids []nnIdentSlot, raw uint32) string {
+	let mut sels = []string{}
+	let mut cur = raw
+	let limit = 64
+	for _ in 0..limit {
+		let e = unparenAst(ga, cur)
+		let kd = astKind(ga, e)
+		if kd == NASelector {
+			sels = sels.Append(astName(ga, e))
+			cur = astX(ga, e)
+			continue
+		}
+		if kd == NAIdent {
+			if sels.Len() == 0 {
+				return ""
+			}
+			let mut base = getIdentID(ids, e)
+			if base == "" {
+				base = "pkg:" + astName(ga, e)
+			}
+			let mut i = sels.Len() - 1
+			for i >= 0 {
+				base = base + "." + sels[i]
+				i = i - 1
+			}
+			return "@" + base
+		}
+		return ""
+	}
+	""
+}
+
+func proofPointer(ga GoAstTable, w nnWorld, proven []bool, ids []nnIdentSlot, fn nnFuncInfo, fm mut nnFlowMut, raw uint32, st nnState) bool {
+	let x = unparenAst(ga, raw)
+	let kd = astKind(ga, x)
+	if kd == NAUnary {
+		return astOp(ga, x) == OpAddr
+	}
+	if kd == NACall {
+		let fx = astX(ga, x)
+		let args = astChildren(ga, x)
+		if isIdentNamedAst(ga, fx, "new") && args.Len() == 1 && !isLocalName(ga, fn, "new") {
+			return true
+		}
+		if astKind(ga, unparenAst(ga, fx)) == NAStar && args.Len() == 1 {
+			let inner = proofUnsafePointerArg(ga, fn, args[0])
+			return proofPointer(ga, w, proven, ids, fn, fm, inner, st)
+		}
+		return worldFuncProven(w, proven, proofCallee(ga, w, fn, fm, x), nnPtr)
+	}
+	if kd == NAIdent {
+		let id = getIdentID(ids, x)
+		if id != "" {
+			return st.nn.Get(id) != option.None
+		}
+		let nm = astName(ga, x)
+		return !isLocalName(ga, fn, nm) && worldPointerVar(ga, w, fn.pkg+"."+nm)
+	}
+	if kd == NASelector {
+		let px = astX(ga, x)
+		if astKind(ga, px) == NAIdent {
+			let nm = astName(ga, px)
+			match fn.imports.Get(nm) {
+			case option.Some{Value: impPath}:
+				if impPath != "" && !isLocalName(ga, fn, nm) {
+					return worldPointerVar(ga, w, impPath+"."+astName(ga, x))
+				}
+			case option.None:
+			}
+		}
+		return st.nn.Get(proofFieldPath(ga, ids, x)) != option.None
+	}
+	false
+}
+
+func proofConversion(ga GoAstTable, w nnWorld, fn nnFuncInfo, c uint32) bool {
+	if astChildren(ga, c).Len() != 1 {
+		return false
+	}
+	let f = unparenAst(ga, astX(ga, c))
+	let kd = astKind(ga, f)
+	if kd == NAIdent {
+		let nm = astName(ga, f)
+		return !isLocalName(ga, fn, nm) && worldTypeConcrete(w, fn.pkg+"."+nm)
+	}
+	if kd == NASelector {
+		let px = astX(ga, f)
+		if astKind(ga, px) == NAIdent {
+			let nm = astName(ga, px)
+			match fn.imports.Get(nm) {
+			case option.Some{Value: impPath}:
+				if impPath != "" && !isLocalName(ga, fn, nm) {
+					return worldTypeConcrete(w, impPath+"."+astName(ga, f))
+				}
+			case option.None:
+			}
+		}
+	}
+	false
+}
+
+func proofErrorName(ga GoAstTable, w nnWorld, ids []nnIdentSlot, fn nnFuncInfo, raw uint32, st nnState) bool {
+	let x = unparenAst(ga, raw)
+	let kd = astKind(ga, x)
+	if kd == NAIdent {
+		let id = getIdentID(ids, x)
+		if id != "" {
+			return st.nn.Get(id) != option.None
+		}
+		let nm = astName(ga, x)
+		let key = fn.pkg + "." + nm
+		return !isLocalName(ga, fn, nm) && (worldSentinel(ga, w, key) || worldConst(w, key))
+	}
+	if kd == NASelector {
+		let px = astX(ga, x)
+		if astKind(ga, px) == NAIdent {
+			let nm = astName(ga, px)
+			match fn.imports.Get(nm) {
+			case option.Some{Value: impPath}:
+				if impPath != "" && !isLocalName(ga, fn, nm) {
+					let key = impPath + "." + astName(ga, x)
+					return worldSentinel(ga, w, key) || worldConst(w, key)
+				}
+			case option.None:
+			}
+		}
+		return st.nn.Get(proofFieldPath(ga, ids, x)) != option.None
+	}
+	false
+}
+
+func proofErrorSet(ga GoAstTable, w nnWorld, proven []bool, ids []nnIdentSlot, fn nnFuncInfo, fm mut nnFlowMut, raw uint32, st nnState) bool {
+	if errorValueAst(ga, raw, fn.imports) {
+		return true
+	}
+	let t = proofExprType(ga, w, fn, fm, raw)
+	if t != "" && worldTypeConcrete(w, t) {
+		return true
+	}
+	let x = unparenAst(ga, raw)
+	let kd = astKind(ga, x)
+	if kd == NAIdent || kd == NASelector {
+		return proofErrorName(ga, w, ids, fn, x, st)
+	}
+	if kd == NACall {
+		if proofConversion(ga, w, fn, x) {
+			return true
+		}
+		return worldFuncProven(w, proven, proofCallee(ga, w, fn, fm, x), nnErr)
+	}
+	false
+}
+
+func proofValue(ga GoAstTable, w nnWorld, proven []bool, ids []nnIdentSlot, fn nnFuncInfo, fm mut nnFlowMut, raw uint32, st nnState) bool {
+	if proofPointer(ga, w, proven, ids, fn, fm, raw, st) || errorValueAst(ga, raw, fn.imports) {
+		return true
+	}
+	let x = unparenAst(ga, raw)
+	let kd = astKind(ga, x)
+	if kd == NAIdent || kd == NASelector {
+		return proofErrorName(ga, w, ids, fn, x, st)
+	}
+	if kd == NACall {
+		return worldFuncProven(w, proven, proofCallee(ga, w, fn, fm, x), nnErr)
+	}
+	false
+}
+
+func flowHasDefer(ga GoAstTable, n uint32) bool {
+	if n == NoIndex {
+		return false
+	}
+	let kd = astKind(ga, n)
+	if kd == NAFuncLit {
+		return false
+	}
+	if kd == NSDefer {
+		return true
+	}
+	for ch in directAstChildren(ga, n) {
+		if flowHasDefer(ga, ch) {
+			return true
+		}
+	}
+	false
+}
+
+func flowRecovers(ga GoAstTable, n uint32) bool {
+	if n == NoIndex {
+		return false
+	}
+	let kd = astKind(ga, n)
+	if kd == NAFuncLit {
+		return false
+	}
+	if kd == NACall && isIdentNamedAst(ga, astX(ga, n), "recover") {
+		return true
+	}
+	for ch in directAstChildren(ga, n) {
+		if flowRecovers(ga, ch) {
+			return true
+		}
+	}
+	false
+}
+
+func isNilExpr(ga GoAstTable, ids []nnIdentSlot, raw uint32) bool {
+	astKind(ga, raw) == NAIdent && astName(ga, raw) == "nil" && getIdentID(ids, raw) == ""
+}
+
+func flowNilCompared(ga GoAstTable, ids []nnIdentSlot, c uint32) string {
+	let mut x = unparenAst(ga, astX(ga, c))
+	let mut y = unparenAst(ga, astY(ga, c))
+	if isNilExpr(ga, ids, x) {
+		let tmp = x
+		x = y
+		y = tmp
+	}
+	if !isNilExpr(ga, ids, y) {
+		return ""
+	}
+	let id = proofID(ga, ids, x)
+	if id != "" {
+		return id
+	}
+	proofFieldPath(ga, ids, x)
+}
+
+func flowProvesNil(ga GoAstTable, ids []nnIdentSlot, raw uint32, id string) bool {
+	if id == "" {
+		return false
+	}
+	let b = unparenAst(ga, raw)
+	if astKind(ga, b) != NABinary {
+		return false
+	}
+	let op = astOp(ga, b)
+	if op == OpLand {
+		return flowProvesNil(ga, ids, astX(ga, b), id) || flowProvesNil(ga, ids, astY(ga, b), id)
+	}
+	if op == OpEql {
+		return flowNilCompared(ga, ids, b) == id
+	}
+	false
+}
+
+func checkDeferredNode(ga GoAstTable, w nnWorld, proven []bool, ids []nnIdentSlot, fn nnFuncInfo, fm mut nnFlowMut, n uint32, resultIds Map[string, bool], errID string, errNil bool) {
+	if n == NoIndex {
+		return
+	}
+	let kd = astKind(ga, n)
+	if kd == NSIf {
+		checkDeferredNode(ga, w, proven, ids, fn, fm, astX(ga, n), resultIds, errID, errNil)
+		let branchNil = errNil || flowProvesNil(ga, ids, astY(ga, n), errID)
+		checkDeferredNode(ga, w, proven, ids, fn, fm, astZ(ga, n), resultIds, errID, branchNil)
+		checkDeferredNode(ga, w, proven, ids, fn, fm, astW(ga, n), resultIds, errID, errNil)
+		return
+	}
+	if kd == NSAssign {
+		let lhs = astLhs(ga, n)
+		let rhs = astRhs(ga, n)
+		let tok = astOp(ga, n)
+		let empty = newNNState()
+		for i, l in lhs {
+			let id = proofID(ga, ids, l)
+			if resultIds.Get(id) == option.None || (errNil && id == errID) {
+				continue
+			}
+			if tok != OpAssign || lhs.Len() != rhs.Len() || !proofValue(ga, w, proven, ids, fn, fm, rhs[i], empty) {
+				fm.ok = false
+			}
+		}
+	} else if kd == NSIncDec {
+		let id = proofID(ga, ids, astX(ga, n))
+		if resultIds.Get(id) != option.None {
+			fm.ok = false
+		}
+	}
+	for ch in directAstChildren(ga, n) {
+		checkDeferredNode(ga, w, proven, ids, fn, fm, ch, resultIds, errID, errNil)
+	}
+}
+
+func flowCheckDeferred(ga GoAstTable, w nnWorld, proven []bool, ids []nnIdentSlot, fn nnFuncInfo, results []string, fm mut nnFlowMut, deferStmt uint32) {
+	let call = astX(ga, deferStmt)
+	let fnExpr = unparenAst(ga, astX(ga, call))
+	if astKind(ga, fnExpr) != NAFuncLit {
+		let t = proofCallee(ga, w, fn, fm, call)
+		match w.funcIdx.Get(t) {
+		case option.Some{Value: fi}:
+			let body = astW(ga, w.funcs[fi].fd)
+			if body != NoIndex && flowRecovers(ga, body) {
+				fm.ok = false
+			}
+		case option.None:
+		}
+		return
+	}
+	let litBody = astW(ga, fnExpr)
+	if flowRecovers(ga, litBody) {
+		fm.ok = false
+		return
+	}
+	let mut resultIds = Map[string, bool]{}
+	for r in results {
+		if r != "" {
+			resultIds = resultIds.Put(r, true)
+		}
+	}
+	let errID = if fn.kind == nnPtrErr && results.Len() == 2 { results[1] } else { "" }
+	checkDeferredNode(ga, w, proven, ids, fn, fm, litBody, resultIds, errID, false)
+}
+
+func scanBodyNode(ga GoAstTable, w nnWorld, proven []bool, ids []nnIdentSlot, fn nnFuncInfo, results []string, owner Map[string, uint32], addr mut Map[string, bool], captured mut Map[string, bool], closures mut Map[string, bool], fm mut nnFlowMut, n uint32, lits mut []uint32) {
+	if n == NoIndex {
+		return
+	}
+	let kd = astKind(ga, n)
+	let curLit = if (*lits).Len() == 0 { NoIndex } else { (*lits)[(*lits).Len()-1] }
+	if kd == NAFuncLit {
+		*lits = (*lits).Append(n)
+		scanBodyNode(ga, w, proven, ids, fn, results, owner, addr, captured, closures, fm, astW(ga, n), lits)
+		*lits = (*lits)[0 : (*lits).Len()-1]
+		return
+	}
+	if kd == NSAssign {
+		let lhs = astLhs(ga, n)
+		let rhs = astRhs(ga, n)
+		for i, l in lhs {
+			let lid = proofID(ga, ids, l)
+			let ownerLit = match owner.Get(lid) {
+			case option.Some{Value: v}:
+				v
+			case option.None:
+				NoIndex
+			}
+			if lid != "" && ownerLit != curLit {
+				*captured = (*captured).Put(lid, true)
+			}
+			if lhs.Len() == rhs.Len() && astKind(ga, unparenAst(ga, rhs[i])) == NAFuncLit {
+				if lid != "" {
+					*closures = (*closures).Put(lid, true)
+				}
+			}
+		}
+	} else if kd == NDValueSpec {
+		let names = astLhs(ga, n)
+		let vals = astRhs(ga, n)
+		for i, nid in names {
+			if i < vals.Len() && astKind(ga, unparenAst(ga, vals[i])) == NAFuncLit {
+				let id = getIdentID(ids, nid)
+				if id != "" {
+					*closures = (*closures).Put(id, true)
+				}
+			}
+		}
+	} else if kd == NSIncDec {
+		let lid = proofID(ga, ids, astX(ga, n))
+		let ownerLit = match owner.Get(lid) {
+		case option.Some{Value: v}:
+			v
+		case option.None:
+			NoIndex
+		}
+		if lid != "" && ownerLit != curLit {
+			*captured = (*captured).Put(lid, true)
+		}
+	} else if kd == NSRange && astOp(ga, n) == OpAssign {
+		for rx in []uint32{astX(ga, n), astY(ga, n)} {
+			let lid = proofID(ga, ids, rx)
+			let ownerLit = match owner.Get(lid) {
+			case option.Some{Value: v}:
+				v
+			case option.None:
+				NoIndex
+			}
+			if lid != "" && ownerLit != curLit {
+				*captured = (*captured).Put(lid, true)
+			}
+		}
+	} else if kd == NAUnary && astOp(ga, n) == OpAddr {
+		let lid = proofID(ga, ids, astX(ga, n))
+		if lid != "" {
+			*addr = (*addr).Put(lid, true)
+		}
+	} else if kd == NSDefer && curLit == NoIndex {
+		flowCheckDeferred(ga, w, proven, ids, fn, results, fm, n)
+	}
+	for ch in directAstChildren(ga, n) {
+		scanBodyNode(ga, w, proven, ids, fn, results, owner, addr, captured, closures, fm, ch, lits)
+	}
+}
+
+type escUse {
+	id    string,
+	inLit uint32,
+	call  bool,
+}
+
+func flowEscapes(ga GoAstTable, ids mut []nnIdentSlot, fn nnFuncInfo, owner Map[string, uint32], closures mut Map[string, bool], results []string, ok mut bool) {
+	let body = astW(ga, fn.fd)
+	let mut esFixed = escFixedState{
+		litIdx: Map[string, int]{},
+		lits:   []uint32{},
+		parent: []uint32{},
+		esc:    []bool{},
+		held:   [][]string{},
+		writes: [][]string{},
+		uses:   []escUse{},
+	}
+	scanEscapesWithStr(&esFixed, ga, *ids, owner, *closures, body, NoIndex, NoIndex, NoIndex)
+	let mut varEsc = Map[string, bool]{}
+	for u in esFixed.uses {
+		if !u.call {
+			varEsc = varEsc.Put(u.id, true)
+		}
+	}
+	let mut changed = true
+	for changed {
+		changed = false
+		for i in 0..esFixed.lits.Len() {
+			if esFixed.esc[i] {
+				continue
+			}
+			let mut parentEsc = false
+			let par = esFixed.parent[i]
+			if par != NoIndex {
+				match esFixed.litIdx.Get(strconv.Itoa(int(par))) {
+				case option.Some{Value: pi}:
+					parentEsc = esFixed.esc[pi]
+				case option.None:
+				}
+			}
+			let mut heldEsc = false
+			for hid in esFixed.held[i] {
+				if varEsc.Get(hid) != option.None {
+					heldEsc = true
+					break
+				}
+			}
+			if parentEsc || heldEsc {
+				esFixed.esc[i] = true
+				changed = true
+			}
+		}
+		for u in esFixed.uses {
+			if varEsc.Get(u.id) == option.None && u.inLit != NoIndex {
+				match esFixed.litIdx.Get(strconv.Itoa(int(u.inLit))) {
+				case option.Some{Value: ui}:
+					if esFixed.esc[ui] {
+						varEsc = varEsc.Put(u.id, true)
+						changed = true
+					}
+				case option.None:
+				}
+			}
+		}
+	}
+	let mut unknown = Map[string, bool]{}
+	for i in 0..esFixed.lits.Len() {
+		if esFixed.esc[i] {
+			for wid in esFixed.writes[i] {
+				unknown = unknown.Put(wid, true)
+			}
+		}
+	}
+	for r in results {
+		if unknown.Get(r) != option.None {
+			*ok = false
+		}
+	}
+	let mut freshCount = 0
+	for idx in 0..(*ids).Len() {
+		let cur = (*ids)[idx].id
+		if cur != "" && unknown.Get(cur) != option.None {
+			freshCount = freshCount + 1
+			let fresh = cur + "!" + strconv.Itoa(freshCount)
+			(*ids)[idx].id = fresh
+			if (*closures).Get(cur) != option.None {
+				*closures = (*closures).Put(fresh, true)
+			}
+		}
+	}
+}
+
+type escFixedState {
+	litIdx Map[string, int],
+	lits   []uint32,
+	parent []uint32,
+	esc    []bool,
+	held   [][]string,
+	writes [][]string,
+	uses   []escUse,
+}
+
+func scanEscapesWithStr(es mut escFixedState, ga GoAstTable, ids []nnIdentSlot, owner Map[string, uint32], closures Map[string, bool], n uint32, parentNode uint32, grandNode uint32, curLit uint32) {
+	if n == NoIndex {
+		return
+	}
+	let kd = astKind(ga, n)
+	let mut nextLit = curLit
+	if kd == NAFuncLit {
+		let li = es.lits.Len()
+		es.lits = es.lits.Append(n)
+		es.parent = es.parent.Append(curLit)
+		let mut isEsc = true
+		let mut hList = []string{}
+		if parentNode != NoIndex {
+			let pk = astKind(ga, parentNode)
+			if pk == NACall && astX(ga, parentNode) == n {
+				isEsc = grandNode != NoIndex && astKind(ga, grandNode) == NSGo
+			} else if pk == NSAssign {
+				let lhs = astLhs(ga, parentNode)
+				let rhs = astRhs(ga, parentNode)
+				if lhs.Len() == rhs.Len() {
+					for i, r in rhs {
+						if r == n {
+							let lid = proofID(ga, ids, lhs[i])
+							if lid != "" {
+								isEsc = false
+								hList = hList.Append(lid)
+							}
+						}
+					}
+				}
+			} else if pk == NDValueSpec {
+				let names = astLhs(ga, parentNode)
+				let vals = astRhs(ga, parentNode)
+				if names.Len() == vals.Len() {
+					for i, v in vals {
+						if v == n && i < names.Len() {
+							let lid = getIdentID(ids, names[i])
+							if lid != "" {
+								isEsc = false
+								hList = hList.Append(lid)
+							}
+						}
+					}
+				}
+			}
+		}
+		es.esc = es.esc.Append(isEsc)
+		es.held = es.held.Append(hList)
+		es.writes = es.writes.Append([]string{})
+		es.litIdx = es.litIdx.Put(strconv.Itoa(int(n)), li)
+		nextLit = n
+	} else if kd == NSAssign && curLit != NoIndex {
+		match es.litIdx.Get(strconv.Itoa(int(curLit))) {
+		case option.Some{Value: li}:
+			for l in astLhs(ga, n) {
+				let lid = proofID(ga, ids, l)
+				let ownerLit = match owner.Get(lid) {
+				case option.Some{Value: v}:
+					v
+				case option.None:
+					NoIndex
+				}
+				if lid != "" && ownerLit != curLit {
+					es.writes[li] = es.writes[li].Append(lid)
+				}
+			}
+		case option.None:
+		}
+	} else if kd == NSIncDec && curLit != NoIndex {
+		match es.litIdx.Get(strconv.Itoa(int(curLit))) {
+		case option.Some{Value: li}:
+			let lid = proofID(ga, ids, astX(ga, n))
+			let ownerLit = match owner.Get(lid) {
+			case option.Some{Value: v}:
+				v
+			case option.None:
+				NoIndex
+			}
+			if lid != "" && ownerLit != curLit {
+				es.writes[li] = es.writes[li].Append(lid)
+			}
+		case option.None:
+		}
+	} else if kd == NSRange && astOp(ga, n) == OpAssign && curLit != NoIndex {
+		match es.litIdx.Get(strconv.Itoa(int(curLit))) {
+		case option.Some{Value: li}:
+			for rx in []uint32{astX(ga, n), astY(ga, n)} {
+				let lid = proofID(ga, ids, rx)
+				let ownerLit = match owner.Get(lid) {
+				case option.Some{Value: v}:
+					v
+				case option.None:
+					NoIndex
+				}
+				if lid != "" && ownerLit != curLit {
+					es.writes[li] = es.writes[li].Append(lid)
+				}
+			}
+		case option.None:
+		}
+	} else if kd == NAIdent {
+		let id = getIdentID(ids, n)
+		if id != "" && closures.Get(id) != option.None {
+			let mut isWriteTarget = false
+			let mut isDirectCall = false
+			if parentNode != NoIndex {
+				let pk = astKind(ga, parentNode)
+				if pk == NSAssign {
+					for l in astLhs(ga, parentNode) {
+						if l == n {
+							isWriteTarget = true
+							break
+						}
+					}
+				} else if pk == NDValueSpec {
+					for nm in astLhs(ga, parentNode) {
+						if nm == n {
+							isWriteTarget = true
+							break
+						}
+					}
+				} else if pk == NACall && astX(ga, parentNode) == n {
+					let gk = if grandNode != NoIndex { astKind(ga, grandNode) } else { uint8(0) }
+					if gk != NSGo && gk != NSDefer {
+						isDirectCall = true
+					}
+				}
+			}
+			if !isWriteTarget {
+				es.uses = es.uses.Append(escUse{id: id, inLit: curLit, call: isDirectCall})
+			}
+		}
+	}
+	for ch in directAstChildren(ga, n) {
+		scanEscapesWithStr(es, ga, ids, owner, closures, ch, n, parentNode, nextLit)
+	}
+}
+
+func isCollectionTypeExpr(ga GoAstTable, raw uint32) bool {
+	if raw == NoIndex {
+		return false
+	}
+	let kd = astKind(ga, raw)
+	if kd == NAEllipsis || kd == NAArrayType || kd == NAMapType {
+		return true
+	}
+	kd == NAIdent && (astFlags(ga, raw)&AFFlagPredeclaredString) != uint32(0)
+}
+
+func collectCollections(ga GoAstTable, fd uint32, ids []nnIdentSlot) Map[string, bool] {
+	let mut out = Map[string, bool]{}
+	for f in astChildren(ga, fd) {
+		if isCollectionTypeExpr(ga, astX(ga, f)) {
+			for nid in astLhs(ga, f) {
+				let id = getIdentID(ids, nid)
+				if id != "" {
+					out = out.Put(id, true)
+				}
+			}
+		}
+	}
+	collectBodyCollections(ga, astW(ga, fd), ids, &out)
+	out
+}
+
+func collectBodyCollections(ga GoAstTable, n uint32, ids []nnIdentSlot, out mut Map[string, bool]) {
+	if n == NoIndex {
+		return
+	}
+	if astKind(ga, n) == NDValueSpec {
+		let tx = astX(ga, n)
+		if tx != NoIndex && isCollectionTypeExpr(ga, tx) {
+			for nid in astLhs(ga, n) {
+				let id = getIdentID(ids, nid)
+				if id != "" {
+					*out = (*out).Put(id, true)
+				}
+			}
+		}
+	}
+	for ch in directAstChildren(ga, n) {
+		collectBodyCollections(ga, ch, ids, out)
+	}
+}
+
+func collectGotoLabels(ga GoAstTable, n uint32, out mut Map[string, bool]) {
+	if n == NoIndex {
+		return
+	}
+	let kd = astKind(ga, n)
+	if kd == NAFuncLit {
+		return
+	}
+	if kd == NSBranch && astOp(ga, n) == OpGoto {
+		let lbl = astName(ga, n)
+		if lbl != "" {
+			*out = (*out).Put(lbl, true)
+		}
+	}
+	for ch in directAstChildren(ga, n) {
+		collectGotoLabels(ga, ch, out)
+	}
+}
+
+func flowDerefs(ga GoAstTable, w nnWorld, ids []nnIdentSlot, n uint32, out mut []string) {
+	if n == NoIndex {
+		return
+	}
+	let kd = astKind(ga, n)
+	if kd == NAFuncLit {
+		return
+	}
+	if kd == NABinary {
+		let op = astOp(ga, n)
+		if op == OpLand || op == OpLor {
+			flowDerefs(ga, w, ids, astX(ga, n), out)
+			return
+		}
+	}
+	if kd == NACall {
+		let f = unparenAst(ga, astX(ga, n))
+		if astKind(ga, f) == NASelector {
+			flowDerefs(ga, w, ids, astX(ga, f), out)
+		} else {
+			flowDerefs(ga, w, ids, astX(ga, n), out)
+		}
+		for a in astChildren(ga, n) {
+			flowDerefs(ga, w, ids, a, out)
+		}
+		return
+	}
+	if kd == NASelector {
+		let id = proofID(ga, ids, astX(ga, n))
+		if id != "" && w.ptrMethods.Get(astName(ga, n)) == option.None {
+			*out = (*out).Append(id)
+		}
+	} else if kd == NAStar {
+		let id = proofID(ga, ids, astX(ga, n))
+		if id != "" {
+			*out = (*out).Append(id)
+		}
+	}
+	for ch in directAstChildren(ga, n) {
+		flowDerefs(ga, w, ids, ch, out)
+	}
+}
+
+type killFlags {
+	call    bool,
+	closure bool,
+}
+
+func scanKills(ga GoAstTable, ids []nnIdentSlot, closures Map[string, bool], n uint32, kf mut killFlags) {
+	if n == NoIndex {
+		return
+	}
+	let kd = astKind(ga, n)
+	if kd == NAFuncLit {
+		kf.closure = true
+		return
+	}
+	if kd == NACall {
+		kf.call = true
+		if closures.Get(proofID(ga, ids, astX(ga, n))) != option.None {
+			kf.closure = true
+		}
+	} else if kd == NAUnary && astOp(ga, n) == OpArrow {
+		kf.call = true
+	}
+	for ch in directAstChildren(ga, n) {
+		scanKills(ga, ids, closures, ch, kf)
+	}
+}
+
+func flowEffects(ga GoAstTable, w nnWorld, ids []nnIdentSlot, fc nnFnCtx, n uint32, st nnState) nnState {
+	if n == NoIndex || st.dead {
+		return st
+	}
+	let mut out = cloneNNState(st)
+	let mut derefs = []string{}
+	flowDerefs(ga, w, ids, n, &derefs)
+	for id in derefs {
+		out.nn = out.nn.Put(id, true)
+	}
+	let mut kf = killFlags{call: false, closure: false}
+	scanKills(ga, ids, fc.closures, n, &kf)
+	if kf.call || kf.closure {
+		nnForgetPaths(&out)
+	}
+	if kf.call {
+		for k in maps.Keys(fc.addr) {
+			nnForget(&out, k)
+		}
+	}
+	if kf.closure {
+		for k in maps.Keys(fc.captured) {
+			nnForget(&out, k)
+		}
+	}
+	out
+}
+
+func isZeroIntLit(ga GoAstTable, x uint32) bool {
+	astKind(ga, x) == NABasicLit && (astFlags(ga, x)&AFFlagBasicLitInt) != uint32(0) && (astFlags(ga, x)&AFFlagIsIntZero) != uint32(0)
+}
+
+func flowLenCompared(ga GoAstTable, ids []nnIdentSlot, fc nnFnCtx, c uint32) (string, uint8) {
+	let mut op = astOp(ga, c)
+	let mut x = unparenAst(ga, astX(ga, c))
+	let mut y = unparenAst(ga, astY(ga, c))
+	if isZeroIntLit(ga, x) {
+		let tmp = x
+		x = y
+		y = tmp
+		if op == OpLss {
+			op = OpGtr
+		} else if op == OpGtr {
+			op = OpLss
+		}
+	}
+	if astKind(ga, x) != NACall || !isZeroIntLit(ga, y) || astChildren(ga, x).Len() != 1 || !isIdentNamedAst(ga, astX(ga, x), "len") {
+		return ("", op)
+	}
+	let fnIdent = unparenAst(ga, astX(ga, x))
+	if astKind(ga, fnIdent) != NAIdent || getIdentID(ids, fnIdent) != "" {
+		return ("", op)
+	}
+	let id = proofID(ga, ids, astChildren(ga, x)[0])
+	if fc.collections.Get(id) == option.None {
+		return ("", op)
+	}
+	(id, op)
+}
+
+func flowCond(ga GoAstTable, w nnWorld, ids []nnIdentSlot, fc nnFnCtx, raw uint32, st0 nnState) (nnState, nnState) {
+	if st0.dead {
+		return (st0, st0)
+	}
+	let c = unparenAst(ga, raw)
+	let kd = astKind(ga, c)
+	if kd == NAUnary && astOp(ga, c) == OpNot {
+		let (yes, no) = flowCond(ga, w, ids, fc, astX(ga, c), st0)
+		return (no, yes)
+	}
+	if kd == NABinary {
+		let op = astOp(ga, c)
+		if op == OpLand {
+			let (xy, xn) = flowCond(ga, w, ids, fc, astX(ga, c), st0)
+			let (yy, yn) = flowCond(ga, w, ids, fc, astY(ga, c), xy)
+			return (yy, nnJoin(xn, yn))
+		}
+		if op == OpLor {
+			let (xy, xn) = flowCond(ga, w, ids, fc, astX(ga, c), st0)
+			let (yy, yn) = flowCond(ga, w, ids, fc, astY(ga, c), xn)
+			return (nnJoin(xy, yy), yn)
+		}
+		if op == OpGtr || op == OpLss {
+			let st = flowEffects(ga, w, ids, fc, c, st0)
+			let (id, cmpOp) = flowLenCompared(ga, ids, fc, c)
+			if id != "" && cmpOp == OpGtr {
+				return (nnNonNil(st, id+nnNonEmpty), st)
+			}
+			return (st, st)
+		}
+		if op == OpEql || op == OpNeq {
+			let st = flowEffects(ga, w, ids, fc, c, st0)
+			let (id, _) = flowLenCompared(ga, ids, fc, c)
+			if id != "" {
+				if op == OpNeq {
+					return (nnNonNil(st, id+nnNonEmpty), st)
+				}
+				return (st, nnNonNil(st, id+nnNonEmpty))
+			}
+			let key = flowNilCompared(ga, ids, c)
+			if key == "" {
+				return (st, st)
+			}
+			if op == OpNeq {
+				return (nnNonNil(st, key), nnIsNil(st, key))
+			}
+			return (nnIsNil(st, key), nnNonNil(st, key))
+		}
+	}
+	let st = flowEffects(ga, w, ids, fc, c, st0)
+	(st, st)
+}
+
+func flowAssign(ga GoAstTable, w nnWorld, proven []bool, ids []nnIdentSlot, fc nnFnCtx, fm mut nnFlowMut, lhs []uint32, rhs []uint32, tok uint8, st0 nnState) nnState {
+	let mut st = st0
+	for x in rhs {
+		st = flowEffects(ga, w, ids, fc, x, st)
+	}
+	for l in lhs {
+		if proofID(ga, ids, l) == "" {
+			st = flowEffects(ga, w, ids, fc, l, st)
+		}
+	}
+	st = cloneNNState(st)
+	nnForgetPaths(&st)
+	let plain = tok == OpAssign || tok == OpDefine
+	if lhs.Len() == rhs.Len() {
+		let mut setFlags = slices.WithCapacity[bool](lhs.Len())
+		for i in 0..lhs.Len() {
+			setFlags = setFlags.Append(plain && proofValue(ga, w, proven, ids, fc.fn, fm, rhs[i], st))
+		}
+		for i, l in lhs {
+			let id = proofID(ga, ids, l)
+			if id != "" {
+				nnForget(&st, id)
+				if setFlags[i] {
+					st.nn = st.nn.Put(id, true)
+				}
+			} else {
+				let fp = proofFieldPath(ga, ids, l)
+				if fp != "" && setFlags[i] && lhs.Len() == 1 {
+					st.nn = st.nn.Put(fp, true)
+				}
+			}
+		}
+	} else if rhs.Len() == 0 {
+		for l in lhs {
+			nnForget(&st, proofID(ga, ids, l))
+		}
+	} else {
+		for l in lhs {
+			nnForget(&st, proofID(ga, ids, l))
+		}
+		if lhs.Len() == 2 && rhs.Len() == 1 && plain && worldFuncProven(w, proven, proofCallee(ga, w, fc.fn, fm, rhs[0]), nnPtrErr) {
+			let x = proofID(ga, ids, lhs[0])
+			let e = proofID(ga, ids, lhs[1])
+			if x != "" && e != "" && x != e {
+				addPair(&st.pairs, nnPair{a: x, b: e})
+			}
+		}
+	}
+	st
+}
+
+func flowCallArgs(ga GoAstTable, w nnWorld, ids []nnIdentSlot, fc nnFnCtx, call uint32, st0 nnState) nnState {
+	let mut st = st0
+	let fun = unparenAst(ga, astX(ga, call))
+	if astKind(ga, fun) == NASelector {
+		st = flowEffects(ga, w, ids, fc, astX(ga, fun), st)
+	} else if astKind(ga, astX(ga, call)) != NAFuncLit {
+		st = flowEffects(ga, w, ids, fc, astX(ga, call), st)
+	}
+	for a in astChildren(ga, call) {
+		st = flowEffects(ga, w, ids, fc, a, st)
+	}
+	st
+}
+
+func flowRet(ga GoAstTable, w nnWorld, proven []bool, ids []nnIdentSlot, fc nnFnCtx, fm mut nnFlowMut, retStmt uint32, st0 nnState) {
+	let results = astRhs(ga, retStmt)
+	let bare = results.Len() == 0
+	let mut st = st0
+	if bare {
+		if fc.results.Len() == 0 {
+			fm.ok = false
+			return
+		}
+	} else {
+		for x in results {
+			st = flowEffects(ga, w, ids, fc, x, st)
+		}
+	}
+	let nRes = if bare { fc.results.Len() } else { results.Len() }
+	let mut ok = false
+	if fc.fn.kind == nnPtr && nRes == 1 {
+		ok = if bare { st.nn.Get(fc.results[0]) != option.None } else { proofPointer(ga, w, proven, ids, fc.fn, fm, results[0], st) }
+	} else if fc.fn.kind == nnErr && nRes == 1 {
+		ok = if bare { st.nn.Get(fc.results[0]) != option.None } else { proofErrorSet(ga, w, proven, ids, fc.fn, fm, results[0], st) }
+	} else if fc.fn.kind == nnPtrErr {
+		if nRes == 1 {
+			ok = !bare && worldFuncProven(w, proven, proofCallee(ga, w, fc.fn, fm, results[0]), nnPtrErr)
+		} else if nRes == 2 {
+			let pOK = if bare { st.nn.Get(fc.results[0]) != option.None } else { proofPointer(ga, w, proven, ids, fc.fn, fm, results[0], st) }
+			let eOK = if bare { st.nn.Get(fc.results[1]) != option.None } else { proofErrorSet(ga, w, proven, ids, fc.fn, fm, results[1], st) }
+			let k0 = if bare { fc.results[0] } else { proofID(ga, ids, results[0]) }
+			let k1 = if bare { fc.results[1] } else { proofID(ga, ids, results[1]) }
+			ok = pOK || eOK || hasPair(st.pairs, nnPair{a: k0, b: k1})
+		}
+	}
+	if !ok {
+		fm.ok = false
+	}
+}
+
+func flowTargetIndex(fm mut nnFlowMut, label string, tok uint8) option.Option[int] {
+	let mut i = fm.targets.Len() - 1
+	for i >= 0 {
+		let lbl = fm.targets[i].label
+		let lp = fm.targets[i].loop
+		if label != "" {
+			if lbl == label {
+				return option.Some{Value: i}
+			}
+		} else if tok == OpBreak || lp {
+			return option.Some{Value: i}
+		}
+		i = i - 1
+	}
+	option.None
+}
+
+func flowList(ga GoAstTable, w nnWorld, proven []bool, ids []nnIdentSlot, fc nnFnCtx, fm mut nnFlowMut, list []uint32, st0 nnState) nnState {
+	let mut st = st0
+	for s in list {
+		if astKind(ga, s) == NSLabeled && fc.gotos.Get(astName(ga, s)) != option.None {
+			st = newNNState()
+		}
+		if st.dead {
+			continue
+		}
+		st = flowStmt(ga, w, proven, ids, fc, fm, s, "", st)
+	}
+	st
+}
+
+func flowSwitchStmt(ga GoAstTable, w nnWorld, proven []bool, ids []nnIdentSlot, fc nnFnCtx, fm mut nnFlowMut, s uint32, label string, st0 nnState) nnState {
+	let mut st = flowStmt(ga, w, proven, ids, fc, fm, astX(ga, s), "", st0)
+	let tag = astY(ga, s)
+	st = flowEffects(ga, w, ids, fc, tag, st)
+	let clauses = astChildren(ga, astZ(ga, s))
+	let mut entries = slices.WithCapacity[nnState](clauses.Len())
+	for _ in 0..clauses.Len() {
+		entries = entries.Append(deadNNState())
+	}
+	let mut rest = st
+	let mut defIdx = -1
+	for i, cc in clauses {
+		let list = astLhs(ga, cc)
+		if (astFlags(ga, cc)&AFFlagIsDefault) != uint32(0) || list.Len() == 0 {
+			defIdx = i
+			continue
+		}
+		let mut matched = deadNNState()
+		for x in list {
+			let mut yes = deadNNState()
+			if tag == NoIndex {
+				let (y, r) = flowCond(ga, w, ids, fc, x, rest)
+				yes = y
+				rest = r
+			} else {
+				rest = flowEffects(ga, w, ids, fc, x, rest)
+				yes = rest
+			}
+			matched = nnJoin(matched, yes)
+		}
+		entries[i] = matched
+	}
+	let mut out = deadNNState()
+	if defIdx >= 0 {
+		entries[defIdx] = rest
+	} else {
+		out = rest
+	}
+	fm.targets = fm.targets.Append(nnTarget{label: label, loop: false, breaks: []nnState{}, cont: []nnState{}})
+	let mut through = deadNNState()
+	for i, cc in clauses {
+		let cBody = astChildren(ga, cc)
+		let end = flowList(ga, w, proven, ids, fc, fm, cBody, nnJoin(entries[i], through))
+		through = deadNNState()
+		let n = cBody.Len()
+		if n > 0 && astKind(ga, cBody[n-1]) == NSBranch && astOp(ga, cBody[n-1]) == OpFallthrough {
+			through = end
+			continue
+		}
+		out = nnJoin(out, end)
+	}
+	let popped = fm.targets[fm.targets.Len()-1]
+	fm.targets = fm.targets[0 : fm.targets.Len()-1]
+	for b in popped.breaks {
+		out = nnJoin(out, b)
+	}
+	out
+}
+
+func flowForLoop(ga GoAstTable, w nnWorld, proven []bool, ids []nnIdentSlot, fc nnFnCtx, fm mut nnFlowMut, s uint32, label string, entry nnState) nnState {
+	let cond = astY(ga, s)
+	let post = astZ(ga, s)
+	let body = astW(ga, s)
+	let mut head = entry
+	for _ in 0..64 {
+		fm.targets = fm.targets.Append(nnTarget{label: label, loop: true, breaks: []nnState{}, cont: []nnState{}})
+		let (bodySt, exit0) = if cond != NoIndex { flowCond(ga, w, ids, fc, cond, head) } else { (head, deadNNState()) }
+		let mut exitSt = exit0
+		let mut end = flowList(ga, w, proven, ids, fc, fm, astChildren(ga, body), bodySt)
+		let t = fm.targets[fm.targets.Len()-1]
+		fm.targets = fm.targets[0 : fm.targets.Len()-1]
+		for c in t.cont {
+			end = nnJoin(end, c)
+		}
+		let back = flowStmt(ga, w, proven, ids, fc, fm, post, "", end)
+		let next = nnJoin(entry, back)
+		if nnEqual(next, head) {
+			for b in t.breaks {
+				exitSt = nnJoin(exitSt, b)
+			}
+			return exitSt
+		}
+		head = next
+	}
+	fm.ok = false
+	deadNNState()
+}
+
+func flowRangeLoop(ga GoAstTable, w nnWorld, proven []bool, ids []nnIdentSlot, fc nnFnCtx, fm mut nnFlowMut, s uint32, label string, entry nnState, once bool) nnState {
+	let rk = astX(ga, s)
+	let rv = astY(ga, s)
+	let body = astW(ga, s)
+	let mut head = entry
+	for _ in 0..64 {
+		fm.targets = fm.targets.Append(nnTarget{label: label, loop: true, breaks: []nnState{}, cont: []nnState{}})
+		let mut bodySt = cloneNNState(head)
+		nnForgetPaths(&bodySt)
+		for rx in []uint32{rk, rv} {
+			if rx != NoIndex {
+				bodySt = flowEffects(ga, w, ids, fc, rx, bodySt)
+				nnForget(&bodySt, proofID(ga, ids, rx))
+			}
+		}
+		let mut end = flowList(ga, w, proven, ids, fc, fm, astChildren(ga, body), bodySt)
+		let t = fm.targets[fm.targets.Len()-1]
+		fm.targets = fm.targets[0 : fm.targets.Len()-1]
+		for c in t.cont {
+			end = nnJoin(end, c)
+		}
+		let mut exitSt = if once { end } else { head }
+		let next = nnJoin(entry, end)
+		if nnEqual(next, head) {
+			for b in t.breaks {
+				exitSt = nnJoin(exitSt, b)
+			}
+			return exitSt
+		}
+		head = next
+	}
+	fm.ok = false
+	deadNNState()
+}
+
+func flowStmt(ga GoAstTable, w nnWorld, proven []bool, ids []nnIdentSlot, fc nnFnCtx, fm mut nnFlowMut, s uint32, label string, st0 nnState) nnState {
+	if s == NoIndex {
+		return st0
+	}
+	let kd = astKind(ga, s)
+	if kd == NSEmpty {
+		return st0
+	}
+	if kd == NSBlock {
+		return flowList(ga, w, proven, ids, fc, fm, astChildren(ga, s), st0)
+	}
+	if kd == NSLabeled {
+		return flowStmt(ga, w, proven, ids, fc, fm, astX(ga, s), astName(ga, s), st0)
+	}
+	if kd == NSExpr {
+		let call = astX(ga, s)
+		let st = flowEffects(ga, w, ids, fc, call, st0)
+		if astKind(ga, call) == NACall && isIdentNamedAst(ga, astX(ga, call), "panic") && getIdentID(ids, astX(ga, call)) == "" {
+			return deadNNState()
+		}
+		return st
+	}
+	if kd == NSSend {
+		let mut st = flowEffects(ga, w, ids, fc, astX(ga, s), st0)
+		st = flowEffects(ga, w, ids, fc, astY(ga, s), st)
+		nnForgetPaths(&st)
+		return st
+	}
+	if kd == NSIncDec {
+		let mut st = flowEffects(ga, w, ids, fc, astX(ga, s), st0)
+		nnForgetPaths(&st)
+		nnForget(&st, proofID(ga, ids, astX(ga, s)))
+		return st
+	}
+	if kd == NSGo || kd == NSDefer {
+		return flowCallArgs(ga, w, ids, fc, astX(ga, s), st0)
+	}
+	if kd == NSAssign {
+		return flowAssign(ga, w, proven, ids, fc, fm, astLhs(ga, s), astRhs(ga, s), astOp(ga, s), st0)
+	}
+	if kd == NSDecl {
+		if astOp(ga, s) != OpVar {
+			return st0
+		}
+		let mut st = st0
+		for sp in astChildren(ga, s) {
+			if astKind(ga, sp) == NDValueSpec {
+				st = flowAssign(ga, w, proven, ids, fc, fm, astLhs(ga, sp), astRhs(ga, sp), OpDefine, st)
+			}
+		}
+		return st
+	}
+	if kd == NSReturn {
+		flowRet(ga, w, proven, ids, fc, fm, s, st0)
+		return deadNNState()
+	}
+	if kd == NSIf {
+		let st = flowStmt(ga, w, proven, ids, fc, fm, astX(ga, s), "", st0)
+		let (t0, e0) = flowCond(ga, w, ids, fc, astY(ga, s), st)
+		let t = flowList(ga, w, proven, ids, fc, fm, astChildren(ga, astZ(ga, s)), t0)
+		let mut e = e0
+		let els = astW(ga, s)
+		if els != NoIndex {
+			e = flowStmt(ga, w, proven, ids, fc, fm, els, "", e)
+		}
+		return nnJoin(t, e)
+	}
+	if kd == NSFor {
+		let st = flowStmt(ga, w, proven, ids, fc, fm, astX(ga, s), "", st0)
+		return flowForLoop(ga, w, proven, ids, fc, fm, s, label, st)
+	}
+	if kd == NSRange {
+		let rx = astZ(ga, s)
+		let st = flowEffects(ga, w, ids, fc, rx, st0)
+		let rid = proofID(ga, ids, rx)
+		let once = rid != "" && st.nn.Get(rid+nnNonEmpty) != option.None
+		return flowRangeLoop(ga, w, proven, ids, fc, fm, s, label, st, once)
+	}
+	if kd == NSSwitch {
+		return flowSwitchStmt(ga, w, proven, ids, fc, fm, s, label, st0)
+	}
+	if kd == NSTypeSwitch {
+		let mut st = flowStmt(ga, w, proven, ids, fc, fm, astX(ga, s), "", st0)
+		let asn = astY(ga, s)
+		let mut v = ""
+		if astKind(ga, asn) == NSAssign {
+			for x in astRhs(ga, asn) {
+				st = flowEffects(ga, w, ids, fc, x, st)
+			}
+			let lhs = astLhs(ga, asn)
+			if lhs.Len() > 0 {
+				v = proofID(ga, ids, lhs[0])
+			}
+		} else if astKind(ga, asn) == NSExpr {
+			st = flowEffects(ga, w, ids, fc, astX(ga, asn), st)
+		}
+		fm.targets = fm.targets.Append(nnTarget{label: label, loop: false, breaks: []nnState{}, cont: []nnState{}})
+		let mut out = deadNNState()
+		let mut hasDefault = false
+		for cc in astChildren(ga, astZ(ga, s)) {
+			if (astFlags(ga, cc)&AFFlagIsDefault) != uint32(0) || astLhs(ga, cc).Len() == 0 {
+				hasDefault = true
+			}
+			let mut entry = cloneNNState(st)
+			nnForget(&entry, v)
+			out = nnJoin(out, flowList(ga, w, proven, ids, fc, fm, astChildren(ga, cc), entry))
+		}
+		let popped = fm.targets[fm.targets.Len()-1]
+		fm.targets = fm.targets[0 : fm.targets.Len()-1]
+		if !hasDefault {
+			out = nnJoin(out, st)
+		}
+		for b in popped.breaks {
+			out = nnJoin(out, b)
+		}
+		return out
+	}
+	if kd == NSSelect {
+		fm.targets = fm.targets.Append(nnTarget{label: label, loop: false, breaks: []nnState{}, cont: []nnState{}})
+		let mut out = deadNNState()
+		for cc in astChildren(ga, astZ(ga, s)) {
+			let mut entry = flowStmt(ga, w, proven, ids, fc, fm, astX(ga, cc), "", st0)
+			nnForgetPaths(&entry)
+			out = nnJoin(out, flowList(ga, w, proven, ids, fc, fm, astChildren(ga, cc), entry))
+		}
+		let popped = fm.targets[fm.targets.Len()-1]
+		fm.targets = fm.targets[0 : fm.targets.Len()-1]
+		for b in popped.breaks {
+			out = nnJoin(out, b)
+		}
+		return out
+	}
+	if kd == NSBranch {
+		let op = astOp(ga, s)
+		if op == OpBreak || op == OpContinue {
+			match flowTargetIndex(fm, astName(ga, s), op) {
+			case option.None:
+				fm.ok = false
+			case option.Some{Value: ti}:
+				if op == OpBreak {
+					fm.targets[ti].breaks = fm.targets[ti].breaks.Append(st0)
+				} else {
+					fm.targets[ti].cont = fm.targets[ti].cont.Append(st0)
+				}
+			}
+			return deadNNState()
+		}
+		if op == OpFallthrough {
+			return st0
+		}
+		if op == OpGoto {
+			return deadNNState()
+		}
+		fm.ok = false
+		return deadNNState()
+	}
+	fm.ok = false
+	deadNNState()
+}
+
+func proveFuncBody(ga GoAstTable, w nnWorld, proven []bool, fn nnFuncInfo, scratch mut nnResScratch) bool {
+	let fd = fn.fd
+	let body = astW(ga, fd)
+	let mut res = nnResolver{
+		owner: Map[string, uint32]{},
+		lits:  []uint32{},
+		stack: []Map[string, string]{},
+		n:     0,
+	}
+	pushRes(&res)
+	resFields(ga, &res, scratch, astLhs(ga, fd))
+	resFields(ga, &res, scratch, astChildren(ga, fd))
+	resFields(ga, &res, scratch, astRhs(ga, fd))
+	resStmts(ga, &res, scratch, astChildren(ga, body))
+	let mut results = []string{}
+	for fl in astRhs(ga, fd) {
+		for nid in astLhs(ga, fl) {
+			let idx = int(nid)
+			let rid = if nid != NoIndex && idx < scratch.identID.Len() { scratch.identID[idx] } else { "" }
+			results = results.Append(rid)
+		}
+	}
+	let mut slots = slices.WithCapacity[nnIdentSlot](scratch.touched.Len())
+	for tidx in scratch.touched {
+		let i = int(tidx)
+		slots = slots.Append(nnIdentSlot{astID: tidx, id: scratch.identID[i]})
+		scratch.identID[i] = ""
+	}
+	scratch.touched = scratch.touched[0:0]
+	sortIdentSlots(&slots)
+	let mut addr = Map[string, bool]{}
+	let mut captured = Map[string, bool]{}
+	let mut closures = Map[string, bool]{}
+	let mut fm = nnFlowMut{
+		types:   Map[string, string]{},
+		ok:      true,
+		targets: []nnTarget{},
+	}
+	let mut lits = []uint32{}
+	scanBodyNode(ga, w, proven, slots, fn, results, res.owner, &addr, &captured, &closures, &fm, body, &lits)
+	for r in results {
+		if r != "" && addr.Get(r) != option.None && flowHasDefer(ga, body) {
+			fm.ok = false
+		}
+	}
+	flowEscapes(ga, &slots, fn, res.owner, &closures, results, &fm.ok)
+	if !fm.ok {
+		return false
+	}
+	let frozenSlots = slots
+	let cols = collectCollections(ga, fd, frozenSlots)
+	let mut gotos = Map[string, bool]{}
+	collectGotoLabels(ga, body, &gotos)
+	let fc = nnFnCtx{
+		fn:          fn,
+		owner:       res.owner,
+		results:     results,
+		addr:        addr,
+		captured:    captured,
+		closures:    closures,
+		gotos:       gotos,
+		collections: cols,
+	}
+	let _ = flowList(ga, w, proven, frozenSlots, fc, &fm, astChildren(ga, body), newNNState())
+	fm.ok
+}
+
+// NonNilFlowPairAndCheck verifies pair tracking `(x, err := ...)` and non-nil
+// refinement `if err != nil { return nil, err }; return x, nil`.
+test NonNilFlowPairAndCheck {
+	let mut ga = NewGoAstTable()
+
+	let tId = AddAst(&ga, AstSpec{Kind: NAIdent, Op: OpNone, ObjKind: ObjNone, Flags: uint32(0), Name: "T", Target: "", TypeID: NoIndex, RecvTypeID: NoIndex, FuncSym: NoIndex, X: NoIndex, Y: NoIndex, Z: NoIndex, W: NoIndex})
+	let mut starT = EmptyAstSpec(NAStar)
+	starT.X = tId
+	let stNode = AddAst(&ga, starT)
+	let rf1 = AddAst(&ga, AstSpec{Kind: NAField, Op: OpNone, ObjKind: ObjNone, Flags: uint32(0), Name: "", Target: "", TypeID: NoIndex, RecvTypeID: NoIndex, FuncSym: NoIndex, X: stNode, Y: NoIndex, Z: NoIndex, W: NoIndex})
+	let errType = AddAst(&ga, AstSpec{Kind: NAIdent, Op: OpNone, ObjKind: ObjNone, Flags: uint32(0), Name: "error", Target: "", TypeID: NoIndex, RecvTypeID: NoIndex, FuncSym: NoIndex, X: NoIndex, Y: NoIndex, Z: NoIndex, W: NoIndex})
+	let rf2 = AddAst(&ga, AstSpec{Kind: NAField, Op: OpNone, ObjKind: ObjNone, Flags: uint32(0), Name: "", Target: "", TypeID: NoIndex, RecvTypeID: NoIndex, FuncSym: NoIndex, X: errType, Y: NoIndex, Z: NoIndex, W: NoIndex})
+
+	let newId = AddAst(&ga, AstSpec{Kind: NAIdent, Op: OpNone, ObjKind: ObjNone, Flags: uint32(0), Name: "new", Target: "", TypeID: NoIndex, RecvTypeID: NoIndex, FuncSym: NoIndex, X: NoIndex, Y: NoIndex, Z: NoIndex, W: NoIndex})
+	let mut newCall = EmptyAstSpec(NACall)
+	newCall.X = newId
+	let nc = AddAst(&ga, newCall)
+	SetAstChildren(&ga, nc, []uint32{tId})
+	let nil1 = AddAst(&ga, AstSpec{Kind: NAIdent, Op: OpNone, ObjKind: ObjNone, Flags: uint32(0), Name: "nil", Target: "", TypeID: NoIndex, RecvTypeID: NoIndex, FuncSym: NoIndex, X: NoIndex, Y: NoIndex, Z: NoIndex, W: NoIndex})
+	let ret1 = AddAst(&ga, EmptyAstSpec(NSReturn))
+	SetAstRhs(&ga, ret1, []uint32{nc, nil1})
+	let b1 = AddAst(&ga, EmptyAstSpec(NSBlock))
+	SetAstChildren(&ga, b1, []uint32{ret1})
+	let mut mkSpec = EmptyAstSpec(NDFuncDecl)
+	mkSpec.Name = "Make"
+	mkSpec.W = b1
+	let mkDecl = AddAst(&ga, mkSpec)
+	SetAstRhs(&ga, mkDecl, []uint32{rf1, rf2})
+
+	let xLhs = AddAst(&ga, AstSpec{Kind: NAIdent, Op: OpNone, ObjKind: ObjNone, Flags: uint32(0), Name: "x", Target: "", TypeID: NoIndex, RecvTypeID: NoIndex, FuncSym: NoIndex, X: NoIndex, Y: NoIndex, Z: NoIndex, W: NoIndex})
+	let eLhs = AddAst(&ga, AstSpec{Kind: NAIdent, Op: OpNone, ObjKind: ObjNone, Flags: uint32(0), Name: "err", Target: "", TypeID: NoIndex, RecvTypeID: NoIndex, FuncSym: NoIndex, X: NoIndex, Y: NoIndex, Z: NoIndex, W: NoIndex})
+	let mkFun = AddAst(&ga, AstSpec{Kind: NAIdent, Op: OpNone, ObjKind: ObjNone, Flags: uint32(0), Name: "Make", Target: "", TypeID: NoIndex, RecvTypeID: NoIndex, FuncSym: NoIndex, X: NoIndex, Y: NoIndex, Z: NoIndex, W: NoIndex})
+	let mut mkCall = EmptyAstSpec(NACall)
+	mkCall.X = mkFun
+	let mkC = AddAst(&ga, mkCall)
+	let mut asn = EmptyAstSpec(NSAssign)
+	asn.Op = OpDefine
+	let asnId = AddAst(&ga, asn)
+	SetAstLhs(&ga, asnId, []uint32{xLhs, eLhs})
+	SetAstRhs(&ga, asnId, []uint32{mkC})
+
+	let eCondId = AddAst(&ga, AstSpec{Kind: NAIdent, Op: OpNone, ObjKind: ObjNone, Flags: uint32(0), Name: "err", Target: "", TypeID: NoIndex, RecvTypeID: NoIndex, FuncSym: NoIndex, X: NoIndex, Y: NoIndex, Z: NoIndex, W: NoIndex})
+	let eNil = AddAst(&ga, AstSpec{Kind: NAIdent, Op: OpNone, ObjKind: ObjNone, Flags: uint32(0), Name: "nil", Target: "", TypeID: NoIndex, RecvTypeID: NoIndex, FuncSym: NoIndex, X: NoIndex, Y: NoIndex, Z: NoIndex, W: NoIndex})
+	let mut neqSpec = EmptyAstSpec(NABinary)
+	neqSpec.Op = OpNeq
+	neqSpec.X = eCondId
+	neqSpec.Y = eNil
+	let neq = AddAst(&ga, neqSpec)
+
+	let rNil = AddAst(&ga, AstSpec{Kind: NAIdent, Op: OpNone, ObjKind: ObjNone, Flags: uint32(0), Name: "nil", Target: "", TypeID: NoIndex, RecvTypeID: NoIndex, FuncSym: NoIndex, X: NoIndex, Y: NoIndex, Z: NoIndex, W: NoIndex})
+	let rErr = AddAst(&ga, AstSpec{Kind: NAIdent, Op: OpNone, ObjKind: ObjNone, Flags: uint32(0), Name: "err", Target: "", TypeID: NoIndex, RecvTypeID: NoIndex, FuncSym: NoIndex, X: NoIndex, Y: NoIndex, Z: NoIndex, W: NoIndex})
+	let ifRet = AddAst(&ga, EmptyAstSpec(NSReturn))
+	SetAstRhs(&ga, ifRet, []uint32{rNil, rErr})
+	let ifBlk = AddAst(&ga, EmptyAstSpec(NSBlock))
+	SetAstChildren(&ga, ifBlk, []uint32{ifRet})
+	let mut ifSpec = EmptyAstSpec(NSIf)
+	ifSpec.Y = neq
+	ifSpec.Z = ifBlk
+	let ifId = AddAst(&ga, ifSpec)
+
+	let rX = AddAst(&ga, AstSpec{Kind: NAIdent, Op: OpNone, ObjKind: ObjNone, Flags: uint32(0), Name: "x", Target: "", TypeID: NoIndex, RecvTypeID: NoIndex, FuncSym: NoIndex, X: NoIndex, Y: NoIndex, Z: NoIndex, W: NoIndex})
+	let rNil2 = AddAst(&ga, AstSpec{Kind: NAIdent, Op: OpNone, ObjKind: ObjNone, Flags: uint32(0), Name: "nil", Target: "", TypeID: NoIndex, RecvTypeID: NoIndex, FuncSym: NoIndex, X: NoIndex, Y: NoIndex, Z: NoIndex, W: NoIndex})
+	let endRet = AddAst(&ga, EmptyAstSpec(NSReturn))
+	SetAstRhs(&ga, endRet, []uint32{rX, rNil2})
+	let wrapBlk = AddAst(&ga, EmptyAstSpec(NSBlock))
+	SetAstChildren(&ga, wrapBlk, []uint32{asnId, ifId, endRet})
+	let mut wrapSpec = EmptyAstSpec(NDFuncDecl)
+	wrapSpec.Name = "Wrap"
+	wrapSpec.W = wrapBlk
+	let wrapDecl = AddAst(&ga, wrapSpec)
+	SetAstRhs(&ga, wrapDecl, []uint32{rf1, rf2})
+
+	let fileID = AddAst(&ga, EmptyAstSpec(NDFile))
+	SetAstChildren(&ga, fileID, []uint32{mkDecl, wrapDecl})
+	let mut facts = NewFactsTable()
+	DeriveNonNil(ga, []AstPackage{AstPackage{Path: "example.com/p", Files: []uint32{fileID}}}, &facts)
+	assert HasFact(facts, "example.com/p.Make", FactNonNilResult)
+	assert HasFact(facts, "example.com/p.Wrap", FactNonNilResult)
+}

@@ -1,0 +1,65 @@
+{
+  "about": "Pure-Ergo gofacts fact/effect SoA tables, guard ledger checks, hostguard purity/handle checks, and source hashing.",
+  "mutants": [
+    {
+      "name": "selfhost-gobind-gofacts-row-digest-drops-view",
+      "origin": "selfhost-gobind",
+      "file": "compiler/gofacts/store.ergo",
+      "decl": "RowDigest",
+      "from": "\tLineDigest(\"fact \" + RowKey(r) + \"\\nsource \" + r.Source + \"\\nreason \" + r.Reason + \"\\nview \" + strconv.FormatBool(r.View) + \"\\ngo \" + toolchain + \"\\n\")\n",
+      "to": "\tLineDigest(\"fact \" + RowKey(r) + \"\\nsource \" + r.Source + \"\\nreason \" + r.Reason + \"\\nview \" + strconv.FormatBool(false && r.View) + \"\\ngo \" + toolchain + \"\\n\")\n",
+      "rule": "RowDigest must encode r.View into the hashed row digest so zero-copy view eligibility is guarded.",
+      "killers": ["compiler/gofacts:law:KnownRowDigestsMatchStd"]
+    },
+    {
+      "name": "selfhost-gobind-gofacts-ledger-skips-toolchain",
+      "origin": "selfhost-gobind",
+      "file": "compiler/gofacts/ledger.ergo",
+      "decl": "Acts",
+      "from": "\t\tif e.Digest != digest || e.With != toolchain {\n",
+      "to": "\t\tif e.Digest != digest {\n",
+      "rule": "Acts must reject ledger guard lines whose recorded toolchain differs from the running toolchain.",
+      "killers": ["compiler/gofacts:law:ActsRequiresValidatedNamedCurrent", "compiler/gofacts:LedgerActsVerdicts"]
+    },
+    {
+      "name": "selfhost-gobind-gofacts-ledger-first-line-wins",
+      "origin": "selfhost-gobind",
+      "file": "compiler/gofacts/ledger.ergo",
+      "decl": "addLedgerEntry",
+      "from": "\tlet ki = dense.Index(kid)\n\tgrowSlots(&tbl.KeySlot, ki)\n\ttbl.KeySlot[ki] = uint32(dense.Index(id)) + uint32(1)\n",
+      "to": "\tlet ki = dense.Index(kid)\n\tgrowSlots(&tbl.KeySlot, ki)\n\tif tbl.KeySlot[ki] == uint32(0) {\n\t\ttbl.KeySlot[ki] = uint32(dense.Index(id)) + uint32(1)\n\t}\n",
+      "rule": "Ledger parsing obeys last-line-wins per fact key.",
+      "killers": ["compiler/gofacts:law:ParseGuardLastLineWins"]
+    },
+    {
+      "name": "selfhost-gobind-gofacts-hostguard-handle-reopen",
+      "origin": "selfhost-gobind",
+      "file": "compiler/gofacts/hostguard.ergo",
+      "decl": "StepHandleLifecycle",
+      "from": "\tif !h.Open {\n\t\treturn \"os.ErrClosed\"\n\t}\n",
+      "to": "\tif false && !h.Open {\n\t\treturn \"os.ErrClosed\"\n\t}\n",
+      "rule": "Once closed, a HandleModel rejects all subsequent operations with os.ErrClosed.",
+      "killers": ["compiler/gofacts:law:HandleClosePermanent"]
+    },
+    {
+      "name": "selfhost-gobind-gofacts-hostguard-pure-allows-denied-member",
+      "origin": "selfhost-gobind",
+      "file": "compiler/gofacts/hostguard.ergo",
+      "decl": "CheckPureImports",
+      "from": "\t\t} else if PureHostMemberDenied(et, r.Pkg, r.Member) {\n\t\t\tout = out.Append(PureViolation{\n\t\t\t\tPkg:    r.Pkg,\n\t\t\t\tMember: r.Member,\n\t\t\t\tReason: \"member reads or mutates host state\",\n\t\t\t})\n\t\t}\n",
+      "to": "\t\t} else if false && PureHostMemberDenied(et, r.Pkg, r.Member) {\n\t\t\tout = out.Append(PureViolation{\n\t\t\t\tPkg:    r.Pkg,\n\t\t\t\tMember: r.Member,\n\t\t\t\tReason: \"member reads or mutates host state\",\n\t\t\t})\n\t\t}\n",
+      "rule": "CheckPureImports must reject host-touching members of packages in PureImportHostMembers.",
+      "killers": ["compiler/gofacts:HostguardPureAndFS"]
+    },
+    {
+      "name": "selfhost-gobind-gofacts-source-includes-test-files",
+      "origin": "selfhost-gobind",
+      "file": "compiler/gofacts/source.ergo",
+      "decl": "SourceHashDir",
+      "from": "\t\tif !strings.HasSuffix(name, \".go\") || strings.HasSuffix(name, \"_test.go\") {\n",
+      "to": "\t\tif !strings.HasSuffix(name, \".go\") {\n",
+      "rule": "SourceHashDir skips _test.go files when hashing target declarations.",
+      "killers": ["compiler/gofacts:SourceHashDirFixture"]
+    }
+  ]
+}
