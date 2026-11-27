@@ -13,9 +13,9 @@
     },
     {
       "name": "nativebuild-diags-ignored",
-      "origin": "wf10 NATIVEOBJ-WIDEN r1",
+      "origin": "wf10 NATIVEOBJ-WIDEN r1 (updated Stop 1)",
       "file": "compiler/cmd/nativebuild/main.ergo",
-      "decl": "checkAndLower",
+      "decl": "checkAndLowerWith",
       "from": "\tif d.T.Diags.Len() > 0 || d.T.SelfInference.Len() > 0 || d.T.BareSelfCalls.Len() > 0 || d.T.LookupDiags.Len() > 0 {\n\t\treturn fail(\"type error in \\(path)\")\n\t}\n",
       "to": "\tif false && (d.T.Diags.Len() > 0 || d.T.SelfInference.Len() > 0 || d.T.BareSelfCalls.Len() > 0 || d.T.LookupDiags.Len() > 0) {\n\t\treturn fail(\"type error in \\(path)\")\n\t}\n",
       "rule": "Unchecked or ill-typed packages with type diagnostics are rejected before lowering.",
@@ -23,13 +23,33 @@
     },
     {
       "name": "nativebuild-root-imports-dropped",
-      "origin": "wf10 NATIVEOBJ-WIDEN r1",
+      "origin": "wf10 NATIVEOBJ-WIDEN r1 (updated Stop 1)",
       "file": "compiler/cmd/nativebuild/main.ergo",
-      "decl": "checkAndLower",
-      "from": "\tlet rootImports = if bind.Imports(d.K.Files).Len() == 0 { option.Some[[]expr.Dep]{Value: []expr.Dep{}} } else { option.None }\n",
+      "decl": "checkAndLowerWith",
+      "from": "\tlet rootImports = if bind.Imports(d.K.Files).Len() == 0 { option.Some[[]expr.Dep]{Value: []expr.Dep{}} } else { rootImportsFor(p, at, available) }\n",
       "to": "\tlet rootImports = option.None\n",
-      "rule": "Zero-import packages give lower an empty rootImports slice so local helper calls do not stop with unknown rewrite scope.",
-      "killers": ["compiler/cmd/nativebuild:law:NativebuildBuildsWidenedControlAndUnary"]
+      "rule": "Packages resolve rootImports from loaded imports so lowering has complete rewrite scope.",
+      "killers": ["compiler/cmd/nativebuild:law:NativebuildBuildsWidenedControlAndUnary", "compiler/cmd/nativebuild:NativebuildBuildsStop1"]
+    },
+    {
+      "name": "nativebuild-stop1-local-records-dropped",
+      "origin": "wf10 NATIVEOBJ-STOP1",
+      "file": "compiler/cmd/nativebuild/main.ergo",
+      "decl": "checkAndLowerWith",
+      "from": "\tlet recs = recordsOf(path, true, d)\n",
+      "to": "\tlet recs = []native.RecordDecl{}\n",
+      "rule": "Unit builds collect local declared record schemas so struct types and fields lower.",
+      "killers": ["compiler/cmd/nativebuild:NativebuildBuildsStop1"]
+    },
+    {
+      "name": "nativebuild-stop1-imported-records-dropped",
+      "origin": "wf10 NATIVEOBJ-STOP1",
+      "file": "compiler/cmd/nativebuild/main.ergo",
+      "decl": "importUnitOf",
+      "from": "\t\tRecords:     recordsOf(spec.Path, false, d),\n",
+      "to": "\t\tRecords:     []native.RecordDecl{},\n",
+      "rule": "Dependency ImportUnit exports its declared record schemas so dependent packages resolve imported struct types and fields.",
+      "killers": ["compiler/cmd/nativebuild:NativebuildBuildsStop1"]
     }
   ]
 }

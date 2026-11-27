@@ -1,16 +1,244 @@
 import compiler/ir
 import compiler/ir/handoff
 import compiler/nativeobj
+import option
+import slices
 import strconv
+import strings
 
 // Sig is one built function's checked signature: its parameter and
 // result types as their Go spellings, in order.
 type Sig { Params []string, Results []string }
 
-// Unit is one package for the producer: its import path and package name,
-// the source file its positions name, the IR file the lowering built and
-// the signature of each of its functions, in the IR file's order.
-type Unit { Path string, Name string, File string, IR ir.File, Sigs []Sig }
+// FieldDecl describes one field of a record declaration visible to a Unit.
+type FieldDecl { Name string, Type string, Exported bool }
+
+// RecordDecl describes one named value record visible to a Unit.
+type RecordDecl { Name string, PkgPath string, Exported bool, Fields []FieldDecl }
+
+// ImportFunc describes one callable function exported by an imported peer package.
+type ImportFunc { Name string, Sig Sig }
+
+// ImportUnit describes an imported peer package's archive identity and exported declarations.
+type ImportUnit {
+	Path        string,
+	Name        string,
+	Fingerprint string,
+	HasInit     bool,
+	Records     []RecordDecl,
+	Funcs       []ImportFunc,
+}
+
+// Unit is one checked package lowered into compiler/ir for native compilation.
+type Unit {
+	Path    string,
+	Name    string,
+	File    string,
+	IR      ir.File,
+	Sigs    []Sig,
+	Records []RecordDecl,
+	Imports []ImportUnit,
+}
+
+func pkgAlias(path string) string {
+	let out = strings.ReplaceAll(strings.ReplaceAll(strings.ReplaceAll(strings.ReplaceAll(path, "_", "_u"), "/", "_s"), ".", "_d"), "-", "_h")
+	if out == "ergo" { "ergo_e" } else { out }
+}
+
+type typePool {
+	defs      []nativeobj.TypeDef,
+	byKey     Map[string, int],
+	canonical []string,
+	structImp []int,
+	impUsed   []bool,
+}
+
+func newTypePool(nImps int) typePool {
+	let mut tp = typePool{
+		defs:      []nativeobj.TypeDef{nativeobj.IntType()},
+		byKey:     Map[string, int]{},
+		canonical: []string{"int"},
+		structImp: []int{-1},
+		impUsed:   slices.Repeat[bool]([]bool{false}, nImps),
+	}
+	tp.byKey["int"] = 0
+	tp
+}
+
+func internBasic(tp mut typePool, key string, kind int) int {
+	match (*tp).byKey.Get(key) {
+	case option.Some as i:
+		return i.Value
+	case option.None:
+	}
+	let idx = (*tp).defs.Len()
+	*tp = typePool{
+		defs:      (*tp).defs.Append(nativeobj.BasicType(kind)),
+		byKey:     (*tp).byKey,
+		canonical: (*tp).canonical.Append(key),
+		structImp: (*tp).structImp.Append(-1),
+		impUsed:   (*tp).impUsed,
+	}
+	(*tp).byKey[key] = idx
+	idx
+}
+
+func basicKindForSpelling(s string) (string, int) {
+	if s == "bool" { return ("bool", nativeobj.KBool) }
+	if s == "int" { return ("int", nativeobj.KInt) }
+	if s == "int8" { return ("int8", nativeobj.KInt8) }
+	if s == "int16" { return ("int16", nativeobj.KInt16) }
+	if s == "int32" || s == "rune" { return ("int32", nativeobj.KInt32) }
+	if s == "int64" { return ("int64", nativeobj.KInt64) }
+	if s == "uint" { return ("uint", nativeobj.KUint) }
+	if s == "uint8" || s == "byte" { return ("uint8", nativeobj.KUint8) }
+	if s == "uint16" { return ("uint16", nativeobj.KUint16) }
+	if s == "uint32" { return ("uint32", nativeobj.KUint32) }
+	if s == "uint64" { return ("uint64", nativeobj.KUint64) }
+	if s == "uintptr" { return ("uintptr", nativeobj.KUintptr) }
+	if s == "string" { return ("string", nativeobj.KString) }
+	("", -1)
+}
+
+func resolveType(tp mut typePool, s string) int fails nativeobj.Refused {
+	match (*tp).byKey.Get(s) {
+	case option.Some as i:
+		let imp = (*tp).structImp[i.Value]
+		if imp >= 0 {
+			let mut used = (*tp).impUsed
+			used[imp] = true
+			*tp = typePool{..(*tp), impUsed: used}
+		}
+		return i.Value
+	case option.None:
+	}
+	let (bkey, bkind) = basicKindForSpelling(s)
+	if bkind >= 0 {
+		return internBasic(tp, bkey, bkind)
+	}
+	if strings.HasPrefix(s, "*") {
+		let elem = try resolveType(tp, s[1:s.Len()])
+		let key = "*" + (*tp).canonical[elem]
+		match (*tp).byKey.Get(key) {
+		case option.Some as i:
+			return i.Value
+		case option.None:
+		}
+		let idx = (*tp).defs.Len()
+		*tp = typePool{
+			defs:      (*tp).defs.Append(nativeobj.PtrType(elem)),
+			byKey:     (*tp).byKey,
+			canonical: (*tp).canonical.Append(key),
+			structImp: (*tp).structImp.Append(-1),
+			impUsed:   (*tp).impUsed,
+		}
+		(*tp).byKey[key] = idx
+		return idx
+	}
+	if strings.HasPrefix(s, "[]") {
+		let elem = try resolveType(tp, s[2:s.Len()])
+		let key = "[]" + (*tp).canonical[elem]
+		match (*tp).byKey.Get(key) {
+		case option.Some as i:
+			return i.Value
+		case option.None:
+		}
+		let idx = (*tp).defs.Len()
+		*tp = typePool{
+			defs:      (*tp).defs.Append(nativeobj.SliceType(elem)),
+			byKey:     (*tp).byKey,
+			canonical: (*tp).canonical.Append(key),
+			structImp: (*tp).structImp.Append(-1),
+			impUsed:   (*tp).impUsed,
+		}
+		(*tp).byKey[key] = idx
+		return idx
+	}
+	nativeobj.Refused{Why: "type \(s)"}
+}
+
+func ptrTypeOf(tp mut typePool, elem int) int {
+	let key = "*" + (*tp).canonical[elem]
+	match (*tp).byKey.Get(key) {
+	case option.Some as i:
+		return i.Value
+	case option.None:
+	}
+	let idx = (*tp).defs.Len()
+	*tp = typePool{
+		defs:      (*tp).defs.Append(nativeobj.PtrType(elem)),
+		byKey:     (*tp).byKey,
+		canonical: (*tp).canonical.Append(key),
+		structImp: (*tp).structImp.Append(-1),
+		impUsed:   (*tp).impUsed,
+	}
+	(*tp).byKey[key] = idx
+	idx
+}
+
+func registerRecords(tp mut typePool, u Unit) fails nativeobj.Refused {
+	let mut ids = []int{}
+	let mut decls = []RecordDecl{}
+	for r in u.Records {
+		let idx = (*tp).defs.Len()
+		let ckey = u.Path + "." + r.Name
+		*tp = typePool{
+			defs:      (*tp).defs.Append(nativeobj.StructType(r.Name, "", r.Exported, []nativeobj.FieldDef{})),
+			byKey:     (*tp).byKey,
+			canonical: (*tp).canonical.Append(ckey),
+			structImp: (*tp).structImp.Append(-1),
+			impUsed:   (*tp).impUsed,
+		}
+		(*tp).byKey[r.Name] = idx
+		(*tp).byKey[ckey] = idx
+		ids = ids.Append(idx)
+		decls = decls.Append(r)
+	}
+	for impIdx, imp in u.Imports {
+		let alias = pkgAlias(imp.Path)
+		for r in imp.Records {
+			let idx = (*tp).defs.Len()
+			let ckey = imp.Path + "." + r.Name
+			*tp = typePool{
+				defs:      (*tp).defs.Append(nativeobj.StructType(r.Name, imp.Path, r.Exported, []nativeobj.FieldDef{})),
+				byKey:     (*tp).byKey,
+				canonical: (*tp).canonical.Append(ckey),
+				structImp: (*tp).structImp.Append(impIdx),
+				impUsed:   (*tp).impUsed,
+			}
+			(*tp).byKey[ckey] = idx
+			(*tp).byKey[alias+"__"+r.Name] = idx
+			ids = ids.Append(idx)
+			decls = decls.Append(RecordDecl{Name: r.Name, PkgPath: imp.Path, Exported: r.Exported, Fields: r.Fields})
+		}
+	}
+	for k, id in ids {
+		let r = decls[k]
+		let mut fields = []nativeobj.FieldDef{}
+		for f in r.Fields {
+			let ft = try resolveType(tp, f.Type)
+			fields = fields.Append(nativeobj.FieldDef{Name: f.Name, Type: ft, Exported: f.Exported})
+		}
+		let mut ds = (*tp).defs
+		ds[id] = nativeobj.StructType(r.Name, r.PkgPath, r.Exported, fields)
+		*tp = typePool{..(*tp), defs: ds}
+	}
+}
+
+type calleeInfo {
+	target    string,
+	shortName string,
+	impIdx    int,
+	params    []int,
+	results   []int,
+}
+
+type foreignCallKey {
+	impIdx  int,
+	name    string,
+	params  []int,
+	results []int,
+}
 
 type fstate {
 	body    ir.Body,
@@ -20,10 +248,10 @@ type fstate {
 	ops     []nativeobj.Op,
 	lines   []int,
 	labels  int,
-	zero    int,
 	path    string,
-	known   []string,
-	sigs    []Sig,
+	tp      typePool,
+	callees Map[string, calleeInfo],
+	foreign []foreignCallKey,
 	loopTop []int,
 	loopEnd []int,
 }
@@ -36,23 +264,14 @@ func clampLine(n int) int {
 	if n < 1 { 1 } else { n }
 }
 
-func calleeIndex(known []string, name string) int {
-	for i, n in known {
-		if n == name {
-			return i
-		}
-	}
-	-1
-}
-
 func pushLoop(st mut fstate, top int, end int) {
-	st.loopTop = st.loopTop.Append(top)
-	st.loopEnd = st.loopEnd.Append(end)
+	st.loopTop = (*st).loopTop.Append(top)
+	st.loopEnd = (*st).loopEnd.Append(end)
 }
 
 func popLoop(st mut fstate) {
-	st.loopTop = st.loopTop[0 : st.loopTop.Len()-1]
-	st.loopEnd = st.loopEnd[0 : st.loopEnd.Len()-1]
+	st.loopTop = (*st).loopTop[0 : (*st).loopTop.Len()-1]
+	st.loopEnd = (*st).loopEnd[0 : (*st).loopEnd.Len()-1]
 }
 
 func kindName(st fstate, id uint32) string {
@@ -113,18 +332,18 @@ func line(st fstate, id uint32) int {
 }
 
 func emit(st mut fstate, op nativeobj.Op, at int) {
-	st.ops = st.ops.Append(op)
-	st.lines = st.lines.Append(at)
+	st.ops = (*st).ops.Append(op)
+	st.lines = (*st).lines.Append(at)
 }
 
-func temp(st mut fstate) int {
-	st.slots = st.slots.Append(nativeobj.TInt)
-	st.slots.Len() - 1
+func temp(st mut fstate, typId int) int {
+	st.slots = (*st).slots.Append(typId)
+	(*st).slots.Len() - 1
 }
 
 func label(st mut fstate) int {
-	st.labels = st.labels + 1
-	st.labels - 1
+	st.labels = (*st).labels + 1
+	(*st).labels - 1
 }
 
 func local(st fstate, i uint32) int fails nativeobj.Malformed {
@@ -143,54 +362,388 @@ func arithOf(st fstate, op string) int fails nativeobj.Refused {
 		nativeobj.ASub
 	case "*":
 		nativeobj.AMul
+	case "/":
+		nativeobj.ADiv
+	case "%":
+		nativeobj.ARem
+	case "&":
+		nativeobj.AAnd
+	case "|":
+		nativeobj.AOr
+	case "&^":
+		nativeobj.AAndNot
 	case "^":
 		nativeobj.AXor
+	case "<<":
+		nativeobj.AShl
+	case ">>":
+		nativeobj.AShr
 	case _:
 		return refuse(st, "operator \(op)")
 	}
 }
 
-func intType(st fstate, t string) fails nativeobj.Refused {
-	if t != "int" {
-		return refuse(st, "type \(t)")
+func hexVal(c byte) int {
+	if c >= byte('0') && c <= byte('9') { return int(c - byte('0')) }
+	if c >= byte('a') && c <= byte('f') { return 10 + int(c-byte('a')) }
+	if c >= byte('A') && c <= byte('F') { return 10 + int(c-byte('A')) }
+	-1
+}
+
+func appendUTF8Rune(out mut []byte, r int) bool {
+	if r < 0 || (r >= 0xd800 && r <= 0xdfff) || r > 0x10ffff {
+		return false
 	}
+	if r <= 0x7f {
+		*out = (*out).Append(byte(r))
+	} else if r <= 0x7ff {
+		*out = (*out).Append(byte(0xc0 | (r >> 6)))
+		*out = (*out).Append(byte(0x80 | (r & 0x3f)))
+	} else if r <= 0xffff {
+		*out = (*out).Append(byte(0xe0 | (r >> 12)))
+		*out = (*out).Append(byte(0x80 | ((r >> 6) & 0x3f)))
+		*out = (*out).Append(byte(0x80 | (r & 0x3f)))
+	} else {
+		*out = (*out).Append(byte(0xf0 | (r >> 18)))
+		*out = (*out).Append(byte(0x80 | ((r >> 12) & 0x3f)))
+		*out = (*out).Append(byte(0x80 | ((r >> 6) & 0x3f)))
+		*out = (*out).Append(byte(0x80 | (r & 0x3f)))
+	}
+	true
+}
+
+func unquoteStr(st fstate, s string) string fails nativeobj.Malformed {
+	if s.Len() < 2 || s[0] != byte('"') || s[s.Len()-1] != byte('"') {
+		return nativeobj.Malformed{Why: "\(st.fname): invalid quoted string \(s)"}
+	}
+	let mut out = slices.WithCapacity[byte](s.Len())
+	let mut i = 1
+	let end = s.Len() - 1
+	for i < end {
+		let c = s[i]
+		if c != byte('\\') {
+			out = out.Append(c)
+			i = i + 1
+			continue
+		}
+		i = i + 1
+		if i >= end {
+			return nativeobj.Malformed{Why: "\(st.fname): truncated escape in \(s)"}
+		}
+		let esc = s[i]
+		i = i + 1
+		if esc == byte('n') {
+			out = out.Append(byte(10))
+		} else if esc == byte('t') {
+			out = out.Append(byte(9))
+		} else if esc == byte('r') {
+			out = out.Append(byte(13))
+		} else if esc == byte('a') {
+			out = out.Append(byte(7))
+		} else if esc == byte('b') {
+			out = out.Append(byte(8))
+		} else if esc == byte('f') {
+			out = out.Append(byte(12))
+		} else if esc == byte('v') {
+			out = out.Append(byte(11))
+		} else if esc == byte('\\') {
+			out = out.Append(byte('\\'))
+		} else if esc == byte('"') {
+			out = out.Append(byte('"'))
+		} else if esc == byte('x') {
+			if i+2 > end {
+				return nativeobj.Malformed{Why: "\(st.fname): short hex escape"}
+			}
+			let h0 = hexVal(s[i])
+			let h1 = hexVal(s[i+1])
+			if h0 < 0 || h1 < 0 {
+				return nativeobj.Malformed{Why: "\(st.fname): bad hex escape"}
+			}
+			out = out.Append(byte(h0*16 + h1))
+			i = i + 2
+		} else if esc == byte('u') || esc == byte('U') {
+			let nhex = if esc == byte('u') { 4 } else { 8 }
+			if i+nhex > end {
+				return nativeobj.Malformed{Why: "\(st.fname): short unicode escape"}
+			}
+			let mut cp = 0
+			for k in 0..nhex {
+				let hv = hexVal(s[i+k])
+				if hv < 0 {
+					return nativeobj.Malformed{Why: "\(st.fname): bad unicode escape"}
+				}
+				cp = cp*16 + hv
+			}
+			if !appendUTF8Rune(&out, cp) {
+				return nativeobj.Malformed{Why: "\(st.fname): invalid rune \(cp)"}
+			}
+			i = i + nhex
+		} else if esc >= byte('0') && esc <= byte('7') {
+			if i+2 > end {
+				return nativeobj.Malformed{Why: "\(st.fname): short octal escape"}
+			}
+			let d0 = int(esc - byte('0'))
+			let d1 = int(s[i] - byte('0'))
+			let d2 = int(s[i+1] - byte('0'))
+			if d1 < 0 || d1 > 7 || d2 < 0 || d2 > 7 || d0*64+d1*8+d2 > 255 {
+				return nativeobj.Malformed{Why: "\(st.fname): bad octal escape"}
+			}
+			out = out.Append(byte(d0*64 + d1*8 + d2))
+			i = i + 2
+		} else {
+			return nativeobj.Malformed{Why: "\(st.fname): unknown escape in \(s)"}
+		}
+	}
+	out.Text()
+}
+
+func parseIntLiteral(st fstate, s string, kind int) int fails nativeobj.Refused {
+	if s == "" {
+		return refuse(st, "empty int constant")
+	}
+	let signed = nativeobj.KindIsSigned(kind)
+	let neg = s[0] == byte('-')
+	if neg && !signed {
+		return refuse(st, "negative constant \(s) for unsigned type")
+	}
+	let start = if neg { 1 } else { 0 }
+	if start >= s.Len() {
+		return refuse(st, "int constant \(s)")
+	}
+	let mut acc = uint64(0)
+	let maxDiv10 = if neg { uint64(922337203685477580) } else if !signed { uint64(1844674407370955161) } else { uint64(922337203685477580) }
+	let maxRem = if neg { uint64(8) } else if !signed { uint64(5) } else { uint64(7) }
+	for i in start..s.Len() {
+		let c = s[i]
+		if c < byte('0') || c > byte('9') {
+			return refuse(st, "int constant \(s)")
+		}
+		let d = uint64(c - byte('0'))
+		if acc > maxDiv10 || (acc == maxDiv10 && d > maxRem) {
+			return refuse(st, "int constant out of reach")
+		}
+		acc = acc*uint64(10) + d
+	}
+	let bits = int(nativeobj.KindSize(kind)) * 8
+	if !signed {
+		if bits < 64 && acc >= (uint64(1)<<uint64(bits)) {
+			return refuse(st, "unsigned constant \(s) out of range")
+		}
+		return int(acc)
+	}
+	if bits < 64 {
+		let lim = uint64(1) << uint64(bits-1)
+		if (!neg && acc >= lim) || (neg && acc > lim) {
+			return refuse(st, "signed constant \(s) out of range")
+		}
+	}
+	if neg {
+		if acc == uint64(1)<<uint64(63) {
+			return -9223372036854775808
+		}
+		return -int(acc)
+	}
+	int(acc)
+}
+
+func recordForeign(st mut fstate, ci calleeInfo) {
+	if ci.impIdx < 0 {
+		return
+	}
+	let mut used = st.tp.impUsed
+	used[ci.impIdx] = true
+	st.tp = typePool{..st.tp, impUsed: used}
+	for f in st.foreign {
+		if f.impIdx == ci.impIdx && f.name == ci.shortName {
+			return
+		}
+	}
+	st.foreign = (*st).foreign.Append(foreignCallKey{impIdx: ci.impIdx, name: ci.shortName, params: ci.params, results: ci.results})
+}
+
+func invokeCallee(st mut fstate, name string, ci calleeInfo, argNodes []uint32, wantResult bool, at int) int fails nativeobj.Refused | nativeobj.Malformed {
+	if ci.shortName == "init" {
+		return refuse(*st, "call of init")
+	}
+	if wantResult && ci.results.Len() == 0 {
+		return refuse(*st, "call of unit function \(name) as value")
+	}
+	if ci.results.Len() > 1 {
+		return refuse(*st, "call of \(name) with multiple results")
+	}
+	if argNodes.Len() != ci.params.Len() {
+		return nativeobj.Malformed{Why: "\(st.fname): call of \(name) passes \(argNodes.Len()) of \(ci.params.Len()) arguments"}
+	}
+	let mut args = slices.WithCapacity[int](argNodes.Len())
+	for k, a in argNodes {
+		let argSlot = try value(st, a)
+		if (*st).slots[argSlot] != ci.params[k] {
+			return refuse(*st, "call of \(name) argument \(k) type mismatch")
+		}
+		args = args.Append(argSlot)
+	}
+	recordForeign(st, ci)
+	if ci.results.Len() == 0 {
+		emit(st, nativeobj.Call{Dsts: []int{}, Target: ci.target, Args: args}, at)
+		return -1
+	}
+	let d = temp(st, ci.results[0])
+	emit(st, nativeobj.Call{Dsts: []int{d}, Target: ci.target, Args: args}, at)
+	d
 }
 
 func callExpr(st mut fstate, id uint32, wantResult bool) int fails nativeobj.Refused | nativeobj.Malformed {
 	let name = try text(*st, try word(*st, id, 1))
-	let idx = calleeIndex(st.known, name)
-	if idx < 0 {
+	let ci = match (*st).callees.Get(name) {
+	case option.Some as c:
+		c.Value
+	case option.None:
 		return refuse(*st, "call of \(name), no function of this package")
 	}
-	if name == "init" {
-		return refuse(*st, "call of init")
-	}
-	let csig = st.sigs[idx]
-	if wantResult && csig.Results.Len() == 0 {
-		return refuse(*st, "call of unit function \(name) as value")
-	}
-	if csig.Results.Len() > 1 {
-		return refuse(*st, "call of \(name) with multiple results")
-	}
 	let argNodes = try list(*st, try word(*st, id, 2))
-	if argNodes.Len() != csig.Params.Len() {
-		return nativeobj.Malformed{Why: "\(st.fname): call of \(name) passes \(argNodes.Len()) of \(csig.Params.Len()) arguments"}
+	try invokeCallee(st, name, ci, argNodes, wantResult, line(*st, id))
+}
+
+func pcallExpr(st mut fstate, id uint32, wantResult bool) int fails nativeobj.Refused | nativeobj.Malformed {
+	let impPath = try text(*st, try word(*st, id, 0))
+	let name = try text(*st, try word(*st, id, 3))
+	let key = impPath + "." + name
+	let ci = match (*st).callees.Get(key) {
+	case option.Some as c:
+		c.Value
+	case option.None:
+		return refuse(*st, "call of \(key), not exported by imported package")
 	}
-	if argNodes.Len() > nativeobj.IntRegs.Len() {
-		return refuse(*st, "call of \(name) with more than \(nativeobj.IntRegs.Len()) arguments")
+	let argNodes = try list(*st, try word(*st, id, 4))
+	try invokeCallee(st, key, ci, argNodes, wantResult, line(*st, id))
+}
+
+func mcallExpr(st mut fstate, id uint32, wantResult bool) int fails nativeobj.Refused | nativeobj.Malformed {
+	let recvNode = try word(*st, id, 0)
+	let mname = try text(*st, try word(*st, id, 1))
+	let restNodes = try list(*st, try word(*st, id, 2))
+	let recvSlot = try value(st, recvNode)
+	let rt = (*st).slots[recvSlot]
+	let td = (*st).tp.defs[rt]
+	let structT = if td.Kind == nativeobj.KPtr { td.Elem } else { rt }
+	let std = (*st).tp.defs[structT]
+	if std.Kind != nativeobj.KStruct || std.Name == "" {
+		return refuse(*st, "method call .\(mname) on non-named record")
 	}
-	let mut args = []int{}
-	for a in argNodes {
-		args = args.Append(try value(st, a))
+	let methodKey = if std.PkgPath == "" || std.PkgPath == (*st).path {
+		std.Name + "." + mname
+	} else {
+		std.PkgPath + "." + std.Name + "." + mname
 	}
+	let ci = match (*st).callees.Get(methodKey) {
+	case option.Some as c:
+		c.Value
+	case option.None:
+		return refuse(*st, "method \(methodKey) not found")
+	}
+	if ci.results.Len() == 0 && wantResult {
+		return refuse(*st, "call of unit method \(methodKey) as value")
+	}
+	if ci.results.Len() > 1 || ci.params.Len() != restNodes.Len()+1 {
+		return refuse(*st, "method \(methodKey) signature arity mismatch")
+	}
+	let mut args = slices.WithCapacity[int](ci.params.Len())
+	if (*st).slots[recvSlot] != ci.params[0] {
+		return refuse(*st, "method \(methodKey) receiver type mismatch")
+	}
+	args = args.Append(recvSlot)
+	for k, a in restNodes {
+		let s = try value(st, a)
+		if (*st).slots[s] != ci.params[k+1] {
+			return refuse(*st, "method \(methodKey) argument \(k) type mismatch")
+		}
+		args = args.Append(s)
+	}
+	recordForeign(st, ci)
 	let at = line(*st, id)
-	if csig.Results.Len() == 0 {
-		emit(st, nativeobj.Call{Dsts: []int{}, Target: st.path + "." + name, Args: args}, at)
+	if ci.results.Len() == 0 {
+		emit(st, nativeobj.Call{Dsts: []int{}, Target: ci.target, Args: args}, at)
 		return -1
 	}
-	let d = temp(st)
-	emit(st, nativeobj.Call{Dsts: []int{d}, Target: st.path + "." + name, Args: args}, at)
+	let d = temp(st, ci.results[0])
+	emit(st, nativeobj.Call{Dsts: []int{d}, Target: ci.target, Args: args}, at)
 	d
+}
+
+func fieldLookup(st fstate, baseType int, fname string) (int, int) fails nativeobj.Refused {
+	let td = st.tp.defs[baseType]
+	let stIdx = if td.Kind == nativeobj.KPtr { td.Elem } else { baseType }
+	let std = st.tp.defs[stIdx]
+	if std.Kind != nativeobj.KStruct {
+		return refuse(st, "field \(fname) on non-record type")
+	}
+	for fi, fd in std.Fields {
+		if fd.Name == fname {
+			return (fi, fd.Type)
+		}
+	}
+	refuse(st, "unknown field \(fname) on \(std.Name)")
+}
+
+func hasPtrs(defs []nativeobj.TypeDef, t int) bool {
+	let td = defs[t]
+	if td.Kind == nativeobj.KPtr || td.Kind == nativeobj.KFunc || td.Kind == nativeobj.KString || td.Kind == nativeobj.KSlice {
+		return true
+	}
+	if td.Kind == nativeobj.KStruct {
+		for fd in td.Fields {
+			if hasPtrs(defs, fd.Type) {
+				return true
+			}
+		}
+	}
+	false
+}
+
+func move(st mut fstate, dst int, src int, at int) {
+	if dst == src {
+		return
+	}
+	let typId = (*st).slots[dst]
+	let k = (*st).tp.defs[typId].Kind
+	if nativeobj.KindIsBasic(k) {
+		emit(st, nativeobj.Convert{Dst: dst, Src: src}, at)
+		return
+	}
+	let ptrT = ptrTypeOf(&st.tp, typId)
+	let pt = temp(st, ptrT)
+	emit(st, nativeobj.AddrOf{Dst: pt, Of: dst}, at)
+	if hasPtrs((*st).tp.defs, typId) {
+		emit(st, nativeobj.StorePtr{Ptr: pt, Val: src}, at)
+	} else {
+		emit(st, nativeobj.Store{Ptr: pt, Val: src}, at)
+	}
+}
+
+func boolValue(st mut fstate, id uint32) int fails nativeobj.Refused | nativeobj.Malformed {
+	let bt = try resolveType(&st.tp, "bool")
+	let d = temp(st, bt)
+	let tLbl = label(st)
+	let fLbl = label(st)
+	let endLbl = label(st)
+	let at = line(*st, id)
+	try branch(st, id, tLbl, fLbl)
+	emit(st, nativeobj.Label{Id: tLbl}, at)
+	emit(st, nativeobj.Const{Dst: d, V: 1}, at)
+	emit(st, nativeobj.Jump{To: endLbl}, at)
+	emit(st, nativeobj.Label{Id: fLbl}, at)
+	emit(st, nativeobj.Const{Dst: d, V: 0}, at)
+	emit(st, nativeobj.Label{Id: endLbl}, at)
+	d
+}
+
+func validConvert(defs []nativeobj.TypeDef, dt int, stType int) bool {
+	let dk = defs[dt].Kind
+	let sk = defs[stType].Kind
+	if dt == stType && (nativeobj.KindIsInt(dk) || dk == nativeobj.KBool || dk == nativeobj.KString) {
+		return true
+	}
+	nativeobj.KindIsInt(dk) && nativeobj.KindIsInt(sk)
 }
 
 func value(st mut fstate, id uint32) int fails nativeobj.Refused | nativeobj.Malformed {
@@ -200,30 +753,82 @@ func value(st mut fstate, id uint32) int fails nativeobj.Refused | nativeobj.Mal
 	case "local":
 		try local(*st, try word(*st, id, 0))
 	case "const":
-		try intType(*st, try text(*st, try word(*st, id, 0)))
-		let v = strconv.Atoi(try text(*st, try word(*st, id, 1))) catch {
-		case strconv.Malformed, strconv.OutOfRange:
-			return refuse(*st, "int constant out of reach")
+		let ts = try text(*st, try word(*st, id, 0))
+		let t = try resolveType(&st.tp, ts)
+		let vStr = try text(*st, try word(*st, id, 1))
+		let op = try text(*st, try word(*st, id, 2))
+		let kd = (*st).tp.defs[t].Kind
+		if kd == nativeobj.KString {
+			let sVal = if op == "quoted" { try unquoteStr(*st, vStr) } else { vStr }
+			let d = temp(st, t)
+			emit(st, nativeobj.ConstStr{Dst: d, V: sVal}, at)
+			return d
 		}
-		let d = temp(st)
+		if kd == nativeobj.KBool {
+			let bVal = if vStr == "true" { 1 } else if vStr == "false" { 0 } else { return nativeobj.Malformed{Why: "\(st.fname): bool constant \(vStr)"} }
+			let d = temp(st, t)
+			emit(st, nativeobj.Const{Dst: d, V: bVal}, at)
+			return d
+		}
+		if !nativeobj.KindIsInt(kd) {
+			return refuse(*st, "constant of type \(ts)")
+		}
+		let v = try parseIntLiteral(*st, vStr, kd)
+		let d = temp(st, t)
 		emit(st, nativeobj.Const{Dst: d, V: v}, at)
+		d
+	case "zero":
+		let ts = try text(*st, try word(*st, id, 0))
+		let t = try resolveType(&st.tp, ts)
+		let d = temp(st, t)
+		emit(st, nativeobj.Zero{Dst: d}, at)
+		d
+	case "conv":
+		let ts = try text(*st, try word(*st, id, 0))
+		let t = try resolveType(&st.tp, ts)
+		let src = try value(st, try word(*st, id, 1))
+		let stT = (*st).slots[src]
+		if !validConvert((*st).tp.defs, t, stT) {
+			return refuse(*st, "conversion to \(ts)")
+		}
+		let d = temp(st, t)
+		emit(st, nativeobj.Convert{Dst: d, Src: src}, at)
+		d
+	case "len":
+		let src = try value(st, try word(*st, id, 0))
+		let sk = (*st).tp.defs[(*st).slots[src]].Kind
+		if sk != nativeobj.KString && sk != nativeobj.KSlice {
+			return refuse(*st, "len on kind \(sk)")
+		}
+		let intT = try resolveType(&st.tp, "int")
+		let d = temp(st, intT)
+		emit(st, nativeobj.Len{Dst: d, Src: src}, at)
 		d
 	case "un":
 		let op = try text(*st, try word(*st, id, 0))
+		if op == "!" {
+			return try boolValue(st, id)
+		}
 		let inner = try word(*st, id, 1)
+		let x = try value(st, inner)
+		let xt = (*st).slots[x]
+		let xk = (*st).tp.defs[xt].Kind
+		if !nativeobj.KindIsInt(xk) {
+			return refuse(*st, "unary operator \(op) on non-int")
+		}
 		match op {
 		case "+":
-			try value(st, inner)
+			x
 		case "-":
-			let x = try value(st, inner)
-			let d = temp(st)
-			emit(st, nativeobj.Arith{Dst: d, Kind: nativeobj.ASub, A: st.zero, B: x}, at)
+			let z = temp(st, xt)
+			emit(st, nativeobj.Const{Dst: z, V: 0}, at)
+			let d = temp(st, xt)
+			emit(st, nativeobj.Arith{Dst: d, Kind: nativeobj.ASub, A: z, B: x}, at)
 			d
 		case "^":
-			let x = try value(st, inner)
-			let neg = temp(st)
+			let neg = temp(st, xt)
 			emit(st, nativeobj.Const{Dst: neg, V: -1}, at)
-			let d = temp(st)
+			let d = temp(st, xt)
 			emit(st, nativeobj.Arith{Dst: d, Kind: nativeobj.AXor, A: x, B: neg}, at)
 			d
 		case _:
@@ -231,30 +836,131 @@ func value(st mut fstate, id uint32) int fails nativeobj.Refused | nativeobj.Mal
 		}
 	case "bin":
 		let op = try text(*st, try word(*st, id, 0))
+		if op == "&&" || op == "||" || op == "<" || op == ">" || op == ">=" || op == "<=" || op == "==" || op == "!=" {
+			return try boolValue(st, id)
+		}
 		let kind = try arithOf(*st, op)
 		let a = try value(st, try word(*st, id, 1))
 		let b = try value(st, try word(*st, id, 2))
-		let d = temp(st)
+		let atT = (*st).slots[a]
+		let ak = (*st).tp.defs[atT].Kind
+		let bk = (*st).tp.defs[(*st).slots[b]].Kind
+		if kind == nativeobj.AShl || kind == nativeobj.AShr {
+			if !nativeobj.KindIsInt(ak) || !nativeobj.KindIsInt(bk) {
+				return refuse(*st, "shift on non-integer")
+			}
+		} else if !(nativeobj.KindIsInt(ak) && (*st).slots[b] == atT) && !(kind == nativeobj.AAdd && ak == nativeobj.KString && bk == nativeobj.KString) {
+			return refuse(*st, "operator \(op) type mismatch")
+		}
+		let d = temp(st, atT)
 		emit(st, nativeobj.Arith{Dst: d, Kind: kind, A: a, B: b}, at)
+		d
+	case "lit":
+		let ts = try text(*st, try word(*st, id, 0))
+		let t = try resolveType(&st.tp, ts)
+		let elems = try list(*st, try word(*st, id, 1))
+		let keys = try list(*st, try word(*st, id, 2))
+		let td = (*st).tp.defs[t]
+		if td.Kind == nativeobj.KSlice {
+			if keys.Len() != 0 {
+				return refuse(*st, "keyed slice literal")
+			}
+			let mut vals = slices.WithCapacity[int](elems.Len())
+			for e in elems {
+				let v = try value(st, e)
+				if (*st).slots[v] != td.Elem {
+					return refuse(*st, "slice element type mismatch")
+				}
+				vals = vals.Append(v)
+			}
+			let d = temp(st, t)
+			emit(st, nativeobj.SliceLit{Dst: d, Elems: vals}, at)
+			return d
+		}
+		if td.Kind == nativeobj.KStruct {
+			if keys.Len() != elems.Len() || elems.Len() != td.Fields.Len() {
+				return refuse(*st, "record literal \(ts) arity mismatch")
+			}
+			let mut vals = slices.Repeat[int]([]int{-1}, td.Fields.Len())
+			for i, e in elems {
+				let kName = try text(*st, keys[i])
+				let (fi, ft) = try fieldLookup(*st, t, kName)
+				if vals[fi] >= 0 {
+					return nativeobj.Malformed{Why: "\(st.fname): duplicate field \(kName) in literal"}
+				}
+				let vs = try value(st, e)
+				if (*st).slots[vs] != ft {
+					return refuse(*st, "record literal field \(kName) type mismatch")
+				}
+				vals[fi] = vs
+			}
+			let d = temp(st, t)
+			emit(st, nativeobj.RecordLit{Dst: d, Vals: vals}, at)
+			return d
+		}
+		return refuse(*st, "literal of \(ts)")
+	case "field":
+		let base = try value(st, try word(*st, id, 0))
+		let fname = try text(*st, try word(*st, id, 1))
+		let (fi, ft) = try fieldLookup(*st, (*st).slots[base], fname)
+		let d = temp(st, ft)
+		emit(st, nativeobj.FieldGet{Dst: d, Base: base, Field: fi}, at)
+		d
+	case "index":
+		let sl = try value(st, try word(*st, id, 0))
+		let ix = try value(st, try word(*st, id, 1))
+		let slT = (*st).tp.defs[(*st).slots[sl]]
+		if slT.Kind != nativeobj.KSlice {
+			return refuse(*st, "index on non-slice")
+		}
+		if !nativeobj.KindIsInt((*st).tp.defs[(*st).slots[ix]].Kind) {
+			return refuse(*st, "slice index with non-integer")
+		}
+		let d = temp(st, slT.Elem)
+		emit(st, nativeobj.Index{Dst: d, Slice: sl, Idx: ix}, at)
+		d
+	case "addr":
+		let xNode = try word(*st, id, 0)
+		let xk = kindName(*st, xNode)
+		if xk == "local" {
+			let loc = try local(*st, try word(*st, xNode, 0))
+			let ptrT = ptrTypeOf(&st.tp, (*st).slots[loc])
+			let d = temp(st, ptrT)
+			emit(st, nativeobj.AddrOf{Dst: d, Of: loc}, at)
+			return d
+		}
+		if xk == "lit" {
+			let vSlot = try value(st, xNode)
+			let ptrT = ptrTypeOf(&st.tp, (*st).slots[vSlot])
+			let d = temp(st, ptrT)
+			emit(st, nativeobj.AddrOf{Dst: d, Of: vSlot}, at)
+			return d
+		}
+		return refuse(*st, "address of \(xk)")
+	case "deref":
+		let ptr = try value(st, try word(*st, id, 0))
+		let ptd = (*st).tp.defs[(*st).slots[ptr]]
+		if ptd.Kind != nativeobj.KPtr {
+			return refuse(*st, "dereference of non-pointer")
+		}
+		let d = temp(st, ptd.Elem)
+		emit(st, nativeobj.Load{Dst: d, Ptr: ptr}, at)
 		d
 	case "call":
 		try callExpr(st, id, true)
+	case "pcall":
+		try pcallExpr(st, id, true)
+	case "mcall":
+		try mcallExpr(st, id, true)
 	case _:
 		return refuse(*st, "expression \(k)")
-	}
-}
-
-func move(st mut fstate, dst int, src int, at int) {
-	if dst != src {
-		emit(st, nativeobj.Arith{Dst: dst, Kind: nativeobj.AAdd, A: src, B: st.zero}, at)
 	}
 }
 
 func branch(st mut fstate, id uint32, yes int, no int) fails nativeobj.Refused | nativeobj.Malformed {
 	let k = kindName(*st, id)
 	let at = line(*st, id)
-	match k {
-	case "const":
+	if k == "const" {
 		if try text(*st, try word(*st, id, 0)) != "bool" {
 			return refuse(*st, "constant condition")
 		}
@@ -266,13 +972,17 @@ func branch(st mut fstate, id uint32, yes int, no int) fails nativeobj.Refused |
 		} else {
 			return nativeobj.Malformed{Why: "\(st.fname): bool constant \(v)"}
 		}
-	case "un":
+		return
+	}
+	if k == "un" {
 		let op = try text(*st, try word(*st, id, 0))
-		if op != "!" {
-			return refuse(*st, "condition unary operator \(op)")
+		if op == "!" {
+			try branch(st, try word(*st, id, 1), no, yes)
+			return
 		}
-		try branch(st, try word(*st, id, 1), no, yes)
-	case "bin":
+		return refuse(*st, "condition unary operator \(op)")
+	}
+	if k == "bin" {
 		let op = try text(*st, try word(*st, id, 0))
 		if op == "&&" {
 			let mid = label(st)
@@ -290,6 +1000,13 @@ func branch(st mut fstate, id uint32, yes int, no int) fails nativeobj.Refused |
 		}
 		let a = try value(st, try word(*st, id, 1))
 		let b = try value(st, try word(*st, id, 2))
+		let ak = (*st).tp.defs[(*st).slots[a]].Kind
+		if (*st).slots[a] != (*st).slots[b] {
+			return refuse(*st, "comparison operand type mismatch")
+		}
+		if !nativeobj.KindIsInt(ak) && ak != nativeobj.KString && !((op == "==" || op == "!=") && (ak == nativeobj.KBool || ak == nativeobj.KPtr || ak == nativeobj.KFunc)) {
+			return refuse(*st, "comparison \(op) on unsupported kind")
+		}
 		let j = match op {
 		case "<":
 			nativeobj.JumpIf{Cond: nativeobj.CLt, A: a, B: b, To: yes}
@@ -308,17 +1025,98 @@ func branch(st mut fstate, id uint32, yes int, no int) fails nativeobj.Refused |
 		}
 		emit(st, j, at)
 		emit(st, nativeobj.Jump{To: no}, at)
-	case _:
-		return refuse(*st, "condition \(k)")
+		return
 	}
+	let v = try value(st, id)
+	if (*st).tp.defs[(*st).slots[v]].Kind != nativeobj.KBool {
+		return refuse(*st, "non-bool condition")
+	}
+	let bZero = temp(st, (*st).slots[v])
+	emit(st, nativeobj.Const{Dst: bZero, V: 0}, at)
+	emit(st, nativeobj.JumpIf{Cond: nativeobj.CNe, A: v, B: bZero, To: yes}, at)
+	emit(st, nativeobj.Jump{To: no}, at)
 }
 
 func evalIgnored(st mut fstate, id uint32) fails nativeobj.Refused | nativeobj.Malformed {
-	if kindName(*st, id) == "call" {
+	let k = kindName(*st, id)
+	if k == "call" {
 		let _ = try callExpr(st, id, false)
+	} else if k == "pcall" {
+		let _ = try pcallExpr(st, id, false)
+	} else if k == "mcall" {
+		let _ = try mcallExpr(st, id, false)
 	} else {
 		let _ = try value(st, id)
 	}
+}
+
+func storePlace(st mut fstate, lhsNode uint32, op string, rhsNode uint32, at int) fails nativeobj.Refused | nativeobj.Malformed {
+	let rhs = try value(st, rhsNode)
+	let lhsKind = kindName(*st, lhsNode)
+	if lhsKind == "deref" {
+		let ptr = try value(st, try word(*st, lhsNode, 0))
+		let ptd = (*st).tp.defs[(*st).slots[ptr]]
+		if ptd.Kind != nativeobj.KPtr {
+			return refuse(*st, "store deref of non-pointer")
+		}
+		let elemT = ptd.Elem
+		let mut nextVal = rhs
+		if op != "" {
+			let old = temp(st, elemT)
+			emit(st, nativeobj.Load{Dst: old, Ptr: ptr}, at)
+			let next = temp(st, elemT)
+			emit(st, nativeobj.Arith{Dst: next, Kind: try arithOf(*st, op), A: old, B: rhs}, at)
+			nextVal = next
+		}
+		if hasPtrs((*st).tp.defs, elemT) {
+			emit(st, nativeobj.StorePtr{Ptr: ptr, Val: nextVal}, at)
+		} else {
+			emit(st, nativeobj.Store{Ptr: ptr, Val: nextVal}, at)
+		}
+		return
+	}
+	if lhsKind == "field" {
+		let baseNode = try word(*st, lhsNode, 0)
+		let fname = try text(*st, try word(*st, lhsNode, 1))
+		let baseK = kindName(*st, baseNode)
+		let recPtr = if baseK == "deref" {
+			try value(st, try word(*st, baseNode, 0))
+		} else if baseK == "local" {
+			let loc = try local(*st, try word(*st, baseNode, 0))
+			let lt = (*st).slots[loc]
+			if (*st).tp.defs[lt].Kind == nativeobj.KPtr {
+				loc
+			} else if (*st).tp.defs[lt].Kind == nativeobj.KStruct {
+				let ptrT = ptrTypeOf(&st.tp, lt)
+				let p = temp(st, ptrT)
+				emit(st, nativeobj.AddrOf{Dst: p, Of: loc}, at)
+				p
+			} else {
+				return refuse(*st, "field store base local is not record or pointer")
+			}
+		} else {
+			let bVal = try value(st, baseNode)
+			if (*st).tp.defs[(*st).slots[bVal]].Kind != nativeobj.KPtr {
+				return refuse(*st, "field store through non-pointer base \(baseK)")
+			}
+			bVal
+		}
+		let (fi, ft) = try fieldLookup(*st, (*st).slots[recPtr], fname)
+		let mut nextVal = rhs
+		if op != "" {
+			let old = temp(st, ft)
+			emit(st, nativeobj.FieldGet{Dst: old, Base: recPtr, Field: fi}, at)
+			let next = temp(st, ft)
+			emit(st, nativeobj.Arith{Dst: next, Kind: try arithOf(*st, op), A: old, B: rhs}, at)
+			nextVal = next
+		}
+		if (*st).slots[nextVal] != ft {
+			return refuse(*st, "field store \(fname) value type mismatch")
+		}
+		emit(st, nativeobj.FieldSet{Ptr: recPtr, Field: fi, Val: nextVal}, at)
+		return
+	}
+	refuse(*st, "store target \(lhsKind)")
 }
 
 func stmtList(st mut fstate, xs []uint32) fails nativeobj.Refused | nativeobj.Malformed {
@@ -340,7 +1138,7 @@ func statement(st mut fstate, id uint32) fails nativeobj.Refused | nativeobj.Mal
 		move(st, dst, try value(st, try word(*st, id, 1)), at)
 	case "var":
 		let dst = try local(*st, try word(*st, id, 0))
-		move(st, dst, st.zero, at)
+		emit(st, nativeobj.Zero{Dst: dst}, at)
 	case "set":
 		let dst = try local(*st, try word(*st, id, 0))
 		let src = try value(st, try word(*st, id, 1))
@@ -348,8 +1146,16 @@ func statement(st mut fstate, id uint32) fails nativeobj.Refused | nativeobj.Mal
 		if op == "" {
 			move(st, dst, src, at)
 		} else {
-			emit(st, nativeobj.Arith{Dst: dst, Kind: try arithOf(*st, op), A: dst, B: src}, at)
+			let dt = (*st).slots[dst]
+			let dk = (*st).tp.defs[dt].Kind
+			let ak = try arithOf(*st, op)
+			if !(nativeobj.KindIsInt(dk) || (ak == nativeobj.AAdd && dk == nativeobj.KString)) {
+				return refuse(*st, "compound assignment \(op) on non-scalar")
+			}
+			emit(st, nativeobj.Arith{Dst: dst, Kind: ak, A: dst, B: src}, at)
 		}
+	case "store":
+		try storePlace(st, try word(*st, id, 0), try text(*st, try word(*st, id, 1)), try word(*st, id, 2), at)
 	case "ret":
 		let x = try word(*st, id, 0)
 		if x == 0 {
@@ -359,6 +1165,8 @@ func statement(st mut fstate, id uint32) fails nativeobj.Refused | nativeobj.Mal
 		}
 	case "expr", "discard":
 		try evalIgnored(st, try word(*st, id, 0))
+	case "block":
+		try block(st, try word(*st, id, 0))
 	case "if":
 		let els = try list(*st, try word(*st, id, 2))
 		let yes = label(st)
@@ -410,86 +1218,168 @@ func statement(st mut fstate, id uint32) fails nativeobj.Refused | nativeobj.Mal
 		}
 		let keyWord = try word(*st, id, 0)
 		let valWord = try word(*st, id, 1)
-		if keyWord == 0 || valWord != 0 {
-			return refuse(*st, "range loop")
+		let srcNode = try word(*st, id, 2)
+		let srcSlot = try value(st, srcNode)
+		let srcT = (*st).slots[srcSlot]
+		let srcKind = (*st).tp.defs[srcT].Kind
+		if nativeobj.KindIsInt(srcKind) {
+			if keyWord == 0 || valWord != 0 {
+				return refuse(*st, "range loop")
+			}
+			let iv = try local(*st, keyWord-1)
+			let ivT = (*st).slots[iv]
+			let bound = temp(st, ivT)
+			move(st, bound, srcSlot, at)
+			emit(st, nativeobj.Const{Dst: iv, V: 0}, at)
+			let bodyStmts = try list(*st, try word(*st, id, 3))
+			let top = label(st)
+			let body = label(st)
+			let step = label(st)
+			let end = label(st)
+			emit(st, nativeobj.Label{Id: top}, at)
+			emit(st, nativeobj.JumpIf{Cond: nativeobj.CLt, A: iv, B: bound, To: body}, at)
+			emit(st, nativeobj.Jump{To: end}, at)
+			emit(st, nativeobj.Label{Id: body}, at)
+			pushLoop(st, step, end)
+			try stmtList(st, bodyStmts)
+			popLoop(st)
+			emit(st, nativeobj.Label{Id: step}, at)
+			let one = temp(st, ivT)
+			emit(st, nativeobj.Const{Dst: one, V: 1}, at)
+			emit(st, nativeobj.Arith{Dst: iv, Kind: nativeobj.AAdd, A: iv, B: one}, at)
+			emit(st, nativeobj.Jump{To: top}, at)
+			emit(st, nativeobj.Label{Id: end}, at)
+			return
 		}
-		let iv = try local(*st, keyWord-1)
-		let limit = try value(st, try word(*st, id, 2))
-		let bound = temp(st)
-		move(st, bound, limit, at)
-		move(st, iv, st.zero, at)
-		let bodyStmts = try list(*st, try word(*st, id, 3))
-		let top = label(st)
-		let body = label(st)
-		let step = label(st)
-		let end = label(st)
-		emit(st, nativeobj.Label{Id: top}, at)
-		emit(st, nativeobj.JumpIf{Cond: nativeobj.CLt, A: iv, B: bound, To: body}, at)
-		emit(st, nativeobj.Jump{To: end}, at)
-		emit(st, nativeobj.Label{Id: body}, at)
-		pushLoop(st, step, end)
-		try stmtList(st, bodyStmts)
-		popLoop(st)
-		emit(st, nativeobj.Label{Id: step}, at)
-		let one = temp(st)
-		emit(st, nativeobj.Const{Dst: one, V: 1}, at)
-		emit(st, nativeobj.Arith{Dst: iv, Kind: nativeobj.AAdd, A: iv, B: one}, at)
-		emit(st, nativeobj.Jump{To: top}, at)
-		emit(st, nativeobj.Label{Id: end}, at)
+		if srcKind == nativeobj.KSlice {
+			let intT = try resolveType(&st.tp, "int")
+			let bound = temp(st, intT)
+			emit(st, nativeobj.Len{Dst: bound, Src: srcSlot}, at)
+			let iv = if keyWord != 0 { try local(*st, keyWord-1) } else { temp(st, intT) }
+			emit(st, nativeobj.Const{Dst: iv, V: 0}, at)
+			let elemSlot = if valWord != 0 { try local(*st, valWord-1) } else { -1 }
+			let bodyStmts = try list(*st, try word(*st, id, 3))
+			let top = label(st)
+			let body = label(st)
+			let step = label(st)
+			let end = label(st)
+			emit(st, nativeobj.Label{Id: top}, at)
+			emit(st, nativeobj.JumpIf{Cond: nativeobj.CLt, A: iv, B: bound, To: body}, at)
+			emit(st, nativeobj.Jump{To: end}, at)
+			emit(st, nativeobj.Label{Id: body}, at)
+			if elemSlot >= 0 {
+				emit(st, nativeobj.Index{Dst: elemSlot, Slice: srcSlot, Idx: iv}, at)
+			}
+			pushLoop(st, step, end)
+			try stmtList(st, bodyStmts)
+			popLoop(st)
+			emit(st, nativeobj.Label{Id: step}, at)
+			let one = temp(st, intT)
+			emit(st, nativeobj.Const{Dst: one, V: 1}, at)
+			emit(st, nativeobj.Arith{Dst: iv, Kind: nativeobj.AAdd, A: iv, B: one}, at)
+			emit(st, nativeobj.Jump{To: top}, at)
+			emit(st, nativeobj.Label{Id: end}, at)
+			return
+		}
+		return refuse(*st, "range loop over kind \(srcKind)")
 	case "break":
 		if try text(*st, try word(*st, id, 0)) != "" {
 			return refuse(*st, "labelled break")
 		}
-		if st.loopEnd.Len() == 0 {
+		if (*st).loopEnd.Len() == 0 {
 			return nativeobj.Malformed{Why: "\(st.fname): break outside loop"}
 		}
-		emit(st, nativeobj.Jump{To: st.loopEnd[st.loopEnd.Len()-1]}, at)
+		emit(st, nativeobj.Jump{To: (*st).loopEnd[(*st).loopEnd.Len()-1]}, at)
 	case "continue":
-		if st.loopTop.Len() == 0 {
+		if (*st).loopTop.Len() == 0 {
 			return nativeobj.Malformed{Why: "\(st.fname): continue outside loop"}
 		}
-		emit(st, nativeobj.Jump{To: st.loopTop[st.loopTop.Len()-1]}, at)
+		emit(st, nativeobj.Jump{To: (*st).loopTop[(*st).loopTop.Len()-1]}, at)
 	case _:
 		return refuse(*st, "statement \(k)")
 	}
 }
 
-func function(u Unit, fi int, known []string) nativeobj.Func fails nativeobj.Refused | nativeobj.Malformed {
-	let f = u.IR.Funcs[fi]
-	if int(f.Name) >= u.IR.Strs.Len() {
-		return nativeobj.Malformed{Why: "function name index \(f.Name) past the file's texts"}
+func buildCallees(u Unit, tp mut typePool) Map[string, calleeInfo] fails nativeobj.Refused | nativeobj.Malformed {
+	let mut out = Map[string, calleeInfo]{}
+	for fi, f in u.IR.Funcs {
+		if int(f.Name) >= u.IR.Strs.Len() {
+			return nativeobj.Malformed{Why: "function name index \(f.Name) past the file's texts"}
+		}
+		let name = u.IR.Strs[int(f.Name)]
+		let sig = u.Sigs[fi]
+		let mut ps = slices.WithCapacity[int](sig.Params.Len())
+		for s in sig.Params {
+			ps = ps.Append(try resolveType(tp, s))
+		}
+		let mut rs = slices.WithCapacity[int](sig.Results.Len())
+		for s in sig.Results {
+			rs = rs.Append(try resolveType(tp, s))
+		}
+		out[name] = calleeInfo{target: u.Path + "." + name, shortName: name, impIdx: -1, params: ps, results: rs}
 	}
+	for impIdx, imp in u.Imports {
+		let alias = pkgAlias(imp.Path)
+		for ff in imp.Funcs {
+			let mut ps = slices.WithCapacity[int](ff.Sig.Params.Len())
+			for s in ff.Sig.Params {
+				ps = ps.Append(try resolveType(tp, s))
+			}
+			let mut rs = slices.WithCapacity[int](ff.Sig.Results.Len())
+			for s in ff.Sig.Results {
+				rs = rs.Append(try resolveType(tp, s))
+			}
+			let ci = calleeInfo{target: imp.Path + "." + ff.Name, shortName: ff.Name, impIdx: impIdx, params: ps, results: rs}
+			out[alias+"__"+ff.Name] = ci
+			out[imp.Path+"."+ff.Name] = ci
+		}
+	}
+	out
+}
+
+func function(u Unit, tp mut typePool, callees Map[string, calleeInfo], foreign mut []foreignCallKey, fi int, nFiles int) nativeobj.Func fails nativeobj.Refused | nativeobj.Malformed {
+	let f = u.IR.Funcs[fi]
 	let name = u.IR.Strs[int(f.Name)]
 	let sig = u.Sigs[fi]
-	let mut st = fstate{body: f.Body, strs: u.IR.Strs, fname: name, slots: []int{}, ops: []nativeobj.Op{}, lines: []int{}, labels: 0, zero: 0, path: u.Path, known: known, sigs: u.Sigs, loopTop: []int{}, loopEnd: []int{}}
+	let mut st = fstate{
+		body:    f.Body,
+		strs:    u.IR.Strs,
+		fname:   name,
+		slots:   []int{},
+		ops:     []nativeobj.Op{},
+		lines:   []int{},
+		labels:  0,
+		path:    u.Path,
+		tp:      *tp,
+		callees: callees,
+		foreign: *foreign,
+		loopTop: []int{},
+		loopEnd: []int{},
+	}
 	if name == "init" {
 		return refuse(st, "init function")
-	}
-	if sig.Params.Len() > nativeobj.IntRegs.Len() {
-		return refuse(st, "more than \(nativeobj.IntRegs.Len()) parameters")
 	}
 	if sig.Results.Len() > 1 {
 		return refuse(st, "multiple results")
 	}
-	let mut params = []int{}
+	let mut params = slices.WithCapacity[int](sig.Params.Len())
 	for t in sig.Params {
-		try intType(st, t)
-		params = params.Append(nativeobj.TInt)
-		st.slots = st.slots.Append(nativeobj.TInt)
+		let tid = try resolveType(&st.tp, t)
+		params = params.Append(tid)
+		st.slots = st.slots.Append(tid)
 	}
-	let mut results = []int{}
+	let mut results = slices.WithCapacity[int](sig.Results.Len())
 	for t in sig.Results {
-		try intType(st, t)
-		results = results.Append(nativeobj.TInt)
+		results = results.Append(try resolveType(&st.tp, t))
 	}
 	for l in f.Locals {
-		try intType(st, try text(st, l.Type))
-		st.slots = st.slots.Append(nativeobj.TInt)
+		let ts = try text(st, l.Type)
+		let tid = try resolveType(&st.tp, ts)
+		st.slots = st.slots.Append(tid)
 	}
 	let first = clampLine(int(f.Pos.Line))
 	let last = clampLine(int(f.End.Line))
-	st.zero = temp(&st)
-	emit(&st, nativeobj.Const{Dst: st.zero, V: 0}, first)
+	let fileIdx = if int(f.Pos.File) >= 0 && int(f.Pos.File) < nFiles { int(f.Pos.File) } else { 0 }
 	try block(&st, f.Body.Roots)
 	let mut ends = false
 	if st.ops.Len() > 0 {
@@ -508,46 +1398,71 @@ func function(u Unit, fi int, known []string) nativeobj.Func fails nativeobj.Ref
 			emit(&st, nativeobj.Jump{To: stay}, last)
 		}
 	}
-	nativeobj.Func{Name: name, Params: params, Results: results, Slots: st.slots, Ops: st.ops, Lines: st.lines, Line: first, Col: int(f.Pos.Col)}
+	*tp = st.tp
+	*foreign = st.foreign
+	nativeobj.Func{Name: name, Params: params, Results: results, Slots: st.slots, Ops: st.ops, Lines: st.lines, Line: first, Col: int(f.Pos.Col), File: fileIdx}
 }
 
-// FromIR is the checked package of u, or Refused at the first type,
-// statement, expression or operator nativeobj does not admit, or
-// Malformed IR. The package has no imports and no globals.
-func FromIR(u Unit) nativeobj.Package fails nativeobj.Refused | nativeobj.Malformed {
-	if u.IR.Files.Len() > 1 {
-		return nativeobj.Refused{Why: "multi-file package"}
-	}
+func fromIRWithForeign(u Unit) (nativeobj.Package, []nativeobj.ForeignFunc) fails nativeobj.Refused | nativeobj.Malformed {
 	if u.Sigs.Len() != u.IR.Funcs.Len() {
 		return nativeobj.Malformed{Why: "\(u.Sigs.Len()) signatures for \(u.IR.Funcs.Len()) functions"}
 	}
-	let mut known = []string{}
-	for f in u.IR.Funcs {
-		if int(f.Name) >= u.IR.Strs.Len() {
-			return nativeobj.Malformed{Why: "function name index \(f.Name) past the file's texts"}
-		}
-		known = known.Append(u.IR.Strs[int(f.Name)])
-	}
-	let mut funcs = []nativeobj.Func{}
+	let files = if u.IR.Files.Len() > 0 { u.IR.Files } else { []string{u.File} }
+	let mut tp = newTypePool(u.Imports.Len())
+	try registerRecords(&tp, u)
+	let callees = try buildCallees(u, &tp)
+	let mut foreignKeys = []foreignCallKey{}
+	let mut funcs = slices.WithCapacity[nativeobj.Func](u.IR.Funcs.Len())
 	for fi in 0..u.IR.Funcs.Len() {
-		funcs = funcs.Append(try function(u, fi, known))
+		funcs = funcs.Append(try function(u, &tp, callees, &foreignKeys, fi, files.Len()))
 	}
-	let p = nativeobj.Package{Path: u.Path, Name: u.Name, File: u.File, Types: []nativeobj.TypeDef{nativeobj.TypeDef{Kind: nativeobj.KInt, Elem: 0, Params: []int{}, Results: []int{}}}, Imports: []nativeobj.Import{}, Globals: []nativeobj.Global{}, Funcs: funcs, Inits: []int{}}
+	let mut impRemap = slices.Repeat[int]([]int{-1}, u.Imports.Len())
+	let mut imports = []nativeobj.Import{}
+	for k, imp in u.Imports {
+		if tp.impUsed[k] {
+			impRemap[k] = imports.Len()
+			imports = imports.Append(nativeobj.Import{Path: imp.Path, Name: imp.Name, Fingerprint: imp.Fingerprint, HasInit: imp.HasInit})
+		}
+	}
+	let mut foreign = slices.WithCapacity[nativeobj.ForeignFunc](foreignKeys.Len())
+	for fk in foreignKeys {
+		foreign = foreign.Append(nativeobj.ForeignFunc{Import: impRemap[fk.impIdx], Name: fk.name, Params: fk.params, Results: fk.results})
+	}
+	let p = nativeobj.Package{
+		Path:    u.Path,
+		Name:    u.Name,
+		File:    files[0],
+		Files:   files,
+		Types:   tp.defs,
+		Imports: imports,
+		Globals: []nativeobj.Global{},
+		Funcs:   funcs,
+		Inits:   []int{},
+	}
 	try nativeobj.Check(p)
+	(p, foreign)
+}
+
+// FromIR translates checked unit u into a nativeobj.Package, failing closed on
+// unsupported types, operators, statements, or malformed IR.
+func FromIR(u Unit) nativeobj.Package fails nativeobj.Refused | nativeobj.Malformed {
+	let (p, _) = try fromIRWithForeign(u)
 	p
 }
 
-// Handoff is u as the frozen EIR v1 wire and the admission it must meet.
+// Handoff translates u to an EIR v1 binary image and its expected admission identity.
 func Handoff(u Unit) (string, handoff.Expect) fails nativeobj.Refused | nativeobj.Malformed | handoff.Malformed {
-	let p = try FromIR(u)
-	let draft = try nativeobj.EncodeHandoff(p, []nativeobj.ForeignFunc{})
+	let (p, foreign) = try fromIRWithForeign(u)
+	let draft = try nativeobj.EncodeHandoff(p, foreign)
 	let encoded = handoff.Encode(try handoff.Pack(draft))
-	(encoded, handoff.Expect{Target: handoff.Target{Path: u.Path, GOOS: nativeobj.PinGOOS, GOARCH: nativeobj.PinGOARCH, Pin: nativeobj.PinGo, Profile: nativeobj.PinProfile}, Imports: []handoff.Import{}})
+	let mut imps = slices.WithCapacity[handoff.Import](p.Imports.Len())
+	for imp in p.Imports {
+		imps = imps.Append(handoff.Import{Path: imp.Path, Name: imp.Name, HasInit: imp.HasInit, Fingerprint: imp.Fingerprint})
+	}
+	(encoded, handoff.Expect{Target: handoff.Target{Path: u.Path, GOOS: nativeobj.PinGOOS, GOARCH: nativeobj.PinGOARCH, Pin: nativeobj.PinGo, Profile: nativeobj.PinProfile}, Imports: imps})
 }
 
-// Archive is u's Go package archive for the stock header line header:
-// Handoff, then nativeobj.ArchiveFromHandoff, which decodes and admits the
-// wire before it translates and writes.
+// Archive lowers u through EIR v1 handoff admission to a verified Go package archive.
 func Archive(u Unit, header string) nativeobj.Built fails nativeobj.Refused | nativeobj.Malformed | handoff.Malformed | handoff.UnknownVersion | handoff.WrongTarget | handoff.StaleImport | nativeobj.Undefined {
 	let (encoded, want) = try Handoff(u)
 	try nativeobj.ArchiveFromHandoff(encoded, want, header)
@@ -555,6 +1470,10 @@ func Archive(u Unit, header string) nativeobj.Built fails nativeobj.Refused | na
 
 func samplePos(line int) ir.Pos {
 	ir.Pos{File: 0, Line: uint32(line), Col: 1}
+}
+
+func samplePosInFile(file int, line int) ir.Pos {
+	ir.Pos{File: uint32(file), Line: uint32(line), Col: 1}
 }
 
 func sampleUnit(k int) Unit fails ir.Malformed {
@@ -621,7 +1540,108 @@ func sampleUnit(k int) Unit fails ir.Malformed {
 		Sig{Params: []string{"int"}, Results: []string{}},
 		Sig{Params: []string{"int", "int"}, Results: []string{"int"}},
 	}
-	Unit{Path: "ergo.local/native/calc", Name: "calc", File: "calc.ergo", IR: try ir.Finish(b), Sigs: sigs}
+	Unit{Path: "ergo.local/native/calc", Name: "calc", File: "calc.ergo", IR: try ir.Finish(b), Sigs: sigs, Records: []RecordDecl{}, Imports: []ImportUnit{}}
+}
+
+func stop1Unit(k int) Unit fails ir.Malformed {
+	let dep = nativeobj.SampleDep()
+	let mut b = ir.NewBuilder(2)
+	let _ = ir.FileOf(&b, "a.ergo")
+	let _ = ir.FileOf(&b, "b.ergo")
+
+	try ir.Begin(&b, "Score", samplePosInFile(0, 1), samplePosInFile(0, 16))
+	try ir.AddLocal(&b, "acc", "uint64", samplePosInFile(0, 4))
+	try ir.AddLocal(&b, "i", "int", samplePosInFile(0, 6))
+	try ir.AddLocal(&b, "el", "uint32", samplePosInFile(0, 6))
+
+	let lxs = try ir.Row(&b, ir.KindCode(ir.TExpr, "local"), samplePosInFile(0, 2), []uint32{2})
+	let llen = try ir.Row(&b, ir.KindCode(ir.TExpr, "len"), samplePosInFile(0, 2), []uint32{lxs})
+	let cU32 = try ir.Row(&b, ir.KindCode(ir.TExpr, "conv"), samplePosInFile(0, 2), []uint32{ir.Text(&b, "uint32"), llen})
+	let lp0 = try ir.Row(&b, ir.KindCode(ir.TExpr, "local"), samplePosInFile(0, 2), []uint32{1})
+	let fCount = try ir.Row(&b, ir.KindCode(ir.TExpr, "field"), samplePosInFile(0, 2), []uint32{lp0, ir.Text(&b, "Count")})
+	let mutStore = try ir.Row(&b, ir.KindCode(ir.TStmt, "store"), samplePosInFile(0, 2), []uint32{fCount, ir.Text(&b, "+"), cU32})
+
+	let lr0 = try ir.Row(&b, ir.KindCode(ir.TExpr, "local"), samplePosInFile(0, 4), []uint32{0})
+	let lrTag = try ir.Row(&b, ir.KindCode(ir.TExpr, "field"), samplePosInFile(0, 4), []uint32{lr0, ir.Text(&b, "Tag")})
+	let convTag = try ir.Row(&b, ir.KindCode(ir.TExpr, "conv"), samplePosInFile(0, 4), []uint32{ir.Text(&b, "uint64"), lrTag})
+	let defAcc = try ir.Row(&b, ir.KindCode(ir.TStmt, "def"), samplePosInFile(0, 4), []uint32{5, convTag})
+
+	let lxsR = try ir.Row(&b, ir.KindCode(ir.TExpr, "local"), samplePosInFile(0, 6), []uint32{2})
+	let lel = try ir.Row(&b, ir.KindCode(ir.TExpr, "local"), samplePosInFile(0, 7), []uint32{7})
+	let convEl = try ir.Row(&b, ir.KindCode(ir.TExpr, "conv"), samplePosInFile(0, 7), []uint32{ir.Text(&b, "uint64"), lel})
+	let addAcc = try ir.Row(&b, ir.KindCode(ir.TStmt, "set"), samplePosInFile(0, 7), []uint32{5, convEl, ir.Text(&b, "+")})
+	let slRange = try ir.Row(&b, ir.KindCode(ir.TStmt, "range"), samplePosInFile(0, 6), []uint32{7, 8, lxsR, ir.List(&b, []uint32{addAcc}), ir.PosAt(&b, samplePosInFile(0, 8)), 0})
+
+	let lok = try ir.Row(&b, ir.KindCode(ir.TExpr, "local"), samplePosInFile(0, 9), []uint32{4})
+	let ls0 = try ir.Row(&b, ir.KindCode(ir.TExpr, "local"), samplePosInFile(0, 9), []uint32{3})
+	let cs = try ir.Row(&b, ir.KindCode(ir.TExpr, "const"), samplePosInFile(0, 9), []uint32{ir.Text(&b, "string"), ir.Text(&b, "go"), 0})
+	let catS = try ir.Row(&b, ir.KindCode(ir.TExpr, "bin"), samplePosInFile(0, 9), []uint32{ir.Text(&b, "+"), ls0, cs})
+	let slCat = try ir.Row(&b, ir.KindCode(ir.TExpr, "len"), samplePosInFile(0, 9), []uint32{catS})
+	let c2 = try ir.Row(&b, ir.KindCode(ir.TExpr, "const"), samplePosInFile(0, 9), []uint32{ir.Text(&b, "int"), ir.Text(&b, "2"), 0})
+	let lenGt = try ir.Row(&b, ir.KindCode(ir.TExpr, "bin"), samplePosInFile(0, 9), []uint32{ir.Text(&b, ">"), slCat, c2})
+	let cond = try ir.Row(&b, ir.KindCode(ir.TExpr, "bin"), samplePosInFile(0, 9), []uint32{ir.Text(&b, "&&"), lok, lenGt})
+	let ck = try ir.Row(&b, ir.KindCode(ir.TExpr, "const"), samplePosInFile(0, 10), []uint32{ir.Text(&b, "uint64"), ir.Text(&b, strconv.Itoa(k)), 0})
+	let xorAcc = try ir.Row(&b, ir.KindCode(ir.TStmt, "set"), samplePosInFile(0, 10), []uint32{5, ck, ir.Text(&b, "^")})
+	let ifCond = try ir.Row(&b, ir.KindCode(ir.TStmt, "if"), samplePosInFile(0, 9), []uint32{cond, ir.List(&b, []uint32{xorAcc}), 0, ir.PosAt(&b, samplePosInFile(0, 11)), 0, 0})
+
+	let lacc = try ir.Row(&b, ir.KindCode(ir.TExpr, "local"), samplePosInFile(0, 12), []uint32{5})
+	let ret0 = try ir.Row(&b, ir.KindCode(ir.TStmt, "ret"), samplePosInFile(0, 12), []uint32{lacc})
+	try ir.End(&b, ir.List(&b, []uint32{mutStore, defAcc, slRange, ifCond, ret0}))
+
+	try ir.Begin(&b, "Build", samplePosInFile(1, 1), samplePosInFile(1, 10))
+	try ir.AddLocal(&b, "b", "Box", samplePosInFile(1, 2))
+	let cOne = try ir.Row(&b, ir.KindCode(ir.TExpr, "const"), samplePosInFile(1, 2), []uint32{ir.Text(&b, "uint32"), ir.Text(&b, "7"), 0})
+	let cStr = try ir.Row(&b, ir.KindCode(ir.TExpr, "const"), samplePosInFile(1, 2), []uint32{ir.Text(&b, "string"), ir.Text(&b, "hi"), 0})
+	let lTag = try ir.Row(&b, ir.KindCode(ir.TExpr, "local"), samplePosInFile(1, 2), []uint32{0})
+	let boxLit = try ir.Row(&b, ir.KindCode(ir.TExpr, "lit"), samplePosInFile(1, 2), []uint32{
+		ir.Text(&b, "Box"),
+		ir.List(&b, []uint32{cStr, cOne, lTag}),
+		ir.List(&b, []uint32{ir.Text(&b, "Name"), ir.Text(&b, "Count"), ir.Text(&b, "Tag")}),
+	})
+	let defBox = try ir.Row(&b, ir.KindCode(ir.TStmt, "def"), samplePosInFile(1, 2), []uint32{2, boxLit})
+	let ln = try ir.Row(&b, ir.KindCode(ir.TExpr, "local"), samplePosInFile(1, 3), []uint32{1})
+	let callDep = try ir.Row(&b, ir.KindCode(ir.TExpr, "call"), samplePosInFile(1, 3), []uint32{0, ir.Text(&b, pkgAlias(dep.Path)+"__Double"), ir.List(&b, []uint32{ln})})
+	let cTwo = try ir.Row(&b, ir.KindCode(ir.TExpr, "const"), samplePosInFile(1, 4), []uint32{ir.Text(&b, "uint32"), ir.Text(&b, "11"), 0})
+	let slLit = try ir.Row(&b, ir.KindCode(ir.TExpr, "lit"), samplePosInFile(1, 4), []uint32{ir.Text(&b, "[]uint32"), ir.List(&b, []uint32{cOne, cTwo}), 0})
+	let cFalse = try ir.Row(&b, ir.KindCode(ir.TExpr, "const"), samplePosInFile(1, 4), []uint32{ir.Text(&b, "bool"), ir.Text(&b, "false"), 0})
+	let notFalse = try ir.Row(&b, ir.KindCode(ir.TExpr, "un"), samplePosInFile(1, 4), []uint32{ir.Text(&b, "!"), cFalse})
+	let cHi = try ir.Row(&b, ir.KindCode(ir.TExpr, "const"), samplePosInFile(1, 4), []uint32{ir.Text(&b, "string"), ir.Text(&b, "ergo"), 0})
+	let lb0 = try ir.Row(&b, ir.KindCode(ir.TExpr, "local"), samplePosInFile(1, 4), []uint32{2})
+	let addrBox = try ir.Row(&b, ir.KindCode(ir.TExpr, "addr"), samplePosInFile(1, 4), []uint32{lb0})
+	let lb1 = try ir.Row(&b, ir.KindCode(ir.TExpr, "local"), samplePosInFile(1, 4), []uint32{2})
+	let callScore = try ir.Row(&b, ir.KindCode(ir.TExpr, "call"), samplePosInFile(1, 4), []uint32{0, ir.Text(&b, "Score"), ir.List(&b, []uint32{lb1, addrBox, slLit, cHi, notFalse})})
+	let convDep = try ir.Row(&b, ir.KindCode(ir.TExpr, "conv"), samplePosInFile(1, 5), []uint32{ir.Text(&b, "uint64"), callDep})
+	let sumRes = try ir.Row(&b, ir.KindCode(ir.TExpr, "bin"), samplePosInFile(1, 5), []uint32{ir.Text(&b, "+"), callScore, convDep})
+	let ret1 = try ir.Row(&b, ir.KindCode(ir.TStmt, "ret"), samplePosInFile(1, 5), []uint32{sumRes})
+	try ir.End(&b, ir.List(&b, []uint32{defBox, ret1}))
+
+	Unit{
+		Path: "ergo.local/native/stop1",
+		Name: "stop1",
+		File: "a.ergo",
+		IR:   try ir.Finish(b),
+		Sigs: []Sig{
+			Sig{Params: []string{"Box", "*Box", "[]uint32", "string", "bool"}, Results: []string{"uint64"}},
+			Sig{Params: []string{"byte", "int"}, Results: []string{"uint64"}},
+		},
+		Records: []RecordDecl{
+			RecordDecl{Name: "Box", PkgPath: "", Exported: true, Fields: []FieldDecl{
+				FieldDecl{Name: "Tag", Type: "byte", Exported: true},
+				FieldDecl{Name: "Count", Type: "uint32", Exported: true},
+				FieldDecl{Name: "Name", Type: "string", Exported: true},
+			}},
+		},
+		Imports: []ImportUnit{
+			ImportUnit{
+				Path:        dep.Path,
+				Name:        dep.Name,
+				Fingerprint: dep.Fingerprint,
+				HasInit:     dep.HasInit,
+				Records:     []RecordDecl{},
+				Funcs:       []ImportFunc{ImportFunc{Name: "Double", Sig: Sig{Params: []string{"int"}, Results: []string{"int"}}}},
+			},
+		},
+	}
 }
 
 func refusedFromIR(u Unit) bool {
@@ -693,7 +1713,7 @@ func initDeclUnit() Unit fails ir.Malformed {
 	let _ = ir.FileOf(&b, "bad.ergo")
 	try ir.Begin(&b, "init", samplePos(1), samplePos(2))
 	try ir.End(&b, 0)
-	Unit{Path: "ergo.local/native/bad", Name: "bad", File: "bad.ergo", IR: try ir.Finish(b), Sigs: []Sig{Sig{Params: []string{}, Results: []string{}}}}
+	Unit{Path: "ergo.local/native/bad", Name: "bad", File: "bad.ergo", IR: try ir.Finish(b), Sigs: []Sig{Sig{Params: []string{}, Results: []string{}}}, Records: []RecordDecl{}, Imports: []ImportUnit{}}
 }
 
 func unitCallAsValueUnit() Unit fails ir.Malformed {
@@ -709,7 +1729,7 @@ func unitCallAsValueUnit() Unit fails ir.Malformed {
 		Sig{Params: []string{}, Results: []string{}},
 		Sig{Params: []string{}, Results: []string{"int"}},
 	}
-	Unit{Path: "ergo.local/native/bad", Name: "bad", File: "bad.ergo", IR: try ir.Finish(b), Sigs: sigs}
+	Unit{Path: "ergo.local/native/bad", Name: "bad", File: "bad.ergo", IR: try ir.Finish(b), Sigs: sigs, Records: []RecordDecl{}, Imports: []ImportUnit{}}
 }
 
 func foreignCallUnit() Unit fails ir.Malformed {
@@ -719,7 +1739,7 @@ func foreignCallUnit() Unit fails ir.Malformed {
 	let callOther = try ir.Row(&b, ir.KindCode(ir.TExpr, "call"), samplePos(2), []uint32{ir.Text(&b, ""), ir.Text(&b, "Unknown"), ir.List(&b, []uint32{})})
 	let ret = try ir.Row(&b, ir.KindCode(ir.TStmt, "ret"), samplePos(2), []uint32{callOther})
 	try ir.End(&b, ir.List(&b, []uint32{ret}))
-	Unit{Path: "ergo.local/native/bad", Name: "bad", File: "bad.ergo", IR: try ir.Finish(b), Sigs: []Sig{Sig{Params: []string{}, Results: []string{"int"}}}}
+	Unit{Path: "ergo.local/native/bad", Name: "bad", File: "bad.ergo", IR: try ir.Finish(b), Sigs: []Sig{Sig{Params: []string{}, Results: []string{"int"}}}, Records: []RecordDecl{}, Imports: []ImportUnit{}}
 }
 
 // HandoffRoundTrips proves checked integer units lower to valid nativeobj packages and decode via EIR v1.
@@ -743,15 +1763,32 @@ law HandoffRoundTrips(k int) {
 	p.Funcs.Len() == 2 && decoded.Funcs.Len() == 2 && ti >= 0 && ci >= 0 && pi >= 0 && decoded.Funcs[ti].Results.Len() == 0 && decoded.Funcs[ti].Params.Len() == 1 && decoded.Funcs[ci].Results.Len() == 1 && decoded.Funcs[ci].Params.Len() == 2 && hasStepContinue(p.Funcs[pi])
 }
 
-// RefusalsAreTyped proves unsupported forms, multi-file units, and mismatched metadata fail closed cleanly.
-law RefusalsAreTyped(k int) {
-	let u = sampleUnit(5) catch {
+// Stop1RoundTrips verifies multi-file Stop 1 IR units lower cleanly through EIR v1 and verify all object metadata.
+law Stop1RoundTrips(k int) {
+	let s = ((k % 1000) + 1000) % 1000
+	let u = stop1Unit(s) catch {
 	case ir.Malformed:
 		return false
 	}
-	let mut multiFile = u
-	multiFile.IR.Files = []string{"a.ergo", "b.ergo"}
-	if !refusedFromIR(multiFile) {
+	let p = FromIR(u) catch {
+	case nativeobj.Refused, nativeobj.Malformed:
+		return false
+	}
+	let decoded = roundTripHandoff(u) catch {
+	case handoff.Malformed, handoff.UnknownVersion, handoff.WrongTarget, handoff.StaleImport, nativeobj.Refused, nativeobj.Malformed:
+		return false
+	}
+	let built = Archive(u, nativeobj.SampleHeader) catch {
+	case nativeobj.Refused, nativeobj.Malformed, handoff.Malformed, handoff.UnknownVersion, handoff.WrongTarget, handoff.StaleImport, nativeobj.Undefined:
+		return false
+	}
+	p.Files.Len() == 2 && p.Imports.Len() == 1 && decoded.Funcs.Len() == 2 && nativeobj.Verify(p, nativeobj.SampleHeader, built.Archive).Len() == 0
+}
+
+// RefusalsAreTyped proves unsupported types, statements, and mismatched metadata fail closed cleanly.
+law RefusalsAreTyped(k int) {
+	let u = sampleUnit(5) catch {
+	case ir.Malformed:
 		return false
 	}
 	let mut badSigs = u
@@ -760,26 +1797,17 @@ law RefusalsAreTyped(k int) {
 		return false
 	}
 	let mut badType = u
-	badType.Sigs = []Sig{Sig{Params: []string{"string"}, Results: []string{}}, u.Sigs[1]}
+	badType.Sigs = []Sig{Sig{Params: []string{"map[string]int"}, Results: []string{}}, u.Sigs[1]}
 	if !refusedFromIR(badType) {
 		return false
 	}
 	let mut initFn = u
-	initFn.IR.Strs = []string{}
 	let mut strs = []string{}
 	for s in u.IR.Strs {
 		strs = strs.Append(if s == "Touch" { "init" } else { s })
 	}
 	initFn.IR.Strs = strs
 	if !refusedFromIR(initFn) {
-		return false
-	}
-	let mut tooMany = u
-	tooMany.Sigs = []Sig{
-		Sig{Params: []string{"int", "int", "int", "int", "int", "int", "int", "int", "int", "int"}, Results: []string{}},
-		u.Sigs[1],
-	}
-	if !refusedFromIR(tooMany) {
 		return false
 	}
 	let mut multiRes = u
@@ -812,7 +1840,7 @@ law RefusalsAreTyped(k int) {
 	true
 }
 
-// ArchiveBuildsVerifiedObject checks that a lowered unit emits a stock archive passing every Verify check.
+// ArchiveBuildsVerifiedObject checks that lowered Stop 0 and Stop 1 units emit stock archives passing every Verify check.
 test ArchiveBuildsVerifiedObject {
 	let u = sampleUnit(6) catch {
 	case ir.Malformed:
@@ -831,4 +1859,22 @@ test ArchiveBuildsVerifiedObject {
 	}
 	let errs = nativeobj.Verify(p, nativeobj.SampleHeader, built.Archive)
 	assert errs.Len() == 0
+
+	let u1 = stop1Unit(42) catch {
+	case ir.Malformed:
+		assert false
+		return
+	}
+	let p1 = FromIR(u1) catch {
+	case nativeobj.Refused, nativeobj.Malformed:
+		assert false
+		return
+	}
+	let built1 = Archive(u1, nativeobj.SampleHeader) catch {
+	case nativeobj.Refused, nativeobj.Malformed, handoff.Malformed, handoff.UnknownVersion, handoff.WrongTarget, handoff.StaleImport, nativeobj.Undefined:
+		assert false
+		return
+	}
+	let errs1 = nativeobj.Verify(p1, nativeobj.SampleHeader, built1.Archive)
+	assert errs1.Len() == 0
 }

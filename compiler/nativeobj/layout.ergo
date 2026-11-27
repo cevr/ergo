@@ -1,0 +1,317 @@
+import slices
+
+let basicKindSizes = []uint32{8, 8, 8, 1, 1, 2, 4, 8, 8, 1, 2, 4, 8, 8, 16, 24, 0}
+
+let basicKindAligns = []uint32{8, 8, 8, 1, 1, 2, 4, 8, 8, 1, 2, 4, 8, 8, 8, 8, 1}
+
+let basicKindSigned = []bool{true, false, false, false, true, true, true, true, false, false, false, false, false, false, false, false, false}
+
+let basicKindIsInt = []bool{true, false, false, false, true, true, true, true, true, true, true, true, true, true, false, false, false}
+
+let basicKindExportCode = []int{2, 0, 0, 1, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 17, 0, 0}
+
+let basicKindRuntimeSym = []string{
+	"type:int", "", "", "type:bool", "type:int8", "type:int16", "type:int32", "type:int64",
+	"type:uint", "type:uint8", "type:uint16", "type:uint32", "type:uint64", "type:uintptr", "type:string", "", "",
+}
+
+// KindIsBasic reports whether kind is a scalar or string kind handled in registers/memory directly.
+func KindIsBasic(kind int) bool {
+	kind == KInt || (kind >= KBool && kind <= KString)
+}
+
+// KindIsInt reports whether kind is an integer type kind.
+func KindIsInt(kind int) bool {
+	kind >= 0 && kind < basicKindIsInt.Len() && basicKindIsInt[kind]
+}
+
+// KindIsSigned reports whether kind is a signed integer type kind.
+func KindIsSigned(kind int) bool {
+	kind >= 0 && kind < basicKindSigned.Len() && basicKindSigned[kind]
+}
+
+// KindSize returns the byte width of scalar/pointer/string/slice kinds.
+func KindSize(kind int) uint32 {
+	if kind >= 0 && kind < basicKindSizes.Len() { basicKindSizes[kind] } else { uint32(0) }
+}
+
+// KindAlign returns the byte alignment of scalar/pointer/string/slice kinds.
+func KindAlign(kind int) uint32 {
+	if kind >= 0 && kind < basicKindAligns.Len() { basicKindAligns[kind] } else { uint32(1) }
+}
+
+// KindExportBasic returns the pkgbits BasicKind code for a scalar/string kind.
+func KindExportBasic(kind int) int {
+	if kind >= 0 && kind < basicKindExportCode.Len() { basicKindExportCode[kind] } else { 0 }
+}
+
+// KindRuntimeSym returns the runtime symbol name of a basic scalar/string type.
+func KindRuntimeSym(kind int) string {
+	if kind >= 0 && kind < basicKindRuntimeSym.Len() { basicKindRuntimeSym[kind] } else { "" }
+}
+
+func alignUpU32(n uint32, a uint32) uint32 {
+	if a <= 1 {
+		return n
+	}
+	let r = n % a
+	if r == 0 { n } else { n + (a - r) }
+}
+
+// AbiPiece is one register-sized flattened piece of a parameter or result type.
+type AbiPiece { Off uint32, Size uint32, IsPtr bool, Signed bool }
+
+// LayoutTable stores precomputed SoA type layouts and flat piece/field/pointer pools for a Package.
+type LayoutTable {
+	Done       []bool,
+	Sizes      []uint32,
+	Aligns     []uint32,
+	PtrBytes   []uint32,
+	SlotWords  []uint32,
+	FieldOffLo []uint32,
+	FieldOffHi []uint32,
+	FieldOffs  []uint32,
+	PieceLo    []uint32,
+	PieceHi    []uint32,
+	Pieces     []AbiPiece,
+	PtrWordLo  []uint32,
+	PtrWordHi  []uint32,
+	PtrWords   []uint32,
+}
+
+func computeTypeLayout(p Package, tab mut LayoutTable, t int) {
+	if t < 0 || t >= p.Types.Len() || tab.Done[t] {
+		return
+	}
+	tab.Done[t] = true
+	let td = p.Types[t]
+	if td.Kind != KStruct {
+		let sz = KindSize(td.Kind)
+		let al = KindAlign(td.Kind)
+		tab.Sizes[t] = sz
+		tab.Aligns[t] = al
+		tab.SlotWords[t] = (sz + 7) / 8
+		tab.PieceLo[t] = uint32(tab.Pieces.Len())
+		tab.PtrWordLo[t] = uint32(tab.PtrWords.Len())
+		if td.Kind == KPtr || td.Kind == KFunc {
+			tab.PtrBytes[t] = 8
+			tab.Pieces = tab.Pieces.Append(AbiPiece{Off: 0, Size: 8, IsPtr: true, Signed: false})
+			tab.PtrWords = tab.PtrWords.Append(0)
+		} else if td.Kind == KString {
+			tab.PtrBytes[t] = 8
+			tab.Pieces = tab.Pieces.Append(AbiPiece{Off: 0, Size: 8, IsPtr: true, Signed: false})
+			tab.Pieces = tab.Pieces.Append(AbiPiece{Off: 8, Size: 8, IsPtr: false, Signed: true})
+			tab.PtrWords = tab.PtrWords.Append(0)
+		} else if td.Kind == KSlice {
+			tab.PtrBytes[t] = 8
+			tab.Pieces = tab.Pieces.Append(AbiPiece{Off: 0, Size: 8, IsPtr: true, Signed: false})
+			tab.Pieces = tab.Pieces.Append(AbiPiece{Off: 8, Size: 8, IsPtr: false, Signed: true})
+			tab.Pieces = tab.Pieces.Append(AbiPiece{Off: 16, Size: 8, IsPtr: false, Signed: true})
+			tab.PtrWords = tab.PtrWords.Append(0)
+		} else {
+			tab.PtrBytes[t] = 0
+			tab.Pieces = tab.Pieces.Append(AbiPiece{Off: 0, Size: sz, IsPtr: false, Signed: KindIsSigned(td.Kind)})
+		}
+		tab.PieceHi[t] = uint32(tab.Pieces.Len())
+		tab.PtrWordHi[t] = uint32(tab.PtrWords.Len())
+		return
+	}
+	for f in td.Fields {
+		computeTypeLayout(p, tab, f.Type)
+	}
+	let mut cur = uint32(0)
+	let mut maxAlign = uint32(1)
+	let mut ptrBytes = uint32(0)
+	let mut lastNonZero = false
+	let mut offs = slices.WithCapacity[uint32](td.Fields.Len())
+	for f in td.Fields {
+		let fsz = tab.Sizes[f.Type]
+		let fal = tab.Aligns[f.Type]
+		if fal > maxAlign {
+			maxAlign = fal
+		}
+		cur = alignUpU32(cur, fal)
+		offs = offs.Append(cur)
+		if tab.PtrBytes[f.Type] > 0 {
+			let pb = cur + tab.PtrBytes[f.Type]
+			if pb > ptrBytes {
+				ptrBytes = pb
+			}
+		}
+		cur = cur + fsz
+		lastNonZero = fsz > 0
+	}
+	if cur > 0 && !lastNonZero && td.Fields.Len() > 0 {
+		cur = cur + 1
+	}
+	let totalSize = alignUpU32(cur, maxAlign)
+	tab.Sizes[t] = totalSize
+	tab.Aligns[t] = maxAlign
+	tab.PtrBytes[t] = ptrBytes
+	tab.SlotWords[t] = (totalSize + 7) / 8
+	tab.FieldOffLo[t] = uint32(tab.FieldOffs.Len())
+	for o in offs {
+		tab.FieldOffs = tab.FieldOffs.Append(o)
+	}
+	tab.FieldOffHi[t] = uint32(tab.FieldOffs.Len())
+	tab.PieceLo[t] = uint32(tab.Pieces.Len())
+	for fi, f in td.Fields {
+		let fo = offs[fi]
+		let plo = int(tab.PieceLo[f.Type])
+		let phi = int(tab.PieceHi[f.Type])
+		for k in plo..phi {
+			let pc = tab.Pieces[k]
+			tab.Pieces = tab.Pieces.Append(AbiPiece{Off: fo + pc.Off, Size: pc.Size, IsPtr: pc.IsPtr, Signed: pc.Signed})
+		}
+	}
+	tab.PieceHi[t] = uint32(tab.Pieces.Len())
+	tab.PtrWordLo[t] = uint32(tab.PtrWords.Len())
+	for fi, f in td.Fields {
+		let fo = offs[fi]
+		let wlo = int(tab.PtrWordLo[f.Type])
+		let whi = int(tab.PtrWordHi[f.Type])
+		for k in wlo..whi {
+			tab.PtrWords = tab.PtrWords.Append(fo/8 + tab.PtrWords[k])
+		}
+	}
+	tab.PtrWordHi[t] = uint32(tab.PtrWords.Len())
+}
+
+// ComputeLayouts computes flattened SoA sizes, field offsets, ABI register pieces, and pointer-word maps for all types in p.
+func ComputeLayouts(p Package) LayoutTable {
+	let n = p.Types.Len()
+	let mut tab = LayoutTable{
+		Done:       slices.Repeat[bool]([]bool{false}, n),
+		Sizes:      slices.Repeat[uint32]([]uint32{0}, n),
+		Aligns:     slices.Repeat[uint32]([]uint32{1}, n),
+		PtrBytes:   slices.Repeat[uint32]([]uint32{0}, n),
+		SlotWords:  slices.Repeat[uint32]([]uint32{0}, n),
+		FieldOffLo: slices.Repeat[uint32]([]uint32{0}, n),
+		FieldOffHi: slices.Repeat[uint32]([]uint32{0}, n),
+		FieldOffs:  []uint32{},
+		PieceLo:    slices.Repeat[uint32]([]uint32{0}, n),
+		PieceHi:    slices.Repeat[uint32]([]uint32{0}, n),
+		Pieces:     []AbiPiece{},
+		PtrWordLo:  slices.Repeat[uint32]([]uint32{0}, n),
+		PtrWordHi:  slices.Repeat[uint32]([]uint32{0}, n),
+		PtrWords:   []uint32{},
+	}
+	for t in 0..n {
+		computeTypeLayout(p, &tab, t)
+	}
+	tab
+}
+
+// FuncAbiPlan describes ABIInternal register/stack placement and frame slot word bounds for one signature/body.
+type FuncAbiPlan {
+	SlotWordStart  []int,
+	SlotWordCount  []int,
+	TotalSlotWords int,
+	ParamIsReg     []bool,
+	ParamRegStart  []int,
+	ParamStackOff  []int,
+	ResultIsReg    []bool,
+	ResultRegStart []int,
+	ResultStackOff []int,
+	InRegCount     int,
+	OutRegCount    int,
+	StackEnd       int,
+	ArgsBytes      int,
+	ArgBits        int,
+}
+
+// PlanSigABI computes the ABIInternal assignment for parameters and results using layouts.
+func PlanSigABI(layouts LayoutTable, params []int, results []int, slots []int) FuncAbiPlan {
+	let mut slotStart = slices.WithCapacity[int](slots.Len())
+	let mut slotCount = slices.WithCapacity[int](slots.Len())
+	let mut curWords = 0
+	for s in slots {
+		let w = int(layouts.SlotWords[s])
+		slotStart = slotStart.Append(curWords)
+		slotCount = slotCount.Append(w)
+		curWords = curWords + w
+	}
+	let maxRegs = IntRegs.Len()
+	let mut regUsed = 0
+	let mut stackOff = uint32(0)
+	let mut pIsReg = slices.WithCapacity[bool](params.Len())
+	let mut pRegStart = slices.WithCapacity[int](params.Len())
+	let mut pStackOff = slices.WithCapacity[int](params.Len())
+	for pt in params {
+		let np = int(layouts.PieceHi[pt] - layouts.PieceLo[pt])
+		if np > 0 && regUsed+np <= maxRegs {
+			pIsReg = pIsReg.Append(true)
+			pRegStart = pRegStart.Append(regUsed)
+			pStackOff = pStackOff.Append(-1)
+			regUsed = regUsed + np
+		} else {
+			stackOff = alignUpU32(stackOff, layouts.Aligns[pt])
+			pIsReg = pIsReg.Append(false)
+			pRegStart = pRegStart.Append(-1)
+			pStackOff = pStackOff.Append(int(stackOff))
+			stackOff = stackOff + layouts.Sizes[pt]
+		}
+	}
+	let inRegCount = regUsed
+	stackOff = alignUpU32(stackOff, 8)
+	regUsed = 0
+	let mut rIsReg = slices.WithCapacity[bool](results.Len())
+	let mut rRegStart = slices.WithCapacity[int](results.Len())
+	let mut rStackOff = slices.WithCapacity[int](results.Len())
+	for rt in results {
+		let nr = int(layouts.PieceHi[rt] - layouts.PieceLo[rt])
+		if nr > 0 && regUsed+nr <= maxRegs {
+			rIsReg = rIsReg.Append(true)
+			rRegStart = rRegStart.Append(regUsed)
+			rStackOff = rStackOff.Append(-1)
+			regUsed = regUsed + nr
+		} else {
+			stackOff = alignUpU32(stackOff, layouts.Aligns[rt])
+			rIsReg = rIsReg.Append(false)
+			rRegStart = rRegStart.Append(-1)
+			rStackOff = rStackOff.Append(int(stackOff))
+			stackOff = stackOff + layouts.Sizes[rt]
+		}
+	}
+	let outRegCount = regUsed
+	let stackEnd = int(alignUpU32(stackOff, 8))
+	let spillStart = stackEnd
+	let argsBytes = if stackEnd == 0 {
+		8 * (inRegCount + outRegCount)
+	} else {
+		spillStart + 8*inRegCount
+	}
+	let argBits = argsBytes / 8
+	FuncAbiPlan{
+		SlotWordStart:  slotStart,
+		SlotWordCount:  slotCount,
+		TotalSlotWords: curWords,
+		ParamIsReg:     pIsReg,
+		ParamRegStart:  pRegStart,
+		ParamStackOff:  pStackOff,
+		ResultIsReg:    rIsReg,
+		ResultRegStart: rRegStart,
+		ResultStackOff: rStackOff,
+		InRegCount:     inRegCount,
+		OutRegCount:    outRegCount,
+		StackEnd:       stackEnd,
+		ArgsBytes:      argsBytes,
+		ArgBits:        argBits,
+	}
+}
+
+// SlotBaseOff returns the SP-relative base byte offset of multi-word slot s in fr.
+func SlotBaseOff(fr Frame, plan FuncAbiPlan, s int) int {
+	let start = plan.SlotWordStart[s]
+	let cnt = plan.SlotWordCount[s]
+	if cnt == 0 {
+		return fr.Size - 8
+	}
+	fr.Size - 16 - 8*(start+cnt-1)
+}
+
+// SlotWordBit returns the locals stack-map bitmap bit index of word w (0..SlotWordCount-1) inside slot s.
+func SlotWordBit(fr Frame, plan FuncAbiPlan, s int, w int) int {
+	let endWord = plan.SlotWordStart[s] + plan.SlotWordCount[s]
+	fr.Slots - endWord + w
+}

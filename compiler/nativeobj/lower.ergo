@@ -1,21 +1,14 @@
-// Lowering of one function to machine code and the metadata the runtime
-// reads for it. Every value lives in a frame slot; an op loads its
-// operands into scratch registers, computes, and stores its result. The
-// emitted frame follows the pin's amd64 layout (abi.ergo): the stack check
-// against g.stackguard0 with the morestack path at the end (register
-// arguments spilled to the caller's spill area around the call, the span
-// an unsafe point), PUSHQ BP / MOVQ SP, BP / SUBQ, and the mirror
-// epilogue. Stack map 0 is the entry's (pointer parameters in the spill
-// area, no locals); each call gets the next index, with the pointer slots
-// live across it (slots.ergo).
+import slices
 
-// Lowered is one function's code and metadata.
+// Lowered holds the assembled code, relocations, and runtime metadata of one function.
 type Lowered {
 	Name    string,
 	Code    string,
 	Relocs  []Reloc,
 	Frame   Frame,
 	Args    int,
+	ArgBits int,
+	File    int,
 	Line    int,
 	Pcsp    string,
 	Pcfile  string,
@@ -28,37 +21,7 @@ type Lowered {
 	Calls   []int,
 }
 
-// maxArgs is the largest number of argument words of any call in f: the
-// outgoing spill area the frame reserves.
-func maxArgs(f Func) int {
-	let mut n = 0
-	for op in f.Ops {
-		match op {
-		case Call as c:
-			if c.Args.Len() > n {
-				n = c.Args.Len()
-			}
-		case CallClosure as c:
-			if c.Args.Len() > n {
-				n = c.Args.Len()
-			}
-		case _:
-		}
-	}
-	n
-}
-
-// isLeaf says whether f makes no call.
-func isLeaf(f Func) bool {
-	for op in f.Ops {
-		if IsCall(op) {
-			return false
-		}
-	}
-	true
-}
-
-func cond(c int) int {
+func condSigned(c int) int {
 	if c == CLt {
 		return JccLt
 	}
@@ -71,48 +34,443 @@ func cond(c int) int {
 	JccGe
 }
 
-// The labels the lowering adds: the entry, the morestack path, and one
-// per write barrier (below every Ergo label id, which is not negative).
+func condUnsigned(c int) int {
+	if c == CLt {
+		return JccB
+	}
+	if c == CNe {
+		return JccNe
+	}
+	if c == CEq {
+		return JccEq
+	}
+	JccAe
+}
+
 let entryLabel = -1
 let morestackLabel = -2
 
-func barrierLabel(i int) int { -10 - i }
-
-// ArgMap is the entry map of the arguments: one bit per parameter and
-// result word, set for a pointer parameter.
-func entryArgs(p Package, f Func) []bool {
-	let mut bits = []bool{}
-	for t in f.Params {
-		bits = bits.Append(IsPointer(p, t))
-	}
-	for _ in f.Results {
-		bits = bits.Append(false)
-	}
-	bits
+func allocLabel(next mut int) int {
+	let id = *next
+	*next = id - 1
+	id
 }
 
 func zeros(n int) []bool {
-	let mut bits = []bool{}
-	for _ in 0..n {
-		bits = bits.Append(false)
+	slices.Repeat[bool]([]bool{false}, n)
+}
+
+func entryArgMap(layouts LayoutTable, plan FuncAbiPlan, params []int) []bool {
+	let mut bits = zeros(plan.ArgBits)
+	for k, pt in params {
+		let wlo = int(layouts.PtrWordLo[pt])
+		let whi = int(layouts.PtrWordHi[pt])
+		if plan.ParamIsReg[k] {
+			let r0 = plan.ParamRegStart[k]
+			let plo = int(layouts.PieceLo[pt])
+			let phi = int(layouts.PieceHi[pt])
+			for j in plo..phi {
+				if layouts.Pieces[j].IsPtr {
+					let b = plan.StackEnd/8 + r0 + (j - plo)
+					if b < bits.Len() {
+						bits[b] = true
+					}
+				}
+			}
+		} else {
+			let baseWord = plan.ParamStackOff[k] / 8
+			for wi in wlo..whi {
+				let b = baseWord + int(layouts.PtrWords[wi])
+				if b < bits.Len() {
+					bits[b] = true
+				}
+			}
+		}
 	}
 	bits
 }
 
-// LowerFunc lowers function f of package p.
-func LowerFunc(p Package, f Func) Lowered fails Undefined {
-	let fr = FrameOf(f.Slots.Len(), maxArgs(f), isLeaf(f))
+// CollectStrs returns the unique non-empty string literals of p in canonical sorted order.
+func CollectStrs(p Package) []string {
+	let mut raw = []string{}
+	for f in p.Funcs {
+		for op in f.Ops {
+			match op {
+			case ConstStr as c:
+				if c.V != "" {
+					raw = raw.Append(c.V)
+				}
+			case _:
+			}
+		}
+	}
+	let sorted = slices.Sort(raw)
+	let mut out = slices.WithCapacity[string](sorted.Len())
+	for s in sorted {
+		if out.Len() == 0 || out[out.Len()-1] != s {
+			out = out.Append(s)
+		}
+	}
+	out
+}
+
+func internStr(strs mut []string, s string) int {
+	for i, existing in *strs {
+		if existing == s {
+			return i
+		}
+	}
+	let i = (*strs).Len()
+	*strs = (*strs).Append(s)
+	i
+}
+
+// StrLiteralSym returns the package-local rodata symbol name for string literal idx.
+func StrLiteralSym(p Package, idx int) string {
+	SymName(p, "..str_\(idx)")
+}
+
+// TypeDescSym returns the linker symbol name for runtime type descriptor t.
+func TypeDescSym(p Package, t int) string {
+	let td = p.Types[t]
+	let sym = KindRuntimeSym(td.Kind)
+	if sym != "" {
+		return sym
+	}
+	if td.Kind == KPtr {
+		return "type:*" + stripTypePrefix(TypeDescSym(p, td.Elem))
+	}
+	if td.Kind == KSlice {
+		return "type:[]" + stripTypePrefix(TypeDescSym(p, td.Elem))
+	}
+	if td.Kind == KStruct {
+		if td.PkgPath != "" {
+			return "type:" + td.PkgPath + "." + td.Name
+		}
+		return "type:" + p.Path + "." + td.Name
+	}
+	"type:unnamed_\(t)"
+}
+
+func stripTypePrefix(s string) string {
+	if s.Len() >= 5 && s[0:5] == "type:" { s[5:s.Len()] } else { s }
+}
+
+func emitCopyMem(a mut Asm, dstBase int, dstOff int, srcBase int, srcOff int, size int, tmpReg int) {
+	let mut off = 0
+	for off+8 <= size {
+		a.MovLoad(tmpReg, srcBase, srcOff+off)
+		a.MovStore(tmpReg, dstBase, dstOff+off)
+		off = off + 8
+	}
+	for off+4 <= size {
+		a.MovLoadN(tmpReg, srcBase, srcOff+off, 4, false)
+		a.MovStoreN(tmpReg, dstBase, dstOff+off, 4)
+		off = off + 4
+	}
+	for off+2 <= size {
+		a.MovLoadN(tmpReg, srcBase, srcOff+off, 2, false)
+		a.MovStoreN(tmpReg, dstBase, dstOff+off, 2)
+		off = off + 2
+	}
+	for off < size {
+		a.MovLoadN(tmpReg, srcBase, srcOff+off, 1, false)
+		a.MovStoreN(tmpReg, dstBase, dstOff+off, 1)
+		off = off + 1
+	}
+}
+
+func emitPtrBarrierStore(a mut Asm, ptrReg int, disp int, valReg int, nextLbl mut int) {
+	let skip = allocLabel(nextLbl)
+	a.SetUnsafe(UnsafeUnsafe)
+	a.CmpFlagZero(WriteBarrierFlag)
+	a.Jcc(JccEq, skip)
+	a.CallSym(GCWriteBarrier2, ABIInternal, false)
+	a.MovStore(valReg, R11, 0)
+	a.MovLoad(R12, ptrReg, disp)
+	a.MovStore(R12, R11, 8)
+	a.Bind(skip)
+	a.MovStore(valReg, ptrReg, disp)
+	a.SetUnsafe(UnsafeSafe)
+}
+
+func isWordPtr(layouts LayoutTable, t int, wordIdx int) bool {
+	let lo = int(layouts.PtrWordLo[t])
+	let hi = int(layouts.PtrWordHi[t])
+	for i in lo..hi {
+		if int(layouts.PtrWords[i]) == wordIdx {
+			return true
+		}
+	}
+	false
+}
+
+func emitHeapStoreType(a mut Asm, layouts LayoutTable, dstPtrReg int, dstOff int, srcBase int, srcOff int, t int, nextLbl mut int) {
+	let size = int(layouts.Sizes[t])
+	let mut off = 0
+	for off+8 <= size {
+		a.MovLoad(RSI, srcBase, srcOff+off)
+		if isWordPtr(layouts, t, off/8) {
+			emitPtrBarrierStore(a, dstPtrReg, dstOff+off, RSI, nextLbl)
+		} else {
+			a.MovStore(RSI, dstPtrReg, dstOff+off)
+		}
+		off = off + 8
+	}
+	for off+4 <= size {
+		a.MovLoadN(RSI, srcBase, srcOff+off, 4, false)
+		a.MovStoreN(RSI, dstPtrReg, dstOff+off, 4)
+		off = off + 4
+	}
+	for off+2 <= size {
+		a.MovLoadN(RSI, srcBase, srcOff+off, 2, false)
+		a.MovStoreN(RSI, dstPtrReg, dstOff+off, 2)
+		off = off + 2
+	}
+	for off < size {
+		a.MovLoadN(RSI, srcBase, srcOff+off, 1, false)
+		a.MovStoreN(RSI, dstPtrReg, dstOff+off, 1)
+		off = off + 1
+	}
+}
+
+type coldSite { id int, line int, opIdx int, panicSym string }
+
+func emitArith(a mut Asm, p Package, layouts LayoutTable, fr Frame, plan FuncAbiPlan, f Func, x Arith, line int, opIdx int, smi int, colds mut []coldSite, nextLbl mut int) {
+	let t = f.Slots[x.Dst]
+	let kind = p.Types[t].Kind
+	if kind == KString {
+		let aOff = SlotBaseOff(fr, plan, x.A)
+		let bOff = SlotBaseOff(fr, plan, x.B)
+		let dOff = SlotBaseOff(fr, plan, x.Dst)
+		a.MovImm(RAX, 0)
+		a.MovLoad(RBX, RSP, aOff)
+		a.MovLoad(RCX, RSP, aOff+8)
+		a.MovLoad(RDI, RSP, bOff)
+		a.MovLoad(RSI, RSP, bOff+8)
+		a.SetSmi(smi)
+		a.CallSym(RuntimeConcatstring2, ABIInternal, true)
+		a.MovStore(RAX, RSP, dOff)
+		a.MovStore(RBX, RSP, dOff+8)
+		return
+	}
+	let w = int(layouts.Sizes[t])
+	let aluW = if w <= 4 { 4 } else { 8 }
+	let signed = KindIsSigned(kind)
+	let aOff = SlotBaseOff(fr, plan, x.A)
+	let bOff = SlotBaseOff(fr, plan, x.B)
+	let dOff = SlotBaseOff(fr, plan, x.Dst)
+	if x.Kind == AAdd || x.Kind == ASub || x.Kind == AXor || x.Kind == AAnd || x.Kind == AOr || x.Kind == AAndNot || x.Kind == AMul {
+		a.MovLoadN(RAX, RSP, aOff, w, signed)
+		a.MovLoadN(RCX, RSP, bOff, w, signed)
+		if x.Kind == AAdd {
+			if aluW == 4 { a.Alu32(OpAdd, RAX, RCX) } else { a.Alu(OpAdd, RAX, RCX) }
+		} else if x.Kind == ASub {
+			if aluW == 4 { a.Alu32(OpSub, RAX, RCX) } else { a.Alu(OpSub, RAX, RCX) }
+		} else if x.Kind == AXor {
+			if aluW == 4 { a.Alu32(OpXor, RAX, RCX) } else { a.Alu(OpXor, RAX, RCX) }
+		} else if x.Kind == AAnd {
+			if aluW == 4 { a.Alu32(OpAnd, RAX, RCX) } else { a.Alu(OpAnd, RAX, RCX) }
+		} else if x.Kind == AOr {
+			if aluW == 4 { a.Alu32(OpOr, RAX, RCX) } else { a.Alu(OpOr, RAX, RCX) }
+		} else if x.Kind == AAndNot {
+			a.UnaryR(aluW, 2, RCX)
+			if aluW == 4 { a.Alu32(OpAnd, RAX, RCX) } else { a.Alu(OpAnd, RAX, RCX) }
+		} else {
+			if aluW == 4 { a.Imul32(RAX, RCX) } else { a.Imul(RAX, RCX) }
+		}
+		a.MovStoreN(RAX, RSP, dOff, w)
+		return
+	}
+	if x.Kind == AShl || x.Kind == AShr {
+		let bk = p.Types[f.Slots[x.B]].Kind
+		let bw = int(layouts.Sizes[f.Slots[x.B]])
+		let bSigned = KindIsSigned(bk)
+		a.MovLoadN(RAX, RSP, aOff, w, signed)
+		a.MovLoadN(RCX, RSP, bOff, bw, bSigned)
+		let bits = w * 8
+		a.CmpImm8(8, RCX, bits)
+		a.Alu(OpSbb, RDX, RDX)
+		if x.Kind == AShl {
+			a.ShiftCL(aluW, 4, RAX)
+			a.Alu(OpAnd, RAX, RDX)
+		} else if !signed {
+			a.ShiftCL(aluW, 5, RAX)
+			a.Alu(OpAnd, RAX, RDX)
+		} else {
+			a.UnaryR(aluW, 2, RDX)
+			if aluW == 4 { a.Alu32(OpOr, RCX, RDX) } else { a.Alu(OpOr, RCX, RDX) }
+			a.ShiftCL(aluW, 7, RAX)
+		}
+		a.MovStoreN(RAX, RSP, dOff, w)
+		return
+	}
+	a.MovLoadN(RAX, RSP, aOff, w, signed)
+	a.MovLoadN(RCX, RSP, bOff, w, signed)
+	let panicLbl = allocLabel(nextLbl)
+	*colds = (*colds).Append(coldSite{id: panicLbl, line: line, opIdx: opIdx, panicSym: RuntimePanicDivide})
+	a.TestRR(aluW, RCX, RCX)
+	a.Jcc(JccEq, panicLbl)
+	if signed {
+		let normal = allocLabel(nextLbl)
+		let done = allocLabel(nextLbl)
+		a.CmpImm8(aluW, RCX, -1)
+		a.Jcc(JccNe, normal)
+		a.UnaryR(aluW, 3, RAX)
+		a.Alu32(OpXor, RDX, RDX)
+		a.Jmp(done)
+		a.Bind(normal)
+		a.DivOp(aluW, true, RCX)
+		a.Bind(done)
+	} else {
+		a.DivOp(aluW, false, RCX)
+	}
+	a.MovStoreN(if x.Kind == ADiv { RAX } else { RDX }, RSP, dOff, w)
+}
+
+func emitConvert(a mut Asm, p Package, layouts LayoutTable, fr Frame, plan FuncAbiPlan, f Func, c Convert) {
+	let st = f.Slots[c.Src]
+	let dt = f.Slots[c.Dst]
+	let sOff = SlotBaseOff(fr, plan, c.Src)
+	let dOff = SlotBaseOff(fr, plan, c.Dst)
+	if st == dt {
+		emitCopyMem(a, RSP, dOff, RSP, sOff, int(layouts.Sizes[dt]), RAX)
+		return
+	}
+	let sw = int(layouts.Sizes[st])
+	let dw = int(layouts.Sizes[dt])
+	let sSigned = KindIsSigned(p.Types[st].Kind)
+	a.MovLoadN(RAX, RSP, sOff, sw, sSigned)
+	a.MovStoreN(RAX, RSP, dOff, dw)
+}
+
+func emitCall(a mut Asm, layouts LayoutTable, fr Frame, plan FuncAbiPlan, dsts []int, args []int, paramTypes []int, resTypes []int, target string, closureSlot int, smi int) {
+	let cp = PlanSigABI(layouts, paramTypes, resTypes, []int{})
+	for k, s in args {
+		if !cp.ParamIsReg[k] {
+			let srcOff = SlotBaseOff(fr, plan, s)
+			emitCopyMem(a, RSP, cp.ParamStackOff[k], RSP, srcOff, int(layouts.Sizes[paramTypes[k]]), RAX)
+		}
+	}
+	for k, s in args {
+		if cp.ParamIsReg[k] {
+			let pt = paramTypes[k]
+			let plo = int(layouts.PieceLo[pt])
+			let phi = int(layouts.PieceHi[pt])
+			let r0 = cp.ParamRegStart[k]
+			let srcOff = SlotBaseOff(fr, plan, s)
+			for j in plo..phi {
+				let pc = layouts.Pieces[j]
+				a.MovLoadN(IntRegs[r0+(j-plo)], RSP, srcOff+int(pc.Off), int(pc.Size), pc.Signed)
+			}
+		}
+	}
+	if closureSlot >= 0 {
+		a.MovLoad(RDX, RSP, SlotBaseOff(fr, plan, closureSlot))
+		a.MovLoad(R12, RDX, 0)
+		a.SetSmi(smi)
+		a.CallReg(R12)
+	} else {
+		a.SetSmi(smi)
+		a.CallSym(target, ABIInternal, true)
+	}
+	for k, d in dsts {
+		if cp.ResultIsReg[k] {
+			let rt = resTypes[k]
+			let rlo = int(layouts.PieceLo[rt])
+			let rhi = int(layouts.PieceHi[rt])
+			let r0 = cp.ResultRegStart[k]
+			let dstOff = SlotBaseOff(fr, plan, d)
+			for j in rlo..rhi {
+				let pc = layouts.Pieces[j]
+				a.MovStoreN(IntRegs[r0+(j-rlo)], RSP, dstOff+int(pc.Off), int(pc.Size))
+			}
+		}
+	}
+	for k, d in dsts {
+		if !cp.ResultIsReg[k] {
+			let dstOff = SlotBaseOff(fr, plan, d)
+			emitCopyMem(a, RSP, dstOff, RSP, cp.ResultStackOff[k], int(layouts.Sizes[resTypes[k]]), RAX)
+		}
+	}
+}
+
+func emitJumpIf(a mut Asm, p Package, layouts LayoutTable, fr Frame, plan FuncAbiPlan, f Func, j JumpIf, smi int, nextLbl mut int) {
+	let t = f.Slots[j.A]
+	let kind = p.Types[t].Kind
+	let aOff = SlotBaseOff(fr, plan, j.A)
+	let bOff = SlotBaseOff(fr, plan, j.B)
+	if kind == KString {
+		if j.Cond == CEq || j.Cond == CNe {
+			let miss = allocLabel(nextLbl)
+			a.MovLoad(RAX, RSP, aOff+8)
+			a.MovLoad(RBX, RSP, bOff+8)
+			a.Alu(OpCmp, RAX, RBX)
+			if j.Cond == CEq {
+				a.Jcc(JccNe, miss)
+			} else {
+				a.Jcc(JccNe, j.To)
+			}
+			a.MovLoad(RCX, RSP, aOff+8)
+			a.MovLoad(RAX, RSP, aOff)
+			a.MovLoad(RBX, RSP, bOff)
+			a.SetSmi(smi)
+			a.CallSym(RuntimeMemequal, ABIInternal, true)
+			a.TestRR(1, RAX, RAX)
+			a.Jcc(if j.Cond == CEq { JccNe } else { JccEq }, j.To)
+			a.Bind(miss)
+			return
+		}
+		a.MovLoad(RAX, RSP, aOff)
+		a.MovLoad(RBX, RSP, aOff+8)
+		a.MovLoad(RCX, RSP, bOff)
+		a.MovLoad(RDI, RSP, bOff+8)
+		a.SetSmi(smi)
+		a.CallSym(RuntimeCmpstring, ABIInternal, true)
+		a.CmpImm8(8, RAX, 0)
+		a.Jcc(condSigned(j.Cond), j.To)
+		return
+	}
+	let w = int(layouts.Sizes[t])
+	let signed = KindIsSigned(kind)
+	a.MovLoadN(RAX, RSP, aOff, w, signed)
+	a.MovLoadN(RCX, RSP, bOff, w, signed)
+	if w <= 4 {
+		a.Alu32(OpCmp, RAX, RCX)
+	} else {
+		a.Alu(OpCmp, RAX, RCX)
+	}
+	a.Jcc(if signed { condSigned(j.Cond) } else { condUnsigned(j.Cond) }, j.To)
+}
+
+func recordMapAt(p Package, f Func, fr Frame, plan FuncAbiPlan, after [][]bool, i int, nargs int, layouts LayoutTable, argMaps mut [][]bool, locals mut [][]bool) {
+	let live = LiveAcross(p, f, after, i)
+	let mut bits = zeros(fr.Slots)
+	for s in live {
+		let st = f.Slots[s]
+		let wlo = int(layouts.PtrWordLo[st])
+		let whi = int(layouts.PtrWordHi[st])
+		for wi in wlo..whi {
+			bits[SlotWordBit(fr, plan, s, int(layouts.PtrWords[wi]))] = true
+		}
+	}
+	*locals = (*locals).Append(bits)
+	*argMaps = (*argMaps).Append(zeros(nargs))
+}
+
+// LowerFuncWithStrs lowers f using precomputed layouts and shared package string literal pool.
+func LowerFuncWithStrs(p Package, layouts LayoutTable, f Func, strs mut []string) Lowered fails Undefined {
+	let plan = PlanSigABI(layouts, f.Params, f.Results, f.Slots)
+	let fr = FrameOf(plan.TotalSlotWords, maxOutgoingWords(p, layouts, f), bodyIsLeaf(p, f))
 	let after = LiveAfter(f)
-	let nargs = f.Params.Len() + f.Results.Len()
-	let mut argMaps = [][]bool{entryArgs(p, f)}
+	let mut argMaps = [][]bool{entryArgMap(layouts, plan, f.Params)}
 	let mut locals = [][]bool{zeros(fr.Slots)}
 	let mut calls = []int{}
-	let mut a = NewAsm(f.Line)
+	let mut colds = []coldSite{}
+	let mut nextLbl = -100
+	let mut a = NewAsmInFile(f.File, f.Line)
 	a.Bind(entryLabel)
 	if fr.Size > 0 {
-		// The stack check and its branch are not preemptible, as the stock
-		// prologue's: a preemption there would be followed by a needless
-		// morestack.
 		a.SetUnsafe(UnsafeUnsafe)
 		a.CmpSPGuard(fr.Size)
 		a.Jcc(JccBe, morestackLabel)
@@ -122,103 +480,215 @@ func LowerFunc(p Package, f Func) Lowered fails Undefined {
 		a.MovRR(RBP, RSP)
 		a.AluImm(ExtSub, RSP, fr.Size-8)
 		a.SetSp(fr.Size)
-		for k in 0..f.Params.Len() {
-			a.MovStore(IntRegs[k], RSP, SlotOff(fr, k))
+		for k, pt in f.Params {
+			if plan.ParamIsReg[k] {
+				let plo = int(layouts.PieceLo[pt])
+				let phi = int(layouts.PieceHi[pt])
+				let r0 = plan.ParamRegStart[k]
+				let dstOff = SlotBaseOff(fr, plan, k)
+				for j in plo..phi {
+					let pc = layouts.Pieces[j]
+					a.MovStoreN(IntRegs[r0+(j-plo)], RSP, dstOff+int(pc.Off), int(pc.Size))
+				}
+			}
+		}
+		for k, pt in f.Params {
+			if !plan.ParamIsReg[k] {
+				let dstOff = SlotBaseOff(fr, plan, k)
+				emitCopyMem(&a, RSP, dstOff, RSP, fr.Size+8+plan.ParamStackOff[k], int(layouts.Sizes[pt]), RAX)
+			}
 		}
 		let mut zeroed = false
 		for j in f.Params.Len()..f.Slots.Len() {
-			if IsPointer(p, f.Slots[j]) {
+			let st = f.Slots[j]
+			let wlo = int(layouts.PtrWordLo[st])
+			let whi = int(layouts.PtrWordHi[st])
+			if wlo < whi {
 				if !zeroed {
 					a.MovImm(RAX, 0)
 					zeroed = true
 				}
-				a.MovStore(RAX, RSP, SlotOff(fr, j))
+				let baseOff = SlotBaseOff(fr, plan, j)
+				for wi in wlo..whi {
+					a.MovStore(RAX, RSP, baseOff+8*int(layouts.PtrWords[wi]))
+				}
 			}
 		}
 	}
 	for i, op in f.Ops {
-		a.SetLine(f.Lines[i])
+		let line = f.Lines[i]
+		a.SetLine(line)
+		let smi = locals.Len()
 		match op {
 		case Const as c:
 			a.MovImm(RAX, c.V)
-			a.MovStore(RAX, RSP, SlotOff(fr, c.Dst))
-		case Arith as x:
-			a.MovLoad(RAX, RSP, SlotOff(fr, x.A))
-			a.MovLoad(RCX, RSP, SlotOff(fr, x.B))
-			if x.Kind == AAdd {
-				a.Alu(OpAdd, RAX, RCX)
-			} else if x.Kind == ASub {
-				a.Alu(OpSub, RAX, RCX)
-			} else if x.Kind == AXor {
-				a.Alu(OpXor, RAX, RCX)
+			a.MovStoreN(RAX, RSP, SlotBaseOff(fr, plan, c.Dst), int(layouts.Sizes[f.Slots[c.Dst]]))
+		case ConstStr as c:
+			let dstOff = SlotBaseOff(fr, plan, c.Dst)
+			if c.V == "" {
+				a.MovImm(RAX, 0)
+				a.MovStore(RAX, RSP, dstOff)
+				a.MovStore(RAX, RSP, dstOff+8)
 			} else {
-				a.Imul(RAX, RCX)
+				let id = internStr(strs, c.V)
+				a.LeaRip(RAX, StrLiteralSym(p, id), ABI0)
+				a.MovStore(RAX, RSP, dstOff)
+				a.MovImm(RAX, c.V.Len())
+				a.MovStore(RAX, RSP, dstOff+8)
 			}
-			a.MovStore(RAX, RSP, SlotOff(fr, x.Dst))
+		case Zero as z:
+			let dstOff = SlotBaseOff(fr, plan, z.Dst)
+			let words = plan.SlotWordCount[z.Dst]
+			if words > 0 {
+				a.MovImm(RAX, 0)
+				for w in 0..words {
+					a.MovStore(RAX, RSP, dstOff+8*w)
+				}
+			}
+		case Arith as x:
+			emitArith(&a, p, layouts, fr, plan, f, x, line, i, smi, &colds, &nextLbl)
+		case Convert as c:
+			emitConvert(&a, p, layouts, fr, plan, f, c)
+		case Len as l:
+			a.MovLoad(RAX, RSP, SlotBaseOff(fr, plan, l.Src)+8)
+			a.MovStore(RAX, RSP, SlotBaseOff(fr, plan, l.Dst))
 		case Load as l:
-			a.MovLoad(RAX, RSP, SlotOff(fr, l.Ptr))
-			a.MovLoad(RAX, RAX, 0)
-			a.MovStore(RAX, RSP, SlotOff(fr, l.Dst))
+			let elem = p.Types[f.Slots[l.Ptr]].Elem
+			a.MovLoad(RDI, RSP, SlotBaseOff(fr, plan, l.Ptr))
+			emitCopyMem(&a, RSP, SlotBaseOff(fr, plan, l.Dst), RDI, 0, int(layouts.Sizes[elem]), RAX)
 		case StorePtr as s:
-			a.MovLoad(RDI, RSP, SlotOff(fr, s.Ptr))
-			a.MovLoad(RSI, RSP, SlotOff(fr, s.Val))
-			// From the flag test to the store, a preemption could let a GC
-			// phase change between the barrier decision and the write.
-			a.SetUnsafe(UnsafeUnsafe)
-			a.CmpFlagZero(WriteBarrierFlag)
-			a.Jcc(JccEq, barrierLabel(i))
-			a.CallSym(GCWriteBarrier2, ABIInternal, false)
-			a.MovStore(RSI, R11, 0)
-			a.MovLoad(R12, RDI, 0)
-			a.MovStore(R12, R11, 8)
-			a.Bind(barrierLabel(i))
-			a.MovStore(RSI, RDI, 0)
-			a.SetUnsafe(UnsafeSafe)
+			let elem = p.Types[f.Slots[s.Ptr]].Elem
+			a.MovLoad(RDI, RSP, SlotBaseOff(fr, plan, s.Ptr))
+			if int(layouts.Sizes[elem]) == 8 && p.Types[elem].Kind != KStruct {
+				a.MovLoad(RSI, RSP, SlotBaseOff(fr, plan, s.Val))
+				emitPtrBarrierStore(&a, RDI, 0, RSI, &nextLbl)
+			} else {
+				emitHeapStoreType(&a, layouts, RDI, 0, RSP, SlotBaseOff(fr, plan, s.Val), elem, &nextLbl)
+			}
 		case Store as s:
-			a.MovLoad(RDI, RSP, SlotOff(fr, s.Ptr))
-			a.MovLoad(RSI, RSP, SlotOff(fr, s.Val))
-			a.MovStore(RSI, RDI, 0)
+			let elem = p.Types[f.Slots[s.Ptr]].Elem
+			a.MovLoad(RDI, RSP, SlotBaseOff(fr, plan, s.Ptr))
+			emitCopyMem(&a, RDI, 0, RSP, SlotBaseOff(fr, plan, s.Val), int(layouts.Sizes[elem]), RSI)
 		case AddrOf as x:
-			a.Lea(RAX, RSP, SlotOff(fr, x.Of))
-			a.MovStore(RAX, RSP, SlotOff(fr, x.Dst))
+			a.Lea(RAX, RSP, SlotBaseOff(fr, plan, x.Of))
+			a.MovStore(RAX, RSP, SlotBaseOff(fr, plan, x.Dst))
+		case RecordLit as r:
+			let st = f.Slots[r.Dst]
+			let flo = int(layouts.FieldOffLo[st])
+			let dstOff = SlotBaseOff(fr, plan, r.Dst)
+			for fi, vs in r.Vals {
+				let ft = p.Types[st].Fields[fi].Type
+				let foff = int(layouts.FieldOffs[flo+fi])
+				emitCopyMem(&a, RSP, dstOff+foff, RSP, SlotBaseOff(fr, plan, vs), int(layouts.Sizes[ft]), RAX)
+			}
+		case FieldGet as g:
+			let bt = f.Slots[g.Base]
+			let dstOff = SlotBaseOff(fr, plan, g.Dst)
+			let ft = f.Slots[g.Dst]
+			if p.Types[bt].Kind == KPtr {
+				let st = p.Types[bt].Elem
+				let foff = int(layouts.FieldOffs[int(layouts.FieldOffLo[st])+g.Field])
+				a.MovLoad(RDI, RSP, SlotBaseOff(fr, plan, g.Base))
+				emitCopyMem(&a, RSP, dstOff, RDI, foff, int(layouts.Sizes[ft]), RAX)
+			} else {
+				let foff = int(layouts.FieldOffs[int(layouts.FieldOffLo[bt])+g.Field])
+				emitCopyMem(&a, RSP, dstOff, RSP, SlotBaseOff(fr, plan, g.Base)+foff, int(layouts.Sizes[ft]), RAX)
+			}
+		case FieldSet as s:
+			let st = p.Types[f.Slots[s.Ptr]].Elem
+			let ft = p.Types[st].Fields[s.Field].Type
+			let foff = int(layouts.FieldOffs[int(layouts.FieldOffLo[st])+s.Field])
+			a.MovLoad(RDI, RSP, SlotBaseOff(fr, plan, s.Ptr))
+			emitHeapStoreType(&a, layouts, RDI, foff, RSP, SlotBaseOff(fr, plan, s.Val), ft, &nextLbl)
+		case Index as ix:
+			let sliceOff = SlotBaseOff(fr, plan, ix.Slice)
+			let idxT = f.Slots[ix.Idx]
+			let idxSigned = KindIsSigned(p.Types[idxT].Kind)
+			let idxW = int(layouts.Sizes[idxT])
+			let panicLbl = allocLabel(&nextLbl)
+			colds = colds.Append(coldSite{id: panicLbl, line: line, opIdx: i, panicSym: if idxSigned { RuntimePanicIndex } else { RuntimePanicIndexU }})
+			a.MovLoad(RBX, RSP, sliceOff+8)
+			a.MovLoadN(RAX, RSP, SlotBaseOff(fr, plan, ix.Idx), idxW, idxSigned)
+			a.Alu(OpCmp, RAX, RBX)
+			a.Jcc(JccAe, panicLbl)
+			let elem = p.Types[f.Slots[ix.Slice]].Elem
+			let esz = int(layouts.Sizes[elem])
+			if esz > 0 {
+				a.MovImm(RCX, esz)
+				a.Imul(RAX, RCX)
+				a.MovLoad(RCX, RSP, sliceOff)
+				a.Alu(OpAdd, RAX, RCX)
+				emitCopyMem(&a, RSP, SlotBaseOff(fr, plan, ix.Dst), RAX, 0, esz, RCX)
+			}
+		case SliceLit as sl:
+			let dstOff = SlotBaseOff(fr, plan, sl.Dst)
+			let n = sl.Elems.Len()
+			if n == 0 {
+				a.LeaRip(RAX, RuntimeZerobase, ABI0)
+				a.MovStore(RAX, RSP, dstOff)
+				a.MovImm(RAX, 0)
+				a.MovStore(RAX, RSP, dstOff+8)
+				a.MovStore(RAX, RSP, dstOff+16)
+			} else {
+				let elem = p.Types[f.Slots[sl.Dst]].Elem
+				let esz = int(layouts.Sizes[elem])
+				let elemSym = TypeDescSym(p, elem)
+				a.LeaRip(RAX, elemSym, ABI0)
+				a.MovImm(RBX, n)
+				a.MovImm(RCX, n)
+				a.SetSmi(smi)
+				a.CallSym(RuntimeMakeslice, ABIInternal, true)
+				a.MovStore(RAX, RSP, dstOff)
+				a.MovImm(RAX, n)
+				a.MovStore(RAX, RSP, dstOff+8)
+				a.MovStore(RAX, RSP, dstOff+16)
+				for k, es in sl.Elems {
+					a.MovLoad(RDI, RSP, dstOff)
+					emitHeapStoreType(&a, layouts, RDI, k*esz, RSP, SlotBaseOff(fr, plan, es), elem, &nextLbl)
+				}
+			}
 		case GetGlobal as g:
 			a.RipLoad(RAX, SymName(p, p.Globals[g.Global].Name))
-			a.MovStore(RAX, RSP, SlotOff(fr, g.Dst))
+			a.MovStore(RAX, RSP, SlotBaseOff(fr, plan, g.Dst))
 		case SetGlobal as g:
-			a.MovLoad(RAX, RSP, SlotOff(fr, g.Src))
+			a.MovLoad(RAX, RSP, SlotBaseOff(fr, plan, g.Src))
 			a.RipStore(RAX, SymName(p, p.Globals[g.Global].Name))
 		case Call as c:
-			for k, s in c.Args {
-				a.MovLoad(IntRegs[k], RSP, SlotOff(fr, s))
+			let ti = targetOf(p, c.Target)
+			let (pts, rts) = if ti >= 0 {
+				(p.Funcs[ti].Params, p.Funcs[ti].Results)
+			} else {
+				(slotTypes(f, c.Args), slotTypes(f, c.Dsts))
 			}
-			a.SetSmi(locals.Len())
-			a.CallSym(c.Target, ABIInternal, true)
-			for k, d in c.Dsts {
-				a.MovStore(IntRegs[k], RSP, SlotOff(fr, d))
-			}
+			emitCall(&a, layouts, fr, plan, c.Dsts, c.Args, pts, rts, c.Target, -1, smi)
 		case CallClosure as c:
-			for k, s in c.Args {
-				a.MovLoad(IntRegs[k], RSP, SlotOff(fr, s))
-			}
-			a.MovLoad(RDX, RSP, SlotOff(fr, c.Fn))
-			a.MovLoad(R12, RDX, 0)
-			a.SetSmi(locals.Len())
-			a.CallReg(R12)
-			for k, d in c.Dsts {
-				a.MovStore(IntRegs[k], RSP, SlotOff(fr, d))
-			}
+			let ft = p.Types[f.Slots[c.Fn]]
+			emitCall(&a, layouts, fr, plan, c.Dsts, c.Args, ft.Params, ft.Results, "", c.Fn, smi)
 		case Label as l:
 			a.Bind(l.Id)
 		case Jump as j:
 			a.Jmp(j.To)
 		case JumpIf as j:
-			a.MovLoad(RAX, RSP, SlotOff(fr, j.A))
-			a.MovLoad(RCX, RSP, SlotOff(fr, j.B))
-			a.Alu(OpCmp, RAX, RCX)
-			a.Jcc(cond(j.Cond), j.To)
+			emitJumpIf(&a, p, layouts, fr, plan, f, j, smi, &nextLbl)
 		case Return as r:
 			for k, s in r.Vals {
-				a.MovLoad(IntRegs[k], RSP, SlotOff(fr, s))
+				if !plan.ResultIsReg[k] {
+					let rt = f.Results[k]
+					emitCopyMem(&a, RSP, fr.Size+8+plan.ResultStackOff[k], RSP, SlotBaseOff(fr, plan, s), int(layouts.Sizes[rt]), RAX)
+				}
+			}
+			for k, s in r.Vals {
+				if plan.ResultIsReg[k] {
+					let rt = f.Results[k]
+					let rlo = int(layouts.PieceLo[rt])
+					let rhi = int(layouts.PieceHi[rt])
+					let r0 = plan.ResultRegStart[k]
+					let srcOff = SlotBaseOff(fr, plan, s)
+					for j in rlo..rhi {
+						let pc = layouts.Pieces[j]
+						a.MovLoadN(IntRegs[r0+(j-rlo)], RSP, srcOff+int(pc.Off), int(pc.Size), pc.Signed)
+					}
+				}
 			}
 			if fr.Size > 0 {
 				a.AluImm(ExtAdd, RSP, fr.Size-8)
@@ -227,19 +697,21 @@ func LowerFunc(p Package, f Func) Lowered fails Undefined {
 				a.SetSp(0)
 			}
 			a.Ret()
-			// Code after a return is reached by a branch, in the full frame.
 			a.SetSp(fr.Size)
 		}
-		if IsCall(op) {
+		if IsCallOp(p, f, op) {
 			calls = calls.Append(i)
-			let live = LiveAcross(p, f, after, i)
-			let mut bits = zeros(fr.Slots)
-			for s in live {
-				bits[SlotBit(fr, s)] = true
-			}
-			locals = locals.Append(bits)
-			argMaps = argMaps.Append(zeros(nargs))
+			recordMapAt(p, f, fr, plan, after, i, plan.ArgBits, layouts, &argMaps, &locals)
 		}
+	}
+	for cs in colds {
+		let csmi = locals.Len()
+		recordMapAt(p, f, fr, plan, after, cs.opIdx, plan.ArgBits, layouts, &argMaps, &locals)
+		a.SetLine(cs.line)
+		a.SetSmi(csmi)
+		a.Bind(cs.id)
+		a.CallSym(cs.panicSym, ABIInternal, false)
+		a.Nop()
 	}
 	if fr.Size > 0 {
 		a.SetLine(f.Line)
@@ -247,14 +719,13 @@ func LowerFunc(p Package, f Func) Lowered fails Undefined {
 		a.SetSmi(-1)
 		a.SetUnsafe(UnsafeUnsafe)
 		a.Bind(morestackLabel)
-		for k in 0..f.Params.Len() {
-			a.MovStore(IntRegs[k], RSP, ArgSpill(k))
+		for r in 0..plan.InRegCount {
+			a.MovStore(IntRegs[r], RSP, 8+plan.StackEnd+8*r)
 		}
 		a.CallSym(MorestackNoctxt, ABI0, true)
-		// Reloading the arguments may be preempted, as the stock prologue's.
 		a.SetUnsafe(UnsafeSafe)
-		for k in 0..f.Params.Len() {
-			a.MovLoad(IntRegs[k], RSP, ArgSpill(k))
+		for r in 0..plan.InRegCount {
+			a.MovLoad(IntRegs[r], RSP, 8+plan.StackEnd+8*r)
 		}
 		a.Jmp(entryLabel)
 	}
@@ -265,10 +736,12 @@ func LowerFunc(p Package, f Func) Lowered fails Undefined {
 		Code:    a.Code.Bytes(),
 		Relocs:  a.Relocs,
 		Frame:   fr,
-		Args:    8 * nargs,
+		Args:    plan.ArgsBytes,
+		ArgBits: plan.ArgBits,
+		File:    f.File,
 		Line:    f.Line,
 		Pcsp:    EncodeTable(a.Sp, size),
-		Pcfile:  EncodeTable([]PcVal{PcVal{Pc: 0, V: 0}}, size),
+		Pcfile:  EncodeTable(a.File, size),
 		Pcline:  EncodeTable(a.Line, size),
 		Unsafe:  EncodeTable(a.Unsafe, size),
 		Smi:     EncodeTable(a.Smi, size),
@@ -279,8 +752,14 @@ func LowerFunc(p Package, f Func) Lowered fails Undefined {
 	}
 }
 
-// StackMap is the funcdata bytes of maps: their count, their bit count,
-// then each map's bits, (bits+7)/8 bytes each.
+// LowerFunc lowers one function f of package p without cross-function string deduplication.
+func LowerFunc(p Package, f Func) Lowered fails Undefined {
+	let layouts = ComputeLayouts(p)
+	let mut strs = []string{}
+	try LowerFuncWithStrs(p, layouts, f, &strs)
+}
+
+// StackMap encodes GC stack-pointer bitmaps for runtime FUNCDATA.
 func StackMap(maps [][]bool, nbit int) string {
 	let mut w = NewBuf()
 	w.U32(maps.Len())

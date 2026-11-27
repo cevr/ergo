@@ -131,8 +131,8 @@ func SplitObj(m string) ObjParts fails Bad {
 }
 
 // ExpObj is one exported object as the export data names it, with the
-// extension record a stock importer reads for a function.
-type ExpObj { Name string, Code int, SymIdx int, ABI int, HasExt bool }
+// extension record a stock importer reads for a function or named type.
+type ExpObj { Name string, Code int, SymIdx int, PtrSymIdx int, ABI int, HasExt bool }
 
 // ExportInfo is what a stock importer learns from export data.
 type ExportInfo { Version int, Path string, Fingerprint string, Digest string, Objs []ExpObj, HasInit bool }
@@ -270,20 +270,24 @@ func ReadExport(blob string) ExportInfo fails Bad {
 		try nm.ref(SecPkg)
 		let name = try e.str(try nm.ref(SecString))
 		let code = try nm.uv()
-		let mut obj = ExpObj{Name: name, Code: code, SymIdx: -1, ABI: -1, HasExt: false}
+		let mut obj = ExpObj{Name: name, Code: code, SymIdx: -1, PtrSymIdx: -1, ABI: -1, HasExt: false}
 		if code == ObjFunc {
 			let mut x = try e.open(SecObjExt, o)
 			try x.sv()
 			let idx = try x.sv()
 			if idx < 0 {
-				// A linknamed function: its name and the std flag follow,
-				// and the importer refers to it by name.
 				objs = objs.Append(obj)
 				continue
 			}
 			let ext = try x.flag()
 			let abi = if ext { try x.uv() } else { -1 }
-			obj = ExpObj{Name: name, Code: code, SymIdx: idx, ABI: abi, HasExt: ext}
+			obj = ExpObj{Name: name, Code: code, SymIdx: idx, PtrSymIdx: -1, ABI: abi, HasExt: ext}
+		} else if code == ObjType {
+			let mut x = try e.open(SecObjExt, o)
+			try x.sv()
+			let idx = try x.sv()
+			let pidx = try x.sv()
+			obj = ExpObj{Name: name, Code: code, SymIdx: idx, PtrSymIdx: pidx, ABI: ABI0, HasExt: true}
 		}
 		objs = objs.Append(obj)
 	}
@@ -438,8 +442,24 @@ func ReadObject(data string) DObj fails Bad {
 // Ins is one decoded instruction: its PC and size, its opcode (two-byte
 // opcodes as 0x0F00 plus the second byte), the ModRM reg field (or the
 // opcode's register), the memory or register operand (Base; RIP-relative
-// when Rip), whether it is memory, its displacement and its immediate.
-type Ins { Pc int, Size int, Op int, R int, B int, Mem bool, Rip bool, Disp int, Imm int }
+// when Rip), whether it is memory, its displacement, immediate, and operand width.
+type Ins { Pc int, Size int, Op int, R int, B int, Mem bool, Rip bool, Disp int, Imm int, Width int }
+
+func insWidth(op int, rex int, sizePfx bool) int {
+	if op == 0x88 || op == 0x84 || op == 0x0FB6 || op == 0x0FBE || (op >= 0x0F90 && op <= 0x0F9F) {
+		return 1
+	}
+	if sizePfx || op == 0x0FB7 || op == 0x0FBF {
+		return 2
+	}
+	if op == 0x63 {
+		return 4
+	}
+	if (rex & 8) != 0 {
+		return 8
+	}
+	4
+}
 
 // Disasm decodes code made of the forms amd64.ergo encodes.
 func Disasm(code string) []Ins fails Bad {
@@ -447,7 +467,13 @@ func Disasm(code string) []Ins fails Bad {
 	let mut pc = 0
 	for pc < code.Len() {
 		let start = pc
-		let mut b = int(code[pc])
+		let mut b = try le(code, pc, 1)
+		let mut sizePfx = false
+		if b == 0x66 {
+			sizePfx = true
+			pc = pc + 1
+			b = try le(code, pc, 1)
+		}
 		let mut rex = 0
 		if b >= 0x40 && b <= 0x4F {
 			rex = b
@@ -460,9 +486,11 @@ func Disasm(code string) []Ins fails Bad {
 			op = 0x0F00 + try le(code, pc, 1)
 			pc = pc + 1
 		}
-		let modrm = op == 0x89 || op == 0x8B || op == 0x8D || op == 0x01 || op == 0x29 || op == 0x31 || op == 0x39 || op == 0x3B || op == 0x0FAF ||
-			op == 0x81 || op == 0x83 || op == 0xC7 || op == 0xFF
-		let mut ins = Ins{Pc: start, Size: 0, Op: op, R: 0, B: 0, Mem: false, Rip: false, Disp: 0, Imm: 0}
+		let modrm = op == 0x88 || op == 0x89 || op == 0x8B || op == 0x8D || op == 0x63 ||
+			op == 0x01 || op == 0x09 || op == 0x19 || op == 0x21 || op == 0x29 || op == 0x31 || op == 0x39 || op == 0x3B ||
+			op == 0x84 || op == 0x85 || op == 0x0FAF || op == 0x0FB6 || op == 0x0FB7 || op == 0x0FBE || op == 0x0FBF ||
+			(op >= 0x0F90 && op <= 0x0F9F) || op == 0x81 || op == 0x83 || op == 0xC7 || op == 0xD3 || op == 0xF7 || op == 0xFF
+		let mut ins = Ins{Pc: start, Size: 0, Op: op, R: 0, B: 0, Mem: false, Rip: false, Disp: 0, Imm: 0, Width: insWidth(op, rex, sizePfx)}
 		if modrm {
 			let m = try le(code, pc, 1)
 			pc = pc + 1
@@ -495,12 +523,12 @@ func Disasm(code string) []Ins fails Bad {
 				pc = pc + 1
 			}
 		} else if op >= 0xB8 && op <= 0xBF {
-			ins = Ins{..ins, Op: 0xB8, R: (op & 7) | ((rex & 1) << 3), Imm: try le(code, pc, 8)}
+			ins = Ins{..ins, Op: 0xB8, R: (op & 7) | ((rex & 1) << 3), Imm: try le(code, pc, 8), Width: 8}
 			pc = pc + 8
 		} else if op == 0xE8 || op == 0xE9 || (op >= 0x0F80 && op <= 0x0F8F) {
 			ins = Ins{..ins, Imm: sext(try le(code, pc, 4), 32)}
 			pc = pc + 4
-		} else if op != 0x55 && op != 0x5D && op != 0xC3 {
+		} else if op != 0x55 && op != 0x5D && op != 0x90 && op != 0x99 && op != 0xC3 {
 			return Bad{Why: "opcode \(op) at \(start)"}
 		}
 		out = out.Append(Ins{..ins, Size: pc - start})

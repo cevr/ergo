@@ -1,0 +1,38 @@
+// ScaleU64 combines unsigned arithmetic, division, remainder, shifts, and bitwise ops.
+func ScaleU64(x uint64, denom uint64, factor uint32, shift byte) uint64 {
+	let d = denom | 1
+	let q = x / d
+	let r = x % d
+	let sh = shift & 7
+	let shifted = (q << sh) ^ (r >> 1)
+	let mut acc = shifted &^ 3
+	if shift > 10 && factor > 5 {
+		acc = acc | ((x << 1) & 255)
+	} else {
+		acc = acc | ((x + 11) & 255)
+	}
+	acc
+}
+
+// SignedMix tests signed int32 unary negation, division, remainder, and bitwise not.
+func SignedMix(a int32, b int32) int32 {
+	let mut d = b
+	if b == 0 {
+		d = 7
+	}
+	let neg = -a
+	let comp = ^(+d)
+	(neg / d) + (a % d) + comp
+}
+
+// FormatTag exercises bool, byte, and string comparisons plus concatenation.
+func FormatTag(tag byte, label string, ok bool) string {
+	let mut prefix = "N:"
+	if ok && (tag > 10 || label == "go") {
+		prefix = "Y:"
+	}
+	if !(label < "m") && label != "" {
+		return prefix + label
+	}
+	label + "!"
+}

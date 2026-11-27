@@ -1,49 +1,49 @@
 {
-  "about": "compiler/native: Stop 0 lowering from checked compiler/ir into nativeobj/EIR v1. Each row breaks one soundness, ABI, or refusal contract and is killed by compiler/native's laws and archive verification test.",
+  "about": "compiler/native: Stop 1 lowering from checked compiler/ir into nativeobj/EIR v1. Each row breaks one soundness, ABI, or refusal contract and is killed by compiler/native's laws and archive verification test.",
   "mutants": [
     {
-      "name": "native-multi-file-accepted",
-      "origin": "wf10 NATIVEOBJ-WIDEN r1",
+      "name": "native-map-type-accepted",
+      "origin": "wf10 NATIVEOBJ-STOP1",
       "file": "compiler/native/native.ergo",
-      "decl": "FromIR",
-      "from": "\tif u.IR.Files.Len() > 1 {\n\t\treturn nativeobj.Refused{Why: \"multi-file package\"}\n\t}\n",
-      "to": "\tif false && u.IR.Files.Len() > 1 {\n\t\treturn nativeobj.Refused{Why: \"multi-file package\"}\n\t}\n",
-      "rule": "FromIR refuses multi-file packages cleanly with nativeobj.Refused.",
+      "decl": "resolveType",
+      "from": "\tnativeobj.Refused{Why: \"type \\(s)\"}\n",
+      "to": "\t0\n",
+      "rule": "Unsupported Go/Ergo types outside Stop 1 (such as maps) fail closed with nativeobj.Refused.",
       "killers": ["compiler/native:law:RefusalsAreTyped"]
     },
     {
       "name": "native-unit-call-gets-dst",
-      "origin": "wf10 NATIVEOBJ-WIDEN r1",
+      "origin": "wf10 NATIVEOBJ-WIDEN r1 (updated Stop 1)",
       "file": "compiler/native/native.ergo",
-      "decl": "callExpr",
-      "from": "\tif csig.Results.Len() == 0 {\n\t\temit(st, nativeobj.Call{Dsts: []int{}, Target: st.path + \".\" + name, Args: args}, at)\n\t\treturn -1\n\t}\n",
-      "to": "\tif false && csig.Results.Len() == 0 {\n\t\temit(st, nativeobj.Call{Dsts: []int{}, Target: st.path + \".\" + name, Args: args}, at)\n\t\treturn -1\n\t}\n",
+      "decl": "invokeCallee",
+      "from": "\tif ci.results.Len() == 0 {\n\t\temit(st, nativeobj.Call{Dsts: []int{}, Target: ci.target, Args: args}, at)\n\t\treturn -1\n\t}\n",
+      "to": "\tif ci.results.Len() == 0 {\n\t\temit(st, nativeobj.Call{Dsts: []int{0}, Target: ci.target, Args: args}, at)\n\t\treturn -1\n\t}\n",
       "rule": "Calls to unit (0-result) functions emit zero destination slots so nativeobj.Check and ABIInternal match the callee signature.",
       "killers": ["compiler/native:law:HandoffRoundTrips", "compiler/native:ArchiveBuildsVerifiedObject"]
     },
     {
       "name": "native-unit-call-as-value",
-      "origin": "wf10 NATIVEOBJ-WIDEN r1",
+      "origin": "wf10 NATIVEOBJ-WIDEN r1 (updated Stop 1)",
       "file": "compiler/native/native.ergo",
-      "decl": "callExpr",
-      "from": "\tif wantResult && csig.Results.Len() == 0 {\n\t\treturn refuse(*st, \"call of unit function \\(name) as value\")\n\t}\n",
-      "to": "\tif false && wantResult && csig.Results.Len() == 0 {\n\t\treturn refuse(*st, \"call of unit function \\(name) as value\")\n\t}\n",
+      "decl": "invokeCallee",
+      "from": "\tif wantResult && ci.results.Len() == 0 {\n\t\treturn refuse(*st, \"call of unit function \\(name) as value\")\n\t}\n",
+      "to": "\tif wantResult && ci.results.Len() == 0 {\n\t\treturn nativeobj.Malformed{Why: \"call of unit function \\(name) as value\"}\n\t}\n",
       "rule": "Using a unit function in a value expression is refused with nativeobj.Refused instead of failing later as Malformed.",
       "killers": ["compiler/native:law:RefusalsAreTyped"]
     },
     {
       "name": "native-range-continue-skips-step",
-      "origin": "wf10 NATIVEOBJ-WIDEN r1",
+      "origin": "wf10 NATIVEOBJ-WIDEN r1 (updated Stop 1)",
       "file": "compiler/native/native.ergo",
       "decl": "statement",
-      "from": "\t\tpushLoop(st, step, end)\n\t\ttry stmtList(st, bodyStmts)\n\t\tpopLoop(st)\n",
-      "to": "\t\tpushLoop(st, top, end)\n\t\ttry stmtList(st, bodyStmts)\n\t\tpopLoop(st)\n",
+      "from": "\t\t\temit(st, nativeobj.Jump{To: end}, at)\n\t\t\temit(st, nativeobj.Label{Id: body}, at)\n\t\t\tpushLoop(st, step, end)\n",
+      "to": "\t\t\temit(st, nativeobj.Jump{To: end}, at)\n\t\t\temit(st, nativeobj.Label{Id: body}, at)\n\t\t\tpushLoop(st, top, end)\n",
       "rule": "A continue inside a range loop jumps to the increment step before rechecking the loop bound.",
       "killers": ["compiler/native:law:HandoffRoundTrips"]
     },
     {
       "name": "native-init-not-refused",
-      "origin": "wf10 NATIVEOBJ-WIDEN r1",
+      "origin": "wf10 NATIVEOBJ-WIDEN r1 (updated Stop 1)",
       "file": "compiler/native/native.ergo",
       "decl": "function",
       "from": "\tif name == \"init\" {\n\t\treturn refuse(st, \"init function\")\n\t}\n",
@@ -52,14 +52,44 @@
       "killers": ["compiler/native:law:RefusalsAreTyped"]
     },
     {
-      "name": "native-foreign-call-accepted",
-      "origin": "wf10 NATIVEOBJ-WIDEN r1",
+      "name": "native-unknown-call-accepted",
+      "origin": "wf10 NATIVEOBJ-STOP1",
       "file": "compiler/native/native.ergo",
       "decl": "callExpr",
-      "from": "\tif idx < 0 {\n\t\treturn refuse(*st, \"call of \\(name), no function of this package\")\n\t}\n",
-      "to": "\tif false && idx < 0 {\n\t\treturn refuse(*st, \"call of \\(name), no function of this package\")\n\t}\n",
-      "rule": "Calls to unknown or foreign functions fail closed with nativeobj.Refused.",
+      "from": "\tcase option.None:\n\t\treturn refuse(*st, \"call of \\(name), no function of this package\")\n",
+      "to": "\tcase option.None:\n\t\treturn nativeobj.Malformed{Why: \"call of \\(name), no function of this package\"}\n",
+      "rule": "Calls to unknown functions not in the package or its declared imports fail closed with nativeobj.Refused.",
       "killers": ["compiler/native:law:RefusalsAreTyped"]
+    },
+    {
+      "name": "native-stop1-multi-file-collapsed",
+      "origin": "wf10 NATIVEOBJ-STOP1",
+      "file": "compiler/native/native.ergo",
+      "decl": "fromIRWithForeign",
+      "from": "\tlet files = if u.IR.Files.Len() > 0 { u.IR.Files } else { []string{u.File} }\n",
+      "to": "\tlet files = []string{u.File}\n",
+      "rule": "FromIR preserves all source filenames from u.IR.Files for multi-file packages.",
+      "killers": ["compiler/native:law:Stop1RoundTrips", "compiler/native:ArchiveBuildsVerifiedObject"]
+    },
+    {
+      "name": "native-stop1-foreign-calls-dropped",
+      "origin": "wf10 NATIVEOBJ-STOP1",
+      "file": "compiler/native/native.ergo",
+      "decl": "fromIRWithForeign",
+      "from": "\tlet mut foreign = slices.WithCapacity[nativeobj.ForeignFunc](foreignKeys.Len())\n\tfor fk in foreignKeys {\n\t\tforeign = foreign.Append(nativeobj.ForeignFunc{Import: impRemap[fk.impIdx], Name: fk.name, Params: fk.params, Results: fk.results})\n\t}\n",
+      "to": "\tlet foreign = []nativeobj.ForeignFunc{}\n",
+      "rule": "Foreign calls invoked by local functions must be exported in the foreign call list encoded into EIR v1.",
+      "killers": ["compiler/native:law:Stop1RoundTrips", "compiler/native:ArchiveBuildsVerifiedObject"]
+    },
+    {
+      "name": "native-stop1-field-lit-swaps-order",
+      "origin": "wf10 NATIVEOBJ-STOP1",
+      "file": "compiler/native/native.ergo",
+      "decl": "value",
+      "from": "\t\t\t\tvals[fi] = vs\n",
+      "to": "\t\t\t\tvals[i] = vs\n",
+      "rule": "Record literals assign each named field expression by resolved schema field index rather than literal element order.",
+      "killers": ["compiler/native:law:Stop1RoundTrips", "compiler/native:ArchiveBuildsVerifiedObject"]
     }
   ]
 }

@@ -1,0 +1,230 @@
+import compiler/ir
+import option
+import strings
+
+// HBasicBool identifies the bool scalar type in HTBasic rows.
+let HBasicBool = uint32(1)
+
+// HBasicInt8 identifies the int8 scalar type in HTBasic rows.
+let HBasicInt8 = uint32(3)
+
+// HBasicInt16 identifies the int16 scalar type in HTBasic rows.
+let HBasicInt16 = uint32(4)
+
+// HBasicInt32 identifies the int32 scalar type in HTBasic rows.
+let HBasicInt32 = uint32(5)
+
+// HBasicInt64 identifies the int64 scalar type in HTBasic rows.
+let HBasicInt64 = uint32(6)
+
+// HBasicUint identifies the uint scalar type in HTBasic rows.
+let HBasicUint = uint32(7)
+
+// HBasicUint8 identifies the uint8 and byte scalar type in HTBasic rows.
+let HBasicUint8 = uint32(8)
+
+// HBasicUint16 identifies the uint16 scalar type in HTBasic rows.
+let HBasicUint16 = uint32(9)
+
+// HBasicUint32 identifies the uint32 scalar type in HTBasic rows.
+let HBasicUint32 = uint32(10)
+
+// HBasicUint64 identifies the uint64 scalar type in HTBasic rows.
+let HBasicUint64 = uint32(11)
+
+// HBasicUintptr identifies the uintptr scalar type in HTBasic rows.
+let HBasicUintptr = uint32(12)
+
+// HBasicString identifies the string scalar type in HTBasic rows.
+let HBasicString = uint32(17)
+
+// HODiv divides two integer slots into dst.
+let HODiv = uint32(18)
+
+// HORem computes integer remainder of two slots into dst.
+let HORem = uint32(19)
+
+// HOBitAnd computes bitwise AND of two integer slots into dst.
+let HOBitAnd = uint32(20)
+
+// HOBitOr computes bitwise OR of two integer slots into dst.
+let HOBitOr = uint32(21)
+
+// HOBitAndNot computes bitwise AND-NOT of two integer slots into dst.
+let HOBitAndNot = uint32(22)
+
+// HOShl shifts an integer slot left by an integer count into dst.
+let HOShl = uint32(23)
+
+// HOShr shifts an integer slot right by an integer count into dst.
+let HOShr = uint32(24)
+
+// HOLen reads the byte length of a string or element length of a slice into an int slot.
+let HOLen = uint32(25)
+
+// HOFieldGet loads field symbol fieldSym from a record or record pointer slot into dst.
+let HOFieldGet = uint32(26)
+
+// HOFieldSet stores val into field symbol fieldSym through a pointer-to-record slot.
+let HOFieldSet = uint32(27)
+
+// HORecordLit builds a record value from field value slots in declared field order.
+let HORecordLit = uint32(28)
+
+// HOIndex reads element at an integer index from a slice slot with bounds checking.
+let HOIndex = uint32(29)
+
+// HOSliceLit allocates and initializes a slice value from zero or more element slots.
+let HOSliceLit = uint32(30)
+
+// BasicSizeBytes returns the byte width of an HTBasic scalar code, or 0 if unsupported.
+func BasicSizeBytes(aux uint32) uint32 {
+	if aux == HBasicBool || aux == HBasicInt8 || aux == HBasicUint8 {
+		return 1
+	}
+	if aux == HBasicInt16 || aux == HBasicUint16 {
+		return 2
+	}
+	if aux == HBasicInt32 || aux == HBasicUint32 {
+		return 4
+	}
+	if aux == ir.HBasicInt || aux == HBasicInt64 || aux == HBasicUint || aux == HBasicUint64 || aux == HBasicUintptr {
+		return 8
+	}
+	if aux == HBasicString {
+		return 16
+	}
+	0
+}
+
+// BasicIsSigned reports whether an HTBasic scalar code is signed.
+func BasicIsSigned(aux uint32) bool {
+	aux == ir.HBasicInt || aux == HBasicInt8 || aux == HBasicInt16 || aux == HBasicInt32 || aux == HBasicInt64
+}
+
+// BasicIsInt reports whether an HTBasic scalar code is an integer type.
+func BasicIsInt(aux uint32) bool {
+	aux >= ir.HBasicInt && aux <= HBasicUintptr
+}
+
+func stop1Specimen(seed uint32) Draft {
+	let names = []string{"F", "Other.A", "Pair", "Pair.A", "Pair.B", "a.ergo", "amd64", "b.ergo", "go1.27.4", "hello", "linux", "plain", "stop1", "z/stop1"}
+	let mut ends = []uint32{}
+	let mut off = uint32(0)
+	for n in names {
+		off = off + uint32(n.Len())
+		ends = ends.Append(off)
+	}
+	let ty = columns(4, [][]uint32{
+		[]uint32{ir.HTBasic, ir.HBasicInt, 0, 0},
+		[]uint32{ir.HTBasic, HBasicBool, 0, 0},
+		[]uint32{ir.HTBasic, HBasicUint32, 0, 0},
+		[]uint32{ir.HTBasic, HBasicString, 0, 0},
+		[]uint32{ir.HTRecord, 0, 0, 2},
+		[]uint32{ir.HTNamed, 3, 2, 1},
+		[]uint32{ir.HTPointer, 0, 3, 1},
+		[]uint32{ir.HTSlice, 0, 4, 1},
+		[]uint32{ir.HTSignature, 2, 5, 3},
+	})
+	let sy = columns(5, [][]uint32{
+		[]uint32{0, 1, ir.HSFunc, 9, 1},
+		[]uint32{0, 2, ir.HSField, 3, 2},
+		[]uint32{0, 3, ir.HSType, 6, 2},
+		[]uint32{0, 4, ir.HSField, 3, 2},
+		[]uint32{0, 5, ir.HSField, 4, 2},
+	})
+	let bs = columns(5, [][]uint32{
+		[]uint32{1, 0, 13, 0, 16},
+	})
+	let sl = []uint32{7, 6, 1, 3, 4, 6, 2, 1, 3, 8, 3, 4, 2}
+	let os = columns(4, [][]uint32{
+		[]uint32{ir.HOConst, 1, 8, 3},
+		[]uint32{ir.HOConst, 1, 11, 3},
+		[]uint32{HOFieldGet, 1, 14, 3},
+		[]uint32{HOFieldGet, 1, 17, 3},
+		[]uint32{ir.HOConvert, 1, 20, 2},
+		[]uint32{HOIndex, 1, 22, 3},
+		[]uint32{HOSliceLit, 1, 25, 2},
+		[]uint32{HOLen, 1, 27, 2},
+		[]uint32{HORecordLit, 1, 29, 3},
+		[]uint32{HOFieldSet, 1, 32, 3},
+		[]uint32{HOShl, 1, 35, 3},
+		[]uint32{ir.HOBranch, 1, 38, 5},
+		[]uint32{ir.HOConst, 1, 43, 3},
+		[]uint32{ir.HOBranch, 1, 46, 5},
+		[]uint32{ir.HOConst, 1, 51, 3},
+		[]uint32{ir.HOReturn, 1, 54, 1},
+	})
+	let ops = []uint32{
+		4, 5,
+		5,
+		6,
+		3,
+		7, 6, 1,
+		3, 0, 0,
+		4, 10, 0,
+		9, 1, 4,
+		5, 2, 5,
+		11, 3,
+		11, 10, 3,
+		10, 9,
+		8, 10,
+		6, 4, 5,
+		1, 4, 11,
+		11, 4, 3,
+		ir.HCEqual, 5, 12, 13, 16,
+		12, 10, 0,
+		ir.HCEqual, 7, 13, 15, 16,
+		7, 1, 0,
+		8,
+	}
+	let files = columns(12, [][]uint32{
+		[]uint32{6, 20, 0, 1, 0x11111111, 0, 0, 0, 0, 0, 0, seed % 100},
+		[]uint32{8, 35, 1, 3, 0x22222222, 0, 0, 0, 0, 0, 0, seed % 100},
+	})
+	Draft{Text: strings.Join(names, ""), Columns: [][]uint32{
+		[]uint32{14, 13, 11, 7, 9, 12}, ends,
+		[]uint32{},
+		files,
+		[]uint32{0, 0, 15, 25},
+		columns(3, [][]uint32{[]uint32{1, 2, 8}, []uint32{2, 27, 31}}),
+		ty, sy, bs, sl, os,
+		[]uint32{}, []uint32{}, []uint32{},
+		ops,
+	}}
+}
+
+// Stop1OperationsValidate checks that Stop 1 scalars, records, slices, field ops, shifts, len, convert, and multi-file spans pack cleanly and fail closed on invalid relations.
+law Stop1OperationsValidate(seed uint32) {
+	let p = Pack(stop1Specimen(seed)) catch {
+	case Malformed:
+		return false
+	}
+	let first = PositionOf(p, 1)
+	let second = PositionOf(p, 2)
+	let posOk = first == option.Some[Position]{Value: Position{Path: "a.ergo", Start: 2, End: 8, Line: 1, Column: 3}} &&
+		second == option.Some[Position]{Value: Position{Path: "b.ergo", Start: 27, End: 31, Line: 3, Column: 3}}
+	let badStrConst = refuses(editWord(p, ir.HOperands, 44, 0, 99), ir.HOps)
+	let badFieldRef = refuses(editWord(p, ir.HOperands, 16, 0, 1), ir.HOps)
+	let badConvert = refuses(editWord(p, ir.HSlots, 10, 0, 6), ir.HOps)
+	let badIndex = refuses(editWord(p, ir.HOperands, 22, 0, 7), ir.HOps)
+	let badLenDst = refuses(editWord(p, ir.HOperands, 27, 0, 4), ir.HOps)
+	let badFieldSet = refuses(editWord(p, ir.HOperands, 34, 0, 12), ir.HOps)
+	let badBranchBool = refuses(editWord(p, ir.HOperands, 46, 0, ir.HCLess), ir.HOps)
+	let badDupField = refuses(editWord(p, ir.HOperands, 1, 0, 2), ir.HTypes)
+	posOk && badStrConst && badFieldRef && badConvert && badIndex && badLenDst && badFieldSet && badBranchBool && badDupField
+}
+
+test Stop1OperationsCheck {
+	let p = try Pack(stop1Specimen(1))
+	assert PositionOf(p, 1) == option.Some[Position]{Value: Position{Path: "a.ergo", Start: 2, End: 8, Line: 1, Column: 3}}
+	assert PositionOf(p, 2) == option.Some[Position]{Value: Position{Path: "b.ergo", Start: 27, End: 31, Line: 3, Column: 3}}
+	assert refuses(editWord(p, ir.HOperands, 44, 0, 99), ir.HOps)
+	assert refuses(editWord(p, ir.HOperands, 16, 0, 1), ir.HOps)
+	assert refuses(editWord(p, ir.HSlots, 10, 0, 6), ir.HOps)
+	assert refuses(editWord(p, ir.HOperands, 22, 0, 7), ir.HOps)
+	assert refuses(editWord(p, ir.HOperands, 27, 0, 4), ir.HOps)
+	assert refuses(editWord(p, ir.HOperands, 34, 0, 12), ir.HOps)
+	assert refuses(editWord(p, ir.HOperands, 46, 0, ir.HCLess), ir.HOps)
+	assert refuses(editWord(p, ir.HOperands, 1, 0, 2), ir.HTypes)
+}
