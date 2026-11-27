@@ -1,0 +1,1113 @@
+import compiler/check/bind
+import compiler/check/store
+import compiler/syntax
+import dense
+import option
+import strconv
+import utf8
+
+// CompileStmtList compiles a statement list, optionally producing a tail expression value.
+func CompileStmtList(prog mut Program, ctx mut CompileUnitCtx, fb mut FnBuilder, list syntax.List, wantsVal bool, wantType uint32) {
+	let p = ctx.K.Parsed[int(fb.File)]
+	let tr = p.Tree
+	let n = syntax.Len(list)
+	if n == 0 {
+		if wantsVal {
+			EmitOp(prog, OpUnit, uint8(0), uint32(0), uint32(0), uint32(0), fb.File, syntax.Root(tr))
+		}
+		return
+	}
+	for i in 0..n {
+		let st = syntax.Item(tr, list, i)
+		if i == n-1 && wantsVal {
+			CompileTailStmtNode(prog, ctx, fb, st, wantType)
+		} else {
+			CompileStmtNode(prog, ctx, fb, st)
+		}
+	}
+}
+
+// CompileBlockStmtNode compiles a BlockStmt, optionally preserving its final value.
+func CompileBlockStmtNode(prog mut Program, ctx mut CompileUnitCtx, fb mut FnBuilder, id dense.ID[syntax.Node], wantsVal bool, wantType uint32, isTail bool) {
+	let tr = ctx.K.Parsed[int(fb.File)].Tree
+	if syntax.KindOf(tr, id) != syntax.KBlockStmt {
+		CompileStmtNode(prog, ctx, fb, id)
+		if wantsVal {
+			EmitOp(prog, OpUnit, uint8(0), uint32(0), uint32(0), uint32(0), fb.File, id)
+		}
+		return
+	}
+	let _ = isTail
+	CompileStmtList(prog, ctx, fb, syntax.BlockStmtOf(tr, id).List, wantsVal, wantType)
+}
+
+// CompileTailStmtNode compiles the final statement of a value-producing block.
+func CompileTailStmtNode(prog mut Program, ctx mut CompileUnitCtx, fb mut FnBuilder, id dense.ID[syntax.Node], wantType uint32) {
+	let tr = ctx.K.Parsed[int(fb.File)].Tree
+	let kd = syntax.KindOf(tr, id)
+	if kd == syntax.KExprStmt {
+		CompileExprNode(prog, ctx, fb, syntax.ExprStmtOf(tr, id).X, wantType, true)
+		return
+	}
+	if kd == syntax.KIfStmt {
+		CompileIfStmtNode(prog, ctx, fb, id, true, wantType, true)
+		return
+	}
+	if kd == syntax.KSwitchStmt {
+		CompileSwitchStmtNode(prog, ctx, fb, id, true, wantType, true)
+		return
+	}
+	if kd == syntax.KTypeSwitchStmt {
+		CompileTypeSwitchStmtNode(prog, ctx, fb, id, true, wantType, true)
+		return
+	}
+	if kd == syntax.KBlockStmt {
+		CompileBlockStmtNode(prog, ctx, fb, id, true, wantType, true)
+		return
+	}
+	CompileStmtNode(prog, ctx, fb, id)
+	EmitOp(prog, OpUnit, uint8(0), uint32(0), uint32(0), uint32(0), fb.File, id)
+}
+
+// CompileStmtNode compiles a statement that produces no value on the stack.
+func CompileStmtNode(prog mut Program, ctx mut CompileUnitCtx, fb mut FnBuilder, id dense.ID[syntax.Node]) {
+	let p = ctx.K.Parsed[int(fb.File)]
+	let tr = p.Tree
+	let kd = syntax.KindOf(tr, id)
+	if kd == syntax.KExprStmt {
+		CompileExprNode(prog, ctx, fb, syntax.ExprStmtOf(tr, id).X, TypeVoid, false)
+		EmitOp(prog, OpPop, uint8(0), uint32(0), uint32(0), uint32(0), fb.File, id)
+		return
+	}
+	if kd == syntax.KDeclStmt {
+		let ds = syntax.DeclStmtOf(tr, id)
+		if syntax.KindOf(tr, ds.Decl) == syntax.KVarDecl {
+			compileLocalVarDecl(prog, ctx, fb, syntax.VarDeclOf(tr, ds.Decl).Spec, id)
+		}
+		return
+	}
+	if kd == syntax.KAssignStmt {
+		compileAssignStmtNode(prog, ctx, fb, id)
+		return
+	}
+	if kd == syntax.KReturnStmt {
+		let rs = syntax.ReturnStmtOf(tr, id)
+		match dense.Unpack(rs.Result) {
+		case option.Some{Value: res}:
+			CompileExprNode(prog, ctx, fb, res, fb.ReturnType, true)
+			EmitOp(prog, OpReturnVal, uint8(0), uint32(0), uint32(0), uint32(0), fb.File, id)
+		case option.None:
+			EmitOp(prog, OpReturn, uint8(0), uint32(0), uint32(0), uint32(0), fb.File, id)
+		}
+		return
+	}
+	if kd == syntax.KBlockStmt {
+		CompileBlockStmtNode(prog, ctx, fb, id, false, TypeVoid, false)
+		return
+	}
+	if kd == syntax.KIfStmt {
+		CompileIfStmtNode(prog, ctx, fb, id, false, TypeVoid, false)
+		return
+	}
+	if kd == syntax.KSwitchStmt {
+		CompileSwitchStmtNode(prog, ctx, fb, id, false, TypeVoid, false)
+		return
+	}
+	if kd == syntax.KTypeSwitchStmt {
+		CompileTypeSwitchStmtNode(prog, ctx, fb, id, false, TypeVoid, false)
+		return
+	}
+	if kd == syntax.KForStmt {
+		compileForStmtNode(prog, ctx, fb, id)
+		return
+	}
+	if kd == syntax.KRangeStmt {
+		compileRangeStmtNode(prog, ctx, fb, id)
+		return
+	}
+	if kd == syntax.KBranchStmt {
+		compileBranchStmtNode(prog, *ctx, fb, id)
+		return
+	}
+	if kd == syntax.KAssertStmt {
+		let a = syntax.AssertStmtOf(tr, id)
+		CompileExprNode(prog, ctx, fb, a.X, TypeBool, false)
+		EmitOp(prog, OpAssert, uint8(0), uint32(0), uint32(0), uint32(0), fb.File, a.X)
+		return
+	}
+	if kd == syntax.KAlwaysStmt {
+		let a = syntax.AlwaysStmtOf(tr, id)
+		CompileExprNode(prog, ctx, fb, a.X, TypeBool, false)
+		EmitOp(prog, OpAlways, uint8(0), uint32(0), uint32(0), uint32(0), fb.File, a.X)
+		return
+	}
+	if kd == syntax.KSometimesStmt {
+		let s = syntax.SometimesStmtOf(tr, id)
+		CompileExprNode(prog, ctx, fb, s.X, TypeBool, false)
+		EmitOp(prog, OpSometimes, uint8(0), uint32(0), uint32(0), uint32(0), fb.File, s.X)
+		return
+	}
+	if kd == syntax.KSkipStmt {
+		let s = syntax.SkipStmtOf(tr, id)
+		let msg = if s.Reason >= 0 {
+			unescapeStringSegment(syntax.String, syntax.TokText(p, s.Reason))
+		} else {
+			""
+		}
+		let cIdx = AddConst(prog, AllocStrVal(&prog.Arena, TypeString, msg))
+		EmitOp(prog, OpSkip, uint8(0), cIdx, uint32(0), uint32(0), fb.File, id)
+		return
+	}
+	if kd == syntax.KDieStmt {
+		let d = syntax.DieStmtOf(tr, id)
+		CompileExprNode(prog, ctx, fb, d.X, TypeVoid, false)
+		EmitOp(prog, OpDie, uint8(0), uint32(0), uint32(0), uint32(0), fb.File, d.X)
+		return
+	}
+}
+
+func compileLocalVarDecl(prog mut Program, ctx mut CompileUnitCtx, fb mut FnBuilder, specNode dense.ID[syntax.Node], declNode dense.ID[syntax.Node]) {
+	let p = ctx.K.Parsed[int(fb.File)]
+	let tr = p.Tree
+	if syntax.KindOf(tr, specNode) != syntax.KVarSpec {
+		return
+	}
+	let vs = syntax.VarSpecOf(tr, specNode)
+	let inLoop = fb.Loops.Len() > 0
+	let mut writtenT = TypeVoid
+	match dense.Unpack(vs.Type) {
+	case option.Some{Value: tyNode}:
+		writtenT = ResolveSyntaxTypeNode(prog, ctx, *fb, fb.File, tyNode)
+	case option.None:
+	}
+	match dense.Unpack(vs.Pattern) {
+	case option.Some{Value: patNode}:
+		let patT = if writtenT != TypeVoid {
+			writtenT
+		} else {
+			match dense.Unpack(vs.Value) {
+			case option.Some{Value: rhs}:
+				ResolveExprType(prog, ctx, *fb, rhs, TypeVoid)
+			case option.None:
+				TypeVoid
+			}
+		}
+		let patIdx = CompilePatternNode(prog, ctx, fb, patNode, patT)
+		match dense.Unpack(vs.Value) {
+		case option.Some{Value: rhs}:
+			CompileExprNode(prog, ctx, fb, rhs, patT, false)
+		case option.None:
+			EmitOp(prog, OpZero, uint8(0), patT, uint32(0), uint32(0), fb.File, declNode)
+		}
+		EmitOp(prog, OpBindPat, uint8(0), patIdx, uint32(0), uint32(0), fb.File, declNode)
+		return
+	case option.None:
+	}
+	let n = syntax.Len(vs.Names)
+	if n == 0 {
+		return
+	}
+	if n == 1 {
+		let nmNode = syntax.Item(tr, vs.Names, 0)
+		let nmText = textOfNameNode(p, nmNode)
+		let mut varT = writtenT
+		if varT == TypeVoid {
+			varT = LookupNodeType(*ctx, fb.File, nmNode)
+		}
+		if varT == TypeVoid {
+			match dense.Unpack(vs.Value) {
+			case option.Some{Value: rhs}:
+				varT = ResolveExprType(prog, ctx, *fb, rhs, TypeVoid)
+			case option.None:
+			}
+		}
+		if nmText == "_" {
+			match dense.Unpack(vs.Value) {
+			case option.Some{Value: rhs}:
+				CompileExprNode(prog, ctx, fb, rhs, varT, false)
+				EmitOp(prog, OpPop, uint8(0), uint32(0), uint32(0), uint32(0), fb.File, declNode)
+			case option.None:
+			}
+			return
+		}
+		let dp = bind.PNodeOf(ctx.K.Ps, int(fb.File), nmNode)
+		let slot = AllocLocalSlot(fb, dense.OptOf(dp), varT, false)
+		if inLoop {
+			EmitOp(prog, OpRebindCell, uint8(0), slot, uint32(0), uint32(0), fb.File, nmNode)
+		}
+		match dense.Unpack(vs.Value) {
+		case option.Some{Value: rhs}:
+			CompileExprNode(prog, ctx, fb, rhs, varT, false)
+		case option.None:
+			EmitOp(prog, OpZero, uint8(0), varT, uint32(0), uint32(0), fb.File, nmNode)
+		}
+		EmitOp(prog, OpStoreLocal, uint8(0), slot, uint32(0), uint32(0), fb.File, declNode)
+		return
+	}
+	let mut elemTs = []uint32{}
+	let mut slots = []uint32{}
+	let mut discards = []bool{}
+	for i in 0..n {
+		let nmNode = syntax.Item(tr, vs.Names, i)
+		let nmText = textOfNameNode(p, nmNode)
+		let mut et = LookupNodeType(*ctx, fb.File, nmNode)
+		if et == TypeVoid { et = writtenT }
+		elemTs = elemTs.Append(et)
+		if nmText == "_" {
+			discards = discards.Append(true)
+			slots = slots.Append(uint32(0))
+		} else {
+			discards = discards.Append(false)
+			let slot = AllocLocalSlot(fb, dense.OptOf(bind.PNodeOf(ctx.K.Ps, int(fb.File), nmNode)), et, false)
+			if inLoop {
+				EmitOp(prog, OpRebindCell, uint8(0), slot, uint32(0), uint32(0), fb.File, nmNode)
+			}
+			slots = slots.Append(slot)
+		}
+	}
+	let tupT = InternTuple(&prog.Types, elemTs)
+	match dense.Unpack(vs.Value) {
+	case option.Some{Value: rhs}:
+		CompileExprNode(prog, ctx, fb, rhs, tupT, false)
+		let tmp = AllocLocalSlot(fb, dense.NoID[store.PNode](), tupT, false)
+		EmitOp(prog, OpStoreLocal, uint8(0), tmp, uint32(0), uint32(0), fb.File, declNode)
+		for i in 0..n {
+			if !discards[i] {
+				EmitOp(prog, OpLoadLocal, uint8(0), tmp, uint32(0), uint32(0), fb.File, declNode)
+				EmitOp(prog, OpGetField, uint8(0), uint32(i), uint32(0), uint32(0), fb.File, declNode)
+				EmitOp(prog, OpStoreLocal, uint8(0), slots[i], uint32(0), uint32(0), fb.File, declNode)
+			}
+		}
+	case option.None:
+		for i in 0..n {
+			if !discards[i] {
+				EmitOp(prog, OpZero, uint8(0), elemTs[i], uint32(0), uint32(0), fb.File, declNode)
+				EmitOp(prog, OpStoreLocal, uint8(0), slots[i], uint32(0), uint32(0), fb.File, declNode)
+			}
+		}
+	}
+}
+
+func compoundAssignBinOp(tokKind uint8) uint8 {
+	if tokKind == syntax.AddAssign { return syntax.Add }
+	if tokKind == syntax.SubAssign { return syntax.Sub }
+	if tokKind == syntax.MulAssign { return syntax.Mul }
+	if tokKind == syntax.QuoAssign { return syntax.Quo }
+	if tokKind == syntax.RemAssign { return syntax.Rem }
+	if tokKind == syntax.AndAssign { return syntax.And }
+	if tokKind == syntax.OrAssign { return syntax.Or }
+	if tokKind == syntax.XorAssign { return syntax.Xor }
+	if tokKind == syntax.ShlAssign { return syntax.Shl }
+	if tokKind == syntax.ShrAssign { return syntax.Shr }
+	if tokKind == syntax.AndNotAssign { return syntax.AndNot }
+	uint8(0)
+}
+
+func tryCompileSelfAppend(prog mut Program, ctx mut CompileUnitCtx, fb mut FnBuilder, lhsSlot uint32, lhsPNode dense.ID[store.PNode], rhs dense.ID[syntax.Node], assignNode dense.ID[syntax.Node]) bool {
+	let p = ctx.K.Parsed[int(fb.File)]
+	let tr = p.Tree
+	let ru = unparenNode(tr, rhs)
+	if syntax.KindOf(tr, ru) != syntax.KCallExpr {
+		return false
+	}
+	let ce = syntax.CallExprOf(tr, ru)
+	if syntax.Len(ce.Args) != 1 {
+		return false
+	}
+	let fun = unparenNode(tr, ce.Fun)
+	if syntax.KindOf(tr, fun) != syntax.KSelectorExpr {
+		return false
+	}
+	let se = syntax.SelectorExprOf(tr, fun)
+	if textOfNameNode(p, se.Sel) != "Append" {
+		return false
+	}
+	let recv = unparenNode(tr, se.X)
+	if syntax.KindOf(tr, recv) != syntax.KIdent {
+		return false
+	}
+	let rpn = bind.PNodeOf(ctx.K.Ps, int(fb.File), recv)
+	match bind.ResolutionOf(ctx.K.U, ctx.K.Ps, rpn) {
+	case bind.Declared as d:
+		if dense.Index(d.At) != dense.Index(lhsPNode) {
+			return false
+		}
+	case _:
+		return false
+	}
+	let arg = syntax.Item(tr, ce.Args, 0)
+	if nodeMentionsDef(*ctx, int(fb.File), arg, lhsPNode) {
+		return false
+	}
+	let lt = fb.LocalTypes[int(lhsSlot)]
+	let elemT = if int(lt) < prog.Types.Kind.Len() && UnderlyingKind(prog.Types, lt) == KindSlice {
+		prog.Types.Elem[int(UnwrapType(prog.Types, lt))]
+	} else {
+		TypeVoid
+	}
+	EmitOp(prog, OpTakeLocal, uint8(0), lhsSlot, uint32(0), uint32(0), fb.File, recv)
+	CompileExprNode(prog, ctx, fb, arg, elemT, false)
+	EmitOp(prog, OpCallNative, uint8(0), NatAppend, uint32(2), uint32(0), fb.File, rhs)
+	EmitOp(prog, OpStoreLocal, uint8(0), lhsSlot, uint32(0), uint32(0), fb.File, assignNode)
+	true
+}
+
+func nodeMentionsDef(ctx CompileUnitCtx, file int, root dense.ID[syntax.Node], targetDef dense.ID[store.PNode]) bool {
+	let tr = ctx.K.Parsed[file].Tree
+	let wantIdx = dense.Index(targetDef)
+	let mut stack = []uint32{uint32(dense.Index(root))}
+	for stack.Len() > 0 {
+		let curIdx = stack[stack.Len()-1]
+		stack = stack[0 : stack.Len()-1]
+		let cur = syntax.NodeAt(tr, int(curIdx))
+		if syntax.KindOf(tr, cur) == syntax.KIdent {
+			let pn = bind.PNodeOf(ctx.K.Ps, file, cur)
+			match bind.ResolutionOf(ctx.K.U, ctx.K.Ps, pn) {
+			case bind.Declared as d:
+				if dense.Index(d.At) == wantIdx {
+					return true
+				}
+			case _:
+			}
+		}
+		stack = syntax.Children(tr, cur, stack)
+	}
+	false
+}
+
+func compileAssignStmtNode(prog mut Program, ctx mut CompileUnitCtx, fb mut FnBuilder, id dense.ID[syntax.Node]) {
+	let p = ctx.K.Parsed[int(fb.File)]
+	let tr = p.Tree
+	let a = syntax.AssignStmtOf(tr, id)
+	let tok = syntax.TokKind(p, a.Tok)
+	let binOp = compoundAssignBinOp(tok)
+	let lhs = unparenNode(tr, a.Lhs)
+	if syntax.KindOf(tr, lhs) == syntax.KIdent {
+		if textOfNameNode(p, lhs) == "_" {
+			CompileExprNode(prog, ctx, fb, a.Rhs, TypeVoid, false)
+			EmitOp(prog, OpPop, uint8(0), uint32(0), uint32(0), uint32(0), fb.File, id)
+			return
+		}
+		let pn = bind.PNodeOf(ctx.K.Ps, int(fb.File), lhs)
+		match bind.ResolutionOf(ctx.K.U, ctx.K.Ps, pn) {
+		case bind.Declared as d:
+			let lk = LocalDefKey(d.At)
+			match fb.LocalByDef.Get(lk) {
+			case option.Some{Value: slot}:
+				if binOp == uint8(0) && tryCompileSelfAppend(prog, ctx, fb, slot, d.At, a.Rhs, id) {
+					return
+				}
+				let lt = fb.LocalTypes[int(slot)]
+				if binOp != uint8(0) {
+					EmitOp(prog, OpLoadLocal, uint8(0), slot, uint32(0), uint32(0), fb.File, lhs)
+					let rhsW = if binOp == syntax.Shl || binOp == syntax.Shr { TypeInt } else { lt }
+					CompileExprNode(prog, ctx, fb, a.Rhs, rhsW, false)
+					EmitOp(prog, OpBinary, binOp, lt, uint32(0), uint32(0), fb.File, id)
+				} else {
+					CompileExprNode(prog, ctx, fb, a.Rhs, lt, false)
+				}
+				EmitOp(prog, OpStoreLocal, uint8(0), slot, uint32(0), uint32(0), fb.File, id)
+				return
+			case option.None:
+			}
+			match fb.CapByDef.Get(lk) {
+			case option.Some{Value: capIdx}:
+				let ct = fb.CapTypes[int(capIdx)]
+				if binOp != uint8(0) {
+					EmitOp(prog, OpLoadCap, uint8(0), capIdx, uint32(0), uint32(0), fb.File, lhs)
+					let rhsW = if binOp == syntax.Shl || binOp == syntax.Shr { TypeInt } else { ct }
+					CompileExprNode(prog, ctx, fb, a.Rhs, rhsW, false)
+					EmitOp(prog, OpBinary, binOp, ct, uint32(0), uint32(0), fb.File, id)
+				} else {
+					CompileExprNode(prog, ctx, fb, a.Rhs, ct, false)
+				}
+				EmitOp(prog, OpStoreCap, uint8(0), capIdx, uint32(0), uint32(0), fb.File, id)
+				return
+			case option.None:
+			}
+		case _:
+		}
+	}
+	if syntax.KindOf(tr, lhs) == syntax.KStarExpr {
+		let targetExpr = syntax.StarExprOf(tr, lhs).X
+		let elemT = ResolveExprType(prog, ctx, *fb, lhs, TypeVoid)
+		CompileExprNode(prog, ctx, fb, targetExpr, TypeVoid, false)
+		if binOp != uint8(0) {
+			EmitOp(prog, OpDup, uint8(0), uint32(0), uint32(0), uint32(0), fb.File, lhs)
+			EmitOp(prog, OpDeref, uint8(0), uint32(0), uint32(0), uint32(0), fb.File, lhs)
+			let rhsW = if binOp == syntax.Shl || binOp == syntax.Shr { TypeInt } else { elemT }
+			CompileExprNode(prog, ctx, fb, a.Rhs, rhsW, false)
+			EmitOp(prog, OpBinary, binOp, elemT, uint32(0), uint32(0), fb.File, id)
+		} else {
+			CompileExprNode(prog, ctx, fb, a.Rhs, elemT, false)
+		}
+		EmitOp(prog, OpStoreDeref, uint8(0), uint32(0), uint32(0), uint32(0), fb.File, id)
+		return
+	}
+	compilePlaceChainAssign(prog, ctx, fb, lhs, a.Rhs, binOp, id)
+}
+
+func compilePlaceChainAssign(prog mut Program, ctx mut CompileUnitCtx, fb mut FnBuilder, lhs dense.ID[syntax.Node], rhs dense.ID[syntax.Node], binOp uint8, assignNode dense.ID[syntax.Node]) {
+	let p = ctx.K.Parsed[int(fb.File)]
+	let tr = p.Tree
+	let mut revNodes = []dense.ID[syntax.Node]{}
+	let mut cur = lhs
+	for {
+		cur = unparenNode(tr, cur)
+		let ck = syntax.KindOf(tr, cur)
+		if ck == syntax.KSelectorExpr {
+			revNodes = revNodes.Append(cur)
+			cur = syntax.SelectorExprOf(tr, cur).X
+		} else if ck == syntax.KIndexExpr {
+			revNodes = revNodes.Append(cur)
+			cur = syntax.IndexExprOf(tr, cur).X
+		} else if ck == syntax.KStarExpr {
+			revNodes = revNodes.Append(cur)
+			cur = syntax.StarExprOf(tr, cur).X
+		} else {
+			break
+		}
+	}
+	let mut rootKind = uint8(0)
+	let mut rootIdx = uint32(0)
+	let mut curT = TypeVoid
+	let pn = bind.PNodeOf(ctx.K.Ps, int(fb.File), cur)
+	match bind.ResolutionOf(ctx.K.U, ctx.K.Ps, pn) {
+	case bind.Declared as d:
+		let lk = LocalDefKey(d.At)
+		match fb.LocalByDef.Get(lk) {
+		case option.Some{Value: slot}:
+			rootKind = uint8(0)
+			rootIdx = slot
+			curT = fb.LocalTypes[int(slot)]
+		case option.None:
+			match fb.CapByDef.Get(lk) {
+			case option.Some{Value: capIdx}:
+				rootKind = uint8(1)
+				rootIdx = capIdx
+				curT = fb.CapTypes[int(capIdx)]
+			case option.None:
+			}
+		}
+	case _:
+	}
+	let planStart = uint32(prog.Places.Len())
+	let nSteps = revNodes.Len()
+	for i in 0..nSteps {
+		let stepNode = revNodes[nSteps-1-i]
+		let sk = syntax.KindOf(tr, stepNode)
+		if sk == syntax.KSelectorExpr {
+			let se = syntax.SelectorExprOf(tr, stepNode)
+			let selName = textOfNameNode(p, se.Sel)
+			let fi = FieldIndexByName(prog.Types, curT, selName)
+			if fi >= 0 {
+				prog.Places = prog.Places.Append(PlaceStep{Kind: PlaceFieldIdx, FieldIdx: uint32(fi), NameStr: uint32(0)})
+				let u = UnwrapType(prog.Types, curT)
+				curT = prog.Types.FieldType[int(prog.Types.Aux[int(u)])+fi]
+			} else {
+				let sIdx = AllocStrVal(&prog.Arena, TypeString, selName).Aux
+				prog.Places = prog.Places.Append(PlaceStep{Kind: PlaceFieldName, FieldIdx: uint32(0), NameStr: sIdx})
+				curT = TypeVoid
+			}
+		} else if sk == syntax.KIndexExpr {
+			let ie = syntax.IndexExprOf(tr, stepNode)
+			let u = UnwrapType(prog.Types, curT)
+			let mut keyWant = TypeInt
+			let mut nextElemT = TypeVoid
+			if int(u) < prog.Types.Kind.Len() {
+				let uk = prog.Types.Kind[int(u)]
+				if uk == KindMap {
+					keyWant = prog.Types.Elem[int(u)]
+					nextElemT = prog.Types.Aux[int(u)]
+				} else if uk == KindSlice || uk == KindArray {
+					nextElemT = prog.Types.Elem[int(u)]
+				}
+			}
+			if syntax.Len(ie.Indices) > 0 {
+				CompileExprNode(prog, ctx, fb, syntax.Item(tr, ie.Indices, 0), keyWant, false)
+			} else {
+				EmitOp(prog, OpZero, uint8(0), keyWant, uint32(0), uint32(0), fb.File, stepNode)
+			}
+			prog.Places = prog.Places.Append(PlaceStep{Kind: PlaceIndex, FieldIdx: uint32(0), NameStr: uint32(0)})
+			curT = nextElemT
+		} else if sk == syntax.KStarExpr {
+			prog.Places = prog.Places.Append(PlaceStep{Kind: PlaceDeref, FieldIdx: uint32(0), NameStr: uint32(0)})
+			if int(curT) < prog.Types.Kind.Len() && prog.Types.Kind[int(curT)] == KindPointer {
+				curT = prog.Types.Elem[int(curT)]
+			}
+		}
+	}
+	if binOp != uint8(0) {
+		EmitOp(prog, OpPlaceLoad, rootKind, planStart, uint32(nSteps), rootIdx, fb.File, lhs)
+		let rhsW = if binOp == syntax.Shl || binOp == syntax.Shr { TypeInt } else { curT }
+		CompileExprNode(prog, ctx, fb, rhs, rhsW, false)
+		EmitOp(prog, OpBinary, binOp, curT, uint32(0), uint32(0), fb.File, assignNode)
+	} else {
+		CompileExprNode(prog, ctx, fb, rhs, curT, false)
+	}
+	EmitOp(prog, OpPlaceStore, rootKind, planStart, uint32(nSteps), rootIdx, fb.File, assignNode)
+}
+
+// CompileIfStmtNode compiles an if statement or expression.
+func CompileIfStmtNode(prog mut Program, ctx mut CompileUnitCtx, fb mut FnBuilder, id dense.ID[syntax.Node], wantsVal bool, wantType uint32, isTail bool) {
+	let tr = ctx.K.Parsed[int(fb.File)].Tree
+	let ifs = syntax.IfStmtOf(tr, id)
+	CompileExprNode(prog, ctx, fb, ifs.Cond, TypeBool, false)
+	let elseJmp = EmitJumpOp(prog, OpJumpIfFalse, fb.File, ifs.Cond)
+	CompileBlockStmtNode(prog, ctx, fb, ifs.Body, wantsVal, wantType, isTail)
+	match dense.Unpack(ifs.Else) {
+	case option.Some{Value: elseNode}:
+		let endJmp = EmitJumpOp(prog, OpJump, fb.File, id)
+		PatchJumpTarget(prog, elseJmp, CurrentPC(*prog))
+		let ek = syntax.KindOf(tr, elseNode)
+		if ek == syntax.KIfStmt {
+			CompileIfStmtNode(prog, ctx, fb, elseNode, wantsVal, wantType, isTail)
+		} else if ek == syntax.KBlockStmt {
+			CompileBlockStmtNode(prog, ctx, fb, elseNode, wantsVal, wantType, isTail)
+		} else {
+			if wantsVal {
+				CompileTailStmtNode(prog, ctx, fb, elseNode, wantType)
+			} else {
+				CompileStmtNode(prog, ctx, fb, elseNode)
+			}
+		}
+		PatchJumpTarget(prog, endJmp, CurrentPC(*prog))
+	case option.None:
+		if wantsVal {
+			let endJmp = EmitJumpOp(prog, OpJump, fb.File, id)
+			PatchJumpTarget(prog, elseJmp, CurrentPC(*prog))
+			EmitOp(prog, OpUnit, uint8(0), uint32(0), uint32(0), uint32(0), fb.File, id)
+			PatchJumpTarget(prog, endJmp, CurrentPC(*prog))
+		} else {
+			PatchJumpTarget(prog, elseJmp, CurrentPC(*prog))
+		}
+	}
+}
+
+func compileForStmtNode(prog mut Program, ctx mut CompileUnitCtx, fb mut FnBuilder, id dense.ID[syntax.Node]) {
+	let tr = ctx.K.Parsed[int(fb.File)].Tree
+	let fs = syntax.ForStmtOf(tr, id)
+	fb.Loops = fb.Loops.Append(LoopPatch{Breaks: []uint32{}, Continues: []uint32{}, IterDepth: fb.IterDepth, ScopeLocalLen: fb.SlotCount})
+	let startPC = CurrentPC(*prog)
+	let mut condExit = uint32(0)
+	let mut hasCond = false
+	match dense.Unpack(fs.Cond) {
+	case option.Some{Value: condExpr}:
+		hasCond = true
+		CompileExprNode(prog, ctx, fb, condExpr, TypeBool, false)
+		condExit = EmitJumpOp(prog, OpJumpIfFalse, fb.File, condExpr)
+	case option.None:
+	}
+	CompileBlockStmtNode(prog, ctx, fb, fs.Body, false, TypeVoid, false)
+	let contPC = startPC
+	let lp = fb.Loops[fb.Loops.Len()-1]
+	for cJmp in lp.Continues {
+		PatchJumpTarget(prog, cJmp, contPC)
+	}
+	let backJmp = EmitJumpOp(prog, OpJump, fb.File, id)
+	PatchJumpTarget(prog, backJmp, startPC)
+	let exitPC = CurrentPC(*prog)
+	if hasCond {
+		PatchJumpTarget(prog, condExit, exitPC)
+	}
+	for bJmp in lp.Breaks {
+		PatchJumpTarget(prog, bJmp, exitPC)
+	}
+	fb.Loops = fb.Loops[0 : fb.Loops.Len()-1]
+}
+
+func compileRangeStmtNode(prog mut Program, ctx mut CompileUnitCtx, fb mut FnBuilder, id dense.ID[syntax.Node]) {
+	let p = ctx.K.Parsed[int(fb.File)]
+	let tr = p.Tree
+	let rs = syntax.RangeStmtOf(tr, id)
+	let rx = unparenNode(tr, rs.X)
+	let mut isIntRange = false
+	let mut bindKind = uint8(0)
+	if syntax.KindOf(tr, rx) == syntax.KBinaryExpr {
+		let bx = syntax.BinaryExprOf(tr, rx)
+		if syntax.TokKind(p, bx.Op) == syntax.DotDot {
+			isIntRange = true
+			let mut boundT = LookupNodeType(*ctx, fb.File, rs.Value)
+			if boundT == TypeVoid {
+				boundT = ResolveExprType(prog, ctx, *fb, bx.X, TypeInt)
+			}
+			CompileExprNode(prog, ctx, fb, bx.X, boundT, false)
+			CompileExprNode(prog, ctx, fb, bx.Y, boundT, false)
+			EmitOp(prog, OpRangeInit, uint8(0), boundT, uint32(0), uint32(0), fb.File, rx)
+		}
+	}
+	if !isIntRange {
+		let colT = ResolveExprType(prog, ctx, *fb, rs.X, TypeVoid)
+		CompileExprNode(prog, ctx, fb, rs.X, colT, false)
+		EmitOp(prog, OpRangeInit, uint8(1), colT, uint32(0), uint32(0), fb.File, rs.X)
+	}
+	let mut keySlot = uint32(0)
+	let mut hasKeySlot = false
+	let mut valSlot = uint32(0)
+	let mut hasValSlot = false
+	let hasKeyNode = isSomeOpt(rs.Key)
+	if hasKeyNode {
+		bindKind = uint8(2)
+		match dense.Unpack(rs.Key) {
+		case option.Some{Value: kn}:
+			if syntax.KindOf(tr, kn) == syntax.KIdent && textOfNameNode(p, kn) != "_" {
+				hasKeySlot = true
+				let kt = LookupNodeType(*ctx, fb.File, kn)
+				keySlot = AllocLocalSlot(fb, dense.OptOf(bind.PNodeOf(ctx.K.Ps, int(fb.File), kn)), kt, false)
+			}
+		case option.None:
+		}
+		if syntax.KindOf(tr, rs.Value) == syntax.KIdent && textOfNameNode(p, rs.Value) != "_" {
+			hasValSlot = true
+			let vt = LookupNodeType(*ctx, fb.File, rs.Value)
+			valSlot = AllocLocalSlot(fb, dense.OptOf(bind.PNodeOf(ctx.K.Ps, int(fb.File), rs.Value)), vt, false)
+		}
+	} else {
+		bindKind = uint8(1)
+		if syntax.KindOf(tr, rs.Value) == syntax.KIdent && textOfNameNode(p, rs.Value) != "_" {
+			hasValSlot = true
+			let vt = LookupNodeType(*ctx, fb.File, rs.Value)
+			valSlot = AllocLocalSlot(fb, dense.OptOf(bind.PNodeOf(ctx.K.Ps, int(fb.File), rs.Value)), vt, false)
+		}
+	}
+	fb.IterDepth = fb.IterDepth + uint32(1)
+	fb.Loops = fb.Loops.Append(LoopPatch{Breaks: []uint32{}, Continues: []uint32{}, IterDepth: fb.IterDepth, ScopeLocalLen: fb.SlotCount})
+	let loopPC = CurrentPC(*prog)
+	let nextJmp = EmitOp(prog, OpRangeNext, bindKind, uint32(0), uint32(0), uint32(0), fb.File, id)
+	if hasKeySlot {
+		EmitOp(prog, OpRebindCell, uint8(0), keySlot, uint32(0), uint32(0), fb.File, id)
+	}
+	if hasValSlot {
+		EmitOp(prog, OpRebindCell, uint8(0), valSlot, uint32(0), uint32(0), fb.File, id)
+	}
+	if bindKind == uint8(2) {
+		if hasValSlot {
+			EmitOp(prog, OpStoreLocal, uint8(0), valSlot, uint32(0), uint32(0), fb.File, id)
+		} else {
+			EmitOp(prog, OpPop, uint8(0), uint32(0), uint32(0), uint32(0), fb.File, id)
+		}
+		if hasKeySlot {
+			EmitOp(prog, OpStoreLocal, uint8(0), keySlot, uint32(0), uint32(0), fb.File, id)
+		} else {
+			EmitOp(prog, OpPop, uint8(0), uint32(0), uint32(0), uint32(0), fb.File, id)
+		}
+	} else {
+		if hasValSlot {
+			EmitOp(prog, OpStoreLocal, uint8(0), valSlot, uint32(0), uint32(0), fb.File, id)
+		} else {
+			EmitOp(prog, OpPop, uint8(0), uint32(0), uint32(0), uint32(0), fb.File, id)
+		}
+	}
+	CompileBlockStmtNode(prog, ctx, fb, rs.Body, false, TypeVoid, false)
+	let lp = fb.Loops[fb.Loops.Len()-1]
+	for cJmp in lp.Continues {
+		PatchJumpTarget(prog, cJmp, loopPC)
+	}
+	let backJmp = EmitJumpOp(prog, OpJump, fb.File, id)
+	PatchJumpTarget(prog, backJmp, loopPC)
+	let exitPC = CurrentPC(*prog)
+	PatchJumpTarget(prog, nextJmp, exitPC)
+	for bJmp in lp.Breaks {
+		PatchJumpTarget(prog, bJmp, exitPC)
+	}
+	fb.Loops = fb.Loops[0 : fb.Loops.Len()-1]
+	fb.IterDepth = fb.IterDepth - uint32(1)
+}
+
+func compileBranchStmtNode(prog mut Program, ctx CompileUnitCtx, fb mut FnBuilder, id dense.ID[syntax.Node]) {
+	let p = ctx.K.Parsed[int(fb.File)]
+	let bs = syntax.BranchStmtOf(p.Tree, id)
+	let tk = syntax.TokKind(p, bs.Tok)
+	if fb.Loops.Len() == 0 {
+		return
+	}
+	let lpIdx = fb.Loops.Len() - 1
+	let lp = fb.Loops[lpIdx]
+	if tk == syntax.Break {
+		if fb.IterDepth > uint32(0) && fb.IterDepth >= lp.IterDepth {
+			let extra = if lp.IterDepth > uint32(0) { uint32(1) } else { uint32(0) }
+			let totalPop = (fb.IterDepth - lp.IterDepth) + extra
+			if totalPop > uint32(0) {
+				EmitOp(prog, OpRangePop, uint8(0), uint32(0), totalPop, uint32(0), fb.File, id)
+			}
+		}
+		let j = EmitJumpOp(prog, OpJump, fb.File, id)
+		fb.Loops[lpIdx].Breaks = fb.Loops[lpIdx].Breaks.Append(j)
+		return
+	}
+	if tk == syntax.Continue {
+		if fb.IterDepth > lp.IterDepth {
+			EmitOp(prog, OpRangePop, uint8(0), uint32(0), fb.IterDepth-lp.IterDepth, uint32(0), fb.File, id)
+		}
+		let j = EmitJumpOp(prog, OpJump, fb.File, id)
+		fb.Loops[lpIdx].Continues = fb.Loops[lpIdx].Continues.Append(j)
+	}
+}
+
+// CompileSwitchStmtNode compiles a value match switch statement or expression.
+func CompileSwitchStmtNode(prog mut Program, ctx mut CompileUnitCtx, fb mut FnBuilder, id dense.ID[syntax.Node], wantsVal bool, wantType uint32, isTail bool) {
+	let p = ctx.K.Parsed[int(fb.File)]
+	let tr = p.Tree
+	let sw = syntax.SwitchStmtOf(tr, id)
+	let tagT = ResolveExprType(prog, ctx, *fb, sw.Tag, TypeVoid)
+	CompileExprNode(prog, ctx, fb, sw.Tag, tagT, false)
+	let tagSlot = AllocLocalSlot(fb, dense.NoID[store.PNode](), tagT, false)
+	EmitOp(prog, OpStoreLocal, uint8(0), tagSlot, uint32(0), uint32(0), fb.File, sw.Tag)
+	let mut endJmps = []uint32{}
+	let nClauses = syntax.Len(sw.Clauses)
+	let _ = isTail
+	for i in 0..nClauses {
+		let cNode = syntax.Item(tr, sw.Clauses, i)
+		if syntax.KindOf(tr, cNode) != syntax.KCaseClause {
+			continue
+		}
+		let cc = syntax.CaseClauseOf(tr, cNode)
+		let nExprs = syntax.Len(cc.List)
+		let mut isDefault = nExprs == 0
+		if nExprs == 1 {
+			let first = syntax.Item(tr, cc.List, 0)
+			if syntax.KindOf(tr, first) == syntax.KIdent && textOfNameNode(p, first) == "_" {
+				isDefault = true
+			}
+		}
+		if isDefault {
+			CompileStmtList(prog, ctx, fb, cc.Body, wantsVal, wantType)
+			endJmps = endJmps.Append(EmitJumpOp(prog, OpJump, fb.File, cNode))
+			continue
+		}
+		let mut hitJmps = []uint32{}
+		for j in 0..nExprs {
+			let patExpr = syntax.Item(tr, cc.List, j)
+			if syntax.KindOf(tr, patExpr) == syntax.KIdent && textOfNameNode(p, patExpr) == "_" {
+				hitJmps = hitJmps.Append(EmitJumpOp(prog, OpJump, fb.File, patExpr))
+				break
+			}
+			EmitOp(prog, OpLoadLocal, uint8(0), tagSlot, uint32(0), uint32(0), fb.File, patExpr)
+			CompileExprNode(prog, ctx, fb, patExpr, tagT, false)
+			EmitOp(prog, OpBinary, syntax.Eql, TypeBool, uint32(0), uint32(0), fb.File, patExpr)
+			hitJmps = hitJmps.Append(EmitJumpOp(prog, OpJumpIfTrue, fb.File, patExpr))
+		}
+		let nextClauseJmp = EmitJumpOp(prog, OpJump, fb.File, cNode)
+		let armPC = CurrentPC(*prog)
+		for hj in hitJmps {
+			PatchJumpTarget(prog, hj, armPC)
+		}
+		CompileStmtList(prog, ctx, fb, cc.Body, wantsVal, wantType)
+		endJmps = endJmps.Append(EmitJumpOp(prog, OpJump, fb.File, cNode))
+		PatchJumpTarget(prog, nextClauseJmp, CurrentPC(*prog))
+	}
+	if wantsVal {
+		EmitOp(prog, OpUnit, uint8(0), uint32(0), uint32(0), uint32(0), fb.File, id)
+	}
+	let endPC = CurrentPC(*prog)
+	for ej in endJmps {
+		PatchJumpTarget(prog, ej, endPC)
+	}
+}
+
+// CompileTypeSwitchStmtNode compiles a union/pattern match statement or expression.
+func CompileTypeSwitchStmtNode(prog mut Program, ctx mut CompileUnitCtx, fb mut FnBuilder, id dense.ID[syntax.Node], wantsVal bool, wantType uint32, isTail bool) {
+	let tr = ctx.K.Parsed[int(fb.File)].Tree
+	let sw = syntax.TypeSwitchStmtOf(tr, id)
+	let subjT = ResolveExprType(prog, ctx, *fb, sw.Subject, TypeVoid)
+	CompileExprNode(prog, ctx, fb, sw.Subject, subjT, false)
+	let mut endJmps = []uint32{}
+	let nClauses = syntax.Len(sw.Clauses)
+	let _ = isTail
+	for i in 0..nClauses {
+		let cNode = syntax.Item(tr, sw.Clauses, i)
+		if syntax.KindOf(tr, cNode) != syntax.KCaseClause {
+			continue
+		}
+		let cc = syntax.CaseClauseOf(tr, cNode)
+		let patIdx = CompilePatternList(prog, ctx, fb, cc.List, subjT)
+		EmitOp(prog, OpMatchPat, uint8(0), patIdx, uint32(0), uint32(0), fb.File, cNode)
+		let missJmp = EmitJumpOp(prog, OpJumpIfFalse, fb.File, cNode)
+		EmitOp(prog, OpPop, uint8(0), uint32(0), uint32(0), uint32(0), fb.File, cNode)
+		CompileStmtList(prog, ctx, fb, cc.Body, wantsVal, wantType)
+		endJmps = endJmps.Append(EmitJumpOp(prog, OpJump, fb.File, cNode))
+		PatchJumpTarget(prog, missJmp, CurrentPC(*prog))
+	}
+	EmitOp(prog, OpPop, uint8(0), uint32(0), uint32(0), uint32(0), fb.File, id)
+	let msgIdx = AddConst(prog, AllocStrVal(&prog.Arena, TypeString, "match failed: no matching case"))
+	EmitOp(prog, OpConst, uint8(0), msgIdx, uint32(0), uint32(0), fb.File, id)
+	EmitOp(prog, OpDie, uint8(0), uint32(0), uint32(0), uint32(0), fb.File, id)
+	let endPC = CurrentPC(*prog)
+	for ej in endJmps {
+		PatchJumpTarget(prog, ej, endPC)
+	}
+}
+
+func appendPatNode(prog mut Program, node PatNode) uint32 {
+	let idx = uint32(prog.Pats.Len())
+	prog.Pats = prog.Pats.Append(node)
+	idx
+}
+
+// CompilePatternList compiles a comma-separated pattern list into a single Or PatNode index.
+func CompilePatternList(prog mut Program, ctx mut CompileUnitCtx, fb mut FnBuilder, list syntax.List, subjT uint32) uint32 {
+	let tr = ctx.K.Parsed[int(fb.File)].Tree
+	let n = syntax.Len(list)
+	if n == 0 {
+		return appendPatNode(prog, PatNode{Kind: PatWild, TypeIdx: TypeVoid, ConstIdx: uint32(0), Slot: uint32(0), ChildStart: uint32(0), ChildCount: uint32(0), FieldStart: uint32(0), FieldCount: uint32(0), PkgIdx: uint32(0), BareName: ""})
+	}
+	if n == 1 {
+		return CompilePatternNode(prog, ctx, fb, syntax.Item(tr, list, 0), subjT)
+	}
+	let mut children = []uint32{}
+	for i in 0..n {
+		children = children.Append(CompilePatternNode(prog, ctx, fb, syntax.Item(tr, list, i), subjT))
+	}
+	let cStart = uint32(prog.PatChildren.Len())
+	for c in children { prog.PatChildren = prog.PatChildren.Append(c) }
+	appendPatNode(prog, PatNode{Kind: PatOr, TypeIdx: TypeVoid, ConstIdx: uint32(0), Slot: uint32(0), ChildStart: cStart, ChildCount: uint32(children.Len()), FieldStart: uint32(0), FieldCount: uint32(0), PkgIdx: uint32(0), BareName: ""})
+}
+
+func compilePatternConstVal(prog mut Program, ctx mut CompileUnitCtx, fb FnBuilder, id dense.ID[syntax.Node], subjT uint32) (uint32, bool) {
+	let p = ctx.K.Parsed[int(fb.File)]
+	let tr = p.Tree
+	let kd = syntax.KindOf(tr, id)
+	if kd == syntax.KParenExpr {
+		return compilePatternConstVal(prog, ctx, fb, syntax.ParenExprOf(tr, id).X, subjT)
+	}
+	if kd == syntax.KBasicLit {
+		let bl = syntax.BasicLitOf(tr, id)
+		let tk = syntax.TokKind(p, bl.Tok)
+		let raw = syntax.TokText(p, bl.Tok)
+		let targetT = if subjT != TypeVoid { subjT } else { ResolveExprType(prog, ctx, fb, id, TypeVoid) }
+		if tk == syntax.Int {
+			let (bits, _) = ParseIntLiteral(raw)
+			return (AddConst(prog, MakeIntVal(prog.Types, targetT, bits)), true)
+		}
+		if tk == syntax.Float {
+			let f = strconv.ParseFloat(raw) catch {
+			case _:
+				0.0
+			}
+			return (AddConst(prog, MakeFloatVal(prog.Types, targetT, f)), true)
+		}
+		if tk == syntax.Rune {
+			let uq = strconv.Unquote(raw) catch {
+			case _:
+				raw
+			}
+			let r = if uq.Len() > 0 { utf8.DecodeRuneInString(uq).Rune } else { rune(0) }
+			let rt = if targetT == TypeVoid { TypeInt32 } else { targetT }
+			return (AddConst(prog, MakeIntVal(prog.Types, rt, uint64(int64(r)))), true)
+		}
+		if tk == syntax.String {
+			let uq = strconv.Unquote(raw) catch {
+			case _:
+				raw
+			}
+			return (AddConst(prog, AllocStrVal(&prog.Arena, TypeString, uq)), true)
+		}
+	}
+	if kd == syntax.KUnaryExpr {
+		let u = syntax.UnaryExprOf(tr, id)
+		if syntax.TokKind(p, u.Op) == syntax.Sub {
+			let (innerC, ok) = compilePatternConstVal(prog, ctx, fb, u.X, subjT)
+			if ok {
+				let (neg, err) = EvalUnary(prog.Types, prog.Arena, syntax.Sub, prog.Consts[int(innerC)])
+				if err == "" {
+					return (AddConst(prog, neg), true)
+				}
+			}
+		}
+	}
+	if kd == syntax.KIdent {
+		let nm = textOfNameNode(p, id)
+		if nm == "true" { return (AddConst(prog, BoolVal(TypeBool, true)), true) }
+		if nm == "false" { return (AddConst(prog, BoolVal(TypeBool, false)), true) }
+	}
+	(uint32(0), false)
+}
+
+func resolvePatternTypeNode(prog mut Program, ctx mut CompileUnitCtx, fb FnBuilder, id dense.ID[syntax.Node], subjT uint32) (uint32, string, uint32) {
+	let p = ctx.K.Parsed[int(fb.File)]
+	let mut ty = ResolveSyntaxTypeNode(prog, ctx, fb, fb.File, id)
+	let tr = p.Tree
+	let ux = unparenNode(tr, id)
+	let mut bare = ""
+	let mut pkg = ctx.PkgIdx
+	if syntax.KindOf(tr, ux) == syntax.KIdent {
+		bare = textOfNameNode(p, ux)
+		match bind.ResolutionOf(ctx.K.U, ctx.K.Ps, bind.PNodeOf(ctx.K.Ps, int(fb.File), ux)) {
+		case bind.Imported as im:
+			pkg = resolveImportPkgIndex(*ctx, im.Ref.Import)
+		case bind.Outside:
+			if bare == "Some" || bare == "None" {
+				pkg = match ctx.PkgMap.Get("option") {
+				case option.Some{Value: pi}:
+					pi
+				case option.None:
+					uint32(0)
+				}
+			}
+		case _:
+		}
+	} else if syntax.KindOf(tr, ux) == syntax.KSelectorExpr {
+		let se = syntax.SelectorExprOf(tr, ux)
+		bare = textOfNameNode(p, se.Sel)
+		let (isPkg, pNum, _) = isImportNamespaceExpr(*ctx, fb.File, se.X)
+		if isPkg { pkg = pNum }
+	} else if syntax.KindOf(tr, ux) == syntax.KIndexExpr {
+		let ie = syntax.IndexExprOf(tr, ux)
+		if syntax.KindOf(tr, ie.X) == syntax.KIdent {
+			bare = textOfNameNode(p, ie.X)
+		} else if syntax.KindOf(tr, ie.X) == syntax.KSelectorExpr {
+			let se = syntax.SelectorExprOf(tr, ie.X)
+			bare = textOfNameNode(p, se.Sel)
+			let (isPkg, pNum, _) = isImportNamespaceExpr(*ctx, fb.File, se.X)
+			if isPkg { pkg = pNum }
+		}
+	}
+	if bare != "" && subjT != TypeVoid {
+		if ty == TypeVoid || prog.Types.Name[int(ty)] == bare {
+			let refined = instantiateWithWant(prog, pkg, bare, ty, subjT)
+			if refined != TypeVoid {
+				ty = refined
+			}
+		}
+	}
+	(ty, bare, pkg)
+}
+
+func isPatternTypeRef(ctx CompileUnitCtx, file uint32, id dense.ID[syntax.Node]) bool {
+	let p = ctx.K.Parsed[int(file)]
+	let tr = p.Tree
+	let kd = syntax.KindOf(tr, id)
+	if kd == syntax.KSelectorExpr || kd == syntax.KIndexExpr {
+		return true
+	}
+	if kd != syntax.KIdent {
+		return false
+	}
+	let nm = textOfNameNode(p, id)
+	if nm == "_" || nm == "true" || nm == "false" {
+		return false
+	}
+	if BasicFromName(nm) != TypeVoid || nm == "Some" || nm == "None" || nm == "Unsatisfied" || nm == "NoMatch" {
+		return true
+	}
+	let pn = bind.PNodeOf(ctx.K.Ps, int(file), id)
+	let defKind = bind.DefOf(ctx.K.U, pn)
+	match defKind {
+	case bind.Local:
+		return false
+	case _:
+	}
+	match bind.ResolutionOf(ctx.K.U, ctx.K.Ps, pn) {
+	case bind.Declared as d:
+		if store.KindOfName(ctx.S, nm) == 3 {
+			return true
+		}
+		let (uf, urow) = bind.RowOf(ctx.K.Ps, d.At)
+		let q = ctx.K.Parsed[uf]
+		let uNode = syntax.NodeAt(q.Tree, urow)
+		let _ = uNode
+		return dense.Index(d.At) != dense.Index(pn) && store.KindOfName(ctx.S, nm) == 3
+	case _:
+	}
+	false
+}
+
+// CompilePatternNode compiles one pattern AST node into the Program.Pats pool.
+func CompilePatternNode(prog mut Program, ctx mut CompileUnitCtx, fb mut FnBuilder, id dense.ID[syntax.Node], subjT uint32) uint32 {
+	let p = ctx.K.Parsed[int(fb.File)]
+	let tr = p.Tree
+	let kd = syntax.KindOf(tr, id)
+	if kd == syntax.KParenExpr {
+		return CompilePatternNode(prog, ctx, fb, syntax.ParenExprOf(tr, id).X, subjT)
+	}
+	if kd == syntax.KOrPattern {
+		let op = syntax.OrPatternOf(tr, id)
+		return CompilePatternList(prog, ctx, fb, op.Alts, subjT)
+	}
+	if kd == syntax.KAsPattern {
+		let ap = syntax.AsPatternOf(tr, id)
+		let subPat = CompilePatternNode(prog, ctx, fb, ap.X, subjT)
+		let nm = textOfNameNode(p, ap.Name)
+		if nm == "_" {
+			return subPat
+		}
+		let vt = if LookupNodeType(*ctx, fb.File, ap.Name) != TypeVoid {
+			LookupNodeType(*ctx, fb.File, ap.Name)
+		} else if prog.Pats[int(subPat)].TypeIdx != TypeVoid {
+			prog.Pats[int(subPat)].TypeIdx
+		} else {
+			subjT
+		}
+		let slot = AllocLocalSlot(fb, dense.OptOf(bind.PNodeOf(ctx.K.Ps, int(fb.File), ap.Name)), vt, false)
+		return appendPatNode(prog, PatNode{Kind: PatAs, TypeIdx: vt, ConstIdx: uint32(0), Slot: slot, ChildStart: subPat, ChildCount: uint32(1), FieldStart: uint32(0), FieldCount: uint32(0), PkgIdx: uint32(0), BareName: ""})
+	}
+	if kd == syntax.KTupleExpr {
+		let te = syntax.TupleExprOf(tr, id)
+		let n = syntax.Len(te.Elts)
+		let u = UnwrapType(prog.Types, subjT)
+		let mut cs = []uint32{}
+		for i in 0..n {
+			let et = if subjT != TypeVoid && int(u) < prog.Types.Kind.Len() && prog.Types.Kind[int(u)] == KindTuple && i < int(prog.Types.Count[int(u)]) {
+				prog.Types.FieldType[int(prog.Types.Aux[int(u)])+i]
+			} else {
+				TypeVoid
+			}
+			cs = cs.Append(CompilePatternNode(prog, ctx, fb, syntax.Item(tr, te.Elts, i), et))
+		}
+		let cStart = uint32(prog.PatChildren.Len())
+		for c in cs { prog.PatChildren = prog.PatChildren.Append(c) }
+		return appendPatNode(prog, PatNode{Kind: PatTuple, TypeIdx: subjT, ConstIdx: uint32(0), Slot: uint32(0), ChildStart: cStart, ChildCount: uint32(n), FieldStart: uint32(0), FieldCount: uint32(0), PkgIdx: uint32(0), BareName: ""})
+	}
+	if kd == syntax.KCompositeLit {
+		let cl = syntax.CompositeLitOf(tr, id)
+		let mut recT = TypeVoid
+		let mut bare = ""
+		let mut pkg = ctx.PkgIdx
+		match dense.Unpack(cl.Type) {
+		case option.Some{Value: tn}:
+			let (rt, bn, pk) = resolvePatternTypeNode(prog, ctx, *fb, tn, subjT)
+			recT = rt
+			bare = bn
+			pkg = pk
+		case option.None:
+			recT = subjT
+		}
+		let mut fields = []PatField{}
+		for i in 0..syntax.Len(cl.Elts) {
+			let el = syntax.Item(tr, cl.Elts, i)
+			if syntax.KindOf(tr, el) == syntax.KKeyValueExpr {
+				let kv = syntax.KeyValueExprOf(tr, el)
+				let fnm = textOfNameNode(p, kv.Key)
+				let fi = if recT != TypeVoid { FieldIndexByName(prog.Types, recT, fnm) } else { -1 }
+				let ft = if fi >= 0 {
+					let ru = UnwrapType(prog.Types, recT)
+					prog.Types.FieldType[int(prog.Types.Aux[int(ru)])+fi]
+				} else {
+					TypeVoid
+				}
+				let fPat = CompilePatternNode(prog, ctx, fb, kv.Value, ft)
+				fields = fields.Append(PatField{Name: fnm, FieldIdx: if fi >= 0 { uint32(fi) } else { uint32(0xffffffff) }, PatIdx: fPat})
+			}
+		}
+		let fStart = uint32(prog.PatFields.Len())
+		for pf in fields { prog.PatFields = prog.PatFields.Append(pf) }
+		return appendPatNode(prog, PatNode{Kind: PatRecord, TypeIdx: recT, ConstIdx: uint32(0), Slot: uint32(0), ChildStart: uint32(0), ChildCount: uint32(0), FieldStart: fStart, FieldCount: uint32(fields.Len()), PkgIdx: pkg, BareName: bare})
+	}
+	let (cIdx, isConstVal) = compilePatternConstVal(prog, ctx, *fb, id, subjT)
+	if isConstVal {
+		return appendPatNode(prog, PatNode{Kind: PatConst, TypeIdx: subjT, ConstIdx: cIdx, Slot: uint32(0), ChildStart: uint32(0), ChildCount: uint32(0), FieldStart: uint32(0), FieldCount: uint32(0), PkgIdx: uint32(0), BareName: ""})
+	}
+	if kd == syntax.KIdent && textOfNameNode(p, id) == "_" {
+		return appendPatNode(prog, PatNode{Kind: PatWild, TypeIdx: TypeVoid, ConstIdx: uint32(0), Slot: uint32(0), ChildStart: uint32(0), ChildCount: uint32(0), FieldStart: uint32(0), FieldCount: uint32(0), PkgIdx: uint32(0), BareName: ""})
+	}
+	if isPatternTypeRef(*ctx, fb.File, id) {
+		let (pt, bare, pkg) = resolvePatternTypeNode(prog, ctx, *fb, id, subjT)
+		return appendPatNode(prog, PatNode{Kind: PatType, TypeIdx: pt, ConstIdx: uint32(0), Slot: uint32(0), ChildStart: uint32(0), ChildCount: uint32(0), FieldStart: uint32(0), FieldCount: uint32(0), PkgIdx: pkg, BareName: bare})
+	}
+	if kd == syntax.KIdent {
+		let bt = if LookupNodeType(*ctx, fb.File, id) != TypeVoid { LookupNodeType(*ctx, fb.File, id) } else { subjT }
+		let slot = AllocLocalSlot(fb, dense.OptOf(bind.PNodeOf(ctx.K.Ps, int(fb.File), id)), bt, false)
+		return appendPatNode(prog, PatNode{Kind: PatBind, TypeIdx: bt, ConstIdx: uint32(0), Slot: slot, ChildStart: uint32(0), ChildCount: uint32(0), FieldStart: uint32(0), FieldCount: uint32(0), PkgIdx: uint32(0), BareName: ""})
+	}
+	appendPatNode(prog, PatNode{Kind: PatWild, TypeIdx: TypeVoid, ConstIdx: uint32(0), Slot: uint32(0), ChildStart: uint32(0), ChildCount: uint32(0), FieldStart: uint32(0), FieldCount: uint32(0), PkgIdx: uint32(0), BareName: ""})
+}

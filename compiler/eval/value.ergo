@@ -1,0 +1,1185 @@
+import go math
+import option
+import slices
+import go strconv
+import strings
+import utf8
+
+let u64AllOnes uint64 = 0xffffffffffffffff
+let u64SignBit uint64 = 0x8000000000000000
+let u64Ext8 uint64 = 0xffffffffffffff00
+let u64Ext16 uint64 = 0xffffffffffff0000
+let u64Ext32 uint64 = 0xffffffff00000000
+let u64Min8 uint64 = 0xffffffffffffff80
+let u64Min16 uint64 = 0xffffffffffff8000
+let u64Min32 uint64 = 0xffffffff80000000
+
+// TagUnit identifies the empty unit value.
+let TagUnit = uint8(0)
+
+// TagBool identifies a boolean value.
+let TagBool = uint8(1)
+
+// TagInt identifies a signed integer or duration value stored as two's complement uint64 bits.
+let TagInt = uint8(2)
+
+// TagUint identifies an unsigned integer value stored in Data.
+let TagUint = uint8(3)
+
+// TagFloat identifies an IEEE 754 floating-point value whose bit pattern is stored in Data.
+let TagFloat = uint8(4)
+
+// TagStr identifies a string interned in ValArena.Strs at index Aux.
+let TagStr = uint8(5)
+
+// TagSlice identifies a slice handle in ValArena.SliceHeads at index Aux.
+let TagSlice = uint8(6)
+
+// TagArray identifies a fixed-length array handle in ValArena.SliceHeads at index Aux.
+let TagArray = uint8(7)
+
+// TagMap identifies an ordered map handle in ValArena.MapHeads at index Aux.
+let TagMap = uint8(8)
+
+// TagTuple identifies a tuple handle in ValArena.PackHeads at index Aux.
+let TagTuple = uint8(9)
+
+// TagRecord identifies a struct or variant record handle in ValArena.PackHeads at index Aux.
+let TagRecord = uint8(10)
+
+// TagFunc identifies a function or closure handle in ValArena.Closures at index Aux.
+let TagFunc = uint8(11)
+
+// TagRef identifies a mutable borrow reference targeting VM.Cells at index Aux.
+let TagRef = uint8(12)
+
+// TagBuilder identifies a mutable strings.Builder handle in ValArena.Builders at index Aux.
+let TagBuilder = uint8(13)
+
+// Val is a flat, pointer-free runtime value cell stored across registers, locals, and the VM stack.
+type Val {
+	Tag  uint8,
+	Type uint32,
+	Aux  uint32,
+	Data uint64,
+}
+
+// SliceBack stores backing slice or array storage inside ValArena.SliceElems.
+type SliceBack {
+	Start   uint32,
+	Len     uint32,
+	Cap     uint32,
+	Refs    uint32,
+	IsArray bool,
+}
+
+// SliceHead indexes a slice or array window over a SliceBack entry.
+type SliceHead {
+	Back uint32,
+	Off  uint32,
+	Len  uint32,
+}
+
+// MapBack stores sorted key-value entries inside ValArena.MapKeys and ValArena.MapVals.
+type MapBack {
+	Start uint32,
+	Len   uint32,
+	Cap   uint32,
+	Refs  uint32,
+}
+
+// MapHead indexes a MapBack entry.
+type MapHead {
+	Back uint32,
+}
+
+// PackHead indexes a contiguous run of tuple elements or record fields in ValArena.PackElems.
+type PackHead {
+	Start uint32,
+	Len   uint32,
+}
+
+// ClosureObj stores a compiled function or lambda together with captured cell indices and type arguments.
+type ClosureObj {
+	FnIdx        uint32,
+	CapStart     uint32,
+	CapCount     uint32,
+	TypeArgStart uint32,
+	TypeArgCount uint32,
+	BoundRecv    uint32,
+	HasRecv      bool,
+	NativeName   string,
+	IsNative     bool,
+	IsMethodVal  bool,
+}
+
+// ValArena holds flat value storage arenas for strings, collections, aggregates, and closures.
+type ValArena {
+	Strs            []string,
+	StrIndex        Map[string, uint32],
+	SliceElems      []Val,
+	SliceBacks      []SliceBack,
+	SliceHeads      []SliceHead,
+	MapKeys         []Val,
+	MapVals         []Val,
+	MapBacks        []MapBack,
+	MapHeads        []MapHead,
+	PackElems       []Val,
+	PackHeads       []PackHead,
+	ClosureCaps     []uint32,
+	ClosureTypeArgs []uint32,
+	Closures        []ClosureObj,
+	Builders        []string,
+}
+
+// NewValArena constructs an initialized flat value arena with interned empty string at index 0.
+func NewValArena() ValArena {
+	let mut idx = Map[string, uint32]{}
+	idx[""] = uint32(0)
+	ValArena{
+		Strs:            []string{""},
+		StrIndex:        idx,
+		SliceElems:      []Val{},
+		SliceBacks:      []SliceBack{},
+		SliceHeads:      []SliceHead{},
+		MapKeys:         []Val{},
+		MapVals:         []Val{},
+		MapBacks:        []MapBack{},
+		MapHeads:        []MapHead{},
+		PackElems:       []Val{},
+		PackHeads:       []PackHead{},
+		ClosureCaps:     []uint32{},
+		ClosureTypeArgs: []uint32{},
+		Closures:        []ClosureObj{},
+		Builders:        []string{},
+	}
+}
+
+// UnitVal returns the canonical unit value.
+func UnitVal() Val {
+	Val{Tag: TagUnit, Type: TypeVoid, Aux: uint32(0), Data: uint64(0)}
+}
+
+// BoolVal constructs a boolean runtime value.
+func BoolVal(typeIdx uint32, b bool) Val {
+	let t = if typeIdx == TypeVoid { TypeBool } else { typeIdx }
+	Val{Tag: TagBool, Type: t, Aux: uint32(0), Data: if b { uint64(1) } else { uint64(0) }}
+}
+
+// WrapIntBits masks bits to width (8, 16, 32, or 64) and sign-extends if signed.
+func WrapIntBits(bits uint64, width uint8, signed bool) uint64 {
+	if width == uint8(8) {
+		let lo = bits & uint64(0xff)
+		if signed && (lo&uint64(0x80)) != uint64(0) {
+			return lo | u64Ext8
+		}
+		return lo
+	}
+	if width == uint8(16) {
+		let lo = bits & uint64(0xffff)
+		if signed && (lo&uint64(0x8000)) != uint64(0) {
+			return lo | u64Ext16
+		}
+		return lo
+	}
+	if width == uint8(32) {
+		let lo = bits & uint64(0xffffffff)
+		if signed && (lo&uint64(0x80000000)) != uint64(0) {
+			return lo | u64Ext32
+		}
+		return lo
+	}
+	bits
+}
+
+// MakeIntVal constructs an integer or duration value wrapped to typeIdx's bit width and signedness.
+func MakeIntVal(tp TypePool, typeIdx uint32, bits uint64) Val {
+	let t = if typeIdx == TypeVoid { TypeInt } else { typeIdx }
+	let (w, signed) = IntBitWidth(tp, t)
+	let wrapped = WrapIntBits(bits, w, signed)
+	let tag = if signed { TagInt } else { TagUint }
+	Val{Tag: tag, Type: t, Aux: uint32(0), Data: wrapped}
+}
+
+// MakeFloatVal constructs a float32 or float64 runtime value with appropriate precision rounding.
+func MakeFloatVal(tp TypePool, typeIdx uint32, f float64) Val {
+	let t = if typeIdx == TypeVoid { TypeFloat64 } else { typeIdx }
+	let u = UnwrapType(tp, t)
+	let mut val = f
+	if int(u) < tp.Width.Len() && tp.Width[int(u)] == uint8(32) {
+		val = float64(float32(f))
+	}
+	Val{Tag: TagFloat, Type: t, Aux: uint32(0), Data: math.Float64bits(val)}
+}
+
+// Float64FromBits decodes an IEEE-754 bit pattern into a float64.
+func Float64FromBits(bits uint64) float64 {
+	math.Float64frombits(bits)
+}
+
+// AllocStrVal interns s in the arena and returns a string runtime value.
+func AllocStrVal(arena mut ValArena, typeIdx uint32, s string) Val {
+	let t = if typeIdx == TypeVoid { TypeString } else { typeIdx }
+	let id = match arena.StrIndex.Get(s) {
+	case option.Some{Value: existing}:
+		existing
+	case option.None:
+		let next = uint32(arena.Strs.Len())
+		arena.Strs = arena.Strs.Append(s)
+		arena.StrIndex[s] = next
+		next
+	}
+	Val{Tag: TagStr, Type: t, Aux: id, Data: uint64(s.Len())}
+}
+
+// ReadStr returns the string payload of v from arena.
+func ReadStr(arena ValArena, v Val) string {
+	if v.Tag == TagStr && int(v.Aux) < arena.Strs.Len() {
+		return arena.Strs[int(v.Aux)]
+	}
+	""
+}
+
+// RetainVal increments the reference count on slice or map backings held by v.
+func RetainVal(arena mut ValArena, v Val) {
+	if v.Tag == TagSlice || v.Tag == TagArray {
+		let hi = int(v.Aux)
+		if hi < arena.SliceHeads.Len() {
+			let bi = int(arena.SliceHeads[hi].Back)
+			arena.SliceBacks[bi].Refs = arena.SliceBacks[bi].Refs + uint32(1)
+		}
+		return
+	}
+	if v.Tag == TagMap {
+		let hi = int(v.Aux)
+		if hi < arena.MapHeads.Len() {
+			let bi = int(arena.MapHeads[hi].Back)
+			arena.MapBacks[bi].Refs = arena.MapBacks[bi].Refs + uint32(1)
+		}
+	}
+}
+
+// ReleaseVal decrements the reference count on slice or map backings held by v.
+func ReleaseVal(arena mut ValArena, v Val) {
+	if v.Tag == TagSlice || v.Tag == TagArray {
+		let hi = int(v.Aux)
+		if hi < arena.SliceHeads.Len() {
+			let bi = int(arena.SliceHeads[hi].Back)
+			if arena.SliceBacks[bi].Refs > uint32(0) {
+				arena.SliceBacks[bi].Refs = arena.SliceBacks[bi].Refs - uint32(1)
+			}
+		}
+		return
+	}
+	if v.Tag == TagMap {
+		let hi = int(v.Aux)
+		if hi < arena.MapHeads.Len() {
+			let bi = int(arena.MapHeads[hi].Back)
+			if arena.MapBacks[bi].Refs > uint32(0) {
+				arena.MapBacks[bi].Refs = arena.MapBacks[bi].Refs - uint32(1)
+			}
+		}
+	}
+}
+
+func retainSliceElems(arena mut ValArena, elems []Val) {
+	for e in elems {
+		RetainVal(arena, e)
+	}
+}
+
+func retainKeyValPairs(arena mut ValArena, keys []Val, vals []Val) {
+	for k in keys {
+		RetainVal(arena, k)
+	}
+	for v in vals {
+		RetainVal(arena, v)
+	}
+}
+
+// MakeSliceVal allocates a new slice in arena holding elems with given initial capacity.
+func MakeSliceVal(arena mut ValArena, typeIdx uint32, elems []Val, minCap uint32) Val {
+	let n = uint32(elems.Len())
+	let capVal = if minCap > n { minCap } else { n }
+	let start = uint32(arena.SliceElems.Len())
+	for e in elems {
+		arena.SliceElems = arena.SliceElems.Append(e)
+		RetainVal(arena, e)
+	}
+	let mut pad = n
+	for pad < capVal {
+		arena.SliceElems = arena.SliceElems.Append(UnitVal())
+		pad = pad + uint32(1)
+	}
+	let bi = uint32(arena.SliceBacks.Len())
+	arena.SliceBacks = arena.SliceBacks.Append(SliceBack{Start: start, Len: n, Cap: capVal, Refs: uint32(1), IsArray: false})
+	let hi = uint32(arena.SliceHeads.Len())
+	arena.SliceHeads = arena.SliceHeads.Append(SliceHead{Back: bi, Off: uint32(0), Len: n})
+	Val{Tag: TagSlice, Type: typeIdx, Aux: hi, Data: uint64(n)}
+}
+
+// MakeArrayVal allocates a fixed-size array value in arena holding elems.
+func MakeArrayVal(arena mut ValArena, typeIdx uint32, elems []Val) Val {
+	let n = uint32(elems.Len())
+	let start = uint32(arena.SliceElems.Len())
+	for e in elems {
+		arena.SliceElems = arena.SliceElems.Append(e)
+		RetainVal(arena, e)
+	}
+	let bi = uint32(arena.SliceBacks.Len())
+	arena.SliceBacks = arena.SliceBacks.Append(SliceBack{Start: start, Len: n, Cap: n, Refs: uint32(1), IsArray: true})
+	let hi = uint32(arena.SliceHeads.Len())
+	arena.SliceHeads = arena.SliceHeads.Append(SliceHead{Back: bi, Off: uint32(0), Len: n})
+	Val{Tag: TagArray, Type: typeIdx, Aux: hi, Data: uint64(n)}
+}
+
+// ReadSliceLen returns the element count of a slice or array value.
+func ReadSliceLen(arena ValArena, v Val) uint32 {
+	if (v.Tag == TagSlice || v.Tag == TagArray) && int(v.Aux) < arena.SliceHeads.Len() {
+		return arena.SliceHeads[int(v.Aux)].Len
+	}
+	uint32(0)
+}
+
+// ReadSliceCap returns the remaining capacity of a slice or array value.
+func ReadSliceCap(arena ValArena, v Val) uint32 {
+	if (v.Tag == TagSlice || v.Tag == TagArray) && int(v.Aux) < arena.SliceHeads.Len() {
+		let h = arena.SliceHeads[int(v.Aux)]
+		let b = arena.SliceBacks[int(h.Back)]
+		if h.Off <= b.Cap {
+			return b.Cap - h.Off
+		}
+	}
+	uint32(0)
+}
+
+// ReadSliceElem returns element idx of slice or array v.
+func ReadSliceElem(arena ValArena, v Val, idx uint32) Val {
+	let h = arena.SliceHeads[int(v.Aux)]
+	let b = arena.SliceBacks[int(h.Back)]
+	arena.SliceElems[int(b.Start+h.Off+idx)]
+}
+
+func cloneSliceElems(arena ValArena, v Val) []Val {
+	let h = arena.SliceHeads[int(v.Aux)]
+	let b = arena.SliceBacks[int(h.Back)]
+	let mut out = slices.WithCapacity[Val](int(h.Len))
+	let base = int(b.Start + h.Off)
+	for i in 0..int(h.Len) {
+		out = out.Append(arena.SliceElems[base+i])
+	}
+	out
+}
+
+// CloneSliceVal creates a fresh independent copy of slice or array v.
+func CloneSliceVal(arena mut ValArena, v Val) Val {
+	let elems = cloneSliceElems(*arena, v)
+	if v.Tag == TagArray {
+		return MakeArrayVal(arena, v.Type, elems)
+	}
+	MakeSliceVal(arena, v.Type, elems, uint32(elems.Len()))
+}
+
+// WriteSliceElemCOW returns a slice or array with index idx updated to elem using copy-on-write.
+func WriteSliceElemCOW(arena mut ValArena, v Val, idx uint32, elem Val) Val {
+	let h = arena.SliceHeads[int(v.Aux)]
+	let bi = int(h.Back)
+	let b = arena.SliceBacks[bi]
+	if b.Refs <= uint32(1) {
+		let slot = int(b.Start + h.Off + idx)
+		ReleaseVal(arena, arena.SliceElems[slot])
+		RetainVal(arena, elem)
+		arena.SliceElems[slot] = elem
+		RetainVal(arena, v)
+		return v
+	}
+	let mut elems = cloneSliceElems(*arena, v)
+	elems[int(idx)] = elem
+	if v.Tag == TagArray {
+		return MakeArrayVal(arena, v.Type, elems)
+	}
+	MakeSliceVal(arena, v.Type, elems, uint32(elems.Len()))
+}
+
+// AppendSliceValCOW appends elem to v in place when unshared with spare capacity, else clones.
+func AppendSliceValCOW(arena mut ValArena, v Val, elem Val) Val {
+	let h = arena.SliceHeads[int(v.Aux)]
+	let bi = int(h.Back)
+	let b = arena.SliceBacks[bi]
+	if b.Refs <= uint32(1) && h.Off+h.Len == b.Len && b.Len < b.Cap {
+		let slot = int(b.Start + b.Len)
+		RetainVal(arena, elem)
+		arena.SliceElems[slot] = elem
+		arena.SliceBacks[bi].Len = b.Len + uint32(1)
+		let hi = uint32(arena.SliceHeads.Len())
+		let newLen = h.Len + uint32(1)
+		arena.SliceHeads = arena.SliceHeads.Append(SliceHead{Back: h.Back, Off: h.Off, Len: newLen})
+		arena.SliceBacks[bi].Refs = arena.SliceBacks[bi].Refs + uint32(1)
+		return Val{Tag: TagSlice, Type: v.Type, Aux: hi, Data: uint64(newLen)}
+	}
+	let mut elems = cloneSliceElems(*arena, v)
+	elems = elems.Append(elem)
+	let curLen = uint32(elems.Len())
+	let nextCap = if curLen < uint32(4) { uint32(4) } else { curLen * uint32(2) }
+	MakeSliceVal(arena, v.Type, elems, nextCap)
+}
+
+// ReserveSliceVal ensures slice v has room for at least extra more elements.
+func ReserveSliceVal(arena mut ValArena, v Val, extra uint32) Val {
+	let h = arena.SliceHeads[int(v.Aux)]
+	let b = arena.SliceBacks[int(h.Back)]
+	if h.Off+h.Len+extra <= b.Cap {
+		RetainVal(arena, v)
+		return v
+	}
+	let elems = cloneSliceElems(*arena, v)
+	MakeSliceVal(arena, v.Type, elems, h.Len+extra)
+}
+
+// SubSliceVal returns a window v[lo:hi:maxCap] preserving COW sharing semantics.
+func SubSliceVal(arena mut ValArena, v Val, sliceType uint32, lo uint32, hi uint32, maxCap uint32, hasMax bool) Val {
+	let oldHead = arena.SliceHeads[int(v.Aux)]
+	let bi = int(oldHead.Back)
+	let b = arena.SliceBacks[bi]
+	if !hasMax {
+		let newOff = oldHead.Off + lo
+		let newLen = hi - lo
+		let nh = uint32(arena.SliceHeads.Len())
+		arena.SliceHeads = arena.SliceHeads.Append(SliceHead{Back: oldHead.Back, Off: newOff, Len: newLen})
+		arena.SliceBacks[bi].Refs = b.Refs + uint32(1)
+		return Val{Tag: TagSlice, Type: sliceType, Aux: nh, Data: uint64(newLen)}
+	}
+	let newOff = oldHead.Off + lo
+	let newLen = hi - lo
+	let newCap = maxCap - lo
+	let start = uint32(arena.SliceElems.Len())
+	for i in 0..int(newLen) {
+		let e = arena.SliceElems[int(b.Start+newOff)+i]
+		arena.SliceElems = arena.SliceElems.Append(e)
+		RetainVal(arena, e)
+	}
+	let mut k = newLen
+	for k < newCap {
+		arena.SliceElems = arena.SliceElems.Append(UnitVal())
+		k = k + uint32(1)
+	}
+	let nbi = uint32(arena.SliceBacks.Len())
+	arena.SliceBacks = arena.SliceBacks.Append(SliceBack{Start: start, Len: newLen, Cap: newCap, Refs: uint32(1), IsArray: false})
+	let nh = uint32(arena.SliceHeads.Len())
+	arena.SliceHeads = arena.SliceHeads.Append(SliceHead{Back: nbi, Off: uint32(0), Len: newLen})
+	Val{Tag: TagSlice, Type: sliceType, Aux: nh, Data: uint64(newLen)}
+}
+
+// TakeAtSliceVal removes element idx from slice v and returns the element and remaining slice.
+func TakeAtSliceVal(arena mut ValArena, v Val, idx uint32) (Val, Val) {
+	let elems = cloneSliceElems(*arena, v)
+	let picked = elems[int(idx)]
+	let mut rest = slices.WithCapacity[Val](elems.Len() - 1)
+	for i, e in elems {
+		if uint32(i) != idx {
+			rest = rest.Append(e)
+		}
+	}
+	let nextSlice = MakeSliceVal(arena, v.Type, rest, uint32(rest.Len()))
+	RetainVal(arena, picked)
+	(picked, nextSlice)
+}
+
+// MakeTupleVal allocates a tuple pack in arena holding elems.
+func MakeTupleVal(arena mut ValArena, typeIdx uint32, elems []Val) Val {
+	if elems.Len() == 0 {
+		return UnitVal()
+	}
+	let start = uint32(arena.PackElems.Len())
+	for e in elems {
+		arena.PackElems = arena.PackElems.Append(e)
+		RetainVal(arena, e)
+	}
+	let hi = uint32(arena.PackHeads.Len())
+	arena.PackHeads = arena.PackHeads.Append(PackHead{Start: start, Len: uint32(elems.Len())})
+	Val{Tag: TagTuple, Type: typeIdx, Aux: hi, Data: uint64(elems.Len())}
+}
+
+// MakeRecordVal allocates a record pack in arena holding fields.
+func MakeRecordVal(arena mut ValArena, typeIdx uint32, fields []Val) Val {
+	let start = uint32(arena.PackElems.Len())
+	for f in fields {
+		arena.PackElems = arena.PackElems.Append(f)
+		RetainVal(arena, f)
+	}
+	let hi = uint32(arena.PackHeads.Len())
+	arena.PackHeads = arena.PackHeads.Append(PackHead{Start: start, Len: uint32(fields.Len())})
+	Val{Tag: TagRecord, Type: typeIdx, Aux: hi, Data: uint64(fields.Len())}
+}
+
+// PackLen returns the element or field count of a tuple or record value.
+func PackLen(arena ValArena, v Val) uint32 {
+	if (v.Tag == TagTuple || v.Tag == TagRecord) && int(v.Aux) < arena.PackHeads.Len() {
+		return arena.PackHeads[int(v.Aux)].Len
+	}
+	uint32(0)
+}
+
+// ReadPackElem returns element idx of tuple or record v.
+func ReadPackElem(arena ValArena, v Val, idx uint32) Val {
+	let h = arena.PackHeads[int(v.Aux)]
+	arena.PackElems[int(h.Start+idx)]
+}
+
+// WithRecordFieldCOW returns a record copy with field idx updated to val.
+func WithRecordFieldCOW(arena mut ValArena, v Val, idx uint32, fieldVal Val) Val {
+	let h = arena.PackHeads[int(v.Aux)]
+	let start = int(h.Start)
+	let n = int(h.Len)
+	let mut nextFields = slices.WithCapacity[Val](n)
+	for i in 0..n {
+		if uint32(i) == idx {
+			nextFields = nextFields.Append(fieldVal)
+		} else {
+			nextFields = nextFields.Append(arena.PackElems[start+i])
+		}
+	}
+	MakeRecordVal(arena, v.Type, nextFields)
+}
+
+// SignedBitsLT reports signed a < signed b over two's complement uint64 bit patterns.
+func SignedBitsLT(a uint64, b uint64) bool {
+	let aNeg = (a & u64SignBit) != uint64(0)
+	let bNeg = (b & u64SignBit) != uint64(0)
+	if aNeg != bNeg {
+		return aNeg
+	}
+	a < b
+}
+
+// CompareVals returns -1, 0, or 1 comparing x and y in canonical total order; ok is false for NaN ordering.
+func CompareVals(tp TypePool, arena ValArena, x Val, y Val) (int, bool) {
+	if x.Tag != y.Tag {
+		let tx = if x.Tag < y.Tag { -1 } else { 1 }
+		return (tx, true)
+	}
+	if x.Tag == TagUnit {
+		return (0, true)
+	}
+	if x.Tag == TagBool {
+		if x.Data == y.Data { return (0, true) }
+		return (if x.Data < y.Data { -1 } else { 1 }, true)
+	}
+	if x.Tag == TagInt {
+		if x.Data == y.Data { return (0, true) }
+		return (if SignedBitsLT(x.Data, y.Data) { -1 } else { 1 }, true)
+	}
+	if x.Tag == TagUint {
+		if x.Data == y.Data { return (0, true) }
+		return (if x.Data < y.Data { -1 } else { 1 }, true)
+	}
+	if x.Tag == TagFloat {
+		let fx = math.Float64frombits(x.Data)
+		let fy = math.Float64frombits(y.Data)
+		if math.IsNaN(fx) || math.IsNaN(fy) {
+			if math.IsNaN(fx) && math.IsNaN(fy) {
+				return (0, false)
+			}
+			return (if math.IsNaN(fx) { -1 } else { 1 }, false)
+		}
+		if fx < fy { return (-1, true) }
+		if fx > fy { return (1, true) }
+		return (0, true)
+	}
+	if x.Tag == TagStr {
+		let sx = ReadStr(arena, x)
+		let sy = ReadStr(arena, y)
+		if sx < sy { return (-1, true) }
+		if sx > sy { return (1, true) }
+		return (0, true)
+	}
+	if x.Tag == TagTuple || x.Tag == TagRecord {
+		if x.Type != y.Type {
+			return (if x.Type < y.Type { -1 } else { 1 }, true)
+		}
+		let nx = PackLen(arena, x)
+		let ny = PackLen(arena, y)
+		let n = if nx < ny { nx } else { ny }
+		for i in 0..int(n) {
+			let (c, ok) = CompareVals(tp, arena, ReadPackElem(arena, x, uint32(i)), ReadPackElem(arena, y, uint32(i)))
+			if c != 0 || !ok {
+				return (c, ok)
+			}
+		}
+		if nx < ny { return (-1, true) }
+		if nx > ny { return (1, true) }
+		return (0, true)
+	}
+	if x.Tag == TagSlice || x.Tag == TagArray {
+		let nx = ReadSliceLen(arena, x)
+		let ny = ReadSliceLen(arena, y)
+		let n = if nx < ny { nx } else { ny }
+		for i in 0..int(n) {
+			let (c, ok) = CompareVals(tp, arena, ReadSliceElem(arena, x, uint32(i)), ReadSliceElem(arena, y, uint32(i)))
+			if c != 0 || !ok {
+				return (c, ok)
+			}
+		}
+		if nx < ny { return (-1, true) }
+		if nx > ny { return (1, true) }
+		return (0, true)
+	}
+	if x.Tag == TagMap {
+		let hx = arena.MapHeads[int(x.Aux)]
+		let bx = arena.MapBacks[int(hx.Back)]
+		let hy = arena.MapHeads[int(y.Aux)]
+		let by = arena.MapBacks[int(hy.Back)]
+		let n = if bx.Len < by.Len { bx.Len } else { by.Len }
+		for i in 0..int(n) {
+			let (kc, kok) = CompareVals(tp, arena, arena.MapKeys[int(bx.Start)+i], arena.MapKeys[int(by.Start)+i])
+			if kc != 0 || !kok { return (kc, kok) }
+			let (vc, vok) = CompareVals(tp, arena, arena.MapVals[int(bx.Start)+i], arena.MapVals[int(by.Start)+i])
+			if vc != 0 || !vok { return (vc, vok) }
+		}
+		if bx.Len < by.Len { return (-1, true) }
+		if bx.Len > by.Len { return (1, true) }
+		return (0, true)
+	}
+	if x.Aux < y.Aux { return (-1, true) }
+	if x.Aux > y.Aux { return (1, true) }
+	(0, true)
+}
+
+// EqualVals checks runtime equality of x and y matching Go and Ergo semantics.
+func EqualVals(tp TypePool, arena ValArena, x Val, y Val) bool {
+	if x.Tag != y.Tag {
+		return false
+	}
+	if x.Type != y.Type {
+		return false
+	}
+	if x.Tag == TagUnit {
+		return true
+	}
+	if x.Tag == TagBool || x.Tag == TagInt || x.Tag == TagUint {
+		return x.Data == y.Data
+	}
+	if x.Tag == TagFloat {
+		let fx = math.Float64frombits(x.Data)
+		let fy = math.Float64frombits(y.Data)
+		return fx == fy
+	}
+	if x.Tag == TagStr {
+		return ReadStr(arena, x) == ReadStr(arena, y)
+	}
+	if x.Tag == TagTuple || x.Tag == TagRecord {
+		let nx = PackLen(arena, x)
+		let ny = PackLen(arena, y)
+		if nx != ny {
+			return false
+		}
+		for i in 0..int(nx) {
+			if !EqualVals(tp, arena, ReadPackElem(arena, x, uint32(i)), ReadPackElem(arena, y, uint32(i))) {
+				return false
+			}
+		}
+		return true
+	}
+	if x.Tag == TagSlice || x.Tag == TagArray {
+		let nx = ReadSliceLen(arena, x)
+		let ny = ReadSliceLen(arena, y)
+		if nx != ny {
+			return false
+		}
+		for i in 0..int(nx) {
+			if !EqualVals(tp, arena, ReadSliceElem(arena, x, uint32(i)), ReadSliceElem(arena, y, uint32(i))) {
+				return false
+			}
+		}
+		return true
+	}
+	if x.Tag == TagMap {
+		let hx = arena.MapHeads[int(x.Aux)]
+		let bx = arena.MapBacks[int(hx.Back)]
+		let hy = arena.MapHeads[int(y.Aux)]
+		let by = arena.MapBacks[int(hy.Back)]
+		if bx.Len != by.Len {
+			return false
+		}
+		for i in 0..int(bx.Len) {
+			if !EqualVals(tp, arena, arena.MapKeys[int(bx.Start)+i], arena.MapKeys[int(by.Start)+i]) {
+				return false
+			}
+			if !EqualVals(tp, arena, arena.MapVals[int(bx.Start)+i], arena.MapVals[int(by.Start)+i]) {
+				return false
+			}
+		}
+		return true
+	}
+	x.Aux == y.Aux
+}
+
+func mapKeyFindSlot(tp TypePool, arena ValArena, b MapBack, key Val) (int, bool) {
+	let mut lo = 0
+	let mut hi = int(b.Len)
+	let start = int(b.Start)
+	for lo < hi {
+		let mid = (lo + hi) / 2
+		let (c, _) = CompareVals(tp, arena, arena.MapKeys[start+mid], key)
+		if c < 0 {
+			lo = mid + 1
+		} else if c > 0 {
+			hi = mid
+		} else {
+			return (mid, true)
+		}
+	}
+	(lo, false)
+}
+
+// MakeEmptyMap creates an empty map value of mapType.
+func MakeEmptyMap(arena mut ValArena, mapType uint32) Val {
+	let start = uint32(arena.MapKeys.Len())
+	let bi = uint32(arena.MapBacks.Len())
+	arena.MapBacks = arena.MapBacks.Append(MapBack{Start: start, Len: uint32(0), Cap: uint32(0), Refs: uint32(1)})
+	let hi = uint32(arena.MapHeads.Len())
+	arena.MapHeads = arena.MapHeads.Append(MapHead{Back: bi})
+	Val{Tag: TagMap, Type: mapType, Aux: hi, Data: uint64(0)}
+}
+
+// ReadMapLen returns the entry count of map v.
+func ReadMapLen(arena ValArena, v Val) uint32 {
+	if v.Tag == TagMap && int(v.Aux) < arena.MapHeads.Len() {
+		let bi = int(arena.MapHeads[int(v.Aux)].Back)
+		return arena.MapBacks[bi].Len
+	}
+	uint32(0)
+}
+
+// MapGetVal looks up key in map v.
+func MapGetVal(tp TypePool, arena ValArena, v Val, key Val) (Val, bool) {
+	let bi = int(arena.MapHeads[int(v.Aux)].Back)
+	let b = arena.MapBacks[bi]
+	let (idx, found) = mapKeyFindSlot(tp, arena, b, key)
+	if !found {
+		return (UnitVal(), false)
+	}
+	(arena.MapVals[int(b.Start)+idx], true)
+}
+
+func allocMapFromSorted(arena mut ValArena, mapType uint32, keys []Val, vals []Val) Val {
+	let n = uint32(keys.Len())
+	let start = uint32(arena.MapKeys.Len())
+	for k in keys {
+		arena.MapKeys = arena.MapKeys.Append(k)
+		RetainVal(arena, k)
+	}
+	for val in vals {
+		arena.MapVals = arena.MapVals.Append(val)
+		RetainVal(arena, val)
+	}
+	let bi = uint32(arena.MapBacks.Len())
+	arena.MapBacks = arena.MapBacks.Append(MapBack{Start: start, Len: n, Cap: n, Refs: uint32(1)})
+	let hi = uint32(arena.MapHeads.Len())
+	arena.MapHeads = arena.MapHeads.Append(MapHead{Back: bi})
+	Val{Tag: TagMap, Type: mapType, Aux: hi, Data: uint64(n)}
+}
+
+// MapPutValCOW inserts or updates key->val in map m with copy-on-write semantics.
+func MapPutValCOW(tp TypePool, arena mut ValArena, m Val, key Val, val Val) Val {
+	let bi = int(arena.MapHeads[int(m.Aux)].Back)
+	let b = arena.MapBacks[bi]
+	let (pos, found) = mapKeyFindSlot(tp, *arena, b, key)
+	let n = int(b.Len)
+	let start = int(b.Start)
+	if found && b.Refs <= uint32(1) {
+		ReleaseVal(arena, arena.MapVals[start+pos])
+		RetainVal(arena, val)
+		arena.MapVals[start+pos] = val
+		RetainVal(arena, m)
+		return m
+	}
+	if !found && b.Refs <= uint32(1) && b.Len < b.Cap {
+		arena.MapKeys = arena.MapKeys.Append(UnitVal())
+		arena.MapVals = arena.MapVals.Append(UnitVal())
+		let mut i = n
+		for i > pos {
+			arena.MapKeys[start+i] = arena.MapKeys[start+i-1]
+			arena.MapVals[start+i] = arena.MapVals[start+i-1]
+			i = i - 1
+		}
+		RetainVal(arena, key)
+		RetainVal(arena, val)
+		arena.MapKeys[start+pos] = key
+		arena.MapVals[start+pos] = val
+		arena.MapBacks[bi].Len = b.Len + uint32(1)
+		RetainVal(arena, m)
+		return Val{Tag: TagMap, Type: m.Type, Aux: m.Aux, Data: uint64(b.Len + uint32(1))}
+	}
+	let mut nextKeys = []Val{}
+	let mut nextVals = []Val{}
+	if found {
+		for i in 0..n {
+			nextKeys = nextKeys.Append(if i == pos { key } else { arena.MapKeys[start+i] })
+			nextVals = nextVals.Append(if i == pos { val } else { arena.MapVals[start+i] })
+		}
+	} else {
+		for i in 0..pos {
+			nextKeys = nextKeys.Append(arena.MapKeys[start+i])
+			nextVals = nextVals.Append(arena.MapVals[start+i])
+		}
+		nextKeys = nextKeys.Append(key)
+		nextVals = nextVals.Append(val)
+		for i in pos..n {
+			nextKeys = nextKeys.Append(arena.MapKeys[start+i])
+			nextVals = nextVals.Append(arena.MapVals[start+i])
+		}
+	}
+	allocMapFromSorted(arena, m.Type, nextKeys, nextVals)
+}
+
+// MapDeleteValCOW removes key from map m if present and returns updated map.
+func MapDeleteValCOW(tp TypePool, arena mut ValArena, m Val, key Val) Val {
+	let bi = int(arena.MapHeads[int(m.Aux)].Back)
+	let b = arena.MapBacks[bi]
+	let (pos, found) = mapKeyFindSlot(tp, *arena, b, key)
+	if !found {
+		RetainVal(arena, m)
+		return m
+	}
+	let start = int(b.Start)
+	let n = int(b.Len)
+	let mut nextKeys = slices.WithCapacity[Val](n - 1)
+	let mut nextVals = slices.WithCapacity[Val](n - 1)
+	for i in 0..n {
+		if i != pos {
+			nextKeys = nextKeys.Append(arena.MapKeys[start+i])
+			nextVals = nextVals.Append(arena.MapVals[start+i])
+		}
+	}
+	allocMapFromSorted(arena, m.Type, nextKeys, nextVals)
+}
+
+// MapTakeValCOW removes key from map m and returns (val, found, remainingMap).
+func MapTakeValCOW(tp TypePool, arena mut ValArena, m Val, key Val) (Val, bool, Val) {
+	let bi = int(arena.MapHeads[int(m.Aux)].Back)
+	let b = arena.MapBacks[bi]
+	let (pos, found) = mapKeyFindSlot(tp, *arena, b, key)
+	if !found {
+		RetainVal(arena, m)
+		return (UnitVal(), false, m)
+	}
+	let picked = arena.MapVals[int(b.Start)+pos]
+	RetainVal(arena, picked)
+	let rest = MapDeleteValCOW(tp, arena, m, key)
+	(picked, true, rest)
+}
+
+// CloneMapVal creates a fresh independent copy of map m.
+func CloneMapVal(arena mut ValArena, m Val) Val {
+	let bi = int(arena.MapHeads[int(m.Aux)].Back)
+	let b = arena.MapBacks[bi]
+	let start = int(b.Start)
+	let n = int(b.Len)
+	let mut ks = slices.WithCapacity[Val](n)
+	let mut vs = slices.WithCapacity[Val](n)
+	for i in 0..n {
+		ks = ks.Append(arena.MapKeys[start+i])
+		vs = vs.Append(arena.MapVals[start+i])
+	}
+	allocMapFromSorted(arena, m.Type, ks, vs)
+}
+
+// ZeroVal constructs the deterministic zero value for runtime type typeIdx.
+func ZeroVal(tp TypePool, arena mut ValArena, typeIdx uint32) Val {
+	if int(typeIdx) >= tp.Kind.Len() || typeIdx == TypeVoid {
+		return UnitVal()
+	}
+	let u = UnwrapType(tp, typeIdx)
+	let k = tp.Kind[int(u)]
+	if k == KindVoid {
+		return UnitVal()
+	}
+	if k == KindBool {
+		return BoolVal(typeIdx, false)
+	}
+	if k == KindInt || k == KindDuration {
+		return MakeIntVal(tp, typeIdx, uint64(0))
+	}
+	if k == KindFloat {
+		return MakeFloatVal(tp, typeIdx, 0.0)
+	}
+	if k == KindString {
+		return AllocStrVal(arena, typeIdx, "")
+	}
+	if k == KindSlice {
+		return MakeSliceVal(arena, typeIdx, []Val{}, uint32(0))
+	}
+	if k == KindArray {
+		let n = int(tp.Aux[int(u)])
+		let elemT = tp.Elem[int(u)]
+		let mut elems = slices.WithCapacity[Val](n)
+		for _ in 0..n {
+			elems = elems.Append(ZeroVal(tp, arena, elemT))
+		}
+		return MakeArrayVal(arena, typeIdx, elems)
+	}
+	if k == KindMap {
+		return MakeEmptyMap(arena, typeIdx)
+	}
+	if k == KindTuple {
+		let start = int(tp.Aux[int(u)])
+		let cnt = int(tp.Count[int(u)])
+		let mut elems = slices.WithCapacity[Val](cnt)
+		for i in 0..cnt {
+			elems = elems.Append(ZeroVal(tp, arena, tp.FieldType[start+i]))
+		}
+		return MakeTupleVal(arena, typeIdx, elems)
+	}
+	if k == KindRecord {
+		let start = int(tp.Aux[int(u)])
+		let cnt = int(tp.Count[int(u)])
+		let mut fields = slices.WithCapacity[Val](cnt)
+		for i in 0..cnt {
+			fields = fields.Append(ZeroVal(tp, arena, tp.FieldType[start+i]))
+		}
+		return MakeRecordVal(arena, typeIdx, fields)
+	}
+	if k == KindUnion {
+		let cnt = int(tp.Count[int(u)])
+		if cnt > 0 {
+			let start = int(tp.Aux[int(u)])
+			return ZeroVal(tp, arena, tp.FieldType[start])
+		}
+	}
+	UnitVal()
+}
+
+// UnsignedFromBits returns signed int64 encoded as Go int from uint64 two's complement bits.
+func Int64FromBits(bits uint64) int64 {
+	let hi = (bits >> uint64(32)) & uint64(0xffffffff)
+	let lo = bits & uint64(0xffffffff)
+	let signedHi = if (hi & uint64(0x80000000)) != uint64(0) { int64(hi) - int64(0x100000000) } else { int64(hi) }
+	(signedHi << 32) | int64(lo)
+}
+
+func formatFloat(f float64, width uint8) string {
+	strconv.FormatFloat(f, 'g', -1, int(width))
+}
+
+// StringifyVal formats a runtime value for string interpolation and user printing.
+func StringifyVal(tp TypePool, arena ValArena, v Val) string {
+	if v.Tag == TagStr {
+		return ReadStr(arena, v)
+	}
+	DescribeVal(tp, arena, v)
+}
+
+// DescribeVal formats a runtime value for diagnostics, diffs, and inspect output.
+func DescribeVal(tp TypePool, arena ValArena, v Val) string {
+	if v.Tag == TagUnit {
+		return "()"
+	}
+	if v.Tag == TagBool {
+		return if v.Data != uint64(0) { "true" } else { "false" }
+	}
+	if v.Tag == TagInt {
+		if UnderlyingKind(tp, v.Type) == KindDuration {
+			return "\(Int64FromBits(v.Data))ns"
+		}
+		return strconv.FormatInt(Int64FromBits(v.Data), 10)
+	}
+	if v.Tag == TagUint {
+		return strconv.FormatUint(v.Data, 10)
+	}
+	if v.Tag == TagFloat {
+		let u = UnwrapType(tp, v.Type)
+		let w = if int(u) < tp.Width.Len() && tp.Width[int(u)] == uint8(32) { uint8(32) } else { uint8(64) }
+		return formatFloat(math.Float64frombits(v.Data), w)
+	}
+	if v.Tag == TagStr {
+		return strconv.Quote(ReadStr(arena, v))
+	}
+	if v.Tag == TagSlice || v.Tag == TagArray {
+		let n = int(ReadSliceLen(arena, v))
+		let mut parts = slices.WithCapacity[string](n)
+		for i in 0..n {
+			parts = parts.Append(DescribeVal(tp, arena, ReadSliceElem(arena, v, uint32(i))))
+		}
+		return "[" + strings.Join(parts, ", ") + "]"
+	}
+	if v.Tag == TagMap {
+		let bi = int(arena.MapHeads[int(v.Aux)].Back)
+		let b = arena.MapBacks[bi]
+		let start = int(b.Start)
+		let mut parts = slices.WithCapacity[string](int(b.Len))
+		for i in 0..int(b.Len) {
+			parts = parts.Append(DescribeVal(tp, arena, arena.MapKeys[start+i]) + ": " + DescribeVal(tp, arena, arena.MapVals[start+i]))
+		}
+		return "Map{" + strings.Join(parts, ", ") + "}"
+	}
+	if v.Tag == TagTuple {
+		let n = int(PackLen(arena, v))
+		let mut parts = slices.WithCapacity[string](n)
+		for i in 0..n {
+			parts = parts.Append(DescribeVal(tp, arena, ReadPackElem(arena, v, uint32(i))))
+		}
+		return "(" + strings.Join(parts, ", ") + ")"
+	}
+	if v.Tag == TagRecord {
+		let n = int(PackLen(arena, v))
+		let tname = if int(v.Type) < tp.Name.Len() && tp.Name[int(v.Type)] != "" { tp.Name[int(v.Type)] } else { "Record" }
+		if n == 0 {
+			return tname
+		}
+		let u = UnwrapType(tp, v.Type)
+		let fStart = int(tp.Aux[int(u)])
+		let fCount = int(tp.Count[int(u)])
+		let mut parts = slices.WithCapacity[string](n)
+		for i in 0..n {
+			let fname = if i < fCount { tp.FieldName[fStart+i] + ": " } else { "" }
+			parts = parts.Append(fname + DescribeVal(tp, arena, ReadPackElem(arena, v, uint32(i))))
+		}
+		return tname + "{" + strings.Join(parts, ", ") + "}"
+	}
+	if v.Tag == TagBuilder && int(v.Aux) < arena.Builders.Len() {
+		return "Builder(" + strconv.Quote(arena.Builders[int(v.Aux)]) + ")"
+	}
+	"<func>"
+}
+
+func convertIntToInt(tp TypePool, targetType uint32, v Val) Val {
+	let bits = v.Data
+	MakeIntVal(tp, targetType, bits)
+}
+
+func convertFloatToBits(f float64, width uint8, signed bool) uint64 {
+	if !signed {
+		if f <= 0.0 || math.IsNaN(f) {
+			return uint64(0)
+		}
+		if f >= 18446744073709551616.0 {
+			if width == uint8(8) { return uint64(0xff) }
+			if width == uint8(16) { return uint64(0xffff) }
+			if width == uint8(32) { return uint64(0xffffffff) }
+			return u64AllOnes
+		}
+		return WrapIntBits(uint64(int64(f)), width, false)
+	}
+	if math.IsNaN(f) {
+		return uint64(0)
+	}
+	if f >= 9223372036854775808.0 {
+		return uint64(0x7fffffffffffffff)
+	}
+	if f <= -9223372036854775808.0 {
+		return u64SignBit
+	}
+	WrapIntBits(uint64(int64(f)), width, true)
+}
+
+// ConvertVal converts value v to targetType matching Ergo and Go conversion semantics.
+func ConvertVal(tp TypePool, arena mut ValArena, targetType uint32, v Val) (Val, string) {
+	if targetType == TypeVoid || v.Type == targetType {
+		RetainVal(arena, v)
+		return (v, "")
+	}
+	let tk = UnderlyingKind(tp, targetType)
+	if tk == KindUnion {
+		RetainVal(arena, v)
+		return (v, "")
+	}
+	if tk == KindDefined {
+		RetainVal(arena, v)
+		return (Val{Tag: v.Tag, Type: targetType, Aux: v.Aux, Data: v.Data}, "")
+	}
+	if tk == KindSlice {
+		let elemT = tp.Elem[int(UnwrapType(tp, targetType))]
+		if elemT == TypeUint8 && v.Tag == TagStr {
+			let s = ReadStr(*arena, v)
+			let mut elems = slices.WithCapacity[Val](s.Len())
+			for i in 0..s.Len() {
+				elems = elems.Append(MakeIntVal(tp, TypeUint8, uint64(s[i])))
+			}
+			return (MakeSliceVal(arena, targetType, elems, uint32(elems.Len())), "")
+		}
+		if (v.Tag == TagSlice || v.Tag == TagArray) {
+			let res = CloneSliceVal(arena, v)
+			return (Val{Tag: TagSlice, Type: targetType, Aux: res.Aux, Data: res.Data}, "")
+		}
+	}
+	if tk == KindString {
+		if v.Tag == TagStr {
+			RetainVal(arena, v)
+			return (Val{Tag: TagStr, Type: targetType, Aux: v.Aux, Data: v.Data}, "")
+		}
+		if v.Tag == TagInt || v.Tag == TagUint {
+			let r = Int64FromBits(v.Data)
+			let text = if r < 0 || r > 0x10ffff || (r >= 0xd800 && r <= 0xdfff) { "\uFFFD" } else { utf8.RuneText(rune(r)) }
+			return (AllocStrVal(arena, targetType, text), "")
+		}
+		if v.Tag == TagSlice || v.Tag == TagArray {
+			let n = int(ReadSliceLen(*arena, v))
+			let mut out = strings.NewBuilder()
+			for i in 0..n {
+				let e = ReadSliceElem(*arena, v, uint32(i))
+				out.WriteByte(byte(e.Data & uint64(0xff)))
+			}
+			return (AllocStrVal(arena, targetType, out.String()), "")
+		}
+	}
+	if tk == KindInt || tk == KindDuration {
+		if v.Tag == TagInt || v.Tag == TagUint {
+			return (convertIntToInt(tp, targetType, v), "")
+		}
+		if v.Tag == TagFloat {
+			let f = math.Float64frombits(v.Data)
+			let (w, signed) = IntBitWidth(tp, targetType)
+			let bits = if !signed && f >= 9223372036854775808.0 && f < 18446744073709551616.0 { WrapIntBits(uint64(f-9223372036854775808.0)|u64SignBit, w, false) } else { convertFloatToBits(f, w, signed) }
+			return (MakeIntVal(tp, targetType, bits), "")
+		}
+	}
+	if tk == KindFloat {
+		if v.Tag == TagFloat {
+			return (MakeFloatVal(tp, targetType, math.Float64frombits(v.Data)), "")
+		}
+		if v.Tag == TagInt {
+			return (MakeFloatVal(tp, targetType, float64(Int64FromBits(v.Data))), "")
+		}
+		if v.Tag == TagUint {
+			return (MakeFloatVal(tp, targetType, float64(v.Data)), "")
+		}
+	}
+	if tk == KindBool && v.Tag == TagBool {
+		return (BoolVal(targetType, v.Data != uint64(0)), "")
+	}
+	if tk == KindRecord && v.Tag == TagRecord {
+		let n = int(PackLen(*arena, v))
+		let mut elems = slices.WithCapacity[Val](n)
+		for i in 0..n {
+			elems = elems.Append(ReadPackElem(*arena, v, uint32(i)))
+		}
+		return (MakeRecordVal(arena, targetType, elems), "")
+	}
+	(UnitVal(), "cannot convert \(DescribeVal(tp, *arena, v)) to \(tp.Name[int(targetType)])")
+}
+
+law WrapIntBitsMatchesBitWidths(x uint64) {
+	let w8 = WrapIntBits(x, uint8(8), true)
+	let u8 = WrapIntBits(x, uint8(8), false)
+	let negSign = WrapIntBits(uint64(0x80), uint8(8), true)
+	let signBit uint64 = 0xffffffffffffff80
+	u8 <= uint64(255) && ((w8 & uint64(0xff)) == u8) && negSign == signBit
+}
+
+law SliceAppendLeavesOriginalUntouched(xs []int) {
+	let mut tp = NewTypePool()
+	let mut arena = NewValArena()
+	let sliceT = InternSlice(&tp, TypeInt)
+	let mut elems = []Val{}
+	for x in xs {
+		elems = elems.Append(MakeIntVal(tp, TypeInt, uint64(x)))
+	}
+	let a = MakeSliceVal(&arena, sliceT, elems, uint32(elems.Len()))
+	RetainVal(&arena, a)
+	let b = AppendSliceValCOW(&arena, a, MakeIntVal(tp, TypeInt, uint64(99)))
+	RetainVal(&arena, b)
+	let c = WriteSliceElemCOW(&arena, b, uint32(0), MakeIntVal(tp, TypeInt, uint64(777)))
+	let sizesOk = ReadSliceLen(arena, a) == uint32(xs.Len()) && ReadSliceLen(arena, b) == uint32(xs.Len()+1) && ReadSliceLen(arena, c) == uint32(xs.Len()+1)
+	sizesOk && ReadSliceElem(arena, b, uint32(0)).Data != uint64(777) && ReadSliceElem(arena, c, uint32(0)).Data == uint64(777)
+}

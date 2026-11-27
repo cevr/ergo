@@ -1,0 +1,196 @@
+import compiler/check/bind
+import compiler/check/load
+import compiler/check/types
+import compiler/eval
+import compiler/syntax
+import fs
+import io
+import json
+import os
+import strconv
+import strings
+
+func baseName(path string) string {
+	let i = strings.LastIndex(path, "/")
+	if i < 0 { path } else { path[i+1 : path.Len()] }
+}
+
+func readFileText(path string) string fails os.Exit needs fs.Files {
+	fs.Files.ReadFile(path) catch {
+	case fs.NotFound:
+		return os.Exit{Code: 1, Message: "evaldump: no file \(path)"}
+	case fs.Denied:
+		return os.Exit{Code: 1, Message: "evaldump: cannot read \(path)"}
+	case fs.Failed as e:
+		return os.Exit{Code: 1, Message: "evaldump: cannot read \(path): \(e.Reason)"}
+	}
+}
+
+type manifestSpec {
+	path    string,
+	ext     string,
+	foreign string,
+	files   []string,
+}
+
+func loadManifestUnit(sp manifestSpec) load.Unit fails os.Exit needs fs.Files {
+	let tab = load.TablesOf(try readFileText(sp.ext), try readFileText(sp.foreign))
+	let mut files = []bind.File{}
+	for path in sp.files {
+		let src = try readFileText(path)
+		files = files.Append(bind.File{Name: baseName(path), Parsed: syntax.Parse(src)})
+	}
+	let dir = if sp.files.Len() > 0 { load.Dir(sp.files[0]) } else { "." }
+	load.Unit{Tab: tab, Files: files, Paths: sp.files, Path: sp.path, Dir: dir}
+}
+
+func formatOutcomeJSON(o eval.Outcome) string {
+	let t = json.NewText()
+	t.BeginObject(9)
+	t.Key("name")
+	t.String(o.Name)
+	t.Key("kind")
+	t.String(o.Kind)
+	t.Key("status")
+	t.String(eval.StatusName(o.Status))
+	t.Key("reason")
+	t.String(o.Reason)
+	t.Key("file")
+	t.String(o.Site.File)
+	t.Key("line")
+	t.Int(int64(o.Site.Line))
+	t.Key("col")
+	t.Int(int64(o.Site.Col))
+	t.Key("steps")
+	t.Int(int64(o.Steps))
+	t.Key("value")
+	t.String(o.ValueText)
+	t.EndObject()
+	t.Written()
+}
+
+func parseUintArg(s string, fallback uint64) uint64 {
+	let v = strconv.ParseInt(s, 10, 64) catch {
+	case _:
+		return fallback
+	}
+	if v < 0 { fallback } else { uint64(v) }
+}
+
+func evalLoadedUnits(units []load.Unit, std string, budget eval.Budget, entryName string, stats bool) string needs fs.Files {
+	let outside = if std != "" { load.Outside(units, std) } else { []types.Iface{} }
+	let lp = load.LoadAll(units, outside, 1)
+	let (progVal, errs) = eval.CompileProgram(lp)
+	let mut prog = progVal
+	let mut b = strings.NewBuilder()
+	for e in errs {
+		b.WriteString(formatOutcomeJSON(eval.Outcome{
+			Name:      "compile",
+			Kind:      "error",
+			Status:    eval.StatusDefect,
+			Reason:    e.Reason,
+			Site:      e.Site,
+			Steps:     uint64(0),
+			ValueText: "",
+		}) + "\n")
+	}
+	let rpt = eval.EvalPackage(&prog, prog.RootPkg, budget)
+	for o in rpt.Outcomes {
+		b.WriteString(formatOutcomeJSON(o) + "\n")
+	}
+	if entryName != "" {
+		let entryOut = eval.EvalEntryFn(&prog, prog.RootPkg, entryName, budget)
+		if entryOut.Status != eval.StatusNotRun {
+			b.WriteString(formatOutcomeJSON(entryOut) + "\n")
+		}
+	}
+	if stats {
+		let t = json.NewText()
+		t.BeginObject(2)
+		t.Key("total_steps")
+		t.Int(int64(rpt.TotalSteps))
+		t.Key("builtins_hit")
+		t.Int(int64(rpt.BuiltinsHit))
+		t.EndObject()
+		b.WriteString("@stats " + t.Written() + "\n")
+	}
+	b.String()
+}
+
+func runEvalDump(argv0 []string) fails os.Exit needs fs.Files | io.Stdout {
+	let mut std = ""
+	let mut steps = uint64(1000000)
+	let mut depth = uint32(256)
+	let mut cases = uint32(100)
+	let mut entryName = ""
+	let mut eachMode = false
+	let mut stats = false
+	let mut corpus = ""
+	let mut i = 0
+	for i < argv0.Len() {
+		let a = argv0[i]
+		if a == "-std" && i+1 < argv0.Len() {
+			std = argv0[i+1]
+			i = i + 2
+		} else if a == "-steps" && i+1 < argv0.Len() {
+			steps = parseUintArg(argv0[i+1], steps)
+			i = i + 2
+		} else if a == "-depth" && i+1 < argv0.Len() {
+			depth = uint32(parseUintArg(argv0[i+1], uint64(depth)))
+			i = i + 2
+		} else if a == "-cases" && i+1 < argv0.Len() {
+			cases = uint32(parseUintArg(argv0[i+1], uint64(cases)))
+			i = i + 2
+		} else if a == "-entry" && i+1 < argv0.Len() {
+			entryName = argv0[i+1]
+			i = i + 2
+		} else if a == "-corpus" && i+1 < argv0.Len() {
+			corpus = argv0[i+1]
+			i = i + 2
+		} else if a == "-each" {
+			eachMode = true
+			i = i + 1
+		} else if a == "-stats" {
+			stats = true
+			i = i + 1
+		} else {
+			return os.Exit{Code: 2, Message: "usage: evaldump [-std DIR] [-steps N] [-depth N] [-cases N] [-entry NAME] [-each] [-stats] -corpus MANIFEST"}
+		}
+	}
+	if corpus == "" {
+		return os.Exit{Code: 2, Message: "evaldump: missing -corpus MANIFEST"}
+	}
+	let budget = eval.Budget{Steps: steps, Depth: depth, Bytes: uint64(8388608), CaseLimit: cases}
+	let mut specs = []manifestSpec{}
+	for l in strings.Split(try readFileText(corpus), "\n") {
+		let g = strings.Fields(l)
+		if g.Len() > 0 {
+			if g.Len() < 3 {
+				return os.Exit{Code: 2, Message: "evaldump: manifest line needs PATH EXT FOREIGN FILE..."}
+			}
+			specs = specs.Append(manifestSpec{path: g[0], ext: g[1], foreign: g[2], files: g[3:g.Len()]})
+		}
+	}
+	let mut out = strings.NewBuilder()
+	if eachMode {
+		for idx, sp in specs {
+			let u = try loadManifestUnit(sp)
+			out.WriteString("@pkg \(idx)\n")
+			out.WriteString(evalLoadedUnits([]load.Unit{u}, std, budget, entryName, stats))
+		}
+	} else {
+		let mut units = []load.Unit{}
+		for sp in specs {
+			units = units.Append(try loadManifestUnit(sp))
+		}
+		out.WriteString("@pkg 0\n")
+		out.WriteString(evalLoadedUnits(units, std, budget, entryName, stats))
+	}
+	io.Stdout.Print(out.String())
+}
+
+func main() fails os.Exit needs os.Ambient {
+	with context { os.Process: os.NewHost(), fs.Files: fs.NewHost(), io.Stdout: io.NewHost() } {
+		try runEvalDump(os.Process.Args())
+	}
+}

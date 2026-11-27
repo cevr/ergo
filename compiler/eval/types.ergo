@@ -1,0 +1,620 @@
+import option
+import strings
+
+// StatusPassed indicates an obligation or test passed.
+let StatusPassed = uint8(1)
+
+// StatusRefuted indicates a law or assertion evaluated to false.
+let StatusRefuted = uint8(2)
+
+// StatusDefect indicates a runtime defect such as out of bounds or divide by zero.
+let StatusDefect = uint8(3)
+
+// StatusSkipped indicates an evaluation reached a skip statement.
+let StatusSkipped = uint8(4)
+
+// StatusNative indicates execution requires an unsupported host native boundary.
+let StatusNative = uint8(5)
+
+// StatusIncomplete indicates deterministic step, depth, or memory budget exhaustion.
+let StatusIncomplete = uint8(6)
+
+// StatusNotRun indicates a target was not executed.
+let StatusNotRun = uint8(7)
+
+// StatusName returns the printable status label matching internal/sketch/eval.
+func StatusName(status uint8) string {
+	if status == StatusPassed {
+		return "passed"
+	}
+	if status == StatusRefuted {
+		return "refuted"
+	}
+	if status == StatusDefect {
+		return "defect"
+	}
+	if status == StatusSkipped {
+		return "skipped"
+	}
+	if status == StatusNative {
+		return "native"
+	}
+	if status == StatusIncomplete {
+		return "incomplete"
+	}
+	"not run"
+}
+
+// Budget bounds deterministic evaluation steps, call depth, byte allocations, and property cases.
+type Budget {
+	Steps     uint64,
+	Depth     uint32,
+	Bytes     uint64,
+	CaseLimit uint32,
+}
+
+// DefaultBudget returns standard deterministic evaluation bounds.
+func DefaultBudget() Budget {
+	Budget{Steps: uint64(1000000), Depth: uint32(256), Bytes: uint64(8388608), CaseLimit: uint32(100)}
+}
+
+// Site identifies a source file, 1-based line, and 1-based column.
+type Site {
+	File string,
+	Line uint32,
+	Col  uint32,
+}
+
+// Outcome records the execution result of one test, law, or function entry.
+type Outcome {
+	Name      string,
+	Kind      string,
+	Status    uint8,
+	Reason    string,
+	Site      Site,
+	Steps     uint64,
+	ValueText string,
+}
+
+// Report aggregates outcomes and work counts across an evaluated program.
+type Report {
+	Outcomes    []Outcome,
+	TotalSteps  uint64,
+	BuiltinsHit uint64,
+}
+
+// EvalError describes a typed compile or load failure during evaluator setup.
+type EvalError {
+	Reason string,
+	Site   Site,
+}
+
+// TypeVoid is the empty unit type index.
+let TypeVoid = uint32(0)
+
+// TypeBool is the boolean primitive type index.
+let TypeBool = uint32(1)
+
+// TypeInt is the signed machine-width integer type index.
+let TypeInt = uint32(2)
+
+// TypeInt8 is the 8-bit signed integer type index.
+let TypeInt8 = uint32(3)
+
+// TypeInt16 is the 16-bit signed integer type index.
+let TypeInt16 = uint32(4)
+
+// TypeInt32 is the 32-bit signed integer type index.
+let TypeInt32 = uint32(5)
+
+// TypeInt64 is the 64-bit signed integer type index.
+let TypeInt64 = uint32(6)
+
+// TypeUint is the unsigned machine-width integer type index.
+let TypeUint = uint32(7)
+
+// TypeUint8 is the 8-bit unsigned integer type index.
+let TypeUint8 = uint32(8)
+
+// TypeUint16 is the 16-bit unsigned integer type index.
+let TypeUint16 = uint32(9)
+
+// TypeUint32 is the 32-bit unsigned integer type index.
+let TypeUint32 = uint32(10)
+
+// TypeUint64 is the 64-bit unsigned integer type index.
+let TypeUint64 = uint32(11)
+
+// TypeUintptr is the unsigned pointer-sized integer type index.
+let TypeUintptr = uint32(12)
+
+// TypeFloat32 is the 32-bit IEEE floating-point type index.
+let TypeFloat32 = uint32(13)
+
+// TypeFloat64 is the 64-bit IEEE floating-point type index.
+let TypeFloat64 = uint32(14)
+
+// TypeString is the UTF-8 string type index.
+let TypeString = uint32(15)
+
+// TypeDuration is the nanosecond duration type index.
+let TypeDuration = uint32(16)
+
+// TypeBytes is the pre-interned []byte slice type index.
+let TypeBytes = uint32(17)
+
+// KindVoid marks the empty tuple or void type.
+let KindVoid = uint8(0)
+
+// KindBool marks boolean types.
+let KindBool = uint8(1)
+
+// KindInt marks signed and unsigned integer types.
+let KindInt = uint8(2)
+
+// KindFloat marks IEEE 754 floating-point types.
+let KindFloat = uint8(3)
+
+// KindString marks string types.
+let KindString = uint8(4)
+
+// KindDuration marks duration types.
+let KindDuration = uint8(5)
+
+// KindSlice marks dynamically sized slices.
+let KindSlice = uint8(6)
+
+// KindArray marks fixed-size arrays.
+let KindArray = uint8(7)
+
+// KindMap marks ordered key-value maps.
+let KindMap = uint8(8)
+
+// KindTuple marks positional tuple types.
+let KindTuple = uint8(9)
+
+// KindRecord marks nominal record structs and inline variants.
+let KindRecord = uint8(10)
+
+// KindUnion marks sealed unions.
+let KindUnion = uint8(11)
+
+// KindFunc marks function and closure signatures.
+let KindFunc = uint8(12)
+
+// KindPointer marks mutable borrow references.
+let KindPointer = uint8(13)
+
+// KindDefined marks nominal defined types wrapping an underlying type.
+let KindDefined = uint8(14)
+
+// KindOp marks operation capability interfaces.
+let KindOp = uint8(15)
+
+// KindParam marks an uninstantiated generic type parameter.
+let KindParam = uint8(16)
+
+// TypePool holds all runtime type descriptors in flat structure-of-arrays columns.
+type TypePool {
+	Kind       []uint8,
+	Width      []uint8,
+	Signed     []bool,
+	Pkg        []uint32,
+	Elem       []uint32,
+	Aux        []uint32,
+	Count      []uint32,
+	Fails      []uint32,
+	Name       []string,
+	FieldName  []string,
+	FieldType  []uint32,
+	FieldMeta  []uint32,
+	ParamBase  []uint32,
+	ParamCount []uint32,
+	DeclToType Map[string, uint32],
+	PkgNames   []string,
+	PkgPaths   []string,
+}
+
+func appendTypeEntry(tp mut TypePool, kind uint8, width uint8, signed bool, pkg uint32, elem uint32, aux uint32, count uint32, name string) uint32 {
+	let id = uint32(tp.Kind.Len())
+	tp.Kind = tp.Kind.Append(kind)
+	tp.Width = tp.Width.Append(width)
+	tp.Signed = tp.Signed.Append(signed)
+	tp.Pkg = tp.Pkg.Append(pkg)
+	tp.Elem = tp.Elem.Append(elem)
+	tp.Aux = tp.Aux.Append(aux)
+	tp.Count = tp.Count.Append(count)
+	tp.Fails = tp.Fails.Append(uint32(0))
+	tp.Name = tp.Name.Append(name)
+	id
+}
+
+// NewTypePool creates a TypePool pre-populated with basic Ergo primitive types at fixed indices 0..17.
+func NewTypePool() TypePool {
+	let mut tp = TypePool{
+		Kind:       []uint8{},
+		Width:      []uint8{},
+		Signed:     []bool{},
+		Pkg:        []uint32{},
+		Elem:       []uint32{},
+		Aux:        []uint32{},
+		Count:      []uint32{},
+		Fails:      []uint32{},
+		Name:       []string{},
+		FieldName:  []string{},
+		FieldType:  []uint32{},
+		FieldMeta:  []uint32{},
+		ParamBase:  []uint32{},
+		ParamCount: []uint32{},
+		DeclToType: Map[string, uint32]{},
+		PkgNames:   []string{},
+		PkgPaths:   []string{},
+	}
+	let _ = appendTypeEntry(&tp, KindVoid, uint8(0), false, uint32(0), uint32(0), uint32(0), uint32(0), "()")
+	let _ = appendTypeEntry(&tp, KindBool, uint8(1), false, uint32(0), uint32(0), uint32(0), uint32(0), "bool")
+	let _ = appendTypeEntry(&tp, KindInt, uint8(64), true, uint32(0), uint32(0), uint32(0), uint32(0), "int")
+	let _ = appendTypeEntry(&tp, KindInt, uint8(8), true, uint32(0), uint32(0), uint32(0), uint32(0), "int8")
+	let _ = appendTypeEntry(&tp, KindInt, uint8(16), true, uint32(0), uint32(0), uint32(0), uint32(0), "int16")
+	let _ = appendTypeEntry(&tp, KindInt, uint8(32), true, uint32(0), uint32(0), uint32(0), uint32(0), "int32")
+	let _ = appendTypeEntry(&tp, KindInt, uint8(64), true, uint32(0), uint32(0), uint32(0), uint32(0), "int64")
+	let _ = appendTypeEntry(&tp, KindInt, uint8(64), false, uint32(0), uint32(0), uint32(0), uint32(0), "uint")
+	let _ = appendTypeEntry(&tp, KindInt, uint8(8), false, uint32(0), uint32(0), uint32(0), uint32(0), "uint8")
+	let _ = appendTypeEntry(&tp, KindInt, uint8(16), false, uint32(0), uint32(0), uint32(0), uint32(0), "uint16")
+	let _ = appendTypeEntry(&tp, KindInt, uint8(32), false, uint32(0), uint32(0), uint32(0), uint32(0), "uint32")
+	let _ = appendTypeEntry(&tp, KindInt, uint8(64), false, uint32(0), uint32(0), uint32(0), uint32(0), "uint64")
+	let _ = appendTypeEntry(&tp, KindInt, uint8(64), false, uint32(0), uint32(0), uint32(0), uint32(0), "uintptr")
+	let _ = appendTypeEntry(&tp, KindFloat, uint8(32), true, uint32(0), uint32(0), uint32(0), uint32(0), "float32")
+	let _ = appendTypeEntry(&tp, KindFloat, uint8(64), true, uint32(0), uint32(0), uint32(0), uint32(0), "float64")
+	let _ = appendTypeEntry(&tp, KindString, uint8(0), false, uint32(0), uint32(0), uint32(0), uint32(0), "string")
+	let _ = appendTypeEntry(&tp, KindDuration, uint8(64), true, uint32(0), uint32(0), uint32(0), uint32(0), "duration")
+	let _ = appendTypeEntry(&tp, KindSlice, uint8(0), false, uint32(0), TypeUint8, uint32(0), uint32(0), "[]byte")
+	tp
+}
+
+// InternSlice returns the runtime type index for []elem.
+func InternSlice(tp mut TypePool, elem uint32) uint32 {
+	if elem == TypeUint8 {
+		return TypeBytes
+	}
+	for i in 18..tp.Kind.Len() {
+		if tp.Kind[i] == KindSlice && tp.Elem[i] == elem {
+			return uint32(i)
+		}
+	}
+	let name = "[]" + tp.Name[int(elem)]
+	appendTypeEntry(tp, KindSlice, uint8(0), false, uint32(0), elem, uint32(0), uint32(0), name)
+}
+
+// InternArray returns the runtime type index for [length]elem.
+func InternArray(tp mut TypePool, length uint32, elem uint32) uint32 {
+	for i in 18..tp.Kind.Len() {
+		if tp.Kind[i] == KindArray && tp.Aux[i] == length && tp.Elem[i] == elem {
+			return uint32(i)
+		}
+	}
+	let name = "[\(length)]" + tp.Name[int(elem)]
+	appendTypeEntry(tp, KindArray, uint8(0), false, uint32(0), elem, length, uint32(0), name)
+}
+
+// InternMap returns the runtime type index for Map[key, val].
+func InternMap(tp mut TypePool, key uint32, val uint32) uint32 {
+	for i in 18..tp.Kind.Len() {
+		if tp.Kind[i] == KindMap && tp.Elem[i] == key && tp.Aux[i] == val {
+			return uint32(i)
+		}
+	}
+	let name = "Map[" + tp.Name[int(key)] + ", " + tp.Name[int(val)] + "]"
+	appendTypeEntry(tp, KindMap, uint8(0), false, uint32(0), key, val, uint32(0), name)
+}
+
+// InternPointer returns the runtime type index for *elem.
+func InternPointer(tp mut TypePool, elem uint32) uint32 {
+	for i in 18..tp.Kind.Len() {
+		if tp.Kind[i] == KindPointer && tp.Elem[i] == elem {
+			return uint32(i)
+		}
+	}
+	let name = "*" + tp.Name[int(elem)]
+	appendTypeEntry(tp, KindPointer, uint8(0), false, uint32(0), elem, uint32(0), uint32(0), name)
+}
+
+// InternTuple returns the runtime type index for a positional tuple of elems.
+func InternTuple(tp mut TypePool, elems []uint32) uint32 {
+	if elems.Len() == 0 {
+		return TypeVoid
+	}
+	let n = uint32(elems.Len())
+	for i in 18..tp.Kind.Len() {
+		if tp.Kind[i] == KindTuple && tp.Count[i] == n {
+			let start = int(tp.Aux[i])
+			let mut same = true
+			for j in 0..elems.Len() {
+				if tp.FieldType[start+j] != elems[j] {
+					same = false
+					break
+				}
+			}
+			if same {
+				return uint32(i)
+			}
+		}
+	}
+	let start = uint32(tp.FieldType.Len())
+	let mut parts = []string{}
+	for e in elems {
+		tp.FieldName = tp.FieldName.Append("")
+		tp.FieldType = tp.FieldType.Append(e)
+		tp.FieldMeta = tp.FieldMeta.Append(uint32(0))
+		parts = parts.Append(tp.Name[int(e)])
+	}
+	let name = "(" + strings.Join(parts, ", ") + ")"
+	appendTypeEntry(tp, KindTuple, uint8(0), false, uint32(0), uint32(0), start, n, name)
+}
+
+// InternParam returns the runtime type index for generic parameter index pos.
+func InternParam(tp mut TypePool, pos uint32) uint32 {
+	for i in 18..tp.Kind.Len() {
+		if tp.Kind[i] == KindParam && tp.Aux[i] == pos {
+			return uint32(i)
+		}
+	}
+	appendTypeEntry(tp, KindParam, uint8(0), false, uint32(0), uint32(0), pos, uint32(0), "T\(pos)")
+}
+
+// InternFunc returns the runtime type index for a function signature.
+func InternFunc(tp mut TypePool, params []uint32, result uint32, failsT uint32) uint32 {
+	let n = uint32(params.Len())
+	for i in 18..tp.Kind.Len() {
+		if tp.Kind[i] == KindFunc && tp.Count[i] == n && tp.Elem[i] == result && tp.Fails[i] == failsT {
+			let start = int(tp.Aux[i])
+			let mut same = true
+			for j in 0..params.Len() {
+				if tp.FieldType[start+j] != params[j] {
+					same = false
+					break
+				}
+			}
+			if same {
+				return uint32(i)
+			}
+		}
+	}
+	let start = uint32(tp.FieldType.Len())
+	let mut parts = []string{}
+	for p in params {
+		tp.FieldName = tp.FieldName.Append("")
+		tp.FieldType = tp.FieldType.Append(p)
+		tp.FieldMeta = tp.FieldMeta.Append(uint32(0))
+		parts = parts.Append(tp.Name[int(p)])
+	}
+	let resName = if result == TypeVoid { "" } else { " " + tp.Name[int(result)] }
+	let id = appendTypeEntry(tp, KindFunc, uint8(0), false, uint32(0), result, start, n, "func("+strings.Join(parts, ", ")+")"+resName)
+	tp.Fails[int(id)] = failsT
+	id
+}
+
+// AllocNamedType allocates a named record, union, defined, or op type entry in the pool.
+func AllocNamedType(tp mut TypePool, kind uint8, pkg uint32, name string, elem uint32) uint32 {
+	appendTypeEntry(tp, kind, uint8(0), false, pkg, elem, uint32(0), uint32(0), name)
+}
+
+// SetRecordFields sets the field names and types on a record type entry.
+func SetRecordFields(tp mut TypePool, typeIdx uint32, names []string, fieldTypes []uint32) {
+	let start = uint32(tp.FieldType.Len())
+	for i, n in names {
+		tp.FieldName = tp.FieldName.Append(n)
+		tp.FieldType = tp.FieldType.Append(fieldTypes[i])
+		tp.FieldMeta = tp.FieldMeta.Append(uint32(0))
+	}
+	tp.Aux[int(typeIdx)] = start
+	tp.Count[int(typeIdx)] = uint32(names.Len())
+}
+
+// SetUnionVariants sets the variant type indices on a union type entry.
+func SetUnionVariants(tp mut TypePool, typeIdx uint32, variantTypes []uint32) {
+	let start = uint32(tp.FieldType.Len())
+	for vt in variantTypes {
+		tp.FieldName = tp.FieldName.Append(tp.Name[int(vt)])
+		tp.FieldType = tp.FieldType.Append(vt)
+		tp.FieldMeta = tp.FieldMeta.Append(uint32(0))
+	}
+	tp.Aux[int(typeIdx)] = start
+	tp.Count[int(typeIdx)] = uint32(variantTypes.Len())
+}
+
+// BasicFromName returns the fixed primitive type index for basic name, or 0 if not primitive.
+func BasicFromName(name string) uint32 {
+	if name == "bool" { return TypeBool }
+	if name == "int" { return TypeInt }
+	if name == "int8" { return TypeInt8 }
+	if name == "int16" { return TypeInt16 }
+	if name == "int32" || name == "rune" { return TypeInt32 }
+	if name == "int64" { return TypeInt64 }
+	if name == "uint" { return TypeUint }
+	if name == "uint8" || name == "byte" { return TypeUint8 }
+	if name == "uint16" { return TypeUint16 }
+	if name == "uint32" { return TypeUint32 }
+	if name == "uint64" { return TypeUint64 }
+	if name == "uintptr" { return TypeUintptr }
+	if name == "float32" { return TypeFloat32 }
+	if name == "float64" { return TypeFloat64 }
+	if name == "string" { return TypeString }
+	if name == "duration" { return TypeDuration }
+	TypeVoid
+}
+
+// UnwrapType strips defined type wrappers down to the underlying representation type.
+func UnwrapType(tp TypePool, typeIdx uint32) uint32 {
+	let mut cur = typeIdx
+	for _ in 0..32 {
+		if int(cur) >= tp.Kind.Len() {
+			return TypeVoid
+		}
+		if tp.Kind[int(cur)] != KindDefined {
+			return cur
+		}
+		if tp.Elem[int(cur)] == uint32(0) || tp.Elem[int(cur)] == cur {
+			return cur
+		}
+		cur = tp.Elem[int(cur)]
+	}
+	cur
+}
+
+// UnderlyingKind returns the underlying representation kind of typeIdx.
+func UnderlyingKind(tp TypePool, typeIdx uint32) uint8 {
+	let u = UnwrapType(tp, typeIdx)
+	if int(u) >= tp.Kind.Len() {
+		return KindVoid
+	}
+	tp.Kind[int(u)]
+}
+
+// IsIntType reports whether typeIdx has an integer or duration underlying type.
+func IsIntType(tp TypePool, typeIdx uint32) bool {
+	let k = UnderlyingKind(tp, typeIdx)
+	k == KindInt || k == KindDuration
+}
+
+// IsFloatType reports whether typeIdx has a float32 or float64 underlying type.
+func IsFloatType(tp TypePool, typeIdx uint32) bool {
+	UnderlyingKind(tp, typeIdx) == KindFloat
+}
+
+// IsStringType reports whether typeIdx has a string underlying type.
+func IsStringType(tp TypePool, typeIdx uint32) bool {
+	UnderlyingKind(tp, typeIdx) == KindString
+}
+
+// IsBoolType reports whether typeIdx has a bool underlying type.
+func IsBoolType(tp TypePool, typeIdx uint32) bool {
+	UnderlyingKind(tp, typeIdx) == KindBool
+}
+
+// IntBitWidth returns the integer width in bits and whether it is signed.
+func IntBitWidth(tp TypePool, typeIdx uint32) (uint8, bool) {
+	let u = UnwrapType(tp, typeIdx)
+	if int(u) >= tp.Kind.Len() {
+		return (uint8(64), true)
+	}
+	(tp.Width[int(u)], tp.Signed[int(u)])
+}
+
+// FieldIndexByName finds a record field index by name, or -1 if absent.
+func FieldIndexByName(tp TypePool, typeIdx uint32, fieldName string) int {
+	let u = UnwrapType(tp, typeIdx)
+	if int(u) >= tp.Kind.Len() || tp.Kind[int(u)] != KindRecord {
+		return -1
+	}
+	let start = int(tp.Aux[int(u)])
+	let cnt = int(tp.Count[int(u)])
+	for i in 0..cnt {
+		if tp.FieldName[start+i] == fieldName {
+			return i
+		}
+	}
+	-1
+}
+
+// LookupDeclKey builds the canonical key into DeclToType.
+func LookupDeclKey(pkg uint32, name string, typeArgs []uint32) string {
+	if typeArgs.Len() == 0 {
+		return "\(pkg):\(name)"
+	}
+	let mut parts = []string{}
+	for a in typeArgs {
+		parts = parts.Append("\(a)")
+	}
+	"\(pkg):\(name)[" + strings.Join(parts, ",") + "]"
+}
+
+// LookupTypeByKey returns an existing named or instantiated type index, or TypeVoid.
+func LookupTypeByKey(tp TypePool, key string) uint32 {
+	match tp.DeclToType.Get(key) {
+	case option.Some{Value: id}:
+		id
+	case option.None:
+		TypeVoid
+	}
+}
+
+// StoreBasicType maps a store basic ordinal to the fixed runtime basic index.
+func StoreBasicType(ord int) uint32 {
+	if ord == 1 { return TypeBool }
+	if ord == 2 { return TypeString }
+	if ord == 3 { return TypeInt }
+	if ord == 4 { return TypeInt8 }
+	if ord == 5 { return TypeInt16 }
+	if ord == 6 { return TypeInt32 }
+	if ord == 7 { return TypeInt64 }
+	if ord == 8 { return TypeUint }
+	if ord == 9 { return TypeUint8 }
+	if ord == 10 { return TypeUint16 }
+	if ord == 11 { return TypeUint32 }
+	if ord == 12 { return TypeUint64 }
+	if ord == 13 { return TypeUintptr }
+	if ord == 14 { return TypeFloat32 }
+	if ord == 15 { return TypeFloat64 }
+	if ord == 18 { return TypeDuration }
+	TypeVoid
+}
+
+// MatchesType checks whether runtime value type valType satisfies pattern type patType.
+func MatchesType(tp TypePool, valType uint32, patType uint32) bool {
+	if patType == TypeVoid || valType == TypeVoid {
+		return false
+	}
+	if valType == patType {
+		return true
+	}
+	if int(patType) < tp.Kind.Len() && tp.Kind[int(patType)] == KindUnion {
+		let start = int(tp.Aux[int(patType)])
+		let cnt = int(tp.Count[int(patType)])
+		for i in 0..cnt {
+			if MatchesType(tp, valType, tp.FieldType[start+i]) {
+				return true
+			}
+		}
+	}
+	let vu = UnwrapType(tp, valType)
+	let pu = UnwrapType(tp, patType)
+	if tp.Name[int(valType)] != "" && tp.Name[int(valType)] == tp.Name[int(patType)] && tp.Pkg[int(valType)] == tp.Pkg[int(patType)] && tp.Kind[int(valType)] == tp.Kind[int(patType)] {
+		return true
+	}
+	let _ = vu
+	let _ = pu
+	false
+}
+
+// MatchesBareVariant checks whether a generic pattern base name matches a parameterized instance.
+func MatchesBareVariant(tp TypePool, valType uint32, pkg uint32, variantName string) bool {
+	if int(valType) >= tp.Kind.Len() {
+		return false
+	}
+	if tp.Pkg[int(valType)] == pkg {
+		let full = tp.Name[int(valType)]
+		if full == variantName {
+			return true
+		}
+		if strings.HasPrefix(full, variantName+"[") {
+			return true
+		}
+	}
+	false
+}
+
+func basicNameLookupRoundtrips(name string) bool {
+	let id = BasicFromName(name)
+	id != TypeVoid
+}
+
+law BasicPrimitivesDistinctAndTyped() {
+	TypeBool != TypeInt && TypeInt8 != TypeUint8 && TypeFloat32 != TypeFloat64 && TypeString != TypeDuration && basicNameLookupRoundtrips("int") && basicNameLookupRoundtrips("byte") && basicNameLookupRoundtrips("rune") && basicNameLookupRoundtrips("duration")
+}
+
+law MatchesTypeIsReflexiveAndMatchesUnion() {
+	let mut tp = NewTypePool()
+	let u = AllocNamedType(&tp, KindUnion, uint32(1), "NumOrText", uint32(0))
+	SetUnionVariants(&tp, u, []uint32{TypeInt, TypeString})
+	MatchesType(tp, TypeInt, TypeInt) && MatchesType(tp, TypeInt, u) && MatchesType(tp, TypeString, u) && !MatchesType(tp, TypeBool, u)
+}

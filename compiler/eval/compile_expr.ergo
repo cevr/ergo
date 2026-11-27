@@ -1,0 +1,1721 @@
+import compiler/check/bind
+import compiler/check/store
+import compiler/syntax
+import dense
+import option
+import slices
+import strconv
+import strings
+import utf8
+
+func stripUnderscores(s string) string {
+	if !strings.Contains(s, "_") {
+		return s
+	}
+	strings.ReplaceAll(s, "_", "")
+}
+
+// ParseIntLiteral parses decimal, hex, binary, or octal Go/Ergo integer literals into uint64.
+func ParseIntLiteral(raw string) (uint64, bool) {
+	let s = stripUnderscores(raw)
+	if s.Len() == 0 {
+		return (uint64(0), false)
+	}
+	let mut base = 10
+	let mut body = s
+	if strings.HasPrefix(s, "0x") || strings.HasPrefix(s, "0X") {
+		base = 16
+		body = s[2:s.Len()]
+	} else if strings.HasPrefix(s, "0b") || strings.HasPrefix(s, "0B") {
+		base = 2
+		body = s[2:s.Len()]
+	} else if strings.HasPrefix(s, "0o") || strings.HasPrefix(s, "0O") {
+		base = 8
+		body = s[2:s.Len()]
+	} else if s.Len() > 1 && s[0] == '0' {
+		base = 8
+		body = s[1:s.Len()]
+	}
+	let v = strconv.ParseInt(body, base, 64) catch {
+	case strconv.Malformed:
+		return (uint64(0), false)
+	case strconv.OutOfRange:
+		if base == 10 && body == "9223372036854775808" {
+			return (u64SignBit, true)
+		}
+		if base == 16 && body.Len() <= 16 {
+			return parseUnsigned64Hex(body)
+		}
+		return (uint64(0), false)
+	}
+	(uint64(v), true)
+}
+
+func parseUnsigned64Hex(s string) (uint64, bool) {
+	let mut acc = uint64(0)
+	for i in 0..s.Len() {
+		let c = s[i]
+		let d = if c >= '0' && c <= '9' {
+			uint64(c - '0')
+		} else if c >= 'a' && c <= 'f' {
+			uint64(c - 'a' + 10)
+		} else if c >= 'A' && c <= 'F' {
+			uint64(c - 'A' + 10)
+		} else {
+			return (uint64(0), false)
+		}
+		acc = (acc << uint64(4)) | d
+	}
+	(acc, true)
+}
+
+func durationUnitMultiplier(unit string) (uint64, bool) {
+	if unit == "ns" { return (uint64(1), true) }
+	if unit == "us" || unit == "µs" || unit == "μs" { return (uint64(1000), true) }
+	if unit == "ms" { return (uint64(1000000), true) }
+	if unit == "s" { return (uint64(1000000000), true) }
+	if unit == "m" { return (uint64(60000000000), true) }
+	if unit == "h" { return (uint64(3600000000000), true) }
+	(uint64(0), false)
+}
+
+// ParseDurationLiteral parses a Go/Ergo duration literal such as 1h30m or 500ms into nanoseconds.
+func ParseDurationLiteral(raw string) (uint64, bool) {
+	let mut i = 0
+	let n = raw.Len()
+	if n == 0 {
+		return (uint64(0), false)
+	}
+	let mut total = uint64(0)
+	for i < n {
+		let numStart = i
+		for i < n && ((raw[i] >= '0' && raw[i] <= '9') || raw[i] == '.' || raw[i] == '_') {
+			i = i + 1
+		}
+		if i == numStart {
+			return (uint64(0), false)
+		}
+		let unitStart = i
+		for i < n && !(raw[i] >= '0' && raw[i] <= '9') && raw[i] != '.' {
+			i = i + 1
+		}
+		let unit = raw[unitStart:i]
+		let (mult, uok) = durationUnitMultiplier(unit)
+		if !uok {
+			return (uint64(0), false)
+		}
+		let numText = stripUnderscores(raw[numStart:unitStart])
+		if strings.Contains(numText, ".") {
+			let f = strconv.ParseFloat(numText) catch {
+			case _:
+				return (uint64(0), false)
+			}
+			total = total + uint64(int64(f*float64(mult)))
+		} else {
+			let v = strconv.ParseInt(numText, 10, 64) catch {
+			case _:
+				return (uint64(0), false)
+			}
+			total = total + uint64(v)*mult
+		}
+	}
+	(total, true)
+}
+
+func unescapeStringSegment(tokKind uint8, raw string) string {
+	let mut quoted = raw
+	if tokKind == syntax.StringHead {
+		if raw.Len() >= 2 {
+			quoted = raw[0:raw.Len()-2] + "\""
+		}
+	} else if tokKind == syntax.StringMid {
+		if raw.Len() >= 3 {
+			quoted = "\"" + raw[1:raw.Len()-2] + "\""
+		}
+	} else if tokKind == syntax.StringTail {
+		if raw.Len() >= 2 {
+			quoted = "\"" + raw[1:raw.Len()]
+		}
+	}
+	let uq = strconv.Unquote(quoted) catch {
+	case strconv.Malformed:
+		quoted
+	}
+	uq
+}
+
+func unparenNode(tr syntax.Tree, x dense.ID[syntax.Node]) dense.ID[syntax.Node] {
+	let mut cur = x
+	for syntax.KindOf(tr, cur) == syntax.KParenExpr {
+		cur = syntax.ParenExprOf(tr, cur).X
+	}
+	cur
+}
+
+func isConstExprAST(p syntax.Parsed, x dense.ID[syntax.Node]) bool {
+	let kd = syntax.KindOf(p.Tree, x)
+	if kd == syntax.KBasicLit {
+		return true
+	}
+	if kd == syntax.KParenExpr {
+		return isConstExprAST(p, syntax.ParenExprOf(p.Tree, x).X)
+	}
+	if kd == syntax.KUnaryExpr {
+		return isConstExprAST(p, syntax.UnaryExprOf(p.Tree, x).X)
+	}
+	if kd == syntax.KBinaryExpr {
+		let b = syntax.BinaryExprOf(p.Tree, x)
+		return isConstExprAST(p, b.X) && isConstExprAST(p, b.Y)
+	}
+	false
+}
+
+func resolveImportPkgIndex(ctx CompileUnitCtx, impIdx uint32) uint32 {
+	let depIdx = int(impIdx) - 1
+	if depIdx >= 0 && depIdx < ctx.K.Ifaces.Len() {
+		let path = ctx.K.Ifaces[depIdx].Path
+		match ctx.PkgMap.Get(path) {
+		case option.Some{Value: pi}:
+			return pi
+		case option.None:
+		}
+	}
+	uint32(0)
+}
+
+func resolveImportPkgPath(ctx CompileUnitCtx, impIdx uint32) string {
+	let depIdx = int(impIdx) - 1
+	if depIdx >= 0 && depIdx < ctx.K.Ifaces.Len() {
+		return ctx.K.Ifaces[depIdx].Path
+	}
+	""
+}
+
+func resolveDeclText(ctx CompileUnitCtx, impIdx uint32, declIdx uint32) string {
+	let depIdx = int(impIdx) - 1
+	if depIdx >= 0 && depIdx < ctx.K.Ifaces.Len() {
+		let ifc = ctx.K.Ifaces[depIdx]
+		if int(declIdx) < ifc.Decls.Len() {
+			return ifc.Decls[int(declIdx)].Name
+		}
+	}
+	""
+}
+
+// ResolveExprType resolves the concrete runtime type of expression node id or falls back to wantType.
+func ResolveExprType(prog mut Program, ctx mut CompileUnitCtx, fb FnBuilder, id dense.ID[syntax.Node], wantType uint32) uint32 {
+	let checked = LookupNodeType(*ctx, fb.File, id)
+	if checked != TypeVoid {
+		return substTypeArgsInBuilder(prog, checked, fb.TypeParamID)
+	}
+	let p = ctx.K.Parsed[int(fb.File)]
+	let tr = p.Tree
+	let kd = syntax.KindOf(tr, id)
+	if kd == syntax.KParenExpr {
+		return ResolveExprType(prog, ctx, fb, syntax.ParenExprOf(tr, id).X, wantType)
+	}
+	if kd == syntax.KBasicLit {
+		let bl = syntax.BasicLitOf(tr, id)
+		let tk = syntax.TokKind(p, bl.Tok)
+		if tk == syntax.Int {
+			if wantType != TypeVoid && (IsIntType(prog.Types, wantType) || IsFloatType(prog.Types, wantType)) {
+				return wantType
+			}
+			return TypeInt
+		}
+		if tk == syntax.Float {
+			if wantType != TypeVoid && IsFloatType(prog.Types, wantType) {
+				return wantType
+			}
+			return TypeFloat64
+		}
+		if tk == syntax.Rune {
+			if wantType != TypeVoid && (IsIntType(prog.Types, wantType) || IsFloatType(prog.Types, wantType)) {
+				return wantType
+			}
+			return TypeInt32
+		}
+		if tk == syntax.String {
+			if wantType != TypeVoid && IsStringType(prog.Types, wantType) {
+				return wantType
+			}
+			return TypeString
+		}
+		if tk == syntax.Duration {
+			if wantType != TypeVoid && IsIntType(prog.Types, wantType) {
+				return wantType
+			}
+			return TypeDuration
+		}
+	}
+	if kd == syntax.KIdent {
+		let nm = textOfNameNode(p, id)
+		if nm == "true" || nm == "false" {
+			return TypeBool
+		}
+		if nm == "refined_it" || (nm == "it" && isSomeU32Map(fb.LocalByDef, "refined_it")) {
+			match fb.LocalByDef.Get("refined_it") {
+			case option.Some{Value: sl}:
+				return fb.LocalTypes[int(sl)]
+			case option.None:
+			}
+		}
+		let pn = bind.PNodeOf(ctx.K.Ps, int(fb.File), id)
+		match bind.ResolutionOf(ctx.K.U, ctx.K.Ps, pn) {
+		case bind.Declared as d:
+			match fb.LocalByDef.Get(LocalDefKey(d.At)) {
+			case option.Some{Value: sl}:
+				return fb.LocalTypes[int(sl)]
+			case option.None:
+			}
+			match fb.CapByDef.Get(LocalDefKey(d.At)) {
+			case option.Some{Value: cp}:
+				return fb.CapTypes[int(cp)]
+			case option.None:
+			}
+			match prog.GlobalByDef.Get(DefNodeKey(ctx.PkgIdx, d.At)) {
+			case option.Some{Value: gi}:
+				return prog.Globals[int(gi)].TypeIdx
+			case option.None:
+			}
+			match prog.FnByDefNode.Get(DefNodeKey(ctx.PkgIdx, d.At)) {
+			case option.Some{Value: fi}:
+				return prog.Fns[int(fi)].TypeIdx
+			case option.None:
+			}
+			let t = LookupTypeByKey(prog.Types, LookupDeclKey(ctx.PkgIdx, nm, []uint32{}))
+			if t != TypeVoid {
+				return instantiateWithWant(prog, ctx.PkgIdx, nm, t, wantType)
+			}
+		case bind.Imported as im:
+			let targetPkg = resolveImportPkgIndex(*ctx, im.Ref.Import)
+			let targetName = resolveDeclText(*ctx, im.Ref.Import, im.Ref.Decl)
+			let t = LookupTypeByKey(prog.Types, LookupDeclKey(targetPkg, targetName, []uint32{}))
+			if t != TypeVoid {
+				return instantiateWithWant(prog, targetPkg, targetName, t, wantType)
+			}
+		case bind.Outside:
+			if nm == "None" {
+				return findOptionNoneType(prog, wantType)
+			}
+		case bind.NotUse:
+		}
+		if wantType != TypeVoid {
+			return wantType
+		}
+	}
+	if kd == syntax.KInterpolatedString {
+		return TypeString
+	}
+	if kd == syntax.KTupleExpr {
+		let te = syntax.TupleExprOf(tr, id)
+		let mut elems = []uint32{}
+		for i in 0..syntax.Len(te.Elts) {
+			let elt = syntax.Item(tr, te.Elts, i)
+			let ew = if wantType != TypeVoid && UnderlyingKind(prog.Types, wantType) == KindTuple {
+				let uw = UnwrapType(prog.Types, wantType)
+				if i < int(prog.Types.Count[int(uw)]) { prog.Types.FieldType[int(prog.Types.Aux[int(uw)])+i] } else { TypeVoid }
+			} else {
+				TypeVoid
+			}
+			elems = elems.Append(ResolveExprType(prog, ctx, fb, elt, ew))
+		}
+		return InternTuple(&prog.Types, elems)
+	}
+	if kd == syntax.KCompositeLit {
+		let cl = syntax.CompositeLitOf(tr, id)
+		match dense.Unpack(cl.Type) {
+		case option.Some{Value: tyNode}:
+			let rt = ResolveSyntaxTypeNode(prog, ctx, fb, fb.File, tyNode)
+			if rt != TypeVoid {
+				return instantiateWithWant(prog, prog.Types.Pkg[int(rt)], prog.Types.Name[int(rt)], rt, wantType)
+			}
+		case option.None:
+		}
+		return wantType
+	}
+	if kd == syntax.KBinaryExpr {
+		let b = syntax.BinaryExprOf(tr, id)
+		let op = syntax.TokKind(p, b.Op)
+		if op == syntax.Land || op == syntax.Lor || op == syntax.Eql || op == syntax.Neq || op == syntax.Lss || op == syntax.Leq || op == syntax.Gtr || op == syntax.Geq {
+			return TypeBool
+		}
+		if op == syntax.Shl || op == syntax.Shr {
+			return ResolveExprType(prog, ctx, fb, b.X, wantType)
+		}
+		let xc = isConstExprAST(p, b.X)
+		let yc = isConstExprAST(p, b.Y)
+		if !xc {
+			return ResolveExprType(prog, ctx, fb, b.X, wantType)
+		}
+		if !yc {
+			return ResolveExprType(prog, ctx, fb, b.Y, wantType)
+		}
+		return ResolveExprType(prog, ctx, fb, b.X, wantType)
+	}
+	if kd == syntax.KUnaryExpr {
+		let u = syntax.UnaryExprOf(tr, id)
+		let op = syntax.TokKind(p, u.Op)
+		if op == syntax.Not { return TypeBool }
+		if op == syntax.And {
+			return InternPointer(&prog.Types, ResolveExprType(prog, ctx, fb, u.X, TypeVoid))
+		}
+		return ResolveExprType(prog, ctx, fb, u.X, wantType)
+	}
+	if kd == syntax.KStarExpr {
+		let inner = ResolveExprType(prog, ctx, fb, syntax.StarExprOf(tr, id).X, TypeVoid)
+		if int(inner) < prog.Types.Kind.Len() && prog.Types.Kind[int(inner)] == KindPointer {
+			return prog.Types.Elem[int(inner)]
+		}
+		return wantType
+	}
+	if kd == syntax.KIndexExpr {
+		let ie = syntax.IndexExprOf(tr, id)
+		let xt = ResolveExprType(prog, ctx, fb, ie.X, TypeVoid)
+		let xu = UnwrapType(prog.Types, xt)
+		if int(xu) < prog.Types.Kind.Len() {
+			let xk = prog.Types.Kind[int(xu)]
+			if xk == KindSlice || xk == KindArray {
+				return prog.Types.Elem[int(xu)]
+			}
+			if xk == KindString {
+				return TypeUint8
+			}
+			if xk == KindMap {
+				return prog.Types.Aux[int(xu)]
+			}
+		}
+		return wantType
+	}
+	if kd == syntax.KSliceExpr {
+		let se = syntax.SliceExprOf(tr, id)
+		let xt = ResolveExprType(prog, ctx, fb, se.X, wantType)
+		let xu = UnwrapType(prog.Types, xt)
+		if int(xu) < prog.Types.Kind.Len() {
+			let xk = prog.Types.Kind[int(xu)]
+			if xk == KindString { return xt }
+			if xk == KindArray { return InternSlice(&prog.Types, prog.Types.Elem[int(xu)]) }
+			if xk == KindSlice { return xt }
+		}
+		return wantType
+	}
+	if kd == syntax.KSelectorExpr {
+		let se = syntax.SelectorExprOf(tr, id)
+		let selName = textOfNameNode(p, se.Sel)
+		let xt = ResolveExprType(prog, ctx, fb, se.X, TypeVoid)
+		if xt != TypeVoid {
+			let fi = FieldIndexByName(prog.Types, xt, selName)
+			if fi >= 0 {
+				let xu = UnwrapType(prog.Types, xt)
+				return prog.Types.FieldType[int(prog.Types.Aux[int(xu)])+fi]
+			}
+		}
+		return wantType
+	}
+	if kd == syntax.KCallExpr {
+		let ce = syntax.CallExprOf(tr, id)
+		let ct = LookupNodeType(*ctx, fb.File, id)
+		if ct != TypeVoid {
+			return substTypeArgsInBuilder(prog, ct, fb.TypeParamID)
+		}
+		let funUnp = unparenNode(tr, ce.Fun)
+		if syntax.KindOf(tr, funUnp) == syntax.KIdent {
+			let fnName = textOfNameNode(p, funUnp)
+			if ce.Args.Len() == 1 {
+				let b = BasicFromName(fnName)
+				if b != TypeVoid { return b }
+				let lt = LookupTypeByKey(prog.Types, LookupDeclKey(ctx.PkgIdx, fnName, []uint32{}))
+				if lt != TypeVoid && !isSomeU32Map(prog.FnByKey, "\(ctx.PkgIdx):\(fnName)") {
+					return lt
+				}
+			}
+			if fnName == "len" || fnName == "Len" { return TypeInt }
+			if fnName == "append" || fnName == "Append" {
+				if syntax.Len(ce.Args) > 0 {
+					return ResolveExprType(prog, ctx, fb, syntax.Item(tr, ce.Args, 0), wantType)
+				}
+			}
+		}
+	}
+	wantType
+}
+
+func isSomeU32Map(m Map[string, uint32], k string) bool {
+	match m.Get(k) {
+	case option.Some:
+		true
+	case option.None:
+		false
+	}
+}
+
+func substTypeArgsInBuilder(prog mut Program, t uint32, targs []uint32) uint32 {
+	if targs.Len() == 0 || t == TypeVoid {
+		return t
+	}
+	substGenericRuntimeType(&prog.Types, t, targs)
+}
+
+func findOptionNoneType(prog mut Program, wantType uint32) uint32 {
+	for i, p in prog.PkgPaths {
+		if p == "option" {
+			let nt = LookupTypeByKey(prog.Types, LookupDeclKey(uint32(i), "None", []uint32{}))
+			if nt != TypeVoid { return nt }
+		}
+	}
+	let nt = LookupTypeByKey(prog.Types, LookupDeclKey(uint32(0), "None", []uint32{}))
+	if nt != TypeVoid { return nt }
+	let _ = wantType
+	AllocNamedType(&prog.Types, KindRecord, uint32(0), "None", uint32(0))
+}
+
+func instantiateWithWant(prog mut Program, pkg uint32, name string, baseIdx uint32, wantType uint32) uint32 {
+	if wantType != TypeVoid && int(wantType) < prog.Types.Kind.Len() && prog.Types.Kind[int(wantType)] == KindUnion {
+		let start = int(prog.Types.Aux[int(wantType)])
+		let cnt = int(prog.Types.Count[int(wantType)])
+		for i in 0..cnt {
+			let vt = prog.Types.FieldType[start+i]
+			if MatchesBareVariant(prog.Types, vt, pkg, name) {
+				return vt
+			}
+		}
+	}
+	baseIdx
+}
+
+func findRecordTypeFromNode(prog mut Program, ctx mut CompileUnitCtx, fb FnBuilder, tyNode dense.ID[syntax.Node], wantType uint32) uint32 {
+	let checked = LookupNodeType(*ctx, fb.File, tyNode)
+	if checked != TypeVoid {
+		return substTypeArgsInBuilder(prog, checked, fb.TypeParamID)
+	}
+	let rt = ResolveSyntaxTypeNode(prog, ctx, fb, fb.File, tyNode)
+	if rt != TypeVoid {
+		return rt
+	}
+	wantType
+}
+
+// CompileExprNode compiles expression id into bytecode leaving 1 result value on the stack.
+func CompileExprNode(prog mut Program, ctx mut CompileUnitCtx, fb mut FnBuilder, id dense.ID[syntax.Node], wantType uint32, isTail bool) {
+	let p = ctx.K.Parsed[int(fb.File)]
+	let tr = p.Tree
+	let kd = syntax.KindOf(tr, id)
+	if kd == syntax.KParenExpr {
+		CompileExprNode(prog, ctx, fb, syntax.ParenExprOf(tr, id).X, wantType, isTail)
+		return
+	}
+	if kd == syntax.KBasicLit {
+		compileBasicLitExpr(prog, ctx, *fb, id, wantType)
+		return
+	}
+	if kd == syntax.KIdent {
+		compileIdentExpr(prog, ctx, fb, id, wantType)
+		return
+	}
+	if kd == syntax.KInterpolatedString {
+		compileInterpStrExpr(prog, ctx, fb, id)
+		return
+	}
+	if kd == syntax.KUnaryExpr {
+		compileUnaryExprNode(prog, ctx, fb, id, wantType)
+		return
+	}
+	if kd == syntax.KStarExpr {
+		CompileExprNode(prog, ctx, fb, syntax.StarExprOf(tr, id).X, TypeVoid, false)
+		EmitOp(prog, OpDeref, uint8(0), uint32(0), uint32(0), uint32(0), fb.File, id)
+		return
+	}
+	if kd == syntax.KBinaryExpr {
+		compileBinaryExprNode(prog, ctx, fb, id, wantType)
+		return
+	}
+	if kd == syntax.KTupleExpr {
+		compileTupleExprNode(prog, ctx, fb, id, wantType)
+		return
+	}
+	if kd == syntax.KCompositeLit {
+		compileCompositeLitExpr(prog, ctx, fb, id, wantType)
+		return
+	}
+	if kd == syntax.KSelectorExpr {
+		compileSelectorExprNode(prog, ctx, fb, id, wantType)
+		return
+	}
+	if kd == syntax.KIndexExpr {
+		compileIndexExprNode(prog, ctx, fb, id, wantType)
+		return
+	}
+	if kd == syntax.KSliceExpr {
+		compileSliceExprNode(prog, ctx, fb, id, wantType)
+		return
+	}
+	if kd == syntax.KCallExpr {
+		compileCallExprNode(prog, ctx, fb, id, wantType)
+		return
+	}
+	if kd == syntax.KFuncLit {
+		compileFuncLitExpr(prog, ctx, fb, id, wantType)
+		return
+	}
+	if kd == syntax.KTryExpr {
+		let te = syntax.TryExprOf(tr, id)
+		if syntax.KindOf(tr, te.X) == syntax.KCatchExpr {
+			compileCatchExprNode(prog, ctx, fb, te.X, wantType, true, isTail)
+		} else {
+			EmitOp(prog, OpPushTryBarrier, uint8(0), uint32(0), uint32(0), uint32(0), fb.File, id)
+			CompileExprNode(prog, ctx, fb, te.X, wantType, isTail)
+			EmitOp(prog, OpPopCatch, uint8(0), uint32(0), uint32(0), uint32(0), fb.File, id)
+		}
+		return
+	}
+	if kd == syntax.KCatchExpr {
+		compileCatchExprNode(prog, ctx, fb, id, wantType, false, isTail)
+		return
+	}
+	if kd == syntax.KIfStmt {
+		CompileIfStmtNode(prog, ctx, fb, id, true, wantType, isTail)
+		return
+	}
+	if kd == syntax.KSwitchStmt {
+		CompileSwitchStmtNode(prog, ctx, fb, id, true, wantType, isTail)
+		return
+	}
+	if kd == syntax.KTypeSwitchStmt {
+		CompileTypeSwitchStmtNode(prog, ctx, fb, id, true, wantType, isTail)
+		return
+	}
+	if kd == syntax.KBlockStmt {
+		CompileBlockStmtNode(prog, ctx, fb, id, true, wantType, isTail)
+		return
+	}
+	EmitOp(prog, OpUnit, uint8(0), uint32(0), uint32(0), uint32(0), fb.File, id)
+}
+
+func compileBasicLitExpr(prog mut Program, ctx mut CompileUnitCtx, fb FnBuilder, id dense.ID[syntax.Node], wantType uint32) {
+	let p = ctx.K.Parsed[int(fb.File)]
+	let bl = syntax.BasicLitOf(p.Tree, id)
+	let tk = syntax.TokKind(p, bl.Tok)
+	let raw = syntax.TokText(p, bl.Tok)
+	let targetT = ResolveExprType(prog, ctx, fb, id, wantType)
+	if tk == syntax.Int {
+		let (bits, ok) = ParseIntLiteral(raw)
+		if !ok {
+			EmitOp(prog, OpUnit, uint8(0), uint32(0), uint32(0), uint32(0), fb.File, id)
+			return
+		}
+		let v = if IsFloatType(prog.Types, targetT) {
+			MakeFloatVal(prog.Types, targetT, float64(bits))
+		} else {
+			MakeIntVal(prog.Types, targetT, bits)
+		}
+		let cIdx = AddConst(prog, v)
+		EmitOp(prog, OpConst, uint8(0), cIdx, uint32(0), uint32(0), fb.File, id)
+		return
+	}
+	if tk == syntax.Float {
+		let f = strconv.ParseFloat(raw) catch {
+		case _:
+			0.0
+		}
+		let v = MakeFloatVal(prog.Types, targetT, f)
+		let cIdx = AddConst(prog, v)
+		EmitOp(prog, OpConst, uint8(0), cIdx, uint32(0), uint32(0), fb.File, id)
+		return
+	}
+	if tk == syntax.Duration {
+		let (ns, _) = ParseDurationLiteral(raw)
+		let v = MakeIntVal(prog.Types, if targetT == TypeVoid { TypeDuration } else { targetT }, ns)
+		let cIdx = AddConst(prog, v)
+		EmitOp(prog, OpConst, uint8(0), cIdx, uint32(0), uint32(0), fb.File, id)
+		return
+	}
+	if tk == syntax.Rune {
+		let uq = strconv.Unquote(raw) catch {
+		case _:
+			raw
+		}
+		let r = if uq.Len() > 0 { utf8.DecodeRuneInString(uq).Rune } else { rune(0) }
+		let rt = if IsFloatType(prog.Types, targetT) {
+			MakeFloatVal(prog.Types, targetT, float64(r))
+		} else {
+			MakeIntVal(prog.Types, if targetT == TypeVoid { TypeInt32 } else { targetT }, uint64(int64(r)))
+		}
+		let cIdx = AddConst(prog, rt)
+		EmitOp(prog, OpConst, uint8(0), cIdx, uint32(0), uint32(0), fb.File, id)
+		return
+	}
+	if tk == syntax.String {
+		let uq = strconv.Unquote(raw) catch {
+		case _:
+			raw
+		}
+		let v = AllocStrVal(&prog.Arena, if targetT == TypeVoid { TypeString } else { targetT }, uq)
+		let cIdx = AddConst(prog, v)
+		EmitOp(prog, OpConst, uint8(0), cIdx, uint32(0), uint32(0), fb.File, id)
+		return
+	}
+	EmitOp(prog, OpUnit, uint8(0), uint32(0), uint32(0), uint32(0), fb.File, id)
+}
+
+func compileIdentExpr(prog mut Program, ctx mut CompileUnitCtx, fb mut FnBuilder, id dense.ID[syntax.Node], wantType uint32) {
+	let p = ctx.K.Parsed[int(fb.File)]
+	let nm = textOfNameNode(p, id)
+	if nm == "it" || nm == "refined_it" {
+		match fb.LocalByDef.Get("refined_it") {
+		case option.Some{Value: slot}:
+			EmitOp(prog, OpLoadLocal, uint8(0), slot, uint32(0), uint32(0), fb.File, id)
+			return
+		case option.None:
+		}
+	}
+	let pn = bind.PNodeOf(ctx.K.Ps, int(fb.File), id)
+	match bind.ResolutionOf(ctx.K.U, ctx.K.Ps, pn) {
+	case bind.Declared as d:
+		let lk = LocalDefKey(d.At)
+		match fb.LocalByDef.Get(lk) {
+		case option.Some{Value: slot}:
+			EmitOp(prog, OpLoadLocal, uint8(0), slot, uint32(0), uint32(0), fb.File, id)
+			return
+		case option.None:
+		}
+		match fb.CapByDef.Get(lk) {
+		case option.Some{Value: capIdx}:
+			EmitOp(prog, OpLoadCap, uint8(0), capIdx, uint32(0), uint32(0), fb.File, id)
+			return
+		case option.None:
+		}
+		match prog.GlobalByDef.Get(DefNodeKey(ctx.PkgIdx, d.At)) {
+		case option.Some{Value: gi}:
+			EmitOp(prog, OpLoadGlobal, uint8(0), gi, uint32(0), uint32(0), fb.File, id)
+			return
+		case option.None:
+		}
+		match prog.FnByDefNode.Get(DefNodeKey(ctx.PkgIdx, d.At)) {
+		case option.Some{Value: fnIdx}:
+			let tplIdx = allocEmptyClosureTpl(prog)
+			let targs = LookupInstTypeArgs(*ctx, fb.File, id)
+			let targRun = AddTypeArgRun(prog, targs)
+			EmitOp(prog, OpMakeClosure, uint8(0), fnIdx, tplIdx, targRun, fb.File, id)
+			return
+		case option.None:
+		}
+		let t = ResolveExprType(prog, ctx, *fb, id, wantType)
+		if t != TypeVoid && UnderlyingKind(prog.Types, t) == KindRecord {
+			EmitOp(prog, OpMakeRecord, uint8(0), t, uint32(0), uint32(0), fb.File, id)
+			return
+		}
+	case bind.Imported as im:
+		let targetPkg = resolveImportPkgIndex(*ctx, im.Ref.Import)
+		let symName = resolveDeclText(*ctx, im.Ref.Import, im.Ref.Decl)
+		match prog.FnByKey.Get("\(targetPkg):\(symName)") {
+		case option.Some{Value: fnIdx}:
+			let tplIdx = allocEmptyClosureTpl(prog)
+			let targs = LookupInstTypeArgs(*ctx, fb.File, id)
+			let targRun = AddTypeArgRun(prog, targs)
+			EmitOp(prog, OpMakeClosure, uint8(0), fnIdx, tplIdx, targRun, fb.File, id)
+			return
+		case option.None:
+		}
+		let t = ResolveExprType(prog, ctx, *fb, id, wantType)
+		if t != TypeVoid && UnderlyingKind(prog.Types, t) == KindRecord {
+			EmitOp(prog, OpMakeRecord, uint8(0), t, uint32(0), uint32(0), fb.File, id)
+			return
+		}
+	case bind.Outside:
+		if nm == "true" {
+			EmitOp(prog, OpBool, uint8(0), uint32(1), uint32(0), uint32(0), fb.File, id)
+			return
+		}
+		if nm == "false" {
+			EmitOp(prog, OpBool, uint8(0), uint32(0), uint32(0), uint32(0), fb.File, id)
+			return
+		}
+		if nm == "None" {
+			let noneT = findOptionNoneType(prog, wantType)
+			EmitOp(prog, OpMakeRecord, uint8(0), noneT, uint32(0), uint32(0), fb.File, id)
+			return
+		}
+		let t = ResolveExprType(prog, ctx, *fb, id, wantType)
+		if t != TypeVoid && UnderlyingKind(prog.Types, t) == KindRecord {
+			EmitOp(prog, OpMakeRecord, uint8(0), t, uint32(0), uint32(0), fb.File, id)
+			return
+		}
+	case bind.NotUse:
+	}
+	EmitOp(prog, OpZero, uint8(0), ResolveExprType(prog, ctx, *fb, id, wantType), uint32(0), uint32(0), fb.File, id)
+}
+
+func allocEmptyClosureTpl(prog mut Program) uint32 {
+	let idx = uint32(prog.ClosureTpls.Len())
+	prog.ClosureTpls = prog.ClosureTpls.Append(RunSpan{Start: uint32(0), Len: uint32(0)})
+	idx
+}
+
+func compileInterpStrExpr(prog mut Program, ctx mut CompileUnitCtx, fb mut FnBuilder, id dense.ID[syntax.Node]) {
+	let p = ctx.K.Parsed[int(fb.File)]
+	let tr = p.Tree
+	let is = syntax.InterpolatedStringOf(tr, id)
+	let n = syntax.Len(is.Parts)
+	for i in 0..n {
+		let part = syntax.Item(tr, is.Parts, i)
+		if syntax.KindOf(tr, part) == syntax.KBasicLit {
+			let bl = syntax.BasicLitOf(tr, part)
+			let tk = syntax.TokKind(p, bl.Tok)
+			let s = unescapeStringSegment(tk, syntax.TokText(p, bl.Tok))
+			let cIdx = AddConst(prog, AllocStrVal(&prog.Arena, TypeString, s))
+			EmitOp(prog, OpConst, uint8(0), cIdx, uint32(0), uint32(0), fb.File, part)
+		} else {
+			CompileExprNode(prog, ctx, fb, part, TypeVoid, false)
+			EmitOp(prog, OpToString, uint8(0), uint32(0), uint32(0), uint32(0), fb.File, part)
+		}
+	}
+	EmitOp(prog, OpConcatStrs, uint8(0), uint32(n), uint32(0), uint32(0), fb.File, id)
+}
+
+func compileAddrExpr(prog mut Program, ctx mut CompileUnitCtx, fb mut FnBuilder, target dense.ID[syntax.Node], fullNode dense.ID[syntax.Node]) {
+	let p = ctx.K.Parsed[int(fb.File)]
+	let u = unparenNode(p.Tree, target)
+	if syntax.KindOf(p.Tree, u) == syntax.KIdent {
+		let pn = bind.PNodeOf(ctx.K.Ps, int(fb.File), u)
+		match bind.ResolutionOf(ctx.K.U, ctx.K.Ps, pn) {
+		case bind.Declared as d:
+			let lk = LocalDefKey(d.At)
+			match fb.LocalByDef.Get(lk) {
+			case option.Some{Value: slot}:
+				let pt = InternPointer(&prog.Types, fb.LocalTypes[int(slot)])
+				EmitOp(prog, OpAddrLocal, uint8(0), slot, uint32(0), pt, fb.File, fullNode)
+				return
+			case option.None:
+			}
+			match fb.CapByDef.Get(lk) {
+			case option.Some{Value: capIdx}:
+				let pt = InternPointer(&prog.Types, fb.CapTypes[int(capIdx)])
+				EmitOp(prog, OpAddrCap, uint8(0), capIdx, uint32(0), pt, fb.File, fullNode)
+				return
+			case option.None:
+			}
+		case _:
+		}
+	}
+	if syntax.KindOf(p.Tree, u) == syntax.KStarExpr {
+		CompileExprNode(prog, ctx, fb, syntax.StarExprOf(p.Tree, u).X, TypeVoid, false)
+		return
+	}
+	CompileExprNode(prog, ctx, fb, target, TypeVoid, false)
+}
+
+func compileUnaryExprNode(prog mut Program, ctx mut CompileUnitCtx, fb mut FnBuilder, id dense.ID[syntax.Node], wantType uint32) {
+	let p = ctx.K.Parsed[int(fb.File)]
+	let u = syntax.UnaryExprOf(p.Tree, id)
+	let op = syntax.TokKind(p, u.Op)
+	if op == syntax.And {
+		compileAddrExpr(prog, ctx, fb, u.X, id)
+		return
+	}
+	let xWant = if op == syntax.Not { TypeBool } else { ResolveExprType(prog, ctx, *fb, id, wantType) }
+	CompileExprNode(prog, ctx, fb, u.X, xWant, false)
+	EmitOp(prog, OpUnary, op, uint32(0), uint32(0), uint32(0), fb.File, id)
+}
+
+func compileBinaryExprNode(prog mut Program, ctx mut CompileUnitCtx, fb mut FnBuilder, id dense.ID[syntax.Node], wantType uint32) {
+	let p = ctx.K.Parsed[int(fb.File)]
+	let b = syntax.BinaryExprOf(p.Tree, id)
+	let op = syntax.TokKind(p, b.Op)
+	if op == syntax.Land {
+		CompileExprNode(prog, ctx, fb, b.X, TypeBool, false)
+		let jmp = EmitJumpOp(prog, OpJumpIfFalsePeek, fb.File, id)
+		CompileExprNode(prog, ctx, fb, b.Y, TypeBool, false)
+		PatchJumpTarget(prog, jmp, CurrentPC(*prog))
+		return
+	}
+	if op == syntax.Lor {
+		CompileExprNode(prog, ctx, fb, b.X, TypeBool, false)
+		let jmp = EmitJumpOp(prog, OpJumpIfTruePeek, fb.File, id)
+		CompileExprNode(prog, ctx, fb, b.Y, TypeBool, false)
+		PatchJumpTarget(prog, jmp, CurrentPC(*prog))
+		return
+	}
+	let exprT = ResolveExprType(prog, ctx, *fb, id, wantType)
+	let isCmp = op == syntax.Eql || op == syntax.Neq || op == syntax.Lss || op == syntax.Leq || op == syntax.Gtr || op == syntax.Geq
+	let isShift = op == syntax.Shl || op == syntax.Shr
+	let mut xWant = exprT
+	let mut yWant = exprT
+	if isShift {
+		xWant = if exprT == TypeBool || exprT == TypeVoid { ResolveExprType(prog, ctx, *fb, b.X, wantType) } else { exprT }
+		yWant = TypeInt
+	} else if isCmp {
+		let xc = isConstExprAST(p, b.X)
+		let yc = isConstExprAST(p, b.Y)
+		let common = if !xc {
+			ResolveExprType(prog, ctx, *fb, b.X, TypeVoid)
+		} else if !yc {
+			ResolveExprType(prog, ctx, *fb, b.Y, TypeVoid)
+		} else {
+			ResolveExprType(prog, ctx, *fb, b.X, TypeVoid)
+		}
+		xWant = common
+		yWant = common
+	} else {
+		let xc = isConstExprAST(p, b.X)
+		let yc = isConstExprAST(p, b.Y)
+		let opT = if !xc {
+			ResolveExprType(prog, ctx, *fb, b.X, exprT)
+		} else if !yc {
+			ResolveExprType(prog, ctx, *fb, b.Y, exprT)
+		} else {
+			exprT
+		}
+		xWant = opT
+		yWant = opT
+	}
+	CompileExprNode(prog, ctx, fb, b.X, xWant, false)
+	CompileExprNode(prog, ctx, fb, b.Y, yWant, false)
+	let outType = if isCmp { TypeBool } else if isShift { xWant } else { xWant }
+	EmitOp(prog, OpBinary, op, outType, uint32(0), uint32(0), fb.File, id)
+}
+
+func compileTupleExprNode(prog mut Program, ctx mut CompileUnitCtx, fb mut FnBuilder, id dense.ID[syntax.Node], wantType uint32) {
+	let tr = ctx.K.Parsed[int(fb.File)].Tree
+	let te = syntax.TupleExprOf(tr, id)
+	let tupT = ResolveExprType(prog, ctx, *fb, id, wantType)
+	let ut = UnwrapType(prog.Types, tupT)
+	let n = syntax.Len(te.Elts)
+	for i in 0..n {
+		let ew = if int(ut) < prog.Types.Kind.Len() && prog.Types.Kind[int(ut)] == KindTuple && i < int(prog.Types.Count[int(ut)]) {
+			prog.Types.FieldType[int(prog.Types.Aux[int(ut)])+i]
+		} else {
+			TypeVoid
+		}
+		CompileExprNode(prog, ctx, fb, syntax.Item(tr, te.Elts, i), ew, false)
+	}
+	EmitOp(prog, OpMakeTuple, uint8(0), tupT, uint32(n), uint32(0), fb.File, id)
+}
+
+func compileCompositeLitExpr(prog mut Program, ctx mut CompileUnitCtx, fb mut FnBuilder, id dense.ID[syntax.Node], wantType uint32) {
+	let p = ctx.K.Parsed[int(fb.File)]
+	let tr = p.Tree
+	let cl = syntax.CompositeLitOf(tr, id)
+	let mut litT = LookupNodeType(*ctx, fb.File, id)
+	if litT != TypeVoid {
+		litT = substTypeArgsInBuilder(prog, litT, fb.TypeParamID)
+	} else {
+		match dense.Unpack(cl.Type) {
+		case option.Some{Value: tyNode}:
+			litT = findRecordTypeFromNode(prog, ctx, *fb, tyNode, wantType)
+		case option.None:
+			litT = wantType
+		}
+	}
+	if litT == TypeVoid {
+		litT = wantType
+	}
+	let u = UnwrapType(prog.Types, litT)
+	let kind = if int(u) < prog.Types.Kind.Len() { prog.Types.Kind[int(u)] } else { KindRecord }
+	let n = syntax.Len(cl.Elts)
+	if kind == KindSlice || kind == KindArray {
+		let elemT = prog.Types.Elem[int(u)]
+		let mut hasKeyed = false
+		for i in 0..n {
+			if syntax.KindOf(tr, syntax.Item(tr, cl.Elts, i)) == syntax.KKeyValueExpr {
+				hasKeyed = true
+			}
+		}
+		if !hasKeyed {
+			for i in 0..n {
+				CompileExprNode(prog, ctx, fb, syntax.Item(tr, cl.Elts, i), elemT, false)
+			}
+			let op = if kind == KindSlice { OpMakeSlice } else { OpMakeArray }
+			EmitOp(prog, op, uint8(0), litT, uint32(n), uint32(0), fb.File, id)
+			return
+		}
+		let mut maxIdx = 0
+		let mut curIdx = 0
+		let mut idxs = []int{}
+		for i in 0..n {
+			let el = syntax.Item(tr, cl.Elts, i)
+			if syntax.KindOf(tr, el) == syntax.KKeyValueExpr {
+				let kv = syntax.KeyValueExprOf(tr, el)
+				if syntax.KindOf(tr, kv.Key) == syntax.KBasicLit {
+					let (kvIdx, _) = ParseIntLiteral(syntax.TokText(p, syntax.BasicLitOf(tr, kv.Key).Tok))
+					curIdx = int(kvIdx)
+				}
+			}
+			idxs = idxs.Append(curIdx)
+			if curIdx >= maxIdx { maxIdx = curIdx + 1 }
+			curIdx = curIdx + 1
+		}
+		let total = if kind == KindArray && int(prog.Types.Aux[int(u)]) > maxIdx { int(prog.Types.Aux[int(u)]) } else { maxIdx }
+		let mut valByPos = []dense.Opt[syntax.Node]{}
+		for _ in 0..total { valByPos = valByPos.Append(dense.NoID[syntax.Node]()) }
+		for i in 0..n {
+			let el = syntax.Item(tr, cl.Elts, i)
+			let vx = if syntax.KindOf(tr, el) == syntax.KKeyValueExpr { syntax.KeyValueExprOf(tr, el).Value } else { el }
+			valByPos[idxs[i]] = dense.OptOf(vx)
+		}
+		for pos in 0..total {
+			match dense.Unpack(valByPos[pos]) {
+			case option.Some{Value: vx}:
+				CompileExprNode(prog, ctx, fb, vx, elemT, false)
+			case option.None:
+				EmitOp(prog, OpZero, uint8(0), elemT, uint32(0), uint32(0), fb.File, id)
+			}
+		}
+		let op = if kind == KindSlice { OpMakeSlice } else { OpMakeArray }
+		EmitOp(prog, op, uint8(0), litT, uint32(total), uint32(0), fb.File, id)
+		return
+	}
+	if kind == KindMap {
+		let keyT = prog.Types.Elem[int(u)]
+		let valT = prog.Types.Aux[int(u)]
+		for i in 0..n {
+			let el = syntax.Item(tr, cl.Elts, i)
+			if syntax.KindOf(tr, el) == syntax.KKeyValueExpr {
+				let kv = syntax.KeyValueExprOf(tr, el)
+				CompileExprNode(prog, ctx, fb, kv.Key, keyT, false)
+				CompileExprNode(prog, ctx, fb, kv.Value, valT, false)
+			}
+		}
+		EmitOp(prog, OpMakeMap, uint8(0), litT, uint32(n), uint32(0), fb.File, id)
+		return
+	}
+	let fStart = int(prog.Types.Aux[int(u)])
+	let fCount = int(prog.Types.Count[int(u)])
+	match dense.Unpack(cl.Base) {
+	case option.Some{Value: baseExpr}:
+		CompileExprNode(prog, ctx, fb, baseExpr, litT, false)
+		let updStart = uint32(prog.UpdateFields.Len())
+		for i in 0..n {
+			let el = syntax.Item(tr, cl.Elts, i)
+			if syntax.KindOf(tr, el) == syntax.KKeyValueExpr {
+				let kv = syntax.KeyValueExprOf(tr, el)
+				let fnm = textOfNameNode(p, kv.Key)
+				let fi = FieldIndexByName(prog.Types, litT, fnm)
+				let ft = if fi >= 0 { prog.Types.FieldType[fStart+fi] } else { TypeVoid }
+				CompileExprNode(prog, ctx, fb, kv.Value, ft, false)
+				prog.UpdateFields = prog.UpdateFields.Append(if fi >= 0 { uint32(fi) } else { uint32(0) })
+			}
+		}
+		EmitOp(prog, OpSpreadRecord, uint8(0), litT, uint32(n), updStart, fb.File, id)
+		return
+	case option.None:
+	}
+	if n == 0 {
+		for fi in 0..fCount {
+			EmitOp(prog, OpZero, uint8(0), prog.Types.FieldType[fStart+fi], uint32(0), uint32(0), fb.File, id)
+		}
+		EmitOp(prog, OpMakeRecord, uint8(0), litT, uint32(fCount), uint32(0), fb.File, id)
+		return
+	}
+	let firstIsKV = syntax.KindOf(tr, syntax.Item(tr, cl.Elts, 0)) == syntax.KKeyValueExpr
+	if !firstIsKV {
+		for i in 0..fCount {
+			let ft = prog.Types.FieldType[fStart+i]
+			if i < n {
+				CompileExprNode(prog, ctx, fb, syntax.Item(tr, cl.Elts, i), ft, false)
+			} else {
+				EmitOp(prog, OpZero, uint8(0), ft, uint32(0), uint32(0), fb.File, id)
+			}
+		}
+		EmitOp(prog, OpMakeRecord, uint8(0), litT, uint32(fCount), uint32(0), fb.File, id)
+		return
+	}
+	let mut fieldSlotMap = slices.WithCapacity[uint32](fCount)
+	let mut fieldSet = slices.WithCapacity[bool](fCount)
+	for _ in 0..fCount {
+		fieldSlotMap = fieldSlotMap.Append(uint32(0))
+		fieldSet = fieldSet.Append(false)
+	}
+	for i in 0..n {
+		let el = syntax.Item(tr, cl.Elts, i)
+		if syntax.KindOf(tr, el) == syntax.KKeyValueExpr {
+			let kv = syntax.KeyValueExprOf(tr, el)
+			let fnm = textOfNameNode(p, kv.Key)
+			let fi = FieldIndexByName(prog.Types, litT, fnm)
+			let ft = if fi >= 0 { prog.Types.FieldType[fStart+fi] } else { TypeVoid }
+			CompileExprNode(prog, ctx, fb, kv.Value, ft, false)
+			if fi >= 0 {
+				let tmp = AllocLocalSlot(fb, dense.NoID[store.PNode](), ft, false)
+				EmitOp(prog, OpStoreLocal, uint8(0), tmp, uint32(0), uint32(0), fb.File, kv.Value)
+				fieldSlotMap[fi] = tmp
+				fieldSet[fi] = true
+			} else {
+				EmitOp(prog, OpPop, uint8(0), uint32(0), uint32(0), uint32(0), fb.File, kv.Value)
+			}
+		}
+	}
+	for fi in 0..fCount {
+		if fieldSet[fi] {
+			EmitOp(prog, OpLoadLocal, uint8(0), fieldSlotMap[fi], uint32(0), uint32(0), fb.File, id)
+		} else {
+			EmitOp(prog, OpZero, uint8(0), prog.Types.FieldType[fStart+fi], uint32(0), uint32(0), fb.File, id)
+		}
+	}
+	EmitOp(prog, OpMakeRecord, uint8(0), litT, uint32(fCount), uint32(0), fb.File, id)
+}
+
+func isImportNamespaceExpr(ctx CompileUnitCtx, file uint32, x dense.ID[syntax.Node]) (bool, uint32, string) {
+	let p = ctx.K.Parsed[int(file)]
+	let ux = unparenNode(p.Tree, x)
+	if syntax.KindOf(p.Tree, ux) != syntax.KIdent {
+		return (false, uint32(0), "")
+	}
+	let name = textOfNameNode(p, ux)
+	match bind.ResolutionOf(ctx.K.U, ctx.K.Ps, bind.PNodeOf(ctx.K.Ps, int(file), ux)) {
+	case bind.Imported as im:
+		let path = resolveImportPkgPath(ctx, im.Ref.Import)
+		let pkgNum = resolveImportPkgIndex(ctx, im.Ref.Import)
+		return (true, pkgNum, path)
+	case bind.Declared:
+		return (false, uint32(0), "")
+	case bind.Outside:
+		for ifc in ctx.K.Ifaces {
+			if ifc.Name == name {
+				return (true, uint32(0), ifc.Path)
+			}
+		}
+	case bind.NotUse:
+		for ifc in ctx.K.Ifaces {
+			if ifc.Name == name {
+				return (true, uint32(0), ifc.Path)
+			}
+		}
+	}
+	(false, uint32(0), "")
+}
+
+func compileSelectorExprNode(prog mut Program, ctx mut CompileUnitCtx, fb mut FnBuilder, id dense.ID[syntax.Node], wantType uint32) {
+	let p = ctx.K.Parsed[int(fb.File)]
+	let se = syntax.SelectorExprOf(p.Tree, id)
+	let selName = textOfNameNode(p, se.Sel)
+	let pn = bind.PNodeOf(ctx.K.Ps, int(fb.File), id)
+	match bind.ResolutionOf(ctx.K.U, ctx.K.Ps, pn) {
+	case bind.Imported as im:
+		let targetPkg = resolveImportPkgIndex(*ctx, im.Ref.Import)
+		let targetPath = resolveImportPkgPath(*ctx, im.Ref.Import)
+		let symName = resolveDeclText(*ctx, im.Ref.Import, im.Ref.Decl)
+		if compileImportedSymbolValue(prog, targetPkg, targetPath, symName, fb.File, id, wantType) {
+			return
+		}
+	case _:
+	}
+	let (isPkg, pkgNum, pkgPath) = isImportNamespaceExpr(*ctx, fb.File, se.X)
+	if isPkg {
+		if compileImportedSymbolValue(prog, pkgNum, pkgPath, selName, fb.File, id, wantType) {
+			return
+		}
+	}
+	let recvT = ResolveExprType(prog, ctx, *fb, se.X, TypeVoid)
+	CompileExprNode(prog, ctx, fb, se.X, recvT, false)
+	let fi = FieldIndexByName(prog.Types, recvT, selName)
+	if fi >= 0 {
+		EmitOp(prog, OpGetField, uint8(0), uint32(fi), uint32(0), uint32(0), fb.File, id)
+		return
+	}
+	let sIdx = AllocStrVal(&prog.Arena, TypeString, selName).Aux
+	if recvT != TypeVoid && UnderlyingKind(prog.Types, recvT) == KindRecord {
+		let methKey = "\(prog.Types.Pkg[int(recvT)]):\(prog.Types.Name[int(recvT)]).\(selName)"
+		if isSomeU32Map(prog.FnByKey, methKey) {
+			EmitOp(prog, OpMakeMethodVal, uint8(0), sIdx, uint32(0), uint32(0), fb.File, id)
+			return
+		}
+	}
+	EmitOp(prog, OpGetField, uint8(1), uint32(0), sIdx, uint32(0), fb.File, id)
+}
+
+func compileImportedSymbolValue(prog mut Program, pkgNum uint32, pkgPath string, symName string, file uint32, id dense.ID[syntax.Node], wantType uint32) bool {
+	let key = "\(pkgNum):\(symName)"
+	match prog.FnByKey.Get(key) {
+	case option.Some{Value: fnIdx}:
+		let tplIdx = allocEmptyClosureTpl(prog)
+		EmitOp(prog, OpMakeClosure, uint8(0), fnIdx, tplIdx, uint32(0), file, id)
+		return true
+	case option.None:
+	}
+	for gi, g in prog.Globals {
+		if g.Pkg == pkgNum && g.Name == symName {
+			EmitOp(prog, OpLoadGlobal, uint8(0), uint32(gi), uint32(0), uint32(0), file, id)
+			return true
+		}
+	}
+	let t = LookupTypeByKey(prog.Types, LookupDeclKey(pkgNum, symName, []uint32{}))
+	if t != TypeVoid && UnderlyingKind(prog.Types, t) == KindRecord {
+		let wt = instantiateWithWant(prog, pkgNum, symName, t, wantType)
+		EmitOp(prog, OpMakeRecord, uint8(0), wt, uint32(0), uint32(0), file, id)
+		return true
+	}
+	if pkgPath == "option" && symName == "None" {
+		let noneT = findOptionNoneType(prog, wantType)
+		EmitOp(prog, OpMakeRecord, uint8(0), noneT, uint32(0), uint32(0), file, id)
+		return true
+	}
+	false
+}
+
+func compileIndexExprNode(prog mut Program, ctx mut CompileUnitCtx, fb mut FnBuilder, id dense.ID[syntax.Node], wantType uint32) {
+	let tr = ctx.K.Parsed[int(fb.File)].Tree
+	let ie = syntax.IndexExprOf(tr, id)
+	let targs = LookupInstTypeArgs(*ctx, fb.File, id)
+	let xNode = unparenNode(tr, ie.X)
+	if syntax.KindOf(tr, xNode) == syntax.KIdent {
+		match bind.ResolutionOf(ctx.K.U, ctx.K.Ps, bind.PNodeOf(ctx.K.Ps, int(fb.File), xNode)) {
+		case bind.Declared as d:
+			match prog.FnByDefNode.Get(DefNodeKey(ctx.PkgIdx, d.At)) {
+			case option.Some{Value: fnIdx}:
+				let tplIdx = allocEmptyClosureTpl(prog)
+				let targRun = AddTypeArgRun(prog, targs)
+				EmitOp(prog, OpMakeClosure, uint8(0), fnIdx, tplIdx, targRun, fb.File, id)
+				return
+			case option.None:
+			}
+			let nm = textOfNameNode(ctx.K.Parsed[int(fb.File)], xNode)
+			let t = LookupTypeByKey(prog.Types, LookupDeclKey(ctx.PkgIdx, nm, targs))
+			if t != TypeVoid && UnderlyingKind(prog.Types, t) == KindRecord {
+				EmitOp(prog, OpMakeRecord, uint8(0), t, uint32(0), uint32(0), fb.File, id)
+				return
+			}
+		case _:
+		}
+	}
+	let xt = ResolveExprType(prog, ctx, *fb, ie.X, TypeVoid)
+	CompileExprNode(prog, ctx, fb, ie.X, xt, false)
+	if syntax.Len(ie.Indices) > 0 {
+		let keyWant = if int(xt) < prog.Types.Kind.Len() && UnderlyingKind(prog.Types, xt) == KindMap {
+			prog.Types.Elem[int(UnwrapType(prog.Types, xt))]
+		} else {
+			TypeInt
+		}
+		CompileExprNode(prog, ctx, fb, syntax.Item(tr, ie.Indices, 0), keyWant, false)
+	} else {
+		EmitOp(prog, OpZero, uint8(0), TypeInt, uint32(0), uint32(0), fb.File, id)
+	}
+	let _ = wantType
+	EmitOp(prog, OpGetIndex, uint8(0), uint32(0), uint32(0), uint32(0), fb.File, id)
+}
+
+func compileSliceExprNode(prog mut Program, ctx mut CompileUnitCtx, fb mut FnBuilder, id dense.ID[syntax.Node], wantType uint32) {
+	let tr = ctx.K.Parsed[int(fb.File)].Tree
+	let se = syntax.SliceExprOf(tr, id)
+	let resT = ResolveExprType(prog, ctx, *fb, id, wantType)
+	CompileExprNode(prog, ctx, fb, se.X, TypeVoid, false)
+	let mut mask = uint8(0)
+	match dense.Unpack(se.Low) {
+	case option.Some{Value: lo}:
+		CompileExprNode(prog, ctx, fb, lo, TypeInt, false)
+		mask = mask | uint8(1)
+	case option.None:
+	}
+	match dense.Unpack(se.High) {
+	case option.Some{Value: hi}:
+		CompileExprNode(prog, ctx, fb, hi, TypeInt, false)
+		mask = mask | uint8(2)
+	case option.None:
+	}
+	match dense.Unpack(se.Max) {
+	case option.Some{Value: mx}:
+		CompileExprNode(prog, ctx, fb, mx, TypeInt, false)
+		mask = mask | uint8(4)
+	case option.None:
+	}
+	EmitOp(prog, OpSlice, mask, resT, uint32(0), uint32(0), fb.File, id)
+}
+
+func compileCallExprNode(prog mut Program, ctx mut CompileUnitCtx, fb mut FnBuilder, id dense.ID[syntax.Node], wantType uint32) {
+	let p = ctx.K.Parsed[int(fb.File)]
+	let tr = p.Tree
+	let ce = syntax.CallExprOf(tr, id)
+	let mut fun = unparenNode(tr, ce.Fun)
+	let mut targs = LookupInstTypeArgs(*ctx, fb.File, id)
+	if syntax.KindOf(tr, fun) == syntax.KIndexExpr {
+		let ie = syntax.IndexExprOf(tr, fun)
+		let xNode = unparenNode(tr, ie.X)
+		let xType = ResolveExprType(prog, ctx, *fb, xNode, TypeVoid)
+		let xKind = UnderlyingKind(prog.Types, xType)
+		let isIndexedVal = xKind == KindSlice || xKind == KindArray || xKind == KindMap || xKind == KindString
+		if !isIndexedVal && (targs.Len() > 0 || isTypeSyntaxArgList(*prog, *ctx, *fb, ie.Indices)) {
+			if targs.Len() == 0 {
+				for i in 0..syntax.Len(ie.Indices) {
+					targs = targs.Append(ResolveSyntaxTypeNode(prog, ctx, *fb, fb.File, syntax.Item(tr, ie.Indices, i)))
+				}
+			}
+			fun = xNode
+		}
+	}
+	let targRun = AddTypeArgRun(prog, targs)
+	let argN = syntax.Len(ce.Args)
+	if argN == 1 && isTypeConversionTarget(*prog, *ctx, *fb, fun) {
+		let targetT = ResolveSyntaxTypeNode(prog, ctx, *fb, fb.File, unparenNode(tr, ce.Fun))
+		let finalT = if targetT != TypeVoid { targetT } else { ResolveExprType(prog, ctx, *fb, id, wantType) }
+		CompileExprNode(prog, ctx, fb, syntax.Item(tr, ce.Args, 0), TypeVoid, false)
+		EmitOp(prog, OpConvert, uint8(0), finalT, uint32(0), uint32(0), fb.File, id)
+		return
+	}
+	if syntax.KindOf(tr, fun) == syntax.KIdent {
+		let nm = textOfNameNode(p, fun)
+		let pn = bind.PNodeOf(ctx.K.Ps, int(fb.File), fun)
+		match bind.ResolutionOf(ctx.K.U, ctx.K.Ps, pn) {
+		case bind.Declared as d:
+			let lk = LocalDefKey(d.At)
+			if isSomeU32Map(fb.LocalByDef, lk) || isSomeU32Map(fb.CapByDef, lk) {
+				CompileExprNode(prog, ctx, fb, fun, TypeVoid, false)
+				for i in 0..argN {
+					CompileExprNode(prog, ctx, fb, syntax.Item(tr, ce.Args, i), TypeVoid, false)
+				}
+				EmitOp(prog, OpCallVal, uint8(0), uint32(0), uint32(argN), targRun, fb.File, id)
+				return
+			}
+			match prog.FnByDefNode.Get(DefNodeKey(ctx.PkgIdx, d.At)) {
+			case option.Some{Value: fnIdx}:
+				emitDirectFnCall(prog, ctx, fb, fnIdx, ce.Args, targRun, id)
+				return
+			case option.None:
+			}
+		case bind.Imported as im:
+			let tPkg = resolveImportPkgIndex(*ctx, im.Ref.Import)
+			let tPath = resolveImportPkgPath(*ctx, im.Ref.Import)
+			let tSym = resolveDeclText(*ctx, im.Ref.Import, im.Ref.Decl)
+			if emitPkgOrNativeCall(prog, ctx, fb, tPkg, tPath, tSym, ce.Args, targRun, id) {
+				return
+			}
+		case bind.Outside:
+			let nat = ResolveBuiltinName(nm)
+			if nat != NatNone {
+				compileNativeArgsAndCall(prog, ctx, fb, nat, ce.Args, targRun, id)
+				return
+			}
+		case bind.NotUse:
+		}
+		match prog.FnByKey.Get("\(ctx.PkgIdx):\(nm)") {
+		case option.Some{Value: fnIdx}:
+			emitDirectFnCall(prog, ctx, fb, fnIdx, ce.Args, targRun, id)
+			return
+		case option.None:
+		}
+		let nat = ResolveBuiltinName(nm)
+		if nat != NatNone {
+			compileNativeArgsAndCall(prog, ctx, fb, nat, ce.Args, targRun, id)
+			return
+		}
+	}
+	if syntax.KindOf(tr, fun) == syntax.KSelectorExpr {
+		let se = syntax.SelectorExprOf(tr, fun)
+		let selName = textOfNameNode(p, se.Sel)
+		let (isPkg, pkgNum, pkgPath) = isImportNamespaceExpr(*ctx, fb.File, se.X)
+		if isPkg {
+			if emitPkgOrNativeCall(prog, ctx, fb, pkgNum, pkgPath, selName, ce.Args, targRun, id) {
+				return
+			}
+		}
+		let recvT = ResolveExprType(prog, ctx, *fb, se.X, TypeVoid)
+		let fi = FieldIndexByName(prog.Types, recvT, selName)
+		if fi >= 0 {
+			CompileExprNode(prog, ctx, fb, se.X, recvT, false)
+			EmitOp(prog, OpGetField, uint8(0), uint32(fi), uint32(0), uint32(0), fb.File, fun)
+			for i in 0..argN {
+				CompileExprNode(prog, ctx, fb, syntax.Item(tr, ce.Args, i), TypeVoid, false)
+			}
+			EmitOp(prog, OpCallVal, uint8(0), uint32(0), uint32(argN), targRun, fb.File, id)
+			return
+		}
+		let natMethod = resolveMethodCompileTime(*prog, *ctx, *fb, recvT, selName)
+		if natMethod != NatNone {
+			CompileExprNode(prog, ctx, fb, se.X, recvT, false)
+			for i in 0..argN {
+				CompileExprNode(prog, ctx, fb, syntax.Item(tr, ce.Args, i), TypeVoid, false)
+			}
+			EmitOp(prog, OpCallNative, uint8(0), natMethod, uint32(argN+1), targRun, fb.File, id)
+			return
+		}
+		let resolvedCallee = findMethodOrUFCSFn(*prog, *ctx, *fb, recvT, selName)
+		if resolvedCallee >= 0 {
+			let fnMeta = prog.Fns[resolvedCallee]
+			if fnMeta.ParamCount > uint32(0) && prog.ParamMut[int(fnMeta.ParamStart)] {
+				compileAddrExpr(prog, ctx, fb, se.X, fun)
+			} else {
+				let rWant = prog.ParamTypes[int(fnMeta.ParamStart)]
+				CompileExprNode(prog, ctx, fb, se.X, rWant, false)
+			}
+			for i in 0..argN {
+				let arg = syntax.Item(tr, ce.Args, i)
+				let pi = i + 1
+				let wantA = if uint32(pi) < fnMeta.ParamCount { substTypeArgsInBuilder(prog, prog.ParamTypes[int(fnMeta.ParamStart)+pi], targs) } else { TypeVoid }
+				let isMutA = uint32(pi) < fnMeta.ParamCount && prog.ParamMut[int(fnMeta.ParamStart)+pi]
+				if isMutA && syntax.KindOf(tr, unparenNode(tr, arg)) != syntax.KUnaryExpr {
+					compileAddrExpr(prog, ctx, fb, arg, arg)
+				} else {
+					CompileExprNode(prog, ctx, fb, arg, wantA, false)
+				}
+			}
+			EmitOp(prog, OpCall, uint8(0), uint32(resolvedCallee), uint32(argN+1), targRun, fb.File, id)
+			return
+		}
+		CompileExprNode(prog, ctx, fb, se.X, recvT, false)
+		for i in 0..argN {
+			CompileExprNode(prog, ctx, fb, syntax.Item(tr, ce.Args, i), TypeVoid, false)
+		}
+		let mStr = AllocStrVal(&prog.Arena, TypeString, selName).Aux
+		EmitOp(prog, OpCallMethod, uint8(0), mStr, uint32(argN), targRun, fb.File, id)
+		return
+	}
+	CompileExprNode(prog, ctx, fb, ce.Fun, TypeVoid, false)
+	for i in 0..argN {
+		CompileExprNode(prog, ctx, fb, syntax.Item(tr, ce.Args, i), TypeVoid, false)
+	}
+	EmitOp(prog, OpCallVal, uint8(0), uint32(0), uint32(argN), targRun, fb.File, id)
+}
+
+func isTypeSyntaxArgList(prog Program, ctx CompileUnitCtx, fb FnBuilder, list syntax.List) bool {
+	if syntax.Len(list) == 0 {
+		return false
+	}
+	let p = ctx.K.Parsed[int(fb.File)]
+	let tr = p.Tree
+	let item0 = unparenNode(tr, syntax.Item(tr, list, 0))
+	let ik = syntax.KindOf(tr, item0)
+	if ik == syntax.KIndexExpr || ik == syntax.KFuncType || ik == syntax.KStructType || ik == syntax.KInterfaceType {
+		return true
+	}
+	if isTypeConversionTarget(prog, ctx, fb, item0) {
+		return true
+	}
+	if ik == syntax.KIdent {
+		let nm = textOfNameNode(p, item0)
+		return store.KindOfName(ctx.S, nm) == 3
+	}
+	false
+}
+
+func isTypeConversionTarget(prog Program, ctx CompileUnitCtx, fb FnBuilder, fun dense.ID[syntax.Node]) bool {
+	let p = ctx.K.Parsed[int(fb.File)]
+	let tr = p.Tree
+	let fk = syntax.KindOf(tr, fun)
+	if fk == syntax.KArrayType {
+		return true
+	}
+	if fk == syntax.KIdent {
+		let nm = textOfNameNode(p, fun)
+		if BasicFromName(nm) != TypeVoid {
+			return true
+		}
+		if LookupTypeByKey(prog.Types, LookupDeclKey(ctx.PkgIdx, nm, []uint32{})) != TypeVoid && !isSomeU32Map(prog.FnByKey, "\(ctx.PkgIdx):\(nm)") {
+			return true
+		}
+	}
+	if fk == syntax.KSelectorExpr {
+		let se = syntax.SelectorExprOf(tr, fun)
+		let (isPkg, pkgNum, _) = isImportNamespaceExpr(ctx, fb.File, se.X)
+		if isPkg {
+			let selName = textOfNameNode(p, se.Sel)
+			if LookupTypeByKey(prog.Types, LookupDeclKey(pkgNum, selName, []uint32{})) != TypeVoid && !isSomeU32Map(prog.FnByKey, "\(pkgNum):\(selName)") {
+				return true
+			}
+		}
+	}
+	false
+}
+
+func emitDirectFnCall(prog mut Program, ctx mut CompileUnitCtx, fb mut FnBuilder, fnIdx uint32, argsList syntax.List, targRun uint32, callNode dense.ID[syntax.Node]) {
+	let fnMeta = prog.Fns[int(fnIdx)]
+	let n = syntax.Len(argsList)
+	let tr = ctx.K.Parsed[int(fb.File)].Tree
+	let targs = if targRun == uint32(0) {
+		[]uint32{}
+	} else {
+		let sp = prog.TypeArgRuns[int(targRun)]
+		prog.TypeArgPool[int(sp.Start):int(sp.Start+sp.Len)]
+	}
+	for i in 0..n {
+		let arg = syntax.Item(tr, argsList, i)
+		let wantA = if uint32(i) < fnMeta.ParamCount { substTypeArgsInBuilder(prog, prog.ParamTypes[int(fnMeta.ParamStart)+i], targs) } else { TypeVoid }
+		let isMutA = uint32(i) < fnMeta.ParamCount && prog.ParamMut[int(fnMeta.ParamStart)+i]
+		if isMutA && syntax.KindOf(tr, unparenNode(tr, arg)) != syntax.KUnaryExpr {
+			compileAddrExpr(prog, ctx, fb, arg, arg)
+		} else {
+			CompileExprNode(prog, ctx, fb, arg, wantA, false)
+		}
+	}
+	if fnMeta.IsNative {
+		EmitOp(prog, OpCallNative, uint8(0), fnMeta.NativeID, uint32(n), targRun, fb.File, callNode)
+		return
+	}
+	EmitOp(prog, OpCall, uint8(0), fnIdx, uint32(n), targRun, fb.File, callNode)
+}
+
+func emitPkgOrNativeCall(prog mut Program, ctx mut CompileUnitCtx, fb mut FnBuilder, pkgNum uint32, pkgPath string, symName string, argsList syntax.List, targRun uint32, callNode dense.ID[syntax.Node]) bool {
+	let nat = ResolveStdNativeID(pkgPath, symName)
+	if nat != NatNone {
+		compileNativeArgsAndCall(prog, ctx, fb, nat, argsList, targRun, callNode)
+		return true
+	}
+	match prog.FnByKey.Get("\(pkgNum):\(symName)") {
+	case option.Some{Value: fnIdx}:
+		emitDirectFnCall(prog, ctx, fb, fnIdx, argsList, targRun, callNode)
+		return true
+	case option.None:
+	}
+	false
+}
+
+func compileNativeArgsAndCall(prog mut Program, ctx mut CompileUnitCtx, fb mut FnBuilder, nat uint32, argsList syntax.List, targRun uint32, callNode dense.ID[syntax.Node]) {
+	let tr = ctx.K.Parsed[int(fb.File)].Tree
+	let n = syntax.Len(argsList)
+	let mut firstArgT = TypeVoid
+	for i in 0..n {
+		let arg = syntax.Item(tr, argsList, i)
+		let mut wantA = TypeVoid
+		if i == 1 && (nat == NatAppend || nat == NatPut) && firstArgT != TypeVoid {
+			let u = UnwrapType(prog.Types, firstArgT)
+			if nat == NatAppend && int(u) < prog.Types.Elem.Len() {
+				wantA = prog.Types.Elem[int(u)]
+			} else if nat == NatPut && int(u) < prog.Types.Elem.Len() {
+				wantA = prog.Types.Elem[int(u)]
+			}
+		} else if i == 2 && nat == NatPut && firstArgT != TypeVoid {
+			let u = UnwrapType(prog.Types, firstArgT)
+			if int(u) < prog.Types.Aux.Len() {
+				wantA = prog.Types.Aux[int(u)]
+			}
+		}
+		if i == 0 {
+			firstArgT = ResolveExprType(prog, ctx, *fb, arg, TypeVoid)
+			wantA = firstArgT
+		}
+		CompileExprNode(prog, ctx, fb, arg, wantA, false)
+	}
+	EmitOp(prog, OpCallNative, uint8(0), nat, uint32(n), targRun, fb.File, callNode)
+}
+
+func resolveMethodCompileTime(prog Program, ctx CompileUnitCtx, fb FnBuilder, recvT uint32, methodName string) uint32 {
+	if recvT != TypeVoid && int(recvT) < prog.Types.Kind.Len() {
+		let k = UnderlyingKind(prog.Types, recvT)
+		let tag = if k == KindSlice { TagSlice } else if k == KindArray { TagArray } else if k == KindMap { TagMap } else if k == KindString { TagStr } else if k == KindInt { TagInt } else if prog.Types.Name[int(recvT)] == "Builder" { TagBuilder } else { TagUnit }
+		if tag != TagUnit {
+			let nat = ResolveMethodNativeID(tag, methodName)
+			if nat != NatNone { return nat }
+		}
+	}
+	let _ = ctx
+	let _ = fb
+	NatNone
+}
+
+func findMethodOrUFCSFn(prog Program, ctx CompileUnitCtx, fb FnBuilder, recvT uint32, methodName string) int {
+	if recvT != TypeVoid && int(recvT) < prog.Types.Name.Len() {
+		let baseName = stripBracketName(prog.Types.Name[int(recvT)])
+		let rPkg = prog.Types.Pkg[int(recvT)]
+		match prog.FnByKey.Get("\(rPkg):\(baseName).\(methodName)") {
+		case option.Some{Value: fnIdx}:
+			return int(fnIdx)
+		case option.None:
+		}
+		match prog.FnByKey.Get("\(rPkg):\(methodName)") {
+		case option.Some{Value: fnIdx}:
+			if fnFirstParamMatches(prog, fnIdx, recvT) {
+				return int(fnIdx)
+			}
+		case option.None:
+		}
+	}
+	match prog.FnByKey.Get("\(ctx.PkgIdx):\(methodName)") {
+	case option.Some{Value: fnIdx}:
+		if fnFirstParamMatches(prog, fnIdx, recvT) {
+			return int(fnIdx)
+		}
+	case option.None:
+	}
+	let _ = fb
+	-1
+}
+
+func stripBracketName(s string) string {
+	let idx = strings.Index(s, "[")
+	if idx < 0 { s } else { s[0:idx] }
+}
+
+func fnFirstParamMatches(prog Program, fnIdx uint32, recvT uint32) bool {
+	let fm = prog.Fns[int(fnIdx)]
+	if fm.ParamCount == uint32(0) {
+		return false
+	}
+	if recvT == TypeVoid {
+		return true
+	}
+	let p0 = prog.ParamTypes[int(fm.ParamStart)]
+	p0 == recvT || UnderlyingKind(prog.Types, p0) == KindParam || MatchesType(prog.Types, recvT, p0) || prog.Types.Name[int(p0)] == stripBracketName(prog.Types.Name[int(recvT)])
+}
+
+func compileFuncLitExpr(prog mut Program, ctx mut CompileUnitCtx, fb mut FnBuilder, id dense.ID[syntax.Node], wantType uint32) {
+	let p = ctx.K.Parsed[int(fb.File)]
+	let tr = p.Tree
+	let fl = syntax.FuncLitOf(tr, id)
+	let (ptypes, pmut, resT, failsT) = extractParamTypesAndFlags(prog, ctx, p, fl.Type, fb.TypeParams, fb.TypeParamID)
+	let (_, pnames) = extractParamNames(p, fl.Type)
+	let mut finalPTypes = ptypes
+	let mut finalResT = resT
+	let mut finalFailsT = failsT
+	let sigT = ResolveExprType(prog, ctx, *fb, id, wantType)
+	if sigT != TypeVoid && int(sigT) < prog.Types.Kind.Len() && prog.Types.Kind[int(sigT)] == KindFunc {
+		let sStart = int(prog.Types.Aux[int(sigT)])
+		let sCount = int(prog.Types.Count[int(sigT)])
+		if finalPTypes.Len() == sCount {
+			for i in 0..sCount {
+				if finalPTypes[i] == TypeVoid {
+					finalPTypes[i] = prog.Types.FieldType[sStart+i]
+				}
+			}
+		}
+		if finalResT == TypeVoid && prog.Types.Elem[int(sigT)] != TypeVoid {
+			finalResT = prog.Types.Elem[int(sigT)]
+		}
+		if finalFailsT == TypeVoid && prog.Types.Fails[int(sigT)] != TypeVoid {
+			finalFailsT = prog.Types.Fails[int(sigT)]
+		}
+	}
+	let pStart = uint32(prog.ParamTypes.Len())
+	for pt in finalPTypes { prog.ParamTypes = prog.ParamTypes.Append(pt) }
+	for pm in pmut { prog.ParamMut = prog.ParamMut.Append(pm) }
+	for pn in pnames { prog.ParamNames = prog.ParamNames.Append(pn) }
+	let capStart = uint32(prog.CapRefs.Len())
+	let mut col = capCollector{
+		Seen:     Map[string, bool]{},
+		CapDefs:  []dense.ID[store.PNode]{},
+		CapTypes: []uint32{},
+		CapIsRef: []bool{},
+	}
+	collectFreeVarsInNode(*ctx, *fb, fl.Body, &col, prog)
+	let tplIdx = uint32(prog.ClosureTpls.Len())
+	prog.ClosureTpls = prog.ClosureTpls.Append(RunSpan{Start: capStart, Len: uint32(col.CapDefs.Len())})
+	let fnIdx = uint32(prog.Fns.Len())
+	let (fname, ln, cl) = resolveDeclSite(*prog, ctx.PkgIdx, fb.File, p, id)
+	prog.Fns = prog.Fns.Append(FnMeta{
+		Name:       "funcLit@\(ln):\(cl)",
+		Pkg:        ctx.PkgIdx,
+		Kind:       FnKindClosure,
+		TypeIdx:    InternFunc(&prog.Types, finalPTypes, finalResT, finalFailsT),
+		ParamCount: uint32(finalPTypes.Len()),
+		ParamStart: pStart,
+		CapCount:   uint32(col.CapDefs.Len()),
+		SlotCount:  uint32(finalPTypes.Len()),
+		CodeStart:  uint32(0),
+		CodeLen:    uint32(0),
+		FailsType:  finalFailsT,
+		ReturnType: finalResT,
+		File:       fb.File,
+		Node:       uint32(dense.Index(id)),
+		Line:       ln,
+		Col:        cl,
+		FileName:   fname,
+		IsNative:   false,
+		NativeID:   NatNone,
+		IsMethod:   false,
+		RecvName:   "",
+		IsEqLaw:    false,
+		GuardNode:  uint32(0),
+		HasGuard:   false,
+		HasParams:  false,
+	})
+	ctx.PendingClosures = ctx.PendingClosures.Append(PendingClosure{
+		FnIdx:       fnIdx,
+		File:        fb.File,
+		NodeIdx:     uint32(dense.Index(id)),
+		CapDefs:     col.CapDefs,
+		CapTypes:    col.CapTypes,
+		CapIsRef:    col.CapIsRef,
+		TypeParams:  fb.TypeParams,
+		TypeParamID: fb.TypeParamID,
+	})
+	EmitOp(prog, OpMakeClosure, uint8(0), fnIdx, tplIdx, uint32(0), fb.File, id)
+}
+
+type capCollector {
+	Seen     Map[string, bool],
+	CapDefs  []dense.ID[store.PNode],
+	CapTypes []uint32,
+	CapIsRef []bool,
+}
+
+func collectFreeVarsInNode(ctx CompileUnitCtx, fb FnBuilder, root dense.ID[syntax.Node], col mut capCollector, prog mut Program) {
+	let tr = ctx.K.Parsed[int(fb.File)].Tree
+	let mut stack = []uint32{uint32(dense.Index(root))}
+	for stack.Len() > 0 {
+		let curIdx = stack[stack.Len()-1]
+		stack = stack[0 : stack.Len()-1]
+		let cur = syntax.NodeAt(tr, int(curIdx))
+		if syntax.KindOf(tr, cur) == syntax.KIdent {
+			let pn = bind.PNodeOf(ctx.K.Ps, int(fb.File), cur)
+			match bind.ResolutionOf(ctx.K.U, ctx.K.Ps, pn) {
+			case bind.Declared as d:
+				let lk = LocalDefKey(d.At)
+				if !isSomeBoolMap(col.Seen, lk) {
+					match fb.LocalByDef.Get(lk) {
+					case option.Some{Value: slot}:
+						col.Seen[lk] = true
+						col.CapDefs = col.CapDefs.Append(d.At)
+						col.CapTypes = col.CapTypes.Append(fb.LocalTypes[int(slot)])
+						col.CapIsRef = col.CapIsRef.Append(fb.LocalIsRef[int(slot)])
+						prog.CapRefs = prog.CapRefs.Append(ClosureCapRef{FromUpval: false, Idx: slot})
+					case option.None:
+						match fb.CapByDef.Get(lk) {
+						case option.Some{Value: capSlot}:
+							col.Seen[lk] = true
+							col.CapDefs = col.CapDefs.Append(d.At)
+							col.CapTypes = col.CapTypes.Append(fb.CapTypes[int(capSlot)])
+							col.CapIsRef = col.CapIsRef.Append(fb.CapIsRef[int(capSlot)])
+							prog.CapRefs = prog.CapRefs.Append(ClosureCapRef{FromUpval: true, Idx: capSlot})
+						case option.None:
+						}
+					}
+				}
+			case _:
+			}
+		}
+		stack = syntax.Children(tr, cur, stack)
+	}
+}
+
+func isSomeBoolMap(m Map[string, bool], k string) bool {
+	match m.Get(k) {
+	case option.Some{Value: v}:
+		v
+	case option.None:
+		false
+	}
+}
+
+func compileCatchExprNode(prog mut Program, ctx mut CompileUnitCtx, fb mut FnBuilder, id dense.ID[syntax.Node], wantType uint32, partial bool, isTail bool) {
+	let tr = ctx.K.Parsed[int(fb.File)].Tree
+	let ce = syntax.CatchExprOf(tr, id)
+	let pushCatchIdx = EmitJumpOp(prog, OpPushCatch, fb.File, id)
+	prog.Insns[int(pushCatchIdx)].Aux = if partial { uint8(1) } else { uint8(0) }
+	let exprType = ResolveExprType(prog, ctx, *fb, id, wantType)
+	CompileExprNode(prog, ctx, fb, ce.X, exprType, isTail)
+	EmitOp(prog, OpPopCatch, uint8(0), uint32(0), uint32(0), uint32(0), fb.File, id)
+	let doneJmp = EmitJumpOp(prog, OpJump, fb.File, id)
+	let mut endJmps = []uint32{doneJmp}
+	PatchJumpTarget(prog, pushCatchIdx, CurrentPC(*prog))
+	EmitOp(prog, OpLoadErr, uint8(0), uint32(0), uint32(0), uint32(0), fb.File, id)
+	let nArms = syntax.Len(ce.Arms)
+	for i in 0..nArms {
+		let armNode = syntax.Item(tr, ce.Arms, i)
+		let arm = syntax.CatchArmOf(tr, armNode)
+		let nTypes = syntax.Len(arm.Types)
+		if nTypes == 0 {
+			EmitOp(prog, OpPop, uint8(0), uint32(0), uint32(0), uint32(0), fb.File, armNode)
+			CompileStmtList(prog, ctx, fb, arm.Body, true, exprType)
+			endJmps = endJmps.Append(EmitJumpOp(prog, OpJump, fb.File, armNode))
+			continue
+		}
+		let patIdx = CompilePatternList(prog, ctx, fb, arm.Types, TypeVoid)
+		EmitOp(prog, OpMatchPat, uint8(0), patIdx, uint32(0), uint32(0), fb.File, armNode)
+		let missJmp = EmitJumpOp(prog, OpJumpIfFalse, fb.File, armNode)
+		EmitOp(prog, OpPop, uint8(0), uint32(0), uint32(0), uint32(0), fb.File, armNode)
+		CompileStmtList(prog, ctx, fb, arm.Body, true, exprType)
+		endJmps = endJmps.Append(EmitJumpOp(prog, OpJump, fb.File, armNode))
+		PatchJumpTarget(prog, missJmp, CurrentPC(*prog))
+	}
+	EmitOp(prog, OpPop, uint8(0), uint32(0), uint32(0), uint32(0), fb.File, id)
+	EmitOp(prog, OpUncaughtFail, if partial { uint8(1) } else { uint8(0) }, uint32(0), uint32(0), uint32(0), fb.File, id)
+	let endPC = CurrentPC(*prog)
+	for j in endJmps {
+		PatchJumpTarget(prog, j, endPC)
+	}
+}

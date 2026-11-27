@@ -1,0 +1,585 @@
+import compiler/check/load
+import compiler/syntax
+import option
+import slices
+
+func nextSeedU64(seed mut uint64) uint64 {
+	let inc uint64 = 0x9e3779b97f4a7c15
+	let m1 uint64 = 0xbf58476d1ce4e5b9
+	let m2 uint64 = 0x94d049bb133111eb
+	let s = *seed + inc
+	*seed = s
+	let z1 = (s ^ (s >> uint64(30))) * m1
+	let z2 = (z1 ^ (z1 >> uint64(27))) * m2
+	z2 ^ (z2 >> uint64(31))
+}
+
+func findRefinedParseFn(prog Program, typeIdx uint32) uint32 {
+	for i, rt in prog.RefinedTypes {
+		if rt == typeIdx {
+			return prog.RefinedParses[i]
+		}
+	}
+	uint32(0xffffffff)
+}
+
+func genRefinedSampleVal(prog mut Program, rng mut uint64, typeIdx uint32, parseFn uint32, depth int) Val {
+	let baseT = prog.ParamTypes[int(prog.Fns[int(parseFn)].ParamStart)]
+	let baseK = UnderlyingKind(prog.Types, baseT)
+	let seeds = []int64{1, 2, 0, -1, 5, 10, 42, 100, 1000}
+	for attempt in 0..32 {
+		let cand = if baseK == KindInt && attempt < seeds.Len() {
+			MakeIntVal(prog.Types, baseT, uint64(seeds[attempt]))
+		} else {
+			genSampleVal(prog, rng, baseT, depth)
+		}
+		let mut pvm = NewVM(*prog, Budget{Steps: uint64(10000), Depth: uint32(16), Bytes: uint64(65536), CaseLimit: uint32(1)})
+		let parsed = ExecuteFunction(prog, &pvm, parseFn, []Val{cand})
+		if pvm.Ctl == CtlNone {
+			return parsed
+		}
+	}
+	MakeIntVal(prog.Types, typeIdx, uint64(1))
+}
+
+func genSampleVal(prog mut Program, rng mut uint64, typeIdx uint32, depth int) Val {
+	if int(typeIdx) >= prog.Types.Kind.Len() || typeIdx == TypeVoid {
+		return UnitVal()
+	}
+	let pfn = findRefinedParseFn(*prog, typeIdx)
+	if pfn != uint32(0xffffffff) {
+		return genRefinedSampleVal(prog, rng, typeIdx, pfn, depth)
+	}
+	let u = UnwrapType(prog.Types, typeIdx)
+	let k = prog.Types.Kind[int(u)]
+	if k == KindBool {
+		return BoolVal(typeIdx, (nextSeedU64(rng)&uint64(1)) != uint64(0))
+	}
+	if k == KindInt || k == KindDuration {
+		let r = nextSeedU64(rng)
+		let pick = int(r % uint64(6))
+		let bits = if pick == 0 {
+			uint64(0)
+		} else if pick == 1 {
+			uint64(1)
+		} else if pick == 2 {
+			u64AllOnes
+		} else if pick == 3 {
+			uint64(int64(int(r%uint64(25)) - 12))
+		} else {
+			r
+		}
+		return MakeIntVal(prog.Types, typeIdx, bits)
+	}
+	if k == KindFloat {
+		let r = nextSeedU64(rng)
+		let pick = int(r % uint64(5))
+		let f = if pick == 0 {
+			0.0
+		} else if pick == 1 {
+			1.0
+		} else if pick == 2 {
+			-1.0
+		} else {
+			float64(int64(int(r%uint64(1000))-500)) / 16.0
+		}
+		return MakeFloatVal(prog.Types, typeIdx, f)
+	}
+	if k == KindString {
+		let r = nextSeedU64(rng)
+		let samples = []string{"", "a", "abc", "hello world", "0", "-1", "  trim  "}
+		return AllocStrVal(&prog.Arena, typeIdx, samples[int(r%uint64(samples.Len()))])
+	}
+	if k == KindSlice {
+		if depth <= 0 {
+			return MakeSliceVal(&prog.Arena, typeIdx, []Val{}, uint32(0))
+		}
+		let n = int(nextSeedU64(rng) % uint64(5))
+		let elemT = prog.Types.Elem[int(u)]
+		let mut elems = slices.WithCapacity[Val](n)
+		for _ in 0..n {
+			elems = elems.Append(genSampleVal(prog, rng, elemT, depth-1))
+		}
+		return MakeSliceVal(&prog.Arena, typeIdx, elems, uint32(n))
+	}
+	if k == KindArray {
+		let n = int(prog.Types.Aux[int(u)])
+		let elemT = prog.Types.Elem[int(u)]
+		let mut elems = slices.WithCapacity[Val](n)
+		for _ in 0..n {
+			elems = elems.Append(genSampleVal(prog, rng, elemT, depth-1))
+		}
+		return MakeArrayVal(&prog.Arena, typeIdx, elems)
+	}
+	if k == KindMap {
+		if depth <= 0 {
+			return MakeEmptyMap(&prog.Arena, typeIdx)
+		}
+		let n = int(nextSeedU64(rng) % uint64(4))
+		let kt = prog.Types.Elem[int(u)]
+		let vt = prog.Types.Aux[int(u)]
+		let mut m = MakeEmptyMap(&prog.Arena, typeIdx)
+		for _ in 0..n {
+			let kv = genSampleVal(prog, rng, kt, depth-1)
+			let vv = genSampleVal(prog, rng, vt, depth-1)
+			m = MapPutValCOW(prog.Types, &prog.Arena, m, kv, vv)
+		}
+		return m
+	}
+	if k == KindTuple {
+		let start = int(prog.Types.Aux[int(u)])
+		let cnt = int(prog.Types.Count[int(u)])
+		let mut elems = slices.WithCapacity[Val](cnt)
+		for i in 0..cnt {
+			elems = elems.Append(genSampleVal(prog, rng, prog.Types.FieldType[start+i], depth-1))
+		}
+		return MakeTupleVal(&prog.Arena, typeIdx, elems)
+	}
+	if k == KindRecord {
+		let start = int(prog.Types.Aux[int(u)])
+		let cnt = int(prog.Types.Count[int(u)])
+		let mut fields = slices.WithCapacity[Val](cnt)
+		for i in 0..cnt {
+			fields = fields.Append(genSampleVal(prog, rng, prog.Types.FieldType[start+i], depth-1))
+		}
+		return MakeRecordVal(&prog.Arena, typeIdx, fields)
+	}
+	if k == KindUnion {
+		let cnt = int(prog.Types.Count[int(u)])
+		if cnt > 0 {
+			let start = int(prog.Types.Aux[int(u)])
+			let pick = int(nextSeedU64(rng) % uint64(cnt))
+			return genSampleVal(prog, rng, prog.Types.FieldType[start+pick], depth-1)
+		}
+	}
+	ZeroVal(prog.Types, &prog.Arena, typeIdx)
+}
+
+func resolveFaultSite(prog Program, vm VM, fallback FnMeta) Site {
+	let pkgIdx = int(fallback.Pkg)
+	if pkgIdx >= 0 && pkgIdx < prog.FileNames.Len() {
+		let fi = int(vm.FaultFile)
+		if fi >= 0 && fi < prog.FileNames[pkgIdx].Len() {
+			return Site{File: prog.FileNames[pkgIdx][fi], Line: fallback.Line, Col: fallback.Col}
+		}
+	}
+	Site{File: fallback.FileName, Line: fallback.Line, Col: fallback.Col}
+}
+
+func initAllGlobals(prog mut Program, vm mut VM, pkgIdx uint32) bool {
+	for i, g in prog.Globals {
+		if g.Pkg == pkgIdx && vm.GlobalState[i] == uint8(0) {
+			if !ensureGlobalInit(prog, vm, i, uint32(0), uint32(0)) {
+				return false
+			}
+		}
+	}
+	true
+}
+
+func ctlToOutcomeStatus(ctl uint8) uint8 {
+	if ctl == CtlNone || ctl == CtlReturn { return StatusPassed }
+	if ctl == CtlSkip { return StatusSkipped }
+	if ctl == CtlRefuted || ctl == CtlFail || ctl == CtlEscape { return StatusRefuted }
+	if ctl == CtlIncomplete { return StatusIncomplete }
+	StatusDefect
+}
+
+func runZeroArgTarget(prog mut Program, fnIdx uint32, budget Budget, initGlob bool) (Outcome, uint64) {
+	let fm = prog.Fns[int(fnIdx)]
+	let kindLabel = if fm.Kind == FnKindTest { "test" } else if fm.Kind == FnKindLaw { "law" } else { "expr" }
+	let isObligation = fm.Kind == FnKindTest || fm.Kind == FnKindLaw
+	let mut vm = NewVM(*prog, budget)
+	if initGlob {
+		if !initAllGlobals(prog, &vm, fm.Pkg) {
+			return (Outcome{
+				Name:      fm.Name,
+				Kind:      kindLabel,
+				Status:    ctlToOutcomeStatus(vm.Ctl),
+				Reason:    vm.Reason,
+				Site:      resolveFaultSite(*prog, vm, fm),
+				Steps:     vm.StepsUsed,
+				ValueText: "",
+			}, vm.BuiltinsHit)
+		}
+	}
+	let ret = ExecuteFunction(prog, &vm, fnIdx, []Val{})
+	let st1 = if vm.Ctl != CtlNone {
+		ctlToOutcomeStatus(vm.Ctl)
+	} else if fm.Kind == FnKindLaw && ret.Tag == TagBool && ret.Data == uint64(0) {
+		StatusRefuted
+	} else {
+		StatusPassed
+	}
+	if isObligation && vm.MapIterated && (st1 == StatusPassed || st1 == StatusRefuted) {
+		let mut vm2 = NewVM(*prog, budget)
+		vm2.MapDesc = true
+		let mut initOk = true
+		if initGlob {
+			initOk = initAllGlobals(prog, &vm2, fm.Pkg)
+		}
+		if initOk {
+			let ret2 = ExecuteFunction(prog, &vm2, fnIdx, []Val{})
+			let st2 = if vm2.Ctl != CtlNone {
+				ctlToOutcomeStatus(vm2.Ctl)
+			} else if fm.Kind == FnKindLaw && ret2.Tag == TagBool && ret2.Data == uint64(0) {
+				StatusRefuted
+			} else {
+				StatusPassed
+			}
+			if st2 != st1 {
+				return (Outcome{
+					Name:      fm.Name,
+					Kind:      kindLabel,
+					Status:    StatusSkipped,
+					Reason:    "its outcome depends on the order of a for over a Map",
+					Site:      Site{File: fm.FileName, Line: fm.Line, Col: fm.Col},
+					Steps:     vm.StepsUsed + vm2.StepsUsed,
+					ValueText: "",
+				}, vm.BuiltinsHit + vm2.BuiltinsHit)
+			}
+		}
+	}
+	if vm.Ctl != CtlNone {
+		return (Outcome{
+			Name:      fm.Name,
+			Kind:      kindLabel,
+			Status:    ctlToOutcomeStatus(vm.Ctl),
+			Reason:    vm.Reason,
+			Site:      resolveFaultSite(*prog, vm, fm),
+			Steps:     vm.StepsUsed,
+			ValueText: "",
+		}, vm.BuiltinsHit)
+	}
+	if fm.Kind == FnKindLaw && ret.Tag == TagBool && ret.Data == uint64(0) {
+		return (Outcome{
+			Name:      fm.Name,
+			Kind:      kindLabel,
+			Status:    StatusRefuted,
+			Reason:    "law returned false",
+			Site:      Site{File: fm.FileName, Line: fm.Line, Col: fm.Col},
+			Steps:     vm.StepsUsed,
+			ValueText: "false",
+		}, vm.BuiltinsHit)
+	}
+	let vt = if fm.Kind == FnKindTest {
+		""
+	} else if fm.Kind != FnKindLaw && ret.Tag == TagStr {
+		ReadStr(prog.Arena, ret)
+	} else {
+		DescribeVal(prog.Types, prog.Arena, ret)
+	}
+	(Outcome{
+		Name:      fm.Name,
+		Kind:      kindLabel,
+		Status:    StatusPassed,
+		Reason:    "",
+		Site:      Site{File: fm.FileName, Line: fm.Line, Col: fm.Col},
+		Steps:     vm.StepsUsed,
+		ValueText: vt,
+	}, vm.BuiltinsHit)
+}
+
+func runParameterizedLaw(prog mut Program, fnIdx uint32, budget Budget, seed uint64) (Outcome, uint64) {
+	let fm = prog.Fns[int(fnIdx)]
+	let limit = if budget.CaseLimit > uint32(0) { int(budget.CaseLimit) } else { 100 }
+	let mut rng = seed
+	let mut totalSteps = uint64(0)
+	let mut totalBuiltins = uint64(0)
+	let allBools = areAllBoolParams(*prog, fm)
+	let maxCases = if allBools && fm.ParamCount <= uint32(5) { 1 << int(fm.ParamCount) } else { limit }
+	for c in 0..maxCases {
+		let mut args = slices.WithCapacity[Val](int(fm.ParamCount))
+		if allBools && fm.ParamCount <= uint32(5) {
+			for p in 0..int(fm.ParamCount) {
+				let bit = ((c >> p) & 1) != 0
+				args = args.Append(BoolVal(prog.ParamTypes[int(fm.ParamStart)+p], bit))
+			}
+		} else {
+			for p in 0..int(fm.ParamCount) {
+				args = args.Append(genSampleVal(prog, &rng, prog.ParamTypes[int(fm.ParamStart)+p], 3))
+			}
+		}
+		let stepRem = if budget.Steps > totalSteps { budget.Steps - totalSteps } else { uint64(1) }
+		let caseBudget = Budget{Steps: stepRem, Depth: budget.Depth, Bytes: budget.Bytes, CaseLimit: budget.CaseLimit}
+		let mut vm = NewVM(*prog, caseBudget)
+		if !initAllGlobals(prog, &vm, fm.Pkg) {
+			return (Outcome{
+				Name:      fm.Name,
+				Kind:      "law",
+				Status:    ctlToOutcomeStatus(vm.Ctl),
+				Reason:    vm.Reason,
+				Site:      resolveFaultSite(*prog, vm, fm),
+				Steps:     totalSteps + vm.StepsUsed,
+				ValueText: "",
+			}, totalBuiltins + vm.BuiltinsHit)
+		}
+		let ret = ExecuteFunction(prog, &vm, fnIdx, args)
+		totalSteps = totalSteps + vm.StepsUsed
+		totalBuiltins = totalBuiltins + vm.BuiltinsHit
+		if vm.Ctl != CtlNone {
+			if vm.Ctl == CtlSkip {
+				continue
+			}
+			return (Outcome{
+				Name:      fm.Name,
+				Kind:      "law",
+				Status:    ctlToOutcomeStatus(vm.Ctl),
+				Reason:    vm.Reason,
+				Site:      resolveFaultSite(*prog, vm, fm),
+				Steps:     totalSteps,
+				ValueText: DescribeVal(prog.Types, prog.Arena, ret),
+			}, totalBuiltins)
+		}
+		if ret.Tag == TagBool && ret.Data == uint64(0) {
+			let mut argTexts = slices.WithCapacity[string](args.Len())
+			for a in args {
+				argTexts = argTexts.Append(DescribeVal(prog.Types, prog.Arena, a))
+			}
+			return (Outcome{
+				Name:      fm.Name,
+				Kind:      "law",
+				Status:    StatusRefuted,
+				Reason:    "falsified case: (" + joinArgTexts(argTexts) + ")",
+				Site:      Site{File: fm.FileName, Line: fm.Line, Col: fm.Col},
+				Steps:     totalSteps,
+				ValueText: "false",
+			}, totalBuiltins)
+		}
+	}
+	(Outcome{
+		Name:      fm.Name,
+		Kind:      "law",
+		Status:    StatusPassed,
+		Reason:    "",
+		Site:      Site{File: fm.FileName, Line: fm.Line, Col: fm.Col},
+		Steps:     totalSteps,
+		ValueText: "true",
+	}, totalBuiltins)
+}
+
+func areAllBoolParams(prog Program, fm FnMeta) bool {
+	if fm.ParamCount == uint32(0) {
+		return false
+	}
+	for i in 0..int(fm.ParamCount) {
+		if !IsBoolType(prog.Types, prog.ParamTypes[int(fm.ParamStart)+i]) {
+			return false
+		}
+	}
+	true
+}
+
+func joinArgTexts(xs []string) string {
+	let mut out = ""
+	for i, x in xs {
+		if i > 0 { out = out + ", " }
+		out = out + x
+	}
+	out
+}
+
+// EvalPackage runs all tests (then laws) in package pkgIdx under budget, halting on defect or exhaustion.
+func EvalPackage(prog mut Program, pkgIdx uint32, budget Budget) Report {
+	let mut ordered = []uint32{}
+	for i, fm in prog.Fns {
+		if fm.Pkg == pkgIdx && fm.Kind == FnKindTest {
+			ordered = ordered.Append(uint32(i))
+		}
+	}
+	for i, fm in prog.Fns {
+		if fm.Pkg == pkgIdx && fm.Kind == FnKindLaw {
+			ordered = ordered.Append(uint32(i))
+		}
+	}
+	let mut outcomes = slices.WithCapacity[Outcome](ordered.Len())
+	let mut totalSteps = uint64(0)
+	let mut totalBuiltins = uint64(0)
+	let mut stopped = false
+	for fnIdx in ordered {
+		let fm = prog.Fns[int(fnIdx)]
+		let kindLabel = if fm.Kind == FnKindLaw { "law" } else { "test" }
+		if stopped {
+			outcomes = outcomes.Append(Outcome{
+				Name:      fm.Name,
+				Kind:      kindLabel,
+				Status:    StatusNotRun,
+				Reason:    "not run after earlier failure",
+				Site:      Site{File: fm.FileName, Line: fm.Line, Col: fm.Col},
+				Steps:     uint64(0),
+				ValueText: "",
+			})
+			continue
+		}
+		let remSteps = if budget.Steps == uint64(0) {
+			uint64(0)
+		} else if budget.Steps > totalSteps {
+			budget.Steps - totalSteps
+		} else {
+			uint64(1)
+		}
+		let curBudget = Budget{Steps: remSteps, Depth: budget.Depth, Bytes: budget.Bytes, CaseLimit: budget.CaseLimit}
+		let (out, bh) = if fm.Kind == FnKindLaw && fm.ParamCount > uint32(0) {
+			runParameterizedLaw(prog, fnIdx, curBudget, uint64(0x5eed1234)+uint64(fnIdx))
+		} else {
+			runZeroArgTarget(prog, fnIdx, curBudget, true)
+		}
+		outcomes = outcomes.Append(out)
+		totalSteps = totalSteps + out.Steps
+		totalBuiltins = totalBuiltins + bh
+		if out.Status == StatusDefect || out.Status == StatusIncomplete {
+			stopped = true
+		}
+	}
+	Report{Outcomes: outcomes, TotalSteps: totalSteps, BuiltinsHit: totalBuiltins}
+}
+
+// EvalEntryFn executes a named zero-argument function in pkgIdx and returns its outcome and formatted result.
+func EvalEntryFn(prog mut Program, pkgIdx uint32, fnName string, budget Budget) Outcome {
+	match prog.FnByKey.Get("\(pkgIdx):\(fnName)") {
+	case option.Some{Value: fnIdx}:
+		let (out, _) = runZeroArgTarget(prog, fnIdx, budget, true)
+		out
+	case option.None:
+		Outcome{
+			Name:      fnName,
+			Kind:      "expr",
+			Status:    StatusNotRun,
+			Reason:    "function \(fnName) not found",
+			Site:      Site{File: "", Line: uint32(0), Col: uint32(0)},
+			Steps:     uint64(0),
+			ValueText: "",
+		}
+	}
+}
+
+// EvalAndRunLoad executes tests, laws, and optional EvalMain in the root package of loadProg.
+func EvalAndRunLoad(loadProg load.Program, budget Budget) (Report, []EvalError) {
+	let (progVal, errs) = CompileProgram(loadProg)
+	if errs.Len() > 0 {
+		return (Report{Outcomes: []Outcome{}, TotalSteps: uint64(0), BuiltinsHit: uint64(0)}, errs)
+	}
+	let mut prog = progVal
+	let rpt = EvalPackage(&prog, prog.RootPkg, budget)
+	(rpt, []EvalError{})
+}
+
+test BytecodeVMExecutesArithmeticClosureAndBudget {
+	let mut prog = NewProgram()
+	let startPC = CurrentPC(prog)
+	let c10 = AddConst(&prog, MakeIntVal(prog.Types, TypeInt, uint64(10)))
+	let c32 = AddConst(&prog, MakeIntVal(prog.Types, TypeInt, uint64(32)))
+	let dummyNode = syntax.Root(syntax.Parse("").Tree)
+	EmitOp(&prog, OpConst, uint8(0), c10, uint32(0), uint32(0), uint32(0), dummyNode)
+	EmitOp(&prog, OpConst, uint8(0), c32, uint32(0), uint32(0), uint32(0), dummyNode)
+	EmitOp(&prog, OpBinary, syntax.Add, TypeInt, uint32(0), uint32(0), uint32(0), dummyNode)
+	EmitOp(&prog, OpReturnVal, uint8(0), uint32(0), uint32(0), uint32(0), uint32(0), dummyNode)
+	let fnIdx = uint32(prog.Fns.Len())
+	prog.Fns = prog.Fns.Append(FnMeta{
+		Name:       "add", Pkg: uint32(0), Kind: FnKindFunc, TypeIdx: TypeVoid,
+		ParamCount: uint32(0), ParamStart: uint32(0), CapCount: uint32(0), SlotCount: uint32(0),
+		CodeStart:  startPC, CodeLen: CurrentPC(prog) - startPC,
+		FailsType:  TypeVoid, ReturnType: TypeInt,
+		File:       uint32(0), Node: uint32(0), Line: uint32(1), Col: uint32(1), FileName: "t.ergo",
+		IsNative:   false, NativeID: NatNone, IsMethod: false, RecvName: "", IsEqLaw: false,
+		GuardNode:  uint32(0), HasGuard: false, HasParams: false,
+	})
+	prog.FnByKey["0:add"] = fnIdx
+	let okOut = EvalEntryFn(&prog, uint32(0), "add", DefaultBudget())
+	assert okOut.Status == StatusPassed && okOut.ValueText == "42"
+	let tightOut = EvalEntryFn(&prog, uint32(0), "add", Budget{Steps: uint64(2), Depth: uint32(16), Bytes: uint64(1024), CaseLimit: uint32(1)})
+	assert tightOut.Status == StatusIncomplete
+}
+
+law StepBudgetExhaustsBeforeInfiniteProgress(limit uint8) {
+	let n = uint64(int(limit)%8 + 1)
+	let mut prog = NewProgram()
+	let startPC = CurrentPC(prog)
+	let c1 = AddConst(&prog, MakeIntVal(prog.Types, TypeInt, uint64(1)))
+	let dummyNode = syntax.Root(syntax.Parse("").Tree)
+	for _ in 0..16 {
+		EmitOp(&prog, OpConst, uint8(0), c1, uint32(0), uint32(0), uint32(0), dummyNode)
+		EmitOp(&prog, OpPop, uint8(0), uint32(0), uint32(0), uint32(0), uint32(0), dummyNode)
+	}
+	EmitOp(&prog, OpReturn, uint8(0), uint32(0), uint32(0), uint32(0), uint32(0), dummyNode)
+	let fnIdx = uint32(prog.Fns.Len())
+	prog.Fns = prog.Fns.Append(FnMeta{
+		Name:       "spin", Pkg: uint32(0), Kind: FnKindFunc, TypeIdx: TypeVoid,
+		ParamCount: uint32(0), ParamStart: uint32(0), CapCount: uint32(0), SlotCount: uint32(0),
+		CodeStart:  startPC, CodeLen: CurrentPC(prog) - startPC,
+		FailsType:  TypeVoid, ReturnType: TypeVoid,
+		File:       uint32(0), Node: uint32(0), Line: uint32(1), Col: uint32(1), FileName: "t.ergo",
+		IsNative:   false, NativeID: NatNone, IsMethod: false, RecvName: "", IsEqLaw: false,
+		GuardNode:  uint32(0), HasGuard: false, HasParams: false,
+	})
+	prog.FnByKey["0:spin"] = fnIdx
+	let out = EvalEntryFn(&prog, uint32(0), "spin", Budget{Steps: n, Depth: uint32(16), Bytes: uint64(1024), CaseLimit: uint32(1)})
+	out.Status == StatusIncomplete && out.Steps == n
+}
+
+law FloatNaNEqualityFalse() {
+	let tp = NewTypePool()
+	let arena = NewValArena()
+	let nanBits uint64 = 0x7ff8000000000000
+	let nanVal = Val{Tag: TagFloat, Type: TypeFloat64, Aux: uint32(0), Data: nanBits}
+	!EqualVals(tp, arena, nanVal, nanVal)
+}
+
+law RecordMatchesByPkgAndName() {
+	let mut tp = NewTypePool()
+	let r1 = AllocNamedType(&tp, KindRecord, uint32(1), "ErrRec", uint32(0))
+	let r2 = AllocNamedType(&tp, KindRecord, uint32(1), "ErrRec", uint32(0))
+	let rOther = AllocNamedType(&tp, KindRecord, uint32(2), "ErrRec", uint32(0))
+	MatchesType(tp, r1, r2) && !MatchesType(tp, r1, rOther)
+}
+
+test VMCatchHandlesEscapeAndRefutesEscapedFailure {
+	let mut prog = NewProgram()
+	let errT = AllocNamedType(&prog.Types, KindRecord, uint32(0), "FailRec", uint32(0))
+	SetRecordFields(&prog.Types, errT, []string{}, []uint32{})
+	let dummyNode = syntax.Root(syntax.Parse("").Tree)
+
+	let failStart = CurrentPC(prog)
+	EmitOp(&prog, OpMakeRecord, uint8(0), errT, uint32(0), uint32(0), uint32(0), dummyNode)
+	EmitOp(&prog, OpReturnFail, uint8(0), uint32(0), uint32(0), uint32(0), uint32(0), dummyNode)
+	let failIdx = uint32(prog.Fns.Len())
+	prog.Fns = prog.Fns.Append(FnMeta{
+		Name:       "failer", Pkg: uint32(0), Kind: FnKindFunc, TypeIdx: TypeVoid,
+		ParamCount: uint32(0), ParamStart: uint32(0), CapCount: uint32(0), SlotCount: uint32(0),
+		CodeStart:  failStart, CodeLen: CurrentPC(prog) - failStart,
+		FailsType:  errT, ReturnType: TypeInt,
+		File:       uint32(0), Node: uint32(0), Line: uint32(1), Col: uint32(1), FileName: "t.ergo",
+		IsNative:   false, NativeID: NatNone, IsMethod: false, RecvName: "", IsEqLaw: false,
+		GuardNode:  uint32(0), HasGuard: false, HasParams: false,
+	})
+
+	let catcherStart = CurrentPC(prog)
+	let pushC = EmitJumpOp(&prog, OpPushCatch, uint32(0), dummyNode)
+	EmitOp(&prog, OpCall, uint8(0), failIdx, uint32(0), uint32(0), uint32(0), dummyNode)
+	EmitOp(&prog, OpPopCatch, uint8(0), uint32(0), uint32(0), uint32(0), uint32(0), dummyNode)
+	let doneJ = EmitJumpOp(&prog, OpJump, uint32(0), dummyNode)
+	PatchJumpTarget(&prog, pushC, CurrentPC(prog))
+	EmitOp(&prog, OpLoadErr, uint8(0), uint32(0), uint32(0), uint32(0), uint32(0), dummyNode)
+	EmitOp(&prog, OpPop, uint8(0), uint32(0), uint32(0), uint32(0), uint32(0), dummyNode)
+	let c77 = AddConst(&prog, MakeIntVal(prog.Types, TypeInt, uint64(77)))
+	EmitOp(&prog, OpConst, uint8(0), c77, uint32(0), uint32(0), uint32(0), dummyNode)
+	PatchJumpTarget(&prog, doneJ, CurrentPC(prog))
+	EmitOp(&prog, OpReturnVal, uint8(0), uint32(0), uint32(0), uint32(0), uint32(0), dummyNode)
+	let catcherIdx = uint32(prog.Fns.Len())
+	prog.Fns = prog.Fns.Append(FnMeta{
+		Name:       "catcher", Pkg: uint32(0), Kind: FnKindFunc, TypeIdx: TypeVoid,
+		ParamCount: uint32(0), ParamStart: uint32(0), CapCount: uint32(0), SlotCount: uint32(0),
+		CodeStart:  catcherStart, CodeLen: CurrentPC(prog) - catcherStart,
+		FailsType:  TypeVoid, ReturnType: TypeInt,
+		File:       uint32(0), Node: uint32(0), Line: uint32(1), Col: uint32(1), FileName: "t.ergo",
+		IsNative:   false, NativeID: NatNone, IsMethod: false, RecvName: "", IsEqLaw: false,
+		GuardNode:  uint32(0), HasGuard: false, HasParams: false,
+	})
+	prog.FnByKey["0:catcher"] = catcherIdx
+	let caughtOut = EvalEntryFn(&prog, uint32(0), "catcher", DefaultBudget())
+	assert caughtOut.Status == StatusPassed && caughtOut.ValueText == "77"
+
+	prog.FnByKey["0:uncaught"] = failIdx
+	let uncaughtOut = EvalEntryFn(&prog, uint32(0), "uncaught", DefaultBudget())
+	assert uncaughtOut.Status == StatusRefuted
+}

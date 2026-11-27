@@ -1,0 +1,252 @@
+import compiler/syntax
+import go math
+
+func minSignedBits(width uint8) uint64 {
+	if width == uint8(8) {
+		return u64Min8
+	}
+	if width == uint8(16) {
+		return u64Min16
+	}
+	if width == uint8(32) {
+		return u64Min32
+	}
+	u64SignBit
+}
+
+func signedNegBits(x uint64) uint64 {
+	uint64(0) - x
+}
+
+func signedDivMod(a uint64, b uint64, width uint8) (uint64, uint64) {
+	let minVal = minSignedBits(width)
+	if a == minVal && b == u64AllOnes {
+		return (minVal, uint64(0))
+	}
+	let aNeg = (a & u64SignBit) != uint64(0)
+	let bNeg = (b & u64SignBit) != uint64(0)
+	let ua = if aNeg { signedNegBits(a) } else { a }
+	let ub = if bNeg { signedNegBits(b) } else { b }
+	let uq = ua / ub
+	let ur = ua % ub
+	let q = if aNeg != bNeg { signedNegBits(uq) } else { uq }
+	let r = if aNeg { signedNegBits(ur) } else { ur }
+	(WrapIntBits(q, width, true), WrapIntBits(r, width, true))
+}
+
+func shiftLeftBits(a uint64, cnt uint64, width uint8, signed bool) uint64 {
+	if cnt >= uint64(width) {
+		return uint64(0)
+	}
+	WrapIntBits(a<<cnt, width, signed)
+}
+
+func shiftRightBits(a uint64, cnt uint64, width uint8, signed bool) uint64 {
+	if !signed {
+		if cnt >= uint64(width) {
+			return uint64(0)
+		}
+		return WrapIntBits(a>>cnt, width, false)
+	}
+	let neg = (a & u64SignBit) != uint64(0)
+	if cnt >= uint64(width) {
+		return if neg { u64AllOnes } else { uint64(0) }
+	}
+	if cnt == uint64(0) {
+		return a
+	}
+	let shifted = a >> cnt
+	let fill = if neg { u64AllOnes << (uint64(64) - cnt) } else { uint64(0) }
+	WrapIntBits(shifted|fill, width, true)
+}
+
+// EvalUnary evaluates a unary prefix operation (+, -, !, ^) on x.
+func EvalUnary(tp TypePool, arena ValArena, op uint8, x Val) (Val, string) {
+	if op == syntax.Not {
+		if x.Tag == TagBool {
+			return (BoolVal(x.Type, x.Data == uint64(0)), "")
+		}
+		return (UnitVal(), "invalid ! operand")
+	}
+	if op == syntax.Add {
+		return (x, "")
+	}
+	if op == syntax.Sub {
+		if x.Tag == TagFloat {
+			let f = -math.Float64frombits(x.Data)
+			return (MakeFloatVal(tp, x.Type, f), "")
+		}
+		if x.Tag == TagInt || x.Tag == TagUint {
+			let res = uint64(0) - x.Data
+			return (MakeIntVal(tp, x.Type, res), "")
+		}
+		return (UnitVal(), "invalid unary - operand")
+	}
+	if op == syntax.Xor {
+		if x.Tag == TagInt || x.Tag == TagUint {
+			let res = ^x.Data
+			return (MakeIntVal(tp, x.Type, res), "")
+		}
+		return (UnitVal(), "invalid unary ^ operand")
+	}
+	let _ = arena
+	(UnitVal(), "unsupported unary operator \(op)")
+}
+
+func evalFloatBinary(tp TypePool, op uint8, typ uint32, fx float64, fy float64) (Val, string) {
+	let u = UnwrapType(tp, typ)
+	let is32 = int(u) < tp.Width.Len() && tp.Width[int(u)] == uint8(32)
+	if op == syntax.Eql { return (BoolVal(TypeBool, fx == fy), "") }
+	if op == syntax.Neq { return (BoolVal(TypeBool, fx != fy), "") }
+	if op == syntax.Lss { return (BoolVal(TypeBool, fx < fy), "") }
+	if op == syntax.Leq { return (BoolVal(TypeBool, fx <= fy), "") }
+	if op == syntax.Gtr { return (BoolVal(TypeBool, fx > fy), "") }
+	if op == syntax.Geq { return (BoolVal(TypeBool, fx >= fy), "") }
+	if is32 {
+		let a32 = float32(fx)
+		let b32 = float32(fy)
+		let r32 = if op == syntax.Add {
+			a32 + b32
+		} else if op == syntax.Sub {
+			a32 - b32
+		} else if op == syntax.Mul {
+			a32 * b32
+		} else if op == syntax.Quo {
+			a32 / b32
+		} else {
+			return (UnitVal(), "unsupported float32 binary op")
+		}
+		return (MakeFloatVal(tp, typ, float64(r32)), "")
+	}
+	let r64 = if op == syntax.Add {
+		fx + fy
+	} else if op == syntax.Sub {
+		fx - fy
+	} else if op == syntax.Mul {
+		fx * fy
+	} else if op == syntax.Quo {
+		fx / fy
+	} else {
+		return (UnitVal(), "unsupported float64 binary op")
+	}
+	(MakeFloatVal(tp, typ, r64), "")
+}
+
+// EvalBinary evaluates a binary arithmetic, bitwise, shift, or comparison operation on x and y.
+func EvalBinary(tp TypePool, arena mut ValArena, op uint8, outType uint32, x Val, y Val) (Val, string) {
+	if op == syntax.Eql {
+		return (BoolVal(TypeBool, EqualVals(tp, *arena, x, y)), "")
+	}
+	if op == syntax.Neq {
+		return (BoolVal(TypeBool, !EqualVals(tp, *arena, x, y)), "")
+	}
+	if x.Tag == TagStr && y.Tag == TagStr {
+		let sx = ReadStr(*arena, x)
+		let sy = ReadStr(*arena, y)
+		if op == syntax.Add {
+			let resT = if outType != TypeVoid { outType } else { x.Type }
+			return (AllocStrVal(arena, resT, sx+sy), "")
+		}
+		if op == syntax.Lss { return (BoolVal(TypeBool, sx < sy), "") }
+		if op == syntax.Leq { return (BoolVal(TypeBool, sx <= sy), "") }
+		if op == syntax.Gtr { return (BoolVal(TypeBool, sx > sy), "") }
+		if op == syntax.Geq { return (BoolVal(TypeBool, sx >= sy), "") }
+	}
+	if x.Tag == TagFloat && y.Tag == TagFloat {
+		return evalFloatBinary(tp, op, x.Type, math.Float64frombits(x.Data), math.Float64frombits(y.Data))
+	}
+	if op == syntax.Shl || op == syntax.Shr {
+		if y.Tag == TagInt && SignedBitsLT(y.Data, uint64(0)) {
+			return (UnitVal(), "runtime error: negative shift amount")
+		}
+		let (w, signed) = IntBitWidth(tp, x.Type)
+		let res = if op == syntax.Shl {
+			shiftLeftBits(x.Data, y.Data, w, signed)
+		} else {
+			shiftRightBits(x.Data, y.Data, w, signed)
+		}
+		let rtype = if outType != TypeVoid { outType } else { x.Type }
+		return (MakeIntVal(tp, rtype, res), "")
+	}
+	if (x.Tag == TagInt || x.Tag == TagUint) && (y.Tag == TagInt || y.Tag == TagUint) {
+		let (w, signed) = IntBitWidth(tp, x.Type)
+		let rtype = if outType != TypeVoid { outType } else { x.Type }
+		if op == syntax.Lss {
+			let less = if signed { SignedBitsLT(x.Data, y.Data) } else { x.Data < y.Data }
+			return (BoolVal(TypeBool, less), "")
+		}
+		if op == syntax.Leq {
+			let leq = if signed { x.Data == y.Data || SignedBitsLT(x.Data, y.Data) } else { x.Data <= y.Data }
+			return (BoolVal(TypeBool, leq), "")
+		}
+		if op == syntax.Gtr {
+			let gtr = if signed { SignedBitsLT(y.Data, x.Data) } else { x.Data > y.Data }
+			return (BoolVal(TypeBool, gtr), "")
+		}
+		if op == syntax.Geq {
+			let geq = if signed { x.Data == y.Data || SignedBitsLT(y.Data, x.Data) } else { x.Data >= y.Data }
+			return (BoolVal(TypeBool, geq), "")
+		}
+		if op == syntax.Add { return (MakeIntVal(tp, rtype, x.Data+y.Data), "") }
+		if op == syntax.Sub { return (MakeIntVal(tp, rtype, x.Data-y.Data), "") }
+		if op == syntax.Mul { return (MakeIntVal(tp, rtype, x.Data*y.Data), "") }
+		if op == syntax.And { return (MakeIntVal(tp, rtype, x.Data&y.Data), "") }
+		if op == syntax.Or { return (MakeIntVal(tp, rtype, x.Data|y.Data), "") }
+		if op == syntax.Xor { return (MakeIntVal(tp, rtype, x.Data^y.Data), "") }
+		if op == syntax.AndNot { return (MakeIntVal(tp, rtype, x.Data&^y.Data), "") }
+		if op == syntax.Quo || op == syntax.Rem {
+			if y.Data == uint64(0) {
+				return (UnitVal(), "runtime error: integer divide by zero")
+			}
+			if signed {
+				let (q, r) = signedDivMod(x.Data, y.Data, w)
+				return (MakeIntVal(tp, rtype, if op == syntax.Quo { q } else { r }), "")
+			}
+			let uq = x.Data / y.Data
+			let ur = x.Data % y.Data
+			return (MakeIntVal(tp, rtype, if op == syntax.Quo { uq } else { ur }), "")
+		}
+	}
+	(UnitVal(), "unsupported binary operator \(op) on \(tp.Name[int(x.Type)]) and \(tp.Name[int(y.Type)])")
+}
+
+law SignedDivisionWrapsMinOverMinusOne() {
+	let tp = NewTypePool()
+	let mut arena = NewValArena()
+	let a = MakeIntVal(tp, TypeInt8, u64Min8)
+	let b = MakeIntVal(tp, TypeInt8, u64AllOnes)
+	let (q, qErr) = EvalBinary(tp, &arena, syntax.Quo, TypeInt8, a, b)
+	let (r, rErr) = EvalBinary(tp, &arena, syntax.Rem, TypeInt8, a, b)
+	let neg8Bits uint64 = 0xfffffffffffffff8
+	let neg8 = MakeIntVal(tp, TypeInt8, neg8Bits)
+	let pos2 = MakeIntVal(tp, TypeInt8, uint64(2))
+	let (sq, sqErr) = EvalBinary(tp, &arena, syntax.Quo, TypeInt8, neg8, pos2)
+	let wantNeg4 uint64 = 0xfffffffffffffffc
+	qErr == "" && rErr == "" && q.Data == u64Min8 && r.Data == uint64(0) && sqErr == "" && sq.Data == wantNeg4
+}
+
+law NegativeShiftAndZeroDivProduceDefects() {
+	let tp = NewTypePool()
+	let mut arena = NewValArena()
+	let a = MakeIntVal(tp, TypeInt, uint64(8))
+	let z = MakeIntVal(tp, TypeInt, uint64(0))
+	let neg = MakeIntVal(tp, TypeInt, u64AllOnes)
+	let (_, dErr) = EvalBinary(tp, &arena, syntax.Quo, TypeInt, a, z)
+	let (_, sErr) = EvalBinary(tp, &arena, syntax.Shl, TypeInt, a, neg)
+	dErr == "runtime error: integer divide by zero" && sErr == "runtime error: negative shift amount"
+}
+
+law RightShiftRespectsSignedness() {
+	let tp = NewTypePool()
+	let mut arena = NewValArena()
+	let n16 uint64 = 0xfffffffffffffff0
+	let n4 uint64 = 0xfffffffffffffffc
+	let neg = MakeIntVal(tp, TypeInt8, n16)
+	let neg64 = MakeIntVal(tp, TypeInt64, n16)
+	let posU = MakeIntVal(tp, TypeUint8, uint64(0xf0))
+	let sh = MakeIntVal(tp, TypeInt, uint64(2))
+	let (sr, e1) = EvalBinary(tp, &arena, syntax.Shr, TypeInt8, neg, sh)
+	let (sr64, e64) = EvalBinary(tp, &arena, syntax.Shr, TypeInt64, neg64, sh)
+	let (ur, e2) = EvalBinary(tp, &arena, syntax.Shr, TypeUint8, posU, sh)
+	e1 == "" && e64 == "" && e2 == "" && sr.Data == n4 && sr64.Data == n4 && ur.Data == uint64(0x3c)
+}
