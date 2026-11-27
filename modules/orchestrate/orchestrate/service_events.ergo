@@ -1,0 +1,518 @@
+import json
+import machines
+import option
+import os/host
+import strconv
+import strings
+import time
+
+// HostReadinessInput requests point-in-time evaluation of host load, memory, and volume capacity against readiness hysteresis bounds.
+type HostReadinessInput {
+	Volume             json.Optional[string],
+	MaxLoad            json.Optional[string],
+	RecoveryMaxLoad    json.Optional[string],
+	MinMemGiB          json.Optional[string],
+	RecoveryMinMemGiB  json.Optional[string],
+	MaxDiskPct         json.Optional[string],
+	RecoveryMaxDiskPct json.Optional[string],
+	PreviousState      json.Optional[string],
+}
+
+// HostReadinessReport summarizes evaluated host readiness state, hysteresis policy, live metrics, and transition status.
+type HostReadinessReport {
+	State         string,
+	Ready         bool,
+	PreviousState string,
+	Transitioned  bool,
+	Reason        string,
+	CheckedAt     string,
+	Metrics       HostMetrics,
+	Policy        ReadinessPolicy,
+}
+
+// EventsSinceInput queries cursor-ordered operational ledger and transition events strictly after Since.
+type EventsSinceInput {
+	Repo   json.Optional[string],
+	Run    json.Optional[string],
+	Kind   json.Optional[string],
+	UnitID json.Optional[string],
+	Since  json.Optional[int],
+	Limit  json.Optional[int],
+	Source json.Optional[string],
+}
+
+// EventStreamEntry is one normalized, cursor-indexed ledger or state-transition record in an incremental stream page.
+type EventStreamEntry {
+	Cursor    int,
+	Source    string,
+	Repo      string,
+	Run       string,
+	Kind      string,
+	UnitID    option.Option[string],
+	Summary   string,
+	Actor     string,
+	CreatedAt string,
+	EventID   option.Option[int],
+	Seq       option.Option[int],
+	SourceKey option.Option[string],
+}
+
+// EventStreamPage holds incremental cursor-ordered event entries and the advanced NextCursor.
+type EventStreamPage {
+	Items      []EventStreamEntry,
+	Since      int,
+	NextCursor int,
+	Total      int,
+	Limit      int,
+	HasMore    bool,
+}
+
+// UnifiedEvent unifies stored ledger transitions and edge-triggered host readiness changes into one stream type.
+type UnifiedEvent = LedgerStreamItem{Entry EventStreamEntry} | ReadinessEdgeItem{Edge ReadinessChanged}
+
+// ParseFloatParam parses raw as a finite non-negative float64 or returns InvalidInput for field.
+func ParseFloatParam(field string, raw string) float64 fails InvalidInput {
+	let trimmed = strings.TrimSpace(raw)
+	if trimmed == "" {
+		return InvalidInput{Field: field, Why: "must not be empty"}
+	}
+	let v = strconv.ParseFloat(trimmed) catch {
+	case strconv.Malformed:
+		return InvalidInput{Field: field, Why: "must be a number"}
+	case strconv.OutOfRange:
+		return InvalidInput{Field: field, Why: "number out of range"}
+	}
+	if !finiteNonNegFloat(v) {
+		return InvalidInput{Field: field, Why: "must be finite and >= 0"}
+	}
+	v
+}
+
+func parseOptionalFloat(field string, opt json.Optional[string], fallback float64) (float64, bool) fails InvalidInput {
+	match optionalToOption[string](opt) {
+	case option.Some[string] as raw:
+		(try ParseFloatParam(field, raw.Value), true)
+	case option.None:
+		(fallback, false)
+	}
+}
+
+// PolicyFromReadinessInput builds and validates a ReadinessPolicy from optional CLI/API parameters.
+func PolicyFromReadinessInput(req HostReadinessInput) ReadinessPolicy fails InvalidInput {
+	let base = DefaultReadinessPolicy()
+	let vol = match optionalToOption[string](req.Volume) {
+	case option.Some[string] as v:
+		strings.TrimSpace(v.Value)
+	case option.None:
+		base.Volume
+	}
+	let (maxLoad, hasMaxLoad) = try parseOptionalFloat("maxLoad", req.MaxLoad, base.MaxLoad)
+	let defaultRecLoad = if hasMaxLoad { maxLoad * 0.85 } else { base.RecoveryMaxLoad }
+	let (recLoad, _) = try parseOptionalFloat("recoveryMaxLoad", req.RecoveryMaxLoad, defaultRecLoad)
+
+	let (minMem, hasMinMem) = try parseOptionalFloat("minMemGiB", req.MinMemGiB, base.MinMemGiB)
+	let defaultRecMem = if hasMinMem {
+		if minMem > 0.0 { minMem * 1.125 } else { 0.0 }
+	} else {
+		base.RecoveryMinMemGiB
+	}
+	let (recMem, _) = try parseOptionalFloat("recoveryMinMemGiB", req.RecoveryMinMemGiB, defaultRecMem)
+
+	let (maxDisk, hasMaxDisk) = try parseOptionalFloat("maxDiskPct", req.MaxDiskPct, base.MaxDiskPct)
+	let defaultRecDisk = if hasMaxDisk {
+		if maxDisk >= 5.0 { maxDisk - 3.0 } else { maxDisk * 0.9 }
+	} else {
+		base.RecoveryMaxDiskPct
+	}
+	let (recDisk, _) = try parseOptionalFloat("recoveryMaxDiskPct", req.RecoveryMaxDiskPct, defaultRecDisk)
+
+	let policy = ReadinessPolicy{
+		..base,
+		Volume:             vol,
+		MaxLoad:            maxLoad,
+		RecoveryMaxLoad:    recLoad,
+		MinMemGiB:          minMem,
+		RecoveryMinMemGiB:  recMem,
+		MaxDiskPct:         maxDisk,
+		RecoveryMaxDiskPct: recDisk,
+	}
+	try ValidateReadinessPolicy(policy)
+}
+
+func parsePreviousState(opt json.Optional[string]) ReadinessState fails InvalidInput {
+	match optionalToOption[string](opt) {
+	case option.Some[string] as s:
+		match ParseReadinessState(s.Value) {
+		case option.Some[ReadinessState] as st:
+			st.Value
+		case option.None:
+			InvalidInput{Field: "previousState", Why: "must be ready, backpressure, or unhealthy"}
+		}
+	case option.None:
+		Ready
+	}
+}
+
+// EvaluateHostReadiness queries sys for policy.Volume and evaluates one edge-triggered readiness step relative to prev.
+func EvaluateHostReadiness(sys host.System, policy ReadinessPolicy, prev ReadinessState, at string) HostReadinessReport fails InvalidInput | host.Unavailable | host.Malformed {
+	let report = try QueryHostStatus(sys, HostStatusInput{Volumes: []string{policy.Volume}})
+	let metrics = try MetricsFromReport(report, policy.Volume)
+	let sample = HostMetricsSample{At: at, Metrics: metrics}
+	match StepReadiness(policy, prev, sample) {
+	case machines.Emit[ReadinessState, ReadinessChanged] as em:
+		HostReadinessReport{
+			State:         ReadinessStateName(em.Next),
+			Ready:         IsReady(em.Next),
+			PreviousState: ReadinessStateName(prev),
+			Transitioned:  true,
+			Reason:        em.Output.Reason,
+			CheckedAt:     at,
+			Metrics:       metrics,
+			Policy:        policy,
+		}
+	case machines.Stay[ReadinessState] as st:
+		let reason = if IsReady(st.Next) {
+			"ready"
+		} else {
+			recoveryGapReasons(policy, metrics)
+		}
+		HostReadinessReport{
+			State:         ReadinessStateName(st.Next),
+			Ready:         IsReady(st.Next),
+			PreviousState: ReadinessStateName(prev),
+			Transitioned:  false,
+			Reason:        reason,
+			CheckedAt:     at,
+			Metrics:       metrics,
+			Policy:        policy,
+		}
+	case _:
+		HostReadinessReport{
+			State:         ReadinessStateName(prev),
+			Ready:         IsReady(prev),
+			PreviousState: ReadinessStateName(prev),
+			Transitioned:  false,
+			Reason:        "unchanged",
+			CheckedAt:     at,
+			Metrics:       metrics,
+			Policy:        policy,
+		}
+	}
+}
+
+// HostReadiness evaluates live host telemetry via s.host against validated readiness hysteresis thresholds.
+func HostReadiness(s Service, req HostReadinessInput) HostReadinessReport fails InvalidInput | host.Unavailable | host.Malformed {
+	let policy = try PolicyFromReadinessInput(req)
+	let prev = try parsePreviousState(req.PreviousState)
+	let checkedAt = s.clock.Now().Format(time.RFC3339)
+	try EvaluateHostReadiness(s.host, policy, prev, checkedAt)
+}
+
+// StreamEntryFromLedger converts a persisted LedgerEvent into a cursor-indexed EventStreamEntry.
+func StreamEntryFromLedger(ev LedgerEvent) EventStreamEntry {
+	EventStreamEntry{
+		Cursor:    ev.ID,
+		Source:    "event_log",
+		Repo:      ev.Repo,
+		Run:       ev.Run,
+		Kind:      ev.Kind,
+		UnitID:    ev.UnitID,
+		Summary:   ev.Summary,
+		Actor:     ev.Actor,
+		CreatedAt: ev.CreatedAt,
+		EventID:   option.Some[int]{Value: ev.ID},
+		Seq:       option.None,
+		SourceKey: ev.SourceKey,
+	}
+}
+
+func makeTransitionEntry(
+	seq int,
+	repo string,
+	run string,
+	kind string,
+	unitID option.Option[string],
+	summary string,
+	actor string,
+	at string,
+) EventStreamEntry {
+	EventStreamEntry{
+		Cursor:    seq,
+		Source:    "transitions",
+		Repo:      repo,
+		Run:       run,
+		Kind:      kind,
+		UnitID:    unitID,
+		Summary:   summary,
+		Actor:     actor,
+		CreatedAt: at,
+		EventID:   option.None,
+		Seq:       option.Some[int]{Value: seq},
+		SourceKey: option.None,
+	}
+}
+
+// ProjectStoredEvent projects one immutable StoredEvent into an EventStreamEntry when it represents a domain or ledger transition.
+func ProjectStoredEvent(stored StoredEvent) option.Option[EventStreamEntry] {
+	let seq = stored.Seq
+	match stored.Event {
+	case CommandAccepted:
+		option.None
+	case UnitOpened as e:
+		option.Some[EventStreamEntry]{Value: makeTransitionEntry(seq, e.Key.Repo, e.Key.Run, "unit-opened", option.Some[string]{Value: e.Key.ID}, "unit \(e.Key.ID) opened: \(e.Title)", "ledger", e.At)}
+	case ReceiptRecorded as e:
+		let r = e.Receipt
+		option.Some[EventStreamEntry]{Value: makeTransitionEntry(seq, r.Unit.Repo, r.Unit.Run, "receipt-recorded", option.Some[string]{Value: r.Unit.ID}, "receipt \(r.Kind) exit \(r.ExitCode) at \(r.Head)", r.RecordedBy, r.RecordedAt)}
+	case UnitWasAccepted as e:
+		option.Some[EventStreamEntry]{Value: makeTransitionEntry(seq, e.Unit.Repo, e.Unit.Run, "unit-accepted", option.Some[string]{Value: e.Unit.ID}, "unit \(e.Unit.ID) accepted at \(e.Head)", "ledger", e.At)}
+	case UnitWasLanded as e:
+		option.Some[EventStreamEntry]{Value: makeTransitionEntry(seq, e.Unit.Repo, e.Unit.Run, "unit-landed", option.Some[string]{Value: e.Unit.ID}, "unit \(e.Unit.ID) landed at \(e.Head)", "ledger", e.At)}
+	case UnitWasClosed as e:
+		option.Some[EventStreamEntry]{Value: makeTransitionEntry(seq, e.Unit.Repo, e.Unit.Run, "unit-closed", option.Some[string]{Value: e.Unit.ID}, "unit \(e.Unit.ID) closed", "ledger", e.At)}
+	case CommitmentAdded as e:
+		option.Some[EventStreamEntry]{Value: makeTransitionEntry(seq, "global", "global", "commitment-added", option.None, "commitment \(e.ID) added: \(e.Title)", "ledger", e.At)}
+	case CommitmentWasAssigned as e:
+		option.Some[EventStreamEntry]{Value: makeTransitionEntry(seq, "global", "global", "commitment-assigned", option.None, "commitment \(e.ID) assigned to \(e.Owner)", e.Owner, e.At)}
+	case CommitmentWasLanded as e:
+		option.Some[EventStreamEntry]{Value: makeTransitionEntry(seq, "global", "global", "commitment-landed", option.None, "commitment \(e.ID) landed at \(e.LandedSHA)", "ledger", e.At)}
+	case CommitmentWasDecided as e:
+		option.Some[EventStreamEntry]{Value: makeTransitionEntry(seq, "global", "global", "commitment-decided", option.None, "commitment \(e.ID) decided: \(e.Note)", "ledger", e.At)}
+	case CommitmentWasWithdrawn as e:
+		option.Some[EventStreamEntry]{Value: makeTransitionEntry(seq, "global", "global", "commitment-withdrawn", option.None, "commitment \(e.ID) withdrawn: \(e.Note)", "ledger", e.At)}
+	case QueueUpserted as e:
+		option.Some[EventStreamEntry]{Value: makeTransitionEntry(seq, "global", "global", "queue-upserted", option.None, "queue \(e.Item.Key) (\(e.Item.Status)): \(e.Item.Title)", "ledger", e.Item.UpdatedAt)}
+	case QueueRemoved as e:
+		option.Some[EventStreamEntry]{Value: makeTransitionEntry(seq, "global", "global", "queue-removed", option.None, "queue \(e.Key) removed", "ledger", "")}
+	case QuestionAsked as e:
+		option.Some[EventStreamEntry]{Value: makeTransitionEntry(seq, "global", "global", "question-asked", option.None, "question #\(e.Question.ID): \(e.Question.Prompt)", e.Question.AskedBy, e.Question.AskedAt)}
+	case QuestionWasAnswered as e:
+		option.Some[EventStreamEntry]{Value: makeTransitionEntry(seq, "global", "global", "question-answered", option.None, "question #\(e.ID) answered", e.AnsweredBy, e.AnsweredAt)}
+	case QuestionWasWithdrawn as e:
+		option.Some[EventStreamEntry]{Value: makeTransitionEntry(seq, "global", "global", "question-withdrawn", option.None, "question #\(e.ID) withdrawn", e.AnsweredBy, e.AnsweredAt)}
+	case RunHeadUpdated as e:
+		option.Some[EventStreamEntry]{Value: makeTransitionEntry(seq, e.Repo, e.Run, "run-head-updated", option.None, "main head set to \(e.Head)", "ledger", e.UpdatedAt)}
+	case DecisionRecorded as e:
+		let d = e.Decision
+		option.Some[EventStreamEntry]{Value: makeTransitionEntry(seq, d.Repo, d.Run, "decision-recorded", d.UnitID, "\(d.ID): \(d.Title)", d.Actor, d.CreatedAt)}
+	case LandingRecorded as e:
+		let l = e.Landing
+		option.Some[EventStreamEntry]{Value: makeTransitionEntry(seq, l.Repo, l.Run, "landing-recorded", option.None, "landing #\(l.LandingNumber) (\(l.GroupID)) at \(l.Head)", "ledger", l.LandedAt)}
+	case LedgerEventAppended as e:
+		let ev = e.Event
+		option.Some[EventStreamEntry]{Value: EventStreamEntry{
+			Cursor:    seq,
+			Source:    "transitions",
+			Repo:      ev.Repo,
+			Run:       ev.Run,
+			Kind:      ev.Kind,
+			UnitID:    ev.UnitID,
+			Summary:   ev.Summary,
+			Actor:     ev.Actor,
+			CreatedAt: ev.CreatedAt,
+			EventID:   option.Some[int]{Value: ev.ID},
+			Seq:       option.Some[int]{Value: seq},
+			SourceKey: ev.SourceKey,
+		}}
+	}
+}
+
+func parseSinceCursor(opt json.Optional[int]) int fails InvalidInput {
+	match optionalToOption[int](opt) {
+	case option.Some[int] as n:
+		if n.Value < 0 {
+			return InvalidInput{Field: "since", Why: "must be >= 0"}
+		}
+		n.Value
+	case option.None:
+		0
+	}
+}
+
+func parseEventSource(opt json.Optional[string]) string fails InvalidInput {
+	let parsed = optionalToOption[string](opt)
+	try requireOptionalText("source", parsed)
+	match parsed {
+	case option.Some[string] as s:
+		match s.Value {
+		case "event_log", "transitions", "all":
+			s.Value
+		case _:
+			InvalidInput{Field: "source", Why: "must be event_log, transitions, or all"}
+		}
+	case option.None:
+		"event_log"
+	}
+}
+
+// AdvanceStreamCursor returns the highest cursor seen across items without moving backward past current.
+func AdvanceStreamCursor(current int, items []EventStreamEntry) int {
+	let mut best = current
+	for item in items {
+		if item.Cursor > best {
+			best = item.Cursor
+		}
+	}
+	best
+}
+
+// UnifiedEventKey returns a deterministic deduplication key for a UnifiedEvent item.
+func UnifiedEventKey(ev UnifiedEvent) string {
+	match ev {
+	case LedgerStreamItem as l:
+		"\(l.Entry.Source):\(l.Entry.Cursor):\(l.Entry.Kind)"
+	case ReadinessEdgeItem as r:
+		"readiness:\(r.Edge.At):\(ReadinessStateName(r.Edge.From))->\(ReadinessStateName(r.Edge.To))"
+	}
+}
+
+// DeduplicateUnifiedEvents filters items against seen, returning unseen entries in order and the updated seen set.
+func DeduplicateUnifiedEvents(seen Map[string, bool], items []UnifiedEvent) ([]UnifiedEvent, Map[string, bool]) {
+	let mut out = []UnifiedEvent{}
+	let mut nextSeen = seen
+	for item in items {
+		let k = UnifiedEventKey(item)
+		if nextSeen.Get(k) == option.None {
+			nextSeen = nextSeen.Put(k, true)
+			out = out.Append(item)
+		}
+	}
+	(out, nextSeen)
+}
+
+func streamEntryMatches(entry EventStreamEntry, repo option.Option[string], run option.Option[string], kind option.Option[string], unitID option.Option[string]) bool {
+	let unitOK = match unitID {
+	case option.Some[string] as want:
+		entry.UnitID == (option.Some[string]{Value: want.Value})
+	case option.None:
+		true
+	}
+	matchOptEq(repo, entry.Repo) && matchOptEq(run, entry.Run) && matchOptEq(kind, entry.Kind) && unitOK
+}
+
+// EventsSince queries cursor-ordered events strictly after Since from either event_log or all domain transitions.
+func EventsSince(s Service, req EventsSinceInput) EventStreamPage fails InvalidInput | StoreFailed {
+	let repo = try optTextFilter("repo", req.Repo)
+	let run = try optTextFilter("run", req.Run)
+	let kind = try optTextFilter("kind", req.Kind)
+	let unitID = try optTextFilter("unitId", req.UnitID)
+	let since = try parseSinceCursor(req.Since)
+	let limit = try parsePageLimit(req.Limit)
+	let source = try parseEventSource(req.Source)
+
+	if source == "event_log" {
+		let page = try s.store.ListEventLogSince(EventLogSinceFilter{
+			Repo:    repo,
+			Run:     run,
+			Kind:    kind,
+			UnitID:  unitID,
+			Actor:   option.None,
+			SinceID: since,
+			Limit:   limit,
+		})
+		let mut items = []EventStreamEntry{}
+		for ev in page.Items {
+			items = items.Append(StreamEntryFromLedger(ev))
+		}
+		return EventStreamPage{
+			Items:      items,
+			Since:      since,
+			NextCursor: AdvanceStreamCursor(since, items),
+			Total:      page.Total,
+			Limit:      page.Limit,
+			HasMore:    page.HasMore,
+		}
+	}
+
+	let stored = try s.store.Events(since)
+	let mut matched = []EventStreamEntry{}
+	for item in stored {
+		match ProjectStoredEvent(item) {
+		case option.Some[EventStreamEntry] as projected:
+			if streamEntryMatches(projected.Value, repo, run, kind, unitID) {
+				matched = matched.Append(projected.Value)
+			}
+		case option.None:
+		}
+	}
+	let (items, total, hasMore) = paginateSlice(matched, limit, 0)
+	EventStreamPage{
+		Items:      items,
+		Since:      since,
+		NextCursor: AdvanceStreamCursor(since, items),
+		Total:      total,
+		Limit:      limit,
+		HasMore:    hasMore,
+	}
+}
+
+// EventCursorMonotonicAndDeduplicated verifies that stream cursors never regress and duplicate unified events are filtered cleanly.
+law EventCursorMonotonicAndDeduplicated(startRaw int, seqsRaw []int) {
+	let start = ((startRaw % 20) + 20) % 20
+	let mut entries = []EventStreamEntry{}
+	let mut unified = []UnifiedEvent{}
+	for i, s in seqsRaw {
+		let cur = start + 1 + (((s % 50) + 50) % 50)
+		let entry = makeTransitionEntry(cur, "repo", "r1", "unit-opened", option.Some[string]{Value: "u-\(i % 3)"}, "open", "root", "2026-11-26T00:00:00Z")
+		entries = entries.Append(entry)
+		unified = unified.Append(LedgerStreamItem{Entry: entry})
+		unified = unified.Append(LedgerStreamItem{Entry: entry})
+		unified = unified.Append(ReadinessEdgeItem{Edge: ReadinessChanged{At: "t-\(i % 2)", From: Ready, To: Backpressure, Reason: "load", Metrics: option.None}})
+	}
+	let next = AdvanceStreamCursor(start, entries)
+	let (first, seen1) = DeduplicateUnifiedEvents(Map[string, bool]{}, unified)
+	let (second, _) = DeduplicateUnifiedEvents(seen1, unified)
+	let mut seenKeys = Map[string, bool]{}
+	let mut allUnique = true
+	for item in first {
+		let k = UnifiedEventKey(item)
+		if seenKeys.Get(k) != option.None {
+			allUnique = false
+		}
+		seenKeys = seenKeys.Put(k, true)
+	}
+	next >= start && allUnique && second.Len() == 0
+}
+
+// ProjectStoredEventCoversDomainTransitions verifies that domain transitions and ledger events project cleanly with increasing cursors.
+law ProjectStoredEventCoversDomainTransitions(tag int) {
+	let key = UnitKey{Repo: "repo", Run: "p-\(tag)", ID: "u1"}
+	let mut state = EmptyState()
+	let envs = []Envelope{
+		Envelope{ID: CommandID("pe-1-\(tag)"), Actor: "root", At: "2026-11-26T00:00:00Z", Command: OpenUnit{Key: key, Title: "One", Requires: []string{"test"}, Lane: option.None, Branch: option.None}},
+		Envelope{ID: CommandID("pe-2-\(tag)"), Actor: "w", At: "2026-11-26T00:01:00Z", Command: RecordReceipt{Unit: key, Kind: "test", Command: "ergo test", Head: "h1", ExitCode: 0, ExitLines: "ok"}},
+		Envelope{ID: CommandID("pe-3-\(tag)"), Actor: "root", At: "2026-11-26T00:02:00Z", Command: AcceptUnit{Unit: key, Head: "h1"}},
+		Envelope{ID: CommandID("pe-4-\(tag)"), Actor: "root", At: "2026-11-26T00:03:00Z", Command: RecordLedgerEvent{Repo: "repo", Run: "p-\(tag)", Kind: "hand-back", UnitID: option.Some[string]{Value: "u1"}, Summary: "ready", SourceKey: option.None, CreatedAt: option.None}},
+	}
+	let mut stored = []StoredEvent{}
+	for env in envs {
+		let evs = Decide(state, env) catch {
+		case _:
+			return false
+		}
+		for ev in evs {
+			stored = stored.Append(StoredEvent{Seq: stored.Len() + 1, Event: ev})
+		}
+		state = ApplyAll(state, evs)
+	}
+	let mut projected = []EventStreamEntry{}
+	for item in stored {
+		match ProjectStoredEvent(item) {
+		case option.Some[EventStreamEntry] as p:
+			projected = projected.Append(p.Value)
+		case option.None:
+		}
+	}
+	let mut ordered = projected.Len() == 4
+	let mut prev = 0
+	for p in projected {
+		if p.Cursor <= prev {
+			ordered = false
+		}
+		prev = p.Cursor
+	}
+		ordered &&
+		projected[0].Kind == "unit-opened" &&
+		projected[1].Kind == "receipt-recorded" &&
+		projected[2].Kind == "unit-accepted" &&
+		projected[3].Kind == "hand-back"
+}

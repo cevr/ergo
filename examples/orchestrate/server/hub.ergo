@@ -1,0 +1,397 @@
+import github.com/cevr/ergo/modules/orchestrate/orchestrate
+import github.com/cevr/ergo/modules/orchestrate/orchestrate/orchestratemcp
+import json
+import mcp
+import mcp/httpmcp
+import option
+import os/host
+import queue
+import slices
+import strconv
+import sync
+import time
+
+// StreamPush carries one deduplicated notification event to live HTTP /events SSE subscribers.
+type StreamPush {
+	ID   string,
+	Repo string,
+	Run  string,
+	Kind string,
+	Data string,
+}
+
+type sseSlot {
+	id int,
+	q  queue.Queue[StreamPush],
+}
+
+type sseHubState {
+	nextID int,
+	slots  []sseSlot,
+}
+
+// ControlHub coordinates pull queries and push notifications across MCP stdio, Streamable HTTP sessions, and SSE listeners.
+type ControlHub {
+	Store          orchestrate.Store,
+	Service        orchestrate.Service,
+	Host           host.System,
+	Clock          time.Clock,
+	Full           mcp.FullServer,
+	Tracker        sync.Ref[orchestrate.ReadinessTracker],
+	lastSeq        sync.Ref[int],
+	seen           sync.Ref[Map[string, bool]],
+	stdioNotifier  option.Option[mcp.Notifier],
+	httpSessions   option.Option[httpmcp.Sessions],
+	sseSubscribers sync.Ref[sseHubState],
+	sseWait        queue.Queue[int],
+}
+
+// NewControlHub builds a ControlHub with full MCP tools and subscribable resources bound to service, store, sys, clock, and policy.
+func NewControlHub(
+	store orchestrate.Store,
+	service orchestrate.Service,
+	sys host.System,
+	clock time.Clock,
+	policy orchestrate.ReadinessPolicy,
+	stdioNotifier option.Option[mcp.Notifier],
+	httpSessions option.Option[httpmcp.Sessions],
+) ControlHub {
+	let tracker = sync.NewRef(orchestrate.NewReadinessTracker(policy))
+	let srv = with context { orchestrate.Api: service } {
+		mcp.Server{Name: "orchestrate", Version: "0.1.0", Tools: orchestratemcp.Tools()}
+	}
+	let resources = BuildResourceSet(store, service, sys, clock, tracker)
+	let full = mcp.WithResources(srv, resources)
+	let initStored = store.Events(0) catch {
+	case orchestrate.StoreFailed:
+		[]orchestrate.StoredEvent{}
+	}
+	let mut initialSeq = 0
+	for item in initStored {
+		if item.Seq > initialSeq {
+			initialSeq = item.Seq
+		}
+	}
+	ControlHub{
+		Store:          store,
+		Service:        service,
+		Host:           sys,
+		Clock:          clock,
+		Full:           full,
+		Tracker:        tracker,
+		lastSeq:        sync.NewRef(initialSeq),
+		seen:           sync.NewRef(Map[string, bool]{}),
+		stdioNotifier:  stdioNotifier,
+		httpSessions:   httpSessions,
+		sseSubscribers: sync.NewRef(sseHubState{nextID: 1, slots: []sseSlot{}}),
+		sseWait:        queue.New[int](8),
+	}
+}
+
+// CurrentPolicy returns the active ReadinessPolicy of hub.
+func CurrentPolicy(hub ControlHub) orchestrate.ReadinessPolicy {
+	hub.Tracker.Get().Policy
+}
+
+// ResetCursorFrom allows a caller to rewind or initialize the store sequence baseline.
+func ResetCursorFrom(hub ControlHub, seq int) {
+	hub.lastSeq.Set(seq)
+}
+
+// SSESubscription represents an active registered /events SSE subscriber queue.
+type SSESubscription {
+	ID    int,
+	Queue queue.Queue[StreamPush],
+}
+
+// RegisterSSE registers a new buffered subscriber queue for live /events SSE pushes.
+func RegisterSSE(hub ControlHub) SSESubscription {
+	let q = queue.New[StreamPush](64)
+	let id = sync.Modify(hub.sseSubscribers, func(st sseHubState) (int, sseHubState) {
+		let assigned = st.nextID
+		let next = sseHubState{nextID: assigned + 1, slots: st.slots.Append(sseSlot{id: assigned, q: q})}
+		(assigned, next)
+	})
+	hub.sseWait.Offer(id) catch {
+	case queue.Closed, queue.Full:
+	}
+	SSESubscription{ID: id, Queue: q}
+}
+
+// WaitSSEStream waits until at least one /events SSE subscriber is registered or hub shuts down.
+func WaitSSEStream(hub ControlHub) bool {
+	if hub.sseSubscribers.Get().slots.Len() > 0 {
+		return true
+	}
+	let _ = hub.sseWait.Pop() catch {
+	case queue.Closed:
+		return hub.sseSubscribers.Get().slots.Len() > 0
+	}
+	true
+}
+
+// UnregisterSSE stops and removes sub from active /events SSE subscribers.
+func UnregisterSSE(hub ControlHub, sub SSESubscription) {
+	hub.sseSubscribers.Update(func(st sseHubState) sseHubState {
+		let mut kept = []sseSlot{}
+		for s in st.slots {
+			if s.id != sub.ID {
+				kept = kept.Append(s)
+			}
+		}
+		sseHubState{nextID: st.nextID, slots: kept}
+	})
+	sub.Queue.End()
+}
+
+// CloseAllSSE ends every registered /events SSE subscriber queue cleanly on shutdown.
+func CloseAllSSE(hub ControlHub) {
+	hub.sseWait.End()
+	let slots = sync.Modify(hub.sseSubscribers, func(st sseHubState) ([]sseSlot, sseHubState) {
+		(st.slots, sseHubState{nextID: st.nextID, slots: []sseSlot{}})
+	})
+	for s in slots {
+		s.q.End()
+	}
+}
+
+func pushSSE(hub ControlHub, push StreamPush) {
+	let st = hub.sseSubscribers.Get()
+	for s in st.slots {
+		s.q.Offer(push) catch {
+		case queue.Closed, queue.Full:
+		}
+	}
+}
+
+func encodeLedgerLogData(entry orchestrate.EventStreamEntry) json.Value {
+	json.Decode(json.Codec[json.Value]{MaxBytes: 0, MaxDepth: 0}, json.Encode(json.Codec[orchestrate.EventStreamEntry]{MaxBytes: 0, MaxDepth: 0}, entry)) catch {
+	case _:
+		json.Str{Value: entry.Summary}
+	}
+}
+
+func encodeReadinessEdgeData(edge orchestrate.ReadinessChanged) json.Value {
+	json.Decode(json.Codec[json.Value]{MaxBytes: 0, MaxDepth: 0}, json.Encode(json.Codec[orchestrate.ReadinessChanged]{MaxBytes: 0, MaxDepth: 0}, edge)) catch {
+	case _:
+		json.Str{Value: edge.Reason}
+	}
+}
+
+func encodeStreamItemJSON(item orchestrate.UnifiedEvent) string {
+	match item {
+	case orchestrate.LedgerStreamItem as l:
+		json.Encode(json.Codec[orchestrate.EventStreamEntry]{MaxBytes: 0, MaxDepth: 0}, l.Entry)
+	case orchestrate.ReadinessEdgeItem as r:
+		json.Encode(json.Codec[orchestrate.ReadinessChanged]{MaxBytes: 0, MaxDepth: 0}, r.Edge)
+	}
+}
+
+func dedupUnified(hub ControlHub, candidates []orchestrate.UnifiedEvent) []orchestrate.UnifiedEvent {
+	sync.Modify(hub.seen, func(cur Map[string, bool]) ([]orchestrate.UnifiedEvent, Map[string, bool]) {
+		orchestrate.DeduplicateUnifiedEvents(cur, candidates)
+	})
+}
+
+// AffectedURIsForTransitions collects unique MCP resource URIs invalidated by projected domain transitions.
+func AffectedURIsForTransitions(hub ControlHub, entries []orchestrate.EventStreamEntry) []string {
+	let mut uris = []string{}
+	let mut sawGlobal = false
+	for e in entries {
+		if e.Repo != "global" && e.Run != "global" {
+			let sumURI = RunSummaryURIFor(e.Repo, e.Run)
+			let evURI = RunEventsURIFor(e.Repo, e.Run)
+			if !slices.Contains(uris, sumURI) {
+				uris = uris.Append(sumURI)
+			}
+			if !slices.Contains(uris, evURI) {
+				uris = uris.Append(evURI)
+			}
+		} else {
+			sawGlobal = true
+		}
+	}
+	if sawGlobal {
+		let runs = KnownRuns(hub.Store) catch {
+		case orchestrate.StoreFailed:
+			[]RunRef{}
+		}
+		for r in runs {
+			let sumURI = RunSummaryURIFor(r.Repo, r.Run)
+			if !slices.Contains(uris, sumURI) {
+				uris = uris.Append(sumURI)
+			}
+		}
+	}
+	uris
+}
+
+// DrainNewLedgerTransitions atomically fetches unseen Store events after lastSeq, deduplicates them, updates lastSeq, and returns their entries and notifications.
+func DrainNewLedgerTransitions(hub ControlHub) ([]orchestrate.EventStreamEntry, []string, []mcp.Notification) {
+	let fromSeq = hub.lastSeq.Get()
+	let stored = hub.Store.Events(fromSeq) catch {
+	case orchestrate.StoreFailed:
+		return ([]orchestrate.EventStreamEntry{}, []string{}, []mcp.Notification{})
+	}
+	if stored.Len() == 0 {
+		return ([]orchestrate.EventStreamEntry{}, []string{}, []mcp.Notification{})
+	}
+	let mut maxSeq = fromSeq
+	let mut rawItems = []orchestrate.UnifiedEvent{}
+	for s in stored {
+		if s.Seq > maxSeq {
+			maxSeq = s.Seq
+		}
+		match orchestrate.ProjectStoredEvent(s) {
+		case option.Some[orchestrate.EventStreamEntry] as entry:
+			rawItems = rawItems.Append(orchestrate.LedgerStreamItem{Entry: entry.Value})
+		case option.None:
+		}
+	}
+	hub.lastSeq.Set(maxSeq)
+	let fresh = dedupUnified(hub, rawItems)
+	if fresh.Len() == 0 {
+		return ([]orchestrate.EventStreamEntry{}, []string{}, []mcp.Notification{})
+	}
+	let mut entries = []orchestrate.EventStreamEntry{}
+	let mut notifs = []mcp.Notification{}
+	for item in fresh {
+		match item {
+		case orchestrate.LedgerStreamItem as l:
+			entries = entries.Append(l.Entry)
+			notifs = notifs.Append(mcp.LogMessage("info", "orchestrate.ledger", encodeLedgerLogData(l.Entry)))
+		case orchestrate.ReadinessEdgeItem:
+		}
+	}
+	let uris = AffectedURIsForTransitions(hub, entries)
+	(entries, uris, notifs)
+}
+
+func emitNotificationsAsync(hub ControlHub, uris []string, logs []mcp.Notification, pushItems []orchestrate.UnifiedEvent) {
+	match hub.stdioNotifier {
+	case option.Some[mcp.Notifier] as n:
+		for uri in uris {
+			let _ = mcp.NotifyResourceUpdated(n.Value, uri)
+		}
+		for lg in logs {
+			let _ = mcp.Notify(n.Value, lg)
+		}
+	case option.None:
+	}
+	match hub.httpSessions {
+	case option.Some[httpmcp.Sessions] as sess:
+		for uri in uris {
+			let _ = httpmcp.NotifyResourceUpdated(sess.Value, uri)
+		}
+		for lg in logs {
+			let _ = httpmcp.Notify(sess.Value, lg)
+		}
+	case option.None:
+	}
+	for item in pushItems {
+		let push = match item {
+		case orchestrate.LedgerStreamItem as l:
+			StreamPush{
+				ID:   strconv.Itoa(l.Entry.Cursor),
+				Repo: l.Entry.Repo,
+				Run:  l.Entry.Run,
+				Kind: l.Entry.Kind,
+				Data: encodeStreamItemJSON(item),
+			}
+		case orchestrate.ReadinessEdgeItem as r:
+			StreamPush{
+				ID:   "readiness-\(r.Edge.At)",
+				Repo: "host",
+				Run:  "readiness",
+				Kind: "readiness-\(orchestrate.ReadinessStateName(r.Edge.To))",
+				Data: encodeStreamItemJSON(item),
+			}
+		}
+		pushSSE(hub, push)
+	}
+}
+
+// PublishReadinessEdge broadcasts a readiness transition edge if it has not yet been published.
+func PublishReadinessEdge(hub ControlHub, edge orchestrate.ReadinessChanged) option.Option[orchestrate.ReadinessChanged] {
+	let fresh = dedupUnified(hub, []orchestrate.UnifiedEvent{orchestrate.ReadinessEdgeItem{Edge: edge}})
+	if fresh.Len() == 0 {
+		return option.None
+	}
+	let level = if orchestrate.IsReady(edge.To) { "info" } else { "warning" }
+	let uris = []string{"orchestrate://host/readiness", "orchestrate://host/status"}
+	let logs = []mcp.Notification{mcp.LogMessage(level, "orchestrate.readiness", encodeReadinessEdgeData(edge))}
+	emitNotificationsAsync(hub, uris, logs, fresh)
+	option.Some[orchestrate.ReadinessChanged]{Value: edge}
+}
+
+// PollLedgerAndNotify advances ledger cursor and broadcasts notifications across active HTTP sessions, stdio notifier, and SSE clients.
+func PollLedgerAndNotify(hub ControlHub) int {
+	let (entries, uris, logs) = DrainNewLedgerTransitions(hub)
+	if entries.Len() == 0 {
+		return 0
+	}
+	let items = ledgerUnifiedItems(entries)
+	emitNotificationsAsync(hub, uris, logs, items)
+	entries.Len()
+}
+
+func ledgerUnifiedItems(entries []orchestrate.EventStreamEntry) []orchestrate.UnifiedEvent {
+	let mut items = []orchestrate.UnifiedEvent{}
+	for e in entries {
+		items = items.Append(orchestrate.LedgerStreamItem{Entry: e})
+	}
+	items
+}
+
+// BroadcastLedgerTransitions pushes already-drained ledger entries to HTTP sessions and /events SSE clients without touching stdioNotifier.
+func BroadcastLedgerTransitions(hub ControlHub, entries []orchestrate.EventStreamEntry, uris []string, logs []mcp.Notification) {
+	let items = ledgerUnifiedItems(entries)
+	match hub.httpSessions {
+	case option.Some[httpmcp.Sessions] as sess:
+		for uri in uris {
+			let _ = httpmcp.NotifyResourceUpdated(sess.Value, uri)
+		}
+		for lg in logs {
+			let _ = httpmcp.Notify(sess.Value, lg)
+		}
+	case option.None:
+	}
+	for item in items {
+		match item {
+		case orchestrate.LedgerStreamItem as l:
+			pushSSE(hub, StreamPush{
+				ID:   strconv.Itoa(l.Entry.Cursor),
+				Repo: l.Entry.Repo,
+				Run:  l.Entry.Run,
+				Kind: l.Entry.Kind,
+				Data: encodeStreamItemJSON(item),
+			})
+		case orchestrate.ReadinessEdgeItem:
+		}
+	}
+}
+
+// PollReadinessAndNotify evaluates one readiness sample and broadcasts edge notifications strictly on state transitions.
+func PollReadinessAndNotify(hub ControlHub) option.Option[orchestrate.ReadinessChanged] {
+	let at = hub.Clock.Now().Format(time.RFC3339)
+	let (next, edge, _) = ProbeReadiness(hub.Host, hub.Tracker.Get(), at)
+	hub.Tracker.Set(next)
+	match edge {
+	case option.None:
+		option.None
+	case option.Some[orchestrate.ReadinessChanged] as e:
+		PublishReadinessEdge(hub, e.Value)
+	}
+}
+
+// PollAndPublish polls both ledger state transitions and host readiness edges, publishing deduplicated notifications.
+func PollAndPublish(hub ControlHub) int {
+	let ledgerCount = PollLedgerAndNotify(hub)
+	let edgeCount = match PollReadinessAndNotify(hub) {
+	case option.Some[orchestrate.ReadinessChanged]:
+		1
+	case option.None:
+		0
+	}
+	ledgerCount + edgeCount
+}

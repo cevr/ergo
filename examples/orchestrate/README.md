@@ -14,10 +14,14 @@ land hold only when the latest receipt of every required kind at the head
 exited 0; otherwise they fail with a typed refusal, `Unverified` (the kinds
 missing or red at the head) or `NotAcceptedHead`.
 
-    orchestrate mcp [--store PATH]          MCP tools on stdin/stdout
+    orchestrate mcp [--store PATH]          MCP tools and subscribable resources on stdin/stdout
+    orchestrate serve --http ADDR [--store PATH]  Streamable HTTP MCP (/mcp SSE) + /readiness + /events
+    orchestrate wait [THRESHOLD FLAGS] [--json]   Edge-triggered readiness wait with hysteresis
+    orchestrate events [--repo R --run N] [--since CURSOR] [--follow] [--json]
     orchestrate [--store PATH] [--json] COMMAND ...
 
-Commands cover units (`unit-open`, `receipt-record`, `unit-state`, `unit-list`, `unit-accept`, `unit-land`, `unit-close`), run summaries and heads (`run-summary`, `run-head-set`), structured decisions (`decision-record`, `decision-list`), integration landings (`landing-record`, `landing-list`), operational events (`event-record`, `event-log`), log import (`import-plan`), commitments (`commitment-add`, `commitment-assign`, `commitment-land`, `commitment-decide`, `commitment-list`), queue items (`queue-upsert`, `queue-remove`, `queue-list`), async questions (`question-ask`, `question-answer`, `question-list`), and host telemetry (`host-status`, `host-processes`).
+Commands cover units (`unit-open`, `receipt-record`, `unit-state`, `unit-list`, `unit-accept`, `unit-land`, `unit-close`), run summaries and heads (`run-summary`, `run-head-set`), structured decisions (`decision-record`, `decision-list`), integration landings (`landing-record`, `landing-list`), operational events and incremental streams (`event-record`, `event-log`, `events-since`), log import (`import-plan`), commitments (`commitment-add`, `commitment-assign`, `commitment-land`, `commitment-decide`, `commitment-list`), queue items (`queue-upsert`, `queue-remove`, `queue-list`), async questions (`question-ask`, `question-answer`, `question-list`), and host telemetry & readiness (`host-status`, `host-processes`, `host-readiness`).
+MCP resources (`resources/list`, `resources/read`, `resources/subscribe`, `resources/unsubscribe`) expose `orchestrate://run/<repo>/<run>/summary`, `orchestrate://run/<repo>/<run>/events`, `orchestrate://host/readiness`, and `orchestrate://host/status`, pushing `notifications/resources/updated` and `notifications/message` on ledger state changes and readiness edges.
 
 The store is one SQLite file per host, written only by this binary:
 `--store PATH`, else `$XDG_STATE_HOME/orchestrate/ledger.db` (by default
@@ -35,4 +39,6 @@ The case `mcp-progressive` exercises progressive-disclosure queries (`import-pla
 `run-summary`, filtered/paginated `unit-list`, `decision-list`, `landing-list`,
 `event-log`, and `unit-state` drill-down). The cases `host-status`, `host-processes`,
 and `mcp-host` exercise `host-status` and `host-processes` over CLI and MCP stdio
-against a deterministic `os/host.Static` snapshot.
+against a deterministic `os/host.Static` snapshot. The cases `wait-ready`, `wait-timeout`,
+`events-since`, and `mcp-subscribe` exercise edge-triggered readiness waits, cursor event
+queries, and live MCP resource subscriptions/notifications.

@@ -7,13 +7,13 @@ import os/host
 
 // Request is one call of orchestrate.Api: a variant per operation, whose fields
 // are the operation's parameters. It is the request every transport carries.
-type Request = UnitOpenRequest{Input orchestrate.UnitOpenInput} | ReceiptRecordRequest{Input orchestrate.ReceiptRecordInput} | UnitStateRequest{Input orchestrate.UnitStateInput} | UnitAcceptRequest{Input orchestrate.UnitVerdictInput} | UnitLandRequest{Input orchestrate.UnitVerdictInput} | UnitCloseRequest{Input orchestrate.UnitCloseInput} | CommitmentAddRequest{Input orchestrate.CommitmentAddInput} | CommitmentAssignRequest{Input orchestrate.CommitmentAssignInput} | CommitmentLandRequest{Input orchestrate.CommitmentLandInput} | CommitmentDecideRequest{Input orchestrate.CommitmentDecideInput} | CommitmentListRequest{Input orchestrate.CommitmentListInput} | QueueUpsertRequest{Input orchestrate.QueueUpsertInput} | QueueRemoveRequest{Input orchestrate.QueueRemoveInput} | QueueListRequest{Input orchestrate.QueueListInput} | QuestionAskRequest{Input orchestrate.QuestionAskInput} | QuestionAnswerRequest{Input orchestrate.QuestionAnswerInput} | QuestionListRequest{Input orchestrate.QuestionListInput} | RunHeadSetRequest{Input orchestrate.RunHeadSetInput} | RunSummaryRequest{Input orchestrate.RunSummaryInput} | UnitListRequest{Input orchestrate.UnitListInput} | DecisionRecordRequest{Input orchestrate.DecisionRecordInput} | DecisionListRequest{Input orchestrate.DecisionListInput} | LandingRecordRequest{Input orchestrate.LandingRecordInput} | LandingListRequest{Input orchestrate.LandingListInput} | EventRecordRequest{Input orchestrate.EventRecordInput} | EventLogRequest{Input orchestrate.EventLogInput} | ImportPlanRequest{Input orchestrate.ImportPlanInput} | HostStatusRequest{Input orchestrate.HostStatusInput} | HostProcessesRequest{Input orchestrate.HostProcessesInput}
+type Request = UnitOpenRequest{Input orchestrate.UnitOpenInput} | ReceiptRecordRequest{Input orchestrate.ReceiptRecordInput} | UnitStateRequest{Input orchestrate.UnitStateInput} | UnitAcceptRequest{Input orchestrate.UnitVerdictInput} | UnitLandRequest{Input orchestrate.UnitVerdictInput} | UnitCloseRequest{Input orchestrate.UnitCloseInput} | CommitmentAddRequest{Input orchestrate.CommitmentAddInput} | CommitmentAssignRequest{Input orchestrate.CommitmentAssignInput} | CommitmentLandRequest{Input orchestrate.CommitmentLandInput} | CommitmentDecideRequest{Input orchestrate.CommitmentDecideInput} | CommitmentListRequest{Input orchestrate.CommitmentListInput} | QueueUpsertRequest{Input orchestrate.QueueUpsertInput} | QueueRemoveRequest{Input orchestrate.QueueRemoveInput} | QueueListRequest{Input orchestrate.QueueListInput} | QuestionAskRequest{Input orchestrate.QuestionAskInput} | QuestionAnswerRequest{Input orchestrate.QuestionAnswerInput} | QuestionListRequest{Input orchestrate.QuestionListInput} | RunHeadSetRequest{Input orchestrate.RunHeadSetInput} | RunSummaryRequest{Input orchestrate.RunSummaryInput} | UnitListRequest{Input orchestrate.UnitListInput} | DecisionRecordRequest{Input orchestrate.DecisionRecordInput} | DecisionListRequest{Input orchestrate.DecisionListInput} | LandingRecordRequest{Input orchestrate.LandingRecordInput} | LandingListRequest{Input orchestrate.LandingListInput} | EventRecordRequest{Input orchestrate.EventRecordInput} | EventLogRequest{Input orchestrate.EventLogInput} | ImportPlanRequest{Input orchestrate.ImportPlanInput} | HostStatusRequest{Input orchestrate.HostStatusInput} | HostProcessesRequest{Input orchestrate.HostProcessesInput} | HostReadinessRequest{Input orchestrate.HostReadinessInput} | EventsSinceRequest{Input orchestrate.EventsSinceInput}
 
 // Op is an operation of orchestrate.Api: what a policy matches on.
-type Op = UnitOpenOp{} | ReceiptRecordOp{} | UnitStateOp{} | UnitAcceptOp{} | UnitLandOp{} | UnitCloseOp{} | CommitmentAddOp{} | CommitmentAssignOp{} | CommitmentLandOp{} | CommitmentDecideOp{} | CommitmentListOp{} | QueueUpsertOp{} | QueueRemoveOp{} | QueueListOp{} | QuestionAskOp{} | QuestionAnswerOp{} | QuestionListOp{} | RunHeadSetOp{} | RunSummaryOp{} | UnitListOp{} | DecisionRecordOp{} | DecisionListOp{} | LandingRecordOp{} | LandingListOp{} | EventRecordOp{} | EventLogOp{} | ImportPlanOp{} | HostStatusOp{} | HostProcessesOp{}
+type Op = UnitOpenOp{} | ReceiptRecordOp{} | UnitStateOp{} | UnitAcceptOp{} | UnitLandOp{} | UnitCloseOp{} | CommitmentAddOp{} | CommitmentAssignOp{} | CommitmentLandOp{} | CommitmentDecideOp{} | CommitmentListOp{} | QueueUpsertOp{} | QueueRemoveOp{} | QueueListOp{} | QuestionAskOp{} | QuestionAnswerOp{} | QuestionListOp{} | RunHeadSetOp{} | RunSummaryOp{} | UnitListOp{} | DecisionRecordOp{} | DecisionListOp{} | LandingRecordOp{} | LandingListOp{} | EventRecordOp{} | EventLogOp{} | ImportPlanOp{} | HostStatusOp{} | HostProcessesOp{} | HostReadinessOp{} | EventsSinceOp{}
 
 // Reply is the value of an operation: a variant per operation.
-type Reply = UnitOpenReply{Value orchestrate.Unit} | ReceiptRecordReply{Value orchestrate.Receipt} | UnitStateReply{Value orchestrate.UnitView} | UnitAcceptReply{Value orchestrate.Unit} | UnitLandReply{Value orchestrate.Unit} | UnitCloseReply{Value orchestrate.Unit} | CommitmentAddReply{Value orchestrate.Commitment} | CommitmentAssignReply{Value orchestrate.Commitment} | CommitmentLandReply{Value orchestrate.Commitment} | CommitmentDecideReply{Value orchestrate.Commitment} | CommitmentListReply{Value []orchestrate.Commitment} | QueueUpsertReply{Value orchestrate.QueueItem} | QueueRemoveReply{} | QueueListReply{Value []orchestrate.QueueItem} | QuestionAskReply{Value orchestrate.Question} | QuestionAnswerReply{Value orchestrate.Question} | QuestionListReply{Value []orchestrate.Question} | RunHeadSetReply{Value orchestrate.RunMeta} | RunSummaryReply{Value orchestrate.RunOverview} | UnitListReply{Value orchestrate.UnitPage} | DecisionRecordReply{Value orchestrate.Decision} | DecisionListReply{Value orchestrate.DecisionPage} | LandingRecordReply{Value orchestrate.Landing} | LandingListReply{Value orchestrate.LandingPage} | EventRecordReply{Value orchestrate.LedgerEvent} | EventLogReply{Value orchestrate.EventPage} | ImportPlanReply{Value orchestrate.ImportReport} | HostStatusReply{Value orchestrate.HostStatusReport} | HostProcessesReply{Value orchestrate.HostProcessList}
+type Reply = UnitOpenReply{Value orchestrate.Unit} | ReceiptRecordReply{Value orchestrate.Receipt} | UnitStateReply{Value orchestrate.UnitView} | UnitAcceptReply{Value orchestrate.Unit} | UnitLandReply{Value orchestrate.Unit} | UnitCloseReply{Value orchestrate.Unit} | CommitmentAddReply{Value orchestrate.Commitment} | CommitmentAssignReply{Value orchestrate.Commitment} | CommitmentLandReply{Value orchestrate.Commitment} | CommitmentDecideReply{Value orchestrate.Commitment} | CommitmentListReply{Value []orchestrate.Commitment} | QueueUpsertReply{Value orchestrate.QueueItem} | QueueRemoveReply{} | QueueListReply{Value []orchestrate.QueueItem} | QuestionAskReply{Value orchestrate.Question} | QuestionAnswerReply{Value orchestrate.Question} | QuestionListReply{Value []orchestrate.Question} | RunHeadSetReply{Value orchestrate.RunMeta} | RunSummaryReply{Value orchestrate.RunOverview} | UnitListReply{Value orchestrate.UnitPage} | DecisionRecordReply{Value orchestrate.Decision} | DecisionListReply{Value orchestrate.DecisionPage} | LandingRecordReply{Value orchestrate.Landing} | LandingListReply{Value orchestrate.LandingPage} | EventRecordReply{Value orchestrate.LedgerEvent} | EventLogReply{Value orchestrate.EventPage} | ImportPlanReply{Value orchestrate.ImportReport} | HostStatusReply{Value orchestrate.HostStatusReport} | HostProcessesReply{Value orchestrate.HostProcessList} | HostReadinessReply{Value orchestrate.HostReadinessReport} | EventsSinceReply{Value orchestrate.EventStreamPage}
 
 // Failure is a failure of an operation: a variant per failure type of
 // any row, named like the type (its JSON tag).
@@ -84,6 +84,10 @@ func OpOf(r Request) Op {
 		HostStatusOp
 	case HostProcessesRequest:
 		HostProcessesOp
+	case HostReadinessRequest:
+		HostReadinessOp
+	case EventsSinceRequest:
+		EventsSinceOp
 	}
 }
 
@@ -148,6 +152,10 @@ func Name(op Op) string {
 		"host-status"
 	case HostProcessesOp:
 		"host-processes"
+	case HostReadinessOp:
+		"host-readiness"
+	case EventsSinceOp:
+		"events-since"
 	}
 }
 
@@ -212,6 +220,10 @@ func Doc(op Op) string {
 		"HostStatus returns host CPU cores, run-queue load averages, physical memory, and requested volume capacities."
 	case HostProcessesOp:
 		"HostProcesses returns active operating-system process snapshots filtered optionally by comm, pid, and limit."
+	case HostReadinessOp:
+		"HostReadiness evaluates host load, memory, and volume usage against readiness hysteresis thresholds."
+	case EventsSinceOp:
+		"EventsSince queries cursor-ordered operational ledger and transition events strictly after Since."
 	}
 }
 
@@ -284,6 +296,10 @@ func Schema(op Op) json.Value {
 		valueOf("{\"type\":\"object\",\"properties\":{\"volumes\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}}},\"required\":[\"volumes\"]}")
 	case HostProcessesOp:
 		valueOf("{\"type\":\"object\",\"properties\":{\"comm\":{\"type\":\"string\"},\"pid\":{\"type\":\"integer\"},\"limit\":{\"type\":\"integer\"}}}")
+	case HostReadinessOp:
+		valueOf("{\"type\":\"object\",\"properties\":{\"volume\":{\"type\":\"string\"},\"maxLoad\":{\"type\":\"string\"},\"recoveryMaxLoad\":{\"type\":\"string\"},\"minMemGiB\":{\"type\":\"string\"},\"recoveryMinMemGiB\":{\"type\":\"string\"},\"maxDiskPct\":{\"type\":\"string\"},\"recoveryMaxDiskPct\":{\"type\":\"string\"},\"previousState\":{\"type\":\"string\"}}}")
+	case EventsSinceOp:
+		valueOf("{\"type\":\"object\",\"properties\":{\"repo\":{\"type\":\"string\"},\"run\":{\"type\":\"string\"},\"kind\":{\"type\":\"string\"},\"unitID\":{\"type\":\"string\"},\"since\":{\"type\":\"integer\"},\"limit\":{\"type\":\"integer\"},\"source\":{\"type\":\"string\"}}}")
 	}
 }
 
@@ -743,12 +759,30 @@ func Call(r Request) Outcome needs orchestrate.Api {
 			return Rejected{Failure: Malformed{E: e}}
 		}
 		Done{Reply: HostProcessesReply{Value: v}}
+	case HostReadinessRequest as x:
+		let v = orchestrate.Api.HostReadiness(x.Input) catch {
+		case orchestrate.InvalidInput as e:
+			return Rejected{Failure: InvalidInput{E: e}}
+		case host.Unavailable as e:
+			return Rejected{Failure: Unavailable{E: e}}
+		case host.Malformed as e:
+			return Rejected{Failure: Malformed{E: e}}
+		}
+		Done{Reply: HostReadinessReply{Value: v}}
+	case EventsSinceRequest as x:
+		let v = orchestrate.Api.EventsSince(x.Input) catch {
+		case orchestrate.InvalidInput as e:
+			return Rejected{Failure: InvalidInput{E: e}}
+		case orchestrate.StoreFailed as e:
+			return Rejected{Failure: StoreFailed{E: e}}
+		}
+		Done{Reply: EventsSinceReply{Value: v}}
 	}
 }
 
 // Client provides orchestrate.Api by invoking typed per-operation handlers directly:
 // a direct call returns its exact value or declared failure row with no Outcome boxing.
-type Client { opUnitOpen func(orchestrate.UnitOpenInput) orchestrate.Unit fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed, opReceiptRecord func(orchestrate.ReceiptRecordInput) orchestrate.Receipt fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed, opUnitState func(orchestrate.UnitStateInput) orchestrate.UnitView fails orchestrate.NotFound | orchestrate.InvalidInput | orchestrate.StoreFailed, opUnitAccept func(orchestrate.UnitVerdictInput) orchestrate.Unit fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed, opUnitLand func(orchestrate.UnitVerdictInput) orchestrate.Unit fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed, opUnitClose func(orchestrate.UnitCloseInput) orchestrate.Unit fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed, opCommitmentAdd func(orchestrate.CommitmentAddInput) orchestrate.Commitment fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed, opCommitmentAssign func(orchestrate.CommitmentAssignInput) orchestrate.Commitment fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed, opCommitmentLand func(orchestrate.CommitmentLandInput) orchestrate.Commitment fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed, opCommitmentDecide func(orchestrate.CommitmentDecideInput) orchestrate.Commitment fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed, opCommitmentList func(orchestrate.CommitmentListInput) []orchestrate.Commitment fails orchestrate.InvalidInput | orchestrate.StoreFailed, opQueueUpsert func(orchestrate.QueueUpsertInput) orchestrate.QueueItem fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed, opQueueRemove func(orchestrate.QueueRemoveInput) fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed, opQueueList func(orchestrate.QueueListInput) []orchestrate.QueueItem fails orchestrate.InvalidInput | orchestrate.StoreFailed, opQuestionAsk func(orchestrate.QuestionAskInput) orchestrate.Question fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed, opQuestionAnswer func(orchestrate.QuestionAnswerInput) orchestrate.Question fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed, opQuestionList func(orchestrate.QuestionListInput) []orchestrate.Question fails orchestrate.StoreFailed, opRunHeadSet func(orchestrate.RunHeadSetInput) orchestrate.RunMeta fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed, opRunSummary func(orchestrate.RunSummaryInput) orchestrate.RunOverview fails orchestrate.InvalidInput | orchestrate.StoreFailed, opUnitList func(orchestrate.UnitListInput) orchestrate.UnitPage fails orchestrate.InvalidInput | orchestrate.StoreFailed, opDecisionRecord func(orchestrate.DecisionRecordInput) orchestrate.Decision fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed, opDecisionList func(orchestrate.DecisionListInput) orchestrate.DecisionPage fails orchestrate.InvalidInput | orchestrate.StoreFailed, opLandingRecord func(orchestrate.LandingRecordInput) orchestrate.Landing fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed, opLandingList func(orchestrate.LandingListInput) orchestrate.LandingPage fails orchestrate.InvalidInput | orchestrate.StoreFailed, opEventRecord func(orchestrate.EventRecordInput) orchestrate.LedgerEvent fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed, opEventLog func(orchestrate.EventLogInput) orchestrate.EventPage fails orchestrate.InvalidInput | orchestrate.StoreFailed, opImportPlan func(orchestrate.ImportPlanInput) orchestrate.ImportReport fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed, opHostStatus func(orchestrate.HostStatusInput) orchestrate.HostStatusReport fails orchestrate.InvalidInput | host.Unavailable | host.Malformed, opHostProcesses func(orchestrate.HostProcessesInput) orchestrate.HostProcessList fails orchestrate.InvalidInput | host.Unavailable | host.Malformed } implements orchestrate.Api
+type Client { opUnitOpen func(orchestrate.UnitOpenInput) orchestrate.Unit fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed, opReceiptRecord func(orchestrate.ReceiptRecordInput) orchestrate.Receipt fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed, opUnitState func(orchestrate.UnitStateInput) orchestrate.UnitView fails orchestrate.NotFound | orchestrate.InvalidInput | orchestrate.StoreFailed, opUnitAccept func(orchestrate.UnitVerdictInput) orchestrate.Unit fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed, opUnitLand func(orchestrate.UnitVerdictInput) orchestrate.Unit fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed, opUnitClose func(orchestrate.UnitCloseInput) orchestrate.Unit fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed, opCommitmentAdd func(orchestrate.CommitmentAddInput) orchestrate.Commitment fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed, opCommitmentAssign func(orchestrate.CommitmentAssignInput) orchestrate.Commitment fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed, opCommitmentLand func(orchestrate.CommitmentLandInput) orchestrate.Commitment fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed, opCommitmentDecide func(orchestrate.CommitmentDecideInput) orchestrate.Commitment fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed, opCommitmentList func(orchestrate.CommitmentListInput) []orchestrate.Commitment fails orchestrate.InvalidInput | orchestrate.StoreFailed, opQueueUpsert func(orchestrate.QueueUpsertInput) orchestrate.QueueItem fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed, opQueueRemove func(orchestrate.QueueRemoveInput) fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed, opQueueList func(orchestrate.QueueListInput) []orchestrate.QueueItem fails orchestrate.InvalidInput | orchestrate.StoreFailed, opQuestionAsk func(orchestrate.QuestionAskInput) orchestrate.Question fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed, opQuestionAnswer func(orchestrate.QuestionAnswerInput) orchestrate.Question fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed, opQuestionList func(orchestrate.QuestionListInput) []orchestrate.Question fails orchestrate.StoreFailed, opRunHeadSet func(orchestrate.RunHeadSetInput) orchestrate.RunMeta fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed, opRunSummary func(orchestrate.RunSummaryInput) orchestrate.RunOverview fails orchestrate.InvalidInput | orchestrate.StoreFailed, opUnitList func(orchestrate.UnitListInput) orchestrate.UnitPage fails orchestrate.InvalidInput | orchestrate.StoreFailed, opDecisionRecord func(orchestrate.DecisionRecordInput) orchestrate.Decision fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed, opDecisionList func(orchestrate.DecisionListInput) orchestrate.DecisionPage fails orchestrate.InvalidInput | orchestrate.StoreFailed, opLandingRecord func(orchestrate.LandingRecordInput) orchestrate.Landing fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed, opLandingList func(orchestrate.LandingListInput) orchestrate.LandingPage fails orchestrate.InvalidInput | orchestrate.StoreFailed, opEventRecord func(orchestrate.EventRecordInput) orchestrate.LedgerEvent fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed, opEventLog func(orchestrate.EventLogInput) orchestrate.EventPage fails orchestrate.InvalidInput | orchestrate.StoreFailed, opImportPlan func(orchestrate.ImportPlanInput) orchestrate.ImportReport fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed, opHostStatus func(orchestrate.HostStatusInput) orchestrate.HostStatusReport fails orchestrate.InvalidInput | host.Unavailable | host.Malformed, opHostProcesses func(orchestrate.HostProcessesInput) orchestrate.HostProcessList fails orchestrate.InvalidInput | host.Unavailable | host.Malformed, opHostReadiness func(orchestrate.HostReadinessInput) orchestrate.HostReadinessReport fails orchestrate.InvalidInput | host.Unavailable | host.Malformed, opEventsSince func(orchestrate.EventsSinceInput) orchestrate.EventStreamPage fails orchestrate.InvalidInput | orchestrate.StoreFailed } implements orchestrate.Api
 
 // NewClient is the orchestrate.Api that invokes inner directly per operation.
 func NewClient(inner orchestrate.Api) Client {
@@ -782,6 +816,8 @@ func NewClient(inner orchestrate.Api) Client {
 		opImportPlan:       func(input orchestrate.ImportPlanInput) orchestrate.ImportReport fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed { try inner.ImportPlan(input) },
 		opHostStatus:       func(input orchestrate.HostStatusInput) orchestrate.HostStatusReport fails orchestrate.InvalidInput | host.Unavailable | host.Malformed { try inner.HostStatus(input) },
 		opHostProcesses:    func(input orchestrate.HostProcessesInput) orchestrate.HostProcessList fails orchestrate.InvalidInput | host.Unavailable | host.Malformed { try inner.HostProcesses(input) },
+		opHostReadiness:    func(input orchestrate.HostReadinessInput) orchestrate.HostReadinessReport fails orchestrate.InvalidInput | host.Unavailable | host.Malformed { try inner.HostReadiness(input) },
+		opEventsSince:      func(input orchestrate.EventsSinceInput) orchestrate.EventStreamPage fails orchestrate.InvalidInput | orchestrate.StoreFailed { try inner.EventsSince(input) },
 	}
 }
 
@@ -818,6 +854,8 @@ func ClientInForce() Client needs orchestrate.Api {
 		opImportPlan:       func(input orchestrate.ImportPlanInput) orchestrate.ImportReport fails orchestrate.NotFound | orchestrate.AlreadyExists | orchestrate.InvalidTransition | orchestrate.CommandReused | orchestrate.InvalidInput | orchestrate.Unverified | orchestrate.NotAcceptedHead | orchestrate.StoreFailed { with held { try orchestrate.Api.ImportPlan(input) } },
 		opHostStatus:       func(input orchestrate.HostStatusInput) orchestrate.HostStatusReport fails orchestrate.InvalidInput | host.Unavailable | host.Malformed { with held { try orchestrate.Api.HostStatus(input) } },
 		opHostProcesses:    func(input orchestrate.HostProcessesInput) orchestrate.HostProcessList fails orchestrate.InvalidInput | host.Unavailable | host.Malformed { with held { try orchestrate.Api.HostProcesses(input) } },
+		opHostReadiness:    func(input orchestrate.HostReadinessInput) orchestrate.HostReadinessReport fails orchestrate.InvalidInput | host.Unavailable | host.Malformed { with held { try orchestrate.Api.HostReadiness(input) } },
+		opEventsSince:      func(input orchestrate.EventsSinceInput) orchestrate.EventStreamPage fails orchestrate.InvalidInput | orchestrate.StoreFailed { with held { try orchestrate.Api.EventsSince(input) } },
 	}
 }
 
@@ -964,6 +1002,16 @@ func HostStatus(client Client, input orchestrate.HostStatusInput) orchestrate.Ho
 // HostProcesses invokes orchestrate.Api's HostProcesses directly.
 func HostProcesses(client Client, input orchestrate.HostProcessesInput) orchestrate.HostProcessList fails orchestrate.InvalidInput | host.Unavailable | host.Malformed {
 	try client.opHostProcesses(input)
+}
+
+// HostReadiness invokes orchestrate.Api's HostReadiness directly.
+func HostReadiness(client Client, input orchestrate.HostReadinessInput) orchestrate.HostReadinessReport fails orchestrate.InvalidInput | host.Unavailable | host.Malformed {
+	try client.opHostReadiness(input)
+}
+
+// EventsSince invokes orchestrate.Api's EventsSince directly.
+func EventsSince(client Client, input orchestrate.EventsSinceInput) orchestrate.EventStreamPage fails orchestrate.InvalidInput | orchestrate.StoreFailed {
+	try client.opEventsSince(input)
 }
 
 // CheckedClient carries erased orchestrate.Api requests over send and validates each
@@ -1831,9 +1879,55 @@ func HostProcessesChecked(client CheckedClient, input orchestrate.HostProcessesI
 	}
 }
 
+// HostReadinessChecked sends orchestrate.Api's HostReadiness over send and validates its Outcome.
+func HostReadinessChecked(client CheckedClient, input orchestrate.HostReadinessInput) orchestrate.HostReadinessReport fails orchestrate.InvalidInput | host.Unavailable | host.Malformed | rpc.Transport {
+	match try client.send(HostReadinessRequest{Input: input}) {
+	case Done as done:
+		match done.Reply {
+		case HostReadinessReply as reply:
+			reply.Value
+		case _:
+			return rpc.Transport{Reason: "orchestrateapi: HostReadiness was answered with the value of another operation"}
+		}
+	case Rejected as rejected:
+		match rejected.Failure {
+		case InvalidInput as failure:
+			return failure.E
+		case Unavailable as failure:
+			return failure.E
+		case Malformed as failure:
+			return failure.E
+		case _:
+			return rpc.Transport{Reason: "orchestrateapi: HostReadiness was answered with a failure outside its row"}
+		}
+	}
+}
+
+// EventsSinceChecked sends orchestrate.Api's EventsSince over send and validates its Outcome.
+func EventsSinceChecked(client CheckedClient, input orchestrate.EventsSinceInput) orchestrate.EventStreamPage fails orchestrate.InvalidInput | orchestrate.StoreFailed | rpc.Transport {
+	match try client.send(EventsSinceRequest{Input: input}) {
+	case Done as done:
+		match done.Reply {
+		case EventsSinceReply as reply:
+			reply.Value
+		case _:
+			return rpc.Transport{Reason: "orchestrateapi: EventsSince was answered with the value of another operation"}
+		}
+	case Rejected as rejected:
+		match rejected.Failure {
+		case InvalidInput as failure:
+			return failure.E
+		case StoreFailed as failure:
+			return failure.E
+		case _:
+			return rpc.Transport{Reason: "orchestrateapi: EventsSince was answered with a failure outside its row"}
+		}
+	}
+}
+
 // Values holds a value of each operation's value type, so a law can
 // answer any operation.
-type Values { UnitOpen orchestrate.Unit, ReceiptRecord orchestrate.Receipt, UnitState orchestrate.UnitView, UnitAccept orchestrate.Unit, UnitLand orchestrate.Unit, UnitClose orchestrate.Unit, CommitmentAdd orchestrate.Commitment, CommitmentAssign orchestrate.Commitment, CommitmentLand orchestrate.Commitment, CommitmentDecide orchestrate.Commitment, CommitmentList []orchestrate.Commitment, QueueUpsert orchestrate.QueueItem, QueueList []orchestrate.QueueItem, QuestionAsk orchestrate.Question, QuestionAnswer orchestrate.Question, QuestionList []orchestrate.Question, RunHeadSet orchestrate.RunMeta, RunSummary orchestrate.RunOverview, UnitList orchestrate.UnitPage, DecisionRecord orchestrate.Decision, DecisionList orchestrate.DecisionPage, LandingRecord orchestrate.Landing, LandingList orchestrate.LandingPage, EventRecord orchestrate.LedgerEvent, EventLog orchestrate.EventPage, ImportPlan orchestrate.ImportReport, HostStatus orchestrate.HostStatusReport, HostProcesses orchestrate.HostProcessList }
+type Values { UnitOpen orchestrate.Unit, ReceiptRecord orchestrate.Receipt, UnitState orchestrate.UnitView, UnitAccept orchestrate.Unit, UnitLand orchestrate.Unit, UnitClose orchestrate.Unit, CommitmentAdd orchestrate.Commitment, CommitmentAssign orchestrate.Commitment, CommitmentLand orchestrate.Commitment, CommitmentDecide orchestrate.Commitment, CommitmentList []orchestrate.Commitment, QueueUpsert orchestrate.QueueItem, QueueList []orchestrate.QueueItem, QuestionAsk orchestrate.Question, QuestionAnswer orchestrate.Question, QuestionList []orchestrate.Question, RunHeadSet orchestrate.RunMeta, RunSummary orchestrate.RunOverview, UnitList orchestrate.UnitPage, DecisionRecord orchestrate.Decision, DecisionList orchestrate.DecisionPage, LandingRecord orchestrate.Landing, LandingList orchestrate.LandingPage, EventRecord orchestrate.LedgerEvent, EventLog orchestrate.EventPage, ImportPlan orchestrate.ImportReport, HostStatus orchestrate.HostStatusReport, HostProcesses orchestrate.HostProcessList, HostReadiness orchestrate.HostReadinessReport, EventsSince orchestrate.EventStreamPage }
 
 func inRow(op Op, f Failure) bool {
 	match op {
@@ -2040,6 +2134,20 @@ func inRow(op Op, f Failure) bool {
 		case _:
 			false
 		}
+	case HostReadinessOp:
+		match f {
+		case InvalidInput, Unavailable, Malformed:
+			true
+		case _:
+			false
+		}
+	case EventsSinceOp:
+		match f {
+		case InvalidInput, StoreFailed:
+			true
+		case _:
+			false
+		}
 	}
 }
 
@@ -2113,6 +2221,10 @@ func OutcomeOf(r Request, g Given) Outcome {
 		Done{Reply: HostStatusReply{Value: g.Values.HostStatus}}
 	case HostProcessesRequest:
 		Done{Reply: HostProcessesReply{Value: g.Values.HostProcesses}}
+	case HostReadinessRequest:
+		Done{Reply: HostReadinessReply{Value: g.Values.HostReadiness}}
+	case EventsSinceRequest:
+		Done{Reply: EventsSinceReply{Value: g.Values.EventsSince}}
 	}
 }
 
@@ -2714,6 +2826,34 @@ func scripted(g Given, sent sync.Ref[[]Request]) Client {
 			}
 			g.Values.HostProcesses
 		},
+		opHostReadiness: func(input orchestrate.HostReadinessInput) orchestrate.HostReadinessReport fails orchestrate.InvalidInput | host.Unavailable | host.Malformed {
+			sent.Update(func(rs []Request) []Request { rs.Append(HostReadinessRequest{Input: input}) })
+			if g.Failing {
+				match g.Failure {
+				case InvalidInput as err:
+					return err.E
+				case Unavailable as err:
+					return err.E
+				case Malformed as err:
+					return err.E
+				case _:
+				}
+			}
+			g.Values.HostReadiness
+		},
+		opEventsSince: func(input orchestrate.EventsSinceInput) orchestrate.EventStreamPage fails orchestrate.InvalidInput | orchestrate.StoreFailed {
+			sent.Update(func(rs []Request) []Request { rs.Append(EventsSinceRequest{Input: input}) })
+			if g.Failing {
+				match g.Failure {
+				case InvalidInput as err:
+					return err.E
+				case StoreFailed as err:
+					return err.E
+				case _:
+				}
+			}
+			g.Values.EventsSince
+		},
 	}
 }
 
@@ -3229,6 +3369,28 @@ func callChecked(client CheckedClient, r Request) Outcome fails rpc.Transport {
 			return t
 		}
 		Done{Reply: HostProcessesReply{Value: v}}
+	case HostReadinessRequest as x:
+		let v = HostReadinessChecked(client, x.Input) catch {
+		case orchestrate.InvalidInput as e:
+			return Rejected{Failure: InvalidInput{E: e}}
+		case host.Unavailable as e:
+			return Rejected{Failure: Unavailable{E: e}}
+		case host.Malformed as e:
+			return Rejected{Failure: Malformed{E: e}}
+		case rpc.Transport as t:
+			return t
+		}
+		Done{Reply: HostReadinessReply{Value: v}}
+	case EventsSinceRequest as x:
+		let v = EventsSinceChecked(client, x.Input) catch {
+		case orchestrate.InvalidInput as e:
+			return Rejected{Failure: InvalidInput{E: e}}
+		case orchestrate.StoreFailed as e:
+			return Rejected{Failure: StoreFailed{E: e}}
+		case rpc.Transport as t:
+			return t
+		}
+		Done{Reply: EventsSinceReply{Value: v}}
 	}
 }
 

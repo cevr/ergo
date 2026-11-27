@@ -1,44 +1,26 @@
-// orchestrate: the ledger of an orchestration run (module orchestrate,
-// modules/orchestrate). A unit is keyed by repo, run and id; it opens with
-// the receipt kinds its verdict requires, collects receipts (a check's
-// command, the head it ran at, its exit code and exit lines), and is
-// accepted and landed only when the latest receipt of every required kind
-// at the named head exited 0. A refused verdict is a typed failure:
-// Unverified (kinds missing or red at the head) or NotAcceptedHead.
-//
-// `orchestrate mcp [--store PATH]` serves the operations as Model Context
-// Protocol tools on standard input and output (ergo gen mcp,
-// orchestrate/orchestratemcp): unit, verdict, ledger query, commitment,
-// queue, question, host-status, and host-processes tools. Any other
-// argument list is the generated command line of the same operations
-// (orchestrate/orchestratecli), with --json for JSON answers and
-// [--store PATH] before the command.
-//
-// This binary is the only place that chooses the providers: the SQLite
-// store, one file per host, at --store PATH, or else
-// $XDG_STATE_HOME/orchestrate/ledger.db (by default
-// ~/.local/state/orchestrate/ledger.db); ":memory:" is a private store
-// that ends with the process. ORCHESTRATE_NOW, a Unix second, fixes the
-// clock and ORCHESTRATE_HOST_STATIC, a JSON snapshot, fixes os/host.Static
-// so the cases print the same lines on every host.
-
 import api
 import filepath
 import fs
 import github.com/cevr/ergo/modules/orchestrate/orchestrate
 import github.com/cevr/ergo/modules/orchestrate/orchestrate/orchestratecli
-import github.com/cevr/ergo/modules/orchestrate/orchestrate/orchestratemcp
 import github.com/cevr/ergo/modules/orchestrate/sqlite
+import http
 import io
 import json
 import mcp
+import mcp/httpmcp
 import mcp/stdio
 import option
+import orchestrate/server
 import os
 import os/host
+import queue
+import rand
+import signal
 import slices
 import strconv
 import strings
+import task
 import time
 
 func storeFlag(args []string) (option.Option[string], []string) fails os.Exit {
@@ -153,11 +135,160 @@ func openStore(path string) sqlite.Store fails os.Exit needs os.Ambient | go.For
 	}
 }
 
+func closeStoreQuiet(store sqlite.Store) needs go.Foreign {
+	store.Close() catch {
+	case orchestrate.StoreFailed:
+	}
+}
+
+func runEventsCmd(service orchestrate.Service, sys host.System, clock time.Clock, args []string) fails os.Exit needs os.Ambient | io.Console {
+	let opts = try parseEventsCommand(args)
+	if !opts.follow {
+		let page = service.EventsSince(opts.req) catch {
+		case orchestrate.InvalidInput as e:
+			return os.Exit{Code: 2, Message: "orchestrate events: \(e.Field): \(e.Why)"}
+		case orchestrate.StoreFailed as e:
+			return os.Exit{Code: 1, Message: "orchestrate events: store failed: \(e.Reason)"}
+		}
+		if opts.jsonMode {
+			io.Console.Println(json.Encode(json.Codec[orchestrate.EventStreamPage]{MaxBytes: 0, MaxDepth: 0}, page))
+		} else if page.Items.Len() == 0 {
+			io.Console.Println("(no events)")
+		} else {
+			for item in page.Items {
+				io.Console.Println(server.FormatEventLine(item, false))
+			}
+		}
+		return
+	}
+	let sched = time.NewLiveScheduler()
+	let stdout = io.NewHost()
+	let stops = signal.Watch([]signal.Stop{signal.Interrupt, signal.Terminate, signal.Hangup})
+	let _ = signal.UntilStop(stops) {
+		with context { io.Stdout: stdout, time.Clock: clock, time.Scheduler: sched } {
+			server.RunEventsFollow(service, option.Some[host.System]{Value: sys}, orchestrate.DefaultReadinessPolicy(), opts.req, opts.interval, opts.jsonMode, 0)
+		}
+	} catch {
+	case signal.Stopped as s:
+		signal.Unwatch(stops)
+		return os.Exit{Code: signal.StatusOf(s.Kind), Message: ""}
+	case orchestrate.InvalidInput as e:
+		signal.Unwatch(stops)
+		return os.Exit{Code: 2, Message: "orchestrate events: \(e.Field): \(e.Why)"}
+	case orchestrate.StoreFailed as e:
+		signal.Unwatch(stops)
+		return os.Exit{Code: 1, Message: "orchestrate events: store failed: \(e.Reason)"}
+	}
+	signal.Unwatch(stops)
+}
+
+func runMCPCmd(store sqlite.Store, service orchestrate.Service, sys host.System, clock time.Clock, args []string) fails os.Exit needs os.Ambient | go.Foreign {
+	if args.Len() > 0 {
+		return os.Exit{Code: 2, Message: "orchestrate mcp: unknown argument \(args[0])"}
+	}
+	let notifier = mcp.NewNotifier(64)
+	let hub = server.NewControlHub(store, service, sys, clock, orchestrate.DefaultReadinessPolicy(), option.Some[mcp.Notifier]{Value: notifier}, option.None)
+	let sched = time.NewLiveScheduler()
+	let stopQ = queue.New[int](4)
+	let tr = stdio.New()
+	let monitor = task.Go() {
+		with context { time.Clock: clock, time.Scheduler: sched } {
+			server.RunMonitorLoop(hub, stopQ, 2s, false)
+		}
+		0
+	}
+	let _ = server.RunStdioMCP(hub, notifier, tr)
+	stopQ.End()
+	mcp.Close(notifier)
+	server.CloseAllSSE(hub)
+	let _ = monitor.Wait()
+}
+
+func runHTTPServeLoop(
+	hub server.ControlHub,
+	ep httpmcp.Endpoint,
+	sess httpmcp.Sessions,
+	addr string,
+	limits http.Limits,
+	clock time.Clock,
+	sched time.LiveScheduler,
+	stopQ queue.Queue[int],
+	interval duration,
+) int fails os.Exit needs os.Ambient {
+	let listener = http.Listen(addr) catch {
+	case http.ListenFailed as e:
+		return os.Exit{Code: 1, Message: "orchestrate serve: listen \(e.Addr) failed: \(e.Reason)"}
+	}
+	let monitor = task.Go() {
+		with context { time.Clock: clock, time.Scheduler: sched } {
+			server.RunMonitorLoop(hub, stopQ, interval, true)
+		}
+		0
+	}
+	with context { time.Clock: clock, time.Scheduler: sched } {
+		http.Serve(listener, limits, func(req http.Request) http.Response needs http.Streaming {
+			server.DispatchHTTP(hub, ep, req)
+		})
+	} catch {
+	case http.InvalidLimits:
+	}
+	stopQ.End()
+	server.CloseAllSSE(hub)
+	httpmcp.CloseAllStreams(sess)
+	let _ = monitor.Wait()
+	0
+}
+
+func runServeCmd(store sqlite.Store, service orchestrate.Service, sys host.System, clock time.Clock, args []string) fails os.Exit needs os.Ambient | go.Foreign {
+	let (addr, policy, interval) = try parseServeCommand(args)
+	let sess = httpmcp.NewSessions(rand.NewSecureHost())
+	let hub = server.NewControlHub(store, service, sys, clock, policy, option.None, option.Some[httpmcp.Sessions]{Value: sess})
+	let ep = httpmcp.NewFull(hub.Full, httpmcp.Options{
+		AllowedOrigins: []string{},
+		MaxBodyBytes:   1048576,
+		Sessions:       httpmcp.Stateful{Store: sess},
+	})
+	let limits = http.Limits{
+		MaxBodyBytes:      1048576,
+		MaxHeaderBytes:    65536,
+		IdleTimeout:       60s,
+		ReadHeaderTimeout: 10s,
+		ReadBodyTimeout:   30s,
+	}
+	let sched = time.NewLiveScheduler()
+	let stopQ = queue.New[int](4)
+	let stops = signal.Watch([]signal.Stop{signal.Interrupt, signal.Terminate, signal.Hangup})
+	let _ = signal.UntilStop(stops) {
+		try runHTTPServeLoop(hub, ep, sess, addr, limits, clock, sched, stopQ, interval)
+	} catch {
+	case signal.Stopped as s:
+		stopQ.End()
+		server.CloseAllSSE(hub)
+		httpmcp.CloseAllStreams(sess)
+		signal.Unwatch(stops)
+		return os.Exit{Code: signal.StatusOf(s.Kind), Message: ""}
+	case os.Exit as e:
+		stopQ.End()
+		server.CloseAllSSE(hub)
+		httpmcp.CloseAllStreams(sess)
+		signal.Unwatch(stops)
+		return e
+	}
+	stopQ.End()
+	server.CloseAllSSE(hub)
+	httpmcp.CloseAllStreams(sess)
+	signal.Unwatch(stops)
+}
+
 func main() fails os.Exit needs os.Ambient | io.Console | go.Foreign {
 	let process = os.NewHost()
 	let clock = try clockOf(process.Getenv("ORCHESTRATE_NOW"))
 	let sys = try hostOf(process.Getenv("ORCHESTRATE_HOST_STATIC"))
 	let (flagged, args) = try storeFlag(process.Args())
+	if args.Len() > 0 && args[0] == "wait" {
+		try runWaitCmd(sys, clock, args[1:])
+		return
+	}
 	let path = match flagged {
 	case option.Some[string] as p:
 		p.Value
@@ -167,23 +298,35 @@ func main() fails os.Exit needs os.Ambient | io.Console | go.Foreign {
 	let store = try openStore(path)
 	let service = orchestrate.NewServiceWithHost(store, clock, sys)
 	if args.Len() > 0 && args[0] == "mcp" {
-		if args.Len() > 1 {
-			return os.Exit{Code: 2, Message: "orchestrate mcp: unknown argument \(args[1])"}
+		runMCPCmd(store, service, sys, clock, args[1:]) catch {
+		case os.Exit as e:
+			closeStoreQuiet(store)
+			return e
 		}
-		with context { orchestrate.Api: service } {
-			let server = mcp.Server{Name: "orchestrate", Version: "0.1.0", Tools: orchestratemcp.Tools()}
-			let _ = mcp.Serve(server, stdio.New())
+		closeStoreQuiet(store)
+		return
+	}
+	if args.Len() > 0 && args[0] == "serve" {
+		runServeCmd(store, service, sys, clock, args[1:]) catch {
+		case os.Exit as e:
+			closeStoreQuiet(store)
+			return e
 		}
-		store.Close() catch {
-		case orchestrate.StoreFailed:
+		closeStoreQuiet(store)
+		return
+	}
+	if args.Len() > 0 && args[0] == "events" {
+		runEventsCmd(service, sys, clock, args[1:]) catch {
+		case os.Exit as e:
+			closeStoreQuiet(store)
+			return e
 		}
+		closeStoreQuiet(store)
 		return
 	}
 	let out = with context { orchestrate.Api: service } {
 		orchestratecli.Run(jsonFirst(args), orchestratecli.Defaults())
 	}
-	store.Close() catch {
-	case orchestrate.StoreFailed:
-	}
+	closeStoreQuiet(store)
 	try api.ExitAs("orchestrate", out)
 }

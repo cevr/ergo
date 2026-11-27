@@ -401,12 +401,28 @@ func QueryEventLog(state State, filter EventLogFilter) EventPage {
 	EventPage{Items: items, Total: total, Limit: filter.Limit, Offset: filter.Offset, HasMore: hasMore}
 }
 
+// QueryEventLogSince returns operational ledger events with ID strictly greater than filter.SinceID in ascending ID order.
+func QueryEventLogSince(state State, filter EventLogSinceFilter) EventPage {
+	let mut matched = []LedgerEvent{}
+	for ev in state.EventLog {
+		if ev.ID > filter.SinceID && eventFieldsMatch(ev, filter.Repo, filter.Run, filter.Kind, filter.UnitID, filter.Actor) {
+			matched = matched.Append(ev)
+		}
+	}
+	let (items, total, hasMore) = paginateSlice(matched, filter.Limit, 0)
+	EventPage{Items: items, Total: total, Limit: filter.Limit, Offset: 0, HasMore: hasMore}
+}
+
 func eventMatchesFilter(ev LedgerEvent, filter EventLogFilter) bool {
-	let repoOK = matchOptEq(filter.Repo, ev.Repo)
-	let runOK = matchOptEq(filter.Run, ev.Run)
-	let kindOK = matchOptEq(filter.Kind, ev.Kind)
-	let actorOK = matchOptEq(filter.Actor, ev.Actor)
-	let unitOK = match filter.UnitID {
+	eventFieldsMatch(ev, filter.Repo, filter.Run, filter.Kind, filter.UnitID, filter.Actor)
+}
+
+func eventFieldsMatch(ev LedgerEvent, repo option.Option[string], run option.Option[string], kind option.Option[string], unitID option.Option[string], actor option.Option[string]) bool {
+	let repoOK = matchOptEq(repo, ev.Repo)
+	let runOK = matchOptEq(run, ev.Run)
+	let kindOK = matchOptEq(kind, ev.Kind)
+	let actorOK = matchOptEq(actor, ev.Actor)
+	let unitOK = match unitID {
 	case option.Some[string] as want:
 		ev.UnitID == (option.Some[string]{Value: want.Value})
 	case option.None:
