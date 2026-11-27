@@ -1,0 +1,297 @@
+import option
+import strings
+
+// HandleID uniquely identifies one async handle across cuts and restarts.
+type HandleID string
+
+// SessionID uniquely identifies one ephemeral live adapter session.
+type SessionID string
+
+// ThreadID uniquely identifies one durable conversation thread.
+type ThreadID string
+
+// OwnerID tags a live server incarnation (<server>/<location>/<epoch>) owning volatile call handles.
+type OwnerID {
+	ServerID string,
+	Location string,
+	Epoch    int,
+}
+
+// OwnerText returns the canonical slash-separated OwnerID string.
+func OwnerText(o OwnerID) string {
+	"\(o.ServerID)/\(o.Location)/\(o.Epoch)"
+}
+
+// HandleKind enumerates the seven handle classes in Atlas's DELIVERS table.
+type HandleKind = KindCall{} | KindLand{} | KindTimer{} | KindJob{} | KindSubagent{} | KindShell{} | KindQuestion{}
+
+// HandleKindName returns the canonical external name of a HandleKind.
+func HandleKindName(k HandleKind) string {
+	match k {
+	case KindCall:
+		"call"
+	case KindLand:
+		"land"
+	case KindTimer:
+		"timer"
+	case KindJob:
+		"job"
+	case KindSubagent:
+		"subagent"
+	case KindShell:
+		"shell"
+	case KindQuestion:
+		"question"
+	}
+}
+
+// ParseHandleKind parses a canonical HandleKind name.
+func ParseHandleKind(text string) option.Option[HandleKind] {
+	match text {
+	case "call":
+		option.Some[HandleKind]{Value: KindCall}
+	case "land":
+		option.Some[HandleKind]{Value: KindLand}
+	case "timer":
+		option.Some[HandleKind]{Value: KindTimer}
+	case "job":
+		option.Some[HandleKind]{Value: KindJob}
+	case "subagent":
+		option.Some[HandleKind]{Value: KindSubagent}
+	case "shell":
+		option.Some[HandleKind]{Value: KindShell}
+	case "question":
+		option.Some[HandleKind]{Value: KindQuestion}
+	case _:
+		option.None
+	}
+}
+
+// HandleKindNameRoundTrips verifies that every HandleKind survives formatting and parsing.
+law HandleKindNameRoundTrips(k HandleKind) {
+	ParseHandleKind(HandleKindName(k)) == option.Some[HandleKind]{Value: k}
+}
+
+// Deliverer identifies the sole component responsible for waking sessions on settlement.
+type Deliverer = DelivererRegistry{} | DelivererWakes{} | DelivererSubagentHost{} | DelivererShellHost{} | DelivererQuestions{}
+
+// DelivererName returns the canonical name of a Deliverer.
+func DelivererName(d Deliverer) string {
+	match d {
+	case DelivererRegistry:
+		"registry"
+	case DelivererWakes:
+		"wakes"
+	case DelivererSubagentHost:
+		"subagent_host"
+	case DelivererShellHost:
+		"shell_host"
+	case DelivererQuestions:
+		"questions"
+	}
+}
+
+// DelivererOf maps each HandleKind to its sole deliverer in DELIVERS.
+func DelivererOf(k HandleKind) Deliverer {
+	match k {
+	case KindCall, KindLand:
+		DelivererRegistry
+	case KindTimer, KindJob:
+		DelivererWakes
+	case KindSubagent:
+		DelivererSubagentHost
+	case KindShell:
+		DelivererShellHost
+	case KindQuestion:
+		DelivererQuestions
+	}
+}
+
+// CanRegistryOpen reports whether the wake registry owns and delivers handles of kind k.
+func CanRegistryOpen(k HandleKind) bool {
+	DelivererOf(k) == DelivererRegistry
+}
+
+// IsSurvivableAcrossRestart reports whether kind k survives process replacement or crash recovery.
+func IsSurvivableAcrossRestart(k HandleKind) bool {
+	match k {
+	case KindCall:
+		false
+	case KindLand, KindTimer, KindJob, KindSubagent, KindShell, KindQuestion:
+		true
+	}
+}
+
+// Disposition describes the lifecycle state of a handle.
+type Disposition = DispOpen{} | DispSucceeded{} | DispFailed{} | DispLost{} | DispDeclined{} | DispCancelled{} | DispHanded{}
+
+// DispositionName returns the canonical external name of a Disposition.
+func DispositionName(d Disposition) string {
+	match d {
+	case DispOpen:
+		"open"
+	case DispSucceeded:
+		"succeeded"
+	case DispFailed:
+		"failed"
+	case DispLost:
+		"lost"
+	case DispDeclined:
+		"declined"
+	case DispCancelled:
+		"cancelled"
+	case DispHanded:
+		"handed"
+	}
+}
+
+// IsOpen reports whether d is non-terminal DispOpen.
+func IsOpen(d Disposition) bool {
+	match d {
+	case DispOpen:
+		true
+	case DispSucceeded, DispFailed, DispLost, DispDeclined, DispCancelled, DispHanded:
+		false
+	}
+}
+
+// IsTerminal reports whether d admits no further state transitions.
+func IsTerminal(d Disposition) bool {
+	!IsOpen(d)
+}
+
+// EmitsRegistryWake reports whether settling to d produces a wake letter from the registry.
+func EmitsRegistryWake(d Disposition) bool {
+	match d {
+	case DispSucceeded, DispFailed, DispLost, DispDeclined:
+		true
+	case DispOpen, DispCancelled, DispHanded:
+		false
+	}
+}
+
+// WakeDeliveryID returns the immutable idempotency key for a handle settlement wake.
+func WakeDeliveryID(id HandleID) string {
+	"wake:\(string(id))"
+}
+
+// HoldWakeDeliveryID returns the immutable idempotency key for a pool hold opening wake.
+func HoldWakeDeliveryID(thread ThreadID, retryAtMs int64) string {
+	"hold:\(string(thread)):\(retryAtMs)"
+}
+
+// MaxLostNoticeChars caps kernel binding-loss notices at 160 characters.
+let MaxLostNoticeChars = 160
+
+// MaxWakeLetterChars caps coalesced wake letters at 2,000 characters.
+let MaxWakeLetterChars = 2000
+
+// WakeHandle models durable handle metadata tracked across server cuts and restarts.
+type WakeHandle {
+	ID          HandleID,
+	Kind        HandleKind,
+	Owner       OwnerID,
+	Session     SessionID,
+	Deliverer   Deliverer,
+	Disposition Disposition,
+	StartedID   option.Option[HandleID],
+	Summary     string,
+	WakeEmitted bool,
+}
+
+// FormatLostBindingsNotice returns a bounded notice strictly when volatile bindings were lost.
+func FormatLostBindingsNotice(lost []string) string {
+	if lost.Len() == 0 {
+		return ""
+	}
+	let mut shown = []string{}
+	for i, name in lost {
+		if i >= 3 {
+			break
+		}
+		shown = shown.Append(name)
+	}
+	let more = if lost.Len() > 3 { " (+\(lost.Len() - 3) more)" } else { "" }
+	let raw = "[new kernel; lost \(lost.Len()) bindings: \(strings.Join(shown, ", "))\(more); see kernel.bindings()]"
+	if raw.Len() <= MaxLostNoticeChars {
+		return raw
+	}
+	strings.Slice(raw, 0, MaxLostNoticeChars-4) + "...]"
+}
+
+// FormatWakeLetter formats settled handles into a compact wake letter bounded by MaxWakeLetterChars.
+func FormatWakeLetter(items []WakeHandle) string {
+	if items.Len() == 0 {
+		return ""
+	}
+	let mut lines = []string{}
+	for i, h in items {
+		if i >= 8 {
+			lines = lines.Append("... and \(items.Len() - 8) more · tools.handles.list()")
+			break
+		}
+		lines = lines.Append("wake handle=\(string(h.ID)) kind=\(HandleKindName(h.Kind)) status=\(DispositionName(h.Disposition))")
+	}
+	let raw = strings.Join(lines, "\n")
+	if raw.Len() <= MaxWakeLetterChars {
+		return raw
+	}
+	strings.Slice(raw, 0, MaxWakeLetterChars)
+}
+
+// DeliversTotalAndExclusive verifies that every HandleKind has one fixed deliverer and only call/land belong to registry.
+law DeliversTotalAndExclusive(k HandleKind) {
+	let d = DelivererOf(k)
+	match k {
+	case KindCall, KindLand:
+		d == DelivererRegistry && CanRegistryOpen(k)
+	case KindTimer, KindJob:
+		d == DelivererWakes && !CanRegistryOpen(k)
+	case KindSubagent:
+		d == DelivererSubagentHost && !CanRegistryOpen(k)
+	case KindShell:
+		d == DelivererShellHost && !CanRegistryOpen(k)
+	case KindQuestion:
+		d == DelivererQuestions && !CanRegistryOpen(k)
+	}
+}
+
+// OnlyCallIsVolatileAcrossRestart verifies only volatile call handles retire on dead owners.
+law OnlyCallIsVolatileAcrossRestart(k HandleKind) {
+	IsSurvivableAcrossRestart(k) == (k != KindCall)
+}
+
+// HandedIsTerminalWithZeroWake verifies DispHanded is terminal and never emits a registry wake.
+law HandedIsTerminalWithZeroWake() {
+	IsTerminal(DispHanded) && !IsOpen(DispHanded) && !EmitsRegistryWake(DispHanded)
+}
+
+// NoticeOnlyWhenBindingsLost verifies clean restores emit empty notice and losses stay <= 160 chars.
+law NoticeOnlyWhenBindingsLost(lost []string) {
+	let notice = FormatLostBindingsNotice(lost)
+	if lost.Len() == 0 {
+		return notice == ""
+	}
+	notice != "" && notice.Len() <= MaxLostNoticeChars
+}
+
+// WakeLetterStaysBounded verifies wake letters never exceed MaxWakeLetterChars.
+law WakeLetterStaysBounded(n int) {
+	let count = ((n % 12) + 12) % 12
+	let mut items = []WakeHandle{}
+	for i in 0..count {
+		items = items.Append(WakeHandle{
+			ID:          HandleID("h-\(i)"),
+			Kind:        KindCall,
+			Owner:       OwnerID{ServerID: "srv", Location: "loc", Epoch: 1},
+			Session:     SessionID("s1"),
+			Deliverer:   DelivererRegistry,
+			Disposition: DispSucceeded,
+			StartedID:   option.None,
+			Summary:     "ok",
+			WakeEmitted: true,
+		})
+	}
+	let text = FormatWakeLetter(items)
+	text.Len() <= MaxWakeLetterChars
+}

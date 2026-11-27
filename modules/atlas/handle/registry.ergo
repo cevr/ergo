@@ -1,0 +1,434 @@
+import machines
+import option
+import slices
+
+// DelivererCollision refuses opening a non-registry HandleKind through the wake registry.
+type DelivererCollision { Kind HandleKind, Owner Deliverer }
+
+// HandleNotFound refuses an operation targeting a nonexistent handle ID.
+type HandleNotFound { ID HandleID }
+
+// HandleAlreadyTerminal refuses transitioning a non-open handle.
+type HandleAlreadyTerminal { ID HandleID, Disposition Disposition }
+
+// InvalidHandleTransition refuses an invalid handle state transition.
+type InvalidHandleTransition { ID HandleID, From Disposition, Action string }
+
+// HandleRefusal is the closed union of registry handle transition refusals.
+type HandleRefusal = DelivererCollision | HandleNotFound | HandleAlreadyTerminal | InvalidHandleTransition
+
+// RegistryState tracks all registered handles and per-handle wake emission counts.
+type RegistryState {
+	Handles     Map[HandleID, WakeHandle],
+	Order       []HandleID,
+	WakeLetters Map[HandleID, int],
+}
+
+// EmptyRegistry constructs an empty RegistryState.
+func EmptyRegistry() RegistryState {
+	RegistryState{
+		Handles:     Map[HandleID, WakeHandle]{},
+		Order:       []HandleID{},
+		WakeLetters: Map[HandleID, int]{},
+	}
+}
+
+func insertHandle(s RegistryState, h WakeHandle) RegistryState {
+	let order = match s.Handles.Get(h.ID) {
+	case option.Some[WakeHandle]:
+		s.Order
+	case option.None:
+		s.Order.Append(h.ID)
+	}
+	RegistryState{
+		Handles:     s.Handles.Put(h.ID, h),
+		Order:       order,
+		WakeLetters: s.WakeLetters,
+	}
+}
+
+// OpenHandleSpec captures the parameters needed to register a new WakeHandle.
+type OpenHandleSpec {
+	ID      HandleID,
+	Kind    HandleKind,
+	Owner   OwnerID,
+	Session SessionID,
+	Summary string,
+}
+
+func makeWakeHandle(spec OpenHandleSpec, deliverer Deliverer) WakeHandle {
+	WakeHandle{
+		ID:          spec.ID,
+		Kind:        spec.Kind,
+		Owner:       spec.Owner,
+		Session:     spec.Session,
+		Deliverer:   deliverer,
+		Disposition: DispOpen,
+		StartedID:   option.None,
+		Summary:     spec.Summary,
+		WakeEmitted: false,
+	}
+}
+
+// OpenRegistryHandle registers a call or land handle owned exclusively by DelivererRegistry.
+func OpenRegistryHandle(s RegistryState, spec OpenHandleSpec) RegistryState fails HandleRefusal {
+	let del = DelivererOf(spec.Kind)
+	if del != DelivererRegistry {
+		return DelivererCollision{Kind: spec.Kind, Owner: del}
+	}
+	match s.Handles.Get(spec.ID) {
+	case option.Some[WakeHandle] as cur:
+		return InvalidHandleTransition{ID: spec.ID, From: cur.Value.Disposition, Action: "open"}
+	case option.None:
+	}
+	insertHandle(s, makeWakeHandle(spec, DelivererRegistry))
+}
+
+// OpenHostHandle registers a non-registry handle under its sole DELIVERS deliverer.
+func OpenHostHandle(s RegistryState, spec OpenHandleSpec) RegistryState fails HandleRefusal {
+	let del = DelivererOf(spec.Kind)
+	if del == DelivererRegistry {
+		return DelivererCollision{Kind: spec.Kind, Owner: del}
+	}
+	match s.Handles.Get(spec.ID) {
+	case option.Some[WakeHandle] as cur:
+		return InvalidHandleTransition{ID: spec.ID, From: cur.Value.Disposition, Action: "open_host"}
+	case option.None:
+	}
+	insertHandle(s, makeWakeHandle(spec, del))
+}
+
+// MarkHanded transitions an open KindCall handle to terminal DispHanded with zero wake letters.
+func MarkHanded(s RegistryState, callID HandleID, spawnedID HandleID) RegistryState fails HandleRefusal {
+	let h = match s.Handles.Get(callID) {
+	case option.Some[WakeHandle] as cur:
+		cur.Value
+	case option.None:
+		return HandleNotFound{ID: callID}
+	}
+	if h.Kind != KindCall {
+		return InvalidHandleTransition{ID: callID, From: h.Disposition, Action: "mark_handed"}
+	}
+	if !IsOpen(h.Disposition) {
+		return HandleAlreadyTerminal{ID: callID, Disposition: h.Disposition}
+	}
+	let next = WakeHandle{
+		..h,
+		Disposition: DispHanded,
+		StartedID:   option.Some[HandleID]{Value: spawnedID},
+		WakeEmitted: false,
+	}
+	RegistryState{..s, Handles: s.Handles.Put(callID, next)}
+}
+
+// SettleHandle transitions an open handle once (first settle wins) and records wake emission if applicable.
+func SettleHandle(s RegistryState, id HandleID, disp Disposition) (RegistryState, bool) fails HandleRefusal {
+	let h = match s.Handles.Get(id) {
+	case option.Some[WakeHandle] as cur:
+		cur.Value
+	case option.None:
+		return HandleNotFound{ID: id}
+	}
+	if !IsOpen(h.Disposition) {
+		return (s, false)
+	}
+	if IsOpen(disp) || disp == DispHanded {
+		return InvalidHandleTransition{ID: id, From: h.Disposition, Action: "settle"}
+	}
+	let emit = EmitsRegistryWake(disp) && h.Deliverer == DelivererRegistry
+	let count = match s.WakeLetters.Get(id) {
+	case option.Some[int] as n:
+		n.Value
+	case option.None:
+		0
+	}
+	let shouldEmit = emit && count == 0
+	let nextLetters = if shouldEmit { s.WakeLetters.Put(id, 1) } else { s.WakeLetters }
+	let nextHandle = WakeHandle{
+		..h,
+		Disposition: disp,
+		WakeEmitted: h.WakeEmitted || shouldEmit,
+	}
+	(RegistryState{..s, Handles: s.Handles.Put(id, nextHandle), WakeLetters: nextLetters}, shouldEmit)
+}
+
+// RetireOwnerCalls settles only deadOwner's open KindCall handles as DispLost, leaving other owners and lands intact.
+func RetireOwnerCalls(s RegistryState, deadOwner OwnerID) (RegistryState, []HandleID) {
+	let mut cur = s
+	let mut retired = []HandleID{}
+	for id in s.Order {
+		match cur.Handles.Get(id) {
+		case option.Some[WakeHandle] as h:
+			let hv = h.Value
+			if hv.Owner == deadOwner && hv.Kind == KindCall && IsOpen(hv.Disposition) {
+				let (next, _) = SettleHandle(cur, id, DispLost) catch {
+				case _:
+					(cur, false)
+				}
+				cur = next
+				retired = retired.Append(id)
+			}
+		case option.None:
+		}
+	}
+	(cur, retired)
+}
+
+// CancelSessionHandles cancels all open handles belonging to session without emitting wake letters.
+func CancelSessionHandles(s RegistryState, session SessionID) RegistryState {
+	let mut cur = s
+	for id in s.Order {
+		match cur.Handles.Get(id) {
+		case option.Some[WakeHandle] as h:
+			if h.Value.Session == session && IsOpen(h.Value.Disposition) {
+				let (next, _) = SettleHandle(cur, id, DispCancelled) catch {
+				case _:
+					(cur, false)
+				}
+				cur = next
+			}
+		case option.None:
+		}
+	}
+	cur
+}
+
+// OpenOwners returns the distinct owners currently holding open KindCall handles.
+func OpenOwners(s RegistryState) []OwnerID {
+	let mut out = []OwnerID{}
+	for id in s.Order {
+		match s.Handles.Get(id) {
+		case option.Some[WakeHandle] as h:
+			if h.Value.Kind == KindCall && IsOpen(h.Value.Disposition) && !slices.Contains(out, h.Value.Owner) {
+				out = out.Append(h.Value.Owner)
+			}
+		case option.None:
+		}
+	}
+	out
+}
+
+// HandleSlot identifies one handle in the finite-state registry verification machine.
+type HandleSlot = SlotCallA{} | SlotCallB{} | SlotLandA{}
+
+// HandleAct drives HandleRegistryLifecycle over real RegistryState transitions.
+type HandleAct = OpenCallA{} | OpenCallB{} | OpenLandA{} | HandOffCallB{} | SettleCallA{} | SettleCallB{} | SettleLandA{} | TryRegistryShell{} | RetireOwnerB{}
+
+// HandleWorld wraps RegistryState for exhaustive verification of kernel handle invariants.
+type HandleWorld {
+	Registry           RegistryState,
+	DelivererCollision bool,
+}
+
+func slotID(slot HandleSlot) HandleID {
+	match slot {
+	case SlotCallA:
+		HandleID("call-a")
+	case SlotCallB:
+		HandleID("call-b")
+	case SlotLandA:
+		HandleID("land-a")
+	}
+}
+
+func ownerA() OwnerID { OwnerID{ServerID: "srv", Location: "loc-a", Epoch: 1} }
+func ownerB() OwnerID { OwnerID{ServerID: "srv", Location: "loc-b", Epoch: 1} }
+
+func firstHandleWorld() HandleWorld {
+	HandleWorld{Registry: EmptyRegistry(), DelivererCollision: false}
+}
+
+func stepHandleWorld(s HandleWorld, act HandleAct) machines.Decision[HandleWorld, string] {
+	match act {
+	case OpenCallA:
+		let reg = OpenRegistryHandle(s.Registry, OpenHandleSpec{ID: slotID(SlotCallA), Kind: KindCall, Owner: ownerA(), Session: SessionID("s1"), Summary: "call a"}) catch {
+		case _:
+			return machines.Ignore
+		}
+		machines.Enter[HandleWorld]{Next: HandleWorld{..s, Registry: reg}}
+	case OpenCallB:
+		let reg = OpenRegistryHandle(s.Registry, OpenHandleSpec{ID: slotID(SlotCallB), Kind: KindCall, Owner: ownerB(), Session: SessionID("s2"), Summary: "call b"}) catch {
+		case _:
+			return machines.Ignore
+		}
+		machines.Enter[HandleWorld]{Next: HandleWorld{..s, Registry: reg}}
+	case OpenLandA:
+		let reg = OpenRegistryHandle(s.Registry, OpenHandleSpec{ID: slotID(SlotLandA), Kind: KindLand, Owner: ownerA(), Session: SessionID("s1"), Summary: "land a"}) catch {
+		case _:
+			return machines.Ignore
+		}
+		machines.Enter[HandleWorld]{Next: HandleWorld{..s, Registry: reg}}
+	case HandOffCallB:
+		let reg = MarkHanded(s.Registry, slotID(SlotCallB), HandleID("job-b")) catch {
+		case _:
+			return machines.Ignore
+		}
+		machines.Enter[HandleWorld]{Next: HandleWorld{..s, Registry: reg}}
+	case SettleCallA:
+		let (reg, woke) = SettleHandle(s.Registry, slotID(SlotCallA), DispSucceeded) catch {
+		case _:
+			return machines.Ignore
+		}
+		if !woke {
+			return machines.Ignore
+		}
+		machines.Enter[HandleWorld]{Next: HandleWorld{..s, Registry: reg}}
+	case SettleCallB:
+		let (reg, woke) = SettleHandle(s.Registry, slotID(SlotCallB), DispSucceeded) catch {
+		case _:
+			return machines.Ignore
+		}
+		if !woke {
+			return machines.Ignore
+		}
+		machines.Enter[HandleWorld]{Next: HandleWorld{..s, Registry: reg}}
+	case SettleLandA:
+		let (reg, woke) = SettleHandle(s.Registry, slotID(SlotLandA), DispSucceeded) catch {
+		case _:
+			return machines.Ignore
+		}
+		if !woke {
+			return machines.Ignore
+		}
+		machines.Enter[HandleWorld]{Next: HandleWorld{..s, Registry: reg}}
+	case TryRegistryShell:
+		let _ = OpenRegistryHandle(s.Registry, OpenHandleSpec{ID: HandleID("shell-1"), Kind: KindShell, Owner: ownerA(), Session: SessionID("s1"), Summary: "sh"}) catch {
+		case _:
+			return machines.Ignore
+		}
+		machines.Enter[HandleWorld]{Next: HandleWorld{..s, DelivererCollision: true}}
+	case RetireOwnerB:
+		let (reg, retired) = RetireOwnerCalls(s.Registry, ownerB())
+		if retired.Len() == 0 {
+			return machines.Ignore
+		}
+		machines.Enter[HandleWorld]{Next: HandleWorld{..s, Registry: reg}}
+	}
+}
+
+func handleSettledToldOnce(w HandleWorld) bool {
+	for _, count in w.Registry.WakeLetters {
+		if count > 1 {
+			return false
+		}
+	}
+	true
+}
+
+func handedNeverDoubleWakes(w HandleWorld) bool {
+	match w.Registry.Handles.Get(slotID(SlotCallB)) {
+	case option.Some[WakeHandle] as h:
+		if h.Value.Disposition == DispHanded {
+			let n = match w.Registry.WakeLetters.Get(slotID(SlotCallB)) {
+			case option.Some[int] as c:
+				c.Value
+			case option.None:
+				0
+			}
+			return n == 0 && !h.Value.WakeEmitted
+		}
+		true
+	case option.None:
+		true
+	}
+}
+
+func deliversExclusiveByKind(w HandleWorld) bool { !w.DelivererCollision }
+
+func otherOwnerReloadKeepsLiveCalls(w HandleWorld) bool {
+	let bLost = match w.Registry.Handles.Get(slotID(SlotCallB)) {
+	case option.Some[WakeHandle] as h:
+		h.Value.Disposition == DispLost
+	case option.None:
+		false
+	}
+	if !bLost {
+		return true
+	}
+	let aOk = match w.Registry.Handles.Get(slotID(SlotCallA)) {
+	case option.Some[WakeHandle] as h:
+		h.Value.Disposition != DispLost
+	case option.None:
+		true
+	}
+	let landOk = match w.Registry.Handles.Get(slotID(SlotLandA)) {
+	case option.Some[WakeHandle] as h:
+		h.Value.Disposition != DispLost
+	case option.None:
+		true
+	}
+	aOk && landOk
+}
+
+func detachedCallToldOnce(w HandleWorld) bool {
+	match (w.Registry.Handles.Get(slotID(SlotCallA)), w.Registry.WakeLetters.Get(slotID(SlotCallA))) {
+	case (option.Some[WakeHandle] as h, option.Some[int] as c):
+		h.Value.Disposition == DispSucceeded && c.Value == 1
+	case (_, _):
+		false
+	}
+}
+
+func handedOffWithZeroLetter(w HandleWorld) bool {
+	match w.Registry.Handles.Get(slotID(SlotCallB)) {
+	case option.Some[WakeHandle] as h:
+		h.Value.Disposition == DispHanded && !h.Value.WakeEmitted
+	case option.None:
+		false
+	}
+}
+
+func retireBLeavesALive(w HandleWorld) bool {
+	match (w.Registry.Handles.Get(slotID(SlotCallA)), w.Registry.Handles.Get(slotID(SlotCallB))) {
+	case (option.Some[WakeHandle] as a, option.Some[WakeHandle] as b):
+		IsOpen(a.Value.Disposition) && b.Value.Disposition == DispLost
+	case (_, _):
+		false
+	}
+}
+
+// HandleRegistryLifecycle exhaustively verifies DELIVERS exclusivity, single-wake, DispHanded, and owner isolation.
+type HandleRegistryLifecycle machine[HandleWorld, HandleAct] {
+	initial: firstHandleWorld(),
+	step:    stepHandleWorld,
+
+	law HandleSettledToldOnce always handleSettledToldOnce,
+	law HandedNeverDoubleWakes always handedNeverDoubleWakes,
+	law DeliversExclusiveByKind always deliversExclusiveByKind,
+	law OtherOwnerReloadKeepsLiveCalls always otherOwnerReloadKeepsLiveCalls,
+
+	law DetachedCallToldOnce sometimes detachedCallToldOnce,
+	law HandedOffWithZeroLetter sometimes handedOffWithZeroLetter,
+	law RetireBLeavesALive sometimes retireBLeavesALive,
+}
+
+// RegistryEnforcesFirstSettleAndCancel checks first-settle-wins, host handles, OpenOwners, and session cancel.
+test RegistryEnforcesFirstSettleAndCancel {
+	let oa = ownerA()
+	let ob = ownerB()
+	let mut reg = EmptyRegistry()
+	reg = try OpenRegistryHandle(reg, OpenHandleSpec{ID: HandleID("c1"), Kind: KindCall, Owner: oa, Session: SessionID("s1"), Summary: "c1"})
+	reg = try OpenRegistryHandle(reg, OpenHandleSpec{ID: HandleID("l1"), Kind: KindLand, Owner: ob, Session: SessionID("s1"), Summary: "l1"})
+	reg = try OpenHostHandle(reg, OpenHandleSpec{ID: HandleID("sh1"), Kind: KindShell, Owner: oa, Session: SessionID("s1"), Summary: "sh1"})
+	assert OpenOwners(reg) == []OwnerID{oa}
+
+	let (r1, woke1) = try SettleHandle(reg, HandleID("c1"), DispSucceeded)
+	assert woke1
+	let (r2, woke2) = try SettleHandle(r1, HandleID("c1"), DispFailed)
+	assert !woke2
+	match r2.Handles.Get(HandleID("c1")) {
+	case option.Some[WakeHandle] as h:
+		assert h.Value.Disposition == DispSucceeded
+	case option.None:
+		assert false
+	}
+
+	let r3 = CancelSessionHandles(r2, SessionID("s1"))
+	match r3.Handles.Get(HandleID("l1")) {
+	case option.Some[WakeHandle] as h:
+		assert h.Value.Disposition == DispCancelled && !h.Value.WakeEmitted
+	case option.None:
+		assert false
+	}
+	assert OpenOwners(r3).Len() == 0
+}

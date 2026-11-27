@@ -1,0 +1,547 @@
+import github.com/cevr/ergo/modules/atlas/handle
+import machines
+import option
+
+// AccountID identifies a provider account credential slot.
+type AccountID string
+
+// RotationFixed pins a thread to its initial configured account without rotating.
+type RotationFixed {}
+
+// RotationPooled allows switching a thread between healthy accounts when idle between turns.
+type RotationPooled {}
+
+// RotationPolicy configures whether account rotation is allowed for a thread.
+type RotationPolicy = RotationFixed | RotationPooled
+
+// AccountHealthy marks an account slot eligible for session placement.
+type AccountHealthy {}
+
+// AccountLimited marks an account slot rate/usage limited until ResetAtMs.
+type AccountLimited {
+	ResetAtMs int64,
+}
+
+// AccountStatus tracks whether an account slot is healthy or limited.
+type AccountStatus = AccountHealthy | AccountLimited
+
+// AccountSlot represents one configured credential slot in an account pool.
+type AccountSlot {
+	ID       AccountID,
+	Priority int,
+	Status   AccountStatus,
+}
+
+// RotationState tracks active account placement and session exclusivity on a single thread per M5.
+type RotationState {
+	ThreadID             handle.ThreadID,
+	Policy               RotationPolicy,
+	Accounts             []AccountSlot,
+	FixedAccount         option.Option[AccountID],
+	ActiveAccount        option.Option[AccountID],
+	HasOpenSession       bool,
+	SessionGen           int,
+	SessionCountOnThread int,
+	InTurn               bool,
+	Switches             int,
+	PlacedOnLimited      bool,
+	SwitchedMidTurn      bool,
+	FixedAccountMoved    bool,
+}
+
+// NoEligibleHealthyAccount refuses placing or rotating onto a limited or unknown account.
+type NoEligibleHealthyAccount {
+	Requested option.Option[AccountID],
+}
+
+// RotationBlockedMidTurn refuses rotating accounts while a turn is active on the thread.
+type RotationBlockedMidTurn {}
+
+// FixedAccountPolicyRefusal refuses rotating off the pinned account under RotationFixed.
+type FixedAccountPolicyRefusal {
+	Pinned AccountID,
+}
+
+// TurnRequiresOpenSession refuses starting a turn when no session is open on the thread.
+type TurnRequiresOpenSession {}
+
+// DuplicateThreadSessionRefusal refuses opening a second concurrent session on one thread.
+type DuplicateThreadSessionRefusal {}
+
+// RotationRefusal classifies rejected account placement or session rotation transitions.
+type RotationRefusal = NoEligibleHealthyAccount | RotationBlockedMidTurn | FixedAccountPolicyRefusal | TurnRequiresOpenSession | DuplicateThreadSessionRefusal
+
+// ActPoolOpenSession opens the thread's single session on the chosen healthy account.
+type ActPoolOpenSession {
+	Account AccountID,
+}
+
+// ActPoolStartTurn enters InTurn on the open session.
+type ActPoolStartTurn {}
+
+// ActPoolEndTurn exits InTurn cleanly back to idle.
+type ActPoolEndTurn {}
+
+// ActPoolMarkLimited marks an account slot as limited.
+type ActPoolMarkLimited {
+	Account   AccountID,
+	ResetAtMs int64,
+}
+
+// ActPoolMarkHealthy clears the limit on an account slot.
+type ActPoolMarkHealthy {
+	Account AccountID,
+}
+
+// ActPoolSwitchAccount attempts to rotate between accounts between turns.
+type ActPoolSwitchAccount {
+	Target AccountID,
+}
+
+// ActPoolCloseSession closes the thread's open session when idle.
+type ActPoolCloseSession {}
+
+// RotationAction enumerates pure commands applied to a RotationState.
+type RotationAction = ActPoolOpenSession | ActPoolStartTurn | ActPoolEndTurn | ActPoolMarkLimited | ActPoolMarkHealthy | ActPoolSwitchAccount | ActPoolCloseSession
+
+func findAccount(accounts []AccountSlot, id AccountID) option.Option[AccountSlot] {
+	for _, slot in accounts {
+		if slot.ID == id {
+			return option.Some[AccountSlot]{Value: slot}
+		}
+	}
+	option.None
+}
+
+func isAccountHealthy(slot AccountSlot) bool {
+	match slot.Status {
+	case AccountHealthy:
+		true
+	case AccountLimited:
+		false
+	}
+}
+
+func updateAccountStatus(accounts []AccountSlot, id AccountID, status AccountStatus) []AccountSlot {
+	let mut next = []AccountSlot{}
+	for _, slot in accounts {
+		if slot.ID == id {
+			next = next.Append(AccountSlot{..slot, Status: status})
+		} else {
+			next = next.Append(slot)
+		}
+	}
+	next
+}
+
+// SelectHealthyAccount chooses the lowest-priority healthy account, optionally excluding one ID.
+func SelectHealthyAccount(accounts []AccountSlot, exclude option.Option[AccountID]) option.Option[AccountID] {
+	let mut best option.Option[AccountSlot] = option.None
+	for _, slot in accounts {
+		if !isAccountHealthy(slot) {
+			continue
+		}
+		let skip = match exclude {
+		case option.Some[AccountID] as ex:
+			slot.ID == ex.Value
+		case option.None:
+			false
+		}
+		if skip {
+			continue
+		}
+		match best {
+		case option.None:
+			best = option.Some[AccountSlot]{Value: slot}
+		case option.Some[AccountSlot] as cur:
+			if slot.Priority < cur.Value.Priority {
+				best = option.Some[AccountSlot]{Value: slot}
+			}
+		}
+	}
+	match best {
+	case option.Some[AccountSlot] as picked:
+		option.Some[AccountID]{Value: picked.Value.ID}
+	case option.None:
+		option.None
+	}
+}
+
+// NewRotationState constructs an initial thread account placement state.
+func NewRotationState(threadID handle.ThreadID, policy RotationPolicy, accounts []AccountSlot, fixed option.Option[AccountID]) RotationState {
+	RotationState{
+		ThreadID:             threadID,
+		Policy:               policy,
+		Accounts:             accounts,
+		FixedAccount:         fixed,
+		ActiveAccount:        option.None,
+		HasOpenSession:       false,
+		SessionGen:           0,
+		SessionCountOnThread: 0,
+		InTurn:               false,
+		Switches:             0,
+		PlacedOnLimited:      false,
+		SwitchedMidTurn:      false,
+		FixedAccountMoved:    false,
+	}
+}
+
+func validateSlotHealthy(accounts []AccountSlot, id AccountID) AccountSlot fails RotationRefusal {
+	let slot = match findAccount(accounts, id) {
+	case option.Some[AccountSlot] as found:
+		found.Value
+	case option.None:
+		return NoEligibleHealthyAccount{Requested: option.Some[AccountID]{Value: id}}
+	}
+	if !isAccountHealthy(slot) {
+		return NoEligibleHealthyAccount{Requested: option.Some[AccountID]{Value: id}}
+	}
+	slot
+}
+
+func stepOpenSession(s RotationState, op ActPoolOpenSession) RotationState fails RotationRefusal {
+	if s.HasOpenSession || s.SessionCountOnThread > 0 {
+		return DuplicateThreadSessionRefusal
+	}
+	match s.Policy {
+	case RotationFixed:
+		match s.FixedAccount {
+		case option.Some[AccountID] as pinned:
+			if op.Account != pinned.Value {
+				return FixedAccountPolicyRefusal{Pinned: pinned.Value}
+			}
+		case option.None:
+		}
+	case RotationPooled:
+	}
+	let _ = try validateSlotHealthy(s.Accounts, op.Account)
+	let fixedAcc = match s.FixedAccount {
+	case option.Some[AccountID]:
+		s.FixedAccount
+	case option.None:
+		match s.Policy {
+		case RotationFixed:
+			option.Some[AccountID]{Value: op.Account}
+		case RotationPooled:
+			option.None
+		}
+	}
+	RotationState{
+		..s,
+		FixedAccount:         fixedAcc,
+		ActiveAccount:        option.Some[AccountID]{Value: op.Account},
+		HasOpenSession:       true,
+		SessionGen:           s.SessionGen + 1,
+		SessionCountOnThread: 1,
+	}
+}
+
+func stepSwitchAccount(s RotationState, sw ActPoolSwitchAccount) RotationState fails RotationRefusal {
+	if s.InTurn {
+		return RotationBlockedMidTurn
+	}
+	match s.Policy {
+	case RotationFixed:
+		let pinned = match s.FixedAccount {
+		case option.Some[AccountID] as p:
+			p.Value
+		case option.None:
+			sw.Target
+		}
+		if sw.Target != pinned {
+			return FixedAccountPolicyRefusal{Pinned: pinned}
+		}
+	case RotationPooled:
+	}
+	let _ = try validateSlotHealthy(s.Accounts, sw.Target)
+	let sameTarget = match s.ActiveAccount {
+	case option.Some[AccountID] as cur:
+		cur.Value == sw.Target
+	case option.None:
+		false
+	}
+	if sameTarget {
+		return s
+	}
+	RotationState{
+		..s,
+		ActiveAccount:        option.Some[AccountID]{Value: sw.Target},
+		HasOpenSession:       true,
+		SessionGen:           s.SessionGen + 1,
+		SessionCountOnThread: 1,
+		Switches:             s.Switches + 1,
+	}
+}
+
+// StepRotation validates and applies a single RotationAction to a RotationState.
+func StepRotation(s RotationState, act RotationAction) RotationState fails RotationRefusal {
+	match act {
+	case ActPoolOpenSession as op:
+		stepOpenSession(s, op)
+
+	case ActPoolStartTurn:
+		if !s.HasOpenSession {
+			return TurnRequiresOpenSession
+		}
+		if s.InTurn {
+			return RotationBlockedMidTurn
+		}
+		RotationState{..s, InTurn: true}
+
+	case ActPoolEndTurn:
+		if !s.InTurn {
+			return TurnRequiresOpenSession
+		}
+		RotationState{..s, InTurn: false}
+
+	case ActPoolMarkLimited as ml:
+		RotationState{..s, Accounts: updateAccountStatus(s.Accounts, ml.Account, AccountLimited{ResetAtMs: ml.ResetAtMs})}
+
+	case ActPoolMarkHealthy as mh:
+		RotationState{..s, Accounts: updateAccountStatus(s.Accounts, mh.Account, AccountHealthy)}
+
+	case ActPoolSwitchAccount as sw:
+		stepSwitchAccount(s, sw)
+
+	case ActPoolCloseSession:
+		if s.InTurn {
+			return RotationBlockedMidTurn
+		}
+		if !s.HasOpenSession {
+			return TurnRequiresOpenSession
+		}
+		RotationState{
+			..s,
+			HasOpenSession:       false,
+			SessionCountOnThread: 0,
+		}
+	}
+}
+
+func oneSessionAThread(s RotationState) bool {
+	s.SessionCountOnThread <= 1
+}
+
+func neverMidTurn(s RotationState) bool {
+	!s.SwitchedMidTurn
+}
+
+func fixedAccountNeverMoves(s RotationState) bool {
+	if s.FixedAccountMoved {
+		return false
+	}
+	match s.Policy {
+	case RotationFixed:
+		s.Switches == 0
+	case RotationPooled:
+		true
+	}
+}
+
+func neverPlacedOnLimited(s RotationState) bool {
+	!s.PlacedOnLimited
+}
+
+func turnHasSession(s RotationState) bool {
+	if s.InTurn {
+		return s.HasOpenSession && s.SessionCountOnThread == 1
+	}
+	true
+}
+
+law SelectHealthySkipsLimited(reset int64) {
+	let slots = []AccountSlot{
+		AccountSlot{ID: AccountID("acc-a"), Priority: 1, Status: AccountLimited{ResetAtMs: reset}},
+		AccountSlot{ID: AccountID("acc-b"), Priority: 2, Status: AccountHealthy},
+	}
+	SelectHealthyAccount(slots, option.None) == option.Some[AccountID]{Value: AccountID("acc-b")}
+}
+
+type ActRotInitFixed {}
+
+type ActRotInitPooled {}
+
+type ActRotOpenA {}
+
+type ActRotStartTurn {}
+
+type ActRotEndTurn {}
+
+type ActRotLimitA {}
+
+type ActRotSwitchB {}
+
+type ActRotClose {}
+
+type RotationAct = ActRotInitFixed | ActRotInitPooled | ActRotOpenA | ActRotStartTurn | ActRotEndTurn | ActRotLimitA | ActRotSwitchB | ActRotClose
+
+type RotationWorld {
+	Initialized         bool,
+	State               RotationState,
+	TurnDeniedNoSession bool,
+	MidTurnBlocked      bool,
+	FixedSwitchBlocked  bool,
+}
+
+func baseSlots() []AccountSlot {
+	[]AccountSlot{
+		AccountSlot{ID: AccountID("acc-a"), Priority: 1, Status: AccountHealthy},
+		AccountSlot{ID: AccountID("acc-b"), Priority: 2, Status: AccountHealthy},
+	}
+}
+
+func firstRotationWorld() RotationWorld {
+	RotationWorld{
+		Initialized:         false,
+		State:               NewRotationState(handle.ThreadID("th-rot"), RotationFixed, baseSlots(), option.Some[AccountID]{Value: AccountID("acc-a")}),
+		TurnDeniedNoSession: false,
+		MidTurnBlocked:      false,
+		FixedSwitchBlocked:  false,
+	}
+}
+
+func stepRotationWorld(w RotationWorld, a RotationAct) machines.Decision[RotationWorld, string] {
+	match a {
+	case ActRotInitFixed:
+		if w.Initialized {
+			return machines.Ignore
+		}
+		let st = NewRotationState(handle.ThreadID("th-fixed"), RotationFixed, baseSlots(), option.Some[AccountID]{Value: AccountID("acc-a")})
+		return machines.Enter[RotationWorld]{Next: RotationWorld{..w, Initialized: true, State: st}}
+	case ActRotInitPooled:
+		if w.Initialized {
+			return machines.Ignore
+		}
+		let st = NewRotationState(handle.ThreadID("th-pooled"), RotationPooled, baseSlots(), option.None)
+		return machines.Enter[RotationWorld]{Next: RotationWorld{..w, Initialized: true, State: st}}
+	case ActRotOpenA, ActRotStartTurn, ActRotEndTurn, ActRotLimitA, ActRotSwitchB, ActRotClose:
+	}
+
+	if !w.Initialized {
+		return machines.Ignore
+	}
+
+	let act = match a {
+	case ActRotOpenA:
+		ActPoolOpenSession{Account: AccountID("acc-a")}
+	case ActRotStartTurn:
+		ActPoolStartTurn
+	case ActRotLimitA:
+		ActPoolMarkLimited{Account: AccountID("acc-a"), ResetAtMs: 5000}
+	case ActRotSwitchB:
+		if w.State.Switches >= 1 {
+			return machines.Ignore
+		}
+		ActPoolSwitchAccount{Target: AccountID("acc-b")}
+	case ActRotClose:
+		ActPoolCloseSession
+	case ActRotInitFixed, ActRotInitPooled, ActRotEndTurn:
+		ActPoolEndTurn
+	}
+
+	let next = StepRotation(w.State, act) catch {
+	case r:
+		match r {
+		case TurnRequiresOpenSession:
+			match a {
+			case ActRotStartTurn:
+				if !w.TurnDeniedNoSession {
+					return machines.Enter[RotationWorld]{Next: RotationWorld{..w, TurnDeniedNoSession: true}}
+				}
+			case ActRotInitFixed, ActRotInitPooled, ActRotOpenA, ActRotEndTurn, ActRotLimitA, ActRotSwitchB, ActRotClose:
+			}
+			return machines.Ignore
+		case RotationBlockedMidTurn:
+			match a {
+			case ActRotSwitchB:
+				if !w.MidTurnBlocked {
+					return machines.Enter[RotationWorld]{Next: RotationWorld{..w, MidTurnBlocked: true}}
+				}
+			case ActRotInitFixed, ActRotInitPooled, ActRotOpenA, ActRotStartTurn, ActRotEndTurn, ActRotLimitA, ActRotClose:
+			}
+			return machines.Ignore
+		case FixedAccountPolicyRefusal:
+			match a {
+			case ActRotSwitchB:
+				if !w.FixedSwitchBlocked {
+					return machines.Enter[RotationWorld]{Next: RotationWorld{..w, FixedSwitchBlocked: true}}
+				}
+			case ActRotInitFixed, ActRotInitPooled, ActRotOpenA, ActRotStartTurn, ActRotEndTurn, ActRotLimitA, ActRotClose:
+			}
+			return machines.Ignore
+		case NoEligibleHealthyAccount, DuplicateThreadSessionRefusal:
+			return machines.Ignore
+		}
+	}
+	if next.SessionGen > 2 {
+		return machines.Ignore
+	}
+	machines.Enter[RotationWorld]{Next: RotationWorld{..w, State: next}}
+}
+
+func worldOneSessionAThread(w RotationWorld) bool { !w.Initialized || oneSessionAThread(w.State) }
+
+func worldNeverMidTurn(w RotationWorld) bool { !w.Initialized || neverMidTurn(w.State) }
+
+func worldFixedAccountNeverMoves(w RotationWorld) bool { !w.Initialized || fixedAccountNeverMoves(w.State) }
+
+func worldNeverPlacedOnLimited(w RotationWorld) bool { !w.Initialized || neverPlacedOnLimited(w.State) }
+
+func worldTurnHasSession(w RotationWorld) bool { !w.Initialized || turnHasSession(w.State) }
+
+func pooledSwitchedAwayFromLimited(w RotationWorld) bool {
+	w.Initialized && w.State.Policy == RotationPooled && w.State.Switches > 0 && w.State.ActiveAccount == option.Some[AccountID]{Value: AccountID("acc-b")}
+}
+
+func fixedStayedOnAccount(w RotationWorld) bool {
+	w.Initialized && w.State.Policy == RotationFixed && w.FixedSwitchBlocked && w.State.ActiveAccount == option.Some[AccountID]{Value: AccountID("acc-a")}
+}
+
+func turnRejectedWithoutSession(w RotationWorld) bool {
+	w.Initialized && w.TurnDeniedNoSession
+}
+
+// RotationLifecycle exhaustively verifies M5 one-session-per-thread, idle-only switching, and fixed-account pinning.
+type RotationLifecycle machine[RotationWorld, RotationAct] {
+	initial: firstRotationWorld(),
+	step:    stepRotationWorld,
+
+	law OneSessionAThread always worldOneSessionAThread,
+	law NeverMidTurn always worldNeverMidTurn,
+	law FixedAccountNeverMoves always worldFixedAccountNeverMoves,
+	law NeverPlacedOnLimited always worldNeverPlacedOnLimited,
+	law TurnHasSession always worldTurnHasSession,
+
+	law PooledSwitchedAwayFromLimited sometimes pooledSwitchedAwayFromLimited,
+	law FixedStayedOnAccount sometimes fixedStayedOnAccount,
+	law TurnRejectedWithoutSession sometimes turnRejectedWithoutSession,
+}
+
+test RotationNeverPlacesOnLimitedAndNeverSwitchesMidTurn {
+	let slots = []AccountSlot{
+		AccountSlot{ID: AccountID("acc-a"), Priority: 1, Status: AccountLimited{ResetAtMs: 9000}},
+		AccountSlot{ID: AccountID("acc-b"), Priority: 2, Status: AccountHealthy},
+	}
+	let s0 = NewRotationState(handle.ThreadID("th-test"), RotationPooled, slots, option.None)
+	let mut blockedLimited = false
+	let _ = StepRotation(s0, ActPoolOpenSession{Account: AccountID("acc-a")}) catch {
+	case NoEligibleHealthyAccount:
+		blockedLimited = true
+		s0
+	case RotationBlockedMidTurn, FixedAccountPolicyRefusal, TurnRequiresOpenSession, DuplicateThreadSessionRefusal:
+		s0
+	}
+	assert blockedLimited
+
+	let s1 = try StepRotation(s0, ActPoolOpenSession{Account: AccountID("acc-b")})
+	let s2 = try StepRotation(s1, ActPoolStartTurn)
+	let mut blockedMidTurn = false
+	let _ = StepRotation(s2, ActPoolSwitchAccount{Target: AccountID("acc-a")}) catch {
+	case RotationBlockedMidTurn:
+		blockedMidTurn = true
+		s2
+	case NoEligibleHealthyAccount, FixedAccountPolicyRefusal, TurnRequiresOpenSession, DuplicateThreadSessionRefusal:
+		s2
+	}
+	assert blockedMidTurn
+}

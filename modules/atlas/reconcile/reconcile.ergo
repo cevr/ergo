@@ -1,0 +1,713 @@
+import github.com/cevr/ergo/modules/atlas/adapter
+import github.com/cevr/ergo/modules/atlas/handle
+import github.com/cevr/ergo/modules/atlas/subagent
+import github.com/cevr/ergo/modules/atlas/turn
+import machines
+import option
+
+// WakeRecord tracks one persisted wake-delivery item keyed by immutable DeliveryID across restarts.
+type WakeRecord {
+	DeliveryID     string,
+	HandleID       handle.HandleID,
+	Delivered      bool,
+	PayloadSummary string,
+}
+
+// BootSnapshot captures durable and in-flight state observed immediately after process boot.
+type BootSnapshot {
+	BootingOwner               handle.OwnerID,
+	LiveForeignOwners          []handle.OwnerID,
+	Registry                   handle.RegistryState,
+	PendingWakes               []WakeRecord,
+	OpenTurns                  []turn.TurnState,
+	OpenRequests               []turn.RequestState,
+	PendingRequestsSurviveBoot bool,
+	AgentTree                  subagent.Tree,
+}
+
+// PlanKeepLiveForeignOwner preserves an open KindCall owned by a different live peer server/epoch.
+type PlanKeepLiveForeignOwner {
+	ID    handle.HandleID,
+	Owner handle.OwnerID,
+}
+
+// PlanSettleLostOnce settles a booting/dead owner's open KindCall handle once as DispLost.
+type PlanSettleLostOnce {
+	ID handle.HandleID,
+}
+
+// PlanReattachDurable keeps a restart-survivable handle open under its canonical deliverer.
+type PlanReattachDurable {
+	ID        handle.HandleID,
+	Kind      handle.HandleKind,
+	Deliverer handle.Deliverer,
+}
+
+// PlanAlreadySettled records a handle that had already settled prior to boot.
+type PlanAlreadySettled {
+	ID handle.HandleID,
+}
+
+// HandleAction describes the reconciliation outcome chosen for one WakeHandle.
+type HandleAction = PlanKeepLiveForeignOwner | PlanSettleLostOnce | PlanReattachDurable | PlanAlreadySettled
+
+// PlanDeliverWakeOnce schedules initial delivery for an undelivered WakeRecord.
+type PlanDeliverWakeOnce {
+	DeliveryID string,
+	HandleID   handle.HandleID,
+}
+
+// PlanSkipAlreadyDeliveredWake suppresses duplicate delivery of an already-delivered WakeRecord.
+type PlanSkipAlreadyDeliveredWake {
+	DeliveryID string,
+	HandleID   handle.HandleID,
+}
+
+// WakeAction describes the idempotent delivery decision for one WakeRecord.
+type WakeAction = PlanDeliverWakeOnce | PlanSkipAlreadyDeliveredWake
+
+// PlanSettleUnsureTurnLost settles an uncertain or active turn as OutcomeLost across restart.
+type PlanSettleUnsureTurnLost {
+	ID turn.TurnID,
+}
+
+// PlanKeepQueuedTurn keeps a queued turn that had not dispatched prior to restart.
+type PlanKeepQueuedTurn {
+	ID turn.TurnID,
+}
+
+// PlanKeepEndedTurn retains an already settled turn outcome unchanged.
+type PlanKeepEndedTurn {
+	ID turn.TurnID,
+}
+
+// TurnActionPlan describes the reconciliation decision for one TurnState.
+type TurnActionPlan = PlanSettleUnsureTurnLost | PlanKeepQueuedTurn | PlanKeepEndedTurn
+
+// ReconcilePlan holds the complete deterministic output of BootReconcile.
+type ReconcilePlan {
+	NextRegistry         handle.RegistryState,
+	HandlePlans          []HandleAction,
+	WakePlans            []WakeAction,
+	NextPendingWakes     []WakeRecord,
+	LostCallIDs          []handle.HandleID,
+	LostNotice           string,
+	TurnPlans            []TurnActionPlan,
+	ReconciledTurns      []turn.TurnState,
+	ReconciledRequests   []turn.RequestState,
+	NextTree             subagent.Tree,
+	KeptLiveForeignCalls []handle.HandleID,
+	ReattachedDurableIDs []handle.HandleID,
+	DeliveredWakeIDs     []string,
+}
+
+func containsOwner(owners []handle.OwnerID, target handle.OwnerID) bool {
+	for _, o in owners {
+		if o == target {
+			return true
+		}
+	}
+	false
+}
+
+func containsString(items []string, target string) bool {
+	for _, s in items {
+		if s == target {
+			return true
+		}
+	}
+	false
+}
+
+func settleTurnAsLost(ts turn.TurnState) turn.TurnState {
+	let dis = match ts.Phase {
+	case turn.PhaseUnsure:
+		turn.StepTurn(ts, turn.ActionResolveSent) catch {
+		case _:
+			ts
+		}
+	case turn.PhaseQueued, turn.PhaseDispatched, turn.PhaseConfirmed, turn.PhaseEnded:
+		ts
+	}
+	let cancelledReady = if dis.StopWanted && dis.Cancels == 0 {
+		turn.StepTurn(dis, turn.ActionSendCancel) catch {
+		case _:
+			dis
+		}
+	} else {
+		dis
+	}
+	turn.StepTurn(cancelledReady, turn.ActionFinishTurn{Outcome: turn.OutcomeLost}) catch {
+	case _:
+		cancelledReady
+	}
+}
+
+func settleLostHandlesOnTree(tree subagent.Tree, lost []handle.HandleID) subagent.Tree {
+	let mut cur = tree
+	for _, hid in lost {
+		for _, nodeID in cur.Order {
+			match cur.Nodes.Get(nodeID) {
+			case option.Some[subagent.SubagentNode]:
+				let next = subagent.SettleHandleOnNode(cur, nodeID, hid) catch {
+				case _:
+					cur
+				}
+				cur = next
+			case option.None:
+			}
+		}
+	}
+	cur
+}
+
+func reconcileHandlePass(snap BootSnapshot) (handle.RegistryState, []HandleAction, []handle.HandleID, []string, []handle.HandleID, []handle.HandleID) {
+	let mut reg = snap.Registry
+	let mut handlePlans = []HandleAction{}
+	let mut lostCallIDs = []handle.HandleID{}
+	let mut lostNoticeNames = []string{}
+	let mut keptForeign = []handle.HandleID{}
+	let mut reattached = []handle.HandleID{}
+
+	for _, id in snap.Registry.Order {
+		let h = match reg.Handles.Get(id) {
+		case option.Some[handle.WakeHandle] as found:
+			found.Value
+		case option.None:
+			continue
+		}
+		if !handle.IsOpen(h.Disposition) {
+			handlePlans = handlePlans.Append(PlanAlreadySettled{ID: h.ID})
+			continue
+		}
+		if handle.IsSurvivableAcrossRestart(h.Kind) {
+			handlePlans = handlePlans.Append(PlanReattachDurable{ID: h.ID, Kind: h.Kind, Deliverer: h.Deliverer})
+			reattached = reattached.Append(h.ID)
+			continue
+		}
+		let isForeignLive = h.Owner != snap.BootingOwner && containsOwner(snap.LiveForeignOwners, h.Owner)
+		if isForeignLive {
+			handlePlans = handlePlans.Append(PlanKeepLiveForeignOwner{ID: h.ID, Owner: h.Owner})
+			keptForeign = keptForeign.Append(h.ID)
+			continue
+		}
+		let (settledReg, _) = handle.SettleHandle(reg, h.ID, handle.DispLost) catch {
+		case _:
+			(reg, false)
+		}
+		reg = settledReg
+		handlePlans = handlePlans.Append(PlanSettleLostOnce{ID: h.ID})
+		lostCallIDs = lostCallIDs.Append(h.ID)
+		lostNoticeNames = lostNoticeNames.Append(string(h.ID))
+	}
+	(reg, handlePlans, lostCallIDs, lostNoticeNames, keptForeign, reattached)
+}
+
+func reconcileWakePass(wakes []WakeRecord) ([]WakeAction, []WakeRecord, []string) {
+	let mut wakePlans = []WakeAction{}
+	let mut nextWakes = []WakeRecord{}
+	let mut deliveredIDs = []string{}
+	for _, w in wakes {
+		if w.Delivered || containsString(deliveredIDs, w.DeliveryID) {
+			wakePlans = wakePlans.Append(PlanSkipAlreadyDeliveredWake{DeliveryID: w.DeliveryID, HandleID: w.HandleID})
+			nextWakes = nextWakes.Append(w)
+		} else {
+			wakePlans = wakePlans.Append(PlanDeliverWakeOnce{DeliveryID: w.DeliveryID, HandleID: w.HandleID})
+			deliveredIDs = deliveredIDs.Append(w.DeliveryID)
+			nextWakes = nextWakes.Append(WakeRecord{..w, Delivered: true})
+		}
+	}
+	(wakePlans, nextWakes, deliveredIDs)
+}
+
+func reconcileTurnPass(turns []turn.TurnState) ([]TurnActionPlan, []turn.TurnState) {
+	let mut turnPlans = []TurnActionPlan{}
+	let mut reconciledTurns = []turn.TurnState{}
+	for _, ts in turns {
+		match ts.Phase {
+		case turn.PhaseEnded:
+			turnPlans = turnPlans.Append(PlanKeepEndedTurn{ID: ts.ID})
+			reconciledTurns = reconciledTurns.Append(ts)
+		case turn.PhaseQueued:
+			turnPlans = turnPlans.Append(PlanKeepQueuedTurn{ID: ts.ID})
+			reconciledTurns = reconciledTurns.Append(ts)
+		case turn.PhaseUnsure, turn.PhaseDispatched, turn.PhaseConfirmed:
+			let lostTurn = settleTurnAsLost(ts)
+			turnPlans = turnPlans.Append(PlanSettleUnsureTurnLost{ID: ts.ID})
+			reconciledTurns = reconciledTurns.Append(lostTurn)
+		}
+	}
+	(turnPlans, reconciledTurns)
+}
+
+// BootReconcile reconciles durable handles, foreign live calls, wakes, active turns, requests, and subagent nodes on boot.
+func BootReconcile(snap BootSnapshot) ReconcilePlan {
+	let (reg, handlePlans, lostCallIDs, lostNoticeNames, keptForeign, reattached) = reconcileHandlePass(snap)
+	let (wakePlans, nextWakes, deliveredIDs) = reconcileWakePass(snap.PendingWakes)
+	let (turnPlans, reconciledTurns) = reconcileTurnPass(snap.OpenTurns)
+
+	let mut reconciledReqs = []turn.RequestState{}
+	for _, req in snap.OpenRequests {
+		let nextReq = turn.StepRequest(req, turn.ReqReboot{Survives: snap.PendingRequestsSurviveBoot}) catch {
+		case _:
+			req
+		}
+		reconciledReqs = reconciledReqs.Append(nextReq)
+	}
+
+	let nextTree = settleLostHandlesOnTree(snap.AgentTree, lostCallIDs)
+	let notice = handle.FormatLostBindingsNotice(lostNoticeNames)
+
+	ReconcilePlan{
+		NextRegistry:         reg,
+		HandlePlans:          handlePlans,
+		WakePlans:            wakePlans,
+		NextPendingWakes:     nextWakes,
+		LostCallIDs:          lostCallIDs,
+		LostNotice:           notice,
+		TurnPlans:            turnPlans,
+		ReconciledTurns:      reconciledTurns,
+		ReconciledRequests:   reconciledReqs,
+		NextTree:             nextTree,
+		KeptLiveForeignCalls: keptForeign,
+		ReattachedDurableIDs: reattached,
+		DeliveredWakeIDs:     deliveredIDs,
+	}
+}
+
+func ownerA() handle.OwnerID {
+	handle.OwnerID{ServerID: "srv-a", Location: "local", Epoch: 1}
+}
+
+func ownerB() handle.OwnerID {
+	handle.OwnerID{ServerID: "srv-b", Location: "local", Epoch: 1}
+}
+
+func ownerA2() handle.OwnerID {
+	handle.OwnerID{ServerID: "srv-a", Location: "local", Epoch: 2}
+}
+
+func idRoot() handle.ThreadID { handle.ThreadID("root") }
+
+func idChild() handle.ThreadID { handle.ThreadID("child") }
+
+func idLeaf() handle.ThreadID { handle.ThreadID("leaf") }
+
+type BootPhase = BootPreCrash | BootCrashed | BootReconciled
+
+type BootPreCrash {}
+
+type BootCrashed {}
+
+type BootReconciled {}
+
+type BootWorld {
+	Phase              BootPhase,
+	Registry           handle.RegistryState,
+	PendingWakes       []WakeRecord,
+	WakeDeliveries     Map[string, int],
+	Tree               subagent.Tree,
+	LostNotice         string,
+	ReconcilePasses    int,
+	SilentDropObserved bool,
+}
+
+type ActBootStartDurableJob {}
+
+type ActBootStartVolatileCallA {}
+
+type ActBootStartForeignCallB {}
+
+type ActBootSpawnChild {}
+
+type ActBootSpawnLeaf {}
+
+type ActBootFinishLeaf {}
+
+type ActBootCrash {}
+
+type ActBootReconcile {}
+
+type ActBootFinishDurableJob {}
+
+type ActBootHandBackChild {}
+
+type BootAct = ActBootStartDurableJob | ActBootStartVolatileCallA | ActBootStartForeignCallB | ActBootSpawnChild | ActBootSpawnLeaf | ActBootFinishLeaf | ActBootCrash | ActBootReconcile | ActBootFinishDurableJob | ActBootHandBackChild
+
+func firstBootWorld() BootWorld {
+	BootWorld{
+		Phase:              BootPreCrash,
+		Registry:           handle.EmptyRegistry(),
+		PendingWakes:       []WakeRecord{},
+		WakeDeliveries:     Map[string, int]{},
+		Tree:               subagent.NewTree(idRoot(), subagent.TreeBounds{MaxDepth: 2, MaxFanOut: 2, MaxBudget: 2}),
+		LostNotice:         "",
+		ReconcilePasses:    0,
+		SilentDropObserved: false,
+	}
+}
+
+func hasHandleInReg(reg handle.RegistryState, hid handle.HandleID) bool {
+	match reg.Handles.Get(hid) {
+	case option.Some[handle.WakeHandle]:
+		true
+	case option.None:
+		false
+	}
+}
+
+func hasPendingWakeFor(wakes []WakeRecord, deliveryID string) bool {
+	for _, w in wakes {
+		if w.DeliveryID == deliveryID {
+			return true
+		}
+	}
+	false
+}
+
+func stepBootWorld(w BootWorld, a BootAct) machines.Decision[BootWorld, string] {
+	let jobID = handle.HandleID("job-1")
+	let callAID = handle.HandleID("call-a")
+	let callBID = handle.HandleID("call-b")
+
+	match a {
+	case ActBootSpawnChild:
+		if w.Phase != BootPreCrash {
+			return machines.Ignore
+		}
+		let nextTree = subagent.SpawnChild(w.Tree, idRoot(), idChild(), subagent.RoleImplementor) catch {
+		case _:
+			return machines.Ignore
+		}
+		machines.Enter[BootWorld]{Next: BootWorld{..w, Tree: nextTree}}
+
+	case ActBootSpawnLeaf:
+		if w.Phase != BootPreCrash {
+			return machines.Ignore
+		}
+		let nextTree = subagent.SpawnChild(w.Tree, idChild(), idLeaf(), subagent.RoleWorker) catch {
+		case _:
+			return machines.Ignore
+		}
+		machines.Enter[BootWorld]{Next: BootWorld{..w, Tree: nextTree}}
+
+	case ActBootStartDurableJob:
+		if w.Phase != BootPreCrash {
+			return machines.Ignore
+		}
+		match w.Tree.Nodes.Get(idChild()) {
+		case option.None:
+			return machines.Ignore
+		case option.Some[subagent.SubagentNode]:
+		}
+		let nextReg = handle.OpenHostHandle(w.Registry, handle.OpenHandleSpec{ID: jobID, Kind: handle.KindJob, Owner: ownerA(), Session: handle.SessionID("s-child"), Summary: "durable job"}) catch {
+		case _:
+			return machines.Ignore
+		}
+		let nextTree = subagent.OpenHandleOnNode(w.Tree, idChild(), jobID) catch {
+		case _:
+			return machines.Ignore
+		}
+		let nextWakes = if hasPendingWakeFor(w.PendingWakes, "wake-job-1") {
+			w.PendingWakes
+		} else {
+			w.PendingWakes.Append(WakeRecord{DeliveryID: "wake-job-1", HandleID: jobID, Delivered: false, PayloadSummary: "job pending"})
+		}
+		machines.Enter[BootWorld]{Next: BootWorld{..w, Registry: nextReg, Tree: nextTree, PendingWakes: nextWakes}}
+
+	case ActBootStartVolatileCallA:
+		if w.Phase != BootPreCrash {
+			return machines.Ignore
+		}
+		match w.Tree.Nodes.Get(idChild()) {
+		case option.None:
+			return machines.Ignore
+		case option.Some[subagent.SubagentNode]:
+		}
+		let nextReg = handle.OpenRegistryHandle(w.Registry, handle.OpenHandleSpec{ID: callAID, Kind: handle.KindCall, Owner: ownerA(), Session: handle.SessionID("s-child"), Summary: "call a"}) catch {
+		case _:
+			return machines.Ignore
+		}
+		let nextTree = subagent.OpenHandleOnNode(w.Tree, idChild(), callAID) catch {
+		case _:
+			return machines.Ignore
+		}
+		machines.Enter[BootWorld]{Next: BootWorld{..w, Registry: nextReg, Tree: nextTree}}
+
+	case ActBootStartForeignCallB:
+		if w.Phase != BootPreCrash {
+			return machines.Ignore
+		}
+		let nextReg = handle.OpenRegistryHandle(w.Registry, handle.OpenHandleSpec{ID: callBID, Kind: handle.KindCall, Owner: ownerB(), Session: handle.SessionID("s-foreign"), Summary: "foreign call b"}) catch {
+		case _:
+			return machines.Ignore
+		}
+		machines.Enter[BootWorld]{Next: BootWorld{..w, Registry: nextReg}}
+
+	case ActBootFinishLeaf:
+		let nextTree = subagent.FinalizeHandBack(w.Tree, idLeaf()) catch {
+		case _:
+			return machines.Ignore
+		}
+		machines.Enter[BootWorld]{Next: BootWorld{..w, Tree: nextTree}}
+
+	case ActBootCrash:
+		if w.Phase != BootPreCrash {
+			return machines.Ignore
+		}
+		machines.Enter[BootWorld]{Next: BootWorld{..w, Phase: BootCrashed}}
+
+	case ActBootReconcile:
+		if w.Phase == BootPreCrash || w.ReconcilePasses >= 2 {
+			return machines.Ignore
+		}
+		let plan = BootReconcile(BootSnapshot{
+			BootingOwner:               ownerA2(),
+			LiveForeignOwners:          []handle.OwnerID{ownerB()},
+			Registry:                   w.Registry,
+			PendingWakes:               w.PendingWakes,
+			OpenTurns:                  []turn.TurnState{},
+			OpenRequests:               []turn.RequestState{},
+			PendingRequestsSurviveBoot: true,
+			AgentTree:                  w.Tree,
+		})
+		let mut deliv = w.WakeDeliveries
+		for _, did in plan.DeliveredWakeIDs {
+			let prev = match deliv.Get(did) {
+			case option.Some[int] as c:
+				c.Value
+			case option.None:
+				0
+			}
+			deliv = deliv.Put(did, prev+1)
+		}
+		let nextNotice = if plan.LostNotice != "" { plan.LostNotice } else { w.LostNotice }
+		machines.Enter[BootWorld]{
+			Next: BootWorld{
+				Phase:              BootReconciled,
+				Registry:           plan.NextRegistry,
+				PendingWakes:       plan.NextPendingWakes,
+				WakeDeliveries:     deliv,
+				Tree:               plan.NextTree,
+				LostNotice:         nextNotice,
+				ReconcilePasses:    w.ReconcilePasses + 1,
+				SilentDropObserved: w.SilentDropObserved,
+			},
+		}
+
+	case ActBootFinishDurableJob:
+		if w.Phase == BootCrashed {
+			return machines.Ignore
+		}
+		let (nextReg, _) = handle.SettleHandle(w.Registry, jobID, handle.DispSucceeded) catch {
+		case _:
+			return machines.Ignore
+		}
+		let nextTree = subagent.SettleHandleOnNode(w.Tree, idChild(), jobID) catch {
+		case _:
+			return machines.Ignore
+		}
+		machines.Enter[BootWorld]{Next: BootWorld{..w, Registry: nextReg, Tree: nextTree}}
+
+	case ActBootHandBackChild:
+		if w.Phase == BootCrashed {
+			return machines.Ignore
+		}
+		let nextTree = subagent.FinalizeHandBack(w.Tree, idChild()) catch {
+		case _:
+			return machines.Ignore
+		}
+		machines.Enter[BootWorld]{Next: BootWorld{..w, Tree: nextTree}}
+	}
+}
+
+func bootZeroSpinParkedTree(w BootWorld) bool {
+	for _, id in w.Tree.Order {
+		match w.Tree.Nodes.Get(id) {
+		case option.Some[subagent.SubagentNode] as n:
+			let node = n.Value
+			if (subagent.HasOpenHandles(node) || subagent.HasActiveDescendant(w.Tree, id)) && node.State == subagent.NodeRunning {
+				return false
+			}
+		case option.None:
+		}
+	}
+	true
+}
+
+func bootChildWaitsForDescendants(w BootWorld) bool {
+	for _, id in w.Tree.Order {
+		match w.Tree.Nodes.Get(id) {
+		case option.Some[subagent.SubagentNode] as n:
+			if n.Value.HandedBackWithActiveChild {
+				return false
+			}
+			if n.Value.State == subagent.NodeDone && subagent.HasActiveDescendant(w.Tree, id) {
+				return false
+			}
+		case option.None:
+		}
+	}
+	true
+}
+
+func bootNoSilentDropAcrossRestart(w BootWorld) bool {
+	if w.SilentDropObserved || w.Phase != BootReconciled {
+		return !w.SilentDropObserved
+	}
+	if hasHandleInReg(w.Registry, handle.HandleID("job-1")) {
+		match w.Registry.Handles.Get(handle.HandleID("job-1")) {
+		case option.Some[handle.WakeHandle] as h:
+			if h.Value.Disposition == handle.DispLost {
+				return false
+			}
+		case option.None:
+			return false
+		}
+	}
+	w.LostNotice.Len() <= 160
+}
+
+func bootNoDuplicateWakeAcrossRestart(w BootWorld) bool {
+	for _, c in w.WakeDeliveries {
+		if c > 1 {
+			return false
+		}
+	}
+	true
+}
+
+func bootVolatileSettledOnceAsLost(w BootWorld) bool {
+	if w.Phase != BootReconciled {
+		return true
+	}
+	match w.Registry.Handles.Get(handle.HandleID("call-a")) {
+	case option.None:
+		true
+	case option.Some[handle.WakeHandle] as h:
+		let letters = match w.Registry.WakeLetters.Get(handle.HandleID("call-a")) {
+		case option.Some[int] as n:
+			n.Value
+		case option.None:
+			0
+		}
+		h.Value.Disposition == handle.DispLost && letters == 1 && w.LostNotice.Len() > 0 && w.LostNotice.Len() <= 160
+	}
+}
+
+func bootOtherOwnerReloadKeepsLiveCalls(w BootWorld) bool {
+	if w.Phase != BootReconciled {
+		return true
+	}
+	match w.Registry.Handles.Get(handle.HandleID("call-b")) {
+	case option.None:
+		true
+	case option.Some[handle.WakeHandle] as h:
+		h.Value.Disposition == handle.DispOpen
+	}
+}
+
+func bootPostRestartDurableAndForeignKept(w BootWorld) bool {
+	if w.Phase != BootReconciled {
+		return false
+	}
+	let jobOk = match w.Registry.Handles.Get(handle.HandleID("job-1")) {
+	case option.Some[handle.WakeHandle] as j:
+		j.Value.Disposition == handle.DispOpen
+	case option.None:
+		false
+	}
+	let callALost = match w.Registry.Handles.Get(handle.HandleID("call-a")) {
+	case option.Some[handle.WakeHandle] as a:
+		a.Value.Disposition == handle.DispLost
+	case option.None:
+		false
+	}
+	let callBOpen = match w.Registry.Handles.Get(handle.HandleID("call-b")) {
+	case option.Some[handle.WakeHandle] as b:
+		b.Value.Disposition == handle.DispOpen
+	case option.None:
+		false
+	}
+	jobOk && callALost && callBOpen && w.LostNotice.Len() > 0
+}
+
+func bootChildFinishedAfterPostRestartJob(w BootWorld) bool {
+	if w.Phase != BootReconciled {
+		return false
+	}
+	match (w.Tree.Nodes.Get(idChild()), w.Tree.Nodes.Get(idRoot())) {
+	case (option.Some[subagent.SubagentNode] as c, option.Some[subagent.SubagentNode] as r):
+		c.Value.State == subagent.NodeDone && r.Value.State == subagent.NodeRunning
+	case (_, _):
+		false
+	}
+}
+
+// BootReconcileLifecycle exhaustively proves M13 restart reconciliation and M11 cross-owner isolation.
+type BootReconcileLifecycle machine[BootWorld, BootAct] {
+	initial: firstBootWorld(),
+	step:    stepBootWorld,
+
+	law ZeroSpinParkedTree always bootZeroSpinParkedTree,
+	law ChildWaitsForDescendants always bootChildWaitsForDescendants,
+	law NoSilentDropAcrossRestart always bootNoSilentDropAcrossRestart,
+	law NoDuplicateWakeAcrossRestart always bootNoDuplicateWakeAcrossRestart,
+	law VolatileSettledOnceAsLost always bootVolatileSettledOnceAsLost,
+	law OtherOwnerReloadKeepsLiveCalls always bootOtherOwnerReloadKeepsLiveCalls,
+
+	law PostRestartDurableAndForeignKept sometimes bootPostRestartDurableAndForeignKept,
+	law ChildFinishedAfterPostRestartJob sometimes bootChildFinishedAfterPostRestartJob,
+}
+
+law ReconcileDeduplicatesWakesByDeliveryID(alreadyDelivered bool) {
+	let rec1 = WakeRecord{DeliveryID: "wake-dup", HandleID: handle.HandleID("job-x"), Delivered: alreadyDelivered, PayloadSummary: "done"}
+	let rec2 = WakeRecord{DeliveryID: "wake-dup", HandleID: handle.HandleID("job-x"), Delivered: alreadyDelivered, PayloadSummary: "done"}
+	let snap = BootSnapshot{
+		BootingOwner:               ownerA(),
+		LiveForeignOwners:          []handle.OwnerID{},
+		Registry:                   handle.EmptyRegistry(),
+		PendingWakes:               []WakeRecord{rec1, rec2},
+		OpenTurns:                  []turn.TurnState{},
+		OpenRequests:               []turn.RequestState{},
+		PendingRequestsSurviveBoot: false,
+		AgentTree:                  subagent.NewTree(idRoot(), subagent.TreeBounds{MaxDepth: 1, MaxFanOut: 1, MaxBudget: 1}),
+	}
+	let plan = BootReconcile(snap)
+	if alreadyDelivered {
+		plan.DeliveredWakeIDs.Len() == 0
+	} else {
+		plan.DeliveredWakeIDs.Len() == 1
+	}
+}
+
+test ReconcileSettlesActiveTurnAsLostAndKeepsForeignCalls {
+	let mut reg = handle.EmptyRegistry()
+	reg = try handle.OpenRegistryHandle(reg, handle.OpenHandleSpec{ID: handle.HandleID("c-dead"), Kind: handle.KindCall, Owner: ownerA(), Session: handle.SessionID("s-a"), Summary: "dead call"})
+	reg = try handle.OpenRegistryHandle(reg, handle.OpenHandleSpec{ID: handle.HandleID("c-live"), Kind: handle.KindCall, Owner: ownerB(), Session: handle.SessionID("s-b"), Summary: "live call"})
+	reg = try handle.OpenHostHandle(reg, handle.OpenHandleSpec{ID: handle.HandleID("j-1"), Kind: handle.KindJob, Owner: ownerA(), Session: handle.SessionID("s-a"), Summary: "durable job"})
+
+	let caps = adapter.CapabilitiesFor(adapter.CodexDirect, false)
+	let t0 = try turn.NewTurn(turn.TurnID("t-unsure"), adapter.CodexDirect, caps, adapter.ModeAsk)
+	let t1 = try turn.StepTurn(t0, turn.ActionDispatchLost)
+
+	let plan = BootReconcile(BootSnapshot{
+		BootingOwner:               ownerA2(),
+		LiveForeignOwners:          []handle.OwnerID{ownerB()},
+		Registry:                   reg,
+		PendingWakes:               []WakeRecord{WakeRecord{DeliveryID: "d-1", HandleID: handle.HandleID("j-1"), Delivered: false, PayloadSummary: "job"}},
+		OpenTurns:                  []turn.TurnState{t1},
+		OpenRequests:               []turn.RequestState{},
+		PendingRequestsSurviveBoot: false,
+		AgentTree:                  subagent.NewTree(idRoot(), subagent.TreeBounds{MaxDepth: 1, MaxFanOut: 1, MaxBudget: 1}),
+	})
+
+	assert plan.LostCallIDs == []handle.HandleID{handle.HandleID("c-dead")}
+	assert plan.KeptLiveForeignCalls == []handle.HandleID{handle.HandleID("c-live")}
+	assert plan.ReattachedDurableIDs == []handle.HandleID{handle.HandleID("j-1")}
+	assert plan.DeliveredWakeIDs == []string{"d-1"}
+	assert plan.ReconciledTurns.Len() == 1
+	assert plan.ReconciledTurns[0].Phase == turn.PhaseEnded
+	assert plan.ReconciledTurns[0].Outcome == option.Some[turn.TurnOutcome]{Value: turn.OutcomeLost}
+	assert plan.LostNotice.Len() > 0 && plan.LostNotice.Len() <= 160
+}
