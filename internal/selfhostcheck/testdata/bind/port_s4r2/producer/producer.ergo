@@ -1,0 +1,5 @@
+type S4r2Item { Key int, Val int }
+
+type S4r2Res = S4r2Ok{Val int, Pad [20]int} | S4r2Zero{}
+
+func SealedId(r S4r2Res) S4r2Res { r }

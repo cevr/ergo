@@ -45,7 +45,7 @@ func aggregateLiteral(st fnb, binds localBinds, x dense.ID[syntax.Node], cl synt
 	} else if okOpt == "Some" {
 		[]expr.Field{expr.Field{Name: "Value", T: optElem}}
 	} else {
-		match importedFields(st, t) {
+		match recordFieldsOf(st, t) {
 		case option.Some{Value: fields}:
 			fields
 		case option.None:
@@ -166,7 +166,7 @@ func field(st fnb, binds localBinds, x dense.ID[syntax.Node], se syntax.Selector
 			}
 			return stop("selector that is no imported field")
 		}
-		match importedFields(st, t) {
+		match recordFieldsOf(st, t) {
 		case option.Some{Value: fields}:
 			// The selector's type is checked in the consumer's pool.
 			let name = nameText(st.p, se.Sel)
@@ -205,13 +205,21 @@ func field(st fnb, binds localBinds, x dense.ID[syntax.Node], se syntax.Selector
 // borrow marker. It only resolves the member; it does not admit the place
 // or say how to read or write it.
 func fieldOn(st fnb, x dense.ID[syntax.Node], se syntax.SelectorExpr, recordType dense.ID[store.TKey]) string fails Unported {
-	let r = ordinaryRecord(st, recordType)
-	if r < 0 || shapeGo(st, recordType) == "" {
+	if shapeGo(st, recordType) == "" {
 		return stop("selector on no plain record")
+	}
+	let fs = match recordFieldsOf(st, recordType) {
+	case option.Some{Value: found}:
+		found
+	case option.None:
+		let r = ordinaryRecord(st, recordType)
+		if r < 0 {
+			return stop("selector on no plain record")
+		}
+		st.k.Recs[r].Fields
 	}
 	let t = try typeOf(st, x, "SelectorExpr")
 	let name = nameText(st.p, se.Sel)
-	let fs = st.k.Recs[r].Fields
 	let i = fieldIndex(fs, name)
 	if i < 0 || fs[i].T != t {
 		return stop("selector that is no field")
@@ -224,6 +232,9 @@ func fieldOn(st fnb, x dense.ID[syntax.Node], se syntax.SelectorExpr, recordType
 func readPlace(st fnb, binds localBinds, x dense.ID[syntax.Node]) fails Unported {
 	match syntax.ViewOf(st.p.Tree, x) {
 	case syntax.Name:
+		if pkgGlobalName(st, binds, x, true) != option.None {
+			return
+		}
 		let _ = try paramLocal(st, binds, x)
 	case syntax.SelectorExpr as se:
 		let _ = try field(st, binds, x, se)
@@ -346,7 +357,7 @@ func bareEmptyRecord(st fnb, x dense.ID[syntax.Node]) string {
 		case _:
 			return ""
 		}
-		match importedFields(st, t) {
+		match recordFieldsOf(st, t) {
 		case option.Some{Value: fields}:
 			if fields.Len() == 0 { gt } else { "" }
 		case option.None:

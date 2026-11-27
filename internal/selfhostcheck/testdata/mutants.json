@@ -2660,6 +2660,105 @@
       "rule": "Std match exhaustiveness defect messages prefix the std relative file path before line:col.",
       "regenerate": {"dir": ".", "argv": ["go", "run", "./scripts/linked"]},
       "killers": ["internal/selfhostcheck:TestIRS4R1Cutover"]
+    },
+    {
+      "name": "lower-s4r2-sealed-union-admitted",
+      "origin": "wf10/selfhost/S4-LOWER-CUTOVER-R2",
+      "file": "compiler/lower/lower.ergo",
+      "decl": "isAdmittedUnion",
+      "from": "\t\tcase UnionSealed:\n\t\t\t!holdsValue(st, t)",
+      "to": "\t\tcase UnionSealed:\n\t\t\tfalse",
+      "rule": "Non-generic sealed unions that hold no Go heap values admit value calls and returns (KeepSealed, UseSealed).",
+      "regenerate": {"dir": ".", "argv": ["go", "run", "./scripts/linked"]},
+      "killers": ["internal/selfhostcheck:TestIRS4R2Cutover"]
+    },
+    {
+      "name": "lower-s4r2-go-import-outside",
+      "origin": "wf10/selfhost/S4-LOWER-CUTOVER-R2",
+      "file": "compiler/lower/go_leaf.ergo",
+      "decl": "goImportSpecPath",
+      "from": "\tmatch bind.ResolutionOf(st.k.U, st.k.Ps, bind.PNodeOf(st.k.Ps, st.file, target)) {\n\tcase bind.Outside:\n\tcase _:\n\t\treturn \"\"\n\t}",
+      "to": "\tmatch bind.ResolutionOf(st.k.U, st.k.Ps, bind.PNodeOf(st.k.Ps, st.file, target)) {\n\tcase _:\n\t\treturn \"\"\n\t}",
+      "rule": "Import go package selectors classify as bind.Outside in bind.ResolutionOf and must resolve against top-level ImportDecls (GoAbs, GoRuneCount).",
+      "regenerate": {"dir": ".", "argv": ["go", "run", "./scripts/linked"]},
+      "killers": ["internal/selfhostcheck:TestIRS4R2Cutover"]
+    },
+    {
+      "name": "lower-s4r2-unquote-import-path",
+      "origin": "wf10/selfhost/S4-LOWER-CUTOVER-R2",
+      "file": "compiler/lower/go_leaf.ergo",
+      "decl": "importSpecLocalName",
+      "from": "\tlet slash = strings.LastIndex(path, \"/\")\n\tlet mut local = if slash >= 0 { path[slash+1 : path.Len()] } else { path }",
+      "to": "\tlet mut local = path",
+      "rule": "Multi-segment import go paths default their local package identifier to the trailing path segment (unicode/utf8 -> utf8 in GoRuneCount).",
+      "regenerate": {"dir": ".", "argv": ["go", "run", "./scripts/linked"]},
+      "killers": ["internal/selfhostcheck:TestIRS4R2Cutover"]
+    },
+    {
+      "name": "lower-s4r2-runtime-strings-join",
+      "origin": "wf10/selfhost/S4-LOWER-CUTOVER-R2",
+      "file": "compiler/lower/go_leaf.ergo",
+      "decl": "pcallOf",
+      "from": "\tif target == \"ergo.local/prototype/runtime/v1.StringsJoin\" && !to.Recv && syntax.Len(ce.Args) == 2 {",
+      "to": "\tif false {",
+      "rule": "Pure leaf extern calls to runtime/v1.StringsJoin lower to pcall rows (RuntimeJoin).",
+      "regenerate": {"dir": ".", "argv": ["go", "run", "./scripts/linked"]},
+      "killers": ["internal/selfhostcheck:TestIRS4R2Cutover"]
+    },
+    {
+      "name": "lower-s4r2-seed-slice-grow",
+      "origin": "wf10/selfhost/S4-LOWER-CUTOVER-R2",
+      "file": "compiler/lower/control.ergo",
+      "decl": "controlStatementYield",
+      "from": "\t\t\tif hasAppend && isSingleLit {\n\t\t\t\trow.op = CSeedSliceDef{SliceType: l.vt}\n\t\t\t} else {",
+      "to": "\t\t\tif false && hasAppend && isSingleLit {\n\t\t\t\trow.op = CSeedSliceDef{SliceType: l.vt}\n\t\t\t} else {",
+      "rule": "Single-element mutable slice literals paired with append lower via CSeedSliceDef so IR emits slices.Grow capacity seeding (SeedAppend).",
+      "regenerate": {"dir": ".", "argv": ["go", "run", "./scripts/linked"]},
+      "killers": ["internal/selfhostcheck:TestIRS4R2Cutover"]
+    },
+    {
+      "name": "lower-s4r2-append-set-rewrite",
+      "origin": "wf10/selfhost/S4-LOWER-CUTOVER-R2",
+      "file": "compiler/lower/control.ergo",
+      "decl": "controlPrepareSet",
+      "from": "\t\tif store.KindOfType(st.s, lt) == store.KSlice {\n\t\t\tmatch bind.ResolutionOf(st.k.U, st.k.Ps, bind.PNodeOf(st.k.Ps, st.file, unparen(st, lhs))) {",
+      "to": "\t\tif false && store.KindOfType(st.s, lt) == store.KSlice {\n\t\t\tmatch bind.ResolutionOf(st.k.U, st.k.Ps, bind.PNodeOf(st.k.Ps, st.file, unparen(st, lhs))) {",
+      "rule": "Self-append assignments xs = xs.Append(v) on safe mutable slices rewrite via CAppendSet (SeedAppend).",
+      "regenerate": {"dir": ".", "argv": ["go", "run", "./scripts/linked"]},
+      "killers": ["internal/selfhostcheck:TestIRS4R2Cutover"]
+    },
+    {
+      "name": "lower-s4r2-pkg-global-slice",
+      "origin": "wf10/selfhost/S4-LOWER-CUTOVER-R2",
+      "file": "compiler/lower/go_leaf.ergo",
+      "decl": "isPkgGlobalType",
+      "from": "\tif allowSliceReadOnly && store.KindOfType(st.s, t) == store.KSlice {\n\t\tlet ops = store.OperandsOf(st.s, t)\n\t\treturn ops.Len() == 1 && !holdsValue(st, ops[0])\n\t}",
+      "to": "\tif allowSliceReadOnly && store.KindOfType(st.s, t) == store.KSlice {\n\t\treturn false\n\t}",
+      "rule": "Read-only package-level slice globals without holdsValue elements admit range/len/index reads (GlobalSum, GlobalPick).",
+      "regenerate": {"dir": ".", "argv": ["go", "run", "./scripts/linked"]},
+      "killers": ["internal/selfhostcheck:TestIRS4R2Cutover"]
+    },
+    {
+      "name": "lower-s4r2-fold-unary-fallback",
+      "origin": "wf10/selfhost/S4-LOWER-CUTOVER-R2",
+      "file": "compiler/lower/lower.ergo",
+      "decl": "foldTyped",
+      "from": "\t\t\tif op == \"-\" {\n\t\t\t\tlet lt = try foldTypeOr(st, u.X, option.Some{Value: t}, \"BasicLit\")\n\t\t\t\treturn try literal(st, bl.Tok, lt, true)\n\t\t\t}",
+      "to": "\t\t\tif op == \"-\" {\n\t\t\t\tlet lt = try foldTypeOr(st, u.X, option.None, \"BasicLit\")\n\t\t\t\treturn try literal(st, bl.Tok, lt, true)\n\t\t\t}",
+      "rule": "Negated untyped numeric literals inherit their UnaryExpr checked type when inner BasicLit has no separate type side entry (NegFold, math__MinInt64).",
+      "regenerate": {"dir": ".", "argv": ["go", "run", "./scripts/linked"]},
+      "killers": ["internal/selfhostcheck:TestIRS4R2Cutover"]
+    },
+    {
+      "name": "lower-s4r2-generic-unit-result",
+      "origin": "wf10/selfhost/S4-LOWER-CUTOVER-R2",
+      "file": "compiler/lower/lower.ergo",
+      "decl": "function",
+      "from": "\tlet unit = !uses && isUnit(stF, ops[n])\n\tlet borrowUnit = unit && !hasGenericBinders(stF.generic) && controlUnitAdmitted(stF, f, body)\n\tif unit {\n\t\tsig = \"\"\n\t}",
+      "to": "\tlet unit = !uses && isUnit(stF, ops[n])\n\tlet borrowUnit = unit && !hasGenericBinders(stF.generic) && controlUnitAdmitted(stF, f, body)\n\tif unit && !hasGenericBinders(stF.generic) {\n\t\tsig = \"\"\n\t}",
+      "rule": "Generic functions with unit results and no owned parameters admit unit-frame lowering (GenericUnit).",
+      "regenerate": {"dir": ".", "argv": ["go", "run", "./scripts/linked"]},
+      "killers": ["internal/selfhostcheck:TestIRS4R2Cutover"]
     }
   ]
 }

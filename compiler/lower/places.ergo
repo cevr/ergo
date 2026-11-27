@@ -12,7 +12,7 @@ func borrowParamBase(st fnb, t dense.ID[store.TKey]) option.Option[dense.ID[stor
 		return option.None
 	}
 	let elem = store.OperandsOf(st.s, t)[0]
-	if scalarBasicGo(st, elem) == "" && ordinaryRecord(st, elem) < 0 && store.KindOfType(st.s, elem) != store.KSlice {
+	if scalarBasicGo(st, elem) == "" && ordinaryRecord(st, elem) < 0 && recordFieldsOf(st, elem) == option.None && store.KindOfType(st.s, elem) != store.KSlice {
 		return option.None
 	}
 	if shapeGo(st, elem) == "" {

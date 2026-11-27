@@ -13994,7 +13994,7 @@ func ergo__IRWrite_1(env *ergo__Env, words []uint32, strs []string) string {
 
 //line api/ir.ergo:39:1
 func ergo__IRKinds_1(env *ergo__Env) string {
-	/*line api/ir.ergo:39:24*/ return "1 6 |1,2,3,4\n2 5 local|2\n3 5 const|3,4,5\n4 5 field|6,8\n5 5 mcall|6,8,9\n6 5 lit|3,10,11\n7 5 zero|3\n8 5 bin|5,6,7\n9 5 call|3,8,9\n10 5 pcall|3,4,5,8,9\n11 5 index|6,7\n12 5 assert|3,6\n13 5 nil|3\n14 5 len|6\n15 5 addr|6\n16 5 append|9\n17 5 conv|3,6\n18 5 toiface|3,6\n19 5 un|5,6\n20 5 func|3,12,13,14\n21 5 vcall|6,9\n22 5 global|8\n23 5 mapAt|6,7\n24 5 deref|6\n25 5 builtin|8,9\n26 5 slice|6,9\n27 5 result|2\n28 5 recover|\n29 4 def|2,5\n30 4 ret|5\n31 4 if|5,6,7,9,10,11\n32 4 set|2,5,12\n33 4 expr|5\n34 4 store|5,12,15\n35 4 fail|5\n36 4 goto|14\n37 4 switch|5,7,9,10,13\n38 4 block|8,9,14\n39 4 panic|5\n40 4 def2|2,4,5\n41 4 discard|5\n42 4 var|2\n43 4 range|3,4,5,8,9,14\n44 4 tswitch|5,7,9,10,13\n45 4 count|2,5,8,9,15\n46 4 while|5,8,9,14\n47 4 mapget|2,4,5,15\n48 4 continue|\n49 4 break|14\n50 4 tdef|5,16\n51 4 defer|5\n"
+	/*line api/ir.ergo:39:24*/ return "1 6 |1,2,3,4\n2 5 local|2\n3 5 const|3,4,5\n4 5 field|6,8\n5 5 mcall|6,8,9\n6 5 lit|3,10,11\n7 5 zero|3\n8 5 bin|5,6,7\n9 5 call|3,8,9\n10 5 pcall|3,4,5,8,9\n11 5 index|6,7\n12 5 assert|3,6\n13 5 nil|3\n14 5 len|6\n15 5 addr|6\n16 5 append|9\n17 5 conv|3,6\n18 5 toiface|3,6\n19 5 un|5,6\n20 5 func|3,12,13,14\n21 5 vcall|6,9\n22 5 global|8\n23 5 mapAt|6,7\n24 5 deref|6\n25 5 builtin|3,8,9\n26 5 slice|6,9\n27 5 result|2\n28 5 recover|\n29 4 def|2,5\n30 4 ret|5\n31 4 if|5,6,7,9,10,11\n32 4 set|2,5,12\n33 4 expr|5\n34 4 store|5,12,15\n35 4 fail|5\n36 4 goto|14\n37 4 switch|5,7,9,10,13\n38 4 block|8,9,14\n39 4 panic|5\n40 4 def2|2,4,5\n41 4 discard|5\n42 4 var|2\n43 4 range|3,4,5,8,9,14\n44 4 tswitch|5,7,9,10,13\n45 4 count|2,5,8,9,15\n46 4 while|5,8,9,14\n47 4 mapget|2,4,5,15\n48 4 continue|\n49 4 break|14\n50 4 tdef|5,16\n51 4 defer|5\n"
 }
 
 //line api/ir.ergo:40
@@ -70963,7 +70963,7 @@ func ergoInit(env *ergo__Env) {
 		var v_50 compiler_sir__Kind
 		/*line ir/kinds.ergo:52:2*/ {
 			/*line ir/kinds.ergo:52:2*/ var name_25 string = "builtin"
-			/*line ir/kinds.ergo:52:2*/ var slots_25 []uint8 = []uint8{uint8(8), uint8(9)}
+			/*line ir/kinds.ergo:52:2*/ var slots_25 []uint8 = []uint8{uint8(3), uint8(8), uint8(9)}
 //line ir/kinds.ergo#ergo-inline-ir/kinds.ergo@52.2:17:2
 			t_50 := name_25
 //line ir/kinds.ergo#ergo-inline-ir/kinds.ergo@52.2:17:27
