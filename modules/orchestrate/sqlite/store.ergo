@@ -490,7 +490,6 @@ func resetStoreData(st Store) Store fails orchestrate.StoreFailed needs go.Forei
 				"DELETE FROM queue",
 				"DELETE FROM questions",
 				"DELETE FROM run_meta",
-				"DELETE FROM landing_leases",
 				"DELETE FROM decisions",
 				"DELETE FROM landings",
 				"DELETE FROM event_log",

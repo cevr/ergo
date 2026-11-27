@@ -76,6 +76,11 @@ func migrateSchemaTx(fromVer int) fails orchestrate.StoreFailed needs sql.Tx {
 	} else {
 		try createTablesTx()
 	}
+	for col in []string{"lease_actor", "lease_base_head", "lease_since", "lease_until"} {
+		if !(try hasColumnTx("run_meta", col)) {
+			let _ = try execTx("ALTER TABLE run_meta ADD COLUMN "+col+" TEXT", []sql.Value{})
+		}
+	}
 	if !(try hasColumnTx("units", "owner")) {
 		let _ = try execTx("ALTER TABLE units ADD COLUMN owner TEXT NOT NULL DEFAULT 'unknown'", []sql.Value{})
 		try migrateOwnersTx()
@@ -143,8 +148,7 @@ func createTablesTx() fails orchestrate.StoreFailed needs sql.Tx {
 		"CREATE INDEX IF NOT EXISTS idx_queue_order ON queue (status, priority, key);" +
 		"CREATE TABLE IF NOT EXISTS questions (id INTEGER PRIMARY KEY, command_id TEXT NOT NULL UNIQUE, prompt TEXT NOT NULL, assumption TEXT NOT NULL, concrete_action TEXT NOT NULL, status TEXT NOT NULL, answer TEXT, asked_by TEXT NOT NULL, asked_at TEXT NOT NULL, answered_by TEXT, answered_at TEXT);" +
 		"CREATE INDEX IF NOT EXISTS idx_questions_status ON questions (status, id);" +
-		"CREATE TABLE IF NOT EXISTS run_meta (repo TEXT NOT NULL, run TEXT NOT NULL, main_head TEXT, updated_at TEXT NOT NULL, PRIMARY KEY (repo, run));" +
-		"CREATE TABLE IF NOT EXISTS landing_leases (repo TEXT NOT NULL, run TEXT NOT NULL, actor TEXT NOT NULL, base_head TEXT NOT NULL, since TEXT NOT NULL, until TEXT NOT NULL, PRIMARY KEY (repo, run));" +
+		"CREATE TABLE IF NOT EXISTS run_meta (repo TEXT NOT NULL, run TEXT NOT NULL, main_head TEXT, updated_at TEXT NOT NULL, lease_actor TEXT, lease_base_head TEXT, lease_since TEXT, lease_until TEXT, PRIMARY KEY (repo, run));" +
 		"CREATE TABLE IF NOT EXISTS decisions (repo TEXT NOT NULL, run TEXT NOT NULL, id TEXT NOT NULL, category TEXT NOT NULL, scope TEXT NOT NULL, unit_id TEXT, title TEXT NOT NULL, body TEXT NOT NULL, status TEXT NOT NULL, supersedes TEXT, actor TEXT NOT NULL, created_at TEXT NOT NULL, PRIMARY KEY (repo, run, id));" +
 		"CREATE INDEX IF NOT EXISTS idx_decisions_filter ON decisions (repo, run, status, category, created_at DESC, id);" +
 		"CREATE TABLE IF NOT EXISTS landings (repo TEXT NOT NULL, run TEXT NOT NULL, landing_number INTEGER NOT NULL, group_id TEXT NOT NULL, head TEXT NOT NULL, tips_json TEXT NOT NULL, summary TEXT NOT NULL, log_path TEXT, landed_at TEXT NOT NULL, PRIMARY KEY (repo, run, landing_number));" +

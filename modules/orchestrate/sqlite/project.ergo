@@ -183,12 +183,12 @@ func applyEventSQL(ev orchestrate.Event, seq int) fails orchestrate.StoreFailed 
 	case orchestrate.LandingLeaseTaken as e:
 		let l = e.Lease
 		let _ = try execTx(
-			"INSERT INTO landing_leases (repo, run, actor, base_head, since, until) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(repo, run) DO UPDATE SET actor = excluded.actor, base_head = excluded.base_head, since = excluded.since, until = excluded.until",
-			[]sql.Value{sql.Text{S: l.Repo}, sql.Text{S: l.Run}, sql.Text{S: l.Actor}, sql.Text{S: l.BaseHead}, sql.Text{S: l.Since}, sql.Text{S: l.Until}},
+			"UPDATE run_meta SET lease_actor = ?, lease_base_head = ?, lease_since = ?, lease_until = ? WHERE repo = ? AND run = ?",
+			[]sql.Value{sql.Text{S: l.Actor}, sql.Text{S: l.BaseHead}, sql.Text{S: l.Since}, sql.Text{S: l.Until}, sql.Text{S: l.Repo}, sql.Text{S: l.Run}},
 		)
 	case orchestrate.LandingLeaseTakenOver:
 	case orchestrate.LandingLeaseEnded as e:
-		let _ = try execTx("DELETE FROM landing_leases WHERE repo = ? AND run = ?", []sql.Value{sql.Text{S: e.Repo}, sql.Text{S: e.Run}})
+		let _ = try execTx("UPDATE run_meta SET lease_actor = NULL, lease_base_head = NULL, lease_since = NULL, lease_until = NULL WHERE repo = ? AND run = ?", []sql.Value{sql.Text{S: e.Repo}, sql.Text{S: e.Run}})
 	case orchestrate.DecisionRecorded as e:
 		let d = e.Decision
 		let childRows = try queryTx(
@@ -475,10 +475,10 @@ func scopeRunTx(out orchestrate.State, repo string, run string) orchestrate.Stat
 }
 
 func queryLeasesTx(only option.Option[orchestrate.RunKey]) Map[orchestrate.RunKey, orchestrate.LandingLease] fails orchestrate.StoreFailed needs sql.Tx {
-	let cols = "SELECT repo, run, actor, base_head, since, until FROM landing_leases"
+	let cols = "SELECT repo, run, lease_actor, lease_base_head, lease_since, lease_until FROM run_meta WHERE lease_actor IS NOT NULL"
 	let rows = match only {
 	case option.Some[orchestrate.RunKey] as k:
-		try queryTx(cols+" WHERE repo = ? AND run = ?", []sql.Value{sql.Text{S: k.Value.Repo}, sql.Text{S: k.Value.Run}})
+		try queryTx(cols+" AND repo = ? AND run = ?", []sql.Value{sql.Text{S: k.Value.Repo}, sql.Text{S: k.Value.Run}})
 	case option.None:
 		try queryTx(cols, []sql.Value{})
 	}
