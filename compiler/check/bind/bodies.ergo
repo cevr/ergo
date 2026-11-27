@@ -275,15 +275,20 @@ func selector(b mut binder, x dense.ID[syntax.Node], sel dense.ID[syntax.Node]) 
 	if t.Len() == 0 || t[0] < 65 || t[0] > 90 {
 		return
 	}
-	let dep = store.Of(b.deps[imp-1])
+	match depDecl(b.deps, imp, t) {
+	case option.Some{Value: d}:
+		b.body.ext = b.body.ext.Append(extUse{at: pnode(*b, sel), ref: store.XRef{Import: uint32(imp), Decl: uint32(dense.Index(d))}})
+	case option.None:
+	}
+}
+
+func depDecl(deps []store.Frozen, imp int, t string) option.Option[dense.ID[store.Decl]] {
+	let dep = store.Of(deps[imp-1])
 	match store.FindName(dep, t) {
 	case option.Some{Value: dn}:
-		match store.ScopeOf(dep, dn) {
-		case option.Some{Value: d}:
-			b.body.ext = b.body.ext.Append(extUse{at: pnode(*b, sel), ref: store.XRef{Import: uint32(imp), Decl: uint32(dense.Index(d))}})
-		case option.None:
-		}
+		store.ScopeOf(dep, dn)
 	case option.None:
+		option.None
 	}
 }
 
