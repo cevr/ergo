@@ -1,0 +1,1122 @@
+import cmp
+import github.com/cevr/ergo/modules/atlas/memory
+import github.com/cevr/ergo/modules/atlas/session
+import option
+import slices
+
+// WeeklyTargetPpm is the 99% weekly utilization ceiling in parts-per-million.
+func WeeklyTargetPpm() int64 { int64(990000) }
+
+// WeeklyLeewayPpm is the 5% shared weekly pace leeway in parts-per-million.
+func WeeklyLeewayPpm() int64 { int64(50000) }
+
+// FiveHourHardCapPpm is the 90% hard 5-hour utilization cutoff in parts-per-million.
+func FiveHourHardCapPpm() int64 { int64(900000) }
+
+// DefaultSkewMs is the default clock-skew settlement padding applied to unsettled fleet starts.
+func DefaultSkewMs() int64 { int64(60000) }
+
+// DefaultSettleMs is the default horizon until an admitted start reading settles.
+func DefaultSettleMs() int64 { int64(300000) }
+
+// DefaultCostPpm is the default estimated weekly quota cost per admitted turn start (2%).
+func DefaultCostPpm() int64 { int64(20000) }
+
+func ceilDiv(num int64, den int64) int64 {
+	if num <= int64(0) {
+		return int64(0)
+	}
+	if den <= int64(0) {
+		return num
+	}
+	(num + den - int64(1)) / den
+}
+
+// NaturalPaceLine computes the un-rebased linear 99% weekly pace target at nowMs.
+func NaturalPaceLine(resetAtMs int64, nowMs int64) int64 {
+	let week = WeekWindowMs()
+	let target = WeeklyTargetPpm()
+	let winStart = resetAtMs - week
+	if nowMs <= winStart {
+		return int64(0)
+	}
+	if nowMs >= resetAtMs {
+		return target
+	}
+	((nowMs - winStart) * target) / week
+}
+
+// LineOf computes the effective weekly pace line at nowMs, honoring claim-never-lowers rebases.
+func LineOf(resetAtMs int64, nowMs int64, planOpt option.Option[PacePlan]) int64 {
+	let nat = NaturalPaceLine(resetAtMs, nowMs)
+	match planOpt {
+	case option.None:
+		nat
+	case option.Some as wrap:
+		let plan = wrap.Value
+		let winStart = resetAtMs - WeekWindowMs()
+		if plan.Withheld || plan.RebaseAtMs > nowMs || plan.RebaseAtMs <= winStart || resetAtMs <= plan.RebaseAtMs {
+			return nat
+		}
+		let target = WeeklyTargetPpm()
+		let span = resetAtMs - plan.RebaseAtMs
+		let base = cmp.Min(target, cmp.Max(int64(0), plan.BasePpm))
+		let elapsed = cmp.Min(span, nowMs-plan.RebaseAtMs)
+		let rebased = base + ((target-base)*elapsed)/span
+		cmp.Max(nat, rebased)
+	}
+}
+
+// ClaimPaceRebase advances an account's pace rebase point without ever lowering its current pace line.
+func ClaimPaceRebase(prev option.Option[PacePlan], resetAtMs int64, claimedUsedPpm int64, nowMs int64) PacePlan {
+	let curLine = LineOf(resetAtMs, nowMs, prev)
+	let clamped = ClampPpm(claimedUsedPpm)
+	let target = WeeklyTargetPpm()
+	let raised = cmp.Min(target, cmp.Max(curLine, clamped))
+	PacePlan{
+		RebaseAtMs: nowMs,
+		BasePpm:    raised,
+		Withheld:   false,
+	}
+}
+
+// CatchUpAt computes the earliest timestamp >= nowMs where the pace line reaches usedPpm.
+func CatchUpAt(resetAtMs int64, usedPpm int64, nowMs int64, planOpt option.Option[PacePlan]) int64 {
+	if resetAtMs <= nowMs {
+		return nowMs
+	}
+	let curLine = LineOf(resetAtMs, nowMs, planOpt)
+	if curLine >= usedPpm {
+		return nowMs
+	}
+	let target = WeeklyTargetPpm()
+	if usedPpm >= target {
+		return resetAtMs
+	}
+	let week = WeekWindowMs()
+	let winStart = resetAtMs - week
+	let tNat = cmp.Max(nowMs, winStart+ceilDiv(usedPpm*week, target))
+	match planOpt {
+	case option.None:
+		cmp.Min(resetAtMs, tNat)
+	case option.Some as wrap:
+		let plan = wrap.Value
+		if plan.Withheld || plan.RebaseAtMs <= winStart || resetAtMs <= plan.RebaseAtMs {
+			return cmp.Min(resetAtMs, tNat)
+		}
+		let base = cmp.Min(target, cmp.Max(int64(0), plan.BasePpm))
+		if usedPpm <= base {
+			return cmp.Min(resetAtMs, cmp.Min(tNat, cmp.Max(nowMs, plan.RebaseAtMs)))
+		}
+		let span = resetAtMs - plan.RebaseAtMs
+		let denom = target - base
+		if denom <= int64(0) {
+			return cmp.Min(resetAtMs, tNat)
+		}
+		let tReb = cmp.Max(nowMs, plan.RebaseAtMs+ceilDiv((usedPpm-base)*span, denom))
+		cmp.Min(resetAtMs, cmp.Min(tNat, tReb))
+	}
+}
+
+// UnsettledStart represents an admitted start whose quota spend has not yet settled into readings.
+type UnsettledStart {
+	StartID          string,
+	AccountID        session.AccountID,
+	EstimatedCostPpm int64,
+	StartedAtMs      int64,
+	SettlesAtMs      int64,
+}
+
+// InflightLedger tracks fleet-wide unsettled starts for double-spend prevention.
+type InflightLedger {
+	Starts Map[string, UnsettledStart],
+	Order  []string,
+}
+
+// NewInflightLedger creates an empty unsettled-start ledger.
+func NewInflightLedger() InflightLedger {
+	InflightLedger{Starts: Map[string, UnsettledStart]{}, Order: []string{}}
+}
+
+// EffectiveSettlesAtMs returns when an unsettled start stops counting against fleet pace headroom.
+func EffectiveSettlesAtMs(s UnsettledStart, skewMs int64) int64 {
+	s.SettlesAtMs + cmp.Max(int64(0), skewMs)
+}
+
+// RecordInflightStart adds or updates an unsettled start in the fleet ledger.
+func RecordInflightStart(ledger InflightLedger, start UnsettledStart) InflightLedger {
+	let had = ledger.Starts.Get(start.StartID)
+	let nextMap = ledger.Starts.Put(start.StartID, start)
+	let nextOrder = match had {
+	case option.Some:
+		ledger.Order
+	case option.None:
+		ledger.Order.Append(start.StartID)
+	}
+	InflightLedger{Starts: nextMap, Order: nextOrder}
+}
+
+// SettleInflightStart removes an unsettled start once provider usage reflects it.
+func SettleInflightStart(ledger InflightLedger, startID string) InflightLedger {
+	let nextMap = ledger.Starts.Delete(startID)
+	let mut nextOrder = []string{}
+	for _, id in ledger.Order {
+		if id != startID {
+			nextOrder = nextOrder.Append(id)
+		}
+	}
+	InflightLedger{Starts: nextMap, Order: nextOrder}
+}
+
+// PruneSettledStarts evicts starts whose effective settle time has elapsed by nowMs.
+func PruneSettledStarts(ledger InflightLedger, nowMs int64, skewMs int64) InflightLedger {
+	let mut nextMap = Map[string, UnsettledStart]{}
+	let mut nextOrder = []string{}
+	for _, id in ledger.Order {
+		match ledger.Starts.Get(id) {
+		case option.None:
+			let _ = id
+		case option.Some as wrap:
+			let s = wrap.Value
+			if EffectiveSettlesAtMs(s, skewMs) > nowMs {
+				nextMap = nextMap.Put(id, s)
+				nextOrder = nextOrder.Append(id)
+			}
+		}
+	}
+	InflightLedger{Starts: nextMap, Order: nextOrder}
+}
+
+// FleetInflightSpend sums all active unsettled start costs across the fleet at nowMs.
+func FleetInflightSpend(ledger InflightLedger, nowMs int64, skewMs int64) int64 {
+	let mut total = int64(0)
+	for _, id in ledger.Order {
+		match ledger.Starts.Get(id) {
+		case option.None:
+			let _ = id
+		case option.Some as wrap:
+			let s = wrap.Value
+			if s.StartedAtMs <= nowMs && nowMs < EffectiveSettlesAtMs(s, skewMs) && s.EstimatedCostPpm > int64(0) {
+				total = total + s.EstimatedCostPpm
+			}
+		}
+	}
+	total
+}
+
+// AccountInflightSpend sums active unsettled start costs targeting accountID at nowMs.
+func AccountInflightSpend(ledger InflightLedger, accountID session.AccountID, nowMs int64, skewMs int64) int64 {
+	let mut total = int64(0)
+	for _, id in ledger.Order {
+		match ledger.Starts.Get(id) {
+		case option.None:
+			let _ = id
+		case option.Some as wrap:
+			let s = wrap.Value
+			if s.AccountID == accountID && s.StartedAtMs <= nowMs && nowMs < EffectiveSettlesAtMs(s, skewMs) && s.EstimatedCostPpm > int64(0) {
+				total = total + s.EstimatedCostPpm
+			}
+		}
+	}
+	total
+}
+
+func earliestInflightSettleAt(ledger InflightLedger, nowMs int64, skewMs int64) option.Option[int64] {
+	let mut best option.Option[int64] = option.None
+	for _, id in ledger.Order {
+		match ledger.Starts.Get(id) {
+		case option.None:
+			let _ = id
+		case option.Some as wrap:
+			let s = wrap.Value
+			let eff = EffectiveSettlesAtMs(s, skewMs)
+			if s.StartedAtMs <= nowMs && eff > nowMs {
+				best = match best {
+				case option.None:
+					option.Some[int64]{Value: eff}
+				case option.Some as b:
+					option.Some[int64]{Value: cmp.Min(b.Value, eff)}
+				}
+			}
+		}
+	}
+	best
+}
+
+// UsedOf extracts active weekly quota utilization in parts-per-million, returning 0 if reset or absent.
+func UsedOf(entry AccountEntry, nowMs int64) int64 {
+	match entry.Limits {
+	case option.None:
+		int64(0)
+	case option.Some as limWrap:
+		match limWrap.Value.Weekly7d {
+		case WinReported as w:
+			if w.ResetAtMs > nowMs {
+				cmp.Max(int64(0), w.UsedPpm)
+			} else {
+				int64(0)
+			}
+		case WinUnknown, WinAbsent:
+			int64(0)
+		}
+	}
+}
+
+func weeklyWindowStatus(entry AccountEntry, nowMs int64) (int64, int64) {
+	let defaultReset = nowMs + WeekWindowMs()
+	match entry.Limits {
+	case option.None:
+		(int64(0), defaultReset)
+	case option.Some as limWrap:
+		match limWrap.Value.Weekly7d {
+		case WinReported as w:
+			if w.ResetAtMs > nowMs {
+				(cmp.Max(int64(0), w.UsedPpm), w.ResetAtMs)
+			} else {
+				(int64(0), nowMs + WeekWindowMs())
+			}
+		case WinUnknown, WinAbsent:
+			(int64(0), defaultReset)
+		}
+	}
+}
+
+func maxOptTime(a option.Option[int64], candidate int64) option.Option[int64] {
+	match a {
+	case option.None:
+		option.Some[int64]{Value: candidate}
+	case option.Some as wrap:
+		option.Some[int64]{Value: cmp.Max(wrap.Value, candidate)}
+	}
+}
+
+func minOptTime(a option.Option[int64], candidate int64) option.Option[int64] {
+	match a {
+	case option.None:
+		option.Some[int64]{Value: candidate}
+	case option.Some as wrap:
+		option.Some[int64]{Value: cmp.Min(wrap.Value, candidate)}
+	}
+}
+
+func limitsHardBlockAt(lim LimitsModel, requiredScopes []string, nowMs int64, init option.Option[int64]) option.Option[int64] {
+	let mut block = init
+	match lim.Primary5h {
+	case WinReported as p5:
+		if p5.ResetAtMs > nowMs && p5.UsedPpm >= FiveHourHardCapPpm() {
+			block = maxOptTime(block, p5.ResetAtMs)
+		}
+	case WinUnknown, WinAbsent:
+		let _ = lim.Primary5h
+	}
+	match lim.Weekly7d {
+	case WinReported as w7:
+		if w7.ResetAtMs > nowMs && w7.UsedPpm >= WeeklyTargetPpm() {
+			block = maxOptTime(block, w7.ResetAtMs)
+		}
+	case WinUnknown, WinAbsent:
+		let _ = lim.Weekly7d
+	}
+	let full = PpmScale()
+	for _, scope in requiredScopes {
+		let mw = FindModelWindow(lim.ModelWindows, scope)
+		match mw {
+		case WinReported as ms:
+			if ms.ResetAtMs > nowMs && ms.UsedPpm >= full {
+				block = maxOptTime(block, ms.ResetAtMs)
+			}
+		case WinUnknown, WinAbsent:
+			let _ = mw
+		}
+	}
+	block
+}
+
+// HardBlockRetryAt returns the future retry timestamp if an account is blocked by health, hold, gap, or hard cap.
+func HardBlockRetryAt(
+	entry AccountEntry,
+	requiredScopes []string,
+	nowMs int64,
+	staleAfterMs int64,
+	unreadRetryMs int64,
+) option.Option[int64] {
+	let backoff = nowMs + cmp.Max(int64(1), unreadRetryMs)
+	let mut block option.Option[int64] = option.None
+	if !entry.Config.Healthy {
+		block = maxOptTime(block, backoff)
+	}
+	if entry.HoldUntilMs > nowMs {
+		block = maxOptTime(block, entry.HoldUntilMs)
+	}
+	let gap = CheckEvidenceGap(entry.Limits, requiredScopes, nowMs, staleAfterMs)
+	match gap {
+	case option.Some:
+		block = maxOptTime(block, backoff)
+	case option.None:
+		let _ = gap
+	}
+	match entry.Limits {
+	case option.None:
+		block
+	case option.Some as limWrap:
+		limitsHardBlockAt(limWrap.Value, requiredScopes, nowMs, block)
+	}
+}
+
+// PlacementRequest captures all inputs required for quota-paced placement and door admission.
+type PlacementRequest {
+	Provider         string,
+	Model            string,
+	NowMs            int64,
+	EstimatedCostPpm int64,
+	PreferredAccount option.Option[session.AccountID],
+	IsPriority       bool,
+	IsAuxiliary      bool,
+	StaleAfterMs     int64,
+	UnreadRetryMs    int64,
+	SkewMs           int64,
+	LeewayPpm        int64,
+	StartID          string,
+	SettleHorizonMs  int64,
+}
+
+// RankedAccount scores an eligible account for placement ordering (soonest under-line first).
+type RankedAccount {
+	Entry           AccountEntry,
+	UsedPpm         int64,
+	InflightPpm     int64,
+	PaceLinePpm     int64,
+	WeeklyResetAtMs int64,
+	UnderLine       bool,
+	WithinLeeway    bool,
+	HeadroomPpm     int64,
+	HardBlockedAtMs option.Option[int64],
+}
+
+// HoldNoEligibleAccount indicates no configured account supports the provider/model request.
+type HoldNoEligibleAccount {}
+
+// HoldEvidenceGap indicates account readings are missing, stale, or incomplete.
+type HoldEvidenceGap {
+	Reason GapReason,
+}
+
+// HoldHardQuotaLimit indicates all compatible accounts are currently blocked by hard limits or account holds.
+type HoldHardQuotaLimit {}
+
+// HoldFleetPaceExhausted indicates shared fleet pace room plus leeway is depleted including unsettled starts.
+type HoldFleetPaceExhausted {
+	FleetRoomPpm     int64,
+	FleetInflightPpm int64,
+}
+
+// HoldReason explains why a launch was refused at the pool door.
+type HoldReason = HoldNoEligibleAccount | HoldEvidenceGap | HoldHardQuotaLimit | HoldFleetPaceExhausted
+
+// AdmitAllowed permits a launch on AccountID and emits the new inflight start record.
+type AdmitAllowed {
+	AccountID  session.AccountID,
+	UsedPushID option.Option[string],
+	Start      UnsettledStart,
+}
+
+// AdmitHeld refuses a launch until concrete future timestamp RetryAtMs.
+type AdmitHeld {
+	RetryAtMs int64,
+	Reason    HoldReason,
+}
+
+// AdmissionDecision is the result of evaluating pool admission at the door.
+type AdmissionDecision = AdmitAllowed | AdmitHeld
+
+func rankEntry(
+	entry AccountEntry,
+	ledger InflightLedger,
+	req PlacementRequest,
+	reqScopes []string,
+	pushes []OwnerPushSpec,
+) RankedAccount {
+	let used, resetAt = weeklyWindowStatus(entry, req.NowMs)
+	let line = LineOf(resetAt, req.NowMs, entry.Pace)
+	let accInflight = AccountInflightSpend(ledger, entry.Config.ID, req.NowMs, req.SkewMs)
+	let effectiveUsed = used + accInflight
+	let pushBonus = match ActivePushForRequest(pushes, entry.Config.ID, req.Model, req.NowMs) {
+	case option.None:
+		int64(0)
+	case option.Some as pw:
+		pw.Value.ExtraPpm
+	}
+	let effLine = if entry.Config.PaceWithheld { int64(0) } else { line }
+	let headroom = effLine - effectiveUsed
+	let hardBlock = HardBlockRetryAt(entry, reqScopes, req.NowMs, req.StaleAfterMs, req.UnreadRetryMs)
+	RankedAccount{
+		Entry:           entry,
+		UsedPpm:         used,
+		InflightPpm:     accInflight,
+		PaceLinePpm:     effLine,
+		WeeklyResetAtMs: resetAt,
+		UnderLine:       effectiveUsed < effLine,
+		WithinLeeway:    effectiveUsed <= effLine+req.LeewayPpm+pushBonus,
+		HeadroomPpm:     headroom,
+		HardBlockedAtMs: hardBlock,
+	}
+}
+
+func optionIsSome[T](o option.Option[T]) bool {
+	match o {
+	case option.Some:
+		true
+	case option.None:
+		false
+	}
+}
+
+func compareRankedAccounts(a RankedAccount, b RankedAccount) int {
+	let aHard = optionIsSome(a.HardBlockedAtMs)
+	let bHard = optionIsSome(b.HardBlockedAtMs)
+	if aHard != bHard {
+		if !aHard {
+			return -1
+		}
+		return 1
+	}
+	if a.UnderLine != b.UnderLine {
+		if a.UnderLine {
+			return -1
+		}
+		return 1
+	}
+	if a.WeeklyResetAtMs != b.WeeklyResetAtMs {
+		return cmp.Compare(a.WeeklyResetAtMs, b.WeeklyResetAtMs)
+	}
+	if a.HeadroomPpm != b.HeadroomPpm {
+		return cmp.Compare(b.HeadroomPpm, a.HeadroomPpm)
+	}
+	if a.Entry.Config.Priority != b.Entry.Config.Priority {
+		return cmp.Compare(a.Entry.Config.Priority, b.Entry.Config.Priority)
+	}
+	cmp.Compare(string(a.Entry.Config.ID), string(b.Entry.Config.ID))
+}
+
+// RankPlacement orders compatible accounts by readiness, under-line status, and soonest reset.
+func RankPlacement(
+	reg Registry,
+	ledger InflightLedger,
+	pushes []OwnerPushSpec,
+	req PlacementRequest,
+) []RankedAccount {
+	let reqScopes = RequiredScopes(req.Provider, req.Model)
+	let all = ListAccounts(reg)
+	let mut ranked = []RankedAccount{}
+	for _, entry in all {
+		if AccountSupportsModel(entry.Config, req.Provider, req.Model) {
+			ranked = ranked.Append(rankEntry(entry, ledger, req, reqScopes, pushes))
+		}
+	}
+	slices.SortFunc(ranked, compareRankedAccounts)
+}
+
+// FleetWeeklyRoomPpm sums positive remaining pace headroom across unblocked non-withheld accounts.
+func FleetWeeklyRoomPpm(ranked []RankedAccount) int64 {
+	let mut total = int64(0)
+	for _, r in ranked {
+		match r.HardBlockedAtMs {
+		case option.Some:
+			let _ = r
+		case option.None:
+			if !r.Entry.Config.PaceWithheld && r.HeadroomPpm > int64(0) {
+				total = total + r.HeadroomPpm
+			}
+		}
+	}
+	total
+}
+
+func firstGapReason(ranked []RankedAccount, reqScopes []string, req PlacementRequest) option.Option[GapReason] {
+	for _, r in ranked {
+		let gap = CheckEvidenceGap(r.Entry.Limits, reqScopes, req.NowMs, req.StaleAfterMs)
+		match gap {
+		case option.Some:
+			return gap
+		case option.None:
+			let _ = gap
+		}
+	}
+	option.None
+}
+
+func earliestCatchUpOrHardRetry(
+	ranked []RankedAccount,
+	ledger InflightLedger,
+	req PlacementRequest,
+) int64 {
+	let mut best option.Option[int64] = option.None
+	for _, r in ranked {
+		match r.HardBlockedAtMs {
+		case option.Some as hb:
+			best = minOptTime(best, hb.Value)
+		case option.None:
+			let needed = r.UsedPpm + r.InflightPpm + cmp.Max(int64(1), req.EstimatedCostPpm)
+			let catchAt = CatchUpAt(r.WeeklyResetAtMs, needed, req.NowMs, r.Entry.Pace)
+			if catchAt > req.NowMs {
+				best = minOptTime(best, catchAt)
+			}
+		}
+	}
+	match earliestInflightSettleAt(ledger, req.NowMs, req.SkewMs) {
+	case option.Some as infAt:
+		best = minOptTime(best, infAt.Value)
+	case option.None:
+		let _ = ledger
+	}
+	let fallback = req.NowMs + cmp.Max(int64(1), req.UnreadRetryMs)
+	match best {
+	case option.None:
+		fallback
+	case option.Some as b:
+		if b.Value > req.NowMs {
+			b.Value
+		} else {
+			fallback
+		}
+	}
+}
+
+func candidateSoftAdmissible(
+	r RankedAccount,
+	pushes []OwnerPushSpec,
+	req PlacementRequest,
+	fleetOpen bool,
+) bool {
+	let pushActive = optionIsSome(ActivePushForRequest(pushes, r.Entry.Config.ID, req.Model, req.NowMs))
+	let priorityBypass = req.IsPriority && !req.IsAuxiliary
+	let softOk = fleetOpen || pushActive || priorityBypass
+	softOk && (r.UnderLine || r.WithinLeeway || pushActive || priorityBypass)
+}
+
+func selectCandidate(
+	hardReady []RankedAccount,
+	preferred option.Option[session.AccountID],
+	pushes []OwnerPushSpec,
+	req PlacementRequest,
+	fleetOpen bool,
+) option.Option[RankedAccount] {
+	match preferred {
+	case option.Some as pref:
+		for _, r in hardReady {
+			if r.Entry.Config.ID == pref.Value && candidateSoftAdmissible(r, pushes, req, fleetOpen) {
+				return option.Some[RankedAccount]{Value: r}
+			}
+		}
+	case option.None:
+		let _ = preferred
+	}
+	for _, r in hardReady {
+		if candidateSoftAdmissible(r, pushes, req, fleetOpen) {
+			return option.Some[RankedAccount]{Value: r}
+		}
+	}
+	option.None
+}
+
+// Admit evaluates hard caps, evidence gaps, shared fleet pace, unsettled starts, and owner pushes.
+func Admit(
+	reg Registry,
+	ledger InflightLedger,
+	pushes []OwnerPushSpec,
+	req PlacementRequest,
+) AdmissionDecision {
+	let ranked = RankPlacement(reg, ledger, pushes, req)
+	let fallback = req.NowMs + cmp.Max(int64(1), req.UnreadRetryMs)
+	if ranked.Len() == 0 {
+		return AdmitHeld{RetryAtMs: fallback, Reason: HoldNoEligibleAccount}
+	}
+	let mut hardReady = []RankedAccount{}
+	for _, r in ranked {
+		match r.HardBlockedAtMs {
+		case option.None:
+			hardReady = hardReady.Append(r)
+		case option.Some:
+			let _ = r
+		}
+	}
+	let reqScopes = RequiredScopes(req.Provider, req.Model)
+	if hardReady.Len() == 0 {
+		let reason = match firstGapReason(ranked, reqScopes, req) {
+		case option.Some as gw:
+			HoldEvidenceGap{Reason: gw.Value}
+		case option.None:
+			HoldHardQuotaLimit
+		}
+		return AdmitHeld{RetryAtMs: earliestCatchUpOrHardRetry(ranked, ledger, req), Reason: reason}
+	}
+	let fleetRoom = FleetWeeklyRoomPpm(hardReady)
+	let fleetInflight = FleetInflightSpend(ledger, req.NowMs, req.SkewMs)
+	let cost = cmp.Max(int64(0), req.EstimatedCostPpm)
+	let mut maxPushBonus = int64(0)
+	for _, r in hardReady {
+		match ActivePushForRequest(pushes, r.Entry.Config.ID, req.Model, req.NowMs) {
+		case option.None:
+			let _ = r
+		case option.Some as pw:
+			maxPushBonus = cmp.Max(maxPushBonus, pw.Value.ExtraPpm)
+		}
+	}
+	let fleetOpen = fleetRoom+cmp.Max(int64(0), req.LeewayPpm)+maxPushBonus >= fleetInflight+cost
+	let picked = selectCandidate(hardReady, req.PreferredAccount, pushes, req, fleetOpen)
+	match picked {
+	case option.None:
+		let retryAt = earliestCatchUpOrHardRetry(ranked, ledger, req)
+		AdmitHeld{
+			RetryAtMs: retryAt,
+			Reason:    HoldFleetPaceExhausted{FleetRoomPpm: fleetRoom, FleetInflightPpm: fleetInflight},
+		}
+	case option.Some as winWrap:
+		let winner = winWrap.Value
+		let usedPushID = match ActivePushForRequest(pushes, winner.Entry.Config.ID, req.Model, req.NowMs) {
+		case option.None:
+			option.None
+		case option.Some as pw:
+			option.Some[string]{Value: pw.Value.PushID}
+		}
+		let effSettle = req.NowMs + cmp.Max(int64(1), req.SettleHorizonMs)
+		AdmitAllowed{
+			AccountID:  winner.Entry.Config.ID,
+			UsedPushID: usedPushID,
+			Start:      UnsettledStart{
+				StartID:          req.StartID,
+				AccountID:        winner.Entry.Config.ID,
+				EstimatedCostPpm: cost,
+				StartedAtMs:      req.NowMs,
+				SettlesAtMs:      effSettle,
+			},
+		}
+	}
+}
+
+// ClaimNeverLowersPaceLine proves explicit claim rebases only raise or maintain the natural 99% pace line.
+law ClaimNeverLowersPaceLine(
+	resetAtMs int64 where resetAtMs >= 700000000 && resetAtMs <= 10000000000,
+	offsetFromEnd int64 where offsetFromEnd >= 1000 && offsetFromEnd <= 600000000,
+	claimPct int where claimPct >= 0 && claimPct <= 100,
+) {
+	let rebaseAt = resetAtMs - offsetFromEnd
+	let checkAt = rebaseAt + (offsetFromEnd / int64(2))
+	let nat = NaturalPaceLine(resetAtMs, checkAt)
+	let plan = ClaimPaceRebase(option.None, resetAtMs, PctToPpm(claimPct), rebaseAt)
+	let rebased = LineOf(resetAtMs, checkAt, option.Some[PacePlan]{Value: plan})
+	rebased >= nat && rebased <= WeeklyTargetPpm()
+}
+
+// PaceLineUsesTarget99AndLeeway5 proves midpoint pace is half of 99% and shared leeway is 5%.
+law PaceLineUsesTarget99AndLeeway5(resetAtMs int64 where resetAtMs >= 700000000 && resetAtMs <= 10000000000) {
+	let mid = resetAtMs - (WeekWindowMs() / int64(2))
+	let midLine = NaturalPaceLine(resetAtMs, mid)
+	let atReset = NaturalPaceLine(resetAtMs, resetAtMs)
+	midLine == WeeklyTargetPpm()/int64(2) && atReset == int64(990000) && WeeklyLeewayPpm() == int64(50000)
+}
+
+// SoonestResettingUnderLineChosenFirst proves eligible under-line accounts are picked in ascending weekly reset order.
+law SoonestResettingUnderLineChosenFirst(nowMs int64 where nowMs >= 10000000 && nowMs <= 5000000000) {
+	let rSoon = nowMs + int64(3600000)
+	let rLate = nowMs + int64(86400000)
+	let aSoon = AccountEntry{
+		Config: AccountConfig{
+			ID:              session.AccountID("acc-soon"),
+			Provider:        "openai",
+			Model:           "gpt-5",
+			Label:           "soon",
+			Priority:        2,
+			Healthy:         true,
+			PaceWithheld:    false,
+			SupportedScopes: []string{},
+		},
+		Limits: option.Some[LimitsModel]{
+			Value: LimitsModel{
+				Primary5h:    WinReported{UsedPpm: int64(100000), ResetAtMs: nowMs + int64(1800000)},
+				Weekly7d:     WinReported{UsedPpm: int64(100000), ResetAtMs: rSoon},
+				ModelWindows: []ModelQuota{},
+				ReadAtMs:     nowMs,
+				RateLimited:  false,
+			},
+		},
+		Pace:        option.None,
+		HoldUntilMs: int64(0),
+	}
+	let aLate = AccountEntry{
+		Config: AccountConfig{
+			ID:              session.AccountID("acc-late"),
+			Provider:        "openai",
+			Model:           "gpt-5",
+			Label:           "late",
+			Priority:        1,
+			Healthy:         true,
+			PaceWithheld:    false,
+			SupportedScopes: []string{},
+		},
+		Limits: option.Some[LimitsModel]{
+			Value: LimitsModel{
+				Primary5h:    WinReported{UsedPpm: int64(100000), ResetAtMs: nowMs + int64(1800000)},
+				Weekly7d:     WinReported{UsedPpm: int64(100000), ResetAtMs: rLate},
+				ModelWindows: []ModelQuota{},
+				ReadAtMs:     nowMs,
+				RateLimited:  false,
+			},
+		},
+		Pace:        option.None,
+		HoldUntilMs: int64(0),
+	}
+	let mut reg = NewRegistry()
+	reg = UpsertAccount(reg, aLate)
+	reg = UpsertAccount(reg, aSoon)
+	let req = PlacementRequest{
+		Provider:         "openai",
+		Model:            "gpt-5",
+		NowMs:            nowMs,
+		EstimatedCostPpm: DefaultCostPpm(),
+		PreferredAccount: option.None,
+		IsPriority:       false,
+		IsAuxiliary:      false,
+		StaleAfterMs:     StaleAfterMs(),
+		UnreadRetryMs:    UnreadRetryMs(),
+		SkewMs:           DefaultSkewMs(),
+		LeewayPpm:        WeeklyLeewayPpm(),
+		StartID:          "start-1",
+		SettleHorizonMs:  DefaultSettleMs(),
+	}
+	let dec = Admit(reg, NewInflightLedger(), []OwnerPushSpec{}, req)
+	match dec {
+	case AdmitAllowed as aw:
+		aw.AccountID == session.AccountID("acc-soon")
+	case AdmitHeld:
+		false
+	}
+}
+
+// FleetInflightSpendBlocksConcurrentDoubleSpend proves unsettled starts consume fleet room before settled readings update.
+law FleetInflightSpendBlocksConcurrentDoubleSpend(nowMs int64 where nowMs >= 10000000 && nowMs <= 5000000000) {
+	let resetAt = nowMs + int64(86400000)
+	let line = NaturalPaceLine(resetAt, nowMs)
+	let used = line
+	let acc = AccountEntry{
+		Config: AccountConfig{
+			ID:              session.AccountID("acc-1"),
+			Provider:        "openai",
+			Model:           "gpt-5",
+			Label:           "sole",
+			Priority:        1,
+			Healthy:         true,
+			PaceWithheld:    false,
+			SupportedScopes: []string{},
+		},
+		Limits: option.Some[LimitsModel]{
+			Value: LimitsModel{
+				Primary5h:    WinReported{UsedPpm: int64(100000), ResetAtMs: nowMs + int64(1800000)},
+				Weekly7d:     WinReported{UsedPpm: used, ResetAtMs: resetAt},
+				ModelWindows: []ModelQuota{},
+				ReadAtMs:     nowMs,
+				RateLimited:  false,
+			},
+		},
+		Pace:        option.None,
+		HoldUntilMs: int64(0),
+	}
+	let reg = UpsertAccount(NewRegistry(), acc)
+	let req = PlacementRequest{
+		Provider:         "openai",
+		Model:            "gpt-5",
+		NowMs:            nowMs,
+		EstimatedCostPpm: int64(40000),
+		PreferredAccount: option.None,
+		IsPriority:       false,
+		IsAuxiliary:      false,
+		StaleAfterMs:     StaleAfterMs(),
+		UnreadRetryMs:    UnreadRetryMs(),
+		SkewMs:           DefaultSkewMs(),
+		LeewayPpm:        WeeklyLeewayPpm(),
+		StartID:          "s1",
+		SettleHorizonMs:  DefaultSettleMs(),
+	}
+	let l0 = NewInflightLedger()
+	let dec1 = Admit(reg, l0, []OwnerPushSpec{}, req)
+	match dec1 {
+	case AdmitHeld:
+		false
+	case AdmitAllowed as aw1:
+		let l1 = RecordInflightStart(l0, aw1.Start)
+		let req2 = PlacementRequest{
+			Provider:         req.Provider,
+			Model:            req.Model,
+			NowMs:            req.NowMs,
+			EstimatedCostPpm: req.EstimatedCostPpm,
+			PreferredAccount: req.PreferredAccount,
+			IsPriority:       req.IsPriority,
+			IsAuxiliary:      req.IsAuxiliary,
+			StaleAfterMs:     req.StaleAfterMs,
+			UnreadRetryMs:    req.UnreadRetryMs,
+			SkewMs:           req.SkewMs,
+			LeewayPpm:        req.LeewayPpm,
+			StartID:          "s2",
+			SettleHorizonMs:  req.SettleHorizonMs,
+		}
+		let dec2 = Admit(reg, l1, []OwnerPushSpec{}, req2)
+		match dec2 {
+		case AdmitAllowed:
+			false
+		case AdmitHeld as hw2:
+			hw2.RetryAtMs > nowMs
+		}
+	}
+}
+
+// DoorRefusalAlwaysNamesFutureRetryAt proves held launches always name a concrete RetryAtMs strictly in the future.
+law DoorRefusalAlwaysNamesFutureRetryAt(
+	nowMs int64 where nowMs >= 10000000 && nowMs <= 5000000000,
+	hardOffset int64 where hardOffset >= 1000 && hardOffset <= 3600000,
+) {
+	let acc = AccountEntry{
+		Config: AccountConfig{
+			ID:              session.AccountID("acc-cap"),
+			Provider:        "openai",
+			Model:           "gpt-5",
+			Label:           "capped",
+			Priority:        1,
+			Healthy:         true,
+			PaceWithheld:    false,
+			SupportedScopes: []string{},
+		},
+		Limits: option.Some[LimitsModel]{
+			Value: LimitsModel{
+				Primary5h:    WinReported{UsedPpm: FiveHourHardCapPpm(), ResetAtMs: nowMs + hardOffset},
+				Weekly7d:     WinReported{UsedPpm: int64(100000), ResetAtMs: nowMs + WeekWindowMs()/int64(2)},
+				ModelWindows: []ModelQuota{},
+				ReadAtMs:     nowMs,
+				RateLimited:  false,
+			},
+		},
+		Pace:        option.None,
+		HoldUntilMs: int64(0),
+	}
+	let reg = UpsertAccount(NewRegistry(), acc)
+	let req = PlacementRequest{
+		Provider:         "openai",
+		Model:            "gpt-5",
+		NowMs:            nowMs,
+		EstimatedCostPpm: DefaultCostPpm(),
+		PreferredAccount: option.None,
+		IsPriority:       true,
+		IsAuxiliary:      false,
+		StaleAfterMs:     StaleAfterMs(),
+		UnreadRetryMs:    UnreadRetryMs(),
+		SkewMs:           DefaultSkewMs(),
+		LeewayPpm:        WeeklyLeewayPpm(),
+		StartID:          "s-cap",
+		SettleHorizonMs:  DefaultSettleMs(),
+	}
+	let dec = Admit(reg, NewInflightLedger(), []OwnerPushSpec{}, req)
+	match dec {
+	case AdmitAllowed:
+		false
+	case AdmitHeld as hw:
+		hw.RetryAtMs == nowMs+hardOffset && hw.RetryAtMs > nowMs
+	}
+}
+
+test PaceLinePlacementAndInflightIntegration {
+	let now = int64(700000000)
+	let p10 = PctToPpm(10)
+	let p15 = PctToPpm(15)
+	let p20 = PctToPpm(20)
+	let p60 = PctToPpm(60)
+	let p96 = PctToPpm(96)
+	let hourMs = int64(3600000)
+	let resetSoon = now + int64(7200000)
+	let resetLater = now + int64(172800000)
+	let aSoon = AccountEntry{
+		Config: AccountConfig{
+			ID:              session.AccountID("acc-soon"),
+			Provider:        "openai",
+			Model:           "gpt-5",
+			Label:           "soon",
+			Priority:        2,
+			Healthy:         true,
+			PaceWithheld:    false,
+			SupportedScopes: []string{},
+		},
+		Limits: option.Some[LimitsModel]{
+			Value: LimitsModel{
+				Primary5h:    WinReported{UsedPpm: p20, ResetAtMs: now + hourMs},
+				Weekly7d:     WinReported{UsedPpm: p60, ResetAtMs: resetSoon},
+				ModelWindows: []ModelQuota{},
+				ReadAtMs:     now,
+				RateLimited:  false,
+			},
+		},
+		Pace:        option.None,
+		HoldUntilMs: int64(0),
+	}
+	let aLate = AccountEntry{
+		Config: AccountConfig{
+			ID:              session.AccountID("acc-late"),
+			Provider:        "openai",
+			Model:           "gpt-5",
+			Label:           "late",
+			Priority:        1,
+			Healthy:         true,
+			PaceWithheld:    false,
+			SupportedScopes: []string{},
+		},
+		Limits: option.Some[LimitsModel]{
+			Value: LimitsModel{
+				Primary5h:    WinReported{UsedPpm: p10, ResetAtMs: now + hourMs},
+				Weekly7d:     WinReported{UsedPpm: p10, ResetAtMs: resetLater},
+				ModelWindows: []ModelQuota{},
+				ReadAtMs:     now,
+				RateLimited:  false,
+			},
+		},
+		Pace:        option.None,
+		HoldUntilMs: int64(0),
+	}
+	let mut reg = NewRegistry()
+	reg = UpsertAccount(reg, aLate)
+	reg = UpsertAccount(reg, aSoon)
+
+	let req = PlacementRequest{
+		Provider:         "openai",
+		Model:            "gpt-5",
+		NowMs:            now,
+		EstimatedCostPpm: PctToPpm(4),
+		PreferredAccount: option.None,
+		IsPriority:       false,
+		IsAuxiliary:      false,
+		StaleAfterMs:     StaleAfterMs(),
+		UnreadRetryMs:    UnreadRetryMs(),
+		SkewMs:           DefaultSkewMs(),
+		LeewayPpm:        WeeklyLeewayPpm(),
+		StartID:          "start-1",
+		SettleHorizonMs:  DefaultSettleMs(),
+	}
+	let d1 = Admit(reg, NewInflightLedger(), []OwnerPushSpec{}, req)
+	match d1 {
+	case AdmitHeld:
+		assert false
+	case AdmitAllowed as aw:
+		assert aw.AccountID == session.AccountID("acc-soon")
+	}
+
+	let pushStart = now - int64(1000)
+	let pushEnd = now + int64(600000)
+	let push = try CreateOwnerPush("push-over", memory.PushAllAccounts, p20, pushStart, pushEnd)
+	let overAccount = AccountEntry{
+		Config: AccountConfig{
+			ID:              session.AccountID("acc-over"),
+			Provider:        "openai",
+			Model:           "gpt-5",
+			Label:           "over",
+			Priority:        1,
+			Healthy:         true,
+			PaceWithheld:    false,
+			SupportedScopes: []string{},
+		},
+		Limits: option.Some[LimitsModel]{
+			Value: LimitsModel{
+				Primary5h:    WinReported{UsedPpm: p15, ResetAtMs: now + hourMs},
+				Weekly7d:     WinReported{UsedPpm: p96, ResetAtMs: now + WeekWindowMs() - hourMs},
+				ModelWindows: []ModelQuota{},
+				ReadAtMs:     now,
+				RateLimited:  false,
+			},
+		},
+		Pace:        option.None,
+		HoldUntilMs: int64(0),
+	}
+	let overReg = UpsertAccount(NewRegistry(), overAccount)
+	let reqPush = PlacementRequest{
+		Provider:         "openai",
+		Model:            "gpt-5",
+		NowMs:            now,
+		EstimatedCostPpm: DefaultCostPpm(),
+		PreferredAccount: option.None,
+		IsPriority:       false,
+		IsAuxiliary:      false,
+		StaleAfterMs:     StaleAfterMs(),
+		UnreadRetryMs:    UnreadRetryMs(),
+		SkewMs:           DefaultSkewMs(),
+		LeewayPpm:        WeeklyLeewayPpm(),
+		StartID:          "s-np",
+		SettleHorizonMs:  DefaultSettleMs(),
+	}
+	let noPush = Admit(overReg, NewInflightLedger(), []OwnerPushSpec{}, reqPush)
+	match noPush {
+	case AdmitAllowed:
+		assert false
+	case AdmitHeld as hw:
+		assert hw.RetryAtMs > now
+	}
+	let reqWithPush = PlacementRequest{
+		Provider:         "openai",
+		Model:            "gpt-5",
+		NowMs:            now,
+		EstimatedCostPpm: DefaultCostPpm(),
+		PreferredAccount: option.None,
+		IsPriority:       false,
+		IsAuxiliary:      false,
+		StaleAfterMs:     StaleAfterMs(),
+		UnreadRetryMs:    UnreadRetryMs(),
+		SkewMs:           DefaultSkewMs(),
+		LeewayPpm:        WeeklyLeewayPpm(),
+		StartID:          "s-wp",
+		SettleHorizonMs:  DefaultSettleMs(),
+	}
+	let withPush = Admit(overReg, NewInflightLedger(), []OwnerPushSpec{push}, reqWithPush)
+	match withPush {
+	case AdmitHeld:
+		assert false
+	case AdmitAllowed as aw:
+		assert aw.UsedPushID == option.Some[string]{Value: "push-over"}
+	}
+	let expiredPushReq = PlacementRequest{
+		Provider:         "openai",
+		Model:            "gpt-5",
+		NowMs:            pushEnd,
+		EstimatedCostPpm: DefaultCostPpm(),
+		PreferredAccount: option.None,
+		IsPriority:       false,
+		IsAuxiliary:      false,
+		StaleAfterMs:     StaleAfterMs(),
+		UnreadRetryMs:    UnreadRetryMs(),
+		SkewMs:           DefaultSkewMs(),
+		LeewayPpm:        WeeklyLeewayPpm(),
+		StartID:          "s-end",
+		SettleHorizonMs:  DefaultSettleMs(),
+	}
+	let regAtEnd = RecordLimits(overReg, session.AccountID("acc-over"), LimitsModel{
+		Primary5h:    WinReported{UsedPpm: p15, ResetAtMs: pushEnd + hourMs},
+		Weekly7d:     WinReported{UsedPpm: p96, ResetAtMs: pushEnd + WeekWindowMs() - hourMs},
+		ModelWindows: []ModelQuota{},
+		ReadAtMs:     pushEnd,
+		RateLimited:  false,
+	}, pushEnd)
+	let afterEnd = Admit(regAtEnd, NewInflightLedger(), []OwnerPushSpec{push}, expiredPushReq)
+	match afterEnd {
+	case AdmitAllowed:
+		assert false
+	case AdmitHeld as hw:
+		assert hw.RetryAtMs > pushEnd
+	}
+	let regHard5h = RecordLimits(overReg, session.AccountID("acc-over"), LimitsModel{
+		Primary5h:    WinReported{UsedPpm: FiveHourHardCapPpm(), ResetAtMs: now + hourMs},
+		Weekly7d:     WinReported{UsedPpm: p20, ResetAtMs: now + WeekWindowMs()/int64(2)},
+		ModelWindows: []ModelQuota{},
+		ReadAtMs:     now,
+		RateLimited:  false,
+	}, now)
+	let hardBlockedWithPush = Admit(regHard5h, NewInflightLedger(), []OwnerPushSpec{push}, reqWithPush)
+	match hardBlockedWithPush {
+	case AdmitAllowed:
+		assert false
+	case AdmitHeld as hw:
+		assert hw.RetryAtMs == now+hourMs
+	}
+}

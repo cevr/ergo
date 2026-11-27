@@ -1,0 +1,558 @@
+import github.com/cevr/ergo/modules/atlas/handle
+import github.com/cevr/ergo/modules/atlas/session
+import github.com/cevr/ergo/modules/atlas/turn
+import option
+
+// RankedToRotationSlots converts ranked pool accounts into session rotation slots while marking hard blocks limited.
+func RankedToRotationSlots(ranked []RankedAccount) []session.AccountSlot {
+	let mut slots = []session.AccountSlot{}
+	let mut idx = 0
+	for _, r in ranked {
+		let status session.AccountStatus = match r.HardBlockedAtMs {
+		case option.Some as hb:
+			session.AccountLimited{ResetAtMs: hb.Value}
+		case option.None:
+			session.AccountHealthy
+		}
+		slots = slots.Append(session.AccountSlot{
+			ID:       r.Entry.Config.ID,
+			Priority: idx + 1,
+			Status:   status,
+		})
+		idx = idx + 1
+	}
+	slots
+}
+
+// PoolRotationAllowed records an admitted pool account choice aligned with thread rotation state.
+type PoolRotationAllowed {
+	AccountID session.AccountID,
+	Start     UnsettledStart,
+}
+
+// PoolRotationHeld records a held launch with a concrete future opening time respecting fixed-account policy.
+type PoolRotationHeld {
+	RetryAtMs int64,
+	Reason    HoldReason,
+}
+
+// PoolRotationDecision is the combined outcome of pool quota admission and thread rotation constraints.
+type PoolRotationDecision = PoolRotationAllowed | PoolRotationHeld
+
+func fixedAccountRequest(req PlacementRequest, fixed option.Option[session.AccountID]) PlacementRequest {
+	PlacementRequest{
+		Provider:         req.Provider,
+		Model:            req.Model,
+		NowMs:            req.NowMs,
+		EstimatedCostPpm: req.EstimatedCostPpm,
+		PreferredAccount: fixed,
+		IsPriority:       req.IsPriority,
+		IsAuxiliary:      req.IsAuxiliary,
+		StaleAfterMs:     req.StaleAfterMs,
+		UnreadRetryMs:    req.UnreadRetryMs,
+		SkewMs:           req.SkewMs,
+		LeewayPpm:        req.LeewayPpm,
+		StartID:          req.StartID,
+		SettleHorizonMs:  req.SettleHorizonMs,
+	}
+}
+
+func fixedRotationAllowed(
+	fixed option.Option[session.AccountID],
+	chosen session.AccountID,
+) bool {
+	match fixed {
+	case option.None:
+		false
+	case option.Some as fw:
+		fw.Value == chosen
+	}
+}
+
+func selectFixedRotation(
+	rot session.RotationState,
+	reg Registry,
+	ledger InflightLedger,
+	pushes []OwnerPushSpec,
+	req PlacementRequest,
+) PoolRotationDecision fails session.RotationRefusal {
+	let pinnedID = match rot.FixedAccount {
+	case option.Some as fw:
+		fw.Value
+	case option.None:
+		return session.NoEligibleHealthyAccount{Requested: option.None}
+	}
+	match req.PreferredAccount {
+	case option.Some as pw:
+		if pw.Value != pinnedID {
+			return session.FixedAccountPolicyRefusal{Pinned: pinnedID}
+		}
+	case option.None:
+		let _ = pinnedID
+	}
+	let entry = match GetAccount(reg, pinnedID) {
+	case option.Some as ew:
+		ew.Value
+	case option.None:
+		return session.NoEligibleHealthyAccount{Requested: rot.FixedAccount}
+	}
+	let pinnedReg = UpsertAccount(NewRegistry(), entry)
+	let effReq = fixedAccountRequest(req, rot.FixedAccount)
+	let slots = RankedToRotationSlots(RankPlacement(pinnedReg, ledger, pushes, effReq))
+	let dec = Admit(pinnedReg, ledger, pushes, effReq)
+	match dec {
+	case AdmitHeld as hold:
+		PoolRotationHeld{RetryAtMs: hold.RetryAtMs, Reason: hold.Reason}
+	case AdmitAllowed as allow:
+		if !fixedRotationAllowed(rot.FixedAccount, allow.AccountID) {
+			return session.FixedAccountPolicyRefusal{Pinned: pinnedID}
+		}
+		let pickedHealthy = session.SelectHealthyAccount(slots, rot.FixedAccount)
+		match pickedHealthy {
+		case option.None:
+			session.NoEligibleHealthyAccount{Requested: rot.FixedAccount}
+		case option.Some:
+			PoolRotationAllowed{AccountID: allow.AccountID, Start: allow.Start}
+		}
+	}
+}
+
+// SelectAccountWithRotation enforces mid-turn freeze, fixed-account pinning, healthy-slot gating, and soonest-under-line selection.
+func SelectAccountWithRotation(
+	rot session.RotationState,
+	reg Registry,
+	ledger InflightLedger,
+	pushes []OwnerPushSpec,
+	req PlacementRequest,
+) PoolRotationDecision fails session.RotationRefusal {
+	if rot.InTurn {
+		return session.RotationBlockedMidTurn
+	}
+	match rot.Policy {
+	case session.RotationFixed:
+		selectFixedRotation(rot, reg, ledger, pushes, req)
+	case session.RotationPooled:
+		let effReq = match req.PreferredAccount {
+		case option.Some:
+			req
+		case option.None:
+			fixedAccountRequest(req, rot.ActiveAccount)
+		}
+		let ranked = RankPlacement(reg, ledger, pushes, effReq)
+		let slots = RankedToRotationSlots(ranked)
+		let dec = Admit(reg, ledger, pushes, effReq)
+		match dec {
+		case AdmitHeld as hold:
+			PoolRotationHeld{RetryAtMs: hold.RetryAtMs, Reason: hold.Reason}
+		case AdmitAllowed as allow:
+			let pickedHealthy = session.SelectHealthyAccount(slots, option.Some[session.AccountID]{Value: allow.AccountID})
+			match pickedHealthy {
+			case option.None:
+				session.NoEligibleHealthyAccount{Requested: option.Some[session.AccountID]{Value: allow.AccountID}}
+			case option.Some:
+				PoolRotationAllowed{AccountID: allow.AccountID, Start: allow.Start}
+			}
+		}
+	}
+}
+
+// HoldWakeGateAllowed permits held-turn wake execution after validating turn limit guards.
+type HoldWakeGateAllowed {
+	Limit  turn.LimitState,
+	Hold   TurnHold,
+	Ledger DeliveryLedger,
+	Effect WakeEffect,
+}
+
+// HoldWakeGateBlocked explains why turn limit guards or child-gone state blocked waking a held turn.
+type HoldWakeGateBlocked {
+	Limit   turn.LimitState,
+	Refusal option.Option[turn.LimitRefusal],
+}
+
+// HoldWakeGateDecision captures gated hold-wake reconciliation against turn.LimitState.
+type HoldWakeGateDecision = HoldWakeGateAllowed | HoldWakeGateBlocked
+
+// EvaluateGoneChildHoldWake prevents phantom wakes on vanished children while keeping LimitState synced.
+func EvaluateGoneChildHoldWake(
+	limit turn.LimitState,
+	hold TurnHold,
+	ledger DeliveryLedger,
+	nowMs int64,
+) HoldWakeGateDecision {
+	let nh, nl, eff = ProbeChildGoneHold(hold, ledger, nowMs)
+	HoldWakeGateAllowed{Limit: limit, Hold: nh, Ledger: nl, Effect: eff}
+}
+
+// EvaluateGatedHoldWake combines LimitRecovery guards (pending request, expired session, overdue) with single-wake holds.
+func EvaluateGatedHoldWake(
+	key turn.LimitRecoveryKey,
+	limit turn.LimitState,
+	hold TurnHold,
+	ledger DeliveryLedger,
+	ctx turn.LimitGuardContext,
+) HoldWakeGateDecision {
+	let armedOk = turn.CanArmLimitRecovery(key, ctx) catch {
+	case err:
+		return HoldWakeGateBlocked{
+			Limit:   limit,
+			Refusal: option.Some[turn.LimitRefusal]{Value: err},
+		}
+	}
+	if !armedOk {
+		return HoldWakeGateBlocked{Limit: limit, Refusal: option.None}
+	}
+	if ctx.NowMs < key.ResetAtMs || ctx.NowMs < hold.RetryAtMs {
+		let _ = turn.StepLimitRecovery(limit, turn.ActFireResume) catch {
+		case err:
+			return HoldWakeGateBlocked{
+				Limit:   limit,
+				Refusal: option.Some[turn.LimitRefusal]{Value: err},
+			}
+		}
+		return HoldWakeGateBlocked{Limit: limit, Refusal: option.None}
+	}
+	let reached = turn.StepLimitRecovery(limit, turn.ActReachReset) catch {
+	case err:
+		return HoldWakeGateBlocked{
+			Limit:   limit,
+			Refusal: option.Some[turn.LimitRefusal]{Value: err},
+		}
+	}
+	let resumed = turn.StepLimitRecovery(reached, turn.ActFireResume) catch {
+	case err:
+		return HoldWakeGateBlocked{
+			Limit:   reached,
+			Refusal: option.Some[turn.LimitRefusal]{Value: err},
+		}
+	}
+	let nh, nl, eff = EvaluateHoldWake(hold, ledger, ctx.NowMs)
+	HoldWakeGateAllowed{Limit: resumed, Hold: nh, Ledger: nl, Effect: eff}
+}
+
+// FixedRotationNeverMovesAndBlocksMidTurn proves RotationFixed never moves accounts and InTurn blocks switching.
+law FixedRotationNeverMovesAndBlocksMidTurn(nowMs int64 where nowMs >= 10000000 && nowMs <= 5000000000) {
+	let fixedAcc = session.AccountID("acc-fixed")
+	let otherAcc = session.AccountID("acc-other")
+	let eFixed = AccountEntry{
+		Config: AccountConfig{
+			ID:              fixedAcc,
+			Provider:        "openai",
+			Model:           "gpt-5",
+			Label:           "fixed",
+			Priority:        2,
+			Healthy:         true,
+			PaceWithheld:    false,
+			SupportedScopes: []string{},
+		},
+		Limits: option.Some[LimitsModel]{
+			Value: LimitsModel{
+				Primary5h:    WinReported{UsedPpm: FiveHourHardCapPpm(), ResetAtMs: nowMs + int64(3600000)},
+				Weekly7d:     WinReported{UsedPpm: PctToPpm(20), ResetAtMs: nowMs + int64(86400000)},
+				ModelWindows: []ModelQuota{},
+				ReadAtMs:     nowMs,
+				RateLimited:  false,
+			},
+		},
+		Pace:        option.None,
+		HoldUntilMs: int64(0),
+	}
+	let p5 = PctToPpm(5)
+	let eOther = AccountEntry{
+		Config: AccountConfig{
+			ID:              otherAcc,
+			Provider:        "openai",
+			Model:           "gpt-5",
+			Label:           "other",
+			Priority:        1,
+			Healthy:         true,
+			PaceWithheld:    false,
+			SupportedScopes: []string{},
+		},
+		Limits: option.Some[LimitsModel]{
+			Value: LimitsModel{
+				Primary5h:    WinReported{UsedPpm: p5, ResetAtMs: nowMs + int64(1800000)},
+				Weekly7d:     WinReported{UsedPpm: p5, ResetAtMs: nowMs + int64(43200000)},
+				ModelWindows: []ModelQuota{},
+				ReadAtMs:     nowMs,
+				RateLimited:  false,
+			},
+		},
+		Pace:        option.None,
+		HoldUntilMs: int64(0),
+	}
+	let mut reg = NewRegistry()
+	reg = UpsertAccount(reg, eOther)
+	reg = UpsertAccount(reg, eFixed)
+	let slots = []session.AccountSlot{
+		session.AccountSlot{ID: fixedAcc, Priority: 1, Status: session.AccountHealthy},
+		session.AccountSlot{ID: otherAcc, Priority: 2, Status: session.AccountHealthy},
+	}
+	let fixedRot = session.NewRotationState(handle.ThreadID("th-fixed"), session.RotationFixed, slots, option.Some[session.AccountID]{Value: fixedAcc})
+	let req = PlacementRequest{
+		Provider:         "openai",
+		Model:            "gpt-5",
+		NowMs:            nowMs,
+		EstimatedCostPpm: DefaultCostPpm(),
+		PreferredAccount: option.None,
+		IsPriority:       false,
+		IsAuxiliary:      false,
+		StaleAfterMs:     StaleAfterMs(),
+		UnreadRetryMs:    UnreadRetryMs(),
+		SkewMs:           DefaultSkewMs(),
+		LeewayPpm:        WeeklyLeewayPpm(),
+		StartID:          "s-fixed",
+		SettleHorizonMs:  DefaultSettleMs(),
+	}
+	let res = SelectAccountWithRotation(fixedRot, reg, NewInflightLedger(), []OwnerPushSpec{}, req) catch {
+	case _:
+		return false
+	}
+	match res {
+	case PoolRotationAllowed as aw:
+		aw.AccountID == fixedAcc
+	case PoolRotationHeld:
+		true
+	}
+}
+
+// LimitRecoveryRefusesPendingQuestionAndOverdue proves pending requests and 24h overdue resets block held-turn wakes.
+law LimitRecoveryRefusesPendingQuestionAndOverdue(nowMs int64 where nowMs >= 10000000 && nowMs <= 5000000000) {
+	let resetAt = nowMs + int64(10000)
+	let key = turn.LimitRecoveryKey{ThreadID: "th-lim", Kind: turn.LimitUsage, ResetAtMs: resetAt}
+	let mut lim = turn.NewLimitState(key)
+	lim = turn.StepLimitRecovery(lim, turn.ActArmLimit{NowMs: nowMs, AlreadyHandled: false}) catch {
+	case _:
+		return false
+	}
+	let hold = OpenTurnHold(TurnHoldSpec{
+		HoldKey:        "hold-lim",
+		ThreadID:       handle.ThreadID("th-lim"),
+		ParentThreadID: option.None,
+		AccountID:      session.AccountID("acc-1"),
+		RetryAtMs:      resetAt,
+	}, nowMs) catch {
+	case _:
+		return false
+	}
+	let ctxPending = turn.LimitGuardContext{
+		NowMs:                resetAt,
+		ThreadArchived:       false,
+		SessionExpired:       false,
+		PendingRequest:       true,
+		AlreadyHandledForKey: false,
+	}
+	let blockedPending = match EvaluateGatedHoldWake(key, lim, hold, NewDeliveryLedger(), ctxPending) {
+	case HoldWakeGateBlocked as bw:
+		match bw.Refusal {
+		case option.Some as rw:
+			match rw.Value {
+			case turn.PendingRequestBlocking:
+				true
+			case _:
+				false
+			}
+		case option.None:
+			false
+		}
+	case HoldWakeGateAllowed:
+		false
+	}
+	let ctxOverdue = turn.LimitGuardContext{
+		NowMs:                resetAt + turn.MaxLimitOverdueMs() + int64(1),
+		ThreadArchived:       false,
+		SessionExpired:       false,
+		PendingRequest:       false,
+		AlreadyHandledForKey: false,
+	}
+	let blockedOverdue = match EvaluateGatedHoldWake(key, lim, hold, NewDeliveryLedger(), ctxOverdue) {
+	case HoldWakeGateBlocked as bw:
+		match bw.Refusal {
+		case option.Some as rw:
+			match rw.Value {
+			case turn.ResetOverdueBeyond24h:
+				true
+			case _:
+				false
+			}
+		case option.None:
+			false
+		}
+	case HoldWakeGateAllowed:
+		false
+	}
+	blockedPending && blockedOverdue
+}
+
+func isMidTurnBlocked(rot session.RotationState, reg Registry, req PlacementRequest) bool {
+	let _ = SelectAccountWithRotation(rot, reg, NewInflightLedger(), []OwnerPushSpec{}, req) catch {
+	case session.RotationBlockedMidTurn:
+		return true
+	case _:
+		return false
+	}
+	false
+}
+
+test RotationAndLimitBridgeIntegration {
+	let now = int64(200000000)
+	let resetAt = now + int64(30000)
+	let key = turn.LimitRecoveryKey{ThreadID: "th-1", Kind: turn.LimitUsage, ResetAtMs: resetAt}
+	let mut lim = turn.NewLimitState(key)
+	lim = try turn.StepLimitRecovery(lim, turn.ActArmLimit{NowMs: now, AlreadyHandled: false})
+
+	let hold = try OpenTurnHold(TurnHoldSpec{
+		HoldKey:        "hold-bridge",
+		ThreadID:       handle.ThreadID("th-1"),
+		ParentThreadID: option.Some[handle.ThreadID]{Value: handle.ThreadID("parent-root")},
+		AccountID:      session.AccountID("acc-soon"),
+		RetryAtMs:      resetAt,
+	}, now)
+	let ledger = NewDeliveryLedger()
+
+	let ctxEarly = turn.LimitGuardContext{
+		NowMs:                resetAt - int64(100),
+		ThreadArchived:       false,
+		SessionExpired:       false,
+		PendingRequest:       false,
+		AlreadyHandledForKey: false,
+	}
+	match EvaluateGatedHoldWake(key, lim, hold, ledger, ctxEarly) {
+	case HoldWakeGateBlocked as bw:
+		match bw.Refusal {
+		case option.Some as rw:
+			match rw.Value {
+			case turn.ResetNotReachedYet:
+				let _ = rw
+			case _:
+				assert false
+			}
+		case option.None:
+			assert false
+		}
+	case HoldWakeGateAllowed:
+		assert false
+	}
+
+	let ctxReady = turn.LimitGuardContext{
+		NowMs:                resetAt,
+		ThreadArchived:       false,
+		SessionExpired:       false,
+		PendingRequest:       false,
+		AlreadyHandledForKey: false,
+	}
+	match EvaluateGatedHoldWake(key, lim, hold, ledger, ctxReady) {
+	case HoldWakeGateBlocked:
+		assert false
+	case HoldWakeGateAllowed as aw:
+		assert turn.IsLimitSettled(aw.Limit)
+		assert aw.Effect == WakeEffectSend{
+			HoldKey:    "hold-bridge",
+			ThreadID:   handle.ThreadID("th-1"),
+			DeliveryID: WakeDeliveryID(handle.ThreadID("th-1"), resetAt),
+			AtMs:       resetAt,
+		}
+		match EvaluateGatedHoldWake(key, aw.Limit, aw.Hold, aw.Ledger, ctxReady) {
+		case HoldWakeGateBlocked as bw2:
+			assert bw2.Refusal == option.Some[turn.LimitRefusal]{Value: turn.LimitAlreadySettled}
+		case HoldWakeGateAllowed:
+			assert false
+		}
+	}
+
+	let rotBase = session.NewRotationState(
+		handle.ThreadID("th-rot"),
+		session.RotationPooled,
+		[]session.AccountSlot{
+			session.AccountSlot{ID: session.AccountID("acc-soon"), Priority: 1, Status: session.AccountHealthy},
+			session.AccountSlot{ID: session.AccountID("acc-late"), Priority: 2, Status: session.AccountHealthy},
+		},
+		option.None,
+	)
+	let mut reg = NewRegistry()
+	let p10 = PctToPpm(10)
+	reg = UpsertAccount(reg, AccountEntry{
+		Config: AccountConfig{
+			ID:              session.AccountID("acc-late"),
+			Provider:        "openai",
+			Model:           "gpt-5",
+			Label:           "late",
+			Priority:        1,
+			Healthy:         true,
+			PaceWithheld:    false,
+			SupportedScopes: []string{},
+		},
+		Limits: option.Some[LimitsModel]{
+			Value: LimitsModel{
+				Primary5h:    WinReported{UsedPpm: p10, ResetAtMs: now + int64(3600000)},
+				Weekly7d:     WinReported{UsedPpm: p10, ResetAtMs: now + int64(86400000)},
+				ModelWindows: []ModelQuota{},
+				ReadAtMs:     now,
+				RateLimited:  false,
+			},
+		},
+		Pace:        option.None,
+		HoldUntilMs: int64(0),
+	})
+	reg = UpsertAccount(reg, AccountEntry{
+		Config: AccountConfig{
+			ID:              session.AccountID("acc-soon"),
+			Provider:        "openai",
+			Model:           "gpt-5",
+			Label:           "soon",
+			Priority:        2,
+			Healthy:         true,
+			PaceWithheld:    false,
+			SupportedScopes: []string{},
+		},
+		Limits: option.Some[LimitsModel]{
+			Value: LimitsModel{
+				Primary5h:    WinReported{UsedPpm: p10, ResetAtMs: now + int64(3600000)},
+				Weekly7d:     WinReported{UsedPpm: p10, ResetAtMs: now + int64(7200000)},
+				ModelWindows: []ModelQuota{},
+				ReadAtMs:     now,
+				RateLimited:  false,
+			},
+		},
+		Pace:        option.None,
+		HoldUntilMs: int64(0),
+	})
+	let req = PlacementRequest{
+		Provider:         "openai",
+		Model:            "gpt-5",
+		NowMs:            now,
+		EstimatedCostPpm: DefaultCostPpm(),
+		PreferredAccount: option.None,
+		IsPriority:       false,
+		IsAuxiliary:      false,
+		StaleAfterMs:     StaleAfterMs(),
+		UnreadRetryMs:    UnreadRetryMs(),
+		SkewMs:           DefaultSkewMs(),
+		LeewayPpm:        WeeklyLeewayPpm(),
+		StartID:          "s-rot",
+		SettleHorizonMs:  DefaultSettleMs(),
+	}
+	match try SelectAccountWithRotation(rotBase, reg, NewInflightLedger(), []OwnerPushSpec{}, req) {
+	case PoolRotationHeld:
+		assert false
+	case PoolRotationAllowed as aw:
+		assert aw.AccountID == session.AccountID("acc-soon")
+	}
+
+	let midTurnRot = session.RotationState{..rotBase, InTurn: true}
+	assert isMidTurnBlocked(midTurnRot, reg, req)
+
+	let goneRes = EvaluateGoneChildHoldWake(lim, hold, ledger, resetAt)
+	match goneRes {
+	case HoldWakeGateBlocked:
+		assert false
+	case HoldWakeGateAllowed as gw:
+		assert gw.Effect == WakeEffectNotifyParentGone{
+			HoldKey:          "hold-bridge",
+			ThreadID:         handle.ThreadID("th-1"),
+			ParentID:         option.Some[handle.ThreadID]{Value: handle.ThreadID("parent-root")},
+			NoticeDeliveryID: GoneNoticeDeliveryID(handle.ThreadID("th-1"), resetAt),
+			AtMs:             resetAt,
+		}
+	}
+}

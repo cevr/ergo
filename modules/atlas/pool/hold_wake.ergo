@@ -1,0 +1,760 @@
+import github.com/cevr/ergo/modules/atlas/handle
+import github.com/cevr/ergo/modules/atlas/memory
+import github.com/cevr/ergo/modules/atlas/session
+import machines
+import option
+
+// WakeDeliveryID returns the canonical immutable idempotency key for waking a held turn at RetryAtMs.
+func WakeDeliveryID(threadID handle.ThreadID, retryAtMs int64) string {
+	let raw = string(threadID)
+	"hold:\(raw):\(retryAtMs)"
+}
+
+// GoneNoticeDeliveryID returns the deterministic idempotency key for notifying a parent about a gone child.
+func GoneNoticeDeliveryID(threadID handle.ThreadID, retryAtMs int64) string {
+	"hold-gone:\(string(threadID)):\(retryAtMs)"
+}
+
+// TurnHoldWaiting indicates the turn is parked waiting for RetryAtMs.
+type TurnHoldWaiting {}
+
+// TurnHoldWoken indicates the held turn wake has been delivered or confirmed.
+type TurnHoldWoken {
+	WokenAtMs int64,
+}
+
+// TurnHoldChildGone indicates the held child disappeared before a wake completed.
+type TurnHoldChildGone {
+	DetectedAtMs int64,
+}
+
+// TurnHoldCancelled indicates the hold was cancelled explicitly before waking.
+type TurnHoldCancelled {
+	CancelledAtMs int64,
+}
+
+// TurnHoldStatus tracks lifecycle transitions of a pool hold record.
+type TurnHoldStatus = TurnHoldWaiting | TurnHoldWoken | TurnHoldChildGone | TurnHoldCancelled
+
+// TurnHoldSpec defines parameters for opening a turn hold on a future pool opening timestamp.
+type TurnHoldSpec {
+	HoldKey        string,
+	ThreadID       handle.ThreadID,
+	ParentThreadID option.Option[handle.ThreadID],
+	AccountID      session.AccountID,
+	RetryAtMs      int64,
+}
+
+// TurnHold tracks one held turn, its concrete future opening time, and its single-wake identity.
+type TurnHold {
+	HoldKey        string,
+	ThreadID       handle.ThreadID,
+	ParentThreadID option.Option[handle.ThreadID],
+	AccountID      session.AccountID,
+	RetryAtMs      int64,
+	DeliveryID     string,
+	GoneDeliveryID string,
+	Status         TurnHoldStatus,
+	ParentNotified bool,
+	CreatedAtMs    int64,
+	UpdatedAtMs    int64,
+}
+
+// ErrRetryNotFuture indicates an attempted hold did not name a strictly future RetryAtMs.
+type ErrRetryNotFuture {
+	RetryAtMs int64,
+	NowMs     int64,
+}
+
+// ErrHoldEmptyThread indicates ThreadID was empty when opening a hold.
+type ErrHoldEmptyThread {}
+
+// ErrHoldEmptyKey indicates HoldKey was empty when opening a hold.
+type ErrHoldEmptyKey {}
+
+// HoldError classifies invalid turn hold construction inputs.
+type HoldError = ErrRetryNotFuture | ErrHoldEmptyThread | ErrHoldEmptyKey
+
+// DeliveryLedger is an atomic idempotency journal of emitted wake and parent-gone delivery IDs.
+type DeliveryLedger {
+	SentAt Map[string, int64],
+	Order  []string,
+}
+
+// NewDeliveryLedger constructs an empty wake delivery idempotency ledger.
+func NewDeliveryLedger() DeliveryLedger {
+	DeliveryLedger{SentAt: Map[string, int64]{}, Order: []string{}}
+}
+
+// HasDelivery reports whether deliveryID has already been committed to the ledger.
+func HasDelivery(ledger DeliveryLedger, deliveryID string) bool {
+	match ledger.SentAt.Get(deliveryID) {
+	case option.Some:
+		true
+	case option.None:
+		false
+	}
+}
+
+// RecordDelivery records deliveryID at atMs if not already committed.
+func RecordDelivery(ledger DeliveryLedger, deliveryID string, atMs int64) (DeliveryLedger, bool) {
+	if HasDelivery(ledger, deliveryID) {
+		return (ledger, false)
+	}
+	let next = DeliveryLedger{
+		SentAt: ledger.SentAt.Put(deliveryID, atMs),
+		Order:  ledger.Order.Append(deliveryID),
+	}
+	(next, true)
+}
+
+// OpenTurnHold validates a concrete future opening time and binds its immutable wake delivery IDs.
+func OpenTurnHold(spec TurnHoldSpec, nowMs int64) TurnHold fails HoldError {
+	if spec.HoldKey == "" {
+		return ErrHoldEmptyKey
+	}
+	if string(spec.ThreadID) == "" {
+		return ErrHoldEmptyThread
+	}
+	if spec.RetryAtMs <= nowMs {
+		return ErrRetryNotFuture{RetryAtMs: spec.RetryAtMs, NowMs: nowMs}
+	}
+	TurnHold{
+		HoldKey:        spec.HoldKey,
+		ThreadID:       spec.ThreadID,
+		ParentThreadID: spec.ParentThreadID,
+		AccountID:      spec.AccountID,
+		RetryAtMs:      spec.RetryAtMs,
+		DeliveryID:     WakeDeliveryID(spec.ThreadID, spec.RetryAtMs),
+		GoneDeliveryID: GoneNoticeDeliveryID(spec.ThreadID, spec.RetryAtMs),
+		Status:         TurnHoldWaiting,
+		ParentNotified: false,
+		CreatedAtMs:    nowMs,
+		UpdatedAtMs:    nowMs,
+	}
+}
+
+// CancelTurnHold transitions a waiting hold into TurnHoldCancelled so it never wakes later.
+func CancelTurnHold(hold TurnHold, nowMs int64) TurnHold {
+	match hold.Status {
+	case TurnHoldWaiting:
+		TurnHold{..hold, Status: TurnHoldCancelled{CancelledAtMs: nowMs}, UpdatedAtMs: nowMs}
+	case TurnHoldWoken, TurnHoldChildGone, TurnHoldCancelled:
+		hold
+	}
+}
+
+// WakeEffectNone indicates no wake or parent notice should be dispatched.
+type WakeEffectNone {}
+
+// WakeEffectSend instructs the caller to deliver a held-turn wake under DeliveryID.
+type WakeEffectSend {
+	HoldKey    string,
+	ThreadID   handle.ThreadID,
+	DeliveryID string,
+	AtMs       int64,
+}
+
+// WakeEffectNotifyParentGone instructs the caller to notify the parent thread once about a vanished child.
+type WakeEffectNotifyParentGone {
+	HoldKey          string,
+	ThreadID         handle.ThreadID,
+	ParentID         option.Option[handle.ThreadID],
+	NoticeDeliveryID string,
+	AtMs             int64,
+}
+
+// WakeEffect represents the atomic side effect returned by hold reconciliation.
+type WakeEffect = WakeEffectNone | WakeEffectSend | WakeEffectNotifyParentGone
+
+// EvaluateHoldWake performs a single-wake scan at nowMs while the held thread is alive.
+func EvaluateHoldWake(hold TurnHold, ledger DeliveryLedger, nowMs int64) (TurnHold, DeliveryLedger, WakeEffect) {
+	match hold.Status {
+	case TurnHoldWoken, TurnHoldChildGone, TurnHoldCancelled:
+		(hold, ledger, WakeEffectNone)
+	case TurnHoldWaiting:
+		if nowMs < hold.RetryAtMs {
+			return (hold, ledger, WakeEffectNone)
+		}
+		let nextLedger, recorded = RecordDelivery(ledger, hold.DeliveryID, nowMs)
+		if !recorded {
+			let settled = TurnHold{..hold, Status: TurnHoldWoken{WokenAtMs: nowMs}, UpdatedAtMs: nowMs}
+			return (settled, nextLedger, WakeEffectNone)
+		}
+		let woken = TurnHold{..hold, Status: TurnHoldWoken{WokenAtMs: nowMs}, UpdatedAtMs: nowMs}
+		let effect = WakeEffectSend{
+			HoldKey:    hold.HoldKey,
+			ThreadID:   hold.ThreadID,
+			DeliveryID: hold.DeliveryID,
+			AtMs:       nowMs,
+		}
+		(woken, nextLedger, effect)
+	}
+}
+
+// DispatchHoldWakeWithLostReply models sending a wake at opening where delivery succeeds in ledger before status reply saves.
+func DispatchHoldWakeWithLostReply(hold TurnHold, ledger DeliveryLedger, nowMs int64) (TurnHold, DeliveryLedger, WakeEffect) {
+	match hold.Status {
+	case TurnHoldWoken, TurnHoldChildGone, TurnHoldCancelled:
+		(hold, ledger, WakeEffectNone)
+	case TurnHoldWaiting:
+		if nowMs < hold.RetryAtMs {
+			return (hold, ledger, WakeEffectNone)
+		}
+		let nextLedger, recorded = RecordDelivery(ledger, hold.DeliveryID, nowMs)
+		if !recorded {
+			let settled = TurnHold{..hold, Status: TurnHoldWoken{WokenAtMs: nowMs}, UpdatedAtMs: nowMs}
+			return (settled, nextLedger, WakeEffectNone)
+		}
+		let touched = TurnHold{..hold, UpdatedAtMs: nowMs}
+		let effect = WakeEffectSend{
+			HoldKey:    hold.HoldKey,
+			ThreadID:   hold.ThreadID,
+			DeliveryID: hold.DeliveryID,
+			AtMs:       nowMs,
+		}
+		(touched, nextLedger, effect)
+	}
+}
+
+// ProbeChildGoneHold prevents phantom wakes for vanished children and emits at most one parent notice.
+func ProbeChildGoneHold(hold TurnHold, ledger DeliveryLedger, nowMs int64) (TurnHold, DeliveryLedger, WakeEffect) {
+	match hold.Status {
+	case TurnHoldWoken, TurnHoldCancelled:
+		(hold, ledger, WakeEffectNone)
+	case TurnHoldWaiting, TurnHoldChildGone:
+		let marked = match hold.Status {
+		case TurnHoldChildGone:
+			hold
+		case TurnHoldWaiting, TurnHoldWoken, TurnHoldCancelled:
+			TurnHold{..hold, Status: TurnHoldChildGone{DetectedAtMs: nowMs}, UpdatedAtMs: nowMs}
+		}
+		if marked.ParentNotified || HasDelivery(ledger, marked.GoneDeliveryID) {
+			let synced = TurnHold{..marked, ParentNotified: true, UpdatedAtMs: nowMs}
+			return (synced, ledger, WakeEffectNone)
+		}
+		let nextLedger, _ = RecordDelivery(ledger, marked.GoneDeliveryID, nowMs)
+		let notified = TurnHold{..marked, ParentNotified: true, UpdatedAtMs: nowMs}
+		let effect = WakeEffectNotifyParentGone{
+			HoldKey:          marked.HoldKey,
+			ThreadID:         marked.ThreadID,
+			ParentID:         marked.ParentThreadID,
+			NoticeDeliveryID: marked.GoneDeliveryID,
+			AtMs:             nowMs,
+		}
+		(notified, nextLedger, effect)
+	}
+}
+
+// PoolWorldAct represents state-machine actions verified exhaustively in PoolHoldAndPaceLifecycle.
+type PoolWorldAct = ActAdvanceTick{} | ActAdmitRequest{PreferredSoon bool} | ActSettleInflight{} | ActTickWake{LostReply bool} | ActChildDied{} | ActEnablePush{} | ActClaimReset{}
+
+// PoolWorld captures full end-to-end admission, inflight, hold-wake, push, and reset state for model checking.
+type PoolWorld {
+	Step                int,
+	BaseMs              int64,
+	NowMs               int64,
+	Registry            Registry,
+	Inflight            InflightLedger,
+	LastStartID         string,
+	StartsIssued        int,
+	Hold                option.Option[TurnHold],
+	Delivery            DeliveryLedger,
+	Pushes              []OwnerPushSpec,
+	Resets              ResetClaimLedger,
+	ChildAlive          bool,
+	WakeCount           int,
+	GoneNoticeCount     int,
+	SawLostReply        bool,
+	SawPushActive       bool,
+	PushExpiredCleanly  bool,
+	WrongOrderPick      bool,
+	DoubleSpendInflight bool,
+	BadRefusal          bool,
+	EarlyWake           bool,
+	DoubleWake          bool,
+	WokeGoneChild       bool,
+	PushPastEnd         bool,
+	DuplicateReset      bool,
+}
+
+func worldReq(w PoolWorld, startID string, preferredSoon bool) PlacementRequest {
+	PlacementRequest{
+		Provider:         "openai",
+		Model:            "gpt-5",
+		NowMs:            w.NowMs,
+		EstimatedCostPpm: PctToPpm(5),
+		PreferredAccount: if preferredSoon { option.Some[session.AccountID]{Value: session.AccountID("acc-soon")} } else { option.None },
+		IsPriority:       false,
+		IsAuxiliary:      false,
+		StaleAfterMs:     StaleAfterMs(),
+		UnreadRetryMs:    UnreadRetryMs(),
+		SkewMs:           DefaultSkewMs(),
+		LeewayPpm:        WeeklyLeewayPpm(),
+		StartID:          startID,
+		SettleHorizonMs:  int64(1800000),
+	}
+}
+
+func worldRegistryAt(baseMs int64, nowMs int64, usedSoonPpm int64) Registry {
+	let soonReset = baseMs + int64(3600000)
+	let lateReset = baseMs + int64(86400000)
+	let soonUsedReset = if soonReset > nowMs { soonReset } else { nowMs + WeekWindowMs() }
+	let accSoon = AccountEntry{
+		Config: AccountConfig{
+			ID:              session.AccountID("acc-soon"),
+			Provider:        "openai",
+			Model:           "gpt-5",
+			Label:           "soon",
+			Priority:        2,
+			Healthy:         true,
+			PaceWithheld:    false,
+			SupportedScopes: []string{},
+		},
+		Limits: option.Some[LimitsModel]{
+			Value: LimitsModel{
+				Primary5h:    WinReported{UsedPpm: PctToPpm(20), ResetAtMs: soonUsedReset},
+				Weekly7d:     WinReported{UsedPpm: usedSoonPpm, ResetAtMs: soonUsedReset},
+				ModelWindows: []ModelQuota{},
+				ReadAtMs:     nowMs,
+				RateLimited:  false,
+			},
+		},
+		Pace:        option.None,
+		HoldUntilMs: int64(0),
+	}
+	let accLate = AccountEntry{
+		Config: AccountConfig{
+			ID:              session.AccountID("acc-late"),
+			Provider:        "openai",
+			Model:           "gpt-5",
+			Label:           "late",
+			Priority:        1,
+			Healthy:         true,
+			PaceWithheld:    false,
+			SupportedScopes: []string{},
+		},
+		Limits: option.Some[LimitsModel]{
+			Value: LimitsModel{
+				Primary5h:    WinReported{UsedPpm: PctToPpm(90), ResetAtMs: baseMs + int64(3600000)},
+				Weekly7d:     WinReported{UsedPpm: PctToPpm(99), ResetAtMs: lateReset},
+				ModelWindows: []ModelQuota{},
+				ReadAtMs:     nowMs,
+				RateLimited:  false,
+			},
+		},
+		Pace:        option.None,
+		HoldUntilMs: int64(0),
+	}
+	let reg1 = UpsertAccount(NewRegistry(), accLate)
+	UpsertAccount(reg1, accSoon)
+}
+
+func firstPoolWorld() PoolWorld {
+	let base = int64(700000000)
+	let initReg = worldRegistryAt(base, base, int64(984000))
+	PoolWorld{
+		Step:                0,
+		BaseMs:              base,
+		NowMs:               base,
+		Registry:            initReg,
+		Inflight:            NewInflightLedger(),
+		LastStartID:         "",
+		StartsIssued:        0,
+		Hold:                option.None,
+		Delivery:            NewDeliveryLedger(),
+		Pushes:              []OwnerPushSpec{},
+		Resets:              NewResetClaimLedger(),
+		ChildAlive:          true,
+		WakeCount:           0,
+		GoneNoticeCount:     0,
+		SawLostReply:        false,
+		SawPushActive:       false,
+		PushExpiredCleanly:  false,
+		WrongOrderPick:      false,
+		DoubleSpendInflight: false,
+		BadRefusal:          false,
+		EarlyWake:           false,
+		DoubleWake:          false,
+		WokeGoneChild:       false,
+		PushPastEnd:         false,
+		DuplicateReset:      false,
+	}
+}
+
+func stepAdvanceTick(w PoolWorld) machines.Decision[PoolWorld, string] {
+	if w.Step >= 2 {
+		return machines.Ignore
+	}
+	let nextStep = w.Step + 1
+	let nextNow = w.BaseMs + int64(nextStep)*int64(1800000)
+	let nextUsed = if nextStep >= 2 { int64(0) } else { int64(984000) }
+	let nextReg = worldRegistryAt(w.BaseMs, nextNow, nextUsed)
+	let nextInf = PruneSettledStarts(w.Inflight, nextNow, DefaultSkewMs())
+	let mut expired = w.PushExpiredCleanly
+	let mut pastEnd = w.PushPastEnd
+	for _, p in w.Pushes {
+		if nextNow >= p.EndsAtMs {
+			if IsPushActiveAt(p, nextNow) {
+				pastEnd = true
+			} else {
+				expired = true
+			}
+		}
+	}
+	machines.Enter[PoolWorld]{
+		Next: PoolWorld{
+			..w,
+			Step:               nextStep,
+			NowMs:              nextNow,
+			Registry:           nextReg,
+			Inflight:           nextInf,
+			PushExpiredCleanly: expired,
+			PushPastEnd:        pastEnd,
+		},
+	}
+}
+
+func stepAdmitWorld(w PoolWorld, preferredSoon bool) machines.Decision[PoolWorld, string] {
+	if optionIsSome(w.Hold) || !w.ChildAlive || w.StartsIssued >= 2 {
+		return machines.Ignore
+	}
+	let sid = "s-\(w.StartsIssued)"
+	let dec = Admit(w.Registry, w.Inflight, w.Pushes, worldReq(w, sid, preferredSoon))
+	match dec {
+	case AdmitAllowed as aw:
+		let wrong = w.WrongOrderPick || (aw.AccountID != session.AccountID("acc-soon"))
+		let infBefore = FleetInflightSpend(w.Inflight, w.NowMs, DefaultSkewMs())
+		let dbl = w.DoubleSpendInflight || (infBefore > int64(0) && w.Pushes.Len() == 0)
+		let usedPush = w.SawPushActive || optionIsSome(aw.UsedPushID)
+		let nextInf = RecordInflightStart(w.Inflight, aw.Start)
+		machines.Enter[PoolWorld]{
+			Next: PoolWorld{
+				..w,
+				Inflight:            nextInf,
+				LastStartID:         sid,
+				StartsIssued:        w.StartsIssued + 1,
+				SawPushActive:       usedPush,
+				WrongOrderPick:      wrong,
+				DoubleSpendInflight: dbl,
+			},
+		}
+	case AdmitHeld as hw:
+		if hw.RetryAtMs <= w.NowMs {
+			return machines.Enter[PoolWorld]{Next: PoolWorld{..w, BadRefusal: true}}
+		}
+		let opened = OpenTurnHold(TurnHoldSpec{
+			HoldKey:        "hold-child",
+			ThreadID:       handle.ThreadID("child-1"),
+			ParentThreadID: option.Some[handle.ThreadID]{Value: handle.ThreadID("parent-1")},
+			AccountID:      session.AccountID("acc-soon"),
+			RetryAtMs:      hw.RetryAtMs,
+		}, w.NowMs) catch {
+		case ErrRetryNotFuture, ErrHoldEmptyThread, ErrHoldEmptyKey:
+			return machines.Enter[PoolWorld]{Next: PoolWorld{..w, BadRefusal: true}}
+		}
+		machines.Enter[PoolWorld]{
+			Next: PoolWorld{..w, Hold: option.Some[TurnHold]{Value: opened}},
+		}
+	}
+}
+
+func stepWakeWorld(w PoolWorld, lostReply bool) machines.Decision[PoolWorld, string] {
+	match w.Hold {
+	case option.None:
+		machines.Ignore
+	case option.Some as hw:
+		let cur = hw.Value
+		if !w.ChildAlive {
+			let nh, nl, eff = ProbeChildGoneHold(cur, w.Delivery, w.NowMs)
+			let sentNotice = match eff {
+			case WakeEffectNotifyParentGone:
+				1
+			case WakeEffectNone, WakeEffectSend:
+				0
+			}
+			let wokeChild = match eff {
+			case WakeEffectSend:
+				true
+			case WakeEffectNone, WakeEffectNotifyParentGone:
+				false
+			}
+			return machines.Enter[PoolWorld]{
+				Next: PoolWorld{
+					..w,
+					Hold:            option.Some[TurnHold]{Value: nh},
+					Delivery:        nl,
+					GoneNoticeCount: w.GoneNoticeCount + sentNotice,
+					WokeGoneChild:   w.WokeGoneChild || wokeChild,
+				},
+			}
+		}
+		let nh, nl, eff = if lostReply {
+			DispatchHoldWakeWithLostReply(cur, w.Delivery, w.NowMs)
+		} else {
+			EvaluateHoldWake(cur, w.Delivery, w.NowMs)
+		}
+		match eff {
+		case WakeEffectNone:
+			if nh == cur && nl == w.Delivery {
+				return machines.Ignore
+			}
+			machines.Enter[PoolWorld]{
+				Next: PoolWorld{..w, Hold: option.Some[TurnHold]{Value: nh}, Delivery: nl},
+			}
+		case WakeEffectSend:
+			let nextCount = w.WakeCount + 1
+			let early = w.EarlyWake || w.NowMs < cur.RetryAtMs
+			let dbl = w.DoubleWake || nextCount > 1
+			machines.Enter[PoolWorld]{
+				Next: PoolWorld{
+					..w,
+					Hold:         option.Some[TurnHold]{Value: nh},
+					Delivery:     nl,
+					WakeCount:    nextCount,
+					SawLostReply: w.SawLostReply || lostReply,
+					EarlyWake:    early,
+					DoubleWake:   dbl,
+				},
+			}
+		case WakeEffectNotifyParentGone:
+			machines.Enter[PoolWorld]{
+				Next: PoolWorld{
+					..w,
+					Hold:            option.Some[TurnHold]{Value: nh},
+					Delivery:        nl,
+					GoneNoticeCount: w.GoneNoticeCount + 1,
+				},
+			}
+		}
+	}
+}
+
+func stepEnablePushWorld(w PoolWorld) machines.Decision[PoolWorld, string] {
+	if w.Pushes.Len() > 0 {
+		return machines.Ignore
+	}
+	let pStart = w.BaseMs
+	let pEnd = w.BaseMs + int64(3600000)
+	let push = CreateOwnerPush("push-main", memory.PushAllAccounts, PctToPpm(30), pStart, pEnd) catch {
+	case PushEmptyID, PushInvalidWindow, PushNegativeExtra:
+		return machines.Ignore
+	}
+	machines.Enter[PoolWorld]{Next: PoolWorld{..w, Pushes: []OwnerPushSpec{push}}}
+}
+
+func stepClaimResetWorld(w PoolWorld) machines.Decision[PoolWorld, string] {
+	let cand = ResetCandidate{
+		AccountID: session.AccountID("acc-late"),
+		Kind:      memory.LimitWindow5h,
+		UsedPpm:   PctToPpm(90),
+		ResetAtMs: w.BaseMs + int64(3600000),
+		ReadAtMs:  w.NowMs,
+	}
+	let nextLedger, dec = ClaimReset(w.Resets, cand, "pool-worker", w.NowMs)
+	let had = w.Resets.Claims.Len() > 0
+	let dup = match dec {
+	case ResetClaimed:
+		had
+	case ResetSkippedDuplicate, ResetSkippedNotExhausted, ResetSkippedNotFresh, ResetSkippedNoUpcomingReset:
+		false
+	}
+	let unchanged = match dec {
+	case ResetClaimed:
+		false
+	case ResetSkippedDuplicate, ResetSkippedNotExhausted, ResetSkippedNotFresh, ResetSkippedNoUpcomingReset:
+		true
+	}
+	if unchanged && !dup {
+		return machines.Ignore
+	}
+	machines.Enter[PoolWorld]{
+		Next: PoolWorld{..w, Resets: nextLedger, DuplicateReset: w.DuplicateReset || dup},
+	}
+}
+
+func stepPoolWorld(w PoolWorld, act PoolWorldAct) machines.Decision[PoolWorld, string] {
+	match act {
+	case ActAdvanceTick:
+		stepAdvanceTick(w)
+	case ActAdmitRequest as reqAct:
+		stepAdmitWorld(w, reqAct.PreferredSoon)
+	case ActSettleInflight:
+		if w.LastStartID == "" {
+			return machines.Ignore
+		}
+		machines.Enter[PoolWorld]{
+			Next: PoolWorld{
+				..w,
+				Inflight:    SettleInflightStart(w.Inflight, w.LastStartID),
+				LastStartID: "",
+			},
+		}
+	case ActTickWake as wAct:
+		stepWakeWorld(w, wAct.LostReply)
+	case ActChildDied:
+		if !w.ChildAlive {
+			return machines.Ignore
+		}
+		machines.Enter[PoolWorld]{Next: PoolWorld{..w, ChildAlive: false}}
+	case ActEnablePush:
+		stepEnablePushWorld(w)
+	case ActClaimReset:
+		stepClaimResetWorld(w)
+	}
+}
+
+func alwaysOneWakeAtOpening(w PoolWorld) bool          { !w.DoubleWake && w.WakeCount <= 1 }
+func alwaysNeverWakeBeforeOpening(w PoolWorld) bool    { !w.EarlyWake }
+func alwaysSoonestUnderLinePreferred(w PoolWorld) bool { !w.WrongOrderPick }
+func alwaysFleetSpendCountsInflight(w PoolWorld) bool  { !w.DoubleSpendInflight }
+func alwaysRefusalNamesFutureOpening(w PoolWorld) bool { !w.BadRefusal }
+func alwaysGoneChildNotWoken(w PoolWorld) bool         { !w.WokeGoneChild && w.GoneNoticeCount <= 1 }
+func alwaysPushRespectsTimeBox(w PoolWorld) bool       { !w.PushPastEnd }
+func alwaysOneResetClaimPerPeriod(w PoolWorld) bool    { !w.DuplicateReset && w.Resets.Claims.Len() <= 1 }
+
+func sometimesWokeOnceAtOpening(w PoolWorld) bool { w.WakeCount == 1 }
+func sometimesRetryReplyStillOneWake(w PoolWorld) bool {
+	if !w.SawLostReply || w.WakeCount != 1 {
+		return false
+	}
+	match w.Hold {
+	case option.None:
+		false
+	case option.Some as hw:
+		match hw.Value.Status {
+		case TurnHoldWoken:
+			true
+		case TurnHoldWaiting, TurnHoldChildGone, TurnHoldCancelled:
+			false
+		}
+	}
+}
+func sometimesChildGoneNotifiedOnce(w PoolWorld) bool { !w.ChildAlive && w.GoneNoticeCount == 1 && w.WakeCount == 0 }
+func sometimesPushUsedThenExpired(w PoolWorld) bool   { w.SawPushActive && w.PushExpiredCleanly }
+
+// PoolHoldAndPaceLifecycle verifies all 8 safety invariants and 4 reachability witnesses against M10.
+type PoolHoldAndPaceLifecycle machine[PoolWorld, PoolWorldAct] {
+	initial: firstPoolWorld(),
+	step:    stepPoolWorld,
+
+	law OneWakeAtExactOpening always alwaysOneWakeAtOpening,
+	law NeverWakeBeforeOpening always alwaysNeverWakeBeforeOpening,
+	law SoonestUnderLinePreferred always alwaysSoonestUnderLinePreferred,
+	law FleetSpendCountsInflight always alwaysFleetSpendCountsInflight,
+	law RefusalNamesFutureOpening always alwaysRefusalNamesFutureOpening,
+	law GoneChildNotWoken always alwaysGoneChildNotWoken,
+	law PushRespectsTimeBox always alwaysPushRespectsTimeBox,
+	law OneResetClaimPerPeriod always alwaysOneResetClaimPerPeriod,
+
+	law WokeOnceAtOpening sometimes sometimesWokeOnceAtOpening,
+	law RetryReplyAtOpeningStillOneWake sometimes sometimesRetryReplyStillOneWake,
+	law ChildGoneNotifiedOnce sometimes sometimesChildGoneNotifiedOnce,
+	law PushUsedThenExpired sometimes sometimesPushUsedThenExpired,
+}
+
+test HoldWakeDeduplicatesAtOpeningBlocksEarlyAndStopsGoneChild {
+	let now = int64(1000000)
+	let retryAt = now + int64(60000)
+	let tid = handle.ThreadID("thread-child")
+	let pid = handle.ThreadID("thread-parent")
+	let wakeID = WakeDeliveryID(tid, retryAt)
+	assert wakeID == handle.HoldWakeDeliveryID(tid, retryAt)
+
+	let badOpen = OpenTurnHold(TurnHoldSpec{
+		HoldKey:        "h-bad",
+		ThreadID:       tid,
+		ParentThreadID: option.Some[handle.ThreadID]{Value: pid},
+		AccountID:      session.AccountID("acc-1"),
+		RetryAtMs:      now,
+	}, now) catch {
+	case ErrRetryNotFuture:
+		TurnHold{
+			HoldKey:        "rejected",
+			ThreadID:       tid,
+			ParentThreadID: option.None,
+			AccountID:      session.AccountID("acc-1"),
+			RetryAtMs:      now,
+			DeliveryID:     "",
+			GoneDeliveryID: "",
+			Status:         TurnHoldWaiting,
+			ParentNotified: false,
+			CreatedAtMs:    now,
+			UpdatedAtMs:    now,
+		}
+	case ErrHoldEmptyThread, ErrHoldEmptyKey:
+		assert false
+		TurnHold{
+			HoldKey:        "",
+			ThreadID:       tid,
+			ParentThreadID: option.None,
+			AccountID:      session.AccountID("acc-1"),
+			RetryAtMs:      now,
+			DeliveryID:     "",
+			GoneDeliveryID: "",
+			Status:         TurnHoldWaiting,
+			ParentNotified: false,
+			CreatedAtMs:    now,
+			UpdatedAtMs:    now,
+		}
+	}
+	assert badOpen.HoldKey == "rejected"
+
+	let mut hold = try OpenTurnHold(TurnHoldSpec{
+		HoldKey:        "h-1",
+		ThreadID:       tid,
+		ParentThreadID: option.Some[handle.ThreadID]{Value: pid},
+		AccountID:      session.AccountID("acc-1"),
+		RetryAtMs:      retryAt,
+	}, now)
+	let mut ledger = NewDeliveryLedger()
+
+	let hEarly, lEarly, effEarly = EvaluateHoldWake(hold, ledger, retryAt-int64(1))
+	assert hEarly == hold && lEarly == ledger
+	assert effEarly == WakeEffectNone
+
+	let hLost, lLost, effLost = DispatchHoldWakeWithLostReply(hold, ledger, retryAt)
+	hold = hLost
+	ledger = lLost
+	assert effLost == WakeEffectSend{HoldKey: "h-1", ThreadID: tid, DeliveryID: wakeID, AtMs: retryAt}
+
+	let hRescan, lRescan, effRescan = EvaluateHoldWake(hold, ledger, retryAt)
+	assert effRescan == WakeEffectNone
+	assert lRescan == ledger
+	match hRescan.Status {
+	case TurnHoldWoken:
+		let _ = hRescan
+	case TurnHoldWaiting, TurnHoldChildGone, TurnHoldCancelled:
+		assert false
+	}
+
+	let hold2 = try OpenTurnHold(TurnHoldSpec{
+		HoldKey:        "h-gone",
+		ThreadID:       handle.ThreadID("child-2"),
+		ParentThreadID: option.Some[handle.ThreadID]{Value: pid},
+		AccountID:      session.AccountID("acc-1"),
+		RetryAtMs:      retryAt,
+	}, now)
+	let hg1, lg1, eg1 = ProbeChildGoneHold(hold2, ledger, retryAt)
+	let noticeID = GoneNoticeDeliveryID(handle.ThreadID("child-2"), retryAt)
+	assert eg1 == WakeEffectNotifyParentGone{
+		HoldKey:          "h-gone",
+		ThreadID:         handle.ThreadID("child-2"),
+		ParentID:         option.Some[handle.ThreadID]{Value: pid},
+		NoticeDeliveryID: noticeID,
+		AtMs:             retryAt,
+	}
+	let _, _, eg2 = ProbeChildGoneHold(hg1, lg1, retryAt+int64(1000))
+	assert eg2 == WakeEffectNone
+
+	let hCancelInit = try OpenTurnHold(TurnHoldSpec{
+		HoldKey:        "h-cancel",
+		ThreadID:       handle.ThreadID("child-3"),
+		ParentThreadID: option.None,
+		AccountID:      session.AccountID("acc-1"),
+		RetryAtMs:      retryAt,
+	}, now)
+	let hCancelled = CancelTurnHold(hCancelInit, now+int64(10))
+	let _, _, ec = EvaluateHoldWake(hCancelled, ledger, retryAt)
+	assert ec == WakeEffectNone
+}

@@ -1,0 +1,861 @@
+import cmp
+import github.com/cevr/ergo/modules/atlas/adapter
+import github.com/cevr/ergo/modules/atlas/handle
+import github.com/cevr/ergo/modules/atlas/memory
+import github.com/cevr/ergo/modules/atlas/reconcile
+import github.com/cevr/ergo/modules/atlas/session
+import github.com/cevr/ergo/modules/atlas/sqlite
+import github.com/cevr/ergo/modules/atlas/subagent
+import github.com/cevr/ergo/modules/atlas/thread
+import github.com/cevr/ergo/modules/atlas/turn
+import option
+
+// StoreCmdMeta carries actor identity, idempotent command key, and logical clock timestamp for store writes.
+type StoreCmdMeta {
+	Actor     string,
+	CommandID memory.CommandID,
+	NowMs     int64,
+}
+
+// PoolStoreConflict indicates an idempotent command or unique reset claim conflicted with an existing entry.
+type PoolStoreConflict {
+	Operation       string,
+	Detail          string,
+	IsAlreadyExists bool,
+}
+
+// PoolStoreRejected wraps an underlying durable store refusal without losing error context.
+type PoolStoreRejected {
+	Operation string,
+	Detail    string,
+}
+
+// StoreHoldError unifies domain hold opening errors with durable store conflict/rejection failures.
+type StoreHoldError = HoldError | PoolStoreConflict | PoolStoreRejected
+
+// EncodePoolAccount converts an in-memory AccountEntry and inflight count into a durable memory.PoolAccount record.
+func EncodePoolAccount(entry AccountEntry, inflightStarts int, nowMs int64) memory.PoolAccount {
+	let w5Pct, w5Reset, w7Pct, w7Reset, updated, models = match entry.Limits {
+	case option.None:
+		(0, int64(0), 0, int64(0), nowMs, []memory.ModelWindowUsage{})
+	case option.Some as limWrap:
+		let lim = limWrap.Value
+		let p5Pct, p5Reset = match lim.Primary5h {
+		case WinReported as r5:
+			(PpmToPctRound(r5.UsedPpm), cmp.Max(int64(1), r5.ResetAtMs))
+		case WinUnknown, WinAbsent:
+			(0, int64(0))
+		}
+		let p7Pct, p7Reset = match lim.Weekly7d {
+		case WinReported as r7:
+			(PpmToPctRound(r7.UsedPpm), cmp.Max(int64(1), r7.ResetAtMs))
+		case WinUnknown, WinAbsent:
+			(0, int64(0))
+		}
+		let mut encodedModels = []memory.ModelWindowUsage{}
+		for _, mq in lim.ModelWindows {
+			match mq.Status {
+			case WinReported as rm:
+				encodedModels = encodedModels.Append(memory.ModelWindowUsage{
+					Model:     NormalizeScope(mq.Scope),
+					UsedPct:   PpmToPctRound(rm.UsedPpm),
+					ResetAtMs: cmp.Max(int64(1), rm.ResetAtMs),
+				})
+			case WinUnknown, WinAbsent:
+				let _ = mq
+			}
+		}
+		(p5Pct, p5Reset, p7Pct, p7Reset, cmp.Max(nowMs, lim.ReadAtMs), encodedModels)
+	}
+	let limitedUntil = cmp.Max(entry.HoldUntilMs, int64(0))
+	memory.PoolAccount{
+		ID:              entry.Config.ID,
+		Provider:        entry.Config.Provider,
+		Priority:        entry.Config.Priority,
+		Healthy:         entry.Config.Healthy,
+		Window5hUsedPct: w5Pct,
+		Window5hResetMs: w5Reset,
+		Window7dUsedPct: w7Pct,
+		Window7dResetMs: w7Reset,
+		ModelWindows:    models,
+		InflightStarts:  cmp.Max(0, inflightStarts),
+		LimitedUntilMs:  limitedUntil,
+		UpdatedAtMs:     updated,
+	}
+}
+
+// DecodePoolAccount reconstructs a pool AccountEntry from a persisted memory.PoolAccount row.
+func DecodePoolAccount(p memory.PoolAccount) AccountEntry {
+	let hasAny = p.Window5hResetMs > int64(0) || p.Window7dResetMs > int64(0) || p.ModelWindows.Len() > 0
+	let limits option.Option[LimitsModel] = if !hasAny {
+		option.None
+	} else {
+		let p5 WindowStatus = if p.Window5hResetMs > int64(0) {
+			WinReported{UsedPpm: PctToPpm(p.Window5hUsedPct), ResetAtMs: p.Window5hResetMs}
+		} else {
+			WinUnknown
+		}
+		let w7 WindowStatus = if p.Window7dResetMs > int64(0) {
+			WinReported{UsedPpm: PctToPpm(p.Window7dUsedPct), ResetAtMs: p.Window7dResetMs}
+		} else {
+			WinUnknown
+		}
+		let mut decodedModels = []ModelQuota{}
+		for _, mw in p.ModelWindows {
+			let st WindowStatus = if mw.ResetAtMs > int64(0) {
+				WinReported{UsedPpm: PctToPpm(mw.UsedPct), ResetAtMs: mw.ResetAtMs}
+			} else {
+				WinUnknown
+			}
+			decodedModels = UpsertModelWindow(decodedModels, NormalizeScope(mw.Model), st)
+		}
+		option.Some[LimitsModel]{
+			Value: LimitsModel{
+				Primary5h:    p5,
+				Weekly7d:     w7,
+				ModelWindows: decodedModels,
+				ReadAtMs:     p.UpdatedAtMs,
+				RateLimited:  false,
+			},
+		}
+	}
+	let mut supportedScopes = []string{}
+	for _, mw in p.ModelWindows {
+		supportedScopes = supportedScopes.Append(NormalizeScope(mw.Model))
+	}
+	AccountEntry{
+		Config: AccountConfig{
+			ID:              p.ID,
+			Provider:        p.Provider,
+			Model:           "",
+			Label:           string(p.ID),
+			Priority:        p.Priority,
+			Healthy:         p.Healthy,
+			PaceWithheld:    false,
+			SupportedScopes: supportedScopes,
+		},
+		Limits:      limits,
+		Pace:        option.None,
+		HoldUntilMs: p.LimitedUntilMs,
+	}
+}
+
+// StoreSnapshotState captures decoded pool registry, active owner pushes, and claimed reset dispatches.
+type StoreSnapshotState {
+	Registry    Registry,
+	Pushes      []OwnerPushSpec,
+	ResetClaims ResetClaimLedger,
+}
+
+// RegistryFromPoolView decodes a store PoolView into pool domain state.
+func RegistryFromPoolView(pv memory.PoolView) StoreSnapshotState {
+	let mut reg = NewRegistry()
+	for _, acc in pv.Accounts {
+		reg = UpsertAccount(reg, DecodePoolAccount(acc))
+	}
+	let mut pushes = []OwnerPushSpec{}
+	for _, p in pv.ActivePushes {
+		pushes = pushes.Append(FromMemoryOwnerPush(p))
+	}
+	let mut claimMap = Map[string, memory.ResetClaim]{}
+	let mut claimOrder = []string{}
+	for _, rc in pv.ResetClaims {
+		claimMap = claimMap.Put(rc.ClaimKey, rc)
+		claimOrder = claimOrder.Append(rc.ClaimKey)
+	}
+	StoreSnapshotState{
+		Registry:    reg,
+		Pushes:      pushes,
+		ResetClaims: ResetClaimLedger{Claims: claimMap, Order: claimOrder},
+	}
+}
+
+// StoreReconcileReport summarizes durable held-turn wake scanning outcomes.
+type StoreReconcileReport {
+	DueSeen              int,
+	WakesDispatched      int,
+	DeduplicatedWakes    int,
+	GoneChildrenHandled  int,
+	ParentNoticesEmitted int,
+	BlockedByQuestions   int,
+}
+
+// DueActionCancelGoneChild instructs the store adapter to cancel a hold for a vanished or archived child.
+type DueActionCancelGoneChild {
+	EmitParentNotice bool,
+}
+
+// DueActionWaitPendingQuestion indicates an open async question blocks waking the held turn.
+type DueActionWaitPendingQuestion {}
+
+// DueActionWakeChild instructs the store adapter to transition a hold to woken with optional dedup logging.
+type DueActionWakeChild {
+	AlreadyRecorded bool,
+}
+
+// DueHoldAction represents the pure reconciliation decision for one due PoolHold.
+type DueHoldAction = DueActionCancelGoneChild | DueActionWaitPendingQuestion | DueActionWakeChild
+
+func hasOpenQuestionForThread(questions []memory.AsyncQuestion, threadID handle.ThreadID) bool {
+	for _, q in questions {
+		if q.ThreadID == threadID {
+			return true
+		}
+	}
+	false
+}
+
+// ClassifyDueHold decides without side effects how a due PoolHold should be reconciled.
+func ClassifyDueHold(
+	h memory.PoolHold,
+	tv option.Option[memory.ThreadView],
+	openQuestions []memory.AsyncQuestion,
+	snap memory.State,
+) DueHoldAction {
+	let gone = match tv {
+	case option.None:
+		true
+	case option.Some as vw:
+		vw.Value.Thread.Archived
+	}
+	if gone {
+		let noticeID = GoneNoticeDeliveryID(h.ThreadID, h.RetryAtMs)
+		let alreadyNotified = h.ParentNotified || optionIsSome(snap.Wakes.Get(noticeID))
+		return DueActionCancelGoneChild{EmitParentNotice: !alreadyNotified}
+	}
+	if hasOpenQuestionForThread(openQuestions, h.ThreadID) {
+		return DueActionWaitPendingQuestion
+	}
+	let alreadyRecorded = optionIsSome(snap.Wakes.Get(h.DeliveryID))
+	DueActionWakeChild{AlreadyRecorded: alreadyRecorded}
+}
+
+func makeAccountEnvelope(actor string, cmdID memory.CommandID, nowMs int64, entry AccountEntry, inflight int) memory.Envelope {
+	memory.Envelope{
+		ID:         cmdID,
+		Actor:      actor,
+		AtMs:       nowMs,
+		LeaseFence: option.None,
+		Command:    memory.CmdUpsertPoolAccount{Pool: EncodePoolAccount(entry, inflight, nowMs)},
+	}
+}
+
+func makeInflightEnvelope(actor string, cmdID memory.CommandID, nowMs int64, accountID session.AccountID, delta int) memory.Envelope {
+	memory.Envelope{
+		ID:         cmdID,
+		Actor:      actor,
+		AtMs:       nowMs,
+		LeaseFence: option.None,
+		Command:    memory.CmdAdjustPoolInflight{AccountID: accountID, Delta: delta},
+	}
+}
+
+func makePushEnvelope(actor string, cmdID memory.CommandID, nowMs int64, push OwnerPushSpec) memory.Envelope {
+	memory.Envelope{
+		ID:         cmdID,
+		Actor:      actor,
+		AtMs:       nowMs,
+		LeaseFence: option.None,
+		Command:    memory.CmdSetOwnerPush{Reserve: ToMemoryOwnerPush(push, nowMs)},
+	}
+}
+
+func makeClaimResetEnvelope(actor string, cmdID memory.CommandID, nowMs int64, cand ResetCandidate) memory.Envelope {
+	memory.Envelope{
+		ID:         cmdID,
+		Actor:      actor,
+		AtMs:       nowMs,
+		LeaseFence: option.None,
+		Command:    memory.CmdClaimResetDispatch{
+			AccountID:  cand.AccountID,
+			WindowKind: cand.Kind,
+			PeriodKey:  PeriodKey(cand.ResetAtMs),
+			ClaimedBy:  actor,
+		},
+	}
+}
+
+func makeOpenHoldEnvelope(actor string, cmdID memory.CommandID, nowMs int64, hold TurnHold) memory.Envelope {
+	memory.Envelope{
+		ID:         cmdID,
+		Actor:      actor,
+		AtMs:       nowMs,
+		LeaseFence: option.None,
+		Command:    memory.CmdOpenPoolHold{
+			HoldKey:        hold.HoldKey,
+			ThreadID:       hold.ThreadID,
+			AccountID:      hold.AccountID,
+			RetryAtMs:      hold.RetryAtMs,
+			ParentNotified: false,
+		},
+	}
+}
+
+func makeGoneNoticeEnvelope(actor string, cmdPrefix string, nowMs int64, h memory.PoolHold) memory.Envelope {
+	memory.Envelope{
+		ID:         memory.CommandID("\(cmdPrefix):gone-notice:\(h.HoldKey)"),
+		Actor:      actor,
+		AtMs:       nowMs,
+		LeaseFence: option.None,
+		Command:    memory.CmdRecordWake{
+			Wake: reconcile.WakeRecord{
+				DeliveryID:     GoneNoticeDeliveryID(h.ThreadID, h.RetryAtMs),
+				HandleID:       handle.HandleID(h.HoldKey),
+				Delivered:      true,
+				PayloadSummary: "held child vanished before opening",
+			},
+		},
+	}
+}
+
+func execMemEnv(store memory.MemStore, op string, env memory.Envelope) memory.ExecuteResult fails PoolStoreConflict | PoolStoreRejected {
+	store.Execute(env) catch {
+	case memory.AlreadyExists:
+		return PoolStoreConflict{Operation: op, Detail: string(env.ID), IsAlreadyExists: true}
+	case memory.CommandReused:
+		return PoolStoreConflict{Operation: op, Detail: string(env.ID), IsAlreadyExists: false}
+	case memory.StoreFailed as sf:
+		return PoolStoreRejected{Operation: op, Detail: sf.Reason}
+	case memory.InvalidInput as ii:
+		return PoolStoreRejected{Operation: op, Detail: ii.Reason}
+	case memory.InvalidTransition, memory.LeaseFenced, memory.NotFound, memory.CutoverDomainErr, memory.HandleDomainErr, memory.LimitDomainErr, memory.RequestDomainErr, memory.SubagentDomainErr, memory.ThreadDomainErr:
+		return PoolStoreRejected{Operation: op, Detail: string(env.ID)}
+	}
+}
+
+// SaveAccountInStore persists a pool AccountEntry into MemStore.
+func SaveAccountInStore(
+	store memory.MemStore,
+	meta StoreCmdMeta,
+	entry AccountEntry,
+	inflightStarts int,
+) memory.ExecuteResult fails PoolStoreConflict | PoolStoreRejected {
+	try execMemEnv(store, "upsert-account", makeAccountEnvelope(meta.Actor, meta.CommandID, meta.NowMs, entry, inflightStarts))
+}
+
+// AdjustInflightInStore adjusts unsettled starts for accountID in MemStore.
+func AdjustInflightInStore(
+	store memory.MemStore,
+	meta StoreCmdMeta,
+	accountID session.AccountID,
+	delta int,
+) memory.ExecuteResult fails PoolStoreConflict | PoolStoreRejected {
+	try execMemEnv(store, "adjust-inflight", makeInflightEnvelope(meta.Actor, meta.CommandID, meta.NowMs, accountID, delta))
+}
+
+// SavePushInStore persists a time-boxed OwnerPushSpec into MemStore.
+func SavePushInStore(
+	store memory.MemStore,
+	meta StoreCmdMeta,
+	push OwnerPushSpec,
+) memory.ExecuteResult fails PoolStoreConflict | PoolStoreRejected {
+	try execMemEnv(store, "save-push", makePushEnvelope(meta.Actor, meta.CommandID, meta.NowMs, push))
+}
+
+// TryClaimResetInStore atomically claims a single reset dispatch for (AccountID, Kind, PeriodKey) in MemStore.
+func TryClaimResetInStore(
+	store memory.MemStore,
+	meta StoreCmdMeta,
+	cand ResetCandidate,
+) bool fails PoolStoreConflict | PoolStoreRejected {
+	let _ = execMemEnv(store, "claim-reset", makeClaimResetEnvelope(meta.Actor, meta.CommandID, meta.NowMs, cand)) catch {
+	case PoolStoreConflict as cf:
+		if cf.IsAlreadyExists {
+			return false
+		}
+		return cf
+	case PoolStoreRejected as rj:
+		return rj
+	}
+	true
+}
+
+// OpenHoldInStore validates a strictly future RetryAtMs and persists a PoolHold in MemStore.
+func OpenHoldInStore(
+	store memory.MemStore,
+	meta StoreCmdMeta,
+	spec TurnHoldSpec,
+) TurnHold fails StoreHoldError {
+	let hold = try OpenTurnHold(spec, meta.NowMs)
+	let _ = try execMemEnv(store, "open-hold", makeOpenHoldEnvelope(meta.Actor, meta.CommandID, meta.NowMs, hold))
+	hold
+}
+
+func makeCancelHoldEnvelope(actor string, cmdPrefix string, nowMs int64, holdKey string) memory.Envelope {
+	memory.Envelope{
+		ID:         memory.CommandID("\(cmdPrefix):cancel:\(holdKey)"),
+		Actor:      actor,
+		AtMs:       nowMs,
+		LeaseFence: option.None,
+		Command:    memory.CmdTransitionHold{HoldKey: holdKey, Action: memory.HoldActionCancel},
+	}
+}
+
+func makeWakeHoldEnvelope(actor string, cmdPrefix string, nowMs int64, holdKey string) memory.Envelope {
+	memory.Envelope{
+		ID:         memory.CommandID("\(cmdPrefix):wake:\(holdKey)"),
+		Actor:      actor,
+		AtMs:       nowMs,
+		LeaseFence: option.None,
+		Command:    memory.CmdTransitionHold{HoldKey: holdKey, Action: memory.HoldActionWake},
+	}
+}
+
+// ReconcileDueHoldsInStore wakes non-blocked holds at most once and cancels holds for gone children in MemStore.
+func ReconcileDueHoldsInStore(
+	store memory.MemStore,
+	actor string,
+	cmdPrefix string,
+	nowMs int64,
+) StoreReconcileReport fails PoolStoreConflict | PoolStoreRejected {
+	let pv = store.GetPoolView(nowMs) catch {
+	case sf:
+		return PoolStoreRejected{Operation: "get-pool-view", Detail: sf.Reason}
+	}
+	let snap = store.Snapshot() catch {
+	case sf:
+		return PoolStoreRejected{Operation: "snapshot", Detail: sf.Reason}
+	}
+	let openQs = store.GetQuestions(memory.QuestionFilter{
+		ThreadID: option.None,
+		Status:   option.Some[memory.QuestionStatus]{Value: memory.QuestionOpen},
+	}) catch {
+	case sf:
+		return PoolStoreRejected{Operation: "get-questions", Detail: sf.Reason}
+	}
+	let mut report = StoreReconcileReport{
+		DueSeen:              pv.DueHolds.Len(),
+		WakesDispatched:      0,
+		DeduplicatedWakes:    0,
+		GoneChildrenHandled:  0,
+		ParentNoticesEmitted: 0,
+		BlockedByQuestions:   0,
+	}
+	for _, h in pv.DueHolds {
+		let tv = store.GetThreadView(h.ThreadID) catch {
+		case sf:
+			return PoolStoreRejected{Operation: "get-thread-view", Detail: sf.Reason}
+		}
+		match ClassifyDueHold(h, tv, openQs, snap) {
+		case DueActionCancelGoneChild as goneAct:
+			let _ = try execMemEnv(store, "cancel-hold", makeCancelHoldEnvelope(actor, cmdPrefix, nowMs, h.HoldKey))
+			report = StoreReconcileReport{..report, GoneChildrenHandled: report.GoneChildrenHandled + 1}
+			if goneAct.EmitParentNotice {
+				let _ = try execMemEnv(store, "record-gone-notice", makeGoneNoticeEnvelope(actor, cmdPrefix, nowMs, h))
+				report = StoreReconcileReport{..report, ParentNoticesEmitted: report.ParentNoticesEmitted + 1}
+			}
+		case DueActionWaitPendingQuestion:
+			report = StoreReconcileReport{..report, BlockedByQuestions: report.BlockedByQuestions + 1}
+		case DueActionWakeChild as wakeAct:
+			let _ = try execMemEnv(store, "wake-hold", makeWakeHoldEnvelope(actor, cmdPrefix, nowMs, h.HoldKey))
+			if wakeAct.AlreadyRecorded {
+				report = StoreReconcileReport{..report, DeduplicatedWakes: report.DeduplicatedWakes + 1}
+			} else {
+				report = StoreReconcileReport{..report, WakesDispatched: report.WakesDispatched + 1}
+			}
+		}
+	}
+	report
+}
+
+func execWALEnv(st sqlite.WALStore, op string, env memory.Envelope) memory.ExecuteResult fails PoolStoreConflict | PoolStoreRejected needs go.Foreign {
+	st.Execute(env) catch {
+	case memory.AlreadyExists:
+		return PoolStoreConflict{Operation: op, Detail: string(env.ID), IsAlreadyExists: true}
+	case memory.CommandReused:
+		return PoolStoreConflict{Operation: op, Detail: string(env.ID), IsAlreadyExists: false}
+	case memory.StoreFailed as sf:
+		return PoolStoreRejected{Operation: op, Detail: sf.Reason}
+	case memory.InvalidInput as ii:
+		return PoolStoreRejected{Operation: op, Detail: ii.Reason}
+	case memory.InvalidTransition, memory.LeaseFenced, memory.NotFound, memory.CutoverDomainErr, memory.HandleDomainErr, memory.LimitDomainErr, memory.RequestDomainErr, memory.SubagentDomainErr, memory.ThreadDomainErr:
+		return PoolStoreRejected{Operation: op, Detail: string(env.ID)}
+	}
+}
+
+// ReconcileDueHoldsInWAL reconciles due pool holds inside a WAL SQLite store using the shared classifier.
+func ReconcileDueHoldsInWAL(
+	st sqlite.WALStore,
+	actor string,
+	cmdPrefix string,
+	nowMs int64,
+) StoreReconcileReport fails PoolStoreConflict | PoolStoreRejected needs go.Foreign {
+	let pv = st.GetPoolView(nowMs) catch {
+	case sf:
+		return PoolStoreRejected{Operation: "wal-pool-view", Detail: sf.Reason}
+	}
+	let snap = st.Snapshot() catch {
+	case sf:
+		return PoolStoreRejected{Operation: "wal-snapshot", Detail: sf.Reason}
+	}
+	let openQs = st.GetQuestions(memory.QuestionFilter{
+		ThreadID: option.None,
+		Status:   option.Some[memory.QuestionStatus]{Value: memory.QuestionOpen},
+	}) catch {
+	case sf:
+		return PoolStoreRejected{Operation: "wal-questions", Detail: sf.Reason}
+	}
+	let mut report = StoreReconcileReport{
+		DueSeen:              pv.DueHolds.Len(),
+		WakesDispatched:      0,
+		DeduplicatedWakes:    0,
+		GoneChildrenHandled:  0,
+		ParentNoticesEmitted: 0,
+		BlockedByQuestions:   0,
+	}
+	for _, h in pv.DueHolds {
+		let tv = st.GetThreadView(h.ThreadID) catch {
+		case sf:
+			return PoolStoreRejected{Operation: "wal-thread-view", Detail: sf.Reason}
+		}
+		match ClassifyDueHold(h, tv, openQs, snap) {
+		case DueActionCancelGoneChild as goneAct:
+			let _ = try execWALEnv(st, "wal-cancel-hold", makeCancelHoldEnvelope(actor, cmdPrefix, nowMs, h.HoldKey))
+			report = StoreReconcileReport{..report, GoneChildrenHandled: report.GoneChildrenHandled + 1}
+			if goneAct.EmitParentNotice {
+				let _ = try execWALEnv(st, "wal-gone-notice", makeGoneNoticeEnvelope(actor, cmdPrefix, nowMs, h))
+				report = StoreReconcileReport{..report, ParentNoticesEmitted: report.ParentNoticesEmitted + 1}
+			}
+		case DueActionWaitPendingQuestion:
+			report = StoreReconcileReport{..report, BlockedByQuestions: report.BlockedByQuestions + 1}
+		case DueActionWakeChild as wakeAct:
+			let _ = try execWALEnv(st, "wal-wake-hold", makeWakeHoldEnvelope(actor, cmdPrefix, nowMs, h.HoldKey))
+			if wakeAct.AlreadyRecorded {
+				report = StoreReconcileReport{..report, DeduplicatedWakes: report.DeduplicatedWakes + 1}
+			} else {
+				report = StoreReconcileReport{..report, WakesDispatched: report.WakesDispatched + 1}
+			}
+		}
+	}
+	report
+}
+
+func makeLiveThreadSpec(tid handle.ThreadID, parent option.Option[handle.ThreadID]) thread.ThreadSpec {
+	thread.ThreadSpec{
+		ID:                 tid,
+		ParentThreadID:     parent,
+		Driver:             adapter.CodexDirect,
+		AgyDirectSupported: false,
+		RequestedMode:      adapter.ModeSupervised,
+		Instance:           adapter.InstanceID("inst-pool"),
+		ConfigDir:          "/tmp/atlas-pool",
+		SharedHome:         option.None,
+		Model:              adapter.ModelID("gpt-5"),
+		LinkOrigin:         thread.OriginLocal,
+	}
+}
+
+func seedPoolScenarioData(nowMs int64) (AccountEntry, OwnerPushSpec, ResetCandidate) {
+	let acc = AccountEntry{
+		Config: AccountConfig{
+			ID:              session.AccountID("acc-sql"),
+			Provider:        "openai",
+			Model:           "gpt-5.3-codex-spark",
+			Label:           "sql",
+			Priority:        1,
+			Healthy:         true,
+			PaceWithheld:    false,
+			SupportedScopes: []string{"spark"},
+		},
+		Limits: option.Some[LimitsModel]{
+			Value: LimitsModel{
+				Primary5h:    WinReported{UsedPpm: PctToPpm(35), ResetAtMs: nowMs + int64(1800000)},
+				Weekly7d:     WinReported{UsedPpm: PctToPpm(45), ResetAtMs: nowMs + int64(86400000)},
+				ModelWindows: []ModelQuota{ModelQuota{Scope: "spark", Status: WinReported{UsedPpm: PctToPpm(25), ResetAtMs: nowMs + int64(86400000)}}},
+				ReadAtMs:     nowMs,
+				RateLimited:  false,
+			},
+		},
+		Pace:        option.None,
+		HoldUntilMs: int64(0),
+	}
+	let push = OwnerPushSpec{
+		PushID:     "push-sql",
+		Scope:      memory.PushAllAccounts,
+		ExtraPpm:   PctToPpm(15),
+		StartsAtMs: nowMs,
+		EndsAtMs:   nowMs + int64(300000),
+		Cancelled:  false,
+	}
+	let resetCand = ResetCandidate{
+		AccountID: session.AccountID("acc-sql"),
+		Kind:      memory.LimitWindow5h,
+		UsedPpm:   PctToPpm(95),
+		ResetAtMs: nowMs + int64(1800000),
+		ReadAtMs:  nowMs,
+	}
+	(acc, push, resetCand)
+}
+
+func tryClaimWALReset(st sqlite.WALStore, actor string, cmdID memory.CommandID, nowMs int64, cand ResetCandidate) bool fails PoolStoreConflict | PoolStoreRejected needs go.Foreign {
+	let _ = execWALEnv(st, "wal-claim-reset", makeClaimResetEnvelope(actor, cmdID, nowMs, cand)) catch {
+	case PoolStoreConflict as cf:
+		if cf.IsAlreadyExists {
+			return false
+		}
+		return cf
+	case PoolStoreRejected as rj:
+		return rj
+	}
+	true
+}
+
+// RunWALPoolScenario writes pool windows, starts, pushes, reset claims, and live/gone holds into WAL SQLite.
+func RunWALPoolScenario(st sqlite.WALStore, nowMs int64) bool fails StoreHoldError needs go.Foreign {
+	let retryAt = nowMs + int64(60000)
+	let parentID = handle.ThreadID("th-parent")
+	let childLive = handle.ThreadID("th-live")
+	let childGone = handle.ThreadID("th-gone")
+	let _ = try execWALEnv(st, "t-parent", memory.Envelope{
+		ID:         memory.CommandID("t-parent"),
+		Actor:      "pool-test",
+		AtMs:       nowMs,
+		LeaseFence: option.None,
+		Command:    memory.CmdCreateThread{Spec: makeLiveThreadSpec(parentID, option.None), EdgeLabel: "root"},
+	})
+	let _ = try execWALEnv(st, "t-live", memory.Envelope{
+		ID:         memory.CommandID("t-live"),
+		Actor:      "pool-test",
+		AtMs:       nowMs,
+		LeaseFence: option.None,
+		Command:    memory.CmdCreateThread{Spec: makeLiveThreadSpec(childLive, option.Some[handle.ThreadID]{Value: parentID}), EdgeLabel: "child-live"},
+	})
+	let _ = try execWALEnv(st, "t-gone", memory.Envelope{
+		ID:         memory.CommandID("t-gone"),
+		Actor:      "pool-test",
+		AtMs:       nowMs,
+		LeaseFence: option.None,
+		Command:    memory.CmdCreateThread{Spec: makeLiveThreadSpec(childGone, option.Some[handle.ThreadID]{Value: parentID}), EdgeLabel: "child-gone"},
+	})
+	let acc, push, resetCand = seedPoolScenarioData(nowMs)
+	let _ = try execWALEnv(st, "acc-save", makeAccountEnvelope("pool-test", memory.CommandID("acc-save"), nowMs, acc, 1))
+	let _ = try execWALEnv(st, "acc-inf", makeInflightEnvelope("pool-test", memory.CommandID("acc-inf"), nowMs, acc.Config.ID, 1))
+	let _ = try execWALEnv(st, "push-save", makePushEnvelope("pool-test", memory.CommandID("push-save"), nowMs, push))
+	let claim1 = try tryClaimWALReset(st, "pool-test", memory.CommandID("claim-1"), nowMs, resetCand)
+	let claim2 = try tryClaimWALReset(st, "pool-test", memory.CommandID("claim-2"), nowMs+int64(500), resetCand)
+	if !claim1 || claim2 {
+		return false
+	}
+	let liveHold = try OpenTurnHold(TurnHoldSpec{
+		HoldKey:        "hold-live",
+		ThreadID:       childLive,
+		ParentThreadID: option.Some[handle.ThreadID]{Value: parentID},
+		AccountID:      acc.Config.ID,
+		RetryAtMs:      retryAt,
+	}, nowMs)
+	let goneHold = try OpenTurnHold(TurnHoldSpec{
+		HoldKey:        "hold-gone",
+		ThreadID:       childGone,
+		ParentThreadID: option.Some[handle.ThreadID]{Value: parentID},
+		AccountID:      acc.Config.ID,
+		RetryAtMs:      retryAt,
+	}, nowMs)
+	let _ = try execWALEnv(st, "hold-live", makeOpenHoldEnvelope("pool-test", memory.CommandID("hold-live-open"), nowMs, liveHold))
+	let _ = try execWALEnv(st, "hold-gone", makeOpenHoldEnvelope("pool-test", memory.CommandID("hold-gone-open"), nowMs, goneHold))
+	let _ = try execWALEnv(st, "archive-gone", memory.Envelope{
+		ID:         memory.CommandID("archive-gone"),
+		Actor:      "pool-test",
+		AtMs:       nowMs + int64(100),
+		LeaseFence: option.None,
+		Command:    memory.CmdArchiveThread{ID: childGone},
+	})
+	let earlyRep = try ReconcileDueHoldsInWAL(st, "pool-test", "early", retryAt-int64(1))
+	earlyRep.DueSeen == 0 && earlyRep.WakesDispatched == 0
+}
+
+func closeWALStore(st sqlite.WALStore) needs go.Foreign {
+	st.CloseWAL() catch {
+	case _:
+		return
+	}
+}
+
+// CheckSqlitePoolPersistence verifies durable WAL SQLite pool persistence, view parity, and single-wake dedup.
+func CheckSqlitePoolPersistence() bool needs go.Foreign {
+	let nowMs = int64(50000000)
+	let retryAt = nowMs + int64(60000)
+	let pushEnd = nowMs + int64(300000)
+	let st = sqlite.NewWALStore()
+	let okSetup = RunWALPoolScenario(st, nowMs) catch {
+	case _:
+		closeWALStore(st)
+		return false
+	}
+	if !okSetup {
+		closeWALStore(st)
+		return false
+	}
+	let pv = st.GetPoolView(nowMs + int64(1000)) catch {
+	case _:
+		closeWALStore(st)
+		return false
+	}
+	let decoded = RegistryFromPoolView(pv)
+	let pushActiveOk = decoded.Pushes.Len() == 1 && IsPushActiveAt(decoded.Pushes[0], nowMs+int64(1000))
+	let claimsOk = decoded.ResetClaims.Claims.Len() == 1
+	let rep = ReconcileDueHoldsInWAL(st, "wal", "scan-open", retryAt) catch {
+	case _:
+		closeWALStore(st)
+		return false
+	}
+	let rep2 = ReconcileDueHoldsInWAL(st, "wal", "scan-rescan", retryAt+int64(100)) catch {
+	case _:
+		closeWALStore(st)
+		return false
+	}
+	let pvExpired = st.GetPoolView(pushEnd) catch {
+	case _:
+		closeWALStore(st)
+		return false
+	}
+	closeWALStore(st)
+	pushActiveOk && claimsOk && rep.WakesDispatched == 1 && rep.GoneChildrenHandled == 1 && rep.ParentNoticesEmitted == 1 && rep2.DueSeen == 0 && rep2.WakesDispatched == 0 && pvExpired.ActivePushes.Len() == 0
+}
+
+// PoolSqliteChecks defines the behavioral persistence contract executed against WAL SQLite.
+type PoolSqliteChecks {
+	CheckSqlitePool(tag int) bool,
+	law SqlitePoolPersistsAndDedups(x Self) { x.CheckSqlitePool(1) },
+}
+
+type goPoolSqliteChecks {} implements PoolSqliteChecks
+
+// CheckSqlitePool runs WAL SQLite persistence and held-turn wake deduplication verification.
+func CheckSqlitePool(_ goPoolSqliteChecks, _ int) bool needs go.Foreign {
+	CheckSqlitePoolPersistence()
+}
+
+// RunMemoryPoolEndToEnd verifies full store-backed pool accounts, pushes, reset claims, questions, gone-child notices, and single-wake dedup.
+func RunMemoryPoolEndToEnd(nowMs int64) bool fails StoreHoldError {
+	let retryAt = nowMs + int64(60000)
+	let store = memory.New()
+	let parentID = handle.ThreadID("th-parent")
+	let childLive = handle.ThreadID("th-live")
+	let childGone = handle.ThreadID("th-gone")
+	let _ = try execMemEnv(store, "t-parent", memory.Envelope{
+		ID:         memory.CommandID("t-parent"),
+		Actor:      "pool-test",
+		AtMs:       nowMs,
+		LeaseFence: option.None,
+		Command:    memory.CmdCreateThread{Spec: makeLiveThreadSpec(parentID, option.None), EdgeLabel: "root"},
+	})
+	let _ = try execMemEnv(store, "t-live", memory.Envelope{
+		ID:         memory.CommandID("t-live"),
+		Actor:      "pool-test",
+		AtMs:       nowMs,
+		LeaseFence: option.None,
+		Command:    memory.CmdCreateThread{Spec: makeLiveThreadSpec(childLive, option.Some[handle.ThreadID]{Value: parentID}), EdgeLabel: "child-live"},
+	})
+	let _ = try execMemEnv(store, "t-gone", memory.Envelope{
+		ID:         memory.CommandID("t-gone"),
+		Actor:      "pool-test",
+		AtMs:       nowMs,
+		LeaseFence: option.None,
+		Command:    memory.CmdCreateThread{Spec: makeLiveThreadSpec(childGone, option.Some[handle.ThreadID]{Value: parentID}), EdgeLabel: "child-gone"},
+	})
+	let acc, push, resetCand = seedPoolScenarioData(nowMs)
+	let _ = try SaveAccountInStore(store, StoreCmdMeta{Actor: "pool-test", CommandID: memory.CommandID("acc-save"), NowMs: nowMs}, acc, 1)
+	let _ = try AdjustInflightInStore(store, StoreCmdMeta{Actor: "pool-test", CommandID: memory.CommandID("acc-inf"), NowMs: nowMs}, acc.Config.ID, 1)
+	let _ = try SavePushInStore(store, StoreCmdMeta{Actor: "pool-test", CommandID: memory.CommandID("push-save"), NowMs: nowMs}, push)
+	if !(try TryClaimResetInStore(store, StoreCmdMeta{Actor: "pool-test", CommandID: memory.CommandID("claim-1"), NowMs: nowMs}, resetCand)) {
+		return false
+	}
+	if try TryClaimResetInStore(store, StoreCmdMeta{Actor: "pool-test", CommandID: memory.CommandID("claim-2"), NowMs: nowMs + int64(500)}, resetCand) {
+		return false
+	}
+
+	let _ = try OpenHoldInStore(store, StoreCmdMeta{Actor: "pool-test", CommandID: memory.CommandID("hold-live-open"), NowMs: nowMs}, TurnHoldSpec{
+		HoldKey:        "hold-live",
+		ThreadID:       childLive,
+		ParentThreadID: option.Some[handle.ThreadID]{Value: parentID},
+		AccountID:      acc.Config.ID,
+		RetryAtMs:      retryAt,
+	})
+	let _ = try OpenHoldInStore(store, StoreCmdMeta{Actor: "pool-test", CommandID: memory.CommandID("hold-gone-open"), NowMs: nowMs}, TurnHoldSpec{
+		HoldKey:        "hold-gone",
+		ThreadID:       childGone,
+		ParentThreadID: option.Some[handle.ThreadID]{Value: parentID},
+		AccountID:      acc.Config.ID,
+		RetryAtMs:      retryAt,
+	})
+	let _ = try execMemEnv(store, "archive-gone", memory.Envelope{
+		ID:         memory.CommandID("archive-gone"),
+		Actor:      "pool-test",
+		AtMs:       nowMs + int64(100),
+		LeaseFence: option.None,
+		Command:    memory.CmdArchiveThread{ID: childGone},
+	})
+
+	let earlyRep = try ReconcileDueHoldsInStore(store, "pool-test", "early", retryAt-int64(1))
+	if earlyRep.DueSeen != 0 {
+		return false
+	}
+
+	let _ = try execMemEnv(store, "ask-q1", memory.Envelope{
+		ID:         memory.CommandID("ask-q1"),
+		Actor:      "pool-test",
+		AtMs:       nowMs + int64(200),
+		LeaseFence: option.None,
+		Command:    memory.CmdAskUserAsync{
+			ID:         turn.RequestID("req-pool-q1"),
+			ThreadID:   childLive,
+			HandleID:   handle.HandleID("q-handle-1"),
+			Owner:      handle.OwnerID{ServerID: "srv", Location: "loc-a", Epoch: 1},
+			Session:    handle.SessionID("sess-live"),
+			Header:     "Confirm deploy",
+			Prompt:     "Proceed?",
+			Assumption: "Yes",
+			Options:    []string{"Yes", "No"},
+			TargetRole: subagent.RoleImplementor,
+		},
+	})
+	let blockedRep = try ReconcileDueHoldsInStore(store, "pool-test", "blocked-q", retryAt)
+	if blockedRep.BlockedByQuestions != 1 || blockedRep.WakesDispatched != 0 || blockedRep.GoneChildrenHandled != 1 || blockedRep.ParentNoticesEmitted != 1 {
+		return false
+	}
+
+	let _ = try execMemEnv(store, "ans-q1", memory.Envelope{
+		ID:         memory.CommandID("ans-q1"),
+		Actor:      "owner",
+		AtMs:       retryAt + int64(1),
+		LeaseFence: option.None,
+		Command:    memory.CmdAnswerAsyncQuestion{
+			ID:     turn.RequestID("req-pool-q1"),
+			Answer: "Yes",
+			By:     turn.ResponderPrimary,
+		},
+	})
+	let liveWakeID = WakeDeliveryID(childLive, retryAt)
+	let _ = try execMemEnv(store, "wake-pre-lost", memory.Envelope{
+		ID:         memory.CommandID("wake-pre-lost"),
+		Actor:      "lost-worker",
+		AtMs:       retryAt + int64(2),
+		LeaseFence: option.None,
+		Command:    memory.CmdRecordWake{
+			Wake: reconcile.WakeRecord{
+				DeliveryID:     liveWakeID,
+				HandleID:       handle.HandleID("hold-live"),
+				Delivered:      true,
+				PayloadSummary: "lost reply wake",
+			},
+		},
+	})
+	let rep = try ReconcileDueHoldsInStore(store, "pool-test", "rescan-open", retryAt+int64(2))
+	if rep.DueSeen != 1 || rep.WakesDispatched != 0 || rep.DeduplicatedWakes != 1 || rep.GoneChildrenHandled != 0 || rep.ParentNoticesEmitted != 0 {
+		return false
+	}
+
+	let snap = store.Snapshot() catch {
+	case _:
+		return false
+	}
+	if !optionIsSome(snap.Wakes.Get(liveWakeID)) || !optionIsSome(snap.Wakes.Get(GoneNoticeDeliveryID(childGone, retryAt))) {
+		return false
+	}
+	let repAgain = try ReconcileDueHoldsInStore(store, "pool-test", "rescan-2", retryAt+int64(10))
+	repAgain.DueSeen == 0 && repAgain.WakesDispatched == 0 && repAgain.ParentNoticesEmitted == 0
+}
+
+test StoreBridgeMemoryPersistenceAndSingleWake {
+	assert try RunMemoryPoolEndToEnd(int64(50000000))
+}

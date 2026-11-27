@@ -1,0 +1,447 @@
+import cmp
+import github.com/cevr/ergo/modules/atlas/adapter
+import github.com/cevr/ergo/modules/atlas/memory
+import github.com/cevr/ergo/modules/atlas/session
+import option
+
+// PeriodBucketMs rounds a reset timestamp to the nearest 30-minute boundary to absorb provider jitter.
+func PeriodBucketMs(resetAtMs int64) int64 {
+	if resetAtMs <= int64(0) {
+		return int64(0)
+	}
+	let bucket = NaturalHorizonMs()
+	let half = bucket / int64(2)
+	((resetAtMs + half) / bucket) * bucket
+}
+
+// PeriodKey formats the jitter-normalized reset bucket identifier.
+func PeriodKey(resetAtMs int64) string {
+	"\(PeriodBucketMs(resetAtMs))"
+}
+
+// ClaimKeyForReset builds the canonical one-claim-per-period key shared with the Atlas store.
+func ClaimKeyForReset(accountID session.AccountID, kind memory.LimitWindowKind, resetAtMs int64) string {
+	memory.FormatResetClaimKey(accountID, kind, PeriodKey(resetAtMs))
+}
+
+// ResetCandidate describes an exhausted quota window eligible for at-most-once reset dispatch.
+type ResetCandidate {
+	AccountID session.AccountID,
+	Kind      memory.LimitWindowKind,
+	UsedPpm   int64,
+	ResetAtMs int64,
+	ReadAtMs  int64,
+}
+
+// ResetClaimed indicates this call won the single reset dispatch claim for the period.
+type ResetClaimed {
+	Claim memory.ResetClaim,
+}
+
+// ResetSkippedDuplicate indicates another caller already claimed this account/window/period.
+type ResetSkippedDuplicate {
+	ClaimKey string,
+}
+
+// ResetSkippedNotExhausted indicates the window has not reached the exhaustion threshold.
+type ResetSkippedNotExhausted {
+	UsedPpm int64,
+}
+
+// ResetSkippedNotFresh indicates the underlying limit reading is too stale for safe reset claim.
+type ResetSkippedNotFresh {
+	AgeMs int64,
+}
+
+// ResetSkippedNoUpcomingReset indicates no future reset falls within the expiring dispatch window.
+type ResetSkippedNoUpcomingReset {}
+
+// ResetDecision classifies the outcome of trying to claim an exhaustion reset dispatch.
+type ResetDecision = ResetClaimed | ResetSkippedDuplicate | ResetSkippedNotExhausted | ResetSkippedNotFresh | ResetSkippedNoUpcomingReset
+
+// ResetClaimLedger records claimed reset dispatches by canonical ClaimKey.
+type ResetClaimLedger {
+	Claims Map[string, memory.ResetClaim],
+	Order  []string,
+}
+
+// NewResetClaimLedger creates an empty one-claim-per-period ledger.
+func NewResetClaimLedger() ResetClaimLedger {
+	ResetClaimLedger{Claims: Map[string, memory.ResetClaim]{}, Order: []string{}}
+}
+
+// ExhaustionThresholdPpm returns the minimum usage ratio that qualifies a quota window as exhausted.
+func ExhaustionThresholdPpm(kind memory.LimitWindowKind) int64 {
+	match kind {
+	case memory.LimitWindow5h:
+		int64(900000)
+	case memory.LimitWindow7d:
+		int64(990000)
+	case memory.LimitWindowModel:
+		PpmScale()
+	}
+}
+
+// ClaimReset attempts to win the sole exhaustion reset claim for one account, window kind, and period.
+func ClaimReset(ledger ResetClaimLedger, cand ResetCandidate, claimedBy string, nowMs int64) (ResetClaimLedger, ResetDecision) {
+	if cand.ReadAtMs <= int64(0) {
+		return (ledger, ResetSkippedNotFresh{AgeMs: nowMs})
+	}
+	let age = nowMs - cand.ReadAtMs
+	if age < int64(0) || age > FreshWindowMs() {
+		return (ledger, ResetSkippedNotFresh{AgeMs: cmp.Max(int64(0), age)})
+	}
+	if cand.ResetAtMs <= nowMs || cand.ResetAtMs-nowMs > ExpiringHorizonMs() {
+		return (ledger, ResetSkippedNoUpcomingReset)
+	}
+	let threshold = ExhaustionThresholdPpm(cand.Kind)
+	if cand.UsedPpm < threshold {
+		return (ledger, ResetSkippedNotExhausted{UsedPpm: cand.UsedPpm})
+	}
+	let claimKey = ClaimKeyForReset(cand.AccountID, cand.Kind, cand.ResetAtMs)
+	match ledger.Claims.Get(claimKey) {
+	case option.Some:
+		(ledger, ResetSkippedDuplicate{ClaimKey: claimKey})
+	case option.None:
+		let claim = memory.ResetClaim{
+			ClaimKey:    claimKey,
+			AccountID:   cand.AccountID,
+			WindowKind:  cand.Kind,
+			PeriodKey:   PeriodKey(cand.ResetAtMs),
+			ClaimedBy:   claimedBy,
+			ClaimedAtMs: nowMs,
+		}
+		let nextLedger = ResetClaimLedger{
+			Claims: ledger.Claims.Put(claimKey, claim),
+			Order:  ledger.Order.Append(claimKey),
+		}
+		(nextLedger, ResetClaimed{Claim: claim})
+	}
+}
+
+func checkExhaustedCandidate(accountID session.AccountID, kind memory.LimitWindowKind, st WindowStatus, readAtMs int64, nowMs int64) option.Option[ResetCandidate] {
+	match st {
+	case WinUnknown, WinAbsent:
+		option.None
+	case WinReported as rep:
+		if rep.ResetAtMs > nowMs && rep.UsedPpm >= ExhaustionThresholdPpm(kind) {
+			return option.Some[ResetCandidate]{
+				Value: ResetCandidate{
+					AccountID: accountID,
+					Kind:      kind,
+					UsedPpm:   rep.UsedPpm,
+					ResetAtMs: rep.ResetAtMs,
+					ReadAtMs:  readAtMs,
+				},
+			}
+		}
+		option.None
+	}
+}
+
+// FindExhaustedCandidate inspects an account entry's windows for an exhausted quota window.
+func FindExhaustedCandidate(entry AccountEntry, requiredScopes []string, nowMs int64) option.Option[ResetCandidate] {
+	match entry.Limits {
+	case option.None:
+		option.None
+	case option.Some as limWrap:
+		let lim = limWrap.Value
+		let fiveCand = checkExhaustedCandidate(entry.Config.ID, memory.LimitWindow5h, lim.Primary5h, lim.ReadAtMs, nowMs)
+		match fiveCand {
+		case option.Some:
+			fiveCand
+		case option.None:
+			let weekCand = checkExhaustedCandidate(entry.Config.ID, memory.LimitWindow7d, lim.Weekly7d, lim.ReadAtMs, nowMs)
+			match weekCand {
+			case option.Some:
+				weekCand
+			case option.None:
+				for _, scope in requiredScopes {
+					let mw = FindModelWindow(lim.ModelWindows, scope)
+					let mc = checkExhaustedCandidate(entry.Config.ID, memory.LimitWindowModel{Model: NormalizeScope(scope)}, mw, lim.ReadAtMs, nowMs)
+					match mc {
+					case option.Some:
+						return mc
+					case option.None:
+						let _ = mc
+					}
+				}
+				option.None
+			}
+		}
+	}
+}
+
+// OwnerPushSpec models a time-boxed owner quota push over [StartsAtMs, EndsAtMs).
+type OwnerPushSpec {
+	PushID     string,
+	Scope      memory.PushScope,
+	ExtraPpm   int64,
+	StartsAtMs int64,
+	EndsAtMs   int64,
+	Cancelled  bool,
+}
+
+// PushEmptyID indicates an owner push was constructed with an empty identifier.
+type PushEmptyID {}
+
+// PushInvalidWindow indicates EndsAtMs was not strictly greater than StartsAtMs.
+type PushInvalidWindow {
+	StartsAtMs int64,
+	EndsAtMs   int64,
+}
+
+// PushNegativeExtra indicates ExtraPpm was negative.
+type PushNegativeExtra {
+	ExtraPpm int64,
+}
+
+// PushValidationError classifies invalid time-boxed owner push inputs.
+type PushValidationError = PushEmptyID | PushInvalidWindow | PushNegativeExtra
+
+// CreateOwnerPush validates and constructs a time-boxed owner push record.
+func CreateOwnerPush(pushID string, scope memory.PushScope, extraPpm int64, startsAtMs int64, endsAtMs int64) OwnerPushSpec fails PushValidationError {
+	if pushID == "" {
+		return PushEmptyID
+	}
+	if endsAtMs <= startsAtMs {
+		return PushInvalidWindow{StartsAtMs: startsAtMs, EndsAtMs: endsAtMs}
+	}
+	if extraPpm < int64(0) {
+		return PushNegativeExtra{ExtraPpm: extraPpm}
+	}
+	OwnerPushSpec{
+		PushID:     pushID,
+		Scope:      scope,
+		ExtraPpm:   extraPpm,
+		StartsAtMs: startsAtMs,
+		EndsAtMs:   endsAtMs,
+		Cancelled:  false,
+	}
+}
+
+// CancelOwnerPush marks an owner push cancelled so it ceases taking effect immediately.
+func CancelOwnerPush(push OwnerPushSpec) OwnerPushSpec {
+	OwnerPushSpec{
+		PushID:     push.PushID,
+		Scope:      push.Scope,
+		ExtraPpm:   push.ExtraPpm,
+		StartsAtMs: push.StartsAtMs,
+		EndsAtMs:   push.EndsAtMs,
+		Cancelled:  true,
+	}
+}
+
+// IsPushActiveAt reports whether push is active at nowMs under the half-open window [StartsAtMs, EndsAtMs).
+func IsPushActiveAt(push OwnerPushSpec, nowMs int64) bool {
+	!push.Cancelled && push.EndsAtMs > push.StartsAtMs && nowMs >= push.StartsAtMs && nowMs < push.EndsAtMs
+}
+
+// PushMatchesScope checks whether a push scope targets the given account or model.
+func PushMatchesScope(scope memory.PushScope, accountID session.AccountID, model string) bool {
+	match scope {
+	case memory.PushAllAccounts:
+		true
+	case memory.PushAccount as pa:
+		pa.Account == accountID
+	case memory.PushModel as pm:
+		MatchesModelScope(string(pm.Model), model)
+	}
+}
+
+// ActivePushForRequest selects the strongest active push matching accountID and model at nowMs.
+func ActivePushForRequest(pushes []OwnerPushSpec, accountID session.AccountID, model string, nowMs int64) option.Option[OwnerPushSpec] {
+	let mut best option.Option[OwnerPushSpec] = option.None
+	for _, p in pushes {
+		if IsPushActiveAt(p, nowMs) && PushMatchesScope(p.Scope, accountID, model) {
+			best = match best {
+			case option.None:
+				option.Some[OwnerPushSpec]{Value: p}
+			case option.Some as curWrap:
+				if p.ExtraPpm > curWrap.Value.ExtraPpm {
+					option.Some[OwnerPushSpec]{Value: p}
+				} else {
+					best
+				}
+			}
+		}
+	}
+	best
+}
+
+// SweepExpiredPushes removes pushes that are cancelled or have reached or passed EndsAtMs.
+func SweepExpiredPushes(pushes []OwnerPushSpec, nowMs int64) []OwnerPushSpec {
+	let mut active = []OwnerPushSpec{}
+	for _, p in pushes {
+		if !p.Cancelled && p.EndsAtMs > p.StartsAtMs && nowMs < p.EndsAtMs {
+			active = active.Append(p)
+		}
+	}
+	active
+}
+
+// ToMemoryOwnerPush converts a pool OwnerPushSpec into its store persistence record.
+func ToMemoryOwnerPush(push OwnerPushSpec, nowMs int64) memory.OwnerPush {
+	memory.OwnerPush{
+		PushID:     push.PushID,
+		Scope:      push.Scope,
+		ExtraPct:   PpmToPctRound(push.ExtraPpm),
+		StartsAtMs: push.StartsAtMs,
+		EndsAtMs:   push.EndsAtMs,
+		Cancelled:  push.Cancelled,
+		UpdatedMs:  nowMs,
+	}
+}
+
+// FromMemoryOwnerPush converts a store OwnerPush record into a pool OwnerPushSpec.
+func FromMemoryOwnerPush(push memory.OwnerPush) OwnerPushSpec {
+	OwnerPushSpec{
+		PushID:     push.PushID,
+		Scope:      push.Scope,
+		ExtraPpm:   PctToPpm(push.ExtraPct),
+		StartsAtMs: push.StartsAtMs,
+		EndsAtMs:   push.EndsAtMs,
+		Cancelled:  push.Cancelled,
+	}
+}
+
+// PeriodKeyAbsorbsSubHalfHourJitter proves jitter within +/- 13m of the same 30m bucket shares one PeriodKey.
+law PeriodKeyAbsorbsSubHalfHourJitter(
+	slot int64 where slot >= 10 && slot <= 10000,
+	d1 int64 where d1 >= -800000 && d1 <= 800000,
+	d2 int64 where d2 >= -800000 && d2 <= 800000,
+) {
+	let center = slot * NaturalHorizonMs()
+	PeriodKey(center+d1) == PeriodKey(center+d2)
+}
+
+// ResetClaimAllowsAtMostOneWinnerPerPeriod proves repeated claim attempts in the same reset bucket yield one winner.
+law ResetClaimAllowsAtMostOneWinnerPerPeriod(
+	nowMs int64 where nowMs >= 3600000 && nowMs <= 10000000000,
+	jitterMs int64 where jitterMs >= -120000 && jitterMs <= 120000,
+) {
+	let bucketCenter = ((nowMs + NaturalHorizonMs()*int64(2)) / NaturalHorizonMs()) * NaturalHorizonMs()
+	let acc = session.AccountID("acc-reset")
+	let c1 = ResetCandidate{
+		AccountID: acc,
+		Kind:      memory.LimitWindow5h,
+		UsedPpm:   PctToPpm(95),
+		ResetAtMs: bucketCenter + int64(30000),
+		ReadAtMs:  nowMs - int64(1000),
+	}
+	let c2 = ResetCandidate{
+		AccountID: acc,
+		Kind:      memory.LimitWindow5h,
+		UsedPpm:   PctToPpm(96),
+		ResetAtMs: bucketCenter + jitterMs,
+		ReadAtMs:  nowMs,
+	}
+	let l0 = NewResetClaimLedger()
+	let l1, dec1 = ClaimReset(l0, c1, "worker-1", nowMs)
+	let l2, dec2 = ClaimReset(l1, c2, "worker-2", nowMs)
+	let firstWon = match dec1 {
+	case ResetClaimed:
+		true
+	case ResetSkippedDuplicate, ResetSkippedNotExhausted, ResetSkippedNotFresh, ResetSkippedNoUpcomingReset:
+		false
+	}
+	let secondDup = match dec2 {
+	case ResetSkippedDuplicate:
+		true
+	case ResetClaimed, ResetSkippedNotExhausted, ResetSkippedNotFresh, ResetSkippedNoUpcomingReset:
+		false
+	}
+	firstWon && secondDup && l2.Claims.Len() == 1
+}
+
+// OwnerPushExpiresStrictlyAtEnd proves a push is active on [StartsAtMs, EndsAtMs) and inactive at and after EndsAtMs.
+law OwnerPushExpiresStrictlyAtEnd(
+	start int64 where start >= 100000 && start <= 1000000000,
+	duration int64 where duration >= 10 && duration <= 10000000,
+	extraAfter int64 where extraAfter >= 0 && extraAfter <= 1000000,
+) {
+	let end = start + duration
+	let push = OwnerPushSpec{
+		PushID:     "push-law",
+		Scope:      memory.PushAllAccounts,
+		ExtraPpm:   PctToPpm(10),
+		StartsAtMs: start,
+		EndsAtMs:   end,
+		Cancelled:  false,
+	}
+	!IsPushActiveAt(push, start-int64(1)) && IsPushActiveAt(push, start) && IsPushActiveAt(push, end-int64(1)) && !IsPushActiveAt(push, end) && !IsPushActiveAt(push, end+extraAfter)
+}
+
+test ExhaustionResetAndTimeBoxedPushLifecycle {
+	let start = int64(36000000)
+	let end = start + int64(1800000)
+	let extra15 = PctToPpm(15)
+	let mut pushed = try CreateOwnerPush("push-1", memory.PushModel{Model: adapter.ModelID("spark")}, extra15, start, end)
+	assert !IsPushActiveAt(pushed, start-int64(1))
+	assert IsPushActiveAt(pushed, start)
+	assert !IsPushActiveAt(pushed, end)
+	let active = ActivePushForRequest([]OwnerPushSpec{pushed}, session.AccountID("acc-1"), "gpt-5.3-codex-spark", start+int64(500))
+	assert active == option.Some[OwnerPushSpec]{Value: pushed}
+	assert ActivePushForRequest([]OwnerPushSpec{pushed}, session.AccountID("acc-1"), "claude-opus-4-6", start+int64(500)) == option.None
+	let roundTrip = FromMemoryOwnerPush(ToMemoryOwnerPush(pushed, start))
+	assert roundTrip.ExtraPpm == extra15
+	assert SweepExpiredPushes([]OwnerPushSpec{pushed}, end).Len() == 0
+
+	pushed = CancelOwnerPush(pushed)
+	assert !IsPushActiveAt(pushed, start+int64(100))
+
+	let invalidPush = CreateOwnerPush("bad", memory.PushAllAccounts, PctToPpm(5), end, start) catch {
+	case PushInvalidWindow:
+		OwnerPushSpec{PushID: "err", Scope: memory.PushAllAccounts, ExtraPpm: int64(0), StartsAtMs: int64(0), EndsAtMs: int64(1), Cancelled: true}
+	case PushEmptyID, PushNegativeExtra:
+		assert false
+		OwnerPushSpec{PushID: "", Scope: memory.PushAllAccounts, ExtraPpm: int64(0), StartsAtMs: int64(0), EndsAtMs: int64(0), Cancelled: true}
+	}
+	assert invalidPush.PushID == "err"
+
+	let now = int64(54000000)
+	let entry = AccountEntry{
+		Config: AccountConfig{
+			ID:              session.AccountID("acc-1"),
+			Provider:        "openai",
+			Model:           "gpt-5.3-codex-spark",
+			Label:           "primary",
+			Priority:        1,
+			Healthy:         true,
+			PaceWithheld:    false,
+			SupportedScopes: []string{"spark"},
+		},
+		Limits: option.Some[LimitsModel]{
+			Value: LimitsModel{
+				Primary5h:    WinReported{UsedPpm: PctToPpm(92), ResetAtMs: now + int64(1800000)},
+				Weekly7d:     WinReported{UsedPpm: PctToPpm(50), ResetAtMs: now + int64(86400000)},
+				ModelWindows: []ModelQuota{ModelQuota{Scope: "spark", Status: WinReported{UsedPpm: PctToPpm(30), ResetAtMs: now + int64(86400000)}}},
+				ReadAtMs:     now - int64(5000),
+				RateLimited:  false,
+			},
+		},
+		Pace:        option.None,
+		HoldUntilMs: int64(0),
+	}
+	let candOpt = FindExhaustedCandidate(entry, []string{"spark"}, now)
+	match candOpt {
+	case option.None:
+		assert false
+	case option.Some as cw:
+		let ledger0 = NewResetClaimLedger()
+		let ledger1, d1 = ClaimReset(ledger0, cw.Value, "host-a", now)
+		let _, d2 = ClaimReset(ledger1, cw.Value, "host-b", now+int64(1000))
+		match d1 {
+		case ResetClaimed:
+			let _ = d1
+		case ResetSkippedDuplicate, ResetSkippedNotExhausted, ResetSkippedNotFresh, ResetSkippedNoUpcomingReset:
+			assert false
+		}
+		match d2 {
+		case ResetSkippedDuplicate:
+			let _ = d2
+		case ResetClaimed, ResetSkippedNotExhausted, ResetSkippedNotFresh, ResetSkippedNoUpcomingReset:
+			assert false
+		}
+	}
+}
