@@ -1137,9 +1137,6 @@ func (w *refWalker) expr(x syntax.Expr) {
 		}
 	case *syntax.ContextLit:
 		// A header names capabilities: no value reference.
-		if x.Provides != nil {
-			w.typ(x.Provides)
-		}
 		if x.Needs != nil {
 			w.typ(x.Needs)
 		}

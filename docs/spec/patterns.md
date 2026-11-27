@@ -2,7 +2,7 @@
 
 Status: **implemented**: `std/regex` implements typed byte regular expressions (`regex.Pattern`) as a zero-privilege pure Ergo content mapper emitting `ParseT` and linear one-pass `FindT` over the unified `content.ContentInput -> content.MappedErgo` contract; compiler-hardcoded `TypePlan` constructors (`Record`, `Union`, `Optional`, `List`, `Refine`), `internal/sketch/regexpplan`, `internal/sketch/derive`, and `lower/pattern.go` are retired.
 
-A declaration `type T derive E` evaluates `E`, a closed [type plan](../../GLOSSARY.md#constructs-contracts-and-laws), at check time and derives a bundle of ordinary declarations that `T` owns: the type `T`, the types it needs, a parse function, its failure, and laws. A plan is built by predeclared constructors and by ordinary functions of any package, the user's included. One plan is a byte pattern with named captures: an optional capture gives an `Option`, a repeated capture gives a slice of every occurrence, and an alternation of named captures gives a union that `match` covers exhaustively. The compiler checks the pattern at check time and lowers it to a matcher that it builds and checks at compile time; no pattern is parsed or compiled when the program runs. The owner put pattern declarations, this one derivation rule and its byte grammar in v1 ([decisions](../decisions.md#owner-direction-2026-11-11)).
+A declaration `type T derive E` evaluates `E`, a content-mapper plan (`content.Plan`, [content-mappers.md](content-mappers.md)), at check time and derives a bundle of ordinary declarations that `T` owns: the type `T`, the types it needs, a parse function, its failure, and laws. A plan is built by a mapper's constructor, such as `regex.Pattern`, and by ordinary functions of any package, the user's included. One plan is `std/regex`'s byte pattern with named captures: an optional capture gives an `Option`, a repeated capture gives a slice of every occurrence, and an alternation of named captures gives a union that `match` covers exhaustively. The compiler checks the pattern at check time and lowers it to a matcher that it builds and checks at compile time; no pattern is parsed or compiled when the program runs. The owner put pattern declarations, this one derivation rule and its byte grammar in v1 ([decisions](../decisions.md#owner-direction-2026-11-11)).
 
 General external-asset and inline domain mappers unify under [content-mappers.md](content-mappers.md): `std/regex` uses the same public pure `ContentInput` contract as userland mappers, retiring compiler-specific pattern plans (`internal/sketch/regexpplan`, `derive.Native`) and unused structural `TypePlan` constructors (`Record`, `Union`, `Optional`, `List`, `Refine`), while `Provider(...)` capability derives and the typed byte-pattern contract remain as specified here.
 
@@ -10,12 +10,16 @@ Each rule below names the test that holds it; the [status ledger](status.json) l
 
 ```ergo
 // package formats: a plan function, ordinary code of a user package
-func DateShape() TypePlan {
-	Pattern(`(?<Year>[0-9]{4})-(?<Month>[0-9]{2})(-(?<Day>[0-9]{2}))?`)
+import content
+import regex
+
+func DateShape() content.Plan {
+	regex.Pattern(`(?<Year>[0-9]{4})-(?<Month>[0-9]{2})(-(?<Day>[0-9]{2}))?`)
 }
 
 // package app
 import app/formats
+import regex
 
 type Date derive formats.DateShape()
 // derives:
@@ -23,7 +27,7 @@ type Date derive formats.DateShape()
 //   func ParseDate(s string) Date fails NoMatch
 //   func FindDate(s string, from int) Option[(Date, int, int)]
 
-type Token derive Pattern(`(?<Word>[A-Za-z]+)|(?<Number>[0-9]+)`)
+type Token derive regex.Pattern(`(?<Word>[A-Za-z]+)|(?<Number>[0-9]+)`)
 // derives: type Token = Word { Value string } | Number { Value string }
 
 func describe(text string) string fails NoMatch {
@@ -32,40 +36,22 @@ func describe(text string) string fails NoMatch {
 	case Number as n: "number \(n.Value)"
 	}
 }
-
-type Port derive Refine(Of[int](), 1, 65535) // the bundle of: type Port int where 1 <= it && it <= 65535
 ```
 
 ## Derivation
 
 1. **Syntax.** `type T derive E` is a type declaration whose body is the expression `E`. `derive` is a contextual word, not a keyword: it has its meaning only after the name of a type declaration and before a token that starts an expression on the same line. Everywhere else `derive` is an identifier, so a type, a package or a local named `derive` keeps its meaning, and `type T derive` at the end of a line declares `T` over a type named `derive`. A derived type has no type parameters unless its plan is a direct call of `Provider` ([Provider plans](#provider-plans)), and `derive` does not combine with `where` or with a body; each is S001 at `derive`. Test: the parser's grammar property (`internal/sketch/syntax`); the text of each refusal is a row of `TestFixtures` (`internal/sketch/check`).
-2. **The plan.** `E` must have the type `TypePlan` ([Type plans](#type-plans)) and be a plan expression: a call of a constructor or of a plan function ([Plan functions](#plan-functions)) whose arguments are constants or plan expressions. The checker evaluates `E` once, at check time, under the budget of [Budgets](#budgets) 1. Any other expression is S108 at `E`: "the derive of Date needs a TypePlan built from constants; f reads a value only known at run time". Test: `TestDeriveModel` (`internal/sketch/check`).
-3. **The bundle.** The value of `E` determines the declarations that `T` owns: the type `T` itself, the types its shape needs ([Capture shapes](#capture-shapes) 5, [Type plans](#type-plans) 4), and the functions and laws of its node ([The pattern bundle](#the-pattern-bundle), [Coherence](#coherence-with-refinements-and-codecs)). The parser places the derived declarations after `T` and marks them derived, as it does for a refinement; the formatter prints `type T derive E` as written and does not print what it derives. A derived declaration is an ordinary declaration of `T`'s package: a call, a `match`, a codec, the checker and `ergo inspect` find it by name as they find a written one. Test: `TestDeriveModel`; the formatter's idempotence property (`internal/sketch/format`).
+2. **The plan.** `E` must have the type `content.Plan` ([Plans](#plans)) and be a plan expression: a call of a mapper's constructor or of a plan function ([Plan functions](#plan-functions)) whose arguments are constants or plan expressions. The checker evaluates `E` once, at check time, under the budgets of [content-mappers.md](content-mappers.md#pure-evaluation-budgets-and-hermeticity). Any other expression is S108 at `E`. Test: `TestDeriveModel` (`internal/sketch/check`).
+3. **The bundle.** The value of `E` determines the declarations that `T` owns: the type `T` itself, the types its shape needs ([Capture shapes](#capture-shapes) 5), and the functions and laws of its node ([The pattern bundle](#the-pattern-bundle), [Coherence](#coherence-with-codecs)). The parser places the derived declarations after `T` and marks them derived, as it does for a refinement; the formatter prints `type T derive E` as written and does not print what it derives. A derived declaration is an ordinary declaration of `T`'s package: a call, a `match`, a codec, the checker and `ergo inspect` find it by name as they find a written one. Test: `TestDeriveModel`; the formatter's idempotence property (`internal/sketch/format`).
 4. **Names.** A derived name follows the visibility rule of every name: an upper-case `T` gives `ParseT` and `FindT`, a lower-case `t` gives `parseT` and `findT` ([Refinements](types.md#refinements) 4). Capture and field names are used as written, never capitalised or renamed. A derived name that another declaration of the package already has, written or derived, is S108 at the derive, naming both: "DateEntry is already declared in this package: the derive of Date generates it". Test: `TestDeriveModel`; the text is a row of `TestFixtures`.
-5. **Order and cycles.** The checker evaluates each derive after the plan functions it calls are checked, and before any declaration that uses a derived name. A plan that needs the shape of a derived type (`Refine(Of[A]())` with `A` derived) evaluates `A` first. A cycle through derives, plan functions and the shapes they need is S108 at the first derive of the cycle, naming each step. A plan that names a type only as a field's type (`List(Of[Tree]())` inside the plan of `Tree`) needs no shape and makes no cycle, as a written recursive record does not. Test: `TestDeriveModel`.
-6. **No other door.** Only a `type … derive` declaration turns a plan into types. A call of a plan function anywhere else returns a `TypePlan` value and never a type: no result type of any function depends on an argument's value. The derivation keys on the plan's value, never on the name of the function or package that built it: a std function and a user function that build equal plans derive equal bundles. Test: `TestDeriveModel` (its generated programs build each plan both directly and through wrapper functions in two packages, and compare the bundles).
+5. **Order and cycles.** The checker evaluates each derive after the plan functions it calls are checked, and before any declaration that uses a derived name. A cycle through derives, plan functions and mappers is S108 at the first derive of the cycle, naming each step ([content-mappers.md](content-mappers.md#pure-evaluation-budgets-and-hermeticity) 5). Test: `TestDeriveModel`.
+6. **No other door.** Only a `type … derive` declaration turns a plan into types. A call of a plan function anywhere else returns a `content.Plan` value and never a type: no result type of any function depends on an argument's value. The derivation keys on the plan's value, never on the name of the function or package that built it: a std function and a user function that build equal plans derive equal bundles. Test: `TestDeriveModel` (its generated programs build each plan both directly and through wrapper functions in two packages, and compare the bundles).
 7. **Inspection.** `ergo inspect` shows, for each derived type, the plan it evaluated, the declarations it derived, and for a pattern its grammar profile (bytes), its matching (whole text for a parse, leftmost for a find), the selected engine, the reason a faster engine was not selected, and the counts of [Budgets](#budgets) 4. Test: the inspect text is a row of `TestInspectAPIRoute` (`cmd/ergo`).
 
-## Type plans
+## Plans
 
-1. **The algebra.** `TypePlan` is a predeclared, closed type: a value is one of the nodes below and nothing else. It has no variants a program can name, no fields and no operations. A program builds it only with the constructors below and reads it only through a derive. Test: `TestDeriveModel`.
-
-   | Constructor | Result shape | Input it parses |
-   | --- | --- | --- |
-   | `Of[X]()` | the named or basic type `X` itself | as `X` does |
-   | `Refine(base TypePlan, lo int, hi int)` | a defined type over the base, refined to one closed span | the base value |
-   | `Record(fields []FieldPlan)` | a record type, fields in order | none: codecs only |
-   | `Union(variants []FieldPlan)` | a union type, one variant per entry | none: codecs only |
-   | `Optional(p TypePlan)` | `Option` of `p`'s shape | none: codecs only |
-   | `List(p TypePlan)` | a slice of `p`'s shape | none: codecs only |
-   | `Pattern(text string)` | a record or union from the captures of `text` | a `string`, whole |
-| `Provider(cap, field, none TypePlan)` | per instance `T[X]`, a record of one field per operation of `X` ([Provider plans](#provider-plans)) | none |
-
-   `Field(name string, p TypePlan) FieldPlan` names one field of a `Record` or one variant of a `Union`. `FieldPlan` is the second predeclared plan type, as closed as `TypePlan`.
-2. **Predeclared and shadowable.** `TypePlan`, `FieldPlan`, the nine constructors and the failure `NoMatch` ([The pattern bundle](#the-pattern-bundle) 2) are predeclared in the universe block, as `wire` is ([Codecs](types.md#codecs) 1), not names of a std package. A declaration of the same name in a package, an import of that name, a parameter or a local hides the predeclared name in its scope, and inside that scope the name means the declaration: inside std `json`, `json`'s own name is meant. A hidden constructor is not reachable under another spelling in that scope, so a package that declares its own `List` builds its plans in another package. The derivation never treats a shadowing declaration as the constructor. Test: `TestDeriveModel`.
-3. **Each node fixes its shape and its input.** `Pattern` parses a `string`; `Refine` parses its base's value; `Of[X]` parses what `X` parses. A structural node (`Record`, `Union`, `Optional`, `List`) parses no text: the derived type gets the codecs the [codec rule](types.md#codecs) gives a written type of that structure, and no guessed delimited-text parser. Test: `TestDeriveModel`.
-4. **Nested types.** A node inside a `Record`, a `List` or an `Optional` that derives a nominal type of its own (a `Record`, a `Union`, a `Refine` or a `Pattern`) is named after its owner and its field: the field `Port` of `Server` gets the type `ServerPort`. A variant of a `Union` is a record type named by the variant, as an inline variant of a written union is ([Unions](types.md#unions)); its plan is a `Record`, or `Record([]FieldPlan{})` for a variant with no fields. A field name or a variant name that is not an identifier, or a name used twice in one `Record` or `Union`, is S108 at the literal that spelled it. Test: `TestDeriveModel`.
-5. **Refine.** `Refine(base, lo, hi)` requires a base whose shape has an integer underlying type, a `string` or a slice; for a `string` or a slice the span bounds its length. `lo > hi` is the empty set, S108 as in [Refinements](types.md#refinements) 2. A `Refine` over a refined base is S108, as a refined base is. Test: `TestDeriveModel`.
+1. **A plan is a content-mapper plan.** A derive's plan is a value of `std/content`'s record `content.Plan`: the mapper function, the media kind, the bytes it maps and their companions ([content-mappers.md](content-mappers.md#core-contract)). `regex.Pattern(text)` builds the plan of a byte pattern; any package may declare another mapper and its constructor. The derivation keys on the plan's value, never on the package that built it ([content-mappers.md](content-mappers.md#zero-std-privilege-and-separation-from-provider-derives) 1). Test: `TestDeriveModel`.
+2. **The retired algebra.** The predeclared, closed `TypePlan` algebra (its constructors `Refine`, `Record`, `Union`, `Optional`, `List` and `Pattern`, and `Field` with its type `FieldPlan`) is retired (content-mappers.md, Zero std privilege 2; RSI-SURFACE-DIET, 2026-11-27). A span refinement is written with `where`, `type Port int where 1 <= it && it <= 65535` ([Refinements](types.md#refinements)); a record, union, option or slice is written as a declaration, and gets the codecs of the [codec rule](types.md#codecs). `Of[X]()` stays only as an argument of a [Provider plan](#provider-plans), which the parser reads as syntax. The failure `NoMatch` ([The pattern bundle](#the-pattern-bundle) 2) stays predeclared. Test: `TestDeriveModel`.
 
 ## Provider plans
 
@@ -84,9 +70,9 @@ A derived provider is a test provider of a capability that the checker derives f
 
 ## Plan functions
 
-1. **What a plan function is.** A plan function is a function whose result type is `TypePlan` or `FieldPlan`. It has no `fails` and no `needs` row, no `extern` and no type parameters: a plan over another type takes that type's plan as a parameter, `Paged(Of[User]())`. Each parameter has a basic type, `TypePlan`, `FieldPlan`, or a slice of one of them, and each argument of a call from a derive is a constant or a plan expression. Its body may use `let`, `if`, `match`, `for`, string interpolation and concatenation, integer arithmetic, and calls of constructors and plan functions; any other call, an `import go` name, a capability or a task is S108 at that call: "a plan function runs at check time; Console.Println charges Console". Test: `TestDeriveModel`.
-2. **Ordinary and exported.** A plan function is an ordinary function of its package, exported by an upper-case name. A user package may declare plan functions for its grammars, parameterised fixed-width identifiers or composed record schemas, and another package derives from them. A package cannot register syntax, a solver, a constructor or a hook that computes types: the algebra of [Type plans](#type-plans) 1 is closed. Test: `TestDeriveModel`.
-3. **Check time only.** A plan function and a `TypePlan` value exist only at check time. A use of a plan function or of a `TypePlan` value outside a plan function's body and outside a derive is S108: "a TypePlan exists at check time only; use it in a type … derive declaration". The run build and the test build emit no Go for a plan function. Test: `TestDeriveModel`; the run build of a program equals, byte for byte, the run build of the same program with its plan functions removed and each derive replaced by its bundle written out.
+1. **What a plan function is.** A plan function is a function whose result type is `content.Plan`. It has no `fails` and no `needs` row, no `extern` and no type parameters, and each argument of a call from a derive is a constant or a plan expression. It is pure and capability-free, as a mapper is ([content-mappers.md](content-mappers.md#pure-evaluation-budgets-and-hermeticity)): an `import go` name, a capability or a task in it is S108 at that use. Test: `TestDeriveModel`.
+2. **Ordinary and exported.** A plan function is an ordinary function of its package, exported by an upper-case name. A user package may declare plan functions for its grammars, parameterised fixed-width identifiers or queries, and another package derives from them. A package extends derivation only with a content mapper: it cannot register syntax, a solver or a hook in the checker that computes types. Test: `TestDeriveModel`.
+3. **Evaluated at check time.** A derive evaluates its plan, and the mapper the plan names, at check time; what the program runs is the derived declarations, never the evaluation. Test: `TestDeriveModel`.
 4. **Across packages.** The summary of a package holds the checked body of each exported plan function. A change of that body changes the summary, so each package that derives from it is checked again. Test: `TestDeriveModel` (its two-package programs change a plan function and observe the dependent bundle change).
 
 ## Budgets
@@ -118,7 +104,7 @@ A derived provider is a test provider of a capability that the checker derives f
 
 ## The pattern bundle
 
-1. **Parse.** `type T derive Pattern(p)` derives `func ParseT(s string) T fails NoMatch`. It succeeds when `s` as a whole is in the language of `p`, with the value that [Pattern grammar](#pattern-grammar) 6 selects and [Capture shapes](#capture-shapes) projects. Test: `TestPatternShapes`; `TestPatternLoweringAgrees` (`internal/sketch/lower`).
+1. **Parse.** `type T derive regex.Pattern(p)` derives `func ParseT(s string) T fails NoMatch`. It succeeds when `s` as a whole is in the language of `p`, with the value that [Pattern grammar](#pattern-grammar) 6 selects and [Capture shapes](#capture-shapes) projects. Test: `TestPatternShapes`; `TestPatternLoweringAgrees` (`internal/sketch/lower`).
 2. **The failure.** The prelude's `NoMatch { Type string, At int }` is the one failure. `Type` is the derived type's name; `At` is the length of the longest prefix of `s` that is also a prefix of some word of the language: the byte at which no match can continue, or `len(s)` when the text ends too early. For `[0-9]{4}`, `"12x4"` fails at 2, `"123"` at 3 and `"12345"` at 4. `At` is the same for every engine. Test: `TestPatternShapes`.
 3. **Find.** `func FindT(s string, from int) Option[(T, int, int)]` returns the match of [Pattern grammar](#pattern-grammar) 6 that starts at or after `from`, with its start and end as byte positions of `s`. A `from` below 0 or above `len(s)` gives `None`. A find keeps no state between calls: a caller iterates by calling it again from the end of the last match, or from one byte later after an empty match. Test: `TestPatternShapes`.
 4. **Substrings.** A captured `string` is a substring of `s` and shares its bytes, as Go's slicing does; holding a capture keeps all of `s` alive. Test: `TestPatternLoweringAgrees`.
@@ -151,17 +137,18 @@ A derived provider is a test provider of a capability that the checker derives f
 6. **The reference lowering.** `-X lower.patternLowering=reference` builds every pattern as the canonical NFA. It stays selectable, every example's `ergo test` passes under both lowerings, and the derived laws compare each parse with it in the test build. A test may also force the direct or the table form on every pattern that has a deterministic candidate; the build never does. Test: `TestPatternLoweringAgrees` runs seeded generated patterns and inputs (required, optional and repeated captures, nested records under each, and unions) under the selected engine, the reference, and the forced direct and table forms. Each engine is reached, and every one gives the reference's results. A failing seed prints the Ergo source, both outputs and the replay command.
 7. **Speed.** The target for a parse is at most the instructions of the faster of Go's `regexp`, compiled once beforehand and producing the same captures, and an optimised hand-written scanner, with no more bytes and allocations per operation than that scanner. A claim of speed is measured on the same host at base and head; until then none is made. Test: none; receipts are measured.
 
-## Coherence with refinements and codecs
+## Coherence with codecs
 
-1. **Refine is the refinement.** `type N derive Refine(Of[B](), lo, hi)` derives exactly the bundle of `type N B where lo <= it && it <= hi` (or `len(it)` for a `string` or slice base): `ParseN` with the failure `Unsatisfied`, the law `NWhere`, the ways in, the ways out, the zero-value rule and the generator of [Refinements](types.md#refinements). A refinement with `where` and its plan form share one implementation of these. Test: `TestDeriveModel`: for generated spans, the two declarations give equal derived declarations, diagnostics and generated values.
-2. **Codecs are unchanged.** A derived type has the wire form the [codec rule](types.md#codecs) gives the same declaration written by hand: a pattern record of strings is wire by its structure, and a derive adds no `Wire`. A `Wire(x T) string` written in the file of the derive forms a by-name pair with the derived `ParseT`, and the pair's round-trip law is derived as for a written pair. The derivation never invents an inverse of a parse. Test: `TestDeriveModel`.
-3. **Authority is unchanged.** A derived record is an ordinary record: construction authority follows its field names as for a written record ([types](types.md#structs)), and the derive gives no guarantee that a value spells a word of its pattern. A type that guarantees its original text keeps that text in an unexported field and is built only by its own package's parse function. Test: `TestDeriveModel`.
-4. **Rows are unchanged.** `ParseT` fails `NoMatch` only; a caller that converts a capture further (a number's range, a calendar date) writes that conversion and its failure row. Test: `TestDeriveModel`.
+1. **Codecs are unchanged.** A derived type has the wire form the [codec rule](types.md#codecs) gives the same declaration written by hand: a pattern record of strings is wire by its structure, and a derive adds no `Wire`. A `Wire(x T) string` written in the file of the derive forms a by-name pair with the derived `ParseT`, and the pair's round-trip law is derived as for a written pair. The derivation never invents an inverse of a parse. Test: `TestDeriveModel`.
+2. **Authority is unchanged.** A derived record is an ordinary record: construction authority follows its field names as for a written record ([types](types.md#structs)), and the derive gives no guarantee that a value spells a word of its pattern. A type that guarantees its original text keeps that text in an unexported field and is built only by its own package's parse function. Test: `TestDeriveModel`.
+3. **Rows are unchanged.** `ParseT` fails `NoMatch` only; a caller that converts a capture further (a number's range, a calendar date) writes that conversion and its failure row. Test: `TestDeriveModel`.
 
 ## Expansion examples
 
 ```ergo
-type Date derive Pattern(`(?<Year>[0-9]{4})-(?<Month>[0-9]{2})(-(?<Day>[0-9]{2}))?`)
+import regex
+
+type Date derive regex.Pattern(`(?<Year>[0-9]{4})-(?<Month>[0-9]{2})(-(?<Day>[0-9]{2}))?`)
 // type Date { Year string, Month string, Day Option[string] }
 // func ParseDate(s string) Date fails NoMatch
 // func FindDate(s string, from int) Option[(Date, int, int)]
@@ -169,24 +156,20 @@ type Date derive Pattern(`(?<Year>[0-9]{4})-(?<Month>[0-9]{2})(-(?<Day>[0-9]{2})
 // ParseDate("2026-11") is Date{Year: "2026", Month: "11", Day: None{}}
 // ParseDate("2026-1x") fails NoMatch{Type: "Date", At: 6}
 
-type Query derive Pattern(`(?<Pair>(?<Key>[a-z]+)=(?<Value>[0-9]*)&?)*`)
+type Query derive regex.Pattern(`(?<Pair>(?<Key>[a-z]+)=(?<Value>[0-9]*)&?)*`)
 // type QueryPair { Key string, Value string }
 // type Query { Pair []QueryPair }
 // ParseQuery("a=1&b=") is Query{Pair: []QueryPair{{Key: "a", Value: "1"}, {Key: "b", Value: ""}}}
 
-type Path derive Pattern(`(/(?<Seg>[a-z0-9]+))+`)
+type Path derive regex.Pattern(`(/(?<Seg>[a-z0-9]+))+`)
 // type Path { Seg []string }
 
-type Port derive Refine(Of[int](), 1, 65535)
-// the bundle of: type Port int where 1 <= it && it <= 65535
-
 // package ids, a user package
-func Fixed(prefix string, width int) TypePlan {
-	Pattern("\(prefix)-(?<Num>[0-9]{\(width)})")
-}
+import content
+import regex
 
-func Paged(item TypePlan) TypePlan {
-	Record([]FieldPlan{Field("Items", List(item)), Field("Next", Optional(Of[string]()))})
+func Fixed(prefix string, width int) content.Plan {
+	regex.Pattern("\(prefix)-(?<Num>[0-9]{\(width)})")
 }
 
 // package app
@@ -195,9 +178,6 @@ import app/ids
 type Ticket derive ids.Fixed("TK", 6)
 // type Ticket { Num string }; ParseTicket("TK-004211") is Ticket{Num: "004211"}
 // ids.Fixed("T(K", 6) is S108 at the ( in app's literal "T(K": "unclosed group", derived at the Ticket line
-
-type Users derive ids.Paged(Of[User]())
-// type Users { Items []User, Next Option[string] }: wire by its structure; no ParseUsers, since a record plan parses no text
 ```
 
 ## Prior art

@@ -610,7 +610,7 @@ let fragments = []string{
 	"type Op { Get(k string) int, own Close(), law L(x int) { x == x } }\n",
 	"type M machine[S, E] { initial: s, step: f, law R never reaches Bad }\n",
 	"let (x, y) = (1, 2)\n",
-	"let Ctx = context provides A needs B { A: a, replace C: c, D }\n",
+	"let Ctx = context needs B { A: a, replace C: c, D }\n",
 	"func g() { match (x, y) {\ncase (A | B, _) as z: f(z)\ncase _:\n} }\n",
 	"func h() { for i, v in 0..n { if v > i { break } else { x += v } } }\n",
 	"func k() { let s = xs[1:2]; let m = Map[string, int]{\"a\": 1}; try f() catch { case E as e: g(e) } }\n",

@@ -1782,9 +1782,7 @@ func (c *checker) typExpr0(x syntax.Expr, ctx *typeCtx) Type {
 	case *syntax.FuncType:
 		// A parameter written own may outlive the call it is passed to or
 		// run on another task (196e; ESC1; q168); only a parameter's type is
-		// non-escaping without it (writtenParamType). The retired word
-		// escaping is S108 naming own; it keeps its fact so that one
-		// diagnostic says it.
+		// non-escaping without it (writtenParamType).
 		inner := typeCtx{}
 		if ctx != nil {
 			inner = *ctx
@@ -1795,13 +1793,6 @@ func (c *checker) typExpr0(x syntax.Expr, ctx *typeCtx) Type {
 			c.errorIn(x, x.EntryPos, x.EntryPos+syntax.Pos(len("entry")), CodeType, "entry func(…) is written only as a parameter's type: the send a work is given lives no longer than the call that got it (runtime.md, Machines and actors 14)")
 		}
 		inner.field, inner.param = false, false
-		if x.Escaping.IsValid() && !c.escapingSeen[x] {
-			if c.escapingSeen == nil {
-				c.escapingSeen = map[*syntax.FuncType]bool{}
-			}
-			c.escapingSeen[x] = true
-			c.errorf(x, CodeType, "escaping is gone: write own before the parameter's function type, as in f own func() int; ergo fix rewrites it")
-		}
 		sig := c.signature(x, &inner)
 		// A written function type's parameter names declare its
 		// parameters (Info.Defs), as an operation's do (defParams); a
@@ -2652,11 +2643,10 @@ func (c *checker) slotKinds(head syntax.Expr) []Kind {
 
 // writtenParamType is the type of the parameter field whose type is
 // written as x and resolves to t: a parameter written as a function type
-// without `escaping` or `own` is non-escaping (196e; escaping.go), a
-// function's and a law's alike. A named function type is escaping, as a
-// field's is.
+// without `own` is non-escaping (196e; escaping.go), a function's and a
+// law's alike. A named function type is escaping, as a field's is.
 func writtenParamType(field *syntax.Field, t Type) Type {
-	if ft, ok := unparen(field.Type).(*syntax.FuncType); ok && !ft.Escaping.IsValid() && field.Own == nil {
+	if ft, ok := unparen(field.Type).(*syntax.FuncType); ok && field.Own == nil {
 		if s, ok := t.(*Signature); ok {
 			ne := *s
 			ne.NonEscaping = true
@@ -2721,9 +2711,6 @@ func (c *checker) signature(ft *syntax.FuncType, ctx *typeCtx) *Signature {
 	}
 	if ft.Needs != nil {
 		sig.Uses = c.rowExpr(ft.Needs.Names, KindUses, &rctx)
-	}
-	if ft.Takes != nil {
-		c.takesClause(ft.Takes, sig, ctx.method, ctx.hostRecv)
 	}
 	sig.Defects = ft.Defects
 	for _, fc := range ft.Facts {

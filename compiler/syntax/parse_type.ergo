@@ -144,6 +144,10 @@ func parseSignatureWith(p mut parser, funcPos uint32, ctx int, lit bool, tps uin
 	// In a declaration `implements Contract` can start immediately
 	// after the parameters. A result type named `implements` still works.
 	let claim = ctx == ctxDecl && atImplements(p) && (peek(p, 1) == Ident || peek(p, 1) == Go)
+	if atOldTakes(p, ctx) {
+		errorAt(p, pos(p), 5, oldTakesText)
+		return noNode
+	}
 	if startsType(p) && !claim && !atDefects(p) && !atFactClause(p) {
 		let ty = parseResultType(p, ctx)
 		pushW(&p.t, mkField(&p.t, mark(p.t), none, some(ty), none, none, none, none, none, none, none, none, none))
@@ -160,9 +164,9 @@ func parseSignatureWith(p mut parser, funcPos uint32, ctx int, lit bool, tps uin
 	if p.tk == Needs {
 		nd = some(parseNeeds(p, ctx))
 	}
-	let mut tk = none
-	if p.tk == Takes {
-		tk = some(parseTakes(p, ctx))
+	if isWord(p, "takes") {
+		errorAt(p, pos(p), 5, oldTakesText)
+		return noNode
 	}
 	let mut def = none
 	if atDefects(p) {
@@ -173,25 +177,18 @@ func parseSignatureWith(p mut parser, funcPos uint32, ctx int, lit bool, tps uin
 	for factWordKind(p, p.i) != 0 {
 		pushW(&p.t, parseFactClause(p))
 	}
-	mkFuncType(&p.t, m, none, none, funcPos, params, results, nd, tk, def, tps)
+	mkFuncType(&p.t, m, none, funcPos, params, results, nd, def, tps)
 }
 
-// parseTakes parses `takes [a, b]`.
-func parseTakes(p mut parser, ctx int) uint32 {
-	let tt = want(p, Takes)
-	let m = mark(p.t)
-	if p.tk != Ident {
-		return rec(&p.t, KTakesClause, uint32(tt), m)
+func atOldTakes(p mut parser, ctx int) bool {
+	if !isWord(p, "takes") {
+		return false
 	}
-	pushW(&p.t, parseIdent(p))
-	for p.tk == Comma && peek(p, 1) == Ident {
-		if ctx == ctxList || (ctx == ctxMember && peek(p, 2) == LParen) {
-			break
-		}
-		next(p)
-		pushW(&p.t, parseIdent(p))
+	let k = peek(p, 1)
+	if k == Ident {
+		return !wordAt(p, p.i+1, "implements") && !atDefectsAt(p, p.i+1) && factWordKind(p, p.i+1) == 0
 	}
-	rec(&p.t, KTakesClause, uint32(tt), m)
+	ctx == ctxMember && (k == Comma || k == Semicolon || k == RBrace)
 }
 
 // parseResultType parses the one result type. A tuple ending in `error` is
@@ -221,24 +218,13 @@ func parseFails(p mut parser) uint32 {
 // startsType reports whether the current token can start a type.
 func startsType(p mut parser) bool {
 	let k = p.tk
-	if k == Ident || k == LBrack || k == Mul || k == Mut || k == Func || k == Escaping || k == LParen {
+	if k == Ident || k == LBrack || k == Mul || k == Mut || k == Func || k == LParen {
 		return true
 	}
 	if k == Go {
 		return peek(p, 1) == Period
 	}
 	k == KwMap || k == Chan || k == Struct || k == Interface || k == Arrow || k == Ellipsis
-}
-
-// parseProvides parses a context's `provides A | B`.
-func parseProvides(p mut parser) uint32 {
-	let pr = want(p, Provides)
-	let m = mark(p.t)
-	parseRow(p, "provides")
-	if p.tk == Comma {
-		rowComma(p, pos(p), "provides")
-	}
-	rec(&p.t, KProvidesClause, uint32(pr), m)
 }
 
 // parseNeeds parses `needs A | B`.
@@ -477,7 +463,7 @@ func atOwn(p mut parser) bool {
 		return false
 	}
 	let k = peek(p, 1)
-	if k == Ident || k == LBrack || k == Mul || k == Mut || k == Func || k == Escaping || k == LParen {
+	if k == Ident || k == LBrack || k == Mul || k == Mut || k == Func || k == LParen {
 		return true
 	}
 	k == Go && peek(p, 2) == Period
@@ -547,7 +533,7 @@ func pureClause(p mut parser) int {
 		return -1
 	}
 	let k = peek(p, 1)
-	if !(k == Ident || k == Func || k == Escaping || k == LParen || (k == Go && peek(p, 2) == Period)) {
+	if !(k == Ident || k == Func || k == LParen || (k == Go && peek(p, 2) == Period)) {
 		return -1
 	}
 	let at = p.i
@@ -566,6 +552,10 @@ func parseType(p mut parser, ctx int) uint32 {
 }
 
 func parseType1(p mut parser, ctx int) uint32 {
+	if isWord(p, "escaping") && peek(p, 1) == Func {
+		errorAt(p, pos(p), 8, oldEscapingText)
+		return noNode
+	}
 	if isWord(p, "entry") && peek(p, 1) == Func {
 		// `entry func(…)`: the contextual word marks the type of an
 		// entry's send.
@@ -625,18 +615,6 @@ func parseType1(p mut parser, ctx int) uint32 {
 		let x = parseType(p, ctx)
 		return row(&p.t, KStarExpr, uint32(star), x, none)
 	}
-	if k == Escaping {
-		let at = p.i
-		next(p)
-		if p.tk != Func {
-			expected(p, "expected \"func\" after escaping, found ")
-		}
-		let t = parseFuncType(p, ctx)
-		if !p.failed {
-			setFixed(&p.t, t, 9, 0, someTok(at))
-		}
-		return t
-	}
 	if k == Func {
 		return parseFuncType(p, ctx)
 	}
@@ -681,7 +659,7 @@ func parseType1(p mut parser, ctx int) uint32 {
 
 // typeStarts reports whether a type may start with k: a name, a slice or
 // array, a pointer, or a function type (the Go parser's startsType).
-func typeStarts(k uint8) bool { k == Ident || k == LBrack || k == Mul || k == Mut || k == Func || k == Escaping }
+func typeStarts(k uint8) bool { k == Ident || k == LBrack || k == Mul || k == Mut || k == Func }
 
 func parseFuncType(p mut parser, ctx int) uint32 {
 	let fn = want(p, Func)
@@ -733,7 +711,7 @@ func parseTypeName(p mut parser, what string) uint32 {
 	mapType(p, x)
 }
 
-// parseCapabilityName parses the TypeName of a needs, provides or context
+// parseCapabilityName parses the TypeName of a needs or context
 // key position.
 func parseCapabilityName(p mut parser, what string) uint32 {
 	enter(p)
@@ -787,14 +765,14 @@ func parseTypeArg(p mut parser) uint32 {
 
 // ---------------------------------------------------------------- contexts
 
-// parseContextLit parses `context [provides …] [fails …] [needs …] { entries }`:
+// parseContextLit parses `context [fails …] [needs …] { entries }`:
 // the header's rows in a signature's order (parseSignature), fails before
 // needs (CTX-ROWS-1b).
 func parseContextLit(p mut parser) uint32 {
 	let c = want(p, KwContext)
-	let mut prov = none
-	if p.tk == Provides {
-		prov = some(parseProvides(p))
+	if isWord(p, "provides") && (peek(p, 1) == Ident || peek(p, 1) == Go) {
+		errorAt(p, pos(p), 8, oldProvidesText)
+		return noNode
 	}
 	let mut fl = none
 	if p.tk == Fails {
@@ -808,7 +786,7 @@ func parseContextLit(p mut parser) uint32 {
 		expected(p, "expected \"{\" after context, found ")
 	}
 	let body = parseContextBody(p)
-	mkContextLit(&p.t, mark(p.t), c, prov, fl, nd, body)
+	mkContextLit(&p.t, mark(p.t), c, fl, nd, body)
 }
 
 // parseContextBody parses `{ entry, … }`.
@@ -894,4 +872,32 @@ func keysContinue(p mut parser) bool {
 		}
 	}
 	false
+}
+
+test RetiredWordsAreNames {
+	for w in []string{"takes", "escaping", "provides"} {
+		assert lexOutcome("let "+w+" = 1\n", true) == "parsed"
+		assert lexOutcome("func f("+w+" int64) int64 { "+w+" }\n", true) == "parsed"
+		assert lexOutcome("type T { "+w+" int64 }\n", true) == "parsed"
+		assert lexOutcome("type "+w+" {}\n\nfunc f(x "+w+", g func("+w+") "+w+") "+w+" { g(x) }\n", true) == "parsed"
+		assert lexOutcome("func f() {\n\tlet "+w+" = 1\n\tuse("+w+")\n}\n", true) == "parsed"
+	}
+}
+
+test OldTakesNamesOwn {
+	assert lexOutcome("func keep(r R) Holder takes r {}\n", true) == "S001 22 "+oldTakesText
+	assert lexOutcome("func Close(r R) takes r {}\n", true) == "S001 16 "+oldTakesText
+	assert lexOutcome("type Ops {\n\tM() takes,\n}\n", true) == "S001 16 "+oldTakesText
+}
+
+test OldProvidesIsGone {
+	assert lexOutcome("let App = context provides A | B needs C { A: a }\n", true) == "S001 18 "+oldProvidesText
+	assert lexOutcome("func f() {\n\twith context provides A { A: a } { run() }\n}\n", true) == "S001 25 "+oldProvidesText
+	assert lexOutcome("let App = context needs C { provides: a }\n", true) == "parsed"
+}
+
+test OldEscapingNamesOwn {
+	assert lexOutcome("func f(g escaping func() int) {}\n", true) == "S001 9 "+oldEscapingText
+	assert lexOutcome("type T { run escaping func() int }\n", true) == "S001 13 "+oldEscapingText
+	assert lexOutcome("func give() escaping func() {\n\tfunc() {}\n}\n", true) == "S001 12 "+oldEscapingText
 }

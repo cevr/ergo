@@ -139,7 +139,7 @@ func deriveRefinement(d *TypeDecl, base, pred func() Expr, text string) []Decl {
 	fn := &FuncDecl{
 		Func: at,
 		Name: &Ident{NamePos: d.Name.NamePos, Name: parseName},
-		Type: &FuncType{Escaping: NoPos, Func: NoPos, Params: params("it", base()), Results: &FieldList{Opening: NoPos, List: []*Field{
+		Type: &FuncType{Func: NoPos, Params: params("it", base()), Results: &FieldList{Opening: NoPos, List: []*Field{
 			{Type: self(), WherePos: NoPos},
 			{Type: &ErrorRow{Error: at, Types: []Expr{id("Unsatisfied")}}, WherePos: NoPos},
 		}, Closing: NoPos}},

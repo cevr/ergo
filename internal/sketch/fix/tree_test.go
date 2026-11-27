@@ -14,17 +14,14 @@ import (
 // each of them, so TestTreeHasNoOldSpelling leaves them, by name, and fails
 // when one no longer holds an old spelling (a stale name).
 var keepOldSpellings = []string{
-	"cmd/ergo/fix_test.go",                        // TestFixRespellsAStdThatDoesNotCheck's std input
-	"internal/sketch/check/decided_nodes_test.go", // takes and escaping, refused (S108)
-	"internal/sketch/fix/modes_test.go",           // the own respell's inputs
-	"internal/sketch/fix/mut_test.go",             // the mut respell's inputs
-	"internal/sketch/fix/mutfrag_test.go",         // the fragment respell's inputs
-	"internal/sketch/fix/testdata/mutgo/lits.go",  // TestMutGoLeavesGoSource's input
-	"internal/sketch/syntax/parser_test.go",       // escaping still parses (TestAdmittedForms)
+	"cmd/ergo/fix_test.go",                       // TestFixRespellsAStdThatDoesNotCheck's std input
+	"internal/sketch/fix/mut_test.go",            // the mut respell's inputs
+	"internal/sketch/fix/mutfrag_test.go",        // the fragment respell's inputs
+	"internal/sketch/fix/testdata/mutgo/lits.go", // TestMutGoLeavesGoSource's input
 }
 
 // TestTreeHasNoOldSpelling is ergo fix --dry-run --go over the repository,
-// its syntactic respells only (RunModes, RunMut): it finds nothing to
+// its syntactic respells only (RunMut): it finds nothing to
 // rewrite and nothing it would leave, outside keepOldSpellings. Generators
 // and tests that write an old spelling again turn it red here, where only
 // their own run would have (I22 at RESPELL-SYNTAX's merged head: 7 own and
@@ -35,10 +32,6 @@ func TestTreeHasNoOldSpelling(t *testing.T) {
 		t.Fatal(err)
 	}
 	opts := Options{Paths: []string{root}, Go: true}
-	modes, err := RunModes(opts)
-	if err != nil {
-		t.Fatal(err)
-	}
 	muts, err := RunMut(opts)
 	if err != nil {
 		t.Fatal(err)
@@ -60,13 +53,10 @@ func TestTreeHasNoOldSpelling(t *testing.T) {
 		}
 		bad = append(bad, r+": "+what)
 	}
-	for file := range modes.Edits {
-		note(file, "own respell")
-	}
 	for file := range muts.Edits {
 		note(file, "mut respell")
 	}
-	for _, e := range append(modes.Errs, muts.Errs...) {
+	for _, e := range muts.Errs {
 		bad = append(bad, "not rewritten: "+e)
 	}
 	for _, k := range muts.Kept {

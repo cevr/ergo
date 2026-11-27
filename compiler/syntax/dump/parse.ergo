@@ -195,7 +195,6 @@ func node(d mut dumper, depth int, id dense.ID[syntax.Node]) {
 	case syntax.ContextDecl as x:
 		line(d, depth, "ContextDecl "+a+" doc="+itoa(x.Doc)+" Let="+itoa(tp(d, x.Let))+" Context="+itoa(tp(d, x.Context)))
 		node(d, c, x.Name)
-		opt(d, c, x.Provides)
 		opt(d, c, x.Fails)
 		opt(d, c, x.Needs)
 		node(d, c, x.Body)
@@ -239,12 +238,6 @@ func node(d mut dumper, depth int, id dense.ID[syntax.Node]) {
 		list(d, c, x.List)
 	case syntax.NeedsClause as x:
 		line(d, depth, "NeedsClause "+a+" Needs="+itoa(tp(d, x.Needs)))
-		list(d, c, x.Names)
-	case syntax.TakesClause as x:
-		line(d, depth, "TakesClause "+a+" Takes="+itoa(tp(d, x.Takes)))
-		list(d, c, x.Names)
-	case syntax.ProvidesClause as x:
-		line(d, depth, "ProvidesClause "+a+" Provides="+itoa(tp(d, x.Provides)))
 		list(d, c, x.Names)
 	case syntax.FactClause as x:
 		line(d, depth, "FactClause "+a+" Kind="+itoa(x.Kind)+" Word="+itoa(tp(d, x.Word))+" WhenPos="+itoa(zp(d, x.WhenPos)))
@@ -324,7 +317,6 @@ func node(d mut dumper, depth int, id dense.ID[syntax.Node]) {
 		list(d, c, x.Arms)
 	case syntax.ContextLit as x:
 		line(d, depth, "ContextLit "+a+" Context="+itoa(tp(d, x.Context)))
-		opt(d, c, x.Provides)
 		opt(d, c, x.Fails)
 		opt(d, c, x.Needs)
 		node(d, c, x.Body)
@@ -339,12 +331,11 @@ func node(d mut dumper, depth int, id dense.ID[syntax.Node]) {
 		node(d, c, x.Value)
 		opt(d, c, x.Hashing)
 	case syntax.FuncType as x:
-		line(d, depth, "FuncType "+a+" Escaping="+itoa(tp(d, x.Escaping))+" Entry="+itoa(tp(d, x.Entry))+" Func="+itoa(tp(d, x.Func))+" Defects="+itoa(tp(d, x.Defects)))
+		line(d, depth, "FuncType "+a+" Entry="+itoa(tp(d, x.Entry))+" Func="+itoa(tp(d, x.Func))+" Defects="+itoa(tp(d, x.Defects)))
 		opt(d, c, x.TypeParams)
 		node(d, c, x.Params)
 		opt(d, c, x.Results)
 		opt(d, c, x.Needs)
-		opt(d, c, x.Takes)
 		list(d, c, x.Facts)
 	case syntax.StructType as x:
 		line(d, depth, "StructType "+a)

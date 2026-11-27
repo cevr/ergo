@@ -125,7 +125,7 @@ func localRules() []localRule {
 		{"charge-literal-row", "func f() int {\n\tlet w = context { Store: Holder{v: read()} }\n\tlet g = func() string needs Store {\n\t\twith w { Store.Get() }\n\t}\n\t_ = g\n\t1\n}\n\nfunc h() func() string {\n\tlet w = context { Store: Holder{v: read()} }\n\tfunc() string {\n\t\twith w { Store.Get() } // want S102\n\t}\n}\n"},
 
 		// The header and a constructor entry stay refused (stage b).
-		{"local-header", "func f() string {\n\tlet w = context provides Greeter { Greeter: Plain } // want S109\n\twith w { Greeter.Greet(\"x\") }\n}\n"},
+		{"local-header", "func f() string {\n\tlet w = context needs Store { Greeter: Plain } // want S109\n\twith w { Greeter.Greet(\"x\") }\n}\n"},
 		{"local-constructor", "func mk() Plain {\n\tPlain\n}\n\nfunc f() string {\n\tlet w = context { Greeter: mk } // want S109\n\twith w { Greeter.Greet(\"x\") }\n}\n"},
 	}
 	// Each S108 use of a local context, once in each body kind: a function,

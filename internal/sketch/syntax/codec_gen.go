@@ -291,7 +291,6 @@ func (e *encoder) encFieldsContextDecl(v *ContextDecl) {
 	e.encPos(v.Let)
 	e.encPos(v.Context)
 	e.encPtrIdent(v.Name)
-	e.encPtrProvidesClause(v.Provides)
 	e.encPtrErrorRow(v.Fails)
 	e.encPtrNeedsClause(v.Needs)
 	e.encPtrContextBody(v.Body)
@@ -329,7 +328,6 @@ func (e *encoder) encPtrContextEntry(v *ContextEntry) {
 
 func (e *encoder) encFieldsContextLit(v *ContextLit) {
 	e.encPos(v.Context)
-	e.encPtrProvidesClause(v.Provides)
 	e.encPtrErrorRow(v.Fails)
 	e.encPtrNeedsClause(v.Needs)
 	e.encPtrContextBody(v.Body)
@@ -555,7 +553,6 @@ func (e *encoder) encPtrFuncLit(v *FuncLit) {
 }
 
 func (e *encoder) encFieldsFuncType(v *FuncType) {
-	e.encPos(v.Escaping)
 	e.encT4(v.Entry)
 	e.encPos(v.EntryPos)
 	e.encPos(v.Func)
@@ -563,7 +560,6 @@ func (e *encoder) encFieldsFuncType(v *FuncType) {
 	e.encPtrFieldList(v.Params)
 	e.encPtrFieldList(v.Results)
 	e.encPtrNeedsClause(v.Needs)
-	e.encPtrTakesClause(v.Takes)
 	e.encT4(v.Defects)
 	e.encPos(v.DefectsPos)
 	e.encT13(v.Facts)
@@ -887,21 +883,6 @@ func (e *encoder) encPtrParenExpr(v *ParenExpr) {
 	e.uint(e.id(v))
 }
 
-func (e *encoder) encFieldsProvidesClause(v *ProvidesClause) {
-	e.encPos(v.Provides)
-	e.encT2(v.Names)
-}
-
-func (e *encoder) encProvidesClause(v ProvidesClause) { e.encFieldsProvidesClause(&v) }
-
-func (e *encoder) encPtrProvidesClause(v *ProvidesClause) {
-	if v == nil {
-		e.uint(0)
-		return
-	}
-	e.uint(e.id(v))
-}
-
 func (e *encoder) encFieldsRangeStmt(v *RangeStmt) {
 	e.encPos(v.For)
 	e.encExpr(v.Key)
@@ -1045,21 +1026,6 @@ func (e *encoder) encFieldsSwitchStmt(v *SwitchStmt) {
 func (e *encoder) encSwitchStmt(v SwitchStmt) { e.encFieldsSwitchStmt(&v) }
 
 func (e *encoder) encPtrSwitchStmt(v *SwitchStmt) {
-	if v == nil {
-		e.uint(0)
-		return
-	}
-	e.uint(e.id(v))
-}
-
-func (e *encoder) encFieldsTakesClause(v *TakesClause) {
-	e.encPos(v.Takes)
-	e.encT8(v.Names)
-}
-
-func (e *encoder) encTakesClause(v TakesClause) { e.encFieldsTakesClause(&v) }
-
-func (e *encoder) encPtrTakesClause(v *TakesClause) {
 	if v == nil {
 		e.uint(0)
 		return
@@ -1681,52 +1647,48 @@ func objTag(x any) uint64 {
 		return 51
 	case *ParenExpr:
 		return 52
-	case *ProvidesClause:
-		return 53
 	case *RangeStmt:
-		return 54
+		return 53
 	case *ReturnStmt:
-		return 55
+		return 54
 	case *SelectorExpr:
-		return 56
+		return 55
 	case *SkipStmt:
-		return 57
+		return 56
 	case *SliceExpr:
-		return 58
+		return 57
 	case *SometimesStmt:
-		return 59
+		return 58
 	case *StarExpr:
-		return 60
+		return 59
 	case *StructType:
-		return 61
+		return 60
 	case *SwitchStmt:
-		return 62
-	case *TakesClause:
-		return 63
+		return 61
 	case *TestDecl:
-		return 64
+		return 62
 	case *TryExpr:
-		return 65
+		return 63
 	case *TupleExpr:
-		return 66
+		return 64
 	case *TypeDecl:
-		return 67
+		return 65
 	case *TypeGuard:
-		return 68
+		return 66
 	case *TypeSwitchStmt:
-		return 69
+		return 67
 	case *TypeTerm:
-		return 70
+		return 68
 	case *UnaryExpr:
-		return 71
+		return 69
 	case *VarDecl:
-		return 72
+		return 70
 	case *VarSpec:
-		return 73
+		return 71
 	case *VariantSpec:
-		return 74
+		return 72
 	case *Word:
-		return 75
+		return 73
 	}
 	return 0
 }
@@ -1838,8 +1800,6 @@ func (e *encoder) encObj(x any) {
 		e.encFieldsOrPattern(x)
 	case *ParenExpr:
 		e.encFieldsParenExpr(x)
-	case *ProvidesClause:
-		e.encFieldsProvidesClause(x)
 	case *RangeStmt:
 		e.encFieldsRangeStmt(x)
 	case *ReturnStmt:
@@ -1858,8 +1818,6 @@ func (e *encoder) encObj(x any) {
 		e.encFieldsStructType(x)
 	case *SwitchStmt:
 		e.encFieldsSwitchStmt(x)
-	case *TakesClause:
-		e.encFieldsTakesClause(x)
 	case *TestDecl:
 		e.encFieldsTestDecl(x)
 	case *TryExpr:
@@ -2226,7 +2184,6 @@ func (d *decoder) decFieldsContextDecl(v *ContextDecl) {
 	v.Let = d.decPos()
 	v.Context = d.decPos()
 	v.Name = d.decPtrIdent()
-	v.Provides = d.decPtrProvidesClause()
 	v.Fails = d.decPtrErrorRow()
 	v.Needs = d.decPtrNeedsClause()
 	v.Body = d.decPtrContextBody()
@@ -2270,7 +2227,6 @@ func (d *decoder) decPtrContextEntry() *ContextEntry {
 
 func (d *decoder) decFieldsContextLit(v *ContextLit) {
 	v.Context = d.decPos()
-	v.Provides = d.decPtrProvidesClause()
 	v.Fails = d.decPtrErrorRow()
 	v.Needs = d.decPtrNeedsClause()
 	v.Body = d.decPtrContextBody()
@@ -2535,7 +2491,6 @@ func (d *decoder) decPtrFuncLit() *FuncLit {
 }
 
 func (d *decoder) decFieldsFuncType(v *FuncType) {
-	v.Escaping = d.decPos()
 	v.Entry = d.decT4()
 	v.EntryPos = d.decPos()
 	v.Func = d.decPos()
@@ -2543,7 +2498,6 @@ func (d *decoder) decFieldsFuncType(v *FuncType) {
 	v.Params = d.decPtrFieldList()
 	v.Results = d.decPtrFieldList()
 	v.Needs = d.decPtrNeedsClause()
-	v.Takes = d.decPtrTakesClause()
 	v.Defects = d.decT4()
 	v.DefectsPos = d.decPos()
 	v.Facts = d.decT13()
@@ -2921,24 +2875,6 @@ func (d *decoder) decPtrParenExpr() *ParenExpr {
 	return x.(*ParenExpr)
 }
 
-func (d *decoder) decFieldsProvidesClause(v *ProvidesClause) {
-	v.Provides = d.decPos()
-	v.Names = d.decT2()
-}
-
-func (d *decoder) decProvidesClause() (v ProvidesClause) {
-	d.decFieldsProvidesClause(&v)
-	return v
-}
-
-func (d *decoder) decPtrProvidesClause() *ProvidesClause {
-	x := d.obj(d.uint())
-	if x == nil {
-		return nil
-	}
-	return x.(*ProvidesClause)
-}
-
 func (d *decoder) decFieldsRangeStmt(v *RangeStmt) {
 	v.For = d.decPos()
 	v.Key = d.decExpr()
@@ -3114,24 +3050,6 @@ func (d *decoder) decPtrSwitchStmt() *SwitchStmt {
 		return nil
 	}
 	return x.(*SwitchStmt)
-}
-
-func (d *decoder) decFieldsTakesClause(v *TakesClause) {
-	v.Takes = d.decPos()
-	v.Names = d.decT8()
-}
-
-func (d *decoder) decTakesClause() (v TakesClause) {
-	d.decFieldsTakesClause(&v)
-	return v
-}
-
-func (d *decoder) decPtrTakesClause() *TakesClause {
-	x := d.obj(d.uint())
-	if x == nil {
-		return nil
-	}
-	return x.(*TakesClause)
 }
 
 func (d *decoder) decFieldsTestDecl(v *TestDecl) {
@@ -3812,50 +3730,46 @@ func newObj(tag uint64) any {
 	case 52:
 		return new(ParenExpr)
 	case 53:
-		return new(ProvidesClause)
-	case 54:
 		return new(RangeStmt)
-	case 55:
+	case 54:
 		return new(ReturnStmt)
-	case 56:
+	case 55:
 		return new(SelectorExpr)
-	case 57:
+	case 56:
 		return new(SkipStmt)
-	case 58:
+	case 57:
 		return new(SliceExpr)
-	case 59:
+	case 58:
 		return new(SometimesStmt)
-	case 60:
+	case 59:
 		return new(StarExpr)
-	case 61:
+	case 60:
 		return new(StructType)
-	case 62:
+	case 61:
 		return new(SwitchStmt)
-	case 63:
-		return new(TakesClause)
-	case 64:
+	case 62:
 		return new(TestDecl)
-	case 65:
+	case 63:
 		return new(TryExpr)
-	case 66:
+	case 64:
 		return new(TupleExpr)
-	case 67:
+	case 65:
 		return new(TypeDecl)
-	case 68:
+	case 66:
 		return new(TypeGuard)
-	case 69:
+	case 67:
 		return new(TypeSwitchStmt)
-	case 70:
+	case 68:
 		return new(TypeTerm)
-	case 71:
+	case 69:
 		return new(UnaryExpr)
-	case 72:
+	case 70:
 		return new(VarDecl)
-	case 73:
+	case 71:
 		return new(VarSpec)
-	case 74:
+	case 72:
 		return new(VariantSpec)
-	case 75:
+	case 73:
 		return new(Word)
 	}
 	return nil
@@ -3968,8 +3882,6 @@ func (d *decoder) decObj(x any) {
 		d.decFieldsOrPattern(x)
 	case *ParenExpr:
 		d.decFieldsParenExpr(x)
-	case *ProvidesClause:
-		d.decFieldsProvidesClause(x)
 	case *RangeStmt:
 		d.decFieldsRangeStmt(x)
 	case *ReturnStmt:
@@ -3988,8 +3900,6 @@ func (d *decoder) decObj(x any) {
 		d.decFieldsStructType(x)
 	case *SwitchStmt:
 		d.decFieldsSwitchStmt(x)
-	case *TakesClause:
-		d.decFieldsTakesClause(x)
 	case *TestDecl:
 		d.decFieldsTestDecl(x)
 	case *TryExpr:

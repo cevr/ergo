@@ -249,7 +249,7 @@ Std `cache` (std-spike C1) remembers the value of a lookup per key, with a capac
 | Name | Signature |
 | --- | --- |
 | `Config` | `Config { Capacity int, Life duration, Idle duration }`; `0s` is no expiry |
-| `New`, `NewReleasing` | `New[K comparable, V](config Config) Cache[K, V] fails BadConfig`; `NewReleasing[K comparable, V](config Config, release escaping func(k K, v V)) Cache[K, V] fails BadConfig` (`BadConfig { Reason }`) |
+| `New`, `NewReleasing` | `New[K comparable, V](config Config) Cache[K, V] fails BadConfig`; `NewReleasing[K comparable, V](config Config, release own func(k K, v V)) Cache[K, V] fails BadConfig` (`BadConfig { Reason }`) |
 | `Get` | `Get[K comparable, V, E, R](c Cache[K, V], k K, lookup func(k K) V fails E needs R) V fails E needs time.Clock \| R` |
 | reads | `Peek[K comparable, V](c Cache[K, V], k K) Option[V] needs time.Clock`; `StatsOf(c Cache[K, V]) Stats` (`Stats { Hits, Misses, Size int }`) |
 | writes | `Put(c Cache[K, V], k K, v V) needs time.Clock`; `Invalidate(c Cache[K, V], k K) bool`; `InvalidateAll(c Cache[K, V])`; `Prune(c Cache[K, V]) needs time.Clock` |
@@ -945,7 +945,7 @@ both against net/http's `DetectContentType`.
    close leaves bytes unread and the client's next read after the answer
    fails with the reset; on loopback that reset may also drop the answer,
    which is TCP's behaviour and Go's.
-2. `Serve[R](l, limits Limits, handle escaping func(Request) Response needs R | Streaming)`
+2. `Serve[R](l, limits Limits, handle own func(Request) Response needs R | Streaming)`
    has `fails InvalidLimits needs R | Scheduler`. Serve binds the request's `Streaming`
    provider around each invocation, so a handler that does not stream is a
    function of a narrower row and passes unchanged. `Limits{MaxBodyBytes,
@@ -2275,7 +2275,7 @@ Std concurrency. `tasks.Set` is G4 ([runtime.md](runtime.md#g4-tasksset)).
 
 | Declaration | Meaning | Go body |
 | --- | --- | --- |
-| `func Transform[A, B, E, R](xs []A, limit int, f escaping func(x A) B fails E needs R) []B fails E needs R` | `f` of each element, each call on a task of its own, at most `limit` at once, the results in the order of `xs` (batch 12, C2; built). `f` is escaping: its calls run at the same time ([types.md](types.md#function-values), Function values 2; ESC1). | `TasksTransform(span Site, t *rt.Task, rel Releaser[[]B], xs []A, limit int, f func(*rt.Task, A) (B, error)) ([]B, error)` (task.go), over `rt.MapSpan` (rt tasks.go) |
+| `func Transform[A, B, E, R](xs []A, limit int, f own func(x A) B fails E needs R) []B fails E needs R` | `f` of each element, each call on a task of its own, at most `limit` at once, the results in the order of `xs` (batch 12, C2; built). `f` is escaping: its calls run at the same time ([types.md](types.md#function-values), Function values 2; ESC1). | `TasksTransform(span Site, t *rt.Task, rel Releaser[[]B], xs []A, limit int, f func(*rt.Task, A) (B, error)) ([]B, error)` (task.go), over `rt.MapSpan` (rt tasks.go) |
 | `func Race[T, E, R](blocks []func() T fails E needs R) T fails E needs R` | Each block on a task of its own; the first to end decides, and the rest are stopped and waited for (batch 12, C4; built). | `TasksRace(span Site, t *rt.Task, rel Releaser[T], blocks []func(*rt.Task) (T, error)) (T, error)` (task.go), over `rt.RaceSpan` (rt tasks.go) |
 | `law TransformEqualsLoop(xs []int, k int)`, `law TransformKeepsOrder(xs []int, k int)`, `law LimitHolds(xs []int, k int)`, `law EarliestWins(ds []int)`, `law LosersStopped(n int)` | The laws ([Std laws](#std-laws)). | `TestTasksLaws` (runtime/v1); `LosersStopped` runs in `ergo test std:tasks` |
 
@@ -2303,7 +2303,7 @@ Std concurrency. `tasks.Set` is G4 ([runtime.md](runtime.md#g4-tasksset)).
 | --- | --- | --- |
 | `type Policy = FailFast \| LogFailures \| Restart`, `type Restart { Limit int }`, `type Closed {}` | What a member's failure or defect does to its Set; the failure of `Go` on a Set that admits no more tasks. | `tasks.Closed` is `TasksClosed` (set.go); the policy records are the program's |
 | `type Set[E] { Wait() fails E, Stop(), Len() int }`, `func NewSet[E](p Policy) Set[E]`, `func NewSupervisedSet[E](s Supervision) Set[E] needs Scheduler \| time.Clock` | An owner of any number of tasks, which the calling frame owns. | `*Set` (set.go); `NewSet`'s Ergo body matches the policy and calls `newSetPolicy` (`TasksNewSetPolicy(s *Scope, kind, limit int, decide func(*rt.Task, int) time.Duration) *Set`), passing `NextRestart(LimitPolicy(r.Limit), ...)` for `Restart`; `NewSupervisedSet` calls `newSupervisedSet` (`TasksNewSupervisedSet(s *Scope, sl Sleeper, decide func(*rt.Task, int) time.Duration) *Set`), passing `NextRestart(s, ...)`; `Wait(t *rt.Task) error`, `Stop(t *rt.Task)`, `Len() int`, `Move(to *Scope) *Set` |
-| `func Go[E, R](set Set[E], body escaping func() fails E needs R) fails Closed needs R` | Starts `body` as a member. | `TasksGo(span Site, t *rt.Task, set *Set, body func(*rt.Task) error) error` (set.go) |
+| `func Go[E, R](set Set[E], body own func() fails E needs R) fails Closed needs R` | Starts `body` as a member. | `TasksGo(span Site, t *rt.Task, set *Set, body func(*rt.Task) error) error` (set.go) |
 | `law NoMemberOutlivesItsFrame(n int)`, `law FinishedAreDropped(n int)`, `law FailFastStopsTheRest(n int)`, `law RestartRunsAgain(n int)`, `law SetRestartUsesDecide(k int)`, `law SetSupervisedFollowsDecide(k int)`, `Set`'s `law StopEndsEveryMember()` | The laws ([Std laws](#std-laws)). | `TestTasksLaws` (runtime/v1) and `ergotests` |
 
 *Intent.* A program that serves (a listener's connections, a supervisor's actors) starts tasks for as long as it runs. It keeps no `Task` per started task: each should end on its own and be forgotten, and none may outlive the code that started it. Effect's `FiberSet` serves this purpose (a fiber leaves the set when it ends; the scope's close interrupts the rest; `join` fails with the first failure), and so does Go's `errgroup.Group` (`Go`, then `Wait` for the first error; `WithContext` cancels the rest). Erlang/OTP's `one_for_one` supervisor adds restarts within an intensity limit.

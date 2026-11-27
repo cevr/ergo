@@ -71,7 +71,7 @@ var lookaheadSeeds = []string{
 	`type A{F["`, "type A{Items [\xff", `type A{F["\(x`, `type A{F[T]"`,
 	`func A(){for "`, `func A(){for x in "\(y`, "func A(xs []int){for i, x\u00a0in xs {\n}}",
 	"func A(xs []int){for i, x@ in xs {\n}}", `func A(){for i, x "`,
-	`func A(){let y = f[escaping func("`, `func A(){with context{A, "`,
+	`func A(){let y = f[func("`, `func A(){with context{A, "`,
 }
 
 // checkStream reports the first break of the token stream's invariant, or

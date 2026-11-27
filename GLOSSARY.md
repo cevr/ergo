@@ -60,9 +60,9 @@ An entry defines a term and carries no status; a construct's status is in [docs/
 
 **Inferred row** (retired by decision, 2026-11-12; no longer checked since EXPLICIT EX2): A row the checker computed from a body because the row was not written, for an unexported function with a body, per strongly connected component of a package's reference graph. `ergo fix`'s clause writer still computes these least rows to write them. A function literal with no expected type has the rows its body charges (q139); it declares nothing. Under the tiebreak **Explicit local signatures** beat **inference** ([NORTH_STAR](NORTH_STAR.md#tiebreaks); [decision](docs/decisions.md#owner-direction-2026-11-12)), no row is inferred: an unwritten row is empty, as under the export guard.
 
-**Export guard**: The rule that a declaration spells its rows: exported functions, operations, `main`, laws, bodiless declarations and the step of an exported machine type. An unwritten row there is empty, never inferred. By the 2026-11-12 decision it is the signature rule for every named function, operation and method, exported or not, and for every clause: `fails`, `needs`, `takes`, `given`, `gives` and `keeps`. A body that exceeds its signature is a diagnostic that names the clause to add.
+**Export guard**: The rule that a declaration spells its rows: exported functions, operations, `main`, laws, bodiless declarations and the step of an exported machine type. An unwritten row there is empty, never inferred. By the 2026-11-12 decision it is the signature rule for every named function, operation and method, exported or not, and for every clause and mode word: `fails`, `needs`, `own`, `given`, `gives` and `keeps`. A body that exceeds its signature is a diagnostic that names the clause to add.
 
-**Clause**: A part of a signature, written after the result type, that states a contract the checker checks the body against: an error row (`fails`), a capability row (`needs`), an ownership clause (`takes`), or a fact clause (`given`, `gives`, `keeps`). A clause is always written; an unwritten clause is the empty clause, and the checker never computes one from a body or a call graph. Code the compiler generates gets its clauses from its generator, and `ergo inspect` shows them.
+**Clause**: A part of a signature, written after the result type, that states a contract the checker checks the body against: an error row (`fails`), a capability row (`needs`), or a fact clause (`given`, `gives`, `keeps`). A clause is always written; an unwritten clause is the empty clause, and the checker never computes one from a body or a call graph. Code the compiler generates gets its clauses from its generator, and `ergo inspect` shows them.
 
 **Requirement binding**: The bare name of a capability a written `needs` row lists, entered in the body's frame beside the parameters. A local of that name in the same frame is an error.
 
@@ -88,7 +88,7 @@ An entry defines a term and carries no status; a construct's status is in [docs/
 
 **Context**: What `with` installs for a block: capability bindings and context values. A `context { Cap: provider, … }` literal, inline or named, binds capabilities to providers or constructors; it is Ergo's form of an Effect layer. The construct was spelled `wire` until 196w ([2026-11-02 preview](docs/previews/2026-11-02-wire-to-context.md)). *Prior art:* Effect's `Context` (the service map a Layer builds), Go's `context.Context`, React Context, Scala 3 and Kotlin context parameters.
 
-**Context exposure**: The `provides A | B` clause of a named context header: the capabilities a `with` of that context discharges. Entries the context builds and does not list stay private to its build. A header may also state the context's requirements, `let App = context provides Account | Invoice needs Config { … }`, which join the `with` site's capability row.
+**Context exposure**: The capabilities a `with` of a context discharges: every entry it binds. The `provides A | B` clause that listed a subset is gone (RSI-SURFACE-DIET, 2026-11-27). A header may state the context's requirements, `let App = context needs Config { … }`, which join the `with` site's capability row.
 
 **Inline context**: A `context { … }` literal given directly to `with`. Its provider expressions are evaluated in, and charged to, the enclosing function.
 
@@ -140,9 +140,9 @@ An entry defines a term and carries no status; a construct's status is in [docs/
 
 **Trailing block**: A block written after a call's parentheses. It is notation for a function-literal final argument whose body contains no `return`, `break` or `continue`; an early return needs an explicit `func` literal. It cannot escape the call unless the parameter type says so. The block of `with` is part of that construct instead.
 
-**Non-escaping parameter**: A function-typed parameter written without `escaping`. The callee runs it only on the calling task, before the call returns, one run at a time, and no one keeps it ([types.md](docs/spec/types.md#function-values) Function values 2). Any other use needs `escaping`.
+**Non-escaping parameter**: A function-typed parameter written without `own`. The callee runs it only on the calling task, before the call returns, one run at a time, and no one keeps it ([types.md](docs/spec/types.md#function-values) Function values 2). Any other use needs `own`.
 
-**Concurrent parameter**: A function parameter that the callee runs on another task while another run or the caller may run. It is written `escaping` (ESC1, 2026-11-11); no separate clause marks it, and an argument to it may not assign captured locals. The fact is always the written `escaping`; the compiler does not infer it (decision, 2026-11-12).
+**Concurrent parameter**: A function parameter that the callee runs on another task while another run or the caller may run. It is written `own` (ESC1, 2026-11-11; q168); no separate clause marks it, and an argument to it may not assign captured locals. The fact is always the written `own`; the compiler does not infer it (decision, 2026-11-12).
 
 **Replayable parameter**: A function parameter that may run more than once, such as a transaction body. It may not assign captured locals, use channels or consume a resource, and its footprint holds only `sync.Tx`.
 
@@ -156,7 +156,7 @@ An entry defines a term and carries no status; a construct's status is in [docs/
 
 **Declared root** (EXH1): A value whose type implements `Closer`, or a `*T` borrow of one, seen as the owner of the handles it holds (values of an operation type that is not a resource, such as `sync.Ref` or `actor.Actor`, or values holding one). A handle read from it is lent: it leaves only with the whole root, and a write back to its own place grows the root in place. See [resources](docs/spec/resources.md) R17.
 
-**Takes clause**: `takes p` after a signature's rows: the call hands the parameter `p` off, and the caller cannot use it after the call. Written on every function, exported or not (q137; `ergo fix` writes a missing one), and part of a function type. A bare `takes` on an operation names the value the operation is called on. See [grammar](docs/spec/grammar.md) Declarations 13.
+**Kept parameter**: A parameter written `own` before its type, `func Keep(f own File) Holder`: the call hands it off, and the caller cannot use it after the call. Written on every function, exported or not (q137), and part of a function type. `own` before an operation keeps the value the operation is called on. It replaced the `takes` clause (q168), whose spelling is now an S001 naming `own`. See [grammar](docs/spec/grammar.md) Declarations 13.
 
 **Owner scope**: The block that owns a resource: the block that acquired it, or the scope it moved to. A loop body is its own owner scope for each iteration.
 
@@ -168,7 +168,7 @@ An entry defines a term and carries no status; a construct's status is in [docs/
 
 **Structured lend**: A lend of a resource to a task, or to an escaping closure an owner keeps, that is allowed because the task or owner is certain to be released before the borrow of the resource ends, on every exit. The borrow ends at the release point of the resource's root owner: a value reached by indexing or through a field keeps the root owner of its container or aggregate. The task qualifies when it is bound after the root owner in the same scope, owned by a scope nested inside the root owner's scope, stored in a later field of the same struct, or stored in a container whose owner qualifies. Only for an incoming parameter, whose owner outlives the call, does the borrow end at the function's return, so any task owned by a scope local to that function qualifies; moving or returning that task out of the function is an error. See [resources](docs/spec/resources.md#structured-lend).
 
-**Consume**: Ending a resource early by calling `Close()`, a task's `Wait()`, or a function whose `takes` clause names it. Nothing runs for it at scope end, and a later use is an error. A task's `Stop()` lends; it does not consume ([resources](docs/spec/resources.md#early-release) R19).
+**Consume**: Ending a resource early by calling `Close()`, a task's `Wait()`, or a function that keeps it (a parameter written `own`). Nothing runs for it at scope end, and a later use is an error. A task's `Stop()` lends; it does not consume ([resources](docs/spec/resources.md#early-release) R19).
 
 **Consume (a value)**: Take a slice, `Map` or record that holds one at a position that may keep or write its storage: the value of a `let mut`, an owned parameter, an owned form's first operand, the source of an `Append`. A consumed value or path is taken in place only when no other use of it can see the write; otherwise the lowering copies it first. A record is consumed by parts when its body consumes its fields on paths that do not overlap ([types](docs/spec/types.md#bindings), *own-parts*). Not the resource sense above: nothing ends early, and a later read is legal, so it is copied.
 
@@ -286,13 +286,11 @@ An entry defines a term and carries no status; a construct's status is in [docs/
 
 **Provider law**: A law with a `needs` clause. It is checked against every provider bound to that capability.
 
-**Derived type**: A type declared `type T derive E`. The checker evaluates the type plan `E` at check time, and the plan's value gives `T`, the types `T` needs, and the parse function, failure and laws that `T` owns, as ordinary declarations of `T`'s package. See [patterns](docs/spec/patterns.md).
+**Derived type**: A type declared `type T derive E`. The checker evaluates the plan `E`, a `content.Plan`, at check time, and the mapper it names gives `T`, the types `T` needs, and the parse function, failure and laws that `T` owns, as ordinary declarations of `T`'s package. See [patterns](docs/spec/patterns.md).
 
-**Type plan**: A value of the predeclared, closed type `TypePlan`, built only by the predeclared constructors (`Of`, `Refine`, `Record`, `Union`, `Optional`, `List`, `Pattern`, with `Field`) and by plan functions, and read only by a derive. Each node fixes the shape it derives and the input it parses. See [patterns](docs/spec/patterns.md#type-plans).
+**Plan function**: An ordinary rowless function whose result is a `content.Plan`. A derive evaluates it at check time, within a budget, with no Go call or I/O, and a user package may export one for other packages to derive from. The predeclared `TypePlan` algebra it once built is retired (RSI-SURFACE-DIET, 2026-11-27). See [patterns](docs/spec/patterns.md#plan-functions).
 
-**Plan function**: An ordinary rowless function whose result is a `TypePlan` or `FieldPlan`. It runs only at check time, within a budget, with no Go call or I/O, and a user package may export one for other packages to derive from. See [patterns](docs/spec/patterns.md#plan-functions).
-
-**Pattern**: The type plan `Pattern(text)`: a byte regular expression with named captures, matched against a whole `string` by the derived `ParseT`, or leftmost by `FindT`. See [patterns](docs/spec/patterns.md#pattern-grammar).
+**Pattern**: The plan `regex.Pattern(text)` of `std/regex`: a byte regular expression with named captures, matched against a whole `string` by the derived `ParseT`, or leftmost by `FindT`. See [patterns](docs/spec/patterns.md#pattern-grammar).
 
 **Capture shape**: The type a named capture gives its field, from how often it takes part in a match of its scope: once gives the value, at most once gives `Option`, more than once gives a slice of every occurrence. A capture with captures inside it gives a record, and an alternation of named captures gives a union. See [patterns](docs/spec/patterns.md#capture-shapes).
 

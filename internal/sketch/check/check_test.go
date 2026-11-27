@@ -96,7 +96,6 @@ var negativeSpans = map[string][2]string{
 	"context-constructor-is-37":          {"S109", "open"},
 	"context-cycle":                      {"S108", "W"},
 	"context-entry-non-capability":       {"S104", "Order"},
-	"context-exposure-hides-entry":       {"S109", "provides Account"},
 	"context-literal-outside-with":       {"S108", "context { Store: Mem }"},
 	"aswritten-not-identity":             {"S108", "Twice"},
 	"machine-expr-tuple-state":           {"S108", "(S, S)"},

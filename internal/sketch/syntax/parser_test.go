@@ -106,8 +106,8 @@ func TestUsesIsAnIdentifier(t *testing.T) {
 // a parameter, a field or a type; a contextual word is.
 func TestKeywordsAreNotNames(t *testing.T) {
 	words := append(Keywords(), Reserved()...)
-	if n := len(Keywords()); n != 29 {
-		t.Fatalf("%d keywords, want the 28 decided ones and as", n)
+	if n := len(Keywords()); n != 26 {
+		t.Fatalf("%d keywords, want the 25 decided ones and as", n)
 	}
 	if n := len(Reserved()); n != 15 {
 		t.Fatalf("%d reserved words, want 15", n)
@@ -200,9 +200,9 @@ func TestAdmittedForms(t *testing.T) {
 		}
 	}
 	// A package-level context is a ContextDecl; a context elsewhere is a ContextLit.
-	f = parse("let App = context provides A needs B {\n\tC, D:      X{},\n\treplace E: Y{},\n\tShared,\n}\n\nfunc main() {\n\twith context { A: M{} } {\n\t\trun()\n\t}\n}\n")
+	f = parse("let App = context needs B {\n\tC, D:      X{},\n\treplace E: Y{},\n\tShared,\n}\n\nfunc main() {\n\twith context { A: M{} } {\n\t\trun()\n\t}\n}\n")
 	w := f.Decls[0].(*ContextDecl)
-	if !w.Let.IsValid() || w.Pos() != w.Let || w.Provides == nil || w.Needs == nil || len(w.Body.Entries) != 3 {
+	if !w.Let.IsValid() || w.Pos() != w.Let || w.Needs == nil || len(w.Body.Entries) != 3 {
 		t.Fatalf("context %+v", w)
 	}
 	if e := w.Body.Entries; e[0].Kind != ContextBind || len(e[0].Keys) != 1 || e[1].Kind != ContextReplace || e[2].Kind != ContextEmbed {
@@ -240,9 +240,9 @@ func TestAdmittedForms(t *testing.T) {
 	if id, ok := f.Decls[5].(*TypeDecl).Spec.(*Ident); !ok || id.Name != "float64" {
 		t.Fatalf("defined type %+v", f.Decls[5].(*TypeDecl).Spec)
 	}
-	// R fails A | B needs S is the result plus the old row; escaping;
+	// R fails A | B needs S is the result plus the old row; own;
 	// a tuple result; Map[K, V].
-	fn := parse("func f(g escaping func() int64) (int64, string) fails A | B needs S {}\n").Decls[0].(*FuncDecl)
+	fn := parse("func f(g own func() int64) (int64, string) fails A | B needs S {}\n").Decls[0].(*FuncDecl)
 	res := fn.Type.Results
 	if res.Opening.IsValid() || len(res.List) != 2 {
 		t.Fatalf("results %+v", res)
@@ -253,8 +253,8 @@ func TestAdmittedForms(t *testing.T) {
 	if row := res.List[1].Type.(*ErrorRow); len(row.Types) != 2 || !row.Error.IsValid() {
 		t.Fatalf("row %+v", row)
 	}
-	if fn.Type.Needs == nil || !fn.Type.Params.List[0].Type.(*FuncType).Escaping.IsValid() {
-		t.Fatal("needs or escaping")
+	if fn.Type.Needs == nil || fn.Type.Params.List[0].Own == nil {
+		t.Fatal("needs or own")
 	}
 	if m, ok := parse("let m Map[string, int64]\n").Decls[0].(*VarDecl).Specs[0].Type.(*MapType); !ok || m.Key.(*Ident).Name != "string" {
 		t.Fatal("Map[K, V] is not a MapType")
@@ -471,7 +471,7 @@ func malformedError(t *testing.T, name string) (string, *Error) {
 func TestRoundFourForms(t *testing.T) {
 	t.Run("m3 a bare type in value position", func(t *testing.T) {
 		for _, c := range []struct{ name, first string }{
-			{"func-type-value", "func"}, {"func-type-argument", "func"}, {"escaping-func-type-value", "escaping"},
+			{"func-type-value", "func"}, {"func-type-argument", "func"},
 			{"slice-type-value", "["}, {"slice-type-argument", "["}, {"slice-type-conversion", "["},
 		} {
 			src, e := malformedError(t, c.name)

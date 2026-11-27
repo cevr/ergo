@@ -197,10 +197,9 @@ func declared(s mut store.Store, env types.Env, p syntax.Parsed, file int, decl 
 type sigFacts { taken []bool, names []string, close bool }
 
 // factsOf is the sigFacts of a function named name declared with the
-// function type ft and the signature sig (resource.go ownParams and
-// takesClause, close.go closeTakes and closeFacts): it takes a parameter
-// written own whose type is no function type, one its takes clause names,
-// and with no clause the receiver of a Close of the R1 shape (one
+// function type ft and the signature sig (resource.go ownParams, close.go
+// closeTakes and closeFacts): it takes a parameter written own whose type
+// is no function type, and the receiver of a Close of the R1 shape (one
 // parameter, no result, no failure) on a type of closers, the package's
 // types that implement Closer.
 func factsOf(s store.Store, p syntax.Parsed, name string, ft dense.ID[syntax.Node], sig dense.ID[store.TKey], closers []string) sigFacts {
@@ -220,15 +219,15 @@ func factsOf(s store.Store, p syntax.Parsed, name string, ft dense.ID[syntax.Nod
 	}
 	let w = written(s, p, ft, ops, n, out)
 	let mut taken = w.taken
-	if close && !w.clause {
+	if close {
 		taken[0] = true
 	}
 	sigFacts{taken: taken, names: w.names, close: close}
 }
 
-// writtenTakes is what a signature writes: the parameters it takes, their
-// names, and whether it writes a takes clause.
-type writtenTakes { taken []bool, names []string, clause bool }
+// writtenTakes is what a signature writes: the parameters it takes and their
+// names.
+type writtenTakes { taken []bool, names []string }
 
 // written is factsOf's writtenTakes: out has one false per parameter of
 // ops' n.
@@ -238,7 +237,7 @@ func written(s store.Store, p syntax.Parsed, ft dense.ID[syntax.Node], ops []den
 	case syntax.FuncType as v:
 		v
 	case _:
-		return writtenTakes{taken: out, names: []string{}, clause: false}
+		return writtenTakes{taken: out, names: []string{}}
 	}
 	let mut at = 0
 	let mut names = []string{}
@@ -263,22 +262,7 @@ func written(s store.Store, p syntax.Parsed, ft dense.ID[syntax.Node], ops []den
 		}
 	case _:
 	}
-	match dense.Unpack(f.Takes) {
-	case option.Some[dense.ID[syntax.Node]] as tc:
-		match syntax.ViewOf(p.Tree, tc.Value) {
-		case syntax.TakesClause as c:
-			for i in 0..syntax.Len(c.Names) {
-				let k = slices.Index(names, types.NameText(p, syntax.Item(p.Tree, c.Names, i)))
-				if k >= 0 && k < n {
-					out[k] = true
-				}
-			}
-		case _:
-		}
-		return writtenTakes{taken: out, names: names, clause: true}
-	case option.None:
-	}
-	writtenTakes{taken: out, names: names, clause: false}
+	writtenTakes{taken: out, names: names}
 }
 
 // closerNames is the names of the types of parsed that write implements

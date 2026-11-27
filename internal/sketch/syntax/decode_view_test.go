@@ -127,7 +127,6 @@ func (d *dumper) node(depth int, n Node) {
 	case *ContextDecl:
 		d.line(depth, "ContextDecl %s doc=%d Let=%d Context=%d", at, d.doc(x.Doc), x.Let, x.Context)
 		d.node(c, x.Name)
-		d.node(c, x.Provides)
 		d.node(c, x.Fails)
 		d.node(c, x.Needs)
 		d.node(c, x.Body)
@@ -214,12 +213,6 @@ func (d *dumper) node(depth int, n Node) {
 		d.list(c, exprs(x.List))
 	case *NeedsClause:
 		d.line(depth, "NeedsClause %s Needs=%d", at, x.Needs)
-		d.list(c, exprs(x.Names))
-	case *TakesClause:
-		d.line(depth, "TakesClause %s Takes=%d", at, x.Takes)
-		d.list(c, idents(x.Names))
-	case *ProvidesClause:
-		d.line(depth, "ProvidesClause %s Provides=%d", at, x.Provides)
 		d.list(c, exprs(x.Names))
 	case *FactClause:
 		d.line(depth, "FactClause %s Kind=%d Word=%d WhenPos=%d", at, x.Kind, x.WordPos, x.WhenPos)
@@ -314,7 +307,6 @@ func (d *dumper) node(depth int, n Node) {
 		d.list(c, exprs(x.Arms))
 	case *ContextLit:
 		d.line(depth, "ContextLit %s Context=%d", at, x.Context)
-		d.node(c, x.Provides)
 		d.node(c, x.Fails)
 		d.node(c, x.Needs)
 		d.node(c, x.Body)
@@ -339,12 +331,11 @@ func (d *dumper) node(depth int, n Node) {
 		if x.Defects {
 			defects = x.DefectsPos
 		}
-		d.line(depth, "FuncType %s Escaping=%d Entry=%d Func=%d Defects=%d", at, x.Escaping, entry, x.Func, defects)
+		d.line(depth, "FuncType %s Entry=%d Func=%d Defects=%d", at, entry, x.Func, defects)
 		d.node(c, x.TypeParams)
 		d.node(c, x.Params)
 		d.node(c, x.Results)
 		d.node(c, x.Needs)
-		d.node(c, x.Takes)
 		d.list(c, exprs(x.Facts))
 	case *StructType:
 		d.line(depth, "StructType %s", at)

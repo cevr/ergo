@@ -33,7 +33,7 @@ A task's `subject` is the test's or law's declaration (an owner's or machine's f
 | `uses` | declaration -> declaration, at the name; `how` is the fact site's kind (`call`, `read`, `write`, `typeuse`, `construct`, `match`, `needs`, `fails`, `provides`, `binds`, `handles`) |
 | `needs` | function -> capability of its derived needs row |
 | `fails` | function -> failure of its derived error row |
-| `provides` | declaration -> capability a context it holds binds or provides |
+| `provides` | declaration -> capability a context it holds binds |
 | `reexports` | `let X = q.Y` -> the declaration `Y` |
 | `testof` | test -> each declaration of its package it names |
 | `lawof` | law -> its subjects (a top-level law's, `Law.Subjects`), or its type or machine |

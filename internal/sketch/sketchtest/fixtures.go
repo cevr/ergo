@@ -49,7 +49,6 @@ var GrammarFixtures = []GrammarFixture{
 	{"Implements", "type Mem { rows Map[int, Row] } implements domain.Store, Closer\n\ntype Pair[T] = Left[T]{V T} | Right[T]{V T} implements Sized\n\ntype Port int where it > 0 implements Text\n\ntype Conn {\n\t..Closer,\n\tNumber() int,\n}\n"},
 	{"LetDecl", "let Names = []string{\"ada\"}\n\nfunc f(order Order) int64 {\n\tlet x = 1\n\tlet mut y int64 = 2\n\tlet q, r = DivMod(7, 2)\n\tlet (n, d) = DivMod(9, 4)\n\tlet Order{Total: t} = order\n\ty += x + q + r + n + d + t\n\ty\n}\n"},
 	{"ExpressionList", "func f() {\n\tuse(1, 2, 3)\n\twith A, B { run() }\n}\n"},
-	{"ProvidesClause", "let App = context provides Accounts | Ledger needs Clock {\n\tAccounts: Memory{},\n\tLedger:   Memory{},\n}\n"},
 	{"ContextBody", "let Live = context {\n\tBase,\n\treplace Clock: Fixed{},\n\tLedger, Audit: Recorder{},\n}\n"},
 	{"ContextEntry", "func f() {\n\tlet w = context { Clock: Fixed{} }\n\tuse(w)\n}\n"},
 	{"Block", "func f() {\n\tg()\n\th()\n}\n"},
@@ -79,7 +78,7 @@ var GrammarFixtures = []GrammarFixture{
 	{"MatchExpr", "func status(code int64) string {\n\tmatch code {\n\tcase 200, 204:\n\t\t\"ok\"\n\tcase -1:\n\t\t\"unknown\"\n\tcase _:\n\t\t\"error\"\n\t}\n}\n"},
 	{"CaseClause", "func step(s State, e Event) State {\n\tmatch (s, e) {\n\tcase (Closed{Failures: n}, Failure{err}):\n\t\tOpen{err}\n\tcase (_, Retry):\n\t\ts\n\tcase _:\n\t\ts\n\t}\n}\n"},
 	{"WithExpr", "func main() needs Console {\n\twith Live { run() }\n\tlet r = with Live, Test { run() } catch {\n\tcase E:\n\t\t0\n\t}\n\tuse(r)\n}\n"},
-	{"ContextLit", "func f() {\n\twith context provides Clock needs Console { Clock: Fixed{} } { run() }\n}\n"},
+	{"ContextLit", "func f() {\n\twith context needs Console { Clock: Fixed{} } { run() }\n}\n"},
 	{"Pattern", "func f(p Payment) string {\n\tmatch p {\n\tcase Declined{Reason: Fraud{Rule: r} as f}:\n\t\tr\n\tcase Authorized as a:\n\t\ta.ID\n\tcase _:\n\t\t\"\"\n\t}\n}\n"},
 	{"PatternCore", "func f(x Value) string {\n\tmatch x {\n\tcase Pending:\n\t\t\"p\"\n\tcase result.Ok[int64]{v}:\n\t\t\"ok\"\n\tcase (Box{1}):\n\t\t\"one\"\n\tcase other:\n\t\t\"other\"\n\t}\n}\n"},
 	{"AltPattern", "func f(s Step, e Signal) Step {\n\tmatch (s, e) {\n\tcase (Plan | Supplies, Cancel):\n\t\tDone\n\tcase (Done, _), (_, Next | Cancel):\n\t\ts\n\t}\n}\n"},
@@ -160,7 +159,6 @@ var MalformedTable = []Malformed{
 	{Name: "interpolation-multi-line-comment", Src: "let s = \"x \\(a /* c\nd */)\"\n", Lines: []int{1}},
 	{Name: "func-type-value", Src: "let x = func(int) int\n", Lines: []int{1}},
 	{Name: "func-type-argument", Src: "func main() {\n\trun(func() int)\n}\n", Lines: []int{2}},
-	{Name: "escaping-func-type-value", Src: "let x = escaping func()\n", Lines: []int{1}},
 	{Name: "slice-type-value", Src: "let x = []int\n", Lines: []int{1}},
 	{Name: "slice-type-argument", Src: "func main() {\n\trun([]int)\n}\n", Lines: []int{2}},
 	{Name: "slice-type-conversion", Src: "let x = []byte(s)\n", Lines: []int{1}},
@@ -229,7 +227,7 @@ var MalformedTable = []Malformed{
 	{Name: "end-of-statement", Src: "func f() {\n\tlet x = 1 2\n}\n", Lines: []int{2}},
 	{Name: "unexpected-character", Src: "func f() {\n\tlet x = 1 # 2\n}\n", Lines: []int{2}},
 	{Name: "empty-type-parameters", Src: "func f[]() {}\n", Lines: []int{1}},
-	{Name: "context-needs-before-provides", Src: "let App = context needs Config provides Account {\n\tStore: M{},\n}\n", Lines: []int{1}},
+	{Name: "context-old-provides-after-needs", Src: "let App = context needs Config provides Account {\n\tStore: M{},\n}\n", Lines: []int{1}},
 	{Name: "deep-nesting", Generate: func() string {
 		return "let x = " + strings.Repeat("(", 200000) + "1" + strings.Repeat(")", 200000) + "\n"
 	}, Lines: []int{1}},

@@ -369,7 +369,7 @@ func (c *checker) rewriteHarnessed(test *Test, h *Harness) {
 		field(at, "Source", &syntax.CallExpr{Fun: &syntax.Ident{NamePos: at, Name: TestSourceName}, Lparen: at, Args: []syntax.Expr{fileCall(at)}, Rparen: at}),
 	}, Rbrace: at}
 	lit := &syntax.FuncLit{
-		Type: &syntax.FuncType{Escaping: syntax.NoPos, Func: at, Params: &syntax.FieldList{Opening: at, Closing: at},
+		Type: &syntax.FuncType{Func: at, Params: &syntax.FieldList{Opening: at, Closing: at},
 			Results: &syntax.FieldList{Opening: syntax.NoPos, List: []*syntax.Field{
 				{Type: &syntax.ErrorRow{Error: at, Types: []syntax.Expr{qual(at, h.Fail.Obj.Name)}}, WherePos: syntax.NoPos},
 			}, Closing: syntax.NoPos},

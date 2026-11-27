@@ -693,7 +693,7 @@ func parseFieldDecl(p mut parser, doc uint32) uint32 {
 }
 
 func groupsName(k uint8) bool {
-	k == Comma || k == Ident || k == LBrack || k == Mul || k == Func || k == Escaping || k == LParen || k == Go
+	k == Comma || k == Ident || k == LBrack || k == Mul || k == Func || k == LParen || k == Go
 }
 
 // parseMembersType parses the braced body of `type T { … }`: a record of
@@ -1205,14 +1205,13 @@ func parseLetDecl(p mut parser, doc uint32, top bool) uint32 {
 			}
 			// The literal's parts move to the declaration, and its row goes.
 			let ctxTok = int(p.t.tok[int(w)])
-			let prov = fixed(p.t, w, 4, 0)
 			let fl = fixed(p.t, w, 4, 1)
 			let nds = fixed(p.t, w, 4, 2)
 			let body = fixed(p.t, w, 4, 3)
 			dropLast(&p.t)
 			let name = p.t.stack[pm]
 			cutStack(&p.t, pm)
-			return mkContextDecl(&p.t, pm, doc, letTok, ctxTok, name, prov, fl, nds, body)
+			return mkContextDecl(&p.t, pm, doc, letTok, ctxTok, name, fl, nds, body)
 		}
 		value = some(parseExpr(p))
 	}

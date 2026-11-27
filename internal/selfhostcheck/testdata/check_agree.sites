@@ -892,7 +892,6 @@ case internal/sketch/check/testdata/fixtures/negative/constraint-unsatisfied.erg
 case internal/sketch/check/testdata/fixtures/negative/context-constructor-is-37.ergo
 case internal/sketch/check/testdata/fixtures/negative/context-cycle.ergo
 case internal/sketch/check/testdata/fixtures/negative/context-entry-non-capability.ergo
-case internal/sketch/check/testdata/fixtures/negative/context-exposure-hides-entry.ergo
 case internal/sketch/check/testdata/fixtures/negative/context-literal-outside-with.ergo
 case internal/sketch/check/testdata/fixtures/negative/duplicate-context-entry.ergo
 case internal/sketch/check/testdata/fixtures/negative/duplicate-function.ergo
@@ -1532,7 +1531,6 @@ site S108 missing in internal/sketch/check/testdata/v1/L8-captures.neg.ergo: L8-
 site S108 missing in internal/sketch/check/testdata/v1/L8-captures.neg.ergo: L8-captures.neg.ergo 34:15: S108 xs[0] and xs[0] are borrows of one place; a call takes no two overlapping borrows: pass one, or two places apart (types.md, Borrows 2)
 site S108 missing in internal/sketch/check/testdata/v1/L8-captures.neg.ergo: L8-captures.neg.ergo 35:15: S108 xs[i] and xs[j] may be borrows of one place, since i may equal j; guard the call with if i != j, with each index a constant or a let (types.md, Borrows 2)
 site S109 missing in internal/sketch/check/testdata/fixtures/negative/context-constructor-is-37.ergo: context-constructor-is-37.ergo 8:9: S109 a constructor entry waits for context construction; write a provider value, not a function
-site S109 missing in internal/sketch/check/testdata/fixtures/negative/context-exposure-hides-entry.ergo: context-exposure-hides-entry.ergo 7:19: S109 a context's provides clause waits for context header checking (rows.md Context 8); it is not checked yet
 site S109 missing in internal/sketch/check/testdata/v1/E7-interpolation.neg.ergo: E7-interpolation.neg.ergo 15:10: S109 a value of type Card has no text form yet; interpolate one of its fields, or wait for derived text forms
 site S109 missing in internal/sketch/check/testdata/v1/G9-extern-allowlist.neg.ergo: G9-extern-allowlist.neg.ergo 9:1: S109 extern go os/signal.Stop is not imported from Go: parameter 1: Ergo has no channels (196c); wrap the Go channel in a Go function of your module, or use std queue (the binding of os/signal refuses it)
 site S110 extra in internal/sketch/check/testdata/fixtures/negative/catch-alternatives-placeholder.ergo: catch-alternatives-placeholder.ergo 15:7: S110 the binding a is read nowhere in its arm; write _ in its place (rows.md, Totality 1)

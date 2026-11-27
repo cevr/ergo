@@ -345,10 +345,6 @@ func parseOperand(p mut parser) uint32 {
 		}
 		return t
 	}
-	if k == Escaping {
-		errorf(p, notAValue)
-		return noNode
-	}
 	if k == If {
 		return parseIf(p)
 	}
@@ -446,7 +442,7 @@ func parseIndexOrSlice(p mut parser, x uint32) uint32 {
 // instantiation: a type is taken only when a `,` or `]` follows it.
 func parseIndexValue(p mut parser) uint32 {
 	let k = p.tk
-	let typeStart = k == Mul || k == LBrack || k == Func || k == Escaping || k == LParen || (isWord(p, "Map") && peek(p, 1) == LBrack)
+	let typeStart = k == Mul || k == LBrack || k == Func || k == LParen || (isWord(p, "Map") && peek(p, 1) == LBrack)
 	if !typeStart {
 		return parseExpr(p)
 	}

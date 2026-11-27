@@ -24,8 +24,6 @@ let KContextEntry = uint8(14)
 let KField = uint8(15)
 let KFieldList = uint8(16)
 let KNeedsClause = uint8(17)
-let KTakesClause = uint8(18)
-let KProvidesClause = uint8(19)
 let KMachineEntry = uint8(20)
 let KCatchArm = uint8(21)
 let KCaseClause = uint8(22)
@@ -238,5 +236,5 @@ func item(t Tree, i uint32, j int) uint32 { t.extra[int(t.a[int(i)])+j] }
 
 // recorded reports a kind whose a and b are a record in extra.
 func recorded(k uint8) bool {
-	k == KFile || k == KVarDecl || k == KVarSpec || k == KTypeDecl || k == KFuncDecl || k == KContextDecl || k == KTestDecl || k == KLawDecl || k == KLawReach || k == KContextBody || k == KContextEntry || k == KField || k == KFieldList || k == KNeedsClause || k == KTakesClause || k == KProvidesClause || k == KFactClause || k == KCatchArm || k == KCaseClause || k == KVariantSpec || k == KCompositeLit || k == KIndexExpr || k == KSliceExpr || k == KCallExpr || k == KCatchExpr || k == KContextLit || k == KMapType || k == KFuncType || k == KInterfaceType || k == KErrorRow || k == KMachineType || k == KTupleExpr || k == KOrPattern || k == KInterpolatedString || k == KBlockStmt || k == KIfStmt || k == KSwitchStmt || k == KTypeSwitchStmt || k == KRangeStmt
+	k == KFile || k == KVarDecl || k == KVarSpec || k == KTypeDecl || k == KFuncDecl || k == KContextDecl || k == KTestDecl || k == KLawDecl || k == KLawReach || k == KContextBody || k == KContextEntry || k == KField || k == KFieldList || k == KNeedsClause || k == KFactClause || k == KCatchArm || k == KCaseClause || k == KVariantSpec || k == KCompositeLit || k == KIndexExpr || k == KSliceExpr || k == KCallExpr || k == KCatchExpr || k == KContextLit || k == KMapType || k == KFuncType || k == KInterfaceType || k == KErrorRow || k == KMachineType || k == KTupleExpr || k == KOrPattern || k == KInterpolatedString || k == KBlockStmt || k == KIfStmt || k == KSwitchStmt || k == KTypeSwitchStmt || k == KRangeStmt
 }

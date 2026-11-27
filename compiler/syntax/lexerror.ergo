@@ -162,11 +162,8 @@ test ForHeaderUnterminatedStringAfterPatterns {
 	assert lexOutcome("func A(){for i, x \"", true) == "S001 18 string literal not terminated"
 }
 
-// `escaping func(` reads only as a type: with no repair, the fallback
-// expression reading reports "a type is not a value" at the `escaping`.
-
 test IndexTypeReadingReachesTheError {
-	assert lexOutcome("func A(){let y = f[escaping func(\"", true) == "S001 33 string literal not terminated"
+	assert lexOutcome("func A(){let y = f[func(\"", true) == "S001 24 string literal not terminated"
 }
 
 // keysContinue reads a context body's key list.

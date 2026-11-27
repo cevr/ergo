@@ -3,7 +3,7 @@ package syntax
 // The AST follows go/ast: types are expressions, every node has Pos and End,
 // and comments live in File.Comments in source order with a Doc group on the
 // nodes that carry documentation. Ergo's constructs have dedicated nodes
-// (ErrorRow, NeedsClause, ProvidesClause, TryExpr, CatchExpr,
+// (ErrorRow, NeedsClause, TryExpr, CatchExpr,
 // TypeSwitchStmt, MachineType, ContextDecl, ContextLit,
 // CallExpr.Trailing). The parser resolves no names: with(…) and
 // timeout.After(…) are ordinary calls.
@@ -217,24 +217,21 @@ type FuncDecl struct {
 	Derived *TypeDecl
 }
 
-// ContextDecl is `context Name [provides A | B] [fails E | F] [needs C | D] { entries }`.
-// Provides lists the capabilities the context exposes; the entries it builds
-// and does not list stay private to its build. Fails is the failure row of
-// its build, a signature's error row (CTX-ROWS-1b). Needs lists the
-// capabilities its providers require from the with site. Any clause may be
-// nil.
+// ContextDecl is `context Name [fails E | F] [needs C | D] { entries }`; it
+// exposes every entry it binds. Fails is the failure row of its build, a
+// signature's error row (CTX-ROWS-1b). Needs lists the capabilities its
+// providers require from the with site. Either clause may be nil.
 //
-// The decided spelling is `let Name = context [provides …] [fails …] [needs …] { … }` at
+// The decided spelling is `let Name = context [fails …] [needs …] { … }` at
 // package level; Let is the position of `let`.
 type ContextDecl struct {
-	Doc      *CommentGroup
-	Let      Pos
-	Context  Pos
-	Name     *Ident
-	Provides *ProvidesClause
-	Fails    *ErrorRow
-	Needs    *NeedsClause
-	Body     *ContextBody
+	Doc     *CommentGroup
+	Let     Pos
+	Context Pos
+	Name    *Ident
+	Fails   *ErrorRow
+	Needs   *NeedsClause
+	Body    *ContextBody
 }
 
 func (d *ImportDecl) Pos() Pos { return d.Import }
@@ -482,13 +479,10 @@ func (u *NeedsClause) Pos() Pos { return u.Needs }
 func (u *NeedsClause) End() Pos { return u.Names[len(u.Names)-1].End() }
 
 // WritesTakes reports whether the signature t writes which parameters it
-// takes: a takes clause, or the mode word own on a parameter that is not
-// written as a function type (own on a function type keeps the function,
-// as escaping does, and takes nothing; q168).
+// takes: the mode word own on a parameter that is not written as a
+// function type (own on a function type keeps the function and takes
+// nothing; q168).
 func WritesTakes(t *FuncType) bool {
-	if t.Takes != nil {
-		return true
-	}
 	if t.Params != nil {
 		for _, f := range t.Params.List {
 			if _, fn := unparenType(f.Type).(*FuncType); f.Own != nil && !fn {
@@ -509,34 +503,6 @@ func unparenType(x Expr) Expr {
 		x = p.X
 	}
 }
-
-// TakesClause is `takes a, b` after a signature's rows (resource ownership, resources.md
-// R19): the parameters the call hands off. Names is empty for a bare
-// `takes` in an operation type, which names the value the operation is
-// called on. The names are binders' references, not expressions: Inspect
-// does not visit them.
-type TakesClause struct {
-	Takes Pos
-	Names []*Ident
-}
-
-func (u *TakesClause) Pos() Pos { return u.Takes }
-func (u *TakesClause) End() Pos {
-	if len(u.Names) == 0 {
-		return u.Takes + Pos(len("takes"))
-	}
-	return u.Names[len(u.Names)-1].End()
-}
-
-// ProvidesClause is a context's exposure: `provides A | B`, the same kind of
-// row as a needs clause (196n).
-type ProvidesClause struct {
-	Provides Pos
-	Names    []Expr
-}
-
-func (u *ProvidesClause) Pos() Pos { return u.Provides }
-func (u *ProvidesClause) End() Pos { return u.Names[len(u.Names)-1].End() }
 
 // FactKind distinguishes signature fact clauses.
 type FactKind int
@@ -707,14 +673,13 @@ type (
 		Rbrace Pos
 	}
 
-	// ContextLit is a context literal `context [provides …] [fails …] [needs …] { … }`;
+	// ContextLit is a context literal `context [fails …] [needs …] { … }`;
 	// any clause may be nil.
 	ContextLit struct {
-		Context  Pos
-		Provides *ProvidesClause
-		Fails    *ErrorRow
-		Needs    *NeedsClause
-		Body     *ContextBody
+		Context Pos
+		Fails   *ErrorRow
+		Needs   *NeedsClause
+		Body    *ContextBody
 	}
 
 	// ArrayType is the slice type `[]T`, or the fixed array type `[N]T`
@@ -744,10 +709,8 @@ type (
 
 	// FuncType is a signature. Func is NoPos in a declaration or method.
 	// Results is nil without results; otherwise it holds the result type
-	// and, after it, the failures as one Field of type *ErrorRow. Escaping
-	// is the position of `escaping`, or NoPos.
+	// and, after it, the failures as one Field of type *ErrorRow.
 	FuncType struct {
-		Escaping Pos
 		// Entry marks `entry func(…)`, the type of an entry's send
 		// (grammar.md, Types; runtime.md, Machines and actors 14), written
 		// at EntryPos. EntryPos means nothing without Entry, so a FuncType
@@ -763,7 +726,6 @@ type (
 		Params     *FieldList
 		Results    *FieldList
 		Needs      *NeedsClause
-		Takes      *TakesClause
 		// Defects marks a function signature written with `defects`
 		// (NO-UNREACHABLE §3), at DefectsPos. DefectsPos means nothing
 		// without Defects, so a zero-value FuncType has no clause.
@@ -947,8 +909,6 @@ func (x *MapType) End() Pos {
 }
 func (x *FuncType) Pos() Pos {
 	switch {
-	case x.Escaping.IsValid():
-		return x.Escaping
 	case x.Entry:
 		return x.EntryPos
 	case x.Func.IsValid():
@@ -964,8 +924,6 @@ func (x *FuncType) End() Pos {
 		return x.Facts[len(x.Facts)-1].End()
 	case x.Defects:
 		return x.DefectsPos + Pos(len("defects"))
-	case x.Takes != nil:
-		return x.Takes.End()
 	case x.Needs != nil:
 		return x.Needs.End()
 	case x.Results != nil:

@@ -2052,7 +2052,6 @@ func declFromForPos(lawSpans []lawSpan, pos int, defFrom uint32) uint32 {
 let siteHowDefault = uint8(0)
 let siteHowNeeds = uint8(1)
 let siteHowFails = uint8(2)
-let siteHowProvides = uint8(3)
 let siteHowHandles = uint8(4)
 let siteHowBinds = uint8(5)
 
@@ -2103,11 +2102,6 @@ func buildSiteHow(t syntax.Tree) []uint8 {
 			let er = syntax.ErrorRowOf(t, n)
 			for j in 0..syntax.Len(er.Types) {
 				markHowExpr(t, syntax.Item(t, er.Types, j), siteHowFails, &siteHow)
-			}
-		} else if k == syntax.KProvidesClause {
-			let pc = syntax.ProvidesClauseOf(t, n)
-			for j in 0..syntax.Len(pc.Names) {
-				markHowExpr(t, syntax.Item(t, pc.Names, j), siteHowProvides, &siteHow)
 			}
 		} else if k == syntax.KCatchArm {
 			let ca = syntax.CatchArmOf(t, n)
@@ -2251,8 +2245,6 @@ func processDeclEdges(
 					"needs"
 				} else if sw == siteHowFails {
 					"fails"
-				} else if sw == siteHowProvides {
-					"provides"
 				} else if sw == siteHowHandles {
 					"handles"
 				} else if sw == siteHowBinds {
@@ -2263,7 +2255,7 @@ func processDeclEdges(
 					"read"
 				}
 				emitUse(b, effFrom, to, how, posAt(fi, fileNode, pos))
-				if sw == siteHowProvides || sw == siteHowBinds {
+				if sw == siteHowBinds {
 					addGraphEdge(b, codegraph.EdgeRow{
 						Kind: "provides", How: "", From: int(effFrom), To: int(to), File: -1, Offset: 0, Line: 0, Column: 0,
 					}, nodePosRec{file: NoID, off: 0, line: 0, col: 0})

@@ -89,7 +89,7 @@ func (g *progGen) typ() {
 		g.typ()
 		g.w("]")
 	case 7:
-		g.w(g.pick("escaping func()", "entry func(int)", "go.Foreign", "pkg.T", "Row[A | B]"))
+		g.w(g.pick("func()", "entry func(int)", "go.Foreign", "pkg.T", "Row[A | B]"))
 	case 8:
 		g.w("(")
 		g.typ()

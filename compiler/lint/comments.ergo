@@ -654,9 +654,9 @@ func CheckNarrationComment(p syntax.Parsed, fi FileIndex, rel string, out mut []
 let allErgoKeywords = Map[string, bool]{
 	"break":  true, "case": true, "continue": true, "else": true, "for": true, "func": true,
 	"if":     true, "import": true, "return": true, "type": true, "try": true, "catch": true,
-	"needs":  true, "provides": true, "context": true, "machine": true, "let": true, "mut": true,
-	"in":     true, "match": true, "escaping": true, "fails": true, "test": true, "law": true,
-	"assert": true, "extern": true, "with": true, "takes": true, "as": true,
+	"needs":  true, "context": true, "machine": true, "let": true, "mut": true,
+	"in":     true, "match": true, "fails": true, "test": true, "law": true,
+	"assert": true, "extern": true, "with": true, "as": true,
 	"chan":   true, "const": true, "default": true, "defer": true, "fallthrough": true,
 	"go":     true, "goto": true, "interface": true, "map": true, "package": true,
 	"range":  true, "select": true, "struct": true, "switch": true, "var": true,

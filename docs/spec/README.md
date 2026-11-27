@@ -37,7 +37,7 @@ This directory is the normative specification of the Go-shaped Ergo language: Ef
 8. [interop.md](interop.md): Go imports, generated bindings and Level 2 adapters.
 9. [rpc.md](rpc.md): std `rpc`, Effect RPC's HTTP wire, `ergo gen rpc` and `ergo gen cli`.
 10. [facts.md](facts.md): value-tied facts (`given`, `gives`, `keeps`), record invariants, evidence labels and their lowering.
-11. [patterns.md](patterns.md): derived types (`type T derive E`), type plans, plan functions and typed byte patterns.
+11. [patterns.md](patterns.md): derived types (`type T derive E`) over content-mapper plans, plan functions, provider plans and typed byte patterns.
 12. [inserted.md](inserted.md): every operation the compiler inserts, the written form it stands for, and the rules it must carry (G9).
 13. [code.md](code.md): the fact tables, std `code`'s `Reader` and `ergo code` (SEMTOOLS).
 14. [content-mappers.md](content-mappers.md): userland content mappers, unified file imports and inline `derive`, source maps and `lawcache`.
@@ -79,7 +79,7 @@ The [support table](support.md) lists the exact support of the build, one family
 | Inline `context { … }` | Checked; runs | [rows](rows.md#context) |
 | Context embedding, `replace`, one provider for several capabilities | Checked (Gap 34); runs. A `with` or an embedding of an imported context: checked and lowered (196b U4; `TestRunImportedContext`) | [rows](rows.md#context) |
 | Context constructors | Designed, not yet implemented; S109 naming context construction | [rows](rows.md#context) |
-| Context header `provides A needs B` | Parsed and formatted; a named context's needs is checked (Gap 6); provides is S109 naming context header checking (Gap 33) | [rows](rows.md#context) |
+| Context header `fails E needs B` | A named context's fails and needs are checked (Gaps 6, 33); an inline or local header is S109; `provides` is gone (S001, RSI-SURFACE-DIET) | [rows](rows.md#context) |
 | `with W { block }` | Checked; runs | [rows](rows.md#with) |
 | `with` context values (G1) | Checked; runs for string values; typed payloads are designed | [runtime](runtime.md#g1-context-through-with) |
 | `timeout.After(d) { block }` | Checked as an ordinary library function of the package `timeout` (Gap 31); `ergo build` lowers its call to its `runtime/v1` body, `v1.After` | [runtime](runtime.md#timeouts) |
@@ -114,67 +114,68 @@ The size of the language, counted from the parser and this specification by `scr
 
 | Measure | Count | Members |
 | --- | --- | --- |
-| Keywords | 29 | `break`, `case`, `continue`, `else`, `for`, `func`, `if`, `import`, `return`, `type`, `try`, `catch`, `needs`, `provides`, `context`, `machine`, `let`, `mut`, `in`, `match`, `escaping`, `fails`, `test`, `law`, `assert`, `extern`, `with`, `takes`, `as` |
+| Keywords | 26 | `break`, `case`, `continue`, `else`, `for`, `func`, `if`, `import`, `return`, `type`, `try`, `catch`, `needs`, `context`, `machine`, `let`, `mut`, `in`, `match`, `fails`, `test`, `law`, `assert`, `extern`, `with`, `as` |
 | Reserved Go keywords | 15 | `chan`, `const`, `default`, `defer`, `fallthrough`, `go`, `goto`, `interface`, `map`, `package`, `range`, `select`, `struct`, `switch`, `var` |
-| Contextual words (the parser reads them by spelling) | 19 | `after`, `always`, `derive`, `entry`, `exit`, `implements`, `initial`, `never`, `own`, `path`, `pure`, `reaches`, `replace`, `skip`, `sometimes`, `step`, `when`, `where`, `work` |
+| Contextual words (the parser reads them by spelling) | 23 | `after`, `always`, `derive`, `die`, `entry`, `escaping`, `exit`, `implements`, `initial`, `never`, `own`, `path`, `provides`, `pure`, `reaches`, `replace`, `skip`, `sometimes`, `step`, `takes`, `when`, `where`, `work` |
 | Planned words (specified, not built) | 3 | `given`, `gives`, `keeps` |
-| Productions (grammar.md) | 87 |  |
-| Signature clause kinds | 4 | `fails`, `needs`, `provides`, `takes` |
-| Diagnostic rule bullets (diagnostics.md) | 77 |  |
-| Spec words (docs/spec) | 324947 |  |
+| Productions (grammar.md) | 89 |  |
+| Signature clause kinds | 4 | `fact`, `fails`, `given`, `needs` |
+| Diagnostic rule bullets (diagnostics.md) | 79 |  |
+| Spec words (docs/spec) | 349503 |  |
 
-Uses count tokens, so neither a comment nor a string, in the 1574 `.ergo` files under `examples/`, `internal/sketch/std/` and `modules/` (testdata left out; 0 that do not parse are not counted). A contextual word the syntax tree keeps as a name counts under Names, not as a use. A built form under 10 uses at two counts in a row is for the owner: delete or teach.
+Uses count tokens, so neither a comment nor a string, in the 2075 `.ergo` files under `examples/`, `internal/sketch/std/` and `modules/` (testdata left out; 0 that do not parse are not counted). A contextual word the syntax tree keeps as a name counts under Names, not as a use. A built form under 10 uses at two counts in a row is for the owner: delete or teach.
 
 | Form | Kind | Uses | Names | Previous | Note |
 | --- | --- | --- | --- | --- | --- |
-| `break` | keyword | 174 |  | 174 |  |
-| `case` | keyword | 21941 |  | 21357 |  |
-| `continue` | keyword | 575 |  | 578 |  |
-| `else` | keyword | 3564 |  | 3484 |  |
-| `for` | keyword | 6312 |  | 6218 |  |
-| `func` | keyword | 19077 |  | 18817 |  |
-| `if` | keyword | 12448 |  | 12192 |  |
-| `import` | keyword | 4402 |  | 4351 |  |
-| `return` | keyword | 10856 |  | 10592 |  |
-| `type` | keyword | 5570 |  | 5426 |  |
-| `try` | keyword | 4410 |  | 4276 |  |
-| `catch` | keyword | 3659 |  | 3557 |  |
-| `needs` | keyword | 5970 |  | 5964 |  |
-| `provides` | keyword | 0 |  | 0 | for the owner: delete or teach |
-| `context` | keyword | 717 |  | 714 |  |
-| `machine` | keyword | 106 |  | 106 |  |
-| `let` | keyword | 28489 |  | 28063 |  |
-| `mut` | keyword | 8400 |  | 8291 |  |
-| `in` | keyword | 5578 |  | 5486 |  |
-| `match` | keyword | 5177 |  | 4982 |  |
-| `escaping` | keyword | 0 |  | 0 | for the owner: delete or teach |
-| `fails` | keyword | 4605 |  | 4523 |  |
-| `test` | keyword | 613 |  | 607 |  |
-| `law` | keyword | 2151 |  | 2131 |  |
-| `assert` | keyword | 1716 |  | 1700 |  |
-| `extern` | keyword | 9729 |  | 9729 |  |
-| `with` | keyword | 708 |  | 705 |  |
-| `takes` | keyword | 0 |  | 0 | for the owner: delete or teach |
-| `as` | keyword | 8639 |  | 8432 |  |
-| `after` | word | 21 | 474 | 21 |  |
-| `always` | word | 8 | 9 | 8 | for the owner: delete or teach |
-| `derive` | word | 2 | 0 | 2 | for the owner: delete or teach |
-| `entry` | word | 18 | 218 | 18 |  |
-| `exit` | word | 2 | 51 | 2 | for the owner: delete or teach |
-| `implements` | word | 381 | 0 | 376 |  |
-| `initial` | word | 106 | 23 | 106 |  |
-| `never` | word | 1 | 4 | 1 | for the owner: delete or teach |
-| `own` | word | 1457 | 52 | 1460 |  |
-| `path` | word | 14 | 1905 | 14 |  |
-| `pure` | word | 3 | 6 | 3 | for the owner: delete or teach |
-| `reaches` | word | 7 | 19 | 7 | for the owner: delete or teach |
-| `replace` | word | 2 | 4 | 2 | for the owner: delete or teach |
-| `skip` | word | 0 | 70 | 0 | for the owner: delete or teach |
-| `sometimes` | word | 7 | 0 | 7 | for the owner: delete or teach |
-| `step` | word | 106 | 218 | 106 |  |
-| `when` | word | 0 | 17 | 0 | for the owner: delete or teach |
-| `where` | word | 96 | 49 | 96 |  |
-| `work` | word | 20 | 2037 | 20 |  |
+| `break` | keyword | 313 |  | 313 |  |
+| `case` | keyword | 47647 |  | 47647 |  |
+| `continue` | keyword | 979 |  | 979 |  |
+| `else` | keyword | 5845 |  | 5845 |  |
+| `for` | keyword | 9358 |  | 9358 |  |
+| `func` | keyword | 29456 |  | 29456 |  |
+| `if` | keyword | 21374 |  | 21374 |  |
+| `import` | keyword | 8377 |  | 8377 |  |
+| `return` | keyword | 26432 |  | 26432 |  |
+| `type` | keyword | 8485 |  | 8485 |  |
+| `try` | keyword | 14224 |  | 14224 |  |
+| `catch` | keyword | 7757 |  | 7757 |  |
+| `needs` | keyword | 7888 |  | 7888 |  |
+| `context` | keyword | 1294 |  | 1294 |  |
+| `machine` | keyword | 178 |  | 178 |  |
+| `let` | keyword | 54730 |  | 54730 |  |
+| `mut` | keyword | 12888 |  | 12888 |  |
+| `in` | keyword | 8087 |  | 8087 |  |
+| `match` | keyword | 9686 |  | 9686 |  |
+| `fails` | keyword | 9182 |  | 9182 |  |
+| `test` | keyword | 759 |  | 759 |  |
+| `law` | keyword | 3255 |  | 3255 |  |
+| `assert` | keyword | 2869 |  | 2869 |  |
+| `extern` | keyword | 10006 |  | 10006 |  |
+| `with` | keyword | 1324 |  | 1324 |  |
+| `as` | keyword | 20102 |  | 20102 |  |
+| `after` | word | 21 | 580 | 21 |  |
+| `always` | word | 381 | 9 | 381 |  |
+| `derive` | word | 4 | 0 | 4 | for the owner: delete or teach |
+| `die` | word | 20 | 0 | 20 |  |
+| `entry` | word | 44 | 553 | 44 |  |
+| `escaping` | word | 0 | 0 | 0 | for the owner: delete or teach |
+| `exit` | word | 2 | 63 | 2 | for the owner: delete or teach |
+| `implements` | word | 657 | 0 | 657 |  |
+| `initial` | word | 178 | 95 | 178 |  |
+| `never` | word | 1 | 6 | 1 | for the owner: delete or teach |
+| `own` | word | 1679 | 67 | 1679 |  |
+| `path` | word | 14 | 2741 | 14 |  |
+| `provides` | word | 0 | 0 |  |  |
+| `pure` | word | 8 | 6 | 8 | for the owner: delete or teach |
+| `reaches` | word | 7 | 25 | 7 | for the owner: delete or teach |
+| `replace` | word | 4 | 7 | 4 | for the owner: delete or teach |
+| `skip` | word | 0 | 72 | 0 | for the owner: delete or teach |
+| `sometimes` | word | 338 | 0 | 338 |  |
+| `step` | word | 178 | 581 | 178 |  |
+| `takes` | word | 0 | 0 | 0 | for the owner: delete or teach |
+| `when` | word | 0 | 19 | 0 | for the owner: delete or teach |
+| `where` | word | 133 | 63 | 133 |  |
+| `work` | word | 20 | 3738 | 20 |  |
 | `given` | planned | 0 |  | 0 | specified, not built |
 | `gives` | planned | 0 |  | 0 | specified, not built |
 | `keeps` | planned | 0 |  | 0 | specified, not built |
@@ -229,7 +230,7 @@ The prototype's behaviour and the sketches leave the points below unstated or in
 30. **Channels of resources.** v0 makes a channel whose element type is a resource an error ([resources.md](resources.md#channels)). *Recommendation for a later version:* a send moves the value; the channel's buffer owns values in flight; releasing a channel releases its buffered values; a failed or interrupted send leaves ownership with the sender. *Prior art:* Rust `mpsc` moves values into the channel and drops buffered values with the receiver; Go channels copy and leave cleanup to the programmer.
 31. **`timeout.After` as a name-keyed prototype exception.** The prototype recognises `timeout.After` by its imported name: the parser gives it a trailing block, and the checker charges `Scheduler`, adds `timeout.Expired` and makes its block a failure target. That is the special-cased-library pattern the owner rejected. *Recommendation:* `timeout.After` is an ordinary library function over kernel primitives ([runtime.md](runtime.md#timeouts)): a trailing block is a function-literal argument ([grammar.md](grammar.md#expressions)), and a row-generic signature gives the same rows. *Status:* the checker checks `timeout.After` as an ordinary bodiless declaration of the package `timeout` in `internal/sketch/std`; the prototype's special casing stays inside the build path only, until direct-Go lowering.
 32. **Resource map keys.** v0 makes a map whose key type is a resource an error (R40 in [resources.md](resources.md#containers); S112, designed), because a key has no release owner under R34 to R37. *Recommendation for a later version:* a map with a resource key type is itself a resource and owns its keys; inserting moves the key in; a delete-and-return moves the key and value out together; replacing the value for an existing key releases the old value and keeps the old key, releasing the new key argument; releasing the map releases every key and value. *Prior art:* Rust's `HashMap` owns its keys and drops them with the map, and `HashMap::insert` on an existing key keeps the old key.
-33. **A context header clause: exposure or requirements.** The corpus (`sketch-eval-8/five/layers`, both `context-effects` files) wrote `context App uses Account, Invoice { … }`, where the clause meant the capabilities the context exposes ("Store stays hidden"), while `uses` on a signature meant requirements ([rows-and-constraints.md](../research/rows-and-constraints.md) §7 item 9). *Resolved 2026-10-27*: two keywords, one meaning each. `provides A | B` lists what a named context exposes, and the entries it does not list stay private to its build; `needs C | D` lists what its providers require from the `with` site, joined into that site's row, as Effect's `Layer<ROut, E, RIn>` keeps provided and required services apart. A header may state both, `provides` first: `context App provides Account | Invoice needs Config { … }` ([grammar.md](grammar.md#extensions-beyond-the-written-productions), [rows.md](rows.md#context) rule 8). The corpus copy now says `provides`. The parser of the parser and formatter admits both clauses, and the checker refuses them with S109 naming the second stage of the v1 language, which checks them.
+33. **A context header clause: exposure or requirements.** The corpus (`sketch-eval-8/five/layers`, both `context-effects` files) wrote `context App uses Account, Invoice { … }`, where the clause meant the capabilities the context exposes ("Store stays hidden"), while `uses` on a signature meant requirements ([rows-and-constraints.md](../research/rows-and-constraints.md) §7 item 9). *Resolved 2026-10-27*: two keywords, one meaning each. `provides A | B` lists what a named context exposes, and the entries it does not list stay private to its build; `needs C | D` lists what its providers require from the `with` site, joined into that site's row, as Effect's `Layer<ROut, E, RIn>` keeps provided and required services apart. *Retired 2026-11-27* (RSI-SURFACE-DIET, owner q225): a context exposes every entry it binds, so `provides` is gone (S001), and the corpus copies drop it; `needs` stays ([rows.md](rows.md#context) rule 8).
 34. **One provider for several capabilities: `Clock, Scheduler = testing.VirtualClock{}`.** The corpus binds one value to several capability rows in one context entry. The parser of the parser and formatter admits several keys before `=`, as Go's `var a, b = …` admits several names ([grammar.md](grammar.md#extensions-beyond-the-written-productions)), and the bridge refuses it with S109. Its meaning (one value shared by several rows, or one value per row) is the checker's to define. *Status:* the checker reads it as one shared value that must implement each listed capability. *Prior art:* Effect's `Layer.mergeAll` builds one layer that provides several services.
 
 Gaps 35 to 47 come from the [actor library spike](../research/actor-library.md) (A1 to A13 there). The `actor` package is library code only if these general rules exist. Each also serves tasks in containers and channels, queues, `tasks.Set`, RPC replies and batch waiters.

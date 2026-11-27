@@ -59,7 +59,7 @@ func OpenOrders() Orders fails ConnectFailed needs Config | Clock | Scheduler {
 	return try OpenPostgres()
 }
 
-let Live = context provides Orders {
+let Live = context {
 	Config: EnvConfig{},
 	Orders: OpenOrders, // effectful: runs during the build
 }

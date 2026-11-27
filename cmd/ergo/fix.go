@@ -658,11 +658,6 @@ func respell(roots []string, stdRoot string, write, goLits, asJSON bool) (stdWri
 		return false, err
 	}
 	fmt.Fprint(out, lets.Text())
-	modes, err := fix.RunModes(fix.Options{Paths: roots, Write: write, Go: goLits})
-	if err != nil {
-		return false, err
-	}
-	fmt.Fprint(out, modes.Text())
 	muts, err := fix.RunMut(fix.Options{Paths: roots, Write: write, Go: goLits})
 	if err != nil {
 		return false, err
@@ -675,7 +670,7 @@ func respell(roots []string, stdRoot string, write, goLits, asJSON bool) (stdWri
 	if err != nil {
 		return false, nil
 	}
-	for _, files := range []map[string]string{lets.Files, modes.Files, muts.Files} {
+	for _, files := range []map[string]string{lets.Files, muts.Files} {
 		for file := range files {
 			if abs, err := filepath.Abs(file); err == nil && strings.HasPrefix(abs, std+string(filepath.Separator)) {
 				return true, nil

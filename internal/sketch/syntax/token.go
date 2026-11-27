@@ -110,21 +110,21 @@ const (
 	TRY
 	CATCH
 	NEEDS
-	PROVIDES
+	_ // provides, retired (RSI-SURFACE-DIET)
 	CONTEXT
 	MACHINE
 	LET
 	MUT
 	IN
 	MATCH
-	ESCAPING
+	_ // escaping, retired (q168)
 	FAILS
 	TEST
 	LAW
 	ASSERT
 	EXTERN
 	WITH
-	TAKES
+	_ // takes, retired (q168)
 	AS
 	keywordEnd
 
@@ -182,10 +182,10 @@ var tokens = [...]string{
 
 	BREAK: "break", CASE: "case", CONTINUE: "continue", ELSE: "else", FOR: "for",
 	FUNC: "func", IF: "if", IMPORT: "import", RETURN: "return", TYPE: "type",
-	TRY: "try", CATCH: "catch", NEEDS: "needs", PROVIDES: "provides", CONTEXT: "context",
+	TRY: "try", CATCH: "catch", NEEDS: "needs", CONTEXT: "context",
 	MACHINE: "machine", LET: "let", MUT: "mut", IN: "in", MATCH: "match",
-	ESCAPING: "escaping", FAILS: "fails", TEST: "test", LAW: "law", ASSERT: "assert",
-	EXTERN: "extern", WITH: "with", TAKES: "takes", AS: "as",
+	FAILS: "fails", TEST: "test", LAW: "law", ASSERT: "assert",
+	EXTERN: "extern", WITH: "with", AS: "as",
 
 	CHAN: "chan", CONST: "const", DEFAULT: "default", DEFER: "defer", FALLTHROUGH: "fallthrough",
 	GO: "go", GOTO: "goto", INTERFACE: "interface", MAP: "map", PACKAGE: "package",
@@ -203,7 +203,7 @@ func (t Token) String() string {
 	return "token(?)"
 }
 
-// IsKeyword reports whether t is one of the language's keywords: the 28 of
+// IsKeyword reports whether t is one of the language's keywords: the 25 of
 // the decided grammar and `as`.
 func (t Token) IsKeyword() bool { return keywordBeg < t && t < keywordEnd }
 
@@ -218,7 +218,9 @@ func (t Token) IsLiteral() bool { return IDENT <= t && t <= RUNE }
 var keywords = sync.OnceValue(func() map[string]Token {
 	m := map[string]Token{}
 	for t := keywordBeg + 1; t < keywordEnd; t++ {
-		m[tokens[t]] = t
+		if tokens[t] != "" {
+			m[tokens[t]] = t
+		}
 	}
 	for t := reservedBeg + 1; t < reservedEnd; t++ {
 		m[tokens[t]] = t
@@ -233,12 +235,14 @@ func IsKeyword(name string) bool {
 	return ok
 }
 
-// Keywords lists the keywords in token order: the 28 of the decided
+// Keywords lists the keywords in token order: the 25 of the decided
 // grammar, then `as`.
 func Keywords() []string {
 	var out []string
 	for t := keywordBeg + 1; t < keywordEnd; t++ {
-		out = append(out, tokens[t])
+		if tokens[t] != "" {
+			out = append(out, tokens[t])
+		}
 	}
 	return out
 }

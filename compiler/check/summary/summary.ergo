@@ -4,7 +4,7 @@ import slices
 import strings
 
 // FormatVersion identifies the canonical binary summary wire format.
-let FormatVersion = uint32(1)
+let FormatVersion = uint32(2)
 
 // NoIdx is the unsigned 32-bit sentinel representing an absent index or ID.
 let NoIdx = uint32(4294967295)
@@ -324,7 +324,6 @@ type CheckSection {
 	ConstTokStarts []uint32,
 	ConstTokEnds   []uint32,
 	CtxNames       []uint32,
-	CtxProvides    []uint32,
 	CtxFailStarts  []uint32,
 	CtxNeedStarts  []uint32,
 	CtxFailTypes   []uint32,
@@ -686,7 +685,6 @@ func EmptyCheckSection() CheckSection {
 		ConstTokStarts:      []uint32{},
 		ConstTokEnds:        []uint32{},
 		CtxNames:            []uint32{},
-		CtxProvides:         []uint32{},
 		CtxFailStarts:       []uint32{uint32(0)},
 		CtxNeedStarts:       []uint32{uint32(0)},
 		CtxFailTypes:        []uint32{},

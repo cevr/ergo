@@ -174,7 +174,7 @@ func TestFactWordsStayIdentifiersEverywhereElse(t *testing.T) {
 		"func ret() $ { ${} }\n",
 		"func retFail() $ fails E { ${} }\n",
 		"func retNeed() $ needs C { ${} }\n",
-		"func retTake(a $ ) $ takes a { a }\n",
+		"func retTake(a own $ ) $ { a }\n",
 		"func retDef() $ defects { ${} }\n",
 		"func retImpl() $ implements Contract { ${} }\n",
 		"func retClause() $ @CLAUSE true { ${} }\n",

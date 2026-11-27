@@ -364,71 +364,12 @@ func (c *checker) zeroHoldsResource(t Type) bool {
 }
 
 // resourceSite is a place A1's late pass decides once every Close is known:
-// a written map key type or a parameter a written takes clause names.
+// a written map key type or a parameter written own.
 type resourceSite struct {
 	file *fileInfo
 	at   syntax.Node
 	t    Type
 	name string // the taken parameter; "" for a map key
-}
-
-// takesClause resolves a written takes clause against sig's parameters.
-// method is true in an operation type, where a bare takes names the value
-// the operation is called on.
-func (c *checker) takesClause(u *syntax.TakesClause, sig *Signature, method bool, hostRecv string) {
-	if c.takesSeen == nil {
-		c.takesSeen = map[*syntax.TakesClause]bool{}
-	}
-	first := !c.takesSeen[u]
-	c.takesSeen[u] = true
-	if first {
-		// The clause is retired (q168): its facts still hold so that one
-		// diagnostic says it, and ergo fix rewrites it.
-		c.errorf(u, CodeType, "takes is gone: write own before the type of each parameter the callee keeps, as in r own Res, and before an operation that keeps its receiver, as in own Close(); ergo fix rewrites it")
-	}
-	sites := first
-	first = false // the clause's own errors are the one above
-	if len(u.Names) == 0 {
-		if method {
-			sig.TakesSelf = true
-		}
-		return
-	}
-	seen := map[string]bool{}
-	for _, id := range u.Names {
-		if hostRecv != "" && id.Name == hostRecv {
-			if seen[id.Name] && first {
-				c.errorf(made(c, id, syntax.Node(u)), CodeType, "takes names %s twice", id.Name)
-			}
-			seen[id.Name] = true
-			sig.TakesSelf = true
-			continue
-		}
-		at := -1
-		for i, p := range sig.Params {
-			if p.Name == id.Name && id.Name != "_" {
-				at = i
-				break
-			}
-		}
-		switch {
-		case at < 0:
-			if first {
-				c.errorf(made(c, id, syntax.Node(u)), CodeType, "takes %s names no parameter", id.Name)
-			}
-			continue
-		case seen[id.Name]:
-			if first {
-				c.errorf(made(c, id, syntax.Node(u)), CodeType, "takes names %s twice", id.Name)
-			}
-			continue
-		}
-		seen[id.Name] = true
-		sig.Takes = append(sig.Takes, at)
-		if sites {
-			c.resourceSites = append(c.resourceSites, resourceSite{file: c.cur, at: made(c, id, syntax.Node(u)), t: sig.Params[at].Type, name: id.Name})
-		}
-	}
 }
 
 // ownParams reads the mode word own on a parameter field whose n

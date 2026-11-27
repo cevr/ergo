@@ -1562,8 +1562,7 @@
     "TestTablesAgreeWithScanOnExamples": 9.26
   },
   "ergo.local/prototype/internal/sketch/fix": {
-    "TestFixMigratesModel": 0.51,
-    "TestOwnSpellsTheOldModes": 0.39
+    "TestFixMigratesModel": 0.51
   },
   "ergo.local/prototype/internal/sketch/lawcache": {
     "TestEntriesPublishWhole": 0,

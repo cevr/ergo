@@ -575,11 +575,6 @@ func (fi *fileIndex) visit(n syntax.Node, flags uint8, loop syntax.Stmt, inBody 
 		if x.Name != nil {
 			fi.idents = append(fi.idents, x.Name)
 		}
-		if x.Provides != nil {
-			for _, e := range x.Provides.Names {
-				fi.visit(e, flags, nil, false, bodies)
-			}
-		}
 		if x.Fails != nil {
 			for _, e := range x.Fails.Types {
 				fi.visit(e, flags, nil, false, bodies)
@@ -598,11 +593,6 @@ func (fi *fileIndex) visit(n syntax.Node, flags uint8, loop syntax.Stmt, inBody 
 	case *syntax.ContextLit:
 		if x == nil {
 			return
-		}
-		if x.Provides != nil {
-			for _, e := range x.Provides.Names {
-				fi.visit(e, flags, loop, inBody, bodies)
-			}
 		}
 		if x.Fails != nil {
 			for _, e := range x.Fails.Types {
@@ -743,13 +733,6 @@ func (fi *fileIndex) visit(n syntax.Node, flags uint8, loop syntax.Stmt, inBody 
 			fi.visit(e, flags, loop, inBody, bodies)
 		}
 	case *syntax.NeedsClause:
-		if x == nil {
-			return
-		}
-		for _, e := range x.Names {
-			fi.visit(e, flags, loop, inBody, bodies)
-		}
-	case *syntax.ProvidesClause:
 		if x == nil {
 			return
 		}

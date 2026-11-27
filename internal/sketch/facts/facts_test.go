@@ -794,10 +794,6 @@ func parentKind(info *check.Info, parent map[syntax.Node]syntax.Node, e syntax.N
 		if in(p.Types) {
 			return facts.Fails
 		}
-	case *syntax.ProvidesClause:
-		if in(p.Names) {
-			return facts.Provides
-		}
 	case *syntax.CatchArm:
 		if in(p.Types) {
 			return facts.Handles

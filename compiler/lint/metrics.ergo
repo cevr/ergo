@@ -391,9 +391,6 @@ func popCount64(x uint64) int {
 
 func pushHalsteadChildren(p syntax.Parsed, id dense.ID[syntax.Node], k uint8, sc mut MetricsScratch) {
 	let t = p.Tree
-	if k == syntax.KTakesClause {
-		return
-	}
 	if k == syntax.KMapType {
 		let m = syntax.MapTypeOf(t, id)
 		match dense.Unpack(m.Hashing) {

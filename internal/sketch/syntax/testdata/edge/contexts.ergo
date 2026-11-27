@@ -1,11 +1,11 @@
-let Base = context provides Accounts needs Clock {
+let Base = context needs Clock {
 	Accounts: MemoryAccounts{},
 }
 
 // A header's failure row stands where a signature's does, before needs
 // (CTX-ROWS-1b).
-// expect: "let Opened = context provides Accounts fails Missing | Closed needs Clock {"
-let Opened = context provides Accounts fails Missing | Closed needs Clock {
+// expect: "let Opened = context fails Missing | Closed needs Clock {"
+let Opened = context fails Missing | Closed needs Clock {
 	Accounts: MemoryAccounts{},
 }
 

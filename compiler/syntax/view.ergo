@@ -53,7 +53,7 @@ type View =
 		ImplementsPos int,
 		Implements    dense.Opt[Node],
 	}
-	| ContextDecl{Doc int, Let int, Context int, Name dense.ID[Node], Provides dense.Opt[Node], Fails dense.Opt[Node], Needs dense.Opt[Node], Body dense.ID[Node]}
+	| ContextDecl{Doc int, Let int, Context int, Name dense.ID[Node], Fails dense.Opt[Node], Needs dense.Opt[Node], Body dense.ID[Node]}
 	| TestDecl{Doc int, Test int, Name dense.ID[Node], Params dense.Opt[Node], Body dense.Opt[Node]}
 	| LawDecl{
 		Doc        int,
@@ -89,8 +89,6 @@ type View =
 	}
 	| FieldList{Opening int, List List, Closing int}
 	| NeedsClause{Needs int, Names List}
-	| TakesClause{Takes int, Names List}
-	| ProvidesClause{Provides int, Names List}
 	| FactClause{Kind int, Word int, Cond dense.ID[Node], WhenPos int, When dense.Opt[Node]}
 	| MachineEntry{Doc int, Name int, Value dense.ID[Node]}
 	| CatchArm{Case int, Types List, Colon int, Body List}
@@ -111,18 +109,16 @@ type View =
 	| BinaryExpr{X dense.ID[Node], Op int, Y dense.ID[Node]}
 	| TryExpr{Try int, X dense.ID[Node]}
 	| CatchExpr{X dense.ID[Node], Catch int, Arms List, Rbrace int}
-	| ContextLit{Context int, Provides dense.Opt[Node], Fails dense.Opt[Node], Needs dense.Opt[Node], Body dense.ID[Node]}
+	| ContextLit{Context int, Fails dense.Opt[Node], Needs dense.Opt[Node], Body dense.ID[Node]}
 	| ArrayType{Lbrack int, Len int, Elt dense.ID[Node]}
 	| MapType{X dense.ID[Node], Lbrack int, Key dense.ID[Node], Value dense.ID[Node], Hashing dense.Opt[Node], Rbrack int}
 	| FuncType{
-		Escaping   int,
 		Entry      int,
 		Func       int,
 		TypeParams dense.Opt[Node],
 		Params     dense.ID[Node],
 		Results    dense.Opt[Node],
 		Needs      dense.Opt[Node],
-		Takes      dense.Opt[Node],
 		Defects    int,
 		Facts      List,
 	}
@@ -352,12 +348,6 @@ func ViewOf(t Tree, id dense.ID[Node]) View {
 	if k == KNeedsClause {
 		return NeedsClauseOf(t, id)
 	}
-	if k == KTakesClause {
-		return TakesClauseOf(t, id)
-	}
-	if k == KProvidesClause {
-		return ProvidesClauseOf(t, id)
-	}
 	if k == KFactClause {
 		return FactClauseOf(t, id)
 	}
@@ -434,7 +424,7 @@ func Put(t mut Tree, v View) dense.ID[Node] {
 	case FuncDecl as x:
 		mkFuncDecl(t, m, wtok(x.Doc), wopt(x.Extern), x.Func, wopt(x.Recv), wid(x.Name), wopt(x.TypeParams), wid(x.Type), wopt(x.Body), wtok(x.ImplementsPos), wopt(x.Implements))
 	case ContextDecl as x:
-		mkContextDecl(t, m, wtok(x.Doc), x.Let, x.Context, wid(x.Name), wopt(x.Provides), wopt(x.Fails), wopt(x.Needs), wid(x.Body))
+		mkContextDecl(t, m, wtok(x.Doc), x.Let, x.Context, wid(x.Name), wopt(x.Fails), wopt(x.Needs), wid(x.Body))
 	case TestDecl as x:
 		mkTestDecl(t, m, wtok(x.Doc), x.Test, wid(x.Name), wopt(x.Params), wopt(x.Body))
 	case LawDecl as x:
@@ -459,12 +449,6 @@ func Put(t mut Tree, v View) dense.ID[Node] {
 	case NeedsClause as x:
 		pushList(t, x.Names)
 		rec(t, KNeedsClause, uint32(x.Needs), m)
-	case TakesClause as x:
-		pushList(t, x.Names)
-		rec(t, KTakesClause, uint32(x.Takes), m)
-	case ProvidesClause as x:
-		pushList(t, x.Names)
-		rec(t, KProvidesClause, uint32(x.Provides), m)
 	case FactClause as x:
 		mkFactClause(t, m, x.Kind, x.Word, wid(x.Cond), wtok(x.WhenPos), wopt(x.When))
 	case MachineEntry as x:
@@ -514,7 +498,7 @@ func Put(t mut Tree, v View) dense.ID[Node] {
 		pushList(t, x.Arms)
 		mkCatch(t, m, wid(x.X), x.Catch, x.Rbrace)
 	case ContextLit as x:
-		mkContextLit(t, m, x.Context, wopt(x.Provides), wopt(x.Fails), wopt(x.Needs), wid(x.Body))
+		mkContextLit(t, m, x.Context, wopt(x.Fails), wopt(x.Needs), wid(x.Body))
 	case ArrayType as x:
 		row(t, KArrayType, uint32(x.Lbrack), wid(x.Elt), wtok(x.Len))
 	case MapType as x:
@@ -527,7 +511,7 @@ func Put(t mut Tree, v View) dense.ID[Node] {
 		mkIndex(t, m, KMapType, wid(x.X), x.Lbrack, x.Rbrack)
 	case FuncType as x:
 		pushList(t, x.Facts)
-		mkFuncType(t, m, wtok(x.Escaping), wtok(x.Entry), wtok(x.Func), wid(x.Params), wopt(x.Results), wopt(x.Needs), wopt(x.Takes), wtok(x.Defects), wopt(x.TypeParams))
+		mkFuncType(t, m, wtok(x.Entry), wtok(x.Func), wid(x.Params), wopt(x.Results), wopt(x.Needs), wtok(x.Defects), wopt(x.TypeParams))
 	case StructType as x:
 		row(t, KStructType, uint32(0), wid(x.Fields), uint32(0))
 	case InterfaceType as x:
@@ -640,11 +624,11 @@ func mkFuncDecl(t mut Tree, m int, doc uint32, ext uint32, fn int, recv uint32, 
 	rec(t, KFuncDecl, uint32(fn), m)
 }
 
-func mkContextDecl(t mut Tree, m int, doc uint32, letTok int, contextW int, name uint32, providesW uint32, failsW uint32, needsW uint32, body uint32) uint32 {
+func mkContextDecl(t mut Tree, m int, doc uint32, letTok int, contextW int, name uint32, failsW uint32, needsW uint32, body uint32) uint32 {
 	pushW(t, doc)
 	pushW(t, uint32(contextW))
 	pushW(t, name)
-	pushW(t, providesW)
+	pushW(t, none)
 	pushW(t, failsW)
 	pushW(t, needsW)
 	pushW(t, body)
@@ -770,22 +754,22 @@ func mkCatch(t mut Tree, m int, x uint32, catchW int, rbrace int) uint32 {
 	rec(t, KCatchExpr, uint32(catchW), m)
 }
 
-func mkContextLit(t mut Tree, m int, contextW int, providesW uint32, failsW uint32, needsW uint32, body uint32) uint32 {
-	pushW(t, providesW)
+func mkContextLit(t mut Tree, m int, contextW int, failsW uint32, needsW uint32, body uint32) uint32 {
+	pushW(t, none)
 	pushW(t, failsW)
 	pushW(t, needsW)
 	pushW(t, body)
 	rec(t, KContextLit, uint32(contextW), m)
 }
 
-func mkFuncType(t mut Tree, m int, escapingW uint32, entryW uint32, fn uint32, params uint32, results uint32, needsW uint32, takesW uint32, defectsW uint32, tpsW uint32) uint32 {
-	pushW(t, escapingW)
+func mkFuncType(t mut Tree, m int, entryW uint32, fn uint32, params uint32, results uint32, needsW uint32, defectsW uint32, tpsW uint32) uint32 {
+	pushW(t, none)
 	pushW(t, entryW)
 	pushW(t, fn)
 	pushW(t, params)
 	pushW(t, results)
 	pushW(t, needsW)
-	pushW(t, takesW)
+	pushW(t, none)
 	pushW(t, defectsW)
 	pushW(t, tpsW)
 	rec(t, KFuncType, uint32(0), m)

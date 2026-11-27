@@ -99,7 +99,7 @@ func Inspect(n Node, f func(Node) bool) {
 			}
 		}
 	case *ContextDecl:
-		walk(n.Name, n.Provides, n.Fails, n.Needs, n.Body)
+		walk(n.Name, n.Fails, n.Needs, n.Body)
 	case *ContextBody:
 		for _, e := range n.Entries {
 			Inspect(e, f)
@@ -113,11 +113,7 @@ func Inspect(n Node, f func(Node) bool) {
 		walk(n.Type, n.Key, n.Where)
 	case *FieldList:
 		fields(n)
-	case *TakesClause:
-		// The names refer to the signature's parameters: not visited.
 	case *NeedsClause:
-		exprs(n.Names)
-	case *ProvidesClause:
 		exprs(n.Names)
 	case *FactClause:
 		walk(n.Cond, n.When)
@@ -160,7 +156,7 @@ func Inspect(n Node, f func(Node) bool) {
 		exprs(n.Types)
 		stmts(n.Body)
 	case *ContextLit:
-		walk(n.Provides, n.Fails, n.Needs, n.Body)
+		walk(n.Fails, n.Needs, n.Body)
 	case *ArrayType:
 		walk(n.Elt)
 	case *MapType:
@@ -169,7 +165,7 @@ func Inspect(n Node, f func(Node) bool) {
 			walk(n.Hashing)
 		}
 	case *FuncType:
-		walk(n.TypeParams, n.Params, n.Results, n.Needs, n.Takes)
+		walk(n.TypeParams, n.Params, n.Results, n.Needs)
 		for _, fc := range n.Facts {
 			walk(fc)
 		}
@@ -250,11 +246,7 @@ func isNilNode(n Node) bool {
 		return n == nil
 	case *FieldList:
 		return n == nil
-	case *TakesClause:
-		return n == nil
 	case *NeedsClause:
-		return n == nil
-	case *ProvidesClause:
 		return n == nil
 	case *FactClause:
 		return n == nil
