@@ -81,7 +81,59 @@ func arithKind(opcode uint32) int fails Refused {
 	if opcode == ir.HOXor {
 		return AXor
 	}
+	if opcode == handoff.HODiv {
+		return ADiv
+	}
+	if opcode == handoff.HORem {
+		return ARem
+	}
+	if opcode == handoff.HOBitAnd {
+		return AAnd
+	}
+	if opcode == handoff.HOBitOr {
+		return AOr
+	}
+	if opcode == handoff.HOBitAndNot {
+		return AAndNot
+	}
+	if opcode == handoff.HOShl {
+		return AShl
+	}
+	if opcode == handoff.HOShr {
+		return AShr
+	}
 	return Refused{Why: "unsupported arithmetic opcode \(opcode)"}
+}
+
+func arithOpcode(kind int) uint32 {
+	if kind == AAdd { return ir.HOAdd }
+	if kind == ASub { return ir.HOSub }
+	if kind == AMul { return ir.HOMul }
+	if kind == AXor { return ir.HOXor }
+	if kind == ADiv { return handoff.HODiv }
+	if kind == ARem { return handoff.HORem }
+	if kind == AAnd { return handoff.HOBitAnd }
+	if kind == AOr { return handoff.HOBitOr }
+	if kind == AAndNot { return handoff.HOBitAndNot }
+	if kind == AShl { return handoff.HOShl }
+	handoff.HOShr
+}
+
+func basicKindFromHandoff(aux uint32) int fails Refused {
+	if aux == handoff.HBasicBool { return KBool }
+	if aux == ir.HBasicInt { return KInt }
+	if aux == handoff.HBasicInt8 { return KInt8 }
+	if aux == handoff.HBasicInt16 { return KInt16 }
+	if aux == handoff.HBasicInt32 { return KInt32 }
+	if aux == handoff.HBasicInt64 { return KInt64 }
+	if aux == handoff.HBasicUint { return KUint }
+	if aux == handoff.HBasicUint8 { return KUint8 }
+	if aux == handoff.HBasicUint16 { return KUint16 }
+	if aux == handoff.HBasicUint32 { return KUint32 }
+	if aux == handoff.HBasicUint64 { return KUint64 }
+	if aux == handoff.HBasicUintptr { return KUintptr }
+	if aux == handoff.HBasicString { return KString }
+	Refused{Why: "unsupported handoff scalar type \(aux)"}
 }
 
 func branchCond(cond uint32) int fails Malformed {
@@ -100,22 +152,47 @@ func branchCond(cond uint32) int fails Malformed {
 	return Malformed{Why: "unknown branch condition \(cond)"}
 }
 
-func translateTypes(img handoff.Image) []TypeDef fails Refused | Malformed {
+func fieldShortName(s string) string {
+	let mut dot = -1
+	for i in 0..s.Len() {
+		if int(s[i]) == 46 {
+			dot = i
+		}
+	}
+	if dot >= 0 { s[dot+1 : s.Len()] } else { s }
+}
+
+func translateTypes(img handoff.Image, imports []Import) ([]TypeDef, Map[int, int]) fails Refused | Malformed {
 	let n = handoff.Rows(img, ir.HTypes)
 	let mut out = slices.WithCapacity[TypeDef](n)
+	let mut fieldToIdx = Map[int, int]{}
 	for i in 0..n {
 		let k = try hword(img, ir.HTypes, i, 0)
 		let aux = try hword(img, ir.HTypes, i, 1)
 		let lo = int(try hword(img, ir.HTypes, i, 2))
 		let cnt = int(try hword(img, ir.HTypes, i, 3))
 		if k == ir.HTBasic {
-			if aux != ir.HBasicInt {
-				return Refused{Why: "unsupported handoff scalar type \(aux) at row \(i)"}
-			}
-			out = out.Append(TypeDef{Kind: KInt, Elem: 0, Params: []int{}, Results: []int{}})
+			out = out.Append(BasicType(try basicKindFromHandoff(aux)))
 		} else if k == ir.HTPointer {
 			let elem = int(try hword(img, ir.HOperands, lo, 0)) - 1
-			out = out.Append(TypeDef{Kind: KPtr, Elem: elem, Params: []int{}, Results: []int{}})
+			out = out.Append(PtrType(elem))
+		} else if k == ir.HTSlice {
+			let elem = int(try hword(img, ir.HOperands, lo, 0)) - 1
+			out = out.Append(SliceType(elem))
+		} else if k == ir.HTRecord {
+			let mut fields = slices.WithCapacity[FieldDef](cnt)
+			for j in 0..cnt {
+				let fsym = int(try hword(img, ir.HOperands, lo+j, 0))
+				let fIdx = fsym - 1
+				let rawName = try hname(img, try hword(img, ir.HSymbols, fIdx, 1))
+				let short = fieldShortName(rawName)
+				let fty = int(try hword(img, ir.HSymbols, fIdx, 3)) - 1
+				fieldToIdx[fsym] = j
+				fields = fields.Append(FieldDef{Name: short, Type: fty, Exported: Exported(short)})
+			}
+			out = out.Append(StructType("", "", false, fields))
+		} else if k == ir.HTNamed {
+			out = out.Append(StructType("", "", false, []FieldDef{}))
 		} else if k == ir.HTSignature {
 			let nParam = int(aux)
 			let mut ps = slices.WithCapacity[int](nParam)
@@ -126,20 +203,62 @@ func translateTypes(img handoff.Image) []TypeDef fails Refused | Malformed {
 			for j in nParam..cnt {
 				rs = rs.Append(int(try hword(img, ir.HOperands, lo+j, 0)) - 1)
 			}
-			out = out.Append(TypeDef{Kind: KFunc, Elem: 0, Params: ps, Results: rs})
+			out = out.Append(FuncType(ps, rs))
 		} else {
 			return Refused{Why: "unsupported handoff type kind \(k) at row \(i)"}
 		}
 	}
-	out
+	for i in 0..n {
+		let k = try hword(img, ir.HTypes, i, 0)
+		if k != ir.HTNamed {
+			continue
+		}
+		let symIdx = int(try hword(img, ir.HTypes, i, 1)) - 1
+		let lo = int(try hword(img, ir.HTypes, i, 2))
+		let under = int(try hword(img, ir.HOperands, lo, 0)) - 1
+		if out[under].Kind != KStruct {
+			return Refused{Why: "unsupported named non-record type at row \(i)"}
+		}
+		let imp = int(try hword(img, ir.HSymbols, symIdx, 0))
+		let name = try hname(img, try hword(img, ir.HSymbols, symIdx, 1))
+		let pkgPath = if imp > 0 { imports[imp-1].Path } else { "" }
+		out[i] = StructType(name, pkgPath, Exported(name), out[under].Fields)
+	}
+	(out, fieldToIdx)
 }
 
-func translateBody(img handoff.Image, types []TypeDef, symToGlobal []int, symCallTarget []string, bi int, si int, fnName string, sig TypeDef) Func fails Refused | Malformed {
+func fieldIndexOf(fieldToIdx Map[int, int], fsym int, fnName string) int fails Malformed {
+	match fieldToIdx.Get(fsym) {
+	case option.Some as fi:
+		fi.Value
+	case option.None:
+		return Malformed{Why: "\(fnName): unknown field symbol \(fsym)"}
+	}
+}
+
+func hasPtrTypes(types []TypeDef, t int) bool {
+	let td = types[t]
+	if td.Kind == KPtr || td.Kind == KFunc || td.Kind == KString || td.Kind == KSlice {
+		return true
+	}
+	if td.Kind == KStruct {
+		for fd in td.Fields {
+			if hasPtrTypes(types, fd.Type) {
+				return true
+			}
+		}
+	}
+	false
+}
+
+func translateBody(img handoff.Image, types []TypeDef, fieldToIdx Map[int, int], symToGlobal []int, symCallTarget []string, bi int, si int, fnName string, sig TypeDef) Func fails Refused | Malformed {
 	let bodySym = try hword(img, ir.HBodies, bi, 0)
 	if bodySym != uint32(si+1) {
 		return Malformed{Why: "body \(bi) belongs to symbol \(bodySym), expected \(si + 1)"}
 	}
-	let declPos = try hpos(img, try hword(img, ir.HSymbols, si, 4))
+	let declSpan = try hword(img, ir.HSymbols, si, 4)
+	let declPos = try hpos(img, declSpan)
+	let declFile = int(try hword(img, ir.HSpans, int(declSpan)-1, 0)) - 1
 	let firstSlot = int(try hword(img, ir.HBodies, bi, 1))
 	let nSlots = int(try hword(img, ir.HBodies, bi, 2))
 	let firstOp = int(try hword(img, ir.HBodies, bi, 3))
@@ -181,21 +300,41 @@ func translateBody(img handoff.Image, types []TypeDef, symToGlobal []int, symCal
 		}
 		if opcode == ir.HOConst {
 			let dst = int(try hword(img, ir.HOperands, lo, 0)) - 1
-			if types[slots[dst]].Kind != KInt {
-				return Refused{Why: "\(fnName): non-int constant into slot \(dst)"}
-			}
 			let wlo = try hword(img, ir.HOperands, lo+1, 0)
 			let whi = try hword(img, ir.HOperands, lo+2, 0)
-			ops = ops.Append(Const{Dst: dst, V: decodeConst(wlo, whi)})
+			let dk = types[slots[dst]].Kind
+			if dk == KString {
+				let s = if wlo == uint32(0) { "" } else { try hname(img, wlo) }
+				ops = ops.Append(ConstStr{Dst: dst, V: s})
+			} else if dk == KBool || KindIsInt(dk) {
+				ops = ops.Append(Const{Dst: dst, V: decodeConst(wlo, whi)})
+			} else if wlo == uint32(0) && whi == uint32(0) {
+				ops = ops.Append(Zero{Dst: dst})
+			} else {
+				return Refused{Why: "\(fnName): unsupported constant into slot \(dst)"}
+			}
 			lines = lines.Append(line)
-		} else if opcode == ir.HOAdd || opcode == ir.HOSub || opcode == ir.HOMul || opcode == ir.HOXor {
+		} else if opcode == ir.HOAdd || opcode == ir.HOSub || opcode == ir.HOMul || opcode == ir.HOXor ||
+			opcode == handoff.HODiv || opcode == handoff.HORem || opcode == handoff.HOBitAnd ||
+			opcode == handoff.HOBitOr || opcode == handoff.HOBitAndNot || opcode == handoff.HOShl || opcode == handoff.HOShr {
 			let dst = int(try hword(img, ir.HOperands, lo, 0)) - 1
 			let lhs = int(try hword(img, ir.HOperands, lo+1, 0)) - 1
 			let rhs = int(try hword(img, ir.HOperands, lo+2, 0)) - 1
-			if types[slots[dst]].Kind != KInt {
-				return Refused{Why: "\(fnName): non-int arithmetic on slot \(dst)"}
+			let dk = types[slots[dst]].Kind
+			if !KindIsInt(dk) && !(opcode == ir.HOAdd && dk == KString) {
+				return Refused{Why: "\(fnName): unsupported arithmetic on slot \(dst)"}
 			}
 			ops = ops.Append(Arith{Dst: dst, Kind: try arithKind(opcode), A: lhs, B: rhs})
+			lines = lines.Append(line)
+		} else if opcode == ir.HOConvert {
+			let dst = int(try hword(img, ir.HOperands, lo, 0)) - 1
+			let src = int(try hword(img, ir.HOperands, lo+1, 0)) - 1
+			ops = ops.Append(Convert{Dst: dst, Src: src})
+			lines = lines.Append(line)
+		} else if opcode == handoff.HOLen {
+			let dst = int(try hword(img, ir.HOperands, lo, 0)) - 1
+			let src = int(try hword(img, ir.HOperands, lo+1, 0)) - 1
+			ops = ops.Append(Len{Dst: dst, Src: src})
 			lines = lines.Append(line)
 		} else if opcode == ir.HOLoad {
 			let dst = int(try hword(img, ir.HOperands, lo, 0)) - 1
@@ -211,8 +350,7 @@ func translateBody(img handoff.Image, types []TypeDef, symToGlobal []int, symCal
 			if types[slots[ptr]].Kind != KPtr || types[slots[ptr]].Elem != slots[val] {
 				return Malformed{Why: "\(fnName): store through slot \(ptr) does not match slot \(val)"}
 			}
-			let elemKind = types[types[slots[ptr]].Elem].Kind
-			if elemKind != KInt {
+			if hasPtrTypes(types, slots[val]) {
 				ops = ops.Append(StorePtr{Ptr: ptr, Val: val})
 			} else {
 				ops = ops.Append(Store{Ptr: ptr, Val: val})
@@ -225,6 +363,40 @@ func translateBody(img handoff.Image, types []TypeDef, symToGlobal []int, symCal
 				return Malformed{Why: "\(fnName): addr-of slot \(src) does not match pointer slot \(dst)"}
 			}
 			ops = ops.Append(AddrOf{Dst: dst, Of: src})
+			lines = lines.Append(line)
+		} else if opcode == handoff.HOFieldGet {
+			let dst = int(try hword(img, ir.HOperands, lo, 0)) - 1
+			let base = int(try hword(img, ir.HOperands, lo+1, 0)) - 1
+			let fsym = int(try hword(img, ir.HOperands, lo+2, 0))
+			ops = ops.Append(FieldGet{Dst: dst, Base: base, Field: try fieldIndexOf(fieldToIdx, fsym, fnName)})
+			lines = lines.Append(line)
+		} else if opcode == handoff.HOFieldSet {
+			let ptr = int(try hword(img, ir.HOperands, lo, 0)) - 1
+			let fsym = int(try hword(img, ir.HOperands, lo+1, 0))
+			let val = int(try hword(img, ir.HOperands, lo+2, 0)) - 1
+			ops = ops.Append(FieldSet{Ptr: ptr, Field: try fieldIndexOf(fieldToIdx, fsym, fnName), Val: val})
+			lines = lines.Append(line)
+		} else if opcode == handoff.HORecordLit {
+			let dst = int(try hword(img, ir.HOperands, lo, 0)) - 1
+			let mut vals = slices.WithCapacity[int](n - 1)
+			for k in 1..n {
+				vals = vals.Append(int(try hword(img, ir.HOperands, lo+k, 0)) - 1)
+			}
+			ops = ops.Append(RecordLit{Dst: dst, Vals: vals})
+			lines = lines.Append(line)
+		} else if opcode == handoff.HOIndex {
+			let dst = int(try hword(img, ir.HOperands, lo, 0)) - 1
+			let sl = int(try hword(img, ir.HOperands, lo+1, 0)) - 1
+			let ix = int(try hword(img, ir.HOperands, lo+2, 0)) - 1
+			ops = ops.Append(Index{Dst: dst, Slice: sl, Idx: ix})
+			lines = lines.Append(line)
+		} else if opcode == handoff.HOSliceLit {
+			let dst = int(try hword(img, ir.HOperands, lo, 0)) - 1
+			let mut elems = slices.WithCapacity[int](n - 1)
+			for k in 1..n {
+				elems = elems.Append(int(try hword(img, ir.HOperands, lo+k, 0)) - 1)
+			}
+			ops = ops.Append(SliceLit{Dst: dst, Elems: elems})
 			lines = lines.Append(line)
 		} else if opcode == ir.HOGetGlobal {
 			let dst = int(try hword(img, ir.HOperands, lo, 0)) - 1
@@ -284,8 +456,9 @@ func translateBody(img handoff.Image, types []TypeDef, symToGlobal []int, symCal
 			let cond = try branchCond(try hword(img, ir.HOperands, lo, 0))
 			let lhs = int(try hword(img, ir.HOperands, lo+1, 0)) - 1
 			let rhs = int(try hword(img, ir.HOperands, lo+2, 0)) - 1
-			if types[slots[lhs]].Kind != KInt {
-				return Refused{Why: "\(fnName): non-int branch on slot \(lhs)"}
+			let ak = types[slots[lhs]].Kind
+			if !KindIsInt(ak) && ak != KString && !((cond == CEq || cond == CNe) && (ak == KBool || ak == KPtr || ak == KFunc)) {
+				return Refused{Why: "\(fnName): unsupported branch on slot \(lhs)"}
 			}
 			let yesT = int(try hword(img, ir.HOperands, lo+3, 0)) - 1
 			let noT = int(try hword(img, ir.HOperands, lo+4, 0)) - 1
@@ -306,7 +479,7 @@ func translateBody(img handoff.Image, types []TypeDef, symToGlobal []int, symCal
 			return Refused{Why: "\(fnName): unsupported handoff opcode \(opcode)"}
 		}
 	}
-	Func{Name: fnName, Params: sig.Params, Results: sig.Results, Slots: slots, Ops: ops, Lines: lines, Line: declPos.Line, Col: int(declPos.Column)}
+	Func{Name: fnName, Params: sig.Params, Results: sig.Results, Slots: slots, Ops: ops, Lines: lines, Line: declPos.Line, Col: int(declPos.Column), File: declFile}
 }
 
 // FromHandoff decodes and admits a frozen EIR v1 binary wire image against
@@ -323,12 +496,15 @@ func FromHandoff(wire string, want handoff.Expect) Package fails handoff.Unknown
 		return Refused{Why: "generic specialization instances are not supported"}
 	}
 	let nFiles = handoff.Rows(img, ir.HFiles)
-	if nFiles != 1 {
-		return Refused{Why: "nativeobj requires exactly 1 source file, got \(nFiles)"}
+	if nFiles < 1 {
+		return Malformed{Why: "nativeobj requires at least 1 source file"}
 	}
 	let pkgPath = try hname(img, try hword(img, ir.HPackage, 0, 0))
 	let pkgName = try hname(img, try hword(img, ir.HPackage, 0, 1))
-	let fileName = try hname(img, try hword(img, ir.HFiles, 0, 0))
+	let mut files = slices.WithCapacity[string](nFiles)
+	for fi in 0..nFiles {
+		files = files.Append(try hname(img, try hword(img, ir.HFiles, fi, 0)))
+	}
 	let nImps = handoff.Rows(img, ir.HImports)
 	let mut imports = slices.WithCapacity[Import](nImps)
 	for i in 0..nImps {
@@ -338,7 +514,7 @@ func FromHandoff(wire string, want handoff.Expect) Package fails handoff.Unknown
 		let fp = u32PairBytes(try hword(img, ir.HImports, i, 3), try hword(img, ir.HImports, i, 4))
 		imports = imports.Append(Import{Path: impPath, Name: impName, Fingerprint: fp, HasInit: hasInit})
 	}
-	let types = try translateTypes(img)
+	let (types, fieldToIdx) = try translateTypes(img, imports)
 	let nSyms = handoff.Rows(img, ir.HSymbols)
 	let mut symToGlobal = slices.WithCapacity[int](nSyms)
 	let mut symToLocalFunc = slices.WithCapacity[int](nSyms)
@@ -357,7 +533,9 @@ func FromHandoff(wire string, want handoff.Expect) Package fails handoff.Unknown
 		let name = try hname(img, try hword(img, ir.HSymbols, si, 1))
 		let kind = try hword(img, ir.HSymbols, si, 2)
 		let ty = int(try hword(img, ir.HSymbols, si, 3)) - 1
-		if kind == ir.HSVar {
+		if kind == ir.HSType || kind == ir.HSField {
+			continue
+		} else if kind == ir.HSVar {
 			if imp != uint32(0) {
 				return Refused{Why: "foreign variable \(name) is not supported"}
 			}
@@ -395,7 +573,7 @@ func FromHandoff(wire string, want handoff.Expect) Package fails handoff.Unknown
 	}
 	let mut funcs = slices.WithCapacity[Func](localFuncSyms.Len())
 	for bi, si in localFuncSyms {
-		funcs = funcs.Append(try translateBody(img, types, symToGlobal, symCallTarget, bi, si, localFuncNames[bi], localFuncSigs[bi]))
+		funcs = funcs.Append(try translateBody(img, types, fieldToIdx, symToGlobal, symCallTarget, bi, si, localFuncNames[bi], localFuncSigs[bi]))
 	}
 	let nInits = handoff.Rows(img, ir.HInit)
 	let mut inits = slices.WithCapacity[int](nInits)
@@ -407,7 +585,7 @@ func FromHandoff(wire string, want handoff.Expect) Package fails handoff.Unknown
 		}
 		inits = inits.Append(fnIdx)
 	}
-	let pkg = Package{Path: pkgPath, Name: pkgName, File: fileName, Types: types, Imports: imports, Globals: globals, Funcs: funcs, Inits: inits}
+	let pkg = Package{Path: pkgPath, Name: pkgName, File: files[0], Files: files, Types: types, Imports: imports, Globals: globals, Funcs: funcs, Inits: inits}
 	try Check(pkg)
 	pkg
 }
@@ -422,15 +600,17 @@ func ArchiveFromHandoff(wire string, want handoff.Expect, header string) Built f
 }
 
 type symEntry {
-	imp      uint32,
-	name     string,
-	nameID   uint32,
-	kind     uint32,
-	typeID   uint32,
-	spanID   uint32,
-	localIdx int,
-	globalID int,
-	callKey  string,
+	imp       uint32,
+	name      string,
+	nameID    uint32,
+	kind      uint32,
+	typeID    uint32,
+	spanID    uint32,
+	localIdx  int,
+	globalID  int,
+	callKey   string,
+	structIdx int,
+	fieldIdx  int,
 }
 
 func sortUniqueStrings(xs []string) []string {
@@ -473,7 +653,7 @@ func findOrAddSig(types []TypeDef, ps []int, rs []int) ([]TypeDef, uint32) {
 			return (types, uint32(i + 1))
 		}
 	}
-	let next = types.Append(TypeDef{Kind: KFunc, Elem: 0, Params: ps, Results: rs})
+	let next = types.Append(FuncType(ps, rs))
 	(next, uint32(next.Len()))
 }
 
@@ -518,10 +698,36 @@ func sortSyms(es []symEntry) []symEntry {
 }
 
 func encodePackageDraft(p Package, profile string, foreign []ForeignFunc, wireNames []string) handoff.Draft fails handoff.Malformed {
-	let mut rawNames = []string{p.Path, p.Name, PinGOOS, PinGOARCH, PinGo, profile, p.File}
+	let rawFiles = PkgFiles(p)
+	let mut rawNames = []string{p.Path, p.Name, PinGOOS, PinGOARCH, PinGo, profile}
+	for rf in rawFiles {
+		rawNames = rawNames.Append(rf)
+	}
 	for imp in p.Imports {
 		rawNames = rawNames.Append(imp.Path)
 		rawNames = rawNames.Append(imp.Name)
+	}
+	for td in p.Types {
+		if td.Kind == KStruct {
+			if td.Name != "" {
+				rawNames = rawNames.Append(td.Name)
+			}
+			let prefix = if td.Name != "" { td.Name + "." } else { "anon." }
+			for fd in td.Fields {
+				rawNames = rawNames.Append(prefix + fd.Name)
+			}
+		}
+	}
+	for f in p.Funcs {
+		for op in f.Ops {
+			match op {
+			case ConstStr as c:
+				if c.V != "" {
+					rawNames = rawNames.Append(c.V)
+				}
+			case _:
+			}
+		}
 	}
 	for g in p.Globals {
 		rawNames = rawNames.Append(g.Name)
@@ -577,26 +783,48 @@ func encodePackageDraft(p Package, profile string, foreign []ForeignFunc, wireNa
 			fpHi,
 		})
 	}
+	let mut fileOrder = []int{}
+	for i in 0..rawFiles.Len() {
+		fileOrder = fileOrder.Append(i)
+	}
+	for i in 1..fileOrder.Len() {
+		let mut j = i
+		for j > 0 && rawFiles[fileOrder[j-1]] > rawFiles[fileOrder[j]] {
+			let tmp = fileOrder[j]
+			fileOrder[j] = fileOrder[j-1]
+			fileOrder[j-1] = tmp
+			j = j - 1
+		}
+	}
+	let mut fileWireID = slices.Repeat[uint32]([]uint32{1}, rawFiles.Len())
+	for k, idx in fileOrder {
+		fileWireID[idx] = uint32(k + 1)
+	}
 	let maxL = maxLineOf(p)
 	let lineStride = uint32(10)
 	let fileSize = uint32(maxL+1) * lineStride
-	let mut linesCol = slices.WithCapacity[uint32](maxL + 1)
-	for i in 0..maxL+1 {
-		linesCol = linesCol.Append(uint32(i) * lineStride)
+	let mut linesCol = []uint32{}
+	let mut fileRows = [][]uint32{}
+	for idx in fileOrder {
+		let baseLo = uint32(linesCol.Len())
+		for i in 0..maxL+1 {
+			linesCol = linesCol.Append(uint32(i) * lineStride)
+		}
+		fileRows = fileRows.Append([]uint32{
+			try findNameID(names, rawFiles[idx]),
+			fileSize,
+			baseLo,
+			uint32(maxL + 1),
+			uint32(1), uint32(2), uint32(3), uint32(4), uint32(5), uint32(6), uint32(7), uint32(8),
+		})
 	}
-	let fileRows = [][]uint32{[]uint32{
-		try findNameID(names, p.File),
-		fileSize,
-		uint32(0),
-		uint32(linesCol.Len()),
-		uint32(1), uint32(2), uint32(3), uint32(4), uint32(5), uint32(6), uint32(7), uint32(8),
-	}}
 	let mut spanRows = [][]uint32{}
-	let addSpan = func(line int, col int) uint32 {
+	let addSpan = func(fileIdx int, line int, col int) uint32 {
+		let fid = if fileIdx >= 0 && fileIdx < fileWireID.Len() { fileWireID[fileIdx] } else { uint32(1) }
 		let l = if line < 1 { 1 } else { line }
 		let c = if col < 1 { 1 } else if col > 9 { 9 } else { col }
 		let start = uint32(l-1)*lineStride + uint32(c-1)
-		spanRows = spanRows.Append([]uint32{uint32(1), start, start + 1})
+		spanRows = spanRows.Append([]uint32{fid, start, start + 1})
 		uint32(spanRows.Len())
 	}
 	let mut allTypes = p.Types
@@ -607,37 +835,59 @@ func encodePackageDraft(p Package, profile string, foreign []ForeignFunc, wireNa
 		}
 	}
 	if intTypeID == uint32(0) {
-		allTypes = allTypes.Append(TypeDef{Kind: KInt, Elem: 0, Params: []int{}, Results: []int{}})
+		allTypes = allTypes.Append(IntType())
 		intTypeID = uint32(allTypes.Len())
 	}
 	let mut entries = []symEntry{}
+	for ti, td in p.Types {
+		if td.Kind != KStruct {
+			continue
+		}
+		let mut impWire = uint32(0)
+		if td.PkgPath != "" && td.PkgPath != p.Path {
+			for k, imp in p.Imports {
+				if imp.Path == td.PkgPath {
+					impWire = impWireID[k]
+				}
+			}
+		}
+		if td.Name != "" {
+			let sp = if impWire == uint32(0) { addSpan(0, 1, 1) } else { uint32(0) }
+			entries = entries.Append(symEntry{imp: impWire, name: td.Name, nameID: try findNameID(names, td.Name), kind: ir.HSType, typeID: uint32(ti + 1), spanID: sp, localIdx: -1, globalID: -1, callKey: "", structIdx: ti, fieldIdx: -1})
+		}
+		let prefix = if td.Name != "" { td.Name + "." } else { "anon." }
+		for fi, fd in td.Fields {
+			let fname = prefix + fd.Name
+			let sp = if impWire == uint32(0) { addSpan(0, 1, 1) } else { uint32(0) }
+			entries = entries.Append(symEntry{imp: impWire, name: fname, nameID: try findNameID(names, fname), kind: ir.HSField, typeID: uint32(fd.Type + 1), spanID: sp, localIdx: -1, globalID: -1, callKey: "", structIdx: ti, fieldIdx: fi})
+		}
+	}
 	for gi, g in p.Globals {
-		let sp = addSpan(1, 1)
-		entries = entries.Append(symEntry{imp: 0, name: g.Name, nameID: try findNameID(names, g.Name), kind: ir.HSVar, typeID: intTypeID, spanID: sp, localIdx: -1, globalID: gi, callKey: ""})
+		let sp = addSpan(0, 1, 1)
+		entries = entries.Append(symEntry{imp: 0, name: g.Name, nameID: try findNameID(names, g.Name), kind: ir.HSVar, typeID: intTypeID, spanID: sp, localIdx: -1, globalID: gi, callKey: "", structIdx: -1, fieldIdx: -1})
 	}
 	for fi, f in p.Funcs {
 		let wn = wireNames[fi]
 		let (nextTypes, sigID) = findOrAddSig(allTypes, f.Params, f.Results)
 		allTypes = nextTypes
-		let sp = addSpan(f.Line, f.Col)
+		let sp = addSpan(f.File, f.Line, f.Col)
 		let ck = if strings.HasPrefix(wn, "init.") { "" } else { p.Path + "." + wn }
-		entries = entries.Append(symEntry{imp: 0, name: wn, nameID: try findNameID(names, wn), kind: ir.HSFunc, typeID: sigID, spanID: sp, localIdx: fi, globalID: -1, callKey: ck})
+		entries = entries.Append(symEntry{imp: 0, name: wn, nameID: try findNameID(names, wn), kind: ir.HSFunc, typeID: sigID, spanID: sp, localIdx: fi, globalID: -1, callKey: ck, structIdx: -1, fieldIdx: -1})
 	}
 	for ff in foreign {
 		let (nextTypes, sigID) = findOrAddSig(allTypes, ff.Params, ff.Results)
 		allTypes = nextTypes
 		let ck = p.Imports[ff.Import].Path + "." + ff.Name
-		entries = entries.Append(symEntry{imp: impWireID[ff.Import], name: ff.Name, nameID: try findNameID(names, ff.Name), kind: ir.HSFunc, typeID: sigID, spanID: 0, localIdx: -1, globalID: -1, callKey: ck})
+		entries = entries.Append(symEntry{imp: impWireID[ff.Import], name: ff.Name, nameID: try findNameID(names, ff.Name), kind: ir.HSFunc, typeID: sigID, spanID: 0, localIdx: -1, globalID: -1, callKey: ck, structIdx: -1, fieldIdx: -1})
 	}
 	entries = sortSyms(entries)
 	let mut symRows = [][]uint32{}
-	let mut globalSymID = slices.WithCapacity[uint32](p.Globals.Len())
-	for _ in 0..p.Globals.Len() {
-		globalSymID = globalSymID.Append(0)
-	}
-	let mut localFuncSymID = slices.WithCapacity[uint32](p.Funcs.Len())
-	for _ in 0..p.Funcs.Len() {
-		localFuncSymID = localFuncSymID.Append(0)
+	let mut globalSymID = slices.Repeat[uint32]([]uint32{0}, p.Globals.Len())
+	let mut localFuncSymID = slices.Repeat[uint32]([]uint32{0}, p.Funcs.Len())
+	let mut typeSymID = slices.Repeat[uint32]([]uint32{0}, p.Types.Len())
+	let mut fieldSymIDs = slices.WithCapacity[[]uint32](p.Types.Len())
+	for t in p.Types {
+		fieldSymIDs = fieldSymIDs.Append(slices.Repeat[uint32]([]uint32{0}, t.Fields.Len()))
 	}
 	let mut callSymMap = Map[string, uint32]{}
 	for si, e in entries {
@@ -649,19 +899,48 @@ func encodePackageDraft(p Package, profile string, foreign []ForeignFunc, wireNa
 		if e.localIdx >= 0 {
 			localFuncSymID[e.localIdx] = id
 		}
+		if e.structIdx >= 0 {
+			if e.fieldIdx < 0 {
+				typeSymID[e.structIdx] = id
+			} else {
+				let mut row = fieldSymIDs[e.structIdx]
+				row[e.fieldIdx] = id
+				fieldSymIDs[e.structIdx] = row
+			}
+		}
 		if e.callKey != "" {
 			callSymMap[e.callKey] = id
 		}
 	}
+	let nBaseTypes = allTypes.Len()
+	let mut namedRecRow = slices.Repeat[uint32]([]uint32{0}, nBaseTypes)
+	let mut recRows = []int{}
+	for ti in 0..nBaseTypes {
+		if allTypes[ti].Kind == KStruct && allTypes[ti].Name != "" {
+			namedRecRow[ti] = uint32(nBaseTypes + recRows.Len() + 1)
+			recRows = recRows.Append(ti)
+		}
+	}
 	let mut operands = []uint32{}
 	let mut typeRows = [][]uint32{}
-	for t in allTypes {
+	for ti, t in allTypes {
 		let lo = uint32(operands.Len())
-		if t.Kind == KInt {
-			typeRows = typeRows.Append([]uint32{ir.HTBasic, ir.HBasicInt, lo, 0})
+		if KindIsBasic(t.Kind) {
+			typeRows = typeRows.Append([]uint32{ir.HTBasic, uint32(KindExportBasic(t.Kind)), lo, 0})
 		} else if t.Kind == KPtr {
 			operands = operands.Append(uint32(t.Elem + 1))
 			typeRows = typeRows.Append([]uint32{ir.HTPointer, 0, lo, 1})
+		} else if t.Kind == KSlice {
+			operands = operands.Append(uint32(t.Elem + 1))
+			typeRows = typeRows.Append([]uint32{ir.HTSlice, 0, lo, 1})
+		} else if t.Kind == KStruct && t.Name == "" {
+			for fi in 0..t.Fields.Len() {
+				operands = operands.Append(fieldSymIDs[ti][fi])
+			}
+			typeRows = typeRows.Append([]uint32{ir.HTRecord, 0, lo, uint32(t.Fields.Len())})
+		} else if t.Kind == KStruct {
+			operands = operands.Append(namedRecRow[ti])
+			typeRows = typeRows.Append([]uint32{ir.HTNamed, typeSymID[ti], lo, 1})
 		} else {
 			for pt in t.Params {
 				operands = operands.Append(uint32(pt + 1))
@@ -671,6 +950,14 @@ func encodePackageDraft(p Package, profile string, foreign []ForeignFunc, wireNa
 			}
 			typeRows = typeRows.Append([]uint32{ir.HTSignature, uint32(t.Params.Len()), lo, uint32(t.Params.Len() + t.Results.Len())})
 		}
+	}
+	for ti in recRows {
+		let t = allTypes[ti]
+		let lo = uint32(operands.Len())
+		for fi in 0..t.Fields.Len() {
+			operands = operands.Append(fieldSymIDs[ti][fi])
+		}
+		typeRows = typeRows.Append([]uint32{ir.HTRecord, 0, lo, uint32(t.Fields.Len())})
 	}
 	let mut bodyRows = [][]uint32{}
 	let mut slotsCol = []uint32{}
@@ -702,7 +989,7 @@ func encodePackageDraft(p Package, profile string, foreign []ForeignFunc, wireNa
 				continue
 			case _:
 			}
-			let sp = addSpan(f.Lines[k], 1)
+			let sp = addSpan(f.File, f.Lines[k], 1)
 			let lo = uint32(operands.Len())
 			let mut opcode = uint32(0)
 			match op {
@@ -712,11 +999,30 @@ func encodePackageDraft(p Package, profile string, foreign []ForeignFunc, wireNa
 				operands = operands.Append(uint32(c.Dst + 1))
 				operands = operands.Append(wlo)
 				operands = operands.Append(whi)
+			case ConstStr as c:
+				opcode = ir.HOConst
+				operands = operands.Append(uint32(c.Dst + 1))
+				let nid = if c.V == "" { uint32(0) } else { try findNameID(names, c.V) }
+				operands = operands.Append(nid)
+				operands = operands.Append(uint32(0))
+			case Zero as z:
+				opcode = ir.HOConst
+				operands = operands.Append(uint32(z.Dst + 1))
+				operands = operands.Append(uint32(0))
+				operands = operands.Append(uint32(0))
 			case Arith as a:
-				opcode = if a.Kind == AAdd { ir.HOAdd } else if a.Kind == ASub { ir.HOSub } else if a.Kind == AMul { ir.HOMul } else { ir.HOXor }
+				opcode = arithOpcode(a.Kind)
 				operands = operands.Append(uint32(a.Dst + 1))
 				operands = operands.Append(uint32(a.A + 1))
 				operands = operands.Append(uint32(a.B + 1))
+			case Convert as c:
+				opcode = ir.HOConvert
+				operands = operands.Append(uint32(c.Dst + 1))
+				operands = operands.Append(uint32(c.Src + 1))
+			case Len as l:
+				opcode = handoff.HOLen
+				operands = operands.Append(uint32(l.Dst + 1))
+				operands = operands.Append(uint32(l.Src + 1))
 			case Load as l:
 				opcode = ir.HOLoad
 				operands = operands.Append(uint32(l.Dst + 1))
@@ -733,6 +1039,36 @@ func encodePackageDraft(p Package, profile string, foreign []ForeignFunc, wireNa
 				opcode = ir.HOAddrOf
 				operands = operands.Append(uint32(a.Dst + 1))
 				operands = operands.Append(uint32(a.Of + 1))
+			case FieldGet as g:
+				opcode = handoff.HOFieldGet
+				let bt = f.Slots[g.Base]
+				let st = if p.Types[bt].Kind == KPtr { p.Types[bt].Elem } else { bt }
+				operands = operands.Append(uint32(g.Dst + 1))
+				operands = operands.Append(uint32(g.Base + 1))
+				operands = operands.Append(fieldSymIDs[st][g.Field])
+			case FieldSet as s:
+				opcode = handoff.HOFieldSet
+				let st = p.Types[f.Slots[s.Ptr]].Elem
+				operands = operands.Append(uint32(s.Ptr + 1))
+				operands = operands.Append(fieldSymIDs[st][s.Field])
+				operands = operands.Append(uint32(s.Val + 1))
+			case RecordLit as r:
+				opcode = handoff.HORecordLit
+				operands = operands.Append(uint32(r.Dst + 1))
+				for v in r.Vals {
+					operands = operands.Append(uint32(v + 1))
+				}
+			case Index as ix:
+				opcode = handoff.HOIndex
+				operands = operands.Append(uint32(ix.Dst + 1))
+				operands = operands.Append(uint32(ix.Slice + 1))
+				operands = operands.Append(uint32(ix.Idx + 1))
+			case SliceLit as sl:
+				opcode = handoff.HOSliceLit
+				operands = operands.Append(uint32(sl.Dst + 1))
+				for ev in sl.Elems {
+					operands = operands.Append(uint32(ev + 1))
+				}
 			case GetGlobal as g:
 				opcode = ir.HOGetGlobal
 				operands = operands.Append(uint32(g.Dst + 1))
@@ -827,9 +1163,7 @@ func encodePackageDraft(p Package, profile string, foreign []ForeignFunc, wireNa
 	}
 }
 
-// EncodeHandoff is p as an EIR v1 draft under the pin's profile: its
-// functions by their names, each init function as init.K in Inits order,
-// and foreign the functions of its imports it calls.
+// EncodeHandoff encodes p as an EIR v1 draft under the pin's profile.
 func EncodeHandoff(p Package, foreign []ForeignFunc) handoff.Draft fails handoff.Malformed {
 	let mut names = slices.WithCapacity[string](p.Funcs.Len())
 	for i in 0..p.Funcs.Len() {
@@ -838,9 +1172,7 @@ func EncodeHandoff(p Package, foreign []ForeignFunc) handoff.Draft fails handoff
 	try encodePackageDraft(p, PinProfile, foreign, names)
 }
 
-// TinyHandoffExpect builds the independent admission expectation for the
-// TinyHandoff fixture from the stock dependency archive's observed import
-// identity.
+// TinyHandoffExpect builds the independent admission expectation for TinyHandoff.
 func TinyHandoffExpect(dep Import) handoff.Expect {
 	handoff.Expect{
 		Target:  handoff.Target{Path: TinyPath, GOOS: PinGOOS, GOARCH: PinGOARCH, Pin: PinGo, Profile: PinProfile},
@@ -852,10 +1184,10 @@ func TinyHandoffExpect(dep Import) handoff.Expect {
 
 func tinyHandoffSpec(k1 int, k2 int, dep Import) (Package, []ForeignFunc, []string) {
 	let ty = []TypeDef{
-		TypeDef{Kind: KInt, Elem: 0, Params: []int{}, Results: []int{}},
-		TypeDef{Kind: KPtr, Elem: TInt, Params: []int{}, Results: []int{}},
-		TypeDef{Kind: KFunc, Elem: 0, Params: []int{TInt}, Results: []int{TInt}},
-		TypeDef{Kind: KPtr, Elem: TPtrInt, Params: []int{}, Results: []int{}},
+		IntType(),
+		PtrType(TInt),
+		FuncType([]int{TInt}, []int{TInt}),
+		PtrType(TPtrInt),
 	}
 	let i = TInt
 	let funcs = []Func{
@@ -930,6 +1262,7 @@ func tinyHandoffSpec(k1 int, k2 int, dep Import) (Package, []ForeignFunc, []stri
 		Path:    TinyPath,
 		Name:    "tiny",
 		File:    "tiny.ergo",
+		Files:   []string{"tiny.ergo"},
 		Types:   ty,
 		Imports: []Import{dep},
 		Globals: []Global{Global{Name: "initRuns"}, Global{Name: "stop"}, Global{Name: "started"}, Global{Name: "initTrace"}},
@@ -939,8 +1272,7 @@ func tinyHandoffSpec(k1 int, k2 int, dep Import) (Package, []ForeignFunc, []stri
 	(pkg, foreign, wireNames)
 }
 
-// TinyHandoff encodes the widened round-trip fixture package into canonical
-// frozen EIR v1 bytes via handoff.Pack and handoff.Encode.
+// TinyHandoff encodes the widened round-trip fixture package into EIR v1 bytes.
 func TinyHandoff(k1 int, k2 int, dep Import) string fails handoff.Malformed {
 	let (pkg, foreign, wireNames) = tinyHandoffSpec(k1, k2, dep)
 	let draft = try encodePackageDraft(pkg, PinProfile, foreign, wireNames)
@@ -953,12 +1285,13 @@ func tinyHandoffWithProfile(k1 int, k2 int, dep Import, profile string) string f
 	handoff.Encode(try handoff.Pack(draft))
 }
 
-func unsupportedSliceWire(dep Import) string fails handoff.Malformed {
+func unsupportedMapWire(dep Import) string fails handoff.Malformed {
 	let pkg = Package{
 		Path:    TinyPath,
 		Name:    "tiny",
 		File:    "tiny.ergo",
-		Types:   []TypeDef{TypeDef{Kind: KInt, Elem: 0, Params: []int{}, Results: []int{}}},
+		Files:   []string{"tiny.ergo"},
+		Types:   []TypeDef{IntType()},
 		Imports: []Import{dep},
 		Globals: []Global{},
 		Funcs:   []Func{fn("Id", []int{0}, []int{0}, []int{0}, []Op{Return{Vals: []int{0}}}, 5)},
@@ -976,14 +1309,15 @@ func unsupportedSliceWire(dep Import) string fails handoff.Malformed {
 		for r in 0..nTypes {
 			newTypes = newTypes.Append(base.Columns[ir.HTypes][c*nTypes+r])
 		}
-		let extra = if c == 0 { ir.HTSlice } else if c == 1 { uint32(0) } else if c == 2 { uint32(typeOps) } else { uint32(1) }
+		let extra = if c == 0 { ir.HTMap } else if c == 1 { uint32(0) } else if c == 2 { uint32(typeOps) } else { uint32(2) }
 		newTypes = newTypes.Append(extra)
 	}
 	let oldOperands = base.Columns[ir.HOperands]
-	let mut newOperands = slices.WithCapacity[uint32](oldOperands.Len() + 1)
+	let mut newOperands = slices.WithCapacity[uint32](oldOperands.Len() + 2)
 	for i in 0..typeOps {
 		newOperands = newOperands.Append(oldOperands[i])
 	}
+	newOperands = newOperands.Append(uint32(1))
 	newOperands = newOperands.Append(uint32(1))
 	for i in typeOps..oldOperands.Len() {
 		newOperands = newOperands.Append(oldOperands[i])
@@ -993,7 +1327,7 @@ func unsupportedSliceWire(dep Import) string fails handoff.Malformed {
 	for c in 0..4 {
 		for r in 0..nOps {
 			let v = opsStart[c*nOps+r]
-			newOps = newOps.Append(if c == 2 { v + 1 } else { v })
+			newOps = newOps.Append(if c == 2 { v + 2 } else { v })
 		}
 	}
 	let mut cols = base.Columns
@@ -1003,37 +1337,28 @@ func unsupportedSliceWire(dep Import) string fails handoff.Malformed {
 	handoff.Encode(try handoff.Pack(handoff.Draft{Columns: cols, Text: base.Text}))
 }
 
-func unsupportedConvertWire(dep Import) string fails handoff.Malformed {
+func unsupportedNonIntGlobalWire(dep Import) string fails handoff.Malformed {
 	let pkg = Package{
 		Path:    TinyPath,
 		Name:    "tiny",
 		File:    "tiny.ergo",
-		Types:   []TypeDef{TypeDef{Kind: KInt, Elem: 0, Params: []int{}, Results: []int{}}},
+		Files:   []string{"tiny.ergo"},
+		Types:   []TypeDef{IntType(), BasicType(KString)},
 		Imports: []Import{dep},
-		Globals: []Global{},
-		Funcs:   []Func{
-			fn("Conv", []int{0}, []int{0}, []int{0, 0},
-				[]Op{Arith{Dst: 1, Kind: AAdd, A: 0, B: 0}, Return{Vals: []int{1}}}, 5),
-		},
-		Inits: []int{},
+		Globals: []Global{Global{Name: "g"}},
+		Funcs:   []Func{fn("Id", []int{0}, []int{0}, []int{0}, []Op{Return{Vals: []int{0}}}, 5)},
+		Inits:   []int{},
 	}
-	let base = try encodePackageDraft(pkg, PinProfile, []ForeignFunc{}, []string{"Conv"})
+	let base = try encodePackageDraft(pkg, PinProfile, []ForeignFunc{}, []string{"Id"})
 	let mut cols = base.Columns
-	let mut ops = cols[ir.HOps]
-	let nOps = ops.Len() / 4
-	ops[0] = ir.HOConvert
-	ops[3*nOps] = uint32(2)
-	ops[2*nOps+1] = ops[2*nOps+1] - 1
-	let oldOperands = cols[ir.HOperands]
-	let dropAt = int(ops[2*nOps]) + 2
-	let mut newOperands = slices.WithCapacity[uint32](oldOperands.Len() - 1)
-	for i in 0..oldOperands.Len() {
-		if i != dropAt {
-			newOperands = newOperands.Append(oldOperands[i])
+	let mut syms = cols[ir.HSymbols]
+	let nSyms = syms.Len() / 5
+	for i in 0..nSyms {
+		if syms[2*nSyms+i] == ir.HSVar {
+			syms[3*nSyms+i] = uint32(2)
 		}
 	}
-	cols[ir.HOps] = ops
-	cols[ir.HOperands] = newOperands
+	cols[ir.HSymbols] = syms
 	handoff.Encode(try handoff.Pack(handoff.Draft{Columns: cols, Text: base.Text}))
 }
 
@@ -1101,9 +1426,7 @@ law HandoffConstRoundTrips(v int) {
 }
 
 // HandoffArchiveVerifies proves that canonical EIR v1 bytes round-trip
-// through Decode, Admit, FromHandoff, and ArchiveFromHandoff, preserving
-// write-barrier derivation, local calls, semantic init ordering, and every
-// independent archive metadata check.
+// through Decode, Admit, FromHandoff, and ArchiveFromHandoff.
 law HandoffArchiveVerifies(k1 int, k2 int) {
 	let a = k1 % 1000000
 	let b = k2 % 1000000
@@ -1125,7 +1448,7 @@ law HandoffArchiveVerifies(k1 int, k2 int) {
 		return false
 	}
 	let pubIdx = FuncNamed(pkg, "Publish")
-	if pubIdx < 0 || storePtrs(pkg.Funcs[pubIdx]) != 1 {
+	if pubIdx < 0 || expectedBarrierCount(pkg, ComputeLayouts(pkg), pkg.Funcs[pubIdx]) != 1 {
 		return false
 	}
 	let diffIdx = FuncNamed(pkg, "Diff")
@@ -1150,9 +1473,41 @@ law HandoffArchiveVerifies(k1 int, k2 int) {
 	firstInitOps > secondInitOps
 }
 
+// Stop1HandoffVerifies proves that Stop 1 packages (multi-file, scalars,
+// strings, named records, slices, and stack args) round-trip through EIR v1.
+law Stop1HandoffVerifies(k int) {
+	let dep = SampleDep()
+	let p = Stop1Sample(k, dep)
+	let foreign = []ForeignFunc{
+		ForeignFunc{Import: 0, Name: "Double", Params: []int{0}, Results: []int{0}},
+	}
+	let draft = EncodeHandoff(p, foreign) catch {
+	case handoff.Malformed:
+		return false
+	}
+	let img = handoff.Pack(draft) catch {
+	case handoff.Malformed:
+		return false
+	}
+	let encoded = handoff.Encode(img)
+	let want = handoff.Expect{
+		Target:  handoff.Target{Path: p.Path, GOOS: PinGOOS, GOARCH: PinGOARCH, Pin: PinGo, Profile: PinProfile},
+		Imports: []handoff.Import{handoff.Import{Path: dep.Path, Name: dep.Name, HasInit: dep.HasInit, Fingerprint: dep.Fingerprint}},
+	}
+	let rtPkg = FromHandoff(encoded, want) catch {
+	case handoff.UnknownVersion, handoff.Malformed, handoff.WrongTarget, handoff.StaleImport, Refused, Malformed:
+		return false
+	}
+	let built = ArchiveFromHandoff(encoded, want, SampleHeader) catch {
+	case handoff.UnknownVersion, handoff.Malformed, handoff.WrongTarget, handoff.StaleImport, Refused, Malformed, Undefined:
+		return false
+	}
+	Verify(rtPkg, SampleHeader, built.Archive).Len() == 0
+}
+
 // HandoffRefusesBadAdmission proves that ArchiveFromHandoff fails closed
 // on tampered magic, unknown versions, truncated images, mismatched target
-// tuples, stale import fingerprints, and unsupported EIR types or ops.
+// tuples, stale import fingerprints, and unsupported EIR types or globals.
 law HandoffRefusesBadAdmission(k1 int, k2 int) {
 	let dep = SampleDep()
 	let bytes = TinyHandoff(k1%1000000, k2%1000000, dep) catch {
@@ -1163,11 +1518,11 @@ law HandoffRefusesBadAdmission(k1 int, k2 int) {
 	case handoff.Malformed:
 		return false
 	}
-	let sliceWire = unsupportedSliceWire(dep) catch {
+	let mapWire = unsupportedMapWire(dep) catch {
 	case handoff.Malformed:
 		return false
 	}
-	let convWire = unsupportedConvertWire(dep) catch {
+	let globalWire = unsupportedNonIntGlobalWire(dep) catch {
 	case handoff.Malformed:
 		return false
 	}
@@ -1194,6 +1549,6 @@ law HandoffRefusesBadAdmission(k1 int, k2 int) {
 		archiveFailsStaleImport(bytes, staleFp) &&
 		archiveFailsStaleImport(bytes, staleInit) &&
 		archiveFailsRefused(bytes, unsupportedWant) &&
-		archiveFailsRefused(sliceWire, want) &&
-		archiveFailsRefused(convWire, want)
+		archiveFailsRefused(mapWire, want) &&
+		archiveFailsRefused(globalWire, want)
 }

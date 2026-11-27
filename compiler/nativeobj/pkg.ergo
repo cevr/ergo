@@ -1,77 +1,223 @@
-// The checked input: one Ergo package as the producer receives it. It is
-// the fixture shape of the hand-off (NATIVE-TYPED-HANDOFF freezes the
-// shared wire; until then a small generator builds these records), not a
-// second compiler's IR: every value is one machine word, every function's
-// body is a list of ops over word slots, and Check (check.ergo) validates
-// it before any byte is written.
-
-// Kinds of a type in a package's type table.
+// KInt is the signed machine-word integer type kind.
 let KInt = 0
+
+// KPtr is the pointer type kind.
 let KPtr = 1
+
+// KFunc is the function value type kind.
 let KFunc = 2
 
-// TypeDef is one Go-visible type: int, a pointer to type Elem, or a
-// function from Params to Results (type ids into the same table).
-type TypeDef { Kind int, Elem int, Params []int, Results []int }
+// KBool is the boolean scalar type kind.
+let KBool = 3
 
-// Import is a foreign (stock Go) package the package refers to: its import
-// path, its package name, and the fingerprint its export data ends with
-// (8 raw bytes), which the object records so the linker can refuse a
-// stale dependency, and whether it has an inittask (the private root of
-// its export data says so), which this package's inittask must order
-// before its own.
+// KInt8 is the signed 8-bit integer type kind.
+let KInt8 = 4
+
+// KInt16 is the signed 16-bit integer type kind.
+let KInt16 = 5
+
+// KInt32 is the signed 32-bit integer type kind.
+let KInt32 = 6
+
+// KInt64 is the signed 64-bit integer type kind.
+let KInt64 = 7
+
+// KUint is the unsigned machine-word integer type kind.
+let KUint = 8
+
+// KUint8 is the unsigned 8-bit integer (and byte) type kind.
+let KUint8 = 9
+
+// KUint16 is the unsigned 16-bit integer type kind.
+let KUint16 = 10
+
+// KUint32 is the unsigned 32-bit integer type kind.
+let KUint32 = 11
+
+// KUint64 is the unsigned 64-bit integer type kind.
+let KUint64 = 12
+
+// KUintptr is the pointer-sized unsigned integer type kind.
+let KUintptr = 13
+
+// KString is the immutable byte-string type kind.
+let KString = 14
+
+// KSlice is the slice header type kind.
+let KSlice = 15
+
+// KStruct is the value record type kind.
+let KStruct = 16
+
+// FieldDef describes one field of a struct TypeDef.
+type FieldDef { Name string, Type int, Exported bool }
+
+// TypeDef is one Go-visible type in a package's type table.
+type TypeDef {
+	Kind     int,
+	Elem     int,
+	Params   []int,
+	Results  []int,
+	Name     string,
+	PkgPath  string,
+	Exported bool,
+	Fields   []FieldDef,
+}
+
+// IntType builds the default machine-word int TypeDef.
+func IntType() TypeDef {
+	TypeDef{Kind: KInt, Elem: 0, Params: []int{}, Results: []int{}, Name: "", PkgPath: "", Exported: false, Fields: []FieldDef{}}
+}
+
+// BasicType builds a scalar basic TypeDef for kind KBool..KString.
+func BasicType(kind int) TypeDef {
+	TypeDef{Kind: kind, Elem: 0, Params: []int{}, Results: []int{}, Name: "", PkgPath: "", Exported: false, Fields: []FieldDef{}}
+}
+
+// PtrType builds a pointer TypeDef targeting elem.
+func PtrType(elem int) TypeDef {
+	TypeDef{Kind: KPtr, Elem: elem, Params: []int{}, Results: []int{}, Name: "", PkgPath: "", Exported: false, Fields: []FieldDef{}}
+}
+
+// SliceType builds a slice TypeDef with element type elem.
+func SliceType(elem int) TypeDef {
+	TypeDef{Kind: KSlice, Elem: elem, Params: []int{}, Results: []int{}, Name: "", PkgPath: "", Exported: false, Fields: []FieldDef{}}
+}
+
+// FuncType builds a function signature TypeDef.
+func FuncType(params []int, results []int) TypeDef {
+	TypeDef{Kind: KFunc, Elem: 0, Params: params, Results: results, Name: "", PkgPath: "", Exported: false, Fields: []FieldDef{}}
+}
+
+// StructType builds a named or anonymous record TypeDef.
+func StructType(name string, pkgPath string, exported bool, fields []FieldDef) TypeDef {
+	TypeDef{Kind: KStruct, Elem: 0, Params: []int{}, Results: []int{}, Name: name, PkgPath: pkgPath, Exported: exported, Fields: fields}
+}
+
+// Import is a foreign package referenced by export path, name, 8-byte fingerprint, and init flag.
 type Import { Path string, Name string, Fingerprint string, HasInit bool }
 
-// Global is a package variable of type int (it holds no pointer, so it
-// needs no GC type).
+// Global is a package variable of type int.
 type Global { Name string }
 
-// Arithmetic kinds of Arith.
+// AAdd adds two integers or concatenates two strings.
 let AAdd = 0
+
+// ASub subtracts two integers.
 let ASub = 1
+
+// AMul multiplies two integers.
 let AMul = 2
+
+// AXor bitwise-XORs two integers.
 let AXor = 3
 
-// Conditions of JumpIf: A < B, A != B, A == B, A >= B (signed).
+// ADiv divides two integers with divide-by-zero panic and MinInt/-1 handling.
+let ADiv = 4
+
+// ARem computes integer remainder with divide-by-zero panic and MinInt%-1 handling.
+let ARem = 5
+
+// AAnd bitwise-ANDs two integers.
+let AAnd = 6
+
+// AOr bitwise-ORs two integers.
+let AOr = 7
+
+// AAndNot clears bits in the first operand specified by the second operand.
+let AAndNot = 8
+
+// AShl shifts left with Go shift-count semantics.
+let AShl = 9
+
+// AShr shifts right (signed or unsigned) with Go shift-count semantics.
+let AShr = 10
+
+// CLt selects less-than comparison.
 let CLt = 0
+
+// CNe selects not-equal comparison.
 let CNe = 1
+
+// CEq selects equal comparison.
 let CEq = 2
+
+// CGe selects greater-or-equal comparison.
 let CGe = 3
 
-// Op is one step of a function body. Slots are indexes into Func.Slots;
-// the first len(Params) slots hold the parameters on entry.
+// Const stores a 64-bit integer or bool literal into Dst.
 type Const { Dst int, V int }
+
+// ConstStr stores a constant UTF-8 string literal into Dst.
+type ConstStr { Dst int, V string }
+
+// Zero writes zero bytes across all words of slot Dst.
+type Zero { Dst int }
+
+// Arith performs a binary integer or string-concatenation op.
 type Arith { Dst int, Kind int, A int, B int }
-// Load reads the word at the address in slot Ptr.
+
+// Convert converts scalar integer/bool/string value Src into Dst.
+type Convert { Dst int, Src int }
+
+// Len stores the length of string or slice Src into int slot Dst.
+type Len { Dst int, Src int }
+
+// Load reads the value at pointer slot Ptr into Dst.
 type Load { Dst int, Ptr int }
-// StorePtr writes the pointer in slot Val to the word at the address in
-// slot Ptr: a heap pointer publication, so it carries the write barrier.
+
+// StorePtr writes pointer-bearing slot Val through pointer slot Ptr with GC barrier.
 type StorePtr { Ptr int, Val int }
-// Store writes the int in slot Val to the word at the address in slot
-// Ptr (no barrier: an int is no pointer).
+
+// Store writes scalar/non-pointer slot Val through pointer slot Ptr without barrier.
 type Store { Ptr int, Val int }
-// AddrOf is the address of slot Of in the function's own frame.
+
+// AddrOf takes the frame address of slot Of into pointer slot Dst.
 type AddrOf { Dst int, Of int }
+
+// RecordLit builds a record value from Vals in declared field order into Dst.
+type RecordLit { Dst int, Vals []int }
+
+// FieldGet reads field index Field of record or record-pointer Base into Dst.
+type FieldGet { Dst int, Base int, Field int }
+
+// FieldSet writes Val to field index Field through pointer-to-record slot Ptr.
+type FieldSet { Ptr int, Field int, Val int }
+
+// Index reads element Idx from slice Slice into Dst with Go bounds checking.
+type Index { Dst int, Slice int, Idx int }
+
+// SliceLit allocates and initializes a slice value from Elems into Dst.
+type SliceLit { Dst int, Elems []int }
+
+// GetGlobal loads package variable Global into Dst.
 type GetGlobal { Dst int, Global int }
+
+// SetGlobal stores Src into package variable Global.
 type SetGlobal { Global int, Src int }
-// Call calls the ABIInternal function Target ("import/path.Name"; a
-// function of this package by its own path) with the words of Args and
-// stores its results in Dsts.
+
+// Call calls ABIInternal function Target with Args and stores results in Dsts.
 type Call { Dsts []int, Target string, Args []int }
-// CallClosure calls the Go func value in slot Fn.
+
+// CallClosure calls closure slot Fn with Args and stores results in Dsts.
 type CallClosure { Dsts []int, Fn int, Args []int }
+
+// Label binds branch target Id.
 type Label { Id int }
+
+// Jump transfers control unconditionally to label To.
 type Jump { To int }
+
+// JumpIf compares A and B and branches to label To if Cond holds.
 type JumpIf { Cond int, A int, B int, To int }
+
+// Return returns Vals according to the function's ABIInternal signature.
 type Return { Vals []int }
 
-type Op = Const | Arith | Load | StorePtr | Store | AddrOf | GetGlobal | SetGlobal | Call | CallClosure | Label | Jump | JumpIf | Return
+// Op is one instruction in a checked Func body.
+type Op = Const | ConstStr | Zero | Arith | Convert | Len | Load | StorePtr | Store | AddrOf | RecordLit | FieldGet | FieldSet | Index | SliceLit | GetGlobal | SetGlobal | Call | CallClosure | Label | Jump | JumpIf | Return
 
-// Func is one function: its name in the package, its parameter and result
-// type ids, the type id of every slot (parameters first), its ops and,
-// beside each op, the source line it came from. Line and Col place the
-// declaration. An init function has Name "init" and is listed in
-// Package.Inits.
+// Func is one function in a checked Package.
 type Func {
 	Name    string,
 	Params  []int,
@@ -81,16 +227,15 @@ type Func {
 	Lines   []int,
 	Line    int,
 	Col     int,
+	File    int,
 }
 
-// Package is the checked package: its import path and name, the Ergo
-// source file its positions name, its type table, the foreign packages it
-// imports, its variables, its functions, and which functions are its init
-// functions, in order.
+// Package is the checked package handed to the native backend.
 type Package {
 	Path    string,
 	Name    string,
 	File    string,
+	Files   []string,
 	Types   []TypeDef,
 	Imports []Import,
 	Globals []Global,
@@ -98,19 +243,62 @@ type Package {
 	Inits   []int,
 }
 
-// IsPointer says whether type id t is a pointer-shaped word: a pointer or
-// a func value (a closure pointer), so the GC must see it.
-func IsPointer(p Package, t int) bool { p.Types[t].Kind != KInt }
+// PkgFiles returns the ordered source file list of p, falling back to p.File.
+func PkgFiles(p Package) []string {
+	if p.Files.Len() > 0 {
+		return p.Files
+	}
+	if p.File == "" {
+		return []string{}
+	}
+	[]string{p.File}
+}
 
-// Exported says whether a Go name is exported.
-func Exported(name string) bool { name.Len() > 0 && name[0] >= byte('A') && name[0] <= byte('Z') }
+// IsPointer reports whether type id t is a single-word GC pointer (KPtr or KFunc).
+func IsPointer(p Package, t int) bool {
+	let k = p.Types[t].Kind
+	k == KPtr || k == KFunc
+}
 
-// SymName is the linker symbol of function or variable name of p: the
-// path, a dot, the name; an init function is "init.N", N its place in
-// Inits.
+// HasPointers reports whether type id t holds any GC-visible pointer word.
+func HasPointers(p Package, t int) bool {
+	let td = p.Types[t]
+	if td.Kind == KPtr || td.Kind == KFunc || td.Kind == KString || td.Kind == KSlice {
+		return true
+	}
+	if td.Kind == KStruct {
+		for f in td.Fields {
+			if HasPointers(p, f.Type) {
+				return true
+			}
+		}
+	}
+	false
+}
+
+// Exported reports whether Go identifier name starts with an uppercase ASCII letter.
+func Exported(name string) bool {
+	if name.Len() == 0 {
+		return false
+	}
+	let mut dot = -1
+	for i in 0..name.Len() {
+		if int(name[i]) == 46 {
+			dot = i
+		}
+	}
+	if dot >= 0 && dot+1 < name.Len() {
+		let recOk = name[0] >= byte('A') && name[0] <= byte('Z')
+		let methOk = name[dot+1] >= byte('A') && name[dot+1] <= byte('Z')
+		return recOk && methOk
+	}
+	name[0] >= byte('A') && name[0] <= byte('Z')
+}
+
+// SymName forms the linker symbol path.name.
 func SymName(p Package, name string) string { p.Path + "." + name }
 
-// FuncSym is the symbol of function i of p.
+// FuncSym returns the linker symbol name for function i of p.
 func FuncSym(p Package, i int) string {
 	let f = p.Funcs[i]
 	if f.Name != "init" {
@@ -124,33 +312,39 @@ func FuncSym(p Package, i int) string {
 	SymName(p, "init")
 }
 
-// OpLiveUses is the slots op reads.
+// OpUses returns the slot indices read by op.
 func OpUses(op Op) []int {
 	match op {
-	case Const:
+	case Const, ConstStr, Zero, AddrOf, GetGlobal, Label, Jump:
 		return []int{}
 	case Arith as a:
 		return []int{a.A, a.B}
+	case Convert as c:
+		return []int{c.Src}
+	case Len as l:
+		return []int{l.Src}
 	case Load as l:
 		return []int{l.Ptr}
 	case StorePtr as s:
 		return []int{s.Ptr, s.Val}
 	case Store as s:
 		return []int{s.Ptr, s.Val}
-	case AddrOf:
-		return []int{}
-	case GetGlobal:
-		return []int{}
+	case RecordLit as r:
+		return r.Vals
+	case FieldGet as g:
+		return []int{g.Base}
+	case FieldSet as s:
+		return []int{s.Ptr, s.Val}
+	case Index as idx:
+		return []int{idx.Slice, idx.Idx}
+	case SliceLit as sl:
+		return sl.Elems
 	case SetGlobal as s:
 		return []int{s.Src}
 	case Call as c:
 		return c.Args
 	case CallClosure as c:
 		return []int{c.Fn}.Concat(c.Args)
-	case Label:
-		return []int{}
-	case Jump:
-		return []int{}
 	case JumpIf as j:
 		return []int{j.A, j.B}
 	case Return as r:
@@ -158,17 +352,33 @@ func OpUses(op Op) []int {
 	}
 }
 
-// OpDefs is the slots op writes.
+// OpDefs returns the slot indices written by op.
 func OpDefs(op Op) []int {
 	match op {
 	case Const as c:
 		return []int{c.Dst}
+	case ConstStr as c:
+		return []int{c.Dst}
+	case Zero as z:
+		return []int{z.Dst}
 	case Arith as a:
 		return []int{a.Dst}
+	case Convert as c:
+		return []int{c.Dst}
+	case Len as l:
+		return []int{l.Dst}
 	case Load as l:
 		return []int{l.Dst}
 	case AddrOf as a:
 		return []int{a.Dst}
+	case RecordLit as r:
+		return []int{r.Dst}
+	case FieldGet as g:
+		return []int{g.Dst}
+	case Index as idx:
+		return []int{idx.Dst}
+	case SliceLit as sl:
+		return []int{sl.Dst}
 	case GetGlobal as g:
 		return []int{g.Dst}
 	case Call as c:
@@ -180,13 +390,27 @@ func OpDefs(op Op) []int {
 	}
 }
 
-// IsCall says whether op is a call that is a GC safe point.
+// IsCall reports whether op is an explicit Call or CallClosure instruction.
 func IsCall(op Op) bool {
 	match op {
-	case Call:
+	case Call, CallClosure:
 		return true
-	case CallClosure:
+	case _:
+		return false
+	}
+}
+
+// IsCallOp reports whether lowering op emits a runtime/Go call that acts as a GC safe point.
+func IsCallOp(p Package, f Func, op Op) bool {
+	match op {
+	case Call, CallClosure:
 		return true
+	case Arith as a:
+		return a.Kind == AAdd && p.Types[f.Slots[a.A]].Kind == KString
+	case SliceLit as sl:
+		return sl.Elems.Len() > 0
+	case JumpIf as j:
+		return p.Types[f.Slots[j.A]].Kind == KString
 	case _:
 		return false
 	}

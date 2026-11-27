@@ -98,15 +98,40 @@ let SRodata = 3
 let SNoptrdata = 5
 let SNoptrbss = 10
 let RAddr = 1
+let RAddroff = 5
 let RCall = 7
 let RCallInd = 10
 let RPcrel = 14
+let RMethodoff = 26
 let RInitorder = 102
+let RWeakAddroff = 32773
+
+// FlagDupok allows linker deduplication of a defined symbol.
+let FlagDupok = 1
+
+// FlagLocal restricts a symbol to the current object file.
+let FlagLocal = 2
+
+// FlagTypelink registers a defined type symbol in the runtime type table.
+let FlagTypelink = 4
+
+// FlagGoType marks a defined symbol as a Go runtime type descriptor.
+let FlagGoType = 64
 
 // Runtime symbols the emitted code calls or reads, with their ABIs.
 let MorestackNoctxt = "runtime.morestack_noctxt"
 let WriteBarrierFlag = "runtime.writeBarrier"
 let GCWriteBarrier2 = "runtime.gcWriteBarrier2"
+let RuntimeMakeslice = "runtime.makeslice"
+let RuntimeConcatstring2 = "runtime.concatstring2"
+let RuntimeCmpstring = "runtime.cmpstring"
+let RuntimeMemequal = "runtime.memequal"
+let RuntimeMemequalVarlen = "runtime.memequal_varlen"
+let RuntimeMemequal64F = "runtime.memequal64\xc2\xb7f"
+let RuntimePanicIndex = "runtime.goPanicIndex"
+let RuntimePanicIndexU = "runtime.goPanicIndexU"
+let RuntimePanicDivide = "runtime.panicdivide"
+let RuntimeZerobase = "runtime.zerobase"
 
 // Frame is the layout of one function's frame. Size counts every byte
 // below the return address: the saved BP at the top, then the slots

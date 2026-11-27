@@ -1,0 +1,69 @@
+// PickWeights constructs either a three-element slice or an empty slice.
+func PickWeights(a uint32, b uint32, nonEmpty bool) []uint32 {
+	if nonEmpty {
+		return []uint32{a, b, a + b}
+	}
+	[]uint32{}
+}
+
+// BumpBox mutates fields through a mut borrow, including a string field write barrier.
+func BumpBox(tag byte, b mut LocalBox, delta uint32) uint32 {
+	b.Tag = tag
+	b.Count = b.Count + delta
+	b.Flag = !b.Flag
+	b.Note = b.Note + "+"
+	b.Count
+}
+
+// InspectBox returns a checksum from a LocalBox method receiver.
+func InspectBox(b LocalBox) uint32 {
+	(b.Count ^ 9) + 1
+}
+
+// MixSlice combines indexed slice elements, slice length, and bool logic.
+func MixSlice(a uint32, b uint32, c uint32, n int, initVal uint32, ok bool) uint32 {
+	let mut acc = initVal
+	if (a%2 == 0 || b%3 == 0) && ok {
+		acc = acc + a + c
+	} else {
+		acc = acc ^ (b + 1)
+	}
+	if n >= 3 {
+		acc = acc + 13
+	}
+	acc
+}
+
+// SliceLen returns the length of a uint32 slice.
+func SliceLen(xs []uint32) int {
+	len(xs)
+}
+
+// EvalSlice indexes a non-empty slice and forwards elements and length to MixSlice.
+func EvalSlice(xs []uint32, initVal uint32, ok bool) uint32 {
+	let n = len(xs)
+	MixSlice(xs[0], xs[1], xs[2], n, initVal, ok)
+}
+
+// PickEven computes a pure bool value using remainder and equality operators.
+func PickEven(v uint32, idx int) bool {
+	(v%2 == 0) || (idx%3 == 0 && v != 0)
+}
+
+// MixMeter folds scalar fields extracted from a Meter into a uint64 checksum.
+func MixMeter(score uint64, count uint32, bias int32, alt int32, wlen int) uint64 {
+	let mut acc = score
+	if count > 10 && bias >= alt {
+		acc = acc + 17
+	}
+	if wlen > 0 {
+		acc = acc ^ 31
+	}
+	acc
+}
+
+// SumMeter sums a Meter's nested Box score and field checks into a uint64.
+func SumMeter(m Meter) uint64 {
+	let wl = len(m.Weights)
+	MixMeter(m.Base.Score, m.Base.Count, m.Bias, m.Alt, wl)
+}

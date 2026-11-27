@@ -1,0 +1,19 @@
+// Box is an exported value record carried across package boundaries.
+type Box { Tag byte, Count uint32, Label string, Score uint64 }
+
+// MakeBox constructs a Box with the given tag, count, label, and score.
+func MakeBox(tag byte, count uint32, label string, score uint64) Box {
+	Box{Tag: tag, Count: count, Label: label, Score: score}
+}
+
+// TagScore mixes a Box's score, tag, count, label comparison, and salt into a uint64 checksum.
+func TagScore(b Box, salt uint64) uint64 {
+	let mut bonus uint64 = 3
+	if b.Label >= "go" && b.Label != "" {
+		bonus = 11
+	}
+	if b.Tag > 10 && b.Count > 5 {
+		bonus = bonus ^ 7
+	}
+	(b.Score << 2) ^ (salt + bonus)
+}

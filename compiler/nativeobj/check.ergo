@@ -1,11 +1,4 @@
-// Validation of the checked input. The producer writes nothing for a
-// package Check refuses: every index is in range, every slot an op reads
-// or writes has the kind the op needs, every call has an arity its target
-// accepts and ABIInternal can carry in registers, every branch names a
-// label, no body can run off its end, every init function is listed once,
-// and every import carries an 8-byte fingerprint. A refusal names the
-// first broken relation.
-
+import slices
 import strings
 
 // Malformed is a checked input Check refuses.
@@ -29,6 +22,21 @@ func validPath(s string) bool {
 }
 
 func kindOf(p Package, f Func, s int) int { p.Types[f.Slots[s]].Kind }
+
+func slotType(f Func, s int) int { f.Slots[s] }
+
+func unwrapStruct(p Package, t int) int {
+	if !inRange(t, p.Types.Len()) {
+		return -1
+	}
+	if p.Types[t].Kind == KStruct {
+		return t
+	}
+	if p.Types[t].Kind == KPtr && inRange(p.Types[t].Elem, p.Types.Len()) && p.Types[p.Types[t].Elem].Kind == KStruct {
+		return p.Types[t].Elem
+	}
+	-1
+}
 
 // targetOf is the function of p a call names, or -1 for a foreign one.
 func targetOf(p Package, name string) int {
@@ -57,40 +65,161 @@ func checkSlots(f Func, slots []int) fails Malformed {
 	}
 }
 
-func checkCall(p Package, f Func, dsts []int, args []int) fails Malformed {
-	try checkSlots(f, dsts)
-	try checkSlots(f, args)
-	if args.Len() > IntRegs.Len() || dsts.Len() > IntRegs.Len() {
-		return bad("\(f.Name): a call passes more words than ABIInternal's registers")
+func maxOutgoingWords(p Package, layouts LayoutTable, f Func) int {
+	let mut n = 0
+	for op in f.Ops {
+		match op {
+		case Call as c:
+			let t = targetOf(p, c.Target)
+			let words = if t >= 0 {
+				let cp = PlanSigABI(layouts, p.Funcs[t].Params, p.Funcs[t].Results, []int{})
+				(cp.StackEnd+7)/8 + cp.InRegCount
+			} else {
+				let cp = PlanSigABI(layouts, slotTypes(f, c.Args), slotTypes(f, c.Dsts), []int{})
+				(cp.StackEnd+7)/8 + cp.InRegCount
+			}
+			if words > n {
+				n = words
+			}
+		case CallClosure as c:
+			let ft = p.Types[f.Slots[c.Fn]]
+			let cp = PlanSigABI(layouts, ft.Params, ft.Results, []int{})
+			let words = (cp.StackEnd+7)/8 + cp.InRegCount
+			if words > n {
+				n = words
+			}
+		case _:
+		}
 	}
+	n
+}
+
+func slotTypes(f Func, xs []int) []int {
+	let mut out = slices.WithCapacity[int](xs.Len())
+	for s in xs {
+		out = out.Append(f.Slots[s])
+	}
+	out
 }
 
 func checkOp(p Package, f Func, op Op, labels []int) fails Malformed {
 	try checkSlots(f, OpUses(op))
 	try checkSlots(f, OpDefs(op))
 	match op {
+	case Const as c:
+		let k = kindOf(p, f, c.Dst)
+		if !KindIsInt(k) && k != KBool {
+			return bad("\(f.Name): constant into non-integer slot \(c.Dst)")
+		}
+		if k == KBool && c.V != 0 && c.V != 1 {
+			return bad("\(f.Name): invalid bool constant \(c.V)")
+		}
+	case ConstStr as c:
+		if kindOf(p, f, c.Dst) != KString {
+			return bad("\(f.Name): string constant into non-string slot \(c.Dst)")
+		}
+	case Zero:
 	case Arith as x:
-		if !inRange(x.Kind, 4) {
+		if !inRange(x.Kind, AShr+1) {
 			return bad("\(f.Name): arithmetic kind \(x.Kind)")
 		}
+		let dk = kindOf(p, f, x.Dst)
+		let dt = slotType(f, x.Dst)
+		if dt != slotType(f, x.A) {
+			return bad("\(f.Name): arithmetic operand A type mismatch")
+		}
+		if x.Kind == AShl || x.Kind == AShr {
+			if !KindIsInt(dk) || !KindIsInt(kindOf(p, f, x.B)) {
+				return bad("\(f.Name): shift expects integer operands")
+			}
+		} else {
+			if dt != slotType(f, x.B) {
+				return bad("\(f.Name): arithmetic operand B type mismatch")
+			}
+			if !KindIsInt(dk) && !(x.Kind == AAdd && dk == KString) {
+				return bad("\(f.Name): arithmetic on non-integer slot \(x.Dst)")
+			}
+		}
+	case Convert as c:
+		let dk = kindOf(p, f, c.Dst)
+		let sk = kindOf(p, f, c.Src)
+		if !(KindIsInt(dk) && KindIsInt(sk)) && !(slotType(f, c.Dst) == slotType(f, c.Src) && KindIsBasic(dk)) {
+			return bad("\(f.Name): invalid convert from kind \(sk) to \(dk)")
+		}
+	case Len as l:
+		if kindOf(p, f, l.Dst) != KInt {
+			return bad("\(f.Name): len dst must be int")
+		}
+		let sk = kindOf(p, f, l.Src)
+		if sk != KString && sk != KSlice {
+			return bad("\(f.Name): len src must be string or slice")
+		}
 	case Load as l:
-		if kindOf(p, f, l.Ptr) != KPtr {
-			return bad("\(f.Name): load through slot \(l.Ptr), not a pointer")
+		if kindOf(p, f, l.Ptr) != KPtr || p.Types[slotType(f, l.Ptr)].Elem != slotType(f, l.Dst) {
+			return bad("\(f.Name): load through slot \(l.Ptr) mismatches \(l.Dst)")
 		}
 	case StorePtr as s:
-		if kindOf(p, f, s.Ptr) != KPtr || p.Types[p.Types[f.Slots[s.Ptr]].Elem].Kind == KInt || !IsPointer(p, f.Slots[s.Val]) {
-			return bad("\(f.Name): pointer store needs a pointer to a pointer and a pointer")
+		if kindOf(p, f, s.Ptr) != KPtr || !HasPointers(p, p.Types[slotType(f, s.Ptr)].Elem) || p.Types[slotType(f, s.Ptr)].Elem != slotType(f, s.Val) {
+			return bad("\(f.Name): pointer store needs a pointer to pointer-bearing element and matching value")
 		}
 	case Store as s:
-		if kindOf(p, f, s.Ptr) != KPtr || p.Types[p.Types[f.Slots[s.Ptr]].Elem].Kind != KInt || kindOf(p, f, s.Val) != KInt {
-			return bad("\(f.Name): int store needs a pointer to an int and an int")
+		if kindOf(p, f, s.Ptr) != KPtr || HasPointers(p, p.Types[slotType(f, s.Ptr)].Elem) || p.Types[slotType(f, s.Ptr)].Elem != slotType(f, s.Val) {
+			return bad("\(f.Name): value store needs a pointer to pointer-free element and matching value")
 		}
 	case AddrOf as a:
-		if kindOf(p, f, a.Dst) != KPtr {
-			return bad("\(f.Name): address into slot \(a.Dst), not a pointer")
+		if kindOf(p, f, a.Dst) != KPtr || p.Types[slotType(f, a.Dst)].Elem != slotType(f, a.Of) {
+			return bad("\(f.Name): address into slot \(a.Dst) mismatches \(a.Of)")
 		}
-		if !inRange(a.Of, f.Slots.Len()) {
-			return bad("\(f.Name): address of slot \(a.Of)")
+	case RecordLit as r:
+		if kindOf(p, f, r.Dst) != KStruct {
+			return bad("\(f.Name): record literal into non-struct slot \(r.Dst)")
+		}
+		let td = p.Types[slotType(f, r.Dst)]
+		if r.Vals.Len() != td.Fields.Len() {
+			return bad("\(f.Name): record literal has \(r.Vals.Len()) fields, want \(td.Fields.Len())")
+		}
+		for fi, fd in td.Fields {
+			if slotType(f, r.Vals[fi]) != fd.Type {
+				return bad("\(f.Name): record literal field \(fi) type mismatch")
+			}
+		}
+	case FieldGet as g:
+		let stIdx = unwrapStruct(p, slotType(f, g.Base))
+		if stIdx < 0 {
+			return bad("\(f.Name): field get on non-struct slot \(g.Base)")
+		}
+		let td = p.Types[stIdx]
+		if !inRange(g.Field, td.Fields.Len()) || slotType(f, g.Dst) != td.Fields[g.Field].Type {
+			return bad("\(f.Name): field get index or dst type mismatch")
+		}
+	case FieldSet as s:
+		if kindOf(p, f, s.Ptr) != KPtr {
+			return bad("\(f.Name): field set base must be pointer")
+		}
+		let elem = p.Types[slotType(f, s.Ptr)].Elem
+		if p.Types[elem].Kind != KStruct {
+			return bad("\(f.Name): field set pointee must be struct")
+		}
+		let td = p.Types[elem]
+		if !inRange(s.Field, td.Fields.Len()) || slotType(f, s.Val) != td.Fields[s.Field].Type {
+			return bad("\(f.Name): field set index or val type mismatch")
+		}
+	case Index as ix:
+		if kindOf(p, f, ix.Slice) != KSlice {
+			return bad("\(f.Name): index on non-slice slot \(ix.Slice)")
+		}
+		if slotType(f, ix.Dst) != p.Types[slotType(f, ix.Slice)].Elem || !KindIsInt(kindOf(p, f, ix.Idx)) {
+			return bad("\(f.Name): slice index dst or index type mismatch")
+		}
+	case SliceLit as sl:
+		if kindOf(p, f, sl.Dst) != KSlice {
+			return bad("\(f.Name): slice literal into non-slice slot \(sl.Dst)")
+		}
+		let elem = p.Types[slotType(f, sl.Dst)].Elem
+		for e in sl.Elems {
+			if slotType(f, e) != elem {
+				return bad("\(f.Name): slice literal element type mismatch")
+			}
 		}
 	case GetGlobal as g:
 		if !inRange(g.Global, p.Globals.Len()) {
@@ -101,17 +230,29 @@ func checkOp(p Package, f Func, op Op, labels []int) fails Malformed {
 			return bad("\(f.Name): global \(g.Global)")
 		}
 	case Call as c:
-		try checkCall(p, f, c.Dsts, c.Args)
+		try checkSlots(f, c.Dsts)
+		try checkSlots(f, c.Args)
 		let t = targetOf(p, c.Target)
 		if t >= 0 {
-			if p.Funcs[t].Params.Len() != c.Args.Len() || c.Dsts.Len() > p.Funcs[t].Results.Len() {
+			if p.Funcs[t].Params.Len() != c.Args.Len() || c.Dsts.Len() != p.Funcs[t].Results.Len() {
 				return bad("\(f.Name): call of \(c.Target) with \(c.Args.Len()) arguments and \(c.Dsts.Len()) results")
+			}
+			for j, a in c.Args {
+				if slotType(f, a) != p.Funcs[t].Params[j] {
+					return bad("\(f.Name): call of \(c.Target) arg \(j) type mismatch")
+				}
+			}
+			for j, d in c.Dsts {
+				if slotType(f, d) != p.Funcs[t].Results[j] {
+					return bad("\(f.Name): call of \(c.Target) result \(j) type mismatch")
+				}
 			}
 		} else if !foreign(p, c.Target) {
 			return bad("\(f.Name): call of \(c.Target), in no package this one imports")
 		}
 	case CallClosure as c:
-		try checkCall(p, f, c.Dsts, c.Args)
+		try checkSlots(f, c.Dsts)
+		try checkSlots(f, c.Args)
 		let ft = p.Types[f.Slots[c.Fn]]
 		if ft.Kind != KFunc || ft.Params.Len() != c.Args.Len() || c.Dsts.Len() > ft.Results.Len() {
 			return bad("\(f.Name): closure call through slot \(c.Fn) does not match its func type")
@@ -127,25 +268,75 @@ func checkOp(p Package, f Func, op Op, labels []int) fails Malformed {
 		if !inRange(j.Cond, 4) {
 			return bad("\(f.Name): condition \(j.Cond)")
 		}
+		if slotType(f, j.A) != slotType(f, j.B) {
+			return bad("\(f.Name): branch operands have different types")
+		}
+		let ak = kindOf(p, f, j.A)
+		if !KindIsInt(ak) && ak != KString && !((j.Cond == CEq || j.Cond == CNe) && (ak == KBool || ak == KPtr || ak == KFunc)) {
+			return bad("\(f.Name): unsupported branch operand kind \(ak) for cond \(j.Cond)")
+		}
 	case Return as r:
 		if r.Vals.Len() != f.Results.Len() {
 			return bad("\(f.Name): returns \(r.Vals.Len()) of \(f.Results.Len()) results")
 		}
-	case _:
+		for k, s in r.Vals {
+			if slotType(f, s) != f.Results[k] {
+				return bad("\(f.Name): return slot \(s) mismatches result \(k)")
+			}
+		}
+	case Label:
 	}
 }
 
-func checkFunc(p Package, f Func) fails Malformed {
+func checkTypeCycle(p Package, t int, state mut []int) bool {
+	if p.Types[t].Kind != KStruct {
+		return false
+	}
+	if (*state)[t] == 1 {
+		return true
+	}
+	if (*state)[t] == 2 {
+		return false
+	}
+	(*state)[t] = 1
+	for f in p.Types[t].Fields {
+		if checkTypeCycle(p, f.Type, state) {
+			return true
+		}
+	}
+	(*state)[t] = 2
+	false
+}
+
+func bodyIsLeaf(p Package, f Func) bool {
+	for op in f.Ops {
+		if IsCallOp(p, f, op) {
+			return false
+		}
+		match op {
+		case Index:
+			return false
+		case Arith as a:
+			if a.Kind == ADiv || a.Kind == ARem {
+				return false
+			}
+		case _:
+		}
+	}
+	true
+}
+
+func checkFunc(p Package, layouts LayoutTable, f Func) fails Malformed {
 	if f.Name == "" {
 		return bad("a function has no name")
+	}
+	if !inRange(f.File, PkgFiles(p).Len()) {
+		return bad("\(f.Name): file index \(f.File) out of range")
 	}
 	for t in f.Params.Concat(f.Results).Concat(f.Slots) {
 		if !inRange(t, p.Types.Len()) {
 			return bad("\(f.Name): type \(t) of \(p.Types.Len())")
 		}
-	}
-	if f.Params.Len() > IntRegs.Len() || f.Results.Len() > IntRegs.Len() {
-		return bad("\(f.Name): more parameters or results than ABIInternal's registers")
 	}
 	if f.Slots.Len() < f.Params.Len() {
 		return bad("\(f.Name): fewer slots than parameters")
@@ -167,7 +358,8 @@ func checkFunc(p Package, f Func) fails Malformed {
 	case _:
 		return bad("\(f.Name): the body can run off its end")
 	}
-	let fr = FrameOf(f.Slots.Len(), maxArgs(f), isLeaf(f))
+	let plan = PlanSigABI(layouts, f.Params, f.Results, f.Slots)
+	let fr = FrameOf(plan.TotalSlotWords, maxOutgoingWords(p, layouts, f), bodyIsLeaf(p, f))
 	if fr.Size > StackBig {
 		return bad("\(f.Name): frame of \(fr.Size) bytes")
 	}
@@ -189,14 +381,20 @@ func checkFunc(p Package, f Func) fails Malformed {
 
 // Check validates p.
 func Check(p Package) fails Malformed {
-	if !validPath(p.Path) || p.Name == "" || p.File == "" {
+	let files = PkgFiles(p)
+	if !validPath(p.Path) || p.Name == "" || files.Len() == 0 {
 		return bad("package path, name or file missing or invalid")
 	}
+	for f in files {
+		if f == "" {
+			return bad("empty source file path")
+		}
+	}
 	for i, t in p.Types {
-		if !inRange(t.Kind, 3) {
+		if !inRange(t.Kind, KStruct+1) {
 			return bad("type \(i): kind \(t.Kind)")
 		}
-		if t.Kind == KPtr && !inRange(t.Elem, p.Types.Len()) {
+		if (t.Kind == KPtr || t.Kind == KSlice) && !inRange(t.Elem, p.Types.Len()) {
 			return bad("type \(i): element \(t.Elem)")
 		}
 		for u in t.Params.Concat(t.Results) {
@@ -204,7 +402,26 @@ func Check(p Package) fails Malformed {
 				return bad("type \(i): component \(u)")
 			}
 		}
+		if t.Kind == KStruct {
+			for fi, fd in t.Fields {
+				if fd.Name == "" || !inRange(fd.Type, p.Types.Len()) {
+					return bad("type \(i): invalid field \(fi)")
+				}
+				for fj in 0..fi {
+					if t.Fields[fj].Name == fd.Name {
+						return bad("type \(i): duplicate field \(fd.Name)")
+					}
+				}
+			}
+		}
 	}
+	let mut state = slices.Repeat[int]([]int{0}, p.Types.Len())
+	for i in 0..p.Types.Len() {
+		if checkTypeCycle(p, i, &state) {
+			return bad("type \(i): by-value cycle")
+		}
+	}
+	let layouts = ComputeLayouts(p)
 	for i, imp in p.Imports {
 		if !validPath(imp.Path) || imp.Name == "" || imp.Fingerprint.Len() != 8 {
 			return bad("import \(i): path, name or 8-byte fingerprint missing")
@@ -223,7 +440,7 @@ func Check(p Package) fails Malformed {
 		}
 	}
 	for i, f in p.Funcs {
-		try checkFunc(p, f)
+		try checkFunc(p, layouts, f)
 		for j in 0..i {
 			if f.Name != "init" && p.Funcs[j].Name == f.Name {
 				return bad("function \(f.Name) twice")

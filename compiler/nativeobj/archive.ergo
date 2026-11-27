@@ -44,12 +44,15 @@ type Built { Archive string, Fingerprint string, Lowered []Lowered }
 func Archive(p Package, header string) Built fails Refused | Malformed | Undefined {
 	try CheckHeader(header)
 	try Check(p)
+	let layouts = ComputeLayouts(p)
+	let mut strs = CollectStrs(p)
 	let mut lowered = []Lowered{}
 	for f in p.Funcs {
-		lowered = lowered.Append(try LowerFunc(p, f))
+		lowered = lowered.Append(try LowerFuncWithStrs(p, layouts, f, &strs))
 	}
-	let (blob, fp) = ExportBlob(p)
-	let obj = WriteObject(BuildObject(p, lowered, fp))
+	let (_, typeSyms, ptrTypeSyms) = PlanTypeSyms(p)
+	let (blob, fp) = ExportBlobWithSyms(p, typeSyms, ptrTypeSyms)
+	let obj = WriteObject(BuildObjectWithStrs(p, layouts, lowered, strs, fp))
 	let ar = WriteAr([]Member{
 		Member{Name: "__.PKGDEF", Data: PkgDef(header, blob)},
 		Member{Name: "_go_.o", Data: header + "\n" + "\n!\n" + obj},

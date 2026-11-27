@@ -26,11 +26,13 @@ type Asm {
 	Code   Buf,
 	Relocs []Reloc,
 	Sp     []PcVal,
+	File   []PcVal,
 	Line   []PcVal,
 	Smi    []PcVal,
 	Unsafe []PcVal,
 	Sites  []Site,
 	sp     int,
+	file   int,
 	line   int,
 	smi    int,
 	unsafe int,
@@ -40,8 +42,14 @@ type Asm {
 
 // NewAsm is an empty function at line.
 func NewAsm(line int) Asm {
-	Asm{Code: NewBuf(), Relocs: []Reloc{}, Sp: []PcVal{}, Line: []PcVal{}, Smi: []PcVal{}, Unsafe: []PcVal{},
-		Sites: []Site{}, sp: 0, line: line, smi: -1, unsafe: UnsafeSafe, labels: Map[int, int]{}, fixups: []PcVal{}}
+	Asm{Code: NewBuf(), Relocs: []Reloc{}, Sp: []PcVal{}, File: []PcVal{}, Line: []PcVal{}, Smi: []PcVal{}, Unsafe: []PcVal{},
+		Sites: []Site{}, sp: 0, file: 0, line: line, smi: -1, unsafe: UnsafeSafe, labels: Map[int, int]{}, fixups: []PcVal{}}
+}
+
+// NewAsmInFile creates an assembler initialized at source file index and line.
+func NewAsmInFile(file int, line int) Asm {
+	Asm{Code: NewBuf(), Relocs: []Reloc{}, Sp: []PcVal{}, File: []PcVal{}, Line: []PcVal{}, Smi: []PcVal{}, Unsafe: []PcVal{},
+		Sites: []Site{}, sp: 0, file: file, line: line, smi: -1, unsafe: UnsafeSafe, labels: Map[int, int]{}, fixups: []PcVal{}}
 }
 
 // Pc is the offset of the next instruction.
@@ -67,14 +75,16 @@ func note(t []PcVal, pc int, v int) []PcVal {
 func begin(a mut Asm) {
 	let pc = a.Code.Size()
 	a.Sp = note(a.Sp, pc, a.sp)
+	a.File = note(a.File, pc, a.file)
 	a.Line = note(a.Line, pc, a.line)
 	a.Smi = note(a.Smi, pc, a.smi)
 	a.Unsafe = note(a.Unsafe, pc, a.unsafe)
 }
 
-// SetSp, SetLine, SetSmi and SetUnsafe change a table's value for the
+// SetSp, SetFile, SetLine, SetSmi and SetUnsafe change a table's value for the
 // instructions that follow.
 func SetSp(a mut Asm, v int)     { a.sp = v }
+func SetFile(a mut Asm, v int)   { a.file = v }
 func SetLine(a mut Asm, v int)   { a.line = v }
 func SetSmi(a mut Asm, v int)    { a.smi = v }
 func SetUnsafe(a mut Asm, v int) { a.unsafe = v }
@@ -83,6 +93,13 @@ func SpNow(a Asm) int            { a.sp }
 func rex(a mut Asm, w bool, r int, x int, b int) {
 	let v = 64 | (if w { 8 } else { 0 }) | ((r >> 3) << 2) | ((x >> 3) << 1) | (b >> 3)
 	if v != 64 {
+		a.Code.U8(v)
+	}
+}
+
+func rexByte(a mut Asm, r int, b int) {
+	let v = 64 | ((r >> 3) << 2) | (b >> 3)
+	if v != 64 || r >= 4 || b >= 4 {
 		a.Code.U8(v)
 	}
 }
@@ -122,6 +139,103 @@ func Lea(a mut Asm, dst int, base int, disp int) {
 	a.mem(dst, base, disp)
 }
 
+// LeaRip emits LEAQ sym(SB), dst using a PC-relative relocation.
+func LeaRip(a mut Asm, dst int, sym string, abi int) {
+	a.begin()
+	a.rex(true, dst, 0, 0)
+	a.Code.U8(0x8D)
+	a.modrm(0, dst, 5)
+	a.Relocs = a.Relocs.Append(Reloc{Off: a.Code.Size(), Size: 4, Type: RPcrel, Add: 0, Sym: sym, ABI: abi})
+	a.Code.U32(0)
+}
+
+// MovLoadN loads width (1, 2, 4, or 8) bytes from disp(base) into dst with sign or zero extension.
+func MovLoadN(a mut Asm, dst int, base int, disp int, width int, signed bool) {
+	if width == 8 {
+		a.MovLoad(dst, base, disp)
+		return
+	}
+	a.begin()
+	if width == 4 {
+		if signed {
+			a.rex(true, dst, 0, base)
+			a.Code.U8(0x63)
+		} else {
+			a.rex(false, dst, 0, base)
+			a.Code.U8(0x8B)
+		}
+		a.mem(dst, base, disp)
+		return
+	}
+	a.rex(signed, dst, 0, base)
+	a.Code.U8(0x0F)
+	a.Code.U8(if width == 1 { if signed { 0xBE } else { 0xB6 } } else { if signed { 0xBF } else { 0xB7 } })
+	a.mem(dst, base, disp)
+}
+
+// MovStoreN stores width (1, 2, 4, or 8) bytes from src to disp(base).
+func MovStoreN(a mut Asm, src int, base int, disp int, width int) {
+	if width == 8 {
+		a.MovStore(src, base, disp)
+		return
+	}
+	a.begin()
+	if width == 1 {
+		a.rexByte(src, base)
+		a.Code.U8(0x88)
+		a.mem(src, base, disp)
+		return
+	}
+	if width == 2 {
+		a.Code.U8(0x66)
+	}
+	a.rex(false, src, 0, base)
+	a.Code.U8(0x89)
+	a.mem(src, base, disp)
+}
+
+// ZeroExt extends the low width (1, 2, 4, or 8) bytes of src zero-extended into dst.
+func ZeroExt(a mut Asm, dst int, src int, width int) {
+	if width == 8 {
+		a.MovRR(dst, src)
+		return
+	}
+	a.begin()
+	if width == 4 {
+		a.rex(false, src, 0, dst)
+		a.Code.U8(0x89)
+		a.modrm(3, src, dst)
+		return
+	}
+	if width == 1 {
+		a.rexByte(dst, src)
+	} else {
+		a.rex(false, dst, 0, src)
+	}
+	a.Code.U8(0x0F)
+	a.Code.U8(if width == 1 { 0xB6 } else { 0xB7 })
+	a.modrm(3, dst, src)
+}
+
+// SignExt sign-extends the low width (1, 2, 4, or 8) bytes of src into 64-bit dst.
+func SignExt(a mut Asm, dst int, src int, width int) {
+	if width == 8 {
+		a.MovRR(dst, src)
+		return
+	}
+	a.begin()
+	if width == 4 {
+		a.rex(true, dst, 0, src)
+		a.Code.U8(0x63)
+		a.modrm(3, dst, src)
+		return
+	}
+	a.rex(true, dst, 0, src)
+	a.Code.U8(0x0F)
+	a.Code.U8(if width == 1 { 0xBE } else { 0xBF })
+	a.modrm(3, dst, src)
+}
+
 // MovRR is MOVQ src, dst.
 func MovRR(a mut Asm, dst int, src int) {
 	a.begin()
@@ -132,6 +246,9 @@ func MovRR(a mut Asm, dst int, src int) {
 
 // Opcodes of the register-register ALU forms (op r/m64, r64).
 let OpAdd = 0x01
+let OpOr = 0x09
+let OpSbb = 0x19
+let OpAnd = 0x21
 let OpSub = 0x29
 let OpXor = 0x31
 let OpCmp = 0x39
@@ -144,6 +261,14 @@ func Alu(a mut Asm, op int, dst int, src int) {
 	a.modrm(3, src, dst)
 }
 
+// Alu32 performs 32-bit dst = dst OP src, zeroing the upper 32 bits of dst (unless OpCmp).
+func Alu32(a mut Asm, op int, dst int, src int) {
+	a.begin()
+	a.rex(false, src, 0, dst)
+	a.Code.U8(op)
+	a.modrm(3, src, dst)
+}
+
 // Imul is IMULQ src, dst.
 func Imul(a mut Asm, dst int, src int) {
 	a.begin()
@@ -151,6 +276,80 @@ func Imul(a mut Asm, dst int, src int) {
 	a.Code.U8(0x0F)
 	a.Code.U8(0xAF)
 	a.modrm(3, dst, src)
+}
+
+// Imul32 emits 32-bit IMULL src, dst.
+func Imul32(a mut Asm, dst int, src int) {
+	a.begin()
+	a.rex(false, dst, 0, src)
+	a.Code.U8(0x0F)
+	a.Code.U8(0xAF)
+	a.modrm(3, dst, src)
+}
+
+// TestRR emits TESTB/TESTL/TESTQ r1, r2.
+func TestRR(a mut Asm, width int, r1 int, r2 int) {
+	a.begin()
+	if width == 1 {
+		a.rexByte(r2, r1)
+		a.Code.U8(0x84)
+		a.modrm(3, r2, r1)
+		return
+	}
+	a.rex(width == 8, r2, 0, r1)
+	a.Code.U8(0x85)
+	a.modrm(3, r2, r1)
+}
+
+// CmpImm8 emits CMPQ/CMPL r, imm8.
+func CmpImm8(a mut Asm, width int, r int, imm8 int) {
+	a.begin()
+	a.rex(width == 8, 0, 0, r)
+	a.Code.U8(0x83)
+	a.modrm(3, 7, r)
+	a.Code.U8(imm8 & 0xff)
+}
+
+// UnaryR emits 32-bit or 64-bit unary NOT (ext=2) or NEG (ext=3) on r.
+func UnaryR(a mut Asm, width int, ext int, r int) {
+	a.begin()
+	a.rex(width == 8, 0, 0, r)
+	a.Code.U8(0xF7)
+	a.modrm(3, ext, r)
+}
+
+// DivOp emits CQO/CDQ + IDIV or XORL RDX,RDX + DIV using RAX/RDX and divisor register.
+func DivOp(a mut Asm, width int, signed bool, divisor int) {
+	if signed {
+		a.begin()
+		if width == 8 {
+			a.Code.U8(0x48)
+		}
+		a.Code.U8(0x99)
+	} else {
+		a.Alu32(OpXor, RDX, RDX)
+	}
+	a.begin()
+	a.rex(width == 8, 0, 0, divisor)
+	a.Code.U8(0xF7)
+	a.modrm(3, if signed { 7 } else { 6 }, divisor)
+}
+
+// ShiftCL emits SHL (ext=4), SHR (ext=5), or SAR (ext=7) by CL at 32-bit or 64-bit width.
+func ShiftCL(a mut Asm, width int, ext int, dst int) {
+	a.begin()
+	a.rex(width == 8, 0, 0, dst)
+	a.Code.U8(0xD3)
+	a.modrm(3, ext, dst)
+}
+
+// Setcc emits SETcc dst (low byte set to 1 if condition holds, else 0).
+func Setcc(a mut Asm, cc int, dst int) {
+	a.begin()
+	a.rexByte(0, dst)
+	a.Code.U8(0x0F)
+	a.Code.U8(0x90 + cc)
+	a.modrm(3, 0, dst)
 }
 
 // Extensions of the 0x81 immediate group.
@@ -200,6 +399,12 @@ func Ret(a mut Asm) {
 	a.Code.U8(0xC3)
 }
 
+// Nop emits a single-byte x86-64 NOP (0x90).
+func Nop(a mut Asm) {
+	a.begin()
+	a.Code.U8(0x90)
+}
+
 // CallSym is CALL sym(SB), a direct call the linker resolves (RCall).
 // The site's stack-map index is the one in force (SetSmi).
 func CallSym(a mut Asm, sym string, abi int, safe bool) {
@@ -224,11 +429,16 @@ func CallReg(a mut Asm, r int) {
 }
 
 // Branch condition codes (the low nibble of 0F 8x).
+let JccB = 0x2
+let JccAe = 0x3
 let JccEq = 0x4
 let JccNe = 0x5
 let JccBe = 0x6
+let JccA = 0x7
 let JccLt = 0xC
 let JccGe = 0xD
+let JccLe = 0xE
+let JccG = 0xF
 
 // Bind places label id at the next instruction.
 func Bind(a mut Asm, id int) { a.labels[id] = a.Code.Size() }
