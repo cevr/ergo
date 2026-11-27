@@ -343,6 +343,15 @@ func ShiftCL(a mut Asm, width int, ext int, dst int) {
 	a.modrm(3, ext, dst)
 }
 
+// ShiftImm emits SHL (ext=4), SHR (ext=5), or SAR (ext=7) by imm8 at 32-bit or 64-bit width.
+func ShiftImm(a mut Asm, width int, ext int, dst int, imm int) {
+	a.begin()
+	a.rex(width == 8, 0, 0, dst)
+	a.Code.U8(0xC1)
+	a.modrm(3, ext, dst)
+	a.Code.U8(imm & 0xff)
+}
+
 // Setcc emits SETcc dst (low byte set to 1 if condition holds, else 0).
 func Setcc(a mut Asm, cc int, dst int) {
 	a.begin()

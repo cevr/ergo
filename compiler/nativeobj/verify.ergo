@@ -135,11 +135,14 @@ func isLoadW(ins Ins, reg int, base int, disp int, w int, signed bool) bool {
 }
 
 func isRuntimeSafeCall(target string) bool {
-	target == RuntimeMakeslice || target == RuntimeConcatstring2 || target == RuntimeCmpstring || target == RuntimeMemequal
+	target == RuntimeMakeslice || target == RuntimeConcatstring2 || target == RuntimeCmpstring || target == RuntimeMemequal || target == RuntimeNewobject || target == RuntimeGrowslice
 }
 
 func isColdPanic(target string) bool {
-	target == RuntimePanicIndex || target == RuntimePanicIndexU || target == RuntimePanicDivide
+		target == RuntimePanicIndex || target == RuntimePanicIndexU || target == RuntimePanicDivide ||
+		target == RuntimePanicSliceAlen || target == RuntimePanicSliceAlenU ||
+		target == RuntimePanicSliceAcap || target == RuntimePanicSliceAcapU ||
+		target == RuntimePanicSliceB || target == RuntimePanicSliceBU
 }
 
 func goCall(v FuncView, ins Ins) bool {
@@ -183,8 +186,10 @@ func coldOpsCount(f Func) int {
 	let mut n = 0
 	for op in f.Ops {
 		match op {
-		case Index:
+		case Index, StringIndex:
 			n = n + 1
+		case SliceOp:
+			n = n + 2
 		case Arith as a:
 			if a.Kind == ADiv || a.Kind == ARem {
 				n = n + 1
@@ -309,7 +314,7 @@ func CheckExports(p Package, d Decoded) []string {
 		}
 	}
 	for td in p.Types {
-		if td.Kind != KStruct || td.Name == "" || (td.PkgPath != "" && td.PkgPath != p.Path) || !td.Exported {
+		if (td.Kind != KStruct && td.Kind != KIface) || td.Name == "" || (td.PkgPath != "" && td.PkgPath != p.Path) || !td.Exported {
 			continue
 		}
 		n = n + 1
@@ -396,6 +401,10 @@ func abiOf(p Package, layouts LayoutTable, f Func, v FuncView) []string {
 			case CallClosure as c:
 				let ft = p.Types[f.Slots[c.Fn]]
 				out = out.Concat(checkCallSiteABI(f, layouts, fr, plan, ins, q, true, c.Args, c.Dsts, ft.Params, ft.Results, c.Fn, m))
+			case CallIface as ci:
+				let it = p.Types[f.Slots[ci.Iface]]
+				let mt = p.Types[it.Methods[ci.Method].Type]
+				out = out.Concat(checkIfaceCallSiteABI(f, layouts, fr, plan, ins, q, ci.Iface, ci.Args, ci.Dsts, mt.Params, mt.Results, m))
 			case _:
 			}
 			m = m + 1
@@ -438,7 +447,8 @@ func abiOf(p Package, layouts LayoutTable, f Func, v FuncView) []string {
 				}
 			}
 		}
-		if callTo(v, x, MorestackNoctxt) {
+		let hasEnv = FuncHasClosureEnv(f)
+		if callTo(v, x, if hasEnv { RuntimeMorestack } else { MorestackNoctxt }) {
 			for r in 0..plan.InRegCount {
 				let before = q - plan.InRegCount + r
 				if before < 0 || !isMov(ins[before], 0x89, IntRegs[r], RSP, 8+plan.StackEnd+8*r) || q+1+r >= ins.Len() || !isMov(ins[q+1+r], 0x8B, IntRegs[r], RSP, 8+plan.StackEnd+8*r) {
@@ -512,6 +522,55 @@ func checkCallSiteABI(f Func, layouts LayoutTable, fr Frame, plan FuncAbiPlan, i
 	out
 }
 
+func checkIfaceCallSiteABI(f Func, layouts LayoutTable, fr Frame, plan FuncAbiPlan, ins []Ins, q int, ifaceSlot int, args []int, dsts []int, pts []int, rts []int, m int) []string {
+	let mut out = []string{}
+	let cp = PlanIfaceMethodABI(layouts, pts, rts)
+	if q < 1 || !isMov(ins[q-1], 0x8B, RAX, RSP, SlotBaseOff(fr, plan, ifaceSlot)+8) || ins[q].Op != 0xFF || ins[q].B != R12 {
+		return out.Append("\(f.Name): iface call \(m) does not load receiver into RAX and call R12")
+	}
+	let mut argPieces = 0
+	for k in 0..args.Len() {
+		if cp.ParamIsReg[k] {
+			argPieces = argPieces + int(layouts.PieceHi[pts[k]]-layouts.PieceLo[pts[k]])
+		}
+	}
+	let mut cur = q - 1 - argPieces
+	for k, s in args {
+		if cp.ParamIsReg[k] {
+			let pt = pts[k]
+			let plo = int(layouts.PieceLo[pt])
+			let phi = int(layouts.PieceHi[pt])
+			let r0 = cp.ParamRegStart[k]
+			let srcOff = SlotBaseOff(fr, plan, s)
+			for j in plo..phi {
+				let pc = layouts.Pieces[j]
+				if cur < 0 || !isLoadW(ins[cur], IntRegs[r0+(j-plo)], RSP, srcOff+int(pc.Off), int(pc.Size), pc.Signed) {
+					out = out.Append("\(f.Name): iface call \(m) argument \(k) not loaded into \(IntRegs[r0+(j-plo)])")
+				}
+				cur = cur + 1
+			}
+		}
+	}
+	let mut rx = q + 1
+	for k, d in dsts {
+		if cp.ResultIsReg[k] {
+			let rt = rts[k]
+			let rlo = int(layouts.PieceLo[rt])
+			let rhi = int(layouts.PieceHi[rt])
+			let r0 = cp.ResultRegStart[k]
+			let dstOff = SlotBaseOff(fr, plan, d)
+			for j in rlo..rhi {
+				let pc = layouts.Pieces[j]
+				if rx >= ins.Len() || !isStoreW(ins[rx], IntRegs[r0+(j-rlo)], RSP, dstOff+int(pc.Off), int(pc.Size)) {
+					out = out.Append("\(f.Name): iface call \(m) result \(k) not taken from \(IntRegs[r0+(j-rlo)])")
+				}
+				rx = rx + 1
+			}
+		}
+	}
+	out
+}
+
 func countRets(ins []Ins, q int) int {
 	let mut n = 0
 	for k in 0..q {
@@ -537,6 +596,7 @@ func CheckSafePoints(p Package, d Decoded) []string {
 		if v.Locals.Len() != wantMaps || v.ArgMaps.Len() != wantMaps {
 			out = out.Append("\(f.Name): \(v.Locals.Len()) locals and \(v.ArgMaps.Len()) args maps for \(wantMaps)")
 		}
+		let hasEnv = FuncHasClosureEnv(f)
 		let mut m = 0
 		for x in v.Ins {
 			let ret = x.Pc + x.Size
@@ -563,7 +623,7 @@ func CheckSafePoints(p Package, d Decoded) []string {
 				case option.None:
 				}
 			}
-			if callTo(v, x, MorestackNoctxt) && (ValueAt(v.Smi, ret-1) != -1 || ValueAt(v.Unsafe, x.Pc) != UnsafeUnsafe) {
+			if callTo(v, x, if hasEnv { RuntimeMorestack } else { MorestackNoctxt }) && (ValueAt(v.Smi, ret-1) != -1 || ValueAt(v.Unsafe, x.Pc) != UnsafeUnsafe) {
 				out = out.Append("\(f.Name): the morestack call is not at map -1 in an unsafe span")
 			}
 		}
@@ -688,6 +748,16 @@ func expectedBarrierCount(p Package, layouts LayoutTable, f Func) int {
 		case SliceLit as sl:
 			let elem = p.Types[f.Slots[sl.Dst]].Elem
 			n = n + sl.Elems.Len()*ptrWordCount(layouts, elem)
+		case Append as ap:
+			let elem = p.Types[f.Slots[ap.Dst]].Elem
+			n = n + ptrWordCount(layouts, elem)
+		case MakeIface as mi:
+			let st = f.Slots[mi.Src]
+			if p.Types[st].Kind != KPtr && !TypeIsZeroSize(p, st) {
+				n = n + ptrWordCount(layouts, st)
+			}
+		case SetGlobal as g:
+			n = n + ptrWordCount(layouts, p.Globals[g.Global].Type)
 		case _:
 		}
 	}
@@ -833,18 +903,62 @@ func CheckRelocs(p Package, d Decoded) []string {
 						want = want.Append(RuntimeCmpstring)
 					}
 				}
+			case Alloc as al:
+				let elem = p.Types[f.Slots[al.Dst]].Elem
+				want = want.Append(TypeDescSym(p, elem))
+				want = want.Append(RuntimeNewobject)
+			case MakeClosure as mc:
+				want = want.Append(if mc.Env < 0 { mc.Target + ClosureSuffix } else { mc.Target })
+			case Append as ap:
+				let elem = p.Types[f.Slots[ap.Dst]].Elem
+				want = want.Append(TypeDescSym(p, elem))
+				want = want.Append(RuntimeGrowslice)
+				appendBarrierRelocs(&want, ptrWordCount(layouts, elem))
+			case SliceOp as sl:
+				let sk = p.Types[f.Slots[sl.Src]].Kind
+				let hiSigned = KindIsSigned(p.Types[f.Slots[sl.Hi]].Kind)
+				let loSigned = KindIsSigned(p.Types[f.Slots[sl.Lo]].Kind)
+				wantCold = wantCold.Append(if sk == KString {
+					if hiSigned { RuntimePanicSliceAlen } else { RuntimePanicSliceAlenU }
+				} else {
+					if hiSigned { RuntimePanicSliceAcap } else { RuntimePanicSliceAcapU }
+				})
+				wantCold = wantCold.Append(if loSigned { RuntimePanicSliceB } else { RuntimePanicSliceBU })
+			case StringIndex as sx:
+				let idxSigned = KindIsSigned(p.Types[f.Slots[sx.Idx]].Kind)
+				wantCold = wantCold.Append(if idxSigned { RuntimePanicIndex } else { RuntimePanicIndexU })
+			case MakeIface as mi:
+				let dstT = f.Slots[mi.Dst]
+				let srcT = f.Slots[mi.Src]
+				let tabSym = if p.Types[dstT].Methods.Len() == 0 { TypeDescSym(p, srcT) } else { ItabSym(p, srcT, dstT) }
+				if p.Types[srcT].Kind == KPtr {
+					want = want.Append(tabSym)
+				} else if TypeIsZeroSize(p, srcT) {
+					want = want.Append(tabSym)
+					want = want.Append(RuntimeZerobase)
+				} else {
+					want = want.Append(TypeDescSym(p, srcT))
+					want = want.Append(RuntimeNewobject)
+					appendBarrierRelocs(&want, ptrWordCount(layouts, srcT))
+					want = want.Append(tabSym)
+				}
+			case IfaceIs as ii:
+				want = want.Append(TypeDescSym(p, ii.ConcreteType))
 			case GetGlobal as g:
-				want = want.Append(p.Path + "." + p.Globals[g.Global].Name)
+				want = want.Append(GlobalSym(p, p.Globals[g.Global]))
 			case SetGlobal as g:
-				want = want.Append(p.Path + "." + p.Globals[g.Global].Name)
+				let gl = p.Globals[g.Global]
+				want = want.Append(GlobalSym(p, gl))
+				appendBarrierRelocs(&want, ptrWordCount(layouts, gl.Type))
 			case _:
 			}
 		}
 		for cs in wantCold {
 			want = want.Append(cs)
 		}
+		let hasEnv = FuncHasClosureEnv(f)
 		if frameOf(v) > 0 {
-			want = want.Append(MorestackNoctxt)
+			want = want.Append(if hasEnv { RuntimeMorestack } else { MorestackNoctxt })
 		}
 		let mut got = []string{}
 		let mut used = 0
@@ -876,11 +990,15 @@ func CheckRelocs(p Package, d Decoded) []string {
 		}
 	}
 	let o = d.Obj
-	if !wantRef(o, MorestackNoctxt, ABI0) || !wantRef(o, WriteBarrierFlag, ABI0) || !wantRef(o, GCWriteBarrier2, ABIInternal) ||
+	if !wantRef(o, MorestackNoctxt, ABI0) || !wantRef(o, RuntimeMorestack, ABI0) || !wantRef(o, WriteBarrierFlag, ABI0) || !wantRef(o, GCWriteBarrier2, ABIInternal) ||
 		!wantRef(o, RuntimeMakeslice, ABIInternal) || !wantRef(o, RuntimeConcatstring2, ABIInternal) ||
 		!wantRef(o, RuntimeCmpstring, ABIInternal) || !wantRef(o, RuntimeMemequal, ABIInternal) ||
+		!wantRef(o, RuntimeNewobject, ABIInternal) || !wantRef(o, RuntimeGrowslice, ABIInternal) ||
 		!wantRef(o, RuntimePanicIndex, ABIInternal) || !wantRef(o, RuntimePanicIndexU, ABIInternal) ||
-		!wantRef(o, RuntimePanicDivide, ABIInternal) || !wantRef(o, RuntimeZerobase, ABI0) {
+		!wantRef(o, RuntimePanicDivide, ABIInternal) || !wantRef(o, RuntimePanicSliceAlen, ABIInternal) ||
+		!wantRef(o, RuntimePanicSliceAlenU, ABIInternal) || !wantRef(o, RuntimePanicSliceAcap, ABIInternal) ||
+		!wantRef(o, RuntimePanicSliceAcapU, ABIInternal) || !wantRef(o, RuntimePanicSliceB, ABIInternal) ||
+		!wantRef(o, RuntimePanicSliceBU, ABIInternal) || !wantRef(o, RuntimeZerobase, ABI0) {
 		out = out.Append("a runtime reference carries the wrong ABI")
 	}
 	for f in p.Funcs {
@@ -902,7 +1020,7 @@ func CheckInitTask(p Package, d Decoded) []string {
 	let mut out = []string{}
 	let o = d.Obj
 	let t = defNamed(o, p.Path+"..inittask")
-	if p.Inits.Len() == 0 {
+	if !NeedInitTask(p) {
 		if t >= 0 {
 			out = out.Append("an inittask without init functions")
 		}
@@ -962,13 +1080,40 @@ func CheckInitTask(p Package, d Decoded) []string {
 	out
 }
 
+func objHasMainLine(ar string) bool {
+	let ms = ReadAr(ar) catch {
+	case Bad:
+		return false
+	}
+	if ms.Len() < 2 || ms[1].Name != "_go_.o" {
+		return false
+	}
+	let m = ms[1].Data
+	let h = firstLine(m)
+	for i in h.Len()-1..m.Len()-2 {
+		if m[i:i+3] == "\n!\n" {
+			for ln in strings.Split(m[h.Len():i], "\n") {
+				if ln == "main" {
+					return true
+				}
+			}
+			return false
+		}
+	}
+	false
+}
+
 // Verify decodes ar and runs every check against p and header.
 func Verify(p Package, header string, ar string) []string {
 	let d = Decode(ar) catch {
 	case Bad as b:
 		return []string{"undecodable: " + b.Why}
 	}
-	CheckMembers(PkgFiles(p), d, header).Concat(CheckFingerprints(p, d)).Concat(CheckExports(p, d)).Concat(CheckSafePoints(p, d)).Concat(CheckLiveSlots(p, d)).Concat(CheckBarriers(p, d)).Concat(CheckRelocs(p, d)).Concat(CheckInitTask(p, d))
+	let mut errs = CheckMembers(PkgFiles(p), d, header).Concat(CheckFingerprints(p, d)).Concat(CheckExports(p, d)).Concat(CheckSafePoints(p, d)).Concat(CheckLiveSlots(p, d)).Concat(CheckBarriers(p, d)).Concat(CheckRelocs(p, d)).Concat(CheckInitTask(p, d))
+	if p.Name == "main" && !objHasMainLine(ar) {
+		errs = errs.Append("main package _go_.o misses main header line")
+	}
+	errs
 }
 
 func sample(k1 int, k2 int) (Package, Decoded) fails Bad {
@@ -1052,6 +1197,17 @@ law InitTaskOnce(k1 int, k2 int) {
 // named structs, slices, field stores, and stack arguments pass all checks.
 law VerifyStop1(k int) {
 	let p = Stop1Sample(k, SampleDep())
+	let b = Archive(p, SampleHeader) catch {
+	case Refused, Malformed, Undefined:
+		return false
+	}
+	Verify(p, SampleHeader, b.Archive).Len() == 0
+}
+
+// VerifyExec proves that standalone main-package fixtures with closures,
+// heap allocation, append/slice/string-index, interfaces, and foreign globals pass all checks.
+law VerifyExec(k int) {
+	let p = ExecSample(k, SampleDep())
 	let b = Archive(p, SampleHeader) catch {
 	case Refused, Malformed, Undefined:
 		return false

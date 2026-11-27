@@ -1,18 +1,18 @@
 import slices
 
-let basicKindSizes = []uint32{8, 8, 8, 1, 1, 2, 4, 8, 8, 1, 2, 4, 8, 8, 16, 24, 0}
+let basicKindSizes = []uint32{8, 8, 8, 1, 1, 2, 4, 8, 8, 1, 2, 4, 8, 8, 16, 24, 0, 16}
 
-let basicKindAligns = []uint32{8, 8, 8, 1, 1, 2, 4, 8, 8, 1, 2, 4, 8, 8, 8, 8, 1}
+let basicKindAligns = []uint32{8, 8, 8, 1, 1, 2, 4, 8, 8, 1, 2, 4, 8, 8, 8, 8, 1, 8}
 
-let basicKindSigned = []bool{true, false, false, false, true, true, true, true, false, false, false, false, false, false, false, false, false}
+let basicKindSigned = []bool{true, false, false, false, true, true, true, true, false, false, false, false, false, false, false, false, false, false}
 
-let basicKindIsInt = []bool{true, false, false, false, true, true, true, true, true, true, true, true, true, true, false, false, false}
+let basicKindIsInt = []bool{true, false, false, false, true, true, true, true, true, true, true, true, true, true, false, false, false, false}
 
-let basicKindExportCode = []int{2, 0, 0, 1, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 17, 0, 0}
+let basicKindExportCode = []int{2, 0, 0, 1, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 17, 0, 0, 0}
 
 let basicKindRuntimeSym = []string{
 	"type:int", "", "", "type:bool", "type:int8", "type:int16", "type:int32", "type:int64",
-	"type:uint", "type:uint8", "type:uint16", "type:uint32", "type:uint64", "type:uintptr", "type:string", "", "",
+	"type:uint", "type:uint8", "type:uint16", "type:uint32", "type:uint64", "type:uintptr", "type:string", "", "", "",
 }
 
 // KindIsBasic reports whether kind is a scalar or string kind handled in registers/memory directly.
@@ -108,6 +108,11 @@ func computeTypeLayout(p Package, tab mut LayoutTable, t int) {
 			tab.Pieces = tab.Pieces.Append(AbiPiece{Off: 8, Size: 8, IsPtr: false, Signed: true})
 			tab.Pieces = tab.Pieces.Append(AbiPiece{Off: 16, Size: 8, IsPtr: false, Signed: true})
 			tab.PtrWords = tab.PtrWords.Append(0)
+		} else if td.Kind == KIface {
+			tab.PtrBytes[t] = 16
+			tab.Pieces = tab.Pieces.Append(AbiPiece{Off: 0, Size: 8, IsPtr: false, Signed: false})
+			tab.Pieces = tab.Pieces.Append(AbiPiece{Off: 8, Size: 8, IsPtr: true, Signed: false})
+			tab.PtrWords = tab.PtrWords.Append(1)
 		} else {
 			tab.PtrBytes[t] = 0
 			tab.Pieces = tab.Pieces.Append(AbiPiece{Off: 0, Size: sz, IsPtr: false, Signed: KindIsSigned(td.Kind)})
@@ -222,6 +227,15 @@ type FuncAbiPlan {
 
 // PlanSigABI computes the ABIInternal assignment for parameters and results using layouts.
 func PlanSigABI(layouts LayoutTable, params []int, results []int, slots []int) FuncAbiPlan {
+	planSigABIAt(layouts, params, results, slots, 0)
+}
+
+// PlanIfaceMethodABI computes the ABIInternal assignment for an interface method call whose receiver occupies RAX.
+func PlanIfaceMethodABI(layouts LayoutTable, params []int, results []int) FuncAbiPlan {
+	planSigABIAt(layouts, params, results, []int{}, 1)
+}
+
+func planSigABIAt(layouts LayoutTable, params []int, results []int, slots []int, initialParamRegs int) FuncAbiPlan {
 	let mut slotStart = slices.WithCapacity[int](slots.Len())
 	let mut slotCount = slices.WithCapacity[int](slots.Len())
 	let mut curWords = 0
@@ -232,7 +246,7 @@ func PlanSigABI(layouts LayoutTable, params []int, results []int, slots []int) F
 		curWords = curWords + w
 	}
 	let maxRegs = IntRegs.Len()
-	let mut regUsed = 0
+	let mut regUsed = initialParamRegs
 	let mut stackOff = uint32(0)
 	let mut pIsReg = slices.WithCapacity[bool](params.Len())
 	let mut pRegStart = slices.WithCapacity[int](params.Len())

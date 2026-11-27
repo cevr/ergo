@@ -77,6 +77,36 @@ let HOIndex = uint32(29)
 // HOSliceLit allocates and initializes a slice value from zero or more element slots.
 let HOSliceLit = uint32(30)
 
+// HOAlloc allocates a heap object for a pointer destination slot.
+let HOAlloc = uint32(31)
+
+// HOMakeClosure constructs a function closure from a target symbol and optional heap environment slot.
+let HOMakeClosure = uint32(32)
+
+// HOClosureEnv captures the incoming ABI closure environment register at op 0 of a body.
+let HOClosureEnv = uint32(33)
+
+// HOAppend appends an element to a slice slot into dst.
+let HOAppend = uint32(34)
+
+// HOSlice produces a subslice or substring bounded by lo and hi indices into dst.
+let HOSlice = uint32(35)
+
+// HOStringIndex reads a bounds-checked byte at an integer index from a string slot into dst.
+let HOStringIndex = uint32(36)
+
+// HOMakeIface boxes a concrete slot value into an interface or any slot.
+let HOMakeIface = uint32(37)
+
+// HOIfaceIs tests whether an interface or any slot holds a concrete type.
+let HOIfaceIs = uint32(38)
+
+// HOIfaceData extracts the concrete value from a matched interface or any slot into dst.
+let HOIfaceData = uint32(39)
+
+// HOCallIface dispatches a method on an interface slot with result and argument slots.
+let HOCallIface = uint32(40)
+
 // BasicSizeBytes returns the byte width of an HTBasic scalar code, or 0 if unsupported.
 func BasicSizeBytes(aux uint32) uint32 {
 	if aux == HBasicBool || aux == HBasicInt8 || aux == HBasicUint8 {
@@ -227,4 +257,144 @@ test Stop1OperationsCheck {
 	assert refuses(editWord(p, ir.HOperands, 34, 0, 12), ir.HOps)
 	assert refuses(editWord(p, ir.HOperands, 46, 0, ir.HCLess), ir.HOps)
 	assert refuses(editWord(p, ir.HOperands, 1, 0, 2), ir.HTypes)
+}
+
+func execSpecimen(seed uint32) Draft {
+	let names = []string{
+		"Cap.F", "Cap.V", "E", "G", "Iface", "Iface.M", "amd64", "body.ergo",
+		"closure", "exec", "go1.27.4", "linux", "main", "main.ergo", "plain",
+	}
+	let mut ends = []uint32{}
+	let mut off = uint32(0)
+	for n in names {
+		off = off + uint32(n.Len())
+		ends = ends.Append(off)
+	}
+	let ty = columns(4, [][]uint32{
+		[]uint32{ir.HTBasic, ir.HBasicInt, 0, 0},
+		[]uint32{ir.HTBasic, HBasicBool, 0, 0},
+		[]uint32{ir.HTBasic, HBasicUint8, 0, 0},
+		[]uint32{ir.HTBasic, HBasicUintptr, 0, 0},
+		[]uint32{ir.HTBasic, HBasicString, 0, 0},
+		[]uint32{ir.HTSlice, 0, 0, 1},
+		[]uint32{ir.HTRecord, 0, 1, 2},
+		[]uint32{ir.HTPointer, 0, 3, 1},
+		[]uint32{ir.HTSignature, 1, 4, 2},
+		[]uint32{ir.HTSignature, 1, 6, 2},
+		[]uint32{ir.HTInterface, 0, 8, 1},
+		[]uint32{ir.HTPointer, 0, 9, 1},
+	})
+	let sy = columns(5, [][]uint32{
+		[]uint32{0, 1, ir.HSField, 4, 2},
+		[]uint32{0, 2, ir.HSField, 1, 2},
+		[]uint32{0, 6, ir.HSMethod, 10, 2},
+		[]uint32{0, 9, ir.HSFunc, 9, 1},
+		[]uint32{0, 13, ir.HSFunc, 9, 2},
+	})
+	let bs = columns(5, [][]uint32{
+		[]uint32{4, 0, 2, 0, 3},
+		[]uint32{5, 2, 12, 3, 12},
+	})
+	let sl = []uint32{1, 8, 1, 8, 9, 6, 3, 5, 11, 2, 1, 12, 1, 12}
+	let os = columns(4, [][]uint32{
+		[]uint32{HOClosureEnv, 1, 10, 1},
+		[]uint32{HOFieldGet, 1, 11, 3},
+		[]uint32{ir.HOReturn, 1, 14, 1},
+		[]uint32{HOAlloc, 2, 15, 1},
+		[]uint32{HOMakeClosure, 2, 16, 3},
+		[]uint32{ir.HOConst, 2, 19, 3},
+		[]uint32{HOSliceLit, 2, 22, 1},
+		[]uint32{HOAppend, 2, 23, 3},
+		[]uint32{HOSlice, 2, 26, 4},
+		[]uint32{HOStringIndex, 2, 30, 3},
+		[]uint32{HOMakeIface, 2, 33, 2},
+		[]uint32{HOIfaceIs, 2, 35, 3},
+		[]uint32{HOIfaceData, 2, 38, 2},
+		[]uint32{HOCallIface, 2, 40, 5},
+		[]uint32{ir.HOReturn, 2, 45, 1},
+	})
+	let ops = []uint32{
+		3,
+		1, 2,
+		7,
+		1, 1,
+		1, 1,
+		3,
+		1,
+		2,
+		1, 2, 2,
+		1,
+		2,
+		3, 4, 2,
+		5, 65, 0,
+		4,
+		4, 4, 5,
+		4, 4, 1, 1,
+		5, 6, 1,
+		7, 1,
+		8, 7, 1,
+		9, 7,
+		7, 0, 1, 9, 1,
+		1,
+	}
+	let files = columns(12, [][]uint32{
+		[]uint32{8, 10, 0, 1, 0x11111111, 0, 0, 0, 0, 0, 0, seed % 100},
+		[]uint32{14, 20, 1, 1, 0x22222222, 0, 0, 0, 0, 0, 0, seed % 100},
+	})
+	Draft{Text: strings.Join(names, ""), Columns: [][]uint32{
+		[]uint32{13, 13, 12, 7, 11, 15}, ends,
+		[]uint32{},
+		files,
+		[]uint32{0, 0},
+		columns(3, [][]uint32{[]uint32{1, 1, 5}, []uint32{2, 1, 5}}),
+		ty, sy, bs, sl, os,
+		[]uint32{}, []uint32{}, []uint32{},
+		ops,
+	}}
+}
+
+func badClosureEnvPos(seed uint32) bool {
+	let mut d = execSpecimen(seed)
+	let mut opsCol = d.Columns[ir.HOps]
+	opsCol[6] = HOClosureEnv
+	d.Columns[ir.HOps] = opsCol
+	let mut opnd = d.Columns[ir.HOperands]
+	opnd[22] = 2
+	d.Columns[ir.HOperands] = opnd
+	let _ = Pack(d) catch {
+	case Malformed as m:
+		return m.Section == ir.HOps
+	}
+	false
+}
+
+// ExecOperationsValidate checks that executable heap/closure/slice/string/interface operations pack and fail closed on invalid relations.
+law ExecOperationsValidate(seed uint32) {
+	let p = Pack(execSpecimen(seed)) catch {
+	case Malformed:
+		return false
+	}
+	let badClosureEnvPosOk = badClosureEnvPos(seed)
+	let badAllocNonPtr = refuses(editWord(p, ir.HOperands, 15, 0, 1), ir.HOps)
+	let badClosureEnvMissingHead = refuses(editWord(p, ir.HOperands, 18, 0, 12), ir.HOps)
+	let badAppendElem = refuses(editWord(p, ir.HOperands, 25, 0, 1), ir.HOps)
+	let badSliceIdx = refuses(editWord(p, ir.HOperands, 29, 0, 7), ir.HOps)
+	let badStrIndexDst = refuses(editWord(p, ir.HOperands, 30, 0, 1), ir.HOps)
+	let badIfaceDst = refuses(editWord(p, ir.HOperands, 33, 0, 1), ir.HOps)
+	let badIfaceIsBool = refuses(editWord(p, ir.HOperands, 35, 0, 1), ir.HOps)
+	let badCallIfaceMeth = refuses(editWord(p, ir.HOperands, 41, 0, 1), ir.HOps)
+	badClosureEnvPosOk && badAllocNonPtr && badClosureEnvMissingHead && badAppendElem && badSliceIdx && badStrIndexDst && badIfaceDst && badIfaceIsBool && badCallIfaceMeth
+}
+
+test ExecOperationsCheck {
+	let p = try Pack(execSpecimen(1))
+	assert badClosureEnvPos(1)
+	assert refuses(editWord(p, ir.HOperands, 15, 0, 1), ir.HOps)
+	assert refuses(editWord(p, ir.HOperands, 18, 0, 12), ir.HOps)
+	assert refuses(editWord(p, ir.HOperands, 25, 0, 1), ir.HOps)
+	assert refuses(editWord(p, ir.HOperands, 29, 0, 7), ir.HOps)
+	assert refuses(editWord(p, ir.HOperands, 30, 0, 1), ir.HOps)
+	assert refuses(editWord(p, ir.HOperands, 33, 0, 1), ir.HOps)
+	assert refuses(editWord(p, ir.HOperands, 35, 0, 1), ir.HOps)
+	assert refuses(editWord(p, ir.HOperands, 41, 0, 1), ir.HOps)
 }

@@ -88,6 +88,39 @@ func maxOutgoingWords(p Package, layouts LayoutTable, f Func) int {
 			if words > n {
 				n = words
 			}
+		case CallIface as ci:
+			let it = p.Types[f.Slots[ci.Iface]]
+			let mt = p.Types[it.Methods[ci.Method].Type]
+			let cp = PlanIfaceMethodABI(layouts, mt.Params, mt.Results)
+			let words = (cp.StackEnd+7)/8 + cp.InRegCount
+			if words > n {
+				n = words
+			}
+		case Alloc:
+			if 1 > n {
+				n = 1
+			}
+		case Append:
+			if 5 > n {
+				n = 5
+			}
+		case SliceLit as sl:
+			if sl.Elems.Len() > 0 && 3 > n {
+				n = 3
+			}
+		case MakeIface as mi:
+			let st = f.Slots[mi.Src]
+			if p.Types[st].Kind != KPtr && !TypeIsZeroSize(p, st) && 1 > n {
+				n = 1
+			}
+		case Arith as a:
+			if a.Kind == AAdd && p.Types[f.Slots[a.A]].Kind == KString && 5 > n {
+				n = 5
+			}
+		case JumpIf as j:
+			if p.Types[f.Slots[j.A]].Kind == KString && 4 > n {
+				n = 4
+			}
 		case _:
 		}
 	}
@@ -102,7 +135,7 @@ func slotTypes(f Func, xs []int) []int {
 	out
 }
 
-func checkOp(p Package, f Func, op Op, labels []int) fails Malformed {
+func checkOp(p Package, f Func, op Op, opIdx int, labels []int) fails Malformed {
 	try checkSlots(f, OpUses(op))
 	try checkSlots(f, OpDefs(op))
 	match op {
@@ -159,8 +192,11 @@ func checkOp(p Package, f Func, op Op, labels []int) fails Malformed {
 			return bad("\(f.Name): load through slot \(l.Ptr) mismatches \(l.Dst)")
 		}
 	case StorePtr as s:
-		if kindOf(p, f, s.Ptr) != KPtr || !HasPointers(p, p.Types[slotType(f, s.Ptr)].Elem) || p.Types[slotType(f, s.Ptr)].Elem != slotType(f, s.Val) {
-			return bad("\(f.Name): pointer store needs a pointer to pointer-bearing element and matching value")
+		let pt = slotType(f, s.Ptr)
+		let vt = slotType(f, s.Val)
+		let elem = if p.Types[pt].Kind == KPtr { p.Types[pt].Elem } else { -1 }
+		if kindOf(p, f, s.Ptr) != KPtr || elem < 0 || !HasPointers(p, elem) || elem != vt {
+			return bad("\(f.Name): pointer store needs a pointer to pointer-bearing element and matching value (op \(opIdx) ptr=\(s.Ptr):\(pt)(\(p.Types[pt].Name),k=\(p.Types[pt].Kind),e=\(elem)) val=\(s.Val):\(vt)(\(p.Types[vt].Name),k=\(p.Types[vt].Kind)))")
 		}
 	case Store as s:
 		if kindOf(p, f, s.Ptr) != KPtr || HasPointers(p, p.Types[slotType(f, s.Ptr)].Elem) || p.Types[slotType(f, s.Ptr)].Elem != slotType(f, s.Val) {
@@ -222,12 +258,16 @@ func checkOp(p Package, f Func, op Op, labels []int) fails Malformed {
 			}
 		}
 	case GetGlobal as g:
-		if !inRange(g.Global, p.Globals.Len()) {
+		if !inRange(g.Global, p.Globals.Len()) || slotType(f, g.Dst) != p.Globals[g.Global].Type {
 			return bad("\(f.Name): global \(g.Global)")
 		}
 	case SetGlobal as g:
-		if !inRange(g.Global, p.Globals.Len()) {
+		if !inRange(g.Global, p.Globals.Len()) || slotType(f, g.Src) != p.Globals[g.Global].Type {
 			return bad("\(f.Name): global \(g.Global)")
+		}
+		let gl = p.Globals[g.Global]
+		if gl.PkgPath != "" && gl.PkgPath != p.Path {
+			return bad("\(f.Name): write to foreign global \(gl.PkgPath).\(gl.Name)")
 		}
 	case Call as c:
 		try checkSlots(f, c.Dsts)
@@ -272,7 +312,7 @@ func checkOp(p Package, f Func, op Op, labels []int) fails Malformed {
 			return bad("\(f.Name): branch operands have different types")
 		}
 		let ak = kindOf(p, f, j.A)
-		if !KindIsInt(ak) && ak != KString && !((j.Cond == CEq || j.Cond == CNe) && (ak == KBool || ak == KPtr || ak == KFunc)) {
+		if !KindIsInt(ak) && ak != KString && !((j.Cond == CEq || j.Cond == CNe) && (ak == KBool || ak == KPtr || ak == KFunc || ak == KIface)) {
 			return bad("\(f.Name): unsupported branch operand kind \(ak) for cond \(j.Cond)")
 		}
 	case Return as r:
@@ -282,6 +322,90 @@ func checkOp(p Package, f Func, op Op, labels []int) fails Malformed {
 		for k, s in r.Vals {
 			if slotType(f, s) != f.Results[k] {
 				return bad("\(f.Name): return slot \(s) mismatches result \(k)")
+			}
+		}
+	case ClosureEnv as ce:
+		if opIdx != 0 || kindOf(p, f, ce.Dst) != KPtr {
+			return bad("\(f.Name): closure env must be op 0 into pointer slot")
+		}
+		let elem = p.Types[slotType(f, ce.Dst)].Elem
+		if p.Types[elem].Kind != KStruct || p.Types[elem].Fields.Len() == 0 || p.Types[p.Types[elem].Fields[0].Type].Kind != KUintptr {
+			return bad("\(f.Name): closure env pointee must start with uintptr")
+		}
+	case Alloc as al:
+		if kindOf(p, f, al.Dst) != KPtr {
+			return bad("\(f.Name): alloc dst must be pointer slot")
+		}
+	case MakeClosure as mc:
+		if kindOf(p, f, mc.Dst) != KFunc {
+			return bad("\(f.Name): make-closure dst must be func slot")
+		}
+		let ti = targetOf(p, mc.Target)
+		if ti < 0 {
+			return bad("\(f.Name): make-closure unknown target \(mc.Target)")
+		}
+		let dt = p.Types[slotType(f, mc.Dst)]
+		if dt.Params != p.Funcs[ti].Params || dt.Results != p.Funcs[ti].Results {
+			return bad("\(f.Name): make-closure target signature mismatch")
+		}
+		if mc.Env >= 0 {
+			if !inRange(mc.Env, f.Slots.Len()) || kindOf(p, f, mc.Env) != KPtr {
+				return bad("\(f.Name): make-closure env must be pointer slot")
+			}
+			let elem = p.Types[slotType(f, mc.Env)].Elem
+			if p.Types[elem].Kind != KStruct || p.Types[elem].Fields.Len() == 0 || p.Types[p.Types[elem].Fields[0].Type].Kind != KUintptr {
+				return bad("\(f.Name): make-closure env pointee must start with uintptr")
+			}
+		}
+	case Append as ap:
+		if kindOf(p, f, ap.Slice) != KSlice || slotType(f, ap.Dst) != slotType(f, ap.Slice) ||
+			slotType(f, ap.Elem) != p.Types[slotType(f, ap.Slice)].Elem {
+			return bad("\(f.Name): append slot type mismatch")
+		}
+	case SliceOp as sl:
+		let sk = kindOf(p, f, sl.Src)
+		if (sk != KSlice && sk != KString) || slotType(f, sl.Dst) != slotType(f, sl.Src) ||
+			!KindIsInt(kindOf(p, f, sl.Lo)) || !KindIsInt(kindOf(p, f, sl.Hi)) {
+			return bad("\(f.Name): slice op slot or index type mismatch")
+		}
+	case StringIndex as sx:
+		if kindOf(p, f, sx.Dst) != KUint8 || kindOf(p, f, sx.Str) != KString || !KindIsInt(kindOf(p, f, sx.Idx)) {
+			return bad("\(f.Name): string index slot type mismatch")
+		}
+	case MakeIface as mi:
+		if kindOf(p, f, mi.Dst) != KIface {
+			return bad("\(f.Name): make-iface dst must be interface")
+		}
+	case IfaceIs as ii:
+		if kindOf(p, f, ii.Dst) != KBool || kindOf(p, f, ii.Iface) != KIface || !inRange(ii.ConcreteType, p.Types.Len()) {
+			return bad("\(f.Name): iface type test invalid")
+		}
+	case IfaceData as id:
+		if kindOf(p, f, id.Iface) != KIface {
+			return bad("\(f.Name): iface extract src must be interface")
+		}
+	case CallIface as ci:
+		try checkSlots(f, ci.Dsts)
+		try checkSlots(f, ci.Args)
+		if kindOf(p, f, ci.Iface) != KIface {
+			return bad("\(f.Name): interface call receiver must be interface")
+		}
+		let it = p.Types[slotType(f, ci.Iface)]
+		if !inRange(ci.Method, it.Methods.Len()) {
+			return bad("\(f.Name): interface method \(ci.Method) out of range")
+		}
+		let mt = p.Types[it.Methods[ci.Method].Type]
+		if mt.Params.Len() != ci.Args.Len() || mt.Results.Len() != ci.Dsts.Len() {
+			return bad("\(f.Name): interface call arity mismatch")
+		}
+		for j, a in ci.Args {
+			if slotType(f, a) != mt.Params[j] {
+				return bad("\(f.Name): interface call arg \(j) type mismatch")
+			}
+		}
+		for j, d in ci.Dsts {
+			if slotType(f, d) != mt.Results[j] {
+				return bad("\(f.Name): interface call result \(j) type mismatch")
 			}
 		}
 	case Label:
@@ -314,7 +438,7 @@ func bodyIsLeaf(p Package, f Func) bool {
 			return false
 		}
 		match op {
-		case Index:
+		case Index, StringIndex, SliceOp:
 			return false
 		case Arith as a:
 			if a.Kind == ADiv || a.Kind == ARem {
@@ -374,9 +498,18 @@ func checkFunc(p Package, layouts LayoutTable, f Func) fails Malformed {
 		case _:
 		}
 	}
-	for op in f.Ops {
-		try checkOp(p, f, op, labels)
+	for i, op in f.Ops {
+		try checkOp(p, f, op, i, labels)
 	}
+}
+
+func impExists(p Package, path string) bool {
+	for imp in p.Imports {
+		if imp.Path == path {
+			return true
+		}
+	}
+	false
 }
 
 // Check validates p.
@@ -391,7 +524,7 @@ func Check(p Package) fails Malformed {
 		}
 	}
 	for i, t in p.Types {
-		if !inRange(t.Kind, KStruct+1) {
+		if !inRange(t.Kind, KIface+1) {
 			return bad("type \(i): kind \(t.Kind)")
 		}
 		if (t.Kind == KPtr || t.Kind == KSlice) && !inRange(t.Elem, p.Types.Len()) {
@@ -414,6 +547,16 @@ func Check(p Package) fails Malformed {
 				}
 			}
 		}
+		if t.Kind == KIface {
+			for mi, md in t.Methods {
+				if md.Name == "" || !inRange(md.Type, p.Types.Len()) || p.Types[md.Type].Kind != KFunc {
+					return bad("type \(i): invalid method \(mi)")
+				}
+				if mi > 0 && md.Name <= t.Methods[mi-1].Name {
+					return bad("type \(i): interface methods must be strictly sorted and distinct")
+				}
+			}
+		}
 	}
 	let mut state = slices.Repeat[int]([]int{0}, p.Types.Len())
 	for i in 0..p.Types.Len() {
@@ -433,8 +576,14 @@ func Check(p Package) fails Malformed {
 		}
 	}
 	for i, g in p.Globals {
+		if !inRange(g.Type, p.Types.Len()) {
+			return bad("global \(g.Name): invalid type \(g.Type)")
+		}
+		if g.PkgPath != "" && g.PkgPath != p.Path && !impExists(p, g.PkgPath) {
+			return bad("global \(g.PkgPath).\(g.Name): unknown package")
+		}
 		for j in 0..i {
-			if p.Globals[j].Name == g.Name {
+			if p.Globals[j].Name == g.Name && p.Globals[j].PkgPath == g.PkgPath {
 				return bad("global \(g.Name) twice")
 			}
 		}

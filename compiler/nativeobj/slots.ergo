@@ -128,13 +128,14 @@ func LiveAfter(f Func) [][]bool {
 }
 
 // LiveAcross is the pointer slots a call at op i must keep: live after
-// it and not among its results, plus every address-taken pointer slot.
+// it and not among its results, plus operand slots read after an internal call and address-taken pointer slots.
 func LiveAcross(p Package, f Func, after [][]bool, i int) []int {
 	let defs = OpDefs(f.Ops[i])
+	let usesAfter = OpUsesAfterCall(f.Ops[i])
 	let taken = AddressTaken(f)
 	let mut out = []int{}
 	for j in 0..f.Slots.Len() {
-		if HasPointers(p, f.Slots[j]) && ((after[i][j] && !has(defs, j)) || has(taken, j)) {
+		if HasPointers(p, f.Slots[j]) && (((after[i][j] || has(usesAfter, j)) && !has(defs, j)) || has(taken, j)) {
 			out = out.Append(j)
 		}
 	}
@@ -176,9 +177,11 @@ func LiveByPaths(f Func, c int, s int) bool {
 // ModelAcross is LiveAcross by the independent model.
 func ModelAcross(p Package, f Func, i int) []int {
 	let taken = AddressTaken(f)
+	let defs = OpDefs(f.Ops[i])
+	let usesAfter = OpUsesAfterCall(f.Ops[i])
 	let mut out = []int{}
 	for j in 0..f.Slots.Len() {
-		if HasPointers(p, f.Slots[j]) && (LiveByPaths(f, i, j) || has(taken, j)) {
+		if HasPointers(p, f.Slots[j]) && (LiveByPaths(f, i, j) || (has(usesAfter, j) && !has(defs, j)) || has(taken, j)) {
 			out = out.Append(j)
 		}
 	}

@@ -71,6 +71,86 @@ func isBoolBasic(p Image, t uint32) bool {
 	typeKind(p, t) == ir.HTBasic && word(p, ir.HTypes, int(t)-1, 1) == HBasicBool
 }
 
+func isUint8Basic(p Image, t uint32) bool {
+	typeKind(p, t) == ir.HTBasic && word(p, ir.HTypes, int(t)-1, 1) == HBasicUint8
+}
+
+func unwrapIface(p Image, t uint32) uint32 {
+	let mut cur = t
+	if typeKind(p, cur) == ir.HTNamed {
+		cur = operand(p, word(p, ir.HTypes, int(cur)-1, 2), 0)
+	}
+	if typeKind(p, cur) == ir.HTInterface { cur } else { uint32(0) }
+}
+
+func isIfaceOrAny(p Image, t uint32) bool {
+	if typeKind(p, t) == ir.HTBasic && word(p, ir.HTypes, int(t)-1, 1) == ir.HBasicAny {
+		return true
+	}
+	unwrapIface(p, t) != 0
+}
+
+func unwrapStructPtr(p Image, t uint32) uint32 {
+	if typeKind(p, t) != ir.HTPointer {
+		return uint32(0)
+	}
+	unwrapNamedRecord(p, operand(p, word(p, ir.HTypes, int(t)-1, 2), 0))
+}
+
+func hasUintptrHead(p Image, rec uint32) bool {
+	if rec == 0 || word(p, ir.HTypes, int(rec)-1, 3) == 0 {
+		return false
+	}
+	let fsym = operand(p, word(p, ir.HTypes, int(rec)-1, 2), 0)
+	let ft = word(p, ir.HSymbols, int(fsym)-1, 3)
+	typeKind(p, ft) == ir.HTBasic && word(p, ir.HTypes, int(ft)-1, 1) == HBasicUintptr
+}
+
+func callIfaceValid(p Image, b body, o op) bool {
+	if o.n < 3 {
+		return false
+	}
+	let ifaceSlot = arg(p, o, 0)
+	let mIdx = arg(p, o, 1)
+	let nres = arg(p, o, 2)
+	if !slot(b, ifaceSlot) {
+		return false
+	}
+	let ifaceT = unwrapIface(p, slotType(p, b, ifaceSlot))
+	if ifaceT == 0 {
+		return false
+	}
+	let nmeth = word(p, ir.HTypes, int(ifaceT)-1, 3)
+	if mIdx >= nmeth {
+		return false
+	}
+	let msym = operand(p, word(p, ir.HTypes, int(ifaceT)-1, 2), mIdx)
+	if !symKind(p, msym, ir.HSMethod) {
+		return false
+	}
+	let sig = signature(p, word(p, ir.HSymbols, int(msym)-1, 3))
+	if sig == 0 {
+		return false
+	}
+	let (nparam, sigRes) = signatureSize(p, sig)
+	if nres != sigRes || o.n-3 != nparam+nres {
+		return false
+	}
+	for i in 0..int(nparam) {
+		let j = uint32(i)
+		if !matchesSlot(p, b, arg(p, o, 3+nres+j), signatureType(p, sig, j)) {
+			return false
+		}
+	}
+	for i in 0..int(nres) {
+		let j = uint32(i)
+		if !matchesSlot(p, b, arg(p, o, 3+j), signatureType(p, sig, nparam+j)) {
+			return false
+		}
+	}
+	true
+}
+
 func unwrapNamedRecord(p Image, t uint32) uint32 {
 	let mut cur = t
 	if typeKind(p, cur) == ir.HTNamed {
@@ -265,6 +345,79 @@ func opValid(p Image, b body, o op) bool {
 	if k == ir.HOJump {
 		return o.n == 1 && arg(p, o, 0) > 0 && arg(p, o, 0) <= b.nops
 	}
+	if k == HOAlloc {
+		return o.n == 1 && slot(b, arg(p, o, 0)) && typeKind(p, slotType(p, b, arg(p, o, 0))) == ir.HTPointer
+	}
+	if k == HOMakeClosure {
+		if o.n != 2 && o.n != 3 {
+			return false
+		}
+		let dst = arg(p, o, 0)
+		let fnSym = arg(p, o, 1)
+		if !slot(b, dst) || !symKind(p, fnSym, ir.HSFunc) || word(p, ir.HSymbols, int(fnSym)-1, 0) != 0 {
+			return false
+		}
+		let dt = slotType(p, b, dst)
+		let dSig = signature(p, dt)
+		let fSig = signature(p, word(p, ir.HSymbols, int(fnSym)-1, 3))
+		if typeKind(p, dt) != ir.HTSignature || dSig == 0 || dSig != fSig {
+			return false
+		}
+		if o.n == 2 {
+			return true
+		}
+		let envSlot = arg(p, o, 2)
+		if !slot(b, envSlot) {
+			return false
+		}
+		return hasUintptrHead(p, unwrapStructPtr(p, slotType(p, b, envSlot)))
+	}
+	if k == HOClosureEnv {
+		if o.n != 1 || !slot(b, arg(p, o, 0)) {
+			return false
+		}
+		return hasUintptrHead(p, unwrapStructPtr(p, slotType(p, b, arg(p, o, 0))))
+	}
+	if k == HOAppend {
+		if o.n != 3 || !slot(b, arg(p, o, 0)) || !slot(b, arg(p, o, 1)) || !slot(b, arg(p, o, 2)) {
+			return false
+		}
+		let st = slotType(p, b, arg(p, o, 1))
+		if typeKind(p, st) != ir.HTSlice || slotType(p, b, arg(p, o, 0)) != st {
+			return false
+		}
+		let elem = operand(p, word(p, ir.HTypes, int(st)-1, 2), 0)
+		return matchesSlot(p, b, arg(p, o, 2), elem)
+	}
+	if k == HOSlice {
+		if o.n != 4 || !slot(b, arg(p, o, 0)) || !slot(b, arg(p, o, 1)) || !slot(b, arg(p, o, 2)) || !slot(b, arg(p, o, 3)) {
+			return false
+		}
+		let st = slotType(p, b, arg(p, o, 1))
+		if slotType(p, b, arg(p, o, 0)) != st || (typeKind(p, st) != ir.HTSlice && !isStringBasic(p, st)) {
+			return false
+		}
+		return isIntBasic(p, slotType(p, b, arg(p, o, 2))) && isIntBasic(p, slotType(p, b, arg(p, o, 3)))
+	}
+	if k == HOStringIndex {
+		if o.n != 3 || !slot(b, arg(p, o, 0)) || !slot(b, arg(p, o, 1)) || !slot(b, arg(p, o, 2)) {
+			return false
+		}
+		return isUint8Basic(p, slotType(p, b, arg(p, o, 0))) && isStringBasic(p, slotType(p, b, arg(p, o, 1))) && isIntBasic(p, slotType(p, b, arg(p, o, 2)))
+	}
+	if k == HOMakeIface {
+		return o.n == 2 && slot(b, arg(p, o, 0)) && slot(b, arg(p, o, 1)) && isIfaceOrAny(p, slotType(p, b, arg(p, o, 0)))
+	}
+	if k == HOIfaceIs {
+		return o.n == 3 && slot(b, arg(p, o, 0)) && slot(b, arg(p, o, 1)) && isBoolBasic(p, slotType(p, b, arg(p, o, 0))) &&
+			isIfaceOrAny(p, slotType(p, b, arg(p, o, 1))) && ref(p, ir.HTypes, arg(p, o, 2))
+	}
+	if k == HOIfaceData {
+		return o.n == 2 && slot(b, arg(p, o, 0)) && slot(b, arg(p, o, 1)) && isIfaceOrAny(p, slotType(p, b, arg(p, o, 1)))
+	}
+	if k == HOCallIface {
+		return callIfaceValid(p, b, o)
+	}
 	if k == ir.HOBranch {
 		if o.n != 5 || arg(p, o, 0) < ir.HCLess || arg(p, o, 0) > ir.HCAtLeast ||
 			!slot(b, arg(p, o, 1)) || !matchesSlot(p, b, arg(p, o, 2), slotType(p, b, arg(p, o, 1))) ||
@@ -275,6 +428,9 @@ func opValid(p Image, b body, o op) bool {
 		let t = slotType(p, b, arg(p, o, 1))
 		if isIntBasic(p, t) || isStringBasic(p, t) {
 			return true
+		}
+		if isIfaceOrAny(p, t) || typeKind(p, t) == ir.HTSignature {
+			return c == ir.HCEqual || c == ir.HCNotEqual
 		}
 		return (c == ir.HCEqual || c == ir.HCNotEqual) && (isBoolBasic(p, t) || typeKind(p, t) == ir.HTPointer)
 	}
@@ -342,7 +498,7 @@ func bodies(p Image, start uint32) uint32 fails Malformed {
 		}
 		for j in int(row)..int(row+b.nops) {
 			let o = op{k: word(p, ir.HOps, j, 0), lo: word(p, ir.HOps, j, 2), n: word(p, ir.HOps, j, 3)}
-			if !ref(p, ir.HSpans, word(p, ir.HOps, j, 1)) || !run(p, ir.HOperands, w, o.lo, o.n) || !opValid(p, b, o) {
+			if !ref(p, ir.HSpans, word(p, ir.HOps, j, 1)) || !run(p, ir.HOperands, w, o.lo, o.n) || !opValid(p, b, o) || (o.k == HOClosureEnv && j != int(row)) {
 				return bad(ir.HOps, j, "opcode, span or operands")
 			}
 			w = o.lo + o.n

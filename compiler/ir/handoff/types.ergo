@@ -11,6 +11,21 @@ func fieldShortName(s string) string {
 	if dot >= 0 { s[dot+1 : s.Len()] } else { s }
 }
 
+func ifaceMethodsValid(p Image, row int) bool {
+	let lo = word(p, ir.HTypes, row, 2)
+	let n = int(word(p, ir.HTypes, row, 3))
+	let mut prev = ""
+	for j in 0..n {
+		let mj = int(operand(p, lo, uint32(j))) - 1
+		let nj = fieldShortName(text(p, int(word(p, ir.HSymbols, mj, 1))-1))
+		if nj == "" || (j > 0 && nj <= prev) {
+			return false
+		}
+		prev = nj
+	}
+	true
+}
+
 func recordFieldsValid(p Image, row int) bool {
 	let lo = word(p, ir.HTypes, row, 2)
 	let n = int(word(p, ir.HTypes, row, 3))
@@ -67,6 +82,9 @@ func declarations(p Image) fails Malformed {
 		let k = word(p, ir.HTypes, i, 0)
 		if k == ir.HTRecord && !recordFieldsValid(p, i) {
 			return bad(ir.HTypes, i, "duplicate or empty record field name")
+		}
+		if k == ir.HTInterface && !ifaceMethodsValid(p, i) {
+			return bad(ir.HTypes, i, "unsorted, duplicate or empty interface method name")
 		}
 		if k == ir.HTParameter && !owned[i] {
 			return bad(ir.HTypes, i, "unowned type parameter")

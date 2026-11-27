@@ -50,6 +50,46 @@
       "to": "\t\tRecords:     []native.RecordDecl{},\n",
       "rule": "Dependency ImportUnit exports its declared record schemas so dependent packages resolve imported struct types and fields.",
       "killers": ["compiler/cmd/nativebuild:NativebuildBuildsStop1"]
+    },
+    {
+      "name": "nativeobj-exec-entry-main-renamed",
+      "origin": "wf10 NATIVEOBJ-STANDALONE-EXEC",
+      "file": "compiler/cmd/nativebuild/lower_exec.ergo",
+      "decl": "compileExecPackage",
+      "from": "\t\tlet emitName = if isMainFn { \"__ergo_main\" } else { fname }\n",
+      "to": "\t\tlet emitName = fname\n",
+      "rule": "Standalone root main() must lower under __ergo_main so the synthesized runtime main() entry wrapper handles exit codes and unhandled errors without symbol collision.",
+      "killers": ["compiler/cmd/nativebuild:NativebuildBuildsExec"]
+    },
+    {
+      "name": "nativeobj-exec-exit-type-unmapped",
+      "origin": "wf10 NATIVEOBJ-STANDALONE-EXEC",
+      "file": "compiler/cmd/nativebuild/lower_exec.ergo",
+      "decl": "lowerTypeExprName",
+      "from": "\t\tcase _:\n\t\t\tif syntax.KindOf(tr, se.X) == syntax.KIdent {\n\t\t\t\tlet depPath = importPathForAlias(ctx.p, types.NameText(ctx.p, se.X))\n\t\t\t\tif depPath != \"\" {\n\t\t\t\t\tlet selName = types.NameText(ctx.p, se.Sel)\n\t\t\t\t\tif depPath == \"os\" && selName == \"Exit\" {\n\t\t\t\t\t\treturn execrtPath + \".Exit\"\n\t\t\t\t\t}\n",
+      "to": "\t\tcase _:\n\t\t\tif syntax.KindOf(tr, se.X) == syntax.KIdent {\n\t\t\t\tlet depPath = importPathForAlias(ctx.p, types.NameText(ctx.p, se.X))\n\t\t\t\tif depPath != \"\" {\n\t\t\t\t\tlet selName = types.NameText(ctx.p, se.Sel)\n\t\t\t\t\tif false && depPath == \"os\" && selName == \"Exit\" {\n\t\t\t\t\t\treturn execrtPath + \".Exit\"\n\t\t\t\t\t}\n",
+      "rule": "Type references to os.Exit in catch arms and signatures map to the standalone runtime execrt.Exit error struct.",
+      "killers": ["compiler/cmd/nativebuild:NativebuildBuildsExec"]
+    },
+    {
+      "name": "nativeobj-exec-init-dep-flag-dropped",
+      "origin": "wf10 NATIVEOBJ-STANDALONE-EXEC",
+      "file": "compiler/cmd/nativebuild/lower_exec.ergo",
+      "decl": "CompileExecProgramWithExports",
+      "from": "\t\t\t\tif dc.Value.Imp.HasInit {\n\t\t\t\t\tanyDepInit = true\n\t\t\t\t}\n",
+      "to": "\t\t\t\tif false && dc.Value.Imp.HasInit {\n\t\t\t\t\tanyDepInit = true\n\t\t\t\t}\n",
+      "rule": "Root or intermediate packages with zero local globals still emit init.0 when importing init-bearing dependencies so the linker orders all init tasks.",
+      "killers": ["compiler/cmd/nativebuild:NativebuildBuildsExec"]
+    },
+    {
+      "name": "nativeobj-exec-execrt-cfg-dropped",
+      "origin": "wf10 NATIVEOBJ-STANDALONE-EXEC",
+      "file": "compiler/cmd/nativebuild/lower_exec.ergo",
+      "decl": "WriteExecImportCfg",
+      "from": "\tlet mut cfg = stdCfg + \"packagefile \" + execrtPath + \"=\" + execrtFile + \"\\n\"\n",
+      "to": "\tlet mut cfg = stdCfg\n",
+      "rule": "WriteExecImportCfg must map execrt to its compiled archive before invoking the Go linker.",
+      "killers": ["compiler/cmd/nativebuild:NativebuildBuildsExec"]
     }
   ]
 }

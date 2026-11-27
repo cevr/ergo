@@ -1,0 +1,3719 @@
+import compiler/check/bind
+import compiler/check/expr
+import compiler/check/infer
+import compiler/check/load
+import compiler/check/store
+import compiler/check/types
+import compiler/ir
+import compiler/native
+import compiler/nativeobj
+import compiler/syntax
+import dense
+import fs
+import option
+import os
+import slices
+import strconv
+import strings
+
+let execrtPath = "ergo.local/native/execrt"
+
+func parseStdCfgMap(stdCfg string) Map[string, string] {
+	let mut m = Map[string, string]{}
+	for line in strings.Split(stdCfg, "\n") {
+		let l = strings.TrimSpace(line)
+		if !strings.HasPrefix(l, "packagefile ") {
+			continue
+		}
+		let rest = l[12:l.Len()]
+		let eq = strings.Index(rest, "=")
+		if eq <= 0 {
+			continue
+		}
+		m = m.Put(rest[0:eq], rest[eq+1:rest.Len()])
+	}
+	m
+}
+
+func stockExportAt(exports Map[string, string], pkgPath string) nativeobj.ExportInfo fails os.Exit needs fs.Files {
+	let archivePath = match exports.Get(pkgPath) {
+	case option.Some as p:
+		p.Value
+	case option.None:
+		return fail("missing std export for \(pkgPath)")
+	}
+	let raw = try read(archivePath)
+	nativeobj.ReadStockExport(raw) catch {
+	case nativeobj.Bad as b:
+		return fail("\(pkgPath) stock export: " + b.Why)
+	}
+}
+
+func ePos(line int) ir.Pos {
+	ir.Pos{File: 0, Line: uint32(line), Col: 1}
+}
+
+func execrtUnit(osExp nativeobj.ExportInfo, scExp nativeobj.ExportInfo) native.Unit fails ir.Malformed {
+	let mut b = ir.NewBuilder(2)
+	let _ = ir.FileOf(&b, "execrt.ergo")
+
+	try ir.Begin(&b, "init.0", ePos(1), ePos(2))
+	let retInit = try ir.Row(&b, ir.KindCode(ir.TStmt, "ret"), ePos(1), []uint32{0})
+	try ir.End(&b, ir.List(&b, []uint32{retInit}))
+
+	try ir.Begin(&b, "(*Exit).Error", ePos(4), ePos(8))
+	let eCodePtr = try ir.Row(&b, ir.KindCode(ir.TExpr, "local"), ePos(5), []uint32{0})
+	let eCode = try ir.Row(&b, ir.KindCode(ir.TExpr, "field"), ePos(5), []uint32{eCodePtr, ir.Text(&b, "Code")})
+	let eCodeStr = try ir.Row(&b, ir.KindCode(ir.TExpr, "pcall"), ePos(5), []uint32{ir.Text(&b, "strconv"), 0, 0, ir.Text(&b, "Itoa"), ir.List(&b, []uint32{eCode})})
+	let eMsgPtr = try ir.Row(&b, ir.KindCode(ir.TExpr, "local"), ePos(5), []uint32{0})
+	let eMsg = try ir.Row(&b, ir.KindCode(ir.TExpr, "field"), ePos(5), []uint32{eMsgPtr, ir.Text(&b, "Message")})
+	let pfx0 = try ir.Row(&b, ir.KindCode(ir.TExpr, "const"), ePos(5), []uint32{ir.Text(&b, "string"), ir.Text(&b, "os.Exit{Code:"), 0})
+	let pfx1 = try ir.Row(&b, ir.KindCode(ir.TExpr, "bin"), ePos(5), []uint32{ir.Text(&b, "+"), pfx0, eCodeStr})
+	let mid = try ir.Row(&b, ir.KindCode(ir.TExpr, "const"), ePos(5), []uint32{ir.Text(&b, "string"), ir.Text(&b, " Message:"), 0})
+	let pfx2 = try ir.Row(&b, ir.KindCode(ir.TExpr, "bin"), ePos(5), []uint32{ir.Text(&b, "+"), pfx1, mid})
+	let pfx3 = try ir.Row(&b, ir.KindCode(ir.TExpr, "bin"), ePos(5), []uint32{ir.Text(&b, "+"), pfx2, eMsg})
+	let suf = try ir.Row(&b, ir.KindCode(ir.TExpr, "const"), ePos(5), []uint32{ir.Text(&b, "string"), ir.Text(&b, "}"), 0})
+	let full = try ir.Row(&b, ir.KindCode(ir.TExpr, "bin"), ePos(5), []uint32{ir.Text(&b, "+"), pfx3, suf})
+	let retErr = try ir.Row(&b, ir.KindCode(ir.TStmt, "ret"), ePos(6), []uint32{full})
+	try ir.End(&b, ir.List(&b, []uint32{retErr}))
+
+	try ir.Begin(&b, "Args", ePos(10), ePos(16))
+	let gArgs0 = try ir.Row(&b, ir.KindCode(ir.TExpr, "global"), ePos(11), []uint32{ir.Text(&b, "os.Args")})
+	let lenArgs0 = try ir.Row(&b, ir.KindCode(ir.TExpr, "len"), ePos(11), []uint32{gArgs0})
+	let c1 = try ir.Row(&b, ir.KindCode(ir.TExpr, "const"), ePos(11), []uint32{ir.Text(&b, "int"), ir.Text(&b, "1"), 0})
+	let hasArgs = try ir.Row(&b, ir.KindCode(ir.TExpr, "bin"), ePos(11), []uint32{ir.Text(&b, ">"), lenArgs0, c1})
+	let gArgs1 = try ir.Row(&b, ir.KindCode(ir.TExpr, "global"), ePos(12), []uint32{ir.Text(&b, "os.Args")})
+	let gArgs2 = try ir.Row(&b, ir.KindCode(ir.TExpr, "global"), ePos(12), []uint32{ir.Text(&b, "os.Args")})
+	let lenArgs1 = try ir.Row(&b, ir.KindCode(ir.TExpr, "len"), ePos(12), []uint32{gArgs2})
+	let subArgs = try ir.Row(&b, ir.KindCode(ir.TExpr, "slice"), ePos(12), []uint32{gArgs1, ir.List(&b, []uint32{c1, lenArgs1})})
+	let retSub = try ir.Row(&b, ir.KindCode(ir.TStmt, "ret"), ePos(12), []uint32{subArgs})
+	let emptyArgs = try ir.Row(&b, ir.KindCode(ir.TExpr, "lit"), ePos(14), []uint32{ir.Text(&b, "[]string"), 0, 0})
+	let retEmpty = try ir.Row(&b, ir.KindCode(ir.TStmt, "ret"), ePos(14), []uint32{emptyArgs})
+	let ifArgs = try ir.Row(&b, ir.KindCode(ir.TStmt, "if"), ePos(11), []uint32{hasArgs, ir.List(&b, []uint32{retSub}), 0, ir.PosAt(&b, ePos(13)), 0, 0})
+	try ir.End(&b, ir.List(&b, []uint32{ifArgs, retEmpty}))
+
+	try ir.Begin(&b, "Print", ePos(18), ePos(22))
+	try ir.AddLocal(&b, "nw", "int", ePos(19))
+	try ir.AddLocal(&b, "ew", "error", ePos(19))
+	let gOut0 = try ir.Row(&b, ir.KindCode(ir.TExpr, "global"), ePos(19), []uint32{ir.Text(&b, "os.Stdout")})
+	let ps0 = try ir.Row(&b, ir.KindCode(ir.TExpr, "local"), ePos(19), []uint32{0})
+	let ws0 = try ir.Row(&b, ir.KindCode(ir.TExpr, "pcall"), ePos(19), []uint32{ir.Text(&b, "os"), 0, 0, ir.Text(&b, "(*File).WriteString"), ir.List(&b, []uint32{gOut0, ps0})})
+	let dws0 = try ir.Row(&b, ir.KindCode(ir.TStmt, "def2"), ePos(19), []uint32{1, 3, ws0})
+	let rPr = try ir.Row(&b, ir.KindCode(ir.TStmt, "ret"), ePos(20), []uint32{0})
+	try ir.End(&b, ir.List(&b, []uint32{dws0, rPr}))
+
+	try ir.Begin(&b, "Println", ePos(24), ePos(28))
+	try ir.AddLocal(&b, "nw", "int", ePos(25))
+	try ir.AddLocal(&b, "ew", "error", ePos(25))
+	let gOut1 = try ir.Row(&b, ir.KindCode(ir.TExpr, "global"), ePos(25), []uint32{ir.Text(&b, "os.Stdout")})
+	let pl0 = try ir.Row(&b, ir.KindCode(ir.TExpr, "local"), ePos(25), []uint32{0})
+	let nl0 = try ir.Row(&b, ir.KindCode(ir.TExpr, "const"), ePos(25), []uint32{ir.Text(&b, "string"), ir.Text(&b, "\"\\n\""), ir.Text(&b, "quoted")})
+	let line0 = try ir.Row(&b, ir.KindCode(ir.TExpr, "bin"), ePos(25), []uint32{ir.Text(&b, "+"), pl0, nl0})
+	let ws1 = try ir.Row(&b, ir.KindCode(ir.TExpr, "pcall"), ePos(25), []uint32{ir.Text(&b, "os"), 0, 0, ir.Text(&b, "(*File).WriteString"), ir.List(&b, []uint32{gOut1, line0})})
+	let dws1 = try ir.Row(&b, ir.KindCode(ir.TStmt, "def2"), ePos(25), []uint32{1, 3, ws1})
+	let rPln = try ir.Row(&b, ir.KindCode(ir.TStmt, "ret"), ePos(26), []uint32{0})
+	try ir.End(&b, ir.List(&b, []uint32{dws1, rPln}))
+
+	try ir.Begin(&b, "Eprint", ePos(30), ePos(34))
+	try ir.AddLocal(&b, "nw", "int", ePos(31))
+	try ir.AddLocal(&b, "ew", "error", ePos(31))
+	let gErr0 = try ir.Row(&b, ir.KindCode(ir.TExpr, "global"), ePos(31), []uint32{ir.Text(&b, "os.Stderr")})
+	let pe0 = try ir.Row(&b, ir.KindCode(ir.TExpr, "local"), ePos(31), []uint32{0})
+	let wse0 = try ir.Row(&b, ir.KindCode(ir.TExpr, "pcall"), ePos(31), []uint32{ir.Text(&b, "os"), 0, 0, ir.Text(&b, "(*File).WriteString"), ir.List(&b, []uint32{gErr0, pe0})})
+	let dwse0 = try ir.Row(&b, ir.KindCode(ir.TStmt, "def2"), ePos(31), []uint32{1, 3, wse0})
+	let rEpr = try ir.Row(&b, ir.KindCode(ir.TStmt, "ret"), ePos(32), []uint32{0})
+	try ir.End(&b, ir.List(&b, []uint32{dwse0, rEpr}))
+
+	try ir.Begin(&b, "Eprintln", ePos(36), ePos(40))
+	try ir.AddLocal(&b, "nw", "int", ePos(37))
+	try ir.AddLocal(&b, "ew", "error", ePos(37))
+	let gErr1 = try ir.Row(&b, ir.KindCode(ir.TExpr, "global"), ePos(37), []uint32{ir.Text(&b, "os.Stderr")})
+	let pel0 = try ir.Row(&b, ir.KindCode(ir.TExpr, "local"), ePos(37), []uint32{0})
+	let nl1 = try ir.Row(&b, ir.KindCode(ir.TExpr, "const"), ePos(37), []uint32{ir.Text(&b, "string"), ir.Text(&b, "\"\\n\""), ir.Text(&b, "quoted")})
+	let line1 = try ir.Row(&b, ir.KindCode(ir.TExpr, "bin"), ePos(37), []uint32{ir.Text(&b, "+"), pel0, nl1})
+	let wse1 = try ir.Row(&b, ir.KindCode(ir.TExpr, "pcall"), ePos(37), []uint32{ir.Text(&b, "os"), 0, 0, ir.Text(&b, "(*File).WriteString"), ir.List(&b, []uint32{gErr1, line1})})
+	let dwse1 = try ir.Row(&b, ir.KindCode(ir.TStmt, "def2"), ePos(37), []uint32{1, 3, wse1})
+	let rEpln = try ir.Row(&b, ir.KindCode(ir.TStmt, "ret"), ePos(38), []uint32{0})
+	try ir.End(&b, ir.List(&b, []uint32{dwse1, rEpln}))
+
+	try ir.Begin(&b, "Itoa", ePos(42), ePos(44))
+	let iv0 = try ir.Row(&b, ir.KindCode(ir.TExpr, "local"), ePos(43), []uint32{0})
+	let ic0 = try ir.Row(&b, ir.KindCode(ir.TExpr, "pcall"), ePos(43), []uint32{ir.Text(&b, "strconv"), 0, 0, ir.Text(&b, "Itoa"), ir.List(&b, []uint32{iv0})})
+	let rItoa = try ir.Row(&b, ir.KindCode(ir.TStmt, "ret"), ePos(43), []uint32{ic0})
+	try ir.End(&b, ir.List(&b, []uint32{rItoa}))
+
+	try ir.Begin(&b, "Itoa64", ePos(46), ePos(48))
+	let iv64 = try ir.Row(&b, ir.KindCode(ir.TExpr, "local"), ePos(47), []uint32{0})
+	let c10 = try ir.Row(&b, ir.KindCode(ir.TExpr, "const"), ePos(47), []uint32{ir.Text(&b, "int"), ir.Text(&b, "10"), 0})
+	let ic64 = try ir.Row(&b, ir.KindCode(ir.TExpr, "pcall"), ePos(47), []uint32{ir.Text(&b, "strconv"), 0, 0, ir.Text(&b, "FormatInt"), ir.List(&b, []uint32{iv64, c10})})
+	let rItoa64 = try ir.Row(&b, ir.KindCode(ir.TStmt, "ret"), ePos(47), []uint32{ic64})
+	try ir.End(&b, ir.List(&b, []uint32{rItoa64}))
+
+	try ir.Begin(&b, "Utoa64", ePos(50), ePos(52))
+	let uv64 = try ir.Row(&b, ir.KindCode(ir.TExpr, "local"), ePos(51), []uint32{0})
+	let u10 = try ir.Row(&b, ir.KindCode(ir.TExpr, "const"), ePos(51), []uint32{ir.Text(&b, "int"), ir.Text(&b, "10"), 0})
+	let uc64 = try ir.Row(&b, ir.KindCode(ir.TExpr, "pcall"), ePos(51), []uint32{ir.Text(&b, "strconv"), 0, 0, ir.Text(&b, "FormatUint"), ir.List(&b, []uint32{uv64, u10})})
+	let rUtoa64 = try ir.Row(&b, ir.KindCode(ir.TStmt, "ret"), ePos(51), []uint32{uc64})
+	try ir.End(&b, ir.List(&b, []uint32{rUtoa64}))
+
+	try ir.Begin(&b, "Btoa", ePos(54), ePos(56))
+	let bv0 = try ir.Row(&b, ir.KindCode(ir.TExpr, "local"), ePos(55), []uint32{0})
+	let bc0 = try ir.Row(&b, ir.KindCode(ir.TExpr, "pcall"), ePos(55), []uint32{ir.Text(&b, "strconv"), 0, 0, ir.Text(&b, "FormatBool"), ir.List(&b, []uint32{bv0})})
+	let rBtoa = try ir.Row(&b, ir.KindCode(ir.TStmt, "ret"), ePos(55), []uint32{bc0})
+	try ir.End(&b, ir.List(&b, []uint32{rBtoa}))
+
+	try ir.Begin(&b, "ReportAndExit", ePos(58), ePos(82))
+	try ir.AddLocal(&b, "ex", "Exit", ePos(62))
+	try ir.AddLocal(&b, "nw", "int", ePos(64))
+	try ir.AddLocal(&b, "ew", "error", ePos(64))
+	let lerr0 = try ir.Row(&b, ir.KindCode(ir.TExpr, "local"), ePos(59), []uint32{0})
+	let nilE = try ir.Row(&b, ir.KindCode(ir.TExpr, "nil"), ePos(59), []uint32{ir.Text(&b, "error")})
+	let isNil = try ir.Row(&b, ir.KindCode(ir.TExpr, "bin"), ePos(59), []uint32{ir.Text(&b, "=="), lerr0, nilE})
+	let retOk = try ir.Row(&b, ir.KindCode(ir.TStmt, "ret"), ePos(60), []uint32{0})
+	let ifNil = try ir.Row(&b, ir.KindCode(ir.TStmt, "if"), ePos(59), []uint32{isNil, ir.List(&b, []uint32{retOk}), 0, ir.PosAt(&b, ePos(61)), 0, 0})
+
+	let lerr1 = try ir.Row(&b, ir.KindCode(ir.TExpr, "local"), ePos(62), []uint32{0})
+	let asrtEx = try ir.Row(&b, ir.KindCode(ir.TExpr, "assert"), ePos(62), []uint32{ir.Text(&b, "Exit"), lerr1})
+	let defEx = try ir.Row(&b, ir.KindCode(ir.TStmt, "def"), ePos(62), []uint32{1, asrtEx})
+
+	let lex0 = try ir.Row(&b, ir.KindCode(ir.TExpr, "local"), ePos(63), []uint32{1})
+	let msg0 = try ir.Row(&b, ir.KindCode(ir.TExpr, "field"), ePos(63), []uint32{lex0, ir.Text(&b, "Message")})
+	let emptyS = try ir.Row(&b, ir.KindCode(ir.TExpr, "const"), ePos(63), []uint32{ir.Text(&b, "string"), ir.Text(&b, ""), 0})
+	let msgNe = try ir.Row(&b, ir.KindCode(ir.TExpr, "bin"), ePos(63), []uint32{ir.Text(&b, "!="), msg0, emptyS})
+	let lex1 = try ir.Row(&b, ir.KindCode(ir.TExpr, "local"), ePos(64), []uint32{1})
+	let msg1 = try ir.Row(&b, ir.KindCode(ir.TExpr, "field"), ePos(64), []uint32{lex1, ir.Text(&b, "Message")})
+	let nl2 = try ir.Row(&b, ir.KindCode(ir.TExpr, "const"), ePos(64), []uint32{ir.Text(&b, "string"), ir.Text(&b, "\"\\n\""), ir.Text(&b, "quoted")})
+	let msgLine = try ir.Row(&b, ir.KindCode(ir.TExpr, "bin"), ePos(64), []uint32{ir.Text(&b, "+"), msg1, nl2})
+	let gErr2 = try ir.Row(&b, ir.KindCode(ir.TExpr, "global"), ePos(64), []uint32{ir.Text(&b, "os.Stderr")})
+	let wMsg = try ir.Row(&b, ir.KindCode(ir.TExpr, "pcall"), ePos(64), []uint32{ir.Text(&b, "os"), 0, 0, ir.Text(&b, "(*File).WriteString"), ir.List(&b, []uint32{gErr2, msgLine})})
+	let dwMsg = try ir.Row(&b, ir.KindCode(ir.TStmt, "def2"), ePos(64), []uint32{2, 4, wMsg})
+	let ifMsg = try ir.Row(&b, ir.KindCode(ir.TStmt, "if"), ePos(63), []uint32{msgNe, ir.List(&b, []uint32{dwMsg}), 0, ir.PosAt(&b, ePos(65)), 0, 0})
+
+	let lex2 = try ir.Row(&b, ir.KindCode(ir.TExpr, "local"), ePos(66), []uint32{1})
+	let code0 = try ir.Row(&b, ir.KindCode(ir.TExpr, "field"), ePos(66), []uint32{lex2, ir.Text(&b, "Code")})
+	let v1 = try ir.Row(&b, ir.KindCode(ir.TExpr, "const"), ePos(66), []uint32{ir.Text(&b, "int"), ir.Text(&b, "1"), 0})
+	let v125 = try ir.Row(&b, ir.KindCode(ir.TExpr, "const"), ePos(66), []uint32{ir.Text(&b, "int"), ir.Text(&b, "125"), 0})
+	let v129 = try ir.Row(&b, ir.KindCode(ir.TExpr, "const"), ePos(66), []uint32{ir.Text(&b, "int"), ir.Text(&b, "129"), 0})
+	let v192 = try ir.Row(&b, ir.KindCode(ir.TExpr, "const"), ePos(66), []uint32{ir.Text(&b, "int"), ir.Text(&b, "192"), 0})
+	let ge1 = try ir.Row(&b, ir.KindCode(ir.TExpr, "bin"), ePos(66), []uint32{ir.Text(&b, ">="), code0, v1})
+	let le125 = try ir.Row(&b, ir.KindCode(ir.TExpr, "bin"), ePos(66), []uint32{ir.Text(&b, "<="), code0, v125})
+	let rLo = try ir.Row(&b, ir.KindCode(ir.TExpr, "bin"), ePos(66), []uint32{ir.Text(&b, "&&"), ge1, le125})
+	let ge129 = try ir.Row(&b, ir.KindCode(ir.TExpr, "bin"), ePos(66), []uint32{ir.Text(&b, ">="), code0, v129})
+	let le192 = try ir.Row(&b, ir.KindCode(ir.TExpr, "bin"), ePos(66), []uint32{ir.Text(&b, "<="), code0, v192})
+	let rHi = try ir.Row(&b, ir.KindCode(ir.TExpr, "bin"), ePos(66), []uint32{ir.Text(&b, "&&"), ge129, le192})
+	let validCode = try ir.Row(&b, ir.KindCode(ir.TExpr, "bin"), ePos(66), []uint32{ir.Text(&b, "||"), rLo, rHi})
+
+	let lex3 = try ir.Row(&b, ir.KindCode(ir.TExpr, "local"), ePos(67), []uint32{1})
+	let code1 = try ir.Row(&b, ir.KindCode(ir.TExpr, "field"), ePos(67), []uint32{lex3, ir.Text(&b, "Code")})
+	let callExitValid = try ir.Row(&b, ir.KindCode(ir.TExpr, "pcall"), ePos(67), []uint32{ir.Text(&b, "os"), 0, 0, ir.Text(&b, "Exit"), ir.List(&b, []uint32{code1})})
+	let stmtExitValid = try ir.Row(&b, ir.KindCode(ir.TStmt, "expr"), ePos(67), []uint32{callExitValid})
+	let ifValidCode = try ir.Row(&b, ir.KindCode(ir.TStmt, "if"), ePos(66), []uint32{validCode, ir.List(&b, []uint32{stmtExitValid}), 0, ir.PosAt(&b, ePos(68)), 0, 0})
+
+	let lex4 = try ir.Row(&b, ir.KindCode(ir.TExpr, "local"), ePos(69), []uint32{1})
+	let code2 = try ir.Row(&b, ir.KindCode(ir.TExpr, "field"), ePos(69), []uint32{lex4, ir.Text(&b, "Code")})
+	let codeS = try ir.Row(&b, ir.KindCode(ir.TExpr, "pcall"), ePos(69), []uint32{ir.Text(&b, "strconv"), 0, 0, ir.Text(&b, "Itoa"), ir.List(&b, []uint32{code2})})
+	let bad0 = try ir.Row(&b, ir.KindCode(ir.TExpr, "const"), ePos(69), []uint32{ir.Text(&b, "string"), ir.Text(&b, "error: os.Exit code "), 0})
+	let bad1 = try ir.Row(&b, ir.KindCode(ir.TExpr, "bin"), ePos(69), []uint32{ir.Text(&b, "+"), bad0, codeS})
+	let bad2 = try ir.Row(&b, ir.KindCode(ir.TExpr, "const"), ePos(69), []uint32{ir.Text(&b, "string"), ir.Text(&b, "\" is outside 1..125 and 129..192\\n\""), ir.Text(&b, "quoted")})
+	let badMsg = try ir.Row(&b, ir.KindCode(ir.TExpr, "bin"), ePos(69), []uint32{ir.Text(&b, "+"), bad1, bad2})
+	let gErr3 = try ir.Row(&b, ir.KindCode(ir.TExpr, "global"), ePos(69), []uint32{ir.Text(&b, "os.Stderr")})
+	let wBad = try ir.Row(&b, ir.KindCode(ir.TExpr, "pcall"), ePos(69), []uint32{ir.Text(&b, "os"), 0, 0, ir.Text(&b, "(*File).WriteString"), ir.List(&b, []uint32{gErr3, badMsg})})
+	let dwBad = try ir.Row(&b, ir.KindCode(ir.TStmt, "def2"), ePos(69), []uint32{2, 4, wBad})
+	let cExit1 = try ir.Row(&b, ir.KindCode(ir.TExpr, "pcall"), ePos(70), []uint32{ir.Text(&b, "os"), 0, 0, ir.Text(&b, "Exit"), ir.List(&b, []uint32{v1})})
+	let sExit1 = try ir.Row(&b, ir.KindCode(ir.TStmt, "expr"), ePos(70), []uint32{cExit1})
+
+	let caseExit = try ir.Row(&b, 1, ePos(62), []uint32{ir.List(&b, []uint32{ir.Text(&b, "Exit")}), ir.List(&b, []uint32{defEx, ifMsg, ifValidCode, dwBad, sExit1}), 0, 0})
+
+	let lerr2 = try ir.Row(&b, ir.KindCode(ir.TExpr, "local"), ePos(73), []uint32{0})
+	let errText = try ir.Row(&b, ir.KindCode(ir.TExpr, "mcall"), ePos(73), []uint32{lerr2, ir.Text(&b, "Error"), 0})
+	let errPfx = try ir.Row(&b, ir.KindCode(ir.TExpr, "const"), ePos(73), []uint32{ir.Text(&b, "string"), ir.Text(&b, "error: "), 0})
+	let nl3 = try ir.Row(&b, ir.KindCode(ir.TExpr, "const"), ePos(73), []uint32{ir.Text(&b, "string"), ir.Text(&b, "\"\\n\""), ir.Text(&b, "quoted")})
+	let errM1 = try ir.Row(&b, ir.KindCode(ir.TExpr, "bin"), ePos(73), []uint32{ir.Text(&b, "+"), errPfx, errText})
+	let errLine = try ir.Row(&b, ir.KindCode(ir.TExpr, "bin"), ePos(73), []uint32{ir.Text(&b, "+"), errM1, nl3})
+	let gErr4 = try ir.Row(&b, ir.KindCode(ir.TExpr, "global"), ePos(73), []uint32{ir.Text(&b, "os.Stderr")})
+	let wGen = try ir.Row(&b, ir.KindCode(ir.TExpr, "pcall"), ePos(73), []uint32{ir.Text(&b, "os"), 0, 0, ir.Text(&b, "(*File).WriteString"), ir.List(&b, []uint32{gErr4, errLine})})
+	let dwGen = try ir.Row(&b, ir.KindCode(ir.TStmt, "def2"), ePos(73), []uint32{2, 4, wGen})
+	let vOne = try ir.Row(&b, ir.KindCode(ir.TExpr, "const"), ePos(74), []uint32{ir.Text(&b, "int"), ir.Text(&b, "1"), 0})
+	let cExitGen = try ir.Row(&b, ir.KindCode(ir.TExpr, "pcall"), ePos(74), []uint32{ir.Text(&b, "os"), 0, 0, ir.Text(&b, "Exit"), ir.List(&b, []uint32{vOne})})
+	let sExitGen = try ir.Row(&b, ir.KindCode(ir.TStmt, "expr"), ePos(74), []uint32{cExitGen})
+	let caseDef = try ir.Row(&b, 1, ePos(72), []uint32{0, ir.List(&b, []uint32{dwGen, sExitGen}), 0, 1})
+
+	let lerrSubj = try ir.Row(&b, ir.KindCode(ir.TExpr, "local"), ePos(62), []uint32{0})
+	let tsErr = try ir.Row(&b, ir.KindCode(ir.TStmt, "tswitch"), ePos(62), []uint32{lerrSubj, 0, ir.PosAt(&b, ePos(76)), ir.PosAt(&b, ePos(76)), ir.List(&b, []uint32{caseExit, caseDef})})
+	let retDone = try ir.Row(&b, ir.KindCode(ir.TStmt, "ret"), ePos(78), []uint32{0})
+	try ir.End(&b, ir.List(&b, []uint32{ifNil, tsErr, retDone}))
+
+	let exitRec = native.RecordDecl{
+		Name:     "Exit",
+		PkgPath:  execrtPath,
+		Exported: true,
+		Fields:   []native.FieldDecl{
+			native.FieldDecl{Name: "Code", Type: "int", Exported: true},
+			native.FieldDecl{Name: "Message", Type: "string", Exported: true},
+		},
+	}
+
+	native.Unit{
+		Path: execrtPath,
+		Name: "execrt",
+		File: "execrt.ergo",
+		IR:   try ir.Finish(b),
+		Sigs: []native.Sig{
+			native.Sig{Params: []string{}, Results: []string{}},
+			native.Sig{Params: []string{"*Exit"}, Results: []string{"string"}},
+			native.Sig{Params: []string{}, Results: []string{"[]string"}},
+			native.Sig{Params: []string{"string"}, Results: []string{}},
+			native.Sig{Params: []string{"string"}, Results: []string{}},
+			native.Sig{Params: []string{"string"}, Results: []string{}},
+			native.Sig{Params: []string{"string"}, Results: []string{}},
+			native.Sig{Params: []string{"int"}, Results: []string{"string"}},
+			native.Sig{Params: []string{"int64"}, Results: []string{"string"}},
+			native.Sig{Params: []string{"uint64"}, Results: []string{"string"}},
+			native.Sig{Params: []string{"bool"}, Results: []string{"string"}},
+			native.Sig{Params: []string{"error"}, Results: []string{}},
+		},
+		Records:    []native.RecordDecl{exitRec},
+		Interfaces: []native.IfaceDecl{},
+		Globals:    []native.GlobalDecl{},
+		Inits:      []string{"init.0"},
+		Imports:    []native.ImportUnit{
+			native.ImportUnit{
+				Path:        "os",
+				Name:        "os",
+				Fingerprint: osExp.Fingerprint,
+				HasInit:     osExp.HasInit,
+				Records:     []native.RecordDecl{
+					native.RecordDecl{Name: "File", PkgPath: "os", Exported: true, Fields: []native.FieldDecl{}},
+				},
+				Interfaces: []native.IfaceDecl{},
+				Globals:    []native.GlobalDecl{
+					native.GlobalDecl{Name: "Stdout", PkgPath: "os", Type: "*os.File"},
+					native.GlobalDecl{Name: "Stderr", PkgPath: "os", Type: "*os.File"},
+					native.GlobalDecl{Name: "Args", PkgPath: "os", Type: "[]string"},
+				},
+				Funcs: []native.ImportFunc{
+					native.ImportFunc{Name: "(*File).WriteString", Sig: native.Sig{Params: []string{"*os.File", "string"}, Results: []string{"int", "error"}}},
+					native.ImportFunc{Name: "Exit", Sig: native.Sig{Params: []string{"int"}, Results: []string{}}},
+				},
+			},
+			native.ImportUnit{
+				Path:        "strconv",
+				Name:        "strconv",
+				Fingerprint: scExp.Fingerprint,
+				HasInit:     scExp.HasInit,
+				Records:     []native.RecordDecl{},
+				Interfaces:  []native.IfaceDecl{},
+				Globals:     []native.GlobalDecl{},
+				Funcs:       []native.ImportFunc{
+					native.ImportFunc{Name: "Itoa", Sig: native.Sig{Params: []string{"int"}, Results: []string{"string"}}},
+					native.ImportFunc{Name: "FormatInt", Sig: native.Sig{Params: []string{"int64", "int"}, Results: []string{"string"}}},
+					native.ImportFunc{Name: "FormatUint", Sig: native.Sig{Params: []string{"uint64", "int"}, Results: []string{"string"}}},
+					native.ImportFunc{Name: "FormatBool", Sig: native.Sig{Params: []string{"bool"}, Results: []string{"string"}}},
+				},
+			},
+		},
+	}
+}
+
+func execrtImportUnit(osExp nativeobj.ExportInfo, scExp nativeobj.ExportInfo, hdr string) compiledDep fails os.Exit {
+	let u = execrtUnit(osExp, scExp) catch {
+	case ir.Malformed as m:
+		return fail("execrt IR malformed: " + m.Why)
+	}
+	let built = try archive(u, hdr)
+	let exp = nativeobj.ReadStockExport(built.Archive) catch {
+	case nativeobj.Bad as b:
+		return fail("execrt export: " + b.Why)
+	}
+	let imp = native.ImportUnit{
+		Path:        execrtPath,
+		Name:        "execrt",
+		Fingerprint: exp.Fingerprint,
+		HasInit:     exp.HasInit,
+		Records:     u.Records,
+		Interfaces:  []native.IfaceDecl{},
+		Globals:     []native.GlobalDecl{},
+		Funcs:       []native.ImportFunc{
+			native.ImportFunc{Name: "(*Exit).Error", Sig: native.Sig{Params: []string{"*" + execrtPath + ".Exit"}, Results: []string{"string"}}},
+			native.ImportFunc{Name: "Args", Sig: native.Sig{Params: []string{}, Results: []string{"[]string"}}},
+			native.ImportFunc{Name: "Print", Sig: native.Sig{Params: []string{"string"}, Results: []string{}}},
+			native.ImportFunc{Name: "Println", Sig: native.Sig{Params: []string{"string"}, Results: []string{}}},
+			native.ImportFunc{Name: "Eprint", Sig: native.Sig{Params: []string{"string"}, Results: []string{}}},
+			native.ImportFunc{Name: "Eprintln", Sig: native.Sig{Params: []string{"string"}, Results: []string{}}},
+			native.ImportFunc{Name: "Itoa", Sig: native.Sig{Params: []string{"int"}, Results: []string{"string"}}},
+			native.ImportFunc{Name: "Itoa64", Sig: native.Sig{Params: []string{"int64"}, Results: []string{"string"}}},
+			native.ImportFunc{Name: "Utoa64", Sig: native.Sig{Params: []string{"uint64"}, Results: []string{"string"}}},
+			native.ImportFunc{Name: "Btoa", Sig: native.Sig{Params: []string{"bool"}, Results: []string{"string"}}},
+			native.ImportFunc{Name: "ReportAndExit", Sig: native.Sig{Params: []string{"error"}, Results: []string{}}},
+		},
+	}
+	compiledDep{Unit: u, Built: built, Imp: imp}
+}
+
+func admitStdSourceFile(name string) bool {
+	strings.HasSuffix(name, ".ergo") && !strings.HasSuffix(name, "_tests.ergo") && !strings.HasSuffix(name, "_laws.ergo")
+}
+
+func loadStdBootUnit(stdDir string, pkgPath string) option.Option[load.Unit] needs fs.Files {
+	if stdDir == "" {
+		return option.None
+	}
+	let dir = if pkgPath == "prelude" { stdDir } else { stdDir + "/" + pkgPath }
+	let mut rawNames = []string{}
+	if pkgPath == "prelude" {
+		rawNames = []string{"builtin.ergo", "prelude.ergo"}
+	} else {
+		let entries = fs.Files.ReadDir(dir) catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+			return option.None
+		}
+		for name in entries {
+			if admitStdSourceFile(name) {
+				rawNames = rawNames.Append(name)
+			}
+		}
+		rawNames = slices.Sort(rawNames)
+	}
+	if rawNames.Len() == 0 {
+		return option.None
+	}
+	let mut files = []bind.File{}
+	let mut paths = []string{}
+	for name in rawNames {
+		let full = dir + "/" + name
+		let src = fs.Files.ReadFile(full) catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+			return option.None
+		}
+		files = files.Append(bind.File{Name: name, Parsed: syntax.Parse(src)})
+		paths = paths.Append(full)
+	}
+	option.Some[load.Unit]{
+		Value: load.Unit{
+			Tab:   load.TablesOf("", "@pkg "+pkgPath+" "+pkgPath+" 1\n"),
+			Files: files,
+			Paths: paths,
+			Path:  pkgPath,
+			Dir:   dir,
+		},
+	}
+}
+
+func buildExecSpecUnit(spec pkgSpec) load.Unit fails os.Exit {
+	if spec.Files.Len() == 0 || spec.Files.Len() != spec.Sources.Len() {
+		return fail("bad file list for \(spec.Path)")
+	}
+	let tab = load.TablesOf("", "@pkg "+base(spec.Path)+" "+spec.Path+" 1\n")
+	let mut parsed = slices.WithCapacity[bind.File](spec.Sources.Len())
+	for i, src in spec.Sources {
+		let pf = syntax.Parse(src)
+		if pf.Failed {
+			return fail("parse error in \(spec.Files[i])")
+		}
+		parsed = parsed.Append(bind.File{Name: base(spec.Files[i]), Parsed: pf})
+	}
+	let dir = if spec.Files.Len() > 0 { load.Dir(spec.Files[0]) } else { "." }
+	load.Unit{Tab: tab, Files: parsed, Paths: spec.Files, Path: spec.Path, Dir: dir}
+}
+
+func depTypeDeclSpec(s store.Store, k expr.Pkg, name string) option.Option[(int, dense.ID[syntax.Node])] {
+	let declID = match store.Lookup(s, name) {
+	case option.Some{Value: id}:
+		id
+	case option.None:
+		return option.None
+	}
+	let decl = store.DeclOf(s, declID)
+	let f = int(decl.File)
+	if f < 0 || f >= k.Parsed.Len() {
+		return option.None
+	}
+	let p = k.Parsed[f]
+	let n = syntax.NodeAt(p.Tree, int(decl.Node))
+	let pn = bind.PNodeOf(k.Ps, f, n)
+	let parent = match dense.Unpack(bind.ParentOf(k.Ps, pn)) {
+	case option.Some{Value: id}:
+		id
+	case option.None:
+		return option.None
+	}
+	let i = dense.Index(parent) - dense.Index(pn) + int(decl.Node)
+	match syntax.ViewOf(p.Tree, syntax.NodeAt(p.Tree, i)) {
+	case syntax.TypeDecl as td:
+		if td.Name != n || dense.Unpack(td.Extern) != option.None || dense.Unpack(td.TypeParams) != option.None {
+			return option.None
+		}
+		match dense.Unpack(td.Spec) {
+		case option.Some{Value: sp}:
+			option.Some[(int, dense.ID[syntax.Node])]{Value: (f, sp)}
+		case option.None:
+			option.None
+		}
+	case _:
+		option.None
+	}
+}
+
+func depIsInterfaceDecl(s store.Store, k expr.Pkg, name string) bool {
+	match depTypeDeclSpec(s, k, name) {
+	case option.Some{Value: pair}:
+		let (f, sp) = pair
+		syntax.KindOf(k.Parsed[f].Tree, sp) == syntax.KInterfaceType
+	case option.None:
+		false
+	}
+}
+
+func depDefinedScalarName(s store.Store, k expr.Pkg, name string) string {
+	match depTypeDeclSpec(s, k, name) {
+	case option.Some{Value: pair}:
+		let (f, sp) = pair
+		let p = k.Parsed[f]
+		let kd = syntax.KindOf(p.Tree, sp)
+		if kd == syntax.KStructType || kd == syntax.KInterfaceType {
+			return ""
+		}
+		let env = types.NewEnv(s, k.Parsed, p, []string{}, k.Kinds, k.Ext, k.Foreign, k.Ifaces)
+		let mut ms = s
+		let rt = types.Resolve(&ms, env, sp)
+		if store.KindOfType(ms, rt) == store.KBasic {
+			let bn = store.ArgOf(ms, rt)
+			if bn >= 1 && bn < basicNames.Len() {
+				return basicNames[bn]
+			}
+		}
+		""
+	case option.None:
+		""
+	}
+}
+
+func hasOpRec(recs []expr.Rec, name string) bool {
+	for r in recs {
+		if r.Op && r.Name == name && r.Params.Len() == 0 {
+			return true
+		}
+	}
+	false
+}
+
+func importedOpRec(k expr.Pkg, depPath string, name string) bool {
+	for d in k.Deps {
+		if d.Path == depPath {
+			return hasOpRec(d.K.Recs, name)
+		}
+	}
+	false
+}
+
+func depTypedByPath(k expr.Pkg, depPath string) option.Option[expr.Dep] {
+	for d in k.Deps {
+		if d.Path == depPath {
+			return option.Some[expr.Dep]{Value: d}
+		}
+	}
+	option.None
+}
+
+func execTypeNameFromSK(ownerPath string, isRoot bool, s store.Store, k expr.Pkg, t0 dense.ID[store.TKey]) string fails os.Exit {
+	let t = infer.Unmarked(s, t0)
+	let kind = store.KindOfType(s, t)
+	if kind == store.KBasic {
+		let n = store.ArgOf(s, t)
+		if n >= 1 && n < basicNames.Len() {
+			return basicNames[n]
+		}
+		return fail("refused: unsupported basic ordinal \(n)")
+	}
+	if kind == store.KSlice {
+		let ops = store.OperandsOf(s, t)
+		if ops.Len() > 0 {
+			return "[]" + (try execTypeNameFromSK(ownerPath, isRoot, s, k, ops[0]))
+		}
+	}
+	if kind == store.KPointer {
+		let ops = store.OperandsOf(s, t)
+		if ops.Len() > 0 {
+			return "*" + (try execTypeNameFromSK(ownerPath, isRoot, s, k, ops[0]))
+		}
+	}
+	if kind == store.KTuple {
+		let ops = store.OperandsOf(s, t)
+		if ops.Len() == 0 {
+			return ""
+		}
+	}
+	if kind == store.KSig {
+		let ops = store.OperandsOf(s, t)
+		if ops.Len() < 3 {
+			return fail("refused: malformed signature type")
+		}
+		let n = ops.Len() - 3
+		let mut ps = []string{}
+		for i in 0..n {
+			ps = ps.Append(try execTypeNameFromSK(ownerPath, isRoot, s, k, ops[i]))
+		}
+		let res = ops[n]
+		let errRow = ops[n+1]
+		let mut rs = []string{}
+		if !isUnit(s, res) {
+			rs = rs.Append(try execTypeNameFromSK(ownerPath, isRoot, s, k, res))
+		}
+		if !emptyRow(s, errRow) {
+			rs = rs.Append("error")
+		}
+		let mut sig = "func(" + strings.Join(ps, ", ") + ")"
+		if rs.Len() == 1 {
+			sig = sig + " " + rs[0]
+		} else if rs.Len() > 1 {
+			sig = sig + " (" + strings.Join(rs, ", ") + ")"
+		}
+		return sig
+	}
+	if kind == store.KNamed {
+		let name = store.TypeNameText(s, store.ArgOf(s, t))
+		let sc = depDefinedScalarName(s, k, name)
+		if sc != "" {
+			return sc
+		}
+		if depIsInterfaceDecl(s, k, name) && !hasOpRec(k.Recs, name) {
+			return "any"
+		}
+		if isRoot || ownerPath == "" {
+			return name
+		}
+		return ownerPath + "." + name
+	}
+	if kind == store.KForeign || kind == store.KInstance {
+		let (depPath, recName, targs) = expr.ImportedRec(s, k, t)
+		if recName != "" && targs.Len() == 0 {
+			if (depPath == "os" || depPath == execrtPath) && recName == "Exit" {
+				return execrtPath + ".Exit"
+			}
+			if depPath == "os" && recName == "Code" {
+				return "int"
+			}
+			if depPath == "-" || depPath == "prelude" {
+				if recName == "any" {
+					return "any"
+				}
+				if recName == "error" {
+					return "error"
+				}
+				if recName == "byte" {
+					return "uint8"
+				}
+				if recName == "rune" {
+					return "int32"
+				}
+			}
+			if depPath != "" && depPath != "-" && depPath != "prelude" {
+				if !importedOpRec(k, depPath, recName) {
+					match depTypedByPath(k, depPath) {
+					case option.Some as dep:
+						let sc = depDefinedScalarName(dep.Value.S, dep.Value.K, recName)
+						if sc != "" {
+							return sc
+						}
+						if depIsInterfaceDecl(dep.Value.S, dep.Value.K, recName) {
+							return "any"
+						}
+					case option.None:
+					}
+				}
+				return depPath + "." + recName
+			}
+		}
+	}
+	fail("refused: unsupported exec type kind \(kind)")
+}
+
+func execSigFromTKey(ownerPath string, isRoot bool, s store.Store, k expr.Pkg, sigT dense.ID[store.TKey]) (native.Sig, bool) fails os.Exit {
+	let ops = store.OperandsOf(s, sigT)
+	if store.KindOfType(s, sigT) != store.KSig || ops.Len() < 3 {
+		return fail("function signature malformed")
+	}
+	let n = ops.Len() - 3
+	let mut params = slices.WithCapacity[string](n)
+	for i in 0..n {
+		params = params.Append(try execTypeNameFromSK(ownerPath, isRoot, s, k, ops[i]))
+	}
+	let hasErr = !emptyRow(s, ops[n+1])
+	let mut results = []string{}
+	if !isUnit(s, ops[n]) {
+		results = results.Append(try execTypeNameFromSK(ownerPath, isRoot, s, k, ops[n]))
+	}
+	if hasErr {
+		results = results.Append("error")
+	}
+	(native.Sig{Params: params, Results: results}, hasErr)
+}
+
+func execRecordsOf(ownerPath string, isRoot bool, d load.Typed) []native.RecordDecl fails os.Exit {
+	let mut out = []native.RecordDecl{}
+	for r in d.K.Recs {
+		if r.Op || r.Params.Len() > 0 || !isPlainStructDecl(d, r.Name) {
+			continue
+		}
+		let mut fields = slices.WithCapacity[native.FieldDecl](r.Fields.Len())
+		for f in r.Fields {
+			fields = fields.Append(native.FieldDecl{
+				Name:     f.Name,
+				Type:     try execTypeNameFromSK(ownerPath, isRoot, d.S, d.K, f.T),
+				Exported: exportedName(f.Name),
+			})
+		}
+		out = out.Append(native.RecordDecl{
+			Name:     r.Name,
+			PkgPath:  if isRoot { "" } else { ownerPath },
+			Exported: exportedName(r.Name),
+			Fields:   fields,
+		})
+	}
+	out
+}
+
+func execIfacesOf(ownerPath string, isRoot bool, d load.Typed) []native.IfaceDecl fails os.Exit {
+	let mut out = []native.IfaceDecl{}
+	for r in d.K.Recs {
+		if !r.Op || r.Params.Len() > 0 {
+			continue
+		}
+		let mut meths = slices.WithCapacity[native.MethodDecl](r.Fields.Len())
+		for f in r.Fields {
+			let (msig, _) = try execSigFromTKey(ownerPath, isRoot, d.S, d.K, f.T)
+			meths = meths.Append(native.MethodDecl{
+				Name:     f.Name,
+				Sig:      msig,
+				Exported: exportedName(f.Name),
+			})
+		}
+		for i in 1..meths.Len() {
+			let mut j = i
+			for j > 0 && meths[j-1].Name > meths[j].Name {
+				let tmp = meths[j]
+				meths[j] = meths[j-1]
+				meths[j-1] = tmp
+				j = j - 1
+			}
+		}
+		out = out.Append(native.IfaceDecl{
+			Name:     r.Name,
+			PkgPath:  if isRoot { "" } else { ownerPath },
+			Exported: exportedName(r.Name),
+			Methods:  meths,
+		})
+	}
+	out
+}
+
+type globalDeclRec { name string, file int, valNode dense.Opt[syntax.Node], typStr string, impTypStr string }
+
+func collectGlobals(ownerPath string, isRoot bool, d load.Typed, entryMap []int) ([]native.GlobalDecl, []native.GlobalDecl, []globalDeclRec) fails os.Exit {
+	let mut localDecls = []native.GlobalDecl{}
+	let mut impDecls = []native.GlobalDecl{}
+	let mut recs = []globalDeclRec{}
+	for f, pf in d.K.Files {
+		let p = pf.Parsed
+		if p.Failed {
+			continue
+		}
+		match syntax.ViewOf(p.Tree, syntax.Root(p.Tree)) {
+		case syntax.File as root:
+			for i in 0..syntax.Len(root.Decls) {
+				let declId = syntax.Item(p.Tree, root.Decls, i)
+				if syntax.KindOf(p.Tree, declId) != syntax.KVarDecl {
+					continue
+				}
+				let vd = syntax.VarDeclOf(p.Tree, declId)
+				if dense.Unpack(vd.Extern) != option.None || syntax.KindOf(p.Tree, vd.Spec) != syntax.KVarSpec {
+					continue
+				}
+				let sp = syntax.VarSpecOf(p.Tree, vd.Spec)
+				if syntax.Len(sp.Names) != 1 {
+					return fail("refused: multi-name package variable")
+				}
+				let nameNode = syntax.Item(p.Tree, sp.Names, 0)
+				let gname = types.NameText(p, nameNode)
+				let mut gtype = ""
+				let mut impType = ""
+				match dense.Unpack(sp.Type) {
+				case option.Some{Value: tx}:
+					let env = types.NewEnv(d.S, d.K.Parsed, p, []string{}, d.K.Kinds, d.K.Ext, d.K.Foreign, d.K.Ifaces)
+					let mut ms = d.S
+					let rt = types.Resolve(&ms, env, tx)
+					if store.KindOfType(ms, rt) != store.KBasic || store.ArgOf(ms, rt) != 0 {
+						gtype = try execTypeNameFromSK(ownerPath, isRoot, ms, d.K, rt)
+						impType = try execTypeNameFromSK(ownerPath, false, ms, d.K, rt)
+					}
+				case option.None:
+				}
+				if gtype == "" {
+					match dense.Unpack(sp.Value) {
+					case option.Some{Value: vx}:
+						let pn = bind.PNodeOf(d.K.Ps, f, vx)
+						let ei = entryMap[dense.Index(pn)]
+						if ei >= 0 {
+							let tk = d.T.Entries[ei].T
+							gtype = try execTypeNameFromSK(ownerPath, isRoot, d.S, d.K, tk)
+							impType = try execTypeNameFromSK(ownerPath, false, d.S, d.K, tk)
+						} else {
+							let pk = syntax.KindOf(p.Tree, vx)
+							if pk == syntax.KBasicLit && syntax.TokKind(p, syntax.BasicLitOf(p.Tree, vx).Tok) == syntax.String {
+								gtype = "string"
+								impType = "string"
+							}
+						}
+					case option.None:
+					}
+				}
+				if gtype == "" {
+					return fail("refused: untyped global \(gname)")
+				}
+				localDecls = localDecls.Append(native.GlobalDecl{
+					Name:    gname,
+					PkgPath: if isRoot { "" } else { ownerPath },
+					Type:    gtype,
+				})
+				impDecls = impDecls.Append(native.GlobalDecl{
+					Name:    gname,
+					PkgPath: ownerPath,
+					Type:    impType,
+				})
+				recs = recs.Append(globalDeclRec{name: gname, file: f, valNode: sp.Value, typStr: gtype, impTypStr: impType})
+			}
+		case _:
+		}
+	}
+	(localDecls, impDecls, recs)
+}
+
+type execCtx {
+	pkgPath        string,
+	isRoot         bool,
+	d              load.Typed,
+	entryMap       []int,
+	callMap        []int,
+	capMap         []int,
+	localByDef     []int,
+	slotTypes      []string,
+	nextSlot       int,
+	tempCount      int,
+	errSig         bool,
+	results        []string,
+	failTypes      []string,
+	file           int,
+	p              syntax.Parsed,
+	lines          syntax.Lines,
+	b              ir.Builder,
+	exprStmts      []uint32,
+	fileIndices    []uint32,
+	records        []native.RecordDecl,
+	impRecords     []native.RecordDecl,
+	ifaces         []native.IfaceDecl,
+	globalNames    []string,
+	globalTypes    []string,
+	impGlobalKeys  []string,
+	impGlobalTypes []string,
+}
+
+func posOfNode(ctx execCtx, id dense.ID[syntax.Node]) ir.Pos {
+	let q = syntax.PositionOf(ctx.lines, syntax.NodePos(ctx.p, id))
+	ir.Pos{File: ctx.fileIndices[ctx.file], Line: uint32(q.Line), Col: uint32(q.Column)}
+}
+
+func addLocalSlot(ctx mut execCtx, name string, typStr string, at ir.Pos) uint32 fails os.Exit {
+	ir.AddLocal(&ctx.b, name, typStr, at) catch {
+	case ir.Malformed as m:
+		return fail("ir AddLocal: " + m.Why)
+	}
+	let slot = uint32((*ctx).nextSlot)
+	ctx.nextSlot = (*ctx).nextSlot + 1
+	ctx.slotTypes = (*ctx).slotTypes.Append(typStr)
+	slot
+}
+
+func allocTemp(ctx mut execCtx, typStr string, at ir.Pos) uint32 fails os.Exit {
+	let tid = (*ctx).tempCount
+	ctx.tempCount = tid + 1
+	try addLocalSlot(ctx, "_t\(tid)", typStr, at)
+}
+
+func irRow(ctx mut execCtx, kind uint8, at ir.Pos, slots []uint32) uint32 fails os.Exit {
+	ir.Row(&ctx.b, kind, at, slots) catch {
+	case ir.Malformed as m:
+		return fail("ir Row: " + m.Why)
+	}
+}
+
+func irExpr(ctx mut execCtx, name string, at ir.Pos, slots []uint32) uint32 fails os.Exit {
+	try irRow(ctx, ir.KindCode(ir.TExpr, name), at, slots)
+}
+
+func irStmt(ctx mut execCtx, name string, at ir.Pos, slots []uint32) uint32 fails os.Exit {
+	try irRow(ctx, ir.KindCode(ir.TStmt, name), at, slots)
+}
+
+func irPreambleStmt(ctx mut execCtx, name string, at ir.Pos, slots []uint32) uint32 fails os.Exit {
+	let rowId = try irStmt(ctx, name, at, slots)
+	ctx.exprStmts = (*ctx).exprStmts.Append(rowId)
+	rowId
+}
+
+func nodeTypeKey(ctx execCtx, x dense.ID[syntax.Node]) option.Option[dense.ID[store.TKey]] {
+	let pn = bind.PNodeOf(ctx.d.K.Ps, ctx.file, x)
+	let i = dense.Index(pn)
+	if i >= 0 && i < ctx.entryMap.Len() {
+		let ei = ctx.entryMap[i]
+		if ei >= 0 {
+			return option.Some[dense.ID[store.TKey]]{Value: ctx.d.T.Entries[ei].T}
+		}
+	}
+	option.None
+}
+
+func nodeTypeName(ctx execCtx, x dense.ID[syntax.Node], hint string) string fails os.Exit {
+	match nodeTypeKey(ctx, x) {
+	case option.Some as t:
+		let nm = try execTypeNameFromSK(ctx.pkgPath, ctx.isRoot, ctx.d.S, ctx.d.K, t.Value)
+		if nm != "" {
+			return nm
+		}
+	case option.None:
+	}
+	let kd = syntax.KindOf(ctx.p.Tree, x)
+	if kd == syntax.KParenExpr {
+		return try nodeTypeName(ctx, syntax.ParenExprOf(ctx.p.Tree, x).X, hint)
+	}
+	if kd == syntax.KBasicLit {
+		let bl = syntax.BasicLitOf(ctx.p.Tree, x)
+		let tk = syntax.TokKind(ctx.p, bl.Tok)
+		if tk == syntax.String {
+			return "string"
+		}
+		if tk == syntax.Int || tk == syntax.Rune {
+			if hint != "" {
+				return hint
+			}
+			return if tk == syntax.Rune { "int32" } else { "int" }
+		}
+	}
+	if kd == syntax.KIdent {
+		let name = types.NameText(ctx.p, x)
+		if name == "true" || name == "false" {
+			return "bool"
+		}
+		if name == "nil" && hint != "" {
+			return hint
+		}
+		let pn = bind.PNodeOf(ctx.d.K.Ps, ctx.file, x)
+		match bind.ResolutionOf(ctx.d.K.U, ctx.d.K.Ps, pn) {
+		case bind.Declared as dec:
+			match expr.DefType(ctx.d.T, dec.At) {
+			case option.Some as dt:
+				let dts = try execTypeNameFromSK(ctx.pkgPath, ctx.isRoot, ctx.d.S, ctx.d.K, dt.Value)
+				if dts != "" {
+					return dts
+				}
+			case option.None:
+			}
+			let di = dense.Index(dec.At)
+			if di >= 0 && di < ctx.localByDef.Len() && ctx.localByDef[di] >= 0 {
+				let sl = ctx.localByDef[di]
+				if sl >= 0 && sl < ctx.slotTypes.Len() {
+					return ctx.slotTypes[sl]
+				}
+			}
+			for gi, gn in ctx.globalNames {
+				if gn == name {
+					return ctx.globalTypes[gi]
+				}
+			}
+		case bind.Imported as im:
+			let ii = int(im.Ref.Import) - 1
+			let paths = store.ImportPaths(ctx.d.S)
+			if ii >= 0 && ii < paths.Len() {
+				match depTypedByPath(ctx.d.K, paths[ii]) {
+				case option.Some as dep:
+					let decl = store.DeclOf(dep.Value.S, store.DeclAt(dep.Value.S, int(im.Ref.Decl)))
+					let gkey = paths[ii] + "." + store.Text(dep.Value.S, decl.Name)
+					for gi, ik in ctx.impGlobalKeys {
+						if ik == gkey {
+							return ctx.impGlobalTypes[gi]
+						}
+					}
+				case option.None:
+				}
+			}
+		case _:
+		}
+	}
+	if kd == syntax.KSelectorExpr {
+		let se = syntax.SelectorExprOf(ctx.p.Tree, x)
+		let selName = types.NameText(ctx.p, se.Sel)
+		let pn = bind.PNodeOf(ctx.d.K.Ps, ctx.file, se.Sel)
+		match bind.ResolutionOf(ctx.d.K.U, ctx.d.K.Ps, pn) {
+		case bind.Imported as im:
+			let ii = int(im.Ref.Import) - 1
+			let paths = store.ImportPaths(ctx.d.S)
+			if ii >= 0 && ii < paths.Len() {
+				match depTypedByPath(ctx.d.K, paths[ii]) {
+				case option.Some as dep:
+					let decl = store.DeclOf(dep.Value.S, store.DeclAt(dep.Value.S, int(im.Ref.Decl)))
+					let gkey = paths[ii] + "." + store.Text(dep.Value.S, decl.Name)
+					for gi, ik in ctx.impGlobalKeys {
+						if ik == gkey {
+							return ctx.impGlobalTypes[gi]
+						}
+					}
+				case option.None:
+				}
+			}
+		case _:
+			let baseT = try nodeTypeName(ctx, se.X, "")
+			let recT = if strings.HasPrefix(baseT, "*") { baseT[1:baseT.Len()] } else { baseT }
+			let ft = findRecordFieldType(ctx, recT, selName)
+			if ft != "" {
+				return ft
+			}
+		}
+	}
+	if kd == syntax.KIndexExpr {
+		let ie = syntax.IndexExprOf(ctx.p.Tree, x)
+		let bt = try nodeTypeName(ctx, ie.X, "")
+		if bt == "string" {
+			return "uint8"
+		}
+		if strings.HasPrefix(bt, "[]") {
+			return bt[2:bt.Len()]
+		}
+	}
+	if kd == syntax.KSliceExpr {
+		return try nodeTypeName(ctx, syntax.SliceExprOf(ctx.p.Tree, x).X, hint)
+	}
+	if kd == syntax.KInterpolatedString {
+		return "string"
+	}
+	if kd == syntax.KBinaryExpr {
+		let be = syntax.BinaryExprOf(ctx.p.Tree, x)
+		let op = syntax.TokKind(ctx.p, be.Op)
+		if op == syntax.Eql || op == syntax.Neq || op == syntax.Lss || op == syntax.Leq || op == syntax.Gtr || op == syntax.Geq || op == syntax.Land || op == syntax.Lor {
+			return "bool"
+		}
+		let xt = try nodeTypeName(ctx, be.X, hint)
+		if xt != "" {
+			return xt
+		}
+		return try nodeTypeName(ctx, be.Y, hint)
+	}
+	if kd == syntax.KUnaryExpr {
+		let ue = syntax.UnaryExprOf(ctx.p.Tree, x)
+		let op = syntax.TokKind(ctx.p, ue.Op)
+		if op == syntax.Not {
+			return "bool"
+		}
+		if op == syntax.And {
+			let inner = try nodeTypeName(ctx, ue.X, "")
+			if inner != "" {
+				return "*" + inner
+			}
+		}
+		return try nodeTypeName(ctx, ue.X, hint)
+	}
+	if kd == syntax.KStarExpr {
+		let inner = try nodeTypeName(ctx, syntax.StarExprOf(ctx.p.Tree, x).X, "")
+		if strings.HasPrefix(inner, "*") {
+			return inner[1:inner.Len()]
+		}
+	}
+	if kd == syntax.KCallExpr {
+		let ce = syntax.CallExprOf(ctx.p.Tree, x)
+		let (resT, _) = try resolvedCallResultTypes(ctx, x, ce)
+		if resT != "" {
+			return resT
+		}
+	}
+	if kd == syntax.KTryExpr {
+		return try nodeTypeName(ctx, syntax.TryExprOf(ctx.p.Tree, x).X, hint)
+	}
+	if kd == syntax.KCatchExpr {
+		return try nodeTypeName(ctx, syntax.CatchExprOf(ctx.p.Tree, x).X, hint)
+	}
+	if kd == syntax.KIfStmt {
+		let ifs = syntax.IfStmtOf(ctx.p.Tree, x)
+		let t = try nodeTypeName(ctx, ifs.Body, hint)
+		if t != "" {
+			return t
+		}
+		match dense.Unpack(ifs.Else) {
+		case option.Some{Value: els}:
+			return try nodeTypeName(ctx, els, hint)
+		case option.None:
+		}
+	}
+	if kd == syntax.KBlockStmt {
+		let bs = syntax.BlockStmtOf(ctx.p.Tree, x)
+		let n = syntax.Len(bs.List)
+		if n > 0 {
+			return try nodeTypeName(ctx, syntax.Item(ctx.p.Tree, bs.List, n-1), hint)
+		}
+	}
+	if kd == syntax.KExprStmt {
+		return try nodeTypeName(ctx, syntax.ExprStmtOf(ctx.p.Tree, x).X, hint)
+	}
+	hint
+}
+
+func findRecordFieldType(ctx execCtx, recName string, fieldName string) string {
+	for r in ctx.records {
+		let rfull = if r.PkgPath == "" { r.Name } else { r.PkgPath + "." + r.Name }
+		if r.Name == recName || rfull == recName {
+			for fd in r.Fields {
+				if fd.Name == fieldName {
+					return fd.Type
+				}
+			}
+		}
+	}
+	for r in ctx.impRecords {
+		let rfull = if r.PkgPath == "" { r.Name } else { r.PkgPath + "." + r.Name }
+		if rfull == recName {
+			for fd in r.Fields {
+				if fd.Name == fieldName {
+					return fd.Type
+				}
+			}
+		}
+	}
+	for d in ctx.d.K.Deps {
+		for r in d.K.Recs {
+			if r.Op || r.Params.Len() > 0 {
+				continue
+			}
+			let rfull = d.Path + "." + r.Name
+			if rfull == recName || r.Name == recName {
+				for fd in r.Fields {
+					if fd.Name == fieldName {
+						return execTypeNameFromSK(d.Path, false, d.S, d.K, fd.T) catch {
+						case os.Exit:
+							return ""
+						}
+					}
+				}
+			}
+		}
+	}
+	""
+}
+
+func recordFieldList(ctx execCtx, recName string) ([]string, []string) {
+	for r in ctx.records {
+		let rfull = if r.PkgPath == "" { r.Name } else { r.PkgPath + "." + r.Name }
+		if r.Name == recName || rfull == recName {
+			let mut ns = []string{}
+			let mut ts = []string{}
+			for fd in r.Fields {
+				ns = ns.Append(fd.Name)
+				ts = ts.Append(fd.Type)
+			}
+			return (ns, ts)
+		}
+	}
+	for r in ctx.impRecords {
+		let rfull = if r.PkgPath == "" { r.Name } else { r.PkgPath + "." + r.Name }
+		if rfull == recName {
+			let mut ns = []string{}
+			let mut ts = []string{}
+			for fd in r.Fields {
+				ns = ns.Append(fd.Name)
+				ts = ts.Append(fd.Type)
+			}
+			return (ns, ts)
+		}
+	}
+	for d in ctx.d.K.Deps {
+		for r in d.K.Recs {
+			if r.Op || r.Params.Len() > 0 {
+				continue
+			}
+			let rfull = d.Path + "." + r.Name
+			if rfull == recName {
+				let mut ns = []string{}
+				let mut ts = []string{}
+				for fd in r.Fields {
+					ns = ns.Append(fd.Name)
+					let fdt = execTypeNameFromSK(d.Path, false, d.S, d.K, fd.T) catch {
+					case os.Exit:
+						return ([]string{}, []string{})
+					}
+					ts = ts.Append(fdt)
+				}
+				return (ns, ts)
+			}
+		}
+	}
+	([]string{}, []string{})
+}
+
+func isInterfaceNamed(ctx execCtx, tname string) bool {
+	if tname == "error" || tname == "any" {
+		return true
+	}
+	for ic in ctx.ifaces {
+		let full = if ic.PkgPath == "" { ic.Name } else { ic.PkgPath + "." + ic.Name }
+		if ic.Name == tname || full == tname {
+			return true
+		}
+	}
+	for d in ctx.d.K.Deps {
+		for r in d.K.Recs {
+			if r.Op && r.Params.Len() == 0 && d.Path+"."+r.Name == tname {
+				return true
+			}
+		}
+	}
+	false
+}
+
+func importPathForAlias(p syntax.Parsed, alias string) string {
+	match syntax.ViewOf(p.Tree, syntax.Root(p.Tree)) {
+	case syntax.File as root:
+		for i in 0..syntax.Len(root.Decls) {
+			let d = syntax.Item(p.Tree, root.Decls, i)
+			if syntax.KindOf(p.Tree, d) != syntax.KImportDecl {
+				continue
+			}
+			let id = syntax.ImportDeclOf(p.Tree, d)
+			if syntax.KindOf(p.Tree, id.Spec) != syntax.KImportSpec {
+				continue
+			}
+			let sp = syntax.ImportSpecOf(p.Tree, id.Spec)
+			let path = if syntax.KindOf(p.Tree, sp.Path) == syntax.KBasicLit {
+				let raw = syntax.TokText(p, syntax.BasicLitOf(p.Tree, sp.Path).Tok)
+				if raw.Len() >= 2 && (raw[0] == byte('"') || raw[0] == byte('`')) { raw[1 : raw.Len()-1] } else { raw }
+			} else {
+				types.NameText(p, sp.Path)
+			}
+			let specName = match dense.Unpack(sp.Name) {
+			case option.Some{Value: nn}:
+				types.NameText(p, nn)
+			case option.None:
+				base(path)
+			}
+			if specName == alias {
+				return path
+			}
+		}
+	case _:
+	}
+	""
+}
+
+func capCallKind(ctx execCtx, callNode dense.ID[syntax.Node], ce syntax.CallExpr) (string, string, string) {
+	if syntax.KindOf(ctx.p.Tree, ce.Fun) != syntax.KSelectorExpr {
+		return ("", "", "")
+	}
+	let cpIdx = dense.Index(bind.PNodeOf(ctx.d.K.Ps, ctx.file, callNode))
+	let se = syntax.SelectorExprOf(ctx.p.Tree, ce.Fun)
+	let opName = types.NameText(ctx.p, se.Sel)
+	if cpIdx >= 0 && cpIdx < ctx.capMap.Len() && ctx.capMap[cpIdx] >= 0 {
+		let capT = ctx.d.T.Caps[ctx.capMap[cpIdx]].T
+		let (capPath, capName, _) = expr.ImportedRec(ctx.d.S, ctx.d.K, capT)
+		return (capPath, capName, opName)
+	}
+	match nodeTypeKey(ctx, se.X) {
+	case option.Some as xt:
+		let (capPath, capName, _) = expr.ImportedRec(ctx.d.S, ctx.d.K, xt.Value)
+		if capName == "Console" || ((capPath == "io" || capPath == "os") && (capName == "Stdout" || capName == "Stderr" || capName == "Process")) {
+			return (capPath, capName, opName)
+		}
+	case option.None:
+	}
+	let rxK = syntax.KindOf(ctx.p.Tree, se.X)
+	if rxK == syntax.KIdent && types.NameText(ctx.p, se.X) == "Console" {
+		let pn = bind.PNodeOf(ctx.d.K.Ps, ctx.file, se.X)
+		match bind.ResolutionOf(ctx.d.K.U, ctx.d.K.Ps, pn) {
+		case bind.Declared:
+		case _:
+			return ("prelude", "Console", opName)
+		}
+	}
+	if rxK == syntax.KSelectorExpr {
+		let outer = syntax.SelectorExprOf(ctx.p.Tree, se.X)
+		if syntax.KindOf(ctx.p.Tree, outer.X) == syntax.KIdent {
+			let pn = bind.PNodeOf(ctx.d.K.Ps, ctx.file, outer.X)
+			match bind.ResolutionOf(ctx.d.K.U, ctx.d.K.Ps, pn) {
+			case bind.Declared:
+			case _:
+				let alias = types.NameText(ctx.p, outer.X)
+				let capPath = importPathForAlias(ctx.p, alias)
+				if capPath == "io" || capPath == "os" {
+					let capName = types.NameText(ctx.p, outer.Sel)
+					return (capPath, capName, opName)
+				}
+			}
+		}
+	}
+	("", "", "")
+}
+
+func resolvedCallResultTypes(ctx execCtx, callNode dense.ID[syntax.Node], ce syntax.CallExpr) (string, bool) fails os.Exit {
+	let cpIdx = dense.Index(bind.PNodeOf(ctx.d.K.Ps, ctx.file, callNode))
+	let fk = syntax.KindOf(ctx.p.Tree, ce.Fun)
+	let (capPath, capName, opName) = capCallKind(ctx, callNode, ce)
+	if capName != "" {
+		if capPath == "os" && capName == "Process" && opName == "Args" {
+			return ("[]string", false)
+		}
+		if (capName == "Console" || (capPath == "io" && (capName == "Stdout" || capName == "Stderr"))) && (opName == "Print" || opName == "Println" || opName == "Eprint" || opName == "Eprintln") {
+			return ("", false)
+		}
+	}
+	if fk == syntax.KSelectorExpr {
+		let sel = syntax.SelectorExprOf(ctx.p.Tree, ce.Fun)
+		let mname = types.NameText(ctx.p, sel.Sel)
+		let rcvT0 = try nodeTypeName(ctx, sel.X, "")
+		if syntax.Len(ce.Args) == 0 && mname == "Len" && (rcvT0 == "string" || strings.HasPrefix(rcvT0, "[]")) {
+			return ("int", false)
+		}
+		if syntax.Len(ce.Args) == 1 && mname == "Append" && strings.HasPrefix(rcvT0, "[]") {
+			return (rcvT0, false)
+		}
+	}
+	if fk == syntax.KIdent {
+		let fname = types.NameText(ctx.p, ce.Fun)
+		if fname == "len" && syntax.Len(ce.Args) == 1 {
+			return ("int", false)
+		}
+		if fname == "byte" || fname == "uint8" || fname == "int" || fname == "int8" || fname == "int16" || fname == "int32" || fname == "int64" || fname == "uint" || fname == "uint16" || fname == "uint32" || fname == "uint64" || fname == "uintptr" || fname == "bool" || fname == "string" {
+			return (if fname == "byte" { "uint8" } else { fname }, false)
+		}
+	}
+
+	if cpIdx >= 0 && cpIdx < ctx.callMap.Len() && ctx.callMap[cpIdx] >= 0 {
+		let c = ctx.d.T.Calls[ctx.callMap[cpIdx]]
+		let (csig, hasErr) = try execSigFromTKey(ctx.pkgPath, ctx.isRoot, ctx.d.S, ctx.d.K, c.Callee.Sig)
+		let r0 = if csig.Results.Len() > 0 && (!hasErr || csig.Results.Len() == 2) { csig.Results[0] } else { "" }
+		return (r0, hasErr)
+	}
+	if fk == syntax.KSelectorExpr {
+		let sel = syntax.SelectorExprOf(ctx.p.Tree, ce.Fun)
+		let mname = types.NameText(ctx.p, sel.Sel)
+		let rcvT = try nodeTypeName(ctx, sel.X, "")
+		if rcvT == "error" && mname == "Error" {
+			return ("string", false)
+		}
+		for ic in ctx.ifaces {
+			let full = if ic.PkgPath == "" { ic.Name } else { ic.PkgPath + "." + ic.Name }
+			if ic.Name == rcvT || full == rcvT {
+				for md in ic.Methods {
+					if md.Name == mname {
+						let hasErr = md.Sig.Results.Len() > 0 && md.Sig.Results[md.Sig.Results.Len()-1] == "error"
+						let r0 = if md.Sig.Results.Len() > 0 && (!hasErr || md.Sig.Results.Len() == 2) { md.Sig.Results[0] } else { "" }
+						return (r0, hasErr)
+					}
+				}
+			}
+		}
+		for d in ctx.d.K.Deps {
+			for r in d.K.Recs {
+				if r.Op && r.Params.Len() == 0 && d.Path+"."+r.Name == rcvT {
+					for fd in r.Fields {
+						if fd.Name == mname {
+							let (sig, hasErr) = try execSigFromTKey(d.Path, false, d.S, d.K, fd.T)
+							let r0 = if sig.Results.Len() > 0 && (!hasErr || sig.Results.Len() == 2) { sig.Results[0] } else { "" }
+							return (r0, hasErr)
+						}
+					}
+				}
+			}
+		}
+	}
+	let funT = try nodeTypeName(ctx, ce.Fun, "")
+	if strings.HasPrefix(funT, "func(") {
+		let (_, frs) = parseFlatFuncSig(funT)
+		let hasErr = frs.Len() > 0 && frs[frs.Len()-1] == "error"
+		let r0 = if frs.Len() > 0 && (!hasErr || frs.Len() == 2) { frs[0] } else { "" }
+		return (r0, hasErr)
+	}
+	if funT != "" && syntax.Len(ce.Args) == 1 {
+		return (funT, false)
+	}
+	("", false)
+}
+
+func wrapToIfaceIfNeeded(ctx mut execCtx, exprIR uint32, exprT string, wantT string, at ir.Pos) uint32 fails os.Exit {
+	if wantT == "" || wantT == exprT || !isInterfaceNamed(*ctx, wantT) {
+		return exprIR
+	}
+	try irExpr(ctx, "toiface", at, []uint32{ir.Text(&ctx.b, wantT), exprIR})
+}
+
+func basicRuneVal(raw string) int fails os.Exit {
+	if raw.Len() < 3 || raw[0] != byte('\'') || raw[raw.Len()-1] != byte('\'') {
+		return fail("refused: invalid rune literal \(raw)")
+	}
+	let inner = raw[1 : raw.Len()-1]
+	if inner.Len() == 1 {
+		return int(inner[0])
+	}
+	if inner == "\\n" { return 10 }
+	if inner == "\\t" { return 9 }
+	if inner == "\\r" { return 13 }
+	if inner == "\\\\" { return int('\\') }
+	if inner == "\\'" { return int('\'') }
+	fail("refused: unsupported rune literal \(raw)")
+}
+
+func lowerExpr(ctx mut execCtx, x dense.ID[syntax.Node], wantType string) uint32 fails os.Exit {
+	let tr = ctx.p.Tree
+	let k = syntax.KindOf(tr, x)
+	let at = posOfNode(*ctx, x)
+	if k == syntax.KParenExpr {
+		return try lowerExpr(ctx, syntax.ParenExprOf(tr, x).X, wantType)
+	}
+	if k == syntax.KBasicLit {
+		let bl = syntax.BasicLitOf(tr, x)
+		let tk = syntax.TokKind(ctx.p, bl.Tok)
+		let txt = syntax.TokText(ctx.p, bl.Tok)
+		if tk == syntax.String {
+			if txt.Len() > 0 && txt[0] == byte('`') {
+				let raw = txt[1 : txt.Len()-1]
+				return try irExpr(ctx, "const", at, []uint32{ir.Text(&ctx.b, "string"), ir.Text(&ctx.b, raw), 0})
+			}
+			return try irExpr(ctx, "const", at, []uint32{ir.Text(&ctx.b, "string"), ir.Text(&ctx.b, txt), ir.Text(&ctx.b, "quoted")})
+		}
+		if tk == syntax.Rune {
+			let rv = try basicRuneVal(txt)
+			let et = try nodeTypeName(*ctx, x, wantType)
+			let ts = if et != "" { et } else { "int32" }
+			return try irExpr(ctx, "const", at, []uint32{ir.Text(&ctx.b, ts), ir.Text(&ctx.b, strconv.Itoa(rv)), 0})
+		}
+		if tk == syntax.Int {
+			let et = try nodeTypeName(*ctx, x, wantType)
+			let ts = if et != "" { et } else { "int" }
+			return try irExpr(ctx, "const", at, []uint32{ir.Text(&ctx.b, ts), ir.Text(&ctx.b, txt), 0})
+		}
+		return fail("refused: basic literal kind \(tk)")
+	}
+	if k == syntax.KIdent {
+		let name = types.NameText(ctx.p, x)
+		if name == "true" || name == "false" {
+			return try irExpr(ctx, "const", at, []uint32{ir.Text(&ctx.b, "bool"), ir.Text(&ctx.b, name), 0})
+		}
+		if name == "nil" {
+			let nt = if wantType != "" { wantType } else { "error" }
+			return try irExpr(ctx, "nil", at, []uint32{ir.Text(&ctx.b, nt)})
+		}
+		let pn = bind.PNodeOf(ctx.d.K.Ps, ctx.file, x)
+		match bind.ResolutionOf(ctx.d.K.U, ctx.d.K.Ps, pn) {
+		case bind.Declared as dec:
+			let di = dense.Index(dec.At)
+			if di >= 0 && di < ctx.localByDef.Len() && ctx.localByDef[di] >= 0 {
+				let locSlot = uint32(ctx.localByDef[di])
+				let locIR = try irExpr(ctx, "local", at, []uint32{locSlot})
+				let locT = try nodeTypeName(*ctx, x, "")
+				return try wrapToIfaceIfNeeded(ctx, locIR, locT, wantType, at)
+			}
+			for gname in ctx.globalNames {
+				if gname == name {
+					let gIR = try irExpr(ctx, "global", at, []uint32{ir.Text(&ctx.b, name)})
+					let gt = try nodeTypeName(*ctx, x, "")
+					return try wrapToIfaceIfNeeded(ctx, gIR, gt, wantType, at)
+				}
+			}
+			return fail("refused: unresolved local/global identifier \(name)")
+		case bind.Imported as im:
+			let ii = int(im.Ref.Import) - 1
+			let paths = store.ImportPaths(ctx.d.S)
+			if ii >= 0 && ii < paths.Len() {
+				let depPath = paths[ii]
+				match depTypedByPath(ctx.d.K, depPath) {
+				case option.Some as dep:
+					let decl = store.DeclOf(dep.Value.S, store.DeclAt(dep.Value.S, int(im.Ref.Decl)))
+					let gname = store.Text(dep.Value.S, decl.Name)
+					let gIR = try irExpr(ctx, "global", at, []uint32{ir.Text(&ctx.b, depPath+"."+gname)})
+					let gt = try nodeTypeName(*ctx, x, "")
+					return try wrapToIfaceIfNeeded(ctx, gIR, gt, wantType, at)
+				case option.None:
+				}
+			}
+			return fail("refused: imported identifier \(name)")
+		case _:
+			return fail("refused: outside identifier \(name) at \(ctx.pkgPath):line \(at.Line):col \(at.Col) caps=\(ctx.d.T.Caps.Len())")
+		}
+	}
+	if k == syntax.KInterpolatedString {
+		let is = syntax.InterpolatedStringOf(tr, x)
+		let n = syntax.Len(is.Parts)
+		let mut acc = uint32(0)
+		for i in 0..n {
+			let part = syntax.Item(tr, is.Parts, i)
+			let partAt = posOfNode(*ctx, part)
+			let pk = syntax.KindOf(tr, part)
+			let seg = if pk == syntax.KBasicLit {
+				let tok = syntax.BasicLitOf(tr, part).Tok
+				let tk = syntax.TokKind(ctx.p, tok)
+				let txt = syntax.TokText(ctx.p, tok)
+				if tk == syntax.StringHead || tk == syntax.StringMid {
+					let inner = txt[1 : txt.Len()-2]
+					let quoted = "\"" + inner + "\""
+					try irExpr(ctx, "const", partAt, []uint32{ir.Text(&ctx.b, "string"), ir.Text(&ctx.b, quoted), ir.Text(&ctx.b, "quoted")})
+				} else if tk == syntax.StringTail {
+					let inner = txt[1 : txt.Len()-1]
+					let quoted = "\"" + inner + "\""
+					try irExpr(ctx, "const", partAt, []uint32{ir.Text(&ctx.b, "string"), ir.Text(&ctx.b, quoted), ir.Text(&ctx.b, "quoted")})
+				} else {
+					try lowerExpr(ctx, part, "string")
+				}
+			} else {
+				try lowerStringify(ctx, part, partAt)
+			}
+			if acc == 0 {
+				acc = seg
+			} else {
+				acc = try irExpr(ctx, "bin", partAt, []uint32{ir.Text(&ctx.b, "+"), acc, seg})
+			}
+		}
+		if acc == 0 {
+			return try irExpr(ctx, "const", at, []uint32{ir.Text(&ctx.b, "string"), ir.Text(&ctx.b, ""), 0})
+		}
+		return acc
+	}
+	if k == syntax.KUnaryExpr {
+		let ue = syntax.UnaryExprOf(tr, x)
+		let op = syntax.TokText(ctx.p, ue.Op)
+		if op == "&" {
+			let inner = try lowerExpr(ctx, ue.X, "")
+			return try irExpr(ctx, "addr", at, []uint32{inner})
+		}
+		let inner = try lowerExpr(ctx, ue.X, wantType)
+		return try irExpr(ctx, "un", at, []uint32{ir.Text(&ctx.b, op), inner})
+	}
+	if k == syntax.KStarExpr {
+		let inner = try lowerExpr(ctx, syntax.StarExprOf(tr, x).X, "")
+		return try irExpr(ctx, "deref", at, []uint32{inner})
+	}
+	if k == syntax.KBinaryExpr {
+		let be = syntax.BinaryExprOf(tr, x)
+		let opTok = syntax.TokKind(ctx.p, be.Op)
+		let op = syntax.TokText(ctx.p, be.Op)
+		let isCmp = opTok == syntax.Eql || opTok == syntax.Neq || opTok == syntax.Lss || opTok == syntax.Leq || opTok == syntax.Gtr || opTok == syntax.Geq
+		let isLogic = opTok == syntax.Land || opTok == syntax.Lor
+		let mut subHint = if isLogic { "bool" } else if isCmp { "" } else { wantType }
+		if subHint == "" {
+			subHint = try nodeTypeName(*ctx, be.X, "")
+			if subHint == "" {
+				subHint = try nodeTypeName(*ctx, be.Y, "")
+			}
+		}
+		let xt = try nodeTypeName(*ctx, be.X, subHint)
+		let yt = try nodeTypeName(*ctx, be.Y, xt)
+		let resolvedHint = if xt != "" { xt } else { yt }
+		let lhs = try lowerExpr(ctx, be.X, resolvedHint)
+		let rhs = try lowerExpr(ctx, be.Y, resolvedHint)
+		return try irExpr(ctx, "bin", at, []uint32{ir.Text(&ctx.b, op), lhs, rhs})
+	}
+	if k == syntax.KSelectorExpr {
+		let se = syntax.SelectorExprOf(tr, x)
+		let selName = types.NameText(ctx.p, se.Sel)
+		let pn = bind.PNodeOf(ctx.d.K.Ps, ctx.file, se.Sel)
+		match bind.ResolutionOf(ctx.d.K.U, ctx.d.K.Ps, pn) {
+		case bind.Imported as im:
+			let ii = int(im.Ref.Import) - 1
+			let paths = store.ImportPaths(ctx.d.S)
+			if ii >= 0 && ii < paths.Len() {
+				let depPath = paths[ii]
+				match depTypedByPath(ctx.d.K, depPath) {
+				case option.Some as dep:
+					let decl = store.DeclOf(dep.Value.S, store.DeclAt(dep.Value.S, int(im.Ref.Decl)))
+					let gname = store.Text(dep.Value.S, decl.Name)
+					let gIR = try irExpr(ctx, "global", at, []uint32{ir.Text(&ctx.b, depPath+"."+gname)})
+					let gt = try nodeTypeName(*ctx, x, "")
+					return try wrapToIfaceIfNeeded(ctx, gIR, gt, wantType, at)
+				case option.None:
+				}
+			}
+		case _:
+		}
+		let base = try lowerExpr(ctx, se.X, "")
+		let fIR = try irExpr(ctx, "field", at, []uint32{base, ir.Text(&ctx.b, selName)})
+		let ft = try nodeTypeName(*ctx, x, "")
+		return try wrapToIfaceIfNeeded(ctx, fIR, ft, wantType, at)
+	}
+	if k == syntax.KIndexExpr {
+		let ie = syntax.IndexExprOf(tr, x)
+		if syntax.Len(ie.Indices) != 1 {
+			return fail("refused: multi-index expression")
+		}
+		let arr = try lowerExpr(ctx, ie.X, "")
+		let idx = try lowerExpr(ctx, syntax.Item(tr, ie.Indices, 0), "int")
+		let iIR = try irExpr(ctx, "index", at, []uint32{arr, idx})
+		let et = try nodeTypeName(*ctx, x, "")
+		return try wrapToIfaceIfNeeded(ctx, iIR, et, wantType, at)
+	}
+	if k == syntax.KSliceExpr {
+		let se = syntax.SliceExprOf(tr, x)
+		let src = try lowerExpr(ctx, se.X, wantType)
+		let lo = match dense.Unpack(se.Low) {
+		case option.Some{Value: l}:
+			try lowerExpr(ctx, l, "int")
+		case option.None:
+			try irExpr(ctx, "const", at, []uint32{ir.Text(&ctx.b, "int"), ir.Text(&ctx.b, "0"), 0})
+		}
+		let hi = match dense.Unpack(se.High) {
+		case option.Some{Value: h}:
+			try lowerExpr(ctx, h, "int")
+		case option.None:
+			let srcDup = try lowerExpr(ctx, se.X, wantType)
+			try irExpr(ctx, "len", at, []uint32{srcDup})
+		}
+		return try irExpr(ctx, "slice", at, []uint32{src, ir.List(&ctx.b, []uint32{lo, hi})})
+	}
+	if k == syntax.KCompositeLit {
+		return try lowerCompositeLit(ctx, x, wantType, at)
+	}
+	if k == syntax.KCallExpr {
+		let (valIR, _) = try lowerCallExpr(ctx, x, wantType, true)
+		return valIR
+	}
+	if k == syntax.KFuncLit {
+		return try lowerFuncLit(ctx, x, wantType, at)
+	}
+	if k == syntax.KTryExpr {
+		return try lowerTryExpr(ctx, syntax.TryExprOf(tr, x).X, wantType, at)
+	}
+	if k == syntax.KCatchExpr {
+		return try lowerCatchExpr(ctx, x, wantType, true, at)
+	}
+	if k == syntax.KIfStmt {
+		let ifs = syntax.IfStmtOf(tr, x)
+		let et = try nodeTypeName(*ctx, x, wantType)
+		if et == "" {
+			return fail("refused: untyped if expression at \(ctx.pkgPath):line \(at.Line)")
+		}
+		let outTmp = try allocTemp(ctx, et, at)
+		let condIR = try lowerExpr(ctx, ifs.Cond, "bool")
+		let thenStmts = try lowerBlockTo(ctx, ifs.Body, false, int(outTmp), et)
+		let elseStmts = match dense.Unpack(ifs.Else) {
+		case option.Some{Value: els}:
+			try lowerBlockTo(ctx, els, false, int(outTmp), et)
+		case option.None:
+			return fail("refused: value if expression without else")
+		}
+		let thenL = if thenStmts.Len() > 0 { ir.List(&ctx.b, thenStmts) } else { uint32(0) }
+		let elseL = if elseStmts.Len() > 0 { ir.List(&ctx.b, elseStmts) } else { uint32(0) }
+		let _ = try irPreambleStmt(ctx, "if", at, []uint32{condIR, thenL, elseL, ir.PosAt(&ctx.b, at), 0, 0})
+		return try irExpr(ctx, "local", at, []uint32{outTmp})
+	}
+	fail("refused: unsupported expression kind \(k) at \(ctx.pkgPath):line \(at.Line)")
+}
+
+func lowerStringify(ctx mut execCtx, x dense.ID[syntax.Node], at ir.Pos) uint32 fails os.Exit {
+	let ty = try nodeTypeName(*ctx, x, "")
+	if ty == "string" {
+		return try lowerExpr(ctx, x, "string")
+	}
+	if ty == "bool" {
+		let v = try lowerExpr(ctx, x, "bool")
+		return try irExpr(ctx, "pcall", at, []uint32{ir.Text(&ctx.b, execrtPath), 0, 0, ir.Text(&ctx.b, "Btoa"), ir.List(&ctx.b, []uint32{v})})
+	}
+	if ty == "int" || ty == "int8" || ty == "int16" || ty == "int32" || ty == "int64" {
+		let v = try lowerExpr(ctx, x, ty)
+		if ty == "int" {
+			return try irExpr(ctx, "pcall", at, []uint32{ir.Text(&ctx.b, execrtPath), 0, 0, ir.Text(&ctx.b, "Itoa"), ir.List(&ctx.b, []uint32{v})})
+		}
+		let v64 = try irExpr(ctx, "conv", at, []uint32{ir.Text(&ctx.b, "int64"), v})
+		return try irExpr(ctx, "pcall", at, []uint32{ir.Text(&ctx.b, execrtPath), 0, 0, ir.Text(&ctx.b, "Itoa64"), ir.List(&ctx.b, []uint32{v64})})
+	}
+	if ty == "uint" || ty == "uint8" || ty == "uint16" || ty == "uint32" || ty == "uint64" || ty == "uintptr" {
+		let v = try lowerExpr(ctx, x, ty)
+		let u64 = try irExpr(ctx, "conv", at, []uint32{ir.Text(&ctx.b, "uint64"), v})
+		return try irExpr(ctx, "pcall", at, []uint32{ir.Text(&ctx.b, execrtPath), 0, 0, ir.Text(&ctx.b, "Utoa64"), ir.List(&ctx.b, []uint32{u64})})
+	}
+	if ty == "error" {
+		let v = try lowerExpr(ctx, x, "error")
+		return try irExpr(ctx, "mcall", at, []uint32{v, ir.Text(&ctx.b, "Error"), 0})
+	}
+	fail("refused: cannot stringify type '\(ty)' at \(ctx.pkgPath):line \(at.Line):col \(at.Col) kind \(syntax.KindOf(ctx.p.Tree, x))")
+}
+
+func lowerCompositeLit(ctx mut execCtx, x dense.ID[syntax.Node], wantType string, at ir.Pos) uint32 fails os.Exit {
+	let cl = syntax.CompositeLitOf(ctx.p.Tree, x)
+	let mut ts = try nodeTypeName(*ctx, x, wantType)
+	if ts == "" {
+		match dense.Unpack(cl.Type) {
+		case option.Some{Value: tn}:
+			let tr = ctx.p.Tree
+			if syntax.KindOf(tr, tn) == syntax.KArrayType {
+				let aty = syntax.ArrayTypeOf(tr, tn)
+				if aty.Len < 0 {
+					ts = "[]" + (try lowerTypeExprName(*ctx, aty.Elt))
+				}
+			} else {
+				ts = try lowerTypeExprName(*ctx, tn)
+			}
+		case option.None:
+		}
+	}
+	if ts == "" {
+		return fail("refused: untyped composite literal")
+	}
+	if strings.HasPrefix(ts, "[]") {
+		let elemT = ts[2:ts.Len()]
+		let n = syntax.Len(cl.Elts)
+		let mut elems = slices.WithCapacity[uint32](n)
+		for i in 0..n {
+			elems = elems.Append(try lowerExpr(ctx, syntax.Item(ctx.p.Tree, cl.Elts, i), elemT))
+		}
+		let elemsL = if elems.Len() > 0 { ir.List(&ctx.b, elems) } else { uint32(0) }
+		let litIR = try irExpr(ctx, "lit", at, []uint32{ir.Text(&ctx.b, ts), elemsL, 0})
+		return try wrapToIfaceIfNeeded(ctx, litIR, ts, wantType, at)
+	}
+	let (fNames, fTypes) = recordFieldList(*ctx, ts)
+	if fNames.Len() == 0 && syntax.Len(cl.Elts) > 0 {
+		return fail("refused: unknown record fields for \(ts)")
+	}
+	let mut keyVals = slices.Repeat[uint32]([]uint32{0}, fNames.Len())
+	match dense.Unpack(cl.Base) {
+	case option.Some{Value: baseNode}:
+		let baseIR = try lowerExpr(ctx, baseNode, ts)
+		let baseTmp = try allocTemp(ctx, ts, at)
+		let _ = try irPreambleStmt(ctx, "def", at, []uint32{baseTmp, baseIR})
+		for fi, fn in fNames {
+			let bt = try irExpr(ctx, "local", at, []uint32{baseTmp})
+			keyVals[fi] = try irExpr(ctx, "field", at, []uint32{bt, ir.Text(&ctx.b, fn)})
+		}
+	case option.None:
+	}
+	let tr = ctx.p.Tree
+	let nelts = syntax.Len(cl.Elts)
+	for i in 0..nelts {
+		let el = syntax.Item(tr, cl.Elts, i)
+		if syntax.KindOf(tr, el) == syntax.KKeyValueExpr {
+			let kv = syntax.KeyValueExprOf(tr, el)
+			let kname = types.NameText(ctx.p, kv.Key)
+			let mut fIdx = -1
+			for fi, fn in fNames {
+				if fn == kname {
+					fIdx = fi
+				}
+			}
+			if fIdx < 0 {
+				return fail("refused: field \(kname) not found on \(ts)")
+			}
+			keyVals[fIdx] = try lowerExpr(ctx, kv.Value, fTypes[fIdx])
+		} else if i < fNames.Len() {
+			keyVals[i] = try lowerExpr(ctx, el, fTypes[i])
+		}
+	}
+	for fi in 0..fNames.Len() {
+		if keyVals[fi] == 0 {
+			keyVals[fi] = try irExpr(ctx, "zero", at, []uint32{ir.Text(&ctx.b, fTypes[fi])})
+		}
+	}
+	let mut keys = slices.WithCapacity[uint32](fNames.Len())
+	for fn in fNames {
+		keys = keys.Append(ir.Text(&ctx.b, fn))
+	}
+	let elemsL = if keyVals.Len() > 0 { ir.List(&ctx.b, keyVals) } else { uint32(0) }
+	let keysL = if keys.Len() > 0 { ir.List(&ctx.b, keys) } else { uint32(0) }
+	let litIR = try irExpr(ctx, "lit", at, []uint32{ir.Text(&ctx.b, ts), elemsL, keysL})
+	try wrapToIfaceIfNeeded(ctx, litIR, ts, wantType, at)
+}
+
+func lowerTypeExprName(ctx execCtx, tx dense.ID[syntax.Node]) string fails os.Exit {
+	let tr = ctx.p.Tree
+	let tk = syntax.KindOf(tr, tx)
+	if tk == syntax.KIdent {
+		let name = types.NameText(ctx.p, tx)
+		if name == "byte" {
+			return "uint8"
+		}
+		if name == "rune" {
+			return "int32"
+		}
+		if name == "error" || name == "any" || name == "string" || name == "bool" || strings.HasPrefix(name, "int") || strings.HasPrefix(name, "uint") {
+			return name
+		}
+		return if ctx.isRoot || ctx.pkgPath == "" { name } else { ctx.pkgPath + "." + name }
+	}
+	if tk == syntax.KSelectorExpr {
+		let se = syntax.SelectorExprOf(tr, tx)
+		let pn = bind.PNodeOf(ctx.d.K.Ps, ctx.file, se.Sel)
+		match bind.ResolutionOf(ctx.d.K.U, ctx.d.K.Ps, pn) {
+		case bind.Imported as im:
+			let ii = int(im.Ref.Import) - 1
+			let paths = store.ImportPaths(ctx.d.S)
+			if ii >= 0 && ii < paths.Len() {
+				let depPath = paths[ii]
+				let selName = types.NameText(ctx.p, se.Sel)
+				if depPath == "os" && selName == "Exit" {
+					return execrtPath + ".Exit"
+				}
+				return depPath + "." + selName
+			}
+		case _:
+			if syntax.KindOf(tr, se.X) == syntax.KIdent {
+				let depPath = importPathForAlias(ctx.p, types.NameText(ctx.p, se.X))
+				if depPath != "" {
+					let selName = types.NameText(ctx.p, se.Sel)
+					if depPath == "os" && selName == "Exit" {
+						return execrtPath + ".Exit"
+					}
+					return depPath + "." + selName
+				}
+			}
+		}
+	}
+	if tk == syntax.KStarExpr {
+		return "*" + (try lowerTypeExprName(ctx, syntax.StarExprOf(tr, tx).X))
+	}
+	if tk == syntax.KArrayType {
+		let at = syntax.ArrayTypeOf(tr, tx)
+		if at.Len < 0 {
+			return "[]" + (try lowerTypeExprName(ctx, at.Elt))
+		}
+	}
+	fail("refused: unsupported type expression kind \(tk)")
+}
+
+func wrapCallArg(ctx mut execCtx, argNode dense.ID[syntax.Node], paramT string, at ir.Pos) uint32 fails os.Exit {
+	if strings.HasPrefix(paramT, "*") {
+		let argT = try nodeTypeName(*ctx, argNode, "")
+		if argT == paramT[1:paramT.Len()] {
+			let aIR = try lowerExpr(ctx, argNode, argT)
+			return try irExpr(ctx, "addr", at, []uint32{aIR})
+		}
+	}
+	try lowerExpr(ctx, argNode, paramT)
+}
+
+func lowerCallExpr(ctx mut execCtx, callNode dense.ID[syntax.Node], wantType string, wantVal bool) (uint32, bool) fails os.Exit {
+	let tr = ctx.p.Tree
+	let ce = syntax.CallExprOf(tr, callNode)
+	let at = posOfNode(*ctx, callNode)
+	let cpIdx = dense.Index(bind.PNodeOf(ctx.d.K.Ps, ctx.file, callNode))
+	let funK = syntax.KindOf(tr, ce.Fun)
+
+	let (capPath, capName, opName) = capCallKind(*ctx, callNode, ce)
+	if capName != "" {
+		if capPath == "os" && capName == "Process" && opName == "Args" {
+			let irN = try irExpr(ctx, "pcall", at, []uint32{ir.Text(&ctx.b, execrtPath), 0, 0, ir.Text(&ctx.b, "Args"), 0})
+			return (try wrapToIfaceIfNeeded(ctx, irN, "[]string", wantType, at), false)
+		}
+		if (capName == "Console" || (capPath == "io" && capName == "Stdout")) && opName == "Println" {
+			let arg0 = try lowerExpr(ctx, syntax.Item(tr, ce.Args, 0), "string")
+			let irN = try irExpr(ctx, "pcall", at, []uint32{ir.Text(&ctx.b, execrtPath), 0, 0, ir.Text(&ctx.b, "Println"), ir.List(&ctx.b, []uint32{arg0})})
+			return (irN, false)
+		}
+		if capPath == "io" && capName == "Stdout" && opName == "Print" {
+			let arg0 = try lowerExpr(ctx, syntax.Item(tr, ce.Args, 0), "string")
+			let irN = try irExpr(ctx, "pcall", at, []uint32{ir.Text(&ctx.b, execrtPath), 0, 0, ir.Text(&ctx.b, "Print"), ir.List(&ctx.b, []uint32{arg0})})
+			return (irN, false)
+		}
+		if capPath == "io" && capName == "Stderr" && opName == "Eprintln" {
+			let arg0 = try lowerExpr(ctx, syntax.Item(tr, ce.Args, 0), "string")
+			let irN = try irExpr(ctx, "pcall", at, []uint32{ir.Text(&ctx.b, execrtPath), 0, 0, ir.Text(&ctx.b, "Eprintln"), ir.List(&ctx.b, []uint32{arg0})})
+			return (irN, false)
+		}
+		if capPath == "io" && capName == "Stderr" && opName == "Eprint" {
+			let arg0 = try lowerExpr(ctx, syntax.Item(tr, ce.Args, 0), "string")
+			let irN = try irExpr(ctx, "pcall", at, []uint32{ir.Text(&ctx.b, execrtPath), 0, 0, ir.Text(&ctx.b, "Eprint"), ir.List(&ctx.b, []uint32{arg0})})
+			return (irN, false)
+		}
+		return fail("refused: unsupported capability call \(capPath).\(capName).\(opName)")
+	}
+
+	if funK == syntax.KSelectorExpr {
+		let se = syntax.SelectorExprOf(tr, ce.Fun)
+		let mname = types.NameText(ctx.p, se.Sel)
+		let rcvT0 = try nodeTypeName(*ctx, se.X, "")
+		if mname == "Len" && syntax.Len(ce.Args) == 0 && (rcvT0 == "string" || strings.HasPrefix(rcvT0, "[]")) {
+			let a = try lowerExpr(ctx, se.X, "")
+			let lIR = try irExpr(ctx, "len", at, []uint32{a})
+			if wantVal {
+				return (try wrapToIfaceIfNeeded(ctx, lIR, "int", wantType, at), false)
+			}
+			return (lIR, false)
+		}
+		if mname == "Append" && syntax.Len(ce.Args) == 1 && strings.HasPrefix(rcvT0, "[]") {
+			let sl = try lowerExpr(ctx, se.X, "")
+			let elemT = rcvT0[2:rcvT0.Len()]
+			let el = try lowerExpr(ctx, syntax.Item(tr, ce.Args, 0), elemT)
+			let aIR = try irExpr(ctx, "append", at, []uint32{ir.List(&ctx.b, []uint32{sl, el})})
+			if wantVal {
+				return (try wrapToIfaceIfNeeded(ctx, aIR, rcvT0, wantType, at), false)
+			}
+			return (aIR, false)
+		}
+	}
+	if funK == syntax.KIdent {
+		let fname = types.NameText(ctx.p, ce.Fun)
+		if fname == "len" && syntax.Len(ce.Args) == 1 {
+			let a = try lowerExpr(ctx, syntax.Item(tr, ce.Args, 0), "")
+			let lIR = try irExpr(ctx, "len", at, []uint32{a})
+			if wantVal {
+				return (try wrapToIfaceIfNeeded(ctx, lIR, "int", wantType, at), false)
+			}
+			return (lIR, false)
+		}
+	}
+
+	if cpIdx >= 0 && cpIdx < ctx.callMap.Len() && ctx.callMap[cpIdx] >= 0 {
+		let c = ctx.d.T.Calls[ctx.callMap[cpIdx]]
+		let (csig, hasErr) = try execSigFromTKey(ctx.pkgPath, ctx.isRoot, ctx.d.S, ctx.d.K, c.Callee.Sig)
+		let nArgs = syntax.Len(ce.Args)
+		let mut argExprs = []uint32{}
+		if c.Recv {
+			let se = syntax.SelectorExprOf(tr, ce.Fun)
+			argExprs = argExprs.Append(try wrapCallArg(ctx, se.X, csig.Params[0], at))
+			for j in 0..nArgs {
+				argExprs = argExprs.Append(try wrapCallArg(ctx, syntax.Item(tr, ce.Args, j), csig.Params[1+j], at))
+			}
+		} else {
+			for j in 0..nArgs {
+				argExprs = argExprs.Append(try wrapCallArg(ctx, syntax.Item(tr, ce.Args, j), csig.Params[j], at))
+			}
+		}
+		let argsL = if argExprs.Len() > 0 { ir.List(&ctx.b, argExprs) } else { uint32(0) }
+		let resT = if csig.Results.Len() > 0 && (!hasErr || csig.Results.Len() == 2) { csig.Results[0] } else { "" }
+		let callIR = if funK == syntax.KSelectorExpr {
+			let se = syntax.SelectorExprOf(tr, ce.Fun)
+			let fnName = types.NameText(ctx.p, se.Sel)
+			let rpn = bind.PNodeOf(ctx.d.K.Ps, ctx.file, se.Sel)
+			match bind.ResolutionOf(ctx.d.K.U, ctx.d.K.Ps, rpn) {
+			case bind.Imported as im:
+				let ii = int(im.Ref.Import) - 1
+				let paths = store.ImportPaths(ctx.d.S)
+				let depPath = paths[ii]
+				try irExpr(ctx, "pcall", at, []uint32{ir.Text(&ctx.b, depPath), 0, 0, ir.Text(&ctx.b, fnName), argsL})
+			case _:
+				let rcvT = try nodeTypeName(*ctx, se.X, "")
+				if strings.Contains(rcvT, ".") {
+					let dot = strings.LastIndex(rcvT, ".")
+					let depPath = strings.TrimPrefix(rcvT[0:dot], "*")
+					try irExpr(ctx, "pcall", at, []uint32{ir.Text(&ctx.b, depPath), 0, 0, ir.Text(&ctx.b, fnName), argsL})
+				} else {
+					try irExpr(ctx, "call", at, []uint32{0, ir.Text(&ctx.b, fnName), argsL})
+				}
+			}
+		} else {
+			let fnName = types.NameText(ctx.p, ce.Fun)
+			let targetName = if fnName == "main" { "__ergo_main" } else { fnName }
+			try irExpr(ctx, "call", at, []uint32{0, ir.Text(&ctx.b, targetName), argsL})
+		}
+		if wantVal && !hasErr && resT != "" {
+			return (try wrapToIfaceIfNeeded(ctx, callIR, resT, wantType, at), false)
+		}
+		return (callIR, hasErr)
+	}
+
+	if funK == syntax.KIdent {
+		let fname = types.NameText(ctx.p, ce.Fun)
+		if fname == "byte" || fname == "uint8" || fname == "int" || fname == "int8" || fname == "int16" || fname == "int32" || fname == "int64" || fname == "uint" || fname == "uint16" || fname == "uint32" || fname == "uint64" || fname == "uintptr" || fname == "bool" || fname == "string" {
+			let targetT = if fname == "byte" { "uint8" } else { fname }
+			let a = try lowerExpr(ctx, syntax.Item(tr, ce.Args, 0), targetT)
+			let cIR = try irExpr(ctx, "conv", at, []uint32{ir.Text(&ctx.b, targetT), a})
+			return (try wrapToIfaceIfNeeded(ctx, cIR, targetT, wantType, at), false)
+		}
+	}
+	if funK == syntax.KSelectorExpr {
+		let se = syntax.SelectorExprOf(tr, ce.Fun)
+		let mname = types.NameText(ctx.p, se.Sel)
+		let rcvT = try nodeTypeName(*ctx, se.X, "")
+		if isInterfaceNamed(*ctx, rcvT) {
+			let mut mParams = []string{}
+			let mut mRes = []string{}
+			if rcvT == "error" && mname == "Error" {
+				mRes = []string{"string"}
+			}
+			for ic in ctx.ifaces {
+				let full = if ic.PkgPath == "" { ic.Name } else { ic.PkgPath + "." + ic.Name }
+				if ic.Name == rcvT || full == rcvT {
+					for md in ic.Methods {
+						if md.Name == mname {
+							mParams = md.Sig.Params
+							mRes = md.Sig.Results
+						}
+					}
+				}
+			}
+			if mParams.Len() == 0 && mRes.Len() == 0 {
+				for d in ctx.d.K.Deps {
+					for r in d.K.Recs {
+						if r.Op && r.Params.Len() == 0 && d.Path+"."+r.Name == rcvT {
+							for fd in r.Fields {
+								if fd.Name == mname {
+									let (msig, _) = try execSigFromTKey(d.Path, false, d.S, d.K, fd.T)
+									mParams = msig.Params
+									mRes = msig.Results
+								}
+							}
+						}
+					}
+				}
+			}
+			let recvIR = try lowerExpr(ctx, se.X, rcvT)
+			let nArgs = syntax.Len(ce.Args)
+			let mut argIRs = slices.WithCapacity[uint32](nArgs)
+			for j in 0..nArgs {
+				let pT = if j < mParams.Len() { mParams[j] } else { "" }
+				argIRs = argIRs.Append(try lowerExpr(ctx, syntax.Item(tr, ce.Args, j), pT))
+			}
+			let argsL = if argIRs.Len() > 0 { ir.List(&ctx.b, argIRs) } else { uint32(0) }
+			let callIR = try irExpr(ctx, "mcall", at, []uint32{recvIR, ir.Text(&ctx.b, mname), argsL})
+			let hasErr = mRes.Len() > 0 && mRes[mRes.Len()-1] == "error"
+			let r0 = if mRes.Len() > 0 && (!hasErr || mRes.Len() == 2) { mRes[0] } else { "" }
+			if wantVal && !hasErr && r0 != "" {
+				return (try wrapToIfaceIfNeeded(ctx, callIR, r0, wantType, at), false)
+			}
+			return (callIR, hasErr)
+		}
+	}
+	let fnVal = try lowerExpr(ctx, ce.Fun, "")
+	let funT = try nodeTypeName(*ctx, ce.Fun, "")
+	let (fParams, fResults) = parseFlatFuncSig(funT)
+	let nArgs = syntax.Len(ce.Args)
+	let mut argIRs = slices.WithCapacity[uint32](nArgs)
+	for j in 0..nArgs {
+		let pt = if j < fParams.Len() { fParams[j] } else { "" }
+		argIRs = argIRs.Append(try lowerExpr(ctx, syntax.Item(tr, ce.Args, j), pt))
+	}
+	let argsL = if argIRs.Len() > 0 { ir.List(&ctx.b, argIRs) } else { uint32(0) }
+	let vc = try irExpr(ctx, "vcall", at, []uint32{fnVal, argsL})
+	let hasErr = fResults.Len() > 0 && fResults[fResults.Len()-1] == "error"
+	let r0 = if fResults.Len() > 0 && (!hasErr || fResults.Len() == 2) { fResults[0] } else { "" }
+	if wantVal && !hasErr && r0 != "" {
+		return (try wrapToIfaceIfNeeded(ctx, vc, r0, wantType, at), false)
+	}
+	(vc, hasErr)
+}
+
+func parseFlatFuncSig(s string) ([]string, []string) {
+	if !strings.HasPrefix(s, "func(") {
+		return ([]string{}, []string{})
+	}
+	let mut depth = 0
+	let mut closeIdx = -1
+	for i in 4..s.Len() {
+		let c = s[i]
+		if c == byte('(') {
+			depth = depth + 1
+		} else if c == byte(')') {
+			depth = depth - 1
+			if depth == 0 {
+				closeIdx = i
+				break
+			}
+		}
+	}
+	if closeIdx < 5 {
+		return ([]string{}, []string{})
+	}
+	let ps = splitBalancedCommas(s[5:closeIdx])
+	let rest = strings.TrimSpace(s[closeIdx+1 : s.Len()])
+	let mut rs = []string{}
+	if rest != "" {
+		if rest.Len() >= 2 && rest[0] == byte('(') && rest[rest.Len()-1] == byte(')') {
+			rs = splitBalancedCommas(rest[1 : rest.Len()-1])
+		} else {
+			rs = rs.Append(rest)
+		}
+	}
+	(ps, rs)
+}
+
+func splitBalancedCommas(s string) []string {
+	let t = strings.TrimSpace(s)
+	if t == "" {
+		return []string{}
+	}
+	let mut out = []string{}
+	let mut depth = 0
+	let mut start = 0
+	for i in 0..t.Len() {
+		let c = t[i]
+		if c == byte('(') || c == byte('[') {
+			depth = depth + 1
+		} else if c == byte(')') || c == byte(']') {
+			depth = depth - 1
+		} else if c == byte(',') && depth == 0 {
+			out = out.Append(strings.TrimSpace(t[start:i]))
+			start = i + 1
+		}
+	}
+	out.Append(strings.TrimSpace(t[start:t.Len()]))
+}
+
+func lowerCallRaw(ctx mut execCtx, callNode dense.ID[syntax.Node]) (uint32, string, bool) fails os.Exit {
+	let ce = syntax.CallExprOf(ctx.p.Tree, callNode)
+	let (r0, hasErr) = try resolvedCallResultTypes(*ctx, callNode, ce)
+	let (cIR, actualHasErr) = try lowerCallExpr(ctx, callNode, "", false)
+	(cIR, r0, hasErr || actualHasErr)
+}
+
+func lowerTryExpr(ctx mut execCtx, innerNode dense.ID[syntax.Node], wantType string, at ir.Pos) uint32 fails os.Exit {
+	if !ctx.errSig {
+		return fail("refused: try inside non-fallible function")
+	}
+	let tr = ctx.p.Tree
+	let target = unparenNode(tr, innerNode)
+	if syntax.KindOf(tr, target) != syntax.KCallExpr {
+		return fail("refused: try operand is not call")
+	}
+	let (cIR, r0, hasErr) = try lowerCallRaw(ctx, target)
+	if !hasErr {
+		return cIR
+	}
+	let errTmp = try allocTemp(ctx, "error", at)
+	let mut resTmp = uint32(0)
+	if r0 != "" {
+		resTmp = try allocTemp(ctx, r0, at)
+		let _ = try irPreambleStmt(ctx, "def2", at, []uint32{resTmp, errTmp + 1, cIR})
+	} else {
+		let _ = try irPreambleStmt(ctx, "def", at, []uint32{errTmp, cIR})
+	}
+	let errLoc0 = try irExpr(ctx, "local", at, []uint32{errTmp})
+	let nilE = try irExpr(ctx, "nil", at, []uint32{ir.Text(&ctx.b, "error")})
+	let cond = try irExpr(ctx, "bin", at, []uint32{ir.Text(&ctx.b, "!="), errLoc0, nilE})
+	let errLoc1 = try irExpr(ctx, "local", at, []uint32{errTmp})
+	let fStmt = try irStmt(ctx, "fail", at, []uint32{errLoc1})
+	let _ = try irPreambleStmt(ctx, "if", at, []uint32{cond, ir.List(&ctx.b, []uint32{fStmt}), 0, ir.PosAt(&ctx.b, at), 0, 0})
+	if r0 == "" {
+		return uint32(0)
+	}
+	let rLoc = try irExpr(ctx, "local", at, []uint32{resTmp})
+	try wrapToIfaceIfNeeded(ctx, rLoc, r0, wantType, at)
+}
+
+func lowerCatchExpr(ctx mut execCtx, x dense.ID[syntax.Node], wantType string, wantVal bool, at ir.Pos) uint32 fails os.Exit {
+	let ce = syntax.CatchExprOf(ctx.p.Tree, x)
+	let tr = ctx.p.Tree
+	let target = unparenNode(tr, ce.X)
+	if syntax.KindOf(tr, target) != syntax.KCallExpr {
+		return fail("refused: catch target is not call")
+	}
+	let (cIR, r0, hasErr) = try lowerCallRaw(ctx, target)
+	if !hasErr {
+		if wantVal && r0 != "" {
+			return try wrapToIfaceIfNeeded(ctx, cIR, r0, wantType, at)
+		}
+		return cIR
+	}
+	let errTmp = try allocTemp(ctx, "error", at)
+	let mut resTmp = uint32(0)
+	if r0 != "" {
+		resTmp = try allocTemp(ctx, r0, at)
+		let _ = try irPreambleStmt(ctx, "def2", at, []uint32{resTmp, errTmp + 1, cIR})
+	} else {
+		let _ = try irPreambleStmt(ctx, "def", at, []uint32{errTmp, cIR})
+	}
+	let mut outTmp = uint32(0)
+	let valT = if wantType != "" { wantType } else { r0 }
+	if wantVal && valT != "" {
+		outTmp = try allocTemp(ctx, valT, at)
+	}
+	let mut tcases = []uint32{}
+	let nArms = syntax.Len(ce.Arms)
+	for ai in 0..nArms {
+		let armId = syntax.Item(tr, ce.Arms, ai)
+		if syntax.KindOf(tr, armId) != syntax.KCatchArm {
+			continue
+		}
+		let arm = syntax.CatchArmOf(tr, armId)
+		let armAt = posOfNode(*ctx, armId)
+		let nTypes = syntax.Len(arm.Types)
+		let mut isDef = 0
+		let mut typeStrs = []string{}
+		let mut bindStmt = uint32(0)
+		for ti in 0..nTypes {
+			let pat = syntax.Item(tr, arm.Types, ti)
+			let pk = syntax.KindOf(tr, pat)
+			if pk == syntax.KIdent && types.NameText(ctx.p, pat) == "_" {
+				isDef = 1
+			} else if pk == syntax.KAsPattern {
+				let ap = syntax.AsPatternOf(tr, pat)
+				let ptName = try lowerTypeExprName(*ctx, ap.X)
+				typeStrs = typeStrs.Append(ptName)
+				let bindName = types.NameText(ctx.p, ap.Name)
+				let bindPN = bind.PNodeOf(ctx.d.K.Ps, ctx.file, ap.Name)
+				let bSlot = try addLocalSlot(ctx, bindName, ptName, armAt)
+				ctx.localByDef[dense.Index(bindPN)] = int(bSlot)
+				let eRead = try irExpr(ctx, "local", armAt, []uint32{errTmp})
+				let asrt = try irExpr(ctx, "assert", armAt, []uint32{ir.Text(&ctx.b, ptName), eRead})
+				bindStmt = try irStmt(ctx, "def", armAt, []uint32{bSlot, asrt})
+			} else {
+				typeStrs = typeStrs.Append(try lowerTypeExprName(*ctx, pat))
+			}
+		}
+		let armStmts = try collectTopStmts(ctx, arm.Body, false, if wantVal && valT != "" { int(outTmp) } else { -1 }, valT, bindStmt)
+		let tList = if isDef != 0 || typeStrs.Len() == 0 {
+			uint32(0)
+		} else {
+			let mut tids = slices.WithCapacity[uint32](typeStrs.Len())
+			for ts in typeStrs {
+				tids = tids.Append(ir.Text(&ctx.b, ts))
+			}
+			ir.List(&ctx.b, tids)
+		}
+		let bList = if armStmts.Len() > 0 { ir.List(&ctx.b, armStmts) } else { uint32(0) }
+		tcases = tcases.Append(try irRow(ctx, 1, armAt, []uint32{tList, bList, 0, uint32(isDef)}))
+	}
+	if ctx.errSig {
+		let reErr = try irExpr(ctx, "local", at, []uint32{errTmp})
+		let reFail = try irStmt(ctx, "fail", at, []uint32{reErr})
+		tcases = tcases.Append(try irRow(ctx, 1, at, []uint32{0, ir.List(&ctx.b, []uint32{reFail}), 0, 1}))
+	}
+	let errSubj = try irExpr(ctx, "local", at, []uint32{errTmp})
+	let nilE = try irExpr(ctx, "nil", at, []uint32{ir.Text(&ctx.b, "error")})
+	let errNe = try irExpr(ctx, "bin", at, []uint32{ir.Text(&ctx.b, "!="), errSubj, nilE})
+	let errForSw = try irExpr(ctx, "local", at, []uint32{errTmp})
+	let tsStmt = try irStmt(ctx, "tswitch", at, []uint32{errForSw, 0, ir.PosAt(&ctx.b, at), ir.PosAt(&ctx.b, at), ir.List(&ctx.b, tcases)})
+	let mut elseList = uint32(0)
+	if wantVal && valT != "" {
+		let okVal = try irExpr(ctx, "local", at, []uint32{resTmp})
+		let setOk = try irStmt(ctx, "set", at, []uint32{outTmp, try wrapToIfaceIfNeeded(ctx, okVal, r0, valT, at), 0})
+		elseList = ir.List(&ctx.b, []uint32{setOk})
+	}
+	let _ = try irPreambleStmt(ctx, "if", at, []uint32{errNe, ir.List(&ctx.b, []uint32{tsStmt}), elseList, ir.PosAt(&ctx.b, at), 0, 0})
+	if wantVal && valT != "" {
+		return try irExpr(ctx, "local", at, []uint32{outTmp})
+	}
+	uint32(0)
+}
+
+func collectClosuresInExpr(ctx mut execCtx, x dense.ID[syntax.Node]) fails os.Exit {
+	let tr = ctx.p.Tree
+	let k = syntax.KindOf(tr, x)
+	if k == syntax.KFuncLit {
+		let fl = syntax.FuncLitOf(tr, x)
+		let ft = syntax.FuncTypeOf(tr, fl.Type)
+		match syntax.ViewOf(tr, ft.Params) {
+		case syntax.FieldList as paramsFL:
+			for pi in 0..syntax.Len(paramsFL.List) {
+				let fd = syntax.FieldOf(tr, syntax.Item(tr, paramsFL.List, pi))
+				let pt = match dense.Unpack(fd.Type) {
+				case option.Some{Value: tn}:
+					try lowerTypeExprName(*ctx, tn)
+				case option.None:
+					return fail("refused: closure parameter missing type")
+				}
+				for ni in 0..syntax.Len(fd.Names) {
+					let pnNode = syntax.Item(tr, fd.Names, ni)
+					let pname = types.NameText(ctx.p, pnNode)
+					let pSlot = try addLocalSlot(ctx, pname, pt, posOfNode(*ctx, pnNode))
+					let pPN = bind.PNodeOf(ctx.d.K.Ps, ctx.file, pnNode)
+					ctx.localByDef[dense.Index(pPN)] = int(pSlot)
+				}
+			}
+		case _:
+		}
+		try preallocateBlockLocals(ctx, fl.Body)
+		return
+	}
+	for cIdx in syntax.Children(tr, x, []uint32{}) {
+		try collectClosuresInExpr(ctx, syntax.NodeAt(tr, int(cIdx)))
+	}
+}
+
+func preallocateBlockLocals(ctx mut execCtx, node dense.ID[syntax.Node]) fails os.Exit {
+	let tr = ctx.p.Tree
+	let k = syntax.KindOf(tr, node)
+	if k == syntax.KFuncLit {
+		try collectClosuresInExpr(ctx, node)
+		return
+	}
+	if k == syntax.KBlockStmt {
+		let bs = syntax.BlockStmtOf(tr, node)
+		for i in 0..syntax.Len(bs.List) {
+			try preallocateBlockLocals(ctx, syntax.Item(tr, bs.List, i))
+		}
+		return
+	}
+	if k == syntax.KIfStmt {
+		let ifs = syntax.IfStmtOf(tr, node)
+		try preallocateBlockLocals(ctx, ifs.Body)
+		match dense.Unpack(ifs.Else) {
+		case option.Some{Value: els}:
+			try preallocateBlockLocals(ctx, els)
+		case option.None:
+		}
+		return
+	}
+	if k == syntax.KForStmt {
+		try preallocateBlockLocals(ctx, syntax.ForStmtOf(tr, node).Body)
+		return
+	}
+	if k == syntax.KRangeStmt {
+		let rs = syntax.RangeStmtOf(tr, node)
+		let rxT = try nodeTypeName(*ctx, rs.X, "")
+		let defKeyT = "int"
+		let defValT = if strings.HasPrefix(rxT, "[]") { rxT[2:rxT.Len()] } else if rxT == "string" { "uint8" } else { "int" }
+		match dense.Unpack(rs.Key) {
+		case option.Some{Value: kn}:
+			if syntax.KindOf(tr, kn) == syntax.KIdent && types.NameText(ctx.p, kn) != "_" {
+				let kpn = bind.PNodeOf(ctx.d.K.Ps, ctx.file, kn)
+				let mut kt = match expr.DefType(ctx.d.T, kpn) {
+				case option.Some as dt:
+					try execTypeNameFromSK(ctx.pkgPath, ctx.isRoot, ctx.d.S, ctx.d.K, dt.Value)
+				case option.None:
+					""
+				}
+				if kt == "" {
+					kt = try nodeTypeName(*ctx, kn, defKeyT)
+				}
+				let slot = try addLocalSlot(ctx, types.NameText(ctx.p, kn), kt, posOfNode(*ctx, kn))
+				ctx.localByDef[dense.Index(kpn)] = int(slot)
+			}
+		case option.None:
+		}
+		if syntax.KindOf(tr, rs.Value) == syntax.KIdent && types.NameText(ctx.p, rs.Value) != "_" {
+			let vpn = bind.PNodeOf(ctx.d.K.Ps, ctx.file, rs.Value)
+			let mut vt = match expr.DefType(ctx.d.T, vpn) {
+			case option.Some as dt:
+				try execTypeNameFromSK(ctx.pkgPath, ctx.isRoot, ctx.d.S, ctx.d.K, dt.Value)
+			case option.None:
+				""
+			}
+			if vt == "" {
+				vt = try nodeTypeName(*ctx, rs.Value, defValT)
+			}
+			let slot = try addLocalSlot(ctx, types.NameText(ctx.p, rs.Value), vt, posOfNode(*ctx, rs.Value))
+			ctx.localByDef[dense.Index(vpn)] = int(slot)
+		}
+		try preallocateBlockLocals(ctx, rs.Body)
+		return
+	}
+	if k == syntax.KDeclStmt {
+		let ds = syntax.DeclStmtOf(tr, node)
+		if syntax.KindOf(tr, ds.Decl) == syntax.KVarDecl {
+			let vs = syntax.VarSpecOf(tr, syntax.VarDeclOf(tr, ds.Decl).Spec)
+			let mut specT = ""
+			match dense.Unpack(vs.Type) {
+			case option.Some{Value: tx}:
+				specT = try lowerTypeExprName(*ctx, tx)
+			case option.None:
+				match dense.Unpack(vs.Value) {
+				case option.Some{Value: vx}:
+					specT = try nodeTypeName(*ctx, vx, "")
+				case option.None:
+				}
+			}
+			for i in 0..syntax.Len(vs.Names) {
+				let nn = syntax.Item(tr, vs.Names, i)
+				let nm = types.NameText(ctx.p, nn)
+				if nm != "_" {
+					let npn = bind.PNodeOf(ctx.d.K.Ps, ctx.file, nn)
+					let mut lt = match expr.DefType(ctx.d.T, npn) {
+					case option.Some as dt:
+						try execTypeNameFromSK(ctx.pkgPath, ctx.isRoot, ctx.d.S, ctx.d.K, dt.Value)
+					case option.None:
+						""
+					}
+					if lt == "" {
+						lt = try nodeTypeName(*ctx, nn, specT)
+					}
+					let slot = try addLocalSlot(ctx, nm, lt, posOfNode(*ctx, nn))
+					ctx.localByDef[dense.Index(npn)] = int(slot)
+				}
+			}
+			match dense.Unpack(vs.Value) {
+			case option.Some{Value: vx}:
+				try preallocateBlockLocals(ctx, vx)
+			case option.None:
+			}
+		}
+		return
+	}
+	for cIdx in syntax.Children(tr, node, []uint32{}) {
+		try preallocateBlockLocals(ctx, syntax.NodeAt(tr, int(cIdx)))
+	}
+}
+
+func lowerFuncLit(ctx mut execCtx, x dense.ID[syntax.Node], wantType string, at ir.Pos) uint32 fails os.Exit {
+	let tr = ctx.p.Tree
+	let fl = syntax.FuncLitOf(tr, x)
+	let sigT = try nodeTypeName(*ctx, x, wantType)
+	let ft = syntax.FuncTypeOf(tr, fl.Type)
+	let mut pSlots = []uint32{}
+	match syntax.ViewOf(tr, ft.Params) {
+	case syntax.FieldList as paramsFL:
+		for pi in 0..syntax.Len(paramsFL.List) {
+			let fd = syntax.FieldOf(tr, syntax.Item(tr, paramsFL.List, pi))
+			for ni in 0..syntax.Len(fd.Names) {
+				let pnNode = syntax.Item(tr, fd.Names, ni)
+				let pn = bind.PNodeOf(ctx.d.K.Ps, ctx.file, pnNode)
+				let slot = ctx.localByDef[dense.Index(pn)]
+				if slot < 0 {
+					return fail("refused: unallocated closure parameter")
+				}
+				pSlots = pSlots.Append(uint32(slot))
+			}
+		}
+	case _:
+	}
+	let savedErrSig = (*ctx).errSig
+	let savedResults = (*ctx).results
+	let (_, rs) = parseFlatFuncSig(sigT)
+	ctx.errSig = rs.Len() > 0 && rs[rs.Len()-1] == "error"
+	ctx.results = rs
+	let valRet = if rs.Len() > 0 && (!ctx.errSig || rs.Len() == 2) { rs[0] } else { "" }
+	let bodyStmts = try lowerBlockTo(ctx, fl.Body, rs.Len() > 0, -1, valRet)
+	ctx.errSig = savedErrSig
+	ctx.results = savedResults
+	let pList = if pSlots.Len() > 0 { ir.List(&ctx.b, pSlots) } else { uint32(0) }
+	let bList = if bodyStmts.Len() > 0 { ir.List(&ctx.b, bodyStmts) } else { uint32(0) }
+	try irExpr(ctx, "func", at, []uint32{ir.Text(&ctx.b, sigT), pList, bList, 0})
+}
+
+func collectTopStmts(ctx mut execCtx, list syntax.List, retOnTail bool, assignSlot int, valType string, leading uint32) []uint32 fails os.Exit {
+	let tr = ctx.p.Tree
+	let n = syntax.Len(list)
+	let mut stmts = []uint32{}
+	if leading != 0 {
+		stmts = stmts.Append(leading)
+	}
+	for i in 0..n {
+		let sNode = syntax.Item(tr, list, i)
+		if i == n-1 {
+			for st in try lowerTailList(ctx, sNode, retOnTail, assignSlot, valType) {
+				stmts = stmts.Append(st)
+			}
+		} else {
+			for st in try lowerStmtListOne(ctx, sNode) {
+				stmts = stmts.Append(st)
+			}
+		}
+	}
+	stmts
+}
+
+func lowerBlockTo(ctx mut execCtx, blockNode dense.ID[syntax.Node], retOnTail bool, assignSlot int, valType string) []uint32 fails os.Exit {
+	let tr = ctx.p.Tree
+	if syntax.KindOf(tr, blockNode) == syntax.KBlockStmt {
+		return try collectTopStmts(ctx, syntax.BlockStmtOf(tr, blockNode).List, retOnTail, assignSlot, valType, 0)
+	}
+	try lowerTailList(ctx, blockNode, retOnTail, assignSlot, valType)
+}
+
+func isFailReturnValue(ctx execCtx, exprNode dense.ID[syntax.Node]) bool fails os.Exit {
+	if !ctx.errSig {
+		return false
+	}
+	if ctx.results.Len() == 1 {
+		return true
+	}
+	let vt = try nodeTypeName(ctx, exprNode, "")
+	if vt == "error" {
+		return true
+	}
+	for ft in ctx.failTypes {
+		if ft == vt {
+			return true
+		}
+	}
+	if ctx.results.Len() >= 2 && vt != "" && vt != ctx.results[0] {
+		return true
+	}
+	false
+}
+
+func extractInsertedStmts(ctx mut execCtx, fromIdx int) []uint32 {
+	let mut out = []uint32{}
+	for idx in fromIdx..(*ctx).exprStmts.Len() {
+		out = out.Append((*ctx).exprStmts[idx])
+	}
+	ctx.exprStmts = (*ctx).exprStmts[0:fromIdx]
+	out
+}
+
+func lowerTailList(ctx mut execCtx, sNode dense.ID[syntax.Node], retOnTail bool, assignSlot int, valType string) []uint32 fails os.Exit {
+	let tr = ctx.p.Tree
+	let k = syntax.KindOf(tr, sNode)
+	let at = posOfNode(*ctx, sNode)
+	if !retOnTail && assignSlot < 0 {
+		return try lowerStmtListOne(ctx, sNode)
+	}
+	if k == syntax.KExprStmt {
+		let es = syntax.ExprStmtOf(tr, sNode)
+		let ek = syntax.KindOf(tr, es.X)
+		if ek == syntax.KCallExpr {
+			let ce = syntax.CallExprOf(tr, es.X)
+			if syntax.KindOf(tr, ce.Fun) == syntax.KIdent && types.NameText(ctx.p, ce.Fun) == "with" {
+				match dense.Unpack(ce.Trailing) {
+				case option.Some{Value: tb}:
+					return try lowerBlockTo(ctx, tb, retOnTail, assignSlot, valType)
+				case option.None:
+				}
+			}
+		}
+		if retOnTail && ctx.errSig && ctx.results.Len() == 1 {
+			return try lowerStmtListOne(ctx, sNode)
+		}
+		let vHint = if assignSlot >= 0 { valType } else if ctx.results.Len() > 0 && (!ctx.errSig || ctx.results.Len() == 2) { ctx.results[0] } else { valType }
+		let mark = (*ctx).exprStmts.Len()
+		let vIR = if ek == syntax.KCatchExpr {
+			try lowerCatchExpr(ctx, es.X, vHint, true, at)
+		} else {
+			try lowerExpr(ctx, es.X, vHint)
+		}
+		let mut stmts = extractInsertedStmts(ctx, mark)
+		if assignSlot >= 0 {
+			stmts = stmts.Append(try irStmt(ctx, "set", at, []uint32{uint32(assignSlot), vIR, 0}))
+			return stmts
+		}
+		stmts = stmts.Append(try irStmt(ctx, "ret", at, []uint32{vIR}))
+		return stmts
+	}
+	if k == syntax.KIfStmt {
+		let ifs = syntax.IfStmtOf(tr, sNode)
+		let mark = (*ctx).exprStmts.Len()
+		let condIR = try lowerExpr(ctx, ifs.Cond, "bool")
+		let mut out = extractInsertedStmts(ctx, mark)
+		let thenStmts = try lowerBlockTo(ctx, ifs.Body, retOnTail, assignSlot, valType)
+		let elseStmts = match dense.Unpack(ifs.Else) {
+		case option.Some{Value: els}:
+			try lowerBlockTo(ctx, els, retOnTail, assignSlot, valType)
+		case option.None:
+			[]uint32{}
+		}
+		let thenL = if thenStmts.Len() > 0 { ir.List(&ctx.b, thenStmts) } else { uint32(0) }
+		let elseL = if elseStmts.Len() > 0 { ir.List(&ctx.b, elseStmts) } else { uint32(0) }
+		out = out.Append(try irStmt(ctx, "if", at, []uint32{condIR, thenL, elseL, ir.PosAt(&ctx.b, at), 0, 0}))
+		return out
+	}
+	if k == syntax.KTypeSwitchStmt {
+		return try lowerMatchTypeList(ctx, sNode, retOnTail, assignSlot, valType)
+	}
+	if k == syntax.KSwitchStmt {
+		return try lowerMatchValList(ctx, sNode, retOnTail, assignSlot, valType)
+	}
+	if k == syntax.KBlockStmt {
+		return try lowerBlockTo(ctx, sNode, retOnTail, assignSlot, valType)
+	}
+	try lowerStmtListOne(ctx, sNode)
+}
+
+func lowerStmtListOne(ctx mut execCtx, sNode dense.ID[syntax.Node]) []uint32 fails os.Exit {
+	let tr = ctx.p.Tree
+	let k = syntax.KindOf(tr, sNode)
+	let at = posOfNode(*ctx, sNode)
+	if k == syntax.KBlockStmt {
+		let stmts = try lowerBlockTo(ctx, sNode, false, -1, "")
+		let bList = if stmts.Len() > 0 { ir.List(&ctx.b, stmts) } else { uint32(0) }
+		return []uint32{try irStmt(ctx, "block", at, []uint32{bList, ir.PosAt(&ctx.b, at), 0})}
+	}
+	if k == syntax.KDeclStmt {
+		let ds = syntax.DeclStmtOf(tr, sNode)
+		if syntax.KindOf(tr, ds.Decl) == syntax.KVarDecl {
+			let vs = syntax.VarSpecOf(tr, syntax.VarDeclOf(tr, ds.Decl).Spec)
+			if syntax.Len(vs.Names) == 1 {
+				let nn = syntax.Item(tr, vs.Names, 0)
+				let nm = types.NameText(ctx.p, nn)
+				let mut lt = ""
+				let mut slot = uint32(0)
+				if nm != "_" {
+					slot = uint32(ctx.localByDef[dense.Index(bind.PNodeOf(ctx.d.K.Ps, ctx.file, nn))])
+					if int(slot) < (*ctx).slotTypes.Len() {
+						lt = (*ctx).slotTypes[int(slot)]
+					}
+				}
+				if lt == "" {
+					match dense.Unpack(vs.Type) {
+					case option.Some{Value: tx}:
+						lt = try lowerTypeExprName(*ctx, tx)
+					case option.None:
+						lt = try nodeTypeName(*ctx, nn, "")
+					}
+				}
+				match dense.Unpack(vs.Value) {
+				case option.Some{Value: vx}:
+					if nm == "_" {
+						let mark = (*ctx).exprStmts.Len()
+						let vIR = try lowerExpr(ctx, vx, lt)
+						let mut out = extractInsertedStmts(ctx, mark)
+						if vIR != 0 {
+							out = out.Append(try irStmt(ctx, "discard", at, []uint32{vIR}))
+						}
+						return out
+					}
+					let mark = (*ctx).exprStmts.Len()
+					let vIR = try lowerExpr(ctx, vx, lt)
+					let mut out = extractInsertedStmts(ctx, mark)
+					if vIR != 0 {
+						out = out.Append(try irStmt(ctx, "def", at, []uint32{slot, vIR}))
+					} else {
+						out = out.Append(try irStmt(ctx, "var", at, []uint32{slot}))
+					}
+					return out
+				case option.None:
+					if nm == "_" {
+						return []uint32{}
+					}
+					return []uint32{try irStmt(ctx, "var", at, []uint32{slot})}
+				}
+			}
+			return fail("refused: multi-name local declaration")
+		}
+		return []uint32{}
+	}
+	if k == syntax.KAssignStmt {
+		let asg = syntax.AssignStmtOf(tr, sNode)
+		let opTok = syntax.TokKind(ctx.p, asg.Tok)
+		let opStr = if opTok == syntax.Assign {
+			""
+		} else {
+			let raw = syntax.TokText(ctx.p, asg.Tok)
+			if strings.HasSuffix(raw, "=") { raw[0 : raw.Len()-1] } else { raw }
+		}
+		let lhsT = try nodeTypeName(*ctx, asg.Lhs, "")
+		let mark = (*ctx).exprStmts.Len()
+		let rhsIR = try lowerExpr(ctx, asg.Rhs, lhsT)
+		let mut out = extractInsertedStmts(ctx, mark)
+		let lk = syntax.KindOf(tr, asg.Lhs)
+		if lk == syntax.KIdent {
+			let pn = bind.PNodeOf(ctx.d.K.Ps, ctx.file, asg.Lhs)
+			match bind.ResolutionOf(ctx.d.K.U, ctx.d.K.Ps, pn) {
+			case bind.Declared as dec:
+				let di = dense.Index(dec.At)
+				if di >= 0 && di < ctx.localByDef.Len() && ctx.localByDef[di] >= 0 {
+					let slot = uint32(ctx.localByDef[di])
+					let opWord = if opStr != "" { ir.Text(&ctx.b, opStr) } else { uint32(0) }
+					out = out.Append(try irStmt(ctx, "set", at, []uint32{slot, rhsIR, opWord}))
+					return out
+				}
+				let gname = types.NameText(ctx.p, asg.Lhs)
+				let gExpr = try irExpr(ctx, "global", at, []uint32{ir.Text(&ctx.b, gname)})
+				let opWord = if opStr != "" { ir.Text(&ctx.b, opStr) } else { uint32(0) }
+				out = out.Append(try irStmt(ctx, "store", at, []uint32{gExpr, opWord, rhsIR}))
+				return out
+			case _:
+				return fail("refused: assign to unresolved ident")
+			}
+		}
+		let markL = (*ctx).exprStmts.Len()
+		let lhsIR = try lowerExpr(ctx, asg.Lhs, "")
+		for ps in extractInsertedStmts(ctx, markL) {
+			out = out.Append(ps)
+		}
+		let opWord = if opStr != "" { ir.Text(&ctx.b, opStr) } else { uint32(0) }
+		out = out.Append(try irStmt(ctx, "store", at, []uint32{lhsIR, opWord, rhsIR}))
+		return out
+	}
+	if k == syntax.KReturnStmt {
+		let rs = syntax.ReturnStmtOf(tr, sNode)
+		match dense.Unpack(rs.Result) {
+		case option.Some{Value: rx}:
+			let isFail = try isFailReturnValue(*ctx, rx)
+			let vHint = if isFail { "error" } else if ctx.results.Len() > 0 && (!ctx.errSig || ctx.results.Len() == 2) { ctx.results[0] } else { "" }
+			let mark = (*ctx).exprStmts.Len()
+			let rIR = try lowerExpr(ctx, rx, vHint)
+			let mut out = extractInsertedStmts(ctx, mark)
+			out = out.Append(try irStmt(ctx, if isFail { "fail" } else { "ret" }, at, []uint32{rIR}))
+			return out
+		case option.None:
+			return []uint32{try irStmt(ctx, "ret", at, []uint32{0})}
+		}
+	}
+	if k == syntax.KExprStmt {
+		let es = syntax.ExprStmtOf(tr, sNode)
+		let ek = syntax.KindOf(tr, es.X)
+		if ek == syntax.KCallExpr {
+			let ce = syntax.CallExprOf(tr, es.X)
+			if syntax.KindOf(tr, ce.Fun) == syntax.KIdent && types.NameText(ctx.p, ce.Fun) == "with" {
+				match dense.Unpack(ce.Trailing) {
+				case option.Some{Value: tb}:
+					return try lowerBlockTo(ctx, tb, false, -1, "")
+				case option.None:
+				}
+			}
+			let mark = (*ctx).exprStmts.Len()
+			let (cIR, _) = try lowerCallExpr(ctx, es.X, "", false)
+			let mut out = extractInsertedStmts(ctx, mark)
+			out = out.Append(try irStmt(ctx, "expr", at, []uint32{cIR}))
+			return out
+		}
+		if ek == syntax.KCatchExpr {
+			let mark = (*ctx).exprStmts.Len()
+			let _ = try lowerCatchExpr(ctx, es.X, "", false, at)
+			return extractInsertedStmts(ctx, mark)
+		}
+		if ek == syntax.KTryExpr {
+			let mark = (*ctx).exprStmts.Len()
+			let v = try lowerTryExpr(ctx, syntax.TryExprOf(tr, es.X).X, "", at)
+			let mut out = extractInsertedStmts(ctx, mark)
+			if v != 0 {
+				out = out.Append(try irStmt(ctx, "discard", at, []uint32{v}))
+			}
+			return out
+		}
+		let mark = (*ctx).exprStmts.Len()
+		let v = try lowerExpr(ctx, es.X, "")
+		let mut out = extractInsertedStmts(ctx, mark)
+		out = out.Append(try irStmt(ctx, "expr", at, []uint32{v}))
+		return out
+	}
+	if k == syntax.KIfStmt {
+		let ifs = syntax.IfStmtOf(tr, sNode)
+		let mark = (*ctx).exprStmts.Len()
+		let cond = try lowerExpr(ctx, ifs.Cond, "bool")
+		let mut out = extractInsertedStmts(ctx, mark)
+		let thenS = try lowerBlockTo(ctx, ifs.Body, false, -1, "")
+		let elseS = match dense.Unpack(ifs.Else) {
+		case option.Some{Value: els}:
+			try lowerBlockTo(ctx, els, false, -1, "")
+		case option.None:
+			[]uint32{}
+		}
+		let thenL = if thenS.Len() > 0 { ir.List(&ctx.b, thenS) } else { uint32(0) }
+		let elseL = if elseS.Len() > 0 { ir.List(&ctx.b, elseS) } else { uint32(0) }
+		out = out.Append(try irStmt(ctx, "if", at, []uint32{cond, thenL, elseL, ir.PosAt(&ctx.b, at), 0, 0}))
+		return out
+	}
+	if k == syntax.KForStmt {
+		let fs = syntax.ForStmtOf(tr, sNode)
+		let condIR = match dense.Unpack(fs.Cond) {
+		case option.Some{Value: c}:
+			try lowerExpr(ctx, c, "bool")
+		case option.None:
+			uint32(0)
+		}
+		let bodyS = try lowerBlockTo(ctx, fs.Body, false, -1, "")
+		let bList = if bodyS.Len() > 0 { ir.List(&ctx.b, bodyS) } else { uint32(0) }
+		return []uint32{try irStmt(ctx, "while", at, []uint32{condIR, bList, ir.PosAt(&ctx.b, at), 0})}
+	}
+	if k == syntax.KRangeStmt {
+		return try lowerRangeStmtList(ctx, sNode, at)
+	}
+	if k == syntax.KBranchStmt {
+		let bs = syntax.BranchStmtOf(tr, sNode)
+		let tk = syntax.TokKind(ctx.p, bs.Tok)
+		if tk == syntax.Break {
+			return []uint32{try irStmt(ctx, "break", at, []uint32{0})}
+		}
+		if tk == syntax.Continue {
+			return []uint32{try irStmt(ctx, "continue", at, []uint32{})}
+		}
+		return fail("refused: unsupported branch statement \(tk)")
+	}
+	if k == syntax.KTypeSwitchStmt {
+		return try lowerMatchTypeList(ctx, sNode, false, -1, "")
+	}
+	if k == syntax.KSwitchStmt {
+		return try lowerMatchValList(ctx, sNode, false, -1, "")
+	}
+	fail("refused: unsupported statement kind \(k)")
+}
+
+func lowerRangeStmtList(ctx mut execCtx, sNode dense.ID[syntax.Node], at ir.Pos) []uint32 fails os.Exit {
+	let tr = ctx.p.Tree
+	let rs = syntax.RangeStmtOf(tr, sNode)
+	if syntax.KindOf(tr, rs.X) == syntax.KBinaryExpr {
+		let be = syntax.BinaryExprOf(tr, rs.X)
+		if syntax.TokKind(ctx.p, be.Op) == syntax.DotDot {
+			let mark = (*ctx).exprStmts.Len()
+			let lo = try lowerExpr(ctx, be.X, "int")
+			let hi = try lowerExpr(ctx, be.Y, "int")
+			let mut out = extractInsertedStmts(ctx, mark)
+			let vSlot = if syntax.KindOf(tr, rs.Value) == syntax.KIdent && types.NameText(ctx.p, rs.Value) != "_" {
+				uint32(ctx.localByDef[dense.Index(bind.PNodeOf(ctx.d.K.Ps, ctx.file, rs.Value))])
+			} else {
+				try allocTemp(ctx, "int", at)
+			}
+			let bodyS = try lowerBlockTo(ctx, rs.Body, false, -1, "")
+			let isZeroLo = syntax.KindOf(tr, be.X) == syntax.KBasicLit && syntax.TokText(ctx.p, syntax.BasicLitOf(tr, be.X).Tok) == "0"
+			if isZeroLo {
+				let bList = if bodyS.Len() > 0 { ir.List(&ctx.b, bodyS) } else { uint32(0) }
+				out = out.Append(try irStmt(ctx, "range", at, []uint32{vSlot + 1, 0, hi, bList, ir.PosAt(&ctx.b, at), 0}))
+				return out
+			}
+			let initStmt = try irStmt(ctx, "def", at, []uint32{vSlot, lo})
+			let lv = try irExpr(ctx, "local", at, []uint32{vSlot})
+			let cond = try irExpr(ctx, "bin", at, []uint32{ir.Text(&ctx.b, "<"), lv, hi})
+			let cOne = try irExpr(ctx, "const", at, []uint32{ir.Text(&ctx.b, "int"), ir.Text(&ctx.b, "1"), 0})
+			let step = try irStmt(ctx, "set", at, []uint32{vSlot, cOne, ir.Text(&ctx.b, "+")})
+			let allBody = bodyS.Append(step)
+			let wStmt = try irStmt(ctx, "while", at, []uint32{cond, ir.List(&ctx.b, allBody), ir.PosAt(&ctx.b, at), 0})
+			out = out.Append(initStmt).Append(wStmt)
+			return out
+		}
+	}
+	let mark = (*ctx).exprStmts.Len()
+	let srcIR = try lowerExpr(ctx, rs.X, "")
+	let mut out = extractInsertedStmts(ctx, mark)
+	let kw = match dense.Unpack(rs.Key) {
+	case option.Some{Value: kn}:
+		if syntax.KindOf(tr, kn) == syntax.KIdent && types.NameText(ctx.p, kn) != "_" {
+			uint32(ctx.localByDef[dense.Index(bind.PNodeOf(ctx.d.K.Ps, ctx.file, kn))]) + 1
+		} else {
+			uint32(0)
+		}
+	case option.None:
+		uint32(0)
+	}
+	let vw = if syntax.KindOf(tr, rs.Value) == syntax.KIdent && types.NameText(ctx.p, rs.Value) != "_" {
+		uint32(ctx.localByDef[dense.Index(bind.PNodeOf(ctx.d.K.Ps, ctx.file, rs.Value))]) + 1
+	} else {
+		uint32(0)
+	}
+	let bodyS = try lowerBlockTo(ctx, rs.Body, false, -1, "")
+	let bList = if bodyS.Len() > 0 { ir.List(&ctx.b, bodyS) } else { uint32(0) }
+	out = out.Append(try irStmt(ctx, "range", at, []uint32{kw, vw, srcIR, bList, ir.PosAt(&ctx.b, at), 0}))
+	out
+}
+
+func lowerMatchTypeList(ctx mut execCtx, sNode dense.ID[syntax.Node], retOnTail bool, assignSlot int, valType string) []uint32 fails os.Exit {
+	let tr = ctx.p.Tree
+	let ts = syntax.TypeSwitchStmtOf(tr, sNode)
+	let at = posOfNode(*ctx, sNode)
+	let subjT = try nodeTypeName(*ctx, ts.Subject, "")
+	let mark = (*ctx).exprStmts.Len()
+	let subjIR = try lowerExpr(ctx, ts.Subject, subjT)
+	let mut out = extractInsertedStmts(ctx, mark)
+	let subjTmp = try allocTemp(ctx, subjT, at)
+	out = out.Append(try irStmt(ctx, "def", at, []uint32{subjTmp, subjIR}))
+	let mut tcases = []uint32{}
+	for ci in 0..syntax.Len(ts.Clauses) {
+		let cId = syntax.Item(tr, ts.Clauses, ci)
+		if syntax.KindOf(tr, cId) != syntax.KCaseClause {
+			continue
+		}
+		let cc = syntax.CaseClauseOf(tr, cId)
+		let cat = posOfNode(*ctx, cId)
+		let mut isDef = 0
+		let mut typeStrs = []string{}
+		let mut bindStmt = uint32(0)
+		for pi in 0..syntax.Len(cc.List) {
+			let pat = syntax.Item(tr, cc.List, pi)
+			let pk = syntax.KindOf(tr, pat)
+			if pk == syntax.KIdent && types.NameText(ctx.p, pat) == "_" {
+				isDef = 1
+			} else if pk == syntax.KAsPattern {
+				let ap = syntax.AsPatternOf(tr, pat)
+				let ptName = try lowerTypeExprName(*ctx, ap.X)
+				typeStrs = typeStrs.Append(ptName)
+				let bName = types.NameText(ctx.p, ap.Name)
+				let bSlot = try addLocalSlot(ctx, bName, ptName, cat)
+				ctx.localByDef[dense.Index(bind.PNodeOf(ctx.d.K.Ps, ctx.file, ap.Name))] = int(bSlot)
+				let sRead = try irExpr(ctx, "local", cat, []uint32{subjTmp})
+				let asrt = try irExpr(ctx, "assert", cat, []uint32{ir.Text(&ctx.b, ptName), sRead})
+				bindStmt = try irStmt(ctx, "def", cat, []uint32{bSlot, asrt})
+			} else {
+				typeStrs = typeStrs.Append(try lowerTypeExprName(*ctx, pat))
+			}
+		}
+		let bodyStmts = try collectTopStmts(ctx, cc.Body, retOnTail, assignSlot, valType, bindStmt)
+		let tList = if isDef != 0 || typeStrs.Len() == 0 {
+			uint32(0)
+		} else {
+			let mut tids = slices.WithCapacity[uint32](typeStrs.Len())
+			for s in typeStrs {
+				tids = tids.Append(ir.Text(&ctx.b, s))
+			}
+			ir.List(&ctx.b, tids)
+		}
+		let bList = if bodyStmts.Len() > 0 { ir.List(&ctx.b, bodyStmts) } else { uint32(0) }
+		tcases = tcases.Append(try irRow(ctx, 1, cat, []uint32{tList, bList, 0, uint32(isDef)}))
+	}
+	let subjRead = try irExpr(ctx, "local", at, []uint32{subjTmp})
+	out = out.Append(try irStmt(ctx, "tswitch", at, []uint32{subjRead, 0, ir.PosAt(&ctx.b, at), ir.PosAt(&ctx.b, at), ir.List(&ctx.b, tcases)}))
+	out
+}
+
+func lowerMatchValList(ctx mut execCtx, sNode dense.ID[syntax.Node], retOnTail bool, assignSlot int, valType string) []uint32 fails os.Exit {
+	let tr = ctx.p.Tree
+	let ss = syntax.SwitchStmtOf(tr, sNode)
+	let at = posOfNode(*ctx, sNode)
+	let subjT = try nodeTypeName(*ctx, ss.Tag, "")
+	let mark = (*ctx).exprStmts.Len()
+	let subjIR = try lowerExpr(ctx, ss.Tag, subjT)
+	let mut out = extractInsertedStmts(ctx, mark)
+	let subjTmp = try allocTemp(ctx, subjT, at)
+	out = out.Append(try irStmt(ctx, "def", at, []uint32{subjTmp, subjIR}))
+	let n = syntax.Len(ss.Clauses)
+	let mut accElse = []uint32{}
+	let mut idx = n - 1
+	for idx >= 0 {
+		let cId = syntax.Item(tr, ss.Clauses, idx)
+		idx = idx - 1
+		if syntax.KindOf(tr, cId) != syntax.KCaseClause {
+			continue
+		}
+		let cc = syntax.CaseClauseOf(tr, cId)
+		let cat = posOfNode(*ctx, cId)
+		let bodyStmts = try collectTopStmts(ctx, cc.Body, retOnTail, assignSlot, valType, 0)
+		let mut isDef = false
+		for pi in 0..syntax.Len(cc.List) {
+			let pat = syntax.Item(tr, cc.List, pi)
+			if syntax.KindOf(tr, pat) == syntax.KIdent && types.NameText(ctx.p, pat) == "_" {
+				isDef = true
+			}
+		}
+		if isDef || syntax.Len(cc.List) == 0 {
+			accElse = bodyStmts
+			continue
+		}
+		let mut cond = uint32(0)
+		for pi in 0..syntax.Len(cc.List) {
+			let pat = syntax.Item(tr, cc.List, pi)
+			let rhs = try lowerExpr(ctx, pat, subjT)
+			let sLoc = try irExpr(ctx, "local", cat, []uint32{subjTmp})
+			let eq = try irExpr(ctx, "bin", cat, []uint32{ir.Text(&ctx.b, "=="), sLoc, rhs})
+			if cond == 0 {
+				cond = eq
+			} else {
+				cond = try irExpr(ctx, "bin", cat, []uint32{ir.Text(&ctx.b, "||"), cond, eq})
+			}
+		}
+		let thenL = if bodyStmts.Len() > 0 { ir.List(&ctx.b, bodyStmts) } else { uint32(0) }
+		let elseL = if accElse.Len() > 0 { ir.List(&ctx.b, accElse) } else { uint32(0) }
+		let ifNode = try irStmt(ctx, "if", cat, []uint32{cond, thenL, elseL, ir.PosAt(&ctx.b, cat), 0, 0})
+		accElse = []uint32{ifNode}
+	}
+	for s in accElse {
+		out = out.Append(s)
+	}
+	out
+}
+
+func unparenNode(tr syntax.Tree, x dense.ID[syntax.Node]) dense.ID[syntax.Node] {
+	let mut cur = x
+	for syntax.KindOf(tr, cur) == syntax.KParenExpr {
+		cur = syntax.ParenExprOf(tr, cur).X
+	}
+	cur
+}
+
+func failRowNames(ownerPath string, isRoot bool, s store.Store, k expr.Pkg, errRow dense.ID[store.TKey]) []string fails os.Exit {
+	let mut out = []string{}
+	if store.KindOfType(s, errRow) == store.KRow {
+		for ft in store.OperandsOf(s, errRow) {
+			out = out.Append(try execTypeNameFromSK(ownerPath, isRoot, s, k, ft))
+		}
+	}
+	out
+}
+
+func hasFieldWithName(r native.RecordDecl, name string) bool {
+	for fd in r.Fields {
+		if fd.Name == name {
+			return true
+		}
+	}
+	false
+}
+
+func hasStringItem(xs []string, s string) bool {
+	for x in xs {
+		if x == s {
+			return true
+		}
+	}
+	false
+}
+
+func isPrintableErrorFieldType(t string) bool {
+	t == "string" || t == "bool" || t == "int" || t == "int8" || t == "int16" || t == "int32" || t == "int64" || t == "uint" || t == "uint8" || t == "uint16" || t == "uint32" || t == "uint64" || t == "uintptr"
+}
+
+func isLocalStructOrIface(recs []native.RecordDecl, ifaces []native.IfaceDecl, tname string) bool {
+	for r in recs {
+		if r.Name == tname {
+			return true
+		}
+	}
+	for ic in ifaces {
+		if ic.Name == tname {
+			return true
+		}
+	}
+	false
+}
+
+func qualifyTypeStr(ownerPath string, recs []native.RecordDecl, ifaces []native.IfaceDecl, ts string) string {
+	if strings.HasPrefix(ts, "*") {
+		return "*" + qualifyTypeStr(ownerPath, recs, ifaces, ts[1:ts.Len()])
+	}
+	if strings.HasPrefix(ts, "[]") {
+		return "[]" + qualifyTypeStr(ownerPath, recs, ifaces, ts[2:ts.Len()])
+	}
+	if !strings.Contains(ts, ".") && isLocalStructOrIface(recs, ifaces, ts) {
+		return ownerPath + "." + ts
+	}
+	ts
+}
+
+func emitMethodWrapper(b mut ir.Builder, wrapName string, fnName string, p0IsPtr bool, params []string, hasErr bool, valType string) fails os.Exit {
+	let hasVal = valType != ""
+	ir.Begin(b, wrapName, ePos(1), ePos(3)) catch {
+	case ir.Malformed as m:
+		return fail("wrapper begin \(wrapName): " + m.Why)
+	}
+	let mut callArgs = []uint32{}
+	let r0 = ir.Row(b, ir.KindCode(ir.TExpr, "local"), ePos(2), []uint32{0}) catch {
+	case ir.Malformed as m:
+		return fail("wrapper local 0: " + m.Why)
+	}
+	let pass0 = if p0IsPtr {
+		r0
+	} else {
+		ir.Row(b, ir.KindCode(ir.TExpr, "deref"), ePos(2), []uint32{r0}) catch {
+		case ir.Malformed as m:
+			return fail("wrapper deref: " + m.Why)
+		}
+	}
+	callArgs = callArgs.Append(pass0)
+	for pk in 1..params.Len() {
+		let pkIR = ir.Row(b, ir.KindCode(ir.TExpr, "local"), ePos(2), []uint32{uint32(pk)}) catch {
+		case ir.Malformed as m:
+			return fail("wrapper param: " + m.Why)
+		}
+		callArgs = callArgs.Append(pkIR)
+	}
+	let argsL = if callArgs.Len() > 0 { ir.List(b, callArgs) } else { uint32(0) }
+	let callIR = ir.Row(b, ir.KindCode(ir.TExpr, "call"), ePos(2), []uint32{0, ir.Text(b, fnName), argsL}) catch {
+	case ir.Malformed as m:
+		return fail("wrapper call: " + m.Why)
+	}
+	let mut bodyStmts = []uint32{}
+	if hasErr {
+		let errLoc = uint32(params.Len())
+		ir.AddLocal(b, "werr", "error", ePos(2)) catch {
+		case ir.Malformed as m:
+			return fail("wrapper err local: " + m.Why)
+		}
+		let mut resLoc = uint32(0)
+		let defStmt = if hasVal {
+			resLoc = uint32(params.Len() + 1)
+			ir.AddLocal(b, "wres", valType, ePos(2)) catch {
+			case ir.Malformed as m:
+				return fail("wrapper res local: " + m.Why)
+			}
+			ir.Row(b, ir.KindCode(ir.TStmt, "def2"), ePos(2), []uint32{resLoc, errLoc + 1, callIR}) catch {
+			case ir.Malformed as m:
+				return fail("wrapper def2: " + m.Why)
+			}
+		} else {
+			ir.Row(b, ir.KindCode(ir.TStmt, "def"), ePos(2), []uint32{errLoc, callIR}) catch {
+			case ir.Malformed as m:
+				return fail("wrapper def: " + m.Why)
+			}
+		}
+		let eRead = ir.Row(b, ir.KindCode(ir.TExpr, "local"), ePos(2), []uint32{errLoc}) catch {
+		case ir.Malformed as m:
+			return fail("wrapper eRead: " + m.Why)
+		}
+		let nilE = ir.Row(b, ir.KindCode(ir.TExpr, "nil"), ePos(2), []uint32{ir.Text(b, "error")}) catch {
+		case ir.Malformed as m:
+			return fail("wrapper nilE: " + m.Why)
+		}
+		let cond = ir.Row(b, ir.KindCode(ir.TExpr, "bin"), ePos(2), []uint32{ir.Text(b, "!="), eRead, nilE}) catch {
+		case ir.Malformed as m:
+			return fail("wrapper cond: " + m.Why)
+		}
+		let eFailVal = ir.Row(b, ir.KindCode(ir.TExpr, "local"), ePos(2), []uint32{errLoc}) catch {
+		case ir.Malformed as m:
+			return fail("wrapper eFailVal: " + m.Why)
+		}
+		let fStmt = ir.Row(b, ir.KindCode(ir.TStmt, "fail"), ePos(2), []uint32{eFailVal}) catch {
+		case ir.Malformed as m:
+			return fail("wrapper fail: " + m.Why)
+		}
+		let ifFail = ir.Row(b, ir.KindCode(ir.TStmt, "if"), ePos(2), []uint32{cond, ir.List(b, []uint32{fStmt}), 0, ir.PosAt(b, ePos(2)), 0, 0}) catch {
+		case ir.Malformed as m:
+			return fail("wrapper ifFail: " + m.Why)
+		}
+		bodyStmts = bodyStmts.Append(defStmt).Append(ifFail)
+		if hasVal {
+			let okRead = ir.Row(b, ir.KindCode(ir.TExpr, "local"), ePos(2), []uint32{resLoc}) catch {
+			case ir.Malformed as m:
+				return fail("wrapper okRead: " + m.Why)
+			}
+			let retOk = ir.Row(b, ir.KindCode(ir.TStmt, "ret"), ePos(2), []uint32{okRead}) catch {
+			case ir.Malformed as m:
+				return fail("wrapper retOk: " + m.Why)
+			}
+			bodyStmts = bodyStmts.Append(retOk)
+		} else {
+			let retUnit = ir.Row(b, ir.KindCode(ir.TStmt, "ret"), ePos(2), []uint32{0}) catch {
+			case ir.Malformed as m:
+				return fail("wrapper retUnit: " + m.Why)
+			}
+			bodyStmts = bodyStmts.Append(retUnit)
+		}
+	} else if hasVal {
+		let retStmt = ir.Row(b, ir.KindCode(ir.TStmt, "ret"), ePos(2), []uint32{callIR}) catch {
+		case ir.Malformed as m:
+			return fail("wrapper ret: " + m.Why)
+		}
+		bodyStmts = bodyStmts.Append(retStmt)
+	} else {
+		let exStmt = ir.Row(b, ir.KindCode(ir.TStmt, "expr"), ePos(2), []uint32{callIR}) catch {
+		case ir.Malformed as m:
+			return fail("wrapper expr: " + m.Why)
+		}
+		let retStmt = ir.Row(b, ir.KindCode(ir.TStmt, "ret"), ePos(2), []uint32{0}) catch {
+		case ir.Malformed as m:
+			return fail("wrapper ret: " + m.Why)
+		}
+		bodyStmts = bodyStmts.Append(exStmt).Append(retStmt)
+	}
+	ir.End(b, ir.List(b, bodyStmts)) catch {
+	case ir.Malformed as m:
+		return fail("wrapper end \(wrapName): " + m.Why)
+	}
+}
+
+func emitSynthErrorMethod(b mut ir.Builder, rec native.RecordDecl) fails os.Exit {
+	let wrapName = "(*" + rec.Name + ").Error"
+	ir.Begin(b, wrapName, ePos(1), ePos(4)) catch {
+	case ir.Malformed as m:
+		return fail("error method begin \(wrapName): " + m.Why)
+	}
+	let mut expr = ir.Row(b, ir.KindCode(ir.TExpr, "const"), ePos(2), []uint32{ir.Text(b, "string"), ir.Text(b, rec.Name+"{"), 0}) catch {
+	case ir.Malformed as m:
+		return fail("error const: " + m.Why)
+	}
+	for fi, fd in rec.Fields {
+		let sep = if fi > 0 { " " } else { "" }
+		let lbl = ir.Row(b, ir.KindCode(ir.TExpr, "const"), ePos(2), []uint32{ir.Text(b, "string"), ir.Text(b, sep+fd.Name+":"), 0}) catch {
+		case ir.Malformed as m:
+			return fail("error field lbl: " + m.Why)
+		}
+		expr = ir.Row(b, ir.KindCode(ir.TExpr, "bin"), ePos(2), []uint32{ir.Text(b, "+"), expr, lbl}) catch {
+		case ir.Malformed as m:
+			return fail("error concat lbl: " + m.Why)
+		}
+		let recv = ir.Row(b, ir.KindCode(ir.TExpr, "local"), ePos(2), []uint32{0}) catch {
+		case ir.Malformed as m:
+			return fail("error recv: " + m.Why)
+		}
+		let fval = ir.Row(b, ir.KindCode(ir.TExpr, "field"), ePos(2), []uint32{recv, ir.Text(b, fd.Name)}) catch {
+		case ir.Malformed as m:
+			return fail("error field: " + m.Why)
+		}
+		let fstr = if fd.Type == "string" {
+			fval
+		} else if fd.Type == "bool" {
+			ir.Row(b, ir.KindCode(ir.TExpr, "pcall"), ePos(2), []uint32{ir.Text(b, execrtPath), 0, 0, ir.Text(b, "Btoa"), ir.List(b, []uint32{fval})}) catch {
+			case ir.Malformed as m:
+				return fail("error btoa: " + m.Why)
+			}
+		} else if fd.Type == "int" {
+			ir.Row(b, ir.KindCode(ir.TExpr, "pcall"), ePos(2), []uint32{ir.Text(b, execrtPath), 0, 0, ir.Text(b, "Itoa"), ir.List(b, []uint32{fval})}) catch {
+			case ir.Malformed as m:
+				return fail("error itoa: " + m.Why)
+			}
+		} else if fd.Type == "int8" || fd.Type == "int16" || fd.Type == "int32" || fd.Type == "int64" {
+			let c64 = ir.Row(b, ir.KindCode(ir.TExpr, "conv"), ePos(2), []uint32{ir.Text(b, "int64"), fval}) catch {
+			case ir.Malformed as m:
+				return fail("error conv64: " + m.Why)
+			}
+			ir.Row(b, ir.KindCode(ir.TExpr, "pcall"), ePos(2), []uint32{ir.Text(b, execrtPath), 0, 0, ir.Text(b, "Itoa64"), ir.List(b, []uint32{c64})}) catch {
+			case ir.Malformed as m:
+				return fail("error itoa64: " + m.Why)
+			}
+		} else {
+			let u64 = ir.Row(b, ir.KindCode(ir.TExpr, "conv"), ePos(2), []uint32{ir.Text(b, "uint64"), fval}) catch {
+			case ir.Malformed as m:
+				return fail("error convu64: " + m.Why)
+			}
+			ir.Row(b, ir.KindCode(ir.TExpr, "pcall"), ePos(2), []uint32{ir.Text(b, execrtPath), 0, 0, ir.Text(b, "Utoa64"), ir.List(b, []uint32{u64})}) catch {
+			case ir.Malformed as m:
+				return fail("error utoa64: " + m.Why)
+			}
+		}
+		expr = ir.Row(b, ir.KindCode(ir.TExpr, "bin"), ePos(2), []uint32{ir.Text(b, "+"), expr, fstr}) catch {
+		case ir.Malformed as m:
+			return fail("error concat fstr: " + m.Why)
+		}
+	}
+	let closeBr = ir.Row(b, ir.KindCode(ir.TExpr, "const"), ePos(2), []uint32{ir.Text(b, "string"), ir.Text(b, "}"), 0}) catch {
+	case ir.Malformed as m:
+		return fail("error close: " + m.Why)
+	}
+	expr = ir.Row(b, ir.KindCode(ir.TExpr, "bin"), ePos(2), []uint32{ir.Text(b, "+"), expr, closeBr}) catch {
+	case ir.Malformed as m:
+		return fail("error concat close: " + m.Why)
+	}
+	let rStmt = ir.Row(b, ir.KindCode(ir.TStmt, "ret"), ePos(3), []uint32{expr}) catch {
+	case ir.Malformed as m:
+		return fail("error ret: " + m.Why)
+	}
+	ir.End(b, ir.List(b, []uint32{rStmt})) catch {
+	case ir.Malformed as m:
+		return fail("error end \(wrapName): " + m.Why)
+	}
+}
+
+type pendingWrap { wrapName string, fnName string, p0IsPtr bool, params []string, results []string, impParams []string, impResults []string }
+
+func compileExecPackage(ownerPath string, isRoot bool, d load.Typed, imports []native.ImportUnit, header string, anyDepInit bool) compiledDep fails os.Exit {
+	let mut pFiles = []string{}
+	let mut fileIndices = []uint32{}
+	let mut b = ir.NewBuilder(2)
+	let mut fileLines = []syntax.Lines{}
+	let mut totalRows = 0
+	for pf in d.K.Files {
+		let idx = ir.FileOf(&b, pf.Name)
+		pFiles = pFiles.Append(pf.Name)
+		fileIndices = fileIndices.Append(idx)
+		fileLines = fileLines.Append(syntax.LinesOf(syntax.SourceOf(pf.Parsed)))
+		if !pf.Parsed.Failed {
+			totalRows = totalRows + syntax.NumNodes(pf.Parsed.Tree)
+		}
+	}
+	if totalRows < 1 {
+		totalRows = 1
+	}
+	let recs = try execRecordsOf(ownerPath, isRoot, d)
+	let ifaces = try execIfacesOf(ownerPath, isRoot, d)
+	let mut entryMap = slices.Repeat[int]([]int{-1}, totalRows)
+	for i, e in d.T.Entries {
+		let idx = dense.Index(e.At)
+		if idx >= 0 && idx < totalRows {
+			entryMap[idx] = i
+		}
+	}
+	let (localGlobals, impGlobals, globalRecs) = try collectGlobals(ownerPath, isRoot, d, entryMap)
+	let mut globalNames = []string{}
+	let mut globalTypes = []string{}
+	for gr in globalRecs {
+		globalNames = globalNames.Append(gr.name)
+		globalTypes = globalTypes.Append(gr.typStr)
+	}
+	let mut impRecords = []native.RecordDecl{}
+	let mut impGlobalKeys = []string{}
+	let mut impGlobalTypes = []string{}
+	for imp in imports {
+		for impr in imp.Records {
+			impRecords = impRecords.Append(impr)
+		}
+		for ig in imp.Globals {
+			impGlobalKeys = impGlobalKeys.Append(imp.Path + "." + ig.Name)
+			impGlobalTypes = impGlobalTypes.Append(ig.Type)
+		}
+	}
+	let mut callMap = slices.Repeat[int]([]int{-1}, totalRows)
+	for i, c in d.T.Calls {
+		let idx = dense.Index(c.Call)
+		if idx >= 0 && idx < totalRows {
+			callMap[idx] = i
+		}
+	}
+	let mut capMap = slices.Repeat[int]([]int{-1}, totalRows)
+	for i, c in d.T.Caps {
+		let idx = dense.Index(c.Call)
+		if idx >= 0 && idx < totalRows {
+			capMap[idx] = i
+		}
+	}
+	let mut fnNames = []string{}
+	let mut sigs = []native.Sig{}
+	let mut impSigs = []native.Sig{}
+	let mut inits = []string{}
+	let mut wrapNames = []string{}
+	let mut wraps = []pendingWrap{}
+
+	if globalRecs.Len() > 0 || anyDepInit {
+		let p0 = if d.K.Parsed.Len() > 0 { d.K.Parsed[0] } else { syntax.EmptyParsed() }
+		let l0 = if fileLines.Len() > 0 { fileLines[0] } else { syntax.LinesOf("") }
+		let mut ictx = execCtx{
+			pkgPath:        ownerPath,
+			isRoot:         isRoot,
+			d:              d,
+			entryMap:       entryMap,
+			callMap:        callMap,
+			capMap:         capMap,
+			localByDef:     slices.Repeat[int]([]int{-1}, totalRows),
+			slotTypes:      []string{},
+			nextSlot:       0,
+			tempCount:      0,
+			errSig:         false,
+			results:        []string{},
+			failTypes:      []string{},
+			file:           0,
+			p:              p0,
+			lines:          l0,
+			b:              b,
+			exprStmts:      []uint32{},
+			fileIndices:    fileIndices,
+			records:        recs,
+			impRecords:     impRecords,
+			ifaces:         ifaces,
+			globalNames:    globalNames,
+			globalTypes:    globalTypes,
+			impGlobalKeys:  impGlobalKeys,
+			impGlobalTypes: impGlobalTypes,
+		}
+		ir.Begin(&ictx.b, "init.0", ir.Pos{File: 0, Line: 1, Col: 1}, ir.Pos{File: 0, Line: 1, Col: 1}) catch {
+		case ir.Malformed as m:
+			return fail("init begin: " + m.Why)
+		}
+		let mut initStmts = []uint32{}
+		for gr in globalRecs {
+			ictx.file = gr.file
+			ictx.p = d.K.Parsed[gr.file]
+			ictx.lines = fileLines[gr.file]
+			match dense.Unpack(gr.valNode) {
+			case option.Some{Value: vx}:
+				let at = posOfNode(ictx, vx)
+				try preallocateBlockLocals(&ictx, vx)
+				let mark = ictx.exprStmts.Len()
+				let valIR = try lowerExpr(&ictx, vx, gr.typStr)
+				for ps in extractInsertedStmts(&ictx, mark) {
+					initStmts = initStmts.Append(ps)
+				}
+				let gIR = try irExpr(&ictx, "global", at, []uint32{ir.Text(&ictx.b, gr.name)})
+				initStmts = initStmts.Append(try irStmt(&ictx, "store", at, []uint32{gIR, 0, valIR}))
+			case option.None:
+			}
+		}
+		initStmts = initStmts.Append(try irStmt(&ictx, "ret", ir.Pos{File: 0, Line: 1, Col: 1}, []uint32{0}))
+		ir.End(&ictx.b, ir.List(&ictx.b, initStmts)) catch {
+		case ir.Malformed as m:
+			return fail("init end: " + m.Why)
+		}
+		b = ictx.b
+		fnNames = fnNames.Append("init.0")
+		sigs = sigs.Append(native.Sig{Params: []string{}, Results: []string{}})
+		impSigs = impSigs.Append(native.Sig{Params: []string{}, Results: []string{}})
+		inits = inits.Append("init.0")
+	}
+
+	let mut mainEmitted = false
+	for f in d.K.Fns {
+		if f.Params.Len() > 0 {
+			continue
+		}
+		let bodyNode = match dense.Unpack(f.Body) {
+		case option.Some{Value: bn}:
+			bn
+		case option.None:
+			continue
+		}
+		let p = d.K.Parsed[f.File]
+		if syntax.KindOf(p.Tree, f.Decl) != syntax.KFuncDecl {
+			continue
+		}
+		let fname = types.NameText(p, f.Name)
+		if fname == "init" {
+			return fail("refused: explicit init function")
+		}
+		let (sig, errSig) = try execSigFromTKey(ownerPath, isRoot, d.S, d.K, f.Sig)
+		let (impSig, _) = try execSigFromTKey(ownerPath, false, d.S, d.K, f.Sig)
+		let ops = store.OperandsOf(d.S, f.Sig)
+		let nParams = ops.Len() - 3
+		let fTypes = try failRowNames(ownerPath, isRoot, d.S, d.K, ops[nParams+1])
+		let isMainFn = isRoot && fname == "main"
+		let emitName = if isMainFn { "__ergo_main" } else { fname }
+
+		let lines = fileLines[f.File]
+		let fPos = ir.Pos{File: fileIndices[f.File], Line: uint32(syntax.PositionOf(lines, syntax.NodePos(p, f.Decl)).Line), Col: 1}
+		let endPos = ir.Pos{File: fileIndices[f.File], Line: uint32(syntax.PositionOf(lines, syntax.NodeEnd(p, f.Decl)).Line), Col: 1}
+
+		let mut localByDef = slices.Repeat[int]([]int{-1}, totalRows)
+		for pi in 0..f.Names.Len() {
+			match dense.Unpack(f.Names[pi]) {
+			case option.Some{Value: pnNode}:
+				let pn = bind.PNodeOf(d.K.Ps, f.File, pnNode)
+				localByDef[dense.Index(pn)] = pi
+			case option.None:
+			}
+		}
+
+		let mut paramSlotTypes = slices.WithCapacity[string](sig.Params.Len())
+		for sp in sig.Params {
+			paramSlotTypes = paramSlotTypes.Append(sp)
+		}
+		let mut ctx = execCtx{
+			pkgPath:        ownerPath,
+			isRoot:         isRoot,
+			d:              d,
+			entryMap:       entryMap,
+			callMap:        callMap,
+			capMap:         capMap,
+			localByDef:     localByDef,
+			slotTypes:      paramSlotTypes,
+			nextSlot:       sig.Params.Len(),
+			tempCount:      0,
+			errSig:         errSig,
+			results:        sig.Results,
+			failTypes:      fTypes,
+			file:           f.File,
+			p:              p,
+			lines:          lines,
+			b:              b,
+			exprStmts:      []uint32{},
+			fileIndices:    fileIndices,
+			records:        recs,
+			impRecords:     impRecords,
+			ifaces:         ifaces,
+			globalNames:    globalNames,
+			globalTypes:    globalTypes,
+			impGlobalKeys:  impGlobalKeys,
+			impGlobalTypes: impGlobalTypes,
+		}
+		ir.Begin(&ctx.b, emitName, fPos, endPos) catch {
+		case ir.Malformed as m:
+			return fail("fn \(emitName) begin: " + m.Why)
+		}
+		try preallocateBlockLocals(&ctx, bodyNode)
+		let retType = if sig.Results.Len() > 0 && (!errSig || sig.Results.Len() == 2) { sig.Results[0] } else { "" }
+		let tailRet = sig.Results.Len() > 0 && (!errSig || sig.Results.Len() == 2)
+		let mut stmts = try lowerBlockTo(&ctx, bodyNode, tailRet, -1, retType)
+		if (errSig && sig.Results.Len() == 1) || sig.Results.Len() == 0 {
+			stmts = stmts.Append(try irStmt(&ctx, "ret", endPos, []uint32{0}))
+		}
+		ir.End(&ctx.b, if stmts.Len() > 0 { ir.List(&ctx.b, stmts) } else { uint32(0) }) catch {
+		case ir.Malformed as m:
+			return fail("fn \(emitName) end: " + m.Why)
+		}
+		b = ctx.b
+		fnNames = fnNames.Append(emitName)
+		sigs = sigs.Append(sig)
+		impSigs = impSigs.Append(impSig)
+		if isMainFn {
+			mainEmitted = true
+		}
+
+		if !isMainFn && sig.Params.Len() > 0 {
+			let p0 = sig.Params[0]
+			let baseRec = if strings.HasPrefix(p0, "*") { p0[1:p0.Len()] } else { p0 }
+			let mut matchedIdx = -1
+			for ri, rec in recs {
+				let fullR = if rec.PkgPath == "" { rec.Name } else { rec.PkgPath + "." + rec.Name }
+				if (rec.Name == baseRec || fullR == baseRec) && !hasFieldWithName(rec, fname) {
+					matchedIdx = ri
+				}
+			}
+			if matchedIdx >= 0 {
+				let wrapName = "(*" + recs[matchedIdx].Name + ")." + fname
+				if !hasStringItem(wrapNames, wrapName) {
+					wrapNames = wrapNames.Append(wrapName)
+					let mut mParams = []string{"*" + recs[matchedIdx].Name}
+					let mut mImpParams = []string{"*" + ownerPath + "." + recs[matchedIdx].Name}
+					for pk in 1..sig.Params.Len() {
+						mParams = mParams.Append(sig.Params[pk])
+						mImpParams = mImpParams.Append(impSig.Params[pk])
+					}
+					wraps = wraps.Append(pendingWrap{
+						wrapName:   wrapName,
+						fnName:     emitName,
+						p0IsPtr:    strings.HasPrefix(p0, "*"),
+						params:     mParams,
+						results:    sig.Results,
+						impParams:  mImpParams,
+						impResults: impSig.Results,
+					})
+				}
+			}
+		}
+	}
+
+	for w in wraps {
+		let hasErr = w.results.Len() > 0 && w.results[w.results.Len()-1] == "error"
+		let valType = if w.results.Len() > 0 && (!hasErr || w.results.Len() == 2) { w.results[0] } else { "" }
+		try emitMethodWrapper(&b, w.wrapName, w.fnName, w.p0IsPtr, w.params, hasErr, valType)
+		fnNames = fnNames.Append(w.wrapName)
+		sigs = sigs.Append(native.Sig{Params: w.params, Results: w.results})
+		impSigs = impSigs.Append(native.Sig{Params: w.impParams, Results: w.impResults})
+	}
+
+	for rec in recs {
+		let errWrap = "(*" + rec.Name + ").Error"
+		if !hasStringItem(wrapNames, errWrap) && !hasFieldWithName(rec, "Error") {
+			let mut printable = true
+			for fd in rec.Fields {
+				if !isPrintableErrorFieldType(fd.Type) {
+					printable = false
+				}
+			}
+			if printable {
+				wrapNames = wrapNames.Append(errWrap)
+				try emitSynthErrorMethod(&b, rec)
+				fnNames = fnNames.Append(errWrap)
+				sigs = sigs.Append(native.Sig{Params: []string{"*" + rec.Name}, Results: []string{"string"}})
+				impSigs = impSigs.Append(native.Sig{Params: []string{"*" + ownerPath + "." + rec.Name}, Results: []string{"string"}})
+			}
+		}
+	}
+
+	if isRoot && mainEmitted {
+		ir.Begin(&b, "main", ePos(1), ePos(5)) catch {
+		case ir.Malformed as m:
+			return fail("main begin: " + m.Why)
+		}
+		let mut mainErrSig = false
+		for si, fnm in fnNames {
+			if fnm == "__ergo_main" {
+				mainErrSig = sigs[si].Results.Len() > 0 && sigs[si].Results[sigs[si].Results.Len()-1] == "error"
+			}
+		}
+		let mut mStmts = []uint32{}
+		let cMain = ir.Row(&b, ir.KindCode(ir.TExpr, "call"), ePos(2), []uint32{0, ir.Text(&b, "__ergo_main"), 0}) catch {
+		case ir.Malformed as m:
+			return fail("main call: " + m.Why)
+		}
+		if mainErrSig {
+			ir.AddLocal(&b, "merr", "error", ePos(2)) catch {
+			case ir.Malformed as m:
+				return fail("main local: " + m.Why)
+			}
+			let dErr = ir.Row(&b, ir.KindCode(ir.TStmt, "def"), ePos(2), []uint32{0, cMain}) catch {
+			case ir.Malformed as m:
+				return fail("main def: " + m.Why)
+			}
+			let lErr = ir.Row(&b, ir.KindCode(ir.TExpr, "local"), ePos(3), []uint32{0}) catch {
+			case ir.Malformed as m:
+				return fail("main local read: " + m.Why)
+			}
+			let rep = ir.Row(&b, ir.KindCode(ir.TExpr, "pcall"), ePos(3), []uint32{ir.Text(&b, execrtPath), 0, 0, ir.Text(&b, "ReportAndExit"), ir.List(&b, []uint32{lErr})}) catch {
+			case ir.Malformed as m:
+				return fail("main report: " + m.Why)
+			}
+			let sRep = ir.Row(&b, ir.KindCode(ir.TStmt, "expr"), ePos(3), []uint32{rep}) catch {
+			case ir.Malformed as m:
+				return fail("main report stmt: " + m.Why)
+			}
+			mStmts = mStmts.Append(dErr).Append(sRep)
+		} else {
+			let sCall = ir.Row(&b, ir.KindCode(ir.TStmt, "expr"), ePos(2), []uint32{cMain}) catch {
+			case ir.Malformed as m:
+				return fail("main expr: " + m.Why)
+			}
+			mStmts = mStmts.Append(sCall)
+		}
+		let rMain = ir.Row(&b, ir.KindCode(ir.TStmt, "ret"), ePos(4), []uint32{0}) catch {
+		case ir.Malformed as m:
+			return fail("main ret: " + m.Why)
+		}
+		mStmts = mStmts.Append(rMain)
+		ir.End(&b, ir.List(&b, mStmts)) catch {
+		case ir.Malformed as m:
+			return fail("main end: " + m.Why)
+		}
+		fnNames = fnNames.Append("main")
+		sigs = sigs.Append(native.Sig{Params: []string{}, Results: []string{}})
+		impSigs = impSigs.Append(native.Sig{Params: []string{}, Results: []string{}})
+	}
+
+	let finishedIR = ir.Finish(b) catch {
+	case ir.Malformed as m:
+		return fail("finish IR for \(ownerPath): " + m.Why)
+	}
+	let pkgName = if isRoot { "main" } else { base(ownerPath) }
+	let u = native.Unit{
+		Path:       ownerPath,
+		Name:       pkgName,
+		File:       if pFiles.Len() > 0 { pFiles[0] } else { ownerPath + ".ergo" },
+		IR:         finishedIR,
+		Sigs:       sigs,
+		Records:    recs,
+		Interfaces: ifaces,
+		Globals:    localGlobals,
+		Inits:      inits,
+		Imports:    imports,
+	}
+	let built = try archive(u, header)
+	let exp = nativeobj.ReadStockExport(built.Archive) catch {
+	case nativeobj.Bad as bad:
+		return fail("\(ownerPath) export: " + bad.Why)
+	}
+	let mut impFuncs = slices.WithCapacity[native.ImportFunc](u.IR.Funcs.Len())
+	for fi, irFn in u.IR.Funcs {
+		let fname = u.IR.Strs[int(irFn.Name)]
+		impFuncs = impFuncs.Append(native.ImportFunc{Name: fname, Sig: impSigs[fi]})
+	}
+	let mut expRecs = []native.RecordDecl{}
+	for r in recs {
+		let mut fs = []native.FieldDecl{}
+		for fd in r.Fields {
+			fs = fs.Append(native.FieldDecl{..fd, Type: qualifyTypeStr(ownerPath, recs, ifaces, fd.Type)})
+		}
+		expRecs = expRecs.Append(native.RecordDecl{Name: r.Name, PkgPath: ownerPath, Exported: r.Exported, Fields: fs})
+	}
+	let mut expIfaces = []native.IfaceDecl{}
+	for ic in ifaces {
+		let mut ms = []native.MethodDecl{}
+		for md in ic.Methods {
+			let mut ps = []string{}
+			for pt in md.Sig.Params {
+				ps = ps.Append(qualifyTypeStr(ownerPath, recs, ifaces, pt))
+			}
+			let mut rs = []string{}
+			for rt in md.Sig.Results {
+				rs = rs.Append(qualifyTypeStr(ownerPath, recs, ifaces, rt))
+			}
+			ms = ms.Append(native.MethodDecl{..md, Sig: native.Sig{Params: ps, Results: rs}})
+		}
+		expIfaces = expIfaces.Append(native.IfaceDecl{Name: ic.Name, PkgPath: ownerPath, Exported: ic.Exported, Methods: ms})
+	}
+	let imp = native.ImportUnit{
+		Path:        ownerPath,
+		Name:        pkgName,
+		Fingerprint: exp.Fingerprint,
+		HasInit:     exp.HasInit,
+		Records:     expRecs,
+		Interfaces:  expIfaces,
+		Globals:     impGlobals,
+		Funcs:       impFuncs,
+	}
+	compiledDep{Unit: u, Built: built, Imp: imp}
+}
+
+// CompileExecProgramWithExports checks, lowers, and archives specs using explicit std export identities and archive header.
+func CompileExecProgramWithExports(specs []pkgSpec, rootIdx int, std string, osExp nativeobj.ExportInfo, scExp nativeobj.ExportInfo, hdr string) ([]compiledDep, compiledDep) fails os.Exit needs fs.Files {
+	let execrtDep = try execrtImportUnit(osExp, scExp, hdr)
+
+	let mut userSet = Map[string, bool]{}
+	for sp in specs {
+		userSet = userSet.Put(sp.Path, true)
+	}
+	let mut units = []load.Unit{}
+	if std != "" {
+		for bPath in []string{"collections", "option", "core", "prelude"} {
+			if userSet.Get(bPath) != option.None {
+				continue
+			}
+			match loadStdBootUnit(std, bPath) {
+			case option.Some{Value: bu}:
+				units = units.Append(bu)
+			case option.None:
+			}
+		}
+	}
+	let bootstrapCount = units.Len()
+	for sp in specs {
+		units = units.Append(try buildExecSpecUnit(sp))
+	}
+	let outside = load.Outside(units, std)
+	let prog = load.LoadAll(units, outside, 4)
+
+	let mut userAtByPath = Map[string, int]{}
+	let mut progIdxBySpec = slices.Repeat[int]([]int{-1}, specs.Len())
+	for i, ui in prog.Units {
+		if ui >= bootstrapCount {
+			let si = ui - bootstrapCount
+			progIdxBySpec[si] = i
+			userAtByPath = userAtByPath.Put(specs[si].Path, si)
+		}
+	}
+
+	let n = specs.Len()
+	let mut users = [][]int{}
+	let mut pending = []int{}
+	for _ in 0..n {
+		users = users.Append([]int{})
+		pending = pending.Append(0)
+	}
+	for si in 0..n {
+		let li = progIdxBySpec[si]
+		if li < 0 {
+			return fail("failed to load \(specs[si].Path)")
+		}
+		for impPath in store.ImportPaths(prog.Loaded[li].S) {
+			match userAtByPath.Get(impPath) {
+			case option.Some as di:
+				users[di.Value] = users[di.Value].Append(si)
+				pending[si] = pending[si] + 1
+			case option.None:
+			}
+		}
+	}
+	let mut order = []int{}
+	for si, cnt in pending {
+		if cnt == 0 {
+			order = order.Append(si)
+		}
+	}
+	let mut oi = 0
+	for oi < order.Len() {
+		let cur = order[oi]
+		oi = oi + 1
+		for user in users[cur] {
+			pending[user] = pending[user] - 1
+			if pending[user] == 0 {
+				order = order.Append(user)
+			}
+		}
+	}
+	for si, cnt in pending {
+		if cnt > 0 {
+			return fail("import cycle involving \(specs[si].Path)")
+		}
+	}
+
+	let mut compiled = Map[string, compiledDep]{}
+	let mut orderedImps = []native.ImportUnit{}
+	let mut out = slices.Repeat[option.Option[compiledDep]]([]option.Option[compiledDep]{option.None}, n)
+	for si in order {
+		let sp = specs[si]
+		let d = load.TypeAt(prog, progIdxBySpec[si])
+		if d.T.Diags.Len() > 0 || d.T.SelfInference.Len() > 0 || d.T.BareSelfCalls.Len() > 0 || d.T.LookupDiags.Len() > 0 {
+			let mut detail = ""
+			if d.T.LookupDiags.Len() > 0 {
+				detail = " lookup=\(d.T.LookupDiags[0].Code):\(d.T.LookupDiags[0].Message)"
+			}
+			return fail("type error in \(sp.Path) (d=\(d.T.Diags.Len()) s=\(d.T.SelfInference.Len()) b=\(d.T.BareSelfCalls.Len()) l=\(d.T.LookupDiags.Len())\(detail))")
+		}
+		let isRoot = si == rootIdx
+		let mut imps = []native.ImportUnit{execrtDep.Imp}
+		for depImp in orderedImps {
+			imps = imps.Append(depImp)
+		}
+		let mut anyDepInit = false
+		for impPath in store.ImportPaths(d.S) {
+			match compiled.Get(impPath) {
+			case option.Some as dc:
+				if dc.Value.Imp.HasInit {
+					anyDepInit = true
+				}
+			case option.None:
+			}
+		}
+		let cd = try compileExecPackage(sp.Path, isRoot, d, imps, hdr, anyDepInit)
+		compiled = compiled.Put(sp.Path, cd)
+		orderedImps = orderedImps.Append(cd.Imp)
+		out[si] = option.Some[compiledDep]{Value: cd}
+	}
+
+	let mut result = slices.WithCapacity[compiledDep](n)
+	for item in out {
+		match item {
+		case option.Some as cd:
+			result = result.Append(cd.Value)
+		case option.None:
+			return fail("incomplete exec compilation")
+		}
+	}
+	(result, execrtDep)
+}
+
+// CompileExecProgram checks, lowers, and archives specs together with a native runtime support package without Go source emission.
+func CompileExecProgram(specs []pkgSpec, rootIdx int, std string, stdCfg string, hdr string) ([]compiledDep, compiledDep) fails os.Exit needs fs.Files {
+	let exports = parseStdCfgMap(stdCfg)
+	let osExp = try stockExportAt(exports, "os")
+	let scExp = try stockExportAt(exports, "strconv")
+	CompileExecProgramWithExports(specs, rootIdx, std, osExp, scExp, hdr)
+}
+
+// WriteExecImportCfg writes the direct linker importcfg referencing stdCfg, execrt, and all compiled dependency archives.
+func WriteExecImportCfg(cfgPath string, dir string, stdCfg string, compiled []compiledDep, rootIdx int, execrtDep compiledDep) string fails os.Exit needs fs.Writes {
+	let execrtFile = dir + "/execrt.a"
+	try write(execrtFile, execrtDep.Built.Archive)
+	let mut cfg = stdCfg + "packagefile " + execrtPath + "=" + execrtFile + "\n"
+	let mut mainFile = ""
+	for i, cd in compiled {
+		let p = dir + "/pkg_\(i).a"
+		try write(p, cd.Built.Archive)
+		if i == rootIdx {
+			mainFile = p
+		} else {
+			cfg = cfg + "packagefile " + cd.Unit.Path + "=" + p + "\n"
+		}
+	}
+	try write(cfgPath, cfg)
+	mainFile
+}

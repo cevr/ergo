@@ -80,7 +80,7 @@ func Tiny(k1 int, k2 int, dep Import) Package {
 		fn("SpinStarted", []int{}, []int{i}, []int{i},
 			[]Op{GetGlobal{Dst: 0, Global: 2}, Return{Vals: []int{0}}}, 68),
 	}
-	Package{Path: TinyPath, Name: "tiny", File: "tiny.ergo", Files: []string{"tiny.ergo"}, Types: ty, Imports: []Import{dep}, Globals: []Global{Global{Name: "initRuns"}, Global{Name: "stop"}, Global{Name: "started"}},
+	Package{Path: TinyPath, Name: "tiny", File: "tiny.ergo", Files: []string{"tiny.ergo"}, Types: ty, Imports: []Import{dep}, Globals: []Global{LocalGlobal("initRuns", 0), LocalGlobal("stop", 0), LocalGlobal("started", 0)},
 		Funcs: funcs, Inits: []int{0}}
 }
 
@@ -190,5 +190,125 @@ func Stop1Sample(k int, dep Import) Package {
 		Globals: []Global{},
 		Funcs:   funcs,
 		Inits:   []int{},
+	}
+}
+
+// ExecSample builds a standalone main-package fixture exercising closures,
+// heap allocation, append/slice/string-index, interfaces, error values, and globals.
+func ExecSample(k int, dep Import) Package {
+	let s = k % 10000
+	let osImp = Import{Path: "os", Name: "os", Fingerprint: "\x11\x22\x33\x44\x55\x66\x77\x88", HasInit: true}
+	let ty = []TypeDef{
+		IntType(),
+		BasicType(KBool),
+		BasicType(KUint8),
+		BasicType(KString),
+		PtrType(0),
+		SliceType(0),
+		SliceType(3),
+		StructType("Box", "", true, []FieldDef{FieldDef{Name: "Val", Type: 0, Exported: true}}),
+		PtrType(7),
+		StructType("", "", false, []FieldDef{
+			FieldDef{Name: "Fn", Type: 12, Exported: false},
+			FieldDef{Name: "Bias", Type: 0, Exported: false},
+		}),
+		PtrType(9),
+		FuncType([]int{0}, []int{0}),
+		BasicType(KUintptr),
+		IfaceType("Counter", "", true, []MethodDef{MethodDef{Name: "Get", Type: 14, Exported: true}}),
+		FuncType([]int{}, []int{0}),
+		AnyType(),
+		IfaceType("error", "", false, []MethodDef{MethodDef{Name: "Error", Type: 17, Exported: true}}),
+		FuncType([]int{}, []int{3}),
+		StructType("MyErr", "", true, []FieldDef{FieldDef{Name: "Msg", Type: 3, Exported: true}}),
+		PtrType(18),
+	}
+	let fnInFile = func(file int, line int, name string, params []int, results []int, slots []int, ops []Op) Func {
+		let mut lines = []int{}
+		for i in 0..ops.Len() {
+			lines = lines.Append(line + 1 + i)
+		}
+		Func{Name: name, Params: params, Results: results, Slots: slots, Ops: ops, Lines: lines, Line: line, Col: 1, File: file}
+	}
+	let funcs = []Func{
+		fnInFile(0, 5, "init", []int{}, []int{}, []int{3}, []Op{
+			ConstStr{Dst: 0, V: "ready"},
+			SetGlobal{Global: 0, Src: 0},
+			Return{Vals: []int{}},
+		}),
+		fnInFile(0, 12, "(*Box).Get", []int{8}, []int{0}, []int{8, 0}, []Op{
+			FieldGet{Dst: 1, Base: 0, Field: 0},
+			Return{Vals: []int{1}},
+		}),
+		fnInFile(0, 17, "(*MyErr).Error", []int{19}, []int{3}, []int{19, 3}, []Op{
+			FieldGet{Dst: 1, Base: 0, Field: 0},
+			Return{Vals: []int{1}},
+		}),
+		fnInFile(1, 4, "addFlat", []int{0}, []int{0}, []int{0, 0}, []Op{
+			Const{Dst: 1, V: 7},
+			Arith{Dst: 1, Kind: AAdd, A: 0, B: 1},
+			Return{Vals: []int{1}},
+		}),
+		fnInFile(1, 10, "addBiased", []int{0}, []int{0}, []int{0, 10, 0}, []Op{
+			ClosureEnv{Dst: 1},
+			FieldGet{Dst: 2, Base: 1, Field: 1},
+			Arith{Dst: 2, Kind: AAdd, A: 0, B: 2},
+			Return{Vals: []int{2}},
+		}),
+		fnInFile(1, 18, "run", []int{8, 5, 3}, []int{0, 16},
+			[]int{8, 5, 3, 10, 0, 11, 11, 0, 0, 5, 3, 2, 13, 15, 1, 16, 19, 6, 3},
+			[]Op{
+				Alloc{Dst: 3},
+				Const{Dst: 4, V: s + 3},
+				FieldSet{Ptr: 3, Field: 1, Val: 4},
+				MakeClosure{Dst: 5, Target: "main.addFlat", Env: -1},
+				MakeClosure{Dst: 6, Target: "main.addBiased", Env: 3},
+				CallClosure{Dsts: []int{7}, Fn: 5, Args: []int{4}},
+				CallClosure{Dsts: []int{8}, Fn: 6, Args: []int{7}},
+				Append{Dst: 9, Slice: 1, Elem: 8},
+				Const{Dst: 4, V: 0},
+				Const{Dst: 7, V: 1},
+				SliceOp{Dst: 9, Src: 9, Lo: 4, Hi: 7},
+				SliceOp{Dst: 10, Src: 2, Lo: 4, Hi: 7},
+				StringIndex{Dst: 11, Str: 10, Idx: 4},
+				Convert{Dst: 7, Src: 11},
+				MakeIface{Dst: 12, Src: 0},
+				MakeIface{Dst: 13, Src: 7},
+				IfaceIs{Dst: 14, Iface: 13, ConcreteType: 0},
+				IfaceData{Dst: 7, Iface: 13},
+				CallIface{Dsts: []int{8}, Iface: 12, Method: 0, Args: []int{}},
+				Arith{Dst: 8, Kind: AAdd, A: 8, B: 7},
+				GetGlobal{Dst: 17, Global: 1},
+				GetGlobal{Dst: 18, Global: 0},
+				Zero{Dst: 15},
+				Zero{Dst: 16},
+				JumpIf{Cond: CEq, A: 15, B: 15, To: 0},
+				MakeIface{Dst: 15, Src: 16},
+				Label{Id: 0},
+				Return{Vals: []int{8, 15}},
+			}),
+		fnInFile(1, 52, "main", []int{}, []int{}, []int{8, 5, 3, 0, 16, 16}, []Op{
+			Alloc{Dst: 0},
+			Zero{Dst: 1},
+			GetGlobal{Dst: 2, Global: 0},
+			Call{Dsts: []int{3, 4}, Target: "main.run", Args: []int{0, 1, 2}},
+			Zero{Dst: 5},
+			JumpIf{Cond: CEq, A: 4, B: 5, To: 0},
+			Const{Dst: 3, V: 1},
+			Call{Dsts: []int{}, Target: "os.Exit", Args: []int{3}},
+			Label{Id: 0},
+			Return{Vals: []int{}},
+		}),
+	}
+	Package{
+		Path:    "main",
+		Name:    "main",
+		File:    "dep.ergo",
+		Files:   []string{"dep.ergo", "main.ergo"},
+		Types:   ty,
+		Imports: []Import{dep, osImp},
+		Globals: []Global{LocalGlobal("globalMsg", 3), ForeignGlobal("os", "Args", 6)},
+		Funcs:   funcs,
+		Inits:   []int{0},
 	}
 }

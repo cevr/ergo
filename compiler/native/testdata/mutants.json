@@ -15,7 +15,7 @@
       "name": "native-unit-call-gets-dst",
       "origin": "wf10 NATIVEOBJ-WIDEN r1 (updated Stop 1)",
       "file": "compiler/native/native.ergo",
-      "decl": "invokeCallee",
+      "decl": "invokeCalleeWithDsts",
       "from": "\tif ci.results.Len() == 0 {\n\t\temit(st, nativeobj.Call{Dsts: []int{}, Target: ci.target, Args: args}, at)\n\t\treturn -1\n\t}\n",
       "to": "\tif ci.results.Len() == 0 {\n\t\temit(st, nativeobj.Call{Dsts: []int{0}, Target: ci.target, Args: args}, at)\n\t\treturn -1\n\t}\n",
       "rule": "Calls to unit (0-result) functions emit zero destination slots so nativeobj.Check and ABIInternal match the callee signature.",
@@ -25,7 +25,7 @@
       "name": "native-unit-call-as-value",
       "origin": "wf10 NATIVEOBJ-WIDEN r1 (updated Stop 1)",
       "file": "compiler/native/native.ergo",
-      "decl": "invokeCallee",
+      "decl": "invokeCalleeWithDsts",
       "from": "\tif wantResult && ci.results.Len() == 0 {\n\t\treturn refuse(*st, \"call of unit function \\(name) as value\")\n\t}\n",
       "to": "\tif wantResult && ci.results.Len() == 0 {\n\t\treturn nativeobj.Malformed{Why: \"call of unit function \\(name) as value\"}\n\t}\n",
       "rule": "Using a unit function in a value expression is refused with nativeobj.Refused instead of failing later as Malformed.",
@@ -55,7 +55,7 @@
       "name": "native-unknown-call-accepted",
       "origin": "wf10 NATIVEOBJ-STOP1",
       "file": "compiler/native/native.ergo",
-      "decl": "callExpr",
+      "decl": "callExprWithDsts",
       "from": "\tcase option.None:\n\t\treturn refuse(*st, \"call of \\(name), no function of this package\")\n",
       "to": "\tcase option.None:\n\t\treturn nativeobj.Malformed{Why: \"call of \\(name), no function of this package\"}\n",
       "rule": "Calls to unknown functions not in the package or its declared imports fail closed with nativeobj.Refused.",
@@ -90,6 +90,36 @@
       "to": "\t\t\t\tvals[i] = vs\n",
       "rule": "Record literals assign each named field expression by resolved schema field index rather than literal element order.",
       "killers": ["compiler/native:law:Stop1RoundTrips", "compiler/native:ArchiveBuildsVerifiedObject"]
+    },
+    {
+      "name": "nativeobj-exec-imports-unsorted",
+      "origin": "wf10 NATIVEOBJ-STANDALONE-EXEC",
+      "file": "compiler/native/native.ergo",
+      "decl": "fromIRWithForeign",
+      "from": "\tfor i in 1..impOrder.Len() {\n\t\tlet mut j = i\n\t\tfor j > 0 && u.Imports[impOrder[j-1]].Path > u.Imports[impOrder[j]].Path {\n\t\t\tlet tmp = impOrder[j]\n\t\t\timpOrder[j] = impOrder[j-1]\n\t\t\timpOrder[j-1] = tmp\n\t\t\tj = j - 1\n\t\t}\n\t}\n",
+      "to": "",
+      "rule": "fromIRWithForeign must sort used imports by path to match EIR v1 canonical HImports table order and Verifier expectations.",
+      "killers": ["compiler/native:law:ExecRoundTrips", "compiler/native:ArchiveBuildsVerifiedObject"]
+    },
+    {
+      "name": "nativeobj-exec-toiface-dropped",
+      "origin": "wf10 NATIVEOBJ-STANDALONE-EXEC",
+      "file": "compiler/native/native.ergo",
+      "decl": "value",
+      "from": "\t\tlet d = temp(st, dstT)\n\t\temit(st, nativeobj.MakeIface{Dst: d, Src: src}, at)\n\t\td\n",
+      "to": "\t\tsrc\n",
+      "rule": "toiface expressions must emit MakeIface into an interface-typed slot rather than returning the unboxed concrete slot.",
+      "killers": ["compiler/native:law:ExecRoundTrips"]
+    },
+    {
+      "name": "nativeobj-exec-fail-single-result",
+      "origin": "wf10 NATIVEOBJ-STANDALONE-EXEC",
+      "file": "compiler/native/native.ergo",
+      "decl": "statement",
+      "from": "\t\t\tlet z = temp(st, (*st).results[0])\n\t\t\temit(st, nativeobj.Zero{Dst: z}, at)\n\t\t\temit(st, nativeobj.Return{Vals: []int{z, errSlot}}, at)\n",
+      "to": "\t\t\temit(st, nativeobj.Return{Vals: []int{errSlot}}, at)\n",
+      "rule": "fail inside a (T, error) function returns a zeroed T slot paired with the boxed error slot.",
+      "killers": ["compiler/native:law:ExecRoundTrips"]
     }
   ]
 }

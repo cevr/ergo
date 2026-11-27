@@ -13,8 +13,17 @@ type Sig { Params []string, Results []string }
 // FieldDecl describes one field of a record declaration visible to a Unit.
 type FieldDecl { Name string, Type string, Exported bool }
 
+// MethodDecl describes one method signature in an interface declaration visible to a Unit.
+type MethodDecl { Name string, Sig Sig, Exported bool }
+
 // RecordDecl describes one named value record visible to a Unit.
 type RecordDecl { Name string, PkgPath string, Exported bool, Fields []FieldDecl }
+
+// IfaceDecl describes one named interface declaration visible to a Unit.
+type IfaceDecl { Name string, PkgPath string, Exported bool, Methods []MethodDecl }
+
+// GlobalDecl describes one package variable declared by a Unit or imported peer.
+type GlobalDecl { Name string, PkgPath string, Type string }
 
 // ImportFunc describes one callable function exported by an imported peer package.
 type ImportFunc { Name string, Sig Sig }
@@ -26,18 +35,23 @@ type ImportUnit {
 	Fingerprint string,
 	HasInit     bool,
 	Records     []RecordDecl,
+	Interfaces  []IfaceDecl,
+	Globals     []GlobalDecl,
 	Funcs       []ImportFunc,
 }
 
 // Unit is one checked package lowered into compiler/ir for native compilation.
 type Unit {
-	Path    string,
-	Name    string,
-	File    string,
-	IR      ir.File,
-	Sigs    []Sig,
-	Records []RecordDecl,
-	Imports []ImportUnit,
+	Path       string,
+	Name       string,
+	File       string,
+	IR         ir.File,
+	Sigs       []Sig,
+	Records    []RecordDecl,
+	Interfaces []IfaceDecl,
+	Globals    []GlobalDecl,
+	Inits      []string,
+	Imports    []ImportUnit,
 }
 
 func pkgAlias(path string) string {
@@ -100,6 +114,145 @@ func basicKindForSpelling(s string) (string, int) {
 	("", -1)
 }
 
+func internAny(tp mut typePool) int {
+	match (*tp).byKey.Get("any") {
+	case option.Some as i:
+		return i.Value
+	case option.None:
+	}
+	let idx = (*tp).defs.Len()
+	*tp = typePool{
+		defs:      (*tp).defs.Append(nativeobj.AnyType()),
+		byKey:     (*tp).byKey,
+		canonical: (*tp).canonical.Append("any"),
+		structImp: (*tp).structImp.Append(-1),
+		impUsed:   (*tp).impUsed,
+	}
+	(*tp).byKey["any"] = idx
+	idx
+}
+
+func internError(tp mut typePool) int {
+	match (*tp).byKey.Get("error") {
+	case option.Some as i:
+		return i.Value
+	case option.None:
+	}
+	let strT = internBasic(tp, "string", nativeobj.KString)
+	let sigT = internFuncDef(tp, []int{}, []int{strT})
+	let idx = (*tp).defs.Len()
+	*tp = typePool{
+		defs:      (*tp).defs.Append(nativeobj.IfaceType("error", "", false, []nativeobj.MethodDef{nativeobj.MethodDef{Name: "Error", Type: sigT, Exported: true}})),
+		byKey:     (*tp).byKey,
+		canonical: (*tp).canonical.Append("error"),
+		structImp: (*tp).structImp.Append(-1),
+		impUsed:   (*tp).impUsed,
+	}
+	(*tp).byKey["error"] = idx
+	idx
+}
+
+func funcKey(tp typePool, ps []int, rs []int) string {
+	let mut s = "func("
+	for k, p in ps {
+		if k > 0 {
+			s = s + ", "
+		}
+		s = s + tp.canonical[p]
+	}
+	s = s + ")"
+	if rs.Len() == 1 {
+		s = s + " " + tp.canonical[rs[0]]
+	} else if rs.Len() > 1 {
+		s = s + " ("
+		for k, r in rs {
+			if k > 0 {
+				s = s + ", "
+			}
+			s = s + tp.canonical[r]
+		}
+		s = s + ")"
+	}
+	s
+}
+
+func internFuncDef(tp mut typePool, ps []int, rs []int) int {
+	let key = funcKey(*tp, ps, rs)
+	match (*tp).byKey.Get(key) {
+	case option.Some as i:
+		return i.Value
+	case option.None:
+	}
+	let idx = (*tp).defs.Len()
+	*tp = typePool{
+		defs:      (*tp).defs.Append(nativeobj.FuncType(ps, rs)),
+		byKey:     (*tp).byKey,
+		canonical: (*tp).canonical.Append(key),
+		structImp: (*tp).structImp.Append(-1),
+		impUsed:   (*tp).impUsed,
+	}
+	(*tp).byKey[key] = idx
+	idx
+}
+
+func splitTopCommas(s string) []string {
+	let t = strings.TrimSpace(s)
+	if t == "" {
+		return []string{}
+	}
+	let mut out = []string{}
+	let mut depth = 0
+	let mut start = 0
+	for i in 0..t.Len() {
+		let c = t[i]
+		if c == byte('(') || c == byte('[') {
+			depth = depth + 1
+		} else if c == byte(')') || c == byte(']') {
+			depth = depth - 1
+		} else if c == byte(',') && depth == 0 {
+			out = out.Append(strings.TrimSpace(t[start:i]))
+			start = i + 1
+		}
+	}
+	out.Append(strings.TrimSpace(t[start:t.Len()]))
+}
+
+func parseFuncType(tp mut typePool, s string) int fails nativeobj.Refused {
+	let mut depth = 0
+	let mut closeIdx = -1
+	for i in 4..s.Len() {
+		let c = s[i]
+		if c == byte('(') {
+			depth = depth + 1
+		} else if c == byte(')') {
+			depth = depth - 1
+			if depth == 0 {
+				closeIdx = i
+				break
+			}
+		}
+	}
+	if closeIdx < 5 {
+		return nativeobj.Refused{Why: "type \(s)"}
+	}
+	let mut ps = []int{}
+	for p in splitTopCommas(s[5:closeIdx]) {
+		ps = ps.Append(try resolveType(tp, p))
+	}
+	let rest = strings.TrimSpace(s[closeIdx+1 : s.Len()])
+	let mut rs = []int{}
+	if rest != "" {
+		if rest.Len() >= 2 && rest[0] == byte('(') && rest[rest.Len()-1] == byte(')') {
+			for r in splitTopCommas(rest[1 : rest.Len()-1]) {
+				rs = rs.Append(try resolveType(tp, r))
+			}
+		} else {
+			rs = rs.Append(try resolveType(tp, rest))
+		}
+	}
+	internFuncDef(tp, ps, rs)
+}
+
 func resolveType(tp mut typePool, s string) int fails nativeobj.Refused {
 	match (*tp).byKey.Get(s) {
 	case option.Some as i:
@@ -112,9 +265,18 @@ func resolveType(tp mut typePool, s string) int fails nativeobj.Refused {
 		return i.Value
 	case option.None:
 	}
+	if s == "any" {
+		return internAny(tp)
+	}
+	if s == "error" {
+		return internError(tp)
+	}
 	let (bkey, bkind) = basicKindForSpelling(s)
 	if bkind >= 0 {
 		return internBasic(tp, bkey, bkind)
+	}
+	if strings.HasPrefix(s, "func(") {
+		return parseFuncType(tp, s)
 	}
 	if strings.HasPrefix(s, "*") {
 		let elem = try resolveType(tp, s[1:s.Len()])
@@ -179,6 +341,8 @@ func ptrTypeOf(tp mut typePool, elem int) int {
 func registerRecords(tp mut typePool, u Unit) fails nativeobj.Refused {
 	let mut ids = []int{}
 	let mut decls = []RecordDecl{}
+	let mut ifaceIds = []int{}
+	let mut ifaceDecls = []IfaceDecl{}
 	for r in u.Records {
 		let idx = (*tp).defs.Len()
 		let ckey = u.Path + "." + r.Name
@@ -193,6 +357,21 @@ func registerRecords(tp mut typePool, u Unit) fails nativeobj.Refused {
 		(*tp).byKey[ckey] = idx
 		ids = ids.Append(idx)
 		decls = decls.Append(r)
+	}
+	for ic in u.Interfaces {
+		let idx = (*tp).defs.Len()
+		let ckey = u.Path + "." + ic.Name
+		*tp = typePool{
+			defs:      (*tp).defs.Append(nativeobj.IfaceType(ic.Name, "", ic.Exported, []nativeobj.MethodDef{})),
+			byKey:     (*tp).byKey,
+			canonical: (*tp).canonical.Append(ckey),
+			structImp: (*tp).structImp.Append(-1),
+			impUsed:   (*tp).impUsed,
+		}
+		(*tp).byKey[ic.Name] = idx
+		(*tp).byKey[ckey] = idx
+		ifaceIds = ifaceIds.Append(idx)
+		ifaceDecls = ifaceDecls.Append(ic)
 	}
 	for impIdx, imp in u.Imports {
 		let alias = pkgAlias(imp.Path)
@@ -211,6 +390,21 @@ func registerRecords(tp mut typePool, u Unit) fails nativeobj.Refused {
 			ids = ids.Append(idx)
 			decls = decls.Append(RecordDecl{Name: r.Name, PkgPath: imp.Path, Exported: r.Exported, Fields: r.Fields})
 		}
+		for ic in imp.Interfaces {
+			let idx = (*tp).defs.Len()
+			let ckey = imp.Path + "." + ic.Name
+			*tp = typePool{
+				defs:      (*tp).defs.Append(nativeobj.IfaceType(ic.Name, imp.Path, ic.Exported, []nativeobj.MethodDef{})),
+				byKey:     (*tp).byKey,
+				canonical: (*tp).canonical.Append(ckey),
+				structImp: (*tp).structImp.Append(impIdx),
+				impUsed:   (*tp).impUsed,
+			}
+			(*tp).byKey[ckey] = idx
+			(*tp).byKey[alias+"__"+ic.Name] = idx
+			ifaceIds = ifaceIds.Append(idx)
+			ifaceDecls = ifaceDecls.Append(IfaceDecl{Name: ic.Name, PkgPath: imp.Path, Exported: ic.Exported, Methods: ic.Methods})
+		}
 	}
 	for k, id in ids {
 		let r = decls[k]
@@ -221,6 +415,34 @@ func registerRecords(tp mut typePool, u Unit) fails nativeobj.Refused {
 		}
 		let mut ds = (*tp).defs
 		ds[id] = nativeobj.StructType(r.Name, r.PkgPath, r.Exported, fields)
+		*tp = typePool{..(*tp), defs: ds}
+	}
+	for k, id in ifaceIds {
+		let ic = ifaceDecls[k]
+		let mut meths = []nativeobj.MethodDef{}
+		for m in ic.Methods {
+			let mut ps = []int{}
+			for pt in m.Sig.Params {
+				ps = ps.Append(try resolveType(tp, pt))
+			}
+			let mut rs = []int{}
+			for rt in m.Sig.Results {
+				rs = rs.Append(try resolveType(tp, rt))
+			}
+			let mt = internFuncDef(tp, ps, rs)
+			meths = meths.Append(nativeobj.MethodDef{Name: m.Name, Type: mt, Exported: m.Exported})
+		}
+		for i in 1..meths.Len() {
+			let mut j = i
+			for j > 0 && meths[j-1].Name > meths[j].Name {
+				let tmp = meths[j]
+				meths[j] = meths[j-1]
+				meths[j-1] = tmp
+				j = j - 1
+			}
+		}
+		let mut ds = (*tp).defs
+		ds[id] = nativeobj.IfaceType(ic.Name, ic.PkgPath, ic.Exported, meths)
 		*tp = typePool{..(*tp), defs: ds}
 	}
 }
@@ -240,20 +462,35 @@ type foreignCallKey {
 	results []int,
 }
 
+type globalTable {
+	byKey   Map[string, int],
+	types   []int,
+	impIdx  []int,
+	isLocal []bool,
+}
+
 type fstate {
-	body    ir.Body,
-	strs    []string,
-	fname   string,
-	slots   []int,
-	ops     []nativeobj.Op,
-	lines   []int,
-	labels  int,
-	path    string,
-	tp      typePool,
-	callees Map[string, calleeInfo],
-	foreign []foreignCallKey,
-	loopTop []int,
-	loopEnd []int,
+	body           ir.Body,
+	strs           []string,
+	fname          string,
+	topName        string,
+	slots          []int,
+	localRemap     Map[int, int],
+	outerSlotTypes []int,
+	results        []int,
+	errSig         bool,
+	errType        int,
+	ops            []nativeobj.Op,
+	lines          []int,
+	labels         int,
+	path           string,
+	tp             typePool,
+	callees        Map[string, calleeInfo],
+	globals        globalTable,
+	foreign        []foreignCallKey,
+	hoisted        []nativeobj.Func,
+	loopTop        []int,
+	loopEnd        []int,
 }
 
 func refuse(st fstate, why string) nativeobj.Refused {
@@ -347,9 +584,15 @@ func label(st mut fstate) int {
 }
 
 func local(st fstate, i uint32) int fails nativeobj.Malformed {
-	let s = int(int32(i))
+	let raw = int(int32(i))
+	let s = match st.localRemap.Get(raw) {
+	case option.Some as mapped:
+		mapped.Value
+	case option.None:
+		raw
+	}
 	if s < 0 || s >= st.slots.Len() {
-		return nativeobj.Malformed{Why: "\(st.fname): local \(s) of \(st.slots.Len())"}
+		return nativeobj.Malformed{Why: "\(st.fname): local \(raw) of \(st.slots.Len())"}
 	}
 	s
 }
@@ -561,15 +804,18 @@ func recordForeign(st mut fstate, ci calleeInfo) {
 	st.foreign = (*st).foreign.Append(foreignCallKey{impIdx: ci.impIdx, name: ci.shortName, params: ci.params, results: ci.results})
 }
 
-func invokeCallee(st mut fstate, name string, ci calleeInfo, argNodes []uint32, wantResult bool, at int) int fails nativeobj.Refused | nativeobj.Malformed {
+func invokeCalleeWithDsts(st mut fstate, name string, ci calleeInfo, argNodes []uint32, dstSlots []int, wantResult bool, at int) int fails nativeobj.Refused | nativeobj.Malformed {
 	if ci.shortName == "init" {
 		return refuse(*st, "call of init")
 	}
 	if wantResult && ci.results.Len() == 0 {
 		return refuse(*st, "call of unit function \(name) as value")
 	}
-	if ci.results.Len() > 1 {
+	if dstSlots.Len() == 0 && wantResult && ci.results.Len() > 1 {
 		return refuse(*st, "call of \(name) with multiple results")
+	}
+	if dstSlots.Len() > 0 && dstSlots.Len() != ci.results.Len() {
+		return refuse(*st, "call of \(name) expected \(dstSlots.Len()) results, got \(ci.results.Len())")
 	}
 	if argNodes.Len() != ci.params.Len() {
 		return nativeobj.Malformed{Why: "\(st.fname): call of \(name) passes \(argNodes.Len()) of \(ci.params.Len()) arguments"}
@@ -587,12 +833,40 @@ func invokeCallee(st mut fstate, name string, ci calleeInfo, argNodes []uint32, 
 		emit(st, nativeobj.Call{Dsts: []int{}, Target: ci.target, Args: args}, at)
 		return -1
 	}
+	if dstSlots.Len() > 0 {
+		let mut tmps = slices.WithCapacity[int](ci.results.Len())
+		for k, rt in ci.results {
+			if dstSlots[k] >= 0 && (*st).slots[dstSlots[k]] != rt {
+				return refuse(*st, "call of \(name) result \(k) type mismatch")
+			}
+			tmps = tmps.Append(temp(st, rt))
+		}
+		emit(st, nativeobj.Call{Dsts: tmps, Target: ci.target, Args: args}, at)
+		for k, d in dstSlots {
+			if d >= 0 {
+				move(st, d, tmps[k], at)
+			}
+		}
+		return -1
+	}
+	if !wantResult {
+		let mut tmps = slices.WithCapacity[int](ci.results.Len())
+		for rt in ci.results {
+			tmps = tmps.Append(temp(st, rt))
+		}
+		emit(st, nativeobj.Call{Dsts: tmps, Target: ci.target, Args: args}, at)
+		return -1
+	}
 	let d = temp(st, ci.results[0])
 	emit(st, nativeobj.Call{Dsts: []int{d}, Target: ci.target, Args: args}, at)
 	d
 }
 
-func callExpr(st mut fstate, id uint32, wantResult bool) int fails nativeobj.Refused | nativeobj.Malformed {
+func invokeCallee(st mut fstate, name string, ci calleeInfo, argNodes []uint32, wantResult bool, at int) int fails nativeobj.Refused | nativeobj.Malformed {
+	invokeCalleeWithDsts(st, name, ci, argNodes, []int{}, wantResult, at)
+}
+
+func callExprWithDsts(st mut fstate, id uint32, dstSlots []int, wantResult bool) int fails nativeobj.Refused | nativeobj.Malformed {
 	let name = try text(*st, try word(*st, id, 1))
 	let ci = match (*st).callees.Get(name) {
 	case option.Some as c:
@@ -601,10 +875,14 @@ func callExpr(st mut fstate, id uint32, wantResult bool) int fails nativeobj.Ref
 		return refuse(*st, "call of \(name), no function of this package")
 	}
 	let argNodes = try list(*st, try word(*st, id, 2))
-	try invokeCallee(st, name, ci, argNodes, wantResult, line(*st, id))
+	try invokeCalleeWithDsts(st, name, ci, argNodes, dstSlots, wantResult, line(*st, id))
 }
 
-func pcallExpr(st mut fstate, id uint32, wantResult bool) int fails nativeobj.Refused | nativeobj.Malformed {
+func callExpr(st mut fstate, id uint32, wantResult bool) int fails nativeobj.Refused | nativeobj.Malformed {
+	callExprWithDsts(st, id, []int{}, wantResult)
+}
+
+func pcallExprWithDsts(st mut fstate, id uint32, dstSlots []int, wantResult bool) int fails nativeobj.Refused | nativeobj.Malformed {
 	let impPath = try text(*st, try word(*st, id, 0))
 	let name = try text(*st, try word(*st, id, 3))
 	let key = impPath + "." + name
@@ -615,43 +893,206 @@ func pcallExpr(st mut fstate, id uint32, wantResult bool) int fails nativeobj.Re
 		return refuse(*st, "call of \(key), not exported by imported package")
 	}
 	let argNodes = try list(*st, try word(*st, id, 4))
-	try invokeCallee(st, key, ci, argNodes, wantResult, line(*st, id))
+	try invokeCalleeWithDsts(st, key, ci, argNodes, dstSlots, wantResult, line(*st, id))
 }
 
-func mcallExpr(st mut fstate, id uint32, wantResult bool) int fails nativeobj.Refused | nativeobj.Malformed {
+func pcallExpr(st mut fstate, id uint32, wantResult bool) int fails nativeobj.Refused | nativeobj.Malformed {
+	pcallExprWithDsts(st, id, []int{}, wantResult)
+}
+
+func vcallExprWithDsts(st mut fstate, id uint32, dstSlots []int, wantResult bool) int fails nativeobj.Refused | nativeobj.Malformed {
+	let fnSlot = try value(st, try word(*st, id, 0))
+	let argNodes = try list(*st, try word(*st, id, 1))
+	let ft = (*st).tp.defs[(*st).slots[fnSlot]]
+	if ft.Kind != nativeobj.KFunc {
+		return refuse(*st, "closure call on non-func slot")
+	}
+	if wantResult && ft.Results.Len() == 0 {
+		return refuse(*st, "closure call of unit signature as value")
+	}
+	if dstSlots.Len() == 0 && wantResult && ft.Results.Len() > 1 {
+		return refuse(*st, "closure call with multiple results")
+	}
+	if dstSlots.Len() > 0 && dstSlots.Len() != ft.Results.Len() {
+		return refuse(*st, "closure call result count mismatch")
+	}
+	if argNodes.Len() != ft.Params.Len() {
+		return nativeobj.Malformed{Why: "\(st.fname): closure call passes \(argNodes.Len()) of \(ft.Params.Len()) arguments"}
+	}
+	let mut args = slices.WithCapacity[int](argNodes.Len())
+	for k, a in argNodes {
+		let s = try value(st, a)
+		if (*st).slots[s] != ft.Params[k] {
+			return refuse(*st, "closure call argument \(k) type mismatch")
+		}
+		args = args.Append(s)
+	}
+	let at = line(*st, id)
+	if ft.Results.Len() == 0 {
+		emit(st, nativeobj.CallClosure{Dsts: []int{}, Fn: fnSlot, Args: args}, at)
+		return -1
+	}
+	if dstSlots.Len() > 0 {
+		let mut tmps = slices.WithCapacity[int](ft.Results.Len())
+		for k, rt in ft.Results {
+			if dstSlots[k] >= 0 && (*st).slots[dstSlots[k]] != rt {
+				return refuse(*st, "closure call result \(k) type mismatch")
+			}
+			tmps = tmps.Append(temp(st, rt))
+		}
+		emit(st, nativeobj.CallClosure{Dsts: tmps, Fn: fnSlot, Args: args}, at)
+		for k, d in dstSlots {
+			if d >= 0 {
+				move(st, d, tmps[k], at)
+			}
+		}
+		return -1
+	}
+	if !wantResult {
+		let mut tmps = slices.WithCapacity[int](ft.Results.Len())
+		for rt in ft.Results {
+			tmps = tmps.Append(temp(st, rt))
+		}
+		emit(st, nativeobj.CallClosure{Dsts: tmps, Fn: fnSlot, Args: args}, at)
+		return -1
+	}
+	let d = temp(st, ft.Results[0])
+	emit(st, nativeobj.CallClosure{Dsts: []int{d}, Fn: fnSlot, Args: args}, at)
+	d
+}
+
+func mcallExprWithDsts(st mut fstate, id uint32, dstSlots []int, wantResult bool) int fails nativeobj.Refused | nativeobj.Malformed {
 	let recvNode = try word(*st, id, 0)
 	let mname = try text(*st, try word(*st, id, 1))
 	let restNodes = try list(*st, try word(*st, id, 2))
 	let recvSlot = try value(st, recvNode)
 	let rt = (*st).slots[recvSlot]
 	let td = (*st).tp.defs[rt]
+	let at = line(*st, id)
+	if td.Kind == nativeobj.KIface {
+		let mut mIdx = -1
+		for mi, md in td.Methods {
+			if md.Name == mname {
+				mIdx = mi
+			}
+		}
+		if mIdx < 0 {
+			return refuse(*st, "interface method .\(mname) not found on \(td.Name)")
+		}
+		let mt = (*st).tp.defs[td.Methods[mIdx].Type]
+		if mt.Results.Len() == 0 && wantResult {
+			return refuse(*st, "call of unit method .\(mname) as value")
+		}
+		if dstSlots.Len() == 0 && wantResult && mt.Results.Len() > 1 {
+			return refuse(*st, "interface method .\(mname) returns multiple results")
+		}
+		if dstSlots.Len() > 0 && dstSlots.Len() != mt.Results.Len() {
+			return refuse(*st, "interface method .\(mname) result count mismatch")
+		}
+		if mt.Params.Len() != restNodes.Len() {
+			return refuse(*st, "interface method .\(mname) signature arity mismatch")
+		}
+		let mut args = slices.WithCapacity[int](restNodes.Len())
+		for k, a in restNodes {
+			let s = try value(st, a)
+			if (*st).slots[s] != mt.Params[k] {
+				return refuse(*st, "interface method .\(mname) argument \(k) type mismatch")
+			}
+			args = args.Append(s)
+		}
+		if mt.Results.Len() == 0 {
+			emit(st, nativeobj.CallIface{Dsts: []int{}, Iface: recvSlot, Method: mIdx, Args: args}, at)
+			return -1
+		}
+		if dstSlots.Len() > 0 {
+			let mut tmps = slices.WithCapacity[int](mt.Results.Len())
+			for k, rty in mt.Results {
+				if dstSlots[k] >= 0 && (*st).slots[dstSlots[k]] != rty {
+					return refuse(*st, "interface method .\(mname) result \(k) type mismatch")
+				}
+				tmps = tmps.Append(temp(st, rty))
+			}
+			emit(st, nativeobj.CallIface{Dsts: tmps, Iface: recvSlot, Method: mIdx, Args: args}, at)
+			for k, d in dstSlots {
+				if d >= 0 {
+					move(st, d, tmps[k], at)
+				}
+			}
+			return -1
+		}
+		if !wantResult {
+			let mut tmps = slices.WithCapacity[int](mt.Results.Len())
+			for rty in mt.Results {
+				tmps = tmps.Append(temp(st, rty))
+			}
+			emit(st, nativeobj.CallIface{Dsts: tmps, Iface: recvSlot, Method: mIdx, Args: args}, at)
+			return -1
+		}
+		let d = temp(st, mt.Results[0])
+		emit(st, nativeobj.CallIface{Dsts: []int{d}, Iface: recvSlot, Method: mIdx, Args: args}, at)
+		return d
+	}
 	let structT = if td.Kind == nativeobj.KPtr { td.Elem } else { rt }
 	let std = (*st).tp.defs[structT]
 	if std.Kind != nativeobj.KStruct || std.Name == "" {
 		return refuse(*st, "method call .\(mname) on non-named record")
 	}
-	let methodKey = if std.PkgPath == "" || std.PkgPath == (*st).path {
-		std.Name + "." + mname
+	let pkgPrefix = if std.PkgPath == "" || std.PkgPath == (*st).path { "" } else { std.PkgPath + "." }
+	let valKey = pkgPrefix + std.Name + "." + mname
+	let ptrKey = pkgPrefix + "(*" + std.Name + ")." + mname
+	let (methodKey, ci) = if td.Kind == nativeobj.KPtr {
+		match (*st).callees.Get(ptrKey) {
+		case option.Some as c:
+			(ptrKey, c.Value)
+		case option.None:
+			match (*st).callees.Get(valKey) {
+			case option.Some as c:
+				(valKey, c.Value)
+			case option.None:
+				return refuse(*st, "method \(ptrKey) not found")
+			}
+		}
 	} else {
-		std.PkgPath + "." + std.Name + "." + mname
-	}
-	let ci = match (*st).callees.Get(methodKey) {
-	case option.Some as c:
-		c.Value
-	case option.None:
-		return refuse(*st, "method \(methodKey) not found")
+		match (*st).callees.Get(valKey) {
+		case option.Some as c:
+			(valKey, c.Value)
+		case option.None:
+			match (*st).callees.Get(ptrKey) {
+			case option.Some as c:
+				(ptrKey, c.Value)
+			case option.None:
+				return refuse(*st, "method \(valKey) not found")
+			}
+		}
 	}
 	if ci.results.Len() == 0 && wantResult {
 		return refuse(*st, "call of unit method \(methodKey) as value")
 	}
-	if ci.results.Len() > 1 || ci.params.Len() != restNodes.Len()+1 {
+	if dstSlots.Len() == 0 && wantResult && ci.results.Len() > 1 {
+		return refuse(*st, "method \(methodKey) returns multiple results")
+	}
+	if dstSlots.Len() > 0 && dstSlots.Len() != ci.results.Len() {
+		return refuse(*st, "method \(methodKey) result count mismatch")
+	}
+	if ci.params.Len() != restNodes.Len()+1 {
 		return refuse(*st, "method \(methodKey) signature arity mismatch")
 	}
-	let mut args = slices.WithCapacity[int](ci.params.Len())
+	let mut actualRecv = recvSlot
 	if (*st).slots[recvSlot] != ci.params[0] {
-		return refuse(*st, "method \(methodKey) receiver type mismatch")
+		if td.Kind == nativeobj.KStruct && ci.params[0] == ptrTypeOf(&st.tp, structT) {
+			let ptrRecv = temp(st, ci.params[0])
+			emit(st, nativeobj.AddrOf{Dst: ptrRecv, Of: recvSlot}, at)
+			actualRecv = ptrRecv
+		} else if td.Kind == nativeobj.KPtr && ci.params[0] == structT {
+			let valRecv = temp(st, structT)
+			emit(st, nativeobj.Load{Dst: valRecv, Ptr: recvSlot}, at)
+			actualRecv = valRecv
+		} else {
+			return refuse(*st, "method \(methodKey) receiver type mismatch")
+		}
 	}
-	args = args.Append(recvSlot)
+	let mut args = slices.WithCapacity[int](ci.params.Len())
+	args = args.Append(actualRecv)
 	for k, a in restNodes {
 		let s = try value(st, a)
 		if (*st).slots[s] != ci.params[k+1] {
@@ -660,14 +1101,45 @@ func mcallExpr(st mut fstate, id uint32, wantResult bool) int fails nativeobj.Re
 		args = args.Append(s)
 	}
 	recordForeign(st, ci)
-	let at = line(*st, id)
 	if ci.results.Len() == 0 {
 		emit(st, nativeobj.Call{Dsts: []int{}, Target: ci.target, Args: args}, at)
+		return -1
+	}
+	if dstSlots.Len() > 0 {
+		let mut tmps = slices.WithCapacity[int](ci.results.Len())
+		for k, rty in ci.results {
+			if dstSlots[k] >= 0 && (*st).slots[dstSlots[k]] != rty {
+				return refuse(*st, "method \(methodKey) result \(k) type mismatch")
+			}
+			tmps = tmps.Append(temp(st, rty))
+		}
+		emit(st, nativeobj.Call{Dsts: tmps, Target: ci.target, Args: args}, at)
+		for k, d in dstSlots {
+			if d >= 0 {
+				move(st, d, tmps[k], at)
+			}
+		}
+		return -1
+	}
+	if !wantResult {
+		let mut tmps = slices.WithCapacity[int](ci.results.Len())
+		for rty in ci.results {
+			tmps = tmps.Append(temp(st, rty))
+		}
+		emit(st, nativeobj.Call{Dsts: tmps, Target: ci.target, Args: args}, at)
 		return -1
 	}
 	let d = temp(st, ci.results[0])
 	emit(st, nativeobj.Call{Dsts: []int{d}, Target: ci.target, Args: args}, at)
 	d
+}
+
+func mcallExpr(st mut fstate, id uint32, wantResult bool) int fails nativeobj.Refused | nativeobj.Malformed {
+	mcallExprWithDsts(st, id, []int{}, wantResult)
+}
+
+func vcallExpr(st mut fstate, id uint32, wantResult bool) int fails nativeobj.Refused | nativeobj.Malformed {
+	vcallExprWithDsts(st, id, []int{}, wantResult)
 }
 
 func fieldLookup(st fstate, baseType int, fname string) (int, int) fails nativeobj.Refused {
@@ -687,7 +1159,7 @@ func fieldLookup(st fstate, baseType int, fname string) (int, int) fails nativeo
 
 func hasPtrs(defs []nativeobj.TypeDef, t int) bool {
 	let td = defs[t]
-	if td.Kind == nativeobj.KPtr || td.Kind == nativeobj.KFunc || td.Kind == nativeobj.KString || td.Kind == nativeobj.KSlice {
+	if td.Kind == nativeobj.KPtr || td.Kind == nativeobj.KFunc || td.Kind == nativeobj.KString || td.Kind == nativeobj.KSlice || td.Kind == nativeobj.KIface {
 		return true
 	}
 	if td.Kind == nativeobj.KStruct {
@@ -744,6 +1216,401 @@ func validConvert(defs []nativeobj.TypeDef, dt int, stType int) bool {
 		return true
 	}
 	nativeobj.KindIsInt(dk) && nativeobj.KindIsInt(sk)
+}
+
+func globalLookup(st mut fstate, name string) int fails nativeobj.Refused {
+	let gi = match (*st).globals.byKey.Get(name) {
+	case option.Some as idx:
+		idx.Value
+	case option.None:
+		return refuse(*st, "global \(name)")
+	}
+	let impIdx = (*st).globals.impIdx[gi]
+	if impIdx >= 0 {
+		let mut used = (*st).tp.impUsed
+		used[impIdx] = true
+		st.tp = typePool{..(*st).tp, impUsed: used}
+	}
+	gi
+}
+
+func appendUniqueInt(xs mut []int, v int) {
+	for x in *xs {
+		if x == v {
+			return
+		}
+	}
+	*xs = (*xs).Append(v)
+}
+
+func hasIntItem(xs []int, v int) bool {
+	for x in xs {
+		if x == v {
+			return true
+		}
+	}
+	false
+}
+
+func collectListRefs(st fstate, q uint32, used mut []int, defined mut []int, isStmt bool) fails nativeobj.Malformed {
+	for item in try list(st, q) {
+		if item != 0 {
+			if isStmt {
+				try collectStmtRefs(st, item, used, defined)
+			} else {
+				try collectExprRefs(st, item, used, defined)
+			}
+		}
+	}
+}
+
+func collectExprRefs(st fstate, id uint32, used mut []int, defined mut []int) fails nativeobj.Malformed {
+	if id == 0 {
+		return
+	}
+	let k = kindName(st, id)
+	match k {
+	case "local":
+		appendUniqueInt(used, int(int32(try word(st, id, 0))))
+	case "field", "len", "addr", "deref":
+		try collectExprRefs(st, try word(st, id, 0), used, defined)
+	case "conv", "toiface", "assert", "un":
+		try collectExprRefs(st, try word(st, id, 1), used, defined)
+	case "index", "mapAt":
+		try collectExprRefs(st, try word(st, id, 0), used, defined)
+		try collectExprRefs(st, try word(st, id, 1), used, defined)
+	case "bin":
+		try collectExprRefs(st, try word(st, id, 1), used, defined)
+		try collectExprRefs(st, try word(st, id, 2), used, defined)
+	case "lit":
+		try collectListRefs(st, try word(st, id, 1), used, defined, false)
+	case "call":
+		try collectListRefs(st, try word(st, id, 2), used, defined, false)
+	case "pcall":
+		try collectListRefs(st, try word(st, id, 4), used, defined, false)
+	case "mcall":
+		try collectExprRefs(st, try word(st, id, 0), used, defined)
+		try collectListRefs(st, try word(st, id, 2), used, defined, false)
+	case "vcall", "slice":
+		try collectExprRefs(st, try word(st, id, 0), used, defined)
+		try collectListRefs(st, try word(st, id, 1), used, defined, false)
+	case "append":
+		try collectListRefs(st, try word(st, id, 0), used, defined, false)
+	case "builtin":
+		try collectListRefs(st, try word(st, id, 1), used, defined, false)
+	case "func":
+		let mut innerDef = []int{}
+		for p in try list(st, try word(st, id, 1)) {
+			appendUniqueInt(&innerDef, int(int32(p)))
+		}
+		let mut innerUsed = []int{}
+		try collectListRefs(st, try word(st, id, 2), &innerUsed, &innerDef, true)
+		for u in innerUsed {
+			if !hasIntItem(innerDef, u) {
+				appendUniqueInt(used, u)
+			}
+		}
+	case _:
+	}
+}
+
+func collectStmtRefs(st fstate, id uint32, used mut []int, defined mut []int) fails nativeobj.Malformed {
+	if id == 0 {
+		return
+	}
+	let k = kindName(st, id)
+	match k {
+	case "def":
+		appendUniqueInt(defined, int(int32(try word(st, id, 0))))
+		try collectExprRefs(st, try word(st, id, 1), used, defined)
+	case "var":
+		appendUniqueInt(defined, int(int32(try word(st, id, 0))))
+	case "def2":
+		appendUniqueInt(defined, int(int32(try word(st, id, 0))))
+		let w1 = try word(st, id, 1)
+		if w1 != 0 {
+			appendUniqueInt(defined, int(int32(w1-1)))
+		}
+		try collectExprRefs(st, try word(st, id, 2), used, defined)
+	case "tdef":
+		try collectExprRefs(st, try word(st, id, 0), used, defined)
+		for l in try list(st, try word(st, id, 1)) {
+			appendUniqueInt(defined, int(int32(l)))
+		}
+	case "set":
+		appendUniqueInt(used, int(int32(try word(st, id, 0))))
+		try collectExprRefs(st, try word(st, id, 1), used, defined)
+	case "store":
+		try collectExprRefs(st, try word(st, id, 0), used, defined)
+		try collectExprRefs(st, try word(st, id, 2), used, defined)
+	case "ret", "fail", "expr", "discard", "panic", "defer":
+		try collectExprRefs(st, try word(st, id, 0), used, defined)
+	case "block":
+		try collectListRefs(st, try word(st, id, 0), used, defined, true)
+	case "if":
+		try collectExprRefs(st, try word(st, id, 0), used, defined)
+		try collectListRefs(st, try word(st, id, 1), used, defined, true)
+		try collectListRefs(st, try word(st, id, 2), used, defined, true)
+	case "while":
+		try collectExprRefs(st, try word(st, id, 0), used, defined)
+		try collectListRefs(st, try word(st, id, 1), used, defined, true)
+	case "range":
+		let kw = try word(st, id, 0)
+		let vw = try word(st, id, 1)
+		if kw != 0 {
+			appendUniqueInt(defined, int(int32(kw-1)))
+		}
+		if vw != 0 {
+			appendUniqueInt(defined, int(int32(vw-1)))
+		}
+		try collectExprRefs(st, try word(st, id, 2), used, defined)
+		try collectListRefs(st, try word(st, id, 3), used, defined, true)
+	case "switch", "tswitch":
+		try collectExprRefs(st, try word(st, id, 0), used, defined)
+		try collectListRefs(st, try word(st, id, 1), used, defined, true)
+		for cid in try list(st, try word(st, id, 4)) {
+			try collectListRefs(st, try word(st, cid, 1), used, defined, true)
+			try collectListRefs(st, try word(st, cid, 2), used, defined, false)
+		}
+	case _:
+	}
+}
+
+func sortIntList(xs []int) []int {
+	let mut out = xs
+	for i in 1..out.Len() {
+		let mut j = i
+		for j > 0 && out[j-1] > out[j] {
+			let tmp = out[j]
+			out[j] = out[j-1]
+			out[j-1] = tmp
+			j = j - 1
+		}
+	}
+	out
+}
+
+func internEnvStruct(tp mut typePool, fields []nativeobj.FieldDef) int {
+	let idx = (*tp).defs.Len()
+	let key = "..env_\(idx)"
+	*tp = typePool{
+		defs:      (*tp).defs.Append(nativeobj.StructType("", "", false, fields)),
+		byKey:     (*tp).byKey,
+		canonical: (*tp).canonical.Append(key),
+		structImp: (*tp).structImp.Append(-1),
+		impUsed:   (*tp).impUsed,
+	}
+	(*tp).byKey[key] = idx
+	idx
+}
+
+func funcExpr(st mut fstate, id uint32) int fails nativeobj.Refused | nativeobj.Malformed {
+	let at = line(*st, id)
+	let ts = try text(*st, try word(*st, id, 0))
+	let funcT = try resolveType(&st.tp, ts)
+	let ftd = (*st).tp.defs[funcT]
+	if ftd.Kind != nativeobj.KFunc {
+		return refuse(*st, "func literal non-signature type \(ts)")
+	}
+	let paramNodes = try list(*st, try word(*st, id, 1))
+	if paramNodes.Len() != ftd.Params.Len() {
+		return refuse(*st, "closure param count mismatch")
+	}
+	let bodyList = try list(*st, try word(*st, id, 2))
+	let mut defList = []int{}
+	let mut paramOrigs = []int{}
+	for pn in paramNodes {
+		let oi = int(int32(pn))
+		paramOrigs = paramOrigs.Append(oi)
+		appendUniqueInt(&defList, oi)
+	}
+	let mut usedList = []int{}
+	for bs in bodyList {
+		try collectStmtRefs(*st, bs, &usedList, &defList)
+	}
+	let mut captures = []int{}
+	for u in usedList {
+		if !hasIntItem(defList, u) {
+			captures = captures.Append(u)
+		}
+	}
+	captures = sortIntList(captures)
+	let closureIdx = (*st).hoisted.Len()
+	let fnName = "clo.\((*st).topName).func\(closureIdx)"
+	let targetSym = "\((*st).path).\(fnName)"
+	let errT = internError(&st.tp)
+	let errSig = ftd.Results.Len() >= 1 && ftd.Results[ftd.Results.Len()-1] == errT
+	let mut cSt = fstate{
+		body:           (*st).body,
+		strs:           (*st).strs,
+		fname:          fnName,
+		topName:        fnName,
+		slots:          slices.WithCapacity[int](ftd.Params.Len() + defList.Len() + captures.Len() + 2),
+		localRemap:     Map[int, int]{},
+		outerSlotTypes: (*st).outerSlotTypes,
+		results:        ftd.Results,
+		errSig:         errSig,
+		errType:        errT,
+		ops:            []nativeobj.Op{},
+		lines:          []int{},
+		labels:         0,
+		path:           (*st).path,
+		tp:             (*st).tp,
+		callees:        (*st).callees,
+		globals:        (*st).globals,
+		foreign:        (*st).foreign,
+		hoisted:        (*st).hoisted,
+		loopTop:        []int{},
+		loopEnd:        []int{},
+	}
+	for k, pt in ftd.Params {
+		cSt.slots = cSt.slots.Append(pt)
+		cSt.localRemap[paramOrigs[k]] = k
+	}
+	let mut envPtrT = -1
+	if captures.Len() > 0 {
+		let uptrT = try resolveType(&cSt.tp, "uintptr")
+		let mut eFields = []nativeobj.FieldDef{nativeobj.FieldDef{Name: "Fn", Type: uptrT, Exported: false}}
+		for ci, capOrig in captures {
+			if capOrig < 0 || capOrig >= (*st).outerSlotTypes.Len() {
+				return nativeobj.Malformed{Why: "\(st.fname): captured local \(capOrig) out of range"}
+			}
+			eFields = eFields.Append(nativeobj.FieldDef{Name: "c\(ci)", Type: (*st).outerSlotTypes[capOrig], Exported: false})
+		}
+		let envStructT = internEnvStruct(&cSt.tp, eFields)
+		envPtrT = ptrTypeOf(&cSt.tp, envStructT)
+		let envSlot = temp(&cSt, envPtrT)
+		emit(&cSt, nativeobj.ClosureEnv{Dst: envSlot}, at)
+		for ci, capOrig in captures {
+			let cSlot = temp(&cSt, (*st).outerSlotTypes[capOrig])
+			emit(&cSt, nativeobj.FieldGet{Dst: cSlot, Base: envSlot, Field: 1 + ci}, at)
+			cSt.localRemap[capOrig] = cSlot
+		}
+	}
+	for oi in defList {
+		if !hasIntItem(paramOrigs, oi) {
+			if oi < 0 || oi >= (*st).outerSlotTypes.Len() {
+				return nativeobj.Malformed{Why: "\(st.fname): closure local \(oi) out of range"}
+			}
+			let lSlot = temp(&cSt, (*st).outerSlotTypes[oi])
+			cSt.localRemap[oi] = lSlot
+		}
+	}
+	let hoistPos = cSt.hoisted.Len()
+	cSt.hoisted = cSt.hoisted.Append(nativeobj.Func{Name: "", Params: []int{}, Results: []int{}, Slots: []int{}, Ops: []nativeobj.Op{}, Lines: []int{}, Line: at, Col: 1, File: 0})
+	try stmtList(&cSt, bodyList)
+	let mut ends = false
+	if cSt.ops.Len() > 0 {
+		match cSt.ops[cSt.ops.Len()-1] {
+		case nativeobj.Return, nativeobj.Jump:
+			ends = true
+		case _:
+		}
+	}
+	if !ends {
+		if ftd.Results.Len() == 0 {
+			emit(&cSt, nativeobj.Return{Vals: []int{}}, at)
+		} else {
+			let stay = label(&cSt)
+			emit(&cSt, nativeobj.Label{Id: stay}, at)
+			emit(&cSt, nativeobj.Jump{To: stay}, at)
+		}
+	}
+	cSt.hoisted[hoistPos] = nativeobj.Func{
+		Name:    fnName,
+		Params:  ftd.Params,
+		Results: ftd.Results,
+		Slots:   cSt.slots,
+		Ops:     cSt.ops,
+		Lines:   cSt.lines,
+		Line:    at,
+		Col:     1,
+		File:    0,
+	}
+	st.tp = cSt.tp
+	st.foreign = cSt.foreign
+	st.hoisted = cSt.hoisted
+	let d = temp(st, funcT)
+	if captures.Len() == 0 {
+		emit(st, nativeobj.MakeClosure{Dst: d, Target: targetSym, Env: -1}, at)
+		return d
+	}
+	let envSlot = temp(st, envPtrT)
+	emit(st, nativeobj.Alloc{Dst: envSlot}, at)
+	for ci, capOrig in captures {
+		let valSlot = try local(*st, uint32(capOrig))
+		emit(st, nativeobj.FieldSet{Ptr: envSlot, Field: 1 + ci, Val: valSlot}, at)
+	}
+	emit(st, nativeobj.MakeClosure{Dst: d, Target: targetSym, Env: envSlot}, at)
+	d
+}
+
+func indexExpr(st mut fstate, id uint32) int fails nativeobj.Refused | nativeobj.Malformed {
+	let at = line(*st, id)
+	let sl = try value(st, try word(*st, id, 0))
+	let ix = try value(st, try word(*st, id, 1))
+	let slT = (*st).tp.defs[(*st).slots[sl]]
+	if !nativeobj.KindIsInt((*st).tp.defs[(*st).slots[ix]].Kind) {
+		return refuse(*st, "index with non-integer")
+	}
+	if slT.Kind == nativeobj.KString {
+		let u8 = try resolveType(&st.tp, "uint8")
+		let d = temp(st, u8)
+		emit(st, nativeobj.StringIndex{Dst: d, Str: sl, Idx: ix}, at)
+		return d
+	}
+	if slT.Kind != nativeobj.KSlice {
+		return refuse(*st, "index on non-slice")
+	}
+	let d = temp(st, slT.Elem)
+	emit(st, nativeobj.Index{Dst: d, Slice: sl, Idx: ix}, at)
+	d
+}
+
+func sliceExpr(st mut fstate, id uint32) int fails nativeobj.Refused | nativeobj.Malformed {
+	let at = line(*st, id)
+	let src = try value(st, try word(*st, id, 0))
+	let args = try list(*st, try word(*st, id, 1))
+	if args.Len() != 2 {
+		return refuse(*st, "slice expects lo and hi bounds")
+	}
+	let lo = try value(st, args[0])
+	let hi = try value(st, args[1])
+	let srcT = (*st).slots[src]
+	let sk = (*st).tp.defs[srcT].Kind
+	if sk != nativeobj.KSlice && sk != nativeobj.KString {
+		return refuse(*st, "slice on kind \(sk)")
+	}
+	if !nativeobj.KindIsInt((*st).tp.defs[(*st).slots[lo]].Kind) || !nativeobj.KindIsInt((*st).tp.defs[(*st).slots[hi]].Kind) {
+		return refuse(*st, "slice bounds must be integers")
+	}
+	let d = temp(st, srcT)
+	emit(st, nativeobj.SliceOp{Dst: d, Src: src, Lo: lo, Hi: hi}, at)
+	d
+}
+
+func appendExpr(st mut fstate, id uint32) int fails nativeobj.Refused | nativeobj.Malformed {
+	let at = line(*st, id)
+	let args = try list(*st, try word(*st, id, 0))
+	if args.Len() < 1 {
+		return refuse(*st, "empty append")
+	}
+	let mut cur = try value(st, args[0])
+	let slT = (*st).slots[cur]
+	let std = (*st).tp.defs[slT]
+	if std.Kind != nativeobj.KSlice {
+		return refuse(*st, "append on non-slice")
+	}
+	for k in 1..args.Len() {
+		let el = try value(st, args[k])
+		if (*st).slots[el] != std.Elem {
+			return refuse(*st, "append element type mismatch")
+		}
+		let nxt = temp(st, slT)
+		emit(st, nativeobj.Append{Dst: nxt, Slice: cur, Elem: el}, at)
+		cur = nxt
+	}
+	cur
 }
 
 func value(st mut fstate, id uint32) int fails nativeobj.Refused | nativeobj.Malformed {
@@ -907,18 +1774,48 @@ func value(st mut fstate, id uint32) int fails nativeobj.Refused | nativeobj.Mal
 		emit(st, nativeobj.FieldGet{Dst: d, Base: base, Field: fi}, at)
 		d
 	case "index":
-		let sl = try value(st, try word(*st, id, 0))
-		let ix = try value(st, try word(*st, id, 1))
-		let slT = (*st).tp.defs[(*st).slots[sl]]
-		if slT.Kind != nativeobj.KSlice {
-			return refuse(*st, "index on non-slice")
-		}
-		if !nativeobj.KindIsInt((*st).tp.defs[(*st).slots[ix]].Kind) {
-			return refuse(*st, "slice index with non-integer")
-		}
-		let d = temp(st, slT.Elem)
-		emit(st, nativeobj.Index{Dst: d, Slice: sl, Idx: ix}, at)
+		try indexExpr(st, id)
+	case "slice":
+		try sliceExpr(st, id)
+	case "append":
+		try appendExpr(st, id)
+	case "nil":
+		let ts = try text(*st, try word(*st, id, 0))
+		let t = try resolveType(&st.tp, ts)
+		let d = temp(st, t)
+		emit(st, nativeobj.Zero{Dst: d}, at)
 		d
+	case "global":
+		let name = try text(*st, try word(*st, id, 0))
+		let gi = try globalLookup(st, name)
+		let d = temp(st, (*st).globals.types[gi])
+		emit(st, nativeobj.GetGlobal{Dst: d, Global: gi}, at)
+		d
+	case "toiface":
+		let ts = try text(*st, try word(*st, id, 0))
+		let dstT = try resolveType(&st.tp, ts)
+		if (*st).tp.defs[dstT].Kind != nativeobj.KIface {
+			return refuse(*st, "toiface target \(ts) is not interface")
+		}
+		let src = try value(st, try word(*st, id, 1))
+		if (*st).slots[src] == dstT {
+			return src
+		}
+		let d = temp(st, dstT)
+		emit(st, nativeobj.MakeIface{Dst: d, Src: src}, at)
+		d
+	case "assert":
+		let ts = try text(*st, try word(*st, id, 0))
+		let targetT = try resolveType(&st.tp, ts)
+		let ifaceSlot = try value(st, try word(*st, id, 1))
+		if (*st).tp.defs[(*st).slots[ifaceSlot]].Kind != nativeobj.KIface {
+			return refuse(*st, "type assert on non-interface")
+		}
+		let d = temp(st, targetT)
+		emit(st, nativeobj.IfaceData{Dst: d, Iface: ifaceSlot}, at)
+		d
+	case "func":
+		try funcExpr(st, id)
 	case "addr":
 		let xNode = try word(*st, id, 0)
 		let xk = kindName(*st, xNode)
@@ -952,6 +1849,8 @@ func value(st mut fstate, id uint32) int fails nativeobj.Refused | nativeobj.Mal
 		try pcallExpr(st, id, true)
 	case "mcall":
 		try mcallExpr(st, id, true)
+	case "vcall":
+		try vcallExpr(st, id, true)
 	case _:
 		return refuse(*st, "expression \(k)")
 	}
@@ -1004,7 +1903,7 @@ func branch(st mut fstate, id uint32, yes int, no int) fails nativeobj.Refused |
 		if (*st).slots[a] != (*st).slots[b] {
 			return refuse(*st, "comparison operand type mismatch")
 		}
-		if !nativeobj.KindIsInt(ak) && ak != nativeobj.KString && !((op == "==" || op == "!=") && (ak == nativeobj.KBool || ak == nativeobj.KPtr || ak == nativeobj.KFunc)) {
+		if !nativeobj.KindIsInt(ak) && ak != nativeobj.KString && !((op == "==" || op == "!=") && (ak == nativeobj.KBool || ak == nativeobj.KPtr || ak == nativeobj.KFunc || ak == nativeobj.KIface)) {
 			return refuse(*st, "comparison \(op) on unsupported kind")
 		}
 		let j = match op {
@@ -1045,6 +1944,8 @@ func evalIgnored(st mut fstate, id uint32) fails nativeobj.Refused | nativeobj.M
 		let _ = try pcallExpr(st, id, false)
 	} else if k == "mcall" {
 		let _ = try mcallExpr(st, id, false)
+	} else if k == "vcall" {
+		let _ = try vcallExpr(st, id, false)
 	} else {
 		let _ = try value(st, id)
 	}
@@ -1053,6 +1954,32 @@ func evalIgnored(st mut fstate, id uint32) fails nativeobj.Refused | nativeobj.M
 func storePlace(st mut fstate, lhsNode uint32, op string, rhsNode uint32, at int) fails nativeobj.Refused | nativeobj.Malformed {
 	let rhs = try value(st, rhsNode)
 	let lhsKind = kindName(*st, lhsNode)
+	if lhsKind == "global" {
+		let name = try text(*st, try word(*st, lhsNode, 0))
+		let gi = try globalLookup(st, name)
+		if !(*st).globals.isLocal[gi] {
+			return refuse(*st, "store to foreign global \(name)")
+		}
+		let gt = (*st).globals.types[gi]
+		let mut nextVal = rhs
+		if op != "" {
+			let gk = (*st).tp.defs[gt].Kind
+			let ak = try arithOf(*st, op)
+			if !(nativeobj.KindIsInt(gk) || (ak == nativeobj.AAdd && gk == nativeobj.KString)) {
+				return refuse(*st, "compound store \(op) to global \(name)")
+			}
+			let old = temp(st, gt)
+			emit(st, nativeobj.GetGlobal{Dst: old, Global: gi}, at)
+			let next = temp(st, gt)
+			emit(st, nativeobj.Arith{Dst: next, Kind: ak, A: old, B: rhs}, at)
+			nextVal = next
+		}
+		if (*st).slots[nextVal] != gt {
+			return refuse(*st, "global \(name) store type mismatch")
+		}
+		emit(st, nativeobj.SetGlobal{Global: gi, Src: nextVal}, at)
+		return
+	}
 	if lhsKind == "deref" {
 		let ptr = try value(st, try word(*st, lhsNode, 0))
 		let ptd = (*st).tp.defs[(*st).slots[ptr]]
@@ -1136,6 +2063,54 @@ func statement(st mut fstate, id uint32) fails nativeobj.Refused | nativeobj.Mal
 	case "def":
 		let dst = try local(*st, try word(*st, id, 0))
 		move(st, dst, try value(st, try word(*st, id, 1)), at)
+	case "def2":
+		let d0 = try local(*st, try word(*st, id, 0))
+		let w1 = try word(*st, id, 1)
+		let d1 = if w1 == 0 { -1 } else { try local(*st, w1-1) }
+		let xNode = try word(*st, id, 2)
+		let xk = kindName(*st, xNode)
+		if xk == "call" {
+			let _ = try callExprWithDsts(st, xNode, []int{d0, d1}, false)
+		} else if xk == "pcall" {
+			let _ = try pcallExprWithDsts(st, xNode, []int{d0, d1}, false)
+		} else if xk == "mcall" {
+			let _ = try mcallExprWithDsts(st, xNode, []int{d0, d1}, false)
+		} else if xk == "vcall" {
+			let _ = try vcallExprWithDsts(st, xNode, []int{d0, d1}, false)
+		} else if xk == "assert" {
+			let ts = try text(*st, try word(*st, xNode, 0))
+			let targetT = try resolveType(&st.tp, ts)
+			let ifaceSlot = try value(st, try word(*st, xNode, 1))
+			if (*st).tp.defs[(*st).slots[ifaceSlot]].Kind != nativeobj.KIface {
+				return refuse(*st, "type assert on non-interface")
+			}
+			let boolT = try resolveType(&st.tp, "bool")
+			let okSlot = temp(st, boolT)
+			emit(st, nativeobj.IfaceIs{Dst: okSlot, Iface: ifaceSlot, ConcreteType: targetT}, at)
+			let zBool = temp(st, boolT)
+			emit(st, nativeobj.Const{Dst: zBool, V: 0}, at)
+			let yes = label(st)
+			let no = label(st)
+			let end = label(st)
+			emit(st, nativeobj.JumpIf{Cond: nativeobj.CNe, A: okSlot, B: zBool, To: yes}, at)
+			emit(st, nativeobj.Jump{To: no}, at)
+			emit(st, nativeobj.Label{Id: yes}, at)
+			let ext = temp(st, targetT)
+			emit(st, nativeobj.IfaceData{Dst: ext, Iface: ifaceSlot}, at)
+			move(st, d0, ext, at)
+			if d1 >= 0 {
+				emit(st, nativeobj.Const{Dst: d1, V: 1}, at)
+			}
+			emit(st, nativeobj.Jump{To: end}, at)
+			emit(st, nativeobj.Label{Id: no}, at)
+			emit(st, nativeobj.Zero{Dst: d0}, at)
+			if d1 >= 0 {
+				emit(st, nativeobj.Const{Dst: d1, V: 0}, at)
+			}
+			emit(st, nativeobj.Label{Id: end}, at)
+		} else {
+			return refuse(*st, "def2 on \(xk)")
+		}
 	case "var":
 		let dst = try local(*st, try word(*st, id, 0))
 		emit(st, nativeobj.Zero{Dst: dst}, at)
@@ -1158,11 +2133,98 @@ func statement(st mut fstate, id uint32) fails nativeobj.Refused | nativeobj.Mal
 		try storePlace(st, try word(*st, id, 0), try text(*st, try word(*st, id, 1)), try word(*st, id, 2), at)
 	case "ret":
 		let x = try word(*st, id, 0)
-		if x == 0 {
+		if (*st).errSig {
+			let zeroErr = temp(st, (*st).errType)
+			emit(st, nativeobj.Zero{Dst: zeroErr}, at)
+			if (*st).results.Len() == 1 {
+				if x != 0 {
+					return refuse(*st, "unexpected return value in fallible unit function")
+				}
+				emit(st, nativeobj.Return{Vals: []int{zeroErr}}, at)
+			} else {
+				if x == 0 {
+					return nativeobj.Malformed{Why: "\(st.fname): missing return value"}
+				}
+				let v = try value(st, x)
+				if (*st).slots[v] != (*st).results[0] {
+					return refuse(*st, "return value type mismatch")
+				}
+				emit(st, nativeobj.Return{Vals: []int{v, zeroErr}}, at)
+			}
+		} else if x == 0 {
 			emit(st, nativeobj.Return{Vals: []int{}}, at)
 		} else {
 			emit(st, nativeobj.Return{Vals: []int{try value(st, x)}}, at)
 		}
+	case "fail":
+		if !(*st).errSig {
+			return refuse(*st, "fail outside fallible function")
+		}
+		let ex = try value(st, try word(*st, id, 0))
+		let errSlot = if (*st).slots[ex] == (*st).errType {
+			ex
+		} else {
+			let e = temp(st, (*st).errType)
+			emit(st, nativeobj.MakeIface{Dst: e, Src: ex}, at)
+			e
+		}
+		if (*st).results.Len() == 1 {
+			emit(st, nativeobj.Return{Vals: []int{errSlot}}, at)
+		} else {
+			let z = temp(st, (*st).results[0])
+			emit(st, nativeobj.Zero{Dst: z}, at)
+			emit(st, nativeobj.Return{Vals: []int{z, errSlot}}, at)
+		}
+	case "tswitch":
+		let ifaceSlot = try value(st, try word(*st, id, 0))
+		let ifaceT = (*st).slots[ifaceSlot]
+		if (*st).tp.defs[ifaceT].Kind != nativeobj.KIface {
+			return refuse(*st, "tswitch on non-interface")
+		}
+		let elseStmts = try list(*st, try word(*st, id, 1))
+		let caseIDs = try list(*st, try word(*st, id, 4))
+		let boolT = try resolveType(&st.tp, "bool")
+		let zBool = temp(st, boolT)
+		emit(st, nativeobj.Const{Dst: zBool, V: 0}, at)
+		let zIface = temp(st, ifaceT)
+		emit(st, nativeobj.Zero{Dst: zIface}, at)
+		let endLbl = label(st)
+		let mut defStmts = []uint32{}
+		let mut hasDef = false
+		for cid in caseIDs {
+			let isDef = try word(*st, cid, 3) != 0
+			if isDef {
+				hasDef = true
+				defStmts = try list(*st, try word(*st, cid, 1))
+				continue
+			}
+			let typesList = try list(*st, try word(*st, cid, 0))
+			let bodyList = try list(*st, try word(*st, cid, 1))
+			let hitLbl = label(st)
+			let nextLbl = label(st)
+			for tsID in typesList {
+				let tName = try text(*st, tsID)
+				if tName == "nil" {
+					emit(st, nativeobj.JumpIf{Cond: nativeobj.CEq, A: ifaceSlot, B: zIface, To: hitLbl}, at)
+				} else {
+					let ct = try resolveType(&st.tp, tName)
+					let okS = temp(st, boolT)
+					emit(st, nativeobj.IfaceIs{Dst: okS, Iface: ifaceSlot, ConcreteType: ct}, at)
+					emit(st, nativeobj.JumpIf{Cond: nativeobj.CNe, A: okS, B: zBool, To: hitLbl}, at)
+				}
+			}
+			emit(st, nativeobj.Jump{To: nextLbl}, at)
+			emit(st, nativeobj.Label{Id: hitLbl}, at)
+			try stmtList(st, bodyList)
+			emit(st, nativeobj.Jump{To: endLbl}, at)
+			emit(st, nativeobj.Label{Id: nextLbl}, at)
+		}
+		if hasDef {
+			try stmtList(st, defStmts)
+		} else if elseStmts.Len() > 0 {
+			try stmtList(st, elseStmts)
+		}
+		emit(st, nativeobj.Label{Id: endLbl}, at)
 	case "expr", "discard":
 		try evalIgnored(st, try word(*st, id, 0))
 	case "block":
@@ -1300,6 +2362,53 @@ func statement(st mut fstate, id uint32) fails nativeobj.Refused | nativeobj.Mal
 	}
 }
 
+func buildGlobals(u Unit, tp mut typePool) (globalTable, []nativeobj.Global) fails nativeobj.Refused {
+	let mut byKey = Map[string, int]{}
+	let mut types = []int{}
+	let mut impIdx = []int{}
+	let mut isLocal = []bool{}
+	let mut raw = []nativeobj.Global{}
+	for g in u.Globals {
+		let gt = try resolveType(tp, g.Type)
+		let idx = raw.Len()
+		raw = raw.Append(nativeobj.LocalGlobal(g.Name, gt))
+		types = types.Append(gt)
+		impIdx = impIdx.Append(-1)
+		isLocal = isLocal.Append(true)
+		byKey[g.Name] = idx
+		byKey[u.Path+"."+g.Name] = idx
+	}
+	for k, imp in u.Imports {
+		let alias = pkgAlias(imp.Path)
+		for g in imp.Globals {
+			let gt = try resolveType(tp, g.Type)
+			let idx = raw.Len()
+			raw = raw.Append(nativeobj.ForeignGlobal(imp.Path, g.Name, gt))
+			types = types.Append(gt)
+			impIdx = impIdx.Append(k)
+			isLocal = isLocal.Append(false)
+			byKey[imp.Path+"."+g.Name] = idx
+			byKey[alias+"__"+g.Name] = idx
+		}
+	}
+	(globalTable{byKey: byKey, types: types, impIdx: impIdx, isLocal: isLocal}, raw)
+}
+
+func remapGlobalOps(ops []nativeobj.Op, remap []int) []nativeobj.Op {
+	let mut out = slices.WithCapacity[nativeobj.Op](ops.Len())
+	for op in ops {
+		match op {
+		case nativeobj.GetGlobal as g:
+			out = out.Append(nativeobj.GetGlobal{Dst: g.Dst, Global: remap[g.Global]})
+		case nativeobj.SetGlobal as g:
+			out = out.Append(nativeobj.SetGlobal{Global: remap[g.Global], Src: g.Src})
+		case _:
+			out = out.Append(op)
+		}
+	}
+	out
+}
+
 func buildCallees(u Unit, tp mut typePool) Map[string, calleeInfo] fails nativeobj.Refused | nativeobj.Malformed {
 	let mut out = Map[string, calleeInfo]{}
 	for fi, f in u.IR.Funcs {
@@ -1316,7 +2425,8 @@ func buildCallees(u Unit, tp mut typePool) Map[string, calleeInfo] fails nativeo
 		for s in sig.Results {
 			rs = rs.Append(try resolveType(tp, s))
 		}
-		out[name] = calleeInfo{target: u.Path + "." + name, shortName: name, impIdx: -1, params: ps, results: rs}
+		let isInit = hasStrItem(u.Inits, name)
+		out[name] = calleeInfo{target: u.Path + "." + name, shortName: if isInit { "init" } else { name }, impIdx: -1, params: ps, results: rs}
 	}
 	for impIdx, imp in u.Imports {
 		let alias = pkgAlias(imp.Path)
@@ -1337,31 +2447,57 @@ func buildCallees(u Unit, tp mut typePool) Map[string, calleeInfo] fails nativeo
 	out
 }
 
-func function(u Unit, tp mut typePool, callees Map[string, calleeInfo], foreign mut []foreignCallKey, fi int, nFiles int) nativeobj.Func fails nativeobj.Refused | nativeobj.Malformed {
+func hasStrItem(xs []string, s string) bool {
+	for x in xs {
+		if x == s {
+			return true
+		}
+	}
+	false
+}
+
+func function(u Unit, tp mut typePool, callees Map[string, calleeInfo], globals globalTable, foreign mut []foreignCallKey, hoisted mut []nativeobj.Func, fi int, nFiles int) nativeobj.Func fails nativeobj.Refused | nativeobj.Malformed {
 	let f = u.IR.Funcs[fi]
 	let name = u.IR.Strs[int(f.Name)]
 	let sig = u.Sigs[fi]
 	let mut st = fstate{
-		body:    f.Body,
-		strs:    u.IR.Strs,
-		fname:   name,
-		slots:   []int{},
-		ops:     []nativeobj.Op{},
-		lines:   []int{},
-		labels:  0,
-		path:    u.Path,
-		tp:      *tp,
-		callees: callees,
-		foreign: *foreign,
-		loopTop: []int{},
-		loopEnd: []int{},
+		body:           f.Body,
+		strs:           u.IR.Strs,
+		fname:          name,
+		topName:        name,
+		slots:          []int{},
+		localRemap:     Map[int, int]{},
+		outerSlotTypes: []int{},
+		results:        []int{},
+		errSig:         false,
+		errType:        0,
+		ops:            []nativeobj.Op{},
+		lines:          []int{},
+		labels:         0,
+		path:           u.Path,
+		tp:             *tp,
+		callees:        callees,
+		globals:        globals,
+		foreign:        *foreign,
+		hoisted:        *hoisted,
+		loopTop:        []int{},
+		loopEnd:        []int{},
 	}
 	if name == "init" {
 		return refuse(st, "init function")
 	}
-	if sig.Results.Len() > 1 {
+	let isErrSig = sig.Results.Len() >= 1 && sig.Results[sig.Results.Len()-1] == "error"
+	let errTwo = sig.Results.Len() == 2 && sig.Results[1] == "error"
+	if sig.Results.Len() > 1 && !errTwo {
 		return refuse(st, "multiple results")
 	}
+	let isInit = hasStrItem(u.Inits, name)
+	if isInit && (sig.Params.Len() != 0 || sig.Results.Len() != 0) {
+		return nativeobj.Malformed{Why: "\(name): init function must take and return no values"}
+	}
+	let errT = if isErrSig { internError(&st.tp) } else { -1 }
+	st.errSig = isErrSig
+	st.errType = errT
 	let mut params = slices.WithCapacity[int](sig.Params.Len())
 	for t in sig.Params {
 		let tid = try resolveType(&st.tp, t)
@@ -1372,11 +2508,13 @@ func function(u Unit, tp mut typePool, callees Map[string, calleeInfo], foreign 
 	for t in sig.Results {
 		results = results.Append(try resolveType(&st.tp, t))
 	}
+	st.results = results
 	for l in f.Locals {
 		let ts = try text(st, l.Type)
 		let tid = try resolveType(&st.tp, ts)
 		st.slots = st.slots.Append(tid)
 	}
+	st.outerSlotTypes = st.slots
 	let first = clampLine(int(f.Pos.Line))
 	let last = clampLine(int(f.End.Line))
 	let fileIdx = if int(f.Pos.File) >= 0 && int(f.Pos.File) < nFiles { int(f.Pos.File) } else { 0 }
@@ -1392,6 +2530,10 @@ func function(u Unit, tp mut typePool, callees Map[string, calleeInfo], foreign 
 	if !ends {
 		if results.Len() == 0 {
 			emit(&st, nativeobj.Return{Vals: []int{}}, last)
+		} else if isErrSig && results.Len() == 1 {
+			let zeroErr = temp(&st, errT)
+			emit(&st, nativeobj.Zero{Dst: zeroErr}, last)
+			emit(&st, nativeobj.Return{Vals: []int{zeroErr}}, last)
 		} else {
 			let stay = label(&st)
 			emit(&st, nativeobj.Label{Id: stay}, last)
@@ -1400,7 +2542,8 @@ func function(u Unit, tp mut typePool, callees Map[string, calleeInfo], foreign 
 	}
 	*tp = st.tp
 	*foreign = st.foreign
-	nativeobj.Func{Name: name, Params: params, Results: results, Slots: st.slots, Ops: st.ops, Lines: st.lines, Line: first, Col: int(f.Pos.Col), File: fileIdx}
+	*hoisted = st.hoisted
+	nativeobj.Func{Name: if isInit { "init" } else { name }, Params: params, Results: results, Slots: st.slots, Ops: st.ops, Lines: st.lines, Line: first, Col: int(f.Pos.Col), File: fileIdx}
 }
 
 func fromIRWithForeign(u Unit) (nativeobj.Package, []nativeobj.ForeignFunc) fails nativeobj.Refused | nativeobj.Malformed {
@@ -1410,19 +2553,65 @@ func fromIRWithForeign(u Unit) (nativeobj.Package, []nativeobj.ForeignFunc) fail
 	let files = if u.IR.Files.Len() > 0 { u.IR.Files } else { []string{u.File} }
 	let mut tp = newTypePool(u.Imports.Len())
 	try registerRecords(&tp, u)
+	let (globals, rawGlobals) = try buildGlobals(u, &tp)
 	let callees = try buildCallees(u, &tp)
 	let mut foreignKeys = []foreignCallKey{}
+	let mut hoisted = []nativeobj.Func{}
 	let mut funcs = slices.WithCapacity[nativeobj.Func](u.IR.Funcs.Len())
 	for fi in 0..u.IR.Funcs.Len() {
-		funcs = funcs.Append(try function(u, &tp, callees, &foreignKeys, fi, files.Len()))
+		funcs = funcs.Append(try function(u, &tp, callees, globals, &foreignKeys, &hoisted, fi, files.Len()))
+	}
+	let mut inits = slices.WithCapacity[int](u.Inits.Len())
+	for initName in u.Inits {
+		let mut found = -1
+		for fi, irFn in u.IR.Funcs {
+			if u.IR.Strs[int(irFn.Name)] == initName {
+				found = fi
+			}
+		}
+		if found < 0 {
+			return nativeobj.Malformed{Why: "init entry \(initName) matches no local function"}
+		}
+		inits = inits.Append(found)
+	}
+	for hf in hoisted {
+		funcs = funcs.Append(hf)
+	}
+	let mut globalRemap = slices.Repeat[int]([]int{-1}, rawGlobals.Len())
+	let mut usedGlobals = []nativeobj.Global{}
+	for gi, gl in rawGlobals {
+		let ii = globals.impIdx[gi]
+		if ii < 0 || tp.impUsed[ii] {
+			globalRemap[gi] = usedGlobals.Len()
+			usedGlobals = usedGlobals.Append(gl)
+		}
+	}
+	for k, f in funcs {
+		let mut patched = f
+		patched.Ops = remapGlobalOps(f.Ops, globalRemap)
+		funcs[k] = patched
+	}
+	let mut impOrder = slices.WithCapacity[int](u.Imports.Len())
+	for k in 0..u.Imports.Len() {
+		if tp.impUsed[k] {
+			impOrder = impOrder.Append(k)
+		}
+	}
+	for i in 1..impOrder.Len() {
+		let mut j = i
+		for j > 0 && u.Imports[impOrder[j-1]].Path > u.Imports[impOrder[j]].Path {
+			let tmp = impOrder[j]
+			impOrder[j] = impOrder[j-1]
+			impOrder[j-1] = tmp
+			j = j - 1
+		}
 	}
 	let mut impRemap = slices.Repeat[int]([]int{-1}, u.Imports.Len())
-	let mut imports = []nativeobj.Import{}
-	for k, imp in u.Imports {
-		if tp.impUsed[k] {
-			impRemap[k] = imports.Len()
-			imports = imports.Append(nativeobj.Import{Path: imp.Path, Name: imp.Name, Fingerprint: imp.Fingerprint, HasInit: imp.HasInit})
-		}
+	let mut imports = slices.WithCapacity[nativeobj.Import](impOrder.Len())
+	for k in impOrder {
+		let imp = u.Imports[k]
+		impRemap[k] = imports.Len()
+		imports = imports.Append(nativeobj.Import{Path: imp.Path, Name: imp.Name, Fingerprint: imp.Fingerprint, HasInit: imp.HasInit})
 	}
 	let mut foreign = slices.WithCapacity[nativeobj.ForeignFunc](foreignKeys.Len())
 	for fk in foreignKeys {
@@ -1435,9 +2624,9 @@ func fromIRWithForeign(u Unit) (nativeobj.Package, []nativeobj.ForeignFunc) fail
 		Files:   files,
 		Types:   tp.defs,
 		Imports: imports,
-		Globals: []nativeobj.Global{},
+		Globals: usedGlobals,
 		Funcs:   funcs,
-		Inits:   []int{},
+		Inits:   inits,
 	}
 	try nativeobj.Check(p)
 	(p, foreign)
@@ -1540,7 +2729,7 @@ func sampleUnit(k int) Unit fails ir.Malformed {
 		Sig{Params: []string{"int"}, Results: []string{}},
 		Sig{Params: []string{"int", "int"}, Results: []string{"int"}},
 	}
-	Unit{Path: "ergo.local/native/calc", Name: "calc", File: "calc.ergo", IR: try ir.Finish(b), Sigs: sigs, Records: []RecordDecl{}, Imports: []ImportUnit{}}
+	Unit{Path: "ergo.local/native/calc", Name: "calc", File: "calc.ergo", IR: try ir.Finish(b), Sigs: sigs, Records: []RecordDecl{}, Interfaces: []IfaceDecl{}, Globals: []GlobalDecl{}, Inits: []string{}, Imports: []ImportUnit{}}
 }
 
 func stop1Unit(k int) Unit fails ir.Malformed {
@@ -1631,13 +2820,18 @@ func stop1Unit(k int) Unit fails ir.Malformed {
 				FieldDecl{Name: "Name", Type: "string", Exported: true},
 			}},
 		},
-		Imports: []ImportUnit{
+		Interfaces: []IfaceDecl{},
+		Globals:    []GlobalDecl{},
+		Inits:      []string{},
+		Imports:    []ImportUnit{
 			ImportUnit{
 				Path:        dep.Path,
 				Name:        dep.Name,
 				Fingerprint: dep.Fingerprint,
 				HasInit:     dep.HasInit,
 				Records:     []RecordDecl{},
+				Interfaces:  []IfaceDecl{},
+				Globals:     []GlobalDecl{},
 				Funcs:       []ImportFunc{ImportFunc{Name: "Double", Sig: Sig{Params: []string{"int"}, Results: []string{"int"}}}},
 			},
 		},
@@ -1713,7 +2907,7 @@ func initDeclUnit() Unit fails ir.Malformed {
 	let _ = ir.FileOf(&b, "bad.ergo")
 	try ir.Begin(&b, "init", samplePos(1), samplePos(2))
 	try ir.End(&b, 0)
-	Unit{Path: "ergo.local/native/bad", Name: "bad", File: "bad.ergo", IR: try ir.Finish(b), Sigs: []Sig{Sig{Params: []string{}, Results: []string{}}}, Records: []RecordDecl{}, Imports: []ImportUnit{}}
+	Unit{Path: "ergo.local/native/bad", Name: "bad", File: "bad.ergo", IR: try ir.Finish(b), Sigs: []Sig{Sig{Params: []string{}, Results: []string{}}}, Records: []RecordDecl{}, Interfaces: []IfaceDecl{}, Globals: []GlobalDecl{}, Inits: []string{}, Imports: []ImportUnit{}}
 }
 
 func unitCallAsValueUnit() Unit fails ir.Malformed {
@@ -1729,7 +2923,7 @@ func unitCallAsValueUnit() Unit fails ir.Malformed {
 		Sig{Params: []string{}, Results: []string{}},
 		Sig{Params: []string{}, Results: []string{"int"}},
 	}
-	Unit{Path: "ergo.local/native/bad", Name: "bad", File: "bad.ergo", IR: try ir.Finish(b), Sigs: sigs, Records: []RecordDecl{}, Imports: []ImportUnit{}}
+	Unit{Path: "ergo.local/native/bad", Name: "bad", File: "bad.ergo", IR: try ir.Finish(b), Sigs: sigs, Records: []RecordDecl{}, Interfaces: []IfaceDecl{}, Globals: []GlobalDecl{}, Inits: []string{}, Imports: []ImportUnit{}}
 }
 
 func foreignCallUnit() Unit fails ir.Malformed {
@@ -1739,7 +2933,7 @@ func foreignCallUnit() Unit fails ir.Malformed {
 	let callOther = try ir.Row(&b, ir.KindCode(ir.TExpr, "call"), samplePos(2), []uint32{ir.Text(&b, ""), ir.Text(&b, "Unknown"), ir.List(&b, []uint32{})})
 	let ret = try ir.Row(&b, ir.KindCode(ir.TStmt, "ret"), samplePos(2), []uint32{callOther})
 	try ir.End(&b, ir.List(&b, []uint32{ret}))
-	Unit{Path: "ergo.local/native/bad", Name: "bad", File: "bad.ergo", IR: try ir.Finish(b), Sigs: []Sig{Sig{Params: []string{}, Results: []string{"int"}}}, Records: []RecordDecl{}, Imports: []ImportUnit{}}
+	Unit{Path: "ergo.local/native/bad", Name: "bad", File: "bad.ergo", IR: try ir.Finish(b), Sigs: []Sig{Sig{Params: []string{}, Results: []string{"int"}}}, Records: []RecordDecl{}, Interfaces: []IfaceDecl{}, Globals: []GlobalDecl{}, Inits: []string{}, Imports: []ImportUnit{}}
 }
 
 // HandoffRoundTrips proves checked integer units lower to valid nativeobj packages and decode via EIR v1.
@@ -1877,4 +3071,214 @@ test ArchiveBuildsVerifiedObject {
 	}
 	let errs1 = nativeobj.Verify(p1, nativeobj.SampleHeader, built1.Archive)
 	assert errs1.Len() == 0
+
+	let ue = execUnit(19) catch {
+	case ir.Malformed:
+		assert false
+		return
+	}
+	let pe = FromIR(ue) catch {
+	case nativeobj.Refused, nativeobj.Malformed:
+		assert false
+		return
+	}
+	let builte = Archive(ue, nativeobj.SampleHeader) catch {
+	case nativeobj.Refused, nativeobj.Malformed, handoff.Malformed, handoff.UnknownVersion, handoff.WrongTarget, handoff.StaleImport, nativeobj.Undefined:
+		assert false
+		return
+	}
+	let errse = nativeobj.Verify(pe, nativeobj.SampleHeader, builte.Archive)
+	assert errse.Len() == 0
+}
+
+func execUnit(k int) Unit fails ir.Malformed {
+	let dep = nativeobj.SampleDep()
+	let mut b = ir.NewBuilder(2)
+	let _ = ir.FileOf(&b, "exec.ergo")
+
+	try ir.Begin(&b, "init.0", samplePos(1), samplePos(4))
+	let gLabel = try ir.Row(&b, ir.KindCode(ir.TExpr, "global"), samplePos(2), []uint32{ir.Text(&b, "bootMsg")})
+	let cReady = try ir.Row(&b, ir.KindCode(ir.TExpr, "const"), samplePos(2), []uint32{ir.Text(&b, "string"), ir.Text(&b, "ready"), 0})
+	let stGlob = try ir.Row(&b, ir.KindCode(ir.TStmt, "store"), samplePos(2), []uint32{gLabel, 0, cReady})
+	try ir.End(&b, ir.List(&b, []uint32{stGlob}))
+
+	try ir.Begin(&b, "(*Box).Get", samplePos(6), samplePos(8))
+	try ir.AddLocal(&b, "b", "*Box", samplePos(6))
+	let lb0 = try ir.Row(&b, ir.KindCode(ir.TExpr, "local"), samplePos(7), []uint32{0})
+	let fVal = try ir.Row(&b, ir.KindCode(ir.TExpr, "field"), samplePos(7), []uint32{lb0, ir.Text(&b, "Val")})
+	let rBox = try ir.Row(&b, ir.KindCode(ir.TStmt, "ret"), samplePos(7), []uint32{fVal})
+	try ir.End(&b, ir.List(&b, []uint32{rBox}))
+
+	try ir.Begin(&b, "(*MyErr).Error", samplePos(10), samplePos(12))
+	try ir.AddLocal(&b, "e", "*MyErr", samplePos(10))
+	let le0 = try ir.Row(&b, ir.KindCode(ir.TExpr, "local"), samplePos(11), []uint32{0})
+	let fMsg = try ir.Row(&b, ir.KindCode(ir.TExpr, "field"), samplePos(11), []uint32{le0, ir.Text(&b, "Msg")})
+	let rErr = try ir.Row(&b, ir.KindCode(ir.TStmt, "ret"), samplePos(11), []uint32{fMsg})
+	try ir.End(&b, ir.List(&b, []uint32{rErr}))
+
+	try ir.Begin(&b, "tryWork", samplePos(14), samplePos(40))
+	try ir.AddLocal(&b, "fn", "func(int) int", samplePos(15))
+	try ir.AddLocal(&b, "x", "int", samplePos(16))
+	try ir.AddLocal(&b, "res", "int", samplePos(17))
+	try ir.AddLocal(&b, "xs", "[]int", samplePos(18))
+	try ir.AddLocal(&b, "c", "Counter", samplePos(19))
+	try ir.AddLocal(&b, "bx", "Box", samplePos(20))
+	try ir.AddLocal(&b, "sub", "string", samplePos(21))
+	try ir.AddLocal(&b, "ch", "byte", samplePos(22))
+	try ir.AddLocal(&b, "anyV", "any", samplePos(23))
+	try ir.AddLocal(&b, "extracted", "int", samplePos(24))
+	try ir.AddLocal(&b, "ok", "bool", samplePos(24))
+	try ir.AddLocal(&b, "errVal", "*MyErr", samplePos(25))
+
+	let lxC = try ir.Row(&b, ir.KindCode(ir.TExpr, "local"), samplePos(16), []uint32{4})
+	let lBiasC = try ir.Row(&b, ir.KindCode(ir.TExpr, "local"), samplePos(16), []uint32{1})
+	let addC = try ir.Row(&b, ir.KindCode(ir.TExpr, "bin"), samplePos(16), []uint32{ir.Text(&b, "+"), lxC, lBiasC})
+	let retC = try ir.Row(&b, ir.KindCode(ir.TStmt, "ret"), samplePos(16), []uint32{addC})
+	let cloExpr = try ir.Row(&b, ir.KindCode(ir.TExpr, "func"), samplePos(16), []uint32{ir.Text(&b, "func(int) int"), ir.List(&b, []uint32{4}), ir.List(&b, []uint32{retC}), 0})
+	let defFn = try ir.Row(&b, ir.KindCode(ir.TStmt, "def"), samplePos(16), []uint32{3, cloExpr})
+
+	let ln0 = try ir.Row(&b, ir.KindCode(ir.TExpr, "local"), samplePos(17), []uint32{0})
+	let lfn = try ir.Row(&b, ir.KindCode(ir.TExpr, "local"), samplePos(17), []uint32{3})
+	let vc = try ir.Row(&b, ir.KindCode(ir.TExpr, "vcall"), samplePos(17), []uint32{lfn, ir.List(&b, []uint32{ln0})})
+	let defRes = try ir.Row(&b, ir.KindCode(ir.TStmt, "def"), samplePos(17), []uint32{5, vc})
+
+	let ckVal = try ir.Row(&b, ir.KindCode(ir.TExpr, "const"), samplePos(18), []uint32{ir.Text(&b, "int"), ir.Text(&b, strconv.Itoa(k)), 0})
+	let slInit = try ir.Row(&b, ir.KindCode(ir.TExpr, "lit"), samplePos(18), []uint32{ir.Text(&b, "[]int"), ir.List(&b, []uint32{ckVal}), 0})
+	let lresA = try ir.Row(&b, ir.KindCode(ir.TExpr, "local"), samplePos(18), []uint32{5})
+	let slApp = try ir.Row(&b, ir.KindCode(ir.TExpr, "append"), samplePos(18), []uint32{ir.List(&b, []uint32{slInit, lresA})})
+	let c0 = try ir.Row(&b, ir.KindCode(ir.TExpr, "const"), samplePos(18), []uint32{ir.Text(&b, "int"), ir.Text(&b, "0"), 0})
+	let c1 = try ir.Row(&b, ir.KindCode(ir.TExpr, "const"), samplePos(18), []uint32{ir.Text(&b, "int"), ir.Text(&b, "1"), 0})
+	let slSub = try ir.Row(&b, ir.KindCode(ir.TExpr, "slice"), samplePos(18), []uint32{slApp, ir.List(&b, []uint32{c0, c1})})
+	let defXs = try ir.Row(&b, ir.KindCode(ir.TStmt, "def"), samplePos(18), []uint32{6, slSub})
+
+	let lresB = try ir.Row(&b, ir.KindCode(ir.TExpr, "local"), samplePos(20), []uint32{5})
+	let boxLit = try ir.Row(&b, ir.KindCode(ir.TExpr, "lit"), samplePos(20), []uint32{ir.Text(&b, "Box"), ir.List(&b, []uint32{lresB}), ir.List(&b, []uint32{ir.Text(&b, "Val")})})
+	let defBx = try ir.Row(&b, ir.KindCode(ir.TStmt, "def"), samplePos(20), []uint32{8, boxLit})
+	let lbxPtr = try ir.Row(&b, ir.KindCode(ir.TExpr, "addr"), samplePos(20), []uint32{try ir.Row(&b, ir.KindCode(ir.TExpr, "local"), samplePos(20), []uint32{8})})
+	let boxToCtr = try ir.Row(&b, ir.KindCode(ir.TExpr, "toiface"), samplePos(20), []uint32{ir.Text(&b, "Counter"), lbxPtr})
+	let defCtr = try ir.Row(&b, ir.KindCode(ir.TStmt, "def"), samplePos(20), []uint32{7, boxToCtr})
+
+	let ls0 = try ir.Row(&b, ir.KindCode(ir.TExpr, "local"), samplePos(21), []uint32{2})
+	let strSub = try ir.Row(&b, ir.KindCode(ir.TExpr, "slice"), samplePos(21), []uint32{ls0, ir.List(&b, []uint32{c0, c1})})
+	let defSub = try ir.Row(&b, ir.KindCode(ir.TStmt, "def"), samplePos(21), []uint32{9, strSub})
+	let lsub0 = try ir.Row(&b, ir.KindCode(ir.TExpr, "local"), samplePos(22), []uint32{9})
+	let strIdx = try ir.Row(&b, ir.KindCode(ir.TExpr, "index"), samplePos(22), []uint32{lsub0, c0})
+	let defCh = try ir.Row(&b, ir.KindCode(ir.TStmt, "def"), samplePos(22), []uint32{10, strIdx})
+
+	let lch0 = try ir.Row(&b, ir.KindCode(ir.TExpr, "local"), samplePos(23), []uint32{10})
+	let chInt = try ir.Row(&b, ir.KindCode(ir.TExpr, "conv"), samplePos(23), []uint32{ir.Text(&b, "int"), lch0})
+	let toAny = try ir.Row(&b, ir.KindCode(ir.TExpr, "toiface"), samplePos(23), []uint32{ir.Text(&b, "any"), chInt})
+	let defAny = try ir.Row(&b, ir.KindCode(ir.TStmt, "def"), samplePos(23), []uint32{11, toAny})
+	let lany0 = try ir.Row(&b, ir.KindCode(ir.TExpr, "local"), samplePos(24), []uint32{11})
+	let asrt = try ir.Row(&b, ir.KindCode(ir.TExpr, "assert"), samplePos(24), []uint32{ir.Text(&b, "int"), lany0})
+	let defAsrt = try ir.Row(&b, ir.KindCode(ir.TStmt, "def2"), samplePos(24), []uint32{12, 14, asrt})
+
+	let lctr0 = try ir.Row(&b, ir.KindCode(ir.TExpr, "local"), samplePos(26), []uint32{7})
+	let ifaceCall = try ir.Row(&b, ir.KindCode(ir.TExpr, "mcall"), samplePos(26), []uint32{lctr0, ir.Text(&b, "Get"), 0})
+	let lxs0 = try ir.Row(&b, ir.KindCode(ir.TExpr, "local"), samplePos(26), []uint32{6})
+	let xsAt0 = try ir.Row(&b, ir.KindCode(ir.TExpr, "index"), samplePos(26), []uint32{lxs0, c0})
+	let lex0 = try ir.Row(&b, ir.KindCode(ir.TExpr, "local"), samplePos(26), []uint32{12})
+	let sum1 = try ir.Row(&b, ir.KindCode(ir.TExpr, "bin"), samplePos(26), []uint32{ir.Text(&b, "+"), ifaceCall, xsAt0})
+	let sum2 = try ir.Row(&b, ir.KindCode(ir.TExpr, "bin"), samplePos(26), []uint32{ir.Text(&b, "+"), sum1, lex0})
+
+	let ln1 = try ir.Row(&b, ir.KindCode(ir.TExpr, "local"), samplePos(28), []uint32{0})
+	let condFail = try ir.Row(&b, ir.KindCode(ir.TExpr, "bin"), samplePos(28), []uint32{ir.Text(&b, "<"), ln1, c0})
+	let msgStr = try ir.Row(&b, ir.KindCode(ir.TExpr, "const"), samplePos(29), []uint32{ir.Text(&b, "string"), ir.Text(&b, "neg"), 0})
+	let errLit = try ir.Row(&b, ir.KindCode(ir.TExpr, "lit"), samplePos(29), []uint32{ir.Text(&b, "MyErr"), ir.List(&b, []uint32{msgStr}), ir.List(&b, []uint32{ir.Text(&b, "Msg")})})
+	let defErrLit = try ir.Row(&b, ir.KindCode(ir.TStmt, "def"), samplePos(29), []uint32{14, try ir.Row(&b, ir.KindCode(ir.TExpr, "addr"), samplePos(29), []uint32{errLit})})
+	let failStmt = try ir.Row(&b, ir.KindCode(ir.TStmt, "fail"), samplePos(30), []uint32{try ir.Row(&b, ir.KindCode(ir.TExpr, "local"), samplePos(30), []uint32{14})})
+	let ifFail = try ir.Row(&b, ir.KindCode(ir.TStmt, "if"), samplePos(28), []uint32{condFail, ir.List(&b, []uint32{defErrLit, failStmt}), 0, ir.PosAt(&b, samplePos(31)), 0, 0})
+
+	let retOk = try ir.Row(&b, ir.KindCode(ir.TStmt, "ret"), samplePos(33), []uint32{sum2})
+	try ir.End(&b, ir.List(&b, []uint32{defFn, defRes, defXs, defBx, defCtr, defSub, defCh, defAny, defAsrt, ifFail, retOk}))
+
+	try ir.Begin(&b, "main", samplePos(42), samplePos(55))
+	try ir.AddLocal(&b, "v", "int", samplePos(43))
+	try ir.AddLocal(&b, "e", "error", samplePos(43))
+	let c5 = try ir.Row(&b, ir.KindCode(ir.TExpr, "const"), samplePos(43), []uint32{ir.Text(&b, "int"), ir.Text(&b, "5"), 0})
+	let c2 = try ir.Row(&b, ir.KindCode(ir.TExpr, "const"), samplePos(43), []uint32{ir.Text(&b, "int"), ir.Text(&b, "2"), 0})
+	let gBoot = try ir.Row(&b, ir.KindCode(ir.TExpr, "global"), samplePos(43), []uint32{ir.Text(&b, "bootMsg")})
+	let callTry = try ir.Row(&b, ir.KindCode(ir.TExpr, "call"), samplePos(43), []uint32{0, ir.Text(&b, "tryWork"), ir.List(&b, []uint32{c5, c2, gBoot})})
+	let defTry = try ir.Row(&b, ir.KindCode(ir.TStmt, "def2"), samplePos(43), []uint32{0, 2, callTry})
+	let lv0 = try ir.Row(&b, ir.KindCode(ir.TExpr, "local"), samplePos(44), []uint32{0})
+	let callItoa = try ir.Row(&b, ir.KindCode(ir.TExpr, "pcall"), samplePos(44), []uint32{ir.Text(&b, "strconv"), 0, 0, ir.Text(&b, "Itoa"), ir.List(&b, []uint32{lv0})})
+	let itoaStmt = try ir.Row(&b, ir.KindCode(ir.TStmt, "discard"), samplePos(44), []uint32{callItoa})
+	let le1 = try ir.Row(&b, ir.KindCode(ir.TExpr, "local"), samplePos(44), []uint32{1})
+	let nilE = try ir.Row(&b, ir.KindCode(ir.TExpr, "nil"), samplePos(44), []uint32{ir.Text(&b, "error")})
+	let errNeNil = try ir.Row(&b, ir.KindCode(ir.TExpr, "bin"), samplePos(44), []uint32{ir.Text(&b, "!="), le1, nilE})
+	let callExit = try ir.Row(&b, ir.KindCode(ir.TExpr, "pcall"), samplePos(45), []uint32{ir.Text(&b, "os"), 0, 0, ir.Text(&b, "Exit"), ir.List(&b, []uint32{c2})})
+	let exitStmt = try ir.Row(&b, ir.KindCode(ir.TStmt, "expr"), samplePos(45), []uint32{callExit})
+	let ifErr = try ir.Row(&b, ir.KindCode(ir.TStmt, "if"), samplePos(44), []uint32{errNeNil, ir.List(&b, []uint32{exitStmt}), 0, ir.PosAt(&b, samplePos(46)), 0, 0})
+	let retMain = try ir.Row(&b, ir.KindCode(ir.TStmt, "ret"), samplePos(47), []uint32{0})
+	try ir.End(&b, ir.List(&b, []uint32{defTry, itoaStmt, ifErr, retMain}))
+
+	Unit{
+		Path: "main",
+		Name: "main",
+		File: "exec.ergo",
+		IR:   try ir.Finish(b),
+		Sigs: []Sig{
+			Sig{Params: []string{}, Results: []string{}},
+			Sig{Params: []string{"*Box"}, Results: []string{"int"}},
+			Sig{Params: []string{"*MyErr"}, Results: []string{"string"}},
+			Sig{Params: []string{"int", "int", "string"}, Results: []string{"int", "error"}},
+			Sig{Params: []string{}, Results: []string{}},
+		},
+		Records: []RecordDecl{
+			RecordDecl{Name: "Box", PkgPath: "", Exported: true, Fields: []FieldDecl{FieldDecl{Name: "Val", Type: "int", Exported: true}}},
+			RecordDecl{Name: "MyErr", PkgPath: "", Exported: true, Fields: []FieldDecl{FieldDecl{Name: "Msg", Type: "string", Exported: true}}},
+		},
+		Interfaces: []IfaceDecl{
+			IfaceDecl{Name: "Counter", PkgPath: "", Exported: true, Methods: []MethodDecl{MethodDecl{Name: "Get", Sig: Sig{Params: []string{}, Results: []string{"int"}}, Exported: true}}},
+		},
+		Globals: []GlobalDecl{
+			GlobalDecl{Name: "bootMsg", PkgPath: "", Type: "string"},
+		},
+		Inits:   []string{"init.0"},
+		Imports: []ImportUnit{
+			ImportUnit{
+				Path:        "strconv",
+				Name:        "strconv",
+				Fingerprint: dep.Fingerprint,
+				HasInit:     false,
+				Records:     []RecordDecl{},
+				Interfaces:  []IfaceDecl{},
+				Globals:     []GlobalDecl{},
+				Funcs:       []ImportFunc{ImportFunc{Name: "Itoa", Sig: Sig{Params: []string{"int"}, Results: []string{"string"}}}},
+			},
+			ImportUnit{
+				Path:        "os",
+				Name:        "os",
+				Fingerprint: dep.Fingerprint,
+				HasInit:     true,
+				Records:     []RecordDecl{},
+				Interfaces:  []IfaceDecl{},
+				Globals:     []GlobalDecl{},
+				Funcs:       []ImportFunc{ImportFunc{Name: "Exit", Sig: Sig{Params: []string{"int"}, Results: []string{}}}},
+			},
+		},
+	}
+}
+
+// ExecRoundTrips verifies standalone main/init IR packages with closures,
+// failures, append/slice/string-index, interfaces, and globals compile through EIR v1 cleanly.
+law ExecRoundTrips(k int) {
+	let s = ((k % 1000) + 1000) % 1000
+	let u = execUnit(s) catch {
+	case ir.Malformed:
+		return false
+	}
+	let p = FromIR(u) catch {
+	case nativeobj.Refused, nativeobj.Malformed:
+		return false
+	}
+	let decoded = roundTripHandoff(u) catch {
+	case handoff.Malformed, handoff.UnknownVersion, handoff.WrongTarget, handoff.StaleImport, nativeobj.Refused, nativeobj.Malformed:
+		return false
+	}
+	let built = Archive(u, nativeobj.SampleHeader) catch {
+	case nativeobj.Refused, nativeobj.Malformed, handoff.Malformed, handoff.UnknownVersion, handoff.WrongTarget, handoff.StaleImport, nativeobj.Undefined:
+		return false
+	}
+	p.Inits.Len() == 1 && decoded.Inits.Len() == 1 && nativeobj.Verify(p, nativeobj.SampleHeader, built.Archive).Len() == 0
 }
