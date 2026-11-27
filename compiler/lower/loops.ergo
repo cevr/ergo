@@ -73,7 +73,7 @@ func collectionLoop(st fnb, binds localBinds, r syntax.RangeStmt) collectionRang
 	if elemTyp == "" {
 		return stop("range: unshaped element")
 	}
-	try check(st, binds, r.X)
+	try checkReadOnly(st, binds, r.X)
 	if !directExpr(st, r.X) {
 		return stop("range: operand with statements")
 	}

@@ -11,10 +11,12 @@ import strconv
 // bodies are spans of the same list.
 type controlOp =
 	| CDef{}
+	| CSeedSliceDef{SliceType dense.ID[store.TKey]}
 	| CVar{}
 	| CSpan{}
 	| CYield{}
 	| CSet{}
+	| CAppendSet{AppendAt int}
 	| CPlaceWrite{Write borrowWrite, RHS dense.ID[syntax.Node]}
 	| CRet{}
 	| CFail{}
@@ -166,6 +168,32 @@ func controlListYield(st fnb, binds mut localBinds, p mut controlPlan, list synt
 		let yields = tail && i == count-1
 		let at = p.stmts.Len()
 		let row = try controlStatementYield(st, binds, p, node, yields, loops, if yields { yieldSlot } else { -1 })
+		match row.op {
+		case CDef:
+			if row.assign == "mutslice" {
+				match syntax.ViewOf(st.p.Tree, node) {
+				case syntax.DeclStmt as ds:
+					match syntax.ViewOf(st.p.Tree, ds.Decl) {
+					case syntax.VarDecl as vd:
+						match syntax.ViewOf(st.p.Tree, vd.Spec) {
+						case syntax.VarSpec as sp:
+							let declAt = bind.PNodeOf(st.k.Ps, st.file, syntax.Item(st.p.Tree, sp.Names, 0))
+							match dense.Unpack(sp.Value) {
+							case option.Some{Value: sv}:
+								if isFillLoopNext(st, declAt, sv, list, i) {
+									return stop("let of slice")
+								}
+							case option.None:
+							}
+						case _:
+						}
+					case _:
+					}
+				case _:
+				}
+			}
+		case _:
+		}
 		if !yields && yieldSlot < 0 {
 			let candidate = controlChainSlot(st, *binds, *p, row)
 			if candidate >= 0 && previous == candidate {
@@ -391,13 +419,38 @@ func controlStatementYield(st fnb, binds mut localBinds, p mut controlPlan, node
 			row.next = p.stmts.Len()
 			return row
 		}
-		try controlObserve(st, *binds, p, l.value)
-		p.nonScalar = p.nonScalar || l.nonScalar
-		p.extended = p.extended || mutable || has(p.taken, l.name)
-		row.op = CDef
-		row.offset = syntax.TokPos(parsed, l.tok)
-		row.x = dense.OptOf(l.value)
-		row.slot = try controlBind(st, binds, p, l.at, l.name, l.typ, mutable)
+		if l.mutSlice {
+			let (safe, hasAppend) = mutSliceCheck(st, p.body, l.at, l.vt)
+			if !safe {
+				return stop("let of slice")
+			}
+			let isSingleLit = match syntax.ViewOf(parsed.Tree, unparen(st, l.value)) {
+			case syntax.CompositeLit as cl:
+				syntax.Len(cl.Elts) == 1
+			case _:
+				false
+			}
+			try controlObserve(st, *binds, p, l.value)
+			row.offset = syntax.TokPos(parsed, l.tok)
+			row.x = dense.OptOf(l.value)
+			row.slot = try controlBind(st, binds, p, l.at, l.name, l.typ, mutable)
+			binds.types[binds.types.Len()-1] = dense.OptOf(l.vt)
+			if hasAppend && isSingleLit {
+				row.op = CSeedSliceDef{SliceType: l.vt}
+			} else {
+				row.op = CDef
+				row.assign = "mutslice"
+			}
+		} else {
+			try controlObserve(st, *binds, p, l.value)
+			p.nonScalar = p.nonScalar || l.nonScalar
+			p.extended = p.extended || mutable || has(p.taken, l.name)
+			row.op = CDef
+			row.offset = syntax.TokPos(parsed, l.tok)
+			row.x = dense.OptOf(l.value)
+			row.slot = try controlBind(st, binds, p, l.at, l.name, l.typ, mutable)
+			binds.types[binds.types.Len()-1] = dense.OptOf(l.vt)
+		}
 	case syntax.ExprStmt as es:
 		let x = if tail { es.X } else { unparen(st, es.X) }
 		row.offset = syntax.NodePos(parsed, x)
@@ -542,7 +595,7 @@ func controlStatementYield(st fnb, binds mut localBinds, p mut controlPlan, node
 				return stop("range: loop after loop (collect fold)")
 			}
 			let cr = try collectionLoop(st, *binds, r)
-			try controlObserve(st, *binds, p, cr.x)
+			try controlObserveReadOnly(st, *binds, p, cr.x)
 			row.readHi = p.reads.Len()
 			let keySlot = match dense.Unpack(cr.keyNode) {
 			case option.Some{Value: kn}:
@@ -655,6 +708,7 @@ func controlBind(st fnb, binds mut localBinds, p mut controlPlan, at dense.ID[sy
 	p.locals = p.locals.Append(controlLocal{name: name, typ: typ, at: syntax.NodePos(st.p, at), mutable: mutable})
 	binds.params = binds.params.Append(bind.PNodeOf(st.k.Ps, st.file, at))
 	binds.locals = binds.locals.Append(slot)
+	binds.types = binds.types.Append(dense.NoID[store.TKey]())
 	slot
 }
 
@@ -769,6 +823,23 @@ func controlPrepareSet(st fnb, binds localBinds, p mut controlPlan, row mut cont
 	}
 	if op == "" {
 		let lt = try typeOf(st, lhs, "assign target")
+		if store.KindOfType(st.s, lt) == store.KSlice {
+			match bind.ResolutionOf(st.k.U, st.k.Ps, bind.PNodeOf(st.k.Ps, st.file, unparen(st, lhs))) {
+			case bind.Declared as decl:
+				match isMutSliceAppendCall(st, decl.At, lt, a.Rhs) {
+				case option.Some{Value: app}:
+					let (elemExpr, appendAt) = app
+					try controlOperand(st, binds, p, elemExpr)
+					p.reads = p.reads.Append(slot)
+					row.op = CAppendSet{AppendAt: appendAt}
+					row.x = dense.OptOf(elemExpr)
+					row.slot = slot
+					return
+				case option.None:
+				}
+			case _:
+			}
+		}
 		match try unionReturn(st, binds, p, a.Rhs, lt) {
 		case option.Some{Value: injection}:
 			row.op = CUnionRet
@@ -794,6 +865,16 @@ func controlPrepareSet(st fnb, binds localBinds, p mut controlPlan, row mut cont
 // Collect use edges while preparing the operand. These edges belong to a
 // statement, so pruning it also prunes its local reads. Selector fields
 // and keyed literal labels are not local reads.
+func controlObserveReadOnly(st fnb, binds localBinds, p mut controlPlan, x dense.ID[syntax.Node]) fails Unported {
+	let node = unparen(st, x)
+	if syntax.KindOf(st.p.Tree, node) == syntax.KIdent {
+		if !isConst(st, node) && bareEmptyRecord(st, node) == "" && pkgGlobalName(st, binds, node, true) != option.None {
+			return
+		}
+	}
+	try controlObserve(st, binds, p, x)
+}
+
 func controlObserve(st fnb, binds localBinds, p mut controlPlan, x dense.ID[syntax.Node]) fails Unported {
 	match borrowScalarRead(st, binds, x) {
 	case option.Some{Value: place}:
@@ -804,7 +885,7 @@ func controlObserve(st fnb, binds localBinds, p mut controlPlan, x dense.ID[synt
 	let parsed = st.p
 	match syntax.ViewOf(parsed.Tree, x) {
 	case syntax.Name:
-		if !isConst(st, x) && bareEmptyRecord(st, x) == "" {
+		if !isConst(st, x) && bareEmptyRecord(st, x) == "" && pkgGlobalName(st, binds, x, false) == option.None {
 			let slot = try paramLocal(st, binds, x)
 			p.reads = p.reads.Append(slot)
 			let nt = try typeOf(st, x, "Ident")
@@ -896,7 +977,7 @@ func controlObserve(st fnb, binds localBinds, p mut controlPlan, x dense.ID[synt
 		// The checked shape already admitted this index (sliceIndex in
 		// the shape lowerer). Observe its operands, not its admission.
 		p.nonScalar = true
-		try controlObserve(st, binds, p, ix.X)
+		try controlObserveReadOnly(st, binds, p, ix.X)
 		for i in 0..syntax.Len(ix.Indices) {
 			try controlObserve(st, binds, p, syntax.Item(parsed.Tree, ix.Indices, i))
 		}
@@ -910,17 +991,28 @@ func controlObserve(st fnb, binds localBinds, p mut controlPlan, x dense.ID[synt
 	case syntax.CallExpr as ce:
 		match try builtinOf(st, x, ce) {
 		case option.Some{Value: bi}:
-			try controlObserve(st, binds, p, bi.arg)
-		case option.None:
-			let call = try callee(st, binds, x, ce)
-			match syntax.ViewOf(parsed.Tree, ce.Fun) {
-			case syntax.SelectorExpr as se:
-				p.callees = p.callees.Append(nameText(parsed, se.X) + "." + nameText(parsed, se.Sel))
-			case _:
-				p.callees = p.callees.Append(nameText(parsed, ce.Fun))
+			if bi.conv {
+				try controlObserve(st, binds, p, bi.arg)
+			} else {
+				try controlObserveReadOnly(st, binds, p, bi.arg)
 			}
-			for a in call.args {
-				try controlObserve(st, binds, p, a)
+		case option.None:
+			match pcallOf(st, binds, x, ce) {
+			case option.Some[aPCall] as pc:
+				for a in pc.Value.args {
+					try observePCallArg(st, binds, p, a)
+				}
+			case option.None:
+				let call = try callee(st, binds, x, ce)
+				match syntax.ViewOf(parsed.Tree, ce.Fun) {
+				case syntax.SelectorExpr as se:
+					p.callees = p.callees.Append(nameText(parsed, se.X) + "." + nameText(parsed, se.Sel))
+				case _:
+					p.callees = p.callees.Append(nameText(parsed, ce.Fun))
+				}
+				for a in call.args {
+					try controlObserve(st, binds, p, a)
+				}
 			}
 		}
 	case _:
@@ -1094,6 +1186,37 @@ func controlEmitSpan(st fnb, binds localBinds, b mut ir.Builder, p controlPlan, 
 			rows = rows.Append(try ir.Row(b, ir.KindCode(ir.TStmt, "range"), at, []uint32{kp, vp, x, ir.List(b, loop), ir.PosAt(b, pos(st, s.end)), 0}))
 			i = s.next
 			continue
+		case CSeedSliceDef as sd:
+			let at = pos(st, s.offset)
+			let litNode = match dense.Unpack(s.x) {
+			case option.Some{Value: operand}:
+				operand
+			case option.None:
+				return ir.Malformed{At: i, Why: "seed slice missing"}
+			}
+			let initExpr = try emitSeedSliceLit(st, binds, b, sd.SliceType, litNode)
+			let defRow = try ir.Row(b, ir.KindCode(ir.TStmt, "def"), at, []uint32{uint32(s.slot), initExpr})
+			rows = rows.Append(defRow)
+			if !read[s.slot] {
+				rows = rows.Append(try controlDiscard(b, at, uint32(s.slot)))
+			}
+			i = s.next
+			continue
+		case CAppendSet as aset:
+			let at = pos(st, s.offset)
+			let at2 = pos(st, aset.AppendAt)
+			let slot = uint32(s.slot)
+			let elemRow = match dense.Unpack(s.x) {
+			case option.Some{Value: operand}:
+				try value(st, binds, b, operand)
+			case option.None:
+				return ir.Malformed{At: i, Why: "append set missing"}
+			}
+			let cur = try ir.Row(b, ir.KindCode(ir.TExpr, "local"), at2, []uint32{slot})
+			let app = try ir.Row(b, ir.KindCode(ir.TExpr, "append"), at2, []uint32{ir.List(b, []uint32{cur, elemRow})})
+			rows = rows.Append(try ir.Row(b, ir.KindCode(ir.TStmt, "set"), at, []uint32{slot, app, 0}))
+			i = s.next
+			continue
 		case CUnionRet:
 			let at = pos(st, s.offset)
 			let out = if s.assign == "yield" {
@@ -1159,6 +1282,10 @@ func controlEmitSpan(st fnb, binds localBinds, b mut ir.Builder, p controlPlan, 
 			try ir.Row(b, ir.KindCode(ir.TStmt, "ret"), at, []uint32{x})
 		case CFail:
 			try ir.Row(b, ir.KindCode(ir.TStmt, "fail"), at, []uint32{x})
+		case CSeedSliceDef:
+			return ir.Malformed{At: i, Why: "seed slice outside multirow"}
+		case CAppendSet:
+			return ir.Malformed{At: i, Why: "append set outside multirow"}
 		case CUnionRet:
 			return ir.Malformed{At: i, Why: "union return outside multirow"}
 		case CMatch:

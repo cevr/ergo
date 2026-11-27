@@ -1,0 +1,14 @@
+[
+  {"fixture": "elide.ergo", "declaration": "func box8()", "symbol": "box8"},
+  {"fixture": "port_s4r2/producer/producer.ergo", "declaration": "func SealedId(", "symbol": "ports4r2demo_sproducer__SealedId"},
+  {"fixture": "port_s4r2/reader/reader.ergo", "declaration": "func PortS4r2SealedUse(", "symbol": "PortS4r2SealedUse"},
+  {"fixture": "port_s4r2/reader/reader.ergo", "declaration": "func PortS4r2SealedMatch(", "symbol": "PortS4r2SealedMatch"},
+  {"fixture": "port_s4r2/reader/reader.ergo", "declaration": "func PortS4r2GoAbs(", "symbol": "PortS4r2GoAbs"},
+  {"fixture": "port_s4r2/reader/reader.ergo", "declaration": "func PortS4r2GoRuneCount(", "symbol": "PortS4r2GoRuneCount"},
+  {"fixture": "port_s4r2/reader/reader.ergo", "declaration": "func PortS4r2RuntimeJoin(", "symbol": "PortS4r2RuntimeJoin"},
+  {"fixture": "port_s4r2/reader/reader.ergo", "declaration": "func PortS4r2SeedAppend(", "symbol": "PortS4r2SeedAppend"},
+  {"fixture": "port_s4r2/reader/reader.ergo", "declaration": "func PortS4r2GlobalSum(", "symbol": "PortS4r2GlobalSum"},
+  {"fixture": "port_s4r2/reader/reader.ergo", "declaration": "func PortS4r2GlobalPick(", "symbol": "PortS4r2GlobalPick"},
+  {"fixture": "port_s4r2/reader/reader.ergo", "declaration": "func PortS4r2NegFold(", "symbol": "PortS4r2NegFold"},
+  {"fixture": "port_s4r2/reader/reader.ergo", "declaration": "func PortS4r2GenericUnit[T](", "symbol": "PortS4r2GenericUnit"}
+]
