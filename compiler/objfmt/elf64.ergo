@@ -1,0 +1,372 @@
+// ElfClass64 is the 64-bit ELF class identifier.
+let ElfClass64 uint32 = uint32(2)
+
+// ElfData2LSB is the little-endian ELF data encoding identifier.
+let ElfData2LSB uint32 = uint32(1)
+
+// ElfVersionCurrent is the ELF format version number.
+let ElfVersionCurrent uint32 = uint32(1)
+
+// ElfTypeRel identifies a relocatable ELF object file (ET_REL).
+let ElfTypeRel uint32 = uint32(1)
+
+// ElfMachineX86_64 is the ELF machine code for AMD64 (EM_X86_64).
+let ElfMachineX86_64 uint32 = uint32(62)
+
+// ElfMachineAArch64 is the ELF machine code for 64-bit ARM (EM_AARCH64).
+let ElfMachineAArch64 uint32 = uint32(183)
+
+// ShtNull identifies the inactive section header at index 0.
+let ShtNull uint32 = uint32(0)
+
+// ShtProgbits identifies a section holding program-defined bytes.
+let ShtProgbits uint32 = uint32(1)
+
+// ShtSymtab identifies a symbol table section.
+let ShtSymtab uint32 = uint32(2)
+
+// ShtStrtab identifies a NUL-terminated string table section.
+let ShtStrtab uint32 = uint32(3)
+
+// ShtRela identifies a relocation table with explicit addends.
+let ShtRela uint32 = uint32(4)
+
+// ShtNobits identifies a zero-initialized section occupying no file bytes.
+let ShtNobits uint32 = uint32(8)
+
+// ShfWrite marks a writable section.
+let ShfWrite uint64 = uint64(1)
+
+// ShfAlloc marks a section occupying runtime memory.
+let ShfAlloc uint64 = uint64(2)
+
+// ShfExecInstr marks a section containing executable instructions.
+let ShfExecInstr uint64 = uint64(4)
+
+// ShfInfoLink marks a section whose sh_info holds a section header index.
+let ShfInfoLink uint64 = uint64(0x40)
+
+// RX86_64_64 is the direct 64-bit x86_64 relocation type.
+let RX86_64_64 uint32 = uint32(1)
+
+// RX86_64_PC32 is the 32-bit PC-relative x86_64 relocation type.
+let RX86_64_PC32 uint32 = uint32(2)
+
+// RX86_64_PLT32 is the 32-bit PLT-relative x86_64 call/branch relocation type.
+let RX86_64_PLT32 uint32 = uint32(4)
+
+// RX86_64_GOTPCREL is the 32-bit PC-relative GOT offset relocation type.
+let RX86_64_GOTPCREL uint32 = uint32(9)
+
+// RX86_64_REX_GOTPCRELX is the relaxable REX-prefixed GOT load relocation type.
+let RX86_64_REX_GOTPCRELX uint32 = uint32(42)
+
+// RAArch64Abs64 is the direct 64-bit AArch64 relocation type.
+let RAArch64Abs64 uint32 = uint32(257)
+
+// RAArch64AdrPrelPgHi21 is the AArch64 ADRP page-relative high 21-bit relocation.
+let RAArch64AdrPrelPgHi21 uint32 = uint32(275)
+
+// RAArch64AddAbsLo12Nc is the AArch64 ADD low 12-bit page-offset relocation.
+let RAArch64AddAbsLo12Nc uint32 = uint32(277)
+
+// RAArch64Jump26 is the AArch64 26-bit unconditional branch relocation.
+let RAArch64Jump26 uint32 = uint32(282)
+
+// RAArch64Call26 is the AArch64 26-bit subroutine call relocation.
+let RAArch64Call26 uint32 = uint32(283)
+
+// ElfSecNull is the ELF section header index of the null section.
+let ElfSecNull uint32 = uint32(0)
+
+// ElfSecText is the ELF section header index of .text.
+let ElfSecText uint32 = uint32(1)
+
+// ElfSecRodata is the ELF section header index of .rodata.
+let ElfSecRodata uint32 = uint32(2)
+
+// ElfSecData is the ELF section header index of .data.
+let ElfSecData uint32 = uint32(3)
+
+// ElfSecBss is the ELF section header index of .bss.
+let ElfSecBss uint32 = uint32(4)
+
+// ElfSecNoteGnuStack is the ELF section header index of .note.GNU-stack.
+let ElfSecNoteGnuStack uint32 = uint32(5)
+
+// ElfSecRelaText is the ELF section header index of .rela.text.
+let ElfSecRelaText uint32 = uint32(6)
+
+// ElfSecRelaData is the ELF section header index of .rela.data.
+let ElfSecRelaData uint32 = uint32(7)
+
+// ElfSecSymtab is the ELF section header index of .symtab.
+let ElfSecSymtab uint32 = uint32(8)
+
+// ElfSecStrtab is the ELF section header index of .strtab.
+let ElfSecStrtab uint32 = uint32(9)
+
+// ElfSecShstrtab is the ELF section header index of .shstrtab.
+let ElfSecShstrtab uint32 = uint32(10)
+
+type elfSectionMeta {
+	nameOff   uint32,
+	shType    uint32,
+	flags     uint64,
+	offset    uint64,
+	size      uint64,
+	link      uint32,
+	info      uint32,
+	addrAlign uint64,
+	entSize   uint64,
+}
+
+func elfMachineForArch(arch Arch) uint32 {
+	match arch {
+	case ArchX86_64:
+		ElfMachineX86_64
+	case ArchARM64:
+		ElfMachineAArch64
+	}
+}
+
+func elfSectionForObjectSec(sec uint32) uint32 {
+	if sec == SecUndef {
+		return ElfSecNull
+	}
+	if sec == SecText {
+		return ElfSecText
+	}
+	if sec == SecRodata {
+		return ElfSecRodata
+	}
+	if sec == SecData {
+		return ElfSecData
+	}
+	if sec == SecBss {
+		return ElfSecBss
+	}
+	ElfSecNull
+}
+
+func elfRelocMapping(arch Arch, kind uint8, addend uint64) (uint32, uint64) {
+	match arch {
+	case ArchX86_64:
+		if kind == RelocCall || kind == RelocJump {
+			return (RX86_64_PLT32, addend - uint64(4))
+		}
+		if kind == RelocPCRel32 {
+			return (RX86_64_PC32, addend - uint64(4))
+		}
+		if kind == RelocGotPCRel {
+			return (RX86_64_GOTPCREL, addend - uint64(4))
+		}
+		if kind == RelocRexGotPCRelX {
+			return (RX86_64_REX_GOTPCRELX, addend - uint64(4))
+		}
+		return (RX86_64_64, addend)
+	case ArchARM64:
+		if kind == RelocCall {
+			return (RAArch64Call26, addend)
+		}
+		if kind == RelocJump {
+			return (RAArch64Jump26, addend)
+		}
+		if kind == RelocArm64Page21 {
+			return (RAArch64AdrPrelPgHi21, addend)
+		}
+		if kind == RelocArm64PageOff12 {
+			return (RAArch64AddAbsLo12Nc, addend)
+		}
+		return (RAArch64Abs64, addend)
+	}
+}
+
+func writeElfHeader(w mut Buf, mach uint32, shnum uint32, shstrndx uint32) {
+	w.U8(uint32(0x7f))
+	w.U8(uint32('E'))
+	w.U8(uint32('L'))
+	w.U8(uint32('F'))
+	w.U8(ElfClass64)
+	w.U8(ElfData2LSB)
+	w.U8(ElfVersionCurrent)
+	w.U8(uint32(0))
+	w.Zeros(8)
+	w.U16(ElfTypeRel)
+	w.U16(mach)
+	w.U32(ElfVersionCurrent)
+	w.U64(uint64(0))
+	w.U64(uint64(0))
+	w.U64(uint64(0))
+	w.U32(uint32(0))
+	w.U16(uint32(64))
+	w.U16(uint32(0))
+	w.U16(uint32(0))
+	w.U16(uint32(64))
+	w.U16(shnum)
+	w.U16(shstrndx)
+}
+
+func writeElfSectionHdr(w mut Buf, s elfSectionMeta) {
+	w.U32(s.nameOff)
+	w.U32(s.shType)
+	w.U64(s.flags)
+	w.U64(uint64(0))
+	w.U64(s.offset)
+	w.U64(s.size)
+	w.U32(s.link)
+	w.U32(s.info)
+	w.U64(s.addrAlign)
+	w.U64(s.entSize)
+}
+
+func writeElfSymEntry(w mut Buf, o Object, symIdx int) {
+	let nameOff = o.Names.OffsetOf(o.SymNameID[symIdx])
+	let bind = uint32(o.SymBind[symIdx])
+	let kind = uint32(o.SymKind[symIdx])
+	let stInfo = (bind << uint32(4)) | (kind & uint32(0xf))
+	let shndx = elfSectionForObjectSec(o.SymSec[symIdx])
+	w.U32(nameOff)
+	w.U8(stInfo)
+	w.U8(uint32(0))
+	w.U16(shndx)
+	w.U64(o.SymValue[symIdx])
+	w.U64(o.SymSize[symIdx])
+}
+
+func writeElfSymtab(w mut Buf, o Object) (uint64, uint64, uint32, []uint32) {
+	w.AlignTo(8)
+	let symOff = uint64(w.Size())
+	w.Zeros(24)
+	let nSyms = o.SymNameID.Len()
+	let mut symToElf = MakeSlice[uint32](nSyms)
+	for _ in 0..nSyms {
+		symToElf = symToElf.Append(uint32(0))
+	}
+	let mut nextElf = uint32(1)
+	for i in 0..nSyms {
+		if o.SymBind[i] == BindLocal {
+			symToElf[i] = nextElf
+			writeElfSymEntry(w, o, i)
+			nextElf = nextElf + uint32(1)
+		}
+	}
+	let firstGlobal = nextElf
+	for i in 0..nSyms {
+		if o.SymBind[i] != BindLocal {
+			symToElf[i] = nextElf
+			writeElfSymEntry(w, o, i)
+			nextElf = nextElf + uint32(1)
+		}
+	}
+	let symSize = uint64(w.Size()) - symOff
+	(symOff, symSize, firstGlobal, symToElf)
+}
+
+func writeElfRelaSection(w mut Buf, o Object, targetSec uint32, symToElf []uint32) (uint64, uint64) {
+	w.AlignTo(8)
+	let off = uint64(w.Size())
+	for i in 0..o.RelocSec.Len() {
+		if o.RelocSec[i] != targetSec {
+			continue
+		}
+		let elfSym = symToElf[int(o.RelocSym[i])]
+		let (rType, rAddend) = elfRelocMapping(o.Arch, o.RelocKind[i], o.RelocAddend[i])
+		let rInfo = (uint64(elfSym) << uint64(32)) | uint64(rType)
+		w.U64(uint64(o.RelocOff[i]))
+		w.U64(rInfo)
+		w.U64(rAddend)
+	}
+	let sz = uint64(w.Size()) - off
+	(off, sz)
+}
+
+func elfEffectiveAlign(raw uint32, floor uint32) uint32 {
+	if raw > floor { raw } else { floor }
+}
+
+func initElfShStrTab() (StrPool, []uint32) {
+	let mut shstr = NewStrPool()
+	let names = []string{
+		"",
+		".text",
+		".rodata",
+		".data",
+		".bss",
+		".note.GNU-stack",
+		".rela.text",
+		".rela.data",
+		".symtab",
+		".strtab",
+		".shstrtab",
+	}
+	let mut offs = []uint32{}
+	for nm in names {
+		let id = shstr.Intern(nm)
+		offs = offs.Append(shstr.OffsetOf(id))
+	}
+	(shstr, offs)
+}
+
+// WriteELF64 serializes o into a standard ELF64 relocatable object file (ET_REL).
+func WriteELF64(o Object) []byte fails ObjError {
+	try ValidateObject(o)
+	let mut w = NewBufCap(512 + o.Text.Len() + o.Rodata.Len() + o.Data.Len())
+	writeElfHeader(&w, elfMachineForArch(o.Arch), uint32(11), ElfSecShstrtab)
+
+	let textAlign = elfEffectiveAlign(o.TextAlign, uint32(16))
+	let roAlign = elfEffectiveAlign(o.RodataAlign, uint32(8))
+	let dataAlign = elfEffectiveAlign(o.DataAlign, uint32(8))
+	let bssAlign = elfEffectiveAlign(o.BssAlign, uint32(8))
+
+	w.AlignTo(int(textAlign))
+	let textOff = uint64(w.Size())
+	w.RawBytes(o.Text)
+
+	w.AlignTo(int(roAlign))
+	let roOff = uint64(w.Size())
+	w.RawBytes(o.Rodata)
+
+	w.AlignTo(int(dataAlign))
+	let dataOff = uint64(w.Size())
+	w.RawBytes(o.Data)
+
+	w.AlignTo(int(bssAlign))
+	let bssOff = uint64(w.Size())
+	let noteOff = uint64(w.Size())
+
+	let (symOff, symSize, firstGlobal, symToElf) = writeElfSymtab(&w, o)
+	let (relaTextOff, relaTextSize) = writeElfRelaSection(&w, o, SecText, symToElf)
+	let (relaDataOff, relaDataSize) = writeElfRelaSection(&w, o, SecData, symToElf)
+
+	let strOff = uint64(w.Size())
+	w.RawBytes(o.Names.Data)
+	let strSize = uint64(o.Names.Data.Len())
+
+	let (shstr, shNameOffs) = initElfShStrTab()
+	let shstrOff = uint64(w.Size())
+	w.RawBytes(shstr.Data)
+	let shstrSize = uint64(shstr.Data.Len())
+
+	w.AlignTo(8)
+	let shoff = uint64(w.Size())
+	w.Put64(40, shoff)
+
+	let secs = []elfSectionMeta{
+		elfSectionMeta{nameOff: shNameOffs[0], shType: ShtNull, flags: uint64(0), offset: uint64(0), size: uint64(0), link: uint32(0), info: uint32(0), addrAlign: uint64(0), entSize: uint64(0)},
+		elfSectionMeta{nameOff: shNameOffs[1], shType: ShtProgbits, flags: ShfAlloc | ShfExecInstr, offset: textOff, size: uint64(o.Text.Len()), link: uint32(0), info: uint32(0), addrAlign: uint64(textAlign), entSize: uint64(0)},
+		elfSectionMeta{nameOff: shNameOffs[2], shType: ShtProgbits, flags: ShfAlloc, offset: roOff, size: uint64(o.Rodata.Len()), link: uint32(0), info: uint32(0), addrAlign: uint64(roAlign), entSize: uint64(0)},
+		elfSectionMeta{nameOff: shNameOffs[3], shType: ShtProgbits, flags: ShfAlloc | ShfWrite, offset: dataOff, size: uint64(o.Data.Len()), link: uint32(0), info: uint32(0), addrAlign: uint64(dataAlign), entSize: uint64(0)},
+		elfSectionMeta{nameOff: shNameOffs[4], shType: ShtNobits, flags: ShfAlloc | ShfWrite, offset: bssOff, size: o.BssSize, link: uint32(0), info: uint32(0), addrAlign: uint64(bssAlign), entSize: uint64(0)},
+		elfSectionMeta{nameOff: shNameOffs[5], shType: ShtProgbits, flags: uint64(0), offset: noteOff, size: uint64(0), link: uint32(0), info: uint32(0), addrAlign: uint64(1), entSize: uint64(0)},
+		elfSectionMeta{nameOff: shNameOffs[6], shType: ShtRela, flags: ShfInfoLink, offset: relaTextOff, size: relaTextSize, link: ElfSecSymtab, info: ElfSecText, addrAlign: uint64(8), entSize: uint64(24)},
+		elfSectionMeta{nameOff: shNameOffs[7], shType: ShtRela, flags: ShfInfoLink, offset: relaDataOff, size: relaDataSize, link: ElfSecSymtab, info: ElfSecData, addrAlign: uint64(8), entSize: uint64(24)},
+		elfSectionMeta{nameOff: shNameOffs[8], shType: ShtSymtab, flags: uint64(0), offset: symOff, size: symSize, link: ElfSecStrtab, info: firstGlobal, addrAlign: uint64(8), entSize: uint64(24)},
+		elfSectionMeta{nameOff: shNameOffs[9], shType: ShtStrtab, flags: uint64(0), offset: strOff, size: strSize, link: uint32(0), info: uint32(0), addrAlign: uint64(1), entSize: uint64(0)},
+		elfSectionMeta{nameOff: shNameOffs[10], shType: ShtStrtab, flags: uint64(0), offset: shstrOff, size: shstrSize, link: uint32(0), info: uint32(0), addrAlign: uint64(1), entSize: uint64(0)},
+	}
+	for s in secs {
+		writeElfSectionHdr(&w, s)
+	}
+	w.Bytes()
+}

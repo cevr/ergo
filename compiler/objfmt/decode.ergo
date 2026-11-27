@@ -1,0 +1,1041 @@
+// DecodeError reports a structural failure while parsing an ELF64 or Mach-O64 object file.
+type DecodeError {
+	Format string,
+	Reason string,
+	Offset uint32,
+}
+
+// DecodedELF holds the validated header, sections, symbols, and relocations of an ELF64 ET_REL file.
+type DecodedELF {
+	Machine     uint32,
+	ShOff       uint64,
+	ShNum       uint32,
+	ShStrNdx    uint32,
+	SecNames    []string,
+	SecTypes    []uint32,
+	SecFlags    []uint64,
+	SecOffsets  []uint64,
+	SecSizes    []uint64,
+	SecLinks    []uint32,
+	SecInfos    []uint32,
+	SecAligns   []uint64,
+	SecEntSizes []uint64,
+	SymTabSec   uint32,
+	StrTabSec   uint32,
+	FirstGlobal uint32,
+	SymNames    []string,
+	SymBinds    []uint8,
+	SymKinds    []uint8,
+	SymShndx    []uint32,
+	SymValues   []uint64,
+	SymSizes    []uint64,
+	RelocSecIdx []uint32,
+	RelocOffs   []uint64,
+	RelocSyms   []uint32,
+	RelocTypes  []uint32,
+	RelocAdds   []uint64,
+}
+
+// DecodedMachO holds the validated header, sections, symbols, and relocations of a Mach-O64 MH_OBJECT file.
+type DecodedMachO {
+	CpuType      uint32,
+	CpuSubType   uint32,
+	FileType     uint32,
+	NCmds        uint32,
+	SizeOfCmds   uint32,
+	Flags        uint32,
+	SegVmAddr    uint64,
+	SegVmSize    uint64,
+	SegFileOff   uint64,
+	SegFileSize  uint64,
+	SecNames     []string,
+	SegNames     []string,
+	SecAddrs     []uint64,
+	SecSizes     []uint64,
+	SecOffsets   []uint32,
+	SecAlignLog2 []uint32,
+	SecRelOff    []uint32,
+	SecNReloc    []uint32,
+	SecFlags     []uint32,
+	SymOff       uint32,
+	NSyms        uint32,
+	StrOff       uint32,
+	StrSize      uint32,
+	SymNames     []string,
+	SymTypes     []uint8,
+	SymSects     []uint8,
+	SymDescs     []uint16,
+	SymValues    []uint64,
+	RelocSecIdx  []uint32,
+	RelocAddrs   []uint32,
+	RelocSymNums []uint32,
+	RelocPCRel   []bool,
+	RelocLens    []uint8,
+	RelocExtern  []bool,
+	RelocTypes   []uint8,
+}
+
+func elfFail(reason string, off uint32) DecodeError {
+	DecodeError{Format: "ELF64", Reason: reason, Offset: off}
+}
+
+func machoFail(reason string, off uint32) DecodeError {
+	DecodeError{Format: "Mach-O64", Reason: reason, Offset: off}
+}
+
+func readU16Dec(raw []byte, at int, fmtName string) uint16 fails DecodeError {
+	ReadU16At(raw, at) catch {
+	case Short as s:
+		return DecodeError{Format: fmtName, Reason: "unexpected EOF reading 16-bit value", Offset: s.At}
+	}
+}
+
+func readU32Dec(raw []byte, at int, fmtName string) uint32 fails DecodeError {
+	ReadU32At(raw, at) catch {
+	case Short as s:
+		return DecodeError{Format: fmtName, Reason: "unexpected EOF reading 32-bit value", Offset: s.At}
+	}
+}
+
+func readU64Dec(raw []byte, at int, fmtName string) uint64 fails DecodeError {
+	ReadU64At(raw, at) catch {
+	case Short as s:
+		return DecodeError{Format: fmtName, Reason: "unexpected EOF reading 64-bit value", Offset: s.At}
+	}
+}
+
+func readCStrSlice(raw []byte, start uint64, size uint64, off uint32, fmtName string) string fails DecodeError {
+	if uint64(off) >= size {
+		return DecodeError{Format: fmtName, Reason: "string offset exceeds string table size", Offset: off}
+	}
+	let absOff = int(start + uint64(off))
+	let limit = int(start + size)
+	for i in absOff..limit {
+		if raw[i] == byte(0) {
+			return raw[absOff:i].Text()
+		}
+	}
+	DecodeError{Format: fmtName, Reason: "unterminated string inside string table", Offset: uint32(absOff)}
+}
+
+func spanFitsFile(off uint64, sz uint64, fileLen uint64) bool {
+	off <= fileLen && sz <= fileLen-off
+}
+
+func elfRelocWidthForType(mach uint32, rType uint32) uint64 fails DecodeError {
+	if mach == ElfMachineX86_64 {
+		if rType == RX86_64_64 {
+			return uint64(8)
+		}
+		if rType == RX86_64_PC32 || rType == RX86_64_PLT32 || rType == RX86_64_GOTPCREL || rType == RX86_64_REX_GOTPCRELX {
+			return uint64(4)
+		}
+		return elfFail("unsupported x86_64 ELF relocation type", rType)
+	}
+	if rType == RAArch64Abs64 {
+		return uint64(8)
+	}
+	if rType == RAArch64AdrPrelPgHi21 || rType == RAArch64AddAbsLo12Nc || rType == RAArch64Jump26 || rType == RAArch64Call26 {
+		return uint64(4)
+	}
+	elfFail("unsupported aarch64 ELF relocation type", rType)
+}
+
+func decodeElfHdr(raw []byte) (uint32, uint64, uint32, uint32) fails DecodeError {
+	if raw.Len() < 64 {
+		return elfFail("file shorter than 64-byte ELF64 header", uint32(raw.Len()))
+	}
+	if raw[0] != byte(0x7f) || raw[1] != byte('E') || raw[2] != byte('L') || raw[3] != byte('F') {
+		return elfFail("invalid ELF magic bytes", uint32(0))
+	}
+	if uint32(raw[4]) != ElfClass64 || uint32(raw[5]) != ElfData2LSB || uint32(raw[6]) != ElfVersionCurrent {
+		return elfFail("unsupported ELF class, endianness, or version", uint32(4))
+	}
+	let eType = uint32(try readU16Dec(raw, 16, "ELF64"))
+	let eMach = uint32(try readU16Dec(raw, 18, "ELF64"))
+	let eVer = try readU32Dec(raw, 20, "ELF64")
+	let shOff = try readU64Dec(raw, 40, "ELF64")
+	let ehSize = uint32(try readU16Dec(raw, 52, "ELF64"))
+	let shEntSize = uint32(try readU16Dec(raw, 58, "ELF64"))
+	let shNum = uint32(try readU16Dec(raw, 60, "ELF64"))
+	let shStrNdx = uint32(try readU16Dec(raw, 62, "ELF64"))
+	if eType != ElfTypeRel || eVer != ElfVersionCurrent {
+		return elfFail("ELF object is not ET_REL version 1", uint32(16))
+	}
+	if eMach != ElfMachineX86_64 && eMach != ElfMachineAArch64 {
+		return elfFail("unsupported ELF e_machine", uint32(18))
+	}
+	if ehSize != uint32(64) || shEntSize != uint32(64) || shNum == uint32(0) || shStrNdx >= shNum {
+		return elfFail("invalid ELF header sizes or section indices", uint32(52))
+	}
+	if shOff < uint64(64) || !spanFitsFile(shOff, uint64(shNum)*uint64(64), uint64(raw.Len())) {
+		return elfFail("ELF section header table out of file bounds", uint32(40))
+	}
+	(eMach, shOff, shNum, shStrNdx)
+}
+
+func validateElfStrtab(raw []byte, off uint64, sz uint64) fails DecodeError {
+	if sz == uint64(0) {
+		return elfFail("SHT_STRTAB section cannot be empty", uint32(off))
+	}
+	if raw[int(off)] != byte(0) || raw[int(off+sz-uint64(1))] != byte(0) {
+		return elfFail("SHT_STRTAB must begin and end with NUL byte", uint32(off))
+	}
+}
+
+func decodeElfSections(raw []byte, d mut DecodedELF) fails DecodeError {
+	let fileLen = uint64(raw.Len())
+	let mut shNameOffs = MakeSlice[uint32](int(d.ShNum))
+	for i in 0..int(d.ShNum) {
+		let base = int(d.ShOff) + i*64
+		let nameOff = try readU32Dec(raw, base, "ELF64")
+		let sType = try readU32Dec(raw, base+4, "ELF64")
+		let sFlags = try readU64Dec(raw, base+8, "ELF64")
+		let sOff = try readU64Dec(raw, base+24, "ELF64")
+		let sSize = try readU64Dec(raw, base+32, "ELF64")
+		let sLink = try readU32Dec(raw, base+40, "ELF64")
+		let sInfo = try readU32Dec(raw, base+44, "ELF64")
+		let sAlign = try readU64Dec(raw, base+48, "ELF64")
+		let sEnt = try readU64Dec(raw, base+56, "ELF64")
+		if i == 0 && (sType != ShtNull || sSize != uint64(0) || sOff != uint64(0)) {
+			return elfFail("ELF section 0 must be null", uint32(base))
+		}
+		if sType != ShtNobits && sType != ShtNull {
+			if !spanFitsFile(sOff, sSize, fileLen) || (sSize > uint64(0) && sOff < uint64(64)) {
+				return elfFail("ELF section data out of bounds", uint32(base+24))
+			}
+			if sAlign > uint64(1) && sSize > uint64(0) && (sOff%sAlign) != uint64(0) {
+				return elfFail("ELF section offset violates sh_addralign", uint32(base+24))
+			}
+		}
+		if sType == ShtStrtab {
+			try validateElfStrtab(raw, sOff, sSize)
+		}
+		shNameOffs = shNameOffs.Append(nameOff)
+		d.SecNames = d.SecNames.Append("")
+		d.SecTypes = d.SecTypes.Append(sType)
+		d.SecFlags = d.SecFlags.Append(sFlags)
+		d.SecOffsets = d.SecOffsets.Append(sOff)
+		d.SecSizes = d.SecSizes.Append(sSize)
+		d.SecLinks = d.SecLinks.Append(sLink)
+		d.SecInfos = d.SecInfos.Append(sInfo)
+		d.SecAligns = d.SecAligns.Append(sAlign)
+		d.SecEntSizes = d.SecEntSizes.Append(sEnt)
+	}
+	let shIdx = int(d.ShStrNdx)
+	if d.SecTypes[shIdx] != ShtStrtab {
+		return elfFail("e_shstrndx does not point to SHT_STRTAB", d.ShStrNdx)
+	}
+	let shStrOff = d.SecOffsets[shIdx]
+	let shStrSz = d.SecSizes[shIdx]
+	for i in 0..int(d.ShNum) {
+		d.SecNames[i] = try readCStrSlice(raw, shStrOff, shStrSz, shNameOffs[i], "ELF64")
+	}
+}
+
+func decodeElfSymtabSection(raw []byte, d mut DecodedELF, symSec uint32) fails DecodeError {
+	let sIdx = int(symSec)
+	let symOff = d.SecOffsets[sIdx]
+	let symSz = d.SecSizes[sIdx]
+	let entSz = d.SecEntSizes[sIdx]
+	let strSec = d.SecLinks[sIdx]
+	let firstGlob = d.SecInfos[sIdx]
+	if entSz != uint64(24) || symSz < uint64(24) || (symSz%uint64(24)) != uint64(0) {
+		return elfFail("invalid .symtab entry size or length", uint32(symOff))
+	}
+	if strSec >= d.ShNum || d.SecTypes[int(strSec)] != ShtStrtab {
+		return elfFail(".symtab sh_link must reference SHT_STRTAB", strSec)
+	}
+	let nSyms = uint32(symSz / uint64(24))
+	if firstGlob == uint32(0) || firstGlob > nSyms {
+		return elfFail(".symtab sh_info first global index out of bounds", firstGlob)
+	}
+	d.SymTabSec = symSec
+	d.StrTabSec = strSec
+	d.FirstGlobal = firstGlob
+	let strOff = d.SecOffsets[int(strSec)]
+	let strSz = d.SecSizes[int(strSec)]
+	for i in 0..int(nSyms) {
+		let base = int(symOff) + i*24
+		let stName = try readU32Dec(raw, base, "ELF64")
+		let stInfo = raw[base+4]
+		let stOther = raw[base+5]
+		let stShndx = uint32(try readU16Dec(raw, base+6, "ELF64"))
+		let stVal = try readU64Dec(raw, base+8, "ELF64")
+		let stSize = try readU64Dec(raw, base+16, "ELF64")
+		let bind = uint8(uint32(stInfo) >> uint32(4))
+		let kind = stInfo & uint8(0x0f)
+		if i == 0 {
+			if stName != uint32(0) || stInfo != uint8(0) || stOther != uint8(0) || stShndx != uint32(0) || stVal != uint64(0) || stSize != uint64(0) {
+				return elfFail("ELF symbol 0 (STN_UNDEF) must be all zeros", uint32(base))
+			}
+		} else if uint32(i) < firstGlob {
+			if bind != BindLocal {
+				return elfFail("non-local symbol placed before .symtab sh_info", uint32(base))
+			}
+		} else {
+			if bind == BindLocal {
+				return elfFail("local symbol placed at or after .symtab sh_info", uint32(base))
+			}
+		}
+		if stShndx != uint32(0) && stShndx < uint32(0xff00) {
+			if stShndx >= d.ShNum {
+				return elfFail("symbol st_shndx out of section range", stShndx)
+			}
+			let ownerSz = d.SecSizes[int(stShndx)]
+			if stVal > ownerSz || stSize > ownerSz-stVal {
+				return elfFail("symbol st_value/st_size exceeds owning section", uint32(base+8))
+			}
+		}
+		let nm = try readCStrSlice(raw, strOff, strSz, stName, "ELF64")
+		d.SymNames = d.SymNames.Append(nm)
+		d.SymBinds = d.SymBinds.Append(bind)
+		d.SymKinds = d.SymKinds.Append(kind)
+		d.SymShndx = d.SymShndx.Append(stShndx)
+		d.SymValues = d.SymValues.Append(stVal)
+		d.SymSizes = d.SymSizes.Append(stSize)
+	}
+}
+
+func decodeElfRelas(raw []byte, d mut DecodedELF, symCount uint32) fails DecodeError {
+	for sIdx in 0..int(d.ShNum) {
+		if d.SecTypes[sIdx] != ShtRela {
+			continue
+		}
+		let relOff = d.SecOffsets[sIdx]
+		let relSz = d.SecSizes[sIdx]
+		if d.SecEntSizes[sIdx] != uint64(24) || (relSz%uint64(24)) != uint64(0) {
+			return elfFail("invalid SHT_RELA entry size or length", uint32(relOff))
+		}
+		if d.SecLinks[sIdx] != d.SymTabSec {
+			return elfFail("SHT_RELA sh_link does not reference .symtab", d.SecLinks[sIdx])
+		}
+		let targetSec = d.SecInfos[sIdx]
+		if targetSec >= d.ShNum {
+			return elfFail("SHT_RELA sh_info target section out of range", targetSec)
+		}
+		let targetSz = d.SecSizes[int(targetSec)]
+		let nRela = int(relSz / uint64(24))
+		for r in 0..nRela {
+			let base = int(relOff) + r*24
+			let rOffset = try readU64Dec(raw, base, "ELF64")
+			let rInfo = try readU64Dec(raw, base+8, "ELF64")
+			let rAddend = try readU64Dec(raw, base+16, "ELF64")
+			let rSym = uint32(rInfo >> uint64(32))
+			let rType = uint32(rInfo & uint64(0xffffffff))
+			if rSym >= symCount {
+				return elfFail("ELF relocation symbol index out of range", rSym)
+			}
+			let width = try elfRelocWidthForType(d.Machine, rType)
+			if rOffset > targetSz || width > targetSz-rOffset {
+				return elfFail("ELF relocation offset exceeds target section size", uint32(base))
+			}
+			d.RelocSecIdx = d.RelocSecIdx.Append(targetSec)
+			d.RelocOffs = d.RelocOffs.Append(rOffset)
+			d.RelocSyms = d.RelocSyms.Append(rSym)
+			d.RelocTypes = d.RelocTypes.Append(rType)
+			d.RelocAdds = d.RelocAdds.Append(rAddend)
+		}
+	}
+}
+
+// DecodeELF64 parses and structurally validates an ELF64 ET_REL object file.
+func DecodeELF64(raw []byte) DecodedELF fails DecodeError {
+	let (mach, shOff, shNum, shStrNdx) = try decodeElfHdr(raw)
+	let mut d = DecodedELF{
+		Machine:     mach,
+		ShOff:       shOff,
+		ShNum:       shNum,
+		ShStrNdx:    shStrNdx,
+		SecNames:    []string{},
+		SecTypes:    []uint32{},
+		SecFlags:    []uint64{},
+		SecOffsets:  []uint64{},
+		SecSizes:    []uint64{},
+		SecLinks:    []uint32{},
+		SecInfos:    []uint32{},
+		SecAligns:   []uint64{},
+		SecEntSizes: []uint64{},
+		SymTabSec:   uint32(0),
+		StrTabSec:   uint32(0),
+		FirstGlobal: uint32(0),
+		SymNames:    []string{},
+		SymBinds:    []uint8{},
+		SymKinds:    []uint8{},
+		SymShndx:    []uint32{},
+		SymValues:   []uint64{},
+		SymSizes:    []uint64{},
+		RelocSecIdx: []uint32{},
+		RelocOffs:   []uint64{},
+		RelocSyms:   []uint32{},
+		RelocTypes:  []uint32{},
+		RelocAdds:   []uint64{},
+	}
+	try decodeElfSections(raw, &d)
+	let mut foundSymtab = false
+	for i in 0..int(d.ShNum) {
+		if d.SecTypes[i] == ShtSymtab {
+			if foundSymtab {
+				return elfFail("duplicate SHT_SYMTAB section", uint32(i))
+			}
+			foundSymtab = true
+			try decodeElfSymtabSection(raw, &d, uint32(i))
+		}
+	}
+	if !foundSymtab {
+		return elfFail("missing SHT_SYMTAB section", uint32(0))
+	}
+	try decodeElfRelas(raw, &d, uint32(d.SymNames.Len()))
+	d
+}
+
+// ELFSectionByName looks up a decoded ELF64 section index by section name.
+func ELFSectionByName(d DecodedELF, name string) (uint32, bool) {
+	for i, nm in d.SecNames {
+		if nm == name {
+			return (uint32(i), true)
+		}
+	}
+	(uint32(0), false)
+}
+
+// ELFSectionBytes returns a copy of the file bytes belonging to ELF section secIdx.
+func ELFSectionBytes(raw []byte, d DecodedELF, secIdx uint32) []byte {
+	let i = int(secIdx)
+	if d.SecTypes[i] == ShtNobits || d.SecSizes[i] == uint64(0) {
+		return []byte{}
+	}
+	let start = int(d.SecOffsets[i])
+	let end = start + int(d.SecSizes[i])
+	raw[start:end].Clone()
+}
+
+// ELFSymbolIndex finds a decoded ELF64 symbol index by name.
+func ELFSymbolIndex(d DecodedELF, name string) (uint32, bool) {
+	for i, nm in d.SymNames {
+		if i > 0 && nm == name {
+			return (uint32(i), true)
+		}
+	}
+	(uint32(0), false)
+}
+
+func machoRelocTypeValid(cpuType uint32, rType uint32) bool {
+	if cpuType == MachoCpuTypeX86_64 {
+		return rType == X86_64RelocUnsigned ||
+			rType == X86_64RelocSigned ||
+			rType == X86_64RelocBranch ||
+			rType == X86_64RelocGotLoad ||
+			rType == X86_64RelocGot
+	}
+		rType == Arm64RelocUnsigned ||
+		rType == Arm64RelocSubtractor ||
+		rType == Arm64RelocBranch26 ||
+		rType == Arm64RelocPage21 ||
+		rType == Arm64RelocPageOff12 ||
+		rType == Arm64RelocGotLoadPage21 ||
+		rType == Arm64RelocGotLoadPageOff12 ||
+		rType == Arm64RelocAddend
+}
+
+func decodeMachoSegmentCmd(raw []byte, cmdOff int, cmdSize uint32, d mut DecodedMachO) fails DecodeError {
+	let nsects = try readU32Dec(raw, cmdOff+64, "Mach-O64")
+	if cmdSize != uint32(72)+nsects*uint32(80) {
+		return machoFail("LC_SEGMENT_64 cmdsize does not match nsects", uint32(cmdOff))
+	}
+	d.SegVmAddr = try readU64Dec(raw, cmdOff+24, "Mach-O64")
+	d.SegVmSize = try readU64Dec(raw, cmdOff+32, "Mach-O64")
+	d.SegFileOff = try readU64Dec(raw, cmdOff+40, "Mach-O64")
+	d.SegFileSize = try readU64Dec(raw, cmdOff+48, "Mach-O64")
+	let fileLen = uint64(raw.Len())
+	if !spanFitsFile(d.SegFileOff, d.SegFileSize, fileLen) {
+		return machoFail("LC_SEGMENT_64 file extent exceeds file size", uint32(cmdOff+40))
+	}
+	for s in 0..int(nsects) {
+		let sOff = cmdOff + 72 + s*80
+		let mut rd = Reader{Data: raw, At: sOff}
+		let sectName = rd.RFixedString(16) catch {
+		case Short as sh:
+			return machoFail("truncated section_64 sectname", sh.At)
+		}
+		let segName = rd.RFixedString(16) catch {
+		case Short as sh:
+			return machoFail("truncated section_64 segname", sh.At)
+		}
+		let addr = try readU64Dec(raw, sOff+32, "Mach-O64")
+		let sz = try readU64Dec(raw, sOff+40, "Mach-O64")
+		let offset = try readU32Dec(raw, sOff+48, "Mach-O64")
+		let alignLog2 = try readU32Dec(raw, sOff+52, "Mach-O64")
+		let relOff = try readU32Dec(raw, sOff+56, "Mach-O64")
+		let nReloc = try readU32Dec(raw, sOff+60, "Mach-O64")
+		let flags = try readU32Dec(raw, sOff+64, "Mach-O64")
+		if alignLog2 > uint32(20) {
+			return machoFail("Mach-O section alignment log2 exceeds 20", uint32(sOff+52))
+		}
+		let secKind = flags & uint32(0xff)
+		if secKind != MachoSecZerofill && sz > uint64(0) {
+			if !spanFitsFile(uint64(offset), sz, fileLen) {
+				return machoFail("Mach-O section bytes exceed file bounds", offset)
+			}
+			if uint64(offset) < d.SegFileOff || uint64(offset)+sz > d.SegFileOff+d.SegFileSize {
+				return machoFail("Mach-O section bytes fall outside segment file span", offset)
+			}
+			let alignBytes = uint64(1) << uint64(alignLog2)
+			if alignBytes > uint64(1) && (uint64(offset)%alignBytes) != uint64(0) {
+				return machoFail("Mach-O section offset violates section alignment", offset)
+			}
+			if secKind == MachoSecCStringLiterals && raw[int(offset)+int(sz)-1] != byte(0) {
+				return machoFail("Mach-O S_CSTRING_LITERALS section must end with NUL", offset)
+			}
+		}
+		if nReloc > uint32(0) {
+			if !spanFitsFile(uint64(relOff), uint64(nReloc)*uint64(8), fileLen) {
+				return machoFail("Mach-O section relocations exceed file bounds", relOff)
+			}
+		}
+		d.SecNames = d.SecNames.Append(sectName)
+		d.SegNames = d.SegNames.Append(segName)
+		d.SecAddrs = d.SecAddrs.Append(addr)
+		d.SecSizes = d.SecSizes.Append(sz)
+		d.SecOffsets = d.SecOffsets.Append(offset)
+		d.SecAlignLog2 = d.SecAlignLog2.Append(alignLog2)
+		d.SecRelOff = d.SecRelOff.Append(relOff)
+		d.SecNReloc = d.SecNReloc.Append(nReloc)
+		d.SecFlags = d.SecFlags.Append(flags)
+	}
+}
+
+func decodeMachoSymtabCmd(raw []byte, cmdOff int, cmdSize uint32, d mut DecodedMachO) fails DecodeError {
+	if cmdSize != uint32(24) {
+		return machoFail("LC_SYMTAB cmdsize must be 24", uint32(cmdOff))
+	}
+	let symOff = try readU32Dec(raw, cmdOff+8, "Mach-O64")
+	let nSyms = try readU32Dec(raw, cmdOff+12, "Mach-O64")
+	let strOff = try readU32Dec(raw, cmdOff+16, "Mach-O64")
+	let strSize = try readU32Dec(raw, cmdOff+20, "Mach-O64")
+	let fileLen = uint64(raw.Len())
+	if !spanFitsFile(uint64(symOff), uint64(nSyms)*uint64(16), fileLen) {
+		return machoFail("LC_SYMTAB nlist_64 table exceeds file bounds", symOff)
+	}
+	if !spanFitsFile(uint64(strOff), uint64(strSize), fileLen) {
+		return machoFail("LC_SYMTAB string table exceeds file bounds", strOff)
+	}
+	if strSize > uint32(0) {
+		if raw[int(strOff)] != byte(0) || raw[int(strOff+strSize-uint32(1))] != byte(0) {
+			return machoFail("Mach-O string table must start and end with NUL", strOff)
+		}
+	}
+	d.SymOff = symOff
+	d.NSyms = nSyms
+	d.StrOff = strOff
+	d.StrSize = strSize
+	let nSects = uint32(d.SecNames.Len())
+	let mut phase = 0
+	for i in 0..int(nSyms) {
+		let base = int(symOff) + i*16
+		let nStrx = try readU32Dec(raw, base, "Mach-O64")
+		let nType = raw[base+4]
+		let nSect = raw[base+5]
+		let nDesc = try readU16Dec(raw, base+6, "Mach-O64")
+		let nVal = try readU64Dec(raw, base+8, "Mach-O64")
+		let nm = try readCStrSlice(raw, uint64(strOff), uint64(strSize), nStrx, "Mach-O64")
+		let isExt = (nType & NListExt) != uint8(0)
+		let symKind = nType & NListTypeMask
+		if !isExt {
+			if phase > 0 {
+				return machoFail("Mach-O local symbol appears after external symbol", uint32(base))
+			}
+		} else if symKind == NListUndf {
+			phase = 2
+		} else {
+			if phase == 2 {
+				return machoFail("Mach-O defined external symbol appears after undefined symbol", uint32(base))
+			}
+			phase = 1
+		}
+		if symKind == NListSect {
+			if nSect == uint8(0) || uint32(nSect) > nSects {
+				return machoFail("Mach-O N_SECT symbol has invalid n_sect", uint32(base+5))
+			}
+			let secBase = d.SecAddrs[int(nSect)-1]
+			let secSz = d.SecSizes[int(nSect)-1]
+			if nVal < secBase || nVal > secBase+secSz {
+				return machoFail("Mach-O N_SECT symbol n_value outside section span", uint32(base+8))
+			}
+		} else if symKind == NListUndf {
+			if nSect != uint8(0) || nVal != uint64(0) {
+				return machoFail("Mach-O N_UNDF symbol must have n_sect=0 and n_value=0", uint32(base+5))
+			}
+		}
+		d.SymNames = d.SymNames.Append(nm)
+		d.SymTypes = d.SymTypes.Append(nType)
+		d.SymSects = d.SymSects.Append(nSect)
+		d.SymDescs = d.SymDescs.Append(nDesc)
+		d.SymValues = d.SymValues.Append(nVal)
+	}
+}
+
+func decodeMachoRelocs(raw []byte, d mut DecodedMachO) fails DecodeError {
+	let nSects = d.SecNames.Len()
+	for s in 0..nSects {
+		let relOff = int(d.SecRelOff[s])
+		let nRel = int(d.SecNReloc[s])
+		let secSz = d.SecSizes[s]
+		for r in 0..nRel {
+			let base = relOff + r*8
+			let rAddr = try readU32Dec(raw, base, "Mach-O64")
+			let word = try readU32Dec(raw, base+4, "Mach-O64")
+			let symNum = word & uint32(0x00ffffff)
+			let pcrel = ((word >> uint32(24)) & uint32(1)) != uint32(0)
+			let length = uint8((word >> uint32(25)) & uint32(3))
+			let isExt = ((word >> uint32(27)) & uint32(1)) != uint32(0)
+			let rType = uint8((word >> uint32(28)) & uint32(0xf))
+			if !machoRelocTypeValid(d.CpuType, uint32(rType)) {
+				return machoFail("unsupported Mach-O relocation type", uint32(rType))
+			}
+			let width = uint64(1) << uint64(length)
+			if uint64(rAddr) > secSz || width > secSz-uint64(rAddr) {
+				return machoFail("Mach-O relocation address exceeds section size", rAddr)
+			}
+			if uint32(rType) == Arm64RelocAddend {
+				if d.CpuType != MachoCpuTypeArm64 || isExt || r+1 >= nRel {
+					return machoFail("invalid ARM64_RELOC_ADDEND entry", uint32(base))
+				}
+			} else if isExt {
+				if symNum >= d.NSyms {
+					return machoFail("Mach-O external relocation symbol index out of bounds", symNum)
+				}
+			} else {
+				if symNum == uint32(0) || int(symNum) > nSects {
+					return machoFail("Mach-O section relocation index out of bounds", symNum)
+				}
+			}
+			d.RelocSecIdx = d.RelocSecIdx.Append(uint32(s))
+			d.RelocAddrs = d.RelocAddrs.Append(rAddr)
+			d.RelocSymNums = d.RelocSymNums.Append(symNum)
+			d.RelocPCRel = d.RelocPCRel.Append(pcrel)
+			d.RelocLens = d.RelocLens.Append(length)
+			d.RelocExtern = d.RelocExtern.Append(isExt)
+			d.RelocTypes = d.RelocTypes.Append(rType)
+		}
+	}
+}
+
+// DecodeMachO64 parses and structurally validates a Mach-O64 MH_OBJECT file.
+func DecodeMachO64(raw []byte) DecodedMachO fails DecodeError {
+	if raw.Len() < 32 {
+		return machoFail("file shorter than 32-byte mach_header_64", uint32(raw.Len()))
+	}
+	let magic = try readU32Dec(raw, 0, "Mach-O64")
+	let cpuType = try readU32Dec(raw, 4, "Mach-O64")
+	let cpuSub = try readU32Dec(raw, 8, "Mach-O64")
+	let fileType = try readU32Dec(raw, 12, "Mach-O64")
+	let ncmds = try readU32Dec(raw, 16, "Mach-O64")
+	let sizeOfCmds = try readU32Dec(raw, 20, "Mach-O64")
+	let flags = try readU32Dec(raw, 24, "Mach-O64")
+	if magic != MachoMagic64 {
+		return machoFail("invalid MH_MAGIC_64", magic)
+	}
+	if cpuType != MachoCpuTypeX86_64 && cpuType != MachoCpuTypeArm64 {
+		return machoFail("unsupported Mach-O cputype", cpuType)
+	}
+	if fileType != MachoFileObject {
+		return machoFail("Mach-O filetype is not MH_OBJECT", fileType)
+	}
+	if !spanFitsFile(uint64(32), uint64(sizeOfCmds), uint64(raw.Len())) {
+		return machoFail("Mach-O load commands exceed file size", sizeOfCmds)
+	}
+	let mut d = DecodedMachO{
+		CpuType:      cpuType,
+		CpuSubType:   cpuSub,
+		FileType:     fileType,
+		NCmds:        ncmds,
+		SizeOfCmds:   sizeOfCmds,
+		Flags:        flags,
+		SegVmAddr:    uint64(0),
+		SegVmSize:    uint64(0),
+		SegFileOff:   uint64(0),
+		SegFileSize:  uint64(0),
+		SecNames:     []string{},
+		SegNames:     []string{},
+		SecAddrs:     []uint64{},
+		SecSizes:     []uint64{},
+		SecOffsets:   []uint32{},
+		SecAlignLog2: []uint32{},
+		SecRelOff:    []uint32{},
+		SecNReloc:    []uint32{},
+		SecFlags:     []uint32{},
+		SymOff:       uint32(0),
+		NSyms:        uint32(0),
+		StrOff:       uint32(0),
+		StrSize:      uint32(0),
+		SymNames:     []string{},
+		SymTypes:     []uint8{},
+		SymSects:     []uint8{},
+		SymDescs:     []uint16{},
+		SymValues:    []uint64{},
+		RelocSecIdx:  []uint32{},
+		RelocAddrs:   []uint32{},
+		RelocSymNums: []uint32{},
+		RelocPCRel:   []bool{},
+		RelocLens:    []uint8{},
+		RelocExtern:  []bool{},
+		RelocTypes:   []uint8{},
+	}
+	let mut off = 32
+	let cmdsEnd = 32 + int(sizeOfCmds)
+	let mut segs = 0
+	let mut symtabs = 0
+	for _ in 0..int(ncmds) {
+		if off+8 > cmdsEnd {
+			return machoFail("truncated Mach-O load command header", uint32(off))
+		}
+		let cmd = try readU32Dec(raw, off, "Mach-O64")
+		let cmdSize = try readU32Dec(raw, off+4, "Mach-O64")
+		if cmdSize < uint32(8) || (cmdSize%uint32(8)) != uint32(0) || off+int(cmdSize) > cmdsEnd {
+			return machoFail("invalid Mach-O load command size", uint32(off+4))
+		}
+		if cmd == LcSegment64 {
+			if symtabs > 0 {
+				return machoFail("LC_SYMTAB encountered before LC_SEGMENT_64", uint32(off))
+			}
+			segs = segs + 1
+			try decodeMachoSegmentCmd(raw, off, cmdSize, &d)
+		} else if cmd == LcSymtab {
+			if segs == 0 {
+				return machoFail("LC_SYMTAB encountered before LC_SEGMENT_64", uint32(off))
+			}
+			symtabs = symtabs + 1
+			try decodeMachoSymtabCmd(raw, off, cmdSize, &d)
+		}
+		off = off + int(cmdSize)
+	}
+	if off != cmdsEnd || segs != 1 || symtabs != 1 {
+		return machoFail("expected one LC_SEGMENT_64 and one LC_SYMTAB matching sizeofcmds", uint32(off))
+	}
+	try decodeMachoRelocs(raw, &d)
+	d
+}
+
+// MachOSectionByName looks up a decoded Mach-O section index by segment and section name.
+func MachOSectionByName(d DecodedMachO, segName string, sectName string) (uint32, bool) {
+	for i in 0..d.SecNames.Len() {
+		if d.SegNames[i] == segName && d.SecNames[i] == sectName {
+			return (uint32(i), true)
+		}
+	}
+	(uint32(0), false)
+}
+
+// MachOSymbolIndex finds a decoded Mach-O symbol index by name.
+func MachOSymbolIndex(d DecodedMachO, name string) (uint32, bool) {
+	for i, nm in d.SymNames {
+		if nm == name {
+			return (uint32(i), true)
+		}
+	}
+	(uint32(0), false)
+}
+
+func sampleBuilder(isArm64 bool, seed uint32) Object {
+	let arch = if isArm64 { ArchARM64 } else { ArchX86_64 }
+	let mut o = NewObject(arch)
+	let codeLen = 24 + int(seed%uint32(32))
+	let mut code = MakeSlice[byte](codeLen)
+	for i in 0..codeLen {
+		code = code.Append(byte((int(seed) + i*7) & 0xff))
+	}
+	let fnOff = o.AppendText(code)
+	let roOff = o.AppendRodataCString("rodata_\(seed)")
+	let mut dataBytes = MakeSlice[byte](16)
+	for i in 0..16 {
+		dataBytes = dataBytes.Append(byte((int(seed) + i) & 0xff))
+	}
+	let dOff = o.AppendDataBytes(dataBytes, uint32(8))
+	let bOff = o.AllocBss(uint64(16+int(seed%uint32(64))), uint32(8))
+
+	let gFn = o.AddGlobalFunc("fn_main", uint64(fnOff), uint64(codeLen))
+	let lRo = o.AddLocalRodata("loc_str", uint64(roOff), uint64(0))
+	let lData = o.AddLocalData("loc_dat", uint64(dOff), uint64(8))
+	let gBss = o.AddSym(SymSpec{Name: "glob_bss", Bind: BindGlobal, Kind: SymObject, Sec: SecBss, Value: bOff, Size: uint64(8)})
+	let wSym = o.AddSym(SymSpec{Name: "weak_fn", Bind: BindWeak, Kind: SymFunc, Sec: SecText, Value: uint64(fnOff), Size: uint64(4)})
+	let ext = o.EnsureUndefSym("ext_callee")
+	let _ = gFn
+	let _ = gBss
+	let _ = wSym
+
+	o.AddReloc(RelocSpec{Sec: SecText, Off: uint32(4), Kind: RelocCall, Sym: ext, Addend: uint64(0)})
+	o.AddReloc(RelocSpec{Sec: SecText, Off: uint32(12), Kind: RelocJump, Sym: ext, Addend: uint64(0)})
+	if isArm64 {
+		o.AddReloc(RelocSpec{Sec: SecText, Off: uint32(16), Kind: RelocArm64Page21, Sym: lRo, Addend: uint64(0)})
+		o.AddReloc(RelocSpec{Sec: SecText, Off: uint32(20), Kind: RelocArm64PageOff12, Sym: lRo, Addend: uint64(0)})
+	} else {
+		o.AddReloc(RelocSpec{Sec: SecText, Off: uint32(16), Kind: RelocPCRel32, Sym: lRo, Addend: uint64(0)})
+		o.AddReloc(RelocSpec{Sec: SecText, Off: uint32(20), Kind: RelocRexGotPCRelX, Sym: ext, Addend: uint64(0)})
+	}
+	o.AddReloc(RelocSpec{Sec: SecData, Off: uint32(0), Kind: RelocAbs64, Sym: lData, Addend: uint64(4)})
+	o
+}
+
+func checkElfRoundTrip(isArm64 bool, seed uint32) bool {
+	let o = sampleBuilder(isArm64, seed)
+	let raw = WriteELF64(o) catch {
+	case ObjError:
+		return false
+	}
+	let d = DecodeELF64(raw) catch {
+	case DecodeError:
+		return false
+	}
+	let wantMach = if isArm64 { ElfMachineAArch64 } else { ElfMachineX86_64 }
+	if d.Machine != wantMach || d.ShNum != uint32(11) {
+		return false
+	}
+	let (noteIdx, noteOk) = ELFSectionByName(d, ".note.GNU-stack")
+	if !noteOk || d.SecFlags[int(noteIdx)] != uint64(0) || d.SecTypes[int(noteIdx)] != ShtProgbits {
+		return false
+	}
+	let (textIdx, textOk) = ELFSectionByName(d, ".text")
+	let (roIdx, roOk) = ELFSectionByName(d, ".rodata")
+	let (dataIdx, dataOk) = ELFSectionByName(d, ".data")
+	let (bssIdx, bssOk) = ELFSectionByName(d, ".bss")
+	let (relaTextIdx, relaTextOk) = ELFSectionByName(d, ".rela.text")
+	let (relaDataIdx, relaDataOk) = ELFSectionByName(d, ".rela.data")
+	if !textOk || !roOk || !dataOk || !bssOk || !relaTextOk || !relaDataOk {
+		return false
+	}
+	if d.SecTypes[int(bssIdx)] != ShtNobits || d.SecSizes[int(bssIdx)] != o.BssSize {
+		return false
+	}
+	if d.SecLinks[int(relaTextIdx)] != ElfSecSymtab || d.SecInfos[int(relaTextIdx)] != ElfSecText {
+		return false
+	}
+	if d.SecLinks[int(relaDataIdx)] != ElfSecSymtab || d.SecInfos[int(relaDataIdx)] != ElfSecData {
+		return false
+	}
+	if ELFSectionBytes(raw, d, textIdx) != o.Text || ELFSectionBytes(raw, d, roIdx) != o.Rodata || ELFSectionBytes(raw, d, dataIdx) != o.Data {
+		return false
+	}
+	if d.SymNames.Len() != int(o.SymCount())+1 || d.FirstGlobal != uint32(3) {
+		return false
+	}
+	for i in 1..int(d.FirstGlobal) {
+		if d.SymBinds[i] != BindLocal {
+			return false
+		}
+	}
+	for i in int(d.FirstGlobal)..d.SymNames.Len() {
+		if d.SymBinds[i] == BindLocal {
+			return false
+		}
+	}
+	let (extIdx, extOk) = ELFSymbolIndex(d, "ext_callee")
+	let (fnIdx, fnOk) = ELFSymbolIndex(d, "fn_main")
+	if !extOk || !fnOk || d.SymShndx[int(extIdx)] != uint32(0) || d.SymShndx[int(fnIdx)] != ElfSecText {
+		return false
+	}
+	if d.RelocOffs.Len() != int(o.RelocCount()) {
+		return false
+	}
+	let neg4 uint64 = 0xfffffffffffffffc
+	let wantAddend0 = if isArm64 { uint64(0) } else { neg4 }
+	let wantType0 = if isArm64 { RAArch64Call26 } else { RX86_64_PLT32 }
+	let wantType1 = if isArm64 { RAArch64Jump26 } else { RX86_64_PLT32 }
+	d.RelocTypes[0] == wantType0 && d.RelocAdds[0] == wantAddend0 && d.RelocTypes[1] == wantType1
+}
+
+// ELF64BuilderRoundTrips verifies sections, symbols, ordering, and relocations round-trip for x86_64 and arm64.
+law ELF64BuilderRoundTrips(seed uint32, arm64 bool) {
+	checkElfRoundTrip(arm64, seed)
+}
+
+func checkMachoRoundTrip(isArm64 bool, seed uint32) bool {
+	let o = sampleBuilder(isArm64, seed)
+	let raw = WriteMachO64(o) catch {
+	case ObjError:
+		return false
+	}
+	let d = DecodeMachO64(raw) catch {
+	case DecodeError:
+		return false
+	}
+	let wantCpu = if isArm64 { MachoCpuTypeArm64 } else { MachoCpuTypeX86_64 }
+	if d.CpuType != wantCpu || d.SecNames.Len() != 4 || d.NSyms != o.SymCount() {
+		return false
+	}
+	let (textIdx, textOk) = MachOSectionByName(d, "__TEXT", "__text")
+	let (cstrIdx, cstrOk) = MachOSectionByName(d, "__TEXT", "__cstring")
+	let (dataIdx, dataOk) = MachOSectionByName(d, "__DATA", "__data")
+	let (bssIdx, bssOk) = MachOSectionByName(d, "__DATA", "__bss")
+	if !textOk || !cstrOk || !dataOk || !bssOk {
+		return false
+	}
+	if d.SecSizes[int(textIdx)] != uint64(o.Text.Len()) || d.SecSizes[int(cstrIdx)] != uint64(o.Rodata.Len()) {
+		return false
+	}
+	if d.SecSizes[int(dataIdx)] != uint64(o.Data.Len()) || d.SecSizes[int(bssIdx)] != o.BssSize {
+		return false
+	}
+	if (d.SecFlags[int(bssIdx)] & uint32(0xff)) != MachoSecZerofill {
+		return false
+	}
+	let (fnIdx, fnOk) = MachOSymbolIndex(d, "fn_main")
+	let (roIdx, roOk) = MachOSymbolIndex(d, "loc_str")
+	let (extIdx, extOk) = MachOSymbolIndex(d, "ext_callee")
+	if !fnOk || !roOk || !extOk {
+		return false
+	}
+	if d.SymValues[int(roIdx)] != d.SecAddrs[int(cstrIdx)] || d.SymValues[int(extIdx)] != uint64(0) || d.SymSects[int(fnIdx)] != uint8(1) {
+		return false
+	}
+	if d.RelocAddrs.Len() != int(o.RelocCount()) {
+		return false
+	}
+	if isArm64 {
+		return d.RelocPCRel[2] && uint32(d.RelocTypes[2]) == Arm64RelocPage21
+	}
+	d.RelocPCRel[2] && uint32(d.RelocTypes[2]) == X86_64RelocSigned
+}
+
+// MachO64BuilderRoundTrips verifies headers, segments, sections, symbols, and relocations round-trip for arm64 and x86_64.
+law MachO64BuilderRoundTrips(seed uint32, arm64 bool) {
+	checkMachoRoundTrip(arm64, seed)
+}
+
+test CrossArchEncoderAndAddendRoundTrips {
+	let mut x64Obj = NewObject(ArchX86_64)
+	let msgOff = x64Obj.AppendRodataCString("hi")
+	let msgSym = x64Obj.AddLocalRodata(".Lmsg", uint64(msgOff), uint64(0))
+	let extSym = x64Obj.EnsureUndefSym("puts")
+	let mut x64 = NewAmd64Asm()
+	x64.Prologue(uint32(16))
+	x64.LeaRipSym(X64Rdi, msgSym, uint64(0))
+	x64.CallSym(extSym)
+	x64.MovImm64(X64Rax, uint64(0x1122334455667788))
+	let negImm uint64 = 0xffffffffffffff00
+	x64.MovImm64(X64Rcx, negImm)
+	x64.SubRR(X64Rax, X64Rcx)
+	x64.ImulRR(X64Rax, X64Rcx)
+	let lblSkip = x64.NewLabel()
+	x64.CmpRR(X64Rax, X64Rcx)
+	x64.Jne(lblSkip)
+	x64.Jl(lblSkip)
+	x64.Jge(lblSkip)
+	x64.BindLabel(lblSkip)
+	x64.Epilogue(uint32(16))
+	let _ = try EmitAmd64Func(&x64Obj, "main", BindGlobal, &x64)
+	let x64Elf = try WriteELF64(x64Obj)
+	let x64ElfDec = try DecodeELF64(x64Elf)
+	assert x64ElfDec.Machine == ElfMachineX86_64 && x64ElfDec.RelocOffs.Len() == 2
+	let x64Macho = try WriteMachO64(x64Obj)
+	let x64MachoDec = try DecodeMachO64(x64Macho)
+	assert x64MachoDec.CpuType == MachoCpuTypeX86_64 && x64MachoDec.RelocAddrs.Len() == 2
+
+	let mut a64Obj = NewObject(ArchARM64)
+	let aMsgOff = a64Obj.AppendRodataCString("hi-arm64")
+	let aMsgSym = a64Obj.AddLocalRodata("_msg", uint64(aMsgOff), uint64(0))
+	let aExtSym = a64Obj.EnsureUndefSym("_puts")
+	let mut a64 = NewArm64Asm()
+	a64.A64Prologue(uint32(16))
+	a64.A64AdrpAddSym(A64X0, aMsgSym, uint64(4))
+	a64.A64BlSym(aExtSym)
+	a64.A64MovImm64(A64X0, uint64(0x0102030405060708))
+	a64.A64MovRR(A64X1, A64X0)
+	a64.A64AddRR(A64X0, A64X0, A64X1)
+	a64.A64SubRR(A64X0, A64X0, A64X1)
+	a64.A64MulRR(A64X0, A64X0, A64X1)
+	a64.A64StrImm(A64X0, A64Fp, 64)
+	a64.A64LdrImm(A64X0, A64Fp, 64)
+	a64.A64StrImm(A64X0, A64Fp, 40000)
+	a64.A64LdrImm(A64X0, A64Fp, 40000)
+	let aLbl = a64.NewArm64Label()
+	a64.A64CmpRR(A64X0, A64X1)
+	a64.A64Bne(aLbl)
+	a64.A64Blt(aLbl)
+	a64.A64Bge(aLbl)
+	a64.BindArm64Label(aLbl)
+	a64.A64Epilogue(uint32(16))
+	let _ = try EmitArm64Func(&a64Obj, "_main", BindGlobal, &a64)
+	let a64Elf = try WriteELF64(a64Obj)
+	let a64ElfDec = try DecodeELF64(a64Elf)
+	assert a64ElfDec.Machine == ElfMachineAArch64 && a64ElfDec.RelocOffs.Len() == 3
+	let a64Macho = try WriteMachO64(a64Obj)
+	let a64MachoDec = try DecodeMachO64(a64Macho)
+	assert a64MachoDec.CpuType == MachoCpuTypeArm64 && a64MachoDec.RelocAddrs.Len() == 5
+}
+
+func elfCorruptRejected(raw []byte) bool {
+	DecodeELF64(raw) catch {
+	case DecodeError:
+		return true
+	}
+	false
+}
+
+func machoCorruptRejected(raw []byte) bool {
+	DecodeMachO64(raw) catch {
+	case DecodeError:
+		return true
+	}
+	false
+}
+
+// DecodersRejectCorruptedImages verifies that magic, symbol ordering, string table NUL, and bounds violations fail DecodeError.
+law DecodersRejectCorruptedImages(seed uint32) {
+	let o = sampleBuilder(false, seed)
+	let elf = WriteELF64(o) catch {
+	case ObjError:
+		return false
+	}
+	let dElf = DecodeELF64(elf) catch {
+	case DecodeError:
+		return false
+	}
+	let mut badMagic = elf.Clone()
+	badMagic[0] = byte(0)
+
+	let mut badStr = elf.Clone()
+	let strStart = int(dElf.SecOffsets[int(dElf.StrTabSec)])
+	badStr[strStart] = byte('X')
+
+	let mut badStrEnd = elf.Clone()
+	let strEnd = int(dElf.SecOffsets[int(dElf.StrTabSec)] + dElf.SecSizes[int(dElf.StrTabSec)])
+	badStrEnd[strEnd-1] = byte('X')
+
+	let mut badSymOrder = elf.Clone()
+	let symShdrInfo = int(dElf.ShOff) + int(dElf.SymTabSec)*64 + 44
+	badSymOrder[symShdrInfo] = byte(1)
+
+	let mut badRelaOff = elf.Clone()
+	let relaOffPos = int(dElf.SecOffsets[int(ElfSecRelaText)])
+	badRelaOff[relaOffPos] = byte(0xff)
+	badRelaOff[relaOffPos+1] = byte(0xff)
+
+	let macho = WriteMachO64(sampleBuilder(true, seed)) catch {
+	case ObjError:
+		return false
+	}
+	let dMacho = DecodeMachO64(macho) catch {
+	case DecodeError:
+		return false
+	}
+	let mut badMachoMagic = macho.Clone()
+	badMachoMagic[0] = byte(0)
+
+	let mut badMachoStr = macho.Clone()
+	badMachoStr[int(dMacho.StrOff+dMacho.StrSize)-1] = byte('Z')
+
+	let mut badMachoRel = macho.Clone()
+	let mRelPos = int(dMacho.SecRelOff[0])
+	badMachoRel[mRelPos] = byte(0xff)
+	badMachoRel[mRelPos+1] = byte(0xff)
+
+		elfCorruptRejected(badMagic) &&
+		elfCorruptRejected(badStr) &&
+		elfCorruptRejected(badStrEnd) &&
+		elfCorruptRejected(badSymOrder) &&
+		elfCorruptRejected(badRelaOff) &&
+		machoCorruptRejected(badMachoMagic) &&
+		machoCorruptRejected(badMachoStr) &&
+		machoCorruptRejected(badMachoRel)
+}
