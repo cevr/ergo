@@ -1,0 +1,65 @@
+{
+  "about": "compiler/task: task record/stat-cache serialization, DoD Tarjan/Kahn dependency graph, affected propagation, child env masking, Go gen closure parsing, and verdict replay engine (SELFHOST-TASK-PROFMD-SIZES).",
+  "mutants": [
+    {
+      "name": "selfhost-task-stat-excludes-racy",
+      "origin": "wf10 SELFHOST-TASK-PROFMD-SIZES",
+      "file": "compiler/task/record.ergo",
+      "decl": "EncodeStatCache",
+      "from": "\t\t\tif mtime < racyNanos && ctime < racyNanos {\n",
+      "to": "\t\t\tif true || mtime < racyNanos && ctime < racyNanos {\n",
+      "rule": "EncodeStatCache must omit racy entries modified at or after racyNanos.",
+      "killers": ["compiler/task:StatCacheChangedPathsAndDiffHelpers"]
+    },
+    {
+      "name": "selfhost-task-graph-edge-parent-dir",
+      "origin": "wf10 SELFHOST-TASK-PROFMD-SIZES",
+      "file": "compiler/task/graph.ergo",
+      "decl": "EdgesOf",
+      "from": "\t\t\t\tif inFile || inDir {\n\t\t\t\t\tdepends = true\n\t\t\t\t\tbreak\n\t\t\t\t}\n",
+      "to": "\t\t\t\tif false && (inFile || inDir) {\n\t\t\t\t\tdepends = true\n\t\t\t\t\tbreak\n\t\t\t\t}\n",
+      "rule": "EdgesOf must emit a dependency edge from producer to consumer when an output feeds an input file or listed directory.",
+      "killers": ["compiler/task:GraphDetectsEdgesCyclesAndDeclarationTieBreaking"]
+    },
+    {
+      "name": "selfhost-task-affected-propagates-downstream",
+      "origin": "wf10 SELFHOST-TASK-PROFMD-SIZES",
+      "file": "compiler/task/affected.ergo",
+      "decl": "ComputeAffected",
+      "from": "\t\t\tif why[a] != \"\" && why[b] == \"\" {\n\t\t\t\twhy[b] = \"runs after \\(nodes[a].Name)\"\n\t\t\t\tchanged = true\n\t\t\t}\n",
+      "to": "\t\t\tif false && why[a] != \"\" && why[b] == \"\" {\n\t\t\t\twhy[b] = \"runs after \\(nodes[a].Name)\"\n\t\t\t\tchanged = true\n\t\t\t}\n",
+      "rule": "ComputeAffected must propagate affectedness transitively down dependency edges.",
+      "killers": ["compiler/task:law:AffectedPropagatesTransitively"]
+    },
+    {
+      "name": "selfhost-task-env-masks-grant-lease",
+      "origin": "wf10 SELFHOST-TASK-PROFMD-SIZES",
+      "file": "compiler/task/env.ergo",
+      "decl": "EnvKey",
+      "from": "\t\t\tif h.Before == GrantEnv {\n\t\t\t\tkv = \"\\(h.Before)=(lent grant)\"\n\t\t\t}\n",
+      "to": "\t\t\tif false && h.Before == GrantEnv {\n\t\t\t\tkv = \"\\(h.Before)=(lent grant)\"\n\t\t\t}\n",
+      "rule": "EnvKey must mask ERGO_BUDGET_GRANT values so dynamic lease IDs do not bust the cache key.",
+      "killers": ["compiler/task:law:EnvKeyMasksBudgetGrant"]
+    },
+    {
+      "name": "selfhost-task-verdicts-replay-hit",
+      "origin": "wf10 SELFHOST-TASK-PROFMD-SIZES",
+      "file": "compiler/task/verdict.ergo",
+      "decl": "runSingleVerdict",
+      "from": "\t\t\tif !mode.Fresh {\n\t\t\t\tres.Verdict = Pass\n\t\t\t\tres.Replay = \"hit\"\n\t\t\t\tlet trimmed = strings.TrimSuffix(text, \"\\n\")\n\t\t\t\tres.Log = strings.TrimPrefix(trimmed, \"pass \")\n\t\t\t\treturn (res, emptyStepKey(), false)\n\t\t\t}\n",
+      "to": "\t\t\tif false && !mode.Fresh {\n\t\t\t\tres.Verdict = Pass\n\t\t\t\tres.Replay = \"hit\"\n\t\t\t\tlet trimmed = strings.TrimSuffix(text, \"\\n\")\n\t\t\t\tres.Log = strings.TrimPrefix(trimmed, \"pass \")\n\t\t\t\treturn (res, emptyStepKey(), false)\n\t\t\t}\n",
+      "rule": "runSingleVerdict must replay stored passing verdicts when not running in Fresh mode.",
+      "killers": ["compiler/task:VerdictsSelectedSeedSanitizeAndReplay"]
+    },
+    {
+      "name": "selfhost-task-rungen-contradiction-check",
+      "origin": "wf10 SELFHOST-TASK-PROFMD-SIZES",
+      "file": "compiler/task/affected.ergo",
+      "decl": "RunGen",
+      "from": "\t\t\tif hit && !SameOutputs(stored, outs) {\n\t\t\t\tcontradicted = contradicted.Append(node.Name)\n",
+      "to": "\t\t\tif false && hit && !SameOutputs(stored, outs) {\n\t\t\t\tcontradicted = contradicted.Append(node.Name)\n",
+      "rule": "RunGen must record contradicted nodes when a --fresh run changes outputs compared to the stored hit.",
+      "killers": ["compiler/task:RunGenMultiPassCheckAndContradiction"]
+    }
+  ]
+}

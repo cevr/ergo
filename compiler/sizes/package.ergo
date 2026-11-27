@@ -1,0 +1,63 @@
+import strings
+
+// Package returns the Go package import path that a linker symbol name belongs to,
+// or "(asm)" when the symbol has no package qualifier.
+func Package(symbol string) string {
+	match strings.Cut(symbol, ":") {
+	case Some{Value: h}:
+		if h.Before == "type" || h.Before == "go" {
+			match strings.Cut(symbol, ".") {
+			case Some{Value: d}:
+				return d.Before
+			case None:
+				return symbol
+			}
+		}
+	case None:
+	}
+	let mut head = symbol
+	let cutAt = strings.IndexAny(head, "[(")
+	if cutAt >= 0 {
+		head = head[0:cutAt]
+	}
+	let slash = strings.LastIndex(head, "/")
+	let start = if slash >= 0 { slash + 1 } else { 0 }
+	let dot = strings.IndexByte(head[start:head.Len()], '.')
+	if dot >= 0 {
+		return head[0 : start+dot]
+	}
+	"(asm)"
+}
+
+// LinkedPackage reports whether pkg is a Go package rather than a linker-synthesized
+// symbol group ("(asm)", "_", "type:*", or "go:*").
+func LinkedPackage(pkg string) bool {
+	pkg != "(asm)" && pkg != "_" && !strings.HasPrefix(pkg, "type:") && !strings.HasPrefix(pkg, "go:")
+}
+
+// PackageClassifiesSymbols verifies Package strips generic/receiver suffixes and groups type:/go:/asm symbols.
+law PackageClassifiesSymbols() {
+		Package("type:.eq.main.Pair") == "type:" &&
+		Package("go:itab.*os.File,io.Reader") == "go:itab" &&
+		Package("runtime/metrics.Read") == "runtime/metrics" &&
+		Package("ergo.local/prototype/runtime/v1.RegisterMachine[go.shape.struct {}]") == "ergo.local/prototype/runtime/v1" &&
+		Package("pkg.Fn[dep/sub.Arg]") == "pkg" &&
+		Package("runtime.(*pacer).cycle") == "runtime" &&
+		Package("runtimecgocallback") == "(asm)"
+}
+
+// LinkedPackageExcludesLinkerEntries verifies LinkedPackage rejects assembler and linker-synthesized prefixes.
+law LinkedPackageExcludesLinkerEntries(name string) {
+	let linked = LinkedPackage(name)
+	if name == "(asm)" || name == "_" || strings.HasPrefix(name, "type:") || strings.HasPrefix(name, "go:") {
+		return !linked
+	}
+	linked
+}
+
+test PackageAndLinkedPackage {
+	assert Package("main.main") == "main"
+	assert Package("crypto/sha256.Sum256") == "crypto/sha256"
+	assert !LinkedPackage("type:") && !LinkedPackage("go:builtin") && !LinkedPackage("(asm)") && !LinkedPackage("_")
+	assert LinkedPackage("runtime/metrics")
+}

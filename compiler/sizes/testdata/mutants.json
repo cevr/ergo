@@ -1,0 +1,65 @@
+{
+  "about": "compiler/sizes: symbol package grouping, linker entry filter, NFA regex matcher, ELF64/32 binary size reader, and size budget checker (SELFHOST-TASK-PROFMD-SIZES).",
+  "mutants": [
+    {
+      "name": "selfhost-sizes-package-cuts-generics",
+      "origin": "wf10 SELFHOST-TASK-PROFMD-SIZES",
+      "file": "compiler/sizes/package.ergo",
+      "decl": "Package",
+      "from": "\tlet cutAt = strings.IndexAny(head, \"[(\")\n\tif cutAt >= 0 {\n\t\thead = head[0:cutAt]\n\t}\n",
+      "to": "\tlet cutAt = strings.IndexAny(head, \"[(\")\n\tif false && cutAt >= 0 {\n\t\thead = head[0:cutAt]\n\t}\n",
+      "rule": "Package must strip generic type arguments and method receivers before locating the package dot.",
+      "killers": ["compiler/sizes:law:PackageClassifiesSymbols", "compiler/sizes:PackageAndLinkedPackage"]
+    },
+    {
+      "name": "selfhost-sizes-regex-end-anchor",
+      "origin": "wf10 SELFHOST-TASK-PROFMD-SIZES",
+      "file": "compiler/sizes/regex.ergo",
+      "decl": "addClosureState",
+      "from": "\t\t} else if op == reEnd {\n\t\t\tif atEnd {\n\t\t\t\tstack = stack.Append(re.X[i])\n\t\t\t}\n",
+      "to": "\t\t} else if op == reEnd {\n\t\t\tif true || atEnd {\n\t\t\t\tstack = stack.Append(re.X[i])\n\t\t\t}\n",
+      "rule": "Regex end-of-text anchor $ must advance only at the end of input.",
+      "killers": ["compiler/sizes:RegexMatchesBudgetFacts"]
+    },
+    {
+      "name": "selfhost-sizes-elf-exec-filter",
+      "origin": "wf10 SELFHOST-TASK-PROFMD-SIZES",
+      "file": "compiler/sizes/elf.ergo",
+      "decl": "MeasureELFBytes",
+      "from": "\t\tif (shFlags[int(secIdx)] & shfExecInstr) == uint64(0) {\n\t\t\tcontinue\n\t\t}\n",
+      "to": "\t\tif (shFlags[int(secIdx)] & shfExecInstr) == uint64(1) {\n\t\t\tcontinue\n\t\t}\n",
+      "rule": "MeasureELFBytes must attribute Text bytes only from executable (SHF_EXECINSTR) sections.",
+      "killers": ["compiler/sizes:SyntheticELF64MeasuresTextSectionsAndSymbols"]
+    },
+    {
+      "name": "selfhost-sizes-budget-raise-ledger",
+      "origin": "wf10 SELFHOST-TASK-PROFMD-SIZES",
+      "file": "compiler/sizes/budget.ergo",
+      "decl": "ValidateFixtureLedger",
+      "from": "\tif cErgo > topErgo {\n\t\treturn \"ceiling ergoOnly \\(int64Text(cErgo)) is above base and raises, \\(int64Text(topErgo)): a raise must name its bytes\"\n\t}\n",
+      "to": "\tif false && cErgo > topErgo {\n\t\treturn \"ceiling ergoOnly \\(int64Text(cErgo)) is above base and raises, \\(int64Text(topErgo)): a raise must name its bytes\"\n\t}\n",
+      "rule": "ValidateFixtureLedger must reject fixtures whose ergoOnly ceiling exceeds base plus raises.",
+      "killers": ["compiler/sizes:LedgerValidationSupportsNegativeOwnerBytes"]
+    },
+    {
+      "name": "selfhost-sizes-check-unused-package",
+      "origin": "wf10 SELFHOST-TASK-PROFMD-SIZES",
+      "file": "compiler/sizes/budget.ergo",
+      "decl": "CheckBudget",
+      "from": "\t\t\tfor pkg in sortedPkgs {\n\t\t\t\tif LinkedPackage(pkg) && !slices.Contains(f.Packages, pkg) {\n",
+      "to": "\t\t\tfor pkg in sortedPkgs {\n\t\t\t\tif false && LinkedPackage(pkg) && !slices.Contains(f.Packages, pkg) {\n",
+      "rule": "CheckBudget must flag linked Go packages missing from a fixture's package allowlist.",
+      "killers": ["compiler/sizes:CheckBudgetDetectsCeilingsForbidPackagesAndMissing"]
+    },
+    {
+      "name": "selfhost-sizes-repro-path-leak",
+      "origin": "wf10 SELFHOST-TASK-PROFMD-SIZES",
+      "file": "compiler/sizes/cmd_checks.ergo",
+      "decl": "CheckReproducible",
+      "from": "\t\tif rootBytes.Len() > 0 && bytesContainsSubslice(bodies[i], rootBytes) {\n\t\t\tproblems = problems.Append(\"\\(names[i]) holds the checkout's path \\(root)\")\n\t\t}\n",
+      "to": "\t\tif false && rootBytes.Len() > 0 && bytesContainsSubslice(bodies[i], rootBytes) {\n\t\t\tproblems = problems.Append(\"\\(names[i]) holds the checkout's path \\(root)\")\n\t\t}\n",
+      "rule": "CheckReproducible must detect checkout path leaks embedded in binary bytes.",
+      "killers": ["compiler/sizes:law:ReproducibleRejectsLeakedRoot"]
+    }
+  ]
+}

@@ -1,0 +1,265 @@
+import option
+import sync
+import task
+import time
+
+// ReportShare is the maximum reserve kept before a test deadline for reporting.
+let ReportShare = 1m
+
+// FirstPoll is the initial polling backoff interval used by WaitUntil.
+let FirstPoll = 10us
+
+// LastPoll is the maximum polling backoff interval used by WaitUntil.
+let LastPoll = 1ms
+
+// MinLeft is the smallest positive duration returned by Left when a deadline exists.
+let MinLeft = 1s
+
+// WaitEntry represents one deadline-bound calculation row.
+type WaitEntry {
+	// HasDeadline reports whether the test has an active deadline.
+	HasDeadline bool,
+	// Now is the reference instant when the calculation was evaluated.
+	Now time.Time,
+	// Deadline is the raw test deadline when HasDeadline is true.
+	Deadline time.Time,
+	// End is the adjusted wait end time leaving ReportShare before Deadline.
+	End time.Time,
+	// Left is the duration from Now to End clamped to at least MinLeft.
+	Left duration,
+	// Expired reports whether Now is at or past End when HasDeadline is true.
+	Expired bool,
+}
+
+// WaitTable stores deadline calculations in flat Structure-of-Arrays columns indexed by uint32 IDs.
+type WaitTable {
+	// Count is the number of rows in the table.
+	Count uint32,
+	// HasDeadline tracks whether each row has a deadline.
+	HasDeadline []bool,
+	// Now tracks the reference timestamp per row.
+	Now []time.Time,
+	// Deadline tracks the test deadline per row.
+	Deadline []time.Time,
+	// End tracks the computed wait end instant per row.
+	End []time.Time,
+	// Left tracks the computed remaining duration per row.
+	Left []duration,
+	// Expired tracks whether Now reached or passed End per row.
+	Expired []bool,
+}
+
+// NewWaitTable allocates an empty WaitTable.
+func NewWaitTable() WaitTable {
+	WaitTable{
+		Count:       uint32(0),
+		HasDeadline: []bool{},
+		Now:         []time.Time{},
+		Deadline:    []time.Time{},
+		End:         []time.Time{},
+		Left:        []duration{},
+		Expired:     []bool{},
+	}
+}
+
+// End computes the wait cutoff instant before deadline, reserving up to ReportShare (a tenth of remaining time).
+func End(now time.Time, deadline option.Option[time.Time]) option.Option[time.Time] {
+	let dl = match deadline {
+	case option.Some{Value: v}:
+		v
+	case option.None:
+		return option.None
+	}
+	let remaining = dl.Sub(now)
+	let tenth = time.Divide(remaining, 10)
+	let share = if tenth < ReportShare { tenth } else { ReportShare }
+	option.Some[time.Time]{Value: dl.Add(-share)}
+}
+
+// Left computes the duration from now until End, clamped to at least MinLeft when a deadline is set.
+func Left(now time.Time, deadline option.Option[time.Time]) duration {
+	let end = match End(now, deadline) {
+	case option.Some{Value: v}:
+		v
+	case option.None:
+		return 0ns
+	}
+	let d = end.Sub(now)
+	if d > MinLeft { d } else { MinLeft }
+}
+
+// NextPoll returns the doubled polling interval clamped at LastPoll (and at least FirstPoll).
+func NextPoll(interval duration) duration {
+	if interval <= 0ns {
+		return FirstPoll
+	}
+	let doubled = time.Times(interval, 2)
+	if doubled > LastPoll {
+		return LastPoll
+	}
+	if doubled < FirstPoll {
+		return FirstPoll
+	}
+	doubled
+}
+
+// PollSchedule returns count exponential backoff polling intervals starting from FirstPoll.
+func PollSchedule(count uint32) []duration {
+	let mut out = []duration{}
+	let mut interval = FirstPoll
+	for _ in 0..int(count) {
+		out = out.Append(interval)
+		interval = NextPoll(interval)
+	}
+	out
+}
+
+// ExpiredAt reports whether now is at or past end when end is Some.
+func ExpiredAt(now time.Time, end option.Option[time.Time]) bool {
+	match end {
+	case option.Some{Value: v}:
+		!now.Before(v)
+	case option.None:
+		false
+	}
+}
+
+// RecordWait evaluates End, Left, and ExpiredAt for (now, deadline) and appends a row to t.
+func RecordWait(t mut WaitTable, now time.Time, deadline option.Option[time.Time]) uint32 {
+	let idx = t.Count
+	let has = match deadline {
+	case option.Some:
+		true
+	case option.None:
+		false
+	}
+	let dlVal = match deadline {
+	case option.Some{Value: v}:
+		v
+	case option.None:
+		time.Unix(0, 0)
+	}
+	let endOpt = End(now, deadline)
+	let endVal = match endOpt {
+	case option.Some{Value: v}:
+		v
+	case option.None:
+		time.Unix(0, 0)
+	}
+	let left = Left(now, deadline)
+	let exp = ExpiredAt(now, endOpt)
+	t.Count = idx + uint32(1)
+	t.HasDeadline = t.HasDeadline.Append(has)
+	t.Now = t.Now.Append(now)
+	t.Deadline = t.Deadline.Append(dlVal)
+	t.End = t.End.Append(endVal)
+	t.Left = t.Left.Append(left)
+	t.Expired = t.Expired.Append(exp)
+	idx
+}
+
+// WaitAt returns the WaitEntry stored at dense row index idx.
+func WaitAt(t WaitTable, idx uint32) WaitEntry {
+	let i = int(idx)
+	WaitEntry{
+		HasDeadline: t.HasDeadline[i],
+		Now:         t.Now[i],
+		Deadline:    t.Deadline[i],
+		End:         t.End[i],
+		Left:        t.Left[i],
+		Expired:     t.Expired[i],
+	}
+}
+
+// Until polls cond with exponential backoff until it returns true or End(deadline) expires.
+func Until[R](deadline option.Option[time.Time], cond func() bool needs R) bool needs R | time.Clock | time.Scheduler {
+	let end = End(time.Clock.Now(), deadline)
+	let mut interval = FirstPoll
+	for !cond() {
+		if ExpiredAt(time.Clock.Now(), end) {
+			return cond()
+		}
+		time.Scheduler.Sleep(interval)
+		interval = NextPoll(interval)
+	}
+	true
+}
+
+// EndReservesReportShare guarantees End keeps at most ReportShare and never exceeds the deadline for future deadlines.
+law EndReservesReportShare(nowSec uint32, remSec uint32) {
+	let base = time.Unix(int64(nowSec%uint32(1000000000)), 0)
+	let rem = duration(int64(remSec%uint32(3600)+uint32(1)) * 1000000000)
+	let dl = base.Add(rem)
+	let end = match End(base, option.Some[time.Time]{Value: dl}) {
+	case option.Some{Value: v}:
+		v
+	case option.None:
+		return false
+	}
+	let reserved = dl.Sub(end)
+	let left = Left(base, option.Some[time.Time]{Value: dl})
+	!end.After(dl) && reserved <= ReportShare && reserved >= 0ns && left >= MinLeft
+}
+
+// PollScheduleMonotoneBounded guarantees backoff intervals start at FirstPoll, stay non-decreasing, and cap at LastPoll.
+law PollScheduleMonotoneBounded(steps uint8) {
+	let n = uint32(int(steps)%16 + 1)
+	let sched = PollSchedule(n)
+	if sched[0] != FirstPoll {
+		return false
+	}
+	for i in 1..sched.Len() {
+		if sched[i] < sched[i-1] || sched[i] > LastPoll {
+			return false
+		}
+	}
+	true
+}
+
+test WaitCalculationsAndManualUntil {
+	let now = time.Unix(1000, 0)
+	assert End(now, option.None) == option.None
+	assert Left(now, option.None) == 0ns
+
+	let shortDL = now.Add(20s)
+	let shortEnd = End(now, option.Some[time.Time]{Value: shortDL})
+	assert shortEnd == option.Some[time.Time]{Value: now.Add(18s)}
+	assert Left(now, option.Some[time.Time]{Value: shortDL}) == 18s
+
+	let longDL = now.Add(1200s)
+	let longEnd = End(now, option.Some[time.Time]{Value: longDL})
+	assert longEnd == option.Some[time.Time]{Value: now.Add(1140s)}
+	assert Left(now, option.Some[time.Time]{Value: longDL}) == 1140s
+
+	let tinyDL = now.Add(500ms)
+	assert Left(now, option.Some[time.Time]{Value: tinyDL}) == MinLeft
+
+	let mut tbl = NewWaitTable()
+	let r0 = RecordWait(&tbl, now, option.None)
+	let r1 = RecordWait(&tbl, now, option.Some[time.Time]{Value: shortDL})
+	assert r0 == uint32(0) && r1 == uint32(1)
+	assert !WaitAt(tbl, r0).HasDeadline && WaitAt(tbl, r1).Left == 18s && !WaitAt(tbl, r1).Expired
+
+	let m = time.NewManual(1000)
+	let checks = sync.NewRef[int](0)
+	let ok = with context { time.Clock: m, time.Scheduler: m } {
+		let t0 = time.Clock.Now()
+		let dl = option.Some[time.Time]{Value: t0.Add(100ms)}
+		let t = task.Go() {
+			Until(dl, func() bool {
+				sync.Modify(checks, func(v int) (bool, int) {
+					let next = v + 1
+					(next >= 3, next)
+				})
+			})
+		}
+		for m.Sleepers() == 0 && checks.Get() < 3 {
+		}
+		m.Advance(FirstPoll)
+		for m.Sleepers() == 0 && checks.Get() < 3 {
+		}
+		m.Advance(NextPoll(FirstPoll))
+		t.Wait()
+	}
+	assert ok && checks.Get() >= 3
+}

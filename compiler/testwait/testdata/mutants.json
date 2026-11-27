@@ -1,0 +1,35 @@
+{
+  "about": "compiler/testwait: deadline report-share reservation, clamped wait Left duration, exponential poll backoff, and WaitTable SoA (SELFHOST-TASK-PROFMD-SIZES).",
+  "mutants": [
+    {
+      "name": "selfhost-testwait-end-reserves-share",
+      "origin": "wf10 SELFHOST-TASK-PROFMD-SIZES",
+      "file": "compiler/testwait/testwait.ergo",
+      "decl": "End",
+      "from": "\tlet share = if tenth < ReportShare { tenth } else { ReportShare }\n\toption.Some[time.Time]{Value: dl.Add(-share)}\n",
+      "to": "\tlet share = if tenth < ReportShare { tenth } else { ReportShare }\n\tlet _ = share\n\toption.Some[time.Time]{Value: dl}\n",
+      "rule": "End must subtract at most ReportShare from deadline so reports flush before test timeout.",
+      "killers": ["compiler/testwait:WaitCalculationsAndManualUntil"]
+    },
+    {
+      "name": "selfhost-testwait-left-clamps-minleft",
+      "origin": "wf10 SELFHOST-TASK-PROFMD-SIZES",
+      "file": "compiler/testwait/testwait.ergo",
+      "decl": "Left",
+      "from": "\tif d > MinLeft { d } else { MinLeft }\n",
+      "to": "\tif true || d > MinLeft { d } else { MinLeft }\n",
+      "rule": "Left must clamp positive deadline remainders to at least MinLeft.",
+      "killers": ["compiler/testwait:law:EndReservesReportShare", "compiler/testwait:WaitCalculationsAndManualUntil"]
+    },
+    {
+      "name": "selfhost-testwait-nextpoll-caps-lastpoll",
+      "origin": "wf10 SELFHOST-TASK-PROFMD-SIZES",
+      "file": "compiler/testwait/testwait.ergo",
+      "decl": "NextPoll",
+      "from": "\tif doubled > LastPoll {\n\t\treturn LastPoll\n\t}\n",
+      "to": "\tif false && doubled > LastPoll {\n\t\treturn LastPoll\n\t}\n",
+      "rule": "NextPoll must cap doubled intervals at LastPoll.",
+      "killers": ["compiler/testwait:law:PollScheduleMonotoneBounded"]
+    }
+  ]
+}
