@@ -1,0 +1,415 @@
+import github.com/cevr/ergo/modules/atlas/memory
+import json
+
+// Api is the typed service contract for Atlas runtime state, MCP auth, host capacity, and wellness.
+type Api {
+	// ThreadCreate initializes and persists a new Atlas thread and optional parent branch edge.
+	ThreadCreate(input ThreadCreateInput) ThreadSnapshot fails memory.NotFound | memory.AlreadyExists | memory.InvalidTransition | memory.CommandReused | memory.InvalidInput | memory.LeaseFenced | memory.ThreadDomainErr | memory.SubagentDomainErr | memory.HandleDomainErr | memory.LimitDomainErr | memory.RequestDomainErr | memory.CutoverDomainErr | memory.StoreFailed,
+
+	// ThreadGet reads a projected thread together with its connected branch edges and FIFO prompt queue.
+	ThreadGet(input ThreadTargetInput) ThreadSnapshot fails memory.NotFound | memory.InvalidInput | memory.StoreFailed,
+
+	// ThreadList lists persisted threads ordered by creation sequence with optional pagination.
+	ThreadList(input ThreadListInput) ThreadListOutput fails memory.InvalidInput | memory.StoreFailed,
+
+	// ThreadArchive archives an idle thread, releases its live session, and revokes its /mcp bearer tokens.
+	ThreadArchive(input ThreadArchiveInput) ThreadSnapshot fails memory.NotFound | memory.AlreadyExists | memory.InvalidTransition | memory.CommandReused | memory.InvalidInput | memory.LeaseFenced | memory.ThreadDomainErr | memory.SubagentDomainErr | memory.HandleDomainErr | memory.LimitDomainErr | memory.RequestDomainErr | memory.CutoverDomainErr | memory.StoreFailed,
+
+	// DriverSwitch switches a thread between Meta and Direct drivers when no turn is active.
+	DriverSwitch(input DriverSwitchInput) ThreadSnapshot fails memory.NotFound | memory.AlreadyExists | memory.InvalidTransition | memory.CommandReused | memory.InvalidInput | memory.LeaseFenced | memory.ThreadDomainErr | memory.SubagentDomainErr | memory.HandleDomainErr | memory.LimitDomainErr | memory.RequestDomainErr | memory.CutoverDomainErr | memory.StoreFailed,
+
+	// PromptEnqueue appends a follow-up prompt to a thread's FIFO prompt queue.
+	PromptEnqueue(input PromptEnqueueInput) ThreadSnapshot fails memory.NotFound | memory.AlreadyExists | memory.InvalidTransition | memory.CommandReused | memory.InvalidInput | memory.LeaseFenced | memory.ThreadDomainErr | memory.SubagentDomainErr | memory.HandleDomainErr | memory.LimitDomainErr | memory.RequestDomainErr | memory.CutoverDomainErr | memory.StoreFailed,
+
+	// PromptDequeue pops the head follow-up prompt from an idle thread's prompt queue.
+	PromptDequeue(input PromptDequeueInput) ThreadSnapshot fails memory.NotFound | memory.AlreadyExists | memory.InvalidTransition | memory.CommandReused | memory.InvalidInput | memory.LeaseFenced | memory.ThreadDomainErr | memory.SubagentDomainErr | memory.HandleDomainErr | memory.LimitDomainErr | memory.RequestDomainErr | memory.CutoverDomainErr | memory.StoreFailed,
+
+	// TurnStart allocates or reuses a live session, starts one turn, and touches current-generation /mcp tokens.
+	TurnStart(input TurnStartInput) ThreadSnapshot fails memory.NotFound | memory.AlreadyExists | memory.InvalidTransition | memory.CommandReused | memory.InvalidInput | memory.LeaseFenced | memory.ThreadDomainErr | memory.SubagentDomainErr | memory.HandleDomainErr | memory.LimitDomainErr | memory.RequestDomainErr | memory.CutoverDomainErr | memory.StoreFailed,
+
+	// TurnStep advances the active turn on a thread through TurnAction transitions.
+	TurnStep(input TurnStepInput) ThreadSnapshot fails memory.NotFound | memory.AlreadyExists | memory.InvalidTransition | memory.CommandReused | memory.InvalidInput | memory.LeaseFenced | memory.ThreadDomainErr | memory.SubagentDomainErr | memory.HandleDomainErr | memory.LimitDomainErr | memory.RequestDomainErr | memory.CutoverDomainErr | memory.StoreFailed,
+
+	// SubagentTreeInit initializes a bounded recursive subagent tree rooted at RootID.
+	SubagentTreeInit(input SubagentTreeInitInput) SubagentTreeOutput fails memory.NotFound | memory.AlreadyExists | memory.InvalidTransition | memory.CommandReused | memory.InvalidInput | memory.LeaseFenced | memory.ThreadDomainErr | memory.SubagentDomainErr | memory.HandleDomainErr | memory.LimitDomainErr | memory.RequestDomainErr | memory.CutoverDomainErr | memory.StoreFailed,
+
+	// SubagentSpawn spawns a bounded child node beneath ParentID in RootID's tree.
+	SubagentSpawn(input SubagentSpawnInput) SubagentTreeOutput fails memory.NotFound | memory.AlreadyExists | memory.InvalidTransition | memory.CommandReused | memory.InvalidInput | memory.LeaseFenced | memory.ThreadDomainErr | memory.SubagentDomainErr | memory.HandleDomainErr | memory.LimitDomainErr | memory.RequestDomainErr | memory.CutoverDomainErr | memory.StoreFailed,
+
+	// SubagentControlHandle opens an unsettled subagent handle strictly within CallerID's subtree.
+	SubagentControlHandle(input SubagentControlHandleInput) SubagentTreeOutput fails memory.NotFound | memory.AlreadyExists | memory.InvalidTransition | memory.CommandReused | memory.InvalidInput | memory.LeaseFenced | memory.ThreadDomainErr | memory.SubagentDomainErr | memory.HandleDomainErr | memory.LimitDomainErr | memory.RequestDomainErr | memory.CutoverDomainErr | memory.StoreFailed,
+
+	// SubagentSettleHandle settles a tracked subagent handle on NodeID and unparks NodeID when clear.
+	SubagentSettleHandle(input SubagentSettleHandleInput) SubagentTreeOutput fails memory.NotFound | memory.AlreadyExists | memory.InvalidTransition | memory.CommandReused | memory.InvalidInput | memory.LeaseFenced | memory.ThreadDomainErr | memory.SubagentDomainErr | memory.HandleDomainErr | memory.LimitDomainErr | memory.RequestDomainErr | memory.CutoverDomainErr | memory.StoreFailed,
+
+	// SubagentHandBack finalizes hand-back for an unblocked subagent child node.
+	SubagentHandBack(input SubagentHandBackInput) SubagentTreeOutput fails memory.NotFound | memory.AlreadyExists | memory.InvalidTransition | memory.CommandReused | memory.InvalidInput | memory.LeaseFenced | memory.ThreadDomainErr | memory.SubagentDomainErr | memory.HandleDomainErr | memory.LimitDomainErr | memory.RequestDomainErr | memory.CutoverDomainErr | memory.StoreFailed,
+
+	// SubagentTreeGet reads one projected bounded subagent tree by RootID.
+	SubagentTreeGet(input SubagentTreeGetInput) SubagentTreeOutput fails memory.NotFound | memory.InvalidInput | memory.StoreFailed,
+
+	// HandleOpen registers a new DELIVERS wake handle with optional subagent tree correlation.
+	HandleOpen(input HandleOpenInput) HandleEntryView fails memory.NotFound | memory.AlreadyExists | memory.InvalidTransition | memory.CommandReused | memory.InvalidInput | memory.LeaseFenced | memory.ThreadDomainErr | memory.SubagentDomainErr | memory.HandleDomainErr | memory.LimitDomainErr | memory.RequestDomainErr | memory.CutoverDomainErr | memory.StoreFailed,
+
+	// HandleSettle settles an open DELIVERS handle once to a terminal disposition.
+	HandleSettle(input HandleSettleInput) HandleEntryView fails memory.NotFound | memory.AlreadyExists | memory.InvalidTransition | memory.CommandReused | memory.InvalidInput | memory.LeaseFenced | memory.ThreadDomainErr | memory.SubagentDomainErr | memory.HandleDomainErr | memory.LimitDomainErr | memory.RequestDomainErr | memory.CutoverDomainErr | memory.StoreFailed,
+
+	// HandleList queries matching DELIVERS handles, wake records, and pool holds.
+	HandleList(input HandleListInput) HandleViewOutput fails memory.InvalidInput | memory.StoreFailed,
+
+	// OwnerCallsRetire retires all open KindCall handles owned by a dead server incarnation as DispLost.
+	OwnerCallsRetire(input OwnerCallsRetireInput) RetiredCallsOutput fails memory.NotFound | memory.AlreadyExists | memory.InvalidTransition | memory.CommandReused | memory.InvalidInput | memory.LeaseFenced | memory.ThreadDomainErr | memory.SubagentDomainErr | memory.HandleDomainErr | memory.LimitDomainErr | memory.RequestDomainErr | memory.CutoverDomainErr | memory.StoreFailed,
+
+	// QuestionAsk persists an ask_user_async question correlated with a KindQuestion handle.
+	QuestionAsk(input QuestionAskInput) AsyncQuestionView fails memory.NotFound | memory.AlreadyExists | memory.InvalidTransition | memory.CommandReused | memory.InvalidInput | memory.LeaseFenced | memory.ThreadDomainErr | memory.SubagentDomainErr | memory.HandleDomainErr | memory.LimitDomainErr | memory.RequestDomainErr | memory.CutoverDomainErr | memory.StoreFailed,
+
+	// QuestionAnswer records a single immutable answer on an open ask_user_async question.
+	QuestionAnswer(input QuestionAnswerInput) AsyncQuestionView fails memory.NotFound | memory.AlreadyExists | memory.InvalidTransition | memory.CommandReused | memory.InvalidInput | memory.LeaseFenced | memory.ThreadDomainErr | memory.SubagentDomainErr | memory.HandleDomainErr | memory.LimitDomainErr | memory.RequestDomainErr | memory.CutoverDomainErr | memory.StoreFailed,
+
+	// QuestionWithdraw silently withdraws an open ask_user_async question and cancels its handle.
+	QuestionWithdraw(input QuestionWithdrawInput) AsyncQuestionView fails memory.NotFound | memory.AlreadyExists | memory.InvalidTransition | memory.CommandReused | memory.InvalidInput | memory.LeaseFenced | memory.ThreadDomainErr | memory.SubagentDomainErr | memory.HandleDomainErr | memory.LimitDomainErr | memory.RequestDomainErr | memory.CutoverDomainErr | memory.StoreFailed,
+
+	// QuestionList queries persisted ask_user_async entries by optional ThreadID and Status.
+	QuestionList(input QuestionListInput) AsyncQuestionListOutput fails memory.InvalidInput | memory.StoreFailed,
+
+	// PoolAccountUpsert creates or updates quota window utilization and health state for an account slot.
+	PoolAccountUpsert(input PoolAccountUpsertInput) PoolViewOutput fails memory.NotFound | memory.AlreadyExists | memory.InvalidTransition | memory.CommandReused | memory.InvalidInput | memory.LeaseFenced | memory.ThreadDomainErr | memory.SubagentDomainErr | memory.HandleDomainErr | memory.LimitDomainErr | memory.RequestDomainErr | memory.CutoverDomainErr | memory.StoreFailed,
+
+	// PoolHoldOpen creates a waiting quota pool hold keyed by HoldKey with HoldWakeDeliveryID.
+	PoolHoldOpen(input PoolHoldOpenInput) PoolViewOutput fails memory.NotFound | memory.AlreadyExists | memory.InvalidTransition | memory.CommandReused | memory.InvalidInput | memory.LeaseFenced | memory.ThreadDomainErr | memory.SubagentDomainErr | memory.HandleDomainErr | memory.LimitDomainErr | memory.RequestDomainErr | memory.CutoverDomainErr | memory.StoreFailed,
+
+	// PoolHoldTransition wakes or cancels an existing waiting quota pool hold.
+	PoolHoldTransition(input PoolHoldTransitionInput) PoolViewOutput fails memory.NotFound | memory.AlreadyExists | memory.InvalidTransition | memory.CommandReused | memory.InvalidInput | memory.LeaseFenced | memory.ThreadDomainErr | memory.SubagentDomainErr | memory.HandleDomainErr | memory.LimitDomainErr | memory.RequestDomainErr | memory.CutoverDomainErr | memory.StoreFailed,
+
+	// PoolView queries durable quota pool accounts and active/due holds at NowMs.
+	PoolView(input PoolViewInput) PoolViewOutput fails memory.InvalidInput | memory.StoreFailed,
+
+	// KernelSnapshotSave saves a bounded serialized kernel binding snapshot for one session.
+	KernelSnapshotSave(input KernelSnapshotSaveInput) KernelViewOutput fails memory.NotFound | memory.AlreadyExists | memory.InvalidTransition | memory.CommandReused | memory.InvalidInput | memory.LeaseFenced | memory.ThreadDomainErr | memory.SubagentDomainErr | memory.HandleDomainErr | memory.LimitDomainErr | memory.RequestDomainErr | memory.CutoverDomainErr | memory.StoreFailed,
+
+	// KernelCutRecord records one cut.calls / cut.maps audit journal and updates hourly root accounting.
+	KernelCutRecord(input KernelCutRecordInput) KernelViewOutput fails memory.NotFound | memory.AlreadyExists | memory.InvalidTransition | memory.CommandReused | memory.InvalidInput | memory.LeaseFenced | memory.ThreadDomainErr | memory.SubagentDomainErr | memory.HandleDomainErr | memory.LimitDomainErr | memory.RequestDomainErr | memory.CutoverDomainErr | memory.StoreFailed,
+
+	// KernelView queries persisted kernel snapshot, cut journals, root usages, limits, and requests.
+	KernelView(input KernelViewInput) KernelViewOutput fails memory.InvalidInput | memory.StoreFailed,
+
+	// LeaseAcquire acquires or CAS-advances a fenced server ownership lease.
+	LeaseAcquire(input LeaseAcquireInput) BootLeaseOutput fails memory.NotFound | memory.AlreadyExists | memory.InvalidTransition | memory.CommandReused | memory.InvalidInput | memory.LeaseFenced | memory.ThreadDomainErr | memory.SubagentDomainErr | memory.HandleDomainErr | memory.LimitDomainErr | memory.RequestDomainErr | memory.CutoverDomainErr | memory.StoreFailed,
+
+	// BootReconcile executes deterministic startup reconciliation across handles, wakes, turns, requests, and subagents.
+	BootReconcile(input BootReconcileInput) BootLeaseOutput fails memory.NotFound | memory.AlreadyExists | memory.InvalidTransition | memory.CommandReused | memory.InvalidInput | memory.LeaseFenced | memory.ThreadDomainErr | memory.SubagentDomainErr | memory.HandleDomainErr | memory.LimitDomainErr | memory.RequestDomainErr | memory.CutoverDomainErr | memory.StoreFailed,
+
+	// BootStatus inspects active server lease status, open volatile owners, and pending boot reconciliation scope.
+	BootStatus(input BootStatusInput) BootLeaseOutput fails memory.InvalidInput | memory.StoreFailed,
+
+	// HostCapacityGet returns non-blocking CPU, load, memory, and volume capacity metrics from HostCapacity.
+	HostCapacityGet(input HostCapacityInput) HostCapacityReport fails memory.InvalidInput | HostCapacityFailed,
+
+	// WellnessReportGet evaluates non-spawning store consistency, handle/pool health, and host capacity headroom.
+	WellnessReportGet(input WellnessReportInput) WellnessReport fails memory.InvalidInput,
+
+	// McpTokenMint mints or rotates a SHA-256-hashed per-thread /mcp bearer credential.
+	McpTokenMint(input McpTokenMintInput) MintedToken fails memory.NotFound | memory.InvalidInput | memory.StoreFailed | McpAuthDenied,
+
+	// McpTokenRevoke revokes all active /mcp bearer tokens for ThreadID or SessionID.
+	McpTokenRevoke(input McpTokenRevokeInput) McpTokenRevokeOutput fails memory.InvalidInput,
+
+	// McpTokenList lists redacted /mcp bearer token summaries for ThreadID without exposing digests or secrets.
+	McpTokenList(input McpTokenListInput) McpTokenListOutput fails memory.InvalidInput,
+
+	// ApiThreadTurnQueueAndTokenLifecycle verifies thread creation, driver switch, queue FIFO, turn stepping, /mcp minting, and archive revocation.
+	law ApiThreadTurnQueueAndTokenLifecycle(tag int) {
+		let tid = "api-th-\(tag)"
+		let t0 = ThreadCreate(ThreadCreateInput{
+			CommandID:          "tc-\(tag)",
+			Actor:              "root",
+			AtMs:               int64(1000),
+			ThreadID:           tid,
+			Driver:             "claude-meta",
+			PermissionMode:     "auto_edit",
+			Instance:           "inst-1",
+			ConfigDir:          "/tmp/c",
+			Model:              "sonnet",
+			AgyDirectSupported: false,
+			ParentThreadID:     json.Absent,
+			EdgeLabel:          json.Absent,
+			SharedHome:         json.Absent,
+			LinkOriginKind:     json.Absent,
+			LinkOriginTarget:   json.Absent,
+		}) catch {
+		case _:
+			return false
+		}
+		if t0.ThreadID != tid || t0.Path != "meta" {
+			return false
+		}
+		let t1 = DriverSwitch(DriverSwitchInput{
+			CommandID:          "ds-\(tag)",
+			Actor:              "root",
+			AtMs:               int64(1010),
+			ThreadID:           tid,
+			NextDriver:         "codex-direct",
+			PermissionMode:     "yolo",
+			Instance:           "inst-2",
+			ConfigDir:          "/tmp/c2",
+			AgyDirectSupported: false,
+			SharedHome:         json.Absent,
+		}) catch {
+		case _:
+			return false
+		}
+		let t2 = PromptEnqueue(PromptEnqueueInput{
+			CommandID:     "pe-\(tag)",
+			Actor:         "user",
+			AtMs:          int64(1020),
+			ThreadID:      tid,
+			PromptID:      "p-1",
+			Body:          "hello",
+			RequestedMode: "ask",
+		}) catch {
+		case _:
+			return false
+		}
+		let t3 = PromptDequeue(PromptDequeueInput{
+			CommandID: "pd-\(tag)",
+			Actor:     "root",
+			AtMs:      int64(1030),
+			ThreadID:  tid,
+		}) catch {
+		case _:
+			return false
+		}
+		let t4 = TurnStart(TurnStartInput{
+			CommandID: "ts-\(tag)",
+			Actor:     "root",
+			AtMs:      int64(1040),
+			ThreadID:  tid,
+			TurnID:    "turn-1",
+		}) catch {
+		case _:
+			return false
+		}
+		let sessID = match t4.ActiveSessionID {
+		case json.Present[string] as sid:
+			sid.Value
+		case json.Absent:
+			""
+		}
+		let tok = McpTokenMint(McpTokenMintInput{
+			TokenID:        "mtok-\(tag)",
+			ThreadID:       tid,
+			SessionID:      sessID,
+			Gen:            t4.SessionGen,
+			NowMs:          int64(1045),
+			AudienceKind:   "thread",
+			ClientID:       json.Absent,
+			Scopes:         []string{"*"},
+			RotateExisting: false,
+		}) catch {
+		case _:
+			return false
+		}
+		let _ = TurnStep(TurnStepInput{
+			CommandID:     "td-\(tag)",
+			Actor:         "driver",
+			AtMs:          int64(1050),
+			ThreadID:      tid,
+			Action:        "delta",
+			FailureClass:  json.Absent,
+			FailureDetail: json.Absent,
+			ResetAtMs:     json.Absent,
+		}) catch {
+		case _:
+			return false
+		}
+		let t5 = TurnStep(TurnStepInput{
+			CommandID:     "tf-\(tag)",
+			Actor:         "driver",
+			AtMs:          int64(1060),
+			ThreadID:      tid,
+			Action:        "finish-completed",
+			FailureClass:  json.Absent,
+			FailureDetail: json.Absent,
+			ResetAtMs:     json.Absent,
+		}) catch {
+		case _:
+			return false
+		}
+		let t6 = ThreadArchive(ThreadArchiveInput{
+			CommandID:     "ta-\(tag)",
+			Actor:         "root",
+			AtMs:          int64(1070),
+			ThreadID:      tid,
+			ArchiveReason: json.Present[string]{Value: "done"},
+		}) catch {
+		case _:
+			return false
+		}
+		let toks = McpTokenList(McpTokenListInput{ThreadID: tid, IncludeRevoked: true}) catch {
+		case _:
+			return false
+		}
+		t1.Path == "direct" && t2.QueuedPrompts.Len() == 1 && t3.QueuedPrompts.Len() == 0 && t5.TurnsCompleted == 1 && t6.Archived && tok.BearerToken != "" && toks.Tokens.Len() == 1 && toks.Tokens[0].Revoked
+	},
+
+	// ApiSubagentTreeHandlesAndQuestions verifies subagent bounds, handle settlement, and async questions through Api.
+	law ApiSubagentTreeHandlesAndQuestions(tag int) {
+		let root = "api-root-\(tag)"
+		let child = "api-child-\(tag)"
+		let _ = SubagentTreeInit(SubagentTreeInitInput{
+			CommandID: "si-\(tag)",
+			Actor:     "root",
+			AtMs:      int64(2000),
+			RootID:    root,
+			MaxDepth:  3,
+			MaxFanOut: 4,
+			MaxBudget: 8,
+		}) catch {
+		case _:
+			return false
+		}
+		let spawned = SubagentSpawn(SubagentSpawnInput{
+			CommandID: "ss-\(tag)",
+			Actor:     "root",
+			AtMs:      int64(2010),
+			RootID:    root,
+			ParentID:  root,
+			ChildID:   child,
+			Role:      "worker",
+		}) catch {
+		case _:
+			return false
+		}
+		let _ = SubagentControlHandle(SubagentControlHandleInput{
+			CommandID: "sc-\(tag)",
+			Actor:     "root",
+			AtMs:      int64(2020),
+			RootID:    root,
+			CallerID:  root,
+			TargetID:  child,
+			HandleID:  "sh-\(tag)",
+		}) catch {
+		case _:
+			return false
+		}
+		let _ = SubagentSettleHandle(SubagentSettleHandleInput{
+			CommandID: "stl-\(tag)",
+			Actor:     "root",
+			AtMs:      int64(2030),
+			RootID:    root,
+			NodeID:    child,
+			HandleID:  "sh-\(tag)",
+		}) catch {
+		case _:
+			return false
+		}
+		let handed = SubagentHandBack(SubagentHandBackInput{
+			CommandID: "hb-\(tag)",
+			Actor:     "child",
+			AtMs:      int64(2040),
+			RootID:    root,
+			NodeID:    child,
+		}) catch {
+		case _:
+			return false
+		}
+		let qAsked = QuestionAsk(QuestionAskInput{
+			CommandID:     "qa-\(tag)",
+			Actor:         "child",
+			AtMs:          int64(2050),
+			QuestionID:    "q-\(tag)",
+			ThreadID:      child,
+			HandleID:      "qh-\(tag)",
+			OwnerServer:   "srv",
+			OwnerLocation: "loc",
+			OwnerEpoch:    1,
+			SessionID:     "sess-q",
+			Header:        "Confirm",
+			Prompt:        "Proceed?",
+			Assumption:    "yes",
+			Options:       []string{"yes", "no"},
+			TargetRole:    "worker",
+		}) catch {
+		case _:
+			return false
+		}
+		let qAns = QuestionAnswer(QuestionAnswerInput{
+			CommandID:  "qans-\(tag)",
+			Actor:      "user",
+			AtMs:       int64(2060),
+			QuestionID: "q-\(tag)",
+			Answer:     "yes",
+			Responder:  "primary",
+		}) catch {
+		case _:
+			return false
+		}
+		spawned.BudgetUsed == 1 && handed.Nodes.Len() == 2 && qAsked.Status == "open" && qAns.Status == "answered"
+	},
+
+	// ApiPoolKernelLeaseHostAndWellness verifies pool/kernel/lease/reconcile operations plus host capacity and wellness reporting.
+	law ApiPoolKernelLeaseHostAndWellness(tag int) {
+		let _ = PoolAccountUpsert(PoolAccountUpsertInput{
+			CommandID:       "pa-\(tag)",
+			Actor:           "pool",
+			AtMs:            int64(3000),
+			AccountID:       "acct-\(tag)",
+			Provider:        "codex",
+			Priority:        1,
+			Healthy:         true,
+			Window5hUsedPct: 20,
+			Window5hResetMs: int64(9000),
+			Window7dUsedPct: 10,
+			Window7dResetMs: int64(90000),
+			InflightStarts:  1,
+			LimitedUntilMs:  int64(0),
+		}) catch {
+		case _:
+			return false
+		}
+		let _ = KernelSnapshotSave(KernelSnapshotSaveInput{
+			CommandID:     "ks-\(tag)",
+			Actor:         "kernel",
+			AtMs:          int64(3010),
+			SessionID:     "ksess-\(tag)",
+			ThreadID:      "kth-\(tag)",
+			RootThreadID:  "kroot-\(tag)",
+			BindingsJSON:  "{}",
+			SnapshotBytes: 2,
+			LostNotice:    "",
+		}) catch {
+		case _:
+			return false
+		}
+		let _ = LeaseAcquire(LeaseAcquireInput{
+			CommandID:     "la-\(tag)",
+			Actor:         "boot",
+			AtMs:          int64(3020),
+			LeaseID:       "lease-\(tag)",
+			OwnerServer:   "srv",
+			OwnerLocation: "local",
+			OwnerEpoch:    1,
+			ExpectedEpoch: 0,
+		}) catch {
+		case _:
+			return false
+		}
+		let hc = HostCapacityGet(HostCapacityInput{Volumes: []string{"/"}}) catch {
+		case _:
+			return false
+		}
+		let wr = WellnessReportGet(WellnessReportInput{
+			NowMs:                int64(3030),
+			Volumes:              []string{"/"},
+			LiveOwnersConfigured: false,
+			LiveOwners:           []string{},
+			MaxLoadPerCore:       json.Absent,
+			MinMemAvailGiB:       json.Absent,
+			MaxDiskUsedPct:       json.Absent,
+		}) catch {
+		case _:
+			return false
+		}
+		hc.Cores > 0 && hc.Volumes.Len() == 1 && wr.StoreReadable && wr.Healthy
+	},
+}

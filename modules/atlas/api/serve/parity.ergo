@@ -1,0 +1,594 @@
+import github.com/cevr/ergo/modules/atlas/api
+import github.com/cevr/ergo/modules/atlas/api/apiapi
+import github.com/cevr/ergo/modules/atlas/memory
+import github.com/cevr/ergo/modules/atlas/session
+import github.com/cevr/ergo/modules/atlas/sqlite
+import http
+import json
+import option
+import rand
+import strings
+import sync
+
+func runOutcomeJSON(svc api.Service, req apiapi.Request) string {
+	let out = with context { api.Api: svc } { apiapi.Call(req) }
+	json.Encode(json.Codec[apiapi.Outcome]{MaxBytes: 0, MaxDepth: 0}, out)
+}
+
+func buildParityScript() []apiapi.Request {
+	[]apiapi.Request{
+		apiapi.ThreadCreateRequest{Input: api.ThreadCreateInput{
+			CommandID:          "p-tc-1",
+			Actor:              "root",
+			AtMs:               int64(1000),
+			ThreadID:           "p-th-1",
+			Driver:             "claude-meta",
+			PermissionMode:     "auto_edit",
+			Instance:           "inst-1",
+			ConfigDir:          "/tmp/c1",
+			Model:              "sonnet",
+			AgyDirectSupported: false,
+			ParentThreadID:     json.Absent,
+			EdgeLabel:          json.Absent,
+			SharedHome:         json.Absent,
+			LinkOriginKind:     json.Absent,
+			LinkOriginTarget:   json.Absent,
+		}},
+		apiapi.ThreadCreateRequest{Input: api.ThreadCreateInput{
+			CommandID:          "p-tc-dup",
+			Actor:              "root",
+			AtMs:               int64(1001),
+			ThreadID:           "p-th-1",
+			Driver:             "claude-meta",
+			PermissionMode:     "ask",
+			Instance:           "inst-1",
+			ConfigDir:          "/tmp/c1",
+			Model:              "sonnet",
+			AgyDirectSupported: false,
+			ParentThreadID:     json.Absent,
+			EdgeLabel:          json.Absent,
+			SharedHome:         json.Absent,
+			LinkOriginKind:     json.Absent,
+			LinkOriginTarget:   json.Absent,
+		}},
+		apiapi.ThreadCreateRequest{Input: api.ThreadCreateInput{
+			CommandID:          "p-tc-1",
+			Actor:              "root",
+			AtMs:               int64(1002),
+			ThreadID:           "p-th-other",
+			Driver:             "claude-meta",
+			PermissionMode:     "ask",
+			Instance:           "inst-1",
+			ConfigDir:          "/tmp/c1",
+			Model:              "sonnet",
+			AgyDirectSupported: false,
+			ParentThreadID:     json.Absent,
+			EdgeLabel:          json.Absent,
+			SharedHome:         json.Absent,
+			LinkOriginKind:     json.Absent,
+			LinkOriginTarget:   json.Absent,
+		}},
+		apiapi.DriverSwitchRequest{Input: api.DriverSwitchInput{
+			CommandID:          "p-ds-1",
+			Actor:              "root",
+			AtMs:               int64(1010),
+			ThreadID:           "p-th-1",
+			NextDriver:         "codex-direct",
+			PermissionMode:     "yolo",
+			Instance:           "inst-2",
+			ConfigDir:          "/tmp/c2",
+			AgyDirectSupported: false,
+			SharedHome:         json.Absent,
+		}},
+		apiapi.PromptEnqueueRequest{Input: api.PromptEnqueueInput{
+			CommandID:     "p-pe-1",
+			Actor:         "user",
+			AtMs:          int64(1020),
+			ThreadID:      "p-th-1",
+			PromptID:      "qp-1",
+			Body:          "next step",
+			RequestedMode: "ask",
+		}},
+		apiapi.TurnStartRequest{Input: api.TurnStartInput{
+			CommandID: "p-ts-1",
+			Actor:     "root",
+			AtMs:      int64(1030),
+			ThreadID:  "p-th-1",
+			TurnID:    "t-1",
+		}},
+		apiapi.TurnStepRequest{Input: api.TurnStepInput{
+			CommandID:     "p-delta-1",
+			Actor:         "driver",
+			AtMs:          int64(1040),
+			ThreadID:      "p-th-1",
+			Action:        "delta",
+			FailureClass:  json.Absent,
+			FailureDetail: json.Absent,
+			ResetAtMs:     json.Absent,
+		}},
+		apiapi.TurnStepRequest{Input: api.TurnStepInput{
+			CommandID:     "p-fin-1",
+			Actor:         "driver",
+			AtMs:          int64(1050),
+			ThreadID:      "p-th-1",
+			Action:        "finish-completed",
+			FailureClass:  json.Absent,
+			FailureDetail: json.Absent,
+			ResetAtMs:     json.Absent,
+		}},
+		apiapi.PromptDequeueRequest{Input: api.PromptDequeueInput{
+			CommandID: "p-pd-1",
+			Actor:     "root",
+			AtMs:      int64(1060),
+			ThreadID:  "p-th-1",
+		}},
+		apiapi.ThreadGetRequest{Input: api.ThreadTargetInput{ThreadID: "p-th-1"}},
+		apiapi.ThreadGetRequest{Input: api.ThreadTargetInput{ThreadID: "missing-thread"}},
+		apiapi.SubagentTreeInitRequest{Input: api.SubagentTreeInitInput{
+			CommandID: "p-si-1",
+			Actor:     "root",
+			AtMs:      int64(1070),
+			RootID:    "p-th-1",
+			MaxDepth:  3,
+			MaxFanOut: 4,
+			MaxBudget: 8,
+		}},
+		apiapi.SubagentSpawnRequest{Input: api.SubagentSpawnInput{
+			CommandID: "p-ss-1",
+			Actor:     "root",
+			AtMs:      int64(1080),
+			RootID:    "p-th-1",
+			ParentID:  "p-th-1",
+			ChildID:   "p-child-1",
+			Role:      "implementor",
+		}},
+		apiapi.HandleOpenRequest{Input: api.HandleOpenInput{
+			CommandID:     "p-ho-1",
+			Actor:         "srv",
+			AtMs:          int64(1090),
+			HandleID:      "p-h-1",
+			Kind:          "call",
+			OwnerServer:   "srv-a",
+			OwnerLocation: "us1",
+			OwnerEpoch:    1,
+			SessionID:     "s1",
+			Summary:       "subcall",
+			SubagentRoot:  json.Absent,
+			NodeID:        json.Absent,
+		}},
+		apiapi.OwnerCallsRetireRequest{Input: api.OwnerCallsRetireInput{
+			CommandID:     "p-ret-1",
+			Actor:         "boot",
+			AtMs:          int64(1100),
+			OwnerServer:   "srv-a",
+			OwnerLocation: "us1",
+			OwnerEpoch:    1,
+		}},
+		apiapi.QuestionAskRequest{Input: api.QuestionAskInput{
+			CommandID:     "p-qa-1",
+			Actor:         "child",
+			AtMs:          int64(1110),
+			QuestionID:    "p-q-1",
+			ThreadID:      "p-child-1",
+			HandleID:      "p-qh-1",
+			OwnerServer:   "srv-a",
+			OwnerLocation: "us1",
+			OwnerEpoch:    2,
+			SessionID:     "s2",
+			Header:        "Check",
+			Prompt:        "Ship?",
+			Assumption:    "yes",
+			Options:       []string{"yes", "no"},
+			TargetRole:    "implementor",
+		}},
+		apiapi.QuestionAnswerRequest{Input: api.QuestionAnswerInput{
+			CommandID:  "p-qans-1",
+			Actor:      "user",
+			AtMs:       int64(1120),
+			QuestionID: "p-q-1",
+			Answer:     "yes",
+			Responder:  "primary",
+		}},
+		apiapi.PoolAccountUpsertRequest{Input: api.PoolAccountUpsertInput{
+			CommandID:       "p-pa-1",
+			Actor:           "pool",
+			AtMs:            int64(1130),
+			AccountID:       "acct-1",
+			Provider:        "codex",
+			Priority:        1,
+			Healthy:         true,
+			Window5hUsedPct: 12,
+			Window5hResetMs: int64(5000),
+			Window7dUsedPct: 8,
+			Window7dResetMs: int64(50000),
+			InflightStarts:  1,
+			LimitedUntilMs:  int64(0),
+		}},
+		apiapi.PoolHoldOpenRequest{Input: api.PoolHoldOpenInput{
+			CommandID:      "p-pho-1",
+			Actor:          "pool",
+			AtMs:           int64(1140),
+			HoldKey:        "p-hold-1",
+			ThreadID:       "p-th-1",
+			AccountID:      "acct-1",
+			RetryAtMs:      int64(1200),
+			ParentNotified: false,
+		}},
+		apiapi.PoolViewRequest{Input: api.PoolViewInput{NowMs: int64(1250)}},
+		apiapi.KernelSnapshotSaveRequest{Input: api.KernelSnapshotSaveInput{
+			CommandID:     "p-ks-1",
+			Actor:         "kernel",
+			AtMs:          int64(1260),
+			SessionID:     "ks-1",
+			ThreadID:      "p-th-1",
+			RootThreadID:  "p-th-1",
+			BindingsJSON:  "{}",
+			SnapshotBytes: 2,
+			LostNotice:    "",
+		}},
+		apiapi.LeaseAcquireRequest{Input: api.LeaseAcquireInput{
+			CommandID:     "p-la-1",
+			Actor:         "boot",
+			AtMs:          int64(1270),
+			LeaseID:       "l-1",
+			OwnerServer:   "srv-a",
+			OwnerLocation: "us1",
+			OwnerEpoch:    1,
+			ExpectedEpoch: 0,
+		}},
+		apiapi.HostCapacityGetRequest{Input: api.HostCapacityInput{Volumes: []string{"/"}}},
+		apiapi.WellnessReportGetRequest{Input: api.WellnessReportInput{
+			NowMs:                int64(1280),
+			Volumes:              []string{"/"},
+			LiveOwnersConfigured: false,
+			LiveOwners:           []string{},
+			MaxLoadPerCore:       json.Absent,
+			MinMemAvailGiB:       json.Absent,
+			MaxDiskUsedPct:       json.Absent,
+		}},
+		apiapi.ThreadArchiveRequest{Input: api.ThreadArchiveInput{
+			CommandID:     "p-ta-1",
+			Actor:         "root",
+			AtMs:          int64(1290),
+			ThreadID:      "p-th-1",
+			ArchiveReason: json.Present[string]{Value: "done"},
+		}},
+	}
+}
+
+// ServeChecks verifies memory-vs-SQLite API parity and HTTP/MCP surface conformance.
+type ServeChecks {
+	// CheckMemorySqliteParity executes identical API requests across memory and SQLite stores.
+	CheckMemorySqliteParity() bool,
+
+	// CheckSqliteSurfaces verifies CLI, RPC, HTTP, and scoped /mcp over SQLite.
+	CheckSqliteSurfaces() bool,
+
+	// MemoryAndSqliteServicesAgree verifies MemStore and SQLite stores produce identical replies and failures across all Atlas API subsystems.
+	law MemoryAndSqliteServicesAgree() {
+		CheckMemorySqliteParity()
+	},
+
+	// SqliteHttpAndMcpSurfacesAgree verifies generated CLI/RPC/MCP surfaces and D11-D13 HTTP auth rules on SQLite.
+	law SqliteHttpAndMcpSurfacesAgree() {
+		CheckSqliteSurfaces()
+	},
+}
+
+type localServeChecks {} implements ServeChecks
+
+func verifyParityBothBackends() bool fails memory.StoreFailed | memory.InvalidInput | memory.NotFound | api.HostCapacityFailed | api.McpAuthDenied needs go.Foreign {
+	let cap = try api.NewStaticHostCapacity(api.HealthyHostStatus([]string{"/", "/workspaces"}))
+	let sqlStore = try sqlite.OpenMemory()
+	let memStore = memory.New()
+	let svcMem = api.NewService(memStore, cap, api.NewMcpAuthStore(rand.NewSeededSecure(uint64(77))))
+	let svcSql = api.NewService(sqlStore, cap, api.NewMcpAuthStore(rand.NewSeededSecure(uint64(77))))
+
+	for _, req in buildParityScript() {
+		let memJSON = runOutcomeJSON(svcMem, req)
+		let sqlJSON = runOutcomeJSON(svcSql, req)
+		if memJSON != sqlJSON {
+			try sqlStore.Close()
+			return false
+		}
+	}
+
+	let tokMem = try svcMem.McpTokenMint(api.McpTokenMintInput{
+		TokenID:        "tok-parity",
+		ThreadID:       "p-th-1",
+		SessionID:      "s1",
+		Gen:            1,
+		NowMs:          int64(1300),
+		AudienceKind:   "thread",
+		ClientID:       json.Absent,
+		Scopes:         []string{"*"},
+		RotateExisting: false,
+	})
+	let tokSql = try svcSql.McpTokenMint(api.McpTokenMintInput{
+		TokenID:        "tok-parity",
+		ThreadID:       "p-th-1",
+		SessionID:      "s1",
+		Gen:            1,
+		NowMs:          int64(1300),
+		AudienceKind:   "thread",
+		ClientID:       json.Absent,
+		Scopes:         []string{"*"},
+		RotateExisting: false,
+	})
+	try sqlStore.Close()
+	tokMem.BearerToken == tokSql.BearerToken
+}
+
+// CheckMemorySqliteParity runs verifyParityBothBackends under go.Foreign.
+func CheckMemorySqliteParity(_ localServeChecks) bool needs go.Foreign {
+	verifyParityBothBackends() catch {
+	case memory.StoreFailed, memory.InvalidInput, memory.NotFound, api.HostCapacityFailed, api.McpAuthDenied:
+		false
+	}
+}
+
+func seedSurfaceThread(srv AtlasServer) (string, int) fails memory.NotFound | memory.AlreadyExists | memory.InvalidTransition | memory.CommandReused | memory.InvalidInput | memory.LeaseFenced | memory.ThreadDomainErr | memory.SubagentDomainErr | memory.HandleDomainErr | memory.LimitDomainErr | memory.RequestDomainErr | memory.CutoverDomainErr | memory.StoreFailed {
+	let _ = try srv.Service.ThreadCreate(api.ThreadCreateInput{
+		CommandID:          "h-tc-1",
+		Actor:              "root",
+		AtMs:               int64(1000000),
+		ThreadID:           "th-1",
+		Driver:             "claude-meta",
+		PermissionMode:     "auto_edit",
+		Instance:           "inst-1",
+		ConfigDir:          "/tmp/cfg",
+		Model:              "sonnet",
+		AgyDirectSupported: false,
+		ParentThreadID:     json.Absent,
+		EdgeLabel:          json.Absent,
+		SharedHome:         json.Absent,
+		LinkOriginKind:     json.Absent,
+		LinkOriginTarget:   json.Absent,
+	})
+	let _ = try srv.Service.TurnStart(api.TurnStartInput{
+		CommandID: "h-ts-1",
+		Actor:     "root",
+		AtMs:      int64(1000010),
+		ThreadID:  "th-1",
+		TurnID:    "turn-initial",
+	})
+	let tsNow = try srv.Service.ThreadGet(api.ThreadTargetInput{ThreadID: "th-1"})
+	let sessID = match tsNow.ActiveSessionID {
+	case json.Present[string] as s:
+		s.Value
+	case json.Absent:
+		""
+	}
+	let _ = try srv.Service.TurnStep(api.TurnStepInput{
+		CommandID:     "h-tf-1",
+		Actor:         "driver",
+		AtMs:          int64(1000020),
+		ThreadID:      "th-1",
+		Action:        "finish-completed",
+		FailureClass:  json.Absent,
+		FailureDetail: json.Absent,
+		ResetAtMs:     json.Absent,
+	})
+	(sessID, tsNow.SessionGen)
+}
+
+func verifyHttpAndCliSurfaces(srv AtlasServer) bool fails memory.NotFound | memory.InvalidInput | memory.StoreFailed {
+	let directOut = try srv.Service.ThreadGet(api.ThreadTargetInput{ThreadID: "th-1"})
+	let directJSON = json.Encode(json.Codec[api.ThreadSnapshot]{MaxBytes: 0, MaxDepth: 0}, directOut)
+	let cliOut = RunCLI(srv, []string{"--json", "thread-get", "-thread-id=th-1"})
+	if cliOut.Code != 0 || strings.TrimSpace(cliOut.Out) != directJSON {
+		return false
+	}
+	let rpcResp = sendJSONHttp(srv, "/rpc/ThreadGet", []http.Field{}, "{\"input\":{\"threadID\":\"th-1\"}}")
+	if rpcResp.Status != 200 || strings.TrimSpace(rpcResp.Body) != directJSON {
+		return false
+	}
+	let healthResp = getHttp(srv, "/healthz", []http.Field{})
+	let capResp = getHttp(srv, "/host/capacity", []http.Field{})
+	healthResp.Status == 200 && strings.Contains(healthResp.Body, "\"healthy\":true") && capResp.Status == 200 && strings.Contains(capResp.Body, "\"cores\":16")
+}
+
+func checkMcpAudienceAndScoping(srv AtlasServer, tokThread api.MintedToken, tokOutside api.MintedToken) (bool, []http.Field) {
+	let baseHdrs = []http.Field{
+		http.Field{Name: "Content-Type", Value: "application/json"},
+		http.Field{Name: "Accept", Value: "application/json"},
+	}
+	let initPayload = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"2025-06-18\",\"capabilities\":{},\"clientInfo\":{\"name\":\"parity\",\"version\":\"1\"}}}"
+	let unauthResp = sendJSONHttp(srv, "/threads/th-1/mcp", baseHdrs, initPayload)
+	let badTokResp = sendJSONHttp(srv, "/threads/th-1/mcp", baseHdrs.Append(http.Field{Name: "Authorization", Value: "Bearer bogus"}), initPayload)
+	let thAuthHdrs = baseHdrs.Append(http.Field{Name: "Authorization", Value: "Bearer " + tokThread.BearerToken})
+	let wrongRouteResp = sendJSONHttp(srv, "/threads/th-other/mcp", thAuthHdrs, initPayload)
+	if unauthResp.Status != 401 || badTokResp.Status != 401 || wrongRouteResp.Status != 403 {
+		return (false, baseHdrs)
+	}
+	let initOK = sendJSONHttp(srv, "/threads/th-1/mcp", thAuthHdrs, initPayload)
+	let mcpSid = findHeaderValue(initOK.Header, "Mcp-Session-Id")
+	if initOK.Status != 200 || mcpSid == "" {
+		return (false, baseHdrs)
+	}
+	let thSessHdrs = thAuthHdrs.Append(http.Field{Name: "Mcp-Session-Id", Value: mcpSid})
+	let readToolResp = sendJSONHttp(srv, "/threads/th-1/mcp", thSessHdrs, "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":{\"name\":\"thread-get\",\"arguments\":{\"threadID\":\"th-1\"}}}")
+	let crossToolResp = sendJSONHttp(srv, "/threads/th-1/mcp", thSessHdrs, "{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"tools/call\",\"params\":{\"name\":\"thread-get\",\"arguments\":{\"threadID\":\"th-other\"}}}")
+	let resReadResp = sendJSONHttp(srv, "/threads/th-1/mcp", thSessHdrs, "{\"jsonrpc\":\"2.0\",\"id\":4,\"method\":\"resources/read\",\"params\":{\"uri\":\"atlas://wellness\"}}")
+	if readToolResp.Status != 200 || strings.Contains(readToolResp.Body, "\"isError\":true") {
+		return (false, baseHdrs)
+	}
+	if !strings.Contains(crossToolResp.Body, "wrong thread scope") || !strings.Contains(resReadResp.Body, "atlas://wellness") {
+		return (false, baseHdrs)
+	}
+	let outHdrs = baseHdrs.Append(http.Field{Name: "Authorization", Value: "Bearer " + tokOutside.BearerToken})
+	let outInit = sendJSONHttp(srv, "/threads/th-1/mcp", outHdrs, initPayload)
+	let outSid = findHeaderValue(outInit.Header, "Mcp-Session-Id")
+	let outSessHdrs = outHdrs.Append(http.Field{Name: "Mcp-Session-Id", Value: outSid})
+	let outThreadOnly = sendJSONHttp(srv, "/threads/th-1/mcp", outSessHdrs, "{\"jsonrpc\":\"2.0\",\"id\":5,\"method\":\"tools/call\",\"params\":{\"name\":\"prompt-enqueue\",\"arguments\":{\"commandID\":\"pe-out\",\"actor\":\"out\",\"atMs\":1000040,\"threadID\":\"th-1\",\"promptID\":\"p-out\",\"body\":\"hi\",\"requestedMode\":\"ask\"}}}")
+	let outAllowed = sendJSONHttp(srv, "/threads/th-1/mcp", outSessHdrs, "{\"jsonrpc\":\"2.0\",\"id\":6,\"method\":\"tools/call\",\"params\":{\"name\":\"wellness-report-get\",\"arguments\":{\"nowMs\":1000045,\"volumes\":[\"/\"],\"liveOwnersConfigured\":false,\"liveOwners\":[]}}}")
+	let outsideOK = strings.Contains(outThreadOnly.Body, "thread-only tool") && !strings.Contains(outAllowed.Body, "\"isError\":true") && strings.Contains(outAllowed.Body, "healthy")
+	(outsideOK, thSessHdrs)
+}
+
+func checkIdleExpiryRevivalAndRevoke(srv AtlasServer, clockRef sync.Ref[int64], thSessHdrs []http.Field) bool fails memory.NotFound | memory.AlreadyExists | memory.InvalidTransition | memory.CommandReused | memory.InvalidInput | memory.LeaseFenced | memory.ThreadDomainErr | memory.SubagentDomainErr | memory.HandleDomainErr | memory.LimitDomainErr | memory.RequestDomainErr | memory.CutoverDomainErr | memory.StoreFailed {
+	clockRef.Set(int64(1000030) + session.McpTokenIdleExpiryMs() - int64(500))
+	let beforeIdleResp = sendJSONHttp(srv, "/threads/th-1/mcp", thSessHdrs, "{\"jsonrpc\":\"2.0\",\"id\":7,\"method\":\"tools/call\",\"params\":{\"name\":\"thread-get\",\"arguments\":{\"threadID\":\"th-1\"}}}")
+	clockRef.Set(int64(1000030) + session.McpTokenIdleExpiryMs())
+	let idleExpiredResp = sendJSONHttp(srv, "/threads/th-1/mcp", thSessHdrs, "{\"jsonrpc\":\"2.0\",\"id\":8,\"method\":\"tools/call\",\"params\":{\"name\":\"thread-get\",\"arguments\":{\"threadID\":\"th-1\"}}}")
+	if beforeIdleResp.Status != 200 || idleExpiredResp.Status != 401 || !strings.Contains(idleExpiredResp.Body, "token_idle_expired") {
+		return false
+	}
+	let turnAt = clockRef.Get() + int64(100)
+	clockRef.Set(turnAt)
+	let _ = try srv.Service.TurnStart(api.TurnStartInput{
+		CommandID: "h-ts-2",
+		Actor:     "root",
+		AtMs:      turnAt,
+		ThreadID:  "th-1",
+		TurnID:    "turn-revive",
+	})
+	let revivedResp = sendJSONHttp(srv, "/threads/th-1/mcp", thSessHdrs, "{\"jsonrpc\":\"2.0\",\"id\":9,\"method\":\"tools/call\",\"params\":{\"name\":\"thread-get\",\"arguments\":{\"threadID\":\"th-1\"}}}")
+	if revivedResp.Status != 200 {
+		return false
+	}
+	let _ = try srv.Service.TurnStep(api.TurnStepInput{
+		CommandID:     "h-tf-2",
+		Actor:         "driver",
+		AtMs:          turnAt + int64(10),
+		ThreadID:      "th-1",
+		Action:        "finish-completed",
+		FailureClass:  json.Absent,
+		FailureDetail: json.Absent,
+		ResetAtMs:     json.Absent,
+	})
+	let _ = try srv.Service.ThreadArchive(api.ThreadArchiveInput{
+		CommandID:     "h-ta-1",
+		Actor:         "root",
+		AtMs:          turnAt + int64(20),
+		ThreadID:      "th-1",
+		ArchiveReason: json.Present[string]{Value: "closed"},
+	})
+	let afterArchiveResp = sendJSONHttp(srv, "/threads/th-1/mcp", thSessHdrs, "{\"jsonrpc\":\"2.0\",\"id\":10,\"method\":\"tools/call\",\"params\":{\"name\":\"thread-get\",\"arguments\":{\"threadID\":\"th-1\"}}}")
+	let _ = TickWellness(srv)
+	afterArchiveResp.Status == 401 && strings.Contains(afterArchiveResp.Body, "token_revoked")
+}
+
+func runSurfaceFlow(store memory.Store) bool fails memory.NotFound | memory.AlreadyExists | memory.InvalidTransition | memory.CommandReused | memory.InvalidInput | memory.LeaseFenced | memory.ThreadDomainErr | memory.SubagentDomainErr | memory.HandleDomainErr | memory.LimitDomainErr | memory.RequestDomainErr | memory.CutoverDomainErr | memory.StoreFailed | api.HostCapacityFailed | api.McpAuthDenied {
+	let clockRef = sync.NewRef[int64](int64(1000000))
+	let cap = try api.NewStaticHostCapacity(api.HealthyHostStatus([]string{"/", "/workspaces"}))
+	let cfg = ServerConfig{
+		Cap:    cap,
+		Auth:   api.NewMcpAuthStore(rand.NewSeededSecure(uint64(55))),
+		Policy: api.DefaultWellnessPolicy(),
+		Rng:    rand.NewSeededSecure(uint64(88)),
+	}
+	let srv = NewAtlasServer(store, cfg, func() int64 { clockRef.Get() })
+	let (sessID, sessGen) = try seedSurfaceThread(srv)
+	if sessID == "" || !(try verifyHttpAndCliSurfaces(srv)) {
+		return false
+	}
+	let tokThread = try srv.Service.McpTokenMint(api.McpTokenMintInput{
+		TokenID:        "http-th-tok",
+		ThreadID:       "th-1",
+		SessionID:      sessID,
+		Gen:            sessGen,
+		NowMs:          int64(1000030),
+		AudienceKind:   "thread",
+		ClientID:       json.Absent,
+		Scopes:         []string{"*"},
+		RotateExisting: false,
+	})
+	let tokOutside = try srv.Service.McpTokenMint(api.McpTokenMintInput{
+		TokenID:        "http-out-tok",
+		ThreadID:       "th-1",
+		SessionID:      sessID,
+		Gen:            sessGen,
+		NowMs:          int64(1000035),
+		AudienceKind:   "outside",
+		ClientID:       json.Present[string]{Value: "ui-observer"},
+		Scopes:         []string{"*"},
+		RotateExisting: false,
+	})
+	let (scopedOK, thSessHdrs) = checkMcpAudienceAndScoping(srv, tokThread, tokOutside)
+	if !scopedOK {
+		return false
+	}
+	try checkIdleExpiryRevivalAndRevoke(srv, clockRef, thSessHdrs)
+}
+
+// CheckSqliteSurfaces runs runSurfaceFlow over sqlite.OpenMemory under go.Foreign.
+func CheckSqliteSurfaces(_ localServeChecks) bool needs go.Foreign {
+	let sqlStore = sqlite.OpenMemory() catch {
+	case memory.StoreFailed:
+		return false
+	}
+	let ok = runSurfaceFlow(sqlStore) catch {
+	case _:
+		false
+	}
+	sqlStore.Close() catch {
+	case memory.StoreFailed:
+	}
+	ok
+}
+
+// BindPolicyEnforcesLoopbackAndTailnet verifies HTTP bind refuses wildcard and non-loopback/non-tailnet hosts.
+law BindPolicyEnforcesLoopbackAndTailnet() {
+	let okLocal = validateAddrOK("127.0.0.1:8080")
+	let okLocalhost = validateAddrOK("localhost:9000")
+	let okIPv6 = validateAddrOK("[::1]:8080")
+	let okTail = validateAddrOK("100.101.102.103:8080")
+		okLocal && okLocalhost && okIPv6 && okTail &&
+		!validateAddrOK("0.0.0.0:8080") &&
+		!validateAddrOK("[::]:8080") &&
+		!validateAddrOK("192.168.1.10:8080") &&
+		!validateAddrOK("10.0.0.5:8080") &&
+		!validateAddrOK("")
+}
+
+// MemorySurfacesAndHttpMcpWork verifies direct, RPC, CLI, MCP, and scoped HTTP /mcp end-to-end on MemStore.
+law MemorySurfacesAndHttpMcpWork() {
+	runSurfaceFlow(memory.New()) catch {
+	case _:
+		false
+	}
+}
+
+func validateAddrOK(addr string) bool {
+	ValidateBindAddr(addr) catch {
+	case BindRefused:
+		return false
+	}
+	true
+}
+
+func sendJSONHttp(srv AtlasServer, path string, headers []http.Field, body string) http.Response {
+	with context { http.Streaming: http.NewRecorder() } {
+		HandleHTTP(srv, http.Request{
+			Method:  "POST",
+			Path:    path,
+			RawPath: path,
+			Query:   []http.Field{},
+			Header:  headers,
+			Body:    http.Buffered{Text: body},
+		})
+	}
+}
+
+func getHttp(srv AtlasServer, path string, headers []http.Field) http.Response {
+	with context { http.Streaming: http.NewRecorder() } {
+		HandleHTTP(srv, http.Request{
+			Method:  "GET",
+			Path:    path,
+			RawPath: path,
+			Query:   []http.Field{},
+			Header:  headers,
+			Body:    http.Buffered{Text: ""},
+		})
+	}
+}
+
+func findHeaderValue(fields []http.Field, name string) string {
+	match http.Header(fields, name) {
+	case option.Some[string] as v:
+		v.Value
+	case option.None:
+		""
+	}
+}

@@ -1,0 +1,375 @@
+import github.com/cevr/ergo/modules/atlas/handle
+import github.com/cevr/ergo/modules/atlas/handles
+import github.com/cevr/ergo/modules/atlas/memory
+import github.com/cevr/ergo/modules/atlas/questions
+import github.com/cevr/ergo/modules/atlas/subagent
+import option
+import strings
+
+// DefaultWaitMs returns the 120-second code-cell waiting bound in milliseconds.
+func DefaultWaitMs() int { 120000 }
+
+// DefaultComputeMs returns the 30-second synchronous compute bound per cell in milliseconds.
+func DefaultComputeMs() int { 30000 }
+
+// DefaultAskMs returns the 10-minute async asking bound in milliseconds.
+func DefaultAskMs() int { 600000 }
+
+// DefaultCutGraceMs returns the 1-second teardown grace interval after cutting a cell.
+func DefaultCutGraceMs() int { 1000 }
+
+// MaxIdleMs returns the 10-minute idle kernel eviction timeout in milliseconds.
+func MaxIdleMs() int { 600000 }
+
+// MaxRoleWorkerSlots returns the maximum concurrent worker kernel slots (32).
+func MaxRoleWorkerSlots() int { 32 }
+
+// MaxLostBindingsNoticeChars returns the 160-character cap on lost-bindings notices.
+func MaxLostBindingsNoticeChars() int { handle.MaxLostNoticeChars }
+
+// MaxCellOutputBytes returns the 64 KiB output buffer bound per cell.
+func MaxCellOutputBytes() int { 65536 }
+
+// MaxSnapshotBytes returns the 128 KiB binding snapshot bound per session.
+func MaxSnapshotBytes() int { memory.MaxKernelSnapshotBytes() }
+
+// RootUsageWindowMs returns the 1-hour sliding window used for per-root kernel time checks.
+func RootUsageWindowMs() int { int(memory.KernelRootWindowMs()) }
+
+// RootUsageFlagPct returns the 15 percent per-root hourly warning threshold.
+func RootUsageFlagPct() int { int(memory.KernelRootSharePct()) }
+
+// CutReason explains why a kernel cell execution ended or paused at a cut boundary.
+type CutReason = CutCompleted{} | CutStarted{} | CutWaiting{} | CutAsking{} | CutCompute{} | CutIdle{} | CutKilled{}
+
+// CallStatus classifies the journaled outcome of a tool/subagent call during a cell cut.
+type CallStatus = CallFinished{} | CallPending{} | CallInterrupted{} | CallStarted{}
+
+// CallJournalEntry records one call in cut.calls across finished, pending, interrupted, or started.
+type CallJournalEntry {
+	HandleID handle.HandleID,
+	Tool     string,
+	Action   string,
+	Status   CallStatus,
+	Summary  string,
+}
+
+// MapCutJournal records cut.maps partial parallel map completion counts.
+type MapCutJournal {
+	Items      int,
+	Finished   int,
+	Pending    int,
+	Started    int,
+	NotStarted int,
+	Remaining  int,
+}
+
+// SleepCutEntry records a sleep interrupted at a cut boundary in cut.sleeps.
+type SleepCutEntry {
+	RemainingMs int,
+	Reason      string,
+}
+
+// CutReport summarizes cut.started, cut.calls, cut.maps, cut.sleeps, and lost bindings.
+type CutReport {
+	Started               bool,
+	Reason                CutReason,
+	Calls                 []CallJournalEntry,
+	Maps                  option.Option[MapCutJournal],
+	Sleeps                []SleepCutEntry,
+	InterruptedMayHaveRun bool,
+	LostBindings          []string,
+	Notice                string,
+}
+
+// EvalStatus reports the execution status of a kernel cell run.
+type EvalStatus = EvalCompleted{} | EvalUnfinished{} | EvalHanded{} | EvalCut{} | EvalKilled{} | EvalFailed{}
+
+// KernelError enumerates failures returned across the kernel package.
+type KernelError = KernelBoundExceeded{Kind string, RequestedMs int, LimitMs int} | RootWaitForbidden{Role subagent.AgentRole} | QuestionPolicyError{Cause questions.BlockingQuestionForbidden} | UnfinishedCellError{Handles []handle.HandleID} | SlotWaitExpired{WaitMs int, Notice string} | SnapshotTooLarge{Bytes int, Limit int} | EngineFailure{Message string} | HandleBridgeFailure{Cause handles.HandleServiceError} | StoreFailure{Message string}
+
+// ClampWaitMs clamps a wait request into [0, DefaultWaitMs()] using remaining wait budget.
+func ClampWaitMs(requestedMs int, remainingWaitMs int) int {
+	let budget = if remainingWaitMs < DefaultWaitMs() { remainingWaitMs } else { DefaultWaitMs() }
+	if budget <= 0 {
+		return 0
+	}
+	if requestedMs <= 0 {
+		return budget
+	}
+	if requestedMs < budget {
+		requestedMs
+	} else {
+		budget
+	}
+}
+
+// BoundCheckInput captures elapsed wait, compute, asking, and automation mode for cut checking.
+type BoundCheckInput {
+	ElapsedWaitMs    int,
+	WaitBoundMs      int,
+	ElapsedComputeMs int,
+	ComputeBoundMs   int,
+	AskingElapsedMs  int,
+	AskBoundMs       int,
+	IsAutomation     bool,
+}
+
+// ShouldCutAtBound reports whether elapsed wait or compute time has reached or exceeded its bound.
+func ShouldCutAtBound(inp BoundCheckInput) option.Option[CutReason] {
+	if inp.IsAutomation {
+		if inp.ElapsedComputeMs >= inp.ComputeBoundMs {
+			return option.Some[CutReason]{Value: CutCompute}
+		}
+		return option.None
+	}
+	if inp.ElapsedComputeMs >= inp.ComputeBoundMs {
+		return option.Some[CutReason]{Value: CutCompute}
+	}
+	if inp.ElapsedWaitMs >= inp.WaitBoundMs {
+		return option.Some[CutReason]{Value: CutWaiting}
+	}
+	if inp.AskingElapsedMs >= inp.AskBoundMs {
+		return option.Some[CutReason]{Value: CutAsking}
+	}
+	option.None
+}
+
+// CanRoleWaitOnSubagents reports whether role may call blocking subagent wait (roots must not).
+func CanRoleWaitOnSubagents(role subagent.AgentRole) bool {
+	match role {
+	case subagent.RoleRoot:
+		false
+	case subagent.RolePlanner, subagent.RoleImplementor, subagent.RoleVerifier, subagent.RoleReviewer, subagent.RoleWorker:
+		true
+	}
+}
+
+// EnforceRoleToolPolicy validates role-level prohibitions on blocking question and root subagent wait.
+func EnforceRoleToolPolicy(role subagent.AgentRole, toolName string, action string) fails KernelError {
+	questions.RequireAsyncOnly(role, toolName) catch {
+	case questions.BlockingQuestionForbidden as b:
+		return QuestionPolicyError{Cause: b}
+	}
+	if toolName == "subagents" && action == "wait" && !CanRoleWaitOnSubagents(role) {
+		return RootWaitForbidden{Role: role}
+	}
+}
+
+// FormatLostBindingsNotice emits empty string when lost is empty, or a <= 160 char notice ONLY when bindings were lost.
+func FormatLostBindingsNotice(lost []string) string {
+	if lost.Len() == 0 {
+		return ""
+	}
+	let raw = handle.FormatLostBindingsNotice(lost)
+	if raw.Len() <= MaxLostBindingsNoticeChars() && strings.Contains(raw, "new kernel") {
+		return raw
+	}
+	let prefix = "[new kernel; lost: "
+	let suffix = "]"
+	let mut body = ""
+	for i in 0..lost.Len() {
+		let sep = if i == 0 { "" } else { ", " }
+		let cand = body + sep + lost[i]
+		if prefix.Len()+cand.Len()+suffix.Len() <= MaxLostBindingsNoticeChars() {
+			body = cand
+		} else {
+			let tail = "..."
+			if prefix.Len()+body.Len()+tail.Len()+suffix.Len() <= MaxLostBindingsNoticeChars() {
+				return prefix + body + tail + suffix
+			}
+			return (prefix + body + suffix).Slice(0, MaxLostBindingsNoticeChars())
+		}
+	}
+	let full = prefix + body + suffix
+	if full.Len() <= MaxLostBindingsNoticeChars() {
+		full
+	} else {
+		full.Slice(0, MaxLostBindingsNoticeChars())
+	}
+}
+
+// IsReadOnlyHandleAction reports whether a call action is read-only observation (does not cause Unfinished).
+func IsReadOnlyHandleAction(toolName string, action string) bool {
+	if toolName == "handles" {
+		return true
+	}
+	if toolName == "subagents" || toolName == "shell" {
+		return action == "check" || action == "list" || action == "kill" || action == "get"
+	}
+	false
+}
+
+// UnfinishedCheckInput captures cell termination context for Unfinished vs Handed classification.
+type UnfinishedCheckInput {
+	Cut                bool,
+	HasBackgroundStart bool,
+	ActiveHandles      []handle.HandleID,
+	OnlyReadOnly       bool,
+	IsAutomation       bool,
+}
+
+// ClassifyUnfinishedOrHanded determines whether cut or returning with active handles transitions Unfinished -> Handed.
+func ClassifyUnfinishedOrHanded(inp UnfinishedCheckInput) (EvalStatus, bool) {
+	if inp.IsAutomation {
+		return (EvalCompleted, false)
+	}
+	if inp.ActiveHandles.Len() == 0 {
+		if inp.Cut {
+			return (EvalCut, false)
+		}
+		return (EvalCompleted, false)
+	}
+	if inp.HasBackgroundStart {
+		return (EvalHanded, true)
+	}
+	if inp.Cut {
+		return (EvalHanded, true)
+	}
+	if inp.OnlyReadOnly {
+		return (EvalCompleted, false)
+	}
+	(EvalUnfinished, false)
+}
+
+// CutJournalInput bundles journaled cut.started, cut.calls, cut.maps, cut.sleeps, and lost bindings.
+type CutJournalInput {
+	Started      bool,
+	Reason       CutReason,
+	Calls        []CallJournalEntry,
+	Maps         option.Option[MapCutJournal],
+	Sleeps       []SleepCutEntry,
+	LostBindings []string,
+}
+
+// BuildCutReport constructs a canonical cut audit record with bounded lost-bindings notice.
+func BuildCutReport(inp CutJournalInput) CutReport {
+	let mut interrupted = false
+	for c in inp.Calls {
+		match c.Status {
+		case CallInterrupted:
+			interrupted = true
+		case CallFinished, CallPending, CallStarted:
+		}
+	}
+	CutReport{
+		Started:               inp.Started,
+		Reason:                inp.Reason,
+		Calls:                 inp.Calls,
+		Maps:                  inp.Maps,
+		Sleeps:                inp.Sleeps,
+		InterruptedMayHaveRun: interrupted,
+		LostBindings:          inp.LostBindings,
+		Notice:                FormatLostBindingsNotice(inp.LostBindings),
+	}
+}
+
+// BoundsMatchSpecLaw verifies canonical 120s/30s/10m/32-slot/160-char/15% constants.
+law BoundsMatchSpecLaw() {
+		DefaultWaitMs() == 120000 &&
+		DefaultComputeMs() == 30000 &&
+		DefaultAskMs() == 600000 &&
+		DefaultCutGraceMs() == 1000 &&
+		MaxRoleWorkerSlots() == 32 &&
+		MaxLostBindingsNoticeChars() == 160 &&
+		RootUsageWindowMs() == 3600000 &&
+		RootUsageFlagPct() == 15
+}
+
+// LostBindingsNoticeBoundedAndGuarded proves clean restore emits empty notice and lost bindings cap <= 160 chars.
+law LostBindingsNoticeBoundedAndGuarded(n int) {
+	if FormatLostBindingsNotice([]string{}) != "" {
+		return false
+	}
+	let count = 1 + ((n%12 + 12) % 12)
+	let mut lost = []string{}
+	for i in 0..count {
+		lost = lost.Append("binding_name_extra_long_\(i)")
+	}
+	let msg = FormatLostBindingsNotice(lost)
+	msg != "" && msg.Len() <= MaxLostBindingsNoticeChars() && strings.Contains(msg, "new kernel")
+}
+
+// RoleToolPolicyLaw verifies root refuses wait while workers may wait, and all roles forbid blocking question.
+law RoleToolPolicyLaw() {
+	let mut rootWaitRefused = false
+	EnforceRoleToolPolicy(subagent.RoleRoot, "subagents", "wait") catch {
+	case KernelError as err:
+		match err {
+		case RootWaitForbidden:
+			rootWaitRefused = true
+		case KernelBoundExceeded, QuestionPolicyError, UnfinishedCellError, SlotWaitExpired, SnapshotTooLarge, EngineFailure, HandleBridgeFailure, StoreFailure:
+			rootWaitRefused = false
+		}
+	}
+	let mut workerWaitOK = true
+	EnforceRoleToolPolicy(subagent.RoleImplementor, "subagents", "wait") catch {
+	case KernelError:
+		workerWaitOK = false
+	}
+	let mut qRefused = false
+	EnforceRoleToolPolicy(subagent.RoleWorker, "question", "") catch {
+	case KernelError as err:
+		match err {
+		case QuestionPolicyError:
+			qRefused = true
+		case KernelBoundExceeded, RootWaitForbidden, UnfinishedCellError, SlotWaitExpired, SnapshotTooLarge, EngineFailure, HandleBridgeFailure, StoreFailure:
+			qRefused = false
+		}
+	}
+	rootWaitRefused && workerWaitOK && qRefused
+}
+
+// CutAtBoundClampingAndTriggerLaw proves 120s wait / 30s compute / 10m asking bounds cut deterministically.
+law CutAtBoundClampingAndTriggerLaw() {
+	let clamped = ClampWaitMs(500000, 90000)
+	let noneBefore = ShouldCutAtBound(BoundCheckInput{ElapsedWaitMs: 119999, WaitBoundMs: DefaultWaitMs(), ElapsedComputeMs: 29999, ComputeBoundMs: DefaultComputeMs(), AskingElapsedMs: 599999, AskBoundMs: DefaultAskMs(), IsAutomation: false})
+	let cutWait = ShouldCutAtBound(BoundCheckInput{ElapsedWaitMs: 120000, WaitBoundMs: DefaultWaitMs(), ElapsedComputeMs: 1000, ComputeBoundMs: DefaultComputeMs(), AskingElapsedMs: 0, AskBoundMs: DefaultAskMs(), IsAutomation: false})
+	let cutComp = ShouldCutAtBound(BoundCheckInput{ElapsedWaitMs: 1000, WaitBoundMs: DefaultWaitMs(), ElapsedComputeMs: 30000, ComputeBoundMs: DefaultComputeMs(), AskingElapsedMs: 0, AskBoundMs: DefaultAskMs(), IsAutomation: false})
+	let cutAsk = ShouldCutAtBound(BoundCheckInput{ElapsedWaitMs: 0, WaitBoundMs: DefaultWaitMs(), ElapsedComputeMs: 0, ComputeBoundMs: DefaultComputeMs(), AskingElapsedMs: 600000, AskBoundMs: DefaultAskMs(), IsAutomation: false})
+	let autoWaitIgnored = ShouldCutAtBound(BoundCheckInput{ElapsedWaitMs: 999999, WaitBoundMs: DefaultWaitMs(), ElapsedComputeMs: 1000, ComputeBoundMs: DefaultComputeMs(), AskingElapsedMs: 0, AskBoundMs: DefaultAskMs(), IsAutomation: true})
+	let okWait = match cutWait {
+	case option.Some[CutReason] as r:
+		match r.Value {
+		case CutWaiting:
+			true
+		case CutCompleted, CutStarted, CutAsking, CutCompute, CutIdle, CutKilled:
+			false
+		}
+	case option.None:
+		false
+	}
+	let okComp = match cutComp {
+	case option.Some[CutReason] as r:
+		match r.Value {
+		case CutCompute:
+			true
+		case CutCompleted, CutStarted, CutWaiting, CutAsking, CutIdle, CutKilled:
+			false
+		}
+	case option.None:
+		false
+	}
+	let okAsk = match cutAsk {
+	case option.Some[CutReason] as r:
+		match r.Value {
+		case CutAsking:
+			true
+		case CutCompleted, CutStarted, CutWaiting, CutCompute, CutIdle, CutKilled:
+			false
+		}
+	case option.None:
+		false
+	}
+	clamped == 90000 && noneBefore == option.None && okWait && okComp && okAsk && autoWaitIgnored == option.None
+}
+
+// UnfinishedVsHandedLaw proves Unfinished -> Handed transition on background start or cut while read-only finishes cleanly.
+law UnfinishedVsHandedLaw() {
+	let handles1 = []handle.HandleID{"h1"}
+	let (stReadOnly, startRO) = ClassifyUnfinishedOrHanded(UnfinishedCheckInput{Cut: false, HasBackgroundStart: false, ActiveHandles: handles1, OnlyReadOnly: true, IsAutomation: false})
+	let (stUnfinished, startUnf) = ClassifyUnfinishedOrHanded(UnfinishedCheckInput{Cut: false, HasBackgroundStart: false, ActiveHandles: handles1, OnlyReadOnly: false, IsAutomation: false})
+	let (stHanded, startHand) = ClassifyUnfinishedOrHanded(UnfinishedCheckInput{Cut: true, HasBackgroundStart: false, ActiveHandles: handles1, OnlyReadOnly: false, IsAutomation: false})
+	let (stBg, startBg) = ClassifyUnfinishedOrHanded(UnfinishedCheckInput{Cut: false, HasBackgroundStart: true, ActiveHandles: handles1, OnlyReadOnly: false, IsAutomation: false})
+	stReadOnly == EvalCompleted && !startRO && stUnfinished == EvalUnfinished && !startUnf && stHanded == EvalHanded && startHand && stBg == EvalHanded && startBg
+}

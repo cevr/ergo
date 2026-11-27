@@ -1,0 +1,1217 @@
+import json
+import rpc
+import github.com/cevr/ergo/modules/atlas/api
+import github.com/cevr/ergo/modules/atlas/api/apiapi
+import github.com/cevr/ergo/modules/atlas/memory
+import github.com/cevr/ergo/modules/atlas/subagent
+import github.com/cevr/ergo/modules/atlas/turn
+
+// Request is one call of api.Api: the hub's Request, a variant per
+// operation whose fields are the operation's parameters, so its payload is
+// the variant's JSON. Each variant is named here too.
+type Request = apiapi.Request
+
+type ThreadCreateRequest = apiapi.ThreadCreateRequest
+
+type ThreadGetRequest = apiapi.ThreadGetRequest
+
+type ThreadListRequest = apiapi.ThreadListRequest
+
+type ThreadArchiveRequest = apiapi.ThreadArchiveRequest
+
+type DriverSwitchRequest = apiapi.DriverSwitchRequest
+
+type PromptEnqueueRequest = apiapi.PromptEnqueueRequest
+
+type PromptDequeueRequest = apiapi.PromptDequeueRequest
+
+type TurnStartRequest = apiapi.TurnStartRequest
+
+type TurnStepRequest = apiapi.TurnStepRequest
+
+type SubagentTreeInitRequest = apiapi.SubagentTreeInitRequest
+
+type SubagentSpawnRequest = apiapi.SubagentSpawnRequest
+
+type SubagentControlHandleRequest = apiapi.SubagentControlHandleRequest
+
+type SubagentSettleHandleRequest = apiapi.SubagentSettleHandleRequest
+
+type SubagentHandBackRequest = apiapi.SubagentHandBackRequest
+
+type SubagentTreeGetRequest = apiapi.SubagentTreeGetRequest
+
+type HandleOpenRequest = apiapi.HandleOpenRequest
+
+type HandleSettleRequest = apiapi.HandleSettleRequest
+
+type HandleListRequest = apiapi.HandleListRequest
+
+type OwnerCallsRetireRequest = apiapi.OwnerCallsRetireRequest
+
+type QuestionAskRequest = apiapi.QuestionAskRequest
+
+type QuestionAnswerRequest = apiapi.QuestionAnswerRequest
+
+type QuestionWithdrawRequest = apiapi.QuestionWithdrawRequest
+
+type QuestionListRequest = apiapi.QuestionListRequest
+
+type PoolAccountUpsertRequest = apiapi.PoolAccountUpsertRequest
+
+type PoolHoldOpenRequest = apiapi.PoolHoldOpenRequest
+
+type PoolHoldTransitionRequest = apiapi.PoolHoldTransitionRequest
+
+type PoolViewRequest = apiapi.PoolViewRequest
+
+type KernelSnapshotSaveRequest = apiapi.KernelSnapshotSaveRequest
+
+type KernelCutRecordRequest = apiapi.KernelCutRecordRequest
+
+type KernelViewRequest = apiapi.KernelViewRequest
+
+type LeaseAcquireRequest = apiapi.LeaseAcquireRequest
+
+type BootReconcileRequest = apiapi.BootReconcileRequest
+
+type BootStatusRequest = apiapi.BootStatusRequest
+
+type HostCapacityGetRequest = apiapi.HostCapacityGetRequest
+
+type WellnessReportGetRequest = apiapi.WellnessReportGetRequest
+
+type McpTokenMintRequest = apiapi.McpTokenMintRequest
+
+type McpTokenRevokeRequest = apiapi.McpTokenRevokeRequest
+
+type McpTokenListRequest = apiapi.McpTokenListRequest
+
+func exactThreadCreateRequest(v ThreadCreateRequest) fails rpc.Unrepresentable {
+	exactApiThreadCreateInput(v.Input) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("input", u)
+	}
+}
+
+func exactThreadListRequest(v ThreadListRequest) fails rpc.Unrepresentable {
+	exactApiThreadListInput(v.Input) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("input", u)
+	}
+}
+
+func exactThreadArchiveRequest(v ThreadArchiveRequest) fails rpc.Unrepresentable {
+	exactApiThreadArchiveInput(v.Input) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("input", u)
+	}
+}
+
+func exactDriverSwitchRequest(v DriverSwitchRequest) fails rpc.Unrepresentable {
+	exactApiDriverSwitchInput(v.Input) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("input", u)
+	}
+}
+
+func exactPromptEnqueueRequest(v PromptEnqueueRequest) fails rpc.Unrepresentable {
+	exactApiPromptEnqueueInput(v.Input) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("input", u)
+	}
+}
+
+func exactPromptDequeueRequest(v PromptDequeueRequest) fails rpc.Unrepresentable {
+	exactApiPromptDequeueInput(v.Input) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("input", u)
+	}
+}
+
+func exactTurnStartRequest(v TurnStartRequest) fails rpc.Unrepresentable {
+	exactApiTurnStartInput(v.Input) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("input", u)
+	}
+}
+
+func exactTurnStepRequest(v TurnStepRequest) fails rpc.Unrepresentable {
+	exactApiTurnStepInput(v.Input) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("input", u)
+	}
+}
+
+func exactSubagentTreeInitRequest(v SubagentTreeInitRequest) fails rpc.Unrepresentable {
+	exactApiSubagentTreeInitInput(v.Input) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("input", u)
+	}
+}
+
+func exactSubagentSpawnRequest(v SubagentSpawnRequest) fails rpc.Unrepresentable {
+	exactApiSubagentSpawnInput(v.Input) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("input", u)
+	}
+}
+
+func exactSubagentControlHandleRequest(v SubagentControlHandleRequest) fails rpc.Unrepresentable {
+	exactApiSubagentControlHandleInput(v.Input) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("input", u)
+	}
+}
+
+func exactSubagentSettleHandleRequest(v SubagentSettleHandleRequest) fails rpc.Unrepresentable {
+	exactApiSubagentSettleHandleInput(v.Input) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("input", u)
+	}
+}
+
+func exactSubagentHandBackRequest(v SubagentHandBackRequest) fails rpc.Unrepresentable {
+	exactApiSubagentHandBackInput(v.Input) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("input", u)
+	}
+}
+
+func exactHandleOpenRequest(v HandleOpenRequest) fails rpc.Unrepresentable {
+	exactApiHandleOpenInput(v.Input) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("input", u)
+	}
+}
+
+func exactHandleSettleRequest(v HandleSettleRequest) fails rpc.Unrepresentable {
+	exactApiHandleSettleInput(v.Input) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("input", u)
+	}
+}
+
+func exactHandleListRequest(v HandleListRequest) fails rpc.Unrepresentable {
+	exactApiHandleListInput(v.Input) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("input", u)
+	}
+}
+
+func exactOwnerCallsRetireRequest(v OwnerCallsRetireRequest) fails rpc.Unrepresentable {
+	exactApiOwnerCallsRetireInput(v.Input) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("input", u)
+	}
+}
+
+func exactQuestionAskRequest(v QuestionAskRequest) fails rpc.Unrepresentable {
+	exactApiQuestionAskInput(v.Input) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("input", u)
+	}
+}
+
+func exactQuestionAnswerRequest(v QuestionAnswerRequest) fails rpc.Unrepresentable {
+	exactApiQuestionAnswerInput(v.Input) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("input", u)
+	}
+}
+
+func exactQuestionWithdrawRequest(v QuestionWithdrawRequest) fails rpc.Unrepresentable {
+	exactApiQuestionWithdrawInput(v.Input) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("input", u)
+	}
+}
+
+func exactPoolAccountUpsertRequest(v PoolAccountUpsertRequest) fails rpc.Unrepresentable {
+	exactApiPoolAccountUpsertInput(v.Input) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("input", u)
+	}
+}
+
+func exactPoolHoldOpenRequest(v PoolHoldOpenRequest) fails rpc.Unrepresentable {
+	exactApiPoolHoldOpenInput(v.Input) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("input", u)
+	}
+}
+
+func exactPoolHoldTransitionRequest(v PoolHoldTransitionRequest) fails rpc.Unrepresentable {
+	exactApiPoolHoldTransitionInput(v.Input) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("input", u)
+	}
+}
+
+func exactPoolViewRequest(v PoolViewRequest) fails rpc.Unrepresentable {
+	exactApiPoolViewInput(v.Input) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("input", u)
+	}
+}
+
+func exactKernelSnapshotSaveRequest(v KernelSnapshotSaveRequest) fails rpc.Unrepresentable {
+	exactApiKernelSnapshotSaveInput(v.Input) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("input", u)
+	}
+}
+
+func exactKernelCutRecordRequest(v KernelCutRecordRequest) fails rpc.Unrepresentable {
+	exactApiKernelCutRecordInput(v.Input) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("input", u)
+	}
+}
+
+func exactLeaseAcquireRequest(v LeaseAcquireRequest) fails rpc.Unrepresentable {
+	exactApiLeaseAcquireInput(v.Input) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("input", u)
+	}
+}
+
+func exactBootReconcileRequest(v BootReconcileRequest) fails rpc.Unrepresentable {
+	exactApiBootReconcileInput(v.Input) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("input", u)
+	}
+}
+
+func exactBootStatusRequest(v BootStatusRequest) fails rpc.Unrepresentable {
+	exactApiBootStatusInput(v.Input) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("input", u)
+	}
+}
+
+func exactWellnessReportGetRequest(v WellnessReportGetRequest) fails rpc.Unrepresentable {
+	exactApiWellnessReportInput(v.Input) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("input", u)
+	}
+}
+
+func exactMcpTokenMintRequest(v McpTokenMintRequest) fails rpc.Unrepresentable {
+	exactApiMcpTokenMintInput(v.Input) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("input", u)
+	}
+}
+
+func exactApiThreadCreateInput(v api.ThreadCreateInput) fails rpc.Unrepresentable {
+	exactInt64(v.AtMs) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("atMs", u)
+	}
+}
+
+func exactInt64(v int64) fails rpc.Unrepresentable {
+	try rpc.Exact("", int64(v))
+}
+
+func exactApiThreadListInput(v api.ThreadListInput) fails rpc.Unrepresentable {
+	exactJsonOptionalInt(v.Limit) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("limit", u)
+	}
+	exactJsonOptionalInt(v.Offset) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("offset", u)
+	}
+}
+
+func exactJsonOptionalInt(v json.Optional[int]) fails rpc.Unrepresentable {
+	match v {
+	case json.Absent:
+	case json.Present[int] as x:
+		exactInt(x.Value) catch {
+		case rpc.Unrepresentable as u:
+			return rpc.Under("value", u)
+		}
+	}
+}
+
+func exactInt(v int) fails rpc.Unrepresentable {
+	try rpc.Exact("", int64(v))
+}
+
+func exactApiThreadArchiveInput(v api.ThreadArchiveInput) fails rpc.Unrepresentable {
+	exactInt64(v.AtMs) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("atMs", u)
+	}
+}
+
+func exactApiDriverSwitchInput(v api.DriverSwitchInput) fails rpc.Unrepresentable {
+	exactInt64(v.AtMs) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("atMs", u)
+	}
+}
+
+func exactApiPromptEnqueueInput(v api.PromptEnqueueInput) fails rpc.Unrepresentable {
+	exactInt64(v.AtMs) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("atMs", u)
+	}
+}
+
+func exactApiPromptDequeueInput(v api.PromptDequeueInput) fails rpc.Unrepresentable {
+	exactInt64(v.AtMs) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("atMs", u)
+	}
+}
+
+func exactApiTurnStartInput(v api.TurnStartInput) fails rpc.Unrepresentable {
+	exactInt64(v.AtMs) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("atMs", u)
+	}
+}
+
+func exactApiTurnStepInput(v api.TurnStepInput) fails rpc.Unrepresentable {
+	exactInt64(v.AtMs) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("atMs", u)
+	}
+	exactJsonOptionalInt(v.ResetAtMs) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("resetAtMs", u)
+	}
+}
+
+func exactApiSubagentTreeInitInput(v api.SubagentTreeInitInput) fails rpc.Unrepresentable {
+	exactInt64(v.AtMs) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("atMs", u)
+	}
+	exactInt(v.MaxDepth) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("maxDepth", u)
+	}
+	exactInt(v.MaxFanOut) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("maxFanOut", u)
+	}
+	exactInt(v.MaxBudget) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("maxBudget", u)
+	}
+}
+
+func exactApiSubagentSpawnInput(v api.SubagentSpawnInput) fails rpc.Unrepresentable {
+	exactInt64(v.AtMs) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("atMs", u)
+	}
+}
+
+func exactApiSubagentControlHandleInput(v api.SubagentControlHandleInput) fails rpc.Unrepresentable {
+	exactInt64(v.AtMs) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("atMs", u)
+	}
+}
+
+func exactApiSubagentSettleHandleInput(v api.SubagentSettleHandleInput) fails rpc.Unrepresentable {
+	exactInt64(v.AtMs) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("atMs", u)
+	}
+}
+
+func exactApiSubagentHandBackInput(v api.SubagentHandBackInput) fails rpc.Unrepresentable {
+	exactInt64(v.AtMs) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("atMs", u)
+	}
+}
+
+func exactApiHandleOpenInput(v api.HandleOpenInput) fails rpc.Unrepresentable {
+	exactInt64(v.AtMs) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("atMs", u)
+	}
+	exactInt(v.OwnerEpoch) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("ownerEpoch", u)
+	}
+}
+
+func exactApiHandleSettleInput(v api.HandleSettleInput) fails rpc.Unrepresentable {
+	exactInt64(v.AtMs) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("atMs", u)
+	}
+}
+
+func exactApiHandleListInput(v api.HandleListInput) fails rpc.Unrepresentable {
+	exactJsonOptionalInt(v.OwnerEpoch) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("ownerEpoch", u)
+	}
+}
+
+func exactApiOwnerCallsRetireInput(v api.OwnerCallsRetireInput) fails rpc.Unrepresentable {
+	exactInt64(v.AtMs) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("atMs", u)
+	}
+	exactInt(v.OwnerEpoch) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("ownerEpoch", u)
+	}
+}
+
+func exactApiQuestionAskInput(v api.QuestionAskInput) fails rpc.Unrepresentable {
+	exactInt64(v.AtMs) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("atMs", u)
+	}
+	exactInt(v.OwnerEpoch) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("ownerEpoch", u)
+	}
+}
+
+func exactApiQuestionAnswerInput(v api.QuestionAnswerInput) fails rpc.Unrepresentable {
+	exactInt64(v.AtMs) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("atMs", u)
+	}
+}
+
+func exactApiQuestionWithdrawInput(v api.QuestionWithdrawInput) fails rpc.Unrepresentable {
+	exactInt64(v.AtMs) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("atMs", u)
+	}
+}
+
+func exactApiPoolAccountUpsertInput(v api.PoolAccountUpsertInput) fails rpc.Unrepresentable {
+	exactInt64(v.AtMs) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("atMs", u)
+	}
+	exactInt(v.Priority) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("priority", u)
+	}
+	exactInt(v.Window5hUsedPct) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("window5hUsedPct", u)
+	}
+	exactInt64(v.Window5hResetMs) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("window5hResetMs", u)
+	}
+	exactInt(v.Window7dUsedPct) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("window7dUsedPct", u)
+	}
+	exactInt64(v.Window7dResetMs) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("window7dResetMs", u)
+	}
+	exactInt(v.InflightStarts) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("inflightStarts", u)
+	}
+	exactInt64(v.LimitedUntilMs) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("limitedUntilMs", u)
+	}
+}
+
+func exactApiPoolHoldOpenInput(v api.PoolHoldOpenInput) fails rpc.Unrepresentable {
+	exactInt64(v.AtMs) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("atMs", u)
+	}
+	exactInt64(v.RetryAtMs) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("retryAtMs", u)
+	}
+}
+
+func exactApiPoolHoldTransitionInput(v api.PoolHoldTransitionInput) fails rpc.Unrepresentable {
+	exactInt64(v.AtMs) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("atMs", u)
+	}
+}
+
+func exactApiPoolViewInput(v api.PoolViewInput) fails rpc.Unrepresentable {
+	exactInt64(v.NowMs) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("nowMs", u)
+	}
+}
+
+func exactApiKernelSnapshotSaveInput(v api.KernelSnapshotSaveInput) fails rpc.Unrepresentable {
+	exactInt64(v.AtMs) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("atMs", u)
+	}
+	exactInt(v.SnapshotBytes) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("snapshotBytes", u)
+	}
+}
+
+func exactApiKernelCutRecordInput(v api.KernelCutRecordInput) fails rpc.Unrepresentable {
+	exactInt64(v.AtMs) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("atMs", u)
+	}
+	exactInt64(v.StartedAtMs) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("startedAtMs", u)
+	}
+	exactInt64(v.EndedAtMs) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("endedAtMs", u)
+	}
+}
+
+func exactApiLeaseAcquireInput(v api.LeaseAcquireInput) fails rpc.Unrepresentable {
+	exactInt64(v.AtMs) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("atMs", u)
+	}
+	exactInt(v.OwnerEpoch) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("ownerEpoch", u)
+	}
+	exactInt(v.ExpectedEpoch) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("expectedEpoch", u)
+	}
+}
+
+func exactApiBootReconcileInput(v api.BootReconcileInput) fails rpc.Unrepresentable {
+	exactInt64(v.AtMs) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("atMs", u)
+	}
+	exactInt(v.BootingEpoch) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("bootingEpoch", u)
+	}
+}
+
+func exactApiBootStatusInput(v api.BootStatusInput) fails rpc.Unrepresentable {
+	exactInt(v.BootingEpoch) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("bootingEpoch", u)
+	}
+}
+
+func exactApiWellnessReportInput(v api.WellnessReportInput) fails rpc.Unrepresentable {
+	exactInt64(v.NowMs) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("nowMs", u)
+	}
+}
+
+func exactApiMcpTokenMintInput(v api.McpTokenMintInput) fails rpc.Unrepresentable {
+	exactInt(v.Gen) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("gen", u)
+	}
+	exactInt64(v.NowMs) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("nowMs", u)
+	}
+}
+
+func exactApiThreadSnapshot(v api.ThreadSnapshot) fails rpc.Unrepresentable {
+	exactInt(v.SessionGen) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("sessionGen", u)
+	}
+	exactSliceApiBranchEdgeView(v.Edges) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("edges", u)
+	}
+	exactInt(v.TurnsStarted) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("turnsStarted", u)
+	}
+	exactInt(v.TurnsCompleted) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("turnsCompleted", u)
+	}
+	exactInt(v.ModeSwitchCount) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("modeSwitchCount", u)
+	}
+}
+
+func exactSliceApiBranchEdgeView(v []api.BranchEdgeView) fails rpc.Unrepresentable {
+	for i, x in v {
+		exactApiBranchEdgeView(x) catch {
+		case rpc.Unrepresentable as u:
+			return rpc.Under("\(i)", u)
+		}
+	}
+}
+
+func exactApiBranchEdgeView(v api.BranchEdgeView) fails rpc.Unrepresentable {
+	exactInt64(v.CreatedAtMs) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("createdAtMs", u)
+	}
+}
+
+func exactMemoryLeaseFenced(v memory.LeaseFenced) fails rpc.Unrepresentable {
+	exactInt(v.ActiveEpoch) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("activeEpoch", u)
+	}
+	exactInt64(v.ActiveToken) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("activeToken", u)
+	}
+}
+
+func exactMemorySubagentDomainErr(v memory.SubagentDomainErr) fails rpc.Unrepresentable {
+	exactSubagentSubagentRefusal(v.SubagentErr) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("subagentErr", u)
+	}
+}
+
+func exactSubagentSubagentRefusal(v subagent.SubagentRefusal) fails rpc.Unrepresentable {
+	match v {
+	case subagent.ParentNodeNotFound:
+	case subagent.NodeNotFound:
+	case subagent.DuplicateSubagentID:
+	case subagent.MaxDepthExceeded as x:
+		exactInt(x.Depth) catch {
+		case rpc.Unrepresentable as u:
+			return rpc.Under("depth", u)
+		}
+		exactInt(x.Limit) catch {
+		case rpc.Unrepresentable as u:
+			return rpc.Under("limit", u)
+		}
+	case subagent.MaxFanOutExceeded as x:
+		exactInt(x.FanOut) catch {
+		case rpc.Unrepresentable as u:
+			return rpc.Under("fanOut", u)
+		}
+		exactInt(x.Limit) catch {
+		case rpc.Unrepresentable as u:
+			return rpc.Under("limit", u)
+		}
+	case subagent.BudgetExhausted as x:
+		exactInt(x.Used) catch {
+		case rpc.Unrepresentable as u:
+			return rpc.Under("used", u)
+		}
+		exactInt(x.Limit) catch {
+		case rpc.Unrepresentable as u:
+			return rpc.Under("limit", u)
+		}
+	case subagent.OutsideSubtreeScope:
+	case subagent.OpenHandlesBlockHandBack as x:
+		exactInt(x.Count) catch {
+		case rpc.Unrepresentable as u:
+			return rpc.Under("count", u)
+		}
+	case subagent.ActiveChildBlocksHandBack:
+	case subagent.InvalidSubagentState:
+	}
+}
+
+func exactMemoryLimitDomainErr(v memory.LimitDomainErr) fails rpc.Unrepresentable {
+	exactTurnLimitRefusal(v.LimitErr) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("limitErr", u)
+	}
+}
+
+func exactTurnLimitRefusal(v turn.LimitRefusal) fails rpc.Unrepresentable {
+	match v {
+	case turn.ResetTimestampInvalid as x:
+		exactInt64(x.ResetAtMs) catch {
+		case rpc.Unrepresentable as u:
+			return rpc.Under("resetAtMs", u)
+		}
+	case turn.ResetOverdueBeyond24h as x:
+		exactInt64(x.ResetAtMs) catch {
+		case rpc.Unrepresentable as u:
+			return rpc.Under("resetAtMs", u)
+		}
+		exactInt64(x.NowMs) catch {
+		case rpc.Unrepresentable as u:
+			return rpc.Under("nowMs", u)
+		}
+	case turn.ThreadArchivedRefusal:
+	case turn.SessionExpiredRefusal:
+	case turn.PendingRequestBlocking:
+	case turn.DuplicateLimitKey:
+	case turn.ResetNotReachedYet as x:
+		exactInt64(x.ResetAtMs) catch {
+		case rpc.Unrepresentable as u:
+			return rpc.Under("resetAtMs", u)
+		}
+		exactInt64(x.NowMs) catch {
+		case rpc.Unrepresentable as u:
+			return rpc.Under("nowMs", u)
+		}
+	case turn.LimitAlreadySettled:
+	}
+}
+
+func exactApiThreadListOutput(v api.ThreadListOutput) fails rpc.Unrepresentable {
+	exactSliceApiThreadSummary(v.Threads) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("threads", u)
+	}
+	exactInt(v.Total) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("total", u)
+	}
+}
+
+func exactSliceApiThreadSummary(v []api.ThreadSummary) fails rpc.Unrepresentable {
+	for i, x in v {
+		exactApiThreadSummary(x) catch {
+		case rpc.Unrepresentable as u:
+			return rpc.Under("\(i)", u)
+		}
+	}
+}
+
+func exactApiThreadSummary(v api.ThreadSummary) fails rpc.Unrepresentable {
+	exactInt(v.QueuedCount) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("queuedCount", u)
+	}
+	exactInt(v.TurnsStarted) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("turnsStarted", u)
+	}
+	exactInt(v.TurnsCompleted) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("turnsCompleted", u)
+	}
+}
+
+func exactApiSubagentTreeOutput(v api.SubagentTreeOutput) fails rpc.Unrepresentable {
+	exactInt(v.MaxDepth) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("maxDepth", u)
+	}
+	exactInt(v.MaxFanOut) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("maxFanOut", u)
+	}
+	exactInt(v.MaxBudget) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("maxBudget", u)
+	}
+	exactInt(v.BudgetUsed) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("budgetUsed", u)
+	}
+	exactSliceApiSubagentNodeView(v.Nodes) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("nodes", u)
+	}
+}
+
+func exactSliceApiSubagentNodeView(v []api.SubagentNodeView) fails rpc.Unrepresentable {
+	for i, x in v {
+		exactApiSubagentNodeView(x) catch {
+		case rpc.Unrepresentable as u:
+			return rpc.Under("\(i)", u)
+		}
+	}
+}
+
+func exactApiSubagentNodeView(v api.SubagentNodeView) fails rpc.Unrepresentable {
+	exactInt(v.Depth) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("depth", u)
+	}
+	exactInt(v.HandBackCount) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("handBackCount", u)
+	}
+}
+
+func exactApiHandleViewOutput(v api.HandleViewOutput) fails rpc.Unrepresentable {
+	exactSliceApiPoolHoldView(v.Holds) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("holds", u)
+	}
+}
+
+func exactSliceApiPoolHoldView(v []api.PoolHoldView) fails rpc.Unrepresentable {
+	for i, x in v {
+		exactApiPoolHoldView(x) catch {
+		case rpc.Unrepresentable as u:
+			return rpc.Under("\(i)", u)
+		}
+	}
+}
+
+func exactApiPoolHoldView(v api.PoolHoldView) fails rpc.Unrepresentable {
+	exactInt64(v.RetryAtMs) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("retryAtMs", u)
+	}
+}
+
+func exactApiAsyncQuestionView(v api.AsyncQuestionView) fails rpc.Unrepresentable {
+	exactInt64(v.AskedAtMs) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("askedAtMs", u)
+	}
+	exactInt64(v.UpdatedAtMs) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("updatedAtMs", u)
+	}
+}
+
+func exactApiAsyncQuestionListOutput(v api.AsyncQuestionListOutput) fails rpc.Unrepresentable {
+	exactSliceApiAsyncQuestionView(v.Questions) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("questions", u)
+	}
+}
+
+func exactSliceApiAsyncQuestionView(v []api.AsyncQuestionView) fails rpc.Unrepresentable {
+	for i, x in v {
+		exactApiAsyncQuestionView(x) catch {
+		case rpc.Unrepresentable as u:
+			return rpc.Under("\(i)", u)
+		}
+	}
+}
+
+func exactApiPoolViewOutput(v api.PoolViewOutput) fails rpc.Unrepresentable {
+	exactSliceApiPoolAccountView(v.Accounts) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("accounts", u)
+	}
+	exactSliceApiPoolHoldView(v.DueHolds) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("dueHolds", u)
+	}
+	exactSliceApiPoolHoldView(v.AllHolds) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("allHolds", u)
+	}
+}
+
+func exactSliceApiPoolAccountView(v []api.PoolAccountView) fails rpc.Unrepresentable {
+	for i, x in v {
+		exactApiPoolAccountView(x) catch {
+		case rpc.Unrepresentable as u:
+			return rpc.Under("\(i)", u)
+		}
+	}
+}
+
+func exactApiPoolAccountView(v api.PoolAccountView) fails rpc.Unrepresentable {
+	exactInt(v.Priority) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("priority", u)
+	}
+	exactInt(v.Window5hUsedPct) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("window5hUsedPct", u)
+	}
+	exactInt64(v.Window5hResetMs) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("window5hResetMs", u)
+	}
+	exactInt(v.Window7dUsedPct) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("window7dUsedPct", u)
+	}
+	exactInt64(v.Window7dResetMs) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("window7dResetMs", u)
+	}
+	exactInt(v.InflightStarts) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("inflightStarts", u)
+	}
+	exactInt64(v.LimitedUntilMs) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("limitedUntilMs", u)
+	}
+}
+
+func exactApiKernelViewOutput(v api.KernelViewOutput) fails rpc.Unrepresentable {
+	exactJsonOptionalApiKernelSnapshotSummary(v.Snapshot) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("snapshot", u)
+	}
+	exactInt(v.JournalCount) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("journalCount", u)
+	}
+	exactSliceApiKernelRootUsageView(v.RootUsages) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("rootUsages", u)
+	}
+	exactInt(v.LimitCount) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("limitCount", u)
+	}
+	exactInt(v.RequestCount) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("requestCount", u)
+	}
+}
+
+func exactJsonOptionalApiKernelSnapshotSummary(v json.Optional[api.KernelSnapshotSummary]) fails rpc.Unrepresentable {
+	match v {
+	case json.Absent:
+	case json.Present[api.KernelSnapshotSummary] as x:
+		exactApiKernelSnapshotSummary(x.Value) catch {
+		case rpc.Unrepresentable as u:
+			return rpc.Under("value", u)
+		}
+	}
+}
+
+func exactApiKernelSnapshotSummary(v api.KernelSnapshotSummary) fails rpc.Unrepresentable {
+	exactInt(v.SnapshotSeq) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("snapshotSeq", u)
+	}
+	exactInt(v.SnapshotBytes) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("snapshotBytes", u)
+	}
+	exactInt64(v.UpdatedAtMs) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("updatedAtMs", u)
+	}
+}
+
+func exactSliceApiKernelRootUsageView(v []api.KernelRootUsageView) fails rpc.Unrepresentable {
+	for i, x in v {
+		exactApiKernelRootUsageView(x) catch {
+		case rpc.Unrepresentable as u:
+			return rpc.Under("\(i)", u)
+		}
+	}
+}
+
+func exactApiKernelRootUsageView(v api.KernelRootUsageView) fails rpc.Unrepresentable {
+	exactInt64(v.ActiveCellMs) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("activeCellMs", u)
+	}
+}
+
+func exactApiBootLeaseOutput(v api.BootLeaseOutput) fails rpc.Unrepresentable {
+	exactJsonOptionalApiLeaseSummary(v.ActiveLease) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("activeLease", u)
+	}
+	exactInt(v.RetiredCalls) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("retiredCalls", u)
+	}
+	exactInt(v.RequeuedWakes) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("requeuedWakes", u)
+	}
+	exactInt(v.TerminatedTurns) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("terminatedTurns", u)
+	}
+	exactInt(v.ExpiredRequests) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("expiredRequests", u)
+	}
+}
+
+func exactJsonOptionalApiLeaseSummary(v json.Optional[api.LeaseSummary]) fails rpc.Unrepresentable {
+	match v {
+	case json.Absent:
+	case json.Present[api.LeaseSummary] as x:
+		exactApiLeaseSummary(x.Value) catch {
+		case rpc.Unrepresentable as u:
+			return rpc.Under("value", u)
+		}
+	}
+}
+
+func exactApiLeaseSummary(v api.LeaseSummary) fails rpc.Unrepresentable {
+	exactInt(v.Epoch) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("epoch", u)
+	}
+	exactInt64(v.FencingToken) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("fencingToken", u)
+	}
+}
+
+func exactApiHostCapacityReport(v api.HostCapacityReport) fails rpc.Unrepresentable {
+	exactInt(v.Cores) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("cores", u)
+	}
+	exactInt(v.RunningProcs) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("runningProcs", u)
+	}
+	exactInt(v.TotalEntities) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("totalEntities", u)
+	}
+	exactInt64(v.MemTotalBytes) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("memTotalBytes", u)
+	}
+	exactInt64(v.MemAvailableBytes) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("memAvailableBytes", u)
+	}
+	exactSliceApiHostVolume(v.Volumes) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("volumes", u)
+	}
+}
+
+func exactSliceApiHostVolume(v []api.HostVolume) fails rpc.Unrepresentable {
+	for i, x in v {
+		exactApiHostVolume(x) catch {
+		case rpc.Unrepresentable as u:
+			return rpc.Under("\(i)", u)
+		}
+	}
+}
+
+func exactApiHostVolume(v api.HostVolume) fails rpc.Unrepresentable {
+	exactInt64(v.TotalBytes) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("totalBytes", u)
+	}
+	exactInt64(v.FreeBytes) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("freeBytes", u)
+	}
+	exactInt64(v.AvailableBytes) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("availableBytes", u)
+	}
+	exactInt64(v.UsedBytes) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("usedBytes", u)
+	}
+}
+
+func exactApiWellnessReport(v api.WellnessReport) fails rpc.Unrepresentable {
+	exactInt64(v.CheckedAtMs) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("checkedAtMs", u)
+	}
+	exactInt(v.StoreSeq) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("storeSeq", u)
+	}
+	exactInt(v.ThreadCount) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("threadCount", u)
+	}
+	exactInt(v.ActiveTurnCount) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("activeTurnCount", u)
+	}
+	exactInt(v.ArchivedThreadCount) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("archivedThreadCount", u)
+	}
+	exactInt(v.OpenCallCount) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("openCallCount", u)
+	}
+	exactInt(v.DeadOwnerCallCount) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("deadOwnerCallCount", u)
+	}
+	exactInt(v.DueHoldCount) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("dueHoldCount", u)
+	}
+	exactInt(v.UndeliveredWakeCount) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("undeliveredWakeCount", u)
+	}
+	exactInt(v.FlaggedRootCount) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("flaggedRootCount", u)
+	}
+	exactApiHostCapacityReport(v.Host) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("host", u)
+	}
+}
+
+func exactApiMintedToken(v api.MintedToken) fails rpc.Unrepresentable {
+	exactInt(v.Gen) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("gen", u)
+	}
+	exactInt64(v.IssuedAtMs) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("issuedAtMs", u)
+	}
+}
+
+func exactApiMcpTokenRevokeOutput(v api.McpTokenRevokeOutput) fails rpc.Unrepresentable {
+	exactInt(v.RevokedCount) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("revokedCount", u)
+	}
+}
+
+func exactApiMcpTokenListOutput(v api.McpTokenListOutput) fails rpc.Unrepresentable {
+	exactSliceApiMcpTokenInfo(v.Tokens) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("tokens", u)
+	}
+}
+
+func exactSliceApiMcpTokenInfo(v []api.McpTokenInfo) fails rpc.Unrepresentable {
+	for i, x in v {
+		exactApiMcpTokenInfo(x) catch {
+		case rpc.Unrepresentable as u:
+			return rpc.Under("\(i)", u)
+		}
+	}
+}
+
+func exactApiMcpTokenInfo(v api.McpTokenInfo) fails rpc.Unrepresentable {
+	exactInt(v.Gen) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("gen", u)
+	}
+	exactInt64(v.IssuedAtMs) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("issuedAtMs", u)
+	}
+	exactInt64(v.LastTouchedMs) catch {
+	case rpc.Unrepresentable as u:
+		return rpc.Under("lastTouchedMs", u)
+	}
+}

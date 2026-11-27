@@ -1,0 +1,1472 @@
+import github.com/cevr/ergo/modules/atlas/adapter
+import github.com/cevr/ergo/modules/atlas/handle
+import github.com/cevr/ergo/modules/atlas/memory
+import github.com/cevr/ergo/modules/atlas/reconcile
+import github.com/cevr/ergo/modules/atlas/session
+import github.com/cevr/ergo/modules/atlas/subagent
+import github.com/cevr/ergo/modules/atlas/thread
+import github.com/cevr/ergo/modules/atlas/turn
+import json
+import option
+import rand
+import strconv
+import strings
+
+type cmdMeta {
+	id    string,
+	actor string,
+	atMs  int64,
+}
+
+// Service implements atlas.Api backed generically by any memory.Store, HostCapacity, and McpAuthStore.
+type Service {
+	store  memory.Store,
+	cap    HostCapacity,
+	auth   McpAuthStore,
+	policy WellnessPolicy,
+} implements Api
+
+// NewService constructs an Api Service backed by store, cap, and auth with DefaultWellnessPolicy.
+func NewService(store memory.Store, cap HostCapacity, auth McpAuthStore) Service {
+	Service{
+		store:  store,
+		cap:    cap,
+		auth:   auth,
+		policy: DefaultWellnessPolicy(),
+	}
+}
+
+// NewServiceWithPolicy constructs an Api Service with an explicit WellnessPolicy.
+func NewServiceWithPolicy(store memory.Store, cap HostCapacity, auth McpAuthStore, policy WellnessPolicy) Service {
+	Service{
+		store:  store,
+		cap:    cap,
+		auth:   auth,
+		policy: policy,
+	}
+}
+
+// StoreOf returns the backing memory.Store used by s.
+func StoreOf(s Service) memory.Store {
+	s.store
+}
+
+// AuthOf returns the McpAuthStore used by s.
+func AuthOf(s Service) McpAuthStore {
+	s.auth
+}
+
+// HostCapacityOf returns the HostCapacity provider used by s.
+func HostCapacityOf(s Service) HostCapacity {
+	s.cap
+}
+
+func newDefaultMemoryService() Service fails HostCapacityFailed {
+	let cap = try NewStaticHostCapacity(HealthyHostStatus([]string{"/", "/workspaces"}))
+	NewService(memory.New(), cap, NewMcpAuthStore(rand.NewSeededSecure(uint64(17))))
+}
+
+let overMemoryApi = context fails HostCapacityFailed {
+	Api: try newDefaultMemoryService(),
+}
+
+func requireText(field string, value string) string fails memory.InvalidInput {
+	let trimmed = strings.TrimSpace(value)
+	if trimmed == "" {
+		return memory.InvalidInput{Field: field, Reason: "must not be empty"}
+	}
+	trimmed
+}
+
+func optToOption[T](v json.Optional[T]) option.Option[T] {
+	match v {
+	case json.Present[T] as p:
+		option.Some[T]{Value: p.Value}
+	case json.Absent:
+		option.None
+	}
+}
+
+func optionToJson[T](v option.Option[T]) json.Optional[T] {
+	match v {
+	case option.Some[T] as some:
+		json.Present[T]{Value: some.Value}
+	case option.None:
+		json.Absent
+	}
+}
+
+func parseOptionalText(field string, v json.Optional[string]) option.Option[string] fails memory.InvalidInput {
+	match v {
+	case json.Present[string] as p:
+		option.Some[string]{Value: try requireText(field, p.Value)}
+	case json.Absent:
+		option.None
+	}
+}
+
+func optStringOr(v json.Optional[string], fallback string) string {
+	match v {
+	case json.Present[string] as p:
+		if strings.TrimSpace(p.Value) != "" { p.Value } else { fallback }
+	case json.Absent:
+		fallback
+	}
+}
+
+func parseFloatOptional(field string, v json.Optional[string], fallback float64) float64 fails memory.InvalidInput {
+	match v {
+	case json.Present[string] as p:
+		let trimmed = strings.TrimSpace(p.Value)
+		if trimmed == "" {
+			return memory.InvalidInput{Field: field, Reason: "must not be blank"}
+		}
+		strconv.ParseFloat(trimmed) catch {
+		case strconv.Malformed, strconv.OutOfRange:
+			return memory.InvalidInput{Field: field, Reason: "must be a finite decimal number"}
+		}
+	case json.Absent:
+		fallback
+	}
+}
+
+func parseOwner(srv string, loc string, epoch int) handle.OwnerID fails memory.InvalidInput {
+	let s = try requireText("ownerServer", srv)
+	let l = try requireText("ownerLocation", loc)
+	if epoch < 0 {
+		return memory.InvalidInput{Field: "ownerEpoch", Reason: "must be non-negative"}
+	}
+	handle.OwnerID{ServerID: s, Location: l, Epoch: epoch}
+}
+
+func parseDriver(field string, raw string) adapter.DriverKind fails memory.InvalidInput {
+	let text = try requireText(field, raw)
+	match adapter.ParseDriverKind(text) {
+	case option.Some[adapter.DriverKind] as d:
+		d.Value
+	case option.None:
+		memory.InvalidInput{Field: field, Reason: "unknown driver '\(text)'"}
+	}
+}
+
+func parsePermission(field string, raw string) adapter.PermissionMode fails memory.InvalidInput {
+	let text = try requireText(field, raw)
+	match adapter.ParsePermissionMode(text) {
+	case option.Some[adapter.PermissionMode] as m:
+		m.Value
+	case option.None:
+		memory.InvalidInput{Field: field, Reason: "unknown permission mode '\(text)'"}
+	}
+}
+
+func parseLinkOrigin(kindOpt json.Optional[string], targetOpt json.Optional[string]) thread.LinkOrigin fails memory.InvalidInput {
+	let kind = match optToOption[string](kindOpt) {
+	case option.Some[string] as k:
+		strings.TrimSpace(k.Value)
+	case option.None:
+		return thread.OriginLocal
+	}
+	match kind {
+	case "", "local":
+		thread.OriginLocal
+	case "mcp":
+		let t = try requireText("linkOriginTarget", optStringOr(targetOpt, ""))
+		thread.OriginMcpScoped{BoundThread: handle.ThreadID(t)}
+	case "peer":
+		let p = try requireText("linkOriginTarget", optStringOr(targetOpt, ""))
+		thread.OriginRemotePeer{PeerID: p}
+	case "subagent":
+		let p = try requireText("linkOriginTarget", optStringOr(targetOpt, ""))
+		thread.OriginSubagentChild{ParentID: handle.ThreadID(p)}
+	case _:
+		memory.InvalidInput{Field: "linkOriginKind", Reason: "must be local, mcp, peer, or subagent"}
+	}
+}
+
+func parseFailureClass(clsOpt json.Optional[string], resetOpt json.Optional[int]) turn.FailureClass fails memory.InvalidInput {
+	let cls = optStringOr(clsOpt, "unknown")
+	match cls {
+	case "usage_limit":
+		let reset = match resetOpt {
+		case json.Present[int] as r:
+			int64(r.Value)
+		case json.Absent:
+			int64(0)
+		}
+		turn.FailureUsageLimit{ResetAtMs: reset}
+	case "provider":
+		turn.FailureProvider
+	case "transport":
+		turn.FailureTransport
+	case "permission":
+		turn.FailurePermission
+	case "validation":
+		turn.FailureValidation
+	case "unknown":
+		turn.FailureUnknown
+	case _:
+		memory.InvalidInput{Field: "failureClass", Reason: "unknown failure class '\(cls)'"}
+	}
+}
+
+func parseLifecycleTurnAction(raw string) option.Option[turn.TurnAction] {
+	match raw {
+	case "dispatch":
+		option.Some[turn.TurnAction]{Value: turn.ActionDispatch}
+	case "dispatch-lost":
+		option.Some[turn.TurnAction]{Value: turn.ActionDispatchLost}
+	case "resolve-sent":
+		option.Some[turn.TurnAction]{Value: turn.ActionResolveSent}
+	case "resolve-unsent":
+		option.Some[turn.TurnAction]{Value: turn.ActionResolveUnsent}
+	case "delta":
+		option.Some[turn.TurnAction]{Value: turn.ActionReceiveDelta}
+	case "request-write":
+		option.Some[turn.TurnAction]{Value: turn.ActionRequestWriteApproval}
+	case "grant-write":
+		option.Some[turn.TurnAction]{Value: turn.ActionGrantWriteApproval}
+	case "execute-write":
+		option.Some[turn.TurnAction]{Value: turn.ActionExecuteWrite}
+	case "steer":
+		option.Some[turn.TurnAction]{Value: turn.ActionSendSteer}
+	case "request-stop":
+		option.Some[turn.TurnAction]{Value: turn.ActionRequestStop}
+	case "send-cancel":
+		option.Some[turn.TurnAction]{Value: turn.ActionSendCancel}
+	case "start-bookkeeping":
+		option.Some[turn.TurnAction]{Value: turn.ActionStartBookkeeping}
+	case "finish-bookkeeping":
+		option.Some[turn.TurnAction]{Value: turn.ActionFinishBookkeeping}
+	case _:
+		option.None
+	}
+}
+
+func parseTurnAction(input TurnStepInput) turn.TurnAction fails memory.InvalidInput {
+	let act = try requireText("action", input.Action)
+	match parseLifecycleTurnAction(act) {
+	case option.Some[turn.TurnAction] as simple:
+		return simple.Value
+	case option.None:
+	}
+	match act {
+	case "retry-transient":
+		turn.ActionRetryTransient{Class: try parseFailureClass(input.FailureClass, input.ResetAtMs)}
+	case "finish-completed":
+		turn.ActionFinishTurn{Outcome: turn.OutcomeCompleted}
+	case "finish-cancelled":
+		turn.ActionFinishTurn{Outcome: turn.OutcomeCancelled}
+	case "finish-lost":
+		turn.ActionFinishTurn{Outcome: turn.OutcomeLost}
+	case "finish-failed":
+		let fc = try parseFailureClass(input.FailureClass, input.ResetAtMs)
+		turn.ActionFinishTurn{Outcome: turn.OutcomeFailed{Class: fc, Detail: optStringOr(input.FailureDetail, "turn failed")}}
+	case "fail-before-dispatch":
+		let fc = try parseFailureClass(input.FailureClass, input.ResetAtMs)
+		turn.ActionFailBeforeDispatch{Class: fc, Detail: optStringOr(input.FailureDetail, "failed before dispatch")}
+	case _:
+		memory.InvalidInput{Field: "action", Reason: "unknown turn action '\(act)'"}
+	}
+}
+
+func parseAgentRoleField(field string, raw string) subagent.AgentRole fails memory.InvalidInput {
+	let text = try requireText(field, raw)
+	match ParseAgentRole(text) {
+	case option.Some[subagent.AgentRole] as r:
+		r.Value
+	case option.None:
+		memory.InvalidInput{Field: field, Reason: "unknown subagent role '\(text)'"}
+	}
+}
+
+func parseHandleKindField(raw string) handle.HandleKind fails memory.InvalidInput {
+	let text = try requireText("kind", raw)
+	match handle.ParseHandleKind(text) {
+	case option.Some[handle.HandleKind] as k:
+		k.Value
+	case option.None:
+		memory.InvalidInput{Field: "kind", Reason: "unknown handle kind '\(text)'"}
+	}
+}
+
+func parseDispositionField(raw string) handle.Disposition fails memory.InvalidInput {
+	let text = try requireText("disposition", raw)
+	match ParseDisposition(text) {
+	case option.Some[handle.Disposition] as d:
+		d.Value
+	case option.None:
+		memory.InvalidInput{Field: "disposition", Reason: "must be succeeded, failed, lost, declined, cancelled, or handed"}
+	}
+}
+
+func parseResponderField(raw string) turn.Responder fails memory.InvalidInput {
+	let text = try requireText("responder", raw)
+	match text {
+	case "primary":
+		turn.ResponderPrimary
+	case "secondary":
+		turn.ResponderSecondary
+	case "timeout":
+		turn.ResponderTimeout
+	case _:
+		memory.InvalidInput{Field: "responder", Reason: "must be primary, secondary, or timeout"}
+	}
+}
+
+func formatResponder(r turn.Responder) string {
+	match r {
+	case turn.ResponderPrimary:
+		"primary"
+	case turn.ResponderSecondary:
+		"secondary"
+	case turn.ResponderTimeout:
+		"timeout"
+	}
+}
+
+func execStore(s Service, meta cmdMeta, cmd memory.Command) memory.ExecuteResult fails memory.NotFound | memory.AlreadyExists | memory.InvalidTransition | memory.CommandReused | memory.InvalidInput | memory.LeaseFenced | memory.ThreadDomainErr | memory.SubagentDomainErr | memory.HandleDomainErr | memory.LimitDomainErr | memory.RequestDomainErr | memory.CutoverDomainErr | memory.StoreFailed {
+	let cid = try requireText("commandID", meta.id)
+	let actor = try requireText("actor", meta.actor)
+	let env = memory.Envelope{
+		ID:         memory.CommandID(cid),
+		Actor:      actor,
+		AtMs:       meta.atMs,
+		LeaseFence: option.None,
+		Command:    cmd,
+	}
+	try s.store.Execute(env)
+}
+
+func projectThreadSessionInfo(t thread.Thread) (json.Optional[string], int) {
+	match t.ActiveSession {
+	case option.Some[session.SessionRecord] as sess:
+		(json.Present[string]{Value: string(sess.Value.ID)}, sess.Value.Gen)
+	case option.None:
+		(json.Absent, 0)
+	}
+}
+
+func projectThreadTurnInfo(t thread.Thread) (json.Optional[string], json.Optional[string]) {
+	match t.ActiveTurn {
+	case option.Some[turn.TurnState] as at:
+		(json.Present[string]{Value: string(at.Value.ID)}, json.Present[string]{Value: FormatTurnPhase(at.Value.Phase)})
+	case option.None:
+		(json.Absent, json.Absent)
+	}
+}
+
+func projectThreadView(tv memory.ThreadView) ThreadSnapshot {
+	let t = tv.Thread
+	let mut parent json.Optional[string] = json.Absent
+	match t.ParentThreadID {
+	case option.Some[handle.ThreadID] as p:
+		parent = json.Present[string]{Value: string(p.Value)}
+	case option.None:
+	}
+	let (sessID, sessGen) = projectThreadSessionInfo(t)
+	let (turnID, turnPhase) = projectThreadTurnInfo(t)
+	let mut outcome json.Optional[string] = json.Absent
+	match t.LastTurnOutcome {
+	case option.Some[turn.TurnOutcome] as o:
+		outcome = json.Present[string]{Value: FormatTurnOutcome(o.Value)}
+	case option.None:
+	}
+	let mut prompts = []QueuedPromptView{}
+	for _, qp in t.PromptQueue {
+		prompts = prompts.Append(QueuedPromptView{
+			PromptID:      qp.ID,
+			Body:          qp.Body,
+			RequestedMode: adapter.PermissionModeName(qp.RequestedMode),
+		})
+	}
+	let mut edges = []BranchEdgeView{}
+	for _, e in tv.Edges {
+		edges = edges.Append(BranchEdgeView{
+			ParentThreadID: string(e.ParentThreadID),
+			ChildThreadID:  string(e.ChildThreadID),
+			Kind:           memory.BranchKindName(e.Kind),
+			Label:          e.Label,
+			CreatedAtMs:    e.CreatedAtMs,
+		})
+	}
+	ThreadSnapshot{
+		ThreadID:        string(t.ID),
+		ParentThreadID:  parent,
+		Driver:          adapter.DriverName(t.Driver),
+		Path:            adapter.ExecutionPathName(t.Mode),
+		PermissionMode:  adapter.PermissionModeName(t.PermissionMode),
+		Model:           string(t.Model),
+		LinkOrigin:      FormatLinkOrigin(t.LinkOrigin),
+		Archived:        t.Archived,
+		ActiveSessionID: sessID,
+		SessionGen:      sessGen,
+		ActiveTurnID:    turnID,
+		ActiveTurnPhase: turnPhase,
+		LastTurnOutcome: outcome,
+		QueuedPrompts:   prompts,
+		Edges:           edges,
+		TurnsStarted:    t.TurnsStarted,
+		TurnsCompleted:  t.TurnsCompleted,
+		ModeSwitchCount: t.ModeSwitchCount,
+	}
+}
+
+func mustThreadSnapshot(store memory.Store, tid handle.ThreadID) ThreadSnapshot fails memory.NotFound | memory.StoreFailed {
+	let opt = try store.GetThreadView(tid)
+	match opt {
+	case option.Some[memory.ThreadView] as tv:
+		projectThreadView(tv.Value)
+	case option.None:
+		memory.NotFound{Entity: "thread", Target: string(tid)}
+	}
+}
+
+func projectSubagentNode(n subagent.SubagentNode) SubagentNodeView {
+	let mut parent json.Optional[string] = json.Absent
+	match n.ParentThreadID {
+	case option.Some[handle.ThreadID] as p:
+		parent = json.Present[string]{Value: string(p.Value)}
+	case option.None:
+	}
+	let mut handles = []string{}
+	for _, h in n.OpenHandles {
+		handles = handles.Append(string(h))
+	}
+	let mut children = []string{}
+	for _, c in n.Children {
+		children = children.Append(string(c))
+	}
+	SubagentNodeView{
+		ThreadID:       string(n.ThreadID),
+		ParentThreadID: parent,
+		Role:           FormatAgentRole(n.Role),
+		Depth:          n.Depth,
+		State:          FormatNodeState(n.State),
+		OpenHandles:    handles,
+		Children:       children,
+		HandBackCount:  n.HandBackCount,
+	}
+}
+
+func mustSubagentTreeOutput(store memory.Store, rootID handle.ThreadID) SubagentTreeOutput fails memory.NotFound | memory.StoreFailed {
+	let opt = try store.GetSubagentTree(rootID)
+	let tree = match opt {
+	case option.Some[subagent.Tree] as t:
+		t.Value
+	case option.None:
+		return memory.NotFound{Entity: "subagent_tree", Target: string(rootID)}
+	}
+	let mut nodes = []SubagentNodeView{}
+	for _, id in tree.Order {
+		match tree.Nodes.Get(id) {
+		case option.Some[subagent.SubagentNode] as n:
+			nodes = nodes.Append(projectSubagentNode(n.Value))
+		case option.None:
+		}
+	}
+	SubagentTreeOutput{
+		RootID:     string(tree.RootID),
+		MaxDepth:   tree.Bounds.MaxDepth,
+		MaxFanOut:  tree.Bounds.MaxFanOut,
+		MaxBudget:  tree.Bounds.MaxBudget,
+		BudgetUsed: tree.BudgetUsed,
+		Nodes:      nodes,
+	}
+}
+
+func projectHandleEntry(h handle.WakeHandle) HandleEntryView {
+	HandleEntryView{
+		HandleID:    string(h.ID),
+		Kind:        handle.HandleKindName(h.Kind),
+		Owner:       handle.OwnerText(h.Owner),
+		SessionID:   string(h.Session),
+		Deliverer:   handle.DelivererName(h.Deliverer),
+		Disposition: handle.DispositionName(h.Disposition),
+		Summary:     h.Summary,
+		WakeEmitted: h.WakeEmitted,
+	}
+}
+
+func projectPoolHold(ph memory.PoolHold) PoolHoldView {
+	PoolHoldView{
+		HoldKey:        ph.HoldKey,
+		ThreadID:       string(ph.ThreadID),
+		AccountID:      string(ph.AccountID),
+		RetryAtMs:      ph.RetryAtMs,
+		DeliveryID:     ph.DeliveryID,
+		Status:         memory.HoldStatusName(ph.Status),
+		ParentNotified: ph.ParentNotified,
+	}
+}
+
+func projectHandleView(hv memory.HandleView) HandleViewOutput {
+	let mut handles = []HandleEntryView{}
+	for _, h in hv.Handles {
+		handles = handles.Append(projectHandleEntry(h))
+	}
+	let mut wakes = []WakeEntryView{}
+	for _, w in hv.Wakes {
+		wakes = wakes.Append(WakeEntryView{
+			DeliveryID: w.DeliveryID,
+			HandleID:   string(w.HandleID),
+			Delivered:  w.Delivered,
+			Payload:    w.PayloadSummary,
+		})
+	}
+	let mut holds = []PoolHoldView{}
+	for _, ph in hv.Holds {
+		holds = holds.Append(projectPoolHold(ph))
+	}
+	HandleViewOutput{Handles: handles, Wakes: wakes, Holds: holds}
+}
+
+func projectQuestion(q memory.AsyncQuestion) AsyncQuestionView {
+	let mut answeredBy json.Optional[string] = json.Absent
+	match q.AnsweredBy {
+	case option.Some[turn.Responder] as r:
+		answeredBy = json.Present[string]{Value: formatResponder(r.Value)}
+	case option.None:
+	}
+	AsyncQuestionView{
+		QuestionID:  string(q.ID),
+		ThreadID:    string(q.ThreadID),
+		HandleID:    string(q.HandleID),
+		Header:      q.Header,
+		Prompt:      q.Prompt,
+		Assumption:  q.Assumption,
+		Options:     q.Options,
+		TargetRole:  FormatAgentRole(q.TargetRole),
+		Status:      memory.QuestionStatusName(q.Status),
+		Answer:      optionToJson[string](q.Answer),
+		AnsweredBy:  answeredBy,
+		AskedAtMs:   q.AskedAtMs,
+		UpdatedAtMs: q.UpdatedAtMs,
+	}
+}
+
+func projectPoolView(pv memory.PoolView) PoolViewOutput {
+	let mut accts = []PoolAccountView{}
+	for _, a in pv.Accounts {
+		accts = accts.Append(PoolAccountView{
+			AccountID:       string(a.ID),
+			Provider:        a.Provider,
+			Priority:        a.Priority,
+			Healthy:         a.Healthy,
+			Window5hUsedPct: a.Window5hUsedPct,
+			Window5hResetMs: a.Window5hResetMs,
+			Window7dUsedPct: a.Window7dUsedPct,
+			Window7dResetMs: a.Window7dResetMs,
+			InflightStarts:  a.InflightStarts,
+			LimitedUntilMs:  a.LimitedUntilMs,
+		})
+	}
+	let mut due = []PoolHoldView{}
+	for _, d in pv.DueHolds {
+		due = due.Append(projectPoolHold(d))
+	}
+	let mut all = []PoolHoldView{}
+	for _, h in pv.AllHolds {
+		all = all.Append(projectPoolHold(h))
+	}
+	PoolViewOutput{Accounts: accts, DueHolds: due, AllHolds: all}
+}
+
+func projectKernelView(kv memory.KernelView) KernelViewOutput {
+	let mut snap json.Optional[KernelSnapshotSummary] = json.Absent
+	match kv.Snapshot {
+	case option.Some[memory.KernelSnapshot] as k:
+		let sv = k.Value
+		snap = json.Present[KernelSnapshotSummary]{Value: KernelSnapshotSummary{
+			SessionID:     string(sv.SessionID),
+			ThreadID:      string(sv.ThreadID),
+			RootThreadID:  string(sv.RootThreadID),
+			SnapshotSeq:   sv.SnapshotSeq,
+			SnapshotBytes: sv.SnapshotBytes,
+			LostNotice:    sv.LostNotice,
+			UpdatedAtMs:   sv.UpdatedAtMs,
+		}}
+	case option.None:
+	}
+	let mut usages = []KernelRootUsageView{}
+	for _, u in kv.RootUsages {
+		usages = usages.Append(KernelRootUsageView{
+			RootThreadID: string(u.RootThreadID),
+			ActiveCellMs: u.ActiveCellMs,
+			Flagged:      u.Flagged,
+		})
+	}
+	KernelViewOutput{
+		Snapshot:     snap,
+		JournalCount: kv.Journals.Len(),
+		RootUsages:   usages,
+		LimitCount:   kv.Limits.Len(),
+		RequestCount: kv.Requests.Len(),
+	}
+}
+
+func projectBootLeaseView(blv memory.BootLeaseView, retired int, wakes int, turns int, expired int) BootLeaseOutput {
+	let mut activeLease json.Optional[LeaseSummary] = json.Absent
+	match blv.ActiveLease {
+	case option.Some[memory.LeaseRecord] as lr:
+		let l = lr.Value
+		activeLease = json.Present[LeaseSummary]{Value: LeaseSummary{
+			LeaseID:         l.LeaseID,
+			Owner:           handle.OwnerText(l.Owner),
+			Epoch:           l.Epoch,
+			FencingToken:    l.FencingToken,
+			Phase:           FormatCutoverPhase(l.Phase),
+			ActiveOwner:     FormatLeaseOwner(l.ActiveOwner),
+			CommitPersisted: l.CommitPersisted,
+		}}
+	case option.None:
+	}
+	let mut owners = []string{}
+	for _, o in blv.OpenOwners {
+		owners = owners.Append(handle.OwnerText(o))
+	}
+	BootLeaseOutput{
+		ActiveLease:     activeLease,
+		OpenOwners:      owners,
+		RetiredCalls:    retired,
+		RequeuedWakes:   wakes,
+		TerminatedTurns: turns,
+		ExpiredRequests: expired,
+	}
+}
+
+func countReconcileEffects(plan reconcile.ReconcilePlan) (int, int, int, int) {
+	let mut termTurns = 0
+	for _, tp in plan.TurnPlans {
+		match tp {
+		case reconcile.PlanSettleUnsureTurnLost:
+			termTurns = termTurns + 1
+		case reconcile.PlanKeepQueuedTurn, reconcile.PlanKeepEndedTurn:
+		}
+	}
+	let mut expReqs = 0
+	for _, rq in plan.ReconciledRequests {
+		match rq.Status {
+		case turn.RequestExpired:
+			expReqs = expReqs + 1
+		case turn.RequestQueued, turn.RequestDispatched, turn.RequestAnswered, turn.RequestDelivered:
+		}
+	}
+	(plan.LostCallIDs.Len(), plan.DeliveredWakeIDs.Len(), termTurns, expReqs)
+}
+
+// ThreadCreate initializes and persists a new Atlas thread and optional parent branch edge.
+func ThreadCreate(s Service, input ThreadCreateInput) ThreadSnapshot fails memory.NotFound | memory.AlreadyExists | memory.InvalidTransition | memory.CommandReused | memory.InvalidInput | memory.LeaseFenced | memory.ThreadDomainErr | memory.SubagentDomainErr | memory.HandleDomainErr | memory.LimitDomainErr | memory.RequestDomainErr | memory.CutoverDomainErr | memory.StoreFailed {
+	let tid = handle.ThreadID(try requireText("threadID", input.ThreadID))
+	let parentOpt = try parseOptionalText("parentThreadID", input.ParentThreadID)
+	let parentID = match parentOpt {
+	case option.Some[string] as p:
+		option.Some[handle.ThreadID]{Value: handle.ThreadID(p.Value)}
+	case option.None:
+		option.None
+	}
+	let sharedHome = try parseOptionalText("sharedHome", input.SharedHome)
+	let driver = try parseDriver("driver", input.Driver)
+	let perm = try parsePermission("permissionMode", input.PermissionMode)
+	let inst = adapter.InstanceID(try requireText("instance", input.Instance))
+	let cfg = try requireText("configDir", input.ConfigDir)
+	let model = adapter.ModelID(try requireText("model", input.Model))
+	let origin = try parseLinkOrigin(input.LinkOriginKind, input.LinkOriginTarget)
+	let spec = thread.ThreadSpec{
+		ID:                 tid,
+		ParentThreadID:     parentID,
+		Driver:             driver,
+		AgyDirectSupported: input.AgyDirectSupported,
+		RequestedMode:      perm,
+		Instance:           inst,
+		ConfigDir:          cfg,
+		SharedHome:         sharedHome,
+		Model:              model,
+		LinkOrigin:         origin,
+	}
+	let meta = cmdMeta{id: input.CommandID, actor: input.Actor, atMs: input.AtMs}
+	let _ = try execStore(s, meta, memory.CmdCreateThread{Spec: spec, EdgeLabel: optStringOr(input.EdgeLabel, "branch")})
+	try mustThreadSnapshot(s.store, tid)
+}
+
+// ThreadGet reads a projected thread together with its connected branch edges and FIFO prompt queue.
+func ThreadGet(s Service, input ThreadTargetInput) ThreadSnapshot fails memory.NotFound | memory.InvalidInput | memory.StoreFailed {
+	let tid = handle.ThreadID(try requireText("threadID", input.ThreadID))
+	try mustThreadSnapshot(s.store, tid)
+}
+
+// ThreadList lists persisted threads ordered by creation sequence with optional pagination.
+func ThreadList(s Service, input ThreadListInput) ThreadListOutput fails memory.InvalidInput | memory.StoreFailed {
+	let offset = match input.Offset {
+	case json.Present[int] as o:
+		if o.Value < 0 {
+			return memory.InvalidInput{Field: "offset", Reason: "must be non-negative"}
+		}
+		o.Value
+	case json.Absent:
+		0
+	}
+	let limit = match input.Limit {
+	case json.Present[int] as l:
+		if l.Value <= 0 {
+			return memory.InvalidInput{Field: "limit", Reason: "must be positive"}
+		}
+		l.Value
+	case json.Absent:
+		0
+	}
+	let snap = try s.store.Snapshot()
+	let mut matched = []ThreadSummary{}
+	for _, tid in snap.ThreadOrder {
+		match snap.Threads.Get(tid) {
+		case option.Some[thread.Thread] as tv:
+			let t = tv.Value
+			if !input.IncludeArchived && t.Archived {
+				continue
+			}
+			matched = matched.Append(ThreadSummary{
+				ThreadID:       string(t.ID),
+				Driver:         adapter.DriverName(t.Driver),
+				Path:           adapter.ExecutionPathName(t.Mode),
+				Archived:       t.Archived,
+				InTurn:         thread.IsThreadInTurn(t),
+				QueuedCount:    t.PromptQueue.Len(),
+				TurnsStarted:   t.TurnsStarted,
+				TurnsCompleted: t.TurnsCompleted,
+			})
+		case option.None:
+		}
+	}
+	let total = matched.Len()
+	let mut paged = []ThreadSummary{}
+	for i, item in matched {
+		if i < offset {
+			continue
+		}
+		if limit > 0 && paged.Len() >= limit {
+			break
+		}
+		paged = paged.Append(item)
+	}
+	ThreadListOutput{Threads: paged, Total: total}
+}
+
+// ThreadArchive archives an idle thread, releases its live session, and revokes its /mcp bearer tokens.
+func ThreadArchive(s Service, input ThreadArchiveInput) ThreadSnapshot fails memory.NotFound | memory.AlreadyExists | memory.InvalidTransition | memory.CommandReused | memory.InvalidInput | memory.LeaseFenced | memory.ThreadDomainErr | memory.SubagentDomainErr | memory.HandleDomainErr | memory.LimitDomainErr | memory.RequestDomainErr | memory.CutoverDomainErr | memory.StoreFailed {
+	let tid = handle.ThreadID(try requireText("threadID", input.ThreadID))
+	let meta = cmdMeta{id: input.CommandID, actor: input.Actor, atMs: input.AtMs}
+	let _ = try execStore(s, meta, memory.CmdArchiveThread{ID: tid})
+	let _ = RevokeThreadTokens(s.auth, tid)
+	try mustThreadSnapshot(s.store, tid)
+}
+
+// DriverSwitch switches a thread between Meta and Direct drivers when no turn is active.
+func DriverSwitch(s Service, input DriverSwitchInput) ThreadSnapshot fails memory.NotFound | memory.AlreadyExists | memory.InvalidTransition | memory.CommandReused | memory.InvalidInput | memory.LeaseFenced | memory.ThreadDomainErr | memory.SubagentDomainErr | memory.HandleDomainErr | memory.LimitDomainErr | memory.RequestDomainErr | memory.CutoverDomainErr | memory.StoreFailed {
+	let tid = handle.ThreadID(try requireText("threadID", input.ThreadID))
+	let nextDriver = try parseDriver("nextDriver", input.NextDriver)
+	let perm = try parsePermission("permissionMode", input.PermissionMode)
+	let inst = adapter.InstanceID(try requireText("instance", input.Instance))
+	let cfg = try requireText("configDir", input.ConfigDir)
+	let sharedHome = try parseOptionalText("sharedHome", input.SharedHome)
+	let meta = cmdMeta{id: input.CommandID, actor: input.Actor, atMs: input.AtMs}
+	let spec = thread.DriverSwitchSpec{
+		NextDriver:         nextDriver,
+		AgyDirectSupported: input.AgyDirectSupported,
+		RequestedMode:      perm,
+		Instance:           inst,
+		ConfigDir:          cfg,
+		SharedHome:         sharedHome,
+	}
+	let _ = try execStore(s, meta, memory.CmdSwitchDriver{ThreadID: tid, Spec: spec})
+	try mustThreadSnapshot(s.store, tid)
+}
+
+// PromptEnqueue appends a follow-up prompt to a thread's FIFO prompt queue.
+func PromptEnqueue(s Service, input PromptEnqueueInput) ThreadSnapshot fails memory.NotFound | memory.AlreadyExists | memory.InvalidTransition | memory.CommandReused | memory.InvalidInput | memory.LeaseFenced | memory.ThreadDomainErr | memory.SubagentDomainErr | memory.HandleDomainErr | memory.LimitDomainErr | memory.RequestDomainErr | memory.CutoverDomainErr | memory.StoreFailed {
+	let tid = handle.ThreadID(try requireText("threadID", input.ThreadID))
+	let pid = try requireText("promptID", input.PromptID)
+	let body = try requireText("body", input.Body)
+	let mode = try parsePermission("requestedMode", input.RequestedMode)
+	let meta = cmdMeta{id: input.CommandID, actor: input.Actor, atMs: input.AtMs}
+	let _ = try execStore(s, meta, memory.CmdEnqueuePrompt{
+		ThreadID: tid,
+		Prompt:   thread.QueuedPrompt{ID: pid, Body: body, RequestedMode: mode},
+	})
+	try mustThreadSnapshot(s.store, tid)
+}
+
+// PromptDequeue pops the head follow-up prompt from an idle thread's prompt queue.
+func PromptDequeue(s Service, input PromptDequeueInput) ThreadSnapshot fails memory.NotFound | memory.AlreadyExists | memory.InvalidTransition | memory.CommandReused | memory.InvalidInput | memory.LeaseFenced | memory.ThreadDomainErr | memory.SubagentDomainErr | memory.HandleDomainErr | memory.LimitDomainErr | memory.RequestDomainErr | memory.CutoverDomainErr | memory.StoreFailed {
+	let tid = handle.ThreadID(try requireText("threadID", input.ThreadID))
+	let meta = cmdMeta{id: input.CommandID, actor: input.Actor, atMs: input.AtMs}
+	let _ = try execStore(s, meta, memory.CmdDequeuePrompt{TargetThreadID: tid})
+	try mustThreadSnapshot(s.store, tid)
+}
+
+// TurnStart allocates or reuses a live session, starts one turn, and touches current-generation /mcp tokens.
+func TurnStart(s Service, input TurnStartInput) ThreadSnapshot fails memory.NotFound | memory.AlreadyExists | memory.InvalidTransition | memory.CommandReused | memory.InvalidInput | memory.LeaseFenced | memory.ThreadDomainErr | memory.SubagentDomainErr | memory.HandleDomainErr | memory.LimitDomainErr | memory.RequestDomainErr | memory.CutoverDomainErr | memory.StoreFailed {
+	let tid = handle.ThreadID(try requireText("threadID", input.ThreadID))
+	let turnID = turn.TurnID(try requireText("turnID", input.TurnID))
+	let meta = cmdMeta{id: input.CommandID, actor: input.Actor, atMs: input.AtMs}
+	let _ = try execStore(s, meta, memory.CmdStartTurn{ThreadID: tid, TurnID: turnID})
+	let snap = try mustThreadSnapshot(s.store, tid)
+	match snap.ActiveSessionID {
+	case json.Present[string] as sid:
+		let _ = TouchTokensForTurn(s.auth, tid, handle.SessionID(sid.Value), snap.SessionGen, input.AtMs)
+	case json.Absent:
+	}
+	snap
+}
+
+// TurnStep advances the active turn on a thread through TurnAction transitions.
+func TurnStep(s Service, input TurnStepInput) ThreadSnapshot fails memory.NotFound | memory.AlreadyExists | memory.InvalidTransition | memory.CommandReused | memory.InvalidInput | memory.LeaseFenced | memory.ThreadDomainErr | memory.SubagentDomainErr | memory.HandleDomainErr | memory.LimitDomainErr | memory.RequestDomainErr | memory.CutoverDomainErr | memory.StoreFailed {
+	let tid = handle.ThreadID(try requireText("threadID", input.ThreadID))
+	let act = try parseTurnAction(input)
+	let meta = cmdMeta{id: input.CommandID, actor: input.Actor, atMs: input.AtMs}
+	let _ = try execStore(s, meta, memory.CmdStepTurn{ThreadID: tid, Action: act})
+	try mustThreadSnapshot(s.store, tid)
+}
+
+// SubagentTreeInit initializes a bounded recursive subagent tree rooted at RootID.
+func SubagentTreeInit(s Service, input SubagentTreeInitInput) SubagentTreeOutput fails memory.NotFound | memory.AlreadyExists | memory.InvalidTransition | memory.CommandReused | memory.InvalidInput | memory.LeaseFenced | memory.ThreadDomainErr | memory.SubagentDomainErr | memory.HandleDomainErr | memory.LimitDomainErr | memory.RequestDomainErr | memory.CutoverDomainErr | memory.StoreFailed {
+	let root = handle.ThreadID(try requireText("rootID", input.RootID))
+	if input.MaxDepth <= 0 || input.MaxFanOut <= 0 || input.MaxBudget <= 0 {
+		return memory.InvalidInput{Field: "bounds", Reason: "maxDepth, maxFanOut, and maxBudget must be positive"}
+	}
+	let meta = cmdMeta{id: input.CommandID, actor: input.Actor, atMs: input.AtMs}
+	let bounds = subagent.TreeBounds{MaxDepth: input.MaxDepth, MaxFanOut: input.MaxFanOut, MaxBudget: input.MaxBudget}
+	let _ = try execStore(s, meta, memory.CmdInitSubagentTree{RootID: root, Bounds: bounds})
+	try mustSubagentTreeOutput(s.store, root)
+}
+
+// SubagentSpawn spawns a bounded child node beneath ParentID in RootID's tree.
+func SubagentSpawn(s Service, input SubagentSpawnInput) SubagentTreeOutput fails memory.NotFound | memory.AlreadyExists | memory.InvalidTransition | memory.CommandReused | memory.InvalidInput | memory.LeaseFenced | memory.ThreadDomainErr | memory.SubagentDomainErr | memory.HandleDomainErr | memory.LimitDomainErr | memory.RequestDomainErr | memory.CutoverDomainErr | memory.StoreFailed {
+	let root = handle.ThreadID(try requireText("rootID", input.RootID))
+	let parent = handle.ThreadID(try requireText("parentID", input.ParentID))
+	let child = handle.ThreadID(try requireText("childID", input.ChildID))
+	let role = try parseAgentRoleField("role", input.Role)
+	let meta = cmdMeta{id: input.CommandID, actor: input.Actor, atMs: input.AtMs}
+	let _ = try execStore(s, meta, memory.CmdSpawnSubagent{RootID: root, ParentID: parent, ChildID: child, Role: role})
+	try mustSubagentTreeOutput(s.store, root)
+}
+
+// SubagentControlHandle opens an unsettled subagent handle strictly within CallerID's subtree.
+func SubagentControlHandle(s Service, input SubagentControlHandleInput) SubagentTreeOutput fails memory.NotFound | memory.AlreadyExists | memory.InvalidTransition | memory.CommandReused | memory.InvalidInput | memory.LeaseFenced | memory.ThreadDomainErr | memory.SubagentDomainErr | memory.HandleDomainErr | memory.LimitDomainErr | memory.RequestDomainErr | memory.CutoverDomainErr | memory.StoreFailed {
+	let root = handle.ThreadID(try requireText("rootID", input.RootID))
+	let caller = handle.ThreadID(try requireText("callerID", input.CallerID))
+	let target = handle.ThreadID(try requireText("targetID", input.TargetID))
+	let hid = handle.HandleID(try requireText("handleID", input.HandleID))
+	let meta = cmdMeta{id: input.CommandID, actor: input.Actor, atMs: input.AtMs}
+	let _ = try execStore(s, meta, memory.CmdSubagentControlHandle{RootID: root, CallerID: caller, TargetID: target, HandleID: hid})
+	try mustSubagentTreeOutput(s.store, root)
+}
+
+// SubagentSettleHandle settles a tracked subagent handle on NodeID and unparks NodeID when clear.
+func SubagentSettleHandle(s Service, input SubagentSettleHandleInput) SubagentTreeOutput fails memory.NotFound | memory.AlreadyExists | memory.InvalidTransition | memory.CommandReused | memory.InvalidInput | memory.LeaseFenced | memory.ThreadDomainErr | memory.SubagentDomainErr | memory.HandleDomainErr | memory.LimitDomainErr | memory.RequestDomainErr | memory.CutoverDomainErr | memory.StoreFailed {
+	let root = handle.ThreadID(try requireText("rootID", input.RootID))
+	let node = handle.ThreadID(try requireText("nodeID", input.NodeID))
+	let hid = handle.HandleID(try requireText("handleID", input.HandleID))
+	let meta = cmdMeta{id: input.CommandID, actor: input.Actor, atMs: input.AtMs}
+	let _ = try execStore(s, meta, memory.CmdSubagentSettleHandle{RootID: root, NodeID: node, HandleID: hid})
+	try mustSubagentTreeOutput(s.store, root)
+}
+
+// SubagentHandBack finalizes hand-back for an unblocked subagent child node.
+func SubagentHandBack(s Service, input SubagentHandBackInput) SubagentTreeOutput fails memory.NotFound | memory.AlreadyExists | memory.InvalidTransition | memory.CommandReused | memory.InvalidInput | memory.LeaseFenced | memory.ThreadDomainErr | memory.SubagentDomainErr | memory.HandleDomainErr | memory.LimitDomainErr | memory.RequestDomainErr | memory.CutoverDomainErr | memory.StoreFailed {
+	let root = handle.ThreadID(try requireText("rootID", input.RootID))
+	let node = handle.ThreadID(try requireText("nodeID", input.NodeID))
+	let meta = cmdMeta{id: input.CommandID, actor: input.Actor, atMs: input.AtMs}
+	let _ = try execStore(s, meta, memory.CmdSubagentHandBack{RootID: root, NodeID: node})
+	try mustSubagentTreeOutput(s.store, root)
+}
+
+// SubagentTreeGet reads one projected bounded subagent tree by RootID.
+func SubagentTreeGet(s Service, input SubagentTreeGetInput) SubagentTreeOutput fails memory.NotFound | memory.InvalidInput | memory.StoreFailed {
+	let root = handle.ThreadID(try requireText("rootID", input.RootID))
+	try mustSubagentTreeOutput(s.store, root)
+}
+
+func findHandleEntry(hv memory.HandleView, hid string) option.Option[HandleEntryView] {
+	for _, h in hv.Handles {
+		if string(h.ID) == hid {
+			return option.Some[HandleEntryView]{Value: projectHandleEntry(h)}
+		}
+	}
+	option.None
+}
+
+// HandleOpen registers a new DELIVERS wake handle with optional subagent tree correlation.
+func HandleOpen(s Service, input HandleOpenInput) HandleEntryView fails memory.NotFound | memory.AlreadyExists | memory.InvalidTransition | memory.CommandReused | memory.InvalidInput | memory.LeaseFenced | memory.ThreadDomainErr | memory.SubagentDomainErr | memory.HandleDomainErr | memory.LimitDomainErr | memory.RequestDomainErr | memory.CutoverDomainErr | memory.StoreFailed {
+	let hid = handle.HandleID(try requireText("handleID", input.HandleID))
+	let kind = try parseHandleKindField(input.Kind)
+	let owner = try parseOwner(input.OwnerServer, input.OwnerLocation, input.OwnerEpoch)
+	let sess = handle.SessionID(try requireText("sessionID", input.SessionID))
+	let subRoot = match try parseOptionalText("subagentRoot", input.SubagentRoot) {
+	case option.Some[string] as r:
+		option.Some[handle.ThreadID]{Value: handle.ThreadID(r.Value)}
+	case option.None:
+		option.None
+	}
+	let nodeID = match try parseOptionalText("nodeID", input.NodeID) {
+	case option.Some[string] as n:
+		option.Some[handle.ThreadID]{Value: handle.ThreadID(n.Value)}
+	case option.None:
+		option.None
+	}
+	let meta = cmdMeta{id: input.CommandID, actor: input.Actor, atMs: input.AtMs}
+	let _ = try execStore(s, meta, memory.CmdOpenHandle{
+		Spec:         handle.OpenHandleSpec{ID: hid, Kind: kind, Owner: owner, Session: sess, Summary: input.Summary},
+		SubagentRoot: subRoot,
+		NodeID:       nodeID,
+	})
+	let hv = try s.store.GetHandleView(memory.HandleFilter{Session: option.None, Owner: option.None, OpenOnly: false})
+	match findHandleEntry(hv, string(hid)) {
+	case option.Some[HandleEntryView] as entry:
+		entry.Value
+	case option.None:
+		memory.NotFound{Entity: "handle", Target: string(hid)}
+	}
+}
+
+// HandleSettle settles an open DELIVERS handle once to a terminal disposition.
+func HandleSettle(s Service, input HandleSettleInput) HandleEntryView fails memory.NotFound | memory.AlreadyExists | memory.InvalidTransition | memory.CommandReused | memory.InvalidInput | memory.LeaseFenced | memory.ThreadDomainErr | memory.SubagentDomainErr | memory.HandleDomainErr | memory.LimitDomainErr | memory.RequestDomainErr | memory.CutoverDomainErr | memory.StoreFailed {
+	let hid = handle.HandleID(try requireText("handleID", input.HandleID))
+	let disp = try parseDispositionField(input.Disposition)
+	let subRoot = match try parseOptionalText("subagentRoot", input.SubagentRoot) {
+	case option.Some[string] as r:
+		option.Some[handle.ThreadID]{Value: handle.ThreadID(r.Value)}
+	case option.None:
+		option.None
+	}
+	let nodeID = match try parseOptionalText("nodeID", input.NodeID) {
+	case option.Some[string] as n:
+		option.Some[handle.ThreadID]{Value: handle.ThreadID(n.Value)}
+	case option.None:
+		option.None
+	}
+	let meta = cmdMeta{id: input.CommandID, actor: input.Actor, atMs: input.AtMs}
+	let _ = try execStore(s, meta, memory.CmdSettleHandle{
+		ID:           hid,
+		Disposition:  disp,
+		Summary:      input.Summary,
+		SubagentRoot: subRoot,
+		NodeID:       nodeID,
+	})
+	let hv = try s.store.GetHandleView(memory.HandleFilter{Session: option.None, Owner: option.None, OpenOnly: false})
+	match findHandleEntry(hv, string(hid)) {
+	case option.Some[HandleEntryView] as entry:
+		entry.Value
+	case option.None:
+		memory.NotFound{Entity: "handle", Target: string(hid)}
+	}
+}
+
+// HandleList queries matching DELIVERS handles, wake records, and pool holds.
+func HandleList(s Service, input HandleListInput) HandleViewOutput fails memory.InvalidInput | memory.StoreFailed {
+	let sess = match try parseOptionalText("sessionID", input.SessionID) {
+	case option.Some[string] as sid:
+		option.Some[handle.SessionID]{Value: handle.SessionID(sid.Value)}
+	case option.None:
+		option.None
+	}
+	let hasAnyOwner = input.OwnerServer != json.Absent || input.OwnerLocation != json.Absent || input.OwnerEpoch != json.Absent
+	let owner = if hasAnyOwner {
+		let srv = optStringOr(input.OwnerServer, "")
+		let loc = optStringOr(input.OwnerLocation, "")
+		let epoch = match input.OwnerEpoch {
+		case json.Present[int] as e:
+			e.Value
+		case json.Absent:
+			return memory.InvalidInput{Field: "ownerEpoch", Reason: "must accompany ownerServer and ownerLocation"}
+		}
+		option.Some[handle.OwnerID]{Value: try parseOwner(srv, loc, epoch)}
+	} else {
+		option.None
+	}
+	let hv = try s.store.GetHandleView(memory.HandleFilter{Session: sess, Owner: owner, OpenOnly: input.OpenOnly})
+	projectHandleView(hv)
+}
+
+// OwnerCallsRetire retires all open KindCall handles owned by a dead server incarnation as DispLost.
+func OwnerCallsRetire(s Service, input OwnerCallsRetireInput) RetiredCallsOutput fails memory.NotFound | memory.AlreadyExists | memory.InvalidTransition | memory.CommandReused | memory.InvalidInput | memory.LeaseFenced | memory.ThreadDomainErr | memory.SubagentDomainErr | memory.HandleDomainErr | memory.LimitDomainErr | memory.RequestDomainErr | memory.CutoverDomainErr | memory.StoreFailed {
+	let owner = try parseOwner(input.OwnerServer, input.OwnerLocation, input.OwnerEpoch)
+	let meta = cmdMeta{id: input.CommandID, actor: input.Actor, atMs: input.AtMs}
+	let _ = try execStore(s, meta, memory.CmdRetireOwnerCalls{DeadOwner: owner})
+	let snap = try s.store.Snapshot()
+	let mut rem = []string{}
+	for _, o in memory.QueryOpenOwners(snap) {
+		rem = rem.Append(handle.OwnerText(o))
+	}
+	RetiredCallsOutput{Owner: handle.OwnerText(owner), RemainingOpenOwners: rem}
+}
+
+func mustQuestionView(store memory.Store, qid turn.RequestID) AsyncQuestionView fails memory.NotFound | memory.StoreFailed {
+	let qs = try store.GetQuestions(memory.QuestionFilter{ThreadID: option.None, Status: option.None})
+	for _, q in qs {
+		if q.ID == qid {
+			return projectQuestion(q)
+		}
+	}
+	memory.NotFound{Entity: "question", Target: string(qid)}
+}
+
+// QuestionAsk persists an ask_user_async question correlated with a KindQuestion handle.
+func QuestionAsk(s Service, input QuestionAskInput) AsyncQuestionView fails memory.NotFound | memory.AlreadyExists | memory.InvalidTransition | memory.CommandReused | memory.InvalidInput | memory.LeaseFenced | memory.ThreadDomainErr | memory.SubagentDomainErr | memory.HandleDomainErr | memory.LimitDomainErr | memory.RequestDomainErr | memory.CutoverDomainErr | memory.StoreFailed {
+	let qid = turn.RequestID(try requireText("questionID", input.QuestionID))
+	let tid = handle.ThreadID(try requireText("threadID", input.ThreadID))
+	let hid = handle.HandleID(try requireText("handleID", input.HandleID))
+	let owner = try parseOwner(input.OwnerServer, input.OwnerLocation, input.OwnerEpoch)
+	let sess = handle.SessionID(try requireText("sessionID", input.SessionID))
+	let role = try parseAgentRoleField("targetRole", input.TargetRole)
+	let meta = cmdMeta{id: input.CommandID, actor: input.Actor, atMs: input.AtMs}
+	let _ = try execStore(s, meta, memory.CmdAskUserAsync{
+		ID:         qid,
+		ThreadID:   tid,
+		HandleID:   hid,
+		Owner:      owner,
+		Session:    sess,
+		Header:     input.Header,
+		Prompt:     try requireText("prompt", input.Prompt),
+		Assumption: input.Assumption,
+		Options:    input.Options,
+		TargetRole: role,
+	})
+	try mustQuestionView(s.store, qid)
+}
+
+// QuestionAnswer records a single immutable answer on an open ask_user_async question.
+func QuestionAnswer(s Service, input QuestionAnswerInput) AsyncQuestionView fails memory.NotFound | memory.AlreadyExists | memory.InvalidTransition | memory.CommandReused | memory.InvalidInput | memory.LeaseFenced | memory.ThreadDomainErr | memory.SubagentDomainErr | memory.HandleDomainErr | memory.LimitDomainErr | memory.RequestDomainErr | memory.CutoverDomainErr | memory.StoreFailed {
+	let qid = turn.RequestID(try requireText("questionID", input.QuestionID))
+	let ans = try requireText("answer", input.Answer)
+	let by = try parseResponderField(input.Responder)
+	let meta = cmdMeta{id: input.CommandID, actor: input.Actor, atMs: input.AtMs}
+	let _ = try execStore(s, meta, memory.CmdAnswerAsyncQuestion{ID: qid, Answer: ans, By: by})
+	try mustQuestionView(s.store, qid)
+}
+
+// QuestionWithdraw silently withdraws an open ask_user_async question and cancels its handle.
+func QuestionWithdraw(s Service, input QuestionWithdrawInput) AsyncQuestionView fails memory.NotFound | memory.AlreadyExists | memory.InvalidTransition | memory.CommandReused | memory.InvalidInput | memory.LeaseFenced | memory.ThreadDomainErr | memory.SubagentDomainErr | memory.HandleDomainErr | memory.LimitDomainErr | memory.RequestDomainErr | memory.CutoverDomainErr | memory.StoreFailed {
+	let qid = turn.RequestID(try requireText("questionID", input.QuestionID))
+	let meta = cmdMeta{id: input.CommandID, actor: input.Actor, atMs: input.AtMs}
+	let _ = try execStore(s, meta, memory.CmdWithdrawAsyncQuestion{ID: qid})
+	try mustQuestionView(s.store, qid)
+}
+
+// QuestionList queries persisted ask_user_async entries by optional ThreadID and Status.
+func QuestionList(s Service, input QuestionListInput) AsyncQuestionListOutput fails memory.InvalidInput | memory.StoreFailed {
+	let tid = match try parseOptionalText("threadID", input.ThreadID) {
+	case option.Some[string] as t:
+		option.Some[handle.ThreadID]{Value: handle.ThreadID(t.Value)}
+	case option.None:
+		option.None
+	}
+	let st = match try parseOptionalText("status", input.Status) {
+	case option.Some[string] as raw:
+		match memory.ParseQuestionStatus(raw.Value) {
+		case option.Some[memory.QuestionStatus] as parsed:
+			option.Some[memory.QuestionStatus]{Value: parsed.Value}
+		case option.None:
+			return memory.InvalidInput{Field: "status", Reason: "must be open, answered, or withdrawn"}
+		}
+	case option.None:
+		option.None
+	}
+	let qs = try s.store.GetQuestions(memory.QuestionFilter{ThreadID: tid, Status: st})
+	let mut views = []AsyncQuestionView{}
+	for _, q in qs {
+		views = views.Append(projectQuestion(q))
+	}
+	AsyncQuestionListOutput{Questions: views}
+}
+
+// PoolAccountUpsert creates or updates quota window utilization and health state for an account slot.
+func PoolAccountUpsert(s Service, input PoolAccountUpsertInput) PoolViewOutput fails memory.NotFound | memory.AlreadyExists | memory.InvalidTransition | memory.CommandReused | memory.InvalidInput | memory.LeaseFenced | memory.ThreadDomainErr | memory.SubagentDomainErr | memory.HandleDomainErr | memory.LimitDomainErr | memory.RequestDomainErr | memory.CutoverDomainErr | memory.StoreFailed {
+	let aid = session.AccountID(try requireText("accountID", input.AccountID))
+	let prov = try requireText("provider", input.Provider)
+	let meta = cmdMeta{id: input.CommandID, actor: input.Actor, atMs: input.AtMs}
+	let pool = memory.PoolAccount{
+		ID:              aid,
+		Provider:        prov,
+		Priority:        input.Priority,
+		Healthy:         input.Healthy,
+		Window5hUsedPct: input.Window5hUsedPct,
+		Window5hResetMs: input.Window5hResetMs,
+		Window7dUsedPct: input.Window7dUsedPct,
+		Window7dResetMs: input.Window7dResetMs,
+		ModelWindows:    []memory.ModelWindowUsage{},
+		InflightStarts:  input.InflightStarts,
+		LimitedUntilMs:  input.LimitedUntilMs,
+		UpdatedAtMs:     input.AtMs,
+	}
+	let _ = try execStore(s, meta, memory.CmdUpsertPoolAccount{Pool: pool})
+	projectPoolView(try s.store.GetPoolView(input.AtMs))
+}
+
+// PoolHoldOpen creates a waiting quota pool hold keyed by HoldKey with HoldWakeDeliveryID.
+func PoolHoldOpen(s Service, input PoolHoldOpenInput) PoolViewOutput fails memory.NotFound | memory.AlreadyExists | memory.InvalidTransition | memory.CommandReused | memory.InvalidInput | memory.LeaseFenced | memory.ThreadDomainErr | memory.SubagentDomainErr | memory.HandleDomainErr | memory.LimitDomainErr | memory.RequestDomainErr | memory.CutoverDomainErr | memory.StoreFailed {
+	let hk = try requireText("holdKey", input.HoldKey)
+	let tid = handle.ThreadID(try requireText("threadID", input.ThreadID))
+	let aid = session.AccountID(try requireText("accountID", input.AccountID))
+	let meta = cmdMeta{id: input.CommandID, actor: input.Actor, atMs: input.AtMs}
+	let _ = try execStore(s, meta, memory.CmdOpenPoolHold{
+		HoldKey:        hk,
+		ThreadID:       tid,
+		AccountID:      aid,
+		RetryAtMs:      input.RetryAtMs,
+		ParentNotified: input.ParentNotified,
+	})
+	projectPoolView(try s.store.GetPoolView(input.AtMs))
+}
+
+// PoolHoldTransition wakes or cancels an existing waiting quota pool hold.
+func PoolHoldTransition(s Service, input PoolHoldTransitionInput) PoolViewOutput fails memory.NotFound | memory.AlreadyExists | memory.InvalidTransition | memory.CommandReused | memory.InvalidInput | memory.LeaseFenced | memory.ThreadDomainErr | memory.SubagentDomainErr | memory.HandleDomainErr | memory.LimitDomainErr | memory.RequestDomainErr | memory.CutoverDomainErr | memory.StoreFailed {
+	let hk = try requireText("holdKey", input.HoldKey)
+	let actRaw = try requireText("action", input.Action)
+	let act memory.HoldTransition = match actRaw {
+	case "wake":
+		memory.HoldActionWake
+	case "cancel":
+		memory.HoldActionCancel
+	case _:
+		return memory.InvalidInput{Field: "action", Reason: "must be wake or cancel"}
+	}
+	let meta = cmdMeta{id: input.CommandID, actor: input.Actor, atMs: input.AtMs}
+	let _ = try execStore(s, meta, memory.CmdTransitionHold{HoldKey: hk, Action: act})
+	projectPoolView(try s.store.GetPoolView(input.AtMs))
+}
+
+// PoolView queries durable quota pool accounts and active/due holds at NowMs.
+func PoolView(s Service, input PoolViewInput) PoolViewOutput fails memory.InvalidInput | memory.StoreFailed {
+	if input.NowMs < int64(0) {
+		return memory.InvalidInput{Field: "nowMs", Reason: "must be non-negative"}
+	}
+	projectPoolView(try s.store.GetPoolView(input.NowMs))
+}
+
+// KernelSnapshotSave saves a bounded serialized kernel binding snapshot for one session.
+func KernelSnapshotSave(s Service, input KernelSnapshotSaveInput) KernelViewOutput fails memory.NotFound | memory.AlreadyExists | memory.InvalidTransition | memory.CommandReused | memory.InvalidInput | memory.LeaseFenced | memory.ThreadDomainErr | memory.SubagentDomainErr | memory.HandleDomainErr | memory.LimitDomainErr | memory.RequestDomainErr | memory.CutoverDomainErr | memory.StoreFailed {
+	let sid = handle.SessionID(try requireText("sessionID", input.SessionID))
+	let tid = handle.ThreadID(try requireText("threadID", input.ThreadID))
+	let root = handle.ThreadID(try requireText("rootThreadID", input.RootThreadID))
+	let meta = cmdMeta{id: input.CommandID, actor: input.Actor, atMs: input.AtMs}
+	let _ = try execStore(s, meta, memory.CmdSaveKernelSnapshot{
+		SessionID:     sid,
+		ThreadID:      tid,
+		RootThreadID:  root,
+		BindingsJSON:  input.BindingsJSON,
+		SnapshotBytes: input.SnapshotBytes,
+		LostNotice:    input.LostNotice,
+	})
+	projectKernelView(try s.store.GetKernelView(sid))
+}
+
+// KernelCutRecord records one cut.calls / cut.maps audit journal and updates hourly root accounting.
+func KernelCutRecord(s Service, input KernelCutRecordInput) KernelViewOutput fails memory.NotFound | memory.AlreadyExists | memory.InvalidTransition | memory.CommandReused | memory.InvalidInput | memory.LeaseFenced | memory.ThreadDomainErr | memory.SubagentDomainErr | memory.HandleDomainErr | memory.LimitDomainErr | memory.RequestDomainErr | memory.CutoverDomainErr | memory.StoreFailed {
+	let cid = try requireText("cutID", input.CutID)
+	let sid = handle.SessionID(try requireText("sessionID", input.SessionID))
+	let tid = handle.ThreadID(try requireText("threadID", input.ThreadID))
+	let root = handle.ThreadID(try requireText("rootThreadID", input.RootThreadID))
+	let meta = cmdMeta{id: input.CommandID, actor: input.Actor, atMs: input.AtMs}
+	let _ = try execStore(s, meta, memory.CmdRecordKernelCut{
+		CutID:        cid,
+		SessionID:    sid,
+		ThreadID:     tid,
+		RootThreadID: root,
+		CallsJSON:    input.CallsJSON,
+		MapsJSON:     input.MapsJSON,
+		StartedAtMs:  input.StartedAtMs,
+		EndedAtMs:    input.EndedAtMs,
+		Reason:       input.Reason,
+	})
+	projectKernelView(try s.store.GetKernelView(sid))
+}
+
+// KernelView queries persisted kernel snapshot, cut journals, root usages, limits, and requests.
+func KernelView(s Service, input KernelViewInput) KernelViewOutput fails memory.InvalidInput | memory.StoreFailed {
+	let sid = handle.SessionID(strings.TrimSpace(input.SessionID))
+	projectKernelView(try s.store.GetKernelView(sid))
+}
+
+// LeaseAcquire acquires or CAS-advances a fenced server ownership lease.
+func LeaseAcquire(s Service, input LeaseAcquireInput) BootLeaseOutput fails memory.NotFound | memory.AlreadyExists | memory.InvalidTransition | memory.CommandReused | memory.InvalidInput | memory.LeaseFenced | memory.ThreadDomainErr | memory.SubagentDomainErr | memory.HandleDomainErr | memory.LimitDomainErr | memory.RequestDomainErr | memory.CutoverDomainErr | memory.StoreFailed {
+	let lid = try requireText("leaseID", input.LeaseID)
+	let owner = try parseOwner(input.OwnerServer, input.OwnerLocation, input.OwnerEpoch)
+	let meta = cmdMeta{id: input.CommandID, actor: input.Actor, atMs: input.AtMs}
+	let _ = try execStore(s, meta, memory.CmdAcquireLease{
+		LeaseID:       lid,
+		Owner:         owner,
+		ExpectedEpoch: input.ExpectedEpoch,
+	})
+	let blv = try s.store.GetLeaseAndBoot(memory.BootQuery{
+		RootID:                     option.None,
+		BootingOwner:               owner,
+		LiveForeignOwners:          []handle.OwnerID{},
+		PendingRequestsSurviveBoot: true,
+		LeaseID:                    lid,
+	})
+	projectBootLeaseView(blv, 0, 0, 0, 0)
+}
+
+// BootReconcile executes deterministic startup reconciliation across handles, wakes, turns, requests, and subagents.
+func BootReconcile(s Service, input BootReconcileInput) BootLeaseOutput fails memory.NotFound | memory.AlreadyExists | memory.InvalidTransition | memory.CommandReused | memory.InvalidInput | memory.LeaseFenced | memory.ThreadDomainErr | memory.SubagentDomainErr | memory.HandleDomainErr | memory.LimitDomainErr | memory.RequestDomainErr | memory.CutoverDomainErr | memory.StoreFailed {
+	let lid = try requireText("leaseID", input.LeaseID)
+	let booting = try parseOwner(input.BootingServer, input.BootingLocation, input.BootingEpoch)
+	let rootID = match try parseOptionalText("rootID", input.RootID) {
+	case option.Some[string] as r:
+		option.Some[handle.ThreadID]{Value: handle.ThreadID(r.Value)}
+	case option.None:
+		option.None
+	}
+	let query = memory.BootQuery{
+		RootID:                     rootID,
+		BootingOwner:               booting,
+		LiveForeignOwners:          []handle.OwnerID{},
+		PendingRequestsSurviveBoot: input.PendingRequestsSurviveBoot,
+		LeaseID:                    lid,
+	}
+	let pre = try s.store.GetLeaseAndBoot(query)
+	let plan = reconcile.BootReconcile(pre.BootSnapshot)
+	let (retired, wakes, turns, expired) = countReconcileEffects(plan)
+	let meta = cmdMeta{id: input.CommandID, actor: input.Actor, atMs: input.AtMs}
+	let _ = try execStore(s, meta, memory.CmdApplyBootReconcile{
+		RootID:                     rootID,
+		BootingOwner:               booting,
+		LiveForeignOwners:          []handle.OwnerID{},
+		PendingRequestsSurviveBoot: input.PendingRequestsSurviveBoot,
+	})
+	let post = try s.store.GetLeaseAndBoot(query)
+	projectBootLeaseView(post, retired, wakes, turns, expired)
+}
+
+// BootStatus inspects active server lease status, open volatile owners, and pending boot reconciliation scope.
+func BootStatus(s Service, input BootStatusInput) BootLeaseOutput fails memory.InvalidInput | memory.StoreFailed {
+	let lid = try requireText("leaseID", input.LeaseID)
+	let booting = try parseOwner(input.BootingServer, input.BootingLocation, input.BootingEpoch)
+	let blv = try s.store.GetLeaseAndBoot(memory.BootQuery{
+		RootID:                     option.None,
+		BootingOwner:               booting,
+		LiveForeignOwners:          []handle.OwnerID{},
+		PendingRequestsSurviveBoot: input.PendingRequestsSurviveBoot,
+		LeaseID:                    lid,
+	})
+	let plan = reconcile.BootReconcile(blv.BootSnapshot)
+	let (retired, wakes, turns, expired) = countReconcileEffects(plan)
+	projectBootLeaseView(blv, retired, wakes, turns, expired)
+}
+
+// HostCapacityGet returns non-blocking CPU, load, memory, and volume capacity metrics from HostCapacity.
+func HostCapacityGet(s Service, input HostCapacityInput) HostCapacityReport fails memory.InvalidInput | HostCapacityFailed {
+	for _, v in input.Volumes {
+		if strings.TrimSpace(v) == "" {
+			return memory.InvalidInput{Field: "volumes", Reason: "volume paths must not be blank"}
+		}
+	}
+	try s.cap.Measure(input.Volumes)
+}
+
+// WellnessReportGet evaluates non-spawning store consistency, handle/pool health, and host capacity headroom.
+func WellnessReportGet(s Service, input WellnessReportInput) WellnessReport fails memory.InvalidInput {
+	if input.NowMs < int64(0) {
+		return memory.InvalidInput{Field: "nowMs", Reason: "must be non-negative"}
+	}
+	let maxLoad = try parseFloatOptional("maxLoadPerCore", input.MaxLoadPerCore, s.policy.MaxLoadPerCore)
+	let minMem = try parseFloatOptional("minMemAvailGiB", input.MinMemAvailGiB, s.policy.MinMemAvailGiB)
+	let maxDisk = try parseFloatOptional("maxDiskUsedPct", input.MaxDiskUsedPct, s.policy.MaxDiskUsedPct)
+	let vols = if input.Volumes.Len() > 0 { input.Volumes } else { s.policy.Volumes }
+	let policy = WellnessPolicy{
+		..s.policy,
+		MaxLoadPerCore:       maxLoad,
+		MinMemAvailGiB:       minMem,
+		MaxDiskUsedPct:       maxDisk,
+		Volumes:              vols,
+		LiveOwnersConfigured: input.LiveOwnersConfigured,
+		LiveOwners:           input.LiveOwners,
+	}
+	EvaluateWellness(s.store, s.cap, policy, input.NowMs)
+}
+
+// McpTokenMint mints or rotates a SHA-256-hashed per-thread /mcp bearer credential.
+func McpTokenMint(s Service, input McpTokenMintInput) MintedToken fails memory.NotFound | memory.InvalidInput | memory.StoreFailed | McpAuthDenied {
+	let tokID = try requireText("tokenID", input.TokenID)
+	let tid = handle.ThreadID(try requireText("threadID", input.ThreadID))
+	let _ = try mustThreadSnapshot(s.store, tid)
+	let audRaw = try requireText("audienceKind", input.AudienceKind)
+	let aud TokenAudience = match audRaw {
+	case "thread":
+		AudienceThread
+	case "outside":
+		let cid = try requireText("clientID", optStringOr(input.ClientID, ""))
+		AudienceOutside{ClientID: cid}
+	case _:
+		return memory.InvalidInput{Field: "audienceKind", Reason: "must be thread or outside"}
+	}
+	let spec = MintTokenSpec{
+		TokenID:        tokID,
+		ThreadID:       tid,
+		SessionID:      handle.SessionID(strings.TrimSpace(input.SessionID)),
+		Gen:            input.Gen,
+		Audience:       aud,
+		Scopes:         input.Scopes,
+		RevokePrevious: input.RotateExisting,
+	}
+	try MintThreadToken(s.auth, spec, input.NowMs)
+}
+
+// McpTokenRevoke revokes all active /mcp bearer tokens for ThreadID or SessionID.
+func McpTokenRevoke(s Service, input McpTokenRevokeInput) McpTokenRevokeOutput fails memory.InvalidInput {
+	let tid = try parseOptionalText("threadID", input.ThreadID)
+	let sid = try parseOptionalText("sessionID", input.SessionID)
+	if tid == option.None && sid == option.None {
+		return memory.InvalidInput{Field: "threadID", Reason: "provide threadID and/or sessionID"}
+	}
+	let mut revoked = 0
+	match tid {
+	case option.Some[string] as t:
+		revoked = revoked + RevokeThreadTokens(s.auth, handle.ThreadID(t.Value))
+	case option.None:
+	}
+	match sid {
+	case option.Some[string] as sess:
+		revoked = revoked + RevokeSessionTokens(s.auth, handle.SessionID(sess.Value))
+	case option.None:
+	}
+	McpTokenRevokeOutput{RevokedCount: revoked}
+}
+
+// McpTokenList lists redacted /mcp bearer token summaries for ThreadID without exposing digests or secrets.
+func McpTokenList(s Service, input McpTokenListInput) McpTokenListOutput fails memory.InvalidInput {
+	let tid = handle.ThreadID(try requireText("threadID", input.ThreadID))
+	let all = ListThreadTokenViews(s.auth, tid)
+	let mut out = []McpTokenInfo{}
+	for _, item in all {
+		if input.IncludeRevoked || !item.Revoked {
+			out = out.Append(item)
+		}
+	}
+	McpTokenListOutput{Tokens: out}
+}
+
+test ServiceHandlesPoolKernelAndBootReconcile {
+	let svc = try newDefaultMemoryService()
+	let th = try svc.ThreadCreate(ThreadCreateInput{
+		CommandID:          "s-th-1",
+		Actor:              "root",
+		AtMs:               int64(500),
+		ThreadID:           "s-th-1",
+		Driver:             "claude-meta",
+		PermissionMode:     "ask",
+		Instance:           "inst-1",
+		ConfigDir:          "/tmp/cfg",
+		Model:              "sonnet",
+		AgyDirectSupported: false,
+		ParentThreadID:     json.Absent,
+		EdgeLabel:          json.Absent,
+		SharedHome:         json.Absent,
+		LinkOriginKind:     json.Absent,
+		LinkOriginTarget:   json.Absent,
+	})
+	assert th.ThreadID == "s-th-1"
+	let listed = try svc.ThreadList(ThreadListInput{IncludeArchived: false, Limit: json.Absent, Offset: json.Absent})
+	assert listed.Total == 1
+
+	let opened = try svc.HandleOpen(HandleOpenInput{
+		CommandID:     "s-ho-1",
+		Actor:         "srv",
+		AtMs:          int64(510),
+		HandleID:      "h-call-1",
+		Kind:          "call",
+		OwnerServer:   "srv-a",
+		OwnerLocation: "us1",
+		OwnerEpoch:    1,
+		SessionID:     "sess-1",
+		Summary:       "rpc call",
+		SubagentRoot:  json.Absent,
+		NodeID:        json.Absent,
+	})
+	assert opened.Disposition == "open"
+
+	let settled = try svc.HandleSettle(HandleSettleInput{
+		CommandID:    "s-hs-1",
+		Actor:        "srv",
+		AtMs:         int64(520),
+		HandleID:     "h-call-1",
+		Disposition:  "succeeded",
+		Summary:      "done",
+		SubagentRoot: json.Absent,
+		NodeID:       json.Absent,
+	})
+	assert settled.Disposition == "succeeded"
+
+	let _ = try svc.HandleOpen(HandleOpenInput{
+		CommandID:     "s-ho-2",
+		Actor:         "srv",
+		AtMs:          int64(530),
+		HandleID:      "h-call-2",
+		Kind:          "call",
+		OwnerServer:   "srv-dead",
+		OwnerLocation: "us1",
+		OwnerEpoch:    1,
+		SessionID:     "sess-1",
+		Summary:       "orphaned call",
+		SubagentRoot:  json.Absent,
+		NodeID:        json.Absent,
+	})
+	let retired = try svc.OwnerCallsRetire(OwnerCallsRetireInput{
+		CommandID:     "s-ret-1",
+		Actor:         "reconcile",
+		AtMs:          int64(540),
+		OwnerServer:   "srv-dead",
+		OwnerLocation: "us1",
+		OwnerEpoch:    1,
+	})
+	assert retired.RemainingOpenOwners.Len() == 0
+
+	let _ = try svc.PoolHoldOpen(PoolHoldOpenInput{
+		CommandID:      "s-ph-1",
+		Actor:          "pool",
+		AtMs:           int64(550),
+		HoldKey:        "hk-1",
+		ThreadID:       "s-th-1",
+		AccountID:      "acct-a",
+		RetryAtMs:      int64(600),
+		ParentNotified: false,
+	})
+	let pvDue = try svc.PoolView(PoolViewInput{NowMs: int64(600)})
+	assert pvDue.DueHolds.Len() == 1
+	let pvWoken = try svc.PoolHoldTransition(PoolHoldTransitionInput{
+		CommandID: "s-ph-2",
+		Actor:     "pool",
+		AtMs:      int64(605),
+		HoldKey:   "hk-1",
+		Action:    "wake",
+	})
+	assert pvWoken.DueHolds.Len() == 0
+
+	let kv = try svc.KernelCutRecord(KernelCutRecordInput{
+		CommandID:    "s-kc-1",
+		Actor:        "kernel",
+		AtMs:         int64(610),
+		CutID:        "cut-1",
+		SessionID:    "sess-1",
+		ThreadID:     "s-th-1",
+		RootThreadID: "s-th-1",
+		CallsJSON:    "[]",
+		MapsJSON:     "{}",
+		StartedAtMs:  int64(605),
+		EndedAtMs:    int64(610),
+		Reason:       "cell",
+	})
+	assert kv.JournalCount == 1
+
+	let boot = try svc.BootReconcile(BootReconcileInput{
+		CommandID:                  "s-br-1",
+		Actor:                      "boot",
+		AtMs:                       int64(620),
+		LeaseID:                    "lease-boot",
+		RootID:                     json.Absent,
+		BootingServer:              "srv-new",
+		BootingLocation:            "us1",
+		BootingEpoch:               2,
+		PendingRequestsSurviveBoot: true,
+	})
+	assert boot.OpenOwners.Len() == 0
+}

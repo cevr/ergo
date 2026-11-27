@@ -1,0 +1,3138 @@
+import ergoapi api
+import flag
+import io
+import json
+import option
+import prompt
+import rpc
+import slices
+import strings
+import term
+import github.com/cevr/ergo/modules/atlas/api
+import github.com/cevr/ergo/modules/atlas/api/apiapi
+import github.com/cevr/ergo/modules/atlas/memory
+
+// Request is one call of api.Api: the hub's Request.
+type Request = apiapi.Request
+
+// Output is what Run prints: std api's Output (Out to standard output,
+// Err to standard error, and the exit status).
+type Output = ergoapi.Output
+
+// Commands are the commands of api.Api, one per operation, in its order.
+func Commands() []flag.Command[Request] {
+	[]flag.Command[Request]{commandThreadCreate(), commandThreadGet(), commandThreadList(), commandThreadArchive(), commandDriverSwitch(), commandPromptEnqueue(), commandPromptDequeue(), commandTurnStart(), commandTurnStep(), commandSubagentTreeInit(), commandSubagentSpawn(), commandSubagentControlHandle(), commandSubagentSettleHandle(), commandSubagentHandBack(), commandSubagentTreeGet(), commandHandleOpen(), commandHandleSettle(), commandHandleList(), commandOwnerCallsRetire(), commandQuestionAsk(), commandQuestionAnswer(), commandQuestionWithdraw(), commandQuestionList(), commandPoolAccountUpsert(), commandPoolHoldOpen(), commandPoolHoldTransition(), commandPoolView(), commandKernelSnapshotSave(), commandKernelCutRecord(), commandKernelView(), commandLeaseAcquire(), commandBootReconcile(), commandBootStatus(), commandHostCapacityGet(), commandWellnessReportGet(), commandMcpTokenMint(), commandMcpTokenRevoke(), commandMcpTokenList()}
+}
+
+func commandThreadCreate() flag.Command[Request] {
+	let f0 = flag.RequiredString("command-id", "input.CommandID (string)")
+	let f1 = flag.RequiredString("actor", "input.Actor (string)")
+	let f2 = flag.RequiredInt("at-ms", "input.AtMs (int64)")
+	let f3 = flag.RequiredString("thread-id", "input.ThreadID (string)")
+	let f4 = flag.RequiredString("driver", "input.Driver (string)")
+	let f5 = flag.RequiredString("permission-mode", "input.PermissionMode (string)")
+	let f6 = flag.RequiredString("instance", "input.Instance (string)")
+	let f7 = flag.RequiredString("config-dir", "input.ConfigDir (string)")
+	let f8 = flag.RequiredString("model", "input.Model (string)")
+	let f9 = flag.Bool("agy-direct-supported", false, "input.AgyDirectSupported (bool)")
+	let f10 = flag.OptionalString("parent-thread-id", "input.ParentThreadID (json.Optional[string])")
+	let f12 = flag.OptionalString("edge-label", "input.EdgeLabel (json.Optional[string])")
+	let f14 = flag.OptionalString("shared-home", "input.SharedHome (json.Optional[string])")
+	let f16 = flag.OptionalString("link-origin-kind", "input.LinkOriginKind (json.Optional[string])")
+	let f18 = flag.OptionalString("link-origin-target", "input.LinkOriginTarget (json.Optional[string])")
+	let usage = apiapi.Doc(apiapi.ThreadCreateOp)
+	flag.Command[Request]{Name: "thread-create", Usage: usage, Set: flag.Set{Name: "thread-create", Usage: usage, Flags: []flag.Flag{f0, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f12, f14, f16, f18}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
+		let u11 = match f10.Get(v) {
+		case option.Some[string] as s:
+			json.Present[string]{Value: s.Value}
+		case option.None:
+			json.Absent
+		}
+		let u13 = match f12.Get(v) {
+		case option.Some[string] as s:
+			json.Present[string]{Value: s.Value}
+		case option.None:
+			json.Absent
+		}
+		let u15 = match f14.Get(v) {
+		case option.Some[string] as s:
+			json.Present[string]{Value: s.Value}
+		case option.None:
+			json.Absent
+		}
+		let u17 = match f16.Get(v) {
+		case option.Some[string] as s:
+			json.Present[string]{Value: s.Value}
+		case option.None:
+			json.Absent
+		}
+		let u19 = match f18.Get(v) {
+		case option.Some[string] as s:
+			json.Present[string]{Value: s.Value}
+		case option.None:
+			json.Absent
+		}
+		apiapi.ThreadCreateRequest{Input: api.ThreadCreateInput{CommandID: f0.Get(v), Actor: f1.Get(v), AtMs: int64(f2.Get(v)), ThreadID: f3.Get(v), Driver: f4.Get(v), PermissionMode: f5.Get(v), Instance: f6.Get(v), ConfigDir: f7.Get(v), Model: f8.Get(v), AgyDirectSupported: f9.Get(v), ParentThreadID: u11, EdgeLabel: u13, SharedHome: u15, LinkOriginKind: u17, LinkOriginTarget: u19}}
+	}, Commands: []flag.Command[Request]{}}
+}
+
+func commandThreadGet() flag.Command[Request] {
+	let f0 = flag.RequiredString("thread-id", "input.ThreadID (string)")
+	let usage = apiapi.Doc(apiapi.ThreadGetOp)
+	flag.Command[Request]{Name: "thread-get", Usage: usage, Set: flag.Set{Name: "thread-get", Usage: usage, Flags: []flag.Flag{f0}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
+		apiapi.ThreadGetRequest{Input: api.ThreadTargetInput{ThreadID: f0.Get(v)}}
+	}, Commands: []flag.Command[Request]{}}
+}
+
+func commandThreadList() flag.Command[Request] {
+	let f0 = flag.Bool("include-archived", false, "input.IncludeArchived (bool)")
+	let f1 = flag.OptionalInt("limit", "input.Limit (json.Optional[int])")
+	let f3 = flag.OptionalInt("offset", "input.Offset (json.Optional[int])")
+	let usage = apiapi.Doc(apiapi.ThreadListOp)
+	flag.Command[Request]{Name: "thread-list", Usage: usage, Set: flag.Set{Name: "thread-list", Usage: usage, Flags: []flag.Flag{f0, f1, f3}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
+		let u2 = match f1.Get(v) {
+		case option.Some[int] as s:
+			json.Present[int]{Value: s.Value}
+		case option.None:
+			json.Absent
+		}
+		let u4 = match f3.Get(v) {
+		case option.Some[int] as s:
+			json.Present[int]{Value: s.Value}
+		case option.None:
+			json.Absent
+		}
+		apiapi.ThreadListRequest{Input: api.ThreadListInput{IncludeArchived: f0.Get(v), Limit: u2, Offset: u4}}
+	}, Commands: []flag.Command[Request]{}}
+}
+
+func commandThreadArchive() flag.Command[Request] {
+	let f0 = flag.RequiredString("command-id", "input.CommandID (string)")
+	let f1 = flag.RequiredString("actor", "input.Actor (string)")
+	let f2 = flag.RequiredInt("at-ms", "input.AtMs (int64)")
+	let f3 = flag.RequiredString("thread-id", "input.ThreadID (string)")
+	let f4 = flag.OptionalString("archive-reason", "input.ArchiveReason (json.Optional[string])")
+	let usage = apiapi.Doc(apiapi.ThreadArchiveOp)
+	flag.Command[Request]{Name: "thread-archive", Usage: usage, Set: flag.Set{Name: "thread-archive", Usage: usage, Flags: []flag.Flag{f0, f1, f2, f3, f4}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
+		let u5 = match f4.Get(v) {
+		case option.Some[string] as s:
+			json.Present[string]{Value: s.Value}
+		case option.None:
+			json.Absent
+		}
+		apiapi.ThreadArchiveRequest{Input: api.ThreadArchiveInput{CommandID: f0.Get(v), Actor: f1.Get(v), AtMs: int64(f2.Get(v)), ThreadID: f3.Get(v), ArchiveReason: u5}}
+	}, Commands: []flag.Command[Request]{}}
+}
+
+func commandDriverSwitch() flag.Command[Request] {
+	let f0 = flag.RequiredString("command-id", "input.CommandID (string)")
+	let f1 = flag.RequiredString("actor", "input.Actor (string)")
+	let f2 = flag.RequiredInt("at-ms", "input.AtMs (int64)")
+	let f3 = flag.RequiredString("thread-id", "input.ThreadID (string)")
+	let f4 = flag.RequiredString("next-driver", "input.NextDriver (string)")
+	let f5 = flag.RequiredString("permission-mode", "input.PermissionMode (string)")
+	let f6 = flag.RequiredString("instance", "input.Instance (string)")
+	let f7 = flag.RequiredString("config-dir", "input.ConfigDir (string)")
+	let f8 = flag.Bool("agy-direct-supported", false, "input.AgyDirectSupported (bool)")
+	let f9 = flag.OptionalString("shared-home", "input.SharedHome (json.Optional[string])")
+	let usage = apiapi.Doc(apiapi.DriverSwitchOp)
+	flag.Command[Request]{Name: "driver-switch", Usage: usage, Set: flag.Set{Name: "driver-switch", Usage: usage, Flags: []flag.Flag{f0, f1, f2, f3, f4, f5, f6, f7, f8, f9}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
+		let u10 = match f9.Get(v) {
+		case option.Some[string] as s:
+			json.Present[string]{Value: s.Value}
+		case option.None:
+			json.Absent
+		}
+		apiapi.DriverSwitchRequest{Input: api.DriverSwitchInput{CommandID: f0.Get(v), Actor: f1.Get(v), AtMs: int64(f2.Get(v)), ThreadID: f3.Get(v), NextDriver: f4.Get(v), PermissionMode: f5.Get(v), Instance: f6.Get(v), ConfigDir: f7.Get(v), AgyDirectSupported: f8.Get(v), SharedHome: u10}}
+	}, Commands: []flag.Command[Request]{}}
+}
+
+func commandPromptEnqueue() flag.Command[Request] {
+	let f0 = flag.RequiredString("command-id", "input.CommandID (string)")
+	let f1 = flag.RequiredString("actor", "input.Actor (string)")
+	let f2 = flag.RequiredInt("at-ms", "input.AtMs (int64)")
+	let f3 = flag.RequiredString("thread-id", "input.ThreadID (string)")
+	let f4 = flag.RequiredString("prompt-id", "input.PromptID (string)")
+	let f5 = flag.RequiredString("body", "input.Body (string)")
+	let f6 = flag.RequiredString("requested-mode", "input.RequestedMode (string)")
+	let usage = apiapi.Doc(apiapi.PromptEnqueueOp)
+	flag.Command[Request]{Name: "prompt-enqueue", Usage: usage, Set: flag.Set{Name: "prompt-enqueue", Usage: usage, Flags: []flag.Flag{f0, f1, f2, f3, f4, f5, f6}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
+		apiapi.PromptEnqueueRequest{Input: api.PromptEnqueueInput{CommandID: f0.Get(v), Actor: f1.Get(v), AtMs: int64(f2.Get(v)), ThreadID: f3.Get(v), PromptID: f4.Get(v), Body: f5.Get(v), RequestedMode: f6.Get(v)}}
+	}, Commands: []flag.Command[Request]{}}
+}
+
+func commandPromptDequeue() flag.Command[Request] {
+	let f0 = flag.RequiredString("command-id", "input.CommandID (string)")
+	let f1 = flag.RequiredString("actor", "input.Actor (string)")
+	let f2 = flag.RequiredInt("at-ms", "input.AtMs (int64)")
+	let f3 = flag.RequiredString("thread-id", "input.ThreadID (string)")
+	let usage = apiapi.Doc(apiapi.PromptDequeueOp)
+	flag.Command[Request]{Name: "prompt-dequeue", Usage: usage, Set: flag.Set{Name: "prompt-dequeue", Usage: usage, Flags: []flag.Flag{f0, f1, f2, f3}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
+		apiapi.PromptDequeueRequest{Input: api.PromptDequeueInput{CommandID: f0.Get(v), Actor: f1.Get(v), AtMs: int64(f2.Get(v)), ThreadID: f3.Get(v)}}
+	}, Commands: []flag.Command[Request]{}}
+}
+
+func commandTurnStart() flag.Command[Request] {
+	let f0 = flag.RequiredString("command-id", "input.CommandID (string)")
+	let f1 = flag.RequiredString("actor", "input.Actor (string)")
+	let f2 = flag.RequiredInt("at-ms", "input.AtMs (int64)")
+	let f3 = flag.RequiredString("thread-id", "input.ThreadID (string)")
+	let f4 = flag.RequiredString("turn-id", "input.TurnID (string)")
+	let usage = apiapi.Doc(apiapi.TurnStartOp)
+	flag.Command[Request]{Name: "turn-start", Usage: usage, Set: flag.Set{Name: "turn-start", Usage: usage, Flags: []flag.Flag{f0, f1, f2, f3, f4}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
+		apiapi.TurnStartRequest{Input: api.TurnStartInput{CommandID: f0.Get(v), Actor: f1.Get(v), AtMs: int64(f2.Get(v)), ThreadID: f3.Get(v), TurnID: f4.Get(v)}}
+	}, Commands: []flag.Command[Request]{}}
+}
+
+func commandTurnStep() flag.Command[Request] {
+	let f0 = flag.RequiredString("command-id", "input.CommandID (string)")
+	let f1 = flag.RequiredString("actor", "input.Actor (string)")
+	let f2 = flag.RequiredInt("at-ms", "input.AtMs (int64)")
+	let f3 = flag.RequiredString("thread-id", "input.ThreadID (string)")
+	let f4 = flag.RequiredString("action", "input.Action (string)")
+	let f5 = flag.OptionalString("failure-class", "input.FailureClass (json.Optional[string])")
+	let f7 = flag.OptionalString("failure-detail", "input.FailureDetail (json.Optional[string])")
+	let f9 = flag.OptionalInt("reset-at-ms", "input.ResetAtMs (json.Optional[int])")
+	let usage = apiapi.Doc(apiapi.TurnStepOp)
+	flag.Command[Request]{Name: "turn-step", Usage: usage, Set: flag.Set{Name: "turn-step", Usage: usage, Flags: []flag.Flag{f0, f1, f2, f3, f4, f5, f7, f9}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
+		let u6 = match f5.Get(v) {
+		case option.Some[string] as s:
+			json.Present[string]{Value: s.Value}
+		case option.None:
+			json.Absent
+		}
+		let u8 = match f7.Get(v) {
+		case option.Some[string] as s:
+			json.Present[string]{Value: s.Value}
+		case option.None:
+			json.Absent
+		}
+		let u10 = match f9.Get(v) {
+		case option.Some[int] as s:
+			json.Present[int]{Value: s.Value}
+		case option.None:
+			json.Absent
+		}
+		apiapi.TurnStepRequest{Input: api.TurnStepInput{CommandID: f0.Get(v), Actor: f1.Get(v), AtMs: int64(f2.Get(v)), ThreadID: f3.Get(v), Action: f4.Get(v), FailureClass: u6, FailureDetail: u8, ResetAtMs: u10}}
+	}, Commands: []flag.Command[Request]{}}
+}
+
+func commandSubagentTreeInit() flag.Command[Request] {
+	let f0 = flag.RequiredString("command-id", "input.CommandID (string)")
+	let f1 = flag.RequiredString("actor", "input.Actor (string)")
+	let f2 = flag.RequiredInt("at-ms", "input.AtMs (int64)")
+	let f3 = flag.RequiredString("root-id", "input.RootID (string)")
+	let f4 = flag.RequiredInt("max-depth", "input.MaxDepth (int)")
+	let f5 = flag.RequiredInt("max-fan-out", "input.MaxFanOut (int)")
+	let f6 = flag.RequiredInt("max-budget", "input.MaxBudget (int)")
+	let usage = apiapi.Doc(apiapi.SubagentTreeInitOp)
+	flag.Command[Request]{Name: "subagent-tree-init", Usage: usage, Set: flag.Set{Name: "subagent-tree-init", Usage: usage, Flags: []flag.Flag{f0, f1, f2, f3, f4, f5, f6}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
+		apiapi.SubagentTreeInitRequest{Input: api.SubagentTreeInitInput{CommandID: f0.Get(v), Actor: f1.Get(v), AtMs: int64(f2.Get(v)), RootID: f3.Get(v), MaxDepth: f4.Get(v), MaxFanOut: f5.Get(v), MaxBudget: f6.Get(v)}}
+	}, Commands: []flag.Command[Request]{}}
+}
+
+func commandSubagentSpawn() flag.Command[Request] {
+	let f0 = flag.RequiredString("command-id", "input.CommandID (string)")
+	let f1 = flag.RequiredString("actor", "input.Actor (string)")
+	let f2 = flag.RequiredInt("at-ms", "input.AtMs (int64)")
+	let f3 = flag.RequiredString("root-id", "input.RootID (string)")
+	let f4 = flag.RequiredString("parent-id", "input.ParentID (string)")
+	let f5 = flag.RequiredString("child-id", "input.ChildID (string)")
+	let f6 = flag.RequiredString("role", "input.Role (string)")
+	let usage = apiapi.Doc(apiapi.SubagentSpawnOp)
+	flag.Command[Request]{Name: "subagent-spawn", Usage: usage, Set: flag.Set{Name: "subagent-spawn", Usage: usage, Flags: []flag.Flag{f0, f1, f2, f3, f4, f5, f6}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
+		apiapi.SubagentSpawnRequest{Input: api.SubagentSpawnInput{CommandID: f0.Get(v), Actor: f1.Get(v), AtMs: int64(f2.Get(v)), RootID: f3.Get(v), ParentID: f4.Get(v), ChildID: f5.Get(v), Role: f6.Get(v)}}
+	}, Commands: []flag.Command[Request]{}}
+}
+
+func commandSubagentControlHandle() flag.Command[Request] {
+	let f0 = flag.RequiredString("command-id", "input.CommandID (string)")
+	let f1 = flag.RequiredString("actor", "input.Actor (string)")
+	let f2 = flag.RequiredInt("at-ms", "input.AtMs (int64)")
+	let f3 = flag.RequiredString("root-id", "input.RootID (string)")
+	let f4 = flag.RequiredString("caller-id", "input.CallerID (string)")
+	let f5 = flag.RequiredString("target-id", "input.TargetID (string)")
+	let f6 = flag.RequiredString("handle-id", "input.HandleID (string)")
+	let usage = apiapi.Doc(apiapi.SubagentControlHandleOp)
+	flag.Command[Request]{Name: "subagent-control-handle", Usage: usage, Set: flag.Set{Name: "subagent-control-handle", Usage: usage, Flags: []flag.Flag{f0, f1, f2, f3, f4, f5, f6}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
+		apiapi.SubagentControlHandleRequest{Input: api.SubagentControlHandleInput{CommandID: f0.Get(v), Actor: f1.Get(v), AtMs: int64(f2.Get(v)), RootID: f3.Get(v), CallerID: f4.Get(v), TargetID: f5.Get(v), HandleID: f6.Get(v)}}
+	}, Commands: []flag.Command[Request]{}}
+}
+
+func commandSubagentSettleHandle() flag.Command[Request] {
+	let f0 = flag.RequiredString("command-id", "input.CommandID (string)")
+	let f1 = flag.RequiredString("actor", "input.Actor (string)")
+	let f2 = flag.RequiredInt("at-ms", "input.AtMs (int64)")
+	let f3 = flag.RequiredString("root-id", "input.RootID (string)")
+	let f4 = flag.RequiredString("node-id", "input.NodeID (string)")
+	let f5 = flag.RequiredString("handle-id", "input.HandleID (string)")
+	let usage = apiapi.Doc(apiapi.SubagentSettleHandleOp)
+	flag.Command[Request]{Name: "subagent-settle-handle", Usage: usage, Set: flag.Set{Name: "subagent-settle-handle", Usage: usage, Flags: []flag.Flag{f0, f1, f2, f3, f4, f5}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
+		apiapi.SubagentSettleHandleRequest{Input: api.SubagentSettleHandleInput{CommandID: f0.Get(v), Actor: f1.Get(v), AtMs: int64(f2.Get(v)), RootID: f3.Get(v), NodeID: f4.Get(v), HandleID: f5.Get(v)}}
+	}, Commands: []flag.Command[Request]{}}
+}
+
+func commandSubagentHandBack() flag.Command[Request] {
+	let f0 = flag.RequiredString("command-id", "input.CommandID (string)")
+	let f1 = flag.RequiredString("actor", "input.Actor (string)")
+	let f2 = flag.RequiredInt("at-ms", "input.AtMs (int64)")
+	let f3 = flag.RequiredString("root-id", "input.RootID (string)")
+	let f4 = flag.RequiredString("node-id", "input.NodeID (string)")
+	let usage = apiapi.Doc(apiapi.SubagentHandBackOp)
+	flag.Command[Request]{Name: "subagent-hand-back", Usage: usage, Set: flag.Set{Name: "subagent-hand-back", Usage: usage, Flags: []flag.Flag{f0, f1, f2, f3, f4}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
+		apiapi.SubagentHandBackRequest{Input: api.SubagentHandBackInput{CommandID: f0.Get(v), Actor: f1.Get(v), AtMs: int64(f2.Get(v)), RootID: f3.Get(v), NodeID: f4.Get(v)}}
+	}, Commands: []flag.Command[Request]{}}
+}
+
+func commandSubagentTreeGet() flag.Command[Request] {
+	let f0 = flag.RequiredString("root-id", "input.RootID (string)")
+	let usage = apiapi.Doc(apiapi.SubagentTreeGetOp)
+	flag.Command[Request]{Name: "subagent-tree-get", Usage: usage, Set: flag.Set{Name: "subagent-tree-get", Usage: usage, Flags: []flag.Flag{f0}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
+		apiapi.SubagentTreeGetRequest{Input: api.SubagentTreeGetInput{RootID: f0.Get(v)}}
+	}, Commands: []flag.Command[Request]{}}
+}
+
+func commandHandleOpen() flag.Command[Request] {
+	let f0 = flag.RequiredString("command-id", "input.CommandID (string)")
+	let f1 = flag.RequiredString("actor", "input.Actor (string)")
+	let f2 = flag.RequiredInt("at-ms", "input.AtMs (int64)")
+	let f3 = flag.RequiredString("handle-id", "input.HandleID (string)")
+	let f4 = flag.RequiredString("kind", "input.Kind (string)")
+	let f5 = flag.RequiredString("owner-server", "input.OwnerServer (string)")
+	let f6 = flag.RequiredString("owner-location", "input.OwnerLocation (string)")
+	let f7 = flag.RequiredInt("owner-epoch", "input.OwnerEpoch (int)")
+	let f8 = flag.RequiredString("session-id", "input.SessionID (string)")
+	let f9 = flag.RequiredString("summary", "input.Summary (string)")
+	let f10 = flag.OptionalString("subagent-root", "input.SubagentRoot (json.Optional[string])")
+	let f12 = flag.OptionalString("node-id", "input.NodeID (json.Optional[string])")
+	let usage = apiapi.Doc(apiapi.HandleOpenOp)
+	flag.Command[Request]{Name: "handle-open", Usage: usage, Set: flag.Set{Name: "handle-open", Usage: usage, Flags: []flag.Flag{f0, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f12}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
+		let u11 = match f10.Get(v) {
+		case option.Some[string] as s:
+			json.Present[string]{Value: s.Value}
+		case option.None:
+			json.Absent
+		}
+		let u13 = match f12.Get(v) {
+		case option.Some[string] as s:
+			json.Present[string]{Value: s.Value}
+		case option.None:
+			json.Absent
+		}
+		apiapi.HandleOpenRequest{Input: api.HandleOpenInput{CommandID: f0.Get(v), Actor: f1.Get(v), AtMs: int64(f2.Get(v)), HandleID: f3.Get(v), Kind: f4.Get(v), OwnerServer: f5.Get(v), OwnerLocation: f6.Get(v), OwnerEpoch: f7.Get(v), SessionID: f8.Get(v), Summary: f9.Get(v), SubagentRoot: u11, NodeID: u13}}
+	}, Commands: []flag.Command[Request]{}}
+}
+
+func commandHandleSettle() flag.Command[Request] {
+	let f0 = flag.RequiredString("command-id", "input.CommandID (string)")
+	let f1 = flag.RequiredString("actor", "input.Actor (string)")
+	let f2 = flag.RequiredInt("at-ms", "input.AtMs (int64)")
+	let f3 = flag.RequiredString("handle-id", "input.HandleID (string)")
+	let f4 = flag.RequiredString("disposition", "input.Disposition (string)")
+	let f5 = flag.RequiredString("summary", "input.Summary (string)")
+	let f6 = flag.OptionalString("subagent-root", "input.SubagentRoot (json.Optional[string])")
+	let f8 = flag.OptionalString("node-id", "input.NodeID (json.Optional[string])")
+	let usage = apiapi.Doc(apiapi.HandleSettleOp)
+	flag.Command[Request]{Name: "handle-settle", Usage: usage, Set: flag.Set{Name: "handle-settle", Usage: usage, Flags: []flag.Flag{f0, f1, f2, f3, f4, f5, f6, f8}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
+		let u7 = match f6.Get(v) {
+		case option.Some[string] as s:
+			json.Present[string]{Value: s.Value}
+		case option.None:
+			json.Absent
+		}
+		let u9 = match f8.Get(v) {
+		case option.Some[string] as s:
+			json.Present[string]{Value: s.Value}
+		case option.None:
+			json.Absent
+		}
+		apiapi.HandleSettleRequest{Input: api.HandleSettleInput{CommandID: f0.Get(v), Actor: f1.Get(v), AtMs: int64(f2.Get(v)), HandleID: f3.Get(v), Disposition: f4.Get(v), Summary: f5.Get(v), SubagentRoot: u7, NodeID: u9}}
+	}, Commands: []flag.Command[Request]{}}
+}
+
+func commandHandleList() flag.Command[Request] {
+	let f0 = flag.OptionalString("session-id", "input.SessionID (json.Optional[string])")
+	let f2 = flag.OptionalString("owner-server", "input.OwnerServer (json.Optional[string])")
+	let f4 = flag.OptionalString("owner-location", "input.OwnerLocation (json.Optional[string])")
+	let f6 = flag.OptionalInt("owner-epoch", "input.OwnerEpoch (json.Optional[int])")
+	let f8 = flag.Bool("open-only", false, "input.OpenOnly (bool)")
+	let usage = apiapi.Doc(apiapi.HandleListOp)
+	flag.Command[Request]{Name: "handle-list", Usage: usage, Set: flag.Set{Name: "handle-list", Usage: usage, Flags: []flag.Flag{f0, f2, f4, f6, f8}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
+		let u1 = match f0.Get(v) {
+		case option.Some[string] as s:
+			json.Present[string]{Value: s.Value}
+		case option.None:
+			json.Absent
+		}
+		let u3 = match f2.Get(v) {
+		case option.Some[string] as s:
+			json.Present[string]{Value: s.Value}
+		case option.None:
+			json.Absent
+		}
+		let u5 = match f4.Get(v) {
+		case option.Some[string] as s:
+			json.Present[string]{Value: s.Value}
+		case option.None:
+			json.Absent
+		}
+		let u7 = match f6.Get(v) {
+		case option.Some[int] as s:
+			json.Present[int]{Value: s.Value}
+		case option.None:
+			json.Absent
+		}
+		apiapi.HandleListRequest{Input: api.HandleListInput{SessionID: u1, OwnerServer: u3, OwnerLocation: u5, OwnerEpoch: u7, OpenOnly: f8.Get(v)}}
+	}, Commands: []flag.Command[Request]{}}
+}
+
+func commandOwnerCallsRetire() flag.Command[Request] {
+	let f0 = flag.RequiredString("command-id", "input.CommandID (string)")
+	let f1 = flag.RequiredString("actor", "input.Actor (string)")
+	let f2 = flag.RequiredInt("at-ms", "input.AtMs (int64)")
+	let f3 = flag.RequiredString("owner-server", "input.OwnerServer (string)")
+	let f4 = flag.RequiredString("owner-location", "input.OwnerLocation (string)")
+	let f5 = flag.RequiredInt("owner-epoch", "input.OwnerEpoch (int)")
+	let usage = apiapi.Doc(apiapi.OwnerCallsRetireOp)
+	flag.Command[Request]{Name: "owner-calls-retire", Usage: usage, Set: flag.Set{Name: "owner-calls-retire", Usage: usage, Flags: []flag.Flag{f0, f1, f2, f3, f4, f5}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
+		apiapi.OwnerCallsRetireRequest{Input: api.OwnerCallsRetireInput{CommandID: f0.Get(v), Actor: f1.Get(v), AtMs: int64(f2.Get(v)), OwnerServer: f3.Get(v), OwnerLocation: f4.Get(v), OwnerEpoch: f5.Get(v)}}
+	}, Commands: []flag.Command[Request]{}}
+}
+
+func commandQuestionAsk() flag.Command[Request] {
+	let f0 = flag.RequiredString("command-id", "input.CommandID (string)")
+	let f1 = flag.RequiredString("actor", "input.Actor (string)")
+	let f2 = flag.RequiredInt("at-ms", "input.AtMs (int64)")
+	let f3 = flag.RequiredString("question-id", "input.QuestionID (string)")
+	let f4 = flag.RequiredString("thread-id", "input.ThreadID (string)")
+	let f5 = flag.RequiredString("handle-id", "input.HandleID (string)")
+	let f6 = flag.RequiredString("owner-server", "input.OwnerServer (string)")
+	let f7 = flag.RequiredString("owner-location", "input.OwnerLocation (string)")
+	let f8 = flag.RequiredInt("owner-epoch", "input.OwnerEpoch (int)")
+	let f9 = flag.RequiredString("session-id", "input.SessionID (string)")
+	let f10 = flag.RequiredString("header", "input.Header (string)")
+	let f11 = flag.RequiredString("prompt", "input.Prompt (string)")
+	let f12 = flag.RequiredString("assumption", "input.Assumption (string)")
+	let f13 = flag.String("options", "", "input.Options ([]string)").Repeated()
+	let f14 = flag.RequiredString("target-role", "input.TargetRole (string)")
+	let usage = apiapi.Doc(apiapi.QuestionAskOp)
+	flag.Command[Request]{Name: "question-ask", Usage: usage, Set: flag.Set{Name: "question-ask", Usage: usage, Flags: []flag.Flag{f0, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, f14}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
+		apiapi.QuestionAskRequest{Input: api.QuestionAskInput{CommandID: f0.Get(v), Actor: f1.Get(v), AtMs: int64(f2.Get(v)), QuestionID: f3.Get(v), ThreadID: f4.Get(v), HandleID: f5.Get(v), OwnerServer: f6.Get(v), OwnerLocation: f7.Get(v), OwnerEpoch: f8.Get(v), SessionID: f9.Get(v), Header: f10.Get(v), Prompt: f11.Get(v), Assumption: f12.Get(v), Options: f13.Get(v), TargetRole: f14.Get(v)}}
+	}, Commands: []flag.Command[Request]{}}
+}
+
+func commandQuestionAnswer() flag.Command[Request] {
+	let f0 = flag.RequiredString("command-id", "input.CommandID (string)")
+	let f1 = flag.RequiredString("actor", "input.Actor (string)")
+	let f2 = flag.RequiredInt("at-ms", "input.AtMs (int64)")
+	let f3 = flag.RequiredString("question-id", "input.QuestionID (string)")
+	let f4 = flag.RequiredString("answer", "input.Answer (string)")
+	let f5 = flag.RequiredString("responder", "input.Responder (string)")
+	let usage = apiapi.Doc(apiapi.QuestionAnswerOp)
+	flag.Command[Request]{Name: "question-answer", Usage: usage, Set: flag.Set{Name: "question-answer", Usage: usage, Flags: []flag.Flag{f0, f1, f2, f3, f4, f5}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
+		apiapi.QuestionAnswerRequest{Input: api.QuestionAnswerInput{CommandID: f0.Get(v), Actor: f1.Get(v), AtMs: int64(f2.Get(v)), QuestionID: f3.Get(v), Answer: f4.Get(v), Responder: f5.Get(v)}}
+	}, Commands: []flag.Command[Request]{}}
+}
+
+func commandQuestionWithdraw() flag.Command[Request] {
+	let f0 = flag.RequiredString("command-id", "input.CommandID (string)")
+	let f1 = flag.RequiredString("actor", "input.Actor (string)")
+	let f2 = flag.RequiredInt("at-ms", "input.AtMs (int64)")
+	let f3 = flag.RequiredString("question-id", "input.QuestionID (string)")
+	let usage = apiapi.Doc(apiapi.QuestionWithdrawOp)
+	flag.Command[Request]{Name: "question-withdraw", Usage: usage, Set: flag.Set{Name: "question-withdraw", Usage: usage, Flags: []flag.Flag{f0, f1, f2, f3}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
+		apiapi.QuestionWithdrawRequest{Input: api.QuestionWithdrawInput{CommandID: f0.Get(v), Actor: f1.Get(v), AtMs: int64(f2.Get(v)), QuestionID: f3.Get(v)}}
+	}, Commands: []flag.Command[Request]{}}
+}
+
+func commandQuestionList() flag.Command[Request] {
+	let f0 = flag.OptionalString("thread-id", "input.ThreadID (json.Optional[string])")
+	let f2 = flag.OptionalString("status", "input.Status (json.Optional[string])")
+	let usage = apiapi.Doc(apiapi.QuestionListOp)
+	flag.Command[Request]{Name: "question-list", Usage: usage, Set: flag.Set{Name: "question-list", Usage: usage, Flags: []flag.Flag{f0, f2}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
+		let u1 = match f0.Get(v) {
+		case option.Some[string] as s:
+			json.Present[string]{Value: s.Value}
+		case option.None:
+			json.Absent
+		}
+		let u3 = match f2.Get(v) {
+		case option.Some[string] as s:
+			json.Present[string]{Value: s.Value}
+		case option.None:
+			json.Absent
+		}
+		apiapi.QuestionListRequest{Input: api.QuestionListInput{ThreadID: u1, Status: u3}}
+	}, Commands: []flag.Command[Request]{}}
+}
+
+func commandPoolAccountUpsert() flag.Command[Request] {
+	let f0 = flag.RequiredString("command-id", "input.CommandID (string)")
+	let f1 = flag.RequiredString("actor", "input.Actor (string)")
+	let f2 = flag.RequiredInt("at-ms", "input.AtMs (int64)")
+	let f3 = flag.RequiredString("account-id", "input.AccountID (string)")
+	let f4 = flag.RequiredString("provider", "input.Provider (string)")
+	let f5 = flag.RequiredInt("priority", "input.Priority (int)")
+	let f6 = flag.Bool("healthy", false, "input.Healthy (bool)")
+	let f7 = flag.RequiredInt("window5h-used-pct", "input.Window5hUsedPct (int)")
+	let f8 = flag.RequiredInt("window5h-reset-ms", "input.Window5hResetMs (int64)")
+	let f9 = flag.RequiredInt("window7d-used-pct", "input.Window7dUsedPct (int)")
+	let f10 = flag.RequiredInt("window7d-reset-ms", "input.Window7dResetMs (int64)")
+	let f11 = flag.RequiredInt("inflight-starts", "input.InflightStarts (int)")
+	let f12 = flag.RequiredInt("limited-until-ms", "input.LimitedUntilMs (int64)")
+	let usage = apiapi.Doc(apiapi.PoolAccountUpsertOp)
+	flag.Command[Request]{Name: "pool-account-upsert", Usage: usage, Set: flag.Set{Name: "pool-account-upsert", Usage: usage, Flags: []flag.Flag{f0, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
+		apiapi.PoolAccountUpsertRequest{Input: api.PoolAccountUpsertInput{CommandID: f0.Get(v), Actor: f1.Get(v), AtMs: int64(f2.Get(v)), AccountID: f3.Get(v), Provider: f4.Get(v), Priority: f5.Get(v), Healthy: f6.Get(v), Window5hUsedPct: f7.Get(v), Window5hResetMs: int64(f8.Get(v)), Window7dUsedPct: f9.Get(v), Window7dResetMs: int64(f10.Get(v)), InflightStarts: f11.Get(v), LimitedUntilMs: int64(f12.Get(v))}}
+	}, Commands: []flag.Command[Request]{}}
+}
+
+func commandPoolHoldOpen() flag.Command[Request] {
+	let f0 = flag.RequiredString("command-id", "input.CommandID (string)")
+	let f1 = flag.RequiredString("actor", "input.Actor (string)")
+	let f2 = flag.RequiredInt("at-ms", "input.AtMs (int64)")
+	let f3 = flag.RequiredString("hold-key", "input.HoldKey (string)")
+	let f4 = flag.RequiredString("thread-id", "input.ThreadID (string)")
+	let f5 = flag.RequiredString("account-id", "input.AccountID (string)")
+	let f6 = flag.RequiredInt("retry-at-ms", "input.RetryAtMs (int64)")
+	let f7 = flag.Bool("parent-notified", false, "input.ParentNotified (bool)")
+	let usage = apiapi.Doc(apiapi.PoolHoldOpenOp)
+	flag.Command[Request]{Name: "pool-hold-open", Usage: usage, Set: flag.Set{Name: "pool-hold-open", Usage: usage, Flags: []flag.Flag{f0, f1, f2, f3, f4, f5, f6, f7}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
+		apiapi.PoolHoldOpenRequest{Input: api.PoolHoldOpenInput{CommandID: f0.Get(v), Actor: f1.Get(v), AtMs: int64(f2.Get(v)), HoldKey: f3.Get(v), ThreadID: f4.Get(v), AccountID: f5.Get(v), RetryAtMs: int64(f6.Get(v)), ParentNotified: f7.Get(v)}}
+	}, Commands: []flag.Command[Request]{}}
+}
+
+func commandPoolHoldTransition() flag.Command[Request] {
+	let f0 = flag.RequiredString("command-id", "input.CommandID (string)")
+	let f1 = flag.RequiredString("actor", "input.Actor (string)")
+	let f2 = flag.RequiredInt("at-ms", "input.AtMs (int64)")
+	let f3 = flag.RequiredString("hold-key", "input.HoldKey (string)")
+	let f4 = flag.RequiredString("action", "input.Action (string)")
+	let usage = apiapi.Doc(apiapi.PoolHoldTransitionOp)
+	flag.Command[Request]{Name: "pool-hold-transition", Usage: usage, Set: flag.Set{Name: "pool-hold-transition", Usage: usage, Flags: []flag.Flag{f0, f1, f2, f3, f4}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
+		apiapi.PoolHoldTransitionRequest{Input: api.PoolHoldTransitionInput{CommandID: f0.Get(v), Actor: f1.Get(v), AtMs: int64(f2.Get(v)), HoldKey: f3.Get(v), Action: f4.Get(v)}}
+	}, Commands: []flag.Command[Request]{}}
+}
+
+func commandPoolView() flag.Command[Request] {
+	let f0 = flag.RequiredInt("now-ms", "input.NowMs (int64)")
+	let usage = apiapi.Doc(apiapi.PoolViewOp)
+	flag.Command[Request]{Name: "pool-view", Usage: usage, Set: flag.Set{Name: "pool-view", Usage: usage, Flags: []flag.Flag{f0}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
+		apiapi.PoolViewRequest{Input: api.PoolViewInput{NowMs: int64(f0.Get(v))}}
+	}, Commands: []flag.Command[Request]{}}
+}
+
+func commandKernelSnapshotSave() flag.Command[Request] {
+	let f0 = flag.RequiredString("command-id", "input.CommandID (string)")
+	let f1 = flag.RequiredString("actor", "input.Actor (string)")
+	let f2 = flag.RequiredInt("at-ms", "input.AtMs (int64)")
+	let f3 = flag.RequiredString("session-id", "input.SessionID (string)")
+	let f4 = flag.RequiredString("thread-id", "input.ThreadID (string)")
+	let f5 = flag.RequiredString("root-thread-id", "input.RootThreadID (string)")
+	let f6 = flag.RequiredString("bindings-json", "input.BindingsJSON (string)")
+	let f7 = flag.RequiredInt("snapshot-bytes", "input.SnapshotBytes (int)")
+	let f8 = flag.RequiredString("lost-notice", "input.LostNotice (string)")
+	let usage = apiapi.Doc(apiapi.KernelSnapshotSaveOp)
+	flag.Command[Request]{Name: "kernel-snapshot-save", Usage: usage, Set: flag.Set{Name: "kernel-snapshot-save", Usage: usage, Flags: []flag.Flag{f0, f1, f2, f3, f4, f5, f6, f7, f8}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
+		apiapi.KernelSnapshotSaveRequest{Input: api.KernelSnapshotSaveInput{CommandID: f0.Get(v), Actor: f1.Get(v), AtMs: int64(f2.Get(v)), SessionID: f3.Get(v), ThreadID: f4.Get(v), RootThreadID: f5.Get(v), BindingsJSON: f6.Get(v), SnapshotBytes: f7.Get(v), LostNotice: f8.Get(v)}}
+	}, Commands: []flag.Command[Request]{}}
+}
+
+func commandKernelCutRecord() flag.Command[Request] {
+	let f0 = flag.RequiredString("command-id", "input.CommandID (string)")
+	let f1 = flag.RequiredString("actor", "input.Actor (string)")
+	let f2 = flag.RequiredInt("at-ms", "input.AtMs (int64)")
+	let f3 = flag.RequiredString("cut-id", "input.CutID (string)")
+	let f4 = flag.RequiredString("session-id", "input.SessionID (string)")
+	let f5 = flag.RequiredString("thread-id", "input.ThreadID (string)")
+	let f6 = flag.RequiredString("root-thread-id", "input.RootThreadID (string)")
+	let f7 = flag.RequiredString("calls-json", "input.CallsJSON (string)")
+	let f8 = flag.RequiredString("maps-json", "input.MapsJSON (string)")
+	let f9 = flag.RequiredInt("started-at-ms", "input.StartedAtMs (int64)")
+	let f10 = flag.RequiredInt("ended-at-ms", "input.EndedAtMs (int64)")
+	let f11 = flag.RequiredString("reason", "input.Reason (string)")
+	let usage = apiapi.Doc(apiapi.KernelCutRecordOp)
+	flag.Command[Request]{Name: "kernel-cut-record", Usage: usage, Set: flag.Set{Name: "kernel-cut-record", Usage: usage, Flags: []flag.Flag{f0, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
+		apiapi.KernelCutRecordRequest{Input: api.KernelCutRecordInput{CommandID: f0.Get(v), Actor: f1.Get(v), AtMs: int64(f2.Get(v)), CutID: f3.Get(v), SessionID: f4.Get(v), ThreadID: f5.Get(v), RootThreadID: f6.Get(v), CallsJSON: f7.Get(v), MapsJSON: f8.Get(v), StartedAtMs: int64(f9.Get(v)), EndedAtMs: int64(f10.Get(v)), Reason: f11.Get(v)}}
+	}, Commands: []flag.Command[Request]{}}
+}
+
+func commandKernelView() flag.Command[Request] {
+	let f0 = flag.RequiredString("session-id", "input.SessionID (string)")
+	let usage = apiapi.Doc(apiapi.KernelViewOp)
+	flag.Command[Request]{Name: "kernel-view", Usage: usage, Set: flag.Set{Name: "kernel-view", Usage: usage, Flags: []flag.Flag{f0}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
+		apiapi.KernelViewRequest{Input: api.KernelViewInput{SessionID: f0.Get(v)}}
+	}, Commands: []flag.Command[Request]{}}
+}
+
+func commandLeaseAcquire() flag.Command[Request] {
+	let f0 = flag.RequiredString("command-id", "input.CommandID (string)")
+	let f1 = flag.RequiredString("actor", "input.Actor (string)")
+	let f2 = flag.RequiredInt("at-ms", "input.AtMs (int64)")
+	let f3 = flag.RequiredString("lease-id", "input.LeaseID (string)")
+	let f4 = flag.RequiredString("owner-server", "input.OwnerServer (string)")
+	let f5 = flag.RequiredString("owner-location", "input.OwnerLocation (string)")
+	let f6 = flag.RequiredInt("owner-epoch", "input.OwnerEpoch (int)")
+	let f7 = flag.RequiredInt("expected-epoch", "input.ExpectedEpoch (int)")
+	let usage = apiapi.Doc(apiapi.LeaseAcquireOp)
+	flag.Command[Request]{Name: "lease-acquire", Usage: usage, Set: flag.Set{Name: "lease-acquire", Usage: usage, Flags: []flag.Flag{f0, f1, f2, f3, f4, f5, f6, f7}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
+		apiapi.LeaseAcquireRequest{Input: api.LeaseAcquireInput{CommandID: f0.Get(v), Actor: f1.Get(v), AtMs: int64(f2.Get(v)), LeaseID: f3.Get(v), OwnerServer: f4.Get(v), OwnerLocation: f5.Get(v), OwnerEpoch: f6.Get(v), ExpectedEpoch: f7.Get(v)}}
+	}, Commands: []flag.Command[Request]{}}
+}
+
+func commandBootReconcile() flag.Command[Request] {
+	let f0 = flag.RequiredString("command-id", "input.CommandID (string)")
+	let f1 = flag.RequiredString("actor", "input.Actor (string)")
+	let f2 = flag.RequiredInt("at-ms", "input.AtMs (int64)")
+	let f3 = flag.RequiredString("lease-id", "input.LeaseID (string)")
+	let f4 = flag.OptionalString("root-id", "input.RootID (json.Optional[string])")
+	let f6 = flag.RequiredString("booting-server", "input.BootingServer (string)")
+	let f7 = flag.RequiredString("booting-location", "input.BootingLocation (string)")
+	let f8 = flag.RequiredInt("booting-epoch", "input.BootingEpoch (int)")
+	let f9 = flag.Bool("pending-requests-survive-boot", false, "input.PendingRequestsSurviveBoot (bool)")
+	let usage = apiapi.Doc(apiapi.BootReconcileOp)
+	flag.Command[Request]{Name: "boot-reconcile", Usage: usage, Set: flag.Set{Name: "boot-reconcile", Usage: usage, Flags: []flag.Flag{f0, f1, f2, f3, f4, f6, f7, f8, f9}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
+		let u5 = match f4.Get(v) {
+		case option.Some[string] as s:
+			json.Present[string]{Value: s.Value}
+		case option.None:
+			json.Absent
+		}
+		apiapi.BootReconcileRequest{Input: api.BootReconcileInput{CommandID: f0.Get(v), Actor: f1.Get(v), AtMs: int64(f2.Get(v)), LeaseID: f3.Get(v), RootID: u5, BootingServer: f6.Get(v), BootingLocation: f7.Get(v), BootingEpoch: f8.Get(v), PendingRequestsSurviveBoot: f9.Get(v)}}
+	}, Commands: []flag.Command[Request]{}}
+}
+
+func commandBootStatus() flag.Command[Request] {
+	let f0 = flag.RequiredString("lease-id", "input.LeaseID (string)")
+	let f1 = flag.RequiredString("booting-server", "input.BootingServer (string)")
+	let f2 = flag.RequiredString("booting-location", "input.BootingLocation (string)")
+	let f3 = flag.RequiredInt("booting-epoch", "input.BootingEpoch (int)")
+	let f4 = flag.Bool("pending-requests-survive-boot", false, "input.PendingRequestsSurviveBoot (bool)")
+	let usage = apiapi.Doc(apiapi.BootStatusOp)
+	flag.Command[Request]{Name: "boot-status", Usage: usage, Set: flag.Set{Name: "boot-status", Usage: usage, Flags: []flag.Flag{f0, f1, f2, f3, f4}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
+		apiapi.BootStatusRequest{Input: api.BootStatusInput{LeaseID: f0.Get(v), BootingServer: f1.Get(v), BootingLocation: f2.Get(v), BootingEpoch: f3.Get(v), PendingRequestsSurviveBoot: f4.Get(v)}}
+	}, Commands: []flag.Command[Request]{}}
+}
+
+func commandHostCapacityGet() flag.Command[Request] {
+	let f0 = flag.String("volumes", "", "input.Volumes ([]string)").Repeated()
+	let usage = apiapi.Doc(apiapi.HostCapacityGetOp)
+	flag.Command[Request]{Name: "host-capacity-get", Usage: usage, Set: flag.Set{Name: "host-capacity-get", Usage: usage, Flags: []flag.Flag{f0}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
+		apiapi.HostCapacityGetRequest{Input: api.HostCapacityInput{Volumes: f0.Get(v)}}
+	}, Commands: []flag.Command[Request]{}}
+}
+
+func commandWellnessReportGet() flag.Command[Request] {
+	let f0 = flag.RequiredInt("now-ms", "input.NowMs (int64)")
+	let f1 = flag.String("volumes", "", "input.Volumes ([]string)").Repeated()
+	let f2 = flag.Bool("live-owners-configured", false, "input.LiveOwnersConfigured (bool)")
+	let f3 = flag.String("live-owners", "", "input.LiveOwners ([]string)").Repeated()
+	let f4 = flag.OptionalString("max-load-per-core", "input.MaxLoadPerCore (json.Optional[string])")
+	let f6 = flag.OptionalString("min-mem-avail-gi-b", "input.MinMemAvailGiB (json.Optional[string])")
+	let f8 = flag.OptionalString("max-disk-used-pct", "input.MaxDiskUsedPct (json.Optional[string])")
+	let usage = apiapi.Doc(apiapi.WellnessReportGetOp)
+	flag.Command[Request]{Name: "wellness-report-get", Usage: usage, Set: flag.Set{Name: "wellness-report-get", Usage: usage, Flags: []flag.Flag{f0, f1, f2, f3, f4, f6, f8}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
+		let u5 = match f4.Get(v) {
+		case option.Some[string] as s:
+			json.Present[string]{Value: s.Value}
+		case option.None:
+			json.Absent
+		}
+		let u7 = match f6.Get(v) {
+		case option.Some[string] as s:
+			json.Present[string]{Value: s.Value}
+		case option.None:
+			json.Absent
+		}
+		let u9 = match f8.Get(v) {
+		case option.Some[string] as s:
+			json.Present[string]{Value: s.Value}
+		case option.None:
+			json.Absent
+		}
+		apiapi.WellnessReportGetRequest{Input: api.WellnessReportInput{NowMs: int64(f0.Get(v)), Volumes: f1.Get(v), LiveOwnersConfigured: f2.Get(v), LiveOwners: f3.Get(v), MaxLoadPerCore: u5, MinMemAvailGiB: u7, MaxDiskUsedPct: u9}}
+	}, Commands: []flag.Command[Request]{}}
+}
+
+func commandMcpTokenMint() flag.Command[Request] {
+	let f0 = flag.RequiredString("token-id", "input.TokenID (string)")
+	let f1 = flag.RequiredString("thread-id", "input.ThreadID (string)")
+	let f2 = flag.RequiredString("session-id", "input.SessionID (string)")
+	let f3 = flag.RequiredInt("gen", "input.Gen (int)")
+	let f4 = flag.RequiredInt("now-ms", "input.NowMs (int64)")
+	let f5 = flag.RequiredString("audience-kind", "input.AudienceKind (string)")
+	let f6 = flag.OptionalString("client-id", "input.ClientID (json.Optional[string])")
+	let f8 = flag.String("scopes", "", "input.Scopes ([]string)").Repeated()
+	let f9 = flag.Bool("rotate-existing", false, "input.RotateExisting (bool)")
+	let usage = apiapi.Doc(apiapi.McpTokenMintOp)
+	flag.Command[Request]{Name: "mcp-token-mint", Usage: usage, Set: flag.Set{Name: "mcp-token-mint", Usage: usage, Flags: []flag.Flag{f0, f1, f2, f3, f4, f5, f6, f8, f9}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
+		let u7 = match f6.Get(v) {
+		case option.Some[string] as s:
+			json.Present[string]{Value: s.Value}
+		case option.None:
+			json.Absent
+		}
+		apiapi.McpTokenMintRequest{Input: api.McpTokenMintInput{TokenID: f0.Get(v), ThreadID: f1.Get(v), SessionID: f2.Get(v), Gen: f3.Get(v), NowMs: int64(f4.Get(v)), AudienceKind: f5.Get(v), ClientID: u7, Scopes: f8.Get(v), RotateExisting: f9.Get(v)}}
+	}, Commands: []flag.Command[Request]{}}
+}
+
+func commandMcpTokenRevoke() flag.Command[Request] {
+	let f0 = flag.OptionalString("thread-id", "input.ThreadID (json.Optional[string])")
+	let f2 = flag.OptionalString("session-id", "input.SessionID (json.Optional[string])")
+	let usage = apiapi.Doc(apiapi.McpTokenRevokeOp)
+	flag.Command[Request]{Name: "mcp-token-revoke", Usage: usage, Set: flag.Set{Name: "mcp-token-revoke", Usage: usage, Flags: []flag.Flag{f0, f2}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
+		let u1 = match f0.Get(v) {
+		case option.Some[string] as s:
+			json.Present[string]{Value: s.Value}
+		case option.None:
+			json.Absent
+		}
+		let u3 = match f2.Get(v) {
+		case option.Some[string] as s:
+			json.Present[string]{Value: s.Value}
+		case option.None:
+			json.Absent
+		}
+		apiapi.McpTokenRevokeRequest{Input: api.McpTokenRevokeInput{ThreadID: u1, SessionID: u3}}
+	}, Commands: []flag.Command[Request]{}}
+}
+
+func commandMcpTokenList() flag.Command[Request] {
+	let f0 = flag.RequiredString("thread-id", "input.ThreadID (string)")
+	let f1 = flag.Bool("include-revoked", false, "input.IncludeRevoked (bool)")
+	let usage = apiapi.Doc(apiapi.McpTokenListOp)
+	flag.Command[Request]{Name: "mcp-token-list", Usage: usage, Set: flag.Set{Name: "mcp-token-list", Usage: usage, Flags: []flag.Flag{f0, f1}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
+		apiapi.McpTokenListRequest{Input: api.McpTokenListInput{ThreadID: f0.Get(v), IncludeRevoked: f1.Get(v)}}
+	}, Commands: []flag.Command[Request]{}}
+}
+
+func argText(a flag.ArgSpec, v flag.Values) string {
+	match a.Get(v) {
+	case option.Some[string] as s:
+		s.Value
+	case option.None:
+		""
+	}
+}
+
+// Parse reads args as a command line of api.Api: a command and its
+// flags and arguments. It builds only the command args[0] names; the
+// list of every command is built only for help or an unknown command.
+func Parse(args []string) Request fails flag.Failure {
+	let first = if args.Len() > 0 { args[0] } else { "" }
+	match first {
+	case "thread-create":
+		let c = commandThreadCreate()
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "api thread-create"}, slices.Slice(args, 1, args.Len()))
+		try c.Build(v)
+	case "thread-get":
+		let c = commandThreadGet()
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "api thread-get"}, slices.Slice(args, 1, args.Len()))
+		try c.Build(v)
+	case "thread-list":
+		let c = commandThreadList()
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "api thread-list"}, slices.Slice(args, 1, args.Len()))
+		try c.Build(v)
+	case "thread-archive":
+		let c = commandThreadArchive()
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "api thread-archive"}, slices.Slice(args, 1, args.Len()))
+		try c.Build(v)
+	case "driver-switch":
+		let c = commandDriverSwitch()
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "api driver-switch"}, slices.Slice(args, 1, args.Len()))
+		try c.Build(v)
+	case "prompt-enqueue":
+		let c = commandPromptEnqueue()
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "api prompt-enqueue"}, slices.Slice(args, 1, args.Len()))
+		try c.Build(v)
+	case "prompt-dequeue":
+		let c = commandPromptDequeue()
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "api prompt-dequeue"}, slices.Slice(args, 1, args.Len()))
+		try c.Build(v)
+	case "turn-start":
+		let c = commandTurnStart()
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "api turn-start"}, slices.Slice(args, 1, args.Len()))
+		try c.Build(v)
+	case "turn-step":
+		let c = commandTurnStep()
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "api turn-step"}, slices.Slice(args, 1, args.Len()))
+		try c.Build(v)
+	case "subagent-tree-init":
+		let c = commandSubagentTreeInit()
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "api subagent-tree-init"}, slices.Slice(args, 1, args.Len()))
+		try c.Build(v)
+	case "subagent-spawn":
+		let c = commandSubagentSpawn()
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "api subagent-spawn"}, slices.Slice(args, 1, args.Len()))
+		try c.Build(v)
+	case "subagent-control-handle":
+		let c = commandSubagentControlHandle()
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "api subagent-control-handle"}, slices.Slice(args, 1, args.Len()))
+		try c.Build(v)
+	case "subagent-settle-handle":
+		let c = commandSubagentSettleHandle()
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "api subagent-settle-handle"}, slices.Slice(args, 1, args.Len()))
+		try c.Build(v)
+	case "subagent-hand-back":
+		let c = commandSubagentHandBack()
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "api subagent-hand-back"}, slices.Slice(args, 1, args.Len()))
+		try c.Build(v)
+	case "subagent-tree-get":
+		let c = commandSubagentTreeGet()
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "api subagent-tree-get"}, slices.Slice(args, 1, args.Len()))
+		try c.Build(v)
+	case "handle-open":
+		let c = commandHandleOpen()
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "api handle-open"}, slices.Slice(args, 1, args.Len()))
+		try c.Build(v)
+	case "handle-settle":
+		let c = commandHandleSettle()
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "api handle-settle"}, slices.Slice(args, 1, args.Len()))
+		try c.Build(v)
+	case "handle-list":
+		let c = commandHandleList()
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "api handle-list"}, slices.Slice(args, 1, args.Len()))
+		try c.Build(v)
+	case "owner-calls-retire":
+		let c = commandOwnerCallsRetire()
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "api owner-calls-retire"}, slices.Slice(args, 1, args.Len()))
+		try c.Build(v)
+	case "question-ask":
+		let c = commandQuestionAsk()
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "api question-ask"}, slices.Slice(args, 1, args.Len()))
+		try c.Build(v)
+	case "question-answer":
+		let c = commandQuestionAnswer()
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "api question-answer"}, slices.Slice(args, 1, args.Len()))
+		try c.Build(v)
+	case "question-withdraw":
+		let c = commandQuestionWithdraw()
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "api question-withdraw"}, slices.Slice(args, 1, args.Len()))
+		try c.Build(v)
+	case "question-list":
+		let c = commandQuestionList()
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "api question-list"}, slices.Slice(args, 1, args.Len()))
+		try c.Build(v)
+	case "pool-account-upsert":
+		let c = commandPoolAccountUpsert()
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "api pool-account-upsert"}, slices.Slice(args, 1, args.Len()))
+		try c.Build(v)
+	case "pool-hold-open":
+		let c = commandPoolHoldOpen()
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "api pool-hold-open"}, slices.Slice(args, 1, args.Len()))
+		try c.Build(v)
+	case "pool-hold-transition":
+		let c = commandPoolHoldTransition()
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "api pool-hold-transition"}, slices.Slice(args, 1, args.Len()))
+		try c.Build(v)
+	case "pool-view":
+		let c = commandPoolView()
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "api pool-view"}, slices.Slice(args, 1, args.Len()))
+		try c.Build(v)
+	case "kernel-snapshot-save":
+		let c = commandKernelSnapshotSave()
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "api kernel-snapshot-save"}, slices.Slice(args, 1, args.Len()))
+		try c.Build(v)
+	case "kernel-cut-record":
+		let c = commandKernelCutRecord()
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "api kernel-cut-record"}, slices.Slice(args, 1, args.Len()))
+		try c.Build(v)
+	case "kernel-view":
+		let c = commandKernelView()
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "api kernel-view"}, slices.Slice(args, 1, args.Len()))
+		try c.Build(v)
+	case "lease-acquire":
+		let c = commandLeaseAcquire()
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "api lease-acquire"}, slices.Slice(args, 1, args.Len()))
+		try c.Build(v)
+	case "boot-reconcile":
+		let c = commandBootReconcile()
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "api boot-reconcile"}, slices.Slice(args, 1, args.Len()))
+		try c.Build(v)
+	case "boot-status":
+		let c = commandBootStatus()
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "api boot-status"}, slices.Slice(args, 1, args.Len()))
+		try c.Build(v)
+	case "host-capacity-get":
+		let c = commandHostCapacityGet()
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "api host-capacity-get"}, slices.Slice(args, 1, args.Len()))
+		try c.Build(v)
+	case "wellness-report-get":
+		let c = commandWellnessReportGet()
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "api wellness-report-get"}, slices.Slice(args, 1, args.Len()))
+		try c.Build(v)
+	case "mcp-token-mint":
+		let c = commandMcpTokenMint()
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "api mcp-token-mint"}, slices.Slice(args, 1, args.Len()))
+		try c.Build(v)
+	case "mcp-token-revoke":
+		let c = commandMcpTokenRevoke()
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "api mcp-token-revoke"}, slices.Slice(args, 1, args.Len()))
+		try c.Build(v)
+	case "mcp-token-list":
+		let c = commandMcpTokenList()
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "api mcp-token-list"}, slices.Slice(args, 1, args.Len()))
+		try c.Build(v)
+	case _:
+		try flag.ParseCommand("api", "api.Api on a command line", Commands(), args)
+	}
+}
+
+// Print is a command line that Parse reads as r again: the command,
+// each flag as -name=value, then "--" and the positional arguments.
+func Print(r Request) []string {
+	match r {
+	case apiapi.ThreadCreateRequest as x:
+		let mut out = []string{"thread-create"}
+		out = out.Append("-command-id=\(x.Input.CommandID)")
+		out = out.Append("-actor=\(x.Input.Actor)")
+		out = out.Append("-at-ms=\(x.Input.AtMs)")
+		out = out.Append("-thread-id=\(x.Input.ThreadID)")
+		out = out.Append("-driver=\(x.Input.Driver)")
+		out = out.Append("-permission-mode=\(x.Input.PermissionMode)")
+		out = out.Append("-instance=\(x.Input.Instance)")
+		out = out.Append("-config-dir=\(x.Input.ConfigDir)")
+		out = out.Append("-model=\(x.Input.Model)")
+		out = out.Append("-agy-direct-supported=\(x.Input.AgyDirectSupported)")
+		match x.Input.ParentThreadID {
+		case json.Present[string] as s:
+			out = out.Append("-parent-thread-id=\(s.Value)")
+		case json.Absent:
+		}
+		match x.Input.EdgeLabel {
+		case json.Present[string] as s:
+			out = out.Append("-edge-label=\(s.Value)")
+		case json.Absent:
+		}
+		match x.Input.SharedHome {
+		case json.Present[string] as s:
+			out = out.Append("-shared-home=\(s.Value)")
+		case json.Absent:
+		}
+		match x.Input.LinkOriginKind {
+		case json.Present[string] as s:
+			out = out.Append("-link-origin-kind=\(s.Value)")
+		case json.Absent:
+		}
+		match x.Input.LinkOriginTarget {
+		case json.Present[string] as s:
+			out = out.Append("-link-origin-target=\(s.Value)")
+		case json.Absent:
+		}
+		out
+	case apiapi.ThreadGetRequest as x:
+		let mut out = []string{"thread-get"}
+		out = out.Append("-thread-id=\(x.Input.ThreadID)")
+		out
+	case apiapi.ThreadListRequest as x:
+		let mut out = []string{"thread-list"}
+		out = out.Append("-include-archived=\(x.Input.IncludeArchived)")
+		match x.Input.Limit {
+		case json.Present[int] as s:
+			out = out.Append("-limit=\(s.Value)")
+		case json.Absent:
+		}
+		match x.Input.Offset {
+		case json.Present[int] as s:
+			out = out.Append("-offset=\(s.Value)")
+		case json.Absent:
+		}
+		out
+	case apiapi.ThreadArchiveRequest as x:
+		let mut out = []string{"thread-archive"}
+		out = out.Append("-command-id=\(x.Input.CommandID)")
+		out = out.Append("-actor=\(x.Input.Actor)")
+		out = out.Append("-at-ms=\(x.Input.AtMs)")
+		out = out.Append("-thread-id=\(x.Input.ThreadID)")
+		match x.Input.ArchiveReason {
+		case json.Present[string] as s:
+			out = out.Append("-archive-reason=\(s.Value)")
+		case json.Absent:
+		}
+		out
+	case apiapi.DriverSwitchRequest as x:
+		let mut out = []string{"driver-switch"}
+		out = out.Append("-command-id=\(x.Input.CommandID)")
+		out = out.Append("-actor=\(x.Input.Actor)")
+		out = out.Append("-at-ms=\(x.Input.AtMs)")
+		out = out.Append("-thread-id=\(x.Input.ThreadID)")
+		out = out.Append("-next-driver=\(x.Input.NextDriver)")
+		out = out.Append("-permission-mode=\(x.Input.PermissionMode)")
+		out = out.Append("-instance=\(x.Input.Instance)")
+		out = out.Append("-config-dir=\(x.Input.ConfigDir)")
+		out = out.Append("-agy-direct-supported=\(x.Input.AgyDirectSupported)")
+		match x.Input.SharedHome {
+		case json.Present[string] as s:
+			out = out.Append("-shared-home=\(s.Value)")
+		case json.Absent:
+		}
+		out
+	case apiapi.PromptEnqueueRequest as x:
+		let mut out = []string{"prompt-enqueue"}
+		out = out.Append("-command-id=\(x.Input.CommandID)")
+		out = out.Append("-actor=\(x.Input.Actor)")
+		out = out.Append("-at-ms=\(x.Input.AtMs)")
+		out = out.Append("-thread-id=\(x.Input.ThreadID)")
+		out = out.Append("-prompt-id=\(x.Input.PromptID)")
+		out = out.Append("-body=\(x.Input.Body)")
+		out = out.Append("-requested-mode=\(x.Input.RequestedMode)")
+		out
+	case apiapi.PromptDequeueRequest as x:
+		let mut out = []string{"prompt-dequeue"}
+		out = out.Append("-command-id=\(x.Input.CommandID)")
+		out = out.Append("-actor=\(x.Input.Actor)")
+		out = out.Append("-at-ms=\(x.Input.AtMs)")
+		out = out.Append("-thread-id=\(x.Input.ThreadID)")
+		out
+	case apiapi.TurnStartRequest as x:
+		let mut out = []string{"turn-start"}
+		out = out.Append("-command-id=\(x.Input.CommandID)")
+		out = out.Append("-actor=\(x.Input.Actor)")
+		out = out.Append("-at-ms=\(x.Input.AtMs)")
+		out = out.Append("-thread-id=\(x.Input.ThreadID)")
+		out = out.Append("-turn-id=\(x.Input.TurnID)")
+		out
+	case apiapi.TurnStepRequest as x:
+		let mut out = []string{"turn-step"}
+		out = out.Append("-command-id=\(x.Input.CommandID)")
+		out = out.Append("-actor=\(x.Input.Actor)")
+		out = out.Append("-at-ms=\(x.Input.AtMs)")
+		out = out.Append("-thread-id=\(x.Input.ThreadID)")
+		out = out.Append("-action=\(x.Input.Action)")
+		match x.Input.FailureClass {
+		case json.Present[string] as s:
+			out = out.Append("-failure-class=\(s.Value)")
+		case json.Absent:
+		}
+		match x.Input.FailureDetail {
+		case json.Present[string] as s:
+			out = out.Append("-failure-detail=\(s.Value)")
+		case json.Absent:
+		}
+		match x.Input.ResetAtMs {
+		case json.Present[int] as s:
+			out = out.Append("-reset-at-ms=\(s.Value)")
+		case json.Absent:
+		}
+		out
+	case apiapi.SubagentTreeInitRequest as x:
+		let mut out = []string{"subagent-tree-init"}
+		out = out.Append("-command-id=\(x.Input.CommandID)")
+		out = out.Append("-actor=\(x.Input.Actor)")
+		out = out.Append("-at-ms=\(x.Input.AtMs)")
+		out = out.Append("-root-id=\(x.Input.RootID)")
+		out = out.Append("-max-depth=\(x.Input.MaxDepth)")
+		out = out.Append("-max-fan-out=\(x.Input.MaxFanOut)")
+		out = out.Append("-max-budget=\(x.Input.MaxBudget)")
+		out
+	case apiapi.SubagentSpawnRequest as x:
+		let mut out = []string{"subagent-spawn"}
+		out = out.Append("-command-id=\(x.Input.CommandID)")
+		out = out.Append("-actor=\(x.Input.Actor)")
+		out = out.Append("-at-ms=\(x.Input.AtMs)")
+		out = out.Append("-root-id=\(x.Input.RootID)")
+		out = out.Append("-parent-id=\(x.Input.ParentID)")
+		out = out.Append("-child-id=\(x.Input.ChildID)")
+		out = out.Append("-role=\(x.Input.Role)")
+		out
+	case apiapi.SubagentControlHandleRequest as x:
+		let mut out = []string{"subagent-control-handle"}
+		out = out.Append("-command-id=\(x.Input.CommandID)")
+		out = out.Append("-actor=\(x.Input.Actor)")
+		out = out.Append("-at-ms=\(x.Input.AtMs)")
+		out = out.Append("-root-id=\(x.Input.RootID)")
+		out = out.Append("-caller-id=\(x.Input.CallerID)")
+		out = out.Append("-target-id=\(x.Input.TargetID)")
+		out = out.Append("-handle-id=\(x.Input.HandleID)")
+		out
+	case apiapi.SubagentSettleHandleRequest as x:
+		let mut out = []string{"subagent-settle-handle"}
+		out = out.Append("-command-id=\(x.Input.CommandID)")
+		out = out.Append("-actor=\(x.Input.Actor)")
+		out = out.Append("-at-ms=\(x.Input.AtMs)")
+		out = out.Append("-root-id=\(x.Input.RootID)")
+		out = out.Append("-node-id=\(x.Input.NodeID)")
+		out = out.Append("-handle-id=\(x.Input.HandleID)")
+		out
+	case apiapi.SubagentHandBackRequest as x:
+		let mut out = []string{"subagent-hand-back"}
+		out = out.Append("-command-id=\(x.Input.CommandID)")
+		out = out.Append("-actor=\(x.Input.Actor)")
+		out = out.Append("-at-ms=\(x.Input.AtMs)")
+		out = out.Append("-root-id=\(x.Input.RootID)")
+		out = out.Append("-node-id=\(x.Input.NodeID)")
+		out
+	case apiapi.SubagentTreeGetRequest as x:
+		let mut out = []string{"subagent-tree-get"}
+		out = out.Append("-root-id=\(x.Input.RootID)")
+		out
+	case apiapi.HandleOpenRequest as x:
+		let mut out = []string{"handle-open"}
+		out = out.Append("-command-id=\(x.Input.CommandID)")
+		out = out.Append("-actor=\(x.Input.Actor)")
+		out = out.Append("-at-ms=\(x.Input.AtMs)")
+		out = out.Append("-handle-id=\(x.Input.HandleID)")
+		out = out.Append("-kind=\(x.Input.Kind)")
+		out = out.Append("-owner-server=\(x.Input.OwnerServer)")
+		out = out.Append("-owner-location=\(x.Input.OwnerLocation)")
+		out = out.Append("-owner-epoch=\(x.Input.OwnerEpoch)")
+		out = out.Append("-session-id=\(x.Input.SessionID)")
+		out = out.Append("-summary=\(x.Input.Summary)")
+		match x.Input.SubagentRoot {
+		case json.Present[string] as s:
+			out = out.Append("-subagent-root=\(s.Value)")
+		case json.Absent:
+		}
+		match x.Input.NodeID {
+		case json.Present[string] as s:
+			out = out.Append("-node-id=\(s.Value)")
+		case json.Absent:
+		}
+		out
+	case apiapi.HandleSettleRequest as x:
+		let mut out = []string{"handle-settle"}
+		out = out.Append("-command-id=\(x.Input.CommandID)")
+		out = out.Append("-actor=\(x.Input.Actor)")
+		out = out.Append("-at-ms=\(x.Input.AtMs)")
+		out = out.Append("-handle-id=\(x.Input.HandleID)")
+		out = out.Append("-disposition=\(x.Input.Disposition)")
+		out = out.Append("-summary=\(x.Input.Summary)")
+		match x.Input.SubagentRoot {
+		case json.Present[string] as s:
+			out = out.Append("-subagent-root=\(s.Value)")
+		case json.Absent:
+		}
+		match x.Input.NodeID {
+		case json.Present[string] as s:
+			out = out.Append("-node-id=\(s.Value)")
+		case json.Absent:
+		}
+		out
+	case apiapi.HandleListRequest as x:
+		let mut out = []string{"handle-list"}
+		match x.Input.SessionID {
+		case json.Present[string] as s:
+			out = out.Append("-session-id=\(s.Value)")
+		case json.Absent:
+		}
+		match x.Input.OwnerServer {
+		case json.Present[string] as s:
+			out = out.Append("-owner-server=\(s.Value)")
+		case json.Absent:
+		}
+		match x.Input.OwnerLocation {
+		case json.Present[string] as s:
+			out = out.Append("-owner-location=\(s.Value)")
+		case json.Absent:
+		}
+		match x.Input.OwnerEpoch {
+		case json.Present[int] as s:
+			out = out.Append("-owner-epoch=\(s.Value)")
+		case json.Absent:
+		}
+		out = out.Append("-open-only=\(x.Input.OpenOnly)")
+		out
+	case apiapi.OwnerCallsRetireRequest as x:
+		let mut out = []string{"owner-calls-retire"}
+		out = out.Append("-command-id=\(x.Input.CommandID)")
+		out = out.Append("-actor=\(x.Input.Actor)")
+		out = out.Append("-at-ms=\(x.Input.AtMs)")
+		out = out.Append("-owner-server=\(x.Input.OwnerServer)")
+		out = out.Append("-owner-location=\(x.Input.OwnerLocation)")
+		out = out.Append("-owner-epoch=\(x.Input.OwnerEpoch)")
+		out
+	case apiapi.QuestionAskRequest as x:
+		let mut out = []string{"question-ask"}
+		out = out.Append("-command-id=\(x.Input.CommandID)")
+		out = out.Append("-actor=\(x.Input.Actor)")
+		out = out.Append("-at-ms=\(x.Input.AtMs)")
+		out = out.Append("-question-id=\(x.Input.QuestionID)")
+		out = out.Append("-thread-id=\(x.Input.ThreadID)")
+		out = out.Append("-handle-id=\(x.Input.HandleID)")
+		out = out.Append("-owner-server=\(x.Input.OwnerServer)")
+		out = out.Append("-owner-location=\(x.Input.OwnerLocation)")
+		out = out.Append("-owner-epoch=\(x.Input.OwnerEpoch)")
+		out = out.Append("-session-id=\(x.Input.SessionID)")
+		out = out.Append("-header=\(x.Input.Header)")
+		out = out.Append("-prompt=\(x.Input.Prompt)")
+		out = out.Append("-assumption=\(x.Input.Assumption)")
+		for e in x.Input.Options {
+			out = out.Append("-options=\(e)")
+		}
+		out = out.Append("-target-role=\(x.Input.TargetRole)")
+		out
+	case apiapi.QuestionAnswerRequest as x:
+		let mut out = []string{"question-answer"}
+		out = out.Append("-command-id=\(x.Input.CommandID)")
+		out = out.Append("-actor=\(x.Input.Actor)")
+		out = out.Append("-at-ms=\(x.Input.AtMs)")
+		out = out.Append("-question-id=\(x.Input.QuestionID)")
+		out = out.Append("-answer=\(x.Input.Answer)")
+		out = out.Append("-responder=\(x.Input.Responder)")
+		out
+	case apiapi.QuestionWithdrawRequest as x:
+		let mut out = []string{"question-withdraw"}
+		out = out.Append("-command-id=\(x.Input.CommandID)")
+		out = out.Append("-actor=\(x.Input.Actor)")
+		out = out.Append("-at-ms=\(x.Input.AtMs)")
+		out = out.Append("-question-id=\(x.Input.QuestionID)")
+		out
+	case apiapi.QuestionListRequest as x:
+		let mut out = []string{"question-list"}
+		match x.Input.ThreadID {
+		case json.Present[string] as s:
+			out = out.Append("-thread-id=\(s.Value)")
+		case json.Absent:
+		}
+		match x.Input.Status {
+		case json.Present[string] as s:
+			out = out.Append("-status=\(s.Value)")
+		case json.Absent:
+		}
+		out
+	case apiapi.PoolAccountUpsertRequest as x:
+		let mut out = []string{"pool-account-upsert"}
+		out = out.Append("-command-id=\(x.Input.CommandID)")
+		out = out.Append("-actor=\(x.Input.Actor)")
+		out = out.Append("-at-ms=\(x.Input.AtMs)")
+		out = out.Append("-account-id=\(x.Input.AccountID)")
+		out = out.Append("-provider=\(x.Input.Provider)")
+		out = out.Append("-priority=\(x.Input.Priority)")
+		out = out.Append("-healthy=\(x.Input.Healthy)")
+		out = out.Append("-window5h-used-pct=\(x.Input.Window5hUsedPct)")
+		out = out.Append("-window5h-reset-ms=\(x.Input.Window5hResetMs)")
+		out = out.Append("-window7d-used-pct=\(x.Input.Window7dUsedPct)")
+		out = out.Append("-window7d-reset-ms=\(x.Input.Window7dResetMs)")
+		out = out.Append("-inflight-starts=\(x.Input.InflightStarts)")
+		out = out.Append("-limited-until-ms=\(x.Input.LimitedUntilMs)")
+		out
+	case apiapi.PoolHoldOpenRequest as x:
+		let mut out = []string{"pool-hold-open"}
+		out = out.Append("-command-id=\(x.Input.CommandID)")
+		out = out.Append("-actor=\(x.Input.Actor)")
+		out = out.Append("-at-ms=\(x.Input.AtMs)")
+		out = out.Append("-hold-key=\(x.Input.HoldKey)")
+		out = out.Append("-thread-id=\(x.Input.ThreadID)")
+		out = out.Append("-account-id=\(x.Input.AccountID)")
+		out = out.Append("-retry-at-ms=\(x.Input.RetryAtMs)")
+		out = out.Append("-parent-notified=\(x.Input.ParentNotified)")
+		out
+	case apiapi.PoolHoldTransitionRequest as x:
+		let mut out = []string{"pool-hold-transition"}
+		out = out.Append("-command-id=\(x.Input.CommandID)")
+		out = out.Append("-actor=\(x.Input.Actor)")
+		out = out.Append("-at-ms=\(x.Input.AtMs)")
+		out = out.Append("-hold-key=\(x.Input.HoldKey)")
+		out = out.Append("-action=\(x.Input.Action)")
+		out
+	case apiapi.PoolViewRequest as x:
+		let mut out = []string{"pool-view"}
+		out = out.Append("-now-ms=\(x.Input.NowMs)")
+		out
+	case apiapi.KernelSnapshotSaveRequest as x:
+		let mut out = []string{"kernel-snapshot-save"}
+		out = out.Append("-command-id=\(x.Input.CommandID)")
+		out = out.Append("-actor=\(x.Input.Actor)")
+		out = out.Append("-at-ms=\(x.Input.AtMs)")
+		out = out.Append("-session-id=\(x.Input.SessionID)")
+		out = out.Append("-thread-id=\(x.Input.ThreadID)")
+		out = out.Append("-root-thread-id=\(x.Input.RootThreadID)")
+		out = out.Append("-bindings-json=\(x.Input.BindingsJSON)")
+		out = out.Append("-snapshot-bytes=\(x.Input.SnapshotBytes)")
+		out = out.Append("-lost-notice=\(x.Input.LostNotice)")
+		out
+	case apiapi.KernelCutRecordRequest as x:
+		let mut out = []string{"kernel-cut-record"}
+		out = out.Append("-command-id=\(x.Input.CommandID)")
+		out = out.Append("-actor=\(x.Input.Actor)")
+		out = out.Append("-at-ms=\(x.Input.AtMs)")
+		out = out.Append("-cut-id=\(x.Input.CutID)")
+		out = out.Append("-session-id=\(x.Input.SessionID)")
+		out = out.Append("-thread-id=\(x.Input.ThreadID)")
+		out = out.Append("-root-thread-id=\(x.Input.RootThreadID)")
+		out = out.Append("-calls-json=\(x.Input.CallsJSON)")
+		out = out.Append("-maps-json=\(x.Input.MapsJSON)")
+		out = out.Append("-started-at-ms=\(x.Input.StartedAtMs)")
+		out = out.Append("-ended-at-ms=\(x.Input.EndedAtMs)")
+		out = out.Append("-reason=\(x.Input.Reason)")
+		out
+	case apiapi.KernelViewRequest as x:
+		let mut out = []string{"kernel-view"}
+		out = out.Append("-session-id=\(x.Input.SessionID)")
+		out
+	case apiapi.LeaseAcquireRequest as x:
+		let mut out = []string{"lease-acquire"}
+		out = out.Append("-command-id=\(x.Input.CommandID)")
+		out = out.Append("-actor=\(x.Input.Actor)")
+		out = out.Append("-at-ms=\(x.Input.AtMs)")
+		out = out.Append("-lease-id=\(x.Input.LeaseID)")
+		out = out.Append("-owner-server=\(x.Input.OwnerServer)")
+		out = out.Append("-owner-location=\(x.Input.OwnerLocation)")
+		out = out.Append("-owner-epoch=\(x.Input.OwnerEpoch)")
+		out = out.Append("-expected-epoch=\(x.Input.ExpectedEpoch)")
+		out
+	case apiapi.BootReconcileRequest as x:
+		let mut out = []string{"boot-reconcile"}
+		out = out.Append("-command-id=\(x.Input.CommandID)")
+		out = out.Append("-actor=\(x.Input.Actor)")
+		out = out.Append("-at-ms=\(x.Input.AtMs)")
+		out = out.Append("-lease-id=\(x.Input.LeaseID)")
+		match x.Input.RootID {
+		case json.Present[string] as s:
+			out = out.Append("-root-id=\(s.Value)")
+		case json.Absent:
+		}
+		out = out.Append("-booting-server=\(x.Input.BootingServer)")
+		out = out.Append("-booting-location=\(x.Input.BootingLocation)")
+		out = out.Append("-booting-epoch=\(x.Input.BootingEpoch)")
+		out = out.Append("-pending-requests-survive-boot=\(x.Input.PendingRequestsSurviveBoot)")
+		out
+	case apiapi.BootStatusRequest as x:
+		let mut out = []string{"boot-status"}
+		out = out.Append("-lease-id=\(x.Input.LeaseID)")
+		out = out.Append("-booting-server=\(x.Input.BootingServer)")
+		out = out.Append("-booting-location=\(x.Input.BootingLocation)")
+		out = out.Append("-booting-epoch=\(x.Input.BootingEpoch)")
+		out = out.Append("-pending-requests-survive-boot=\(x.Input.PendingRequestsSurviveBoot)")
+		out
+	case apiapi.HostCapacityGetRequest as x:
+		let mut out = []string{"host-capacity-get"}
+		for e in x.Input.Volumes {
+			out = out.Append("-volumes=\(e)")
+		}
+		out
+	case apiapi.WellnessReportGetRequest as x:
+		let mut out = []string{"wellness-report-get"}
+		out = out.Append("-now-ms=\(x.Input.NowMs)")
+		for e in x.Input.Volumes {
+			out = out.Append("-volumes=\(e)")
+		}
+		out = out.Append("-live-owners-configured=\(x.Input.LiveOwnersConfigured)")
+		for e in x.Input.LiveOwners {
+			out = out.Append("-live-owners=\(e)")
+		}
+		match x.Input.MaxLoadPerCore {
+		case json.Present[string] as s:
+			out = out.Append("-max-load-per-core=\(s.Value)")
+		case json.Absent:
+		}
+		match x.Input.MinMemAvailGiB {
+		case json.Present[string] as s:
+			out = out.Append("-min-mem-avail-gi-b=\(s.Value)")
+		case json.Absent:
+		}
+		match x.Input.MaxDiskUsedPct {
+		case json.Present[string] as s:
+			out = out.Append("-max-disk-used-pct=\(s.Value)")
+		case json.Absent:
+		}
+		out
+	case apiapi.McpTokenMintRequest as x:
+		let mut out = []string{"mcp-token-mint"}
+		out = out.Append("-token-id=\(x.Input.TokenID)")
+		out = out.Append("-thread-id=\(x.Input.ThreadID)")
+		out = out.Append("-session-id=\(x.Input.SessionID)")
+		out = out.Append("-gen=\(x.Input.Gen)")
+		out = out.Append("-now-ms=\(x.Input.NowMs)")
+		out = out.Append("-audience-kind=\(x.Input.AudienceKind)")
+		match x.Input.ClientID {
+		case json.Present[string] as s:
+			out = out.Append("-client-id=\(s.Value)")
+		case json.Absent:
+		}
+		for e in x.Input.Scopes {
+			out = out.Append("-scopes=\(e)")
+		}
+		out = out.Append("-rotate-existing=\(x.Input.RotateExisting)")
+		out
+	case apiapi.McpTokenRevokeRequest as x:
+		let mut out = []string{"mcp-token-revoke"}
+		match x.Input.ThreadID {
+		case json.Present[string] as s:
+			out = out.Append("-thread-id=\(s.Value)")
+		case json.Absent:
+		}
+		match x.Input.SessionID {
+		case json.Present[string] as s:
+			out = out.Append("-session-id=\(s.Value)")
+		case json.Absent:
+		}
+		out
+	case apiapi.McpTokenListRequest as x:
+		let mut out = []string{"mcp-token-list"}
+		out = out.Append("-thread-id=\(x.Input.ThreadID)")
+		out = out.Append("-include-revoked=\(x.Input.IncludeRevoked)")
+		out
+	}
+}
+
+// RoundTrips reports whether Parse reads what Print writes of r as r.
+func RoundTrips(r Request) bool {
+	let back = Parse(Print(r)) catch {
+	case flag.Failure:
+		return false
+	}
+	back == r
+}
+
+// ArgsRoundTrip: Parse reads what Print writes as the same Request.
+law ArgsRoundTrip(r Request) { RoundTrips(r) }
+
+// Policy is what a binary decides of its command line: Code, the exit
+// status of a typed failure (default 1); Text, the text of a value
+// without --json (default None: a basic value as its text, else its
+// JSON; --json never calls it); Confirm, the question a call asks before
+// it runs (default None: none; --yes answers it).
+type Policy { Code func(f apiapi.Failure) int, Text func(r apiapi.Reply) option.Option[string], Confirm func(r Request) option.Option[string] }
+
+// Defaults is the Policy of a binary that decides nothing.
+func Defaults() Policy {
+	Policy{Code: func(f apiapi.Failure) int { 1 }, Text: func(r apiapi.Reply) option.Option[string] { option.None }, Confirm: func(r Request) option.Option[string] { option.None }}
+}
+
+func answer(asJSON bool, plain string, encoded string) Output {
+	if asJSON {
+		Output{Out: encoded + "\n", Err: "", Code: 0}
+	} else {
+		Output{Out: line(plain), Err: "", Code: 0}
+	}
+}
+
+func line(s string) string {
+	if s == "" {
+		return ""
+	}
+	s + "\n"
+}
+
+func failed(asJSON bool, tagged string, status int) Output {
+	if asJSON {
+		Output{Out: tagged + "\n", Err: "", Code: status}
+	} else {
+		Output{Out: "", Err: rpc.TagOf(tagged) + ": " + tagged + "\n", Code: status}
+	}
+}
+
+// Show is what Run prints of the outcome o under the policy p: the value
+// (p's Text when it has one and there is no --json; else its text when it
+// is a basic value, else its JSON; its JSON with --json), or a typed
+// failure (failed) with p's Code.
+func Show(o apiapi.Outcome, asJSON bool, p Policy) Output {
+	match o {
+	case apiapi.Done as done:
+		if !asJSON {
+			match p.Text(done.Reply) {
+			case option.Some[string] as s:
+				return Output{Out: line(s.Value), Err: "", Code: 0}
+			case option.None:
+			}
+		}
+		match done.Reply {
+		case apiapi.ThreadCreateReply as reply:
+			let v = reply.Value
+			let encoded = rpc.Encode(v)
+			answer(asJSON, encoded, encoded)
+		case apiapi.ThreadGetReply as reply:
+			let v = reply.Value
+			let encoded = rpc.Encode(v)
+			answer(asJSON, encoded, encoded)
+		case apiapi.ThreadListReply as reply:
+			let v = reply.Value
+			let encoded = rpc.Encode(v)
+			answer(asJSON, encoded, encoded)
+		case apiapi.ThreadArchiveReply as reply:
+			let v = reply.Value
+			let encoded = rpc.Encode(v)
+			answer(asJSON, encoded, encoded)
+		case apiapi.DriverSwitchReply as reply:
+			let v = reply.Value
+			let encoded = rpc.Encode(v)
+			answer(asJSON, encoded, encoded)
+		case apiapi.PromptEnqueueReply as reply:
+			let v = reply.Value
+			let encoded = rpc.Encode(v)
+			answer(asJSON, encoded, encoded)
+		case apiapi.PromptDequeueReply as reply:
+			let v = reply.Value
+			let encoded = rpc.Encode(v)
+			answer(asJSON, encoded, encoded)
+		case apiapi.TurnStartReply as reply:
+			let v = reply.Value
+			let encoded = rpc.Encode(v)
+			answer(asJSON, encoded, encoded)
+		case apiapi.TurnStepReply as reply:
+			let v = reply.Value
+			let encoded = rpc.Encode(v)
+			answer(asJSON, encoded, encoded)
+		case apiapi.SubagentTreeInitReply as reply:
+			let v = reply.Value
+			let encoded = rpc.Encode(v)
+			answer(asJSON, encoded, encoded)
+		case apiapi.SubagentSpawnReply as reply:
+			let v = reply.Value
+			let encoded = rpc.Encode(v)
+			answer(asJSON, encoded, encoded)
+		case apiapi.SubagentControlHandleReply as reply:
+			let v = reply.Value
+			let encoded = rpc.Encode(v)
+			answer(asJSON, encoded, encoded)
+		case apiapi.SubagentSettleHandleReply as reply:
+			let v = reply.Value
+			let encoded = rpc.Encode(v)
+			answer(asJSON, encoded, encoded)
+		case apiapi.SubagentHandBackReply as reply:
+			let v = reply.Value
+			let encoded = rpc.Encode(v)
+			answer(asJSON, encoded, encoded)
+		case apiapi.SubagentTreeGetReply as reply:
+			let v = reply.Value
+			let encoded = rpc.Encode(v)
+			answer(asJSON, encoded, encoded)
+		case apiapi.HandleOpenReply as reply:
+			let v = reply.Value
+			let encoded = rpc.Encode(v)
+			answer(asJSON, encoded, encoded)
+		case apiapi.HandleSettleReply as reply:
+			let v = reply.Value
+			let encoded = rpc.Encode(v)
+			answer(asJSON, encoded, encoded)
+		case apiapi.HandleListReply as reply:
+			let v = reply.Value
+			let encoded = rpc.Encode(v)
+			answer(asJSON, encoded, encoded)
+		case apiapi.OwnerCallsRetireReply as reply:
+			let v = reply.Value
+			let encoded = rpc.Encode(v)
+			answer(asJSON, encoded, encoded)
+		case apiapi.QuestionAskReply as reply:
+			let v = reply.Value
+			let encoded = rpc.Encode(v)
+			answer(asJSON, encoded, encoded)
+		case apiapi.QuestionAnswerReply as reply:
+			let v = reply.Value
+			let encoded = rpc.Encode(v)
+			answer(asJSON, encoded, encoded)
+		case apiapi.QuestionWithdrawReply as reply:
+			let v = reply.Value
+			let encoded = rpc.Encode(v)
+			answer(asJSON, encoded, encoded)
+		case apiapi.QuestionListReply as reply:
+			let v = reply.Value
+			let encoded = rpc.Encode(v)
+			answer(asJSON, encoded, encoded)
+		case apiapi.PoolAccountUpsertReply as reply:
+			let v = reply.Value
+			let encoded = rpc.Encode(v)
+			answer(asJSON, encoded, encoded)
+		case apiapi.PoolHoldOpenReply as reply:
+			let v = reply.Value
+			let encoded = rpc.Encode(v)
+			answer(asJSON, encoded, encoded)
+		case apiapi.PoolHoldTransitionReply as reply:
+			let v = reply.Value
+			let encoded = rpc.Encode(v)
+			answer(asJSON, encoded, encoded)
+		case apiapi.PoolViewReply as reply:
+			let v = reply.Value
+			let encoded = rpc.Encode(v)
+			answer(asJSON, encoded, encoded)
+		case apiapi.KernelSnapshotSaveReply as reply:
+			let v = reply.Value
+			let encoded = rpc.Encode(v)
+			answer(asJSON, encoded, encoded)
+		case apiapi.KernelCutRecordReply as reply:
+			let v = reply.Value
+			let encoded = rpc.Encode(v)
+			answer(asJSON, encoded, encoded)
+		case apiapi.KernelViewReply as reply:
+			let v = reply.Value
+			let encoded = rpc.Encode(v)
+			answer(asJSON, encoded, encoded)
+		case apiapi.LeaseAcquireReply as reply:
+			let v = reply.Value
+			let encoded = rpc.Encode(v)
+			answer(asJSON, encoded, encoded)
+		case apiapi.BootReconcileReply as reply:
+			let v = reply.Value
+			let encoded = rpc.Encode(v)
+			answer(asJSON, encoded, encoded)
+		case apiapi.BootStatusReply as reply:
+			let v = reply.Value
+			let encoded = rpc.Encode(v)
+			answer(asJSON, encoded, encoded)
+		case apiapi.HostCapacityGetReply as reply:
+			let v = reply.Value
+			let encoded = rpc.Encode(v)
+			answer(asJSON, encoded, encoded)
+		case apiapi.WellnessReportGetReply as reply:
+			let v = reply.Value
+			let encoded = rpc.Encode(v)
+			answer(asJSON, encoded, encoded)
+		case apiapi.McpTokenMintReply as reply:
+			let v = reply.Value
+			let encoded = rpc.Encode(v)
+			answer(asJSON, encoded, encoded)
+		case apiapi.McpTokenRevokeReply as reply:
+			let v = reply.Value
+			let encoded = rpc.Encode(v)
+			answer(asJSON, encoded, encoded)
+		case apiapi.McpTokenListReply as reply:
+			let v = reply.Value
+			let encoded = rpc.Encode(v)
+			answer(asJSON, encoded, encoded)
+		}
+	case apiapi.Rejected as rejected:
+		let status = p.Code(rejected.Failure)
+		match rejected.Failure {
+		case apiapi.NotFound as failure:
+			failed(asJSON, rpc.Tagged("NotFound", rpc.Encode(failure.E)), status)
+		case apiapi.AlreadyExists as failure:
+			failed(asJSON, rpc.Tagged("AlreadyExists", rpc.Encode(failure.E)), status)
+		case apiapi.InvalidTransition as failure:
+			failed(asJSON, rpc.Tagged("InvalidTransition", rpc.Encode(failure.E)), status)
+		case apiapi.CommandReused as failure:
+			failed(asJSON, rpc.Tagged("CommandReused", rpc.Encode(failure.E)), status)
+		case apiapi.InvalidInput as failure:
+			failed(asJSON, rpc.Tagged("InvalidInput", rpc.Encode(failure.E)), status)
+		case apiapi.LeaseFenced as failure:
+			failed(asJSON, rpc.Tagged("LeaseFenced", rpc.Encode(failure.E)), status)
+		case apiapi.ThreadDomainErr as failure:
+			failed(asJSON, rpc.Tagged("ThreadDomainErr", rpc.Encode(failure.E)), status)
+		case apiapi.SubagentDomainErr as failure:
+			failed(asJSON, rpc.Tagged("SubagentDomainErr", rpc.Encode(failure.E)), status)
+		case apiapi.HandleDomainErr as failure:
+			failed(asJSON, rpc.Tagged("HandleDomainErr", rpc.Encode(failure.E)), status)
+		case apiapi.LimitDomainErr as failure:
+			failed(asJSON, rpc.Tagged("LimitDomainErr", rpc.Encode(failure.E)), status)
+		case apiapi.RequestDomainErr as failure:
+			failed(asJSON, rpc.Tagged("RequestDomainErr", rpc.Encode(failure.E)), status)
+		case apiapi.CutoverDomainErr as failure:
+			failed(asJSON, rpc.Tagged("CutoverDomainErr", rpc.Encode(failure.E)), status)
+		case apiapi.StoreFailed as failure:
+			failed(asJSON, rpc.Tagged("StoreFailed", rpc.Encode(failure.E)), status)
+		case apiapi.HostCapacityFailed as failure:
+			failed(asJSON, rpc.Tagged("HostCapacityFailed", rpc.Encode(failure.E)), status)
+		case apiapi.McpAuthDenied as failure:
+			failed(asJSON, rpc.Tagged("McpAuthDenied", rpc.Encode(failure.E)), status)
+		}
+	}
+}
+
+// Read is the outcome of r that the Output of Run with --json and its
+// default status policy says: its value's JSON on standard output with
+// status 0, or an admitted failure's tagged JSON with status 1. Invalid
+// or missing replies fail Transport, outside the operation's own row.
+func Read(r Request, out Output) apiapi.Outcome fails rpc.Transport {
+	let text = strings.TrimSuffix(out.Out, "\n")
+	if out.Code == 0 {
+		match r {
+		case apiapi.ThreadCreateRequest:
+			let v = try rpc.Decode[api.ThreadSnapshot]("value", text)
+			apiapi.Done{Reply: apiapi.ThreadCreateReply{Value: v}}
+		case apiapi.ThreadGetRequest:
+			let v = try rpc.Decode[api.ThreadSnapshot]("value", text)
+			apiapi.Done{Reply: apiapi.ThreadGetReply{Value: v}}
+		case apiapi.ThreadListRequest:
+			let v = try rpc.Decode[api.ThreadListOutput]("value", text)
+			apiapi.Done{Reply: apiapi.ThreadListReply{Value: v}}
+		case apiapi.ThreadArchiveRequest:
+			let v = try rpc.Decode[api.ThreadSnapshot]("value", text)
+			apiapi.Done{Reply: apiapi.ThreadArchiveReply{Value: v}}
+		case apiapi.DriverSwitchRequest:
+			let v = try rpc.Decode[api.ThreadSnapshot]("value", text)
+			apiapi.Done{Reply: apiapi.DriverSwitchReply{Value: v}}
+		case apiapi.PromptEnqueueRequest:
+			let v = try rpc.Decode[api.ThreadSnapshot]("value", text)
+			apiapi.Done{Reply: apiapi.PromptEnqueueReply{Value: v}}
+		case apiapi.PromptDequeueRequest:
+			let v = try rpc.Decode[api.ThreadSnapshot]("value", text)
+			apiapi.Done{Reply: apiapi.PromptDequeueReply{Value: v}}
+		case apiapi.TurnStartRequest:
+			let v = try rpc.Decode[api.ThreadSnapshot]("value", text)
+			apiapi.Done{Reply: apiapi.TurnStartReply{Value: v}}
+		case apiapi.TurnStepRequest:
+			let v = try rpc.Decode[api.ThreadSnapshot]("value", text)
+			apiapi.Done{Reply: apiapi.TurnStepReply{Value: v}}
+		case apiapi.SubagentTreeInitRequest:
+			let v = try rpc.Decode[api.SubagentTreeOutput]("value", text)
+			apiapi.Done{Reply: apiapi.SubagentTreeInitReply{Value: v}}
+		case apiapi.SubagentSpawnRequest:
+			let v = try rpc.Decode[api.SubagentTreeOutput]("value", text)
+			apiapi.Done{Reply: apiapi.SubagentSpawnReply{Value: v}}
+		case apiapi.SubagentControlHandleRequest:
+			let v = try rpc.Decode[api.SubagentTreeOutput]("value", text)
+			apiapi.Done{Reply: apiapi.SubagentControlHandleReply{Value: v}}
+		case apiapi.SubagentSettleHandleRequest:
+			let v = try rpc.Decode[api.SubagentTreeOutput]("value", text)
+			apiapi.Done{Reply: apiapi.SubagentSettleHandleReply{Value: v}}
+		case apiapi.SubagentHandBackRequest:
+			let v = try rpc.Decode[api.SubagentTreeOutput]("value", text)
+			apiapi.Done{Reply: apiapi.SubagentHandBackReply{Value: v}}
+		case apiapi.SubagentTreeGetRequest:
+			let v = try rpc.Decode[api.SubagentTreeOutput]("value", text)
+			apiapi.Done{Reply: apiapi.SubagentTreeGetReply{Value: v}}
+		case apiapi.HandleOpenRequest:
+			let v = try rpc.Decode[api.HandleEntryView]("value", text)
+			apiapi.Done{Reply: apiapi.HandleOpenReply{Value: v}}
+		case apiapi.HandleSettleRequest:
+			let v = try rpc.Decode[api.HandleEntryView]("value", text)
+			apiapi.Done{Reply: apiapi.HandleSettleReply{Value: v}}
+		case apiapi.HandleListRequest:
+			let v = try rpc.Decode[api.HandleViewOutput]("value", text)
+			apiapi.Done{Reply: apiapi.HandleListReply{Value: v}}
+		case apiapi.OwnerCallsRetireRequest:
+			let v = try rpc.Decode[api.RetiredCallsOutput]("value", text)
+			apiapi.Done{Reply: apiapi.OwnerCallsRetireReply{Value: v}}
+		case apiapi.QuestionAskRequest:
+			let v = try rpc.Decode[api.AsyncQuestionView]("value", text)
+			apiapi.Done{Reply: apiapi.QuestionAskReply{Value: v}}
+		case apiapi.QuestionAnswerRequest:
+			let v = try rpc.Decode[api.AsyncQuestionView]("value", text)
+			apiapi.Done{Reply: apiapi.QuestionAnswerReply{Value: v}}
+		case apiapi.QuestionWithdrawRequest:
+			let v = try rpc.Decode[api.AsyncQuestionView]("value", text)
+			apiapi.Done{Reply: apiapi.QuestionWithdrawReply{Value: v}}
+		case apiapi.QuestionListRequest:
+			let v = try rpc.Decode[api.AsyncQuestionListOutput]("value", text)
+			apiapi.Done{Reply: apiapi.QuestionListReply{Value: v}}
+		case apiapi.PoolAccountUpsertRequest:
+			let v = try rpc.Decode[api.PoolViewOutput]("value", text)
+			apiapi.Done{Reply: apiapi.PoolAccountUpsertReply{Value: v}}
+		case apiapi.PoolHoldOpenRequest:
+			let v = try rpc.Decode[api.PoolViewOutput]("value", text)
+			apiapi.Done{Reply: apiapi.PoolHoldOpenReply{Value: v}}
+		case apiapi.PoolHoldTransitionRequest:
+			let v = try rpc.Decode[api.PoolViewOutput]("value", text)
+			apiapi.Done{Reply: apiapi.PoolHoldTransitionReply{Value: v}}
+		case apiapi.PoolViewRequest:
+			let v = try rpc.Decode[api.PoolViewOutput]("value", text)
+			apiapi.Done{Reply: apiapi.PoolViewReply{Value: v}}
+		case apiapi.KernelSnapshotSaveRequest:
+			let v = try rpc.Decode[api.KernelViewOutput]("value", text)
+			apiapi.Done{Reply: apiapi.KernelSnapshotSaveReply{Value: v}}
+		case apiapi.KernelCutRecordRequest:
+			let v = try rpc.Decode[api.KernelViewOutput]("value", text)
+			apiapi.Done{Reply: apiapi.KernelCutRecordReply{Value: v}}
+		case apiapi.KernelViewRequest:
+			let v = try rpc.Decode[api.KernelViewOutput]("value", text)
+			apiapi.Done{Reply: apiapi.KernelViewReply{Value: v}}
+		case apiapi.LeaseAcquireRequest:
+			let v = try rpc.Decode[api.BootLeaseOutput]("value", text)
+			apiapi.Done{Reply: apiapi.LeaseAcquireReply{Value: v}}
+		case apiapi.BootReconcileRequest:
+			let v = try rpc.Decode[api.BootLeaseOutput]("value", text)
+			apiapi.Done{Reply: apiapi.BootReconcileReply{Value: v}}
+		case apiapi.BootStatusRequest:
+			let v = try rpc.Decode[api.BootLeaseOutput]("value", text)
+			apiapi.Done{Reply: apiapi.BootStatusReply{Value: v}}
+		case apiapi.HostCapacityGetRequest:
+			let v = try rpc.Decode[api.HostCapacityReport]("value", text)
+			apiapi.Done{Reply: apiapi.HostCapacityGetReply{Value: v}}
+		case apiapi.WellnessReportGetRequest:
+			let v = try rpc.Decode[api.WellnessReport]("value", text)
+			apiapi.Done{Reply: apiapi.WellnessReportGetReply{Value: v}}
+		case apiapi.McpTokenMintRequest:
+			let v = try rpc.Decode[api.MintedToken]("value", text)
+			apiapi.Done{Reply: apiapi.McpTokenMintReply{Value: v}}
+		case apiapi.McpTokenRevokeRequest:
+			let v = try rpc.Decode[api.McpTokenRevokeOutput]("value", text)
+			apiapi.Done{Reply: apiapi.McpTokenRevokeReply{Value: v}}
+		case apiapi.McpTokenListRequest:
+			let v = try rpc.Decode[api.McpTokenListOutput]("value", text)
+			apiapi.Done{Reply: apiapi.McpTokenListReply{Value: v}}
+		}
+	} else if out.Code == 1 {
+		match r {
+		case apiapi.ThreadCreateRequest:
+			match rpc.TagOf(text) {
+			case "NotFound":
+				let e = try rpc.Decode[memory.NotFound]("failure", text)
+				apiapi.Rejected{Failure: apiapi.NotFound{E: e}}
+			case "AlreadyExists":
+				let e = try rpc.Decode[memory.AlreadyExists]("failure", text)
+				apiapi.Rejected{Failure: apiapi.AlreadyExists{E: e}}
+			case "InvalidTransition":
+				let e = try rpc.Decode[memory.InvalidTransition]("failure", text)
+				apiapi.Rejected{Failure: apiapi.InvalidTransition{E: e}}
+			case "CommandReused":
+				let e = try rpc.Decode[memory.CommandReused]("failure", text)
+				apiapi.Rejected{Failure: apiapi.CommandReused{E: e}}
+			case "InvalidInput":
+				let e = try rpc.Decode[memory.InvalidInput]("failure", text)
+				apiapi.Rejected{Failure: apiapi.InvalidInput{E: e}}
+			case "LeaseFenced":
+				let e = try rpc.Decode[memory.LeaseFenced]("failure", text)
+				apiapi.Rejected{Failure: apiapi.LeaseFenced{E: e}}
+			case "ThreadDomainErr":
+				let e = try rpc.Decode[memory.ThreadDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.ThreadDomainErr{E: e}}
+			case "SubagentDomainErr":
+				let e = try rpc.Decode[memory.SubagentDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.SubagentDomainErr{E: e}}
+			case "HandleDomainErr":
+				let e = try rpc.Decode[memory.HandleDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.HandleDomainErr{E: e}}
+			case "LimitDomainErr":
+				let e = try rpc.Decode[memory.LimitDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.LimitDomainErr{E: e}}
+			case "RequestDomainErr":
+				let e = try rpc.Decode[memory.RequestDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.RequestDomainErr{E: e}}
+			case "CutoverDomainErr":
+				let e = try rpc.Decode[memory.CutoverDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.CutoverDomainErr{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[memory.StoreFailed]("failure", text)
+				apiapi.Rejected{Failure: apiapi.StoreFailed{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the command line answered ThreadCreate with an undeclared failure: " + text}
+			}
+		case apiapi.ThreadGetRequest:
+			match rpc.TagOf(text) {
+			case "NotFound":
+				let e = try rpc.Decode[memory.NotFound]("failure", text)
+				apiapi.Rejected{Failure: apiapi.NotFound{E: e}}
+			case "InvalidInput":
+				let e = try rpc.Decode[memory.InvalidInput]("failure", text)
+				apiapi.Rejected{Failure: apiapi.InvalidInput{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[memory.StoreFailed]("failure", text)
+				apiapi.Rejected{Failure: apiapi.StoreFailed{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the command line answered ThreadGet with an undeclared failure: " + text}
+			}
+		case apiapi.ThreadListRequest:
+			match rpc.TagOf(text) {
+			case "InvalidInput":
+				let e = try rpc.Decode[memory.InvalidInput]("failure", text)
+				apiapi.Rejected{Failure: apiapi.InvalidInput{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[memory.StoreFailed]("failure", text)
+				apiapi.Rejected{Failure: apiapi.StoreFailed{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the command line answered ThreadList with an undeclared failure: " + text}
+			}
+		case apiapi.ThreadArchiveRequest:
+			match rpc.TagOf(text) {
+			case "NotFound":
+				let e = try rpc.Decode[memory.NotFound]("failure", text)
+				apiapi.Rejected{Failure: apiapi.NotFound{E: e}}
+			case "AlreadyExists":
+				let e = try rpc.Decode[memory.AlreadyExists]("failure", text)
+				apiapi.Rejected{Failure: apiapi.AlreadyExists{E: e}}
+			case "InvalidTransition":
+				let e = try rpc.Decode[memory.InvalidTransition]("failure", text)
+				apiapi.Rejected{Failure: apiapi.InvalidTransition{E: e}}
+			case "CommandReused":
+				let e = try rpc.Decode[memory.CommandReused]("failure", text)
+				apiapi.Rejected{Failure: apiapi.CommandReused{E: e}}
+			case "InvalidInput":
+				let e = try rpc.Decode[memory.InvalidInput]("failure", text)
+				apiapi.Rejected{Failure: apiapi.InvalidInput{E: e}}
+			case "LeaseFenced":
+				let e = try rpc.Decode[memory.LeaseFenced]("failure", text)
+				apiapi.Rejected{Failure: apiapi.LeaseFenced{E: e}}
+			case "ThreadDomainErr":
+				let e = try rpc.Decode[memory.ThreadDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.ThreadDomainErr{E: e}}
+			case "SubagentDomainErr":
+				let e = try rpc.Decode[memory.SubagentDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.SubagentDomainErr{E: e}}
+			case "HandleDomainErr":
+				let e = try rpc.Decode[memory.HandleDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.HandleDomainErr{E: e}}
+			case "LimitDomainErr":
+				let e = try rpc.Decode[memory.LimitDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.LimitDomainErr{E: e}}
+			case "RequestDomainErr":
+				let e = try rpc.Decode[memory.RequestDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.RequestDomainErr{E: e}}
+			case "CutoverDomainErr":
+				let e = try rpc.Decode[memory.CutoverDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.CutoverDomainErr{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[memory.StoreFailed]("failure", text)
+				apiapi.Rejected{Failure: apiapi.StoreFailed{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the command line answered ThreadArchive with an undeclared failure: " + text}
+			}
+		case apiapi.DriverSwitchRequest:
+			match rpc.TagOf(text) {
+			case "NotFound":
+				let e = try rpc.Decode[memory.NotFound]("failure", text)
+				apiapi.Rejected{Failure: apiapi.NotFound{E: e}}
+			case "AlreadyExists":
+				let e = try rpc.Decode[memory.AlreadyExists]("failure", text)
+				apiapi.Rejected{Failure: apiapi.AlreadyExists{E: e}}
+			case "InvalidTransition":
+				let e = try rpc.Decode[memory.InvalidTransition]("failure", text)
+				apiapi.Rejected{Failure: apiapi.InvalidTransition{E: e}}
+			case "CommandReused":
+				let e = try rpc.Decode[memory.CommandReused]("failure", text)
+				apiapi.Rejected{Failure: apiapi.CommandReused{E: e}}
+			case "InvalidInput":
+				let e = try rpc.Decode[memory.InvalidInput]("failure", text)
+				apiapi.Rejected{Failure: apiapi.InvalidInput{E: e}}
+			case "LeaseFenced":
+				let e = try rpc.Decode[memory.LeaseFenced]("failure", text)
+				apiapi.Rejected{Failure: apiapi.LeaseFenced{E: e}}
+			case "ThreadDomainErr":
+				let e = try rpc.Decode[memory.ThreadDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.ThreadDomainErr{E: e}}
+			case "SubagentDomainErr":
+				let e = try rpc.Decode[memory.SubagentDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.SubagentDomainErr{E: e}}
+			case "HandleDomainErr":
+				let e = try rpc.Decode[memory.HandleDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.HandleDomainErr{E: e}}
+			case "LimitDomainErr":
+				let e = try rpc.Decode[memory.LimitDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.LimitDomainErr{E: e}}
+			case "RequestDomainErr":
+				let e = try rpc.Decode[memory.RequestDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.RequestDomainErr{E: e}}
+			case "CutoverDomainErr":
+				let e = try rpc.Decode[memory.CutoverDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.CutoverDomainErr{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[memory.StoreFailed]("failure", text)
+				apiapi.Rejected{Failure: apiapi.StoreFailed{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the command line answered DriverSwitch with an undeclared failure: " + text}
+			}
+		case apiapi.PromptEnqueueRequest:
+			match rpc.TagOf(text) {
+			case "NotFound":
+				let e = try rpc.Decode[memory.NotFound]("failure", text)
+				apiapi.Rejected{Failure: apiapi.NotFound{E: e}}
+			case "AlreadyExists":
+				let e = try rpc.Decode[memory.AlreadyExists]("failure", text)
+				apiapi.Rejected{Failure: apiapi.AlreadyExists{E: e}}
+			case "InvalidTransition":
+				let e = try rpc.Decode[memory.InvalidTransition]("failure", text)
+				apiapi.Rejected{Failure: apiapi.InvalidTransition{E: e}}
+			case "CommandReused":
+				let e = try rpc.Decode[memory.CommandReused]("failure", text)
+				apiapi.Rejected{Failure: apiapi.CommandReused{E: e}}
+			case "InvalidInput":
+				let e = try rpc.Decode[memory.InvalidInput]("failure", text)
+				apiapi.Rejected{Failure: apiapi.InvalidInput{E: e}}
+			case "LeaseFenced":
+				let e = try rpc.Decode[memory.LeaseFenced]("failure", text)
+				apiapi.Rejected{Failure: apiapi.LeaseFenced{E: e}}
+			case "ThreadDomainErr":
+				let e = try rpc.Decode[memory.ThreadDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.ThreadDomainErr{E: e}}
+			case "SubagentDomainErr":
+				let e = try rpc.Decode[memory.SubagentDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.SubagentDomainErr{E: e}}
+			case "HandleDomainErr":
+				let e = try rpc.Decode[memory.HandleDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.HandleDomainErr{E: e}}
+			case "LimitDomainErr":
+				let e = try rpc.Decode[memory.LimitDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.LimitDomainErr{E: e}}
+			case "RequestDomainErr":
+				let e = try rpc.Decode[memory.RequestDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.RequestDomainErr{E: e}}
+			case "CutoverDomainErr":
+				let e = try rpc.Decode[memory.CutoverDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.CutoverDomainErr{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[memory.StoreFailed]("failure", text)
+				apiapi.Rejected{Failure: apiapi.StoreFailed{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the command line answered PromptEnqueue with an undeclared failure: " + text}
+			}
+		case apiapi.PromptDequeueRequest:
+			match rpc.TagOf(text) {
+			case "NotFound":
+				let e = try rpc.Decode[memory.NotFound]("failure", text)
+				apiapi.Rejected{Failure: apiapi.NotFound{E: e}}
+			case "AlreadyExists":
+				let e = try rpc.Decode[memory.AlreadyExists]("failure", text)
+				apiapi.Rejected{Failure: apiapi.AlreadyExists{E: e}}
+			case "InvalidTransition":
+				let e = try rpc.Decode[memory.InvalidTransition]("failure", text)
+				apiapi.Rejected{Failure: apiapi.InvalidTransition{E: e}}
+			case "CommandReused":
+				let e = try rpc.Decode[memory.CommandReused]("failure", text)
+				apiapi.Rejected{Failure: apiapi.CommandReused{E: e}}
+			case "InvalidInput":
+				let e = try rpc.Decode[memory.InvalidInput]("failure", text)
+				apiapi.Rejected{Failure: apiapi.InvalidInput{E: e}}
+			case "LeaseFenced":
+				let e = try rpc.Decode[memory.LeaseFenced]("failure", text)
+				apiapi.Rejected{Failure: apiapi.LeaseFenced{E: e}}
+			case "ThreadDomainErr":
+				let e = try rpc.Decode[memory.ThreadDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.ThreadDomainErr{E: e}}
+			case "SubagentDomainErr":
+				let e = try rpc.Decode[memory.SubagentDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.SubagentDomainErr{E: e}}
+			case "HandleDomainErr":
+				let e = try rpc.Decode[memory.HandleDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.HandleDomainErr{E: e}}
+			case "LimitDomainErr":
+				let e = try rpc.Decode[memory.LimitDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.LimitDomainErr{E: e}}
+			case "RequestDomainErr":
+				let e = try rpc.Decode[memory.RequestDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.RequestDomainErr{E: e}}
+			case "CutoverDomainErr":
+				let e = try rpc.Decode[memory.CutoverDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.CutoverDomainErr{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[memory.StoreFailed]("failure", text)
+				apiapi.Rejected{Failure: apiapi.StoreFailed{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the command line answered PromptDequeue with an undeclared failure: " + text}
+			}
+		case apiapi.TurnStartRequest:
+			match rpc.TagOf(text) {
+			case "NotFound":
+				let e = try rpc.Decode[memory.NotFound]("failure", text)
+				apiapi.Rejected{Failure: apiapi.NotFound{E: e}}
+			case "AlreadyExists":
+				let e = try rpc.Decode[memory.AlreadyExists]("failure", text)
+				apiapi.Rejected{Failure: apiapi.AlreadyExists{E: e}}
+			case "InvalidTransition":
+				let e = try rpc.Decode[memory.InvalidTransition]("failure", text)
+				apiapi.Rejected{Failure: apiapi.InvalidTransition{E: e}}
+			case "CommandReused":
+				let e = try rpc.Decode[memory.CommandReused]("failure", text)
+				apiapi.Rejected{Failure: apiapi.CommandReused{E: e}}
+			case "InvalidInput":
+				let e = try rpc.Decode[memory.InvalidInput]("failure", text)
+				apiapi.Rejected{Failure: apiapi.InvalidInput{E: e}}
+			case "LeaseFenced":
+				let e = try rpc.Decode[memory.LeaseFenced]("failure", text)
+				apiapi.Rejected{Failure: apiapi.LeaseFenced{E: e}}
+			case "ThreadDomainErr":
+				let e = try rpc.Decode[memory.ThreadDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.ThreadDomainErr{E: e}}
+			case "SubagentDomainErr":
+				let e = try rpc.Decode[memory.SubagentDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.SubagentDomainErr{E: e}}
+			case "HandleDomainErr":
+				let e = try rpc.Decode[memory.HandleDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.HandleDomainErr{E: e}}
+			case "LimitDomainErr":
+				let e = try rpc.Decode[memory.LimitDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.LimitDomainErr{E: e}}
+			case "RequestDomainErr":
+				let e = try rpc.Decode[memory.RequestDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.RequestDomainErr{E: e}}
+			case "CutoverDomainErr":
+				let e = try rpc.Decode[memory.CutoverDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.CutoverDomainErr{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[memory.StoreFailed]("failure", text)
+				apiapi.Rejected{Failure: apiapi.StoreFailed{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the command line answered TurnStart with an undeclared failure: " + text}
+			}
+		case apiapi.TurnStepRequest:
+			match rpc.TagOf(text) {
+			case "NotFound":
+				let e = try rpc.Decode[memory.NotFound]("failure", text)
+				apiapi.Rejected{Failure: apiapi.NotFound{E: e}}
+			case "AlreadyExists":
+				let e = try rpc.Decode[memory.AlreadyExists]("failure", text)
+				apiapi.Rejected{Failure: apiapi.AlreadyExists{E: e}}
+			case "InvalidTransition":
+				let e = try rpc.Decode[memory.InvalidTransition]("failure", text)
+				apiapi.Rejected{Failure: apiapi.InvalidTransition{E: e}}
+			case "CommandReused":
+				let e = try rpc.Decode[memory.CommandReused]("failure", text)
+				apiapi.Rejected{Failure: apiapi.CommandReused{E: e}}
+			case "InvalidInput":
+				let e = try rpc.Decode[memory.InvalidInput]("failure", text)
+				apiapi.Rejected{Failure: apiapi.InvalidInput{E: e}}
+			case "LeaseFenced":
+				let e = try rpc.Decode[memory.LeaseFenced]("failure", text)
+				apiapi.Rejected{Failure: apiapi.LeaseFenced{E: e}}
+			case "ThreadDomainErr":
+				let e = try rpc.Decode[memory.ThreadDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.ThreadDomainErr{E: e}}
+			case "SubagentDomainErr":
+				let e = try rpc.Decode[memory.SubagentDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.SubagentDomainErr{E: e}}
+			case "HandleDomainErr":
+				let e = try rpc.Decode[memory.HandleDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.HandleDomainErr{E: e}}
+			case "LimitDomainErr":
+				let e = try rpc.Decode[memory.LimitDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.LimitDomainErr{E: e}}
+			case "RequestDomainErr":
+				let e = try rpc.Decode[memory.RequestDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.RequestDomainErr{E: e}}
+			case "CutoverDomainErr":
+				let e = try rpc.Decode[memory.CutoverDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.CutoverDomainErr{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[memory.StoreFailed]("failure", text)
+				apiapi.Rejected{Failure: apiapi.StoreFailed{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the command line answered TurnStep with an undeclared failure: " + text}
+			}
+		case apiapi.SubagentTreeInitRequest:
+			match rpc.TagOf(text) {
+			case "NotFound":
+				let e = try rpc.Decode[memory.NotFound]("failure", text)
+				apiapi.Rejected{Failure: apiapi.NotFound{E: e}}
+			case "AlreadyExists":
+				let e = try rpc.Decode[memory.AlreadyExists]("failure", text)
+				apiapi.Rejected{Failure: apiapi.AlreadyExists{E: e}}
+			case "InvalidTransition":
+				let e = try rpc.Decode[memory.InvalidTransition]("failure", text)
+				apiapi.Rejected{Failure: apiapi.InvalidTransition{E: e}}
+			case "CommandReused":
+				let e = try rpc.Decode[memory.CommandReused]("failure", text)
+				apiapi.Rejected{Failure: apiapi.CommandReused{E: e}}
+			case "InvalidInput":
+				let e = try rpc.Decode[memory.InvalidInput]("failure", text)
+				apiapi.Rejected{Failure: apiapi.InvalidInput{E: e}}
+			case "LeaseFenced":
+				let e = try rpc.Decode[memory.LeaseFenced]("failure", text)
+				apiapi.Rejected{Failure: apiapi.LeaseFenced{E: e}}
+			case "ThreadDomainErr":
+				let e = try rpc.Decode[memory.ThreadDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.ThreadDomainErr{E: e}}
+			case "SubagentDomainErr":
+				let e = try rpc.Decode[memory.SubagentDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.SubagentDomainErr{E: e}}
+			case "HandleDomainErr":
+				let e = try rpc.Decode[memory.HandleDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.HandleDomainErr{E: e}}
+			case "LimitDomainErr":
+				let e = try rpc.Decode[memory.LimitDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.LimitDomainErr{E: e}}
+			case "RequestDomainErr":
+				let e = try rpc.Decode[memory.RequestDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.RequestDomainErr{E: e}}
+			case "CutoverDomainErr":
+				let e = try rpc.Decode[memory.CutoverDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.CutoverDomainErr{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[memory.StoreFailed]("failure", text)
+				apiapi.Rejected{Failure: apiapi.StoreFailed{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the command line answered SubagentTreeInit with an undeclared failure: " + text}
+			}
+		case apiapi.SubagentSpawnRequest:
+			match rpc.TagOf(text) {
+			case "NotFound":
+				let e = try rpc.Decode[memory.NotFound]("failure", text)
+				apiapi.Rejected{Failure: apiapi.NotFound{E: e}}
+			case "AlreadyExists":
+				let e = try rpc.Decode[memory.AlreadyExists]("failure", text)
+				apiapi.Rejected{Failure: apiapi.AlreadyExists{E: e}}
+			case "InvalidTransition":
+				let e = try rpc.Decode[memory.InvalidTransition]("failure", text)
+				apiapi.Rejected{Failure: apiapi.InvalidTransition{E: e}}
+			case "CommandReused":
+				let e = try rpc.Decode[memory.CommandReused]("failure", text)
+				apiapi.Rejected{Failure: apiapi.CommandReused{E: e}}
+			case "InvalidInput":
+				let e = try rpc.Decode[memory.InvalidInput]("failure", text)
+				apiapi.Rejected{Failure: apiapi.InvalidInput{E: e}}
+			case "LeaseFenced":
+				let e = try rpc.Decode[memory.LeaseFenced]("failure", text)
+				apiapi.Rejected{Failure: apiapi.LeaseFenced{E: e}}
+			case "ThreadDomainErr":
+				let e = try rpc.Decode[memory.ThreadDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.ThreadDomainErr{E: e}}
+			case "SubagentDomainErr":
+				let e = try rpc.Decode[memory.SubagentDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.SubagentDomainErr{E: e}}
+			case "HandleDomainErr":
+				let e = try rpc.Decode[memory.HandleDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.HandleDomainErr{E: e}}
+			case "LimitDomainErr":
+				let e = try rpc.Decode[memory.LimitDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.LimitDomainErr{E: e}}
+			case "RequestDomainErr":
+				let e = try rpc.Decode[memory.RequestDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.RequestDomainErr{E: e}}
+			case "CutoverDomainErr":
+				let e = try rpc.Decode[memory.CutoverDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.CutoverDomainErr{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[memory.StoreFailed]("failure", text)
+				apiapi.Rejected{Failure: apiapi.StoreFailed{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the command line answered SubagentSpawn with an undeclared failure: " + text}
+			}
+		case apiapi.SubagentControlHandleRequest:
+			match rpc.TagOf(text) {
+			case "NotFound":
+				let e = try rpc.Decode[memory.NotFound]("failure", text)
+				apiapi.Rejected{Failure: apiapi.NotFound{E: e}}
+			case "AlreadyExists":
+				let e = try rpc.Decode[memory.AlreadyExists]("failure", text)
+				apiapi.Rejected{Failure: apiapi.AlreadyExists{E: e}}
+			case "InvalidTransition":
+				let e = try rpc.Decode[memory.InvalidTransition]("failure", text)
+				apiapi.Rejected{Failure: apiapi.InvalidTransition{E: e}}
+			case "CommandReused":
+				let e = try rpc.Decode[memory.CommandReused]("failure", text)
+				apiapi.Rejected{Failure: apiapi.CommandReused{E: e}}
+			case "InvalidInput":
+				let e = try rpc.Decode[memory.InvalidInput]("failure", text)
+				apiapi.Rejected{Failure: apiapi.InvalidInput{E: e}}
+			case "LeaseFenced":
+				let e = try rpc.Decode[memory.LeaseFenced]("failure", text)
+				apiapi.Rejected{Failure: apiapi.LeaseFenced{E: e}}
+			case "ThreadDomainErr":
+				let e = try rpc.Decode[memory.ThreadDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.ThreadDomainErr{E: e}}
+			case "SubagentDomainErr":
+				let e = try rpc.Decode[memory.SubagentDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.SubagentDomainErr{E: e}}
+			case "HandleDomainErr":
+				let e = try rpc.Decode[memory.HandleDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.HandleDomainErr{E: e}}
+			case "LimitDomainErr":
+				let e = try rpc.Decode[memory.LimitDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.LimitDomainErr{E: e}}
+			case "RequestDomainErr":
+				let e = try rpc.Decode[memory.RequestDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.RequestDomainErr{E: e}}
+			case "CutoverDomainErr":
+				let e = try rpc.Decode[memory.CutoverDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.CutoverDomainErr{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[memory.StoreFailed]("failure", text)
+				apiapi.Rejected{Failure: apiapi.StoreFailed{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the command line answered SubagentControlHandle with an undeclared failure: " + text}
+			}
+		case apiapi.SubagentSettleHandleRequest:
+			match rpc.TagOf(text) {
+			case "NotFound":
+				let e = try rpc.Decode[memory.NotFound]("failure", text)
+				apiapi.Rejected{Failure: apiapi.NotFound{E: e}}
+			case "AlreadyExists":
+				let e = try rpc.Decode[memory.AlreadyExists]("failure", text)
+				apiapi.Rejected{Failure: apiapi.AlreadyExists{E: e}}
+			case "InvalidTransition":
+				let e = try rpc.Decode[memory.InvalidTransition]("failure", text)
+				apiapi.Rejected{Failure: apiapi.InvalidTransition{E: e}}
+			case "CommandReused":
+				let e = try rpc.Decode[memory.CommandReused]("failure", text)
+				apiapi.Rejected{Failure: apiapi.CommandReused{E: e}}
+			case "InvalidInput":
+				let e = try rpc.Decode[memory.InvalidInput]("failure", text)
+				apiapi.Rejected{Failure: apiapi.InvalidInput{E: e}}
+			case "LeaseFenced":
+				let e = try rpc.Decode[memory.LeaseFenced]("failure", text)
+				apiapi.Rejected{Failure: apiapi.LeaseFenced{E: e}}
+			case "ThreadDomainErr":
+				let e = try rpc.Decode[memory.ThreadDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.ThreadDomainErr{E: e}}
+			case "SubagentDomainErr":
+				let e = try rpc.Decode[memory.SubagentDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.SubagentDomainErr{E: e}}
+			case "HandleDomainErr":
+				let e = try rpc.Decode[memory.HandleDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.HandleDomainErr{E: e}}
+			case "LimitDomainErr":
+				let e = try rpc.Decode[memory.LimitDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.LimitDomainErr{E: e}}
+			case "RequestDomainErr":
+				let e = try rpc.Decode[memory.RequestDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.RequestDomainErr{E: e}}
+			case "CutoverDomainErr":
+				let e = try rpc.Decode[memory.CutoverDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.CutoverDomainErr{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[memory.StoreFailed]("failure", text)
+				apiapi.Rejected{Failure: apiapi.StoreFailed{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the command line answered SubagentSettleHandle with an undeclared failure: " + text}
+			}
+		case apiapi.SubagentHandBackRequest:
+			match rpc.TagOf(text) {
+			case "NotFound":
+				let e = try rpc.Decode[memory.NotFound]("failure", text)
+				apiapi.Rejected{Failure: apiapi.NotFound{E: e}}
+			case "AlreadyExists":
+				let e = try rpc.Decode[memory.AlreadyExists]("failure", text)
+				apiapi.Rejected{Failure: apiapi.AlreadyExists{E: e}}
+			case "InvalidTransition":
+				let e = try rpc.Decode[memory.InvalidTransition]("failure", text)
+				apiapi.Rejected{Failure: apiapi.InvalidTransition{E: e}}
+			case "CommandReused":
+				let e = try rpc.Decode[memory.CommandReused]("failure", text)
+				apiapi.Rejected{Failure: apiapi.CommandReused{E: e}}
+			case "InvalidInput":
+				let e = try rpc.Decode[memory.InvalidInput]("failure", text)
+				apiapi.Rejected{Failure: apiapi.InvalidInput{E: e}}
+			case "LeaseFenced":
+				let e = try rpc.Decode[memory.LeaseFenced]("failure", text)
+				apiapi.Rejected{Failure: apiapi.LeaseFenced{E: e}}
+			case "ThreadDomainErr":
+				let e = try rpc.Decode[memory.ThreadDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.ThreadDomainErr{E: e}}
+			case "SubagentDomainErr":
+				let e = try rpc.Decode[memory.SubagentDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.SubagentDomainErr{E: e}}
+			case "HandleDomainErr":
+				let e = try rpc.Decode[memory.HandleDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.HandleDomainErr{E: e}}
+			case "LimitDomainErr":
+				let e = try rpc.Decode[memory.LimitDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.LimitDomainErr{E: e}}
+			case "RequestDomainErr":
+				let e = try rpc.Decode[memory.RequestDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.RequestDomainErr{E: e}}
+			case "CutoverDomainErr":
+				let e = try rpc.Decode[memory.CutoverDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.CutoverDomainErr{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[memory.StoreFailed]("failure", text)
+				apiapi.Rejected{Failure: apiapi.StoreFailed{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the command line answered SubagentHandBack with an undeclared failure: " + text}
+			}
+		case apiapi.SubagentTreeGetRequest:
+			match rpc.TagOf(text) {
+			case "NotFound":
+				let e = try rpc.Decode[memory.NotFound]("failure", text)
+				apiapi.Rejected{Failure: apiapi.NotFound{E: e}}
+			case "InvalidInput":
+				let e = try rpc.Decode[memory.InvalidInput]("failure", text)
+				apiapi.Rejected{Failure: apiapi.InvalidInput{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[memory.StoreFailed]("failure", text)
+				apiapi.Rejected{Failure: apiapi.StoreFailed{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the command line answered SubagentTreeGet with an undeclared failure: " + text}
+			}
+		case apiapi.HandleOpenRequest:
+			match rpc.TagOf(text) {
+			case "NotFound":
+				let e = try rpc.Decode[memory.NotFound]("failure", text)
+				apiapi.Rejected{Failure: apiapi.NotFound{E: e}}
+			case "AlreadyExists":
+				let e = try rpc.Decode[memory.AlreadyExists]("failure", text)
+				apiapi.Rejected{Failure: apiapi.AlreadyExists{E: e}}
+			case "InvalidTransition":
+				let e = try rpc.Decode[memory.InvalidTransition]("failure", text)
+				apiapi.Rejected{Failure: apiapi.InvalidTransition{E: e}}
+			case "CommandReused":
+				let e = try rpc.Decode[memory.CommandReused]("failure", text)
+				apiapi.Rejected{Failure: apiapi.CommandReused{E: e}}
+			case "InvalidInput":
+				let e = try rpc.Decode[memory.InvalidInput]("failure", text)
+				apiapi.Rejected{Failure: apiapi.InvalidInput{E: e}}
+			case "LeaseFenced":
+				let e = try rpc.Decode[memory.LeaseFenced]("failure", text)
+				apiapi.Rejected{Failure: apiapi.LeaseFenced{E: e}}
+			case "ThreadDomainErr":
+				let e = try rpc.Decode[memory.ThreadDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.ThreadDomainErr{E: e}}
+			case "SubagentDomainErr":
+				let e = try rpc.Decode[memory.SubagentDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.SubagentDomainErr{E: e}}
+			case "HandleDomainErr":
+				let e = try rpc.Decode[memory.HandleDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.HandleDomainErr{E: e}}
+			case "LimitDomainErr":
+				let e = try rpc.Decode[memory.LimitDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.LimitDomainErr{E: e}}
+			case "RequestDomainErr":
+				let e = try rpc.Decode[memory.RequestDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.RequestDomainErr{E: e}}
+			case "CutoverDomainErr":
+				let e = try rpc.Decode[memory.CutoverDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.CutoverDomainErr{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[memory.StoreFailed]("failure", text)
+				apiapi.Rejected{Failure: apiapi.StoreFailed{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the command line answered HandleOpen with an undeclared failure: " + text}
+			}
+		case apiapi.HandleSettleRequest:
+			match rpc.TagOf(text) {
+			case "NotFound":
+				let e = try rpc.Decode[memory.NotFound]("failure", text)
+				apiapi.Rejected{Failure: apiapi.NotFound{E: e}}
+			case "AlreadyExists":
+				let e = try rpc.Decode[memory.AlreadyExists]("failure", text)
+				apiapi.Rejected{Failure: apiapi.AlreadyExists{E: e}}
+			case "InvalidTransition":
+				let e = try rpc.Decode[memory.InvalidTransition]("failure", text)
+				apiapi.Rejected{Failure: apiapi.InvalidTransition{E: e}}
+			case "CommandReused":
+				let e = try rpc.Decode[memory.CommandReused]("failure", text)
+				apiapi.Rejected{Failure: apiapi.CommandReused{E: e}}
+			case "InvalidInput":
+				let e = try rpc.Decode[memory.InvalidInput]("failure", text)
+				apiapi.Rejected{Failure: apiapi.InvalidInput{E: e}}
+			case "LeaseFenced":
+				let e = try rpc.Decode[memory.LeaseFenced]("failure", text)
+				apiapi.Rejected{Failure: apiapi.LeaseFenced{E: e}}
+			case "ThreadDomainErr":
+				let e = try rpc.Decode[memory.ThreadDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.ThreadDomainErr{E: e}}
+			case "SubagentDomainErr":
+				let e = try rpc.Decode[memory.SubagentDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.SubagentDomainErr{E: e}}
+			case "HandleDomainErr":
+				let e = try rpc.Decode[memory.HandleDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.HandleDomainErr{E: e}}
+			case "LimitDomainErr":
+				let e = try rpc.Decode[memory.LimitDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.LimitDomainErr{E: e}}
+			case "RequestDomainErr":
+				let e = try rpc.Decode[memory.RequestDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.RequestDomainErr{E: e}}
+			case "CutoverDomainErr":
+				let e = try rpc.Decode[memory.CutoverDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.CutoverDomainErr{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[memory.StoreFailed]("failure", text)
+				apiapi.Rejected{Failure: apiapi.StoreFailed{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the command line answered HandleSettle with an undeclared failure: " + text}
+			}
+		case apiapi.HandleListRequest:
+			match rpc.TagOf(text) {
+			case "InvalidInput":
+				let e = try rpc.Decode[memory.InvalidInput]("failure", text)
+				apiapi.Rejected{Failure: apiapi.InvalidInput{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[memory.StoreFailed]("failure", text)
+				apiapi.Rejected{Failure: apiapi.StoreFailed{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the command line answered HandleList with an undeclared failure: " + text}
+			}
+		case apiapi.OwnerCallsRetireRequest:
+			match rpc.TagOf(text) {
+			case "NotFound":
+				let e = try rpc.Decode[memory.NotFound]("failure", text)
+				apiapi.Rejected{Failure: apiapi.NotFound{E: e}}
+			case "AlreadyExists":
+				let e = try rpc.Decode[memory.AlreadyExists]("failure", text)
+				apiapi.Rejected{Failure: apiapi.AlreadyExists{E: e}}
+			case "InvalidTransition":
+				let e = try rpc.Decode[memory.InvalidTransition]("failure", text)
+				apiapi.Rejected{Failure: apiapi.InvalidTransition{E: e}}
+			case "CommandReused":
+				let e = try rpc.Decode[memory.CommandReused]("failure", text)
+				apiapi.Rejected{Failure: apiapi.CommandReused{E: e}}
+			case "InvalidInput":
+				let e = try rpc.Decode[memory.InvalidInput]("failure", text)
+				apiapi.Rejected{Failure: apiapi.InvalidInput{E: e}}
+			case "LeaseFenced":
+				let e = try rpc.Decode[memory.LeaseFenced]("failure", text)
+				apiapi.Rejected{Failure: apiapi.LeaseFenced{E: e}}
+			case "ThreadDomainErr":
+				let e = try rpc.Decode[memory.ThreadDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.ThreadDomainErr{E: e}}
+			case "SubagentDomainErr":
+				let e = try rpc.Decode[memory.SubagentDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.SubagentDomainErr{E: e}}
+			case "HandleDomainErr":
+				let e = try rpc.Decode[memory.HandleDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.HandleDomainErr{E: e}}
+			case "LimitDomainErr":
+				let e = try rpc.Decode[memory.LimitDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.LimitDomainErr{E: e}}
+			case "RequestDomainErr":
+				let e = try rpc.Decode[memory.RequestDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.RequestDomainErr{E: e}}
+			case "CutoverDomainErr":
+				let e = try rpc.Decode[memory.CutoverDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.CutoverDomainErr{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[memory.StoreFailed]("failure", text)
+				apiapi.Rejected{Failure: apiapi.StoreFailed{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the command line answered OwnerCallsRetire with an undeclared failure: " + text}
+			}
+		case apiapi.QuestionAskRequest:
+			match rpc.TagOf(text) {
+			case "NotFound":
+				let e = try rpc.Decode[memory.NotFound]("failure", text)
+				apiapi.Rejected{Failure: apiapi.NotFound{E: e}}
+			case "AlreadyExists":
+				let e = try rpc.Decode[memory.AlreadyExists]("failure", text)
+				apiapi.Rejected{Failure: apiapi.AlreadyExists{E: e}}
+			case "InvalidTransition":
+				let e = try rpc.Decode[memory.InvalidTransition]("failure", text)
+				apiapi.Rejected{Failure: apiapi.InvalidTransition{E: e}}
+			case "CommandReused":
+				let e = try rpc.Decode[memory.CommandReused]("failure", text)
+				apiapi.Rejected{Failure: apiapi.CommandReused{E: e}}
+			case "InvalidInput":
+				let e = try rpc.Decode[memory.InvalidInput]("failure", text)
+				apiapi.Rejected{Failure: apiapi.InvalidInput{E: e}}
+			case "LeaseFenced":
+				let e = try rpc.Decode[memory.LeaseFenced]("failure", text)
+				apiapi.Rejected{Failure: apiapi.LeaseFenced{E: e}}
+			case "ThreadDomainErr":
+				let e = try rpc.Decode[memory.ThreadDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.ThreadDomainErr{E: e}}
+			case "SubagentDomainErr":
+				let e = try rpc.Decode[memory.SubagentDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.SubagentDomainErr{E: e}}
+			case "HandleDomainErr":
+				let e = try rpc.Decode[memory.HandleDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.HandleDomainErr{E: e}}
+			case "LimitDomainErr":
+				let e = try rpc.Decode[memory.LimitDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.LimitDomainErr{E: e}}
+			case "RequestDomainErr":
+				let e = try rpc.Decode[memory.RequestDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.RequestDomainErr{E: e}}
+			case "CutoverDomainErr":
+				let e = try rpc.Decode[memory.CutoverDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.CutoverDomainErr{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[memory.StoreFailed]("failure", text)
+				apiapi.Rejected{Failure: apiapi.StoreFailed{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the command line answered QuestionAsk with an undeclared failure: " + text}
+			}
+		case apiapi.QuestionAnswerRequest:
+			match rpc.TagOf(text) {
+			case "NotFound":
+				let e = try rpc.Decode[memory.NotFound]("failure", text)
+				apiapi.Rejected{Failure: apiapi.NotFound{E: e}}
+			case "AlreadyExists":
+				let e = try rpc.Decode[memory.AlreadyExists]("failure", text)
+				apiapi.Rejected{Failure: apiapi.AlreadyExists{E: e}}
+			case "InvalidTransition":
+				let e = try rpc.Decode[memory.InvalidTransition]("failure", text)
+				apiapi.Rejected{Failure: apiapi.InvalidTransition{E: e}}
+			case "CommandReused":
+				let e = try rpc.Decode[memory.CommandReused]("failure", text)
+				apiapi.Rejected{Failure: apiapi.CommandReused{E: e}}
+			case "InvalidInput":
+				let e = try rpc.Decode[memory.InvalidInput]("failure", text)
+				apiapi.Rejected{Failure: apiapi.InvalidInput{E: e}}
+			case "LeaseFenced":
+				let e = try rpc.Decode[memory.LeaseFenced]("failure", text)
+				apiapi.Rejected{Failure: apiapi.LeaseFenced{E: e}}
+			case "ThreadDomainErr":
+				let e = try rpc.Decode[memory.ThreadDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.ThreadDomainErr{E: e}}
+			case "SubagentDomainErr":
+				let e = try rpc.Decode[memory.SubagentDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.SubagentDomainErr{E: e}}
+			case "HandleDomainErr":
+				let e = try rpc.Decode[memory.HandleDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.HandleDomainErr{E: e}}
+			case "LimitDomainErr":
+				let e = try rpc.Decode[memory.LimitDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.LimitDomainErr{E: e}}
+			case "RequestDomainErr":
+				let e = try rpc.Decode[memory.RequestDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.RequestDomainErr{E: e}}
+			case "CutoverDomainErr":
+				let e = try rpc.Decode[memory.CutoverDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.CutoverDomainErr{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[memory.StoreFailed]("failure", text)
+				apiapi.Rejected{Failure: apiapi.StoreFailed{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the command line answered QuestionAnswer with an undeclared failure: " + text}
+			}
+		case apiapi.QuestionWithdrawRequest:
+			match rpc.TagOf(text) {
+			case "NotFound":
+				let e = try rpc.Decode[memory.NotFound]("failure", text)
+				apiapi.Rejected{Failure: apiapi.NotFound{E: e}}
+			case "AlreadyExists":
+				let e = try rpc.Decode[memory.AlreadyExists]("failure", text)
+				apiapi.Rejected{Failure: apiapi.AlreadyExists{E: e}}
+			case "InvalidTransition":
+				let e = try rpc.Decode[memory.InvalidTransition]("failure", text)
+				apiapi.Rejected{Failure: apiapi.InvalidTransition{E: e}}
+			case "CommandReused":
+				let e = try rpc.Decode[memory.CommandReused]("failure", text)
+				apiapi.Rejected{Failure: apiapi.CommandReused{E: e}}
+			case "InvalidInput":
+				let e = try rpc.Decode[memory.InvalidInput]("failure", text)
+				apiapi.Rejected{Failure: apiapi.InvalidInput{E: e}}
+			case "LeaseFenced":
+				let e = try rpc.Decode[memory.LeaseFenced]("failure", text)
+				apiapi.Rejected{Failure: apiapi.LeaseFenced{E: e}}
+			case "ThreadDomainErr":
+				let e = try rpc.Decode[memory.ThreadDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.ThreadDomainErr{E: e}}
+			case "SubagentDomainErr":
+				let e = try rpc.Decode[memory.SubagentDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.SubagentDomainErr{E: e}}
+			case "HandleDomainErr":
+				let e = try rpc.Decode[memory.HandleDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.HandleDomainErr{E: e}}
+			case "LimitDomainErr":
+				let e = try rpc.Decode[memory.LimitDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.LimitDomainErr{E: e}}
+			case "RequestDomainErr":
+				let e = try rpc.Decode[memory.RequestDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.RequestDomainErr{E: e}}
+			case "CutoverDomainErr":
+				let e = try rpc.Decode[memory.CutoverDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.CutoverDomainErr{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[memory.StoreFailed]("failure", text)
+				apiapi.Rejected{Failure: apiapi.StoreFailed{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the command line answered QuestionWithdraw with an undeclared failure: " + text}
+			}
+		case apiapi.QuestionListRequest:
+			match rpc.TagOf(text) {
+			case "InvalidInput":
+				let e = try rpc.Decode[memory.InvalidInput]("failure", text)
+				apiapi.Rejected{Failure: apiapi.InvalidInput{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[memory.StoreFailed]("failure", text)
+				apiapi.Rejected{Failure: apiapi.StoreFailed{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the command line answered QuestionList with an undeclared failure: " + text}
+			}
+		case apiapi.PoolAccountUpsertRequest:
+			match rpc.TagOf(text) {
+			case "NotFound":
+				let e = try rpc.Decode[memory.NotFound]("failure", text)
+				apiapi.Rejected{Failure: apiapi.NotFound{E: e}}
+			case "AlreadyExists":
+				let e = try rpc.Decode[memory.AlreadyExists]("failure", text)
+				apiapi.Rejected{Failure: apiapi.AlreadyExists{E: e}}
+			case "InvalidTransition":
+				let e = try rpc.Decode[memory.InvalidTransition]("failure", text)
+				apiapi.Rejected{Failure: apiapi.InvalidTransition{E: e}}
+			case "CommandReused":
+				let e = try rpc.Decode[memory.CommandReused]("failure", text)
+				apiapi.Rejected{Failure: apiapi.CommandReused{E: e}}
+			case "InvalidInput":
+				let e = try rpc.Decode[memory.InvalidInput]("failure", text)
+				apiapi.Rejected{Failure: apiapi.InvalidInput{E: e}}
+			case "LeaseFenced":
+				let e = try rpc.Decode[memory.LeaseFenced]("failure", text)
+				apiapi.Rejected{Failure: apiapi.LeaseFenced{E: e}}
+			case "ThreadDomainErr":
+				let e = try rpc.Decode[memory.ThreadDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.ThreadDomainErr{E: e}}
+			case "SubagentDomainErr":
+				let e = try rpc.Decode[memory.SubagentDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.SubagentDomainErr{E: e}}
+			case "HandleDomainErr":
+				let e = try rpc.Decode[memory.HandleDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.HandleDomainErr{E: e}}
+			case "LimitDomainErr":
+				let e = try rpc.Decode[memory.LimitDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.LimitDomainErr{E: e}}
+			case "RequestDomainErr":
+				let e = try rpc.Decode[memory.RequestDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.RequestDomainErr{E: e}}
+			case "CutoverDomainErr":
+				let e = try rpc.Decode[memory.CutoverDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.CutoverDomainErr{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[memory.StoreFailed]("failure", text)
+				apiapi.Rejected{Failure: apiapi.StoreFailed{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the command line answered PoolAccountUpsert with an undeclared failure: " + text}
+			}
+		case apiapi.PoolHoldOpenRequest:
+			match rpc.TagOf(text) {
+			case "NotFound":
+				let e = try rpc.Decode[memory.NotFound]("failure", text)
+				apiapi.Rejected{Failure: apiapi.NotFound{E: e}}
+			case "AlreadyExists":
+				let e = try rpc.Decode[memory.AlreadyExists]("failure", text)
+				apiapi.Rejected{Failure: apiapi.AlreadyExists{E: e}}
+			case "InvalidTransition":
+				let e = try rpc.Decode[memory.InvalidTransition]("failure", text)
+				apiapi.Rejected{Failure: apiapi.InvalidTransition{E: e}}
+			case "CommandReused":
+				let e = try rpc.Decode[memory.CommandReused]("failure", text)
+				apiapi.Rejected{Failure: apiapi.CommandReused{E: e}}
+			case "InvalidInput":
+				let e = try rpc.Decode[memory.InvalidInput]("failure", text)
+				apiapi.Rejected{Failure: apiapi.InvalidInput{E: e}}
+			case "LeaseFenced":
+				let e = try rpc.Decode[memory.LeaseFenced]("failure", text)
+				apiapi.Rejected{Failure: apiapi.LeaseFenced{E: e}}
+			case "ThreadDomainErr":
+				let e = try rpc.Decode[memory.ThreadDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.ThreadDomainErr{E: e}}
+			case "SubagentDomainErr":
+				let e = try rpc.Decode[memory.SubagentDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.SubagentDomainErr{E: e}}
+			case "HandleDomainErr":
+				let e = try rpc.Decode[memory.HandleDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.HandleDomainErr{E: e}}
+			case "LimitDomainErr":
+				let e = try rpc.Decode[memory.LimitDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.LimitDomainErr{E: e}}
+			case "RequestDomainErr":
+				let e = try rpc.Decode[memory.RequestDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.RequestDomainErr{E: e}}
+			case "CutoverDomainErr":
+				let e = try rpc.Decode[memory.CutoverDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.CutoverDomainErr{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[memory.StoreFailed]("failure", text)
+				apiapi.Rejected{Failure: apiapi.StoreFailed{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the command line answered PoolHoldOpen with an undeclared failure: " + text}
+			}
+		case apiapi.PoolHoldTransitionRequest:
+			match rpc.TagOf(text) {
+			case "NotFound":
+				let e = try rpc.Decode[memory.NotFound]("failure", text)
+				apiapi.Rejected{Failure: apiapi.NotFound{E: e}}
+			case "AlreadyExists":
+				let e = try rpc.Decode[memory.AlreadyExists]("failure", text)
+				apiapi.Rejected{Failure: apiapi.AlreadyExists{E: e}}
+			case "InvalidTransition":
+				let e = try rpc.Decode[memory.InvalidTransition]("failure", text)
+				apiapi.Rejected{Failure: apiapi.InvalidTransition{E: e}}
+			case "CommandReused":
+				let e = try rpc.Decode[memory.CommandReused]("failure", text)
+				apiapi.Rejected{Failure: apiapi.CommandReused{E: e}}
+			case "InvalidInput":
+				let e = try rpc.Decode[memory.InvalidInput]("failure", text)
+				apiapi.Rejected{Failure: apiapi.InvalidInput{E: e}}
+			case "LeaseFenced":
+				let e = try rpc.Decode[memory.LeaseFenced]("failure", text)
+				apiapi.Rejected{Failure: apiapi.LeaseFenced{E: e}}
+			case "ThreadDomainErr":
+				let e = try rpc.Decode[memory.ThreadDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.ThreadDomainErr{E: e}}
+			case "SubagentDomainErr":
+				let e = try rpc.Decode[memory.SubagentDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.SubagentDomainErr{E: e}}
+			case "HandleDomainErr":
+				let e = try rpc.Decode[memory.HandleDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.HandleDomainErr{E: e}}
+			case "LimitDomainErr":
+				let e = try rpc.Decode[memory.LimitDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.LimitDomainErr{E: e}}
+			case "RequestDomainErr":
+				let e = try rpc.Decode[memory.RequestDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.RequestDomainErr{E: e}}
+			case "CutoverDomainErr":
+				let e = try rpc.Decode[memory.CutoverDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.CutoverDomainErr{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[memory.StoreFailed]("failure", text)
+				apiapi.Rejected{Failure: apiapi.StoreFailed{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the command line answered PoolHoldTransition with an undeclared failure: " + text}
+			}
+		case apiapi.PoolViewRequest:
+			match rpc.TagOf(text) {
+			case "InvalidInput":
+				let e = try rpc.Decode[memory.InvalidInput]("failure", text)
+				apiapi.Rejected{Failure: apiapi.InvalidInput{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[memory.StoreFailed]("failure", text)
+				apiapi.Rejected{Failure: apiapi.StoreFailed{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the command line answered PoolView with an undeclared failure: " + text}
+			}
+		case apiapi.KernelSnapshotSaveRequest:
+			match rpc.TagOf(text) {
+			case "NotFound":
+				let e = try rpc.Decode[memory.NotFound]("failure", text)
+				apiapi.Rejected{Failure: apiapi.NotFound{E: e}}
+			case "AlreadyExists":
+				let e = try rpc.Decode[memory.AlreadyExists]("failure", text)
+				apiapi.Rejected{Failure: apiapi.AlreadyExists{E: e}}
+			case "InvalidTransition":
+				let e = try rpc.Decode[memory.InvalidTransition]("failure", text)
+				apiapi.Rejected{Failure: apiapi.InvalidTransition{E: e}}
+			case "CommandReused":
+				let e = try rpc.Decode[memory.CommandReused]("failure", text)
+				apiapi.Rejected{Failure: apiapi.CommandReused{E: e}}
+			case "InvalidInput":
+				let e = try rpc.Decode[memory.InvalidInput]("failure", text)
+				apiapi.Rejected{Failure: apiapi.InvalidInput{E: e}}
+			case "LeaseFenced":
+				let e = try rpc.Decode[memory.LeaseFenced]("failure", text)
+				apiapi.Rejected{Failure: apiapi.LeaseFenced{E: e}}
+			case "ThreadDomainErr":
+				let e = try rpc.Decode[memory.ThreadDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.ThreadDomainErr{E: e}}
+			case "SubagentDomainErr":
+				let e = try rpc.Decode[memory.SubagentDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.SubagentDomainErr{E: e}}
+			case "HandleDomainErr":
+				let e = try rpc.Decode[memory.HandleDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.HandleDomainErr{E: e}}
+			case "LimitDomainErr":
+				let e = try rpc.Decode[memory.LimitDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.LimitDomainErr{E: e}}
+			case "RequestDomainErr":
+				let e = try rpc.Decode[memory.RequestDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.RequestDomainErr{E: e}}
+			case "CutoverDomainErr":
+				let e = try rpc.Decode[memory.CutoverDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.CutoverDomainErr{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[memory.StoreFailed]("failure", text)
+				apiapi.Rejected{Failure: apiapi.StoreFailed{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the command line answered KernelSnapshotSave with an undeclared failure: " + text}
+			}
+		case apiapi.KernelCutRecordRequest:
+			match rpc.TagOf(text) {
+			case "NotFound":
+				let e = try rpc.Decode[memory.NotFound]("failure", text)
+				apiapi.Rejected{Failure: apiapi.NotFound{E: e}}
+			case "AlreadyExists":
+				let e = try rpc.Decode[memory.AlreadyExists]("failure", text)
+				apiapi.Rejected{Failure: apiapi.AlreadyExists{E: e}}
+			case "InvalidTransition":
+				let e = try rpc.Decode[memory.InvalidTransition]("failure", text)
+				apiapi.Rejected{Failure: apiapi.InvalidTransition{E: e}}
+			case "CommandReused":
+				let e = try rpc.Decode[memory.CommandReused]("failure", text)
+				apiapi.Rejected{Failure: apiapi.CommandReused{E: e}}
+			case "InvalidInput":
+				let e = try rpc.Decode[memory.InvalidInput]("failure", text)
+				apiapi.Rejected{Failure: apiapi.InvalidInput{E: e}}
+			case "LeaseFenced":
+				let e = try rpc.Decode[memory.LeaseFenced]("failure", text)
+				apiapi.Rejected{Failure: apiapi.LeaseFenced{E: e}}
+			case "ThreadDomainErr":
+				let e = try rpc.Decode[memory.ThreadDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.ThreadDomainErr{E: e}}
+			case "SubagentDomainErr":
+				let e = try rpc.Decode[memory.SubagentDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.SubagentDomainErr{E: e}}
+			case "HandleDomainErr":
+				let e = try rpc.Decode[memory.HandleDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.HandleDomainErr{E: e}}
+			case "LimitDomainErr":
+				let e = try rpc.Decode[memory.LimitDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.LimitDomainErr{E: e}}
+			case "RequestDomainErr":
+				let e = try rpc.Decode[memory.RequestDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.RequestDomainErr{E: e}}
+			case "CutoverDomainErr":
+				let e = try rpc.Decode[memory.CutoverDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.CutoverDomainErr{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[memory.StoreFailed]("failure", text)
+				apiapi.Rejected{Failure: apiapi.StoreFailed{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the command line answered KernelCutRecord with an undeclared failure: " + text}
+			}
+		case apiapi.KernelViewRequest:
+			match rpc.TagOf(text) {
+			case "InvalidInput":
+				let e = try rpc.Decode[memory.InvalidInput]("failure", text)
+				apiapi.Rejected{Failure: apiapi.InvalidInput{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[memory.StoreFailed]("failure", text)
+				apiapi.Rejected{Failure: apiapi.StoreFailed{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the command line answered KernelView with an undeclared failure: " + text}
+			}
+		case apiapi.LeaseAcquireRequest:
+			match rpc.TagOf(text) {
+			case "NotFound":
+				let e = try rpc.Decode[memory.NotFound]("failure", text)
+				apiapi.Rejected{Failure: apiapi.NotFound{E: e}}
+			case "AlreadyExists":
+				let e = try rpc.Decode[memory.AlreadyExists]("failure", text)
+				apiapi.Rejected{Failure: apiapi.AlreadyExists{E: e}}
+			case "InvalidTransition":
+				let e = try rpc.Decode[memory.InvalidTransition]("failure", text)
+				apiapi.Rejected{Failure: apiapi.InvalidTransition{E: e}}
+			case "CommandReused":
+				let e = try rpc.Decode[memory.CommandReused]("failure", text)
+				apiapi.Rejected{Failure: apiapi.CommandReused{E: e}}
+			case "InvalidInput":
+				let e = try rpc.Decode[memory.InvalidInput]("failure", text)
+				apiapi.Rejected{Failure: apiapi.InvalidInput{E: e}}
+			case "LeaseFenced":
+				let e = try rpc.Decode[memory.LeaseFenced]("failure", text)
+				apiapi.Rejected{Failure: apiapi.LeaseFenced{E: e}}
+			case "ThreadDomainErr":
+				let e = try rpc.Decode[memory.ThreadDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.ThreadDomainErr{E: e}}
+			case "SubagentDomainErr":
+				let e = try rpc.Decode[memory.SubagentDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.SubagentDomainErr{E: e}}
+			case "HandleDomainErr":
+				let e = try rpc.Decode[memory.HandleDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.HandleDomainErr{E: e}}
+			case "LimitDomainErr":
+				let e = try rpc.Decode[memory.LimitDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.LimitDomainErr{E: e}}
+			case "RequestDomainErr":
+				let e = try rpc.Decode[memory.RequestDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.RequestDomainErr{E: e}}
+			case "CutoverDomainErr":
+				let e = try rpc.Decode[memory.CutoverDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.CutoverDomainErr{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[memory.StoreFailed]("failure", text)
+				apiapi.Rejected{Failure: apiapi.StoreFailed{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the command line answered LeaseAcquire with an undeclared failure: " + text}
+			}
+		case apiapi.BootReconcileRequest:
+			match rpc.TagOf(text) {
+			case "NotFound":
+				let e = try rpc.Decode[memory.NotFound]("failure", text)
+				apiapi.Rejected{Failure: apiapi.NotFound{E: e}}
+			case "AlreadyExists":
+				let e = try rpc.Decode[memory.AlreadyExists]("failure", text)
+				apiapi.Rejected{Failure: apiapi.AlreadyExists{E: e}}
+			case "InvalidTransition":
+				let e = try rpc.Decode[memory.InvalidTransition]("failure", text)
+				apiapi.Rejected{Failure: apiapi.InvalidTransition{E: e}}
+			case "CommandReused":
+				let e = try rpc.Decode[memory.CommandReused]("failure", text)
+				apiapi.Rejected{Failure: apiapi.CommandReused{E: e}}
+			case "InvalidInput":
+				let e = try rpc.Decode[memory.InvalidInput]("failure", text)
+				apiapi.Rejected{Failure: apiapi.InvalidInput{E: e}}
+			case "LeaseFenced":
+				let e = try rpc.Decode[memory.LeaseFenced]("failure", text)
+				apiapi.Rejected{Failure: apiapi.LeaseFenced{E: e}}
+			case "ThreadDomainErr":
+				let e = try rpc.Decode[memory.ThreadDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.ThreadDomainErr{E: e}}
+			case "SubagentDomainErr":
+				let e = try rpc.Decode[memory.SubagentDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.SubagentDomainErr{E: e}}
+			case "HandleDomainErr":
+				let e = try rpc.Decode[memory.HandleDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.HandleDomainErr{E: e}}
+			case "LimitDomainErr":
+				let e = try rpc.Decode[memory.LimitDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.LimitDomainErr{E: e}}
+			case "RequestDomainErr":
+				let e = try rpc.Decode[memory.RequestDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.RequestDomainErr{E: e}}
+			case "CutoverDomainErr":
+				let e = try rpc.Decode[memory.CutoverDomainErr]("failure", text)
+				apiapi.Rejected{Failure: apiapi.CutoverDomainErr{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[memory.StoreFailed]("failure", text)
+				apiapi.Rejected{Failure: apiapi.StoreFailed{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the command line answered BootReconcile with an undeclared failure: " + text}
+			}
+		case apiapi.BootStatusRequest:
+			match rpc.TagOf(text) {
+			case "InvalidInput":
+				let e = try rpc.Decode[memory.InvalidInput]("failure", text)
+				apiapi.Rejected{Failure: apiapi.InvalidInput{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[memory.StoreFailed]("failure", text)
+				apiapi.Rejected{Failure: apiapi.StoreFailed{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the command line answered BootStatus with an undeclared failure: " + text}
+			}
+		case apiapi.HostCapacityGetRequest:
+			match rpc.TagOf(text) {
+			case "InvalidInput":
+				let e = try rpc.Decode[memory.InvalidInput]("failure", text)
+				apiapi.Rejected{Failure: apiapi.InvalidInput{E: e}}
+			case "HostCapacityFailed":
+				let e = try rpc.Decode[api.HostCapacityFailed]("failure", text)
+				apiapi.Rejected{Failure: apiapi.HostCapacityFailed{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the command line answered HostCapacityGet with an undeclared failure: " + text}
+			}
+		case apiapi.WellnessReportGetRequest:
+			match rpc.TagOf(text) {
+			case "InvalidInput":
+				let e = try rpc.Decode[memory.InvalidInput]("failure", text)
+				apiapi.Rejected{Failure: apiapi.InvalidInput{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the command line answered WellnessReportGet with an undeclared failure: " + text}
+			}
+		case apiapi.McpTokenMintRequest:
+			match rpc.TagOf(text) {
+			case "NotFound":
+				let e = try rpc.Decode[memory.NotFound]("failure", text)
+				apiapi.Rejected{Failure: apiapi.NotFound{E: e}}
+			case "InvalidInput":
+				let e = try rpc.Decode[memory.InvalidInput]("failure", text)
+				apiapi.Rejected{Failure: apiapi.InvalidInput{E: e}}
+			case "StoreFailed":
+				let e = try rpc.Decode[memory.StoreFailed]("failure", text)
+				apiapi.Rejected{Failure: apiapi.StoreFailed{E: e}}
+			case "McpAuthDenied":
+				let e = try rpc.Decode[api.McpAuthDenied]("failure", text)
+				apiapi.Rejected{Failure: apiapi.McpAuthDenied{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the command line answered McpTokenMint with an undeclared failure: " + text}
+			}
+		case apiapi.McpTokenRevokeRequest:
+			match rpc.TagOf(text) {
+			case "InvalidInput":
+				let e = try rpc.Decode[memory.InvalidInput]("failure", text)
+				apiapi.Rejected{Failure: apiapi.InvalidInput{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the command line answered McpTokenRevoke with an undeclared failure: " + text}
+			}
+		case apiapi.McpTokenListRequest:
+			match rpc.TagOf(text) {
+			case "InvalidInput":
+				let e = try rpc.Decode[memory.InvalidInput]("failure", text)
+				apiapi.Rejected{Failure: apiapi.InvalidInput{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the command line answered McpTokenList with an undeclared failure: " + text}
+			}
+		}
+	} else {
+		return rpc.Transport{Reason: "the command line answered status \(out.Code): " + out.Err}
+	}
+}
+
+type front = asked{R Request, JSON bool, Yes bool} | ended{O Output}
+
+func frontOf(args []string) front {
+	let mut asJSON = false
+	let mut yes = false
+	let mut globals = true
+	let mut rest = []string{}
+	for a in args {
+		if globals && (a == "--json" || a == "-json") {
+			asJSON = true
+		} else if globals && (a == "--yes" || a == "-yes") {
+			yes = true
+		} else {
+			globals = false
+			rest = rest.Append(a)
+		}
+	}
+	let r = Parse(rest) catch {
+	case flag.Help as h:
+		return ended{O: Output{Out: h.Text, Err: "", Code: 0}}
+	case err:
+		return ended{O: Output{Out: "", Err: flag.Describe(err) + "\n", Code: 2}}
+	}
+	asked{R: r, JSON: asJSON, Yes: yes}
+}
+
+func needsYes(question string) Output {
+	Output{Out: "", Err: question + " (no terminal to ask on: pass --yes to answer yes)\n", Code: 2}
+}
+
+func declined(question string) Output {
+	Output{Out: "", Err: question + ": not confirmed\n", Code: 1}
+}
+
+func runOver[R](args []string, p Policy, answer func(r Request) apiapi.Outcome needs R) Output needs R {
+	match frontOf(args) {
+	case ended as e:
+		e.O
+	case asked as a:
+		if !a.Yes {
+			match p.Confirm(a.R) {
+			case option.Some[string] as q:
+				return needsYes(q.Value)
+			case option.None:
+			}
+		}
+		Show(answer(a.R), a.JSON, p)
+	}
+}
+
+// Run reads args as [--json] [--yes] COMMAND ARGS..., answers the call
+// through the hub's Call on the api.Api the caller binds, and is what to
+// print under the policy p: the value, a typed failure with p's Code, the
+// help (status 0) or a usage error (status 2). It asks nothing: a call p
+// asks a question of needs --yes (status 2 without it).
+func Run(args []string, p Policy) Output needs api.Api {
+	runOver(args, p, apiapi.Call)
+}
+
+// RunOnTerminal is Run that asks p's question on the terminal (std
+// prompt) when there is no --yes: a yes runs the call, a no or a cancel
+// ends with status 1, and standard input that is not a terminal ends with
+// status 2, as Run does.
+func RunOnTerminal(args []string, p Policy) Output needs api.Api | term.Terminal | io.Stderr {
+	match frontOf(args) {
+	case ended as e:
+		e.O
+	case asked as a:
+		if !a.Yes {
+			match p.Confirm(a.R) {
+			case option.Some[string] as q:
+				let yes = prompt.Confirm(q.Value, false) catch {
+				case prompt.NotInteractive:
+					return needsYes(q.Value)
+				case prompt.Cancelled:
+					return declined(q.Value)
+				case io.ReadFailed:
+					return Output{Out: "", Err: q.Value + ": the answer could not be read\n", Code: 2}
+				}
+				if !yes {
+					return declined(q.Value)
+				}
+			case option.None:
+			}
+		}
+		Show(apiapi.Call(a.R), a.JSON, p)
+	}
+}
+
+// Completion is the script that completes api's commands in shell.
+func Completion(shell ergoapi.Shell) string {
+	ergoapi.Completion("api", shell, []ergoapi.Entry{ergoapi.Entry{Name: apiapi.Name(apiapi.ThreadCreateOp), Doc: apiapi.Doc(apiapi.ThreadCreateOp)}, ergoapi.Entry{Name: apiapi.Name(apiapi.ThreadGetOp), Doc: apiapi.Doc(apiapi.ThreadGetOp)}, ergoapi.Entry{Name: apiapi.Name(apiapi.ThreadListOp), Doc: apiapi.Doc(apiapi.ThreadListOp)}, ergoapi.Entry{Name: apiapi.Name(apiapi.ThreadArchiveOp), Doc: apiapi.Doc(apiapi.ThreadArchiveOp)}, ergoapi.Entry{Name: apiapi.Name(apiapi.DriverSwitchOp), Doc: apiapi.Doc(apiapi.DriverSwitchOp)}, ergoapi.Entry{Name: apiapi.Name(apiapi.PromptEnqueueOp), Doc: apiapi.Doc(apiapi.PromptEnqueueOp)}, ergoapi.Entry{Name: apiapi.Name(apiapi.PromptDequeueOp), Doc: apiapi.Doc(apiapi.PromptDequeueOp)}, ergoapi.Entry{Name: apiapi.Name(apiapi.TurnStartOp), Doc: apiapi.Doc(apiapi.TurnStartOp)}, ergoapi.Entry{Name: apiapi.Name(apiapi.TurnStepOp), Doc: apiapi.Doc(apiapi.TurnStepOp)}, ergoapi.Entry{Name: apiapi.Name(apiapi.SubagentTreeInitOp), Doc: apiapi.Doc(apiapi.SubagentTreeInitOp)}, ergoapi.Entry{Name: apiapi.Name(apiapi.SubagentSpawnOp), Doc: apiapi.Doc(apiapi.SubagentSpawnOp)}, ergoapi.Entry{Name: apiapi.Name(apiapi.SubagentControlHandleOp), Doc: apiapi.Doc(apiapi.SubagentControlHandleOp)}, ergoapi.Entry{Name: apiapi.Name(apiapi.SubagentSettleHandleOp), Doc: apiapi.Doc(apiapi.SubagentSettleHandleOp)}, ergoapi.Entry{Name: apiapi.Name(apiapi.SubagentHandBackOp), Doc: apiapi.Doc(apiapi.SubagentHandBackOp)}, ergoapi.Entry{Name: apiapi.Name(apiapi.SubagentTreeGetOp), Doc: apiapi.Doc(apiapi.SubagentTreeGetOp)}, ergoapi.Entry{Name: apiapi.Name(apiapi.HandleOpenOp), Doc: apiapi.Doc(apiapi.HandleOpenOp)}, ergoapi.Entry{Name: apiapi.Name(apiapi.HandleSettleOp), Doc: apiapi.Doc(apiapi.HandleSettleOp)}, ergoapi.Entry{Name: apiapi.Name(apiapi.HandleListOp), Doc: apiapi.Doc(apiapi.HandleListOp)}, ergoapi.Entry{Name: apiapi.Name(apiapi.OwnerCallsRetireOp), Doc: apiapi.Doc(apiapi.OwnerCallsRetireOp)}, ergoapi.Entry{Name: apiapi.Name(apiapi.QuestionAskOp), Doc: apiapi.Doc(apiapi.QuestionAskOp)}, ergoapi.Entry{Name: apiapi.Name(apiapi.QuestionAnswerOp), Doc: apiapi.Doc(apiapi.QuestionAnswerOp)}, ergoapi.Entry{Name: apiapi.Name(apiapi.QuestionWithdrawOp), Doc: apiapi.Doc(apiapi.QuestionWithdrawOp)}, ergoapi.Entry{Name: apiapi.Name(apiapi.QuestionListOp), Doc: apiapi.Doc(apiapi.QuestionListOp)}, ergoapi.Entry{Name: apiapi.Name(apiapi.PoolAccountUpsertOp), Doc: apiapi.Doc(apiapi.PoolAccountUpsertOp)}, ergoapi.Entry{Name: apiapi.Name(apiapi.PoolHoldOpenOp), Doc: apiapi.Doc(apiapi.PoolHoldOpenOp)}, ergoapi.Entry{Name: apiapi.Name(apiapi.PoolHoldTransitionOp), Doc: apiapi.Doc(apiapi.PoolHoldTransitionOp)}, ergoapi.Entry{Name: apiapi.Name(apiapi.PoolViewOp), Doc: apiapi.Doc(apiapi.PoolViewOp)}, ergoapi.Entry{Name: apiapi.Name(apiapi.KernelSnapshotSaveOp), Doc: apiapi.Doc(apiapi.KernelSnapshotSaveOp)}, ergoapi.Entry{Name: apiapi.Name(apiapi.KernelCutRecordOp), Doc: apiapi.Doc(apiapi.KernelCutRecordOp)}, ergoapi.Entry{Name: apiapi.Name(apiapi.KernelViewOp), Doc: apiapi.Doc(apiapi.KernelViewOp)}, ergoapi.Entry{Name: apiapi.Name(apiapi.LeaseAcquireOp), Doc: apiapi.Doc(apiapi.LeaseAcquireOp)}, ergoapi.Entry{Name: apiapi.Name(apiapi.BootReconcileOp), Doc: apiapi.Doc(apiapi.BootReconcileOp)}, ergoapi.Entry{Name: apiapi.Name(apiapi.BootStatusOp), Doc: apiapi.Doc(apiapi.BootStatusOp)}, ergoapi.Entry{Name: apiapi.Name(apiapi.HostCapacityGetOp), Doc: apiapi.Doc(apiapi.HostCapacityGetOp)}, ergoapi.Entry{Name: apiapi.Name(apiapi.WellnessReportGetOp), Doc: apiapi.Doc(apiapi.WellnessReportGetOp)}, ergoapi.Entry{Name: apiapi.Name(apiapi.McpTokenMintOp), Doc: apiapi.Doc(apiapi.McpTokenMintOp)}, ergoapi.Entry{Name: apiapi.Name(apiapi.McpTokenRevokeOp), Doc: apiapi.Doc(apiapi.McpTokenRevokeOp)}, ergoapi.Entry{Name: apiapi.Name(apiapi.McpTokenListOp), Doc: apiapi.Doc(apiapi.McpTokenListOp)}})
+}
+
+// Wire is the command line as a transport of the hub's calls.
+type Wire {} implements ergoapi.Transport[Request, apiapi.Outcome, rpc.Transport]
+
+// Carry prints c with --json, runs it against answer using the default
+// status policy, and reads back the reply. Delivery can fail separately
+// from answer's outcome.
+func Carry(w Wire, c Request, answer own func(c Request) apiapi.Outcome) apiapi.Outcome fails rpc.Transport {
+	let mut args = []string{"--json"}
+	for a in Print(c) {
+		args = args.Append(a)
+	}
+	try Read(c, runOver(args, Defaults(), answer))
+}
+
+// Agrees: the command line carries every call and every outcome the
+// call can have unchanged.
+law Agrees(r Request, g apiapi.Given) { ergoapi.Agrees[Request, apiapi.Outcome, rpc.Transport](Wire, r, apiapi.OutcomeOf(r, g)) }
+
+// CodeIsThePolicy: a call's status is 0 for a value and the policy's
+// Code for a typed failure.
+law CodeIsThePolicy(r Request, g apiapi.Given, k int) {
+	let status = 1 + ((k%125)+125)%125
+	let d = Defaults()
+	let p = Policy{..d, Code: func(f apiapi.Failure) int { status }}
+	let o = apiapi.OutcomeOf(r, g)
+	let out = runOver(Print(r), p, func(c Request) apiapi.Outcome { o })
+	match o {
+	case apiapi.Done:
+		out.Code == 0
+	case apiapi.Rejected:
+		out.Code == status
+	}
+}
+
+// TextIsThePolicy: without --json a value prints as the policy's Text;
+// with --json every outcome prints as the wire's JSON, whatever Text says.
+law TextIsThePolicy(r Request, g apiapi.Given, t string) {
+	let d = Defaults()
+	let p = Policy{..d, Text: func(reply apiapi.Reply) option.Option[string] { option.Some[string]{Value: t} }}
+	let o = apiapi.OutcomeOf(r, g)
+	let same = Show(o, true, p) == Show(o, true, d)
+	match o {
+	case apiapi.Done:
+		same && Show(o, false, p).Out == line(t)
+	case apiapi.Rejected:
+		same && Show(o, false, p) == Show(o, false, d)
+	}
+}

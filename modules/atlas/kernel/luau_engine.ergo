@@ -1,0 +1,501 @@
+import github.com/cevr/ergo/modules/atlas/handle
+import github.com/cevr/ergo/modules/atlas/handles
+import github.com/cevr/ergo/modules/atlas/questions
+import github.com/cevr/ergo/modules/atlas/subagent
+import codec
+import exec
+import json
+import option
+import strings
+
+// LuauEngineConfig configures the Phase-1 Luau sandbox kernel worker process.
+type LuauEngineConfig {
+	WorkerBinary   string,
+	MaxHeapBytes   int,
+	MaxOutputBytes int,
+}
+
+// DefaultLuauConfig returns the canonical Phase-1 Luau sandbox configuration for workerBinary.
+func DefaultLuauConfig(workerBinary string) LuauEngineConfig {
+	LuauEngineConfig{
+		WorkerBinary:   workerBinary,
+		MaxHeapBytes:   67108864,
+		MaxOutputBytes: MaxCellOutputBytes(),
+	}
+}
+
+// LuauSystemPromptNotes returns authoritative Luau VM conventions documented for agent code cells.
+func LuauSystemPromptNotes() string {
+	"Luau Phase-1 kernel: 1-based table indexing (#xs, xs[1]); top-level assignments without 'local' persist across cells in the session; reserve keyword keys use bracket syntax t[\"until\"]; inequality uses ~= nil; blocking 'question' is removed across all roles (use ask_user_async with an explicit working assumption); root agents may not call subagents.wait."
+}
+
+// LuauEvalWireReq is the JSON-wire request sent to the Phase-1 Luau kernel worker for evaluation.
+type LuauEvalWireReq {
+	CellID         string,
+	SessionID      string,
+	OwnerID        string,
+	Role           string,
+	Code           string,
+	ComputeMs      int,
+	WaitMs         int,
+	AskMs          int,
+	MaxOutputBytes int,
+	MaxHeapBytes   int,
+	ToolNames      []string,
+}
+
+// LuauCallWireEntry is one journaled call entry returned by the Luau worker during a cut.
+type LuauCallWireEntry {
+	HandleID string,
+	Tool     string,
+	Action   string,
+	Status   string,
+	Summary  string,
+}
+
+// LuauMapWireEntry is the partial parallel map cut journal returned by the Luau worker.
+type LuauMapWireEntry {
+	HasMap     bool,
+	Items      int,
+	Finished   int,
+	Pending    int,
+	Started    int,
+	NotStarted int,
+	Remaining  int,
+}
+
+// LuauCutWireInfo is the cut section of a Luau worker eval or cut response.
+type LuauCutWireInfo {
+	Started      bool,
+	Reason       string,
+	Calls        []LuauCallWireEntry,
+	Maps         LuauMapWireEntry,
+	LostBindings []string,
+}
+
+// LuauEvalWireResp is the JSON-wire response parsed from a Phase-1 Luau worker evaluation.
+type LuauEvalWireResp {
+	Status          string,
+	ValueJSON       string,
+	Logs            string,
+	ErrorKind       string,
+	ErrorMessage    string,
+	BindingsJSON    string,
+	SnapshotBytes   int,
+	HasCut          bool,
+	Cut             LuauCutWireInfo,
+	PostCutExecuted bool,
+}
+
+// LuauRestoreWireReq is the JSON-wire request sent to restore a Luau kernel session snapshot.
+type LuauRestoreWireReq {
+	SessionID         string,
+	Format            int,
+	Engine            string,
+	BindingsJSON      string,
+	EngineBytesBase64 string,
+}
+
+// LuauRestoreWireResp is the JSON-wire response parsed after restoring a Luau kernel session.
+type LuauRestoreWireResp {
+	Ok           bool,
+	Error        string,
+	LostBindings []string,
+}
+
+// LuauSnapshotWireResp is the JSON-wire response parsed from snapshots of a Luau kernel session.
+type LuauSnapshotWireResp {
+	Format            int,
+	Engine            string,
+	BuildID           string,
+	BindingsJSON      string,
+	LostBindings      []string,
+	EngineBytesBase64 string,
+}
+
+// LuauEngine implements KernelEngine against an external Phase-1 Luau worker via std/exec.Runner.
+type LuauEngine {
+	Config LuauEngineConfig,
+	Runner exec.Runner,
+} implements KernelEngine
+
+// NewLuauEngine constructs a Phase-1 Luau KernelEngine backed by runner.
+func NewLuauEngine(cfg LuauEngineConfig, runner exec.Runner) LuauEngine {
+	LuauEngine{Config: cfg, Runner: runner}
+}
+
+// EngineName returns "luau".
+func EngineName(_ LuauEngine) string { "luau" }
+
+func roleWireName(r subagent.AgentRole) string {
+	match r {
+	case subagent.RoleRoot:
+		"root"
+	case subagent.RolePlanner:
+		"planner"
+	case subagent.RoleImplementor:
+		"implementor"
+	case subagent.RoleVerifier:
+		"verifier"
+	case subagent.RoleReviewer:
+		"reviewer"
+	case subagent.RoleWorker:
+		"worker"
+	}
+}
+
+func runLuauOp(e LuauEngine, op string, stdinText string) string fails KernelError {
+	let cmd = exec.New(e.Config.WorkerBinary, []string{"--op", op}).WithStdin(stdinText)
+	let res = e.Runner.Run(cmd) catch {
+	case exec.NotFound as nf:
+		return EngineFailure{Message: "luau worker not found: " + nf.Name}
+	case exec.Denied:
+		return EngineFailure{Message: "luau worker denied"}
+	case exec.Failed as fl:
+		return EngineFailure{Message: "luau worker failed: " + fl.Reason}
+	}
+	if res.Status != 0 {
+		return EngineFailure{Message: "luau worker exited non-zero: \(res.Status) " + res.Stderr}
+	}
+	res.Stdout
+}
+
+func decodeEvalStatus(s string) EvalStatus {
+	match s {
+	case "unfinished":
+		EvalUnfinished
+	case "handed":
+		EvalHanded
+	case "cut":
+		EvalCut
+	case "killed":
+		EvalKilled
+	case "failed":
+		EvalFailed
+	case _:
+		EvalCompleted
+	}
+}
+
+func decodeCutReason(s string) CutReason {
+	match s {
+	case "started":
+		CutStarted
+	case "waiting":
+		CutWaiting
+	case "asking":
+		CutAsking
+	case "compute":
+		CutCompute
+	case "idle":
+		CutIdle
+	case "killed":
+		CutKilled
+	case _:
+		CutCompleted
+	}
+}
+
+func decodeCallStatus(s string) CallStatus {
+	match s {
+	case "pending":
+		CallPending
+	case "interrupted":
+		CallInterrupted
+	case "started":
+		CallStarted
+	case _:
+		CallFinished
+	}
+}
+
+func decodeCutInfo(wire LuauCutWireInfo) CutReport {
+	let mut calls = []CallJournalEntry{}
+	for c in wire.Calls {
+		calls = calls.Append(CallJournalEntry{
+			HandleID: handle.HandleID(c.HandleID),
+			Tool:     c.Tool,
+			Action:   c.Action,
+			Status:   decodeCallStatus(c.Status),
+			Summary:  c.Summary,
+		})
+	}
+	let maps = if wire.Maps.HasMap {
+		option.Some[MapCutJournal]{
+			Value: MapCutJournal{
+				Items:      wire.Maps.Items,
+				Finished:   wire.Maps.Finished,
+				Pending:    wire.Maps.Pending,
+				Started:    wire.Maps.Started,
+				NotStarted: wire.Maps.NotStarted,
+				Remaining:  wire.Maps.Remaining,
+			},
+		}
+	} else {
+		option.None
+	}
+	BuildCutReport(CutJournalInput{
+		Started:      wire.Started,
+		Reason:       decodeCutReason(wire.Reason),
+		Calls:        calls,
+		Maps:         maps,
+		Sleeps:       []SleepCutEntry{},
+		LostBindings: wire.LostBindings,
+	})
+}
+
+// Eval encodes req as JSON, executes the Phase-1 Luau worker, and decodes bounded bindings & cut journals.
+func Eval(e LuauEngine, req EvalRequest) EvalResult fails KernelError {
+	for t in req.ToolNames {
+		if t == questions.RemovedToolID() {
+			try EnforceRoleToolPolicy(req.Role, t, "")
+		}
+	}
+	if strings.Contains(req.Code, "subagents.wait") {
+		try EnforceRoleToolPolicy(req.Role, "subagents", "wait")
+	}
+	let wireReq = LuauEvalWireReq{
+		CellID:         req.CellID,
+		SessionID:      string(req.SessionID),
+		OwnerID:        handle.OwnerText(req.Owner),
+		Role:           roleWireName(req.Role),
+		Code:           req.Code,
+		ComputeMs:      req.ComputeMs,
+		WaitMs:         req.WaitMs,
+		AskMs:          req.AskMs,
+		MaxOutputBytes: e.Config.MaxOutputBytes,
+		MaxHeapBytes:   e.Config.MaxHeapBytes,
+		ToolNames:      questions.FilterVisibleTools(req.Role, req.ToolNames),
+	}
+	let rawReq = json.Encode(json.Codec[LuauEvalWireReq]{MaxBytes: 0, MaxDepth: 0}, wireReq)
+	let rawResp = try runLuauOp(e, "eval", rawReq)
+	let resp = json.Decode(json.Codec[LuauEvalWireResp]{MaxBytes: 262144, MaxDepth: 32}, rawResp) catch {
+	case json.Malformed as m:
+		return EngineFailure{Message: "luau eval malformed JSON: " + m.Reason}
+	case codec.WireMissingField, codec.WireWrongKind:
+		return EngineFailure{Message: "luau eval wire mismatch"}
+	}
+	if resp.BindingsJSON.Len() > MaxSnapshotBytes() {
+		return SnapshotTooLarge{Bytes: resp.BindingsJSON.Len(), Limit: MaxSnapshotBytes()}
+	}
+	let cutOpt = if resp.HasCut {
+		option.Some[CutReport]{Value: decodeCutInfo(resp.Cut)}
+	} else {
+		option.None
+	}
+	EvalResult{
+		Status:          decodeEvalStatus(resp.Status),
+		ValueJSON:       resp.ValueJSON,
+		Logs:            resp.Logs,
+		ErrorKind:       resp.ErrorKind,
+		ErrorMessage:    resp.ErrorMessage,
+		BindingsJSON:    resp.BindingsJSON,
+		SnapshotBytes:   resp.SnapshotBytes,
+		Cut:             cutOpt,
+		PostCutExecuted: resp.PostCutExecuted,
+	}
+}
+
+// Snapshot requests a JSON binding snapshot from the Luau kernel worker.
+func Snapshot(e LuauEngine, sessionID handle.SessionID) SnapshotBlob fails KernelError {
+	let rawResp = try runLuauOp(e, "snapshot", string(sessionID))
+	let resp = json.Decode(json.Codec[LuauSnapshotWireResp]{MaxBytes: 262144, MaxDepth: 16}, rawResp) catch {
+	case json.Malformed as m:
+		return EngineFailure{Message: "luau snapshot malformed JSON: " + m.Reason}
+	case codec.WireMissingField, codec.WireWrongKind:
+		return EngineFailure{Message: "luau snapshot wire mismatch"}
+	}
+	if resp.BindingsJSON.Len() > MaxSnapshotBytes() {
+		return SnapshotTooLarge{Bytes: resp.BindingsJSON.Len(), Limit: MaxSnapshotBytes()}
+	}
+	SnapshotBlob{
+		Format:            resp.Format,
+		Engine:            resp.Engine,
+		BuildID:           resp.BuildID,
+		BindingsJSON:      resp.BindingsJSON,
+		LostBindings:      resp.LostBindings,
+		EngineBytesBase64: resp.EngineBytesBase64,
+	}
+}
+
+// Restore restores serialized Luau globals and emits a lost-bindings notice ONLY when bindings are lost.
+func Restore(e LuauEngine, sessionID handle.SessionID, blob SnapshotBlob) RestoreResult fails KernelError {
+	if blob.BindingsJSON.Len() > MaxSnapshotBytes() {
+		return SnapshotTooLarge{Bytes: blob.BindingsJSON.Len(), Limit: MaxSnapshotBytes()}
+	}
+	let wireReq = LuauRestoreWireReq{
+		SessionID:         string(sessionID),
+		Format:            blob.Format,
+		Engine:            blob.Engine,
+		BindingsJSON:      blob.BindingsJSON,
+		EngineBytesBase64: blob.EngineBytesBase64,
+	}
+	let rawReq = json.Encode(json.Codec[LuauRestoreWireReq]{MaxBytes: 0, MaxDepth: 0}, wireReq)
+	let rawResp = try runLuauOp(e, "restore", rawReq)
+	let resp = json.Decode(json.Codec[LuauRestoreWireResp]{MaxBytes: 131072, MaxDepth: 16}, rawResp) catch {
+	case json.Malformed as m:
+		return EngineFailure{Message: "luau restore malformed JSON: " + m.Reason}
+	case codec.WireMissingField, codec.WireWrongKind:
+		return EngineFailure{Message: "luau restore wire mismatch"}
+	}
+	if !resp.Ok {
+		return EngineFailure{Message: "luau restore failed: " + resp.Error}
+	}
+	let notice = FormatLostBindingsNotice(resp.LostBindings)
+	RestoreResult{
+		Restored:     true,
+		LostBindings: resp.LostBindings,
+		Notice:       notice,
+	}
+}
+
+// Cut instructs the Luau worker to cut cellID at reason and returns its CutReport.
+func Cut(e LuauEngine, cellID string, reason CutReason) CutReport fails KernelError {
+	let rawResp = try runLuauOp(e, "cut", cellID)
+	let resp = json.Decode(json.Codec[LuauCutWireInfo]{MaxBytes: 131072, MaxDepth: 16}, rawResp) catch {
+	case json.Malformed as m:
+		return EngineFailure{Message: "luau cut malformed JSON: " + m.Reason}
+	case codec.WireMissingField, codec.WireWrongKind:
+		return EngineFailure{Message: "luau cut wire mismatch"}
+	}
+	let rep = decodeCutInfo(resp)
+	CutReport{..rep, Reason: reason}
+}
+
+// Kill instructs the Luau worker to terminate cellID cleanly.
+func Kill(e LuauEngine, cellID string) fails KernelError {
+	let _ = try runLuauOp(e, "kill", cellID)
+}
+
+// Close stops the Phase-1 Luau worker cleanly.
+func Close(e LuauEngine) fails KernelError {
+	let _ = try runLuauOp(e, "close", "")
+}
+
+func makeLuauScriptRunner(worker string, evalJSON string, snapJSON string, restoreJSON string, cutJSON string) exec.Script {
+	let evalCmd = exec.New(worker, []string{"--op", "eval"})
+	let snapCmd = exec.New(worker, []string{"--op", "snapshot"})
+	let restoreCmd = exec.New(worker, []string{"--op", "restore"})
+	let cutCmd = exec.New(worker, []string{"--op", "cut"})
+	let killCmd = exec.New(worker, []string{"--op", "kill"})
+	let closeCmd = exec.New(worker, []string{"--op", "close"})
+	let mut results = Map[string, exec.Result]{}
+	results[exec.Key(evalCmd)] = exec.Result{Stdout: evalJSON, Stderr: "", Status: 0}
+	results[exec.Key(snapCmd)] = exec.Result{Stdout: snapJSON, Stderr: "", Status: 0}
+	results[exec.Key(restoreCmd)] = exec.Result{Stdout: restoreJSON, Stderr: "", Status: 0}
+	results[exec.Key(cutCmd)] = exec.Result{Stdout: cutJSON, Stderr: "", Status: 0}
+	results[exec.Key(killCmd)] = exec.Result{Stdout: "{\"ok\":true}", Stderr: "", Status: 0}
+	results[exec.Key(closeCmd)] = exec.Result{Stdout: "{\"ok\":true}", Stderr: "", Status: 0}
+	exec.Script{Results: results}
+}
+
+// LuauWireEvalAndCutLaw proves Phase-1 Luau wire evaluation, cut.maps/cut.calls decoding, and KernelEngine swap.
+law LuauWireEvalAndCutLaw() {
+	let evalResp = LuauEvalWireResp{
+		Status:        "handed",
+		ValueJSON:     "null",
+		Logs:          "started batch\n",
+		ErrorKind:     "unfinished",
+		ErrorMessage:  "120s wait bound",
+		BindingsJSON:  "{\"x\":10}",
+		SnapshotBytes: 8,
+		HasCut:        true,
+		Cut:           LuauCutWireInfo{
+			Started: true,
+			Reason:  "waiting",
+			Calls:   []LuauCallWireEntry{
+				LuauCallWireEntry{HandleID: "h-call-1", Tool: "shell", Action: "start", Status: "started", Summary: "sleep 300"},
+			},
+			Maps: LuauMapWireEntry{
+				HasMap:     true,
+				Items:      5,
+				Finished:   2,
+				Pending:    1,
+				Started:    1,
+				NotStarted: 1,
+				Remaining:  3,
+			},
+			LostBindings: []string{},
+		},
+		PostCutExecuted: false,
+	}
+	let snapResp = LuauSnapshotWireResp{
+		Format:            2,
+		Engine:            "luau",
+		BuildID:           "luau-cpp",
+		BindingsJSON:      "{\"x\":10}",
+		LostBindings:      []string{},
+		EngineBytesBase64: "",
+	}
+	let restoreClean = LuauRestoreWireResp{Ok: true, Error: "", LostBindings: []string{}}
+	let cutWire = evalResp.Cut
+	let codecEval = json.Codec[LuauEvalWireResp]{MaxBytes: 0, MaxDepth: 0}
+	let codecSnap = json.Codec[LuauSnapshotWireResp]{MaxBytes: 0, MaxDepth: 0}
+	let codecRest = json.Codec[LuauRestoreWireResp]{MaxBytes: 0, MaxDepth: 0}
+	let codecCut = json.Codec[LuauCutWireInfo]{MaxBytes: 0, MaxDepth: 0}
+	let worker = "/usr/local/bin/atlas-luau-worker"
+	let runner = makeLuauScriptRunner(
+		worker,
+		json.Encode(codecEval, evalResp),
+		json.Encode(codecSnap, snapResp),
+		json.Encode(codecRest, restoreClean),
+		json.Encode(codecCut, cutWire),
+	)
+	let eng = NewLuauEngine(DefaultLuauConfig(worker), runner)
+	let mut reg = handles.NewRegistry()
+	let owner = handle.OwnerID{ServerID: "srv", Location: "cell-1", Epoch: 1}
+	reg = handles.OpenCallOrLand(reg, handle.OpenHandleSpec{ID: "h-call-1", Kind: handle.KindCall, Owner: owner, Session: "sess-k1", Summary: ""}, "th-k1", "") catch {
+	case handles.HandleServiceError:
+		return false
+	}
+	let req = makeTestEvalReq(subagent.RoleImplementor, "x = 10", []string{"shell", "subagents"}, []handle.HandleID{"h-call-1"})
+	let (_, res) = RunCellWithEngine(eng, reg, req) catch {
+	case KernelError:
+		return false
+	}
+	let snap = eng.Snapshot("sess-k1") catch {
+	case KernelError:
+		return false
+	}
+	let restClean = eng.Restore("sess-k1", snap) catch {
+	case KernelError:
+		return false
+	}
+	let cutRep = eng.Cut("cell-1", CutWaiting) catch {
+	case KernelError:
+		return false
+	}
+	let restoreLost = LuauRestoreWireResp{Ok: true, Error: "", LostBindings: []string{"fn_cb"}}
+	let runnerLost = makeLuauScriptRunner(worker, "{}", "{}", json.Encode(codecRest, restoreLost), "{}")
+	let engLost = NewLuauEngine(DefaultLuauConfig(worker), runnerLost)
+	let restLost = engLost.Restore("sess-k1", snap) catch {
+	case KernelError:
+		return false
+	}
+	let okCutMaps = match cutRep.Maps {
+	case option.Some[MapCutJournal] as m:
+		m.Value.Items == 5 && m.Value.Remaining == 3 && m.Value.Finished == 2
+	case option.None:
+		false
+	}
+		eng.EngineName() == "luau" &&
+		res.Status == EvalHanded &&
+		!res.PostCutExecuted &&
+		snap.Engine == "luau" &&
+		restClean.Notice == "" &&
+		restLost.Notice != "" &&
+		restLost.Notice.Len() <= MaxLostBindingsNoticeChars() &&
+		cutRep.Started &&
+		okCutMaps &&
+		cutRep.Calls.Len() == 1
+}
+
+// LuauSystemPromptNotesLaw ensures Luau prompt guidance explicitly covers 1-based indexing and globals.
+law LuauSystemPromptNotesLaw() {
+	let notes = LuauSystemPromptNotes()
+		strings.Contains(notes, "1-based") &&
+		strings.Contains(notes, "persist") &&
+		strings.Contains(notes, "until") &&
+		strings.Contains(notes, "~= nil") &&
+		strings.Contains(notes, "ask_user_async")
+}

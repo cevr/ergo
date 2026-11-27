@@ -1,0 +1,8 @@
+--store
+:memory:
+host-capacity-get
+-volumes
+/
+-volumes
+/workspaces
+--json

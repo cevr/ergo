@@ -1,0 +1,234 @@
+import codec
+import github.com/cevr/ergo/modules/atlas/api
+import json
+import option
+import os/host
+import strconv
+import strings
+
+// CmdMCP runs the stdio MCP server.
+type CmdMCP {}
+
+// CmdServe runs the HTTP/MCP/RPC/wellness server.
+type CmdServe {}
+
+// CmdWellness runs a single non-spawning wellness check and exits.
+type CmdWellness {}
+
+// CmdCLI dispatches generated CLI commands.
+type CmdCLI {}
+
+// TopCommand classifies top-level CLI dispatch modes cleanly without string comparisons.
+type TopCommand = CmdMCP | CmdServe | CmdWellness | CmdCLI
+
+// ParsedArgs holds top-level store path selection, command mode, and remaining flags.
+type ParsedArgs {
+	StorePath    string,
+	HasStoreFlag bool,
+	Command      TopCommand,
+	HTTPAddr     string,
+	JSONOutput   bool,
+	Rest         []string,
+}
+
+// ConfigError reports malformed CLI flags or deterministic environment overrides.
+type ConfigError {
+	Field  string,
+	Reason string,
+}
+
+type staticStatusWrapper {
+	Status host.Status,
+}
+
+// DefaultHTTPAddr returns the loopback default listen address for `atlas serve`.
+func DefaultHTTPAddr() string {
+	"127.0.0.1:8787"
+}
+
+func extractStoreFlag(args []string) (string, bool, []string) fails ConfigError {
+	let mut storePath = ""
+	let mut hasStore = false
+	let mut rest = []string{}
+	let mut i = 0
+	for i < args.Len() {
+		let a = args[i]
+		if a == "--store" {
+			if i+1 >= args.Len() {
+				return ConfigError{Field: "--store", Reason: "missing value after --store"}
+			}
+			storePath = args[i+1]
+			hasStore = true
+			i = i + 2
+			continue
+		}
+		if strings.HasPrefix(a, "--store=") {
+			storePath = strings.Slice(a, 8, a.Len())
+			hasStore = true
+			i = i + 1
+			continue
+		}
+		rest = rest.Append(a)
+		i = i + 1
+	}
+	(storePath, hasStore, rest)
+}
+
+func extractModeFlags(rest []string, allowHTTP bool) (string, bool, []string) fails ConfigError {
+	let mut httpAddr = DefaultHTTPAddr()
+	let mut jsonOut = false
+	let mut rem = []string{}
+	let mut j = 1
+	for j < rest.Len() {
+		let cur = rest[j]
+		if allowHTTP && cur == "--http" {
+			if j+1 >= rest.Len() {
+				return ConfigError{Field: "--http", Reason: "missing address after --http"}
+			}
+			httpAddr = rest[j+1]
+			j = j + 2
+			continue
+		}
+		if allowHTTP && strings.HasPrefix(cur, "--http=") {
+			httpAddr = strings.Slice(cur, 7, cur.Len())
+			j = j + 1
+			continue
+		}
+		if cur == "--json" {
+			jsonOut = true
+		}
+		rem = rem.Append(cur)
+		j = j + 1
+	}
+	(httpAddr, jsonOut, rem)
+}
+
+func modeOfHead(head string) option.Option[TopCommand] {
+	match head {
+	case "mcp":
+		option.Some[TopCommand]{Value: CmdMCP}
+	case "serve":
+		option.Some[TopCommand]{Value: CmdServe}
+	case "wellness":
+		option.Some[TopCommand]{Value: CmdWellness}
+	case _:
+		option.None
+	}
+}
+
+func hoistCLIJSONFlag(rest []string) []string {
+	let mut hasJSON = false
+	let mut args = []string{}
+	for _, a in rest {
+		if a == "--json" {
+			hasJSON = true
+			continue
+		}
+		args = args.Append(a)
+	}
+	if hasJSON {
+		return []string{"--json"}.Concat(args)
+	}
+	rest
+}
+
+// ParseTopArgs extracts global `--store` and top-level mode (`mcp`, `serve`, `wellness`, or `cli`).
+func ParseTopArgs(args []string) ParsedArgs fails ConfigError {
+	let (storePath, hasStore, rest) = try extractStoreFlag(args)
+	if rest.Len() == 0 {
+		return ParsedArgs{StorePath: storePath, HasStoreFlag: hasStore, Command: CmdCLI, HTTPAddr: DefaultHTTPAddr(), JSONOutput: false, Rest: []string{"--help"}}
+	}
+	match modeOfHead(rest[0]) {
+	case option.Some[TopCommand] as cmd:
+		let allowHTTP = cmd.Value == CmdServe
+		let (httpAddr, jsonOut, rem) = try extractModeFlags(rest, allowHTTP)
+		ParsedArgs{StorePath: storePath, HasStoreFlag: hasStore, Command: cmd.Value, HTTPAddr: httpAddr, JSONOutput: jsonOut, Rest: rem}
+	case option.None:
+		ParsedArgs{StorePath: storePath, HasStoreFlag: hasStore, Command: CmdCLI, HTTPAddr: DefaultHTTPAddr(), JSONOutput: false, Rest: hoistCLIJSONFlag(rest)}
+	}
+}
+
+// ParseNowEnv parses optional ATLAS_NOW as a non-negative Unix millisecond timestamp.
+func ParseNowEnv(raw option.Option[string]) option.Option[int64] fails ConfigError {
+	match raw {
+	case option.None:
+		option.None
+	case option.Some[string] as v:
+		let trimmed = strings.TrimSpace(v.Value)
+		if trimmed == "" {
+			return option.None
+		}
+		let parsed = strconv.ParseInt(trimmed, 10, 64) catch {
+		case strconv.Malformed, strconv.OutOfRange:
+			return ConfigError{Field: "ATLAS_NOW", Reason: "expected integer timestamp"}
+		}
+		if parsed < int64(0) {
+			return ConfigError{Field: "ATLAS_NOW", Reason: "timestamp must be non-negative"}
+		}
+		option.Some[int64]{Value: parsed}
+	}
+}
+
+// ParseStaticHostStatus parses optional ATLAS_HOST_STATIC JSON into host.Status.
+func ParseStaticHostStatus(raw option.Option[string]) option.Option[host.Status] fails ConfigError {
+	match raw {
+	case option.None:
+		option.None
+	case option.Some[string] as v:
+		let trimmed = strings.TrimSpace(v.Value)
+		if trimmed == "" {
+			return option.None
+		}
+		let wrapped = json.Decode(json.Codec[staticStatusWrapper]{MaxBytes: 0, MaxDepth: 0}, trimmed) catch {
+		case json.Malformed, codec.WireMissingField, codec.WireWrongKind:
+			let direct = json.Decode(json.Codec[host.Status]{MaxBytes: 0, MaxDepth: 0}, trimmed) catch {
+			case json.Malformed, codec.WireMissingField, codec.WireWrongKind:
+				return ConfigError{Field: "ATLAS_HOST_STATIC", Reason: "invalid host status JSON"}
+			}
+			return option.Some[host.Status]{Value: direct}
+		}
+		if wrapped.Status.Cores > 0 {
+			return option.Some[host.Status]{Value: wrapped.Status}
+		}
+		let direct = json.Decode(json.Codec[host.Status]{MaxBytes: 0, MaxDepth: 0}, trimmed) catch {
+		case json.Malformed, codec.WireMissingField, codec.WireWrongKind:
+			return ConfigError{Field: "ATLAS_HOST_STATIC", Reason: "invalid host status JSON"}
+		}
+		option.Some[host.Status]{Value: direct}
+	}
+}
+
+// BuildCapacityFromStatic builds a deterministic HostCapacity provider from raw ATLAS_HOST_STATIC JSON.
+func BuildCapacityFromStatic(raw string) api.HostCapacity fails ConfigError {
+	let parsed = try ParseStaticHostStatus(option.Some[string]{Value: raw})
+	match parsed {
+	case option.Some[host.Status] as st:
+		let built = api.NewStaticHostCapacity(st.Value) catch {
+		case api.HostCapacityFailed as e:
+			return ConfigError{Field: "ATLAS_HOST_STATIC", Reason: e.Reason}
+		}
+		built
+	case option.None:
+		ConfigError{Field: "ATLAS_HOST_STATIC", Reason: "empty host status payload"}
+	}
+}
+
+test ConfigParsingAndStaticHost {
+	let p1 = try ParseTopArgs([]string{"--store", ":memory:", "serve", "--http=127.0.0.1:9090"})
+	assert p1.HasStoreFlag && p1.StorePath == ":memory:" && p1.Command == CmdServe && p1.HTTPAddr == "127.0.0.1:9090"
+
+	let p2 = try ParseTopArgs([]string{"thread-get", "--store=:memory:", "-thread-id=t1"})
+	assert p2.HasStoreFlag && p2.StorePath == ":memory:" && p2.Command == CmdCLI && p2.Rest.Len() == 2
+
+	let nowOpt = try ParseNowEnv(option.Some[string]{Value: "1764145200000"})
+	assert nowOpt == option.Some[int64]{Value: int64(1764145200000)}
+
+	let sample = "{\"status\":{\"cores\":8,\"load\":{\"one\":1.0,\"five\":0.8,\"fifteen\":0.5,\"running\":2,\"entities\":50},\"memory\":{\"totalBytes\":17179869184,\"availableBytes\":10737418240,\"freeBytes\":4294967296,\"usedBytes\":6442450944},\"volumes\":[{\"path\":\"/\",\"totalBytes\":107374182400,\"freeBytes\":53687091200,\"availableBytes\":42949672960,\"usedBytes\":53687091200}]}}"
+	let cap = try BuildCapacityFromStatic(sample)
+	let rep = cap.Measure([]string{"/"}) catch {
+	case api.HostCapacityFailed:
+		assert false
+		return
+	}
+	assert rep.Cores == 8 && rep.MemAvailGiB == 10.0 && rep.Volumes.Len() == 1
+}

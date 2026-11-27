@@ -1,0 +1,798 @@
+import github.com/cevr/ergo/modules/atlas/adapter
+import github.com/cevr/ergo/modules/atlas/handle
+import github.com/cevr/ergo/modules/atlas/handles
+import github.com/cevr/ergo/modules/atlas/memory
+import github.com/cevr/ergo/modules/atlas/sqlite
+import github.com/cevr/ergo/modules/atlas/subagent
+import github.com/cevr/ergo/modules/atlas/thread
+import github.com/cevr/ergo/modules/atlas/turn
+import option
+import strings
+
+// RemovedToolID returns the blocking question tool ID disabled across all roles.
+func RemovedToolID() string { "question" }
+
+// AsyncQuestionToolID returns the single async question tool ID used across all roles.
+func AsyncQuestionToolID() string { "ask_user_async" }
+
+// RemovedToolIDs returns all disabled blocking question tool identifiers.
+func RemovedToolIDs() []string { []string{RemovedToolID()} }
+
+// MaxHeaderChars returns the maximum short header length accepted by ask_user_async.
+func MaxHeaderChars() int { 30 }
+
+// DefaultAskTimeoutMs returns the 10-minute default asking bound in milliseconds.
+func DefaultAskTimeoutMs() int { 600000 }
+
+// BlockingQuestionForbidden indicates an attempt to invoke the removed blocking question tool.
+type BlockingQuestionForbidden { Role subagent.AgentRole, Tool string, Replacement string }
+
+// InvalidQuestionInput indicates malformed parameters to ask_user_async or answer.
+type InvalidQuestionInput { Field string, Reason string }
+
+// DuplicateQuestion indicates an ask_user_async ID already exists.
+type DuplicateQuestion { ID turn.RequestID }
+
+// UnknownQuestion indicates an ask_user_async ID was not found.
+type UnknownQuestion { ID turn.RequestID }
+
+// QuestionAlreadyClosed indicates an answer or withdraw targeted an already terminal question.
+type QuestionAlreadyClosed { ID turn.RequestID, Status memory.QuestionStatus }
+
+// QuestionHandleError wraps a failure from the handles registry.
+type QuestionHandleError { Cause handles.HandleServiceError }
+
+// QuestionStoreError wraps a store persistence failure.
+type QuestionStoreError { Message string }
+
+// QuestionError enumerates failures returned by the questions subsystem.
+type QuestionError = BlockingQuestionForbidden | InvalidQuestionInput | DuplicateQuestion | UnknownQuestion | QuestionAlreadyClosed | QuestionHandleError | QuestionStoreError
+
+// AskInput carries validated inputs for ask_user_async.
+type AskInput {
+	ID         turn.RequestID,
+	ThreadID   handle.ThreadID,
+	HandleID   handle.HandleID,
+	Owner      handle.OwnerID,
+	Session    handle.SessionID,
+	Header     string,
+	Prompt     string,
+	Assumption string,
+	Options    []string,
+	TargetRole subagent.AgentRole,
+	NowMs      int,
+}
+
+// QuestionRecord tracks the lifecycle of one ask_user_async question.
+type QuestionRecord {
+	ID          turn.RequestID,
+	ThreadID    handle.ThreadID,
+	HandleID    handle.HandleID,
+	Owner       handle.OwnerID,
+	Session     handle.SessionID,
+	Header      string,
+	Prompt      string,
+	Assumption  string,
+	Options     []string,
+	TargetRole  subagent.AgentRole,
+	Status      memory.QuestionStatus,
+	Answer      option.Option[string],
+	AnsweredBy  option.Option[turn.Responder],
+	AskedAtMs   int,
+	ClosedAtMs  option.Option[int],
+	WakeEmitted bool,
+}
+
+// AskOutcome is the non-blocking result returned immediately by ask_user_async.
+type AskOutcome {
+	Accepted          bool,
+	ID                turn.RequestID,
+	HandleID          handle.HandleID,
+	WorkingAssumption string,
+	NonBlocking       bool,
+}
+
+// QuestionBook maintains in-memory question records bridged to DelivererQuestions.
+type QuestionBook {
+	Entries  Map[turn.RequestID, QuestionRecord],
+	Order    []turn.RequestID,
+	Registry handles.Registry,
+}
+
+// NewBook returns an empty QuestionBook.
+func NewBook() QuestionBook {
+	QuestionBook{
+		Entries:  Map[turn.RequestID, QuestionRecord]{},
+		Order:    []turn.RequestID{},
+		Registry: handles.NewRegistry(),
+	}
+}
+
+func putQuestion(m Map[turn.RequestID, QuestionRecord], k turn.RequestID, v QuestionRecord) Map[turn.RequestID, QuestionRecord] {
+	let mut out = m
+	out[k] = v
+	out
+}
+
+// AllAgentRoles enumerates every Atlas agent role governed by the async-only question rule.
+func AllAgentRoles() []subagent.AgentRole {
+	[]subagent.AgentRole{
+		subagent.RoleRoot,
+		subagent.RolePlanner,
+		subagent.RoleImplementor,
+		subagent.RoleVerifier,
+		subagent.RoleReviewer,
+		subagent.RoleWorker,
+	}
+}
+
+// RequireAsyncOnly enforces that no role may call blocking question and names ask_user_async.
+func RequireAsyncOnly(role subagent.AgentRole, toolName string) fails BlockingQuestionForbidden {
+	if toolName == RemovedToolID() {
+		return BlockingQuestionForbidden{
+			Role:        role,
+			Tool:        toolName,
+			Replacement: AsyncQuestionToolID(),
+		}
+	}
+}
+
+// FilterVisibleTools strips removed blocking question tools from any role tool list while preserving ask_user_async.
+func FilterVisibleTools(_ subagent.AgentRole, toolNames []string) []string {
+	let mut out = []string{}
+	let mut hasAsync = false
+	for name in toolNames {
+		if name != RemovedToolID() {
+			if name == AsyncQuestionToolID() {
+				hasAsync = true
+			}
+			out = out.Append(name)
+		}
+	}
+	if !hasAsync {
+		out = out.Append(AsyncQuestionToolID())
+	}
+	out
+}
+
+// ValidateAsk validates ask_user_async fields and ensures an explicit working assumption is provided.
+func ValidateAsk(req AskInput) fails InvalidQuestionInput {
+	if strings.TrimSpace(string(req.ID)) == "" {
+		return InvalidQuestionInput{Field: "id", Reason: "question id is required"}
+	}
+	if strings.TrimSpace(string(req.HandleID)) == "" {
+		return InvalidQuestionInput{Field: "handle_id", Reason: "handle id is required"}
+	}
+	let header = strings.TrimSpace(req.Header)
+	if header == "" {
+		return InvalidQuestionInput{Field: "header", Reason: "header is required"}
+	}
+	if header.Len() > MaxHeaderChars() {
+		return InvalidQuestionInput{Field: "header", Reason: "header exceeds 30 chars"}
+	}
+	if strings.TrimSpace(req.Prompt) == "" {
+		return InvalidQuestionInput{Field: "prompt", Reason: "prompt is required"}
+	}
+	if strings.TrimSpace(req.Assumption) == "" {
+		return InvalidQuestionInput{Field: "assumption", Reason: "ask_user_async must state its working assumption"}
+	}
+}
+
+// AskAsync opens a persistent async question and KindQuestion handle under DelivererQuestions without blocking.
+func AskAsync(book QuestionBook, req AskInput) (QuestionBook, AskOutcome) fails QuestionError {
+	try ValidateAsk(req)
+	match book.Entries.Get(req.ID) {
+	case option.Some[QuestionRecord]:
+		return DuplicateQuestion{ID: req.ID}
+	case option.None:
+	}
+	let spec = handle.OpenHandleSpec{
+		ID:      req.HandleID,
+		Kind:    handle.KindQuestion,
+		Owner:   req.Owner,
+		Session: req.Session,
+		Summary: strings.TrimSpace(req.Header),
+	}
+	let nextReg = handles.OpenHostHandle(book.Registry, spec, req.ThreadID, req.Prompt) catch {
+	case handles.HandleServiceError as err:
+		return QuestionHandleError{Cause: err}
+	}
+	let rec = QuestionRecord{
+		ID:          req.ID,
+		ThreadID:    req.ThreadID,
+		HandleID:    req.HandleID,
+		Owner:       req.Owner,
+		Session:     req.Session,
+		Header:      strings.TrimSpace(req.Header),
+		Prompt:      req.Prompt,
+		Assumption:  req.Assumption,
+		Options:     req.Options,
+		TargetRole:  req.TargetRole,
+		Status:      memory.QuestionOpen,
+		Answer:      option.None,
+		AnsweredBy:  option.None,
+		AskedAtMs:   req.NowMs,
+		ClosedAtMs:  option.None,
+		WakeEmitted: false,
+	}
+	let nextBook = QuestionBook{
+		Entries:  putQuestion(book.Entries, req.ID, rec),
+		Order:    book.Order.Append(req.ID),
+		Registry: nextReg,
+	}
+	let outcome = AskOutcome{
+		Accepted:          true,
+		ID:                req.ID,
+		HandleID:          req.HandleID,
+		WorkingAssumption: rec.Assumption,
+		NonBlocking:       true,
+	}
+	(nextBook, outcome)
+}
+
+// AnswerAsync answers an open question once and wakes the waiting session through DelivererQuestions.
+func AnswerAsync(book QuestionBook, id turn.RequestID, answer string, by turn.Responder, nowMs int) (QuestionBook, handles.FlushOutcome) fails QuestionError {
+	let rec = match book.Entries.Get(id) {
+	case option.Some[QuestionRecord] as s:
+		s.Value
+	case option.None:
+		return UnknownQuestion{ID: id}
+	}
+	match rec.Status {
+	case memory.QuestionOpen:
+	case memory.QuestionAnswered, memory.QuestionWithdrawn:
+		return QuestionAlreadyClosed{ID: id, Status: rec.Status}
+	}
+	if strings.TrimSpace(answer) == "" {
+		return InvalidQuestionInput{Field: "answer", Reason: "answer must be non-empty"}
+	}
+	let (nextReg, queued) = handles.DeliverFromHost(book.Registry, handles.HostDeliveryReq{
+		ID:        rec.HandleID,
+		Deliverer: handle.DelivererQuestions,
+		Disp:      handle.DispSucceeded,
+		Summary:   answer,
+		NowMs:     nowMs,
+	}) catch {
+	case handles.HandleServiceError as err:
+		return QuestionHandleError{Cause: err}
+	}
+	let (flushedReg, outcome) = handles.FlushSessionBurst(nextReg, rec.Session, nowMs+handles.BurstWindowMs(), handles.TurnBusyState{TurnActive: false, Compacting: false, PoolHolding: false, QueuedPrompts: 0})
+	let updated = QuestionRecord{
+		..rec,
+		Status:      memory.QuestionAnswered,
+		Answer:      option.Some[string]{Value: answer},
+		AnsweredBy:  option.Some[turn.Responder]{Value: by},
+		ClosedAtMs:  option.Some[int]{Value: nowMs},
+		WakeEmitted: queued && outcome.Delivered,
+	}
+	let nextBook = QuestionBook{
+		..book,
+		Entries:  putQuestion(book.Entries, id, updated),
+		Registry: flushedReg,
+	}
+	(nextBook, outcome)
+}
+
+// WithdrawAsync withdraws an open question and silently cancels its KindQuestion handle without a wake.
+func WithdrawAsync(book QuestionBook, id turn.RequestID, nowMs int) QuestionBook fails QuestionError {
+	let rec = match book.Entries.Get(id) {
+	case option.Some[QuestionRecord] as s:
+		s.Value
+	case option.None:
+		return UnknownQuestion{ID: id}
+	}
+	match rec.Status {
+	case memory.QuestionOpen:
+	case memory.QuestionAnswered, memory.QuestionWithdrawn:
+		return QuestionAlreadyClosed{ID: id, Status: rec.Status}
+	}
+	let nextReg = handles.CancelHandle(book.Registry, rec.HandleID)
+	let updated = QuestionRecord{
+		..rec,
+		Status:      memory.QuestionWithdrawn,
+		ClosedAtMs:  option.Some[int]{Value: nowMs},
+		WakeEmitted: false,
+	}
+	QuestionBook{
+		..book,
+		Entries:  putQuestion(book.Entries, id, updated),
+		Registry: nextReg,
+	}
+}
+
+// Get retrieves a question record by RequestID if present.
+func Get(book QuestionBook, id turn.RequestID) option.Option[QuestionRecord] {
+	book.Entries.Get(id)
+}
+
+// ListOpen returns all currently open questions optionally filtered by threadID.
+func ListOpen(book QuestionBook, threadID option.Option[handle.ThreadID]) []QuestionRecord {
+	let mut out = []QuestionRecord{}
+	for id in book.Order {
+		match book.Entries.Get(id) {
+		case option.Some[QuestionRecord] as s:
+			let matchesThread = match threadID {
+			case option.Some[handle.ThreadID] as t:
+				s.Value.ThreadID == t.Value
+			case option.None:
+				true
+			}
+			let isOpen = match s.Value.Status {
+			case memory.QuestionOpen:
+				true
+			case memory.QuestionAnswered, memory.QuestionWithdrawn:
+				false
+			}
+			if matchesThread && isOpen {
+				out = out.Append(s.Value)
+			}
+		case option.None:
+		}
+	}
+	out
+}
+
+// QModelPhase models durable phases of an async question across restarts.
+type QModelPhase = QUnasked{} | QOpen{} | QAnswered{} | QWithdrawn{}
+
+// QModelState models the ask_user_async protocol and crash survival invariants.
+type QModelState {
+	Phase                   QModelPhase,
+	BlockedCaller           bool,
+	BlockingQuestionAllowed bool,
+	SurvivesRestart         bool,
+	WakesEmitted            int,
+	Crashes                 int,
+}
+
+// QModelAction drives QuestionLifecycle model checking.
+type QModelAction = QActAsk{} | QActAnswer{} | QActWithdraw{} | QActCrash{}
+
+func initQModel(_ bool) QModelState {
+	QModelState{
+		Phase:                   QUnasked,
+		BlockedCaller:           false,
+		BlockingQuestionAllowed: false,
+		SurvivesRestart:         true,
+		WakesEmitted:            0,
+		Crashes:                 0,
+	}
+}
+
+func stepQModel(s QModelState, a QModelAction) Decision[QModelState, int] {
+	match a {
+	case QActAsk:
+		match s.Phase {
+		case QUnasked:
+			Stay[QModelState]{Next: QModelState{..s, Phase: QOpen, BlockedCaller: false, SurvivesRestart: true}}
+		case QOpen, QAnswered, QWithdrawn:
+			Ignore
+		}
+	case QActAnswer:
+		match s.Phase {
+		case QOpen:
+			Stay[QModelState]{Next: QModelState{..s, Phase: QAnswered, WakesEmitted: s.WakesEmitted + 1}}
+		case QUnasked, QAnswered, QWithdrawn:
+			Ignore
+		}
+	case QActWithdraw:
+		match s.Phase {
+		case QOpen:
+			Stay[QModelState]{Next: QModelState{..s, Phase: QWithdrawn}}
+		case QUnasked, QAnswered, QWithdrawn:
+			Ignore
+		}
+	case QActCrash:
+		if s.Crashes < 2 {
+			Stay[QModelState]{Next: QModelState{..s, Crashes: s.Crashes + 1}}
+		} else {
+			Ignore
+		}
+	}
+}
+
+func qNeverBlocks(s QModelState) bool { !s.BlockedCaller && !s.BlockingQuestionAllowed }
+
+func qSettledOnce(s QModelState) bool {
+	let okCount = s.WakesEmitted <= 1
+	let exactAnswered = match s.Phase {
+	case QAnswered:
+		s.WakesEmitted == 1
+	case QWithdrawn, QUnasked, QOpen:
+		s.WakesEmitted == 0
+	}
+	okCount && exactAnswered
+}
+
+func qWithdrawnSilent(s QModelState) bool {
+	match s.Phase {
+	case QWithdrawn:
+		s.WakesEmitted == 0
+	case QUnasked, QOpen, QAnswered:
+		true
+	}
+}
+
+func qOpenSurvivesCrash(s QModelState) bool {
+	match s.Phase {
+	case QOpen:
+		s.SurvivesRestart
+	case QUnasked, QAnswered, QWithdrawn:
+		true
+	}
+}
+
+func qWitnessAnswered(s QModelState) bool {
+	match s.Phase {
+	case QAnswered:
+		s.WakesEmitted == 1
+	case QUnasked, QOpen, QWithdrawn:
+		false
+	}
+}
+
+func qWitnessWithdrawn(s QModelState) bool {
+	match s.Phase {
+	case QWithdrawn:
+		s.WakesEmitted == 0
+	case QUnasked, QOpen, QAnswered:
+		false
+	}
+}
+
+func qWitnessCrashThenAnswered(s QModelState) bool {
+	match s.Phase {
+	case QAnswered:
+		s.Crashes > 0 && s.WakesEmitted == 1
+	case QUnasked, QOpen, QWithdrawn:
+		false
+	}
+}
+
+// QuestionLifecycle proves async-only question invariants and crash survival exhaustively.
+type QuestionLifecycle machine[QModelState, QModelAction] {
+	initial: initQModel,
+	step:    stepQModel,
+
+	law NeverBlocksCaller always qNeverBlocks,
+	law OneWakePerAnsweredQuestion always qSettledOnce,
+	law WithdrawnNeverWakes always qWithdrawnSilent,
+	law OpenSurvivesRestart always qOpenSurvivesCrash,
+
+	law ReachesAnsweredOnce sometimes qWitnessAnswered,
+	law ReachesWithdrawnSilent sometimes qWitnessWithdrawn,
+	law SurvivesCrashThenAnswered sometimes qWitnessCrashThenAnswered,
+}
+
+func wrapQExec[R](run func() memory.ExecuteResult fails memory.NotFound | memory.AlreadyExists | memory.InvalidTransition | memory.CommandReused | memory.InvalidInput | memory.LeaseFenced | memory.ThreadDomainErr | memory.SubagentDomainErr | memory.HandleDomainErr | memory.LimitDomainErr | memory.RequestDomainErr | memory.CutoverDomainErr | memory.StoreFailed needs R) memory.ExecuteResult fails QuestionError needs R {
+	run() catch {
+	case memory.NotFound, memory.AlreadyExists, memory.InvalidTransition, memory.CommandReused, memory.InvalidInput, memory.LeaseFenced, memory.ThreadDomainErr, memory.SubagentDomainErr, memory.HandleDomainErr, memory.LimitDomainErr, memory.RequestDomainErr, memory.CutoverDomainErr, memory.StoreFailed:
+		return QuestionStoreError{Message: "question store execute failed"}
+	}
+}
+
+func questionEnvelope(seq int, atMs int, cmd memory.Command) memory.Envelope {
+	memory.Envelope{
+		ID:         memory.CommandID("questions-\(seq)"),
+		Actor:      "questions",
+		AtMs:       int64(atMs),
+		LeaseFence: option.None,
+		Command:    cmd,
+	}
+}
+
+// StoreAskAsync persists an ask_user_async prompt and KindQuestion handle into a store.
+func StoreAskAsync[R](execFn func(env memory.Envelope) memory.ExecuteResult fails QuestionError needs R, seq int, req AskInput) fails QuestionError needs R {
+	try ValidateAsk(req)
+	let _ = try execFn(questionEnvelope(seq, req.NowMs, memory.CmdAskUserAsync{
+		ID:         req.ID,
+		ThreadID:   req.ThreadID,
+		HandleID:   req.HandleID,
+		Owner:      req.Owner,
+		Session:    req.Session,
+		Header:     strings.TrimSpace(req.Header),
+		Prompt:     req.Prompt,
+		Assumption: req.Assumption,
+		Options:    req.Options,
+		TargetRole: req.TargetRole,
+	}))
+}
+
+// AnswerInput bundles validated fields for answering an open ask_user_async question.
+type AnswerInput {
+	NowMs  int,
+	ID     turn.RequestID,
+	Answer string,
+	By     turn.Responder,
+}
+
+// StoreAnswerAsync persists answering an open question into a store.
+func StoreAnswerAsync[R](execFn func(env memory.Envelope) memory.ExecuteResult fails QuestionError needs R, seq int, ans AnswerInput) fails QuestionError needs R {
+	if strings.TrimSpace(ans.Answer) == "" {
+		return InvalidQuestionInput{Field: "answer", Reason: "answer must be non-empty"}
+	}
+	let _ = try execFn(questionEnvelope(seq, ans.NowMs, memory.CmdAnswerAsyncQuestion{
+		ID:     ans.ID,
+		Answer: ans.Answer,
+		By:     ans.By,
+	}))
+}
+
+// StoreWithdrawAsync persists silently withdrawing an open question into a store.
+func StoreWithdrawAsync[R](execFn func(env memory.Envelope) memory.ExecuteResult fails QuestionError needs R, seq int, nowMs int, id turn.RequestID) fails QuestionError needs R {
+	let _ = try execFn(questionEnvelope(seq, nowMs, memory.CmdWithdrawAsyncQuestion{ID: id}))
+}
+
+// QuestionStoreChecks verifies MemStore and SQLite WALStore parity for ask_user_async lifecycle.
+type QuestionStoreChecks {
+	CheckParity(tag int) bool,
+
+	// SqliteQuestionsMatchMemory verifies WALStore matches MemStore for ask, answer, and withdraw persistence.
+	law SqliteQuestionsMatchMemory(x Self) { x.CheckParity(1) },
+}
+
+type goQuestionStoreChecks {} implements QuestionStoreChecks
+
+func CheckParity(_ goQuestionStoreChecks, _ int) bool needs go.Foreign {
+	let mem = memory.NewMemStore()
+	let wal = sqlite.NewWALStore()
+	let okMem = verifyQuestionStore(
+		func(env memory.Envelope) memory.ExecuteResult fails QuestionError {
+			wrapQExec(func() memory.ExecuteResult fails memory.NotFound | memory.AlreadyExists | memory.InvalidTransition | memory.CommandReused | memory.InvalidInput | memory.LeaseFenced | memory.ThreadDomainErr | memory.SubagentDomainErr | memory.HandleDomainErr | memory.LimitDomainErr | memory.RequestDomainErr | memory.CutoverDomainErr | memory.StoreFailed {
+				try mem.Execute(env)
+			})
+		},
+		func(f memory.QuestionFilter) []memory.AsyncQuestion fails QuestionError {
+			mem.GetQuestions(f) catch {
+			case memory.StoreFailed:
+				return QuestionStoreError{Message: "query failed"}
+			}
+		},
+		func() memory.State fails QuestionError {
+			mem.Snapshot() catch {
+			case memory.StoreFailed:
+				return QuestionStoreError{Message: "snapshot failed"}
+			}
+		},
+	)
+	let okWal = verifyQuestionStore(
+		func(env memory.Envelope) memory.ExecuteResult fails QuestionError needs go.Foreign {
+			wrapQExec(func() memory.ExecuteResult fails memory.NotFound | memory.AlreadyExists | memory.InvalidTransition | memory.CommandReused | memory.InvalidInput | memory.LeaseFenced | memory.ThreadDomainErr | memory.SubagentDomainErr | memory.HandleDomainErr | memory.LimitDomainErr | memory.RequestDomainErr | memory.CutoverDomainErr | memory.StoreFailed needs go.Foreign {
+				try wal.Execute(env)
+			})
+		},
+		func(f memory.QuestionFilter) []memory.AsyncQuestion fails QuestionError needs go.Foreign {
+			wal.GetQuestions(f) catch {
+			case memory.StoreFailed:
+				return QuestionStoreError{Message: "query failed"}
+			}
+		},
+		func() memory.State fails QuestionError needs go.Foreign {
+			wal.Snapshot() catch {
+			case memory.StoreFailed:
+				return QuestionStoreError{Message: "snapshot failed"}
+			}
+		},
+	)
+	sqlite.CloseWAL(wal) catch {
+	case memory.StoreFailed:
+		return false
+	}
+	okMem && okWal
+}
+
+func makeSeedThreadSpec(id handle.ThreadID) thread.ThreadSpec {
+	thread.ThreadSpec{
+		ID:                 id,
+		ParentThreadID:     option.None,
+		Driver:             adapter.ClaudeMeta,
+		AgyDirectSupported: false,
+		RequestedMode:      adapter.ModeAutoEdit,
+		Instance:           adapter.InstanceID("inst-1"),
+		ConfigDir:          "/tmp/cfg",
+		SharedHome:         option.None,
+		Model:              adapter.ModelID("opus"),
+		LinkOrigin:         thread.OriginLocal,
+	}
+}
+
+func verifyQuestionStore[R](execFn func(env memory.Envelope) memory.ExecuteResult fails QuestionError needs R, queryFn func(f memory.QuestionFilter) []memory.AsyncQuestion fails QuestionError needs R, snapFn func() memory.State fails QuestionError needs R) bool needs R {
+	let th = handle.ThreadID("th-q")
+	let _ = execFn(questionEnvelope(1, 100, memory.CmdCreateThread{
+		Spec:      makeSeedThreadSpec(th),
+		EdgeLabel: "",
+	})) catch {
+	case QuestionError:
+		return false
+	}
+	let owner = handle.OwnerID{ServerID: "srv", Location: "root", Epoch: 1}
+	let in1 = AskInput{
+		ID:         turn.RequestID("req-1"),
+		ThreadID:   th,
+		HandleID:   handle.HandleID("hq-1"),
+		Owner:      owner,
+		Session:    "sess-q",
+		Header:     "Deploy target",
+		Prompt:     "Prod or staging?",
+		Assumption: "Proceeding against staging until confirmed",
+		Options:    []string{"staging", "prod"},
+		TargetRole: subagent.RoleImplementor,
+		NowMs:      200,
+	}
+	let in2 = AskInput{
+		..in1,
+		ID:         turn.RequestID("req-2"),
+		HandleID:   handle.HandleID("hq-2"),
+		Header:     "Cleanup",
+		Prompt:     "Keep temp logs?",
+		Assumption: "Keeping logs until confirmation",
+		NowMs:      250,
+	}
+	StoreAskAsync(execFn, 2, in1) catch {
+	case QuestionError:
+		return false
+	}
+	StoreAskAsync(execFn, 3, in2) catch {
+	case QuestionError:
+		return false
+	}
+	StoreAnswerAsync(execFn, 4, AnswerInput{NowMs: 300, ID: turn.RequestID("req-1"), Answer: "staging", By: turn.ResponderPrimary}) catch {
+	case QuestionError:
+		return false
+	}
+	StoreWithdrawAsync(execFn, 5, 350, turn.RequestID("req-2")) catch {
+	case QuestionError:
+		return false
+	}
+	let answered = queryFn(memory.QuestionFilter{
+		ThreadID: option.Some[handle.ThreadID]{Value: th},
+		Status:   option.Some[memory.QuestionStatus]{Value: memory.QuestionAnswered},
+	}) catch {
+	case QuestionError:
+		return false
+	}
+	let withdrawn = queryFn(memory.QuestionFilter{
+		ThreadID: option.Some[handle.ThreadID]{Value: th},
+		Status:   option.Some[memory.QuestionStatus]{Value: memory.QuestionWithdrawn},
+	}) catch {
+	case QuestionError:
+		return false
+	}
+	let snap = snapFn() catch {
+	case QuestionError:
+		return false
+	}
+	let hq2Cancelled = match snap.Registry.Handles.Get("hq-2") {
+	case option.Some[handle.WakeHandle] as h:
+		h.Value.Disposition == handle.DispCancelled && !h.Value.WakeEmitted
+	case option.None:
+		false
+	}
+	answered.Len() == 1 && withdrawn.Len() == 1 && hq2Cancelled
+}
+
+// BlockingQuestionForbiddenAcrossAllRoles verifies blocking question is refused and filtered across every role.
+law BlockingQuestionForbiddenAcrossAllRoles() {
+	let roles = AllAgentRoles()
+	for role in roles {
+		let mut refused = false
+		RequireAsyncOnly(role, RemovedToolID()) catch {
+		case BlockingQuestionForbidden as b:
+			refused = b.Replacement == AsyncQuestionToolID()
+		}
+		if !refused {
+			return false
+		}
+		let visible = FilterVisibleTools(role, []string{"read", "question", "write"})
+		for tool in visible {
+			if tool == RemovedToolID() {
+				return false
+			}
+		}
+	}
+	roles.Len() == 6
+}
+
+// AskAnswerWithdrawNonBlocking verifies non-blocking ask, single-wake answer, silent withdraw, and no double close.
+law AskAnswerWithdrawNonBlocking() {
+	let mut book = NewBook()
+	let owner = handle.OwnerID{ServerID: "srv", Location: "worker-1", Epoch: 1}
+	let missingAssumption = AskInput{
+		ID:         turn.RequestID("q-bad"),
+		ThreadID:   "th-1",
+		HandleID:   "hq-bad",
+		Owner:      owner,
+		Session:    "s1",
+		Header:     "Mode",
+		Prompt:     "Choose mode",
+		Assumption: "   ",
+		Options:    []string{"a", "b"},
+		TargetRole: subagent.RolePlanner,
+		NowMs:      100,
+	}
+	let mut badRejected = false
+	let _ = AskAsync(book, missingAssumption) catch {
+	case QuestionError as err:
+		match err {
+		case InvalidQuestionInput as inp:
+			badRejected = inp.Field == "assumption"
+		case BlockingQuestionForbidden, DuplicateQuestion, UnknownQuestion, QuestionAlreadyClosed, QuestionHandleError, QuestionStoreError:
+			badRejected = false
+		}
+		(book, AskOutcome{Accepted: false, ID: turn.RequestID(""), HandleID: "", WorkingAssumption: "", NonBlocking: false})
+	}
+	if !badRejected {
+		return false
+	}
+	let in1 = AskInput{
+		ID:         turn.RequestID("q-1"),
+		ThreadID:   "th-1",
+		HandleID:   "hq-1",
+		Owner:      owner,
+		Session:    "s1",
+		Header:     "Migration path",
+		Prompt:     "Run auto migrate?",
+		Assumption: "Proceeding dry-run only until approved",
+		Options:    []string{"dry-run", "apply"},
+		TargetRole: subagent.RoleImplementor,
+		NowMs:      1000,
+	}
+	let (b1, out1) = AskAsync(book, in1) catch {
+	case QuestionError:
+		return false
+	}
+	book = b1
+	if !out1.Accepted || !out1.NonBlocking || out1.WorkingAssumption != in1.Assumption {
+		return false
+	}
+	let (b2, flush1) = AnswerAsync(book, turn.RequestID("q-1"), "apply", turn.ResponderPrimary, 1500) catch {
+	case QuestionError:
+		return false
+	}
+	book = b2
+	if !flush1.Delivered || flush1.DeliveryIDs.Len() != 1 || flush1.DeliveryIDs[0] != handle.WakeDeliveryID("hq-1") {
+		return false
+	}
+	let in2 = AskInput{..in1, ID: turn.RequestID("q-2"), HandleID: "hq-2", NowMs: 2000}
+	let (b3, _) = AskAsync(book, in2) catch {
+	case QuestionError:
+		return false
+	}
+	book = b3
+	book = WithdrawAsync(book, turn.RequestID("q-2"), 2200) catch {
+	case QuestionError:
+		return false
+	}
+	let h2Silent = match handles.GetUnified(book.Registry, "hq-2") {
+	case option.Some[handles.UnifiedHandle] as u:
+		u.Value.Disposition == handle.DispCancelled && !u.Value.WakeEmitted
+	case option.None:
+		false
+	}
+	let (_, afterWithdraw) = handles.FlushSessionBurst(book.Registry, "s1", 6000, handles.TurnBusyState{TurnActive: false, Compacting: false, PoolHolding: false, QueuedPrompts: 0})
+	h2Silent && !afterWithdraw.Delivered
+}
+
+// MemoryStoreQuestionParity verifies MemStore question lifecycle without FFI.
+law MemoryStoreQuestionParity() {
+	let mem = memory.NewMemStore()
+	verifyQuestionStore(
+		func(env memory.Envelope) memory.ExecuteResult fails QuestionError {
+			wrapQExec(func() memory.ExecuteResult fails memory.NotFound | memory.AlreadyExists | memory.InvalidTransition | memory.CommandReused | memory.InvalidInput | memory.LeaseFenced | memory.ThreadDomainErr | memory.SubagentDomainErr | memory.HandleDomainErr | memory.LimitDomainErr | memory.RequestDomainErr | memory.CutoverDomainErr | memory.StoreFailed {
+				try mem.Execute(env)
+			})
+		},
+		func(f memory.QuestionFilter) []memory.AsyncQuestion fails QuestionError {
+			mem.GetQuestions(f) catch {
+			case memory.StoreFailed:
+				return QuestionStoreError{Message: "query failed"}
+			}
+		},
+		func() memory.State fails QuestionError {
+			mem.Snapshot() catch {
+			case memory.StoreFailed:
+				return QuestionStoreError{Message: "snapshot failed"}
+			}
+		},
+	)
+}

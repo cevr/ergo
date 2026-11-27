@@ -1,0 +1,895 @@
+import ergoapi api
+import rpc
+import github.com/cevr/ergo/modules/atlas/api
+import github.com/cevr/ergo/modules/atlas/api/apiapi
+
+// Handle runs one call of api.Api on the provider the caller binds,
+// through the hub's Call: tag names the operation and payload is its
+// Request's JSON. Its value is the result's JSON; a typed failure is
+// Failed with the failure's tagged JSON. A request the contract does not
+// hold and an int the wire cannot carry are defects, which the server
+// answers as Die.
+func Handle(tag string, payload string) string fails rpc.Failed needs api.Api {
+	try handle(tag, payload, apiapi.Call)
+}
+
+func handle[R](tag string, payload string, answer func(r Request) apiapi.Outcome needs R) string fails rpc.Failed needs R {
+	let req = rpc.Decode[Request]("request", rpc.Tagged(tag+"Request", payload)) catch {
+	case rpc.Transport as t:
+		return rpc.Die[string]("RpcError", t.Reason)
+	}
+	match req {
+	case ThreadCreateRequest as r:
+		exactThreadCreateRequest(r) catch {
+		case rpc.Unrepresentable as u:
+			return rpc.Refuse[string](u)
+		}
+	case ThreadListRequest as r:
+		exactThreadListRequest(r) catch {
+		case rpc.Unrepresentable as u:
+			return rpc.Refuse[string](u)
+		}
+	case ThreadArchiveRequest as r:
+		exactThreadArchiveRequest(r) catch {
+		case rpc.Unrepresentable as u:
+			return rpc.Refuse[string](u)
+		}
+	case DriverSwitchRequest as r:
+		exactDriverSwitchRequest(r) catch {
+		case rpc.Unrepresentable as u:
+			return rpc.Refuse[string](u)
+		}
+	case PromptEnqueueRequest as r:
+		exactPromptEnqueueRequest(r) catch {
+		case rpc.Unrepresentable as u:
+			return rpc.Refuse[string](u)
+		}
+	case PromptDequeueRequest as r:
+		exactPromptDequeueRequest(r) catch {
+		case rpc.Unrepresentable as u:
+			return rpc.Refuse[string](u)
+		}
+	case TurnStartRequest as r:
+		exactTurnStartRequest(r) catch {
+		case rpc.Unrepresentable as u:
+			return rpc.Refuse[string](u)
+		}
+	case TurnStepRequest as r:
+		exactTurnStepRequest(r) catch {
+		case rpc.Unrepresentable as u:
+			return rpc.Refuse[string](u)
+		}
+	case SubagentTreeInitRequest as r:
+		exactSubagentTreeInitRequest(r) catch {
+		case rpc.Unrepresentable as u:
+			return rpc.Refuse[string](u)
+		}
+	case SubagentSpawnRequest as r:
+		exactSubagentSpawnRequest(r) catch {
+		case rpc.Unrepresentable as u:
+			return rpc.Refuse[string](u)
+		}
+	case SubagentControlHandleRequest as r:
+		exactSubagentControlHandleRequest(r) catch {
+		case rpc.Unrepresentable as u:
+			return rpc.Refuse[string](u)
+		}
+	case SubagentSettleHandleRequest as r:
+		exactSubagentSettleHandleRequest(r) catch {
+		case rpc.Unrepresentable as u:
+			return rpc.Refuse[string](u)
+		}
+	case SubagentHandBackRequest as r:
+		exactSubagentHandBackRequest(r) catch {
+		case rpc.Unrepresentable as u:
+			return rpc.Refuse[string](u)
+		}
+	case HandleOpenRequest as r:
+		exactHandleOpenRequest(r) catch {
+		case rpc.Unrepresentable as u:
+			return rpc.Refuse[string](u)
+		}
+	case HandleSettleRequest as r:
+		exactHandleSettleRequest(r) catch {
+		case rpc.Unrepresentable as u:
+			return rpc.Refuse[string](u)
+		}
+	case HandleListRequest as r:
+		exactHandleListRequest(r) catch {
+		case rpc.Unrepresentable as u:
+			return rpc.Refuse[string](u)
+		}
+	case OwnerCallsRetireRequest as r:
+		exactOwnerCallsRetireRequest(r) catch {
+		case rpc.Unrepresentable as u:
+			return rpc.Refuse[string](u)
+		}
+	case QuestionAskRequest as r:
+		exactQuestionAskRequest(r) catch {
+		case rpc.Unrepresentable as u:
+			return rpc.Refuse[string](u)
+		}
+	case QuestionAnswerRequest as r:
+		exactQuestionAnswerRequest(r) catch {
+		case rpc.Unrepresentable as u:
+			return rpc.Refuse[string](u)
+		}
+	case QuestionWithdrawRequest as r:
+		exactQuestionWithdrawRequest(r) catch {
+		case rpc.Unrepresentable as u:
+			return rpc.Refuse[string](u)
+		}
+	case PoolAccountUpsertRequest as r:
+		exactPoolAccountUpsertRequest(r) catch {
+		case rpc.Unrepresentable as u:
+			return rpc.Refuse[string](u)
+		}
+	case PoolHoldOpenRequest as r:
+		exactPoolHoldOpenRequest(r) catch {
+		case rpc.Unrepresentable as u:
+			return rpc.Refuse[string](u)
+		}
+	case PoolHoldTransitionRequest as r:
+		exactPoolHoldTransitionRequest(r) catch {
+		case rpc.Unrepresentable as u:
+			return rpc.Refuse[string](u)
+		}
+	case PoolViewRequest as r:
+		exactPoolViewRequest(r) catch {
+		case rpc.Unrepresentable as u:
+			return rpc.Refuse[string](u)
+		}
+	case KernelSnapshotSaveRequest as r:
+		exactKernelSnapshotSaveRequest(r) catch {
+		case rpc.Unrepresentable as u:
+			return rpc.Refuse[string](u)
+		}
+	case KernelCutRecordRequest as r:
+		exactKernelCutRecordRequest(r) catch {
+		case rpc.Unrepresentable as u:
+			return rpc.Refuse[string](u)
+		}
+	case LeaseAcquireRequest as r:
+		exactLeaseAcquireRequest(r) catch {
+		case rpc.Unrepresentable as u:
+			return rpc.Refuse[string](u)
+		}
+	case BootReconcileRequest as r:
+		exactBootReconcileRequest(r) catch {
+		case rpc.Unrepresentable as u:
+			return rpc.Refuse[string](u)
+		}
+	case BootStatusRequest as r:
+		exactBootStatusRequest(r) catch {
+		case rpc.Unrepresentable as u:
+			return rpc.Refuse[string](u)
+		}
+	case WellnessReportGetRequest as r:
+		exactWellnessReportGetRequest(r) catch {
+		case rpc.Unrepresentable as u:
+			return rpc.Refuse[string](u)
+		}
+	case McpTokenMintRequest as r:
+		exactMcpTokenMintRequest(r) catch {
+		case rpc.Unrepresentable as u:
+			return rpc.Refuse[string](u)
+		}
+	case _:
+	}
+	match answer(req) {
+	case apiapi.Done as done:
+		match done.Reply {
+		case apiapi.ThreadCreateReply as reply:
+			let v = reply.Value
+			exactApiThreadSnapshot(v) catch {
+			case rpc.Unrepresentable as u:
+				return rpc.Refuse[string](u)
+			}
+			rpc.Encode(v)
+		case apiapi.ThreadGetReply as reply:
+			let v = reply.Value
+			exactApiThreadSnapshot(v) catch {
+			case rpc.Unrepresentable as u:
+				return rpc.Refuse[string](u)
+			}
+			rpc.Encode(v)
+		case apiapi.ThreadListReply as reply:
+			let v = reply.Value
+			exactApiThreadListOutput(v) catch {
+			case rpc.Unrepresentable as u:
+				return rpc.Refuse[string](u)
+			}
+			rpc.Encode(v)
+		case apiapi.ThreadArchiveReply as reply:
+			let v = reply.Value
+			exactApiThreadSnapshot(v) catch {
+			case rpc.Unrepresentable as u:
+				return rpc.Refuse[string](u)
+			}
+			rpc.Encode(v)
+		case apiapi.DriverSwitchReply as reply:
+			let v = reply.Value
+			exactApiThreadSnapshot(v) catch {
+			case rpc.Unrepresentable as u:
+				return rpc.Refuse[string](u)
+			}
+			rpc.Encode(v)
+		case apiapi.PromptEnqueueReply as reply:
+			let v = reply.Value
+			exactApiThreadSnapshot(v) catch {
+			case rpc.Unrepresentable as u:
+				return rpc.Refuse[string](u)
+			}
+			rpc.Encode(v)
+		case apiapi.PromptDequeueReply as reply:
+			let v = reply.Value
+			exactApiThreadSnapshot(v) catch {
+			case rpc.Unrepresentable as u:
+				return rpc.Refuse[string](u)
+			}
+			rpc.Encode(v)
+		case apiapi.TurnStartReply as reply:
+			let v = reply.Value
+			exactApiThreadSnapshot(v) catch {
+			case rpc.Unrepresentable as u:
+				return rpc.Refuse[string](u)
+			}
+			rpc.Encode(v)
+		case apiapi.TurnStepReply as reply:
+			let v = reply.Value
+			exactApiThreadSnapshot(v) catch {
+			case rpc.Unrepresentable as u:
+				return rpc.Refuse[string](u)
+			}
+			rpc.Encode(v)
+		case apiapi.SubagentTreeInitReply as reply:
+			let v = reply.Value
+			exactApiSubagentTreeOutput(v) catch {
+			case rpc.Unrepresentable as u:
+				return rpc.Refuse[string](u)
+			}
+			rpc.Encode(v)
+		case apiapi.SubagentSpawnReply as reply:
+			let v = reply.Value
+			exactApiSubagentTreeOutput(v) catch {
+			case rpc.Unrepresentable as u:
+				return rpc.Refuse[string](u)
+			}
+			rpc.Encode(v)
+		case apiapi.SubagentControlHandleReply as reply:
+			let v = reply.Value
+			exactApiSubagentTreeOutput(v) catch {
+			case rpc.Unrepresentable as u:
+				return rpc.Refuse[string](u)
+			}
+			rpc.Encode(v)
+		case apiapi.SubagentSettleHandleReply as reply:
+			let v = reply.Value
+			exactApiSubagentTreeOutput(v) catch {
+			case rpc.Unrepresentable as u:
+				return rpc.Refuse[string](u)
+			}
+			rpc.Encode(v)
+		case apiapi.SubagentHandBackReply as reply:
+			let v = reply.Value
+			exactApiSubagentTreeOutput(v) catch {
+			case rpc.Unrepresentable as u:
+				return rpc.Refuse[string](u)
+			}
+			rpc.Encode(v)
+		case apiapi.SubagentTreeGetReply as reply:
+			let v = reply.Value
+			exactApiSubagentTreeOutput(v) catch {
+			case rpc.Unrepresentable as u:
+				return rpc.Refuse[string](u)
+			}
+			rpc.Encode(v)
+		case apiapi.HandleOpenReply as reply:
+			let v = reply.Value
+			rpc.Encode(v)
+		case apiapi.HandleSettleReply as reply:
+			let v = reply.Value
+			rpc.Encode(v)
+		case apiapi.HandleListReply as reply:
+			let v = reply.Value
+			exactApiHandleViewOutput(v) catch {
+			case rpc.Unrepresentable as u:
+				return rpc.Refuse[string](u)
+			}
+			rpc.Encode(v)
+		case apiapi.OwnerCallsRetireReply as reply:
+			let v = reply.Value
+			rpc.Encode(v)
+		case apiapi.QuestionAskReply as reply:
+			let v = reply.Value
+			exactApiAsyncQuestionView(v) catch {
+			case rpc.Unrepresentable as u:
+				return rpc.Refuse[string](u)
+			}
+			rpc.Encode(v)
+		case apiapi.QuestionAnswerReply as reply:
+			let v = reply.Value
+			exactApiAsyncQuestionView(v) catch {
+			case rpc.Unrepresentable as u:
+				return rpc.Refuse[string](u)
+			}
+			rpc.Encode(v)
+		case apiapi.QuestionWithdrawReply as reply:
+			let v = reply.Value
+			exactApiAsyncQuestionView(v) catch {
+			case rpc.Unrepresentable as u:
+				return rpc.Refuse[string](u)
+			}
+			rpc.Encode(v)
+		case apiapi.QuestionListReply as reply:
+			let v = reply.Value
+			exactApiAsyncQuestionListOutput(v) catch {
+			case rpc.Unrepresentable as u:
+				return rpc.Refuse[string](u)
+			}
+			rpc.Encode(v)
+		case apiapi.PoolAccountUpsertReply as reply:
+			let v = reply.Value
+			exactApiPoolViewOutput(v) catch {
+			case rpc.Unrepresentable as u:
+				return rpc.Refuse[string](u)
+			}
+			rpc.Encode(v)
+		case apiapi.PoolHoldOpenReply as reply:
+			let v = reply.Value
+			exactApiPoolViewOutput(v) catch {
+			case rpc.Unrepresentable as u:
+				return rpc.Refuse[string](u)
+			}
+			rpc.Encode(v)
+		case apiapi.PoolHoldTransitionReply as reply:
+			let v = reply.Value
+			exactApiPoolViewOutput(v) catch {
+			case rpc.Unrepresentable as u:
+				return rpc.Refuse[string](u)
+			}
+			rpc.Encode(v)
+		case apiapi.PoolViewReply as reply:
+			let v = reply.Value
+			exactApiPoolViewOutput(v) catch {
+			case rpc.Unrepresentable as u:
+				return rpc.Refuse[string](u)
+			}
+			rpc.Encode(v)
+		case apiapi.KernelSnapshotSaveReply as reply:
+			let v = reply.Value
+			exactApiKernelViewOutput(v) catch {
+			case rpc.Unrepresentable as u:
+				return rpc.Refuse[string](u)
+			}
+			rpc.Encode(v)
+		case apiapi.KernelCutRecordReply as reply:
+			let v = reply.Value
+			exactApiKernelViewOutput(v) catch {
+			case rpc.Unrepresentable as u:
+				return rpc.Refuse[string](u)
+			}
+			rpc.Encode(v)
+		case apiapi.KernelViewReply as reply:
+			let v = reply.Value
+			exactApiKernelViewOutput(v) catch {
+			case rpc.Unrepresentable as u:
+				return rpc.Refuse[string](u)
+			}
+			rpc.Encode(v)
+		case apiapi.LeaseAcquireReply as reply:
+			let v = reply.Value
+			exactApiBootLeaseOutput(v) catch {
+			case rpc.Unrepresentable as u:
+				return rpc.Refuse[string](u)
+			}
+			rpc.Encode(v)
+		case apiapi.BootReconcileReply as reply:
+			let v = reply.Value
+			exactApiBootLeaseOutput(v) catch {
+			case rpc.Unrepresentable as u:
+				return rpc.Refuse[string](u)
+			}
+			rpc.Encode(v)
+		case apiapi.BootStatusReply as reply:
+			let v = reply.Value
+			exactApiBootLeaseOutput(v) catch {
+			case rpc.Unrepresentable as u:
+				return rpc.Refuse[string](u)
+			}
+			rpc.Encode(v)
+		case apiapi.HostCapacityGetReply as reply:
+			let v = reply.Value
+			exactApiHostCapacityReport(v) catch {
+			case rpc.Unrepresentable as u:
+				return rpc.Refuse[string](u)
+			}
+			rpc.Encode(v)
+		case apiapi.WellnessReportGetReply as reply:
+			let v = reply.Value
+			exactApiWellnessReport(v) catch {
+			case rpc.Unrepresentable as u:
+				return rpc.Refuse[string](u)
+			}
+			rpc.Encode(v)
+		case apiapi.McpTokenMintReply as reply:
+			let v = reply.Value
+			exactApiMintedToken(v) catch {
+			case rpc.Unrepresentable as u:
+				return rpc.Refuse[string](u)
+			}
+			rpc.Encode(v)
+		case apiapi.McpTokenRevokeReply as reply:
+			let v = reply.Value
+			exactApiMcpTokenRevokeOutput(v) catch {
+			case rpc.Unrepresentable as u:
+				return rpc.Refuse[string](u)
+			}
+			rpc.Encode(v)
+		case apiapi.McpTokenListReply as reply:
+			let v = reply.Value
+			exactApiMcpTokenListOutput(v) catch {
+			case rpc.Unrepresentable as u:
+				return rpc.Refuse[string](u)
+			}
+			rpc.Encode(v)
+		}
+	case apiapi.Rejected as rejected:
+		match rejected.Failure {
+		case apiapi.NotFound as failure:
+			let e = failure.E
+			return rpc.Failed{Text: rpc.Tagged("NotFound", rpc.Encode(e))}
+		case apiapi.AlreadyExists as failure:
+			let e = failure.E
+			return rpc.Failed{Text: rpc.Tagged("AlreadyExists", rpc.Encode(e))}
+		case apiapi.InvalidTransition as failure:
+			let e = failure.E
+			return rpc.Failed{Text: rpc.Tagged("InvalidTransition", rpc.Encode(e))}
+		case apiapi.CommandReused as failure:
+			let e = failure.E
+			return rpc.Failed{Text: rpc.Tagged("CommandReused", rpc.Encode(e))}
+		case apiapi.InvalidInput as failure:
+			let e = failure.E
+			return rpc.Failed{Text: rpc.Tagged("InvalidInput", rpc.Encode(e))}
+		case apiapi.LeaseFenced as failure:
+			let e = failure.E
+			exactMemoryLeaseFenced(e) catch {
+			case rpc.Unrepresentable as u:
+				return rpc.Refuse[string](u)
+			}
+			return rpc.Failed{Text: rpc.Tagged("LeaseFenced", rpc.Encode(e))}
+		case apiapi.ThreadDomainErr as failure:
+			let e = failure.E
+			return rpc.Failed{Text: rpc.Tagged("ThreadDomainErr", rpc.Encode(e))}
+		case apiapi.SubagentDomainErr as failure:
+			let e = failure.E
+			exactMemorySubagentDomainErr(e) catch {
+			case rpc.Unrepresentable as u:
+				return rpc.Refuse[string](u)
+			}
+			return rpc.Failed{Text: rpc.Tagged("SubagentDomainErr", rpc.Encode(e))}
+		case apiapi.HandleDomainErr as failure:
+			let e = failure.E
+			return rpc.Failed{Text: rpc.Tagged("HandleDomainErr", rpc.Encode(e))}
+		case apiapi.LimitDomainErr as failure:
+			let e = failure.E
+			exactMemoryLimitDomainErr(e) catch {
+			case rpc.Unrepresentable as u:
+				return rpc.Refuse[string](u)
+			}
+			return rpc.Failed{Text: rpc.Tagged("LimitDomainErr", rpc.Encode(e))}
+		case apiapi.RequestDomainErr as failure:
+			let e = failure.E
+			return rpc.Failed{Text: rpc.Tagged("RequestDomainErr", rpc.Encode(e))}
+		case apiapi.CutoverDomainErr as failure:
+			let e = failure.E
+			return rpc.Failed{Text: rpc.Tagged("CutoverDomainErr", rpc.Encode(e))}
+		case apiapi.StoreFailed as failure:
+			let e = failure.E
+			return rpc.Failed{Text: rpc.Tagged("StoreFailed", rpc.Encode(e))}
+		case apiapi.HostCapacityFailed as failure:
+			let e = failure.E
+			return rpc.Failed{Text: rpc.Tagged("HostCapacityFailed", rpc.Encode(e))}
+		case apiapi.McpAuthDenied as failure:
+			let e = failure.E
+			return rpc.Failed{Text: rpc.Tagged("McpAuthDenied", rpc.Encode(e))}
+		}
+	}
+}
+
+func carry(c Request, answer own func(c Request) apiapi.Outcome) apiapi.Outcome {
+	let client = NewClient(rpc.Loopback(func(tag string, payload string) string fails rpc.Failed {
+		try handle(tag, payload, answer)
+	}))
+	with context { api.Api: client } { apiapi.Call(c) }
+}
+
+// Wire is Effect RPC as a transport of the hub's calls.
+type Wire {} implements ergoapi.Transport[Request, apiapi.Outcome]
+
+// Carry is carry.
+func Carry(w Wire, c Request, answer own func(c Request) apiapi.Outcome) apiapi.Outcome { carry(c, answer) }
+
+// Fits reports whether r and o hold only ints the wire carries exactly
+// (an int beyond 2^53-1 is Unrepresentable, a defect on either side).
+func Fits(r Request, o apiapi.Outcome) bool {
+	match r {
+	case apiapi.ThreadCreateRequest as x:
+		exactThreadCreateRequest(x) catch {
+		case rpc.Unrepresentable:
+			return false
+		}
+	case apiapi.ThreadListRequest as x:
+		exactThreadListRequest(x) catch {
+		case rpc.Unrepresentable:
+			return false
+		}
+	case apiapi.ThreadArchiveRequest as x:
+		exactThreadArchiveRequest(x) catch {
+		case rpc.Unrepresentable:
+			return false
+		}
+	case apiapi.DriverSwitchRequest as x:
+		exactDriverSwitchRequest(x) catch {
+		case rpc.Unrepresentable:
+			return false
+		}
+	case apiapi.PromptEnqueueRequest as x:
+		exactPromptEnqueueRequest(x) catch {
+		case rpc.Unrepresentable:
+			return false
+		}
+	case apiapi.PromptDequeueRequest as x:
+		exactPromptDequeueRequest(x) catch {
+		case rpc.Unrepresentable:
+			return false
+		}
+	case apiapi.TurnStartRequest as x:
+		exactTurnStartRequest(x) catch {
+		case rpc.Unrepresentable:
+			return false
+		}
+	case apiapi.TurnStepRequest as x:
+		exactTurnStepRequest(x) catch {
+		case rpc.Unrepresentable:
+			return false
+		}
+	case apiapi.SubagentTreeInitRequest as x:
+		exactSubagentTreeInitRequest(x) catch {
+		case rpc.Unrepresentable:
+			return false
+		}
+	case apiapi.SubagentSpawnRequest as x:
+		exactSubagentSpawnRequest(x) catch {
+		case rpc.Unrepresentable:
+			return false
+		}
+	case apiapi.SubagentControlHandleRequest as x:
+		exactSubagentControlHandleRequest(x) catch {
+		case rpc.Unrepresentable:
+			return false
+		}
+	case apiapi.SubagentSettleHandleRequest as x:
+		exactSubagentSettleHandleRequest(x) catch {
+		case rpc.Unrepresentable:
+			return false
+		}
+	case apiapi.SubagentHandBackRequest as x:
+		exactSubagentHandBackRequest(x) catch {
+		case rpc.Unrepresentable:
+			return false
+		}
+	case apiapi.HandleOpenRequest as x:
+		exactHandleOpenRequest(x) catch {
+		case rpc.Unrepresentable:
+			return false
+		}
+	case apiapi.HandleSettleRequest as x:
+		exactHandleSettleRequest(x) catch {
+		case rpc.Unrepresentable:
+			return false
+		}
+	case apiapi.HandleListRequest as x:
+		exactHandleListRequest(x) catch {
+		case rpc.Unrepresentable:
+			return false
+		}
+	case apiapi.OwnerCallsRetireRequest as x:
+		exactOwnerCallsRetireRequest(x) catch {
+		case rpc.Unrepresentable:
+			return false
+		}
+	case apiapi.QuestionAskRequest as x:
+		exactQuestionAskRequest(x) catch {
+		case rpc.Unrepresentable:
+			return false
+		}
+	case apiapi.QuestionAnswerRequest as x:
+		exactQuestionAnswerRequest(x) catch {
+		case rpc.Unrepresentable:
+			return false
+		}
+	case apiapi.QuestionWithdrawRequest as x:
+		exactQuestionWithdrawRequest(x) catch {
+		case rpc.Unrepresentable:
+			return false
+		}
+	case apiapi.PoolAccountUpsertRequest as x:
+		exactPoolAccountUpsertRequest(x) catch {
+		case rpc.Unrepresentable:
+			return false
+		}
+	case apiapi.PoolHoldOpenRequest as x:
+		exactPoolHoldOpenRequest(x) catch {
+		case rpc.Unrepresentable:
+			return false
+		}
+	case apiapi.PoolHoldTransitionRequest as x:
+		exactPoolHoldTransitionRequest(x) catch {
+		case rpc.Unrepresentable:
+			return false
+		}
+	case apiapi.PoolViewRequest as x:
+		exactPoolViewRequest(x) catch {
+		case rpc.Unrepresentable:
+			return false
+		}
+	case apiapi.KernelSnapshotSaveRequest as x:
+		exactKernelSnapshotSaveRequest(x) catch {
+		case rpc.Unrepresentable:
+			return false
+		}
+	case apiapi.KernelCutRecordRequest as x:
+		exactKernelCutRecordRequest(x) catch {
+		case rpc.Unrepresentable:
+			return false
+		}
+	case apiapi.LeaseAcquireRequest as x:
+		exactLeaseAcquireRequest(x) catch {
+		case rpc.Unrepresentable:
+			return false
+		}
+	case apiapi.BootReconcileRequest as x:
+		exactBootReconcileRequest(x) catch {
+		case rpc.Unrepresentable:
+			return false
+		}
+	case apiapi.BootStatusRequest as x:
+		exactBootStatusRequest(x) catch {
+		case rpc.Unrepresentable:
+			return false
+		}
+	case apiapi.WellnessReportGetRequest as x:
+		exactWellnessReportGetRequest(x) catch {
+		case rpc.Unrepresentable:
+			return false
+		}
+	case apiapi.McpTokenMintRequest as x:
+		exactMcpTokenMintRequest(x) catch {
+		case rpc.Unrepresentable:
+			return false
+		}
+	case _:
+	}
+	match o {
+	case apiapi.Done as done:
+		match done.Reply {
+		case apiapi.ThreadCreateReply as reply:
+			exactApiThreadSnapshot(reply.Value) catch {
+			case rpc.Unrepresentable:
+				return false
+			}
+		case apiapi.ThreadGetReply as reply:
+			exactApiThreadSnapshot(reply.Value) catch {
+			case rpc.Unrepresentable:
+				return false
+			}
+		case apiapi.ThreadListReply as reply:
+			exactApiThreadListOutput(reply.Value) catch {
+			case rpc.Unrepresentable:
+				return false
+			}
+		case apiapi.ThreadArchiveReply as reply:
+			exactApiThreadSnapshot(reply.Value) catch {
+			case rpc.Unrepresentable:
+				return false
+			}
+		case apiapi.DriverSwitchReply as reply:
+			exactApiThreadSnapshot(reply.Value) catch {
+			case rpc.Unrepresentable:
+				return false
+			}
+		case apiapi.PromptEnqueueReply as reply:
+			exactApiThreadSnapshot(reply.Value) catch {
+			case rpc.Unrepresentable:
+				return false
+			}
+		case apiapi.PromptDequeueReply as reply:
+			exactApiThreadSnapshot(reply.Value) catch {
+			case rpc.Unrepresentable:
+				return false
+			}
+		case apiapi.TurnStartReply as reply:
+			exactApiThreadSnapshot(reply.Value) catch {
+			case rpc.Unrepresentable:
+				return false
+			}
+		case apiapi.TurnStepReply as reply:
+			exactApiThreadSnapshot(reply.Value) catch {
+			case rpc.Unrepresentable:
+				return false
+			}
+		case apiapi.SubagentTreeInitReply as reply:
+			exactApiSubagentTreeOutput(reply.Value) catch {
+			case rpc.Unrepresentable:
+				return false
+			}
+		case apiapi.SubagentSpawnReply as reply:
+			exactApiSubagentTreeOutput(reply.Value) catch {
+			case rpc.Unrepresentable:
+				return false
+			}
+		case apiapi.SubagentControlHandleReply as reply:
+			exactApiSubagentTreeOutput(reply.Value) catch {
+			case rpc.Unrepresentable:
+				return false
+			}
+		case apiapi.SubagentSettleHandleReply as reply:
+			exactApiSubagentTreeOutput(reply.Value) catch {
+			case rpc.Unrepresentable:
+				return false
+			}
+		case apiapi.SubagentHandBackReply as reply:
+			exactApiSubagentTreeOutput(reply.Value) catch {
+			case rpc.Unrepresentable:
+				return false
+			}
+		case apiapi.SubagentTreeGetReply as reply:
+			exactApiSubagentTreeOutput(reply.Value) catch {
+			case rpc.Unrepresentable:
+				return false
+			}
+		case apiapi.HandleOpenReply:
+		case apiapi.HandleSettleReply:
+		case apiapi.HandleListReply as reply:
+			exactApiHandleViewOutput(reply.Value) catch {
+			case rpc.Unrepresentable:
+				return false
+			}
+		case apiapi.OwnerCallsRetireReply:
+		case apiapi.QuestionAskReply as reply:
+			exactApiAsyncQuestionView(reply.Value) catch {
+			case rpc.Unrepresentable:
+				return false
+			}
+		case apiapi.QuestionAnswerReply as reply:
+			exactApiAsyncQuestionView(reply.Value) catch {
+			case rpc.Unrepresentable:
+				return false
+			}
+		case apiapi.QuestionWithdrawReply as reply:
+			exactApiAsyncQuestionView(reply.Value) catch {
+			case rpc.Unrepresentable:
+				return false
+			}
+		case apiapi.QuestionListReply as reply:
+			exactApiAsyncQuestionListOutput(reply.Value) catch {
+			case rpc.Unrepresentable:
+				return false
+			}
+		case apiapi.PoolAccountUpsertReply as reply:
+			exactApiPoolViewOutput(reply.Value) catch {
+			case rpc.Unrepresentable:
+				return false
+			}
+		case apiapi.PoolHoldOpenReply as reply:
+			exactApiPoolViewOutput(reply.Value) catch {
+			case rpc.Unrepresentable:
+				return false
+			}
+		case apiapi.PoolHoldTransitionReply as reply:
+			exactApiPoolViewOutput(reply.Value) catch {
+			case rpc.Unrepresentable:
+				return false
+			}
+		case apiapi.PoolViewReply as reply:
+			exactApiPoolViewOutput(reply.Value) catch {
+			case rpc.Unrepresentable:
+				return false
+			}
+		case apiapi.KernelSnapshotSaveReply as reply:
+			exactApiKernelViewOutput(reply.Value) catch {
+			case rpc.Unrepresentable:
+				return false
+			}
+		case apiapi.KernelCutRecordReply as reply:
+			exactApiKernelViewOutput(reply.Value) catch {
+			case rpc.Unrepresentable:
+				return false
+			}
+		case apiapi.KernelViewReply as reply:
+			exactApiKernelViewOutput(reply.Value) catch {
+			case rpc.Unrepresentable:
+				return false
+			}
+		case apiapi.LeaseAcquireReply as reply:
+			exactApiBootLeaseOutput(reply.Value) catch {
+			case rpc.Unrepresentable:
+				return false
+			}
+		case apiapi.BootReconcileReply as reply:
+			exactApiBootLeaseOutput(reply.Value) catch {
+			case rpc.Unrepresentable:
+				return false
+			}
+		case apiapi.BootStatusReply as reply:
+			exactApiBootLeaseOutput(reply.Value) catch {
+			case rpc.Unrepresentable:
+				return false
+			}
+		case apiapi.HostCapacityGetReply as reply:
+			exactApiHostCapacityReport(reply.Value) catch {
+			case rpc.Unrepresentable:
+				return false
+			}
+		case apiapi.WellnessReportGetReply as reply:
+			exactApiWellnessReport(reply.Value) catch {
+			case rpc.Unrepresentable:
+				return false
+			}
+		case apiapi.McpTokenMintReply as reply:
+			exactApiMintedToken(reply.Value) catch {
+			case rpc.Unrepresentable:
+				return false
+			}
+		case apiapi.McpTokenRevokeReply as reply:
+			exactApiMcpTokenRevokeOutput(reply.Value) catch {
+			case rpc.Unrepresentable:
+				return false
+			}
+		case apiapi.McpTokenListReply as reply:
+			exactApiMcpTokenListOutput(reply.Value) catch {
+			case rpc.Unrepresentable:
+				return false
+			}
+		}
+	case apiapi.Rejected as rejected:
+		match rejected.Failure {
+		case apiapi.NotFound:
+		case apiapi.AlreadyExists:
+		case apiapi.InvalidTransition:
+		case apiapi.CommandReused:
+		case apiapi.InvalidInput:
+		case apiapi.LeaseFenced as failure:
+			exactMemoryLeaseFenced(failure.E) catch {
+			case rpc.Unrepresentable:
+				return false
+			}
+		case apiapi.ThreadDomainErr:
+		case apiapi.SubagentDomainErr as failure:
+			exactMemorySubagentDomainErr(failure.E) catch {
+			case rpc.Unrepresentable:
+				return false
+			}
+		case apiapi.HandleDomainErr:
+		case apiapi.LimitDomainErr as failure:
+			exactMemoryLimitDomainErr(failure.E) catch {
+			case rpc.Unrepresentable:
+				return false
+			}
+		case apiapi.RequestDomainErr:
+		case apiapi.CutoverDomainErr:
+		case apiapi.StoreFailed:
+		case apiapi.HostCapacityFailed:
+		case apiapi.McpAuthDenied:
+		}
+	}
+	true
+}
+
+// Agrees: the wire carries every call and every outcome the call can
+// have unchanged, when they hold only ints it carries exactly (Fits).
+law Agrees(r Request, g apiapi.Given) {
+	let o = apiapi.OutcomeOf(r, g)
+	!Fits(r, o) || ergoapi.Agrees(Wire, r, o)
+}
