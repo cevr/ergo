@@ -1,0 +1,28 @@
+import ergo.local/native/execdep2
+
+// Banner is initialized using execdep2's package initialization state.
+let Banner = execdep2.BootPrefix() + ":dep1"
+
+// ApplyMeter accumulates dynamic interface calls over vals.
+func ApplyMeter(m execdep2.Meter, vals []int) int {
+	let sub = vals[0:vals.Len()]
+	let mut total = 0
+	for v in sub {
+		total = total + m.Measure(v)
+	}
+	total
+}
+
+// EvalPipeline runs fn under bounds checking, slices, record updates, and string ops.
+func EvalPipeline(n int, limit int, fn func(int) int) string fails execdep2.TraceErr {
+	let scaled = fn(n)
+	let checked = try execdep2.CheckLimit(scaled, limit)
+	let base = []int{checked}
+	let extended = base.Append(checked + 3)
+	let head = extended[0:2]
+	let t0 = execdep2.Tag{Name: "pipe", Weight: head[0]}
+	let t1 = execdep2.Tag{..t0, Weight: t0.Weight + head[1]}
+	let ch = Banner[0]
+	let prefix = Banner[0:4]
+	"\(prefix)-\(int(ch))-\(execdep2.Score(t1, 1))"
+}

@@ -1,0 +1,38 @@
+// BootLabel is a package-level string initialized during package startup.
+let BootLabel = "dep2-boot"
+
+// Tag describes a scored weighted label.
+type Tag { Name string, Weight int }
+
+// TraceErr reports a typed stage failure across package boundaries.
+type TraceErr { Stage string, Code int }
+
+// Meter measures integer inputs through dynamic interface dispatch.
+type Meter {
+	Measure(x int) int,
+}
+
+// Scale implements Meter via linear scaling.
+type Scale { Base int, Factor int } implements Meter
+
+// BootPrefix returns the initialized package banner prefix.
+func BootPrefix() string { BootLabel }
+
+// Score computes a weighted tag score with bonus.
+func Score(t Tag, bonus int) int { t.Weight*2 + bonus }
+
+// Measure scales x using s.Base and s.Factor.
+func Measure(s Scale, x int) int { s.Base + s.Factor*x }
+
+// MakeScaler captures offset inside a returned closure.
+func MakeScaler(offset int) func(int) int {
+	func(v int) int { v + offset }
+}
+
+// CheckLimit returns v unless it strictly exceeds limit.
+func CheckLimit(v int, limit int) int fails TraceErr {
+	if v > limit {
+		return TraceErr{Stage: "dep2-limit", Code: v}
+	}
+	v
+}

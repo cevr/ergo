@@ -53,9 +53,10 @@ func Archive(p Package, header string) Built fails Refused | Malformed | Undefin
 	let (_, typeSyms, ptrTypeSyms) = PlanTypeSyms(p)
 	let (blob, fp) = ExportBlobWithSyms(p, typeSyms, ptrTypeSyms)
 	let obj = WriteObject(BuildObjectWithStrs(p, layouts, lowered, strs, fp))
+	let hdr = if p.Name == "main" { header + "main\n" } else { header }
 	let ar = WriteAr([]Member{
-		Member{Name: "__.PKGDEF", Data: PkgDef(header, blob)},
-		Member{Name: "_go_.o", Data: header + "\n" + "\n!\n" + obj},
+		Member{Name: "__.PKGDEF", Data: PkgDef(hdr, blob)},
+		Member{Name: "_go_.o", Data: hdr + "\n" + "\n!\n" + obj},
 	})
 	Built{Archive: ar, Fingerprint: fp, Lowered: lowered}
 }

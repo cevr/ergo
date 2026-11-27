@@ -26,6 +26,7 @@ import dense
 import embed
 import exec
 import fs
+import fstest
 import io
 import option
 import os
@@ -38,13 +39,16 @@ let stop1DepTypesSource = embed.File[string]("testdata/stop1dep/types.ergo")
 let stop1DepOpsSource = embed.File[string]("testdata/stop1dep/ops.ergo")
 let stop1ASource = embed.File[string]("testdata/stop1/a.ergo")
 let stop1BSource = embed.File[string]("testdata/stop1/b.ergo")
+let execDep2Source = embed.File[string]("testdata/execdep2/engine.ergo")
+let execDep1Source = embed.File[string]("testdata/execdep1/ops.ergo")
+let execMainSource = embed.File[string]("testdata/execmain/main.ergo")
 
 let basicNames = []string{"", "bool", "string", "int", "int8", "int16", "int32", "int64", "uint", "uint8", "uint16", "uint32", "uint64", "uintptr", "float32", "float64"}
 
 func fail(msg string) os.Exit { os.Exit{Code: 1, Message: "nativebuild: " + msg} }
 
 func usage() os.Exit {
-	os.Exit{Code: 2, Message: "usage: nativebuild build -std DIR -p PATH -header STOCK.a -o OUT.a FILE.ergo... | verify [-std DIR] [--seed N] [--keep]"}
+	os.Exit{Code: 2, Message: "usage: nativebuild build -std DIR -p PATH -header STOCK.a -o OUT.a FILE.ergo... | exec -std DIR -o OUT [-pkg PATH=F1,F2...] FILE.ergo... | verify [-std DIR] [--seed N] [--keep]"}
 }
 
 func base(path string) string {
@@ -335,7 +339,7 @@ func checkAndLowerWith(p load.Program, at int, available Map[string, int], compi
 	}
 	let recs = recordsOf(path, true, d)
 	let facts = if lower.HasCallFacts(out.CallFacts) { option.Some[lower.CallFacts]{Value: out.CallFacts} } else { option.None }
-	(native.Unit{Path: path, Name: base(path), File: base(files[0]), IR: out.File, Sigs: sigs, Records: recs, Imports: imps}, d, facts, impSigs)
+	(native.Unit{Path: path, Name: base(path), File: base(files[0]), IR: out.File, Sigs: sigs, Records: recs, Interfaces: []native.IfaceDecl{}, Globals: []native.GlobalDecl{}, Inits: []string{}, Imports: imps}, d, facts, impSigs)
 }
 
 func checkAndLower(units []load.Unit, files []string, path string, outside []types.Iface) native.Unit fails os.Exit {
@@ -388,6 +392,8 @@ func importUnitOf(spec pkgSpec, d load.Typed, u native.Unit, impSigs []native.Si
 		Fingerprint: exp.Fingerprint,
 		HasInit:     exp.HasInit,
 		Records:     recordsOf(spec.Path, false, d),
+		Interfaces:  []native.IfaceDecl{},
+		Globals:     []native.GlobalDecl{},
 		Funcs:       funcs,
 	}
 }
@@ -578,8 +584,8 @@ func build(args []string) fails os.Exit needs fs.Files | fs.Writes {
 
 type stock { root string, path string, ergo string, env []string }
 
-func run(c exec.Command, what string) string fails os.Exit needs exec.Runner {
-	let r = exec.Runner.Run(c) catch {
+func runStatus(c exec.Command, what string) exec.Result fails os.Exit needs exec.Runner {
+	exec.Runner.Run(c) catch {
 	case exec.NotFound as e:
 		return fail("\(what): no program \(e.Name)")
 	case exec.Denied as e:
@@ -587,6 +593,10 @@ func run(c exec.Command, what string) string fails os.Exit needs exec.Runner {
 	case exec.Failed as e:
 		return fail("\(what): \(e.Reason)")
 	}
+}
+
+func run(c exec.Command, what string) string fails os.Exit needs exec.Runner {
+	let r = try runStatus(c, what)
 	if r.Status != 0 {
 		return fail("\(what) exited \(r.Status):\n\(r.Stdout)\(r.Stderr)")
 	}
@@ -764,10 +774,97 @@ func stop1Specs(dir string) []pkgSpec {
 	}
 }
 
+func execSpecs(dir string) []pkgSpec {
+	[]pkgSpec{
+		pkgSpec{
+			Path:    "ergo.local/native/execdep2",
+			Files:   []string{dir + "/execdep2/engine.ergo"},
+			Sources: []string{execDep2Source},
+		},
+		pkgSpec{
+			Path:    "ergo.local/native/execdep1",
+			Files:   []string{dir + "/execdep1/ops.ergo"},
+			Sources: []string{execDep1Source},
+		},
+		pkgSpec{
+			Path:    "main",
+			Files:   []string{dir + "/execmain/main.ergo"},
+			Sources: []string{execMainSource},
+		},
+	}
+}
+
+func execCmd(args []string) fails os.Exit needs exec.Runner | fs.Files | fs.Writes | io.Stdout | os.Process {
+	let mut std = flag(args, "-std")
+	if std == "" {
+		std = "../internal/sketch/std"
+	}
+	let out = flag(args, "-o")
+	if out == "" {
+		return usage()
+	}
+	let mut specs = []pkgSpec{}
+	let mut mainFiles = []string{}
+	let mut i = 0
+	for i < args.Len() {
+		if args[i] == "-std" || args[i] == "-o" {
+			i = i + 2
+		} else if args[i] == "-pkg" && i+1 < args.Len() {
+			let spec = args[i+1]
+			let eq = strings.Index(spec, "=")
+			if eq <= 0 {
+				return usage()
+			}
+			let ppath = spec[0:eq]
+			let pfiles = strings.Split(spec[eq+1:spec.Len()], ",")
+			let mut srcs = []string{}
+			for f in pfiles {
+				srcs = srcs.Append(try read(f))
+			}
+			specs = specs.Append(pkgSpec{Path: ppath, Files: pfiles, Sources: srcs})
+			i = i + 2
+		} else if strings.HasPrefix(args[i], "-") {
+			return usage()
+		} else {
+			mainFiles = mainFiles.Append(args[i])
+			i = i + 1
+		}
+	}
+	if mainFiles.Len() == 0 {
+		return usage()
+	}
+	let mut mainSrcs = []string{}
+	for f in mainFiles {
+		mainSrcs = mainSrcs.Append(try read(f))
+	}
+	let rootIdx = specs.Len()
+	specs = specs.Append(pkgSpec{Path: "main", Files: mainFiles, Sources: mainSrcs})
+	let mut root = env("GOROOT_STOCK")
+	if root == "" {
+		root = env("GOROOT")
+	}
+	if root == "" {
+		let goPath = strings.TrimSpace(try run(exec.New("go", []string{"env", "GOROOT"}), "go env GOROOT"))
+		root = goPath
+	}
+	let path = env("PATH")
+	let s = stock{root: root, path: if path == "" { "/usr/local/bin:/usr/bin:/bin" } else { path }, ergo: "", env: []string{"HOME", env("HOME"), "TMPDIR", env("TMPDIR"), "GOCACHE", env("GOCACHE"), "GOMODCACHE", env("GOMODCACHE"), "GOPATH", env("GOPATH")}}
+	let dir = strings.TrimSpace(try run(withEnv(s, exec.New("mktemp", []string{"-d"})), "mktemp"))
+	let rawCfg = try run(withEnv(s, exec.New(s.root+"/bin/go", []string{"list", "-export", "-deps", "-f", "{{if .Export}}packagefile {{.ImportPath}}={{.Export}}{{end}}", "os", "strconv", "errors", "fmt"}).WithEnv("GOROOT", s.root)), "go list -export")
+	let stdCfg = if strings.HasSuffix(rawCfg, "\n") { rawCfg } else { rawCfg + "\n" }
+	let runtimeA = strings.TrimSpace(try run(withEnv(s, exec.New(s.root+"/bin/go", []string{"list", "-export", "-f", "{{.Export}}", "runtime"}).WithEnv("GOROOT", s.root)), "go list runtime"))
+	let hdr = try header(runtimeA)
+	let (compiled, execrtDep) = try CompileExecProgram(specs, rootIdx, std, stdCfg, hdr)
+	let cfg = dir + "/exec.importcfg"
+	let mainA = try WriteExecImportCfg(cfg, dir, stdCfg, compiled, rootIdx, execrtDep)
+	try run(goTool(s, []string{"link", "-importcfg", cfg, "-o", out, mainA}), "go tool link")
+	let _ = try run(withEnv(s, exec.New("rm", []string{"-r", dir})), "removing work folder")
+}
+
 func verify(s stock, std string, seed int, keep bool) fails os.Exit needs exec.Runner | fs.Files | fs.Writes | io.Stdout {
 	let dir = strings.TrimSpace(try run(withEnv(s, exec.New("mktemp", []string{"-d"})), "mktemp"))
 	io.Stdout.Println("seed \(seed), work \(dir)")
-	let rawCfg = try run(withEnv(s, exec.New(s.root+"/bin/go", []string{"list", "-export", "-deps", "-f", "{{if .Export}}packagefile {{.ImportPath}}={{.Export}}{{end}}", "fmt"}).WithEnv("GOROOT", s.root)), "stock go list -export")
+	let rawCfg = try run(withEnv(s, exec.New(s.root+"/bin/go", []string{"list", "-export", "-deps", "-f", "{{if .Export}}packagefile {{.ImportPath}}={{.Export}}{{end}}", "os", "strconv", "errors", "fmt"}).WithEnv("GOROOT", s.root)), "stock go list -export")
 	let stdCfg = if strings.HasSuffix(rawCfg, "\n") { rawCfg } else { rawCfg + "\n" }
 	let runtimeA = strings.TrimSpace(try run(withEnv(s, exec.New(s.root+"/bin/go", []string{"list", "-export", "-f", "{{.Export}}", "runtime"}).WithEnv("GOROOT", s.root)), "stock go list runtime"))
 	let hdr = try header(runtimeA)
@@ -844,6 +941,54 @@ func verify(s stock, std string, seed int, keep bool) fails os.Exit needs exec.R
 	io.Stdout.Print(got1)
 	io.Stdout.Println("agree: \(ins1.Len()) Stop 1 lines equal to the Go-source path")
 
+	try mkdir(dir + "/execdep2")
+	try mkdir(dir + "/execdep1")
+	try mkdir(dir + "/execmain")
+	try write(dir+"/execdep2/engine.ergo", execDep2Source)
+	try write(dir+"/execdep1/ops.ergo", execDep1Source)
+	try write(dir+"/execmain/main.ergo", execMainSource)
+	let (execPkgs, execrtPkg) = try CompileExecProgram(execSpecs(dir), 2, std, stdCfg, hdr)
+	let execrtErrs = try verifyBuiltErrors(execrtPkg.Unit, hdr, execrtPkg.Built.Archive)
+	if execrtErrs.Len() > 0 {
+		return fail("execrt verify: " + execrtErrs[0])
+	}
+	for ep in execPkgs {
+		let epErrs = try verifyBuiltErrors(ep.Unit, hdr, ep.Built.Archive)
+		if epErrs.Len() > 0 {
+			return fail("\(ep.Unit.Path) verify: " + epErrs[0])
+		}
+	}
+	let cfg2 = dir + "/exec.importcfg"
+	let execMainA = try WriteExecImportCfg(cfg2, dir, stdCfg, execPkgs, 2, execrtPkg)
+	try run(goTool(s, []string{"link", "-importcfg", cfg2, "-o", dir + "/native_exec", execMainA}), "stock link of standalone executable")
+	let ref2 = dir + "/ref2"
+	try mkdir(ref2 + "/execdep2")
+	try mkdir(ref2 + "/execdep1")
+	try write(ref2+"/ergo.mod", "module ergo.local/native\n")
+	try write(ref2+"/execdep2/engine.ergo", execDep2Source)
+	try write(ref2+"/execdep1/ops.ergo", execDep1Source)
+	try write(ref2+"/main.ergo", execMainSource)
+	try run(withEnv(s, exec.New(s.ergo, []string{"build", "-o", dir + "/reference_exec", ref2})), "ergo build of standalone reference")
+	let execCases = [][]string{
+		[]string{},
+		[]string{"step", "bump"},
+		[]string{"fail-exit"},
+		[]string{"fail-limit"},
+		[]string{"fail-caught"},
+		[]string{"fail-raw"},
+	}
+	for argv in execCases {
+		let natRes = try runStatus(withEnv(s, exec.New("prlimit", []string{"--as=4294967296", "--", dir + "/native_exec"}.Concat(argv))), "native standalone binary")
+		let refRes = try runStatus(withEnv(s, exec.New("prlimit", []string{"--as=4294967296", "--", dir + "/reference_exec"}.Concat(argv))), "reference binary")
+		if natRes.Status != refRes.Status || natRes.Stdout != refRes.Stdout || natRes.Stderr != refRes.Stderr {
+			return fail("standalone binary parity mismatch for args [\(strings.Join(argv, ","))]:\nnative: status=\(natRes.Status) stdout=\(natRes.Stdout) stderr=\(natRes.Stderr)\nreference: status=\(refRes.Status) stdout=\(refRes.Stdout) stderr=\(refRes.Stderr)(work kept in \(dir))")
+		}
+		if natRes.Stdout != "" {
+			io.Stdout.Print(natRes.Stdout)
+		}
+	}
+	io.Stdout.Println("agree: \(execCases.Len()) standalone executable cases match status, stdout, and stderr")
+
 	if keep {
 		io.Stdout.Println("kept \(dir)")
 	} else {
@@ -872,6 +1017,9 @@ func main() fails os.Exit needs os.Ambient {
 		let rest = args[1:args.Len()]
 		if args[0] == "build" {
 			return build(rest)
+		}
+		if args[0] == "exec" {
+			return execCmd(rest)
 		}
 		if args[0] != "verify" {
 			return usage()
@@ -986,6 +1134,69 @@ test NativebuildBuildsStop1 {
 	assert app.Unit.Imports.Len() == 1
 	assert (try verifyBuiltErrors(dep.Unit, nativeobj.SampleHeader, dep.Built.Archive)).Len() == 0
 	assert (try verifyBuiltErrors(app.Unit, nativeobj.SampleHeader, app.Built.Archive)).Len() == 0
+}
+
+func seedMemStd(mem fstest.Memory) {
+	mem.MkdirAll("/std/core") catch {
+	case fs.Denied, fs.Failed:
+		return
+	}
+	mem.MkdirAll("/std/os") catch {
+	case fs.Denied, fs.Failed:
+		return
+	}
+	mem.MkdirAll("/std/io") catch {
+	case fs.Denied, fs.Failed:
+		return
+	}
+	mem.WriteFile("/std/core/core.ergo", "extern go len func Len[T own](xs []T) int\nextern go len func Len(s string) int\nextern go append func Append[T own](xs own []T, e own T) []T\n") catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+	}
+	mem.WriteFile("/std/builtin.ergo", "extern go len func Len[T own](xs []T) int\nextern go len func Len(s string) int\nextern go append func Append[T own](xs own []T, e own T) []T\n") catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+	}
+	mem.WriteFile("/std/prelude.ergo", "type Console {\n\tPrintln(line string),\n}\ntype Ambient {\n\tambient(),\n}\n") catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+	}
+	mem.WriteFile("/std/os/os.ergo", "type Exit { Code int, Message string }\ntype Process {\n\tArgs() []string,\n}\nfunc NewHost() Process needs Ambient {\n\tProcess\n}\n") catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+	}
+	mem.WriteFile("/std/io/io.ergo", "import os\ntype Stdout {\n\tPrint(text string),\n\tPrintln(line string),\n}\nfunc NewHost() Stdout needs os.Ambient {\n\tStdout\n}\n") catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+	}
+}
+
+// NativebuildBuildsExec verifies multi-package standalone executable archives
+// (runtime wrapper + dependencies + main) compile through EIR v1 and verify.
+test NativebuildBuildsExec {
+	let sample = nativeobj.SampleDep()
+	let stockStub = nativeobj.ExportInfo{Version: 0, Path: "", Digest: "", Objs: []nativeobj.ExpObj{}, Fingerprint: sample.Fingerprint, HasInit: true}
+	let mem = fstest.NewMemory()
+	seedMemStd(mem)
+	let (pkgs, execrtPkg) = with context { fs.Files: mem } {
+		try CompileExecProgramWithExports(execSpecs("testdata"), 2, "/std", stockStub, stockStub, nativeobj.SampleHeader)
+	}
+	assert pkgs.Len() == 3
+	assert pkgs[2].Unit.Inits == []string{"init.0"}
+	assert (try verifyBuiltErrors(execrtPkg.Unit, nativeobj.SampleHeader, execrtPkg.Built.Archive)).Len() == 0
+	for p in pkgs {
+		assert (try verifyBuiltErrors(p.Unit, nativeobj.SampleHeader, p.Built.Archive)).Len() == 0
+	}
+	mem.MkdirAll("/out") catch {
+	case fs.Denied, fs.Failed:
+		assert false
+	}
+	let mainA = with context { fs.Writes: mem } {
+		try WriteExecImportCfg("/out/exec.cfg", "/out", "packagefile os=/std/os.a\n", pkgs, 2, execrtPkg)
+	}
+	assert mainA == "/out/pkg_2.a"
+	let cfgText = with context { fs.Files: mem } {
+		try read("/out/exec.cfg")
+	}
+	assert strings.Contains(cfgText, "packagefile \(execrtPath)=/out/execrt.a\n")
+	assert strings.Contains(cfgText, "packagefile ergo.local/native/execdep2=/out/pkg_0.a\n")
+	assert strings.Contains(cfgText, "packagefile ergo.local/native/execdep1=/out/pkg_1.a\n")
+	assert !strings.Contains(cfgText, "packagefile main=")
 }
 
 law NativebuildRefusesFallibleAndUnsupportedSource(k int) {

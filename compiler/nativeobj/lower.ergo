@@ -143,13 +143,39 @@ func TypeDescSym(p Package, t int) string {
 	if td.Kind == KSlice {
 		return "type:[]" + stripTypePrefix(TypeDescSym(p, td.Elem))
 	}
+	if td.Kind == KFunc {
+		return "type:" + p.Path + "..func_\(t)"
+	}
 	if td.Kind == KStruct {
+		if td.Name == "" {
+			return "type:" + p.Path + "..struct_\(t)"
+		}
 		if td.PkgPath != "" {
 			return "type:" + td.PkgPath + "." + td.Name
 		}
 		return "type:" + p.Path + "." + td.Name
 	}
+	if td.Kind == KIface {
+		if td.Name == "error" && td.PkgPath == "" {
+			return TypeErrorSym
+		}
+		if td.Name != "" {
+			if td.PkgPath != "" {
+				return "type:" + td.PkgPath + "." + td.Name
+			}
+			return "type:" + p.Path + "." + td.Name
+		}
+		if td.Methods.Len() == 0 {
+			return "type:interface {}"
+		}
+		return "type:" + p.Path + "..iface_\(t)"
+	}
 	"type:unnamed_\(t)"
+}
+
+// ItabSym returns the Go linker itab symbol name for concrete type srcType implementing ifaceType.
+func ItabSym(p Package, srcType int, ifaceType int) string {
+	"go:itab." + stripTypePrefix(TypeDescSym(p, srcType)) + "," + stripTypePrefix(TypeDescSym(p, ifaceType))
 }
 
 func stripTypePrefix(s string) string {
@@ -234,7 +260,7 @@ func emitHeapStoreType(a mut Asm, layouts LayoutTable, dstPtrReg int, dstOff int
 	}
 }
 
-type coldSite { id int, line int, opIdx int, panicSym string }
+type coldSite { id int, line int, opIdx int, panicSym string, regA int, regB int }
 
 func emitArith(a mut Asm, p Package, layouts LayoutTable, fr Frame, plan FuncAbiPlan, f Func, x Arith, line int, opIdx int, smi int, colds mut []coldSite, nextLbl mut int) {
 	let t = f.Slots[x.Dst]
@@ -308,7 +334,7 @@ func emitArith(a mut Asm, p Package, layouts LayoutTable, fr Frame, plan FuncAbi
 	a.MovLoadN(RAX, RSP, aOff, w, signed)
 	a.MovLoadN(RCX, RSP, bOff, w, signed)
 	let panicLbl = allocLabel(nextLbl)
-	*colds = (*colds).Append(coldSite{id: panicLbl, line: line, opIdx: opIdx, panicSym: RuntimePanicDivide})
+	*colds = (*colds).Append(coldSite{id: panicLbl, line: line, opIdx: opIdx, panicSym: RuntimePanicDivide, regA: -1, regB: -1})
 	a.TestRR(aluW, RCX, RCX)
 	a.Jcc(JccEq, panicLbl)
 	if signed {
@@ -395,6 +421,54 @@ func emitCall(a mut Asm, layouts LayoutTable, fr Frame, plan FuncAbiPlan, dsts [
 	}
 }
 
+func emitCallIface(a mut Asm, layouts LayoutTable, fr Frame, plan FuncAbiPlan, dsts []int, args []int, ifaceSlot int, methodIdx int, paramTypes []int, resTypes []int, smi int) {
+	let cp = PlanIfaceMethodABI(layouts, paramTypes, resTypes)
+	for k, s in args {
+		if !cp.ParamIsReg[k] {
+			let srcOff = SlotBaseOff(fr, plan, s)
+			emitCopyMem(a, RSP, cp.ParamStackOff[k], RSP, srcOff, int(layouts.Sizes[paramTypes[k]]), RAX)
+		}
+	}
+	let ifaceOff = SlotBaseOff(fr, plan, ifaceSlot)
+	a.MovLoad(R12, RSP, ifaceOff)
+	a.MovLoad(R12, R12, 24+8*methodIdx)
+	for k, s in args {
+		if cp.ParamIsReg[k] {
+			let pt = paramTypes[k]
+			let plo = int(layouts.PieceLo[pt])
+			let phi = int(layouts.PieceHi[pt])
+			let r0 = cp.ParamRegStart[k]
+			let srcOff = SlotBaseOff(fr, plan, s)
+			for j in plo..phi {
+				let pc = layouts.Pieces[j]
+				a.MovLoadN(IntRegs[r0+(j-plo)], RSP, srcOff+int(pc.Off), int(pc.Size), pc.Signed)
+			}
+		}
+	}
+	a.MovLoad(RAX, RSP, ifaceOff+8)
+	a.SetSmi(smi)
+	a.CallReg(R12)
+	for k, d in dsts {
+		if cp.ResultIsReg[k] {
+			let rt = resTypes[k]
+			let rlo = int(layouts.PieceLo[rt])
+			let rhi = int(layouts.PieceHi[rt])
+			let r0 = cp.ResultRegStart[k]
+			let dstOff = SlotBaseOff(fr, plan, d)
+			for j in rlo..rhi {
+				let pc = layouts.Pieces[j]
+				a.MovStoreN(IntRegs[r0+(j-rlo)], RSP, dstOff+int(pc.Off), int(pc.Size))
+			}
+		}
+	}
+	for k, d in dsts {
+		if !cp.ResultIsReg[k] {
+			let dstOff = SlotBaseOff(fr, plan, d)
+			emitCopyMem(a, RSP, dstOff, RSP, cp.ResultStackOff[k], int(layouts.Sizes[resTypes[k]]), RAX)
+		}
+	}
+}
+
 func emitJumpIf(a mut Asm, p Package, layouts LayoutTable, fr Frame, plan FuncAbiPlan, f Func, j JumpIf, smi int, nextLbl mut int) {
 	let t = f.Slots[j.A]
 	let kind = p.Types[t].Kind
@@ -429,6 +503,25 @@ func emitJumpIf(a mut Asm, p Package, layouts LayoutTable, fr Frame, plan FuncAb
 		a.CallSym(RuntimeCmpstring, ABIInternal, true)
 		a.CmpImm8(8, RAX, 0)
 		a.Jcc(condSigned(j.Cond), j.To)
+		return
+	}
+	if kind == KIface {
+		let miss = allocLabel(nextLbl)
+		a.MovLoad(RAX, RSP, aOff)
+		a.MovLoad(RCX, RSP, bOff)
+		a.Alu(OpCmp, RAX, RCX)
+		if j.Cond == CEq {
+			a.Jcc(JccNe, miss)
+		} else {
+			a.Jcc(JccNe, j.To)
+		}
+		a.TestRR(8, RAX, RAX)
+		a.Jcc(JccEq, if j.Cond == CEq { j.To } else { miss })
+		a.MovLoad(RAX, RSP, aOff+8)
+		a.MovLoad(RCX, RSP, bOff+8)
+		a.Alu(OpCmp, RAX, RCX)
+		a.Jcc(if j.Cond == CEq { JccEq } else { JccNe }, j.To)
+		a.Bind(miss)
 		return
 	}
 	let w = int(layouts.Sizes[t])
@@ -468,6 +561,7 @@ func LowerFuncWithStrs(p Package, layouts LayoutTable, f Func, strs mut []string
 	let mut calls = []int{}
 	let mut colds = []coldSite{}
 	let mut nextLbl = -100
+	let hasEnv = FuncHasClosureEnv(f)
 	let mut a = NewAsmInFile(f.File, f.Line)
 	a.Bind(entryLabel)
 	if fr.Size > 0 {
@@ -606,7 +700,7 @@ func LowerFuncWithStrs(p Package, layouts LayoutTable, f Func, strs mut []string
 			let idxSigned = KindIsSigned(p.Types[idxT].Kind)
 			let idxW = int(layouts.Sizes[idxT])
 			let panicLbl = allocLabel(&nextLbl)
-			colds = colds.Append(coldSite{id: panicLbl, line: line, opIdx: i, panicSym: if idxSigned { RuntimePanicIndex } else { RuntimePanicIndexU }})
+			colds = colds.Append(coldSite{id: panicLbl, line: line, opIdx: i, panicSym: if idxSigned { RuntimePanicIndex } else { RuntimePanicIndexU }, regA: -1, regB: -1})
 			a.MovLoad(RBX, RSP, sliceOff+8)
 			a.MovLoadN(RAX, RSP, SlotBaseOff(fr, plan, ix.Idx), idxW, idxSigned)
 			a.Alu(OpCmp, RAX, RBX)
@@ -648,11 +742,13 @@ func LowerFuncWithStrs(p Package, layouts LayoutTable, f Func, strs mut []string
 				}
 			}
 		case GetGlobal as g:
-			a.RipLoad(RAX, SymName(p, p.Globals[g.Global].Name))
-			a.MovStore(RAX, RSP, SlotBaseOff(fr, plan, g.Dst))
+			let gl = p.Globals[g.Global]
+			a.LeaRip(RDI, GlobalSym(p, gl), ABI0)
+			emitCopyMem(&a, RSP, SlotBaseOff(fr, plan, g.Dst), RDI, 0, int(layouts.Sizes[f.Slots[g.Dst]]), RAX)
 		case SetGlobal as g:
-			a.MovLoad(RAX, RSP, SlotBaseOff(fr, plan, g.Src))
-			a.RipStore(RAX, SymName(p, p.Globals[g.Global].Name))
+			let gl = p.Globals[g.Global]
+			a.LeaRip(RDI, GlobalSym(p, gl), ABI0)
+			emitHeapStoreType(&a, layouts, RDI, 0, RSP, SlotBaseOff(fr, plan, g.Src), gl.Type, &nextLbl)
 		case Call as c:
 			let ti = targetOf(p, c.Target)
 			let (pts, rts) = if ti >= 0 {
@@ -664,6 +760,176 @@ func LowerFuncWithStrs(p Package, layouts LayoutTable, f Func, strs mut []string
 		case CallClosure as c:
 			let ft = p.Types[f.Slots[c.Fn]]
 			emitCall(&a, layouts, fr, plan, c.Dsts, c.Args, ft.Params, ft.Results, "", c.Fn, smi)
+		case ClosureEnv as ce:
+			a.MovStore(RDX, RSP, SlotBaseOff(fr, plan, ce.Dst))
+		case Alloc as al:
+			let elem = p.Types[f.Slots[al.Dst]].Elem
+			a.LeaRip(RAX, TypeDescSym(p, elem), ABI0)
+			a.SetSmi(smi)
+			a.CallSym(RuntimeNewobject, ABIInternal, true)
+			a.MovStore(RAX, RSP, SlotBaseOff(fr, plan, al.Dst))
+		case MakeClosure as mc:
+			if mc.Env < 0 {
+				a.LeaRip(RAX, mc.Target+ClosureSuffix, ABI0)
+				a.MovStore(RAX, RSP, SlotBaseOff(fr, plan, mc.Dst))
+			} else {
+				a.MovLoad(RDI, RSP, SlotBaseOff(fr, plan, mc.Env))
+				a.LeaRip(RAX, mc.Target, ABIInternal)
+				a.MovStore(RAX, RDI, 0)
+				a.MovStore(RDI, RSP, SlotBaseOff(fr, plan, mc.Dst))
+			}
+		case Append as ap:
+			let oldOff = SlotBaseOff(fr, plan, ap.Slice)
+			let dstOff = SlotBaseOff(fr, plan, ap.Dst)
+			let elem = p.Types[f.Slots[ap.Dst]].Elem
+			let esz = int(layouts.Sizes[elem])
+			let haveSliceLbl = allocLabel(&nextLbl)
+			a.MovLoad(RAX, RSP, oldOff)
+			a.MovLoad(RBX, RSP, oldOff+8)
+			a.AluImm(ExtAdd, RBX, 1)
+			a.MovLoad(RCX, RSP, oldOff+16)
+			a.Alu(OpCmp, RBX, RCX)
+			a.Jcc(JccBe, haveSliceLbl)
+			a.MovImm(RDI, 1)
+			a.LeaRip(RSI, TypeDescSym(p, elem), ABI0)
+			a.SetSmi(smi)
+			a.CallSym(RuntimeGrowslice, ABIInternal, true)
+			a.Bind(haveSliceLbl)
+			a.MovStore(RAX, RSP, dstOff)
+			a.MovStore(RBX, RSP, dstOff+8)
+			a.MovStore(RCX, RSP, dstOff+16)
+			if esz > 0 {
+				a.MovRR(RDI, RAX)
+				a.AluImm(ExtSub, RBX, 1)
+				if esz != 1 {
+					a.MovImm(RCX, esz)
+					a.Imul(RBX, RCX)
+				}
+				a.Alu(OpAdd, RDI, RBX)
+				emitHeapStoreType(&a, layouts, RDI, 0, RSP, SlotBaseOff(fr, plan, ap.Elem), elem, &nextLbl)
+			}
+		case SliceOp as sl:
+			let sk = p.Types[f.Slots[sl.Src]].Kind
+			let srcOff = SlotBaseOff(fr, plan, sl.Src)
+			let dstOff = SlotBaseOff(fr, plan, sl.Dst)
+			let hiT = f.Slots[sl.Hi]
+			let hiSigned = KindIsSigned(p.Types[hiT].Kind)
+			let loT = f.Slots[sl.Lo]
+			let loSigned = KindIsSigned(p.Types[loT].Kind)
+			let panicHiLbl = allocLabel(&nextLbl)
+			let panicLoLbl = allocLabel(&nextLbl)
+			let panicHiSym = if sk == KString {
+				if hiSigned { RuntimePanicSliceAlen } else { RuntimePanicSliceAlenU }
+			} else {
+				if hiSigned { RuntimePanicSliceAcap } else { RuntimePanicSliceAcapU }
+			}
+			let panicLoSym = if loSigned { RuntimePanicSliceB } else { RuntimePanicSliceBU }
+			colds = colds.Append(coldSite{id: panicHiLbl, line: line, opIdx: i, panicSym: panicHiSym, regA: -1, regB: -1})
+			colds = colds.Append(coldSite{id: panicLoLbl, line: line, opIdx: i, panicSym: panicLoSym, regA: RCX, regB: RAX})
+			a.MovLoad(RBX, RSP, srcOff+if sk == KSlice { 16 } else { 8 })
+			a.MovLoadN(RAX, RSP, SlotBaseOff(fr, plan, sl.Hi), int(layouts.Sizes[hiT]), hiSigned)
+			a.Alu(OpCmp, RAX, RBX)
+			a.Jcc(JccA, panicHiLbl)
+			a.MovLoadN(RCX, RSP, SlotBaseOff(fr, plan, sl.Lo), int(layouts.Sizes[loT]), loSigned)
+			a.Alu(OpCmp, RCX, RAX)
+			a.Jcc(JccA, panicLoLbl)
+			a.Alu(OpSub, RAX, RCX)
+			a.MovStore(RAX, RSP, dstOff+8)
+			if sk == KSlice {
+				a.Alu(OpSub, RBX, RCX)
+				a.MovStore(RBX, RSP, dstOff+16)
+			}
+			a.MovLoad(RDI, RSP, srcOff)
+			let esz = if sk == KString { 1 } else { int(layouts.Sizes[p.Types[f.Slots[sl.Src]].Elem]) }
+			if esz > 0 {
+				let skipPtr = allocLabel(&nextLbl)
+				let chkReg = if sk == KSlice { RBX } else { RAX }
+				a.TestRR(8, chkReg, chkReg)
+				a.Jcc(JccEq, skipPtr)
+				if esz != 1 {
+					a.MovImm(RDX, esz)
+					a.Imul(RCX, RDX)
+				}
+				a.Alu(OpAdd, RDI, RCX)
+				a.Bind(skipPtr)
+			}
+			a.MovStore(RDI, RSP, dstOff)
+		case StringIndex as sx:
+			let strOff = SlotBaseOff(fr, plan, sx.Str)
+			let idxT = f.Slots[sx.Idx]
+			let idxSigned = KindIsSigned(p.Types[idxT].Kind)
+			let idxW = int(layouts.Sizes[idxT])
+			let panicLbl = allocLabel(&nextLbl)
+			colds = colds.Append(coldSite{id: panicLbl, line: line, opIdx: i, panicSym: if idxSigned { RuntimePanicIndex } else { RuntimePanicIndexU }, regA: -1, regB: -1})
+			a.MovLoad(RBX, RSP, strOff+8)
+			a.MovLoadN(RAX, RSP, SlotBaseOff(fr, plan, sx.Idx), idxW, idxSigned)
+			a.Alu(OpCmp, RAX, RBX)
+			a.Jcc(JccAe, panicLbl)
+			a.MovLoad(RCX, RSP, strOff)
+			a.Alu(OpAdd, RAX, RCX)
+			a.MovLoadN(RAX, RAX, 0, 1, false)
+			a.MovStoreN(RAX, RSP, SlotBaseOff(fr, plan, sx.Dst), 1)
+		case MakeIface as mi:
+			let dstT = f.Slots[mi.Dst]
+			let srcT = f.Slots[mi.Src]
+			let dstOff = SlotBaseOff(fr, plan, mi.Dst)
+			let srcOff = SlotBaseOff(fr, plan, mi.Src)
+			let tabSym = if p.Types[dstT].Methods.Len() == 0 { TypeDescSym(p, srcT) } else { ItabSym(p, srcT, dstT) }
+			if p.Types[srcT].Kind == KPtr {
+				a.LeaRip(RAX, tabSym, ABI0)
+				a.MovStore(RAX, RSP, dstOff)
+				a.MovLoad(RAX, RSP, srcOff)
+				a.MovStore(RAX, RSP, dstOff+8)
+			} else if TypeIsZeroSize(p, srcT) {
+				a.LeaRip(RAX, tabSym, ABI0)
+				a.MovStore(RAX, RSP, dstOff)
+				a.LeaRip(RAX, RuntimeZerobase, ABI0)
+				a.MovStore(RAX, RSP, dstOff+8)
+			} else {
+				a.LeaRip(RAX, TypeDescSym(p, srcT), ABI0)
+				a.SetSmi(smi)
+				a.CallSym(RuntimeNewobject, ABIInternal, true)
+				a.MovStore(RAX, RSP, dstOff+8)
+				a.MovRR(RDI, RAX)
+				emitHeapStoreType(&a, layouts, RDI, 0, RSP, srcOff, srcT, &nextLbl)
+				a.LeaRip(RAX, tabSym, ABI0)
+				a.MovStore(RAX, RSP, dstOff)
+			}
+		case IfaceIs as ii:
+			let ifaceOff = SlotBaseOff(fr, plan, ii.Iface)
+			let dstOff = SlotBaseOff(fr, plan, ii.Dst)
+			let falseLbl = allocLabel(&nextLbl)
+			let doneLbl = allocLabel(&nextLbl)
+			a.MovLoad(RAX, RSP, ifaceOff)
+			if p.Types[f.Slots[ii.Iface]].Methods.Len() > 0 {
+				a.TestRR(8, RAX, RAX)
+				a.Jcc(JccEq, falseLbl)
+				a.MovLoad(RAX, RAX, 8)
+			}
+			a.LeaRip(RCX, TypeDescSym(p, ii.ConcreteType), ABI0)
+			a.Alu(OpCmp, RAX, RCX)
+			a.Jcc(JccNe, falseLbl)
+			a.MovImm(RAX, 1)
+			a.Jmp(doneLbl)
+			a.Bind(falseLbl)
+			a.MovImm(RAX, 0)
+			a.Bind(doneLbl)
+			a.MovStoreN(RAX, RSP, dstOff, 1)
+		case IfaceData as id:
+			let ifaceOff = SlotBaseOff(fr, plan, id.Iface)
+			let dstOff = SlotBaseOff(fr, plan, id.Dst)
+			let dstT = f.Slots[id.Dst]
+			if p.Types[dstT].Kind == KPtr {
+				a.MovLoad(RAX, RSP, ifaceOff+8)
+				a.MovStore(RAX, RSP, dstOff)
+			} else {
+				a.MovLoad(RDI, RSP, ifaceOff+8)
+				emitCopyMem(&a, RSP, dstOff, RDI, 0, int(layouts.Sizes[dstT]), RAX)
+			}
+		case CallIface as ci:
+			let it = p.Types[f.Slots[ci.Iface]]
+			let mt = p.Types[it.Methods[ci.Method].Type]
+			emitCallIface(&a, layouts, fr, plan, ci.Dsts, ci.Args, ci.Iface, ci.Method, mt.Params, mt.Results, smi)
 		case Label as l:
 			a.Bind(l.Id)
 		case Jump as j:
@@ -710,6 +976,12 @@ func LowerFuncWithStrs(p Package, layouts LayoutTable, f Func, strs mut []string
 		a.SetLine(cs.line)
 		a.SetSmi(csmi)
 		a.Bind(cs.id)
+		if cs.regB >= 0 && cs.regB != RBX {
+			a.MovRR(RBX, cs.regB)
+		}
+		if cs.regA >= 0 && cs.regA != RAX {
+			a.MovRR(RAX, cs.regA)
+		}
 		a.CallSym(cs.panicSym, ABIInternal, false)
 		a.Nop()
 	}
@@ -722,7 +994,7 @@ func LowerFuncWithStrs(p Package, layouts LayoutTable, f Func, strs mut []string
 		for r in 0..plan.InRegCount {
 			a.MovStore(IntRegs[r], RSP, 8+plan.StackEnd+8*r)
 		}
-		a.CallSym(MorestackNoctxt, ABI0, true)
+		a.CallSym(if hasEnv { RuntimeMorestack } else { MorestackNoctxt }, ABI0, true)
 		a.SetUnsafe(UnsafeSafe)
 		for r in 0..plan.InRegCount {
 			a.MovLoad(IntRegs[r], RSP, 8+plan.StackEnd+8*r)

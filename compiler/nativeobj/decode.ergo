@@ -423,10 +423,22 @@ func ReadObject(data string) DObj fails Bad {
 		let mut xs = []DAux{}
 		for k in a0..a1 {
 			let p = offs[15] + 9*k
-			if try le(data, p+1, 4) != PkgIdxSelf {
+			let atype = try le(data, p, 1)
+			let pkg = try le(data, p+1, 4)
+			let idx = try le(data, p+5, 4)
+			if pkg == PkgIdxSelf {
+				if idx >= n {
+					return Bad{Why: "an aux symbol definition \(idx) of \(n)"}
+				}
+				xs = xs.Append(DAux{Type: atype, Def: idx})
+			} else if pkg == PkgIdxNone && atype == 0 {
+				if idx >= refs.Len() {
+					return Bad{Why: "an aux gotype reference \(idx) of \(refs.Len())"}
+				}
+				xs = xs.Append(DAux{Type: atype, Def: -1})
+			} else {
 				return Bad{Why: "an aux symbol outside the package"}
 			}
-			xs = xs.Append(DAux{Type: try le(data, p, 1), Def: try le(data, p+5, 4)})
 		}
 		auxs = auxs.Append(xs)
 		let d0 = try le(data, offs[13]+4*i, 4)
@@ -489,7 +501,7 @@ func Disasm(code string) []Ins fails Bad {
 		let modrm = op == 0x88 || op == 0x89 || op == 0x8B || op == 0x8D || op == 0x63 ||
 			op == 0x01 || op == 0x09 || op == 0x19 || op == 0x21 || op == 0x29 || op == 0x31 || op == 0x39 || op == 0x3B ||
 			op == 0x84 || op == 0x85 || op == 0x0FAF || op == 0x0FB6 || op == 0x0FB7 || op == 0x0FBE || op == 0x0FBF ||
-			(op >= 0x0F90 && op <= 0x0F9F) || op == 0x81 || op == 0x83 || op == 0xC7 || op == 0xD3 || op == 0xF7 || op == 0xFF
+			(op >= 0x0F90 && op <= 0x0F9F) || op == 0x81 || op == 0x83 || op == 0xC1 || op == 0xC7 || op == 0xD3 || op == 0xF7 || op == 0xFF
 		let mut ins = Ins{Pc: start, Size: 0, Op: op, R: 0, B: 0, Mem: false, Rip: false, Disp: 0, Imm: 0, Width: insWidth(op, rex, sizePfx)}
 		if modrm {
 			let m = try le(code, pc, 1)
@@ -518,7 +530,7 @@ func Disasm(code string) []Ins fails Bad {
 			if op == 0x81 || op == 0xC7 {
 				ins = Ins{..ins, Imm: sext(try le(code, pc, 4), 32)}
 				pc = pc + 4
-			} else if op == 0x83 {
+			} else if op == 0x83 || op == 0xC1 {
 				ins = Ins{..ins, Imm: sext(try le(code, pc, 1), 8)}
 				pc = pc + 1
 			}

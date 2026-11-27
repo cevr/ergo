@@ -49,8 +49,14 @@ let KSlice = 15
 // KStruct is the value record type kind.
 let KStruct = 16
 
+// KIface is the interface (or any when Methods is empty) type kind.
+let KIface = 17
+
 // FieldDef describes one field of a struct TypeDef.
 type FieldDef { Name string, Type int, Exported bool }
+
+// MethodDef describes one method signature in an interface or struct TypeDef.
+type MethodDef { Name string, Type int, Exported bool }
 
 // TypeDef is one Go-visible type in a package's type table.
 type TypeDef {
@@ -62,43 +68,64 @@ type TypeDef {
 	PkgPath  string,
 	Exported bool,
 	Fields   []FieldDef,
+	Methods  []MethodDef,
 }
 
 // IntType builds the default machine-word int TypeDef.
 func IntType() TypeDef {
-	TypeDef{Kind: KInt, Elem: 0, Params: []int{}, Results: []int{}, Name: "", PkgPath: "", Exported: false, Fields: []FieldDef{}}
+	TypeDef{Kind: KInt, Elem: 0, Params: []int{}, Results: []int{}, Name: "", PkgPath: "", Exported: false, Fields: []FieldDef{}, Methods: []MethodDef{}}
 }
 
 // BasicType builds a scalar basic TypeDef for kind KBool..KString.
 func BasicType(kind int) TypeDef {
-	TypeDef{Kind: kind, Elem: 0, Params: []int{}, Results: []int{}, Name: "", PkgPath: "", Exported: false, Fields: []FieldDef{}}
+	TypeDef{Kind: kind, Elem: 0, Params: []int{}, Results: []int{}, Name: "", PkgPath: "", Exported: false, Fields: []FieldDef{}, Methods: []MethodDef{}}
 }
 
 // PtrType builds a pointer TypeDef targeting elem.
 func PtrType(elem int) TypeDef {
-	TypeDef{Kind: KPtr, Elem: elem, Params: []int{}, Results: []int{}, Name: "", PkgPath: "", Exported: false, Fields: []FieldDef{}}
+	TypeDef{Kind: KPtr, Elem: elem, Params: []int{}, Results: []int{}, Name: "", PkgPath: "", Exported: false, Fields: []FieldDef{}, Methods: []MethodDef{}}
 }
 
 // SliceType builds a slice TypeDef with element type elem.
 func SliceType(elem int) TypeDef {
-	TypeDef{Kind: KSlice, Elem: elem, Params: []int{}, Results: []int{}, Name: "", PkgPath: "", Exported: false, Fields: []FieldDef{}}
+	TypeDef{Kind: KSlice, Elem: elem, Params: []int{}, Results: []int{}, Name: "", PkgPath: "", Exported: false, Fields: []FieldDef{}, Methods: []MethodDef{}}
 }
 
 // FuncType builds a function signature TypeDef.
 func FuncType(params []int, results []int) TypeDef {
-	TypeDef{Kind: KFunc, Elem: 0, Params: params, Results: results, Name: "", PkgPath: "", Exported: false, Fields: []FieldDef{}}
+	TypeDef{Kind: KFunc, Elem: 0, Params: params, Results: results, Name: "", PkgPath: "", Exported: false, Fields: []FieldDef{}, Methods: []MethodDef{}}
 }
 
 // StructType builds a named or anonymous record TypeDef.
 func StructType(name string, pkgPath string, exported bool, fields []FieldDef) TypeDef {
-	TypeDef{Kind: KStruct, Elem: 0, Params: []int{}, Results: []int{}, Name: name, PkgPath: pkgPath, Exported: exported, Fields: fields}
+	TypeDef{Kind: KStruct, Elem: 0, Params: []int{}, Results: []int{}, Name: name, PkgPath: pkgPath, Exported: exported, Fields: fields, Methods: []MethodDef{}}
+}
+
+// IfaceType builds a named or anonymous interface TypeDef with sorted method definitions.
+func IfaceType(name string, pkgPath string, exported bool, methods []MethodDef) TypeDef {
+	TypeDef{Kind: KIface, Elem: 0, Params: []int{}, Results: []int{}, Name: name, PkgPath: pkgPath, Exported: exported, Fields: []FieldDef{}, Methods: methods}
+}
+
+// AnyType builds the empty interface (any) TypeDef.
+func AnyType() TypeDef {
+	IfaceType("", "", false, []MethodDef{})
 }
 
 // Import is a foreign package referenced by export path, name, 8-byte fingerprint, and init flag.
 type Import { Path string, Name string, Fingerprint string, HasInit bool }
 
-// Global is a package variable of type int.
-type Global { Name string }
+// Global is a package variable (local when PkgPath == "" or matching package path, else foreign).
+type Global { PkgPath string, Name string, Type int }
+
+// LocalGlobal constructs a local int-typed global descriptor for package p.
+func LocalGlobal(name string, typ int) Global {
+	Global{PkgPath: "", Name: name, Type: typ}
+}
+
+// ForeignGlobal constructs a foreign package global descriptor.
+func ForeignGlobal(pkgPath string, name string, typ int) Global {
+	Global{PkgPath: pkgPath, Name: name, Type: typ}
+}
 
 // AAdd adds two integers or concatenates two strings.
 let AAdd = 0
@@ -214,8 +241,38 @@ type JumpIf { Cond int, A int, B int, To int }
 // Return returns Vals according to the function's ABIInternal signature.
 type Return { Vals []int }
 
+// ClosureEnv captures the incoming ABI closure context register at op 0 of a closure body.
+type ClosureEnv { Dst int }
+
+// Alloc allocates a heap object for pointer slot Dst via runtime.newobject.
+type Alloc { Dst int }
+
+// MakeClosure builds a function closure value from Target and optional Env struct pointer (-1 if captureless).
+type MakeClosure { Dst int, Target string, Env int }
+
+// Append appends Elem to Slice into Dst using Go growslice growth semantics.
+type Append { Dst int, Slice int, Elem int }
+
+// SliceOp computes Src[Lo:Hi] into Dst for a slice or string value.
+type SliceOp { Dst int, Src int, Lo int, Hi int }
+
+// StringIndex reads bounds-checked byte Idx from string Str into uint8 slot Dst.
+type StringIndex { Dst int, Str int, Idx int }
+
+// MakeIface boxes concrete slot Src into interface or any slot Dst.
+type MakeIface { Dst int, Src int }
+
+// IfaceIs checks whether interface/any slot Iface currently holds ConcreteType into bool slot Dst.
+type IfaceIs { Dst int, Iface int, ConcreteType int }
+
+// IfaceData extracts the concrete payload from matched interface/any slot Iface into Dst.
+type IfaceData { Dst int, Iface int }
+
+// CallIface dispatches method index Method on interface slot Iface with Args and stores results in Dsts.
+type CallIface { Dsts []int, Iface int, Method int, Args []int }
+
 // Op is one instruction in a checked Func body.
-type Op = Const | ConstStr | Zero | Arith | Convert | Len | Load | StorePtr | Store | AddrOf | RecordLit | FieldGet | FieldSet | Index | SliceLit | GetGlobal | SetGlobal | Call | CallClosure | Label | Jump | JumpIf | Return
+type Op = Const | ConstStr | Zero | Arith | Convert | Len | Load | StorePtr | Store | AddrOf | RecordLit | FieldGet | FieldSet | Index | SliceLit | GetGlobal | SetGlobal | Call | CallClosure | Label | Jump | JumpIf | Return | ClosureEnv | Alloc | MakeClosure | Append | SliceOp | StringIndex | MakeIface | IfaceIs | IfaceData | CallIface
 
 // Func is one function in a checked Package.
 type Func {
@@ -263,7 +320,7 @@ func IsPointer(p Package, t int) bool {
 // HasPointers reports whether type id t holds any GC-visible pointer word.
 func HasPointers(p Package, t int) bool {
 	let td = p.Types[t]
-	if td.Kind == KPtr || td.Kind == KFunc || td.Kind == KString || td.Kind == KSlice {
+	if td.Kind == KPtr || td.Kind == KFunc || td.Kind == KString || td.Kind == KSlice || td.Kind == KIface {
 		return true
 	}
 	if td.Kind == KStruct {
@@ -349,6 +406,24 @@ func OpUses(op Op) []int {
 		return []int{j.A, j.B}
 	case Return as r:
 		return r.Vals
+	case ClosureEnv, Alloc:
+		return []int{}
+	case MakeClosure as mc:
+		return if mc.Env >= 0 { []int{mc.Env} } else { []int{} }
+	case Append as ap:
+		return []int{ap.Slice, ap.Elem}
+	case SliceOp as sl:
+		return []int{sl.Src, sl.Lo, sl.Hi}
+	case StringIndex as sx:
+		return []int{sx.Str, sx.Idx}
+	case MakeIface as mi:
+		return []int{mi.Src}
+	case IfaceIs as ii:
+		return []int{ii.Iface}
+	case IfaceData as id:
+		return []int{id.Iface}
+	case CallIface as ci:
+		return []int{ci.Iface}.Concat(ci.Args)
 	}
 }
 
@@ -385,32 +460,117 @@ func OpDefs(op Op) []int {
 		return c.Dsts
 	case CallClosure as c:
 		return c.Dsts
+	case ClosureEnv as ce:
+		return []int{ce.Dst}
+	case Alloc as al:
+		return []int{al.Dst}
+	case MakeClosure as mc:
+		return []int{mc.Dst}
+	case Append as ap:
+		return []int{ap.Dst}
+	case SliceOp as sl:
+		return []int{sl.Dst}
+	case StringIndex as sx:
+		return []int{sx.Dst}
+	case MakeIface as mi:
+		return []int{mi.Dst}
+	case IfaceIs as ii:
+		return []int{ii.Dst}
+	case IfaceData as id:
+		return []int{id.Dst}
+	case CallIface as ci:
+		return ci.Dsts
 	case _:
 		return []int{}
 	}
 }
 
-// IsCall reports whether op is an explicit Call or CallClosure instruction.
+// OpUsesAfterCall returns operand slots read after an internal runtime safe-point call within op.
+func OpUsesAfterCall(op Op) []int {
+	match op {
+	case SliceLit as sl:
+		return if sl.Elems.Len() > 0 { sl.Elems } else { []int{} }
+	case Append as ap:
+		return []int{ap.Elem}
+	case MakeIface as mi:
+		return []int{mi.Src}
+	case _:
+		return []int{}
+	}
+}
+
+// IsCall reports whether op is an explicit Call, CallClosure, or CallIface instruction.
 func IsCall(op Op) bool {
 	match op {
-	case Call, CallClosure:
+	case Call, CallClosure, CallIface:
 		return true
 	case _:
 		return false
 	}
 }
 
+// TypeIsZeroSize reports whether type id t occupies zero bytes at run time.
+func TypeIsZeroSize(p Package, t int) bool {
+	let td = p.Types[t]
+	if td.Kind != KStruct {
+		return false
+	}
+	for f in td.Fields {
+		if !TypeIsZeroSize(p, f.Type) {
+			return false
+		}
+	}
+	true
+}
+
 // IsCallOp reports whether lowering op emits a runtime/Go call that acts as a GC safe point.
 func IsCallOp(p Package, f Func, op Op) bool {
 	match op {
-	case Call, CallClosure:
+	case Call, CallClosure, CallIface, Alloc, Append:
 		return true
+	case MakeIface as mi:
+		let st = f.Slots[mi.Src]
+		return p.Types[st].Kind != KPtr && !TypeIsZeroSize(p, st)
 	case Arith as a:
 		return a.Kind == AAdd && p.Types[f.Slots[a.A]].Kind == KString
 	case SliceLit as sl:
 		return sl.Elems.Len() > 0
 	case JumpIf as j:
 		return p.Types[f.Slots[j.A]].Kind == KString
+	case _:
+		return false
+	}
+}
+
+// NeedInitTask reports whether package p requires a linker ..inittask symbol.
+func NeedInitTask(p Package) bool {
+	if p.Inits.Len() > 0 || p.Path == "main" || p.Path == "runtime" {
+		return true
+	}
+	for imp in p.Imports {
+		if imp.HasInit {
+			return true
+		}
+	}
+	false
+}
+
+// GlobalSym returns the linker symbol name for global descriptor g in package p.
+func GlobalSym(p Package, g Global) string {
+	if g.PkgPath != "" && g.PkgPath != p.Path {
+		return g.PkgPath + "." + g.Name
+	}
+	SymName(p, g.Name)
+}
+
+// FuncHasClosureEnv reports whether f begins with a ClosureEnv op requiring closure context.
+func FuncHasClosureEnv(f Func) bool {
+	if f.Ops.Len() == 0 {
+		return false
+	}
+	match f.Ops[0] {
+	case ClosureEnv:
+		return true
 	case _:
 		return false
 	}

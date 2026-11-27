@@ -96,6 +96,7 @@ let UnsafeUnsafe = -2
 let SText = 1
 let SRodata = 3
 let SNoptrdata = 5
+let SBss = 9
 let SNoptrbss = 10
 let RAddr = 1
 let RAddroff = 5
@@ -119,19 +120,32 @@ let FlagTypelink = 4
 let FlagGoType = 64
 
 // Runtime symbols the emitted code calls or reads, with their ABIs.
+let RuntimeMorestack = "runtime.morestack"
 let MorestackNoctxt = "runtime.morestack_noctxt"
 let WriteBarrierFlag = "runtime.writeBarrier"
 let GCWriteBarrier2 = "runtime.gcWriteBarrier2"
+let RuntimeNewobject = "runtime.newobject"
 let RuntimeMakeslice = "runtime.makeslice"
+let RuntimeGrowslice = "runtime.growslice"
 let RuntimeConcatstring2 = "runtime.concatstring2"
 let RuntimeCmpstring = "runtime.cmpstring"
 let RuntimeMemequal = "runtime.memequal"
 let RuntimeMemequalVarlen = "runtime.memequal_varlen"
 let RuntimeMemequal64F = "runtime.memequal64\xc2\xb7f"
+let RuntimeIfaceeq = "runtime.ifaceeq"
+let RuntimeEfaceeq = "runtime.efaceeq"
 let RuntimePanicIndex = "runtime.goPanicIndex"
 let RuntimePanicIndexU = "runtime.goPanicIndexU"
+let RuntimePanicSliceAlen = "runtime.goPanicSliceAlen"
+let RuntimePanicSliceAlenU = "runtime.goPanicSliceAlenU"
+let RuntimePanicSliceAcap = "runtime.goPanicSliceAcap"
+let RuntimePanicSliceAcapU = "runtime.goPanicSliceAcapU"
+let RuntimePanicSliceB = "runtime.goPanicSliceB"
+let RuntimePanicSliceBU = "runtime.goPanicSliceBU"
 let RuntimePanicDivide = "runtime.panicdivide"
 let RuntimeZerobase = "runtime.zerobase"
+let TypeErrorSym = "type:error"
+let ClosureSuffix = "\xc2\xb7f"
 
 // Frame is the layout of one function's frame. Size counts every byte
 // below the return address: the saved BP at the top, then the slots

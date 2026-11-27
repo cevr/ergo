@@ -1,0 +1,55 @@
+import ergo.local/native/execdep1
+import ergo.local/native/execdep2
+import io
+import os
+
+func buildArgsSummary(args []string) string {
+	let mut out = ""
+	for i, a in args {
+		if i > 0 {
+			out = out + ","
+		}
+		out = out + a
+	}
+	out
+}
+
+func execute(args []string) fails os.Exit | execdep2.TraceErr needs io.Stdout {
+	let mode = if args.Len() > 0 { args[0] } else { "ok" }
+	let shift = if args.Len() > 1 && args[1] == "bump" { 5 } else { 2 }
+	if mode == "fail-exit" {
+		return os.Exit{Code: 7, Message: "exec-halt:" + execdep1.Banner}
+	}
+	if mode == "fail-raw" {
+		return execdep2.TraceErr{Stage: "main-raw", Code: 99}
+	}
+	if mode == "fail-caught" {
+		return execdep2.TraceErr{Stage: "main-caught", Code: 42}
+	}
+	let sc = execdep2.Scale{Base: 10, Factor: 3}
+	let m execdep2.Meter = sc
+	let fn = execdep2.MakeScaler(shift)
+	let total = execdep1.ApplyMeter(m, []int{4, 6})
+	let limit = if mode == "fail-limit" { 5 } else { 200 }
+	let report = execdep1.EvalPipeline(total, limit, fn) catch {
+	case execdep2.TraceErr as e:
+		return os.Exit{Code: 9, Message: "pipe:" + e.Stage + ":" + "\(e.Code)"}
+	}
+	let line = "banner=\(execdep1.Banner) total=\(total) \(report) args=[\(buildArgsSummary(args))]"
+	io.Stdout.Println(line)
+}
+
+func main() fails os.Exit | execdep2.TraceErr needs os.Ambient {
+	with context { os.Process: os.NewHost(), io.Stdout: io.NewHost() } {
+		let args = os.Process.Args()
+		execute(args) catch {
+		case os.Exit as x:
+			return x
+		case execdep2.TraceErr as e:
+			if args.Len() > 0 && args[0] == "fail-raw" {
+				return e
+			}
+			return os.Exit{Code: 11, Message: "trace:\(e.Stage):\(e.Code)"}
+		}
+	}
+}

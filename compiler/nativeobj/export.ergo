@@ -26,6 +26,7 @@ let TypePointer = 2
 let TypeSlice = 3
 let TypeSignature = 7
 let TypeStruct = 8
+let TypeInterface = 9
 let ObjType = 2
 let ObjFunc = 3
 let ObjStub = 5
@@ -169,6 +170,18 @@ func writeStructBody(e mut Enc, x mut ExportW, self int, nfiles int, fields []Fi
 	}
 }
 
+func writeIfaceBody(e mut Enc, p Package, x mut ExportW, self int, nfiles int, methods []MethodDef) {
+	e.Len(TypeInterface)
+	e.Len(methods.Len())
+	e.Len(0)
+	for md in methods {
+		let sig = p.Types[md.Type]
+		e.pos(nfiles, 0, 1, 1)
+		e.selector(x, self, md.Name)
+		e.signature(x, self, sig.Params, sig.Results)
+	}
+}
+
 func hasDot(name string) bool {
 	for i in 0..name.Len() {
 		if name[i] == byte('.') {
@@ -178,11 +191,22 @@ func hasDot(name string) bool {
 	false
 }
 
+func methodNamePart(name string) string {
+	for i in 0..name.Len() {
+		let k = name.Len() - 1 - i
+		if name[k] == byte('.') {
+			return name[k+1 : name.Len()]
+		}
+	}
+	""
+}
+
 func methodsForStruct(p Package, structName string) []int {
-	let prefix = structName + "."
+	let valPrefix = structName + "."
+	let ptrPrefix = "(*" + structName + ")."
 	let mut out = []int{}
 	for i, f in p.Funcs {
-		if strings.HasPrefix(f.Name, prefix) && f.Params.Len() > 0 && Exported(f.Name) {
+		if (strings.HasPrefix(f.Name, valPrefix) || strings.HasPrefix(f.Name, ptrPrefix)) && f.Params.Len() > 0 && Exported(methodNamePart(f.Name)) {
 			out = out.Append(i)
 		}
 	}
@@ -275,7 +299,7 @@ func ExportBlobWithSyms(p Package, typeSyms []int, ptrTypeSyms []int) (string, s
 			w.Len(meths.Len())
 			for mi, fi in meths {
 				let f = p.Funcs[fi]
-				let mname = f.Name[d.Name.Len()+1 : f.Name.Len()]
+				let mname = methodNamePart(f.Name)
 				w.Len(mi)
 				w.pos(nfiles, f.File, f.Line, f.Col)
 				w.selector(&x, owner, mname)
@@ -300,6 +324,42 @@ func ExportBlobWithSyms(p Package, typeSyms []int, ptrTypeSyms []int) (string, s
 				}
 				ext.Bool(false)
 			}
+			x.put(SecObjExt, o, ext)
+			let mut name = newEnc()
+			name.Rel(SecPkg, owner)
+			name.Str(&x, d.Name)
+			name.Len(ObjType)
+			x.put(SecName, o, name)
+			emptyDict(&x, o)
+			if local && d.Exported {
+				objs = objs.Append(o)
+			}
+			e.Len(TypeNamed)
+			e.Rel(SecObj, o)
+			e.Len(0)
+		} else if d.Kind == KIface && (d.Name == "" || (d.Name == "error" && d.PkgPath == "")) {
+			e.writeIfaceBody(p, &x, self, nfiles, d.Methods)
+		} else if d.Kind == KIface {
+			let local = d.PkgPath == "" || d.PkgPath == p.Path
+			let owner = if local { self } else { pkgIndexOf(p, d.PkgPath) }
+			let o = x.reserve(SecObj)
+			x.reserve(SecObjExt)
+			x.reserve(SecName)
+			x.reserve(SecObjDict)
+			let u = x.reserve(SecType)
+			let mut ue = newEnc()
+			ue.writeIfaceBody(p, &x, owner, nfiles, d.Methods)
+			x.put(SecType, u, ue)
+			let mut w = newEnc()
+			w.pos(nfiles, 0, 1, 1)
+			w.typ(u)
+			w.Len(0)
+			w.Len(0)
+			x.put(SecObj, o, w)
+			let mut ext = newEnc()
+			ext.Int(0)
+			ext.Int(if local { typeSyms[t] } else { -1 })
+			ext.Int(if local { ptrTypeSyms[t] } else { -1 })
 			x.put(SecObjExt, o, ext)
 			let mut name = newEnc()
 			name.Rel(SecPkg, owner)
@@ -360,7 +420,7 @@ func ExportBlobWithSyms(p Package, typeSyms []int, ptrTypeSyms []int) (string, s
 	}
 	x.put(SecMeta, pub, root)
 	let mut proot = newEnc()
-	proot.Bool(p.Inits.Len() > 0)
+	proot.Bool(NeedInitTask(p))
 	proot.Len(0)
 	x.put(SecMeta, priv, proot)
 	let mut w = NewBuf()
