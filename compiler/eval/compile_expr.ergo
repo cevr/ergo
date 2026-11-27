@@ -36,10 +36,11 @@ func ParseIntLiteral(raw string) (uint64, bool) {
 		base = 8
 		body = s[1:s.Len()]
 	}
-	let v = strconv.ParseInt(body, base, 64) catch {
-	case strconv.Malformed:
+	let (v, st) = ParseSignedIntBase(body, base, 64)
+	if st == uint8(1) {
 		return (uint64(0), false)
-	case strconv.OutOfRange:
+	}
+	if st == uint8(2) {
 		if base == 10 && body == "9223372036854775808" {
 			return (u64SignBit, true)
 		}
@@ -112,8 +113,8 @@ func ParseDurationLiteral(raw string) (uint64, bool) {
 			}
 			total = total + uint64(int64(f*float64(mult)))
 		} else {
-			let v = strconv.ParseInt(numText, 10, 64) catch {
-			case _:
+			let (v, st) = ParseSignedIntBase(numText, 10, 64)
+			if st != uint8(0) {
 				return (uint64(0), false)
 			}
 			total = total + uint64(v)*mult
@@ -1007,6 +1008,40 @@ func compileCompositeLitExpr(prog mut Program, ctx mut CompileUnitCtx, fb mut Fn
 		return
 	}
 	let firstIsKV = syntax.KindOf(tr, syntax.Item(tr, cl.Elts, 0)) == syntax.KKeyValueExpr
+	if fCount == 0 {
+		if !firstIsKV {
+			for i in 0..n {
+				CompileExprNode(prog, ctx, fb, syntax.Item(tr, cl.Elts, i), TypeVoid, false)
+			}
+			EmitOp(prog, OpMakeRecord, uint8(0), litT, uint32(n), uint32(0), fb.File, id)
+			return
+		}
+		let mut kvNames = slices.WithCapacity[string](n)
+		let mut kvTypes = slices.WithCapacity[uint32](n)
+		let mut kvSlots = slices.WithCapacity[uint32](n)
+		for i in 0..n {
+			let el = syntax.Item(tr, cl.Elts, i)
+			if syntax.KindOf(tr, el) == syntax.KKeyValueExpr {
+				let kv = syntax.KeyValueExprOf(tr, el)
+				let fnm = textOfNameNode(p, kv.Key)
+				let ft = ResolveExprType(prog, ctx, *fb, kv.Value, TypeVoid)
+				CompileExprNode(prog, ctx, fb, kv.Value, ft, false)
+				let tmp = AllocLocalSlot(fb, dense.NoID[store.PNode](), ft, false)
+				EmitOp(prog, OpStoreLocal, uint8(0), tmp, uint32(0), uint32(0), fb.File, kv.Value)
+				kvNames = kvNames.Append(fnm)
+				kvTypes = kvTypes.Append(ft)
+				kvSlots = kvSlots.Append(tmp)
+			}
+		}
+		if int(u) < prog.Types.Kind.Len() && prog.Types.Kind[int(u)] == KindRecord {
+			SetRecordFields(&prog.Types, u, kvNames, kvTypes)
+		}
+		for s in kvSlots {
+			EmitOp(prog, OpLoadLocal, uint8(0), s, uint32(0), uint32(0), fb.File, id)
+		}
+		EmitOp(prog, OpMakeRecord, uint8(0), litT, uint32(kvSlots.Len()), uint32(0), fb.File, id)
+		return
+	}
 	if !firstIsKV {
 		for i in 0..fCount {
 			let ft = prog.Types.FieldType[fStart+i]
@@ -1053,6 +1088,96 @@ func compileCompositeLitExpr(prog mut Program, ctx mut CompileUnitCtx, fb mut Fn
 	EmitOp(prog, OpMakeRecord, uint8(0), litT, uint32(fCount), uint32(0), fb.File, id)
 }
 
+func resolveImportSpecTarget(ctx CompileUnitCtx, p syntax.Parsed, is syntax.ImportSpec) (uint32, string) {
+	let tok = syntax.TokStartingAt(p, syntax.NodePos(p, is.Path))
+	if tok < 0 {
+		return (uint32(0), "")
+	}
+	let impPath = strings.TrimRight(strings.TrimLeft(syntax.TokText(p, tok), "\""), "\"")
+	let mut isGoImp = is.NamePos >= 0 && syntax.TokKind(p, is.NamePos) == syntax.Go
+	match dense.Unpack(is.Name) {
+	case option.Some{Value: nm}:
+		if textOfNameNode(p, nm) == "go" {
+			isGoImp = true
+		}
+	case option.None:
+	}
+	if isGoImp {
+		return (uint32(0), impPath)
+	}
+	let mut pkgNum = uint32(0)
+	match ctx.PkgMap.Get(impPath) {
+	case option.Some{Value: pi}:
+		pkgNum = pi
+	case option.None:
+	}
+	if pkgNum == uint32(0) {
+		for ifc in ctx.K.Ifaces {
+			if ifc.Path == impPath || strings.HasSuffix(ifc.Path, "/"+impPath) {
+				match ctx.PkgMap.Get(ifc.Path) {
+				case option.Some{Value: pi}:
+					pkgNum = pi
+				case option.None:
+				}
+				return (pkgNum, ifc.Path)
+			}
+		}
+	}
+	(pkgNum, impPath)
+}
+
+func importSpecBoundName(p syntax.Parsed, is syntax.ImportSpec) string {
+	let tok = syntax.TokStartingAt(p, syntax.NodePos(p, is.Path))
+	if tok < 0 {
+		return ""
+	}
+	let path = strings.TrimRight(strings.TrimLeft(syntax.TokText(p, tok), "\""), "\"")
+	let mut last = path[strings.LastIndex(path, "/")+1 : path.Len()]
+	if strings.HasPrefix(path, "./") || strings.HasPrefix(path, "../") {
+		let dot = strings.LastIndex(last, ".")
+		if dot > 0 {
+			last = last[0:dot]
+		}
+	}
+	match dense.Unpack(is.Name) {
+	case option.Some{Value: n}:
+		let alias = textOfNameNode(p, n)
+		if alias == "go" { last } else { alias }
+	case option.None:
+		last
+	}
+}
+
+func lookupFileImportByName(ctx CompileUnitCtx, file uint32, name string) (bool, uint32, string) {
+	if int(file) >= 0 && int(file) < ctx.K.Parsed.Len() {
+		let p = ctx.K.Parsed[int(file)]
+		let root = syntax.FileOf(p.Tree, syntax.Root(p.Tree))
+		for i in 0..syntax.Len(root.Decls) {
+			let decl = syntax.Item(p.Tree, root.Decls, i)
+			if syntax.KindOf(p.Tree, decl) != syntax.KImportDecl {
+				continue
+			}
+			let spec = syntax.ImportDeclOf(p.Tree, decl).Spec
+			if syntax.KindOf(p.Tree, spec) != syntax.KImportSpec {
+				continue
+			}
+			let is = syntax.ImportSpecOf(p.Tree, spec)
+			if importSpecBoundName(p, is) == name {
+				let (pkgNum, impPath) = resolveImportSpecTarget(ctx, p, is)
+				if impPath != "" {
+					return (true, pkgNum, impPath)
+				}
+			}
+		}
+	}
+	for ifc in ctx.K.Ifaces {
+		if ifc.Name == name {
+			return (true, uint32(0), ifc.Path)
+		}
+	}
+	(false, uint32(0), "")
+}
+
 func isImportNamespaceExpr(ctx CompileUnitCtx, file uint32, x dense.ID[syntax.Node]) (bool, uint32, string) {
 	let p = ctx.K.Parsed[int(file)]
 	let ux = unparenNode(p.Tree, x)
@@ -1065,20 +1190,42 @@ func isImportNamespaceExpr(ctx CompileUnitCtx, file uint32, x dense.ID[syntax.No
 		let path = resolveImportPkgPath(ctx, im.Ref.Import)
 		let pkgNum = resolveImportPkgIndex(ctx, im.Ref.Import)
 		return (true, pkgNum, path)
-	case bind.Declared:
+	case bind.Declared as d:
+		let (df, dn) = bind.RowOf(ctx.K.Ps, d.At)
+		if df >= 0 && df < ctx.K.Parsed.Len() {
+			let dp = ctx.K.Parsed[df]
+			let root = syntax.FileOf(dp.Tree, syntax.Root(dp.Tree))
+			for i in 0..syntax.Len(root.Decls) {
+				let decl = syntax.Item(dp.Tree, root.Decls, i)
+				if syntax.KindOf(dp.Tree, decl) != syntax.KImportDecl {
+					continue
+				}
+				let spec = syntax.ImportDeclOf(dp.Tree, decl).Spec
+				if syntax.KindOf(dp.Tree, spec) != syntax.KImportSpec {
+					continue
+				}
+				let is = syntax.ImportSpecOf(dp.Tree, spec)
+				let mut matched = dense.Index(is.Path) == dn
+				if !matched {
+					match dense.Unpack(is.Name) {
+					case option.Some{Value: nm}:
+						matched = dense.Index(nm) == dn
+					case option.None:
+					}
+				}
+				if matched {
+					let (pkgNum, impPath) = resolveImportSpecTarget(ctx, dp, is)
+					if impPath != "" {
+						return (true, pkgNum, impPath)
+					}
+				}
+			}
+		}
 		return (false, uint32(0), "")
 	case bind.Outside:
-		for ifc in ctx.K.Ifaces {
-			if ifc.Name == name {
-				return (true, uint32(0), ifc.Path)
-			}
-		}
+		return lookupFileImportByName(ctx, file, name)
 	case bind.NotUse:
-		for ifc in ctx.K.Ifaces {
-			if ifc.Name == name {
-				return (true, uint32(0), ifc.Path)
-			}
-		}
+		return lookupFileImportByName(ctx, file, name)
 	}
 	(false, uint32(0), "")
 }
@@ -1141,6 +1288,16 @@ func compileImportedSymbolValue(prog mut Program, pkgNum uint32, pkgPath string,
 	if t != TypeVoid && UnderlyingKind(prog.Types, t) == KindRecord {
 		let wt = instantiateWithWant(prog, pkgNum, symName, t, wantType)
 		EmitOp(prog, OpMakeRecord, uint8(0), wt, uint32(0), uint32(0), file, id)
+		return true
+	}
+	if pkgPath == "encoding/base64" && (symName == "StdEncoding" || symName == "URLEncoding" || symName == "RawStdEncoding" || symName == "RawURLEncoding") {
+		let cIdx = AddConst(prog, GoReadOnlyVarVal(&prog.Arena, pkgPath+"."+symName))
+		EmitOp(prog, OpConst, uint8(0), cIdx, uint32(0), uint32(0), file, id)
+		return true
+	}
+	if pkgPath == "hash/crc32" && symName == "IEEETable" {
+		let cIdx = AddConst(prog, GoReadOnlyVarVal(&prog.Arena, "hash/crc32.IEEETable"))
+		EmitOp(prog, OpConst, uint8(0), cIdx, uint32(0), uint32(0), file, id)
 		return true
 	}
 	if pkgPath == "option" && symName == "None" {
@@ -1299,6 +1456,17 @@ func compileCallExprNode(prog mut Program, ctx mut CompileUnitCtx, fb mut FnBuil
 	if syntax.KindOf(tr, fun) == syntax.KSelectorExpr {
 		let se = syntax.SelectorExprOf(tr, fun)
 		let selName = textOfNameNode(p, se.Sel)
+		let fpn = bind.PNodeOf(ctx.K.Ps, int(fb.File), fun)
+		match bind.ResolutionOf(ctx.K.U, ctx.K.Ps, fpn) {
+		case bind.Imported as im:
+			let tPkg = resolveImportPkgIndex(*ctx, im.Ref.Import)
+			let tPath = resolveImportPkgPath(*ctx, im.Ref.Import)
+			let tSym = resolveDeclText(*ctx, im.Ref.Import, im.Ref.Decl)
+			if emitPkgOrNativeCall(prog, ctx, fb, tPkg, tPath, tSym, ce.Args, targRun, id) {
+				return
+			}
+		case _:
+		}
 		let (isPkg, pkgNum, pkgPath) = isImportNamespaceExpr(*ctx, fb.File, se.X)
 		if isPkg {
 			if emitPkgOrNativeCall(prog, ctx, fb, pkgNum, pkgPath, selName, ce.Args, targRun, id) {

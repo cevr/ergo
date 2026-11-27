@@ -1,0 +1,772 @@
+import go math
+import option
+import slices
+import strconv
+import strings
+
+// LicenceDraws is the number of drawn cases executed after edge classes in one licence run.
+let LicenceDraws = uint32(1000)
+
+// LicenceSizes bounds the structural generator size during drawn licence cases.
+let LicenceSizes = uint32(26)
+
+// LicenceClassCount records one named edge class and the count of held cases reaching it.
+type LicenceClassCount {
+	Name  string,
+	Cases uint32,
+}
+
+// LicenceVerdict summarizes the validation verdict, coverage counts, missed edges, and refutation details.
+type LicenceVerdict {
+	Name      string,
+	Verdict   string,
+	Reason    string,
+	Cases     uint32,
+	Classes   []LicenceClassCount,
+	Missed    []string,
+	Arguments []LawArg,
+	CaseText  string,
+	Replayed  uint32,
+	Site      Site,
+	Steps     uint64,
+	LineText  string,
+}
+
+// LicenceAmbient represents mocked OS process state used to verify argument-purity across sides.
+type LicenceAmbient {
+	Index         uint8,
+	Dir           string,
+	EnvKeys       []string,
+	EnvVals       []string,
+	ZoneName      string,
+	ZoneOffsetSec int,
+}
+
+// LicenceAmbients returns the two distinct mocked ambients for purity checks.
+func LicenceAmbients() []LicenceAmbient {
+	[]LicenceAmbient{
+		LicenceAmbient{
+			Index:         uint8(0),
+			Dir:           "/",
+			EnvKeys:       []string{},
+			EnvVals:       []string{},
+			ZoneName:      "UTC",
+			ZoneOffsetSec: 0,
+		},
+		LicenceAmbient{
+			Index:         uint8(1),
+			Dir:           "/nonexistent/ergo-licence",
+			EnvKeys:       []string{"ERGO_LICENCE"},
+			EnvVals:       []string{"second"},
+			ZoneName:      "UTC+05:45",
+			ZoneOffsetSec: 5*3600 + 45*60,
+		},
+	}
+}
+
+// LicenceClassSpec holds a named class entry and pre-materialized value for edge testing.
+type LicenceClassSpec {
+	Name  string,
+	Value Val,
+}
+
+// LicenceStringClasses returns the 15 canonical UTF-8/length/byte boundary string edge classes.
+func LicenceStringClasses(arena mut ValArena, typeIdx uint32) []LicenceClassSpec {
+	let vals = []string{
+		"",
+		"a",
+		"abcdefgh",
+		strings.Repeat("ab", 16),
+		strings.Repeat("abcd", 50),
+		strings.Repeat("abcd", 1024),
+		"a\"b",
+		"a\\b",
+		"a\x01b",
+		"a\x7fb",
+		"a\xffb",
+		"a\U0001D11Eb",
+		"a\u00e9\u4e16b",
+		"a~ Z",
+		"a\xe4\xb8",
+	}
+	let names = []string{
+		"len=0",
+		"len=1",
+		"len=2..15",
+		"len=16..63",
+		"len=64..4095",
+		"len>=4096",
+		"quote",
+		"backslash",
+		"control",
+		"DEL",
+		"not UTF-8",
+		"astral",
+		"BMP",
+		"printable ASCII",
+		"ends inside a rune",
+	}
+	let mut out = slices.WithCapacity[LicenceClassSpec](names.Len())
+	for i in 0..names.Len() {
+		out = out.Append(LicenceClassSpec{Name: names[i], Value: AllocStrVal(arena, typeIdx, vals[i])})
+	}
+	out
+}
+
+// LicenceIntClasses returns canonical zero, +/-1, and Go integer width boundary classes.
+func LicenceIntClasses(tp TypePool, typeIdx uint32, width uint32, signed bool) []LicenceClassSpec {
+	let w = if width == uint32(0) { uint32(64) } else { width }
+	let mask = u64AllOnes >> (uint32(64) - w)
+	let mut names = []string{"=0", "=1"}
+	let mut bits = []uint64{uint64(0), uint64(1)}
+	if signed {
+		names = names.Append("=-1")
+		bits = bits.Append(mask)
+	}
+	let widths = []uint32{uint32(8), uint32(16), uint32(32), uint32(64)}
+	for bw in widths {
+		if bw > w {
+			break
+		}
+		if signed {
+			let hi = (uint64(1) << (bw - uint32(1))) - uint64(1)
+			let lo = (uint64(0) - (hi + uint64(1))) & mask
+			names = names.Append("=" + FormatUintBase(hi, 10))
+			bits = bits.Append(hi)
+			names = names.Append("=-" + FormatUintBase(hi+uint64(1), 10))
+			bits = bits.Append(lo)
+		} else {
+			let hi = u64AllOnes >> (uint32(64) - bw)
+			names = names.Append("=" + FormatUintBase(hi, 10))
+			bits = bits.Append(hi)
+		}
+	}
+	let mut out = slices.WithCapacity[LicenceClassSpec](names.Len())
+	for i in 0..names.Len() {
+		out = out.Append(LicenceClassSpec{Name: names[i], Value: MakeIntVal(tp, typeIdx, bits[i])})
+	}
+	out
+}
+
+// LicenceFloatClasses returns both signed zeros, infinities, NaN, subnormal, and finite extremes.
+func LicenceFloatClasses(tp TypePool, typeIdx uint32, bits int) []LicenceClassSpec {
+	let maxF = if bits == 32 { float64(3.4028234663852886e+38) } else { 1.7976931348623157e+308 }
+	let subF = if bits == 32 { float64(1.401298464324817e-45) } else { 4.9406564584124654e-324 }
+	let names = []string{"=+0", "=-0", "=+Inf", "=-Inf", "=NaN", "=subnormal", "=max", "=-max"}
+	let vals = []float64{
+		0.0,
+		Float64FromBits(uint64(1) << uint64(63)),
+		math.Inf(1),
+		math.Inf(-1),
+		math.NaN(),
+		subF,
+		maxF,
+		-maxF,
+	}
+	let mut out = slices.WithCapacity[LicenceClassSpec](names.Len())
+	for i in 0..names.Len() {
+		out = out.Append(LicenceClassSpec{Name: names[i], Value: MakeFloatVal(tp, typeIdx, vals[i])})
+	}
+	out
+}
+
+// LicenceSliceLengths returns the six slice length classes matching string length edges.
+func LicenceSliceLengths() ([]string, []int) {
+	(
+		[]string{"len=0", "len=1", "len=2..15", "len=16..63", "len=64..4095", "len>=4096"},
+		[]int{0, 1, 8, 32, 200, 4096},
+	)
+}
+
+func formatLicenceClassLabel(typeName string, cname string, paramPrefix string) string {
+	let body = if strings.HasPrefix(cname, "=") {
+		typeName + cname
+	} else {
+		typeName + "." + cname
+	}
+	if paramPrefix != "" {
+		return paramPrefix + ": " + body
+	}
+	body
+}
+
+// BuildLicenceClasses builds all named edge classes for typeIdx (or empty if uncovered).
+func BuildLicenceClasses(prog Program, refTab RefinementTable, arena mut ValArena, typeIdx uint32, paramPrefix string) ([]LicenceClassSpec, bool) {
+	if int(typeIdx) >= prog.Types.Kind.Len() {
+		return ([]LicenceClassSpec{}, false)
+	}
+	let tname = ArgumentTypeName(prog, typeIdx)
+	let mut pool = NewFinPool()
+	let (finVals, isFin) = FinDomain(prog, refTab, &pool, typeIdx)
+	if isFin && finVals.Len() > 0 {
+		let mut out = slices.WithCapacity[LicenceClassSpec](finVals.Len())
+		for fid in finVals {
+			let v = EvalFinVal(prog, arena, pool, fid)
+			let label = if paramPrefix != "" {
+				paramPrefix + ": " + tname + "=" + DescribeVal(prog.Types, *arena, v)
+			} else {
+				tname + "=" + DescribeVal(prog.Types, *arena, v)
+			}
+			out = out.Append(LicenceClassSpec{Name: label, Value: v})
+		}
+		return (out, true)
+	}
+	let (_, hasRef) = findRefinementByType(refTab, typeIdx)
+	if hasRef {
+		return ([]LicenceClassSpec{}, false)
+	}
+	let under = UnwrapType(prog.Types, typeIdx)
+	let uk = prog.Types.Kind[int(under)]
+	if uk == KindString {
+		let base = LicenceStringClasses(arena, typeIdx)
+		let mut out = slices.WithCapacity[LicenceClassSpec](base.Len())
+		for c in base {
+			out = out.Append(LicenceClassSpec{Name: formatLicenceClassLabel(tname, c.Name, paramPrefix), Value: c.Value})
+		}
+		return (out, true)
+	}
+	if uk == KindFloat {
+		let bits = if prog.Types.Width[int(under)] == uint8(32) { 32 } else { 64 }
+		let base = LicenceFloatClasses(prog.Types, typeIdx, bits)
+		let mut out = slices.WithCapacity[LicenceClassSpec](base.Len())
+		for c in base {
+			out = out.Append(LicenceClassSpec{Name: formatLicenceClassLabel(tname, c.Name, paramPrefix), Value: c.Value})
+		}
+		return (out, true)
+	}
+	let (w, signed, isInt) = IntShape(prog.Types, under)
+	if isInt {
+		let base = LicenceIntClasses(prog.Types, typeIdx, w, signed)
+		let mut out = slices.WithCapacity[LicenceClassSpec](base.Len())
+		for c in base {
+			out = out.Append(LicenceClassSpec{Name: formatLicenceClassLabel(tname, c.Name, paramPrefix), Value: c.Value})
+		}
+		return (out, true)
+	}
+	if uk == KindSlice {
+		let elemT = prog.Types.Elem[int(under)]
+		let (elemClasses, okElem) = BuildLicenceClasses(prog, refTab, arena, elemT, "")
+		if !okElem || elemClasses.Len() == 0 {
+			return ([]LicenceClassSpec{}, false)
+		}
+		let (lenNames, lenSizes) = LicenceSliceLengths()
+		let mut out = slices.WithCapacity[LicenceClassSpec](lenNames.Len())
+		for i in 0..lenNames.Len() {
+			let sz = lenSizes[i]
+			let mut elems = slices.WithCapacity[Val](sz)
+			for j in 0..sz {
+				let _ = j
+				elems = elems.Append(elemClasses[0].Value)
+			}
+			let sv = MakeSliceVal(arena, typeIdx, elems, uint32(sz))
+			out = out.Append(LicenceClassSpec{Name: formatLicenceClassLabel(tname, lenNames[i], paramPrefix), Value: sv})
+		}
+		return (out, true)
+	}
+	([]LicenceClassSpec{}, false)
+}
+
+// LicenceEdgeCase represents one pre-computed class or pairwise class combination.
+type LicenceEdgeCase {
+	ClassIndices []int,
+	HitNames     []string,
+}
+
+// BuildLicenceEdges generates single-class and pairwise edge combinations matching licence.go.
+func BuildLicenceEdges(classNamesPerParam [][]string) ([]LicenceEdgeCase, []string, []string) {
+	let n = classNamesPerParam.Len()
+	let mut edges = []LicenceEdgeCase{}
+	let mut order = []string{}
+	let mut allSingle = []string{}
+	let mut reqSeen = Map[string, bool]{}
+	for p in 0..n {
+		for cname in classNamesPerParam[p] {
+			allSingle = allSingle.Append(cname)
+		}
+	}
+	if n == 1 {
+		for k, cname in classNamesPerParam[0] {
+			reqSeen = reqSeen.Put(cname, true)
+			order = order.Append(cname)
+			edges = edges.Append(LicenceEdgeCase{ClassIndices: []int{k}, HitNames: []string{cname}})
+		}
+		return (edges, order, allSingle)
+	}
+	if n > 1 {
+		for p in 0..n {
+			for cname in classNamesPerParam[p] {
+				match reqSeen.Get(cname) {
+				case option.Some{Value: _}:
+				case option.None:
+					reqSeen = reqSeen.Put(cname, true)
+					order = order.Append(cname)
+				}
+			}
+		}
+		for i in 0..n {
+			for j in (i + 1)..n {
+				for ki, ci in classNamesPerParam[i] {
+					for kj, cj in classNamesPerParam[j] {
+						let mut at = slices.WithCapacity[int](n)
+						for p in 0..n {
+							if classNamesPerParam[p].Len() == 0 {
+								at = at.Append(-1)
+							} else {
+								at = at.Append(0)
+							}
+						}
+						at[i] = ki
+						at[j] = kj
+						let pair = ci + " \u00d7 " + cj
+						match reqSeen.Get(pair) {
+						case option.Some{Value: _}:
+						case option.None:
+							reqSeen = reqSeen.Put(pair, true)
+							order = order.Append(pair)
+						}
+						edges = edges.Append(LicenceEdgeCase{ClassIndices: at, HitNames: []string{ci, cj, pair}})
+					}
+				}
+			}
+		}
+	}
+	(edges, order, allSingle)
+}
+
+// FormatLicenceLine formats a LicenceVerdict report line matching Licence.Line().
+func FormatLicenceLine(l LicenceVerdict) string {
+	let mut s = "licence " + l.Name + ": " + l.Verdict
+	if l.Reason != "" {
+		s = s + ": " + l.Reason
+	}
+	if l.Arguments.Len() > 0 {
+		let mut args = slices.WithCapacity[string](l.Arguments.Len())
+		for a in l.Arguments {
+			args = args.Append(a.Name + " = " + a.Value)
+		}
+		s = s + " at (" + strings.Join(args, ", ") + ")"
+	}
+	s = s + "; " + FormatUintBase(uint64(l.Cases), 10) + " cases"
+	if l.Replayed > uint32(0) {
+		s = s + " (" + FormatUintBase(uint64(l.Replayed), 10) + " from the corpus first)"
+	}
+	if l.Classes.Len() > 0 {
+		let mut parts = slices.WithCapacity[string](l.Classes.Len())
+		for c in l.Classes {
+			parts = parts.Append(c.Name + " " + FormatUintBase(uint64(c.Cases), 10))
+		}
+		s = s + "; classes " + strings.Join(parts, ", ")
+	}
+	s
+}
+
+// EncodeLicenceCase encodes argument values into a portable corpus line.
+func EncodeLicenceCase(prog Program, arena ValArena, typesList []uint32, vals []Val) (string, bool) {
+	if typesList.Len() != vals.Len() {
+		return ("", false)
+	}
+	let mut parts = slices.WithCapacity[string](vals.Len())
+	for i in 0..vals.Len() {
+		let tid = typesList[i]
+		let kd = if int(tid) < prog.Types.Kind.Len() { prog.Types.Kind[int(tid)] } else { KindVoid }
+		let v = vals[i]
+		if kd == KindBool {
+			parts = parts.Append(if v.Data == uint64(0) { "false" } else { "true" })
+		} else if kd == KindString {
+			parts = parts.Append(strconv.Quote(ReadStr(arena, v)))
+		} else if kd == KindInt {
+			if prog.Types.Signed[int(tid)] {
+				parts = parts.Append(strconv.FormatInt(Int64FromBits(v.Data), 10))
+			} else {
+				parts = parts.Append(FormatUintBase(v.Data, 10))
+			}
+		} else if kd == KindFloat {
+			parts = parts.Append("0x" + FormatUintBase(v.Data, 16))
+		} else {
+			return ("", false)
+		}
+	}
+	(strings.Join(parts, "\t"), true)
+}
+
+// DecodeLicenceCase decodes a corpus line into typed runtime Vals, returning false on mismatch.
+func DecodeLicenceCase(prog Program, arena mut ValArena, typesList []uint32, line string) ([]Val, bool) {
+	if typesList.Len() == 0 {
+		return ([]Val{}, line == "")
+	}
+	let fields = strings.Split(line, "\t")
+	if fields.Len() != typesList.Len() {
+		return ([]Val{}, false)
+	}
+	let mut vals = slices.WithCapacity[Val](typesList.Len())
+	for i, tid in typesList {
+		let f = fields[i]
+		let kd = if int(tid) < prog.Types.Kind.Len() { prog.Types.Kind[int(tid)] } else { KindVoid }
+		if kd == KindBool {
+			if f == "true" {
+				vals = vals.Append(BoolVal(tid, true))
+			} else if f == "false" {
+				vals = vals.Append(BoolVal(tid, false))
+			} else {
+				return ([]Val{}, false)
+			}
+		} else if kd == KindString {
+			let mut uq = ""
+			let mut okQ = true
+			uq = strconv.Unquote(f) catch {
+			case _:
+				okQ = false
+				""
+			}
+			if !okQ {
+				return ([]Val{}, false)
+			}
+			vals = vals.Append(AllocStrVal(arena, tid, uq))
+		} else if kd == KindInt {
+			if prog.Types.Signed[int(tid)] {
+				let (n, st) = ParseSignedIntBase(f, 10, 64)
+				if st != uint8(0) {
+					return ([]Val{}, false)
+				}
+				vals = vals.Append(MakeIntVal(prog.Types, tid, uint64(n)))
+			} else {
+				let mut v uint64 = uint64(0)
+				let mut ok = f.Len() > 0
+				for k in 0..f.Len() {
+					let c = f[k]
+					if c < byte('0') || c > byte('9') {
+						ok = false
+						break
+					}
+					v = v*uint64(10) + uint64(c-byte('0'))
+				}
+				if !ok {
+					return ([]Val{}, false)
+				}
+				vals = vals.Append(MakeIntVal(prog.Types, tid, v))
+			}
+		} else if kd == KindFloat && strings.HasPrefix(f, "0x") {
+			let rest = f[2:]
+			let mut bits uint64 = uint64(0)
+			let mut ok = rest.Len() > 0
+			for k in 0..rest.Len() {
+				let c = rest[k]
+				let mut d = uint64(0)
+				if c >= byte('0') && c <= byte('9') {
+					d = uint64(c - byte('0'))
+				} else if c >= byte('a') && c <= byte('f') {
+					d = uint64(c-byte('a')) + uint64(10)
+				} else if c >= byte('A') && c <= byte('F') {
+					d = uint64(c-byte('A')) + uint64(10)
+				} else {
+					ok = false
+					break
+				}
+				bits = (bits << 4) | d
+			}
+			if !ok {
+				return ([]Val{}, false)
+			}
+			vals = vals.Append(Val{Tag: TagFloat, Type: tid, Aux: uint32(0), Data: bits})
+		} else {
+			return ([]Val{}, false)
+		}
+	}
+	(vals, true)
+}
+
+// LicenceSideOutcome renders a single expression evaluation outcome as the licence runner compares it.
+func LicenceSideOutcome(prog Program, arena ValArena, status uint8, val Val, errVal Val, reason string) (string, uint8, string) {
+	if status == StatusPassed {
+		return ("the value " + DescribeVal(prog.Types, arena, val), StatusPassed, "")
+	}
+	if status == StatusRefuted {
+		return ("the failure " + DescribeVal(prog.Types, arena, errVal), StatusPassed, "")
+	}
+	if status == StatusDefect {
+		return ("the defect " + strconv.Quote(reason), StatusPassed, "")
+	}
+	("", status, reason)
+}
+
+func execLicenceOneCase(prog mut Program, fnIdx uint32, budget Budget, vals []Val, paramNames []string, paramTypes []uint32, out mut LicenceVerdict, totalSteps mut uint64) bool {
+	let ambs = LicenceAmbients()
+	let mut firstPassed = false
+	let mut firstText = ""
+	for amb in ambs {
+		let _ = amb.Index
+		let mut vm = NewVM(*prog, budget)
+		let ret = ExecuteFunction(prog, &vm, fnIdx, vals)
+		*totalSteps = *totalSteps + vm.StepsUsed
+		if vm.Ctl == CtlSkip {
+			out.Verdict = "skipped"
+			out.Reason = vm.Reason
+			return false
+		}
+		if vm.Ctl == CtlIncomplete {
+			out.Verdict = "tested"
+			out.Reason = vm.Reason + "; classes missed"
+			return false
+		}
+		let passed = (vm.Ctl == CtlNone || vm.Ctl == CtlReturn) && ret.Data != uint64(0)
+		let outcomeText = if passed {
+			"the value true"
+		} else if vm.Ctl == CtlFail || vm.Ctl == CtlEscape {
+			"the failure " + DescribeVal(prog.Types, prog.Arena, vm.ErrVal)
+		} else if vm.Ctl == CtlDefect {
+			"the defect " + strconv.Quote(vm.Reason)
+		} else {
+			"the value false"
+		}
+		if amb.Index == uint8(0) {
+			firstPassed = passed
+			firstText = outcomeText
+		} else if outcomeText != firstText {
+			out.Verdict = "refuted"
+			out.Reason = "not a function of its arguments: gave " + firstText + ", and under another working directory, environment and time zone " + outcomeText
+			break
+		} else if passed {
+			out.Cases = out.Cases + uint32(1)
+			return true
+		}
+		if !passed && amb.Index == uint8(0) {
+			out.Verdict = "refuted"
+			out.Reason = if vm.Reason != "" { vm.Reason } else { "the law is false" }
+			break
+		}
+	}
+	let _ = firstPassed
+	let mut args = slices.WithCapacity[LawArg](paramNames.Len())
+	for i in 0..paramNames.Len() {
+		args = args.Append(LawArg{Name: paramNames[i], Value: FormatArgument(*prog, prog.Arena, paramTypes[i], vals[i])})
+	}
+	out.Arguments = args
+	let (enc, okEnc) = EncodeLicenceCase(*prog, prog.Arena, paramTypes, vals)
+	if okEnc {
+		out.CaseText = enc
+	}
+	false
+}
+
+// RunLicenceEq evaluates a compiled equation law fnIdx against edge classes, pairwise coverage, and LicenceDraws.
+func RunLicenceEq(prog mut Program, wt WitnessTable, refTab RefinementTable, fnIdx uint32, budget Budget, seed uint64, corpus []string) LicenceVerdict {
+	let fm = prog.Fns[int(fnIdx)]
+	let name = "law " + fm.Name
+	let site = Site{File: fm.FileName, Line: fm.Line, Col: fm.Col}
+	let mut out = LicenceVerdict{
+		Name:      name,
+		Verdict:   "skipped",
+		Reason:    "",
+		Cases:     uint32(0),
+		Classes:   []LicenceClassCount{},
+		Missed:    []string{},
+		Arguments: []LawArg{},
+		CaseText:  "",
+		Replayed:  uint32(0),
+		Site:      site,
+		Steps:     uint64(0),
+		LineText:  "",
+	}
+	let (lidx, hasLaw) = FindLawMetaIndex(wt, fnIdx)
+	if hasLaw && !wt.LawFootprintEmpty[int(lidx)] {
+		out.Reason = wt.LawUnrun[int(lidx)]
+		out.LineText = FormatLicenceLine(out)
+		return out
+	}
+	let nParams = int(fm.ParamCount)
+	let mut paramTypes = slices.WithCapacity[uint32](nParams)
+	let mut paramNames = slices.WithCapacity[string](nParams)
+	for i in 0..nParams {
+		paramTypes = paramTypes.Append(prog.ParamTypes[int(fm.ParamStart)+i])
+		paramNames = paramNames.Append(prog.ParamNames[int(fm.ParamStart)+i])
+	}
+	let mut tables = slices.WithCapacity[[]LicenceClassSpec](nParams)
+	let mut classNames = slices.WithCapacity[[]string](nParams)
+	let mut noClasses = []string{}
+	for i in 0..nParams {
+		let prefix = if nParams > 1 { paramNames[i] } else { "" }
+		let (cs, ok) = BuildLicenceClasses(*prog, refTab, &prog.Arena, paramTypes[i], prefix)
+		if !ok || cs.Len() == 0 {
+			noClasses = noClasses.Append(ArgumentTypeName(*prog, paramTypes[i]))
+			tables = tables.Append([]LicenceClassSpec{})
+			classNames = classNames.Append([]string{})
+		} else {
+			tables = tables.Append(cs)
+			let mut ns = slices.WithCapacity[string](cs.Len())
+			for c in cs {
+				ns = ns.Append(c.Name)
+			}
+			classNames = classNames.Append(ns)
+		}
+	}
+	let (edges, order, allSingle) = BuildLicenceEdges(classNames)
+	let mut counts = Map[string, uint32]{}
+	let mut r = NewGenStream(seed, name, budget.Steps)
+	let mut totalSteps = uint64(0)
+	let mut stopFlag = false
+	for line in corpus {
+		let (vals, okDec) = DecodeLicenceCase(*prog, &prog.Arena, paramTypes, line)
+		if !okDec {
+			continue
+		}
+		if !execLicenceOneCase(prog, fnIdx, budget, vals, paramNames, paramTypes, &out, &totalSteps) {
+			stopFlag = true
+			break
+		}
+		out.Replayed = out.Replayed + uint32(1)
+	}
+	if !stopFlag {
+		for k, edge in edges {
+			StreamStart(&r, uint32(k+1))
+			let sz = uint32(k+1) * LicenceSizes / (LicenceDraws + uint32(1))
+			StreamSetSize(&r, if sz < LicenceSizes { sz } else { LicenceSizes - uint32(1) })
+			let mut vals = slices.WithCapacity[Val](nParams)
+			let mut genOk = true
+			for i in 0..nParams {
+				let cidx = edge.ClassIndices[i]
+				if cidx >= 0 && cidx < tables[i].Len() {
+					vals = vals.Append(tables[i][cidx].Value)
+				} else {
+					let (gv, gok) = GenerateVal(*prog, refTab, &prog.Arena, &r, paramTypes[i], TestGenDepth)
+					if !gok {
+						genOk = false
+						break
+					}
+					vals = vals.Append(gv)
+				}
+			}
+			if !genOk {
+				out.Verdict = "skipped"
+				out.Reason = "a generator is unavailable"
+				stopFlag = true
+				break
+			}
+			if !execLicenceOneCase(prog, fnIdx, budget, vals, paramNames, paramTypes, &out, &totalSteps) {
+				stopFlag = true
+				break
+			}
+			for h in edge.HitNames {
+				let prev = match counts.Get(h) {
+				case option.Some{Value: c}:
+					c
+				case option.None:
+					uint32(0)
+				}
+				counts = counts.Put(h, prev+uint32(1))
+			}
+		}
+	}
+	if !stopFlag {
+		let draws = if nParams == 0 { uint32(1) } else { LicenceDraws }
+		for k in uint32(1)..(draws + uint32(1)) {
+			StreamStart(&r, k)
+			let sz = k * LicenceSizes / (LicenceDraws + uint32(1))
+			StreamSetSize(&r, if sz < LicenceSizes { sz } else { LicenceSizes - uint32(1) })
+			let mut vals = slices.WithCapacity[Val](nParams)
+			let mut genOk = true
+			for i in 0..nParams {
+				let (gv, gok) = GenerateVal(*prog, refTab, &prog.Arena, &r, paramTypes[i], TestGenDepth)
+				if !gok {
+					genOk = false
+					break
+				}
+				vals = vals.Append(gv)
+			}
+			if !genOk {
+				out.Verdict = "skipped"
+				out.Reason = "a generator is unavailable"
+				stopFlag = true
+				break
+			}
+			if !execLicenceOneCase(prog, fnIdx, budget, vals, paramNames, paramTypes, &out, &totalSteps) {
+				stopFlag = true
+				break
+			}
+		}
+	}
+	if !stopFlag {
+		if noClasses.Len() > 0 {
+			out.Verdict = "tested"
+			out.Reason = "no classes for " + strings.Join(noClasses, ", ")
+		} else {
+			out.Verdict = "validated"
+		}
+	}
+	for cname in allSingle {
+		let c = match counts.Get(cname) {
+		case option.Some{Value: v}:
+			v
+		case option.None:
+			uint32(0)
+		}
+		out.Classes = out.Classes.Append(LicenceClassCount{Name: cname, Cases: c})
+	}
+	for req in order {
+		let c = match counts.Get(req) {
+		case option.Some{Value: v}:
+			v
+		case option.None:
+			uint32(0)
+		}
+		if c == uint32(0) {
+			out.Missed = out.Missed.Append(req)
+		}
+	}
+	out.Steps = totalSteps
+	out.LineText = FormatLicenceLine(out)
+	out
+}
+
+test LicenceStringClassesCompleteAndSized {
+	let mut arena = NewValArena()
+	let cs = LicenceStringClasses(&arena, TypeString)
+	assert cs.Len() == 15
+	assert cs[0].Name == "len=0"
+	assert cs[5].Name == "len>=4096"
+	assert ReadStr(arena, cs[5].Value).Len() == 4096
+}
+
+test LicenceCorpusEncodeDecodeRoundtrips {
+	let mut prog = NewProgram()
+	let typesList = []uint32{TypeString, TypeBool, TypeInt64}
+	let ss = []string{"", "hello", "with\nline\"q\"\\slash", "false"}
+	let bs = []bool{true, false, true, false}
+	let ns = []int64{int64(0), int64(-42), int64(9223372036854775807), Int64FromBits(uint64(1) << uint64(63))}
+	for i in 0..ss.Len() {
+		let vals = []Val{
+			AllocStrVal(&prog.Arena, TypeString, ss[i]),
+			BoolVal(TypeBool, bs[i]),
+			MakeIntVal(prog.Types, TypeInt64, uint64(ns[i])),
+		}
+		let (enc, ok1) = EncodeLicenceCase(prog, prog.Arena, typesList, vals)
+		assert ok1
+		let (dec, ok2) = DecodeLicenceCase(prog, &prog.Arena, typesList, enc)
+		assert ok2
+		assert dec.Len() == 3
+		assert ReadStr(prog.Arena, dec[0]) == ss[i]
+		assert dec[1].Data == vals[1].Data
+		assert dec[2].Data == vals[2].Data
+	}
+}
+
+test LicenceEdgesCoverAllPairsAndFormatLine {
+	let (edges, order, single) = BuildLicenceEdges([][]string{[]string{"a0", "a1"}, []string{"b0", "b1"}})
+	assert single.Len() == 4
+	assert edges.Len() == 4
+	assert order.Len() == 8
+	let l = LicenceVerdict{
+		Name:      "law R",
+		Verdict:   "validated",
+		Reason:    "",
+		Cases:     uint32(1004),
+		Classes:   []LicenceClassCount{LicenceClassCount{Name: "a0", Cases: uint32(2)}},
+		Missed:    []string{},
+		Arguments: []LawArg{},
+		CaseText:  "",
+		Replayed:  uint32(0),
+		Site:      Site{File: "a.ergo", Line: uint32(1), Col: uint32(1)},
+		Steps:     uint64(10),
+		LineText:  "",
+	}
+	assert FormatLicenceLine(l) == "licence law R: validated; 1004 cases; classes a0 2"
+}

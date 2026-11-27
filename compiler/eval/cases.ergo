@@ -1,0 +1,1469 @@
+import compiler/check/facts
+import go strconv
+import option
+import slices
+import strings
+import utf8
+
+// TestGenDepth is the initial structural generator depth shared across case plans.
+let TestGenDepth = 4
+
+// TestPlanTypeCap is the maximum size of a finite type domain.
+let TestPlanTypeCap = uint32(256)
+
+// TestPlanCaseCap is the maximum Cartesian product of a finitely proved plan.
+let TestPlanCaseCap = uint32(4096)
+
+// TestPlanDefaultCases is the default number of drawn cases per law.
+let TestPlanDefaultCases = uint32(100)
+
+// TestGenCallbackVariants is the number of deterministic callback behaviors.
+let TestGenCallbackVariants = 4
+
+let splitMixGamma uint64 = 0x9e3779b97f4a7c15
+let splitMixMul1 uint64 = 0xbf58476d1ce4e5b9
+let splitMixMul2 uint64 = 0x94d049bb133111eb
+
+let finBool = uint8(1)
+let finNum = uint8(2)
+let finTuple = uint8(3)
+let finRecord = uint8(4)
+let finUnion = uint8(5)
+let finWrapper = uint8(6)
+
+// RefinementTable stores flat unsigned range/length bounds for refined types and where clauses.
+type RefinementTable {
+	TypeIdx   []uint32,
+	BaseType  []uint32,
+	IsLen     []bool,
+	SpanStart []uint32,
+	SpanCount []uint32,
+	SpanLoMag []uint64,
+	SpanLoNeg []bool,
+	SpanLoInf []bool,
+	SpanHiMag []uint64,
+	SpanHiNeg []bool,
+	SpanHiInf []bool,
+}
+
+// NewRefinementTable constructs an empty SoA refinement specification table.
+func NewRefinementTable() RefinementTable {
+	RefinementTable{
+		TypeIdx:   []uint32{},
+		BaseType:  []uint32{},
+		IsLen:     []bool{},
+		SpanStart: []uint32{},
+		SpanCount: []uint32{},
+		SpanLoMag: []uint64{},
+		SpanLoNeg: []bool{},
+		SpanLoInf: []bool{},
+		SpanHiMag: []uint64{},
+		SpanHiNeg: []bool{},
+		SpanHiInf: []bool{},
+	}
+}
+
+// AddRefinement records a facts.Refinement into flat SoA storage and returns its entry index.
+func AddRefinement(tab mut RefinementTable, typeIdx uint32, baseType uint32, r facts.Refinement) uint32 {
+	let idx = uint32(tab.TypeIdx.Len())
+	let start = uint32(tab.SpanLoMag.Len())
+	for sp in r.Spans {
+		let (lNeg, lMag, lBound) = refineNumParts(sp.Lo)
+		let (hNeg, hMag, hBound) = refineNumParts(sp.Hi)
+		tab.SpanLoMag = tab.SpanLoMag.Append(lMag)
+		tab.SpanLoNeg = tab.SpanLoNeg.Append(lNeg)
+		tab.SpanLoInf = tab.SpanLoInf.Append(!lBound)
+		tab.SpanHiMag = tab.SpanHiMag.Append(hMag)
+		tab.SpanHiNeg = tab.SpanHiNeg.Append(hNeg)
+		tab.SpanHiInf = tab.SpanHiInf.Append(!hBound)
+	}
+	tab.TypeIdx = tab.TypeIdx.Append(typeIdx)
+	tab.BaseType = tab.BaseType.Append(baseType)
+	tab.IsLen = tab.IsLen.Append(r.Len)
+	tab.SpanStart = tab.SpanStart.Append(start)
+	tab.SpanCount = tab.SpanCount.Append(uint32(r.Spans.Len()))
+	idx
+}
+
+func refineNumParts(n facts.Num) (bool, uint64, bool) {
+	match n {
+	case facts.At as a:
+		return (a.Neg, a.Mag, true)
+	case _:
+		return (false, uint64(0), false)
+	}
+}
+
+func findRefinementByType(tab RefinementTable, typeIdx uint32) (uint32, bool) {
+	for i, t in tab.TypeIdx {
+		if t == typeIdx {
+			return (uint32(i), true)
+		}
+	}
+	(uint32(0), false)
+}
+
+// GenStream implements deterministic splitmix64 case generation with tape recording and replay.
+type GenStream {
+	State        uint64,
+	Size         uint32,
+	Tape         []uint64,
+	ReplayTape   []uint64,
+	Replaying    bool,
+	ReplayPos    uint32,
+	ChargedSteps uint64,
+	StepBudget   uint64,
+	Exhausted    bool,
+	WorldKeys    Map[string, uint32],
+	WorldVals    []Val,
+}
+
+// NewGenStream constructs a deterministic generator stream seeded by seed and label name.
+func NewGenStream(seed uint64, name string, stepBudget uint64) GenStream {
+	let mut s = seed
+	let n = name.Len()
+	for i in 0..n {
+		s = s*uint64(31) + uint64(name[i])
+	}
+	GenStream{
+		State:        s,
+		Size:         uint32(0),
+		Tape:         []uint64{},
+		ReplayTape:   []uint64{},
+		Replaying:    false,
+		ReplayPos:    uint32(0),
+		ChargedSteps: uint64(0),
+		StepBudget:   stepBudget,
+		Exhausted:    false,
+		WorldKeys:    Map[string, uint32]{},
+		WorldVals:    []Val{},
+	}
+}
+
+// StreamStart initializes case caseIdx with size caseIdx/4 and an empty case world and tape.
+func StreamStart(r mut GenStream, caseIdx uint32) {
+	r.Size = caseIdx / uint32(4)
+	r.WorldKeys = Map[string, uint32]{}
+	r.WorldVals = []Val{}
+	r.Tape = []uint64{}
+}
+
+// StreamSetSize overrides the stream structural size parameter.
+func StreamSetSize(r mut GenStream, size uint32) {
+	r.Size = size
+}
+
+// StreamRecord begins recording a new drawn case into the stream's tape.
+func StreamRecord(r mut GenStream) {
+	r.Tape = []uint64{}
+	r.Replaying = false
+}
+
+// StreamTape returns a copy of the recorded draws for the current case.
+func StreamTape(r GenStream) []uint64 {
+	cloneU64Slice(r.Tape)
+}
+
+// StreamReplay starts replaying draws from tape c with an empty world.
+func StreamReplay(r mut GenStream, c []uint64) {
+	r.ReplayTape = c
+	r.ReplayPos = uint32(0)
+	r.Replaying = true
+	r.Tape = []uint64{}
+	r.WorldKeys = Map[string, uint32]{}
+	r.WorldVals = []Val{}
+}
+
+// StreamEndReplay returns the stream to live splitmix64 drawing.
+func StreamEndReplay(r mut GenStream) {
+	r.Replaying = false
+}
+
+// StreamLookupBuilt returns a world-cached built value for key if present.
+func StreamLookupBuilt(r GenStream, key string) (Val, bool) {
+	match r.WorldKeys.Get(key) {
+	case option.Some{Value: idx}:
+		if int(idx) < r.WorldVals.Len() {
+			return (r.WorldVals[int(idx)], true)
+		}
+		return (UnitVal(), false)
+	case option.None:
+		return (UnitVal(), false)
+	}
+}
+
+// StreamStoreBuilt stores a built value for key in the current case world.
+func StreamStoreBuilt(r mut GenStream, key string, v Val) {
+	let idx = uint32(r.WorldVals.Len())
+	r.WorldVals = r.WorldVals.Append(v)
+	r.WorldKeys = r.WorldKeys.Put(key, idx)
+}
+
+func streamCharge(r mut GenStream, n uint64) bool {
+	r.ChargedSteps = r.ChargedSteps + n
+	if r.StepBudget > uint64(0) && r.ChargedSteps > r.StepBudget {
+		r.Exhausted = true
+		return false
+	}
+	true
+}
+
+func streamRaw(r mut GenStream) uint64 {
+	streamCharge(r, uint64(1))
+	if r.Replaying {
+		let mut z = uint64(0)
+		if int(r.ReplayPos) < r.ReplayTape.Len() {
+			z = r.ReplayTape[int(r.ReplayPos)]
+		}
+		r.ReplayPos = r.ReplayPos + uint32(1)
+		return z
+	}
+	r.State = r.State + splitMixGamma
+	let mut z = r.State
+	z = (z ^ (z >> 30)) * splitMixMul1
+	z = (z ^ (z >> 27)) * splitMixMul2
+	z ^ (z >> 31)
+}
+
+// StreamNext draws 64 raw bits and appends them to the tape.
+func StreamNext(r mut GenStream) uint64 {
+	let z = streamRaw(r)
+	r.Tape = r.Tape.Append(z)
+	z
+}
+
+// StreamIntn draws an integer in 0..n-1 and appends them to the tape.
+func StreamIntn(r mut GenStream, n int) int {
+	if n <= 0 {
+		return 0
+	}
+	let z = streamRaw(r) % uint64(n)
+	r.Tape = r.Tape.Append(z)
+	int(z)
+}
+
+// StreamBool draws a boolean value using a single bit choice.
+func StreamBool(r mut GenStream) bool {
+	StreamIntn(r, 2) == 1
+}
+
+// StreamTie chooses an earlier parameter index in 0..n-1 with probability 1/4, or -1.
+func StreamTie(r mut GenStream, n int) int {
+	if n <= 0 {
+		return -1
+	}
+	let k = StreamIntn(r, 4*n)
+	if k < n {
+		return k
+	}
+	-1
+}
+
+func streamAny64(r mut GenStream) int64 {
+	let z = StreamNext(r)
+	let half = int64(z >> 1)
+	let negMask = int64(0) - int64(z&uint64(1))
+	half ^ negMask
+}
+
+func streamSmall(r mut GenStream, n int) int64 {
+	let v = StreamIntn(r, 2*n+1)
+	if v%2 == 1 {
+		return (int64(0) - int64(v+1)) / int64(2)
+	}
+	int64(v / 2)
+}
+
+func edgeInt64(idx int) int64 {
+	let minI64 = int64(-9223372036854775807) - int64(1)
+	let table = []int64{
+		int64(0), int64(1), int64(-1), int64(127), int64(-128), int64(128), int64(-129),
+		int64(255), int64(256), int64(32767), int64(-32768), int64(65535), int64(65536),
+		int64(2147483647), int64(-2147483648), int64(4294967295), int64(4294967296),
+		int64(9223372036854775807), minI64,
+	}
+	if idx < 0 || idx >= table.Len() {
+		return int64(0)
+	}
+	table[idx]
+}
+
+// StreamI64 draws an edge-biased 64-bit signed integer.
+func StreamI64(r mut GenStream) int64 {
+	let k = StreamIntn(r, 20)
+	if k < 8 {
+		return streamSmall(r, 10)
+	}
+	if k < 11 {
+		return edgeInt64(StreamIntn(r, 19))
+	}
+	if k < 14 {
+		return streamSmall(r, 999999)
+	}
+	streamAny64(r)
+}
+
+// StreamInteger draws an integer of width bits (0 means 64) recorded as sign and magnitude.
+func StreamInteger(r mut GenStream, width uint32, signed bool) uint64 {
+	let w = if width == uint32(0) { uint32(64) } else { width }
+	let mask = u64AllOnes >> (uint32(64) - w)
+	if r.Replaying {
+		let negative = signed && StreamBool(r)
+		let mut magnitude = StreamNext(r)
+		let mut limit = mask
+		if signed {
+			limit = mask >> uint32(1)
+			if negative {
+				limit = limit + uint64(1)
+			}
+		}
+		if magnitude > limit {
+			magnitude = limit
+		}
+		if negative {
+			return uint64(0) - magnitude
+		}
+		return magnitude
+	}
+	let start = r.Tape.Len()
+	let n = uint64(StreamI64(r)) & mask
+	r.Tape = r.Tape[:start]
+	let mut magnitude = n
+	if signed {
+		let mut sign = uint64(0)
+		let signBit = uint64(1) << (w - uint32(1))
+		if (n & signBit) != uint64(0) {
+			sign = uint64(1)
+			magnitude = (uint64(0) - n) & mask
+		}
+		r.Tape = r.Tape.Append(sign)
+	}
+	r.Tape = r.Tape.Append(magnitude)
+	n
+}
+
+// StreamF64 draws a finite 64-bit IEEE float.
+func StreamF64(r mut GenStream) float64 {
+	if !StreamBool(r) {
+		return float64(streamSmall(r, 10)) / 2.0
+	}
+	float64(streamAny64(r)) / float64(uint64(1)<<32)
+}
+
+func appendStreamUnit(r mut GenStream, b mut []byte) {
+	let k = StreamIntn(r, 16)
+	if k == 8 {
+		*b = (*b).Append(byte('"'))
+		return
+	}
+	if k == 9 {
+		*b = (*b).Append(byte('\\'))
+		return
+	}
+	if k == 10 {
+		*b = (*b).Append(byte(StreamIntn(r, 0x20)))
+		return
+	}
+	if k == 11 {
+		*b = (*b).Append(byte(0x7f))
+		return
+	}
+	if k == 12 {
+		let c = StreamIntn(r, 0x42)
+		if c < 0x40 {
+			*b = (*b).Append(byte(0x80 + c))
+		} else {
+			*b = (*b).Append(byte(0xfe + c - 0x40))
+		}
+		return
+	}
+	if k == 13 {
+		let txt = utf8.RuneText(rune(0x10000 + StreamIntn(r, 0x100000)))
+		for i in 0..txt.Len() {
+			*b = (*b).Append(txt[i])
+		}
+		return
+	}
+	if k == 14 {
+		let txt = utf8.RuneText(rune(0x80 + StreamIntn(r, 0xd800-0x80)))
+		for i in 0..txt.Len() {
+			*b = (*b).Append(txt[i])
+		}
+		return
+	}
+	if k == 15 {
+		*b = (*b).Append(byte(0x20 + StreamIntn(r, 0x5f)))
+		return
+	}
+	let runes = []rune{'a', 'b', 'z', ' ', 'A', 'Z', '0', '9', '_', '-', '\u00e9', '\u4e16', '\n'}
+	let chosen = runes[StreamIntn(r, runes.Len())]
+	let txt = utf8.RuneText(chosen)
+	for i in 0..txt.Len() {
+		*b = (*b).Append(txt[i])
+	}
+}
+
+// StreamStr draws a UTF-8 and raw-byte string biased by the current stream size.
+func StreamStr(r mut GenStream) string {
+	let mut n = StreamIntn(r, 6)
+	if StreamBool(r) {
+		n = StreamIntn(r, int(r.Size)+1)
+	}
+	streamCharge(r, uint64(n)*uint64(4))
+	let mut b = slices.WithCapacity[byte](n * 4)
+	for i in 0..n {
+		let _ = i
+		appendStreamUnit(r, &b)
+	}
+	strings.FromBytes(b)
+}
+
+// StreamStrLen draws a string of exactly n bytes.
+func StreamStrLen(r mut GenStream, n int) string {
+	streamCharge(r, uint64(n)+uint64(4))
+	let mut b = slices.WithCapacity[byte](n + 4)
+	for b.Len() < n {
+		appendStreamUnit(r, &b)
+	}
+	strings.FromBytes(b[:n])
+}
+
+// StreamIn draws a 64-bit integer within one of the closed intervals [lo[k], hi[k]].
+func StreamIn(r mut GenStream, lo []int64, hi []int64) int64 {
+	if lo.Len() == 0 {
+		return int64(0)
+	}
+	let idx = StreamIntn(r, lo.Len())
+	let a = lo[idx]
+	let b = hi[idx]
+	let choice = StreamIntn(r, 4)
+	if choice == 0 {
+		return a
+	}
+	if choice == 1 {
+		return b
+	}
+	let w = uint64(b) - uint64(a) + uint64(1)
+	if w == uint64(0) {
+		return int64(StreamNext(r))
+	}
+	a + int64(StreamNext(r)%w)
+}
+
+// StreamLimit returns the structural length limit at depth d.
+func StreamLimit(r GenStream, d int) int {
+	let mut n = int(r.Size)
+	let mut k = d
+	for k < TestGenDepth && n > 0 {
+		n = n / 2
+		k = k + 1
+	}
+	n
+}
+
+// FinPool stores enumerated finite-domain values in flat unsigned SoA tables.
+type FinPool {
+	Tag        []uint8,
+	TypeIdx    []uint32,
+	BoolVal    []bool,
+	NumText    []string,
+	NumNeg     []bool,
+	NumMag     []uint64,
+	ChildStart []uint32,
+	ChildCount []uint32,
+	Children   []uint32,
+}
+
+// NewFinPool constructs an empty finite-domain pool.
+func NewFinPool() FinPool {
+	FinPool{
+		Tag:        []uint8{},
+		TypeIdx:    []uint32{},
+		BoolVal:    []bool{},
+		NumText:    []string{},
+		NumNeg:     []bool{},
+		NumMag:     []uint64{},
+		ChildStart: []uint32{},
+		ChildCount: []uint32{},
+		Children:   []uint32{},
+	}
+}
+
+func addFinBool(pool mut FinPool, typeIdx uint32, b bool) uint32 {
+	let id = uint32(pool.Tag.Len())
+	pool.Tag = pool.Tag.Append(finBool)
+	pool.TypeIdx = pool.TypeIdx.Append(typeIdx)
+	pool.BoolVal = pool.BoolVal.Append(b)
+	pool.NumText = pool.NumText.Append("")
+	pool.NumNeg = pool.NumNeg.Append(false)
+	pool.NumMag = pool.NumMag.Append(uint64(0))
+	pool.ChildStart = pool.ChildStart.Append(uint32(0))
+	pool.ChildCount = pool.ChildCount.Append(uint32(0))
+	id
+}
+
+func addFinNum(pool mut FinPool, typeIdx uint32, neg bool, mag uint64, text string) uint32 {
+	let id = uint32(pool.Tag.Len())
+	pool.Tag = pool.Tag.Append(finNum)
+	pool.TypeIdx = pool.TypeIdx.Append(typeIdx)
+	pool.BoolVal = pool.BoolVal.Append(false)
+	pool.NumText = pool.NumText.Append(text)
+	pool.NumNeg = pool.NumNeg.Append(neg)
+	pool.NumMag = pool.NumMag.Append(mag)
+	pool.ChildStart = pool.ChildStart.Append(uint32(0))
+	pool.ChildCount = pool.ChildCount.Append(uint32(0))
+	id
+}
+
+func addFinComposite(pool mut FinPool, tag uint8, typeIdx uint32, kids []uint32) uint32 {
+	let id = uint32(pool.Tag.Len())
+	let start = uint32(pool.Children.Len())
+	for k in kids {
+		pool.Children = pool.Children.Append(k)
+	}
+	pool.Tag = pool.Tag.Append(tag)
+	pool.TypeIdx = pool.TypeIdx.Append(typeIdx)
+	pool.BoolVal = pool.BoolVal.Append(false)
+	pool.NumText = pool.NumText.Append("")
+	pool.NumNeg = pool.NumNeg.Append(false)
+	pool.NumMag = pool.NumMag.Append(uint64(0))
+	pool.ChildStart = pool.ChildStart.Append(start)
+	pool.ChildCount = pool.ChildCount.Append(uint32(kids.Len()))
+	id
+}
+
+func finSpansFiniteValues(pool mut FinPool, tab RefinementTable, refIdx uint32, typeIdx uint32) ([]uint32, bool) {
+	let start = int(tab.SpanStart[int(refIdx)])
+	let cnt = int(tab.SpanCount[int(refIdx)])
+	let mut total = uint64(0)
+	for i in 0..cnt {
+		let si = start + i
+		if tab.SpanLoInf[si] || tab.SpanHiInf[si] {
+			return ([]uint32{}, false)
+		}
+		let lo = if tab.SpanLoNeg[si] { int64(uint64(0) - tab.SpanLoMag[si]) } else { int64(tab.SpanLoMag[si]) }
+		let hi = if tab.SpanHiNeg[si] { int64(uint64(0) - tab.SpanHiMag[si]) } else { int64(tab.SpanHiMag[si]) }
+		if hi < lo {
+			continue
+		}
+		let diff = uint64(hi) - uint64(lo) + uint64(1)
+		if total+diff > uint64(TestPlanTypeCap) || diff > uint64(TestPlanTypeCap) {
+			return ([]uint32{}, false)
+		}
+		total = total + diff
+	}
+	if total == uint64(0) {
+		return ([]uint32{}, false)
+	}
+	let mut out = slices.WithCapacity[uint32](int(total))
+	for i in 0..cnt {
+		let si = start + i
+		let lo = if tab.SpanLoNeg[si] { int64(uint64(0) - tab.SpanLoMag[si]) } else { int64(tab.SpanLoMag[si]) }
+		let hi = if tab.SpanHiNeg[si] { int64(uint64(0) - tab.SpanHiMag[si]) } else { int64(tab.SpanHiMag[si]) }
+		let mut cur = lo
+		for cur <= hi {
+			let neg = cur < int64(0)
+			let mag = if neg { uint64(0) - uint64(cur) } else { uint64(cur) }
+			let txt = strconv.FormatInt(cur, 10)
+			out = out.Append(addFinNum(pool, typeIdx, neg, mag, txt))
+			if cur == hi {
+				break
+			}
+			cur = cur + int64(1)
+		}
+	}
+	(out, true)
+}
+
+func finDomainProduct(prog Program, tab RefinementTable, pool mut FinPool, wrapTag uint8, typeIdx uint32, elemTypes []uint32, seen mut []bool) ([]uint32, bool) {
+	let mut cur = [][]uint32{[]uint32{}}
+	for et in elemTypes {
+		let (vals, ok) = finDomainRec(prog, tab, pool, et, seen)
+		if !ok || vals.Len() == 0 || uint32(cur.Len()) > TestPlanTypeCap/uint32(vals.Len()) {
+			return ([]uint32{}, false)
+		}
+		let mut next = slices.WithCapacity[[]uint32](cur.Len() * vals.Len())
+		for prefix in cur {
+			for v in vals {
+				let mut kids = slices.WithCapacity[uint32](prefix.Len() + 1)
+				for p in prefix {
+					kids = kids.Append(p)
+				}
+				kids = kids.Append(v)
+				next = next.Append(kids)
+			}
+		}
+		cur = next
+	}
+	let mut out = slices.WithCapacity[uint32](cur.Len())
+	for kids in cur {
+		out = out.Append(addFinComposite(pool, wrapTag, typeIdx, kids))
+	}
+	(out, true)
+}
+
+func finDomainRec(prog Program, tab RefinementTable, pool mut FinPool, typeIdx uint32, seen mut []bool) ([]uint32, bool) {
+	if int(typeIdx) >= prog.Types.Kind.Len() {
+		return ([]uint32{}, false)
+	}
+	if (*seen)[int(typeIdx)] {
+		return ([]uint32{}, false)
+	}
+	let (refIdx, hasRef) = findRefinementByType(tab, typeIdx)
+	if hasRef {
+		if tab.IsLen[int(refIdx)] {
+			return ([]uint32{}, false)
+		}
+		return finSpansFiniteValues(pool, tab, refIdx, typeIdx)
+	}
+	let kd = prog.Types.Kind[int(typeIdx)]
+	if kd == KindBool {
+		return ([]uint32{
+			addFinBool(pool, typeIdx, false),
+			addFinBool(pool, typeIdx, true),
+		}, true)
+	}
+	if kd == KindTuple {
+		let start = int(prog.Types.Aux[int(typeIdx)])
+		let cnt = int(prog.Types.Count[int(typeIdx)])
+		let mut elems = slices.WithCapacity[uint32](cnt)
+		for i in 0..cnt {
+			elems = elems.Append(prog.Types.FieldType[start+i])
+		}
+		return finDomainProduct(prog, tab, pool, finTuple, typeIdx, elems, seen)
+	}
+	if kd == KindRecord {
+		(*seen)[int(typeIdx)] = true
+		let start = int(prog.Types.Aux[int(typeIdx)])
+		let cnt = int(prog.Types.Count[int(typeIdx)])
+		let mut fields = slices.WithCapacity[uint32](cnt)
+		for i in 0..cnt {
+			fields = fields.Append(prog.Types.FieldType[start+i])
+		}
+		let (res, ok) = finDomainProduct(prog, tab, pool, finRecord, typeIdx, fields, seen)
+		(*seen)[int(typeIdx)] = false
+		return (res, ok)
+	}
+	if kd == KindUnion {
+		(*seen)[int(typeIdx)] = true
+		let start = int(prog.Types.Aux[int(typeIdx)])
+		let cnt = int(prog.Types.Count[int(typeIdx)])
+		let mut out = []uint32{}
+		for i in 0..cnt {
+			let vt = prog.Types.FieldType[start+i]
+			let (vs, ok) = finDomainRec(prog, tab, pool, vt, seen)
+			if !ok || uint32(out.Len()+vs.Len()) > TestPlanTypeCap {
+				(*seen)[int(typeIdx)] = false
+				return ([]uint32{}, false)
+			}
+			for v in vs {
+				out = out.Append(addFinComposite(pool, finUnion, typeIdx, []uint32{v}))
+			}
+		}
+		(*seen)[int(typeIdx)] = false
+		return (out, out.Len() > 0)
+	}
+	if kd == KindDefined {
+		let elem = prog.Types.Elem[int(typeIdx)]
+		if elem != TypeVoid {
+			(*seen)[int(typeIdx)] = true
+			let (vs, ok) = finDomainRec(prog, tab, pool, elem, seen)
+			(*seen)[int(typeIdx)] = false
+			if !ok {
+				return ([]uint32{}, false)
+			}
+			let mut out = slices.WithCapacity[uint32](vs.Len())
+			for v in vs {
+				out = out.Append(addFinComposite(pool, finWrapper, typeIdx, []uint32{v}))
+			}
+			return (out, true)
+		}
+	}
+	([]uint32{}, false)
+}
+
+// FinDomain enumerates a finite type's domain up to TestPlanTypeCap values.
+func FinDomain(prog Program, tab RefinementTable, pool mut FinPool, typeIdx uint32) ([]uint32, bool) {
+	let mut seen = slices.WithCapacity[bool](prog.Types.Kind.Len())
+	for i in 0..prog.Types.Kind.Len() {
+		let _ = i
+		seen = seen.Append(false)
+	}
+	finDomainRec(prog, tab, pool, typeIdx, &seen)
+}
+
+// EvalFinVal materializes finite-domain entry id into a runtime Val.
+func EvalFinVal(prog Program, arena mut ValArena, pool FinPool, id uint32) Val {
+	let tag = pool.Tag[int(id)]
+	let tid = pool.TypeIdx[int(id)]
+	if tag == finBool {
+		return BoolVal(tid, pool.BoolVal[int(id)])
+	}
+	if tag == finNum {
+		let neg = pool.NumNeg[int(id)]
+		let mag = pool.NumMag[int(id)]
+		let bits = if neg { uint64(0) - mag } else { mag }
+		return MakeIntVal(prog.Types, tid, bits)
+	}
+	let start = int(pool.ChildStart[int(id)])
+	let cnt = int(pool.ChildCount[int(id)])
+	let mut kids = slices.WithCapacity[Val](cnt)
+	for i in 0..cnt {
+		kids = kids.Append(EvalFinVal(prog, arena, pool, pool.Children[start+i]))
+	}
+	if tag == finTuple {
+		return MakeTupleVal(arena, tid, kids)
+	}
+	if tag == finRecord {
+		return MakeRecordVal(arena, tid, kids)
+	}
+	if kids.Len() > 0 {
+		let inner = kids[0]
+		if tag == finUnion {
+			return inner
+		}
+		return Val{Tag: inner.Tag, Type: tid, Aux: inner.Aux, Data: inner.Data}
+	}
+	UnitVal()
+}
+
+// LawPlan describes the finite or random case schedule for one test or law target.
+type LawPlan {
+	InputName        []string,
+	InputType        []uint32,
+	InputParam       []int,
+	InputHasWhere    []bool,
+	InputIsCallback  []bool,
+	InputCallbackRes []uint32,
+	InputIsProvider  []bool,
+	ListsFlat        []uint32,
+	ListStart        []uint32,
+	ListCount        []uint32,
+	TiesFlat         []int,
+	TieStart         []uint32,
+	TieCount         []uint32,
+	Count            uint32,
+	Listed           bool,
+	Reason           string,
+	NativeName       string,
+	Pool             FinPool,
+}
+
+// ComputeParamTies finds earlier parameter indices having identical types.
+func ComputeParamTies(paramTypes []uint32) ([]int, []uint32, []uint32) {
+	let mut flat = []int{}
+	let mut starts = slices.WithCapacity[uint32](paramTypes.Len())
+	let mut counts = slices.WithCapacity[uint32](paramTypes.Len())
+	for i in 0..paramTypes.Len() {
+		starts = starts.Append(uint32(flat.Len()))
+		let mut c = uint32(0)
+		for j in 0..i {
+			if paramTypes[j] == paramTypes[i] {
+				flat = flat.Append(j)
+				c = c + uint32(1)
+			}
+		}
+		counts = counts.Append(c)
+	}
+	(flat, starts, counts)
+}
+
+// MakeLawPlan constructs a finite-proved or random-drawn test plan for the given parameters.
+func MakeLawPlan(prog Program, tab RefinementTable, paramNames []string, paramTypes []uint32, hasWhere []bool, caseLimit uint32) LawPlan {
+	let mut pool = NewFinPool()
+	let mut listsFlat = []uint32{}
+	let mut listStart = slices.WithCapacity[uint32](paramTypes.Len())
+	let mut listCount = slices.WithCapacity[uint32](paramTypes.Len())
+	let mut isCb = slices.WithCapacity[bool](paramTypes.Len())
+	let mut cbRes = slices.WithCapacity[uint32](paramTypes.Len())
+	let mut isProv = slices.WithCapacity[bool](paramTypes.Len())
+	let mut inParams = slices.WithCapacity[int](paramTypes.Len())
+	let mut count = uint32(1)
+	let mut listed = true
+	for i, tid in paramTypes {
+		inParams = inParams.Append(i)
+		let kd = if int(tid) < prog.Types.Kind.Len() { prog.Types.Kind[int(tid)] } else { KindVoid }
+		let cb = kd == KindFunc && isSimpleCallback(prog.Types, tid)
+		isCb = isCb.Append(cb)
+		let mut resT = TypeVoid
+		if cb && int(tid) < prog.Types.Elem.Len() {
+			resT = prog.Types.Elem[int(tid)]
+		}
+		cbRes = cbRes.Append(resT)
+		isProv = isProv.Append(false)
+		listStart = listStart.Append(uint32(listsFlat.Len()))
+		let w = if i < hasWhere.Len() && hasWhere[i] { true } else { false }
+		if w || cb {
+			listed = false
+			listCount = listCount.Append(uint32(0))
+			continue
+		}
+		if listed {
+			let (vs, ok) = FinDomain(prog, tab, &pool, tid)
+			if !ok || vs.Len() == 0 || count > TestPlanCaseCap/uint32(vs.Len()) {
+				listed = false
+				listCount = listCount.Append(uint32(0))
+			} else {
+				count = count * uint32(vs.Len())
+				for v in vs {
+					listsFlat = listsFlat.Append(v)
+				}
+				listCount = listCount.Append(uint32(vs.Len()))
+			}
+		} else {
+			listCount = listCount.Append(uint32(0))
+		}
+	}
+	if !listed {
+		count = if caseLimit > uint32(0) { caseLimit } else { TestPlanDefaultCases }
+		listsFlat = []uint32{}
+		for i in 0..listCount.Len() {
+			listStart[i] = uint32(0)
+			listCount[i] = uint32(0)
+		}
+	}
+	let (tiesFlat, tieStart, tieCount) = ComputeParamTies(paramTypes)
+	LawPlan{
+		InputName:        paramNames,
+		InputType:        paramTypes,
+		InputParam:       inParams,
+		InputHasWhere:    hasWhere,
+		InputIsCallback:  isCb,
+		InputCallbackRes: cbRes,
+		InputIsProvider:  isProv,
+		ListsFlat:        listsFlat,
+		ListStart:        listStart,
+		ListCount:        listCount,
+		TiesFlat:         tiesFlat,
+		TieStart:         tieStart,
+		TieCount:         tieCount,
+		Count:            count,
+		Listed:           listed,
+		Reason:           "",
+		NativeName:       "",
+		Pool:             pool,
+	}
+}
+
+func isSimpleCallback(tp TypePool, sigIdx uint32) bool {
+	if int(sigIdx) >= tp.Kind.Len() || tp.Kind[int(sigIdx)] != KindFunc {
+		return false
+	}
+	let pCount = int(tp.Count[int(sigIdx)])
+	let pStart = int(tp.Elem[int(sigIdx)])
+	if pCount == 0 {
+		return false
+	}
+	let lastT = tp.FieldType[pStart+pCount-1]
+	let resT = tp.Elem[int(sigIdx)]
+	resT != TypeVoid && (lastT == TypeInt || lastT == TypeInt64)
+}
+
+// PlanAt returns the listed values for zero-based case k (last input fastest).
+func PlanAt(prog Program, arena mut ValArena, plan LawPlan, k uint32) []Val {
+	let n = plan.InputType.Len()
+	let mut vals = slices.WithCapacity[Val](n)
+	for i in 0..n {
+		let _ = i
+		vals = vals.Append(UnitVal())
+	}
+	let mut rem = k
+	let mut i = n - 1
+	for i >= 0 {
+		let cnt = plan.ListCount[i]
+		if cnt > uint32(0) {
+			let start = plan.ListStart[i]
+			let idx = rem % cnt
+			rem = rem / cnt
+			let fid = plan.ListsFlat[int(start+idx)]
+			vals[i] = EvalFinVal(prog, arena, plan.Pool, fid)
+		}
+		i = i - 1
+	}
+	vals
+}
+
+// IntShape returns bit width, signedness, and whether typeIdx is an integer or Duration type.
+func IntShape(tp TypePool, typeIdx uint32) (uint32, bool, bool) {
+	if int(typeIdx) >= tp.Kind.Len() {
+		return (uint32(0), false, false)
+	}
+	if typeIdx == TypeDuration {
+		return (uint32(64), true, true)
+	}
+	let kd = tp.Kind[int(typeIdx)]
+	if kd != KindInt {
+		return (uint32(0), false, false)
+	}
+	let w = uint32(tp.Width[int(typeIdx)])
+	let name = tp.Name[int(typeIdx)]
+	if name == "byte" || name == "rune" {
+		return (uint32(64), true, true)
+	}
+	let mut width = uint32(0)
+	if strings.HasSuffix(name, "8") {
+		width = uint32(8)
+	} else if strings.HasSuffix(name, "16") {
+		width = uint32(16)
+	} else if strings.HasSuffix(name, "32") {
+		width = uint32(32)
+	} else if strings.HasSuffix(name, "64") {
+		width = uint32(64)
+	} else if w > uint32(0) && w != uint32(64) {
+		width = w
+	}
+	let signed = !strings.HasPrefix(name, "u") && tp.Signed[int(typeIdx)]
+	(width, signed, true)
+}
+
+// CallbackSecond implements the deterministic callback branch selection across variants 0..3.
+func CallbackSecond(variant int, x int64) bool {
+	if variant == 1 {
+		return true
+	}
+	if variant == 2 {
+		return x%int64(2) != int64(0)
+	}
+	if variant == 3 {
+		return x < int64(0)
+	}
+	false
+}
+
+func nearStringsBytes(b []byte) [][]byte {
+	let mut out = [][]byte{}
+	let limit = if b.Len() < 16 { b.Len() } else { 16 }
+	for i in 0..limit {
+		for bit in 0..8 {
+			let mut c = slices.WithCapacity[byte](b.Len())
+			for x in b {
+				c = c.Append(x)
+			}
+			c[i] = c[i] ^ (byte(1) << bit)
+			out = out.Append(c)
+		}
+	}
+	for i in 0..b.Len() {
+		let mut c = slices.WithCapacity[byte](b.Len() - 1)
+		for j in 0..b.Len() {
+			if j != i {
+				c = c.Append(b[j])
+			}
+		}
+		out = out.Append(c)
+	}
+	for i in 0..b.Len() {
+		let mut c = slices.WithCapacity[byte](b.Len() + 1)
+		for j in 0..b.Len() {
+			c = c.Append(b[j])
+			if j == i {
+				c = c.Append(b[i])
+			}
+		}
+		out = out.Append(c)
+	}
+	out
+}
+
+// NearVariantsVal generates deterministic near variants of v in fixed Go order.
+func NearVariantsVal(prog Program, arena mut ValArena, typeIdx uint32, v Val) []Val {
+	if int(typeIdx) >= prog.Types.Kind.Len() {
+		return []Val{}
+	}
+	let kd = prog.Types.Kind[int(typeIdx)]
+	if kd == KindBool {
+		return []Val{BoolVal(typeIdx, v.Data == uint64(0))}
+	}
+	if kd == KindString {
+		let s = ReadStr(*arena, v)
+		let vars = nearStringsBytes(strings.Bytes(s))
+		let mut out = slices.WithCapacity[Val](vars.Len())
+		for vb in vars {
+			out = out.Append(AllocStrVal(arena, typeIdx, strings.FromBytes(vb)))
+		}
+		return out
+	}
+	if kd == KindInt {
+		let w = uint32(prog.Types.Width[int(typeIdx)])
+		let bitsCount = if w == uint32(0) { 64 } else { int(w) }
+		let mut out = slices.WithCapacity[Val](2 + bitsCount)
+		out = out.Append(MakeIntVal(prog.Types, typeIdx, v.Data+uint64(1)))
+		out = out.Append(MakeIntVal(prog.Types, typeIdx, v.Data-uint64(1)))
+		for b in 0..bitsCount {
+			out = out.Append(MakeIntVal(prog.Types, typeIdx, v.Data^(uint64(1)<<b)))
+		}
+		return out
+	}
+	if kd == KindFloat {
+		let f = Float64FromBits(v.Data)
+		let neg = -f
+		let mut out = []Val{MakeFloatVal(prog.Types, typeIdx, neg)}
+		if f == 0.0 {
+			let altBits = v.Data ^ (uint64(1) << uint64(63))
+			out = out.Append(Val{Tag: TagFloat, Type: typeIdx, Aux: uint32(0), Data: altBits})
+		}
+		return out
+	}
+	if kd == KindSlice {
+		let elemT = prog.Types.Elem[int(typeIdx)]
+		let n = int(ReadSliceLen(*arena, v))
+		if elemT == TypeUint8 || (int(elemT) < prog.Types.Kind.Len() && prog.Types.Name[int(elemT)] == "byte") {
+			let mut bs = slices.WithCapacity[byte](n)
+			for i in 0..n {
+				bs = bs.Append(byte(ReadSliceElem(*arena, v, uint32(i)).Data))
+			}
+			let vars = nearStringsBytes(bs)
+			let mut out = slices.WithCapacity[Val](vars.Len())
+			for vb in vars {
+				let mut ne = slices.WithCapacity[Val](vb.Len())
+				for b in vb {
+					ne = ne.Append(MakeIntVal(prog.Types, elemT, uint64(b)))
+				}
+				out = out.Append(MakeSliceVal(arena, typeIdx, ne, uint32(ne.Len())))
+			}
+			return out
+		}
+		let mut elems = slices.WithCapacity[Val](n)
+		for i in 0..n {
+			elems = elems.Append(ReadSliceElem(*arena, v, uint32(i)))
+		}
+		let mut out = []Val{}
+		for i in 0..n {
+			for ev in NearVariantsVal(prog, arena, elemT, elems[i]) {
+				let mut cloned = slices.WithCapacity[Val](n)
+				for e in elems {
+					cloned = cloned.Append(e)
+				}
+				cloned[i] = ev
+				out = out.Append(MakeSliceVal(arena, typeIdx, cloned, uint32(n)))
+			}
+		}
+		return out
+	}
+	if kd == KindRecord {
+		let n = int(PackLen(*arena, v))
+		let mut fields = slices.WithCapacity[Val](n)
+		for i in 0..n {
+			fields = fields.Append(ReadPackElem(*arena, v, uint32(i)))
+		}
+		let fStart = int(prog.Types.Aux[int(typeIdx)])
+		let mut out = []Val{}
+		for i in 0..n {
+			let ft = prog.Types.FieldType[fStart+i]
+			for fv in NearVariantsVal(prog, arena, ft, fields[i]) {
+				let mut cloned = slices.WithCapacity[Val](n)
+				for f in fields {
+					cloned = cloned.Append(f)
+				}
+				cloned[i] = fv
+				out = out.Append(MakeRecordVal(arena, typeIdx, cloned))
+			}
+		}
+		return out
+	}
+	[]Val{}
+}
+
+// IdenticalVals compares two runtime values bit-for-bit including signed zero and NaN bits.
+func IdenticalVals(arena ValArena, a Val, b Val) bool {
+	if a.Tag != b.Tag {
+		return false
+	}
+	if a.Tag == TagFloat {
+		return a.Data == b.Data
+	}
+	if a.Tag == TagStr {
+		return ReadStr(arena, a) == ReadStr(arena, b)
+	}
+	if a.Tag == TagSlice || a.Tag == TagArray {
+		let na = ReadSliceLen(arena, a)
+		let nb = ReadSliceLen(arena, b)
+		if na != nb {
+			return false
+		}
+		for i in 0..int(na) {
+			if !IdenticalVals(arena, ReadSliceElem(arena, a, uint32(i)), ReadSliceElem(arena, b, uint32(i))) {
+				return false
+			}
+		}
+		return true
+	}
+	if a.Tag == TagTuple || a.Tag == TagRecord {
+		let na = PackLen(arena, a)
+		let nb = PackLen(arena, b)
+		if na != nb {
+			return false
+		}
+		for i in 0..int(na) {
+			if !IdenticalVals(arena, ReadPackElem(arena, a, uint32(i)), ReadPackElem(arena, b, uint32(i))) {
+				return false
+			}
+		}
+		return true
+	}
+	a.Data == b.Data
+}
+
+func typeContainsNamedCycle(prog Program, tid uint32, target uint32, depth int) bool {
+	if depth <= 0 || int(tid) >= prog.Types.Kind.Len() {
+		return false
+	}
+	let kd = prog.Types.Kind[int(tid)]
+	if kd == KindRecord || kd == KindTuple {
+		let start = int(prog.Types.Aux[int(tid)])
+		let cnt = int(prog.Types.Count[int(tid)])
+		for i in 0..cnt {
+			let ft = prog.Types.FieldType[start+i]
+			if ft == target || typeContainsNamedCycle(prog, ft, target, depth-1) {
+				return true
+			}
+		}
+	}
+	if kd == KindSlice {
+		let et = prog.Types.Elem[int(tid)]
+		return et == target || typeContainsNamedCycle(prog, et, target, depth-1)
+	}
+	false
+}
+
+func variantRank(prog Program, tid uint32, depth int) int {
+	if int(tid) >= prog.Types.Kind.Len() || depth <= 0 {
+		return 100
+	}
+	let kd = prog.Types.Kind[int(tid)]
+	if kd == KindBool || kd == KindInt || kd == KindFloat || kd == KindString || kd == KindDuration || kd == KindSlice || kd == KindMap {
+		return 0
+	}
+	if kd == KindTuple {
+		let start = int(prog.Types.Aux[int(tid)])
+		let cnt = int(prog.Types.Count[int(tid)])
+		let mut best = 0
+		for i in 0..cnt {
+			let r = variantRank(prog, prog.Types.FieldType[start+i], depth-1) + 1
+			if r > best {
+				best = r
+			}
+		}
+		return best
+	}
+	if kd == KindRecord {
+		let start = int(prog.Types.Aux[int(tid)])
+		let cnt = int(prog.Types.Count[int(tid)])
+		let mut best = 0
+		for i in 0..cnt {
+			let ft = prog.Types.FieldType[start+i]
+			if ft == tid || typeContainsNamedCycle(prog, ft, tid, 4) {
+				return 100
+			}
+			let r = variantRank(prog, ft, depth-1) + 1
+			if r > best {
+				best = r
+			}
+		}
+		return best
+	}
+	1
+}
+
+// SmallVariantTypes selects the smallest-ranked union variants for depth <= 0 fallback.
+func SmallVariantTypes(prog Program, variants []uint32) []uint32 {
+	let mut least = -1
+	let mut small = []uint32{}
+	for v in variants {
+		let r = variantRank(prog, v, 4)
+		if least < 0 || r < least {
+			least = r
+			small = []uint32{v}
+		} else if r == least {
+			small = small.Append(v)
+		}
+	}
+	small
+}
+
+func generateRefinedVal(prog Program, tab RefinementTable, refIdx uint32, arena mut ValArena, r mut GenStream, typeIdx uint32, depth int) (Val, bool) {
+	let start = int(tab.SpanStart[int(refIdx)])
+	let cnt = int(tab.SpanCount[int(refIdx)])
+	if !tab.IsLen[int(refIdx)] {
+		let (w, signed, _) = IntShape(prog.Types, typeIdx)
+		let minI64 = int64(-9223372036854775807) - int64(1)
+		let maxI64 = int64(9223372036854775807)
+		let mut lo = []int64{}
+		let mut hi = []int64{}
+		for i in 0..cnt {
+			let si = start + i
+			let a = if !tab.SpanLoInf[si] {
+				if tab.SpanLoNeg[si] { int64(uint64(0) - tab.SpanLoMag[si]) } else { int64(tab.SpanLoMag[si]) }
+			} else if !signed {
+				int64(0)
+			} else if w == uint32(8) {
+				int64(-128)
+			} else if w == uint32(16) {
+				int64(-32768)
+			} else if w == uint32(32) {
+				int64(-2147483648)
+			} else {
+				minI64
+			}
+			let b = if !tab.SpanHiInf[si] {
+				if tab.SpanHiNeg[si] { int64(uint64(0) - tab.SpanHiMag[si]) } else { int64(tab.SpanHiMag[si]) }
+			} else if !signed && w < uint32(64) {
+				int64((uint64(1) << uint64(w)) - uint64(1))
+			} else if signed && w == uint32(8) {
+				int64(127)
+			} else if signed && w == uint32(16) {
+				int64(32767)
+			} else if signed && w == uint32(32) {
+				int64(2147483647)
+			} else {
+				maxI64
+			}
+			if a <= b {
+				lo = lo.Append(a)
+				hi = hi.Append(b)
+			}
+		}
+		if lo.Len() == 0 {
+			return (UnitVal(), false)
+		}
+		let n = StreamIn(r, lo, hi)
+		return (MakeIntVal(prog.Types, typeIdx, uint64(n)), true)
+	}
+	let mut lo = []int64{}
+	let mut hi = []int64{}
+	for i in 0..cnt {
+		let si = start + i
+		if !tab.SpanLoInf[si] {
+			let a = if tab.SpanLoNeg[si] { int64(uint64(0) - tab.SpanLoMag[si]) } else { int64(tab.SpanLoMag[si]) }
+			let mut b = if !tab.SpanHiInf[si] {
+				if tab.SpanHiNeg[si] { int64(uint64(0) - tab.SpanHiMag[si]) } else { int64(tab.SpanHiMag[si]) }
+			} else {
+				a + int64(32)
+			}
+			if b > a+int64(32) {
+				b = a + int64(32)
+			}
+			lo = lo.Append(a)
+			hi = hi.Append(b)
+		}
+	}
+	if lo.Len() == 0 {
+		return (UnitVal(), false)
+	}
+	let n = int(StreamIn(r, lo, hi))
+	streamCharge(r, uint64(n))
+	if r.Exhausted {
+		return (UnitVal(), false)
+	}
+	let under = UnwrapType(prog.Types, typeIdx)
+	if int(under) < prog.Types.Kind.Len() && prog.Types.Kind[int(under)] == KindSlice {
+		let elemT = prog.Types.Elem[int(under)]
+		let mut elems = slices.WithCapacity[Val](n)
+		for i in 0..n {
+			let _ = i
+			let (ev, ok) = GenerateVal(prog, tab, arena, r, elemT, depth-1)
+			if !ok {
+				return (UnitVal(), false)
+			}
+			elems = elems.Append(ev)
+		}
+		return (MakeSliceVal(arena, typeIdx, elems, uint32(elems.Len())), true)
+	}
+	let txt = StreamStrLen(r, n)
+	(AllocStrVal(arena, typeIdx, txt), true)
+}
+
+// GenerateVal generates a deterministic value of typeIdx using GenStream r at structural depth.
+func GenerateVal(prog Program, tab RefinementTable, arena mut ValArena, r mut GenStream, typeIdx uint32, depth int) (Val, bool) {
+	streamCharge(r, uint64(1))
+	if r.Exhausted || int(typeIdx) >= prog.Types.Kind.Len() {
+		return (UnitVal(), false)
+	}
+	let (refIdx, hasRef) = findRefinementByType(tab, typeIdx)
+	if hasRef {
+		return generateRefinedVal(prog, tab, refIdx, arena, r, typeIdx, depth)
+	}
+	let kd = prog.Types.Kind[int(typeIdx)]
+	if kd == KindBool {
+		return (BoolVal(typeIdx, StreamBool(r)), true)
+	}
+	if kd == KindString {
+		return (AllocStrVal(arena, typeIdx, StreamStr(r)), true)
+	}
+	if kd == KindFloat {
+		let f = StreamF64(r)
+		return (MakeFloatVal(prog.Types, typeIdx, f), true)
+	}
+	let (w, signed, isInt) = IntShape(prog.Types, typeIdx)
+	if isInt {
+		return (MakeIntVal(prog.Types, typeIdx, StreamInteger(r, w, signed)), true)
+	}
+	if kd == KindSlice {
+		let mut n = 0
+		if depth > 0 {
+			n = StreamIntn(r, StreamLimit(*r, depth)+1)
+		}
+		streamCharge(r, uint64(n))
+		if r.Exhausted {
+			return (UnitVal(), false)
+		}
+		let elemT = prog.Types.Elem[int(typeIdx)]
+		let mut elems = slices.WithCapacity[Val](n)
+		for i in 0..n {
+			let _ = i
+			let (ev, ok) = GenerateVal(prog, tab, arena, r, elemT, depth-1)
+			if !ok {
+				return (UnitVal(), false)
+			}
+			elems = elems.Append(ev)
+		}
+		return (MakeSliceVal(arena, typeIdx, elems, uint32(elems.Len())), true)
+	}
+	if kd == KindMap {
+		let m = MakeEmptyMap(arena, typeIdx)
+		if depth <= 0 {
+			return (m, true)
+		}
+		let keyT = prog.Types.Elem[int(typeIdx)]
+		let valT = prog.Types.Aux[int(typeIdx)]
+		let n = StreamIntn(r, StreamLimit(*r, depth)+1)
+		let mut cur = m
+		for i in 0..n {
+			let _ = i
+			let (kv, ok1) = GenerateVal(prog, tab, arena, r, keyT, depth-1)
+			let (vv, ok2) = GenerateVal(prog, tab, arena, r, valT, depth-1)
+			if !ok1 || !ok2 {
+				return (UnitVal(), false)
+			}
+			cur = MapPutValCOW(prog.Types, arena, cur, kv, vv)
+		}
+		return (cur, true)
+	}
+	if kd == KindTuple {
+		let start = int(prog.Types.Aux[int(typeIdx)])
+		let cnt = int(prog.Types.Count[int(typeIdx)])
+		let mut elems = slices.WithCapacity[Val](cnt)
+		for i in 0..cnt {
+			let ft = prog.Types.FieldType[start+i]
+			let (fv, ok) = GenerateVal(prog, tab, arena, r, ft, depth-1)
+			if !ok {
+				return (UnitVal(), false)
+			}
+			elems = elems.Append(fv)
+		}
+		return (MakeTupleVal(arena, typeIdx, elems), true)
+	}
+	if kd == KindUnion {
+		let start = int(prog.Types.Aux[int(typeIdx)])
+		let cnt = int(prog.Types.Count[int(typeIdx)])
+		let mut vs = slices.WithCapacity[uint32](cnt)
+		for i in 0..cnt {
+			vs = vs.Append(prog.Types.FieldType[start+i])
+		}
+		if depth <= 0 {
+			vs = SmallVariantTypes(prog, vs)
+		}
+		if vs.Len() == 0 {
+			return (UnitVal(), false)
+		}
+		let k = if vs.Len() > 1 { StreamIntn(r, vs.Len()) } else { 0 }
+		let (inner, ok) = GenerateVal(prog, tab, arena, r, vs[k], depth-1)
+		if !ok {
+			return (UnitVal(), false)
+		}
+		return (inner, true)
+	}
+	if kd == KindRecord {
+		let start = int(prog.Types.Aux[int(typeIdx)])
+		let cnt = int(prog.Types.Count[int(typeIdx)])
+		let mut fields = slices.WithCapacity[Val](cnt)
+		for i in 0..cnt {
+			let ft = prog.Types.FieldType[start+i]
+			let (fv, ok) = GenerateVal(prog, tab, arena, r, ft, depth-1)
+			if !ok {
+				return (UnitVal(), false)
+			}
+			fields = fields.Append(fv)
+		}
+		return (MakeRecordVal(arena, typeIdx, fields), true)
+	}
+	if kd == KindDefined {
+		let under = prog.Types.Elem[int(typeIdx)]
+		if under != TypeVoid {
+			let (inner, ok) = GenerateVal(prog, tab, arena, r, under, depth)
+			if !ok {
+				return (UnitVal(), false)
+			}
+			return (Val{Tag: inner.Tag, Type: typeIdx, Aux: inner.Aux, Data: inner.Data}, true)
+		}
+	}
+	(UnitVal(), false)
+}
+
+law SplitMixStreamReproducible(seed uint64, name string, caseIdx uint16) {
+	let mut r1 = NewGenStream(seed, name, uint64(0))
+	let mut r2 = NewGenStream(seed, name, uint64(0))
+	StreamStart(&r1, uint32(caseIdx))
+	StreamStart(&r2, uint32(caseIdx))
+	StreamRecord(&r1)
+	StreamRecord(&r2)
+	let a = StreamInteger(&r1, uint32(64), true)
+	let b = StreamInteger(&r2, uint32(64), true)
+	assert a == b
+	assert r1.Tape.Len() == r2.Tape.Len()
+	true
+}
+
+law SignedIntegerReplayClampsMonotonically(seed uint64, mag uint64) {
+	let mut r = NewGenStream(seed, "clamp", uint64(0))
+	StreamReplay(&r, []uint64{uint64(1), mag})
+	let v = StreamInteger(&r, uint32(8), true)
+	StreamEndReplay(&r)
+	let s = int64(int8(uint8(v)))
+	assert s >= int64(-128) && s <= int64(0)
+	true
+}
+
+test PlanAtEnumeratesCartesianProductLastInputFastest {
+	let prog = NewProgram()
+	let tab = NewRefinementTable()
+	let plan = MakeLawPlan(prog, tab, []string{"a", "b"}, []uint32{TypeBool, TypeBool}, []bool{false, false}, uint32(0))
+	assert plan.Listed
+	assert plan.Count == uint32(4)
+	let mut arena = NewValArena()
+	let c0 = PlanAt(prog, &arena, plan, uint32(0))
+	let c1 = PlanAt(prog, &arena, plan, uint32(1))
+	let c2 = PlanAt(prog, &arena, plan, uint32(2))
+	let c3 = PlanAt(prog, &arena, plan, uint32(3))
+	assert c0[0].Data == uint64(0) && c0[1].Data == uint64(0)
+	assert c1[0].Data == uint64(0) && c1[1].Data == uint64(1)
+	assert c2[0].Data == uint64(1) && c2[1].Data == uint64(0)
+	assert c3[0].Data == uint64(1) && c3[1].Data == uint64(1)
+}
+
+test NearVariantsFlipsBitsAndDropsDoublesBytes {
+	let prog = NewProgram()
+	let mut arena = NewValArena()
+	let s = AllocStrVal(&arena, TypeString, "ab")
+	let vars = NearVariantsVal(prog, &arena, TypeString, s)
+	assert vars.Len() == 16+2+2
+	assert !IdenticalVals(arena, vars[0], s)
+	let mut hasDropA = false
+	let mut hasDropB = false
+	let mut hasDblA = false
+	let mut hasDblB = false
+	for v in vars {
+		let t = ReadStr(arena, v)
+		if t == "b" {
+			hasDropA = true
+		} else if t == "a" {
+			hasDropB = true
+		} else if t == "aab" {
+			hasDblA = true
+		} else if t == "abb" {
+			hasDblB = true
+		}
+	}
+	assert hasDropA && hasDropB
+	assert hasDblA && hasDblB
+}

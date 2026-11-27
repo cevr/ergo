@@ -1,0 +1,505 @@
+import compiler/syntax
+import slices
+import go strconv
+import strings
+
+// LawRunConfig controls law and test execution, seeding, replay source naming, and budgets.
+type LawRunConfig {
+	Budget      Budget,
+	Seed        uint64,
+	Source      string,
+	CaseLimit   uint32,
+	RunAdmit    bool,
+	RunRewrites bool,
+	PruneCases  bool,
+}
+
+// DefaultLawRunConfig returns the standard deterministic property-testing configuration.
+func DefaultLawRunConfig(b Budget, seed uint64) LawRunConfig {
+	LawRunConfig{
+		Budget:      b,
+		Seed:        seed,
+		Source:      "",
+		CaseLimit:   uint32(0),
+		RunAdmit:    false,
+		RunRewrites: false,
+		PruneCases:  false,
+	}
+}
+
+func formatLawArguments(prog Program, paramNames []string, paramTypes []uint32, vals []Val) []LawArg {
+	let n = paramNames.Len()
+	let mut out = slices.WithCapacity[LawArg](n)
+	for i in 0..n {
+		let v = if i < vals.Len() { vals[i] } else { UnitVal() }
+		let t = if i < paramTypes.Len() { paramTypes[i] } else { TypeVoid }
+		out = out.Append(LawArg{Name: paramNames[i], Value: FormatArgument(prog, prog.Arena, t, v)})
+	}
+	out
+}
+
+func lawArgsEqual(a []LawArg, b []LawArg) bool {
+	if a.Len() != b.Len() {
+		return false
+	}
+	for i in 0..a.Len() {
+		if a[i].Name != b[i].Name || a[i].Value != b[i].Value {
+			return false
+		}
+	}
+	true
+}
+
+func runSingleLawCase(prog mut Program, fm FnMeta, fnIdx uint32, budget Budget, vals []Val, isLaw bool, mapDesc bool) (VM, bool, bool, bool, string, string, Site) {
+	let mut vm = NewVM(*prog, budget)
+	vm.MapDesc = mapDesc
+	let declSite = Site{File: fm.FileName, Line: fm.Line, Col: fm.Col}
+	if !initAllGlobals(prog, &vm, fm.Pkg) {
+		let faultSite = resolveFaultSite(*prog, vm, fm)
+		if vm.Ctl == CtlDefect {
+			return (vm, false, false, false, vm.Reason, DefectMessage, faultSite)
+		}
+		if vm.Ctl == CtlFail || vm.Ctl == CtlEscape {
+			let desc = DescribeVal(prog.Types, prog.Arena, vm.ErrVal)
+			let reason = "uncaught " + desc
+			return (vm, false, true, false, reason, reason, faultSite)
+		}
+		return (vm, false, false, false, vm.Reason, vm.Reason, faultSite)
+	}
+	let ret = ExecuteFunction(prog, &vm, fnIdx, vals)
+	let faultSite = resolveFaultSite(*prog, vm, fm)
+	if vm.Ctl == CtlNone || vm.Ctl == CtlReturn {
+		if isLaw && ret.Data == uint64(0) {
+			let msg = FormatLawFalseMessage(declSite, declSite)
+			return (vm, false, false, true, "the law is false", msg, declSite)
+		}
+		return (vm, true, false, false, "", "", declSite)
+	}
+	if vm.Ctl == CtlRefuted {
+		let reason = if vm.Reason != "" { vm.Reason } else { "assertion failed" }
+		let msg = if strings.Contains(reason, " at ") {
+			reason
+		} else {
+			reason + " at " + NativeSiteText(faultSite)
+		}
+		return (vm, false, false, false, reason, msg, faultSite)
+	}
+	if vm.Ctl == CtlFail || vm.Ctl == CtlEscape {
+		let desc = DescribeVal(prog.Types, prog.Arena, vm.ErrVal)
+		let reason = "uncaught " + desc
+		return (vm, false, true, false, reason, reason, faultSite)
+	}
+	if vm.Ctl == CtlDefect {
+		return (vm, false, false, false, vm.Reason, DefectMessage, faultSite)
+	}
+	(vm, false, false, false, vm.Reason, vm.Reason, faultSite)
+}
+
+func caseStatusFromVM(ctl uint8) uint8 {
+	if ctl == CtlSkip {
+		return StatusSkipped
+	}
+	if ctl == CtlIncomplete {
+		return StatusIncomplete
+	}
+	if ctl == CtlDefect {
+		return StatusDefect
+	}
+	if ctl == CtlRefuted || ctl == CtlFail || ctl == CtlEscape {
+		return StatusRefuted
+	}
+	StatusRefuted
+}
+
+func makeLawParamArrays(prog Program, fm FnMeta) ([]string, []uint32, []bool) {
+	let n = int(fm.ParamCount)
+	let mut names = slices.WithCapacity[string](n)
+	let mut types = slices.WithCapacity[uint32](n)
+	let mut hasWhere = slices.WithCapacity[bool](n)
+	for i in 0..n {
+		let idx = int(fm.ParamStart) + i
+		let pn = if idx < prog.ParamNames.Len() { prog.ParamNames[idx] } else { "p" + strconv.Itoa(i) }
+		let pt = if idx < prog.ParamTypes.Len() { prog.ParamTypes[idx] } else { TypeVoid }
+		names = names.Append(pn)
+		types = types.Append(pt)
+		hasWhere = hasWhere.Append(false)
+	}
+	(names, types, hasWhere)
+}
+
+func drawLawCaseArgs(prog mut Program, plan LawPlan, refTab RefinementTable, r mut GenStream, paramTypes []uint32) ([]Val, bool) {
+	let n = paramTypes.Len()
+	let mut args = slices.WithCapacity[Val](n)
+	for i in 0..n {
+		let tStart = int(plan.TieStart[i])
+		let tCnt = int(plan.TieCount[i])
+		let mut tied = false
+		let mut picked = UnitVal()
+		if tCnt > 0 {
+			let k = StreamTie(r, tCnt)
+			if k >= 0 && k < tCnt {
+				let targetIdx = plan.TiesFlat[tStart+k]
+				if targetIdx >= 0 && targetIdx < args.Len() {
+					picked = args[targetIdx]
+					tied = true
+				}
+			}
+		}
+		if tied {
+			args = args.Append(picked)
+		} else if i < plan.InputIsCallback.Len() && plan.InputIsCallback[i] {
+			let variant = StreamIntn(r, TestGenCallbackVariants)
+			let cbResT = plan.InputCallbackRes[i]
+			let (a, okA) = GenerateVal(*prog, refTab, &prog.Arena, r, cbResT, TestGenDepth)
+			let (b, okB) = GenerateVal(*prog, refTab, &prog.Arena, r, cbResT, TestGenDepth)
+			if !okA || !okB {
+				return ([]Val{}, false)
+			}
+			args = args.Append(AddSyntheticCallback(prog, uint32(variant), a, b, paramTypes[i]))
+		} else {
+			let (gv, okG) = GenerateVal(*prog, refTab, &prog.Arena, r, paramTypes[i], TestGenDepth)
+			if !okG {
+				return ([]Val{}, false)
+			}
+			args = args.Append(gv)
+		}
+	}
+	(args, true)
+}
+
+// RunPropertyTarget executes one test or law function under deterministic case planning, shrinking, and verdict reporting.
+func RunPropertyTarget(prog mut Program, wt WitnessTable, refTab RefinementTable, fnIdx uint32, cfg LawRunConfig) LawVerdict {
+	let fm = prog.Fns[int(fnIdx)]
+	let isLaw = fm.Kind == FnKindLaw
+	let title = fm.Name
+	let mut qualName = if isLaw { "law " + fm.Name } else { fm.Name }
+	let declSite = Site{File: fm.FileName, Line: fm.Line, Col: fm.Col}
+	let mut skipWhy = ""
+	let mut isRewrite = fm.IsEqLaw
+	let mut isExistential = false
+	let mut lawMetaIdx = uint32(0xffffffff)
+	let (lidx, hasLawMeta) = FindLawMetaIndex(wt, fnIdx)
+	if hasLawMeta {
+		lawMetaIdx = lidx
+		qualName = wt.LawQualified[int(lidx)]
+		isRewrite = wt.LawIsRewrite[int(lidx)]
+		isExistential = wt.LawIsSometimes[int(lidx)]
+		if wt.LawUnrun[int(lidx)] != "" {
+			skipWhy = wt.LawUnrun[int(lidx)]
+		} else if isRewrite && !cfg.RunRewrites {
+			skipWhy = "a rewrite law: ergo test runs its licence check"
+		} else if wt.LawHasAdmit[int(lidx)] && !cfg.RunAdmit {
+			skipWhy = "a where over earlier parameters: ergo test runs it"
+		}
+	}
+	let _ = lawMetaIdx
+	let mut out = LawVerdict{
+		Name:            qualName,
+		Title:           title,
+		Kind:            if isLaw { "law" } else { "test" },
+		Status:          StatusPassed,
+		Reason:          "",
+		Message:         "",
+		Evidence:        "",
+		Form:            CaseFormSingle,
+		CaseIdx:         uint32(0),
+		TotalCases:      uint32(1),
+		CasesRun:        uint32(0),
+		Seed:            cfg.Seed,
+		Arguments:       []LawArg{},
+		Drawn:           []LawArg{},
+		HasDrawn:        false,
+		ShrunkTape:      []uint64{},
+		StoredCaseHit:   false,
+		StoredStale:     false,
+		ExtraStaleCases: uint32(0),
+		Site:            declSite,
+		DeclSite:        declSite,
+		Steps:           uint64(0),
+		VerdictLine:     "",
+		Escaped:         false,
+		BodyFalse:       false,
+	}
+	if skipWhy != "" {
+		out.Status = StatusSkipped
+		out.Reason = skipWhy
+		return out
+	}
+	let (paramNames, paramTypes, rawWhere) = makeLawParamArrays(*prog, fm)
+	let mut hasWhere = rawWhere
+	if hasLawMeta && wt.LawHasWhere[int(lidx)] {
+		let ws = int(wt.LawParamWhereStart[int(lidx)])
+		let wc = int(wt.LawParamWhereCount[int(lidx)])
+		for wi in 0..wc {
+			let pIdx = int(wt.WhereParamIdx[ws+wi])
+			if pIdx < hasWhere.Len() {
+				hasWhere[pIdx] = true
+			}
+		}
+	}
+	let plan = MakeLawPlan(*prog, refTab, paramNames, paramTypes, hasWhere, cfg.CaseLimit)
+	out.TotalCases = plan.Count
+	if plan.Reason != "" {
+		out.Status = StatusSkipped
+		out.Reason = plan.Reason
+		return out
+	}
+	if plan.Listed {
+		out.Evidence = "proved"
+		out.Form = CaseFormListed
+	} else {
+		out.Evidence = "tested"
+		out.Form = CaseFormDrawn
+	}
+	if !isLaw && paramNames.Len() == 0 {
+		out.Evidence = "evaluated"
+		out.Form = CaseFormSingle
+	}
+	let mut r = NewGenStream(cfg.Seed, qualName, cfg.Budget.Steps)
+	let mut totalSteps = uint64(0)
+	let mut smState = NewSometimesState()
+	if hasLawMeta && int(lidx) < wt.LawSometimesCount.Len() {
+		let sStart = int(wt.LawSometimesStart[int(lidx)])
+		let sCnt = int(wt.LawSometimesCount[int(lidx)])
+		for si in 0..sCnt {
+			let idx = sStart + si
+			AddSometimesStmt(&smState, wt.SometimesNodeKey[idx], wt.SometimesExpr[idx], Site{
+				File: wt.SometimesFile[idx],
+				Line: wt.SometimesLine[idx],
+				Col:  wt.SometimesCol[idx],
+			})
+		}
+	}
+	for k in uint32(0)..plan.Count {
+		let mut vals = []Val{}
+		if plan.Listed {
+			vals = PlanAt(*prog, &prog.Arena, plan, k)
+		} else {
+			StreamStart(&r, k+uint32(1))
+			StreamRecord(&r)
+			let (drawnVals, okDraw) = drawLawCaseArgs(prog, plan, refTab, &r, paramTypes)
+			if !okDraw {
+				out.Status = StatusSkipped
+				out.Reason = "a generator is unavailable"
+				out.Evidence = ""
+				out.Steps = totalSteps
+				return out
+			}
+			vals = drawnVals
+		}
+		let (vm, passed, escaped, bodyFalse, reason, msg, faultSite) = runSingleLawCase(prog, fm, fnIdx, cfg.Budget, vals, isLaw, false)
+		totalSteps = totalSteps + vm.StepsUsed
+		for sNode in vm.SometimesNodes {
+			RecordSometimesHit(&smState, sNode)
+		}
+		out.CasesRun = k + uint32(1)
+		if isExistential {
+			if passed {
+				out.Status = StatusPassed
+				out.CaseIdx = uint32(0)
+				out.Arguments = formatLawArguments(*prog, paramNames, paramTypes, vals)
+				let (smMsg, smSite, smOk) = CheckSometimesMissed(smState, out.CasesRun)
+				if !smOk {
+					out.Status = StatusRefuted
+					out.Reason = smMsg
+					out.Message = smMsg
+					out.Site = smSite
+					out.Evidence = ""
+				}
+				out.Steps = totalSteps
+				let (line, _) = FormatVerdictLine(out, cfg.Source)
+				out.VerdictLine = line
+				return out
+			}
+			if bodyFalse {
+				continue
+			}
+		}
+		if !passed {
+			let st = if isLaw && bodyFalse { StatusRefuted } else { caseStatusFromVM(vm.Ctl) }
+			out.Status = st
+			out.Evidence = ""
+			out.CaseIdx = k + uint32(1)
+			out.Reason = reason
+			out.Message = msg
+			out.Site = faultSite
+			out.Escaped = escaped
+			out.BodyFalse = bodyFalse
+			let drawnArgs = formatLawArguments(*prog, paramNames, paramTypes, vals)
+			let mut bestArgs = drawnArgs
+			if st == StatusRefuted && !plan.Listed && paramNames.Len() > 0 {
+				let drawnTape = StreamTape(r)
+				out.ShrunkTape = drawnTape
+				let mut sit = NewShrinkIter(drawnTape, ShrinkBudget)
+				for {
+					let (cand, more) = NextShrinkCandidate(&sit)
+					if !more {
+						break
+					}
+					StreamReplay(&r, cand)
+					let (cvals, okC) = drawLawCaseArgs(prog, plan, refTab, &r, paramTypes)
+					StreamEndReplay(&r)
+					if !okC {
+						ReportShrinkOutcome(&sit, ShrinkStop)
+						break
+					}
+					let (cvm, cpass, cesc, cbf, _, _, _) = runSingleLawCase(prog, fm, fnIdx, cfg.Budget, cvals, isLaw, false)
+					totalSteps = totalSteps + cvm.StepsUsed
+					if cvm.Ctl == CtlSkip || cvm.Ctl == CtlIncomplete {
+						ReportShrinkOutcome(&sit, ShrinkStop)
+						break
+					}
+					let cst = if isLaw && cbf { StatusRefuted } else { caseStatusFromVM(cvm.Ctl) }
+					if !cpass && cst == StatusRefuted && cesc == escaped && cbf == bodyFalse {
+						ReportShrinkOutcome(&sit, ShrinkHit)
+					} else {
+						ReportShrinkOutcome(&sit, ShrinkMiss)
+					}
+				}
+				if !sit.Stopped && !slices.Equal(sit.Best, drawnTape) {
+					StreamReplay(&r, sit.Best)
+					let (svals, okS) = drawLawCaseArgs(prog, plan, refTab, &r, paramTypes)
+					StreamEndReplay(&r)
+					if okS {
+						let (svm, spass, sesc, sbf, sreason, smsg, ssite) = runSingleLawCase(prog, fm, fnIdx, cfg.Budget, svals, isLaw, false)
+						totalSteps = totalSteps + svm.StepsUsed
+						let sst = if isLaw && sbf { StatusRefuted } else { caseStatusFromVM(svm.Ctl) }
+						if !spass && sst == StatusRefuted && sesc == escaped && sbf == bodyFalse {
+							out.ShrunkTape = sit.Best
+							out.Reason = sreason
+							out.Message = smsg
+							out.Site = ssite
+							bestArgs = formatLawArguments(*prog, paramNames, paramTypes, svals)
+							if !lawArgsEqual(bestArgs, drawnArgs) {
+								out.Drawn = drawnArgs
+								out.HasDrawn = true
+							}
+						}
+					}
+				}
+			}
+			out.Arguments = bestArgs
+			out.Steps = totalSteps
+			let (line, _) = FormatVerdictLine(out, cfg.Source)
+			out.VerdictLine = line
+			return out
+		}
+		if vm.MapIterated && isLaw {
+			let (dvm, dpass, _, _, dreason, _, _) = runSingleLawCase(prog, fm, fnIdx, cfg.Budget, vals, isLaw, true)
+			totalSteps = totalSteps + dvm.StepsUsed
+			if !dpass && dreason != reason {
+				out.Status = StatusSkipped
+				out.Reason = "for loop iterated Map in unspecified order"
+				out.Evidence = ""
+				out.Steps = totalSteps
+				return out
+			}
+		}
+	}
+	if isExistential {
+		let msg = "no witness found across " + strconv.FormatUint(uint64(plan.Count), 10) + " cases"
+		out.Status = StatusRefuted
+		out.Reason = msg
+		out.Message = msg
+		out.Evidence = ""
+		out.CaseIdx = uint32(0)
+		out.Steps = totalSteps
+		let (line, _) = FormatVerdictLine(out, cfg.Source)
+		out.VerdictLine = line
+		return out
+	}
+	let (smMsg, smSite, smOk) = CheckSometimesMissed(smState, out.CasesRun)
+	if !smOk {
+		out.Status = StatusRefuted
+		out.Reason = smMsg
+		out.Message = smMsg
+		out.Site = smSite
+		out.Evidence = ""
+	}
+	out.CaseIdx = uint32(0)
+	out.Steps = totalSteps
+	let (line, _) = FormatVerdictLine(out, cfg.Source)
+	out.VerdictLine = line
+	out
+}
+
+test LawRunnerFormatsProvedAndShrunkVerdictsCleanly {
+	let mut prog = NewProgram()
+	let wt = NewWitnessTable()
+	let refTab = NewRefinementTable()
+	let bodyCodeStart = uint32(prog.Insns.Len())
+	prog.Insns = prog.Insns.Append(Insn{
+		Op:   OpLoadLocal,
+		Aux:  uint8(0),
+		A:    uint32(0),
+		B:    uint32(0),
+		C:    uint32(0),
+		File: uint32(0),
+		Node: uint32(0),
+	})
+	prog.Insns = prog.Insns.Append(Insn{
+		Op:   OpLoadLocal,
+		Aux:  uint8(0),
+		A:    uint32(0),
+		B:    uint32(0),
+		C:    uint32(0),
+		File: uint32(0),
+		Node: uint32(0),
+	})
+	prog.Insns = prog.Insns.Append(Insn{
+		Op:   OpBinary,
+		Aux:  syntax.Eql,
+		A:    TypeBool,
+		B:    uint32(0),
+		C:    uint32(0),
+		File: uint32(0),
+		Node: uint32(0),
+	})
+	prog.Insns = prog.Insns.Append(Insn{
+		Op:   OpReturnVal,
+		Aux:  uint8(0),
+		A:    uint32(0),
+		B:    uint32(0),
+		C:    uint32(0),
+		File: uint32(0),
+		Node: uint32(0),
+	})
+	let pStart = uint32(prog.ParamTypes.Len())
+	prog.ParamTypes = prog.ParamTypes.Append(TypeBool)
+	prog.ParamMut = prog.ParamMut.Append(false)
+	prog.ParamNames = prog.ParamNames.Append("b")
+	let fnIdx = uint32(prog.Fns.Len())
+	prog.Fns = prog.Fns.Append(FnMeta{
+		Name:       "BoolReflexive",
+		Pkg:        uint32(0),
+		Kind:       FnKindLaw,
+		TypeIdx:    TypeVoid,
+		ParamCount: uint32(1),
+		ParamStart: pStart,
+		CapCount:   uint32(0),
+		SlotCount:  uint32(1),
+		CodeStart:  bodyCodeStart,
+		CodeLen:    uint32(4),
+		FailsType:  TypeVoid,
+		ReturnType: TypeBool,
+		File:       uint32(0),
+		Node:       uint32(0),
+		Line:       uint32(1),
+		Col:        uint32(1),
+		FileName:   "bool.ergo",
+		IsNative:   false,
+		NativeID:   NatNone,
+		IsMethod:   false,
+		RecvName:   "",
+		IsEqLaw:    false,
+		GuardNode:  uint32(0),
+		HasGuard:   false,
+		HasParams:  true,
+	})
+	let cfg = DefaultLawRunConfig(DefaultBudget(), uint64(1))
+	let res = RunPropertyTarget(&prog, wt, refTab, fnIdx, cfg)
+	assert res.Status == StatusPassed
+	assert res.Evidence == "proved"
+	assert res.CasesRun == uint32(2)
+	assert res.VerdictLine == "ok law BoolReflexive (proved: all 2 cases)"
+}

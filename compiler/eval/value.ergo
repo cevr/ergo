@@ -56,6 +56,12 @@ let TagRef = uint8(12)
 // TagBuilder identifies a mutable strings.Builder handle in ValArena.Builders at index Aux.
 let TagBuilder = uint8(13)
 
+// TagNativeObj identifies a native runtime object handle (json.Cursor or fs.Mapped) in VM.NativeObjs.
+let TagNativeObj = uint8(14)
+
+// TagOperation identifies a capability operation handle backed by VM.OpCells.
+let TagOperation = uint8(15)
+
 // Val is a flat, pointer-free runtime value cell stored across registers, locals, and the VM stack.
 type Val {
 	Tag  uint8,
@@ -1039,6 +1045,10 @@ func DescribeVal(tp TypePool, arena ValArena, v Val) string {
 	}
 	if v.Tag == TagBuilder && int(v.Aux) < arena.Builders.Len() {
 		return "Builder(" + strconv.Quote(arena.Builders[int(v.Aux)]) + ")"
+	}
+	if v.Tag == TagNativeObj || v.Tag == TagOperation {
+		let tname = if int(v.Type) < tp.Name.Len() && tp.Name[int(v.Type)] != "" { tp.Name[int(v.Type)] } else { "<native>" }
+		return tname
 	}
 	"<func>"
 }

@@ -1,0 +1,1983 @@
+import bits
+import filepath
+import go math
+import slices
+import go strconv
+import strings
+import go crypto/sha256
+import go hash/crc32
+import go unicode
+
+// NatMathToInt8 converts float64 to checked int8 or OutOfRange.
+let NatMathToInt8 = uint32(240)
+// NatMathToInt16 converts float64 to checked int16 or OutOfRange.
+let NatMathToInt16 = uint32(241)
+// NatMathToInt32 converts float64 to checked int32 or OutOfRange.
+let NatMathToInt32 = uint32(242)
+// NatMathToInt64 converts float64 to checked int64 or OutOfRange.
+let NatMathToInt64 = uint32(243)
+// NatMathToUint converts float64 to checked uint or OutOfRange.
+let NatMathToUint = uint32(244)
+// NatMathToUint8 converts float64 to checked uint8 or OutOfRange.
+let NatMathToUint8 = uint32(245)
+// NatMathToUint16 converts float64 to checked uint16 or OutOfRange.
+let NatMathToUint16 = uint32(246)
+// NatMathToUint32 converts float64 to checked uint32 or OutOfRange.
+let NatMathToUint32 = uint32(247)
+// NatMathToUint64 converts float64 to checked uint64 or OutOfRange.
+let NatMathToUint64 = uint32(248)
+// NatMathToUintptr converts float64 to checked uintptr or OutOfRange.
+let NatMathToUintptr = uint32(249)
+// NatMathFloat64bits reinterprets float64 bits as uint64.
+let NatMathFloat64bits = uint32(250)
+// NatMathFloat64frombits reinterprets uint64 bits as float64.
+let NatMathFloat64frombits = uint32(251)
+// NatMathFloat32bits reinterprets float32 bits as uint32.
+let NatMathFloat32bits = uint32(252)
+// NatMathFloat32frombits reinterprets uint32 bits as float32.
+let NatMathFloat32frombits = uint32(253)
+
+// NatStrCompare implements strings.Compare.
+let NatStrCompare = uint32(255)
+// NatStrStringsBytes converts string to []byte slice.
+let NatStrStringsBytes = uint32(256)
+// NatStrHint returns an evaluator buffer hint (0).
+let NatStrHint = uint32(257)
+// NatStrBorrow returns an empty borrowed byte buffer.
+let NatStrBorrow = uint32(258)
+// NatStrGive returns the borrowed byte buffer unchanged.
+let NatStrGive = uint32(259)
+// NatStrBuilderText converts a byte slice buffer to string.
+let NatStrBuilderText = uint32(260)
+// NatStrBuilderAppend appends a string onto a []byte buffer.
+let NatStrBuilderAppend = uint32(261)
+// NatStrBuilderAppendByte appends a byte onto a []byte buffer.
+let NatStrBuilderAppendByte = uint32(262)
+// NatStrBuilderAppendBytes appends a []byte onto a []byte buffer.
+let NatStrBuilderAppendBytes = uint32(263)
+// NatStrBuilderAppendFrom appends a slice range from self onto a []byte buffer.
+let NatStrBuilderAppendFrom = uint32(264)
+// NatStrBuilderGrow checks negative capacity grow on a []byte buffer.
+let NatStrBuilderGrow = uint32(265)
+// NatStrconvQuoteRune quotes a rune as an Ergo/Go rune literal.
+let NatStrconvQuoteRune = uint32(266)
+// NatSlicesWithCapacity allocates an empty slice after validating non-negative capacity.
+let NatSlicesWithCapacity = uint32(267)
+// NatArenaGrow appends an element into an arena slice.
+let NatArenaGrow = uint32(268)
+// NatFsClone clones a string value.
+let NatFsClone = uint32(269)
+// NatFsMapText creates an in-memory fs.Mapped object.
+let NatFsMapText = uint32(270)
+
+// NatSha1Sum hashes a string with SHA-1.
+let NatSha1Sum = uint32(271)
+// NatSha512Sum hashes a string with SHA-512.
+let NatSha512Sum = uint32(272)
+// NatSha256Sum256 hashes a []byte slice with SHA-256 returning [32]byte.
+let NatSha256Sum256 = uint32(273)
+// NatHmacSum1 computes HMAC-SHA1.
+let NatHmacSum1 = uint32(274)
+// NatHmacSum256 computes HMAC-SHA256.
+let NatHmacSum256 = uint32(275)
+// NatHmacSum512 computes HMAC-SHA512.
+let NatHmacSum512 = uint32(276)
+// NatHmacEqual performs constant-time HMAC tag equality.
+let NatHmacEqual = uint32(277)
+// NatHmacKeyState prepares inner/outer HMAC pads.
+let NatHmacKeyState = uint32(278)
+// NatHmacKeyedSum resumes keyed HMAC pads for a message.
+let NatHmacKeyedSum = uint32(279)
+// NatTotpKeyState prepares SHA-1 inner/outer HMAC pads for TOTP.
+let NatTotpKeyState = uint32(280)
+// NatTotpHotpNumber computes an RFC 4226 truncated HOTP integer.
+let NatTotpHotpNumber = uint32(281)
+// NatBase64DecodeStd decodes padded standard base64 or fails Malformed.
+let NatBase64DecodeStd = uint32(282)
+// NatBase64DecodeURL decodes padded URL base64 or fails Malformed.
+let NatBase64DecodeURL = uint32(283)
+// NatBase64EncodeToString encodes []byte using one of encoding/base64's standard encodings.
+let NatBase64EncodeToString = uint32(284)
+// NatCrc32Update updates an IEEE CRC-32 checksum.
+let NatCrc32Update = uint32(285)
+// NatCrc32ChecksumIEEE computes IEEE CRC-32 over []byte.
+let NatCrc32ChecksumIEEE = uint32(286)
+
+// NatFilepathJoin joins path segments.
+let NatFilepathJoin = uint32(287)
+// NatFilepathRel computes a relative path or fails NotRelative.
+let NatFilepathRel = uint32(288)
+// NatFilepathSplit splits a path into directory and file.
+let NatFilepathSplit = uint32(289)
+// NatFilepathBase returns the last element of path.
+let NatFilepathBase = uint32(290)
+// NatFilepathDir returns the directory prefix of path.
+let NatFilepathDir = uint32(291)
+// NatFilepathExt returns the extension of path.
+let NatFilepathExt = uint32(292)
+// NatFilepathClean cleans a path lexically.
+let NatFilepathClean = uint32(293)
+// NatFilepathIsAbs reports whether a path is absolute.
+let NatFilepathIsAbs = uint32(294)
+// NatHttpEncodeQuery URL-encodes form query parameters.
+let NatHttpEncodeQuery = uint32(295)
+
+// NatTimeDurationText formats duration nanoseconds.
+let NatTimeDurationText = uint32(296)
+// NatTimeParseDuration parses a Go/Ergo duration string.
+let NatTimeParseDuration = uint32(297)
+// NatTimeDurationISO formats a duration in ISO 8601 form.
+let NatTimeDurationISO = uint32(298)
+// NatTimeParseDurationISO parses an ISO 8601 duration string.
+let NatTimeParseDurationISO = uint32(299)
+// NatTimeTruncate truncates a UTC reading to a multiple of d.
+let NatTimeTruncate = uint32(300)
+// NatTimeRound rounds a UTC reading to the nearest multiple of d.
+let NatTimeRound = uint32(301)
+// NatTimeAppendUTC appends UTC-formatted timestamp bytes onto a []byte buffer.
+let NatTimeAppendUTC = uint32(302)
+// NatTimeFormat formats UTC (sec, nsec) using a Go time layout with ISO expanded years.
+let NatTimeFormat = uint32(303)
+// NatTimeParse parses a UTC timestamp using a Go time layout with ISO expanded years.
+let NatTimeParse = uint32(304)
+// NatCivilBuffer allocates an empty byte buffer for civil formatting.
+let NatCivilBuffer = uint32(305)
+// NatCivilBytesText converts a civil buffer to string.
+let NatCivilBytesText = uint32(306)
+
+// NatJsonAppendQuoted appends a JSON-quoted string onto a []byte buffer.
+let NatJsonAppendQuoted = uint32(307)
+// NatJsonAppendQuotedBytes appends a JSON-quoted byte slice onto a []byte buffer.
+let NatJsonAppendQuotedBytes = uint32(308)
+// NatJsonAppendInt appends base-10 signed integer digits onto a []byte buffer.
+let NatJsonAppendInt = uint32(309)
+// NatJsonAppendUint appends base-10 unsigned integer digits onto a []byte buffer.
+let NatJsonAppendUint = uint32(310)
+// NatJsonAppendBool appends "true" or "false" onto a []byte buffer.
+let NatJsonAppendBool = uint32(311)
+// NatJsonAppendFloat appends JSON float text onto a []byte buffer.
+let NatJsonAppendFloat = uint32(312)
+// NatJsonBytesText converts a JSON byte buffer to string.
+let NatJsonBytesText = uint32(313)
+// NatJsonIsNumber validates a standalone RFC 8259 JSON number.
+let NatJsonIsNumber = uint32(314)
+// NatJsonOpen parses JSON text into a json.Cursor native object.
+let NatJsonOpen = uint32(315)
+// NatJsonOpenChecked parses JSON text with checked limits into a json.Cursor.
+let NatJsonOpenChecked = uint32(316)
+// NatJsonSettleText completes text cursor decoding cleanly.
+let NatJsonSettleText = uint32(317)
+// NatTomlParse parses TOML 1.0 text into canonical JSON or fails Malformed.
+let NatTomlParse = uint32(318)
+// NatCsvReadAll parses RFC 4180 CSV text into [][]string or fails ParseError.
+let NatCsvReadAll = uint32(319)
+// NatCsvFormat formats [][]string rows into RFC 4180 CSV text.
+let NatCsvFormat = uint32(320)
+// NatCbCsvScan scans CSV rows incrementally calling callback for each row.
+let NatCbCsvScan = uint32(321)
+
+// NatBuildInFold reports whether evaluation is running inside a compile-time fold.
+let NatBuildInFold = uint32(322)
+// NatBuildKnown reports whether evaluation is inside a fold and the value holds no hole.
+let NatBuildKnown = uint32(323)
+// NatBuildHole reports whether evaluation is inside a fold and the value is a template hole.
+let NatBuildHole = uint32(324)
+// NatUnicodeIsLetter wraps unicode.IsLetter.
+let NatUnicodeIsLetter = uint32(325)
+// NatUnicodeIsDigit wraps unicode.IsDigit.
+let NatUnicodeIsDigit = uint32(326)
+// NatUnicodeIsSpace wraps unicode.IsSpace.
+let NatUnicodeIsSpace = uint32(327)
+// NatUnicodeIsUpper wraps unicode.IsUpper.
+let NatUnicodeIsUpper = uint32(328)
+
+// GoReadOnlyVarVal creates a tagged string marker representing a supported Go stdlib read-only variable.
+func GoReadOnlyVarVal(arena mut ValArena, fullName string) Val {
+	AllocStrVal(arena, TypeString, "__govar__:"+fullName)
+}
+
+func makeStdRecordVal(prog mut Program, typeName string, fieldNames []string, fieldVals []Val) Val {
+	let mut resolvedTid = TypeVoid
+	let tnLen = prog.Types.Name.Len()
+	for i in 0..tnLen {
+		let n = prog.Types.Name[i]
+		if (n == typeName || strings.HasSuffix(n, "."+typeName)) && i < prog.Types.Count.Len() {
+			let fStart = int(prog.Types.Aux[i])
+			let fCnt = int(prog.Types.Count[i])
+			if fCnt == fieldNames.Len() {
+				let mut allHit = true
+				for fn in fieldNames {
+					let mut found = false
+					for k in 0..fCnt {
+						if fStart+k < prog.Types.FieldName.Len() && prog.Types.FieldName[fStart+k] == fn {
+							found = true
+							break
+						}
+					}
+					if !found {
+						allHit = false
+						break
+					}
+				}
+				if allHit {
+					resolvedTid = uint32(i)
+					break
+				}
+			}
+		}
+	}
+	if resolvedTid == TypeVoid {
+		let tid = LookupTypeByKey(prog.Types, LookupDeclKey(uint32(0), typeName, []uint32{}))
+		resolvedTid = tid
+	}
+	if resolvedTid == TypeVoid {
+		for i, n in prog.Types.Name {
+			if n == typeName || strings.HasSuffix(n, "."+typeName) {
+				resolvedTid = uint32(i)
+				break
+			}
+		}
+	}
+	if resolvedTid == TypeVoid || int(resolvedTid) >= prog.Types.Kind.Len() {
+		let tid = AllocNamedType(&prog.Types, KindRecord, uint32(0), typeName, uint32(0))
+		if fieldNames.Len() > 0 {
+			let mut ftypes = slices.WithCapacity[uint32](fieldVals.Len())
+			for fv in fieldVals {
+				ftypes = ftypes.Append(if fv.Type != TypeVoid { fv.Type } else { TypeString })
+			}
+			SetRecordFields(&prog.Types, tid, fieldNames, ftypes)
+			prog.Types.DeclToType[LookupDeclKey(uint32(0), typeName, []uint32{})] = tid
+		}
+		return MakeRecordVal(&prog.Arena, tid, fieldVals)
+	}
+	let fStart = int(prog.Types.Aux[int(resolvedTid)])
+	let fCnt = int(prog.Types.Count[int(resolvedTid)])
+	if fCnt == 0 {
+		if fieldNames.Len() > 0 && prog.Types.Kind[int(resolvedTid)] == KindRecord {
+			let mut ftypes = slices.WithCapacity[uint32](fieldVals.Len())
+			for fv in fieldVals {
+				ftypes = ftypes.Append(if fv.Type != TypeVoid { fv.Type } else { TypeString })
+			}
+			SetRecordFields(&prog.Types, resolvedTid, fieldNames, ftypes)
+		}
+		return MakeRecordVal(&prog.Arena, resolvedTid, fieldVals)
+	}
+	let mut ordered = slices.WithCapacity[Val](fCnt)
+	for i in 0..fCnt {
+		let fname = prog.Types.FieldName[fStart+i]
+		let mut picked = ZeroVal(prog.Types, &prog.Arena, prog.Types.FieldType[fStart+i])
+		for j in 0..fieldNames.Len() {
+			if fieldNames[j] == fname {
+				picked = fieldVals[j]
+				break
+			}
+		}
+		ordered = ordered.Append(picked)
+	}
+	MakeRecordVal(&prog.Arena, resolvedTid, ordered)
+}
+
+func readBytesFromSlice(arena ValArena, v Val) ([]byte, string, bool) {
+	if v.Tag != TagSlice && v.Tag != TagArray {
+		return ([]byte{}, "", false)
+	}
+	let n = int(ReadSliceLen(arena, v))
+	let mut bs = slices.WithCapacity[byte](n)
+	for i in 0..n {
+		let ev = ReadSliceElem(arena, v, uint32(i))
+		bs = bs.Append(byte(ev.Data))
+	}
+	(bs, strings.FromBytes(bs), true)
+}
+
+func makeBytesSlice(prog mut Program, bs []byte) Val {
+	let mut elems = slices.WithCapacity[Val](bs.Len())
+	for b in bs {
+		elems = elems.Append(MakeIntVal(prog.Types, TypeUint8, uint64(b)))
+	}
+	MakeSliceVal(&prog.Arena, TypeBytes, elems, uint32(elems.Len()))
+}
+
+func appendTextToBytesSlice(prog mut Program, buf Val, text string) Val {
+	let mut cur = buf
+	for i in 0..text.Len() {
+		cur = AppendSliceValCOW(&prog.Arena, cur, MakeIntVal(prog.Types, TypeUint8, uint64(text[i])))
+	}
+	cur
+}
+
+// DurationText formats duration nanoseconds identically to Go's time.Duration.String.
+func DurationText(d int64) string {
+	let minI64 = int64(-9223372036854775807) - int64(1)
+	if d == int64(0) {
+		return "0s"
+	}
+	let neg = d < int64(0)
+	let u = if d == minI64 {
+		uint64(1) << 63
+	} else if neg {
+		uint64(0) - uint64(d)
+	} else {
+		uint64(d)
+	}
+	let prefix = if neg { "-" } else { "" }
+	if u < uint64(1000000000) {
+		if u < uint64(1000) {
+			return prefix + strconv.FormatUint(u, 10) + "ns"
+		}
+		let (unit, suffix) = if u < uint64(1000000) {
+			(uint64(1000), "us")
+		} else {
+			(uint64(1000000), "ms")
+		}
+		let whole = u / unit
+		let rem = u % unit
+		if rem == uint64(0) {
+			return prefix + strconv.FormatUint(whole, 10) + suffix
+		}
+		let frac = strings.TrimRight(strconv.FormatUint(rem+unit, 10)[1:], "0")
+		return prefix + strconv.FormatUint(whole, 10) + "." + frac + suffix
+	}
+	let sec = u / uint64(1000000000)
+	let ns = u % uint64(1000000000)
+	let mins = sec / uint64(60)
+	let s = sec % uint64(60)
+	let h = mins / uint64(60)
+	let m = mins % uint64(60)
+	let mut out = prefix
+	if h > uint64(0) {
+		out = out + strconv.FormatUint(h, 10) + "h"
+		out = out + strconv.FormatUint(m, 10) + "m"
+	} else if m > uint64(0) {
+		out = out + strconv.FormatUint(m, 10) + "m"
+	}
+	out = out + strconv.FormatUint(s, 10)
+	if ns > uint64(0) {
+		let frac = strings.TrimRight(strconv.FormatUint(ns+uint64(1000000000), 10)[1:], "0")
+		out = out + "." + frac
+	}
+	out + "s"
+}
+
+// ParseDurationText parses a Go duration string such as "1h30m" or "-250ms".
+func ParseDurationText(orig string) (int64, string) {
+	if orig == "" || orig == "+" || orig == "-" {
+		return (int64(0), "time: invalid duration \"" + orig + "\"")
+	}
+	let mut i = 0
+	let mut neg = false
+	if orig[0] == byte('-') || orig[0] == byte('+') {
+		neg = orig[0] == byte('-')
+		i = 1
+	}
+	if orig[i:] == "0" {
+		return (int64(0), "")
+	}
+	if i == orig.Len() {
+		return (int64(0), "time: invalid duration \"" + orig + "\"")
+	}
+	let limit = if neg { uint64(1) << 63 } else { uint64(0x7fffffffffffffff) }
+	let mut total = uint64(0)
+	for i < orig.Len() {
+		let mut v = uint64(0)
+		let mut f = uint64(0)
+		let mut scale = float64(1)
+		let mut overflow = false
+		let hasLead = i < orig.Len() && orig[i] >= byte('0') && orig[i] <= byte('9')
+		let mut hasFrac = false
+		for i < orig.Len() && orig[i] >= byte('0') && orig[i] <= byte('9') {
+			if v > limit/uint64(10) {
+				overflow = true
+			}
+			v = v*uint64(10) + uint64(orig[i]-byte('0'))
+			i = i + 1
+		}
+		if i < orig.Len() && orig[i] == byte('.') {
+			i = i + 1
+			for i < orig.Len() && orig[i] >= byte('0') && orig[i] <= byte('9') {
+				hasFrac = true
+				if !overflow {
+					let nextF = f*uint64(10) + uint64(orig[i]-byte('0'))
+					if nextF < f {
+						overflow = true
+					} else {
+						f = nextF
+						scale = scale * 10.0
+					}
+				}
+				i = i + 1
+			}
+		}
+		if !hasLead && !hasFrac {
+			return (int64(0), "time: invalid duration \"" + orig + "\"")
+		}
+		if overflow {
+			return (int64(0), "time: invalid duration \"" + orig + "\"")
+		}
+		let uStart = i
+		for i < orig.Len() {
+			let c = orig[i]
+			if c == byte('.') || (c >= byte('0') && c <= byte('9')) {
+				break
+			}
+			i = i + 1
+		}
+		let uStr = orig[uStart:i]
+		let mut unit = uint64(0)
+		if uStr == "ns" {
+			unit = uint64(1)
+		} else if uStr == "us" || uStr == "\u00b5s" || uStr == "\u03bcs" {
+			unit = uint64(1000)
+		} else if uStr == "ms" {
+			unit = uint64(1000000)
+		} else if uStr == "s" {
+			unit = uint64(1000000000)
+		} else if uStr == "m" {
+			unit = uint64(60000000000)
+		} else if uStr == "h" {
+			unit = uint64(3600000000000)
+		} else {
+			return (int64(0), "time: unknown unit \"" + uStr + "\" in duration \"" + orig + "\"")
+		}
+		let (hi, part) = bits.Mul64(v, unit)
+		if hi != uint64(0) || part > limit {
+			return (int64(0), "time: invalid duration \"" + orig + "\"")
+		}
+		let mut addVal = part
+		if f > uint64(0) {
+			let fracAdd = uint64(float64(f) * (float64(unit) / scale))
+			if fracAdd > limit-addVal {
+				return (int64(0), "time: invalid duration \"" + orig + "\"")
+			}
+			addVal = addVal + fracAdd
+		}
+		if addVal > limit-total {
+			return (int64(0), "time: invalid duration \"" + orig + "\"")
+		}
+		total = total + addVal
+	}
+	if neg {
+		return (int64(uint64(0) - total), "")
+	}
+	(int64(total), "")
+}
+
+// DurationISO formats duration d in ISO 8601 PT... form matching durationISO in nativespure.go.
+func DurationISO(d int64) string {
+	let minI64 = int64(-9223372036854775807) - int64(1)
+	if d == int64(0) {
+		return "PT0S"
+	}
+	let neg = d < int64(0)
+	let n = if d == minI64 {
+		uint64(1) << 63
+	} else if neg {
+		uint64(0) - uint64(d)
+	} else {
+		uint64(d)
+	}
+	let mut out = if neg { "-PT" } else { "PT" }
+	let sec = uint64(1000000000)
+	let h = n / (uint64(3600) * sec)
+	let rem1 = n % (uint64(3600) * sec)
+	let m = rem1 / (uint64(60) * sec)
+	let rem2 = rem1 % (uint64(60) * sec)
+	let s = rem2 / sec
+	let ns = rem2 % sec
+	if h > uint64(0) {
+		out = out + strconv.FormatUint(h, 10) + "H"
+	}
+	if m > uint64(0) {
+		out = out + strconv.FormatUint(m, 10) + "M"
+	}
+	if s > uint64(0) || ns > uint64(0) {
+		out = out + strconv.FormatUint(s, 10)
+		if ns > uint64(0) {
+			let frac = strings.TrimRight(strconv.FormatUint(ns+sec, 10)[1:], "0")
+			out = out + "." + frac
+		}
+		out = out + "S"
+	}
+	out
+}
+
+// ParseDurationISO parses an ISO 8601 PT... duration matching parseDurationISO in nativespure.go.
+func ParseDurationISO(s string) (int64, string) {
+	let mut i = 0
+	let mut neg = false
+	if i < s.Len() && (s[i] == byte('+') || s[i] == byte('-')) {
+		neg = s[i] == byte('-')
+		i = i + 1
+	}
+	if !strings.HasPrefix(s[i:], "P") {
+		return (int64(0), "want P")
+	}
+	if !strings.HasPrefix(s[(i+1):], "T") {
+		return (int64(0), "want T: a duration of years, months, weeks or days has no fixed length; civil.ParsePeriod reads it")
+	}
+	i = i + 2
+	if i == s.Len() {
+		return (int64(0), "want a number after PT")
+	}
+	let limit = if neg { uint64(1) << 63 } else { uint64(0x7fffffffffffffff) }
+	let mut total = uint64(0)
+	let mut nextAllowed = "HMS"
+	for i < s.Len() {
+		let mut v = uint64(0)
+		let mut k = 0
+		let mut over = false
+		for i < s.Len() && s[i] >= byte('0') && s[i] <= byte('9') {
+			if v > limit/uint64(10) {
+				over = true
+				break
+			}
+			v = v*uint64(10) + uint64(s[i]-byte('0'))
+			i = i + 1
+			k = k + 1
+		}
+		if over {
+			return (int64(0), "out of range")
+		}
+		if k == 0 {
+			return (int64(0), "want a digit")
+		}
+		let mut frac = uint64(0)
+		let fraction = i < s.Len() && (s[i] == byte('.') || s[i] == byte(','))
+		if fraction {
+			i = i + 1
+			let start = i
+			for i < s.Len() && s[i] >= byte('0') && s[i] <= byte('9') {
+				if i-start == 9 {
+					return (int64(0), "a fraction has at most nine digits")
+				}
+				frac = frac*uint64(10) + uint64(s[i]-byte('0'))
+				i = i + 1
+			}
+			if i == start {
+				return (int64(0), "want a digit after the point")
+			}
+			let mut remD = i - start
+			for remD < 9 {
+				frac = frac * uint64(10)
+				remD = remD + 1
+			}
+		}
+		if i == s.Len() {
+			return (int64(0), "want H, M or S")
+		}
+		let at = strings.Index(nextAllowed, s[i:(i+1)])
+		if at < 0 {
+			return (int64(0), "want H, M or S, in that order, each once")
+		}
+		nextAllowed = nextAllowed[(at + 1):]
+		if fraction && s[i] != byte('S') {
+			return (int64(0), "only seconds take a fraction")
+		}
+		let unit = if s[i] == byte('H') {
+			uint64(3600000000000)
+		} else if s[i] == byte('M') {
+			uint64(60000000000)
+		} else {
+			uint64(1000000000)
+		}
+		let (hi, part) = bits.Mul64(v, unit)
+		if hi != uint64(0) || part > limit-total {
+			return (int64(0), "out of range")
+		}
+		total = total + part
+		if frac > limit-total {
+			return (int64(0), "out of range")
+		}
+		total = total + frac
+		i = i + 1
+	}
+	if neg {
+		return (int64(uint64(0) - total), "")
+	}
+	(int64(total), "")
+}
+
+func normSecNsec(secIn int64, nsecIn int64) (int64, int64) {
+	let mut sec = secIn + nsecIn/int64(1000000000)
+	let mut nsec = nsecIn % int64(1000000000)
+	if nsec < int64(0) {
+		sec = sec - int64(1)
+		nsec = nsec + int64(1000000000)
+	}
+	(sec, nsec)
+}
+
+func divModDurationUTC(sec int64, nsec int64, d int64) (int64, int64, int64, int64) {
+	if d <= int64(0) {
+		return (sec, nsec, int64(0), int64(0))
+	}
+	let dSec = d / int64(1000000000)
+	let dNsec = d % int64(1000000000)
+	if dNsec == int64(0) {
+		let remS = if sec >= int64(0) { sec % dSec } else { ((sec % dSec) + dSec) % dSec }
+		return (remS, nsec, dSec, int64(0))
+	}
+	if sec < int64(-9000000000) || sec > int64(9000000000) {
+		return (int64(0), int64(0), dSec, dNsec)
+	}
+	let totalNs = sec*int64(1000000000) + nsec
+	let mut r = totalNs % d
+	if r < int64(0) {
+		r = r + d
+	}
+	let (rs, rns) = normSecNsec(r/int64(1000000000), r%int64(1000000000))
+	(rs, rns, dSec, dNsec)
+}
+
+func timeTruncateUTC(secIn int64, nsecIn int64, d int64) (int64, int64) {
+	let (sec, nsec) = normSecNsec(secIn, nsecIn)
+	if d <= int64(0) {
+		return (sec, nsec)
+	}
+	let (rs, rns, _, _) = divModDurationUTC(sec, nsec, d)
+	normSecNsec(sec-rs, nsec-rns)
+}
+
+func timeRoundUTC(secIn int64, nsecIn int64, d int64) (int64, int64) {
+	let (sec, nsec) = normSecNsec(secIn, nsecIn)
+	if d <= int64(0) {
+		return (sec, nsec)
+	}
+	let (rs, rns, _, _) = divModDurationUTC(sec, nsec, d)
+	let rTotal = rs*int64(1000000000) + rns
+	if rTotal+rTotal >= d {
+		let rem = d - rTotal
+		return normSecNsec(sec+rem/int64(1000000000), nsec+rem%int64(1000000000))
+	}
+	normSecNsec(sec-rs, nsec-rns)
+}
+
+func civilFromEpochDays(zIn int64) (int64, int, int) {
+	let z = zIn + int64(719468)
+	let era = if z >= int64(0) { z / int64(146097) } else { (z - int64(146096)) / int64(146097) }
+	let doe = z - era*int64(146097)
+	let yoe = (doe - doe/int64(1460) + doe/int64(36524) - doe/int64(146096)) / int64(365)
+	let y = yoe + era*int64(400)
+	let doy = doe - (int64(365)*yoe + yoe/int64(4) - yoe/int64(100))
+	let mp = (int64(5)*doy + int64(2)) / int64(153)
+	let d = doy - (int64(153)*mp+int64(2))/int64(5) + int64(1)
+	let m = mp + (if mp < int64(10) { int64(3) } else { int64(-9) })
+	let yr = y + (if m <= int64(2) { int64(1) } else { int64(0) })
+	(yr, int(m), int(d))
+}
+
+func epochDaysFromCivil(yIn int64, m int, d int) int64 {
+	let y = yIn - (if m <= 2 { int64(1) } else { int64(0) })
+	let era = if y >= int64(0) { y / int64(400) } else { (y - int64(399)) / int64(400) }
+	let yoe = y - era*int64(400)
+	let mp = m + (if m > 2 { -3 } else { 9 })
+	let doy = (int64(153)*int64(mp)+int64(2))/int64(5) + int64(d) - int64(1)
+	let doe = yoe*int64(365) + yoe/int64(4) - yoe/int64(100) + doy
+	era*int64(146097) + doe - int64(719468)
+}
+
+func padDigits(val uint64, width int) string {
+	let mut s = strconv.FormatUint(val, 10)
+	for s.Len() < width {
+		s = "0" + s
+	}
+	s
+}
+
+func expandedYearText(y int64) string {
+	let neg = y < int64(0)
+	let u = if neg { uint64(0) - uint64(y) } else { uint64(y) }
+	let sign = if neg { "-" } else { "+" }
+	sign + padDigits(u, 6)
+}
+
+func formatTimeUTC(secIn int64, nsecIn int64, layout string) string {
+	let (sec, nsec) = normSecNsec(secIn, nsecIn)
+	let mut days = sec / int64(86400)
+	let mut rem = sec % int64(86400)
+	if rem < int64(0) {
+		days = days - int64(1)
+		rem = rem + int64(86400)
+	}
+	let (yr, mo, dy) = civilFromEpochDays(days)
+	let hr = int(rem / int64(3600))
+	let mn = int((rem % int64(3600)) / int64(60))
+	let sc = int(rem % int64(60))
+	let yearStr = if yr >= int64(0) && yr <= int64(9999) {
+		padDigits(uint64(yr), 4)
+	} else {
+		expandedYearText(yr)
+	}
+	let mut out = ""
+	let mut i = 0
+	for i < layout.Len() {
+		if strings.HasPrefix(layout[i:], "2006") {
+			out = out + yearStr
+			i = i + 4
+		} else if strings.HasPrefix(layout[i:], "01") {
+			out = out + padDigits(uint64(mo), 2)
+			i = i + 2
+		} else if strings.HasPrefix(layout[i:], "02") {
+			out = out + padDigits(uint64(dy), 2)
+			i = i + 2
+		} else if strings.HasPrefix(layout[i:], "15") {
+			out = out + padDigits(uint64(hr), 2)
+			i = i + 2
+		} else if strings.HasPrefix(layout[i:], "04") {
+			out = out + padDigits(uint64(mn), 2)
+			i = i + 2
+		} else if strings.HasPrefix(layout[i:], "05") {
+			out = out + padDigits(uint64(sc), 2)
+			i = i + 2
+		} else if strings.HasPrefix(layout[i:], "Z07:00") || strings.HasPrefix(layout[i:], "Z0700") || strings.HasPrefix(layout[i:], "-07:00") {
+			let step = if strings.HasPrefix(layout[i:], "Z0700") { 5 } else { 6 }
+			out = out + (if strings.HasPrefix(layout[i:], "Z") { "Z" } else { "+00:00" })
+			i = i + step
+		} else if strings.HasPrefix(layout[i:], ".999999999") {
+			if nsec > int64(0) {
+				let frac = strings.TrimRight(padDigits(uint64(nsec), 9), "0")
+				out = out + "." + frac
+			}
+			i = i + 10
+		} else if strings.HasPrefix(layout[i:], ".000000000") {
+			out = out + "." + padDigits(uint64(nsec), 9)
+			i = i + 10
+		} else if strings.HasPrefix(layout[i:], "MST") {
+			out = out + "UTC"
+			i = i + 3
+		} else {
+			out = out + layout[i:(i+1)]
+			i = i + 1
+		}
+	}
+	out
+}
+
+func parseTimeDigits(s string, pos mut int, n int) (int64, bool) {
+	if *pos+n > s.Len() {
+		return (int64(0), false)
+	}
+	let mut v = int64(0)
+	for k in 0..n {
+		let c = s[*pos+k]
+		if c < byte('0') || c > byte('9') {
+			return (int64(0), false)
+		}
+		v = v*int64(10) + int64(c-byte('0'))
+	}
+	*pos = *pos + n
+	(v, true)
+}
+
+func parseTimeUTC(layout string, value string) (int64, int64, string) {
+	let mut yr = int64(0)
+	let mut mo = 1
+	let mut dy = 1
+	let mut hr = 0
+	let mut mn = 0
+	let mut sc = 0
+	let mut ns = int64(0)
+	let mut tzSec = int64(0)
+	let mut li = 0
+	let mut vi = 0
+	for li < layout.Len() {
+		if strings.HasPrefix(layout[li:], "2006") {
+			if vi < value.Len() && (value[vi] == byte('+') || value[vi] == byte('-')) {
+				let start = vi
+				vi = vi + 1
+				for vi < value.Len() && value[vi] >= byte('0') && value[vi] <= byte('9') {
+					vi = vi + 1
+				}
+				let run = value[start:vi]
+				if run.Len() < 7 || (run.Len() > 7 && run[1] == byte('0')) || run.Len() > 13 {
+					return (int64(0), int64(0), "cannot parse expanded year")
+				}
+				let (py, st) = ParseSignedIntBase(run, 10, 64)
+				yr = py
+				if st != uint8(0) || (yr >= int64(0) && yr <= int64(9999)) {
+					return (int64(0), int64(0), "cannot parse expanded year")
+				}
+			} else {
+				let (v, ok) = parseTimeDigits(value, &vi, 4)
+				if !ok {
+					return (int64(0), int64(0), "cannot parse \"" + value[vi:] + "\" as \"2006\"")
+				}
+				yr = v
+			}
+			li = li + 4
+		} else if strings.HasPrefix(layout[li:], "01") {
+			let (v, ok) = parseTimeDigits(value, &vi, 2)
+			if !ok || v < int64(1) || v > int64(12) {
+				return (int64(0), int64(0), "month out of range")
+			}
+			mo = int(v)
+			li = li + 2
+		} else if strings.HasPrefix(layout[li:], "02") {
+			let (v, ok) = parseTimeDigits(value, &vi, 2)
+			if !ok || v < int64(1) || v > int64(31) {
+				return (int64(0), int64(0), "day out of range")
+			}
+			dy = int(v)
+			li = li + 2
+		} else if strings.HasPrefix(layout[li:], "15") {
+			let (v, ok) = parseTimeDigits(value, &vi, 2)
+			if !ok || v > int64(23) {
+				return (int64(0), int64(0), "hour out of range")
+			}
+			hr = int(v)
+			li = li + 2
+		} else if strings.HasPrefix(layout[li:], "04") {
+			let (v, ok) = parseTimeDigits(value, &vi, 2)
+			if !ok || v > int64(59) {
+				return (int64(0), int64(0), "minute out of range")
+			}
+			mn = int(v)
+			li = li + 2
+		} else if strings.HasPrefix(layout[li:], "05") {
+			let (v, ok) = parseTimeDigits(value, &vi, 2)
+			if !ok || v > int64(59) {
+				return (int64(0), int64(0), "second out of range")
+			}
+			sc = int(v)
+			li = li + 2
+		} else if strings.HasPrefix(layout[li:], ".999999999") || strings.HasPrefix(layout[li:], ".000000000") {
+			if vi < value.Len() && value[vi] == byte('.') {
+				vi = vi + 1
+				let mut frac = int64(0)
+				let mut digits = 0
+				for vi < value.Len() && value[vi] >= byte('0') && value[vi] <= byte('9') && digits < 9 {
+					frac = frac*int64(10) + int64(value[vi]-byte('0'))
+					digits = digits + 1
+					vi = vi + 1
+				}
+				for digits < 9 {
+					frac = frac * int64(10)
+					digits = digits + 1
+				}
+				ns = frac
+			}
+			li = li + 10
+		} else if strings.HasPrefix(layout[li:], "Z07:00") || strings.HasPrefix(layout[li:], "-07:00") {
+			if vi < value.Len() && (value[vi] == byte('Z') || value[vi] == byte('z')) {
+				vi = vi + 1
+			} else if vi+6 <= value.Len() && (value[vi] == byte('+') || value[vi] == byte('-')) && value[vi+3] == byte(':') {
+				let tzNeg = value[vi] == byte('-')
+				vi = vi + 1
+				let (th, okH) = parseTimeDigits(value, &vi, 2)
+				vi = vi + 1
+				let (tm, okM) = parseTimeDigits(value, &vi, 2)
+				if !okH || !okM || th > int64(23) || tm > int64(59) {
+					return (int64(0), int64(0), "invalid timezone offset")
+				}
+				let off = th*int64(3600) + tm*int64(60)
+				tzSec = if tzNeg { int64(0) - off } else { off }
+			} else {
+				return (int64(0), int64(0), "cannot parse timezone")
+			}
+			li = li + 6
+		} else {
+			if vi >= value.Len() || value[vi] != layout[li] {
+				return (int64(0), int64(0), "parsing time \"" + value + "\" as \"" + layout + "\"")
+			}
+			vi = vi + 1
+			li = li + 1
+		}
+	}
+	if vi != value.Len() {
+		return (int64(0), int64(0), "extra text: \"" + value[vi:] + "\"")
+	}
+	let days = epochDaysFromCivil(yr, mo, dy)
+	let sec = days*int64(86400) + int64(hr)*int64(3600) + int64(mn)*int64(60) + int64(sc) - tzSec
+	(sec, ns, "")
+}
+
+type csvRowPos {
+	Fields [][]string,
+	Lines  [][]int,
+	Cols   [][]int,
+}
+
+func csvParseAll(text string) (csvRowPos, int, int, string, string) {
+	let mut fields = [][]string{}
+	let mut lines = [][]int{}
+	let mut cols = [][]int{}
+	let mut pos = 0
+	let mut line = 1
+	let mut col = 1
+	let mut expectedCols = -1
+	let s = strings.ReplaceAll(text, "\r\n", "\n")
+	for pos < s.Len() {
+		let mut row = []string{}
+		let mut rLines = []int{}
+		let mut rCols = []int{}
+		for {
+			rLines = rLines.Append(line)
+			rCols = rCols.Append(col)
+			if pos < s.Len() && s[pos] == byte('"') {
+				pos = pos + 1
+				col = col + 1
+				let mut fieldBytes = []byte{}
+				let mut closed = false
+				for pos < s.Len() {
+					let c = s[pos]
+					if c == byte('"') {
+						if pos+1 < s.Len() && s[pos+1] == byte('"') {
+							fieldBytes = fieldBytes.Append(byte('"'))
+							pos = pos + 2
+							col = col + 2
+						} else {
+							pos = pos + 1
+							col = col + 1
+							closed = true
+							break
+						}
+					} else {
+						fieldBytes = fieldBytes.Append(c)
+						if c == byte('\n') {
+							line = line + 1
+							col = 1
+						} else {
+							col = col + 1
+						}
+						pos = pos + 1
+					}
+				}
+				if !closed {
+					let msg = "parse error on line " + strconv.Itoa(line) + ", column " + strconv.Itoa(col) + ": extraneous or missing \" in quoted-field"
+					return (csvRowPos{Fields: fields, Lines: lines, Cols: cols}, line, col, "extraneous or missing \" in quoted-field", msg)
+				}
+				if pos < s.Len() && s[pos] != byte(',') && s[pos] != byte('\n') {
+					let msg = "parse error on line " + strconv.Itoa(line) + ", column " + strconv.Itoa(col) + ": extraneous or missing \" in quoted-field"
+					return (csvRowPos{Fields: fields, Lines: lines, Cols: cols}, line, col, "extraneous or missing \" in quoted-field", msg)
+				}
+				row = row.Append(strings.FromBytes(fieldBytes))
+			} else {
+				let start = pos
+				for pos < s.Len() && s[pos] != byte(',') && s[pos] != byte('\n') {
+					if s[pos] == byte('"') {
+						let msg = "parse error on line " + strconv.Itoa(line) + ", column " + strconv.Itoa(col) + ": bare \" in non-quoted-field"
+						return (csvRowPos{Fields: fields, Lines: lines, Cols: cols}, line, col, "bare \" in non-quoted-field", msg)
+					}
+					pos = pos + 1
+					col = col + 1
+				}
+				row = row.Append(s[start:pos])
+			}
+			if pos < s.Len() && s[pos] == byte(',') {
+				pos = pos + 1
+				col = col + 1
+				continue
+			}
+			if pos < s.Len() && s[pos] == byte('\n') {
+				pos = pos + 1
+				line = line + 1
+				col = 1
+			}
+			break
+		}
+		if expectedCols < 0 {
+			expectedCols = row.Len()
+		} else if row.Len() != expectedCols {
+			let rline = rLines[0]
+			let msg = "record on line " + strconv.Itoa(rline) + ": wrong number of fields"
+			return (csvRowPos{Fields: fields, Lines: lines, Cols: cols}, rline, 0, "wrong number of fields", msg)
+		}
+		fields = fields.Append(row)
+		lines = lines.Append(rLines)
+		cols = cols.Append(rCols)
+	}
+	(csvRowPos{Fields: fields, Lines: lines, Cols: cols}, 0, 0, "", "")
+}
+
+func csvFormatField(s string) string {
+	if !strings.Contains(s, ",") && !strings.Contains(s, "\"") && !strings.Contains(s, "\n") && !strings.Contains(s, "\r") {
+		return s
+	}
+	"\"" + strings.ReplaceAll(s, "\"", "\"\"") + "\""
+}
+
+func csvFormatAll(rows [][]string) string {
+	let mut out = ""
+	for row in rows {
+		if row.Len() == 1 && row[0] == "" {
+			out = out + "\"\"\n"
+			continue
+		}
+		let mut parts = slices.WithCapacity[string](row.Len())
+		for f in row {
+			parts = parts.Append(csvFormatField(f))
+		}
+		out = out + strings.Join(parts, ",") + "\n"
+	}
+	out
+}
+
+func sha1SumBytes(msg []byte) []byte {
+	let mut padded = slices.WithCapacity[byte](msg.Len() + 72)
+	for b in msg {
+		padded = padded.Append(b)
+	}
+	padded = padded.Append(byte(0x80))
+	for padded.Len()%64 != 56 {
+		padded = padded.Append(byte(0))
+	}
+	let bitLen = uint64(msg.Len()) * uint64(8)
+	for sh in []int{56, 48, 40, 32, 24, 16, 8, 0} {
+		padded = padded.Append(byte(bitLen >> sh))
+	}
+	let mut h0 = uint32(0x67452301)
+	let mut h1 = uint32(0xefcdab89)
+	let mut h2 = uint32(0x98badcfe)
+	let mut h3 = uint32(0x10325476)
+	let mut h4 = uint32(0xc3d2e1f0)
+	let mut w = slices.WithCapacity[uint32](80)
+	for _ in 0..80 {
+		w = w.Append(uint32(0))
+	}
+	let mut off = 0
+	for off < padded.Len() {
+		for i in 0..16 {
+			let j = off + i*4
+			w[i] = (uint32(padded[j]) << 24) | (uint32(padded[j+1]) << 16) | (uint32(padded[j+2]) << 8) | uint32(padded[j+3])
+		}
+		for i in 16..80 {
+			w[i] = bits.RotateLeft32(w[i-3]^w[i-8]^w[i-14]^w[i-16], 1)
+		}
+		let mut a = h0
+		let mut b = h1
+		let mut c = h2
+		let mut d = h3
+		let mut e = h4
+		for i in 0..80 {
+			let (f, k) = if i < 20 {
+				((b & c) | ((b ^ uint32(0xffffffff)) & d), uint32(0x5a827999))
+			} else if i < 40 {
+				(b ^ c ^ d, uint32(0x6ed9eba1))
+			} else if i < 60 {
+				((b & c) | (b & d) | (c & d), uint32(0x8f1bbcdc))
+			} else {
+				(b ^ c ^ d, uint32(0xca62c1d6))
+			}
+			let temp = bits.RotateLeft32(a, 5) + f + e + k + w[i]
+			e = d
+			d = c
+			c = bits.RotateLeft32(b, 30)
+			b = a
+			a = temp
+		}
+		h0 = h0 + a
+		h1 = h1 + b
+		h2 = h2 + c
+		h3 = h3 + d
+		h4 = h4 + e
+		off = off + 64
+	}
+	let mut out = slices.WithCapacity[byte](20)
+	for hw in []uint32{h0, h1, h2, h3, h4} {
+		out = out.Append(byte(hw >> 24))
+		out = out.Append(byte(hw >> 16))
+		out = out.Append(byte(hw >> 8))
+		out = out.Append(byte(hw))
+	}
+	out
+}
+
+func rotr64(x uint64, n int) uint64 {
+	bits.RotateLeft64(x, 64-n)
+}
+
+func sha512SumBytes(msg []byte) []byte {
+	let ks = []uint64{
+		0x428a2f98d728ae22, 0x7137449123ef65cd, 0xb5c0fbcfec4d3b2f, 0xe9b5dba58189dbbc,
+		0x3956c25bf348b538, 0x59f111f1b605d019, 0x923f82a4af194f9b, 0xab1c5ed5da6d8118,
+		0xd807aa98a3030242, 0x12835b0145706fbe, 0x243185be4ee4b28c, 0x550c7dc3d5ffb4e2,
+		0x72be5d74f27b896f, 0x80deb1fe3b1696b1, 0x9bdc06a725c71235, 0xc19bf174cf692694,
+		0xe49b69c19ef14ad2, 0xefbe4786384f25e3, 0x0fc19dc68b8cd5b5, 0x240ca1cc77ac9c65,
+		0x2de92c6f592b0275, 0x4a7484aa6ea6e483, 0x5cb0a9dcbd41fbd4, 0x76f988da831153b5,
+		0x983e5152ee66dfab, 0xa831c66d2db43210, 0xb00327c898fb213f, 0xbf597fc7beef0ee4,
+		0xc6e00bf33da88fc2, 0xd5a79147930aa725, 0x06ca6351e003826f, 0x142929670a0e6e70,
+		0x27b70a8546d22ffc, 0x2e1b21385c26c926, 0x4d2c6dfc5ac42aed, 0x53380d139d95b3df,
+		0x650a73548baf63de, 0x766a0abb3c77b2a8, 0x81c2c92e47edaee6, 0x92722c851482353b,
+		0xa2bfe8a14cf10364, 0xa81a664bc24b3103, 0xc24b8b70d0f89791, 0xc76c51a30654be30,
+		0xd192e819d6ef5218, 0xd69906245565a910, 0xf40e35855771202a, 0x106aa07032bbd1b8,
+		0x19a4c116b8d2d0c8, 0x1e376c085141ab53, 0x2748774cdf8eeb99, 0x34b0bcb5e19b48a8,
+		0x391c0cb3c5c95a63, 0x4ed8aa4ae3418acb, 0x5b9cca4f7763e373, 0x682e6ff3d6b2b8a3,
+		0x748f82ee5defb2fc, 0x78a5636f43172f60, 0x84c87814a1f0ab72, 0x8cc702081a6439ec,
+		0x90befffa23631e28, 0xa4506cebde82bde9, 0xbef9a3f7b2c67915, 0xc67178f2e372532b,
+		0xca273eceea26619c, 0xd186b8c721c0c207, 0xeada7dd6cde0eb1e, 0xf57d4f7fee6ed178,
+		0x06f067aa72176fba, 0x0a637dc5a2c898a6, 0x113f9804bef90dae, 0x1b710b35131c471b,
+		0x28db77f523047d84, 0x32caab7b40c72493, 0x3c9ebe0a15c9bebc, 0x431d67c49c100d4c,
+		0x4cc5d4becb3e42b6, 0x597f299cfc657e2a, 0x5fcb6fab3ad6faec, 0x6c44198c4a475817,
+	}
+	let mut h = []uint64{
+		0x6a09e667f3bcc908, 0xbb67ae8584caa73b, 0x3c6ef372fe94f82b, 0xa54ff53a5f1d36f1,
+		0x510e527fade682d1, 0x9b05688c2b3e6c1f, 0x1f83d9abfb41bd6b, 0x5be0cd19137e2179,
+	}
+	let mut padded = slices.WithCapacity[byte](msg.Len() + 144)
+	for b in msg {
+		padded = padded.Append(b)
+	}
+	padded = padded.Append(byte(0x80))
+	for padded.Len()%128 != 112 {
+		padded = padded.Append(byte(0))
+	}
+	for _ in 0..8 {
+		padded = padded.Append(byte(0))
+	}
+	let bitLen = uint64(msg.Len()) * uint64(8)
+	for sh in []int{56, 48, 40, 32, 24, 16, 8, 0} {
+		padded = padded.Append(byte(bitLen >> sh))
+	}
+	let mut w = slices.WithCapacity[uint64](80)
+	for _ in 0..80 {
+		w = w.Append(uint64(0))
+	}
+	let mut off = 0
+	for off < padded.Len() {
+		for i in 0..16 {
+			let j = off + i*8
+			w[i] = (uint64(padded[j]) << 56) | (uint64(padded[j+1]) << 48) | (uint64(padded[j+2]) << 40) | (uint64(padded[j+3]) << 32) | (uint64(padded[j+4]) << 24) | (uint64(padded[j+5]) << 16) | (uint64(padded[j+6]) << 8) | uint64(padded[j+7])
+		}
+		for i in 16..80 {
+			let s0 = rotr64(w[i-15], 1) ^ rotr64(w[i-15], 8) ^ (w[i-15] >> 7)
+			let s1 = rotr64(w[i-2], 19) ^ rotr64(w[i-2], 61) ^ (w[i-2] >> 6)
+			w[i] = w[i-16] + s0 + w[i-7] + s1
+		}
+		let mut a = h[0]
+		let mut b = h[1]
+		let mut c = h[2]
+		let mut d = h[3]
+		let mut e = h[4]
+		let mut f = h[5]
+		let mut g = h[6]
+		let mut hh = h[7]
+		for i in 0..80 {
+			let s1 = rotr64(e, 14) ^ rotr64(e, 18) ^ rotr64(e, 41)
+			let ch = (e & f) ^ ((e ^ u64AllOnes) & g)
+			let temp1 = hh + s1 + ch + ks[i] + w[i]
+			let s0 = rotr64(a, 28) ^ rotr64(a, 34) ^ rotr64(a, 39)
+			let maj = (a & b) ^ (a & c) ^ (b & c)
+			let temp2 = s0 + maj
+			hh = g
+			g = f
+			f = e
+			e = d + temp1
+			d = c
+			c = b
+			b = a
+			a = temp1 + temp2
+		}
+		h[0] = h[0] + a
+		h[1] = h[1] + b
+		h[2] = h[2] + c
+		h[3] = h[3] + d
+		h[4] = h[4] + e
+		h[5] = h[5] + f
+		h[6] = h[6] + g
+		h[7] = h[7] + hh
+		off = off + 128
+	}
+	let mut out = slices.WithCapacity[byte](64)
+	for hv in h {
+		for sh in []int{56, 48, 40, 32, 24, 16, 8, 0} {
+			out = out.Append(byte(hv >> sh))
+		}
+	}
+	out
+}
+
+func sha256SumBytes(msg []byte) []byte {
+	let arr = sha256.Sum256(msg)
+	let mut out = slices.WithCapacity[byte](32)
+	for i in 0..32 {
+		out = out.Append(arr[i])
+	}
+	out
+}
+
+func hashByAlg(alg int64, msg []byte) []byte {
+	if alg == int64(256) {
+		return sha256SumBytes(msg)
+	}
+	if alg == int64(512) {
+		return sha512SumBytes(msg)
+	}
+	sha1SumBytes(msg)
+}
+
+func makePadBlock(alg int64, key string, blockSize int, pad byte) string {
+	let mut k = key.Bytes()
+	if k.Len() > blockSize {
+		k = hashByAlg(alg, k)
+	}
+	let mut b = slices.WithCapacity[byte](blockSize)
+	for i in 0..blockSize {
+		let v = if i < k.Len() { pad ^ k[i] } else { pad }
+		b = b.Append(v)
+	}
+	strings.FromBytes(b)
+}
+
+func computeKeyedPadsSum(alg int64, innerPad []byte, outerPad []byte, msg []byte) []byte {
+	let mut inBuf = slices.WithCapacity[byte](innerPad.Len() + msg.Len())
+	for b in innerPad { inBuf = inBuf.Append(b) }
+	for b in msg { inBuf = inBuf.Append(b) }
+	let innerSum = hashByAlg(alg, inBuf)
+	let mut outBuf = slices.WithCapacity[byte](outerPad.Len() + innerSum.Len())
+	for b in outerPad { outBuf = outBuf.Append(b) }
+	for b in innerSum { outBuf = outBuf.Append(b) }
+	hashByAlg(alg, outBuf)
+}
+
+func computeHmacWithHash(alg int64, key string, msg []byte) []byte {
+	let block = if alg == int64(512) { 128 } else { 64 }
+	let ip = strings.Bytes(makePadBlock(alg, key, block, byte(0x36)))
+	let op = strings.Bytes(makePadBlock(alg, key, block, byte(0x5c)))
+	computeKeyedPadsSum(alg, ip, op, msg)
+}
+
+func base64Alphabet(std bool) string {
+	if std {
+		return "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+	}
+	"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
+}
+
+func base64EncodePure(std bool, padded bool, bs []byte) string {
+	let alpha = base64Alphabet(std)
+	let mut out = slices.WithCapacity[byte]((bs.Len() + 2) / 3 * 4)
+	let mut i = 0
+	for i < bs.Len() {
+		let rem = bs.Len() - i
+		let b0 = uint32(bs[i])
+		let b1 = if rem > 1 { uint32(bs[i+1]) } else { uint32(0) }
+		let b2 = if rem > 2 { uint32(bs[i+2]) } else { uint32(0) }
+		let val = (b0 << 16) | (b1 << 8) | b2
+		out = out.Append(alpha[int((val>>18)&uint32(63))])
+		out = out.Append(alpha[int((val>>12)&uint32(63))])
+		if rem > 1 {
+			out = out.Append(alpha[int((val>>6)&uint32(63))])
+		} else if padded {
+			out = out.Append(byte('='))
+		}
+		if rem > 2 {
+			out = out.Append(alpha[int(val&uint32(63))])
+		} else if padded {
+			out = out.Append(byte('='))
+		}
+		i = i + 3
+	}
+	strings.FromBytes(out)
+}
+
+func resolveBase64Marker(marker string) (bool, bool, bool) {
+	if marker == "__govar__:encoding/base64.StdEncoding" {
+		return (true, true, true)
+	}
+	if marker == "__govar__:encoding/base64.URLEncoding" {
+		return (false, true, true)
+	}
+	if marker == "__govar__:encoding/base64.RawStdEncoding" {
+		return (true, false, true)
+	}
+	if marker == "__govar__:encoding/base64.RawURLEncoding" {
+		return (false, false, true)
+	}
+	(true, true, false)
+}
+
+func base64Lookup(alpha string, c byte) int {
+	for i in 0..64 {
+		if alpha[i] == c {
+			return i
+		}
+	}
+	-1
+}
+
+func base64DecodeChecked(prog mut Program, std bool, s string) (Val, Val) {
+	let alpha = base64Alphabet(std)
+	let mut toks = []int{}
+	let mut eqOffs = []int{}
+	let mut eqCount = 0
+	for i in 0..s.Len() {
+		let c = s[i]
+		if c == byte('\r') || c == byte('\n') {
+			continue
+		}
+		if c == byte('=') {
+			eqOffs = eqOffs.Append(i)
+			eqCount = eqCount + 1
+			if eqCount > 2 {
+				return (UnitVal(), makeStdRecordVal(prog, "Malformed", []string{"Offset"}, []Val{MakeIntVal(prog.Types, TypeInt, uint64(i))}))
+			}
+			continue
+		}
+		if eqCount > 0 {
+			return (UnitVal(), makeStdRecordVal(prog, "Malformed", []string{"Offset"}, []Val{MakeIntVal(prog.Types, TypeInt, uint64(i))}))
+		}
+		let v = base64Lookup(alpha, c)
+		if v < 0 {
+			return (UnitVal(), makeStdRecordVal(prog, "Malformed", []string{"Offset"}, []Val{MakeIntVal(prog.Types, TypeInt, uint64(i))}))
+		}
+		toks = toks.Append(v)
+	}
+	if (toks.Len()+eqCount)%4 != 0 || toks.Len()%4 == 1 {
+		let errAt = if eqOffs.Len() > 0 { eqOffs[0] } else { toks.Len() }
+		return (UnitVal(), makeStdRecordVal(prog, "Malformed", []string{"Offset"}, []Val{MakeIntVal(prog.Types, TypeInt, uint64(errAt))}))
+	}
+	let mut out = []byte{}
+	let mut idx = 0
+	for idx < toks.Len() {
+		let rem = toks.Len() - idx
+		let v0 = toks[idx]
+		let v1 = toks[idx+1]
+		out = out.Append(byte((v0 << 2) | (v1 >> 4)))
+		if rem > 2 {
+			let v2 = toks[idx+2]
+			out = out.Append(byte(((v1 & 15) << 4) | (v2 >> 2)))
+			if rem > 3 {
+				let v3 = toks[idx+3]
+				out = out.Append(byte(((v2 & 3) << 6) | v3))
+			}
+		}
+		idx = idx + 4
+	}
+	(AllocStrVal(&prog.Arena, TypeString, strings.FromBytes(out)), UnitVal())
+}
+
+// ResolveRound2PureNativeID maps Round 2 stdlib and pure Go native full names to Nat* IDs.
+func ResolveRound2PureNativeID(fullName string) uint32 {
+	if fullName == "math.ToInt8" { return NatMathToInt8 }
+	if fullName == "math.ToInt16" { return NatMathToInt16 }
+	if fullName == "math.ToInt32" { return NatMathToInt32 }
+	if fullName == "math.ToInt64" { return NatMathToInt64 }
+	if fullName == "math.ToUint" { return NatMathToUint }
+	if fullName == "math.ToUint8" { return NatMathToUint8 }
+	if fullName == "math.ToUint16" { return NatMathToUint16 }
+	if fullName == "math.ToUint32" { return NatMathToUint32 }
+	if fullName == "math.ToUint64" { return NatMathToUint64 }
+	if fullName == "math.ToUintptr" { return NatMathToUintptr }
+	if fullName == "math.Float64bits" { return NatMathFloat64bits }
+	if fullName == "math.Float64frombits" { return NatMathFloat64frombits }
+	if fullName == "math.Float32bits" { return NatMathFloat32bits }
+	if fullName == "math.Float32frombits" { return NatMathFloat32frombits }
+	if fullName == "strings.Compare" { return NatStrCompare }
+	if fullName == "strings.stringsBytes" { return NatStrStringsBytes }
+	if fullName == "strings.Hint" { return NatStrHint }
+	if fullName == "strings.Borrow" { return NatStrBorrow }
+	if fullName == "strings.Give" { return NatStrGive }
+	if fullName == "strings.builderText" { return NatStrBuilderText }
+	if fullName == "strings.builderAppend" { return NatStrBuilderAppend }
+	if fullName == "strings.builderAppendByte" { return NatStrBuilderAppendByte }
+	if fullName == "strings.builderAppendBytes" { return NatStrBuilderAppendBytes }
+	if fullName == "strings.builderAppendFrom" { return NatStrBuilderAppendFrom }
+	if fullName == "strings.builderGrow" { return NatStrBuilderGrow }
+	if fullName == "strconv.QuoteRune" { return NatStrconvQuoteRune }
+	if fullName == "slices.WithCapacity" { return NatSlicesWithCapacity }
+	if fullName == "arena.grow" { return NatArenaGrow }
+	if fullName == "fs.Clone" { return NatFsClone }
+	if fullName == "fs.MapText" { return NatFsMapText }
+	if fullName == "sha1.Sum" { return NatSha1Sum }
+	if fullName == "sha512.Sum" { return NatSha512Sum }
+	if fullName == "crypto/sha256.Sum256" { return NatSha256Sum256 }
+	if fullName == "hmac.sum1" { return NatHmacSum1 }
+	if fullName == "hmac.sum256" { return NatHmacSum256 }
+	if fullName == "hmac.sum512" { return NatHmacSum512 }
+	if fullName == "hmac.Equal" { return NatHmacEqual }
+	if fullName == "hmac.keyState" { return NatHmacKeyState }
+	if fullName == "hmac.keyedSum" { return NatHmacKeyedSum }
+	if fullName == "totp.keyState" { return NatTotpKeyState }
+	if fullName == "totp.hotpNumber" { return NatTotpHotpNumber }
+	if fullName == "base64.decodeStd" { return NatBase64DecodeStd }
+	if fullName == "base64.decodeURL" { return NatBase64DecodeURL }
+	if fullName == "encoding/base64.Encoding.EncodeToString" { return NatBase64EncodeToString }
+	if fullName == "hash/crc32.Update" { return NatCrc32Update }
+	if fullName == "hash/crc32.ChecksumIEEE" { return NatCrc32ChecksumIEEE }
+	if fullName == "filepath.Join" || fullName == "path/filepath.Join" { return NatFilepathJoin }
+	if fullName == "filepath.Rel" || fullName == "path/filepath.Rel" { return NatFilepathRel }
+	if fullName == "path/filepath.Split" || fullName == "filepath.Split" { return NatFilepathSplit }
+	if fullName == "path/filepath.Base" || fullName == "filepath.Base" { return NatFilepathBase }
+	if fullName == "path/filepath.Dir" || fullName == "filepath.Dir" { return NatFilepathDir }
+	if fullName == "filepath.Ext" || fullName == "path/filepath.Ext" { return NatFilepathExt }
+	if fullName == "path/filepath.Clean" || fullName == "filepath.Clean" { return NatFilepathClean }
+	if fullName == "path/filepath.IsAbs" || fullName == "filepath.IsAbs" { return NatFilepathIsAbs }
+	if fullName == "http.EncodeQuery" { return NatHttpEncodeQuery }
+	if fullName == "time.DurationText" { return NatTimeDurationText }
+	if fullName == "time.ParseDuration" { return NatTimeParseDuration }
+	if fullName == "time.DurationISO" { return NatTimeDurationISO }
+	if fullName == "time.ParseDurationISO" { return NatTimeParseDurationISO }
+	if fullName == "time.truncate" { return NatTimeTruncate }
+	if fullName == "time.round" { return NatTimeRound }
+	if fullName == "time.appendUTC" { return NatTimeAppendUTC }
+	if fullName == "time.format" { return NatTimeFormat }
+	if fullName == "time.parse" { return NatTimeParse }
+	if fullName == "civil.buffer" { return NatCivilBuffer }
+	if fullName == "civil.bytesText" { return NatCivilBytesText }
+	if fullName == "json.appendQuoted" { return NatJsonAppendQuoted }
+	if fullName == "json.appendQuotedBytes" { return NatJsonAppendQuotedBytes }
+	if fullName == "json.appendInt" { return NatJsonAppendInt }
+	if fullName == "json.appendUint" { return NatJsonAppendUint }
+	if fullName == "json.appendBool" { return NatJsonAppendBool }
+	if fullName == "json.appendFloat" { return NatJsonAppendFloat }
+	if fullName == "json.bytesText" { return NatJsonBytesText }
+	if fullName == "json.isNumber" { return NatJsonIsNumber }
+	if fullName == "json.open" { return NatJsonOpen }
+	if fullName == "json.openChecked" { return NatJsonOpenChecked }
+	if fullName == "json.settleText" { return NatJsonSettleText }
+	if fullName == "toml.parse" { return NatTomlParse }
+	if fullName == "csv.ReadAll" { return NatCsvReadAll }
+	if fullName == "csv.Format" { return NatCsvFormat }
+	if fullName == "csv.scan" { return NatCbCsvScan }
+	if fullName == "build.InFold" { return NatBuildInFold }
+	if fullName == "build.Known" { return NatBuildKnown }
+	if fullName == "build.Hole" { return NatBuildHole }
+	if fullName == "unicode.IsLetter" { return NatUnicodeIsLetter }
+	if fullName == "unicode.IsDigit" { return NatUnicodeIsDigit }
+	if fullName == "unicode.IsSpace" { return NatUnicodeIsSpace }
+	if fullName == "unicode.IsUpper" { return NatUnicodeIsUpper }
+	NatNone
+}
+
+func pow2Float64(exp int) float64 {
+	let mut r = 1.0
+	for i in 0..exp {
+		let _ = i
+		r = r * 2.0
+	}
+	r
+}
+
+func hmacEqualStrings(a string, b string) bool {
+	if a.Len() != b.Len() {
+		return false
+	}
+	let mut diff = byte(0)
+	for i in 0..a.Len() {
+		diff = diff | (a[i] ^ b[i])
+	}
+	diff == byte(0)
+}
+
+func queryEscapeStr(s string) string {
+	let hexChars = "0123456789ABCDEF"
+	let mut out = slices.WithCapacity[byte](s.Len())
+	for i in 0..s.Len() {
+		let c = s[i]
+		let keep = (c >= byte('a') && c <= byte('z')) || (c >= byte('A') && c <= byte('Z')) || (c >= byte('0') && c <= byte('9')) || c == byte('-') || c == byte('_') || c == byte('.') || c == byte('~')
+		if keep {
+			out = out.Append(c)
+		} else if c == byte(' ') {
+			out = out.Append(byte('+'))
+		} else {
+			out = out.Append(byte('%'))
+			out = out.Append(hexChars[int(c>>4)])
+			out = out.Append(hexChars[int(c&15)])
+		}
+	}
+	strings.FromBytes(out)
+}
+
+func mathConvChecked(prog mut Program, f float64, bits int, signed bool, targetType uint32) (Val, Val) {
+	let lo = if signed { -pow2Float64(bits - 1) } else { 0.0 }
+	let hi = if signed { pow2Float64(bits - 1) } else { pow2Float64(bits) }
+	let tr = math.Trunc(f)
+	if !math.IsNaN(f) && tr >= lo && tr < hi {
+		let u = if signed { uint64(int64(tr)) } else { uint64(tr) }
+		return (MakeIntVal(prog.Types, targetType, u), UnitVal())
+	}
+	(UnitVal(), makeStdRecordVal(prog, "OutOfRange", []string{"Value"}, []Val{MakeFloatVal(prog.Types, TypeFloat64, f)}))
+}
+
+// InvokeRound2PureNative dispatches Round 2 pure stdlib and Go natives cleanly.
+func InvokeRound2PureNative(prog mut Program, na mut NativeObjArena, inFold bool, id uint32, args []Val) (Val, Val, string, uint64) {
+	if id >= NatMathToInt8 && id <= NatMathToUintptr && args.Len() > 0 {
+		let f = Float64FromBits(args[0].Data)
+		let (bits, signed, tt) = if id == NatMathToInt8 {
+			(8, true, TypeInt8)
+		} else if id == NatMathToInt16 {
+			(16, true, TypeInt16)
+		} else if id == NatMathToInt32 {
+			(32, true, TypeInt32)
+		} else if id == NatMathToInt64 {
+			(64, true, TypeInt64)
+		} else if id == NatMathToUint8 {
+			(8, false, TypeUint8)
+		} else if id == NatMathToUint16 {
+			(16, false, TypeUint16)
+		} else if id == NatMathToUint32 {
+			(32, false, TypeUint32)
+		} else if id == NatMathToUint64 {
+			(64, false, TypeUint64)
+		} else {
+			(64, false, TypeUint)
+		}
+		let (res, fl) = mathConvChecked(prog, f, bits, signed, tt)
+		return (res, fl, "", uint64(1))
+	}
+	if id == NatMathFloat64bits {
+		return (MakeIntVal(prog.Types, TypeUint64, args[0].Data), UnitVal(), "", uint64(1))
+	}
+	if id == NatMathFloat64frombits {
+		return (Val{Tag: TagFloat, Type: TypeFloat64, Aux: uint32(0), Data: args[0].Data}, UnitVal(), "", uint64(1))
+	}
+	if id == NatMathFloat32bits {
+		let f32 = float32(Float64FromBits(args[0].Data))
+		return (MakeIntVal(prog.Types, TypeUint32, uint64(math.Float32bits(f32))), UnitVal(), "", uint64(1))
+	}
+	if id == NatMathFloat32frombits {
+		let f32 = math.Float32frombits(uint32(args[0].Data))
+		return (MakeFloatVal(prog.Types, TypeFloat32, float64(f32)), UnitVal(), "", uint64(1))
+	}
+	if id == NatUnicodeIsLetter {
+		return (BoolVal(TypeBool, unicode.IsLetter(rune(args[0].Data))), UnitVal(), "", uint64(1))
+	}
+	if id == NatUnicodeIsDigit {
+		return (BoolVal(TypeBool, unicode.IsDigit(rune(args[0].Data))), UnitVal(), "", uint64(1))
+	}
+	if id == NatUnicodeIsSpace {
+		return (BoolVal(TypeBool, unicode.IsSpace(rune(args[0].Data))), UnitVal(), "", uint64(1))
+	}
+	if id == NatUnicodeIsUpper {
+		return (BoolVal(TypeBool, unicode.IsUpper(rune(args[0].Data))), UnitVal(), "", uint64(1))
+	}
+	if id == NatStrconvQuoteRune {
+		return (AllocStrVal(&prog.Arena, TypeString, strconv.QuoteRune(rune(args[0].Data))), UnitVal(), "", uint64(1))
+	}
+	if id == NatStrCompare {
+		let a = ReadStr(prog.Arena, args[0])
+		let b = ReadStr(prog.Arena, args[1])
+		let c = if a < b { int64(-1) } else if a > b { int64(1) } else { int64(0) }
+		return (MakeIntVal(prog.Types, TypeInt, uint64(c)), UnitVal(), "", uint64(1))
+	}
+	if id == NatStrStringsBytes {
+		let s = ReadStr(prog.Arena, args[0])
+		return (makeBytesSlice(prog, strings.Bytes(s)), UnitVal(), "", uint64(1 + s.Len()))
+	}
+	if id == NatStrHint {
+		return (MakeIntVal(prog.Types, TypeInt, uint64(0)), UnitVal(), "", uint64(1))
+	}
+	if id == NatStrBorrow || id == NatCivilBuffer {
+		return (MakeSliceVal(&prog.Arena, TypeBytes, []Val{}, uint32(0)), UnitVal(), "", uint64(1))
+	}
+	if id == NatStrGive {
+		return (args[0], UnitVal(), "", uint64(1))
+	}
+	if id == NatStrBuilderText || id == NatJsonBytesText || id == NatCivilBytesText {
+		let (_, txt, ok) = readBytesFromSlice(prog.Arena, args[0])
+		if !ok {
+			return (UnitVal(), UnitVal(), "bytes the evaluator does not hold", uint64(1))
+		}
+		return (AllocStrVal(&prog.Arena, TypeString, txt), UnitVal(), "", uint64(1 + txt.Len()))
+	}
+	if id == NatStrBuilderGrow {
+		let n = Int64FromBits(args[1].Data)
+		if n < int64(0) {
+			return (UnitVal(), UnitVal(), "strings.Builder.Grow: negative count", uint64(1))
+		}
+		return (args[0], UnitVal(), "", uint64(1))
+	}
+	if id == NatStrBuilderAppend {
+		let txt = ReadStr(prog.Arena, args[1])
+		return (appendTextToBytesSlice(prog, args[0], txt), UnitVal(), "", uint64(1 + txt.Len()))
+	}
+	if id == NatStrBuilderAppendByte {
+		return (AppendSliceValCOW(&prog.Arena, args[0], MakeIntVal(prog.Types, TypeUint8, args[1].Data&uint64(0xff))), UnitVal(), "", uint64(1))
+	}
+	if id == NatStrBuilderAppendBytes {
+		let (_, txt, ok) = readBytesFromSlice(prog.Arena, args[1])
+		if !ok {
+			return (UnitVal(), UnitVal(), "bytes the evaluator does not hold", uint64(1))
+		}
+		return (appendTextToBytesSlice(prog, args[0], txt), UnitVal(), "", uint64(1 + txt.Len()))
+	}
+	if id == NatStrBuilderAppendFrom {
+		let (_, txt, ok) = readBytesFromSlice(prog.Arena, args[0])
+		if !ok {
+			return (UnitVal(), UnitVal(), "bytes the evaluator does not hold", uint64(1))
+		}
+		let start = Int64FromBits(args[1].Data)
+		let count = Int64FromBits(args[2].Data)
+		if start < int64(0) || count < int64(0) || start+count > int64(txt.Len()) {
+			return (UnitVal(), UnitVal(), "runtime error: slice bounds out of range", uint64(1))
+		}
+		let seg = txt[int(start):int(start+count)]
+		return (appendTextToBytesSlice(prog, args[0], seg), UnitVal(), "", uint64(1 + seg.Len()))
+	}
+	if id == NatSlicesWithCapacity {
+		let n = Int64FromBits(args[0].Data)
+		if n < int64(0) {
+			return (UnitVal(), UnitVal(), "runtime error: makeslice: cap out of range", uint64(1))
+		}
+		return (MakeSliceVal(&prog.Arena, TypeVoid, []Val{}, uint32(0)), UnitVal(), "", uint64(1))
+	}
+	if id == NatArenaGrow {
+		return (AppendSliceValCOW(&prog.Arena, args[0], args[1]), UnitVal(), "", uint64(1))
+	}
+	if id == NatFsClone {
+		return (args[0], UnitVal(), "", uint64(1))
+	}
+	if id == NatFsMapText {
+		let txt = ReadStr(prog.Arena, args[0])
+		return (AllocFsMapped(na, TypeVoid, txt), UnitVal(), "", uint64(1))
+	}
+	if id == NatBuildInFold {
+		return (BoolVal(TypeBool, inFold), UnitVal(), "", uint64(1))
+	}
+	if id == NatBuildKnown {
+		return (BoolVal(TypeBool, inFold), UnitVal(), "", uint64(1))
+	}
+	if id == NatBuildHole {
+		return (BoolVal(TypeBool, false), UnitVal(), "", uint64(1))
+	}
+	if id == NatSha1Sum {
+		let s = ReadStr(prog.Arena, args[0])
+		let sum = sha1SumBytes(strings.Bytes(s))
+		return (AllocStrVal(&prog.Arena, TypeString, strings.FromBytes(sum)), UnitVal(), "", uint64(1 + s.Len()))
+	}
+	if id == NatSha512Sum {
+		let s = ReadStr(prog.Arena, args[0])
+		let sum = sha512SumBytes(strings.Bytes(s))
+		return (AllocStrVal(&prog.Arena, TypeString, strings.FromBytes(sum)), UnitVal(), "", uint64(1 + s.Len()))
+	}
+	if id == NatSha256Sum256 {
+		let (bs, _, ok) = readBytesFromSlice(prog.Arena, args[0])
+		if !ok {
+			return (UnitVal(), UnitVal(), "crypto/sha256.Sum256 of bytes the evaluator does not hold", uint64(1))
+		}
+		let arr = sha256.Sum256(bs)
+		let mut elems = slices.WithCapacity[Val](32)
+		for i in 0..32 {
+			elems = elems.Append(MakeIntVal(prog.Types, TypeUint8, uint64(arr[i])))
+		}
+		return (MakeArrayVal(&prog.Arena, TypeBytes, elems), UnitVal(), "", uint64(1 + bs.Len()))
+	}
+	if id == NatHmacSum1 || id == NatHmacSum256 || id == NatHmacSum512 {
+		let alg = if id == NatHmacSum256 { int64(256) } else if id == NatHmacSum512 { int64(512) } else { int64(1) }
+		let k = ReadStr(prog.Arena, args[0])
+		let m = ReadStr(prog.Arena, args[1])
+		let out = computeHmacWithHash(alg, k, strings.Bytes(m))
+		return (AllocStrVal(&prog.Arena, TypeString, strings.FromBytes(out)), UnitVal(), "", uint64(1 + k.Len() + m.Len()))
+	}
+	if id == NatHmacEqual {
+		let a = ReadStr(prog.Arena, args[0])
+		let b = ReadStr(prog.Arena, args[1])
+		return (BoolVal(TypeBool, hmacEqualStrings(a, b)), UnitVal(), "", uint64(1 + a.Len()))
+	}
+	if id == NatHmacKeyState {
+		let alg = Int64FromBits(args[0].Data)
+		let key = ReadStr(prog.Arena, args[1])
+		let block = if alg == int64(512) { 128 } else { 64 }
+		let ipad = AllocStrVal(&prog.Arena, TypeString, makePadBlock(alg, key, block, byte(0x36)))
+		let opad = AllocStrVal(&prog.Arena, TypeString, makePadBlock(alg, key, block, byte(0x5c)))
+		return (MakeTupleVal(&prog.Arena, TypeVoid, []Val{ipad, opad}), UnitVal(), "", uint64(1 + key.Len()))
+	}
+	if id == NatHmacKeyedSum {
+		let alg = Int64FromBits(args[0].Data)
+		let ipad = ReadStr(prog.Arena, args[1])
+		let opad = ReadStr(prog.Arena, args[2])
+		let msg = ReadStr(prog.Arena, args[3])
+		let out = computeKeyedPadsSum(alg, strings.Bytes(ipad), strings.Bytes(opad), strings.Bytes(msg))
+		return (AllocStrVal(&prog.Arena, TypeString, strings.FromBytes(out)), UnitVal(), "", uint64(1 + msg.Len()))
+	}
+	if id == NatTotpKeyState {
+		let key = ReadStr(prog.Arena, args[0])
+		let ipad = makeBytesSlice(prog, strings.Bytes(makePadBlock(int64(1), key, 64, byte(0x36))))
+		let opad = makeBytesSlice(prog, strings.Bytes(makePadBlock(int64(1), key, 64, byte(0x5c))))
+		return (MakeTupleVal(&prog.Arena, TypeVoid, []Val{ipad, opad}), UnitVal(), "", uint64(1 + key.Len()))
+	}
+	if id == NatTotpHotpNumber {
+		let (ip, _, ok1) = readBytesFromSlice(prog.Arena, args[0])
+		let (op, _, ok2) = readBytesFromSlice(prog.Arena, args[1])
+		if !ok1 || !ok2 {
+			return (UnitVal(), UnitVal(), "totp: a key state that totp.KeyOf did not give", uint64(1))
+		}
+		let step = args[2].Data
+		let msg = []byte{
+			byte(step >> 56), byte(step >> 48), byte(step >> 40), byte(step >> 32),
+			byte(step >> 24), byte(step >> 16), byte(step >> 8), byte(step),
+		}
+		let h = computeKeyedPadsSum(int64(1), ip, op, msg)
+		let off = int(h[h.Len()-1] & byte(15))
+		let code = ((uint32(h[off]) & uint32(0x7f)) << 24) | (uint32(h[off+1]) << 16) | (uint32(h[off+2]) << 8) | uint32(h[off+3])
+		return (MakeIntVal(prog.Types, TypeInt, uint64(code)), UnitVal(), "", uint64(1))
+	}
+	if id == NatBase64DecodeStd {
+		let s = ReadStr(prog.Arena, args[0])
+		let (v, fl) = base64DecodeChecked(prog, true, s)
+		return (v, fl, "", uint64(1 + s.Len()))
+	}
+	if id == NatBase64DecodeURL {
+		let s = ReadStr(prog.Arena, args[0])
+		let (v, fl) = base64DecodeChecked(prog, false, s)
+		return (v, fl, "", uint64(1 + s.Len()))
+	}
+	if id == NatBase64EncodeToString {
+		let marker = ReadStr(prog.Arena, args[0])
+		let (isStd, padded, okE) = resolveBase64Marker(marker)
+		let (bs, _, okB) = readBytesFromSlice(prog.Arena, args[1])
+		if !okE || !okB {
+			return (UnitVal(), UnitVal(), "unsupported base64 encoding or bytes", uint64(1))
+		}
+		return (AllocStrVal(&prog.Arena, TypeString, base64EncodePure(isStd, padded, bs)), UnitVal(), "", uint64(1 + bs.Len()))
+	}
+	if id == NatCrc32Update {
+		let crc = uint32(args[0].Data)
+		let (bs, _, ok) = readBytesFromSlice(prog.Arena, args[2])
+		if !ok {
+			return (UnitVal(), UnitVal(), "hash/crc32.Update of unsupported table or bytes", uint64(1))
+		}
+		let next = crc32.Update(crc, crc32.IEEETable, bs)
+		return (MakeIntVal(prog.Types, TypeUint32, uint64(next)), UnitVal(), "", uint64(1 + bs.Len()))
+	}
+	if id == NatCrc32ChecksumIEEE {
+		let (bs, _, ok) = readBytesFromSlice(prog.Arena, args[0])
+		if !ok {
+			return (UnitVal(), UnitVal(), "hash/crc32.ChecksumIEEE of unsupported bytes", uint64(1))
+		}
+		return (MakeIntVal(prog.Types, TypeUint32, uint64(crc32.ChecksumIEEE(bs))), UnitVal(), "", uint64(1 + bs.Len()))
+	}
+	if id == NatFilepathJoin {
+		let n = int(ReadSliceLen(prog.Arena, args[0]))
+		let mut parts = slices.WithCapacity[string](n)
+		for i in 0..n {
+			parts = parts.Append(ReadStr(prog.Arena, ReadSliceElem(prog.Arena, args[0], uint32(i))))
+		}
+		return (AllocStrVal(&prog.Arena, TypeString, filepath.Join(parts)), UnitVal(), "", uint64(1 + n))
+	}
+	if id == NatFilepathRel {
+		let base = ReadStr(prog.Arena, args[0])
+		let target = ReadStr(prog.Arena, args[1])
+		let mut ok = true
+		let rel = filepath.Rel(base, target) catch {
+		case _:
+			ok = false
+			""
+		}
+		if !ok {
+			return (UnitVal(), makeStdRecordVal(prog, "NotRelative", []string{"Base", "Target"}, []Val{args[0], args[1]}), "", uint64(1))
+		}
+		return (AllocStrVal(&prog.Arena, TypeString, rel), UnitVal(), "", uint64(1 + base.Len() + target.Len()))
+	}
+	if id == NatFilepathSplit {
+		let p = ReadStr(prog.Arena, args[0])
+		let sp = filepath.Split(p)
+		let rec = makeStdRecordVal(prog, "Parts", []string{"Dir", "File"}, []Val{AllocStrVal(&prog.Arena, TypeString, sp.Dir), AllocStrVal(&prog.Arena, TypeString, sp.File)})
+		return (rec, UnitVal(), "", uint64(1 + p.Len()))
+	}
+	if id == NatFilepathBase {
+		let p = ReadStr(prog.Arena, args[0])
+		return (AllocStrVal(&prog.Arena, TypeString, filepath.Base(p)), UnitVal(), "", uint64(1 + p.Len()))
+	}
+	if id == NatFilepathDir {
+		let p = ReadStr(prog.Arena, args[0])
+		return (AllocStrVal(&prog.Arena, TypeString, filepath.Dir(p)), UnitVal(), "", uint64(1 + p.Len()))
+	}
+	if id == NatFilepathExt {
+		let p = ReadStr(prog.Arena, args[0])
+		return (AllocStrVal(&prog.Arena, TypeString, filepath.Ext(p)), UnitVal(), "", uint64(1 + p.Len()))
+	}
+	if id == NatFilepathClean {
+		let p = ReadStr(prog.Arena, args[0])
+		return (AllocStrVal(&prog.Arena, TypeString, filepath.Clean(p)), UnitVal(), "", uint64(1 + p.Len()))
+	}
+	if id == NatFilepathIsAbs {
+		let p = ReadStr(prog.Arena, args[0])
+		return (BoolVal(TypeBool, filepath.IsAbs(p)), UnitVal(), "", uint64(1 + p.Len()))
+	}
+	if id == NatHttpEncodeQuery {
+		let n = int(ReadSliceLen(prog.Arena, args[0]))
+		let mut parts = slices.WithCapacity[string](n)
+		for i in 0..n {
+			let rec = ReadSliceElem(prog.Arena, args[0], uint32(i))
+			let f0 = ReadStr(prog.Arena, ReadPackElem(prog.Arena, rec, uint32(0)))
+			let f1 = ReadStr(prog.Arena, ReadPackElem(prog.Arena, rec, uint32(1)))
+			parts = parts.Append(queryEscapeStr(f0) + "=" + queryEscapeStr(f1))
+		}
+		return (AllocStrVal(&prog.Arena, TypeString, strings.Join(parts, "&")), UnitVal(), "", uint64(1 + n))
+	}
+	if id == NatTimeDurationText {
+		return (AllocStrVal(&prog.Arena, TypeString, DurationText(Int64FromBits(args[0].Data))), UnitVal(), "", uint64(1))
+	}
+	if id == NatTimeParseDuration {
+		let s = ReadStr(prog.Arena, args[0])
+		let (d, err) = ParseDurationText(s)
+		if err != "" {
+			return (UnitVal(), makeStdRecordVal(prog, "ParseError", []string{"Layout", "Value", "Message"}, []Val{AllocStrVal(&prog.Arena, TypeString, ""), args[0], AllocStrVal(&prog.Arena, TypeString, err)}), "", uint64(1 + s.Len()))
+		}
+		return (MakeIntVal(prog.Types, TypeDuration, uint64(d)), UnitVal(), "", uint64(1 + s.Len()))
+	}
+	if id == NatTimeDurationISO {
+		return (AllocStrVal(&prog.Arena, TypeString, DurationISO(Int64FromBits(args[0].Data))), UnitVal(), "", uint64(1))
+	}
+	if id == NatTimeParseDurationISO {
+		let s = ReadStr(prog.Arena, args[0])
+		let (d, err) = ParseDurationISO(s)
+		if err != "" {
+			return (UnitVal(), makeStdRecordVal(prog, "ParseError", []string{"Layout", "Value", "Message"}, []Val{AllocStrVal(&prog.Arena, TypeString, "ISO 8601 duration"), args[0], AllocStrVal(&prog.Arena, TypeString, err)}), "", uint64(1 + s.Len()))
+		}
+		return (MakeIntVal(prog.Types, TypeDuration, uint64(d)), UnitVal(), "", uint64(1 + s.Len()))
+	}
+	if id == NatTimeTruncate || id == NatTimeRound {
+		let s = Int64FromBits(args[0].Data)
+		let ns = Int64FromBits(args[1].Data)
+		let d = Int64FromBits(args[2].Data)
+		let (os, ons) = if id == NatTimeTruncate { timeTruncateUTC(s, ns, d) } else { timeRoundUTC(s, ns, d) }
+		let rec = makeStdRecordVal(prog, "Reading", []string{"Sec", "Nsec", "Mono"}, []Val{
+			MakeIntVal(prog.Types, TypeInt64, uint64(os)),
+			MakeIntVal(prog.Types, TypeInt64, uint64(ons)),
+			MakeIntVal(prog.Types, TypeInt64, uint64(0)),
+		})
+		return (rec, UnitVal(), "", uint64(1))
+	}
+	if id == NatTimeAppendUTC {
+		let s = Int64FromBits(args[1].Data)
+		let ns = Int64FromBits(args[2].Data)
+		let layout = ReadStr(prog.Arena, args[3])
+		let txt = formatTimeUTC(s, ns, layout)
+		return (appendTextToBytesSlice(prog, args[0], txt), UnitVal(), "", uint64(1 + txt.Len()))
+	}
+	if id == NatTimeFormat {
+		let s = Int64FromBits(args[0].Data)
+		let ns = Int64FromBits(args[1].Data)
+		let layout = ReadStr(prog.Arena, args[2])
+		return (AllocStrVal(&prog.Arena, TypeString, formatTimeUTC(s, ns, layout)), UnitVal(), "", uint64(1 + layout.Len()))
+	}
+	if id == NatTimeParse {
+		let layout = ReadStr(prog.Arena, args[0])
+		let value = ReadStr(prog.Arena, args[1])
+		let (s, ns, msg) = parseTimeUTC(layout, value)
+		if msg != "" {
+			return (UnitVal(), makeStdRecordVal(prog, "ParseError", []string{"Layout", "Value", "Message"}, []Val{args[0], args[1], AllocStrVal(&prog.Arena, TypeString, msg)}), "", uint64(1 + value.Len()))
+		}
+		let rec = makeStdRecordVal(prog, "Reading", []string{"Sec", "Nsec", "Mono"}, []Val{
+			MakeIntVal(prog.Types, TypeInt64, uint64(s)),
+			MakeIntVal(prog.Types, TypeInt64, uint64(ns)),
+			MakeIntVal(prog.Types, TypeInt64, uint64(0)),
+		})
+		return (rec, UnitVal(), "", uint64(1 + value.Len()))
+	}
+	if id == NatJsonAppendQuoted {
+		let txt = JsonQuote(ReadStr(prog.Arena, args[1]), args[2].Data != uint64(0))
+		return (appendTextToBytesSlice(prog, args[0], txt), UnitVal(), "", uint64(1 + txt.Len()))
+	}
+	if id == NatJsonAppendQuotedBytes {
+		let (_, bsText, ok) = readBytesFromSlice(prog.Arena, args[1])
+		if !ok {
+			return (UnitVal(), UnitVal(), "json.appendQuotedBytes on bytes the evaluator does not hold", uint64(1))
+		}
+		let txt = JsonQuote(bsText, args[2].Data != uint64(0))
+		return (appendTextToBytesSlice(prog, args[0], txt), UnitVal(), "", uint64(1 + txt.Len()))
+	}
+	if id == NatJsonAppendInt {
+		let txt = strconv.FormatInt(Int64FromBits(args[1].Data), 10)
+		return (appendTextToBytesSlice(prog, args[0], txt), UnitVal(), "", uint64(1 + txt.Len()))
+	}
+	if id == NatJsonAppendUint {
+		let txt = strconv.FormatUint(args[1].Data, 10)
+		return (appendTextToBytesSlice(prog, args[0], txt), UnitVal(), "", uint64(1 + txt.Len()))
+	}
+	if id == NatJsonAppendBool {
+		let txt = if args[1].Data == uint64(0) { "false" } else { "true" }
+		return (appendTextToBytesSlice(prog, args[0], txt), UnitVal(), "", uint64(1 + txt.Len()))
+	}
+	if id == NatJsonAppendFloat {
+		let txt = JsonFloat(Float64FromBits(args[1].Data))
+		return (appendTextToBytesSlice(prog, args[0], txt), UnitVal(), "", uint64(1 + txt.Len()))
+	}
+	if id == NatJsonIsNumber {
+		let txt = ReadStr(prog.Arena, args[0])
+		let mut tmpNa = NewNativeObjArena()
+		let (root, _, why) = JsonParse(&tmpNa, txt, int64(0), int64(0))
+		let isNum = why == "" && tmpNa.JsonNodeKind[int(root)] == uint8(2) && strings.TrimSpace(txt) == txt
+		return (BoolVal(TypeBool, isNum), UnitVal(), "", uint64(1 + txt.Len()))
+	}
+	if id == NatJsonOpen || id == NatJsonOpenChecked {
+		let txt = ReadStr(prog.Arena, args[0])
+		let maxB = if args.Len() > 1 { Int64FromBits(args[1].Data) } else { int64(0) }
+		let maxD = if args.Len() > 2 { Int64FromBits(args[2].Data) } else { int64(0) }
+		let (root, off, why) = JsonParse(na, txt, maxB, maxD)
+		if why != "" {
+			return (UnitVal(), makeStdRecordVal(prog, "Malformed", []string{"Offset", "Reason"}, []Val{MakeIntVal(prog.Types, TypeInt, uint64(off)), AllocStrVal(&prog.Arena, TypeString, why)}), "", uint64(1 + txt.Len()))
+		}
+		return (AllocJsonCursor(na, TypeVoid, root), UnitVal(), "", uint64(1 + txt.Len()))
+	}
+	if id == NatJsonSettleText {
+		return (UnitVal(), UnitVal(), "", uint64(1))
+	}
+	if id == NatTomlParse {
+		let txt = ReadStr(prog.Arena, args[0])
+		let maxB = if args.Len() > 1 { Int64FromBits(args[1].Data) } else { int64(0) }
+		let maxD = if args.Len() > 2 { Int64FromBits(args[2].Data) } else { int64(0) }
+		let (out, line, key, reason) = TomlParse(txt, maxB, maxD)
+		if reason != "" {
+			return (UnitVal(), makeStdRecordVal(prog, "Malformed", []string{"Line", "Key", "Reason"}, []Val{
+				MakeIntVal(prog.Types, TypeInt, uint64(line)),
+				AllocStrVal(&prog.Arena, TypeString, key),
+				AllocStrVal(&prog.Arena, TypeString, reason),
+			}), "", uint64(1 + txt.Len()))
+		}
+		return (AllocStrVal(&prog.Arena, TypeString, out), UnitVal(), "", uint64(1 + txt.Len()))
+	}
+	if id == NatCsvReadAll {
+		let txt = ReadStr(prog.Arena, args[0])
+		let (res, line, col, reason, msg) = csvParseAll(txt)
+		if msg != "" {
+			return (UnitVal(), makeStdRecordVal(prog, "ParseError", []string{"Line", "Column", "Reason", "Message"}, []Val{
+				MakeIntVal(prog.Types, TypeInt, uint64(line)),
+				MakeIntVal(prog.Types, TypeInt, uint64(col)),
+				AllocStrVal(&prog.Arena, TypeString, reason),
+				AllocStrVal(&prog.Arena, TypeString, msg),
+			}), "", uint64(1 + txt.Len()))
+		}
+		let strSliceT = InternSlice(&prog.Types, TypeString)
+		let mut rows = slices.WithCapacity[Val](res.Fields.Len())
+		for row in res.Fields {
+			let mut fVals = slices.WithCapacity[Val](row.Len())
+			for f in row {
+				fVals = fVals.Append(AllocStrVal(&prog.Arena, TypeString, f))
+			}
+			rows = rows.Append(MakeSliceVal(&prog.Arena, strSliceT, fVals, uint32(fVals.Len())))
+		}
+		return (MakeSliceVal(&prog.Arena, InternSlice(&prog.Types, strSliceT), rows, uint32(rows.Len())), UnitVal(), "", uint64(1 + txt.Len()))
+	}
+	if id == NatCsvFormat {
+		let n = int(ReadSliceLen(prog.Arena, args[0]))
+		let mut rows = slices.WithCapacity[[]string](n)
+		for i in 0..n {
+			let rVal = ReadSliceElem(prog.Arena, args[0], uint32(i))
+			let m = int(ReadSliceLen(prog.Arena, rVal))
+			let mut row = slices.WithCapacity[string](m)
+			for j in 0..m {
+				row = row.Append(ReadStr(prog.Arena, ReadSliceElem(prog.Arena, rVal, uint32(j))))
+			}
+			rows = rows.Append(row)
+		}
+		let txt = csvFormatAll(rows)
+		return (AllocStrVal(&prog.Arena, TypeString, txt), UnitVal(), "", uint64(1 + txt.Len()))
+	}
+	(UnitVal(), UnitVal(), "unsupported native", uint64(1))
+}
+
+law DurationISORoundtripsNonMin(d int64) {
+	let minI64 = int64(-9223372036854775807) - int64(1)
+	if d != minI64 {
+		let iso = DurationISO(d)
+		let (back, err) = ParseDurationISO(iso)
+		assert err == ""
+		assert back == d
+	}
+	true
+}
+
+test CsvAndTimeFormatParseRoundtrip {
+	let (parsed, l, c, rsn, msg) = csvParseAll("a,b\n\"c,d\",e\n")
+	assert msg == "" && rsn == "" && l == 0 && c == 0
+	assert parsed.Fields.Len() == 2
+	assert parsed.Fields[1][0] == "c,d"
+	assert csvFormatAll([][]string{[]string{""}, []string{"a", "b,c"}}) == "\"\"\na,\"b,c\"\n"
+	let formatted = formatTimeUTC(int64(1700000000), int64(123000000), "2006-01-02T15:04:05.999999999Z07:00")
+	let (sec, ns, perr) = parseTimeUTC("2006-01-02T15:04:05.999999999Z07:00", formatted)
+	assert perr == ""
+	assert sec == int64(1700000000) && ns == int64(123000000)
+}

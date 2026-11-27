@@ -520,15 +520,27 @@ func ResolveBuiltinName(name string) uint32 {
 	if name == "reserveSlice" { return NatReserve }
 	if name == "mapPut" { return NatPut }
 	if name == "mapClone" { return NatClone }
+	if name == "appendString" || name == "appendText" { return NatStrBuilderAppend }
+	if name == "appendByte" { return NatStrBuilderAppendByte }
 	NatNone
 }
 
 // ResolveStdNativeID maps a standard library package path and symbol name to its NativeID.
 func ResolveStdNativeID(pkgPath string, name string) uint32 {
-	if pkgPath == "" || pkgPath == "prelude" || pkgPath == "core" {
+	let basePkg = if strings.HasPrefix(pkgPath, "std/") { pkgPath[4:pkgPath.Len()] } else { pkgPath }
+	let normPkg = if basePkg == "unicode/utf8" {
+		"utf8"
+	} else if basePkg == "math/bits" {
+		"bits"
+	} else if basePkg == "path/filepath" {
+		"filepath"
+	} else {
+		basePkg
+	}
+	if normPkg == "" || normPkg == "prelude" || normPkg == "core" {
 		return ResolveBuiltinName(name)
 	}
-	if pkgPath == "option" {
+	if normPkg == "option" {
 		if name == "Map" { return NatCbOptionMap }
 		if name == "Then" { return NatCbOptionThen }
 		if name == "Fold" { return NatCbOptionFold }
@@ -543,8 +555,8 @@ func ResolveStdNativeID(pkgPath string, name string) uint32 {
 		if name == "Min" { return NatCmpMin }
 		return NatNone
 	}
-	if pkgPath == "slices" {
-		if name == "WithCapacity" { return NatMakeSlice }
+	if normPkg == "slices" {
+		if name == "WithCapacity" { return NatSlicesWithCapacity }
 		if name == "Take" { return NatTakeAt }
 		if name == "Equal" { return NatSlicesEqual }
 		if name == "Contains" { return NatSlicesContains }
@@ -565,7 +577,7 @@ func ResolveStdNativeID(pkgPath string, name string) uint32 {
 		if name == "SortStableFunc" { return NatCbSlicesSortStableFunc }
 		return NatNone
 	}
-	if pkgPath == "strings" {
+	if normPkg == "strings" {
 		if name == "Split" { return NatStrSplit }
 		if name == "SplitN" { return NatStrSplitN }
 		if name == "Join" { return NatStringsJoin }
@@ -603,9 +615,11 @@ func ResolveStdNativeID(pkgPath string, name string) uint32 {
 		if name == "Len" { return NatBuilderLen }
 		if name == "Reset" { return NatBuilderReset }
 		if name == "Grow" { return NatBuilderGrow }
+		let sr2 = ResolveRound2PureNativeID("strings." + name)
+		if sr2 != NatNone { return sr2 }
 		return NatNone
 	}
-	if pkgPath == "utf8" {
+	if normPkg == "utf8" {
 		if name == "RuneCount" || name == "RuneCountInString" { return NatUtf8RuneCount }
 		if name == "DecodeRuneInString" { return NatUtf8DecodeRune }
 		if name == "RuneText" { return NatRuneText }
@@ -620,7 +634,7 @@ func ResolveStdNativeID(pkgPath string, name string) uint32 {
 		if name == "IsSpace" { return NatUtf8IsSpace }
 		return NatNone
 	}
-	if pkgPath == "strconv" {
+	if normPkg == "strconv" {
 		if name == "Itoa" { return NatStrconvItoa }
 		if name == "FormatInt" { return NatStrconvFormatInt }
 		if name == "Atoi" { return NatStrconvAtoi }
@@ -634,9 +648,11 @@ func ResolveStdNativeID(pkgPath string, name string) uint32 {
 		if name == "AppendFloat" { return NatStrconvAppendFloat }
 		if name == "Quote" { return NatStrconvQuote }
 		if name == "Unquote" { return NatStrconvUnquote }
+		let r2 = ResolveRound2PureNativeID("strconv." + name)
+		if r2 != NatNone { return r2 }
 		return NatNone
 	}
-	if pkgPath == "math" {
+	if normPkg == "math" {
 		if name == "Abs" { return NatMathAbs }
 		if name == "Ceil" { return NatMathCeil }
 		if name == "Floor" { return NatMathFloor }
@@ -668,9 +684,11 @@ func ResolveStdNativeID(pkgPath string, name string) uint32 {
 		if name == "MaxInt64" { return NatMathMaxInt64 }
 		if name == "MinInt64" { return NatMathMinInt64 }
 		if name == "ToInt" { return NatMathToInt }
+		let mr2 = ResolveRound2PureNativeID("math." + name)
+		if mr2 != NatNone { return mr2 }
 		return NatNone
 	}
-	if pkgPath == "bits" {
+	if normPkg == "bits" {
 		if name == "OnesCount" { return NatBitsOnesCount }
 		if name == "OnesCount64" { return NatBitsOnesCount64 }
 		if name == "LeadingZeros" { return NatBitsLeadingZeros }
@@ -687,12 +705,16 @@ func ResolveStdNativeID(pkgPath string, name string) uint32 {
 		if name == "Div64" { return NatBitsDiv64 }
 		return NatNone
 	}
-	if pkgPath == "hex" {
+	if normPkg == "hex" {
 		if name == "Encode" { return NatHexEncode }
 		if name == "Decode" { return NatHexDecode }
 		return NatNone
 	}
-	NatNone
+	let r2 = ResolveRound2PureNativeID(basePkg + "." + name)
+	if r2 != NatNone {
+		return r2
+	}
+	ResolveRound2PureNativeID(normPkg + "." + name)
 }
 
 // ResolveMethodNativeID maps receiver value tag and method name to a NativeID when built-in.
@@ -805,6 +827,154 @@ func makeStdErr(prog mut Program, pkgPath string, errName string, fieldNames []s
 	MakeRecordVal(&prog.Arena, et, fields)
 }
 
+// ParseSignedIntBase parses a signed integer string in the given base and bit size without external Go ParseInt calls.
+func ParseSignedIntBase(s string, base int, bitSize int) (int64, uint8) {
+	if s.Len() == 0 {
+		return (int64(0), uint8(1))
+	}
+	let bs = if bitSize == 0 { 64 } else { bitSize }
+	if bs < 0 || bs > 64 {
+		return (int64(0), uint8(2))
+	}
+	let mut i = 0
+	let mut neg = false
+	if s[0] == byte('-') || s[0] == byte('+') {
+		neg = s[0] == byte('-')
+		i = 1
+	}
+	if i >= s.Len() {
+		return (int64(0), uint8(1))
+	}
+	let mut b = base
+	let mut allowSep = false
+	let mut sawDigit = false
+	let mut prevSep = false
+	if b == 0 {
+		allowSep = true
+		if s[i] == byte('0') {
+			let rem = s.Len() - i
+			if rem >= 2 && (s[i+1] == byte('x') || s[i+1] == byte('X')) {
+				b = 16
+				i = i + 2
+			} else if rem >= 2 && (s[i+1] == byte('b') || s[i+1] == byte('B')) {
+				b = 2
+				i = i + 2
+			} else if rem >= 2 && (s[i+1] == byte('o') || s[i+1] == byte('O')) {
+				b = 8
+				i = i + 2
+			} else {
+				b = 8
+				i = i + 1
+				sawDigit = true
+			}
+		} else {
+			b = 10
+		}
+	} else if b < 2 || b > 36 {
+		return (int64(0), uint8(1))
+	}
+	let maxNeg = uint64(1) << uint64(bs-1)
+	let maxPos = maxNeg - uint64(1)
+	let cutoff = if neg { maxNeg } else { maxPos }
+	let uBase = uint64(b)
+	let mut acc = uint64(0)
+	let mut over = false
+	for i < s.Len() {
+		let c = s[i]
+		i = i + 1
+		if allowSep && c == byte('_') {
+			if prevSep || (!sawDigit && b == 10) {
+				return (int64(0), uint8(1))
+			}
+			prevSep = true
+			continue
+		}
+		let d = if c >= byte('0') && c <= byte('9') {
+			int(c - byte('0'))
+		} else if c >= byte('a') && c <= byte('z') {
+			int(c-byte('a')) + 10
+		} else if c >= byte('A') && c <= byte('Z') {
+			int(c-byte('A')) + 10
+		} else {
+			return (int64(0), uint8(1))
+		}
+		if d >= b {
+			return (int64(0), uint8(1))
+		}
+		sawDigit = true
+		prevSep = false
+		let ud = uint64(d)
+		if ud > cutoff || acc > (cutoff-ud)/uBase {
+			over = true
+		} else {
+			acc = acc*uBase + ud
+		}
+	}
+	if !sawDigit || prevSep {
+		return (int64(0), uint8(1))
+	}
+	if over {
+		let sat = if neg {
+			if bs == 64 { Int64FromBits(maxNeg) } else { -int64(maxNeg) }
+		} else {
+			int64(maxPos)
+		}
+		return (sat, uint8(2))
+	}
+	if neg {
+		if acc == (uint64(1) << uint64(63)) {
+			return (Int64FromBits(acc), uint8(0))
+		}
+		return (-int64(acc), uint8(0))
+	}
+	(int64(acc), uint8(0))
+}
+
+// FormatUintBase formats an unsigned 64-bit integer in base 2..36 without external Go calls.
+func FormatUintBase(v uint64, base int) string {
+	if base < 2 || base > 36 {
+		return ""
+	}
+	if v == uint64(0) {
+		return "0"
+	}
+	let digits = "0123456789abcdefghijklmnopqrstuvwxyz"
+	let mut rev = []byte{}
+	let mut cur = v
+	let ub = uint64(base)
+	for cur > uint64(0) {
+		rev = rev.Append(digits[int(cur%ub)])
+		cur = cur / ub
+	}
+	let n = rev.Len()
+	let mut out = slices.WithCapacity[byte](n)
+	for i in 0..n {
+		out = out.Append(rev[n-1-i])
+	}
+	strings.FromBytes(out)
+}
+
+// ParseUint64Dec parses a base-10 unsigned 64-bit integer string without external Go ParseUint calls.
+func ParseUint64Dec(s string) (uint64, bool) {
+	if s.Len() == 0 {
+		return (uint64(0), false)
+	}
+	let uMax uint64 = 18446744073709551615
+	let mut acc = uint64(0)
+	for i in 0..s.Len() {
+		let c = s[i]
+		if c < byte('0') || c > byte('9') {
+			return (uint64(0), false)
+		}
+		let d = uint64(c - byte('0'))
+		if acc > (uMax-d)/uint64(10) {
+			return (uint64(0), false)
+		}
+		acc = acc*uint64(10) + d
+	}
+	(acc, true)
+}
+
 func makeStrSliceVal(prog mut Program, xs []string) Val {
 	let st = InternSlice(&prog.Types, TypeString)
 	let mut elems = slices.WithCapacity[Val](xs.Len())
@@ -838,6 +1008,14 @@ func makeBytesSliceVal(prog mut Program, bs []byte) Val {
 		elems = elems.Append(MakeIntVal(prog.Types, TypeUint8, uint64(b)))
 	}
 	MakeSliceVal(&prog.Arena, TypeBytes, elems, uint32(elems.Len()))
+}
+
+// InvokePureNativeWithEnv executes builtin/std native id using VM native object storage and fold state.
+func InvokePureNativeWithEnv(prog mut Program, na mut NativeObjArena, inFold bool, id uint32, targs []uint32, args []Val) (Val, Val, string, uint64) {
+	if id >= uint32(240) {
+		return InvokeRound2PureNative(prog, na, inFold, id, args)
+	}
+	InvokePureNative(prog, id, targs, args)
 }
 
 // InvokePureNative executes pure builtin/std native function id and returns (result, errVal, defectMsg, extraWork).
@@ -1464,12 +1642,13 @@ func InvokePureNative(prog mut Program, id uint32, targs []uint32, args []Val) (
 		let s = ReadStr(prog.Arena, args[0])
 		let base = int(Int64FromBits(args[1].Data))
 		let bitSz = int(Int64FromBits(args[2].Data))
-		let n = strconv.ParseInt(s, base, bitSz) catch {
-		case strconv.Malformed as m:
-			let e = makeStdErr(prog, "strconv", "Malformed", []string{"Text"}, []uint32{TypeString}, []Val{AllocStrVal(&prog.Arena, TypeString, m.Text)})
+		let (n, st) = ParseSignedIntBase(s, base, bitSz)
+		if st == uint8(1) {
+			let e = makeStdErr(prog, "strconv", "Malformed", []string{"Text"}, []uint32{TypeString}, []Val{AllocStrVal(&prog.Arena, TypeString, s)})
 			return (UnitVal(), e, "", uint64(1))
-		case strconv.OutOfRange as o:
-			let e = makeStdErr(prog, "strconv", "OutOfRange", []string{"Text"}, []uint32{TypeString}, []Val{AllocStrVal(&prog.Arena, TypeString, o.Text)})
+		}
+		if st == uint8(2) {
+			let e = makeStdErr(prog, "strconv", "OutOfRange", []string{"Text"}, []uint32{TypeString}, []Val{AllocStrVal(&prog.Arena, TypeString, s)})
 			return (UnitVal(), e, "", uint64(1))
 		}
 		return (MakeIntVal(prog.Types, TypeInt64, uint64(n)), UnitVal(), "", uint64(1))

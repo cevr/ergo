@@ -420,7 +420,17 @@ func EvalPackage(prog mut Program, pkgIdx uint32, budget Budget) Report {
 		}
 		let curBudget = Budget{Steps: remSteps, Depth: budget.Depth, Bytes: budget.Bytes, CaseLimit: budget.CaseLimit}
 		let (out, bh) = if fm.Kind == FnKindLaw && fm.ParamCount > uint32(0) {
-			runParameterizedLaw(prog, fnIdx, curBudget, uint64(0x5eed1234)+uint64(fnIdx))
+			let lv = RunPropertyTarget(prog, prog.Witnesses, prog.RefSpecs, fnIdx, DefaultLawRunConfig(curBudget, uint64(0x5eed1234)+uint64(fnIdx)))
+			let vt = if lv.Status == StatusPassed { "true" } else { "false" }
+			(Outcome{
+				Name:      fm.Name,
+				Kind:      "law",
+				Status:    lv.Status,
+				Reason:    lv.Reason,
+				Site:      lv.Site,
+				Steps:     lv.Steps,
+				ValueText: vt,
+			}, uint64(0))
 		} else {
 			runZeroArgTarget(prog, fnIdx, curBudget, true)
 		}
@@ -449,6 +459,114 @@ func EvalEntryFn(prog mut Program, pkgIdx uint32, fnName string, budget Budget) 
 			Site:      Site{File: "", Line: uint32(0), Col: uint32(0)},
 			Steps:     uint64(0),
 			ValueText: "",
+		}
+	}
+}
+
+// EvalPackageLaws runs all tests and laws in pkgIdx with deterministic planning, shrinking, and formatted verdicts.
+func EvalPackageLaws(prog mut Program, pkgIdx uint32, cfg LawRunConfig) ([]LawVerdict, uint64) {
+	let mut ordered = []uint32{}
+	for i, fm in prog.Fns {
+		if fm.Pkg == pkgIdx && fm.Kind == FnKindTest {
+			ordered = ordered.Append(uint32(i))
+		}
+	}
+	for i, fm in prog.Fns {
+		if fm.Pkg == pkgIdx && fm.Kind == FnKindLaw {
+			ordered = ordered.Append(uint32(i))
+		}
+	}
+	let mut out = slices.WithCapacity[LawVerdict](ordered.Len())
+	let mut totalSteps = uint64(0)
+	let mut stopped = false
+	for fnIdx in ordered {
+		let fm = prog.Fns[int(fnIdx)]
+		if stopped {
+			out = out.Append(LawVerdict{
+				Name:            if fm.Kind == FnKindLaw { "law " + fm.Name } else { fm.Name },
+				Title:           fm.Name,
+				Kind:            if fm.Kind == FnKindLaw { "law" } else { "test" },
+				Status:          StatusNotRun,
+				Reason:          "not run after earlier failure",
+				Message:         "not run after earlier failure",
+				Evidence:        "",
+				Form:            CaseFormNone,
+				CaseIdx:         uint32(0),
+				TotalCases:      uint32(0),
+				CasesRun:        uint32(0),
+				Seed:            cfg.Seed,
+				Arguments:       []LawArg{},
+				Drawn:           []LawArg{},
+				HasDrawn:        false,
+				ShrunkTape:      []uint64{},
+				StoredCaseHit:   false,
+				StoredStale:     false,
+				ExtraStaleCases: uint32(0),
+				Site:            Site{File: fm.FileName, Line: fm.Line, Col: fm.Col},
+				DeclSite:        Site{File: fm.FileName, Line: fm.Line, Col: fm.Col},
+				Steps:           uint64(0),
+				VerdictLine:     "",
+				Escaped:         false,
+				BodyFalse:       false,
+			})
+			continue
+		}
+		let remSteps = if cfg.Budget.Steps == uint64(0) {
+			uint64(0)
+		} else if cfg.Budget.Steps > totalSteps {
+			cfg.Budget.Steps - totalSteps
+		} else {
+			uint64(1)
+		}
+		let curCfg = LawRunConfig{
+			Budget:      Budget{Steps: remSteps, Depth: cfg.Budget.Depth, Bytes: cfg.Budget.Bytes, CaseLimit: cfg.Budget.CaseLimit},
+			Seed:        cfg.Seed,
+			Source:      cfg.Source,
+			CaseLimit:   cfg.CaseLimit,
+			RunAdmit:    cfg.RunAdmit,
+			RunRewrites: cfg.RunRewrites,
+			PruneCases:  cfg.PruneCases,
+		}
+		let lv = RunPropertyTarget(prog, prog.Witnesses, prog.RefSpecs, fnIdx, curCfg)
+		out = out.Append(lv)
+		totalSteps = totalSteps + lv.Steps
+		if lv.Status == StatusDefect || lv.Status == StatusIncomplete {
+			stopped = true
+		}
+	}
+	(out, totalSteps)
+}
+
+// EvalPackageLicences validates all rewrite laws in pkgIdx and returns LicenceVerdict records.
+func EvalPackageLicences(prog mut Program, pkgIdx uint32, budget Budget, seed uint64) []LicenceVerdict {
+	let mut out = []LicenceVerdict{}
+	for i, fm in prog.Fns {
+		if fm.Pkg != pkgIdx || fm.Kind != FnKindLaw {
+			continue
+		}
+		let (lidx, hasMeta) = FindLawMetaIndex(prog.Witnesses, uint32(i))
+		let isRw = fm.IsEqLaw || (hasMeta && prog.Witnesses.LawIsRewrite[int(lidx)])
+		if isRw {
+			out = out.Append(RunLicenceEq(prog, prog.Witnesses, prog.RefSpecs, uint32(i), budget, seed, []string{}))
+		}
+	}
+	out
+}
+
+// EvalFoldEntry evaluates named zero-argument pure function in compile-time fold mode.
+func EvalFoldEntry(prog mut Program, pkgIdx uint32, fnName string, budget Budget) FoldOutcome {
+	match prog.FnByKey.Get("\(pkgIdx):\(fnName)") {
+	case option.Some{Value: fnIdx}:
+		FoldValueFn(prog, fnIdx, []Val{}, budget)
+	case option.None:
+		FoldOutcome{
+			Ok:         false,
+			ConstId:    uint32(0),
+			ConstText:  "",
+			Reason:     "function \(fnName) not found",
+			OverBudget: false,
+			Steps:      uint64(0),
+			Pool:       NewConstPool(),
 		}
 	}
 }
