@@ -863,7 +863,6 @@ func carryDfsNode(st fnb, deps []expr.Dep, ctx scanCtx, pi int, f expr.Fn, body 
 	case syntax.CatchArm as x:
 		carryDfsList(st, deps, ctx, pi, f, body, paramPNodes, x.Body, litHere, out, memo, visiting)
 	case syntax.ContextLit as x:
-		carryDfsOpt(st, deps, ctx, pi, f, body, paramPNodes, x.Provides, litHere, out, memo, visiting)
 		carryDfsOpt(st, deps, ctx, pi, f, body, paramPNodes, x.Fails, litHere, out, memo, visiting)
 		carryDfsOpt(st, deps, ctx, pi, f, body, paramPNodes, x.Needs, litHere, out, memo, visiting)
 		carryDfsNode(st, deps, ctx, pi, f, body, paramPNodes, x.Body, litHere, out, memo, visiting)
