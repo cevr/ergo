@@ -13,13 +13,16 @@
 # stdGoShareCeiling, which only falls.
 
 actor	Actor	type
+actor	Ended	provider
 actor	Host	type
 actor	NewHost	provider
+actor	OnEnd	provider
 actor	Restarts	provider
 actor	Stopped	type
 actor	changesOf	provider
 actor	child	provider
 actor	defectOf	provider
+actor	exitDefect	provider
 actor	exitKind	provider
 actor	failure	provider
 actor	feed	provider
@@ -59,6 +62,15 @@ config	envKey	computation	LF2 and IR1: as an Ergo body it counted 1.126x the run
 config	envName	computation	LF2 and IR1: as an Ergo body it counted 1.225x the runtime/v1 body (NP4f-7 receipt-2): std strings.Join clones its slice argument (LF2's appender and reads facts), and the per-part slices and Builder writes go through runtime/v1 calls the IR does not inline
 config	flagKey	computation	LF2 and IR1: as an Ergo body it counted 1.197x the runtime/v1 body (NP4f-7 receipt-2): std strings.Join clones its slice argument (LF2's appender and reads facts), and the per-part slices and Builder writes go through runtime/v1 calls the IR does not inline
 config	flagName	computation	LF2 and IR1: as an Ergo body it counted 1.281x the runtime/v1 body (NP4f-7 receipt-2): std strings.Join clones its slice argument (LF2's appender and reads facts), and the per-part slices and Builder writes go through runtime/v1 calls the IR does not inline
+core	mapClone	language	NO-PRELUDE: Map.Clone moved from prelude/builtin.ergo into std/core
+core	mapGet	language	NO-PRELUDE: map lookup moved from prelude/builtin.ergo into std/core
+core	mapPut	language	NO-PRELUDE: map update moved from prelude/builtin.ergo into std/core
+core	mapTake	language	NO-PRELUDE: map delete/take moved from prelude/builtin.ergo into std/core
+core	reserveSlice	language	NO-PRELUDE: slice reserve moved from prelude/builtin.ergo into std/core
+core	sliceConcat	language	NO-PRELUDE: slice concat moved from prelude/builtin.ergo into std/core
+core	sliceRepeat	language	NO-PRELUDE: slice repeat moved from prelude/builtin.ergo into std/core
+core	sliceTakeAt	language	NO-PRELUDE: slice TakeAt moved from prelude/builtin.ergo into std/core
+core	sliceWindow	language	NO-PRELUDE: slice window moved from prelude/builtin.ergo into std/core
 csv	Format	library	not tried in NP4f-5: Go's csv.Writer writes to an io.Writer (strings.Builder through import go), a GB2 binding not probed
 csv	ParseError	type
 csv	Position	type
@@ -124,6 +136,7 @@ fs	Mapped	type
 fs	NotFound	type
 fs	NotRegular	type
 fs	OpenRoot	library	a scoped resource: the body acquires Go's *os.Root into the caller's Scope with its release route (rt.AcquireInto), the runtime's provider boundary, plus HOST-ROW for os.OpenRoot
+fs	OpenTestRoot	host
 fs	Text	type
 fs	TooLarge	type
 fs	confine	provider
@@ -161,6 +174,8 @@ hex	Decode	library	LF2b (FK2): the string is copied for DecodeString and the res
 hex	Encode	library	LF2b (FK2): the string's bytes are copied for EncodeToString (strings.Bytes), 1.038x the body; a view of a string as []byte removes the copy
 hex	Malformed	type
 hmac	Equal	library	I22-B22CLASS: crypto/hmac.Equal through import go (batch-22 extern, first class by I22; lane B confirms)
+hmac	keyState	library	CRYPTO-HMAC: precomputed HMAC inner/outer block state in runtime/v1/digest
+hmac	keyedSum	library	CRYPTO-HMAC: precomputed HMAC digest computation in runtime/v1/digest
 hmac	sum1	library	I22-B22CLASS: crypto/hmac with sha1 through import go (batch-22 extern, first class by I22; lane B confirms)
 hmac	sum256	library	I22-B22CLASS: crypto/hmac with sha256 through import go (batch-22 extern, first class by I22; lane B confirms)
 hmac	sum512	library	I22-B22CLASS: crypto/hmac with sha512 through import go (batch-22 extern, first class by I22; lane B confirms)
@@ -170,6 +185,7 @@ host	hostZone	host
 http	BadEscape	type
 http	BodyFile	type
 http	DecodePath	computation	NP4f-7
+http	Denied	type
 http	Exchange	type
 http	Field	type
 http	IntoFile	library	GB3, GB4 and HOST-ROW, as fetch; it writes through fs.HostRoot (GBX1b)
@@ -212,10 +228,14 @@ json	appendInt	library	FK2 appender fact: a []byte argument to import go's appen
 json	appendQuoted	computation	NP4f-7
 json	appendQuotedBytes	computation	I22-B22CLASS: JSON quoting of bytes as Ergo source (batch-22 extern, first class by I22; lane B confirms)
 json	appendUint	library	FK2 appender fact: a []byte argument to import go's appender is cloned in and its result cloned out (strconv.AppendInt(slices.Clone(out), …), probe NP4f-5); the body appends in place
+json	isNumber	computation	JSON-CHECK: numeric grammar predicate in runtime/v1
 json	open	computation	NP4f-8
+json	openChecked	computation	JSON-CHECK: size/depth-bounded JSON cursor scanner in runtime/v1
+json	settleText	computation	JSON-CHECK: eager JSON cursor validation in runtime/v1
 log	contextBound	provider
 log	contextPairs	provider
 log	contextValue	provider
+log	wideGet	provider
 machines	firingOff	provider
 machines	firingOn	provider
 machines	notPositive	computation	RTF3: the defect is the runtime's MachineTimerDefect value, which the scheduler reads; an Ergo body raises no runtime type
@@ -243,6 +263,7 @@ net	hostDial	host
 net	hostDialUnix	host
 net	hostListen	host
 net	hostListenUnix	host
+net	loopbackAddress	computation	NET-LOOPBACK: IP loopback classification in runtime/v1/net
 nettest	PipeNet	type
 nettest	newPipeNet	provider
 os	Code	type
@@ -263,8 +284,10 @@ prelude	AlarmClock	type
 prelude	InForce	provider
 prelude	Sleep	provider
 prelude	Task	type
+prelude	TestDirectory	type
 prelude	Unreachable	provider
 prelude	hostAlarms	provider
+prelude	startLawTask	provider
 process	StartFailed	type
 process	childLine	type
 process	childProc	type
@@ -314,6 +337,18 @@ slices	Reverse	computation	OWN1: the owned in-place form (//ergo:owned SlicesRev
 slices	Sort	library	GBX2-OWN: through import go, Sort is slices.Clone then Go's Sort, and a caller whose argument is dead still pays the clone, where this body's owned form SlicesSortOwned sorts in place: 1.119x on a dead argument (0.990x on a kept one; NP4f-9 receipt-1)
 slices	SortFunc	library	GB-CALLBACK: the Ergo compare crosses to Go as an adapter closure around func(*Env, T, T) (int, error), one more indirect call per comparison: 1.350x (NP4f-9 receipt-1)
 slices	SortStableFunc	library	GB-CALLBACK: the Ergo compare crosses to Go as an adapter closure around func(*Env, T, T) (int, error), one more indirect call per comparison: 1.277x (NP4f-9 receipt-1)
+sql	hostArg	type
+sql	hostBegin	host
+sql	hostCommit	host
+sql	hostExec	host
+sql	hostFailure	type
+sql	hostOpen	host
+sql	hostQuery	host
+sql	hostResult	type
+sql	hostRollback	host
+sql	hostTxExec	host
+sql	hostTxQuery	host
+sql	pool	type
 strconv	AppendFloat	library	FK2 appender fact: a []byte argument to import go's appender is cloned in and its result cloned out (strconv.AppendInt(slices.Clone(out), …), probe NP4f-5); the body appends in place
 strconv	AppendInt	library	FK2 appender fact: a []byte argument to import go's appender is cloned in and its result cloned out (strconv.AppendInt(slices.Clone(out), …), probe NP4f-5); the body appends in place
 strconv	AppendUint	library	FK2 appender fact: a []byte argument to import go's appender is cloned in and its result cloned out (strconv.AppendInt(slices.Clone(out), …), probe NP4f-5); the body appends in place
@@ -331,8 +366,13 @@ sync	Modify	provider
 sync	NewRef	provider
 sync	Ref	type
 task	Alarm	type
+task	Defect	type
 task	Go	provider
+task	LimitSteps	provider
 task	StopAfter	provider
+task	defectAs	provider
+task	defectHas	provider
+task	exitDefect	provider
 task	exitOf	provider
 task	exitReason	provider
 task	exitValue	provider
@@ -341,7 +381,8 @@ tasks	Go	provider
 tasks	Race	provider
 tasks	Set	type
 tasks	Transform	provider
-tasks	newSet	provider
+tasks	newSetPolicy	provider
+tasks	newSupervisedSet	provider
 term	NotTerminal	type
 term	Window	type
 term	hostDrop	host
@@ -358,6 +399,7 @@ testing	Unanswered	provider
 testing	allocsPerRun	provider
 testing	newLine	provider
 testing	newOp	provider
+testing	recordCaseEvidence	provider
 time	Count	computation	IR1 inline: as an Ergo body it counted 1.200x the runtime/v1 body (NP4f-7 receipt-2): the same instructions, but an IR-compiled body is not inlined into its caller, and Go inlines the runtime/v1 body
 time	Divide	computation	IR1 inline: as an Ergo body it counted 2.000x the runtime/v1 body (NP4f-7 receipt-2): the same instructions, but an IR-compiled body is not inlined into its caller, and Go inlines the runtime/v1 body
 time	DurationISO	computation	I22-B22CLASS: ISO 8601 duration text as Ergo source (batch-22 extern, first class by I22; lane B confirms)
@@ -386,8 +428,12 @@ toml	Malformed	type
 toml	Unrepresentable	type
 toml	fromJSON	computation	NP4f-9
 toml	parse	computation	NP4f-9
+totp	hotpNumber	library	CRYPTO-TOTP: HOTP HMAC-SHA1 truncation in runtime/v1/digest
+totp	keyState	library	CRYPTO-TOTP: TOTP padded key block state in runtime/v1/digest
 trace	contextBound	provider
 trace	contextValue	provider
+trace	wideGet	provider
+trace	widePush	provider
 tz	ianaNames	provider
 tz	ianaZone	provider
 ui	GroupArgs	type

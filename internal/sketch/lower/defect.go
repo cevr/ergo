@@ -54,3 +54,8 @@ func (fc *funcCtx) unreachableValue(x *syntax.CallExpr) operand {
 	args := fc.unreachableArgs(x)
 	return operand{val: fc.atSite(x, x.Pos(), fc.l.rt()+".Never["+fc.goType(t)+"]("+args+")")}
 }
+
+// dieStmt writes `die <expr>` as a Go panic matching ir_defect.go:dieStmt.
+func (fc *funcCtx) dieStmt(s *syntax.DieStmt) {
+	fc.line("panic(" + fc.atSite(s, s.Pos(), fc.l.rt()+".DieAt(any("+fc.value(s.X)+"), "+strconv.Quote(fc.l.siteText(s))+")") + ")")
+}
