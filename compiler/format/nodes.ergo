@@ -419,15 +419,6 @@ func signature(p mut Printer, ft dense.ID[syntax.Node]) {
 		p.space()
 		p.needsClause(the(x.Needs))
 	}
-	if some(x.Takes) {
-		let tk = syntax.TakesClauseOf(p.P.Tree, the(x.Takes))
-		p.space()
-		p.token(p.tp(tk.Takes), "takes")
-		if syntax.Len(tk.Names) > 0 {
-			p.space()
-			p.identList(tk.Names, true)
-		}
-	}
 	if x.Defects >= 0 {
 		p.space()
 		p.token(p.tp(x.Defects), "defects")
@@ -1528,10 +1519,6 @@ func call(p mut Printer, x dense.ID[syntax.Node], depth int) {
 
 func funcType(p mut Printer, t dense.ID[syntax.Node]) {
 	let f = syntax.FuncTypeOf(p.P.Tree, t)
-	if f.Escaping >= 0 {
-		p.token(p.tp(f.Escaping), "escaping")
-		p.space()
-	}
 	if f.Entry >= 0 {
 		p.token(p.tp(f.Entry), "entry")
 		p.space()

@@ -113,8 +113,6 @@ func Inspect(n Node, f func(Node) bool) {
 		walk(n.Type, n.Key, n.Where)
 	case *FieldList:
 		fields(n)
-	case *TakesClause:
-		// The names refer to the signature's parameters: not visited.
 	case *NeedsClause:
 		exprs(n.Names)
 	case *ProvidesClause:
@@ -169,7 +167,7 @@ func Inspect(n Node, f func(Node) bool) {
 			walk(n.Hashing)
 		}
 	case *FuncType:
-		walk(n.TypeParams, n.Params, n.Results, n.Needs, n.Takes)
+		walk(n.TypeParams, n.Params, n.Results, n.Needs)
 		for _, fc := range n.Facts {
 			walk(fc)
 		}
@@ -249,8 +247,6 @@ func isNilNode(n Node) bool {
 	case *BasicLit:
 		return n == nil
 	case *FieldList:
-		return n == nil
-	case *TakesClause:
 		return n == nil
 	case *NeedsClause:
 		return n == nil

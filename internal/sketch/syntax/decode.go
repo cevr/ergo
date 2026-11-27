@@ -469,8 +469,6 @@ func (d *rowDecoder) node(r uint32) Node {
 		return &FieldList{Opening: d.opos(d.fixed(r, 2, 0)), List: list[*Field](d, r, 0, d.items(r, 2)), Closing: d.opos(d.fixed(r, 2, 1))}
 	case kNeedsClause:
 		return &NeedsClause{Needs: d.pos(t), Names: list[Expr](d, r, 0, d.items(r, 0))}
-	case kTakesClause:
-		return &TakesClause{Takes: d.pos(t), Names: list[*Ident](d, r, 0, d.items(r, 0))}
 	case kProvidesClause:
 		return &ProvidesClause{Provides: d.pos(t), Names: list[Expr](d, r, 0, d.items(r, 0))}
 	case kFactClause:
@@ -546,7 +544,7 @@ func (d *rowDecoder) node(r uint32) Node {
 		if d.layout == PreviousColumnsVersion {
 			w = 8
 		}
-		x := &FuncType{Escaping: d.opos(d.fixed(r, w, 0)), EntryPos: d.zpos(d.fixed(r, w, 1)), Func: d.opos(d.fixed(r, w, 2)), Params: one[*FieldList](d, d.fixed(r, w, 3)), Results: opt[*FieldList](d, d.fixed(r, w, 4)), Needs: opt[*NeedsClause](d, d.fixed(r, w, 5)), Takes: opt[*TakesClause](d, d.fixed(r, w, 6))}
+		x := &FuncType{EntryPos: d.zpos(d.fixed(r, w, 1)), Func: d.opos(d.fixed(r, w, 2)), Params: one[*FieldList](d, d.fixed(r, w, 3)), Results: opt[*FieldList](d, d.fixed(r, w, 4)), Needs: opt[*NeedsClause](d, d.fixed(r, w, 5))}
 		x.Entry = d.fixed(r, w, 1) != 0
 		x.Defects = d.fixed(r, w, 7) != 0
 		x.DefectsPos = d.zpos(d.fixed(r, w, 7))
@@ -738,7 +736,6 @@ const (
 	kField              = 15
 	kFieldList          = 16
 	kNeedsClause        = 17
-	kTakesClause        = 18
 	kProvidesClause     = 19
 	kMachineEntry       = 20
 	kCatchArm           = 21

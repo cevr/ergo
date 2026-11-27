@@ -287,14 +287,12 @@ func ArrayTypeOf(t Tree, id dense.ID[Node]) ArrayType {
 func FuncTypeOf(t Tree, id dense.ID[Node]) FuncType {
 	let i = uint32(dense.Index(id))
 	FuncType{
-		Escaping:   otok(fixed(t, i, 9, 0)),
 		Entry:      otok(fixed(t, i, 9, 1)),
 		Func:       otok(fixed(t, i, 9, 2)),
 		TypeParams: onid(t, fixed(t, i, 9, 8)),
 		Params:     nid(t, fixed(t, i, 9, 3)),
 		Results:    onid(t, fixed(t, i, 9, 4)),
 		Needs:      onid(t, fixed(t, i, 9, 5)),
-		Takes:      onid(t, fixed(t, i, 9, 6)),
 		Defects:    otok(fixed(t, i, 9, 7)),
 		Facts:      listAt(t, i, 0, items(t, i, 9)),
 	}
@@ -384,13 +382,6 @@ func NeedsClauseOf(t Tree, id dense.ID[Node]) NeedsClause {
 	let i = uint32(dense.Index(id))
 	let tok = t.tok[int(i)]
 	NeedsClause{Needs: int(tok), Names: listAt(t, i, 0, items(t, i, 0))}
-}
-
-// TakesClauseOf reads a row of kind KTakesClause.
-func TakesClauseOf(t Tree, id dense.ID[Node]) TakesClause {
-	let i = uint32(dense.Index(id))
-	let tok = t.tok[int(i)]
-	TakesClause{Takes: int(tok), Names: listAt(t, i, 0, items(t, i, 0))}
 }
 
 // ProvidesClauseOf reads a row of kind KProvidesClause.

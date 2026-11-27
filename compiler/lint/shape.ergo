@@ -516,7 +516,6 @@ func shapeNode(
 		shapeChildNode(ctx, b, localGen, localOrd, isDef, ft.Params)
 		shapeOptNode(ctx, b, localGen, localOrd, isDef, ft.Results)
 		shapeOptNode(ctx, b, localGen, localOrd, isDef, ft.Needs)
-		shapeOptNode(ctx, b, localGen, localOrd, isDef, ft.Takes)
 		shapeListNodes(ctx, b, localGen, localOrd, isDef, ft.Facts)
 		sbWrite(b, ")")
 		return
@@ -583,10 +582,6 @@ func shapeNode(
 		sbWrite(b, "(ErrorRow")
 		shapeListNodes(ctx, b, localGen, localOrd, isDef, er.Types)
 		sbWrite(b, ")")
-		return
-	}
-	if k == syntax.KTakesClause {
-		sbWrite(b, "(TakesClause)")
 		return
 	}
 	if k == syntax.KFactClause {

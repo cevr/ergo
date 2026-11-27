@@ -215,9 +215,6 @@ func (d *dumper) node(depth int, n Node) {
 	case *NeedsClause:
 		d.line(depth, "NeedsClause %s Needs=%d", at, x.Needs)
 		d.list(c, exprs(x.Names))
-	case *TakesClause:
-		d.line(depth, "TakesClause %s Takes=%d", at, x.Takes)
-		d.list(c, idents(x.Names))
 	case *ProvidesClause:
 		d.line(depth, "ProvidesClause %s Provides=%d", at, x.Provides)
 		d.list(c, exprs(x.Names))
@@ -339,12 +336,11 @@ func (d *dumper) node(depth int, n Node) {
 		if x.Defects {
 			defects = x.DefectsPos
 		}
-		d.line(depth, "FuncType %s Escaping=%d Entry=%d Func=%d Defects=%d", at, x.Escaping, entry, x.Func, defects)
+		d.line(depth, "FuncType %s Entry=%d Func=%d Defects=%d", at, entry, x.Func, defects)
 		d.node(c, x.TypeParams)
 		d.node(c, x.Params)
 		d.node(c, x.Results)
 		d.node(c, x.Needs)
-		d.node(c, x.Takes)
 		d.list(c, exprs(x.Facts))
 	case *StructType:
 		d.line(depth, "StructType %s", at)

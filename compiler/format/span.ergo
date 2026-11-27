@@ -25,7 +25,7 @@ let tokens = []string{
 	"",
 	"break", "case", "continue", "else", "for", "func", "if", "import", "return", "type",
 	"try", "catch", "needs", "provides", "context", "machine", "let", "mut", "in", "match",
-	"escaping", "fails", "test", "law", "assert", "extern", "with", "takes", "as",
+	"", "fails", "test", "law", "assert", "extern", "with", "", "as",
 	"",
 	"",
 	"chan", "const", "default", "defer", "fallthrough", "go", "goto", "interface", "map", "package",
@@ -60,7 +60,7 @@ func forcesBreak(p mut Printer, id dense.ID[syntax.Node]) bool {
 	if k == syntax.KBlockStmt && syntax.Len(syntax.BlockStmtOf(p.P.Tree, id).List) > 1 {
 		return true
 	}
-	if k == syntax.KIdent || k == syntax.KBasicLit || k == syntax.KTakesClause {
+	if k == syntax.KIdent || k == syntax.KBasicLit {
 		return false
 	}
 	let start = p.ForceStack.Len()

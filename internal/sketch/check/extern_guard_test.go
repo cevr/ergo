@@ -129,8 +129,8 @@ var externPlaceRows = map[string]externPlaceRow{
 	"TypeDecl.Implements":  {guardType, "type T {} implements @Upper\n"},
 	// A where reads only its subject and literals (refine.go): an extern
 	// there is its one S108, as a name in a type position is.
-	"TypeDecl.Where": {guardType, "type T int where @Upper > 0\n"},
-	"Field.Where":    {guardType, "law L(x int where @Upper > 0) { true }\n"},
+	"TypeDecl.Where":  {guardType, "type T int where @Upper > 0\n"},
+	"Field.Where":     {guardType, "law L(x int where @Upper > 0) { true }\n"},
 	"FactClause.Cond": {guardType, "func f() given @Upper {}\n"},
 	"FactClause.When": {guardType, "func f() keeps x when @Upper {}\n"},
 	// A derive's plan is built from constants (patterns.md, Derivation 2).
@@ -157,7 +157,6 @@ var externPlaceRows = map[string]externPlaceRow{
 	"Field.Key":                {guardBinder, "type R { Field string \"@Upper\" }\n"},
 	"FuncDecl.Name":            {guardBinder, "extern go strings.ToUpper func @Upper(s string) string\n"},
 	"ImportSpec.Name":          {guardBinder, "import go @Upper strings\n"},
-	"TakesClause.Names":        {guardBinder, "func f(Upper int) takes @Upper {}\n"},
 	"ImportSpec.Path":          {guardBinder, "import @Upper\n"},
 	"InterpolatedString.Texts": {guardBinder, "func main() {\n\t_ = \"@Upper \\(1)\"\n}\n"},
 	"LawDecl.Name":             {guardBinder, "type C {\n\tGet() int,\n\n\tlaw @Upper(v int) {\n\t\tGet() == v\n\t},\n}\n"},

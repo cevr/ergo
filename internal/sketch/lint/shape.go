@@ -410,9 +410,6 @@ func (s *shaper) node(n syntax.Node) {
 		if x.Needs != nil {
 			s.child(x.Needs)
 		}
-		if x.Takes != nil {
-			s.child(x.Takes)
-		}
 		for _, fc := range x.Facts {
 			s.child(fc)
 		}
@@ -473,8 +470,6 @@ func (s *shaper) node(n syntax.Node) {
 		s.b.WriteString("(ErrorRow")
 		s.childExprs(x.Types)
 		s.b.putByte(')')
-	case *syntax.TakesClause:
-		s.b.WriteString("(TakesClause)")
 	case *syntax.FactClause:
 		s.b.WriteString("(FactClause Kind=")
 		s.writeInt(int64(x.Kind))

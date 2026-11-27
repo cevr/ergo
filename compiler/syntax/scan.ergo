@@ -129,11 +129,11 @@ law SemiMasksAreTheRule(n int) {
 
 let semiLo uint64 = 0x470000c0000013f8
 
-let semiHi uint64 = 0x2000041
+let semiHi uint64 = 0x41
 
 // semiRule is the rule semiAfter reads from its masks (SemiMasksAreTheRule).
 func semiRule(kind uint8) bool {
-	(kind >= Ident && kind <= Path) || kind == StringTail || kind == RParen || kind == RBrack || kind == RBrace || kind == Inc || kind == Dec || kind == Return || kind == Break || kind == Continue || kind == Takes
+	(kind >= Ident && kind <= Path) || kind == StringTail || kind == RParen || kind == RBrack || kind == RBrace || kind == Inc || kind == Dec || kind == Return || kind == Break || kind == Continue
 }
 
 // emit appends a token and moves the semicolon rule and the word contexts

@@ -61,7 +61,7 @@ func asWrittenShape(p syntax.Parsed, fd syntax.FuncDecl) bool {
 	}
 	match syntax.ViewOf(p.Tree, fd.Type) {
 	case syntax.FuncType as ft:
-		if has(ft.Needs) || has(ft.Takes) {
+		if has(ft.Needs) {
 			return false
 		}
 		match dense.Unpack(ft.Results) {

@@ -482,13 +482,10 @@ func (u *NeedsClause) Pos() Pos { return u.Needs }
 func (u *NeedsClause) End() Pos { return u.Names[len(u.Names)-1].End() }
 
 // WritesTakes reports whether the signature t writes which parameters it
-// takes: a takes clause, or the mode word own on a parameter that is not
-// written as a function type (own on a function type keeps the function,
-// as escaping does, and takes nothing; q168).
+// takes: the mode word own on a parameter that is not written as a
+// function type (own on a function type keeps the function and takes
+// nothing; q168).
 func WritesTakes(t *FuncType) bool {
-	if t.Takes != nil {
-		return true
-	}
 	if t.Params != nil {
 		for _, f := range t.Params.List {
 			if _, fn := unparenType(f.Type).(*FuncType); f.Own != nil && !fn {
@@ -508,24 +505,6 @@ func unparenType(x Expr) Expr {
 		}
 		x = p.X
 	}
-}
-
-// TakesClause is `takes a, b` after a signature's rows (resource ownership, resources.md
-// R19): the parameters the call hands off. Names is empty for a bare
-// `takes` in an operation type, which names the value the operation is
-// called on. The names are binders' references, not expressions: Inspect
-// does not visit them.
-type TakesClause struct {
-	Takes Pos
-	Names []*Ident
-}
-
-func (u *TakesClause) Pos() Pos { return u.Takes }
-func (u *TakesClause) End() Pos {
-	if len(u.Names) == 0 {
-		return u.Takes + Pos(len("takes"))
-	}
-	return u.Names[len(u.Names)-1].End()
 }
 
 // ProvidesClause is a context's exposure: `provides A | B`, the same kind of
@@ -744,10 +723,8 @@ type (
 
 	// FuncType is a signature. Func is NoPos in a declaration or method.
 	// Results is nil without results; otherwise it holds the result type
-	// and, after it, the failures as one Field of type *ErrorRow. Escaping
-	// is the position of `escaping`, or NoPos.
+	// and, after it, the failures as one Field of type *ErrorRow.
 	FuncType struct {
-		Escaping Pos
 		// Entry marks `entry func(…)`, the type of an entry's send
 		// (grammar.md, Types; runtime.md, Machines and actors 14), written
 		// at EntryPos. EntryPos means nothing without Entry, so a FuncType
@@ -763,7 +740,6 @@ type (
 		Params     *FieldList
 		Results    *FieldList
 		Needs      *NeedsClause
-		Takes      *TakesClause
 		// Defects marks a function signature written with `defects`
 		// (NO-UNREACHABLE §3), at DefectsPos. DefectsPos means nothing
 		// without Defects, so a zero-value FuncType has no clause.
@@ -947,8 +923,6 @@ func (x *MapType) End() Pos {
 }
 func (x *FuncType) Pos() Pos {
 	switch {
-	case x.Escaping.IsValid():
-		return x.Escaping
 	case x.Entry:
 		return x.EntryPos
 	case x.Func.IsValid():
@@ -964,8 +938,6 @@ func (x *FuncType) End() Pos {
 		return x.Facts[len(x.Facts)-1].End()
 	case x.Defects:
 		return x.DefectsPos + Pos(len("defects"))
-	case x.Takes != nil:
-		return x.Takes.End()
 	case x.Needs != nil:
 		return x.Needs.End()
 	case x.Results != nil:

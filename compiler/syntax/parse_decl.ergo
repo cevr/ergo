@@ -693,7 +693,7 @@ func parseFieldDecl(p mut parser, doc uint32) uint32 {
 }
 
 func groupsName(k uint8) bool {
-	k == Comma || k == Ident || k == LBrack || k == Mul || k == Func || k == Escaping || k == LParen || k == Go
+	k == Comma || k == Ident || k == LBrack || k == Mul || k == Func || k == LParen || k == Go
 }
 
 // parseMembersType parses the braced body of `type T { … }`: a record of

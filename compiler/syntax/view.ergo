@@ -89,7 +89,6 @@ type View =
 	}
 	| FieldList{Opening int, List List, Closing int}
 	| NeedsClause{Needs int, Names List}
-	| TakesClause{Takes int, Names List}
 	| ProvidesClause{Provides int, Names List}
 	| FactClause{Kind int, Word int, Cond dense.ID[Node], WhenPos int, When dense.Opt[Node]}
 	| MachineEntry{Doc int, Name int, Value dense.ID[Node]}
@@ -115,14 +114,12 @@ type View =
 	| ArrayType{Lbrack int, Len int, Elt dense.ID[Node]}
 	| MapType{X dense.ID[Node], Lbrack int, Key dense.ID[Node], Value dense.ID[Node], Hashing dense.Opt[Node], Rbrack int}
 	| FuncType{
-		Escaping   int,
 		Entry      int,
 		Func       int,
 		TypeParams dense.Opt[Node],
 		Params     dense.ID[Node],
 		Results    dense.Opt[Node],
 		Needs      dense.Opt[Node],
-		Takes      dense.Opt[Node],
 		Defects    int,
 		Facts      List,
 	}
@@ -352,9 +349,6 @@ func ViewOf(t Tree, id dense.ID[Node]) View {
 	if k == KNeedsClause {
 		return NeedsClauseOf(t, id)
 	}
-	if k == KTakesClause {
-		return TakesClauseOf(t, id)
-	}
 	if k == KProvidesClause {
 		return ProvidesClauseOf(t, id)
 	}
@@ -459,9 +453,6 @@ func Put(t mut Tree, v View) dense.ID[Node] {
 	case NeedsClause as x:
 		pushList(t, x.Names)
 		rec(t, KNeedsClause, uint32(x.Needs), m)
-	case TakesClause as x:
-		pushList(t, x.Names)
-		rec(t, KTakesClause, uint32(x.Takes), m)
 	case ProvidesClause as x:
 		pushList(t, x.Names)
 		rec(t, KProvidesClause, uint32(x.Provides), m)
@@ -527,7 +518,7 @@ func Put(t mut Tree, v View) dense.ID[Node] {
 		mkIndex(t, m, KMapType, wid(x.X), x.Lbrack, x.Rbrack)
 	case FuncType as x:
 		pushList(t, x.Facts)
-		mkFuncType(t, m, wtok(x.Escaping), wtok(x.Entry), wtok(x.Func), wid(x.Params), wopt(x.Results), wopt(x.Needs), wopt(x.Takes), wtok(x.Defects), wopt(x.TypeParams))
+		mkFuncType(t, m, wtok(x.Entry), wtok(x.Func), wid(x.Params), wopt(x.Results), wopt(x.Needs), wtok(x.Defects), wopt(x.TypeParams))
 	case StructType as x:
 		row(t, KStructType, uint32(0), wid(x.Fields), uint32(0))
 	case InterfaceType as x:
@@ -778,14 +769,14 @@ func mkContextLit(t mut Tree, m int, contextW int, providesW uint32, failsW uint
 	rec(t, KContextLit, uint32(contextW), m)
 }
 
-func mkFuncType(t mut Tree, m int, escapingW uint32, entryW uint32, fn uint32, params uint32, results uint32, needsW uint32, takesW uint32, defectsW uint32, tpsW uint32) uint32 {
-	pushW(t, escapingW)
+func mkFuncType(t mut Tree, m int, entryW uint32, fn uint32, params uint32, results uint32, needsW uint32, defectsW uint32, tpsW uint32) uint32 {
+	pushW(t, none)
 	pushW(t, entryW)
 	pushW(t, fn)
 	pushW(t, params)
 	pushW(t, results)
 	pushW(t, needsW)
-	pushW(t, takesW)
+	pushW(t, none)
 	pushW(t, defectsW)
 	pushW(t, tpsW)
 	rec(t, KFuncType, uint32(0), m)

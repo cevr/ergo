@@ -1206,7 +1206,7 @@ func RefinedParse(s mut store.Store, e Env, base dense.ID[syntax.Node], name str
 
 // paramType is the type of a parameter field whose type is written as x
 // and resolves to r (writtenParamType): a function type written without
-// escaping or own is non-escaping, unmarked, or an entry's send when
+// own is non-escaping, unmarked, or an entry's send when
 // written entry; any other function type, an alias's included, is marked
 // own. A named function type and a type that is no function type are
 // unmarked.
@@ -1217,7 +1217,7 @@ func paramType(s mut store.Store, e Env, fd syntax.Field, x dense.ID[syntax.Node
 	let ux = unparen(e.p, x)
 	if syntax.KindOf(e.p.Tree, ux) == syntax.KFuncType {
 		let pf = syntax.FuncTypeOf(e.p.Tree, ux)
-		if pf.Escaping < 0 && fd.Own < 0 {
+		if fd.Own < 0 {
 			return if pf.Entry >= 0 { store.TEntry(s, r) } else { r }
 		}
 	}

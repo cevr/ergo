@@ -160,7 +160,6 @@ var MalformedTable = []Malformed{
 	{Name: "interpolation-multi-line-comment", Src: "let s = \"x \\(a /* c\nd */)\"\n", Lines: []int{1}},
 	{Name: "func-type-value", Src: "let x = func(int) int\n", Lines: []int{1}},
 	{Name: "func-type-argument", Src: "func main() {\n\trun(func() int)\n}\n", Lines: []int{2}},
-	{Name: "escaping-func-type-value", Src: "let x = escaping func()\n", Lines: []int{1}},
 	{Name: "slice-type-value", Src: "let x = []int\n", Lines: []int{1}},
 	{Name: "slice-type-argument", Src: "func main() {\n\trun([]int)\n}\n", Lines: []int{2}},
 	{Name: "slice-type-conversion", Src: "let x = []byte(s)\n", Lines: []int{1}},

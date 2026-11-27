@@ -168,7 +168,6 @@ func malformedSyntaxTable() []Malformed {
 		Malformed{Name: "interpolation-multi-line-comment", Src: "let s = \"x \\(a /* c\nd */)\"\n", RepeatParens: 0, Code: "", Lines: []int{1}, Habit: ""},
 		Malformed{Name: "func-type-value", Src: "let x = func(int) int\n", RepeatParens: 0, Code: "", Lines: []int{1}, Habit: ""},
 		Malformed{Name: "func-type-argument", Src: "func main() {\n\trun(func() int)\n}\n", RepeatParens: 0, Code: "", Lines: []int{2}, Habit: ""},
-		Malformed{Name: "escaping-func-type-value", Src: "let x = escaping func()\n", RepeatParens: 0, Code: "", Lines: []int{1}, Habit: ""},
 		Malformed{Name: "slice-type-value", Src: "let x = []int\n", RepeatParens: 0, Code: "", Lines: []int{1}, Habit: ""},
 		Malformed{Name: "slice-type-argument", Src: "func main() {\n\trun([]int)\n}\n", RepeatParens: 0, Code: "", Lines: []int{2}, Habit: ""},
 		Malformed{Name: "slice-type-conversion", Src: "let x = []byte(s)\n", RepeatParens: 0, Code: "", Lines: []int{1}, Habit: ""},

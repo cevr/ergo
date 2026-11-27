@@ -555,7 +555,6 @@ func (e *encoder) encPtrFuncLit(v *FuncLit) {
 }
 
 func (e *encoder) encFieldsFuncType(v *FuncType) {
-	e.encPos(v.Escaping)
 	e.encT4(v.Entry)
 	e.encPos(v.EntryPos)
 	e.encPos(v.Func)
@@ -563,7 +562,6 @@ func (e *encoder) encFieldsFuncType(v *FuncType) {
 	e.encPtrFieldList(v.Params)
 	e.encPtrFieldList(v.Results)
 	e.encPtrNeedsClause(v.Needs)
-	e.encPtrTakesClause(v.Takes)
 	e.encT4(v.Defects)
 	e.encPos(v.DefectsPos)
 	e.encT13(v.Facts)
@@ -1045,21 +1043,6 @@ func (e *encoder) encFieldsSwitchStmt(v *SwitchStmt) {
 func (e *encoder) encSwitchStmt(v SwitchStmt) { e.encFieldsSwitchStmt(&v) }
 
 func (e *encoder) encPtrSwitchStmt(v *SwitchStmt) {
-	if v == nil {
-		e.uint(0)
-		return
-	}
-	e.uint(e.id(v))
-}
-
-func (e *encoder) encFieldsTakesClause(v *TakesClause) {
-	e.encPos(v.Takes)
-	e.encT8(v.Names)
-}
-
-func (e *encoder) encTakesClause(v TakesClause) { e.encFieldsTakesClause(&v) }
-
-func (e *encoder) encPtrTakesClause(v *TakesClause) {
 	if v == nil {
 		e.uint(0)
 		return
@@ -1701,32 +1684,30 @@ func objTag(x any) uint64 {
 		return 61
 	case *SwitchStmt:
 		return 62
-	case *TakesClause:
-		return 63
 	case *TestDecl:
-		return 64
+		return 63
 	case *TryExpr:
-		return 65
+		return 64
 	case *TupleExpr:
-		return 66
+		return 65
 	case *TypeDecl:
-		return 67
+		return 66
 	case *TypeGuard:
-		return 68
+		return 67
 	case *TypeSwitchStmt:
-		return 69
+		return 68
 	case *TypeTerm:
-		return 70
+		return 69
 	case *UnaryExpr:
-		return 71
+		return 70
 	case *VarDecl:
-		return 72
+		return 71
 	case *VarSpec:
-		return 73
+		return 72
 	case *VariantSpec:
-		return 74
+		return 73
 	case *Word:
-		return 75
+		return 74
 	}
 	return 0
 }
@@ -1858,8 +1839,6 @@ func (e *encoder) encObj(x any) {
 		e.encFieldsStructType(x)
 	case *SwitchStmt:
 		e.encFieldsSwitchStmt(x)
-	case *TakesClause:
-		e.encFieldsTakesClause(x)
 	case *TestDecl:
 		e.encFieldsTestDecl(x)
 	case *TryExpr:
@@ -2535,7 +2514,6 @@ func (d *decoder) decPtrFuncLit() *FuncLit {
 }
 
 func (d *decoder) decFieldsFuncType(v *FuncType) {
-	v.Escaping = d.decPos()
 	v.Entry = d.decT4()
 	v.EntryPos = d.decPos()
 	v.Func = d.decPos()
@@ -2543,7 +2521,6 @@ func (d *decoder) decFieldsFuncType(v *FuncType) {
 	v.Params = d.decPtrFieldList()
 	v.Results = d.decPtrFieldList()
 	v.Needs = d.decPtrNeedsClause()
-	v.Takes = d.decPtrTakesClause()
 	v.Defects = d.decT4()
 	v.DefectsPos = d.decPos()
 	v.Facts = d.decT13()
@@ -3114,24 +3091,6 @@ func (d *decoder) decPtrSwitchStmt() *SwitchStmt {
 		return nil
 	}
 	return x.(*SwitchStmt)
-}
-
-func (d *decoder) decFieldsTakesClause(v *TakesClause) {
-	v.Takes = d.decPos()
-	v.Names = d.decT8()
-}
-
-func (d *decoder) decTakesClause() (v TakesClause) {
-	d.decFieldsTakesClause(&v)
-	return v
-}
-
-func (d *decoder) decPtrTakesClause() *TakesClause {
-	x := d.obj(d.uint())
-	if x == nil {
-		return nil
-	}
-	return x.(*TakesClause)
 }
 
 func (d *decoder) decFieldsTestDecl(v *TestDecl) {
@@ -3832,30 +3791,28 @@ func newObj(tag uint64) any {
 	case 62:
 		return new(SwitchStmt)
 	case 63:
-		return new(TakesClause)
-	case 64:
 		return new(TestDecl)
-	case 65:
+	case 64:
 		return new(TryExpr)
-	case 66:
+	case 65:
 		return new(TupleExpr)
-	case 67:
+	case 66:
 		return new(TypeDecl)
-	case 68:
+	case 67:
 		return new(TypeGuard)
-	case 69:
+	case 68:
 		return new(TypeSwitchStmt)
-	case 70:
+	case 69:
 		return new(TypeTerm)
-	case 71:
+	case 70:
 		return new(UnaryExpr)
-	case 72:
+	case 71:
 		return new(VarDecl)
-	case 73:
+	case 72:
 		return new(VarSpec)
-	case 74:
+	case 73:
 		return new(VariantSpec)
-	case 75:
+	case 74:
 		return new(Word)
 	}
 	return nil
@@ -3988,8 +3945,6 @@ func (d *decoder) decObj(x any) {
 		d.decFieldsStructType(x)
 	case *SwitchStmt:
 		d.decFieldsSwitchStmt(x)
-	case *TakesClause:
-		d.decFieldsTakesClause(x)
 	case *TestDecl:
 		d.decFieldsTestDecl(x)
 	case *TryExpr:

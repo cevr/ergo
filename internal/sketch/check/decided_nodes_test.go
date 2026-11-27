@@ -307,13 +307,6 @@ func f() int fails Bang needs Log {
 }
 func main() {}
 `, nil},
-	{"fails and needs", "a retired takes clause names own (q168)", `
-type R {} implements Closer
-func Close(r R) {}
-type Holder { r R }
-func keep(r R) Holder takes r { Holder{r: r} }
-func main() {}
-`, []string{"S108:5"}},
 	{"fails and needs", "the mode word own (EXM1, q168)", `
 type R {} implements Closer
 func Close(r own R) {}
@@ -321,10 +314,6 @@ type Holder { r R }
 func keep(r own R) Holder { Holder{r: r} }
 func main() {}
 `, nil},
-	{"escaping", "a retired escaping names own (196e, q168)", `
-func f(g escaping func(int) int) int { return g(1) }
-func main() {}
-`, []string{"S108:2"}},
 	{"escaping", "own before a parameter's function type (196e, q168)", `
 func f(g own func(int) int) int { return g(1) }
 func main() {}

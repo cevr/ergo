@@ -110,8 +110,8 @@ var contextPlaceRows = map[string]externPlaceRow{
 	"TypeDecl.Implements":  {guardType, "type T {} implements @w\n"},
 	// A where reads only its subject and literals (refine.go): a context
 	// there is its one S108, as a name in a type position is.
-	"TypeDecl.Where": {guardType, "type T int where @w > 0\n"},
-	"Field.Where":    {guardType, "law L(x int where @w > 0) { true }\n"},
+	"TypeDecl.Where":  {guardType, "type T int where @w > 0\n"},
+	"Field.Where":     {guardType, "law L(x int where @w > 0) { true }\n"},
 	"FactClause.Cond": {guardType, "func f() given @w {}\n"},
 	"FactClause.When": {guardType, "func f() keeps x when @w {}\n"},
 	// A derive's plan is built from constants (patterns.md, Derivation 2):
@@ -145,7 +145,6 @@ var contextPlaceRows = map[string]externPlaceRow{
 	"Field.Key":                {guardBinder, "type R { Field string \"@w\" }\nfunc main() {\n\t$W\n}\n"},
 	"FuncDecl.Name":            {guardBinder, "func @w() {}\n"},
 	"ImportSpec.Name":          {guardBinder, "import go @w strings\n"},
-	"TakesClause.Names":        {guardBinder, "func f(w int) takes @w {}\n"},
 	"ImportSpec.Path":          {guardBinder, "import @w\n"},
 	"InterpolatedString.Texts": {guardBinder, "func main() {\n\t$W\n\t_ = \"@w \\(1)\"\n}\n"},
 	"LawDecl.Name":             {guardBinder, "type C {\n\tGet() int,\n\n\tlaw @w(v int) {\n\t\tGet() == v\n\t},\n}\n"},
