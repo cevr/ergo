@@ -1,0 +1,388 @@
+// A64X0 is the AAPCS64 X0 register (1st argument and return value).
+let A64X0 uint8 = uint8(0)
+
+// A64X1 is the AAPCS64 X1 register (2nd argument).
+let A64X1 uint8 = uint8(1)
+
+// A64X2 is the AAPCS64 X2 register (3rd argument).
+let A64X2 uint8 = uint8(2)
+
+// A64X3 is the AAPCS64 X3 register (4th argument).
+let A64X3 uint8 = uint8(3)
+
+// A64X8 is the AAPCS64 X8 indirect result register.
+let A64X8 uint8 = uint8(8)
+
+// A64X9 is the AAPCS64 X9 caller-saved temporary register.
+let A64X9 uint8 = uint8(9)
+
+// A64X10 is the AAPCS64 X10 caller-saved temporary register.
+let A64X10 uint8 = uint8(10)
+
+// A64X16 is the AAPCS64 IP0 intra-procedure scratch register.
+let A64X16 uint8 = uint8(16)
+
+// A64X19 is the AAPCS64 X19 callee-saved register.
+let A64X19 uint8 = uint8(19)
+
+// A64Fp is the AAPCS64 X29 frame pointer register.
+let A64Fp uint8 = uint8(29)
+
+// A64Lr is the AAPCS64 X30 link register.
+let A64Lr uint8 = uint8(30)
+
+// A64Sp is the AAPCS64 stack pointer encoding (31 in SP-capable instructions).
+let A64Sp uint8 = uint8(31)
+
+// A64Xzr is the AAPCS64 zero register encoding (31 in XZR-capable instructions).
+let A64Xzr uint8 = uint8(31)
+
+// A64CondEq is the AArch64 equal condition code (B.EQ).
+let A64CondEq uint8 = uint8(0x0)
+
+// A64CondNe is the AArch64 not-equal condition code (B.NE).
+let A64CondNe uint8 = uint8(0x1)
+
+// A64CondGe is the AArch64 signed greater-or-equal condition code (B.GE).
+let A64CondGe uint8 = uint8(0xA)
+
+// A64CondLt is the AArch64 signed less-than condition code (B.LT).
+let A64CondLt uint8 = uint8(0xB)
+
+// A64CondGt is the AArch64 signed greater-than condition code (B.GT).
+let A64CondGt uint8 = uint8(0xC)
+
+// A64CondLe is the AArch64 signed less-or-equal condition code (B.LE).
+let A64CondLe uint8 = uint8(0xD)
+
+// Arm64Asm emits AAPCS64 little-endian machine code with dense label patching and relocations.
+type Arm64Asm {
+	Code        Buf,
+	Labels      []uint32,
+	FixupPc     []uint32,
+	FixupLabel  []uint32,
+	FixupIsCond []bool,
+	Relocs      []AsmReloc,
+}
+
+// NewArm64Asm constructs an empty Arm64Asm encoder.
+func NewArm64Asm() Arm64Asm {
+	Arm64Asm{
+		Code:        NewBuf(),
+		Labels:      []uint32{},
+		FixupPc:     []uint32{},
+		FixupLabel:  []uint32{},
+		FixupIsCond: []bool{},
+		Relocs:      []AsmReloc{},
+	}
+}
+
+// NewArm64Label allocates a fresh unbound label ID in a.
+func NewArm64Label(a mut Arm64Asm) uint32 {
+	let id = uint32(a.Labels.Len())
+	a.Labels = a.Labels.Append(noAsmLabel)
+	id
+}
+
+// BindArm64Label binds label to the current byte offset in a.Code.
+func BindArm64Label(a mut Arm64Asm, label uint32) {
+	let idx = int(label)
+	for a.Labels.Len() <= idx {
+		a.Labels = a.Labels.Append(noAsmLabel)
+	}
+	a.Labels[idx] = uint32(a.Code.Size())
+}
+
+// A64Ret emits RET (x30).
+func A64Ret(a mut Arm64Asm) {
+	a.Code.U32(uint32(0xD65F03C0))
+}
+
+// A64MovRR emits MOV dst, src (ORR dst, xzr, src).
+func A64MovRR(a mut Arm64Asm, dst uint8, src uint8) {
+	let insn = uint32(0xAA0003E0) | (uint32(src&uint8(31)) << uint32(16)) | uint32(dst&uint8(31))
+	a.Code.U32(insn)
+}
+
+// A64MovImm64 materializes a 64-bit unsigned immediate in dst via MOVZ/MOVK.
+func A64MovImm64(a mut Arm64Asm, dst uint8, imm uint64) {
+	let rd = uint32(dst & uint8(31))
+	let low = uint32(imm & uint64(0xffff))
+	a.Code.U32(uint32(0xD2800000) | (low << uint32(5)) | rd)
+	for hw in 1..4 {
+		let chunk = uint32((imm >> uint64(hw*16)) & uint64(0xffff))
+		if chunk != uint32(0) {
+			a.Code.U32(uint32(0xF2800000) | (uint32(hw) << uint32(21)) | (chunk << uint32(5)) | rd)
+		}
+	}
+}
+
+// A64AddRR emits ADD dst, lhs, rhs.
+func A64AddRR(a mut Arm64Asm, dst uint8, lhs uint8, rhs uint8) {
+	let insn = uint32(0x8B000000) | (uint32(rhs&uint8(31)) << uint32(16)) | (uint32(lhs&uint8(31)) << uint32(5)) | uint32(dst&uint8(31))
+	a.Code.U32(insn)
+}
+
+// A64SubRR emits SUB dst, lhs, rhs.
+func A64SubRR(a mut Arm64Asm, dst uint8, lhs uint8, rhs uint8) {
+	let insn = uint32(0xCB000000) | (uint32(rhs&uint8(31)) << uint32(16)) | (uint32(lhs&uint8(31)) << uint32(5)) | uint32(dst&uint8(31))
+	a.Code.U32(insn)
+}
+
+// A64MulRR emits MUL dst, lhs, rhs (MADD dst, lhs, rhs, xzr).
+func A64MulRR(a mut Arm64Asm, dst uint8, lhs uint8, rhs uint8) {
+	let insn = uint32(0x9B007C00) | (uint32(rhs&uint8(31)) << uint32(16)) | (uint32(lhs&uint8(31)) << uint32(5)) | uint32(dst&uint8(31))
+	a.Code.U32(insn)
+}
+
+// A64AddImm12 emits ADD dst, lhs, #imm12 (supporting SP).
+func A64AddImm12(a mut Arm64Asm, dst uint8, lhs uint8, imm12 uint32) {
+	let insn = uint32(0x91000000) | ((imm12 & uint32(0xfff)) << uint32(10)) | (uint32(lhs&uint8(31)) << uint32(5)) | uint32(dst&uint8(31))
+	a.Code.U32(insn)
+}
+
+// A64SubImm12 emits SUB dst, lhs, #imm12 (supporting SP).
+func A64SubImm12(a mut Arm64Asm, dst uint8, lhs uint8, imm12 uint32) {
+	let insn = uint32(0xD1000000) | ((imm12 & uint32(0xfff)) << uint32(10)) | (uint32(lhs&uint8(31)) << uint32(5)) | uint32(dst&uint8(31))
+	a.Code.U32(insn)
+}
+
+// A64CmpRR emits CMP lhs, rhs (SUBS xzr, lhs, rhs).
+func A64CmpRR(a mut Arm64Asm, lhs uint8, rhs uint8) {
+	let insn = uint32(0xEB00001F) | (uint32(rhs&uint8(31)) << uint32(16)) | (uint32(lhs&uint8(31)) << uint32(5))
+	a.Code.U32(insn)
+}
+
+// A64CmpImm12 emits CMP lhs, #imm12 (SUBS xzr, lhs, #imm12).
+func A64CmpImm12(a mut Arm64Asm, lhs uint8, imm12 uint32) {
+	let insn = uint32(0xF100001F) | ((imm12 & uint32(0xfff)) << uint32(10)) | (uint32(lhs&uint8(31)) << uint32(5))
+	a.Code.U32(insn)
+}
+
+// A64Prologue emits AAPCS64 frame setup saving x29 and x30 and aligning local frame storage to 16 bytes.
+func A64Prologue(a mut Arm64Asm, frameBytes uint32) {
+	let imm7 = uint32(0x7e)
+	let stp = uint32(0xA9800000) | (imm7 << uint32(15)) | (uint32(A64Lr) << uint32(10)) | (uint32(A64Sp) << uint32(5)) | uint32(A64Fp)
+	a.Code.U32(stp)
+	a.A64AddImm12(A64Fp, A64Sp, uint32(0))
+	if frameBytes > uint32(0) {
+		let aligned = AlignUpUint32(frameBytes, uint32(16))
+		if aligned <= uint32(4095) {
+			a.A64SubImm12(A64Sp, A64Sp, aligned)
+		} else {
+			a.A64MovImm64(A64X16, uint64(aligned))
+			let subExt = uint32(0xCB206000) | (uint32(A64X16) << uint32(16)) | (uint32(A64Sp) << uint32(5)) | uint32(A64Sp)
+			a.Code.U32(subExt)
+		}
+	}
+}
+
+// A64Epilogue emits AAPCS64 frame teardown restoring x29 and x30 and returning.
+func A64Epilogue(a mut Arm64Asm, frameBytes uint32) {
+	if frameBytes > uint32(0) {
+		a.A64AddImm12(A64Sp, A64Fp, uint32(0))
+	}
+	let imm7 = uint32(16/8) & uint32(0x7f)
+	let ldp = uint32(0xA8C00000) | (imm7 << uint32(15)) | (uint32(A64Lr) << uint32(10)) | (uint32(A64Sp) << uint32(5)) | uint32(A64Fp)
+	a.Code.U32(ldp)
+	a.A64Ret()
+}
+
+// A64StrImm emits a 64-bit store of src to [base + disp].
+func A64StrImm(a mut Arm64Asm, src uint8, base uint8, disp int) {
+	let rt = uint32(src & uint8(31))
+	let rn = uint32(base & uint8(31))
+	if disp >= 0 && disp < 32768 && (disp%8) == 0 {
+		a.Code.U32(uint32(0xF9000000) | (uint32(disp/8) << uint32(10)) | (rn << uint32(5)) | rt)
+		return
+	}
+	if disp >= -256 && disp <= 255 {
+		a.Code.U32(uint32(0xF8000000) | ((uint32(disp) & uint32(0x1ff)) << uint32(12)) | (rn << uint32(5)) | rt)
+		return
+	}
+	a.A64MovImm64(A64X16, uint64(disp))
+	a.Code.U32(uint32(0xF8206800) | (uint32(A64X16) << uint32(16)) | (rn << uint32(5)) | rt)
+}
+
+// A64LdrImm emits a 64-bit load into dst from [base + disp].
+func A64LdrImm(a mut Arm64Asm, dst uint8, base uint8, disp int) {
+	let rt = uint32(dst & uint8(31))
+	let rn = uint32(base & uint8(31))
+	if disp >= 0 && disp < 32768 && (disp%8) == 0 {
+		a.Code.U32(uint32(0xF9400000) | (uint32(disp/8) << uint32(10)) | (rn << uint32(5)) | rt)
+		return
+	}
+	if disp >= -256 && disp <= 255 {
+		a.Code.U32(uint32(0xF8400000) | ((uint32(disp) & uint32(0x1ff)) << uint32(12)) | (rn << uint32(5)) | rt)
+		return
+	}
+	a.A64MovImm64(A64X16, uint64(disp))
+	a.Code.U32(uint32(0xF8606800) | (uint32(A64X16) << uint32(16)) | (rn << uint32(5)) | rt)
+}
+
+// A64B emits an unconditional PC-relative branch to label.
+func A64B(a mut Arm64Asm, label uint32) {
+	a.FixupPc = a.FixupPc.Append(uint32(a.Code.Size()))
+	a.FixupLabel = a.FixupLabel.Append(label)
+	a.FixupIsCond = a.FixupIsCond.Append(false)
+	a.Code.U32(uint32(0x14000000))
+}
+
+// A64BCond emits a conditional PC-relative branch for cond to label.
+func A64BCond(a mut Arm64Asm, cond uint8, label uint32) {
+	a.FixupPc = a.FixupPc.Append(uint32(a.Code.Size()))
+	a.FixupLabel = a.FixupLabel.Append(label)
+	a.FixupIsCond = a.FixupIsCond.Append(true)
+	a.Code.U32(uint32(0x54000000) | uint32(cond&uint8(0xf)))
+}
+
+// A64Beq emits B.EQ to label.
+func A64Beq(a mut Arm64Asm, label uint32) {
+	a.A64BCond(A64CondEq, label)
+}
+
+// A64Bne emits B.NE to label.
+func A64Bne(a mut Arm64Asm, label uint32) {
+	a.A64BCond(A64CondNe, label)
+}
+
+// A64Blt emits signed B.LT to label.
+func A64Blt(a mut Arm64Asm, label uint32) {
+	a.A64BCond(A64CondLt, label)
+}
+
+// A64Bge emits signed B.GE to label.
+func A64Bge(a mut Arm64Asm, label uint32) {
+	a.A64BCond(A64CondGe, label)
+}
+
+// A64AdrpAddSym emits ADRP+ADD materializing sym + addend into dst with page/pageoff relocations.
+func A64AdrpAddSym(a mut Arm64Asm, dst uint8, sym uint32, addend uint64) {
+	let rd = uint32(dst & uint8(31))
+	a.Relocs = a.Relocs.Append(AsmReloc{Off: uint32(a.Code.Size()), Kind: RelocArm64Page21, Sym: sym, Addend: addend})
+	a.Code.U32(uint32(0x90000000) | rd)
+	a.Relocs = a.Relocs.Append(AsmReloc{Off: uint32(a.Code.Size()), Kind: RelocArm64PageOff12, Sym: sym, Addend: addend})
+	a.A64AddImm12(dst, dst, uint32(0))
+}
+
+// A64BlSym emits BL sym with a RelocCall relocation.
+func A64BlSym(a mut Arm64Asm, sym uint32) {
+	a.Relocs = a.Relocs.Append(AsmReloc{Off: uint32(a.Code.Size()), Kind: RelocCall, Sym: sym, Addend: uint64(0)})
+	a.Code.U32(uint32(0x94000000))
+}
+
+// A64BSym emits B sym with a RelocJump relocation.
+func A64BSym(a mut Arm64Asm, sym uint32) {
+	a.Relocs = a.Relocs.Append(AsmReloc{Off: uint32(a.Code.Size()), Kind: RelocJump, Sym: sym, Addend: uint64(0)})
+	a.Code.U32(uint32(0x14000000))
+}
+
+// FinishArm64 resolves all branch fixups and returns the encoded machine code and relocations.
+func FinishArm64(a mut Arm64Asm) ([]byte, []AsmReloc) fails UndefinedLabel {
+	let snap = a.Code.Bytes()
+	for i in 0..a.FixupPc.Len() {
+		let lbl = a.FixupLabel[i]
+		let idx = int(lbl)
+		if idx >= a.Labels.Len() || a.Labels[idx] == noAsmLabel {
+			return UndefinedLabel{Label: lbl}
+		}
+		let pc = int(a.FixupPc[i])
+		let target = int(a.Labels[idx])
+		let dispWords = (target - pc) / 4
+		let orig = ReadU32At(snap, pc) catch {
+		case Short:
+			uint32(0)
+		}
+		if a.FixupIsCond[i] {
+			let imm19 = uint32(dispWords) & uint32(0x7ffff)
+			a.Code.Put32(pc, (orig&uint32(0xff00001f))|(imm19<<uint32(5)))
+		} else {
+			let imm26 = uint32(dispWords) & uint32(0x03ffffff)
+			a.Code.Put32(pc, (orig&uint32(0xfc000000))|imm26)
+		}
+	}
+	(a.Code.Bytes(), a.Relocs.Clone())
+}
+
+// EmitArm64Func finalizes a, appends its code to o.Text, defines its symbol, and records its relocations.
+func EmitArm64Func(o mut Object, name string, bind uint8, a mut Arm64Asm) uint32 fails UndefinedLabel {
+	let (code, rels) = try a.FinishArm64()
+	let fnOff = o.AppendText(code)
+	let symID = o.AddSym(SymSpec{
+		Name:  name,
+		Bind:  bind,
+		Kind:  SymFunc,
+		Sec:   SecText,
+		Value: uint64(fnOff),
+		Size:  uint64(code.Len()),
+	})
+	for r in rels {
+		o.AddReloc(RelocSpec{
+			Sec:    SecText,
+			Off:    fnOff + r.Off,
+			Kind:   r.Kind,
+			Sym:    r.Sym,
+			Addend: r.Addend,
+		})
+	}
+	symID
+}
+
+// Arm64BranchesAndFramesEncode verifies fixed-width instructions, branch patching, and ADRP/BL relocs.
+law Arm64BranchesAndFramesEncode(imm uint32) {
+	let mut a = NewArm64Asm()
+	let loopLbl = a.NewArm64Label()
+	let doneLbl = a.NewArm64Label()
+	a.A64Prologue(uint32(16))
+	a.A64MovImm64(A64X0, uint64(imm))
+	a.A64StrImm(A64X0, A64Fp, -8)
+	a.BindArm64Label(loopLbl)
+	a.A64LdrImm(A64X1, A64Fp, -8)
+	a.A64CmpImm12(A64X1, uint32(0))
+	a.A64Beq(doneLbl)
+	a.A64SubImm12(A64X1, A64X1, uint32(1))
+	a.A64StrImm(A64X1, A64Fp, -8)
+	a.A64B(loopLbl)
+	a.BindArm64Label(doneLbl)
+	a.A64AdrpAddSym(A64X0, uint32(0), uint64(0))
+	a.A64BlSym(uint32(1))
+	a.A64Epilogue(uint32(16))
+	let (code, rels) = FinishArm64(&a) catch {
+	case UndefinedLabel:
+		return false
+	}
+	code.Len()%4 == 0 && rels.Len() == 3
+}
+
+test Arm64UndefinedLabelAndEncodingExact {
+	let mut bad = NewArm64Asm()
+	bad.A64B(uint32(5))
+	let mut gotErr = false
+	let _ = FinishArm64(&bad) catch {
+	case UndefinedLabel as u:
+		gotErr = u.Label == uint32(5)
+		([]byte{}, []AsmReloc{})
+	}
+	assert gotErr
+
+	let mut a = NewArm64Asm()
+	let topLbl = a.NewArm64Label()
+	let endLbl = a.NewArm64Label()
+	a.A64Prologue(uint32(0))
+	a.BindArm64Label(topLbl)
+	a.A64CmpImm12(A64X0, uint32(0))
+	a.A64Beq(endLbl)
+	a.A64B(topLbl)
+	a.BindArm64Label(endLbl)
+	a.A64AdrpAddSym(A64X0, uint32(0), uint64(0))
+	a.A64BlSym(uint32(1))
+	a.A64Epilogue(uint32(0))
+	let (code, rels) = try FinishArm64(&a)
+	assert code.Len() == 10*4
+	assert rels.Len() == 3
+	assert try ReadU32At(code, 0) == uint32(0xA9BF7BFD)
+	assert try ReadU32At(code, 4) == uint32(0x910003FD)
+	assert try ReadU32At(code, 16) == uint32(0x17fffffe)
+	assert try ReadU32At(code, 32) == uint32(0xA8C17BFD)
+	assert try ReadU32At(code, 36) == uint32(0xD65F03C0)
+}

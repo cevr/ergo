@@ -1,0 +1,222 @@
+import exec
+import fs
+import fstest
+import os
+import strings
+
+let onNativeExecHost = context needs fstest.TestAmbient {
+	fs.Files:    fs.NewTestHost(),
+	fs.Writes:   fs.NewTestHost(),
+	exec.Runner: exec.NewTestHost(),
+	os.Self:     os.NewTestHost(),
+}
+
+func buildSingleMainX64Object(fnName string) Object fails UndefinedLabel {
+	let mut o = NewObject(ArchX86_64)
+	let mut a = NewAmd64Asm()
+	a.Prologue(uint32(0))
+	a.MovImm64(X64Rax, uint64(10))
+	a.MovImm64(X64Rcx, uint64(4))
+	a.ImulRR(X64Rax, X64Rcx)
+	a.MovImm64(X64Rcx, uint64(5))
+	a.AddRR(X64Rax, X64Rcx)
+	a.MovImm64(X64Rcx, uint64(3))
+	a.SubRR(X64Rax, X64Rcx)
+	a.Epilogue(uint32(0))
+	let _ = try EmitAmd64Func(&o, fnName, BindGlobal, &a)
+	o
+}
+
+func buildHelperAddX64Object(fnName string) Object fails UndefinedLabel {
+	let mut o = NewObject(ArchX86_64)
+	let mut a = NewAmd64Asm()
+	a.Prologue(uint32(16))
+	a.StoreRbp(X64Rdi, uint32(8))
+	a.StoreRbp(X64Rsi, uint32(16))
+	a.LoadRbp(X64Rax, uint32(8))
+	a.LoadRbp(X64Rcx, uint32(16))
+	let lessLbl = a.NewLabel()
+	let doneLbl = a.NewLabel()
+	a.CmpRR(X64Rax, X64Rcx)
+	a.Jl(lessLbl)
+	a.MovImm64(X64Rax, uint64(1))
+	a.Jmp(doneLbl)
+	a.BindLabel(lessLbl)
+	a.AddRR(X64Rax, X64Rcx)
+	a.BindLabel(doneLbl)
+	a.Epilogue(uint32(16))
+	let _ = try EmitAmd64Func(&o, fnName, BindGlobal, &a)
+	o
+}
+
+func buildMainCallX64Object(mainName string, addName string, putsName string) Object fails UndefinedLabel {
+	let mut o = NewObject(ArchX86_64)
+	let msgOff = o.AppendRodataCString("hello from ergo objfmt")
+	let msgSym = o.AddLocalRodata(".L.greeting", uint64(msgOff), uint64(0))
+	let putsSym = o.EnsureUndefSym(putsName)
+	let addSym = o.EnsureUndefSym(addName)
+	let mut a = NewAmd64Asm()
+	a.Prologue(uint32(0))
+	a.LeaRipSym(X64Rdi, msgSym, uint64(0))
+	a.CallSym(putsSym)
+	a.MovImm64(X64Rdi, uint64(20))
+	a.MovImm64(X64Rsi, uint64(22))
+	a.CallSym(addSym)
+	a.Epilogue(uint32(0))
+	let _ = try EmitAmd64Func(&o, mainName, BindGlobal, &a)
+	o
+}
+
+func buildSingleMainArm64Object(fnName string) Object fails UndefinedLabel {
+	let mut o = NewObject(ArchARM64)
+	let mut a = NewArm64Asm()
+	a.A64Prologue(uint32(0))
+	a.A64MovImm64(A64X0, uint64(19))
+	a.A64MovImm64(A64X1, uint64(23))
+	a.A64AddRR(A64X0, A64X0, A64X1)
+	a.A64Epilogue(uint32(0))
+	let _ = try EmitArm64Func(&o, fnName, BindGlobal, &a)
+	o
+}
+
+func buildHelperAddArm64Object(fnName string) Object fails UndefinedLabel {
+	let mut o = NewObject(ArchARM64)
+	let mut a = NewArm64Asm()
+	a.A64Prologue(uint32(16))
+	a.A64StrImm(A64X0, A64Fp, -8)
+	a.A64StrImm(A64X1, A64Fp, -16)
+	a.A64LdrImm(A64X0, A64Fp, -8)
+	a.A64LdrImm(A64X1, A64Fp, -16)
+	a.A64AddRR(A64X0, A64X0, A64X1)
+	a.A64Epilogue(uint32(16))
+	let _ = try EmitArm64Func(&o, fnName, BindGlobal, &a)
+	o
+}
+
+func buildMainCallArm64Object(mainName string, addName string, putsName string) Object fails UndefinedLabel {
+	let mut o = NewObject(ArchARM64)
+	let msgOff = o.AppendRodataCString("hello from ergo objfmt")
+	let msgSym = o.AddLocalRodata(".L.greeting", uint64(msgOff), uint64(0))
+	let putsSym = o.EnsureUndefSym(putsName)
+	let addSym = o.EnsureUndefSym(addName)
+	let mut a = NewArm64Asm()
+	a.A64Prologue(uint32(0))
+	a.A64AdrpAddSym(A64X0, msgSym, uint64(0))
+	a.A64BlSym(putsSym)
+	a.A64MovImm64(A64X0, uint64(20))
+	a.A64MovImm64(A64X1, uint64(22))
+	a.A64BlSym(addSym)
+	a.A64Epilogue(uint32(0))
+	let _ = try EmitArm64Func(&o, mainName, BindGlobal, &a)
+	o
+}
+
+func runCC(args []string) exec.Result fails exec.NotFound | exec.Denied | exec.Failed needs exec.Runner {
+	let cmd = exec.New("/usr/bin/cc", args).WithEnv("PATH", "/usr/bin:/bin")
+	try exec.Runner.Run(cmd)
+}
+
+func runReadelf(args []string) exec.Result fails exec.NotFound | exec.Denied | exec.Failed needs exec.Runner {
+	let cmd = exec.New("/usr/bin/readelf", args).WithEnv("PATH", "/usr/bin:/bin")
+	try exec.Runner.Run(cmd)
+}
+
+func runOutBinary(name string) exec.Result fails exec.NotFound | exec.Denied | exec.Failed | os.NoDir needs exec.Runner | os.Self {
+	let dir = try os.Self.HomeDir()
+	try exec.Runner.Run(exec.New(dir+"/"+name, []string{}))
+}
+
+func emitHostSingleMain(plat os.Platform) []byte fails ObjError | UndefinedLabel {
+	if plat.OS == "darwin" {
+		if plat.Arch == "arm64" {
+			return try WriteMachO64(try buildSingleMainArm64Object("_main"))
+		}
+		return try WriteMachO64(try buildSingleMainX64Object("_main"))
+	}
+	if plat.Arch == "arm64" {
+		return try WriteELF64(try buildSingleMainArm64Object("main"))
+	}
+	try WriteELF64(try buildSingleMainX64Object("main"))
+}
+
+func emitHostTwoObjects(plat os.Platform) ([]byte, []byte) fails ObjError | UndefinedLabel {
+	if plat.OS == "darwin" {
+		if plat.Arch == "arm64" {
+			let h = try WriteMachO64(try buildHelperAddArm64Object("_ergo_add"))
+			let m = try WriteMachO64(try buildMainCallArm64Object("_main", "_ergo_add", "_puts"))
+			return (h, m)
+		}
+		let h = try WriteMachO64(try buildHelperAddX64Object("_ergo_add"))
+		let m = try WriteMachO64(try buildMainCallX64Object("_main", "_ergo_add", "_puts"))
+		return (h, m)
+	}
+	if plat.Arch == "arm64" {
+		let h = try WriteELF64(try buildHelperAddArm64Object("ergo_add"))
+		let m = try WriteELF64(try buildMainCallArm64Object("main", "ergo_add", "puts"))
+		return (h, m)
+	}
+	let h = try WriteELF64(try buildHelperAddX64Object("ergo_add"))
+	let m = try WriteELF64(try buildMainCallX64Object("main", "ergo_add", "puts"))
+	(h, m)
+}
+
+test NativeLinkAndExecuteSingleObjectExit42 {
+	let plat = os.Current()
+	let objBytes = try emitHostSingleMain(plat)
+	with onNativeExecHost {
+		try fs.Writes.WriteFile("main.o", objBytes.Text())
+		let linkPie = try runCC([]string{"-o", "exit42_pie", "main.o"})
+		assert linkPie.Status == 0
+		let resPie = try runOutBinary("exit42_pie")
+		assert resPie.Status == 42
+
+		if plat.OS == "linux" {
+			let linkNoPie = try runCC([]string{"-no-pie", "-o", "exit42_nopie", "main.o"})
+			assert linkNoPie.Status == 0
+			let resNoPie = try runOutBinary("exit42_nopie")
+			assert resNoPie.Status == 42
+		}
+	}
+}
+
+test NativeLinkAndExecuteTwoObjectsPutsAndErgoAdd {
+	let plat = os.Current()
+	let (helperBytes, mainBytes) = try emitHostTwoObjects(plat)
+	with onNativeExecHost {
+		try fs.Writes.WriteFile("helper.o", helperBytes.Text())
+		try fs.Writes.WriteFile("main.o", mainBytes.Text())
+		let linkRes = try runCC([]string{"-o", "two_obj_prog", "main.o", "helper.o"})
+		assert linkRes.Status == 0
+		let runRes = try runOutBinary("two_obj_prog")
+		assert runRes.Stdout == "hello from ergo objfmt\n"
+		assert runRes.Status == 42
+	}
+}
+
+test NativeReadelfMatchesPureErgoDecoder {
+	let plat = os.Current()
+	if plat.OS != "linux" || plat.Arch != "amd64" {
+		return
+	}
+	let mainBytes = try WriteELF64(try buildMainCallX64Object("main", "ergo_add", "puts"))
+	let dec = try DecodeELF64(mainBytes)
+	assert dec.Machine == ElfMachineX86_64
+	assert dec.ShNum == uint32(11)
+	assert dec.FirstGlobal == uint32(2)
+	assert dec.RelocOffs.Len() == 3
+	with onNativeExecHost {
+		try fs.Writes.WriteFile("main.o", mainBytes.Text())
+		let re = try runReadelf([]string{"-W", "-S", "-s", "-r", "main.o"})
+		assert re.Status == 0
+		assert strings.Contains(re.Stdout, ".text")
+		assert strings.Contains(re.Stdout, ".rodata")
+		assert strings.Contains(re.Stdout, ".note.GNU-stack")
+		assert strings.Contains(re.Stdout, ".rela.text")
+		assert strings.Contains(re.Stdout, ".symtab")
+		assert strings.Contains(re.Stdout, "R_X86_64_PC32")
+		assert strings.Contains(re.Stdout, "R_X86_64_PLT32")
+		assert strings.Contains(re.Stdout, "puts")
+		assert strings.Contains(re.Stdout, "ergo_add")
+		assert strings.Contains(re.Stdout, "main")
+	}
+}

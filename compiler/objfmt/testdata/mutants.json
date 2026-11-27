@@ -1,0 +1,255 @@
+{
+  "about": "compiler/objfmt: pure-Ergo DoD relocatable ELF64 & Mach-O64 object writer, structural decoders, and baseline x86_64/arm64 machine-code encoders.",
+  "mutants": [
+    {
+      "name": "objfmt-buf-u32-byte-order",
+      "origin": "objfmt",
+      "file": "compiler/objfmt/buf.ergo",
+      "decl": "U32",
+      "from": "\tw.U8(x)\n\tw.U8(x >> uint32(8))\n\tw.U8(x >> uint32(16))\n\tw.U8(x >> uint32(24))\n",
+      "to": "\tw.U8(x >> uint32(24))\n\tw.U8(x >> uint32(16))\n\tw.U8(x >> uint32(8))\n\tw.U8(x)\n",
+      "rule": "U32 writes 32-bit integers in little-endian byte order.",
+      "killers": ["compiler/objfmt:law:BufPrimitivesRoundTrip"]
+    },
+    {
+      "name": "objfmt-buf-u64-hi-word",
+      "origin": "objfmt",
+      "file": "compiler/objfmt/buf.ergo",
+      "decl": "U64",
+      "from": "\tw.U32(uint32(x & uint64(0xffffffff)))\n\tw.U32(uint32(x >> uint64(32)))\n",
+      "to": "\tw.U32(uint32(x & uint64(0xffffffff)))\n\tw.U32(uint32(0))\n",
+      "rule": "U64 writes both low and high 32-bit words of a 64-bit integer.",
+      "killers": ["compiler/objfmt:law:BufPrimitivesRoundTrip"]
+    },
+    {
+      "name": "objfmt-buf-strpool-dedup",
+      "origin": "objfmt",
+      "file": "compiler/objfmt/buf.ergo",
+      "decl": "Intern",
+      "from": "\t\tif poolMatches(*p, cand, s) {\n\t\t\treturn cand\n\t\t}\n",
+      "to": "\t\tif false && poolMatches(*p, cand, s) {\n\t\t\treturn cand\n\t\t}\n",
+      "rule": "StrPool.Intern deduplicates identical strings to the same dense ID.",
+      "killers": ["compiler/objfmt:law:StrPoolInternRoundTrips"]
+    },
+    {
+      "name": "objfmt-obj-bss-align-dropped",
+      "origin": "objfmt",
+      "file": "compiler/objfmt/object.ergo",
+      "decl": "AllocBss",
+      "from": "\tlet off = AlignUpUint64(o.BssSize, align)\n",
+      "to": "\tlet off = o.BssSize\n",
+      "rule": "AllocBss must align each reservation offset to the requested alignment.",
+      "killers": ["compiler/objfmt:ObjectBssAndAlignInvariants"]
+    },
+    {
+      "name": "objfmt-obj-reloc-extent-skip",
+      "origin": "objfmt",
+      "file": "compiler/objfmt/object.ergo",
+      "decl": "validateRelocColumns",
+      "from": "\t\tif off > secSz || width > secSz-off {\n\t\t\treturn ObjError{Op: \"validate\", Reason: \"relocation patch extent exceeds target section\"}\n\t\t}\n",
+      "to": "\t\tif false && (off > secSz || width > secSz-off) {\n\t\t\treturn ObjError{Op: \"validate\", Reason: \"relocation patch extent exceeds target section\"}\n\t\t}\n",
+      "rule": "ValidateObject must reject relocations whose patch extent overflows the target section.",
+      "killers": ["compiler/objfmt:law:ObjectValidationRejectsBadReloc"]
+    },
+    {
+      "name": "objfmt-elf64-machine-wrong",
+      "origin": "objfmt",
+      "file": "compiler/objfmt/elf64.ergo",
+      "decl": "elfMachineForArch",
+      "from": "\tcase ArchARM64:\n\t\tElfMachineAArch64\n",
+      "to": "\tcase ArchARM64:\n\t\tElfMachineX86_64\n",
+      "rule": "ELF64 header e_machine must be EM_AARCH64 (183) when targeting ArchARM64.",
+      "killers": ["compiler/objfmt:law:ELF64BuilderRoundTrips"]
+    },
+    {
+      "name": "objfmt-elf64-gnu-stack-exec",
+      "origin": "objfmt",
+      "file": "compiler/objfmt/elf64.ergo",
+      "decl": "WriteELF64",
+      "from": "\t\telfSectionMeta{nameOff: shNameOffs[5], shType: ShtProgbits, flags: uint64(0), offset: noteOff, size: uint64(0), link: uint32(0), info: uint32(0), addrAlign: uint64(1), entSize: uint64(0)},\n",
+      "to": "\t\telfSectionMeta{nameOff: shNameOffs[5], shType: ShtProgbits, flags: ShfExecInstr, offset: noteOff, size: uint64(0), link: uint32(0), info: uint32(0), addrAlign: uint64(1), entSize: uint64(0)},\n",
+      "rule": ".note.GNU-stack must have sh_flags = 0 for a non-executable stack.",
+      "killers": ["compiler/objfmt:law:ELF64BuilderRoundTrips"]
+    },
+    {
+      "name": "objfmt-elf64-symtab-shinfo",
+      "origin": "objfmt",
+      "file": "compiler/objfmt/elf64.ergo",
+      "decl": "WriteELF64",
+      "from": "\t\telfSectionMeta{nameOff: shNameOffs[8], shType: ShtSymtab, flags: uint64(0), offset: symOff, size: symSize, link: ElfSecStrtab, info: firstGlobal, addrAlign: uint64(8), entSize: uint64(24)},\n",
+      "to": "\t\telfSectionMeta{nameOff: shNameOffs[8], shType: ShtSymtab, flags: uint64(0), offset: symOff, size: symSize, link: ElfSecStrtab, info: if firstGlobal == uint32(999999) { firstGlobal } else { uint32(1) }, addrAlign: uint64(8), entSize: uint64(24)},\n",
+      "rule": ".symtab sh_info must equal the index of the first non-local symbol.",
+      "killers": ["compiler/objfmt:law:ELF64BuilderRoundTrips", "compiler/objfmt:NativeReadelfMatchesPureErgoDecoder"]
+    },
+    {
+      "name": "objfmt-elf64-locals-after-globals",
+      "origin": "objfmt",
+      "file": "compiler/objfmt/elf64.ergo",
+      "decl": "writeElfSymtab",
+      "from": "\tlet mut nextElf = uint32(1)\n\tfor i in 0..nSyms {\n\t\tif o.SymBind[i] == BindLocal {\n\t\t\tsymToElf[i] = nextElf\n\t\t\twriteElfSymEntry(w, o, i)\n\t\t\tnextElf = nextElf + uint32(1)\n\t\t}\n\t}\n\tlet firstGlobal = nextElf\n\tfor i in 0..nSyms {\n\t\tif o.SymBind[i] != BindLocal {\n\t\t\tsymToElf[i] = nextElf\n\t\t\twriteElfSymEntry(w, o, i)\n\t\t\tnextElf = nextElf + uint32(1)\n\t\t}\n\t}\n",
+      "to": "\tlet mut nextElf = uint32(1)\n\tlet firstGlobal = nextElf\n\tfor i in 0..nSyms {\n\t\tif o.SymBind[i] != BindLocal {\n\t\t\tsymToElf[i] = nextElf\n\t\t\twriteElfSymEntry(w, o, i)\n\t\t\tnextElf = nextElf + uint32(1)\n\t\t}\n\t}\n\tfor i in 0..nSyms {\n\t\tif o.SymBind[i] == BindLocal {\n\t\t\tsymToElf[i] = nextElf\n\t\t\twriteElfSymEntry(w, o, i)\n\t\t\tnextElf = nextElf + uint32(1)\n\t\t}\n\t}\n",
+      "rule": "ELF64 .symtab must place all STB_LOCAL symbols strictly before globals.",
+      "killers": ["compiler/objfmt:law:ELF64BuilderRoundTrips"]
+    },
+    {
+      "name": "objfmt-elf64-plt32-addend",
+      "origin": "objfmt",
+      "file": "compiler/objfmt/elf64.ergo",
+      "decl": "elfRelocMapping",
+      "from": "\t\tif kind == RelocCall || kind == RelocJump {\n\t\t\treturn (RX86_64_PLT32, addend - uint64(4))\n\t\t}\n",
+      "to": "\t\tif kind == RelocCall || kind == RelocJump {\n\t\t\treturn (RX86_64_PLT32, addend)\n\t\t}\n",
+      "rule": "x86_64 PLT32 ELF64 RELA relocations must subtract the 4-byte displacement size from addend.",
+      "killers": ["compiler/objfmt:law:ELF64BuilderRoundTrips", "compiler/objfmt:NativeLinkAndExecuteTwoObjectsPutsAndErgoAdd"]
+    },
+    {
+      "name": "objfmt-elf64-rela-link-wrong",
+      "origin": "objfmt",
+      "file": "compiler/objfmt/elf64.ergo",
+      "decl": "WriteELF64",
+      "from": "\t\telfSectionMeta{nameOff: shNameOffs[6], shType: ShtRela, flags: ShfInfoLink, offset: relaTextOff, size: relaTextSize, link: ElfSecSymtab, info: ElfSecText, addrAlign: uint64(8), entSize: uint64(24)},\n",
+      "to": "\t\telfSectionMeta{nameOff: shNameOffs[6], shType: ShtRela, flags: ShfInfoLink, offset: relaTextOff, size: relaTextSize, link: ElfSecNull, info: ElfSecText, addrAlign: uint64(8), entSize: uint64(24)},\n",
+      "rule": ".rela.text sh_link must reference the .symtab section index.",
+      "killers": ["compiler/objfmt:law:ELF64BuilderRoundTrips"]
+    },
+    {
+      "name": "objfmt-elf64-arm64-call26-wrong",
+      "origin": "objfmt",
+      "file": "compiler/objfmt/elf64.ergo",
+      "decl": "elfRelocMapping",
+      "from": "\t\tif kind == RelocCall {\n\t\t\treturn (RAArch64Call26, addend)\n\t\t}\n\t\tif kind == RelocJump {\n\t\t\treturn (RAArch64Jump26, addend)\n\t\t}\n",
+      "to": "\t\tif kind == RelocCall {\n\t\t\treturn (RAArch64Jump26, addend)\n\t\t}\n\t\tif kind == RelocJump {\n\t\t\treturn (RAArch64Call26, addend)\n\t\t}\n",
+      "rule": "ARM64 RelocCall and RelocJump must emit R_AARCH64_CALL26 and R_AARCH64_JUMP26 respectively.",
+      "killers": ["compiler/objfmt:law:ELF64BuilderRoundTrips"]
+    },
+    {
+      "name": "objfmt-macho64-magic-wrong",
+      "origin": "objfmt",
+      "file": "compiler/objfmt/macho64.ergo",
+      "decl": "writeMachoHeader",
+      "from": "\tw.U32(MachoMagic64)\n",
+      "to": "\tw.U32(uint32(0xfeedface))\n",
+      "rule": "Mach-O64 header must begin with MH_MAGIC_64 (0xfeedfacf).",
+      "killers": ["compiler/objfmt:law:MachO64BuilderRoundTrips"]
+    },
+    {
+      "name": "objfmt-macho64-nsect-value-missing-secaddr",
+      "origin": "objfmt",
+      "file": "compiler/objfmt/macho64.ergo",
+      "decl": "writeMachoSymEntry",
+      "from": "\t\tnValue = secAddrs[int(sec)] + o.SymValue[symIdx]\n",
+      "to": "\t\tnValue = o.SymValue[symIdx]\n",
+      "rule": "Mach-O64 nlist_64 n_value for N_SECT symbols is segment-relative (section addr + offset).",
+      "killers": ["compiler/objfmt:law:MachO64BuilderRoundTrips"]
+    },
+    {
+      "name": "objfmt-macho64-locals-order",
+      "origin": "objfmt",
+      "file": "compiler/objfmt/macho64.ergo",
+      "decl": "computeMachoSymOrder",
+      "from": "\tfor i in 0..nSyms {\n\t\tif o.SymBind[i] == BindLocal {\n\t\t\tsymToMacho[i] = idx\n\t\t\torder = order.Append(uint32(i))\n\t\t\tidx = idx + uint32(1)\n\t\t}\n\t}\n\tfor i in 0..nSyms {\n\t\tif o.SymBind[i] != BindLocal && o.SymSec[i] != SecUndef {\n\t\t\tsymToMacho[i] = idx\n\t\t\torder = order.Append(uint32(i))\n\t\t\tidx = idx + uint32(1)\n\t\t}\n\t}\n",
+      "to": "\tfor i in 0..nSyms {\n\t\tif o.SymBind[i] != BindLocal && o.SymSec[i] != SecUndef {\n\t\t\tsymToMacho[i] = idx\n\t\t\torder = order.Append(uint32(i))\n\t\t\tidx = idx + uint32(1)\n\t\t}\n\t}\n\tfor i in 0..nSyms {\n\t\tif o.SymBind[i] == BindLocal {\n\t\t\tsymToMacho[i] = idx\n\t\t\torder = order.Append(uint32(i))\n\t\t\tidx = idx + uint32(1)\n\t\t}\n\t}\n",
+      "rule": "Mach-O64 nlist_64 symbol table must emit local symbols before external symbols.",
+      "killers": ["compiler/objfmt:law:MachO64BuilderRoundTrips"]
+    },
+    {
+      "name": "objfmt-macho64-arm64-page21-pcrel",
+      "origin": "objfmt",
+      "file": "compiler/objfmt/macho64.ergo",
+      "decl": "machoRelocSpec",
+      "from": "\t\tif kind == RelocArm64Page21 {\n\t\t\treturn (Arm64RelocPage21, uint32(1), uint32(2))\n\t\t}\n",
+      "to": "\t\tif kind == RelocArm64Page21 {\n\t\t\treturn (Arm64RelocPage21, uint32(0), uint32(2))\n\t\t}\n",
+      "rule": "ARM64_RELOC_PAGE21 must be marked PC-relative (r_pcrel = 1).",
+      "killers": ["compiler/objfmt:law:MachO64BuilderRoundTrips"]
+    },
+    {
+      "name": "objfmt-macho64-zerofill-flag",
+      "origin": "objfmt",
+      "file": "compiler/objfmt/macho64.ergo",
+      "decl": "buildMachoSectionLayouts",
+      "from": "\t\t\tflags:     MachoSecZerofill,\n",
+      "to": "\t\t\tflags:     MachoSecRegular,\n",
+      "rule": "__DATA,__bss section_64 must carry S_ZEROFILL (0x1).",
+      "killers": ["compiler/objfmt:law:MachO64BuilderRoundTrips"]
+    },
+    {
+      "name": "objfmt-decode-elf-skip-strtab-nul",
+      "origin": "objfmt",
+      "file": "compiler/objfmt/decode.ergo",
+      "decl": "validateElfStrtab",
+      "from": "\tif raw[int(off)] != byte(0) || raw[int(off+sz-uint64(1))] != byte(0) {\n\t\treturn elfFail(\"SHT_STRTAB must begin and end with NUL byte\", uint32(off))\n\t}\n",
+      "to": "\tif false && (raw[int(off)] != byte(0) || raw[int(off+sz-uint64(1))] != byte(0)) {\n\t\treturn elfFail(\"SHT_STRTAB must begin and end with NUL byte\", uint32(off))\n\t}\n",
+      "rule": "DecodeELF64 must reject SHT_STRTAB sections lacking leading or trailing NUL bytes.",
+      "killers": ["compiler/objfmt:law:DecodersRejectCorruptedImages"]
+    },
+    {
+      "name": "objfmt-decode-elf-skip-local-order",
+      "origin": "objfmt",
+      "file": "compiler/objfmt/decode.ergo",
+      "decl": "decodeElfSymtabSection",
+      "from": "\t\t} else {\n\t\t\tif bind == BindLocal {\n\t\t\t\treturn elfFail(\"local symbol placed at or after .symtab sh_info\", uint32(base))\n\t\t\t}\n\t\t}\n",
+      "to": "\t\t} else {\n\t\t\tif false && bind == BindLocal {\n\t\t\t\treturn elfFail(\"local symbol placed at or after .symtab sh_info\", uint32(base))\n\t\t\t}\n\t\t}\n",
+      "rule": "DecodeELF64 must reject local symbols placed at or after .symtab sh_info.",
+      "killers": ["compiler/objfmt:law:DecodersRejectCorruptedImages"]
+    },
+    {
+      "name": "objfmt-decode-macho-skip-reloc-bounds",
+      "origin": "objfmt",
+      "file": "compiler/objfmt/decode.ergo",
+      "decl": "decodeMachoRelocs",
+      "from": "\t\t\tif uint64(rAddr) > secSz || width > secSz-uint64(rAddr) {\n\t\t\t\treturn machoFail(\"Mach-O relocation address exceeds section size\", rAddr)\n\t\t\t}\n",
+      "to": "\t\t\tif false && (uint64(rAddr) > secSz || width > secSz-uint64(rAddr)) {\n\t\t\t\treturn machoFail(\"Mach-O relocation address exceeds section size\", rAddr)\n\t\t\t}\n",
+      "rule": "DecodeMachO64 must reject relocations whose extent exceeds the owning section size.",
+      "killers": ["compiler/objfmt:law:DecodersRejectCorruptedImages"]
+    },
+    {
+      "name": "objfmt-amd64-rel32-disp",
+      "origin": "objfmt",
+      "file": "compiler/objfmt/amd64.ergo",
+      "decl": "FinishAmd64",
+      "from": "\t\ta.Code.Put32(pc, uint32(target-(pc+4)))\n",
+      "to": "\t\ta.Code.Put32(pc, uint32(target-pc))\n",
+      "rule": "FinishAmd64 must patch 32-bit branch displacements relative to pc + 4.",
+      "killers": ["compiler/objfmt:Amd64UndefinedLabelAndEncodingExact", "compiler/objfmt:NativeLinkAndExecuteTwoObjectsPutsAndErgoAdd"]
+    },
+    {
+      "name": "objfmt-amd64-rex-w-dropped",
+      "origin": "objfmt",
+      "file": "compiler/objfmt/amd64.ergo",
+      "decl": "MovRR",
+      "from": "\temitRex(&a.Code, true, src, uint8(0), dst)\n",
+      "to": "\temitRex(&a.Code, false, src, uint8(0), dst)\n",
+      "rule": "64-bit MovRR must emit REX.W.",
+      "killers": ["compiler/objfmt:law:Amd64BranchesAndFramesEncode"]
+    },
+    {
+      "name": "objfmt-amd64-lea-rip-modrm",
+      "origin": "objfmt",
+      "file": "compiler/objfmt/amd64.ergo",
+      "decl": "LeaRipSym",
+      "from": "\temitModRM(&a.Code, uint32(0), dst, uint8(5))\n",
+      "to": "\temitModRM(&a.Code, uint32(0), dst, uint8(4))\n",
+      "rule": "LeaRipSym must encode ModRM [RIP + disp32] (mod=0, rm=5).",
+      "killers": ["compiler/objfmt:Amd64UndefinedLabelAndEncodingExact", "compiler/objfmt:NativeLinkAndExecuteTwoObjectsPutsAndErgoAdd"]
+    },
+    {
+      "name": "objfmt-arm64-branch-imm26",
+      "origin": "objfmt",
+      "file": "compiler/objfmt/arm64.ergo",
+      "decl": "FinishArm64",
+      "from": "\t\tlet dispWords = (target - pc) / 4\n",
+      "to": "\t\tlet dispWords = target - pc\n",
+      "rule": "FinishArm64 must scale branch offsets by instruction word size (4 bytes).",
+      "killers": ["compiler/objfmt:Arm64UndefinedLabelAndEncodingExact"]
+    },
+    {
+      "name": "objfmt-arm64-prologue-stp",
+      "origin": "objfmt",
+      "file": "compiler/objfmt/arm64.ergo",
+      "decl": "A64Prologue",
+      "from": "\tlet imm7 = uint32(0x7e)\n",
+      "to": "\tlet imm7 = uint32(0x02)\n",
+      "rule": "A64Prologue must pre-decrement SP by 16 bytes (imm7 = -2 = 0x7e).",
+      "killers": ["compiler/objfmt:Arm64UndefinedLabelAndEncodingExact"]
+    }
+  ]
+}
