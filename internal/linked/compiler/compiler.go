@@ -5609,7 +5609,7 @@ func ergo__CloneSlice_48(v []compiler_scheck_sexpr__eqWork) []compiler_scheck_se
 	return c
 }
 
-func ergo__CloneTuple_42(v struct {
+func ergo__CloneTuple_43(v struct {
 	F0 int
 	F1 []dense__ID[compiler_scheck_sstore__TKey]
 }) struct {
@@ -7154,7 +7154,7 @@ func strings__Repeat_1(s string, n int) string {
 
 //line compiler.go:3163
 
-func ergo__CloneTuple_62(v struct {
+func ergo__CloneTuple_63(v struct {
 	F0 string
 	F1 string
 	F2 []dense__ID[compiler_scheck_sstore__TKey]
@@ -148685,7 +148685,7 @@ func compiler_scheck_sexpr__isComparableType(env *ergo__Env, s *compiler_scheck_
 						}
 						/*line check/expr/assign.ergo:2616:6*/ handled = true
 					} else {
-						/*line check/expr/assign.ergo:2618:6*/ p := ergo__CloneTuple_42(compiler_scheck_sexpr__recordOf(*s, k, u))
+						/*line check/expr/assign.ergo:2618:6*/ p := ergo__CloneTuple_43(compiler_scheck_sexpr__recordOf(*s, k, u))
 						/*line check/expr/assign.ergo:2618:6*/ ri := p.F0
 						/*line check/expr/assign.ergo:2618:6*/ targs := p.F1
 						/*line check/expr/assign.ergo:2619:6*/ if ri >= 0 {
@@ -183871,7 +183871,7 @@ func compiler_scheck_sexpr__fieldType(env *ergo__Env, s *compiler_scheck_sstore_
 		/*line check/expr/call.ergo:741:9*/ v := compiler_scheck_sexpr__fieldType(env, s, k, (*s).OperandsOf(ty)[0], name, at)
 		/*line check/expr/call.ergo:741:2*/ return v
 	}
-	/*line check/expr/call.ergo:743:1*/ p := ergo__CloneTuple_42(compiler_scheck_sexpr__recordOf(*s, k, ty))
+	/*line check/expr/call.ergo:743:1*/ p := ergo__CloneTuple_43(compiler_scheck_sexpr__recordOf(*s, k, ty))
 	/*line check/expr/call.ergo:743:1*/ r := p.F0
 	/*line check/expr/call.ergo:743:1*/ targs := p.F1
 	/*line check/expr/call.ergo:744:1*/ if r < 0 {
@@ -194181,7 +194181,7 @@ func compiler_scheck_stypes__Elided(env *ergo__Env, s *compiler_scheck_sstore__S
 //line check/expr/deps.ergo:213:1
 func compiler_scheck_sexpr__importedField(env *ergo__Env, s *compiler_scheck_sstore__Store, k compiler_scheck_sexpr__Pkg, ty dense__ID[compiler_scheck_sstore__TKey], name string, at int) option__Option[dense__ID[compiler_scheck_sstore__TKey]] {
 	/*line check/expr/deps.ergo:213:1*/ env.task.Check()
-	/*line check/expr/deps.ergo:214:1*/ p_1 := ergo__CloneTuple_62(compiler_scheck_sexpr__importedRec(*s, k, ty))
+	/*line check/expr/deps.ergo:214:1*/ p_1 := ergo__CloneTuple_63(compiler_scheck_sexpr__importedRec(*s, k, ty))
 	/*line check/expr/deps.ergo:214:1*/ path := p_1.F0
 	/*line check/expr/deps.ergo:214:1*/ rec := p_1.F1
 	/*line check/expr/deps.ergo:214:1*/ targs := p_1.F2
@@ -197169,7 +197169,7 @@ func compiler_scheck_sexpr__wireEach(env *ergo__Env, s *compiler_scheck_sstore__
 		}
 		/*line check/expr/wire.ergo:141:2*/ return
 	}
-	/*line check/expr/wire.ergo:143:1*/ p_2 := ergo__CloneTuple_42(compiler_scheck_sexpr__recordOf(*s, k, ty))
+	/*line check/expr/wire.ergo:143:1*/ p_2 := ergo__CloneTuple_43(compiler_scheck_sexpr__recordOf(*s, k, ty))
 	/*line check/expr/wire.ergo:143:1*/ r := p_2.F0
 	/*line check/expr/wire.ergo:144:1*/ if r >= 0 {
 		/*line check/expr/wire.ergo:145:2*/ if k.Recs[r].Op || len(k.Recs[r].Params) > 0 {
@@ -200507,7 +200507,7 @@ func compiler_scheck_sexpr__isEquatableType(env *ergo__Env, s *compiler_scheck_s
 						}
 						/*line check/expr/assign.ergo:2487:6*/ handled = true
 					} else {
-						/*line check/expr/assign.ergo:2489:6*/ p := ergo__CloneTuple_42(compiler_scheck_sexpr__recordOf(*s, k, u))
+						/*line check/expr/assign.ergo:2489:6*/ p := ergo__CloneTuple_43(compiler_scheck_sexpr__recordOf(*s, k, u))
 						/*line check/expr/assign.ergo:2489:6*/ ri := p.F0
 						/*line check/expr/assign.ergo:2489:6*/ targs := p.F1
 						/*line check/expr/assign.ergo:2490:6*/ if ri >= 0 {
