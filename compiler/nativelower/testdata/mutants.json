@@ -1,0 +1,65 @@
+{
+  "about": "compiler/nativelower: checked compiler/ir to SysV AMD64 machine code and ELF64 executables (NB-4). Rows written unjudged in the backend crunch (2026-11-27); the judging run is owed.",
+  "mutants": [
+    {
+      "name": "nativelower-normalize-sign",
+      "origin": "nativelower",
+      "file": "compiler/nativelower/lower.ergo",
+      "decl": "normalize",
+      "from": "\tshiftImm(a, if IntSigned(k) { uint32(7) } else { uint32(5) }, r, n)\n",
+      "to": "\tshiftImm(a, uint32(5), r, n)\n",
+      "rule": "A narrow signed result is sign-extended (SAR), an unsigned one zero-extended (SHR).",
+      "killers": ["compiler/nativelower:NativeArithAgreesWithEval"]
+    },
+    {
+      "name": "nativelower-signed-less",
+      "origin": "nativelower",
+      "file": "compiler/nativelower/lower.ergo",
+      "decl": "condCode",
+      "from": "\t\treturn if signed { objfmt.X64CondL } else { uint8(0x2) }\n",
+      "to": "\t\treturn uint8(0x2)\n",
+      "rule": "A signed less-than branches on JL, never the unsigned JB.",
+      "killers": ["compiler/nativelower:NativeControlAgreesWithEval"]
+    },
+    {
+      "name": "nativelower-second-result-register",
+      "origin": "nativelower",
+      "file": "compiler/nativelower/lower.ergo",
+      "decl": "emitCall",
+      "from": "\t\t\tstoreWord(a, c.fr, d, w, if rw == 0 { rax } else { rdx })\n",
+      "to": "\t\t\tstoreWord(a, c.fr, d, w, rax)\n",
+      "rule": "A two-word result comes back in RAX then RDX, as SysV returns a 16-byte value.",
+      "killers": ["compiler/nativelower:NativeRecordsAgreeWithEval"]
+    },
+    {
+      "name": "nativelower-record-field-order",
+      "origin": "nativelower",
+      "file": "compiler/nativelower/lower.ergo",
+      "decl": "fieldWord",
+      "from": "\t\tn = n + try slotWords(p, p.Types[t].Fields[i].Type)\n",
+      "to": "\t\tn = n + 0\n",
+      "rule": "A field's word is the words of the fields before it.",
+      "killers": ["compiler/nativelower:NativeRecordsAgreeWithEval"]
+    },
+    {
+      "name": "nativelower-local-call-alias",
+      "origin": "nativelower",
+      "file": "compiler/nativelower/lower.ergo",
+      "decl": "bindLocalCalls",
+      "from": "\t\t\t\to.SymValue[i] = o.SymValue[j]\n",
+      "to": "\t\t\t\to.SymValue[i] = uint64(0)\n",
+      "rule": "A call of a function of the package resolves to that function's offset in .text.",
+      "killers": ["compiler/nativelower:NativeControlAgreesWithEval"]
+    },
+    {
+      "name": "nativelower-write-pointer",
+      "origin": "nativelower",
+      "file": "compiler/nativelower/lower.ergo",
+      "decl": "Executable",
+      "from": "\t\tobjfmt.MovRR(&a, objfmt.X64Rsi, rax)\n",
+      "to": "\t\tobjfmt.MovRR(&a, objfmt.X64Rsi, objfmt.X64Rdx)\n",
+      "rule": "The string entry writes Main's bytes: pointer in RSI, length in RDX, to ergo_write.",
+      "killers": ["compiler/nativelower:NativeHelloMatchesTheExampleCase"]
+    }
+  ]
+}

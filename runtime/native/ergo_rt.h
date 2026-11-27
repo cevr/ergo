@@ -235,6 +235,9 @@ uint64_t ergo_actor_steps_used(void);
 
 _Noreturn void ergo_die(uint32_t code, ErgoStr msg);
 
+/* Writes n bytes at p to fd, retrying EINTR and short writes; returns the bytes written, -1 on a first-write error. */
+int64_t ergo_write(int32_t fd, const uint8_t *p, int64_t n);
+
 /* Thread-local current isolated actor context (internal linkage hook between actor and die) */
 ErgoActorContext *ergo_actor_tls_get(void);
 

@@ -1,0 +1,243 @@
+import compiler/check/bind
+import compiler/check/load
+import compiler/check/types
+import compiler/eval
+import compiler/syntax
+import embed
+
+import exec
+import fs
+import fstest
+import os
+import strconv
+import strings
+
+let helloSource = embed.File[string]("testdata/hello.ergo")
+let ioSource = embed.File[string]("testdata/ergo_io.c")
+let rtHeader = embed.File[string]("testdata/ergo_rt.h")
+let helloExpected = embed.File[string]("testdata/hello.out")
+
+let onExecHost = context needs fstest.TestAmbient {
+	fs.Files:    fs.NewTestHost(),
+	fs.Writes:   fs.NewTestHost(),
+	exec.Runner: exec.NewTestHost(),
+	os.Self:     os.NewTestHost(),
+}
+
+type ran { Status int, Stdout string, Err string }
+
+let trapStatus = 132
+
+type reference { Ok bool, Text string }
+
+func evalMain(nativeSrc string, result string) reference {
+	let src = nativeSrc + "\nfunc EvalMain() \(result) {\n\tMain(1)\n}\n"
+	let pf = syntax.Parse(src)
+	if pf.Failed {
+		return reference{Ok: false, Text: "parse error"}
+	}
+	let files = []string{"prog.ergo"}
+	let mut u = load.UnitOf(load.TablesOf("", ""), []bind.File{bind.File{Name: "prog.ergo", Parsed: pf}}, files)
+	u.Path = "prog"
+	let lp = load.LoadAll([]load.Unit{u}, []types.Iface{}, 1)
+	let (progVal, errs) = eval.CompileProgram(lp)
+	if errs.Len() > 0 {
+		return reference{Ok: false, Text: "eval compile: " + errs[0].Reason}
+	}
+	let mut prog = progVal
+	let out = eval.EvalEntryFn(&prog, prog.RootPkg, "EvalMain", eval.DefaultBudget())
+	if out.Status != eval.StatusPassed {
+		return reference{Ok: false, Text: "eval " + eval.StatusName(out.Status) + ": " + out.Reason}
+	}
+	reference{Ok: true, Text: out.ValueText}
+}
+
+func runTool(path string, args []string) exec.Result fails exec.NotFound | exec.Denied | exec.Failed needs exec.Runner {
+	try exec.Runner.Run(exec.New(path, args).WithEnv("PATH", "/usr/bin:/bin"))
+}
+
+func nativeRun(name string, src string) ran needs fs.Writes | exec.Runner | os.Self {
+	let obj = Build("prog", "prog.ergo", src) catch {
+	case NotLowered as n:
+		return ran{Status: -1, Stdout: "", Err: "NotLowered " + n.Stage + " " + n.Kind + ": " + n.Why}
+	}
+	let dir = os.Self.HomeDir() catch {
+	case os.NoDir:
+		return ran{Status: -1, Stdout: "", Err: "no home dir"}
+	}
+	fs.Writes.WriteFile(name+".o", obj.Text()) catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		return ran{Status: -1, Stdout: "", Err: "cannot write the object"}
+	}
+	fs.Writes.WriteFile("ergo_rt.h", rtHeader) catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		return ran{Status: -1, Stdout: "", Err: "cannot write the runtime header"}
+	}
+	fs.Writes.WriteFile("ergo_io.c", ioSource) catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		return ran{Status: -1, Stdout: "", Err: "cannot write the runtime source"}
+	}
+	let link = runTool("/usr/bin/cc", []string{"-std=c11", "-Wall", "-Wextra", "-Werror", "-O2", "-no-pie", "-o", name, name + ".o", "ergo_io.c"}) catch {
+	case exec.NotFound, exec.Denied, exec.Failed:
+		return ran{Status: -1, Stdout: "", Err: "cc did not run"}
+	}
+	if link.Status != 0 {
+		return ran{Status: -1, Stdout: "", Err: "link: " + link.Stderr}
+	}
+	let r = runTool("/usr/bin/prlimit", []string{"--as=268435456", "--cpu=10", "--", dir + "/" + name}) catch {
+	case exec.NotFound, exec.Denied, exec.Failed:
+		return ran{Status: -1, Stdout: "", Err: "the native program did not run"}
+	}
+	ran{Status: r.Status, Stdout: r.Stdout, Err: ""}
+}
+
+func agreeInt(name string, src string, lawName string, k int) string needs fs.Writes | exec.Runner | os.Self {
+	let want = evalMain(src, "int")
+	let got = nativeRun(name, src)
+	let replay = "replay (from the repository root): bin/ergo test compiler/nativelower --run \(lawName) (case k=\(k))"
+	if !want.Ok && strings.Contains(want.Text, "defect") && got.Err == "" && got.Status == trapStatus {
+		return ""
+	}
+	if !want.Ok || got.Err != "" {
+		return "source:\n\(src)\neval: \(want.Text)\nnative: status \(got.Status) \(got.Err)\n\(replay)"
+	}
+	let v = strconv.Atoi(want.Text) catch {
+	case _:
+		return "source:\n\(src)\neval value not an int: \(want.Text)\n\(replay)"
+	}
+	let code = ((v % 256) + 256) % 256
+	if code != got.Status {
+		return "source:\n\(src)\neval: \(want.Text) (exit \(code))\nnative: exit \(got.Status)\n\(replay)"
+	}
+	""
+}
+
+func pick(xs []string, k int) string { xs[((k%xs.Len())+xs.Len())%xs.Len()] }
+
+func arithSource(k int) string {
+	let a = (k * 7919) % 100003
+	let b = (k*104729)%977 + 1
+	let ops = []string{"+", "-", "*", "/", "%", "&", "|", "^"}
+	let o1 = pick(ops, k)
+	let o2 = pick(ops, k/8)
+	let o3 = pick(ops, k/64+3)
+	let sh = (k / 5) % 70
+	"func calc(a int, b int) int {\n\tlet x = (a \(o1) b) \(o2) (b \(o3) 3)\n\tlet y = x << \(sh)\n\tlet z = y >> \(sh % 13)\n\tz ^ (a &^ b)\n}\n\nfunc Main(argc int) int {\n\tlet a = argc * \(a)\n\tlet b = argc - \(b + 1)\n\tlet r = calc(a, b) - (b * a)\n\tr ^ (r >> 8) ^ (r >> 16) ^ (r >> 24)\n}\n"
+}
+
+func controlSource(k int) string {
+	let n = k%23 + 1
+	let m = (k/3)%17 + 1
+	let cmps = []string{"<", "<=", ">", ">=", "==", "!="}
+	let c1 = pick(cmps, k)
+	let c2 = pick(cmps, k/6)
+	"func step(acc int, i int, m int) int {\n\tif i \(c1) m {\n\t\treturn acc + i * 3\n\t} else if acc \(c2) i {\n\t\treturn acc - m\n\t}\n\tacc ^ i\n}\n\nfunc loop(n int, m int) int {\n\tlet mut acc = 1\n\tlet mut i = 0\n\tfor i < n {\n\t\tif i \(c2) m {\n\t\t\tacc = acc + i * 3\n\t\t} else {\n\t\t\tacc = acc - m\n\t\t}\n\t\ti = i + 1\n\t}\n\tfor j in 0..m {\n\t\tif j == 2 {\n\t\t\tcontinue\n\t\t}\n\t\tacc = acc + j\n\t}\n\tacc\n}\n\nfunc Main(argc int) int {\n\tlet n = argc + \(n - 1)\n\tlet m = argc * \(m)\n\tlet a = loop(n, m)\n\tstep(a, n, m)\n}\n"
+}
+
+func narrowSource(k int) string {
+	let a = (k*37)%300 - 150
+	let b = (k * 101) % 70000
+	"func wrap(a int, b int) int {\n\tint(int8(a) * int8(3) + int8(b)) + int(uint8(b) * uint8(7) + uint8(a)) + int(int16(b * a)) + int(uint32(a * b) % uint32(1000))\n}\n\nfunc Main(argc int) int {\n\tlet a = argc * \(a)\n\tlet b = argc + \(b - 1)\n\twrap(a, b)\n}\n"
+}
+
+func recordSource(k int) string {
+	let a = (k*31)%1000 - 500
+	let b = (k*17)%97 + 1
+	let ops = []string{"+", "-", "*", "^"}
+	let o = pick(ops, k)
+	"type P { X int, Y int }\n\ntype R { A int, B int, C int }\n\nfunc mk(a int, b int) P {\n\tP{X: a \(o) b, Y: b - a}\n}\n\nfunc dot(p P, q P) int {\n\tp.X * q.X + p.Y * q.Y\n}\n\nfunc Main(argc int) int {\n\tlet a = argc * \(a)\n\tlet b = argc + \(b)\n\tlet p = mk(a, b)\n\tlet q = P{X: b, Y: a}\n\tlet r = R{A: p.X, B: q.Y, C: a - b}\n\tlet d = dot(p, q)\n\td - r.C * r.A + r.B\n}\n"
+}
+
+let seedBase = 0x5eed
+
+let seededCases = 16
+
+func sourceFor(kind string, k int) string {
+	if kind == "arith" {
+		return arithSource(k)
+	}
+	if kind == "control" {
+		return controlSource(k)
+	}
+	if kind == "record" {
+		return recordSource(k)
+	}
+	narrowSource(k)
+}
+
+func agreeAll(kind string, testName string) string needs fs.Writes | exec.Runner | os.Self {
+	for i in 0..seededCases {
+		let k = seedBase + i*7919
+		let rep = agreeInt(kind, sourceFor(kind, k), testName, k)
+		if rep != "" {
+			return rep
+		}
+	}
+	""
+}
+
+// NativeArithAgreesWithEval: on seeded programs, integer arithmetic (+ - *
+// / % & | ^ &^ << >>) and calls lowered to machine code give eval's result
+// as the exit status. It builds and runs a native executable because the
+// claim is about the machine code the CPU runs, which no in-process check
+// executes.
+test NativeArithAgreesWithEval {
+	let rep = with onExecHost { agreeAll("arith", "NativeArithAgreesWithEval") }
+	assert rep == ""
+}
+
+// NativeControlAgreesWithEval: on seeded programs, if/else, comparisons,
+// for loops with continue, locals and calls give eval's result. It builds
+// and runs a native executable: the claim is about the machine code.
+test NativeControlAgreesWithEval {
+	let rep = with onExecHost { agreeAll("control", "NativeControlAgreesWithEval") }
+	assert rep == ""
+}
+
+// NativeRecordsAgreeWithEval: on seeded programs, records by value (built,
+// read by field, passed to and returned from calls in registers) give
+// eval's result. It builds and runs a native executable: the claim is
+// about the machine code.
+test NativeRecordsAgreeWithEval {
+	let rep = with onExecHost { agreeAll("record", "NativeRecordsAgreeWithEval") }
+	assert rep == ""
+}
+
+// NativeHelloMatchesTheExampleCase runs examples/native-hello's pure package
+// as a native executable: its stdout, written through runtime/native's
+// ergo_write, is the case's expected.out, is eval's Main(), and the status
+// is 0. It builds and runs the executable: the claim is about the machine code.
+test NativeHelloMatchesTheExampleCase {
+	let want = evalMain(helloSource, "string")
+	assert want.Ok && want.Text == helloExpected
+	let got = with onExecHost {
+		nativeRun("hello", helloSource)
+	}
+	assert got.Err == ""
+	assert got.Stdout == helloExpected
+	assert got.Status == 0
+}
+
+test NativeRefusesWhatItDoesNotLower {
+	let ordinary = "func main() {\n}\n"
+	let _ = Build("prog", "prog.ergo", ordinary) catch {
+	case NotLowered as n:
+		assert n.Stage == "entry" && n.Kind == "main"
+		[]byte{}
+	}
+	let rec = "func Main(argc int) int {\n\tlet xs = []int{argc, 2}\n\txs[0] + xs[1]\n}\n"
+	let mut refused = ""
+	let _ = Build("prog", "prog.ergo", rec) catch {
+	case NotLowered as n:
+		refused = n.Kind
+		[]byte{}
+	}
+	assert refused == "type slice" || refused == "SliceLit" || refused == "Index"
+	let mut narrow = ""
+	let _ = Build("prog", "prog.ergo", narrowSource(seedBase)) catch {
+	case NotLowered as n:
+		narrow = n.Stage + " " + n.Kind
+		[]byte{}
+	}
+	assert narrow == "lower stop"
+}
