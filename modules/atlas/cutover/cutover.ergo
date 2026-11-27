@@ -1,0 +1,602 @@
+import github.com/cevr/ergo/modules/atlas/handle
+import machines
+import option
+
+// CutoverOld indicates normal operation solely owned by the legacy runtime.
+type CutoverOld {}
+
+// CutoverQuiesce indicates the legacy runtime is draining new work prior to handoff.
+type CutoverQuiesce {}
+
+// CutoverTransfer indicates pre-commit transfer staging while old holds the active lease.
+type CutoverTransfer {}
+
+// CutoverCommitted indicates the atomic lease cutover to New has persisted cleanly.
+type CutoverCommitted {}
+
+// CutoverDone indicates legacy drain completed cleanly and New is sole steady-state owner.
+type CutoverDone {}
+
+// CutoverPhase models M14 live cutover phases from Old to Done.
+type CutoverPhase = CutoverOld | CutoverQuiesce | CutoverTransfer | CutoverCommitted | CutoverDone
+
+// OwnerNone indicates no valid active lease holder.
+type OwnerNone {}
+
+// OwnerOld indicates the legacy runtime holds the exclusive execution lease.
+type OwnerOld {}
+
+// OwnerNew indicates the Ergo host holds the exclusive execution lease.
+type OwnerNew {}
+
+// OwnerBoth indicates an invalid split-brain dual-owner lease state.
+type OwnerBoth {}
+
+// LeaseOwner identifies which runtime currently holds exclusive lease ownership.
+type LeaseOwner = OwnerNone | OwnerOld | OwnerNew | OwnerBoth
+
+// CutoverHandle tracks one H1 external/durable handle across cutover commit, rollback, or crash.
+type CutoverHandle {
+	ID                 handle.HandleID,
+	Kind               handle.HandleKind,
+	Disposition        handle.Disposition,
+	H1EventOccurred    bool,
+	WakeDeliveredCount int,
+	DeliveryID         string,
+}
+
+// CutoverState stores complete state for an atomic Old -> New live cutover run per M14.
+type CutoverState {
+	Phase               CutoverPhase,
+	ActiveOwner         LeaseOwner,
+	CommitPersisted     bool,
+	NewLeaseToken       int,
+	OldDrainFinished    bool,
+	HandleOrder         []handle.HandleID,
+	Handles             Map[handle.HandleID, CutoverHandle],
+	AbortedBeforeCommit bool,
+	CrashRecovered      bool,
+	OldActedAfterCommit bool,
+	DroppedCount        int,
+	WakesDelivered      int,
+}
+
+// SplitBrainRejected refuses any action that would grant concurrent execution ownership to Old and New.
+type SplitBrainRejected {
+	Reason string,
+}
+
+// AbortBlockedAfterCommit refuses rolling back to Old once CommitPersisted has been recorded.
+type AbortBlockedAfterCommit {}
+
+// OldDrainedPrematurely refuses marking old drain finished before CommitPersisted and OwnerNew handoff.
+type OldDrainedPrematurely {}
+
+// InvalidCutoverTransition refuses a phase-incompatible cutover command.
+type InvalidCutoverTransition {
+	Phase  CutoverPhase,
+	Action string,
+}
+
+// CutoverHandleMissing refuses referencing an unknown handle ID.
+type CutoverHandleMissing {
+	ID handle.HandleID,
+}
+
+// DuplicateCutoverWake refuses delivering a second wake for the same handle across cutover or recovery.
+type DuplicateCutoverWake {
+	ID handle.HandleID,
+}
+
+// CutoverRefusal classifies all rejected live cutover transitions.
+type CutoverRefusal = SplitBrainRejected | AbortBlockedAfterCommit | OldDrainedPrematurely | InvalidCutoverTransition | CutoverHandleMissing | DuplicateCutoverWake
+
+// ActBeginQuiesce transitions from CutoverOld into CutoverQuiesce.
+type ActBeginQuiesce {}
+
+// ActOpenCutoverHandle opens an H1 external/durable handle under the current pre-commit owner.
+type ActOpenCutoverHandle {
+	ID   handle.HandleID,
+	Kind handle.HandleKind,
+}
+
+// ActStageTransfer advances CutoverQuiesce to CutoverTransfer while preserving exclusive OwnerOld lease.
+type ActStageTransfer {}
+
+// ActCommitPersisted atomically commits lease transfer from OwnerOld to OwnerNew.
+type ActCommitPersisted {}
+
+// ActAbortBeforeCommit cleanly rolls back CutoverQuiesce or CutoverTransfer to CutoverOld before commit.
+type ActAbortBeforeCommit {}
+
+// ActOldAttemptAct attempts a legacy runtime mutation; refused after CutoverTransfer or CommitPersisted.
+type ActOldAttemptAct {}
+
+// ActFinishOldDrain completes legacy drain cleanly once CommitPersisted holds under OwnerNew.
+type ActFinishOldDrain {}
+
+// ActCrashAndRecoverNew recovers state under OwnerNew immediately following a post-commit crash.
+type ActCrashAndRecoverNew {}
+
+// ActTriggerH1Event records an H1 completion event on an open handle.
+type ActTriggerH1Event {
+	ID handle.HandleID,
+}
+
+// ActDeliverH1Wake delivers at most one wake letter for an H1 handle whose event occurred.
+type ActDeliverH1Wake {
+	ID handle.HandleID,
+}
+
+// CutoverAction enumerates pure commands applied to a CutoverState.
+type CutoverAction = ActBeginQuiesce | ActOpenCutoverHandle | ActStageTransfer | ActCommitPersisted | ActAbortBeforeCommit | ActOldAttemptAct | ActFinishOldDrain | ActCrashAndRecoverNew | ActTriggerH1Event | ActDeliverH1Wake
+
+// NewCutoverState constructs the initial CutoverOld state owned solely by OwnerOld.
+func NewCutoverState() CutoverState {
+	CutoverState{
+		Phase:               CutoverOld,
+		ActiveOwner:         OwnerOld,
+		CommitPersisted:     false,
+		NewLeaseToken:       0,
+		OldDrainFinished:    false,
+		HandleOrder:         []handle.HandleID{},
+		Handles:             Map[handle.HandleID, CutoverHandle]{},
+		AbortedBeforeCommit: false,
+		CrashRecovered:      false,
+		OldActedAfterCommit: false,
+		DroppedCount:        0,
+		WakesDelivered:      0,
+	}
+}
+
+// ApplyCutover validates and applies a single CutoverAction to a CutoverState.
+func ApplyCutover(s CutoverState, act CutoverAction) CutoverState fails CutoverRefusal {
+	match act {
+	case ActBeginQuiesce:
+		match s.Phase {
+		case CutoverOld:
+			CutoverState{..s, Phase: CutoverQuiesce, AbortedBeforeCommit: false}
+		case CutoverQuiesce, CutoverTransfer, CutoverCommitted, CutoverDone:
+			InvalidCutoverTransition{Phase: s.Phase, Action: "begin_quiesce"}
+		}
+
+	case ActOpenCutoverHandle as op:
+		match s.Handles.Get(op.ID) {
+		case option.Some[CutoverHandle]:
+			return InvalidCutoverTransition{Phase: s.Phase, Action: "duplicate_handle"}
+		case option.None:
+		}
+		match s.Phase {
+		case CutoverOld, CutoverQuiesce:
+			let ch = CutoverHandle{
+				ID:                 op.ID,
+				Kind:               op.Kind,
+				Disposition:        handle.DispOpen,
+				H1EventOccurred:    false,
+				WakeDeliveredCount: 0,
+				DeliveryID:         handle.WakeDeliveryID(op.ID),
+			}
+			CutoverState{
+				..s,
+				HandleOrder: s.HandleOrder.Append(op.ID),
+				Handles:     s.Handles.Put(op.ID, ch),
+			}
+		case CutoverTransfer, CutoverCommitted, CutoverDone:
+			InvalidCutoverTransition{Phase: s.Phase, Action: "open_handle_during_cutover"}
+		}
+
+	case ActStageTransfer:
+		match s.Phase {
+		case CutoverQuiesce:
+			CutoverState{..s, Phase: CutoverTransfer}
+		case CutoverOld, CutoverTransfer, CutoverCommitted, CutoverDone:
+			InvalidCutoverTransition{Phase: s.Phase, Action: "stage_transfer"}
+		}
+
+	case ActCommitPersisted:
+		match s.Phase {
+		case CutoverTransfer:
+			if s.CommitPersisted {
+				return InvalidCutoverTransition{Phase: s.Phase, Action: "commit_already_persisted"}
+			}
+			if s.ActiveOwner != OwnerOld {
+				return SplitBrainRejected{Reason: "owner_must_be_old_before_commit"}
+			}
+			CutoverState{
+				..s,
+				Phase:           CutoverCommitted,
+				ActiveOwner:     OwnerNew,
+				CommitPersisted: true,
+				NewLeaseToken:   s.NewLeaseToken + 1,
+			}
+		case CutoverOld, CutoverQuiesce, CutoverCommitted, CutoverDone:
+			InvalidCutoverTransition{Phase: s.Phase, Action: "commit_persisted"}
+		}
+
+	case ActAbortBeforeCommit:
+		if s.CommitPersisted {
+			return AbortBlockedAfterCommit
+		}
+		match s.Phase {
+		case CutoverQuiesce, CutoverTransfer:
+			CutoverState{
+				..s,
+				Phase:               CutoverOld,
+				ActiveOwner:         OwnerOld,
+				AbortedBeforeCommit: true,
+			}
+		case CutoverOld, CutoverCommitted, CutoverDone:
+			InvalidCutoverTransition{Phase: s.Phase, Action: "abort_before_commit"}
+		}
+
+	case ActOldAttemptAct:
+		if s.CommitPersisted || s.ActiveOwner != OwnerOld {
+			return SplitBrainRejected{Reason: "old_fenced_after_commit"}
+		}
+		match s.Phase {
+		case CutoverOld, CutoverQuiesce:
+			s
+		case CutoverTransfer, CutoverCommitted, CutoverDone:
+			SplitBrainRejected{Reason: "old_fenced_in_transfer"}
+		}
+
+	case ActFinishOldDrain:
+		if !s.CommitPersisted || s.ActiveOwner != OwnerNew {
+			return OldDrainedPrematurely
+		}
+		match s.Phase {
+		case CutoverCommitted:
+			CutoverState{
+				..s,
+				Phase:            CutoverDone,
+				OldDrainFinished: true,
+			}
+		case CutoverOld, CutoverQuiesce, CutoverTransfer, CutoverDone:
+			InvalidCutoverTransition{Phase: s.Phase, Action: "finish_old_drain"}
+		}
+
+	case ActCrashAndRecoverNew:
+		if !s.CommitPersisted || s.ActiveOwner != OwnerNew {
+			return OldDrainedPrematurely
+		}
+		match s.Phase {
+		case CutoverCommitted:
+			CutoverState{
+				..s,
+				Phase:          CutoverCommitted,
+				ActiveOwner:    OwnerNew,
+				CrashRecovered: true,
+			}
+		case CutoverDone:
+			CutoverState{..s, CrashRecovered: true}
+		case CutoverOld, CutoverQuiesce, CutoverTransfer:
+			InvalidCutoverTransition{Phase: s.Phase, Action: "crash_recover_new"}
+		}
+
+	case ActTriggerH1Event as ev:
+		let ch = match s.Handles.Get(ev.ID) {
+		case option.None:
+			return CutoverHandleMissing{ID: ev.ID}
+		case option.Some[CutoverHandle] as cur:
+			cur.Value
+		}
+		if ch.H1EventOccurred {
+			return InvalidCutoverTransition{Phase: s.Phase, Action: "duplicate_h1_event"}
+		}
+		let updated = CutoverHandle{..ch, H1EventOccurred: true}
+		CutoverState{..s, Handles: s.Handles.Put(ev.ID, updated)}
+
+	case ActDeliverH1Wake as dl:
+		match s.Phase {
+		case CutoverTransfer:
+			return InvalidCutoverTransition{Phase: s.Phase, Action: "deliver_during_transfer"}
+		case CutoverOld, CutoverQuiesce, CutoverCommitted, CutoverDone:
+		}
+		let ch = match s.Handles.Get(dl.ID) {
+		case option.None:
+			return CutoverHandleMissing{ID: dl.ID}
+		case option.Some[CutoverHandle] as cur:
+			cur.Value
+		}
+		if !ch.H1EventOccurred {
+			return InvalidCutoverTransition{Phase: s.Phase, Action: "deliver_before_h1_event"}
+		}
+		if ch.WakeDeliveredCount >= 1 || !handle.IsOpen(ch.Disposition) {
+			return DuplicateCutoverWake{ID: dl.ID}
+		}
+		let updated = CutoverHandle{
+			..ch,
+			Disposition:        handle.DispSucceeded,
+			WakeDeliveredCount: ch.WakeDeliveredCount + 1,
+		}
+		CutoverState{
+			..s,
+			Handles:        s.Handles.Put(dl.ID, updated),
+			WakesDelivered: s.WakesDelivered + 1,
+		}
+	}
+}
+
+func singleOwnerInvariant(s CutoverState) bool {
+	if s.ActiveOwner == OwnerBoth || s.ActiveOwner == OwnerNone {
+		return false
+	}
+	if s.CommitPersisted {
+		return s.ActiveOwner == OwnerNew
+	}
+	s.ActiveOwner == OwnerOld
+}
+
+func zeroSilentDrops(s CutoverState) bool {
+	if s.DroppedCount > 0 {
+		return false
+	}
+	for _, id in s.HandleOrder {
+		match s.Handles.Get(id) {
+		case option.Some[CutoverHandle]:
+		case option.None:
+			return false
+		}
+	}
+	true
+}
+
+func safeRollbackBeforeCommit(s CutoverState) bool {
+	if s.AbortedBeforeCommit && s.CommitPersisted {
+		return false
+	}
+	if s.AbortedBeforeCommit {
+		return s.ActiveOwner == OwnerOld && !s.OldDrainFinished
+	}
+	true
+}
+
+func noSplitBrainAfterCommit(s CutoverState) bool {
+	if s.OldActedAfterCommit {
+		return false
+	}
+	if s.OldDrainFinished && (!s.CommitPersisted || s.ActiveOwner != OwnerNew) {
+		return false
+	}
+	true
+}
+
+func atMostOneWakeAcrossCutover(s CutoverState) bool {
+	for _, id in s.HandleOrder {
+		match s.Handles.Get(id) {
+		case option.Some[CutoverHandle] as ch:
+			if ch.Value.WakeDeliveredCount > 1 {
+				return false
+			}
+		case option.None:
+		}
+	}
+	true
+}
+
+law AbortForbiddenOnceCommitPersisted(idSeed string) {
+	let s0 = NewCutoverState()
+	let s1 = ApplyCutover(s0, ActBeginQuiesce) catch {
+	case _:
+		return false
+	}
+	let h = handle.HandleID("h-" + idSeed)
+	let s2 = ApplyCutover(s1, ActOpenCutoverHandle{ID: h, Kind: handle.KindJob}) catch {
+	case _:
+		return false
+	}
+	let s3 = ApplyCutover(s2, ActStageTransfer) catch {
+	case _:
+		return false
+	}
+	let s4 = ApplyCutover(s3, ActCommitPersisted) catch {
+	case _:
+		return false
+	}
+	let mut abortBlocked = false
+	let _ = ApplyCutover(s4, ActAbortBeforeCommit) catch {
+	case AbortBlockedAfterCommit:
+		abortBlocked = true
+		s4
+	case SplitBrainRejected, OldDrainedPrematurely, InvalidCutoverTransition, CutoverHandleMissing, DuplicateCutoverWake:
+		s4
+	}
+	let mut oldBlocked = false
+	let _ = ApplyCutover(s4, ActOldAttemptAct) catch {
+	case SplitBrainRejected:
+		oldBlocked = true
+		s4
+	case AbortBlockedAfterCommit, OldDrainedPrematurely, InvalidCutoverTransition, CutoverHandleMissing, DuplicateCutoverWake:
+		s4
+	}
+	abortBlocked && oldBlocked && singleOwnerInvariant(s4) && zeroSilentDrops(s4)
+}
+
+type ActCutQuiesce {}
+
+type ActCutOpenH1 {}
+
+type ActCutStageTransfer {}
+
+type ActCutCommit {}
+
+type ActCutAbort {}
+
+type ActCutOldTryAct {}
+
+type ActCutFinishDrain {}
+
+type ActCutCrashRecover {}
+
+type ActCutTriggerH1 {}
+
+type ActCutDeliverH1 {}
+
+type CutoverAct = ActCutQuiesce | ActCutOpenH1 | ActCutStageTransfer | ActCutCommit | ActCutAbort | ActCutOldTryAct | ActCutFinishDrain | ActCutCrashRecover | ActCutTriggerH1 | ActCutDeliverH1
+
+type CutoverWorld {
+	State             CutoverState,
+	OldFenced         bool,
+	PostCommitAborted bool,
+}
+
+func h1ID() handle.HandleID { handle.HandleID("h1-job") }
+
+func firstCutoverWorld() CutoverWorld {
+	CutoverWorld{
+		State:             NewCutoverState(),
+		OldFenced:         false,
+		PostCommitAborted: false,
+	}
+}
+
+func stepCutoverWorld(w CutoverWorld, a CutoverAct) machines.Decision[CutoverWorld, string] {
+	let act = match a {
+	case ActCutQuiesce:
+		ActBeginQuiesce
+	case ActCutOpenH1:
+		ActOpenCutoverHandle{ID: h1ID(), Kind: handle.KindJob}
+	case ActCutStageTransfer:
+		ActStageTransfer
+	case ActCutCommit:
+		ActCommitPersisted
+	case ActCutAbort:
+		ActAbortBeforeCommit
+	case ActCutOldTryAct:
+		ActOldAttemptAct
+	case ActCutFinishDrain:
+		ActFinishOldDrain
+	case ActCutCrashRecover:
+		if w.State.CrashRecovered {
+			return machines.Ignore
+		}
+		ActCrashAndRecoverNew
+	case ActCutTriggerH1:
+		ActTriggerH1Event{ID: h1ID()}
+	case ActCutDeliverH1:
+		ActDeliverH1Wake{ID: h1ID()}
+	}
+
+	let next = ApplyCutover(w.State, act) catch {
+	case r:
+		match r {
+		case SplitBrainRejected:
+			if !w.OldFenced {
+				return machines.Enter[CutoverWorld]{Next: CutoverWorld{..w, OldFenced: true}}
+			}
+			return machines.Ignore
+		case AbortBlockedAfterCommit:
+			if !w.PostCommitAborted {
+				return machines.Enter[CutoverWorld]{Next: CutoverWorld{..w, PostCommitAborted: true}}
+			}
+			return machines.Ignore
+		case OldDrainedPrematurely, InvalidCutoverTransition, CutoverHandleMissing, DuplicateCutoverWake:
+			return machines.Ignore
+		}
+	}
+	match a {
+	case ActCutOldTryAct:
+		let inRestrictedPhase = match w.State.Phase {
+		case CutoverTransfer, CutoverCommitted, CutoverDone:
+			true
+		case CutoverOld, CutoverQuiesce:
+			false
+		}
+		if w.State.CommitPersisted || w.State.ActiveOwner != OwnerOld || inRestrictedPhase {
+			return machines.Enter[CutoverWorld]{
+				Next: CutoverWorld{..w, State: CutoverState{..next, OldActedAfterCommit: true}},
+			}
+		}
+		return machines.Ignore
+	case ActCutQuiesce, ActCutOpenH1, ActCutStageTransfer, ActCutCommit, ActCutAbort, ActCutFinishDrain, ActCutCrashRecover, ActCutTriggerH1, ActCutDeliverH1:
+	}
+	machines.Enter[CutoverWorld]{Next: CutoverWorld{..w, State: next}}
+}
+
+func worldSingleOwnerInvariant(w CutoverWorld) bool { singleOwnerInvariant(w.State) }
+
+func worldZeroSilentDrops(w CutoverWorld) bool { zeroSilentDrops(w.State) }
+
+func worldSafeRollbackBeforeCommit(w CutoverWorld) bool { safeRollbackBeforeCommit(w.State) }
+
+func worldNoSplitBrainAfterCommit(w CutoverWorld) bool { noSplitBrainAfterCommit(w.State) }
+
+func worldAtMostOneWakeAcrossCutover(w CutoverWorld) bool { atMostOneWakeAcrossCutover(w.State) }
+
+func cleanCutoverReached(w CutoverWorld) bool {
+	w.State.Phase == CutoverDone && w.State.ActiveOwner == OwnerNew && w.State.OldDrainFinished
+}
+
+func abortedBeforeCommitPreservesH1(w CutoverWorld) bool {
+	if !w.State.AbortedBeforeCommit {
+		return false
+	}
+	match w.State.Handles.Get(h1ID()) {
+	case option.Some[CutoverHandle]:
+		w.State.Phase == CutoverOld && w.State.ActiveOwner == OwnerOld
+	case option.None:
+		false
+	}
+}
+
+func h1DeliveredOncePostCommit(w CutoverWorld) bool {
+	if !w.State.CommitPersisted {
+		return false
+	}
+	match w.State.Handles.Get(h1ID()) {
+	case option.Some[CutoverHandle] as ch:
+		ch.Value.WakeDeliveredCount == 1 && ch.Value.Disposition == handle.DispSucceeded
+	case option.None:
+		false
+	}
+}
+
+func crashRecoveredUnderNewOwner(w CutoverWorld) bool {
+	w.State.CrashRecovered && w.State.CommitPersisted && w.State.ActiveOwner == OwnerNew
+}
+
+// CutoverLifecycle exhaustively proves M14 single-owner, rollback, zero-drop, and single-wake invariants across live cutover.
+type CutoverLifecycle machine[CutoverWorld, CutoverAct] {
+	initial: firstCutoverWorld(),
+	step:    stepCutoverWorld,
+
+	law SingleOwnerInvariant always worldSingleOwnerInvariant,
+	law ZeroSilentDrops always worldZeroSilentDrops,
+	law SafeRollbackBeforeCommit always worldSafeRollbackBeforeCommit,
+	law NoSplitBrainAfterCommit always worldNoSplitBrainAfterCommit,
+	law AtMostOneWakeAcrossCutover always worldAtMostOneWakeAcrossCutover,
+
+	law CleanCutoverReached sometimes cleanCutoverReached,
+	law AbortedBeforeCommitPreservesH1 sometimes abortedBeforeCommitPreservesH1,
+	law H1DeliveredOncePostCommit sometimes h1DeliveredOncePostCommit,
+	law CrashRecoveredUnderNewOwner sometimes crashRecoveredUnderNewOwner,
+}
+
+test CutoverPreservesH1AcrossRollbackAndFencesOldAfterCommit {
+	let s0 = NewCutoverState()
+	let s1 = try ApplyCutover(s0, ActBeginQuiesce)
+	let s2 = try ApplyCutover(s1, ActOpenCutoverHandle{ID: h1ID(), Kind: handle.KindJob})
+	let s3 = try ApplyCutover(s2, ActStageTransfer)
+	let sRolledBack = try ApplyCutover(s3, ActAbortBeforeCommit)
+	assert sRolledBack.Phase == CutoverOld
+	assert sRolledBack.ActiveOwner == OwnerOld
+	assert zeroSilentDrops(sRolledBack)
+
+	let r1 = try ApplyCutover(sRolledBack, ActBeginQuiesce)
+	let r2 = try ApplyCutover(r1, ActStageTransfer)
+	let mut prematureDrain = false
+	let _ = ApplyCutover(r2, ActFinishOldDrain) catch {
+	case OldDrainedPrematurely:
+		prematureDrain = true
+		r2
+	case SplitBrainRejected, AbortBlockedAfterCommit, InvalidCutoverTransition, CutoverHandleMissing, DuplicateCutoverWake:
+		r2
+	}
+	assert prematureDrain
+
+	let r3 = try ApplyCutover(r2, ActCommitPersisted)
+	let r4 = try ApplyCutover(r3, ActTriggerH1Event{ID: h1ID()})
+	let r5 = try ApplyCutover(r4, ActDeliverH1Wake{ID: h1ID()})
+	let r6 = try ApplyCutover(r5, ActFinishOldDrain)
+	assert r6.Phase == CutoverDone && r6.WakesDelivered == 1 && !r6.OldActedAfterCommit
+}

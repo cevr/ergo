@@ -1,0 +1,856 @@
+import github.com/cevr/ergo/modules/atlas/adapter
+import machines
+import option
+
+// TurnID uniquely identifies a single turn on a thread.
+type TurnID string
+
+// FailureUsageLimit classifies a usage/quota limit failure carrying an optional reset timestamp.
+type FailureUsageLimit {
+	ResetAtMs int64,
+}
+
+// FailureProvider classifies a provider-side failure.
+type FailureProvider {}
+
+// FailureTransport classifies a transient network or transport failure.
+type FailureTransport {}
+
+// FailurePermission classifies a permission or approval rejection.
+type FailurePermission {}
+
+// FailureValidation classifies a local validation or malformed-input failure.
+type FailureValidation {}
+
+// FailureUnknown classifies an uncategorized turn failure.
+type FailureUnknown {}
+
+// FailureClass categorizes terminal and transient turn failures per D8.
+type FailureClass = FailureUsageLimit | FailureProvider | FailureTransport | FailurePermission | FailureValidation | FailureUnknown
+
+// FailureResetAtMs returns the optional reset timestamp carried only by usage-limit failures.
+func FailureResetAtMs(fc FailureClass) option.Option[int64] {
+	match fc {
+	case FailureUsageLimit as u:
+		if u.ResetAtMs > 0 {
+			return option.Some[int64]{Value: u.ResetAtMs}
+		}
+		option.None
+	case FailureProvider, FailureTransport, FailurePermission, FailureValidation, FailureUnknown:
+		option.None
+	}
+}
+
+// IsRetryableFailure reports whether a pre-delta failure class may be retried once.
+func IsRetryableFailure(fc FailureClass) bool {
+	match fc {
+	case FailureTransport, FailureProvider:
+		true
+	case FailureUsageLimit, FailurePermission, FailureValidation, FailureUnknown:
+		false
+	}
+}
+
+// OutcomeCompleted indicates the turn completed normally.
+type OutcomeCompleted {}
+
+// OutcomeFailed indicates the turn failed with a typed FailureClass.
+type OutcomeFailed {
+	Class  FailureClass,
+	Detail string,
+}
+
+// OutcomeCancelled indicates the turn was cancelled by user or host policy.
+type OutcomeCancelled {}
+
+// OutcomeLost indicates the turn was lost across a process or owner boundary.
+type OutcomeLost {}
+
+// TurnOutcome records the terminal settlement of a turn per D7.
+type TurnOutcome = OutcomeCompleted | OutcomeFailed | OutcomeCancelled | OutcomeLost
+
+// PhaseQueued indicates the turn is accepted and queued prior to dispatch.
+type PhaseQueued {}
+
+// PhaseUnsure indicates dispatch RPC completion is uncertain after a boundary fault.
+type PhaseUnsure {}
+
+// PhaseDispatched indicates the turn was dispatched to the driver and awaits first delta.
+type PhaseDispatched {}
+
+// PhaseConfirmed indicates at least one stream delta arrived from the driver.
+type PhaseConfirmed {}
+
+// PhaseEnded indicates the turn has settled terminally.
+type PhaseEnded {}
+
+// TurnPhase models the lifecycle stages of a single turn dispatch.
+type TurnPhase = PhaseQueued | PhaseUnsure | PhaseDispatched | PhaseConfirmed | PhaseEnded
+
+// TurnState tracks the immutable state of a single turn across Meta and Direct modes.
+type TurnState {
+	ID                 TurnID,
+	Driver             adapter.DriverKind,
+	Capabilities       adapter.Capabilities,
+	PermissionMode     adapter.PermissionMode,
+	Phase              TurnPhase,
+	Accepted           bool,
+	SentCount          int,
+	HasDelta           bool,
+	PendingApproval    bool,
+	ApprovalGranted    bool,
+	ApprovalGrants     int,
+	StopWanted         bool,
+	Cancels            int,
+	BookkeepingPending bool,
+	Retried            bool,
+	RetriedAfterDelta  bool,
+	Emulated           bool,
+	SteersSent         int,
+	WritesExecuted     int,
+	Outcome            option.Option[TurnOutcome],
+	Reported           bool,
+}
+
+// TurnAlreadyEnded refuses mutations on an already terminal turn.
+type TurnAlreadyEnded {
+	ID TurnID,
+}
+
+// InvalidTurnTransition refuses an invalid turn phase or state transition.
+type InvalidTurnTransition {
+	ID     TurnID,
+	Phase  TurnPhase,
+	Action string,
+}
+
+// AdapterPolicyRefusal wraps a driver capability or permission refusal.
+type AdapterPolicyRefusal {
+	Cause adapter.AdapterRefusal,
+}
+
+// RetryAfterFirstDeltaDenied refuses retrying once the driver has already streamed deltas.
+type RetryAfterFirstDeltaDenied {
+	ID TurnID,
+}
+
+// TurnRefusal classifies rejected turn state transitions.
+type TurnRefusal = TurnAlreadyEnded | InvalidTurnTransition | AdapterPolicyRefusal | RetryAfterFirstDeltaDenied
+
+// ActionDispatch moves a queued turn into PhaseDispatched.
+type ActionDispatch {}
+
+// ActionDispatchLost moves a queued turn into PhaseUnsure on an uncertain RPC boundary.
+type ActionDispatchLost {}
+
+// ActionResolveSent reconciles an unsure turn as dispatched at the driver.
+type ActionResolveSent {}
+
+// ActionResolveUnsent reconciles an unsure turn as never dispatched so it returns to queued.
+type ActionResolveUnsent {}
+
+// ActionReceiveDelta marks receipt of the first or subsequent output delta from the driver.
+type ActionReceiveDelta {}
+
+// ActionRequestWriteApproval records an interactive write approval request on the active turn.
+type ActionRequestWriteApproval {}
+
+// ActionGrantWriteApproval records explicit operator approval for the pending write.
+type ActionGrantWriteApproval {}
+
+// ActionExecuteWrite attempts to execute a file write gated by PermissionMode and approval state.
+type ActionExecuteWrite {}
+
+// ActionSendSteer attempts an in-flight steer checked against adapter.RequireSteer.
+type ActionSendSteer {}
+
+// ActionRetryTransient attempts a single retry on a transient error before any delta arrived.
+type ActionRetryTransient {
+	Class FailureClass,
+}
+
+// ActionRequestStop marks that a user or policy stop has been requested.
+type ActionRequestStop {}
+
+// ActionSendCancel dispatches cancel to an active driver turn when StopWanted is true.
+type ActionSendCancel {}
+
+// ActionFinishTurn settles an active turn into PhaseEnded with a terminal TurnOutcome.
+type ActionFinishTurn {
+	Outcome TurnOutcome,
+}
+
+// ActionFailBeforeDispatch settles a queued turn directly as failed before sending to the driver.
+type ActionFailBeforeDispatch {
+	Class  FailureClass,
+	Detail string,
+}
+
+// ActionStartBookkeeping starts out-of-band post-turn indexing or summary work per D6.
+type ActionStartBookkeeping {}
+
+// ActionFinishBookkeeping completes post-turn bookkeeping work.
+type ActionFinishBookkeeping {}
+
+// TurnAction enumerates pure commands applied to a TurnState.
+type TurnAction = ActionDispatch | ActionDispatchLost | ActionResolveSent | ActionResolveUnsent | ActionReceiveDelta | ActionRequestWriteApproval | ActionGrantWriteApproval | ActionExecuteWrite | ActionSendSteer | ActionRetryTransient | ActionRequestStop | ActionSendCancel | ActionFinishTurn | ActionFailBeforeDispatch | ActionStartBookkeeping | ActionFinishBookkeeping
+
+// NewTurn initializes a queued turn after validating driver support and resolving permission fallbacks.
+func NewTurn(id TurnID, driver adapter.DriverKind, caps adapter.Capabilities, requestedMode adapter.PermissionMode) TurnState fails TurnRefusal {
+	let _ = adapter.CanStartDriver(driver, caps) catch {
+	case e:
+		return AdapterPolicyRefusal{Cause: e}
+	}
+	let resolved = adapter.ResolvePermissionMode(caps, requestedMode)
+	TurnState{
+		ID:                 id,
+		Driver:             driver,
+		Capabilities:       caps,
+		PermissionMode:     resolved,
+		Phase:              PhaseQueued,
+		Accepted:           true,
+		SentCount:          0,
+		HasDelta:           false,
+		PendingApproval:    false,
+		ApprovalGranted:    false,
+		ApprovalGrants:     0,
+		StopWanted:         false,
+		Cancels:            0,
+		BookkeepingPending: false,
+		Retried:            false,
+		RetriedAfterDelta:  false,
+		Emulated:           false,
+		SteersSent:         0,
+		WritesExecuted:     0,
+		Outcome:            option.None,
+		Reported:           false,
+	}
+}
+
+// IsTurnActive reports whether the turn is currently in flight on a driver, ignoring post-turn bookkeeping.
+func IsTurnActive(t TurnState) bool {
+	match t.Phase {
+	case PhaseUnsure, PhaseDispatched, PhaseConfirmed:
+		true
+	case PhaseQueued, PhaseEnded:
+		false
+	}
+}
+
+// IsTurnOpen reports whether the turn has not yet reached a terminal outcome.
+func IsTurnOpen(t TurnState) bool {
+	match t.Phase {
+	case PhaseEnded:
+		false
+	case PhaseQueued, PhaseUnsure, PhaseDispatched, PhaseConfirmed:
+		true
+	}
+}
+
+// StepTurn validates and applies a single TurnAction to a TurnState.
+func StepTurn(t TurnState, act TurnAction) TurnState fails TurnRefusal {
+	match act {
+	case ActionStartBookkeeping:
+		match t.Phase {
+		case PhaseEnded:
+			return TurnState{..t, BookkeepingPending: true}
+		case PhaseQueued, PhaseUnsure, PhaseDispatched, PhaseConfirmed:
+			return InvalidTurnTransition{ID: t.ID, Phase: t.Phase, Action: "start_bookkeeping"}
+		}
+	case ActionFinishBookkeeping:
+		if !t.BookkeepingPending {
+			return InvalidTurnTransition{ID: t.ID, Phase: t.Phase, Action: "finish_bookkeeping"}
+		}
+		return TurnState{..t, BookkeepingPending: false}
+	case ActionDispatch, ActionDispatchLost, ActionResolveSent, ActionResolveUnsent, ActionReceiveDelta, ActionRequestWriteApproval, ActionGrantWriteApproval, ActionExecuteWrite, ActionSendSteer, ActionRetryTransient, ActionRequestStop, ActionSendCancel, ActionFinishTurn, ActionFailBeforeDispatch:
+	}
+
+	if !IsTurnOpen(t) {
+		return TurnAlreadyEnded{ID: t.ID}
+	}
+
+	match act {
+	case ActionDispatch:
+		match t.Phase {
+		case PhaseQueued:
+			if t.SentCount >= 1 {
+				return InvalidTurnTransition{ID: t.ID, Phase: t.Phase, Action: "dispatch"}
+			}
+			TurnState{..t, Phase: PhaseDispatched, SentCount: t.SentCount + 1}
+		case PhaseUnsure, PhaseDispatched, PhaseConfirmed, PhaseEnded:
+			InvalidTurnTransition{ID: t.ID, Phase: t.Phase, Action: "dispatch"}
+		}
+
+	case ActionDispatchLost:
+		match t.Phase {
+		case PhaseQueued:
+			TurnState{..t, Phase: PhaseUnsure}
+		case PhaseUnsure, PhaseDispatched, PhaseConfirmed, PhaseEnded:
+			InvalidTurnTransition{ID: t.ID, Phase: t.Phase, Action: "dispatch_lost"}
+		}
+
+	case ActionResolveSent:
+		match t.Phase {
+		case PhaseUnsure:
+			if t.SentCount >= 1 {
+				return InvalidTurnTransition{ID: t.ID, Phase: t.Phase, Action: "resolve_sent"}
+			}
+			TurnState{..t, Phase: PhaseDispatched, SentCount: t.SentCount + 1}
+		case PhaseQueued, PhaseDispatched, PhaseConfirmed, PhaseEnded:
+			InvalidTurnTransition{ID: t.ID, Phase: t.Phase, Action: "resolve_sent"}
+		}
+
+	case ActionResolveUnsent:
+		match t.Phase {
+		case PhaseUnsure:
+			TurnState{..t, Phase: PhaseQueued}
+		case PhaseQueued, PhaseDispatched, PhaseConfirmed, PhaseEnded:
+			InvalidTurnTransition{ID: t.ID, Phase: t.Phase, Action: "resolve_unsent"}
+		}
+
+	case ActionReceiveDelta:
+		match t.Phase {
+		case PhaseDispatched, PhaseConfirmed:
+			TurnState{..t, Phase: PhaseConfirmed, HasDelta: true}
+		case PhaseQueued, PhaseUnsure, PhaseEnded:
+			InvalidTurnTransition{ID: t.ID, Phase: t.Phase, Action: "receive_delta"}
+		}
+
+	case ActionRequestWriteApproval:
+		match t.Phase {
+		case PhaseDispatched, PhaseConfirmed:
+			TurnState{..t, PendingApproval: true, ApprovalGranted: false}
+		case PhaseQueued, PhaseUnsure, PhaseEnded:
+			InvalidTurnTransition{ID: t.ID, Phase: t.Phase, Action: "request_write_approval"}
+		}
+
+	case ActionGrantWriteApproval:
+		if !t.PendingApproval {
+			return InvalidTurnTransition{ID: t.ID, Phase: t.Phase, Action: "grant_write_approval"}
+		}
+		TurnState{..t, PendingApproval: false, ApprovalGranted: true, ApprovalGrants: t.ApprovalGrants + 1}
+
+	case ActionExecuteWrite:
+		match t.Phase {
+		case PhaseDispatched, PhaseConfirmed:
+			if t.PendingApproval {
+				return AdapterPolicyRefusal{Cause: adapter.WriteApprovalRequired}
+			}
+			let _ = adapter.RequireWriteApproval(t.PermissionMode, t.ApprovalGranted) catch {
+			case e:
+				return AdapterPolicyRefusal{Cause: e}
+			}
+			TurnState{..t, ApprovalGranted: false, WritesExecuted: t.WritesExecuted + 1}
+		case PhaseQueued, PhaseUnsure, PhaseEnded:
+			InvalidTurnTransition{ID: t.ID, Phase: t.Phase, Action: "execute_write"}
+		}
+
+	case ActionSendSteer:
+		let _ = adapter.RequireSteer(t.Driver, t.Capabilities, IsTurnActive(t), t.PendingApproval) catch {
+		case e:
+			return AdapterPolicyRefusal{Cause: e}
+		}
+		TurnState{..t, SteersSent: t.SteersSent + 1}
+
+	case ActionRetryTransient as rt:
+		match t.Phase {
+		case PhaseDispatched, PhaseConfirmed:
+			if t.HasDelta {
+				return RetryAfterFirstDeltaDenied{ID: t.ID}
+			}
+			if !IsRetryableFailure(rt.Class) || t.Retried {
+				return InvalidTurnTransition{ID: t.ID, Phase: t.Phase, Action: "retry_transient"}
+			}
+			TurnState{..t, Retried: true, RetriedAfterDelta: t.HasDelta}
+		case PhaseQueued, PhaseUnsure, PhaseEnded:
+			InvalidTurnTransition{ID: t.ID, Phase: t.Phase, Action: "retry_transient"}
+		}
+
+	case ActionRequestStop:
+		TurnState{..t, StopWanted: true}
+
+	case ActionSendCancel:
+		match t.Phase {
+		case PhaseDispatched, PhaseConfirmed:
+			if !t.StopWanted {
+				return InvalidTurnTransition{ID: t.ID, Phase: t.Phase, Action: "send_cancel"}
+			}
+			TurnState{..t, Cancels: t.Cancels + 1, PendingApproval: false}
+		case PhaseQueued, PhaseUnsure, PhaseEnded:
+			InvalidTurnTransition{ID: t.ID, Phase: t.Phase, Action: "send_cancel"}
+		}
+
+	case ActionFinishTurn as fin:
+		match t.Phase {
+		case PhaseDispatched, PhaseConfirmed:
+			if t.StopWanted && t.Cancels == 0 {
+				return InvalidTurnTransition{ID: t.ID, Phase: t.Phase, Action: "finish_turn_without_cancel"}
+			}
+			TurnState{
+				..t,
+				Phase:           PhaseEnded,
+				PendingApproval: false,
+				Outcome:         option.Some[TurnOutcome]{Value: fin.Outcome},
+				Reported:        true,
+			}
+		case PhaseQueued, PhaseUnsure, PhaseEnded:
+			InvalidTurnTransition{ID: t.ID, Phase: t.Phase, Action: "finish_turn"}
+		}
+
+	case ActionFailBeforeDispatch as fb:
+		match t.Phase {
+		case PhaseQueued:
+			TurnState{
+				..t,
+				Phase:      PhaseEnded,
+				StopWanted: false,
+				Outcome:    option.Some[TurnOutcome]{Value: OutcomeFailed{Class: fb.Class, Detail: fb.Detail}},
+				Reported:   true,
+			}
+		case PhaseUnsure, PhaseDispatched, PhaseConfirmed, PhaseEnded:
+			InvalidTurnTransition{ID: t.ID, Phase: t.Phase, Action: "fail_before_dispatch"}
+		}
+
+	case ActionStartBookkeeping, ActionFinishBookkeeping:
+		InvalidTurnTransition{ID: t.ID, Phase: t.Phase, Action: "bookkeeping"}
+	}
+}
+
+func sentAtMostOnce(t TurnState) bool {
+	t.SentCount <= 1
+}
+
+func terminalSettles(t TurnState) bool {
+	match t.Phase {
+	case PhaseEnded:
+		match t.Outcome {
+		case option.Some[TurnOutcome]:
+			t.Reported && !IsTurnActive(t) && !IsTurnOpen(t)
+		case option.None:
+			false
+		}
+	case PhaseQueued, PhaseUnsure, PhaseDispatched, PhaseConfirmed:
+		!t.BookkeepingPending
+	}
+}
+
+func noStrandedStop(t TurnState) bool {
+	match t.Phase {
+	case PhaseEnded:
+		!(t.StopWanted && t.Cancels == 0)
+	case PhaseQueued, PhaseUnsure, PhaseDispatched, PhaseConfirmed:
+		true
+	}
+}
+
+func noRetryAfterFirstDelta(t TurnState) bool {
+	!t.RetriedAfterDelta
+}
+
+func noWriteWithoutApproval(t TurnState) bool {
+	match t.PermissionMode {
+	case adapter.ModeAsk, adapter.ModeSupervised:
+		t.WritesExecuted <= t.ApprovalGrants
+	case adapter.ModeAutoEdit, adapter.ModeYolo:
+		true
+	}
+}
+
+func neverEmulateMissingCapability(t TurnState) bool {
+	if t.Emulated {
+		return false
+	}
+	match t.PermissionMode {
+	case adapter.ModeAutoEdit:
+		t.Capabilities.SupportsAutoEdit
+	case adapter.ModeYolo:
+		t.Capabilities.SupportsYolo
+	case adapter.ModeAsk, adapter.ModeSupervised:
+		true
+	}
+}
+
+func noDirectAgyUnlessSupported(t TurnState) bool {
+	if adapter.IsAntigravityDirect(t.Driver) {
+		return t.Capabilities.OfficiallySupported
+	}
+	true
+}
+
+func acceptedIsSentOrReported(t TurnState) bool {
+	match t.Phase {
+	case PhaseEnded:
+		let hasOutcome = match t.Outcome {
+		case option.Some[TurnOutcome]:
+			true
+		case option.None:
+			false
+		}
+		t.Reported && (t.SentCount > 0 || hasOutcome)
+	case PhaseQueued, PhaseUnsure, PhaseDispatched, PhaseConfirmed:
+		true
+	}
+}
+
+law UsageLimitCarriesResetAtOnly(reset int64) {
+	let u = FailureUsageLimit{ResetAtMs: reset}
+	let p = FailureProvider
+	let expected = if reset > 0 {
+		FailureResetAtMs(u) == option.Some[int64]{Value: reset}
+	} else {
+		FailureResetAtMs(u) == option.None
+	}
+	expected && FailureResetAtMs(p) == option.None
+}
+
+law RetryableClassesAreTransportAndProvider(fc FailureClass) {
+	match fc {
+	case FailureTransport, FailureProvider:
+		IsRetryableFailure(fc)
+	case FailureUsageLimit, FailurePermission, FailureValidation, FailureUnknown:
+		!IsRetryableFailure(fc)
+	}
+}
+
+law NewTurnNeverEmulatesUnsupportedPermission(d adapter.DriverKind, agy bool, mode adapter.PermissionMode) {
+	let caps = adapter.CapabilitiesFor(d, agy)
+	let t = NewTurn(TurnID("t-law"), d, caps, mode) catch {
+	case _:
+		return adapter.IsAntigravityDirect(d) && !agy
+	}
+	noDirectAgyUnlessSupported(t) && neverEmulateMissingCapability(t)
+}
+
+law BookkeepingPendingNeverMarksTurnActive(d adapter.DriverKind, mode adapter.PermissionMode) {
+	let caps = adapter.CapabilitiesFor(d, false)
+	let t0 = NewTurn(TurnID("t-book"), d, caps, mode) catch {
+	case _:
+		return adapter.IsAntigravityDirect(d)
+	}
+	let t1 = StepTurn(t0, ActionDispatch) catch {
+	case _:
+		return false
+	}
+	let t2 = StepTurn(t1, ActionFinishTurn{Outcome: OutcomeCompleted}) catch {
+	case _:
+		return false
+	}
+	let t3 = StepTurn(t2, ActionStartBookkeeping) catch {
+	case _:
+		return false
+	}
+	t3.BookkeepingPending && !IsTurnActive(t3) && !IsTurnOpen(t3)
+}
+
+type ActInitCodexAsk {}
+
+type ActInitClaudeAutoEdit {}
+
+type ActDispatch {}
+
+type ActDispatchLost {}
+
+type ActResolveSent {}
+
+type ActResolveUnsent {}
+
+type ActReceiveDelta {}
+
+type ActRequestWrite {}
+
+type ActGrantWrite {}
+
+type ActExecuteWrite {}
+
+type ActSendSteer {}
+
+type ActRetryTransport {}
+
+type ActRequestStop {}
+
+type ActSendCancel {}
+
+type ActFinishCompleted {}
+
+type ActFinishCancelled {}
+
+type ActFailQueued {}
+
+type ActStartBookkeeping {}
+
+type ActFinishBookkeeping {}
+
+type TurnAct = ActInitCodexAsk | ActInitClaudeAutoEdit | ActDispatch | ActDispatchLost | ActResolveSent | ActResolveUnsent | ActReceiveDelta | ActRequestWrite | ActGrantWrite | ActExecuteWrite | ActSendSteer | ActRetryTransport | ActRequestStop | ActSendCancel | ActFinishCompleted | ActFinishCancelled | ActFailQueued | ActStartBookkeeping | ActFinishBookkeeping
+
+type TurnWorld {
+	Initialized bool,
+	State       TurnState,
+	SteerDenied bool,
+	WriteDenied bool,
+	RetryDenied bool,
+}
+
+func firstTurnWorld() TurnWorld {
+	let caps = adapter.CapabilitiesFor(adapter.CodexDirect, false)
+	TurnWorld{
+		Initialized: false,
+		State:       TurnState{
+			ID:                 TurnID("t-init"),
+			Driver:             adapter.CodexDirect,
+			Capabilities:       caps,
+			PermissionMode:     adapter.ModeAsk,
+			Phase:              PhaseQueued,
+			Accepted:           false,
+			SentCount:          0,
+			HasDelta:           false,
+			PendingApproval:    false,
+			ApprovalGranted:    false,
+			ApprovalGrants:     0,
+			StopWanted:         false,
+			Cancels:            0,
+			BookkeepingPending: false,
+			Retried:            false,
+			RetriedAfterDelta:  false,
+			Emulated:           false,
+			SteersSent:         0,
+			WritesExecuted:     0,
+			Outcome:            option.None,
+			Reported:           false,
+		},
+		SteerDenied: false,
+		WriteDenied: false,
+		RetryDenied: false,
+	}
+}
+
+func stepTurnWorld(w TurnWorld, a TurnAct) machines.Decision[TurnWorld, string] {
+	match a {
+	case ActInitCodexAsk:
+		if w.Initialized {
+			return machines.Ignore
+		}
+		let caps = adapter.CapabilitiesFor(adapter.CodexDirect, false)
+		let t = NewTurn(TurnID("t-codex"), adapter.CodexDirect, caps, adapter.ModeAsk) catch {
+		case _:
+			return machines.Ignore
+		}
+		return machines.Enter[TurnWorld]{Next: TurnWorld{..w, Initialized: true, State: t}}
+	case ActInitClaudeAutoEdit:
+		if w.Initialized {
+			return machines.Ignore
+		}
+		let caps = adapter.CapabilitiesFor(adapter.ClaudeMeta, false)
+		let t = NewTurn(TurnID("t-claude"), adapter.ClaudeMeta, caps, adapter.ModeAutoEdit) catch {
+		case _:
+			return machines.Ignore
+		}
+		return machines.Enter[TurnWorld]{Next: TurnWorld{..w, Initialized: true, State: t}}
+	case ActDispatch, ActDispatchLost, ActResolveSent, ActResolveUnsent, ActReceiveDelta, ActRequestWrite, ActGrantWrite, ActExecuteWrite, ActSendSteer, ActRetryTransport, ActRequestStop, ActSendCancel, ActFinishCompleted, ActFinishCancelled, ActFailQueued, ActStartBookkeeping, ActFinishBookkeeping:
+	}
+
+	if !w.Initialized {
+		return machines.Ignore
+	}
+
+	let act = match a {
+	case ActDispatchLost:
+		ActionDispatchLost
+	case ActResolveSent:
+		ActionResolveSent
+	case ActResolveUnsent:
+		ActionResolveUnsent
+	case ActReceiveDelta:
+		if w.State.HasDelta {
+			return machines.Ignore
+		}
+		ActionReceiveDelta
+	case ActRequestWrite:
+		if w.State.PendingApproval || w.State.ApprovalGranted {
+			return machines.Ignore
+		}
+		ActionRequestWriteApproval
+	case ActGrantWrite:
+		if w.State.ApprovalGrants >= 1 {
+			return machines.Ignore
+		}
+		ActionGrantWriteApproval
+	case ActExecuteWrite:
+		if w.State.WritesExecuted >= 1 {
+			return machines.Ignore
+		}
+		ActionExecuteWrite
+	case ActSendSteer:
+		if w.State.SteersSent >= 1 {
+			return machines.Ignore
+		}
+		ActionSendSteer
+	case ActRetryTransport:
+		ActionRetryTransient{Class: FailureTransport}
+	case ActRequestStop:
+		if w.State.StopWanted {
+			return machines.Ignore
+		}
+		ActionRequestStop
+	case ActSendCancel:
+		if w.State.Cancels >= 1 {
+			return machines.Ignore
+		}
+		ActionSendCancel
+	case ActFinishCompleted:
+		ActionFinishTurn{Outcome: OutcomeCompleted}
+	case ActFinishCancelled:
+		ActionFinishTurn{Outcome: OutcomeCancelled}
+	case ActFailQueued:
+		ActionFailBeforeDispatch{Class: FailureValidation, Detail: "rejected"}
+	case ActStartBookkeeping:
+		ActionStartBookkeeping
+	case ActFinishBookkeeping:
+		ActionFinishBookkeeping
+	case ActInitCodexAsk, ActInitClaudeAutoEdit, ActDispatch:
+		ActionDispatch
+	}
+
+	let next = StepTurn(w.State, act) catch {
+	case r:
+		match a {
+		case ActSendSteer:
+			if w.SteerDenied {
+				return machines.Ignore
+			}
+			return machines.Enter[TurnWorld]{Next: TurnWorld{..w, SteerDenied: true}}
+		case ActExecuteWrite:
+			if w.WriteDenied {
+				return machines.Ignore
+			}
+			return machines.Enter[TurnWorld]{Next: TurnWorld{..w, WriteDenied: true}}
+		case ActRetryTransport:
+			match r {
+			case RetryAfterFirstDeltaDenied:
+				if w.RetryDenied {
+					return machines.Ignore
+				}
+				return machines.Enter[TurnWorld]{Next: TurnWorld{..w, RetryDenied: true}}
+			case TurnAlreadyEnded, InvalidTurnTransition, AdapterPolicyRefusal:
+				return machines.Ignore
+			}
+		case ActInitCodexAsk, ActInitClaudeAutoEdit, ActDispatch, ActDispatchLost, ActResolveSent, ActResolveUnsent, ActReceiveDelta, ActRequestWrite, ActGrantWrite, ActRequestStop, ActSendCancel, ActFinishCompleted, ActFinishCancelled, ActFailQueued, ActStartBookkeeping, ActFinishBookkeeping:
+			return machines.Ignore
+		}
+	}
+	machines.Enter[TurnWorld]{Next: TurnWorld{..w, State: next}}
+}
+
+func worldSentAtMostOnce(w TurnWorld) bool { !w.Initialized || sentAtMostOnce(w.State) }
+
+func worldTerminalSettles(w TurnWorld) bool { !w.Initialized || terminalSettles(w.State) }
+
+func worldNoStrandedStop(w TurnWorld) bool { !w.Initialized || noStrandedStop(w.State) }
+
+func worldNoRetryAfterFirstDelta(w TurnWorld) bool { !w.Initialized || noRetryAfterFirstDelta(w.State) }
+
+func worldNoWriteWithoutApproval(w TurnWorld) bool { !w.Initialized || noWriteWithoutApproval(w.State) }
+
+func worldNeverEmulateMissingCapability(w TurnWorld) bool {
+	!w.Initialized || neverEmulateMissingCapability(w.State)
+}
+
+func worldNoDirectAgyUnlessSupported(w TurnWorld) bool { !w.Initialized || noDirectAgyUnlessSupported(w.State) }
+
+func worldAcceptedIsSentOrReported(w TurnWorld) bool { !w.Initialized || acceptedIsSentOrReported(w.State) }
+
+func worldDispatchedAndSteered(w TurnWorld) bool { w.Initialized && w.State.HasDelta && w.State.SteersSent > 0 }
+
+func worldCancelledAfterStop(w TurnWorld) bool {
+	w.Initialized && w.State.Phase == PhaseEnded && w.State.StopWanted && w.State.Cancels > 0
+}
+
+func worldWriteDeniedBeforeApproval(w TurnWorld) bool {
+	w.Initialized && w.WriteDenied && w.State.Phase == PhaseDispatched
+}
+
+func worldPostDeltaRetryBlocked(w TurnWorld) bool { w.Initialized && w.RetryDenied && w.State.HasDelta }
+
+func worldEndedWithBookkeepingStillInactive(w TurnWorld) bool {
+	w.Initialized && w.State.Phase == PhaseEnded && w.State.BookkeepingPending && !IsTurnActive(w.State)
+}
+
+// TurnLifecycle exhaustively models single-turn invariants across Direct and Meta modes.
+type TurnLifecycle machine[TurnWorld, TurnAct] {
+	initial: firstTurnWorld(),
+	step:    stepTurnWorld,
+
+	law SentAtMostOnce always worldSentAtMostOnce,
+	law TerminalSettles always worldTerminalSettles,
+	law NoStrandedStop always worldNoStrandedStop,
+	law NoRetryAfterFirstDelta always worldNoRetryAfterFirstDelta,
+	law NoWriteWithoutApproval always worldNoWriteWithoutApproval,
+	law NeverEmulateMissingCapability always worldNeverEmulateMissingCapability,
+	law NoDirectAgyUnlessSupported always worldNoDirectAgyUnlessSupported,
+	law AcceptedIsSentOrReported always worldAcceptedIsSentOrReported,
+
+	law DispatchedAndSteered sometimes worldDispatchedAndSteered,
+	law CancelledAfterStop sometimes worldCancelledAfterStop,
+	law WriteDeniedBeforeApproval sometimes worldWriteDeniedBeforeApproval,
+	law PostDeltaRetryBlocked sometimes worldPostDeltaRetryBlocked,
+	law EndedWithBookkeepingStillInactive sometimes worldEndedWithBookkeepingStillInactive,
+}
+
+test TurnRefusesPostDeltaRetryAndUnapprovedWrites {
+	let codexCaps = adapter.CapabilitiesFor(adapter.CodexDirect, false)
+	let t0 = try NewTurn(TurnID("t-1"), adapter.CodexDirect, codexCaps, adapter.ModeAsk)
+	let t1 = try StepTurn(t0, ActionDispatch)
+	let mut writeBlocked = false
+	let _ = StepTurn(t1, ActionExecuteWrite) catch {
+	case r:
+		match r {
+		case AdapterPolicyRefusal:
+			writeBlocked = true
+			t1
+		case TurnAlreadyEnded, InvalidTurnTransition, RetryAfterFirstDeltaDenied:
+			t1
+		}
+	}
+	assert writeBlocked
+	let t2 = try StepTurn(t1, ActionRequestWriteApproval)
+	let t3 = try StepTurn(t2, ActionGrantWriteApproval)
+	let t4 = try StepTurn(t3, ActionExecuteWrite)
+	assert t4.WritesExecuted == 1
+	let t5 = try StepTurn(t4, ActionRetryTransient{Class: FailureTransport})
+	let t6 = try StepTurn(t5, ActionReceiveDelta)
+	let mut retryBlocked = false
+	let _ = StepTurn(t6, ActionRetryTransient{Class: FailureTransport}) catch {
+	case r:
+		match r {
+		case RetryAfterFirstDeltaDenied:
+			retryBlocked = true
+			t6
+		case TurnAlreadyEnded, InvalidTurnTransition, AdapterPolicyRefusal:
+			t6
+		}
+	}
+	assert retryBlocked
+}
+
+test DirectAntigravityTurnRejectedUntilOfficiallySupported {
+	let disabledCaps = adapter.CapabilitiesFor(adapter.AntigravityDirect, false)
+	let mut disabledBlocked = false
+	let _ = NewTurn(TurnID("t-agy-off"), adapter.AntigravityDirect, disabledCaps, adapter.ModeAsk) catch {
+	case r:
+		match r {
+		case AdapterPolicyRefusal:
+			disabledBlocked = true
+			firstTurnWorld().State
+		case TurnAlreadyEnded, InvalidTurnTransition, RetryAfterFirstDeltaDenied:
+			firstTurnWorld().State
+		}
+	}
+	assert disabledBlocked
+	let enabledCaps = adapter.CapabilitiesFor(adapter.AntigravityDirect, true)
+	let t = try NewTurn(TurnID("t-agy-on"), adapter.AntigravityDirect, enabledCaps, adapter.ModeYolo)
+	assert t.Capabilities.OfficiallySupported
+	assert t.PermissionMode == adapter.ModeYolo
+
+	let paneCaps = adapter.CapabilitiesFor(adapter.PaneFallbackMeta, false)
+	let tPane = try NewTurn(TurnID("t-pane-fallback"), adapter.PaneFallbackMeta, paneCaps, adapter.ModeYolo)
+	assert tPane.PermissionMode == adapter.ModeSupervised
+}
