@@ -1,0 +1,421 @@
+import github.com/cevr/ergo/modules/atlas/cutover
+import machines
+
+// HandoverAct is one transition of a live server-to-server cutover, mirroring models/cutover: H1 is the listening socket, H2 the control socket.
+type HandoverAct = StartNewServer{} | TransferH1{} | TransferH2{} | CommitCutover{} | AbortNewBeforeCommit{} | OldTriesActAfterCommit{} | FinishOldDrain{} | TriggerH1Event{} | DeliverH1Wake{} | CrashAndRecoverNewAfterCommit{}
+
+// HandoverFault is a fault injected into the handover step, mirroring the model's mutants.
+type HandoverFault = HandoverSound{} | FaultDualOwner{} | FaultBadRollbackDrop{} | FaultSplitBrain{} | FaultPrematureOldExit{} | FaultDoubleWakeCutover{}
+
+// HandoverWorld is the old and new daemon, who owns each transferred descriptor, and a flag for each broken guarantee.
+type HandoverWorld {
+	Phase                   cutover.CutoverPhase,
+	OldLive                 bool,
+	NewLive                 bool,
+	OwnerH1                 cutover.LeaseOwner,
+	OwnerH2                 cutover.LeaseOwner,
+	CommitPersisted         bool,
+	RolledBack              bool,
+	NewCrashedAfterCommit   bool,
+	OldReclaimedAfterCommit bool,
+	SilentDrop              bool,
+	H1Settled               bool,
+	WakeH1                  int,
+	DoubleWake              bool,
+	CutoversDone            int,
+}
+
+// FirstHandoverWorld is a lone old daemon owning both descriptors.
+func FirstHandoverWorld() HandoverWorld {
+	HandoverWorld{
+		Phase:                   cutover.CutoverOld,
+		OldLive:                 true,
+		NewLive:                 false,
+		OwnerH1:                 cutover.OwnerOld,
+		OwnerH2:                 cutover.OwnerOld,
+		CommitPersisted:         false,
+		RolledBack:              false,
+		NewCrashedAfterCommit:   false,
+		OldReclaimedAfterCommit: false,
+		SilentDrop:              false,
+		H1Settled:               false,
+		WakeH1:                  0,
+		DoubleWake:              false,
+		CutoversDone:            0,
+	}
+}
+
+// CommitReady reports whether the new daemon may persist the cutover commit: it has adopted every transferred descriptor and the old one holds none.
+func CommitReady(h1 cutover.LeaseOwner, h2 cutover.LeaseOwner) bool {
+	h1 == cutover.OwnerNew && h2 == cutover.OwnerNew
+}
+
+// OldMayAct reports whether the old daemon may still act on what it handed over: only while no commit is persisted.
+func OldMayAct(commitPersisted bool) bool {
+	!commitPersisted
+}
+
+// OwnerAfterRollback is who owns a transferred descriptor once the new daemon aborts before the commit: the old daemon, always.
+func OwnerAfterRollback(_ cutover.LeaseOwner) cutover.LeaseOwner {
+	cutover.OwnerOld
+}
+
+func transferable(w HandoverWorld) bool {
+	(w.Phase == cutover.CutoverQuiesce || w.Phase == cutover.CutoverTransfer) && w.NewLive
+}
+
+func transferOwner(fault HandoverFault) cutover.LeaseOwner {
+	if fault == FaultDualOwner {
+		return cutover.OwnerBoth
+	}
+	cutover.OwnerNew
+}
+
+func rollback(s HandoverWorld, fault HandoverFault) HandoverWorld {
+	let mut w = s
+	w.NewLive = false
+	w.Phase = cutover.CutoverOld
+	w.RolledBack = true
+	if fault == FaultBadRollbackDrop {
+		if w.OwnerH1 == cutover.OwnerNew || w.OwnerH1 == cutover.OwnerBoth {
+			w.OwnerH1 = cutover.OwnerNone
+			w.SilentDrop = true
+		}
+		if w.OwnerH2 == cutover.OwnerNew || w.OwnerH2 == cutover.OwnerBoth {
+			w.OwnerH2 = cutover.OwnerNone
+			w.SilentDrop = true
+		}
+		return w
+	}
+	w.OwnerH1 = OwnerAfterRollback(w.OwnerH1)
+	w.OwnerH2 = OwnerAfterRollback(w.OwnerH2)
+	w
+}
+
+func drainOld(s HandoverWorld, fault HandoverFault) machines.Decision[HandoverWorld, string] {
+	let mut w = s
+	if !w.OldLive {
+		return machines.Ignore
+	}
+	if w.CommitPersisted {
+		w.OldLive = false
+		w.Phase = cutover.CutoverDone
+		w.CutoversDone = w.CutoversDone + 1
+		return machines.Enter[HandoverWorld]{Next: w}
+	}
+	if fault != FaultPrematureOldExit || w.SilentDrop {
+		return machines.Ignore
+	}
+	w.OldLive = false
+	if w.OwnerH1 == cutover.OwnerOld {
+		w.OwnerH1 = cutover.OwnerNone
+		w.SilentDrop = true
+	}
+	if w.OwnerH2 == cutover.OwnerOld {
+		w.OwnerH2 = cutover.OwnerNone
+		w.SilentDrop = true
+	}
+	machines.Enter[HandoverWorld]{Next: w}
+}
+
+func deliverH1(s HandoverWorld, fault HandoverFault) machines.Decision[HandoverWorld, string] {
+	let mut w = s
+	if !w.H1Settled || w.WakeH1 >= 2 {
+		return machines.Ignore
+	}
+	if ShouldDeliverWake(w.WakeH1 > 0) {
+		w.WakeH1 = w.WakeH1 + 1
+		return machines.Enter[HandoverWorld]{Next: w}
+	}
+	if fault == FaultDoubleWakeCutover && (w.OwnerH1 == cutover.OwnerBoth || w.CommitPersisted || w.RolledBack) {
+		w.WakeH1 = 2
+		w.DoubleWake = true
+		return machines.Enter[HandoverWorld]{Next: w}
+	}
+	machines.Ignore
+}
+
+// StepHandover is the cutover transition under fault: HandoverSound is the design the serve handover implements.
+func StepHandover(s HandoverWorld, act HandoverAct, fault HandoverFault) machines.Decision[HandoverWorld, string] {
+	let mut w = s
+	match act {
+	case StartNewServer:
+		if w.Phase != cutover.CutoverOld || !w.OldLive || w.NewLive {
+			return machines.Ignore
+		}
+		w.NewLive = true
+		w.Phase = cutover.CutoverQuiesce
+		w.RolledBack = false
+		machines.Enter[HandoverWorld]{Next: w}
+	case TransferH1:
+		if !transferable(w) || w.OwnerH1 != cutover.OwnerOld {
+			return machines.Ignore
+		}
+		w.Phase = cutover.CutoverTransfer
+		w.OwnerH1 = transferOwner(fault)
+		machines.Enter[HandoverWorld]{Next: w}
+	case TransferH2:
+		if !transferable(w) || w.OwnerH2 != cutover.OwnerOld {
+			return machines.Ignore
+		}
+		w.Phase = cutover.CutoverTransfer
+		w.OwnerH2 = transferOwner(fault)
+		machines.Enter[HandoverWorld]{Next: w}
+	case CommitCutover:
+		if w.Phase != cutover.CutoverTransfer || !w.NewLive {
+			return machines.Ignore
+		}
+		if !CommitReady(w.OwnerH1, w.OwnerH2) && fault != FaultDualOwner {
+			return machines.Ignore
+		}
+		w.CommitPersisted = true
+		w.Phase = cutover.CutoverCommitted
+		machines.Enter[HandoverWorld]{Next: w}
+	case AbortNewBeforeCommit:
+		if !w.NewLive || w.Phase == cutover.CutoverOld || w.CommitPersisted {
+			return machines.Ignore
+		}
+		machines.Enter[HandoverWorld]{Next: rollback(w, fault)}
+	case OldTriesActAfterCommit:
+		if !w.CommitPersisted || !w.OldLive {
+			return machines.Ignore
+		}
+		if (fault == FaultSplitBrain || OldMayAct(w.CommitPersisted)) && !w.OldReclaimedAfterCommit {
+			w.OldReclaimedAfterCommit = true
+			w.OwnerH1 = cutover.OwnerBoth
+			return machines.Enter[HandoverWorld]{Next: w}
+		}
+		machines.Ignore
+	case FinishOldDrain:
+		drainOld(w, fault)
+	case CrashAndRecoverNewAfterCommit:
+		if !w.CommitPersisted || !w.NewLive || w.NewCrashedAfterCommit {
+			return machines.Ignore
+		}
+		w.NewCrashedAfterCommit = true
+		machines.Enter[HandoverWorld]{Next: w}
+	case TriggerH1Event:
+		if w.H1Settled {
+			return machines.Ignore
+		}
+		w.H1Settled = true
+		machines.Enter[HandoverWorld]{Next: w}
+	case DeliverH1Wake:
+		deliverH1(w, fault)
+	}
+}
+
+func handoverSingleOwner(w HandoverWorld) bool {
+	w.OwnerH1 != cutover.OwnerBoth && w.OwnerH2 != cutover.OwnerBoth && !w.OldReclaimedAfterCommit
+}
+func handoverNoSilentDrop(w HandoverWorld) bool {
+	w.OwnerH1 != cutover.OwnerNone && w.OwnerH2 != cutover.OwnerNone && !w.SilentDrop
+}
+func handoverSafeRollback(w HandoverWorld) bool {
+	!(w.CommitPersisted && w.RolledBack) && !(w.RolledBack && (w.OwnerH1 != cutover.OwnerOld || w.OwnerH2 != cutover.OwnerOld))
+}
+func handoverNoSplitBrain(w HandoverWorld) bool { !w.OldReclaimedAfterCommit }
+func handoverOneWake(w HandoverWorld) bool      { w.WakeH1 <= 1 && !w.DoubleWake }
+
+func handoverCleanCompleted(w HandoverWorld) bool {
+	w.Phase == cutover.CutoverDone && w.CommitPersisted && !w.OldLive && w.NewLive && w.OwnerH1 == cutover.OwnerNew && w.OwnerH2 == cutover.OwnerNew
+}
+func handoverRollbackRestoredOld(w HandoverWorld) bool {
+	w.RolledBack && !w.CommitPersisted && w.OwnerH1 == cutover.OwnerOld && w.OwnerH2 == cutover.OwnerOld && w.WakeH1 <= 1
+}
+func handoverCrashRecoveredNew(w HandoverWorld) bool {
+	w.Phase == cutover.CutoverDone && w.CommitPersisted && w.NewCrashedAfterCommit && w.OwnerH1 == cutover.OwnerNew && w.OwnerH2 == cutover.OwnerNew
+}
+func handoverEventSettledOnce(w HandoverWorld) bool {
+	w.Phase == cutover.CutoverDone && w.H1Settled && w.WakeH1 == 1 && !w.DoubleWake
+}
+
+func handoverDesign(s HandoverWorld, a HandoverAct) machines.Decision[HandoverWorld, string] {
+	StepHandover(s, a, HandoverSound)
+}
+
+// HandoverLifecycle is the serve daemon's live cutover of its listening and control sockets to a successor, mirroring models/cutover.
+type HandoverLifecycle machine[HandoverWorld, HandoverAct] {
+	initial: FirstHandoverWorld(),
+	step:    handoverDesign,
+
+	law SingleOwnerInvariant always handoverSingleOwner,
+	law ZeroSilentDrops always handoverNoSilentDrop,
+	law SafeRollbackBeforeCommit always handoverSafeRollback,
+	law NoSplitBrainAfterCommit always handoverNoSplitBrain,
+	law AtMostOneWakeAcrossCutover always handoverOneWake,
+
+	law CleanCutoverCompleted sometimes handoverCleanCompleted,
+	law SafeRollbackRestoredOld sometimes handoverRollbackRestoredOld,
+	law PostCommitCrashRecoveredNew sometimes handoverCrashRecoveredNew,
+	law EventSettledAcrossCutoverOnce sometimes handoverEventSettledOnce,
+}
+
+func brokeSingleOwner(w HandoverWorld) bool  { !handoverSingleOwner(w) }
+func brokeHandoverDrop(w HandoverWorld) bool { !handoverNoSilentDrop(w) }
+func brokeRollback(w HandoverWorld) bool     { !handoverSafeRollback(w) || !handoverNoSilentDrop(w) }
+func brokeSplitBrain(w HandoverWorld) bool   { !handoverNoSplitBrain(w) }
+func brokeCutoverWake(w HandoverWorld) bool  { !handoverOneWake(w) }
+
+func faultDualOwner(s HandoverWorld, a HandoverAct) machines.Decision[HandoverWorld, string]   { StepHandover(s, a, FaultDualOwner) }
+func faultBadRollback(s HandoverWorld, a HandoverAct) machines.Decision[HandoverWorld, string] { StepHandover(s, a, FaultBadRollbackDrop) }
+func faultSplitBrain(s HandoverWorld, a HandoverAct) machines.Decision[HandoverWorld, string]  { StepHandover(s, a, FaultSplitBrain) }
+func faultOldExit(s HandoverWorld, a HandoverAct) machines.Decision[HandoverWorld, string]     { StepHandover(s, a, FaultPrematureOldExit) }
+func faultCutoverWake(s HandoverWorld, a HandoverAct) machines.Decision[HandoverWorld, string] { StepHandover(s, a, FaultDoubleWakeCutover) }
+
+// HandoverDualOwnerTransfer shows SingleOwnerInvariant catches a transfer that leaves a descriptor owned by both daemons.
+type HandoverDualOwnerTransfer machine[HandoverWorld, HandoverAct] {
+	initial: FirstHandoverWorld(),
+	step:    faultDualOwner,
+	law Breaks sometimes brokeSingleOwner,
+}
+
+// HandoverBadRollbackDrop shows SafeRollbackBeforeCommit catches an abort that loses what was transferred.
+type HandoverBadRollbackDrop machine[HandoverWorld, HandoverAct] {
+	initial: FirstHandoverWorld(),
+	step:    faultBadRollback,
+	law Breaks sometimes brokeRollback,
+}
+
+// HandoverPostCommitSplitBrain shows NoSplitBrainAfterCommit catches an old daemon acting after the commit.
+type HandoverPostCommitSplitBrain machine[HandoverWorld, HandoverAct] {
+	initial: FirstHandoverWorld(),
+	step:    faultSplitBrain,
+	law Breaks sometimes brokeSplitBrain,
+}
+
+// HandoverPrematureOldExit shows ZeroSilentDrops catches an old daemon exiting before the commit.
+type HandoverPrematureOldExit machine[HandoverWorld, HandoverAct] {
+	initial: FirstHandoverWorld(),
+	step:    faultOldExit,
+	law Breaks sometimes brokeHandoverDrop,
+}
+
+// HandoverDoubleWakeCutover shows AtMostOneWakeAcrossCutover catches a wake delivered by both daemons.
+type HandoverDoubleWakeCutover machine[HandoverWorld, HandoverAct] {
+	initial: FirstHandoverWorld(),
+	step:    faultCutoverWake,
+	law Breaks sometimes brokeCutoverWake,
+}
+
+func allHandoverActs() []HandoverAct {
+	[]HandoverAct{StartNewServer, TransferH1, TransferH2, CommitCutover, AbortNewBeforeCommit, OldTriesActAfterCommit, FinishOldDrain, TriggerH1Event, DeliverH1Wake, CrashAndRecoverNewAfterCommit}
+}
+
+func nextHandover(w HandoverWorld, a HandoverAct) HandoverWorld {
+	match StepHandover(w, a, HandoverSound) {
+	case machines.Enter[HandoverWorld] as e:
+		e.Next
+	case machines.Stay[HandoverWorld], machines.Emit[HandoverWorld, string], machines.Tell[HandoverWorld, string], machines.Done[string], machines.Ignore, machines.Reject:
+		w
+	}
+}
+
+func seededHandoverWorld(seed int) HandoverWorld {
+	let acts = allHandoverActs()
+	let mut x = ((seed % 1000003) + 1000003) % 1000003
+	let steps = x % 16
+	let mut w = FirstHandoverWorld()
+	let mut i = 0
+	for i < steps {
+		x = (x*1103515245 + 12345) % 2147483648
+		w = nextHandover(w, acts[x%acts.Len()])
+		i = i + 1
+	}
+	w
+}
+
+// StartNewServerQuiescesOld: a successor starts only beside a lone live old daemon, which then quiesces.
+law StartNewServerQuiescesOld(seed int) {
+	let w = seededHandoverWorld(seed)
+	let n = nextHandover(w, StartNewServer)
+	if w.Phase == cutover.CutoverOld && w.OldLive && !w.NewLive {
+		return n.NewLive && n.Phase == cutover.CutoverQuiesce && n.OwnerH1 == w.OwnerH1 && n.OwnerH2 == w.OwnerH2
+	}
+	n == w
+}
+
+// TransferH1MovesListenerToNew: the listening socket moves from the old daemon to the new one alone.
+law TransferH1MovesListenerToNew(seed int) {
+	let w = seededHandoverWorld(seed)
+	let n = nextHandover(w, TransferH1)
+	if transferable(w) && w.OwnerH1 == cutover.OwnerOld {
+		return n.OwnerH1 == cutover.OwnerNew && n.Phase == cutover.CutoverTransfer && n.OwnerH2 == w.OwnerH2
+	}
+	n == w
+}
+
+// TransferH2MovesControlToNew: the control socket moves from the old daemon to the new one alone.
+law TransferH2MovesControlToNew(seed int) {
+	let w = seededHandoverWorld(seed)
+	let n = nextHandover(w, TransferH2)
+	if transferable(w) && w.OwnerH2 == cutover.OwnerOld {
+		return n.OwnerH2 == cutover.OwnerNew && n.Phase == cutover.CutoverTransfer && n.OwnerH1 == w.OwnerH1
+	}
+	n == w
+}
+
+// CommitCutoverNeedsEveryDescriptor: the commit persists only once the new daemon owns every transferred descriptor.
+law CommitCutoverNeedsEveryDescriptor(seed int) {
+	let w = seededHandoverWorld(seed)
+	let n = nextHandover(w, CommitCutover)
+	if w.Phase == cutover.CutoverTransfer && w.NewLive && w.OwnerH1 == cutover.OwnerNew && w.OwnerH2 == cutover.OwnerNew {
+		return n.CommitPersisted && n.Phase == cutover.CutoverCommitted
+	}
+	n == w
+}
+
+// AbortBeforeCommitRestoresOld: an abort before the commit hands every descriptor back to the old daemon; after the commit it is refused.
+law AbortBeforeCommitRestoresOld(seed int) {
+	let w = seededHandoverWorld(seed)
+	let n = nextHandover(w, AbortNewBeforeCommit)
+	if w.NewLive && w.Phase != cutover.CutoverOld && !w.CommitPersisted {
+		return !n.NewLive && n.RolledBack && n.Phase == cutover.CutoverOld && n.OwnerH1 == cutover.OwnerOld && n.OwnerH2 == cutover.OwnerOld
+	}
+	n == w
+}
+
+// OldCannotActAfterCommit: once the commit persists, nothing the old daemon tries changes ownership.
+law OldCannotActAfterCommit(seed int) {
+	nextHandover(seededHandoverWorld(seed), OldTriesActAfterCommit) == seededHandoverWorld(seed)
+}
+
+// FinishOldDrainOnlyAfterCommit: the old daemon exits only after the commit persisted, and then the cutover is done.
+law FinishOldDrainOnlyAfterCommit(seed int) {
+	let w = seededHandoverWorld(seed)
+	let n = nextHandover(w, FinishOldDrain)
+	if w.OldLive && w.CommitPersisted {
+		return !n.OldLive && n.Phase == cutover.CutoverDone && n.CutoversDone == w.CutoversDone+1
+	}
+	n == w
+}
+
+// CrashAfterCommitKeepsNewOwner: a crash of the new daemon after the commit leaves it the owner of everything.
+law CrashAfterCommitKeepsNewOwner(seed int) {
+	let w = seededHandoverWorld(seed)
+	let n = nextHandover(w, CrashAndRecoverNewAfterCommit)
+	if w.CommitPersisted && w.NewLive && !w.NewCrashedAfterCommit {
+		return n.NewCrashedAfterCommit && n.OwnerH1 == w.OwnerH1 && n.OwnerH2 == w.OwnerH2 && n.CommitPersisted
+	}
+	n == w
+}
+
+// TriggerH1EventSettlesOnce: an event on the listener settles once, whoever owns it.
+law TriggerH1EventSettlesOnce(seed int) {
+	let w = seededHandoverWorld(seed)
+	let n = nextHandover(w, TriggerH1Event)
+	if !w.H1Settled {
+		return n.H1Settled && n.WakeH1 == w.WakeH1
+	}
+	n == w
+}
+
+// DeliverH1WakeOnce: a settled listener event wakes its waiter once across the cutover.
+law DeliverH1WakeOnce(seed int) {
+	let w = seededHandoverWorld(seed)
+	let n = nextHandover(w, DeliverH1Wake)
+	if w.H1Settled && w.WakeH1 == 0 {
+		return n.WakeH1 == 1
+	}
+	n == w
+}

@@ -1,0 +1,11 @@
+old: serving epoch=1
+request before: epoch=1
+new: adopted: atlas-handover epoch=1
+new: serving epoch=2
+old: handed over: committed epoch=2
+old: old write fenced: true
+old: exit 0
+request after: epoch=2
+same listener: true
+new: stopped
+new: exit 0

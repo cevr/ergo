@@ -1,0 +1,10 @@
+old: serving epoch=1
+request before: epoch=1
+new: adopted: atlas-handover epoch=1
+new: aborted before commit
+new: exit 0
+old: rolled back: handover read_ack failed: successor closed without a commit
+old: serving epoch=1 again
+request after: epoch=1
+old: stopped
+old: exit 0

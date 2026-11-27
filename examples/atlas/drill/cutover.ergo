@@ -1,0 +1,111 @@
+import exec
+import net
+import strings
+
+// CutoverPair is how the cutover drill starts its two daemons: the executable, the store they share and the control socket the successor takes over by.
+type CutoverPair {
+	Exe       string,
+	StorePath string,
+	Control   string,
+}
+
+func daemonCommand(p CutoverPair, role string) exec.Command {
+	exec.New(p.Exe, []string{"--store", p.StorePath, "cutover-daemon", role, p.Control})
+}
+
+func startDaemon(sessions exec.Sessions, p CutoverPair, role string) exec.Running fails DrillFailed {
+	sessions.StartInteractive(daemonCommand(p, role), exec.Streams{Stdout: exec.ToCaller, Stderr: exec.Discard}) catch {
+	case exec.NotFound as e:
+		return startFailed(role, "not found: \(e.Name)")
+	case exec.Denied as e:
+		return startFailed(role, "denied: \(e.Name)")
+	case exec.Failed as e:
+		return startFailed(role, e.Reason)
+	}
+}
+
+func addrOf(line string) string {
+	if strings.HasPrefix(line, "addr ") { strings.Slice(line, 5, line.Len()) } else { "" }
+}
+
+func echoUntil(r exec.Running, label string, until string, out func(line string)) string {
+	let mut addr = ""
+	for line in r.Lines() {
+		let a = addrOf(line.Text)
+		if a != "" {
+			addr = a
+			continue
+		}
+		out("\(label): \(line.Text)")
+		if line.Text == until {
+			break
+		}
+	}
+	addr
+}
+
+// Get asks the daemon listening on addr which epoch serves it, over a plain HTTP/1.0 request.
+func Get(network net.Network, addr string) string fails DrillFailed {
+	let conn = network.Dial(addr) catch {
+	case net.DialFailed as e:
+		return startFailed("request", e.Reason)
+	case net.Denied:
+		return startFailed("request", "denied")
+	}
+	conn.Write("GET /epoch HTTP/1.0\r\nHost: atlas\r\n\r\n") catch {
+	case net.Failed as e:
+		return startFailed("request", e.Reason)
+	}
+	let raw = net.ReadAll(conn) catch {
+	case net.Failed as e:
+		return startFailed("request", e.Reason)
+	}
+	let at = strings.Index(raw, "\r\n\r\n")
+	if at < 0 {
+		return startFailed("request", "no body in the answer")
+	}
+	strings.TrimSpace(strings.Slice(raw, at+4, raw.Len()))
+}
+
+// CutoverAbortDrill starts a daemon, starts a successor that adopts its sockets and dies before the commit, and shows the old daemon rolled back and serving the same address.
+func CutoverAbortDrill(sessions exec.Sessions, network net.Network, p CutoverPair, out func(line string)) fails DrillFailed {
+	let old = try startDaemon(sessions, p, "first")
+	let addr = echoUntil(old, "old", "serving epoch=1", out)
+	if addr == "" {
+		return startFailed("old", "no address")
+	}
+	out("request before: \(try Get(network, addr))")
+	let next = try startDaemon(sessions, p, "abort")
+	let _ = echoUntil(next, "new", "", out)
+	out("new: exit \(next.Wait())")
+	let _ = echoUntil(old, "old", "serving epoch=1 again", out)
+	out("request after: \(try Get(network, addr))")
+	old.CloseStdin() catch {
+	case exec.Failed as e:
+		return startFailed("old", e.Reason)
+	}
+	let _ = echoUntil(old, "old", "", out)
+	out("old: exit \(old.Wait())")
+}
+
+// CutoverDrill starts a daemon serving HTTP, asks it a request, starts a successor that takes over its listening and control sockets live, asks the same address again, and shows the predecessor fenced and the address unchanged.
+func CutoverDrill(sessions exec.Sessions, network net.Network, p CutoverPair, out func(line string)) fails DrillFailed {
+	let old = try startDaemon(sessions, p, "first")
+	let addr = echoUntil(old, "old", "serving epoch=1", out)
+	if addr == "" {
+		return startFailed("old", "no address")
+	}
+	out("request before: \(try Get(network, addr))")
+	let next = try startDaemon(sessions, p, "next")
+	let nextAddr = echoUntil(next, "new", "serving epoch=2", out)
+	let _ = echoUntil(old, "old", "", out)
+	out("old: exit \(old.Wait())")
+	out("request after: \(try Get(network, addr))")
+	out("same listener: \(nextAddr == addr)")
+	next.CloseStdin() catch {
+	case exec.Failed as e:
+		return startFailed("new", e.Reason)
+	}
+	let _ = echoUntil(next, "new", "", out)
+	out("new: exit \(next.Wait())")
+}
