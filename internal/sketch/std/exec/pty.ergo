@@ -1,0 +1,960 @@
+import core
+import fstest
+import option
+import time
+import timeout
+
+// Unsupported reports that an operation (PTY allocation, FD adoption, or
+// cross-process exit observation) is not supported on this host OS or provider.
+extern go ergo.local/prototype/runtime/v1/exec.ExecUnsupported type Unsupported { Reason string }
+
+// Winsize is a terminal window size in character cells and pixels.
+extern go ergo.local/prototype/runtime/v1/exec.ExecWinsize type Winsize { Rows int, Cols int, XPixels int, YPixels int }
+
+// ValidWinsize reports whether ws satisfies kernel winsize bounds:
+// positive Rows and Cols up to 65535, and non-negative XPixels and
+// YPixels up to 65535.
+func ValidWinsize(ws Winsize) bool {
+	ws.Rows > 0 && ws.Cols > 0 && ws.Rows <= 65535 && ws.Cols <= 65535 && ws.XPixels >= 0 && ws.YPixels >= 0 && ws.XPixels <= 65535 && ws.YPixels <= 65535
+}
+
+// StillRunning reports that a detached or reattached process with
+// matching pid and start time is still alive.
+type StillRunning {}
+
+// Exited reports that a detached or reattached process ended and its
+// exit status and signal were collected (Status is the exit code, or
+// 128 + Signal when signaled; Signal is 0 on normal exit).
+type Exited { Status int, Signal int }
+
+// StatusUnavailable reports that the process is gone or no longer
+// matches its start time, and no OS exit code could be collected from
+// this process (for example when reparented to PID 1).
+type StatusUnavailable { Reason string, NotChild bool }
+
+// ExitOutcome is the observed lifecycle state or collected exit status
+// of a detached process.
+type ExitOutcome = StillRunning | Exited | StatusUnavailable
+
+// PTY is an owned pseudo-terminal master descriptor allocated by
+// Sessions.OpenPTY or adopted across server replacement by
+// Sessions.ReattachPTY.
+//
+// law-exempt: PTY holds an OS or virtual master descriptor constructed only
+// by Sessions; Sessions laws (OpenPTYAndResizePreservesBounds,
+// PTYEchoAndCloseRefusesFurtherOps, DetachAndReattachPTYPreservesSession)
+// and runtime/v1/exec tests hold resize bounds, echo, FD duping, and close.
+extern go ergo.local/prototype/runtime/v1/exec.PTY type PTY {
+	runtimeOnly(),
+	..core.Closer,
+	// Fd returns the master file descriptor number, or -1 if closed.
+	Fd() int,
+	// DupFD duplicates the master descriptor with close-on-exec set and
+	// returns the raw integer descriptor for handoff across processes.
+	DupFD() int fails Failed | Unsupported,
+	// SlavePath returns the slave terminal device path if known, or "".
+	SlavePath() string,
+	// CloseSlave closes any parent-held slave terminal handle without
+	// closing the master descriptor.
+	CloseSlave(),
+	// Size reads the current terminal window size (TIOCGWINSZ).
+	Size() Winsize fails Failed | Unsupported,
+	// Resize updates the terminal window size (TIOCSWINSZ).
+	Resize(ws Winsize) fails Failed | Unsupported,
+	// Read reads available bytes from the master descriptor, returning ""
+	// on EOF when the slave closes.
+	Read() string fails Failed | Unsupported,
+	// Write writes data completely to the master descriptor.
+	Write(data string) fails Failed | Unsupported,
+}
+
+// Pipe is an owned stream file descriptor such as a detached child's
+// stdin, stdout, or stderr pipe or a reattached stream FD.
+//
+// law-exempt: Pipe holds an owned OS or virtual stream descriptor
+// constructed only by OpenPipe, Running.Detach, or ReattachPipe;
+// Sessions.StartInteractiveDetachAndReattachPipes,
+// ReattachInvalidFDRefused, and runtime/v1/exec cutover tests hold it.
+extern go ergo.local/prototype/runtime/v1/exec.Pipe type Pipe {
+	runtimeOnly(),
+	..core.Closer,
+	// Fd returns the underlying descriptor number, or -1 if closed.
+	Fd() int,
+	// DupFD duplicates the descriptor with close-on-exec set and returns
+	// the raw integer descriptor for transfer across server replacement.
+	DupFD() int fails Failed | Unsupported,
+	// Read reads available bytes from the descriptor, returning "" on EOF.
+	Read() string fails Failed | Unsupported,
+	// Write writes data completely to the descriptor.
+	Write(data string) fails Failed | Unsupported,
+}
+
+// DetachedRun holds the durable Detached process identity and any live
+// stdio Pipe descriptors extracted by Running.Detach. Closing it closes
+// any pipe not extracted by TakeStdin, TakeStdout, or TakeStderr without
+// signaling the detached process.
+//
+// law-exempt: DetachedRun holds extracted stdio Pipes and buffered bytes
+// constructed only by Running.Detach; Sessions.StartInteractiveDetachAndReattachPipes
+// and runtime/v1/exec tests hold TakeStdin/TakeStdout/TakeStderr and Close.
+extern go ergo.local/prototype/runtime/v1/exec.DetachedRun type DetachedRun {
+	runtimeOnly(),
+	..core.Closer,
+	// Info returns the durable Detached handle.
+	Info() Detached,
+	// BufferedStdout returns stdout bytes buffered before Detach ran.
+	BufferedStdout() string,
+	// BufferedStderr returns stderr bytes buffered before Detach ran.
+	BufferedStderr() string,
+	// TakeStdin extracts ownership of the child's stdin Pipe if present
+	// and not yet taken.
+	TakeStdin() option.Option[Pipe],
+	// TakeStdout extracts ownership of the child's stdout Pipe if present
+	// and not yet taken.
+	TakeStdout() option.Option[Pipe],
+	// TakeStderr extracts ownership of the child's stderr Pipe if present
+	// and not yet taken.
+	TakeStderr() option.Option[Pipe],
+	// IntoDetached closes any untaken pipes and returns the plain Detached.
+	own IntoDetached() Detached,
+}
+
+// Sessions is the capability for PTY allocation, interactive and
+// PTY-backed child processes, FD reattachment across server cutover,
+// and detached process exit observation. Host and MemorySessions
+// implement it.
+type Sessions {
+	// OpenPTY allocates a fresh pseudo-terminal master/slave pair.
+	OpenPTY() PTY fails Failed | Denied | Unsupported,
+	// StartWithPTY starts c attached to p's slave terminal as its
+	// controlling terminal in a new session, closing parent's slave copy.
+	StartWithPTY(c Command, p PTY) Running fails NotFound | Denied | Failed | Unsupported,
+	// SpawnWithPTY starts a detached c attached to p's slave terminal in
+	// a new session and returns its Detached handle.
+	SpawnWithPTY(c Command, p PTY) Detached fails NotFound | Denied | Failed | Unsupported,
+	// StartInteractive starts c with a writable stdin pipe (accessible via
+	// Running.WriteStdin and Running.CloseStdin) and caller-selected sinks.
+	StartInteractive(c Command, s Streams) Running fails NotFound | Denied | Failed,
+	// OpenPipe allocates a connected pipe pair (read end, write end).
+	OpenPipe() (Pipe, Pipe) fails Failed | Denied | Unsupported,
+	// ReattachPTY duplicates and adopts a transferred master PTY FD.
+	ReattachPTY(fd int) PTY fails Failed | Denied | Unsupported,
+	// ReattachPipe duplicates and adopts a transferred stream FD.
+	ReattachPipe(fd int) Pipe fails Failed | Denied | Unsupported,
+	// PollDetached inspects the current state or exit status of d
+	// without blocking.
+	PollDetached(d Detached) ExitOutcome fails Denied | Unsupported,
+	// WaitDetached waits until detached process d exits or becomes
+	// unavailable, collecting its exit status and signal when observable.
+	WaitDetached(d Detached) ExitOutcome fails Denied | Unsupported,
+
+	// OpenPTYAndResizePreservesBounds: OpenPTY yields valid initial
+	// dimensions, Resize updates Size, invalid dimensions fail Failed
+	// without mutating size, and Close invalidates further operations.
+	law OpenPTYAndResizePreservesBounds() {
+		let p = OpenPTY() catch {
+		case Denied, Unsupported:
+			return true
+		case Failed:
+			return false
+		}
+		if p.Fd() < 0 || p.SlavePath() == "" {
+			p.Close()
+			return false
+		}
+		let init = p.Size() catch {
+		case Failed, Unsupported:
+			p.Close()
+			return false
+		}
+		if !ValidWinsize(init) {
+			p.Close()
+			return false
+		}
+		let next = Winsize{Rows: 42, Cols: 132, XPixels: 800, YPixels: 600}
+		p.Resize(next) catch {
+		case Failed, Unsupported:
+			p.Close()
+			return false
+		}
+		let got = p.Size() catch {
+		case Failed, Unsupported:
+			p.Close()
+			return false
+		}
+		if got != next {
+			p.Close()
+			return false
+		}
+		for bad in []Winsize{
+			Winsize{Rows: 0, Cols: 80, XPixels: 0, YPixels: 0},
+			Winsize{Rows: 24, Cols: 0, XPixels: 0, YPixels: 0},
+			Winsize{Rows: -1, Cols: 80, XPixels: 0, YPixels: 0},
+			Winsize{Rows: 70000, Cols: 80, XPixels: 0, YPixels: 0},
+			Winsize{Rows: 24, Cols: 80, XPixels: -1, YPixels: 0},
+		} {
+			let mut rejected = false
+			p.Resize(bad) catch {
+			case Failed:
+				rejected = true
+			case Unsupported:
+				p.Close()
+				return false
+			}
+			if !rejected {
+				p.Close()
+				return false
+			}
+		}
+		let afterBad = p.Size() catch {
+		case Failed, Unsupported:
+			p.Close()
+			return false
+		}
+		if afterBad != next {
+			p.Close()
+			return false
+		}
+		p.Close()
+		if p.Fd() != -1 {
+			return false
+		}
+		let mut closedDup = false
+		let _ = p.DupFD() catch {
+		case Failed:
+			closedDup = true
+			0
+		case Unsupported:
+			return false
+		}
+		closedDup
+	},
+
+	// PTYEchoAndCloseRefusesFurtherOps: a PTY-backed child process echoes
+	// written bytes through master Read, stops cleanly, and closed PTY
+	// rejects Read, Write, and Resize with Failed.
+	law PTYEchoAndCloseRefusesFurtherOps() {
+		let p = OpenPTY() catch {
+		case Denied, Unsupported:
+			return true
+		case Failed:
+			return false
+		}
+		let r = StartWithPTY(New("cat", []string{}), p) catch {
+		case NotFound:
+			p.Close()
+			return true
+		case Denied, Failed, Unsupported:
+			p.Close()
+			return false
+		}
+		if r.Pid() <= 0 {
+			let _ = r.Stop()
+			p.Close()
+			return false
+		}
+		p.Write("ping\n") catch {
+		case Failed, Unsupported:
+			let _ = r.Stop()
+			p.Close()
+			return false
+		}
+		let got = p.Read() catch {
+		case Failed, Unsupported:
+			let _ = r.Stop()
+			p.Close()
+			return false
+		}
+		let _ = r.Stop()
+		p.Close()
+		let mut readFailed = false
+		let _ = p.Read() catch {
+		case Failed:
+			readFailed = true
+			""
+		case Unsupported:
+			return false
+		}
+		let mut writeFailed = false
+		p.Write("x") catch {
+		case Failed:
+			writeFailed = true
+		case Unsupported:
+			return false
+		}
+		readFailed && writeFailed && got == "ping\n"
+	},
+
+	// DetachAndReattachPTYPreservesSession: detaching a Running child on
+	// a PTY preserves its PID, keeps it alive past Running consumption
+	// and original PTY close, and ReattachPTY preserves window size and I/O.
+	law DetachAndReattachPTYPreservesSession() {
+		let p = OpenPTY() catch {
+		case Denied, Unsupported:
+			return true
+		case Failed:
+			return false
+		}
+		let ws = Winsize{Rows: 30, Cols: 100, XPixels: 0, YPixels: 0}
+		p.Resize(ws) catch {
+		case Failed, Unsupported:
+			p.Close()
+			return false
+		}
+		let r = StartWithPTY(New("cat", []string{}), p) catch {
+		case NotFound:
+			p.Close()
+			return true
+		case Denied, Failed, Unsupported:
+			p.Close()
+			return false
+		}
+		let pid = r.Pid()
+		let dr = r.Detach() catch {
+		case Failed:
+			r.Close()
+			p.Close()
+			return false
+		}
+		let info = dr.IntoDetached()
+		if info.Pid != pid || info.Pid <= 0 {
+			p.Close()
+			return false
+		}
+		let p2 = ReattachPTY(p.Fd()) catch {
+		case Failed, Denied, Unsupported:
+			p.Close()
+			return false
+		}
+		p.Close()
+		let out = PollDetached(info) catch {
+		case Denied, Unsupported:
+			p2.Close()
+			return false
+		}
+		let running = match out {
+		case StillRunning:
+			true
+		case Exited, StatusUnavailable:
+			false
+		}
+		if !running {
+			p2.Close()
+			return false
+		}
+		let gotWS = p2.Size() catch {
+		case Failed, Unsupported:
+			p2.Close()
+			return false
+		}
+		if gotWS != ws {
+			p2.Close()
+			return false
+		}
+		p2.Write("reattach\n") catch {
+		case Failed, Unsupported:
+			p2.Close()
+			return false
+		}
+		let line = p2.Read() catch {
+		case Failed, Unsupported:
+			p2.Close()
+			return false
+		}
+		p2.Close()
+		line == "reattach\n"
+	},
+
+	// StartInteractiveDetachAndReattachPipes: detaching an interactive
+	// Running preserves buffered output and live stdin/stdout pipes,
+	// reattachment via ReattachPipe preserves streaming, and
+	// closing reattached stdin drives EOF and exit status collection.
+	law StartInteractiveDetachAndReattachPipes() {
+		let r = StartInteractive(New("cat", []string{}), Streams{Stdout: ToCaller, Stderr: Discard}) catch {
+		case NotFound, Denied:
+			return true
+		case Failed:
+			return false
+		}
+		r.WriteStdin("one\n") catch {
+		case Failed:
+			r.Close()
+			return false
+		}
+		let dr = r.Detach() catch {
+		case Failed:
+			r.Close()
+			return false
+		}
+		let info = dr.Info()
+		let pre = dr.BufferedStdout()
+		let inP = match dr.TakeStdin() {
+		case option.Some[Pipe]{Value: p}:
+			p
+		case option.None:
+			dr.Close()
+			return false
+		}
+		let outP = match dr.TakeStdout() {
+		case option.Some[Pipe]{Value: p}:
+			p
+		case option.None:
+			inP.Close()
+			dr.Close()
+			return false
+		}
+		match dr.TakeStdout() {
+		case option.Some[Pipe] as extra:
+			extra.Value.Close()
+			inP.Close()
+			outP.Close()
+			dr.Close()
+			return false
+		case option.None:
+		}
+		dr.Close()
+		let in2 = ReattachPipe(inP.Fd()) catch {
+		case Failed, Denied, Unsupported:
+			inP.Close()
+			outP.Close()
+			return false
+		}
+		let out2 = ReattachPipe(outP.Fd()) catch {
+		case Failed, Denied, Unsupported:
+			in2.Close()
+			inP.Close()
+			outP.Close()
+			return false
+		}
+		inP.Close()
+		outP.Close()
+		in2.Write("two\n") catch {
+		case Failed, Unsupported:
+			in2.Close()
+			out2.Close()
+			return false
+		}
+		in2.Close()
+		let mut post = ""
+		let mut chunk = out2.Read() catch {
+		case Failed, Unsupported:
+			out2.Close()
+			return false
+		}
+		for chunk != "" {
+			post = post + chunk
+			chunk = out2.Read() catch {
+			case Failed, Unsupported:
+				out2.Close()
+				return false
+			}
+		}
+		let st = WaitDetached(info) catch {
+		case Denied, Unsupported:
+			out2.Close()
+			return false
+		}
+		out2.Close()
+		let okExit = match st {
+		case Exited as ex:
+			ex.Status == 0 && ex.Signal == 0
+		case StillRunning, StatusUnavailable:
+			false
+		}
+		okExit && pre+post == "one\ntwo\n"
+	},
+
+	// ReattachInvalidFDRefused: invalid (-1) and closed descriptors and
+	// non-terminal pipe descriptors are rejected by ReattachPTY and
+	// ReattachPipe with Failed.
+	law ReattachInvalidFDRefused() {
+		let negPTY = reattachPTYFailed(-1)
+		let negPipe = reattachPipeFailed(-1)
+		let (rp, wp) = OpenPipe() catch {
+		case Denied, Unsupported:
+			return true
+		case Failed:
+			return false
+		}
+		let pipeNotPTY = reattachPTYFailed(rp.Fd())
+		let closedFD = rp.Fd()
+		rp.Close()
+		wp.Close()
+		let closedPipe = reattachPipeFailed(closedFD)
+		negPTY && negPipe && pipeNotPTY && closedPipe
+	},
+}
+
+func reattachPTYFailed(fd int) bool needs Sessions {
+	let p = Sessions.ReattachPTY(fd) catch {
+	case Failed, Denied, Unsupported:
+		return true
+	}
+	p.Close()
+	false
+}
+
+func reattachPipeFailed(fd int) bool needs Sessions {
+	let p = Sessions.ReattachPipe(fd) catch {
+	case Failed, Denied, Unsupported:
+		return true
+	}
+	p.Close()
+	false
+}
+
+// AdoptDetached constructs a Detached process identity from transferred
+// pid, start time, and name metadata, failing Failed if pid <= 0,
+// start < 0, or name is empty.
+func AdoptDetached(pid int, start int64, name string) Detached fails Failed {
+	if pid <= 0 || start < int64(0) || name == "" {
+		return Failed{Name: name, Reason: "invalid detached process metadata"}
+	}
+	Detached{Pid: pid, Start: start, Name: name}
+}
+
+// WaitDetachedFor waits at most limit for detached process d to finish
+// (via Sessions.WaitDetached), failing timeout.Expired when limit
+// expires first. Already-exited or unavailable processes return at once.
+func WaitDetachedFor(d Detached, limit duration) ExitOutcome fails timeout.Expired | Denied | Unsupported needs Sessions | time.Clock | Scheduler {
+	let now = try Sessions.PollDetached(d)
+	match now {
+	case StillRunning:
+	case Exited, StatusUnavailable:
+		return now
+	}
+	try timeout.After(limit) {
+		try Sessions.WaitDetached(d)
+	}
+}
+
+// OpenPTY allocates a pseudo-terminal pair on host h.
+func OpenPTY(h Host) PTY fails Failed | Denied | Unsupported {
+	if h.root != "" {
+		return Denied{Name: "pty"}
+	}
+	try hostOpenPTY()
+}
+
+// StartWithPTY starts c attached to p's slave terminal on host h.
+func StartWithPTY(h Host, c Command, p PTY) Running fails NotFound | Denied | Failed | Unsupported {
+	if h.root != "" {
+		return Denied{Name: c.Name}
+	}
+	let cmd = c.WithEnvFrom(h.base)
+	try hostStartWithPTY(cmd.Name, cmd.Args, cmd.Env, cmd.Dir, cmd.Stdin, cmd.Grace, p)
+}
+
+// SpawnWithPTY starts detached c attached to p's slave terminal on host h.
+func SpawnWithPTY(h Host, c Command, p PTY) Detached fails NotFound | Denied | Failed | Unsupported {
+	if h.root != "" {
+		return Denied{Name: c.Name}
+	}
+	let cmd = c.WithEnvFrom(h.base)
+	try hostSpawnWithPTY(cmd.Name, cmd.Args, cmd.Env, cmd.Dir, cmd.Stdin, p)
+}
+
+// StartInteractive starts c with an interactive stdin pipe on host h.
+func StartInteractive(h Host, c Command, s Streams) Running fails NotFound | Denied | Failed {
+	let cmd = c.WithEnvFrom(h.base)
+	if h.root != "" {
+		let dir = try confine(h.root, cmd.Dir, cmd.Args)
+		let out = try confineSink(h.root, sinkPath(s.Stdout))
+		let errs = try confineSink(h.root, sinkPath(s.Stderr))
+		return try hostStartInteractiveIn(h.root, cmd.Name, cmd.Args, testEnv(h.root, cmd.Env), dir, cmd.Stdin, cmd.Grace, sinkKind(s.Stdout), out, sinkAppends(s.Stdout), sinkKind(s.Stderr), errs, sinkAppends(s.Stderr))
+	}
+	try hostStartInteractive(cmd.Name, cmd.Args, cmd.Env, cmd.Dir, cmd.Stdin, cmd.Grace, sinkKind(s.Stdout), sinkPath(s.Stdout), sinkAppends(s.Stdout), sinkKind(s.Stderr), sinkPath(s.Stderr), sinkAppends(s.Stderr))
+}
+
+// OpenPipe allocates an OS pipe pair (read end, write end) on host h.
+func OpenPipe(h Host) (Pipe, Pipe) fails Failed | Denied | Unsupported {
+	if h.root != "" {
+		return Denied{Name: "pipe"}
+	}
+	try hostOpenPipe()
+}
+
+// ReattachPTY adopts a transferred master PTY descriptor fd on host h.
+func ReattachPTY(h Host, fd int) PTY fails Failed | Denied | Unsupported {
+	if h.root != "" {
+		return Denied{Name: "pty"}
+	}
+	try hostReattachPTY(fd)
+}
+
+// ReattachPipe adopts a transferred stream descriptor fd on host h.
+func ReattachPipe(h Host, fd int) Pipe fails Failed | Denied | Unsupported {
+	if h.root != "" {
+		return Denied{Name: "pipe"}
+	}
+	try hostReattachPipe(fd)
+}
+
+// PollDetached inspects the current state or exit status of d on host h.
+func PollDetached(h Host, d Detached) ExitOutcome fails Denied | Unsupported {
+	if h.root != "" {
+		return Denied{Name: d.Name}
+	}
+	let (kind, status, sig, notChild, reason) = try hostPollDetached(d.Pid, d.Start)
+	decodeOutcome(kind, status, sig, notChild, reason)
+}
+
+// WaitDetached waits until d exits or becomes unavailable on host h.
+func WaitDetached(h Host, d Detached) ExitOutcome fails Denied | Unsupported {
+	if h.root != "" {
+		return Denied{Name: d.Name}
+	}
+	let (kind, status, sig, notChild, reason) = try hostWaitDetached(d.Pid, d.Start)
+	decodeOutcome(kind, status, sig, notChild, reason)
+}
+
+func decodeOutcome(kind int, status int, sig int, notChild bool, reason string) ExitOutcome {
+	if kind == 0 {
+		return StillRunning
+	}
+	if kind == 1 {
+		return Exited{Status: status, Signal: sig}
+	}
+	StatusUnavailable{Reason: reason, NotChild: notChild}
+}
+
+extern go ergo.local/prototype/runtime/v1/exec.ExecOpenPTY func hostOpenPTY() PTY fails Failed | Unsupported
+
+extern go ergo.local/prototype/runtime/v1/exec.ExecStartWithPTY func hostStartWithPTY(name string, args []string, env Map[string, string], dir string, stdin string, grace duration, p PTY) Running fails NotFound | Denied | Failed | Unsupported
+
+extern go ergo.local/prototype/runtime/v1/exec.ExecSpawnWithPTY func hostSpawnWithPTY(name string, args []string, env Map[string, string], dir string, stdin string, p PTY) Detached fails NotFound | Denied | Failed | Unsupported
+
+extern go ergo.local/prototype/runtime/v1/exec.ExecStartInteractive func hostStartInteractive(name string, args []string, env Map[string, string], dir string, stdin string, grace duration, outKind int, outPath string, outAppend bool, errKind int, errPath string, errAppend bool) Running fails NotFound | Denied | Failed
+
+extern go ergo.local/prototype/runtime/v1/exec.ExecStartInteractiveIn func hostStartInteractiveIn(root string, name string, args []string, env Map[string, string], dir string, stdin string, grace duration, outKind int, outPath string, outAppend bool, errKind int, errPath string, errAppend bool) Running fails NotFound | Denied | Failed
+
+extern go ergo.local/prototype/runtime/v1/exec.ExecOpenPipe func hostOpenPipe() (Pipe, Pipe) fails Failed | Unsupported
+
+extern go ergo.local/prototype/runtime/v1/exec.ExecReattachPTY func hostReattachPTY(fd int) PTY fails Failed | Unsupported
+
+extern go ergo.local/prototype/runtime/v1/exec.ExecReattachPipe func hostReattachPipe(fd int) Pipe fails Failed | Unsupported
+
+extern go ergo.local/prototype/runtime/v1/exec.ExecPollDetached func hostPollDetached(pid int, start int64) (int, int, int, bool, string) fails Unsupported
+
+extern go ergo.local/prototype/runtime/v1/exec.ExecWaitDetached func hostWaitDetached(pid int, start int64) (int, int, int, bool, string) fails Unsupported
+
+// law-exempt: unexported runtime backing of MemorySessions; Sessions laws
+// and MemoryDetachedOutcomeTransitions verify every operation.
+extern go ergo.local/prototype/runtime/v1/exec.MemSessions type memSessions {
+	runtimeOnly(),
+	OpenPTY() PTY fails Failed | Unsupported,
+	StartWithPTY(name string, stdin string, p PTY) Running fails NotFound | Failed,
+	SpawnWithPTY(name string, stdin string, p PTY) Detached fails NotFound | Failed,
+	StartInteractive(name string, stdin string, outKind int, errKind int) Running fails NotFound | Failed,
+	ReattachPTY(fd int) PTY fails Failed | Unsupported,
+	ReattachPipe(fd int) Pipe fails Failed | Unsupported,
+	Spawn(name string, outKind int, errKind int) Detached fails NotFound | Failed,
+	Alive(pid int, start int64) bool,
+	Kill(pid int, start int64),
+	Complete(pid int, start int64, status int, signal int),
+	MarkNotChild(pid int, start int64),
+}
+
+extern go ergo.local/prototype/runtime/v1/exec.ExecNewMemSessions func memNewSessions(programs []string) memSessions
+
+extern go ergo.local/prototype/runtime/v1/exec.ExecMemOpenPipe func memOpenPipe(m memSessions) (Pipe, Pipe) fails Failed | Unsupported
+
+extern go ergo.local/prototype/runtime/v1/exec.ExecMemPollDetached func memPollDetached(m memSessions, pid int, start int64) (int, int, int, bool, string)
+
+extern go ergo.local/prototype/runtime/v1/exec.ExecMemWaitDetached func memWaitDetached(m memSessions, pid int, start int64) (int, int, int, bool, string)
+
+// MemorySessions is the in-memory provider of Spawner and Sessions
+// for deterministic tests and laws.
+type MemorySessions { mem memSessions } implements Spawner, Sessions
+
+// NewMemorySessions constructs an in-memory Sessions and Spawner
+// provider recognizing programs.
+func NewMemorySessions(programs []string) MemorySessions {
+	MemorySessions{mem: memNewSessions(programs)}
+}
+
+// OpenPTY allocates a virtual PTY in m.
+func OpenPTY(m MemorySessions) PTY fails Failed | Denied | Unsupported {
+	try m.mem.OpenPTY()
+}
+
+// StartWithPTY starts a simulated child attached to virtual PTY p.
+func StartWithPTY(m MemorySessions, c Command, p PTY) Running fails NotFound | Denied | Failed | Unsupported {
+	try m.mem.StartWithPTY(c.Name, c.Stdin, p)
+}
+
+// SpawnWithPTY starts a simulated detached child attached to virtual PTY p.
+func SpawnWithPTY(m MemorySessions, c Command, p PTY) Detached fails NotFound | Denied | Failed | Unsupported {
+	try m.mem.SpawnWithPTY(c.Name, c.Stdin, p)
+}
+
+// StartInteractive starts a simulated interactive pipe child in m.
+func StartInteractive(m MemorySessions, c Command, s Streams) Running fails NotFound | Denied | Failed {
+	try m.mem.StartInteractive(c.Name, c.Stdin, sinkKind(s.Stdout), sinkKind(s.Stderr))
+}
+
+// OpenPipe allocates a virtual pipe pair in m.
+func OpenPipe(m MemorySessions) (Pipe, Pipe) fails Failed | Denied | Unsupported {
+	try memOpenPipe(m.mem)
+}
+
+// ReattachPTY adopts a virtual PTY descriptor in m.
+func ReattachPTY(m MemorySessions, fd int) PTY fails Failed | Denied | Unsupported {
+	try m.mem.ReattachPTY(fd)
+}
+
+// ReattachPipe adopts a virtual pipe descriptor in m.
+func ReattachPipe(m MemorySessions, fd int) Pipe fails Failed | Denied | Unsupported {
+	try m.mem.ReattachPipe(fd)
+}
+
+// PollDetached inspects the state of d in m.
+func PollDetached(m MemorySessions, d Detached) ExitOutcome fails Denied | Unsupported {
+	let (kind, status, sig, notChild, reason) = memPollDetached(m.mem, d.Pid, d.Start)
+	decodeOutcome(kind, status, sig, notChild, reason)
+}
+
+// WaitDetached waits until d exits in m.
+func WaitDetached(m MemorySessions, d Detached) ExitOutcome fails Denied | Unsupported {
+	let (kind, status, sig, notChild, reason) = memWaitDetached(m.mem, d.Pid, d.Start)
+	decodeOutcome(kind, status, sig, notChild, reason)
+}
+
+// Spawn starts a simulated detached program in m.
+func Spawn(m MemorySessions, c Command, s Streams) Detached fails NotFound | Denied | Failed {
+	try m.mem.Spawn(c.Name, sinkKind(s.Stdout), sinkKind(s.Stderr))
+}
+
+// Alive reports whether d is alive in m.
+func Alive(m MemorySessions, d Detached) bool {
+	m.mem.Alive(d.Pid, d.Start)
+}
+
+// Kill marks d exited in m.
+func Kill(m MemorySessions, d Detached, _ duration) {
+	m.mem.Kill(d.Pid, d.Start)
+}
+
+// Complete marks simulated detached process d exited with status and signal.
+func Complete(m MemorySessions, d Detached, status int, signal int) {
+	m.mem.Complete(d.Pid, d.Start, status, signal)
+}
+
+// MarkNotChild marks d as having exited without an OS-collectible status
+// to simulate reparenting outside this process.
+func MarkNotChild(m MemorySessions, d Detached) {
+	m.mem.MarkNotChild(d.Pid, d.Start)
+}
+
+// ValidWinsizeChecksBounds: ValidWinsize agrees with exact kernel winsize bounds.
+law ValidWinsizeChecksBounds(rows int, cols int, xp int, yp int) {
+	let ok = ValidWinsize(Winsize{Rows: rows, Cols: cols, XPixels: xp, YPixels: yp})
+	let want = rows > 0 && cols > 0 && rows <= 65535 && cols <= 65535 && xp >= 0 && yp >= 0 && xp <= 65535 && yp <= 65535
+	ok == want
+}
+
+// AdoptDetachedRejectsInvalidFields: AdoptDetached rejects non-positive
+// pid, negative start time, or empty name, and preserves valid metadata.
+law AdoptDetachedRejectsInvalidFields(pid int, start int64, name string) {
+	let res = AdoptDetached(pid, start, name) catch {
+	case Failed:
+		return pid <= 0 || start < int64(0) || name == ""
+	}
+	pid > 0 && start >= int64(0) && name != "" && res.Pid == pid && res.Start == start && res.Name == name
+}
+
+// MemoryDetachedOutcomeTransitions: MemorySessions tracks StillRunning,
+// Exited with exact status/signal, StatusUnavailable for reparented PIDs,
+// SpawnWithPTY, and Kill.
+law MemoryDetachedOutcomeTransitions(status int, sig int) {
+	let m = NewMemorySessions([]string{"cat", "worker"})
+	let p = m.OpenPTY() catch {
+	case Failed, Denied, Unsupported:
+		return false
+	}
+	let dup = p.DupFD() catch {
+	case Failed, Unsupported:
+		p.Close()
+		return false
+	}
+	let pDup = m.ReattachPTY(dup) catch {
+	case Failed, Denied, Unsupported:
+		p.Close()
+		return false
+	}
+	if pDup.Fd() < 0 || pDup.Fd() == p.Fd() {
+		pDup.Close()
+		p.Close()
+		return false
+	}
+	pDup.Close()
+	let d = m.SpawnWithPTY(New("worker", []string{}), p) catch {
+	case NotFound, Denied, Failed, Unsupported:
+		p.Close()
+		return false
+	}
+	p.Close()
+	let dAdopted = AdoptDetached(d.Pid, d.Start, d.Name) catch {
+	case Failed:
+		return false
+	}
+	if !m.Alive(dAdopted) {
+		return false
+	}
+	let initial = m.PollDetached(dAdopted) catch {
+	case Denied, Unsupported:
+		return false
+	}
+	let isRunning = match initial {
+	case StillRunning:
+		true
+	case Exited, StatusUnavailable:
+		false
+	}
+	if !isRunning {
+		return false
+	}
+	m.Complete(dAdopted, status, sig)
+	if m.Alive(dAdopted) {
+		return false
+	}
+	let done = m.WaitDetached(dAdopted) catch {
+	case Denied, Unsupported:
+		return false
+	}
+	let okExit = match done {
+	case Exited as ex:
+		ex.Status == status && ex.Signal == sig
+	case StillRunning, StatusUnavailable:
+		false
+	}
+	if !okExit {
+		return false
+	}
+	let d2 = m.Spawn(New("worker", []string{}), Streams{Stdout: Discard, Stderr: Discard}) catch {
+	case NotFound, Denied, Failed:
+		return false
+	}
+	m.MarkNotChild(d2)
+	let reparented = m.WaitDetached(d2) catch {
+	case Denied, Unsupported:
+		return false
+	}
+	match reparented {
+	case StatusUnavailable as su:
+		if !su.NotChild {
+			return false
+		}
+	case StillRunning, Exited:
+		return false
+	}
+	memReattachPTYFailed(m, -1) && memReattachPipeFailed(m, -1)
+}
+
+func memReattachPTYFailed(m MemorySessions, fd int) bool {
+	let p = m.ReattachPTY(fd) catch {
+	case Failed:
+		return true
+	case Denied, Unsupported:
+		return false
+	}
+	p.Close()
+	false
+}
+
+func memReattachPipeFailed(m MemorySessions, fd int) bool {
+	let p = m.ReattachPipe(fd) catch {
+	case Failed:
+		return true
+	case Denied, Unsupported:
+		return false
+	}
+	p.Close()
+	false
+}
+
+func sessionLawOnly(_ Host) {}
+
+type confinedSessions {
+	sessionLawOnly(),
+	checkConfined() bool,
+	law ConfinedHostRefusesHostFDs() {
+		checkConfined()
+	},
+}
+
+func checkConfined(h Host) bool {
+		openPTYDenied(h) &&
+		reattachPTYDenied(h) &&
+		reattachPipeDenied(h) &&
+		openPipeDenied(h) &&
+		pollDenied(h) &&
+		waitDenied(h)
+}
+
+func openPTYDenied(h Host) bool {
+	let p = h.OpenPTY() catch {
+	case Denied:
+		return true
+	case Failed, Unsupported:
+		return false
+	}
+	p.Close()
+	false
+}
+
+func reattachPTYDenied(h Host) bool {
+	let p = h.ReattachPTY(-1) catch {
+	case Denied:
+		return true
+	case Failed, Unsupported:
+		return false
+	}
+	p.Close()
+	false
+}
+
+func reattachPipeDenied(h Host) bool {
+	let p = h.ReattachPipe(-1) catch {
+	case Denied:
+		return true
+	case Failed, Unsupported:
+		return false
+	}
+	p.Close()
+	false
+}
+
+func openPipeDenied(h Host) bool {
+	let (r, w) = h.OpenPipe() catch {
+	case Denied:
+		return true
+	case Failed, Unsupported:
+		return false
+	}
+	r.Close()
+	w.Close()
+	false
+}
+
+func pollDenied(h Host) bool {
+	let _ = h.PollDetached(Detached{Pid: 1, Start: int64(1), Name: "x"}) catch {
+	case Denied:
+		return true
+	case Unsupported:
+		return false
+	}
+	false
+}
+
+func waitDenied(h Host) bool {
+	let _ = h.WaitDetached(Detached{Pid: 1, Start: int64(1), Name: "x"}) catch {
+	case Denied:
+		return true
+	case Unsupported:
+		return false
+	}
+	false
+}
+
+let onConfinedSessions = context needs fstest.TestAmbient { confinedSessions: NewTestHost() }
