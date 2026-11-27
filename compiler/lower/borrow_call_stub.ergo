@@ -105,7 +105,7 @@ func borrowedUnitBody(st fnb, target expr.Fn, p syntax.Parsed) fails Unported {
 		return stop("borrow call: unnamed receiver")
 	}
 	let at = fnb{..st, p: p, file: target.File}
-	let stubBinds = localBinds{params: []dense.ID[store.PNode]{formal}, locals: []int{0}}
+	let stubBinds = localBinds{params: []dense.ID[store.PNode]{formal}, locals: []int{0}, types: []dense.Opt[store.TKey]{dense.NoID[store.TKey]()}}
 	let _ = try planBorrowWrite(at, stubBinds, node, write, 1)
 	try check(at, stubBinds, write.Rhs)
 }

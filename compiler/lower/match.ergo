@@ -41,9 +41,10 @@ func matchPrepare(st fnb, binds mut localBinds, p mut controlPlan, m syntax.Type
 	case UnionUnproved:
 		return stop("match: unproved union layout")
 	}
-	match syntax.ViewOf(st.p.Tree, subj) {
+	match syntax.ViewOf(st.p.Tree, unparen(st, subj)) {
 	case syntax.Name:
-		let src = try paramLocal(st, *binds, subj)
+		let inner = unparen(st, subj)
+		let src = try paramLocal(st, *binds, inner)
 		if src >= p.formals {
 			if p.locals[src-p.formals].mutable && !isFlat {
 				return stop("match: local subject's scalar form")
@@ -51,11 +52,18 @@ func matchPrepare(st fnb, binds mut localBinds, p mut controlPlan, m syntax.Type
 		}
 		p.reads = p.reads.Append(src)
 	case syntax.SelectorExpr as se:
-		let _ = try field(st, *binds, subj, se)
-		try controlOperand(st, *binds, p, subj)
+		let inner = unparen(st, subj)
+		let _ = try field(st, *binds, inner, se)
+		try controlOperand(st, *binds, p, inner)
 	case syntax.IndexExpr as ie:
-		let _ = try sliceIndex(st, subj, ie)
-		try controlOperand(st, *binds, p, subj)
+		let inner = unparen(st, subj)
+		let _ = try sliceIndex(st, inner, ie)
+		try controlOperand(st, *binds, p, inner)
+	case syntax.CallExpr:
+		if !isFlat || holdsValue(st, t) {
+			return stop("match: subject is not a plain parameter")
+		}
+		try controlOperand(st, *binds, p, unparen(st, subj))
 	case _:
 		return stop("match: subject is not a plain parameter")
 	}
@@ -92,39 +100,42 @@ func matchPrepare(st fnb, binds mut localBinds, p mut controlPlan, m syntax.Type
 		if fallback {
 			return stop("match: case after wildcard")
 		}
-		fallback = count == 0
+		let isWildcard = count == 0 || (count == 1 && syntax.KindOf(st.p.Tree, syntax.Item(st.p.Tree, clause.List, 0)) == syntax.KIdent && nameText(st.p, syntax.Item(st.p.Tree, clause.List, 0)) == "_")
+		fallback = isWildcard
 		let tagsStart = tags.Len()
 		let mut armVariants = []string{}
 		let mut a = matchArm{at: at, tags: []int{}, variants: []string{}, vals: []dense.ID[syntax.Node]{}, binding: -1, variant: "", payload: false, span: controlEmpty(p.stmts.Len())}
-		for j in 0..count {
-			let item = syntax.Item(st.p.Tree, clause.List, j)
-			let (tested, name) = match syntax.ViewOf(st.p.Tree, item) {
-			case syntax.AsPattern as ap:
-				if count != 1 {
-					return stop("match: binding among alternatives")
+		if !isWildcard {
+			for j in 0..count {
+				let item = syntax.Item(st.p.Tree, clause.List, j)
+				let (tested, name) = match syntax.ViewOf(st.p.Tree, item) {
+				case syntax.AsPattern as ap:
+					if count != 1 {
+						return stop("match: binding among alternatives")
+					}
+					(ap.X, dense.OptOf(ap.Name))
+				case syntax.Name, syntax.SelectorExpr, syntax.IndexExpr:
+					(item, dense.NoID[syntax.Node]())
+				case _:
+					return stop("match: not a type test")
 				}
-				(ap.X, dense.OptOf(ap.Name))
-			case syntax.Name, syntax.SelectorExpr, syntax.IndexExpr:
-				(item, dense.NoID[syntax.Node]())
-			case _:
-				return stop("match: not a type test")
-			}
-			let tag = unionTagOfName(st, shape, tested)
-			if tag < 0 || seen[tag] {
-				return stop("match: foreign or repeated case")
-			}
-			seen[tag] = true
-			tags = tags.Append(tag)
-			armVariants = armVariants.Append(shape.variants[tag].typ)
-			match dense.Unpack(name) {
-			case option.Some{Value: binder}:
-				let v = shape.variants[tag]
-				let slot = try controlBind(st, binds, p, binder, nameText(st.p, binder), v.typ, false)
-				p.locals[slot-p.formals].at = at
-				a.binding = slot
-				a.variant = v.typ
-				a.payload = v.fields.Len() > 0
-			case option.None:
+				let tag = unionTagOfName(st, shape, tested)
+				if tag < 0 || seen[tag] {
+					return stop("match: foreign or repeated case")
+				}
+				seen[tag] = true
+				tags = tags.Append(tag)
+				armVariants = armVariants.Append(shape.variants[tag].typ)
+				match dense.Unpack(name) {
+				case option.Some{Value: binder}:
+					let v = shape.variants[tag]
+					let slot = try controlBind(st, binds, p, binder, nameText(st.p, binder), v.typ, false)
+					p.locals[slot-p.formals].at = at
+					a.binding = slot
+					a.variant = v.typ
+					a.payload = v.fields.Len() > 0
+				case option.None:
+				}
 			}
 		}
 		a.tags = tags[tagsStart:tags.Len()]
@@ -289,7 +300,7 @@ func unionField(st fnb, x dense.ID[syntax.Node], se syntax.SelectorExpr) string 
 		}
 		return stop("selector on no plain record")
 	}
-	match importedFields(st, t) {
+	match recordFieldsOf(st, t) {
 	case option.Some{Value: fs}:
 		let fi = fieldIndex(fs, name)
 		if fi >= 0 && fs[fi].T == fieldType {

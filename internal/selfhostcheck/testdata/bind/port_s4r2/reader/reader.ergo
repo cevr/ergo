@@ -1,0 +1,53 @@
+import go math
+import go unicode/utf8
+import ports4r2demo/producer
+import strings
+
+type S4r2LocalSealed = S4r2LocalOk{Val int, Pad [20]int} | S4r2LocalZero{}
+
+let s4r2Items = []producer.S4r2Item{producer.S4r2Item{Key: 1, Val: 10}, producer.S4r2Item{Key: 2, Val: 20}}
+
+func PortS4r2SealedUse(r producer.S4r2Res) producer.S4r2Res { producer.SealedId(r) }
+
+func PortS4r2SealedMatch(r S4r2LocalSealed) int {
+	match r {
+	case S4r2LocalOk as v:
+		v.Val
+	case S4r2LocalZero:
+		0
+	}
+}
+
+func PortS4r2GoAbs(x float64) float64 { math.Abs(x) }
+
+func PortS4r2GoRuneCount(s string) int { utf8.RuneCountInString(s) }
+
+func PortS4r2RuntimeJoin(xs []string) string { strings.Join(xs, ",") }
+
+func PortS4r2SeedAppend(n int) []int {
+	let mut xs = []int{n}
+	for i in 0..n {
+		xs = xs.Append(i)
+	}
+	xs
+}
+
+func PortS4r2GlobalSum() int {
+	let mut acc = s4r2Items.Len()
+	for x in s4r2Items {
+		acc = acc + x.Val
+	}
+	acc
+}
+
+func PortS4r2GlobalPick(idx int) producer.S4r2Item { s4r2Items[idx] }
+
+func PortS4r2NegFold(x int) int {
+	if x < 0 { -1 } else { x }
+}
+
+func PortS4r2GenericUnit[T](xs []T) {
+	if xs.Len() > 0 {
+		return
+	}
+}

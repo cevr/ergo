@@ -176,11 +176,14 @@ func shapeWithin(st fnb, t dense.ID[store.TKey], trail shapeTrail) string {
 	if basic != "" {
 		return basic
 	}
+	let kind = store.KindOfType(st.s, t)
+	if kind == store.KBasic && store.ArgOf(st.s, t) == 18 {
+		return "time.Duration"
+	}
 	let tp = typeParamGo(st, t)
 	if tp != "" {
 		return tp
 	}
-	let kind = store.KindOfType(st.s, t)
 	if kind == store.KSlice {
 		let ops = store.OperandsOf(st.s, t)
 		if ops.Len() < 1 {
@@ -275,10 +278,27 @@ func shapeWithin(st fnb, t dense.ID[store.TKey], trail shapeTrail) string {
 					""
 				}
 			}
+			let impName = store.TypeNameText(owner.s, store.ArgOf(owner.s, named))
+			let rtOps = runtimeOpsShape(owner, impName)
+			if rtOps != "" {
+				return rtOps
+			}
+			let al = aliasShapeWithin(owner, named, impName, trail)
+			if al != "" {
+				return al
+			}
+			let da = definedArrayShapeWithin(owner, named, impName, trail)
+			if da != "" {
+				return da
+			}
 			// UNION owns which named declarations and layouts it describes.
 			return unionGoWithin(owner, named, trail)
 		}
 	case option.None:
+	}
+	let host = hostShapeWithin(st, t, trail)
+	if host != "" {
+		return host
 	}
 	if kind == store.KInstance && store.OperandsOf(st.s, t).Len() > 0 {
 		let ug = unionInstanceShape(st, t, trail)
@@ -297,6 +317,25 @@ func shapeWithin(st fnb, t dense.ID[store.TKey], trail shapeTrail) string {
 			return declName(st, store.TypeNameText(st.s, store.ArgOf(st.s, t))) catch {
 			case Unported:
 				""
+			}
+		}
+		if kind == store.KNamed {
+			let nm = store.TypeNameText(st.s, store.ArgOf(st.s, t))
+			let rtOps = runtimeOpsShape(st, nm)
+			if rtOps != "" {
+				return rtOps
+			}
+			let rtLocal = runtimeRecordType(st, nm)
+			if rtLocal != "" {
+				return rtLocal
+			}
+			let al = aliasShapeWithin(st, t, nm, trail)
+			if al != "" {
+				return al
+			}
+			let da = definedArrayShapeWithin(st, t, nm, trail)
+			if da != "" {
+				return da
 			}
 		}
 		return unionGoWithin(st, t, trail)
@@ -435,6 +474,9 @@ func holdsValueWithin(st fnb, t dense.ID[store.TKey], trail shapeTrail) bool {
 		return false
 	}
 	let kind = store.KindOfType(st.s, t)
+	if kind == store.KBasic && store.ArgOf(st.s, t) == 18 {
+		return false
+	}
 	if kind == store.KSlice || kind == store.KMap || kind == store.KParam || kind == store.KOwn || kind == store.KReapplied || kind == store.KSelf {
 		return true
 	}
@@ -486,8 +528,27 @@ func holdsValueWithin(st fnb, t dense.ID[store.TKey], trail shapeTrail) bool {
 		if scalarBasicGo(owner, named) != "" {
 			return false
 		}
+		let impName = store.TypeNameText(owner.s, store.ArgOf(owner.s, named))
+		if isRuntimeOpsType(owner, impName) {
+			return false
+		}
+		let mut local = owner.s
+		match aliasTargetNamed(owner, impName, &local) {
+		case option.Some{Value: resolved}:
+			let (nextOwner, tt) = resolved
+			return holdsValueWithin(nextOwner, tt, next)
+		case option.None:
+		}
+		match definedArrayHoldsValue(owner, named, impName, next) {
+		case option.Some{Value: hv}:
+			return hv
+		case option.None:
+		}
 		return unionHoldsValue(owner, named, next)
 	case option.None:
+	}
+	if kind == store.KForeign && hostShapeWithin(st, t, next) != "" {
+		return false
 	}
 	if kind == store.KInstance && store.OperandsOf(st.s, t).Len() > 0 {
 		let o = store.OriginOfType(st.s, t)
@@ -495,6 +556,9 @@ func holdsValueWithin(st fnb, t dense.ID[store.TKey], trail shapeTrail) bool {
 		let args = store.OperandsOf(st.s, t)
 		if int(o.Import) == store.ForeignBit && i < st.k.Foreign.Len() {
 			let f = st.k.Foreign[i]
+			if f.Qual == "go" && f.Name == "Ref" {
+				return false
+			}
 			let isPrelude = f.Path == "prelude" && has(st.prelude, f.Name)
 			let isOption = f.Path == "option" && f.Name == "Option"
 			if f.Qual == "-" && (isPrelude || isOption) && f.Variants.Len() != 0 && f.Arity == args.Len() {
@@ -505,6 +569,20 @@ func holdsValueWithin(st fnb, t dense.ID[store.TKey], trail shapeTrail) bool {
 				}
 				return false
 			}
+		}
+		if int(o.Import) > 0 && int(o.Import) <= st.k.Ifaces.Len() && i >= 0 && i < st.k.Ifaces[int(o.Import)-1].Decls.Len() {
+			let imp = st.k.Ifaces[int(o.Import)-1]
+			match trail.deps.Get(imp.Path) {
+			case option.Some{Value: dep}:
+				let owner = fnb{..st, k: dep.K, s: dep.S, alias: pkgAlias(dep.Path), pkgPath: dep.Path, idx: depIdxOf(st.cache, dep.Path)}
+				if isRuntimeOpsType(owner, imp.Decls[i].Name) {
+					return false
+				}
+			case option.None:
+			}
+		}
+		if int(o.Import) == 0 && isRuntimeOpsType(st, store.DeclText(st.s, i)) {
+			return false
 		}
 		if importedGenericRecordShape(st, t, trail) != "" {
 			for arg in args {
@@ -540,6 +618,21 @@ func holdsValueWithin(st fnb, t dense.ID[store.TKey], trail shapeTrail) bool {
 	}
 	if kind == store.KNamed {
 		let name = store.TypeNameText(st.s, store.ArgOf(st.s, t))
+		if isRuntimeOpsType(st, name) {
+			return false
+		}
+		let mut local = st.s
+		match aliasTargetNamed(st, name, &local) {
+		case option.Some{Value: resolved}:
+			let (nextOwner, tt) = resolved
+			return holdsValueWithin(nextOwner, tt, next)
+		case option.None:
+		}
+		match definedArrayHoldsValue(st, t, name, next) {
+		case option.Some{Value: hv}:
+			return hv
+		case option.None:
+		}
 		match unionDeclParent(st, name) {
 		case option.Some{Value: parent}:
 			let (vp, v, _) = parent

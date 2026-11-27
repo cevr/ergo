@@ -43,7 +43,8 @@ func inspectCall(st fnb, i int, imports []ImportCallFacts) inspectedCall fails U
 	let name = nameText(st.k.Parsed[f.File], f.Name)
 	// Overloaded Go names are a call-site decision, not a purity fact.
 	let h = try callHeader(st, i, name, false)
-	let (body, edges) = try scanScalarBody(st, emptyLocalBinds(), i, h.body, imports)
+	let fbinds = parameterSlots(fnb{..st, file: f.File, p: st.k.Parsed[f.File]}, f)
+	let (body, edges) = try scanScalarBody(st, fbinds, i, h.body, imports)
 	inspectedCall{valid: true, body: body, next: edges}
 }
 
@@ -268,6 +269,11 @@ func scanPureNode(st fnb, binds localBinds, x dense.ID[syntax.Node], imports []I
 			return stop("callee: unary form (purity)")
 		}
 		try pureValue(st, x)
+		let inner = unparen(st, u.X)
+		if syntax.KindOf(p.Tree, inner) == syntax.KBasicLit && dense.Unpack(dense.SideOf(st.types, bind.PNodeOf(st.k.Ps, st.file, inner))) == option.None {
+			walk.facts.sizeFloor = walk.facts.sizeFloor + 2
+			return
+		}
 		walk.facts.sizeFloor = walk.facts.sizeFloor + 1
 	case syntax.BinaryExpr as v:
 		if !isIROp(syntax.TokText(p, v.Op)) {
@@ -305,9 +311,31 @@ func scanPureNode(st fnb, binds localBinds, x dense.ID[syntax.Node], imports []I
 		}
 		return
 	case syntax.CallExpr as ce:
+		let (leafKind, isLeaf) = goLeafEdgeKind(st, binds, x, ce)
+		if isLeaf {
+			walk.facts.sizeFloor = walk.facts.sizeFloor + 1
+			if leafKind == goRecvLeafEdge {
+				match syntax.ViewOf(p.Tree, ce.Fun) {
+				case syntax.SelectorExpr as se:
+					let recvNode = unparen(st, se.X)
+					if dense.Unpack(dense.SideOf(st.types, bind.PNodeOf(st.k.Ps, st.file, recvNode))) != option.None {
+						walk.pending = walk.pending.Append(uint32(dense.Index(se.X)))
+					}
+				case _:
+				}
+			}
+			for j in 0..syntax.Len(ce.Args) {
+				let arg = syntax.Item(p.Tree, ce.Args, j)
+				let an = unparen(st, arg)
+				if dense.Unpack(dense.SideOf(st.types, bind.PNodeOf(st.k.Ps, st.file, an))) != option.None {
+					walk.pending = walk.pending.Append(uint32(dense.Index(arg)))
+				}
+			}
+			return
+		}
 		try pureValue(st, x)
 		let next = try pureEdge(st, x, ce, imports)
-		if next != builtinEdge {
+		if next != builtinEdge && next != goLeafEdge && next != goRecvLeafEdge {
 			walk.facts.edges = walk.facts.edges + 1
 		}
 		if next >= 0 {
@@ -316,7 +344,7 @@ func scanPureNode(st fnb, binds localBinds, x dense.ID[syntax.Node], imports []I
 		walk.facts.sizeFloor = walk.facts.sizeFloor + 1
 		match syntax.ViewOf(p.Tree, ce.Fun) {
 		case syntax.SelectorExpr as se:
-			if next == builtinEdge {
+			if next == builtinEdge || next == goRecvLeafEdge {
 				walk.pending = walk.pending.Append(uint32(dense.Index(se.X)))
 			}
 		case _:
@@ -324,6 +352,34 @@ func scanPureNode(st fnb, binds localBinds, x dense.ID[syntax.Node], imports []I
 		for j in 0..syntax.Len(ce.Args) {
 			walk.pending = walk.pending.Append(uint32(dense.Index(syntax.Item(p.Tree, ce.Args, j))))
 		}
+		return
+	case syntax.IndexExpr as ie:
+		try pureValue(st, x)
+		let i = try sliceIndex(st, x, ie)
+		walk.facts.sizeFloor = walk.facts.sizeFloor + 1
+		walk.pending = walk.pending.Append(uint32(dense.Index(ie.X)))
+		walk.pending = walk.pending.Append(uint32(dense.Index(i)))
+		return
+	case syntax.SliceExpr as sx:
+		try pureValue(st, x)
+		let (idx, _) = try sliceCut(st, x, sx)
+		walk.facts.sizeFloor = walk.facts.sizeFloor + 1
+		walk.pending = walk.pending.Append(uint32(dense.Index(sx.X)))
+		for opt in idx {
+			match dense.Unpack(opt) {
+			case option.Some{Value: e}:
+				walk.pending = walk.pending.Append(uint32(dense.Index(e)))
+			case option.None:
+			}
+		}
+		return
+	case syntax.SwitchStmt:
+		walk.facts.decision = true
+	case syntax.TypeSwitchStmt:
+		walk.facts.decision = true
+	case syntax.CaseClause:
+	case syntax.AsPattern as ap:
+		walk.pending = walk.pending.Append(uint32(dense.Index(ap.X)))
 		return
 	case syntax.ForStmt:
 		walk.facts.loop = true
@@ -378,6 +434,8 @@ func pureValue(st fnb, node dense.ID[syntax.Node]) fails Unported {
 
 let builtinEdge = -1
 let importEdge = -2
+let goLeafEdge = -3
+let goRecvLeafEdge = -4
 
 // A local edge names its target index. A checked imported edge contributes
 // to Go's nonleaf rule but cannot form a cycle back into this package.
