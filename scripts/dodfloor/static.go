@@ -36,8 +36,12 @@ type parsedErgoFile struct {
 }
 
 var scalarInt64Payloads = map[string]bool{
-	"compiler/ir/ir.ergo:File.V":       true,
-	"compiler/lower/lower.ergo:CInt.I": true,
+	"compiler/ir/ir.ergo:File.V":                                    true,
+	"compiler/lower/lower.ergo:CInt.I":                              true,
+	"compiler/mutants/report.ergo:AttemptOutcome.DurationMs":        true,
+	"compiler/testexec/verdict.ergo:VerdictStore.DurationMs":        true,
+	"compiler/testexec/verdict.ergo:PackageOutcome.DurationMs":      true,
+	"compiler/testexec/verdict.ergo:VerdictSummary.TotalDurationMs": true,
 }
 
 func isFloorOwnedFile(rel string) bool {
