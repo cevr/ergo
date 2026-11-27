@@ -1211,7 +1211,7 @@ func childOf[S, E, O, F, R, W, P](host Host[Actor[S, E, machines.Decision[S, O],
 
 // feed is Feed's Go body (ActorFeed): it admits run, which the actor's
 // runner starts on a task of its own with a send of the actor's signals.
-extern go ergo.local/prototype/runtime/v1.ActorFeed func feed[S, E, D, F](a Actor[S, E, D, F], run own func(send func(e E))) fails Stopped
+extern go ergo.local/prototype/runtime/v1.ActorFeed func feed[S, E, D, F](a Actor[S, E, D, F], run own func(send func(e E)) defects) fails Stopped
 
 // Feed gives a the values of source as signals, in source's order, for as
 // long as a runs, and returns once the source is admitted. The source runs

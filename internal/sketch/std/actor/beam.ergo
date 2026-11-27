@@ -60,7 +60,7 @@ type peer {
 	abnormal func() bool,
 	waitExit func() ExitReason,
 	onEnd    func(fn own func()) fails Stopped,
-	onFeed   func(fn own func()) fails Stopped,
+	onFeed   func(fn own func() defects) fails Stopped,
 	stop     func(),
 }
 
@@ -88,8 +88,8 @@ func makeActorPeer[S, E, O, F](a Actor[S, E, machines.Decision[S, O], F]) peer {
 			}
 		},
 		onEnd:  func(fn own func()) fails Stopped { try OnEnd(a, fn) },
-		onFeed: func(fn own func()) fails Stopped {
-			try feed(a, func(send func(e E)) {
+		onFeed: func(fn own func() defects) fails Stopped {
+			try feed(a, func(send func(e E)) defects {
 				let _ = send
 				fn()
 			})
@@ -440,14 +440,14 @@ func samePeer(a peer, b peer) bool {
 }
 
 func wireLink(src peer, dst peer, unlinked sync.Ref[bool]) {
-	dst.onFeed(func() {
+	dst.onFeed(func() defects {
 		if unlinked.Get() {
 			return
 		}
 		match src.waitExit() {
 		case AbnormalExit:
 			if !unlinked.Get() {
-				Unreachable("actor: linked exit")
+				die LinkedExit
 			}
 		case NormalExit:
 			let _ = 0

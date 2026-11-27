@@ -98,8 +98,8 @@ type reqState {
 }
 
 func triggerDefect() int {
-	Unreachable("boom")
-	0
+	let z = 0
+	1 / z
 }
 
 func testAddressAndReply() bool needs time.Scheduler {
