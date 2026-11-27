@@ -125,3 +125,217 @@ law ScratchIsRemoved(name string) {
 	}
 	false
 }
+
+// ScanAgreesWithWalk: fs.Scan with default options visits the exact same paths
+// in the exact same deterministic order as fs.Walk with zero errors and
+// matching non-following Entry metadata.
+law ScanAgreesWithWalk(paths []string) {
+	let m = grown(paths)
+	with context { fs.Files: m, fs.Writes: m, fs.Entries: m, fs.Scans: m } {
+		let walked = fs.Walk(".") catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+			return false
+		}
+		let scanned = fs.Scan(".", fs.DefaultScanOptions()) catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+			return false
+		}
+		if scanned.Paths != walked || scanned.Errors.Len() != 0 {
+			return false
+		}
+		for i in 0..scanned.Len() {
+			let single = m.ReadEntry(scanned.Paths[i]) catch {
+			case fs.NotFound, fs.Denied, fs.Failed:
+				return false
+			}
+			let got = fs.EntryAt(scanned, uint32(i))
+			if got.Kind != single.Kind || got.Size != single.Size || got.AllocatedBytes != single.AllocatedBytes || got.ID != single.ID {
+				return false
+			}
+		}
+		true
+	}
+}
+
+// ScanOneFileSystemStaysOnRootDev: with OneFileSystem enabled, fs.Scan stays
+// on the root device and never crosses mount boundaries, while OneFileSystem
+// disabled visits mounted subtrees on distinct devices.
+law ScanOneFileSystemStaysOnRootDev(name string) {
+	let leaf = if name == "" || name == "." || name == ".." || strings.Contains(name, "/") { "item.txt" } else { name }
+	let m = NewVolumes([]string{"/", "/mnt"})
+	m.MkdirAll("/sub") catch {
+	case fs.Denied, fs.Failed:
+		return false
+	}
+	m.MkdirAll("/mnt") catch {
+	case fs.Denied, fs.Failed:
+		return false
+	}
+	m.WriteFile("/root.txt", "a") catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		return false
+	}
+	m.WriteFile("/sub/"+leaf, "bb") catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		return false
+	}
+	m.WriteFile("/mnt/external.txt", "cccc") catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		return false
+	}
+	with context { fs.Files: m, fs.Writes: m, fs.Entries: m, fs.Scans: m } {
+		let sameDev = fs.Scan("/", fs.ScanOptions{OneFileSystem: true, MaxDepth: -1}) catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+			return false
+		}
+		if sameDev.Len() == 0 || sameDev.Errors.Len() != 0 {
+			return false
+		}
+		let rootDev = sameDev.Devs[0]
+		for i in 0..sameDev.Len() {
+			if sameDev.Devs[i] != rootDev || under(sameDev.Paths[i], "/mnt") {
+				return false
+			}
+		}
+		let crossDev = fs.Scan("/", fs.ScanOptions{OneFileSystem: false, MaxDepth: -1}) catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+			return false
+		}
+		let mut sawMounted = false
+		for p in crossDev.Paths {
+			if p == "/mnt/external.txt" {
+				sawMounted = true
+			}
+		}
+		let wantSame = []string{"/", "/root.txt", "/sub", "/sub/" + leaf}
+		sameDev.Paths == wantSame && sawMounted
+	}
+}
+
+// ScanBoundedDepthAndParents: bounded scans stay within MaxDepth, preserve
+// dense parent invariants (Parents[i] < i), and keep SoA totals exact.
+law ScanBoundedDepthAndParents(paths []string, maxDepth int) {
+	let limit = ((maxDepth%5 + 5) % 5) - 1
+	let m = grown(paths)
+	m.MkdirAll("_d1/_d2") catch {
+	case fs.Denied, fs.Failed:
+		return false
+	}
+	m.WriteFile("_d1/_d2/leaf.txt", "depth2") catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		return false
+	}
+	with context { fs.Files: m, fs.Writes: m, fs.Entries: m, fs.Scans: m } {
+		let buf = fs.Scan(".", fs.ScanOptions{OneFileSystem: false, MaxDepth: limit}) catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+			return false
+		}
+		if buf.Len() == 0 || buf.Parents[0] != fs.NoParent || buf.Depths[0] != uint32(0) {
+			return false
+		}
+		let mut sawLeaf = false
+		let mut sizeSum = 0
+		let mut allocSum = 0
+		for i in 0..buf.Len() {
+			if buf.Paths[i] == "_d1/_d2/leaf.txt" {
+				sawLeaf = true
+			}
+			if limit >= 0 && int(buf.Depths[i]) > limit {
+				return false
+			}
+			if i > 0 {
+				let p = int(buf.Parents[i])
+				if p < 0 || p >= i || buf.Depths[i] != buf.Depths[p]+uint32(1) {
+					return false
+				}
+			}
+			if !buf.Duplicates[i] {
+				allocSum = allocSum + buf.AllocBytes[i]
+				let isDir = match buf.Kinds[i] {
+				case fs.DirEntry:
+					true
+				case fs.FileEntry, fs.SymlinkEntry, fs.OtherEntry:
+					false
+				}
+				if !isDir {
+					sizeSum = sizeSum + buf.Sizes[i]
+				}
+			}
+		}
+		let depthOK = if limit < 0 || limit >= 3 { sawLeaf } else { !sawLeaf }
+		depthOK && buf.TotalSize == sizeSum && buf.TotalAlloc == allocSum && buf.Errors.Len() == 0
+	}
+}
+
+// ScanBufferResetMatchesFresh: reusing a ScanBuffer via ScanInto across
+// distinct trees leaves no stale rows and agrees with fresh Scan calls.
+law ScanBufferResetMatchesFresh(first []string, second []string) {
+	let m1 = grown(first)
+	let m2 = grown(second)
+	let mut buf = fs.NewScanBuffer()
+	with context { fs.Files: m1, fs.Writes: m1, fs.Entries: m1, fs.Scans: m1 } {
+		fs.ScanInto(".", fs.DefaultScanOptions(), &buf) catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+			return false
+		}
+	}
+	fs.Reset(&buf)
+	with context { fs.Files: m2, fs.Writes: m2, fs.Entries: m2, fs.Scans: m2 } {
+		fs.ScanInto(".", fs.DefaultScanOptions(), &buf) catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+			return false
+		}
+		let fresh = fs.Scan(".", fs.DefaultScanOptions()) catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+			return false
+		}
+		buf.Paths == fresh.Paths && buf.Kinds == fresh.Kinds && buf.Sizes == fresh.Sizes && buf.TotalSize == fresh.TotalSize && buf.TotalAlloc == fresh.TotalAlloc && buf.Parents == fresh.Parents && buf.Depths == fresh.Depths
+	}
+}
+
+// ScanPruneAndSkipControlSubtrees: Skip omits the subtree while Prune keeps
+// the directory entry without descending into its children.
+law ScanPruneAndSkipControlSubtrees() {
+	let m = NewMemory()
+	m.MkdirAll("keep") catch {
+	case fs.Denied, fs.Failed:
+		return false
+	}
+	m.MkdirAll("skip") catch {
+	case fs.Denied, fs.Failed:
+		return false
+	}
+	m.MkdirAll("prune") catch {
+	case fs.Denied, fs.Failed:
+		return false
+	}
+	m.WriteFile("keep/ok.txt", "k") catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		return false
+	}
+	m.WriteFile("skip/hidden.txt", "s") catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		return false
+	}
+	m.WriteFile("prune/hidden.txt", "p") catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		return false
+	}
+	with context { fs.Files: m, fs.Writes: m, fs.Entries: m, fs.Scans: m } {
+		let (paths, errs) = fs.WalkWith(".", fs.DefaultScanOptions(), func(path string, _ fs.Entry, _ int) fs.VisitAction {
+			let base = filepath.Base(path)
+			if base == "skip" {
+				return fs.Skip
+			}
+			if base == "prune" {
+				return fs.Prune
+			}
+			fs.Include
+		}) catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+			return false
+		}
+		let want = []string{".", "keep", "keep/ok.txt", "prune"}
+		paths == want && errs.Len() == 0
+	}
+}

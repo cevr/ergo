@@ -400,6 +400,8 @@ fs Files.LstatDirIsStatDir	TestFSMemoryAgreesWithHost
 fs Files.ReadIsRepeatable	TestFSMemoryAgreesWithHost
 fs MapTextIsText	none
 fs Root.LeavingEscapes	TestFSRootTreeAgreesWithHost
+fs ScanBufferResetClearsState	TestStdFSScanLawsRun
+fs Scans.ScanAgreesWithReadDir	TestStdFSScanLawsRun
 fs Writes.CrossDeviceMovesNothing	TestFSMemoryAgreesWithHost
 fs Writes.MkdirAllIsIdempotent	TestFSMemoryAgreesWithHost
 fs Writes.MkdirThenExists	TestFSMemoryAgreesWithHost
@@ -419,6 +421,11 @@ fstest FixtureBuildsMemory	none
 fstest MkdirTempIsNew	TestStdLawsRun
 fstest ModeIsKept	TestFSMemoryAgreesWithHost
 fstest RemoveAllTouchesOnlyPath	TestStdLawsRun
+fstest ScanAgreesWithWalk	TestStdFSScanLawsRun
+fstest ScanBoundedDepthAndParents	TestStdFSScanLawsRun
+fstest ScanBufferResetMatchesFresh	TestStdFSScanLawsRun
+fstest ScanOneFileSystemStaysOnRootDev	TestStdFSScanLawsRun
+fstest ScanPruneAndSkipControlSubtrees	TestStdFSScanLawsRun
 fstest ScratchIsRemoved	TestStdLawsRun
 fstest VolumesAreCrossDevice	TestFSMemoryAgreesWithHost
 fstest WalkVisitsEachOnce	TestStdLawsRun

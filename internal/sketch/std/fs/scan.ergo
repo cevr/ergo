@@ -1,0 +1,401 @@
+import filepath
+import time
+
+// VisitAction controls how ScanWith and WalkWith record and traverse an entry.
+type VisitAction = Include{} | Skip{} | Prune{}
+
+// ScanOptions configures filesystem traversal for Scan, ScanInto, ScanWith,
+// and WalkWith.
+type ScanOptions {
+	OneFileSystem bool,
+	MaxDepth      int,
+}
+
+// DefaultScanOptions returns traversal options that follow mount points
+// (OneFileSystem: false) with no depth bound (MaxDepth: -1).
+func DefaultScanOptions() ScanOptions {
+	ScanOptions{
+		OneFileSystem: false,
+		MaxDepth:      -1,
+	}
+}
+
+// ScanErrorKind classifies non-fatal directory read errors collected during a
+// tree scan.
+type ScanErrorKind = ErrDenied{} | ErrNotFound{} | ErrFailed{}
+
+// ScanError records a non-fatal directory traversal failure without aborting
+// sibling traversal.
+type ScanError {
+	Path   string,
+	Node   uint32,
+	Kind   ScanErrorKind,
+	Reason string,
+}
+
+// NoParent marks the root entry's parent index in ScanBuffer.Parents.
+let NoParent = uint32(4294967295)
+
+// ScanBuffer is a caller-owned Struct-of-Arrays (SoA) table holding scanned
+// entries indexed by dense uint32 IDs, along with reusable traversal stacks,
+// open-addressed hardlink deduplication tables, and collected non-fatal errors.
+// TotalSize sums non-directory unique payload sizes; TotalAlloc sums
+// deduplicated AllocatedBytes across all kept entries.
+type ScanBuffer {
+	Paths       []string,
+	Names       []string,
+	Parents     []uint32,
+	Depths      []uint32,
+	Kinds       []EntryKind,
+	Sizes       []int,
+	AllocBytes  []int,
+	ModTimes    []time.Time,
+	AccessTimes []time.Time,
+	Nlinks      []int,
+	Devs        []uint64,
+	Inos        []uint64,
+	Duplicates  []bool,
+	Errors      []ScanError,
+	TotalSize   int,
+	TotalAlloc  int,
+	UniqueFiles int,
+	Hardlinks   int,
+	pending     []DirChild,
+	frameParent []uint32,
+	frameDepth  []uint32,
+	frameStart  []int,
+	frameCur    []int,
+	frameEnd    []int,
+	seenSlots   []uint32,
+	seenDevs    []uint64,
+	seenInos    []uint64,
+}
+
+// NewScanBuffer allocates an empty ScanBuffer ready for ScanInto and ScanWith.
+func NewScanBuffer() ScanBuffer {
+	ScanBuffer{
+		Paths:       []string{},
+		Names:       []string{},
+		Parents:     []uint32{},
+		Depths:      []uint32{},
+		Kinds:       []EntryKind{},
+		Sizes:       []int{},
+		AllocBytes:  []int{},
+		ModTimes:    []time.Time{},
+		AccessTimes: []time.Time{},
+		Nlinks:      []int{},
+		Devs:        []uint64{},
+		Inos:        []uint64{},
+		Duplicates:  []bool{},
+		Errors:      []ScanError{},
+		TotalSize:   0,
+		TotalAlloc:  0,
+		UniqueFiles: 0,
+		Hardlinks:   0,
+		pending:     []DirChild{},
+		frameParent: []uint32{},
+		frameDepth:  []uint32{},
+		frameStart:  []int{},
+		frameCur:    []int{},
+		frameEnd:    []int{},
+		seenSlots:   []uint32{},
+		seenDevs:    []uint64{},
+		seenInos:    []uint64{},
+	}
+}
+
+// Reset clears b's length and counters while retaining backing slice capacities
+// for low-allocation reuse across scans.
+func Reset(b mut ScanBuffer) {
+	b.Paths = b.Paths[0:0]
+	b.Names = b.Names[0:0]
+	b.Parents = b.Parents[0:0]
+	b.Depths = b.Depths[0:0]
+	b.Kinds = b.Kinds[0:0]
+	b.Sizes = b.Sizes[0:0]
+	b.AllocBytes = b.AllocBytes[0:0]
+	b.ModTimes = b.ModTimes[0:0]
+	b.AccessTimes = b.AccessTimes[0:0]
+	b.Nlinks = b.Nlinks[0:0]
+	b.Devs = b.Devs[0:0]
+	b.Inos = b.Inos[0:0]
+	b.Duplicates = b.Duplicates[0:0]
+	b.Errors = b.Errors[0:0]
+	b.TotalSize = 0
+	b.TotalAlloc = 0
+	b.UniqueFiles = 0
+	b.Hardlinks = 0
+	b.pending = b.pending[0:0]
+	b.frameParent = b.frameParent[0:0]
+	b.frameDepth = b.frameDepth[0:0]
+	b.frameStart = b.frameStart[0:0]
+	b.frameCur = b.frameCur[0:0]
+	b.frameEnd = b.frameEnd[0:0]
+	if b.seenDevs.Len() > 0 {
+		for i in 0..b.seenSlots.Len() {
+			b.seenSlots[i] = uint32(0)
+		}
+		b.seenDevs = b.seenDevs[0:0]
+		b.seenInos = b.seenInos[0:0]
+	}
+}
+
+// Len returns the number of entries recorded in b.
+func Len(b ScanBuffer) int { b.Paths.Len() }
+
+// EntryAt reconstructs the Entry at dense index idx in b.
+func EntryAt(b ScanBuffer, idx uint32) Entry {
+	let i = int(idx)
+	Entry{
+		Kind:           b.Kinds[i],
+		Size:           b.Sizes[i],
+		AllocatedBytes: b.AllocBytes[i],
+		ModTime:        b.ModTimes[i],
+		AccessTime:     b.AccessTimes[i],
+		Nlink:          b.Nlinks[i],
+		ID:             NewFileID(b.Devs[i], b.Inos[i]),
+	}
+}
+
+// IsDuplicate reports whether node idx is a subsequent hardlink to an already
+// counted non-directory FileID.
+func IsDuplicate(b ScanBuffer, idx uint32) bool { b.Duplicates[int(idx)] }
+
+// Scan walks the tree rooted at path in deterministic pre-order DFS without
+// following symbolic links and returns a populated ScanBuffer.
+func Scan(path string, opts ScanOptions) ScanBuffer fails NotFound | Denied | Failed needs Scans {
+	let mut buf = NewScanBuffer()
+	try ScanInto(path, opts, &buf)
+	buf
+}
+
+// ScanInto resets buf and populates it with the tree rooted at path in
+// deterministic pre-order DFS without following symbolic links.
+func ScanInto(path string, opts ScanOptions, buf mut ScanBuffer) fails NotFound | Denied | Failed needs Scans {
+	try scanCore(path, opts, buf, keepVisit)
+}
+
+// ScanWith resets buf and populates it with the tree rooted at path under
+// opts, calling visit before recording each entry to keep, skip, or prune
+// directory subtrees.
+func ScanWith(path string, opts ScanOptions, buf mut ScanBuffer, visit func(path string, entry Entry, depth int) VisitAction) fails NotFound | Denied | Failed needs Scans {
+	try scanCore(path, opts, buf, visit)
+}
+
+// WalkWith traverses the tree rooted at path under opts and visit, returning
+// the visited paths in deterministic pre-order alongside any non-fatal errors.
+func WalkWith(path string, opts ScanOptions, visit func(path string, entry Entry, depth int) VisitAction) ([]string, []ScanError) fails NotFound | Denied | Failed needs Scans {
+	let mut buf = NewScanBuffer()
+	try scanCore(path, opts, &buf, visit)
+	(buf.Paths, buf.Errors)
+}
+
+func keepVisit(_ string, _ Entry, _ int) VisitAction { Include }
+
+func isDirKind(k EntryKind) bool {
+	match k {
+	case DirEntry:
+		true
+	case FileEntry, SymlinkEntry, OtherEntry:
+		false
+	}
+}
+
+func mixFileID(dev uint64, ino uint64) uint64 {
+	let m1 uint64 = 11400714819323198485
+	let m2 uint64 = 14029467366897019727
+	let m3 uint64 = 13787848793156543929
+	let mut h = dev*m1 ^ ino*m2
+	h = h ^ (h >> uint64(30))
+	h = h * m3
+	h ^ (h >> uint64(27))
+}
+
+func growSeenTable(b mut ScanBuffer) {
+	let newCap = if b.seenSlots.Len() < 32 { 32 } else { b.seenSlots.Len() * 2 }
+	let mut slots = []uint32{}
+	for _ in 0..newCap {
+		slots = slots.Append(uint32(0))
+	}
+	let mask = uint64(newCap - 1)
+	for i in 0..b.seenDevs.Len() {
+		let mut pos = int(mixFileID(b.seenDevs[i], b.seenInos[i]) & mask)
+		for _ in 0..newCap {
+			if slots[pos] == uint32(0) {
+				slots[pos] = uint32(i + 1)
+				break
+			}
+			pos = (pos + 1) & int(mask)
+		}
+	}
+	b.seenSlots = slots
+}
+
+func markSeenFileID(b mut ScanBuffer, dev uint64, ino uint64) bool {
+	if b.seenSlots.Len() == 0 || (b.seenDevs.Len()+1)*10 >= b.seenSlots.Len()*7 {
+		growSeenTable(b)
+	}
+	let cap = b.seenSlots.Len()
+	let mask = uint64(cap - 1)
+	let mut pos = int(mixFileID(dev, ino) & mask)
+	for _ in 0..cap {
+		let slot = b.seenSlots[pos]
+		if slot == uint32(0) {
+			b.seenDevs = b.seenDevs.Append(dev)
+			b.seenInos = b.seenInos.Append(ino)
+			b.seenSlots[pos] = uint32(b.seenDevs.Len())
+			return false
+		}
+		let idx = int(slot) - 1
+		if b.seenDevs[idx] == dev && b.seenInos[idx] == ino {
+			return true
+		}
+		pos = (pos + 1) & int(mask)
+	}
+	false
+}
+
+func appendScanNode(b mut ScanBuffer, path string, name string, parent uint32, depth uint32, e Entry) uint32 {
+	let idx = uint32(b.Paths.Len())
+	let dev = Dev(e.ID)
+	let ino = Ino(e.ID)
+	let mut dup = false
+	match e.Kind {
+	case DirEntry:
+		b.TotalAlloc = b.TotalAlloc + e.AllocatedBytes
+	case FileEntry, SymlinkEntry, OtherEntry:
+		if e.Nlink > 1 {
+			dup = markSeenFileID(b, dev, ino)
+		}
+		if dup {
+			b.Hardlinks = b.Hardlinks + 1
+		} else {
+			b.UniqueFiles = b.UniqueFiles + 1
+			b.TotalSize = b.TotalSize + e.Size
+			b.TotalAlloc = b.TotalAlloc + e.AllocatedBytes
+		}
+	}
+	b.Paths = b.Paths.Append(path)
+	b.Names = b.Names.Append(name)
+	b.Parents = b.Parents.Append(parent)
+	b.Depths = b.Depths.Append(depth)
+	b.Kinds = b.Kinds.Append(e.Kind)
+	b.Sizes = b.Sizes.Append(e.Size)
+	b.AllocBytes = b.AllocBytes.Append(e.AllocatedBytes)
+	b.ModTimes = b.ModTimes.Append(e.ModTime)
+	b.AccessTimes = b.AccessTimes.Append(e.AccessTime)
+	b.Nlinks = b.Nlinks.Append(e.Nlink)
+	b.Devs = b.Devs.Append(dev)
+	b.Inos = b.Inos.Append(ino)
+	b.Duplicates = b.Duplicates.Append(dup)
+	idx
+}
+
+func pushDirFrame(b mut ScanBuffer, parentIdx uint32, dirPath string, childDepth uint32) needs Scans {
+	let entries = Scans.ReadDirEntries(dirPath) catch {
+	case Denied:
+		b.Errors = b.Errors.Append(ScanError{
+			Path:   dirPath,
+			Node:   parentIdx,
+			Kind:   ErrDenied,
+			Reason: "permission denied",
+		})
+		return
+	case NotFound:
+		b.Errors = b.Errors.Append(ScanError{
+			Path:   dirPath,
+			Node:   parentIdx,
+			Kind:   ErrNotFound,
+			Reason: "not found",
+		})
+		return
+	case Failed as f:
+		b.Errors = b.Errors.Append(ScanError{
+			Path:   dirPath,
+			Node:   parentIdx,
+			Kind:   ErrFailed,
+			Reason: f.Reason,
+		})
+		return
+	}
+	if entries.Len() == 0 {
+		return
+	}
+	let start = b.pending.Len()
+	for ent in entries {
+		b.pending = b.pending.Append(ent)
+	}
+	let end = b.pending.Len()
+	b.frameParent = b.frameParent.Append(parentIdx)
+	b.frameDepth = b.frameDepth.Append(childDepth)
+	b.frameStart = b.frameStart.Append(start)
+	b.frameCur = b.frameCur.Append(start)
+	b.frameEnd = b.frameEnd.Append(end)
+}
+
+func scanCore(path string, opts ScanOptions, b mut ScanBuffer, visit func(path string, entry Entry, depth int) VisitAction) fails NotFound | Denied | Failed needs Scans {
+	Reset(b)
+	let rootEntry = try Scans.ReadEntry(path)
+	let cleanRoot = if path == "" { "." } else { filepath.Clean(path) }
+	let rootDev = Dev(rootEntry.ID)
+	let rootName = filepath.Base(cleanRoot)
+	match visit(cleanRoot, rootEntry, 0) {
+	case Skip:
+		return
+	case Prune:
+		let _ = appendScanNode(b, cleanRoot, rootName, NoParent, uint32(0), rootEntry)
+		return
+	case Include:
+		let rootIdx = appendScanNode(b, cleanRoot, rootName, NoParent, uint32(0), rootEntry)
+		if isDirKind(rootEntry.Kind) && (opts.MaxDepth < 0 || opts.MaxDepth > 0) {
+			pushDirFrame(b, rootIdx, cleanRoot, uint32(1))
+		}
+	}
+	for b.frameCur.Len() > 0 {
+		let f = b.frameCur.Len() - 1
+		let cur = b.frameCur[f]
+		if cur >= b.frameEnd[f] {
+			let start = b.frameStart[f]
+			b.pending = b.pending[0:start]
+			b.frameParent = b.frameParent[0:f]
+			b.frameDepth = b.frameDepth[0:f]
+			b.frameStart = b.frameStart[0:f]
+			b.frameCur = b.frameCur[0:f]
+			b.frameEnd = b.frameEnd[0:f]
+			continue
+		}
+		let child = b.pending[cur]
+		b.frameCur[f] = cur + 1
+		if opts.OneFileSystem && Dev(child.Entry.ID) != rootDev {
+			continue
+		}
+		let parentIdx = b.frameParent[f]
+		let depth = b.frameDepth[f]
+		let childPath = filepath.Join([]string{b.Paths[int(parentIdx)], child.Name})
+		match visit(childPath, child.Entry, int(depth)) {
+		case Skip:
+		case Prune:
+			let _ = appendScanNode(b, childPath, child.Name, parentIdx, depth, child.Entry)
+		case Include:
+			let childIdx = appendScanNode(b, childPath, child.Name, parentIdx, depth, child.Entry)
+			if isDirKind(child.Entry.Kind) && (opts.MaxDepth < 0 || int(depth) < opts.MaxDepth) {
+				pushDirFrame(b, childIdx, childPath, depth+uint32(1))
+			}
+		}
+	}
+}
+
+// ScanBufferResetClearsState: Reset clears row length, totals, errors, and
+// deduplication counts on ScanBuffer.
+law ScanBufferResetClearsState() {
+	let mut b = NewScanBuffer()
+	let dup1 = markSeenFileID(&b, uint64(1), uint64(42))
+	let dup2 = markSeenFileID(&b, uint64(1), uint64(42))
+	b.Paths = b.Paths.Append("a")
+	b.TotalSize = 10
+	b.TotalAlloc = 512
+	b.UniqueFiles = 1
+	b.Hardlinks = 1
+	Reset(&b)
+	!dup1 && dup2 && b.Len() == 0 && b.TotalSize == 0 && b.TotalAlloc == 0 && b.UniqueFiles == 0 && b.Hardlinks == 0 && b.Errors.Len() == 0 && !markSeenFileID(&b, uint64(1), uint64(42))
+}

@@ -14,6 +14,7 @@
 // so no file stays open after a call returns, except an explicit HostRoot.
 
 import core
+import filepath
 import option
 import os
 import time
@@ -61,6 +62,18 @@ type FileID { dev uint64, ino uint64 }
 
 // NewFileID constructs a FileID from device and inode identifiers.
 func NewFileID(dev uint64, ino uint64) FileID { FileID{dev: dev, ino: ino} }
+
+// Dev returns the device identifier of id.
+func Dev(id FileID) uint64 { id.dev }
+
+// Ino returns the inode number of id.
+func Ino(id FileID) uint64 { id.ino }
+
+// DirChild pairs a directory child's base name with its non-following Lstat Entry.
+type DirChild {
+	Name  string,
+	Entry Entry,
+}
 
 // Entry describes the object at a path without following symbolic links
 // (Lstat semantics).
@@ -465,16 +478,127 @@ type Entries {
 	},
 }
 
+// Scans is a directory scanner capability returning batched non-following
+// directory children ordered deterministically by Name.
+type Scans {
+	..Entries,
+	ReadDirEntries(path string) []DirChild fails NotFound | Denied | Failed,
+
+	// ScanAgreesWithReadDir: ReadDirEntries returns the exact sorted names of
+	// ReadDir, agrees with ReadEntry on every child's Kind, Size,
+	// AllocatedBytes, Nlink, and FileID, and fails identically on missing,
+	// denied, or non-directory paths.
+	law ScanAgreesWithReadDir(path string) {
+		let mut dotOK = true
+		let dotNames = ReadDir(".") catch {
+		case NotFound, Denied, Failed:
+			dotOK = false
+			[]string{}
+		}
+		if dotOK {
+			let dotEntries = ReadDirEntries(".") catch {
+			case NotFound, Denied, Failed:
+				return false
+			}
+			if dotEntries.Len() != dotNames.Len() {
+				return false
+			}
+			for i, name in dotNames {
+				if dotEntries[i].Name != name {
+					return false
+				}
+				let single = ReadEntry(filepath.Join([]string{".", name})) catch {
+				case NotFound, Denied, Failed:
+					return false
+				}
+				let e = dotEntries[i].Entry
+				if e.Kind != single.Kind || e.Size != single.Size || e.AllocatedBytes != single.AllocatedBytes || e.Nlink != single.Nlink || e.ID != single.ID {
+					return false
+				}
+			}
+		}
+		let mut dirFailed = false
+		let mut dirErrKind = 0
+		let names = ReadDir(path) catch {
+		case NotFound:
+			dirFailed = true
+			dirErrKind = 1
+			[]string{}
+		case Denied:
+			dirFailed = true
+			dirErrKind = 2
+			[]string{}
+		case Failed:
+			dirFailed = true
+			dirErrKind = 3
+			[]string{}
+		}
+		if dirFailed {
+			let mut scanErrKind = 0
+			let _ = ReadDirEntries(path) catch {
+			case NotFound:
+				scanErrKind = 1
+				[]DirChild{}
+			case Denied:
+				scanErrKind = 2
+				[]DirChild{}
+			case Failed:
+				scanErrKind = 3
+				[]DirChild{}
+			}
+			let ok = scanErrKind == dirErrKind
+			always ok
+			return ok
+		}
+		let entries = ReadDirEntries(path) catch {
+		case NotFound, Denied, Failed:
+			return false
+		}
+		if entries.Len() != names.Len() {
+			return false
+		}
+		let mut same = true
+		for i, name in names {
+			if entries[i].Name != name {
+				same = false
+			} else {
+				let single = ReadEntry(filepath.Join([]string{path, name})) catch {
+				case NotFound, Denied, Failed:
+					return false
+				}
+				let e = entries[i].Entry
+				same = same && e.Kind == single.Kind && e.Size == single.Size && e.AllocatedBytes == single.AllocatedBytes && e.Nlink == single.Nlink && e.ID == single.ID
+			}
+		}
+		always same
+		same
+	},
+}
+
 // Host is the file system of this host. Its unexported field gives this
 // package the construction authority (types.md, Zero values 6): no other
 // package writes fs.Host{}, its zero value or a record update of it. root
 // is "" for the host's own (NewHost), and the case's folder for a test's
 // (NewTestHost, confined.ergo).
-type Host { root string } implements Files, Writes, Entries
+type Host { root string } implements Files, Writes, Entries, Scans
 
 // NewHost is the host's Files and Writes provider. It needs Ambient: only
 // code whose row holds the authority to choose the host makes one.
 func NewHost() Host needs os.Ambient { Host{root: ""} }
+
+// ReadDirEntries returns all direct children of path with non-following Lstat
+// metadata, ordered by Name, using a batched host directory scan.
+func ReadDirEntries(h Host, path string) []DirChild fails NotFound | Denied | Failed {
+	let raws = try hostScanDir(try at(h, path))
+	let mut out = []DirChild{}
+	for r in raws {
+		out = out.Append(DirChild{
+			Name:  r.Name,
+			Entry: rawEntryToEntry(r.Entry),
+		})
+	}
+	out
+}
 
 // ReadFile is the whole text of the file at path.
 func ReadFile(h Host, path string) string fails NotFound | Denied | Failed {
@@ -715,6 +839,35 @@ extern go ergo.local/prototype/runtime/v1.FSReadDir func hostReadDir(path string
 extern go ergo.local/prototype/runtime/v1.FSStat func hostStat(path string) Info fails NotFound | Denied | Failed
 extern go ergo.local/prototype/runtime/v1.FSLstat func hostLstat(path string) Info fails NotFound | Denied | Failed
 extern go ergo.local/prototype/runtime/v1.FSLstatEntry func hostLstatEntry(path string) rawEntry fails NotFound | Denied | Failed
+
+extern go ergo.local/prototype/runtime/v1.FSDirEntry type rawDirEntry {
+	Name  string,
+	Entry rawEntry,
+}
+
+extern go ergo.local/prototype/runtime/v1.FSScanDir func hostScanDir(path string) []rawDirEntry fails NotFound | Denied | Failed
+
+func rawEntryToEntry(raw rawEntry) Entry {
+	let kind = match raw.Kind {
+	case 0:
+		FileEntry
+	case 1:
+		DirEntry
+	case 2:
+		SymlinkEntry
+	case _:
+		OtherEntry
+	}
+	Entry{
+		Kind:           kind,
+		Size:           raw.Size,
+		AllocatedBytes: raw.AllocatedBytes,
+		ModTime:        time.Unix(raw.ModSec, raw.ModNsec),
+		AccessTime:     time.Unix(raw.AccessSec, raw.AccessNsec),
+		Nlink:          raw.Nlink,
+		ID:             NewFileID(raw.Dev, raw.Ino),
+	}
+}
 extern go ergo.local/prototype/runtime/v1.FSMkdir func hostMkdir(path string, perm int) fails NotFound | Denied | Failed | Exists
 extern go ergo.local/prototype/runtime/v1.FSWriteFile func hostWriteFile(path string, text string) fails NotFound | Denied | Failed
 extern go ergo.local/prototype/runtime/v1.FSMkdirAll func hostMkdirAll(path string) fails Denied | Failed
