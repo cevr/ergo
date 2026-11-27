@@ -22,10 +22,13 @@ type Limits {
 	// Steps is the most unmasked interruption points the block and its
 	// child tasks may pass. A nonpositive Steps sets no step budget.
 	Steps int,
+	// Bytes is the memory limit in bytes enforced on a child OS process.
+	// A nonpositive Bytes sets no memory bound.
+	Bytes int,
 }
 
 // Unlimited is the Limits with no bound.
-let Unlimited = Limits{Time: 0s, Steps: 0}
+let Unlimited = Limits{Time: 0s, Steps: 0, Bytes: 0}
 
 // OverTime is the failure of a process stopped at its time limit, Limit.
 type OverTime { Limit duration }
@@ -325,7 +328,7 @@ func drawnLimits(x int) Limits {
 	let s = (x / 23) % 6
 	let timeLimit = if t == 0 { 0s } else { time.Times(1ms, t) }
 	let stepLimit = if s == 0 { 0 } else { 5 + s }
-	Limits{Time: timeLimit, Steps: stepLimit}
+	Limits{Time: timeLimit, Steps: stepLimit, Bytes: 0}
 }
 
 func expected(l Limits, s Script) Report {

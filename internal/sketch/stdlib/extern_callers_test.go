@@ -270,6 +270,7 @@ func TestStdExternCallersHoldAuthority(t *testing.T) {
 		"net.confineUnix", "net.hostAdoptFD", "net.hostDial", "net.hostDialUnix", "net.hostListen", "net.hostListenUnix",
 		"os.hostArgs", "os.hostCacheDir", "os.hostConfigDir", "os.hostEnviron", "os.hostExecutable", "os.hostGetenv", "os.hostGetwd", "os.hostHasEnv", "os.hostHomeDir", "os.hostPid",
 		"prelude.Sleep", "prelude.hostAlarms",
+		"process.hostStartProc",
 		"rand.hostFloat64", "rand.hostIntN", "rand.hostUint64", "rand.secureBytes",
 		"rpc.call",
 		"signal.hostNumber", "signal.hostUnwatch", "signal.hostWatch",
