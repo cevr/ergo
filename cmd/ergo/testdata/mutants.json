@@ -267,8 +267,8 @@
       "name": "rc4b-inspect-mapper-missing",
       "origin": "wf10 CONTENT-MAPPER-CORE",
       "file": "internal/sketchfront/inspect.go",
-      "from": "\t\t\t\tPlan:      planName,\n",
-      "to": "\t\t\t\tPlan:      \"\",\n",
+      "from": "\t\t\tg := GoDerived{\n\t\t\t\tPackage:   p.Path,\n\t\t\t\tType:      rec.Target,\n\t\t\t\tPlan:      planName,\n",
+      "to": "\t\t\t_ = planName\n\t\t\tg := GoDerived{\n\t\t\t\tPackage:   p.Path,\n\t\t\t\tType:      rec.Target,\n\t\t\t\tPlan:      \"\",\n",
       "rule": "ergo inspect shows each derived type with its content mapper identity, media kind, steps and generated declarations (content-mappers.md).",
       "killers": ["cmd/ergo:TestInspectAPIRoute"]
     },

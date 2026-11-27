@@ -227,10 +227,10 @@ func BadSpan(input content.ContentInput) content.MappedErgo {
 }
 `
 	ffiMapper := `import content
-import go math/bits
+import go strconv
 
 func UseGo(input content.ContentInput) content.MappedErgo {
-	let _ = bits.OnesCount(uint(1))
+	let _ = strconv.Itoa(1)
 	content.MappedErgo{
 		Source: "type " + input.Target + " string\n",
 		Spans:  content.SourceSpanMap{Entries: []content.SpanMapping{}},
@@ -305,8 +305,8 @@ func StopOnDiag(input content.ContentInput) content.MappedErgo {
 	_, ds = checkPkg(t, imp, "c3", map[string]string{
 		"c3.ergo": "import content\nimport tsk\n\ntype X derive content.Plan{Mapper: tsk.UseTask, MediaKind: \"x\", Bytes: \"a\".Bytes(), Companions: []content.CompanionAsset{}}\nfunc main() {}\n",
 	}, opts)
-	if len(ds) == 0 || !strings.Contains(diagMsgs(ds), "must be pure") {
-		t.Fatalf("expected purity refusal on task mapper, got: %s", diagMsgs(ds))
+	if len(ds) == 0 || !strings.Contains(diagMsgs(ds), "starts tasks") {
+		t.Fatalf("expected starts tasks purity refusal on task mapper, got: %s", diagMsgs(ds))
 	}
 
 	// MapperDiag with Error stops parsing Source ("One mistake, one diagnostic").

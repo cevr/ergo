@@ -1265,14 +1265,14 @@ func (p *program) dependencies() []build.Dependency {
 		for _, f := range q.files {
 			files[f.abs] = f.text
 		}
+		for name, data := range q.assets {
+			files[filepath.Join(q.dir, filepath.FromSlash(name))] = string(data)
+		}
 		if q.isAsset && q.assetMeta != nil {
 			files[q.assetMeta.absPath] = string(q.assetMeta.bytes)
 			for _, comp := range q.assetMeta.companions {
 				files["companion:"+comp.Path] = string(comp.Bytes)
 			}
-		}
-		for name, data := range q.assets {
-			files[filepath.Join(q.dir, filepath.FromSlash(name))] = string(data)
 		}
 		out = append(out, sourceDependency(q.path, files))
 	}

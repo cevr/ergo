@@ -4,7 +4,7 @@
     {
       "name": "cmap-spans-overlap-admitted",
       "origin": "wf10 CONTENT-MAPPER-CORE",
-      "file": "internal/sketch/contentmap/spans.go",
+      "file": "internal/sketch/contentmap/spans.go", "decl": "VerifySpans",
       "from": "\t\tif i > 0 && e.Generated.Start < prevEnd {\n",
       "to": "\t\tif false && i > 0 && e.Generated.Start < prevEnd {\n",
       "rule": "VerifySpans requires generated intervals to be monotonically ordered and disjoint.",
@@ -13,7 +13,7 @@
     {
       "name": "cmap-spans-companion-bounds-unchecked",
       "origin": "wf10 CONTENT-MAPPER-CORE",
-      "file": "internal/sketch/contentmap/spans.go",
+      "file": "internal/sketch/contentmap/spans.go", "decl": "VerifySpans",
       "from": "\t\t\tif int(e.Companion) >= len(compLens) {\n",
       "to": "\t\t\tif false && int(e.Companion) >= len(compLens) {\n",
       "rule": "VerifySpans refuses out-of-range Companion indices in SpanMapping entries.",
@@ -22,7 +22,7 @@
     {
       "name": "cmap-cache-key-includes-inline-line",
       "origin": "wf10 CONTENT-MAPPER-CORE",
-      "file": "internal/sketch/contentmap/cache.go",
+      "file": "internal/sketch/contentmap/cache.go", "decl": "BuildCacheKey",
       "from": "\t\tinput.MediaKind,\n",
       "to": "\t\tfmt.Sprintf(\"%s:%d:%d\", input.MediaKind, input.Origin.Line, input.Origin.Col),\n",
       "rule": "Inline Line and Col are excluded from contentmap cache keys so comment/line shifts preserve cache hits.",
@@ -31,7 +31,7 @@
     {
       "name": "cmap-cache-hit-skipped",
       "origin": "wf10 CONTENT-MAPPER-CORE",
-      "file": "internal/sketch/contentmap/cache.go",
+      "file": "internal/sketch/contentmap/cache.go", "decl": "runMapperCached",
       "from": "\tif cached, ok := GetCached(store, cacheKey); ok {\n\t\tif verr := VerifySpans(uint32(len(cached.Source)), uint32(len(input.Bytes)), companionLens(input.Companions), cached.Spans); verr == nil {\n\t\t\treturn cached, cacheKey, true, nil\n\t\t}\n\t}\n",
       "to": "\tif cached, ok := GetCached(store, cacheKey); ok && false {\n\t\tif verr := VerifySpans(uint32(len(cached.Source)), uint32(len(input.Bytes)), companionLens(input.Companions), cached.Spans); verr == nil {\n\t\t\treturn cached, cacheKey, true, nil\n\t\t}\n\t}\n",
       "rule": "A valid cached MappedErgo entry must be reused when input bytes, companions, and canonical mapper semantics match.",
@@ -40,7 +40,7 @@
     {
       "name": "cmap-error-diag-still-parses-inline",
       "origin": "wf10 CONTENT-MAPPER-CORE",
-      "file": "internal/sketch/contentmap/expand.go",
+      "file": "internal/sketch/contentmap/expand.go", "decl": "expandOneDerive",
       "from": "\tif hasErrors {\n\t\tres.Record.Records = append(res.Record.Records, rec)\n\t\treturn false\n\t}\n",
       "to": "\tif hasErrors {\n\t\tres.Record.Records = append(res.Record.Records, rec)\n\t}\n",
       "rule": "Any Error MapperDiag stops before parsing MappedErgo.Source (One mistake, one diagnostic).",
@@ -49,25 +49,25 @@
     {
       "name": "cmap-mapper-foreign-go-allowed",
       "origin": "wf10 CONTENT-MAPPER-CORE",
-      "file": "internal/sketch/eval/mapper.go",
-      "from": "\t\t\tif stdPureGoNativeOf(g) == nil {\n",
-      "to": "\t\t\tif false && stdPureGoNativeOf(g) == nil {\n",
+      "file": "internal/sketch/eval/mapper.go", "decl": "walkBody",
+      "from": "\t\t\t\t\tif o.Pkg != nil && goPkgs[o.Pkg] && !p.Std() {\n",
+      "to": "\t\t\t\t\tif false && o.Pkg != nil && goPkgs[o.Pkg] && !p.Std() {\n",
       "rule": "Content mappers cannot invoke foreign Go imports at check time.",
       "killers": ["internal/sketch/contentmap:TestMapperFailuresNeverCacheAndRefuseSideEffects"]
     },
     {
       "name": "cmap-mapper-tasks-allowed",
       "origin": "wf10 CONTENT-MAPPER-CORE",
-      "file": "internal/sketch/eval/mapper.go",
-      "from": "\t\t\t\tif fp.Tasks {\n",
-      "to": "\t\t\t\tif false && fp.Tasks {\n",
+      "file": "internal/sketch/eval/mapper.go", "decl": "validatePurity",
+      "from": "\t\t\t\tif fp.Tasks {\n\t\t\t\t\treturn &MapperEvalError{\n\t\t\t\t\t\tKind:    \"purity\",\n\t\t\t\t\t\tMessage: fmt.Sprintf(\"content mapper %s calls %s which starts tasks; mappers must be pure\", label, g.Name),\n",
+      "to": "\t\t\t\tif false && fp.Tasks {\n\t\t\t\t\treturn &MapperEvalError{\n\t\t\t\t\t\tKind:    \"purity\",\n\t\t\t\t\t\tMessage: fmt.Sprintf(\"content mapper %s calls %s which starts tasks; mappers must be pure\", label, g.Name),\n",
       "rule": "Content mappers cannot start tasks at check time.",
       "killers": ["internal/sketch/contentmap:TestMapperFailuresNeverCacheAndRefuseSideEffects"]
     },
     {
       "name": "cmap-cycle-error-dropped",
       "origin": "wf10 CONTENT-MAPPER-CORE",
-      "file": "internal/sketch/contentmap/expand.go",
+      "file": "internal/sketch/contentmap/expand.go", "decl": "reportDeriveCycle",
       "from": "\t\t\t\tres.Diags = append(res.Diags, diagAtNode(origin.fileIdx, origin.file, origin.expr, check.CodeType, msg))\n",
       "to": "\t\t\t\t_ = msg\n",
       "rule": "Cyclic dependencies across inline derive expansions must emit a cycle diagnostic.",
@@ -76,7 +76,7 @@
     {
       "name": "cmap-asset-escape-allowed",
       "origin": "wf10 CONTENT-MAPPER-CORE",
-      "file": "internal/sketchfront/assets.go",
+      "file": "internal/sketchfront/assets.go", "decl": "loader.visitAssetImport",
       "from": "\tif relErr != nil || rel == \".\" || strings.HasPrefix(relSlash, \"..\") || filepath.IsAbs(rel) {\n",
       "to": "\tif false && (relErr != nil || rel == \".\" || strings.HasPrefix(relSlash, \"..\") || filepath.IsAbs(rel)) {\n",
       "rule": "Asset imports escaping the module root must be refused.",
@@ -85,7 +85,7 @@
     {
       "name": "cmap-inspect-mappers-omits-source",
       "origin": "wf10 CONTENT-MAPPER-CORE",
-      "file": "cmd/ergo/inspect_mappers.go",
+      "file": "cmd/ergo/inspect_mappers.go", "decl": "writeInspectMappersText",
       "from": "\t\tif m.Generated != \"\" {\n\t\t\tfmt.Fprintf(w, \"  generated:\\n\")\n",
       "to": "\t\tif false && m.Generated != \"\" {\n\t\t\tfmt.Fprintf(w, \"  generated:\\n\")\n",
       "rule": "ergo inspect mappers displays the generated Ergo source for each mapped asset or derive.",

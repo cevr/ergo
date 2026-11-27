@@ -402,14 +402,6 @@ func (c *checker) collect() {
 				}
 				c.importSpec(fi, d.Specs[0])
 			case *syntax.TypeDecl:
-				if c.deriveRes.ReplacedDecls != nil && c.deriveRes.ReplacedDecls[d] {
-					continue
-				}
-				if d.Derive != nil && c.derive != nil && c.derive.RefusedRoots[d.Name.Name] {
-					tn := &TypeName{Name: d.Name.Name, Pkg: c.pkg, Pos: d.Name.Pos(), Type: invalid, Decl: d, file: fi, id: newID()}
-					c.declare(d.Name, tn)
-					continue
-				}
 				if target := aliasDirective(d.Doc); target != "" {
 					if c.pkg.Scope.parent != nil {
 						if obj, _ := c.pkg.Scope.parent.lookup(target); obj != nil {
@@ -423,6 +415,14 @@ func (c *checker) collect() {
 						c.pkg.pendingAliases = map[string]string{}
 					}
 					c.pkg.pendingAliases[d.Name.Name] = target
+					continue
+				}
+				if c.deriveRes.ReplacedDecls != nil && c.deriveRes.ReplacedDecls[d] {
+					continue
+				}
+				if d.Derive != nil && c.derive != nil && c.derive.RefusedRoots[d.Name.Name] {
+					tn := &TypeName{Name: d.Name.Name, Pkg: c.pkg, Pos: d.Name.Pos(), Type: invalid, Decl: d, file: fi, id: newID()}
+					c.declare(d.Name, tn)
 					continue
 				}
 				tn := &TypeName{Name: d.Name.Name, Pkg: c.pkg, Pos: d.Name.Pos(), Decl: d, file: fi, id: newID(), testAuthority: c.testAuthorities[d.Name.Name]}
