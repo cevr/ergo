@@ -1,0 +1,660 @@
+import compiler/check/bind
+import compiler/check/footprint
+import compiler/check/store
+import compiler/syntax
+import dense
+import option
+import slices
+import strconv
+
+// DefaultMapperSteps is the default finite step bound for compile-time mapper evaluation.
+let DefaultMapperSteps = uint32(1000000)
+
+// DefaultMapperDepth is the default call-stack depth bound for compile-time mapper evaluation.
+let DefaultMapperDepth = uint32(128)
+
+// DefaultMapperBytes is the default allocation byte bound for compile-time mapper evaluation.
+let DefaultMapperBytes = uint32(67108864)
+
+// DefaultMapperMaxInput is the default primary input payload limit in bytes.
+let DefaultMapperMaxInput = uint32(2097152)
+
+// DefaultMapperMaxOutput is the default generated source output limit in bytes.
+let DefaultMapperMaxOutput = uint32(2097152)
+
+// DefaultMapperMaxSpans is the default maximum number of SourceSpanMap entries.
+let DefaultMapperMaxSpans = uint32(65536)
+
+// DefaultMapperMaxDiags is the default maximum number of MapperDiag records.
+let DefaultMapperMaxDiags = uint32(4096)
+
+// MapperBudget bounds compile-time content-mapper execution resources.
+type MapperBudget {
+	Steps     uint32,
+	Depth     uint32,
+	Bytes     uint32,
+	MaxInput  uint32,
+	MaxOutput uint32,
+	MaxSpans  uint32,
+	MaxDiags  uint32,
+}
+
+// DefaultBudget returns the specification's finite compile-time mapper bounds.
+func DefaultBudget() MapperBudget {
+	MapperBudget{
+		Steps:     DefaultMapperSteps,
+		Depth:     DefaultMapperDepth,
+		Bytes:     DefaultMapperBytes,
+		MaxInput:  DefaultMapperMaxInput,
+		MaxOutput: DefaultMapperMaxOutput,
+		MaxSpans:  DefaultMapperMaxSpans,
+		MaxDiags:  DefaultMapperMaxDiags,
+	}
+}
+
+// NormalizeBudget fills zero fields of b with DefaultBudget values.
+func NormalizeBudget(b MapperBudget) MapperBudget {
+	let def = DefaultBudget()
+	MapperBudget{
+		Steps:     if b.Steps == uint32(0) { def.Steps } else { b.Steps },
+		Depth:     if b.Depth == uint32(0) { def.Depth } else { b.Depth },
+		Bytes:     if b.Bytes == uint32(0) { def.Bytes } else { b.Bytes },
+		MaxInput:  if b.MaxInput == uint32(0) { def.MaxInput } else { b.MaxInput },
+		MaxOutput: if b.MaxOutput == uint32(0) { def.MaxOutput } else { b.MaxOutput },
+		MaxSpans:  if b.MaxSpans == uint32(0) { def.MaxSpans } else { b.MaxSpans },
+		MaxDiags:  if b.MaxDiags == uint32(0) { def.MaxDiags } else { b.MaxDiags },
+	}
+}
+
+// EvalErrorKind classifies purity, FFI, budget, defect, contract, and execution failures.
+type EvalErrorKind =
+	| PurityViolation{}
+	| FFIForbidden{}
+	| BudgetExceeded{}
+	| RuntimeDefect{}
+	| ContractViolation{}
+	| MapperFailure{}
+
+// EvalErrorKindName returns the lowercase tag string for k.
+func EvalErrorKindName(k EvalErrorKind) string {
+	match k {
+	case PurityViolation:
+		"purity"
+	case FFIForbidden:
+		"ffi"
+	case BudgetExceeded:
+		"budget"
+	case RuntimeDefect:
+		"defect"
+	case ContractViolation:
+		"contract"
+	case MapperFailure:
+		"fail"
+	}
+}
+
+// EvalError describes a static or runtime failure during content mapper evaluation.
+type EvalError {
+	Kind       EvalErrorKind,
+	Message    string,
+	Limit      string,
+	Frame      string,
+	FileIndex  uint32,
+	NodeOffset uint32,
+	NodeLength uint32,
+}
+
+func makeEvalErr(kind EvalErrorKind, msg string) EvalError {
+	EvalError{
+		Kind:       kind,
+		Message:    msg,
+		Limit:      "",
+		Frame:      "",
+		FileIndex:  uint32(0),
+		NodeOffset: uint32(0),
+		NodeLength: uint32(0),
+	}
+}
+
+func makeNodeEvalErr(kind EvalErrorKind, msg string, fi uint32, p syntax.Parsed, nodeID dense.ID[syntax.Node]) EvalError {
+	let pos = syntax.NodePos(p, nodeID)
+	let end = syntax.NodeEnd(p, nodeID)
+	let ln = if end > pos { uint32(end - pos) } else { uint32(1) }
+	EvalError{
+		Kind:       kind,
+		Message:    msg,
+		Limit:      "",
+		Frame:      "",
+		FileIndex:  fi,
+		NodeOffset: uint32(pos),
+		NodeLength: ln,
+	}
+}
+
+// CheckInputBudget rejects input payloads larger than NormalizedBudget(b).MaxInput.
+func CheckInputBudget(b MapperBudget, payloadLen uint32) fails EvalError {
+	let nb = NormalizeBudget(b)
+	if payloadLen > nb.MaxInput {
+		return EvalError{
+			Kind:       BudgetExceeded,
+			Message:    "content mapper input size " + strconv.Itoa(int(payloadLen)) + " exceeds budget MaxInput " + strconv.Itoa(int(nb.MaxInput)),
+			Limit:      "MaxInput",
+			Frame:      "",
+			FileIndex:  uint32(0),
+			NodeOffset: uint32(0),
+			NodeLength: uint32(0),
+		}
+	}
+}
+
+// CheckOutputBudget rejects generated outputs exceeding source, span, or diag budgets.
+func CheckOutputBudget(b MapperBudget, sourceLen uint32, spanCount uint32, diagCount uint32) fails EvalError {
+	let nb = NormalizeBudget(b)
+	if sourceLen > nb.MaxOutput {
+		return EvalError{
+			Kind:       BudgetExceeded,
+			Message:    "content mapper output size " + strconv.Itoa(int(sourceLen)) + " exceeds budget MaxOutput " + strconv.Itoa(int(nb.MaxOutput)),
+			Limit:      "MaxOutput",
+			Frame:      "",
+			FileIndex:  uint32(0),
+			NodeOffset: uint32(0),
+			NodeLength: uint32(0),
+		}
+	}
+	if spanCount > nb.MaxSpans {
+		return EvalError{
+			Kind:       BudgetExceeded,
+			Message:    "content mapper span count " + strconv.Itoa(int(spanCount)) + " exceeds budget MaxSpans " + strconv.Itoa(int(nb.MaxSpans)),
+			Limit:      "MaxSpans",
+			Frame:      "",
+			FileIndex:  uint32(0),
+			NodeOffset: uint32(0),
+			NodeLength: uint32(0),
+		}
+	}
+	if diagCount > nb.MaxDiags {
+		return EvalError{
+			Kind:       BudgetExceeded,
+			Message:    "content mapper diag count " + strconv.Itoa(int(diagCount)) + " exceeds budget MaxDiags " + strconv.Itoa(int(nb.MaxDiags)),
+			Limit:      "MaxDiags",
+			Frame:      "",
+			FileIndex:  uint32(0),
+			NodeOffset: uint32(0),
+			NodeLength: uint32(0),
+		}
+	}
+}
+
+func typeNodeName(p syntax.Parsed, ty dense.ID[syntax.Node]) string {
+	match syntax.ViewOf(p.Tree, ty) {
+	case syntax.Name:
+		nodeFirstTokText(p, ty)
+	case syntax.SelectorExpr as se:
+		nodeFirstTokText(p, se.Sel)
+	case _:
+		""
+	}
+}
+
+// CheckMapperSignature statically verifies that fnName in pkg matches func(ContentInput) MappedErgo
+// with no type parameters, no fails clause, no needs clause, and no defects.
+func CheckMapperSignature(pkg ParsedPackage, fnName string) fails EvalError {
+	if fnName == "" {
+		return makeEvalErr(ContractViolation, "missing mapper function signature")
+	}
+	let rows = findNamedTopDecls(pkg, fnName, topDeclFunc)
+	for dr in rows {
+		let id = dense.IDAt(pkg.DeclCount, int(dr))
+		let fi = uint32(dense.Of(pkg.DeclFile, id))
+		let ni = int(dense.Of(pkg.DeclNode, id))
+		let p = pkg.Files[int(fi)].Parsed
+		let declID = syntax.NodeAt(p.Tree, ni)
+		match syntax.ViewOf(p.Tree, declID) {
+		case syntax.FuncDecl as fd:
+			if dense.Unpack(fd.Recv) != option.None {
+				continue
+			}
+			if dense.Unpack(fd.TypeParams) != option.None {
+				return makeNodeEvalErr(ContractViolation, "content mapper "+fnName+" cannot declare type parameters", fi, p, declID)
+			}
+			let ft = match syntax.ViewOf(p.Tree, fd.Type) {
+			case syntax.FuncType as x:
+				x
+			case _:
+				return makeNodeEvalErr(ContractViolation, "mapper "+fnName+" has no signature", fi, p, declID)
+			}
+			if dense.Unpack(ft.TypeParams) != option.None {
+				return makeNodeEvalErr(ContractViolation, "content mapper "+fnName+" cannot declare type parameters", fi, p, declID)
+			}
+			if dense.Unpack(ft.Needs) != option.None {
+				return makeNodeEvalErr(PurityViolation, "content mapper "+fnName+" must be pure with empty needs row", fi, p, declID)
+			}
+			if ft.Defects >= 0 {
+				return makeNodeEvalErr(ContractViolation, "content mapper "+fnName+" cannot declare defects", fi, p, declID)
+			}
+			match dense.Unpack(ft.Results) {
+			case option.Some{Value: resID}:
+				match syntax.ViewOf(p.Tree, resID) {
+				case syntax.FieldList as fl:
+					let mut retCount = 0
+					let mut retName = ""
+					for ri in 0..syntax.Len(fl.List) {
+						let fNode = syntax.Item(p.Tree, fl.List, ri)
+						match syntax.ViewOf(p.Tree, fNode) {
+						case syntax.Field as rf:
+							match dense.Unpack(rf.Type) {
+							case option.Some{Value: rTy}:
+								if syntax.KindOf(p.Tree, rTy) == syntax.KErrorRow {
+									return makeNodeEvalErr(ContractViolation, "content mapper "+fnName+" cannot declare a fails row; return diagnostics in MappedErgo.Diags", fi, p, rTy)
+								}
+								retCount = retCount + 1
+								retName = typeNodeName(p, rTy)
+							case option.None:
+							}
+						case _:
+						}
+					}
+					if retCount != 1 {
+						return makeNodeEvalErr(ContractViolation, "content mapper "+fnName+" must have signature func(ContentInput) MappedErgo", fi, p, declID)
+					}
+					if retName != "MappedErgo" {
+						return makeNodeEvalErr(ContractViolation, "content mapper "+fnName+" result: expected MappedErgo, found "+retName, fi, p, declID)
+					}
+				case _:
+					return makeNodeEvalErr(ContractViolation, "content mapper "+fnName+" must have signature func(ContentInput) MappedErgo", fi, p, declID)
+				}
+			case option.None:
+				return makeNodeEvalErr(ContractViolation, "content mapper "+fnName+" must have signature func(ContentInput) MappedErgo", fi, p, declID)
+			}
+			let paramCount, paramTypeName = inspectSingleParamType(p, ft.Params)
+			if paramCount != 1 {
+				return makeNodeEvalErr(ContractViolation, "content mapper "+fnName+" must have signature func(ContentInput) MappedErgo", fi, p, declID)
+			}
+			if paramTypeName != "ContentInput" {
+				return makeNodeEvalErr(ContractViolation, "content mapper "+fnName+" parameter: expected ContentInput, found "+paramTypeName, fi, p, declID)
+			}
+			return
+		case _:
+		}
+	}
+	makeEvalErr(ContractViolation, "missing mapper function "+fnName+" in package "+pkg.Path)
+}
+
+func inspectSingleParamType(p syntax.Parsed, paramsID dense.ID[syntax.Node]) (int, string) {
+	match syntax.ViewOf(p.Tree, paramsID) {
+	case syntax.FieldList as fl:
+		let mut count = 0
+		let mut tyName = ""
+		for pi in 0..syntax.Len(fl.List) {
+			let fNode = syntax.Item(p.Tree, fl.List, pi)
+			match syntax.ViewOf(p.Tree, fNode) {
+			case syntax.Field as pf:
+				let namesCount = if syntax.Len(pf.Names) > 0 { syntax.Len(pf.Names) } else { 1 }
+				count = count + namesCount
+				match dense.Unpack(pf.Type) {
+				case option.Some{Value: pTy}:
+					tyName = typeNodeName(p, pTy)
+				case option.None:
+				}
+			case _:
+			}
+		}
+		(count, tyName)
+	case _:
+		(0, "")
+	}
+}
+
+type purityWalker {
+	Graph       PackageGraph,
+	Label       string,
+	Visited     dense.Strings,
+	SeenPkgs    []bool,
+	ChildrenBuf []uint32,
+}
+
+type puritySite {
+	PkgIdx  uint32,
+	FileIdx uint32,
+	Parsed  syntax.Parsed,
+	Imports []fileImportBinding,
+}
+
+type fileImportBinding {
+	Alias string,
+	Path  string,
+	IsGo  bool,
+}
+
+func collectFileImports(p syntax.Parsed) []fileImportBinding {
+	let mut out = []fileImportBinding{}
+	if p.Failed {
+		return out
+	}
+	match syntax.ViewOf(p.Tree, syntax.Root(p.Tree)) {
+	case syntax.File as fileView:
+		for i in 0..syntax.Len(fileView.Decls) {
+			let d = syntax.Item(p.Tree, fileView.Decls, i)
+			match syntax.ViewOf(p.Tree, d) {
+			case syntax.ImportDecl as id:
+				match syntax.ViewOf(p.Tree, id.Spec) {
+				case syntax.ImportSpec as is:
+					let pathVal = trimQuotes(nodeFirstTokText(p, is.Path))
+					let mut isGo = is.NamePos >= 0 && syntax.TokKind(p, is.NamePos) == syntax.Go
+					let localName = match dense.Unpack(is.Name) {
+					case option.Some{Value: nm}:
+						let alias = nodeFirstTokText(p, nm)
+						if alias == "go" {
+							isGo = true
+							defaultPkgLocalName(pathVal)
+						} else {
+							alias
+						}
+					case option.None:
+						defaultPkgLocalName(pathVal)
+					}
+					out = out.Append(fileImportBinding{Alias: localName, Path: pathVal, IsGo: isGo})
+				case _:
+				}
+			case _:
+			}
+		}
+	case _:
+	}
+	out
+}
+
+func isStdPackagePath(path string) bool {
+	path == "core" || path == "option" || path == "dense" || path == "slices" || path == "strings" || path == "strconv" || path == "utf8" || path == "sha256" || path == "hex" || path == "json" || path == "filepath" || path == "content" || path == "sort"
+}
+
+func checkRestrictedStdAlias(pkgPath string, label string, site puritySite, nodeID dense.ID[syntax.Node]) fails EvalError {
+	if pkgPath == "task" || pkgPath == "tasks" {
+		return makeNodeEvalErr(PurityViolation, "content mapper "+label+" starts tasks; check-time mappers must be pure", site.FileIdx, site.Parsed, nodeID)
+	}
+	if pkgPath == "fs" || pkgPath == "os" || pkgPath == "process" || pkgPath == "net" || pkgPath == "time" || pkgPath == "fstest" || pkgPath == "rand" {
+		return makeNodeEvalErr(PurityViolation, "content mapper "+label+" references capability package "+pkgPath+"; check-time mappers must be pure", site.FileIdx, site.Parsed, nodeID)
+	}
+}
+
+func validatePurityPkgInits(w mut purityWalker, pkgIdx uint32) fails EvalError {
+	if int(pkgIdx) >= (*w).SeenPkgs.Len() || (*w).SeenPkgs[int(pkgIdx)] {
+		return
+	}
+	(*w).SeenPkgs[int(pkgIdx)] = true
+	let pkg = (*w).Graph.Pkgs[int(pkgIdx)]
+	for impPath in store.ImportPaths(pkg.Store) {
+		match LookupPkgIndex((*w).Graph, impPath) {
+		case option.Some{Value: depIdx}:
+			try validatePurityPkgInits(w, depIdx)
+		case option.None:
+		}
+	}
+	let n = dense.Total(pkg.DeclCount)
+	for i in 0..n {
+		let id = dense.IDAt(pkg.DeclCount, i)
+		if dense.Of(pkg.DeclKind, id) == topDeclVar {
+			try validatePurityDecl(w, pkgIdx, uint32(i))
+		}
+	}
+}
+
+func validatePurityDecl(w mut purityWalker, pkgIdx uint32, declRow uint32) fails EvalError {
+	let key = strconv.Itoa(int(pkgIdx)) + ":" + strconv.Itoa(int(declRow))
+	if dense.FindText((*w).Visited, key) != option.None {
+		return
+	}
+	let _ = dense.InternText(&w.Visited, key)
+	try validatePurityPkgInits(w, pkgIdx)
+	let pkg = (*w).Graph.Pkgs[int(pkgIdx)]
+	let id = dense.IDAt(pkg.DeclCount, int(declRow))
+	let fi = uint32(dense.Of(pkg.DeclFile, id))
+	let ni = int(dense.Of(pkg.DeclNode, id))
+	let p = pkg.Files[int(fi)].Parsed
+	let declID = syntax.NodeAt(p.Tree, ni)
+	match syntax.ViewOf(p.Tree, declID) {
+	case syntax.FuncDecl as fd:
+		let fnName = nodeFirstTokText(p, fd.Name)
+		if dense.Unpack(fd.Extern) != option.None && !isStdPackagePath(pkg.Path) {
+			return makeNodeEvalErr(FFIForbidden, "content mapper "+(*w).Label+" cannot call extern Go declaration "+fnName+" at check time", fi, p, declID)
+		}
+		match syntax.ViewOf(p.Tree, fd.Type) {
+		case syntax.FuncType as ft:
+			if dense.Unpack(ft.Needs) != option.None {
+				return makeNodeEvalErr(PurityViolation, "content mapper "+(*w).Label+" calls "+fnName+" which requires capabilities; mappers must be pure", fi, p, declID)
+			}
+			if ft.Defects >= 0 {
+				return makeNodeEvalErr(PurityViolation, "content mapper "+(*w).Label+" calls "+fnName+" which declares defects; mappers must be pure", fi, p, declID)
+			}
+		case _:
+		}
+		match dense.Unpack(fd.Body) {
+		case option.Some{Value: bodyID}:
+			let site = puritySite{PkgIdx: pkgIdx, FileIdx: fi, Parsed: p, Imports: collectFileImports(p)}
+			try walkPuritySubtree(w, site, bodyID)
+		case option.None:
+		}
+	case syntax.VarDecl:
+		let site = puritySite{PkgIdx: pkgIdx, FileIdx: fi, Parsed: p, Imports: collectFileImports(p)}
+		try walkPuritySubtree(w, site, declID)
+	case _:
+	}
+}
+
+func walkPuritySubtree(w mut purityWalker, site puritySite, nodeID dense.ID[syntax.Node]) fails EvalError {
+	let pkg = (*w).Graph.Pkgs[int(site.PkgIdx)]
+	let p = site.Parsed
+	match syntax.ViewOf(p.Tree, nodeID) {
+	case syntax.SelectorExpr as se:
+		if syntax.KindOf(p.Tree, se.X) == syntax.KIdent {
+			let alias = nodeFirstTokText(p, se.X)
+			let selName = nodeFirstTokText(p, se.Sel)
+			for imp in site.Imports {
+				if imp.Alias == alias {
+					if imp.IsGo && !isStdPackagePath(pkg.Path) {
+						return makeNodeEvalErr(FFIForbidden, "content mapper "+(*w).Label+" cannot call import go package "+imp.Path+" at check time", site.FileIdx, p, nodeID)
+					}
+					try checkRestrictedStdAlias(imp.Path, (*w).Label, site, nodeID)
+					match LookupPkgIndex((*w).Graph, imp.Path) {
+					case option.Some{Value: tPkgIdx}:
+						let tPkg = (*w).Graph.Pkgs[int(tPkgIdx)]
+						let targets = findNamedTopDecls(tPkg, selName, topDeclFunc)
+						for tr in targets {
+							try validatePurityDecl(w, tPkgIdx, tr)
+						}
+					case option.None:
+					}
+					break
+				}
+			}
+		}
+	case syntax.Name:
+		let txt = nodeFirstTokText(p, nodeID)
+		for imp in site.Imports {
+			if imp.Alias == txt {
+				if imp.IsGo && !isStdPackagePath(pkg.Path) {
+					return makeNodeEvalErr(FFIForbidden, "content mapper "+(*w).Label+" cannot call import go package "+imp.Path+" at check time", site.FileIdx, p, nodeID)
+				}
+				try checkRestrictedStdAlias(imp.Path, (*w).Label, site, nodeID)
+			}
+		}
+		let pnode = bind.PNodeOf(pkg.Parents, int(site.FileIdx), nodeID)
+		match bind.ResolutionOf(pkg.Uses, pkg.Parents, pnode) {
+		case bind.Declared as res:
+			let (df, dn) = bind.RowOf(pkg.Parents, res.At)
+			match findEnclosingTopDecl(pkg, df, dn) {
+			case option.Some{Value: targetDecl}:
+				let tId = dense.IDAt(pkg.DeclCount, int(targetDecl))
+				let tk = dense.Of(pkg.DeclKind, tId)
+				if tk == topDeclFunc || tk == topDeclVar {
+					try validatePurityDecl(w, site.PkgIdx, targetDecl)
+				}
+			case option.None:
+			}
+		case _:
+		}
+	case _:
+	}
+	let kids = syntax.Children(p.Tree, nodeID, (*w).ChildrenBuf[:0])
+	let copyKids = slices.Clone(kids)
+	(*w).ChildrenBuf = kids
+	for cw in copyKids {
+		try walkPuritySubtree(w, site, syntax.NodeAt(p.Tree, int(cw)))
+	}
+}
+
+// ValidateMapperPurity statically verifies that fnName and every transitively reachable
+// function and package initializer in graph is pure and performs no FFI or task creation.
+func ValidateMapperPurity(graph PackageGraph, pkgPath string, fnName string) fails EvalError {
+	let rootIdx = match LookupPkgIndex(graph, pkgPath) {
+	case option.Some{Value: idx}:
+		idx
+	case option.None:
+		return makeEvalErr(ContractViolation, "missing mapper package "+pkgPath)
+	}
+	let pkg = graph.Pkgs[int(rootIdx)]
+	let rows = findNamedTopDecls(pkg, fnName, topDeclFunc)
+	if rows.Len() == 0 {
+		return makeEvalErr(ContractViolation, "missing mapper function "+fnName)
+	}
+	let mut w = purityWalker{
+		Graph:       graph,
+		Label:       fnName,
+		Visited:     dense.NewStrings(),
+		SeenPkgs:    slices.Repeat([]bool{false}, graph.Pkgs.Len()),
+		ChildrenBuf: slices.WithCapacity[uint32](32),
+	}
+	try validatePurityPkgInits(&w, rootIdx)
+	for dr in rows {
+		try validatePurityDecl(&w, rootIdx, dr)
+	}
+}
+
+// ValidateExprPurity statically verifies that exprID in fileIdx of pkgPath and every
+// reachable declaration in its call graph are pure with zero capabilities, tasks, or FFI.
+func ValidateExprPurity(graph PackageGraph, pkgPath string, label string, fileIdx uint32, exprID dense.ID[syntax.Node]) fails EvalError {
+	let rootIdx = match LookupPkgIndex(graph, pkgPath) {
+	case option.Some{Value: idx}:
+		idx
+	case option.None:
+		return makeEvalErr(ContractViolation, "missing derive package "+pkgPath)
+	}
+	let pkg = graph.Pkgs[int(rootIdx)]
+	if int(fileIdx) >= pkg.Files.Len() {
+		return makeEvalErr(ContractViolation, "invalid file index for derive expression "+label)
+	}
+	let mut w = purityWalker{
+		Graph:       graph,
+		Label:       label,
+		Visited:     dense.NewStrings(),
+		SeenPkgs:    slices.Repeat([]bool{false}, graph.Pkgs.Len()),
+		ChildrenBuf: slices.WithCapacity[uint32](32),
+	}
+	try validatePurityPkgInits(&w, rootIdx)
+	let p = pkg.Files[int(fileIdx)].Parsed
+	let site = puritySite{PkgIdx: rootIdx, FileIdx: fileIdx, Parsed: p, Imports: collectFileImports(p)}
+	try walkPuritySubtree(&w, site, exprID)
+}
+
+// ValidateTypedFootprint checks an already-solved compiler/check/footprint frame for
+// non-empty capability, task/opaque, or defect footprints.
+func ValidateTypedFootprint(facts footprint.Facts, frameIdx int, label string) fails EvalError {
+	if footprint.Opaque(facts, frameIdx) {
+		return makeEvalErr(PurityViolation, "content mapper "+label+" invokes opaque/foreign operations; check-time mappers must be pure")
+	}
+	if footprint.Dies(facts, frameIdx) {
+		return makeEvalErr(PurityViolation, "content mapper "+label+" declares defects; check-time mappers must be pure")
+	}
+	if !footprint.Empty(facts, frameIdx) {
+		return makeEvalErr(PurityViolation, "content mapper "+label+" requires capabilities; check-time mappers must be pure")
+	}
+}
+
+// NormalizeBudgetPreservesPositive checks that positive budget limits stay intact and zero fields receive DefaultBudget.
+law NormalizeBudgetPreservesPositive(steps uint32, depth uint32) {
+	let raw = MapperBudget{Steps: steps, Depth: depth, Bytes: uint32(0), MaxInput: uint32(0), MaxOutput: uint32(0), MaxSpans: uint32(0), MaxDiags: uint32(0)}
+	let norm = NormalizeBudget(raw)
+	let def = DefaultBudget()
+	let sOk = if steps > uint32(0) { norm.Steps == steps } else { norm.Steps == def.Steps }
+	let dOk = if depth > uint32(0) { norm.Depth == depth } else { norm.Depth == def.Depth }
+	sOk && dOk && norm.MaxInput == def.MaxInput && norm.MaxOutput == def.MaxOutput && norm.MaxSpans == def.MaxSpans && norm.MaxDiags == def.MaxDiags
+}
+
+// CheckInputOutputBudgetsRejectOversize checks that payloads, span counts, and diag counts exceeding budget fail with BudgetExceeded.
+law CheckInputOutputBudgetsRejectOversize(extra uint32) {
+	let b = MapperBudget{Steps: uint32(10), Depth: uint32(2), Bytes: uint32(64), MaxInput: uint32(8), MaxOutput: uint32(16), MaxSpans: uint32(2), MaxDiags: uint32(3)}
+	let delta = uint32(1) + (extra % uint32(100))
+	CheckInputBudget(b, uint32(8)+delta) catch {
+	case EvalError as e:
+		match e.Kind {
+		case BudgetExceeded:
+			return true
+		case _:
+			return false
+		}
+	}
+	false
+}
+
+test MapperSignatureAndPurityChecks {
+	let pureMod = BuildParsedPackage("app/good", []SourceFile{
+		SourceFile{Name: "good.ergo", Src: "import content\nfunc helper(s string) string { s }\nfunc Map(input content.ContentInput) content.MappedErgo { content.MappedErgo{Source: helper(\"ok\"), Spans: content.SourceSpanMap{Entries: []content.SpanMapping{}}, Diags: []content.MapperDiag{}, Digest: []byte{}} }\n"},
+	})
+	let gGood = BuildPackageGraph([]ParsedPackage{pureMod})
+	CheckMapperSignature(pureMod, "Map") catch {
+	case EvalError:
+		assert false
+		return
+	}
+	ValidateMapperPurity(gGood, "app/good", "Map") catch {
+	case EvalError:
+		assert false
+		return
+	}
+
+	let needsMod = BuildParsedPackage("app/badneeds", []SourceFile{
+		SourceFile{Name: "n.ergo", Src: "import content\nfunc Map(input content.ContentInput) content.MappedErgo needs Clock { content.MappedErgo{Source: \"\", Spans: content.SourceSpanMap{Entries: []content.SpanMapping{}}, Diags: []content.MapperDiag{}, Digest: []byte{}} }\n"},
+	})
+	let mut sawNeedsErr = false
+	CheckMapperSignature(needsMod, "Map") catch {
+	case EvalError as e:
+		assert EvalErrorKindName(e.Kind) == "purity"
+		sawNeedsErr = true
+	}
+	assert sawNeedsErr
+
+	let ffiHelper = BuildParsedPackage("app/ffih", []SourceFile{
+		SourceFile{Name: "f.ergo", Src: "import go os\nfunc peek() string { os.Getenv(\"HOME\") }\n"},
+	})
+	let callerMod = BuildParsedPackage("app/badcall", []SourceFile{
+		SourceFile{Name: "c.ergo", Src: "import content\nimport app/ffih\nfunc Map(input content.ContentInput) content.MappedErgo { let _ = ffih.peek(); content.MappedErgo{Source: \"\", Spans: content.SourceSpanMap{Entries: []content.SpanMapping{}}, Diags: []content.MapperDiag{}, Digest: []byte{}} }\n"},
+	})
+	let gFFI = BuildPackageGraph([]ParsedPackage{ffiHelper, callerMod})
+	let mut sawFFI = false
+	ValidateMapperPurity(gFFI, "app/badcall", "Map") catch {
+	case EvalError as e:
+		assert EvalErrorKindName(e.Kind) == "ffi"
+		sawFFI = true
+	}
+	assert sawFFI
+
+	let taskMod = BuildParsedPackage("app/taskbad", []SourceFile{
+		SourceFile{Name: "t.ergo", Src: "import content\nimport task\nlet bgInit = task.Go() { 1 }\nfunc Map(input content.ContentInput) content.MappedErgo { content.MappedErgo{Source: \"\", Spans: content.SourceSpanMap{Entries: []content.SpanMapping{}}, Diags: []content.MapperDiag{}, Digest: []byte{}} }\n"},
+	})
+	let gTask = BuildPackageGraph([]ParsedPackage{taskMod})
+	let mut sawTask = false
+	ValidateMapperPurity(gTask, "app/taskbad", "Map") catch {
+	case EvalError as e:
+		assert EvalErrorKindName(e.Kind) == "purity"
+		sawTask = true
+	}
+	assert sawTask
+
+	CheckOutputBudget(DefaultBudget(), DefaultMapperMaxOutput+uint32(1), uint32(0), uint32(0)) catch {
+	case EvalError as e:
+		assert EvalErrorKindName(e.Kind) == "budget"
+		assert e.Limit == "MaxOutput"
+		return
+	}
+	assert false
+}

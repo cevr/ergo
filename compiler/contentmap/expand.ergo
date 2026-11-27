@@ -1,0 +1,771 @@
+import compiler/lawcache
+import compiler/syntax
+import content
+import dense
+import option
+import slices
+import strconv
+import strings
+import sync
+
+// DerivePlanResult describes the evaluated derive expression ready for cached execution or direct output.
+type DerivePlanResult =
+	| DeriveDirectOutput{Out content.MappedErgo, Steps uint32, BytesUsed uint32}
+	| DerivePlanMapper{MapperPkg string, MapperFn string, Plan content.Plan, ByteOrigins []ByteOrigin, Steps uint32, BytesUsed uint32, Runner MapperRunner}
+	| DeriveEvalFailed{Err EvalError}
+
+// Phase1DeriveRequest passes stripped Phase-1 files for one isolated inline derive site.
+type Phase1DeriveRequest {
+	PkgPath       string,
+	Target        string,
+	Phase1Files   []SourceFile,
+	DeriveFileIdx uint32,
+	DeclNodeIdx   uint32,
+}
+
+// DeriveEvaluator evaluates an isolated Phase-1 derive expression and produces its plan or failure.
+type DeriveEvaluator {
+	// Call evaluates one isolated Phase1DeriveRequest into a DerivePlanResult.
+	Call func(Phase1DeriveRequest) DerivePlanResult,
+}
+
+// ReplacedDeclRef identifies an inline `type T derive E` declaration replaced by generated code.
+type ReplacedDeclRef {
+	FileIndex   uint32,
+	DeclNodeIdx uint32,
+	Target      string,
+}
+
+// ExpandInlineRequest describes all package files and cache context for inline derive expansion.
+type ExpandInlineRequest {
+	PkgPath  string,
+	Files    []SourceFile,
+	Graph    PackageGraph,
+	Cache    lawcache.Store,
+	UseCache bool,
+	BuildID  string,
+	Budget   MapperBudget,
+}
+
+// ExpandInlineResult captures generated source files, replaced declarations, inspection records, and diagnostics.
+type ExpandInlineResult {
+	ReplacedDecls  []ReplacedDeclRef,
+	Generated      []GeneratedFileInfo,
+	Diags          []ContentDiagnostic,
+	Records        []MapperRecord,
+	RefusedTargets []string,
+}
+
+// RemapDeriveDiagnostic remaps a generated-file diagnostic back to the inline string origin or companion file.
+func RemapDeriveDiagnostic(gen GeneratedFileInfo, origFile SourceFile, d ContentDiagnostic) ContentDiagnostic {
+	let lines = syntax.LinesOf(origFile.Src)
+	let site = spanDiagSite{FileIdx: gen.OrigFileIndex, FileName: origFile.Name, Lines: lines, Code: d.Code}
+	match LookupGeneratedSpan(gen.Spans, d.Offset, d.Length) {
+	case option.Some{Value: entry}:
+		match entry.Companion {
+		case option.Some{Value: ci}:
+			if int(ci) < gen.Companions.Len() {
+				let comp = gen.Companions[int(ci)]
+				let clc = OffsetLineColByte(comp.Bytes, entry.Source.Start)
+				let mut out = diagAtSpan(site, int(gen.DeriveOffset), int(gen.DeriveOffset+gen.DeriveLength), d.Message+" (derived from "+gen.DeriveTarget+"; companion "+comp.Path+":"+strconv.Itoa(int(clc.Line))+":"+strconv.Itoa(int(clc.Col))+")")
+				out.Warning = d.Warning
+				return out
+			}
+		case option.None:
+		}
+		match resolveInlineByteSpan(gen.OrigFileIndex, origFile.Name, lines, gen.ByteOrigins, entry.Source) {
+		case option.Some{Value: mapped}:
+			return ContentDiagnostic{
+				FileIndex: mapped.FileIndex,
+				File:      mapped.File,
+				Offset:    mapped.Offset,
+				Length:    mapped.Length,
+				Line:      mapped.Line,
+				Column:    mapped.Column,
+				Code:      d.Code,
+				Message:   d.Message,
+				Warning:   d.Warning,
+			}
+		case option.None:
+		}
+	case option.None:
+	}
+	let mut base = diagAtSpan(site, int(gen.DeriveOffset), int(gen.DeriveOffset+gen.DeriveLength), d.Message+" (in derived declaration for "+gen.DeriveTarget+")")
+	base.Warning = d.Warning
+	base
+}
+
+func zeroPadThree(n uint32) string {
+	let s = strconv.Itoa(int(n))
+	if s.Len() == 1 { return "00" + s }
+	if s.Len() == 2 { return "0" + s }
+	s
+}
+
+type evaluatedDeriveState {
+	Ok          bool,
+	Out         content.MappedErgo,
+	CacheKey    string,
+	CacheHit    bool,
+	MapperPkg   string,
+	MapperFunc  string,
+	MediaKind   string,
+	Companions  []content.CompanionAsset,
+	ByteOrigins []ByteOrigin,
+	Steps       uint32,
+	BytesUsed   uint32,
+}
+
+func appendPkgToGraph(base []ParsedPackage, pkg ParsedPackage) []ParsedPackage {
+	let mut out = slices.WithCapacity[ParsedPackage](base.Len() + 1)
+	let mut replaced = false
+	for p in base {
+		if p.Path == pkg.Path {
+			out = out.Append(pkg)
+			replaced = true
+		} else {
+			out = out.Append(p)
+		}
+	}
+	if !replaced {
+		out = out.Append(pkg)
+	}
+	out
+}
+
+func evaluateDeriveOutcome(req ExpandInlineRequest, pt pendingDeriveTable, pid dense.ID[pendingTag], graph PackageGraph, res DerivePlanResult) (evaluatedDeriveState, option.Option[ContentDiagnostic]) {
+	let emptyOut = content.MappedErgo{Source: "", Spans: content.SourceSpanMap{Entries: []content.SpanMapping{}}, Diags: []content.MapperDiag{}, Digest: []byte{}}
+	let emptyState = evaluatedDeriveState{
+		Ok:        false, Out: emptyOut, CacheKey: "", CacheHit: false, MapperPkg: "", MapperFunc: "",
+		MediaKind: "", Companions: []content.CompanionAsset{}, ByteOrigins: []ByteOrigin{}, Steps: uint32(0), BytesUsed: uint32(0),
+	}
+	let fi = dense.Of(pt.FileIdx, pid)
+	let exprPos = dense.Of(pt.ExprPos, pid)
+	let exprEnd = dense.Of(pt.ExprEnd, pid)
+	let tgt = dense.Of(pt.Target, pid)
+	let lines = syntax.LinesOf(req.Files[int(fi)].Src)
+	let site = spanDiagSite{FileIdx: fi, FileName: req.Files[int(fi)].Name, Lines: lines, Code: "E2001"}
+	match res {
+	case DeriveEvalFailed as f:
+		return (emptyState, option.Some[ContentDiagnostic]{Value: diagAtSpan(site, int(exprPos), int(exprEnd), formatEvalErrWithFrame(f.Err))})
+	case DeriveDirectOutput as d:
+		VerifySpans(uint32(d.Out.Source.Len()), uint32(0), []uint32{}, d.Out.Spans.Entries) catch {
+		case SpanViolation as sv:
+			return (emptyState, option.Some[ContentDiagnostic]{Value: diagAtSpan(site, int(exprPos), int(exprEnd), "content mapper returned invalid SourceSpanMap: "+FormatViolation(sv))})
+		}
+		return (evaluatedDeriveState{
+			Ok:        true, Out: d.Out, CacheKey: "", CacheHit: false, MapperPkg: "", MapperFunc: "",
+			MediaKind: "ergo/direct", Companions: []content.CompanionAsset{}, ByteOrigins: []ByteOrigin{}, Steps: d.Steps, BytesUsed: d.BytesUsed,
+		}, option.None)
+	case DerivePlanMapper as pm:
+		if pm.MapperPkg != "" && pm.MapperFn != "" {
+			match LookupPkgIndex(graph, pm.MapperPkg) {
+			case option.Some{Value: idx}:
+				CheckMapperSignature(graph.Pkgs[int(idx)], pm.MapperFn) catch {
+				case EvalError as e:
+					return (emptyState, option.Some[ContentDiagnostic]{Value: diagAtSpan(site, int(exprPos), int(exprEnd), e.Message)})
+				}
+				ValidateMapperPurity(graph, pm.MapperPkg, pm.MapperFn) catch {
+				case EvalError as e:
+					return (emptyState, option.Some[ContentDiagnostic]{Value: diagAtSpan(site, int(exprPos), int(exprEnd), e.Message)})
+				}
+			case option.None:
+			}
+		}
+		let mk = if pm.Plan.MediaKind != "" { pm.Plan.MediaKind } else { "ergo/inline" }
+		let input = content.ContentInput{
+			Target: tgt,
+			Origin: content.InlineDerive{
+				Package: req.PkgPath,
+				File:    req.Files[int(fi)].Name,
+				Target:  tgt,
+				Line:    dense.Of(pt.U16Line, pid),
+				Col:     dense.Of(pt.U16Col, pid),
+			},
+			MediaKind:  mk,
+			Bytes:      pm.Plan.Bytes,
+			Companions: pm.Plan.Companions,
+		}
+		let runReq = CachedRunRequest{
+			Cache:     req.Cache,
+			UseCache:  req.UseCache,
+			BuildID:   req.BuildID,
+			Graph:     graph,
+			MapperPkg: pm.MapperPkg,
+			MapperFn:  pm.MapperFn,
+			Budget:    req.Budget,
+			Input:     input,
+		}
+		let runRes = ExecuteMapperCached(runReq, pm.Runner) catch {
+		case EvalError as e:
+			return (emptyState, option.Some[ContentDiagnostic]{Value: diagAtSpan(site, int(exprPos), int(exprEnd), formatEvalErrWithFrame(e))})
+		}
+		(evaluatedDeriveState{
+			Ok:          true,
+			Out:         runRes.Out,
+			CacheKey:    runRes.CacheKey,
+			CacheHit:    runRes.CacheHit,
+			MapperPkg:   pm.MapperPkg,
+			MapperFunc:  pm.MapperFn,
+			MediaKind:   mk,
+			Companions:  pm.Plan.Companions,
+			ByteOrigins: pm.ByteOrigins,
+			Steps:       pm.Steps + runRes.Steps,
+			BytesUsed:   pm.BytesUsed + runRes.BytesUsed,
+		}, option.None)
+	}
+}
+
+type inlineDiagEnv {
+	FileIdx    uint32,
+	Source     SourceFile,
+	Lines      syntax.Lines,
+	ExprPos    uint32,
+	ExprEnd    uint32,
+	Origins    []ByteOrigin,
+	Companions []content.CompanionAsset,
+}
+
+func inlineMapperDiag(env inlineDiagEnv, md content.MapperDiag, msg string, isWarn bool) (ContentDiagnostic, MapperDiagRecord) {
+	let site = spanDiagSite{FileIdx: env.FileIdx, FileName: env.Source.Name, Lines: env.Lines, Code: "E2001"}
+	match md.Companion {
+	case option.Some{Value: ci}:
+		if int(ci) < env.Companions.Len() {
+			let comp = env.Companions[int(ci)]
+			let clc = OffsetLineColByte(comp.Bytes, md.Span.Start)
+			let mut diag = diagAtSpan(site, int(env.ExprPos), int(env.ExprEnd), msg+" (in companion "+comp.Path+":"+strconv.Itoa(int(clc.Line))+":"+strconv.Itoa(int(clc.Col))+")")
+			diag.Warning = isWarn
+			let rec = MapperDiagRecord{
+				Warning:       isWarn,
+				Companion:     md.Companion,
+				CompanionPath: comp.Path,
+				SrcStart:      md.Span.Start,
+				SrcEnd:        md.Span.End,
+				MappedFile:    comp.Path,
+				MappedLine:    clc.Line,
+				MappedCol:     clc.Col,
+				Code:          md.Code,
+				Message:       md.Message,
+				Hint:          md.Hint,
+			}
+			return (diag, rec)
+		}
+	case option.None:
+	}
+	match resolveInlineByteSpan(env.FileIdx, env.Source.Name, env.Lines, env.Origins, md.Span) {
+	case option.Some{Value: mapped}:
+		let mut d = mapped
+		d.Code = "E2001"
+		d.Message = msg
+		d.Warning = isWarn
+		let rec = MapperDiagRecord{
+			Warning:       isWarn,
+			Companion:     md.Companion,
+			CompanionPath: "",
+			SrcStart:      md.Span.Start,
+			SrcEnd:        md.Span.End,
+			MappedFile:    env.Source.Name,
+			MappedLine:    d.Line,
+			MappedCol:     d.Column,
+			Code:          md.Code,
+			Message:       md.Message,
+			Hint:          md.Hint,
+		}
+		return (d, rec)
+	case option.None:
+	}
+	let mut fallback = diagAtSpan(site, int(env.ExprPos), int(env.ExprEnd), msg)
+	fallback.Warning = isWarn
+	let rec = MapperDiagRecord{
+		Warning:       isWarn,
+		Companion:     md.Companion,
+		CompanionPath: "",
+		SrcStart:      md.Span.Start,
+		SrcEnd:        md.Span.End,
+		MappedFile:    env.Source.Name,
+		MappedLine:    fallback.Line,
+		MappedCol:     fallback.Column,
+		Code:          md.Code,
+		Message:       md.Message,
+		Hint:          md.Hint,
+	}
+	(fallback, rec)
+}
+
+func validatePhase1ExprPurity(phaseGraph PackageGraph, req ExpandInlineRequest, pt pendingDeriveTable, pid dense.ID[pendingTag], lineTable syntax.Lines) option.Option[ContentDiagnostic] {
+	let fi = dense.Of(pt.FileIdx, pid)
+	let tgt = dense.Of(pt.Target, pid)
+	let exprPos = dense.Of(pt.ExprPos, pid)
+	let exprEnd = dense.Of(pt.ExprEnd, pid)
+	if int(fi) >= phaseGraph.Pkgs.Len() && LookupPkgIndex(phaseGraph, req.PkgPath) == option.None {
+		return option.None
+	}
+	match LookupPkgIndex(phaseGraph, req.PkgPath) {
+	case option.Some{Value: idx}:
+		let phasePkg = phaseGraph.Pkgs[int(idx)]
+		if int(fi) >= phasePkg.Files.Len() {
+			return option.None
+		}
+		let pf = phasePkg.Files[int(fi)].Parsed
+		if pf.Failed {
+			return option.None
+		}
+		match syntax.ViewOf(pf.Tree, syntax.Root(pf.Tree)) {
+		case syntax.File as fv:
+			if syntax.Len(fv.Decls) == 0 {
+				return option.None
+			}
+			let lastDecl = syntax.Item(pf.Tree, fv.Decls, syntax.Len(fv.Decls)-1)
+			ValidateExprPurity(phaseGraph, req.PkgPath, tgt, fi, lastDecl) catch {
+			case EvalError as pe:
+				let site = spanDiagSite{FileIdx: fi, FileName: req.Files[int(fi)].Name, Lines: lineTable, Code: "E2001"}
+				return option.Some[ContentDiagnostic]{Value: diagAtSpan(site, int(exprPos), int(exprEnd), formatEvalErrWithFrame(pe))}
+			}
+			option.None
+		case _:
+			option.None
+		}
+	case option.None:
+		option.None
+	}
+}
+
+// ExpandInlineDerives resolves, purity-checks, caches, and expands non-Provider `type T derive E`
+// declarations in dependency order with cycle detection, collision refusal, and span remapping.
+func ExpandInlineDerives(req ExpandInlineRequest, evalFn DeriveEvaluator) ExpandInlineResult {
+	let mut parsedFiles = slices.WithCapacity[syntax.Parsed](req.Files.Len())
+	let mut lineTables = slices.WithCapacity[syntax.Lines](req.Files.Len())
+	let mut pt = newPendingTable()
+	let mut declaredNames = dense.NewStrings()
+	let mut allDecls = []nonDeriveDeclEntry{}
+	let mut buf = slices.WithCapacity[uint32](32)
+
+	for fi, sf in req.Files {
+		let p = syntax.Parse(sf.Src)
+		parsedFiles = parsedFiles.Append(p)
+		lineTables = lineTables.Append(syntax.LinesOf(sf.Src))
+		if p.Failed {
+			continue
+		}
+		match syntax.ViewOf(p.Tree, syntax.Root(p.Tree)) {
+		case syntax.File as fv:
+			for i in 0..syntax.Len(fv.Decls) {
+				let declID = syntax.Item(p.Tree, fv.Decls, i)
+				let mut isInlineDerive = false
+				match syntax.ViewOf(p.Tree, declID) {
+				case syntax.TypeDecl as td:
+					if dense.Unpack(td.TypeParams) == option.None {
+						match dense.Unpack(td.Derive) {
+						case option.Some{Value: eid}:
+							if !isProviderPlanNode(p, eid) {
+								let tName = nodeFirstTokText(p, td.Name)
+								if tName != "" {
+									isInlineDerive = true
+									let ePos = syntax.NodePos(p, eid)
+									let eEnd = syntax.NodeEnd(p, eid)
+									let lc = syntax.PositionOf(lineTables[fi], ePos)
+									let u16 = OffsetLineColUTF16(sf.Src.Bytes(), uint32(ePos))
+									let _ = dense.Next(&pt.Count)
+									dense.Push(&pt.FileIdx, uint32(fi))
+									dense.Push(&pt.DeclNode, uint32(dense.Index(declID)))
+									dense.Push(&pt.ExprNode, uint32(dense.Index(eid)))
+									dense.Push(&pt.ExprPos, uint32(ePos))
+									dense.Push(&pt.ExprEnd, uint32(eEnd))
+									dense.Push(&pt.Line, uint32(lc.Line))
+									dense.Push(&pt.Col, uint32(lc.Column))
+									dense.Push(&pt.U16Line, u16.Line)
+									dense.Push(&pt.U16Col, u16.Col)
+									dense.Push(&pt.Target, tName)
+									dense.Push(&pt.TargetID, dense.InternText(&pt.Names, tName))
+									dense.Push(&pt.Done, false)
+									dense.Push(&pt.Refused, false)
+								}
+							}
+						case option.None:
+						}
+					}
+				case _:
+				}
+				if isInlineDerive || syntax.KindOf(p.Tree, declID) == syntax.KImportDecl {
+					continue
+				}
+				let names = declNodeDeclaredNames(p, declID)
+				for nm in names {
+					let _ = dense.InternText(&declaredNames, nm)
+				}
+				let mut seenIdents = dense.NewStrings()
+				let mut idents = []string{}
+				collectIdentsInSubtree(p, declID, &buf, &seenIdents, &idents)
+				allDecls = allDecls.Append(nonDeriveDeclEntry{
+					FileIdx: uint32(fi),
+					DeclPos: uint32(syntax.NodePos(p, declID)),
+					DeclEnd: uint32(syntax.NodeEnd(p, declID)),
+					Names:   names,
+					Idents:  idents,
+				})
+			}
+		case _:
+		}
+	}
+
+	let totalPending = dense.Total(pt.Count)
+	if totalPending == 0 {
+		return ExpandInlineResult{
+			ReplacedDecls:  []ReplacedDeclRef{},
+			Generated:      []GeneratedFileInfo{},
+			Diags:          []ContentDiagnostic{},
+			Records:        []MapperRecord{},
+			RefusedTargets: []string{},
+		}
+	}
+
+	let mut diags = []ContentDiagnostic{}
+	let mut refusedTargets = []string{}
+	let mut seenPendingTargets = dense.NewStrings()
+	let mut activeIDs = []uint32{}
+
+	for i in 0..totalPending {
+		let pid = dense.IDAt(pt.Count, i)
+		let tgt = dense.Of(pt.Target, pid)
+		let fi = dense.Of(pt.FileIdx, pid)
+		let declID = syntax.NodeAt(parsedFiles[int(fi)].Tree, int(dense.Of(pt.DeclNode, pid)))
+		if dense.FindText(declaredNames, tgt) != option.None || dense.FindText(seenPendingTargets, tgt) != option.None {
+			dense.SetOf(&pt.Refused, pid, true)
+			refusedTargets = refusedTargets.Append(tgt)
+			let site = spanDiagSite{FileIdx: fi, FileName: req.Files[int(fi)].Name, Lines: lineTables[int(fi)], Code: "E2001"}
+			diags = diags.Append(diagAtSpan(site, syntax.NodePos(parsedFiles[int(fi)], declID), syntax.NodeEnd(parsedFiles[int(fi)], declID), tgt+" is already declared in this package"))
+			continue
+		}
+		let _ = dense.InternText(&seenPendingTargets, tgt)
+		activeIDs = activeIDs.Append(uint32(i))
+	}
+
+	let mut replacedDecls = []ReplacedDeclRef{}
+	let mut generated = []GeneratedFileInfo{}
+	let mut records = []MapperRecord{}
+
+	for activeIDs.Len() > 0 {
+		let mut progress = false
+		let mut nextActive = []uint32{}
+		for ai in activeIDs {
+			let pid = dense.IDAt(pt.Count, int(ai))
+			if dense.Of(pt.Done, pid) || dense.Of(pt.Refused, pid) {
+				continue
+			}
+			let fi = dense.Of(pt.FileIdx, pid)
+			let p = parsedFiles[int(fi)]
+			let eid = syntax.NodeAt(p.Tree, int(dense.Of(pt.ExprNode, pid)))
+			let reachRes = computeReachableClosure(parsedFiles, fi, eid, allDecls)
+			if findBlockingTarget(reachRes.IdentSet, pt, activeIDs) != option.None {
+				nextActive = nextActive.Append(ai)
+				continue
+			}
+			progress = true
+			let tgt = dense.Of(pt.Target, pid)
+			let exprPos = dense.Of(pt.ExprPos, pid)
+			let exprEnd = dense.Of(pt.ExprEnd, pid)
+			let exprLen = if exprEnd > exprPos { exprEnd - exprPos } else { uint32(1) }
+			let exprText = req.Files[int(fi)].Src[int(exprPos):int(exprEnd)]
+			let site = spanDiagSite{FileIdx: fi, FileName: req.Files[int(fi)].Name, Lines: lineTables[int(fi)], Code: "E2001"}
+			let pEnv = phase1BuildEnv{
+				Files:         req.Files,
+				ParsedFiles:   parsedFiles,
+				AllDecls:      allDecls,
+				Reach:         reachRes.DeclReach,
+				ReachIdents:   reachRes.IdentList,
+				DeriveFileIdx: fi,
+				ExprText:      exprText,
+				PrevGen:       generated,
+			}
+			let phaseFiles = buildPhase1FileTexts(pEnv)
+			let phasePkg = BuildParsedPackage(req.PkgPath, phaseFiles)
+			let phaseGraph = BuildPackageGraph(appendPkgToGraph(req.Graph.Pkgs, phasePkg))
+			match validatePhase1ExprPurity(phaseGraph, req, pt, pid, lineTables[int(fi)]) {
+			case option.Some{Value: peDiag}:
+				diags = diags.Append(peDiag)
+				dense.SetOf(&pt.Refused, pid, true)
+				refusedTargets = refusedTargets.Append(tgt)
+				continue
+			case option.None:
+			}
+			let phaseReq = Phase1DeriveRequest{
+				PkgPath:       req.PkgPath,
+				Target:        tgt,
+				Phase1Files:   phaseFiles,
+				DeriveFileIdx: fi,
+				DeclNodeIdx:   dense.Of(pt.DeclNode, pid),
+			}
+			let evalRes = evalFn.Call(phaseReq)
+			let evState, evErrOpt = evaluateDeriveOutcome(req, pt, pid, phaseGraph, evalRes)
+			match evErrOpt {
+			case option.Some{Value: ed}:
+				diags = diags.Append(ed)
+			case option.None:
+			}
+			if !evState.Ok {
+				dense.SetOf(&pt.Refused, pid, true)
+				refusedTargets = refusedTargets.Append(tgt)
+				continue
+			}
+			let mut rec = MapperRecord{
+				Target:     tgt,
+				Kind:       InlineMapper,
+				AssetPath:  "",
+				FileName:   req.Files[int(fi)].Name,
+				Line:       dense.Of(pt.U16Line, pid),
+				Col:        dense.Of(pt.U16Col, pid),
+				MapperPkg:  evState.MapperPkg,
+				MapperFunc: evState.MapperFunc,
+				MediaKind:  evState.MediaKind,
+				CacheKey:   evState.CacheKey,
+				CacheHit:   evState.CacheHit,
+				Steps:      evState.Steps,
+				BytesUsed:  evState.BytesUsed,
+				Generated:  evState.Out.Source,
+				Spans:      convertToSpanEntryRecords(evState.Out.Spans.Entries, evState.Companions),
+				Diags:      []MapperDiagRecord{},
+				Decls:      []string{},
+			}
+			let dEnv = inlineDiagEnv{
+				FileIdx:    fi,
+				Source:     req.Files[int(fi)],
+				Lines:      lineTables[int(fi)],
+				ExprPos:    exprPos,
+				ExprEnd:    exprEnd,
+				Origins:    evState.ByteOrigins,
+				Companions: evState.Companions,
+			}
+			let mut hasErrDiags = false
+			for md in evState.Out.Diags {
+				let isWarn = match md.Severity {
+				case content.Warning:
+					true
+				case content.Error:
+					false
+				}
+				let msg = formatMapperDiagMessage(md)
+				let mdDiag, mdRec = inlineMapperDiag(dEnv, md, msg, isWarn)
+				rec.Diags = rec.Diags.Append(mdRec)
+				if !isWarn {
+					hasErrDiags = true
+					diags = diags.Append(mdDiag)
+				}
+			}
+			if hasErrDiags {
+				records = records.Append(rec)
+				dense.SetOf(&pt.Refused, pid, true)
+				refusedTargets = refusedTargets.Append(tgt)
+				continue
+			}
+			let genParsed = syntax.Parse(evState.Out.Source)
+			let genName = "__ergo_derive_" + zeroPadThree(ai) + "_" + tgt + ".ergo"
+			let genInfo = GeneratedFileInfo{
+				File:          SourceFile{Name: genName, Src: evState.Out.Source},
+				Parsed:        genParsed,
+				OrigFileIndex: fi,
+				DeriveTarget:  tgt,
+				DeriveOffset:  exprPos,
+				DeriveLength:  exprLen,
+				Spans:         evState.Out.Spans.Entries,
+				ByteOrigins:   evState.ByteOrigins,
+				Companions:    evState.Companions,
+			}
+			if genParsed.Failed {
+				let synDiag = ContentDiagnostic{
+					FileIndex: fi,
+					File:      genName,
+					Offset:    uint32(genParsed.Offset),
+					Length:    uint32(if genParsed.Length > 0 { genParsed.Length } else { 1 }),
+					Line:      uint32(genParsed.Line),
+					Column:    uint32(genParsed.Column),
+					Code:      genParsed.Code,
+					Message:   "generated code for " + tgt + ": " + genParsed.Message,
+					Warning:   false,
+				}
+				diags = diags.Append(RemapDeriveDiagnostic(genInfo, req.Files[int(fi)], synDiag))
+				records = records.Append(rec)
+				dense.SetOf(&pt.Refused, pid, true)
+				refusedTargets = refusedTargets.Append(tgt)
+				continue
+			}
+			let genDeclNames, hasTypeDecl, _ = collectTopDeclaredNames(genParsed)
+			let mut declaredTargetType = false
+			let mut collisionName = ""
+			if hasTypeDecl {
+				match syntax.ViewOf(genParsed.Tree, syntax.Root(genParsed.Tree)) {
+				case syntax.File as fv:
+					for gi in 0..syntax.Len(fv.Decls) {
+						let gd = syntax.Item(genParsed.Tree, fv.Decls, gi)
+						match syntax.ViewOf(genParsed.Tree, gd) {
+						case syntax.TypeDecl as gtd:
+							if nodeFirstTokText(genParsed, gtd.Name) == tgt {
+								declaredTargetType = true
+							}
+						case _:
+						}
+					}
+				case _:
+				}
+			}
+			for gnm in genDeclNames {
+				if dense.FindText(declaredNames, gnm) != option.None {
+					collisionName = gnm
+					break
+				}
+			}
+			if collisionName != "" {
+				diags = diags.Append(diagAtSpan(site, int(exprPos), int(exprEnd), collisionName+" is already declared in this package: the derive of "+tgt+" generates it"))
+				records = records.Append(rec)
+				dense.SetOf(&pt.Refused, pid, true)
+				refusedTargets = refusedTargets.Append(tgt)
+				continue
+			}
+			if !declaredTargetType {
+				diags = diags.Append(diagAtSpan(site, int(exprPos), int(exprEnd), "content mapper output for derive "+tgt+" did not declare type "+tgt))
+				records = records.Append(rec)
+				dense.SetOf(&pt.Refused, pid, true)
+				refusedTargets = refusedTargets.Append(tgt)
+				continue
+			}
+			for gnm in genDeclNames {
+				let _ = dense.InternText(&declaredNames, gnm)
+			}
+			rec.Decls = genDeclNames
+			records = records.Append(rec)
+			dense.SetOf(&pt.Done, pid, true)
+			replacedDecls = replacedDecls.Append(ReplacedDeclRef{
+				FileIndex:   fi,
+				DeclNodeIdx: dense.Of(pt.DeclNode, pid),
+				Target:      tgt,
+			})
+			generated = generated.Append(genInfo)
+		}
+		if !progress && nextActive.Len() > 0 {
+			let cEnv = cycleCheckEnv{
+				Files:       req.Files,
+				ParsedFiles: parsedFiles,
+				LineTables:  lineTables,
+				AllDecls:    allDecls,
+				StuckIDs:    nextActive,
+			}
+			detectAndReportDeriveCycles(cEnv, &pt, &diags, &refusedTargets)
+			break
+		}
+		activeIDs = nextActive
+	}
+
+	ExpandInlineResult{
+		ReplacedDecls:  replacedDecls,
+		Generated:      generated,
+		Diags:          diags,
+		Records:        records,
+		RefusedTargets: refusedTargets,
+	}
+}
+
+// ExpandDetectsCycleLength checks that mutually recursive inline derive declarations
+// are rejected with a cycle diagnostic and generate zero output files.
+law ExpandDetectsCycleLength(suffix string) {
+	let src = "type A derive makeA(B{})\ntype B derive makeB(A{})\n"
+	let req = ExpandInlineRequest{
+		PkgPath:  "app/cyc",
+		Files:    []SourceFile{SourceFile{Name: "c.ergo", Src: src}},
+		Graph:    BuildPackageGraph([]ParsedPackage{}),
+		Cache:    lawcache.Memory("cyc"),
+		UseCache: false,
+		BuildID:  "b1",
+		Budget:   DefaultBudget(),
+	}
+	let res = ExpandInlineDerives(req, DeriveEvaluator{
+		Call: func(_ Phase1DeriveRequest) DerivePlanResult {
+			DeriveEvalFailed{Err: makeEvalErr(ContractViolation, "should not evaluate cycle"+suffix)}
+		},
+	})
+	res.Generated.Len() == 0 && res.RefusedTargets.Len() == 2 && res.Diags.Len() >= 1 && strings.Contains(res.Diags[0].Message, "content mapper cycle: A -> B -> A")
+}
+
+test ExpandInlineDerivesTopoSortCycleCollisionAndRebase {
+	let mapperMod = BuildParsedPackage("app/gen", []SourceFile{
+		SourceFile{Name: "gen.ergo", Src: "import content\nfunc Schema(input content.ContentInput) content.MappedErgo {\n\tcontent.MappedErgo{Source: \"type \" + input.Target + \" { ID int }\\n\", Spans: content.SourceSpanMap{Entries: []content.SpanMapping{}}, Diags: []content.MapperDiag{}, Digest: []byte{}}\n}\n"},
+	})
+	let graph = BuildPackageGraph([]ParsedPackage{mapperMod})
+	let st = lawcache.Memory("inline")
+
+	let src = "import app/gen\ntype User derive makePlan(\"id\\nerr\")\ntype Profile derive makeProfile(User{})\nfunc makePlan(s string) string { s }\nfunc makeProfile(u User) string { \"ok\" }\n"
+	let pSrc = syntax.Parse(src)
+	let runCount = sync.NewRef(0)
+	let runner = MapperRunner{
+		Call: func(_ MapperBudget, input content.ContentInput) MapperInvokeOutcome {
+			runCount.Update(func(n int) int { n + 1 })
+			let outSrc = "type " + input.Target + " { ID int }\n"
+			let sp = content.SpanMapping{
+				Generated: content.SourceSpan{Start: uint32(5), End: uint32(5 + input.Target.Len())},
+				Companion: option.None,
+				Source:    content.SourceSpan{Start: uint32(3), End: uint32(6)},
+				Label:     "target",
+			}
+			InvokeOutput{
+				Out:       content.MappedErgo{Source: outSrc, Spans: content.SourceSpanMap{Entries: []content.SpanMapping{sp}}, Diags: []content.MapperDiag{}, Digest: []byte{}},
+				Steps:     uint32(10),
+				BytesUsed: uint32(64),
+			}
+		},
+	}
+	let evalFn = DeriveEvaluator{
+		Call: func(preq Phase1DeriveRequest) DerivePlanResult {
+			let origins = CollectExprByteOrigins(preq.DeriveFileIdx, pSrc, syntax.NodeAt(pSrc.Tree, int(preq.DeclNodeIdx)))
+			DerivePlanMapper{
+				MapperPkg:   "app/gen",
+				MapperFn:    "Schema",
+				Plan:        content.Plan{Mapper: func(x content.ContentInput) content.MappedErgo { content.MappedErgo{Source: "", Spans: content.SourceSpanMap{Entries: []content.SpanMapping{}}, Diags: []content.MapperDiag{}, Digest: []byte{}} }, MediaKind: "ergo/inline", Bytes: "id\nerr".Bytes(), Companions: []content.CompanionAsset{}},
+				ByteOrigins: origins,
+				Steps:       uint32(3),
+				BytesUsed:   uint32(16),
+				Runner:      runner,
+			}
+		},
+	}
+
+	let res = ExpandInlineDerives(ExpandInlineRequest{
+		PkgPath:  "app/models",
+		Files:    []SourceFile{SourceFile{Name: "m.ergo", Src: src}},
+		Graph:    graph,
+		Cache:    st,
+		UseCache: true,
+		BuildID:  "b1",
+		Budget:   DefaultBudget(),
+	}, evalFn)
+	assert res.Diags.Len() == 0 && res.Generated.Len() == 2 && runCount.Get() == 2
+	assert res.Generated[0].DeriveTarget == "User" && res.Generated[1].DeriveTarget == "Profile"
+
+	let shiftedSrc = "\n\n// shifted comment\n" + src
+	let resHit = ExpandInlineDerives(ExpandInlineRequest{
+		PkgPath:  "app/models",
+		Files:    []SourceFile{SourceFile{Name: "m.ergo", Src: shiftedSrc}},
+		Graph:    graph,
+		Cache:    st,
+		UseCache: true,
+		BuildID:  "b1",
+		Budget:   DefaultBudget(),
+	}, evalFn)
+	assert resHit.Generated.Len() == 2 && runCount.Get() == 2 && resHit.Records[0].CacheHit && resHit.Records[1].CacheHit
+	assert MapperOriginKindName(resHit.Records[0].Kind) == "inline"
+
+	let remapSpan = RemapDeriveDiagnostic(res.Generated[0], SourceFile{Name: "m.ergo", Src: src}, ContentDiagnostic{
+		FileIndex: uint32(0), File: res.Generated[0].File.Name, Offset: uint32(6), Length: uint32(2),
+		Line:      uint32(1), Column: uint32(7), Code: "E300", Message: "gen error", Warning: false,
+	})
+	assert remapSpan.File == "m.ergo" && remapSpan.Line == uint32(2) && strings.Contains(remapSpan.Message, "gen error")
+
+	let dupSrc = "type User { ID int }\ntype User derive makePlan(\"x\")\n"
+	let dupRes = ExpandInlineDerives(ExpandInlineRequest{
+		PkgPath:  "app/dup",
+		Files:    []SourceFile{SourceFile{Name: "d.ergo", Src: dupSrc}},
+		Graph:    graph,
+		Cache:    st,
+		UseCache: false,
+		BuildID:  "b1",
+		Budget:   DefaultBudget(),
+	}, evalFn)
+	assert dupRes.Generated.Len() == 0 && dupRes.Diags.Len() == 1 && strings.Contains(dupRes.Diags[0].Message, "already declared")
+}

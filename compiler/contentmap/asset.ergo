@@ -1,0 +1,630 @@
+import content
+import dense
+import filepath
+import fs
+import fstest
+import option
+import slices
+import strings
+
+// MapRule represents one validated `map PATTERN PKG.FUNC [COMPANIONS...]` directive from ergo.mod.
+type MapRule {
+	Pattern    string,
+	MapperPkg  string,
+	MapperFunc string,
+	Companions []string,
+	Line       uint32,
+	Col        uint32,
+}
+
+// RuleParseError reports a malformed `map` directive or invalid glob/mapper spec in ergo.mod.
+type RuleParseError {
+	Line    uint32,
+	Col     uint32,
+	Message string,
+}
+
+// IsRelativeAssetPath reports whether importPath begins with "./" or "../".
+func IsRelativeAssetPath(importPath string) bool {
+	strings.HasPrefix(importPath, "./") || strings.HasPrefix(importPath, "../")
+}
+
+// AssetStem returns the default binding identifier stem of an asset path.
+func AssetStem(assetPath string) string {
+	let base = filepath.Base(assetPath)
+	let dot = strings.LastIndex(base, ".")
+	if dot > 0 {
+		return base[0:dot]
+	}
+	base
+}
+
+func stripModComment(line string) string {
+	let idx = strings.Index(line, "//")
+	if idx >= 0 {
+		return line[0:idx]
+	}
+	line
+}
+
+func columnOfToken(line string, tok string) uint32 {
+	let idx = strings.Index(line, tok)
+	if idx >= 0 {
+		return uint32(idx + 1)
+	}
+	uint32(1)
+}
+
+func lastColumnOfToken(line string, tok string) uint32 {
+	let idx = strings.LastIndex(line, tok)
+	if idx >= 0 {
+		return uint32(idx + 1)
+	}
+	uint32(1)
+}
+
+func validateAssetPattern(raw string, cleaned string) string {
+	if raw == "" || strings.HasPrefix(raw, "/") || strings.Contains(raw, "\\") || strings.HasPrefix(cleaned, "..") || cleaned == "." {
+		return "invalid map pattern \"" + raw + "\": must be a relative path or glob inside the module"
+	}
+	let base = filepath.Base(cleaned)
+	if strings.HasSuffix(base, ".ergo") || base == "ergo.mod" || base == "ergo.laws" || base == "go.mod" {
+		return "invalid map pattern \"" + raw + "\": content mappers cannot override Ergo source or manifest files"
+	}
+	let _ = filepath.Match(cleaned, "test") catch {
+	case filepath.BadPattern:
+		return "invalid map pattern \"" + raw + "\": malformed glob syntax"
+	}
+	""
+}
+
+func validateCompanionPattern(raw string, cleaned string) string {
+	if raw == "" || strings.HasPrefix(raw, "/") || strings.Contains(raw, "\\") || strings.HasPrefix(cleaned, "..") || cleaned == "." {
+		return "invalid companion pattern \"" + raw + "\": must stay inside the module root"
+	}
+	let _ = filepath.Match(cleaned, "test") catch {
+	case filepath.BadPattern:
+		return "invalid companion pattern \"" + raw + "\": malformed glob syntax"
+	}
+	""
+}
+
+func isValidErgoIdent(s string) bool {
+	if s == "" {
+		return false
+	}
+	for i in 0..s.Len() {
+		let c = s[i]
+		let isLower = c >= byte(97) && c <= byte(122)
+		let isUpper = c >= byte(65) && c <= byte(90)
+		let isUnderscore = c == byte(95)
+		let isDigit = c >= byte(48) && c <= byte(57)
+		if !(isLower || isUpper || isUnderscore || (i > 0 && isDigit)) {
+			return false
+		}
+	}
+	true
+}
+
+type specParseErr {
+	Msg string,
+}
+
+type splitSpec {
+	Pkg  string,
+	Func string,
+}
+
+func splitMapperSpec(spec string) splitSpec fails specParseErr {
+	let lastSlash = strings.LastIndex(spec, "/")
+	let tail = spec[(lastSlash + 1):spec.Len()]
+	let dot = strings.LastIndex(tail, ".")
+	if dot <= 0 || dot == tail.Len()-1 {
+		return specParseErr{Msg: "invalid mapper \"" + spec + "\" in ergo.mod: expected PKG.Func"}
+	}
+	let splitAt = lastSlash + 1 + dot
+	let pkgPath = spec[0:splitAt]
+	let fnName = spec[(splitAt + 1):spec.Len()]
+	if pkgPath == "" || !isValidErgoIdent(fnName) {
+		return specParseErr{Msg: "invalid mapper \"" + spec + "\" in ergo.mod: expected PKG.Func with a valid Ergo function name"}
+	}
+	for seg in strings.Split(pkgPath, "/") {
+		if seg == "" || seg == "." || seg == ".." || strings.Contains(seg, "\\") {
+			return specParseErr{Msg: "invalid mapper package path \"" + pkgPath + "\" in ergo.mod"}
+		}
+	}
+	splitSpec{Pkg: pkgPath, Func: fnName}
+}
+
+// ParseMapRules parses all `map` directives from ergo.mod text and validates
+// asset patterns, mapper specs, and companion patterns.
+func ParseMapRules(modText string) []MapRule fails RuleParseError {
+	let lines = strings.Split(modText, "\n")
+	let mut out = []MapRule{}
+	for idx in 0..lines.Len() {
+		let lineNum = uint32(idx + 1)
+		let rawLine = lines[idx]
+		let stripped = stripModComment(rawLine)
+		let fields = strings.Fields(stripped)
+		if fields.Len() == 0 || fields[0] != "map" {
+			continue
+		}
+		if fields.Len() < 3 {
+			return RuleParseError{Line: lineNum, Col: uint32(1), Message: "ergo.mod map line needs: map PATTERN PKG.FUNC [COMPANIONS...]"}
+		}
+		let rawPat = fields[1]
+		let cleanedPat = filepath.Clean(rawPat)
+		let patErr = validateAssetPattern(rawPat, cleanedPat)
+		if patErr != "" {
+			return RuleParseError{Line: lineNum, Col: columnOfToken(rawLine, rawPat), Message: patErr}
+		}
+		let spec = splitMapperSpec(fields[2]) catch {
+		case specParseErr as spErr:
+			return RuleParseError{Line: lineNum, Col: columnOfToken(rawLine, fields[2]), Message: spErr.Msg}
+		}
+		let mut comps = []string{}
+		for ci in 3..fields.Len() {
+			let rawComp = fields[ci]
+			let cleanComp = filepath.Clean(rawComp)
+			let compErr = validateCompanionPattern(rawComp, cleanComp)
+			if compErr != "" {
+				return RuleParseError{Line: lineNum, Col: lastColumnOfToken(rawLine, rawComp), Message: compErr}
+			}
+			comps = comps.Append(cleanComp)
+		}
+		out = out.Append(MapRule{
+			Pattern:    cleanedPat,
+			MapperPkg:  spec.Pkg,
+			MapperFunc: spec.Func,
+			Companions: comps,
+			Line:       lineNum,
+			Col:        columnOfToken(rawLine, "map"),
+		})
+	}
+	out
+}
+
+func matchesRulePattern(pattern string, relSlash string) bool {
+	let direct = filepath.Match(pattern, relSlash) catch {
+	case filepath.BadPattern:
+		false
+	}
+	if direct {
+		return true
+	}
+	if !strings.Contains(pattern, "/") {
+		let byBase = filepath.Match(pattern, filepath.Base(relSlash)) catch {
+		case filepath.BadPattern:
+			false
+		}
+		return byBase
+	}
+	false
+}
+
+// MatchAssetRule finds the first MapRule matching relSlash.
+func MatchAssetRule(rules []MapRule, relSlash string) option.Option[MapRule] {
+	for r in rules {
+		if matchesRulePattern(r.Pattern, relSlash) {
+			return option.Some[MapRule]{Value: r}
+		}
+	}
+	option.None
+}
+
+// DiscoverRequest describes an asset import to resolve against ergo.mod map rules.
+type DiscoverRequest {
+	ModRoot     string,
+	ModName     string,
+	PackageDir  string,
+	PackagePath string,
+	ImportPath  string,
+	Rules       []MapRule,
+}
+
+// DiscoveryProblem describes why asset discovery or companion loading failed.
+type DiscoveryProblem =
+	| MissingModule{}
+	| OutsideModule{ImportPath string, Reason string}
+	| TargetIsErgo{ImportPath string}
+	| NoMatchingRule{RelPath string}
+	| UnreadableAsset{Path string, Reason string}
+	| CompanionError{Pattern string, Reason string}
+
+// FormatDiscoveryProblem returns a diagnostic string describing p.
+func FormatDiscoveryProblem(p DiscoveryProblem) string {
+	match p {
+	case MissingModule:
+		"no ergo.mod declares a module or map rules for asset imports"
+	case OutsideModule as o:
+		o.Reason
+	case TargetIsErgo as t:
+		"asset import " + t.ImportPath + " cannot target an .ergo source file directly"
+	case NoMatchingRule as n:
+		"no ergo.mod map rule matches asset " + n.RelPath
+	case UnreadableAsset as u:
+		"cannot read asset " + u.Path + ": " + u.Reason
+	case CompanionError as c:
+		c.Reason
+	}
+}
+
+// DiscoveredAsset contains the resolved asset payload and canonically ordered companions.
+type DiscoveredAsset {
+	Rule       MapRule,
+	RelPath    string,
+	AbsPath    string,
+	CanonPath  string,
+	Bytes      []byte,
+	Companions []content.CompanionAsset,
+}
+
+// AssetTag identifies a discovered asset row in AssetTable.
+type AssetTag {}
+
+// CompanionTag identifies a discovered companion row in AssetTable.
+type CompanionTag {}
+
+// AssetTable stores discovered assets and their companion bounds in flat SoA columns.
+type AssetTable {
+	Count     dense.Count[AssetTag],
+	Strings   dense.Strings,
+	RelIDs    dense.Col[AssetTag, dense.ID[dense.Str]],
+	CanonIDs  dense.Col[AssetTag, dense.ID[dense.Str]],
+	RuleLine  dense.Col[AssetTag, uint32],
+	ByteLen   dense.Col[AssetTag, uint32],
+	CompStart dense.Col[AssetTag, uint32],
+	CompEnd   dense.Col[AssetTag, uint32],
+	CompCount dense.Count[CompanionTag],
+	CompPaths dense.Col[CompanionTag, dense.ID[dense.Str]],
+	CompLens  dense.Col[CompanionTag, uint32],
+}
+
+// NewAssetTable allocates an empty AssetTable.
+func NewAssetTable() AssetTable {
+	AssetTable{
+		Count:     dense.NewCount[AssetTag](),
+		Strings:   dense.NewStrings(),
+		RelIDs:    dense.NewCol[AssetTag, dense.ID[dense.Str]](),
+		CanonIDs:  dense.NewCol[AssetTag, dense.ID[dense.Str]](),
+		RuleLine:  dense.NewCol[AssetTag, uint32](),
+		ByteLen:   dense.NewCol[AssetTag, uint32](),
+		CompStart: dense.NewCol[AssetTag, uint32](),
+		CompEnd:   dense.NewCol[AssetTag, uint32](),
+		CompCount: dense.NewCount[CompanionTag](),
+		CompPaths: dense.NewCol[CompanionTag, dense.ID[dense.Str]](),
+		CompLens:  dense.NewCol[CompanionTag, uint32](),
+	}
+}
+
+// RecordAsset inserts one DiscoveredAsset and its companions into t.
+func RecordAsset(t mut AssetTable, a DiscoveredAsset) dense.ID[AssetTag] {
+	let id = dense.Next(&t.Count)
+	dense.Push(&t.RelIDs, dense.InternText(&t.Strings, a.RelPath))
+	dense.Push(&t.CanonIDs, dense.InternText(&t.Strings, a.CanonPath))
+	dense.Push(&t.RuleLine, a.Rule.Line)
+	dense.Push(&t.ByteLen, uint32(a.Bytes.Len()))
+	let cStart = uint32(dense.Total(t.CompCount))
+	for c in a.Companions {
+		let _ = dense.Next(&t.CompCount)
+		dense.Push(&t.CompPaths, dense.InternText(&t.Strings, c.Path))
+		dense.Push(&t.CompLens, uint32(c.Bytes.Len()))
+	}
+	let cEnd = uint32(dense.Total(t.CompCount))
+	dense.Push(&t.CompStart, cStart)
+	dense.Push(&t.CompEnd, cEnd)
+	id
+}
+
+// FindDiscoveredAsset looks up the dense asset ID for canonPath.
+func FindDiscoveredAsset(t AssetTable, canonPath string) option.Option[dense.ID[AssetTag]] {
+	let targetID = match dense.FindText(t.Strings, canonPath) {
+	case option.Some{Value: sid}:
+		sid
+	case option.None:
+		return option.None
+	}
+	let n = dense.Total(t.Count)
+	for i in 0..n {
+		let id = dense.IDAt(t.Count, i)
+		if dense.Of(t.CanonIDs, id) == targetID {
+			return option.Some[dense.ID[AssetTag]]{Value: id}
+		}
+	}
+	option.None
+}
+
+// AssetCount returns how many assets are recorded in t.
+func AssetCount(t AssetTable) uint32 { uint32(dense.Total(t.Count)) }
+
+// CompanionRange returns the inclusive start and exclusive end companion indices for aid.
+func CompanionRange(t AssetTable, aid dense.ID[AssetTag]) (uint32, uint32) {
+	(dense.Of(t.CompStart, aid), dense.Of(t.CompEnd, aid))
+}
+
+func resolveAssetAbsPath(fsys fs.Files, req DiscoverRequest) string fails DiscoveryProblem {
+	if IsRelativeAssetPath(req.ImportPath) {
+		return filepath.Clean(filepath.Join([]string{req.PackageDir, req.ImportPath}))
+	}
+	if req.ModName == "" {
+		return OutsideModule{ImportPath: req.ImportPath, Reason: "asset import " + req.ImportPath + " escapes module root"}
+	}
+	let prefix = req.ModName + "/"
+	if !strings.HasPrefix(req.ImportPath, prefix) {
+		return OutsideModule{ImportPath: req.ImportPath, Reason: "asset import " + req.ImportPath + " is outside module " + req.ModName}
+	}
+	let relInMod = req.ImportPath[prefix.Len():req.ImportPath.Len()]
+	let candidate = filepath.Clean(filepath.Join([]string{req.ModRoot, relInMod}))
+	let info = fsys.Stat(candidate) catch {
+	case fs.NotFound:
+		return UnreadableAsset{Path: candidate, Reason: "not found"}
+	case fs.Denied:
+		return UnreadableAsset{Path: candidate, Reason: "permission denied"}
+	case fs.Failed as f:
+		return UnreadableAsset{Path: candidate, Reason: f.Reason}
+	}
+	if info.Dir {
+		return OutsideModule{ImportPath: req.ImportPath, Reason: "asset import " + req.ImportPath + " resolves to a directory"}
+	}
+	candidate
+}
+
+// DiscoverAsset resolves, confines, reads, and loads companions for an imported asset.
+func DiscoverAsset(fsys fs.Files, req DiscoverRequest) DiscoveredAsset fails DiscoveryProblem {
+	if req.ModRoot == "" {
+		return MissingModule
+	}
+	let absAsset = try resolveAssetAbsPath(fsys, req)
+	let rel = filepath.Rel(req.ModRoot, absAsset) catch {
+	case filepath.NotRelative:
+		return OutsideModule{ImportPath: req.ImportPath, Reason: "asset import " + req.ImportPath + " escapes module root"}
+	}
+	if rel == "." || strings.HasPrefix(rel, "..") || filepath.IsAbs(rel) {
+		return OutsideModule{ImportPath: req.ImportPath, Reason: "asset import " + req.ImportPath + " escapes module root"}
+	}
+	if strings.HasSuffix(rel, ".ergo") {
+		return TargetIsErgo{ImportPath: req.ImportPath}
+	}
+	let rule = match MatchAssetRule(req.Rules, rel) {
+	case option.Some{Value: r}:
+		r
+	case option.None:
+		return NoMatchingRule{RelPath: rel}
+	}
+	let rawText = fsys.ReadFile(absAsset) catch {
+	case fs.NotFound:
+		return UnreadableAsset{Path: rel, Reason: "not found"}
+	case fs.Denied:
+		return UnreadableAsset{Path: rel, Reason: "permission denied"}
+	case fs.Failed as f:
+		return UnreadableAsset{Path: rel, Reason: f.Reason}
+	}
+	let comps = try loadCompanionAssets(fsys, req.ModRoot, rule.Companions)
+	let canon = if req.ModName == "" { rel } else { req.ModName + "/" + rel }
+	DiscoveredAsset{
+		Rule:       rule,
+		RelPath:    rel,
+		AbsPath:    absAsset,
+		CanonPath:  canon,
+		Bytes:      rawText.Bytes(),
+		Companions: comps,
+	}
+}
+
+func loadCompanionAssets(fsys fs.Files, modRoot string, patterns []string) []content.CompanionAsset fails DiscoveryProblem {
+	if patterns.Len() == 0 {
+		return []content.CompanionAsset{}
+	}
+	let mut seen = dense.NewStrings()
+	let mut out = []content.CompanionAsset{}
+	for pat in patterns {
+		let matches = try collectCompanionPaths(fsys, modRoot, pat)
+		for abs in matches {
+			let rel = filepath.Rel(modRoot, abs) catch {
+			case filepath.NotRelative:
+				return CompanionError{Pattern: pat, Reason: "companion path escapes module root"}
+			}
+			if strings.HasPrefix(rel, "..") || filepath.IsAbs(rel) {
+				return CompanionError{Pattern: pat, Reason: "companion path " + rel + " escapes module root"}
+			}
+			if dense.FindText(seen, rel) != option.None {
+				continue
+			}
+			let _ = dense.InternText(&seen, rel)
+			let text = fsys.ReadFile(abs) catch {
+			case fs.NotFound:
+				return CompanionError{Pattern: pat, Reason: "cannot read companion asset " + rel + ": not found"}
+			case fs.Denied:
+				return CompanionError{Pattern: pat, Reason: "cannot read companion asset " + rel + ": denied"}
+			case fs.Failed as f:
+				return CompanionError{Pattern: pat, Reason: "cannot read companion asset " + rel + ": " + f.Reason}
+			}
+			out = out.Append(content.CompanionAsset{Path: rel, Bytes: text.Bytes()})
+		}
+	}
+	out
+}
+
+func hasGlobMeta(pattern string) bool {
+	strings.Contains(pattern, "*") || strings.Contains(pattern, "?") || strings.Contains(pattern, "[")
+}
+
+func collectCompanionPaths(fsys fs.Files, root string, pattern string) []string fails DiscoveryProblem {
+	if !hasGlobMeta(pattern) {
+		let abs = filepath.Clean(filepath.Join([]string{root, pattern}))
+		let info = fsys.Stat(abs) catch {
+		case fs.NotFound:
+			return CompanionError{Pattern: pattern, Reason: "invalid companion pattern " + pattern + ": not found"}
+		case fs.Denied:
+			return CompanionError{Pattern: pattern, Reason: "invalid companion pattern " + pattern + ": denied"}
+		case fs.Failed as f:
+			return CompanionError{Pattern: pattern, Reason: "invalid companion pattern " + pattern + ": " + f.Reason}
+		}
+		if info.Dir {
+			return CompanionError{Pattern: pattern, Reason: pattern + " is not a regular file"}
+		}
+		return []string{abs}
+	}
+	let mut out = []string{}
+	try walkCompanionDir(fsys, root, root, pattern, &out)
+	out = slices.Sort(out)
+	out
+}
+
+func walkCompanionDir(fsys fs.Files, root string, dir string, pattern string, out mut []string) fails DiscoveryProblem {
+	let entries = fsys.ReadDir(dir) catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		if dir == root {
+			return CompanionError{Pattern: pattern, Reason: "invalid companion pattern " + pattern + ": unreadable root"}
+		}
+		return
+	}
+	for name in entries {
+		if strings.HasPrefix(name, ".") {
+			continue
+		}
+		let full = filepath.Join([]string{dir, name})
+		let info = fsys.Stat(full) catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+			continue
+		}
+		if info.Dir {
+			try walkCompanionDir(fsys, root, full, pattern, out)
+			continue
+		}
+		let rel = filepath.Rel(root, full) catch {
+		case filepath.NotRelative:
+			continue
+		}
+		let matched = filepath.Match(pattern, rel) catch {
+		case filepath.BadPattern:
+			return CompanionError{Pattern: pattern, Reason: "invalid companion pattern " + pattern}
+		}
+		if matched {
+			*out = (*out).Append(full)
+		}
+	}
+}
+
+// MapRuleValidatesAndMatchesExact checks that valid ergo.mod map rules parse cleanly and match both relative and basename patterns.
+law MapRuleValidatesAndMatchesExact(stem string) {
+	if stem == "" || strings.Contains(stem, "/") || strings.Contains(stem, "\\") || strings.Contains(stem, ".") || strings.Contains(stem, " ") || strings.Contains(stem, "\t") || strings.Contains(stem, "\n") || strings.Contains(stem, "\r") || strings.Contains(stem, "*") || strings.Contains(stem, "?") || strings.Contains(stem, "[") {
+		return true
+	}
+	let modTxt = "module app\nmap *.sql app/sqlgen.MapSQL schema/*.sql\n"
+	let rules = ParseMapRules(modTxt) catch {
+	case RuleParseError:
+		return false
+	}
+	if rules.Len() != 1 {
+		return false
+	}
+	let matched = MatchAssetRule(rules, "queries/"+stem+".sql")
+	matched != option.None && IsRelativeAssetPath("./queries/"+stem+".sql") && AssetStem("queries/"+stem+".sql") == stem
+}
+
+// EscapePatternRejected ensures ParseMapRules rejects rooted paths, parent traversals, backslashes, and .ergo pattern overrides.
+law EscapePatternRejected(kind uint8) {
+	let sel = int(kind) % 4
+	let badPat = if sel == 0 { "/abs/*.sql" } else if sel == 1 { "../up/*.sql" } else if sel == 2 { "win\\*.sql" } else { "*.ergo" }
+	let modTxt = "module app\nmap " + badPat + " app/m.Map\n"
+	let got = ParseMapRules(modTxt) catch {
+	case RuleParseError:
+		return true
+	}
+	got.Len() < 0
+}
+
+test DiscoverAssetSandboxAndCompanions {
+	let modTxt = "module demo\nmap queries/*.sql demo/sqlmap.Build schema/*.sql\nmap *.json demo/jsonmap.Decode\n"
+	let rules = ParseMapRules(modTxt) catch {
+	case RuleParseError:
+		assert false
+		return
+	}
+	assert rules.Len() == 2
+	assert rules[0].MapperPkg == "demo/sqlmap"
+	assert rules[0].MapperFunc == "Build"
+	assert rules[0].Companions == ([]string{"schema/*.sql"})
+
+	let m = fstest.NewMemory()
+	let writeOk = func(p string, body string) bool {
+		m.MkdirAll(filepath.Dir(p)) catch {
+		case fs.Denied, fs.Failed:
+			return false
+		}
+		m.WriteFile(p, body) catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+			return false
+		}
+		true
+	}
+	assert writeOk("/mod/queries/users.sql", "SELECT 1;")
+	assert writeOk("/mod/schema/b.sql", "CREATE TABLE b(id INT);")
+	assert writeOk("/mod/schema/a.sql", "CREATE TABLE a(id INT);")
+	assert writeOk("/mod/pkg/main.ergo", "func main() {}")
+	assert writeOk("/secret.txt", "top-secret")
+
+	let req = DiscoverRequest{
+		ModRoot:     "/mod",
+		ModName:     "demo",
+		PackageDir:  "/mod/pkg",
+		PackagePath: "demo/pkg",
+		ImportPath:  "../queries/users.sql",
+		Rules:       rules,
+	}
+	let asset = DiscoverAsset(m, req) catch {
+	case DiscoveryProblem:
+		assert false
+		return
+	}
+	assert asset.RelPath == "queries/users.sql"
+	assert asset.CanonPath == "demo/queries/users.sql"
+	assert asset.Companions.Len() == 2
+	assert asset.Companions[0].Path == "schema/a.sql"
+	assert asset.Companions[1].Path == "schema/b.sql"
+
+	let mut table = NewAssetTable()
+	let aid = RecordAsset(&table, asset)
+	assert AssetCount(table) == uint32(1)
+	assert FindDiscoveredAsset(table, "demo/queries/users.sql") == (option.Some[dense.ID[AssetTag]]{Value: aid})
+	let c0, c1 = CompanionRange(table, aid)
+	assert c0 == uint32(0) && c1 == uint32(2)
+
+	let emptyAsset = DiscoveredAsset{Rule: rules[0], RelPath: "", AbsPath: "", CanonPath: "", Bytes: []byte{}, Companions: []content.CompanionAsset{}}
+	let escapeReq = DiscoverRequest{
+		ModRoot:     "/mod",
+		ModName:     "demo",
+		PackageDir:  "/mod/pkg",
+		PackagePath: "demo/pkg",
+		ImportPath:  "../../secret.txt",
+		Rules:       rules,
+	}
+	let mut sawEscape = false
+	let _ = DiscoverAsset(m, escapeReq) catch {
+	case OutsideModule:
+		sawEscape = true
+		emptyAsset
+	case _:
+		emptyAsset
+	}
+	assert sawEscape
+
+	let ergoReq = DiscoverRequest{
+		ModRoot:     "/mod",
+		ModName:     "demo",
+		PackageDir:  "/mod/pkg",
+		PackagePath: "demo/pkg",
+		ImportPath:  "./main.ergo",
+		Rules:       rules,
+	}
+	let mut sawErgoTarget = false
+	let _ = DiscoverAsset(m, ergoReq) catch {
+	case TargetIsErgo:
+		sawErgoTarget = true
+		emptyAsset
+	case _:
+		emptyAsset
+	}
+	assert sawErgoTarget
+}

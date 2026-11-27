@@ -1,0 +1,122 @@
+{
+  "about": "Self-hosted Data-Oriented lawcache key framing, root rewriting, verdict supersede, eviction, and LRU trim mutants.",
+  "mutants": [
+    {
+      "name": "selfhost-lawcache-key-unframed",
+      "origin": "selfhost-lawcache",
+      "file": "compiler/lawcache/keys.ergo",
+      "decl": "Key",
+      "from": "\t\th.Write(strconv.Itoa(p.Len()) + \":\" + p)\n",
+      "to": "\t\th.Write(p)\n",
+      "rule": "Key must frame every part with its explicit length prefix so split and join boundaries cannot collide.",
+      "killers": ["compiler/lawcache:law:KeyPartsAreFramed"],
+      "anchor": {
+        "tests": ["compiler/lawcache:law:KeyPartsAreFramed"]
+      }
+    },
+    {
+      "name": "selfhost-lawcache-within-escapes-root",
+      "origin": "selfhost-lawcache",
+      "file": "compiler/lawcache/keys.ergo",
+      "decl": "Within",
+      "from": "\tif rel == \"..\" || strings.HasPrefix(rel, \"../\") || filepath.IsAbs(rel) {\n",
+      "to": "\tif filepath.IsAbs(rel) {\n",
+      "rule": "Only paths inside the module root are rewritten to @/; parent and sibling paths stay unchanged.",
+      "killers": ["compiler/lawcache:law:WithinUnrootRoundTrips"],
+      "anchor": {
+        "tests": ["compiler/lawcache:law:WithinUnrootRoundTrips"]
+      }
+    },
+    {
+      "name": "selfhost-lawcache-names-resolved-blind",
+      "origin": "selfhost-lawcache",
+      "file": "compiler/lawcache/keys.ergo",
+      "decl": "NamesResolved",
+      "from": "\tresolved != \"\" && resolved != root && strings.Contains(text, resolved)\n",
+      "to": "\tfalse && resolved != \"\" && resolved != root && strings.Contains(text, resolved)\n",
+      "rule": "NamesResolved must reject answers naming the workspace through a resolved symlink path.",
+      "killers": ["compiler/lawcache:WithinAndNamesWithSymlinks"],
+      "anchor": {
+        "tests": ["compiler/lawcache:WithinAndNamesWithSymlinks"]
+      }
+    },
+    {
+      "name": "selfhost-lawcache-cached-line-parsed-as-fresh",
+      "origin": "selfhost-lawcache",
+      "file": "compiler/lawcache/verdict.ergo",
+      "decl": "FromLine",
+      "from": "\tif !strings.HasPrefix(line, prefix) || !strings.HasSuffix(line, \")\") || strings.HasSuffix(line, \") (cached)\") {\n",
+      "to": "\tif !strings.HasPrefix(line, prefix) || !strings.HasSuffix(line, \")\") {\n",
+      "rule": "FromLine must refuse lines already suffixed with (cached) so cached output is not re-recorded as a fresh run.",
+      "killers": ["compiler/lawcache:law:CachedLineNotParsedAsFreshRun"],
+      "anchor": {
+        "tests": ["compiler/lawcache:law:CachedLineNotParsedAsFreshRun"]
+      }
+    },
+    {
+      "name": "selfhost-lawcache-supersede-proved-downgrade",
+      "origin": "selfhost-lawcache",
+      "file": "compiler/lawcache/verdict.ergo",
+      "decl": "Supersedes",
+      "from": "\tif !cProved && eProved {\n\t\treturn false\n\t}\n",
+      "to": "\tif !cProved && eProved {\n\t\treturn true\n\t}\n",
+      "rule": "A tested verdict never supersedes an already-stored proved verdict.",
+      "killers": ["compiler/lawcache:law:ProvedSupersedesTested"],
+      "anchor": {
+        "tests": ["compiler/lawcache:law:ProvedSupersedesTested"]
+      }
+    },
+    {
+      "name": "selfhost-lawcache-fresh-reads-disk",
+      "origin": "selfhost-lawcache",
+      "file": "compiler/lawcache/store.ergo",
+      "decl": "Get",
+      "from": "\tif !s.hasDisk || fresh {\n",
+      "to": "\tif !s.hasDisk || (fresh && false) {\n",
+      "rule": "Fresh stores never serve prior entries persisted on disk.",
+      "killers": ["compiler/lawcache:law:StaleEntryAndFreshSoundness"],
+      "anchor": {
+        "tests": ["compiler/lawcache:law:StaleEntryAndFreshSoundness"]
+      }
+    },
+    {
+      "name": "selfhost-lawcache-keep-stores-fail",
+      "origin": "selfhost-lawcache",
+      "file": "compiler/lawcache/store.ergo",
+      "decl": "Keep",
+      "from": "\tif text == \"\" || IsFailureText(text) {\n",
+      "to": "\tif text == \"\" {\n",
+      "rule": "Failure verdicts containing FAIL lines must never be stored in the law cache.",
+      "killers": ["compiler/lawcache:law:StaleEntryAndFreshSoundness"],
+      "anchor": {
+        "tests": ["compiler/lawcache:law:StaleEntryAndFreshSoundness"]
+      }
+    },
+    {
+      "name": "selfhost-lawcache-evict-stale-keeps-old",
+      "origin": "selfhost-lawcache",
+      "file": "compiler/lawcache/store.ergo",
+      "decl": "EvictStale",
+      "from": "\t\t\tif sameDigest {\n\t\t\t\tcontinue\n\t\t\t}\n",
+      "to": "\t\t\tif sameDigest || true {\n\t\t\t\tcontinue\n\t\t\t}\n",
+      "rule": "EvictStale removes entries whose digest no longer matches keepDigest from both memory and disk.",
+      "killers": ["compiler/lawcache:law:VerdictSupersedeAndStaleDigestEviction"],
+      "anchor": {
+        "tests": ["compiler/lawcache:law:VerdictSupersedeAndStaleDigestEviction"]
+      }
+    },
+    {
+      "name": "selfhost-lawcache-trim-skips-lru-eviction",
+      "origin": "selfhost-lawcache",
+      "file": "compiler/lawcache/store.ergo",
+      "decl": "Trim",
+      "from": "\t\tif uint32(active.Len()) <= maxEntries {\n",
+      "to": "\t\tif true || uint32(active.Len()) <= maxEntries {\n",
+      "rule": "Trim evicts the least-recently-used entries down to maxEntries.",
+      "killers": ["compiler/lawcache:RegistrySharesMemoryAndTrimEvictsLRU"],
+      "anchor": {
+        "tests": ["compiler/lawcache:RegistrySharesMemoryAndTrimEvictsLRU"]
+      }
+    }
+  ]
+}
