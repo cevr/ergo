@@ -67,6 +67,27 @@ func Get(network net.Network, addr string) string fails DrillFailed {
 	strings.TrimSpace(strings.Slice(raw, at+4, raw.Len()))
 }
 
+// CutoverAbortDrill starts a daemon, starts a successor that adopts its sockets and dies before the commit, and shows the old daemon rolled back and serving the same address.
+func CutoverAbortDrill(sessions exec.Sessions, network net.Network, p CutoverPair, out func(line string)) fails DrillFailed {
+	let old = try startDaemon(sessions, p, "first")
+	let addr = echoUntil(old, "old", "serving epoch=1", out)
+	if addr == "" {
+		return startFailed("old", "no address")
+	}
+	out("request before: \(try Get(network, addr))")
+	let next = try startDaemon(sessions, p, "abort")
+	let _ = echoUntil(next, "new", "", out)
+	out("new: exit \(next.Wait())")
+	let _ = echoUntil(old, "old", "serving epoch=1 again", out)
+	out("request after: \(try Get(network, addr))")
+	old.CloseStdin() catch {
+	case exec.Failed as e:
+		return startFailed("old", e.Reason)
+	}
+	let _ = echoUntil(old, "old", "", out)
+	out("old: exit \(old.Wait())")
+}
+
 // CutoverDrill starts a daemon serving HTTP, asks it a request, starts a successor that takes over its listening and control sockets live, asks the same address again, and shows the predecessor fenced and the address unchanged.
 func CutoverDrill(sessions exec.Sessions, network net.Network, p CutoverPair, out func(line string)) fails DrillFailed {
 	let old = try startDaemon(sessions, p, "first")

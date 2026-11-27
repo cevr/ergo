@@ -60,6 +60,10 @@ func runFirstDaemon(store sqlite.Store, ctlPath string, nowMs int64) fails os.Ex
 	}
 	out.Println("addr \(ln.Addr())")
 	out.Println("serving epoch=\(epoch)")
+	let keep = ln.DupFD() catch {
+	case net.Failed, net.Unsupported:
+		return failExit(1, "atlas cutover-daemon: cannot keep a rollback copy of the listener")
+	}
 	let ack = with context { time.Scheduler: time.NewLiveScheduler() } {
 		let server = task.Go() {
 			http.Serve(ln, cutoverLimits(), func(_ http.Request) http.Response needs http.Streaming { epochResponse(epoch) })
@@ -67,11 +71,45 @@ func runFirstDaemon(store sqlite.Store, ctlPath string, nowMs int64) fails os.Ex
 		serve.OfferSockets(ctl, ln, "atlas-handover epoch=\(epoch)", func() { server.Stop() })
 	} catch {
 	case serve.ServeError as e:
-		return serveFailed(e)
+		out.Println("rolled back: \(serve.DescribeServeError(e))")
+		try serveAgain(keep, epoch)
+		return
 	}
+	keep.Close()
 	out.Println("handed over: \(ack)")
 	ctl.SetUnlinkOnClose(false)
 	out.Println("old write fenced: \(serve.OldWriteFenced(store, boot.Lease, nowMs))")
+}
+
+func serveAgain(keep own net.FD, epoch int) fails os.Exit needs os.Ambient | io.Console {
+	let out = io.NewHost()
+	let stdin = io.NewStdin()
+	let ln = serve.RollBackListener(keep) catch {
+	case serve.ServeError as e:
+		return serveFailed(e)
+	}
+	out.Println("serving epoch=\(epoch) again")
+	with context { time.Scheduler: time.NewLiveScheduler() } {
+		let server = task.Go() {
+			http.Serve(ln, cutoverLimits(), func(_ http.Request) http.Response needs http.Streaming { epochResponse(epoch) })
+		}
+		waitForEnd(stdin)
+		server.Stop()
+	}
+	out.Println("stopped")
+}
+
+func runAbortingDaemon(ctlPath string) fails os.Exit needs os.Ambient | io.Console {
+	let out = io.NewHost()
+	let taken = with context { net.UnixNetwork: net.NewHost() } {
+		serve.TakeSockets(ctlPath)
+	} catch {
+	case serve.ServeError as e:
+		return serveFailed(e)
+	}
+	out.Println("adopted: \(taken.Manifest)")
+	taken.Control.SetUnlinkOnClose(false)
+	out.Println("aborted before commit")
 }
 
 func runNextDaemon(store sqlite.Store, ctlPath string, nowMs int64) fails os.Exit needs os.Ambient | io.Console | go.Foreign {
@@ -108,28 +146,32 @@ func runNextDaemon(store sqlite.Store, ctlPath string, nowMs int64) fails os.Exi
 
 func runCutoverDaemon(store sqlite.Store, rest []string, nowFn func() int64) fails os.Exit needs os.Ambient | io.Console | go.Foreign {
 	if rest.Len() != 2 {
-		return failExit(2, "usage: atlas --store PATH cutover-daemon first|next CONTROL")
+		return failExit(2, "usage: atlas --store PATH cutover-daemon first|next|abort CONTROL")
 	}
 	match rest[0] {
 	case "first":
 		try runFirstDaemon(store, rest[1], nowFn())
 	case "next":
 		try runNextDaemon(store, rest[1], nowFn())
+	case "abort":
+		try runAbortingDaemon(rest[1])
 	case _:
-		failExit(2, "usage: atlas --store PATH cutover-daemon first|next CONTROL")
+		failExit(2, "usage: atlas --store PATH cutover-daemon first|next|abort CONTROL")
 	}
 }
 
 func runCutoverDrill(process os.Host, parsed settings.ParsedArgs) fails os.Exit needs os.Ambient | io.Console {
-	if !parsed.HasStoreFlag || parsed.StorePath == ":memory:" || parsed.Rest.Len() != 1 {
-		return failExit(2, "usage: atlas --store PATH cutover-drill CONTROL")
+	if !parsed.HasStoreFlag || parsed.StorePath == ":memory:" || (parsed.Rest.Len() != 1 && !(parsed.Rest.Len() == 2 && parsed.Rest[1] == "abort")) {
+		return failExit(2, "usage: atlas --store PATH cutover-drill CONTROL [abort]")
 	}
 	let exe = process.Executable() catch {
 	case os.NoDir:
 		return failExit(1, "atlas cutover-drill: cannot find its own executable")
 	}
 	let out = io.NewHost()
-	drill.CutoverDrill(exec.NewHost(), net.NewHost(), drill.CutoverPair{Exe: exe, StorePath: parsed.StorePath, Control: parsed.Rest[0]}, out.Println) catch {
+	let pair = drill.CutoverPair{Exe: exe, StorePath: parsed.StorePath, Control: parsed.Rest[0]}
+	let run = if parsed.Rest.Len() == 2 { drill.CutoverAbortDrill } else { drill.CutoverDrill }
+	run(exec.NewHost(), net.NewHost(), pair, out.Println) catch {
 	case drill.DrillFailed as e:
 		return failExit(1, "atlas cutover-drill: \(e.Stage): \(e.Reason)")
 	}

@@ -10,7 +10,7 @@ func ioFailed(op string, reason string) HandoverIOFailed {
 	HandoverIOFailed{Operation: op, Reason: reason}
 }
 
-func readAckLine(conn net.UnixConn) string fails ServeError {
+func readAckLine(conn net.UnixConn) string fails HandoverIOFailed {
 	let mut raw = ""
 	for !strings.Contains(raw, "\n") {
 		let chunk = conn.Read() catch {
@@ -67,9 +67,9 @@ func OfferSockets(ctl net.UnixListener, ln net.Listener, manifest string, quiesc
 		return ioFailed("send_fds", e.Reason)
 	}
 	let ack = readAckLine(conn) catch {
-	case ServeError as se:
+	case HandoverIOFailed as e:
 		conn.Close()
-		return HandoverIOFailed{Operation: "read_ack", Reason: DescribeServeError(se)}
+		return e
 	}
 	conn.Close()
 	ack
@@ -146,6 +146,20 @@ func adoptSockets(conn own net.UnixConn, manifest string, fds own []net.FD) Take
 		return ioFailed("adopt_control", e.Reason)
 	}
 	TakenSockets{Listener: ln, Control: ctl, Conn: conn, Manifest: manifest}
+}
+
+// RollBackListener is the old daemon's abort before the commit: the listening socket goes back to it (OwnerAfterRollback), from the copy keep it held through the handover, so no queued connection is lost.
+func RollBackListener(keep own net.FD) net.Listener fails ServeError {
+	if OwnerAfterRollback(cutover.OwnerNew) != cutover.OwnerOld {
+		keep.Close()
+		return CutoverProtocolFailed{Phase: "rollback", Reason: "the listener does not return to the old daemon"}
+	}
+	net.ListenFromFD(keep) catch {
+	case net.Failed as e:
+		return ioFailed("rollback_listener", e.Reason)
+	case net.Unsupported as e:
+		return ioFailed("rollback_listener", e.Reason)
+	}
 }
 
 func adoptedOwner(adopted bool) cutover.LeaseOwner {
