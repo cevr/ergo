@@ -257,6 +257,24 @@ Ergo provides one symmetric, zero-GC FFI boundary in both directions, plus RPC f
 
 ---
 
+## Native Floor Optimizations & Boundary Policies
+
+Five compiler and runtime levers lower the native floor without weakening contracts (`NB-8`–`NB-10` in [units.md](units.md)):
+
+1. **Law-Driven Optimization (`NB-8`):** Verified `given`/`gives`/`keeps` invariants (`0 <= i && i < xs.Len()`, equal-length columns) eliminate bounds checks and unlock auto-SIMD cleanly; proved `Associative`/`Identity`/`Fuse` interface laws fuse chained pipelines and SIMD-tree-reduce associative folds; pure (`needs` empty) calls hoist and parallelize safely.
+2. **Whole-Region Provider Devirtualization & Verified ISA Providers (`NB-9`):** Lexical `with context` regions specialize/devirtualize and inline the concrete provider across entire call trees (zero vtable overhead at runtime while preserving clean mockability); SIMD kernels (`AVX-512`/`AVX2`/`NEON`/scalar) implement one checked provider interface and are verified bit-identical to the pure scalar model via Ergo laws.
+3. **Transparent `AoS -> SoA` Packing (`NB-10`):** Because Ergo's value semantics never hand out interior element or field pointers, `SoA[T]`/`DenseTable[T]` containers store fields in contiguous cache-line columns with stride-1 vector scans and hot/cold field splitting under ordinary record syntax.
+4. **Actor-Turn Reset Arenas & Zero-Copy `own` Teleports (`NB-10`):** `Send(own buf)` transfers an `ErgoHdr` slab allocation between `ErgoActorHeap` owners in O(1) (decrementing sender `live_bytes`, crediting receiver `live_bytes`, zero copy, zero lock); actor `Step` handlers execute inside a per-turn scratch arena reset with one pointer write on exit.
+5. **Static `noalloc` Floor Proofs & Compute Providers (`NB-8`, `NB-9`):** Static Perceus/escape facts enforce `noalloc` / `own`-reuse checks on marked hot loops at compile time; pure functions (`needs` empty) plus proved `Associative` laws run interchangeably in `compiler/eval`, local SIMD worker pools, or sharded workers via a `Compute` provider.
+
+### Companion Policy & Specialization Rules
+
+- **Boundary-scoped memory policy providers:** Ordinary functions take no `mem.Alloc` capability and have zero GC knobs; boundaries (handlers, parsers, tests) enter explicit scoped bump arenas, enforce `Limits.Bytes`, inject deterministic alloc faults / zero-alloc checks, or bind opt-in backing pools (`std/arena`, `io_uring` registered buffers, `mmap`).
+- **Zero-annotation `--explore-faults`:** Replays test executions across compiler-known `needs` failure edges (`fails` rows, `OverBytes`, I1/I2 stop) to verify cleanup without manual failpoint hooks in production code.
+- **Typed static specialization (no Zig-style `comptime`):** Closed-union subsets compose upward from standalone nominal variant types; conditional code uses typed `const` dead-code elimination (disabled branches still typecheck); platform backends bind via `needs` + `under <platform>`; compile-time tables use pure `const` eval and `derive`.
+
+---
+
 ## Stage-0 -> Stage-1 -> Stage-2 Bootstrap & Go Deletion Criteria
 
 | Stage | Compiler Host | Backend Used | Purpose & Exit Criteria |

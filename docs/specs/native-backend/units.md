@@ -42,6 +42,15 @@ Breaks execution of [architecture.md](architecture.md) into seven vertical, para
                     NB-7. Stage-1 -> Stage-2 Bootstrap & Go Deletion
                     (Native self-host fixpoint, delete Stage-0 Go backend/
                      fork/gobind/runtime/v1, enforce <250 KB core spec)
+                                          |
+        +---------------------------------+---------------------------------+
+        |                                 |                                 |
+        v                                 v                                 v
+  NB-8. Law-Driven Opt              NB-9. Provider Devirt             NB-10. SoA[T], Own Actor
+  & Static noalloc Proofs           & ISA/Compute Providers           Teleports & --explore-faults
+  (given/keeps BCE + SIMD,          (with context region              (Compiler-managed SoA cols,
+   Associative/Fuse fusion,          monomorphization, law-verified    O(1) own mailbox handoff,
+   static noalloc checks)            AVX/NEON vs scalar, Compute)      turn arenas, fault explorer)
 ```
 
 ---
@@ -179,3 +188,44 @@ Breaks execution of [architecture.md](architecture.md) into seven vertical, para
   - Clean `PATH` (no `go` binary) native bootstrap test: `sha256(ergo-stage2) == sha256(ergo-stage3)` on Linux (`amd64`/`arm64`) and macOS (`arm64`), `ldd`/`otool -L` confirming zero Go runtime linkage.
   - Full repository suite under `ergo-stage2`: `ergo test --fresh ./...` across stdlib, `compiler/`, `modules/`, `examples/`, conformance corpus, and `--mutants` with `ERGO_FALLBACK=off`.
   - Spec byte budget check: `python3` / `wc -c` verifying sum of `docs/spec/*.md` excluding `docs/spec/stdlib.md` is `< 256000` bytes.
+
+---
+
+### `NB-8`. Law-Driven Optimization & Static `noalloc` Floor Proofs
+
+- **Owns:** `compiler/ssaopt/laws.ergo`, `compiler/ssaopt/bce.ergo`, `compiler/perceus/noalloc.ergo`, plus contract metadata hooks in `compiler/ir/` and `compiler/check/facts/`.
+- **Dependencies:** `NB-4`, `NB-6` (uses proved `given`/`gives`/`keeps` and `law` metadata; feeds `compiler/ssaopt` and static checks).
+- **Scope:**
+  - **Bounds & branch elimination:** Propagate verified `given`/`keeps` length/range facts (`0 <= i && i < xs.Len()`, matched SoA lengths) into Release SSA to drop redundant slice bounds checks and unreachable branches.
+  - **Law-driven fusion & SIMD tree reductions:** Fuse chained pure transforms (`Map`/`Filter`/`Fold`) and lower `Associative` + `Identity` folds into multi-lane SIMD reductions; hoist/CSE `needs`-empty calls across modules safely.
+  - **Static performance-floor checks:** Enforce compile-time `noalloc` / zero-heap-escape / `own`-reuse checks on marked hot functions using `compiler/perceus` facts so allocation regressions fail check time.
+- **Runnable Verification Gate:**
+  - Cross-tier parity across `compiler/eval`, Dev Tier, and `NB-8` optimized Release Tier on fused/reduced/BCE kernels, plus compile-fail negative tests proving a synthetic heap-escaping regression in a `noalloc` function is rejected at check time.
+  - Benchmark receipts showing bounds-check elimination, zero-alloc tight loops, and vector reduction speedups vs C/Rust `-O2/-O3` controls.
+
+---
+
+### `NB-9`. Whole-Region Provider Devirtualization, Verified ISA Providers & Compute Providers
+
+- **Owns:** `compiler/ssaopt/devirt.ergo`, `std/simd/` / hardware provider contracts, `std/compute/` (`Compute` execution provider).
+- **Dependencies:** `NB-4`, `NB-5`, `NB-6` (builds alongside `NB-8`).
+- **Scope:**
+  - **Whole-region `with context` devirtualization:** Specialize closed `with context { ... }` call subtrees to concrete provider implementations and inline across the provider boundary (eliminating dynamic vtable/interface dispatch while retaining full test mockability).
+  - **Hardware ISA as verified providers:** Model `AVX-512` / `AVX2` / `NEON` / scalar kernels behind ordinary capability contracts, selected once at boot/target and proved bit-identical to pure scalar implementations by Ergo's law suite.
+  - **`Compute` providers:** Execute pure (`needs` empty) pipelines with proved `Associative` laws identically under sequential `compiler/eval`, local SIMD/multi-core worker pools, or distributed sharded runners behind one provider interface.
+- **Runnable Verification Gate:**
+  - Disassembly/IR inspection receipt proving devirtualized `with context` regions emit zero indirect provider calls, plus cross-ISA law runs proving SIMD providers agree bit-for-bit with scalar reference laws and `Compute` providers match sequential `eval`.
+
+---
+
+### `NB-10`. Transparent `SoA[T]`, Zero-Copy `own` Actor Teleports, Turn Arenas & `--explore-faults`
+
+- **Owns:** `std/soa/` (`SoA[T]` / `DenseTable[T]` layout), `compiler/nativelower/soa.ergo`, `runtime/native/teleport.c`, `runtime/native/turn_arena.c`, `compiler/testexec/faults.ergo` (`--explore-faults`), boundary memory policy hooks.
+- **Dependencies:** `NB-2`, `NB-4`, `NB-5`.
+- **Scope:**
+  - **Transparent `AoS -> SoA`:** Compiler-managed `SoA[T]` storage packing struct fields into cache-line-contiguous columns with hot/cold field splitting and stride-1 vector scans behind normal record syntax (safe because Ergo value semantics never expose raw element/field pointers).
+  - **Zero-copy `own` actor teleports & turn reset arenas:** Transfer `own` buffers across `ErgoActorHeap` mailboxes in O(1) via ownership/byte-count handoff (preserving exact `Limits.Bytes`, zero copies, zero locks), and reset per-turn actor scratch arenas in one cursor write on `Step` completion.
+  - **Boundary-scoped memory policies & `--explore-faults`:** Provide explicit boundary arena scopes, deterministic alloc counters / OOM fault injection, opt-in buffer pools (`std/arena`, `io_uring` registered buffers), and automated `ergo test --explore-faults` replaying happy paths against every legal `needs` `fails` variant, `OverBytes`, and I1/I2 stop without production failpoint annotations.
+- **Runnable Verification Gate:**
+  - ASan/UBSan + property tests proving O(1) cross-actor `own` teleport keeps `Limits.Bytes` exact across sender/receiver and turn arenas reclaim 100% of turn scratch in 1 store.
+  - `ergo test --explore-faults` receipt catching an injected buggy rollback handler across multi-step external effects (`fs`/`net`/`lock`), plus cache-stride benchmark comparing `SoA[T]` vs naive AoS and C structs.
