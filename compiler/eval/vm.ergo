@@ -1,0 +1,1731 @@
+import option
+import slices
+import strings
+import utf8
+
+// CtlNone indicates normal sequential execution.
+let CtlNone = uint8(0)
+
+// CtlReturn indicates return from the active call frame.
+let CtlReturn = uint8(1)
+
+// CtlFail indicates a typed error failure propagating to the nearest catch handler.
+let CtlFail = uint8(2)
+
+// CtlEscape indicates a non-tail or explicit return failure escaping enclosing catch handlers in the current frame.
+let CtlEscape = uint8(3)
+
+// CtlSkip indicates the current test or law exited early via skip.
+let CtlSkip = uint8(4)
+
+// CtlDefect indicates a runtime panic or unhandled failure halting execution.
+let CtlDefect = uint8(5)
+
+// CtlRefuted indicates an assert, always, or law obligation evaluated to false.
+let CtlRefuted = uint8(6)
+
+// CtlIncomplete indicates deterministic step, depth, or memory budget exhaustion.
+let CtlIncomplete = uint8(7)
+
+let catchTotal = uint8(0)
+let catchPartial = uint8(1)
+let catchBarrier = uint8(2)
+
+let iterIntRange = uint8(0)
+let iterSlice = uint8(1)
+let iterMap = uint8(2)
+let iterString = uint8(3)
+
+// CallFrame records execution state for one active VM function activation.
+type CallFrame {
+	FnIdx        uint32,
+	PC           uint32,
+	EndPC        uint32,
+	StackBase    uint32,
+	SlotBase     uint32,
+	SlotCount    uint32,
+	CatchBase    uint32,
+	TypeArgStart uint32,
+	TypeArgCount uint32,
+	ClosureIdx   uint32,
+	HasClosure   bool,
+}
+
+// CatchEntry tracks an active catch arm target or non-tail try barrier on VM.Catches.
+type CatchEntry {
+	Kind       uint8,
+	HandlerPC  uint32,
+	StackDepth uint32,
+	FrameIdx   uint32,
+}
+
+// IterState tracks state for an active for..in loop iterator.
+type IterState {
+	Kind      uint8,
+	CurBits   uint64,
+	EndBits   uint64,
+	Idx       uint32,
+	Len       uint32,
+	Signed    bool,
+	ValType   uint32,
+	Container Val,
+	ByteOff   uint32,
+}
+
+// VM holds the complete flat runtime machine state without heap pointers or int32/int64 fields.
+type VM {
+	Stack         []Val,
+	Cells         []Val,
+	SlotCells     []uint32,
+	Frames        []CallFrame,
+	FrameTypeArgs []uint32,
+	Catches       []CatchEntry,
+	Iters         []IterState,
+	Globals       []Val,
+	GlobalState   []uint8,
+	Ctl           uint8,
+	ErrVal        Val,
+	RetVal        Val,
+	Reason        string,
+	FaultFile     uint32,
+	FaultNode     uint32,
+	StepsUsed     uint64,
+	BytesUsed     uint64,
+	BuiltinsHit   uint64,
+	Budget        Budget,
+	SometimesHit  bool,
+	MapDesc       bool,
+	MapIterated   bool,
+}
+
+// NewVM initializes a clean VM configured with budget and global slots matching prog.
+func NewVM(prog Program, budget Budget) VM {
+	let gn = prog.Globals.Len()
+	let mut globals = slices.WithCapacity[Val](gn)
+	let mut gstate = slices.WithCapacity[uint8](gn)
+	for _ in 0..gn {
+		globals = globals.Append(UnitVal())
+		gstate = gstate.Append(uint8(0))
+	}
+	VM{
+		Stack:         []Val{},
+		Cells:         []Val{},
+		SlotCells:     []uint32{},
+		Frames:        []CallFrame{},
+		FrameTypeArgs: []uint32{},
+		Catches:       []CatchEntry{},
+		Iters:         []IterState{},
+		Globals:       globals,
+		GlobalState:   gstate,
+		Ctl:           CtlNone,
+		ErrVal:        UnitVal(),
+		RetVal:        UnitVal(),
+		Reason:        "",
+		FaultFile:     uint32(0),
+		FaultNode:     uint32(0),
+		StepsUsed:     uint64(0),
+		BytesUsed:     uint64(0),
+		BuiltinsHit:   uint64(0),
+		Budget:        budget,
+		SometimesHit:  false,
+		MapDesc:       false,
+		MapIterated:   false,
+	}
+}
+
+func chargeSteps(vm mut VM, cost uint64, file uint32, node uint32) bool {
+	if vm.Budget.Steps > uint64(0) && vm.StepsUsed+cost > vm.Budget.Steps {
+		vm.Ctl = CtlIncomplete
+		vm.Reason = "step budget exceeded"
+		vm.FaultFile = file
+		vm.FaultNode = node
+		return false
+	}
+	vm.StepsUsed = vm.StepsUsed + cost
+	true
+}
+
+func chargeAllocBytes(vm mut VM, bytes uint64, file uint32, node uint32) bool {
+	if vm.Budget.Bytes > uint64(0) && vm.BytesUsed+bytes > vm.Budget.Bytes {
+		vm.Ctl = CtlIncomplete
+		vm.Reason = "memory budget exceeded"
+		vm.FaultFile = file
+		vm.FaultNode = node
+		return false
+	}
+	vm.BytesUsed = vm.BytesUsed + bytes
+	true
+}
+
+func setVMFault(vm mut VM, ctl uint8, reason string, file uint32, node uint32) {
+	vm.Ctl = ctl
+	vm.Reason = reason
+	vm.FaultFile = file
+	vm.FaultNode = node
+}
+
+func pushVMVal(vm mut VM, v Val) {
+	vm.Stack = vm.Stack.Append(v)
+}
+
+func popVMVal(vm mut VM) Val {
+	let n = vm.Stack.Len()
+	if n == 0 {
+		return UnitVal()
+	}
+	let v = vm.Stack[n-1]
+	vm.Stack = vm.Stack[0 : n-1]
+	v
+}
+
+func peekVMVal(vm VM) Val {
+	let n = vm.Stack.Len()
+	if n == 0 {
+		return UnitVal()
+	}
+	vm.Stack[n-1]
+}
+
+func allocVMCell(vm mut VM, initial Val) uint32 {
+	let idx = uint32(vm.Cells.Len())
+	vm.Cells = vm.Cells.Append(initial)
+	idx
+}
+
+func resolveFrameType(prog Program, vm VM, t uint32) uint32 {
+	if t == TypeVoid || int(t) >= prog.Types.Kind.Len() {
+		return t
+	}
+	let fr = vm.Frames[vm.Frames.Len()-1]
+	if fr.TypeArgCount == uint32(0) {
+		return t
+	}
+	if prog.Types.Kind[int(t)] == KindParam {
+		let pos = prog.Types.Aux[int(t)]
+		if pos < fr.TypeArgCount {
+			return vm.FrameTypeArgs[int(fr.TypeArgStart+pos)]
+		}
+	}
+	t
+}
+
+func resolveTypeArgsForFrame(prog mut Program, vm VM, targRunIdx uint32) []uint32 {
+	if targRunIdx == uint32(0) || int(targRunIdx) >= prog.TypeArgRuns.Len() {
+		return []uint32{}
+	}
+	let sp = prog.TypeArgRuns[int(targRunIdx)]
+	let mut out = slices.WithCapacity[uint32](int(sp.Len))
+	for i in 0..int(sp.Len) {
+		let raw = prog.TypeArgPool[int(sp.Start)+i]
+		out = out.Append(resolveFrameType(*prog, vm, raw))
+	}
+	out
+}
+
+func pushFnFrame(prog Program, vm mut VM, fnIdx uint32, args []Val, targs []uint32, closureIdx uint32, hasClosure bool, file uint32, node uint32) bool {
+	if vm.Budget.Depth > uint32(0) && uint32(vm.Frames.Len()) >= vm.Budget.Depth {
+		setVMFault(vm, CtlIncomplete, "call depth exceeded", file, node)
+		return false
+	}
+	let fm = prog.Fns[int(fnIdx)]
+	let stackBase = uint32(vm.Stack.Len())
+	let slotBase = uint32(vm.SlotCells.Len())
+	let slotCnt = fm.SlotCount
+	for i in 0..int(slotCnt) {
+		let initV = if i < args.Len() { args[i] } else { UnitVal() }
+		let cell = allocVMCell(vm, initV)
+		vm.SlotCells = vm.SlotCells.Append(cell)
+	}
+	let taStart = uint32(vm.FrameTypeArgs.Len())
+	for ta in targs {
+		vm.FrameTypeArgs = vm.FrameTypeArgs.Append(ta)
+	}
+	vm.Frames = vm.Frames.Append(CallFrame{
+		FnIdx:        fnIdx,
+		PC:           fm.CodeStart,
+		EndPC:        fm.CodeStart + fm.CodeLen,
+		StackBase:    stackBase,
+		SlotBase:     slotBase,
+		SlotCount:    slotCnt,
+		CatchBase:    uint32(vm.Catches.Len()),
+		TypeArgStart: taStart,
+		TypeArgCount: uint32(targs.Len()),
+		ClosureIdx:   closureIdx,
+		HasClosure:   hasClosure,
+	})
+	true
+}
+
+func popTopFrame(prog mut Program, vm mut VM) {
+	let fIdx = vm.Frames.Len() - 1
+	let fr = vm.Frames[fIdx]
+	for vm.Stack.Len() > int(fr.StackBase) {
+		ReleaseVal(&prog.Arena, popVMVal(vm))
+	}
+	if int(fr.SlotBase) <= vm.SlotCells.Len() {
+		vm.SlotCells = vm.SlotCells[0:int(fr.SlotBase)]
+	}
+	if int(fr.CatchBase) <= vm.Catches.Len() {
+		vm.Catches = vm.Catches[0:int(fr.CatchBase)]
+	}
+	if int(fr.TypeArgStart) <= vm.FrameTypeArgs.Len() {
+		vm.FrameTypeArgs = vm.FrameTypeArgs[0:int(fr.TypeArgStart)]
+	}
+	vm.Frames = vm.Frames[0:fIdx]
+}
+
+// ExecuteFunction runs fnIdx with initial args to completion under vm.Budget.
+func ExecuteFunction(prog mut Program, vm mut VM, fnIdx uint32, args []Val) Val {
+	let fm = prog.Fns[int(fnIdx)]
+	if !pushFnFrame(*prog, vm, fnIdx, args, []uint32{}, uint32(0), false, fm.File, fm.Node) {
+		return UnitVal()
+	}
+	runVMLoop(prog, vm, 0)
+	vm.RetVal
+}
+
+func runVMLoop(prog mut Program, vm mut VM, stopFrames int) {
+	for vm.Frames.Len() > stopFrames {
+		if vm.Ctl != CtlNone {
+			if !handleVMControl(prog, vm, stopFrames) {
+				return
+			}
+			continue
+		}
+		let fIdx = vm.Frames.Len() - 1
+		let fr = vm.Frames[fIdx]
+		if fr.PC >= fr.EndPC {
+			vm.RetVal = UnitVal()
+			vm.Ctl = CtlReturn
+			continue
+		}
+		let insn = prog.Insns[int(fr.PC)]
+		vm.Frames[fIdx].PC = fr.PC + uint32(1)
+		if !chargeSteps(vm, uint64(1), insn.File, insn.Node) {
+			return
+		}
+		execOneInsn(prog, vm, fIdx, insn)
+	}
+}
+
+func handleVMControl(prog mut Program, vm mut VM, stopFrames int) bool {
+	if vm.Ctl == CtlReturn {
+		let ret = vm.RetVal
+		popTopFrame(prog, vm)
+		vm.Ctl = CtlNone
+		if vm.Frames.Len() > stopFrames {
+			pushVMVal(vm, ret)
+		}
+		return true
+	}
+	if vm.Ctl == CtlFail {
+		let fIdx = vm.Frames.Len() - 1
+		let fr = vm.Frames[fIdx]
+		for vm.Catches.Len() > int(fr.CatchBase) {
+			let cTop = vm.Catches.Len() - 1
+			let ce = vm.Catches[cTop]
+			vm.Catches = vm.Catches[0:cTop]
+			if ce.Kind == catchBarrier {
+				vm.Ctl = CtlEscape
+				return true
+			}
+			for vm.Stack.Len() > int(ce.StackDepth) {
+				ReleaseVal(&prog.Arena, popVMVal(vm))
+			}
+			vm.Frames[fIdx].PC = ce.HandlerPC
+			vm.Ctl = CtlNone
+			return true
+		}
+		popTopFrame(prog, vm)
+		if vm.Frames.Len() == 0 {
+			let fm = prog.Fns[int(fr.FnIdx)]
+			setVMFault(vm, CtlFail, "a failure escaped: "+DescribeVal(prog.Types, prog.Arena, vm.ErrVal), fm.File, fm.Node)
+			return false
+		}
+		return true
+	}
+	if vm.Ctl == CtlEscape {
+		let fr = vm.Frames[vm.Frames.Len()-1]
+		popTopFrame(prog, vm)
+		if vm.Frames.Len() == 0 {
+			let fm = prog.Fns[int(fr.FnIdx)]
+			setVMFault(vm, CtlFail, "a failure escaped: "+DescribeVal(prog.Types, prog.Arena, vm.ErrVal), fm.File, fm.Node)
+			return false
+		}
+		vm.Ctl = CtlFail
+		return true
+	}
+	false
+}
+
+func execOneInsn(prog mut Program, vm mut VM, fIdx int, insn Insn) {
+	let op = insn.Op
+	if op == OpConst {
+		let c = prog.Consts[int(insn.A)]
+		RetainVal(&prog.Arena, c)
+		pushVMVal(vm, c)
+		return
+	}
+	if op == OpUnit {
+		pushVMVal(vm, UnitVal())
+		return
+	}
+	if op == OpBool {
+		pushVMVal(vm, BoolVal(TypeBool, insn.A != uint32(0)))
+		return
+	}
+	if op == OpZero {
+		let t = resolveFrameType(*prog, *vm, insn.A)
+		pushVMVal(vm, ZeroVal(prog.Types, &prog.Arena, t))
+		return
+	}
+	if op == OpPop {
+		ReleaseVal(&prog.Arena, popVMVal(vm))
+		return
+	}
+	if op == OpDup {
+		let v = peekVMVal(*vm)
+		RetainVal(&prog.Arena, v)
+		pushVMVal(vm, v)
+		return
+	}
+	if op == OpSwap {
+		let b = popVMVal(vm)
+		let a = popVMVal(vm)
+		pushVMVal(vm, b)
+		pushVMVal(vm, a)
+		return
+	}
+	if op == OpLoadLocal {
+		let fr = vm.Frames[fIdx]
+		let cell = vm.SlotCells[int(fr.SlotBase+insn.A)]
+		let v = vm.Cells[int(cell)]
+		RetainVal(&prog.Arena, v)
+		pushVMVal(vm, v)
+		return
+	}
+	if op == OpTakeLocal {
+		let fr = vm.Frames[fIdx]
+		let cell = vm.SlotCells[int(fr.SlotBase+insn.A)]
+		let v = vm.Cells[int(cell)]
+		vm.Cells[int(cell)] = UnitVal()
+		pushVMVal(vm, v)
+		return
+	}
+	if op == OpStoreLocal {
+		let fr = vm.Frames[fIdx]
+		let cell = vm.SlotCells[int(fr.SlotBase+insn.A)]
+		let v = popVMVal(vm)
+		ReleaseVal(&prog.Arena, vm.Cells[int(cell)])
+		vm.Cells[int(cell)] = v
+		return
+	}
+	if op == OpRebindCell {
+		let fr = vm.Frames[fIdx]
+		let oldCell = vm.SlotCells[int(fr.SlotBase+insn.A)]
+		let cur = vm.Cells[int(oldCell)]
+		RetainVal(&prog.Arena, cur)
+		vm.SlotCells[int(fr.SlotBase+insn.A)] = allocVMCell(vm, cur)
+		return
+	}
+	if op == OpAddrLocal {
+		let fr = vm.Frames[fIdx]
+		let cell = vm.SlotCells[int(fr.SlotBase+insn.A)]
+		let cur = vm.Cells[int(cell)]
+		if cur.Tag == TagRef {
+			pushVMVal(vm, cur)
+		} else {
+			pushVMVal(vm, Val{Tag: TagRef, Type: insn.C, Aux: cell, Data: uint64(0)})
+		}
+		return
+	}
+	if op == OpLoadCap {
+		let fr = vm.Frames[fIdx]
+		let cl = prog.Arena.Closures[int(fr.ClosureIdx)]
+		let cell = prog.Arena.ClosureCaps[int(cl.CapStart+insn.A)]
+		let v = vm.Cells[int(cell)]
+		RetainVal(&prog.Arena, v)
+		pushVMVal(vm, v)
+		return
+	}
+	if op == OpStoreCap {
+		let fr = vm.Frames[fIdx]
+		let cl = prog.Arena.Closures[int(fr.ClosureIdx)]
+		let cell = prog.Arena.ClosureCaps[int(cl.CapStart+insn.A)]
+		let v = popVMVal(vm)
+		ReleaseVal(&prog.Arena, vm.Cells[int(cell)])
+		vm.Cells[int(cell)] = v
+		return
+	}
+	if op == OpAddrCap {
+		let fr = vm.Frames[fIdx]
+		let cl = prog.Arena.Closures[int(fr.ClosureIdx)]
+		let cell = prog.Arena.ClosureCaps[int(cl.CapStart+insn.A)]
+		let cur = vm.Cells[int(cell)]
+		if cur.Tag == TagRef {
+			pushVMVal(vm, cur)
+		} else {
+			pushVMVal(vm, Val{Tag: TagRef, Type: insn.C, Aux: cell, Data: uint64(0)})
+		}
+		return
+	}
+	if op == OpLoadGlobal {
+		let gi = int(insn.A)
+		if !ensureGlobalInit(prog, vm, gi, insn.File, insn.Node) {
+			return
+		}
+		let v = vm.Globals[gi]
+		RetainVal(&prog.Arena, v)
+		pushVMVal(vm, v)
+		return
+	}
+	if op == OpStoreGlobal {
+		let gi = int(insn.A)
+		let v = popVMVal(vm)
+		ReleaseVal(&prog.Arena, vm.Globals[gi])
+		vm.Globals[gi] = v
+		return
+	}
+	if op == OpDeref {
+		let r = popVMVal(vm)
+		if r.Tag != TagRef || int(r.Aux) >= vm.Cells.Len() {
+			setVMFault(vm, CtlDefect, "runtime error: invalid borrow dereference", insn.File, insn.Node)
+			return
+		}
+		let v = vm.Cells[int(r.Aux)]
+		RetainVal(&prog.Arena, v)
+		pushVMVal(vm, v)
+		return
+	}
+	if op == OpStoreDeref {
+		let v = popVMVal(vm)
+		let r = popVMVal(vm)
+		if r.Tag != TagRef || int(r.Aux) >= vm.Cells.Len() {
+			setVMFault(vm, CtlDefect, "runtime error: invalid borrow store", insn.File, insn.Node)
+			return
+		}
+		ReleaseVal(&prog.Arena, vm.Cells[int(r.Aux)])
+		vm.Cells[int(r.Aux)] = v
+		return
+	}
+	if op == OpUnary {
+		let x = popVMVal(vm)
+		let (res, err) = EvalUnary(prog.Types, prog.Arena, insn.Aux, x)
+		ReleaseVal(&prog.Arena, x)
+		if err != "" {
+			setVMFault(vm, CtlDefect, err, insn.File, insn.Node)
+			return
+		}
+		pushVMVal(vm, res)
+		return
+	}
+	if op == OpBinary {
+		let y = popVMVal(vm)
+		let x = popVMVal(vm)
+		let outT = resolveFrameType(*prog, *vm, insn.A)
+		let (res, err) = EvalBinary(prog.Types, &prog.Arena, insn.Aux, outT, x, y)
+		ReleaseVal(&prog.Arena, x)
+		ReleaseVal(&prog.Arena, y)
+		if err != "" {
+			setVMFault(vm, CtlDefect, err, insn.File, insn.Node)
+			return
+		}
+		pushVMVal(vm, res)
+		return
+	}
+	if op == OpConvert {
+		let x = popVMVal(vm)
+		let targetT = resolveFrameType(*prog, *vm, insn.A)
+		let (res, err) = ConvertVal(prog.Types, &prog.Arena, targetT, x)
+		ReleaseVal(&prog.Arena, x)
+		if err != "" {
+			setVMFault(vm, CtlDefect, err, insn.File, insn.Node)
+			return
+		}
+		pushVMVal(vm, res)
+		return
+	}
+	if op == OpToString {
+		let x = popVMVal(vm)
+		let s = StringifyVal(prog.Types, prog.Arena, x)
+		ReleaseVal(&prog.Arena, x)
+		pushVMVal(vm, AllocStrVal(&prog.Arena, TypeString, s))
+		return
+	}
+	if op == OpConcatStrs {
+		let n = int(insn.A)
+		let base = vm.Stack.Len() - n
+		let mut b = strings.NewBuilder()
+		for i in 0..n {
+			b.WriteString(ReadStr(prog.Arena, vm.Stack[base+i]))
+		}
+		vm.Stack = vm.Stack[0:base]
+		let out = b.String()
+		let _ = chargeAllocBytes(vm, uint64(out.Len()), insn.File, insn.Node)
+		pushVMVal(vm, AllocStrVal(&prog.Arena, TypeString, out))
+		return
+	}
+	if op == OpTestType {
+		let x = popVMVal(vm)
+		let targetT = resolveFrameType(*prog, *vm, insn.A)
+		let ok = MatchesType(prog.Types, x.Type, targetT)
+		ReleaseVal(&prog.Arena, x)
+		pushVMVal(vm, BoolVal(TypeBool, ok))
+		return
+	}
+	if op == OpMakeTuple || op == OpMakeRecord || op == OpMakeSlice || op == OpMakeArray {
+		let n = int(insn.B)
+		let base = vm.Stack.Len() - n
+		let mut vals = slices.WithCapacity[Val](n)
+		for i in 0..n {
+			vals = vals.Append(vm.Stack[base+i])
+		}
+		vm.Stack = vm.Stack[0:base]
+		let t = resolveFrameType(*prog, *vm, insn.A)
+		if !chargeAllocBytes(vm, uint64(n)*uint64(16), insn.File, insn.Node) {
+			return
+		}
+		let v = if op == OpMakeTuple {
+			MakeTupleVal(&prog.Arena, t, vals)
+		} else if op == OpMakeRecord {
+			MakeRecordVal(&prog.Arena, t, vals)
+		} else if op == OpMakeSlice {
+			MakeSliceVal(&prog.Arena, t, vals, uint32(n))
+		} else {
+			MakeArrayVal(&prog.Arena, t, vals)
+		}
+		for old in vals { ReleaseVal(&prog.Arena, old) }
+		pushVMVal(vm, v)
+		return
+	}
+	if op == OpSpreadRecord {
+		let n = int(insn.B)
+		let base = vm.Stack.Len() - n - 1
+		let recBase = vm.Stack[base]
+		let fc = int(PackLen(prog.Arena, recBase))
+		let mut fields = slices.WithCapacity[Val](fc)
+		for i in 0..fc {
+			fields = fields.Append(ReadPackElem(prog.Arena, recBase, uint32(i)))
+		}
+		for i in 0..n {
+			let fldIdx = int(prog.UpdateFields[int(insn.C)+i])
+			if fldIdx < fields.Len() {
+				fields[fldIdx] = vm.Stack[base+1+i]
+			}
+		}
+		for k in base..vm.Stack.Len() {
+			ReleaseVal(&prog.Arena, vm.Stack[k])
+		}
+		vm.Stack = vm.Stack[0:base]
+		let t = resolveFrameType(*prog, *vm, insn.A)
+		pushVMVal(vm, MakeRecordVal(&prog.Arena, t, fields))
+		return
+	}
+	if op == OpMakeMap {
+		let n = int(insn.B)
+		let base = vm.Stack.Len() - n*2
+		let t = resolveFrameType(*prog, *vm, insn.A)
+		let mut m = MakeEmptyMap(&prog.Arena, t)
+		for i in 0..n {
+			let k = vm.Stack[base+i*2]
+			let v = vm.Stack[base+i*2+1]
+			let nextM = MapPutValCOW(prog.Types, &prog.Arena, m, k, v)
+			ReleaseVal(&prog.Arena, m)
+			ReleaseVal(&prog.Arena, k)
+			ReleaseVal(&prog.Arena, v)
+			m = nextM
+		}
+		vm.Stack = vm.Stack[0:base]
+		pushVMVal(vm, m)
+		return
+	}
+	if op == OpMakeClosure {
+		let fr = vm.Frames[fIdx]
+		let tpl = prog.ClosureTpls[int(insn.B)]
+		let capStart = uint32(prog.Arena.ClosureCaps.Len())
+		for i in 0..int(tpl.Len) {
+			let cref = prog.CapRefs[int(tpl.Start)+i]
+			let cell = if cref.FromUpval {
+				let outerCl = prog.Arena.Closures[int(fr.ClosureIdx)]
+				prog.Arena.ClosureCaps[int(outerCl.CapStart+cref.Idx)]
+			} else {
+				vm.SlotCells[int(fr.SlotBase+cref.Idx)]
+			}
+			prog.Arena.ClosureCaps = prog.Arena.ClosureCaps.Append(cell)
+		}
+		let targs = resolveTypeArgsForFrame(prog, *vm, insn.C)
+		let taStart = uint32(prog.Arena.ClosureTypeArgs.Len())
+		for ta in targs {
+			prog.Arena.ClosureTypeArgs = prog.Arena.ClosureTypeArgs.Append(ta)
+		}
+		let clIdx = uint32(prog.Arena.Closures.Len())
+		prog.Arena.Closures = prog.Arena.Closures.Append(ClosureObj{
+			FnIdx:        insn.A,
+			CapStart:     capStart,
+			CapCount:     tpl.Len,
+			TypeArgStart: taStart,
+			TypeArgCount: uint32(targs.Len()),
+			BoundRecv:    uint32(0),
+			HasRecv:      false,
+			NativeName:   "",
+			IsNative:     false,
+			IsMethodVal:  false,
+		})
+		pushVMVal(vm, Val{Tag: TagFunc, Type: prog.Fns[int(insn.A)].TypeIdx, Aux: clIdx, Data: uint64(0)})
+		return
+	}
+	if op == OpGetField {
+		let rec = popVMVal(vm)
+		let mut res = UnitVal()
+		if insn.Aux == uint8(0) {
+			if rec.Tag == TagTuple || rec.Tag == TagRecord {
+				res = ReadPackElem(prog.Arena, rec, insn.A)
+			}
+		} else {
+			let fname = prog.Arena.Strs[int(insn.B)]
+			let fi = FieldIndexByName(prog.Types, rec.Type, fname)
+			if fi >= 0 {
+				res = ReadPackElem(prog.Arena, rec, uint32(fi))
+			}
+		}
+		RetainVal(&prog.Arena, res)
+		ReleaseVal(&prog.Arena, rec)
+		pushVMVal(vm, res)
+		return
+	}
+	if op == OpGetIndex {
+		let key = popVMVal(vm)
+		let target = popVMVal(vm)
+		if target.Tag == TagSlice || target.Tag == TagArray {
+			let idx = Int64FromBits(key.Data)
+			let n = int64(ReadSliceLen(prog.Arena, target))
+			ReleaseVal(&prog.Arena, key)
+			if idx < 0 || idx >= n {
+				ReleaseVal(&prog.Arena, target)
+				setVMFault(vm, CtlDefect, "runtime error: index out of range [\(idx)] with length \(n)", insn.File, insn.Node)
+				return
+			}
+			let e = ReadSliceElem(prog.Arena, target, uint32(idx))
+			RetainVal(&prog.Arena, e)
+			ReleaseVal(&prog.Arena, target)
+			pushVMVal(vm, e)
+			return
+		}
+		if target.Tag == TagStr {
+			let idx = Int64FromBits(key.Data)
+			let s = ReadStr(prog.Arena, target)
+			let n = int64(s.Len())
+			ReleaseVal(&prog.Arena, key)
+			ReleaseVal(&prog.Arena, target)
+			if idx < 0 || idx >= n {
+				setVMFault(vm, CtlDefect, "runtime error: index out of range [\(idx)] with length \(n)", insn.File, insn.Node)
+				return
+			}
+			pushVMVal(vm, MakeIntVal(prog.Types, TypeUint8, uint64(s[int(idx)])))
+			return
+		}
+		if target.Tag == TagMap {
+			let (v, ok) = MapGetVal(prog.Types, prog.Arena, target, key)
+			let mu = UnwrapType(prog.Types, target.Type)
+			let valT = if int(mu) < prog.Types.Aux.Len() { prog.Types.Aux[int(mu)] } else { TypeVoid }
+			ReleaseVal(&prog.Arena, key)
+			ReleaseVal(&prog.Arena, target)
+			if ok {
+				RetainVal(&prog.Arena, v)
+				pushVMVal(vm, v)
+			} else {
+				pushVMVal(vm, ZeroVal(prog.Types, &prog.Arena, valT))
+			}
+			return
+		}
+		ReleaseVal(&prog.Arena, key)
+		ReleaseVal(&prog.Arena, target)
+		setVMFault(vm, CtlDefect, "runtime error: cannot index value", insn.File, insn.Node)
+		return
+	}
+	if op == OpSlice {
+		let mask = insn.Aux
+		let hasLo = (mask & uint8(1)) != uint8(0)
+		let hasHi = (mask & uint8(2)) != uint8(0)
+		let hasMax = (mask & uint8(4)) != uint8(0)
+		let mut maxVal = int64(0)
+		let mut hiVal = int64(0)
+		let mut loVal = int64(0)
+		if hasMax { maxVal = Int64FromBits(popVMVal(vm).Data) }
+		if hasHi { hiVal = Int64FromBits(popVMVal(vm).Data) }
+		if hasLo { loVal = Int64FromBits(popVMVal(vm).Data) }
+		let target = popVMVal(vm)
+		if target.Tag == TagStr {
+			let s = ReadStr(prog.Arena, target)
+			let n = int64(s.Len())
+			let hi = if hasHi { hiVal } else { n }
+			ReleaseVal(&prog.Arena, target)
+			if hasMax || loVal < 0 || hi < loVal || hi > n {
+				setVMFault(vm, CtlDefect, "runtime error: slice bounds out of range [\(loVal):\(hi)]", insn.File, insn.Node)
+				return
+			}
+			pushVMVal(vm, AllocStrVal(&prog.Arena, TypeString, s[int(loVal):int(hi)]))
+			return
+		}
+		if target.Tag == TagSlice || target.Tag == TagArray {
+			let n = int64(ReadSliceLen(prog.Arena, target))
+			let c = int64(ReadSliceCap(prog.Arena, target))
+			let hi = if hasHi { hiVal } else { n }
+			let mx = if hasMax { maxVal } else { c }
+			if loVal < 0 || hi < loVal || hi > mx || mx > c {
+				ReleaseVal(&prog.Arena, target)
+				setVMFault(vm, CtlDefect, "runtime error: slice bounds out of range [\(loVal):\(hi)]", insn.File, insn.Node)
+				return
+			}
+			let resT = resolveFrameType(*prog, *vm, insn.A)
+			let sliced = SubSliceVal(&prog.Arena, target, resT, uint32(loVal), uint32(hi), uint32(mx), hasMax)
+			ReleaseVal(&prog.Arena, target)
+			pushVMVal(vm, sliced)
+			return
+		}
+		ReleaseVal(&prog.Arena, target)
+		setVMFault(vm, CtlDefect, "runtime error: cannot slice non-slice value", insn.File, insn.Node)
+		return
+	}
+	if op == OpPlaceLoad {
+		execPlaceLoad(prog, vm, fIdx, insn)
+		return
+	}
+	if op == OpPlaceStore {
+		execPlaceStore(prog, vm, fIdx, insn)
+		return
+	}
+	if op == OpJump {
+		vm.Frames[fIdx].PC = insn.A
+		return
+	}
+	if op == OpJumpIfFalse {
+		let b = popVMVal(vm)
+		if b.Data == uint64(0) {
+			vm.Frames[fIdx].PC = insn.A
+		}
+		return
+	}
+	if op == OpJumpIfTrue {
+		let b = popVMVal(vm)
+		if b.Data != uint64(0) {
+			vm.Frames[fIdx].PC = insn.A
+		}
+		return
+	}
+	if op == OpJumpIfFalsePeek {
+		let b = peekVMVal(*vm)
+		if b.Data == uint64(0) {
+			vm.Frames[fIdx].PC = insn.A
+		} else {
+			let _ = popVMVal(vm)
+		}
+		return
+	}
+	if op == OpJumpIfTruePeek {
+		let b = peekVMVal(*vm)
+		if b.Data != uint64(0) {
+			vm.Frames[fIdx].PC = insn.A
+		} else {
+			let _ = popVMVal(vm)
+		}
+		return
+	}
+	if op == OpRangeInit {
+		if insn.Aux == uint8(0) {
+			let hi = popVMVal(vm)
+			let lo = popVMVal(vm)
+			let t = resolveFrameType(*prog, *vm, insn.A)
+			let (_, signed) = IntBitWidth(prog.Types, t)
+			vm.Iters = vm.Iters.Append(IterState{
+				Kind:      iterIntRange,
+				CurBits:   lo.Data,
+				EndBits:   hi.Data,
+				Idx:       uint32(0),
+				Len:       uint32(0),
+				Signed:    signed,
+				ValType:   t,
+				Container: UnitVal(),
+				ByteOff:   uint32(0),
+			})
+			return
+		}
+		let col = popVMVal(vm)
+		let ik = if col.Tag == TagMap {
+			vm.MapIterated = true
+			iterMap
+		} else if col.Tag == TagStr {
+			iterString
+		} else {
+			iterSlice
+		}
+		let n = if ik == iterMap {
+			ReadMapLen(prog.Arena, col)
+		} else if ik == iterString {
+			uint32(ReadStr(prog.Arena, col).Len())
+		} else {
+			ReadSliceLen(prog.Arena, col)
+		}
+		vm.Iters = vm.Iters.Append(IterState{
+			Kind:      ik,
+			CurBits:   uint64(0),
+			EndBits:   uint64(0),
+			Idx:       uint32(0),
+			Len:       n,
+			Signed:    false,
+			ValType:   TypeVoid,
+			Container: col,
+			ByteOff:   uint32(0),
+		})
+		return
+	}
+	if op == OpRangeNext {
+		execRangeNext(prog, vm, fIdx, insn)
+		return
+	}
+	if op == OpRangePop {
+		let mut k = int(insn.B)
+		for k > 0 && vm.Iters.Len() > 0 {
+			let top = vm.Iters.Len() - 1
+			ReleaseVal(&prog.Arena, vm.Iters[top].Container)
+			vm.Iters = vm.Iters[0:top]
+			k = k - 1
+		}
+		return
+	}
+	if op == OpMatchPat {
+		let v = peekVMVal(*vm)
+		let ok = matchPatternRuntime(prog, vm, fIdx, insn.A, v)
+		pushVMVal(vm, BoolVal(TypeBool, ok))
+		return
+	}
+	if op == OpBindPat {
+		let v = popVMVal(vm)
+		let ok = matchPatternRuntime(prog, vm, fIdx, insn.A, v)
+		ReleaseVal(&prog.Arena, v)
+		if !ok {
+			setVMFault(vm, CtlDefect, "pattern match failed", insn.File, insn.Node)
+		}
+		return
+	}
+	if op == OpCall {
+		let argc = int(insn.B)
+		let base = vm.Stack.Len() - argc
+		let mut args = slices.WithCapacity[Val](argc)
+		for i in 0..argc {
+			args = args.Append(vm.Stack[base+i])
+		}
+		vm.Stack = vm.Stack[0:base]
+		let targs = resolveTypeArgsForFrame(prog, *vm, insn.C)
+		let _ = pushFnFrame(*prog, vm, insn.A, args, targs, uint32(0), false, insn.File, insn.Node)
+		return
+	}
+	if op == OpCallVal {
+		let argc = int(insn.B)
+		let base = vm.Stack.Len() - argc - 1
+		let fnVal = vm.Stack[base]
+		let mut args = slices.WithCapacity[Val](argc)
+		for i in 0..argc {
+			args = args.Append(vm.Stack[base+1+i])
+		}
+		vm.Stack = vm.Stack[0:base]
+		execCallVal(prog, vm, fnVal, args, insn.C, insn.File, insn.Node)
+		return
+	}
+	if op == OpCallNative {
+		let argc = int(insn.B)
+		let base = vm.Stack.Len() - argc
+		let mut args = slices.WithCapacity[Val](argc)
+		for i in 0..argc {
+			args = args.Append(vm.Stack[base+i])
+		}
+		vm.Stack = vm.Stack[0:base]
+		let targs = resolveTypeArgsForFrame(prog, *vm, insn.C)
+		execNativeCall(prog, vm, insn.A, targs, args, insn.File, insn.Node)
+		return
+	}
+	if op == OpCallMethod {
+		let argc = int(insn.B)
+		let base = vm.Stack.Len() - argc - 1
+		let recv = vm.Stack[base]
+		let mut args = slices.WithCapacity[Val](argc)
+		for i in 0..argc {
+			args = args.Append(vm.Stack[base+1+i])
+		}
+		vm.Stack = vm.Stack[0:base]
+		let methodName = prog.Arena.Strs[int(insn.A)]
+		execDynamicMethodCall(prog, vm, recv, methodName, args, insn.C, insn.File, insn.Node)
+		return
+	}
+	if op == OpMakeMethodVal {
+		let recv = popVMVal(vm)
+		let rCell = allocVMCell(vm, recv)
+		let clIdx = uint32(prog.Arena.Closures.Len())
+		prog.Arena.Closures = prog.Arena.Closures.Append(ClosureObj{
+			FnIdx:        uint32(0),
+			CapStart:     uint32(0),
+			CapCount:     uint32(0),
+			TypeArgStart: uint32(0),
+			TypeArgCount: uint32(0),
+			BoundRecv:    rCell,
+			HasRecv:      true,
+			NativeName:   prog.Arena.Strs[int(insn.A)],
+			IsNative:     false,
+			IsMethodVal:  true,
+		})
+		pushVMVal(vm, Val{Tag: TagFunc, Type: TypeVoid, Aux: clIdx, Data: uint64(0)})
+		return
+	}
+	if op == OpReturn {
+		vm.RetVal = UnitVal()
+		vm.Ctl = CtlReturn
+		return
+	}
+	if op == OpReturnVal {
+		let v = popVMVal(vm)
+		let fr = vm.Frames[fIdx]
+		let fm = prog.Fns[int(fr.FnIdx)]
+		if fm.FailsType != TypeVoid && MatchesType(prog.Types, v.Type, fm.FailsType) && !MatchesType(prog.Types, v.Type, fm.ReturnType) {
+			vm.ErrVal = v
+			vm.Ctl = CtlEscape
+			return
+		}
+		vm.RetVal = v
+		vm.Ctl = CtlReturn
+		return
+	}
+	if op == OpReturnFail {
+		let v = popVMVal(vm)
+		vm.ErrVal = v
+		vm.Ctl = CtlEscape
+		return
+	}
+	if op == OpPushCatch {
+		let kind = if insn.Aux != uint8(0) { catchPartial } else { catchTotal }
+		vm.Catches = vm.Catches.Append(CatchEntry{Kind: kind, HandlerPC: insn.A, StackDepth: uint32(vm.Stack.Len()), FrameIdx: uint32(fIdx)})
+		return
+	}
+	if op == OpPushTryBarrier {
+		vm.Catches = vm.Catches.Append(CatchEntry{Kind: catchBarrier, HandlerPC: uint32(0), StackDepth: uint32(vm.Stack.Len()), FrameIdx: uint32(fIdx)})
+		return
+	}
+	if op == OpPopCatch {
+		if vm.Catches.Len() > 0 {
+			vm.Catches = vm.Catches[0 : vm.Catches.Len()-1]
+		}
+		return
+	}
+	if op == OpLoadErr {
+		let ev = vm.ErrVal
+		RetainVal(&prog.Arena, ev)
+		pushVMVal(vm, ev)
+		return
+	}
+	if op == OpUncaughtFail {
+		if insn.Aux != uint8(0) {
+			vm.Ctl = CtlEscape
+		} else {
+			setVMFault(vm, CtlDefect, "unhandled failure: "+DescribeVal(prog.Types, prog.Arena, vm.ErrVal), insn.File, insn.Node)
+		}
+		return
+	}
+	if op == OpAssert || op == OpAlways {
+		let b = popVMVal(vm)
+		if b.Data == uint64(0) {
+			setVMFault(vm, CtlRefuted, if op == OpAssert { "assertion failed" } else { "always assertion failed" }, insn.File, insn.Node)
+		}
+		return
+	}
+	if op == OpSometimes {
+		let b = popVMVal(vm)
+		if b.Data != uint64(0) {
+			vm.SometimesHit = true
+		}
+		return
+	}
+	if op == OpSkip {
+		let reason = if int(insn.A) < prog.Consts.Len() { ReadStr(prog.Arena, prog.Consts[int(insn.A)]) } else { "" }
+		setVMFault(vm, CtlSkip, reason, insn.File, insn.Node)
+		return
+	}
+	if op == OpDie {
+		let msg = popVMVal(vm)
+		let text = StringifyVal(prog.Types, prog.Arena, msg)
+		ReleaseVal(&prog.Arena, msg)
+		setVMFault(vm, CtlDefect, text, insn.File, insn.Node)
+		return
+	}
+	if op == OpCheckEq {
+		let rhs = popVMVal(vm)
+		let lhs = popVMVal(vm)
+		let ok = EqualVals(prog.Types, prog.Arena, lhs, rhs)
+		ReleaseVal(&prog.Arena, lhs)
+		ReleaseVal(&prog.Arena, rhs)
+		pushVMVal(vm, BoolVal(TypeBool, ok))
+		return
+	}
+}
+
+func ensureGlobalInit(prog mut Program, vm mut VM, gi int, file uint32, node uint32) bool {
+	let st = vm.GlobalState[gi]
+	if st == uint8(2) {
+		return true
+	}
+	if st == uint8(1) {
+		setVMFault(vm, CtlDefect, "initialization cycle in global \(prog.Globals[gi].Name)", file, node)
+		return false
+	}
+	let initFn = prog.Globals[gi].InitFn
+	for i, g in prog.Globals {
+		if g.InitFn == initFn {
+			vm.GlobalState[i] = uint8(1)
+		}
+	}
+	let stop = vm.Frames.Len()
+	if !pushFnFrame(*prog, vm, initFn, []Val{}, []uint32{}, uint32(0), false, file, node) {
+		return false
+	}
+	runVMLoop(prog, vm, stop)
+	if vm.Ctl != CtlNone {
+		return false
+	}
+	for i, g in prog.Globals {
+		if g.InitFn == initFn {
+			vm.GlobalState[i] = uint8(2)
+		}
+	}
+	true
+}
+
+func execRangeNext(prog mut Program, vm mut VM, fIdx int, insn Insn) {
+	let top = vm.Iters.Len() - 1
+	let it = vm.Iters[top]
+	if it.Kind == iterIntRange {
+		let hasMore = if it.Signed { SignedBitsLT(it.CurBits, it.EndBits) } else { it.CurBits < it.EndBits }
+		if !hasMore {
+			vm.Iters = vm.Iters[0:top]
+			vm.Frames[fIdx].PC = insn.A
+			return
+		}
+		let curVal = MakeIntVal(prog.Types, it.ValType, it.CurBits)
+		vm.Iters[top].CurBits = it.CurBits + uint64(1)
+		if insn.Aux == uint8(2) {
+			pushVMVal(vm, MakeIntVal(prog.Types, TypeInt, uint64(it.Idx)))
+			vm.Iters[top].Idx = it.Idx + uint32(1)
+		}
+		pushVMVal(vm, curVal)
+		return
+	}
+	if it.Kind == iterString {
+		let s = ReadStr(prog.Arena, it.Container)
+		let off = int(it.ByteOff)
+		if off >= s.Len() {
+			ReleaseVal(&prog.Arena, it.Container)
+			vm.Iters = vm.Iters[0:top]
+			vm.Frames[fIdx].PC = insn.A
+			return
+		}
+		let dec = utf8.DecodeRuneInString(s[off:s.Len()])
+		let step = if dec.Size > 0 { dec.Size } else { 1 }
+		vm.Iters[top].ByteOff = uint32(off + step)
+		if insn.Aux == uint8(2) {
+			pushVMVal(vm, MakeIntVal(prog.Types, TypeInt, uint64(off)))
+		}
+		pushVMVal(vm, MakeIntVal(prog.Types, TypeInt32, uint64(int64(dec.Rune))))
+		return
+	}
+	if it.Idx >= it.Len {
+		ReleaseVal(&prog.Arena, it.Container)
+		vm.Iters = vm.Iters[0:top]
+		vm.Frames[fIdx].PC = insn.A
+		return
+	}
+	let idx = it.Idx
+	vm.Iters[top].Idx = idx + uint32(1)
+	if it.Kind == iterSlice {
+		let e = ReadSliceElem(prog.Arena, it.Container, idx)
+		RetainVal(&prog.Arena, e)
+		if insn.Aux == uint8(2) {
+			pushVMVal(vm, MakeIntVal(prog.Types, TypeInt, uint64(idx)))
+		}
+		pushVMVal(vm, e)
+		return
+	}
+	let bi = int(prog.Arena.MapHeads[int(it.Container.Aux)].Back)
+	let start = int(prog.Arena.MapBacks[bi].Start)
+	let pos = if vm.MapDesc { int(it.Len) - 1 - int(idx) } else { int(idx) }
+	let k = prog.Arena.MapKeys[start+pos]
+	let v = prog.Arena.MapVals[start+pos]
+	RetainVal(&prog.Arena, k)
+	if insn.Aux == uint8(2) {
+		RetainVal(&prog.Arena, v)
+		pushVMVal(vm, k)
+		pushVMVal(vm, v)
+	} else {
+		pushVMVal(vm, k)
+	}
+}
+
+func countPlaceIndexKeys(prog Program, start uint32, count uint32) int {
+	let mut n = 0
+	for i in 0..int(count) {
+		if prog.Places[int(start)+i].Kind == PlaceIndex {
+			n = n + 1
+		}
+	}
+	n
+}
+
+func readPlaceRootCell(prog Program, vm VM, fIdx int, rootKind uint8, rootIdx uint32) uint32 {
+	let fr = vm.Frames[fIdx]
+	if rootKind == uint8(0) {
+		let c = vm.SlotCells[int(fr.SlotBase+rootIdx)]
+		if vm.Cells[int(c)].Tag == TagRef {
+			return vm.Cells[int(c)].Aux
+		}
+		return c
+	}
+	let cl = prog.Arena.Closures[int(fr.ClosureIdx)]
+	let c = prog.Arena.ClosureCaps[int(cl.CapStart+rootIdx)]
+	if vm.Cells[int(c)].Tag == TagRef {
+		return vm.Cells[int(c)].Aux
+	}
+	c
+}
+
+func execPlaceLoad(prog mut Program, vm mut VM, fIdx int, insn Insn) {
+	let cell = readPlaceRootCell(*prog, *vm, fIdx, insn.Aux, insn.C)
+	let nKeys = countPlaceIndexKeys(*prog, insn.A, insn.B)
+	let keyStart = vm.Stack.Len() - nKeys
+	let mut cur = vm.Cells[int(cell)]
+	let mut kOff = 0
+	for i in 0..int(insn.B) {
+		let st = prog.Places[int(insn.A)+i]
+		if st.Kind == PlaceDeref {
+			if cur.Tag != TagRef {
+				setVMFault(vm, CtlDefect, "invalid dereference in place", insn.File, insn.Node)
+				return
+			}
+			cur = vm.Cells[int(cur.Aux)]
+		} else if st.Kind == PlaceFieldIdx {
+			cur = ReadPackElem(prog.Arena, cur, st.FieldIdx)
+		} else if st.Kind == PlaceFieldName {
+			let fi = FieldIndexByName(prog.Types, cur.Type, prog.Arena.Strs[int(st.NameStr)])
+			cur = if fi >= 0 { ReadPackElem(prog.Arena, cur, uint32(fi)) } else { UnitVal() }
+		} else if st.Kind == PlaceIndex {
+			let kv = vm.Stack[keyStart+kOff]
+			kOff = kOff + 1
+			if cur.Tag == TagSlice || cur.Tag == TagArray {
+				let idx = Int64FromBits(kv.Data)
+				let n = int64(ReadSliceLen(prog.Arena, cur))
+				if idx < 0 || idx >= n {
+					setVMFault(vm, CtlDefect, "runtime error: index out of range [\(idx)] with length \(n)", insn.File, insn.Node)
+					return
+				}
+				cur = ReadSliceElem(prog.Arena, cur, uint32(idx))
+			} else if cur.Tag == TagMap {
+				let (mv, ok) = MapGetVal(prog.Types, prog.Arena, cur, kv)
+				let mu = UnwrapType(prog.Types, cur.Type)
+				let valT = if int(mu) < prog.Types.Aux.Len() { prog.Types.Aux[int(mu)] } else { TypeVoid }
+				cur = if ok { mv } else { ZeroVal(prog.Types, &prog.Arena, valT) }
+			}
+		}
+	}
+	RetainVal(&prog.Arena, cur)
+	pushVMVal(vm, cur)
+}
+
+func execPlaceStore(prog mut Program, vm mut VM, fIdx int, insn Insn) {
+	let newVal = popVMVal(vm)
+	let nKeys = countPlaceIndexKeys(*prog, insn.A, insn.B)
+	let keyBase = vm.Stack.Len() - nKeys
+	let mut keys = slices.WithCapacity[Val](nKeys)
+	for i in 0..nKeys {
+		keys = keys.Append(vm.Stack[keyBase+i])
+	}
+	vm.Stack = vm.Stack[0:keyBase]
+	let rootCell = readPlaceRootCell(*prog, *vm, fIdx, insn.Aux, insn.C)
+	let rootVal = vm.Cells[int(rootCell)]
+	let (updated, err) = writePlaceRecursive(prog, vm, rootVal, insn.A, 0, int(insn.B), keys, 0, newVal)
+	for kv in keys { ReleaseVal(&prog.Arena, kv) }
+	ReleaseVal(&prog.Arena, newVal)
+	if err != "" {
+		setVMFault(vm, CtlDefect, err, insn.File, insn.Node)
+		return
+	}
+	ReleaseVal(&prog.Arena, vm.Cells[int(rootCell)])
+	vm.Cells[int(rootCell)] = updated
+}
+
+func writePlaceRecursive(prog mut Program, vm mut VM, cur Val, planStart uint32, stepIdx int, totalSteps int, keys []Val, keyIdx int, leaf Val) (Val, string) {
+	if stepIdx >= totalSteps {
+		RetainVal(&prog.Arena, leaf)
+		return (leaf, "")
+	}
+	let st = prog.Places[int(planStart)+stepIdx]
+	if st.Kind == PlaceDeref {
+		if cur.Tag != TagRef {
+			return (UnitVal(), "invalid dereference write")
+		}
+		let targetCell = int(cur.Aux)
+		let (nextInner, err) = writePlaceRecursive(prog, vm, vm.Cells[targetCell], planStart, stepIdx+1, totalSteps, keys, keyIdx, leaf)
+		if err != "" { return (UnitVal(), err) }
+		ReleaseVal(&prog.Arena, vm.Cells[targetCell])
+		vm.Cells[targetCell] = nextInner
+		return (cur, "")
+	}
+	if st.Kind == PlaceFieldIdx || st.Kind == PlaceFieldName {
+		let fi = if st.Kind == PlaceFieldIdx { int(st.FieldIdx) } else { FieldIndexByName(prog.Types, cur.Type, prog.Arena.Strs[int(st.NameStr)]) }
+		if fi < 0 {
+			return (UnitVal(), "missing record field in assignment")
+		}
+		let child = ReadPackElem(prog.Arena, cur, uint32(fi))
+		let (nextChild, err) = writePlaceRecursive(prog, vm, child, planStart, stepIdx+1, totalSteps, keys, keyIdx, leaf)
+		if err != "" { return (UnitVal(), err) }
+		let res = WithRecordFieldCOW(&prog.Arena, cur, uint32(fi), nextChild)
+		ReleaseVal(&prog.Arena, nextChild)
+		return (res, "")
+	}
+	let kv = keys[keyIdx]
+	if cur.Tag == TagSlice || cur.Tag == TagArray {
+		let idx = Int64FromBits(kv.Data)
+		let n = int64(ReadSliceLen(prog.Arena, cur))
+		if idx < 0 || idx >= n {
+			return (UnitVal(), "runtime error: index out of range [\(idx)] with length \(n)")
+		}
+		let child = ReadSliceElem(prog.Arena, cur, uint32(idx))
+		let (nextChild, err) = writePlaceRecursive(prog, vm, child, planStart, stepIdx+1, totalSteps, keys, keyIdx+1, leaf)
+		if err != "" { return (UnitVal(), err) }
+		let res = WriteSliceElemCOW(&prog.Arena, cur, uint32(idx), nextChild)
+		ReleaseVal(&prog.Arena, nextChild)
+		return (res, "")
+	}
+	if cur.Tag == TagMap {
+		let (child, ok) = MapGetVal(prog.Types, prog.Arena, cur, kv)
+		let curChild = if ok {
+			child
+		} else {
+			let mu = UnwrapType(prog.Types, cur.Type)
+			let vt = if int(mu) < prog.Types.Aux.Len() { prog.Types.Aux[int(mu)] } else { TypeVoid }
+			ZeroVal(prog.Types, &prog.Arena, vt)
+		}
+		let (nextChild, err) = writePlaceRecursive(prog, vm, curChild, planStart, stepIdx+1, totalSteps, keys, keyIdx+1, leaf)
+		if err != "" { return (UnitVal(), err) }
+		let res = MapPutValCOW(prog.Types, &prog.Arena, cur, kv, nextChild)
+		ReleaseVal(&prog.Arena, nextChild)
+		return (res, "")
+	}
+	(UnitVal(), "invalid place container")
+}
+
+func matchPatternRuntime(prog mut Program, vm mut VM, fIdx int, patIdx uint32, v Val) bool {
+	let pat = prog.Pats[int(patIdx)]
+	if pat.Kind == PatWild {
+		return true
+	}
+	if pat.Kind == PatBind {
+		let cell = vm.SlotCells[int(vm.Frames[fIdx].SlotBase+pat.Slot)]
+		RetainVal(&prog.Arena, v)
+		ReleaseVal(&prog.Arena, vm.Cells[int(cell)])
+		vm.Cells[int(cell)] = v
+		return true
+	}
+	if pat.Kind == PatConst {
+		return EqualVals(prog.Types, prog.Arena, v, prog.Consts[int(pat.ConstIdx)])
+	}
+	if pat.Kind == PatType {
+		if pat.TypeIdx != TypeVoid {
+			let pt = resolveFrameType(*prog, *vm, pat.TypeIdx)
+			if MatchesType(prog.Types, v.Type, pt) {
+				return true
+			}
+		}
+		if pat.BareName != "" {
+			return MatchesBareVariant(prog.Types, v.Type, pat.PkgIdx, pat.BareName)
+		}
+		return false
+	}
+	if pat.Kind == PatAs {
+		let child = prog.Pats[int(patIdx)].ChildStart
+		if !matchPatternRuntime(prog, vm, fIdx, child, v) {
+			return false
+		}
+		let cell = vm.SlotCells[int(vm.Frames[fIdx].SlotBase+pat.Slot)]
+		RetainVal(&prog.Arena, v)
+		ReleaseVal(&prog.Arena, vm.Cells[int(cell)])
+		vm.Cells[int(cell)] = v
+		return true
+	}
+	if pat.Kind == PatOr {
+		for i in 0..int(pat.ChildCount) {
+			let cIdx = prog.PatChildren[int(pat.ChildStart)+i]
+			if matchPatternRuntime(prog, vm, fIdx, cIdx, v) {
+				return true
+			}
+		}
+		return false
+	}
+	if pat.Kind == PatTuple {
+		if v.Tag != TagTuple || PackLen(prog.Arena, v) != pat.ChildCount {
+			return false
+		}
+		for i in 0..int(pat.ChildCount) {
+			let cPat = prog.PatChildren[int(pat.ChildStart)+i]
+			let elem = ReadPackElem(prog.Arena, v, uint32(i))
+			if !matchPatternRuntime(prog, vm, fIdx, cPat, elem) {
+				return false
+			}
+		}
+		return true
+	}
+	if pat.Kind == PatRecord {
+		if v.Tag != TagRecord {
+			return false
+		}
+		if pat.TypeIdx != TypeVoid {
+			let pt = resolveFrameType(*prog, *vm, pat.TypeIdx)
+			if !MatchesType(prog.Types, v.Type, pt) {
+				let genericUninst = pat.BareName != "" && prog.Types.Name[int(pt)] == pat.BareName && MatchesBareVariant(prog.Types, v.Type, pat.PkgIdx, pat.BareName)
+				if !genericUninst {
+					return false
+				}
+			}
+		} else if pat.BareName != "" {
+			if !MatchesBareVariant(prog.Types, v.Type, pat.PkgIdx, pat.BareName) {
+				return false
+			}
+		}
+		for i in 0..int(pat.FieldCount) {
+			let pf = prog.PatFields[int(pat.FieldStart)+i]
+			let mut fi = int(pf.FieldIdx)
+			if fi < 0 || fi >= int(PackLen(prog.Arena, v)) || pf.FieldIdx == uint32(0xffffffff) {
+				fi = FieldIndexByName(prog.Types, v.Type, pf.Name)
+			}
+			if fi < 0 {
+				return false
+			}
+			let fv = ReadPackElem(prog.Arena, v, uint32(fi))
+			if !matchPatternRuntime(prog, vm, fIdx, pf.PatIdx, fv) {
+				return false
+			}
+		}
+		return true
+	}
+	false
+}
+
+func execCallVal(prog mut Program, vm mut VM, fnVal Val, args []Val, targRunIdx uint32, file uint32, node uint32) {
+	if fnVal.Tag != TagFunc || int(fnVal.Aux) >= prog.Arena.Closures.Len() {
+		setVMFault(vm, CtlDefect, "runtime error: attempt to call non-function value", file, node)
+		return
+	}
+	let cl = prog.Arena.Closures[int(fnVal.Aux)]
+	if cl.IsMethodVal && cl.HasRecv {
+		let recv = vm.Cells[int(cl.BoundRecv)]
+		RetainVal(&prog.Arena, recv)
+		execDynamicMethodCall(prog, vm, recv, cl.NativeName, args, targRunIdx, file, node)
+		return
+	}
+	let mut targs = []uint32{}
+	if cl.TypeArgCount > uint32(0) {
+		for i in 0..int(cl.TypeArgCount) {
+			targs = targs.Append(prog.Arena.ClosureTypeArgs[int(cl.TypeArgStart)+i])
+		}
+	} else {
+		targs = resolveTypeArgsForFrame(prog, *vm, targRunIdx)
+	}
+	let _ = pushFnFrame(*prog, vm, cl.FnIdx, args, targs, fnVal.Aux, true, file, node)
+}
+
+func execDynamicMethodCall(prog mut Program, vm mut VM, recv Val, methodName string, args []Val, targRunIdx uint32, file uint32, node uint32) {
+	let nat = ResolveMethodNativeID(recv.Tag, methodName)
+	let mut fullArgs = []Val{recv}
+	for a in args {
+		fullArgs = fullArgs.Append(a)
+	}
+	if nat != NatNone {
+		execNativeCall(prog, vm, nat, resolveTypeArgsForFrame(prog, *vm, targRunIdx), fullArgs, file, node)
+		return
+	}
+	if recv.Type != TypeVoid && int(recv.Type) < prog.Types.Name.Len() {
+		let rPkg = prog.Types.Pkg[int(recv.Type)]
+		let base = stripBracketName(prog.Types.Name[int(recv.Type)])
+		match prog.FnByKey.Get("\(rPkg):\(base).\(methodName)") {
+		case option.Some{Value: fnIdx}:
+			let _ = pushFnFrame(*prog, vm, fnIdx, fullArgs, resolveTypeArgsForFrame(prog, *vm, targRunIdx), uint32(0), false, file, node)
+			return
+		case option.None:
+		}
+		match prog.FnByKey.Get("\(rPkg):\(methodName)") {
+		case option.Some{Value: fnIdx}:
+			let _ = pushFnFrame(*prog, vm, fnIdx, fullArgs, resolveTypeArgsForFrame(prog, *vm, targRunIdx), uint32(0), false, file, node)
+			return
+		case option.None:
+		}
+	}
+	ReleaseVal(&prog.Arena, recv)
+	for a in args { ReleaseVal(&prog.Arena, a) }
+	setVMFault(vm, CtlDefect, "runtime error: unknown method \(methodName)", file, node)
+}
+
+func execNativeCall(prog mut Program, vm mut VM, id uint32, targs []uint32, args []Val, file uint32, node uint32) {
+	vm.BuiltinsHit = vm.BuiltinsHit + uint64(1)
+	if id >= NatCbOptionMap && id <= NatCbStrTrimFunc {
+		execCallbackNative(prog, vm, id, targs, args, file, node)
+		return
+	}
+	let (res, errVal, defect, extraWork) = InvokePureNative(prog, id, targs, args)
+	for a in args { ReleaseVal(&prog.Arena, a) }
+	if extraWork > uint64(1) {
+		if !chargeSteps(vm, extraWork-uint64(1), file, node) {
+			return
+		}
+	}
+	if defect != "" {
+		setVMFault(vm, CtlDefect, defect, file, node)
+		return
+	}
+	if errVal.Tag != TagUnit {
+		vm.ErrVal = errVal
+		vm.Ctl = CtlFail
+		return
+	}
+	pushVMVal(vm, res)
+}
+
+func invokeCallbackSync(prog mut Program, vm mut VM, fnVal Val, cbArgs []Val, file uint32, node uint32) (Val, bool) {
+	let stopDepth = vm.Frames.Len()
+	execCallVal(prog, vm, fnVal, cbArgs, uint32(0), file, node)
+	if vm.Ctl != CtlNone {
+		return (UnitVal(), false)
+	}
+	runVMLoop(prog, vm, stopDepth)
+	if vm.Ctl != CtlNone {
+		return (UnitVal(), false)
+	}
+	(vm.RetVal, true)
+}
+
+func execCallbackNative(prog mut Program, vm mut VM, id uint32, targs []uint32, args []Val, file uint32, node uint32) {
+	let _ = targs
+	if id == NatCbOptionMap {
+		let o = args[0]
+		let fnVal = args[1]
+		let tn = prog.Types.Name[int(o.Type)]
+		if tn == "Some" || strings.HasPrefix(tn, "Some[") {
+			let elem = ReadPackElem(prog.Arena, o, uint32(0))
+			RetainVal(&prog.Arena, elem)
+			let (res, ok) = invokeCallbackSync(prog, vm, fnVal, []Val{elem}, file, node)
+			if !ok { return }
+			pushVMVal(vm, makeOptionSome(prog, res.Type, res))
+			return
+		}
+		pushVMVal(vm, makeOptionNone(prog))
+		return
+	}
+	if id == NatCbOptionThen {
+		let o = args[0]
+		let fnVal = args[1]
+		let tn = prog.Types.Name[int(o.Type)]
+		if tn == "Some" || strings.HasPrefix(tn, "Some[") {
+			let elem = ReadPackElem(prog.Arena, o, uint32(0))
+			RetainVal(&prog.Arena, elem)
+			let (res, ok) = invokeCallbackSync(prog, vm, fnVal, []Val{elem}, file, node)
+			if !ok { return }
+			pushVMVal(vm, res)
+			return
+		}
+		pushVMVal(vm, makeOptionNone(prog))
+		return
+	}
+	if id == NatCbOptionFold {
+		let o = args[0]
+		let acc = args[1]
+		let fnVal = args[2]
+		let tn = prog.Types.Name[int(o.Type)]
+		if tn == "Some" || strings.HasPrefix(tn, "Some[") {
+			let elem = ReadPackElem(prog.Arena, o, uint32(0))
+			RetainVal(&prog.Arena, elem)
+			let (res, ok) = invokeCallbackSync(prog, vm, fnVal, []Val{acc, elem}, file, node)
+			if !ok { return }
+			pushVMVal(vm, res)
+			return
+		}
+		pushVMVal(vm, acc)
+		return
+	}
+	if id == NatCbOptionMapOr {
+		let o = args[0]
+		let fb = args[1]
+		let fnVal = args[2]
+		let tn = prog.Types.Name[int(o.Type)]
+		if tn == "Some" || strings.HasPrefix(tn, "Some[") {
+			let elem = ReadPackElem(prog.Arena, o, uint32(0))
+			RetainVal(&prog.Arena, elem)
+			let (res, ok) = invokeCallbackSync(prog, vm, fnVal, []Val{elem}, file, node)
+			if !ok { return }
+			pushVMVal(vm, res)
+			return
+		}
+		pushVMVal(vm, fb)
+		return
+	}
+	if id == NatCbSlicesTransform {
+		let xs = args[0]
+		let fnVal = args[1]
+		let n = int(ReadSliceLen(prog.Arena, xs))
+		let mut out = slices.WithCapacity[Val](n)
+		let mut elemT = TypeInt
+		for i in 0..n {
+			let elem = ReadSliceElem(prog.Arena, xs, uint32(i))
+			RetainVal(&prog.Arena, elem)
+			let (mapped, ok) = invokeCallbackSync(prog, vm, fnVal, []Val{elem}, file, node)
+			if !ok { return }
+			if i == 0 { elemT = mapped.Type }
+			out = out.Append(mapped)
+		}
+		let st = InternSlice(&prog.Types, elemT)
+		pushVMVal(vm, MakeSliceVal(&prog.Arena, st, out, uint32(out.Len())))
+		return
+	}
+	if id == NatCbSlicesFilter {
+		let xs = args[0]
+		let fnVal = args[1]
+		let n = int(ReadSliceLen(prog.Arena, xs))
+		let mut out = []Val{}
+		for i in 0..n {
+			let elem = ReadSliceElem(prog.Arena, xs, uint32(i))
+			RetainVal(&prog.Arena, elem)
+			let (keep, ok) = invokeCallbackSync(prog, vm, fnVal, []Val{elem}, file, node)
+			if !ok { return }
+			if keep.Data != uint64(0) {
+				out = out.Append(elem)
+			}
+		}
+		pushVMVal(vm, MakeSliceVal(&prog.Arena, xs.Type, out, uint32(out.Len())))
+		return
+	}
+	if id == NatCbSlicesFold {
+		let xs = args[0]
+		let mut acc = args[1]
+		let fnVal = args[2]
+		let n = int(ReadSliceLen(prog.Arena, xs))
+		for i in 0..n {
+			let elem = ReadSliceElem(prog.Arena, xs, uint32(i))
+			RetainVal(&prog.Arena, elem)
+			let (nextAcc, ok) = invokeCallbackSync(prog, vm, fnVal, []Val{acc, elem}, file, node)
+			if !ok { return }
+			acc = nextAcc
+		}
+		pushVMVal(vm, acc)
+		return
+	}
+	if id == NatCbSlicesIndexFunc {
+		let xs = args[0]
+		let fnVal = args[1]
+		let n = int(ReadSliceLen(prog.Arena, xs))
+		for i in 0..n {
+			let elem = ReadSliceElem(prog.Arena, xs, uint32(i))
+			RetainVal(&prog.Arena, elem)
+			let (hit, ok) = invokeCallbackSync(prog, vm, fnVal, []Val{elem}, file, node)
+			if !ok { return }
+			if hit.Data != uint64(0) {
+				pushVMVal(vm, MakeIntVal(prog.Types, TypeInt, uint64(int64(i))))
+				return
+			}
+		}
+		pushVMVal(vm, MakeIntVal(prog.Types, TypeInt, u64AllOnes))
+		return
+	}
+	if id == NatCbSlicesSortFunc || id == NatCbSlicesSortStableFunc {
+		let xs = args[0]
+		let cmpFn = args[1]
+		let n = int(ReadSliceLen(prog.Arena, xs))
+		let mut elems = slices.WithCapacity[Val](n)
+		for i in 0..n {
+			elems = elems.Append(ReadSliceElem(prog.Arena, xs, uint32(i)))
+		}
+		for i in 1..n {
+			let cur = elems[i]
+			let mut j = i - 1
+			for j >= 0 {
+				let prev = elems[j]
+				RetainVal(&prog.Arena, prev)
+				RetainVal(&prog.Arena, cur)
+				let (cmpRes, ok) = invokeCallbackSync(prog, vm, cmpFn, []Val{prev, cur}, file, node)
+				if !ok { return }
+				if !SignedBitsLT(uint64(0), cmpRes.Data) {
+					break
+				}
+				elems[j+1] = prev
+				j = j - 1
+			}
+			elems[j+1] = cur
+		}
+		pushVMVal(vm, MakeSliceVal(&prog.Arena, xs.Type, elems, uint32(n)))
+		return
+	}
+	if id == NatCbStrFieldsFunc {
+		let s = ReadStr(prog.Arena, args[0])
+		let fnVal = args[1]
+		let mut parts = []string{}
+		let mut off = 0
+		let mut start = -1
+		for off < s.Len() {
+			let dec = utf8.DecodeRuneInString(s[off:s.Len()])
+			let step = if dec.Size > 0 { dec.Size } else { 1 }
+			let rVal = MakeIntVal(prog.Types, TypeInt32, uint64(int64(dec.Rune)))
+			let (isSep, ok) = invokeCallbackSync(prog, vm, fnVal, []Val{rVal}, file, node)
+			if !ok { return }
+			if isSep.Data != uint64(0) {
+				if start >= 0 {
+					parts = parts.Append(s[start:off])
+					start = -1
+				}
+			} else if start < 0 {
+				start = off
+			}
+			off = off + step
+		}
+		if start >= 0 { parts = parts.Append(s[start:s.Len()]) }
+		pushVMVal(vm, makeStrSliceVal(prog, parts))
+		return
+	}
+	if id == NatCbStrTrimFunc {
+		let s = ReadStr(prog.Arena, args[0])
+		let fnVal = args[1]
+		let mut left = 0
+		for left < s.Len() {
+			let dec = utf8.DecodeRuneInString(s[left:s.Len()])
+			let step = if dec.Size > 0 { dec.Size } else { 1 }
+			let rVal = MakeIntVal(prog.Types, TypeInt32, uint64(int64(dec.Rune)))
+			let (trimIt, ok) = invokeCallbackSync(prog, vm, fnVal, []Val{rVal}, file, node)
+			if !ok { return }
+			if trimIt.Data == uint64(0) { break }
+			left = left + step
+		}
+		let mut right = s.Len()
+		for right > left {
+			let mut prev = left
+			let mut cur = left
+			let mut lastStep = 1
+			let mut lastRune = rune(0)
+			for cur < right {
+				let dec = utf8.DecodeRuneInString(s[cur:right])
+				let step = if dec.Size > 0 { dec.Size } else { 1 }
+				prev = cur
+				lastStep = step
+				lastRune = dec.Rune
+				cur = cur + step
+			}
+			let _ = lastStep
+			let rVal = MakeIntVal(prog.Types, TypeInt32, uint64(int64(lastRune)))
+			let (trimIt, ok) = invokeCallbackSync(prog, vm, fnVal, []Val{rVal}, file, node)
+			if !ok { return }
+			if trimIt.Data == uint64(0) { break }
+			right = prev
+		}
+		pushVMVal(vm, AllocStrVal(&prog.Arena, TypeString, s[left:right]))
+		return
+	}
+}

@@ -1,0 +1,1655 @@
+import bits
+import hex
+import math
+import option
+import slices
+import strconv
+import strings
+import utf8
+
+// NatNone identifies no builtin native function.
+let NatNone = uint32(0)
+
+// NatLen implements len / Len on slices, arrays, maps, and strings.
+let NatLen = uint32(1)
+
+// NatAppend implements append / Append on slices.
+let NatAppend = uint32(2)
+
+// NatDelete implements delete / Delete on maps.
+let NatDelete = uint32(3)
+
+// NatMin implements builtin min.
+let NatMin = uint32(4)
+
+// NatMax implements builtin max.
+let NatMax = uint32(5)
+
+// NatMakeSlice implements MakeSlice and slices.WithCapacity.
+let NatMakeSlice = uint32(6)
+
+// NatAt implements core.At indexing on slices and arrays.
+let NatAt = uint32(7)
+
+// NatSlice implements Slice windowing on slices and strings.
+let NatSlice = uint32(8)
+
+// NatTakeAt implements TakeAt / slices.Take on slices.
+let NatTakeAt = uint32(9)
+
+// NatConcat implements Concat on slices.
+let NatConcat = uint32(10)
+
+// NatRepeat implements Repeat on slices and strings.
+let NatRepeat = uint32(11)
+
+// NatClone implements Clone on slices and maps.
+let NatClone = uint32(12)
+
+// NatReserve implements Reserve on slices.
+let NatReserve = uint32(13)
+
+// NatBytes implements string.Bytes() converting string to []byte.
+let NatBytes = uint32(14)
+
+// NatGet implements map.Get(k) returning option.Option[V].
+let NatGet = uint32(15)
+
+// NatPut implements map.Put(k, v).
+let NatPut = uint32(16)
+
+// NatTake implements map.Take(k) returning (option.Option[V], Map[K, V]).
+let NatTake = uint32(17)
+
+// NatSome implements prelude some(v) constructing option.Some.
+let NatSome = uint32(18)
+
+// NatRuneText implements RuneText / utf8.RuneText.
+let NatRuneText = uint32(19)
+
+// NatStringsJoin implements strings.Join / StringsJoin.
+let NatStringsJoin = uint32(20)
+
+// NatAppendString implements byte-slice AppendString.
+let NatAppendString = uint32(21)
+
+// NatAppendBytes implements byte-slice AppendBytes.
+let NatAppendBytes = uint32(22)
+
+// NatAppendFrom implements slice AppendFrom.
+let NatAppendFrom = uint32(23)
+
+// NatGrow implements slice Grow.
+let NatGrow = uint32(24)
+
+// NatText implements []byte.Text().
+let NatText = uint32(25)
+
+// NatMapGetRaw implements runtime/v1.Get returning (V, bool).
+let NatMapGetRaw = uint32(26)
+
+// NatMapTakeRaw implements runtime/v1.MapTake returning (V, bool, Map[K, V]).
+let NatMapTakeRaw = uint32(27)
+
+// NatOptionOrFail implements option.OrFail.
+let NatOptionOrFail = uint32(28)
+
+// NatCmpCompare implements cmp.Compare.
+let NatCmpCompare = uint32(30)
+
+// NatCmpLess implements cmp.Less.
+let NatCmpLess = uint32(31)
+
+// NatCmpMax implements cmp.Max.
+let NatCmpMax = uint32(32)
+
+// NatCmpMin implements cmp.Min.
+let NatCmpMin = uint32(33)
+
+// NatSlicesEqual implements slices.Equal.
+let NatSlicesEqual = uint32(40)
+
+// NatSlicesContains implements slices.Contains.
+let NatSlicesContains = uint32(41)
+
+// NatSlicesIndex implements slices.Index.
+let NatSlicesIndex = uint32(42)
+
+// NatSlicesReverse implements slices.Reverse.
+let NatSlicesReverse = uint32(43)
+
+// NatSlicesSort implements slices.Sort.
+let NatSlicesSort = uint32(44)
+
+// NatSlicesMax implements slices.Max.
+let NatSlicesMax = uint32(45)
+
+// NatSlicesMin implements slices.Min.
+let NatSlicesMin = uint32(46)
+
+// NatSlicesInsert implements slices.Insert.
+let NatSlicesInsert = uint32(47)
+
+// NatSlicesDelete implements slices.Delete.
+let NatSlicesDelete = uint32(48)
+
+// NatSlicesReplace implements slices.Replace.
+let NatSlicesReplace = uint32(49)
+
+// NatStrSplit implements strings.Split.
+let NatStrSplit = uint32(60)
+
+// NatStrSplitN implements strings.SplitN.
+let NatStrSplitN = uint32(61)
+
+// NatStrHasPrefix implements strings.HasPrefix.
+let NatStrHasPrefix = uint32(62)
+
+// NatStrHasSuffix implements strings.HasSuffix.
+let NatStrHasSuffix = uint32(63)
+
+// NatStrTrimSpace implements strings.TrimSpace.
+let NatStrTrimSpace = uint32(64)
+
+// NatStrTrimPrefix implements strings.TrimPrefix.
+let NatStrTrimPrefix = uint32(65)
+
+// NatStrTrimSuffix implements strings.TrimSuffix.
+let NatStrTrimSuffix = uint32(66)
+
+// NatStrTrimLeft implements strings.TrimLeft.
+let NatStrTrimLeft = uint32(67)
+
+// NatStrTrimRight implements strings.TrimRight.
+let NatStrTrimRight = uint32(68)
+
+// NatStrFields implements strings.Fields.
+let NatStrFields = uint32(69)
+
+// NatStrRepeat implements strings.Repeat.
+let NatStrRepeat = uint32(70)
+
+// NatStrToLower implements strings.ToLower.
+let NatStrToLower = uint32(71)
+
+// NatStrToUpper implements strings.ToUpper.
+let NatStrToUpper = uint32(72)
+
+// NatStrIndex implements strings.Index.
+let NatStrIndex = uint32(73)
+
+// NatStrIndexByte implements strings.IndexByte.
+let NatStrIndexByte = uint32(74)
+
+// NatStrIndexAny implements strings.IndexAny.
+let NatStrIndexAny = uint32(75)
+
+// NatStrLastIndex implements strings.LastIndex.
+let NatStrLastIndex = uint32(76)
+
+// NatStrLastIndexAny implements strings.LastIndexAny.
+let NatStrLastIndexAny = uint32(77)
+
+// NatStrContains implements strings.Contains.
+let NatStrContains = uint32(78)
+
+// NatStrContainsRune implements strings.ContainsRune.
+let NatStrContainsRune = uint32(79)
+
+// NatStrReplaceAll implements strings.ReplaceAll.
+let NatStrReplaceAll = uint32(80)
+
+// NatStrCount implements strings.Count.
+let NatStrCount = uint32(81)
+
+// NatStrEqualFold implements strings.EqualFold.
+let NatStrEqualFold = uint32(82)
+
+// NatStrToValidUTF8 implements strings.ToValidUTF8.
+let NatStrToValidUTF8 = uint32(83)
+
+// NatStrCut implements strings.Cut.
+let NatStrCut = uint32(84)
+
+// NatBuilderNew implements strings.NewBuilder.
+let NatBuilderNew = uint32(85)
+
+// NatBuilderWriteString implements strings.Builder.WriteString.
+let NatBuilderWriteString = uint32(86)
+
+// NatBuilderWriteByte implements strings.Builder.WriteByte.
+let NatBuilderWriteByte = uint32(87)
+
+// NatBuilderWriteRune implements strings.Builder.WriteRune.
+let NatBuilderWriteRune = uint32(88)
+
+// NatBuilderString implements strings.Builder.String.
+let NatBuilderString = uint32(89)
+
+// NatBuilderLen implements strings.Builder.Len.
+let NatBuilderLen = uint32(90)
+
+// NatBuilderReset implements strings.Builder.Reset.
+let NatBuilderReset = uint32(91)
+
+// NatBuilderGrow implements strings.Builder.Grow.
+let NatBuilderGrow = uint32(92)
+
+// NatUtf8RuneCount implements utf8.RuneCount.
+let NatUtf8RuneCount = uint32(100)
+
+// NatUtf8DecodeRune implements utf8.DecodeRuneInString.
+let NatUtf8DecodeRune = uint32(101)
+
+// NatUtf8AppendRune implements utf8.AppendRune.
+let NatUtf8AppendRune = uint32(102)
+
+// NatUtf8String implements utf8.String.
+let NatUtf8String = uint32(103)
+
+// NatUtf8ValidString implements utf8.ValidString.
+let NatUtf8ValidString = uint32(104)
+
+// NatUtf8ValidRune implements utf8.ValidRune.
+let NatUtf8ValidRune = uint32(105)
+
+// NatUtf8RuneLen implements utf8.RuneLen.
+let NatUtf8RuneLen = uint32(106)
+
+// NatUtf8IsDigit implements utf8.IsDigit.
+let NatUtf8IsDigit = uint32(107)
+
+// NatUtf8IsLetter implements utf8.IsLetter.
+let NatUtf8IsLetter = uint32(108)
+
+// NatUtf8IsUpper implements utf8.IsUpper.
+let NatUtf8IsUpper = uint32(109)
+
+// NatUtf8IsSpace implements utf8.IsSpace.
+let NatUtf8IsSpace = uint32(110)
+
+// NatStrconvItoa implements strconv.Itoa.
+let NatStrconvItoa = uint32(120)
+
+// NatStrconvFormatInt implements strconv.FormatInt.
+let NatStrconvFormatInt = uint32(121)
+
+// NatStrconvAtoi implements strconv.Atoi.
+let NatStrconvAtoi = uint32(122)
+
+// NatStrconvParseInt implements strconv.ParseInt.
+let NatStrconvParseInt = uint32(123)
+
+// NatStrconvParseFloat implements strconv.ParseFloat.
+let NatStrconvParseFloat = uint32(124)
+
+// NatStrconvParseBool implements strconv.ParseBool.
+let NatStrconvParseBool = uint32(125)
+
+// NatStrconvFormatBool implements strconv.FormatBool.
+let NatStrconvFormatBool = uint32(126)
+
+// NatStrconvFormatFloat implements strconv.FormatFloat.
+let NatStrconvFormatFloat = uint32(127)
+
+// NatStrconvAppendInt implements strconv.AppendInt.
+let NatStrconvAppendInt = uint32(128)
+
+// NatStrconvAppendUint implements strconv.AppendUint.
+let NatStrconvAppendUint = uint32(129)
+
+// NatStrconvAppendFloat implements strconv.AppendFloat.
+let NatStrconvAppendFloat = uint32(130)
+
+// NatStrconvQuote implements strconv.Quote.
+let NatStrconvQuote = uint32(131)
+
+// NatStrconvUnquote implements strconv.Unquote.
+let NatStrconvUnquote = uint32(132)
+
+// NatMathAbs implements math.Abs.
+let NatMathAbs = uint32(140)
+
+// NatMathCeil implements math.Ceil.
+let NatMathCeil = uint32(141)
+
+// NatMathFloor implements math.Floor.
+let NatMathFloor = uint32(142)
+
+// NatMathTrunc implements math.Trunc.
+let NatMathTrunc = uint32(143)
+
+// NatMathRound implements math.Round.
+let NatMathRound = uint32(144)
+
+// NatMathSqrt implements math.Sqrt.
+let NatMathSqrt = uint32(145)
+
+// NatMathPow implements math.Pow.
+let NatMathPow = uint32(146)
+
+// NatMathFMA implements math.FMA.
+let NatMathFMA = uint32(147)
+
+// NatMathMod implements math.Mod.
+let NatMathMod = uint32(148)
+
+// NatMathLog implements math.Log.
+let NatMathLog = uint32(149)
+
+// NatMathExp implements math.Exp.
+let NatMathExp = uint32(150)
+
+// NatMathSin implements math.Sin.
+let NatMathSin = uint32(151)
+
+// NatMathCos implements math.Cos.
+let NatMathCos = uint32(152)
+
+// NatMathTan implements math.Tan.
+let NatMathTan = uint32(153)
+
+// NatMathAsin implements math.Asin.
+let NatMathAsin = uint32(154)
+
+// NatMathAcos implements math.Acos.
+let NatMathAcos = uint32(155)
+
+// NatMathAtan implements math.Atan.
+let NatMathAtan = uint32(156)
+
+// NatMathAtan2 implements math.Atan2.
+let NatMathAtan2 = uint32(157)
+
+// NatMathHypot implements math.Hypot.
+let NatMathHypot = uint32(158)
+
+// NatMathCbrt implements math.Cbrt.
+let NatMathCbrt = uint32(159)
+
+// NatMathLog2 implements math.Log2.
+let NatMathLog2 = uint32(160)
+
+// NatMathLog10 implements math.Log10.
+let NatMathLog10 = uint32(161)
+
+// NatMathInf implements math.Inf.
+let NatMathInf = uint32(162)
+
+// NatMathNaN implements math.NaN.
+let NatMathNaN = uint32(163)
+
+// NatMathIsNaN implements math.IsNaN.
+let NatMathIsNaN = uint32(164)
+
+// NatMathIsInf implements math.IsInf.
+let NatMathIsInf = uint32(165)
+
+// NatMathMaxInt implements math.MaxInt.
+let NatMathMaxInt = uint32(166)
+
+// NatMathMinInt implements math.MinInt.
+let NatMathMinInt = uint32(167)
+
+// NatMathMaxInt64 implements math.MaxInt64.
+let NatMathMaxInt64 = uint32(168)
+
+// NatMathMinInt64 implements math.MinInt64.
+let NatMathMinInt64 = uint32(169)
+
+// NatMathToInt implements math.ToInt.
+let NatMathToInt = uint32(170)
+
+// NatBitsOnesCount implements bits.OnesCount.
+let NatBitsOnesCount = uint32(180)
+
+// NatBitsOnesCount64 implements bits.OnesCount64.
+let NatBitsOnesCount64 = uint32(181)
+
+// NatBitsLeadingZeros implements bits.LeadingZeros.
+let NatBitsLeadingZeros = uint32(182)
+
+// NatBitsLeadingZeros64 implements bits.LeadingZeros64.
+let NatBitsLeadingZeros64 = uint32(183)
+
+// NatBitsTrailingZeros implements bits.TrailingZeros.
+let NatBitsTrailingZeros = uint32(184)
+
+// NatBitsTrailingZeros64 implements bits.TrailingZeros64.
+let NatBitsTrailingZeros64 = uint32(185)
+
+// NatBitsLen implements bits.Len.
+let NatBitsLen = uint32(186)
+
+// NatBitsLen64 implements bits.Len64.
+let NatBitsLen64 = uint32(187)
+
+// NatBitsRotateLeft32 implements bits.RotateLeft32.
+let NatBitsRotateLeft32 = uint32(188)
+
+// NatBitsRotateLeft64 implements bits.RotateLeft64.
+let NatBitsRotateLeft64 = uint32(189)
+
+// NatBitsAdd64 implements bits.Add64.
+let NatBitsAdd64 = uint32(190)
+
+// NatBitsSub64 implements bits.Sub64.
+let NatBitsSub64 = uint32(191)
+
+// NatBitsMul64 implements bits.Mul64.
+let NatBitsMul64 = uint32(192)
+
+// NatBitsDiv64 implements bits.Div64.
+let NatBitsDiv64 = uint32(193)
+
+// NatHexEncode implements hex.Encode.
+let NatHexEncode = uint32(200)
+
+// NatHexDecode implements hex.Decode.
+let NatHexDecode = uint32(201)
+
+// NatCbOptionMap identifies callback-invoking option.Map executed in VM.
+let NatCbOptionMap = uint32(220)
+
+// NatCbOptionThen identifies callback-invoking option.Then executed in VM.
+let NatCbOptionThen = uint32(221)
+
+// NatCbOptionFold identifies callback-invoking option.Fold executed in VM.
+let NatCbOptionFold = uint32(222)
+
+// NatCbOptionMapOr identifies callback-invoking option.MapOr executed in VM.
+let NatCbOptionMapOr = uint32(223)
+
+// NatCbSlicesTransform identifies callback-invoking slices.Transform executed in VM.
+let NatCbSlicesTransform = uint32(224)
+
+// NatCbSlicesFilter identifies callback-invoking slices.Filter executed in VM.
+let NatCbSlicesFilter = uint32(225)
+
+// NatCbSlicesFold identifies callback-invoking slices.Fold executed in VM.
+let NatCbSlicesFold = uint32(226)
+
+// NatCbSlicesIndexFunc identifies callback-invoking slices.IndexFunc executed in VM.
+let NatCbSlicesIndexFunc = uint32(227)
+
+// NatCbSlicesSortFunc identifies callback-invoking slices.SortFunc executed in VM.
+let NatCbSlicesSortFunc = uint32(228)
+
+// NatCbSlicesSortStableFunc identifies callback-invoking slices.SortStableFunc executed in VM.
+let NatCbSlicesSortStableFunc = uint32(229)
+
+// NatCbStrFieldsFunc identifies callback-invoking strings.FieldsFunc executed in VM.
+let NatCbStrFieldsFunc = uint32(230)
+
+// NatCbStrTrimFunc identifies callback-invoking strings.TrimFunc executed in VM.
+let NatCbStrTrimFunc = uint32(231)
+
+// ResolveBuiltinName maps a predeclared or core function name to its NativeID.
+func ResolveBuiltinName(name string) uint32 {
+	if name == "len" || name == "Len" { return NatLen }
+	if name == "append" || name == "Append" { return NatAppend }
+	if name == "delete" || name == "Delete" { return NatDelete }
+	if name == "min" { return NatMin }
+	if name == "max" { return NatMax }
+	if name == "MakeSlice" { return NatMakeSlice }
+	if name == "At" { return NatAt }
+	if name == "Slice" { return NatSlice }
+	if name == "TakeAt" { return NatTakeAt }
+	if name == "Concat" { return NatConcat }
+	if name == "Repeat" { return NatRepeat }
+	if name == "Clone" { return NatClone }
+	if name == "Reserve" { return NatReserve }
+	if name == "Bytes" { return NatBytes }
+	if name == "Get" { return NatGet }
+	if name == "Put" { return NatPut }
+	if name == "Take" { return NatTake }
+	if name == "some" { return NatSome }
+	if name == "RuneText" { return NatRuneText }
+	if name == "StringsJoin" { return NatStringsJoin }
+	if name == "AppendString" { return NatAppendString }
+	if name == "AppendBytes" { return NatAppendBytes }
+	if name == "AppendFrom" { return NatAppendFrom }
+	if name == "Grow" { return NatGrow }
+	if name == "Text" { return NatText }
+	if name == "mapGet" { return NatMapGetRaw }
+	if name == "mapTake" { return NatMapTakeRaw }
+	if name == "sliceWindow" { return NatSlice }
+	if name == "sliceTakeAt" { return NatTakeAt }
+	if name == "sliceConcat" { return NatConcat }
+	if name == "sliceRepeat" { return NatRepeat }
+	if name == "reserveSlice" { return NatReserve }
+	if name == "mapPut" { return NatPut }
+	if name == "mapClone" { return NatClone }
+	NatNone
+}
+
+// ResolveStdNativeID maps a standard library package path and symbol name to its NativeID.
+func ResolveStdNativeID(pkgPath string, name string) uint32 {
+	if pkgPath == "" || pkgPath == "prelude" || pkgPath == "core" {
+		return ResolveBuiltinName(name)
+	}
+	if pkgPath == "option" {
+		if name == "Map" { return NatCbOptionMap }
+		if name == "Then" { return NatCbOptionThen }
+		if name == "Fold" { return NatCbOptionFold }
+		if name == "MapOr" { return NatCbOptionMapOr }
+		if name == "OrFail" { return NatOptionOrFail }
+		return NatNone
+	}
+	if pkgPath == "cmp" {
+		if name == "Compare" { return NatCmpCompare }
+		if name == "Less" { return NatCmpLess }
+		if name == "Max" { return NatCmpMax }
+		if name == "Min" { return NatCmpMin }
+		return NatNone
+	}
+	if pkgPath == "slices" {
+		if name == "WithCapacity" { return NatMakeSlice }
+		if name == "Take" { return NatTakeAt }
+		if name == "Equal" { return NatSlicesEqual }
+		if name == "Contains" { return NatSlicesContains }
+		if name == "Index" { return NatSlicesIndex }
+		if name == "Reverse" { return NatSlicesReverse }
+		if name == "Sort" { return NatSlicesSort }
+		if name == "Clone" { return NatClone }
+		if name == "Max" { return NatSlicesMax }
+		if name == "Min" { return NatSlicesMin }
+		if name == "Insert" { return NatSlicesInsert }
+		if name == "Delete" { return NatSlicesDelete }
+		if name == "Replace" { return NatSlicesReplace }
+		if name == "Transform" { return NatCbSlicesTransform }
+		if name == "Filter" { return NatCbSlicesFilter }
+		if name == "Fold" { return NatCbSlicesFold }
+		if name == "IndexFunc" { return NatCbSlicesIndexFunc }
+		if name == "SortFunc" { return NatCbSlicesSortFunc }
+		if name == "SortStableFunc" { return NatCbSlicesSortStableFunc }
+		return NatNone
+	}
+	if pkgPath == "strings" {
+		if name == "Split" { return NatStrSplit }
+		if name == "SplitN" { return NatStrSplitN }
+		if name == "Join" { return NatStringsJoin }
+		if name == "HasPrefix" { return NatStrHasPrefix }
+		if name == "HasSuffix" { return NatStrHasSuffix }
+		if name == "TrimSpace" { return NatStrTrimSpace }
+		if name == "TrimPrefix" { return NatStrTrimPrefix }
+		if name == "TrimSuffix" { return NatStrTrimSuffix }
+		if name == "TrimLeft" { return NatStrTrimLeft }
+		if name == "TrimRight" { return NatStrTrimRight }
+		if name == "Fields" { return NatStrFields }
+		if name == "FieldsFunc" { return NatCbStrFieldsFunc }
+		if name == "TrimFunc" { return NatCbStrTrimFunc }
+		if name == "Repeat" { return NatStrRepeat }
+		if name == "ToLower" { return NatStrToLower }
+		if name == "ToUpper" { return NatStrToUpper }
+		if name == "Index" { return NatStrIndex }
+		if name == "IndexByte" { return NatStrIndexByte }
+		if name == "IndexAny" { return NatStrIndexAny }
+		if name == "LastIndex" { return NatStrLastIndex }
+		if name == "LastIndexAny" { return NatStrLastIndexAny }
+		if name == "Contains" { return NatStrContains }
+		if name == "ContainsRune" { return NatStrContainsRune }
+		if name == "ReplaceAll" { return NatStrReplaceAll }
+		if name == "Count" { return NatStrCount }
+		if name == "EqualFold" { return NatStrEqualFold }
+		if name == "ToValidUTF8" { return NatStrToValidUTF8 }
+		if name == "Slice" { return NatSlice }
+		if name == "Cut" { return NatStrCut }
+		if name == "NewBuilder" { return NatBuilderNew }
+		if name == "WriteString" { return NatBuilderWriteString }
+		if name == "WriteByte" { return NatBuilderWriteByte }
+		if name == "WriteRune" { return NatBuilderWriteRune }
+		if name == "String" { return NatBuilderString }
+		if name == "Len" { return NatBuilderLen }
+		if name == "Reset" { return NatBuilderReset }
+		if name == "Grow" { return NatBuilderGrow }
+		return NatNone
+	}
+	if pkgPath == "utf8" {
+		if name == "RuneCount" || name == "RuneCountInString" { return NatUtf8RuneCount }
+		if name == "DecodeRuneInString" { return NatUtf8DecodeRune }
+		if name == "RuneText" { return NatRuneText }
+		if name == "AppendRune" { return NatUtf8AppendRune }
+		if name == "String" { return NatUtf8String }
+		if name == "ValidString" { return NatUtf8ValidString }
+		if name == "ValidRune" { return NatUtf8ValidRune }
+		if name == "RuneLen" { return NatUtf8RuneLen }
+		if name == "IsDigit" { return NatUtf8IsDigit }
+		if name == "IsLetter" { return NatUtf8IsLetter }
+		if name == "IsUpper" { return NatUtf8IsUpper }
+		if name == "IsSpace" { return NatUtf8IsSpace }
+		return NatNone
+	}
+	if pkgPath == "strconv" {
+		if name == "Itoa" { return NatStrconvItoa }
+		if name == "FormatInt" { return NatStrconvFormatInt }
+		if name == "Atoi" { return NatStrconvAtoi }
+		if name == "ParseInt" { return NatStrconvParseInt }
+		if name == "ParseFloat" { return NatStrconvParseFloat }
+		if name == "ParseBool" { return NatStrconvParseBool }
+		if name == "FormatBool" { return NatStrconvFormatBool }
+		if name == "FormatFloat" { return NatStrconvFormatFloat }
+		if name == "AppendInt" { return NatStrconvAppendInt }
+		if name == "AppendUint" { return NatStrconvAppendUint }
+		if name == "AppendFloat" { return NatStrconvAppendFloat }
+		if name == "Quote" { return NatStrconvQuote }
+		if name == "Unquote" { return NatStrconvUnquote }
+		return NatNone
+	}
+	if pkgPath == "math" {
+		if name == "Abs" { return NatMathAbs }
+		if name == "Ceil" { return NatMathCeil }
+		if name == "Floor" { return NatMathFloor }
+		if name == "Trunc" { return NatMathTrunc }
+		if name == "Round" { return NatMathRound }
+		if name == "Sqrt" { return NatMathSqrt }
+		if name == "Pow" { return NatMathPow }
+		if name == "FMA" { return NatMathFMA }
+		if name == "Mod" { return NatMathMod }
+		if name == "Log" { return NatMathLog }
+		if name == "Exp" { return NatMathExp }
+		if name == "Sin" { return NatMathSin }
+		if name == "Cos" { return NatMathCos }
+		if name == "Tan" { return NatMathTan }
+		if name == "Asin" { return NatMathAsin }
+		if name == "Acos" { return NatMathAcos }
+		if name == "Atan" { return NatMathAtan }
+		if name == "Atan2" { return NatMathAtan2 }
+		if name == "Hypot" { return NatMathHypot }
+		if name == "Cbrt" { return NatMathCbrt }
+		if name == "Log2" { return NatMathLog2 }
+		if name == "Log10" { return NatMathLog10 }
+		if name == "Inf" { return NatMathInf }
+		if name == "NaN" { return NatMathNaN }
+		if name == "IsNaN" { return NatMathIsNaN }
+		if name == "IsInf" { return NatMathIsInf }
+		if name == "MaxInt" { return NatMathMaxInt }
+		if name == "MinInt" { return NatMathMinInt }
+		if name == "MaxInt64" { return NatMathMaxInt64 }
+		if name == "MinInt64" { return NatMathMinInt64 }
+		if name == "ToInt" { return NatMathToInt }
+		return NatNone
+	}
+	if pkgPath == "bits" {
+		if name == "OnesCount" { return NatBitsOnesCount }
+		if name == "OnesCount64" { return NatBitsOnesCount64 }
+		if name == "LeadingZeros" { return NatBitsLeadingZeros }
+		if name == "LeadingZeros64" { return NatBitsLeadingZeros64 }
+		if name == "TrailingZeros" { return NatBitsTrailingZeros }
+		if name == "TrailingZeros64" { return NatBitsTrailingZeros64 }
+		if name == "Len" { return NatBitsLen }
+		if name == "Len64" { return NatBitsLen64 }
+		if name == "RotateLeft32" { return NatBitsRotateLeft32 }
+		if name == "RotateLeft64" { return NatBitsRotateLeft64 }
+		if name == "Add64" { return NatBitsAdd64 }
+		if name == "Sub64" { return NatBitsSub64 }
+		if name == "Mul64" { return NatBitsMul64 }
+		if name == "Div64" { return NatBitsDiv64 }
+		return NatNone
+	}
+	if pkgPath == "hex" {
+		if name == "Encode" { return NatHexEncode }
+		if name == "Decode" { return NatHexDecode }
+		return NatNone
+	}
+	NatNone
+}
+
+// ResolveMethodNativeID maps receiver value tag and method name to a NativeID when built-in.
+func ResolveMethodNativeID(tag uint8, methodName string) uint32 {
+	if tag == TagSlice || tag == TagArray {
+		if methodName == "Len" { return NatLen }
+		if methodName == "Append" { return NatAppend }
+		if methodName == "At" { return NatAt }
+		if methodName == "Slice" { return NatSlice }
+		if methodName == "TakeAt" { return NatTakeAt }
+		if methodName == "Concat" { return NatConcat }
+		if methodName == "Repeat" { return NatRepeat }
+		if methodName == "Clone" { return NatClone }
+		if methodName == "Reserve" { return NatReserve }
+		if methodName == "AppendString" { return NatAppendString }
+		if methodName == "AppendBytes" { return NatAppendBytes }
+		if methodName == "AppendFrom" { return NatAppendFrom }
+		if methodName == "Grow" { return NatGrow }
+		if methodName == "Text" { return NatText }
+		return NatNone
+	}
+	if tag == TagMap {
+		if methodName == "Len" { return NatLen }
+		if methodName == "Get" { return NatGet }
+		if methodName == "Put" { return NatPut }
+		if methodName == "Delete" { return NatDelete }
+		if methodName == "Take" { return NatTake }
+		if methodName == "Clone" { return NatClone }
+		return NatNone
+	}
+	if tag == TagStr {
+		if methodName == "Len" { return NatLen }
+		if methodName == "Slice" { return NatSlice }
+		if methodName == "Bytes" { return NatBytes }
+		return NatNone
+	}
+	if tag == TagInt || tag == TagUint {
+		if methodName == "RuneText" { return NatRuneText }
+		return NatNone
+	}
+	if tag == TagBuilder {
+		if methodName == "WriteString" { return NatBuilderWriteString }
+		if methodName == "WriteByte" { return NatBuilderWriteByte }
+		if methodName == "WriteRune" { return NatBuilderWriteRune }
+		if methodName == "String" { return NatBuilderString }
+		if methodName == "Len" { return NatBuilderLen }
+		if methodName == "Reset" { return NatBuilderReset }
+		if methodName == "Grow" { return NatBuilderGrow }
+		return NatNone
+	}
+	NatNone
+}
+
+func findPkgTypeByName(prog mut Program, pkgPath string, typeName string, targs []uint32) uint32 {
+	let mut pkgNum = uint32(0)
+	let mut foundPkg = false
+	for i, p in prog.PkgPaths {
+		if p == pkgPath {
+			pkgNum = uint32(i)
+			foundPkg = true
+			break
+		}
+	}
+	if !foundPkg {
+		for i, p in prog.PkgPaths {
+			if strings.HasSuffix(p, "/"+pkgPath) {
+				pkgNum = uint32(i)
+				foundPkg = true
+				break
+			}
+		}
+	}
+	let key = LookupDeclKey(pkgNum, typeName, targs)
+	let existing = LookupTypeByKey(prog.Types, key)
+	if existing != TypeVoid {
+		return existing
+	}
+	let baseKey = LookupDeclKey(pkgNum, typeName, []uint32{})
+	let base = LookupTypeByKey(prog.Types, baseKey)
+	if base != TypeVoid && targs.Len() > 0 {
+		let inst = instantiateNamedType(prog, pkgNum, typeName, targs, base)
+		prog.Types.DeclToType[key] = inst
+		return inst
+	}
+	if base != TypeVoid {
+		return base
+	}
+	let nt = AllocNamedType(&prog.Types, KindRecord, pkgNum, typeName, uint32(0))
+	prog.Types.DeclToType[baseKey] = nt
+	nt
+}
+
+func makeOptionSome(prog mut Program, elemType uint32, val Val) Val {
+	let someT = findPkgTypeByName(prog, "option", "Some", []uint32{elemType})
+	MakeRecordVal(&prog.Arena, someT, []Val{val})
+}
+
+func makeOptionNone(prog mut Program) Val {
+	let noneT = findPkgTypeByName(prog, "option", "None", []uint32{})
+	MakeRecordVal(&prog.Arena, noneT, []Val{})
+}
+
+func makeStdErr(prog mut Program, pkgPath string, errName string, fieldNames []string, fieldTypes []uint32, fields []Val) Val {
+	let key = LookupDeclKey(uint32(0), pkgPath+"."+errName, []uint32{})
+	let et = findPkgTypeByName(prog, pkgPath, errName, []uint32{})
+	if int(et) < prog.Types.Count.Len() && prog.Types.Count[int(et)] == uint32(0) && fieldNames.Len() > 0 {
+		SetRecordFields(&prog.Types, et, fieldNames, fieldTypes)
+	}
+	let _ = key
+	MakeRecordVal(&prog.Arena, et, fields)
+}
+
+func makeStrSliceVal(prog mut Program, xs []string) Val {
+	let st = InternSlice(&prog.Types, TypeString)
+	let mut elems = slices.WithCapacity[Val](xs.Len())
+	for s in xs {
+		elems = elems.Append(AllocStrVal(&prog.Arena, TypeString, s))
+	}
+	MakeSliceVal(&prog.Arena, st, elems, uint32(elems.Len()))
+}
+
+func readValStrings(arena ValArena, v Val) []string {
+	let n = int(ReadSliceLen(arena, v))
+	let mut out = slices.WithCapacity[string](n)
+	for i in 0..n {
+		out = out.Append(ReadStr(arena, ReadSliceElem(arena, v, uint32(i))))
+	}
+	out
+}
+
+func readValBytes(arena ValArena, v Val) []byte {
+	let n = int(ReadSliceLen(arena, v))
+	let mut out = slices.WithCapacity[byte](n)
+	for i in 0..n {
+		out = out.Append(byte(ReadSliceElem(arena, v, uint32(i)).Data & uint64(0xff)))
+	}
+	out
+}
+
+func makeBytesSliceVal(prog mut Program, bs []byte) Val {
+	let mut elems = slices.WithCapacity[Val](bs.Len())
+	for b in bs {
+		elems = elems.Append(MakeIntVal(prog.Types, TypeUint8, uint64(b)))
+	}
+	MakeSliceVal(&prog.Arena, TypeBytes, elems, uint32(elems.Len()))
+}
+
+// InvokePureNative executes pure builtin/std native function id and returns (result, errVal, defectMsg, extraWork).
+func InvokePureNative(prog mut Program, id uint32, targs []uint32, args []Val) (Val, Val, string, uint64) {
+	if id == NatLen {
+		let v = args[0]
+		if v.Tag == TagStr {
+			return (MakeIntVal(prog.Types, TypeInt, uint64(ReadStr(prog.Arena, v).Len())), UnitVal(), "", uint64(1))
+		}
+		if v.Tag == TagSlice || v.Tag == TagArray {
+			return (MakeIntVal(prog.Types, TypeInt, uint64(ReadSliceLen(prog.Arena, v))), UnitVal(), "", uint64(1))
+		}
+		if v.Tag == TagMap {
+			return (MakeIntVal(prog.Types, TypeInt, uint64(ReadMapLen(prog.Arena, v))), UnitVal(), "", uint64(1))
+		}
+		return (MakeIntVal(prog.Types, TypeInt, uint64(0)), UnitVal(), "", uint64(1))
+	}
+	if id == NatAppend {
+		let xs = args[0]
+		let out = AppendSliceValCOW(&prog.Arena, xs, args[1])
+		return (out, UnitVal(), "", uint64(2))
+	}
+	if id == NatClone {
+		let v = args[0]
+		if v.Tag == TagSlice || v.Tag == TagArray {
+			let n = ReadSliceLen(prog.Arena, v)
+			return (CloneSliceVal(&prog.Arena, v), UnitVal(), "", uint64(n) + uint64(1))
+		}
+		if v.Tag == TagMap {
+			let n = ReadMapLen(prog.Arena, v)
+			return (CloneMapVal(&prog.Arena, v), UnitVal(), "", uint64(n) + uint64(1))
+		}
+		return (v, UnitVal(), "", uint64(1))
+	}
+	if id == NatReserve {
+		let xs = args[0]
+		let extra = Int64FromBits(args[1].Data)
+		if extra <= 0 {
+			RetainVal(&prog.Arena, xs)
+			return (xs, UnitVal(), "", uint64(1))
+		}
+		return (ReserveSliceVal(&prog.Arena, xs, uint32(extra)), UnitVal(), "", uint64(1))
+	}
+	if id == NatMakeSlice {
+		let n = Int64FromBits(args[0].Data)
+		if n < 0 {
+			return (UnitVal(), UnitVal(), "runtime error: slice length or capacity out of range", uint64(1))
+		}
+		let st = if targs.Len() > 0 { InternSlice(&prog.Types, targs[0]) } else { InternSlice(&prog.Types, TypeInt) }
+		return (MakeSliceVal(&prog.Arena, st, []Val{}, uint32(n)), UnitVal(), "", uint64(n) + uint64(1))
+	}
+	if id == NatAt {
+		let xs = args[0]
+		let idx = Int64FromBits(args[1].Data)
+		let n = int64(ReadSliceLen(prog.Arena, xs))
+		if idx < 0 || idx >= n {
+			return (UnitVal(), UnitVal(), "runtime error: index out of range [\(idx)] with length \(n)", uint64(1))
+		}
+		let e = ReadSliceElem(prog.Arena, xs, uint32(idx))
+		RetainVal(&prog.Arena, e)
+		return (e, UnitVal(), "", uint64(1))
+	}
+	if id == NatSlice {
+		let v = args[0]
+		let lo = Int64FromBits(args[1].Data)
+		let hi = Int64FromBits(args[2].Data)
+		if v.Tag == TagStr {
+			let s = ReadStr(prog.Arena, v)
+			let n = int64(s.Len())
+			if lo < 0 || hi < lo || hi > n {
+				return (UnitVal(), UnitVal(), "runtime error: slice bounds out of range [\(lo):\(hi)]", uint64(1))
+			}
+			return (AllocStrVal(&prog.Arena, TypeString, s[int(lo):int(hi)]), UnitVal(), "", uint64(1))
+		}
+		let c = int64(ReadSliceCap(prog.Arena, v))
+		if lo < 0 || hi < lo || hi > c {
+			return (UnitVal(), UnitVal(), "runtime error: slice bounds out of range [\(lo):\(hi)]", uint64(1))
+		}
+		return (SubSliceVal(&prog.Arena, v, v.Type, uint32(lo), uint32(hi), uint32(0), false), UnitVal(), "", uint64(1))
+	}
+	if id == NatTakeAt {
+		let xs = args[0]
+		let idx = Int64FromBits(args[1].Data)
+		let n = int64(ReadSliceLen(prog.Arena, xs))
+		if idx < 0 || idx >= n {
+			return (UnitVal(), UnitVal(), "runtime error: index out of range [\(idx)] with length \(n)", uint64(1))
+		}
+		let (picked, rest) = TakeAtSliceVal(&prog.Arena, xs, uint32(idx))
+		let tt = InternTuple(&prog.Types, []uint32{picked.Type, xs.Type})
+		return (MakeTupleVal(&prog.Arena, tt, []Val{picked, rest}), UnitVal(), "", uint64(n) + uint64(1))
+	}
+	if id == NatConcat {
+		let a = args[0]
+		let b = args[1]
+		let na = int(ReadSliceLen(prog.Arena, a))
+		let nb = int(ReadSliceLen(prog.Arena, b))
+		let mut elems = slices.WithCapacity[Val](na + nb)
+		for i in 0..na {
+			elems = elems.Append(ReadSliceElem(prog.Arena, a, uint32(i)))
+		}
+		for i in 0..nb {
+			elems = elems.Append(ReadSliceElem(prog.Arena, b, uint32(i)))
+		}
+		return (MakeSliceVal(&prog.Arena, a.Type, elems, uint32(elems.Len())), UnitVal(), "", uint64(na+nb) + uint64(1))
+	}
+	if id == NatRepeat {
+		let xs = args[0]
+		let count = Int64FromBits(args[1].Data)
+		if count < 0 {
+			return (UnitVal(), UnitVal(), "runtime error: negative Repeat count \(count)", uint64(1))
+		}
+		let nx = int(ReadSliceLen(prog.Arena, xs))
+		let mut elems = slices.WithCapacity[Val](nx * int(count))
+		for _ in 0..int(count) {
+			for i in 0..nx {
+				elems = elems.Append(ReadSliceElem(prog.Arena, xs, uint32(i)))
+			}
+		}
+		return (MakeSliceVal(&prog.Arena, xs.Type, elems, uint32(elems.Len())), UnitVal(), "", uint64(nx*int(count)) + uint64(1))
+	}
+	if id == NatBytes {
+		let s = ReadStr(prog.Arena, args[0])
+		let mut elems = slices.WithCapacity[Val](s.Len())
+		for i in 0..s.Len() {
+			elems = elems.Append(MakeIntVal(prog.Types, TypeUint8, uint64(s[i])))
+		}
+		return (MakeSliceVal(&prog.Arena, TypeBytes, elems, uint32(elems.Len())), UnitVal(), "", uint64(s.Len()) + uint64(1))
+	}
+	if id == NatText {
+		let bs = readValBytes(prog.Arena, args[0])
+		let mut b = strings.NewBuilder()
+		for bt in bs {
+			b.WriteByte(bt)
+		}
+		return (AllocStrVal(&prog.Arena, TypeString, b.String()), UnitVal(), "", uint64(bs.Len()) + uint64(1))
+	}
+	if id == NatAppendString {
+		let xs = args[0]
+		let s = ReadStr(prog.Arena, args[1])
+		let nx = int(ReadSliceLen(prog.Arena, xs))
+		let mut elems = slices.WithCapacity[Val](nx + s.Len())
+		for i in 0..nx {
+			elems = elems.Append(ReadSliceElem(prog.Arena, xs, uint32(i)))
+		}
+		for i in 0..s.Len() {
+			elems = elems.Append(MakeIntVal(prog.Types, TypeUint8, uint64(s[i])))
+		}
+		return (MakeSliceVal(&prog.Arena, TypeBytes, elems, uint32(elems.Len())), UnitVal(), "", uint64(s.Len()) + uint64(1))
+	}
+	if id == NatAppendBytes || id == NatAppendFrom {
+		let a = args[0]
+		let b = args[1]
+		let na = int(ReadSliceLen(prog.Arena, a))
+		let nb = int(ReadSliceLen(prog.Arena, b))
+		let mut elems = slices.WithCapacity[Val](na + nb)
+		for i in 0..na {
+			elems = elems.Append(ReadSliceElem(prog.Arena, a, uint32(i)))
+		}
+		for i in 0..nb {
+			elems = elems.Append(ReadSliceElem(prog.Arena, b, uint32(i)))
+		}
+		return (MakeSliceVal(&prog.Arena, a.Type, elems, uint32(elems.Len())), UnitVal(), "", uint64(nb) + uint64(1))
+	}
+	if id == NatGrow {
+		let xs = args[0]
+		let extra = Int64FromBits(args[1].Data)
+		if extra < 0 {
+			return (UnitVal(), UnitVal(), "runtime error: negative Grow count", uint64(1))
+		}
+		return (ReserveSliceVal(&prog.Arena, xs, uint32(extra)), UnitVal(), "", uint64(1))
+	}
+	if id == NatRuneText {
+		let r = rune(Int64FromBits(args[0].Data))
+		return (AllocStrVal(&prog.Arena, TypeString, utf8.RuneText(r)), UnitVal(), "", uint64(1))
+	}
+	if id == NatGet {
+		let m = args[0]
+		let (v, ok) = MapGetVal(prog.Types, prog.Arena, m, args[1])
+		let mu = UnwrapType(prog.Types, m.Type)
+		let valT = if int(mu) < prog.Types.Aux.Len() { prog.Types.Aux[int(mu)] } else { v.Type }
+		if ok {
+			return (makeOptionSome(prog, valT, v), UnitVal(), "", uint64(1))
+		}
+		return (makeOptionNone(prog), UnitVal(), "", uint64(1))
+	}
+	if id == NatMapGetRaw {
+		let m = args[0]
+		let (v, ok) = MapGetVal(prog.Types, prog.Arena, m, args[1])
+		let mu = UnwrapType(prog.Types, m.Type)
+		let valT = if int(mu) < prog.Types.Aux.Len() { prog.Types.Aux[int(mu)] } else { v.Type }
+		let resV = if ok { v } else { ZeroVal(prog.Types, &prog.Arena, valT) }
+		let tt = InternTuple(&prog.Types, []uint32{valT, TypeBool})
+		return (MakeTupleVal(&prog.Arena, tt, []Val{resV, BoolVal(TypeBool, ok)}), UnitVal(), "", uint64(1))
+	}
+	if id == NatPut {
+		return (MapPutValCOW(prog.Types, &prog.Arena, args[0], args[1], args[2]), UnitVal(), "", uint64(2))
+	}
+	if id == NatDelete {
+		return (MapDeleteValCOW(prog.Types, &prog.Arena, args[0], args[1]), UnitVal(), "", uint64(2))
+	}
+	if id == NatTake {
+		let m = args[0]
+		let (v, ok, rest) = MapTakeValCOW(prog.Types, &prog.Arena, m, args[1])
+		let mu = UnwrapType(prog.Types, m.Type)
+		let valT = if int(mu) < prog.Types.Aux.Len() { prog.Types.Aux[int(mu)] } else { v.Type }
+		let optV = if ok { makeOptionSome(prog, valT, v) } else { makeOptionNone(prog) }
+		let tt = InternTuple(&prog.Types, []uint32{optV.Type, m.Type})
+		return (MakeTupleVal(&prog.Arena, tt, []Val{optV, rest}), UnitVal(), "", uint64(2))
+	}
+	if id == NatMapTakeRaw {
+		let m = args[0]
+		let (v, ok, rest) = MapTakeValCOW(prog.Types, &prog.Arena, m, args[1])
+		let mu = UnwrapType(prog.Types, m.Type)
+		let valT = if int(mu) < prog.Types.Aux.Len() { prog.Types.Aux[int(mu)] } else { v.Type }
+		let resV = if ok { v } else { ZeroVal(prog.Types, &prog.Arena, valT) }
+		let tt = InternTuple(&prog.Types, []uint32{valT, TypeBool, m.Type})
+		return (MakeTupleVal(&prog.Arena, tt, []Val{resV, BoolVal(TypeBool, ok), rest}), UnitVal(), "", uint64(2))
+	}
+	if id == NatSome {
+		return (makeOptionSome(prog, args[0].Type, args[0]), UnitVal(), "", uint64(1))
+	}
+	if id == NatOptionOrFail {
+		let o = args[0]
+		let tn = prog.Types.Name[int(o.Type)]
+		if tn == "Some" || strings.HasPrefix(tn, "Some[") {
+			let v = ReadPackElem(prog.Arena, o, uint32(0))
+			RetainVal(&prog.Arena, v)
+			return (v, UnitVal(), "", uint64(1))
+		}
+		return (UnitVal(), args[1], "", uint64(1))
+	}
+	if id == NatMin || id == NatCmpMin {
+		let mut best = args[0]
+		for i in 1..args.Len() {
+			let cur = args[i]
+			if cur.Tag == TagFloat {
+				let fc = Float64FromBits(cur.Data)
+				let fb = Float64FromBits(best.Data)
+				if math.IsNaN(fc) || math.IsNaN(fb) {
+					return (MakeFloatVal(prog.Types, best.Type, math.NaN()), UnitVal(), "", uint64(1))
+				}
+				if fc < fb {
+					best = cur
+				}
+			} else {
+				let (c, _) = CompareVals(prog.Types, prog.Arena, cur, best)
+				if c < 0 {
+					best = cur
+				}
+			}
+		}
+		RetainVal(&prog.Arena, best)
+		return (best, UnitVal(), "", uint64(1))
+	}
+	if id == NatMax || id == NatCmpMax {
+		let mut best = args[0]
+		for i in 1..args.Len() {
+			let cur = args[i]
+			if cur.Tag == TagFloat {
+				let fc = Float64FromBits(cur.Data)
+				let fb = Float64FromBits(best.Data)
+				if math.IsNaN(fc) || math.IsNaN(fb) {
+					return (MakeFloatVal(prog.Types, best.Type, math.NaN()), UnitVal(), "", uint64(1))
+				}
+				if fc > fb {
+					best = cur
+				}
+			} else {
+				let (c, _) = CompareVals(prog.Types, prog.Arena, cur, best)
+				if c > 0 {
+					best = cur
+				}
+			}
+		}
+		RetainVal(&prog.Arena, best)
+		return (best, UnitVal(), "", uint64(1))
+	}
+	if id == NatCmpCompare {
+		let (c, _) = CompareVals(prog.Types, prog.Arena, args[0], args[1])
+		return (MakeIntVal(prog.Types, TypeInt, uint64(int64(c))), UnitVal(), "", uint64(1))
+	}
+	if id == NatCmpLess {
+		let (c, _) = CompareVals(prog.Types, prog.Arena, args[0], args[1])
+		return (BoolVal(TypeBool, c < 0), UnitVal(), "", uint64(1))
+	}
+	if id == NatSlicesEqual {
+		return (BoolVal(TypeBool, EqualVals(prog.Types, prog.Arena, args[0], args[1])), UnitVal(), "", uint64(ReadSliceLen(prog.Arena, args[0])) + uint64(1))
+	}
+	if id == NatSlicesContains {
+		let xs = args[0]
+		let n = int(ReadSliceLen(prog.Arena, xs))
+		for i in 0..n {
+			if EqualVals(prog.Types, prog.Arena, ReadSliceElem(prog.Arena, xs, uint32(i)), args[1]) {
+				return (BoolVal(TypeBool, true), UnitVal(), "", uint64(i + 1))
+			}
+		}
+		return (BoolVal(TypeBool, false), UnitVal(), "", uint64(n) + uint64(1))
+	}
+	if id == NatSlicesIndex {
+		let xs = args[0]
+		let n = int(ReadSliceLen(prog.Arena, xs))
+		for i in 0..n {
+			if EqualVals(prog.Types, prog.Arena, ReadSliceElem(prog.Arena, xs, uint32(i)), args[1]) {
+				return (MakeIntVal(prog.Types, TypeInt, uint64(int64(i))), UnitVal(), "", uint64(i + 1))
+			}
+		}
+		let negOne uint64 = 0xffffffffffffffff
+		return (MakeIntVal(prog.Types, TypeInt, negOne), UnitVal(), "", uint64(n) + uint64(1))
+	}
+	if id == NatSlicesReverse {
+		let xs = args[0]
+		let n = int(ReadSliceLen(prog.Arena, xs))
+		let mut elems = slices.WithCapacity[Val](n)
+		for i in 0..n {
+			elems = elems.Append(ReadSliceElem(prog.Arena, xs, uint32(n-1-i)))
+		}
+		return (MakeSliceVal(&prog.Arena, xs.Type, elems, uint32(n)), UnitVal(), "", uint64(n) + uint64(1))
+	}
+	if id == NatSlicesSort {
+		let xs = args[0]
+		let n = int(ReadSliceLen(prog.Arena, xs))
+		let mut elems = slices.WithCapacity[Val](n)
+		for i in 0..n {
+			elems = elems.Append(ReadSliceElem(prog.Arena, xs, uint32(i)))
+		}
+		let tp = prog.Types
+		let ar = prog.Arena
+		let sorted = slices.SortFunc(elems, func(a Val, b Val) int {
+			let (c, _) = CompareVals(tp, ar, a, b)
+			c
+		})
+		return (MakeSliceVal(&prog.Arena, xs.Type, sorted, uint32(n)), UnitVal(), "", uint64(n + 1))
+	}
+	if id == NatSlicesMax {
+		let xs = args[0]
+		let n = int(ReadSliceLen(prog.Arena, xs))
+		let elemT = if int(xs.Type) < prog.Types.Elem.Len() { prog.Types.Elem[int(xs.Type)] } else { TypeInt }
+		if n == 0 {
+			return (makeOptionNone(prog), UnitVal(), "", uint64(1))
+		}
+		let mut best = ReadSliceElem(prog.Arena, xs, uint32(0))
+		for i in 1..n {
+			let cur = ReadSliceElem(prog.Arena, xs, uint32(i))
+			let (c, _) = CompareVals(prog.Types, prog.Arena, cur, best)
+			if c > 0 { best = cur }
+		}
+		return (makeOptionSome(prog, elemT, best), UnitVal(), "", uint64(n))
+	}
+	if id == NatSlicesMin {
+		let xs = args[0]
+		let n = int(ReadSliceLen(prog.Arena, xs))
+		let elemT = if int(xs.Type) < prog.Types.Elem.Len() { prog.Types.Elem[int(xs.Type)] } else { TypeInt }
+		if n == 0 {
+			return (makeOptionNone(prog), UnitVal(), "", uint64(1))
+		}
+		let mut best = ReadSliceElem(prog.Arena, xs, uint32(0))
+		for i in 1..n {
+			let cur = ReadSliceElem(prog.Arena, xs, uint32(i))
+			let (c, _) = CompareVals(prog.Types, prog.Arena, cur, best)
+			if c < 0 { best = cur }
+		}
+		return (makeOptionSome(prog, elemT, best), UnitVal(), "", uint64(n))
+	}
+	if id == NatSlicesInsert {
+		let xs = args[0]
+		let idx = Int64FromBits(args[1].Data)
+		let n = int64(ReadSliceLen(prog.Arena, xs))
+		if idx < 0 || idx > n {
+			return (UnitVal(), UnitVal(), "runtime error: slice bounds out of range", uint64(1))
+		}
+		let mut elems = slices.WithCapacity[Val](int(n) + args.Len() - 2)
+		for i in 0..int(idx) {
+			elems = elems.Append(ReadSliceElem(prog.Arena, xs, uint32(i)))
+		}
+		for j in 2..args.Len() {
+			elems = elems.Append(args[j])
+		}
+		for i in int(idx)..int(n) {
+			elems = elems.Append(ReadSliceElem(prog.Arena, xs, uint32(i)))
+		}
+		return (MakeSliceVal(&prog.Arena, xs.Type, elems, uint32(elems.Len())), UnitVal(), "", uint64(n) + uint64(1))
+	}
+	if id == NatSlicesDelete {
+		let xs = args[0]
+		let i = Int64FromBits(args[1].Data)
+		let j = Int64FromBits(args[2].Data)
+		let n = int64(ReadSliceLen(prog.Arena, xs))
+		if i < 0 || j < i || j > n {
+			return (UnitVal(), UnitVal(), "runtime error: slice bounds out of range", uint64(1))
+		}
+		let mut elems = slices.WithCapacity[Val](int(n - (j - i)))
+		for k in 0..int(i) {
+			elems = elems.Append(ReadSliceElem(prog.Arena, xs, uint32(k)))
+		}
+		for k in int(j)..int(n) {
+			elems = elems.Append(ReadSliceElem(prog.Arena, xs, uint32(k)))
+		}
+		return (MakeSliceVal(&prog.Arena, xs.Type, elems, uint32(elems.Len())), UnitVal(), "", uint64(n) + uint64(1))
+	}
+	if id == NatSlicesReplace {
+		let xs = args[0]
+		let i = Int64FromBits(args[1].Data)
+		let j = Int64FromBits(args[2].Data)
+		let n = int64(ReadSliceLen(prog.Arena, xs))
+		if i < 0 || j < i || j > n {
+			return (UnitVal(), UnitVal(), "runtime error: slice bounds out of range", uint64(1))
+		}
+		let mut elems = slices.WithCapacity[Val](int(n) + args.Len() - 3)
+		for k in 0..int(i) {
+			elems = elems.Append(ReadSliceElem(prog.Arena, xs, uint32(k)))
+		}
+		for aIdx in 3..args.Len() {
+			elems = elems.Append(args[aIdx])
+		}
+		for k in int(j)..int(n) {
+			elems = elems.Append(ReadSliceElem(prog.Arena, xs, uint32(k)))
+		}
+		return (MakeSliceVal(&prog.Arena, xs.Type, elems, uint32(elems.Len())), UnitVal(), "", uint64(n) + uint64(1))
+	}
+	if id == NatStringsJoin {
+		let parts = readValStrings(prog.Arena, args[0])
+		let sep = ReadStr(prog.Arena, args[1])
+		return (AllocStrVal(&prog.Arena, TypeString, strings.Join(parts, sep)), UnitVal(), "", uint64(parts.Len()) + uint64(1))
+	}
+	if id == NatStrSplit {
+		let s = ReadStr(prog.Arena, args[0])
+		let sep = ReadStr(prog.Arena, args[1])
+		return (makeStrSliceVal(prog, strings.Split(s, sep)), UnitVal(), "", uint64(s.Len()) + uint64(1))
+	}
+	if id == NatStrSplitN {
+		let s = ReadStr(prog.Arena, args[0])
+		let sep = ReadStr(prog.Arena, args[1])
+		let n = int(Int64FromBits(args[2].Data))
+		return (makeStrSliceVal(prog, strings.SplitN(s, sep, n)), UnitVal(), "", uint64(s.Len()) + uint64(1))
+	}
+	if id == NatStrHasPrefix {
+		return (BoolVal(TypeBool, strings.HasPrefix(ReadStr(prog.Arena, args[0]), ReadStr(prog.Arena, args[1]))), UnitVal(), "", uint64(1))
+	}
+	if id == NatStrHasSuffix {
+		return (BoolVal(TypeBool, strings.HasSuffix(ReadStr(prog.Arena, args[0]), ReadStr(prog.Arena, args[1]))), UnitVal(), "", uint64(1))
+	}
+	if id == NatStrTrimSpace {
+		return (AllocStrVal(&prog.Arena, TypeString, strings.TrimSpace(ReadStr(prog.Arena, args[0]))), UnitVal(), "", uint64(1))
+	}
+	if id == NatStrTrimPrefix {
+		return (AllocStrVal(&prog.Arena, TypeString, strings.TrimPrefix(ReadStr(prog.Arena, args[0]), ReadStr(prog.Arena, args[1]))), UnitVal(), "", uint64(1))
+	}
+	if id == NatStrTrimSuffix {
+		return (AllocStrVal(&prog.Arena, TypeString, strings.TrimSuffix(ReadStr(prog.Arena, args[0]), ReadStr(prog.Arena, args[1]))), UnitVal(), "", uint64(1))
+	}
+	if id == NatStrTrimLeft {
+		return (AllocStrVal(&prog.Arena, TypeString, strings.TrimLeft(ReadStr(prog.Arena, args[0]), ReadStr(prog.Arena, args[1]))), UnitVal(), "", uint64(1))
+	}
+	if id == NatStrTrimRight {
+		return (AllocStrVal(&prog.Arena, TypeString, strings.TrimRight(ReadStr(prog.Arena, args[0]), ReadStr(prog.Arena, args[1]))), UnitVal(), "", uint64(1))
+	}
+	if id == NatStrFields {
+		let s = ReadStr(prog.Arena, args[0])
+		return (makeStrSliceVal(prog, strings.Fields(s)), UnitVal(), "", uint64(s.Len()) + uint64(1))
+	}
+	if id == NatStrRepeat {
+		let s = ReadStr(prog.Arena, args[0])
+		let n = Int64FromBits(args[1].Data)
+		if n < 0 {
+			return (UnitVal(), UnitVal(), "runtime error: negative Repeat count", uint64(1))
+		}
+		return (AllocStrVal(&prog.Arena, TypeString, strings.Repeat(s, int(n))), UnitVal(), "", uint64(n) + uint64(1))
+	}
+	if id == NatStrToLower {
+		return (AllocStrVal(&prog.Arena, TypeString, strings.ToLower(ReadStr(prog.Arena, args[0]))), UnitVal(), "", uint64(1))
+	}
+	if id == NatStrToUpper {
+		return (AllocStrVal(&prog.Arena, TypeString, strings.ToUpper(ReadStr(prog.Arena, args[0]))), UnitVal(), "", uint64(1))
+	}
+	if id == NatStrIndex {
+		return (MakeIntVal(prog.Types, TypeInt, uint64(int64(strings.Index(ReadStr(prog.Arena, args[0]), ReadStr(prog.Arena, args[1]))))), UnitVal(), "", uint64(1))
+	}
+	if id == NatStrIndexByte {
+		return (MakeIntVal(prog.Types, TypeInt, uint64(int64(strings.IndexByte(ReadStr(prog.Arena, args[0]), byte(args[1].Data&uint64(0xff)))))), UnitVal(), "", uint64(1))
+	}
+	if id == NatStrIndexAny {
+		return (MakeIntVal(prog.Types, TypeInt, uint64(int64(strings.IndexAny(ReadStr(prog.Arena, args[0]), ReadStr(prog.Arena, args[1]))))), UnitVal(), "", uint64(1))
+	}
+	if id == NatStrLastIndex {
+		return (MakeIntVal(prog.Types, TypeInt, uint64(int64(strings.LastIndex(ReadStr(prog.Arena, args[0]), ReadStr(prog.Arena, args[1]))))), UnitVal(), "", uint64(1))
+	}
+	if id == NatStrLastIndexAny {
+		return (MakeIntVal(prog.Types, TypeInt, uint64(int64(strings.LastIndexAny(ReadStr(prog.Arena, args[0]), ReadStr(prog.Arena, args[1]))))), UnitVal(), "", uint64(1))
+	}
+	if id == NatStrContains {
+		return (BoolVal(TypeBool, strings.Contains(ReadStr(prog.Arena, args[0]), ReadStr(prog.Arena, args[1]))), UnitVal(), "", uint64(1))
+	}
+	if id == NatStrContainsRune {
+		return (BoolVal(TypeBool, strings.ContainsRune(ReadStr(prog.Arena, args[0]), rune(Int64FromBits(args[1].Data)))), UnitVal(), "", uint64(1))
+	}
+	if id == NatStrReplaceAll {
+		return (AllocStrVal(&prog.Arena, TypeString, strings.ReplaceAll(ReadStr(prog.Arena, args[0]), ReadStr(prog.Arena, args[1]), ReadStr(prog.Arena, args[2]))), UnitVal(), "", uint64(1))
+	}
+	if id == NatStrCount {
+		return (MakeIntVal(prog.Types, TypeInt, uint64(int64(strings.Count(ReadStr(prog.Arena, args[0]), ReadStr(prog.Arena, args[1]))))), UnitVal(), "", uint64(1))
+	}
+	if id == NatStrEqualFold {
+		return (BoolVal(TypeBool, strings.EqualFold(ReadStr(prog.Arena, args[0]), ReadStr(prog.Arena, args[1]))), UnitVal(), "", uint64(1))
+	}
+	if id == NatStrToValidUTF8 {
+		return (AllocStrVal(&prog.Arena, TypeString, strings.ToValidUTF8(ReadStr(prog.Arena, args[0]), ReadStr(prog.Arena, args[1]))), UnitVal(), "", uint64(1))
+	}
+	if id == NatStrCut {
+		match strings.Cut(ReadStr(prog.Arena, args[0]), ReadStr(prog.Arena, args[1])) {
+		case option.Some{Value: h}:
+			let ht = findPkgTypeByName(prog, "strings", "Halves", []uint32{})
+			if int(ht) < prog.Types.Count.Len() && prog.Types.Count[int(ht)] == uint32(0) {
+				SetRecordFields(&prog.Types, ht, []string{"Before", "After"}, []uint32{TypeString, TypeString})
+			}
+			let rec = MakeRecordVal(&prog.Arena, ht, []Val{AllocStrVal(&prog.Arena, TypeString, h.Before), AllocStrVal(&prog.Arena, TypeString, h.After)})
+			return (makeOptionSome(prog, ht, rec), UnitVal(), "", uint64(1))
+		case option.None:
+			return (makeOptionNone(prog), UnitVal(), "", uint64(1))
+		}
+	}
+	if id == NatBuilderNew {
+		let bi = uint32(prog.Arena.Builders.Len())
+		prog.Arena.Builders = prog.Arena.Builders.Append("")
+		let bt = findPkgTypeByName(prog, "strings", "Builder", []uint32{})
+		return (Val{Tag: TagBuilder, Type: bt, Aux: bi, Data: uint64(0)}, UnitVal(), "", uint64(1))
+	}
+	if id == NatBuilderWriteString {
+		let bVal = args[0]
+		let s = ReadStr(prog.Arena, args[1])
+		prog.Arena.Builders[int(bVal.Aux)] = prog.Arena.Builders[int(bVal.Aux)] + s
+		return (UnitVal(), UnitVal(), "", uint64(1))
+	}
+	if id == NatBuilderWriteByte {
+		let bVal = args[0]
+		let mut b = strings.NewBuilder()
+		b.WriteString(prog.Arena.Builders[int(bVal.Aux)])
+		b.WriteByte(byte(args[1].Data & uint64(0xff)))
+		prog.Arena.Builders[int(bVal.Aux)] = b.String()
+		return (UnitVal(), UnitVal(), "", uint64(1))
+	}
+	if id == NatBuilderWriteRune {
+		let bVal = args[0]
+		prog.Arena.Builders[int(bVal.Aux)] = prog.Arena.Builders[int(bVal.Aux)] + utf8.RuneText(rune(Int64FromBits(args[1].Data)))
+		return (UnitVal(), UnitVal(), "", uint64(1))
+	}
+	if id == NatBuilderString {
+		return (AllocStrVal(&prog.Arena, TypeString, prog.Arena.Builders[int(args[0].Aux)]), UnitVal(), "", uint64(1))
+	}
+	if id == NatBuilderLen {
+		return (MakeIntVal(prog.Types, TypeInt, uint64(prog.Arena.Builders[int(args[0].Aux)].Len())), UnitVal(), "", uint64(1))
+	}
+	if id == NatBuilderReset {
+		prog.Arena.Builders[int(args[0].Aux)] = ""
+		return (UnitVal(), UnitVal(), "", uint64(1))
+	}
+	if id == NatBuilderGrow {
+		return (UnitVal(), UnitVal(), "", uint64(1))
+	}
+	if id == NatUtf8RuneCount {
+		return (MakeIntVal(prog.Types, TypeInt, uint64(int64(utf8.RuneCount(ReadStr(prog.Arena, args[0]))))), UnitVal(), "", uint64(1))
+	}
+	if id == NatUtf8DecodeRune {
+		let d = utf8.DecodeRuneInString(ReadStr(prog.Arena, args[0]))
+		let dt = findPkgTypeByName(prog, "utf8", "Decoded", []uint32{})
+		if int(dt) < prog.Types.Count.Len() && prog.Types.Count[int(dt)] == uint32(0) {
+			SetRecordFields(&prog.Types, dt, []string{"Rune", "Size"}, []uint32{TypeInt32, TypeInt})
+		}
+		let rec = MakeRecordVal(&prog.Arena, dt, []Val{MakeIntVal(prog.Types, TypeInt32, uint64(int64(d.Rune))), MakeIntVal(prog.Types, TypeInt, uint64(int64(d.Size)))})
+		return (rec, UnitVal(), "", uint64(1))
+	}
+	if id == NatUtf8AppendRune {
+		let cur = readValBytes(prog.Arena, args[0])
+		let next = utf8.AppendRune(cur, rune(Int64FromBits(args[1].Data)))
+		return (makeBytesSliceVal(prog, next), UnitVal(), "", uint64(1))
+	}
+	if id == NatUtf8String {
+		let cur = readValBytes(prog.Arena, args[0])
+		return (AllocStrVal(&prog.Arena, TypeString, utf8.String(cur)), UnitVal(), "", uint64(cur.Len()) + uint64(1))
+	}
+	if id == NatUtf8ValidString {
+		return (BoolVal(TypeBool, utf8.ValidString(ReadStr(prog.Arena, args[0]))), UnitVal(), "", uint64(1))
+	}
+	if id == NatUtf8ValidRune {
+		return (BoolVal(TypeBool, utf8.ValidRune(rune(Int64FromBits(args[0].Data)))), UnitVal(), "", uint64(1))
+	}
+	if id == NatUtf8RuneLen {
+		return (MakeIntVal(prog.Types, TypeInt, uint64(int64(utf8.RuneLen(rune(Int64FromBits(args[0].Data)))))), UnitVal(), "", uint64(1))
+	}
+	if id == NatUtf8IsDigit {
+		return (BoolVal(TypeBool, utf8.IsDigit(rune(Int64FromBits(args[0].Data)))), UnitVal(), "", uint64(1))
+	}
+	if id == NatUtf8IsLetter {
+		return (BoolVal(TypeBool, utf8.IsLetter(rune(Int64FromBits(args[0].Data)))), UnitVal(), "", uint64(1))
+	}
+	if id == NatUtf8IsUpper {
+		return (BoolVal(TypeBool, utf8.IsUpper(rune(Int64FromBits(args[0].Data)))), UnitVal(), "", uint64(1))
+	}
+	if id == NatUtf8IsSpace {
+		return (BoolVal(TypeBool, utf8.IsSpace(rune(Int64FromBits(args[0].Data)))), UnitVal(), "", uint64(1))
+	}
+	if id == NatStrconvItoa {
+		return (AllocStrVal(&prog.Arena, TypeString, strconv.Itoa(int(Int64FromBits(args[0].Data)))), UnitVal(), "", uint64(1))
+	}
+	if id == NatStrconvFormatInt {
+		let base = int(Int64FromBits(args[1].Data))
+		if base < 2 || base > 36 {
+			return (UnitVal(), UnitVal(), "runtime error: illegal FormatInt base", uint64(1))
+		}
+		return (AllocStrVal(&prog.Arena, TypeString, strconv.FormatInt(Int64FromBits(args[0].Data), base)), UnitVal(), "", uint64(1))
+	}
+	if id == NatStrconvAtoi {
+		let s = ReadStr(prog.Arena, args[0])
+		let n = strconv.Atoi(s) catch {
+		case strconv.Malformed as m:
+			let e = makeStdErr(prog, "strconv", "Malformed", []string{"Text"}, []uint32{TypeString}, []Val{AllocStrVal(&prog.Arena, TypeString, m.Text)})
+			return (UnitVal(), e, "", uint64(1))
+		case strconv.OutOfRange as o:
+			let e = makeStdErr(prog, "strconv", "OutOfRange", []string{"Text"}, []uint32{TypeString}, []Val{AllocStrVal(&prog.Arena, TypeString, o.Text)})
+			return (UnitVal(), e, "", uint64(1))
+		}
+		return (MakeIntVal(prog.Types, TypeInt, uint64(int64(n))), UnitVal(), "", uint64(1))
+	}
+	if id == NatStrconvParseInt {
+		let s = ReadStr(prog.Arena, args[0])
+		let base = int(Int64FromBits(args[1].Data))
+		let bitSz = int(Int64FromBits(args[2].Data))
+		let n = strconv.ParseInt(s, base, bitSz) catch {
+		case strconv.Malformed as m:
+			let e = makeStdErr(prog, "strconv", "Malformed", []string{"Text"}, []uint32{TypeString}, []Val{AllocStrVal(&prog.Arena, TypeString, m.Text)})
+			return (UnitVal(), e, "", uint64(1))
+		case strconv.OutOfRange as o:
+			let e = makeStdErr(prog, "strconv", "OutOfRange", []string{"Text"}, []uint32{TypeString}, []Val{AllocStrVal(&prog.Arena, TypeString, o.Text)})
+			return (UnitVal(), e, "", uint64(1))
+		}
+		return (MakeIntVal(prog.Types, TypeInt64, uint64(n)), UnitVal(), "", uint64(1))
+	}
+	if id == NatStrconvParseFloat {
+		let s = ReadStr(prog.Arena, args[0])
+		let f = strconv.ParseFloat(s) catch {
+		case strconv.Malformed as m:
+			let e = makeStdErr(prog, "strconv", "Malformed", []string{"Text"}, []uint32{TypeString}, []Val{AllocStrVal(&prog.Arena, TypeString, m.Text)})
+			return (UnitVal(), e, "", uint64(1))
+		case strconv.OutOfRange as o:
+			let e = makeStdErr(prog, "strconv", "OutOfRange", []string{"Text"}, []uint32{TypeString}, []Val{AllocStrVal(&prog.Arena, TypeString, o.Text)})
+			return (UnitVal(), e, "", uint64(1))
+		}
+		return (MakeFloatVal(prog.Types, TypeFloat64, f), UnitVal(), "", uint64(1))
+	}
+	if id == NatStrconvParseBool {
+		let s = ReadStr(prog.Arena, args[0])
+		let b = strconv.ParseBool(s) catch {
+		case strconv.Malformed as m:
+			let e = makeStdErr(prog, "strconv", "Malformed", []string{"Text"}, []uint32{TypeString}, []Val{AllocStrVal(&prog.Arena, TypeString, m.Text)})
+			return (UnitVal(), e, "", uint64(1))
+		}
+		return (BoolVal(TypeBool, b), UnitVal(), "", uint64(1))
+	}
+	if id == NatStrconvFormatBool {
+		return (AllocStrVal(&prog.Arena, TypeString, strconv.FormatBool(args[0].Data != uint64(0))), UnitVal(), "", uint64(1))
+	}
+	if id == NatStrconvFormatFloat {
+		let f = Float64FromBits(args[0].Data)
+		let fmtByte = byte(args[1].Data & uint64(0xff))
+		let prec = int(Int64FromBits(args[2].Data))
+		return (AllocStrVal(&prog.Arena, TypeString, strconv.FormatFloat(f, fmtByte, prec)), UnitVal(), "", uint64(1))
+	}
+	if id == NatStrconvAppendInt {
+		let cur = readValBytes(prog.Arena, args[0])
+		let out = strconv.AppendInt(cur, Int64FromBits(args[1].Data), int(Int64FromBits(args[2].Data)))
+		return (makeBytesSliceVal(prog, out), UnitVal(), "", uint64(1))
+	}
+	if id == NatStrconvAppendUint {
+		let cur = readValBytes(prog.Arena, args[0])
+		let out = strconv.AppendUint(cur, args[1].Data, int(Int64FromBits(args[2].Data)))
+		return (makeBytesSliceVal(prog, out), UnitVal(), "", uint64(1))
+	}
+	if id == NatStrconvAppendFloat {
+		let cur = readValBytes(prog.Arena, args[0])
+		let out = strconv.AppendFloat(cur, Float64FromBits(args[1].Data), byte(args[2].Data&uint64(0xff)), int(Int64FromBits(args[3].Data)))
+		return (makeBytesSliceVal(prog, out), UnitVal(), "", uint64(1))
+	}
+	if id == NatStrconvQuote {
+		return (AllocStrVal(&prog.Arena, TypeString, strconv.Quote(ReadStr(prog.Arena, args[0]))), UnitVal(), "", uint64(1))
+	}
+	if id == NatStrconvUnquote {
+		let s = ReadStr(prog.Arena, args[0])
+		let uq = strconv.Unquote(s) catch {
+		case strconv.Malformed as m:
+			let e = makeStdErr(prog, "strconv", "Malformed", []string{"Text"}, []uint32{TypeString}, []Val{AllocStrVal(&prog.Arena, TypeString, m.Text)})
+			return (UnitVal(), e, "", uint64(1))
+		}
+		return (AllocStrVal(&prog.Arena, TypeString, uq), UnitVal(), "", uint64(1))
+	}
+	if id >= NatMathAbs && id <= NatMathToInt {
+		return invokeMathNative(prog, id, args)
+	}
+	if id >= NatBitsOnesCount && id <= NatBitsDiv64 {
+		return invokeBitsNative(prog, id, args)
+	}
+	if id == NatHexEncode {
+		return (AllocStrVal(&prog.Arena, TypeString, hex.Encode(ReadStr(prog.Arena, args[0]))), UnitVal(), "", uint64(1))
+	}
+	if id == NatHexDecode {
+		let s = ReadStr(prog.Arena, args[0])
+		let decoded = hex.Decode(s) catch {
+		case hex.Malformed as m:
+			let e = makeStdErr(prog, "hex", "Malformed", []string{"Offset"}, []uint32{TypeInt}, []Val{MakeIntVal(prog.Types, TypeInt, uint64(int64(m.Offset)))})
+			return (UnitVal(), e, "", uint64(1))
+		}
+		return (AllocStrVal(&prog.Arena, TypeString, decoded), UnitVal(), "", uint64(1))
+	}
+	(UnitVal(), UnitVal(), "unsupported builtin native \(id)", uint64(1))
+}
+
+func invokeMathNative(prog mut Program, id uint32, args []Val) (Val, Val, string, uint64) {
+	if id == NatMathInf {
+		return (MakeFloatVal(prog.Types, TypeFloat64, math.Inf(int(Int64FromBits(args[0].Data)))), UnitVal(), "", uint64(1))
+	}
+	if id == NatMathNaN {
+		return (MakeFloatVal(prog.Types, TypeFloat64, math.NaN()), UnitVal(), "", uint64(1))
+	}
+	if id == NatMathMaxInt {
+		return (MakeIntVal(prog.Types, TypeInt, uint64(math.MaxInt())), UnitVal(), "", uint64(1))
+	}
+	if id == NatMathMinInt {
+		return (MakeIntVal(prog.Types, TypeInt, uint64(math.MinInt())), UnitVal(), "", uint64(1))
+	}
+	if id == NatMathMaxInt64 {
+		return (MakeIntVal(prog.Types, TypeInt64, uint64(math.MaxInt64())), UnitVal(), "", uint64(1))
+	}
+	if id == NatMathMinInt64 {
+		return (MakeIntVal(prog.Types, TypeInt64, uint64(math.MinInt64())), UnitVal(), "", uint64(1))
+	}
+	let x = Float64FromBits(args[0].Data)
+	if id == NatMathIsNaN {
+		return (BoolVal(TypeBool, math.IsNaN(x)), UnitVal(), "", uint64(1))
+	}
+	if id == NatMathIsInf {
+		return (BoolVal(TypeBool, math.IsInf(x, int(Int64FromBits(args[1].Data)))), UnitVal(), "", uint64(1))
+	}
+	if id == NatMathToInt {
+		let n = math.ToInt(x) catch {
+		case math.OutOfRange as o:
+			let e = makeStdErr(prog, "math", "OutOfRange", []string{"Value"}, []uint32{TypeFloat64}, []Val{MakeFloatVal(prog.Types, TypeFloat64, o.Value)})
+			return (UnitVal(), e, "", uint64(1))
+		}
+		return (MakeIntVal(prog.Types, TypeInt, uint64(int64(n))), UnitVal(), "", uint64(1))
+	}
+	let res = if id == NatMathAbs { math.Abs(x) } else if id == NatMathCeil { math.Ceil(x) } else if id == NatMathFloor { math.Floor(x) } else if id == NatMathTrunc { math.Trunc(x) } else if id == NatMathRound { math.Round(x) } else if id == NatMathSqrt { math.Sqrt(x) } else if id == NatMathPow { math.Pow(x, Float64FromBits(args[1].Data)) } else if id == NatMathFMA { math.FMA(x, Float64FromBits(args[1].Data), Float64FromBits(args[2].Data)) } else if id == NatMathMod { math.Mod(x, Float64FromBits(args[1].Data)) } else if id == NatMathLog { math.Log(x) } else if id == NatMathExp { math.Exp(x) } else if id == NatMathSin { math.Sin(x) } else if id == NatMathCos { math.Cos(x) } else if id == NatMathTan { math.Tan(x) } else if id == NatMathAsin { math.Asin(x) } else if id == NatMathAcos { math.Acos(x) } else if id == NatMathAtan { math.Atan(x) } else if id == NatMathAtan2 { math.Atan2(x, Float64FromBits(args[1].Data)) } else if id == NatMathHypot { math.Hypot(x, Float64FromBits(args[1].Data)) } else if id == NatMathCbrt { math.Cbrt(x) } else if id == NatMathLog2 { math.Log2(x) } else { math.Log10(x) }
+	(MakeFloatVal(prog.Types, TypeFloat64, res), UnitVal(), "", uint64(1))
+}
+
+func invokeBitsNative(prog mut Program, id uint32, args []Val) (Val, Val, string, uint64) {
+	if id == NatBitsOnesCount {
+		return (MakeIntVal(prog.Types, TypeInt, uint64(int64(bits.OnesCount(uint(args[0].Data))))), UnitVal(), "", uint64(1))
+	}
+	if id == NatBitsOnesCount64 {
+		return (MakeIntVal(prog.Types, TypeInt, uint64(int64(bits.OnesCount64(args[0].Data)))), UnitVal(), "", uint64(1))
+	}
+	if id == NatBitsLeadingZeros {
+		return (MakeIntVal(prog.Types, TypeInt, uint64(int64(bits.LeadingZeros(uint(args[0].Data))))), UnitVal(), "", uint64(1))
+	}
+	if id == NatBitsLeadingZeros64 {
+		return (MakeIntVal(prog.Types, TypeInt, uint64(int64(bits.LeadingZeros64(args[0].Data)))), UnitVal(), "", uint64(1))
+	}
+	if id == NatBitsTrailingZeros {
+		return (MakeIntVal(prog.Types, TypeInt, uint64(int64(bits.TrailingZeros(uint(args[0].Data))))), UnitVal(), "", uint64(1))
+	}
+	if id == NatBitsTrailingZeros64 {
+		return (MakeIntVal(prog.Types, TypeInt, uint64(int64(bits.TrailingZeros64(args[0].Data)))), UnitVal(), "", uint64(1))
+	}
+	if id == NatBitsLen {
+		return (MakeIntVal(prog.Types, TypeInt, uint64(int64(bits.Len(uint(args[0].Data))))), UnitVal(), "", uint64(1))
+	}
+	if id == NatBitsLen64 {
+		return (MakeIntVal(prog.Types, TypeInt, uint64(int64(bits.Len64(args[0].Data)))), UnitVal(), "", uint64(1))
+	}
+	if id == NatBitsRotateLeft32 {
+		return (MakeIntVal(prog.Types, TypeUint32, uint64(bits.RotateLeft32(uint32(args[0].Data), int(Int64FromBits(args[1].Data))))), UnitVal(), "", uint64(1))
+	}
+	if id == NatBitsRotateLeft64 {
+		return (MakeIntVal(prog.Types, TypeUint64, bits.RotateLeft64(args[0].Data, int(Int64FromBits(args[1].Data)))), UnitVal(), "", uint64(1))
+	}
+	if id == NatBitsAdd64 {
+		let (sum, carry) = bits.Add64(args[0].Data, args[1].Data, args[2].Data)
+		let tt = InternTuple(&prog.Types, []uint32{TypeUint64, TypeUint64})
+		return (MakeTupleVal(&prog.Arena, tt, []Val{MakeIntVal(prog.Types, TypeUint64, sum), MakeIntVal(prog.Types, TypeUint64, carry)}), UnitVal(), "", uint64(1))
+	}
+	if id == NatBitsSub64 {
+		let (diff, borrow) = bits.Sub64(args[0].Data, args[1].Data, args[2].Data)
+		let tt = InternTuple(&prog.Types, []uint32{TypeUint64, TypeUint64})
+		return (MakeTupleVal(&prog.Arena, tt, []Val{MakeIntVal(prog.Types, TypeUint64, diff), MakeIntVal(prog.Types, TypeUint64, borrow)}), UnitVal(), "", uint64(1))
+	}
+	if id == NatBitsMul64 {
+		let (hi, lo) = bits.Mul64(args[0].Data, args[1].Data)
+		let tt = InternTuple(&prog.Types, []uint32{TypeUint64, TypeUint64})
+		return (MakeTupleVal(&prog.Arena, tt, []Val{MakeIntVal(prog.Types, TypeUint64, hi), MakeIntVal(prog.Types, TypeUint64, lo)}), UnitVal(), "", uint64(1))
+	}
+	if id == NatBitsDiv64 {
+		let hi = args[0].Data
+		let lo = args[1].Data
+		let y = args[2].Data
+		if y == uint64(0) || y <= hi {
+			return (UnitVal(), UnitVal(), "runtime error: integer divide error", uint64(1))
+		}
+		let (q, r) = bits.Div64(hi, lo, y)
+		let tt = InternTuple(&prog.Types, []uint32{TypeUint64, TypeUint64})
+		return (MakeTupleVal(&prog.Arena, tt, []Val{MakeIntVal(prog.Types, TypeUint64, q), MakeIntVal(prog.Types, TypeUint64, r)}), UnitVal(), "", uint64(1))
+	}
+	(UnitVal(), UnitVal(), "unsupported bits native", uint64(1))
+}
+
+law StdNativeLookupRecognizesCoreAndStdlib() {
+	ResolveStdNativeID("strings", "Split") == NatStrSplit && ResolveStdNativeID("slices", "Sort") == NatSlicesSort && ResolveStdNativeID("math", "Sqrt") == NatMathSqrt && ResolveStdNativeID("strconv", "Atoi") == NatStrconvAtoi && ResolveStdNativeID("option", "Map") == NatCbOptionMap && ResolveStdNativeID("core", "Append") == NatAppend
+}
