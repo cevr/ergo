@@ -1,5 +1,5 @@
 kind cli
 generator ergo gen cli
 subject github.com/cevr/ergo/modules/orchestrate/orchestrate.Api
-contract sha256:c5edb7e4bbe03ab62029c00a4433f7f2ff2106b78e0551577e7ae36c6bd8f0da
-digest sha256:7bd4f9b8803c938d922fb309df3045adeb3e110d4e1ba3a8d8104a28dc7af5ea
+contract sha256:9d2cff2b46fcd76697c7efc6467a8a3f75f4f6e8fd003976f2acb14ccbdc1612
+digest sha256:2cc8343dc07d9c84130f1c24f8f38736bb133a38f7f516a2ae9041ef5c26d083
