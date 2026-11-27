@@ -368,7 +368,7 @@ Assumed until now, measured from `NB-4E` on. The workloads are named: **W1**, `c
 | Reuse sites that take the in-place path at run time | >= 95% of the statically paired sites; 100% of `own` sites (no count test is emitted) | Koka without reuse analysis is more than 2 times slower on `rbtree` (same paper). | `NB-4E` |
 | RC operations removed: Perceus `dup` + `drop` emitted against the scoped baseline (a `dup` at every copy, a `drop` at every scope exit), over the subject's IR | Reported and ratcheted from the first receipt | No prior number transfers to Ergo's DoD-heavy code; the first receipt sets it. | `NB-4E` |
 
-The receipt is [docs/receipts/rc-cost.md](../../receipts/rc-cost.md) (written by `NB-4E`); the static counts come from `compiler/perceus`'s `TransformStats`, the dynamic ones from counters in a stats build of `runtime/native`.
+The receipt is `docs/receipts/rc-cost.md` (written by `NB-4E`); the static counts come from `compiler/perceus`'s `TransformStats`, the dynamic ones from counters in a stats build of `runtime/native`.
 
 ### The Go route as the compliance oracle
 
