@@ -44,7 +44,6 @@ func compactBound(st fnb, r syntax.RangeStmt) dense.ID[syntax.Node] fails Unport
 	end
 }
 
-// countedRange is the range Go's countLoop writes in its counted form:
 func countedRange(st fnb, r syntax.RangeStmt) option.Option[syntax.BinaryExpr] fails Unported {
 	let p = st.p
 	if dense.Unpack(r.Key) != option.None || syntax.KindOf(p.Tree, r.Value) != syntax.KIdent || nameText(p, r.Value) == "_" {
@@ -56,22 +55,30 @@ func countedRange(st fnb, r syntax.RangeStmt) option.Option[syntax.BinaryExpr] f
 	case _:
 		return option.None
 	}
-	if syntax.TokKind(p, b.Op) != syntax.DotDot || basicGo(st, try typeOf(st, b.X, "range start")) != "int" || basicGo(st, try typeOf(st, b.Y, "range end")) != "int" || !isConst(st, b.X) {
+	if syntax.TokKind(p, b.Op) != syntax.DotDot || basicGo(st, try typeOf(st, b.X, "range start")) != "int" || basicGo(st, try typeOf(st, b.Y, "range end")) != "int" {
 		return option.None
 	}
-	match try fold(st, b.X) {
-	case CInt as integer:
-		if integer.I != 0 {
-			return option.None
-		}
-	case _:
-		return option.None
-	}
+	let start = unparen(st, b.X)
 	let end = unparen(st, b.Y)
-	if isConst(st, end) || syntax.KindOf(p.Tree, end) == syntax.KIdent || !directExpr(st, end) {
+	if !directExpr(st, start) || !directExpr(st, end) {
+		return option.None
+	}
+	if try zeroStart(st, start) && (isConst(st, end) || syntax.KindOf(p.Tree, end) == syntax.KIdent) {
 		return option.None
 	}
 	option.Some[syntax.BinaryExpr]{Value: b}
+}
+
+func zeroStart(st fnb, start dense.ID[syntax.Node]) bool fails Unported {
+	if !isConst(st, start) {
+		return false
+	}
+	match try fold(st, start) {
+	case CInt as integer:
+		integer.I == 0
+	case _:
+		false
+	}
 }
 
 func controlSpanWrites(p controlPlan, span controlSpan) bool {

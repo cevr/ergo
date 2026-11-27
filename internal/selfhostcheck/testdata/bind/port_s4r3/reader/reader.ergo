@@ -15,6 +15,22 @@ func PortS4r3Tri(n int) int {
 	acc
 }
 
+func PortS4r3Span(lo int, hi int) int {
+	let mut acc = 0
+	for i in lo..hi {
+		acc = acc + i
+	}
+	acc
+}
+
+func PortS4r3FromOne(n int) int {
+	let mut acc = 1
+	for i in 1..n {
+		acc = acc*2 + i
+	}
+	acc
+}
+
 func PortS4r3Steps(s string) int {
 	let mut acc = 0
 	for i in 0..s.Len() {

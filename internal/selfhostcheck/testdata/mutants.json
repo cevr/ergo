@@ -2795,6 +2795,17 @@
       "killers": ["internal/selfhostcheck:TestIRS4R3Cutover"]
     },
     {
+      "name": "lower-s4r3-counted-nonzero-start",
+      "origin": "wf10/selfhost/S4-LOWER-CUTOVER-R3",
+      "file": "compiler/lower/loops.ergo",
+      "decl": "zeroStart",
+      "from": "\tif !isConst(st, start) {\n\t\treturn false\n\t}",
+      "to": "\tif !isConst(st, start) {\n\t\treturn true\n\t}",
+      "rule": "A range whose start is not a constant zero takes Go's counted form even when its end is a name (PortS4r3Span).",
+      "regenerate": {"dir": ".", "argv": ["go", "run", "./scripts/linked"]},
+      "killers": ["internal/selfhostcheck:TestIRS4R3Cutover"]
+    },
+    {
       "name": "lower-s4r3-counted-range-fields",
       "origin": "wf10/selfhost/S4-LOWER-CUTOVER-R3",
       "file": "compiler/lower/control.ergo",
