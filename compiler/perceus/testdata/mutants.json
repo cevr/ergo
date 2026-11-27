@@ -1,0 +1,185 @@
+{
+  "about": "compiler/perceus: Pure-Ergo Data-Oriented Perceus RC insertion, own unique-reuse pairing, scoped arena promotion, backward CFG liveness, and formal operational RC verification.",
+  "mutants": [
+    {
+      "name": "perceus-liveness-drops-unwind",
+      "file": "compiler/perceus/liveness.ergo",
+      "decl": "AnalyzeLiveness",
+      "from": "\t\t\t\tAccumulateEdgeNeed(&scratch, 0, liveBefore, nw, blk.UnwindSucc, UnwindArgs(p, b))\n",
+      "to": "\t\t\t\tif false {\n\t\t\t\t\tAccumulateEdgeNeed(&scratch, 0, liveBefore, nw, blk.UnwindSucc, UnwindArgs(p, b))\n\t\t\t\t}\n",
+      "rule": "Backward liveness must merge error-unwind UnwindSucc edge requirements separately from Succ0.",
+      "killers": ["compiler/perceus:law:LivenessSeparatesUnwindFromNormal", "compiler/perceus:RandomCFGsPassOperationalRCVerifier"]
+    },
+    {
+      "name": "perceus-liveness-drops-succ1-branch",
+      "file": "compiler/perceus/liveness.ergo",
+      "decl": "AnalyzeLiveness",
+      "from": "\t\t\t\tAccumulateEdgeNeed(&scratch, 0, liveBefore, nw, blk.Succ1, Succ1Args(p, b))\n",
+      "to": "\t\t\t\tif false {\n\t\t\t\t\tAccumulateEdgeNeed(&scratch, 0, liveBefore, nw, blk.Succ1, Succ1Args(p, b))\n\t\t\t\t}\n",
+      "rule": "Backward liveness must accumulate false-branch Succ1 edge requirements into LiveOut.",
+      "killers": ["compiler/perceus:RandomCFGsPassOperationalRCVerifier", "compiler/perceus:DynamicReuseFallbackAndLoopLocalArenaPeak"]
+    },
+    {
+      "name": "perceus-liveness-no-fixpoint-loop",
+      "file": "compiler/perceus/liveness.ergo",
+      "decl": "AnalyzeLiveness",
+      "from": "\t\t\t\tif BitOrInto(&liveBefore, off, scratch, 0, nw) {\n\t\t\t\t\tchanged = true\n\t\t\t\t}\n",
+      "to": "\t\t\t\tlet _ = BitOrInto(&liveBefore, off, scratch, 0, nw)\n",
+      "rule": "Backward liveness must iterate until LiveBeforeParams converges across loop back-edges.",
+      "killers": ["compiler/perceus:LivenessFixpointHandlesLoopsAndBackEdges"]
+    },
+    {
+      "name": "perceus-liveness-keeps-block-param",
+      "file": "compiler/perceus/liveness.ergo",
+      "decl": "AnalyzeLiveness",
+      "from": "\t\t\t\tfor bp in BlockParams(p, b) {\n\t\t\t\t\tBitClear(&scratch, 0, bp)\n\t\t\t\t}\n",
+      "to": "\t\t\t\tif false {\n\t\t\t\t\tfor bp in BlockParams(p, b) {\n\t\t\t\t\t\tBitClear(&scratch, 0, bp)\n\t\t\t\t\t}\n\t\t\t\t}\n",
+      "rule": "Block parameters defined at block entry are cleared from LiveBeforeParams.",
+      "killers": ["compiler/perceus:law:OwnRecordUpdateLoopReusesInPlace", "compiler/perceus:OwnRecordAndSliceLoopsAreConstantAllocs"]
+    },
+    {
+      "name": "perceus-arena-ignores-call-escape",
+      "file": "compiler/perceus/liveness.ergo",
+      "decl": "AnalyzeEscapes",
+      "from": "\t\t\t} else if ins.Op == OpCall && ins.Aux0 == uint32(1) {\n",
+      "to": "\t\t\t} else if false && ins.Op == OpCall && ins.Aux0 == uint32(1) {\n",
+      "rule": "Values passed to escaping calls must not promote to scoped arena allocation.",
+      "killers": ["compiler/perceus:law:ArenaPromotionRespectsEscapeFlags"]
+    },
+    {
+      "name": "perceus-arena-ignores-return-escape",
+      "file": "compiler/perceus/liveness.ergo",
+      "decl": "AnalyzeEscapes",
+      "from": "\t\t\tif ins.Op == OpReturn {\n",
+      "to": "\t\t\tif false && ins.Op == OpReturn {\n",
+      "rule": "Values returned from a frame must not promote to scoped arena allocation.",
+      "killers": ["compiler/perceus:law:ArenaPromotionRespectsEscapeFlags"]
+    },
+    {
+      "name": "perceus-arena-ignores-store-escape",
+      "file": "compiler/perceus/liveness.ergo",
+      "decl": "propagateEdgeEscapes",
+      "from": "\t\t\t\tif (*nonProm)[base] && IsRCManagedKind(p.ValKind[val]) && !(*stored)[val] {\n",
+      "to": "\t\t\t\tif false && (*nonProm)[base] && IsRCManagedKind(p.ValKind[val]) && !(*stored)[val] {\n",
+      "rule": "Values stored into escaping or heap containers must not promote to scoped arena allocation.",
+      "killers": ["compiler/perceus:law:ArenaPromotionRespectsEscapeFlags"]
+    },
+    {
+      "name": "perceus-arena-ignores-mixed-phi",
+      "file": "compiler/perceus/liveness.ergo",
+      "decl": "syncEdgePair",
+      "from": "\t\tif (*nonProm)[d] != (*nonProm)[a] {\n",
+      "to": "\t\tif false && (*nonProm)[d] != (*nonProm)[a] {\n",
+      "rule": "Block parameters joining arena candidates with heap RC values must demote both arms.",
+      "killers": ["compiler/perceus:LivenessFixpointHandlesLoopsAndBackEdges"]
+    },
+    {
+      "name": "perceus-reuse-ignores-typetag",
+      "file": "compiler/perceus/reuse.ergo",
+      "decl": "CanReuseDrop",
+      "from": "\tp.ValTypeTag[int(tok)] == typeTag && p.ValSize[int(tok)] >= size\n",
+      "to": "\t(p.ValTypeTag[int(tok)] == typeTag || true) && p.ValSize[int(tok)] >= size\n",
+      "rule": "Static reuse pairing requires compatible typeTag.",
+      "killers": ["compiler/perceus:ReuseBlocksInterveningAliasAndTagMismatch"]
+    },
+    {
+      "name": "perceus-reuse-ignores-size-guard",
+      "file": "compiler/perceus/reuse.ergo",
+      "decl": "CanReuseDrop",
+      "from": "\tp.ValTypeTag[int(tok)] == typeTag && p.ValSize[int(tok)] >= size\n",
+      "to": "\tp.ValTypeTag[int(tok)] == typeTag && (p.ValSize[int(tok)] >= size || true)\n",
+      "rule": "Static reuse pairing requires the dropped buffer size to cover the new allocation size.",
+      "killers": ["compiler/perceus:law:ReuseRequiresCompatibleTagAndSize"]
+    },
+    {
+      "name": "perceus-reuse-strict-size-gt",
+      "file": "compiler/perceus/reuse.ergo",
+      "decl": "CanReuseDrop",
+      "from": "\tp.ValTypeTag[int(tok)] == typeTag && p.ValSize[int(tok)] >= size\n",
+      "to": "\tp.ValTypeTag[int(tok)] == typeTag && p.ValSize[int(tok)] > size\n",
+      "rule": "Exact-size own allocations must qualify for in-place OpReuseAlloc pairing.",
+      "killers": ["compiler/perceus:law:ReuseRequiresCompatibleTagAndSize", "compiler/perceus:ReuseBlocksInterveningAliasAndTagMismatch"]
+    },
+    {
+      "name": "perceus-reuse-skips-alias-barrier",
+      "file": "compiler/perceus/reuse.ergo",
+      "decl": "hasInterveningBarrier",
+      "from": "\t\tif instTouchesAlias(p, ins, tok, parents) {\n",
+      "to": "\t\tif false && instTouchesAlias(p, ins, tok, parents) {\n",
+      "rule": "Reuse pairing must not move OpDrop across an intervening aliasing read.",
+      "killers": ["compiler/perceus:ReuseBlocksInterveningAliasAndTagMismatch"]
+    },
+    {
+      "name": "perceus-transform-always-dups-move",
+      "file": "compiler/perceus/transform.ergo",
+      "decl": "emitRegularInst",
+      "from": "\t\t\tif ins.Arg0 != NoID && isHeapRC(p, esc, ins.Arg0) && BitTest(*workLive, 0, ins.Arg0) {\n",
+      "to": "\t\t\tif ins.Arg0 != NoID && isHeapRC(p, esc, ins.Arg0) {\n",
+      "rule": "Last-use OpUse moves must emit zero OpDup instructions.",
+      "killers": ["compiler/perceus:law:LastUseMovesWithoutDup", "compiler/perceus:DynamicReuseFallbackAndLoopLocalArenaPeak"]
+    },
+    {
+      "name": "perceus-transform-always-dups-escaping-call",
+      "file": "compiler/perceus/transform.ergo",
+      "decl": "emitInteriorCall",
+      "from": "\t\t\tlet keep = if BitTest(*workLive, 0, v) { 1 } else { 0 }\n",
+      "to": "\t\t\tlet keep = 1\n",
+      "rule": "Last-use escaping call arguments move without inserting OpDup.",
+      "killers": ["compiler/perceus:law:LastUseMovesWithoutDup"]
+    },
+    {
+      "name": "perceus-transform-skips-unwind-comp",
+      "file": "compiler/perceus/transform.ergo",
+      "decl": "applyEdgeComp",
+      "from": "\tlet cUw = edgeCompOps(*ctx, eUw)\n\tif cUw.Len() > 0 {\n",
+      "to": "\tlet cUw = edgeCompOps(*ctx, eUw)\n\tif false && cUw.Len() > 0 {\n",
+      "rule": "Error-unwind UnwindSucc edges must emit compensation drops for values live only on normal paths.",
+      "killers": ["compiler/perceus:TransformInsertsUnwindAndBranchEdgeDrops", "compiler/perceus:RandomCFGsPassOperationalRCVerifier"]
+    },
+    {
+      "name": "perceus-transform-skips-condbr-comp",
+      "file": "compiler/perceus/transform.ergo",
+      "decl": "applyEdgeComp",
+      "from": "\tlet c1 = edgeCompOps(*ctx, e1)\n\tif c1.Len() > 0 {\n",
+      "to": "\tlet c1 = edgeCompOps(*ctx, e1)\n\tif false && c1.Len() > 0 {\n",
+      "rule": "Asymmetric conditional branch Succ1 edges must emit edge compensation dup/drop blocks.",
+      "killers": ["compiler/perceus:TransformInsertsUnwindAndBranchEdgeDrops", "compiler/perceus:RandomCFGsPassOperationalRCVerifier"]
+    },
+    {
+      "name": "perceus-transform-skips-mayfail-arena-reset",
+      "file": "compiler/perceus/transform.ergo",
+      "decl": "emitReturnInst",
+      "from": "\tif ctx.needsFrame {\n",
+      "to": "\tif false && ctx.needsFrame {\n",
+      "rule": "Every OpReturn including early mayFail unwind exits must emit OpArenaReset when frame arena is active.",
+      "killers": ["compiler/perceus:ScopedArenaHandlesEarlyMayFailUnwindExits", "compiler/perceus:law:ScopedArenaTemporariesZeroDupDrop"]
+    },
+    {
+      "name": "perceus-verify-misses-double-free",
+      "file": "compiler/perceus/verify.ergo",
+      "decl": "execDrop",
+      "from": "\tif !st.objAlive[oi] || st.objRC[oi] <= 0 || st.valRefs[int(v)] <= 0 {\n",
+      "to": "\tif false && (!st.objAlive[oi] || st.objRC[oi] <= 0 || st.valRefs[int(v)] <= 0) {\n",
+      "rule": "Operational verifier must fail immediately with ErrDoubleFree when dropping rc <= 0.",
+      "killers": ["compiler/perceus:OperationalVerifierCatchesBrokenIR"]
+    },
+    {
+      "name": "perceus-verify-misses-dangling-arena",
+      "file": "compiler/perceus/verify.ergo",
+      "decl": "checkReadable",
+      "from": "\t\tif !st.objArenaAlive[oi] {\n",
+      "to": "\t\tif false && !st.objArenaAlive[oi] {\n",
+      "rule": "Operational verifier must fail immediately with ErrDanglingArena on reads after OpArenaReset.",
+      "killers": ["compiler/perceus:OperationalVerifierCatchesBrokenIR"]
+    },
+    {
+      "name": "perceus-verify-misses-leak-exit",
+      "file": "compiler/perceus/verify.ergo",
+      "decl": "execReturnCheck",
+      "from": "\tif leakedRC > 0 {\n",
+      "to": "\tif false && leakedRC > 0 {\n",
+      "rule": "Operational verifier must fail with ErrMemoryLeak when live RC exceeds expected returned references.",
+      "killers": ["compiler/perceus:OperationalVerifierCatchesBrokenIR"]
+    }
+  ]
+}

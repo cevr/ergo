@@ -1,0 +1,1160 @@
+import gen
+import slices
+
+// VerifyFailure enumerates memory-safety, reference-counting, arena, and reuse violations detected by VerifyProgram.
+type VerifyFailure =
+	| ErrInvalidCFG{Block uint32, Why string}
+	| ErrUseAfterFree{Block uint32, InstIdx int, Val uint32}
+	| ErrDoubleFree{Block uint32, InstIdx int, Val uint32}
+	| ErrDanglingArena{Block uint32, InstIdx int, Val uint32}
+	| ErrArenaRCOp{Block uint32, InstIdx int, Val uint32}
+	| ErrArenaDepth{Block uint32, InstIdx int, Why string}
+	| ErrInvalidReuse{Block uint32, InstIdx int, Val uint32, Why string}
+	| ErrMemoryLeak{Block uint32, LiveRC int, ExpectedRC int, ArenaBytes uint32}
+	| ErrOverwriteLeak{Block uint32, Param uint32}
+	| ErrStepBudget{Block uint32, Steps int}
+
+// VerifyConfig configures loop unroll bounds and path limits for operational CFG verification.
+type VerifyConfig {
+	// MaxLoopVisits bounds how many times any single block may run along one path.
+	MaxLoopVisits int,
+	// MaxPaths bounds the total number of paths explored across branches and unwinds.
+	MaxPaths int,
+	// ExactLoopHeader, when not NoID, forces ExactLoopIters iterations of that loop header's Succ0 before exiting.
+	ExactLoopHeader uint32,
+	// ExactLoopIters specifies the exact number of Succ0 loop iterations when ExactLoopHeader != NoID.
+	ExactLoopIters int,
+}
+
+// DefaultVerifyConfig returns standard bounded exhaustive verification settings.
+func DefaultVerifyConfig() VerifyConfig {
+	VerifyConfig{
+		MaxLoopVisits:   4,
+		MaxPaths:        512,
+		ExactLoopHeader: NoID,
+		ExactLoopIters:  0,
+	}
+}
+
+// VerifyStats summarizes allocation, reuse, arena, and RC metrics verified across CFG paths.
+type VerifyStats {
+	// PathsExplored is the number of completed path prefixes explored.
+	PathsExplored int,
+	// ExitsVerified is the number of normal and unwind OpReturn exits verified leak-free.
+	ExitsVerified int,
+	// HeapAllocs is the maximum heap allocations executed along any verified exit path.
+	HeapAllocs int,
+	// Reuses is the maximum in-place OpReuseAlloc reuses executed along any verified exit path.
+	Reuses int,
+	// DynamicReuseFallbacks is the count of OpReuseAlloc executions that allocated due to rc > 1.
+	DynamicReuseFallbacks int,
+	// ArenaAllocs is the maximum OpArenaAlloc calls executed along any path.
+	ArenaAllocs int,
+	// ArenaResets is the maximum OpArenaReset calls executed along any path.
+	ArenaResets int,
+	// PeakArenaBytes is the maximum live arena byte offset observed on any path.
+	PeakArenaBytes uint32,
+	// DupOpsExecuted is the maximum OpDup operations executed along any path.
+	DupOpsExecuted int,
+	// DropOpsExecuted is the maximum OpDrop operations executed along any path.
+	DropOpsExecuted int,
+}
+
+type execState {
+	valObj        []uint32,
+	valRefs       []int,
+	objAlive      []bool,
+	objRC         []int,
+	objIsArena    []bool,
+	objArenaAlive []bool,
+	objArenaStart []uint32,
+	objTypeTag    []uint32,
+	objSize       []uint32,
+	slotObj       []uint32,
+	slotField     []uint32,
+	slotChild     []uint32,
+	arenaMarks    []uint32,
+	arenaBytes    uint32,
+	blockVisits   []int,
+	heapAllocs    int,
+	reuses        int,
+	fallbacks     int,
+	arenaAllocs   int,
+	arenaResets   int,
+	peakArena     uint32,
+	dups          int,
+	drops         int,
+	steps         int,
+}
+
+func cloneExecState(s execState) execState {
+	execState{
+		valObj:        slices.Clone(s.valObj),
+		valRefs:       slices.Clone(s.valRefs),
+		objAlive:      slices.Clone(s.objAlive),
+		objRC:         slices.Clone(s.objRC),
+		objIsArena:    slices.Clone(s.objIsArena),
+		objArenaAlive: slices.Clone(s.objArenaAlive),
+		objArenaStart: slices.Clone(s.objArenaStart),
+		objTypeTag:    slices.Clone(s.objTypeTag),
+		objSize:       slices.Clone(s.objSize),
+		slotObj:       slices.Clone(s.slotObj),
+		slotField:     slices.Clone(s.slotField),
+		slotChild:     slices.Clone(s.slotChild),
+		arenaMarks:    slices.Clone(s.arenaMarks),
+		arenaBytes:    s.arenaBytes,
+		blockVisits:   slices.Clone(s.blockVisits),
+		heapAllocs:    s.heapAllocs,
+		reuses:        s.reuses,
+		fallbacks:     s.fallbacks,
+		arenaAllocs:   s.arenaAllocs,
+		arenaResets:   s.arenaResets,
+		peakArena:     s.peakArena,
+		dups:          s.dups,
+		drops:         s.drops,
+		steps:         s.steps,
+	}
+}
+
+func newHeapObj(st mut execState, tag uint32, size uint32) uint32 {
+	let id = uint32(st.objAlive.Len())
+	st.objAlive = st.objAlive.Append(true)
+	st.objRC = st.objRC.Append(1)
+	st.objIsArena = st.objIsArena.Append(false)
+	st.objArenaAlive = st.objArenaAlive.Append(false)
+	st.objArenaStart = st.objArenaStart.Append(uint32(0))
+	st.objTypeTag = st.objTypeTag.Append(tag)
+	st.objSize = st.objSize.Append(size)
+	id
+}
+
+func newArenaObj(st mut execState, tag uint32, size uint32) uint32 {
+	let id = uint32(st.objAlive.Len())
+	st.objAlive = st.objAlive.Append(true)
+	st.objRC = st.objRC.Append(0)
+	st.objIsArena = st.objIsArena.Append(true)
+	st.objArenaAlive = st.objArenaAlive.Append(true)
+	st.objArenaStart = st.objArenaStart.Append(st.arenaBytes)
+	st.objTypeTag = st.objTypeTag.Append(tag)
+	st.objSize = st.objSize.Append(size)
+	st.arenaBytes = st.arenaBytes + size
+	if st.arenaBytes > st.peakArena {
+		st.peakArena = st.arenaBytes
+	}
+	id
+}
+
+func releaseObjChildren(st mut execState, parentObj uint32) {
+	let mut queue = []uint32{parentObj}
+	let mut qHead = 0
+	for qHead < queue.Len() {
+		let cur = queue[qHead]
+		qHead = qHead + 1
+		for i in 0..st.slotObj.Len() {
+			if st.slotObj[i] == cur && st.slotChild[i] != NoID {
+				let ch = st.slotChild[i]
+				st.slotChild[i] = NoID
+				if !st.objIsArena[int(ch)] && st.objAlive[int(ch)] && st.objRC[int(ch)] > 0 {
+					st.objRC[int(ch)] = st.objRC[int(ch)] - 1
+					if st.objRC[int(ch)] == 0 {
+						st.objAlive[int(ch)] = false
+						queue = queue.Append(ch)
+					}
+				}
+			}
+		}
+	}
+}
+
+func decHeapObj(st mut execState, obj uint32) {
+	let oi = int(obj)
+	st.objRC[oi] = st.objRC[oi] - 1
+	if st.objRC[oi] == 0 {
+		st.objAlive[oi] = false
+		releaseObjChildren(st, obj)
+	}
+}
+
+func findFieldSlot(st execState, obj uint32, field uint32) int {
+	for i in 0..st.slotObj.Len() {
+		if st.slotObj[i] == obj && st.slotField[i] == field {
+			return i
+		}
+	}
+	-1
+}
+
+func checkReadable(p Program, st execState, b uint32, idx int, v uint32) fails VerifyFailure {
+	if v == NoID {
+		return
+	}
+	let k = p.ValKind[int(v)]
+	if k == ValScalar || k == ValImmortal {
+		return
+	}
+	let obj = st.valObj[int(v)]
+	if obj == NoID {
+		return ErrUseAfterFree{Block: b, InstIdx: idx, Val: v}
+	}
+	let oi = int(obj)
+	if st.objIsArena[oi] {
+		if !st.objArenaAlive[oi] {
+			return ErrDanglingArena{Block: b, InstIdx: idx, Val: v}
+		}
+		return
+	}
+	if !st.objAlive[oi] || st.objRC[oi] <= 0 || st.valRefs[int(v)] <= 0 {
+		return ErrUseAfterFree{Block: b, InstIdx: idx, Val: v}
+	}
+}
+
+func execDup(p Program, st mut execState, b uint32, idx int, v uint32) fails VerifyFailure {
+	if v == NoID || int(v) >= NumValues(p) {
+		return ErrInvalidCFG{Block: b, Why: "dup target out of range"}
+	}
+	let obj = st.valObj[int(v)]
+	if obj == NoID {
+		return ErrArenaRCOp{Block: b, InstIdx: idx, Val: v}
+	}
+	let oi = int(obj)
+	if st.objIsArena[oi] {
+		return ErrArenaRCOp{Block: b, InstIdx: idx, Val: v}
+	}
+	if !st.objAlive[oi] || st.objRC[oi] <= 0 || st.valRefs[int(v)] <= 0 {
+		return ErrUseAfterFree{Block: b, InstIdx: idx, Val: v}
+	}
+	st.objRC[oi] = st.objRC[oi] + 1
+	st.valRefs[int(v)] = st.valRefs[int(v)] + 1
+	st.dups = st.dups + 1
+}
+
+func execDrop(p Program, st mut execState, b uint32, idx int, v uint32) fails VerifyFailure {
+	if v == NoID || int(v) >= NumValues(p) {
+		return ErrInvalidCFG{Block: b, Why: "drop target out of range"}
+	}
+	let obj = st.valObj[int(v)]
+	if obj == NoID {
+		return ErrArenaRCOp{Block: b, InstIdx: idx, Val: v}
+	}
+	let oi = int(obj)
+	if st.objIsArena[oi] {
+		return ErrArenaRCOp{Block: b, InstIdx: idx, Val: v}
+	}
+	if !st.objAlive[oi] || st.objRC[oi] <= 0 || st.valRefs[int(v)] <= 0 {
+		return ErrDoubleFree{Block: b, InstIdx: idx, Val: v}
+	}
+	st.valRefs[int(v)] = st.valRefs[int(v)] - 1
+	st.drops = st.drops + 1
+	decHeapObj(st, obj)
+}
+
+func execReuseAlloc(p Program, st mut execState, b uint32, idx int, ins Inst) fails VerifyFailure {
+	let tok = ins.Arg0
+	if tok == NoID || int(tok) >= NumValues(p) {
+		return ErrInvalidReuse{Block: b, InstIdx: idx, Val: tok, Why: "missing reuse token"}
+	}
+	let obj = st.valObj[int(tok)]
+	if obj == NoID {
+		return ErrInvalidReuse{Block: b, InstIdx: idx, Val: tok, Why: "reuse token has no heap object"}
+	}
+	let oi = int(obj)
+	if st.objIsArena[oi] {
+		return ErrArenaRCOp{Block: b, InstIdx: idx, Val: tok}
+	}
+	if !st.objAlive[oi] || st.objRC[oi] <= 0 || st.valRefs[int(tok)] <= 0 {
+		return ErrDoubleFree{Block: b, InstIdx: idx, Val: tok}
+	}
+	if st.objTypeTag[oi] != ins.Aux0 || st.objSize[oi] < ins.Aux1 || ins.Aux1 == uint32(0) {
+		return ErrInvalidReuse{Block: b, InstIdx: idx, Val: tok, Why: "incompatible typeTag or size"}
+	}
+	st.valRefs[int(tok)] = st.valRefs[int(tok)] - 1
+	if st.objRC[oi] == 1 {
+		releaseObjChildren(st, obj)
+		st.objTypeTag[oi] = ins.Aux0
+		st.objSize[oi] = ins.Aux1
+		st.valObj[int(ins.Dst)] = obj
+		st.valRefs[int(ins.Dst)] = 1
+		st.reuses = st.reuses + 1
+	} else {
+		st.objRC[oi] = st.objRC[oi] - 1
+		let fresh = newHeapObj(st, ins.Aux0, ins.Aux1)
+		st.valObj[int(ins.Dst)] = fresh
+		st.valRefs[int(ins.Dst)] = 1
+		st.heapAllocs = st.heapAllocs + 1
+		st.fallbacks = st.fallbacks + 1
+	}
+}
+
+func execStore(p Program, st mut execState, b uint32, idx int, ins Inst) fails VerifyFailure {
+	try checkReadable(p, *st, b, idx, ins.Arg0)
+	try checkReadable(p, *st, b, idx, ins.Arg1)
+	let baseObj = st.valObj[int(ins.Arg0)]
+	if baseObj == NoID {
+		return ErrInvalidCFG{Block: b, Why: "store base is not an object"}
+	}
+	let valObj = st.valObj[int(ins.Arg1)]
+	if valObj != NoID && !st.objIsArena[int(valObj)] {
+		st.valRefs[int(ins.Arg1)] = st.valRefs[int(ins.Arg1)] - 1
+	}
+	let slot = findFieldSlot(*st, baseObj, ins.Aux0)
+	if slot >= 0 {
+		let prev = st.slotChild[slot]
+		if prev != NoID && !st.objIsArena[int(prev)] && st.objAlive[int(prev)] && st.objRC[int(prev)] > 0 {
+			decHeapObj(st, prev)
+		}
+		st.slotChild[slot] = valObj
+	} else {
+		st.slotObj = st.slotObj.Append(baseObj)
+		st.slotField = st.slotField.Append(ins.Aux0)
+		st.slotChild = st.slotChild.Append(valObj)
+	}
+}
+
+func execFieldRead(p Program, st mut execState, b uint32, idx int, ins Inst) fails VerifyFailure {
+	try checkReadable(p, *st, b, idx, ins.Arg0)
+	if ins.Dst == NoID {
+		return
+	}
+	let dk = p.ValKind[int(ins.Dst)]
+	if dk == ValScalar || dk == ValImmortal {
+		st.valObj[int(ins.Dst)] = NoID
+		st.valRefs[int(ins.Dst)] = 0
+		return
+	}
+	let baseObj = st.valObj[int(ins.Arg0)]
+	let slot = if baseObj != NoID { findFieldSlot(*st, baseObj, ins.Aux0) } else { -1 }
+	if slot >= 0 && st.slotChild[slot] != NoID {
+		let ch = st.slotChild[slot]
+		if st.objIsArena[int(ch)] {
+			if !st.objArenaAlive[int(ch)] {
+				return ErrDanglingArena{Block: b, InstIdx: idx, Val: ins.Dst}
+			}
+			st.valObj[int(ins.Dst)] = ch
+			st.valRefs[int(ins.Dst)] = 0
+			return
+		}
+		if !st.objAlive[int(ch)] || st.objRC[int(ch)] <= 0 {
+			return ErrUseAfterFree{Block: b, InstIdx: idx, Val: ins.Dst}
+		}
+		st.objRC[int(ch)] = st.objRC[int(ch)] + 1
+		st.valObj[int(ins.Dst)] = ch
+		st.valRefs[int(ins.Dst)] = 1
+		return
+	}
+	let fresh = newHeapObj(st, p.ValTypeTag[int(ins.Dst)], p.ValSize[int(ins.Dst)])
+	st.valObj[int(ins.Dst)] = fresh
+	st.valRefs[int(ins.Dst)] = 1
+}
+
+func execUse(p Program, st mut execState, b uint32, idx int, ins Inst) fails VerifyFailure {
+	try checkReadable(p, *st, b, idx, ins.Arg0)
+	if ins.Dst == NoID {
+		return
+	}
+	let dk = p.ValKind[int(ins.Dst)]
+	if dk == ValScalar || dk == ValImmortal {
+		st.valObj[int(ins.Dst)] = NoID
+		st.valRefs[int(ins.Dst)] = 0
+		return
+	}
+	let srcObj = st.valObj[int(ins.Arg0)]
+	if srcObj != NoID && !st.objIsArena[int(srcObj)] {
+		st.valRefs[int(ins.Arg0)] = st.valRefs[int(ins.Arg0)] - 1
+		st.valRefs[int(ins.Dst)] = 1
+	} else {
+		st.valRefs[int(ins.Dst)] = 0
+	}
+	st.valObj[int(ins.Dst)] = srcObj
+}
+
+func execCallArgs(p Program, st mut execState, b uint32, idx int, ins Inst) fails VerifyFailure {
+	let s = int(ins.ArgStart)
+	let e = s + int(ins.ArgLen)
+	let escapes = ins.Aux0 == uint32(1)
+	for k in s..e {
+		let a = p.CallArgPool[k]
+		try checkReadable(p, *st, b, idx, a)
+		if escapes && a != NoID {
+			let obj = st.valObj[int(a)]
+			if obj != NoID {
+				if st.objIsArena[int(obj)] {
+					return ErrDanglingArena{Block: b, InstIdx: idx, Val: a}
+				}
+				if st.valRefs[int(a)] <= 0 || !st.objAlive[int(obj)] || st.objRC[int(obj)] <= 0 {
+					return ErrUseAfterFree{Block: b, InstIdx: idx, Val: a}
+				}
+				st.valRefs[int(a)] = st.valRefs[int(a)] - 1
+				decHeapObj(st, obj)
+			}
+		}
+	}
+}
+
+func assignCallDst(p Program, st mut execState, ins Inst) {
+	if ins.Dst == NoID {
+		return
+	}
+	let dk = p.ValKind[int(ins.Dst)]
+	if dk == ValScalar || dk == ValImmortal {
+		st.valObj[int(ins.Dst)] = NoID
+		st.valRefs[int(ins.Dst)] = 0
+		return
+	}
+	let fresh = newHeapObj(st, p.ValTypeTag[int(ins.Dst)], p.ValSize[int(ins.Dst)])
+	st.valObj[int(ins.Dst)] = fresh
+	st.valRefs[int(ins.Dst)] = 1
+	st.heapAllocs = st.heapAllocs + 1
+}
+
+func execReturnCheck(p Program, st mut execState, b uint32, idx int, ins Inst) fails VerifyFailure {
+	let s = int(ins.ArgStart)
+	let e = s + int(ins.ArgLen)
+	let mut retObjs = []uint32{}
+	for k in s..e {
+		let v = p.CallArgPool[k]
+		try checkReadable(p, *st, b, idx, v)
+		if v != NoID {
+			let obj = st.valObj[int(v)]
+			if obj != NoID {
+				if st.objIsArena[int(obj)] {
+					return ErrDanglingArena{Block: b, InstIdx: idx, Val: v}
+				}
+				st.valRefs[int(v)] = st.valRefs[int(v)] - 1
+				retObjs = retObjs.Append(obj)
+			}
+		}
+	}
+	if st.arenaMarks.Len() > 0 || st.arenaBytes > uint32(0) {
+		return ErrMemoryLeak{Block: b, LiveRC: 0, ExpectedRC: retObjs.Len(), ArenaBytes: st.arenaBytes}
+	}
+	for obj in retObjs {
+		if st.objAlive[int(obj)] && st.objRC[int(obj)] > 0 {
+			decHeapObj(st, obj)
+		}
+	}
+	let mut leakedRC = 0
+	for i in 0..st.objAlive.Len() {
+		if !st.objIsArena[i] && st.objAlive[i] && st.objRC[i] > 0 {
+			leakedRC = leakedRC + st.objRC[i]
+		}
+	}
+	for vr in st.valRefs {
+		if vr > 0 && leakedRC == 0 {
+			leakedRC = vr
+		}
+	}
+	if leakedRC > 0 {
+		return ErrMemoryLeak{Block: b, LiveRC: retObjs.Len() + leakedRC, ExpectedRC: retObjs.Len(), ArenaBytes: uint32(0)}
+	}
+}
+
+func transferEdge(p Program, st mut execState, src uint32, dst uint32, args []uint32) fails VerifyFailure {
+	let bps = BlockParams(p, dst)
+	let mut passed = slices.WithCapacity[uint32](args.Len())
+	for a in args {
+		try checkReadable(p, *st, src, -1, a)
+		let obj = if a != NoID { st.valObj[int(a)] } else { NoID }
+		if obj != NoID && !st.objIsArena[int(obj)] {
+			st.valRefs[int(a)] = st.valRefs[int(a)] - 1
+		}
+		passed = passed.Append(obj)
+	}
+	for j in 0..bps.Len() {
+		let bp = bps[j]
+		let prevObj = st.valObj[int(bp)]
+		if prevObj != NoID && !st.objIsArena[int(prevObj)] && st.valRefs[int(bp)] > 0 {
+			return ErrOverwriteLeak{Block: dst, Param: bp}
+		}
+		st.valObj[int(bp)] = passed[j]
+		st.valRefs[int(bp)] = if passed[j] != NoID && !st.objIsArena[int(passed[j])] { 1 } else { 0 }
+	}
+}
+
+func recordExitStats(stats mut VerifyStats, st execState) {
+	stats.ExitsVerified = stats.ExitsVerified + 1
+	if st.heapAllocs > stats.HeapAllocs {
+		stats.HeapAllocs = st.heapAllocs
+	}
+	if st.reuses > stats.Reuses {
+		stats.Reuses = st.reuses
+	}
+	stats.DynamicReuseFallbacks = stats.DynamicReuseFallbacks + st.fallbacks
+	if st.arenaAllocs > stats.ArenaAllocs {
+		stats.ArenaAllocs = st.arenaAllocs
+	}
+	if st.arenaResets > stats.ArenaResets {
+		stats.ArenaResets = st.arenaResets
+	}
+	if st.peakArena > stats.PeakArenaBytes {
+		stats.PeakArenaBytes = st.peakArena
+	}
+	if st.dups > stats.DupOpsExecuted {
+		stats.DupOpsExecuted = st.dups
+	}
+	if st.drops > stats.DropOpsExecuted {
+		stats.DropOpsExecuted = st.drops
+	}
+}
+
+func stepInteriorInst(p Program, st mut execState, b uint32, k int, ins Inst) fails VerifyFailure {
+	if ins.Op == OpConstScalar {
+		if ins.Dst != NoID {
+			st.valObj[int(ins.Dst)] = NoID
+			st.valRefs[int(ins.Dst)] = 0
+		}
+	} else if ins.Op == OpAlloc {
+		let fresh = newHeapObj(st, ins.Aux0, ins.Aux1)
+		st.valObj[int(ins.Dst)] = fresh
+		st.valRefs[int(ins.Dst)] = 1
+		st.heapAllocs = st.heapAllocs + 1
+	} else if ins.Op == OpDup {
+		try execDup(p, st, b, k, ins.Arg0)
+	} else if ins.Op == OpDrop {
+		try execDrop(p, st, b, k, ins.Arg0)
+	} else if ins.Op == OpReuseAlloc {
+		try execReuseAlloc(p, st, b, k, ins)
+	} else if ins.Op == OpArenaMark {
+		st.arenaMarks = st.arenaMarks.Append(st.arenaBytes)
+	} else if ins.Op == OpArenaAlloc {
+		if st.arenaMarks.Len() == 0 {
+			return ErrArenaDepth{Block: b, InstIdx: k, Why: "OpArenaAlloc without active OpArenaMark"}
+		}
+		let aObj = newArenaObj(st, ins.Aux0, ins.Aux1)
+		st.valObj[int(ins.Dst)] = aObj
+		st.valRefs[int(ins.Dst)] = 0
+		st.arenaAllocs = st.arenaAllocs + 1
+	} else if ins.Op == OpArenaReset {
+		if st.arenaMarks.Len() == 0 {
+			return ErrArenaDepth{Block: b, InstIdx: k, Why: "OpArenaReset on empty mark stack"}
+		}
+		let top = st.arenaMarks.Len() - 1
+		let mark = st.arenaMarks[top]
+		st.arenaMarks = st.arenaMarks[0:top]
+		st.arenaBytes = mark
+		for oi in 0..st.objIsArena.Len() {
+			if st.objIsArena[oi] && st.objArenaAlive[oi] && st.objArenaStart[oi] >= mark {
+				st.objArenaAlive[oi] = false
+			}
+		}
+		st.arenaResets = st.arenaResets + 1
+	} else if ins.Op == OpUse {
+		try execUse(p, st, b, k, ins)
+	} else if ins.Op == OpFieldRead {
+		try execFieldRead(p, st, b, k, ins)
+	} else if ins.Op == OpStore {
+		try execStore(p, st, b, k, ins)
+	} else if ins.Op == OpCall {
+		try execCallArgs(p, st, b, k, ins)
+		assignCallDst(p, st, ins)
+	}
+}
+
+func stepBlockAndPush(p Program, cfg VerifyConfig, st execState, b uint32, stack mut []execState, stackBlk mut []uint32, stats mut VerifyStats) fails VerifyFailure {
+	let mut cur = st
+	let bi = int(b)
+	cur.blockVisits[bi] = cur.blockVisits[bi] + 1
+	let blk = BlockAt(p, b)
+	let start = int(blk.InstStart)
+	let end = start + int(blk.InstLen)
+	for k in start..end-1 {
+		cur.steps = cur.steps + 1
+		if cur.steps > 100000 {
+			return ErrStepBudget{Block: b, Steps: cur.steps}
+		}
+		try stepInteriorInst(p, &cur, b, k, InstAt(p, uint32(k)))
+	}
+	let lastIdx = end - 1
+	let last = InstAt(p, uint32(lastIdx))
+	if last.Op == OpReturn {
+		try execReturnCheck(p, &cur, b, lastIdx, last)
+		recordExitStats(stats, cur)
+		stats.PathsExplored = stats.PathsExplored + 1
+		return
+	}
+	if last.Op == OpBr {
+		let dst = blk.Succ0
+		if cur.blockVisits[int(dst)] >= cfg.MaxLoopVisits {
+			stats.PathsExplored = stats.PathsExplored + 1
+			return
+		}
+		try transferEdge(p, &cur, b, dst, Succ0Args(p, b))
+		*stack = (*stack).Append(cur)
+		*stackBlk = (*stackBlk).Append(dst)
+		return
+	}
+	if last.Op == OpCondBr {
+		try checkReadable(p, cur, b, lastIdx, last.Arg0)
+		let takeExact = cfg.ExactLoopHeader != NoID && b == cfg.ExactLoopHeader
+		let visitsSoFar = cur.blockVisits[bi] - 1
+		let exploreT = !takeExact || visitsSoFar < cfg.ExactLoopIters
+		let exploreF = !takeExact || visitsSoFar >= cfg.ExactLoopIters
+		if exploreF && cur.blockVisits[int(blk.Succ1)] < cfg.MaxLoopVisits {
+			let mut stF = cloneExecState(cur)
+			try transferEdge(p, &stF, b, blk.Succ1, Succ1Args(p, b))
+			*stack = (*stack).Append(stF)
+			*stackBlk = (*stackBlk).Append(blk.Succ1)
+		} else if exploreF {
+			stats.PathsExplored = stats.PathsExplored + 1
+		}
+		if exploreT && cur.blockVisits[int(blk.Succ0)] < cfg.MaxLoopVisits {
+			let mut stT = cur
+			try transferEdge(p, &stT, b, blk.Succ0, Succ0Args(p, b))
+			*stack = (*stack).Append(stT)
+			*stackBlk = (*stackBlk).Append(blk.Succ0)
+		} else if exploreT {
+			stats.PathsExplored = stats.PathsExplored + 1
+		}
+		return
+	}
+	if last.Op == OpCall && last.Aux1 == uint32(1) {
+		try execCallArgs(p, &cur, b, lastIdx, last)
+		if cur.blockVisits[int(blk.UnwindSucc)] < cfg.MaxLoopVisits {
+			let mut stUw = cloneExecState(cur)
+			try transferEdge(p, &stUw, b, blk.UnwindSucc, UnwindArgs(p, b))
+			*stack = (*stack).Append(stUw)
+			*stackBlk = (*stackBlk).Append(blk.UnwindSucc)
+		} else {
+			stats.PathsExplored = stats.PathsExplored + 1
+		}
+		if cur.blockVisits[int(blk.Succ0)] < cfg.MaxLoopVisits {
+			let mut stN = cur
+			assignCallDst(p, &stN, last)
+			try transferEdge(p, &stN, b, blk.Succ0, Succ0Args(p, b))
+			*stack = (*stack).Append(stN)
+			*stackBlk = (*stackBlk).Append(blk.Succ0)
+		} else {
+			stats.PathsExplored = stats.PathsExplored + 1
+		}
+	}
+}
+
+// VerifyWithConfig executes p along all reachable branch and unwind paths up to cfg bounds and fails on any RC, arena, or reuse violation.
+func VerifyWithConfig(p Program, cfg VerifyConfig) VerifyStats fails VerifyFailure {
+	ValidateProgram(p) catch {
+	case InvalidCFG as ic:
+		return ErrInvalidCFG{Block: p.Entry, Why: ic.Message}
+	}
+	let nv = NumValues(p)
+	let nb = NumBlocks(p)
+	let mut init = execState{
+		valObj:        slices.WithCapacity[uint32](nv),
+		valRefs:       slices.WithCapacity[int](nv),
+		objAlive:      []bool{},
+		objRC:         []int{},
+		objIsArena:    []bool{},
+		objArenaAlive: []bool{},
+		objArenaStart: []uint32{},
+		objTypeTag:    []uint32{},
+		objSize:       []uint32{},
+		slotObj:       []uint32{},
+		slotField:     []uint32{},
+		slotChild:     []uint32{},
+		arenaMarks:    []uint32{},
+		arenaBytes:    uint32(0),
+		blockVisits:   slices.WithCapacity[int](nb),
+		heapAllocs:    0,
+		reuses:        0,
+		fallbacks:     0,
+		arenaAllocs:   0,
+		arenaResets:   0,
+		peakArena:     uint32(0),
+		dups:          0,
+		drops:         0,
+		steps:         0,
+	}
+	for _ in 0..nv {
+		init.valObj = init.valObj.Append(NoID)
+		init.valRefs = init.valRefs.Append(0)
+	}
+	for _ in 0..nb {
+		init.blockVisits = init.blockVisits.Append(0)
+	}
+	for pv in p.Params {
+		let k = p.ValKind[int(pv)]
+		if IsRCManagedKind(k) {
+			let obj = newHeapObj(&init, p.ValTypeTag[int(pv)], p.ValSize[int(pv)])
+			init.valObj[int(pv)] = obj
+			init.valRefs[int(pv)] = 1
+			init.heapAllocs = init.heapAllocs + 1
+		}
+	}
+	let mut stack = []execState{init}
+	let mut stackBlk = []uint32{p.Entry}
+	let mut stats = VerifyStats{
+		PathsExplored:         0,
+		ExitsVerified:         0,
+		HeapAllocs:            0,
+		Reuses:                0,
+		DynamicReuseFallbacks: 0,
+		ArenaAllocs:           0,
+		ArenaResets:           0,
+		PeakArenaBytes:        uint32(0),
+		DupOpsExecuted:        0,
+		DropOpsExecuted:       0,
+	}
+	for stack.Len() > 0 && stats.PathsExplored < cfg.MaxPaths {
+		let top = stack.Len() - 1
+		let st = stack[top]
+		let b = stackBlk[top]
+		stack = stack[0:top]
+		stackBlk = stackBlk[0:top]
+		try stepBlockAndPush(p, cfg, st, b, &stack, &stackBlk, &stats)
+	}
+	stats
+}
+
+// VerifyProgram runs bounded exhaustive operational RC verification over p using DefaultVerifyConfig.
+func VerifyProgram(p Program) VerifyStats fails VerifyFailure {
+	VerifyWithConfig(p, DefaultVerifyConfig())
+}
+
+func buildOwnUpdateLoop(tag uint32, size uint32) (Program, uint32) {
+	let mut b = NewBuilder()
+	let b0 = NewBlock(&b, BlockEntry)
+	let bHead = NewBlock(&b, BlockNormal)
+	let bBody = NewBlock(&b, BlockNormal)
+	let bExit = NewBlock(&b, BlockExit)
+	let x0 = EmitAlloc(&b, b0, ValueSpec{Kind: ValOwn, TypeTag: tag, Size: size})
+	let cond = EmitConstScalar(&b, b0, uint32(1))
+	EmitBr(&b, b0, BranchTarget{Block: bHead, Args: []uint32{x0}})
+	let xCur = AddBlockParam(&b, bHead, ValueSpec{Kind: ValOwn, TypeTag: tag, Size: size})
+	EmitCondBr(&b, bHead, cond, BranchTarget{Block: bBody, Args: []uint32{}}, BranchTarget{Block: bExit, Args: []uint32{}})
+	let fieldVal = EmitFieldRead(&b, bBody, FieldAccess{Base: xCur, Field: uint32(0), DstSpec: ValueSpec{Kind: ValScalar, TypeTag: uint32(0), Size: uint32(0)}})
+	EmitBorrowUse(&b, bBody, fieldVal)
+	let xNext = EmitAlloc(&b, bBody, ValueSpec{Kind: ValOwn, TypeTag: tag, Size: size})
+	EmitBr(&b, bBody, BranchTarget{Block: bHead, Args: []uint32{xNext}})
+	EmitReturn(&b, bExit, []uint32{xCur})
+	(BuildProgram(b), bHead)
+}
+
+// OwnRecordUpdateLoopReusesInPlace proves N iterations of own updates lower to 1 alloc + (N-1) in-place reuses with zero leaks.
+law OwnRecordUpdateLoopReusesInPlace(rawN int) {
+	let n = 1 + (((rawN % 24) + 24) % 24)
+	let (raw, headBlk) = buildOwnUpdateLoop(uint32(10), uint32(32))
+	let lowered = LowerProgram(raw) catch {
+	case InvalidCFG:
+		return false
+	}
+	let cfg = VerifyConfig{
+		MaxLoopVisits:   n + 2,
+		MaxPaths:        256,
+		ExactLoopHeader: headBlk,
+		ExactLoopIters:  n - 1,
+	}
+	let vs = VerifyWithConfig(lowered.Program, cfg) catch {
+	case VerifyFailure:
+		return false
+	}
+	lowered.Stats.ReusesPaired == 1 && vs.ExitsVerified == 1 && vs.HeapAllocs == 1 && vs.Reuses == n-1 && vs.DupOpsExecuted == 0 && vs.DropOpsExecuted == 0
+}
+
+// ScopedArenaTemporariesZeroDupDrop proves non-escaping ValArenaCand allocations execute with zero dup/drop and zero leaked bytes across normal and unwind exits.
+law ScopedArenaTemporariesZeroDupDrop(rawCount int) {
+	let count = 1 + (((rawCount % 6) + 6) % 6)
+	let mut b = NewBuilder()
+	let b0 = NewBlock(&b, BlockEntry)
+	let bNorm = NewBlock(&b, BlockExit)
+	let bErr = NewBlock(&b, BlockUnwind)
+	let mut temps = []uint32{}
+	for i in 0..count {
+		let t = EmitAlloc(&b, b0, ValueSpec{Kind: ValArenaCand, TypeTag: uint32(20 + i), Size: uint32(16)})
+		let _ = EmitFieldRead(&b, b0, FieldAccess{Base: t, Field: uint32(0), DstSpec: ValueSpec{Kind: ValScalar, TypeTag: uint32(0), Size: uint32(0)}})
+		temps = temps.Append(t)
+	}
+	let _ = EmitUnwindCall(&b, b0, CallSpec{Args: temps, DstSpec: ValueSpec{Kind: ValScalar, TypeTag: uint32(0), Size: uint32(0)}, Escapes: false, MayFail: true, HasDst: false}, BranchTarget{Block: bNorm, Args: []uint32{}}, BranchTarget{Block: bErr, Args: []uint32{}})
+	EmitReturn(&b, bNorm, []uint32{})
+	EmitReturn(&b, bErr, []uint32{})
+	let lowered = LowerProgram(BuildProgram(b)) catch {
+	case InvalidCFG:
+		return false
+	}
+	let vs = VerifyProgram(lowered.Program) catch {
+	case VerifyFailure:
+		return false
+	}
+	lowered.Stats.DupsInserted == 0 && lowered.Stats.DropsInserted == 0 && lowered.Stats.ArenaPromotedCount == count && vs.ExitsVerified == 2 && vs.DupOpsExecuted == 0 && vs.DropOpsExecuted == 0 && vs.ArenaAllocs == count && vs.ArenaResets >= 1 && vs.PeakArenaBytes == uint32(count*16)
+}
+
+func verifyLoweredOk(p Program) bool {
+	let lowered = LowerProgram(p) catch {
+	case InvalidCFG:
+		return false
+	}
+	let vs = VerifyProgram(lowered.Program) catch {
+	case VerifyFailure:
+		return false
+	}
+	vs.ExitsVerified >= 1
+}
+
+func drawValueKind(allowArena bool) uint8 needs gen.Draws {
+	let k = gen.IntIn(0, if allowArena { 3 } else { 2 })
+	if k == 0 {
+		return ValScalar
+	}
+	if k == 1 {
+		return ValRC
+	}
+	if k == 2 {
+		return ValOwn
+	}
+	ValArenaCand
+}
+
+func drawBreakContinueReuseCFG(b mut Builder, cond uint32, liveRC []uint32) Program needs gen.Draws {
+	let b0 = uint32(0)
+	let bHead = NewBlock(b, BlockNormal)
+	let bBody = NewBlock(b, BlockNormal)
+	let bContinue = NewBlock(b, BlockNormal)
+	let bBreak = NewBlock(b, BlockExit)
+	let bExit = NewBlock(b, BlockExit)
+	let initRC = EmitAlloc(b, b0, ValueSpec{Kind: ValRC, TypeTag: uint32(14), Size: uint32(32)})
+	let keepAlias = gen.Bool()
+	let alias = if keepAlias {
+		EmitMoveUse(b, b0, initRC, ValueSpec{Kind: ValRC, TypeTag: uint32(14), Size: uint32(32)})
+	} else {
+		NoID
+	}
+	EmitBr(b, b0, BranchTarget{Block: bHead, Args: []uint32{initRC}})
+	let cur = AddBlockParam(b, bHead, ValueSpec{Kind: ValRC, TypeTag: uint32(14), Size: uint32(32)})
+	EmitCondBr(b, bHead, cond, BranchTarget{Block: bBody, Args: []uint32{}}, BranchTarget{Block: bExit, Args: []uint32{}})
+	let _ = EmitFieldRead(b, bBody, FieldAccess{Base: cur, Field: uint32(0), DstSpec: ValueSpec{Kind: ValScalar, TypeTag: uint32(0), Size: uint32(0)}})
+	let nextRC = EmitAlloc(b, bBody, ValueSpec{Kind: ValRC, TypeTag: uint32(14), Size: uint32(32)})
+	EmitCondBr(b, bBody, cond, BranchTarget{Block: bContinue, Args: []uint32{}}, BranchTarget{Block: bBreak, Args: []uint32{}})
+	if liveRC.Len() > 0 {
+		EmitBorrowUse(b, bContinue, liveRC[0])
+	}
+	EmitBr(b, bContinue, BranchTarget{Block: bHead, Args: []uint32{nextRC}})
+	EmitReturn(b, bBreak, []uint32{nextRC})
+	if keepAlias {
+		EmitReturn(b, bExit, []uint32{cur, alias})
+	} else {
+		EmitReturn(b, bExit, []uint32{cur})
+	}
+	BuildProgram(*b)
+}
+
+func drawNestedStoreAndEntryLoopCFG(b mut Builder, cond uint32) Program needs gen.Draws {
+	let b0 = uint32(0)
+	let bLoop = NewBlock(b, BlockNormal)
+	let bDone = NewBlock(b, BlockExit)
+	let inner = EmitAlloc(b, b0, ValueSpec{Kind: ValArenaCand, TypeTag: uint32(21), Size: uint32(16)})
+	let outer = EmitAlloc(b, b0, ValueSpec{Kind: ValArenaCand, TypeTag: uint32(22), Size: uint32(32)})
+	EmitStore(b, b0, StoreSpec{Base: outer, Field: uint32(0), Val: inner})
+	let innerAlias = EmitMoveUse(b, b0, inner, ValueSpec{Kind: ValArenaCand, TypeTag: uint32(21), Size: uint32(16)})
+	EmitBorrowUse(b, b0, innerAlias)
+	let retOuter = gen.Bool()
+	EmitCondBr(b, b0, cond, BranchTarget{Block: bLoop, Args: []uint32{}}, BranchTarget{Block: bDone, Args: []uint32{}})
+	EmitBorrowUse(b, bLoop, outer)
+	if retOuter {
+		EmitCondBr(b, bLoop, cond, BranchTarget{Block: bLoop, Args: []uint32{}}, BranchTarget{Block: bDone, Args: []uint32{}})
+		EmitReturn(b, bDone, []uint32{outer})
+	} else {
+		EmitCondBr(b, bLoop, cond, BranchTarget{Block: b0, Args: []uint32{}}, BranchTarget{Block: bDone, Args: []uint32{}})
+		EmitReturn(b, bDone, []uint32{})
+	}
+	BuildProgram(*b)
+}
+
+func drawRandomCFG() Program needs gen.Draws {
+	let mut b = NewBuilder()
+	let pKind = if gen.Bool() { ValRC } else { ValOwn }
+	let param = AddParam(&b, ValueSpec{Kind: pKind, TypeTag: uint32(1), Size: uint32(32)})
+	let b0 = NewBlock(&b, BlockEntry)
+	let mut liveRC = []uint32{}
+	let mut liveArena = []uint32{}
+	if pKind == ValRC {
+		liveRC = liveRC.Append(param)
+	}
+	let nInit = gen.IntIn(1, 3)
+	for _ in 0..nInit {
+		let k = drawValueKind(true)
+		if k == ValRC {
+			liveRC = liveRC.Append(EmitAlloc(&b, b0, ValueSpec{Kind: ValRC, TypeTag: uint32(2), Size: uint32(24)}))
+		} else if k == ValArenaCand {
+			liveArena = liveArena.Append(EmitAlloc(&b, b0, ValueSpec{Kind: ValArenaCand, TypeTag: uint32(3), Size: uint32(16)}))
+		} else if k == ValScalar {
+			let _ = EmitConstScalar(&b, b0, uint32(7))
+		}
+	}
+	let cond = EmitConstScalar(&b, b0, uint32(1))
+	let cfgKind = gen.IntIn(0, 5)
+	if cfgKind == 4 {
+		return drawBreakContinueReuseCFG(&b, cond, liveRC)
+	}
+	if cfgKind == 5 {
+		return drawNestedStoreAndEntryLoopCFG(&b, cond)
+	}
+	if cfgKind == 0 {
+		if liveRC.Len() >= 1 {
+			let alias = EmitMoveUse(&b, b0, liveRC[0], ValueSpec{Kind: ValRC, TypeTag: uint32(2), Size: uint32(24)})
+			let _ = EmitCall(&b, b0, CallSpec{Args: []uint32{liveRC[0], alias}, DstSpec: ValueSpec{Kind: ValScalar, TypeTag: uint32(0), Size: uint32(0)}, Escapes: gen.Bool(), MayFail: false, HasDst: false})
+			liveRC = liveRC.Append(alias)
+		}
+		for a in liveArena {
+			let _ = EmitFieldRead(&b, b0, FieldAccess{Base: a, Field: uint32(0), DstSpec: ValueSpec{Kind: ValScalar, TypeTag: uint32(0), Size: uint32(0)}})
+		}
+		if liveRC.Len() > 0 && gen.Bool() {
+			EmitReturn(&b, b0, []uint32{liveRC[0]})
+		} else {
+			EmitReturn(&b, b0, []uint32{})
+		}
+		return BuildProgram(b)
+	}
+	if cfgKind == 1 {
+		let bL = NewBlock(&b, BlockNormal)
+		let bR = NewBlock(&b, BlockNormal)
+		let bJ = NewBlock(&b, BlockExit)
+		let jP = AddBlockParam(&b, bJ, ValueSpec{Kind: ValOwn, TypeTag: uint32(5), Size: uint32(32)})
+		EmitCondBr(&b, b0, cond, BranchTarget{Block: bL, Args: []uint32{}}, BranchTarget{Block: bR, Args: []uint32{}})
+		let oL = EmitAlloc(&b, bL, ValueSpec{Kind: ValOwn, TypeTag: uint32(5), Size: uint32(32)})
+		for r in liveRC {
+			EmitBorrowUse(&b, bL, r)
+		}
+		EmitBr(&b, bL, BranchTarget{Block: bJ, Args: []uint32{oL}})
+		let oR = EmitAlloc(&b, bR, ValueSpec{Kind: ValOwn, TypeTag: uint32(5), Size: uint32(32)})
+		if liveArena.Len() > 0 {
+			EmitBorrowUse(&b, bR, liveArena[0])
+		}
+		EmitBr(&b, bR, BranchTarget{Block: bJ, Args: []uint32{oR}})
+		if liveRC.Len() > 0 && gen.Bool() {
+			EmitReturn(&b, bJ, []uint32{jP, liveRC[0]})
+		} else {
+			EmitReturn(&b, bJ, []uint32{jP})
+		}
+		return BuildProgram(b)
+	}
+	if cfgKind == 2 {
+		let bHead = NewBlock(&b, BlockNormal)
+		let bBody = NewBlock(&b, BlockNormal)
+		let bExit = NewBlock(&b, BlockExit)
+		let bUw = NewBlock(&b, BlockUnwind)
+		let x0 = EmitAlloc(&b, b0, ValueSpec{Kind: ValOwn, TypeTag: uint32(8), Size: uint32(32)})
+		EmitBr(&b, b0, BranchTarget{Block: bHead, Args: []uint32{x0}})
+		let xLoop = AddBlockParam(&b, bHead, ValueSpec{Kind: ValOwn, TypeTag: uint32(8), Size: uint32(32)})
+		EmitCondBr(&b, bHead, cond, BranchTarget{Block: bBody, Args: []uint32{}}, BranchTarget{Block: bExit, Args: []uint32{}})
+		let _ = EmitFieldRead(&b, bBody, FieldAccess{Base: xLoop, Field: uint32(0), DstSpec: ValueSpec{Kind: ValScalar, TypeTag: uint32(0), Size: uint32(0)}})
+		let xNext = EmitAlloc(&b, bBody, ValueSpec{Kind: ValOwn, TypeTag: uint32(8), Size: uint32(32)})
+		let tmp = EmitAlloc(&b, bBody, ValueSpec{Kind: ValArenaCand, TypeTag: uint32(9), Size: uint32(16)})
+		let mut cArgs = []uint32{tmp}
+		if liveRC.Len() > 0 {
+			cArgs = cArgs.Append(liveRC[0])
+		}
+		let _ = EmitUnwindCall(&b, bBody, CallSpec{Args: cArgs, DstSpec: ValueSpec{Kind: ValScalar, TypeTag: uint32(0), Size: uint32(0)}, Escapes: false, MayFail: true, HasDst: false}, BranchTarget{Block: bHead, Args: []uint32{xNext}}, BranchTarget{Block: bUw, Args: []uint32{}})
+		EmitReturn(&b, bExit, []uint32{xLoop})
+		EmitReturn(&b, bUw, []uint32{})
+		return BuildProgram(b)
+	}
+	let bOk = NewBlock(&b, BlockExit)
+	let bErr = NewBlock(&b, BlockUnwind)
+	let mut callArgs = []uint32{}
+	for r in liveRC {
+		callArgs = callArgs.Append(r)
+	}
+	for a in liveArena {
+		callArgs = callArgs.Append(a)
+	}
+	let escCall = gen.Bool() && liveArena.Len() == 0
+	let resVal = EmitUnwindCall(&b, b0, CallSpec{Args: callArgs, DstSpec: ValueSpec{Kind: ValRC, TypeTag: uint32(11), Size: uint32(24)}, Escapes: escCall, MayFail: true, HasDst: true}, BranchTarget{Block: bOk, Args: []uint32{}}, BranchTarget{Block: bErr, Args: []uint32{}})
+	if liveRC.Len() > 0 && gen.Bool() {
+		EmitReturn(&b, bOk, []uint32{resVal, liveRC[0]})
+	} else {
+		EmitReturn(&b, bOk, []uint32{resVal})
+	}
+	if liveRC.Len() > 0 && gen.Bool() {
+		EmitReturn(&b, bErr, []uint32{liveRC[0]})
+	} else {
+		EmitReturn(&b, bErr, []uint32{})
+	}
+	BuildProgram(b)
+}
+
+test RandomCFGsPassOperationalRCVerifier {
+	let cfg = drawRandomCFG()
+	assert verifyLoweredOk(cfg)
+}
+
+test OwnRecordAndSliceLoopsAreConstantAllocs {
+	for tag in []uint32{uint32(10), uint32(20)} {
+		let size = if tag == uint32(10) { uint32(32) } else { uint32(64) }
+		let (raw, headBlk) = buildOwnUpdateLoop(tag, size)
+		let lowered = LowerProgram(raw) catch {
+		case InvalidCFG:
+			assert false
+			return
+		}
+		assert lowered.Stats.ReusesPaired == 1
+		let n = 40
+		let vs = VerifyWithConfig(lowered.Program, VerifyConfig{
+			MaxLoopVisits:   n + 2,
+			MaxPaths:        256,
+			ExactLoopHeader: headBlk,
+			ExactLoopIters:  n - 1,
+		}) catch {
+		case VerifyFailure:
+			assert false
+			return
+		}
+		assert vs.HeapAllocs == 1 && vs.Reuses == n-1 && vs.ExitsVerified == 1
+	}
+}
+
+test ScopedArenaHandlesEarlyMayFailUnwindExits {
+	let mut b = NewBuilder()
+	let b0 = NewBlock(&b, BlockEntry)
+	let bMid = NewBlock(&b, BlockNormal)
+	let bExit = NewBlock(&b, BlockExit)
+	let bErr = NewBlock(&b, BlockUnwind)
+	let inner = EmitAlloc(&b, b0, ValueSpec{Kind: ValArenaCand, TypeTag: uint32(30), Size: uint32(16)})
+	let outer = EmitAlloc(&b, b0, ValueSpec{Kind: ValArenaCand, TypeTag: uint32(31), Size: uint32(32)})
+	EmitStore(&b, b0, StoreSpec{Base: outer, Field: uint32(0), Val: inner})
+	let _ = EmitUnwindCall(&b, b0, CallSpec{Args: []uint32{outer}, DstSpec: ValueSpec{Kind: ValScalar, TypeTag: uint32(0), Size: uint32(0)}, Escapes: false, MayFail: true, HasDst: false}, BranchTarget{Block: bMid, Args: []uint32{}}, BranchTarget{Block: bErr, Args: []uint32{}})
+	let _ = EmitFieldRead(&b, bMid, FieldAccess{Base: outer, Field: uint32(0), DstSpec: ValueSpec{Kind: ValScalar, TypeTag: uint32(0), Size: uint32(0)}})
+	EmitBr(&b, bMid, BranchTarget{Block: bExit, Args: []uint32{}})
+	EmitReturn(&b, bExit, []uint32{})
+	EmitReturn(&b, bErr, []uint32{})
+	let lowered = LowerProgram(BuildProgram(b)) catch {
+	case InvalidCFG:
+		assert false
+		return
+	}
+	assert lowered.Stats.DupsInserted == 0
+	assert lowered.Stats.DropsInserted == 0
+	assert lowered.Stats.ArenaPromotedCount == 2
+	let vs = VerifyProgram(lowered.Program) catch {
+	case VerifyFailure:
+		assert false
+		return
+	}
+	assert vs.ExitsVerified == 2 && vs.DupOpsExecuted == 0 && vs.DropOpsExecuted == 0 && vs.ArenaAllocs == 2 && vs.PeakArenaBytes == uint32(48)
+}
+
+func verifyFailureTag(p Program) string {
+	let _ = VerifyProgram(p) catch {
+	case VerifyFailure as e:
+		match e {
+		case ErrMemoryLeak:
+			return "leak"
+		case ErrDoubleFree:
+			return "double-free"
+		case ErrUseAfterFree:
+			return "uaf"
+		case ErrDanglingArena:
+			return "dangling-arena"
+		case ErrInvalidReuse:
+			return "invalid-reuse"
+		case ErrInvalidCFG, ErrArenaRCOp, ErrArenaDepth, ErrOverwriteLeak, ErrStepBudget:
+			return "other"
+		}
+	}
+	"ok"
+}
+
+test OperationalVerifierCatchesBrokenIR {
+	let mut bLeak = NewBuilder()
+	let bl0 = NewBlock(&bLeak, BlockEntry)
+	let blN = NewBlock(&bLeak, BlockExit)
+	let blE = NewBlock(&bLeak, BlockUnwind)
+	let vl = EmitAlloc(&bLeak, bl0, ValueSpec{Kind: ValRC, TypeTag: uint32(1), Size: uint32(16)})
+	let _ = EmitUnwindCall(&bLeak, bl0, CallSpec{Args: []uint32{vl}, DstSpec: ValueSpec{Kind: ValScalar, TypeTag: uint32(0), Size: uint32(0)}, Escapes: false, MayFail: true, HasDst: false}, BranchTarget{Block: blN, Args: []uint32{}}, BranchTarget{Block: blE, Args: []uint32{}})
+	EmitDrop(&bLeak, blN, vl)
+	EmitReturn(&bLeak, blN, []uint32{})
+	EmitReturn(&bLeak, blE, []uint32{})
+	assert verifyFailureTag(BuildProgram(bLeak)) == "leak"
+
+	let mut bDF = NewBuilder()
+	let bd0 = NewBlock(&bDF, BlockEntry)
+	let vd = EmitAlloc(&bDF, bd0, ValueSpec{Kind: ValRC, TypeTag: uint32(1), Size: uint32(16)})
+	EmitDrop(&bDF, bd0, vd)
+	EmitDrop(&bDF, bd0, vd)
+	EmitReturn(&bDF, bd0, []uint32{})
+	assert verifyFailureTag(BuildProgram(bDF)) == "double-free"
+
+	let mut bUAF = NewBuilder()
+	let bu0 = NewBlock(&bUAF, BlockEntry)
+	let vu = EmitAlloc(&bUAF, bu0, ValueSpec{Kind: ValRC, TypeTag: uint32(1), Size: uint32(16)})
+	EmitDrop(&bUAF, bu0, vu)
+	let _ = EmitFieldRead(&bUAF, bu0, FieldAccess{Base: vu, Field: uint32(0), DstSpec: ValueSpec{Kind: ValScalar, TypeTag: uint32(0), Size: uint32(0)}})
+	EmitReturn(&bUAF, bu0, []uint32{})
+	assert verifyFailureTag(BuildProgram(bUAF)) == "uaf"
+
+	let mut bDang = NewBuilder()
+	let ba0 = NewBlock(&bDang, BlockEntry)
+	EmitArenaMark(&bDang, ba0)
+	let va = EmitArenaAlloc(&bDang, ba0, ValueSpec{Kind: ValArenaCand, TypeTag: uint32(2), Size: uint32(16)})
+	EmitArenaReset(&bDang, ba0)
+	EmitBorrowUse(&bDang, ba0, va)
+	EmitReturn(&bDang, ba0, []uint32{})
+	assert verifyFailureTag(BuildProgram(bDang)) == "dangling-arena"
+
+	let mut bBadReuse = NewBuilder()
+	let br0 = NewBlock(&bBadReuse, BlockEntry)
+	let vr = EmitAlloc(&bBadReuse, br0, ValueSpec{Kind: ValOwn, TypeTag: uint32(1), Size: uint32(16)})
+	let vr2 = EmitReuseAlloc(&bBadReuse, br0, vr, ValueSpec{Kind: ValOwn, TypeTag: uint32(1), Size: uint32(32)})
+	EmitReturn(&bBadReuse, br0, []uint32{vr2})
+	assert verifyFailureTag(BuildProgram(bBadReuse)) == "invalid-reuse"
+}
+
+test DynamicReuseFallbackAndLoopLocalArenaPeak {
+	let mut bDyn = NewBuilder()
+	let d0 = NewBlock(&bDyn, BlockEntry)
+	let d1 = NewBlock(&bDyn, BlockNormal)
+	let d2 = NewBlock(&bDyn, BlockNormal)
+	let d3 = NewBlock(&bDyn, BlockExit)
+	let cond = EmitConstScalar(&bDyn, d0, uint32(1))
+	let x = EmitAlloc(&bDyn, d0, ValueSpec{Kind: ValRC, TypeTag: uint32(7), Size: uint32(32)})
+	EmitCondBr(&bDyn, d0, cond, BranchTarget{Block: d1, Args: []uint32{}}, BranchTarget{Block: d2, Args: []uint32{}})
+	let alias = EmitMoveUse(&bDyn, d1, x, ValueSpec{Kind: ValRC, TypeTag: uint32(7), Size: uint32(32)})
+	EmitBorrowUse(&bDyn, d1, x)
+	let y1 = EmitAlloc(&bDyn, d1, ValueSpec{Kind: ValRC, TypeTag: uint32(7), Size: uint32(32)})
+	EmitBr(&bDyn, d1, BranchTarget{Block: d3, Args: []uint32{alias, y1}})
+	EmitBorrowUse(&bDyn, d2, x)
+	let y2 = EmitAlloc(&bDyn, d2, ValueSpec{Kind: ValRC, TypeTag: uint32(7), Size: uint32(32)})
+	EmitBr(&bDyn, d2, BranchTarget{Block: d3, Args: []uint32{y2, y2}})
+	let pA = AddBlockParam(&bDyn, d3, ValueSpec{Kind: ValRC, TypeTag: uint32(7), Size: uint32(32)})
+	let pB = AddBlockParam(&bDyn, d3, ValueSpec{Kind: ValRC, TypeTag: uint32(7), Size: uint32(32)})
+	EmitReturn(&bDyn, d3, []uint32{pA, pB})
+	let resDyn = LowerProgram(BuildProgram(bDyn)) catch {
+	case InvalidCFG:
+		assert false
+		return
+	}
+	assert resDyn.Stats.ReusesPaired >= 1
+	let vsDyn = VerifyProgram(resDyn.Program) catch {
+	case VerifyFailure:
+		assert false
+		return
+	}
+	assert vsDyn.ExitsVerified == 2 && vsDyn.DynamicReuseFallbacks == 1 && vsDyn.Reuses == 1
+
+	let mut bLoop = NewBuilder()
+	let l0 = NewBlock(&bLoop, BlockEntry)
+	let lHead = NewBlock(&bLoop, BlockNormal)
+	let lBody = NewBlock(&bLoop, BlockNormal)
+	let lExit = NewBlock(&bLoop, BlockExit)
+	let lc = EmitConstScalar(&bLoop, l0, uint32(1))
+	EmitBr(&bLoop, l0, BranchTarget{Block: lHead, Args: []uint32{}})
+	EmitCondBr(&bLoop, lHead, lc, BranchTarget{Block: lBody, Args: []uint32{}}, BranchTarget{Block: lExit, Args: []uint32{}})
+	let tmp = EmitAlloc(&bLoop, lBody, ValueSpec{Kind: ValArenaCand, TypeTag: uint32(9), Size: uint32(16)})
+	let tmp2 = EmitMoveUse(&bLoop, lBody, tmp, ValueSpec{Kind: ValArenaCand, TypeTag: uint32(9), Size: uint32(16)})
+	let _ = EmitFieldRead(&bLoop, lBody, FieldAccess{Base: tmp2, Field: uint32(0), DstSpec: ValueSpec{Kind: ValScalar, TypeTag: uint32(0), Size: uint32(0)}})
+	EmitBr(&bLoop, lBody, BranchTarget{Block: lHead, Args: []uint32{}})
+	EmitReturn(&bLoop, lExit, []uint32{})
+	let resLoop = LowerProgram(BuildProgram(bLoop)) catch {
+	case InvalidCFG:
+		assert false
+		return
+	}
+	assert resLoop.Stats.DupsInserted == 0 && resLoop.Stats.DropsInserted == 0
+	let vsLoop = VerifyWithConfig(resLoop.Program, VerifyConfig{
+		MaxLoopVisits:   25,
+		MaxPaths:        64,
+		ExactLoopHeader: lHead,
+		ExactLoopIters:  20,
+	}) catch {
+	case VerifyFailure:
+		assert false
+		return
+	}
+	assert vsLoop.ExitsVerified == 1 && vsLoop.ArenaAllocs == 20 && vsLoop.ArenaResets == 20 && vsLoop.PeakArenaBytes == uint32(16)
+}

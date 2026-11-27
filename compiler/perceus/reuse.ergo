@@ -1,0 +1,242 @@
+import slices
+
+// ReuseResult bundles a reuse-optimized Program and the count of paired OpReuseAlloc rewrites.
+type ReuseResult {
+	// Program is the CFG after fusing compatible (OpDrop, OpAlloc) pairs into OpReuseAlloc.
+	Program Program,
+	// Paired is the total number of OpReuseAlloc instructions formed.
+	Paired int,
+}
+
+// CanReuseDrop reports whether dropping tok is storage-class, typeTag, and size compatible with allocating (typeTag, size).
+func CanReuseDrop(p Program, tok uint32, typeTag uint32, size uint32) bool {
+	if tok == NoID || int(tok) >= NumValues(p) || size == uint32(0) {
+		return false
+	}
+	let kind = p.ValKind[int(tok)]
+	if kind != ValOwn && kind != ValRC && kind != ValArenaCand {
+		return false
+	}
+	p.ValTypeTag[int(tok)] == typeTag && p.ValSize[int(tok)] >= size
+}
+
+func instTouchesAlias(p Program, ins Inst, tok uint32, parents mut []uint32) bool {
+	let tokRoot = AliasFind(parents, tok)
+	if ins.Dst != NoID && (ins.Dst == tok || AliasFind(parents, ins.Dst) == tokRoot) {
+		return true
+	}
+	if ins.Arg0 != NoID && (ins.Arg0 == tok || AliasFind(parents, ins.Arg0) == tokRoot) {
+		return true
+	}
+	if ins.Arg1 != NoID && (ins.Arg1 == tok || AliasFind(parents, ins.Arg1) == tokRoot) {
+		return true
+	}
+	if ins.Op == OpCall || ins.Op == OpReturn {
+		let s = int(ins.ArgStart)
+		for k in s..s+int(ins.ArgLen) {
+			let a = p.CallArgPool[k]
+			if a != NoID && (a == tok || AliasFind(parents, a) == tokRoot) {
+				return true
+			}
+		}
+	}
+	false
+}
+
+func hasInterveningBarrier(p Program, insts []Inst, dropIdx int, allocIdx int, tok uint32, parents mut []uint32) bool {
+	for m in dropIdx+1..allocIdx {
+		let ins = insts[m]
+		if ins.Op == OpCall || ins.Op == OpArenaMark || ins.Op == OpArenaReset {
+			return true
+		}
+		if instTouchesAlias(p, ins, tok, parents) {
+			return true
+		}
+	}
+	false
+}
+
+func matchesDrop(p Program, insts []Inst, dropped []bool, i int, allocIdx int, parents mut []uint32) bool {
+	let ins = insts[i]
+	if ins.Op != OpDrop || dropped[i] {
+		return false
+	}
+	let tok = ins.Arg0
+	let target = insts[allocIdx]
+	CanReuseDrop(p, tok, target.Aux0, target.Aux1) && !hasInterveningBarrier(p, insts, i, allocIdx, tok, parents)
+}
+
+func findOwnDrop(p Program, insts []Inst, dropped []bool, allocIdx int, parents mut []uint32) int {
+	let mut i = allocIdx - 1
+	for i >= 0 {
+		let ins = insts[i]
+		if ins.Op == OpCall || ins.Op == OpArenaMark || ins.Op == OpArenaReset {
+			return -1
+		}
+		if matchesDrop(p, insts, dropped, i, allocIdx, parents) {
+			let tok = ins.Arg0
+			if tok != NoID && int(tok) < NumValues(p) && p.ValKind[int(tok)] == ValOwn {
+				return i
+			}
+		}
+		i = i - 1
+	}
+	-1
+}
+
+func findFallbackDrop(p Program, insts []Inst, dropped []bool, allocIdx int, parents mut []uint32) int {
+	let mut i = allocIdx - 1
+	for i >= 0 {
+		let ins = insts[i]
+		if ins.Op == OpCall || ins.Op == OpArenaMark || ins.Op == OpArenaReset {
+			return -1
+		}
+		if matchesDrop(p, insts, dropped, i, allocIdx, parents) {
+			return i
+		}
+		i = i - 1
+	}
+	-1
+}
+
+// PairProgramReuse fuses same-block compatible (OpDrop(x), OpAlloc(tag, size)) pairs into OpReuseAlloc.
+func PairProgramReuse(p Program) ReuseResult {
+	let reach = ComputeReachable(p)
+	let mut parents = buildAliasParents(p, reach)
+	let nb = NumBlocks(p)
+	let mut out = Program{
+		Entry:               p.Entry,
+		Params:              slices.Clone(p.Params),
+		ValKind:             slices.Clone(p.ValKind),
+		ValTypeTag:          slices.Clone(p.ValTypeTag),
+		ValSize:             slices.Clone(p.ValSize),
+		ValParam:            slices.Clone(p.ValParam),
+		BlockInstStart:      slices.WithCapacity[uint32](nb),
+		BlockInstLen:        slices.WithCapacity[uint32](nb),
+		BlockSucc0:          slices.Clone(p.BlockSucc0),
+		BlockSucc1:          slices.Clone(p.BlockSucc1),
+		BlockUnwindSucc:     slices.Clone(p.BlockUnwindSucc),
+		BlockKind:           slices.Clone(p.BlockKind),
+		BlockParamStart:     slices.Clone(p.BlockParamStart),
+		BlockParamLen:       slices.Clone(p.BlockParamLen),
+		BlockParamPool:      slices.Clone(p.BlockParamPool),
+		BlockSucc0ArgStart:  slices.Clone(p.BlockSucc0ArgStart),
+		BlockSucc0ArgLen:    slices.Clone(p.BlockSucc0ArgLen),
+		BlockSucc1ArgStart:  slices.Clone(p.BlockSucc1ArgStart),
+		BlockSucc1ArgLen:    slices.Clone(p.BlockSucc1ArgLen),
+		BlockUnwindArgStart: slices.Clone(p.BlockUnwindArgStart),
+		BlockUnwindArgLen:   slices.Clone(p.BlockUnwindArgLen),
+		EdgeArgPool:         slices.Clone(p.EdgeArgPool),
+		InstOp:              slices.WithCapacity[uint8](NumInsts(p)),
+		InstDst:             slices.WithCapacity[uint32](NumInsts(p)),
+		InstArg0:            slices.WithCapacity[uint32](NumInsts(p)),
+		InstArg1:            slices.WithCapacity[uint32](NumInsts(p)),
+		InstAux0:            slices.WithCapacity[uint32](NumInsts(p)),
+		InstAux1:            slices.WithCapacity[uint32](NumInsts(p)),
+		InstArgStart:        slices.WithCapacity[uint32](NumInsts(p)),
+		InstArgLen:          slices.WithCapacity[uint32](NumInsts(p)),
+		CallArgPool:         slices.Clone(p.CallArgPool),
+	}
+	let mut paired = 0
+	for b in 0..nb {
+		let start = int(p.BlockInstStart[b])
+		let n = int(p.BlockInstLen[b])
+		let mut blockInsts = slices.WithCapacity[Inst](n)
+		let mut dropped = slices.WithCapacity[bool](n)
+		for k in start..start+n {
+			blockInsts = blockInsts.Append(InstAt(p, uint32(k)))
+			dropped = dropped.Append(false)
+		}
+		for j in 0..n {
+			if blockInsts[j].Op != OpAlloc {
+				continue
+			}
+			let mut pick = findOwnDrop(p, blockInsts, dropped, j, &parents)
+			if pick < 0 {
+				pick = findFallbackDrop(p, blockInsts, dropped, j, &parents)
+			}
+			if pick >= 0 {
+				let tok = blockInsts[pick].Arg0
+				dropped[pick] = true
+				blockInsts[j] = Inst{
+					Op:       OpReuseAlloc,
+					Dst:      blockInsts[j].Dst,
+					Arg0:     tok,
+					Arg1:     NoID,
+					Aux0:     blockInsts[j].Aux0,
+					Aux1:     blockInsts[j].Aux1,
+					ArgStart: uint32(0),
+					ArgLen:   uint32(0),
+				}
+				paired = paired + 1
+			}
+		}
+		let outStart = uint32(out.InstOp.Len())
+		let mut outLen = uint32(0)
+		for i in 0..n {
+			if dropped[i] {
+				continue
+			}
+			let ins = blockInsts[i]
+			out.InstOp = out.InstOp.Append(ins.Op)
+			out.InstDst = out.InstDst.Append(ins.Dst)
+			out.InstArg0 = out.InstArg0.Append(ins.Arg0)
+			out.InstArg1 = out.InstArg1.Append(ins.Arg1)
+			out.InstAux0 = out.InstAux0.Append(ins.Aux0)
+			out.InstAux1 = out.InstAux1.Append(ins.Aux1)
+			out.InstArgStart = out.InstArgStart.Append(ins.ArgStart)
+			out.InstArgLen = out.InstArgLen.Append(ins.ArgLen)
+			outLen = outLen + uint32(1)
+		}
+		out.BlockInstStart = out.BlockInstStart.Append(outStart)
+		out.BlockInstLen = out.BlockInstLen.Append(outLen)
+	}
+	ReuseResult{Program: out, Paired: paired}
+}
+
+// ReuseRequiresCompatibleTagAndSize checks that OpReuseAlloc pairs only matching typeTag and sufficient size.
+law ReuseRequiresCompatibleTagAndSize(dropTag uint32, dropSize uint32, allocSize uint32) {
+	let dSize = uint32(1) + (dropSize % uint32(128))
+	let aSize = uint32(1) + (allocSize % uint32(128))
+	let mut b = NewBuilder()
+	let b0 = NewBlock(&b, BlockEntry)
+	let x = EmitAlloc(&b, b0, ValueSpec{Kind: ValOwn, TypeTag: dropTag, Size: dSize})
+	EmitDrop(&b, b0, x)
+	let y = EmitAlloc(&b, b0, ValueSpec{Kind: ValOwn, TypeTag: dropTag, Size: aSize})
+	EmitReturn(&b, b0, []uint32{y})
+	let res = PairProgramReuse(BuildProgram(b))
+	let expectReuse = dSize >= aSize
+	(res.Paired == 1) == expectReuse
+}
+
+test ReuseBlocksInterveningAliasAndTagMismatch {
+	let mut b1 = NewBuilder()
+	let e1 = NewBlock(&b1, BlockEntry)
+	let x = EmitAlloc(&b1, e1, ValueSpec{Kind: ValRC, TypeTag: uint32(5), Size: uint32(32)})
+	EmitDup(&b1, e1, x)
+	let alias = EmitMoveUse(&b1, e1, x, ValueSpec{Kind: ValRC, TypeTag: uint32(5), Size: uint32(32)})
+	EmitDrop(&b1, e1, x)
+	let _ = EmitFieldRead(&b1, e1, FieldAccess{Base: alias, Field: uint32(0), DstSpec: ValueSpec{Kind: ValScalar, TypeTag: uint32(0), Size: uint32(0)}})
+	let z = EmitAlloc(&b1, e1, ValueSpec{Kind: ValOwn, TypeTag: uint32(5), Size: uint32(32)})
+	EmitReturn(&b1, e1, []uint32{alias, z})
+	let r1 = PairProgramReuse(BuildProgram(b1))
+	assert r1.Paired == 0
+
+	let mut b2 = NewBuilder()
+	let e2 = NewBlock(&b2, BlockEntry)
+	let p = EmitAlloc(&b2, e2, ValueSpec{Kind: ValOwn, TypeTag: uint32(1), Size: uint32(32)})
+	EmitDrop(&b2, e2, p)
+	let q = EmitAlloc(&b2, e2, ValueSpec{Kind: ValOwn, TypeTag: uint32(2), Size: uint32(32)})
+	EmitReturn(&b2, e2, []uint32{q})
+	let r2 = PairProgramReuse(BuildProgram(b2))
+	assert r2.Paired == 0
+
+	let mut b3 = NewBuilder()
+	let e3 = NewBlock(&b3, BlockEntry)
+	let u = EmitAlloc(&b3, e3, ValueSpec{Kind: ValOwn, TypeTag: uint32(9), Size: uint32(32)})
+	EmitDrop(&b3, e3, u)
+	let v = EmitAlloc(&b3, e3, ValueSpec{Kind: ValOwn, TypeTag: uint32(9), Size: uint32(32)})
+	EmitReturn(&b3, e3, []uint32{v})
+	let r3 = PairProgramReuse(BuildProgram(b3))
+	assert r3.Paired == 1
+}

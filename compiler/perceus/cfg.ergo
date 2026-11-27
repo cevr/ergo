@@ -1,0 +1,1013 @@
+import slices
+import strconv
+import strings
+
+// NoID marks an absent block, value, or pool index.
+let NoID = uint32(0xffffffff)
+
+// ValScalar marks non-heap scalar values requiring no reference counting.
+let ValScalar = uint8(0)
+
+// ValRC marks heap-allocated reference-counted values.
+let ValRC = uint8(1)
+
+// ValOwn marks uniquely owned heap values eligible for move and reuse pairing.
+let ValOwn = uint8(2)
+
+// ValArenaCand marks heap allocation candidates eligible for scoped arena promotion when non-escaping.
+let ValArenaCand = uint8(3)
+
+// ValImmortal marks static constant objects requiring no reference counting or deallocation.
+let ValImmortal = uint8(4)
+
+// BlockNormal marks a standard interior basic block.
+let BlockNormal = uint8(0)
+
+// BlockEntry marks the function entry basic block.
+let BlockEntry = uint8(1)
+
+// BlockExit marks a normal function return block.
+let BlockExit = uint8(2)
+
+// BlockUnwind marks an error-unwind cleanup or failure exit block.
+let BlockUnwind = uint8(3)
+
+// BlockComp marks an edge-compensation block inserted for branch or unwind RC balance.
+let BlockComp = uint8(4)
+
+// OpConstScalar defines a scalar or immortal constant value.
+let OpConstScalar = uint8(0)
+
+// OpAlloc allocates a heap object with typeTag (Aux0) and byte size (Aux1).
+let OpAlloc = uint8(1)
+
+// OpDup increments the reference count of Arg0.
+let OpDup = uint8(2)
+
+// OpDrop decrements the reference count of Arg0 and frees on zero.
+let OpDrop = uint8(3)
+
+// OpReuseAlloc reuses reuseToken (Arg0) in place when uniquely owned or allocates fresh otherwise.
+let OpReuseAlloc = uint8(4)
+
+// OpArenaMark pushes the current scoped bump-arena offset onto the mark stack.
+let OpArenaMark = uint8(5)
+
+// OpArenaAlloc allocates a non-escaping value on the active scoped bump arena.
+let OpArenaAlloc = uint8(6)
+
+// OpArenaReset pops the latest arena mark and reclaims all arena allocations above it.
+let OpArenaReset = uint8(7)
+
+// OpUse reads or moves Arg0, optionally defining Dst.
+let OpUse = uint8(8)
+
+// OpFieldRead borrows base (Arg0) to read field index Aux0 into Dst.
+let OpFieldRead = uint8(9)
+
+// OpStore borrows base (Arg0) and stores val (Arg1) into field index Aux0.
+let OpStore = uint8(10)
+
+// OpCall invokes a callee with CSR args, Aux0 escapes flag, and Aux1 mayFail flag.
+let OpCall = uint8(11)
+
+// OpReturn returns CSR args from the current function.
+let OpReturn = uint8(12)
+
+// OpBr transfers control unconditionally to Succ0.
+let OpBr = uint8(13)
+
+// OpCondBr branches on Arg0 to Succ0 (true) or Succ1 (false).
+let OpCondBr = uint8(14)
+
+// StorageClassName returns the canonical label for a storage class tag.
+func StorageClassName(kind uint8) string {
+	match kind {
+	case 0:
+		"scalar"
+	case 1:
+		"rc"
+	case 2:
+		"own"
+	case 3:
+		"arena_cand"
+	case 4:
+		"immortal"
+	case _:
+		"unknown"
+	}
+}
+
+// OpName returns the mnemonic for an IR opcode byte.
+func OpName(op uint8) string {
+	match op {
+	case 0:
+		"ConstScalar"
+	case 1:
+		"Alloc"
+	case 2:
+		"Dup"
+	case 3:
+		"Drop"
+	case 4:
+		"ReuseAlloc"
+	case 5:
+		"ArenaMark"
+	case 6:
+		"ArenaAlloc"
+	case 7:
+		"ArenaReset"
+	case 8:
+		"Use"
+	case 9:
+		"FieldRead"
+	case 10:
+		"Store"
+	case 11:
+		"Call"
+	case 12:
+		"Return"
+	case 13:
+		"Br"
+	case 14:
+		"CondBr"
+	case _:
+		"UnknownOp"
+	}
+}
+
+// IsRCManagedKind reports whether a storage class participates in Perceus ownership and RC tracking.
+func IsRCManagedKind(kind uint8) bool {
+	kind == ValRC || kind == ValOwn || kind == ValArenaCand
+}
+
+// Block describes a single basic block view within a Program.
+type Block {
+	// InstStart is the first instruction index in Program's instruction columns.
+	InstStart uint32,
+	// InstLen is the number of contiguous instructions in this block.
+	InstLen uint32,
+	// Succ0 is the normal fallthrough/branch target block or NoID.
+	Succ0 uint32,
+	// Succ1 is the false conditional branch target block or NoID.
+	Succ1 uint32,
+	// UnwindSucc is the error-unwind successor block or NoID.
+	UnwindSucc uint32,
+	// Kind identifies the block role (BlockNormal, BlockEntry, BlockExit, BlockUnwind, BlockComp).
+	Kind uint8,
+}
+
+// Inst describes a single instruction view within a Program.
+type Inst {
+	// Op is the instruction opcode byte.
+	Op uint8,
+	// Dst is the defined value ID or NoID.
+	Dst uint32,
+	// Arg0 is the primary operand value ID or NoID.
+	Arg0 uint32,
+	// Arg1 is the secondary operand value ID or NoID.
+	Arg1 uint32,
+	// Aux0 holds opcode-specific metadata (typeTag, field index, or escapes flag).
+	Aux0 uint32,
+	// Aux1 holds opcode-specific metadata (allocation size or mayFail flag).
+	Aux1 uint32,
+	// ArgStart is the starting offset in CallArgPool for variadic ops.
+	ArgStart uint32,
+	// ArgLen is the length in CallArgPool for variadic ops.
+	ArgLen uint32,
+}
+
+// ValueSpec specifies the storage class, type tag, and size of a new value.
+type ValueSpec {
+	// Kind is the storage class (ValScalar..ValImmortal).
+	Kind uint8,
+	// TypeTag identifies the runtime layout tag.
+	TypeTag uint32,
+	// Size is the allocation size in bytes.
+	Size uint32,
+}
+
+// BranchTarget pairs a successor block ID with edge arguments matching its block parameters.
+type BranchTarget {
+	// Block is the target basic block ID.
+	Block uint32,
+	// Args holds value IDs transferred into the target block's parameters.
+	Args []uint32,
+}
+
+// CallSpec describes the arguments, result metadata, and escape/unwind flags for an OpCall.
+type CallSpec {
+	// Args lists operand value IDs passed to the call.
+	Args []uint32,
+	// DstSpec specifies the return value storage class, type tag, and size when HasDst is true.
+	DstSpec ValueSpec,
+	// Escapes reports whether the callee consumes ownership of RC arguments.
+	Escapes bool,
+	// MayFail reports whether the call can unwind to UnwindSucc on error.
+	MayFail bool,
+	// HasDst reports whether the call produces a result value.
+	HasDst bool,
+}
+
+// FieldAccess specifies the base object and field slot index for a field read.
+type FieldAccess {
+	// Base is the object value ID being read.
+	Base uint32,
+	// Field is the zero-based field slot index.
+	Field uint32,
+	// DstSpec specifies the loaded value storage class and type metadata.
+	DstSpec ValueSpec,
+}
+
+// StoreSpec specifies a field write into a container object.
+type StoreSpec {
+	// Base is the target container value ID.
+	Base uint32,
+	// Field is the zero-based field slot index.
+	Field uint32,
+	// Val is the value ID being stored.
+	Val uint32,
+}
+
+// InvalidCFG reports a structural invariant failure in a Program CFG.
+type InvalidCFG {
+	// Message describes the violated CFG invariant.
+	Message string,
+}
+
+// Program stores a CFG in flat Structure-of-Arrays uint32/uint8/bool columns and CSR pools.
+type Program {
+	// Entry is the entry basic block ID.
+	Entry uint32,
+	// Params holds function entry parameter value IDs.
+	Params []uint32,
+	// ValKind stores each value's storage class byte.
+	ValKind []uint8,
+	// ValTypeTag stores each value's layout type tag.
+	ValTypeTag []uint32,
+	// ValSize stores each value's byte size.
+	ValSize []uint32,
+	// ValParam marks whether each value is a function entry parameter.
+	ValParam []bool,
+	// BlockInstStart holds the CSR start index of each block's instructions.
+	BlockInstStart []uint32,
+	// BlockInstLen holds the count of instructions in each block.
+	BlockInstLen []uint32,
+	// BlockSucc0 holds each block's primary successor or NoID.
+	BlockSucc0 []uint32,
+	// BlockSucc1 holds each block's false-branch successor or NoID.
+	BlockSucc1 []uint32,
+	// BlockUnwindSucc holds each block's error-unwind successor or NoID.
+	BlockUnwindSucc []uint32,
+	// BlockKind holds each block's kind byte.
+	BlockKind []uint8,
+	// BlockParamStart holds each block's CSR start index in BlockParamPool.
+	BlockParamStart []uint32,
+	// BlockParamLen holds each block's parameter count.
+	BlockParamLen []uint32,
+	// BlockParamPool stores all block parameter value IDs contiguously.
+	BlockParamPool []uint32,
+	// BlockSucc0ArgStart holds each block's Succ0 edge-arg start offset in EdgeArgPool.
+	BlockSucc0ArgStart []uint32,
+	// BlockSucc0ArgLen holds each block's Succ0 edge-arg count.
+	BlockSucc0ArgLen []uint32,
+	// BlockSucc1ArgStart holds each block's Succ1 edge-arg start offset in EdgeArgPool.
+	BlockSucc1ArgStart []uint32,
+	// BlockSucc1ArgLen holds each block's Succ1 edge-arg count.
+	BlockSucc1ArgLen []uint32,
+	// BlockUnwindArgStart holds each block's UnwindSucc edge-arg start offset in EdgeArgPool.
+	BlockUnwindArgStart []uint32,
+	// BlockUnwindArgLen holds each block's UnwindSucc edge-arg count.
+	BlockUnwindArgLen []uint32,
+	// EdgeArgPool stores all edge argument value IDs contiguously.
+	EdgeArgPool []uint32,
+	// InstOp holds each instruction's opcode byte.
+	InstOp []uint8,
+	// InstDst holds each instruction's destination value ID or NoID.
+	InstDst []uint32,
+	// InstArg0 holds each instruction's primary operand value ID or NoID.
+	InstArg0 []uint32,
+	// InstArg1 holds each instruction's secondary operand value ID or NoID.
+	InstArg1 []uint32,
+	// InstAux0 holds each instruction's Aux0 metadata word.
+	InstAux0 []uint32,
+	// InstAux1 holds each instruction's Aux1 metadata word.
+	InstAux1 []uint32,
+	// InstArgStart holds each instruction's CSR start index in CallArgPool.
+	InstArgStart []uint32,
+	// InstArgLen holds each instruction's CSR length in CallArgPool.
+	InstArgLen []uint32,
+	// CallArgPool stores all call and return argument lists contiguously.
+	CallArgPool []uint32,
+}
+
+// NumValues returns the number of SSA values in p.
+func NumValues(p Program) int { p.ValKind.Len() }
+
+// NumBlocks returns the number of basic blocks in p.
+func NumBlocks(p Program) int { p.BlockKind.Len() }
+
+// NumInsts returns the total number of instructions in p.
+func NumInsts(p Program) int { p.InstOp.Len() }
+
+// BlockAt returns the Block view for block index b.
+func BlockAt(p Program, b uint32) Block {
+	let i = int(b)
+	Block{
+		InstStart:  p.BlockInstStart[i],
+		InstLen:    p.BlockInstLen[i],
+		Succ0:      p.BlockSucc0[i],
+		Succ1:      p.BlockSucc1[i],
+		UnwindSucc: p.BlockUnwindSucc[i],
+		Kind:       p.BlockKind[i],
+	}
+}
+
+// InstAt returns the Inst view for instruction index idx.
+func InstAt(p Program, idx uint32) Inst {
+	let i = int(idx)
+	Inst{
+		Op:       p.InstOp[i],
+		Dst:      p.InstDst[i],
+		Arg0:     p.InstArg0[i],
+		Arg1:     p.InstArg1[i],
+		Aux0:     p.InstAux0[i],
+		Aux1:     p.InstAux1[i],
+		ArgStart: p.InstArgStart[i],
+		ArgLen:   p.InstArgLen[i],
+	}
+}
+
+// BlockParams returns the slice of block parameter value IDs for block b.
+func BlockParams(p Program, b uint32) []uint32 {
+	let i = int(b)
+	let start = int(p.BlockParamStart[i])
+	let n = int(p.BlockParamLen[i])
+	p.BlockParamPool[start : start+n]
+}
+
+// Succ0Args returns the edge argument slice along block b's Succ0 edge.
+func Succ0Args(p Program, b uint32) []uint32 {
+	let i = int(b)
+	let start = int(p.BlockSucc0ArgStart[i])
+	let n = int(p.BlockSucc0ArgLen[i])
+	p.EdgeArgPool[start : start+n]
+}
+
+// Succ1Args returns the edge argument slice along block b's Succ1 edge.
+func Succ1Args(p Program, b uint32) []uint32 {
+	let i = int(b)
+	let start = int(p.BlockSucc1ArgStart[i])
+	let n = int(p.BlockSucc1ArgLen[i])
+	p.EdgeArgPool[start : start+n]
+}
+
+// UnwindArgs returns the edge argument slice along block b's UnwindSucc edge.
+func UnwindArgs(p Program, b uint32) []uint32 {
+	let i = int(b)
+	let start = int(p.BlockUnwindArgStart[i])
+	let n = int(p.BlockUnwindArgLen[i])
+	p.EdgeArgPool[start : start+n]
+}
+
+// InstArgs returns the variadic argument slice for instruction idx.
+func InstArgs(p Program, idx uint32) []uint32 {
+	let i = int(idx)
+	let start = int(p.InstArgStart[i])
+	let n = int(p.InstArgLen[i])
+	p.CallArgPool[start : start+n]
+}
+
+// Builder incrementally constructs a CFG and packs it into contiguous CSR Program columns.
+type Builder {
+	entry        uint32,
+	params       []uint32,
+	valKind      []uint8,
+	valTypeTag   []uint32,
+	valSize      []uint32,
+	valParam     []bool,
+	blkKind      []uint8,
+	blkSucc0     []uint32,
+	blkSucc1     []uint32,
+	blkUnwind    []uint32,
+	blkS0Start   []uint32,
+	blkS0Len     []uint32,
+	blkS1Start   []uint32,
+	blkS1Len     []uint32,
+	blkUwStart   []uint32,
+	blkUwLen     []uint32,
+	edgeArgPool  []uint32,
+	blkInstHead  []uint32,
+	blkInstTail  []uint32,
+	blkInstLen   []uint32,
+	instNext     []uint32,
+	instOp       []uint8,
+	instDst      []uint32,
+	instArg0     []uint32,
+	instArg1     []uint32,
+	instAux0     []uint32,
+	instAux1     []uint32,
+	instArgStart []uint32,
+	instArgLen   []uint32,
+	callArgPool  []uint32,
+	blkParamHead []uint32,
+	blkParamTail []uint32,
+	blkParamLen  []uint32,
+	paramNext    []uint32,
+	paramVal     []uint32,
+}
+
+// NewBuilder returns an initialized empty CFG Builder.
+func NewBuilder() Builder {
+	Builder{
+		entry:        NoID,
+		params:       []uint32{},
+		valKind:      []uint8{},
+		valTypeTag:   []uint32{},
+		valSize:      []uint32{},
+		valParam:     []bool{},
+		blkKind:      []uint8{},
+		blkSucc0:     []uint32{},
+		blkSucc1:     []uint32{},
+		blkUnwind:    []uint32{},
+		blkS0Start:   []uint32{},
+		blkS0Len:     []uint32{},
+		blkS1Start:   []uint32{},
+		blkS1Len:     []uint32{},
+		blkUwStart:   []uint32{},
+		blkUwLen:     []uint32{},
+		edgeArgPool:  []uint32{},
+		blkInstHead:  []uint32{},
+		blkInstTail:  []uint32{},
+		blkInstLen:   []uint32{},
+		instNext:     []uint32{},
+		instOp:       []uint8{},
+		instDst:      []uint32{},
+		instArg0:     []uint32{},
+		instArg1:     []uint32{},
+		instAux0:     []uint32{},
+		instAux1:     []uint32{},
+		instArgStart: []uint32{},
+		instArgLen:   []uint32{},
+		callArgPool:  []uint32{},
+		blkParamHead: []uint32{},
+		blkParamTail: []uint32{},
+		blkParamLen:  []uint32{},
+		paramNext:    []uint32{},
+		paramVal:     []uint32{},
+	}
+}
+
+func allocVal(b mut Builder, spec ValueSpec, isParam bool) uint32 {
+	let id = uint32(b.valKind.Len())
+	b.valKind = b.valKind.Append(spec.Kind)
+	b.valTypeTag = b.valTypeTag.Append(spec.TypeTag)
+	b.valSize = b.valSize.Append(spec.Size)
+	b.valParam = b.valParam.Append(isParam)
+	id
+}
+
+func appendEdgeArgs(b mut Builder, args []uint32) (uint32, uint32) {
+	let start = uint32(b.edgeArgPool.Len())
+	for a in args {
+		b.edgeArgPool = b.edgeArgPool.Append(a)
+	}
+	(start, uint32(args.Len()))
+}
+
+func appendCallArgs(b mut Builder, args []uint32) (uint32, uint32) {
+	let start = uint32(b.callArgPool.Len())
+	for a in args {
+		b.callArgPool = b.callArgPool.Append(a)
+	}
+	(start, uint32(args.Len()))
+}
+
+func linkInst(b mut Builder, blk uint32, inst Inst) {
+	let id = uint32(b.instOp.Len())
+	b.instNext = b.instNext.Append(NoID)
+	b.instOp = b.instOp.Append(inst.Op)
+	b.instDst = b.instDst.Append(inst.Dst)
+	b.instArg0 = b.instArg0.Append(inst.Arg0)
+	b.instArg1 = b.instArg1.Append(inst.Arg1)
+	b.instAux0 = b.instAux0.Append(inst.Aux0)
+	b.instAux1 = b.instAux1.Append(inst.Aux1)
+	b.instArgStart = b.instArgStart.Append(inst.ArgStart)
+	b.instArgLen = b.instArgLen.Append(inst.ArgLen)
+	let bi = int(blk)
+	if b.blkInstHead[bi] == NoID {
+		b.blkInstHead[bi] = id
+	} else {
+		b.instNext[int(b.blkInstTail[bi])] = id
+	}
+	b.blkInstTail[bi] = id
+	b.blkInstLen[bi] = b.blkInstLen[bi] + uint32(1)
+}
+
+// AddParam appends a function entry parameter value and returns its value ID.
+func AddParam(b mut Builder, spec ValueSpec) uint32 {
+	let id = allocVal(b, spec, true)
+	b.params = b.params.Append(id)
+	id
+}
+
+// NewBlock appends an empty basic block of kind and returns its block ID.
+func NewBlock(b mut Builder, kind uint8) uint32 {
+	let id = uint32(b.blkKind.Len())
+	b.blkKind = b.blkKind.Append(kind)
+	b.blkSucc0 = b.blkSucc0.Append(NoID)
+	b.blkSucc1 = b.blkSucc1.Append(NoID)
+	b.blkUnwind = b.blkUnwind.Append(NoID)
+	b.blkS0Start = b.blkS0Start.Append(uint32(0))
+	b.blkS0Len = b.blkS0Len.Append(uint32(0))
+	b.blkS1Start = b.blkS1Start.Append(uint32(0))
+	b.blkS1Len = b.blkS1Len.Append(uint32(0))
+	b.blkUwStart = b.blkUwStart.Append(uint32(0))
+	b.blkUwLen = b.blkUwLen.Append(uint32(0))
+	b.blkInstHead = b.blkInstHead.Append(NoID)
+	b.blkInstTail = b.blkInstTail.Append(NoID)
+	b.blkInstLen = b.blkInstLen.Append(uint32(0))
+	b.blkParamHead = b.blkParamHead.Append(NoID)
+	b.blkParamTail = b.blkParamTail.Append(NoID)
+	b.blkParamLen = b.blkParamLen.Append(uint32(0))
+	if b.entry == NoID {
+		b.entry = id
+	}
+	id
+}
+
+// SetEntry overrides the CFG entry basic block ID.
+func SetEntry(b mut Builder, blk uint32) {
+	b.entry = blk
+}
+
+// AddBlockParam appends a Phi-style block parameter to blk and returns its value ID.
+func AddBlockParam(b mut Builder, blk uint32, spec ValueSpec) uint32 {
+	let valID = allocVal(b, spec, false)
+	let nodeID = uint32(b.paramVal.Len())
+	b.paramNext = b.paramNext.Append(NoID)
+	b.paramVal = b.paramVal.Append(valID)
+	let bi = int(blk)
+	if b.blkParamHead[bi] == NoID {
+		b.blkParamHead[bi] = nodeID
+	} else {
+		b.paramNext[int(b.blkParamTail[bi])] = nodeID
+	}
+	b.blkParamTail[bi] = nodeID
+	b.blkParamLen[bi] = b.blkParamLen[bi] + uint32(1)
+	valID
+}
+
+// EmitConstScalar appends an OpConstScalar defining a ValScalar value in blk.
+func EmitConstScalar(b mut Builder, blk uint32, tag uint32) uint32 {
+	let dst = allocVal(b, ValueSpec{Kind: ValScalar, TypeTag: uint32(0), Size: uint32(0)}, false)
+	linkInst(b, blk, Inst{Op: OpConstScalar, Dst: dst, Arg0: NoID, Arg1: NoID, Aux0: tag, Aux1: uint32(0), ArgStart: uint32(0), ArgLen: uint32(0)})
+	dst
+}
+
+// EmitImmortal appends an OpConstScalar defining a ValImmortal constant value in blk.
+func EmitImmortal(b mut Builder, blk uint32, tag uint32) uint32 {
+	let dst = allocVal(b, ValueSpec{Kind: ValImmortal, TypeTag: tag, Size: uint32(0)}, false)
+	linkInst(b, blk, Inst{Op: OpConstScalar, Dst: dst, Arg0: NoID, Arg1: NoID, Aux0: tag, Aux1: uint32(0), ArgStart: uint32(0), ArgLen: uint32(0)})
+	dst
+}
+
+// EmitAlloc appends an OpAlloc instruction defining a new heap allocation in blk.
+func EmitAlloc(b mut Builder, blk uint32, spec ValueSpec) uint32 {
+	let dst = allocVal(b, spec, false)
+	linkInst(b, blk, Inst{Op: OpAlloc, Dst: dst, Arg0: NoID, Arg1: NoID, Aux0: spec.TypeTag, Aux1: spec.Size, ArgStart: uint32(0), ArgLen: uint32(0)})
+	dst
+}
+
+// EmitReuseAlloc appends an OpReuseAlloc reusing reuseToken in place or reallocating on shared RC.
+func EmitReuseAlloc(b mut Builder, blk uint32, reuseToken uint32, spec ValueSpec) uint32 {
+	let dst = allocVal(b, spec, false)
+	linkInst(b, blk, Inst{Op: OpReuseAlloc, Dst: dst, Arg0: reuseToken, Arg1: NoID, Aux0: spec.TypeTag, Aux1: spec.Size, ArgStart: uint32(0), ArgLen: uint32(0)})
+	dst
+}
+
+// EmitArenaMark appends an OpArenaMark instruction to blk.
+func EmitArenaMark(b mut Builder, blk uint32) {
+	linkInst(b, blk, Inst{Op: OpArenaMark, Dst: NoID, Arg0: NoID, Arg1: NoID, Aux0: uint32(0), Aux1: uint32(0), ArgStart: uint32(0), ArgLen: uint32(0)})
+}
+
+// EmitArenaAlloc appends an OpArenaAlloc instruction allocating a scoped arena value in blk.
+func EmitArenaAlloc(b mut Builder, blk uint32, spec ValueSpec) uint32 {
+	let dst = allocVal(b, spec, false)
+	linkInst(b, blk, Inst{Op: OpArenaAlloc, Dst: dst, Arg0: NoID, Arg1: NoID, Aux0: spec.TypeTag, Aux1: spec.Size, ArgStart: uint32(0), ArgLen: uint32(0)})
+	dst
+}
+
+// EmitArenaReset appends an OpArenaReset instruction to blk.
+func EmitArenaReset(b mut Builder, blk uint32) {
+	linkInst(b, blk, Inst{Op: OpArenaReset, Dst: NoID, Arg0: NoID, Arg1: NoID, Aux0: uint32(0), Aux1: uint32(0), ArgStart: uint32(0), ArgLen: uint32(0)})
+}
+
+// EmitDup appends an OpDup instruction for val in blk.
+func EmitDup(b mut Builder, blk uint32, val uint32) {
+	linkInst(b, blk, Inst{Op: OpDup, Dst: NoID, Arg0: val, Arg1: NoID, Aux0: uint32(0), Aux1: uint32(0), ArgStart: uint32(0), ArgLen: uint32(0)})
+}
+
+// EmitDrop appends an OpDrop instruction for val in blk.
+func EmitDrop(b mut Builder, blk uint32, val uint32) {
+	linkInst(b, blk, Inst{Op: OpDrop, Dst: NoID, Arg0: val, Arg1: NoID, Aux0: uint32(0), Aux1: uint32(0), ArgStart: uint32(0), ArgLen: uint32(0)})
+}
+
+// EmitMoveUse appends an OpUse that produces a new value binding defined from val.
+func EmitMoveUse(b mut Builder, blk uint32, val uint32, spec ValueSpec) uint32 {
+	let dst = allocVal(b, spec, false)
+	linkInst(b, blk, Inst{Op: OpUse, Dst: dst, Arg0: val, Arg1: NoID, Aux0: uint32(0), Aux1: uint32(0), ArgStart: uint32(0), ArgLen: uint32(0)})
+	dst
+}
+
+// EmitBorrowUse appends an OpUse that borrows val without defining a new value.
+func EmitBorrowUse(b mut Builder, blk uint32, val uint32) {
+	linkInst(b, blk, Inst{Op: OpUse, Dst: NoID, Arg0: val, Arg1: NoID, Aux0: uint32(0), Aux1: uint32(0), ArgStart: uint32(0), ArgLen: uint32(0)})
+}
+
+// EmitFieldRead appends an OpFieldRead borrowing access.Base and defining access.DstSpec.
+func EmitFieldRead(b mut Builder, blk uint32, access FieldAccess) uint32 {
+	let dst = allocVal(b, access.DstSpec, false)
+	linkInst(b, blk, Inst{Op: OpFieldRead, Dst: dst, Arg0: access.Base, Arg1: NoID, Aux0: access.Field, Aux1: uint32(0), ArgStart: uint32(0), ArgLen: uint32(0)})
+	dst
+}
+
+// EmitStore appends an OpStore writing st.Val into st.Base at slot st.Field.
+func EmitStore(b mut Builder, blk uint32, st StoreSpec) {
+	linkInst(b, blk, Inst{Op: OpStore, Dst: NoID, Arg0: st.Base, Arg1: st.Val, Aux0: st.Field, Aux1: uint32(0), ArgStart: uint32(0), ArgLen: uint32(0)})
+}
+
+// EmitCall appends a non-unwinding OpCall instruction to blk and returns its Dst or NoID.
+func EmitCall(b mut Builder, blk uint32, spec CallSpec) uint32 {
+	let dst = if spec.HasDst { allocVal(b, spec.DstSpec, false) } else { NoID }
+	let (start, n) = appendCallArgs(b, spec.Args)
+	let esc = if spec.Escapes { uint32(1) } else { uint32(0) }
+	linkInst(b, blk, Inst{Op: OpCall, Dst: dst, Arg0: NoID, Arg1: NoID, Aux0: esc, Aux1: uint32(0), ArgStart: start, ArgLen: n})
+	dst
+}
+
+// EmitUnwindCall appends a block-terminating mayFail OpCall with Succ0 and UnwindSucc edges.
+func EmitUnwindCall(b mut Builder, blk uint32, spec CallSpec, norm BranchTarget, unwind BranchTarget) uint32 {
+	let dst = if spec.HasDst { allocVal(b, spec.DstSpec, false) } else { NoID }
+	let (start, n) = appendCallArgs(b, spec.Args)
+	let esc = if spec.Escapes { uint32(1) } else { uint32(0) }
+	linkInst(b, blk, Inst{Op: OpCall, Dst: dst, Arg0: NoID, Arg1: NoID, Aux0: esc, Aux1: uint32(1), ArgStart: start, ArgLen: n})
+	let bi = int(blk)
+	b.blkSucc0[bi] = norm.Block
+	b.blkUnwind[bi] = unwind.Block
+	let (s0s, s0n) = appendEdgeArgs(b, norm.Args)
+	b.blkS0Start[bi] = s0s
+	b.blkS0Len[bi] = s0n
+	let (uws, uwn) = appendEdgeArgs(b, unwind.Args)
+	b.blkUwStart[bi] = uws
+	b.blkUwLen[bi] = uwn
+	dst
+}
+
+// EmitBr appends an unconditional OpBr terminator to target.
+func EmitBr(b mut Builder, blk uint32, target BranchTarget) {
+	linkInst(b, blk, Inst{Op: OpBr, Dst: NoID, Arg0: NoID, Arg1: NoID, Aux0: uint32(0), Aux1: uint32(0), ArgStart: uint32(0), ArgLen: uint32(0)})
+	let bi = int(blk)
+	b.blkSucc0[bi] = target.Block
+	let (s0s, s0n) = appendEdgeArgs(b, target.Args)
+	b.blkS0Start[bi] = s0s
+	b.blkS0Len[bi] = s0n
+}
+
+// EmitCondBr appends an OpCondBr terminator branching on cond to tBranch or fBranch.
+func EmitCondBr(b mut Builder, blk uint32, cond uint32, tBranch BranchTarget, fBranch BranchTarget) {
+	linkInst(b, blk, Inst{Op: OpCondBr, Dst: NoID, Arg0: cond, Arg1: NoID, Aux0: uint32(0), Aux1: uint32(0), ArgStart: uint32(0), ArgLen: uint32(0)})
+	let bi = int(blk)
+	b.blkSucc0[bi] = tBranch.Block
+	b.blkSucc1[bi] = fBranch.Block
+	let (s0s, s0n) = appendEdgeArgs(b, tBranch.Args)
+	b.blkS0Start[bi] = s0s
+	b.blkS0Len[bi] = s0n
+	let (s1s, s1n) = appendEdgeArgs(b, fBranch.Args)
+	b.blkS1Start[bi] = s1s
+	b.blkS1Len[bi] = s1n
+}
+
+// EmitReturn appends an OpReturn terminator returning vals.
+func EmitReturn(b mut Builder, blk uint32, vals []uint32) {
+	let (start, n) = appendCallArgs(b, vals)
+	linkInst(b, blk, Inst{Op: OpReturn, Dst: NoID, Arg0: NoID, Arg1: NoID, Aux0: uint32(0), Aux1: uint32(0), ArgStart: start, ArgLen: n})
+}
+
+// BuildProgram compacts b's staged blocks, instructions, and parameters into a flat CSR Program.
+func BuildProgram(b Builder) Program {
+	let nb = b.blkKind.Len()
+	let ni = b.instOp.Len()
+	let np = b.paramVal.Len()
+	let mut out = Program{
+		Entry:               b.entry,
+		Params:              slices.Clone(b.params),
+		ValKind:             slices.Clone(b.valKind),
+		ValTypeTag:          slices.Clone(b.valTypeTag),
+		ValSize:             slices.Clone(b.valSize),
+		ValParam:            slices.Clone(b.valParam),
+		BlockInstStart:      slices.WithCapacity[uint32](nb),
+		BlockInstLen:        slices.WithCapacity[uint32](nb),
+		BlockSucc0:          slices.Clone(b.blkSucc0),
+		BlockSucc1:          slices.Clone(b.blkSucc1),
+		BlockUnwindSucc:     slices.Clone(b.blkUnwind),
+		BlockKind:           slices.Clone(b.blkKind),
+		BlockParamStart:     slices.WithCapacity[uint32](nb),
+		BlockParamLen:       slices.WithCapacity[uint32](nb),
+		BlockParamPool:      slices.WithCapacity[uint32](np),
+		BlockSucc0ArgStart:  slices.Clone(b.blkS0Start),
+		BlockSucc0ArgLen:    slices.Clone(b.blkS0Len),
+		BlockSucc1ArgStart:  slices.Clone(b.blkS1Start),
+		BlockSucc1ArgLen:    slices.Clone(b.blkS1Len),
+		BlockUnwindArgStart: slices.Clone(b.blkUwStart),
+		BlockUnwindArgLen:   slices.Clone(b.blkUwLen),
+		EdgeArgPool:         slices.Clone(b.edgeArgPool),
+		InstOp:              slices.WithCapacity[uint8](ni),
+		InstDst:             slices.WithCapacity[uint32](ni),
+		InstArg0:            slices.WithCapacity[uint32](ni),
+		InstArg1:            slices.WithCapacity[uint32](ni),
+		InstAux0:            slices.WithCapacity[uint32](ni),
+		InstAux1:            slices.WithCapacity[uint32](ni),
+		InstArgStart:        slices.WithCapacity[uint32](ni),
+		InstArgLen:          slices.WithCapacity[uint32](ni),
+		CallArgPool:         slices.Clone(b.callArgPool),
+	}
+	for blk in 0..nb {
+		let pStart = uint32(out.BlockParamPool.Len())
+		let mut pCur = b.blkParamHead[blk]
+		for pCur != NoID {
+			out.BlockParamPool = out.BlockParamPool.Append(b.paramVal[int(pCur)])
+			pCur = b.paramNext[int(pCur)]
+		}
+		out.BlockParamStart = out.BlockParamStart.Append(pStart)
+		out.BlockParamLen = out.BlockParamLen.Append(b.blkParamLen[blk])
+
+		let iStart = uint32(out.InstOp.Len())
+		let mut iCur = b.blkInstHead[blk]
+		for iCur != NoID {
+			let k = int(iCur)
+			out.InstOp = out.InstOp.Append(b.instOp[k])
+			out.InstDst = out.InstDst.Append(b.instDst[k])
+			out.InstArg0 = out.InstArg0.Append(b.instArg0[k])
+			out.InstArg1 = out.InstArg1.Append(b.instArg1[k])
+			out.InstAux0 = out.InstAux0.Append(b.instAux0[k])
+			out.InstAux1 = out.InstAux1.Append(b.instAux1[k])
+			out.InstArgStart = out.InstArgStart.Append(b.instArgStart[k])
+			out.InstArgLen = out.InstArgLen.Append(b.instArgLen[k])
+			iCur = b.instNext[k]
+		}
+		out.BlockInstStart = out.BlockInstStart.Append(iStart)
+		out.BlockInstLen = out.BlockInstLen.Append(b.blkInstLen[blk])
+	}
+	out
+}
+
+func validateValueID(v uint32, nv int, what string) fails InvalidCFG {
+	if int(v) >= nv {
+		return InvalidCFG{Message: "\(what): value ID \(v) out of range (nv=\(nv))"}
+	}
+}
+
+func validateEdgeTarget(p Program, src int, target uint32, argStart uint32, argLen uint32, edgeLabel string) fails InvalidCFG {
+	if target == NoID {
+		return
+	}
+	let nb = NumBlocks(p)
+	if int(target) >= nb {
+		return InvalidCFG{Message: "block \(src) \(edgeLabel) target \(target) out of range"}
+	}
+	if int(argStart)+int(argLen) > p.EdgeArgPool.Len() {
+		return InvalidCFG{Message: "block \(src) \(edgeLabel) edge args out of pool bounds"}
+	}
+	let wantParams = p.BlockParamLen[int(target)]
+	if argLen != wantParams {
+		return InvalidCFG{Message: "block \(src) \(edgeLabel) passes \(argLen) args to block \(target) needing \(wantParams)"}
+	}
+	let nv = NumValues(p)
+	for j in int(argStart)..int(argStart)+int(argLen) {
+		try validateValueID(p.EdgeArgPool[j], nv, "edge \(src)->\(target)")
+	}
+}
+
+func validateColumnLens(p Program) fails InvalidCFG {
+	let nv = NumValues(p)
+	let nb = NumBlocks(p)
+	let ni = NumInsts(p)
+	if p.ValTypeTag.Len() != nv || p.ValSize.Len() != nv || p.ValParam.Len() != nv {
+		return InvalidCFG{Message: "value SoA column lengths mismatch"}
+	}
+	if p.BlockInstStart.Len() != nb || p.BlockInstLen.Len() != nb || p.BlockSucc0.Len() != nb || p.BlockSucc1.Len() != nb || p.BlockUnwindSucc.Len() != nb || p.BlockParamStart.Len() != nb || p.BlockParamLen.Len() != nb {
+		return InvalidCFG{Message: "block SoA column lengths mismatch"}
+	}
+	if p.BlockSucc0ArgStart.Len() != nb || p.BlockSucc0ArgLen.Len() != nb || p.BlockSucc1ArgStart.Len() != nb || p.BlockSucc1ArgLen.Len() != nb || p.BlockUnwindArgStart.Len() != nb || p.BlockUnwindArgLen.Len() != nb {
+		return InvalidCFG{Message: "block edge-arg SoA column lengths mismatch"}
+	}
+	if p.InstDst.Len() != ni || p.InstArg0.Len() != ni || p.InstArg1.Len() != ni || p.InstAux0.Len() != ni || p.InstAux1.Len() != ni || p.InstArgStart.Len() != ni || p.InstArgLen.Len() != ni {
+		return InvalidCFG{Message: "instruction SoA column lengths mismatch"}
+	}
+}
+
+func validateBlockTerminator(p Program, b int, lastIdx int) fails InvalidCFG {
+	let op = p.InstOp[lastIdx]
+	let blk = BlockAt(p, uint32(b))
+	let isTerm = op == OpBr || op == OpCondBr || op == OpReturn || (op == OpCall && p.InstAux1[lastIdx] == uint32(1))
+	if !isTerm {
+		return InvalidCFG{Message: "block \(b) does not end with a terminator"}
+	}
+	if op == OpBr && blk.Succ0 == NoID {
+		return InvalidCFG{Message: "block \(b) OpBr missing Succ0"}
+	}
+	if op == OpCondBr && (blk.Succ0 == NoID || blk.Succ1 == NoID) {
+		return InvalidCFG{Message: "block \(b) OpCondBr missing successor"}
+	}
+	if op == OpCall && p.InstAux1[lastIdx] == uint32(1) && (blk.Succ0 == NoID || blk.UnwindSucc == NoID) {
+		return InvalidCFG{Message: "block \(b) mayFail OpCall requires Succ0 and UnwindSucc"}
+	}
+	if op == OpReturn && (blk.Succ0 != NoID || blk.Succ1 != NoID || blk.UnwindSucc != NoID) {
+		return InvalidCFG{Message: "block \(b) OpReturn must not have successors"}
+	}
+}
+
+func validateInstRange(p Program, b int, start int, n int) fails InvalidCFG {
+	let nv = NumValues(p)
+	for k in start..start+n {
+		let op = p.InstOp[k]
+		if op > OpCondBr {
+			return InvalidCFG{Message: "inst \(k) unknown opcode \(op)"}
+		}
+		if k < start+n-1 {
+			if op == OpBr || op == OpCondBr || op == OpReturn || (op == OpCall && p.InstAux1[k] == uint32(1)) {
+				return InvalidCFG{Message: "block \(b) terminator at interior index \(k)"}
+			}
+		}
+		if p.InstDst[k] != NoID {
+			try validateValueID(p.InstDst[k], nv, "inst dst")
+		}
+		if p.InstArg0[k] != NoID {
+			try validateValueID(p.InstArg0[k], nv, "inst arg0")
+		}
+		if p.InstArg1[k] != NoID {
+			try validateValueID(p.InstArg1[k], nv, "inst arg1")
+		}
+		let cs = int(p.InstArgStart[k])
+		let cn = int(p.InstArgLen[k])
+		if cs+cn > p.CallArgPool.Len() {
+			return InvalidCFG{Message: "inst \(k) call args out of bounds"}
+		}
+		for j in cs..cs+cn {
+			try validateValueID(p.CallArgPool[j], nv, "inst call arg")
+		}
+	}
+}
+
+// ValidateProgram verifies structural well-formedness of p's SoA columns, CSR spans, edges, and terminators.
+func ValidateProgram(p Program) fails InvalidCFG {
+	try validateColumnLens(p)
+	let nv = NumValues(p)
+	let nb = NumBlocks(p)
+	let ni = NumInsts(p)
+	if nb == 0 || int(p.Entry) >= nb {
+		return InvalidCFG{Message: "invalid entry block \(p.Entry)"}
+	}
+	for v in 0..nv {
+		if p.ValKind[v] > ValImmortal {
+			return InvalidCFG{Message: "value \(v) invalid storage class \(p.ValKind[v])"}
+		}
+	}
+	for pv in p.Params {
+		try validateValueID(pv, nv, "entry param")
+	}
+	for b in 0..nb {
+		let pStart = int(p.BlockParamStart[b])
+		let pLen = int(p.BlockParamLen[b])
+		if pStart+pLen > p.BlockParamPool.Len() {
+			return InvalidCFG{Message: "block \(b) params out of pool bounds"}
+		}
+		for j in pStart..pStart+pLen {
+			try validateValueID(p.BlockParamPool[j], nv, "block param")
+		}
+		try validateEdgeTarget(p, b, p.BlockSucc0[b], p.BlockSucc0ArgStart[b], p.BlockSucc0ArgLen[b], "Succ0")
+		try validateEdgeTarget(p, b, p.BlockSucc1[b], p.BlockSucc1ArgStart[b], p.BlockSucc1ArgLen[b], "Succ1")
+		try validateEdgeTarget(p, b, p.BlockUnwindSucc[b], p.BlockUnwindArgStart[b], p.BlockUnwindArgLen[b], "UnwindSucc")
+		let start = int(p.BlockInstStart[b])
+		let n = int(p.BlockInstLen[b])
+		if start+n > ni {
+			return InvalidCFG{Message: "block \(b) instructions out of bounds"}
+		}
+		if n == 0 {
+			return InvalidCFG{Message: "block \(b) is empty"}
+		}
+		try validateInstRange(p, b, start, n)
+		try validateBlockTerminator(p, b, start+n-1)
+	}
+}
+
+func formatValList(xs []uint32) string {
+	let mut parts = []string{}
+	for x in xs {
+		parts = parts.Append("v\(x)")
+	}
+	strings.Join(parts, ", ")
+}
+
+// FormatProgram formats p into a deterministic human-readable IR listing.
+func FormatProgram(p Program) string {
+	let mut out = strings.NewBuilder()
+	out.WriteString("fn(")
+	out.WriteString(formatValList(p.Params))
+	out.WriteString(") entry=B")
+	out.WriteString(strconv.Itoa(int(p.Entry)))
+	for b in 0..NumBlocks(p) {
+		let blk = BlockAt(p, uint32(b))
+		out.WriteString("\nB")
+		out.WriteString(strconv.Itoa(b))
+		let bps = BlockParams(p, uint32(b))
+		if bps.Len() > 0 {
+			out.WriteByte('(')
+			out.WriteString(formatValList(bps))
+			out.WriteByte(')')
+		}
+		out.WriteByte(':')
+		let s = int(blk.InstStart)
+		let n = int(blk.InstLen)
+		for k in s..s+n {
+			let ins = InstAt(p, uint32(k))
+			out.WriteString("\n  ")
+			if ins.Dst != NoID {
+				out.WriteString("v\(ins.Dst) = ")
+			}
+			out.WriteString(OpName(ins.Op))
+			if ins.Arg0 != NoID {
+				out.WriteString(" v\(ins.Arg0)")
+			}
+			if ins.Arg1 != NoID {
+				out.WriteString(", v\(ins.Arg1)")
+			}
+			if ins.Op == OpAlloc || ins.Op == OpReuseAlloc || ins.Op == OpArenaAlloc {
+				out.WriteString(" [tag=\(ins.Aux0), size=\(ins.Aux1)]")
+			} else if ins.Op == OpCall || ins.Op == OpReturn {
+				out.WriteString(" [\(formatValList(InstArgs(p, uint32(k))))]")
+				if ins.Op == OpCall {
+					out.WriteString(" esc=\(ins.Aux0) fail=\(ins.Aux1)")
+				}
+			}
+		}
+		if blk.Succ0 != NoID {
+			out.WriteString(" -> B\(blk.Succ0)")
+		}
+		if blk.Succ1 != NoID {
+			out.WriteString(", B\(blk.Succ1)")
+		}
+		if blk.UnwindSucc != NoID {
+			out.WriteString(" unwind B\(blk.UnwindSucc)")
+		}
+	}
+	out.String()
+}
+
+// ProgramCSRBoundsHold checks that out-of-order block building compacts into valid disjoint CSR ranges.
+law ProgramCSRBoundsHold(seed int) {
+	let nExtra = ((seed % 4) + 4) % 4
+	let mut b = NewBuilder()
+	let p0 = AddParam(&b, ValueSpec{Kind: ValRC, TypeTag: uint32(1), Size: uint32(32)})
+	let entry = NewBlock(&b, BlockEntry)
+	let target = NewBlock(&b, BlockExit)
+	let tp = AddBlockParam(&b, target, ValueSpec{Kind: ValRC, TypeTag: uint32(1), Size: uint32(32)})
+	for i in 0..nExtra {
+		let _ = EmitConstScalar(&b, entry, uint32(i+1))
+	}
+	let v = EmitAlloc(&b, entry, ValueSpec{Kind: ValOwn, TypeTag: uint32(2), Size: uint32(16)})
+	EmitBr(&b, entry, BranchTarget{Block: target, Args: []uint32{p0}})
+	EmitBorrowUse(&b, target, v)
+	EmitReturn(&b, target, []uint32{tp})
+	let prog = BuildProgram(b)
+	ValidateProgram(prog) catch {
+	case InvalidCFG:
+		return false
+	}
+	NumBlocks(prog) == 2 && NumInsts(prog) == nExtra+4 && BlockParams(prog, target).Len() == 1
+}
+
+test CFGBuilderRoundTripsBlocksAndParams {
+	let mut b = NewBuilder()
+	let b0 = NewBlock(&b, BlockEntry)
+	let b1 = NewBlock(&b, BlockNormal)
+	let b2 = NewBlock(&b, BlockExit)
+	let p2 = AddBlockParam(&b, b2, ValueSpec{Kind: ValOwn, TypeTag: uint32(7), Size: uint32(24)})
+	let c = EmitConstScalar(&b, b0, uint32(1))
+	let a = EmitAlloc(&b, b1, ValueSpec{Kind: ValOwn, TypeTag: uint32(7), Size: uint32(24)})
+	EmitCondBr(&b, b0, c, BranchTarget{Block: b1, Args: []uint32{}}, BranchTarget{Block: b2, Args: []uint32{c}})
+	EmitBr(&b, b1, BranchTarget{Block: b2, Args: []uint32{a}})
+	EmitReturn(&b, b2, []uint32{p2})
+	let p = BuildProgram(b)
+	let mut valid = true
+	ValidateProgram(p) catch {
+	case InvalidCFG:
+		valid = false
+	}
+	assert valid
+	assert NumBlocks(p) == 3
+	assert BlockAt(p, b0).Succ0 == b1 && BlockAt(p, b0).Succ1 == b2
+	assert BlockParams(p, b2).Len() == 1 && BlockParams(p, b2)[0] == p2
+	assert strings.Contains(FormatProgram(p), "Alloc [tag=7, size=24]")
+}

@@ -1,0 +1,549 @@
+import slices
+
+// LivenessInfo stores flat multi-word bitsets for reachable blocks and backward liveness fixpoint sets.
+type LivenessInfo {
+	// Words is the number of uint64 words per block bitset.
+	Words int,
+	// Reachable marks blocks reachable from Program.Entry.
+	Reachable []bool,
+	// LiveIn stores values live at each block entry immediately after block parameters are bound.
+	LiveIn []uint64,
+	// LiveBeforeParams stores LiveIn with each block's own parameters cleared.
+	LiveBeforeParams []uint64,
+	// LiveOut stores the union of edge-required values leaving each block.
+	LiveOut []uint64,
+}
+
+// EscapeInfo stores per-value escape classification, arena eligibility, and alias equivalence parents.
+type EscapeInfo {
+	// EscapesToCall marks values passed to an escaping call directly or transitively.
+	EscapesToCall []bool,
+	// Returned marks values returned from the function directly or transitively.
+	Returned []bool,
+	// StoredToEscaping marks values stored into an escaping or heap-managed container.
+	StoredToEscaping []bool,
+	// HoldsHeapRC marks candidate containers into which non-arena RC values are stored.
+	HoldsHeapRC []bool,
+	// ArenaPromoted marks ValArenaCand values safely promoted to scoped arena allocation.
+	ArenaPromoted []bool,
+	// AliasParent stores union-find parent IDs for alias equivalence classes.
+	AliasParent []uint32,
+}
+
+// BitWords returns the number of uint64 words needed for n bits.
+func BitWords(n int) int {
+	if n <= 0 {
+		return 0
+	}
+	(n + 63) / 64
+}
+
+// BitTest reports whether bit v is set in words starting at word offset off.
+func BitTest(words []uint64, off int, v uint32) bool {
+	let idx = int(v)
+	let w = off + idx/64
+	if w >= words.Len() {
+		return false
+	}
+	(words[w] & (uint64(1) << uint64(idx%64))) != uint64(0)
+}
+
+// BitSet sets bit v in words starting at word offset off.
+func BitSet(words mut []uint64, off int, v uint32) {
+	let idx = int(v)
+	let w = off + idx/64
+	if w < (*words).Len() {
+		(*words)[w] = (*words)[w] | (uint64(1) << uint64(idx%64))
+	}
+}
+
+// BitClear clears bit v in words starting at word offset off.
+func BitClear(words mut []uint64, off int, v uint32) {
+	let idx = int(v)
+	let w = off + idx/64
+	if w < (*words).Len() {
+		(*words)[w] = (*words)[w] &^ (uint64(1) << uint64(idx%64))
+	}
+}
+
+// BitOrInto unions nw words from src[srcOff:] into dst[dstOff:] and reports whether dst changed.
+func BitOrInto(dst mut []uint64, dstOff int, src []uint64, srcOff int, nw int) bool {
+	let mut changed = false
+	for i in 0..nw {
+		let prev = (*dst)[dstOff+i]
+		let next = prev | src[srcOff+i]
+		if next != prev {
+			(*dst)[dstOff+i] = next
+			changed = true
+		}
+	}
+	changed
+}
+
+// BitClearRange zeroes nw words in dst starting at off.
+func BitClearRange(dst mut []uint64, off int, nw int) {
+	for i in 0..nw {
+		(*dst)[off+i] = uint64(0)
+	}
+}
+
+// BitCopyRange copies nw words from src[srcOff:] into dst[dstOff:].
+func BitCopyRange(dst mut []uint64, dstOff int, src []uint64, srcOff int, nw int) {
+	for i in 0..nw {
+		(*dst)[dstOff+i] = src[srcOff+i]
+	}
+}
+
+// ComputeReachable marks all basic blocks reachable from p.Entry via Succ0, Succ1, and UnwindSucc.
+func ComputeReachable(p Program) []bool {
+	let nb = NumBlocks(p)
+	let mut seen = slices.WithCapacity[bool](nb)
+	for _ in 0..nb {
+		seen = seen.Append(false)
+	}
+	if nb == 0 || int(p.Entry) >= nb {
+		return seen
+	}
+	let mut queue = slices.WithCapacity[uint32](nb)
+	seen[int(p.Entry)] = true
+	queue = queue.Append(p.Entry)
+	let mut head = 0
+	for head < queue.Len() {
+		let b = queue[head]
+		head = head + 1
+		let blk = BlockAt(p, b)
+		if blk.Succ0 != NoID && int(blk.Succ0) < nb && !seen[int(blk.Succ0)] {
+			seen[int(blk.Succ0)] = true
+			queue = queue.Append(blk.Succ0)
+		}
+		if blk.Succ1 != NoID && int(blk.Succ1) < nb && !seen[int(blk.Succ1)] {
+			seen[int(blk.Succ1)] = true
+			queue = queue.Append(blk.Succ1)
+		}
+		if blk.UnwindSucc != NoID && int(blk.UnwindSucc) < nb && !seen[int(blk.UnwindSucc)] {
+			seen[int(blk.UnwindSucc)] = true
+			queue = queue.Append(blk.UnwindSucc)
+		}
+	}
+	seen
+}
+
+func zeroU64Slice(n int) []uint64 {
+	let mut xs = slices.WithCapacity[uint64](n)
+	for _ in 0..n {
+		xs = xs.Append(uint64(0))
+	}
+	xs
+}
+
+// AccumulateEdgeNeed adds values required by target (excluding its block params) plus edgeArgs into dst[dstOff:].
+func AccumulateEdgeNeed(dst mut []uint64, dstOff int, liveBeforeParams []uint64, nw int, target uint32, edgeArgs []uint32) {
+	if target == NoID {
+		return
+	}
+	let _ = BitOrInto(dst, dstOff, liveBeforeParams, int(target)*nw, nw)
+	for a in edgeArgs {
+		if a != NoID {
+			BitSet(dst, dstOff, a)
+		}
+	}
+}
+
+func applyInstBackward(p Program, idx uint32, live mut []uint64, off int) {
+	let ins = InstAt(p, idx)
+	if ins.Dst != NoID {
+		BitClear(live, off, ins.Dst)
+	}
+	if ins.Arg0 != NoID {
+		BitSet(live, off, ins.Arg0)
+	}
+	if ins.Arg1 != NoID {
+		BitSet(live, off, ins.Arg1)
+	}
+	if ins.Op == OpCall || ins.Op == OpReturn {
+		for a in InstArgs(p, idx) {
+			if a != NoID {
+				BitSet(live, off, a)
+			}
+		}
+	}
+}
+
+// AnalyzeLiveness runs fixed-point backward bitset liveness over p, modeling Succ0, Succ1, and UnwindSucc edges separately.
+func AnalyzeLiveness(p Program) LivenessInfo {
+	let nb = NumBlocks(p)
+	let nv = NumValues(p)
+	let nw = BitWords(nv)
+	let reach = ComputeReachable(p)
+	let totalWords = nb * nw
+	let mut liveIn = zeroU64Slice(totalWords)
+	let mut liveBefore = zeroU64Slice(totalWords)
+	let mut liveOut = zeroU64Slice(totalWords)
+	let mut scratch = zeroU64Slice(nw)
+	if nw == 0 || nb == 0 {
+		return LivenessInfo{Words: nw, Reachable: reach, LiveIn: liveIn, LiveBeforeParams: liveBefore, LiveOut: liveOut}
+	}
+	let mut changed = true
+	for changed {
+		changed = false
+		let mut bi = nb - 1
+		for bi >= 0 {
+			if reach[bi] {
+				let b = uint32(bi)
+				let off = bi * nw
+				let blk = BlockAt(p, b)
+				BitClearRange(&scratch, 0, nw)
+				AccumulateEdgeNeed(&scratch, 0, liveBefore, nw, blk.Succ0, Succ0Args(p, b))
+				AccumulateEdgeNeed(&scratch, 0, liveBefore, nw, blk.Succ1, Succ1Args(p, b))
+				AccumulateEdgeNeed(&scratch, 0, liveBefore, nw, blk.UnwindSucc, UnwindArgs(p, b))
+				BitCopyRange(&liveOut, off, scratch, 0, nw)
+				let start = int(blk.InstStart)
+				let mut k = start + int(blk.InstLen) - 1
+				for k >= start {
+					applyInstBackward(p, uint32(k), &scratch, 0)
+					k = k - 1
+				}
+				if BitOrInto(&liveIn, off, scratch, 0, nw) {
+					changed = true
+				}
+				for bp in BlockParams(p, b) {
+					BitClear(&scratch, 0, bp)
+				}
+				if BitOrInto(&liveBefore, off, scratch, 0, nw) {
+					changed = true
+				}
+			}
+			bi = bi - 1
+		}
+	}
+	LivenessInfo{Words: nw, Reachable: reach, LiveIn: liveIn, LiveBeforeParams: liveBefore, LiveOut: liveOut}
+}
+
+// AliasFind returns the union-find representative of value v in parent.
+func AliasFind(parent mut []uint32, v uint32) uint32 {
+	let mut cur = v
+	for (*parent)[int(cur)] != cur {
+		let nxt = (*parent)[int(cur)]
+		(*parent)[int(cur)] = (*parent)[int(nxt)]
+		cur = nxt
+	}
+	cur
+}
+
+func aliasUnion(parent mut []uint32, a uint32, b uint32) {
+	if a == NoID || b == NoID {
+		return
+	}
+	let ra = AliasFind(parent, a)
+	let rb = AliasFind(parent, b)
+	if ra != rb {
+		if ra < rb {
+			(*parent)[int(rb)] = ra
+		} else {
+			(*parent)[int(ra)] = rb
+		}
+	}
+}
+
+func initBoolSlice(n int, v bool) []bool {
+	let mut xs = slices.WithCapacity[bool](n)
+	for _ in 0..n {
+		xs = xs.Append(v)
+	}
+	xs
+}
+
+func buildAliasParents(p Program, reach []bool) []uint32 {
+	let nv = NumValues(p)
+	let mut parent = slices.WithCapacity[uint32](nv)
+	for i in 0..nv {
+		parent = parent.Append(uint32(i))
+	}
+	for bi in 0..NumBlocks(p) {
+		if !reach[bi] {
+			continue
+		}
+		let b = uint32(bi)
+		let blk = BlockAt(p, b)
+		let start = int(blk.InstStart)
+		for k in start..start+int(blk.InstLen) {
+			let ins = InstAt(p, uint32(k))
+			if ins.Op == OpUse && ins.Dst != NoID && ins.Arg0 != NoID {
+				if IsRCManagedKind(p.ValKind[int(ins.Dst)]) && IsRCManagedKind(p.ValKind[int(ins.Arg0)]) {
+					aliasUnion(&parent, ins.Dst, ins.Arg0)
+				}
+			}
+		}
+		unionEdgeParams(p, blk.Succ0, Succ0Args(p, b), &parent)
+		unionEdgeParams(p, blk.Succ1, Succ1Args(p, b), &parent)
+		unionEdgeParams(p, blk.UnwindSucc, UnwindArgs(p, b), &parent)
+	}
+	parent
+}
+
+func unionEdgeParams(p Program, target uint32, args []uint32, parent mut []uint32) {
+	if target == NoID {
+		return
+	}
+	let bps = BlockParams(p, target)
+	for j in 0..bps.Len() {
+		let dst = bps[j]
+		let src = args[j]
+		if IsRCManagedKind(p.ValKind[int(dst)]) && IsRCManagedKind(p.ValKind[int(src)]) {
+			aliasUnion(parent, dst, src)
+		}
+	}
+}
+
+func propagateEdgeEscapes(p Program, reach []bool, nonProm mut []bool, escCall mut []bool, ret mut []bool, stored mut []bool) bool {
+	let mut changed = false
+	for bi in 0..NumBlocks(p) {
+		if !reach[bi] {
+			continue
+		}
+		let b = uint32(bi)
+		let blk = BlockAt(p, b)
+		let s = int(blk.InstStart)
+		for k in s..s+int(blk.InstLen) {
+			let ins = InstAt(p, uint32(k))
+			if ins.Op == OpUse && ins.Dst != NoID && ins.Arg0 != NoID {
+				let d = int(ins.Dst)
+				let a = int(ins.Arg0)
+				if (*nonProm)[d] != (*nonProm)[a] {
+					(*nonProm)[d] = true
+					(*nonProm)[a] = true
+					changed = true
+				}
+				if (*escCall)[d] && !(*escCall)[a] {
+					(*escCall)[a] = true
+					changed = true
+				}
+				if (*ret)[d] && !(*ret)[a] {
+					(*ret)[a] = true
+					changed = true
+				}
+				if (*stored)[d] && !(*stored)[a] {
+					(*stored)[a] = true
+					changed = true
+				}
+			} else if ins.Op == OpStore && ins.Arg0 != NoID && ins.Arg1 != NoID {
+				let base = int(ins.Arg0)
+				let val = int(ins.Arg1)
+				if (*nonProm)[base] && IsRCManagedKind(p.ValKind[val]) && !(*stored)[val] {
+					(*stored)[val] = true
+					(*nonProm)[val] = true
+					changed = true
+				}
+			}
+		}
+		if syncEdgePair(p, blk.Succ0, Succ0Args(p, b), nonProm, escCall, ret, stored) {
+			changed = true
+		}
+		if syncEdgePair(p, blk.Succ1, Succ1Args(p, b), nonProm, escCall, ret, stored) {
+			changed = true
+		}
+		if syncEdgePair(p, blk.UnwindSucc, UnwindArgs(p, b), nonProm, escCall, ret, stored) {
+			changed = true
+		}
+	}
+	changed
+}
+
+func syncEdgePair(p Program, target uint32, args []uint32, nonProm mut []bool, escCall mut []bool, ret mut []bool, stored mut []bool) bool {
+	if target == NoID {
+		return false
+	}
+	let mut changed = false
+	let bps = BlockParams(p, target)
+	for j in 0..bps.Len() {
+		let d = int(bps[j])
+		let a = int(args[j])
+		if (*nonProm)[d] != (*nonProm)[a] {
+			(*nonProm)[d] = true
+			(*nonProm)[a] = true
+			changed = true
+		}
+		if (*escCall)[d] && !(*escCall)[a] {
+			(*escCall)[a] = true
+			changed = true
+		}
+		if (*ret)[d] && !(*ret)[a] {
+			(*ret)[a] = true
+			changed = true
+		}
+		if (*stored)[d] && !(*stored)[a] {
+			(*stored)[a] = true
+			changed = true
+		}
+	}
+	changed
+}
+
+// AnalyzeEscapes classifies escaping, returned, stored, and arena-promotable values in p.
+func AnalyzeEscapes(p Program, live LivenessInfo) EscapeInfo {
+	let nv = NumValues(p)
+	let mut escCall = initBoolSlice(nv, false)
+	let mut ret = initBoolSlice(nv, false)
+	let mut stored = initBoolSlice(nv, false)
+	let mut holdsHeap = initBoolSlice(nv, false)
+	let mut nonProm = initBoolSlice(nv, false)
+	for v in 0..nv {
+		if p.ValKind[v] != ValArenaCand || p.ValParam[v] {
+			nonProm[v] = true
+		}
+	}
+	for bi in 0..NumBlocks(p) {
+		if !live.Reachable[bi] {
+			continue
+		}
+		let blk = BlockAt(p, uint32(bi))
+		let s = int(blk.InstStart)
+		for k in s..s+int(blk.InstLen) {
+			let ins = InstAt(p, uint32(k))
+			if ins.Op == OpReturn {
+				for a in InstArgs(p, uint32(k)) {
+					ret[int(a)] = true
+					nonProm[int(a)] = true
+				}
+			} else if ins.Op == OpCall && ins.Aux0 == uint32(1) {
+				for a in InstArgs(p, uint32(k)) {
+					escCall[int(a)] = true
+					nonProm[int(a)] = true
+				}
+			} else if ins.Op == OpReuseAlloc && ins.Dst != NoID {
+				nonProm[int(ins.Dst)] = true
+			}
+		}
+	}
+	let mut changed = true
+	for changed {
+		changed = propagateEdgeEscapes(p, live.Reachable, &nonProm, &escCall, &ret, &stored)
+		for bi in 0..NumBlocks(p) {
+			if !live.Reachable[bi] {
+				continue
+			}
+			let blk = BlockAt(p, uint32(bi))
+			let s = int(blk.InstStart)
+			for k in s..s+int(blk.InstLen) {
+				let ins = InstAt(p, uint32(k))
+				if ins.Op == OpStore && ins.Arg0 != NoID && ins.Arg1 != NoID {
+					let base = int(ins.Arg0)
+					let val = int(ins.Arg1)
+					if IsRCManagedKind(p.ValKind[val]) && nonProm[val] && !holdsHeap[base] {
+						holdsHeap[base] = true
+						nonProm[base] = true
+						changed = true
+					}
+				}
+			}
+		}
+	}
+	let mut promoted = initBoolSlice(nv, false)
+	for v in 0..nv {
+		if p.ValKind[v] == ValArenaCand && !p.ValParam[v] && !escCall[v] && !ret[v] && !stored[v] && !holdsHeap[v] && !nonProm[v] {
+			promoted[v] = true
+		}
+	}
+	let parents = buildAliasParents(p, live.Reachable)
+	EscapeInfo{
+		EscapesToCall:    escCall,
+		Returned:         ret,
+		StoredToEscaping: stored,
+		HoldsHeapRC:      holdsHeap,
+		ArenaPromoted:    promoted,
+		AliasParent:      parents,
+	}
+}
+
+// LivenessSeparatesUnwindFromNormal checks that values only used on normal Succ0 vs UnwindSucc stay disjoint in LiveBeforeParams.
+law LivenessSeparatesUnwindFromNormal(pick int) {
+	let useOnUnwind = (pick & 1) != 0
+	let mut b = NewBuilder()
+	let b0 = NewBlock(&b, BlockEntry)
+	let bNorm = NewBlock(&b, BlockExit)
+	let bErr = NewBlock(&b, BlockUnwind)
+	let vNorm = EmitAlloc(&b, b0, ValueSpec{Kind: ValRC, TypeTag: uint32(1), Size: uint32(16)})
+	let vErr = EmitAlloc(&b, b0, ValueSpec{Kind: ValRC, TypeTag: uint32(2), Size: uint32(16)})
+	let _ = EmitUnwindCall(&b, b0, CallSpec{Args: []uint32{}, DstSpec: ValueSpec{Kind: ValScalar, TypeTag: uint32(0), Size: uint32(0)}, Escapes: false, MayFail: true, HasDst: false}, BranchTarget{Block: bNorm, Args: []uint32{}}, BranchTarget{Block: bErr, Args: []uint32{}})
+	EmitReturn(&b, bNorm, []uint32{vNorm})
+	if useOnUnwind {
+		EmitReturn(&b, bErr, []uint32{vErr})
+	} else {
+		EmitReturn(&b, bErr, []uint32{})
+	}
+	let p = BuildProgram(b)
+	let live = AnalyzeLiveness(p)
+	let nw = live.Words
+	let normLive = BitTest(live.LiveBeforeParams, int(bNorm)*nw, vNorm) && !BitTest(live.LiveBeforeParams, int(bNorm)*nw, vErr)
+	let errOk = BitTest(live.LiveBeforeParams, int(bErr)*nw, vErr) == useOnUnwind && !BitTest(live.LiveBeforeParams, int(bErr)*nw, vNorm)
+	let bothOut = BitTest(live.LiveOut, int(b0)*nw, vNorm) && (BitTest(live.LiveOut, int(b0)*nw, vErr) == useOnUnwind)
+	normLive && errOk && bothOut
+}
+
+// ArenaPromotionRespectsEscapeFlags checks that escaping via call, return, or store to escaping container blocks arena promotion.
+law ArenaPromotionRespectsEscapeFlags(mode int) {
+	let m = ((mode % 4) + 4) % 4
+	let mut b = NewBuilder()
+	let b0 = NewBlock(&b, BlockEntry)
+	let cand = EmitAlloc(&b, b0, ValueSpec{Kind: ValArenaCand, TypeTag: uint32(3), Size: uint32(24)})
+	let outer = EmitAlloc(&b, b0, ValueSpec{Kind: ValRC, TypeTag: uint32(4), Size: uint32(32)})
+	if m == 0 {
+		let _ = EmitCall(&b, b0, CallSpec{Args: []uint32{cand}, DstSpec: ValueSpec{Kind: ValScalar, TypeTag: uint32(0), Size: uint32(0)}, Escapes: false, MayFail: false, HasDst: false})
+		EmitReturn(&b, b0, []uint32{outer})
+	} else if m == 1 {
+		let _ = EmitCall(&b, b0, CallSpec{Args: []uint32{cand}, DstSpec: ValueSpec{Kind: ValScalar, TypeTag: uint32(0), Size: uint32(0)}, Escapes: true, MayFail: false, HasDst: false})
+		EmitReturn(&b, b0, []uint32{outer})
+	} else if m == 2 {
+		EmitStore(&b, b0, StoreSpec{Base: outer, Field: uint32(0), Val: cand})
+		EmitReturn(&b, b0, []uint32{outer})
+	} else {
+		EmitReturn(&b, b0, []uint32{cand, outer})
+	}
+	let p = BuildProgram(b)
+	let live = AnalyzeLiveness(p)
+	let esc = AnalyzeEscapes(p, live)
+	if m == 0 {
+		return esc.ArenaPromoted[int(cand)]
+	}
+	!esc.ArenaPromoted[int(cand)]
+}
+
+test LivenessFixpointHandlesLoopsAndBackEdges {
+	let mut b = NewBuilder()
+	let b0 = NewBlock(&b, BlockEntry)
+	let b1 = NewBlock(&b, BlockNormal)
+	let b2 = NewBlock(&b, BlockNormal)
+	let b3 = NewBlock(&b, BlockExit)
+	let invariant = EmitAlloc(&b, b0, ValueSpec{Kind: ValRC, TypeTag: uint32(1), Size: uint32(32)})
+	let cond = EmitConstScalar(&b, b0, uint32(1))
+	EmitBr(&b, b0, BranchTarget{Block: b1, Args: []uint32{}})
+	EmitCondBr(&b, b1, cond, BranchTarget{Block: b2, Args: []uint32{}}, BranchTarget{Block: b3, Args: []uint32{}})
+	EmitBorrowUse(&b, b2, invariant)
+	EmitBr(&b, b2, BranchTarget{Block: b1, Args: []uint32{}})
+	EmitReturn(&b, b3, []uint32{})
+	let p = BuildProgram(b)
+	let live = AnalyzeLiveness(p)
+	let nw = live.Words
+	assert BitTest(live.LiveIn, int(b1)*nw, invariant)
+	assert BitTest(live.LiveIn, int(b2)*nw, invariant)
+	assert BitTest(live.LiveOut, int(b2)*nw, invariant)
+	assert !BitTest(live.LiveIn, int(b3)*nw, invariant)
+
+	let mut bm = NewBuilder()
+	let m0 = NewBlock(&bm, BlockEntry)
+	let mL = NewBlock(&bm, BlockNormal)
+	let mR = NewBlock(&bm, BlockNormal)
+	let mJ = NewBlock(&bm, BlockExit)
+	let mc = EmitConstScalar(&bm, m0, uint32(1))
+	let mp = AddBlockParam(&bm, mJ, ValueSpec{Kind: ValArenaCand, TypeTag: uint32(2), Size: uint32(16)})
+	EmitCondBr(&bm, m0, mc, BranchTarget{Block: mL, Args: []uint32{}}, BranchTarget{Block: mR, Args: []uint32{}})
+	let vA = EmitAlloc(&bm, mL, ValueSpec{Kind: ValArenaCand, TypeTag: uint32(2), Size: uint32(16)})
+	EmitBr(&bm, mL, BranchTarget{Block: mJ, Args: []uint32{vA}})
+	let vH = EmitAlloc(&bm, mR, ValueSpec{Kind: ValRC, TypeTag: uint32(2), Size: uint32(16)})
+	EmitBr(&bm, mR, BranchTarget{Block: mJ, Args: []uint32{vH}})
+	EmitBorrowUse(&bm, mJ, mp)
+	EmitReturn(&bm, mJ, []uint32{})
+	let pm = BuildProgram(bm)
+	let em = AnalyzeEscapes(pm, AnalyzeLiveness(pm))
+	assert !em.ArenaPromoted[int(vA)] && !em.ArenaPromoted[int(mp)]
+}
