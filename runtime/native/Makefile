@@ -2,7 +2,7 @@ CC ?= gcc
 CFLAGS ?= -std=c11 -Wall -Wextra -Werror -O2
 ASAN_FLAGS = -fsanitize=address,undefined -g
 
-SRCS = ergo_rc.c ergo_arena.c ergo_actor.c ergo_die.c
+SRCS = ergo_rc.c ergo_arena.c ergo_actor.c ergo_die.c ergo_io.c
 OBJS = $(SRCS:.c=.o)
 
 .PHONY: all test test-asan clean

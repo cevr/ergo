@@ -1,0 +1,15 @@
+// native-hello prints the line its pure package hello computes. The same
+// package compiles through compiler/nativelower to an ELF64 executable that
+// writes the line through runtime/native; compiler/nativelower's test
+// NativeHelloMatchesTheExampleCase runs that executable against this
+// program's case.
+
+import io
+import nativehello/hello
+import os
+
+func main() fails os.Exit needs os.Ambient {
+	with context { io.Stdout: io.NewHost() } {
+		io.Stdout.Print(hello.Main(1))
+	}
+}

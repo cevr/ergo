@@ -1,0 +1,558 @@
+import compiler/nativeobj
+import compiler/objfmt
+import option
+import slices
+
+let rax = objfmt.X64Rax
+let rcx = objfmt.X64Rcx
+let rdx = objfmt.X64Rdx
+
+let argRegs = []uint8{objfmt.X64Rdi, objfmt.X64Rsi, objfmt.X64Rdx, objfmt.X64Rcx, objfmt.X64R8, objfmt.X64R9}
+
+// EntryInt names the test entry whose int result is the exit status.
+let EntryInt = uint8(1)
+
+// EntryStr names the test entry whose string result is written to stdout.
+let EntryStr = uint8(2)
+
+// WriteSym is the runtime/native symbol the string entry writes through.
+let WriteSym = "ergo_write"
+
+type frame {
+	off   []int,
+	words []int,
+	size  int,
+}
+
+type fnCtx {
+	p      nativeobj.Package,
+	f      nativeobj.Func,
+	fr     frame,
+	labels Map[int, uint32],
+	strSym []uint32,
+	strs   []string,
+}
+
+func kindName(k int) string {
+	let names = []string{"int", "ptr", "func", "bool", "int8", "int16", "int32", "int64", "uint", "uint8", "uint16", "uint32", "uint64", "uintptr", "string", "slice", "struct", "iface"}
+	if k >= 0 && k < names.Len() { names[k] } else { "kind \(k)" }
+}
+
+func opName(op nativeobj.Op) string {
+	match op {
+	case nativeobj.Const:
+		"Const"
+	case nativeobj.ConstStr:
+		"ConstStr"
+	case nativeobj.Zero:
+		"Zero"
+	case nativeobj.Arith:
+		"Arith"
+	case nativeobj.Convert:
+		"Convert"
+	case nativeobj.Len:
+		"Len"
+	case nativeobj.Load:
+		"Load"
+	case nativeobj.StorePtr:
+		"StorePtr"
+	case nativeobj.Store:
+		"Store"
+	case nativeobj.AddrOf:
+		"AddrOf"
+	case nativeobj.RecordLit:
+		"RecordLit"
+	case nativeobj.FieldGet:
+		"FieldGet"
+	case nativeobj.FieldSet:
+		"FieldSet"
+	case nativeobj.Index:
+		"Index"
+	case nativeobj.SliceLit:
+		"SliceLit"
+	case nativeobj.GetGlobal:
+		"GetGlobal"
+	case nativeobj.SetGlobal:
+		"SetGlobal"
+	case nativeobj.Call:
+		"Call"
+	case nativeobj.CallClosure:
+		"CallClosure"
+	case nativeobj.Label:
+		"Label"
+	case nativeobj.Jump:
+		"Jump"
+	case nativeobj.JumpIf:
+		"JumpIf"
+	case nativeobj.Return:
+		"Return"
+	case nativeobj.ClosureEnv:
+		"ClosureEnv"
+	case nativeobj.Alloc:
+		"Alloc"
+	case nativeobj.MakeClosure:
+		"MakeClosure"
+	case nativeobj.Append:
+		"Append"
+	case nativeobj.SliceOp:
+		"SliceOp"
+	case nativeobj.StringIndex:
+		"StringIndex"
+	case nativeobj.MakeIface:
+		"MakeIface"
+	case nativeobj.IfaceIs:
+		"IfaceIs"
+	case nativeobj.IfaceData:
+		"IfaceData"
+	case nativeobj.CallIface:
+		"CallIface"
+	}
+}
+
+// IntWidth is the byte width of integer or bool type kind k, 0 for a kind
+// that is not a scalar integer.
+func IntWidth(k int) int {
+	if k == nativeobj.KInt || k == nativeobj.KInt64 || k == nativeobj.KUint || k == nativeobj.KUint64 || k == nativeobj.KUintptr {
+		return 8
+	}
+	if k == nativeobj.KInt32 || k == nativeobj.KUint32 {
+		return 4
+	}
+	if k == nativeobj.KInt16 || k == nativeobj.KUint16 {
+		return 2
+	}
+	if k == nativeobj.KInt8 || k == nativeobj.KUint8 || k == nativeobj.KBool {
+		return 1
+	}
+	0
+}
+
+// IntSigned reports whether integer type kind k is signed.
+func IntSigned(k int) bool {
+	k == nativeobj.KInt || k == nativeobj.KInt8 || k == nativeobj.KInt16 || k == nativeobj.KInt32 || k == nativeobj.KInt64
+}
+
+func slotWords(p nativeobj.Package, t int) int fails NotLowered {
+	let k = p.Types[t].Kind
+	if IntWidth(k) > 0 {
+		return 1
+	}
+	if k == nativeobj.KString {
+		return 2
+	}
+	refuse("lower", "type "+kindName(k), "slots of this type are not lowered yet")
+}
+
+func frameOf(p nativeobj.Package, f nativeobj.Func) frame fails NotLowered {
+	let mut off = slices.WithCapacity[int](f.Slots.Len())
+	let mut words = slices.WithCapacity[int](f.Slots.Len())
+	let mut c = 0
+	for t in f.Slots {
+		let w = try slotWords(p, t)
+		c = c + 8*w
+		off = off.Append(c)
+		words = words.Append(w)
+	}
+	frame{off: off, words: words, size: (c + 15) / 16 * 16}
+}
+
+func loadWord(a mut objfmt.Amd64Asm, fr frame, slot int, w int, r uint8) {
+	objfmt.LoadMem(a, r, objfmt.X64Rbp, -fr.off[slot]+8*w)
+}
+
+func storeWord(a mut objfmt.Amd64Asm, fr frame, slot int, w int, r uint8) {
+	objfmt.StoreMem(a, r, objfmt.X64Rbp, -fr.off[slot]+8*w)
+}
+
+func raw(a mut objfmt.Amd64Asm, bs []uint32) {
+	for b in bs {
+		objfmt.U8(&a.Code, b)
+	}
+}
+
+func aluRR(a mut objfmt.Amd64Asm, opcode uint32, dst uint8, src uint8) {
+	raw(a, []uint32{uint32(0x48), opcode, uint32(0xC0) | (uint32(src) << uint32(3)) | uint32(dst)})
+}
+
+func shiftImm(a mut objfmt.Amd64Asm, ext uint32, r uint8, n int) {
+	raw(a, []uint32{uint32(0x48), uint32(0xC1), uint32(0xC0) | (ext << uint32(3)) | uint32(r), uint32(n)})
+}
+
+func shiftCL(a mut objfmt.Amd64Asm, ext uint32, r uint8) {
+	raw(a, []uint32{uint32(0x48), uint32(0xD3), uint32(0xC0) | (ext << uint32(3)) | uint32(r)})
+}
+
+func trap(a mut objfmt.Amd64Asm) {
+	raw(a, []uint32{uint32(0x0F), uint32(0x0B)})
+}
+
+func normalize(a mut objfmt.Amd64Asm, k int, r uint8) {
+	let w = IntWidth(k)
+	if w == 0 || w == 8 {
+		return
+	}
+	let n = 64 - 8*w
+	shiftImm(a, uint32(4), r, n)
+	shiftImm(a, if IntSigned(k) { uint32(7) } else { uint32(5) }, r, n)
+}
+
+func slotKind(c fnCtx, s int) int {
+	c.p.Types[c.f.Slots[s]].Kind
+}
+
+func emitDivRem(a mut objfmt.Amd64Asm, isDiv bool, signed bool) {
+	let ok = objfmt.NewLabel(a)
+	let done = objfmt.NewLabel(a)
+	objfmt.CmpImm32(a, rcx, 0)
+	objfmt.Jne(a, ok)
+	trap(a)
+	objfmt.BindLabel(a, ok)
+	if signed {
+		let normal = objfmt.NewLabel(a)
+		objfmt.CmpImm32(a, rcx, -1)
+		objfmt.Jne(a, normal)
+		if isDiv {
+			raw(a, []uint32{uint32(0x48), uint32(0xF7), uint32(0xD8)})
+		} else {
+			objfmt.MovImm64(a, rax, uint64(0))
+		}
+		objfmt.Jmp(a, done)
+		objfmt.BindLabel(a, normal)
+		raw(a, []uint32{uint32(0x48), uint32(0x99), uint32(0x48), uint32(0xF7), uint32(0xF9)})
+	} else {
+		raw(a, []uint32{uint32(0x31), uint32(0xD2), uint32(0x48), uint32(0xF7), uint32(0xF1)})
+	}
+	if !isDiv {
+		objfmt.MovRR(a, rax, rdx)
+	}
+	objfmt.BindLabel(a, done)
+}
+
+func emitShift(a mut objfmt.Amd64Asm, left bool, signed bool) {
+	let normal = objfmt.NewLabel(a)
+	let done = objfmt.NewLabel(a)
+	objfmt.CmpImm32(a, rcx, 64)
+	objfmt.Jcc(a, uint8(0x2), normal)
+	if !left && signed {
+		shiftImm(a, uint32(7), rax, 63)
+	} else {
+		objfmt.MovImm64(a, rax, uint64(0))
+	}
+	objfmt.Jmp(a, done)
+	objfmt.BindLabel(a, normal)
+	shiftCL(a, if left { uint32(4) } else if signed { uint32(7) } else { uint32(5) }, rax)
+	objfmt.BindLabel(a, done)
+}
+
+func emitArith(a mut objfmt.Amd64Asm, c fnCtx, x nativeobj.Arith) fails NotLowered {
+	let k = slotKind(c, x.Dst)
+	if IntWidth(k) == 0 {
+		return refuse("lower", "Arith on "+kindName(k), "only integer arithmetic is lowered")
+	}
+	loadWord(a, c.fr, x.A, 0, rax)
+	loadWord(a, c.fr, x.B, 0, rcx)
+	let signed = IntSigned(k)
+	if x.Kind == nativeobj.AAdd {
+		objfmt.AddRR(a, rax, rcx)
+	} else if x.Kind == nativeobj.ASub {
+		objfmt.SubRR(a, rax, rcx)
+	} else if x.Kind == nativeobj.AMul {
+		objfmt.ImulRR(a, rax, rcx)
+	} else if x.Kind == nativeobj.AXor {
+		aluRR(a, uint32(0x31), rax, rcx)
+	} else if x.Kind == nativeobj.AAnd {
+		aluRR(a, uint32(0x21), rax, rcx)
+	} else if x.Kind == nativeobj.AOr {
+		aluRR(a, uint32(0x09), rax, rcx)
+	} else if x.Kind == nativeobj.AAndNot {
+		raw(a, []uint32{uint32(0x48), uint32(0xF7), uint32(0xD1)})
+		aluRR(a, uint32(0x21), rax, rcx)
+	} else if x.Kind == nativeobj.ADiv || x.Kind == nativeobj.ARem {
+		emitDivRem(a, x.Kind == nativeobj.ADiv, signed)
+	} else if x.Kind == nativeobj.AShl || x.Kind == nativeobj.AShr {
+		emitShift(a, x.Kind == nativeobj.AShl, signed)
+	} else {
+		return refuse("lower", "Arith \(x.Kind)", "arithmetic operator not lowered")
+	}
+	normalize(a, k, rax)
+	storeWord(a, c.fr, x.Dst, 0, rax)
+}
+
+func condCode(cond int, signed bool) uint8 {
+	if cond == nativeobj.CLt {
+		return if signed { objfmt.X64CondL } else { uint8(0x2) }
+	}
+	if cond == nativeobj.CNe {
+		return objfmt.X64CondNe
+	}
+	if cond == nativeobj.CEq {
+		return objfmt.X64CondE
+	}
+	if signed { objfmt.X64CondGe } else { uint8(0x3) }
+}
+
+func labelOf(c fnCtx, id int) uint32 fails NotLowered {
+	match c.labels.Get(id) {
+	case option.Some as l:
+		l.Value
+	case option.None:
+		refuse("lower", "Label", "jump to label \(id) the function never binds")
+	}
+}
+
+func targetIndex(p nativeobj.Package, name string) int {
+	for i, f in p.Funcs {
+		if nativeobj.SymName(p, f.Name) == name {
+			return i
+		}
+	}
+	-1
+}
+
+func emitCall(a mut objfmt.Amd64Asm, o mut objfmt.Object, c fnCtx, x nativeobj.Call) fails NotLowered {
+	if targetIndex(c.p, x.Target) < 0 {
+		return refuse("lower", "Call foreign", "call of \(x.Target) outside the package")
+	}
+	let mut r = 0
+	for s in x.Args {
+		for w in 0..c.fr.words[s] {
+			if r >= argRegs.Len() {
+				return refuse("lower", "Call stack args", "more than six argument words")
+			}
+			loadWord(a, c.fr, s, w, argRegs[r])
+			r = r + 1
+		}
+	}
+	let sym = objfmt.EnsureUndefSym(o, x.Target)
+	objfmt.CallSym(a, sym)
+	let mut rw = 0
+	for d in x.Dsts {
+		for w in 0..c.fr.words[d] {
+			if rw >= 2 {
+				return refuse("lower", "Call results", "more than two result words")
+			}
+			storeWord(a, c.fr, d, w, if rw == 0 { rax } else { rdx })
+			rw = rw + 1
+		}
+	}
+}
+
+func emitOp(a mut objfmt.Amd64Asm, o mut objfmt.Object, c mut fnCtx, op nativeobj.Op) fails NotLowered {
+	match op {
+	case nativeobj.Const as x:
+		objfmt.MovImm64(a, rax, uint64(x.V))
+		storeWord(a, c.fr, x.Dst, 0, rax)
+	case nativeobj.ConstStr as x:
+		if x.V == "" {
+			objfmt.MovImm64(a, rax, uint64(0))
+			storeWord(a, c.fr, x.Dst, 0, rax)
+			storeWord(a, c.fr, x.Dst, 1, rax)
+			return
+		}
+		let mut sym = uint32(0)
+		let mut found = false
+		for i, s in c.strs {
+			if s == x.V {
+				sym = c.strSym[i]
+				found = true
+			}
+		}
+		if !found {
+			let off = objfmt.AppendRodataCString(o, x.V)
+			sym = objfmt.AddLocalRodata(o, ".L.str\(objfmt.SymCount(*o))", uint64(off), uint64(x.V.Len()))
+			c.strs = c.strs.Append(x.V)
+			c.strSym = c.strSym.Append(sym)
+		}
+		objfmt.LeaRipSym(a, rax, sym, uint64(0))
+		storeWord(a, c.fr, x.Dst, 0, rax)
+		objfmt.MovImm64(a, rax, uint64(x.V.Len()))
+		storeWord(a, c.fr, x.Dst, 1, rax)
+	case nativeobj.Zero as x:
+		objfmt.MovImm64(a, rax, uint64(0))
+		for w in 0..c.fr.words[x.Dst] {
+			storeWord(a, c.fr, x.Dst, w, rax)
+		}
+	case nativeobj.Arith as x:
+		try emitArith(a, *c, x)
+	case nativeobj.Convert as x:
+		let dk = slotKind(*c, x.Dst)
+		let sk = slotKind(*c, x.Src)
+		if IntWidth(dk) > 0 && IntWidth(sk) > 0 {
+			loadWord(a, c.fr, x.Src, 0, rax)
+			normalize(a, dk, rax)
+			storeWord(a, c.fr, x.Dst, 0, rax)
+		} else if dk == sk {
+			for w in 0..c.fr.words[x.Dst] {
+				loadWord(a, c.fr, x.Src, w, rax)
+				storeWord(a, c.fr, x.Dst, w, rax)
+			}
+		} else {
+			return refuse("lower", "Convert "+kindName(sk)+" to "+kindName(dk), "conversion not lowered")
+		}
+	case nativeobj.Len as x:
+		if slotKind(*c, x.Src) != nativeobj.KString {
+			return refuse("lower", "Len of "+kindName(slotKind(*c, x.Src)), "only string length is lowered")
+		}
+		loadWord(a, c.fr, x.Src, 1, rax)
+		storeWord(a, c.fr, x.Dst, 0, rax)
+	case nativeobj.StringIndex as x:
+		let ok = objfmt.NewLabel(a)
+		loadWord(a, c.fr, x.Idx, 0, rax)
+		loadWord(a, c.fr, x.Str, 1, rcx)
+		objfmt.CmpRR(a, rax, rcx)
+		objfmt.Jcc(a, uint8(0x2), ok)
+		trap(a)
+		objfmt.BindLabel(a, ok)
+		loadWord(a, c.fr, x.Str, 0, rcx)
+		objfmt.AddRR(a, rax, rcx)
+		raw(a, []uint32{uint32(0x48), uint32(0x0F), uint32(0xB6), uint32(0x00)})
+		storeWord(a, c.fr, x.Dst, 0, rax)
+	case nativeobj.Label as x:
+		objfmt.BindLabel(a, try labelOf(*c, x.Id))
+	case nativeobj.Jump as x:
+		objfmt.Jmp(a, try labelOf(*c, x.To))
+	case nativeobj.JumpIf as x:
+		let k = slotKind(*c, x.A)
+		if IntWidth(k) == 0 {
+			return refuse("lower", "JumpIf on "+kindName(k), "only integer and bool comparisons are lowered")
+		}
+		loadWord(a, c.fr, x.A, 0, rax)
+		loadWord(a, c.fr, x.B, 0, rcx)
+		objfmt.CmpRR(a, rax, rcx)
+		objfmt.Jcc(a, condCode(x.Cond, IntSigned(k)), try labelOf(*c, x.To))
+	case nativeobj.Call as x:
+		try emitCall(a, o, *c, x)
+	case nativeobj.Return as x:
+		let mut rw = 0
+		for s in x.Vals {
+			for w in 0..c.fr.words[s] {
+				if rw >= 2 {
+					return refuse("lower", "Return results", "more than two result words")
+				}
+				loadWord(a, c.fr, s, w, if rw == 0 { rax } else { rdx })
+				rw = rw + 1
+			}
+		}
+		objfmt.Epilogue(a, uint32(c.fr.size))
+	case _:
+		return refuse("lower", opName(op), "op not lowered yet")
+	}
+}
+
+func lowerFunc(o mut objfmt.Object, p nativeobj.Package, f nativeobj.Func) fails NotLowered {
+	let fr = try frameOf(p, f)
+	let mut a = objfmt.NewAmd64Asm()
+	let mut labels = Map[int, uint32]{}
+	for op in f.Ops {
+		match op {
+		case nativeobj.Label as l:
+			labels = labels.Put(l.Id, objfmt.NewLabel(&a))
+		case _:
+		}
+	}
+	let mut c = fnCtx{p: p, f: f, fr: fr, labels: labels, strSym: []uint32{}, strs: []string{}}
+	objfmt.Prologue(&a, uint32(fr.size))
+	let mut r = 0
+	for k in 0..f.Params.Len() {
+		for w in 0..fr.words[k] {
+			if r >= argRegs.Len() {
+				return refuse("lower", "params stack", "more than six parameter words")
+			}
+			storeWord(&a, fr, k, w, argRegs[r])
+			r = r + 1
+		}
+	}
+	for op in f.Ops {
+		try emitOp(&a, o, &c, op)
+	}
+	objfmt.Epilogue(&a, uint32(fr.size))
+	let _ = objfmt.EmitAmd64Func(o, nativeobj.SymName(p, f.Name), objfmt.BindGlobal, &a) catch {
+	case objfmt.UndefinedLabel as u:
+		return refuse("lower", "Label", "unbound label \(u.Label)")
+	}
+}
+
+// LowerPackage lowers every function of p to SysV AMD64 machine code in one
+// relocatable object; a kind it does not lower is NotLowered naming the kind.
+func LowerPackage(p nativeobj.Package) objfmt.Object fails NotLowered {
+	let mut o = objfmt.NewObject(objfmt.ArchX86_64)
+	for f in p.Funcs {
+		try lowerFunc(&o, p, f)
+	}
+	bindLocalCalls(&o)
+	o
+}
+
+func bindLocalCalls(o mut objfmt.Object) {
+	let n = o.SymNameID.Len()
+	for i in 0..n {
+		if o.SymSec[i] != objfmt.SecUndef {
+			continue
+		}
+		for j in 0..n {
+			if j != i && o.SymNameID[j] == o.SymNameID[i] && o.SymSec[j] == objfmt.SecText {
+				o.SymBind[i] = objfmt.BindLocal
+				o.SymKind[i] = objfmt.SymFunc
+				o.SymSec[i] = objfmt.SecText
+				o.SymValue[i] = o.SymValue[j]
+			}
+		}
+	}
+}
+
+// EntryOf is the kind of p's test entry Main: EntryInt for func Main(argc int) int,
+// EntryStr for func Main(argc int) string. An ordinary main (one that needs a
+// context or can fail) is NotLowered: round 1 runs the pure test entry only.
+func EntryOf(p nativeobj.Package) uint8 fails NotLowered {
+	for f in p.Funcs {
+		if f.Name == "main" {
+			return refuse("entry", "main", "an ordinary main (its context, capabilities and failures as exit codes) is not lowered yet")
+		}
+	}
+	for f in p.Funcs {
+		if f.Name == "Main" && f.Params.Len() == 1 && p.Types[f.Params[0]].Kind == nativeobj.KInt && f.Results.Len() == 1 {
+			let k = p.Types[f.Results[0]].Kind
+			if k == nativeobj.KString {
+				return EntryStr
+			}
+			if IntWidth(k) > 0 {
+				return EntryInt
+			}
+		}
+	}
+	refuse("entry", "Main", "no func Main(argc int) int or func Main(argc int) string")
+}
+
+// Executable lowers p and adds the C-ABI main that runs the test entry Main
+// on C's argc (left in RDI): its int result is the exit status, its string result is written to fd 1
+// through runtime/native's ergo_write and the status is 0.
+func Executable(p nativeobj.Package) []byte fails NotLowered {
+	let entry = try EntryOf(p)
+	let mut o = try LowerPackage(p)
+	let mainSym = objfmt.EnsureUndefSym(&o, nativeobj.SymName(p, "Main"))
+	let mut a = objfmt.NewAmd64Asm()
+	objfmt.Prologue(&a, uint32(0))
+	objfmt.CallSym(&a, mainSym)
+	if entry == EntryStr {
+		objfmt.MovRR(&a, objfmt.X64Rsi, rax)
+		objfmt.MovImm64(&a, objfmt.X64Rdi, uint64(1))
+		objfmt.CallSym(&a, objfmt.EnsureUndefSym(&o, WriteSym))
+		objfmt.MovImm64(&a, rax, uint64(0))
+	}
+	objfmt.Epilogue(&a, uint32(0))
+	let _ = objfmt.EmitAmd64Func(&o, "main", objfmt.BindGlobal, &a) catch {
+	case objfmt.UndefinedLabel as u:
+		return refuse("lower", "Label", "unbound label \(u.Label)")
+	}
+	bindLocalCalls(&o)
+	objfmt.WriteELF64(o) catch {
+	case objfmt.ObjError as e:
+		return refuse("object", e.Op, e.Reason)
+	}
+}
+
+// Build checks, lowers and writes one import-free Ergo source file as an
+// ELF64 relocatable object with a C-ABI main.
+func Build(path string, file string, src string) []byte fails NotLowered {
+	try Executable(try Checked(path, file, src))
+}

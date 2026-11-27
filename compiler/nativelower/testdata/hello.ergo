@@ -1,0 +1,37 @@
+// Fib is the n-th Fibonacci number, by a loop.
+func Fib(n int) int {
+	let mut a = 0
+	let mut b = 1
+	let mut i = 0
+	for i < n {
+		let t = a + b
+		a = b
+		b = t
+		i = i + 1
+	}
+	a
+}
+
+// Greeting is the line the program prints when f, a Fibonacci number, is
+// 55, else a line that names the miss.
+func Greeting(f int) string {
+	if f == 55 {
+		return "hello from native ergo\n"
+	}
+	"fib missed\n"
+}
+
+// Main is the program's pure entry: what it writes to stdout, given argc,
+// the count of its command-line words with the program's name (1 when it
+// has no arguments).
+func Main(argc int) string {
+	let n = argc + 9
+	let f = Fib(n)
+	Greeting(f)
+}
+
+// FibAdds: each number is the sum of the two before it.
+law FibAdds(n uint8) {
+	let k = int(n%40) + 2
+	Fib(k) == Fib(k-1)+Fib(k-2)
+}

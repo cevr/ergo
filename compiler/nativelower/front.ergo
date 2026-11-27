@@ -1,0 +1,152 @@
+import compiler/check/bind
+import compiler/check/expr
+import compiler/check/load
+import compiler/check/store
+import compiler/check/types
+import compiler/lower
+import compiler/native
+import compiler/nativeobj
+import compiler/syntax
+import dense
+import option
+import slices
+
+// NotLowered is a typed refusal: the stage that refused, the kind it does not
+// lower (an IR op, a type, a construct) and why. Nothing refused falls back
+// to the Go backend.
+type NotLowered { Stage string, Kind string, Why string }
+
+let basicNames = []string{"", "bool", "string", "int", "int8", "int16", "int32", "int64", "uint", "uint8", "uint16", "uint32", "uint64", "uintptr", "float32", "float64"}
+
+func refuse(stage string, kind string, why string) NotLowered {
+	NotLowered{Stage: stage, Kind: kind, Why: why}
+}
+
+func typeText(s store.Store, t dense.ID[store.TKey]) string {
+	let kind = store.KindOfType(s, t)
+	if kind == store.KBasic {
+		let n = store.ArgOf(s, t)
+		if n >= 1 && n < basicNames.Len() {
+			return basicNames[n]
+		}
+	}
+	if kind == store.KSlice {
+		let ops = store.OperandsOf(s, t)
+		if ops.Len() > 0 {
+			return "[]" + typeText(s, ops[0])
+		}
+	}
+	if kind == store.KNamed {
+		return store.TypeNameText(s, store.ArgOf(s, t))
+	}
+	"kind \(kind)"
+}
+
+func emptyRow(s store.Store, t dense.ID[store.TKey]) bool {
+	store.KindOfType(s, t) == store.KRow && store.OperandsOf(s, t).Len() == 0
+}
+
+func isUnitType(s store.Store, t dense.ID[store.TKey]) bool {
+	store.KindOfType(s, t) == store.KTuple && store.OperandsOf(s, t).Len() == 0
+}
+
+func sigAt(d load.Typed, site lower.Site) native.Sig fails NotLowered {
+	for f in d.K.Fns {
+		if f.File != site.File || syntax.NodePos(d.K.Parsed[f.File], f.Decl) != site.At {
+			continue
+		}
+		let ops = store.OperandsOf(d.S, f.Sig)
+		if store.KindOfType(d.S, f.Sig) != store.KSig || ops.Len() < 3 {
+			return refuse("check", "signature", "function at \(site.At) has no signature")
+		}
+		let n = ops.Len() - 3
+		if !emptyRow(d.S, ops[n+1]) || !emptyRow(d.S, ops[n+2]) {
+			return refuse("check", "effect-row", "function at \(site.At) has an effect or failure row")
+		}
+		let mut params = []string{}
+		for i in 0..n {
+			params = params.Append(typeText(d.S, ops[i]))
+		}
+		let results = if isUnitType(d.S, ops[n]) { []string{} } else { []string{typeText(d.S, ops[n])} }
+		return native.Sig{Params: params, Results: results}
+	}
+	refuse("check", "declaration", "function at \(site.At) has no checked declaration")
+}
+
+func recordDecls(d load.Typed) []native.RecordDecl {
+	let mut out = []native.RecordDecl{}
+	for r in d.K.Recs {
+		if r.Op || r.Params.Len() > 0 {
+			continue
+		}
+		let mut fields = slices.WithCapacity[native.FieldDecl](r.Fields.Len())
+		for f in r.Fields {
+			fields = fields.Append(native.FieldDecl{Name: f.Name, Type: typeText(d.S, f.T), Exported: f.Name.Len() > 0 && f.Name[0] >= 'A' && f.Name[0] <= 'Z'})
+		}
+		out = out.Append(native.RecordDecl{Name: r.Name, PkgPath: "", Exported: r.Name.Len() > 0 && r.Name[0] >= 'A' && r.Name[0] <= 'Z', Fields: fields})
+	}
+	out
+}
+
+// CheckedUnit parses, checks and lowers one import-free Ergo source file to
+// compiler/ir, as the native unit compiler/native reads.
+func CheckedUnit(path string, file string, src string) native.Unit fails NotLowered {
+	let pf = syntax.Parse(src)
+	if pf.Failed {
+		return refuse("parse", "syntax", "parse error in \(file)")
+	}
+	let parsed = []bind.File{bind.File{Name: file, Parsed: pf}}
+	if bind.Imports(parsed).Len() > 0 {
+		return refuse("check", "import", "a native unit of round 1 resolves no imports")
+	}
+	let files = []string{file}
+	let mut u = load.UnitOf(load.TablesOf("", ""), parsed, files)
+	u.Path = path
+	let p = load.LoadAll([]load.Unit{u}, []types.Iface{}, 1)
+	let mut at = -1
+	for i, ui in p.Units {
+		if ui == 0 {
+			at = i
+		}
+	}
+	if at < 0 {
+		return refuse("check", "load", "\(path) did not load")
+	}
+	let d = load.TypeAt(p, at)
+	if d.T.Diags.Len() > 0 || d.T.SelfInference.Len() > 0 || d.T.BareSelfCalls.Len() > 0 || d.T.LookupDiags.Len() > 0 {
+		return refuse("check", "type-error", "type error in \(file)")
+	}
+	for f in d.K.Fns {
+		match syntax.ViewOf(d.K.Parsed[f.File].Tree, f.Name) {
+		case syntax.Name as nm:
+			if syntax.TokText(d.K.Parsed[f.File], nm.Tok) == "main" {
+				return refuse("entry", "main", "an ordinary main (its context, capabilities and failures as exit codes) is not lowered yet")
+			}
+		case _:
+		}
+	}
+	let plan = lower.PlanGeneratedBodies(d.K, lower.Production, true)
+	let empty = Map[string, expr.Dep]{}
+	let out = lower.PackageWithPlan(d.S, d.K, d.T, files, path, true, option.Some[[]expr.Dep]{Value: []expr.Dep{}}, []lower.ImportCallFacts{}, empty, plan)
+	if out.Stops.Len() > 0 {
+		let s = out.Stops[0]
+		return refuse("lower", "stop", "the lowering stops at offset \(s.At): \(s.Cause)")
+	}
+	let mut sigs = slices.WithCapacity[native.Sig](out.Sites.Len())
+	for site in out.Sites {
+		sigs = sigs.Append(try sigAt(d, site))
+	}
+	native.Unit{Path: path, Name: path, File: file, IR: out.File, Sigs: sigs, Records: recordDecls(d), Interfaces: []native.IfaceDecl{}, Globals: []native.GlobalDecl{}, Inits: []string{}, Imports: []native.ImportUnit{}}
+}
+
+// Checked translates one import-free Ergo source file to the slot-and-op
+// package the native code generator reads.
+func Checked(path string, file string, src string) nativeobj.Package fails NotLowered {
+	let u = try CheckedUnit(path, file, src)
+	native.FromIR(u) catch {
+	case nativeobj.Refused as r:
+		return refuse("ir", "ir", r.Why)
+	case nativeobj.Malformed as m:
+		return refuse("ir", "malformed", m.Why)
+	}
+}
