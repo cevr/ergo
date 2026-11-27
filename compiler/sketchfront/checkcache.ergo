@@ -1,0 +1,212 @@
+import cmp
+import compiler/cachekey
+import compiler/front
+import dense
+import hex
+import option
+import sha256
+import slices
+import strconv
+import strings
+
+// CheckCacheEnv disables the package check cache when set to off.
+let CheckCacheEnv = "ERGO_CHECK_CACHE"
+
+// StdCacheEnv disables the std snapshot disk cache when set to off.
+let StdCacheEnv = "ERGO_STD_CACHE"
+
+// StdSnapshotEnv disables the embedded std snapshot when set to off.
+let StdSnapshotEnv = "ERGO_STD_SNAPSHOT"
+
+// CheckEntryTag identifies one dense row inside CheckCacheTable.
+type CheckEntryTag {}
+
+// CheckCacheTable stores cached checked-package fingerprints and serialized summaries in flat SoA uint32 columns.
+type CheckCacheTable {
+	Count        dense.Count[CheckEntryTag],
+	Keys         []string,
+	SegmentIndex []uint32,
+	BindingsHash []string,
+	GoBodiesHash []string,
+	IfaceFP      []string,
+	UnitFP       []string,
+	Payload      []string,
+	ByKey        Map[string, uint32],
+}
+
+// NewCheckCache allocates an empty pointer-free CheckCacheTable.
+func NewCheckCache() CheckCacheTable {
+	CheckCacheTable{
+		Count:        dense.NewCount[CheckEntryTag](),
+		Keys:         []string{},
+		SegmentIndex: []uint32{},
+		BindingsHash: []string{},
+		GoBodiesHash: []string{},
+		IfaceFP:      []string{},
+		UnitFP:       []string{},
+		Payload:      []string{},
+		ByKey:        Map[string, uint32]{},
+	}
+}
+
+// PackageEnvironment extracts deterministic sorted compiler environment entries relevant to checking pkgPath.
+func PackageEnvironment(environ []string, pkgPath string, goFlags string) []string {
+	let mut out = cachekey.Environ(environ, "")
+	if goFlags != "" {
+		out = out.Append("GOFLAGS=" + goFlags)
+	}
+	if pkgPath != "" {
+		out = out.Append("ERGO_CHECK_PKG=" + pkgPath)
+	}
+	slices.Sort(out)
+}
+
+// ComputeCheckKey computes the canonical SHA-256 check cache key via compiler/front.CheckCacheKey.
+func ComputeCheckKey(pkgPath string, checkVersion string, env []string, files []front.ProgramTextEntry, imports []front.ImportIfaceEntry) string {
+	front.CheckCacheKey(pkgPath, checkVersion, env, files, imports)
+}
+
+// CheckCacheStore inserts or updates a check cache entry and returns its dense row ID.
+func CheckCacheStore(cc mut CheckCacheTable, key string, segIndex uint32, bindingsHash string, goBodiesHash string, ifaceFP string, unitFP string, payload string) uint32 {
+	match (*cc).ByKey.Get(key) {
+	case option.Some[uint32] as existing:
+		let i = int(existing.Value)
+		(*cc).SegmentIndex[i] = segIndex
+		(*cc).BindingsHash[i] = bindingsHash
+		(*cc).GoBodiesHash[i] = goBodiesHash
+		(*cc).IfaceFP[i] = ifaceFP
+		(*cc).UnitFP[i] = unitFP
+		(*cc).Payload[i] = payload
+		return existing.Value
+	case option.None:
+	}
+	let id = uint32(dense.Index(dense.Next(&cc.Count)))
+	(*cc).Keys = (*cc).Keys.Append(key)
+	(*cc).SegmentIndex = (*cc).SegmentIndex.Append(segIndex)
+	(*cc).BindingsHash = (*cc).BindingsHash.Append(bindingsHash)
+	(*cc).GoBodiesHash = (*cc).GoBodiesHash.Append(goBodiesHash)
+	(*cc).IfaceFP = (*cc).IfaceFP.Append(ifaceFP)
+	(*cc).UnitFP = (*cc).UnitFP.Append(unitFP)
+	(*cc).Payload = (*cc).Payload.Append(payload)
+	(*cc).ByKey = (*cc).ByKey.Put(key, id)
+	id
+}
+
+// CheckCacheReuse looks up key in cc and validates bindingsHash and goBodiesHash match.
+func CheckCacheReuse(cc CheckCacheTable, key string, bindingsHash string, goBodiesHash string) option.Option[uint32] {
+	match cc.ByKey.Get(key) {
+	case option.Some[uint32] as got:
+		let i = int(got.Value)
+		if cc.BindingsHash[i] == bindingsHash && cc.GoBodiesHash[i] == goBodiesHash {
+			return option.Some[uint32]{Value: got.Value}
+		}
+		option.None
+	case option.None:
+		option.None
+	}
+}
+
+// FingerprintAfter computes Clean and Dep fingerprint hashes after checking from selfFP and dependency interface fingerprints.
+func FingerprintAfter(selfFP string, depIfaces []front.ImportIfaceEntry) (string, string) {
+	let sortedDeps = slices.SortFunc(slices.Clone(depIfaces), func(a front.ImportIfaceEntry, b front.ImportIfaceEntry) int {
+		cmp.Compare(a.ImportPath, b.ImportPath)
+	})
+	let mut depBuf = strings.NewBuilder()
+	depBuf.WriteString("ergo-dep-fp-1")
+	for d in sortedDeps {
+		depBuf.WriteByte('\x00')
+		depBuf.WriteString(d.ImportPath)
+		depBuf.WriteByte('=')
+		depBuf.WriteString(d.IfaceFingerprint)
+	}
+	let depFP = hex.Encode(sha256.Sum(depBuf.String()))
+	let cleanFP = hex.Encode(sha256.Sum("ergo-clean-fp-1\x00" + selfFP + "\x00" + depFP))
+	(cleanFP, depFP)
+}
+
+// UseStdCache reports whether the std snapshot disk cache should be enabled for the given cache root and env override.
+func UseStdCache(cacheRoot string, envVal string, disabled bool) bool {
+	if disabled || cacheRoot == "" || envVal == "off" || envVal == "0" || envVal == "false" {
+		return false
+	}
+	true
+}
+
+// UseEmbeddedStd reports whether the embedded std snapshot should be used given ERGO_STD_SNAPSHOT value.
+func UseEmbeddedStd(envVal string) bool {
+	envVal != "off" && envVal != "0" && envVal != "false"
+}
+
+// StdSourcesDigest computes the canonical SHA-256 hex digest of std source files.
+func StdSourcesDigest(entries []front.ProgramTextEntry) string {
+	front.ProgramFingerprint(entries)
+}
+
+// SnapshotPlanKeys holds computed keys for std and required-module segment snapshots.
+type SnapshotPlanKeys {
+	StdKey  string,
+	ModKey  string,
+	SegKeys []string,
+}
+
+// BuildSnapshotPlan computes std and module-segment snapshot keys via compiler/front.
+func BuildSnapshotPlan(compilerVersion string, segPaths []string, segModKeys []string) SnapshotPlanKeys {
+	let stdK = front.StdSnapshotKey(compilerVersion)
+	let mut segs = slices.WithCapacity[string](segPaths.Len())
+	for i in 0..segPaths.Len() {
+		let mk = if i < segModKeys.Len() { segModKeys[i] } else { "" }
+		segs = segs.Append(front.ModuleSegmentKey(segPaths[i], mk))
+	}
+	let modK = front.ModuleSnapshotKey(compilerVersion, segs)
+	SnapshotPlanKeys{
+		StdKey:  stdK,
+		ModKey:  modK,
+		SegKeys: segs,
+	}
+}
+
+// EncodeSegmentHeader serializes a check cache segment header cleanly for inspection or disk persistence.
+func EncodeSegmentHeader(pkgPath string, unitFP string, count uint32) string {
+	pkgPath + "\t" + unitFP + "\t" + strconv.Itoa(int(count))
+}
+
+// ComputeCheckKeyIsOrderInvariant verifies CheckKey is invariant to file and import slice ordering.
+law ComputeCheckKeyIsOrderInvariant(a string, b string) {
+	let f1 = front.ProgramTextEntry{Rel: "a.ergo", Source: a}
+	let f2 = front.ProgramTextEntry{Rel: "b.ergo", Source: b}
+	let i1 = front.ImportIfaceEntry{ImportPath: "std/a", IfaceFingerprint: a}
+	let i2 = front.ImportIfaceEntry{ImportPath: "std/b", IfaceFingerprint: b}
+	let k1 = ComputeCheckKey("app/p", "v1", []string{"A=1", "B=2"}, []front.ProgramTextEntry{f1, f2}, []front.ImportIfaceEntry{i1, i2})
+	let k2 = ComputeCheckKey("app/p", "v1", []string{"B=2", "A=1"}, []front.ProgramTextEntry{f2, f1}, []front.ImportIfaceEntry{i2, i1})
+	k1 == k2 && k1.Len() == 64
+}
+
+// ReuseRejectsStaleBindings verifies CheckCacheReuse refuses entries when bindings or goBodies hashes drift.
+law ReuseRejectsStaleBindings(key string, b1 string, b2 string) {
+	if b1 == b2 {
+		return true
+	}
+	let mut cc = NewCheckCache()
+	let _ = CheckCacheStore(&cc, key, uint32(0), b1, "g1", "ifp", "ufp", "payload")
+	CheckCacheReuse(cc, key, b1, "g1") != option.None && CheckCacheReuse(cc, key, b2, "g1") == option.None
+}
+
+test CheckCacheStoreReuseAndSnapshots {
+	let mut cc = NewCheckCache()
+	let k = ComputeCheckKey("app/m", "ergo-v1", []string{"GOARCH=amd64"}, []front.ProgramTextEntry{front.ProgramTextEntry{Rel: "m.ergo", Source: "let X = 1\n"}}, []front.ImportIfaceEntry{})
+	assert k.Len() == 64
+	let id = CheckCacheStore(&cc, k, uint32(3), "bind-h", "go-h", "iface-h", "unit-h", "segdata")
+	assert id == uint32(0)
+	assert CheckCacheReuse(cc, k, "bind-h", "go-h") == option.Some[uint32]{Value: uint32(0)}
+	assert CheckCacheReuse(cc, k, "bind-other", "go-h") == option.None
+	assert CheckCacheReuse(cc, k, "bind-h", "go-other") == option.None
+	assert UseStdCache("/tmp/cache", "", false)
+	assert !UseStdCache("/tmp/cache", "off", false)
+	assert UseEmbeddedStd("")
+	assert !UseEmbeddedStd("off")
+	let plan = BuildSnapshotPlan("v1", []string{"mod/a", "mod/b"}, []string{"mk1", "mk2"})
+	assert plan.StdKey != "" && plan.ModKey != "" && plan.SegKeys.Len() == 2
+	let (c1, d1) = FingerprintAfter("self", []front.ImportIfaceEntry{front.ImportIfaceEntry{ImportPath: "b", IfaceFingerprint: "2"}, front.ImportIfaceEntry{ImportPath: "a", IfaceFingerprint: "1"}})
+	let (c2, d2) = FingerprintAfter("self", []front.ImportIfaceEntry{front.ImportIfaceEntry{ImportPath: "a", IfaceFingerprint: "1"}, front.ImportIfaceEntry{ImportPath: "b", IfaceFingerprint: "2"}})
+	assert c1 == c2 && d1 == d2
+}

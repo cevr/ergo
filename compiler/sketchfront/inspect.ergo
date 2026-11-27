@@ -1,0 +1,517 @@
+import cmp
+import compiler/contentmap
+import compiler/syntax
+import option
+import slices
+import strconv
+import strings
+
+// WaitNone reports a reviewed-pure Go call that computes and returns immediately.
+let WaitNone = "none"
+
+// WaitInterruptible reports a foreign Go call that accepts the task context.
+let WaitInterruptible = "interruptible"
+
+// WaitUninterruptible reports a foreign Go call with no context that blocks interruption until return.
+let WaitUninterruptible = "uninterruptible"
+
+// LedgerFileName is the module law ledger file checked during rewrite inspection.
+let LedgerFileName = "ergo.laws"
+
+// FormReasonSpec describes one static reason registered for an IR optimization pass.
+type FormReasonSpec {
+	Form   string,
+	Pass   string,
+	Fired  bool,
+	Reason string,
+}
+
+// FormSiteSpec records one IR optimization pass decision at a source position.
+type FormSiteSpec {
+	File   string,
+	Line   uint32,
+	Column uint32,
+	Func   string,
+	Form   string,
+	Pass   string,
+	Fired  bool,
+	Reason string,
+}
+
+// RewriteSiteSpec describes one rewrite law site met during lowering.
+type RewriteSiteSpec {
+	File     string,
+	Line     uint32,
+	Column   uint32,
+	Law      string,
+	Provider string,
+	Instance string,
+	Build    string,
+	Verdict  string,
+	By       string,
+	With     string,
+	Ledger   string,
+	Applied  bool,
+	Why      string,
+}
+
+// FactSpec describes one compiler fact exported for optimization or evidence reporting.
+type FactSpec {
+	Kind     string,
+	Func     string,
+	At       string,
+	File     string,
+	Line     uint32,
+	Column   uint32,
+	Subjects []string,
+	Holds    string,
+	Lo       string,
+	Hi       string,
+	Evidence string,
+	Reason   string,
+	Law      string,
+	Use      string,
+}
+
+// CopySiteSpec describes one copy or in-place decision from value lowering.
+type CopySiteSpec {
+	File   string,
+	Line   uint32,
+	Column uint32,
+	Form   string,
+	Kind   string,
+	Why    string,
+	Func   string,
+}
+
+// OwnedFuncSpec identifies one function with owned parameters for value hand-over reporting.
+type OwnedFuncSpec {
+	Func   string,
+	File   string,
+	Line   uint32,
+	Column uint32,
+	Params []string,
+}
+
+// CopyReportTable holds sorted value copy sites and owned functions without pointers.
+type CopyReportTable {
+	Sites []CopySiteSpec,
+	Owned []OwnedFuncSpec,
+}
+
+// GoRefusalSpec describes a Go declaration excluded from Ergo import binding.
+type GoRefusalSpec {
+	Name   string,
+	Reason string,
+}
+
+// GoImportSpec summarizes one Go package imported by an Ergo program.
+type GoImportSpec {
+	Path       string,
+	Provenance string,
+	Refused    []GoRefusalSpec,
+}
+
+// GoSymbolSpec describes one foreign or runtime Go symbol reached by the program.
+type GoSymbolSpec {
+	Target     string,
+	GoDecl     string,
+	ErgoSig    string,
+	Tier       string,
+	Provenance string,
+	Wait       string,
+}
+
+// GoFunctionSpec describes direct and transitive Go symbol reachability for one Ergo function.
+type GoFunctionSpec {
+	Package string,
+	Name    string,
+	File    string,
+	Line    uint32,
+	Reach   []string,
+	Waits   []string,
+}
+
+// GoDerivedSpec summarizes one inline derive or mapped content asset for Go/mapper inspection.
+type GoDerivedSpec {
+	Package   string,
+	TypeName  string,
+	Plan      string,
+	Decls     []string,
+	Steps     uint32,
+	Kind      string,
+	MediaKind string,
+	CacheHit  bool,
+	CacheKey  string,
+}
+
+// GoReportTable captures the complete Go boundary, wait classification, derive, and rewrite report.
+type GoReportTable {
+	Imports      []GoImportSpec,
+	Functions    []GoFunctionSpec,
+	Symbols      []GoSymbolSpec,
+	Derived      []GoDerivedSpec,
+	RewriteSites []RewriteSiteSpec,
+}
+
+// InspectMappersResult holds mapped asset and inline derive inspection records.
+type InspectMappersResult {
+	Records []contentmap.MapperRecord,
+}
+
+// DefaultFormReasons returns the canonical vocabulary of IR optimization form pass reasons.
+func DefaultFormReasons() []FormReasonSpec {
+	[]FormReasonSpec{
+		FormReasonSpec{Form: "call", Pass: "memo", Fired: true, Reason: "computed once per entry of its loop"},
+		FormReasonSpec{Form: "call", Pass: "memo", Fired: false, Reason: "the callee is not pure"},
+		FormReasonSpec{Form: "call", Pass: "memo", Fired: false, Reason: "a method, a task, a call with a block or a call site"},
+		FormReasonSpec{Form: "call", Pass: "memo", Fired: false, Reason: "an operand or the result is not a number, a bool or a string"},
+		FormReasonSpec{Form: "call", Pass: "memo", Fired: false, Reason: "an operand may change in the loop"},
+		FormReasonSpec{Form: "call", Pass: "memo", Fired: false, Reason: "statements run before the call"},
+		FormReasonSpec{Form: "call", Pass: "merge", Fired: true, Reason: "merged with a dominating call"},
+		FormReasonSpec{Form: "call", Pass: "merge", Fired: false, Reason: "memory may change between the calls"},
+		FormReasonSpec{Form: "call", Pass: "merge", Fired: false, Reason: "a call that is not value-pure"},
+		FormReasonSpec{Form: "call", Pass: "merge", Fired: false, Reason: "no dominating call of the same arguments"},
+		FormReasonSpec{Form: "call", Pass: "fold", Fired: true, Reason: "computed at compile time"},
+		FormReasonSpec{Form: "call", Pass: "fold", Fired: false, Reason: "calls non-std Go"},
+		FormReasonSpec{Form: "call", Pass: "fold", Fired: false, Reason: "an operand is not constant"},
+	}
+}
+
+// SortFormSites orders IR form sites by file, line, column, then pass name.
+func SortFormSites(sites []FormSiteSpec) []FormSiteSpec {
+	slices.SortStableFunc(sites, func(a FormSiteSpec, b FormSiteSpec) int {
+		let fc = cmp.Compare(a.File, b.File)
+		if fc != 0 {
+			return fc
+		}
+		if a.Line != b.Line {
+			return if a.Line < b.Line { -1 } else { 1 }
+		}
+		if a.Column != b.Column {
+			return if a.Column < b.Column { -1 } else { 1 }
+		}
+		cmp.Compare(a.Pass, b.Pass)
+	})
+}
+
+// FormsText formats IR form sites identically to Go ergo inspect forms output.
+func FormsText(sites []FormSiteSpec) string {
+	if sites.Len() == 0 {
+		return "no form site\n"
+	}
+	let mut b = strings.NewBuilder()
+	for s in sites {
+		let verdict = if s.Fired { "fired" } else { "not fired" }
+		b.WriteString(s.File + ":" + strconv.Itoa(int(s.Line)) + ":" + strconv.Itoa(int(s.Column)) + "  " + s.Form + "  " + s.Pass + "  " + verdict + "  " + s.Func + "  (" + s.Reason + ")\n")
+	}
+	b.String()
+}
+
+// RewritesText formats rewrite sites identically to Go sketchfront.RewritesText output.
+func RewritesText(sites []RewriteSiteSpec) string {
+	let mut b = strings.NewBuilder()
+	for s in sites {
+		let mut lawLabel = s.Law
+		if s.Provider != "" {
+			lawLabel = lawLabel + " for " + s.Provider
+		}
+		if s.Build != "" {
+			lawLabel = lawLabel + " under " + s.Build
+		}
+		let mut level = if s.Verdict == "" { "none" } else { s.Verdict }
+		if s.By != "" {
+			level = level + " by " + s.By
+		}
+		if s.With != "" {
+			level = level + "  with " + s.With
+		}
+		let mut applied = "applied"
+		if !s.Applied {
+			applied = "not applied"
+			if s.Why != "" && !strings.HasPrefix(s.Why, "not applied") {
+				applied = applied + ": " + s.Why
+			} else if s.Why != "" {
+				applied = s.Why
+			}
+		}
+		b.WriteString(s.File + ":" + strconv.Itoa(int(s.Line)) + ":" + strconv.Itoa(int(s.Column)) + "  " + lawLabel + "  " + level + "  " + s.Ledger + "  " + applied + "\n")
+	}
+	b.String()
+}
+
+// SortFacts orders exported compiler facts deterministically by file, line, column, kind, and subjects.
+func SortFacts(fs []FactSpec) []FactSpec {
+	slices.SortStableFunc(fs, func(a FactSpec, b FactSpec) int {
+		let fc = cmp.Compare(a.File, b.File)
+		if fc != 0 {
+			return fc
+		}
+		if a.Line != b.Line {
+			return if a.Line < b.Line { -1 } else { 1 }
+		}
+		if a.Column != b.Column {
+			return if a.Column < b.Column { -1 } else { 1 }
+		}
+		let kc = cmp.Compare(a.Kind, b.Kind)
+		if kc != 0 {
+			return kc
+		}
+		cmp.Compare(strings.Join(a.Subjects, ","), strings.Join(b.Subjects, ","))
+	})
+}
+
+// FactsText formats exported compiler facts identically to Go ergo inspect facts output.
+func FactsText(facts []FactSpec) string {
+	let mut b = strings.NewBuilder()
+	for f in facts {
+		b.WriteString(f.At + "  " + f.Kind + "  " + f.Func + "  " + f.Holds + "  (" + f.Evidence + ": " + f.Reason + ")")
+		if f.Use != "" {
+			b.WriteString("  " + f.Use)
+		}
+		b.WriteByte('\n')
+	}
+	b.String()
+}
+
+// FactLedgerKey formats the canonical key for looking up a rewrite law in a ledger map.
+func FactLedgerKey(lawName string, provider string, instance string, build string) string {
+	let mut k = lawName
+	if provider != "" {
+		k = k + " for " + provider
+	}
+	if instance != "" {
+		k = k + " at " + instance
+	}
+	if build != "" {
+		k = k + " under " + build
+	}
+	k
+}
+
+// RewriteEvidenceFacts converts applied RewriteSiteSpec records into FactSpec evidence rows using ledgerLines.
+func RewriteEvidenceFacts(sites []RewriteSiteSpec, ledgerLines Map[string, uint32]) []FactSpec {
+	let mut out = []FactSpec{}
+	for s in sites {
+		if !s.Applied {
+			continue
+		}
+		let key = FactLedgerKey(s.Law, s.Provider, s.Instance, s.Build)
+		let mut where = "std law ledger"
+		match ledgerLines.Get(key) {
+		case option.Some[uint32] as n:
+			where = LedgerFileName + ":" + strconv.Itoa(int(n.Value))
+		case option.None:
+		}
+		let mut level = s.Verdict
+		if s.By != "" {
+			level = level + " by " + s.By
+		}
+		let mut holds = s.Law
+		if s.Provider != "" {
+			holds = holds + " for " + s.Provider
+		}
+		if s.Instance != "" {
+			holds = holds + " at " + s.Instance
+		}
+		let mut reason = where + ": law " + key
+		if s.With != "" {
+			reason = reason + " with " + s.With
+		}
+		out = out.Append(FactSpec{
+			Kind:     "rewrite",
+			Func:     s.Law,
+			At:       s.File + ":" + strconv.Itoa(int(s.Line)) + ":" + strconv.Itoa(int(s.Column)),
+			File:     s.File,
+			Line:     s.Line,
+			Column:   s.Column,
+			Subjects: []string{},
+			Holds:    holds,
+			Lo:       "",
+			Hi:       "",
+			Evidence: level,
+			Reason:   reason,
+			Law:      "",
+			Use:      "",
+		})
+	}
+	out
+}
+
+// DerivePlanName computes the inspection plan label for one MapperRecord.
+func DerivePlanName(rec contentmap.MapperRecord) string {
+	if rec.MapperPkg != "" && rec.MapperFunc != "" {
+		return rec.MapperPkg + "." + rec.MapperFunc
+	}
+	if rec.MapperPkg != "" {
+		return rec.MapperPkg
+	}
+	rec.MediaKind
+}
+
+// DerivedFromMappers projects contentmap MapperRecord entries into GoDerivedSpec report rows.
+func DerivedFromMappers(pkgPath string, recs []contentmap.MapperRecord) []GoDerivedSpec {
+	let mut out = slices.WithCapacity[GoDerivedSpec](recs.Len())
+	for rec in recs {
+		out = out.Append(GoDerivedSpec{
+			Package:   pkgPath,
+			TypeName:  rec.Target,
+			Plan:      DerivePlanName(rec),
+			Decls:     slices.Clone(rec.Decls),
+			Steps:     rec.Steps,
+			Kind:      contentmap.MapperOriginKindName(rec.Kind),
+			MediaKind: rec.MediaKind,
+			CacheHit:  rec.CacheHit,
+			CacheKey:  rec.CacheKey,
+		})
+	}
+	out
+}
+
+// CollectPackageGoReport inspects Go imports and function declarations across source packages into a GoReportTable.
+func CollectPackageGoReport(pkgPath string, srcs []contentmap.SourceFile, stdImports Map[string, bool]) GoReportTable {
+	let parsedPkg = contentmap.BuildParsedPackage(pkgPath, srcs)
+	let mut imports = []GoImportSpec{}
+	let mut seenImp = Map[string, bool]{}
+	let mut functions = []GoFunctionSpec{}
+	for bf in parsedPkg.Files {
+		let p = bf.Parsed
+		if p.Failed {
+			continue
+		}
+		match syntax.ViewOf(p.Tree, syntax.Root(p.Tree)) {
+		case syntax.File as fv:
+			for i in 0..syntax.Len(fv.Decls) {
+				let declID = syntax.Item(p.Tree, fv.Decls, i)
+				match syntax.ViewOf(p.Tree, declID) {
+				case syntax.ImportDecl as im:
+					let impPath = importDeclPath(p, im)
+					if impPath != "" && stdImports.Get(impPath) == option.None && seenImp.Get(impPath) == option.None {
+						seenImp = seenImp.Put(impPath, true)
+						imports = imports.Append(GoImportSpec{
+							Path:       impPath,
+							Provenance: classifyGoImportProvenance(impPath),
+							Refused:    []GoRefusalSpec{},
+						})
+					}
+				case syntax.FuncDecl as fn:
+					let fnName = syntax.TokText(p, syntax.NameOf(p.Tree, fn.Name).Tok)
+					let line = uint32(syntax.PositionOf(syntax.LinesOf(syntax.SourceOf(p)), syntax.NodePos(p, declID)).Line)
+					functions = functions.Append(GoFunctionSpec{
+						Package: pkgPath,
+						Name:    fnName,
+						File:    bf.Name,
+						Line:    line,
+						Reach:   []string{},
+						Waits:   []string{},
+					})
+				case _:
+				}
+			}
+		case _:
+		}
+	}
+	let sortedImps = slices.SortFunc(imports, func(a GoImportSpec, b GoImportSpec) int {
+		cmp.Compare(a.Path, b.Path)
+	})
+	GoReportTable{
+		Imports:      sortedImps,
+		Functions:    functions,
+		Symbols:      []GoSymbolSpec{},
+		Derived:      []GoDerivedSpec{},
+		RewriteSites: []RewriteSiteSpec{},
+	}
+}
+
+func importDeclPath(p syntax.Parsed, im syntax.ImportDecl) string {
+	let spec = syntax.ImportSpecOf(p.Tree, im.Spec)
+	let raw = syntax.TokText(p, syntax.BasicLitOf(p.Tree, spec.Path).Tok)
+	strconv.Unquote(raw) catch {
+	case _:
+		strings.TrimSuffix(strings.TrimPrefix(raw, "\""), "\"")
+	}
+}
+
+func classifyGoImportProvenance(impPath string) string {
+	if !strings.Contains(impPath, ".") {
+		return "go stdlib"
+	}
+	"go module"
+}
+
+// InspectMappersFromRecords wraps sorted MapperRecords into InspectMappersResult.
+func InspectMappersFromRecords(recs []contentmap.MapperRecord) InspectMappersResult {
+	let sorted = slices.SortStableFunc(slices.Clone(recs), func(a contentmap.MapperRecord, b contentmap.MapperRecord) int {
+		let fc = cmp.Compare(a.FileName, b.FileName)
+		if fc != 0 {
+			return fc
+		}
+		if a.Line != b.Line {
+			return if a.Line < b.Line { -1 } else { 1 }
+		}
+		cmp.Compare(a.Target, b.Target)
+	})
+	InspectMappersResult{Records: sorted}
+}
+
+// RewritesTextIncludesAllSites verifies RewritesText emits one line per input site.
+law RewritesTextIncludesAllSites(sites []RewriteSiteSpec) {
+	let text = RewritesText(sites)
+	if sites.Len() == 0 {
+		return text == ""
+	}
+	for s in sites {
+		if strings.Contains(s.File, "\n") || strings.Contains(s.Law, "\n") || strings.Contains(s.Provider, "\n") || strings.Contains(s.Build, "\n") || strings.Contains(s.Verdict, "\n") || strings.Contains(s.By, "\n") || strings.Contains(s.With, "\n") || strings.Contains(s.Ledger, "\n") || strings.Contains(s.Why, "\n") {
+			return strings.Count(text, "\n") >= sites.Len()
+		}
+	}
+	strings.Count(text, "\n") == sites.Len()
+}
+
+test InspectFormatsAndGoReport {
+	let rw = []RewriteSiteSpec{
+		RewriteSiteSpec{
+			File:     "main.ergo",
+			Line:     uint32(10),
+			Column:   uint32(2),
+			Law:      "strings.TrimSpaceIsIdempotent",
+			Provider: "",
+			Instance: "",
+			Build:    "",
+			Verdict:  "validated",
+			By:       "eval",
+			With:     "go1.27.4",
+			Ledger:   "current",
+			Applied:  true,
+			Why:      "",
+		},
+		RewriteSiteSpec{
+			File:     "main.ergo",
+			Line:     uint32(14),
+			Column:   uint32(3),
+			Law:      "Reader.ReadPure",
+			Provider: "BufReader",
+			Instance: "",
+			Build:    "debug",
+			Verdict:  "",
+			By:       "",
+			With:     "",
+			Ledger:   "missing",
+			Applied:  false,
+			Why:      "ledger missing",
+		},
+	}
+	let rwText = RewritesText(rw)
+	assert strings.Contains(rwText, "main.ergo:10:2  strings.TrimSpaceIsIdempotent  validated by eval  with go1.27.4  current  applied\n")
+	assert strings.Contains(rwText, "main.ergo:14:3  Reader.ReadPure for BufReader under debug  none  missing  not applied: ledger missing\n")
+	assert FormsText([]FormSiteSpec{}) == "no form site\n"
+	let forms = FormsText([]FormSiteSpec{FormSiteSpec{File: "a.ergo", Line: uint32(5), Column: uint32(3), Func: "Main", Form: "call", Pass: "memo", Fired: true, Reason: "computed once per entry of its loop"}})
+	assert forms == "a.ergo:5:3  call  memo  fired  Main  (computed once per entry of its loop)\n"
+	let facts = FactsText([]FactSpec{FactSpec{Kind: "fact-pure", Func: "PureFn", At: "a.ergo:1:1", File: "a.ergo", Line: uint32(1), Column: uint32(1), Subjects: []string{}, Holds: "pure PureFn", Lo: "", Hi: "", Evidence: "proved", Reason: "empty footprint", Law: "", Use: ""}})
+	assert facts == "a.ergo:1:1  fact-pure  PureFn  pure PureFn  (proved: empty footprint)\n"
+	let mut stds = Map[string, bool]{}
+	stds = stds.Put("strings", true)
+	let rep = CollectPackageGoReport("app/main", []contentmap.SourceFile{contentmap.SourceFile{Name: "main.ergo", Src: "import strings\nimport encoding/hex\nfunc Main() int { 1 }\n"}}, stds)
+	assert rep.Imports.Len() == 1 && rep.Imports[0].Path == "encoding/hex"
+	assert rep.Functions.Len() == 1 && rep.Functions[0].Name == "Main"
+}

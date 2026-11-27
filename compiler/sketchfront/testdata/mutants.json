@@ -1,0 +1,165 @@
+{
+  "about": "compiler/sketchfront: pure-Ergo Data-Oriented replacement for internal/sketchfront across analysis, checkcache, tree checking, inspection reports, licence/corpus/shadow/foreign keys, evaluation/warm caches, dependency graphs, and asset rules.",
+  "mutants": [
+    {
+      "name": "selfhost-sketchfront-analysis-format-limit-ignored",
+      "origin": "SELFHOST-SKETCHFRONT",
+      "file": "compiler/sketchfront/analysis.ergo",
+      "decl": "FormatSource",
+      "from": "\tlet limit = if hasLimit { int(maxOutputBytes) } else { 0 }\n",
+      "to": "\tlet limit = 0\n",
+      "rule": "FormatSource must enforce positive maxOutputBytes limits rather than silently ignoring them.",
+      "killers": ["compiler/sketchfront:AnalysisTableFormatAndCheckSource"]
+    },
+    {
+      "name": "selfhost-sketchfront-analysis-shards-mode-collapsed",
+      "origin": "SELFHOST-SKETCHFRONT",
+      "file": "compiler/sketchfront/analysis.ergo",
+      "decl": "ShardsSeenKey",
+      "from": "\tlet mText = if mode == ModeBuild {\n\t\t\"build\"\n\t} else if mode == ModeTest {\n\t\t\"test\"\n\t} else {\n\t\t\"lib\"\n\t}\n",
+      "to": "\tlet mText = if mode == ModeBuild || mode == ModeTest {\n\t\t\"build\"\n\t} else {\n\t\t\"lib\"\n\t}\n",
+      "rule": "ShardsSeenKey must distinguish build and test modes so their shard keys never collide.",
+      "killers": ["compiler/sketchfront:law:ShardsKeySensitiveToMode"]
+    },
+    {
+      "name": "selfhost-sketchfront-checkcache-stale-bindings-reused",
+      "origin": "SELFHOST-SKETCHFRONT",
+      "file": "compiler/sketchfront/checkcache.ergo",
+      "decl": "CheckCacheReuse",
+      "from": "\t\tif cc.BindingsHash[i] == bindingsHash && cc.GoBodiesHash[i] == goBodiesHash {\n\t\t\treturn option.Some[uint32]{Value: got.Value}\n\t\t}\n",
+      "to": "\t\tif cc.GoBodiesHash[i] == goBodiesHash {\n\t\t\treturn option.Some[uint32]{Value: got.Value}\n\t\t}\n",
+      "rule": "CheckCacheReuse must reject cached entries whose Go bindings hash no longer matches.",
+      "killers": ["compiler/sketchfront:law:ReuseRejectsStaleBindings", "compiler/sketchfront:CheckCacheStoreReuseAndSnapshots"]
+    },
+    {
+      "name": "selfhost-sketchfront-checkcache-stdcache-ignores-off",
+      "origin": "SELFHOST-SKETCHFRONT",
+      "file": "compiler/sketchfront/checkcache.ergo",
+      "decl": "UseStdCache",
+      "from": "\tif disabled || cacheRoot == \"\" || envVal == \"off\" || envVal == \"0\" || envVal == \"false\" {\n\t\treturn false\n\t}\n",
+      "to": "\tif disabled || cacheRoot == \"\" {\n\t\treturn false\n\t}\n",
+      "rule": "UseStdCache must disable disk snapshot caching when env override is set to off.",
+      "killers": ["compiler/sketchfront:CheckCacheStoreReuseAndSnapshots"]
+    },
+    {
+      "name": "selfhost-sketchfront-tree-overlay-rel-skipped",
+      "origin": "SELFHOST-SKETCHFRONT",
+      "file": "compiler/sketchfront/tree.ergo",
+      "decl": "ApplyOverlay",
+      "from": "\tmatch ov.ByRel.Get(cleanRel) {\n\tcase option.Some[uint32] as id:\n\t\treturn ov.Source[int(id.Value)]\n\tcase option.None:\n\t}\n",
+      "to": "\tmatch ov.ByAbs.Get(cleanRel) {\n\tcase option.Some[uint32] as id:\n\t\treturn ov.Source[int(id.Value)]\n\tcase option.None:\n\t}\n",
+      "rule": "ApplyOverlay must look up relative overlay entries by ByRel so unsaved relative buffers override disk sources.",
+      "killers": ["compiler/sketchfront:CheckTreeOverlaySharedAndPins"]
+    },
+    {
+      "name": "selfhost-sketchfront-tree-cycle-unrejected",
+      "origin": "SELFHOST-SKETCHFRONT",
+      "file": "compiler/sketchfront/tree.ergo",
+      "decl": "CheckSharedPackagesPlan",
+      "from": "\tif order.Len() < n {\n",
+      "to": "\tif false && order.Len() < n {\n",
+      "rule": "CheckSharedPackagesPlan must refuse cyclic import graphs rather than reporting success.",
+      "killers": ["compiler/sketchfront:CheckTreeOverlaySharedAndPins"]
+    },
+    {
+      "name": "selfhost-sketchfront-tree-covers-module-empty",
+      "origin": "SELFHOST-SKETCHFRONT",
+      "file": "compiler/sketchfront/tree.ergo",
+      "decl": "CoversModule",
+      "from": "\t\tif mr == \"\" || filepath.Clean(mr) != cleanRoot {\n\t\t\treturn false\n\t\t}\n",
+      "to": "\t\tif false && filepath.Clean(mr) != cleanRoot {\n\t\t\treturn false\n\t\t}\n",
+      "rule": "CoversModule must reject packages outside modRoot or missing a module root.",
+      "killers": ["compiler/sketchfront:CheckTreeOverlaySharedAndPins"]
+    },
+    {
+      "name": "selfhost-sketchfront-inspect-rewrites-ignores-why",
+      "origin": "SELFHOST-SKETCHFRONT",
+      "file": "compiler/sketchfront/inspect.ergo",
+      "decl": "RewritesText",
+      "from": "\t\t\tif s.Why != \"\" && !strings.HasPrefix(s.Why, \"not applied\") {\n\t\t\t\tapplied = applied + \": \" + s.Why\n\t\t\t} else if s.Why != \"\" {\n\t\t\t\tapplied = s.Why\n\t\t\t}\n",
+      "to": "\t\t\tif false && s.Why != \"\" {\n\t\t\t\tapplied = applied + \": \" + s.Why\n\t\t\t}\n",
+      "rule": "RewritesText must include the non-application reason on unapplied rewrite sites.",
+      "killers": ["compiler/sketchfront:InspectFormatsAndGoReport"]
+    },
+    {
+      "name": "selfhost-sketchfront-inspect-forms-not-fired-inverted",
+      "origin": "SELFHOST-SKETCHFRONT",
+      "file": "compiler/sketchfront/inspect.ergo",
+      "decl": "FormsText",
+      "from": "\t\tlet verdict = if s.Fired { \"fired\" } else { \"not fired\" }\n",
+      "to": "\t\tlet verdict = if !s.Fired { \"fired\" } else { \"not fired\" }\n",
+      "rule": "FormsText must label fired sites as fired and unfired sites as not fired.",
+      "killers": ["compiler/sketchfront:InspectFormatsAndGoReport"]
+    },
+    {
+      "name": "selfhost-sketchfront-licence-parse-drops-at-instance",
+      "origin": "SELFHOST-SKETCHFRONT",
+      "file": "compiler/sketchfront/licence.ergo",
+      "decl": "ParseLawLedger",
+      "from": "\t\tif pos+1 < toks.Len() && toks[pos] == \"at\" {\n\t\t\tinstance = toks[pos+1]\n\t\t\tpos = pos + 2\n\t\t}\n",
+      "to": "\t\tif pos+1 < toks.Len() && toks[pos] == \"at\" {\n\t\t\tinstance = \"\"\n\t\t\tpos = pos + 2\n\t\t}\n",
+      "rule": "ParseLawLedger must record the parenthesized instance argument of `at (...)` ledger rows.",
+      "killers": ["compiler/sketchfront:LawLedgerParseAdviceCorpusShadowAndForeign"]
+    },
+    {
+      "name": "selfhost-sketchfront-licence-shadow-requires-parens-ignored",
+      "origin": "SELFHOST-SKETCHFRONT",
+      "file": "compiler/sketchfront/licence.ergo",
+      "decl": "ParseShadowLine",
+      "from": "\tif tail != \"\" && (!strings.HasPrefix(tail, \"(\") || !strings.HasSuffix(tail, \")\")) {\n\t\treturn (ShadowRefutation{LawKey: \"\", CaseLine: \"\", Seed: uint64(0), Digest: \"\"}, false)\n\t}\n",
+      "to": "\tif false && tail != \"\" {\n\t\treturn (ShadowRefutation{LawKey: \"\", CaseLine: \"\", Seed: uint64(0), Digest: \"\"}, false)\n\t}\n",
+      "rule": "ParseShadowLine must reject malformed shadow refutation tails that are not parenthesized.",
+      "killers": ["compiler/sketchfront:LawLedgerParseAdviceCorpusShadowAndForeign"]
+    },
+    {
+      "name": "selfhost-sketchfront-licence-foreign-ignores-arch",
+      "origin": "SELFHOST-SKETCHFRONT",
+      "file": "compiler/sketchfront/licence.ergo",
+      "decl": "MatchesForeignBuildTag",
+      "from": "\tif knownArch && tag.GoArch != \"\" {\n\t\tif last != tag.GoArch {\n\t\t\treturn false\n\t\t}\n",
+      "to": "\tif knownArch && tag.GoArch != \"\" {\n\t\tif false && last != tag.GoArch {\n\t\t\treturn false\n\t\t}\n",
+      "rule": "MatchesForeignBuildTag must exclude Go files whose architecture suffix does not match GoArch.",
+      "killers": ["compiler/sketchfront:LawLedgerParseAdviceCorpusShadowAndForeign"]
+    },
+    {
+      "name": "selfhost-sketchfront-evaluate-stored-mark-dropped",
+      "origin": "SELFHOST-SKETCHFRONT",
+      "file": "compiler/sketchfront/evaluate.ergo",
+      "decl": "ResolveTestAnswers",
+      "from": "\t\tlet mark = if r.Cached { StoredMark } else { EvaluatedMark }\n",
+      "to": "\t\tlet mark = EvaluatedMark\n",
+      "rule": "ResolveTestAnswers must label cached passing obligations with (cached) rather than (evaluated).",
+      "killers": ["compiler/sketchfront:EvaluateVerdictsKeysAnswersAndWarm"]
+    },
+    {
+      "name": "selfhost-sketchfront-evaluate-target-key-unkeyed",
+      "origin": "SELFHOST-SKETCHFRONT",
+      "file": "compiler/sketchfront/evaluate.ergo",
+      "decl": "TargetVerdictKey",
+      "from": "\tlet effStates = if states == uint32(0) { DefaultEvalStates } else { states }\n",
+      "to": "\tlet effStates = uint32(1)\n",
+      "rule": "TargetVerdictKey must normalize zero state budgets to DefaultEvalStates and respect explicit state bounds.",
+      "killers": ["compiler/sketchfront:EvaluateVerdictsKeysAnswersAndWarm"]
+    },
+    {
+      "name": "selfhost-sketchfront-graph-edge-not-deduped",
+      "origin": "SELFHOST-SKETCHFRONT",
+      "file": "compiler/sketchfront/graph.ergo",
+      "decl": "AddGraphEdge",
+      "from": "\tif (*g).EdgeKeys.Get(key) != option.None {\n\t\treturn\n\t}\n",
+      "to": "\tif false && (*g).EdgeKeys.Get(key) != option.None {\n\t\treturn\n\t}\n",
+      "rule": "AddGraphEdge must deduplicate identical (kind, from, to) edges in GraphTable.",
+      "killers": ["compiler/sketchfront:GraphOfAnalysisAndWorkspace"]
+    },
+    {
+      "name": "selfhost-sketchfront-assets-ergo-pattern-allowed",
+      "origin": "SELFHOST-SKETCHFRONT",
+      "file": "compiler/sketchfront/assets.ergo",
+      "decl": "AssetPatternProblem",
+      "from": "\tif strings.HasSuffix(base, \".ergo\") || base == \"ergo.mod\" || base == \"ergo.laws\" || base == \"go.mod\" {\n",
+      "to": "\tif base == \"go.mod\" {\n",
+      "rule": "AssetPatternProblem must forbid content map rules overriding *.ergo or manifest files.",
+      "killers": ["compiler/sketchfront:AssetsPatternSplitAndDiscovery"]
+    }
+  ]
+}

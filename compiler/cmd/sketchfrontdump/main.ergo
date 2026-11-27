@@ -1,0 +1,374 @@
+import compiler/contentmap
+import compiler/front
+import compiler/lawcache
+import compiler/sketchfront
+import fs
+import io
+import json
+import option
+import os
+import slices
+import strconv
+import strings
+
+type cliConfig {
+	mode     string,
+	dir      string,
+	stdDir   string,
+	file     string,
+	cases    string,
+	pkg      string,
+	compiler string,
+	envCSV   string,
+	goos     string,
+	goarch   string,
+	ovRel    string,
+	ovSrc    string,
+	limit    uint32,
+	hasLimit bool,
+	args     []string,
+}
+
+func jsonString(s string) string {
+	json.Encode(json.Codec[string]{MaxBytes: 0, MaxDepth: 0}, s)
+}
+
+func jsonBool(b bool) string {
+	if b { "true" } else { "false" }
+}
+
+func jsonStringsArray(xs []string) string {
+	let mut out = slices.WithCapacity[string](xs.Len())
+	for x in xs {
+		out = out.Append(jsonString(x))
+	}
+	"[" + strings.Join(out, ",") + "]"
+}
+
+func readFileOrExit(path string) string fails os.Exit needs fs.Files {
+	fs.Files.ReadFile(path) catch {
+	case fs.NotFound:
+		return os.Exit{Code: 1, Message: "sketchfrontdump: no file " + path}
+	case fs.Denied:
+		return os.Exit{Code: 1, Message: "sketchfrontdump: cannot read " + path}
+	case fs.Failed as e:
+		return os.Exit{Code: 1, Message: "sketchfrontdump: read " + path + ": " + e.Reason}
+	}
+}
+
+func parseArgs(argv []string) cliConfig fails os.Exit {
+	let mut cfg = cliConfig{
+		mode:     "format",
+		dir:      ".",
+		stdDir:   "",
+		file:     "",
+		cases:    "",
+		pkg:      "main",
+		compiler: "ergo-v1",
+		envCSV:   "",
+		goos:     "linux",
+		goarch:   "amd64",
+		ovRel:    "",
+		ovSrc:    "",
+		limit:    uint32(0),
+		hasLimit: false,
+		args:     []string{},
+	}
+	let mut i = 0
+	let mut stop = false
+	for i < argv.Len() {
+		let a = argv[i]
+		if !stop && a == "--" {
+			stop = true
+			i = i + 1
+			continue
+		}
+		if !stop && strings.HasPrefix(a, "-") && a != "-" {
+			let flag = if strings.HasPrefix(a, "--") { a[1:a.Len()] } else { a }
+			if flag == "-mode" && i+1 < argv.Len() {
+				cfg.mode = argv[i+1]
+				i = i + 2
+				continue
+			}
+			if flag == "-dir" && i+1 < argv.Len() {
+				cfg.dir = argv[i+1]
+				i = i + 2
+				continue
+			}
+			if flag == "-std" && i+1 < argv.Len() {
+				cfg.stdDir = argv[i+1]
+				i = i + 2
+				continue
+			}
+			if flag == "-file" && i+1 < argv.Len() {
+				cfg.file = argv[i+1]
+				i = i + 2
+				continue
+			}
+			if flag == "-cases" && i+1 < argv.Len() {
+				cfg.cases = argv[i+1]
+				i = i + 2
+				continue
+			}
+			if flag == "-pkg" && i+1 < argv.Len() {
+				cfg.pkg = argv[i+1]
+				i = i + 2
+				continue
+			}
+			if flag == "-compiler" && i+1 < argv.Len() {
+				cfg.compiler = argv[i+1]
+				i = i + 2
+				continue
+			}
+			if flag == "-env" && i+1 < argv.Len() {
+				cfg.envCSV = argv[i+1]
+				i = i + 2
+				continue
+			}
+			if flag == "-goos" && i+1 < argv.Len() {
+				cfg.goos = argv[i+1]
+				i = i + 2
+				continue
+			}
+			if flag == "-goarch" && i+1 < argv.Len() {
+				cfg.goarch = argv[i+1]
+				i = i + 2
+				continue
+			}
+			if flag == "-overlay-rel" && i+1 < argv.Len() {
+				cfg.ovRel = argv[i+1]
+				i = i + 2
+				continue
+			}
+			if flag == "-overlay-file" && i+1 < argv.Len() {
+				cfg.ovSrc = argv[i+1]
+				i = i + 2
+				continue
+			}
+			if flag == "-limit" && i+1 < argv.Len() {
+				let n = strconv.Atoi(argv[i+1]) catch {
+				case _:
+					return os.Exit{Code: 2, Message: "invalid -limit value"}
+				}
+				if n < 0 {
+					return os.Exit{Code: 2, Message: "negative -limit"}
+				}
+				cfg.limit = uint32(n)
+				cfg.hasLimit = true
+				i = i + 2
+				continue
+			}
+			return os.Exit{Code: 2, Message: "unknown flag: " + a}
+		}
+		cfg.args = cfg.args.Append(a)
+		i = i + 1
+	}
+	cfg
+}
+
+func splitCSV(csv string) []string {
+	if csv == "" {
+		return []string{}
+	}
+	let parts = strings.Split(csv, ",")
+	let mut out = []string{}
+	for p in parts {
+		if p != "" {
+			out = out.Append(p)
+		}
+	}
+	out
+}
+
+func renderDiagsJSON(ds []sketchfront.SketchDiag) string {
+	let mut items = slices.WithCapacity[string](ds.Len())
+	for d in ds {
+		items = items.Append("{\"file\":" + jsonString(d.File) + ",\"line\":" + strconv.Itoa(int(d.Line)) + ",\"col\":" + strconv.Itoa(int(d.Column)) + ",\"code\":" + jsonString(d.Code) + ",\"message\":" + jsonString(d.Message) + "}")
+	}
+	"[" + strings.Join(items, ",") + "]"
+}
+
+func runFormatMode(cfg cliConfig) string fails os.Exit needs fs.Files {
+	let src = try readFileOrExit(cfg.file)
+	match sketchfront.FormatSource(src, cfg.limit, cfg.hasLimit) {
+	case sketchfront.FormatOK as ok:
+		"{\"ok\":true,\"changed\":" + jsonBool(ok.Changed) + ",\"inputDigest\":" + jsonString(ok.InputDigest) + ",\"outputDigest\":" + jsonString(ok.OutputDigest) + ",\"text\":" + jsonString(ok.Text) + ",\"error\":\"\"}"
+	case sketchfront.FormatLimitExceeded as le:
+		"{\"ok\":false,\"changed\":false,\"inputDigest\":" + jsonString(le.InputDigest) + ",\"outputDigest\":\"\",\"text\":\"\",\"error\":\"output limit\"}"
+	case sketchfront.FormatSyntaxError as se:
+		"{\"ok\":false,\"changed\":false,\"inputDigest\":" + jsonString(se.InputDigest) + ",\"outputDigest\":\"\",\"text\":\"\",\"error\":" + jsonString(sketchfront.FailureMessage(se.Diag)) + "}"
+	case sketchfront.FormatInvalidLimit as ie:
+		"{\"ok\":false,\"changed\":false,\"inputDigest\":\"\",\"outputDigest\":\"\",\"text\":\"\",\"error\":" + jsonString(ie.Reason) + "}"
+	}
+}
+
+func runCheckSourceMode(cfg cliConfig) string fails os.Exit needs fs.Files {
+	let src = try readFileOrExit(cfg.file)
+	let opts = sketchfront.CheckOptions{..sketchfront.DefaultCheckOptions(), StdDir: cfg.stdDir}
+	let tbl = sketchfront.CheckSource(src, cfg.file, opts)
+	let ifaceFP = if tbl.RootPkgID != front.NoID { tbl.PkgIfaceFP[int(tbl.RootPkgID)] } else { "" }
+	let selfFP = if tbl.RootPkgID != front.NoID { tbl.PkgSelfFP[int(tbl.RootPkgID)] } else { "" }
+	"{\"ifaceFP\":" + jsonString(ifaceFP) + ",\"selfFP\":" + jsonString(selfFP) + ",\"diags\":" + renderDiagsJSON(tbl.Diags) + "}"
+}
+
+func runCheckCacheMode(cfg cliConfig) string fails os.Exit needs fs.Files {
+	let mut files = []front.ProgramTextEntry{}
+	for path in cfg.args {
+		let src = try readFileOrExit(path)
+		files = files.Append(front.ProgramTextEntry{Rel: path, Source: src})
+	}
+	let env = splitCSV(cfg.envCSV)
+	let checkKey = sketchfront.ComputeCheckKey(cfg.pkg, sketchfront.LanguageRevision, env, files, []front.ImportIfaceEntry{})
+	let mut cc = sketchfront.NewCheckCache()
+	let _ = sketchfront.CheckCacheStore(&cc, checkKey, uint32(0), "bind-1", "go-1", "iface-1", "unit-1", "seg")
+	let hit = sketchfront.CheckCacheReuse(cc, checkKey, "bind-1", "go-1") != option.None
+	let miss = sketchfront.CheckCacheReuse(cc, checkKey, "bind-other", "go-1") == option.None
+	let snap = sketchfront.BuildSnapshotPlan(cfg.compiler, []string{cfg.pkg}, []string{"mod-1"})
+	let (cleanFP, depFP) = sketchfront.FingerprintAfter("self-1", []front.ImportIfaceEntry{front.ImportIfaceEntry{ImportPath: "std/strings", IfaceFingerprint: "s1"}})
+	"{\"checkKey\":" + jsonString(checkKey) + ",\"reuseHit\":" + jsonBool(hit) + ",\"reuseMiss\":" + jsonBool(miss) + ",\"stdKey\":" + jsonString(snap.StdKey) + ",\"modKey\":" + jsonString(snap.ModKey) + ",\"cleanFP\":" + jsonString(cleanFP) + ",\"depFP\":" + jsonString(depFP) + "}"
+}
+
+func runTreeMode(cfg cliConfig) string fails os.Exit needs fs.Files {
+	let opts = sketchfront.CheckOptions{..sketchfront.DefaultCheckOptions(), StdDir: cfg.stdDir}
+	let mut ov = sketchfront.NewOverlayTable()
+	if cfg.ovRel != "" && cfg.ovSrc != "" {
+		let text = try readFileOrExit(cfg.ovSrc)
+		let _ = sketchfront.AddOverlay(&ov, cfg.ovRel, "", text)
+	}
+	let tbl = sketchfront.CheckTreeOverlay(cfg.dir, ov, opts)
+	let mut pkgs = slices.WithCapacity[string](tbl.PkgPath.Len())
+	for i in 0..tbl.PkgPath.Len() {
+		let fEntries = sketchfront.PackageFiles(tbl, uint32(i))
+		let mut fNames = slices.WithCapacity[string](fEntries.Len())
+		for f in fEntries {
+			fNames = fNames.Append(f.Rel)
+		}
+		let imps = sketchfront.PackageImports(tbl, uint32(i))
+		pkgs = pkgs.Append("{\"path\":" + jsonString(tbl.PkgPath[i]) + ",\"selfFP\":" + jsonString(tbl.PkgSelfFP[i]) + ",\"cleanFP\":" + jsonString(tbl.PkgCleanFP[i]) + ",\"depFP\":" + jsonString(tbl.PkgDepFP[i]) + ",\"ifaceFP\":" + jsonString(tbl.PkgIfaceFP[i]) + ",\"files\":" + jsonStringsArray(fNames) + ",\"imports\":" + jsonStringsArray(imps) + "}")
+	}
+	let rootPath = if tbl.RootPkgID != front.NoID && int(tbl.RootPkgID) < tbl.PkgPath.Len() { tbl.PkgPath[int(tbl.RootPkgID)] } else { "" }
+	"{\"root\":" + jsonString(rootPath) + ",\"packages\":[" + strings.Join(pkgs, ",") + "],\"diags\":" + renderDiagsJSON(tbl.Diags) + "}"
+}
+
+func runLicenceMode(cfg cliConfig) string fails os.Exit needs fs.Files {
+	let ledgerSrc = try readFileOrExit(cfg.file)
+	let (tbl, errs) = sketchfront.ParseLawLedger(ledgerSrc)
+	let corpusSrc = if cfg.cases != "" { try readFileOrExit(cfg.cases) } else { "" }
+	let corp = sketchfront.ParseCorpus(corpusSrc)
+	let formattedCorpus = sketchfront.FormatCorpus(corp)
+	let adv = sketchfront.AdviseLicences(cfg.args, tbl)
+	let mut advJSON = slices.WithCapacity[string](adv.Len())
+	for a in adv {
+		advJSON = advJSON.Append("{\"law\":" + jsonString(a.LawKey) + ",\"status\":" + jsonString(a.Status) + "}")
+	}
+	let fks = sketchfront.ComputeForeignKeys([]front.ProgramTextEntry{
+		front.ProgramTextEntry{Rel: "a.go", Source: "package a"},
+		front.ProgramTextEntry{Rel: "b_linux_amd64.go", Source: "package a"},
+		front.ProgramTextEntry{Rel: "b_darwin.go", Source: "package a"},
+	}, sketchfront.ForeignBuildTag{GoOS: cfg.goos, GoArch: cfg.goarch})
+	let mut fkPaths = []string{}
+	for f in fks {
+		fkPaths = fkPaths.Append(f.Path)
+	}
+	let (sr, srOK) = sketchfront.ParseShadowLine(sketchfront.ShadowRefutedPrefix + "law.Rev refuted ([1])\n")
+	"{\"rowCount\":" + strconv.Itoa(tbl.Law.Len()) + ",\"errors\":" + jsonStringsArray(errs) + ",\"advice\":[" + strings.Join(advJSON, ",") + "],\"corpus\":" + jsonString(formattedCorpus) + ",\"foreignPaths\":" + jsonStringsArray(fkPaths) + ",\"shadowOK\":" + jsonBool(srOK) + ",\"shadowLaw\":" + jsonString(sr.LawKey) + ",\"shadowCase\":" + jsonString(sr.CaseLine) + "}"
+}
+
+func runGraphMode(cfg cliConfig) string fails os.Exit needs fs.Files {
+	let opts = sketchfront.CheckOptions{..sketchfront.DefaultCheckOptions(), StdDir: cfg.stdDir}
+	let tbl = sketchfront.CheckTree(cfg.dir, opts)
+	let g = sketchfront.GraphOfAnalysis(tbl)
+	"{\"text\":" + jsonString(sketchfront.GraphText(g)) + ",\"graph\":" + sketchfront.GraphJSON(g) + "}"
+}
+
+func runEvalMode(cfg cliConfig) string {
+	let targetKey = sketchfront.TargetVerdictKey(cfg.pkg, "dig1", "law.A", sketchfront.RunnerEval, uint32(0), uint64(1000), uint64(4096))
+	let testKey = sketchfront.TestVerdictKey(cfg.pkg, "dig1", "TestMain", uint64(7))
+	let replay = sketchfront.ReplayCommandOf(cfg.file, "LawA", true, uint64(7))
+	let env = splitCSV(cfg.envCSV)
+	let warmKey = sketchfront.WarmKeyOf(cfg.compiler, []string{"check", cfg.pkg}, env, []string{})
+	let st = lawcache.Memory(cfg.compiler)
+	sketchfront.StorePassedVerdict(st, testKey, "", "ok TestMain")
+	let cachedHit = sketchfront.LoadCachedVerdict(st, testKey, false, "") != option.None
+	"{\"targetKey\":" + jsonString(targetKey) + ",\"testKey\":" + jsonString(testKey) + ",\"replay\":" + jsonString(replay) + ",\"warmKey\":" + jsonString(warmKey) + ",\"cachedHit\":" + jsonBool(cachedHit) + "}"
+}
+
+func runInspectMode(cfg cliConfig) string fails os.Exit needs fs.Files {
+	let src = try readFileOrExit(cfg.file)
+	let stds = Map[string, bool]{}
+	let goRep = sketchfront.CollectPackageGoReport(cfg.pkg, []contentmap.SourceFile{contentmap.SourceFile{Name: cfg.file, Src: src}}, stds)
+	let rwText = sketchfront.RewritesText([]sketchfront.RewriteSiteSpec{
+		sketchfront.RewriteSiteSpec{File: cfg.file, Line: uint32(1), Column: uint32(1), Law: "L", Provider: "", Instance: "", Build: "", Verdict: "validated", By: "eval", With: "", Ledger: "current", Applied: true, Why: ""},
+	})
+	let factsText = sketchfront.FactsText([]sketchfront.FactSpec{
+		sketchfront.FactSpec{Kind: "fact-pure", Func: "F", At: cfg.file + ":1:1", File: cfg.file, Line: uint32(1), Column: uint32(1), Subjects: []string{}, Holds: "pure F", Lo: "", Hi: "", Evidence: "proved", Reason: "empty", Law: "", Use: ""},
+	})
+	"{\"imports\":" + strconv.Itoa(goRep.Imports.Len()) + ",\"functions\":" + strconv.Itoa(goRep.Functions.Len()) + ",\"rewritesText\":" + jsonString(rwText) + ",\"factsText\":" + jsonString(factsText) + "}"
+}
+
+func runAssetsMode(cfg cliConfig) string {
+	let pErr = sketchfront.AssetPatternProblem(cfg.file)
+	let cErr = sketchfront.CompanionPatternProblem(cfg.cases)
+	let (mp, mf, splitOK) = sketchfront.SplitMapperSpec(cfg.pkg)
+	let modText = "module app\nmap *.sql gen/sql.Compile\n"
+	let rules = contentmap.ParseMapRules(modText) catch {
+	case _:
+		[]contentmap.MapRule{}
+	}
+	let matched = sketchfront.MatchAssetForPath(rules, cfg.dir) != option.None
+	"{\"patternErr\":" + jsonString(pErr) + ",\"companionErr\":" + jsonString(cErr) + ",\"splitOK\":" + jsonBool(splitOK) + ",\"mapperPkg\":" + jsonString(mp) + ",\"mapperFunc\":" + jsonString(mf) + ",\"matched\":" + jsonBool(matched) + "}"
+}
+
+func run(args []string) fails os.Exit needs fs.Files | io.Stdout {
+	let cfg = try parseArgs(args)
+	let out = if cfg.mode == "format" {
+		try runFormatMode(cfg)
+	} else if cfg.mode == "checksource" {
+		try runCheckSourceMode(cfg)
+	} else if cfg.mode == "checkcache" {
+		try runCheckCacheMode(cfg)
+	} else if cfg.mode == "tree" {
+		try runTreeMode(cfg)
+	} else if cfg.mode == "licence" {
+		try runLicenceMode(cfg)
+	} else if cfg.mode == "graph" {
+		try runGraphMode(cfg)
+	} else if cfg.mode == "eval" {
+		runEvalMode(cfg)
+	} else if cfg.mode == "inspect" {
+		try runInspectMode(cfg)
+	} else if cfg.mode == "assets" {
+		runAssetsMode(cfg)
+	} else {
+		return os.Exit{Code: 2, Message: "unknown mode: " + cfg.mode}
+	}
+	io.Stdout.Print(out + "\n")
+}
+
+func main() fails os.Exit needs os.Ambient {
+	with context { os.Process: os.NewHost(), fs.Files: fs.NewHost(), io.Stdout: io.NewHost() } {
+		try run(os.Process.Args())
+	}
+}
+
+test SketchfrontDumpModesSmoke {
+	let evalOut = runEvalMode(cliConfig{
+		mode:     "eval",
+		dir:      ".",
+		stdDir:   "",
+		file:     "main.ergo",
+		cases:    "",
+		pkg:      "app/main",
+		compiler: "ergo-1",
+		envCSV:   "GOFLAGS=-trimpath",
+		goos:     "linux",
+		goarch:   "amd64",
+		ovRel:    "",
+		ovSrc:    "",
+		limit:    uint32(0),
+		hasLimit: false,
+		args:     []string{},
+	})
+	assert strings.Contains(evalOut, "\"cachedHit\":true")
+	assert strings.Contains(evalOut, "ergo test main.ergo --law LawA --seed 7")
+}
