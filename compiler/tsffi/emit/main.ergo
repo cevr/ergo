@@ -1,0 +1,50 @@
+import compiler/tsffi
+import fs
+import io
+import os
+
+func usage() os.Exit {
+	os.Exit{Code: 2, Message: "usage: emit [--check] DIR (writes DIR/geo.d.ts; --check writes nothing and fails when the file differs)"}
+}
+
+func run(args []string) fails os.Exit needs fs.Files | fs.Writes | io.Stdout {
+	let mut rest = args
+	if rest.Len() > 0 && rest[0] == "--" {
+		rest = rest[1:rest.Len()]
+	}
+	let check = rest.Len() == 2 && rest[0] == "--check"
+	if rest.Len() != 1 && !check {
+		return usage()
+	}
+	let path = rest[rest.Len()-1] + "/geo.d.ts"
+	let want = tsffi.GeoDeclarations() catch {
+	case tsffi.SpecFailure as f:
+		return os.Exit{Code: 1, Message: "emit: \(f.Code): \(f.Message)"}
+	}
+	if check {
+		let got = fs.Files.ReadFile(path) catch {
+		case fs.NotFound, fs.Denied:
+			return os.Exit{Code: 1, Message: "emit: cannot read \(path)"}
+		case fs.Failed as e:
+			return os.Exit{Code: 1, Message: "emit: read \(path): \(e.Reason)"}
+		}
+		if got != want {
+			return os.Exit{Code: 1, Message: "emit: \(path) is not what emit writes; run emit \(rest[1])"}
+		}
+		io.Stdout.Println("ok \(path)")
+		return
+	}
+	fs.Writes.WriteFile(path, want) catch {
+	case fs.NotFound, fs.Denied:
+		return os.Exit{Code: 1, Message: "emit: cannot write \(path)"}
+	case fs.Failed as e:
+		return os.Exit{Code: 1, Message: "emit: write \(path): \(e.Reason)"}
+	}
+	io.Stdout.Println("wrote \(path)")
+}
+
+func main() fails os.Exit needs os.Ambient {
+	with context { fs.Files: fs.NewHost(), fs.Writes: fs.NewHost(), io.Stdout: io.NewHost(), os.Process: os.NewHost() } {
+		try run(os.Process.Args())
+	}
+}
