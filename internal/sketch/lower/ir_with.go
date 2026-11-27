@@ -66,7 +66,12 @@ func (b *irBuilder) failWith(x *syntax.CallExpr) (pre []*irStmt, v, e int) {
 		v = b.temp("v", b.goType(t, x), p)
 		pre = append(pre, &irStmt{K: "var", Pos: p, Local: v})
 	}
-	return append(pre, b.withStmt(x, false, &yieldTo{local: v, t: t, fails: true, err: e})...), v, e
+	var arm *irArmOwner
+	if v >= 0 {
+		arm = b.armOpen(x, p)
+	}
+	with := b.armWrap(arm, b.withStmt(x, false, &yieldTo{local: v, t: t, fails: true, err: e, arm: arm}), v, t, p)
+	return append(pre, with...), v, e
 }
 
 // failYield is x, the tail of a fallible with's block under try or catch:
@@ -85,7 +90,8 @@ func (b *irBuilder) failYield(x syntax.Expr, to *yieldTo, p irPos) []*irStmt {
 			return b.discard(x)
 		}
 		pre, val := b.value(x)
-		return append(pre, &irStmt{K: "set", Pos: p, Local: to.local, X: b.assignedTo(x, val, to.t)})
+		pre = append(pre, &irStmt{K: "set", Pos: p, Local: to.local, X: b.assignedTo(x, val, to.t)})
+		return append(pre, b.armYield(to.arm, x, to.local, to.t, -1, p)...)
 	}
 	pre, v, e := b.bind(call)
 	if to.local >= 0 {
@@ -95,7 +101,11 @@ func (b *irBuilder) failYield(x syntax.Expr, to *yieldTo, p irPos) []*irStmt {
 		val := b.assignedTo(x, &irExpr{K: "local", Pos: p, I: v}, to.t)
 		pre = append(pre, &irStmt{K: "set", Pos: p, Local: to.local, X: val})
 	}
-	return append(pre, &irStmt{K: "set", Pos: p, Local: to.err, X: &irExpr{K: "local", Pos: p, I: e}})
+	pre = append(pre, &irStmt{K: "set", Pos: p, Local: to.err, X: &irExpr{K: "local", Pos: p, I: e}})
+	if to.local >= 0 {
+		pre = append(pre, b.armYield(to.arm, x, to.local, to.t, to.err, p)...)
+	}
+	return pre
 }
 
 // owningChain reports a with any operand of which owns resources.
@@ -667,6 +677,7 @@ func (b *irBuilder) withValue(x *syntax.CallExpr) ([]*irStmt, *irExpr) {
 	}
 	p := b.pos(x, x.Pos())
 	i := b.temp(fmt.Sprintf("with%d", b.next), b.goType(t, x), p)
-	pre := append([]*irStmt{{K: "var", Pos: p, Local: i}}, b.withStmt(x, true, &yieldTo{local: i, t: t})...)
-	return pre, &irExpr{K: "local", Pos: p, I: i}
+	arm := b.armOpen(x, p)
+	stmts := b.armWrap(arm, b.withStmt(x, true, &yieldTo{local: i, t: t, arm: arm}), i, t, p)
+	return append([]*irStmt{{K: "var", Pos: p, Local: i}}, stmts...), &irExpr{K: "local", Pos: p, I: i}
 }

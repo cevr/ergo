@@ -125,7 +125,11 @@ func (b *irBuilder) treeMatch(s syntax.Stmt, subjects []syntax.Expr, clauses []*
 	}
 	t := &treeIR{b: b, s: s, site: subjects[0], p: p, terminates: ret && to == nil}
 	t.body = func(k int) []*irStmt {
-		return b.scoped(clauses[k], b.arm(clauses[k].Body, ret, to), b.pos(clauses[k], clauses[k].Pos())) // ir_own.go
+		cl := clauses[k]
+		cp := b.pos(cl, cl.Pos())
+		var out []*irStmt
+		out = append(out, b.bindPatternOwners(cl, cp)...)
+		return append(out, b.scoped(cl, b.arm(cl.Body, ret, to), cp)...) // ir_own.go
 	}
 	if ret || to != nil {
 		t.exit = func(p irPos) []*irStmt { return []*irStmt{noCase(b, s, p)} }

@@ -4,12 +4,13 @@
 // laws, so a test of a server binds a Pipe where main binds net.Host.
 
 import net
+import slices
 
 // Pipe is a memory network: its listeners are named by address, as the
 // host's are, and a port 0 gets the next free port from 1. Copies of a
 // Pipe share its listeners. A Write waits once 64 KiB wait unread in its
 // direction, as a socket's buffer makes it.
-type Pipe { mem PipeNet } implements net.Network
+type Pipe { mem PipeNet } implements net.Network, net.UnixNetwork
 
 // NewPipe is an empty memory network.
 func NewPipe() Pipe { Pipe{mem: newPipeNet()} }
@@ -18,14 +19,91 @@ func Listen(p Pipe, addr string) net.Listener fails net.ListenFailed { try p.mem
 
 func Dial(p Pipe, addr string) net.Conn fails net.DialFailed { try p.mem.Dial(addr) }
 
+func ListenUnix(p Pipe, path string) net.UnixListener fails net.ListenFailed { try p.mem.ListenUnix(path) }
+
+func DialUnix(p Pipe, path string) net.UnixConn fails net.DialFailed { try p.mem.DialUnix(path) }
+
 // PipeNet is the state a Pipe holds: its listeners and the connections
 // dialed to them. Only NewPipe makes one; bind a Pipe.
 //
-// law-exempt: Pipe's laws are net.Network's, run against it (TestNetLaws).
+// law-exempt: Pipe's laws are net.Network's and net.UnixNetwork's, run
+// against it (TestNetLaws).
 extern go ergo.local/prototype/runtime/v1/net.PipeNet type PipeNet {
 	runtimeOnly(),
 	Listen(addr string) net.Listener fails net.ListenFailed,
 	Dial(addr string) net.Conn fails net.DialFailed,
+	ListenUnix(path string) net.UnixListener fails net.ListenFailed,
+	DialUnix(path string) net.UnixConn fails net.DialFailed,
 }
 
 extern go ergo.local/prototype/runtime/v1/net.NetNewPipe func newPipeNet() PipeNet
+
+// PipeTransfersTCPListenerFD: a TCP Listener duplicated as an FD, sent
+// across a UnixConn via SendFDs / RecvFDs, and reconstituted with
+// ListenFromFD accepts connections and passes bytes after the sender
+// closes the original listener.
+law PipeTransfersTCPListenerFD(data string) {
+	let p = NewPipe()
+	let tcpLn = p.Listen("127.0.0.1:0") catch {
+	case net.ListenFailed:
+		return false
+	}
+	let addr = tcpLn.Addr()
+	let ctl = p.ListenUnix("ctl.sock") catch {
+	case net.ListenFailed:
+		return false
+	}
+	let tx = p.DialUnix("ctl.sock") catch {
+	case net.DialFailed:
+		return false
+	}
+	let rx = ctl.Accept() catch {
+	case net.Failed, net.Unsupported:
+		return false
+	}
+	let lfd = tcpLn.DupFD() catch {
+	case net.Failed, net.Unsupported:
+		return false
+	}
+	tx.SendFDs("tcp-listener", []net.FD{lfd}) catch {
+	case net.Failed, net.Unsupported:
+		return false
+	}
+	tcpLn.Close()
+	let r = rx.RecvFDs(4) catch {
+	case net.Failed, net.Unsupported:
+		return false
+	}
+	let newLn = match r {
+	case net.ReceivedFDs{Data: tag, FDs: fds}:
+		if tag != "tcp-listener" || fds.Len() != 1 {
+			return false
+		}
+		let (fd, rest) = slices.Take(fds, 0)
+		if rest.Len() != 0 {
+			return false
+		}
+		net.ListenFromFD(fd) catch {
+		case net.Failed, net.Unsupported:
+			return false
+		}
+	}
+	let c = p.Dial(addr) catch {
+	case net.DialFailed:
+		return false
+	}
+	let s = newLn.Accept() catch {
+	case net.Failed:
+		return false
+	}
+	c.Write(data) catch {
+	case net.Failed:
+		return false
+	}
+	c.Close()
+	let got = net.ReadAll(s) catch {
+	case net.Failed:
+		return false
+	}
+	got == data
+}
