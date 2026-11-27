@@ -56,8 +56,7 @@ func storageOf(o Object) option.Option[s3.StorageClass] {
 
 func HeadObject(m Memory, r s3.HeadObjectRequest) s3.HeadObjectOutput fails s3.NotFound | aws.Failed | aws.Malformed | http.RequestFailed {
 	match find(m, r.Bucket, r.Key) {
-	case option.Some as v:
-		let o = v.Value
+	case option.Some{o}:
 		s3.HeadObjectOutput{
 			..s3.NewHeadObjectOutput(),
 			LastModified:  option.Some[time.Time]{time.Unix(epoch+o.Modified, 0)},
@@ -74,8 +73,7 @@ func HeadObject(m Memory, r s3.HeadObjectRequest) s3.HeadObjectOutput fails s3.N
 
 func GetObject(m Memory, r s3.GetObjectRequest, put func(part string) fails http.SinkFailed) s3.GetObjectOutput fails s3.InvalidObjectState | s3.NoSuchKey | aws.Failed | aws.Malformed | http.RequestFailed | http.SinkFailed {
 	match find(m, r.Bucket, r.Key) {
-	case option.Some as v:
-		let o = v.Value
+	case option.Some{o}:
 		if o.Archived {
 			return s3.InvalidObjectState{Status: 403, Message: archived, StorageClass: storageOf(o), AccessTier: option.None}
 		}
@@ -102,8 +100,8 @@ func PutObject(m Memory, r s3.PutObjectRequest) s3.PutObjectOutput fails s3.Encr
 		meta[strings.ToLower(k)] = v
 	}
 	let glacier = match r.StorageClass {
-	case option.Some as c:
-		c.Value == s3.StorageClassGlacier
+	case option.Some{c}:
+		c == s3.StorageClassGlacier
 	case option.None:
 		false
 	}

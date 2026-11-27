@@ -56,6 +56,38 @@
       "to": "\t\t\t\t\tif l.Member == f.Name && l.Greedy && len(l.Member) < 0 {\n",
       "rule": "A {Key+} label is planned greedy: the test GreedyLabelIsGreedy, and the drift case examples/clientgen/cases/s3-current (the committed s3.ergo writes aws.Label(r.Key, true)); its effect on the client is modules/aws's emit-label-not-greedy, killed by SlashesStayInThePath.",
       "anchor": {"tests": ["examples:modules/clientgen"]}, "killers": ["examples:modules/clientgen"]
+    },
+    {
+      "name": "emit-put-uses-wrong-helper", "origin": "wf10 RSI-CLIENTGEN-S3-CLEANUP",
+      "file": "modules/clientgen/emit/write.ergo",
+      "from": "\tcase TInt:\n\t\t\"\\t\\(list) = \\(rt).PutInt(\\(list), \\(k), \\(v))\"\n",
+      "to": "\tcase TInt:\n\t\t\"\\t\\(list) = \\(rt).PutText(\\(list), \\(k), \\(v))\"\n",
+      "rule": "Optional int fields must emit PutInt rather than PutText: CleanEmissionShapes verifies emitted PutInt calls.",
+      "anchor": {"tests": ["examples:modules/clientgen"]}, "killers": ["examples:modules/clientgen"]
+    },
+    {
+      "name": "emit-enum-decode-drops-map", "origin": "wf10 RSI-CLIENTGEN-S3-CLEANUP",
+      "file": "modules/clientgen/emit/write.ergo",
+      "from": "\t\tcase TEnum{en}:\n\t\t\t\"\\(rt).TextIn(h, \\(quote(name))).Map(\\(lowerFirst(en))Of)\"\n",
+      "to": "\t\tcase TEnum{en}:\n\t\t\t\"\\(lowerFirst(en))In(\\(rt).TextIn(h, \\(quote(name))))\"\n",
+      "rule": "Output enum headers decode via Option.Map(<enum>Of) rather than removed <enum>In wrappers: CleanEmissionShapes catches reverting to <enum>In.",
+      "anchor": {"tests": ["examples:modules/clientgen"]}, "killers": ["examples:modules/clientgen"]
+    },
+    {
+      "name": "emit-same-outcome-not-checked", "origin": "wf10 RSI-CLIENTGEN-S3-CLEANUP",
+      "file": "modules/clientgen/emit/write.ergo",
+      "from": "\t\t\"\\t\\t\\(rt).SameOutcome(func() \\(op.Output) { try \\(call) }, func(a, b) { a == b }, func(a, b) { a == b })\",\n",
+      "to": "\t\t\"\\t\\t\\(rt).SameOutcome(func() \\(op.Output) { try \\(call) }, func(a, b) { a == a && b == b }, func(a, b) { a == b })\",\n",
+      "rule": "Generated repeatable/idempotent laws must compare outcomes with a == b inside SameOutcome: CleanEmissionShapes verifies the emitted SameOutcome law.",
+      "anchor": {"tests": ["examples:modules/clientgen"]}, "killers": ["examples:modules/clientgen"]
+    },
+    {
+      "name": "emit-enum-wire-omitted", "origin": "wf10 RSI-CLIENTGEN-S3-CLEANUP",
+      "file": "modules/clientgen/emit/write.ergo",
+      "from": "\tif wire {\n",
+      "to": "\tif wire && false {\n",
+      "rule": "Enums used on input must emit <enum>Wire: CleanEmissionShapes verifies func tierInWire is emitted.",
+      "anchor": {"tests": ["examples:modules/clientgen"]}, "killers": ["examples:modules/clientgen"]
     }
   ]
 }
