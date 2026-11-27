@@ -1,0 +1,95 @@
+{
+  "about": "compiler/machinegraph: Data-Oriented state machine reachability, arm/alt matching, dead state/arm analysis, Tarjan SCC cycles, termination invariants, and checked source extraction.",
+  "mutants": [
+    {
+      "name": "selfhost-machinegraph-arms-past-whole",
+      "file": "compiler/machinegraph/graph.ergo",
+      "decl": "ArmsFor",
+      "from": "\t\t\tif !partial {\n\t\t\t\treturn out\n\t\t\t}\n",
+      "to": "\t\t\tif false && !partial {\n\t\t\t\treturn out\n\t\t\t}\n",
+      "rule": "ArmsFor stops immediately after the first non-partial arm matching (state, signal).",
+      "killers": ["compiler/machinegraph:law:ArmsStopAtFirstWholeArm", "compiler/machinegraph:GraphBuilderAndMatching"]
+    },
+    {
+      "name": "selfhost-machinegraph-alts-cross-product",
+      "file": "compiler/machinegraph/graph.ergo",
+      "decl": "Takes",
+      "from": "\tlet altN = int(g.ArmAltLen[arm])\n\tif altN == 0 {\n",
+      "to": "\tlet altN = 0\n\tif altN == 0 {\n",
+      "rule": "Multi-pattern tuple arms take only pairs matched by an individual Alt rather than the cross product.",
+      "killers": ["compiler/machinegraph:law:TakesRespectsMultiPatternAlts"]
+    },
+    {
+      "name": "selfhost-machinegraph-any-ignores-unknown",
+      "file": "compiler/machinegraph/analyze.ergo",
+      "decl": "enqueueTargetStates",
+      "from": "\tif kind == DecUnknown || (DecisionMovesState(kind) && to == AnyID) {\n",
+      "to": "\tif DecisionMovesState(kind) && to == AnyID {\n",
+      "rule": "Unknown decisions conservatively reach every state during reachability analysis.",
+      "killers": ["compiler/machinegraph:law:GraphMatchesSourceModel"]
+    },
+    {
+      "name": "selfhost-machinegraph-tarjan-misses-selfloop",
+      "file": "compiler/machinegraph/analyze.ergo",
+      "decl": "findTarjanCycles",
+      "from": "\t\t\t\tif scc.States.Len() >= 2 || (scc.States.Len() == 1 && sc.selfLoop[scc.States[0]]) {\n",
+      "to": "\t\t\t\tif scc.States.Len() >= 2 {\n",
+      "rule": "Single-state self-loops count as cycles in Tarjan SCC cycle detection.",
+      "killers": ["compiler/machinegraph:law:CycleAndTerminationInvariants"]
+    },
+    {
+      "name": "selfhost-machinegraph-terminates-ignores-trapped",
+      "file": "compiler/machinegraph/analyze.ergo",
+      "decl": "Analyze",
+      "from": "\t\tAlwaysTerminates: nStates > 0 && !hasCycle && trapped.Len() == 0,\n",
+      "to": "\t\tAlwaysTerminates: nStates > 0 && !hasCycle,\n",
+      "rule": "A machine only AlwaysTerminates when no cycles exist and every reachable state can reach Done.",
+      "killers": ["compiler/machinegraph:law:CycleAndTerminationInvariants", "compiler/machinegraph:DeadShadowCycleAndTerminationAnalysis"]
+    },
+    {
+      "name": "selfhost-machinegraph-source-partial-missed",
+      "file": "compiler/machinegraph/source.ergo",
+      "decl": "elemPatVariants",
+      "from": "\t\t\tif !isWildcardOrBinder(env, g, tEnv, names, file, role, fPat) {\n\t\t\t\tpart = true\n\t\t\t}\n",
+      "to": "\t\t\tif !isWildcardOrBinder(env, g, tEnv, names, file, role, fPat) {\n\t\t\t\tpart = false\n\t\t\t}\n",
+      "rule": "A record pattern with a non-wildcard field match marks the arm as partial.",
+      "killers": ["compiler/machinegraph:law:GraphMatchesSourceModel"]
+    },
+    {
+      "name": "selfhost-machinegraph-source-allows-impure-helper",
+      "file": "compiler/machinegraph/source.ergo",
+      "decl": "helperCallFn",
+      "from": "\tif !footprint.Empty(env.fs, fi) {\n\t\treturn -1\n\t}\n",
+      "to": "\tif false && !footprint.Empty(env.fs, fi) {\n\t\treturn -1\n\t}\n",
+      "rule": "Only same-package helpers with an empty capability footprint may be inlined statically.",
+      "killers": ["compiler/machinegraph:law:GraphMatchesSourceModel"]
+    },
+    {
+      "name": "selfhost-machinegraph-source-empty-caselist",
+      "file": "compiler/machinegraph/source.ergo",
+      "decl": "clauseArmSpec",
+      "from": "\tif n == 0 {\n\t\treturn ArmSpec{\n\t\t\tSite:       Site{File: \"\", Line: 0},\n\t\t\tStates:     []uint32{},\n\t\t\tStatesAny:  true,\n\t\t\tSignals:    []uint32{},\n\t\t\tSignalsAny: true,\n\t\t\tPartial:    false,\n\t\t}\n\t}\n",
+      "to": "\tif false && n == 0 {\n\t\treturn ArmSpec{\n\t\t\tSite:       Site{File: \"\", Line: 0},\n\t\t\tStates:     []uint32{},\n\t\t\tStatesAny:  true,\n\t\t\tSignals:    []uint32{},\n\t\t\tSignalsAny: true,\n\t\t\tPartial:    false,\n\t\t}\n\t}\n",
+      "rule": "A wildcard case _ clause (with empty pattern list) accepts every state and signal variant.",
+      "killers": ["compiler/machinegraph:law:GraphMatchesSourceModel", "compiler/machinegraph:SourceReaderCoversNestedComputedAndHelpers"]
+    },
+    {
+      "name": "selfhost-machinegraph-analyze-misses-dead-end",
+      "file": "compiler/machinegraph/analyze.ergo",
+      "decl": "Analyze",
+      "from": "\t\tif !sc.hasOutMove[s] && !sc.hasDone[s] {\n\t\t\tdeadEnds = deadEnds.Append(uint32(s))\n\t\t}\n",
+      "to": "\t\tif false && !sc.hasOutMove[s] && !sc.hasDone[s] {\n\t\t\tdeadEnds = deadEnds.Append(uint32(s))\n\t\t}\n",
+      "rule": "A reachable state with neither an outgoing state transition nor a Done exit is recorded in DeadEndStates.",
+      "killers": ["compiler/machinegraph:DeadShadowCycleAndTerminationAnalysis"]
+    },
+    {
+      "name": "selfhost-machinegraph-shadowed-arm-missed",
+      "file": "compiler/machinegraph/analyze.ergo",
+      "decl": "Analyze",
+      "from": "\t\tif !sc.armAny[a] {\n\t\t\tshadowedArms = shadowedArms.Append(uint32(a))\n\t\t}\n",
+      "to": "\t\tif false && !sc.armAny[a] {\n\t\t\tshadowedArms = shadowedArms.Append(uint32(a))\n\t\t}\n",
+      "rule": "An arm never selected by ArmsFor for any (state, signal) pair is recorded in ShadowedArms.",
+      "killers": ["compiler/machinegraph:DeadShadowCycleAndTerminationAnalysis"]
+    }
+  ]
+}

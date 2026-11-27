@@ -1,0 +1,1286 @@
+import compiler/check/bind
+import compiler/check/expr
+import compiler/check/footprint
+import compiler/check/store
+import compiler/check/types
+import compiler/syntax
+import dense
+import option
+import slices
+
+// SourceEnv holds pre-indexed package check results for reading machine graphs without pointer-keyed maps.
+type SourceEnv {
+	s         store.Store,
+	k         expr.Pkg,
+	t         expr.Typer,
+	fs        footprint.Facts,
+	exprTypes dense.Col[store.PNode, dense.Opt[store.TKey]],
+	fnByNode  dense.Col[store.PNode, int],
+	lines     []syntax.Lines,
+}
+
+// NewSourceEnv indexes expression types, function declarations, and file line tables for a checked package.
+func NewSourceEnv(s store.Store, k expr.Pkg, t expr.Typer, fs footprint.Facts) SourceEnv {
+	let rawRows = bind.Written(k.Ps)
+	let rows = if rawRows < 1 { 1 } else { rawRows }
+	let mut exprTypes = dense.ColWithCap[store.PNode, dense.Opt[store.TKey]](rows)
+	let mut fnByNode = dense.ColWithCap[store.PNode, int](rows)
+	for _ in 0..rows {
+		dense.Push(&exprTypes, dense.NoID[store.TKey]())
+		dense.Push(&fnByNode, -1)
+	}
+	for e in t.Entries {
+		if dense.In(exprTypes, e.At) {
+			dense.SetOf(&exprTypes, e.At, dense.OptOf(e.T))
+		}
+	}
+	for fi, f in k.Fns {
+		let p = k.Parsed[f.File]
+		if !p.Failed {
+			let pn = bind.PNodeOf(k.Ps, f.File, f.Name)
+			if dense.In(fnByNode, pn) {
+				dense.SetOf(&fnByNode, pn, fi)
+			}
+		}
+	}
+	let mut lines = slices.WithCapacity[syntax.Lines](k.Parsed.Len())
+	for p in k.Parsed {
+		lines = lines.Append(syntax.LinesOf(syntax.SourceOf(p)))
+	}
+	SourceEnv{
+		s:         s,
+		k:         k,
+		t:         t,
+		fs:        fs,
+		exprTypes: exprTypes,
+		fnByNode:  fnByNode,
+		lines:     lines,
+	}
+}
+
+func isInvalidTKey(s store.Store, t dense.ID[store.TKey]) bool {
+	store.KindOfType(s, t) == store.KBasic && store.ArgOf(s, t) == 0
+}
+
+func siteAt(env SourceEnv, file int, node dense.ID[syntax.Node]) Site {
+	let p = env.k.Parsed[file]
+	let pos = syntax.PositionOf(env.lines[file], syntax.NodePos(p, node))
+	Site{File: env.k.Files[file].Name, Line: pos.Line}
+}
+
+func nodeType(env SourceEnv, file int, node dense.ID[syntax.Node]) option.Option[dense.ID[store.TKey]] {
+	let pn = bind.PNodeOf(env.k.Ps, file, node)
+	if !dense.In(env.exprTypes, pn) {
+		return option.None
+	}
+	dense.Unpack(dense.Of(env.exprTypes, pn))
+}
+
+func expandTypeVariants(env mut SourceEnv, tEnv types.Env, names types.Names, t dense.ID[store.TKey], seen mut []dense.ID[store.TKey], out mut []string) {
+	if isInvalidTKey(env.s, t) || slices.Contains(*seen, t) {
+		return
+	}
+	*seen = (*seen).Append(t)
+	let vs = types.Variants(&env.s, tEnv, t)
+	if vs.Len() > 0 {
+		for v in vs {
+			expandTypeVariants(env, tEnv, names, v, seen, out)
+		}
+		return
+	}
+	let txt = types.Text(env.s, names, t)
+	if !slices.Contains(*out, txt) {
+		*out = (*out).Append(txt)
+	}
+}
+
+func typeVariantsText(env mut SourceEnv, tEnv types.Env, names types.Names, t dense.ID[store.TKey]) []string {
+	let mut seen = []dense.ID[store.TKey]{}
+	let mut out = []string{}
+	expandTypeVariants(env, tEnv, names, t, &seen, &out)
+	out
+}
+
+// Machines reads the Graph of every valid machine declaration in env in source order.
+func Machines(env mut SourceEnv) []Graph {
+	let mut out = []Graph{}
+	for f in 0..env.k.Parsed.Len() {
+		let p = env.k.Parsed[f]
+		if p.Failed {
+			continue
+		}
+		let fl = syntax.FileOf(p.Tree, syntax.Root(p.Tree))
+		for i in 0..syntax.Len(fl.Decls) {
+			let d = syntax.Item(p.Tree, fl.Decls, i)
+			if syntax.KindOf(p.Tree, d) != syntax.KTypeDecl {
+				continue
+			}
+			match OfDecl(env, f, d) {
+			case option.Some[Graph] as g:
+				out = out.Append(g.Value)
+			case option.None:
+			}
+		}
+	}
+	out
+}
+
+// OfDecl reads the Graph for machine TypeDecl tdNode in file, or None if not a valid machine declaration.
+func OfDecl(env mut SourceEnv, file int, tdNode dense.ID[syntax.Node]) option.Option[Graph] {
+	let p = env.k.Parsed[file]
+	if p.Failed || syntax.KindOf(p.Tree, tdNode) != syntax.KTypeDecl {
+		return option.None
+	}
+	let td = syntax.TypeDeclOf(p.Tree, tdNode)
+	let specNode = match dense.Unpack(td.Spec) {
+	case option.Some[dense.ID[syntax.Node]] as sp:
+		sp.Value
+	case option.None:
+		return option.None
+	}
+	if syntax.KindOf(p.Tree, specNode) != syntax.KMachineType {
+		return option.None
+	}
+	let mt = syntax.MachineTypeOf(p.Tree, specNode)
+	let params = match dense.Unpack(td.TypeParams) {
+	case option.Some[dense.ID[syntax.Node]] as tp:
+		types.BracketNames(p, tp.Value)
+	case option.None:
+		[]string{}
+	}
+	let tEnv = types.NewEnv(env.s, env.k.Parsed, p, params, env.k.Kinds, env.k.Ext, env.k.Foreign, env.k.Ifaces)
+	let names = types.Names{Params: params, Foreign: env.k.Foreign, Pkg: "", Deps: env.k.Ifaces}
+	let stKey = types.Resolve(&env.s, tEnv, mt.State)
+	let sgKey = types.Resolve(&env.s, tEnv, mt.Signal)
+	let stateNames = typeVariantsText(env, tEnv, names, stKey)
+	let sigNames = typeVariantsText(env, tEnv, names, sgKey)
+	if stateNames.Len() == 0 || sigNames.Len() == 0 {
+		return option.None
+	}
+	let mName = syntax.TokText(p, syntax.NameOf(p.Tree, td.Name).Tok)
+	let mut b = NewBuilder(mName, stateNames, sigNames)
+	readMachineMembers(env, &b, file, tEnv, names, mt.Members)
+	option.Some{Value: Build(b)}
+}
+
+func resolveFnExpr(env SourceEnv, file int, x dense.ID[syntax.Node]) int {
+	let tr = env.k.Parsed[file].Tree
+	if syntax.KindOf(tr, x) != syntax.KIdent {
+		return -1
+	}
+	let pn = bind.PNodeOf(env.k.Ps, file, x)
+	match bind.ResolutionOf(env.k.U, env.k.Ps, pn) {
+	case bind.Declared as dec:
+		if dense.In(env.fnByNode, dec.At) {
+			return dense.Of(env.fnByNode, dec.At)
+		}
+		-1
+	case _:
+		-1
+	}
+}
+
+func exprHeadName(env SourceEnv, file int, x dense.ID[syntax.Node]) string {
+	let p = env.k.Parsed[file]
+	let tr = p.Tree
+	let k = syntax.KindOf(tr, x)
+	if k == syntax.KIdent {
+		return syntax.TokText(p, syntax.NameOf(tr, x).Tok)
+	}
+	if k == syntax.KSelectorExpr {
+		let sel = syntax.SelectorExprOf(tr, x)
+		return exprHeadName(env, file, sel.Sel)
+	}
+	if k == syntax.KCompositeLit {
+		let cl = syntax.CompositeLitOf(tr, x)
+		match dense.Unpack(cl.Type) {
+		case option.Some[dense.ID[syntax.Node]] as tx:
+			return exprHeadName(env, file, tx.Value)
+		case option.None:
+		}
+	}
+	if k == syntax.KIndexExpr {
+		return exprHeadName(env, file, syntax.IndexExprOf(tr, x).X)
+	}
+	""
+}
+
+func stateOfExpr(env mut SourceEnv, g Graph, file int, tEnv types.Env, names types.Names, x dense.ID[syntax.Node]) uint32 {
+	match nodeType(*env, file, x) {
+	case option.Some[dense.ID[store.TKey]] as tk:
+		let id = StateID(g, types.Text(env.s, names, tk.Value))
+		if id != NoEntry {
+			return id
+		}
+	case option.None:
+	}
+	let tr = env.k.Parsed[file].Tree
+	let k = syntax.KindOf(tr, x)
+	if k == syntax.KCompositeLit {
+		let cl = syntax.CompositeLitOf(tr, x)
+		match dense.Unpack(cl.Type) {
+		case option.Some[dense.ID[syntax.Node]] as tx:
+			let tk = types.Resolve(&env.s, tEnv, tx.Value)
+			if !isInvalidTKey(env.s, tk) {
+				let id = StateID(g, types.Text(env.s, names, tk))
+				if id != NoEntry {
+					return id
+				}
+			}
+			let nm = exprHeadName(*env, file, tx.Value)
+			let id2 = StateID(g, nm)
+			if id2 != NoEntry {
+				return id2
+			}
+		case option.None:
+		}
+	}
+	if k == syntax.KIdent {
+		let nm = exprHeadName(*env, file, x)
+		let pn = bind.PNodeOf(env.k.Ps, file, x)
+		match bind.ResolutionOf(env.k.U, env.k.Ps, pn) {
+		case bind.Declared:
+			let id = StateID(g, nm)
+			if id != NoEntry {
+				return id
+			}
+		case _:
+		}
+	}
+	AnyID
+}
+
+func signalOfExpr(env mut SourceEnv, g Graph, file int, tEnv types.Env, names types.Names, x dense.ID[syntax.Node]) uint32 {
+	match nodeType(*env, file, x) {
+	case option.Some[dense.ID[store.TKey]] as tk:
+		let id = SignalID(g, types.Text(env.s, names, tk.Value))
+		if id != NoEntry {
+			return id
+		}
+	case option.None:
+	}
+	let tr = env.k.Parsed[file].Tree
+	let k = syntax.KindOf(tr, x)
+	if k == syntax.KCompositeLit {
+		let cl = syntax.CompositeLitOf(tr, x)
+		match dense.Unpack(cl.Type) {
+		case option.Some[dense.ID[syntax.Node]] as tx:
+			let tk = types.Resolve(&env.s, tEnv, tx.Value)
+			if !isInvalidTKey(env.s, tk) {
+				let id = SignalID(g, types.Text(env.s, names, tk))
+				if id != NoEntry {
+					return id
+				}
+			}
+			let id2 = SignalID(g, exprHeadName(*env, file, tx.Value))
+			if id2 != NoEntry {
+				return id2
+			}
+		case option.None:
+		}
+	}
+	if k == syntax.KIdent {
+		let id = SignalID(g, exprHeadName(*env, file, x))
+		if id != NoEntry {
+			return id
+		}
+	}
+	AnyID
+}
+
+func readMachineMembers(env mut SourceEnv, b mut Builder, file int, tEnv types.Env, names types.Names, members syntax.List) {
+	let p = env.k.Parsed[file]
+	let tr = p.Tree
+	let mut stepFn = -1
+	let mut afterFn = -1
+	let mut workFn = -1
+	let mut exitFn = -1
+	for i in 0..syntax.Len(members) {
+		let m = syntax.Item(tr, members, i)
+		if syntax.KindOf(tr, m) != syntax.KMachineEntry {
+			continue
+		}
+		let me = syntax.MachineEntryOf(tr, m)
+		let key = syntax.TokText(p, me.Name)
+		if key == "initial" {
+			SetInitial(b, stateOfExpr(env, b.g, file, tEnv, names, me.Value))
+			continue
+		}
+		let fi = resolveFnExpr(*env, file, me.Value)
+		if fi < 0 {
+			AddComputed(b, key)
+			continue
+		}
+		if key == "step" {
+			stepFn = fi
+		} else if key == "after" {
+			afterFn = fi
+		} else if key == "work" {
+			workFn = fi
+		} else if key == "exit" {
+			exitFn = fi
+		}
+	}
+	if stepFn >= 0 {
+		readStepFn(env, b, tEnv, names, stepFn)
+	}
+	if afterFn >= 0 {
+		readPerStateFn(env, b, tEnv, names, afterFn, uint8(1))
+	}
+	if workFn >= 0 {
+		readPerStateFn(env, b, tEnv, names, workFn, uint8(2))
+	}
+	if exitFn >= 0 {
+		readPerStateFn(env, b, tEnv, names, exitFn, uint8(3))
+	}
+}
+
+let roleOther = uint8(0)
+let roleState = uint8(1)
+let roleSignal = uint8(2)
+
+func fnParamPNodes(env SourceEnv, fn expr.Fn) []dense.ID[store.PNode] {
+	let mut out = slices.WithCapacity[dense.ID[store.PNode]](fn.Names.Len())
+	for opt in fn.Names {
+		match dense.Unpack(opt) {
+		case option.Some[dense.ID[syntax.Node]] as nid:
+			out = out.Append(bind.PNodeOf(env.k.Ps, fn.File, nid.Value))
+		case option.None:
+			return []dense.ID[store.PNode]{}
+		}
+	}
+	out
+}
+
+func identRole(env SourceEnv, file int, x dense.ID[syntax.Node], stParam dense.ID[store.PNode], sgParam dense.ID[store.PNode], hasSig bool) uint8 {
+	let tr = env.k.Parsed[file].Tree
+	if syntax.KindOf(tr, x) != syntax.KIdent {
+		return roleOther
+	}
+	let pn = bind.PNodeOf(env.k.Ps, file, x)
+	match bind.ResolutionOf(env.k.U, env.k.Ps, pn) {
+	case bind.Declared as dec:
+		if dec.At == stParam {
+			return roleState
+		}
+		if hasSig && dec.At == sgParam {
+			return roleSignal
+		}
+		roleOther
+	case _:
+		roleOther
+	}
+}
+
+func subjectRoles(env SourceEnv, file int, subj dense.ID[syntax.Node], stParam dense.ID[store.PNode], sgParam dense.ID[store.PNode]) ([]uint8, bool) {
+	let tr = env.k.Parsed[file].Tree
+	if syntax.KindOf(tr, subj) == syntax.KTupleExpr {
+		let te = syntax.TupleExprOf(tr, subj)
+		let mut roles = slices.WithCapacity[uint8](syntax.Len(te.Elts))
+		for i in 0..syntax.Len(te.Elts) {
+			let r = identRole(env, file, syntax.Item(tr, te.Elts, i), stParam, sgParam, true)
+			if r == roleOther {
+				return ([]uint8{}, false)
+			}
+			roles = roles.Append(r)
+		}
+		return (roles, roles.Len() > 0)
+	}
+	let r = identRole(env, file, subj, stParam, sgParam, true)
+	if r == roleOther {
+		return ([]uint8{}, false)
+	}
+	([]uint8{r}, true)
+}
+
+func lastStmtOfList(tr syntax.Tree, l syntax.List) (dense.ID[syntax.Node], bool) {
+	let n = syntax.Len(l)
+	if n == 0 {
+		return (syntax.NodeAt(tr, 0), false)
+	}
+	(syntax.Item(tr, l, n-1), true)
+}
+
+func readStepFn(env mut SourceEnv, b mut Builder, tEnv types.Env, names types.Names, fnIdx int) {
+	let fn = env.k.Fns[fnIdx]
+	let params = fnParamPNodes(*env, fn)
+	if params.Len() != 2 {
+		return
+	}
+	let bodyNode = match dense.Unpack(fn.Body) {
+	case option.Some[dense.ID[syntax.Node]] as bd:
+		bd.Value
+	case option.None:
+		return
+	}
+	let tr = env.k.Parsed[fn.File].Tree
+	if syntax.KindOf(tr, bodyNode) != syntax.KBlockStmt {
+		return
+	}
+	let list = syntax.BlockStmtOf(tr, bodyNode).List
+	let (tail, hasTail) = lastStmtOfList(tr, list)
+	if !hasTail || syntax.KindOf(tr, tail) != syntax.KTypeSwitchStmt {
+		addWholeStepArm(env, b, tEnv, names, fn.File, fn.Decl, list)
+		return
+	}
+	let ts = syntax.TypeSwitchStmtOf(tr, tail)
+	let (roles, okRoles) = subjectRoles(*env, fn.File, ts.Subject, params[0], params[1])
+	if !okRoles {
+		addWholeStepArm(env, b, tEnv, names, fn.File, fn.Decl, list)
+		return
+	}
+	for i in 0..syntax.Len(ts.Clauses) {
+		let clNode = syntax.Item(tr, ts.Clauses, i)
+		if syntax.KindOf(tr, clNode) != syntax.KCaseClause {
+			continue
+		}
+		readStepClause(env, b, tEnv, names, fn.File, params, roles, clNode)
+	}
+}
+
+func addWholeStepArm(env mut SourceEnv, b mut Builder, tEnv types.Env, names types.Names, file int, siteNode dense.ID[syntax.Node], list syntax.List) {
+	let arm = AddArm(b, ArmSpec{
+		Site:       siteAt(*env, file, siteNode),
+		States:     []uint32{},
+		StatesAny:  true,
+		Signals:    []uint32{},
+		SignalsAny: true,
+		Partial:    false,
+	})
+	let mut seen = slices.Repeat([]bool{false}, env.k.Fns.Len())
+	let edges = edgesOfList(env, b.g, tEnv, names, file, list, &seen)
+	for e in edges {
+		AddEdge(b, arm, e)
+	}
+}
+
+func mergeVariants(a []uint32, aAny bool, b []uint32, bAny bool) ([]uint32, bool) {
+	if aAny {
+		return (b, bAny)
+	}
+	(a, false)
+}
+
+func readStepClause(env mut SourceEnv, b mut Builder, tEnv types.Env, names types.Names, file int, params []dense.ID[store.PNode], roles []uint8, clNode dense.ID[syntax.Node]) {
+	let tr = env.k.Parsed[file].Tree
+	let cl = syntax.CaseClauseOf(tr, clNode)
+	let spec0 = clauseArmSpec(env, b.g, tEnv, names, file, cl.List, roles)
+	if roles.Len() == 1 {
+		let (innerNode, hasInner) = lastStmtOfList(tr, cl.Body)
+		if hasInner && syntax.KindOf(tr, innerNode) == syntax.KTypeSwitchStmt {
+			let inner = syntax.TypeSwitchStmtOf(tr, innerNode)
+			let (inRoles, okIn) = subjectRoles(*env, file, inner.Subject, params[0], params[1])
+			if okIn && inRoles.Len() == 1 && inRoles[0] != roles[0] {
+				for j in 0..syntax.Len(inner.Clauses) {
+					let iclNode = syntax.Item(tr, inner.Clauses, j)
+					if syntax.KindOf(tr, iclNode) != syntax.KCaseClause {
+						continue
+					}
+					let icl = syntax.CaseClauseOf(tr, iclNode)
+					let ispec = clauseArmSpec(env, b.g, tEnv, names, file, icl.List, inRoles)
+					let (mSt, mStAny) = mergeVariants(spec0.States, spec0.StatesAny, ispec.States, ispec.StatesAny)
+					let (mSg, mSgAny) = mergeVariants(spec0.Signals, spec0.SignalsAny, ispec.Signals, ispec.SignalsAny)
+					let arm = AddArm(b, ArmSpec{
+						Site:       siteAt(*env, file, iclNode),
+						States:     mSt,
+						StatesAny:  mStAny,
+						Signals:    mSg,
+						SignalsAny: mSgAny,
+						Partial:    spec0.Partial || ispec.Partial,
+					})
+					let mut seen = slices.Repeat([]bool{false}, env.k.Fns.Len())
+					for e in edgesOfList(env, b.g, tEnv, names, file, icl.Body, &seen) {
+						AddEdge(b, arm, e)
+					}
+				}
+				return
+			}
+		}
+	}
+	let arm = AddArm(b, ArmSpec{
+		Site:       siteAt(*env, file, clNode),
+		States:     spec0.States,
+		StatesAny:  spec0.StatesAny,
+		Signals:    spec0.Signals,
+		SignalsAny: spec0.SignalsAny,
+		Partial:    spec0.Partial,
+	})
+	if roles.Len() > 1 && syntax.Len(cl.List) > 1 {
+		for j in 0..syntax.Len(cl.List) {
+			let item = syntax.Item(tr, cl.List, j)
+			let alt = singleItemAltSpec(env, b.g, tEnv, names, file, item, roles)
+			AddAlt(b, arm, alt)
+		}
+	}
+	let mut seen = slices.Repeat([]bool{false}, env.k.Fns.Len())
+	for e in edgesOfList(env, b.g, tEnv, names, file, cl.Body, &seen) {
+		AddEdge(b, arm, e)
+	}
+}
+
+type patMatch {
+	ids     []uint32,
+	isAny   bool,
+	partial bool,
+}
+
+func appendUniqueU32(dst mut []uint32, src []uint32) {
+	for v in src {
+		if !slices.Contains(*dst, v) {
+			*dst = (*dst).Append(v)
+		}
+	}
+}
+
+func resolvePatVariantIDs(env mut SourceEnv, g Graph, tEnv types.Env, names types.Names, file int, role uint8, tx dense.ID[syntax.Node]) ([]uint32, bool) {
+	let ty = types.Resolve(&env.s, tEnv, tx)
+	if !isInvalidTKey(env.s, ty) {
+		let txtNames = typeVariantsText(env, tEnv, names, ty)
+		let mut out = []uint32{}
+		for nm in txtNames {
+			let id = if role == roleState { StateID(g, nm) } else { SignalID(g, nm) }
+			if id != NoEntry {
+				appendUniqueU32(&out, []uint32{id})
+			}
+		}
+		if out.Len() > 0 {
+			return (out, true)
+		}
+	}
+	let nm = exprHeadName(*env, file, tx)
+	let id = if role == roleState { StateID(g, nm) } else { SignalID(g, nm) }
+	if id != NoEntry {
+		return ([]uint32{id}, true)
+	}
+	([]uint32{}, false)
+}
+
+func isWildcardOrBinder(env mut SourceEnv, g Graph, tEnv types.Env, names types.Names, file int, role uint8, pat dense.ID[syntax.Node]) bool {
+	let p = env.k.Parsed[file]
+	let tr = p.Tree
+	if syntax.KindOf(tr, pat) != syntax.KIdent {
+		return false
+	}
+	let txt = syntax.TokText(p, syntax.NameOf(tr, pat).Tok)
+	if txt == "_" {
+		return true
+	}
+	let (_, ok) = resolvePatVariantIDs(env, g, tEnv, names, file, role, pat)
+	!ok
+}
+
+func elemPatVariants(env mut SourceEnv, g Graph, tEnv types.Env, names types.Names, file int, role uint8, pat dense.ID[syntax.Node]) patMatch {
+	let p = env.k.Parsed[file]
+	let tr = p.Tree
+	let k = syntax.KindOf(tr, pat)
+	if k == syntax.KIdent {
+		let txt = syntax.TokText(p, syntax.NameOf(tr, pat).Tok)
+		if txt == "_" {
+			return patMatch{ids: []uint32{}, isAny: true, partial: false}
+		}
+		let (ids, ok) = resolvePatVariantIDs(env, g, tEnv, names, file, role, pat)
+		if ok {
+			return patMatch{ids: ids, isAny: false, partial: false}
+		}
+		return patMatch{ids: []uint32{}, isAny: true, partial: false}
+	}
+	if k == syntax.KSelectorExpr || k == syntax.KIndexExpr {
+		let (ids, ok) = resolvePatVariantIDs(env, g, tEnv, names, file, role, pat)
+		if ok {
+			return patMatch{ids: ids, isAny: false, partial: false}
+		}
+		return patMatch{ids: []uint32{}, isAny: true, partial: false}
+	}
+	if k == syntax.KAsPattern {
+		return elemPatVariants(env, g, tEnv, names, file, role, syntax.AsPatternOf(tr, pat).X)
+	}
+	if k == syntax.KOrPattern {
+		let op = syntax.OrPatternOf(tr, pat)
+		let mut out = []uint32{}
+		let mut any = false
+		let mut part = false
+		for j in 0..syntax.Len(op.Alts) {
+			let sub = elemPatVariants(env, g, tEnv, names, file, role, syntax.Item(tr, op.Alts, j))
+			part = part || sub.partial
+			if sub.isAny {
+				any = true
+			} else {
+				appendUniqueU32(&out, sub.ids)
+			}
+		}
+		return patMatch{ids: out, isAny: any, partial: part}
+	}
+	if k == syntax.KCompositeLit {
+		let cl = syntax.CompositeLitOf(tr, pat)
+		let mut part = false
+		for j in 0..syntax.Len(cl.Elts) {
+			let el = syntax.Item(tr, cl.Elts, j)
+			let fPat = if syntax.KindOf(tr, el) == syntax.KKeyValueExpr { syntax.KeyValueExprOf(tr, el).Value } else { el }
+			if !isWildcardOrBinder(env, g, tEnv, names, file, role, fPat) {
+				part = true
+			}
+		}
+		match dense.Unpack(cl.Type) {
+		case option.Some[dense.ID[syntax.Node]] as tx:
+			let (ids, ok) = resolvePatVariantIDs(env, g, tEnv, names, file, role, tx.Value)
+			if ok {
+				return patMatch{ids: ids, isAny: false, partial: part}
+			}
+		case option.None:
+		}
+		return patMatch{ids: []uint32{}, isAny: true, partial: true}
+	}
+	if k == syntax.KBasicLit {
+		return patMatch{ids: []uint32{}, isAny: true, partial: true}
+	}
+	patMatch{ids: []uint32{}, isAny: true, partial: true}
+}
+
+func singleItemAltSpec(env mut SourceEnv, g Graph, tEnv types.Env, names types.Names, file int, item dense.ID[syntax.Node], roles []uint8) AltSpec {
+	let tr = env.k.Parsed[file].Tree
+	let mut stIDs = []uint32{}
+	let mut sgIDs = []uint32{}
+	let mut stAny = true
+	let mut sgAny = true
+	let mut partial = false
+	if roles.Len() > 1 && syntax.KindOf(tr, item) == syntax.KTupleExpr {
+		let te = syntax.TupleExprOf(tr, item)
+		let count = if syntax.Len(te.Elts) < roles.Len() { syntax.Len(te.Elts) } else { roles.Len() }
+		for i in 0..count {
+			let pm = elemPatVariants(env, g, tEnv, names, file, roles[i], syntax.Item(tr, te.Elts, i))
+			partial = partial || pm.partial
+			if roles[i] == roleState {
+				stIDs = pm.ids
+				stAny = pm.isAny
+			} else if roles[i] == roleSignal {
+				sgIDs = pm.ids
+				sgAny = pm.isAny
+			}
+		}
+	} else {
+		let pm = elemPatVariants(env, g, tEnv, names, file, roles[0], item)
+		partial = pm.partial
+		if roles[0] == roleState {
+			stIDs = pm.ids
+			stAny = pm.isAny
+		} else if roles[0] == roleSignal {
+			sgIDs = pm.ids
+			sgAny = pm.isAny
+		}
+	}
+	AltSpec{States: stIDs, Signals: sgIDs, StatesAny: stAny, SignalsAny: sgAny, Partial: partial}
+}
+
+func clauseArmSpec(env mut SourceEnv, g Graph, tEnv types.Env, names types.Names, file int, list syntax.List, roles []uint8) ArmSpec {
+	let n = syntax.Len(list)
+	if n == 0 {
+		return ArmSpec{
+			Site:       Site{File: "", Line: 0},
+			States:     []uint32{},
+			StatesAny:  true,
+			Signals:    []uint32{},
+			SignalsAny: true,
+			Partial:    false,
+		}
+	}
+	let tr = env.k.Parsed[file].Tree
+	let mut states = []uint32{}
+	let mut signals = []uint32{}
+	let mut anyState = false
+	let mut anySignal = false
+	let mut partial = false
+	for i in 0..n {
+		let item = syntax.Item(tr, list, i)
+		let alt = singleItemAltSpec(env, g, tEnv, names, file, item, roles)
+		partial = partial || alt.Partial
+		if alt.StatesAny {
+			anyState = true
+		} else {
+			appendUniqueU32(&states, alt.States)
+		}
+		if alt.SignalsAny {
+			anySignal = true
+		} else {
+			appendUniqueU32(&signals, alt.Signals)
+		}
+	}
+	if anyState {
+		states = []uint32{}
+	}
+	if anySignal {
+		signals = []uint32{}
+	}
+	ArmSpec{
+		Site:       Site{File: "", Line: 0},
+		States:     states,
+		StatesAny:  anyState,
+		Signals:    signals,
+		SignalsAny: anySignal,
+		Partial:    partial,
+	}
+}
+
+func appendUniqueEdges(dst mut []EdgeSpec, src []EdgeSpec) {
+	for e in src {
+		let mut dup = false
+		for cur in *dst {
+			if cur.Kind == e.Kind && cur.To == e.To && cur.Site == e.Site {
+				dup = true
+				break
+			}
+		}
+		if !dup {
+			*dst = (*dst).Append(e)
+		}
+	}
+}
+
+func edgesOfList(env mut SourceEnv, g Graph, tEnv types.Env, names types.Names, file int, list syntax.List, seen mut []bool) []EdgeSpec {
+	let tr = env.k.Parsed[file].Tree
+	let n = syntax.Len(list)
+	let mut out = []EdgeSpec{}
+	if n == 0 {
+		return out
+	}
+	for i in 0..n-1 {
+		let retEdges = returnsInStmt(env, g, tEnv, names, file, syntax.Item(tr, list, i), seen)
+		appendUniqueEdges(&out, retEdges)
+	}
+	let tailEdges = edgesOfStmt(env, g, tEnv, names, file, syntax.Item(tr, list, n-1), seen)
+	appendUniqueEdges(&out, tailEdges)
+	out
+}
+
+func returnsInStmt(env mut SourceEnv, g Graph, tEnv types.Env, names types.Names, file int, stmt dense.ID[syntax.Node], seen mut []bool) []EdgeSpec {
+	let tr = env.k.Parsed[file].Tree
+	let k = syntax.KindOf(tr, stmt)
+	if k == syntax.KFuncLit {
+		return []EdgeSpec{}
+	}
+	if k == syntax.KReturnStmt {
+		let rs = syntax.ReturnStmtOf(tr, stmt)
+		match dense.Unpack(rs.Result) {
+		case option.Some[dense.ID[syntax.Node]] as rx:
+			return edgesOfExpr(env, g, tEnv, names, file, rx.Value, seen)
+		case option.None:
+			return []EdgeSpec{}
+		}
+	}
+	let mut out = []EdgeSpec{}
+	if k == syntax.KBlockStmt {
+		let bs = syntax.BlockStmtOf(tr, stmt)
+		for i in 0..syntax.Len(bs.List) {
+			appendUniqueEdges(&out, returnsInStmt(env, g, tEnv, names, file, syntax.Item(tr, bs.List, i), seen))
+		}
+		return out
+	}
+	if k == syntax.KIfStmt {
+		let ifs = syntax.IfStmtOf(tr, stmt)
+		appendUniqueEdges(&out, returnsInStmt(env, g, tEnv, names, file, ifs.Body, seen))
+		match dense.Unpack(ifs.Else) {
+		case option.Some[dense.ID[syntax.Node]] as el:
+			appendUniqueEdges(&out, returnsInStmt(env, g, tEnv, names, file, el.Value, seen))
+		case option.None:
+		}
+		return out
+	}
+	if k == syntax.KTypeSwitchStmt {
+		let ts = syntax.TypeSwitchStmtOf(tr, stmt)
+		for i in 0..syntax.Len(ts.Clauses) {
+			let c = syntax.Item(tr, ts.Clauses, i)
+			if syntax.KindOf(tr, c) == syntax.KCaseClause {
+				let cc = syntax.CaseClauseOf(tr, c)
+				for j in 0..syntax.Len(cc.Body) {
+					appendUniqueEdges(&out, returnsInStmt(env, g, tEnv, names, file, syntax.Item(tr, cc.Body, j), seen))
+				}
+			}
+		}
+		return out
+	}
+	if k == syntax.KSwitchStmt {
+		let sw = syntax.SwitchStmtOf(tr, stmt)
+		for i in 0..syntax.Len(sw.Clauses) {
+			let c = syntax.Item(tr, sw.Clauses, i)
+			if syntax.KindOf(tr, c) == syntax.KCaseClause {
+				let cc = syntax.CaseClauseOf(tr, c)
+				for j in 0..syntax.Len(cc.Body) {
+					appendUniqueEdges(&out, returnsInStmt(env, g, tEnv, names, file, syntax.Item(tr, cc.Body, j), seen))
+				}
+			}
+		}
+	}
+	out
+}
+
+func edgesOfStmt(env mut SourceEnv, g Graph, tEnv types.Env, names types.Names, file int, stmt dense.ID[syntax.Node], seen mut []bool) []EdgeSpec {
+	let tr = env.k.Parsed[file].Tree
+	let k = syntax.KindOf(tr, stmt)
+	if k == syntax.KExprStmt {
+		return edgesOfExpr(env, g, tEnv, names, file, syntax.ExprStmtOf(tr, stmt).X, seen)
+	}
+	if k == syntax.KReturnStmt {
+		match dense.Unpack(syntax.ReturnStmtOf(tr, stmt).Result) {
+		case option.Some[dense.ID[syntax.Node]] as rx:
+			return edgesOfExpr(env, g, tEnv, names, file, rx.Value, seen)
+		case option.None:
+			return []EdgeSpec{}
+		}
+	}
+	if k == syntax.KBlockStmt {
+		return edgesOfList(env, g, tEnv, names, file, syntax.BlockStmtOf(tr, stmt).List, seen)
+	}
+	if k == syntax.KIfStmt {
+		let ifs = syntax.IfStmtOf(tr, stmt)
+		let mut out = edgesOfStmt(env, g, tEnv, names, file, ifs.Body, seen)
+		match dense.Unpack(ifs.Else) {
+		case option.Some[dense.ID[syntax.Node]] as el:
+			appendUniqueEdges(&out, edgesOfStmt(env, g, tEnv, names, file, el.Value, seen))
+		case option.None:
+		}
+		return out
+	}
+	if k == syntax.KTypeSwitchStmt {
+		let ts = syntax.TypeSwitchStmtOf(tr, stmt)
+		let mut out = []EdgeSpec{}
+		for i in 0..syntax.Len(ts.Clauses) {
+			let c = syntax.Item(tr, ts.Clauses, i)
+			if syntax.KindOf(tr, c) == syntax.KCaseClause {
+				appendUniqueEdges(&out, edgesOfList(env, g, tEnv, names, file, syntax.CaseClauseOf(tr, c).Body, seen))
+			}
+		}
+		return out
+	}
+	if k == syntax.KSwitchStmt {
+		let sw = syntax.SwitchStmtOf(tr, stmt)
+		let mut out = []EdgeSpec{}
+		for i in 0..syntax.Len(sw.Clauses) {
+			let c = syntax.Item(tr, sw.Clauses, i)
+			if syntax.KindOf(tr, c) == syntax.KCaseClause {
+				appendUniqueEdges(&out, edgesOfList(env, g, tEnv, names, file, syntax.CaseClauseOf(tr, c).Body, seen))
+			}
+		}
+		return out
+	}
+	[]EdgeSpec{}
+}
+
+func helperCallFn(env SourceEnv, file int, callNode dense.ID[syntax.Node], seen []bool) int {
+	let tr = env.k.Parsed[file].Tree
+	let ce = syntax.CallExprOf(tr, callNode)
+	let fi = resolveFnExpr(env, file, ce.Fun)
+	if fi < 0 || fi >= seen.Len() || seen[fi] {
+		return -1
+	}
+	if !footprint.Empty(env.fs, fi) {
+		return -1
+	}
+	fi
+}
+
+func exprDecisionKind(env SourceEnv, file int, names types.Names, x dense.ID[syntax.Node]) uint8 {
+	match nodeType(env, file, x) {
+	case option.Some[dense.ID[store.TKey]] as tk:
+		let dk = DecisionKind(types.Text(env.s, names, tk.Value))
+		if dk != DecUnknown {
+			return dk
+		}
+	case option.None:
+	}
+	let nm = exprHeadName(env, file, x)
+	DecisionKind(nm)
+}
+
+func edgesOfExpr(env mut SourceEnv, g Graph, tEnv types.Env, names types.Names, file int, x dense.ID[syntax.Node], seen mut []bool) []EdgeSpec {
+	let tr = env.k.Parsed[file].Tree
+	let k = syntax.KindOf(tr, x)
+	let site = siteAt(*env, file, x)
+	if k == syntax.KParenExpr {
+		return edgesOfExpr(env, g, tEnv, names, file, syntax.ParenExprOf(tr, x).X, seen)
+	}
+	if k == syntax.KTryExpr {
+		return edgesOfExpr(env, g, tEnv, names, file, syntax.TryExprOf(tr, x).X, seen)
+	}
+	if k == syntax.KCallExpr {
+		let fi = helperCallFn(*env, file, x, *seen)
+		if fi >= 0 {
+			let f = env.k.Fns[fi]
+			match dense.Unpack(f.Body) {
+			case option.Some[dense.ID[syntax.Node]] as bd:
+				let hTr = env.k.Parsed[f.File].Tree
+				if syntax.KindOf(hTr, bd.Value) == syntax.KBlockStmt {
+					(*seen)[fi] = true
+					let out = edgesOfList(env, g, tEnv, names, f.File, syntax.BlockStmtOf(hTr, bd.Value).List, seen)
+					(*seen)[fi] = false
+					return out
+				}
+			case option.None:
+			}
+		}
+		return []EdgeSpec{EdgeSpec{Kind: DecUnknown, To: AnyID, Site: site}}
+	}
+	let dk = exprDecisionKind(*env, file, names, x)
+	if dk == DecUnknown {
+		return []EdgeSpec{EdgeSpec{Kind: DecUnknown, To: AnyID, Site: site}}
+	}
+	if DecisionMovesState(dk) {
+		let mut to = AnyID
+		if k == syntax.KCompositeLit {
+			let p = env.k.Parsed[file]
+			let cl = syntax.CompositeLitOf(tr, x)
+			for i in 0..syntax.Len(cl.Elts) {
+				let el = syntax.Item(tr, cl.Elts, i)
+				if syntax.KindOf(tr, el) == syntax.KKeyValueExpr {
+					let kv = syntax.KeyValueExprOf(tr, el)
+					if syntax.KindOf(tr, kv.Key) == syntax.KIdent && syntax.TokText(p, syntax.NameOf(tr, kv.Key).Tok) == "Next" {
+						to = stateOfExpr(env, g, file, tEnv, names, kv.Value)
+					}
+				}
+			}
+		}
+		return []EdgeSpec{EdgeSpec{Kind: dk, To: to, Site: site}}
+	}
+	[]EdgeSpec{EdgeSpec{Kind: dk, To: AnyID, Site: site}}
+}
+
+func collectTailExprs(tr syntax.Tree, list syntax.List, out mut []dense.ID[syntax.Node]) {
+	let (tail, ok) = lastStmtOfList(tr, list)
+	if !ok {
+		return
+	}
+	collectStmtValueExprs(tr, tail, out)
+}
+
+func collectStmtValueExprs(tr syntax.Tree, stmt dense.ID[syntax.Node], out mut []dense.ID[syntax.Node]) {
+	let k = syntax.KindOf(tr, stmt)
+	if k == syntax.KExprStmt {
+		*out = (*out).Append(syntax.ExprStmtOf(tr, stmt).X)
+		return
+	}
+	if k == syntax.KReturnStmt {
+		match dense.Unpack(syntax.ReturnStmtOf(tr, stmt).Result) {
+		case option.Some[dense.ID[syntax.Node]] as rx:
+			*out = (*out).Append(rx.Value)
+		case option.None:
+		}
+		return
+	}
+	if k == syntax.KBlockStmt {
+		collectTailExprs(tr, syntax.BlockStmtOf(tr, stmt).List, out)
+		return
+	}
+	if k == syntax.KIfStmt {
+		let ifs = syntax.IfStmtOf(tr, stmt)
+		collectStmtValueExprs(tr, ifs.Body, out)
+		match dense.Unpack(ifs.Else) {
+		case option.Some[dense.ID[syntax.Node]] as el:
+			collectStmtValueExprs(tr, el.Value, out)
+		case option.None:
+		}
+	}
+}
+
+func isSomeExpr(env SourceEnv, file int, x dense.ID[syntax.Node]) bool {
+	let tr = env.k.Parsed[file].Tree
+	syntax.KindOf(tr, x) == syntax.KCompositeLit && exprHeadName(env, file, x) == "Some"
+}
+
+func isNoneExpr(env SourceEnv, file int, x dense.ID[syntax.Node]) bool {
+	let p = env.k.Parsed[file]
+	let tr = p.Tree
+	syntax.KindOf(tr, x) == syntax.KIdent && syntax.TokText(p, syntax.NameOf(tr, x).Tok) == "None"
+}
+
+func someTimeoutSignal(env mut SourceEnv, g Graph, file int, tEnv types.Env, names types.Names, x dense.ID[syntax.Node]) uint32 {
+	let p = env.k.Parsed[file]
+	let tr = p.Tree
+	if syntax.KindOf(tr, x) != syntax.KCompositeLit {
+		return AnyID
+	}
+	let cl = syntax.CompositeLitOf(tr, x)
+	for i in 0..syntax.Len(cl.Elts) {
+		let el = syntax.Item(tr, cl.Elts, i)
+		if syntax.KindOf(tr, el) == syntax.KKeyValueExpr {
+			let kv = syntax.KeyValueExprOf(tr, el)
+			let keyName = exprHeadName(*env, file, kv.Key)
+			if keyName == "Signal" {
+				return signalOfExpr(env, g, file, tEnv, names, kv.Value)
+			}
+			if keyName == "Value" && syntax.KindOf(tr, kv.Value) == syntax.KCompositeLit {
+				return someTimeoutSignal(env, g, file, tEnv, names, kv.Value)
+			}
+		} else if syntax.KindOf(tr, el) == syntax.KCompositeLit {
+			return someTimeoutSignal(env, g, file, tEnv, names, el)
+		}
+	}
+	AnyID
+}
+
+func applyPerStateExprs(env mut SourceEnv, b mut Builder, file int, tEnv types.Env, names types.Names, states []uint32, list syntax.List, entryKind uint8) {
+	let tr = env.k.Parsed[file].Tree
+	let mut vs = []dense.ID[syntax.Node]{}
+	collectTailExprs(tr, list, &vs)
+	for st in states {
+		let mut sure = vs.Len() > 0
+		for v in vs {
+			let some = isSomeExpr(*env, file, v)
+			let none = isNoneExpr(*env, file, v)
+			if !some && !none {
+				sure = false
+			}
+			if some {
+				let site = siteAt(*env, file, v)
+				if entryKind == uint8(1) {
+					let sig = someTimeoutSignal(env, b.g, file, tEnv, names, v)
+					SetTimer(b, st, sig, site)
+				} else if entryKind == uint8(2) {
+					SetWork(b, st, site)
+				} else {
+					SetExit(b, st, site)
+				}
+			}
+		}
+		if !sure {
+			MarkUnsure(b, st)
+		}
+	}
+}
+
+func readPerStateFn(env mut SourceEnv, b mut Builder, tEnv types.Env, names types.Names, fnIdx int, entryKind uint8) {
+	let fn = env.k.Fns[fnIdx]
+	let params = fnParamPNodes(*env, fn)
+	let bodyNode = match dense.Unpack(fn.Body) {
+	case option.Some[dense.ID[syntax.Node]] as bd:
+		bd.Value
+	case option.None:
+		return
+	}
+	let tr = env.k.Parsed[fn.File].Tree
+	if syntax.KindOf(tr, bodyNode) != syntax.KBlockStmt {
+		return
+	}
+	let list = syntax.BlockStmtOf(tr, bodyNode).List
+	let nStates = b.g.StateNames.Len()
+	let mut allStates = slices.WithCapacity[uint32](nStates)
+	for s in 0..nStates {
+		allStates = allStates.Append(uint32(s))
+	}
+	let (tail, hasTail) = lastStmtOfList(tr, list)
+	if !hasTail || params.Len() != 1 || syntax.KindOf(tr, tail) != syntax.KTypeSwitchStmt {
+		applyPerStateExprs(env, b, fn.File, tEnv, names, allStates, list, entryKind)
+		return
+	}
+	let ts = syntax.TypeSwitchStmtOf(tr, tail)
+	if identRole(*env, fn.File, ts.Subject, params[0], params[0], false) != roleState {
+		applyPerStateExprs(env, b, fn.File, tEnv, names, allStates, list, entryKind)
+		return
+	}
+	let mut taken = slices.Repeat([]bool{false}, nStates)
+	for i in 0..syntax.Len(ts.Clauses) {
+		let clNode = syntax.Item(tr, ts.Clauses, i)
+		if syntax.KindOf(tr, clNode) != syntax.KCaseClause {
+			continue
+		}
+		let cl = syntax.CaseClauseOf(tr, clNode)
+		let spec = clauseArmSpec(env, b.g, tEnv, names, fn.File, cl.List, []uint8{roleState})
+		let cand = if spec.StatesAny { allStates } else { spec.States }
+		let mut open = []uint32{}
+		for s in cand {
+			if !taken[s] {
+				taken[s] = true
+				open = open.Append(s)
+			}
+		}
+		applyPerStateExprs(env, b, fn.File, tEnv, names, open, cl.Body, entryKind)
+	}
+}
+
+func checkMachinePkgSource(preludeSrc string, appSrc string) SourceEnv {
+	let pParsed = syntax.Parse(preludeSrc)
+	let pFiles = []bind.File{bind.File{Name: "prelude.ergo", Parsed: pParsed}}
+	let ps0 = bind.BuildParents(pFiles)
+	let s0 = bind.Collect("prelude", pFiles)
+	let (s1, u0) = bind.Bind(s0, []store.Frozen{}, ps0, pFiles, 1)
+	let mut ms0 = s1
+	let pk0 = expr.Load(&ms0, pFiles, u0, ps0, []types.Ext{}, []types.Foreign{}, []types.Iface{}, true)
+	let pIface = types.Interface(ms0, pk0.Parsed, pk0.Kinds, pk0.Ext, pk0.Foreign, []types.Iface{})
+	let pFrozen = store.Freeze(ms0)
+	let pExprDep = expr.Dep{Path: "prelude", S: store.Of(pFrozen), K: expr.Exported(pk0)}
+
+	let aParsed = syntax.Parse(appSrc)
+	let aFiles = []bind.File{bind.File{Name: "machine.ergo", Parsed: aParsed}}
+	let ps1 = bind.BuildParents(aFiles)
+	let sa0 = bind.Collect("pkg/app", aFiles)
+	let (sa1, ua) = bind.Bind(sa0, []store.Frozen{pFrozen}, ps1, aFiles, 1)
+	let mut msa = sa1
+	let ext = types.ExtOf(msa, []types.Iface{pIface})
+	let foreign = types.WithAliases([]types.Foreign{}, msa, []types.Iface{pIface})
+	let ak0 = expr.Load(&msa, aFiles, ua, ps1, ext, foreign, []types.Iface{pIface}, false)
+	let ak1 = expr.WithDeps(ak0, []expr.Dep{pExprDep})
+	let typer = expr.Check(&msa, ak1)
+	let fp = footprint.Of(msa, ak1, typer)
+	NewSourceEnv(msa, ak1, typer, fp)
+}
+
+let testPreludeSrc = "type Option[T any] = Some{Value T} | None{}\n" +
+	"type Timeout[E any] { Signal E }\n" +
+	"type Decision[S any, E any] = Enter{Next S} | Stay{Next S} | Emit{Next S} | Ignore{} | Reject{} | Done{} | Tell{Next S}\n"
+
+law GraphMatchesSourceModel(branchMode int, helperPure bool, usePartial bool) {
+	let bm = ((branchMode % 3) + 3) % 3
+	let guardPat = if usePartial { "Idle{Count: 0}" } else { "Idle" }
+	let helperDecl = if helperPure {
+		"func chooseNext() Decision[State, Sig] {\n\tEnter{Next: Run}\n}\n"
+	} else {
+		"type Log { Write(s string) }\nfunc chooseNext() Decision[State, Sig] needs Log {\n\tLog.Write(\"go\")\n\tEnter{Next: Run}\n}\n"
+	}
+	let mut src = "import prelude\n" +
+		"type State = Idle{Count int} | Run{} | Halted{}\n" +
+		"type Sig = Start{} | Tick{} | Stop{}\n" +
+		helperDecl +
+		"func step(s State, e Sig) Decision[State, Sig] {\n"
+	if bm == 0 {
+		src = src + "\tmatch (s, e) {\n\tcase (" + guardPat + ", Start): chooseNext()\n\tcase (Run, Stop): Done\n\tcase (_, _): Ignore\n\t}\n"
+	} else if bm == 1 {
+		src = src + "\tmatch s {\n\tcase " + guardPat + ":\n\t\tmatch e {\n\t\tcase Start: chooseNext()\n\t\tcase _: Stay{Next: s}\n\t\t}\n\tcase Run:\n\t\tmatch e {\n\t\tcase Stop: Done\n\t\tcase _: Stay{Next: s}\n\t\t}\n\tcase Halted: Ignore\n\t}\n"
+	} else {
+		src = src + "\tmatch (s, e) {\n\tcase (" + guardPat + ", Start), (Run, Tick): Stay{Next: Run}\n\tcase (Run, Stop): Done\n\tcase (_, _): Ignore\n\t}\n"
+	}
+	src = src + "}\n" +
+		"func after(s State) Option[Timeout[Sig]] {\n\tmatch s {\n\tcase Run: Some{Value: Timeout[Sig]{Signal: Tick}}\n\tcase _: None\n\t}\n}\n" +
+		"type Worker machine[State, Sig] {\n\tinitial: Idle{Count: 0},\n\tstep: step,\n\tafter: after,\n\twork: func(s State) Option[int] { None },\n}\n"
+
+	let mut env = checkMachinePkgSource(testPreludeSrc, src)
+	let gs = Machines(&env)
+	if gs.Len() != 1 {
+		return false
+	}
+	let g = gs[0]
+	let mut sc = NewScratch()
+	let rep = Analyze(g, &sc)
+	let baseOK = g.Machine == "Worker" &&
+		g.StateNames == []string{"Idle", "Run", "Halted"} &&
+		g.SignalNames == []string{"Start", "Tick", "Stop"} &&
+		g.Initial == uint32(0) &&
+		g.TimerSignal[1] == uint32(1) &&
+		g.Computed == []string{"work"}
+	if !baseOK {
+		return false
+	}
+	if bm == 0 {
+		let arm0 = g.ArmPartial[0] == usePartial
+		if !helperPure {
+			return arm0 && g.EdgeKind[0] == DecUnknown && rep.ReachableStates[2]
+		}
+		return arm0 && g.EdgeKind[0] == DecEnter && g.EdgeTo[0] == uint32(1) && rep.ReachableStates[0] && rep.ReachableStates[1] && !rep.ReachableStates[2]
+	}
+	if bm == 1 {
+		let ok1 = g.EdgeTo[1] == AnyID
+		let ok2 = rep.HasCycle
+		let ok3 = rep.ReachableStates[2]
+		if !(ok1 && ok2 && ok3) {
+			return false
+		}
+		return true
+	}
+	let (tIdleStop, _) = Takes(g, uint32(0), uint32(0), uint32(2))
+	let (tIdleStart, pIdleStart) = Takes(g, uint32(0), uint32(0), uint32(0))
+	let (tRunTick, pRunTick) = Takes(g, uint32(0), uint32(1), uint32(1))
+	!tIdleStop && tIdleStart && pIdleStart == usePartial && tRunTick && !pRunTick
+}
+
+test SourceReaderCoversNestedComputedAndHelpers {
+	let src = "import prelude\n" +
+		"type S = A{} | B{} | C{}\n" +
+		"type E = X{} | Y{}\n" +
+		"func pureChoose(flag bool) Decision[S, E] {\n" +
+		"\tif flag {\n\t\treturn Enter{Next: B}\n\t}\n" +
+		"\tEmit{Next: C}\n" +
+		"}\n" +
+		"func step(s S, e E) Decision[S, E] {\n" +
+		"\tmatch (s, e) {\n" +
+		"\tcase (A, X): pureChoose(true)\n" +
+		"\tcase (B, Y): Done\n" +
+		"\tcase _: Stay{Next: s}\n" +
+		"\t}\n" +
+		"}\n" +
+		"func exitFn(s S) Option[int] {\n" +
+		"\tmatch s {\n" +
+		"\tcase A, B: Some{Value: 1}\n" +
+		"\tcase C: None\n" +
+		"\t}\n" +
+		"}\n" +
+		"type Demo machine[S, E] {\n" +
+		"\tinitial: A,\n" +
+		"\tstep: step,\n" +
+		"\texit: exitFn,\n" +
+		"}\n"
+	let mut env = checkMachinePkgSource(testPreludeSrc, src)
+	let gs = Machines(&env)
+	assert gs.Len() == 1
+	let g = gs[0]
+	assert g.Initial == uint32(0)
+	assert g.HasExit[0] && g.HasExit[1] && !g.HasExit[2]
+	assert g.EdgeKind[0] == DecEnter && g.EdgeTo[0] == uint32(1)
+	assert g.EdgeKind[1] == DecEmit && g.EdgeTo[1] == uint32(2)
+	let mut sc = NewScratch()
+	let rep = Analyze(g, &sc)
+	assert rep.DeadStates.Len() == 0
+	assert rep.ReachableStates[0] && rep.ReachableStates[1] && rep.ReachableStates[2]
+
+	let nestedSrc = "import prelude\n" +
+		"type State = Idle{Count int} | Run{} | Halted{}\n" +
+		"type Sig = Start{} | Tick{} | Stop{}\n" +
+		"func chooseNext() Decision[State, Sig] {\n\tEnter{Next: Run}\n}\n" +
+		"func step(s State, e Sig) Decision[State, Sig] {\n" +
+		"\tmatch s {\n\tcase Idle{Count: 0}:\n\t\tmatch e {\n\t\tcase Start: chooseNext()\n\t\tcase _: Stay{Next: s}\n\t\t}\n\tcase Run:\n\t\tmatch e {\n\t\tcase Stop: Done\n\t\tcase _: Stay{Next: s}\n\t\t}\n\tcase Halted: Ignore\n\t}\n" +
+		"}\n" +
+		"type Worker machine[State, Sig] {\n\tinitial: Idle{Count: 0},\n\tstep: step,\n}\n"
+	let mut nEnv = checkMachinePkgSource(testPreludeSrc, nestedSrc)
+	let nGs = Machines(&nEnv)
+	assert nGs.Len() == 1
+	let ng = nGs[0]
+	let nRep = Analyze(ng, &sc)
+	assert ng.EdgeTo[1] == AnyID && nRep.HasCycle && nRep.ReachableStates[2]
+	assert nRep.UncoveredPairs.Len() == 0 && nRep.ShadowedArms.Len() == 0 && nRep.DeadStates.Len() == 0
+}
+
+test SourceReaderCoversSubUnionsTimersUnsureAndComputed {
+	let subSrc = "import prelude\n" +
+		"type Wait{} \n" +
+		"type Run{} \n" +
+		"type Active = Wait | Run\n" +
+		"type DoneState{} \n" +
+		"type S = Active | DoneState\n" +
+		"type E = Ping{} | Fail{}\n" +
+		"func maybeWork(s S) Option[int] {\n" +
+		"\tmatch s {\n\tcase Wait: Some{Value: 1}\n\tcase _: None\n\t}\n" +
+		"}\n" +
+		"func pickWork(flag bool) Option[int] {\n\tif flag {\n\t\treturn Some{Value: 2}\n\t}\n\tNone\n}\n" +
+		"func step(s S, e E) Decision[S, E] {\n" +
+		"\tmatch (s, e) {\n\tcase (Active, Ping): Tell{Next: DoneState}\n\tcase (Wait, Fail): Reject\n\tcase _: Done\n\t}\n" +
+		"}\n" +
+		"func workFn(s S) Option[int] {\n" +
+		"\tmatch s {\n\tcase Wait: maybeWork(s)\n\tcase Run: if true { Some{Value: 2} } else { None }\n\tcase DoneState: None\n\t}\n" +
+		"}\n" +
+		"type SubM machine[S, E] {\n" +
+		"\tinitial: Wait,\n" +
+		"\tstep: step,\n" +
+		"\tafter: func(s S) Option[Timeout[E]] { None },\n" +
+		"\twork: workFn,\n" +
+		"\texit: func(s S) Option[int] { None },\n" +
+		"}\n"
+	let mut env = checkMachinePkgSource(testPreludeSrc, subSrc)
+	let gs = Machines(&env)
+	assert gs.Len() == 1
+	let g = gs[0]
+	assert g.Initial == uint32(0)
+	assert g.EdgeKind[0] == DecTell && g.EdgeTo[0] == uint32(2)
+	assert g.EdgeKind[1] == DecReject
+	assert g.HasWork[1] && !g.HasWork[2]
+	assert g.Unsure == []uint32{uint32(0)}
+	assert g.Computed == []string{"after", "exit"}
+	let (tRunPing, _) = Takes(g, uint32(0), uint32(1), uint32(0))
+	assert tRunPing
+	let (tWaitPing, _) = Takes(g, uint32(0), uint32(0), uint32(0))
+	assert tWaitPing
+}

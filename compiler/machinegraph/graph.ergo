@@ -1,0 +1,565 @@
+import slices
+import strconv
+import strings
+
+// AnyID represents a wildcard state or signal matching any variant.
+let AnyID = uint32(0xffffffff)
+
+// NoEntry represents an absent entry, variant, or arm index.
+let NoEntry = uint32(0xfffffffe)
+
+// DecUnknown is an edge decision whose variant could not be statically resolved.
+let DecUnknown = uint8(0)
+
+// DecEnter is a Decision.Enter transition to Next state.
+let DecEnter = uint8(1)
+
+// DecStay is a Decision.Stay transition keeping or moving to Next state.
+let DecStay = uint8(2)
+
+// DecEmit is a Decision.Emit transition to Next state.
+let DecEmit = uint8(3)
+
+// DecIgnore is a Decision.Ignore transition leaving state unchanged.
+let DecIgnore = uint8(4)
+
+// DecReject is a Decision.Reject transition rejecting the signal.
+let DecReject = uint8(5)
+
+// DecDone is a Decision.Done transition terminating the machine.
+let DecDone = uint8(6)
+
+// DecTell is a Decision.Tell transition sending a signal and continuing at Next state.
+let DecTell = uint8(7)
+
+// DecisionKind maps a Decision variant name to its numeric discriminant, or DecUnknown.
+func DecisionKind(name string) uint8 {
+	if name == "Enter" {
+		return DecEnter
+	}
+	if name == "Stay" {
+		return DecStay
+	}
+	if name == "Emit" {
+		return DecEmit
+	}
+	if name == "Ignore" {
+		return DecIgnore
+	}
+	if name == "Reject" {
+		return DecReject
+	}
+	if name == "Done" {
+		return DecDone
+	}
+	if name == "Tell" {
+		return DecTell
+	}
+	DecUnknown
+}
+
+// DecisionName returns the canonical Decision variant label for kind.
+func DecisionName(kind uint8) string {
+	if kind == DecEnter {
+		return "Enter"
+	}
+	if kind == DecStay {
+		return "Stay"
+	}
+	if kind == DecEmit {
+		return "Emit"
+	}
+	if kind == DecIgnore {
+		return "Ignore"
+	}
+	if kind == DecReject {
+		return "Reject"
+	}
+	if kind == DecDone {
+		return "Done"
+	}
+	if kind == DecTell {
+		return "Tell"
+	}
+	"?"
+}
+
+// DecisionMovesState reports whether kind specifies a Next target state transition.
+func DecisionMovesState(kind uint8) bool {
+	kind == DecEnter || kind == DecStay || kind == DecEmit || kind == DecTell
+}
+
+// Site identifies a file name and 1-based line number in Ergo source.
+type Site {
+	File string,
+	Line int,
+}
+
+// FormatSite formats site as "file:line".
+func FormatSite(s Site) string {
+	"\(s.File):\(s.Line)"
+}
+
+// EdgeSpec describes one transition decision produced by an arm.
+type EdgeSpec {
+	Kind uint8,
+	To   uint32,
+	Site Site,
+}
+
+// ArmSpec describes the pattern header and site of one step arm.
+type ArmSpec {
+	Site       Site,
+	States     []uint32,
+	StatesAny  bool,
+	Signals    []uint32,
+	SignalsAny bool,
+	Partial    bool,
+}
+
+// AltSpec describes one alternative tuple pattern of a multi-pattern step arm.
+type AltSpec {
+	States     []uint32,
+	Signals    []uint32,
+	StatesAny  bool,
+	SignalsAny bool,
+	Partial    bool,
+}
+
+// Graph stores a machine's states, signals, arms, edges, timers, work, exit, and computed entries in flat arrays.
+type Graph {
+	Machine        string,
+	StateNames     []string,
+	SignalNames    []string,
+	Initial        uint32,
+	ArmSite        []Site,
+	ArmPartial     []bool,
+	ArmStateStart  []uint32,
+	ArmStateLen    []uint32,
+	ArmStateAny    []bool,
+	ArmSignalStart []uint32,
+	ArmSignalLen   []uint32,
+	ArmSignalAny   []bool,
+	ArmEdgeStart   []uint32,
+	ArmEdgeLen     []uint32,
+	ArmAltStart    []uint32,
+	ArmAltLen      []uint32,
+	AltStateStart  []uint32,
+	AltStateLen    []uint32,
+	AltStateAny    []bool,
+	AltSignalStart []uint32,
+	AltSignalLen   []uint32,
+	AltSignalAny   []bool,
+	AltPartial     []bool,
+	EdgeKind       []uint8,
+	EdgeTo         []uint32,
+	EdgeSite       []Site,
+	VariantPool    []uint32,
+	TimerSignal    []uint32,
+	TimerSite      []Site,
+	HasWork        []bool,
+	WorkSite       []Site,
+	HasExit        []bool,
+	ExitSite       []Site,
+	Unsure         []uint32,
+	Computed       []string,
+}
+
+// Builder incrementally constructs an immutable Graph using dense uint32 indices.
+type Builder {
+	g Graph,
+}
+
+// NewBuilder returns a Builder initialized with machine name, state names, and signal names.
+func NewBuilder(name string, states []string, signals []string) Builder {
+	let nStates = states.Len()
+	let emptySite = Site{File: "", Line: 0}
+	let mut timerSites = slices.WithCapacity[Site](nStates)
+	let mut workSites = slices.WithCapacity[Site](nStates)
+	let mut exitSites = slices.WithCapacity[Site](nStates)
+	for _ in 0..nStates {
+		timerSites = timerSites.Append(emptySite)
+		workSites = workSites.Append(emptySite)
+		exitSites = exitSites.Append(emptySite)
+	}
+	Builder{
+		g: Graph{
+			Machine:        name,
+			StateNames:     slices.Clone(states),
+			SignalNames:    slices.Clone(signals),
+			Initial:        AnyID,
+			ArmSite:        []Site{},
+			ArmPartial:     []bool{},
+			ArmStateStart:  []uint32{},
+			ArmStateLen:    []uint32{},
+			ArmStateAny:    []bool{},
+			ArmSignalStart: []uint32{},
+			ArmSignalLen:   []uint32{},
+			ArmSignalAny:   []bool{},
+			ArmEdgeStart:   []uint32{},
+			ArmEdgeLen:     []uint32{},
+			ArmAltStart:    []uint32{},
+			ArmAltLen:      []uint32{},
+			AltStateStart:  []uint32{},
+			AltStateLen:    []uint32{},
+			AltStateAny:    []bool{},
+			AltSignalStart: []uint32{},
+			AltSignalLen:   []uint32{},
+			AltSignalAny:   []bool{},
+			AltPartial:     []bool{},
+			EdgeKind:       []uint8{},
+			EdgeTo:         []uint32{},
+			EdgeSite:       []Site{},
+			VariantPool:    []uint32{},
+			TimerSignal:    slices.Repeat([]uint32{NoEntry}, nStates),
+			TimerSite:      timerSites,
+			HasWork:        slices.Repeat([]bool{false}, nStates),
+			WorkSite:       workSites,
+			HasExit:        slices.Repeat([]bool{false}, nStates),
+			ExitSite:       exitSites,
+			Unsure:         []uint32{},
+			Computed:       []string{},
+		},
+	}
+}
+
+// SetInitial sets the initial state index or AnyID for b.
+func SetInitial(b mut Builder, stateID uint32) {
+	b.g.Initial = stateID
+}
+
+func pushVariants(g mut Graph, items []uint32) (uint32, uint32) {
+	let start = uint32(g.VariantPool.Len())
+	for v in items {
+		g.VariantPool = g.VariantPool.Append(v)
+	}
+	(start, uint32(items.Len()))
+}
+
+// AddArm appends one step arm described by spec and returns its dense arm index.
+func AddArm(b mut Builder, spec ArmSpec) uint32 {
+	let id = uint32(b.g.ArmSite.Len())
+	let (stStart, stLen) = pushVariants(&b.g, spec.States)
+	let (sgStart, sgLen) = pushVariants(&b.g, spec.Signals)
+	b.g.ArmSite = b.g.ArmSite.Append(spec.Site)
+	b.g.ArmPartial = b.g.ArmPartial.Append(spec.Partial)
+	b.g.ArmStateStart = b.g.ArmStateStart.Append(stStart)
+	b.g.ArmStateLen = b.g.ArmStateLen.Append(stLen)
+	b.g.ArmStateAny = b.g.ArmStateAny.Append(spec.StatesAny)
+	b.g.ArmSignalStart = b.g.ArmSignalStart.Append(sgStart)
+	b.g.ArmSignalLen = b.g.ArmSignalLen.Append(sgLen)
+	b.g.ArmSignalAny = b.g.ArmSignalAny.Append(spec.SignalsAny)
+	b.g.ArmEdgeStart = b.g.ArmEdgeStart.Append(uint32(b.g.EdgeKind.Len()))
+	b.g.ArmEdgeLen = b.g.ArmEdgeLen.Append(uint32(0))
+	b.g.ArmAltStart = b.g.ArmAltStart.Append(uint32(b.g.AltPartial.Len()))
+	b.g.ArmAltLen = b.g.ArmAltLen.Append(uint32(0))
+	id
+}
+
+// AddAlt appends one alternative tuple pattern to the most recently added arm.
+func AddAlt(b mut Builder, arm uint32, spec AltSpec) {
+	if int(arm)+1 != b.g.ArmSite.Len() {
+		return
+	}
+	let (stStart, stLen) = pushVariants(&b.g, spec.States)
+	let (sgStart, sgLen) = pushVariants(&b.g, spec.Signals)
+	b.g.AltStateStart = b.g.AltStateStart.Append(stStart)
+	b.g.AltStateLen = b.g.AltStateLen.Append(stLen)
+	b.g.AltStateAny = b.g.AltStateAny.Append(spec.StatesAny)
+	b.g.AltSignalStart = b.g.AltSignalStart.Append(sgStart)
+	b.g.AltSignalLen = b.g.AltSignalLen.Append(sgLen)
+	b.g.AltSignalAny = b.g.AltSignalAny.Append(spec.SignalsAny)
+	b.g.AltPartial = b.g.AltPartial.Append(spec.Partial)
+	b.g.ArmAltLen[arm] = b.g.ArmAltLen[arm] + uint32(1)
+}
+
+// AddEdge appends one edge decision (deduplicated per arm) to the most recently added arm.
+func AddEdge(b mut Builder, arm uint32, spec EdgeSpec) {
+	if int(arm)+1 != b.g.ArmSite.Len() {
+		return
+	}
+	let start = int(b.g.ArmEdgeStart[arm])
+	let n = int(b.g.ArmEdgeLen[arm])
+	for i in start..start+n {
+		if b.g.EdgeKind[i] == spec.Kind && b.g.EdgeTo[i] == spec.To && b.g.EdgeSite[i] == spec.Site {
+			return
+		}
+	}
+	b.g.EdgeKind = b.g.EdgeKind.Append(spec.Kind)
+	b.g.EdgeTo = b.g.EdgeTo.Append(spec.To)
+	b.g.EdgeSite = b.g.EdgeSite.Append(spec.Site)
+	b.g.ArmEdgeLen[arm] = b.g.ArmEdgeLen[arm] + uint32(1)
+}
+
+// SetTimer records the timer signal and source site for stateID.
+func SetTimer(b mut Builder, stateID uint32, sigID uint32, site Site) {
+	if int(stateID) < b.g.StateNames.Len() {
+		b.g.TimerSignal[stateID] = sigID
+		b.g.TimerSite[stateID] = site
+	}
+}
+
+// SetWork records the work site for stateID.
+func SetWork(b mut Builder, stateID uint32, site Site) {
+	if int(stateID) < b.g.StateNames.Len() {
+		b.g.HasWork[stateID] = true
+		b.g.WorkSite[stateID] = site
+	}
+}
+
+// SetExit records the exit site for stateID.
+func SetExit(b mut Builder, stateID uint32, site Site) {
+	if int(stateID) < b.g.StateNames.Len() {
+		b.g.HasExit[stateID] = true
+		b.g.ExitSite[stateID] = site
+	}
+}
+
+// MarkUnsure records that a per-state entry for stateID could not be statically resolved.
+func MarkUnsure(b mut Builder, stateID uint32) {
+	if int(stateID) < b.g.StateNames.Len() && !slices.Contains(b.g.Unsure, stateID) {
+		b.g.Unsure = b.g.Unsure.Append(stateID)
+	}
+}
+
+// AddComputed appends an entry name ("step", "after", "work", or "exit") that is dynamically computed.
+func AddComputed(b mut Builder, entry string) {
+	b.g.Computed = b.g.Computed.Append(entry)
+}
+
+// Build returns the finalized immutable Graph from b.
+func Build(b Builder) Graph { b.g }
+
+// StateID returns the dense index of state name in g, or NoEntry if absent.
+func StateID(g Graph, name string) uint32 {
+	for i, s in g.StateNames {
+		if s == name {
+			return uint32(i)
+		}
+	}
+	NoEntry
+}
+
+// SignalID returns the dense index of signal name in g, or NoEntry if absent.
+func SignalID(g Graph, name string) uint32 {
+	for i, s in g.SignalNames {
+		if s == name {
+			return uint32(i)
+		}
+	}
+	NoEntry
+}
+
+// TargetName returns the human-readable state label for id (including "*" for AnyID).
+func TargetName(g Graph, id uint32) string {
+	if id == AnyID {
+		return "*"
+	}
+	if int(id) < g.StateNames.Len() {
+		return g.StateNames[id]
+	}
+	"?"
+}
+
+// ArmCount returns the number of step arms in g.
+func ArmCount(g Graph) int { g.ArmSite.Len() }
+
+// EdgeCount returns the total number of edges across all arms in g.
+func EdgeCount(g Graph) int { g.EdgeKind.Len() }
+
+func poolContains(pool []uint32, start uint32, n uint32, target uint32) bool {
+	let s = int(start)
+	let end = s + int(n)
+	for i in s..end {
+		if pool[i] == target {
+			return true
+		}
+	}
+	false
+}
+
+func takesSpan(pool []uint32, start uint32, n uint32, isAny bool, target uint32) bool {
+	isAny || poolContains(pool, start, n, target)
+}
+
+// Takes reports whether arm accepts (stateID, sigID) and whether acceptance is partial (guarded).
+func Takes(g Graph, arm uint32, stateID uint32, sigID uint32) (bool, bool) {
+	let altN = int(g.ArmAltLen[arm])
+	if altN == 0 {
+		let okS = takesSpan(g.VariantPool, g.ArmStateStart[arm], g.ArmStateLen[arm], g.ArmStateAny[arm], stateID)
+		let okE = takesSpan(g.VariantPool, g.ArmSignalStart[arm], g.ArmSignalLen[arm], g.ArmSignalAny[arm], sigID)
+		let taken = okS && okE
+		return (taken, taken && g.ArmPartial[arm])
+	}
+	let altStart = int(g.ArmAltStart[arm])
+	let mut taken = false
+	let mut partial = true
+	for k in altStart..altStart+altN {
+		let okS = takesSpan(g.VariantPool, g.AltStateStart[k], g.AltStateLen[k], g.AltStateAny[k], stateID)
+		let okE = takesSpan(g.VariantPool, g.AltSignalStart[k], g.AltSignalLen[k], g.AltSignalAny[k], sigID)
+		if okS && okE {
+			taken = true
+			partial = partial && g.AltPartial[k]
+		}
+	}
+	(taken, taken && partial)
+}
+
+// ArmsFor returns every arm of g that may handle (stateID, sigID), stopping at the first non-partial match.
+func ArmsFor(g Graph, stateID uint32, sigID uint32) []uint32 {
+	let mut out = []uint32{}
+	for i in 0..g.ArmSite.Len() {
+		let arm = uint32(i)
+		let (taken, partial) = Takes(g, arm, stateID, sigID)
+		if taken {
+			out = out.Append(arm)
+			if !partial {
+				return out
+			}
+		}
+	}
+	out
+}
+
+// ArmOf returns the first arm of g that accepts (stateID, sigID), or (NoEntry, false).
+func ArmOf(g Graph, stateID uint32, sigID uint32) (uint32, bool) {
+	for i in 0..g.ArmSite.Len() {
+		let arm = uint32(i)
+		let (taken, _) = Takes(g, arm, stateID, sigID)
+		if taken {
+			return (arm, true)
+		}
+	}
+	(NoEntry, false)
+}
+
+// FormatGraph renders g into a deterministic human-readable text summary.
+func FormatGraph(g Graph) string {
+	let mut b = strings.NewBuilder()
+	b.WriteString("machine ")
+	b.WriteString(g.Machine)
+	b.WriteString(" initial=")
+	b.WriteString(TargetName(g, g.Initial))
+	b.WriteString(" states=[")
+	b.WriteString(strings.Join(g.StateNames, ","))
+	b.WriteString("] signals=[")
+	b.WriteString(strings.Join(g.SignalNames, ","))
+	b.WriteString("]")
+	for i in 0..g.ArmSite.Len() {
+		let arm = uint32(i)
+		b.WriteString("\n  arm ")
+		b.WriteString(strconv.Itoa(i))
+		if g.ArmPartial[i] {
+			b.WriteString("?")
+		}
+		b.WriteString(" ->")
+		let es = int(g.ArmEdgeStart[arm])
+		let en = int(g.ArmEdgeLen[arm])
+		for e in es..es+en {
+			b.WriteByte(' ')
+			b.WriteString(DecisionName(g.EdgeKind[e]))
+			if DecisionMovesState(g.EdgeKind[e]) {
+				b.WriteByte('(')
+				b.WriteString(TargetName(g, g.EdgeTo[e]))
+				b.WriteByte(')')
+			}
+		}
+	}
+	b.String()
+}
+
+func graphFromPicks(picks []int) Graph {
+	let mut b = NewBuilder("M", []string{"S0", "S1", "S2"}, []string{"E0", "E1", "E2"})
+	SetInitial(&b, uint32(0))
+	let nArms = if picks.Len() > 6 { 6 } else { picks.Len() }
+	for i in 0..nArms {
+		let p = ((picks[i] % 12) + 12) % 12
+		let st = uint32(p % 3)
+		let sg = uint32((p / 3) % 3)
+		let partial = (p&1) == 1 && i < nArms-1
+		let arm = AddArm(&b, ArmSpec{
+			Site:       Site{File: "m.ergo", Line: i + 10},
+			States:     []uint32{st},
+			StatesAny:  (p % 5) == 4,
+			Signals:    []uint32{sg},
+			SignalsAny: (p % 7) == 6,
+			Partial:    partial,
+		})
+		AddEdge(&b, arm, EdgeSpec{Kind: DecEnter, To: uint32((i + 1) % 3), Site: Site{File: "m.ergo", Line: i + 10}})
+	}
+	let catchAll = AddArm(&b, ArmSpec{
+		Site:       Site{File: "m.ergo", Line: 99},
+		States:     []uint32{},
+		StatesAny:  true,
+		Signals:    []uint32{},
+		SignalsAny: true,
+		Partial:    false,
+	})
+	AddEdge(&b, catchAll, EdgeSpec{Kind: DecIgnore, To: AnyID, Site: Site{File: "m.ergo", Line: 99}})
+	Build(b)
+}
+
+law ArmsStopAtFirstWholeArm(picks []int) {
+	let g = graphFromPicks(picks)
+	for s in 0..g.StateNames.Len() {
+		for e in 0..g.SignalNames.Len() {
+			let arms = ArmsFor(g, uint32(s), uint32(e))
+			if arms.Len() == 0 {
+				continue
+			}
+			for i in 0..arms.Len()-1 {
+				let (_, part) = Takes(g, arms[i], uint32(s), uint32(e))
+				if !part {
+					return false
+				}
+			}
+		}
+	}
+	true
+}
+
+law TakesRespectsMultiPatternAlts(sPick int, ePick int) {
+	let sID = uint32(((sPick % 3) + 3) % 3)
+	let eID = uint32(((ePick % 3) + 3) % 3)
+	let mut b = NewBuilder("AltM", []string{"A", "B", "C"}, []string{"X", "Y", "Z"})
+	let arm = AddArm(&b, ArmSpec{
+		Site:       Site{File: "alt.ergo", Line: 1},
+		States:     []uint32{uint32(0), uint32(1)},
+		StatesAny:  false,
+		Signals:    []uint32{uint32(0), uint32(1)},
+		SignalsAny: false,
+		Partial:    false,
+	})
+	AddAlt(&b, arm, AltSpec{States: []uint32{uint32(0)}, Signals: []uint32{uint32(0)}, StatesAny: false, SignalsAny: false, Partial: true})
+	AddAlt(&b, arm, AltSpec{States: []uint32{uint32(1)}, Signals: []uint32{uint32(1)}, StatesAny: false, SignalsAny: false, Partial: false})
+	let g = Build(b)
+	let (taken, partial) = Takes(g, arm, sID, eID)
+	let expectTaken = (sID == uint32(0) && eID == uint32(0)) || (sID == uint32(1) && eID == uint32(1))
+	let expectPartial = sID == uint32(0) && eID == uint32(0)
+	taken == expectTaken && partial == expectPartial
+}
+
+test GraphBuilderAndMatching {
+	let mut b = NewBuilder("Job", []string{"Idle", "Run", "Stop"}, []string{"Start", "Tick", "Halt"})
+	SetInitial(&b, uint32(0))
+	let a0 = AddArm(&b, ArmSpec{Site: Site{File: "job.ergo", Line: 5}, States: []uint32{uint32(0)}, StatesAny: false, Signals: []uint32{uint32(0)}, SignalsAny: false, Partial: true})
+	AddEdge(&b, a0, EdgeSpec{Kind: DecEnter, To: uint32(1), Site: Site{File: "job.ergo", Line: 5}})
+	let a1 = AddArm(&b, ArmSpec{Site: Site{File: "job.ergo", Line: 6}, States: []uint32{uint32(0)}, StatesAny: false, Signals: []uint32{uint32(0)}, SignalsAny: false, Partial: false})
+	AddEdge(&b, a1, EdgeSpec{Kind: DecReject, To: AnyID, Site: Site{File: "job.ergo", Line: 6}})
+	AddEdge(&b, a1, EdgeSpec{Kind: DecReject, To: AnyID, Site: Site{File: "job.ergo", Line: 6}})
+	SetTimer(&b, uint32(1), uint32(1), Site{File: "job.ergo", Line: 12})
+	SetWork(&b, uint32(1), Site{File: "job.ergo", Line: 15})
+	SetExit(&b, uint32(2), Site{File: "job.ergo", Line: 18})
+	AddComputed(&b, "after")
+	let g = Build(b)
+
+	assert StateID(g, "Run") == uint32(1)
+	assert SignalID(g, "Halt") == uint32(2)
+	assert EdgeCount(g) == 2
+	let arms = ArmsFor(g, uint32(0), uint32(0))
+	assert arms.Len() == 2 && arms[0] == uint32(0) && arms[1] == uint32(1)
+	let (firstArm, okFirst) = ArmOf(g, uint32(0), uint32(0))
+	assert okFirst && firstArm == uint32(0)
+	assert g.TimerSignal[1] == uint32(1) && g.HasWork[1] && g.HasExit[2]
+	assert strings.Contains(FormatGraph(g), "Enter(Run)")
+}

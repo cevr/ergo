@@ -1,0 +1,571 @@
+import slices
+import strconv
+import strings
+
+// Pair identifies one reachable (State, Signal) dense index pair.
+type Pair {
+	State  uint32,
+	Signal uint32,
+}
+
+// Cycle lists the dense state indices belonging to one strongly connected cycle.
+type Cycle {
+	States []uint32,
+}
+
+// Report holds reachability, dead-code, coverage, cycle, and termination analysis results for a Graph.
+type Report {
+	ReachableStates  []bool,
+	ReachablePairs   []bool,
+	DeadStates       []uint32,
+	DeadArms         []uint32,
+	ShadowedArms     []uint32,
+	DeadEdges        []uint32,
+	UncoveredPairs   []Pair,
+	DeadEndStates    []uint32,
+	Cycles           []Cycle,
+	HasCycle         bool,
+	CanReachDone     []bool,
+	TrappedStates    []uint32,
+	AlwaysTerminates bool,
+}
+
+// Scratch holds reusable buffers so repeated Analyze calls avoid temporary slice allocations.
+type Scratch {
+	stateSeen   []bool,
+	roundCur    []bool,
+	roundNext   []bool,
+	pairSeen    []bool,
+	armReach    []bool,
+	armAny      []bool,
+	edgeHit     []bool,
+	queue       []uint32,
+	edgeStart   []int,
+	edges       []uint32,
+	selfLoop    []bool,
+	hasOutMove  []bool,
+	hasDone     []bool,
+	tarjanIdx   []int,
+	tarjanLow   []int,
+	tarjanOn    []bool,
+	tarjanStack []uint32,
+	calls       []int,
+	edgeIter    []int,
+	revHead     []int,
+	revNext     []int,
+	revFrom     []uint32,
+	canDone     []bool,
+}
+
+// NewScratch allocates an empty Scratch ready for reuse across Analyze calls.
+func NewScratch() Scratch {
+	Scratch{
+		stateSeen:   []bool{},
+		roundCur:    []bool{},
+		roundNext:   []bool{},
+		pairSeen:    []bool{},
+		armReach:    []bool{},
+		armAny:      []bool{},
+		edgeHit:     []bool{},
+		queue:       []uint32{},
+		edgeStart:   []int{},
+		edges:       []uint32{},
+		selfLoop:    []bool{},
+		hasOutMove:  []bool{},
+		hasDone:     []bool{},
+		tarjanIdx:   []int{},
+		tarjanLow:   []int{},
+		tarjanOn:    []bool{},
+		tarjanStack: []uint32{},
+		calls:       []int{},
+		edgeIter:    []int{},
+		revHead:     []int{},
+		revNext:     []int{},
+		revFrom:     []uint32{},
+		canDone:     []bool{},
+	}
+}
+
+func resetBoolCol(col mut []bool, n int, v bool) {
+	if (*col).Len() < n {
+		*col = slices.Repeat([]bool{v}, n)
+		return
+	}
+	*col = (*col).Slice(0, n)
+	for i in 0..n {
+		(*col)[i] = v
+	}
+}
+
+func resetIntCol(col mut []int, n int, v int) {
+	if (*col).Len() < n {
+		*col = slices.Repeat([]int{v}, n)
+		return
+	}
+	*col = (*col).Slice(0, n)
+	for i in 0..n {
+		(*col)[i] = v
+	}
+}
+
+func resetScratch(sc mut Scratch, nStates int, nSignals int, nArms int, nEdges int) {
+	resetBoolCol(&sc.stateSeen, nStates, false)
+	resetBoolCol(&sc.roundCur, nStates, false)
+	resetBoolCol(&sc.roundNext, nStates, false)
+	resetBoolCol(&sc.pairSeen, nStates*nSignals, false)
+	resetBoolCol(&sc.armReach, nArms, false)
+	resetBoolCol(&sc.armAny, nArms, false)
+	resetBoolCol(&sc.edgeHit, nEdges, false)
+	resetBoolCol(&sc.selfLoop, nStates, false)
+	resetBoolCol(&sc.hasOutMove, nStates, false)
+	resetBoolCol(&sc.hasDone, nStates, false)
+	resetIntCol(&sc.tarjanIdx, nStates, -1)
+	resetIntCol(&sc.tarjanLow, nStates, -1)
+	resetBoolCol(&sc.tarjanOn, nStates, false)
+	resetIntCol(&sc.revHead, nStates, -1)
+	resetBoolCol(&sc.canDone, nStates, false)
+	sc.queue = sc.queue.Slice(0, 0)
+	sc.edgeStart = sc.edgeStart.Slice(0, 0)
+	sc.edges = sc.edges.Slice(0, 0)
+	sc.tarjanStack = sc.tarjanStack.Slice(0, 0)
+	sc.calls = sc.calls.Slice(0, 0)
+	sc.edgeIter = sc.edgeIter.Slice(0, 0)
+	sc.revNext = sc.revNext.Slice(0, 0)
+	sc.revFrom = sc.revFrom.Slice(0, 0)
+}
+
+func enqueueTargetStates(g Graph, kind uint8, to uint32, seen mut []bool, queue mut []uint32) {
+	let nStates = g.StateNames.Len()
+	if kind == DecUnknown || (DecisionMovesState(kind) && to == AnyID) {
+		for t in 0..nStates {
+			if !(*seen)[t] {
+				(*seen)[t] = true
+				*queue = (*queue).Append(uint32(t))
+			}
+		}
+		return
+	}
+	if DecisionMovesState(kind) && int(to) < nStates && !(*seen)[to] {
+		(*seen)[to] = true
+		*queue = (*queue).Append(to)
+	}
+}
+
+func seedInitialQueue(g Graph, seen mut []bool, queue mut []uint32) {
+	let nStates = g.StateNames.Len()
+	if g.Initial == AnyID {
+		for s in 0..nStates {
+			(*seen)[s] = true
+			*queue = (*queue).Append(uint32(s))
+		}
+		return
+	}
+	if int(g.Initial) < nStates {
+		(*seen)[g.Initial] = true
+		*queue = (*queue).Append(g.Initial)
+	}
+}
+
+// ReachableByBFS computes reachable states in g starting from Initial using sc.
+func ReachableByBFS(g Graph, sc mut Scratch) []bool {
+	let nStates = g.StateNames.Len()
+	let nSignals = g.SignalNames.Len()
+	resetBoolCol(&sc.stateSeen, nStates, false)
+	sc.queue = sc.queue.Slice(0, 0)
+	seedInitialQueue(g, &sc.stateSeen, &sc.queue)
+	let mut head = 0
+	for head < sc.queue.Len() {
+		let s = sc.queue[head]
+		head = head + 1
+		for e in 0..nSignals {
+			let arms = ArmsFor(g, s, uint32(e))
+			for arm in arms {
+				let es = int(g.ArmEdgeStart[arm])
+				let en = int(g.ArmEdgeLen[arm])
+				for ei in es..es+en {
+					enqueueTargetStates(g, g.EdgeKind[ei], g.EdgeTo[ei], &sc.stateSeen, &sc.queue)
+				}
+			}
+		}
+	}
+	slices.Clone(sc.stateSeen)
+}
+
+// ReachableByRounds computes reachable states by fixed-point rounds as a reference specification.
+func ReachableByRounds(g Graph) []bool {
+	let nStates = g.StateNames.Len()
+	let nSignals = g.SignalNames.Len()
+	let mut cur = slices.Repeat([]bool{false}, nStates)
+	let mut dummyQ = []uint32{}
+	seedInitialQueue(g, &cur, &dummyQ)
+	for true {
+		let mut changed = false
+		let mut next = slices.Clone(cur)
+		for s in 0..nStates {
+			if !cur[s] {
+				continue
+			}
+			for e in 0..nSignals {
+				let arms = ArmsFor(g, uint32(s), uint32(e))
+				for arm in arms {
+					let es = int(g.ArmEdgeStart[arm])
+					let en = int(g.ArmEdgeLen[arm])
+					for ei in es..es+en {
+						let kind = g.EdgeKind[ei]
+						let to = g.EdgeTo[ei]
+						if kind == DecUnknown || (DecisionMovesState(kind) && to == AnyID) {
+							for t in 0..nStates {
+								if !next[t] {
+									next[t] = true
+									changed = true
+								}
+							}
+						} else if DecisionMovesState(kind) && int(to) < nStates && !next[to] {
+							next[to] = true
+							changed = true
+						}
+					}
+				}
+			}
+		}
+		cur = next
+		if !changed {
+			break
+		}
+	}
+	cur
+}
+
+func buildTransitionAdj(g Graph, sc mut Scratch) []Pair {
+	let nStates = g.StateNames.Len()
+	let nSignals = g.SignalNames.Len()
+	let mut uncovered = []Pair{}
+	for s in 0..nStates {
+		sc.edgeStart = sc.edgeStart.Append(sc.edges.Len())
+		if !sc.stateSeen[s] {
+			continue
+		}
+		let edgeBegin = sc.edges.Len()
+		for e in 0..nSignals {
+			let pairIdx = s*nSignals + e
+			sc.pairSeen[pairIdx] = true
+			let arms = ArmsFor(g, uint32(s), uint32(e))
+			if arms.Len() == 0 {
+				uncovered = uncovered.Append(Pair{State: uint32(s), Signal: uint32(e)})
+				continue
+			}
+			for arm in arms {
+				sc.armReach[arm] = true
+				let es = int(g.ArmEdgeStart[arm])
+				let en = int(g.ArmEdgeLen[arm])
+				for ei in es..es+en {
+					sc.edgeHit[ei] = true
+					recordTransEdge(g, sc, s, edgeBegin, g.EdgeKind[ei], g.EdgeTo[ei])
+				}
+			}
+		}
+	}
+	sc.edgeStart = sc.edgeStart.Append(sc.edges.Len())
+	uncovered
+}
+
+func addAdjEdge(sc mut Scratch, from int, edgeBegin int, to uint32) {
+	if int(to) == from {
+		sc.selfLoop[from] = true
+	}
+	sc.hasOutMove[from] = true
+	for i in edgeBegin..sc.edges.Len() {
+		if sc.edges[i] == to {
+			return
+		}
+	}
+	sc.edges = sc.edges.Append(to)
+	let rIdx = sc.revFrom.Len()
+	sc.revFrom = sc.revFrom.Append(uint32(from))
+	sc.revNext = sc.revNext.Append(sc.revHead[to])
+	sc.revHead[to] = rIdx
+}
+
+func recordTransEdge(g Graph, sc mut Scratch, from int, edgeBegin int, kind uint8, to uint32) {
+	let nStates = g.StateNames.Len()
+	if kind == DecDone {
+		sc.hasDone[from] = true
+		return
+	}
+	if kind == DecUnknown || (DecisionMovesState(kind) && to == AnyID) {
+		for t in 0..nStates {
+			addAdjEdge(sc, from, edgeBegin, uint32(t))
+		}
+		return
+	}
+	if DecisionMovesState(kind) && int(to) < nStates {
+		addAdjEdge(sc, from, edgeBegin, to)
+	}
+}
+
+func enterTarjan(sc mut Scratch, v int, nextIdx mut int) {
+	sc.tarjanIdx[v] = *nextIdx
+	sc.tarjanLow[v] = *nextIdx
+	*nextIdx = *nextIdx + 1
+	sc.tarjanStack = sc.tarjanStack.Append(uint32(v))
+	sc.tarjanOn[v] = true
+	sc.calls = sc.calls.Append(v)
+	sc.edgeIter = sc.edgeIter.Append(sc.edgeStart[v])
+}
+
+func popScc(sc mut Scratch, root int) Cycle {
+	let mut top = sc.tarjanStack.Len()
+	for true {
+		top = top - 1
+		let w = int(sc.tarjanStack[top])
+		sc.tarjanOn[w] = false
+		if w == root {
+			break
+		}
+	}
+	let members = slices.Clone(sc.tarjanStack.Slice(top, sc.tarjanStack.Len()))
+	sc.tarjanStack = sc.tarjanStack.Slice(0, top)
+	Cycle{States: members}
+}
+
+func findTarjanCycles(g Graph, sc mut Scratch) []Cycle {
+	let nStates = g.StateNames.Len()
+	let mut cycles = []Cycle{}
+	let mut nextIdx = 0
+	for start in 0..nStates {
+		if !sc.stateSeen[start] || sc.tarjanIdx[start] >= 0 {
+			continue
+		}
+		enterTarjan(sc, start, &nextIdx)
+		for sc.calls.Len() > 0 {
+			let cTop = sc.calls.Len() - 1
+			let v = sc.calls[cTop]
+			let ei = sc.edgeIter[cTop]
+			if ei < sc.edgeStart[v+1] {
+				sc.edgeIter[cTop] = ei + 1
+				let w = int(sc.edges[ei])
+				if sc.tarjanIdx[w] < 0 {
+					enterTarjan(sc, w, &nextIdx)
+				} else if sc.tarjanOn[w] && sc.tarjanIdx[w] < sc.tarjanLow[v] {
+					sc.tarjanLow[v] = sc.tarjanIdx[w]
+				}
+				continue
+			}
+			sc.calls = sc.calls.Slice(0, cTop)
+			sc.edgeIter = sc.edgeIter.Slice(0, cTop)
+			if cTop > 0 {
+				let parent = sc.calls[cTop-1]
+				if sc.tarjanLow[v] < sc.tarjanLow[parent] {
+					sc.tarjanLow[parent] = sc.tarjanLow[v]
+				}
+			}
+			if sc.tarjanLow[v] == sc.tarjanIdx[v] {
+				let scc = popScc(sc, v)
+				if scc.States.Len() >= 2 || (scc.States.Len() == 1 && sc.selfLoop[scc.States[0]]) {
+					cycles = cycles.Append(scc)
+				}
+			}
+		}
+	}
+	cycles
+}
+
+func computeCanReachDone(g Graph, sc mut Scratch) {
+	let nStates = g.StateNames.Len()
+	sc.queue = sc.queue.Slice(0, 0)
+	for s in 0..nStates {
+		if sc.stateSeen[s] && sc.hasDone[s] {
+			sc.canDone[s] = true
+			sc.queue = sc.queue.Append(uint32(s))
+		}
+	}
+	let mut head = 0
+	for head < sc.queue.Len() {
+		let v = int(sc.queue[head])
+		head = head + 1
+		let mut ri = sc.revHead[v]
+		for ri >= 0 {
+			let u = int(sc.revFrom[ri])
+			if sc.stateSeen[u] && !sc.canDone[u] {
+				sc.canDone[u] = true
+				sc.queue = sc.queue.Append(uint32(u))
+			}
+			ri = sc.revNext[ri]
+		}
+	}
+}
+
+// Analyze inspects g for reachability, dead states/arms/edges, shadowing, coverage gaps, cycles, and termination.
+func Analyze(g Graph, sc mut Scratch) Report {
+	let nStates = g.StateNames.Len()
+	let nSignals = g.SignalNames.Len()
+	let nArms = g.ArmSite.Len()
+	let nEdges = g.EdgeKind.Len()
+	resetScratch(sc, nStates, nSignals, nArms, nEdges)
+
+	let reachable = ReachableByBFS(g, sc)
+	for s in 0..nStates {
+		sc.stateSeen[s] = reachable[s]
+	}
+	for s in 0..nStates {
+		for e in 0..nSignals {
+			for arm in ArmsFor(g, uint32(s), uint32(e)) {
+				sc.armAny[arm] = true
+			}
+		}
+	}
+	let uncovered = buildTransitionAdj(g, sc)
+	let cycles = findTarjanCycles(g, sc)
+	computeCanReachDone(g, sc)
+
+	let mut deadStates = []uint32{}
+	let mut deadEnds = []uint32{}
+	let mut trapped = []uint32{}
+	for s in 0..nStates {
+		if !sc.stateSeen[s] {
+			deadStates = deadStates.Append(uint32(s))
+			continue
+		}
+		if !sc.hasOutMove[s] && !sc.hasDone[s] {
+			deadEnds = deadEnds.Append(uint32(s))
+		}
+		if !sc.canDone[s] {
+			trapped = trapped.Append(uint32(s))
+		}
+	}
+	let mut deadArms = []uint32{}
+	let mut shadowedArms = []uint32{}
+	for a in 0..nArms {
+		if !sc.armReach[a] {
+			deadArms = deadArms.Append(uint32(a))
+		}
+		if !sc.armAny[a] {
+			shadowedArms = shadowedArms.Append(uint32(a))
+		}
+	}
+	let mut deadEdges = []uint32{}
+	for e in 0..nEdges {
+		if !sc.edgeHit[e] {
+			deadEdges = deadEdges.Append(uint32(e))
+		}
+	}
+	let hasCycle = cycles.Len() > 0
+	Report{
+		ReachableStates:  slices.Clone(sc.stateSeen),
+		ReachablePairs:   slices.Clone(sc.pairSeen),
+		DeadStates:       deadStates,
+		DeadArms:         deadArms,
+		ShadowedArms:     shadowedArms,
+		DeadEdges:        deadEdges,
+		UncoveredPairs:   uncovered,
+		DeadEndStates:    deadEnds,
+		Cycles:           cycles,
+		HasCycle:         hasCycle,
+		CanReachDone:     slices.Clone(sc.canDone),
+		TrappedStates:    trapped,
+		AlwaysTerminates: nStates > 0 && !hasCycle && trapped.Len() == 0,
+	}
+}
+
+// FormatReport renders a concise textual summary of rep against g.
+func FormatReport(g Graph, rep Report) string {
+	let mut b = strings.NewBuilder()
+	b.WriteString("deadStates=")
+	b.WriteString(strconv.Itoa(rep.DeadStates.Len()))
+	b.WriteString(" deadArms=")
+	b.WriteString(strconv.Itoa(rep.DeadArms.Len()))
+	b.WriteString(" shadowedArms=")
+	b.WriteString(strconv.Itoa(rep.ShadowedArms.Len()))
+	b.WriteString(" uncovered=")
+	b.WriteString(strconv.Itoa(rep.UncoveredPairs.Len()))
+	b.WriteString(" cycles=")
+	b.WriteString(strconv.Itoa(rep.Cycles.Len()))
+	b.WriteString(" trapped=")
+	b.WriteString(strconv.Itoa(rep.TrappedStates.Len()))
+	b.WriteString(" terminates=")
+	b.WriteString(strconv.FormatBool(rep.AlwaysTerminates))
+	if rep.DeadStates.Len() > 0 {
+		b.WriteString(" firstDead=")
+		b.WriteString(TargetName(g, rep.DeadStates[0]))
+	}
+	b.String()
+}
+
+law ReachabilityMatchesRounds(picks []int) {
+	let g = graphFromPicks(picks)
+	let mut sc = NewScratch()
+	let bfs = ReachableByBFS(g, &sc)
+	let rounds = ReachableByRounds(g)
+	slices.Equal(bfs, rounds)
+}
+
+law CycleAndTerminationInvariants(selfLoop bool, includeDone bool, skipCatchAll bool) {
+	let mut b = NewBuilder("TermM", []string{"S0", "S1", "S2", "S3"}, []string{"Go", "Finish"})
+	SetInitial(&b, uint32(0))
+	let a0 = AddArm(&b, ArmSpec{Site: Site{File: "t.ergo", Line: 1}, States: []uint32{uint32(0)}, StatesAny: false, Signals: []uint32{uint32(0)}, SignalsAny: false, Partial: false})
+	AddEdge(&b, a0, EdgeSpec{Kind: DecEnter, To: uint32(1), Site: Site{File: "t.ergo", Line: 1}})
+	let a1 = AddArm(&b, ArmSpec{Site: Site{File: "t.ergo", Line: 2}, States: []uint32{uint32(1)}, StatesAny: false, Signals: []uint32{uint32(0)}, SignalsAny: false, Partial: false})
+	AddEdge(&b, a1, EdgeSpec{Kind: DecEnter, To: if selfLoop { uint32(1) } else { uint32(2) }, Site: Site{File: "t.ergo", Line: 2}})
+	if includeDone {
+		let a2 = AddArm(&b, ArmSpec{Site: Site{File: "t.ergo", Line: 3}, States: []uint32{uint32(2)}, StatesAny: false, Signals: []uint32{uint32(1)}, SignalsAny: false, Partial: false})
+		AddEdge(&b, a2, EdgeSpec{Kind: DecDone, To: AnyID, Site: Site{File: "t.ergo", Line: 3}})
+	}
+	if !skipCatchAll {
+		let aDead = AddArm(&b, ArmSpec{Site: Site{File: "t.ergo", Line: 4}, States: []uint32{uint32(3)}, StatesAny: false, Signals: []uint32{}, SignalsAny: true, Partial: false})
+		AddEdge(&b, aDead, EdgeSpec{Kind: DecReject, To: AnyID, Site: Site{File: "t.ergo", Line: 4}})
+	}
+	let g = Build(b)
+	let mut sc = NewScratch()
+	let rep = Analyze(g, &sc)
+
+	let wantDead = if selfLoop { []uint32{uint32(2), uint32(3)} } else { []uint32{uint32(3)} }
+	let s3Dead = slices.Equal(rep.DeadStates, wantDead)
+	let loopCheck = rep.HasCycle == selfLoop
+	let termCheck = rep.AlwaysTerminates == (!selfLoop && includeDone)
+	let deadDoneCheck = !includeDone || selfLoop || (rep.CanReachDone[0] && rep.CanReachDone[1] && rep.CanReachDone[2] && !rep.CanReachDone[3])
+	s3Dead && loopCheck && termCheck && deadDoneCheck
+}
+
+test DeadShadowCycleAndTerminationAnalysis {
+	let mut b1 = NewBuilder("DAG", []string{"Init", "Mid", "End", "Orphan"}, []string{"Step", "Abort"})
+	SetInitial(&b1, uint32(0))
+	let a0 = AddArm(&b1, ArmSpec{Site: Site{File: "d.ergo", Line: 1}, States: []uint32{uint32(0)}, StatesAny: false, Signals: []uint32{uint32(0)}, SignalsAny: false, Partial: false})
+	AddEdge(&b1, a0, EdgeSpec{Kind: DecEnter, To: uint32(1), Site: Site{File: "d.ergo", Line: 1}})
+	let a1 = AddArm(&b1, ArmSpec{Site: Site{File: "d.ergo", Line: 2}, States: []uint32{uint32(0)}, StatesAny: false, Signals: []uint32{uint32(0)}, SignalsAny: false, Partial: false})
+	AddEdge(&b1, a1, EdgeSpec{Kind: DecIgnore, To: AnyID, Site: Site{File: "d.ergo", Line: 2}})
+	let a2 = AddArm(&b1, ArmSpec{Site: Site{File: "d.ergo", Line: 3}, States: []uint32{uint32(0), uint32(1)}, StatesAny: false, Signals: []uint32{uint32(1)}, SignalsAny: false, Partial: false})
+	AddEdge(&b1, a2, EdgeSpec{Kind: DecDone, To: AnyID, Site: Site{File: "d.ergo", Line: 3}})
+	let a3 = AddArm(&b1, ArmSpec{Site: Site{File: "d.ergo", Line: 4}, States: []uint32{uint32(1)}, StatesAny: false, Signals: []uint32{uint32(0)}, SignalsAny: false, Partial: false})
+	AddEdge(&b1, a3, EdgeSpec{Kind: DecEnter, To: uint32(2), Site: Site{File: "d.ergo", Line: 4}})
+	let a4 = AddArm(&b1, ArmSpec{Site: Site{File: "d.ergo", Line: 5}, States: []uint32{uint32(2)}, StatesAny: false, Signals: []uint32{}, SignalsAny: true, Partial: false})
+	AddEdge(&b1, a4, EdgeSpec{Kind: DecDone, To: AnyID, Site: Site{File: "d.ergo", Line: 5}})
+	let a5 = AddArm(&b1, ArmSpec{Site: Site{File: "d.ergo", Line: 6}, States: []uint32{uint32(3)}, StatesAny: false, Signals: []uint32{}, SignalsAny: true, Partial: false})
+	AddEdge(&b1, a5, EdgeSpec{Kind: DecIgnore, To: AnyID, Site: Site{File: "d.ergo", Line: 6}})
+	let g1 = Build(b1)
+
+	let mut sc = NewScratch()
+	let r1 = Analyze(g1, &sc)
+	assert r1.DeadStates == []uint32{uint32(3)}
+	assert r1.ShadowedArms == []uint32{uint32(1)}
+	assert r1.DeadArms == []uint32{uint32(1), uint32(5)}
+	assert !r1.HasCycle && r1.AlwaysTerminates
+	assert r1.UncoveredPairs.Len() == 0
+	assert strings.Contains(FormatReport(g1, r1), "terminates=true")
+
+	let mut b2 = NewBuilder("Loop", []string{"A", "B", "Trap"}, []string{"Next", "Quit"})
+	SetInitial(&b2, uint32(0))
+	let c0 = AddArm(&b2, ArmSpec{Site: Site{File: "l.ergo", Line: 1}, States: []uint32{uint32(0)}, StatesAny: false, Signals: []uint32{uint32(0)}, SignalsAny: false, Partial: false})
+	AddEdge(&b2, c0, EdgeSpec{Kind: DecEnter, To: uint32(1), Site: Site{File: "l.ergo", Line: 1}})
+	let c1 = AddArm(&b2, ArmSpec{Site: Site{File: "l.ergo", Line: 2}, States: []uint32{uint32(1)}, StatesAny: false, Signals: []uint32{uint32(0)}, SignalsAny: false, Partial: false})
+	AddEdge(&b2, c1, EdgeSpec{Kind: DecEnter, To: uint32(0), Site: Site{File: "l.ergo", Line: 2}})
+	let c2 = AddArm(&b2, ArmSpec{Site: Site{File: "l.ergo", Line: 3}, States: []uint32{uint32(1)}, StatesAny: false, Signals: []uint32{uint32(1)}, SignalsAny: false, Partial: false})
+	AddEdge(&b2, c2, EdgeSpec{Kind: DecEnter, To: uint32(2), Site: Site{File: "l.ergo", Line: 3}})
+	let g2 = Build(b2)
+
+	let r2 = Analyze(g2, &sc)
+	assert r2.HasCycle && r2.Cycles.Len() == 1 && r2.Cycles[0].States.Len() == 2
+	assert !r2.AlwaysTerminates
+	assert r2.DeadEndStates == []uint32{uint32(2)}
+	assert r2.TrappedStates.Len() == 3
+	assert r2.UncoveredPairs.Len() == 3
+}
