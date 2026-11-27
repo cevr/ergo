@@ -1,0 +1,4023 @@
+import compiler/check/bind
+import compiler/check/infer
+import compiler/check/store
+import compiler/check/types
+import compiler/syntax
+import dense
+import option
+import strings
+
+type intConst { ok bool, neg bool, mag uint64, huge bool }
+
+type tsTerm { under bool, ord int, named dense.Opt[store.TKey], comparable bool }
+
+type roleWork { role dense.ID[store.TKey], depth int }
+
+type tPair { a dense.ID[store.TKey], b dense.ID[store.TKey] }
+
+type eqWork { ty dense.ID[store.TKey], seen []store.XRef }
+
+type astCheckItem { node dense.ID[syntax.Node], inType bool }
+
+type paramCons {
+	name      string,
+	text      string,
+	isComp    bool,
+	isOrd     bool,
+	isNum     bool,
+	isWire    bool,
+	terms     []tsTerm,
+	hasSet    bool,
+	role      dense.Opt[store.TKey],
+}
+
+type declFact {
+	file      int,
+	decl      dense.Opt[syntax.Node],
+	isStruct  bool,
+	isOp      bool,
+	isUnion   bool,
+	isMachine bool,
+	refined   bool,
+	whereText string,
+	parseName string,
+	specNode  dense.Opt[syntax.Node],
+	underT    dense.Opt[store.TKey],
+	variants  []dense.ID[store.TKey],
+	params    []paramCons,
+	claims    []dense.ID[store.TKey],
+}
+
+type typeFacts {
+	decls     []declFact,
+	fnCons    [][]paramCons,
+	fnLaw     []bool,
+	testOrLaw []bool,
+	errDecls  []bool,
+}
+
+func emptyTypeFacts() typeFacts {
+	typeFacts{decls: []declFact{}, fnCons: [][]paramCons{}, fnLaw: []bool{}, testOrLaw: []bool{}, errDecls: []bool{}}
+}
+
+func basicOrdOf(s store.Store, t dense.ID[store.TKey]) int {
+	if store.KindOfType(s, t) == store.KBasic { store.ArgOf(s, t) } else { 0 }
+}
+
+func isInvalidT(s store.Store, t dense.ID[store.TKey]) bool {
+	store.KindOfType(s, t) == store.KBasic && store.ArgOf(s, t) == 0
+}
+
+func hasInvalidT(s store.Store, t dense.ID[store.TKey], depth int) bool {
+	if depth > 32 {
+		return false
+	}
+	if isInvalidT(s, t) {
+		return true
+	}
+	for o in store.OperandsOf(s, t) {
+		if hasInvalidT(s, o, depth+1) {
+			return true
+		}
+	}
+	false
+}
+
+func isIntOrd(o int) bool { o >= bInt && o <= 13 }
+
+func isSignedOrd(o int) bool { o >= bInt && o <= 7 }
+
+func isFloatOrd(o int) bool { o == 14 || o == 15 }
+
+func isComplexOrd(o int) bool { o == 16 || o == 17 }
+
+func isNumOrd(o int) bool { o >= bInt && o <= 17 }
+
+func isOrderedOrd(o int) bool { (o >= bString && o <= 15) || o == 18 }
+
+func nodeSrcText(p syntax.Parsed, x dense.ID[syntax.Node]) string {
+	let src = syntax.SourceOf(p)
+	src[syntax.NodePos(p, x):syntax.NodeEnd(p, x)]
+}
+
+func parseNameOf(name string) string {
+	if name.Len() > 0 && name[0] >= 97 && name[0] <= 122 {
+		return "parse" + strings.ToUpper(name[0:1]) + name[1:name.Len()]
+	}
+	"Parse" + name
+}
+
+func unparenExpr(tr syntax.Tree, x dense.ID[syntax.Node]) dense.ID[syntax.Node] {
+	let mut cur = x
+	for syntax.KindOf(tr, cur) == syntax.KParenExpr {
+		cur = syntax.ParenExprOf(tr, cur).X
+	}
+	cur
+}
+
+func typePrint(s store.Store, k Pkg, t Typer, ty dense.ID[store.TKey]) string {
+	let ps = if t.fn >= 0 && t.fn < k.Fns.Len() { k.Fns[t.fn].Params } else { []string{} }
+	types.Text(s, types.Names{Params: ps, Foreign: k.Foreign, Pkg: "", Deps: k.Ifaces}, ty)
+}
+
+func optBracketNames(p syntax.Parsed, o dense.Opt[syntax.Node]) []string {
+	match dense.Unpack(o) {
+	case option.Some{Value: tp}:
+		types.BracketNames(p, tp)
+	case option.None:
+		[]string{}
+	}
+}
+
+func depIdxForPath(k Pkg, path string) int {
+	for i, d in k.Deps {
+		if d.Path == path {
+			return i
+		}
+	}
+	-1
+}
+
+func foreignIdxOf(s store.Store, t dense.ID[store.TKey]) int {
+	let kind = store.KindOfType(s, t)
+	if kind == store.KForeign {
+		return store.ArgOf(s, t)
+	}
+	if kind == store.KInstance {
+		let o = store.OriginOfType(s, t)
+		if int(o.Import) == store.ForeignBit {
+			return int(o.Decl)
+		}
+	}
+	-1
+}
+
+func isGoForeign(s store.Store, k Pkg, t dense.ID[store.TKey]) bool {
+	let f = foreignIdxOf(s, t)
+	if f < 0 || f >= k.Foreign.Len() {
+		return false
+	}
+	let path = k.Foreign[f].Path
+	path != "" && path != "prelude" && depIdxForPath(k, path) < 0
+}
+
+func anyGoForeign(s store.Store, k Pkg, t dense.ID[store.TKey], depth int) bool {
+	if depth > 16 {
+		return false
+	}
+	if isGoForeign(s, k, t) {
+		return true
+	}
+	for o in store.OperandsOf(s, t) {
+		if anyGoForeign(s, k, o, depth+1) {
+			return true
+		}
+	}
+	false
+}
+
+func resolveRole(s store.Store, k Pkg, t dense.ID[store.TKey]) option.Option[types.Role] {
+	let u = infer.Unmarked(s, t)
+	match types.RoleAt(s, k.Roles, k.Ifaces, u) {
+	case option.Some{Value: r}:
+		return option.Some{Value: r}
+	case option.None:
+	}
+	let f = foreignIdxOf(s, u)
+	if f >= 0 && f < k.Foreign.Len() {
+		let entry = k.Foreign[f]
+		for ic in k.Ifaces {
+			if ic.Path != entry.Path {
+				continue
+			}
+			for r in ic.Roles {
+				if r.Name == entry.Name {
+					return option.Some{Value: r}
+				}
+			}
+		}
+	}
+	option.None
+}
+
+func isRoleType(s store.Store, k Pkg, t dense.ID[store.TKey]) bool {
+	isSome(resolveRole(s, k, t))
+}
+
+func isOpValType(s store.Store, k Pkg, t dense.ID[store.TKey]) bool {
+	match resolveRole(s, k, t) {
+	case option.Some{Value: r}:
+		!types.ConstraintOnlyRole(r) || r.Members.Len() > 0
+	case option.None:
+		false
+	}
+}
+
+func lookupTypeDeclRef(s store.Store, k Pkg, t dense.ID[store.TKey]) option.Option[store.XRef] {
+	types.Nominal(s, infer.Unmarked(s, t))
+}
+
+func buildDeclCons(s mut store.Store, env types.Env, p syntax.Parsed, tdTypeParams dense.Opt[syntax.Node], roles []types.Role, parsed []syntax.Parsed, deps []types.Iface, ext []types.Ext, foreign []types.Foreign, kinds types.Kinds) []paramCons {
+	let mut out = []paramCons{}
+	match dense.Unpack(tdTypeParams) {
+	case option.Some{Value: tp}:
+		let fl = syntax.FieldListOf(p.Tree, tp).List
+		for i in 0..syntax.Len(fl) {
+			let fd = syntax.FieldOf(p.Tree, syntax.Item(p.Tree, fl, i))
+			let cNode = fd.Type
+			let cText = match dense.Unpack(cNode) {
+			case option.Some{Value: cn}:
+				nodeSrcText(p, cn)
+			case option.None:
+				""
+			}
+			let pc = classifyConstraint(s, env, p, deps, cNode, cText)
+			for j in 0..syntax.Len(fd.Names) {
+				let nm = types.NameText(p, syntax.Item(p.Tree, fd.Names, j))
+				out = out.Append(paramCons{..pc, name: nm})
+			}
+		}
+	case option.None:
+	}
+	out
+}
+
+func classifyConstraint(s mut store.Store, env types.Env, p syntax.Parsed, deps []types.Iface, cNode dense.Opt[syntax.Node], cText string) paramCons {
+	let base = paramCons{name: "", text: cText, isComp: false, isOrd: false, isNum: false, isWire: false, terms: []tsTerm{}, hasSet: false, role: dense.NoID[store.TKey]()}
+	match dense.Unpack(cNode) {
+	case option.Some{Value: cn}:
+		let u = unparenExpr(p.Tree, cn)
+		if syntax.KindOf(p.Tree, u) == syntax.KIdent {
+			let idName = types.NameText(p, u)
+			if idName == "comparable" {
+				return paramCons{..base, isComp: true}
+			}
+			if idName == "ordered" {
+				return paramCons{..base, isComp: true, isOrd: true}
+			}
+			if idName == "number" {
+				return paramCons{..base, isComp: true, isOrd: true, isNum: true}
+			}
+			if idName == "wire" {
+				return paramCons{..base, isWire: true}
+			}
+			if store.PathOf(*s) == "cmp" {
+				if idName == "Ordered" {
+					return paramCons{..base, isComp: true, isOrd: true}
+				}
+				if idName == "Number" {
+					return paramCons{..base, isComp: true, isOrd: true, isNum: true}
+				}
+			}
+		}
+		if syntax.KindOf(p.Tree, u) == syntax.KSelectorExpr {
+			let se = syntax.SelectorExprOf(p.Tree, u)
+			let selName = types.NameText(p, se.Sel)
+			if selName == "Ordered" || selName == "Number" {
+				let q = types.NameText(p, se.X)
+				match store.Lookup(*s, q) {
+				case option.Some{Value: d}:
+					if store.KindName(int(store.DeclOf(*s, d).Kind)) == "pkg" {
+						let imp = store.ImportOf(*s, d)
+						if imp > 0 && imp <= deps.Len() && deps[imp-1].Path == "cmp" {
+							return paramCons{..base, isComp: true, isOrd: true, isNum: selName == "Number"}
+						}
+					}
+				case option.None:
+				}
+			}
+		}
+		if syntax.KindOf(p.Tree, u) == syntax.KUnaryExpr || syntax.KindOf(p.Tree, u) == syntax.KBinaryExpr {
+			let terms = parseTypeSetExpr(s, env, p, u)
+			return paramCons{..base, terms: terms, hasSet: terms.Len() > 0}
+		}
+		let rt = types.Resolve(s, env, cn)
+		if !isInvalidT(*s, rt) {
+			return paramCons{..base, role: dense.OptOf(rt)}
+		}
+		base
+	case option.None:
+		base
+	}
+}
+
+func parseTypeSetExpr(s mut store.Store, env types.Env, p syntax.Parsed, x dense.ID[syntax.Node]) []tsTerm {
+	let u = unparenExpr(p.Tree, x)
+	let k = syntax.KindOf(p.Tree, u)
+	if k == syntax.KBinaryExpr {
+		let b = syntax.BinaryExprOf(p.Tree, u)
+		if syntax.TokKind(p, b.Op) == syntax.Or {
+			return parseTypeSetExpr(s, env, p, b.X).Concat(parseTypeSetExpr(s, env, p, b.Y))
+		}
+	}
+	if k == syntax.KUnaryExpr {
+		let un = syntax.UnaryExprOf(p.Tree, u)
+		if syntax.TokKind(p, un.Op) == syntax.Tilde {
+			let inner = types.Resolve(s, env, un.X)
+			if !isInvalidT(*s, inner) {
+				let ord = basicOrdOf(*s, inner)
+				return []tsTerm{tsTerm{under: true, ord: ord, named: dense.OptOf(inner), comparable: false}}
+			}
+			return []tsTerm{}
+		}
+	}
+	if k == syntax.KIdent && types.NameText(p, u) == "comparable" {
+		return []tsTerm{tsTerm{under: false, ord: 0, named: dense.NoID[store.TKey](), comparable: true}}
+	}
+	let rt = types.Resolve(s, env, u)
+	if !isInvalidT(*s, rt) {
+		return []tsTerm{tsTerm{under: false, ord: basicOrdOf(*s, rt), named: dense.OptOf(rt), comparable: false}}
+	}
+	[]tsTerm{}
+}
+
+func buildTypeFacts(s mut store.Store, parsed []syntax.Parsed, kinds types.Kinds, ext []types.Ext, foreign []types.Foreign, deps []types.Iface, roles []types.Role, fns []Fn) typeFacts {
+	let nDecls = store.NumDecls(*s)
+	let mut decls = []declFact{}
+	for _ in 0..nDecls {
+		decls = decls.Append(declFact{
+			file: 0, decl: dense.NoID[syntax.Node](), isStruct: false, isOp: false, isUnion: false, isMachine: false,
+			refined: false, whereText: "", parseName: "", specNode: dense.NoID[syntax.Node](), underT: dense.NoID[store.TKey](),
+			variants: []dense.ID[store.TKey]{}, params: []paramCons{}, claims: []dense.ID[store.TKey]{},
+		})
+	}
+	for file, p in parsed {
+		if p.Failed {
+			continue
+		}
+		let baseEnv = types.NewEnv(*s, parsed, p, []string{}, kinds, ext, foreign, deps)
+		match syntax.ViewOf(p.Tree, syntax.Root(p.Tree)) {
+		case syntax.File as root:
+			for idx in 0..syntax.Len(root.Decls) {
+				let node = syntax.Item(p.Tree, root.Decls, idx)
+				if syntax.KindOf(p.Tree, node) != syntax.KTypeDecl {
+					continue
+				}
+				let td = syntax.TypeDeclOf(p.Tree, node)
+				let tname = types.NameText(p, td.Name)
+				let di = match store.Lookup(*s, tname) {
+				case option.Some{Value: d}:
+					dense.Index(d)
+				case option.None:
+					continue
+				}
+				if di < 0 || di >= nDecls {
+					continue
+				}
+				let tnames = optBracketNames(p, td.TypeParams)
+				let env = if tnames.Len() > 0 { types.NewEnv(*s, parsed, p, tnames, kinds, ext, foreign, deps) } else { baseEnv }
+				let pcons = if td.TypeParams != dense.NoID[syntax.Node]() {
+					buildDeclCons(s, env, p, td.TypeParams, roles, parsed, deps, ext, foreign, kinds)
+				} else {
+					[]paramCons{}
+				}
+				let mut claims = []dense.ID[store.TKey]{}
+				for j in 0..syntax.Len(td.Implements) {
+					claims = claims.Append(types.Resolve(s, env, syntax.Item(p.Tree, td.Implements, j)))
+				}
+				match dense.Unpack(td.Derive) {
+				case option.Some{Value: dv}:
+					let ud = unparenExpr(p.Tree, dv)
+					if syntax.KindOf(p.Tree, ud) == syntax.KCallExpr {
+						let dce = syntax.CallExprOf(p.Tree, ud)
+						if syntax.KindOf(p.Tree, dce.Fun) == syntax.KIdent && types.NameText(p, dce.Fun) == "Provider" && syntax.Len(dce.Args) >= 1 {
+							let a0 = unparenExpr(p.Tree, syntax.Item(p.Tree, dce.Args, 0))
+							if syntax.KindOf(p.Tree, a0) == syntax.KCallExpr {
+								let f0 = unparenExpr(p.Tree, syntax.CallExprOf(p.Tree, a0).Fun)
+								if syntax.KindOf(p.Tree, f0) == syntax.KIndexExpr {
+									let ix = syntax.IndexExprOf(p.Tree, f0)
+									if syntax.Len(ix.Indices) == 1 {
+										let rt = types.Resolve(s, env, syntax.Item(p.Tree, ix.Indices, 0))
+										if !isInvalidT(*s, rt) {
+											claims = claims.Append(rt)
+										}
+									}
+								}
+							}
+						}
+					}
+				case option.None:
+				}
+				let mut isStruct = false
+				let mut isOp = false
+				let mut isUnion = false
+				let mut isMachine = false
+				let mut specNode = dense.NoID[syntax.Node]()
+				let mut underT = dense.NoID[store.TKey]()
+				let mut variants = []dense.ID[store.TKey]{}
+				match dense.Unpack(td.Spec) {
+				case option.Some{Value: sp}:
+					specNode = dense.OptOf(sp)
+					let sk = syntax.KindOf(p.Tree, sp)
+					if sk == syntax.KStructType {
+						isStruct = true
+					} else if sk == syntax.KMachineType {
+						isMachine = true
+					} else if sk == syntax.KInterfaceType {
+						let it = syntax.InterfaceTypeOf(p.Tree, sp)
+						let ms = syntax.Len(it.Members)
+						if ms > 0 {
+							let m0 = syntax.Item(p.Tree, it.Members, 0)
+							let mk = syntax.KindOf(p.Tree, m0)
+							if mk == syntax.KField || mk == syntax.KLawDecl || mk == syntax.KTestDecl {
+								if di < roles.Len() && roles[di].Name != "" { isOp = true } else { isUnion = true }
+							} else if di < roles.Len() && roles[di].Name != "" {
+								isOp = true
+							} else if ms > 1 || mk == syntax.KVariantSpec {
+								isUnion = true
+							} else {
+								let ut = types.Resolve(s, env, m0)
+								if !isInvalidT(*s, ut) { underT = dense.OptOf(ut) }
+							}
+						} else if di < roles.Len() && roles[di].Name != "" {
+							isOp = true
+						}
+					} else {
+						let ut = types.Resolve(s, env, sp)
+						if !isInvalidT(*s, ut) {
+							underT = dense.OptOf(ut)
+						}
+					}
+				case option.None:
+				}
+				if isUnion {
+					let uSelf = if tnames.Len() == 0 {
+						store.TNamed(s, store.DeclAt(*s, di))
+					} else {
+						let mut uargs = []dense.ID[store.TKey]{}
+						for pi in 0..tnames.Len() {
+							uargs = uargs.Append(store.TParam(s, pi))
+						}
+						store.TInstance(s, store.XRef{Import: uint32(0), Decl: uint32(di)}, uargs)
+					}
+					variants = types.Variants(s, env, uSelf)
+				}
+				let refined = isSome(dense.Unpack(td.Where))
+				let whereText = match dense.Unpack(td.Where) {
+				case option.Some{Value: w}:
+					nodeSrcText(p, w)
+				case option.None:
+					""
+				}
+				decls[di] = declFact{
+					file: file, decl: dense.OptOf(node), isStruct: isStruct, isOp: isOp, isUnion: isUnion, isMachine: isMachine,
+					refined: refined, whereText: whereText, parseName: parseNameOf(tname),
+					specNode: specNode, underT: underT, variants: variants, params: pcons, claims: claims,
+				}
+			}
+		case _:
+		}
+	}
+	let mut fnCons = [][]paramCons{}
+	let mut fnLaw = []bool{}
+	let mut testOrLaw = []bool{}
+	for f in fns {
+		let p = parsed[f.File]
+		let dk = syntax.KindOf(p.Tree, f.Decl)
+		let isLaw = dk == syntax.KLawDecl && !syntax.LawDeclOf(p.Tree, f.Decl).Equation
+		fnLaw = fnLaw.Append(isLaw)
+		testOrLaw = testOrLaw.Append(dk == syntax.KLawDecl || dk == syntax.KTestDecl)
+		if f.Params.Len() == 0 {
+			fnCons = fnCons.Append([]paramCons{})
+		} else if dk == syntax.KFuncDecl {
+			let fd = syntax.FuncDeclOf(p.Tree, f.Decl)
+			let env = types.NewEnv(*s, parsed, p, f.Params, kinds, ext, foreign, deps)
+			fnCons = fnCons.Append(buildDeclCons(s, env, p, fd.TypeParams, roles, parsed, deps, ext, foreign, kinds))
+		} else if dk == syntax.KLawDecl {
+			let ld = syntax.LawDeclOf(p.Tree, f.Decl)
+			let env = types.NewEnv(*s, parsed, p, f.Params, kinds, ext, foreign, deps)
+			fnCons = fnCons.Append(buildDeclCons(s, env, p, ld.TypeParams, roles, parsed, deps, ext, foreign, kinds))
+		} else {
+			fnCons = fnCons.Append([]paramCons{})
+		}
+	}
+	let mut errDecls = []bool{}
+	for _ in 0..nDecls {
+		errDecls = errDecls.Append(false)
+	}
+	for f in fns {
+		match sigErrors(*s, f.Sig) {
+		case option.Some{Value: er}:
+			markErrTypes(*s, &errDecls, er)
+		case option.None:
+		}
+	}
+	for r in roles {
+		for m in r.Members {
+			match sigErrors(*s, m.Sig) {
+			case option.Some{Value: er}:
+				markErrTypes(*s, &errDecls, er)
+			case option.None:
+			}
+		}
+	}
+	for p in parsed {
+		if p.Failed {
+			continue
+		}
+		let baseEnv = types.NewEnv(*s, parsed, p, []string{}, kinds, ext, foreign, deps)
+		for ni in 0..syntax.NumNodes(p.Tree) {
+			let node = syntax.NodeAt(p.Tree, ni)
+			if syntax.KindOf(p.Tree, node) == syntax.KErrorRow {
+				let er = syntax.ErrorRowOf(p.Tree, node)
+				for j in 0..syntax.Len(er.Types) {
+					let et = types.Resolve(s, baseEnv, syntax.Item(p.Tree, er.Types, j))
+					if !isInvalidT(*s, et) {
+						markErrTypes(*s, &errDecls, et)
+					}
+				}
+			}
+		}
+	}
+	typeFacts{decls: decls, fnCons: fnCons, fnLaw: fnLaw, testOrLaw: testOrLaw, errDecls: errDecls}
+}
+
+func markErrTypes(s store.Store, errDecls mut []bool, root dense.ID[store.TKey]) {
+	let mut stack = []dense.ID[store.TKey]{root}
+	for stack.Len() > 0 {
+		let cur = stack[stack.Len()-1]
+		stack = stack.Slice(0, stack.Len()-1)
+		let u = infer.Unmarked(s, cur)
+		let k = store.KindOfType(s, u)
+		if k == store.KRow || k == store.KRowValue {
+			for o in store.OperandsOf(s, u) {
+				stack = stack.Append(o)
+			}
+			continue
+		}
+		match types.Nominal(s, u) {
+		case option.Some{Value: ref}:
+			if ref.Import == uint32(0) {
+				let di = int(ref.Decl)
+				if di >= 0 && di < (*errDecls).Len() {
+					(*errDecls)[di] = true
+				}
+			}
+		case option.None:
+		}
+	}
+}
+
+func isErrorReturnOpt(s mut store.Store, k Pkg, gt option.Option[dense.ID[store.TKey]]) bool {
+	match gt {
+	case option.Some[dense.ID[store.TKey]] as ty:
+		isErrorReturnType(s, k, ty.Value)
+	case option.None:
+		false
+	}
+}
+
+func isErrorReturnType(s mut store.Store, k Pkg, ty dense.ID[store.TKey]) bool {
+	let mut stack = []dense.ID[store.TKey]{ty}
+	let mut steps = 0
+	for stack.Len() > 0 {
+		steps = steps + 1
+		if steps > 64 {
+			return false
+		}
+		let cur = stack[stack.Len()-1]
+		stack = stack.Slice(0, stack.Len()-1)
+		let u = infer.Unmarked(*s, cur)
+		if hasInvalidT(*s, u, 0) {
+			return false
+		}
+		let kind = store.KindOfType(*s, u)
+		if kind == store.KRow || kind == store.KRowValue {
+			let ops = store.OperandsOf(*s, u)
+			if ops.Len() == 0 {
+				return false
+			}
+			for o in ops {
+				stack = stack.Append(o)
+			}
+			continue
+		}
+		let mut ok = false
+		match typeDeclIdentity(*s, k, u) {
+		case option.Some{Value: id}:
+			if id.Path == "prelude" && id.Name == "Error" {
+				ok = true
+			}
+		case option.None:
+		}
+		if ok {
+			continue
+		}
+		match lookupTypeDeclRef(*s, k, u) {
+		case option.Some{Value: ref}:
+			if ref.Import == uint32(0) {
+				let di = int(ref.Decl)
+				if di >= 0 && di < k.facts.errDecls.Len() && k.facts.errDecls[di] {
+					ok = true
+				}
+			} else if int(ref.Import) <= k.Ifaces.Len() {
+				let ic = k.Ifaces[int(ref.Import)-1]
+				let di = depIdxForPath(k, ic.Path)
+				if di >= 0 {
+					let d = k.Deps[di]
+					let dec = ic.Decls[int(ref.Decl)]
+					match store.Lookup(d.S, dec.Name) {
+					case option.Some{Value: dd}:
+						let ddi = dense.Index(dd)
+						if ddi >= 0 && ddi < d.K.facts.errDecls.Len() && d.K.facts.errDecls[ddi] {
+							ok = true
+						}
+					case option.None:
+					}
+				}
+			}
+		case option.None:
+		}
+		if ok {
+			continue
+		}
+		let vs = unionVariantsOf(s, k, k.facts, u)
+		if vs.Len() == 0 {
+			return false
+		}
+		for v in vs {
+			stack = stack.Append(v)
+		}
+	}
+	steps > 0
+}
+
+func isBodyLaw(k Pkg, t Typer) bool {
+	!t.inFuncLit && t.fn >= 0 && t.fn < k.facts.fnLaw.Len() && k.facts.fnLaw[t.fn]
+}
+
+func isTestOrLaw(k Pkg, t Typer) bool {
+	t.fn >= 0 && t.fn < k.facts.testOrLaw.Len() && k.facts.testOrLaw[t.fn]
+}
+
+func checkLawResult(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node], gt option.Option[dense.ID[store.TKey]]) {
+	match gt {
+	case option.Some[dense.ID[store.TKey]] as ty:
+		if hasInvalidT(*s, ty.Value, 0) {
+			return
+		}
+		if !isBoolType(s, k, *t, ty.Value) {
+			t.LookupDiags = t.LookupDiags.Append(LookupDiag{File: t.file, At: x, Code: "S108", Message: "a law's body ends in a bool, not \(typePrint(*s, k, *t, ty.Value))"})
+		}
+	case option.None:
+	}
+}
+
+func isBoolType(s mut store.Store, k Pkg, t Typer, ty dense.ID[store.TKey]) bool {
+	let u = underType(s, k, k.facts, ty)
+	basicOrdOf(*s, u) == bBool
+}
+
+func underType(s mut store.Store, k Pkg, facts typeFacts, t dense.ID[store.TKey]) dense.ID[store.TKey] {
+	let mut cur = t
+	for _ in 0..25 {
+		let u = infer.Unmarked(*s, cur)
+		let kind = store.KindOfType(*s, u)
+		if kind == store.KForeign {
+			let f = foreignIdxOf(*s, u)
+			if f >= 0 && f < k.Foreign.Len() {
+				let entry = k.Foreign[f]
+				let di = depIdxForPath(k, entry.Path)
+				if di >= 0 {
+					let d = k.Deps[di]
+					match store.Lookup(d.S, entry.Name) {
+					case option.Some{Value: dd}:
+						let ddi = dense.Index(dd)
+						if ddi >= 0 && ddi < d.K.facts.decls.Len() {
+							match dense.Unpack(d.K.facts.decls[ddi].underT) {
+							case option.Some{Value: dut}:
+								match types.Port(s, k.Ifaces, k.Foreign, d.S, d.Path, func(r store.XRef) option.Option[types.DeclIdentity] { types.DepIdentity(d.K.Ifaces, r) }, d.K.Foreign, dut) {
+								case option.Some{Value: ported}:
+									if !isInvalidT(*s, ported) && ported != u {
+										cur = ported
+										continue
+									}
+								case option.None:
+								}
+							case option.None:
+							}
+						}
+					case option.None:
+					}
+				}
+			}
+			return u
+		}
+		if kind != store.KNamed && kind != store.KInstance {
+			return u
+		}
+		let mut nextCur = cur
+		let mut advanced = false
+		match lookupTypeDeclRef(*s, k, u) {
+		case option.Some{Value: ref}:
+			if ref.Import == uint32(0) {
+				let di = int(ref.Decl)
+				if di >= 0 && di < facts.decls.Len() {
+					match dense.Unpack(facts.decls[di].underT) {
+					case option.Some{Value: ut}:
+						let next = if kind == store.KInstance { store.TSubst(s, ut, store.OperandsOf(*s, u)) } else { ut }
+						if !isInvalidT(*s, next) && next != u {
+							nextCur = next
+							advanced = true
+						}
+					case option.None:
+					}
+				}
+			} else if int(ref.Import) <= k.Ifaces.Len() {
+				let imp = int(ref.Import)
+				let dec = k.Ifaces[imp-1].Decls[int(ref.Decl)]
+				if !dec.Type || dec.Variants.Len() > 0 {
+					return u
+				}
+				let di = depIdxForPath(k, k.Ifaces[imp-1].Path)
+				if di >= 0 {
+					let d = k.Deps[di]
+					match store.Lookup(d.S, dec.Name) {
+					case option.Some{Value: dd}:
+						let ddi = dense.Index(dd)
+						if ddi >= 0 && ddi < d.K.facts.decls.Len() {
+							match dense.Unpack(d.K.facts.decls[ddi].underT) {
+							case option.Some{Value: dut}:
+								match types.Port(s, k.Ifaces, k.Foreign, d.S, d.Path, func(r store.XRef) option.Option[types.DeclIdentity] { types.DepIdentity(d.K.Ifaces, r) }, d.K.Foreign, dut) {
+								case option.Some{Value: ported}:
+									let next = if kind == store.KInstance { store.TSubst(s, ported, store.OperandsOf(*s, u)) } else { ported }
+									if !isInvalidT(*s, next) && next != u {
+										nextCur = next
+										advanced = true
+									}
+								case option.None:
+								}
+							case option.None:
+							}
+						}
+					case option.None:
+					}
+				}
+			}
+		case option.None:
+		}
+		if !advanced {
+			return u
+		}
+		cur = nextCur
+	}
+	cur
+}
+
+func directUnderlying(s mut store.Store, k Pkg, facts typeFacts, t dense.ID[store.TKey]) option.Option[dense.ID[store.TKey]] {
+	let u = infer.Unmarked(*s, t)
+	match lookupTypeDeclRef(*s, k, u) {
+	case option.Some{Value: ref}:
+		if ref.Import == uint32(0) {
+			let di = int(ref.Decl)
+			if di >= 0 && di < facts.decls.Len() {
+				match dense.Unpack(facts.decls[di].underT) {
+				case option.Some{Value: ut}:
+					let next = if store.KindOfType(*s, u) == store.KInstance { store.TSubst(s, ut, store.OperandsOf(*s, u)) } else { ut }
+					if !isInvalidT(*s, next) {
+						return option.Some{Value: next}
+					}
+				case option.None:
+				}
+			}
+		} else if int(ref.Import) <= k.Ifaces.Len() {
+			let imp = int(ref.Import)
+			let dec = k.Ifaces[imp-1].Decls[int(ref.Decl)]
+			if !dec.Type || dec.Alias || dec.Variants.Len() > 0 {
+				return option.None
+			}
+			let di = depIdxForPath(k, k.Ifaces[imp-1].Path)
+			if di >= 0 {
+				let d = k.Deps[di]
+				match store.Lookup(d.S, dec.Name) {
+				case option.Some{Value: dd}:
+					let ddi = dense.Index(dd)
+					if ddi >= 0 && ddi < d.K.facts.decls.Len() {
+						match dense.Unpack(d.K.facts.decls[ddi].underT) {
+						case option.Some{Value: dut}:
+							match types.Port(s, k.Ifaces, k.Foreign, d.S, d.Path, func(r store.XRef) option.Option[types.DeclIdentity] { types.DepIdentity(d.K.Ifaces, r) }, d.K.Foreign, dut) {
+							case option.Some{Value: ported}:
+								let next = if store.KindOfType(*s, u) == store.KInstance { store.TSubst(s, ported, store.OperandsOf(*s, u)) } else { ported }
+								if !isInvalidT(*s, next) {
+									return option.Some{Value: next}
+								}
+							case option.None:
+							}
+						case option.None:
+						}
+					}
+				case option.None:
+				}
+			}
+		}
+	case option.None:
+	}
+	option.None
+}
+
+func hasName(s store.Store, t dense.ID[store.TKey]) bool {
+	let u = infer.Unmarked(s, t)
+	let kind = store.KindOfType(s, u)
+	kind == store.KBasic || kind == store.KNamed || kind == store.KInstance || kind == store.KForeign || kind == store.KParam
+}
+
+func isRefinedType(s store.Store, k Pkg, facts typeFacts, t dense.ID[store.TKey]) (bool, string, string) {
+	let u = infer.Unmarked(s, t)
+	match lookupTypeDeclRef(s, k, u) {
+	case option.Some{Value: ref}:
+		if ref.Import == uint32(0) {
+			let di = int(ref.Decl)
+			if di >= 0 && di < facts.decls.Len() && facts.decls[di].refined {
+				return (true, facts.decls[di].parseName, facts.decls[di].whereText)
+			}
+		} else if int(ref.Import) <= k.Ifaces.Len() {
+			let path = k.Ifaces[int(ref.Import)-1].Path
+			let di = depIdxForPath(k, path)
+			if di >= 0 {
+				let d = k.Deps[di]
+				let dec = k.Ifaces[int(ref.Import)-1].Decls[int(ref.Decl)]
+				match store.Lookup(d.S, dec.Name) {
+				case option.Some{Value: dd}:
+					let ddi = dense.Index(dd)
+					if ddi >= 0 && ddi < d.K.facts.decls.Len() && d.K.facts.decls[ddi].refined {
+						return (true, parseNameOf(dec.Name), d.K.facts.decls[ddi].whereText)
+					}
+				case option.None:
+				}
+			}
+		}
+	case option.None:
+	}
+	(false, "", "")
+}
+
+func identicalType(s store.Store, k Pkg, a dense.ID[store.TKey], b dense.ID[store.TKey]) bool {
+	if a == b {
+		return true
+	}
+	let ak = store.KindOfType(s, a)
+	let bk = store.KindOfType(s, b)
+	if ak == store.KOwn && bk == store.KOwn {
+		return identicalType(s, k, store.OperandsOf(s, a)[0], store.OperandsOf(s, b)[0])
+	}
+	if ak == store.KEntry && bk == store.KEntry {
+		return identicalType(s, k, store.OperandsOf(s, a)[0], store.OperandsOf(s, b)[0])
+	}
+	if (ak == store.KNamed || ak == store.KInstance || ak == store.KForeign) && (bk == store.KNamed || bk == store.KInstance || bk == store.KForeign) {
+		match (typeDeclIdentity(s, k, a), typeDeclIdentity(s, k, b)) {
+		case (option.Some{Value: ia}, option.Some{Value: ib}):
+			if ia.Path != ib.Path || ia.Name != ib.Name {
+				return false
+			}
+			let ao = store.OperandsOf(s, a)
+			let bo = store.OperandsOf(s, b)
+			if ao.Len() != bo.Len() {
+				return false
+			}
+			for i in 0..ao.Len() {
+				if !identicalType(s, k, ao[i], bo[i]) {
+					return false
+				}
+			}
+			return true
+		case _:
+		}
+	}
+	if (ak == store.KRow || ak == store.KRowValue) && store.OperandsOf(s, a).Len() == 1 {
+		return identicalType(s, k, store.OperandsOf(s, a)[0], b)
+	}
+	if (bk == store.KRow || bk == store.KRowValue) && store.OperandsOf(s, b).Len() == 1 {
+		return identicalType(s, k, a, store.OperandsOf(s, b)[0])
+	}
+	if ak != bk {
+		return false
+	}
+	if ak == store.KBasic || ak == store.KParam {
+		return store.ArgOf(s, a) == store.ArgOf(s, b)
+	}
+	if ak == store.KForeign {
+		let fa = store.ArgOf(s, a)
+		let fb = store.ArgOf(s, b)
+		if fa == fb {
+			return true
+		}
+		return fa < k.Foreign.Len() && fb < k.Foreign.Len() && k.Foreign[fa].Path == k.Foreign[fb].Path && k.Foreign[fa].Name == k.Foreign[fb].Name
+	}
+	if ak == store.KNamed {
+		return types.Nominal(s, a) == types.Nominal(s, b)
+	}
+	if ak == store.KArray {
+		return store.ArrayLen(s, a) == store.ArrayLen(s, b) && identicalType(s, k, store.OperandsOf(s, a)[1], store.OperandsOf(s, b)[1])
+	}
+	if ak == store.KSig {
+		if store.SigDefects(s, a) != store.SigDefects(s, b) {
+			return false
+		}
+		let ao = store.OperandsOf(s, a)
+		let bo = store.OperandsOf(s, b)
+		if ao.Len() != bo.Len() || ao.Len() < 3 {
+			return false
+		}
+		let pn = ao.Len() - 3
+		for i in 0..pn {
+			if !identicalType(s, k, ao[i], bo[i]) {
+				return false
+			}
+		}
+		if !identicalType(s, k, ao[pn], bo[pn]) {
+			return false
+		}
+		return rowSame(s, k, ao[pn+1], bo[pn+1]) && rowSame(s, k, ao[pn+2], bo[pn+2])
+	}
+	if ak == store.KInstance {
+		if store.OriginOfType(s, a) != store.OriginOfType(s, b) {
+			return false
+		}
+	}
+	if ak == store.KRow || ak == store.KRowValue {
+		return rowSame(s, k, a, b)
+	}
+	let ao = store.OperandsOf(s, a)
+	let bo = store.OperandsOf(s, b)
+	if ao.Len() != bo.Len() {
+		return false
+	}
+	for i in 0..ao.Len() {
+		if !identicalType(s, k, ao[i], bo[i]) {
+			return false
+		}
+	}
+	true
+}
+
+func rowSame(s store.Store, k Pkg, a dense.ID[store.TKey], b dense.ID[store.TKey]) bool {
+	rowSubset(s, k, a, b) && rowSubset(s, k, b, a)
+}
+
+func rowSubset(s store.Store, k Pkg, sub dense.ID[store.TKey], sup dense.ID[store.TKey]) bool {
+	let so = store.OperandsOf(s, sub)
+	let po = store.OperandsOf(s, sup)
+	for x in so {
+		let mut found = false
+		for y in po {
+			if identicalType(s, k, x, y) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return false
+		}
+	}
+	true
+}
+
+func sigParamMatches(s store.Store, k Pkg, g dense.ID[store.TKey], w dense.ID[store.TKey]) bool {
+	let gk = store.KindOfType(s, g)
+	let wk = store.KindOfType(s, w)
+	if wk == store.KOwn {
+		return gk == store.KOwn && identicalType(s, k, store.OperandsOf(s, g)[0], store.OperandsOf(s, w)[0])
+	}
+	if gk == store.KOwn {
+		return false
+	}
+	if wk == store.KEntry {
+		return gk == store.KEntry && identicalType(s, k, store.OperandsOf(s, g)[0], store.OperandsOf(s, w)[0])
+	}
+	let gu = if gk == store.KEntry { store.OperandsOf(s, g)[0] } else { g }
+	identicalType(s, k, gu, w)
+}
+
+func sigAssignWhy(s store.Store, k Pkg, t Typer, gSig dense.ID[store.TKey], wSig dense.ID[store.TKey], wantText string) string {
+	let gops = store.OperandsOf(s, gSig)
+	let wo = store.OperandsOf(s, wSig)
+	if gops.Len() != wo.Len() || gops.Len() < 3 {
+		return "the parameters or results differ"
+	}
+	let pn = gops.Len() - 3
+	for i in 0..pn {
+		if !sigParamMatches(s, k, gops[i], wo[i]) {
+			return "the parameters or results differ"
+		}
+	}
+	if !identicalType(s, k, gops[pn], wo[pn]) {
+		return "the parameters or results differ"
+	}
+	if store.SigDefects(s, gSig) && !store.SigDefects(s, wSig) {
+		return "it may defect (defects), which \(wantText) does not allow"
+	}
+	if !rowSubset(s, k, gops[pn+1], wo[pn+1]) {
+		let ge = types.RowText(s, types.Names{Params: []string{}, Foreign: k.Foreign, Pkg: "", Deps: k.Ifaces}, store.OperandsOf(s, gops[pn+1]))
+		let we = types.RowText(s, types.Names{Params: []string{}, Foreign: k.Foreign, Pkg: "", Deps: k.Ifaces}, store.OperandsOf(s, wo[pn+1]))
+		return "its error row {\(ge)} is wider than {\(we)}"
+	}
+	if !rowSubset(s, k, gops[pn+2], wo[pn+2]) {
+		let gu = types.RowText(s, types.Names{Params: []string{}, Foreign: k.Foreign, Pkg: "", Deps: k.Ifaces}, store.OperandsOf(s, gops[pn+2]))
+		let wu = types.RowText(s, types.Names{Params: []string{}, Foreign: k.Foreign, Pkg: "", Deps: k.Ifaces}, store.OperandsOf(s, wo[pn+2]))
+		return "its capability row {\(gu)} is wider than {\(wu)}"
+	}
+	""
+}
+
+func isUnionTypeHint(s store.Store, k Pkg, facts typeFacts, t dense.ID[store.TKey]) bool {
+	let u = infer.Unmarked(s, t)
+	let f = foreignIdxOf(s, u)
+	if f >= 0 && f < k.Foreign.Len() {
+		return k.Foreign[f].Variants.Len() > 0
+	}
+	match lookupTypeDeclRef(s, k, u) {
+	case option.Some{Value: ref}:
+		if ref.Import == uint32(0) {
+			let di = int(ref.Decl)
+			return di >= 0 && di < facts.decls.Len() && facts.decls[di].isUnion
+		} else if int(ref.Import) <= k.Ifaces.Len() {
+			return k.Ifaces[int(ref.Import)-1].Decls[int(ref.Decl)].Variants.Len() > 0
+		}
+	case option.None:
+	}
+	false
+}
+
+func preludeDeclType(s mut store.Store, k Pkg, name string, args []dense.ID[store.TKey]) option.Option[dense.ID[store.TKey]] {
+	match types.ImportRef(*s, k.Ifaces, "prelude", name) {
+	case option.Some{Value: ref}:
+		return option.Some{Value: store.TInstance(s, ref, args)}
+	case option.None:
+	}
+	let fi = foreignAt(k, "prelude", name)
+	if fi >= 0 {
+		if args.Len() == 0 {
+			return option.Some{Value: store.TForeign(s, fi)}
+		}
+		return option.Some{Value: store.TInstance(s, store.XRef{Import: uint32(store.ForeignBit), Decl: uint32(fi)}, args)}
+	}
+	if store.PathOf(*s) == "prelude" {
+		match store.Lookup(*s, name) {
+		case option.Some{Value: d}:
+			if args.Len() == 0 {
+				return option.Some{Value: store.TNamed(s, d)}
+			}
+			return option.Some{Value: store.TInstance(s, store.XRef{Import: uint32(0), Decl: uint32(dense.Index(d))}, args)}
+		case option.None:
+		}
+	}
+	option.None
+}
+
+func directUnionVariants(s mut store.Store, k Pkg, facts typeFacts, t dense.ID[store.TKey]) []dense.ID[store.TKey] {
+	let u = infer.Unmarked(*s, t)
+	match typeDeclIdentity(*s, k, u) {
+	case option.Some{Value: id}:
+		if id.Path == "prelude" && id.Name == "Decision" {
+			let ops = store.OperandsOf(*s, u)
+			if ops.Len() == 2 {
+				let st = ops[0]
+				let ot = ops[1]
+				let names = []string{"Enter", "Stay", "Emit", "Ignore", "Reject", "Done", "Tell"}
+				let argSets = [][]dense.ID[store.TKey]{
+					[]dense.ID[store.TKey]{st},
+					[]dense.ID[store.TKey]{st},
+					[]dense.ID[store.TKey]{st, ot},
+					[]dense.ID[store.TKey]{},
+					[]dense.ID[store.TKey]{},
+					[]dense.ID[store.TKey]{ot},
+					[]dense.ID[store.TKey]{st, ot},
+				}
+				let mut out = []dense.ID[store.TKey]{}
+				for vi, nm in names {
+					match preludeDeclType(s, k, nm, argSets[vi]) {
+					case option.Some{Value: vt}:
+						out = out.Append(vt)
+					case option.None:
+					}
+				}
+				if out.Len() == 7 {
+					return out
+				}
+			}
+		}
+	case option.None:
+	}
+	let ivs = infer.VariantsOf(s, k.Unions, u)
+	if ivs.Len() > 0 {
+		return ivs
+	}
+	match lookupTypeDeclRef(*s, k, u) {
+	case option.Some{Value: ref}:
+		if ref.Import == uint32(0) {
+			let di = int(ref.Decl)
+			if di >= 0 && di < facts.decls.Len() && facts.decls[di].variants.Len() > 0 {
+				let args = store.OperandsOf(*s, u)
+				if args.Len() == 0 {
+					return facts.decls[di].variants
+				}
+				let mut out = []dense.ID[store.TKey]{}
+				for v in facts.decls[di].variants {
+					out = out.Append(store.TSubst(s, v, args))
+				}
+				return out
+			}
+		} else if int(ref.Import) <= k.Ifaces.Len() {
+			let imp = int(ref.Import)
+			let ic = k.Ifaces[imp-1]
+			let dec = ic.Decls[int(ref.Decl)]
+			let di = depIdxForPath(k, ic.Path)
+			if di >= 0 {
+				let d = k.Deps[di]
+				match store.Lookup(d.S, dec.Name) {
+				case option.Some{Value: dd}:
+					let ddi = dense.Index(dd)
+					if ddi >= 0 && ddi < d.K.facts.decls.Len() && d.K.facts.decls[ddi].variants.Len() > 0 {
+						let args = store.OperandsOf(*s, u)
+						let mut out = []dense.ID[store.TKey]{}
+						for v in d.K.facts.decls[ddi].variants {
+							match types.Port(s, k.Ifaces, k.Foreign, d.S, d.Path, func(r store.XRef) option.Option[types.DeclIdentity] { types.DepIdentity(d.K.Ifaces, r) }, d.K.Foreign, v) {
+							case option.Some{Value: pv}:
+								out = out.Append(if args.Len() > 0 { store.TSubst(s, pv, args) } else { pv })
+							case option.None:
+							}
+						}
+						if out.Len() > 0 {
+							return out
+						}
+					}
+				case option.None:
+				}
+			} else if dec.Variants.Len() > 0 && (dec.Kinds.Len() == 0 || store.OperandsOf(*s, u).Len() == dec.Kinds.Len()) {
+				let args = store.OperandsOf(*s, u)
+				let mut out = []dense.ID[store.TKey]{}
+				for vd in dec.Variants {
+					let vdec = ic.Decls[vd]
+					let vargs = if vdec.Kinds.Len() == 0 {
+						[]dense.ID[store.TKey]{}
+					} else if vdec.Kinds.Len() == args.Len() {
+						args
+					} else {
+						continue
+					}
+					out = out.Append(store.TInstance(s, store.XRef{Import: uint32(imp), Decl: uint32(vd)}, vargs))
+				}
+				if out.Len() > 0 {
+					return out
+				}
+			}
+		}
+	case option.None:
+	}
+	if !isUnionTypeHint(*s, k, facts, u) {
+		return []dense.ID[store.TKey]{}
+	}
+	let env = if k.Parsed.Len() > 0 {
+		types.NewEnv(*s, k.Parsed, k.Parsed[0], []string{}, k.Kinds, k.Ext, k.Foreign, k.Ifaces)
+	} else {
+		return []dense.ID[store.TKey]{}
+	}
+	types.Variants(s, env, u)
+}
+
+func unionVariantsOf(s mut store.Store, k Pkg, facts typeFacts, t dense.ID[store.TKey]) []dense.ID[store.TKey] {
+	let mut out = []dense.ID[store.TKey]{}
+	let mut work = directUnionVariants(s, k, facts, t)
+	let mut wi = 0
+	for wi < work.Len() && wi < 128 {
+		let cur = work[wi]
+		wi = wi + 1
+		let subs = directUnionVariants(s, k, facts, cur)
+		if subs.Len() > 0 {
+			for sv in subs {
+				let mut seen = false
+				for ex in work {
+					if identicalType(*s, k, ex, sv) {
+						seen = true
+						break
+					}
+				}
+				if !seen {
+					work = work.Append(sv)
+				}
+			}
+		} else {
+			out = out.Append(cur)
+		}
+	}
+	out
+}
+
+func matchClaimPat(s store.Store, k Pkg, pat dense.ID[store.TKey], act dense.ID[store.TKey], binds mut []option.Option[dense.ID[store.TKey]]) bool {
+	let mut stack = []tPair{tPair{a: pat, b: act}}
+	for stack.Len() > 0 {
+		let cur = stack[stack.Len()-1]
+		stack = stack.Slice(0, stack.Len()-1)
+		let pk = store.KindOfType(s, cur.a)
+		if pk == store.KParam {
+			let i = store.ArgOf(s, cur.a)
+			if i < 0 || i >= (*binds).Len() {
+				return false
+			}
+			match (*binds)[i] {
+			case option.Some{Value: prev}:
+				if !identicalType(s, k, prev, cur.b) {
+					return false
+				}
+			case option.None:
+				(*binds)[i] = option.Some{Value: cur.b}
+			}
+			continue
+		}
+		let ak = store.KindOfType(s, cur.b)
+		if pk == store.KBasic && ak == store.KBasic {
+			if store.ArgOf(s, cur.a) != store.ArgOf(s, cur.b) {
+				return false
+			}
+			continue
+		}
+		if (pk == store.KNamed || pk == store.KInstance || pk == store.KForeign) && (ak == store.KNamed || ak == store.KInstance || ak == store.KForeign) {
+			match (typeDeclIdentity(s, k, cur.a), typeDeclIdentity(s, k, cur.b)) {
+			case (option.Some{Value: rp}, option.Some{Value: ra}):
+				if rp.Path != ra.Path || rp.Name != ra.Name {
+					return false
+				}
+				let po = store.OperandsOf(s, cur.a)
+				let ao = store.OperandsOf(s, cur.b)
+				if po.Len() != ao.Len() {
+					return false
+				}
+				let n = po.Len()
+				for i in 0..n {
+					let j = n - 1 - i
+					stack = stack.Append(tPair{a: po[j], b: ao[j]})
+				}
+				continue
+			case _:
+				return false
+			}
+		}
+		if pk != ak {
+			return false
+		}
+		let po = store.OperandsOf(s, cur.a)
+		let ao = store.OperandsOf(s, cur.b)
+		if po.Len() != ao.Len() {
+			return false
+		}
+		let n = po.Len()
+		for i in 0..n {
+			let j = n - 1 - i
+			stack = stack.Append(tPair{a: po[j], b: ao[j]})
+		}
+	}
+	true
+}
+
+func roleMatchesOrIncluded(s mut store.Store, k Pkg, claimedRole dense.ID[store.TKey], targetRole dense.ID[store.TKey]) bool {
+	let mut work = []roleWork{roleWork{role: claimedRole, depth: 0}}
+	let mut wi = 0
+	for wi < work.Len() {
+		let cur = work[wi]
+		wi = wi + 1
+		if cur.depth > 8 {
+			continue
+		}
+		if roleAssignable(*s, k, cur.role, targetRole) {
+			return true
+		}
+		let args = store.OperandsOf(*s, cur.role)
+		for inc in readRoleIncludes(s, k, cur.role) {
+			let instantiated = if args.Len() > 0 { store.TSubst(s, inc, args) } else { inc }
+			work = work.Append(roleWork{role: instantiated, depth: cur.depth + 1})
+		}
+	}
+	false
+}
+
+func typeDeclImplements(s mut store.Store, k Pkg, facts typeFacts, got dense.ID[store.TKey], wantRole dense.ID[store.TKey]) bool {
+	let ug = infer.Unmarked(*s, got)
+	match lookupTypeDeclRef(*s, k, ug) {
+	case option.Some{Value: ref}:
+		if ref.Import == uint32(0) {
+			let di = int(ref.Decl)
+			if di >= 0 && di < facts.decls.Len() {
+				let targs = store.OperandsOf(*s, ug)
+				for cl in facts.decls[di].claims {
+					let c = if targs.Len() > 0 { store.TSubst(s, cl, targs) } else { cl }
+					if roleMatchesOrIncluded(s, k, c, wantRole) {
+						return true
+					}
+				}
+			}
+		} else if int(ref.Import) <= k.Ifaces.Len() {
+			let ic = k.Ifaces[int(ref.Import)-1]
+			let di = depIdxForPath(k, ic.Path)
+			let targs = store.OperandsOf(*s, ug)
+			if di >= 0 {
+				let d = k.Deps[di]
+				let dec = ic.Decls[int(ref.Decl)]
+				match store.Lookup(d.S, dec.Name) {
+				case option.Some{Value: dd}:
+					let ddi = dense.Index(dd)
+					if ddi >= 0 && ddi < d.K.facts.decls.Len() {
+						for cl in d.K.facts.decls[ddi].claims {
+							match types.Port(s, k.Ifaces, k.Foreign, d.S, d.Path, func(r store.XRef) option.Option[types.DeclIdentity] { types.DepIdentity(d.K.Ifaces, r) }, d.K.Foreign, cl) {
+							case option.Some{Value: ported}:
+								let c = if targs.Len() > 0 { store.TSubst(s, ported, targs) } else { ported }
+								if roleMatchesOrIncluded(s, k, c, wantRole) {
+									return true
+								}
+							case option.None:
+							}
+						}
+					}
+				case option.None:
+				}
+			} else if int(ref.Decl) < ic.Claims.Len() {
+				for lay in ic.Claims[int(ref.Decl)] {
+					let oid = if lay.Op.Import == uint32(0) {
+						option.Some{Value: types.DeclIdentity{Path: ic.Path, Name: ic.Decls[int(lay.Op.Decl)].Name}}
+					} else {
+						roleRefLookup(ic.Refs, lay.Op)
+					}
+					match oid {
+					case option.Some{Value: id}:
+						let oref = if id.Path == store.PathOf(*s) {
+							match store.Lookup(*s, id.Name) {
+							case option.Some{Value: local}:
+								option.Some{Value: store.XRef{Import: uint32(0), Decl: uint32(dense.Index(local))}}
+							case option.None:
+								option.None
+							}
+						} else {
+							types.ImportRef(*s, k.Ifaces, id.Path, id.Name)
+						}
+						match oref {
+						case option.Some{Value: ro}:
+							let mut opArgs = []dense.ID[store.TKey]{}
+							let mut validPos = true
+							for pos in lay.Positions {
+								if pos >= 0 && pos < targs.Len() {
+									opArgs = opArgs.Append(targs[pos])
+								} else {
+									validPos = false
+								}
+							}
+							if validPos {
+								let roleT = if ro.Import == uint32(0) && opArgs.Len() == 0 {
+									store.TNamed(s, store.DeclAt(*s, int(ro.Decl)))
+								} else {
+									store.TInstance(s, ro, opArgs)
+								}
+								if roleMatchesOrIncluded(s, k, roleT, wantRole) {
+									return true
+								}
+							}
+						case option.None:
+						}
+					case option.None:
+					}
+				}
+			}
+		}
+	case option.None:
+	}
+	let effUg = if store.KindOfType(*s, ug) == store.KArray {
+		store.TSlice(s, store.OperandsOf(*s, ug)[1])
+	} else {
+		ug
+	}
+	for j in 0..store.FunctionClaimCount(*s) {
+		let g = store.FunctionClaimAt(*s, j)
+		if store.KindOfType(*s, ug) == store.KArray {
+			if store.KindOfType(*s, g.Receiver) != store.KSlice {
+				continue
+			}
+			match typeDeclIdentity(*s, k, g.Role) {
+			case option.Some{Value: rid}:
+				if (rid.Path != "core" && rid.Path != "prelude") || rid.Name != "Lengthed" {
+					continue
+				}
+			case option.None:
+				continue
+			}
+		}
+		let mut binds = []option.Option[dense.ID[store.TKey]]{}
+		for _ in g.Binds {
+			binds = binds.Append(option.None)
+		}
+		if matchClaimPat(*s, k, g.Receiver, effUg, &binds) {
+			let mut vals = []dense.ID[store.TKey]{}
+			let mut ready = true
+			for bi, b in binds {
+				match b {
+				case option.Some{Value: bv}:
+					vals = vals.Append(bv)
+				case option.None:
+					if bi < g.Binds.Len() && g.Binds[bi] {
+						ready = false
+					}
+					vals = vals.Append(store.TBasic(s, 0))
+				}
+			}
+			if ready {
+				let r = if vals.Len() > 0 { store.TSubst(s, g.Role, vals) } else { g.Role }
+				if roleMatchesOrIncluded(s, k, r, wantRole) {
+					return true
+				}
+			}
+		}
+	}
+	false
+}
+
+func isMachineDeclType(s store.Store, k Pkg, facts typeFacts, t dense.ID[store.TKey]) bool {
+	let u = infer.Unmarked(s, t)
+	match lookupTypeDeclRef(s, k, u) {
+	case option.Some{Value: ref}:
+		if ref.Import == uint32(0) {
+			let di = int(ref.Decl)
+			return di >= 0 && di < facts.decls.Len() && facts.decls[di].isMachine
+		} else if int(ref.Import) <= k.Ifaces.Len() {
+			let path = k.Ifaces[int(ref.Import)-1].Path
+			let di = depIdxForPath(k, path)
+			if di >= 0 {
+				let d = k.Deps[di]
+				let dec = k.Ifaces[int(ref.Import)-1].Decls[int(ref.Decl)]
+				match store.Lookup(d.S, dec.Name) {
+				case option.Some{Value: dd}:
+					let ddi = dense.Index(dd)
+					return ddi >= 0 && ddi < d.K.facts.decls.Len() && d.K.facts.decls[ddi].isMachine
+				case option.None:
+				}
+			}
+		}
+	case option.None:
+	}
+	false
+}
+
+func isPreludeMachineType(s store.Store, k Pkg, t dense.ID[store.TKey]) bool {
+	let u = infer.Unmarked(s, t)
+	if store.KindOfType(s, u) != store.KInstance {
+		return false
+	}
+	let o = store.OriginOfType(s, u)
+	if int(o.Import) == store.ForeignBit {
+		let fi = int(o.Decl)
+		return fi >= 0 && fi < k.Foreign.Len() && k.Foreign[fi].Path == "prelude" && (k.Foreign[fi].Name == "Machine" || k.Foreign[fi].Name == "InputMachine")
+	}
+	if o.Import > uint32(0) && int(o.Import) <= k.Ifaces.Len() {
+		let ic = k.Ifaces[int(o.Import)-1]
+		let nm = ic.Decls[int(o.Decl)].Name
+		return ic.Path == "prelude" && (nm == "Machine" || nm == "InputMachine")
+	}
+	false
+}
+
+func isUntypedConstExpr(p syntax.Parsed, x dense.ID[syntax.Node]) bool {
+	let u = unparenExpr(p.Tree, x)
+	let k = syntax.KindOf(p.Tree, u)
+	if k == syntax.KBasicLit {
+		return true
+	}
+	if k == syntax.KUnaryExpr {
+		let ue = syntax.UnaryExprOf(p.Tree, u)
+		let tk = syntax.TokKind(p, ue.Op)
+		return (tk == syntax.Add || tk == syntax.Sub || tk == syntax.Xor || tk == syntax.Not) && isUntypedConstExpr(p, ue.X)
+	}
+	if k == syntax.KBinaryExpr {
+		let be = syntax.BinaryExprOf(p.Tree, u)
+		return isUntypedConstExpr(p, be.X) && isUntypedConstExpr(p, be.Y)
+	}
+	if k == syntax.KIdent {
+		let nm = types.NameText(p, u)
+		return nm == "true" || nm == "false"
+	}
+	false
+}
+
+func constCompatibleWithBasic(p syntax.Parsed, x dense.ID[syntax.Node], ord int) bool {
+	let u = unparenExpr(p.Tree, x)
+	let k = syntax.KindOf(p.Tree, u)
+	if k == syntax.KBasicLit {
+		let tk = syntax.TokKind(p, syntax.BasicLitOf(p.Tree, u).Tok)
+		if tk == syntax.Int || tk == syntax.Rune {
+			return isNumOrd(ord)
+		}
+		if tk == syntax.Float {
+			return isFloatOrd(ord) || isComplexOrd(ord)
+		}
+		if tk == syntax.String {
+			return ord == bString
+		}
+		if tk == syntax.Duration {
+			return ord == 18
+		}
+		return false
+	}
+	if k == syntax.KIdent {
+		let nm = types.NameText(p, u)
+		return (nm == "true" || nm == "false") && ord == bBool
+	}
+	if evalIntConst(p, u).ok {
+		return isNumOrd(ord)
+	}
+	false
+}
+
+func isLocalOrPkgInferredLet(s store.Store, k Pkg, t Typer, x dense.ID[syntax.Node]) (bool, string) {
+	let u = unparenExpr(k.Parsed[t.file].Tree, x)
+	if syntax.KindOf(k.Parsed[t.file].Tree, u) != syntax.KIdent {
+		return (false, "")
+	}
+	let name = types.NameText(k.Parsed[t.file], u)
+	match bind.ResolutionOf(k.U, k.Ps, pnode(k, t.file, u)) {
+	case bind.Declared as d:
+		match dense.Unpack(bind.ParentOf(k.Ps, d.At)) {
+		case option.Some{Value: pn}:
+			let (vf, _) = bind.RowOf(k.Ps, d.At)
+			let tr = tree(k, vf)
+			let (pf, pr) = bind.RowOf(k.Ps, pn)
+			if pf == vf {
+				let node = syntax.NodeAt(tr, pr)
+				if syntax.KindOf(tr, node) == syntax.KVarSpec {
+					let vs = syntax.VarSpecOf(tr, node)
+					if vs.Type == dense.NoID[syntax.Node]() && syntax.Len(vs.Names) == 1 {
+						return (true, name)
+					}
+				}
+			}
+		case option.None:
+		}
+	case _:
+	}
+	(false, "")
+}
+
+func currentParamCons(k Pkg, t Typer) []paramCons {
+	if t.fn >= 0 && t.fn < k.facts.fnCons.Len() {
+		return k.facts.fnCons[t.fn]
+	}
+	[]paramCons{}
+}
+
+func assignRefusal(s mut store.Store, k Pkg, t Typer, x dense.ID[syntax.Node], want dense.ID[store.TKey], got dense.ID[store.TKey]) string {
+	let uw0 = infer.Unmarked(*s, want)
+	let ug0 = infer.Unmarked(*s, got)
+	if hasInvalidT(*s, uw0, 0) || hasInvalidT(*s, ug0, 0) {
+		return ""
+	}
+	if anyGoForeign(*s, k, ug0, 0) || anyGoForeign(*s, k, uw0, 0) {
+		return ""
+	}
+	if store.KindOfType(*s, want) == store.KEntry && store.KindOfType(*s, got) != store.KEntry {
+		return "cannot use \(typePrint(*s, k, t, got)) as \(typePrint(*s, k, t, want)) in \(assignWhat(t)): only an entry's send is one"
+	}
+	if identicalType(*s, k, ug0, uw0) {
+		return ""
+	}
+	if !isBodyLaw(k, t) && (t.what == "return" || t.what == "the body's tail value") && (failsReturnAllowed(s, k, t, ug0) || isErrorReturnType(s, k, ug0)) {
+		return ""
+	}
+	let p = k.Parsed[t.file]
+	let underW = underType(s, k, k.facts, uw0)
+	let underG = underType(s, k, k.facts, ug0)
+	if isUntypedConstExpr(p, x) {
+		let wo = basicOrdOf(*s, underW)
+		if wo > 0 && constCompatibleWithBasic(p, x, wo) {
+			return ""
+		}
+	}
+	let (wRefined, wParse, _) = isRefinedType(*s, k, k.facts, uw0)
+	if (!hasName(*s, ug0) || !hasName(*s, uw0) || isAliasType(*s, k, ug0) || isAliasType(*s, k, uw0)) && store.KindOfType(*s, ug0) != store.KParam && store.KindOfType(*s, uw0) != store.KParam {
+		if identicalType(*s, k, underG, underW) {
+			if wRefined {
+				return "cannot use \(typePrint(*s, k, t, ug0)) as \(typePrint(*s, k, t, uw0)) in \(assignWhat(t)): \(typePrint(*s, k, t, uw0)) is refined; write \(wParse)(…), which checks its where"
+			}
+			return ""
+		}
+	}
+	match resolveRole(*s, k, uw0) {
+	case option.Some{Value: role}:
+		if types.ConstraintOnlyRole(role) {
+			return ""
+		}
+		if store.KindOfType(*s, ug0) == store.KParam {
+			let pcons = currentParamCons(k, t)
+			let pi = store.ArgOf(*s, ug0)
+			if pi >= 0 && pi < pcons.Len() && satisfiesConstraint(s, k, t, pcons, ug0, paramCons{name: "", text: role.Name, isComp: false, isOrd: false, isNum: false, isWire: false, terms: []tsTerm{}, hasSet: false, role: dense.OptOf(uw0)}) == "" {
+				return ""
+			}
+		}
+		if isRoleType(*s, k, ug0) && roleMatchesOrIncluded(s, k, ug0, uw0) {
+			return ""
+		}
+		if typeDeclImplements(s, k, k.facts, ug0, uw0) {
+			return ""
+		}
+		let gs = typePrint(*s, k, t, ug0)
+		let ws = typePrint(*s, k, t, uw0)
+		return "cannot use \(gs) as \(ws) in \(assignWhat(t)): \(gs) does not declare that it implements \(ws): write implements \(ws) after \(gs)'s body (types.md, Interface assignability 1)"
+	case option.None:
+		if typeDeclImplements(s, k, k.facts, ug0, uw0) {
+			return ""
+		}
+	}
+	let unionTarget = if isAliasType(*s, k, uw0) { underW } else { uw0 }
+	let vs = unionVariantsOf(s, k, k.facts, unionTarget)
+	if vs.Len() > 0 {
+		if store.KindOfType(*s, ug0) == store.KRowValue {
+			let mut allIn = true
+			for elem in store.OperandsOf(*s, ug0) {
+				let mut inU = false
+				for v in vs {
+					if identicalType(*s, k, elem, v) {
+						inU = true
+						break
+					}
+				}
+				if !inU {
+					allIn = false
+					break
+				}
+			}
+			if allIn {
+				return ""
+			}
+		}
+		for v in vs {
+			if identicalType(*s, k, ug0, v) {
+				return ""
+			}
+		}
+		let gvs = unionVariantsOf(s, k, k.facts, ug0)
+		if gvs.Len() > 0 {
+			let mut allIn = true
+			for gv in gvs {
+				let mut inU = false
+				for v in vs {
+					if identicalType(*s, k, gv, v) {
+						inU = true
+						break
+					}
+				}
+				if !inU {
+					allIn = false
+					break
+				}
+			}
+			if allIn {
+				return ""
+			}
+		}
+	}
+	let uwk = store.KindOfType(*s, uw0)
+	if uwk == store.KRowValue || uwk == store.KRow {
+		let wo = store.OperandsOf(*s, uw0)
+		for wv in wo {
+			if identicalType(*s, k, ug0, wv) {
+				return ""
+			}
+		}
+		if store.KindOfType(*s, ug0) == store.KRowValue {
+			let mut allIn = true
+			for gv in store.OperandsOf(*s, ug0) {
+				let mut inR = false
+				for wv in wo {
+					if identicalType(*s, k, gv, wv) {
+						inR = true
+						break
+					}
+				}
+				if !inR {
+					allIn = false
+					break
+				}
+			}
+			if allIn {
+				return ""
+			}
+		}
+		let gvs = unionVariantsOf(s, k, k.facts, ug0)
+		if gvs.Len() > 0 {
+			let mut allIn = true
+			for gv in gvs {
+				let mut inR = false
+				for wv in wo {
+					if identicalType(*s, k, gv, wv) {
+						inR = true
+						break
+					}
+				}
+				if !inR {
+					allIn = false
+					break
+				}
+			}
+			if allIn {
+				return ""
+			}
+		}
+	}
+	if (!hasName(*s, ug0) || !hasName(*s, uw0) || isAliasType(*s, k, ug0) || isAliasType(*s, k, uw0)) && store.KindOfType(*s, underG) == store.KSig && store.KindOfType(*s, underW) == store.KSig {
+		let why = sigAssignWhy(*s, k, t, underG, underW, typePrint(*s, k, t, uw0))
+		if why == "" {
+			return ""
+		}
+		return "cannot use \(typePrint(*s, k, t, ug0)) as \(typePrint(*s, k, t, uw0)) in \(assignWhat(t)): \(why)"
+	}
+	if isMachineDeclType(*s, k, k.facts, ug0) && isPreludeMachineType(*s, k, uw0) {
+		return ""
+	}
+	let (isLet, letNm) = isLocalOrPkgInferredLet(*s, k, t, x)
+	if isLet && convertible(s, k, t, ug0, uw0) == "" {
+		let gs = typePrint(*s, k, t, ug0)
+		let ws = typePrint(*s, k, t, uw0)
+		return "\(letNm) is \(gs); write \(ws)(\(letNm)) or declare \(letNm) \(ws)"
+	}
+	"cannot use \(typePrint(*s, k, t, ug0)) as \(typePrint(*s, k, t, uw0)) in \(assignWhat(t))"
+}
+
+func assignWhat(t Typer) string { if t.what != "" { t.what } else { "value" } }
+
+func convertible(s mut store.Store, k Pkg, t Typer, got dense.ID[store.TKey], target dense.ID[store.TKey]) string {
+	let g = infer.Unmarked(*s, got)
+	let w = infer.Unmarked(*s, target)
+	if hasInvalidT(*s, g, 0) || hasInvalidT(*s, w, 0) {
+		return ""
+	}
+	if anyGoForeign(*s, k, g, 0) || anyGoForeign(*s, k, w, 0) {
+		return ""
+	}
+	if identicalType(*s, k, g, w) {
+		return ""
+	}
+	let ug = underType(s, k, k.facts, g)
+	let uw = underType(s, k, k.facts, w)
+	if (!hasName(*s, g) || !hasName(*s, w)) && identicalType(*s, k, ug, uw) {
+		return ""
+	}
+	if (!hasName(*s, g) || !hasName(*s, w)) && store.KindOfType(*s, ug) == store.KSig && store.KindOfType(*s, uw) == store.KSig {
+		if sigAssignWhy(*s, k, t, ug, uw, typePrint(*s, k, t, w)) == "" {
+			return ""
+		}
+	}
+	let goOrd = basicOrdOf(*s, g)
+	let woOrd = basicOrdOf(*s, w)
+	let ugo = basicOrdOf(*s, ug)
+	let uwo = basicOrdOf(*s, uw)
+	if ugo > 0 && uwo > 0 {
+		if (isIntOrd(ugo) || isFloatOrd(ugo)) && (isIntOrd(uwo) || isFloatOrd(uwo)) {
+			if (goOrd == ugo && woOrd == uwo) || isDirectHop(s, k, k.facts, g, w) {
+				return ""
+			}
+			if hasName(*s, g) && hasName(*s, w) {
+				return conversionHopOrRefusal(s, k, t, g, w, ugo, uwo)
+			}
+			return ""
+		}
+		if isComplexOrd(ugo) && isComplexOrd(uwo) {
+			return ""
+		}
+		if (ugo == 18 && uwo == 7) || (ugo == 7 && uwo == 18) {
+			return ""
+		}
+		if isIntOrd(ugo) && uwo == bString && woOrd == bString {
+			return "int-to-string"
+		}
+	}
+	if uwo == bString && store.KindOfType(*s, ug) == store.KSlice {
+		let eltOrd = basicOrdOf(*s, store.OperandsOf(*s, ug)[0])
+		if eltOrd == 9 || eltOrd == 6 {
+			return ""
+		}
+	}
+	if ugo == bString && store.KindOfType(*s, uw) == store.KSlice {
+		let eltOrd = basicOrdOf(*s, store.OperandsOf(*s, uw)[0])
+		if eltOrd == 9 || eltOrd == 6 {
+			return ""
+		}
+	}
+	if isDirectHop(s, k, k.facts, g, w) {
+		return ""
+	}
+	if !hasName(*s, g) || !hasName(*s, w) {
+		match directUnderlying(s, k, k.facts, w) {
+		case option.Some{Value: baseW}:
+			if identicalType(*s, k, g, baseW) {
+				return ""
+			}
+		case option.None:
+		}
+		match directUnderlying(s, k, k.facts, g) {
+		case option.Some{Value: baseG}:
+			if identicalType(*s, k, baseG, w) {
+				return ""
+			}
+		case option.None:
+		}
+	}
+	"cannot"
+}
+
+func isDirectHop(s mut store.Store, k Pkg, facts typeFacts, g dense.ID[store.TKey], w dense.ID[store.TKey]) bool {
+	match directUnderlying(s, k, facts, w) {
+	case option.Some{Value: bw}:
+		if identicalType(*s, k, g, bw) {
+			return true
+		}
+	case option.None:
+	}
+	match directUnderlying(s, k, facts, g) {
+	case option.Some{Value: bg}:
+		if identicalType(*s, k, bg, w) {
+			return true
+		}
+	case option.None:
+	}
+	false
+}
+
+func conversionHopOrRefusal(s mut store.Store, k Pkg, t Typer, g dense.ID[store.TKey], w dense.ID[store.TKey], ugo int, uwo int) string {
+	let goOrd = basicOrdOf(*s, g)
+	let woOrd = basicOrdOf(*s, w)
+	if goOrd > 0 && woOrd > 0 {
+		return ""
+	}
+	if isDirectHop(s, k, k.facts, g, w) {
+		return ""
+	}
+	if store.KindOfType(*s, w) == store.KBasic && store.KindOfType(*s, g) != store.KBasic {
+		match directUnderlying(s, k, k.facts, g) {
+		case option.Some{Value: bg}:
+			if identicalType(*s, k, bg, w) {
+				return ""
+			}
+		case option.None:
+		}
+		return "cannot"
+	}
+	if store.KindOfType(*s, g) == store.KBasic && store.KindOfType(*s, w) != store.KBasic {
+		match directUnderlying(s, k, k.facts, w) {
+		case option.Some{Value: bw}:
+			if identicalType(*s, k, bw, g) {
+				return ""
+			}
+		case option.None:
+		}
+		return "cannot"
+	}
+	"cannot"
+}
+
+func conversionTarget(s mut store.Store, k Pkg, t Typer, fun dense.ID[syntax.Node]) option.Option[dense.ID[store.TKey]] {
+	let tr = tree(k, t.file)
+	let p = k.Parsed[t.file]
+	let u = unparenExpr(tr, fun)
+	let kind = syntax.KindOf(tr, u)
+	let isTypExpr = if kind == syntax.KArrayType || kind == syntax.KMapType || kind == syntax.KFuncType {
+		true
+	} else if kind == syntax.KIdent {
+		let nm = types.NameText(p, u)
+		let mut res = false
+		if types.BasicName(basicOrdByName(nm)) != "invalid type" {
+			res = true
+		} else {
+			match bind.ResolutionOf(k.U, k.Ps, pnode(k, t.file, u)) {
+			case bind.Declared as d:
+				match store.FindName(*s, nm) {
+				case option.Some:
+					match store.Lookup(*s, nm) {
+					case option.Some{Value: dec}:
+						let kd = store.KindName(int(store.DeclOf(*s, dec).Kind))
+						if kd == "type" && !isSome(DefType(t, d.At)) {
+							res = true
+						}
+					case option.None:
+					}
+				case option.None:
+				}
+			case _:
+			}
+		}
+		res
+	} else if kind == syntax.KSelectorExpr {
+		let se = syntax.SelectorExprOf(tr, u)
+		match bind.ResolutionOf(k.U, k.Ps, pnode(k, t.file, se.Sel)) {
+		case bind.Imported as im:
+			let imp = int(im.Ref.Import) - 1
+			imp >= 0 && imp < k.Ifaces.Len() && int(im.Ref.Decl) < k.Ifaces[imp].Decls.Len() && k.Ifaces[imp].Decls[int(im.Ref.Decl)].Type
+		case _:
+			false
+		}
+	} else if kind == syntax.KIndexExpr {
+		let ix = syntax.IndexExprOf(tr, u)
+		isSome(conversionTarget(s, k, t, ix.X))
+	} else {
+		false
+	}
+	if !isTypExpr {
+		return option.None
+	}
+	let ty = types.Resolve(s, envOf(*s, k, t), u)
+	if isInvalidT(*s, ty) {
+		return option.None
+	}
+	option.Some{Value: ty}
+}
+
+func basicOrdByName(name string) int {
+	if name == "byte" {
+		return 9
+	}
+	if name == "rune" {
+		return 6
+	}
+	let mut i = 1
+	for types.BasicName(i) != "invalid type" {
+		if types.BasicName(i) == name {
+			return i
+		}
+		i = i + 1
+	}
+	0
+}
+
+func checkConversion(s mut store.Store, k Pkg, t mut Typer, callNode dense.ID[syntax.Node], target dense.ID[store.TKey], argNode dense.ID[syntax.Node], argGot option.Option[dense.ID[store.TKey]]) {
+	if hasInvalidT(*s, target, 0) {
+		return
+	}
+	let p = k.Parsed[t.file]
+	let underW = underType(s, k, k.facts, target)
+	if isUntypedConstExpr(p, argNode) {
+		let wo = basicOrdOf(*s, underW)
+		if wo == bString && isConstIntExpr(p, argNode) {
+			let nm = nodeSrcText(p, unparenExpr(p.Tree, argNode))
+			t.LookupDiags = t.LookupDiags.Append(LookupDiag{File: t.file, At: callNode, Code: "S108", Message: "an integer does not convert to string; write \"\\(\(nm))\" for its decimal text (types.md, Conversions)"})
+			return
+		}
+		if isIntOrd(wo) {
+			let c = evalIntConst(p, argNode)
+			if c.ok && intOverflows(c, wo) {
+				t.LookupDiags = t.LookupDiags.Append(LookupDiag{File: t.file, At: argNode, Code: "S108", Message: "the constant \(constIntText(c)) overflows \(typePrint(*s, k, *t, target)) (types.md, Basic types 2)"})
+				return
+			}
+		}
+		if wo > 0 && constCompatibleWithBasic(p, argNode, wo) {
+			return
+		}
+	}
+	let g = match argGot {
+	case option.Some{Value: gt}:
+		gt
+	case option.None:
+		return
+	}
+	if hasInvalidT(*s, g, 0) {
+		return
+	}
+	let why = convertible(s, k, *t, g, target)
+	if why == "" {
+		return
+	}
+	if why == "int-to-string" {
+		let nm = nodeSrcText(p, unparenExpr(p.Tree, argNode))
+		t.LookupDiags = t.LookupDiags.Append(LookupDiag{File: t.file, At: callNode, Code: "S108", Message: "an integer does not convert to string; write \"\\(\(nm))\" for its decimal text (types.md, Conversions)"})
+		return
+	}
+	let gs = typePrint(*s, k, *t, g)
+	let ws = typePrint(*s, k, *t, target)
+	t.LookupDiags = t.LookupDiags.Append(LookupDiag{File: t.file, At: callNode, Code: "S108", Message: "cannot convert \(gs) to \(ws): a conversion is between numeric types, between duration and int64, or between a defined type and the type it is defined over (types.md, Conversions)"})
+}
+
+func digitVal(ch int, base int) int {
+	let v = if ch >= 48 && ch <= 57 {
+		ch - 48
+	} else if ch >= 97 && ch <= 102 {
+		ch - 87
+	} else if ch >= 65 && ch <= 70 {
+		ch - 55
+	} else {
+		-1
+	}
+	if v >= 0 && v < base { v } else { -1 }
+}
+
+func parseIntLitText(raw string) intConst {
+	let mut clean = ""
+	for i in 0..raw.Len() {
+		if int(raw[i]) != 95 {
+			clean = clean + raw[i:i+1]
+		}
+	}
+	if clean.Len() == 0 {
+		return intConst{ok: false, neg: false, mag: uint64(0), huge: false}
+	}
+	let mut base = 10
+	let mut s = clean
+	if clean.Len() >= 2 && int(clean[0]) == 48 {
+		let ch = int(clean[1])
+		if ch == 120 || ch == 88 {
+			base = 16
+			s = clean[2:clean.Len()]
+		} else if ch == 111 || ch == 79 {
+			base = 8
+			s = clean[2:clean.Len()]
+		} else if ch == 98 || ch == 66 {
+			base = 2
+			s = clean[2:clean.Len()]
+		} else {
+			base = 8
+			s = clean[1:clean.Len()]
+		}
+	}
+	if s.Len() == 0 {
+		return intConst{ok: false, neg: false, mag: uint64(0), huge: false}
+	}
+	let maxU = ^uint64(0)
+	let maxDiv = maxU / uint64(base)
+	let mut acc = uint64(0)
+	let mut overflow = false
+	for i in 0..s.Len() {
+		let d = digitVal(int(s[i]), base)
+		if d < 0 {
+			return intConst{ok: false, neg: false, mag: uint64(0), huge: false}
+		}
+		let du = uint64(d)
+		if acc > maxDiv || (acc == maxDiv && du > maxU-acc*uint64(base)) {
+			overflow = true
+		} else {
+			acc = acc*uint64(base) + du
+		}
+	}
+	if overflow {
+		return intConst{ok: true, neg: false, mag: uint64(0), huge: true}
+	}
+	intConst{ok: true, neg: false, mag: acc, huge: false}
+}
+
+func parseRuneLitText(raw string) intConst {
+	if raw.Len() < 3 || int(raw[0]) != 39 || int(raw[raw.Len()-1]) != 39 {
+		return intConst{ok: false, neg: false, mag: uint64(0), huge: false}
+	}
+	let body = raw[1:raw.Len()-1]
+	if body.Len() == 1 && int(body[0]) != 92 {
+		return intConst{ok: true, neg: false, mag: uint64(int(body[0])), huge: false}
+	}
+	if int(body[0]) == 92 && body.Len() == 2 {
+		let c = int(body[1])
+		let v = if c == 97 { 7 } else if c == 98 { 8 } else if c == 102 { 12 } else if c == 110 { 10 } else if c == 114 { 13 } else if c == 116 { 9 } else if c == 118 { 11 } else if c == 92 { 92 } else if c == 39 { 39 } else if c == 48 { 0 } else { -1 }
+		if v >= 0 {
+			return intConst{ok: true, neg: false, mag: uint64(v), huge: false}
+		}
+	}
+	intConst{ok: false, neg: false, mag: uint64(0), huge: false}
+}
+
+func isConstIntExpr(p syntax.Parsed, x dense.ID[syntax.Node]) bool {
+	evalIntConst(p, x).ok
+}
+
+func evalIntConst(p syntax.Parsed, x dense.ID[syntax.Node]) intConst {
+	let bad = intConst{ok: false, neg: false, mag: uint64(0), huge: false}
+	let u = unparenExpr(p.Tree, x)
+	let k = syntax.KindOf(p.Tree, u)
+	if k == syntax.KBasicLit {
+		let bl = syntax.BasicLitOf(p.Tree, u)
+		let tk = syntax.TokKind(p, bl.Tok)
+		let txt = syntax.TokText(p, bl.Tok)
+		if tk == syntax.Int {
+			return parseIntLitText(txt)
+		}
+		if tk == syntax.Rune {
+			return parseRuneLitText(txt)
+		}
+		return bad
+	}
+	if k == syntax.KUnaryExpr {
+		let ue = syntax.UnaryExprOf(p.Tree, u)
+		let inner = evalIntConst(p, ue.X)
+		if !inner.ok {
+			return bad
+		}
+		let op = syntax.TokKind(p, ue.Op)
+		if op == syntax.Add {
+			return inner
+		}
+		if op == syntax.Sub {
+			if inner.mag == uint64(0) && !inner.huge {
+				return intConst{ok: true, neg: false, mag: uint64(0), huge: false}
+			}
+			return intConst{ok: true, neg: !inner.neg, mag: inner.mag, huge: inner.huge}
+		}
+		if op == syntax.Xor && !inner.huge {
+			if inner.neg {
+				return intConst{ok: true, neg: false, mag: inner.mag - uint64(1), huge: false}
+			}
+			if inner.mag == ^uint64(0) {
+				return intConst{ok: true, neg: true, mag: uint64(0), huge: true}
+			}
+			return intConst{ok: true, neg: true, mag: inner.mag + uint64(1), huge: false}
+		}
+		return bad
+	}
+	if k == syntax.KBinaryExpr {
+		let be = syntax.BinaryExprOf(p.Tree, u)
+		let a = evalIntConst(p, be.X)
+		let b = evalIntConst(p, be.Y)
+		if !a.ok || !b.ok {
+			return bad
+		}
+		if a.huge || b.huge {
+			return intConst{ok: true, neg: a.neg, mag: uint64(0), huge: true}
+		}
+		let op = syntax.TokKind(p, be.Op)
+		if op == syntax.Add {
+			return addIntConst(a, b)
+		}
+		if op == syntax.Sub {
+			let nb = if b.mag == uint64(0) { b } else { intConst{ok: true, neg: !b.neg, mag: b.mag, huge: false} }
+			return addIntConst(a, nb)
+		}
+		if op == syntax.Mul {
+			if a.mag == uint64(0) || b.mag == uint64(0) {
+				return intConst{ok: true, neg: false, mag: uint64(0), huge: false}
+			}
+			let maxU = ^uint64(0)
+			if a.mag > maxU/b.mag {
+				return intConst{ok: true, neg: a.neg != b.neg, mag: uint64(0), huge: true}
+			}
+			return intConst{ok: true, neg: a.neg != b.neg, mag: a.mag * b.mag, huge: false}
+		}
+		if op == syntax.Quo {
+			if b.mag == uint64(0) {
+				return bad
+			}
+			let q = a.mag / b.mag
+			return intConst{ok: true, neg: q > uint64(0) && a.neg != b.neg, mag: q, huge: false}
+		}
+		if op == syntax.Rem {
+			if b.mag == uint64(0) {
+				return bad
+			}
+			let r = a.mag % b.mag
+			return intConst{ok: true, neg: r > uint64(0) && a.neg, mag: r, huge: false}
+		}
+		if op == syntax.Shl {
+			if b.neg {
+				return bad
+			}
+			if a.mag == uint64(0) {
+				return intConst{ok: true, neg: false, mag: uint64(0), huge: false}
+			}
+			if b.mag >= uint64(64) {
+				return intConst{ok: true, neg: a.neg, mag: uint64(0), huge: true}
+			}
+			let sft = int(b.mag)
+			let shifted = a.mag << sft
+			if (shifted >> sft) != a.mag {
+				return intConst{ok: true, neg: a.neg, mag: uint64(0), huge: true}
+			}
+			return intConst{ok: true, neg: a.neg, mag: shifted, huge: false}
+		}
+		if op == syntax.Shr {
+			if b.neg {
+				return bad
+			}
+			if b.mag >= uint64(64) {
+				return intConst{ok: true, neg: false, mag: uint64(0), huge: false}
+			}
+			let q = a.mag >> int(b.mag)
+			return intConst{ok: true, neg: q > uint64(0) && a.neg, mag: q, huge: false}
+		}
+	}
+	bad
+}
+
+func addIntConst(a intConst, b intConst) intConst {
+	if a.neg == b.neg {
+		let maxU = ^uint64(0)
+		if a.mag > maxU-b.mag {
+			return intConst{ok: true, neg: a.neg, mag: uint64(0), huge: true}
+		}
+		let sum = a.mag + b.mag
+		return intConst{ok: true, neg: sum > uint64(0) && a.neg, mag: sum, huge: false}
+	}
+	if a.mag == b.mag {
+		return intConst{ok: true, neg: false, mag: uint64(0), huge: false}
+	}
+	if a.mag > b.mag {
+		return intConst{ok: true, neg: a.neg, mag: a.mag - b.mag, huge: false}
+	}
+	intConst{ok: true, neg: b.neg, mag: b.mag - a.mag, huge: false}
+}
+
+func constIntText(c intConst) string {
+	if c.huge {
+		return "constant"
+	}
+	let mut u = c.mag
+	let mut t = if u == uint64(0) { "0" } else { "" }
+	let digits = "0123456789"
+	for u > uint64(0) {
+		let rem = int(u % uint64(10))
+		t = digits[rem:rem+1] + t
+		u = u / uint64(10)
+	}
+	if c.neg { "-" + t } else { t }
+}
+
+func intOverflows(c intConst, ord int) bool {
+	if !c.ok {
+		return false
+	}
+	if c.huge {
+		return true
+	}
+	if !isIntOrd(ord) {
+		return false
+	}
+	if !isSignedOrd(ord) {
+		if c.neg && c.mag > uint64(0) {
+			return true
+		}
+		if ord == 9 { return c.mag > uint64(255) }
+		if ord == 10 { return c.mag > uint64(65535) }
+		if ord == 11 { return c.mag > uint64(4294967295) }
+		return false
+	}
+	let maxPos = if ord == 4 {
+		uint64(127)
+	} else if ord == 5 {
+		uint64(32767)
+	} else if ord == 6 {
+		uint64(2147483647)
+	} else {
+		uint64(9223372036854775807)
+	}
+	if c.neg { c.mag > maxPos + uint64(1) } else { c.mag > maxPos }
+}
+
+func checkConstOverflow(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node], want dense.ID[store.TKey]) bool {
+	if t.inConst {
+		return false
+	}
+	let p = k.Parsed[t.file]
+	let c = evalIntConst(p, x)
+	if !c.ok {
+		return false
+	}
+	let underW = underType(s, k, k.facts, want)
+	let ord = basicOrdOf(*s, underW)
+	if intOverflows(c, ord) {
+		t.LookupDiags = t.LookupDiags.Append(LookupDiag{File: t.file, At: x, Code: "S108", Message: "the constant \(constIntText(c)) overflows \(typePrint(*s, k, *t, want)) (types.md, Basic types 2)"})
+		return true
+	}
+	false
+}
+
+func checkExprExpect(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node], want dense.ID[store.TKey], ty option.Option[dense.ID[store.TKey]]) {
+	if t.deferBranchHint {
+		return
+	}
+	match ty {
+	case option.Some{Value: got}:
+		if got == want {
+			let kd = syntax.KindOf(tree(k, t.file), x)
+			if kd == syntax.KBasicLit || kd == syntax.KUnaryExpr || kd == syntax.KBinaryExpr || kd == syntax.KParenExpr {
+				checkConstOverflow(s, k, t, x, want)
+			}
+			return
+		}
+	case option.None:
+	}
+	if misfits(s, k, t.file, x, want, ty) {
+		let msg = literalMismatch(s, k, *t, x, want)
+		if msg != "" {
+			misfit(k, t, x, x, msg)
+			return
+		}
+		match ty {
+		case option.Some{Value: got}:
+			misfit(k, t, x, x, assignRefusal(s, k, *t, x, want, got))
+		case option.None:
+			let mut msg2 = ""
+			if isConst(k, t.file, x) {
+				match constType(s, k, *t, x, Free) {
+				case option.Some{Value: got}:
+					msg2 = assignRefusal(s, k, *t, x, want, got)
+				case option.None:
+				}
+			}
+			misfit(k, t, x, x, msg2)
+		}
+		return
+	}
+	if checkConstOverflow(s, k, t, x, want) {
+		return
+	}
+	match ty {
+	case option.Some{Value: got}:
+		let msg = assignRefusal(s, k, *t, x, want, got)
+		if msg != "" {
+			misfit(k, t, x, x, msg)
+		}
+	case option.None:
+	}
+}
+
+func checkShiftBinary(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node], b syntax.BinaryExpr, op uint8, w Want) option.Option[dense.ID[store.TKey]] {
+	let p = k.Parsed[t.file]
+	let opTxt = if op == syntax.Shl { "<<" } else { ">>" }
+	let cInt = isConstIntExpr(p, b.X)
+	if cInt {
+		match w {
+		case Exactly as e:
+			let uw = underType(s, k, k.facts, e.T)
+			let ord = basicOrdOf(*s, uw)
+			if ord > 0 && !isIntOrd(ord) {
+				let prevC = t.inConst
+				t.inConst = true
+				expr(s, k, t, b.X, Free)
+				t.inConst = prevC
+				expr(s, k, t, b.Y, Free)
+				let lTxt = nodeSrcText(p, b.X)
+				let rTxt = nodeSrcText(p, b.Y)
+				t.LookupDiags = t.LookupDiags.Append(LookupDiag{File: t.file, At: b.X, Code: "S108", Message: "the left operand of a shift is an integer, and \(typePrint(*s, k, *t, e.T)) is expected here; write int(\(lTxt)) \(opTxt) \(rTxt), then convert the result"})
+				return option.None
+			}
+		case _:
+		}
+	}
+	let xt = if cInt {
+		match w {
+		case Exactly as e:
+			let ord = basicOrdOf(*s, underType(s, k, k.facts, e.T))
+			if isIntOrd(ord) {
+				expr(s, k, t, b.X, w)
+			} else {
+				expr(s, k, t, b.X, Free)
+			}
+		case Free:
+			expr(s, k, t, b.X, Free)
+		case Unsure:
+			expr(s, k, t, b.X, Unsure)
+		}
+	} else {
+		expr(s, k, t, b.X, w)
+	}
+	expr(s, k, t, b.Y, Free)
+	match xt {
+	case option.Some{Value: lt}:
+		let ord = basicOrdOf(*s, underType(s, k, k.facts, lt))
+		if isIntOrd(ord) {
+			return xt
+		}
+		if !hasInvalidT(*s, lt, 0) && store.KindOfType(*s, lt) != store.KParam {
+			t.LookupDiags = t.LookupDiags.Append(LookupDiag{File: t.file, At: b.X, Code: "S108", Message: "shifted operand must be integer, not \(typePrint(*s, k, *t, lt))"})
+		}
+		option.None
+	case option.None:
+		option.None
+	}
+}
+
+func isEquatableType(s mut store.Store, k Pkg, t Typer, ty dense.ID[store.TKey]) bool {
+	let pcons = currentParamCons(k, t)
+	let lawBody = isBodyLaw(k, t)
+	let mut stack = []eqWork{eqWork{ty: ty, seen: []store.XRef{}}}
+	for stack.Len() > 0 {
+		let cur = stack[stack.Len()-1]
+		stack = stack.Slice(0, stack.Len()-1)
+		let u = infer.Unmarked(*s, cur.ty)
+		if hasInvalidT(*s, u, 0) || anyGoForeign(*s, k, u, 0) {
+			continue
+		}
+		if isOpValType(*s, k, u) {
+			return false
+		}
+		let kind = store.KindOfType(*s, u)
+		if kind == store.KBasic || kind == store.KPointer {
+			continue
+		}
+		if kind == store.KSig || kind == store.KRowValue || kind == store.KSelf {
+			if kind == store.KSelf && lawBody {
+				continue
+			}
+			return false
+		}
+		if kind == store.KParam {
+			if lawBody {
+				continue
+			}
+			let pi = store.ArgOf(*s, u)
+			if pi < 0 || pi >= pcons.Len() {
+				return false
+			}
+			let pc = pcons[pi]
+			if pc.isComp || pc.isOrd || pc.isNum || pc.isWire {
+				continue
+			}
+			if pc.hasSet {
+				let n = pc.terms.Len()
+				for i in 0..n {
+					let tm = pc.terms[n-1-i]
+					if tm.comparable {
+						continue
+					}
+					match dense.Unpack(tm.named) {
+					case option.Some{Value: nt}:
+						stack = stack.Append(eqWork{ty: nt, seen: cur.seen})
+					case option.None:
+						return false
+					}
+				}
+				continue
+			}
+			match dense.Unpack(pc.role) {
+			case option.Some{Value: rt}:
+				if isRoleType(*s, k, rt) {
+					return false
+				}
+				continue
+			case option.None:
+				return false
+			}
+		}
+		if kind == store.KSlice {
+			stack = stack.Append(eqWork{ty: store.OperandsOf(*s, u)[0], seen: cur.seen})
+			continue
+		}
+		if kind == store.KArray {
+			stack = stack.Append(eqWork{ty: store.OperandsOf(*s, u)[1], seen: cur.seen})
+			continue
+		}
+		if kind == store.KMap {
+			let ops = store.OperandsOf(*s, u)
+			stack = stack.Append(eqWork{ty: ops[1], seen: cur.seen})
+			stack = stack.Append(eqWork{ty: ops[0], seen: cur.seen})
+			continue
+		}
+		if kind == store.KTuple {
+			let ops = store.OperandsOf(*s, u)
+			let n = ops.Len()
+			for i in 0..n {
+				stack = stack.Append(eqWork{ty: ops[n-1-i], seen: cur.seen})
+			}
+			continue
+		}
+		if kind == store.KNamed || kind == store.KInstance {
+			let mut handled = false
+			match lookupTypeDeclRef(*s, k, u) {
+			case option.Some{Value: ref}:
+				let mut cyc = false
+				for old in cur.seen {
+					if old == ref {
+						cyc = true
+						break
+					}
+				}
+				if cyc {
+					handled = true
+				} else {
+					let nextSeen = cur.seen.Append(ref)
+					let vs = unionVariantsOf(s, k, k.facts, u)
+					if vs.Len() > 0 {
+						let n = vs.Len()
+						for i in 0..n {
+							stack = stack.Append(eqWork{ty: vs[n-1-i], seen: nextSeen})
+						}
+						handled = true
+					} else {
+						let (ri, targs) = recordOf(*s, k, u)
+						if ri >= 0 {
+							let flds = k.Recs[ri].Fields
+							let n = flds.Len()
+							for i in 0..n {
+								let fld = flds[n-1-i]
+								let ft = if targs.Len() > 0 { store.TSubst(s, fld.T, targs) } else { fld.T }
+								stack = stack.Append(eqWork{ty: ft, seen: nextSeen})
+							}
+							handled = true
+						} else if ref.Import > uint32(0) && int(ref.Import) <= k.Ifaces.Len() {
+							let path = k.Ifaces[int(ref.Import)-1].Path
+							let di = depIdxForPath(k, path)
+							if di >= 0 {
+								let d = k.Deps[di]
+								let dec = k.Ifaces[int(ref.Import)-1].Decls[int(ref.Decl)]
+								let dri = recOf(d.S, d.K, dec.Name)
+								if dri >= 0 && !d.K.Recs[dri].Op {
+									let args = store.OperandsOf(*s, u)
+									let flds = d.K.Recs[dri].Fields
+									let n = flds.Len()
+									for i in 0..n {
+										let fld = flds[n-1-i]
+										match port(s, k, d, fld.T) {
+										case option.Some{Value: pft}:
+											let ft = if args.Len() > 0 { store.TSubst(s, pft, args) } else { pft }
+											stack = stack.Append(eqWork{ty: ft, seen: nextSeen})
+										case option.None:
+										}
+									}
+									handled = true
+								}
+							}
+						}
+					}
+				}
+			case option.None:
+			}
+			if !handled {
+				let under = underType(s, k, k.facts, u)
+				if under != u {
+					stack = stack.Append(eqWork{ty: under, seen: cur.seen})
+				}
+			}
+		}
+	}
+	true
+}
+
+func isComparableType(s mut store.Store, k Pkg, pcons []paramCons, ty dense.ID[store.TKey]) (bool, string) {
+	let mut stack = []eqWork{eqWork{ty: ty, seen: []store.XRef{}}}
+	for stack.Len() > 0 {
+		let cur = stack[stack.Len()-1]
+		stack = stack.Slice(0, stack.Len()-1)
+		let u = infer.Unmarked(*s, cur.ty)
+		if hasInvalidT(*s, u, 0) || anyGoForeign(*s, k, u, 0) {
+			continue
+		}
+		if isOpValType(*s, k, u) {
+			return (false, "is an operation type")
+		}
+		let kind = store.KindOfType(*s, u)
+		if kind == store.KBasic || kind == store.KPointer {
+			continue
+		}
+		if kind == store.KSlice || kind == store.KMap || kind == store.KSig || kind == store.KRowValue {
+			return (false, "is not comparable")
+		}
+		if kind == store.KParam {
+			let pi = store.ArgOf(*s, u)
+			if pi >= 0 && pi < pcons.Len() {
+				let pc = pcons[pi]
+				if pc.isComp || pc.isOrd || pc.isNum {
+					continue
+				}
+				if pc.hasSet {
+					let n = pc.terms.Len()
+					for i in 0..n {
+						let tm = pc.terms[n-1-i]
+						if tm.comparable {
+							continue
+						}
+						match dense.Unpack(tm.named) {
+						case option.Some{Value: nt}:
+							stack = stack.Append(eqWork{ty: nt, seen: cur.seen})
+						case option.None:
+							return (false, "is not comparable")
+						}
+					}
+					continue
+				}
+			}
+			return (false, "is not comparable")
+		}
+		if kind == store.KArray {
+			stack = stack.Append(eqWork{ty: store.OperandsOf(*s, u)[1], seen: cur.seen})
+			continue
+		}
+		if kind == store.KTuple {
+			let ops = store.OperandsOf(*s, u)
+			let n = ops.Len()
+			for i in 0..n {
+				stack = stack.Append(eqWork{ty: ops[n-1-i], seen: cur.seen})
+			}
+			continue
+		}
+		if kind == store.KNamed || kind == store.KInstance {
+			let mut handled = false
+			match lookupTypeDeclRef(*s, k, u) {
+			case option.Some{Value: ref}:
+				let mut cyc = false
+				for old in cur.seen {
+					if old == ref {
+						cyc = true
+						break
+					}
+				}
+				if cyc {
+					handled = true
+				} else {
+					let nextSeen = cur.seen.Append(ref)
+					let vs = unionVariantsOf(s, k, k.facts, u)
+					if vs.Len() > 0 {
+						let n = vs.Len()
+						for i in 0..n {
+							stack = stack.Append(eqWork{ty: vs[n-1-i], seen: nextSeen})
+						}
+						handled = true
+					} else {
+						let (ri, targs) = recordOf(*s, k, u)
+						if ri >= 0 {
+							let flds = k.Recs[ri].Fields
+							let n = flds.Len()
+							for i in 0..n {
+								let fld = flds[n-1-i]
+								let ft = if targs.Len() > 0 { store.TSubst(s, fld.T, targs) } else { fld.T }
+								stack = stack.Append(eqWork{ty: ft, seen: nextSeen})
+							}
+							handled = true
+						} else if ref.Import > uint32(0) && int(ref.Import) <= k.Ifaces.Len() {
+							let path = k.Ifaces[int(ref.Import)-1].Path
+							let di = depIdxForPath(k, path)
+							if di >= 0 {
+								let d = k.Deps[di]
+								let dec = k.Ifaces[int(ref.Import)-1].Decls[int(ref.Decl)]
+								let dri = recOf(d.S, d.K, dec.Name)
+								if dri >= 0 && !d.K.Recs[dri].Op {
+									let args = store.OperandsOf(*s, u)
+									let flds = d.K.Recs[dri].Fields
+									let n = flds.Len()
+									for i in 0..n {
+										let fld = flds[n-1-i]
+										match port(s, k, d, fld.T) {
+										case option.Some{Value: pft}:
+											let ft = if args.Len() > 0 { store.TSubst(s, pft, args) } else { pft }
+											stack = stack.Append(eqWork{ty: ft, seen: nextSeen})
+										case option.None:
+										}
+									}
+									handled = true
+								}
+							}
+						}
+					}
+				}
+			case option.None:
+			}
+			if !handled && store.KindOfType(*s, u) == store.KInstance {
+				let f = foreignIdxOf(*s, u)
+				if f >= 0 && f < k.Foreign.Len() && k.Foreign[f].Path == "prelude" && k.Foreign[f].Name == "hashTable" {
+					return (false, "is not comparable")
+				}
+			}
+		}
+	}
+	(true, "")
+}
+
+func isOrderedWithFacts(s mut store.Store, k Pkg, facts typeFacts, pcons []paramCons, ty dense.ID[store.TKey]) bool {
+	let u = infer.Unmarked(*s, ty)
+	if hasInvalidT(*s, u, 0) {
+		return true
+	}
+	if store.KindOfType(*s, u) == store.KParam {
+		let pi = store.ArgOf(*s, u)
+		if pi >= 0 && pi < pcons.Len() {
+			let pc = pcons[pi]
+			if pc.isOrd || pc.isNum {
+				return true
+			}
+			if pc.hasSet {
+				for tm in pc.terms {
+					if !isOrderedOrd(tm.ord) {
+						return false
+					}
+				}
+				return true
+			}
+		}
+		return false
+	}
+	isOrderedOrd(basicOrdOf(*s, underType(s, k, facts, u)))
+}
+
+func checkBinaryOp(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node], op uint8, ft dense.ID[store.TKey]) {
+	if hasInvalidT(*s, ft, 0) || anyGoForeign(*s, k, ft, 0) {
+		return
+	}
+	let pcons = currentParamCons(k, *t)
+	if op == syntax.Eql || op == syntax.Neq {
+		if !isEquatableType(s, k, *t, ft) {
+			let opTxt = if op == syntax.Eql { "==" } else { "!=" }
+			t.LookupDiags = t.LookupDiags.Append(LookupDiag{File: t.file, At: x, Code: "S108", Message: "\(typePrint(*s, k, *t, ft)) values cannot be compared with \(opTxt)"})
+		}
+		return
+	}
+	let u = infer.Unmarked(*s, ft)
+	let (refined, _, _) = isRefinedType(*s, k, k.facts, u)
+	if refined {
+		return
+	}
+	if op == syntax.Lss || op == syntax.Leq || op == syntax.Gtr || op == syntax.Geq {
+		if !isOrderedWithFacts(s, k, k.facts, pcons, u) {
+			let opTxt = if op == syntax.Lss { "<" } else if op == syntax.Leq { "<=" } else if op == syntax.Gtr { ">" } else { ">=" }
+			t.LookupDiags = t.LookupDiags.Append(LookupDiag{File: t.file, At: x, Code: "S108", Message: "operator \(opTxt) is not defined on \(typePrint(*s, k, *t, u))"})
+		}
+		return
+	}
+	if op == syntax.Add || op == syntax.Sub || op == syntax.Mul || op == syntax.Quo || op == syntax.Rem {
+		let ok = if store.KindOfType(*s, u) == store.KParam {
+			let pi = store.ArgOf(*s, u)
+			if pi >= 0 && pi < pcons.Len() {
+				let pc = pcons[pi]
+				if pc.isNum {
+					op != syntax.Rem
+				} else if pc.isOrd {
+					op == syntax.Add
+				} else if pc.hasSet {
+					let mut allOk = true
+					for tm in pc.terms {
+						if op == syntax.Add {
+							if !isOrderedOrd(tm.ord) { allOk = false }
+						} else if op == syntax.Sub {
+							if !(isNumOrd(tm.ord) || tm.ord == 18) { allOk = false }
+						} else if op == syntax.Rem {
+							if !isIntOrd(tm.ord) { allOk = false }
+						} else {
+							if !isNumOrd(tm.ord) { allOk = false }
+						}
+					}
+					allOk
+				} else {
+					false
+				}
+			} else {
+				false
+			}
+		} else {
+			let under = underType(s, k, k.facts, u)
+			let ord = basicOrdOf(*s, under)
+			if op == syntax.Add {
+				isNumOrd(ord) || ord == bString || ord == 18
+			} else if op == syntax.Sub {
+				isNumOrd(ord) || ord == 18
+			} else if op == syntax.Rem {
+				isIntOrd(ord)
+			} else {
+				isNumOrd(ord)
+			}
+		}
+		if !ok {
+			let opTxt = if op == syntax.Add { "+" } else if op == syntax.Sub { "-" } else if op == syntax.Mul { "*" } else if op == syntax.Quo { "/" } else { "%" }
+			t.LookupDiags = t.LookupDiags.Append(LookupDiag{File: t.file, At: x, Code: "S108", Message: "operator \(opTxt) is not defined on \(typePrint(*s, k, *t, u))"})
+		}
+	}
+}
+
+func satisfiesConstraint(s mut store.Store, k Pkg, t Typer, callerCons []paramCons, arg dense.ID[store.TKey], req paramCons) string {
+	let u = infer.Unmarked(*s, arg)
+	if hasInvalidT(*s, u, 0) || anyGoForeign(*s, k, u, 0) || req.text == "" || req.isWire {
+		return ""
+	}
+	let argTxt = typePrint(*s, k, t, u)
+	let mut curReq = req
+	if !curReq.hasSet && !curReq.isComp && !curReq.isOrd && !curReq.isNum {
+		match dense.Unpack(curReq.role) {
+		case option.Some{Value: rt}:
+			match lookupTypeDeclRef(*s, k, rt) {
+			case option.Some{Value: rref}:
+				if rref.Import == uint32(0) {
+					let rdi = int(rref.Decl)
+					if rdi >= 0 && rdi < k.facts.decls.Len() && !k.facts.decls[rdi].isOp {
+						let df = k.facts.decls[rdi]
+						match dense.Unpack(df.specNode) {
+						case option.Some{Value: sp}:
+							if syntax.KindOf(k.Parsed[df.file].Tree, sp) == syntax.KInterfaceType {
+								let it = syntax.InterfaceTypeOf(k.Parsed[df.file].Tree, sp)
+								if syntax.Len(it.Members) == 1 {
+									let m0 = syntax.Item(k.Parsed[df.file].Tree, it.Members, 0)
+									let mk = syntax.KindOf(k.Parsed[df.file].Tree, m0)
+									if mk != syntax.KField && mk != syntax.KLawDecl && mk != syntax.KTestDecl {
+										let p = k.Parsed[df.file]
+										let env = types.NewEnv(*s, k.Parsed, p, []string{}, k.Kinds, k.Ext, k.Foreign, k.Ifaces)
+										let terms = parseTypeSetExpr(s, env, p, m0)
+										if terms.Len() > 0 {
+											curReq = paramCons{..curReq, terms: terms, hasSet: true}
+										}
+									}
+								}
+							}
+						case option.None:
+						}
+					}
+				}
+			case option.None:
+			}
+		case option.None:
+		}
+	}
+	if curReq.isNum {
+		if store.KindOfType(*s, u) == store.KParam {
+			let pi = store.ArgOf(*s, u)
+			if pi >= 0 && pi < callerCons.Len() {
+				let c = callerCons[pi]
+				if c.isNum {
+					return ""
+				}
+				if c.hasSet {
+					let mut ok = true
+					for tm in c.terms {
+						if !isNumOrd(tm.ord) || isComplexOrd(tm.ord) { ok = false }
+					}
+					if ok { return "" }
+				}
+			}
+			return "\(argTxt) is not in number's type set"
+		}
+		let ord = basicOrdOf(*s, underType(s, k, k.facts, u))
+		if isIntOrd(ord) || isFloatOrd(ord) {
+			return ""
+		}
+		return "\(argTxt) is not in number's type set"
+	}
+	if curReq.isOrd {
+		if isOrderedWithFacts(s, k, k.facts, callerCons, u) {
+			return ""
+		}
+		return "\(argTxt) is not in ordered's type set, ~int | ~int8 | ~int16 | ~int32 | ~int64 | ~uint | ~uint8 | ~uint16, …"
+	}
+	if curReq.isComp {
+		let (ok, _) = isComparableType(s, k, callerCons, u)
+		if ok {
+			return ""
+		}
+		return "\(argTxt) is not comparable (types.md, Generics 2)"
+	}
+	if curReq.hasSet {
+		let mut ok = false
+		for tm in curReq.terms {
+			if tm.comparable {
+				let (cok, _) = isComparableType(s, k, callerCons, u)
+				if cok { ok = true; break }
+			} else if tm.under {
+				match dense.Unpack(tm.named) {
+				case option.Some{Value: nt}:
+					if identicalType(*s, k, underType(s, k, k.facts, u), underType(s, k, k.facts, nt)) {
+						ok = true
+						break
+					}
+				case option.None:
+				}
+			} else {
+				match dense.Unpack(tm.named) {
+				case option.Some{Value: nt}:
+					if identicalType(*s, k, u, nt) {
+						ok = true
+						break
+					}
+				case option.None:
+				}
+			}
+		}
+		if ok {
+			return ""
+		}
+		return "\(argTxt) does not match \(curReq.text)"
+	}
+	match dense.Unpack(curReq.role) {
+	case option.Some{Value: rt}:
+		if isRoleType(*s, k, rt) {
+			if store.KindOfType(*s, u) == store.KParam {
+				let pi = store.ArgOf(*s, u)
+				if pi >= 0 && pi < callerCons.Len() {
+					match dense.Unpack(callerCons[pi].role) {
+					case option.Some{Value: cr}:
+						if roleMatchesOrIncluded(s, k, cr, rt) {
+							return ""
+						}
+					case option.None:
+					}
+				}
+				return "\(argTxt) does not implement \(typePrint(*s, k, t, rt))"
+			}
+			if isRoleType(*s, k, u) && roleMatchesOrIncluded(s, k, u, rt) {
+				return ""
+			}
+			if typeDeclImplements(s, k, k.facts, u, rt) {
+				return ""
+			}
+			return "\(argTxt) does not declare that it implements \(typePrint(*s, k, t, rt))"
+		}
+	case option.None:
+	}
+	""
+}
+
+func fnConstraintsOf(s mut store.Store, k Pkg, t Typer, f Fn) []paramCons {
+	if f.Params.Len() == 0 {
+		return []paramCons{}
+	}
+	if f.fromDep >= 0 && f.fromDep < k.Deps.Len() {
+		let d = k.Deps[f.fromDep]
+		if f.File < 0 || f.File >= d.K.Parsed.Len() || d.K.Parsed[f.File].Failed {
+			return []paramCons{}
+		}
+		let fi = FnAt(d.K, bind.PNodeOf(d.K.Ps, f.File, f.Name))
+		if fi >= 0 && fi < d.K.facts.fnCons.Len() {
+			let raw = d.K.facts.fnCons[fi]
+			let mut ported = []paramCons{}
+			for pc in raw {
+				let mut pr = dense.NoID[store.TKey]()
+				match dense.Unpack(pc.role) {
+				case option.Some{Value: r}:
+					match types.Port(s, k.Ifaces, k.Foreign, d.S, d.Path, func(xr store.XRef) option.Option[types.DeclIdentity] { types.DepIdentity(d.K.Ifaces, xr) }, d.K.Foreign, r) {
+					case option.Some{Value: pt}:
+						pr = dense.OptOf(pt)
+					case option.None:
+					}
+				case option.None:
+				}
+				ported = ported.Append(paramCons{..pc, role: pr})
+			}
+			return ported
+		}
+		return []paramCons{}
+	}
+	if f.File < 0 || f.File >= k.Parsed.Len() || k.Parsed[f.File].Failed {
+		return []paramCons{}
+	}
+	let fi = FnAt(k, bind.PNodeOf(k.Ps, f.File, f.Name))
+	if fi >= 0 && fi < k.facts.fnCons.Len() {
+		return k.facts.fnCons[fi]
+	}
+	[]paramCons{}
+}
+
+func checkCallConstraints(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node], f Fn, targs []dense.ID[store.TKey]) {
+	let fcons = fnConstraintsOf(s, k, *t, f)
+	if fcons.Len() == 0 {
+		return
+	}
+	let pcons = currentParamCons(k, *t)
+	let fName = if f.fromDep >= 0 && f.fromDep < k.Deps.Len() {
+		types.NameText(k.Deps[f.fromDep].K.Parsed[f.File], f.Name)
+	} else if f.File >= 0 && f.File < k.Parsed.Len() {
+		types.NameText(k.Parsed[f.File], f.Name)
+	} else {
+		""
+	}
+	for i in 0..f.Params.Len() {
+		if i >= f.Rows.Len() || f.Rows[i] || i >= targs.Len() || i >= fcons.Len() {
+			continue
+		}
+		let mut req = fcons[i]
+		match dense.Unpack(req.role) {
+		case option.Some{Value: r}:
+			req.role = dense.OptOf(store.TSubst(s, r, targs))
+		case option.None:
+		}
+		if req.text == "" {
+			continue
+		}
+		let why = satisfiesConstraint(s, k, *t, pcons, targs[i], req)
+		if why != "" {
+			let argTxt = typePrint(*s, k, *t, targs[i])
+			let suffix = if strings.HasSuffix(why, "(types.md, Generics 2)") { why } else { "\(why) (types.md, Generics 2)" }
+			t.LookupDiags = t.LookupDiags.Append(LookupDiag{File: t.file, At: x, Code: "S108", Message: "\(argTxt) does not satisfy the constraint \(req.text) of \(fName)'s \(f.Params[i]): \(suffix)"})
+			return
+		}
+	}
+}
+
+func checkInferFailure(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node], c syntax.CallExpr, fun dense.ID[syntax.Node], written []dense.ID[syntax.Node], f Fn, unbound int, ins []infer.Arg, argOk []bool, argTypes []dense.ID[store.TKey]) {
+	if unbound < 0 || unbound >= f.Params.Len() {
+		return
+	}
+	if unbound < f.SelfBounds.Len() && f.SelfBounds[unbound].Arity >= 0 {
+		return
+	}
+	let tr = tree(k, t.file)
+	let n = syntax.Len(c.Args)
+	let mut paramArgsOk = true
+	let (params, _) = sigParts(*s, k, f.Sig, n)
+	for p0 in params {
+		if hasInvalidT(*s, p0, 0) || anyGoForeign(*s, k, p0, 0) || anyRoleInType(*s, k, p0, 0) {
+			return
+		}
+	}
+	for a0 in argTypes {
+		if hasInvalidT(*s, a0, 0) || anyGoForeign(*s, k, a0, 0) || anyRoleInType(*s, k, a0, 0) {
+			return
+		}
+	}
+	let mut litTypes = []dense.ID[store.TKey]{}
+	for i in 0..n {
+		let arg = syntax.Item(tr, c.Args, i)
+		if i < params.Len() && mentionsParam(*s, params[i], unbound) {
+			if i < argOk.Len() && !argOk[i] {
+				paramArgsOk = false
+			}
+			if i < ins.Len() {
+				match ins[i] {
+				case infer.Literal as lit:
+					let mut seen = false
+					for lt in litTypes {
+						if lt == lit.Default {
+							seen = true
+						}
+					}
+					if !seen {
+						litTypes = litTypes.Append(lit.Default)
+					}
+				case infer.Unknown:
+					if !isConst(k, t.file, arg) && !paramArgsOk {
+						paramArgsOk = false
+					}
+				case infer.Typed:
+				}
+			}
+		}
+	}
+	if !paramArgsOk {
+		return
+	}
+	let p = k.Parsed[t.file]
+	let mut placeholders = []string{}
+	for j in 0..f.Params.Len() {
+		if j < written.Len() {
+			placeholders = placeholders.Append(nodeSrcText(p, written[j]))
+		} else {
+			placeholders = placeholders.Append("int")
+		}
+	}
+	let name = nodeSrcText(p, fun)
+	let ex = "\(name)[\(strings.Join(placeholders, ", "))](…)"
+	let detail = if litTypes.Len() >= 2 {
+		": its literal arguments take \(typePrint(*s, k, *t, litTypes[0])) and \(typePrint(*s, k, *t, litTypes[1]))"
+	} else {
+		""
+	}
+	t.LookupDiags = t.LookupDiags.Append(LookupDiag{File: t.file, At: x, Code: "S108", Message: "cannot infer \(f.Params[unbound]); write the type arguments, e.g. \(ex)\(detail) (D6)"})
+}
+
+func mentionsParam(s store.Store, t dense.ID[store.TKey], target int) bool {
+	let k = store.KindOfType(s, t)
+	if k == store.KParam {
+		return store.ArgOf(s, t) == target
+	}
+	for o in store.OperandsOf(s, t) {
+		if mentionsParam(s, o, target) {
+			return true
+		}
+	}
+	false
+}
+
+func instanceIterableBindings(s store.Store, k Pkg, t dense.ID[store.TKey]) (bool, option.Option[dense.ID[store.TKey]], option.Option[dense.ID[store.TKey]]) {
+	if store.KindOfType(s, t) != store.KInstance {
+		return (false, option.None, option.None)
+	}
+	let ops = store.OperandsOf(s, t)
+	let o = store.OriginOfType(s, t)
+	let mut pkgPath = ""
+	let mut declName = ""
+	if int(o.Import) == store.ForeignBit {
+		let fi = int(o.Decl)
+		if fi >= 0 && fi < k.Foreign.Len() {
+			pkgPath = k.Foreign[fi].Path
+			declName = k.Foreign[fi].Name
+		}
+	} else if o.Import > uint32(0) && int(o.Import) <= k.Ifaces.Len() {
+		pkgPath = k.Ifaces[int(o.Import)-1].Path
+		declName = k.Ifaces[int(o.Import)-1].Decls[int(o.Decl)].Name
+	} else if o.Import == uint32(0) {
+		declName = store.DeclText(s, int(o.Decl))
+	}
+	if declName == "Range" && (pkgPath == "prelude" || pkgPath == "core" || (o.Import == uint32(0) && store.PathOf(s) == "prelude")) && ops.Len() == 1 {
+		return (true, option.None, some(ops[0]))
+	}
+	let isLocalSeqFn = if o.Import == uint32(0) && int(o.Decl) < k.facts.decls.Len() {
+		match dense.Unpack(k.facts.decls[int(o.Decl)].underT) {
+		case option.Some{Value: ut}:
+			store.KindOfType(s, ut) == store.KSig
+		case option.None:
+			false
+		}
+	} else {
+		false
+	}
+	if declName == "Seq" && (pkgPath == "prelude" || pkgPath == "core" || pkgPath == "collections" || (o.Import == uint32(0) && (store.PathOf(s) == "prelude" || store.PathOf(s) == "collections" || isLocalSeqFn))) && ops.Len() == 1 {
+		return (true, option.None, some(ops[0]))
+	}
+	if declName == "hashTable" && (pkgPath == "prelude" || (o.Import == uint32(0) && store.PathOf(s) == "prelude")) && ops.Len() == 3 {
+		return (true, some(ops[0]), some(ops[2]))
+	}
+	(false, option.None, option.None)
+}
+
+func iterableBindings(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node], xt dense.ID[store.TKey]) (option.Option[dense.ID[store.TKey]], option.Option[dense.ID[store.TKey]]) {
+	if hasInvalidT(*s, xt, 0) {
+		return (option.None, option.None)
+	}
+	let (hit, ik, iv) = instanceIterableBindings(*s, k, infer.Unmarked(*s, xt))
+	if hit {
+		return (ik, iv)
+	}
+	let u = underType(s, k, k.facts, xt)
+	let kind = store.KindOfType(*s, u)
+	if kind == store.KSlice || kind == store.KArray {
+		return (some(store.TBasic(s, bInt)), some(lastOperand(*s, u)))
+	}
+	if kind == store.KMap {
+		let ops = store.OperandsOf(*s, u)
+		return (some(ops[0]), some(ops[1]))
+	}
+	if basicOrdOf(*s, u) == bString {
+		return (some(store.TBasic(s, bInt)), some(store.TBasic(s, bInt32)))
+	}
+	let (uhit, uik, uiv) = instanceIterableBindings(*s, k, u)
+	if uhit {
+		return (uik, uiv)
+	}
+	if anyGoForeign(*s, k, u, 0) {
+		return (option.None, option.None)
+	}
+	let msg = if isIntOrd(basicOrdOf(*s, u)) {
+		"\(typePrint(*s, k, *t, xt)) is not iterable: count with for i in 0..n"
+	} else if kind == store.KPointer {
+		"a for does not iterate through a pointer: write for x in *p"
+	} else {
+		"cannot loop over \(typePrint(*s, k, *t, xt)): a for takes a slice, a Map, a string, a Range or a Seq"
+	}
+	t.LookupDiags = t.LookupDiags.Append(LookupDiag{File: t.file, At: x, Code: "S108", Message: msg})
+	(option.None, option.None)
+}
+
+func checkMultiLet(s mut store.Store, k Pkg, t mut Typer, v syntax.VarSpec, valNode dense.ID[syntax.Node], ty dense.ID[store.TKey]) {
+	if hasInvalidT(*s, ty, 0) {
+		return
+	}
+	let n = syntax.Len(v.Names)
+	if n <= 1 {
+		return
+	}
+	let got = if store.KindOfType(*s, ty) == store.KTuple {
+		store.OperandsOf(*s, ty).Len()
+	} else {
+		1
+	}
+	if got == n {
+		return
+	}
+	let noun = if got == 1 { "value" } else { "values" }
+	t.LookupDiags = t.LookupDiags.Append(LookupDiag{File: t.file, At: valNode, Code: "S108", Message: "\(n) names for \(got) \(noun)"})
+}
+
+type patBinder { name string, node dense.ID[syntax.Node] }
+
+func collectPatBinders(p syntax.Parsed, root dense.ID[syntax.Node]) []patBinder {
+	let tr = p.Tree
+	let mut out = []patBinder{}
+	let mut stack = []dense.ID[syntax.Node]{root}
+	for stack.Len() > 0 {
+		let x = stack[stack.Len()-1]
+		stack = stack.Slice(0, stack.Len()-1)
+		match syntax.ViewOf(tr, x) {
+		case syntax.AsPattern as ap:
+			let nm = types.NameText(p, ap.Name)
+			if nm != "_" {
+				out = out.Append(patBinder{name: nm, node: ap.Name})
+			}
+		case syntax.OrPattern as op:
+			let an = syntax.Len(op.Alts)
+			for i in 0..an {
+				stack = stack.Append(syntax.Item(tr, op.Alts, an-1-i))
+			}
+		case syntax.CompositeLit as cl:
+			let en = syntax.Len(cl.Elts)
+			for i in 0..en {
+				match syntax.ViewOf(tr, syntax.Item(tr, cl.Elts, en-1-i)) {
+				case syntax.KeyValueExpr as kv:
+					let vk = syntax.KindOf(tr, kv.Value)
+					if vk == syntax.KIdent {
+						let nm = types.NameText(p, kv.Value)
+						if nm != "_" {
+							out = out.Append(patBinder{name: nm, node: kv.Value})
+						}
+					} else if vk == syntax.KCompositeLit {
+						stack = stack.Append(kv.Value)
+					}
+				case _:
+				}
+			}
+		case _:
+		}
+	}
+	out
+}
+
+func propagatePatBinders(k Pkg, t mut Typer, l syntax.List) {
+	let p = k.Parsed[t.file]
+	let tr = p.Tree
+	let mut all = []patBinder{}
+	for i in 0..syntax.Len(l) {
+		for b in collectPatBinders(p, syntax.Item(tr, l, i)) {
+			all = all.Append(b)
+		}
+	}
+	for b in all {
+		let pn = pnode(k, t.file, b.node)
+		if !isSome(DefType(*t, pn)) {
+			for other in all {
+				if other.name == b.name {
+					match DefType(*t, pnode(k, t.file, other.node)) {
+					case option.Some{Value: ty}:
+						def(k, t, b.node, ty)
+						break
+					case option.None:
+					}
+				}
+			}
+		}
+	}
+}
+
+func funcLitParamTypes(s mut store.Store, k Pkg, t mut Typer, at dense.ID[syntax.Node], fl syntax.FuncLit, w Want) (option.Option[dense.ID[store.TKey]], bool) {
+	let p = k.Parsed[t.file]
+	let tr = p.Tree
+	let ft = match syntax.ViewOf(tr, fl.Type) {
+	case syntax.FuncType as f:
+		f
+	case _:
+		return (option.None, false)
+	}
+	let expected = match w {
+	case Exactly as e:
+		let x = infer.Unmarked(*s, e.T)
+		if store.KindOfType(*s, x) == store.KSig { option.Some{Value: x} } else { option.None }
+	case _:
+		option.None
+	}
+	let mut anyOmitted = false
+	let mut expParams = []dense.ID[store.TKey]{}
+	match expected {
+	case option.Some{Value: es}:
+		let ops = store.OperandsOf(*s, es)
+		if ops.Len() >= 3 {
+			expParams = ops[0 : ops.Len()-3]
+		}
+	case option.None:
+	}
+	let mut paramTypes = []dense.ID[store.TKey]{}
+	let mut pi = 0
+	let env = envOf(*s, k, *t)
+	match syntax.ViewOf(tr, ft.Params) {
+	case syntax.FieldList as flist:
+		for i in 0..syntax.Len(flist.List) {
+			match syntax.ViewOf(tr, syntax.Item(tr, flist.List, i)) {
+			case syntax.Field as fd:
+				let cnt = if syntax.Len(fd.Names) == 0 { 1 } else { syntax.Len(fd.Names) }
+				match dense.Unpack(fd.Type) {
+				case option.Some{Value: tyNode}:
+					let pt = types.Resolve(s, env, tyNode)
+					for _ in 0..cnt {
+						paramTypes = paramTypes.Append(pt)
+						pi = pi + 1
+					}
+				case option.None:
+					anyOmitted = true
+					for j in 0..cnt {
+						if pi < expParams.Len() {
+							paramTypes = paramTypes.Append(expParams[pi])
+						} else {
+							paramTypes = paramTypes.Append(store.TBasic(s, 0))
+							if j < syntax.Len(fd.Names) && !t.deferLitDiag {
+								let nm = syntax.Item(tr, fd.Names, j)
+								t.LookupDiags = t.LookupDiags.Append(LookupDiag{File: t.file, At: nm, Code: "S108", Message: "cannot infer the type of \(types.NameText(p, nm)); write func(\(types.NameText(p, nm)) T)"})
+							}
+						}
+						pi = pi + 1
+					}
+				}
+			case _:
+			}
+		}
+	case _:
+	}
+	if !anyOmitted {
+		return (option.None, false)
+	}
+	for pt in paramTypes {
+		if isInvalidT(*s, pt) {
+			return (option.None, true)
+		}
+	}
+	let resT = match dense.Unpack(ft.Results) {
+	case option.Some{Value: rNode}:
+		match syntax.ViewOf(tr, rNode) {
+		case syntax.FieldList as rfl:
+			let mut rts = []dense.ID[store.TKey]{}
+			for i in 0..syntax.Len(rfl.List) {
+				match syntax.ViewOf(tr, syntax.Item(tr, rfl.List, i)) {
+				case syntax.Field as rfd:
+					match dense.Unpack(rfd.Type) {
+					case option.Some{Value: rn}:
+						if syntax.KindOf(tr, rn) != syntax.KErrorRow {
+							let cnt = if syntax.Len(rfd.Names) == 0 { 1 } else { syntax.Len(rfd.Names) }
+							let rt = types.Resolve(s, env, rn)
+							for _ in 0..cnt {
+								rts = rts.Append(rt)
+							}
+						}
+					case option.None:
+					}
+				case _:
+				}
+			}
+			if rts.Len() == 1 { rts[0] } else { store.TTuple(s, rts) }
+		case _:
+			store.TTuple(s, []dense.ID[store.TKey]{})
+		}
+	case option.None:
+		store.TTuple(s, []dense.ID[store.TKey]{})
+	}
+	let emptyRow = store.TRow(s, []dense.ID[store.TKey]{})
+	(option.Some{Value: store.TSig(s, paramTypes, resT, emptyRow, emptyRow)}, true)
+}
+
+func genericTypeConstraints(s mut store.Store, k Pkg, facts typeFacts, p syntax.Parsed, x dense.ID[syntax.Node]) ([]paramCons, string) {
+	let tr = p.Tree
+	let u = unparenExpr(tr, x)
+	let kind = syntax.KindOf(tr, u)
+	if kind == syntax.KIdent {
+		let nm = types.NameText(p, u)
+		if nm == "Range" {
+			let dp = depIdxForPath(k, "prelude")
+			if dp < 0 {
+				return ([]paramCons{paramCons{name: "T", text: "ordered", isComp: true, isOrd: true, isNum: false, isWire: false, terms: []tsTerm{}, hasSet: false, role: dense.NoID[store.TKey]()}}, "ordered")
+			}
+		}
+		match store.Lookup(*s, nm) {
+		case option.Some{Value: dec}:
+			let di = dense.Index(dec)
+			if store.KindName(int(store.DeclOf(*s, dec).Kind)) == "type" && di < facts.decls.Len() {
+				return (facts.decls[di].params, nm)
+			}
+		case option.None:
+		}
+		let dp = depIdxForPath(k, "prelude")
+		if dp >= 0 {
+			let d = k.Deps[dp]
+			match store.Lookup(d.S, nm) {
+			case option.Some{Value: dec}:
+				if store.KindName(int(store.DeclOf(d.S, dec).Kind)) == "type" {
+					return (depTypeDeclCons(s, k, d, dec), nm)
+				}
+			case option.None:
+			}
+		}
+	} else if kind == syntax.KSelectorExpr {
+		let se = syntax.SelectorExprOf(tr, u)
+		let q = types.NameText(p, se.X)
+		let nm = types.NameText(p, se.Sel)
+		match store.Lookup(*s, q) {
+		case option.Some{Value: pkgD}:
+			if store.KindName(int(store.DeclOf(*s, pkgD).Kind)) == "pkg" {
+				let imp = store.ImportOf(*s, pkgD)
+				if imp > 0 && imp <= k.Ifaces.Len() {
+					let di = depIdxForPath(k, k.Ifaces[imp-1].Path)
+					if di >= 0 {
+						let d = k.Deps[di]
+						match store.Lookup(d.S, nm) {
+						case option.Some{Value: dec}:
+							return (depTypeDeclCons(s, k, d, dec), nm)
+						case option.None:
+						}
+					}
+				}
+			}
+		case option.None:
+		}
+	}
+	([]paramCons{}, "")
+}
+
+func depTypeDeclCons(s mut store.Store, k Pkg, d Dep, dec dense.ID[store.Decl]) []paramCons {
+	let di = dense.Index(dec)
+	if di < 0 || di >= d.K.facts.decls.Len() {
+		return []paramCons{}
+	}
+	let raw = d.K.facts.decls[di].params
+	if raw.Len() == 0 {
+		return []paramCons{}
+	}
+	let mut out = []paramCons{}
+	for pc in raw {
+		let mut pr = dense.NoID[store.TKey]()
+		match dense.Unpack(pc.role) {
+		case option.Some{Value: r}:
+			match types.Port(s, k.Ifaces, k.Foreign, d.S, d.Path, func(xr store.XRef) option.Option[types.DeclIdentity] { types.DepIdentity(d.K.Ifaces, xr) }, d.K.Foreign, r) {
+			case option.Some{Value: pt}:
+				pr = dense.OptOf(pt)
+			case option.None:
+			}
+		case option.None:
+		}
+		out = out.Append(paramCons{..pc, role: pr})
+	}
+	out
+}
+
+func checkTypeNodes(s mut store.Store, k Pkg, t mut Typer) {
+	let om = ownMapIn(*s)
+	for file, p in k.Parsed {
+		if p.Failed {
+			continue
+		}
+		t.file = file
+		let baseEnv = types.NewEnv(*s, k.Parsed, p, []string{}, k.Kinds, k.Ext, k.Foreign, k.Ifaces)
+		match syntax.ViewOf(p.Tree, syntax.Root(p.Tree)) {
+		case syntax.File as root:
+			for i in 0..syntax.Len(root.Decls) {
+				let dn = syntax.Item(p.Tree, root.Decls, i)
+				match syntax.ViewOf(p.Tree, dn) {
+				case syntax.TypeDecl as td:
+					let pnames = optBracketNames(p, td.TypeParams)
+					let env = if pnames.Len() > 0 { types.NewEnv(*s, k.Parsed, p, pnames, k.Kinds, k.Ext, k.Foreign, k.Ifaces) } else { baseEnv }
+					let pcons = match store.Lookup(*s, types.NameText(p, td.Name)) {
+					case option.Some{Value: d}:
+						let di = dense.Index(d)
+						if di >= 0 && di < k.facts.decls.Len() { k.facts.decls[di].params } else { []paramCons{} }
+					case option.None:
+						[]paramCons{}
+					}
+					walkTypeAst(s, k, t, p, pnames, om, env, pcons, dn, false)
+				case syntax.FuncDecl as fd:
+					let pnames = optBracketNames(p, fd.TypeParams)
+					let env = if pnames.Len() > 0 { types.NewEnv(*s, k.Parsed, p, pnames, k.Kinds, k.Ext, k.Foreign, k.Ifaces) } else { baseEnv }
+					let fi = FnAt(k, bind.PNodeOf(k.Ps, file, fd.Name))
+					let pcons = if fi >= 0 && fi < k.facts.fnCons.Len() { k.facts.fnCons[fi] } else { []paramCons{} }
+					walkTypeAst(s, k, t, p, pnames, om, env, pcons, dn, false)
+				case syntax.LawDecl as ld:
+					let pnames = optBracketNames(p, ld.TypeParams)
+					let env = if pnames.Len() > 0 { types.NewEnv(*s, k.Parsed, p, pnames, k.Kinds, k.Ext, k.Foreign, k.Ifaces) } else { baseEnv }
+					let fi = FnAt(k, bind.PNodeOf(k.Ps, file, ld.Name))
+					let pcons = if fi >= 0 && fi < k.facts.fnCons.Len() { k.facts.fnCons[fi] } else { []paramCons{} }
+					walkTypeAst(s, k, t, p, pnames, om, env, pcons, dn, false)
+				case _:
+					walkTypeAst(s, k, t, p, []string{}, om, baseEnv, []paramCons{}, dn, false)
+				}
+			}
+		case _:
+		}
+	}
+}
+
+func ownMapIn(s store.Store) bool {
+	match store.Lookup(s, "Map") {
+	case option.Some{Value: d}:
+		store.KindName(int(store.DeclOf(s, d).Kind)) == "type"
+	case option.None:
+		false
+	}
+}
+
+func walkTypeAst(s mut store.Store, k Pkg, t mut Typer, p syntax.Parsed, pnames []string, ownMap bool, env types.Env, pcons []paramCons, root dense.ID[syntax.Node], initInType bool) {
+	let tr = p.Tree
+	let mut stack = []astCheckItem{astCheckItem{node: root, inType: initInType}}
+	for stack.Len() > 0 {
+		let cur = stack[stack.Len()-1]
+		stack = stack.Slice(0, stack.Len()-1)
+		let x = cur.node
+		let inType = cur.inType
+		let mut kids = []astCheckItem{}
+		let kd = syntax.KindOf(tr, x)
+		if kd == syntax.KMapType {
+			let mt = syntax.MapTypeOf(tr, x)
+			if !ownMap {
+				let kt = types.Resolve(s, env, mt.Key)
+				if !hasInvalidT(*s, kt, 0) {
+					let (ok, _) = isComparableType(s, k, pcons, kt)
+					if !ok {
+						let ktStr = types.Text(*s, types.Names{Params: pnames, Foreign: k.Foreign, Pkg: "", Deps: k.Ifaces}, kt)
+						t.LookupDiags = t.LookupDiags.Append(LookupDiag{File: t.file, At: mt.Key, Code: "S108", Message: "map key type \(ktStr) is not comparable"})
+					}
+				}
+			}
+			kids = kids.Append(astCheckItem{node: mt.Key, inType: true})
+			kids = kids.Append(astCheckItem{node: mt.Value, inType: true})
+			match dense.Unpack(mt.Hashing) {
+			case option.Some{Value: h}:
+				kids = kids.Append(astCheckItem{node: h, inType: true})
+			case option.None:
+			}
+			let kn = kids.Len()
+			for i in 0..kn {
+				stack = stack.Append(kids[kn-1-i])
+			}
+			continue
+		}
+		if kd == syntax.KIndexExpr && inType {
+			let ix = syntax.IndexExprOf(tr, x)
+			let (gcons, _) = genericTypeConstraints(s, k, k.facts, p, ix.X)
+			if gcons.Len() > 0 {
+				let mut resolved = []dense.ID[store.TKey]{}
+				for j in 0..syntax.Len(ix.Indices) {
+					let idxNode = syntax.Item(tr, ix.Indices, j)
+					resolved = resolved.Append(types.Resolve(s, env, idxNode))
+				}
+				for j in 0..syntax.Len(ix.Indices) {
+					if j >= gcons.Len() {
+						continue
+					}
+					let idxNode = syntax.Item(tr, ix.Indices, j)
+					let mut req = gcons[j]
+					match dense.Unpack(req.role) {
+					case option.Some{Value: r}:
+						req.role = dense.OptOf(store.TSubst(s, r, resolved))
+					case option.None:
+					}
+					if req.text != "" && !hasInvalidT(*s, resolved[j], 0) {
+						let mut tmpT = *t
+						tmpT.fn = -1
+						let argTxt = types.Text(*s, types.Names{Params: pnames, Foreign: k.Foreign, Pkg: "", Deps: k.Ifaces}, resolved[j])
+						let mut why = ""
+						if req.isOrd {
+							if !isOrderedWithFacts(s, k, k.facts, pcons, resolved[j]) {
+								why = "\(argTxt) is not in ordered's type set, ~int | ~int8 | ~int16 | ~int32 | ~int64 | ~uint | ~uint8 | ~uint16, …"
+							}
+						} else if req.isComp {
+							let (ok, _) = isComparableType(s, k, pcons, resolved[j])
+							if !ok { why = "\(argTxt) is not comparable" }
+						} else {
+							why = satisfiesConstraint(s, k, tmpT, pcons, resolved[j], req)
+						}
+						if why != "" {
+							t.LookupDiags = t.LookupDiags.Append(LookupDiag{File: t.file, At: idxNode, Code: "S108", Message: "\(argTxt) does not satisfy \(req.text): \(why)"})
+						}
+					}
+					kids = kids.Append(astCheckItem{node: idxNode, inType: true})
+				}
+				let kn = kids.Len()
+				for i in 0..kn {
+					stack = stack.Append(kids[kn-1-i])
+				}
+				continue
+			}
+		}
+		match syntax.ViewOf(tr, x) {
+		case syntax.TypeDecl as td:
+			match dense.Unpack(td.Spec) {
+			case option.Some{Value: sp}:
+				kids = kids.Append(astCheckItem{node: sp, inType: true})
+			case option.None:
+			}
+		case syntax.FuncDecl as fd:
+			kids = kids.Append(astCheckItem{node: fd.Type, inType: true})
+			match dense.Unpack(fd.Body) {
+			case option.Some{Value: bd}:
+				kids = kids.Append(astCheckItem{node: bd, inType: false})
+			case option.None:
+			}
+		case syntax.LawDecl as ld:
+			match dense.Unpack(ld.Params) {
+			case option.Some{Value: ps}:
+				kids = kids.Append(astCheckItem{node: ps, inType: true})
+			case option.None:
+			}
+			match dense.Unpack(ld.Body) {
+			case option.Some{Value: bd}:
+				kids = kids.Append(astCheckItem{node: bd, inType: false})
+			case option.None:
+			}
+		case syntax.TestDecl as td:
+			match dense.Unpack(td.Params) {
+			case option.Some{Value: ps}:
+				kids = kids.Append(astCheckItem{node: ps, inType: true})
+			case option.None:
+			}
+			match dense.Unpack(td.Body) {
+			case option.Some{Value: bd}:
+				kids = kids.Append(astCheckItem{node: bd, inType: false})
+			case option.None:
+			}
+		case syntax.VarDecl as vd:
+			kids = kids.Append(astCheckItem{node: vd.Spec, inType: false})
+		case syntax.VarSpec as vs:
+			match dense.Unpack(vs.Type) {
+			case option.Some{Value: ty}:
+				kids = kids.Append(astCheckItem{node: ty, inType: true})
+			case option.None:
+			}
+			match dense.Unpack(vs.Value) {
+			case option.Some{Value: v}:
+				kids = kids.Append(astCheckItem{node: v, inType: false})
+			case option.None:
+			}
+		case syntax.DeclStmt as ds:
+			kids = kids.Append(astCheckItem{node: ds.Decl, inType: false})
+		case syntax.BlockStmt as bs:
+			for i in 0..syntax.Len(bs.List) {
+				kids = kids.Append(astCheckItem{node: syntax.Item(tr, bs.List, i), inType: false})
+			}
+		case syntax.IfStmt as is:
+			kids = kids.Append(astCheckItem{node: is.Cond, inType: false})
+			kids = kids.Append(astCheckItem{node: is.Body, inType: false})
+			match dense.Unpack(is.Else) {
+			case option.Some{Value: e}:
+				kids = kids.Append(astCheckItem{node: e, inType: false})
+			case option.None:
+			}
+		case syntax.ForStmt as fs:
+			match dense.Unpack(fs.Cond) {
+			case option.Some{Value: c}:
+				kids = kids.Append(astCheckItem{node: c, inType: false})
+			case option.None:
+			}
+			kids = kids.Append(astCheckItem{node: fs.Body, inType: false})
+		case syntax.RangeStmt as rs:
+			kids = kids.Append(astCheckItem{node: rs.X, inType: false})
+			kids = kids.Append(astCheckItem{node: rs.Body, inType: false})
+		case syntax.SwitchStmt as ss:
+			kids = kids.Append(astCheckItem{node: ss.Tag, inType: false})
+			for i in 0..syntax.Len(ss.Clauses) {
+				let cc = syntax.CaseClauseOf(tr, syntax.Item(tr, ss.Clauses, i))
+				for j in 0..syntax.Len(cc.List) {
+					kids = kids.Append(astCheckItem{node: syntax.Item(tr, cc.List, j), inType: false})
+				}
+				for j in 0..syntax.Len(cc.Body) {
+					kids = kids.Append(astCheckItem{node: syntax.Item(tr, cc.Body, j), inType: false})
+				}
+			}
+		case syntax.TypeSwitchStmt as ts:
+			kids = kids.Append(astCheckItem{node: ts.Subject, inType: false})
+			for i in 0..syntax.Len(ts.Clauses) {
+				let cc = syntax.CaseClauseOf(tr, syntax.Item(tr, ts.Clauses, i))
+				for j in 0..syntax.Len(cc.List) {
+					kids = kids.Append(astCheckItem{node: syntax.Item(tr, cc.List, j), inType: true})
+				}
+				for j in 0..syntax.Len(cc.Body) {
+					kids = kids.Append(astCheckItem{node: syntax.Item(tr, cc.Body, j), inType: false})
+				}
+			}
+		case syntax.AsPattern as ap:
+			kids = kids.Append(astCheckItem{node: ap.X, inType: inType})
+		case syntax.OrPattern as op:
+			for i in 0..syntax.Len(op.Alts) {
+				kids = kids.Append(astCheckItem{node: syntax.Item(tr, op.Alts, i), inType: inType})
+			}
+		case syntax.ExprStmt as es:
+			kids = kids.Append(astCheckItem{node: es.X, inType: false})
+		case syntax.AssignStmt as asg:
+			kids = kids.Append(astCheckItem{node: asg.Lhs, inType: false})
+			kids = kids.Append(astCheckItem{node: asg.Rhs, inType: false})
+		case syntax.ReturnStmt as ret:
+			match dense.Unpack(ret.Result) {
+			case option.Some{Value: r}:
+				kids = kids.Append(astCheckItem{node: r, inType: false})
+			case option.None:
+			}
+		case syntax.StructType as st:
+			kids = kids.Append(astCheckItem{node: st.Fields, inType: true})
+		case syntax.FieldList as fl:
+			for i in 0..syntax.Len(fl.List) {
+				kids = kids.Append(astCheckItem{node: syntax.Item(tr, fl.List, i), inType: inType})
+			}
+		case syntax.Field as fd:
+			match dense.Unpack(fd.Type) {
+			case option.Some{Value: ft}:
+				kids = kids.Append(astCheckItem{node: ft, inType: true})
+			case option.None:
+			}
+		case syntax.FuncType as ft:
+			kids = kids.Append(astCheckItem{node: ft.Params, inType: true})
+			match dense.Unpack(ft.Results) {
+			case option.Some{Value: r}:
+				kids = kids.Append(astCheckItem{node: r, inType: true})
+			case option.None:
+			}
+			match dense.Unpack(ft.Needs) {
+			case option.Some{Value: n}:
+				kids = kids.Append(astCheckItem{node: n, inType: true})
+			case option.None:
+			}
+		case syntax.FuncLit as flt:
+			kids = kids.Append(astCheckItem{node: flt.Type, inType: true})
+			kids = kids.Append(astCheckItem{node: flt.Body, inType: false})
+		case syntax.InterfaceType as it:
+			for i in 0..syntax.Len(it.Members) {
+				kids = kids.Append(astCheckItem{node: syntax.Item(tr, it.Members, i), inType: true})
+			}
+		case syntax.ArrayType as at:
+			kids = kids.Append(astCheckItem{node: at.Elt, inType: true})
+		case syntax.StarExpr as se:
+			kids = kids.Append(astCheckItem{node: se.X, inType: inType})
+		case syntax.ParenExpr as pe:
+			kids = kids.Append(astCheckItem{node: pe.X, inType: inType})
+		case syntax.CompositeLit as cl:
+			match dense.Unpack(cl.Type) {
+			case option.Some{Value: ct}:
+				kids = kids.Append(astCheckItem{node: ct, inType: true})
+			case option.None:
+			}
+			for i in 0..syntax.Len(cl.Elts) {
+				kids = kids.Append(astCheckItem{node: syntax.Item(tr, cl.Elts, i), inType: false})
+			}
+		case syntax.KeyValueExpr as kv:
+			kids = kids.Append(astCheckItem{node: kv.Key, inType: false})
+			kids = kids.Append(astCheckItem{node: kv.Value, inType: false})
+		case syntax.CallExpr as ce:
+			kids = kids.Append(astCheckItem{node: ce.Fun, inType: false})
+			for i in 0..syntax.Len(ce.Args) {
+				kids = kids.Append(astCheckItem{node: syntax.Item(tr, ce.Args, i), inType: false})
+			}
+			match dense.Unpack(ce.Trailing) {
+			case option.Some{Value: trl}:
+				kids = kids.Append(astCheckItem{node: trl, inType: false})
+			case option.None:
+			}
+		case syntax.TupleExpr as te:
+			for i in 0..syntax.Len(te.Elts) {
+				kids = kids.Append(astCheckItem{node: syntax.Item(tr, te.Elts, i), inType: inType})
+			}
+		case syntax.TryExpr as tx:
+			kids = kids.Append(astCheckItem{node: tx.X, inType: false})
+		case syntax.CatchExpr as cx:
+			kids = kids.Append(astCheckItem{node: cx.X, inType: false})
+			for i in 0..syntax.Len(cx.Arms) {
+				kids = kids.Append(astCheckItem{node: syntax.Item(tr, cx.Arms, i), inType: false})
+			}
+		case syntax.CatchArm as ca:
+			for i in 0..syntax.Len(ca.Types) {
+				kids = kids.Append(astCheckItem{node: syntax.Item(tr, ca.Types, i), inType: true})
+			}
+			for i in 0..syntax.Len(ca.Body) {
+				kids = kids.Append(astCheckItem{node: syntax.Item(tr, ca.Body, i), inType: false})
+			}
+		case syntax.AssertStmt as asrt:
+			kids = kids.Append(astCheckItem{node: asrt.X, inType: false})
+		case syntax.BinaryExpr as be:
+			kids = kids.Append(astCheckItem{node: be.X, inType: false})
+			kids = kids.Append(astCheckItem{node: be.Y, inType: false})
+		case syntax.UnaryExpr as ue:
+			kids = kids.Append(astCheckItem{node: ue.X, inType: false})
+		case syntax.IndexExpr as ie:
+			kids = kids.Append(astCheckItem{node: ie.X, inType: false})
+			for i in 0..syntax.Len(ie.Indices) {
+				kids = kids.Append(astCheckItem{node: syntax.Item(tr, ie.Indices, i), inType: false})
+			}
+		case syntax.VariantSpec as vs:
+			kids = kids.Append(astCheckItem{node: vs.Fields, inType: true})
+		case _:
+		}
+		let kn = kids.Len()
+		for i in 0..kn {
+			stack = stack.Append(kids[kn-1-i])
+		}
+	}
+}
+
+func canonicalDeclId(path string, name string) (string, string) {
+	if path == "prelude" {
+		if name == "Option" || name == "Some" || name == "None" {
+			return ("option", name)
+		}
+		if name == "Range" || name == "Seq" || name == "Never" || name == "Context" || name == "CallSite" || name == "Closer" || name == "Keeping" || name == "Unsatisfied" || name == "NoMatch" {
+			return ("core", name)
+		}
+	}
+	(path, name)
+}
+
+func typeDeclIdentity(s store.Store, k Pkg, t dense.ID[store.TKey]) option.Option[types.DeclIdentity] {
+	let u = infer.Unmarked(s, t)
+	let f = foreignIdxOf(s, u)
+	if f >= 0 && f < k.Foreign.Len() {
+		let (cp, cn) = canonicalDeclId(k.Foreign[f].Path, k.Foreign[f].Name)
+		return option.Some{Value: types.DeclIdentity{Path: cp, Name: cn}}
+	}
+	match types.Nominal(s, u) {
+	case option.Some{Value: ref}:
+		if ref.Import == uint32(0) {
+			let (cp, cn) = canonicalDeclId(store.PathOf(s), store.DeclText(s, int(ref.Decl)))
+			return option.Some{Value: types.DeclIdentity{Path: cp, Name: cn}}
+		}
+		if int(ref.Import) <= k.Ifaces.Len() {
+			let ic = k.Ifaces[int(ref.Import)-1]
+			let (cp, cn) = canonicalDeclId(ic.Path, ic.Decls[int(ref.Decl)].Name)
+			return option.Some{Value: types.DeclIdentity{Path: cp, Name: cn}}
+		}
+	case option.None:
+	}
+	option.None
+}
+
+func isAliasType(s store.Store, k Pkg, t dense.ID[store.TKey]) bool {
+	let u = infer.Unmarked(s, t)
+	let f = foreignIdxOf(s, u)
+	if f >= 0 && f < k.Foreign.Len() {
+		let entry = k.Foreign[f]
+		for ic in k.Ifaces {
+			if ic.Path != entry.Path {
+				continue
+			}
+			for dec in ic.Decls {
+				if dec.Name == entry.Name {
+					return dec.Alias
+				}
+			}
+		}
+	}
+	match types.Nominal(s, u) {
+	case option.Some{Value: ref}:
+		if ref.Import == uint32(0) {
+			let di = int(ref.Decl)
+			if di >= 0 && di < k.facts.decls.Len() {
+				let df = k.facts.decls[di]
+				return !df.isStruct && !df.isOp && !df.isUnion && !df.isMachine && isSome(dense.Unpack(df.underT))
+			}
+		} else if int(ref.Import) <= k.Ifaces.Len() {
+			return k.Ifaces[int(ref.Import)-1].Decls[int(ref.Decl)].Alias
+		}
+	case option.None:
+	}
+	false
+}
+
+func roleRefLookup(refs []types.RoleRef, ref store.XRef) option.Option[types.DeclIdentity] {
+	for r in refs {
+		if r.Ref == ref {
+			return option.Some{Value: r.Decl}
+		}
+	}
+	option.None
+}
+
+func readRoleIncludes(s mut store.Store, k Pkg, roleT dense.ID[store.TKey]) []dense.ID[store.TKey] {
+	let u = infer.Unmarked(*s, roleT)
+	let f = foreignIdxOf(*s, u)
+	if f >= 0 && f < k.Foreign.Len() {
+		let entry = k.Foreign[f]
+		for ic in k.Ifaces {
+			if ic.Path != entry.Path {
+				continue
+			}
+			for r in ic.Roles {
+				if r.Name == entry.Name {
+					let mut out = []dense.ID[store.TKey]{}
+					for inc in r.Includes {
+						match types.Port(s, k.Ifaces, k.Foreign, ic.Types, ic.Path, func(xr store.XRef) option.Option[types.DeclIdentity] { roleRefLookup(ic.Refs, xr) }, ic.Foreign, inc) {
+						case option.Some{Value: ported}:
+							out = out.Append(ported)
+						case option.None:
+						}
+					}
+					return out
+				}
+			}
+		}
+		return []dense.ID[store.TKey]{}
+	}
+	match types.ReadRole(s, k.Ifaces, k.Foreign, k.Roles, u) {
+	case option.Some{Value: role}:
+		role.Includes
+	case option.None:
+		[]dense.ID[store.TKey]{}
+	}
+}
+
+func roleAssignable(s store.Store, k Pkg, claimed dense.ID[store.TKey], target dense.ID[store.TKey]) bool {
+	if identicalType(s, k, claimed, target) {
+		return true
+	}
+	let ca = infer.Unmarked(s, claimed)
+	let tb = infer.Unmarked(s, target)
+	match (typeDeclIdentity(s, k, ca), typeDeclIdentity(s, k, tb)) {
+	case (option.Some{Value: ia}, option.Some{Value: ib}):
+		if ia.Path != ib.Path || ia.Name != ib.Name {
+			return false
+		}
+		let ao = store.OperandsOf(s, ca)
+		let bo = store.OperandsOf(s, tb)
+		if ao.Len() != bo.Len() || ao.Len() == 0 {
+			return false
+		}
+		for i in 0..ao.Len() {
+			if identicalType(s, k, ao[i], bo[i]) {
+				continue
+			}
+			let ak = store.KindOfType(s, ao[i])
+			let bk = store.KindOfType(s, bo[i])
+			if (ak == store.KRow || ak == store.KRowValue) && (bk == store.KRow || bk == store.KRowValue) {
+				if rowSubset(s, k, ao[i], bo[i]) {
+					continue
+				}
+			}
+			return false
+		}
+		true
+	case _:
+		false
+	}
+}
+
+func failsReturnAllowed(s mut store.Store, k Pkg, t Typer, got dense.ID[store.TKey]) bool {
+	let row = match t.errs {
+	case option.Some{Value: er}:
+		er
+	case option.None:
+		return false
+	}
+	let mut allowed = []dense.ID[store.TKey]{}
+	let rk = store.KindOfType(*s, row)
+	let baseAllowed = if rk == store.KRow || rk == store.KRowValue { store.OperandsOf(*s, row) } else { []dense.ID[store.TKey]{row} }
+	for a in baseAllowed {
+		allowed = allowed.Append(a)
+		for av in unionVariantsOf(s, k, k.facts, a) {
+			allowed = allowed.Append(av)
+		}
+	}
+	if allowed.Len() == 0 {
+		return false
+	}
+	let gk = store.KindOfType(*s, got)
+	let wantList = if gk == store.KRow || gk == store.KRowValue {
+		store.OperandsOf(*s, got)
+	} else {
+		let gvs = unionVariantsOf(s, k, k.facts, got)
+		if gvs.Len() > 0 { gvs } else { []dense.ID[store.TKey]{got} }
+	}
+	if wantList.Len() == 0 {
+		return false
+	}
+	for w in wantList {
+		let mut ok = false
+		for a in allowed {
+			if identicalType(*s, k, w, a) {
+				ok = true
+				break
+			}
+		}
+		if !ok {
+			return false
+		}
+	}
+	true
+}
+
+func anyRoleInType(s store.Store, k Pkg, t dense.ID[store.TKey], depth int) bool {
+	if depth > 16 {
+		return false
+	}
+	if isRoleType(s, k, t) {
+		return true
+	}
+	for o in store.OperandsOf(s, t) {
+		if anyRoleInType(s, k, o, depth+1) {
+			return true
+		}
+	}
+	false
+}
+
+func hasOmittedFuncParams(tr syntax.Tree, x dense.ID[syntax.Node]) bool {
+	if syntax.KindOf(tr, x) != syntax.KFuncLit {
+		return false
+	}
+	match syntax.ViewOf(tr, syntax.FuncLitOf(tr, x).Type) {
+	case syntax.FuncType as ft:
+		match syntax.ViewOf(tr, ft.Params) {
+		case syntax.FieldList as fl:
+			for i in 0..syntax.Len(fl.List) {
+				let fnode = syntax.Item(tr, fl.List, i)
+				if syntax.KindOf(tr, fnode) == syntax.KField && !isSome(dense.Unpack(syntax.FieldOf(tr, fnode).Type)) {
+					return true
+				}
+			}
+		case _:
+		}
+	case _:
+	}
+	false
+}
+
+func litConflictSlot(s store.Store, renamed []dense.ID[store.TKey], ins []infer.Arg, base int) int {
+	let n = if renamed.Len() < ins.Len() { renamed.Len() } else { ins.Len() }
+	for i in 0..n {
+		let p = renamed[i]
+		if store.KindOfType(s, p) != store.KParam {
+			continue
+		}
+		let slot = store.ArgOf(s, p) - base
+		if slot < 0 {
+			continue
+		}
+		match ins[i] {
+		case infer.Literal as l1:
+			for j in i+1..n {
+				let p2 = renamed[j]
+				if store.KindOfType(s, p2) != store.KParam || store.ArgOf(s, p2)-base != slot {
+					continue
+				}
+				match ins[j] {
+				case infer.Literal as l2:
+					if l2.Default != l1.Default {
+						return slot
+					}
+				case _:
+				}
+			}
+		case _:
+		}
+	}
+	-1
+}

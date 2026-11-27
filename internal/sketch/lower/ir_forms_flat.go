@@ -304,10 +304,12 @@ func (b *irBuilder) flatCatch(x *syntax.CatchExpr, partial bool, call *syntax.Ca
 	}
 	p := b.pos(x, x.Catch)
 	result := -1
+	var arm *irArmOwner
 	if m.Result != nil {
 		rt := b.goType(m.Result, x)
 		result = b.temp("caught", rt, p)
 		pre = append(pre, &irStmt{K: "def", Pos: p, Local: result, X: &irExpr{K: "zero", Pos: p, T: rt}})
+		arm = b.armOpen(x, p)
 	}
 	end := b.pos(x, x.Rbrace)
 	var then []*irStmt
@@ -317,14 +319,14 @@ func (b *irBuilder) flatCatch(x *syntax.CatchExpr, partial bool, call *syntax.Ca
 		b.locals[as] = name
 		then = append(then, &irStmt{K: "def", Pos: ap, Local: name, X: flatField(r, "Err", ap)})
 	}
-	then = append(then, b.armBody(a, result, m.Result)...)
+	then = append(then, b.armBody(a, result, m.Result, arm)...)
 	ifs := &irStmt{K: "if", Pos: p, End: end, X: failed, Then: then}
 	if result >= 0 && !fl.unit {
 		ifs.ElsePos, ifs.ElseEnd = end, end
 		hold, val := b.catchValue(call, flatField(r, "Val", end), m.Result)
 		ifs.Else = append(hold, &irStmt{K: "set", Pos: end, Local: result, X: val})
 	}
-	pre = append(pre, ifs)
+	pre = append(pre, b.armWrap(arm, []*irStmt{ifs}, result, m.Result, p)...)
 	if result < 0 {
 		return pre, nil, true
 	}

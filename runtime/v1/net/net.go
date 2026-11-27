@@ -23,6 +23,7 @@ package net
 
 import (
 	"context"
+	"encoding/binary"
 	"errors"
 	"io"
 	gonet "net"
@@ -39,6 +40,13 @@ import (
 // each direction before a Write waits for the reader (a socket buffer's
 // order of size).
 const readMax = 64 << 10
+
+// MaxControlFDs is the maximum number of file descriptors sent or
+// received in a single SendFDs / RecvFDs call.
+const MaxControlFDs = 64
+
+// unixFrameMax bounds a framed SendFDs / RecvFDs data payload.
+const unixFrameMax = 4 << 20
 
 // NetListenFailed is net.ListenFailed: Addr could not be bound.
 type NetListenFailed struct{ Addr, Reason string }
@@ -62,6 +70,16 @@ type NetFailed struct{ Reason string }
 
 func (e NetFailed) Error() string { return "net.Failed{Reason:" + e.Reason + "}" }
 
+// NetUnsupported reports an operation not supported on the host OS.
+type NetUnsupported struct{ Reason string }
+
+func (e NetUnsupported) Error() string { return "net.Unsupported{Reason:" + e.Reason + "}" }
+
+// NetDenied is net.Denied: Addr is outside the provider's grant.
+type NetDenied struct{ Addr string }
+
+func (e NetDenied) Error() string { return "net.Denied{Addr:" + e.Addr + "}" }
+
 // Conn is net.Conn: one end of a stream connection, on the host (host) or
 // in memory (pipe).
 type Conn struct {
@@ -69,6 +87,7 @@ type Conn struct {
 	buf  []byte // host's read buffer, made at the first Read
 
 	pipe          *PipeNet
+	end           *pipeConnEnd
 	in, out       *half
 	local, remote string
 	shut          bool // this end closed, under pipe.mu
@@ -168,10 +187,10 @@ func (c *Conn) Close() {
 type Listener struct {
 	host gonet.Listener
 
-	pipe    *PipeNet
-	addr    string
-	backlog []*Conn // dialed, not accepted yet
-	closed  bool
+	pipe   *PipeNet
+	addr   string
+	state  *pipeListenerState
+	closed bool
 }
 
 // runtimeOnly implements net.Listener's private operation.
@@ -338,10 +357,52 @@ func onStop(t *rt.Task, set func(time.Time) error) (disarm func() bool) {
 // it; a wait takes the changed channel under it, and every change closes
 // that channel and makes a new one.
 type PipeNet struct {
-	mu        sync.Mutex
-	listeners map[string]*Listener
-	ports     int // the last port given for a port 0
-	changed   chan struct{}
+	mu            sync.Mutex
+	listeners     map[string]*pipeListenerState
+	unixListeners map[string]*pipeListenerState
+	ports         int // the last port given for a port 0
+	fdSeq         int // monotonic synthetic FD number
+	changed       chan struct{}
+}
+
+type pipeFDKind uint8
+
+const (
+	fdTCPListener pipeFDKind = iota + 1
+	fdUnixListener
+	fdTCPConn
+	fdUnixConn
+)
+
+type pipeFDHandle struct {
+	pipe  *PipeNet
+	kind  pipeFDKind
+	fdNum int
+	plist *pipeListenerState
+	pconn *pipeConnEnd
+}
+
+type pipeCmsg struct {
+	pos int64
+	fds []pipeFDHandle
+}
+
+type pipeListenerState struct {
+	pipe    *PipeNet
+	unix    bool
+	addr    string
+	backlog []*pipeConnEnd // dialed, not accepted yet
+	refs    int
+	closed  bool
+}
+
+type pipeConnEnd struct {
+	pipe          *PipeNet
+	unix          bool
+	in, out       *half
+	local, remote string
+	refs          int
+	shut          bool
 }
 
 // half is one direction of a pipe connection: the bytes written and not
@@ -350,6 +411,8 @@ type PipeNet struct {
 // closed (a write fails).
 type half struct {
 	buf                 []byte
+	written, readPos    int64
+	cmsgs               []pipeCmsg
 	closed, reset, gone bool
 }
 
@@ -360,13 +423,90 @@ func (*PipeNet) runtimeOnly() {}
 //
 //ergo:wait none
 func NetNewPipe() *PipeNet {
-	return &PipeNet{listeners: map[string]*Listener{}, changed: make(chan struct{})}
+	return &PipeNet{
+		listeners:     map[string]*pipeListenerState{},
+		unixListeners: map[string]*pipeListenerState{},
+		fdSeq:         1000,
+		changed:       make(chan struct{}),
+	}
+}
+
+func (p *PipeNet) nextFDLocked() int {
+	p.fdSeq++
+	return p.fdSeq
 }
 
 // signal wakes every wait on p. Call it with p.mu held.
 func (p *PipeNet) signal() {
 	close(p.changed)
 	p.changed = make(chan struct{})
+}
+
+func (h pipeFDHandle) retainLocked() {
+	switch h.kind {
+	case fdTCPListener, fdUnixListener:
+		if h.plist != nil {
+			h.plist.refs++
+		}
+	case fdTCPConn, fdUnixConn:
+		if h.pconn != nil {
+			h.pconn.refs++
+		}
+	}
+}
+
+func (h pipeFDHandle) releaseLocked() {
+	switch h.kind {
+	case fdTCPListener, fdUnixListener:
+		if h.plist != nil {
+			h.plist.refs--
+			if h.plist.refs == 0 {
+				h.plist.closeLocked()
+			}
+		}
+	case fdTCPConn, fdUnixConn:
+		if h.pconn != nil {
+			h.pconn.refs--
+			if h.pconn.refs == 0 {
+				h.pconn.closeZeroLocked()
+			}
+		}
+	}
+}
+
+func (h *half) appendLocked(data []byte) {
+	h.buf = append(h.buf, data...)
+	h.written += int64(len(data))
+}
+
+func (h *half) takeLocked(n int) {
+	h.buf = h.buf[n:]
+	h.readPos += int64(n)
+	for len(h.cmsgs) > 0 && h.cmsgs[0].pos < h.readPos {
+		for _, fd := range h.cmsgs[0].fds {
+			fd.releaseLocked()
+		}
+		h.cmsgs = h.cmsgs[1:]
+	}
+}
+
+func (h *half) popCmsgsAtLocked(pos int64) []pipeFDHandle {
+	var out []pipeFDHandle
+	for len(h.cmsgs) > 0 && h.cmsgs[0].pos <= pos {
+		out = append(out, h.cmsgs[0].fds...)
+		h.cmsgs = h.cmsgs[1:]
+	}
+	return out
+}
+
+func (h *half) clearLocked() {
+	h.buf = nil
+	for _, m := range h.cmsgs {
+		for _, fd := range m.fds {
+			fd.releaseLocked()
+		}
+	}
+	h.cmsgs = nil
 }
 
 // Listen binds addr in p ("host:port"); port 0 gives the next free port
@@ -393,9 +533,9 @@ func (p *PipeNet) Listen(addr string) (*Listener, error) {
 	if p.listeners[addr] != nil {
 		return nil, NetListenFailed{Addr: addr, Reason: "address already in use"}
 	}
-	l := &Listener{pipe: p, addr: addr}
-	p.listeners[addr] = l
-	return l, nil
+	st := &pipeListenerState{pipe: p, addr: addr, refs: 1}
+	p.listeners[addr] = st
+	return &Listener{pipe: p, addr: addr, state: st}, nil
 }
 
 // Dial connects to the listener at addr in p: the connection waits in its
@@ -406,16 +546,56 @@ func (p *PipeNet) Listen(addr string) (*Listener, error) {
 func (p *PipeNet) Dial(addr string) (*Conn, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	l := p.listeners[addr]
-	if l == nil {
+	st := p.listeners[addr]
+	if st == nil || st.closed {
 		return nil, NetDialFailed{Addr: addr, Reason: "connection refused"}
 	}
 	p.ports++
 	local := addr[:strings.LastIndexByte(addr, ':')+1] + strconv.Itoa(p.ports)
 	up, down := &half{}, &half{}
-	client := &Conn{pipe: p, in: down, out: up, local: local, remote: addr}
-	server := &Conn{pipe: p, in: up, out: down, local: addr, remote: local}
-	l.backlog = append(l.backlog, server)
+	clientEnd := &pipeConnEnd{pipe: p, in: down, out: up, local: local, remote: addr, refs: 1}
+	serverEnd := &pipeConnEnd{pipe: p, in: up, out: down, local: addr, remote: local, refs: 1}
+	client := &Conn{pipe: p, end: clientEnd, in: down, out: up, local: local, remote: addr}
+	st.backlog = append(st.backlog, serverEnd)
+	p.signal()
+	return client, nil
+}
+
+// ListenUnix binds the Unix domain socket path in p.
+//
+//ergo:wait none
+func (p *PipeNet) ListenUnix(path string) (*UnixListener, error) {
+	if path == "" {
+		return nil, NetListenFailed{Addr: path, Reason: "missing address"}
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.unixListeners[path] != nil {
+		return nil, NetListenFailed{Addr: path, Reason: "address already in use"}
+	}
+	st := &pipeListenerState{pipe: p, unix: true, addr: path, refs: 1}
+	p.unixListeners[path] = st
+	return &UnixListener{pipe: p, addr: path, state: st, unlinkOnClose: true}, nil
+}
+
+// DialUnix connects to the Unix domain socket path in p.
+//
+//ergo:wait none
+func (p *PipeNet) DialUnix(path string) (*UnixConn, error) {
+	if path == "" {
+		return nil, NetDialFailed{Addr: path, Reason: "missing address"}
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	st := p.unixListeners[path]
+	if st == nil || st.closed {
+		return nil, NetDialFailed{Addr: path, Reason: "connection refused"}
+	}
+	up, down := &half{}, &half{}
+	clientEnd := &pipeConnEnd{pipe: p, unix: true, in: down, out: up, local: "", remote: path, refs: 1}
+	serverEnd := &pipeConnEnd{pipe: p, unix: true, in: up, out: down, local: path, remote: "", refs: 1}
+	client := &UnixConn{pipe: p, end: clientEnd}
+	st.backlog = append(st.backlog, serverEnd)
 	p.signal()
 	return client, nil
 }
@@ -443,16 +623,31 @@ func waitOn(ch, stop <-chan struct{}) error {
 }
 
 func (l *Listener) pipeAccept(t *rt.Task) (*Conn, error) {
-	c, err := l.pipeAcceptOn(t.Done())
+	end, err := l.pipeAcceptEnd(t.Done())
 	if err == errStopped {
 		t.Check()
 	}
-	return c, err
+	if err != nil {
+		return nil, err
+	}
+	return &Conn{pipe: l.pipe, end: end, in: end.in, out: end.out, local: end.local, remote: end.remote}, nil
 }
 
-// pipeAcceptOn takes the oldest dialed connection, waiting until there is
+func (l *Listener) pipeAcceptEnd(stop <-chan struct{}) (*pipeConnEnd, error) {
+	p := l.pipe
+	p.mu.Lock()
+	closed := l.closed
+	st := l.state
+	p.mu.Unlock()
+	if closed || st == nil {
+		return nil, errListenerClosed
+	}
+	return st.acceptOn(stop)
+}
+
+// acceptOn takes the oldest dialed connection, waiting until there is
 // one, l closes, or stop closes.
-func (l *Listener) pipeAcceptOn(stop <-chan struct{}) (*Conn, error) {
+func (l *pipeListenerState) acceptOn(stop <-chan struct{}) (*pipeConnEnd, error) {
 	p := l.pipe
 	for {
 		p.mu.Lock()
@@ -474,10 +669,8 @@ func (l *Listener) pipeAcceptOn(stop <-chan struct{}) (*Conn, error) {
 	}
 }
 
-func (l *Listener) pipeClose() {
+func (l *pipeListenerState) closeLocked() {
 	p := l.pipe
-	p.mu.Lock()
-	defer p.mu.Unlock()
 	if l.closed {
 		return
 	}
@@ -488,6 +681,20 @@ func (l *Listener) pipeClose() {
 	}
 	l.backlog = nil
 	p.signal()
+}
+
+func (l *Listener) pipeClose() {
+	p := l.pipe
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if l.closed {
+		return
+	}
+	l.closed = true
+	l.state.refs--
+	if l.state.refs == 0 {
+		l.state.closeLocked()
+	}
 }
 
 func (c *Conn) pipeRead(t *rt.Task) (string, error) {
@@ -520,7 +727,7 @@ func (c *Conn) pipeReadOn(stop <-chan struct{}, take func([]byte) int) (int, err
 		}
 		if len(in.buf) > 0 {
 			n := take(in.buf)
-			in.buf = in.buf[n:]
+			in.takeLocked(n)
 			p.signal()
 			p.mu.Unlock()
 			return n, nil
@@ -567,7 +774,7 @@ func (c *Conn) pipeWriteOn(stop <-chan struct{}, data string) (int, error) {
 			return wrote, NetFailed{Reason: "broken pipe"}
 		}
 		if n := min(readMax-len(out.buf), len(data)); n > 0 {
-			out.buf = append(out.buf, data[:n]...)
+			out.appendLocked([]byte(data[:n]))
 			data = data[n:]
 			wrote += n
 			p.signal()
@@ -595,12 +802,15 @@ func (c *Conn) pipeClose() {
 		return
 	}
 	c.shut = true
+	c.end.refs--
+	if c.end.refs > 0 {
+		p.signal()
+		return
+	}
 	if len(c.in.buf) > 0 {
 		c.reset()
 	} else {
-		c.out.closed = true
-		c.in.gone = true
-		c.in.buf = nil
+		c.end.closeCleanLocked()
 	}
 	p.signal()
 }
@@ -608,9 +818,327 @@ func (c *Conn) pipeClose() {
 // reset ends c with a reset: its peer's reads fail and its writes too.
 // Call it with the pipe's lock held.
 func (c *Conn) reset() {
-	c.out.reset = true
-	c.in.gone = true
-	c.in.buf = nil
+	c.end.reset()
+}
+
+func (e *pipeConnEnd) closeZeroLocked() {
+	if e.shut {
+		return
+	}
+	if len(e.in.buf) > 0 {
+		e.reset()
+	} else {
+		e.closeCleanLocked()
+	}
+	e.pipe.signal()
+}
+
+func (e *pipeConnEnd) closeCleanLocked() {
+	e.shut = true
+	e.out.closed = true
+	e.in.gone = true
+	e.in.clearLocked()
+}
+
+func (e *pipeConnEnd) reset() {
+	e.shut = true
+	e.out.reset = true
+	e.in.gone = true
+	e.in.clearLocked()
+}
+
+func (e *pipeConnEnd) read(t *rt.Task, closed *bool) (string, error) {
+	var s string
+	_, err := e.readOn(t.Done(), closed, func(b []byte) int {
+		n := min(len(b), readMax)
+		s = string(b[:n])
+		return n
+	})
+	switch err {
+	case io.EOF:
+		return "", nil
+	case errStopped:
+		t.Check()
+	}
+	return s, err
+}
+
+func (e *pipeConnEnd) readOn(stop <-chan struct{}, closed *bool, take func([]byte) int) (int, error) {
+	p := e.pipe
+	for {
+		p.mu.Lock()
+		in := e.in
+		if *closed {
+			p.mu.Unlock()
+			return 0, errClosed
+		}
+		if len(in.buf) > 0 {
+			n := take(in.buf)
+			in.takeLocked(n)
+			p.signal()
+			p.mu.Unlock()
+			return n, nil
+		}
+		if in.reset {
+			p.mu.Unlock()
+			return 0, NetFailed{Reason: "connection reset by peer"}
+		}
+		if in.closed {
+			p.mu.Unlock()
+			return 0, io.EOF
+		}
+		ch := p.changed
+		p.mu.Unlock()
+		if err := waitOn(ch, stop); err != nil {
+			return 0, err
+		}
+	}
+}
+
+func (e *pipeConnEnd) write(t *rt.Task, closed *bool, data string) error {
+	p := e.pipe
+	stop := t.Done()
+	for {
+		p.mu.Lock()
+		out := e.out
+		if *closed {
+			p.mu.Unlock()
+			return errClosed
+		}
+		if out.gone {
+			p.mu.Unlock()
+			return NetFailed{Reason: "broken pipe"}
+		}
+		if n := min(readMax-len(out.buf), len(data)); n > 0 {
+			out.appendLocked([]byte(data[:n]))
+			data = data[n:]
+			p.signal()
+		}
+		if data == "" {
+			p.mu.Unlock()
+			return nil
+		}
+		ch := p.changed
+		p.mu.Unlock()
+		if err := waitOn(ch, stop); err != nil {
+			t.Check()
+			return err
+		}
+	}
+}
+
+func (e *pipeConnEnd) sendFDs(t *rt.Task, closed *bool, data string, fds []*FD) error {
+	if len(fds) > MaxControlFDs {
+		return NetFailed{Reason: "too many FDs"}
+	}
+	if len(data) > unixFrameMax {
+		return NetFailed{Reason: "FD message data too large"}
+	}
+	p := e.pipe
+	p.mu.Lock()
+	if *closed {
+		p.mu.Unlock()
+		return errClosed
+	}
+	handles := make([]pipeFDHandle, len(fds))
+	for i, fd := range fds {
+		h, ok := fd.pipeHandleLocked(p)
+		if !ok {
+			p.mu.Unlock()
+			return NetFailed{Reason: "invalid or closed FD"}
+		}
+		handles[i] = h
+	}
+	for _, h := range handles {
+		h.retainLocked()
+	}
+	var payload [4]byte
+	binary.BigEndian.PutUint32(payload[:], uint32(len(data)))
+	msg := append(payload[:], data...)
+	cmsgQueued := false
+	startPos := e.out.written
+	p.mu.Unlock()
+
+	releaseQueued := false
+	defer func() {
+		if releaseQueued {
+			p.mu.Lock()
+			for _, h := range handles {
+				h.releaseLocked()
+			}
+			p.mu.Unlock()
+		}
+	}()
+
+	stop := t.Done()
+	for len(msg) > 0 {
+		p.mu.Lock()
+		out := e.out
+		if *closed {
+			p.mu.Unlock()
+			if !cmsgQueued {
+				releaseQueued = true
+			}
+			return errClosed
+		}
+		if out.gone {
+			p.mu.Unlock()
+			if !cmsgQueued {
+				releaseQueued = true
+			}
+			return NetFailed{Reason: "broken pipe"}
+		}
+		if n := min(readMax-len(out.buf), len(msg)); n > 0 {
+			if !cmsgQueued && len(handles) > 0 {
+				startPos = out.written
+				out.cmsgs = append(out.cmsgs, pipeCmsg{pos: startPos, fds: handles})
+				cmsgQueued = true
+			}
+			out.appendLocked(msg[:n])
+			msg = msg[n:]
+			p.signal()
+		}
+		if len(msg) == 0 {
+			p.mu.Unlock()
+			return nil
+		}
+		ch := p.changed
+		p.mu.Unlock()
+		if err := waitOn(ch, stop); err != nil {
+			if !cmsgQueued {
+				releaseQueued = true
+			}
+			t.Check()
+			return err
+		}
+	}
+	if !cmsgQueued && len(handles) > 0 {
+		releaseQueued = true
+	}
+	return nil
+}
+
+func (e *pipeConnEnd) recvFDs(t *rt.Task, closed *bool, maxFDs int) (NetReceivedFDs, error) {
+	if maxFDs < 0 || maxFDs > MaxControlFDs {
+		return NetReceivedFDs{}, NetFailed{Reason: "invalid maxFDs"}
+	}
+	p := e.pipe
+	stop := t.Done()
+	var hdr [4]byte
+	hdrRead := 0
+	var handles []pipeFDHandle
+	cleanupHandles := func() {
+		if len(handles) == 0 {
+			return
+		}
+		p.mu.Lock()
+		for _, h := range handles {
+			h.releaseLocked()
+		}
+		p.mu.Unlock()
+		handles = nil
+	}
+
+	for hdrRead < 4 {
+		p.mu.Lock()
+		in := e.in
+		if *closed {
+			p.mu.Unlock()
+			cleanupHandles()
+			return NetReceivedFDs{}, errClosed
+		}
+		if len(in.buf) > 0 {
+			if hdrRead == 0 {
+				handles = in.popCmsgsAtLocked(in.readPos)
+			}
+			n := copy(hdr[hdrRead:], in.buf)
+			in.takeLocked(n)
+			hdrRead += n
+			p.signal()
+			p.mu.Unlock()
+			continue
+		}
+		if in.reset {
+			p.mu.Unlock()
+			cleanupHandles()
+			return NetReceivedFDs{}, NetFailed{Reason: "connection reset by peer"}
+		}
+		if in.closed {
+			p.mu.Unlock()
+			cleanupHandles()
+			if hdrRead > 0 {
+				return NetReceivedFDs{}, NetFailed{Reason: io.ErrUnexpectedEOF.Error()}
+			}
+			return NetReceivedFDs{}, NetFailed{Reason: io.EOF.Error()}
+		}
+		ch := p.changed
+		p.mu.Unlock()
+		if err := waitOn(ch, stop); err != nil {
+			cleanupHandles()
+			t.Check()
+			return NetReceivedFDs{}, err
+		}
+	}
+
+	if len(handles) > maxFDs {
+		cleanupHandles()
+		return NetReceivedFDs{}, NetFailed{Reason: "received FDs exceeded maxFDs"}
+	}
+
+	dataLen := int(binary.BigEndian.Uint32(hdr[:]))
+	if dataLen > unixFrameMax {
+		cleanupHandles()
+		return NetReceivedFDs{}, NetFailed{Reason: "FD message frame too large"}
+	}
+
+	buf := make([]byte, dataLen)
+	pos := 0
+	for pos < dataLen {
+		p.mu.Lock()
+		in := e.in
+		if *closed {
+			p.mu.Unlock()
+			cleanupHandles()
+			return NetReceivedFDs{}, errClosed
+		}
+		if len(in.buf) > 0 {
+			n := copy(buf[pos:], in.buf)
+			in.takeLocked(n)
+			pos += n
+			p.signal()
+			p.mu.Unlock()
+			continue
+		}
+		if in.reset {
+			p.mu.Unlock()
+			cleanupHandles()
+			return NetReceivedFDs{}, NetFailed{Reason: "connection reset by peer"}
+		}
+		if in.closed {
+			p.mu.Unlock()
+			cleanupHandles()
+			return NetReceivedFDs{}, NetFailed{Reason: io.ErrUnexpectedEOF.Error()}
+		}
+		ch := p.changed
+		p.mu.Unlock()
+		if err := waitOn(ch, stop); err != nil {
+			cleanupHandles()
+			t.Check()
+			return NetReceivedFDs{}, err
+		}
+	}
+
+	outFDs := make([]*FD, len(handles))
+	for i, h := range handles {
+		outFDs[i] = &FD{
+			pipe:  p,
+			kind:  h.kind,
+			fdNum: h.fdNum,
+			plist: h.plist,
+			pconn: h.pconn,
+		}
+	}
+	return NetReceivedFDs{Data: string(buf), FDs: outFDs}, nil
 }
 
 // pipeListener is a pipe's Listener as a Go net.Listener (GoListener), so
@@ -618,10 +1146,11 @@ func (c *Conn) reset() {
 type pipeListener struct{ l *Listener }
 
 func (pl pipeListener) Accept() (gonet.Conn, error) {
-	c, err := pl.l.pipeAcceptOn(nil) // Close ends the wait
+	end, err := pl.l.pipeAcceptEnd(nil) // Close ends the wait
 	if err != nil {
 		return nil, goErr(err)
 	}
+	c := &Conn{pipe: pl.l.pipe, end: end, in: end.in, out: end.out, local: end.local, remote: end.remote}
 	return &pipeConn{c: c, rd: makeDeadline(), wd: makeDeadline()}, nil
 }
 

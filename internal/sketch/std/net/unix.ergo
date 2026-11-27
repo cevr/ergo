@@ -1,0 +1,504 @@
+import core
+import fstest
+import slices
+
+// FD is an owned OS file descriptor or in-memory handle that can be
+// duplicated, passed over a UnixConn via SendFDs, or converted into a
+// Listener or Conn.
+//
+// law-exempt: only Host, listeners, connections, or RecvFDs construct
+// one; UnixNetwork's laws hold round-trips against nettest.Pipe, and
+// runtime/v1/net holds the host's Unix sockets equal to the pipe's.
+extern go ergo.local/prototype/runtime/v1/net.FD type FD {
+	runtimeOnly(),
+	..core.Closer,
+	// Fd returns the integer file descriptor, or -1 if closed.
+	Fd() int,
+	// Dup returns an independent duplicate FD referring to the same
+	// underlying descriptor.
+	Dup() FD fails Failed | Unsupported,
+	// IntoListener consumes this FD and wraps it as a TCP Listener.
+	own IntoListener() Listener fails Failed | Unsupported,
+	// IntoUnixListener consumes this FD and wraps it as a UnixListener.
+	own IntoUnixListener() UnixListener fails Failed | Unsupported,
+	// IntoConn consumes this FD and wraps it as a TCP Conn.
+	own IntoConn() Conn fails Failed | Unsupported,
+	// IntoUnixConn consumes this FD and wraps it as a UnixConn.
+	own IntoUnixConn() UnixConn fails Failed | Unsupported,
+}
+
+// ReceivedFDs holds the payload data and transferred file descriptors
+// returned by a single UnixConn.RecvFDs call.
+extern go ergo.local/prototype/runtime/v1/net.NetReceivedFDs type ReceivedFDs {
+	// Data is the framed message string sent with the file descriptors.
+	Data string,
+	// FDs are the received owned file descriptors, in send order.
+	FDs []FD,
+}
+
+// UnixConn is one end of a Unix domain stream socket, supporting both
+// raw byte streams and framed SCM_RIGHTS file-descriptor passing.
+//
+// law-exempt: only a UnixNetwork or UnixConnFromFD makes one;
+// UnixNetwork's laws hold round-trips and FD transfer against
+// nettest.Pipe, and runtime/v1/net holds the host equal to the pipe.
+extern go ergo.local/prototype/runtime/v1/net.UnixConn type UnixConn {
+	runtimeOnly(),
+	..core.Closer,
+	// Read gives the next bytes written by the peer, or "" at EOF.
+	Read() string fails Failed | Unsupported,
+	// Write writes every byte of data to the peer.
+	Write(data string) fails Failed | Unsupported,
+	// SendFDs sends a framed data message alongside fds over SCM_RIGHTS.
+	SendFDs(data string, fds []FD) fails Failed | Unsupported,
+	// RecvFDs receives one framed message and up to maxFDs descriptors.
+	RecvFDs(maxFDs int) ReceivedFDs fails Failed | Unsupported,
+	// DupFD returns an independent duplicate FD for this socket.
+	DupFD() FD fails Failed | Unsupported,
+	// LocalAddr returns the local socket address string.
+	LocalAddr() string,
+	// RemoteAddr returns the remote socket address string.
+	RemoteAddr() string,
+}
+
+// UnixListener accepts connections dialed to a bound Unix domain socket.
+//
+// law-exempt: only a UnixNetwork or UnixListenFromFD makes one;
+// UnixNetwork's laws hold round-trips and FD hand-off against
+// nettest.Pipe, and runtime/v1/net holds the host equal to the pipe.
+extern go ergo.local/prototype/runtime/v1/net.UnixListener type UnixListener {
+	runtimeOnly(),
+	..core.Closer,
+	// Accept waits for and returns the next incoming Unix connection.
+	Accept() UnixConn fails Failed | Unsupported,
+	// DupFD returns an independent duplicate FD for this listener socket.
+	DupFD() FD fails Failed | Unsupported,
+	// SetUnlinkOnClose controls whether Close unlinks the socket path.
+	SetUnlinkOnClose(unlink bool),
+	// Addr returns the bound Unix domain socket path.
+	Addr() string,
+}
+
+// UnixNetwork binds and dials Unix domain stream sockets.
+type UnixNetwork {
+	// ListenUnix binds a Unix domain stream socket at path.
+	ListenUnix(path string) UnixListener fails ListenFailed | Denied | Unsupported,
+	// DialUnix connects to a bound Unix domain stream socket at path.
+	DialUnix(path string) UnixConn fails DialFailed | Denied | Unsupported,
+
+	// WriteThenReadUnixRoundTrips: bytes written on a dialed UnixConn
+	// reach the accepted end, and replies reach the dialer.
+	law WriteThenReadUnixRoundTrips(data string, reply string) {
+		let l = ListenUnix("u1.sock") catch {
+		case ListenFailed, Denied, Unsupported:
+			return false
+		}
+		let c = DialUnix(l.Addr()) catch {
+		case DialFailed, Denied, Unsupported:
+			return false
+		}
+		let s = l.Accept() catch {
+		case Failed, Unsupported:
+			return false
+		}
+		unixSends(c, s, data) && unixSends(s, c, reply)
+	},
+
+	// UnixAcceptsInDialOrder: two dials to a UnixListener are accepted
+	// in FIFO order.
+	law UnixAcceptsInDialOrder(a string, b string) {
+		let l = ListenUnix("u2.sock") catch {
+		case ListenFailed, Denied, Unsupported:
+			return false
+		}
+		let first = DialUnix(l.Addr()) catch {
+		case DialFailed, Denied, Unsupported:
+			return false
+		}
+		let second = DialUnix(l.Addr()) catch {
+		case DialFailed, Denied, Unsupported:
+			return false
+		}
+		let x = l.Accept() catch {
+		case Failed, Unsupported:
+			return false
+		}
+		let y = l.Accept() catch {
+		case Failed, Unsupported:
+			return false
+		}
+		unixSends(first, x, a+"1") && unixSends(second, y, b+"2")
+	},
+
+	// SendAndRecvFDsRoundTrips: a UnixListener FD transferred over
+	// SendFDs / RecvFDs stays usable after the original closes, and
+	// consecutive framed messages remain separated in FIFO order.
+	law SendAndRecvFDsRoundTrips(meta1 string, meta2 string, payload string) {
+		let ch = ListenUnix("u3a.sock") catch {
+		case ListenFailed, Denied, Unsupported:
+			return false
+		}
+		let tx = DialUnix(ch.Addr()) catch {
+		case DialFailed, Denied, Unsupported:
+			return false
+		}
+		let rx = ch.Accept() catch {
+		case Failed, Unsupported:
+			return false
+		}
+		let target = ListenUnix("u3b.sock") catch {
+		case ListenFailed, Denied, Unsupported:
+			return false
+		}
+		target.SetUnlinkOnClose(false)
+		let tfd = target.DupFD() catch {
+		case Failed, Unsupported:
+			return false
+		}
+		tx.SendFDs(meta1, []FD{tfd}) catch {
+		case Failed, Unsupported:
+			return false
+		}
+		tx.SendFDs(meta2, []FD{}) catch {
+		case Failed, Unsupported:
+			return false
+		}
+		target.Close()
+
+		let r1 = rx.RecvFDs(4) catch {
+		case Failed, Unsupported:
+			return false
+		}
+		let r2 = rx.RecvFDs(4) catch {
+		case Failed, Unsupported:
+			return false
+		}
+		let ok2 = match r2 {
+		case ReceivedFDs{Data: d2, FDs: fds2}:
+			d2 == meta2 && fds2.Len() == 0
+		}
+		if !ok2 {
+			return false
+		}
+		let nl = match r1 {
+		case ReceivedFDs{Data: d1, FDs: fds1}:
+			if d1 != meta1 || fds1.Len() != 1 {
+				return false
+			}
+			let (recvFD, rest1) = slices.Take(fds1, 0)
+			if rest1.Len() != 0 {
+				return false
+			}
+			UnixListenFromFD(recvFD) catch {
+			case Failed, Unsupported:
+				return false
+			}
+		}
+		nl.SetUnlinkOnClose(true)
+		let c2 = DialUnix("u3b.sock") catch {
+		case DialFailed, Denied, Unsupported:
+			return false
+		}
+		let s2 = nl.Accept() catch {
+		case Failed, Unsupported:
+			return false
+		}
+		unixSends(c2, s2, payload+"!")
+	},
+
+	// SendAndRecvUnixConnFD: an open UnixConn FD transferred over
+	// SendFDs / RecvFDs keeps transferring stream bytes after the sender
+	// closes its original handle.
+	law SendAndRecvUnixConnFD(payload string) {
+		let ch = ListenUnix("u4a.sock") catch {
+		case ListenFailed, Denied, Unsupported:
+			return false
+		}
+		let tx = DialUnix(ch.Addr()) catch {
+		case DialFailed, Denied, Unsupported:
+			return false
+		}
+		let rx = ch.Accept() catch {
+		case Failed, Unsupported:
+			return false
+		}
+		let svc = ListenUnix("u4b.sock") catch {
+		case ListenFailed, Denied, Unsupported:
+			return false
+		}
+		let peer = DialUnix(svc.Addr()) catch {
+		case DialFailed, Denied, Unsupported:
+			return false
+		}
+		let orig = svc.Accept() catch {
+		case Failed, Unsupported:
+			return false
+		}
+		let cfd = orig.DupFD() catch {
+		case Failed, Unsupported:
+			return false
+		}
+		tx.SendFDs("conn", []FD{cfd}) catch {
+		case Failed, Unsupported:
+			return false
+		}
+		orig.Close()
+		let r = rx.RecvFDs(4) catch {
+		case Failed, Unsupported:
+			return false
+		}
+		let moved = match r {
+		case ReceivedFDs{Data: tag, FDs: fds}:
+			if tag != "conn" || fds.Len() != 1 {
+				return false
+			}
+			let (recvFD, rest) = slices.Take(fds, 0)
+			if rest.Len() != 0 {
+				return false
+			}
+			UnixConnFromFD(recvFD) catch {
+			case Failed, Unsupported:
+				return false
+			}
+		}
+		unixSends(peer, moved, payload+"x") && unixSends(moved, peer, payload+"y")
+	},
+
+	// RecvFDsRespectsBound: receiving more FDs than maxFDs, or passing a
+	// negative bound, fails Failed rather than dropping descriptors.
+	law RecvFDsRespectsBound() {
+		let ch = ListenUnix("u5.sock") catch {
+		case ListenFailed, Denied, Unsupported:
+			return false
+		}
+		let tx = DialUnix(ch.Addr()) catch {
+		case DialFailed, Denied, Unsupported:
+			return false
+		}
+		let rx = ch.Accept() catch {
+		case Failed, Unsupported:
+			return false
+		}
+		let rNeg = rx.RecvFDs(-1) catch {
+		case Failed:
+			let fd1 = ch.DupFD() catch {
+			case Failed, Unsupported:
+				return false
+			}
+			let fd2 = ch.DupFD() catch {
+			case Failed, Unsupported:
+				return false
+			}
+			tx.SendFDs("two", []FD{fd1, fd2}) catch {
+			case Failed, Unsupported:
+				return false
+			}
+			let rOver = rx.RecvFDs(1) catch {
+			case Failed:
+				return true
+			case Unsupported:
+				return false
+			}
+			return rOver.Data == "" && false
+		case Unsupported:
+			return false
+		}
+		rNeg.Data == "" && false
+	},
+
+	// ClosedUnixFails: dialing a closed listener fails DialFailed, and after
+	// a connected UnixConn closes, its peer observes EOF on Read and Failed
+	// on RecvFDs.
+	law ClosedUnixFails() {
+		let l = ListenUnix("u6.sock") catch {
+		case ListenFailed, Denied, Unsupported:
+			return false
+		}
+		let addr = l.Addr()
+		let tx = DialUnix(addr) catch {
+		case DialFailed, Denied, Unsupported:
+			return false
+		}
+		let rx = l.Accept() catch {
+		case Failed, Unsupported:
+			return false
+		}
+		l.Close()
+		let dialedAfter = DialUnix(addr) catch {
+		case DialFailed:
+			tx.Close()
+			let eof = rx.Read() catch {
+			case Failed, Unsupported:
+				return false
+			}
+			if eof != "" {
+				return false
+			}
+			let rEOF = rx.RecvFDs(1) catch {
+			case Failed:
+				return true
+			case Unsupported:
+				return false
+			}
+			return rEOF.Data == "" && false
+		case Denied, Unsupported:
+			return false
+		}
+		dialedAfter.Close()
+		false
+	},
+}
+
+func unixSends(from UnixConn, to UnixConn, data string) bool {
+	from.Write(data) catch {
+	case Failed, Unsupported:
+		return false
+	}
+	let mut got = ""
+	for got.Len() < data.Len() {
+		let part = to.Read() catch {
+		case Failed, Unsupported:
+			return false
+		}
+		if part == "" {
+			return false
+		}
+		got = got + part
+	}
+	got == data
+}
+
+// ReadAllUnix reads from c until EOF and returns all received bytes.
+func ReadAllUnix(c UnixConn) string fails Failed | Unsupported {
+	let mut out = ""
+	let mut part = try c.Read()
+	for part != "" {
+		out = out + part
+		part = try c.Read()
+	}
+	out
+}
+
+func unixLawOnly(_ Host) {}
+
+type unixConfinedNetwork {
+	..UnixNetwork,
+	unixLawOnly(),
+	checkTCPDenied() bool,
+	law UnixOutsideIsDenied() {
+		for path in []string{"../out.sock", "/tmp/outside.sock", "@abstract", "bad\x00.sock"} {
+			if !denyListenUnix(path) || !denyDialUnix(path) {
+				return false
+			}
+		}
+		checkTCPDenied()
+	},
+}
+
+func denyListenUnix(path string) bool needs unixConfinedNetwork {
+	let l = unixConfinedNetwork.ListenUnix(path) catch {
+	case Denied as d:
+		return d.Addr == path
+	case ListenFailed, Unsupported:
+		return false
+	}
+	l.Close()
+	false
+}
+
+func denyDialUnix(path string) bool needs unixConfinedNetwork {
+	let c = unixConfinedNetwork.DialUnix(path) catch {
+	case Denied as d:
+		return d.Addr == path
+	case DialFailed, Unsupported:
+		return false
+	}
+	c.Close()
+	false
+}
+
+func checkTCPDenied(h Host) bool {
+	denyListenTCP(h, "127.0.0.1:0") && denyDialTCP(h, "127.0.0.1:0")
+}
+
+func denyListenTCP(h Host, addr string) bool {
+	let l = h.Listen(addr) catch {
+	case Denied as d:
+		return d.Addr == addr
+	case ListenFailed:
+		return false
+	}
+	l.Close()
+	false
+}
+
+func denyDialTCP(h Host, addr string) bool {
+	let c = h.Dial(addr) catch {
+	case Denied as d:
+		return d.Addr == addr
+	case DialFailed:
+		return false
+	}
+	c.Close()
+	false
+}
+
+let onTestUnixHost = context needs fstest.TestAmbient { UnixNetwork, unixConfinedNetwork: NewTestUnixHost() }
+
+// NewTestUnixHost supplies Unix domain sockets confined to the test
+// case's temporary folder. Paths escaping the folder, abstract names,
+// and NUL bytes are refused with Denied.
+func NewTestUnixHost() Host needs fstest.TestAmbient { Host{tcp: false, loopback: false, unix: true, root: fstest.TestFolder()} }
+
+func ListenUnix(h Host, path string) UnixListener fails ListenFailed | Denied | Unsupported {
+	if !h.unix {
+		return Denied{Addr: path}
+	}
+	let p = if h.root == "" {
+		path
+	} else {
+		try confineUnix(h.root, path)
+	}
+	try hostListenUnix(p)
+}
+
+func DialUnix(h Host, path string) UnixConn fails DialFailed | Denied | Unsupported {
+	if !h.unix {
+		return Denied{Addr: path}
+	}
+	let p = if h.root == "" {
+		path
+	} else {
+		try confineUnix(h.root, path)
+	}
+	try hostDialUnix(p)
+}
+
+// AdoptFD duplicates and adopts a process-inherited open descriptor fd
+// under an Ambient Host grant. Confined test hosts deny arbitrary FDs.
+func AdoptFD(h Host, fd int) FD fails Failed | Denied | Unsupported {
+	if !h.unix || h.root != "" {
+		return Denied{Addr: ""}
+	}
+	try hostAdoptFD(fd)
+}
+
+// ListenFromFD converts an owned FD into a TCP Listener, consuming fd.
+func ListenFromFD(fd own FD) Listener fails Failed | Unsupported { try fd.IntoListener() }
+
+// UnixListenFromFD converts an owned FD into a UnixListener, consuming fd.
+func UnixListenFromFD(fd own FD) UnixListener fails Failed | Unsupported { try fd.IntoUnixListener() }
+
+// ConnFromFD converts an owned FD into a TCP Conn, consuming fd.
+func ConnFromFD(fd own FD) Conn fails Failed | Unsupported { try fd.IntoConn() }
+
+// UnixConnFromFD converts an owned FD into a UnixConn, consuming fd.
+func UnixConnFromFD(fd own FD) UnixConn fails Failed | Unsupported { try fd.IntoUnixConn() }
+
+extern go ergo.local/prototype/runtime/v1/net.NetConfineUnix func confineUnix(root string, path string) string fails Denied
+
+extern go ergo.local/prototype/runtime/v1/net.NetListenUnix func hostListenUnix(path string) UnixListener fails ListenFailed | Unsupported
+
+extern go ergo.local/prototype/runtime/v1/net.NetDialUnix func hostDialUnix(path string) UnixConn fails DialFailed | Unsupported
+
+extern go ergo.local/prototype/runtime/v1/net.NetAdoptFD func hostAdoptFD(fd int) FD fails Failed | Unsupported

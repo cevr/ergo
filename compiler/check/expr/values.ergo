@@ -65,13 +65,22 @@ func packageLet(s mut store.Store, k Pkg, t mut Typer, i int) {
 	let file = t.file
 	let fn = t.fn
 	let res = t.res
+	let errs = t.errs
+	let what = t.what
+	let inLit = t.inFuncLit
 	t.file = t.lets[i].file
 	t.fn = -1
 	t.res = option.None
+	t.errs = option.None
+	t.what = ""
+	t.inFuncLit = false
 	letSpec(s, k, t, t.lets[i].spec)
 	t.file = file
 	t.fn = fn
 	t.res = res
+	t.errs = errs
+	t.what = what
+	t.inFuncLit = inLit
 	t.letState[i] = 2
 }
 
@@ -83,7 +92,7 @@ func ownParams(k Pkg, t Typer) []string { if t.fn >= 0 { k.Fns[t.fn].Params } el
 // expected type (want), else the type the first branch with a value gives
 // (join); valued is whether a branch gave a value, bad whether a branch's
 // value is not the join's or is not known.
-type sink { want option.Option[dense.ID[store.TKey]], join option.Option[dense.ID[store.TKey]], valued bool, bad bool }
+type sink { want option.Option[dense.ID[store.TKey]], join option.Option[dense.ID[store.TKey]], valued bool, bad bool, needValue bool }
 
 // tailWant is what a branch's tail is assigned to: the expected type,
 // else the join so far; Free before any; Unsure once the join is lost.
@@ -109,11 +118,11 @@ func tailWant(k sink) Want {
 func branches(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node], w Want) option.Option[dense.ID[store.TKey]] {
 	let mut kk = match w {
 	case Exactly as e:
-		sink{want: some(e.T), join: option.None, valued: false, bad: false}
+		sink{want: some(e.T), join: option.None, valued: false, bad: false, needValue: true}
 	case Free:
-		sink{want: option.None, join: option.None, valued: false, bad: false}
+		sink{want: option.None, join: option.None, valued: false, bad: false, needValue: true}
 	case Unsure:
-		sink{want: option.None, join: option.None, valued: false, bad: true}
+		sink{want: option.None, join: option.None, valued: false, bad: true, needValue: false}
 	}
 	yieldStmt(s, k, t, x, &kk)
 	match kk.want {
@@ -159,8 +168,25 @@ func yieldStmt(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node], k
 			args(s, k, t, syntax.CallExprOf(tr, unparen(tr, e)), []dense.ID[store.TKey]{})
 			return
 		}
+		let prevDeferBranch = t.deferBranchHint
+		if !isSome(kk.want) {
+			t.deferBranchHint = true
+		}
 		let ty = expr(s, k, t, e, tailWant(*kk))
+		t.deferBranchHint = prevDeferBranch
+		let prevBad = kk.bad
+		let prevJoin = kk.join
 		joinBranch(s, k, *t, kk, ty)
+		if kk.bad && !prevBad {
+			match prevJoin {
+			case option.Some[dense.ID[store.TKey]] as j:
+				let prevWhat = t.what
+				t.what = "value"
+				checkExprExpect(s, k, t, e, j.Value, ty)
+				t.what = prevWhat
+			case option.None:
+			}
+		}
 	} else if kd == syntax.KIfStmt {
 		let i = syntax.IfStmtOf(tr, x)
 		expr(s, k, t, i.Cond, Exactly{T: store.TBasic(s, bBool)})
@@ -173,7 +199,9 @@ func yieldStmt(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node], k
 				yieldBlock(s, k, t, e.Value, kk)
 			}
 		case option.None:
-			// A value if needs an else (D-C2).
+			if kk.needValue {
+				t.LookupDiags = t.LookupDiags.Append(LookupDiag{File: t.file, At: x, Code: "S108", Message: "a value if needs an else: without one it has no value (D-C2)"})
+			}
 			kk.bad = true
 		}
 	} else if kd == syntax.KSwitchStmt || kd == syntax.KTypeSwitchStmt {
@@ -273,44 +301,61 @@ func optionForeign(k Pkg, name string) int {
 	if f >= 0 { f } else { foreignAt(k, "prelude", name) }
 }
 
+func optionTypeKind(s store.Store, k Pkg, t dense.ID[store.TKey]) (string, dense.ID[store.TKey]) {
+	let u = infer.Unmarked(s, t)
+	match typeDeclIdentity(s, k, u) {
+	case option.Some{Value: id}:
+		if id.Path == "option" {
+			let ops = store.OperandsOf(s, u)
+			if id.Name == "None" && ops.Len() == 0 {
+				return ("None", u)
+			}
+			if (id.Name == "Some" || id.Name == "Option") && ops.Len() == 1 {
+				return (id.Name, ops[0])
+			}
+		}
+	case option.None:
+	}
+	("", t)
+}
+
+func makeOptionType(s mut store.Store, k Pkg, elem dense.ID[store.TKey]) option.Option[dense.ID[store.TKey]] {
+	match types.ImportRef(*s, k.Ifaces, "option", "Option") {
+	case option.Some{Value: ref}:
+		return some(store.TInstance(s, ref, []dense.ID[store.TKey]{elem}))
+	case option.None:
+	}
+	let fo = optionForeign(k, "Option")
+	if fo >= 0 {
+		return some(store.TInstance(s, store.XRef{Import: uint32(store.ForeignBit), Decl: uint32(fo)}, []dense.ID[store.TKey]{elem}))
+	}
+	if store.PathOf(*s) == "option" || store.PathOf(*s) == "prelude" {
+		match store.Lookup(*s, "Option") {
+		case option.Some{Value: d}:
+			return some(store.TInstance(s, store.XRef{Import: uint32(0), Decl: uint32(dense.Index(d))}, []dense.ID[store.TKey]{elem}))
+		case option.None:
+		}
+	}
+	option.None
+}
+
 // optionJoin is the prelude's generic union join (check/join.go
 // joinInstance) for its Option: Some[T] and None join to Option[T], and
 // an Option[T] stands with either (the first branch's type); none for any
 // other pair.
 func optionJoin(s mut store.Store, k Pkg, cur dense.ID[store.TKey], next dense.ID[store.TKey]) option.Option[dense.ID[store.TKey]] {
-	let fo = optionForeign(k, "Option")
-	let fs = optionForeign(k, "Some")
-	let fn = optionForeign(k, "None")
-	if fo < 0 || fs < 0 || fn < 0 {
-		return option.None
+	let (k1, a1) = optionTypeKind(*s, k, cur)
+	let (k2, a2) = optionTypeKind(*s, k, next)
+	if (k1 == "Some" && k2 == "None") || (k1 == "None" && k2 == "Some") || (k1 == "None" && k2 == "Option") || (k1 == "Some" && k2 == "Option" && identicalType(*s, k, a1, a2)) {
+		if k2 == "Option" {
+			return some(next)
+		}
+		return makeOptionType(s, k, if k1 == "Some" { a1 } else { a2 })
 	}
-	let none = store.TForeign(s, fn)
-	let (some1, arg) = optionArg(*s, cur, fs)
-	let (opt1, oarg) = optionArg(*s, cur, fo)
-	let (some2, arg2) = optionArg(*s, next, fs)
-	let (opt2, _) = optionArg(*s, next, fo)
-	if some1 && next == none || cur == none && some2 || cur == none && opt2 {
-		let a = if some1 { arg } else { arg2 }
-		return if opt2 { some(next) } else { some(store.TInstance(s, store.XRef{Import: uint32(store.ForeignBit), Decl: uint32(fo)}, []dense.ID[store.TKey]{a})) }
-	}
-	if opt1 && (next == none || some2 && arg2 == oarg) {
+	if k1 == "Option" && (k2 == "None" || (k2 == "Some" && identicalType(*s, k, a2, a1))) {
 		return some(cur)
 	}
 	option.None
-}
-
-// optionArg is whether t is the prelude's generic type at foreign index
-// f with one argument, and that argument.
-func optionArg(s store.Store, t dense.ID[store.TKey], f int) (bool, dense.ID[store.TKey]) {
-	if store.KindOfType(s, t) != store.KInstance {
-		return (false, t)
-	}
-	let o = store.OriginOfType(s, t)
-	let ops = store.OperandsOf(s, t)
-	if int(o.Import) != store.ForeignBit || int(o.Decl) != f || ops.Len() != 1 {
-		return (false, t)
-	}
-	(true, ops[0])
 }
 
 // unreachableCall is whether x is a call of the prelude's Unreachable.
@@ -361,7 +406,7 @@ func caught(s mut store.Store, k Pkg, t mut Typer, ce syntax.CatchExpr, w Want, 
 			} else if discard {
 				discarded(s, k, t, ca.Body)
 			} else {
-				let mut kk = sink{want: some(v.Value), join: option.None, valued: false, bad: false}
+				let mut kk = sink{want: some(v.Value), join: option.None, valued: false, bad: false, needValue: false}
 				yieldList(s, k, t, ca.Body, &kk)
 			}
 		case option.None:

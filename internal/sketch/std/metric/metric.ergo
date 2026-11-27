@@ -1,0 +1,487 @@
+import config
+import option
+import slices
+import strconv
+import strings
+import time
+
+// InvalidMetric reports an invalid metric name or definition parameter.
+type InvalidMetric {
+	Name   string,
+	Reason string,
+}
+
+// InvalidBoundaries reports invalid histogram bucket boundaries (empty,
+// non-finite, or not strictly ascending).
+type InvalidBoundaries {
+	Reason string,
+}
+
+// InvalidSummary reports an invalid summary quantile or sliding-window
+// configuration.
+type InvalidSummary {
+	Reason string,
+}
+
+// InvalidDelta reports a non-finite, negative counter/frequency, or otherwise
+// incompatible metric update.
+type InvalidDelta {
+	Name   string,
+	Delta  float64,
+	Reason string,
+}
+
+// InvalidBudget reports a negative series-cardinality budget or key limit.
+type InvalidBudget {
+	MaxSeries int,
+	Reason    string,
+}
+
+// BudgetExceeded reports that creating a new series would exceed MaxSeries.
+type BudgetExceeded {
+	Metric    string,
+	SeriesKey string,
+	MaxSeries int,
+}
+
+// InvalidSnapshot reports a malformed serialized metric snapshot.
+type InvalidSnapshot {
+	Reason string,
+}
+
+// Failure is the closed union of typed failures returned by package metric.
+type Failure =
+	| InvalidMetric
+	| InvalidBoundaries
+	| InvalidSummary
+	| InvalidDelta
+	| InvalidBudget
+	| BudgetExceeded
+	| InvalidSnapshot
+
+// Label is one structured key-value attribute attached to a metric series.
+type Label {
+	Key   string,
+	Value string,
+}
+
+// Spec describes the metadata and bound labels of a metric descriptor.
+type Spec {
+	Name   string,
+	Help   string,
+	Unit   string,
+	Labels []Label,
+}
+
+// LabelOf constructs a Label from key and value.
+func LabelOf(key string, value string) Label {
+	Label{Key: key, Value: value}
+}
+
+// RedactedText returns the canonical placeholder stored for redacted labels.
+func RedactedText() string { "[REDACTED]" }
+
+// RedactedLabel constructs an opt-in redacted Label whose raw secret is never
+// stored or emitted.
+func RedactedLabel(key string) Label {
+	Label{Key: key, Value: RedactedText()}
+}
+
+// RedactedFrom constructs an opt-in redacted Label from a config.Redacted
+// secret without ever revealing the underlying value.
+func RedactedFrom[T](key string, _ config.Redacted[T]) Label {
+	Label{Key: key, Value: RedactedText()}
+}
+
+func validateName(name string) string fails InvalidMetric {
+	let trimmed = strings.TrimSpace(name)
+	if trimmed == "" {
+		return InvalidMetric{Name: name, Reason: "metric name must not be empty"}
+	}
+	for b in trimmed.Bytes() {
+		if b == byte('\n') || b == byte('\r') || b == byte(0) {
+			return InvalidMetric{Name: name, Reason: "metric name contains invalid control character"}
+		}
+	}
+	trimmed
+}
+
+// NormalizeLabels trims label keys, drops empty keys, deduplicates repeated
+// keys keeping the last value, and sorts canonically by ascending key.
+func NormalizeLabels(labels []Label) []Label {
+	let mut out = []Label{}
+	for l in labels {
+		let k = strings.TrimSpace(l.Key)
+		if k == "" {
+			continue
+		}
+		let item = Label{Key: k, Value: l.Value}
+		let mut replaced = false
+		for i in 0..out.Len() {
+			if out[i].Key == k {
+				out[i] = item
+				replaced = true
+				break
+			}
+		}
+		if !replaced {
+			out = out.Append(item)
+		}
+	}
+	slices.SortFunc(out, func(a Label, b Label) int {
+		strings.Compare(a.Key, b.Key)
+	})
+}
+
+func mergeLabels(base []Label, extra []Label) []Label {
+	if base.Len() == 0 {
+		return NormalizeLabels(extra)
+	}
+	if extra.Len() == 0 {
+		return NormalizeLabels(base)
+	}
+	let mut combined = slices.WithCapacity[Label](base.Len() + extra.Len())
+	for l in base {
+		combined = combined.Append(l)
+	}
+	for l in extra {
+		combined = combined.Append(l)
+	}
+	NormalizeLabels(combined)
+}
+
+func formatSeriesKeyNormalized(name string, canon []Label) string {
+	let mut b = strings.NewBuilder()
+	b.WriteString(strconv.Itoa(name.Len()))
+	b.WriteByte(byte(':'))
+	b.WriteString(name)
+	b.WriteByte(byte('|'))
+	for l in canon {
+		b.WriteString(strconv.Itoa(l.Key.Len()))
+		b.WriteByte(byte(':'))
+		b.WriteString(l.Key)
+		b.WriteByte(byte('='))
+		b.WriteString(strconv.Itoa(l.Value.Len()))
+		b.WriteByte(byte(':'))
+		b.WriteString(l.Value)
+		b.WriteByte(byte('|'))
+	}
+	b.String()
+}
+
+// SeriesKey computes an injective canonical key for metric name and labels.
+func SeriesKey(name string, labels []Label) string {
+	let canonName = strings.TrimSpace(name)
+	let canonLabels = NormalizeLabels(labels)
+	formatSeriesKeyNormalized(canonName, canonLabels)
+}
+
+// DropOverflow drops new distinct series once MaxSeries is reached while
+// counting overflows.
+type DropOverflow {}
+
+// FailOverflow fails checked writes with BudgetExceeded once MaxSeries is
+// reached while counting overflows.
+type FailOverflow {}
+
+// OverflowPolicy selects how a Sink handles a new series past MaxSeries.
+type OverflowPolicy = DropOverflow | FailOverflow
+
+// SeriesBudget governs the maximum number of distinct metric series retained by
+// a Recorder and its overflow handling policy.
+type SeriesBudget {
+	maxSeries int,
+	policy    OverflowPolicy,
+}
+
+// NewSeriesBudget constructs a validated SeriesBudget with non-negative
+// maxSeries and explicit overflow policy.
+func NewSeriesBudget(maxSeries int, policy OverflowPolicy) SeriesBudget fails InvalidBudget {
+	if maxSeries < 0 {
+		return InvalidBudget{MaxSeries: maxSeries, Reason: "maxSeries must not be negative"}
+	}
+	SeriesBudget{maxSeries: maxSeries, policy: policy}
+}
+
+// DefaultBudget returns a SeriesBudget permitting up to 4096 series with
+// DropOverflow policy.
+func DefaultBudget() SeriesBudget {
+	SeriesBudget{maxSeries: 4096, policy: DropOverflow}
+}
+
+// DropBudget constructs a SeriesBudget with DropOverflow policy.
+func DropBudget(maxSeries int) SeriesBudget fails InvalidBudget {
+	try NewSeriesBudget(maxSeries, DropOverflow)
+}
+
+// StrictBudget constructs a SeriesBudget with FailOverflow policy.
+func StrictBudget(maxSeries int) SeriesBudget fails InvalidBudget {
+	try NewSeriesBudget(maxSeries, FailOverflow)
+}
+
+// MaxSeries returns the configured series cardinality ceiling of b.
+func MaxSeries(b SeriesBudget) int { b.maxSeries }
+
+// BudgetPolicy returns the configured OverflowPolicy of b.
+func BudgetPolicy(b SeriesBudget) OverflowPolicy { b.policy }
+
+// BudgetStats summarizes current series occupancy and rejected/overflow counts.
+type BudgetStats {
+	ActiveSeries   int,
+	MaxSeries      int,
+	OverflowCount  int64,
+	RejectedDeltas int64,
+}
+
+// UpdateCounterInt records an int64 monotonic increment on Counter Metric.
+type UpdateCounterInt {
+	Metric Counter,
+	Delta  int64,
+	Labels []Label,
+}
+
+// UpdateCounterFloat records a float64 monotonic increment on Counter Metric.
+type UpdateCounterFloat {
+	Metric Counter,
+	Delta  float64,
+	Labels []Label,
+}
+
+// UpdateGaugeSet sets Gauge Metric to Value.
+type UpdateGaugeSet {
+	Metric Gauge,
+	Value  float64,
+	Labels []Label,
+}
+
+// UpdateGaugeAdd adds Delta to Gauge Metric.
+type UpdateGaugeAdd {
+	Metric Gauge,
+	Delta  float64,
+	Labels []Label,
+}
+
+// UpdateHistogram records Value into Histogram Metric.
+type UpdateHistogram {
+	Metric Histogram,
+	Value  float64,
+	Labels []Label,
+}
+
+// UpdateFrequency adds Count occurrences of Key to Frequency Metric.
+type UpdateFrequency {
+	Metric Frequency,
+	Key    string,
+	Count  int64,
+	Labels []Label,
+}
+
+// UpdateSummary records Value (optionally timestamped at At) into Summary Metric.
+type UpdateSummary {
+	Metric Summary,
+	Value  float64,
+	At     time.Time,
+	Timed  bool,
+	Labels []Label,
+}
+
+// Update is the closed union of metric recording events dispatched to a Sink.
+type Update =
+	| UpdateCounterInt
+	| UpdateCounterFloat
+	| UpdateGaugeSet
+	| UpdateGaugeAdd
+	| UpdateHistogram
+	| UpdateFrequency
+	| UpdateSummary
+
+// Sink receives validated metric updates in context.
+type Sink {
+	// Enabled reports whether this Sink accepts updates; disabled sinks skip
+	// work before normalizing labels or allocating updates.
+	Enabled() bool,
+	// Apply records u or fails InvalidDelta / BudgetExceeded.
+	Apply(u Update) fails InvalidDelta | BudgetExceeded,
+
+	// EnabledIsConsistent: calling Enabled twice without mutation agrees.
+	law EnabledIsConsistent() {
+		Enabled() == Enabled()
+	},
+
+	// NegativeCounterDeltaRejected: any enabled Sink rejects negative counter
+	// increments with InvalidDelta.
+	law NegativeCounterDeltaRejected() {
+		if !Enabled() {
+			return true
+		}
+		let c = NewCounter("law.sink.counter", "law check counter") catch {
+		case InvalidMetric:
+			return false
+		}
+		Apply(UpdateCounterFloat{Metric: c, Delta: -1.0, Labels: []Label{}}) catch {
+		case InvalidDelta:
+			return true
+		case BudgetExceeded:
+			return false
+		}
+		false
+	},
+}
+
+func tryApply(u Update) fails InvalidDelta | BudgetExceeded needs Sink {
+	if !Sink.Enabled() {
+		return
+	}
+	try Sink.Apply(u)
+}
+
+func applyChecked(u Update) needs Sink {
+	if !Sink.Enabled() {
+		return
+	}
+	Sink.Apply(u) catch {
+	case InvalidDelta, BudgetExceeded:
+	}
+}
+
+// NoopSink drops all metric updates with zero work.
+type NoopSink {} implements Sink
+
+// NewNoopSink constructs a disabled NoopSink.
+func NewNoopSink() NoopSink { NoopSink }
+
+// Enabled reports false on NoopSink.
+func Enabled(_ NoopSink) bool { false }
+
+// Apply drops u on NoopSink.
+func Apply(_ NoopSink, _ Update) fails InvalidDelta | BudgetExceeded {}
+
+// TeeSink fans out each metric update to both First and Second.
+type TeeSink {
+	First  Sink,
+	Second Sink,
+} implements Sink
+
+// NewTeeSink constructs a TeeSink forwarding updates to first and second.
+func NewTeeSink(first Sink, second Sink) TeeSink {
+	TeeSink{First: first, Second: second}
+}
+
+// Enabled reports true when either child sink is enabled.
+func Enabled(t TeeSink) bool {
+	t.First.Enabled() || t.Second.Enabled()
+}
+
+// Apply forwards u to each enabled child sink in order, returning the first
+// failure if either fails.
+func Apply(t TeeSink, u Update) fails InvalidDelta | BudgetExceeded {
+	let mut hasFirst = false
+	let mut firstErrDelta = InvalidDelta{Name: "", Delta: 0.0, Reason: ""}
+	let mut hasFirstDelta = false
+	let mut firstErrBudget = BudgetExceeded{Metric: "", SeriesKey: "", MaxSeries: 0}
+	let mut hasFirstBudget = false
+	if t.First.Enabled() {
+		t.First.Apply(u) catch {
+		case InvalidDelta as e:
+			hasFirst = true
+			hasFirstDelta = true
+			firstErrDelta = e
+		case BudgetExceeded as e:
+			hasFirst = true
+			hasFirstBudget = true
+			firstErrBudget = e
+		}
+	}
+	if t.Second.Enabled() {
+		try t.Second.Apply(u)
+	}
+	if hasFirst {
+		if hasFirstDelta {
+			return firstErrDelta
+		}
+		if hasFirstBudget {
+			return firstErrBudget
+		}
+	}
+}
+
+let onNoop = context { Sink: NewNoopSink() }
+let onTee = context { Sink: NewTeeSink(DefaultRecorder(), DefaultRecorder()) }
+
+// LabelsNormalizeCanonically: label normalization trims keys, drops empty keys,
+// deduplicates with last-wins, sorts deterministically regardless of input
+// order, is idempotent, and produces collision-free SeriesKeys even with
+// embedded delimiters.
+law LabelsNormalizeCanonically(v1 string, v2 string) {
+	let a = []Label{
+		LabelOf("  z ", v1),
+		LabelOf("", "ignored"),
+		LabelOf("a", "old"),
+		LabelOf(" a", v2),
+	}
+	let b = []Label{
+		LabelOf("a", "old"),
+		LabelOf("a ", v2),
+		LabelOf("z", v1),
+		LabelOf("   ", "also-ignored"),
+	}
+	let na = NormalizeLabels(a)
+	let nb = NormalizeLabels(b)
+	always na == nb
+	always NormalizeLabels(na) == na
+	always na.Len() == 2
+	always na[0] == LabelOf("a", v2)
+	always na[1] == LabelOf("z", v1)
+	always SeriesKey("req", a) == SeriesKey("req", b)
+	let k1 = SeriesKey("m", []Label{LabelOf("x", "1|y=2"), LabelOf("z", "3")})
+	let k2 = SeriesKey("m", []Label{LabelOf("x", "1"), LabelOf("y", "2|z=3")})
+	always k1 != k2
+	true
+}
+
+// RedactedNeverLeaksSecret: RedactedLabel and RedactedFrom always normalize to
+// "[REDACTED]" without exposing any secret bytes in labels, series keys,
+// snapshots, or OpenMetrics output.
+law RedactedNeverLeaksSecret(secret string) {
+	let rawSecret = if secret.Len() < 8 { "secret-token-xyz-999" } else { secret }
+	let redacted = config.NewRedacted(rawSecret)
+	let l1 = RedactedLabel("api_key")
+	let l2 = RedactedFrom("api_key", redacted)
+	always l1 == l2
+	always l1.Value == RedactedText()
+	let c = NewCounter("auth.calls", "Auth calls") catch {
+	case InvalidMetric:
+		return false
+	}
+	let (_, snap) = CaptureDefault(func() bool needs Sink {
+		c.IncWith([]Label{l2})
+		true
+	})
+	let om = FormatOpenMetrics(snap)
+	let js = EncodeJSON(snap)
+	always strings.Contains(om, RedactedText())
+	always strings.Contains(js, RedactedText())
+	always !strings.Contains(SeriesKey("auth.calls", []Label{l2}), rawSecret)
+	always !strings.Contains(om, rawSecret)
+	always !strings.Contains(js, rawSecret)
+	true
+}
+
+// TeeSinkDeliversToBoth: TeeSink forwards every update identically to both
+// child sinks so their collected snapshots match.
+law TeeSinkDeliversToBoth(n int64) {
+	let d = if n < int64(0) { int64(1) } else { n % int64(1000) }
+	let r1 = DefaultRecorder()
+	let r2 = DefaultRecorder()
+	let tee = NewTeeSink(r1, r2)
+	let c = NewCounter("tee.hits", "Tee hits") catch {
+	case InvalidMetric:
+		return false
+	}
+	with context { Sink: tee } {
+		c.AddInt(d, []Label{LabelOf("env", "prod")})
+	}
+	always r1.Collect() == r2.Collect()
+	always r1.CounterTotal(c, []Label{LabelOf("env", "prod")}) == option.Some[CounterData]{Value: CounterData{IntTotal: d, FloatTotal: 0.0, HasFloat: false}}
+	true
+}

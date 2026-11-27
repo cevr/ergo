@@ -40,6 +40,7 @@ This directory is the normative specification of the Go-shaped Ergo language: Ef
 11. [patterns.md](patterns.md): derived types (`type T derive E`), type plans, plan functions and typed byte patterns.
 12. [inserted.md](inserted.md): every operation the compiler inserts, the written form it stands for, and the rules it must carry (G9).
 13. [code.md](code.md): the fact tables, std `code`'s `Reader` and `ergo code` (SEMTOOLS).
+14. [content-mappers.md](content-mappers.md): userland content mappers, unified file imports and inline `derive`, source maps and `lawcache`.
 
 ## Status per construct
 
@@ -103,6 +104,7 @@ The [support table](support.md) lists the exact support of the build, one family
 | Standard library | The prelude and the std packages under `internal/sketch/std` (among them `actor`, `fs`, `machines`, `maps`, `queue`, `schedule`, `slices`, `strings`, `sync`, `task`, `time`, `timeout`) are Ergo source, checked and lowered; [stdlib.md](stdlib.md) states each family's status | [stdlib](stdlib.md) |
 | Value-tied facts: `given`, `gives`, `keeps`; record invariants `type T { … } where P(it)` | Designed, not yet implemented: the parser refuses the clauses and a `where` after a record type with S001 | [facts](facts.md) |
 | Derived types `type T derive E`: type plans, plan functions and typed byte patterns | Parsed, checked and lowered: `Pattern` and `Refine` plans, plan functions of any package, typed captures and their matchers; the derived laws are designed | [patterns](patterns.md) |
+| Content mappers: file-level asset imports and pure userland `derive` handlers with `SourceSpanMap` | Designed, not yet implemented: pure capability-free `ContentInput -> MappedErgo` contract unifying asset imports and inline derives with `lawcache` keying and source-mapped diagnostics | [content-mappers](content-mappers.md) |
 
 ## Surface
 

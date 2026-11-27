@@ -757,9 +757,8 @@ func (b *irBuilder) stdCloseCall(cl *check.Close, s irSlot, env, slot int, p irP
 }
 
 // ownBodyChecks admits checked ownership plans this frame implements.
-// Conditional arm values, replaced fields of record updates, and
-// ownership patterns outside a simple list-owned type switch are not
-// built here.
+// Replaced fields of record updates and ownership or arm-value plans
+// outside a list-owned frame are not built here.
 // It records in o the places with planned releases (Info.Releases),
 // which the builder must each reach.
 func (b *irBuilder) ownBodyChecks(body *syntax.BlockStmt, o *irOwn) {
@@ -780,7 +779,7 @@ func (b *irBuilder) ownBodyChecks(body *syntax.BlockStmt, o *irOwn) {
 		// as the source path's does (OWNED-LOCAL-2).
 		switch n := n.(type) {
 		case *syntax.TypeSwitchStmt:
-			if b.hasPatternOwners(n) && (!o.list || !b.fc.simpleTypeMatch(n)) {
+			if b.hasPatternOwners(n) && !o.list {
 				irNo("owned local")
 			}
 		case *syntax.CompositeLit:
@@ -801,7 +800,7 @@ func (b *irBuilder) ownBodyChecks(body *syntax.BlockStmt, o *irOwn) {
 				}
 			}
 		}
-		if x, ok := n.(syntax.Expr); ok && (info.OwnedTemps[x] != nil && !b.tempOwnable(x, o) || info.ArmValues[x] != nil) {
+		if x, ok := n.(syntax.Expr); ok && (info.OwnedTemps[x] != nil && !b.tempOwnable(x, o) || !o.list && info.ArmValues[x] != nil) {
 			irNo("owned temporary")
 		}
 		return true
@@ -847,6 +846,67 @@ func (b *irBuilder) bindPatternOwners(cl *syntax.CaseClause, p irPos) []*irStmt 
 		}
 		out = append(out, b.ownLet(v, i, cl, nil)...)
 	}
+	return out
+}
+
+type irArmOwner struct {
+	form   syntax.Expr
+	owner  *irStmt
+	handle int
+	done   bool
+}
+
+// armOpen opens a list-form owner for form while its arms run when
+// Info.ArmValues[form] requires one (release.go armValueVar).
+func (b *irBuilder) armOpen(x syntax.Expr, p irPos) *irArmOwner {
+	form := unparen(x)
+	if b.l.info.ArmValues[form] == nil {
+		return nil
+	}
+	o := b.own
+	if o == nil || !o.list {
+		irNo("owned temporary")
+	}
+	owner, _ := b.listOwner(p)
+	return &irArmOwner{form: form, owner: owner, handle: owner.Local}
+}
+
+// armYield registers local (set by the tail x of arm.form) in arm.handle
+// until arm.form ends. When err >= 0, registration runs only when err == nil.
+func (b *irBuilder) armYield(arm *irArmOwner, x syntax.Expr, local int, t check.Type, err int, p irPos) []*irStmt {
+	if arm == nil || b.l.info.LentYields[x] {
+		return nil
+	}
+	d := b.l.info.ArmValues[arm.form]
+	if d == nil {
+		return nil
+	}
+	typ := b.goType(t, x)
+	name, rel := b.listReleaseValue(d, t, typ, x, nil, p)
+	call := b.ownCall(name, typ, p, &irExpr{K: "local", Pos: p, I: arm.handle}, &irExpr{K: "local", Pos: p, I: local}, rel)
+	arm.done = true
+	stmt := &irStmt{K: "expr", Pos: p, X: call}
+	if err >= 0 {
+		return []*irStmt{{K: "if", Pos: p, End: p, X: &irExpr{K: "bin", Pos: p, Op: "==",
+			X: &irExpr{K: "local", Pos: p, I: err},
+			Y: &irExpr{K: "zero", Pos: p, T: "error"}}, Then: []*irStmt{stmt}}}
+	}
+	return []*irStmt{stmt}
+}
+
+// armWrap wraps stmts with arm's owner declaration and trailing Hand when an
+// arm yielded a value into local.
+func (b *irBuilder) armWrap(arm *irArmOwner, stmts []*irStmt, local int, t check.Type, p irPos) []*irStmt {
+	if arm == nil || !arm.done {
+		return stmts
+	}
+	typ := b.goType(t, arm.form)
+	hand := &irStmt{K: "set", Pos: p, Local: local, X: b.ownCall("Hand", typ, p,
+		&irExpr{K: "local", Pos: p, I: arm.handle}, &irExpr{K: "local", Pos: p, I: local})}
+	out := make([]*irStmt, 0, len(stmts)+2)
+	out = append(out, arm.owner)
+	out = append(out, stmts...)
+	out = append(out, hand)
 	return out
 }
 

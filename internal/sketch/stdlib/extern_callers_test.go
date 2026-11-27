@@ -267,7 +267,7 @@ func TestStdExternCallersHoldAuthority(t *testing.T) {
 		"host.hostEnv", "host.hostLocal", "host.hostZone",
 		"http.IntoFile", "http.Listen", "http.fetch", "http.fetchInto", "http.send", "http.sendInto", "http.serve",
 		"io.hostEprint", "io.hostIsTerminal", "io.hostLines", "io.hostPrint", "io.hostRead", "io.hostReadAll", "io.hostStderrIsTerminal", "io.hostStdinIsTerminal",
-		"net.hostDial", "net.hostListen",
+		"net.confineUnix", "net.hostAdoptFD", "net.hostDial", "net.hostDialUnix", "net.hostListen", "net.hostListenUnix",
 		"os.hostArgs", "os.hostCacheDir", "os.hostConfigDir", "os.hostEnviron", "os.hostExecutable", "os.hostGetenv", "os.hostGetwd", "os.hostHasEnv", "os.hostHomeDir", "os.hostPid",
 		"prelude.Sleep", "prelude.hostAlarms",
 		"rand.hostFloat64", "rand.hostIntN", "rand.hostUint64", "rand.secureBytes",

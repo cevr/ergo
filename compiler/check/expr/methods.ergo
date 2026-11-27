@@ -156,6 +156,7 @@ func coreClaimMethod(s mut store.Store, k Pkg, t mut Typer, base dense.ID[store.
 				if sameHead(*s, pBase, base) || arrayLen {
 					let mut out = f
 					out.Sig = sig
+					out.fromDep = ci
 					return option.Some{Value: out}
 				}
 			case option.None:
@@ -205,6 +206,7 @@ func methodOf(s mut store.Store, k Pkg, t mut Typer, xt dense.ID[store.TKey], na
 				if sameHead(*s, receiverBase(*s, store.OperandsOf(*s, sig)[0]), base) {
 					let mut out = f
 					out.Sig = sig
+					out.fromDep = owner
 					return option.Some{Value: out}
 				}
 			case option.None:

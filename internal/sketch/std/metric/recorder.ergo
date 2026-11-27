@@ -1,0 +1,984 @@
+import json
+import math
+import option
+import slices
+import strings
+import sync
+import time
+
+// HistogramBucket records a cumulative observation count up to UpperBound.
+type HistogramBucket {
+	UpperBound float64,
+	Count      int64,
+}
+
+// FrequencyEntry records the exact occurrence count for a distinct Key.
+type FrequencyEntry {
+	Key   string,
+	Count int64,
+}
+
+// QuantileValue records the computed value at Quantile in [0.0, 1.0].
+type QuantileValue {
+	Quantile float64,
+	Value    float64,
+}
+
+// CounterData holds the exported totals of a Counter series.
+type CounterData {
+	IntTotal   int64,
+	FloatTotal float64,
+	HasFloat   bool,
+}
+
+// GaugeData holds the exported instantaneous value of a Gauge series.
+type GaugeData {
+	Value float64,
+}
+
+// HistogramData holds the exported buckets, count, sum, min, and max of a
+// Histogram series.
+type HistogramData {
+	Boundaries []float64,
+	Buckets    []HistogramBucket,
+	Count      int64,
+	Sum        float64,
+	Min        float64,
+	Max        float64,
+}
+
+// FrequencyData holds sorted per-key occurrence counts and total count of a
+// Frequency series.
+type FrequencyData {
+	Entries []FrequencyEntry,
+	Total   int64,
+}
+
+// SummaryData holds window quantiles, window sample count, cumulative count and
+// sum, and window min/max of a Summary series.
+type SummaryData {
+	Quantiles   []QuantileValue,
+	WindowCount int,
+	Count       int64,
+	Sum         float64,
+	Min         float64,
+	Max         float64,
+}
+
+// CounterSeries wraps CounterData in SeriesData.
+type CounterSeries { Data CounterData }
+
+// GaugeSeries wraps GaugeData in SeriesData.
+type GaugeSeries { Data GaugeData }
+
+// HistogramSeries wraps HistogramData in SeriesData.
+type HistogramSeries { Data HistogramData }
+
+// FrequencySeries wraps FrequencyData in SeriesData.
+type FrequencySeries { Data FrequencyData }
+
+// SummarySeries wraps SummaryData in SeriesData.
+type SummarySeries { Data SummaryData }
+
+// SeriesData is the closed union of per-series metric snapshots.
+type SeriesData =
+	| CounterSeries
+	| GaugeSeries
+	| HistogramSeries
+	| FrequencySeries
+	| SummarySeries
+
+// SeriesSnapshot represents one canonical metric series at snapshot time.
+type SeriesSnapshot {
+	Name   string,
+	Help   string,
+	Unit   string,
+	Labels []Label,
+	Key    string,
+	Data   SeriesData,
+}
+
+// Snapshot is an immutable, deterministically ordered point-in-time capture
+// of all active series and cardinality budget statistics.
+type Snapshot {
+	Series []SeriesSnapshot,
+	Budget BudgetStats,
+}
+
+type summarySample {
+	value float64,
+	at    time.Time,
+	timed bool,
+}
+
+type seriesEntry {
+	name         string,
+	help         string,
+	unit         string,
+	labels       []Label,
+	key          string,
+	kind         int,
+	intTotal     int64,
+	floatTotal   float64,
+	hasFloat     bool,
+	gaugeValue   float64,
+	boundaries   []float64,
+	bucketCounts []int64,
+	totalCount   int64,
+	totalSum     float64,
+	minVal       float64,
+	maxVal       float64,
+	hasObs       bool,
+	maxFreqKeys  int,
+	freqCounts   Map[string, int64],
+	quantiles    []float64,
+	maxSamples   int,
+	maxAge       duration,
+	ring         []summarySample,
+	head         int,
+	ringLen      int,
+	latestAt     time.Time,
+	hasLatestAt  bool,
+}
+
+type recorderState {
+	series         Map[string, seriesEntry],
+	overflowCount  int64,
+	rejectedDeltas int64,
+}
+
+// Recorder is a sealed, concurrency-safe in-memory metric Sink enforcing a
+// SeriesBudget and supporting deterministic snapshots.
+type Recorder {
+	budget SeriesBudget,
+	state  sync.Ref[recorderState],
+} implements Sink
+
+func emptyRecorderState() recorderState {
+	recorderState{
+		series:         Map[string, seriesEntry]{},
+		overflowCount:  int64(0),
+		rejectedDeltas: int64(0),
+	}
+}
+
+// NewRecorder constructs an empty Recorder governed by budget.
+func NewRecorder(budget SeriesBudget) Recorder {
+	Recorder{
+		budget: budget,
+		state:  sync.NewRef[recorderState](emptyRecorderState()),
+	}
+}
+
+// DefaultRecorder constructs an empty Recorder with DefaultBudget.
+func DefaultRecorder() Recorder {
+	NewRecorder(DefaultBudget())
+}
+
+// Enabled reports true on Recorder.
+func Enabled(_ Recorder) bool { true }
+
+func invalidFloat(v float64) bool {
+	math.IsNaN(v) || math.IsInf(v, 0)
+}
+
+type applyResult {
+	hasDeltaErr  bool,
+	deltaErr     InvalidDelta,
+	hasBudgetErr bool,
+	budgetErr    BudgetExceeded,
+}
+
+func okApply() applyResult {
+	applyResult{
+		hasDeltaErr:  false,
+		deltaErr:     InvalidDelta{Name: "", Delta: 0.0, Reason: ""},
+		hasBudgetErr: false,
+		budgetErr:    BudgetExceeded{Metric: "", SeriesKey: "", MaxSeries: 0},
+	}
+}
+
+func deltaErrResult(name string, delta float64, reason string) applyResult {
+	applyResult{
+		hasDeltaErr:  true,
+		deltaErr:     InvalidDelta{Name: name, Delta: delta, Reason: reason},
+		hasBudgetErr: false,
+		budgetErr:    BudgetExceeded{Metric: "", SeriesKey: "", MaxSeries: 0},
+	}
+}
+
+func budgetErrResult(name string, sk string, maxSeries int) applyResult {
+	applyResult{
+		hasDeltaErr:  false,
+		deltaErr:     InvalidDelta{Name: "", Delta: 0.0, Reason: ""},
+		hasBudgetErr: true,
+		budgetErr:    BudgetExceeded{Metric: name, SeriesKey: sk, MaxSeries: maxSeries},
+	}
+}
+
+func admitSeries(st mut recorderState, budget SeriesBudget, name string, sk string) (bool, applyResult) {
+	if st.series.Get(sk) != option.None {
+		return (true, okApply())
+	}
+	if st.series.Len() >= budget.maxSeries {
+		st.overflowCount = st.overflowCount + int64(1)
+		match budget.policy {
+		case FailOverflow:
+			return (false, budgetErrResult(name, sk, budget.maxSeries))
+		case DropOverflow:
+			return (false, okApply())
+		}
+	}
+	(true, okApply())
+}
+
+func newBaseEntry(name string, help string, unit string, labels []Label, sk string, kind int) seriesEntry {
+	seriesEntry{
+		name:         name,
+		help:         help,
+		unit:         unit,
+		labels:       labels,
+		key:          sk,
+		kind:         kind,
+		intTotal:     int64(0),
+		floatTotal:   0.0,
+		hasFloat:     false,
+		gaugeValue:   0.0,
+		boundaries:   []float64{},
+		bucketCounts: []int64{},
+		totalCount:   int64(0),
+		totalSum:     0.0,
+		minVal:       0.0,
+		maxVal:       0.0,
+		hasObs:       false,
+		maxFreqKeys:  0,
+		freqCounts:   Map[string, int64]{},
+		quantiles:    []float64{},
+		maxSamples:   0,
+		maxAge:       0ns,
+		ring:         []summarySample{},
+		head:         0,
+		ringLen:      0,
+		latestAt:     time.Unix(0, 0),
+		hasLatestAt:  false,
+	}
+}
+
+func sameFloatSlice(a []float64, b []float64) bool {
+	if a.Len() != b.Len() {
+		return false
+	}
+	for i in 0..a.Len() {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	true
+}
+
+func applyCounterInt(st mut recorderState, budget SeriesBudget, u UpdateCounterInt) applyResult {
+	if u.Delta < int64(0) {
+		st.rejectedDeltas = st.rejectedDeltas + int64(1)
+		return deltaErrResult(u.Metric.name, float64(u.Delta), "counter increment must not be negative")
+	}
+	let lbls = mergeLabels(u.Metric.labels, u.Labels)
+	let sk = formatSeriesKeyNormalized(u.Metric.name, lbls)
+	let (admitted, budRes) = admitSeries(st, budget, u.Metric.name, sk)
+	if !admitted {
+		return budRes
+	}
+	let mut entry = match st.series.Get(sk) {
+	case option.Some[seriesEntry] as cur:
+		if cur.Value.kind != 1 {
+			st.rejectedDeltas = st.rejectedDeltas + int64(1)
+			return deltaErrResult(u.Metric.name, float64(u.Delta), "metric kind mismatch for series")
+		}
+		cur.Value
+	case option.None:
+		newBaseEntry(u.Metric.name, u.Metric.help, u.Metric.unit, lbls, sk, 1)
+	}
+	let maxI64 = int64(9223372036854775807)
+	if entry.intTotal > maxI64-u.Delta {
+		entry.floatTotal = entry.floatTotal + float64(entry.intTotal) + float64(u.Delta)
+		entry.intTotal = int64(0)
+		entry.hasFloat = true
+	} else {
+		entry.intTotal = entry.intTotal + u.Delta
+	}
+	st.series[sk] = entry
+	okApply()
+}
+
+func applyCounterFloat(st mut recorderState, budget SeriesBudget, u UpdateCounterFloat) applyResult {
+	if invalidFloat(u.Delta) || u.Delta < 0.0 {
+		st.rejectedDeltas = st.rejectedDeltas + int64(1)
+		return deltaErrResult(u.Metric.name, u.Delta, "counter increment must be finite and non-negative")
+	}
+	let lbls = mergeLabels(u.Metric.labels, u.Labels)
+	let sk = formatSeriesKeyNormalized(u.Metric.name, lbls)
+	let (admitted, budRes) = admitSeries(st, budget, u.Metric.name, sk)
+	if !admitted {
+		return budRes
+	}
+	let mut entry = match st.series.Get(sk) {
+	case option.Some[seriesEntry] as cur:
+		if cur.Value.kind != 1 {
+			st.rejectedDeltas = st.rejectedDeltas + int64(1)
+			return deltaErrResult(u.Metric.name, u.Delta, "metric kind mismatch for series")
+		}
+		cur.Value
+	case option.None:
+		newBaseEntry(u.Metric.name, u.Metric.help, u.Metric.unit, lbls, sk, 1)
+	}
+	entry.floatTotal = entry.floatTotal + u.Delta
+	entry.hasFloat = true
+	st.series[sk] = entry
+	okApply()
+}
+
+func applyGaugeSet(st mut recorderState, budget SeriesBudget, u UpdateGaugeSet) applyResult {
+	if invalidFloat(u.Value) {
+		st.rejectedDeltas = st.rejectedDeltas + int64(1)
+		return deltaErrResult(u.Metric.name, u.Value, "gauge value must be finite")
+	}
+	let lbls = mergeLabels(u.Metric.labels, u.Labels)
+	let sk = formatSeriesKeyNormalized(u.Metric.name, lbls)
+	let (admitted, budRes) = admitSeries(st, budget, u.Metric.name, sk)
+	if !admitted {
+		return budRes
+	}
+	let mut entry = match st.series.Get(sk) {
+	case option.Some[seriesEntry] as cur:
+		if cur.Value.kind != 2 {
+			st.rejectedDeltas = st.rejectedDeltas + int64(1)
+			return deltaErrResult(u.Metric.name, u.Value, "metric kind mismatch for series")
+		}
+		cur.Value
+	case option.None:
+		newBaseEntry(u.Metric.name, u.Metric.help, u.Metric.unit, lbls, sk, 2)
+	}
+	entry.gaugeValue = u.Value
+	st.series[sk] = entry
+	okApply()
+}
+
+func applyGaugeAdd(st mut recorderState, budget SeriesBudget, u UpdateGaugeAdd) applyResult {
+	if invalidFloat(u.Delta) {
+		st.rejectedDeltas = st.rejectedDeltas + int64(1)
+		return deltaErrResult(u.Metric.name, u.Delta, "gauge delta must be finite")
+	}
+	let lbls = mergeLabels(u.Metric.labels, u.Labels)
+	let sk = formatSeriesKeyNormalized(u.Metric.name, lbls)
+	let (admitted, budRes) = admitSeries(st, budget, u.Metric.name, sk)
+	if !admitted {
+		return budRes
+	}
+	let mut entry = match st.series.Get(sk) {
+	case option.Some[seriesEntry] as cur:
+		if cur.Value.kind != 2 {
+			st.rejectedDeltas = st.rejectedDeltas + int64(1)
+			return deltaErrResult(u.Metric.name, u.Delta, "metric kind mismatch for series")
+		}
+		cur.Value
+	case option.None:
+		newBaseEntry(u.Metric.name, u.Metric.help, u.Metric.unit, lbls, sk, 2)
+	}
+	entry.gaugeValue = entry.gaugeValue + u.Delta
+	st.series[sk] = entry
+	okApply()
+}
+
+func applyHistogram(st mut recorderState, budget SeriesBudget, u UpdateHistogram) applyResult {
+	if invalidFloat(u.Value) {
+		st.rejectedDeltas = st.rejectedDeltas + int64(1)
+		return deltaErrResult(u.Metric.name, u.Value, "histogram observation must be finite")
+	}
+	let lbls = mergeLabels(u.Metric.labels, u.Labels)
+	let sk = formatSeriesKeyNormalized(u.Metric.name, lbls)
+	let (admitted, budRes) = admitSeries(st, budget, u.Metric.name, sk)
+	if !admitted {
+		return budRes
+	}
+	let mut entry = match st.series.Get(sk) {
+	case option.Some[seriesEntry] as cur:
+		if cur.Value.kind != 3 || !sameFloatSlice(cur.Value.boundaries, u.Metric.boundaries) {
+			st.rejectedDeltas = st.rejectedDeltas + int64(1)
+			return deltaErrResult(u.Metric.name, u.Value, "histogram kind or boundaries mismatch")
+		}
+		cur.Value
+	case option.None:
+		let base = newBaseEntry(u.Metric.name, u.Metric.help, u.Metric.unit, lbls, sk, 3)
+		let mut zeros = slices.WithCapacity[int64](u.Metric.boundaries.Len())
+		for _ in 0..u.Metric.boundaries.Len() {
+			zeros = zeros.Append(int64(0))
+		}
+		seriesEntry{..base, boundaries: slices.Clone(u.Metric.boundaries), bucketCounts: zeros}
+	}
+	let mut counts = slices.Clone(entry.bucketCounts)
+	for i, bound in entry.boundaries {
+		if u.Value <= bound {
+			counts[i] = counts[i] + int64(1)
+		}
+	}
+	entry.bucketCounts = counts
+	entry.totalCount = entry.totalCount + int64(1)
+	entry.totalSum = entry.totalSum + u.Value
+	if !entry.hasObs {
+		entry.minVal = u.Value
+		entry.maxVal = u.Value
+		entry.hasObs = true
+	} else {
+		if u.Value < entry.minVal {
+			entry.minVal = u.Value
+		}
+		if u.Value > entry.maxVal {
+			entry.maxVal = u.Value
+		}
+	}
+	st.series[sk] = entry
+	okApply()
+}
+
+func applyFrequency(st mut recorderState, budget SeriesBudget, u UpdateFrequency) applyResult {
+	if u.Count < int64(0) {
+		st.rejectedDeltas = st.rejectedDeltas + int64(1)
+		return deltaErrResult(u.Metric.name, float64(u.Count), "frequency count must not be negative")
+	}
+	let lbls = mergeLabels(u.Metric.labels, u.Labels)
+	let sk = formatSeriesKeyNormalized(u.Metric.name, lbls)
+	let (admitted, budRes) = admitSeries(st, budget, u.Metric.name, sk)
+	if !admitted {
+		return budRes
+	}
+	let mut entry = match st.series.Get(sk) {
+	case option.Some[seriesEntry] as cur:
+		if cur.Value.kind != 4 {
+			st.rejectedDeltas = st.rejectedDeltas + int64(1)
+			return deltaErrResult(u.Metric.name, float64(u.Count), "metric kind mismatch for series")
+		}
+		cur.Value
+	case option.None:
+		let base = newBaseEntry(u.Metric.name, u.Metric.help, u.Metric.unit, lbls, sk, 4)
+		seriesEntry{..base, maxFreqKeys: u.Metric.maxKeys}
+	}
+	let prev = match entry.freqCounts.Get(u.Key) {
+	case option.Some[int64] as v:
+		v.Value
+	case option.None:
+		if entry.maxFreqKeys > 0 && entry.freqCounts.Len() >= entry.maxFreqKeys {
+			st.overflowCount = st.overflowCount + int64(1)
+			match budget.policy {
+			case FailOverflow:
+				return budgetErrResult(u.Metric.name, sk, entry.maxFreqKeys)
+			case DropOverflow:
+				return okApply()
+			}
+		}
+		int64(0)
+	}
+	entry.freqCounts = entry.freqCounts.Put(u.Key, prev+u.Count)
+	entry.totalCount = entry.totalCount + u.Count
+	st.series[sk] = entry
+	okApply()
+}
+
+func applySummary(st mut recorderState, budget SeriesBudget, u UpdateSummary) applyResult {
+	if invalidFloat(u.Value) {
+		st.rejectedDeltas = st.rejectedDeltas + int64(1)
+		return deltaErrResult(u.Metric.name, u.Value, "summary observation must be finite")
+	}
+	let lbls = mergeLabels(u.Metric.labels, u.Labels)
+	let sk = formatSeriesKeyNormalized(u.Metric.name, lbls)
+	let (admitted, budRes) = admitSeries(st, budget, u.Metric.name, sk)
+	if !admitted {
+		return budRes
+	}
+	let mut entry = match st.series.Get(sk) {
+	case option.Some[seriesEntry] as cur:
+		if cur.Value.kind != 5 || cur.Value.maxSamples != u.Metric.maxSamples || cur.Value.maxAge != u.Metric.maxAge || !sameFloatSlice(cur.Value.quantiles, u.Metric.quantiles) {
+			st.rejectedDeltas = st.rejectedDeltas + int64(1)
+			return deltaErrResult(u.Metric.name, u.Value, "summary kind or configuration mismatch")
+		}
+		cur.Value
+	case option.None:
+		let base = newBaseEntry(u.Metric.name, u.Metric.help, u.Metric.unit, lbls, sk, 5)
+		seriesEntry{
+			..base,
+			quantiles:  slices.Clone(u.Metric.quantiles),
+			maxSamples: u.Metric.maxSamples,
+			maxAge:     u.Metric.maxAge,
+		}
+	}
+	if u.Timed {
+		if !entry.hasLatestAt || u.At.After(entry.latestAt) {
+			entry.latestAt = u.At
+			entry.hasLatestAt = true
+		}
+		if entry.maxAge > 0ns {
+			for entry.ringLen > 0 {
+				let front = entry.ring[entry.head]
+				if front.timed && entry.latestAt.Sub(front.at) > entry.maxAge {
+					entry.head = (entry.head + 1) % entry.maxSamples
+					entry.ringLen = entry.ringLen - 1
+				} else {
+					break
+				}
+			}
+		}
+	}
+	let sample = summarySample{value: u.Value, at: u.At, timed: u.Timed}
+	let mut ring = entry.ring
+	if ring.Len() < entry.maxSamples {
+		if entry.head > 0 {
+			let mut compacted = slices.WithCapacity[summarySample](entry.ringLen + 1)
+			for i in 0..entry.ringLen {
+				compacted = compacted.Append(ring[(entry.head+i)%entry.maxSamples])
+			}
+			ring = compacted
+			entry.head = 0
+		}
+		ring = ring.Append(sample)
+		entry.ringLen = entry.ringLen + 1
+	} else if entry.ringLen < entry.maxSamples {
+		let slot = (entry.head + entry.ringLen) % entry.maxSamples
+		ring[slot] = sample
+		entry.ringLen = entry.ringLen + 1
+	} else {
+		ring[entry.head] = sample
+		entry.head = (entry.head + 1) % entry.maxSamples
+	}
+	entry.ring = ring
+	entry.totalCount = entry.totalCount + int64(1)
+	entry.totalSum = entry.totalSum + u.Value
+	st.series[sk] = entry
+	okApply()
+}
+
+// Apply records u into r while enforcing r's SeriesBudget.
+func Apply(r Recorder, u Update) fails InvalidDelta | BudgetExceeded {
+	let res = sync.Modify(r.state, func(st recorderState) (applyResult, recorderState) {
+		let mut next = st
+		let out = match u {
+		case UpdateCounterInt as x:
+			applyCounterInt(&next, r.budget, x)
+		case UpdateCounterFloat as x:
+			applyCounterFloat(&next, r.budget, x)
+		case UpdateGaugeSet as x:
+			applyGaugeSet(&next, r.budget, x)
+		case UpdateGaugeAdd as x:
+			applyGaugeAdd(&next, r.budget, x)
+		case UpdateHistogram as x:
+			applyHistogram(&next, r.budget, x)
+		case UpdateFrequency as x:
+			applyFrequency(&next, r.budget, x)
+		case UpdateSummary as x:
+			applySummary(&next, r.budget, x)
+		}
+		(out, next)
+	})
+	if res.hasDeltaErr {
+		return res.deltaErr
+	}
+	if res.hasBudgetErr {
+		return res.budgetErr
+	}
+}
+
+func buildHistogramData(e seriesEntry) HistogramData {
+	let mut buckets = slices.WithCapacity[HistogramBucket](e.boundaries.Len())
+	for i, bound in e.boundaries {
+		buckets = buckets.Append(HistogramBucket{UpperBound: bound, Count: e.bucketCounts[i]})
+	}
+	HistogramData{
+		Boundaries: slices.Clone(e.boundaries),
+		Buckets:    buckets,
+		Count:      e.totalCount,
+		Sum:        e.totalSum,
+		Min:        e.minVal,
+		Max:        e.maxVal,
+	}
+}
+
+func buildFrequencyData(e seriesEntry) FrequencyData {
+	let mut entries = slices.WithCapacity[FrequencyEntry](e.freqCounts.Len())
+	for k, c in e.freqCounts {
+		entries = entries.Append(FrequencyEntry{Key: k, Count: c})
+	}
+	let sortedEntries = slices.SortFunc(entries, func(a FrequencyEntry, b FrequencyEntry) int {
+		strings.Compare(a.Key, b.Key)
+	})
+	FrequencyData{Entries: sortedEntries, Total: e.totalCount}
+}
+
+func computeQuantile(sorted []float64, q float64) float64 {
+	let n = sorted.Len()
+	if n == 0 {
+		return 0.0
+	}
+	if n == 1 {
+		return sorted[0]
+	}
+	let pos = q * float64(n-1)
+	let lo = int(math.Floor(pos))
+	let hi = int(math.Ceil(pos))
+	if lo == hi {
+		return sorted[lo]
+	}
+	let frac = pos - float64(lo)
+	sorted[lo] + frac*(sorted[hi]-sorted[lo])
+}
+
+func buildSummaryData(e seriesEntry, cutoff option.Option[time.Time]) SummaryData {
+	let cap = e.ring.Len()
+	let mut active = slices.WithCapacity[float64](e.ringLen)
+	let mut minVal = 0.0
+	let mut maxVal = 0.0
+	for i in 0..e.ringLen {
+		let s = e.ring[(e.head+i)%cap]
+		let expired = if e.maxAge > 0ns && s.timed {
+			match cutoff {
+			case option.Some[time.Time] as now:
+				now.Value.Sub(s.at) > e.maxAge
+			case option.None:
+				if e.hasLatestAt {
+					e.latestAt.Sub(s.at) > e.maxAge
+				} else {
+					false
+				}
+			}
+		} else {
+			false
+		}
+		if !expired {
+			if active.Len() == 0 {
+				minVal = s.value
+				maxVal = s.value
+			} else {
+				if s.value < minVal {
+					minVal = s.value
+				}
+				if s.value > maxVal {
+					maxVal = s.value
+				}
+			}
+			active = active.Append(s.value)
+		}
+	}
+	let sortedActive = slices.SortFunc(active, func(a float64, b float64) int {
+		if a < b {
+			-1
+		} else if a > b {
+			1
+		} else {
+			0
+		}
+	})
+	let mut qvs = slices.WithCapacity[QuantileValue](e.quantiles.Len())
+	for q in e.quantiles {
+		qvs = qvs.Append(QuantileValue{Quantile: q, Value: computeQuantile(sortedActive, q)})
+	}
+	SummaryData{
+		Quantiles:   qvs,
+		WindowCount: sortedActive.Len(),
+		Count:       e.totalCount,
+		Sum:         e.totalSum,
+		Min:         minVal,
+		Max:         maxVal,
+	}
+}
+
+func snapshotEntry(e seriesEntry, cutoff option.Option[time.Time]) SeriesSnapshot {
+	let data SeriesData = if e.kind == 1 {
+		CounterSeries{Data: CounterData{IntTotal: e.intTotal, FloatTotal: e.floatTotal, HasFloat: e.hasFloat}}
+	} else if e.kind == 2 {
+		GaugeSeries{Data: GaugeData{Value: e.gaugeValue}}
+	} else if e.kind == 3 {
+		HistogramSeries{Data: buildHistogramData(e)}
+	} else if e.kind == 4 {
+		FrequencySeries{Data: buildFrequencyData(e)}
+	} else {
+		SummarySeries{Data: buildSummaryData(e, cutoff)}
+	}
+	SeriesSnapshot{
+		Name:   e.name,
+		Help:   e.help,
+		Unit:   e.unit,
+		Labels: slices.Clone(e.labels),
+		Key:    e.key,
+		Data:   data,
+	}
+}
+
+func collectWithCutoff(r Recorder, cutoff option.Option[time.Time]) Snapshot {
+	let st = r.state.Get()
+	let mut items = slices.WithCapacity[SeriesSnapshot](st.series.Len())
+	for _, entry in st.series {
+		items = items.Append(snapshotEntry(entry, cutoff))
+	}
+	let sortedItems = slices.SortFunc(items, func(a SeriesSnapshot, b SeriesSnapshot) int {
+		let c = strings.Compare(a.Name, b.Name)
+		if c != 0 {
+			return c
+		}
+		strings.Compare(a.Key, b.Key)
+	})
+	Snapshot{
+		Series: sortedItems,
+		Budget: BudgetStats{
+			ActiveSeries:   st.series.Len(),
+			MaxSeries:      r.budget.maxSeries,
+			OverflowCount:  st.overflowCount,
+			RejectedDeltas: st.rejectedDeltas,
+		},
+	}
+}
+
+// Collect captures a deterministic Snapshot of all series and budget stats in r.
+func Collect(r Recorder) Snapshot {
+	collectWithCutoff(r, option.None)
+}
+
+// CollectAt captures a deterministic Snapshot of r evaluating timed Summary
+// windows against now.
+func CollectAt(r Recorder, now time.Time) Snapshot {
+	collectWithCutoff(r, option.Some[time.Time]{Value: now})
+}
+
+// Stats returns the current BudgetStats of r.
+func Stats(r Recorder) BudgetStats {
+	let st = r.state.Get()
+	BudgetStats{
+		ActiveSeries:   st.series.Len(),
+		MaxSeries:      r.budget.maxSeries,
+		OverflowCount:  st.overflowCount,
+		RejectedDeltas: st.rejectedDeltas,
+	}
+}
+
+// Clear removes all recorded series and resets overflow and delta-rejection
+// counters in r.
+func Clear(r Recorder) {
+	r.state.Set(emptyRecorderState())
+}
+
+// CounterTotal returns the recorded CounterData for c and labels if present.
+func CounterTotal(r Recorder, c Counter, labels []Label) option.Option[CounterData] {
+	let sk = formatSeriesKeyNormalized(c.name, mergeLabels(c.labels, labels))
+	match r.state.Get().series.Get(sk) {
+	case option.Some[seriesEntry] as e:
+		if e.Value.kind == 1 {
+			option.Some[CounterData]{Value: CounterData{IntTotal: e.Value.intTotal, FloatTotal: e.Value.floatTotal, HasFloat: e.Value.hasFloat}}
+		} else {
+			option.None
+		}
+	case option.None:
+		option.None
+	}
+}
+
+// GaugeValue returns the recorded float64 value for g and labels if present.
+func GaugeValue(r Recorder, g Gauge, labels []Label) option.Option[float64] {
+	let sk = formatSeriesKeyNormalized(g.name, mergeLabels(g.labels, labels))
+	match r.state.Get().series.Get(sk) {
+	case option.Some[seriesEntry] as e:
+		if e.Value.kind == 2 {
+			option.Some[float64]{Value: e.Value.gaugeValue}
+		} else {
+			option.None
+		}
+	case option.None:
+		option.None
+	}
+}
+
+// HistogramValue returns the recorded HistogramData for h and labels if present.
+func HistogramValue(r Recorder, h Histogram, labels []Label) option.Option[HistogramData] {
+	let sk = formatSeriesKeyNormalized(h.name, mergeLabels(h.labels, labels))
+	match r.state.Get().series.Get(sk) {
+	case option.Some[seriesEntry] as e:
+		if e.Value.kind == 3 {
+			option.Some[HistogramData]{Value: buildHistogramData(e.Value)}
+		} else {
+			option.None
+		}
+	case option.None:
+		option.None
+	}
+}
+
+// FrequencyValue returns the recorded FrequencyData for f and labels if present.
+func FrequencyValue(r Recorder, f Frequency, labels []Label) option.Option[FrequencyData] {
+	let sk = formatSeriesKeyNormalized(f.name, mergeLabels(f.labels, labels))
+	match r.state.Get().series.Get(sk) {
+	case option.Some[seriesEntry] as e:
+		if e.Value.kind == 4 {
+			option.Some[FrequencyData]{Value: buildFrequencyData(e.Value)}
+		} else {
+			option.None
+		}
+	case option.None:
+		option.None
+	}
+}
+
+// SummaryValue returns the recorded SummaryData for s and labels if present.
+func SummaryValue(r Recorder, s Summary, labels []Label) option.Option[SummaryData] {
+	let sk = formatSeriesKeyNormalized(s.name, mergeLabels(s.labels, labels))
+	match r.state.Get().series.Get(sk) {
+	case option.Some[seriesEntry] as e:
+		if e.Value.kind == 5 {
+			option.Some[SummaryData]{Value: buildSummaryData(e.Value, option.None)}
+		} else {
+			option.None
+		}
+	case option.None:
+		option.None
+	}
+}
+
+// Capture runs fn with a fresh Recorder governed by budget bound in context
+// and returns fn's result alongside the collected Snapshot.
+func Capture[T, E, R](budget SeriesBudget, fn func() T fails E needs Sink | R) (T, Snapshot) fails E needs R {
+	let rec = NewRecorder(budget)
+	let out = with context { Sink: rec } {
+		try fn()
+	}
+	(out, rec.Collect())
+}
+
+// CaptureDefault runs fn with a fresh DefaultRecorder bound in context and
+// returns fn's result alongside the collected Snapshot.
+func CaptureDefault[T, E, R](fn func() T fails E needs Sink | R) (T, Snapshot) fails E needs R {
+	try Capture(DefaultBudget(), fn)
+}
+
+func snapshotCodec() json.Codec[Snapshot] {
+	json.Codec[Snapshot]{MaxBytes: 1 << 24, MaxDepth: 64}
+}
+
+// EncodeJSON encodes snap to canonical JSON text.
+func EncodeJSON(snap Snapshot) string {
+	json.Encode(snapshotCodec(), snap)
+}
+
+// DecodeJSON decodes text produced by EncodeJSON back into a Snapshot.
+func DecodeJSON(text string) Snapshot fails InvalidSnapshot {
+	json.Decode(snapshotCodec(), text) catch {
+	case _:
+		return InvalidSnapshot{Reason: "invalid snapshot JSON"}
+	}
+}
+
+let onRecorder = context { Sink: DefaultRecorder() }
+
+// SeriesBudgetEnforced: both DropOverflow and FailOverflow strictly bound active
+// series <= MaxSeries, count overflows, reject the (MaxSeries+1)-th new series
+// with BudgetExceeded under FailOverflow, and permit updates to existing series
+// when at capacity.
+law SeriesBudgetEnforced(limitRaw int, extraRaw int, strict bool) {
+	let limit = 1 + (((limitRaw % 5) + 5) % 5)
+	let extra = 1 + (((extraRaw % 5) + 5) % 5)
+	let pol OverflowPolicy = if strict { FailOverflow } else { DropOverflow }
+	let budget = NewSeriesBudget(limit, pol) catch {
+	case InvalidBudget:
+		return false
+	}
+	let rec = NewRecorder(budget)
+	let c = NewCounter("budget.probe", "Budget probe") catch {
+	case InvalidMetric:
+		return false
+	}
+	sometimes strict
+	sometimes !strict
+	with context { Sink: rec } {
+		for i in 0..limit {
+			c.TryAddInt(int64(1), []Label{LabelOf("id", "s\(i)")}) catch {
+			case InvalidDelta, BudgetExceeded:
+				return false
+			}
+		}
+		for i in 0..extra {
+			let lbl = []Label{LabelOf("id", "overflow_\(i)")}
+			let mut sawExceeded = false
+			c.TryAddInt(int64(1), lbl) catch {
+			case BudgetExceeded as err:
+				sawExceeded = err.Metric == "budget.probe" && err.MaxSeries == limit
+			case InvalidDelta:
+				return false
+			}
+			always sawExceeded == strict
+		}
+		c.TryAddInt(int64(10), []Label{LabelOf("id", "s0")}) catch {
+		case InvalidDelta, BudgetExceeded:
+			return false
+		}
+	}
+	let snap = rec.Collect()
+	always snap.Series.Len() <= limit
+	always snap.Budget.ActiveSeries == limit
+	always snap.Budget.MaxSeries == limit
+	always snap.Budget.OverflowCount == int64(extra)
+	always rec.CounterTotal(c, []Label{LabelOf("id", "s0")}) == option.Some[CounterData]{Value: CounterData{IntTotal: int64(11), FloatTotal: 0.0, HasFloat: false}}
+	let zeroBudget = NewSeriesBudget(0, FailOverflow) catch {
+	case InvalidBudget:
+		return false
+	}
+	let zRec = NewRecorder(zeroBudget)
+	let mut zeroRefused = false
+	with context { Sink: zRec } {
+		c.TryAddInt(int64(1), []Label{}) catch {
+		case BudgetExceeded:
+			zeroRefused = true
+		case InvalidDelta:
+			return false
+		}
+	}
+	always zeroRefused && zRec.Collect().Series.Len() == 0
+	true
+}
+
+// SnapshotRoundTrips: in-memory updates across Counter, Gauge, Histogram,
+// Frequency, and Summary agree with Collect snapshots, and EncodeJSON/DecodeJSON
+// preserves the full Snapshot losslessly.
+law SnapshotRoundTrips(incRaw int, gaugeRaw int, obsRaw int) {
+	let inc = int64(1 + (((incRaw % 50) + 50) % 50))
+	let gv = float64(gaugeRaw%100) * 0.5
+	let ov = float64(((obsRaw%20)+20)%20) * 0.5
+	let c = NewCounter("rt.counter", "Counter") catch {
+	case InvalidMetric:
+		return false
+	}
+	let g = NewGauge("rt.gauge", "Gauge") catch {
+	case InvalidMetric:
+		return false
+	}
+	let h = NewHistogram("rt.hist", "Hist", []float64{2.0, 5.0}) catch {
+	case InvalidMetric, InvalidBoundaries:
+		return false
+	}
+	let f = NewFrequency("rt.freq", "Freq") catch {
+	case InvalidMetric:
+		return false
+	}
+	let s = NewSummary("rt.sum", "Sum", []float64{0.5, 0.99}, 8, 0ns) catch {
+	case InvalidMetric, InvalidSummary:
+		return false
+	}
+	let rec = DefaultRecorder()
+	with context { Sink: rec } {
+		c.AddInt(inc, []Label{LabelOf("k", "v")})
+		g.Set(gv, []Label{})
+		h.Observe(ov, []Label{})
+		f.Record("alpha", []Label{})
+		s.Sample(ov, []Label{})
+	}
+	let snap = rec.Collect()
+	always snap.Series.Len() == 5
+	let encoded = EncodeJSON(snap)
+	let decoded = DecodeJSON(encoded) catch {
+	case InvalidSnapshot:
+		return false
+	}
+	always decoded == snap
+	true
+}

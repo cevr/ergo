@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"ergo.local/prototype/internal/sketch/lawfix"
+	"ergo.local/prototype/internal/sketchfront"
 )
 
 const fixLawsHelp = `
@@ -28,8 +29,21 @@ func fixLaws(paths []string, stdRoot string, write bool) (string, error) {
 	// folders and DIR/..., never a single file.
 	var dirs []string
 	for _, p := range paths {
-		if info, err := os.Stat(p); p == "..." || strings.HasSuffix(p, "/...") || err == nil && info.IsDir() {
+		switch {
+		case recursivePattern(p):
 			dirs = append(dirs, p)
+		case fixProgram(p):
+			if info, err := os.Stat(p); err == nil && info.IsDir() {
+				dirs = append(dirs, p)
+			}
+		default:
+			if info, err := os.Stat(p); err == nil && info.IsDir() {
+				if targets, err := sketchfront.DiscoverPackages(p); err == nil {
+					for _, tgt := range targets {
+						dirs = append(dirs, tgt.Dir)
+					}
+				}
+			}
 		}
 	}
 	if len(dirs) == 0 && stdRoot == "" {
